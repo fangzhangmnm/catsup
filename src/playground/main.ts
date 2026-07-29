@@ -1,30 +1,26 @@
-// playground main.ts —— 指针事件接线层（纯逻辑在 tools.ts / inference.ts，node 有测试）。
-// M2 六工具：选择 / 画线 / 矩形 / 移动 / 橡皮 / 删面。
-// 取点统一走 inferPoint（inference = 输入前置层）；hover 阶段即显示吸附指示 + 中文 tooltip。
-// preview = 影子副本预演（kernel.clone() 上跑同一套 mutation，渲染 diff，松手对真身重放）——
-// 预览事件与提交事件逐字相同（test/preview.test.ts 钉死），预览不许撒谎。
+// playground main.ts —— 3D 指针接线层（M3 升维版）。
+// 分工：相机数学 camera.ts / 拾取吸附 pick.ts / three 适配 render3.ts / 工具纯逻辑 tools.ts。
+// 相机操作：中键或右键拖 = 环绕；Shift+拖 = 平移；滚轮 = 缩放。左键 = 工具。
+// 画线平面：手势按下时锁定（光标下的面 → 该面平面；否则地面）——吸附产出的点精确在平面上。
+// preview 仍是影子副本预演（clone → 同套 mutation → diff 渲染 → 松手对真身重放）。
 
 import { Kernel } from "../kernel/kernel.ts";
-import type { EdgeId, FaceEvent, Pt, VertexId } from "../kernel/kernel.ts";
-import { inferPoint, type SnapResult } from "./inference.ts";
-import {
-  type Selection,
-  emptySelection,
-  marqueeOf,
-  marqueePick,
-  moveTargets,
-  rectSegments,
-  scrubHits,
-  translateMoves,
-} from "./tools.ts";
+import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
+import { OrbitCamera, type Viewport } from "./camera.ts";
+import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, snapPoint } from "./pick.ts";
+import { type Selection, emptySelection, moveTargets, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
+import { Renderer3 } from "./render3.ts";
 
 const canvas = document.getElementById("board") as HTMLCanvasElement;
-const ctx = canvas.getContext("2d")!;
 const logEl = document.getElementById("log")!;
 const hintEl = document.getElementById("hint")!;
-const HINT_DEFAULT = "框选后 Delete 删除；Esc 取消";
+const tipEl = document.getElementById("tip")!;
+const marqueeEl = document.getElementById("marquee")!;
+const HINT_DEFAULT = "中/右键拖=环绕 Shift+拖=平移 滚轮=缩放；框选后 Delete 删除；Esc 取消";
 
 const kernel = new Kernel();
+const cam = new OrbitCamera();
+const r3 = new Renderer3(canvas);
 
 const SNAP = 8;
 const HIT = 6;
@@ -33,20 +29,25 @@ type Tool = "select" | "line" | "rect" | "move" | "erase" | "eraseFace";
 let tool: Tool = "line";
 
 // ---- 瞬态 ----
-let anchor: Pt | null = null;            // line/rect 起点、move 抓取点、select 框选起点
-let cursor: Pt | null = null;
-let snapInfo: SnapResult | null = null;  // hover 与拖拽共用
+let anchor3: Pt3 | null = null;          // line/rect/move 起点（世界坐标）
+let gesturePlane: DrawPlane = GROUND;    // 手势按下时锁定的画线平面
+let cursor3: Pt3 | null = null;
+let snapInfo: Snap3 | null = null;
 let moveVids: VertexId[] = [];
 let moveExclude: VertexId | null = null;
 let scrubAcc = new Set<EdgeId>();
-let scrubPrev: Pt | null = null;
+let scrubbing = false;
 let selection: Selection = emptySelection();
-let marqueeDrag = false;
-let hoverEdge: EdgeId | null = null;     // 橡皮 hover 高亮
-let hoverFace: number | null = null;     // 删面 hover 高亮
-let preview: { k: Kernel; events: FaceEvent[] } | null = null;
+let marqueeStart: { x: number; y: number } | null = null;
+let marqueeCur: { x: number; y: number } | null = null;
+let hoverEdge: EdgeId | null = null;
+let hoverFace: FaceId | null = null;
+let preview: Kernel | null = null;
+let previewEvents: FaceEvent[] = [];
+let camDrag: { mode: "orbit" | "pan"; x: number; y: number } | null = null;
 
-const gestureActive = (): boolean => anchor !== null || moveVids.length > 0 || scrubPrev !== null;
+const vp = (): Viewport => ({ w: canvas.clientWidth, h: canvas.clientHeight });
+const gestureActive = (): boolean => anchor3 !== null || moveVids.length > 0 || scrubbing || marqueeStart !== null;
 
 // ---------- 工具切换 ----------
 const toolButtons: Record<Tool, HTMLButtonElement> = {
@@ -64,19 +65,22 @@ function setTool(t: Tool): void {
   draw();
 }
 for (const [name, btn] of Object.entries(toolButtons)) btn.addEventListener("click", () => setTool(name as Tool));
-setTool("line");
 
 function cancelGesture(): void {
-  anchor = null;
-  cursor = null;
+  anchor3 = null;
+  cursor3 = null;
   snapInfo = null;
   moveVids = [];
   moveExclude = null;
   scrubAcc = new Set();
-  scrubPrev = null;
-  marqueeDrag = false;
+  scrubbing = false;
+  marqueeStart = marqueeCur = null;
   hoverEdge = null;
+  hoverFace = null;
   preview = null;
+  previewEvents = [];
+  marqueeEl.style.display = "none";
+  tipEl.style.display = "none";
   hintEl.textContent = HINT_DEFAULT;
 }
 
@@ -101,239 +105,124 @@ function appendLog(events: FaceEvent[]): void {
   }
 }
 
-// ---------- preview（影子副本预演） ----------
+// ---------- preview ----------
 function computePreview(): void {
-  const shadowRun = (fn: (c: Kernel) => FaceEvent[]): { k: Kernel; events: FaceEvent[] } => {
+  preview = null;
+  previewEvents = [];
+  const run = (fn: (c: Kernel) => FaceEvent[]): void => {
     const c = kernel.clone();
-    return { k: c, events: fn(c) };
+    previewEvents = fn(c);
+    preview = c;
   };
-  let next: { k: Kernel; events: FaceEvent[] } | null = null;
-  if (tool === "line" && anchor && cursor) {
-    const a = anchor, b = cursor;
-    if (Math.hypot(b.x - a.x, b.y - a.y) >= 2) next = shadowRun((c) => c.addEdges([[a, b]]));
-  } else if (tool === "rect" && anchor && cursor) {
-    const segs = rectSegments(anchor, cursor);
-    if (segs.length) next = shadowRun((c) => c.addEdges(segs));
-  } else if (tool === "move" && moveVids.length && anchor && cursor) {
-    const delta = { x: cursor.x - anchor.x, y: cursor.y - anchor.y };
-    if (Math.hypot(delta.x, delta.y) >= 0.5) {
+  if (tool === "line" && anchor3 && cursor3) {
+    const a = anchor3, b = cursor3;
+    if (dist(a, b) >= 1) run((c) => c.addEdges([[a, b]]));
+  } else if (tool === "rect" && anchor3 && cursor3) {
+    const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, cursor3);
+    if (segs.length) run((c) => c.addEdges(segs));
+  } else if (tool === "move" && moveVids.length && anchor3 && cursor3) {
+    const delta = { x: cursor3.x - anchor3.x, y: cursor3.y - anchor3.y, z: cursor3.z - anchor3.z };
+    if (dist(anchor3, cursor3) >= 0.3) {
       const moves = translateMoves(kernel, moveVids, delta);
-      next = shadowRun((c) => c.moveVertices(moves));
+      run((c) => c.moveVertices(moves));
     }
-  } else if (tool === "erase" && scrubPrev && scrubAcc.size) {
+  } else if (tool === "erase" && scrubbing && scrubAcc.size) {
     const ids = [...scrubAcc];
-    next = shadowRun((c) => c.eraseEdges(ids));
+    run((c) => c.eraseEdges(ids));
   } else if (tool === "eraseFace" && hoverFace !== null) {
     const id = hoverFace;
-    next = shadowRun((c) => c.eraseFaces([id]));
+    run((c) => c.eraseFaces([id]));
   }
-  preview = next;
-  hintEl.textContent = next
-    ? next.events.length
-      ? `预览：${next.events.map(describeEvent).join("；")}`
+  hintEl.textContent = preview
+    ? previewEvents.length
+      ? `预览：${previewEvents.map(describeEvent).join("；")}`
       : "预览：无膜变化"
     : HINT_DEFAULT;
 }
+const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
 // ---------- 渲染 ----------
-const FACE_FILLS = ["#7fb06955", "#5b8dbb55", "#c2984e55", "#a06fb055", "#bb6b6b55", "#58a89a55"];
-const SNAP_COLORS: Record<string, string> = {
-  endpoint: "#2e8b57",
-  midpoint: "#00a5a5",
-  "on-edge": "#cc3333",
-  "axis-x": "#cc3333",
-  "axis-y": "#2e8b57",
-};
-const SNAP_LABELS: Record<string, string> = {
-  endpoint: "端点",
-  midpoint: "中点",
-  "on-edge": "边上",
-  "axis-x": "水平",
-  "axis-y": "垂直",
-};
-
 function draw(): void {
-  const w = canvas.clientWidth, h = canvas.clientHeight;
-  ctx.clearRect(0, 0, w, h);
+  r3.render(kernel, cam, vp(), {
+    selectionEdges: selection.edges,
+    selectionFaces: selection.faces,
+    scrubEdges: scrubAcc,
+    hoverEdge,
+    hoverFace,
+    preview,
+    snap: snapInfo,
+    snapAnchor: anchor3,
+  });
+}
 
-  // ---- 底层：真身 ----
-  for (const f of kernel.faces()) {
-    ctx.beginPath();
-    tracePath(f.outer.pts);
-    for (const hole of f.holes) tracePath(hole.pts);
-    ctx.fillStyle = FACE_FILLS[f.id % FACE_FILLS.length];
-    ctx.fill("evenodd");
-    if (selection.faces.has(f.id)) {
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = "#2b6cb0";
-      ctx.stroke();
-    }
-  }
-  for (const e of kernel.edges()) {
-    const a = kernel.graph.pt(e.a), b = kernel.graph.pt(e.b);
-    const isWire = e.faceLinks.length === 0;
-    ctx.beginPath();
-    ctx.moveTo(a.x, a.y);
-    ctx.lineTo(b.x, b.y);
-    if (scrubAcc.has(e.id) || hoverEdge === e.id) { ctx.lineWidth = 3; ctx.strokeStyle = "#cc3333"; }
-    else if (selection.edges.has(e.id)) { ctx.lineWidth = 3; ctx.strokeStyle = "#2b6cb0"; }
-    else { ctx.lineWidth = isWire ? 3 : 1.2; ctx.strokeStyle = isWire ? "#1a1a1a" : "#444"; }
-    ctx.stroke();
-  }
-  ctx.fillStyle = "#222";
-  for (const v of kernel.vertices()) {
-    ctx.beginPath();
-    ctx.arc(v.x, v.y, 2.5, 0, Math.PI * 2);
-    ctx.fill();
-  }
-
-  // ---- 预览层：与真身 diff ----
-  if (preview) {
-    const pk = preview.k;
-    // 会死的面：灰罩
-    for (const f of kernel.faces()) {
-      if (!pk.face(f.id)) {
-        ctx.beginPath();
-        tracePath(f.outer.pts);
-        for (const hole of f.holes) tracePath(hole.pts);
-        ctx.fillStyle = "#00000022";
-        ctx.fill("evenodd");
-      }
-    }
-    // 新生/变形的面：蓝虚线轮廓 + 淡蓝填充
-    for (const f of pk.faces()) {
-      const rf = kernel.face(f.id);
-      if (rf && ringsEq(rf.outer.pts, f.outer.pts) && rf.holes.length === f.holes.length) continue;
-      ctx.beginPath();
-      tracePath(f.outer.pts);
-      for (const hole of f.holes) tracePath(hole.pts);
-      ctx.fillStyle = "#2b6cb01a";
-      ctx.fill("evenodd");
-      ctx.lineWidth = 1.5;
-      ctx.strokeStyle = "#2b6cb0";
-      ctx.setLineDash([5, 3]);
-      ctx.stroke();
-      ctx.setLineDash([]);
-    }
-    // 新增/移位的边：蓝虚线 ghost
-    const realEdges = new Map(kernel.edges().map((e) => [e.id, e]));
-    for (const e of pk.edges()) {
-      const a = pk.graph.pt(e.a), b = pk.graph.pt(e.b);
-      const re = realEdges.get(e.id);
-      if (re) {
-        const ra = kernel.graph.pt(re.a), rb = kernel.graph.pt(re.b);
-        if (ra.x === a.x && ra.y === a.y && rb.x === b.x && rb.y === b.y) continue;
-      }
-      dashedLine(a, b, "#2b6cb0");
-    }
-  }
-
-  // ---- 框选矩形 ----
-  if (tool === "select" && marqueeDrag && anchor && cursor) dashedRect(anchor, cursor, "#666");
-
-  // ---- 吸附指示 + tooltip（hover 与拖拽都显示） ----
+const SNAP_LABELS: Record<string, string> = {
+  endpoint: "端点", midpoint: "中点", "on-edge": "边上", "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
+};
+function updateTip(clientX: number, clientY: number): void {
   if (snapInfo?.kind) {
-    const color = SNAP_COLORS[snapInfo.kind];
-    const isAxis = snapInfo.kind === "axis-x" || snapInfo.kind === "axis-y";
-    if (isAxis) {
-      if (anchor && cursor) dashedLine(anchor, cursor, color);
-    } else {
-      ctx.beginPath();
-      ctx.arc(snapInfo.pt.x, snapInfo.pt.y, 5, 0, Math.PI * 2);
-      ctx.lineWidth = 2;
-      ctx.strokeStyle = color;
-      ctx.stroke();
-    }
-    tooltip(SNAP_LABELS[snapInfo.kind], snapInfo.pt, color);
+    tipEl.textContent = SNAP_LABELS[snapInfo.kind];
+    tipEl.style.display = "block";
+    tipEl.style.left = `${clientX + 14}px`;
+    tipEl.style.top = `${clientY - 26}px`;
+  } else {
+    tipEl.style.display = "none";
   }
-}
-function ringsEq(a: readonly Pt[], b: readonly Pt[]): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) if (a[i].x !== b[i].x || a[i].y !== b[i].y) return false;
-  return true;
-}
-function tracePath(pts: readonly Pt[]): void {
-  if (!pts.length) return;
-  ctx.moveTo(pts[0].x, pts[0].y);
-  for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i].x, pts[i].y);
-  ctx.closePath();
-}
-function dashedLine(a: Pt, b: Pt, color: string): void {
-  ctx.beginPath();
-  ctx.moveTo(a.x, a.y);
-  ctx.lineTo(b.x, b.y);
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = color;
-  ctx.setLineDash([4, 3]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
-function dashedRect(a: Pt, b: Pt, color: string): void {
-  ctx.beginPath();
-  ctx.rect(Math.min(a.x, b.x), Math.min(a.y, b.y), Math.abs(b.x - a.x), Math.abs(b.y - a.y));
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = color;
-  ctx.setLineDash([4, 3]);
-  ctx.stroke();
-  ctx.setLineDash([]);
-}
-/** 光标旁小标签（白底圆角 pill）。 */
-function tooltip(text: string, at: Pt, color: string): void {
-  ctx.font = "12px system-ui";
-  const pad = 4;
-  const tw = ctx.measureText(text).width;
-  const x = at.x + 10, y = at.y - 22;
-  ctx.beginPath();
-  ctx.roundRect(x, y, tw + pad * 2, 18, 4);
-  ctx.fillStyle = "#ffffffee";
-  ctx.fill();
-  ctx.lineWidth = 1;
-  ctx.strokeStyle = color;
-  ctx.stroke();
-  ctx.fillStyle = color;
-  ctx.fillText(text, x + pad, y + 13);
 }
 
 // ---------- 输入 ----------
-function canvasPt(ev: PointerEvent): Pt {
+function localPt(ev: PointerEvent): { x: number; y: number } {
   const r = canvas.getBoundingClientRect();
   return { x: ev.clientX - r.left, y: ev.clientY - r.top };
 }
-function inferred(raw: Pt, withAnchor: Pt | null, exclude: VertexId | null = null): Pt {
-  snapInfo = inferPoint(kernel, raw, withAnchor, SNAP, exclude);
-  return snapInfo.pt;
-}
+
+canvas.addEventListener("contextmenu", (e) => e.preventDefault());
+canvas.addEventListener("wheel", (ev) => {
+  ev.preventDefault();
+  cam.zoomBy(ev.deltaY > 0 ? 1.1 : 1 / 1.1);
+  draw();
+}, { passive: false });
 
 canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
-  const raw = canvasPt(ev);
+  const s = localPt(ev);
+  if (ev.button === 1 || ev.button === 2) {
+    camDrag = { mode: ev.shiftKey ? "pan" : "orbit", x: s.x, y: s.y };
+    return;
+  }
+  if (ev.button !== 0) return;
   switch (tool) {
     case "line":
-    case "rect":
-      anchor = inferred(raw, null);
-      cursor = anchor;
+    case "rect": {
+      gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane);
+      anchor3 = snapInfo.p;
+      cursor3 = anchor3;
       break;
+    }
     case "move": {
-      const hit = kernel.hitTest(raw, HIT);
+      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
       moveVids = moveTargets(kernel, hit);
       if (moveVids.length) {
         moveExclude = moveVids.length === 1 ? moveVids[0] : null;
-        anchor = hit.vertex !== undefined ? kernel.graph.pt(hit.vertex) : raw;
-        cursor = anchor;
+        gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+        anchor3 = hit.vertex !== undefined ? kernel.graph.pt(hit.vertex)
+          : snapPoint(kernel, cam, vp(), s.x, s.y, 0, gesturePlane).p;
+        cursor3 = anchor3;
       }
       break;
     }
-    case "erase":
+    case "erase": {
+      scrubbing = true;
       scrubAcc = new Set();
-      scrubPrev = raw;
       hoverEdge = null;
-      scrubHits(kernel, raw, raw, HIT, scrubAcc);
+      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      if (hit.edge !== undefined) scrubAcc.add(hit.edge);
       computePreview();
       break;
+    }
     case "select":
-      anchor = raw;
-      cursor = raw;
-      marqueeDrag = false;
+      marqueeStart = s;
+      marqueeCur = s;
       break;
     case "eraseFace":
       break;
@@ -342,76 +231,105 @@ canvas.addEventListener("pointerdown", (ev) => {
 });
 
 canvas.addEventListener("pointermove", (ev) => {
-  const raw = canvasPt(ev);
+  const s = localPt(ev);
+  if (camDrag) {
+    const dx = s.x - camDrag.x, dy = s.y - camDrag.y;
+    if (camDrag.mode === "orbit") cam.orbit(dx, dy);
+    else cam.pan(dx, dy, vp());
+    camDrag = { ...camDrag, x: s.x, y: s.y };
+    draw();
+    return;
+  }
   if (!gestureActive()) {
-    // ---- hover：按下之前就给 inference / 命中反馈 ----
+    // ---- hover：按下前的即时反馈 ----
     snapInfo = null;
     hoverEdge = null;
     hoverFace = null;
     if (tool === "line" || tool === "rect" || tool === "move") {
-      snapInfo = inferPoint(kernel, raw, null, SNAP, null);
+      const plane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane);
+      if (snapInfo.kind === null) snapInfo = { ...snapInfo, kind: null };
     } else if (tool === "erase") {
-      hoverEdge = kernel.hitTest(raw, HIT).edge ?? null;
+      hoverEdge = pickEntity(kernel, cam, vp(), s.x, s.y, HIT).edge ?? null;
     } else if (tool === "eraseFace") {
-      hoverFace = kernel.hitTest(raw, HIT).face ?? null;
-      computePreview(); // hover 即预览会死的面
+      hoverFace = pickEntity(kernel, cam, vp(), s.x, s.y, HIT).face ?? null;
+      computePreview();
     }
+    updateTip(ev.clientX, ev.clientY);
     draw();
     return;
   }
   switch (tool) {
     case "line":
-      if (anchor) cursor = inferred(raw, anchor);
-      break;
     case "rect":
-      if (anchor) cursor = inferred(raw, null); // 对角不做轴锁（锁了退化成线）
-      break;
-    case "move":
-      if (moveVids.length && anchor) cursor = inferred(raw, anchor, moveExclude);
-      break;
-    case "erase":
-      if (scrubPrev) {
-        scrubHits(kernel, scrubPrev, raw, HIT, scrubAcc);
-        scrubPrev = raw;
+      if (anchor3) {
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, tool === "line" ? anchor3 : null);
+        cursor3 = snapInfo.p;
       }
       break;
+    case "move":
+      if (moveVids.length && anchor3) {
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude);
+        cursor3 = snapInfo.p;
+      }
+      break;
+    case "erase": {
+      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      if (hit.edge !== undefined) scrubAcc.add(hit.edge);
+      break;
+    }
     case "select":
-      if (anchor) {
-        cursor = raw;
-        if (Math.hypot(raw.x - anchor.x, raw.y - anchor.y) > 4) marqueeDrag = true;
+      if (marqueeStart) {
+        marqueeCur = s;
+        const r = canvas.getBoundingClientRect();
+        const minX = Math.min(marqueeStart.x, s.x), maxX = Math.max(marqueeStart.x, s.x);
+        const minY = Math.min(marqueeStart.y, s.y), maxY = Math.max(marqueeStart.y, s.y);
+        Object.assign(marqueeEl.style, {
+          display: "block",
+          left: `${r.left + minX}px`,
+          top: `${r.top + minY}px`,
+          width: `${maxX - minX}px`,
+          height: `${maxY - minY}px`,
+        });
       }
       break;
     case "eraseFace":
       break;
   }
   if (tool !== "select") computePreview();
+  updateTip(ev.clientX, ev.clientY);
   draw();
 });
 
 canvas.addEventListener("pointerup", (ev) => {
-  const raw = canvasPt(ev);
+  if (camDrag) { camDrag = null; return; }
+  if (ev.button !== 0) return;
+  const s = localPt(ev);
   switch (tool) {
     case "line": {
-      if (!anchor) break;
-      const a = anchor, b = inferred(raw, anchor);
+      if (!anchor3) break;
+      const a = anchor3;
+      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3).p;
       cancelGesture();
-      if (Math.hypot(b.x - a.x, b.y - a.y) >= 2) appendLog(kernel.addEdges([[a, b]]));
+      if (dist(a, b) >= 1) appendLog(kernel.addEdges([[a, b]]));
       break;
     }
     case "rect": {
-      if (!anchor) break;
-      const segs = rectSegments(anchor, inferred(raw, null));
+      if (!anchor3) break;
+      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
+      const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
       cancelGesture();
       if (segs.length) appendLog(kernel.addEdges(segs));
       break;
     }
     case "move": {
-      if (!moveVids.length || !anchor) { cancelGesture(); break; }
-      const target = inferred(raw, anchor, moveExclude);
-      const delta = { x: target.x - anchor.x, y: target.y - anchor.y };
+      if (!moveVids.length || !anchor3) { cancelGesture(); break; }
+      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude).p;
+      const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
       const moves = translateMoves(kernel, moveVids, delta);
+      const d = Math.hypot(delta.x, delta.y, delta.z);
       cancelGesture();
-      if (Math.hypot(delta.x, delta.y) >= 0.5) appendLog(kernel.moveVertices(moves));
+      if (d >= 0.3) appendLog(kernel.moveVertices(moves));
       break;
     }
     case "erase": {
@@ -421,14 +339,18 @@ canvas.addEventListener("pointerup", (ev) => {
       break;
     }
     case "select": {
-      if (!anchor) break;
+      if (!marqueeStart || !marqueeCur) { cancelGesture(); break; }
       const additive = ev.shiftKey;
+      const wasDrag = Math.hypot(marqueeCur.x - marqueeStart.x, marqueeCur.y - marqueeStart.y) > 4;
       let picked: Selection;
-      if (marqueeDrag && cursor) {
-        picked = marqueePick(kernel, marqueeOf(anchor, cursor));
+      if (wasDrag) {
+        picked = marqueeScreen(kernel, cam, vp(), {
+          minX: Math.min(marqueeStart.x, marqueeCur.x), maxX: Math.max(marqueeStart.x, marqueeCur.x),
+          minY: Math.min(marqueeStart.y, marqueeCur.y), maxY: Math.max(marqueeStart.y, marqueeCur.y),
+        });
       } else {
         picked = emptySelection();
-        const hit = kernel.hitTest(raw, HIT);
+        const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
         if (hit.edge !== undefined) picked.edges.add(hit.edge);
         else if (hit.face !== undefined) picked.faces.add(hit.face);
       }
@@ -438,12 +360,12 @@ canvas.addEventListener("pointerup", (ev) => {
       } else {
         selection = picked;
       }
-      anchor = cursor = null;
-      marqueeDrag = false;
+      marqueeStart = marqueeCur = null;
+      marqueeEl.style.display = "none";
       break;
     }
     case "eraseFace": {
-      const hit = kernel.hitTest(raw, HIT);
+      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
       cancelGesture();
       if (hit.face !== undefined) appendLog(kernel.eraseFaces([hit.face]));
       break;
@@ -453,11 +375,12 @@ canvas.addEventListener("pointerup", (ev) => {
 });
 
 canvas.addEventListener("pointerleave", () => {
-  if (!gestureActive()) {
+  if (!gestureActive() && !camDrag) {
     snapInfo = null;
     hoverEdge = null;
     hoverFace = null;
     preview = null;
+    tipEl.style.display = "none";
     hintEl.textContent = HINT_DEFAULT;
     draw();
   }
@@ -481,11 +404,9 @@ window.addEventListener("keydown", (ev) => {
 
 // ---------- 画布尺寸 ----------
 function resize(): void {
-  const dpr = window.devicePixelRatio || 1;
-  canvas.width = Math.round(canvas.clientWidth * dpr);
-  canvas.height = Math.round(canvas.clientHeight * dpr);
-  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  r3.resize(vp(), window.devicePixelRatio || 1);
   draw();
 }
 window.addEventListener("resize", resize);
+setTool("line");
 resize();

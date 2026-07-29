@@ -52,8 +52,10 @@ fi
 echo "[build] ✓ experiments 隔离干净"
 
 # 1. bundle（iife，直接 <script src> 引；无 hash——Phase 0 本地开发无缓存问题）
+#    three 走 alias 指向 vendored 文件（tsc 侧由 src/types/vendor-shims.d.ts 的 shorthand module 打发）
 "$ESBUILD" "$ENTRY" \
   --bundle --format=iife --target=es2020 \
+  --alias:three=./src/vendor/three/three.module.js \
   --sourcemap \
   --outfile="$OUT"
 
