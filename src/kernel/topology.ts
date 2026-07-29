@@ -3,14 +3,14 @@
 // 升维（M3 多平面）后一条边可挂 N 张面，这根 radial cycle 的位置现在就留好。
 // 公理 3（重合即同一）：顶点身份 = 量化格点 Map；两点落同格 = 同一个 vertex。
 
-import { type Pt, ptKey } from "./geom.ts";
+import { type Pt3, ptKey3 } from "./geom.ts";
 
 export type VertexId = number;
 export type EdgeId = number;
 /** face 实体住在 face-lifecycle.ts；本层只把 FaceId 当不透明号码挂在 faceLinks 上。 */
 export type FaceId = number;
 
-export interface Vertex { readonly id: VertexId; x: number; y: number; readonly edges: Set<EdgeId>; }
+export interface Vertex { readonly id: VertexId; x: number; y: number; z: number; readonly edges: Set<EdgeId>; }
 export interface Edge { readonly id: EdgeId; a: VertexId; b: VertexId; faceLinks: FaceId[]; }
 
 export class PlanarGraph {
@@ -37,19 +37,19 @@ export class PlanarGraph {
   }
   hasEdge(id: EdgeId): boolean { return this.edgesById.has(id); }
   hasVertex(id: VertexId): boolean { return this.vertsById.has(id); }
-  pt(id: VertexId): Pt { const v = this.vertex(id); return { x: v.x, y: v.y }; }
+  pt(id: VertexId): Pt3 { const v = this.vertex(id); return { x: v.x, y: v.y, z: v.z }; }
   otherEnd(e: Edge, v: VertexId): VertexId { return e.a === v ? e.b : e.a; }
 
   /** p 须已量化。 */
-  vertexAt(p: Pt): VertexId | undefined { return this.vertByKey.get(ptKey(p)); }
+  vertexAt(p: Pt3): VertexId | undefined { return this.vertByKey.get(ptKey3(p)); }
 
   /** 重合即同一：同格点返回既有 vertex。p 须已量化。 */
-  ensureVertex(p: Pt): VertexId {
-    const k = ptKey(p);
+  ensureVertex(p: Pt3): VertexId {
+    const k = ptKey3(p);
     const existing = this.vertByKey.get(k);
     if (existing !== undefined) return existing;
     const id = this.nextV++;
-    this.vertsById.set(id, { id, x: p.x, y: p.y, edges: new Set() });
+    this.vertsById.set(id, { id, x: p.x, y: p.y, z: p.z, edges: new Set() });
     this.vertByKey.set(k, id);
     return id;
   }
@@ -84,7 +84,7 @@ export class PlanarGraph {
       v.edges.delete(id);
       if (v.edges.size === 0) {
         this.vertsById.delete(vid);
-        this.vertByKey.delete(ptKey({ x: v.x, y: v.y }));
+        this.vertByKey.delete(ptKey3({ x: v.x, y: v.y, z: v.z }));
       }
     }
   }
@@ -93,7 +93,7 @@ export class PlanarGraph {
    * 在 p（须已量化、落在边内部）把边切成两半。faceLinks 复制给两半
    * （几何上两半仍贴着同一批面；权威值由 face-lifecycle 重建）。
    */
-  splitEdge(id: EdgeId, p: Pt): { v: VertexId; e1: EdgeId; e2: EdgeId } {
+  splitEdge(id: EdgeId, p: Pt3): { v: VertexId; e1: EdgeId; e2: EdgeId } {
     const e = this.edge(id);
     const links = [...e.faceLinks];
     const a = e.a, b = e.b;
@@ -107,15 +107,15 @@ export class PlanarGraph {
   }
 
   /** 顶点移动的底层写（sticky 语义在 kernel 层编排；这里只改坐标 + 换 key）。 */
-  relocateVertex(id: VertexId, p: Pt): void {
+  relocateVertex(id: VertexId, p: Pt3): void {
     const v = this.vertex(id);
-    const oldKey = ptKey({ x: v.x, y: v.y });
-    if (this.vertByKey.get(ptKey(p)) !== undefined && this.vertByKey.get(ptKey(p)) !== id) {
+    const oldKey = ptKey3({ x: v.x, y: v.y, z: v.z });
+    if (this.vertByKey.get(ptKey3(p)) !== undefined && this.vertByKey.get(ptKey3(p)) !== id) {
       throw new Error("relocateVertex 目标格点已被占用——sticky 合并该在调用方先做");
     }
     this.vertByKey.delete(oldKey);
-    v.x = p.x; v.y = p.y;
-    this.vertByKey.set(ptKey(p), id);
+    v.x = p.x; v.y = p.y; v.z = p.z;
+    this.vertByKey.set(ptKey3(p), id);
   }
 
   private removeEdgeKeepVerts(id: EdgeId): void {
@@ -130,7 +130,7 @@ export class PlanarGraph {
     const g = new PlanarGraph();
     g.nextV = this.nextV;
     g.nextE = this.nextE;
-    for (const [id, v] of this.vertsById) g.vertsById.set(id, { id: v.id, x: v.x, y: v.y, edges: new Set(v.edges) });
+    for (const [id, v] of this.vertsById) g.vertsById.set(id, { id: v.id, x: v.x, y: v.y, z: v.z, edges: new Set(v.edges) });
     for (const [id, e] of this.edgesById) g.edgesById.set(id, { id: e.id, a: e.a, b: e.b, faceLinks: [...e.faceLinks] });
     for (const [k, vid] of this.vertByKey) g.vertByKey.set(k, vid);
     return g;

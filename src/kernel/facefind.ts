@@ -12,6 +12,14 @@
 import { type Pt, EPS_AREA, angleOf, pointInRing, signedArea } from "./geom.ts";
 import { type EdgeId, type VertexId, PlanarGraph } from "./topology.ts";
 
+/** 区域提取的作用域：edges = 参与的边子集（默认全图）；project = 顶点投影到 2D
+ *  （默认取 x,y——2D 场景/俯视）。M3 起每个平面组传自己的边集 + canonical 基投影。 */
+export interface FindScope {
+  edges?: Iterable<EdgeId>;
+  project?: (vid: VertexId) => Pt;
+  bounds?: Bounds;   // 局部性接缝（M1-M3 忽略；增量局部 face-finding 的换入点）
+}
+
 /** 有向边：瞬态值对象（不存半边实体）。forward = 沿 edge.a→edge.b 方向。 */
 export interface DirEdge { readonly edge: EdgeId; readonly forward: boolean; }
 
@@ -31,12 +39,20 @@ export interface Bounds { minX: number; minY: number; maxX: number; maxY: number
 
 const hk = (e: EdgeId, forward: boolean): string => `${e}:${forward ? "f" : "r"}`;
 
-export function findRegions(g: PlanarGraph, _region?: Bounds): Region[] {
+export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
+  const project = scope?.project ?? ((vid: VertexId) => { const p = g.pt(vid); return { x: p.x, y: p.y }; });
+  const scopeEdges = scope?.edges ? [...scope.edges].map((id) => g.edge(id)) : g.edges();
+  const pp = new Map<VertexId, Pt>();
+  const p2 = (vid: VertexId): Pt => {
+    let v = pp.get(vid);
+    if (!v) { v = project(vid); pp.set(vid, v); }
+    return v;
+  };
   // --- 0. filament 剥离：迭代摘掉度数 1 的顶点及其边（悬挂链围不成面；drill L257-260）。
   //     被剥的边仍在拓扑里（wire edge 一等公民），只是不参与找面。
   const deg = new Map<VertexId, number>();
   const alive = new Set<EdgeId>();
-  for (const e of g.edges()) {
+  for (const e of scopeEdges) {
     alive.add(e.id);
     deg.set(e.a, (deg.get(e.a) ?? 0) + 1);
     deg.set(e.b, (deg.get(e.b) ?? 0) + 1);
@@ -69,7 +85,7 @@ export function findRegions(g: PlanarGraph, _region?: Bounds): Region[] {
       for (const eid of v.edges) {
         if (!alive.has(eid)) continue;
         const to = g.otherEnd(g.edge(eid), vid);
-        s.push({ eid, to, angle: angleOf({ x: v.x, y: v.y }, g.pt(to)) });
+        s.push({ eid, to, angle: angleOf(p2(vid), p2(to)) });
       }
       s.sort((p, q) => p.angle - q.angle);
       sortedStar.set(vid, s);
@@ -81,7 +97,7 @@ export function findRegions(g: PlanarGraph, _region?: Bounds): Region[] {
   // 该规则让内部面 trace 成 CCW、每条有向半边恰好属于一个环（drill L247-255）。
   const nextDir = (arriveFrom: VertexId, at: VertexId): { eid: EdgeId; to: VertexId } => {
     const star = starOf(at);
-    const back = angleOf(g.pt(at), g.pt(arriveFrom));
+    const back = angleOf(p2(at), p2(arriveFrom));
     // 找 angle 严格小于 back 的最大者；没有则环回最大 angle
     let best: { eid: EdgeId; to: VertexId } | undefined;
     for (let i = star.length - 1; i >= 0; i--) {
@@ -112,7 +128,7 @@ export function findRegions(g: PlanarGraph, _region?: Bounds): Region[] {
         if (visited.has(k)) break; // 回到已走的半边 = 环闭合
         visited.add(k);
         edges.push({ edge: curEdge, forward: fwd });
-        pts.push(g.pt(from));
+        pts.push(p2(from));
         const nx = nextDir(from, to);
         from = to;
         to = nx.to;

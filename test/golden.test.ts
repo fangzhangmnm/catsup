@@ -168,5 +168,4 @@ describe("golden: 后续里程碑占位", () => {
   todo("AUTOFOLD-SPLIT：move 破坏平面性自动折面（3D，M4）");
   todo("move 拖边横穿他面 → 急切 dividing（M2 Move 完整版）");
   todo("push/pull 非流形撞合的膜归属：BURST+BIRTH vs DEDUP-MERGE（暗礁②，M4）");
-  todo("coplanarity 容差旋钮（头号 UX 旋钮；M3 升维）");
 });

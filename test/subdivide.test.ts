@@ -2,7 +2,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { PlanarGraph } from "../src/kernel/topology.ts";
 import { insertSegment } from "../src/kernel/subdivide.ts";
 
-const P = (x: number, y: number) => ({ x, y });
+const P = (x: number, y: number) => ({ x, y, z: 0 });
 
 describe("subdivide: sticky 插入", () => {
   it("两段共享端点 → 顶点合一（重合即同一）", () => {

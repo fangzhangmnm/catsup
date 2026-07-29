@@ -3,7 +3,7 @@ import { PlanarGraph } from "../src/kernel/topology.ts";
 import { insertSegment } from "../src/kernel/subdivide.ts";
 import { findRegions, regionContains, representativePoint } from "../src/kernel/facefind.ts";
 
-const P = (x: number, y: number) => ({ x, y });
+const P = (x: number, y: number) => ({ x, y, z: 0 });
 
 function poly(g: PlanarGraph, pts: [number, number][], close = true): void {
   for (let i = 0; i + 1 < pts.length; i++) insertSegment(g, P(...pts[i]), P(...pts[i + 1]));

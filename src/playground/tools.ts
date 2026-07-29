@@ -19,15 +19,19 @@ export function marqueeOf(a: Pt, b: Pt): Marquee {
 export interface Selection { edges: Set<EdgeId>; faces: Set<FaceId>; }
 export const emptySelection = (): Selection => ({ edges: new Set(), faces: new Set() });
 
-/** 框选（window 语义：完全落框内才选中）：边=两端点都在框内；面=外环全部顶点在框内。 */
+/** 框选（window 语义：完全落框内才选中；俯视 x/y——3D 视图的屏幕空间框选在渲染层另做）：
+ *  边=两端点都在框内；面=外环全部顶点在框内（用 faceRings3 世界坐标——face 环自己的
+ *  pts 是平面基下的 2D，不是世界坐标）。 */
 export function marqueePick(k: Kernel, m: Marquee): Selection {
-  const inBox = (p: Pt): boolean => p.x >= m.minX && p.x <= m.maxX && p.y >= m.minY && p.y <= m.maxY;
+  const inBox = (p: { x: number; y: number }): boolean =>
+    p.x >= m.minX && p.x <= m.maxX && p.y >= m.minY && p.y <= m.maxY;
   const sel = emptySelection();
   for (const e of k.edges()) {
     if (inBox(k.graph.pt(e.a)) && inBox(k.graph.pt(e.b))) sel.edges.add(e.id);
   }
   for (const f of k.faces()) {
-    if (f.outer.pts.every(inBox)) sel.faces.add(f.id);
+    const rings = k.faceRings3(f.id);
+    if (rings && rings.outer.every(inBox)) sel.faces.add(f.id);
   }
   return sel;
 }
@@ -54,13 +58,17 @@ export function moveTargets(k: Kernel, hit: { vertex?: VertexId; edge?: EdgeId; 
   return [];
 }
 
-/** 批量平移：目标顶点集整体位移 delta（moveVertices 一批收口）。 */
-export function translateMoves(k: Kernel, vids: readonly VertexId[], delta: Pt): { id: VertexId; to: Pt }[] {
+/** 批量平移：目标顶点集整体位移 delta（moveVertices 一批收口；z 缺省 0）。 */
+export function translateMoves(
+  k: Kernel,
+  vids: readonly VertexId[],
+  delta: { x: number; y: number; z?: number },
+): { id: VertexId; to: { x: number; y: number; z: number } }[] {
   return vids
     .filter((id) => k.graph.hasVertex(id))
     .map((id) => {
       const p = k.graph.pt(id);
-      return { id, to: { x: p.x + delta.x, y: p.y + delta.y } };
+      return { id, to: { x: p.x + delta.x, y: p.y + delta.y, z: p.z + (delta.z ?? 0) } };
     });
 }
 
