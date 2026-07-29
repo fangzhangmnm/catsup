@@ -4,6 +4,7 @@ import "./smoke.test.ts";
 import "./subdivide.test.ts";
 import "./facefind.test.ts";
 import "./face-lifecycle.test.ts";
+import "./golden.test.ts";
 import { run } from "./runner.mjs";
 
 await run();
