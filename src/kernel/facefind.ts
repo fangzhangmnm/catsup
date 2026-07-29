@@ -155,9 +155,9 @@ function ringContains(outer: Ring, shell: Ring, probe: Pt): boolean {
   return pointInRing(probe, outer.pts);
 }
 
-/** 取 region 内部一个代表点（face-lifecycle 的 anchor 匹配用）。
+/** 取 region（或存储态 face——同形状）内部一个代表点（face-lifecycle 的 anchor 匹配用）。
  *  扫描线法：过洞外的中高线取奇偶区间中点；顶点 y 撞线时微调。 */
-export function representativePoint(r: Region): Pt {
+export function representativePoint(r: { outer: Ring; holes: Ring[] }): Pt {
   const ys = r.outer.pts.map((p) => p.y);
   const minY = Math.min(...ys), maxY = Math.max(...ys);
   const allRings = [r.outer, ...r.holes];

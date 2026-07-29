@@ -36,6 +36,7 @@ export class PlanarGraph {
     return e;
   }
   hasEdge(id: EdgeId): boolean { return this.edgesById.has(id); }
+  hasVertex(id: VertexId): boolean { return this.vertsById.has(id); }
   pt(id: VertexId): Pt { const v = this.vertex(id); return { x: v.x, y: v.y }; }
   otherEnd(e: Edge, v: VertexId): VertexId { return e.a === v ? e.b : e.a; }
 
