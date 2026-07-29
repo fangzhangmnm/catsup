@@ -7,8 +7,11 @@
 <style>
   html, body { margin: 0; height: 100%; overflow: hidden; background: #f5f2ec; font-family: system-ui, sans-serif; }
   #app { display: flex; height: 100%; }
-  #board { flex: 1; touch-action: none; cursor: crosshair; }
-  #side { width: 240px; border-left: 1px solid #ccc; background: #fff; display: flex; flex-direction: column; }
+  /* canvas 的 width/height 属性是 backing store 尺寸，会以 min-content 参与 flex 布局
+     （replaced element 的 min-width:auto）——绝对定位钉进 wrapper，布局与像素解耦。 */
+  #boardWrap { flex: 1; min-width: 0; position: relative; }
+  #board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+  #side { width: 240px; flex: 0 0 240px; border-left: 1px solid #ccc; background: #fff; display: flex; flex-direction: column; }
   #tools { padding: 8px; display: flex; gap: 6px; border-bottom: 1px solid #eee; }
   #tools button { flex: 1; padding: 6px 0; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; font-size: 14px; }
   #tools button.active { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
@@ -18,10 +21,11 @@
 </head>
 <body>
 <div id="app">
-  <canvas id="board"></canvas>
+  <div id="boardWrap"><canvas id="board"></canvas></div>
   <div id="side">
     <div id="tools">
       <button id="toolLine">画线</button>
+      <button id="toolMove">移动</button>
       <button id="toolErase">橡皮</button>
       <button id="toolEraseFace">删面</button>
     </div>

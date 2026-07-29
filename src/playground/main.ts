@@ -11,10 +11,11 @@ const logEl = document.getElementById("log")!;
 
 const kernel = new Kernel();
 
-type Tool = "line" | "erase" | "eraseFace";
+type Tool = "line" | "move" | "erase" | "eraseFace";
 let tool: Tool = "line";
 let dragStart: Pt | null = null;
 let dragCur: Pt | null = null;
+let moveVid: number | null = null; // 移动工具抓住的顶点
 
 const SNAP = 8;      // 端点吸附半径（px）
 const HIT = 6;       // 命中容差（px）
@@ -22,6 +23,7 @@ const HIT = 6;       // 命中容差（px）
 // ---------- 工具切换 ----------
 const toolButtons: Record<Tool, HTMLButtonElement> = {
   line: document.getElementById("toolLine") as HTMLButtonElement,
+  move: document.getElementById("toolMove") as HTMLButtonElement,
   erase: document.getElementById("toolErase") as HTMLButtonElement,
   eraseFace: document.getElementById("toolEraseFace") as HTMLButtonElement,
 };
@@ -29,9 +31,7 @@ function setTool(t: Tool): void {
   tool = t;
   for (const [name, btn] of Object.entries(toolButtons)) btn.classList.toggle("active", name === t);
 }
-toolButtons.line.addEventListener("click", () => setTool("line"));
-toolButtons.erase.addEventListener("click", () => setTool("erase"));
-toolButtons.eraseFace.addEventListener("click", () => setTool("eraseFace"));
+for (const [name, btn] of Object.entries(toolButtons)) btn.addEventListener("click", () => setTool(name as Tool));
 setTool("line");
 
 // ---------- 事件日志 ----------
@@ -99,6 +99,21 @@ function draw(): void {
     ctx.stroke();
     ctx.setLineDash([]);
   }
+  // 移动预览：抓住的顶点到邻居们的虚线
+  if (tool === "move" && moveVid !== null && dragCur && kernel.graph.hasVertex(moveVid)) {
+    ctx.beginPath();
+    for (const eid of kernel.graph.vertex(moveVid).edges) {
+      const e = kernel.graph.edge(eid);
+      const other = kernel.graph.pt(e.a === moveVid ? e.b : e.a);
+      ctx.moveTo(other.x, other.y);
+      ctx.lineTo(dragCur.x, dragCur.y);
+    }
+    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#b0592b";
+    ctx.setLineDash([4, 3]);
+    ctx.stroke();
+    ctx.setLineDash([]);
+  }
 }
 function tracePath(pts: readonly Pt[]): void {
   if (!pts.length) return;
@@ -112,10 +127,12 @@ function canvasPt(ev: PointerEvent): Pt {
   const r = canvas.getBoundingClientRect();
   return { x: ev.clientX - r.left, y: ev.clientY - r.top };
 }
-/** 输入拐杖：吸到最近端点（≤SNAP px），让 retrace/重合场景手画得出来。 */
-function snap(p: Pt): Pt {
+/** 输入拐杖：吸到最近端点（≤SNAP px），让 retrace/重合场景手画得出来。
+ *  移动模式下排除被抓顶点自己（否则小距离拖动被吸回原位变 no-op）。 */
+function snap(p: Pt, excludeVid: number | null = null): Pt {
   let best: Pt | null = null, bestD = SNAP;
   for (const v of kernel.vertices()) {
+    if (v.id === excludeVid) continue;
     const d = Math.hypot(v.x - p.x, v.y - p.y);
     if (d <= bestD) { bestD = d; best = { x: v.x, y: v.y }; }
   }
@@ -128,11 +145,17 @@ canvas.addEventListener("pointerdown", (ev) => {
   if (tool === "line") {
     dragStart = snap(p);
     dragCur = p;
+  } else if (tool === "move") {
+    moveVid = kernel.hitTest(p, SNAP).vertex ?? null;
+    dragCur = p;
   }
 });
 canvas.addEventListener("pointermove", (ev) => {
   if (tool === "line" && dragStart) {
     dragCur = snap(canvasPt(ev));
+    draw();
+  } else if (tool === "move" && moveVid !== null) {
+    dragCur = snap(canvasPt(ev), moveVid);
     draw();
   }
 });
@@ -144,6 +167,11 @@ canvas.addEventListener("pointerup", (ev) => {
     if (Math.hypot(b.x - a.x, b.y - a.y) >= 2) {
       appendLog(kernel.addEdges([[a, b]]));
     }
+  } else if (tool === "move" && moveVid !== null) {
+    const target = snap(p, moveVid); // 吸到他人端点 = sticky 合并现场可玩（闭合开折线不生膜）
+    appendLog(kernel.moveVertices([{ id: moveVid, to: target }]));
+    moveVid = null;
+    dragCur = null;
   } else if (tool === "erase") {
     const hit = kernel.hitTest(p, HIT);
     if (hit.edge !== undefined) appendLog(kernel.eraseEdges([hit.edge]));
