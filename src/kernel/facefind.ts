@@ -5,9 +5,9 @@
 //       → 壳环按面积从小到大挂洞（嵌套天然是树）。
 // 本模块零 face 知识：返回的是候选区域（region），谁有膜由 face-lifecycle 裁决（face 是存储态非派生量）。
 //
-// findRegions 的 region?: Bounds 参数 = **局部性接缝**：M1 忽略、整平面重跑；
+// findRegions 的 scope.bounds = **局部性接缝**：当前忽略、整平面重跑；
 // 「增量局部 face-finding」是 spec 点名的工程命门（SU 流畅手感的真正来源），
-// 以后在此接缝内换入最小重算，接口不变。
+// 以后在此接缝内换入最小重算，接口不变。M3 起 scope.edges/project 承载平面组投影。
 
 import { type Pt, EPS_AREA, angleOf, pointInRing, signedArea } from "./geom.ts";
 import { type EdgeId, type VertexId, PlanarGraph } from "./topology.ts";

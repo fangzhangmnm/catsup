@@ -410,3 +410,11 @@ function resize(): void {
 window.addEventListener("resize", resize);
 setTool("line");
 resize();
+
+// 临时 debug 钩子（诊断用，勿依赖）
+(window as any).__dbg = () => ({ tool, anchor3, cursor3, snapInfo, faces: kernel.faces().length, edges: kernel.edges().length, previewOn: !!preview });
+(window as any).__dbg2 = () => kernel.vertices().map((v) => {
+  const s = cam.worldToScreen({ x: v.x, y: v.y, z: v.z }, vp());
+  const sUp = cam.worldToScreen({ x: v.x, y: v.y, z: v.z + 60 }, vp());
+  return { id: v.id, x: v.x, y: v.y, z: v.z, sx: s.x, sy: s.y, upx: sUp.x, upy: sUp.y };
+});

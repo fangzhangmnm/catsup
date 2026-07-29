@@ -91,7 +91,7 @@ const AXES: { kind: SnapKind; dir: Pt3 }[] = [
 
 /**
  * 取点吸附：endpoint > midpoint > on-edge > axis > 落到 plane。
- * axis 候选 = 落在画线平面内的世界轴（地面 X/Y、竖墙含 Z）——锁完仍在平面上。
+ * axis 候选 = 过 anchor 的全部世界轴（含出平面的 Z——竖直几何的入口）。
  * excludeVid：移动中被抓顶点（它与它的边不参与吸附）。
  */
 export function snapPoint(
@@ -145,11 +145,11 @@ export function snapPoint(
   }
   if (bestE) return { p: bestE.p, kind: "on-edge" };
 
-  // 4. axis（画线平面内的世界轴，过 anchor）
+  // 4. axis（过 anchor 的世界轴——**不限制在画线平面内**：
+  //    Z 轴锁是画出第一条竖直边的唯一入口（SU 蓝轴画线），否则没有竖直面就永远造不出竖直几何）
   if (anchor) {
     let bestA: { p: Pt3; d: number; kind: SnapKind } | null = null;
     for (const ax of AXES) {
-      if (Math.abs(dot3(plane.plane.n, ax.dir)) > 1e-6) continue; // 轴不在平面内
       const q = closestOnAxis(anchor, ax.dir, ray.origin, ray.dir);
       if (!q) continue;
       const a1 = cam.worldToScreen(anchor, vp);
