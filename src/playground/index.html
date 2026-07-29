@@ -12,9 +12,10 @@
   #boardWrap { flex: 1; min-width: 0; position: relative; }
   #board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
   #side { width: 240px; flex: 0 0 240px; border-left: 1px solid #ccc; background: #fff; display: flex; flex-direction: column; }
-  #tools { padding: 8px; display: flex; gap: 6px; border-bottom: 1px solid #eee; }
-  #tools button { flex: 1; padding: 6px 0; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; font-size: 14px; }
+  #tools { padding: 8px; display: flex; flex-wrap: wrap; gap: 6px; border-bottom: 1px solid #eee; }
+  #tools button { flex: 1 0 30%; padding: 6px 0; border: 1px solid #bbb; border-radius: 6px; background: #fafafa; font-size: 14px; }
   #tools button.active { background: #2b6cb0; color: #fff; border-color: #2b6cb0; }
+  #hint { padding: 4px 8px; font-size: 11px; color: #999; border-bottom: 1px solid #eee; }
   #log { flex: 1; overflow-y: auto; padding: 8px; font-size: 12px; line-height: 1.7; color: #333; }
   #log .ev { border-bottom: 1px dashed #eee; }
 </style>
@@ -24,11 +25,14 @@
   <div id="boardWrap"><canvas id="board"></canvas></div>
   <div id="side">
     <div id="tools">
+      <button id="toolSelect">选择</button>
       <button id="toolLine">画线</button>
+      <button id="toolRect">矩形</button>
       <button id="toolMove">移动</button>
       <button id="toolErase">橡皮</button>
       <button id="toolEraseFace">删面</button>
     </div>
+    <div id="hint">框选后 Delete 删除；Esc 取消</div>
     <div id="log"></div>
   </div>
 </div>
