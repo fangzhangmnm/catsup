@@ -1,0 +1,11 @@
+# journals/ = 纯人类区（家族硬规则 #2），不进 git
+journals/
+node_modules/
+# tools/ = 构建工具（esbuild 二进制跨 OS 不通用，build.sh 自动 curl）；区别于运行时 vendor
+tools/
+.claude/
+*.log
+.DS_Store
+# playground bundle 是构建产物（Phase 0 无部署不进 git；长成 app 那天再走 dist/ content-hash）
+src/playground/bundle.js
+src/playground/bundle.js.map
