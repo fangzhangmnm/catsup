@@ -15,10 +15,25 @@ export type { Pt } from "./geom.ts";
 export interface HitResult { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
 export class Kernel {
-  /** 只读窥视用（playground 渲染/测试断言）；改图必须走下面的批量 mutations。 */
-  readonly graph = new PlanarGraph();
+  private _graph = new PlanarGraph();
   private store = new FaceStore();
   private eventLog: FaceEvent[] = [];
+
+  /** 只读窥视用（playground 渲染/测试断言）；改图必须走下面的批量 mutations。 */
+  get graph(): PlanarGraph { return this._graph; }
+
+  /**
+   * 影子副本（preview 架构）：clone → 在副本上跑**同一套** mutation → 渲染 diff →
+   * 松手对真身重放。不另写预测路径（第二套推演必然漂移 → 预览撒谎）。
+   * id 计数器一起拷 → 副本上的事件与真身提交的事件逐字相同。
+   * 大模型后的增量化与「局部 face-finding」同一条命门，接缝同处。
+   */
+  clone(): Kernel {
+    const k = new Kernel();
+    k._graph = this._graph.clone();
+    k.store = this.store.clone();
+    return k; // 事件日志不拷：副本的 log 只属于预演
+  }
 
   // ---------------- mutations（全部批量收口） ----------------
 

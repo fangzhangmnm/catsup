@@ -124,4 +124,15 @@ export class PlanarGraph {
     this.vertex(e.a).edges.delete(id);
     this.vertex(e.b).edges.delete(id);
   }
+
+  /** 深拷贝（含 id 计数器——preview 影子副本的 id 分配与真身逐一致）。 */
+  clone(): PlanarGraph {
+    const g = new PlanarGraph();
+    g.nextV = this.nextV;
+    g.nextE = this.nextE;
+    for (const [id, v] of this.vertsById) g.vertsById.set(id, { id: v.id, x: v.x, y: v.y, edges: new Set(v.edges) });
+    for (const [id, e] of this.edgesById) g.edgesById.set(id, { id: e.id, a: e.a, b: e.b, faceLinks: [...e.faceLinks] });
+    for (const [k, vid] of this.vertByKey) g.vertByKey.set(k, vid);
+    return g;
+  }
 }

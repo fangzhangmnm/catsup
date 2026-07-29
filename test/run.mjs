@@ -6,6 +6,7 @@ import "./facefind.test.ts";
 import "./face-lifecycle.test.ts";
 import "./golden.test.ts";
 import "./tools.test.ts";
+import "./preview.test.ts";
 import { run } from "./runner.mjs";
 
 await run();

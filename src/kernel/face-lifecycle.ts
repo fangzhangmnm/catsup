@@ -267,6 +267,17 @@ export class FaceStore {
     return events;
   }
 
+  /** 深拷贝（含 id 计数器；preview 影子副本用）。 */
+  clone(): FaceStore {
+    const s = new FaceStore();
+    s.nextId = this.nextId;
+    const cloneRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ ...d })), pts: r.pts.map((p) => ({ ...p })) });
+    for (const [id, f] of this.byId) {
+      s.byId.set(id, { id: f.id, outer: cloneRing(f.outer), holes: f.holes.map(cloneRing) });
+    }
+    return s;
+  }
+
   // ---------------- 内部 ----------------
 
   private mint(r: Region): Face {
