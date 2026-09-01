@@ -1,0 +1,31 @@
+{
+  // 类型检查专用（tsc --noEmit）——不产出文件；运行时 node strip-types 直跑 test/，playground 由 esbuild bundle。
+  // compilerOptions 抄 WebPaint 现役；include 是 greenfield 全树 glob（不抄 WebPaint 的迁移白名单——那是 JS→TS 迁移遗迹）。
+  "compilerOptions": {
+    "strict": true,
+    "noEmit": true,
+
+    // Node 24 strip-types 直跑 .ts；本仓约定 import 写 .ts 扩展名。
+    // module:preserve + bundler 解析 + allowImportingTsExtensions 才能让 tsc 认 "./x.ts" specifier。
+    "module": "preserve",
+    "moduleResolution": "bundler",
+    "allowImportingTsExtensions": true,
+    "target": "es2022",
+    "lib": ["es2022", "dom", "dom.iterable"],
+
+    // 仓里唯一 JS = test/runner.mjs（抄 WebPaint）：allowJs 让它可解析，checkJs:false 不检它。
+    "allowJs": true,
+    "checkJs": false,
+    "skipLibCheck": true,
+
+    // verbatimModuleSyntax：强制 type-only import 写 `import type`，否则 strip-types 把纯类型 import
+    // 当运行时 import 留下 → 运行时「does not provide an export」。node/esbuild 兼容的硬约束。
+    "verbatimModuleSyntax": true,
+
+    // 不拉 @types/node；只认上面 lib。
+    "types": [],
+    "forceConsistentCasingInFileNames": true
+  },
+  "include": ["src/**/*.ts", "test/**/*.ts"],
+  "exclude": ["experiments", "node_modules", ".claude"]
+}
