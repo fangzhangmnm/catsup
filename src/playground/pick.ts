@@ -197,6 +197,9 @@ export function snapPoint(
         if (d > tolPx) continue;
         const q = closestOnAxis(src.p, dir, ray.origin, ray.dir);
         if (!q) continue;
+        // ⚠ 已知结构病（2026-09-01 幽灵 align 标本，grill 议题）：正交投影下任何不顺视线的
+        // 3D 线，其投影扫过光标时线上必有一点精确落在拾取射线上（某深度）——屏距滤波
+        // 无法定向深度。全顶点常开是病根；候选修法=hover 充能制（SU 同款），等 grill 拍板。
         const c: Cand = { src: src.p, axis, dir, q, d, fromAnchor: src.fromAnchor };
         if (better(best[axis], c)) best[axis] = c;
       }
