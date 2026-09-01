@@ -16,6 +16,7 @@ const SNAP_COLORS: Record<string, number> = {
   origin: 0x8b5cf6,
   align: 0x8b5cf6,
   "align-combo": 0x8b5cf6,
+  "edge-align": 0xcc3333,
   "axis-x": 0xcc3333,
   "axis-y": 0x2e8b57,
   "axis-z": 0x2b6cb0,

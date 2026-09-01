@@ -11,6 +11,7 @@ import {
   dist3,
   distToPlane,
   dot3,
+  len3,
   planeBasis,
   pointInRing,
   projectToPlane,
@@ -30,7 +31,7 @@ export const GROUND: DrawPlane = (() => {
 export type SnapKind =
   | "endpoint" | "midpoint" | "on-edge" | "origin"
   | "axis-x" | "axis-y" | "axis-z"
-  | "align" | "align-combo";
+  | "align" | "align-combo" | "edge-align";
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
 export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v"; }
 export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
@@ -139,8 +140,9 @@ export function snapPoint(
   if (bestM) return { p: bestM.p, kind: "midpoint" };
 
   const ray = cam.screenRay(sx, sy, vp);
-  // 3. on-edge：屏幕距离过滤，取边上最接近拾取射线的点（clamp 在边内）
-  let bestE: { p: Pt3; d: number } | null = null;
+  // 3. on-edge 候选：屏幕距离过滤，取边上最接近拾取射线的点（clamp 在边内）。
+  //    ⚠ 不立即返回——边本身是 1-DOF 约束，先给 4.5 的边×轴合成机会（On Edge from Point）。
+  let bestE: { p: Pt3; d: number; a: Pt3; b: Pt3 } | null = null;
   for (const e of edges) {
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const d = sdistToSeg(cursor, cam.worldToScreen(a, vp), cam.worldToScreen(b, vp));
@@ -152,9 +154,8 @@ export function snapPoint(
     if (!q) continue;
     let t = dot3(sub3(q, a), dir);
     t = Math.max(0, Math.min(len, t));
-    bestE = { p: { x: a.x + dir.x * t, y: a.y + dir.y * t, z: a.z + dir.z * t }, d };
+    bestE = { p: { x: a.x + dir.x * t, y: a.y + dir.y * t, z: a.z + dir.z * t }, d, a, b };
   }
-  if (bestE) return { p: bestE.p, kind: "on-edge" };
 
   // 4. 轴平行 1-DOF 约束层（user 2026-09-01：SU 的 XZ/YZ 画图=轴平行 snap，摄像机无关，
   //    不存在「平面识别」）：每个源点沿世界三轴各伸一条约束线；合成前必须验真相交
@@ -166,7 +167,7 @@ export function snapPoint(
       { axis: "y", dir: { x: 0, y: 1, z: 0 } },
       { axis: "z", dir: { x: 0, y: 0, z: 1 } },
     ];
-    interface Cand { src: Pt3; axis: AxName; q: Pt3; d: number; fromAnchor: boolean; }
+    interface Cand { src: Pt3; axis: AxName; dir: Pt3; q: Pt3; d: number; fromAnchor: boolean; }
     const lineDist = (src: Pt3, dir: Pt3): number => {
       const a1 = cam.worldToScreen(src, vp);
       const a2 = cam.worldToScreen({ x: src.x + dir.x * 100, y: src.y + dir.y * 100, z: src.z + dir.z * 100 }, vp);
@@ -196,9 +197,44 @@ export function snapPoint(
         if (d > tolPx) continue;
         const q = closestOnAxis(src.p, dir, ray.origin, ray.dir);
         if (!q) continue;
-        const c: Cand = { src: src.p, axis, q, d, fromAnchor: src.fromAnchor };
+        const c: Cand = { src: src.p, axis, dir, q, d, fromAnchor: src.fromAnchor };
         if (better(best[axis], c)) best[axis] = c;
       }
+    }
+    // 4.5 边×轴合成 = SU「On Edge from Point」（user 2026-07-28「垂线落边」反馈的本体；
+    //     2026-09-01 实测「到边 snap 就掉」修案）：边是 1-DOF 约束，与轴线求交（真相交 +
+    //     交点须在边段内）→ 边上精确对齐点；无有效合成才退回单独 on-edge。
+    if (bestE) {
+      const segHit = (src: Pt3, dir: Pt3, a: Pt3, b: Pt3): Pt3 | null => {
+        const ab = sub3(b, a);
+        const len = len3(ab);
+        if (len < 1e-12) return null;
+        const d2 = scale3(ab, 1 / len);
+        const bb = dot3(dir, d2);
+        const denom = 1 - bb * bb;
+        if (Math.abs(denom) < 1e-9) return null;      // 平行：不合成
+        const w0 = sub3(src, a);
+        const e0 = dot3(dir, w0), f0 = dot3(d2, w0);
+        const t1 = (bb * f0 - e0) / denom;
+        const t2 = (f0 - bb * e0) / denom;
+        if (t2 < -1e-9 || t2 > len + 1e-9) return null; // 交点出边段
+        const q1 = { x: src.x + dir.x * t1, y: src.y + dir.y * t1, z: src.z + dir.z * t1 };
+        const q2 = { x: a.x + d2.x * t2, y: a.y + d2.y * t2, z: a.z + d2.z * t2 };
+        if (dist3(q1, q2) > 1e-5) return null;         // 3D 假相交拒绝
+        return q2;                                     // 取边上点（保证 sticky 落边）
+      };
+      let bestEC: { p: Pt3; d: number; c: Cand } | null = null;
+      for (const c of [best.x, best.y, best.z]) {
+        if (!c) continue;
+        const q = segHit(c.src, c.dir, bestE.a, bestE.b);
+        if (!q) continue;
+        const d = sdist(cursor, cam.worldToScreen(q, vp));
+        if (d <= tolPx * 2.5 && (!bestEC || d < bestEC.d)) bestEC = { p: q, d, c };
+      }
+      if (bestEC) {
+        return { p: bestEC.p, kind: "edge-align", hints: [{ a: bestEC.c.src, b: bestEC.p, axis: bestEC.c.axis }] };
+      }
+      return { p: bestE.p, kind: "on-edge" };
     }
     // 双约束合成：p 的 c1 轴坐标取自 c2 的固定坐标、反之；第三轴双方都固定——必须一致（真相交判定）
     const COORD_TOL = 1e-4;
