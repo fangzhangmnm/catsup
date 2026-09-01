@@ -143,9 +143,11 @@ export class Kernel {
     this.graph.relocateVertices(batch);
     // ③ 自愈
     const { changed } = planarize(this.graph);
-    // ④ 覆盖 reconcile
+    // ④ 覆盖 reconcile。动到任何膜的顶点必走全路径——快路径的 refreshRingPts 不检测
+    //   出平面/平面平移，曾把非平面膜假装成平的（2026-09-01 立方体移墙案，详 move-spec §4）
+    const topologyChanged = mergesHappened || changed || movedFaces.size > 0;
     return this.emit(this.store.reconcileCoverage(
-      this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, mergesHappened || changed,
+      this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, topologyChanged,
     ));
   }
 

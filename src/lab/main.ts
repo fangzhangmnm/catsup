@@ -322,6 +322,18 @@ canvas.addEventListener("pointerdown", (ev) => {
       break;
     }
     case "move": {
+      if (armed && moveVids.length && anchor3) {
+        // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
+        justCommitted = true;
+        const excl = moveVids.length === 1 ? moveVids[0] : null;
+        const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl).p;
+        const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
+        const vids = moveVids;
+        const d = Math.hypot(delta.x, delta.y, delta.z);
+        cancelGesture();
+        if (d >= 0.3) appendLog(commitOp({ op: "move", moves: translateMoves(kernel, vids, delta) }));
+        break;
+      }
       const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
       const inSel = (hit.edge !== undefined && selection.edges.has(hit.edge)) ||
         (hit.face !== undefined && selection.faces.has(hit.face));
@@ -334,7 +346,10 @@ canvas.addEventListener("pointerdown", (ev) => {
           ? kernel.graph.pt(hit.vertex)
           : snapPoint(kernel, cam, vp(), s.x, s.y, 0, gesturePlane).p;
         cursor3 = anchor3;
-        hintEl.textContent = "移动中…松手结算（拖拽期间纯 ghost）";
+        armed = false;
+        canArm = ev.pointerType === "mouse";
+        downScreen = s;
+        hintEl.textContent = "移动中…拖拽或点两下放置（纯 ghost，落点才结算）";
       }
       break;
     }
@@ -462,6 +477,12 @@ canvas.addEventListener("pointerup", (ev) => {
     }
     case "move": {
       if (!moveVids.length || !anchor3) { cancelGesture(); break; }
+      if (justCommitted) { justCommitted = false; break; }
+      if (canArm && downScreen && Math.hypot(s.x - downScreen.x, s.y - downScreen.y) <= 4) {
+        armed = true;   // 点起 → 移动预览 → 再点放置
+        hintEl.textContent = "移动中：移动预览，再点一下放置；Esc 取消";
+        break;
+      }
       const excl = moveVids.length === 1 ? moveVids[0] : null;
       const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl).p;
       const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };

@@ -6,7 +6,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt } from "../src/kernel/kernel.ts";
 import { emptySelection, moveTargetsSelection, translateMoves } from "../src/playground/tools.ts";
-import { pointOnSegment3, samePt3, segIntersections3 } from "../src/kernel/geom.ts";
+import { distToPlane, pointOnSegment3, samePt3, segIntersections3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number): Pt => ({ x, y });
 const rect = (x0: number, y0: number, x1: number, y1: number): [Pt, Pt][] => [
@@ -168,5 +168,66 @@ describe("move-spec: sticky geometry 协议", () => {
       k.moveVertices(picked.map((v) => ({ id: v.id, to: P(v.x + dx, v.y + dy) })));
       checkInvariants(k, `复利round${round}`);
     }
+  });
+});
+
+describe("move-spec: 3D 膜跟随（2026-09-01 立方体移墙案）", () => {
+  const P3 = (x: number, y: number, z = 0) => ({ x, y, z });
+  function loop(k: Kernel, pts: { x: number; y: number; z: number }[]): void {
+    const segs: [typeof pts[0], typeof pts[0]][] = [];
+    for (let i = 0; i < pts.length; i++) segs.push([pts[i], pts[(i + 1) % pts.length]]);
+    k.addEdges(segs);
+  }
+  function cube(): Kernel {
+    const k = new Kernel();
+    const S = 10, H = 10;
+    loop(k, [P3(0, 0), P3(S, 0), P3(S, S), P3(0, S)]);
+    loop(k, [P3(0, 0), P3(S, 0), P3(S, 0, H), P3(0, 0, H)]);
+    loop(k, [P3(S, 0), P3(S, S), P3(S, S, H), P3(S, 0, H)]);
+    loop(k, [P3(S, S), P3(0, S), P3(0, S, H), P3(S, S, H)]);
+    loop(k, [P3(0, S), P3(0, 0), P3(0, 0, H), P3(0, S, H)]);
+    return k;
+  }
+  const assertPlanesHonest = (k: Kernel, tag: string): void => {
+    for (const f of k.faces()) {
+      const rec = k.planeOf(f.id)!;
+      for (const p of k.faceRings3(f.id)!.outer) {
+        assert(distToPlane(p, rec.plane) <= 1e-3, `${tag}: 面#${f.id} 环点离存储平面 ${distToPlane(p, rec.plane)}`);
+      }
+    }
+  };
+
+  it("移墙面内上移=剪切 → 六膜全跟随（顶/底重拟合到斜面，不再假装还平）", () => {
+    const k = cube();
+    const wall = k.vertices().filter((v) => v.x === 10).map((v) => v.id);
+    const ev = k.moveVertices(wall.map((id) => {
+      const p = k.graph.pt(id);
+      return { id, to: { x: p.x, y: p.y, z: p.z + 3 } };
+    }));
+    eq(k.faces().length, 6, "六膜全活（剪切后每面仍是平面）");
+    eq(ev.length, 1, "单 STRETCH 事件");
+    eq(ev[0].type, "STRETCH", "STRETCH");
+    assertPlanesHonest(k, "剪切");
+  });
+
+  it("移墙沿法向外移 → 墙膜换平面跟随（重拟合 x=15）", () => {
+    const k = cube();
+    const wall = k.vertices().filter((v) => v.x === 10).map((v) => v.id);
+    k.moveVertices(wall.map((id) => {
+      const p = k.graph.pt(id);
+      return { id, to: { x: p.x + 5, y: p.y, z: p.z } };
+    }));
+    eq(k.faces().length, 6, "六膜全活");
+    assert(k.faces().some((f) => Math.abs(Math.abs(k.planeOf(f.id)!.plane.d) - 15) < 1e-6), "墙膜到了 x=15");
+    assertPlanesHonest(k, "法向");
+  });
+
+  it("拉单顶角=真非平面 → 只有顶面诚实 BURST（autofold 空档曝光，两邻墙仍平存活）", () => {
+    const k = cube();
+    const corner = k.vertices().find((v) => v.x === 10 && v.y === 10 && v.z === 10)!;
+    const ev = k.moveVertices([{ id: corner.id, to: { x: 10, y: 10, z: 13 } }]);
+    eq(k.faces().length, 5, "只失顶面");
+    eq(ev.filter((e) => e.type === "BURST").length, 1, "一个 BURST（曝光不静默）");
+    assertPlanesHonest(k, "顶角");
   });
 });

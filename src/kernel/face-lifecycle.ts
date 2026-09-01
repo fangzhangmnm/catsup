@@ -323,8 +323,9 @@ export class FaceStore {
       }
     }
 
-    // 叙事装配。descend: 事件层的「面 id → 现任持有者」映射（STRETCH 名单用）
+    // 叙事装配。descend: DIVIDE/MERGE 的血缘映射；replaned: 平面平移的膜跟随（STRETCH 叙事）
     const descend = new Map<FaceId, FaceId[]>();
+    const replaned = new Map<FaceId, FaceId>();
     // ① 一对多 → DIVIDE（退休铸新）
     for (const [fid, c] of claims) {
       if (c.regions.length < 2) continue;
@@ -368,9 +369,10 @@ export class FaceStore {
       if (c.planeId === f.planeId) {
         this.adopt(f, r);
       } else {
+        // 膜整体换平面（如面沿法向平移）：退休老 planeId 铸新，膜跟随，计入 STRETCH 叙事
         this.byId.delete(fid);
         const nf = this.mint(c.planeId, r);
-        descend.set(fid, [nf.id]);
+        replaned.set(fid, nf.id);
       }
     }
 
@@ -378,7 +380,8 @@ export class FaceStore {
     const stretched = new Set<FaceId>();
     for (const id of movedFaces) {
       if (this.byId.has(id) && !descend.has(id) && !events.some((e) => e.type === "BURST" && e.face === id)) stretched.add(id);
-      else for (const d of descend.get(id) ?? []) void d; // DIVIDE/MERGE 已各自叙事，不重复进 STRETCH
+      const rp = replaned.get(id);
+      if (rp !== undefined) stretched.add(rp); // 换平面跟随=拉伸叙事；DIVIDE/MERGE 已各自叙事不重复
     }
     if (stretched.size) events.push({ type: "STRETCH", faces: [...stretched] });
     return events;
