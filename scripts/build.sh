@@ -6,8 +6,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ENTRY="./src/playground/main.ts"
-OUT="./src/playground/bundle.js"
+ENTRIES="playground lab"   # 每个 = src/<名>/main.ts → src/<名>/bundle.js
 ESBUILD_VER="0.24.0"
 ESBUILD="./tools/esbuild/esbuild"
 
@@ -53,12 +52,13 @@ echo "[build] ✓ experiments 隔离干净"
 
 # 1. bundle（iife，直接 <script src> 引；无 hash——Phase 0 本地开发无缓存问题）
 #    three 走 alias 指向 vendored 文件（tsc 侧由 src/types/vendor-shims.d.ts 的 shorthand module 打发）
-"$ESBUILD" "$ENTRY" \
-  --bundle --format=iife --target=es2020 \
-  --alias:three=./src/vendor/three/three.module.js \
-  --sourcemap \
-  --outfile="$OUT"
-
-size=$(stat -c%s "$OUT" 2>/dev/null || wc -c < "$OUT")
-echo "[build] $OUT ($size bytes)"
-echo "[build] 完成。浏览器开 src/playground/index.html"
+for name in $ENTRIES; do
+  "$ESBUILD" "./src/$name/main.ts" \
+    --bundle --format=iife --target=es2020 \
+    --alias:three=./src/vendor/three/three.module.js \
+    --sourcemap \
+    --outfile="./src/$name/bundle.js"
+  size=$(stat -c%s "./src/$name/bundle.js" 2>/dev/null || wc -c < "./src/$name/bundle.js")
+  echo "[build] src/$name/bundle.js ($size bytes)"
+done
+echo "[build] 完成。浏览器开 src/lab/index.html（2D 肥皂膜）或 src/playground/index.html（3D）"

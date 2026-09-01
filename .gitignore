@@ -9,3 +9,4 @@ tools/
 .DS_Store
 # playground bundle 是构建产物（Phase 0 无部署不进 git；长成 app 那天再走 dist/ content-hash）
 src/playground/bundle.js
+src/lab/bundle.js

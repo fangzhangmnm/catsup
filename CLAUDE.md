@@ -3,5 +3,7 @@
 SketchUp 开源 PWA 平替。**MVP = SketchUp clone；proposal「我会加的东西」整节全是花，不可本末倒置**（`journals/20260627 CatsUp proposal.md` L80 用户原话）。
 
 - 当前状态：**Phase 0 无壳内核库**——纯 TS kernel + golden tests + canvas playground；无 store / SW / save-load / hierarchy（用户 2026-07-28 拍板）。
+- **当前阶段（2026-09-01 重启，edited by Claude Fable 5）**：主轴 = **人类研究 SketchUp、形成建模心智模型**；AI = 文献综述（入 ai-docs）+ 陪聊/稻草人 drill + lab 仪器维护。写码默认冻结（lab 仪器级改动除外）。**move parked**（等人类口述 spec——他已有数）；**snap 体系 parked**（lab 只留脚手架三件：endpoint/on-edge/轴锁，明确非 spec）。
+- **lab 入口 = `src/lab/index.html`**（2D 顶视 drill 仪器：场景预置一键摆、事件日志 C 位）；`src/playground/` = 3D 观察窗（博物馆态，里面的 move 是未立项发明——别在上面继续长）。
 - **开工前必读：`ai-docs/20260728-phase0-kickoff-handoff.md`**（里程碑、仓库纪律、验收标准都在那）。
 - 几何 spec 本体 = `journals/20260627 SketchUp drill.md`（五公理 / face-finding 管线 / 膜生命周期事件表）。`journals/` 是纯人类区：AI 永不写、不删、不整理。

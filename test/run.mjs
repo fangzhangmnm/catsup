@@ -9,6 +9,7 @@ import "./golden3d.test.ts";
 import "./tools.test.ts";
 import "./pick.test.ts";
 import "./preview.test.ts";
+import "./lab-presets.test.ts";
 import { run } from "./runner.mjs";
 
 await run();
