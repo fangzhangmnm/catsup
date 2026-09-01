@@ -3,7 +3,7 @@
 > as-of v0.0.5 / 2026-09-01（创建日）· created by Claude Fable 5
 > 背景：move 是 M2 期 AI 未立项自加的发明，user 2026-07-28 裁定行为怪、2026-09-01 口述正解
 > 并指示「先不要写，先看之前那版为什么错」。本文 = 那次考古的结论 + 重现实锤。
-> **§4 是提案，未拍板。**
+> **§4 提案其后经 grill 拍板并深化（planarize 深模块），终版 spec = `20260901-move-spec.md`（edited by Claude Fable 5 2026-09-01）。**
 
 ## 1. user 口述的 spec（M-spec，2026-09-01 原话大意）
 
