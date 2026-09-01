@@ -11,6 +11,8 @@ import "./pick.test.ts";
 import "./preview.test.ts";
 import "./lab-presets.test.ts";
 import "./move-spec.test.ts";
+import "./lab-journal.test.ts";
+import "./snap-align.test.ts";
 import { run } from "./runner.mjs";
 
 await run();

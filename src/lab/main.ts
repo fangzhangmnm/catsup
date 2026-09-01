@@ -12,16 +12,24 @@ import { OrbitCamera, type Viewport } from "../playground/camera.ts";
 import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, snapPoint } from "../playground/pick.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "../playground/tools.ts";
 import { Renderer3 } from "../playground/render3.ts";
-import { PRESETS, applyPreset } from "./presets.ts";
+import { PRESETS } from "./presets.ts";
+import { type LabOp, Journal } from "./journal.ts";
 
 const canvas = document.getElementById("board") as HTMLCanvasElement;
 const logEl = document.getElementById("log")!;
 const hintEl = document.getElementById("hint")!;
 const tipEl = document.getElementById("tip")!;
 const marqueeEl = document.getElementById("marquee")!;
-const HINT_DEFAULT = "顶视 2D：右/中键拖=平移 滚轮=缩放；框选后 Delete 删除；Esc 取消";
+const HINT_DEFAULT = "顶视 2D：右/中键拖=平移 滚轮=缩放；Ctrl+Z 撤销 Ctrl+Y 重做；框选后 Delete 删除；Esc 取消";
 
 let kernel = new Kernel();
+const journal = new Journal();
+/** 所有改内核的用户手势走这里：记账（undo 日志）+ 应用。 */
+function commitOp(op: LabOp): FaceEvent[] {
+  const r = journal.commit(kernel, op);
+  kernel = r.kernel;
+  return r.events;
+}
 const cam = new OrbitCamera();
 // 顶视锁死：yaw=-π/2 → 世界 X=屏幕右、Y=屏幕上；pitch 差 1e-4 到 π/2，防 right() 叉积退化。
 cam.yaw = -Math.PI / 2;
@@ -123,22 +131,42 @@ for (const preset of PRESETS) {
   btn.textContent = preset.name;
   btn.title = preset.note;
   btn.addEventListener("click", () => {
-    kernel = new Kernel();
     cancelGesture();
     selection = emptySelection();
     appendSep(`预置：${preset.name}（${preset.note}）`);
-    for (const events of applyPreset(kernel, preset)) appendLog(events);
+    appendLog(commitOp({ op: "preset", name: preset.name }));
     draw();
   });
   presetsEl.appendChild(btn);
 }
 (document.getElementById("clearAll") as HTMLButtonElement).addEventListener("click", () => {
-  kernel = new Kernel();
   cancelGesture();
   selection = emptySelection();
   appendSep("清空");
+  commitOp({ op: "clear" });
   draw();
 });
+function doUndo(): void {
+  const k2 = journal.undo();
+  if (!k2) return;
+  kernel = k2;
+  cancelGesture();
+  selection = emptySelection();
+  appendSep("撤销");
+  draw();
+}
+function doRedo(): void {
+  const r = journal.redo(kernel);
+  if (!r) return;
+  kernel = r.kernel;
+  cancelGesture();
+  selection = emptySelection();
+  appendSep("重做");
+  appendLog(r.events);
+  draw();
+}
+(document.getElementById("undoBtn") as HTMLButtonElement).addEventListener("click", doUndo);
+(document.getElementById("redoBtn") as HTMLButtonElement).addEventListener("click", doRedo);
 (document.getElementById("clearLog") as HTMLButtonElement).addEventListener("click", () => {
   logEl.textContent = "";
 });
@@ -208,7 +236,9 @@ function draw(): void {
 }
 
 const SNAP_LABELS: Record<string, string> = {
-  endpoint: "端点", midpoint: "中点", "on-edge": "边上", "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
+  endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
+  "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
+  align: "共轴", "align-combo": "共轴角点",
 };
 function updateTip(clientX: number, clientY: number): void {
   if (snapInfo?.kind) {
@@ -365,7 +395,7 @@ canvas.addEventListener("pointerup", (ev) => {
       const a = anchor3;
       const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3).p;
       cancelGesture();
-      if (dist(a, b) >= 1) appendLog(kernel.addEdges([[a, b]]));
+      if (dist(a, b) >= 1) appendLog(commitOp({ op: "addEdges", segs: [[a, b]] }));
       break;
     }
     case "rect": {
@@ -373,7 +403,7 @@ canvas.addEventListener("pointerup", (ev) => {
       const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
       const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
       cancelGesture();
-      if (segs.length) appendLog(kernel.addEdges(segs));
+      if (segs.length) appendLog(commitOp({ op: "addEdges", segs }));
       break;
     }
     case "move": {
@@ -384,13 +414,13 @@ canvas.addEventListener("pointerup", (ev) => {
       const vids = moveVids;
       const d = Math.hypot(delta.x, delta.y, delta.z);
       cancelGesture();
-      if (d >= 0.3) appendLog(kernel.moveVertices(translateMoves(kernel, vids, delta)));
+      if (d >= 0.3) appendLog(commitOp({ op: "move", moves: translateMoves(kernel, vids, delta) }));
       break;
     }
     case "erase": {
       const ids = [...scrubAcc];
       cancelGesture();
-      if (ids.length) appendLog(kernel.eraseEdges(ids));
+      if (ids.length) appendLog(commitOp({ op: "eraseEdges", ids }));
       break;
     }
     case "select": {
@@ -422,7 +452,7 @@ canvas.addEventListener("pointerup", (ev) => {
     case "eraseFace": {
       const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
       cancelGesture();
-      if (hit.face !== undefined) appendLog(kernel.eraseFaces([hit.face]));
+      if (hit.face !== undefined) appendLog(commitOp({ op: "eraseFaces", ids: [hit.face] }));
       break;
     }
   }
@@ -443,10 +473,19 @@ canvas.addEventListener("pointerleave", () => {
 
 // ---------- 键盘 ----------
 window.addEventListener("keydown", (ev) => {
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
+    ev.preventDefault();
+    if (ev.shiftKey) doRedo(); else doUndo();
+    return;
+  }
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "y" || ev.key === "Y")) {
+    ev.preventDefault();
+    doRedo();
+    return;
+  }
   if (ev.key === "Delete" || ev.key === "Backspace") {
     if (selection.faces.size || selection.edges.size) {
-      if (selection.faces.size) appendLog(kernel.eraseFaces([...selection.faces]));
-      if (selection.edges.size) appendLog(kernel.eraseEdges([...selection.edges]));
+      appendLog(commitOp({ op: "eraseSelection", faces: [...selection.faces], edges: [...selection.edges] }));
       selection = emptySelection();
       draw();
     }

@@ -156,7 +156,9 @@ function draw(): void {
 }
 
 const SNAP_LABELS: Record<string, string> = {
-  endpoint: "端点", midpoint: "中点", "on-edge": "边上", "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
+  endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
+  "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
+  align: "共轴", "align-combo": "共轴角点",
 };
 function updateTip(clientX: number, clientY: number): void {
   if (snapInfo?.kind) {

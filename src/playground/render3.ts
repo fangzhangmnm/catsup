@@ -13,6 +13,9 @@ const SNAP_COLORS: Record<string, number> = {
   endpoint: 0x2e8b57,
   midpoint: 0x00a5a5,
   "on-edge": 0xcc3333,
+  origin: 0x8b5cf6,
+  align: 0x8b5cf6,
+  "align-combo": 0x8b5cf6,
   "axis-x": 0xcc3333,
   "axis-y": 0x2e8b57,
   "axis-z": 0x2b6cb0,
@@ -149,7 +152,11 @@ export class Renderer3 {
       );
       s.position.set(view.snap.p.x, view.snap.p.y, view.snap.p.z);
       g.add(s);
-      if (view.snap.kind.startsWith("axis") && view.snapAnchor) {
+      // 1-DOF 约束提示线（from-point 共轴/轴锁；per-hint 按轴配色）
+      const AXIS_COLORS: Record<string, number> = { x: 0xcc3333, y: 0x2e8b57, z: 0x2b6cb0, u: 0x888888, v: 0x888888 };
+      if (view.snap.hints?.length) {
+        for (const h of view.snap.hints) g.add(lineSegments([h.a, h.b], AXIS_COLORS[h.axis] ?? 0x888888, 1));
+      } else if (view.snap.kind.startsWith("axis") && view.snapAnchor) {
         g.add(lineSegments([view.snapAnchor, view.snap.p], color, 1));
       }
     }
