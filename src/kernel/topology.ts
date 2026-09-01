@@ -106,6 +106,53 @@ export class PlanarGraph {
     return { v, e1, e2 };
   }
 
+  /**
+   * 批量顶点搬迁（planarize 协议第 1 步的底层写：全部先摘 key、再改坐标、再上 key——
+   * 中途无「一半已动」的 key 冲突瞬态）。调用方保证终态无 key 碰撞（碰撞=合并，须先在
+   * kernel 层做完顶点合并再来）。added by Claude Fable 5 2026-09-01
+   */
+  relocateVertices(batch: readonly { id: VertexId; to: Pt3 }[]): void {
+    for (const { id } of batch) {
+      const v = this.vertex(id);
+      this.vertByKey.delete(ptKey3({ x: v.x, y: v.y, z: v.z }));
+    }
+    for (const { id, to } of batch) {
+      const v = this.vertex(id);
+      const k = ptKey3(to);
+      if (this.vertByKey.has(k)) throw new Error("relocateVertices 终态 key 碰撞——合并该在调用方先做");
+      v.x = to.x; v.y = to.y; v.z = to.z;
+      this.vertByKey.set(k, id);
+    }
+  }
+
+  /**
+   * 把边替换为沿 a→b 的顶点链（planarize 的切割原语；splitEdge 的批量+去重容忍版）：
+   * 链段若与既有边重合 → 复用既有边（重合即同一，公理 3）；顶点全程保留（不 GC 端点）。
+   * pts 须已量化、按 a→b 参数序、不含 a/b 本身。返回沿 a→b 的有向子边序列。
+   * added by Claude Fable 5 2026-09-01
+   */
+  replaceEdgeWithChain(id: EdgeId, pts: readonly Pt3[]): { edge: EdgeId; fwd: boolean }[] {
+    const e = this.edge(id);
+    const links = [...e.faceLinks];
+    const a = e.a, b = e.b;
+    this.removeEdgeKeepVerts(id);
+    const chain: VertexId[] = [a, ...pts.map((p) => this.ensureVertex(p)), b];
+    const out: { edge: EdgeId; fwd: boolean }[] = [];
+    for (let i = 0; i + 1 < chain.length; i++) {
+      const v1 = chain[i], v2 = chain[i + 1];
+      if (v1 === v2) continue;
+      const existing = this.edgeBetween(v1, v2);
+      if (existing !== undefined) {
+        out.push({ edge: existing, fwd: this.edge(existing).a === v1 });
+        continue;
+      }
+      const ne = this.addEdge(v1, v2);
+      this.edge(ne).faceLinks = [...links];
+      out.push({ edge: ne, fwd: true });
+    }
+    return out;
+  }
+
   /** 顶点移动的底层写（sticky 语义在 kernel 层编排；这里只改坐标 + 换 key）。 */
   relocateVertex(id: VertexId, p: Pt3): void {
     const v = this.vertex(id);

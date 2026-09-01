@@ -21,7 +21,7 @@
 // face↔region 匹配 = 几何 anchor：面的 representativePoint 落在同平面哪个 region 就是后继。
 // id 纪律：DIVIDE/MERGE/ABSORB 退休旧 id、铸新 id（事件携带血缘）；延续/STRETCH 保 id。
 
-import { type Pt, pointInRing, projectToPlane } from "./geom.ts";
+import { type Pt, type Pt3, cross, distToPlane, planeFromPoints, pointInRing, projectToPlane } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Region, type Ring, findRegions, regionContains, representativePoint } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, groupCoplanar } from "./planes.ts";
@@ -246,56 +246,141 @@ export class FaceStore {
     return events;
   }
 
-  // ---------------- move ----------------
+  // ---------------- move（sticky geometry 协议第 3-4 步） ----------------
 
   /**
-   * move 后 reconcile：**没有 birth 路径**（守恒律）。
-   * ringVerts = move 前每面外环的顶点 id 快照（经 mergeMap 映射后用当前坐标重建 anchor 多边形）。
-   * M3 范围注：move 拖边横穿他面的 DIVIDE 未实现；把顶点拖出面平面 = autofold 领域（M4），
-   * 当前该面在全量重跑里找不到同平面后继 → 静默移除（golden 挂 todo）。
+   * 覆盖 reconcile（spec = ai-docs/20260901-move-spec.md §1 步 3-4，取代旧 reconcileMove）。
+   * snaps = 扰动前每面环的**顶点 id 快照**（含洞环）；经 mergedVerts 映射 + 新坐标读出
+   * = 该膜的像多边形（切点都落在像的线段上，绕数不变——不需要边血缘）。
+   * 设面规则（user 拍板）：胞腔填 ⟺ 被 ≥1 张旧膜像覆盖（1+1=1，|绕数|≥1，不 mod 2）。
+   * 事件 = 纯叙事：一对一保 id（STRETCH）、一对多 DIVIDE、多对一 MERGE、零认领 BURST。
+   * 无 birth 路径（守恒律 by construction）。edited by Claude Fable 5 2026-09-01
    */
-  reconcileMove(
+  reconcileCoverage(
     g: PlanarGraph,
     reg: PlaneRegistry,
     tol: number,
-    ringVerts: Map<FaceId, VertexId[]>,
-    mergeMap: Map<VertexId, VertexId>,
-    topologyChanged: boolean,
+    snaps: Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>,
+    mergedVerts: Map<VertexId, VertexId>,
     movedFaces: Set<FaceId>,
+    topologyChanged: boolean,
   ): FaceEvent[] {
     const events: FaceEvent[] = [];
     if (!topologyChanged) {
       for (const f of this.faces()) this.refreshRingPts(g, reg, f);
       this.rebuildFaceLinks(g);
-      if (movedFaces.size) events.push({ type: "STRETCH", faces: [...movedFaces] });
-      return events;
-    }
-    const byPlane = this.regionsByPlane(g, reg, tol);
-    const taken = new Set<Region>();
-    for (const f of this.faces()) {
-      const verts = ringVerts.get(f.id);
-      if (!verts) continue;
-      const basis = reg.rec(f.planeId).basis;
-      const pts: Pt[] = [];
-      for (const vid0 of verts) {
-        let vid = vid0;
-        while (mergeMap.has(vid)) vid = mergeMap.get(vid)!;
-        if (g.hasVertex(vid)) pts.push(projectToPlane(g.pt(vid), basis));
-      }
-      const probe = polygonProbe(pts);
-      const r = probe && (byPlane.get(f.planeId) ?? []).find((x) => !taken.has(x) && regionContains(x, probe));
-      if (r) {
-        this.adopt(f, r);
-        taken.add(r);
-      } else {
-        this.byId.delete(f.id); // 压扁/出平面退化：静默移除（M4 autofold 接管前的空档）
-      }
-    }
-    this.rebuildFaceLinks(g);
-    if (movedFaces.size) {
       const alive = [...movedFaces].filter((id) => this.byId.has(id));
       if (alive.length) events.push({ type: "STRETCH", faces: alive });
+      return events;
     }
+
+    const byPlane = this.regionsByPlane(g, reg, tol);
+    const chase = (vid: VertexId): VertexId => {
+      while (mergedVerts.has(vid)) vid = mergedVerts.get(vid)!;
+      return vid;
+    };
+    /** 快照环 → 现坐标闭多边形（合并去重、消失顶点丢弃）。 */
+    const ringPts3 = (vids: readonly VertexId[]): Pt3[] => {
+      const pts: Pt3[] = [];
+      for (const vid0 of vids) {
+        const vid = chase(vid0);
+        if (!g.hasVertex(vid)) continue;
+        const p = g.pt(vid);
+        if (pts.length && p.x === pts[pts.length - 1].x && p.y === pts[pts.length - 1].y && p.z === pts[pts.length - 1].z) continue;
+        pts.push(p);
+      }
+      while (pts.length >= 2 && pts[0].x === pts[pts.length - 1].x && pts[0].y === pts[pts.length - 1].y && pts[0].z === pts[pts.length - 1].z) pts.pop();
+      return pts;
+    };
+
+    // 认领矩阵：face → 覆盖的 region 集；region → 认领者
+    const claims = new Map<FaceId, { planeId: PlaneId; regions: Region[] }>();
+    const claimants = new Map<Region, FaceId[]>();
+    for (const f of this.faces()) {
+      const snap = snaps.get(f.id);
+      const outer3 = snap ? ringPts3(snap.outer) : [];
+      let planeId: PlaneId | null = null;
+      let covered: Region[] = [];
+      if (snap && outer3.length >= 3) {
+        // 像的平面拟合（刚移在面内 → 原平面；整体抬升 → 平行新平面；扭出平面 → 放弃认领=autofold 空档曝光）
+        let plane = null;
+        for (let i = 0; i + 2 < outer3.length && !plane; i++) plane = planeFromPoints(outer3[i], outer3[i + 1], outer3[i + 2]);
+        if (plane && outer3.every((p) => distToPlane(p, plane!) <= tol)) {
+          const rec = reg.ensure(plane, tol);
+          planeId = rec.id;
+          const outer2 = outer3.map((p) => projectToPlane(p, rec.basis));
+          const holes2 = snap.holes.map((h) => ringPts3(h).map((p) => projectToPlane(p, rec.basis)));
+          const windTotal = (p: Pt): number =>
+            windingOf(p, outer2) + holes2.reduce((acc, h) => acc + (h.length >= 3 ? windingOf(p, h) : 0), 0);
+          covered = (byPlane.get(rec.id) ?? []).filter((r) => Math.abs(windTotal(representativePoint(r))) >= 1);
+        }
+      }
+      claims.set(f.id, { planeId: planeId ?? f.planeId, regions: covered });
+      for (const r of covered) {
+        const list = claimants.get(r) ?? [];
+        list.push(f.id);
+        claimants.set(r, list);
+      }
+    }
+
+    // 叙事装配。descend: 事件层的「面 id → 现任持有者」映射（STRETCH 名单用）
+    const descend = new Map<FaceId, FaceId[]>();
+    // ① 一对多 → DIVIDE（退休铸新）
+    for (const [fid, c] of claims) {
+      if (c.regions.length < 2) continue;
+      this.byId.delete(fid);
+      const into: FaceId[] = [];
+      for (const r of c.regions) {
+        const nf = this.mint(c.planeId, r);
+        into.push(nf.id);
+        const list = claimants.get(r)!;
+        list[list.indexOf(fid)] = nf.id;
+      }
+      descend.set(fid, into);
+      events.push({ type: "DIVIDE", from: fid, into });
+    }
+    // ② 多对一 → MERGE（dedup：膜没有出身）
+    for (const [r, owners] of claimants) {
+      const unique = [...new Set(owners)];
+      if (unique.length < 2) continue;
+      let planeId: PlaneId | null = null;
+      for (const fid of unique) {
+        planeId = this.byId.get(fid)?.planeId ?? planeId;
+        this.byId.delete(fid);
+      }
+      const nf = this.mint(planeId!, r);
+      for (const fid of unique) descend.set(fid, [...(descend.get(fid) ?? []), nf.id]);
+      events.push({ type: "MERGE", from: unique, into: nf.id });
+      claimants.set(r, [nf.id]);
+    }
+    // ③ 一对一 → adopt 保 id（换平面则退休铸新，叙事并入 STRETCH）；零认领 → BURST
+    for (const [fid, c] of claims) {
+      if (descend.has(fid)) continue;
+      const f = this.byId.get(fid);
+      if (!f) continue;
+      if (c.regions.length === 0) {
+        this.byId.delete(fid);
+        events.push({ type: "BURST", face: fid });
+        continue;
+      }
+      const r = c.regions[0];
+      if ((claimants.get(r) ?? [])[0] !== fid) continue; // 已被 MERGE 收编
+      if (c.planeId === f.planeId) {
+        this.adopt(f, r);
+      } else {
+        this.byId.delete(fid);
+        const nf = this.mint(c.planeId, r);
+        descend.set(fid, [nf.id]);
+      }
+    }
+
+    this.rebuildFaceLinks(g);
+    const stretched = new Set<FaceId>();
+    for (const id of movedFaces) {
+      if (this.byId.has(id) && !descend.has(id) && !events.some((e) => e.type === "BURST" && e.face === id)) stretched.add(id);
+      else for (const d of descend.get(id) ?? []) void d; // DIVIDE/MERGE 已各自叙事，不重复进 STRETCH
+    }
+    if (stretched.size) events.push({ type: "STRETCH", faces: [...stretched] });
     return events;
   }
 
@@ -343,9 +428,14 @@ export class FaceStore {
   }
 }
 
-/** 顶点序列的内部代表点（move 匹配用）。 */
-function polygonProbe(pts: Pt[]): Pt | undefined {
-  if (pts.length < 3) return undefined;
-  const ring: Ring = { edges: [], pts };
-  return representativePoint({ outer: ring, holes: [] });
+/** 绕数（覆盖函数用；|w|≥1=覆盖——1+1=1，不 mod 2）。 */
+function windingOf(p: Pt, poly: readonly Pt[]): number {
+  let w = 0;
+  for (let i = 0; i < poly.length; i++) {
+    const a = poly[i], b = poly[(i + 1) % poly.length];
+    if (a.y <= p.y) {
+      if (b.y > p.y && cross(a, b, p) > 0) w++;
+    } else if (b.y <= p.y && cross(a, b, p) < 0) w--;
+  }
+  return w;
 }

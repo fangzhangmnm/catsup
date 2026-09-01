@@ -9,14 +9,14 @@ import {
   dist3,
   distToPlane,
   distToSegment3,
-  pointOnSegment3,
   projectToPlane,
+  ptKey3,
   quantize3,
   samePt3,
-  segIntersections3,
 } from "./geom.ts";
 import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, PlanarGraph } from "./topology.ts";
 import { insertSegment } from "./subdivide.ts";
+import { planarize } from "./planarize.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
 
@@ -90,68 +90,63 @@ export class Kernel {
   }
 
   /**
-   * 移动顶点（sticky：落点撞顶点=合并、落边内部=切开再合并、拖出交叉=重新 subdivide）。
-   * 结构上不传手势边集 → move 永不生膜（守恒律）。
-   * M1 范围注：move 拖边横穿他面的 DIVIDE、压扁成零面积的面 → 未实现（golden 挂 todo）。
+   * 移动顶点 —— sticky geometry 协议（spec = ai-docs/20260901-move-spec.md）：
+   * ① 合并组预判（按**终态**位置分组，撞格=合并——绝无幽灵中间态裁决）
+   * ② 批量刚移（纯坐标）③ planarize 自愈（不注入手势 → 永不生膜，守恒律 by construction）
+   * ④ 覆盖 reconcile 设面（胞腔填 ⟺ 被 ≥1 旧膜像覆盖，1+1=1）。
+   * rotate/duplicate/scale 未来同走此协议。edited by Claude Fable 5 2026-09-01
    */
   moveVertices(moves: readonly { id: VertexId; to: PtIn }[]): FaceEvent[] {
-    // anchor 快照：每面外环顶点 id（sticky 变拓扑后用当前坐标重建多边形）
-    const ringVerts = new Map<FaceId, VertexId[]>();
+    // 快照：每面全环（外+洞）顶点 id + 受牵连面
+    const snaps = new Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>();
+    const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): VertexId[] =>
+      r.edges.map((d) => (d.forward ? this.graph.edge(d.edge).a : this.graph.edge(d.edge).b));
     for (const f of this.store.faces()) {
-      ringVerts.set(
-        f.id,
-        f.outer.edges.map((d) => {
-          const e = this.graph.edge(d.edge);
-          return d.forward ? e.a : e.b;
-        }),
-      );
+      snaps.set(f.id, { outer: ringVids(f.outer), holes: f.holes.map(ringVids) });
+    }
+    const targets = new Map<VertexId, Pt3>();
+    for (const mv of moves) {
+      if (this.graph.hasVertex(mv.id)) targets.set(mv.id, quantize3(toPt3(mv.to)));
     }
     const movedFaces = new Set<FaceId>();
-    const mergeMap = new Map<VertexId, VertexId>();
-    let topologyChanged = false;
-
-    for (const mv of moves) {
-      let vid = mv.id;
-      while (mergeMap.has(vid)) vid = mergeMap.get(vid)!;
-      if (!this.graph.hasVertex(vid)) continue;
-      const target = quantize3(toPt3(mv.to));
-      const cur = this.graph.pt(vid);
-      if (samePt3(cur, target)) continue;
-
+    for (const vid of targets.keys()) {
       for (const eid of this.graph.vertex(vid).edges) {
         for (const fid of this.graph.edge(eid).faceLinks) movedFaces.add(fid);
       }
-
-      const occupant = this.graph.vertexAt(target);
-      if (occupant !== undefined && occupant !== vid) {
-        // sticky：落点撞既有顶点 → 合并（重合即同一）
-        topologyChanged = true;
-        this.mergeVertexInto(vid, occupant, mergeMap);
-        continue;
-      }
-      const hostEdge = this.findEdgeContaining(target, vid);
-      if (hostEdge !== undefined) {
-        // sticky：落点在他边内部 → 切开，然后并入切点
-        topologyChanged = true;
-        this.graph.splitEdge(hostEdge, target);
-        this.mergeVertexInto(vid, this.graph.vertexAt(target)!, mergeMap);
-        continue;
-      }
-      this.graph.relocateVertex(vid, target);
-      // 移动后 incident 边可能与他边交叉 / 他顶点落上来 → rip & reinsert（无手势身份）
-      const dirty = this.dirtyIncidentEdges(vid);
-      if (dirty.length) {
-        topologyChanged = true;
-        for (const eid of dirty) {
-          if (!this.graph.hasEdge(eid)) continue;
-          const e = this.graph.edge(eid);
-          const pa = this.graph.pt(e.a), pb = this.graph.pt(e.b);
-          this.graph.removeEdge(eid);
-          insertSegment(this.graph, pa, pb);
-        }
+    }
+    // ① 合并组预判：所有顶点按终态格点分组；同格 = 合并（幸存者优先取未移动者）
+    const byFinal = new Map<string, VertexId[]>();
+    for (const v of this.graph.vertices()) {
+      const p = targets.get(v.id) ?? { x: v.x, y: v.y, z: v.z };
+      const k = ptKey3(p);
+      const list = byFinal.get(k) ?? [];
+      list.push(v.id);
+      byFinal.set(k, list);
+    }
+    const mergedVerts = new Map<VertexId, VertexId>();
+    let mergesHappened = false;
+    for (const group of byFinal.values()) {
+      if (group.length < 2) continue;
+      mergesHappened = true;
+      const survivor = group.find((id) => !targets.has(id)) ?? Math.min(...group);
+      for (const other of group) {
+        if (other === survivor) continue;
+        mergedVerts.set(other, survivor);
+        this.absorbVertex(other, survivor);
+        targets.delete(other);
       }
     }
-    return this.emit(this.store.reconcileMove(this.graph, this.planes, this.coplanarTol, ringVerts, mergeMap, topologyChanged, movedFaces));
+    // ② 批量刚移（先摘 key 后上 key，无瞬态碰撞）
+    const batch = [...targets]
+      .filter(([id, to]) => this.graph.hasVertex(id) && !samePt3(this.graph.pt(id), to))
+      .map(([id, to]) => ({ id, to }));
+    this.graph.relocateVertices(batch);
+    // ③ 自愈
+    const { changed } = planarize(this.graph);
+    // ④ 覆盖 reconcile
+    return this.emit(this.store.reconcileCoverage(
+      this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, mergesHappened || changed,
+    ));
   }
 
   // ---------------- queries ----------------
@@ -203,51 +198,18 @@ export class Kernel {
     return events;
   }
 
-  /** 把 from 的边全部搬到 to（平行边去重丢弃；坍缩边丢弃）；from 随最后一条边消亡。 */
-  private mergeVertexInto(from: VertexId, to: VertexId, mergeMap: Map<VertexId, VertexId>): void {
-    mergeMap.set(from, to);
+  /**
+   * 合并组执行体：from 的边全部搬到 to（坍缩边丢弃、平行边去重——sticky 有损，公理 3）；
+   * from 随最后一条边消亡。先加后删，防对端顶点被中途 GC。edited by Claude Fable 5 2026-09-01
+   */
+  private absorbVertex(from: VertexId, to: VertexId): void {
     for (const eid of [...this.graph.vertex(from).edges]) {
       const e = this.graph.edge(eid);
       const other = this.graph.otherEnd(e, from);
+      if (other !== to && this.graph.edgeBetween(to, other) === undefined) {
+        this.graph.addEdge(to, other);
+      }
       this.graph.removeEdge(eid);
-      if (other === to) continue;                                  // 边坍缩
-      if (this.graph.edgeBetween(to, other) !== undefined) continue; // 平行边去重（sticky 有损）
-      this.graph.addEdge(to, other);
     }
-  }
-
-  /** target 落在哪条边内部（排除 vid 的 incident 边——顶点滑到自家边上是折叠，暂不处理）。 */
-  private findEdgeContaining(target: Pt3, vid: VertexId): EdgeId | undefined {
-    for (const e of this.graph.edges()) {
-      if (e.a === vid || e.b === vid) continue;
-      const pa = this.graph.pt(e.a), pb = this.graph.pt(e.b);
-      if (!pointOnSegment3(target, pa, pb)) continue;
-      if (samePt3(target, pa) || samePt3(target, pb)) continue;
-      return e.id;
-    }
-    return undefined;
-  }
-
-  /** vid 的 incident 边中，与他边交叉或被他顶点骑上的（需要 rip & reinsert）。 */
-  private dirtyIncidentEdges(vid: VertexId): EdgeId[] {
-    const dirty: EdgeId[] = [];
-    for (const eid of this.graph.vertex(vid).edges) {
-      const e = this.graph.edge(eid);
-      const pa = this.graph.pt(e.a), pb = this.graph.pt(e.b);
-      let isDirty = false;
-      for (const o of this.graph.edges()) {
-        if (o.id === eid) continue;
-        if (o.a === e.a || o.a === e.b || o.b === e.a || o.b === e.b) continue; // 共端点相邻边不算
-        if (segIntersections3(pa, pb, this.graph.pt(o.a), this.graph.pt(o.b)).length) { isDirty = true; break; }
-      }
-      if (!isDirty) {
-        for (const v of this.graph.vertices()) {
-          if (v.id === e.a || v.id === e.b) continue;
-          if (pointOnSegment3({ x: v.x, y: v.y, z: v.z }, pa, pb)) { isDirty = true; break; }
-        }
-      }
-      if (isDirty) dirty.push(eid);
-    }
-    return dirty;
   }
 }

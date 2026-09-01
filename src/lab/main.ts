@@ -1,14 +1,16 @@
 // lab main.ts —— 2D 肥皂膜 lab 指针接线（playground 减法版 + 预置面板）。
 // created by Claude Fable 5, 2026-09-01
 // 与 playground 的关系：同一颗内核、同一套 pick/render 模块；这里是 drill 仪器——
-// 相机锁死顶视（2D=视角限制不是代码回滚）、无 move（parked，等人类口述 spec）、
-// snap 仅脚手架三件套（endpoint/on-edge/轴锁；体系本体 parked）、事件日志 C 位、场景预置一键摆。
+// 相机锁死顶视（2D=视角限制不是代码回滚）、snap 仅脚手架三件套（体系本体 parked）、
+// 事件日志 C 位、场景预置一键摆。move = sticky geometry 协议（spec=ai-docs/20260901-move-spec.md）：
+// 拖拽纯 ghost 零裁决，松手 moveVertices 结算；选区（线面混选）优先，否则移动命中实体。
+// edited by Claude Fable 5 2026-09-01（move 接入）
 
 import { Kernel } from "../kernel/kernel.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3 } from "../kernel/kernel.ts";
+import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "../playground/camera.ts";
 import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, snapPoint } from "../playground/pick.ts";
-import { type Selection, emptySelection, rectSegmentsOnPlane } from "../playground/tools.ts";
+import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "../playground/tools.ts";
 import { Renderer3 } from "../playground/render3.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 
@@ -30,7 +32,7 @@ const r3 = new Renderer3(canvas);
 const SNAP = 8;
 const HIT = 6;
 
-type Tool = "select" | "line" | "rect" | "erase" | "eraseFace";
+type Tool = "select" | "line" | "rect" | "move" | "erase" | "eraseFace";
 let tool: Tool = "line";
 
 // ---- 瞬态 ----
@@ -38,6 +40,7 @@ let anchor3: Pt3 | null = null;
 let gesturePlane: DrawPlane = GROUND;
 let cursor3: Pt3 | null = null;
 let snapInfo: Snap3 | null = null;
+let moveVids: VertexId[] = [];
 let scrubAcc = new Set<EdgeId>();
 let scrubbing = false;
 let selection: Selection = emptySelection();
@@ -50,13 +53,14 @@ let previewEvents: FaceEvent[] = [];
 let camDrag: { x: number; y: number } | null = null;
 
 const vp = (): Viewport => ({ w: canvas.clientWidth, h: canvas.clientHeight });
-const gestureActive = (): boolean => anchor3 !== null || scrubbing || marqueeStart !== null;
+const gestureActive = (): boolean => anchor3 !== null || moveVids.length > 0 || scrubbing || marqueeStart !== null;
 
 // ---------- 工具切换 ----------
 const toolButtons: Record<Tool, HTMLButtonElement> = {
   select: document.getElementById("toolSelect") as HTMLButtonElement,
   line: document.getElementById("toolLine") as HTMLButtonElement,
   rect: document.getElementById("toolRect") as HTMLButtonElement,
+  move: document.getElementById("toolMove") as HTMLButtonElement,
   erase: document.getElementById("toolErase") as HTMLButtonElement,
   eraseFace: document.getElementById("toolEraseFace") as HTMLButtonElement,
 };
@@ -70,6 +74,7 @@ for (const [name, btn] of Object.entries(toolButtons)) btn.addEventListener("cli
 
 function cancelGesture(): void {
   anchor3 = null;
+  moveVids = [];
   cursor3 = null;
   snapInfo = null;
   scrubAcc = new Set();
@@ -169,6 +174,25 @@ function computePreview(): void {
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
 // ---------- 渲染 ----------
+/** move 拖拽纯 ghost：受牵连边按 delta 映射端点（零拓扑裁决——松手才结算）。 */
+function ghostSegs(): [Pt3, Pt3][] | null {
+  if (tool !== "move" || !moveVids.length || !anchor3 || !cursor3) return null;
+  const d = { x: cursor3.x - anchor3.x, y: cursor3.y - anchor3.y, z: cursor3.z - anchor3.z };
+  if (Math.hypot(d.x, d.y, d.z) < 0.3) return null;
+  const moved = new Set(moveVids);
+  const segs: [Pt3, Pt3][] = [];
+  for (const e of kernel.edges()) {
+    const inA = moved.has(e.a), inB = moved.has(e.b);
+    if (!inA && !inB) continue;
+    const pa = kernel.graph.pt(e.a), pb = kernel.graph.pt(e.b);
+    segs.push([
+      inA ? { x: pa.x + d.x, y: pa.y + d.y, z: pa.z + d.z } : pa,
+      inB ? { x: pb.x + d.x, y: pb.y + d.y, z: pb.z + d.z } : pb,
+    ]);
+  }
+  return segs;
+}
+
 function draw(): void {
   r3.render(kernel, cam, vp(), {
     selectionEdges: selection.edges,
@@ -179,6 +203,7 @@ function draw(): void {
     preview,
     snap: snapInfo,
     snapAnchor: anchor3,
+    ghostSegs: ghostSegs(),
   });
 }
 
@@ -226,6 +251,23 @@ canvas.addEventListener("pointerdown", (ev) => {
       cursor3 = anchor3;
       break;
     }
+    case "move": {
+      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      const inSel = (hit.edge !== undefined && selection.edges.has(hit.edge)) ||
+        (hit.face !== undefined && selection.faces.has(hit.face));
+      moveVids = inSel && (selection.edges.size || selection.faces.size)
+        ? moveTargetsSelection(kernel, selection)
+        : moveTargets(kernel, hit);
+      if (moveVids.length) {
+        gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+        anchor3 = hit.vertex !== undefined
+          ? kernel.graph.pt(hit.vertex)
+          : snapPoint(kernel, cam, vp(), s.x, s.y, 0, gesturePlane).p;
+        cursor3 = anchor3;
+        hintEl.textContent = "移动中…松手结算（拖拽期间纯 ghost）";
+      }
+      break;
+    }
     case "erase": {
       scrubbing = true;
       scrubAcc = new Set();
@@ -257,7 +299,7 @@ canvas.addEventListener("pointermove", (ev) => {
     snapInfo = null;
     hoverEdge = null;
     hoverFace = null;
-    if (tool === "line" || tool === "rect") {
+    if (tool === "line" || tool === "rect" || tool === "move") {
       const plane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
       snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane);
     } else if (tool === "erase") {
@@ -275,6 +317,13 @@ canvas.addEventListener("pointermove", (ev) => {
     case "rect":
       if (anchor3) {
         snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, tool === "line" ? anchor3 : null);
+        cursor3 = snapInfo.p;
+      }
+      break;
+    case "move":
+      if (moveVids.length && anchor3) {
+        const excl = moveVids.length === 1 ? moveVids[0] : null;
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl);
         cursor3 = snapInfo.p;
       }
       break;
@@ -301,7 +350,7 @@ canvas.addEventListener("pointermove", (ev) => {
     case "eraseFace":
       break;
   }
-  if (tool !== "select") computePreview();
+  if (tool !== "select" && tool !== "move") computePreview();
   updateTip(ev.clientX, ev.clientY);
   draw();
 });
@@ -325,6 +374,17 @@ canvas.addEventListener("pointerup", (ev) => {
       const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
       cancelGesture();
       if (segs.length) appendLog(kernel.addEdges(segs));
+      break;
+    }
+    case "move": {
+      if (!moveVids.length || !anchor3) { cancelGesture(); break; }
+      const excl = moveVids.length === 1 ? moveVids[0] : null;
+      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl).p;
+      const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
+      const vids = moveVids;
+      const d = Math.hypot(delta.x, delta.y, delta.z);
+      cancelGesture();
+      if (d >= 0.3) appendLog(kernel.moveVertices(translateMoves(kernel, vids, delta)));
       break;
     }
     case "erase": {

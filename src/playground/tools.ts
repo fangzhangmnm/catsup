@@ -70,5 +70,17 @@ export function translateMoves(
     });
 }
 
+/** 多选混移展开（SU 同款：线/面混选合法）：选区全部实体 → 顶点并集。added by Claude Fable 5 2026-09-01 */
+export function moveTargetsSelection(k: Kernel, sel: Selection): VertexId[] {
+  const ids = new Set<VertexId>();
+  for (const eid of sel.edges) {
+    if (!k.graph.hasEdge(eid)) continue;
+    const e = k.graph.edge(eid);
+    ids.add(e.a); ids.add(e.b);
+  }
+  for (const fid of sel.faces) for (const vid of moveTargets(k, { face: fid })) ids.add(vid);
+  return [...ids];
+}
+
 /** 类型 re-export 便利（main.ts 少一层 import）。 */
 export type { Edge, Face };

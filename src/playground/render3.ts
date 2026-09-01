@@ -27,6 +27,8 @@ export interface ViewState {
   preview: Kernel | null;      // 影子副本（预览即提交）
   snap: Snap3 | null;
   snapAnchor: Pt3 | null;      // axis 锁的虚线起点
+  /** move 拖拽纯 ghost（零拓扑裁决，spec=20260901-move-spec.md §1；松手才结算）。added by Claude Fable 5 2026-09-01 */
+  ghostSegs?: readonly (readonly [Pt3, Pt3])[] | null;
 }
 
 export class Renderer3 {
@@ -129,6 +131,13 @@ export class Renderer3 {
         const nm = faceMesh(pk, f.id, { color: 0x2b6cb0, opacity: 0.18, offset: -1 });
         if (nm) g.add(nm);
       }
+    }
+
+    // ---- move 纯 ghost（灰线；不预演拓扑） ----
+    if (view.ghostSegs?.length) {
+      const pts: Pt3[] = [];
+      for (const [a, b] of view.ghostSegs) pts.push(a, b);
+      g.add(lineSegments(pts, 0x999999, 1));
     }
 
     // ---- 吸附指示 ----
