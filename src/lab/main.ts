@@ -20,7 +20,7 @@ const logEl = document.getElementById("log")!;
 const hintEl = document.getElementById("hint")!;
 const tipEl = document.getElementById("tip")!;
 const marqueeEl = document.getElementById("marquee")!;
-const HINT_DEFAULT = "画线/矩形：鼠标可点两下（线连画）；右/中键拖=平移（3D 时=环绕，Shift=平移）滚轮=缩放；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消";
+const HINT_DEFAULT = "画线/矩形：鼠标可点两下；右/中键拖=平移（3D 时=环绕，Shift=平移）滚轮=缩放；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消";
 
 let kernel = new Kernel();
 const journal = new Journal();
@@ -299,17 +299,11 @@ canvas.addEventListener("pointerdown", (ev) => {
         // 点两下模式第二击 = 落笔（SU 同款；线工具链式连画）
         justCommitted = true;
         if (tool === "line") {
+          // 不连画（user 2026-09-01 裁定：纯鼠标无逃生，连画议题入 backlog 以后 grill）
           const a = anchor3;
           const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, a).p;
-          if (dist(a, b) >= 1) {
-            appendLog(commitOp({ op: "addEdges", segs: [[a, b]] }));
-            anchor3 = b;          // 终点成新起点
-            cursor3 = b;
-            preview = null;
-            previewEvents = [];
-          } else {
-            cancelGesture();      // 原地点击 = 收笔
-          }
+          cancelGesture();
+          if (dist(a, b) >= 1) appendLog(commitOp({ op: "addEdges", segs: [[a, b]] }));
         } else {
           const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
           const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
@@ -443,7 +437,7 @@ canvas.addEventListener("pointerup", (ev) => {
       if (justCommitted) { justCommitted = false; break; }
       if (canArm && downScreen && Math.hypot(s.x - downScreen.x, s.y - downScreen.y) <= 4) {
         armed = true;   // 第一击是点击不是拖 → 进点两下模式
-        hintEl.textContent = "移动预览，再点一下落笔（线可连画）；Esc 收笔";
+        hintEl.textContent = "移动预览，再点一下落笔；Esc 取消";
         break;
       }
       const a = anchor3;

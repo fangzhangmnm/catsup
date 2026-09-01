@@ -59,3 +59,31 @@ describe("snap: 轴对齐约束层", () => {
     assert(Math.abs(r.p.y) < 1e-9, "锁在 X 轴");
   });
 });
+
+describe("snap: 轴平行 3D（XZ/YZ 画图入口）", () => {
+  it("竖直共轴合成：Z 轴锁 ∩ 高处顶点的水平共轴 → 空中角点", () => {
+    // 高处顶点 V=(0,0,10)；anchor=(10,0,0)；光标凑近 (10,0,10) →
+    // 过 anchor 的 Z 线 ∩ 过 V 的 X 向共轴线（共享固定坐标 y=0 一致=真相交）→ (10,0,10)
+    const k = new Kernel();
+    k.addEdges([[{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 10 }]]);
+    const c = new OrbitCamera();          // 默认 3D 轨道视角
+    c.target = { x: 5, y: 0, z: 5 };
+    c.halfH = 50;
+    const s = at(c, { x: 10.2, y: 0, z: 9.8 });
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 0, z: 0 });
+    eq(r.kind, "align-combo", "kind=align-combo");
+    assert(Math.abs(r.p.x - 10) < 1e-9 && Math.abs(r.p.z - 10) < 1e-9, `角点=(10,0,10)，实际 (${r.p.x},${r.p.y},${r.p.z})`);
+  });
+
+  it("3D 两线不相交 → 拒绝合成（共享固定坐标不一致）", () => {
+    // V=(0,0,10) 的 X 向线（y=0,z=10）与 anchor=(10,5,0) 的 Z 线（x=10,y=5）：y 不一致（0≠5）→ 无 combo
+    const k = new Kernel();
+    k.addEdges([[{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 10 }]]);
+    const c = new OrbitCamera();
+    c.target = { x: 5, y: 2, z: 5 };
+    c.halfH = 50;
+    const s = at(c, { x: 10.1, y: 4.2, z: 9.9 });
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 5, z: 0 });
+    assert(r.kind !== "align-combo", `不许假相交合成（实际 kind=${r.kind}）`);
+  });
+});

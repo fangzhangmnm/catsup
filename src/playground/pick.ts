@@ -10,7 +10,6 @@ import {
   canonicalPlane,
   dist3,
   dot3,
-  liftFromPlane,
   planeBasis,
   pointInRing,
   projectToPlane,
@@ -156,28 +155,23 @@ export function snapPoint(
   }
   if (bestE) return { p: bestE.p, kind: "on-edge" };
 
-  // 4. 轴对齐 1-DOF 约束层（源点 × 面内基方向 + anchor 的世界 Z）
+  // 4. 轴平行 1-DOF 约束层（user 2026-09-01：SU 的 XZ/YZ 画图=轴平行 snap，摄像机无关，
+  //    不存在「平面识别」）：每个源点沿世界三轴各伸一条约束线；合成前必须验真相交
+  //    （3D 两线一般不交——共享固定坐标一致才成立；2D 正交必交是特例）。
   {
-    const axisName = (dir: Pt3): "x" | "y" | "z" | "u" | "v" => {
-      const ad = (a: Pt3): number => Math.abs(dot3(dir, a));
-      if (ad({ x: 1, y: 0, z: 0 }) > 0.999) return "x";
-      if (ad({ x: 0, y: 1, z: 0 }) > 0.999) return "y";
-      if (ad({ x: 0, y: 0, z: 1 }) > 0.999) return "z";
-      return "u";
-    };
-    interface Cand { src: Pt3; dir: Pt3; q: Pt3; d: number; axis: "x" | "y" | "z" | "u" | "v"; fromAnchor: boolean; }
+    type AxName = "x" | "y" | "z";
+    const DIRS: { axis: AxName; dir: Pt3 }[] = [
+      { axis: "x", dir: { x: 1, y: 0, z: 0 } },
+      { axis: "y", dir: { x: 0, y: 1, z: 0 } },
+      { axis: "z", dir: { x: 0, y: 0, z: 1 } },
+    ];
+    interface Cand { src: Pt3; axis: AxName; q: Pt3; d: number; fromAnchor: boolean; }
     const lineDist = (src: Pt3, dir: Pt3): number => {
       const a1 = cam.worldToScreen(src, vp);
       const a2 = cam.worldToScreen({ x: src.x + dir.x * 100, y: src.y + dir.y * 100, z: src.z + dir.z * 100 }, vp);
       return sdistToSeg2Line(cursor, a1, a2);
     };
-    const tryCand = (src: Pt3, dir: Pt3, fromAnchor: boolean): Cand | null => {
-      const d = lineDist(src, dir);
-      if (d > tolPx) return null;
-      const q = closestOnAxis(src, dir, ray.origin, ray.dir);
-      return q ? { src, dir, q, d, axis: axisName(dir), fromAnchor } : null;
-    };
-    // 源点：anchor（优先）+ 原点（永久源）+ 模型顶点；按格点去重
+    // 源点：anchor（优先）+ 原点（永久源=坐标轴本体）+ 模型顶点；按格点去重
     const sources: { p: Pt3; fromAnchor: boolean }[] = [];
     const seen = new Set<string>();
     const addSrc = (p: Pt3, fromAnchor: boolean): void => {
@@ -194,41 +188,49 @@ export function snapPoint(
     }
     const better = (a: Cand | null, b: Cand): boolean =>
       !a || b.d < a.d - 1e-9 || (Math.abs(b.d - a.d) <= 1e-9 && b.fromAnchor && !a.fromAnchor);
-    let bestU: Cand | null = null, bestW: Cand | null = null, bestZ: Cand | null = null;
+    const best: Record<AxName, Cand | null> = { x: null, y: null, z: null };
     for (const src of sources) {
-      const cu = tryCand(src.p, plane.basis.u, src.fromAnchor);
-      if (cu && better(bestU, cu)) bestU = cu;
-      const cw = tryCand(src.p, plane.basis.v, src.fromAnchor);
-      if (cw && better(bestW, cw)) bestW = cw;
-    }
-    if (anchor) {
-      const cz = tryCand(anchor, { x: 0, y: 0, z: 1 }, true);
-      if (cz && better(bestZ, cz)) bestZ = cz;
-    }
-    // 正交双约束合成：沿 u 的线定 v 坐标、沿 v 的线定 u 坐标 → 交点（矩形闭合角点）
-    if (bestU && bestW) {
-      const p2 = { x: projectToPlane(bestW.src, plane.basis).x, y: projectToPlane(bestU.src, plane.basis).y };
-      const p3 = liftFromPlane(p2, plane.plane, plane.basis);
-      if (sdist(cursor, cam.worldToScreen(p3, vp)) <= tolPx * 2.5) {
-        return {
-          p: p3,
-          kind: "align-combo",
-          hints: [
-            { a: bestU.src, b: p3, axis: bestU.axis },
-            { a: bestW.src, b: p3, axis: bestW.axis },
-          ],
-        };
+      for (const { axis, dir } of DIRS) {
+        const d = lineDist(src.p, dir);
+        if (d > tolPx) continue;
+        const q = closestOnAxis(src.p, dir, ray.origin, ray.dir);
+        if (!q) continue;
+        const c: Cand = { src: src.p, axis, q, d, fromAnchor: src.fromAnchor };
+        if (better(best[axis], c)) best[axis] = c;
       }
     }
+    // 双约束合成：p 的 c1 轴坐标取自 c2 的固定坐标、反之；第三轴双方都固定——必须一致（真相交判定）
+    const COORD_TOL = 1e-4;
+    let combo: { p: Pt3; d: number; c1: Cand; c2: Cand } | null = null;
+    const pairs: [AxName, AxName, AxName][] = [["x", "y", "z"], ["x", "z", "y"], ["y", "z", "x"]];
+    for (const [a1, a2, a3] of pairs) {
+      const c1 = best[a1], c2 = best[a2];
+      if (!c1 || !c2) continue;
+      const g = (p: Pt3, ax: AxName): number => (ax === "x" ? p.x : ax === "y" ? p.y : p.z);
+      if (Math.abs(g(c1.src, a3) - g(c2.src, a3)) > COORD_TOL) continue; // 3D 两线不相交，合成不成立
+      const coord = (ax: AxName): number => (ax === a1 ? g(c2.src, a1) : ax === a2 ? g(c1.src, a2) : g(c1.src, a3));
+      const p3: Pt3 = { x: coord("x"), y: coord("y"), z: coord("z") };
+      const d = sdist(cursor, cam.worldToScreen(p3, vp));
+      if (d <= tolPx * 2.5 && (!combo || d < combo.d)) combo = { p: p3, d, c1, c2 };
+    }
+    if (combo) {
+      return {
+        p: combo.p,
+        kind: "align-combo",
+        hints: [
+          { a: combo.c1.src, b: combo.p, axis: combo.c1.axis },
+          { a: combo.c2.src, b: combo.p, axis: combo.c2.axis },
+        ],
+      };
+    }
     let single: Cand | null = null;
-    for (const c of [bestU, bestW, bestZ]) if (c && better(single, c)) single = c;
+    for (const c of [best.x, best.y, best.z]) if (c && better(single, c)) single = c;
     if (single) {
-      const legacy: Record<string, SnapKind> = { x: "axis-x", y: "axis-y", z: "axis-z" };
-      const kind: SnapKind = single.fromAnchor && legacy[single.axis] ? legacy[single.axis] : "align";
+      const legacy: Record<AxName, SnapKind> = { x: "axis-x", y: "axis-y", z: "axis-z" };
+      const kind: SnapKind = single.fromAnchor ? legacy[single.axis] : "align";
       return { p: single.q, kind, hints: [{ a: single.src, b: single.q, axis: single.axis }] };
     }
   }
-
   // 5. 落到画线平面
   const p = rayPlane(ray.origin, ray.dir, plane.plane.n, plane.plane.d);
   return { p: p ?? (anchor ?? { x: 0, y: 0, z: 0 }), kind: null };
