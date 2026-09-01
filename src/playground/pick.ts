@@ -9,6 +9,7 @@ import {
   type PlaneParams,
   canonicalPlane,
   dist3,
+  distToPlane,
   dot3,
   planeBasis,
   pointInRing,
@@ -234,6 +235,38 @@ export function snapPoint(
   // 5. 落到画线平面
   const p = rayPlane(ray.origin, ray.dir, plane.plane.n, plane.plane.d);
   return { p: p ?? (anchor ?? { x: 0, y: 0, z: 0 }), kind: null };
+}
+
+/**
+ * 矩形工具的画面平面决定（user 2026-09-01 口述 SU 行为）：
+ * ①首点在面上 = 与面平行（调用方直接锁面平面，不进本函数）；
+ * ②空处 = 摄像机托底（过首点的三张世界轴平面里最面向相机者）；
+ * ③**主要看第二点**：第二点解析出的 3D 点若落进某候选平面 → 该平面胜出
+ *   （吸到高处端点/Z 轴锁 → 矩形自动立起来；多个含之取面向相机者）。
+ * 返回本帧用的平面 + 第二点吸附结果（调用方勿重复吸附）。added by Claude Fable 5 2026-09-01
+ */
+export function resolveRectPlane(
+  k: Kernel,
+  cam: OrbitCamera,
+  vp: Viewport,
+  p1: Pt3,
+  sx: number,
+  sy: number,
+  tolPx: number,
+  coplanarTol = 1e-3,
+): { plane: DrawPlane; snap: Snap3 } {
+  const mk = (n: Pt3): DrawPlane => {
+    const pl = canonicalPlane(n, dot3(n, p1));
+    return { plane: pl, basis: planeBasis(pl) };
+  };
+  const candidates = [mk({ x: 0, y: 0, z: 1 }), mk({ x: 0, y: 1, z: 0 }), mk({ x: 1, y: 0, z: 0 })];
+  const fwd = cam.forward();
+  const facing = (arr: DrawPlane[]): DrawPlane =>
+    arr.reduce((a, b) => (Math.abs(dot3(b.plane.n, fwd)) > Math.abs(dot3(a.plane.n, fwd)) ? b : a));
+  const camPlane = facing(candidates);
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, camPlane, p1);
+  const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= Math.max(coplanarTol, 1e-6));
+  return { plane: containing.length ? facing(containing) : camPlane, snap };
 }
 
 /** 点到（屏幕投影后的）无限直线距离。 */

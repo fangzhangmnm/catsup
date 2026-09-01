@@ -9,7 +9,8 @@
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "../playground/camera.ts";
-import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, snapPoint } from "../playground/pick.ts";
+import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, resolveRectPlane, snapPoint } from "../playground/pick.ts";
+import { canonicalPlane, dot3, planeBasis } from "../kernel/geom.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "../playground/tools.ts";
 import { Renderer3 } from "../playground/render3.ts";
 import { PRESETS } from "./presets.ts";
@@ -46,6 +47,7 @@ let tool: Tool = "line";
 // ---- 瞬态 ----
 let anchor3: Pt3 | null = null;
 let gesturePlane: DrawPlane = GROUND;
+let rectFixed: DrawPlane | null = null;   // 矩形首点在面上 → 与面平行锁死；否则动态（看第二点）
 let cursor3: Pt3 | null = null;
 let snapInfo: Snap3 | null = null;
 let moveVids: VertexId[] = [];
@@ -88,6 +90,7 @@ for (const [name, btn] of Object.entries(toolButtons)) btn.addEventListener("cli
 function cancelGesture(): void {
   anchor3 = null;
   moveVids = [];
+  rectFixed = null;
   armed = false;
   canArm = false;
   downScreen = null;
@@ -221,6 +224,27 @@ function computePreview(): void {
 }
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
+/** 摄像机托底平面（过视点 target 的世界轴平面里最面向相机者）。 */
+function cameraFallbackPlane(): DrawPlane {
+  const fwd = cam.forward();
+  const ns = [{ x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }];
+  let best = ns[0];
+  for (const n of ns) if (Math.abs(dot3(n, fwd)) > Math.abs(dot3(best, fwd))) best = n;
+  const pl = canonicalPlane(best, dot3(best, cam.target));
+  return { plane: pl, basis: planeBasis(pl) };
+}
+/** 矩形第二点：固定面 → 面内吸附；动态 → 平面被第二点拉动（resolveRectPlane）。 */
+function rectPlaneSnap(sx: number, sy: number): Pt3 {
+  if (rectFixed) {
+    snapInfo = snapPoint(kernel, cam, vp(), sx, sy, SNAP, gesturePlane);
+    return snapInfo.p;
+  }
+  const r = resolveRectPlane(kernel, cam, vp(), anchor3!, sx, sy, SNAP);
+  gesturePlane = r.plane;
+  snapInfo = r.snap;
+  return r.snap.p;
+}
+
 // ---------- 渲染 ----------
 /** move 拖拽纯 ghost：受牵连边按 delta 映射端点（零拓扑裁决——松手才结算）。 */
 function ghostSegs(): [Pt3, Pt3][] | null {
@@ -305,14 +329,25 @@ canvas.addEventListener("pointerdown", (ev) => {
           cancelGesture();
           if (dist(a, b) >= 1) appendLog(commitOp({ op: "addEdges", segs: [[a, b]] }));
         } else {
-          const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
+          const b = rectPlaneSnap(s.x, s.y);
           const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
           cancelGesture();
           if (segs.length) appendLog(commitOp({ op: "addEdges", segs }));
         }
         break;
       }
-      gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+      if (tool === "rect") {
+        const hitF = pickEntity(kernel, cam, vp(), s.x, s.y, 0.5);
+        if (hitF.face !== undefined) {
+          const rec = kernel.planeOf(hitF.face)!;
+          rectFixed = { plane: rec.plane, basis: rec.basis };  // ①在面上=与面平行
+        } else {
+          rectFixed = null;                                    // ②③空处=动态（托底+看第二点）
+        }
+        gesturePlane = rectFixed ?? cameraFallbackPlane();
+      } else {
+        gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+      }
       snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane);
       anchor3 = snapInfo.p;
       cursor3 = anchor3;
@@ -401,11 +436,13 @@ canvas.addEventListener("pointermove", (ev) => {
   }
   switch (tool) {
     case "line":
-    case "rect":
       if (anchor3) {
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, tool === "line" ? anchor3 : null);
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3);
         cursor3 = snapInfo.p;
       }
+      break;
+    case "rect":
+      if (anchor3) cursor3 = rectPlaneSnap(s.x, s.y);
       break;
     case "move":
       if (moveVids.length && anchor3) {
@@ -469,7 +506,7 @@ canvas.addEventListener("pointerup", (ev) => {
         hintEl.textContent = "移动预览，再点一下落矩形；Esc 取消";
         break;
       }
-      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
+      const b = rectPlaneSnap(s.x, s.y);
       const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
       cancelGesture();
       if (segs.length) appendLog(commitOp({ op: "addEdges", segs }));

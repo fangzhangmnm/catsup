@@ -4,7 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera } from "../src/playground/camera.ts";
-import { GROUND, snapPoint } from "../src/playground/pick.ts";
+import { GROUND, resolveRectPlane, snapPoint } from "../src/playground/pick.ts";
 
 const VP = { w: 1000, h: 800 };
 const TOL = 8;
@@ -85,5 +85,29 @@ describe("snap: 轴平行 3D（XZ/YZ 画图入口）", () => {
     const s = at(c, { x: 10.1, y: 4.2, z: 9.9 });
     const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 5, z: 0 });
     assert(r.kind !== "align-combo", `不许假相交合成（实际 kind=${r.kind}）`);
+  });
+});
+
+describe("rect: 画面平面决定（①面平行②摄像机托底③看第二点）", () => {
+  it("横视角空处 → 摄像机托底=竖直平面", () => {
+    const c = new OrbitCamera();
+    c.yaw = -Math.PI / 2;   // 视线≈沿 +Y
+    c.pitch = 0.1;
+    c.halfH = 50;
+    const s = at(c, { x: 3, y: 0, z: 3 });
+    const { plane } = resolveRectPlane(new Kernel(), c, VP, { x: 0, y: 0, z: 0 }, s.x, s.y, TOL);
+    assert(Math.abs(Math.abs(plane.plane.n.y) - 1) < 1e-9, `应取 XZ 竖直面，实际 n=(${plane.plane.n.x},${plane.plane.n.y},${plane.plane.n.z})`);
+  });
+
+  it("第二点吸到高处端点 → 拉出含它的竖直平面（压过摄像机托底）", () => {
+    const k = new Kernel();
+    k.addEdges([[{ x: 8, y: 0, z: 0 }, { x: 8, y: 0, z: 6 }]]);   // 高处端点 (8,0,6)
+    const c = new OrbitCamera();                                   // 默认斜俯视（托底≈地面）
+    c.target = { x: 4, y: 0, z: 3 };
+    c.halfH = 50;
+    const s = at(c, { x: 8.1, y: 0, z: 5.9 });
+    const { plane, snap } = resolveRectPlane(k, c, VP, { x: 0, y: 0, z: 0 }, s.x, s.y, TOL);
+    eq(snap.kind, "endpoint", "第二点吸到端点");
+    assert(Math.abs(Math.abs(plane.plane.n.y) - 1) < 1e-9, "含 (8,0,6) 与首点的平面=XZ（y=0）");
   });
 });
