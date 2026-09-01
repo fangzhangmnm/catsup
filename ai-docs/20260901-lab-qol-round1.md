@@ -31,3 +31,13 @@ user 2026-07-28 反馈）是同一机制的实例。
 
 pick.ts 约束层重写（origin/align/align-combo + SnapHint）；render3 提示线；journal + lab 接线
 （Ctrl+Z/Ctrl+Y/Ctrl+Shift+Z + 撤销/重做钮）；测试 +7（snap-align ×4、lab-journal ×3）。
+
+## 4. 波二追加（同日，v0.0.8）：点两下画线 + 3D 解锁
+
+- **点两下（SU 同款双模式）**：line/rect 第一击若是点击（≤4px 位移）→ 进 armed 态，
+  hover 预览，第二击落笔；按住拖照旧。**线工具链式连画**（终点成新起点，Esc/原地点击收笔）。
+  **只在 `pointerType === "mouse"` 解锁**——数位笔 tap-tap 会误触发意外连线（user 拍板：
+  非数位笔模式才点两下），笔/触摸保持纯拖拽。selection 框选不变。
+- **3D 解锁钮**：lab 默认仍顶视锁；点「3D」→ 右/中键拖=环绕（Shift=平移），再点回 2D 相机
+  归位顶视（保 target/zoom）。目的 = user 检视 3D snap：约束层本来就跑在画线平面基上
+  （面下画线锁面平面、Z 轴锁过 anchor、from-point 全顶点源屏幕空间判定）。

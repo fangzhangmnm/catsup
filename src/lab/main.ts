@@ -20,7 +20,7 @@ const logEl = document.getElementById("log")!;
 const hintEl = document.getElementById("hint")!;
 const tipEl = document.getElementById("tip")!;
 const marqueeEl = document.getElementById("marquee")!;
-const HINT_DEFAULT = "顶视 2D：右/中键拖=平移 滚轮=缩放；Ctrl+Z 撤销 Ctrl+Y 重做；框选后 Delete 删除；Esc 取消";
+const HINT_DEFAULT = "画线/矩形：鼠标可点两下（线连画）；右/中键拖=平移（3D 时=环绕，Shift=平移）滚轮=缩放；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消";
 
 let kernel = new Kernel();
 const journal = new Journal();
@@ -58,7 +58,12 @@ let hoverEdge: EdgeId | null = null;
 let hoverFace: FaceId | null = null;
 let preview: Kernel | null = null;
 let previewEvents: FaceEvent[] = [];
-let camDrag: { x: number; y: number } | null = null;
+let camDrag: { mode: "orbit" | "pan"; x: number; y: number } | null = null;
+let is3D = false;                      // 3D 解锁（默认顶视 2D 锁）
+let armed = false;                     // 点两下模式：第一击已落 anchor，等第二击
+let canArm = false;                    // 只有鼠标解锁点两下（数位笔 tap 误触发意外连线）
+let downScreen: { x: number; y: number } | null = null;
+let justCommitted = false;             // 第二击 down 已落笔，紧随的 up 不再处理
 
 const vp = (): Viewport => ({ w: canvas.clientWidth, h: canvas.clientHeight });
 const gestureActive = (): boolean => anchor3 !== null || moveVids.length > 0 || scrubbing || marqueeStart !== null;
@@ -83,6 +88,10 @@ for (const [name, btn] of Object.entries(toolButtons)) btn.addEventListener("cli
 function cancelGesture(): void {
   anchor3 = null;
   moveVids = [];
+  armed = false;
+  canArm = false;
+  downScreen = null;
+  justCommitted = false;
   cursor3 = null;
   snapInfo = null;
   scrubAcc = new Set();
@@ -167,6 +176,17 @@ function doRedo(): void {
 }
 (document.getElementById("undoBtn") as HTMLButtonElement).addEventListener("click", doUndo);
 (document.getElementById("redoBtn") as HTMLButtonElement).addEventListener("click", doRedo);
+const btn3D = document.getElementById("toggle3D") as HTMLButtonElement;
+btn3D.addEventListener("click", () => {
+  is3D = !is3D;
+  btn3D.classList.toggle("active", is3D);
+  cancelGesture();
+  if (!is3D) {
+    cam.yaw = -Math.PI / 2;   // 回顶视锁（保 target/zoom）
+    cam.pitch = 1.5707;
+  }
+  draw();
+});
 (document.getElementById("clearLog") as HTMLButtonElement).addEventListener("click", () => {
   logEl.textContent = "";
 });
@@ -268,17 +288,43 @@ canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   const s = localPt(ev);
   if (ev.button === 1 || ev.button === 2) {
-    camDrag = { x: s.x, y: s.y };  // 顶视锁定：右/中键一律平移，无环绕
+    camDrag = { mode: is3D && !ev.shiftKey ? "orbit" : "pan", x: s.x, y: s.y };
     return;
   }
   if (ev.button !== 0) return;
   switch (tool) {
     case "line":
     case "rect": {
+      if (armed && anchor3) {
+        // 点两下模式第二击 = 落笔（SU 同款；线工具链式连画）
+        justCommitted = true;
+        if (tool === "line") {
+          const a = anchor3;
+          const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, a).p;
+          if (dist(a, b) >= 1) {
+            appendLog(commitOp({ op: "addEdges", segs: [[a, b]] }));
+            anchor3 = b;          // 终点成新起点
+            cursor3 = b;
+            preview = null;
+            previewEvents = [];
+          } else {
+            cancelGesture();      // 原地点击 = 收笔
+          }
+        } else {
+          const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
+          const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
+          cancelGesture();
+          if (segs.length) appendLog(commitOp({ op: "addEdges", segs }));
+        }
+        break;
+      }
       gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
       snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane);
       anchor3 = snapInfo.p;
       cursor3 = anchor3;
+      armed = false;
+      canArm = ev.pointerType === "mouse";
+      downScreen = s;
       break;
     }
     case "move": {
@@ -320,8 +366,10 @@ canvas.addEventListener("pointerdown", (ev) => {
 canvas.addEventListener("pointermove", (ev) => {
   const s = localPt(ev);
   if (camDrag) {
-    cam.pan(s.x - camDrag.x, s.y - camDrag.y, vp());
-    camDrag = { x: s.x, y: s.y };
+    const dx = s.x - camDrag.x, dy = s.y - camDrag.y;
+    if (camDrag.mode === "orbit") cam.orbit(dx, dy);
+    else cam.pan(dx, dy, vp());
+    camDrag = { ...camDrag, x: s.x, y: s.y };
     draw();
     return;
   }
@@ -392,6 +440,12 @@ canvas.addEventListener("pointerup", (ev) => {
   switch (tool) {
     case "line": {
       if (!anchor3) break;
+      if (justCommitted) { justCommitted = false; break; }
+      if (canArm && downScreen && Math.hypot(s.x - downScreen.x, s.y - downScreen.y) <= 4) {
+        armed = true;   // 第一击是点击不是拖 → 进点两下模式
+        hintEl.textContent = "移动预览，再点一下落笔（线可连画）；Esc 收笔";
+        break;
+      }
       const a = anchor3;
       const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3).p;
       cancelGesture();
@@ -400,6 +454,12 @@ canvas.addEventListener("pointerup", (ev) => {
     }
     case "rect": {
       if (!anchor3) break;
+      if (justCommitted) { justCommitted = false; break; }
+      if (canArm && downScreen && Math.hypot(s.x - downScreen.x, s.y - downScreen.y) <= 4) {
+        armed = true;
+        hintEl.textContent = "移动预览，再点一下落矩形；Esc 取消";
+        break;
+      }
       const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
       const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
       cancelGesture();
