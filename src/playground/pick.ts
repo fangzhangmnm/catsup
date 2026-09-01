@@ -273,6 +273,40 @@ export function snapPoint(
   return { p: p ?? (anchor ?? { x: 0, y: 0, z: 0 }), kind: null };
 }
 
+/** 摄像机托底平面：过 through 的世界轴平面里最面向相机者。 */
+export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
+  const fwd = cam.forward();
+  const ns: Pt3[] = [{ x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }];
+  let bestN = ns[0];
+  for (const n of ns) if (Math.abs(dot3(n, fwd)) > Math.abs(dot3(bestN, fwd))) bestN = n;
+  const pl = canonicalPlane(bestN, dot3(bestN, through));
+  return { plane: pl, basis: planeBasis(pl) };
+}
+
+/**
+ * 矩形首点的平面裁决（元逻辑 2026-09-01：维度优先+延迟承诺+工具不自己 raycast）：
+ * 首点吸附若被任何低维目标（顶点/边/轴线…kind≠null）赢走 → 这次点击**没有**表达平面意图，
+ * fixed=null 延迟给第二点（resolveRectPlane）；只有裸落面内部（kind=null 且面命中）才锁面平行。
+ * 修案出处：墙角起笔被私自 raycast 锁进墙平面、拉不出屋顶矩形。added by Claude Fable 5 2026-09-01
+ */
+export function rectFirstPlane(
+  k: Kernel,
+  cam: OrbitCamera,
+  vp: Viewport,
+  sx: number,
+  sy: number,
+  tolPx: number,
+): { fixed: DrawPlane | null; snap: Snap3 } {
+  const hit = pickEntity(k, cam, vp, sx, sy, 0.5);
+  let facePl: DrawPlane | null = null;
+  if (hit.face !== undefined) {
+    const rec = k.planeOf(hit.face)!;
+    facePl = { plane: rec.plane, basis: rec.basis };
+  }
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, facePl ?? cameraPlane(cam, cam.target));
+  return { fixed: snap.kind === null ? facePl : null, snap };
+}
+
 /**
  * 矩形工具的画面平面决定（user 2026-09-01 口述 SU 行为）：
  * ①首点在面上 = 与面平行（调用方直接锁面平面，不进本函数）；

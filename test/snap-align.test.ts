@@ -4,7 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera } from "../src/playground/camera.ts";
-import { GROUND, resolveRectPlane, snapPoint } from "../src/playground/pick.ts";
+import { GROUND, rectFirstPlane, resolveRectPlane, snapPoint } from "../src/playground/pick.ts";
 
 const VP = { w: 1000, h: 800 };
 const TOL = 8;
@@ -109,5 +109,38 @@ describe("rect: 画面平面决定（①面平行②摄像机托底③看第二�
     const { plane, snap } = resolveRectPlane(k, c, VP, { x: 0, y: 0, z: 0 }, s.x, s.y, TOL);
     eq(snap.kind, "endpoint", "第二点吸到端点");
     assert(Math.abs(Math.abs(plane.plane.n.y) - 1) < 1e-9, "含 (8,0,6) 与首点的平面=XZ（y=0）");
+  });
+});
+
+describe("rect: 首点平面裁决（元逻辑：维度优先+延迟承诺）", () => {
+  const wall = (): Kernel => {
+    const k = new Kernel();
+    k.addEdges([
+      [{ x: 0, y: 0, z: 0 }, { x: 0, y: 10, z: 0 }],
+      [{ x: 0, y: 10, z: 0 }, { x: 0, y: 10, z: 8 }],
+      [{ x: 0, y: 10, z: 8 }, { x: 0, y: 0, z: 8 }],
+      [{ x: 0, y: 0, z: 8 }, { x: 0, y: 0, z: 0 }],
+    ]);
+    return k;
+  };
+  const cam3 = (): OrbitCamera => {
+    const c = new OrbitCamera();
+    c.target = { x: 0, y: 5, z: 4 };
+    c.halfH = 50;
+    return c;
+  };
+  it("点墙角（端点赢）→ 平面延迟（fixed=null），不再被墙锁死", () => {
+    const k = wall(), c = cam3();
+    const s = at(c, { x: 0, y: 10, z: 8 });
+    const r = rectFirstPlane(k, c, VP, s.x, s.y, TOL);
+    eq(r.snap.kind, "endpoint", "首点=角点");
+    eq(r.fixed, null, "平面延迟给第二点");
+  });
+  it("裸落墙面内部（无低维吸附）→ 面平行锁定", () => {
+    const k = wall(), c = cam3();
+    const s = at(c, { x: 0, y: 5, z: 4 });
+    const r = rectFirstPlane(k, c, VP, s.x, s.y, TOL);
+    eq(r.snap.kind, null, "无低维目标");
+    assert(r.fixed !== null && Math.abs(Math.abs(r.fixed.plane.n.x) - 1) < 1e-9, "锁墙平面（n=±x）");
   });
 });

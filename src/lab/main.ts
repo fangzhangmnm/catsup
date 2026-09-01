@@ -9,8 +9,7 @@
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "../playground/camera.ts";
-import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, resolveRectPlane, snapPoint } from "../playground/pick.ts";
-import { canonicalPlane, dot3, planeBasis } from "../kernel/geom.ts";
+import { type DrawPlane, type Snap3, GROUND, cameraPlane, drawPlaneAt, marqueeScreen, pickEntity, rectFirstPlane, resolveRectPlane, snapPoint } from "../playground/pick.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "../playground/tools.ts";
 import { Renderer3 } from "../playground/render3.ts";
 import { PRESETS } from "./presets.ts";
@@ -224,15 +223,6 @@ function computePreview(): void {
 }
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
-/** 摄像机托底平面（过视点 target 的世界轴平面里最面向相机者）。 */
-function cameraFallbackPlane(): DrawPlane {
-  const fwd = cam.forward();
-  const ns = [{ x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }];
-  let best = ns[0];
-  for (const n of ns) if (Math.abs(dot3(n, fwd)) > Math.abs(dot3(best, fwd))) best = n;
-  const pl = canonicalPlane(best, dot3(best, cam.target));
-  return { plane: pl, basis: planeBasis(pl) };
-}
 /** 矩形第二点：固定面 → 面内吸附；动态 → 平面被第二点拉动（resolveRectPlane）。 */
 function rectPlaneSnap(sx: number, sy: number): Pt3 {
   if (rectFixed) {
@@ -337,18 +327,15 @@ canvas.addEventListener("pointerdown", (ev) => {
         break;
       }
       if (tool === "rect") {
-        const hitF = pickEntity(kernel, cam, vp(), s.x, s.y, 0.5);
-        if (hitF.face !== undefined) {
-          const rec = kernel.planeOf(hitF.face)!;
-          rectFixed = { plane: rec.plane, basis: rec.basis };  // ①在面上=与面平行
-        } else {
-          rectFixed = null;                                    // ②③空处=动态（托底+看第二点）
-        }
-        gesturePlane = rectFixed ?? cameraFallbackPlane();
+        // 元逻辑：首点被低维吸附赢走（角/边/轴）→ 平面延迟给第二点；裸落面内才锁面平行
+        const r = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP);
+        rectFixed = r.fixed;
+        gesturePlane = r.fixed ?? cameraPlane(cam, r.snap.p);
+        snapInfo = r.snap;
       } else {
         gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane);
       }
-      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane);
       anchor3 = snapInfo.p;
       cursor3 = anchor3;
       armed = false;
