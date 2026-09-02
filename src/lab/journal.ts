@@ -19,7 +19,8 @@ export type LabOp =
   | { op: "eraseEdges"; ids: EdgeId[] }
   | { op: "eraseFaces"; ids: FaceId[] }
   | { op: "eraseSelection"; faces: FaceId[]; edges: EdgeId[] }
-  | { op: "move"; moves: { id: VertexId; to: { x: number; y: number; z: number } }[] };
+  | { op: "move"; moves: { id: VertexId; to: { x: number; y: number; z: number } }[] }
+  | { op: "pushpull"; face: FaceId; dist: number };
 
 export interface ApplyResult { kernel: Kernel; events: FaceEvent[]; }
 
@@ -37,6 +38,7 @@ export function applyOp(k: Kernel, op: LabOp): ApplyResult {
     case "eraseFaces": return { kernel: k, events: k.eraseFaces(op.ids) };
     case "eraseSelection": return { kernel: k, events: [...k.eraseFaces(op.faces), ...k.eraseEdges(op.edges)] };
     case "move": return { kernel: k, events: k.moveVertices(op.moves) };
+    case "pushpull": return { kernel: k, events: k.pushPull(op.face, op.dist) };
   }
 }
 

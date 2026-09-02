@@ -14,6 +14,8 @@ import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rect
 import { Renderer3 } from "../playground/render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type LabOp, Journal } from "./journal.ts";
+import { closestOnAxis, rayPlane } from "../playground/camera.ts";
+import { add3, dot3, scale3, sub3 } from "../kernel/geom.ts";
 
 const canvas = document.getElementById("board") as HTMLCanvasElement;
 const logEl = document.getElementById("log")!;
@@ -40,7 +42,7 @@ const r3 = new Renderer3(canvas);
 const SNAP = 8;
 const HIT = 6;
 
-type Tool = "select" | "line" | "rect" | "move" | "erase" | "eraseFace";
+type Tool = "select" | "line" | "rect" | "move" | "pp" | "erase" | "eraseFace";
 let tool: Tool = "line";
 
 // ---- 瞬态 ----
@@ -50,6 +52,9 @@ let rectFixed: DrawPlane | null = null;   // 矩形首点在面上 → 与面平
 let cursor3: Pt3 | null = null;
 let snapInfo: Snap3 | null = null;
 let moveVids: VertexId[] = [];
+let ppFace: FaceId | null = null;      // 推拉：被抓的膜
+let ppNormal: Pt3 | null = null;
+let ppH = 0;
 let scrubAcc = new Set<EdgeId>();
 let scrubbing = false;
 let selection: Selection = emptySelection();
@@ -113,6 +118,7 @@ const toolButtons: Record<Tool, HTMLButtonElement> = {
   line: document.getElementById("toolLine") as HTMLButtonElement,
   rect: document.getElementById("toolRect") as HTMLButtonElement,
   move: document.getElementById("toolMove") as HTMLButtonElement,
+  pp: document.getElementById("toolPP") as HTMLButtonElement,
   erase: document.getElementById("toolErase") as HTMLButtonElement,
   eraseFace: document.getElementById("toolEraseFace") as HTMLButtonElement,
 };
@@ -127,6 +133,9 @@ for (const [name, btn] of Object.entries(toolButtons)) btn.addEventListener("cli
 function cancelGesture(): void {
   anchor3 = null;
   moveVids = [];
+  ppFace = null;
+  ppNormal = null;
+  ppH = 0;
   rectFixed = null;
   lastSnap = null;
   armed = false;
@@ -277,6 +286,20 @@ function rectPlaneSnap(sx: number, sy: number): Pt3 {
 // ---------- 渲染 ----------
 /** move 拖拽纯 ghost：受牵连边按 delta 映射端点（零拓扑裁决——松手才结算）。 */
 function ghostSegs(): [Pt3, Pt3][] | null {
+  if (tool === "pp" && ppFace !== null && ppNormal && Math.abs(ppH) >= 0.3) {
+    const rings = kernel.faceRings3(ppFace);
+    if (!rings) return null;
+    const d = scale3(ppNormal, ppH);
+    const segs: [Pt3, Pt3][] = [];
+    for (const ring of [rings.outer, ...rings.holes]) {
+      for (let i = 0; i < ring.length; i++) {
+        const a = ring[i], b = ring[(i + 1) % ring.length];
+        segs.push([add3(a, d), add3(b, d)]);   // 顶环 ghost
+        segs.push([a, add3(a, d)]);            // 竖棱 ghost
+      }
+    }
+    return segs;
+  }
   if (tool !== "move" || !moveVids.length || !anchor3 || !cursor3) return null;
   const d = { x: cursor3.x - anchor3.x, y: cursor3.y - anchor3.y, z: cursor3.z - anchor3.z };
   if (Math.hypot(d.x, d.y, d.z) < 0.3) return null;
@@ -394,6 +417,33 @@ canvas.addEventListener("pointerdown", (ev) => {
       downScreen = s;
       break;
     }
+    case "pp": {
+      if (armed && ppFace !== null && anchor3) {
+        justCommitted = true;
+        const h = ppH;
+        const fid = ppFace;
+        cancelGesture();
+        if (Math.abs(h) >= 0.3) appendLog(commitOp({ op: "pushpull", face: fid, dist: h }));
+        break;
+      }
+      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      if (hit.face !== undefined) {
+        const rec = kernel.planeOf(hit.face)!;
+        ppFace = hit.face;
+        ppNormal = rec.plane.n;
+        gesturePlane = { plane: rec.plane, basis: rec.basis };
+        const ray0 = cam.screenRay(s.x, s.y, vp());
+        const grab = rayPlane(ray0.origin, ray0.dir, rec.plane.n, rec.plane.d);
+        anchor3 = grab ?? kernel.faceRings3(hit.face)!.outer[0];
+        cursor3 = anchor3;
+        ppH = 0;
+        armed = false;
+        canArm = ev.pointerType === "mouse";
+        downScreen = s;
+        hintEl.textContent = "推拉中：沿法向拖或点两下落定（吸到任意点=取其高度）";
+      }
+      break;
+    }
     case "move": {
       if (armed && moveVids.length && anchor3) {
         // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
@@ -482,6 +532,22 @@ canvas.addEventListener("pointermove", (ev) => {
     case "rect":
       if (anchor3) cursor3 = rectPlaneSnap(s.x, s.y);
       break;
+    case "pp":
+      if (ppFace !== null && anchor3 && ppNormal) {
+        const sn = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs());
+        if (sn.kind !== null && sn.kind !== "on-edge") {
+          snapInfo = sn;
+          ppH = dot3(sub3(sn.p, anchor3), ppNormal);   // 对面高度 snap：任意目标投影到法向
+        } else {
+          snapInfo = null;
+          const ray1 = cam.screenRay(s.x, s.y, vp());
+          const q = closestOnAxis(anchor3, ppNormal, ray1.origin, ray1.dir);
+          ppH = q ? dot3(sub3(q, anchor3), ppNormal) : ppH;
+        }
+        cursor3 = add3(anchor3, scale3(ppNormal, ppH));
+        hintEl.textContent = `推拉 h = ${ppH.toFixed(1)}（松手/再点落定；Esc 取消）`;
+      }
+      break;
     case "move":
       if (moveVids.length && anchor3) {
         const excl = moveVids.length === 1 ? moveVids[0] : null;
@@ -557,6 +623,20 @@ canvas.addEventListener("pointerup", (ev) => {
       const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
       cancelGesture();
       if (segs.length) appendLog(commitOp({ op: "addEdges", segs }));
+      break;
+    }
+    case "pp": {
+      if (ppFace === null || !anchor3) { cancelGesture(); break; }
+      if (justCommitted) { justCommitted = false; break; }
+      if (canArm && downScreen && Math.hypot(s.x - downScreen.x, s.y - downScreen.y) <= 4) {
+        armed = true;
+        hintEl.textContent = "推拉中：移动定高度，再点一下落定；Esc 取消";
+        break;
+      }
+      const h = ppH;
+      const fid = ppFace;
+      cancelGesture();
+      if (Math.abs(h) >= 0.3) appendLog(commitOp({ op: "pushpull", face: fid, dist: h }));
       break;
     }
     case "move": {

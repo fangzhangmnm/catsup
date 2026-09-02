@@ -14,6 +14,7 @@ import "./move-spec.test.ts";
 import "./lab-journal.test.ts";
 import "./snap-align.test.ts";
 import "./solver.test.ts";
+import "./pushpull.test.ts";
 import { run } from "./runner.mjs";
 
 await run();

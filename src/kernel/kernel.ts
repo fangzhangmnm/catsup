@@ -6,7 +6,9 @@
 import {
   type Pt,
   type Pt3,
+  add3,
   dist3,
+  scale3,
   distToPlane,
   distToSegment3,
   planeFromPoints,
@@ -184,6 +186,44 @@ export class Kernel {
     return this.emit(this.store.reconcileCoverage(
       this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, topologyChanged, folds,
     ));
+  }
+
+  /**
+   * push/pull —— 宏动词（2026-09-01 pp 纪元 v1）：**零新原语，骑两个既有协议**。
+   * = ① moveVertices(面全环顶点, dist·n̂)（sticky geometry：邻壁自动伸缩/换平面跟随/autofold）
+   *   ② addEdges(裸边界补壁线，带手势身份)：faceLinks==1 的环边在原位补画底环+竖棱 →
+   *      侧壁/底面经正常 BIRTH 涌现——与手绘逐字等价（golden 钉死）。
+   * 盒面再拉 = 纯 ①（邻壁伸缩，无补壁）。挖洞（1+1=0 意图特例）与暗礁② 待真机裁决，v1 不做：
+   * 推到与他面重合 = 普通 sticky 语义（dedup 1+1=1）。
+   */
+  pushPull(id: FaceId, dist: number): FaceEvent[] {
+    const f = this.store.face(id);
+    if (!f) return [];
+    const rec = this.planes.rec(f.planeId);
+    const delta = scale3(rec.plane.n, dist);
+    if (Math.abs(dist) < 1e-6) return [];
+    const vids = new Set<VertexId>();
+    const bareSegs: [Pt3, Pt3][] = [];
+    const bareVerts = new Set<VertexId>();
+    for (const ring of [f.outer, ...f.holes]) {
+      for (const de of ring.edges) {
+        const e = this.graph.edge(de.edge);
+        vids.add(e.a);
+        vids.add(e.b);
+        if (e.faceLinks.length === 1) {
+          bareSegs.push([this.graph.pt(e.a), this.graph.pt(e.b)]);
+          bareVerts.add(e.a);
+          bareVerts.add(e.b);
+        }
+      }
+    }
+    const oldPos = new Map<VertexId, Pt3>([...vids].map((v) => [v, this.graph.pt(v)]));
+    const ev1 = this.moveVertices([...vids].map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) })));
+    const segs: (readonly [PtIn, PtIn])[] = [];
+    for (const [a, b] of bareSegs) segs.push([a, b]);                                  // 底环（原位重画）
+    for (const v of bareVerts) segs.push([oldPos.get(v)!, add3(oldPos.get(v)!, delta)]); // 竖棱
+    const ev2 = segs.length ? this.addEdges(segs) : [];
+    return [...ev1, ...ev2];
   }
 
   // ---------------- queries ----------------
