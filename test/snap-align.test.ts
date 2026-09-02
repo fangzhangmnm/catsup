@@ -144,3 +144,35 @@ describe("rect: 首点平面裁决（元逻辑：维度优先+延迟承诺）", 
     assert(r.fixed !== null && Math.abs(Math.abs(r.fixed.plane.n.x) - 1) < 1e-9, "锁墙平面（n=±x）");
   });
 });
+
+describe("snap: 派生相交轨迹（可描不改图，user 2026-09-01 拍板）", () => {
+  it("线×线延长交点：两边载线段外相交 → 交点可捕捉", () => {
+    const k = new Kernel();
+    k.addEdges([[{ x: 0, y: 0 }, { x: 6, y: 0 }], [{ x: 10, y: 4 }, { x: 10, y: 1 }]]);
+    const c = topCam();
+    const s = at(c, { x: 10, y: -0.5, z: 0 });  // 离 (10,1) 端点的 ε 圈远一点（端点 rank 更高）
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND);
+    eq(r.kind, "intersection", "kind=交点");
+    assert(Math.abs(r.p.x - 10) < 1e-9 && Math.abs(r.p.y) < 1e-9, `延长交点=(10,0)，实际 (${r.p.x},${r.p.y})`);
+  });
+
+  it("面×面交线：穿插两膜的交线段可吸附（SU 摆烂处的 snap 升级）", () => {
+    const k = new Kernel();
+    const loop = (pts: Pt3[]): void => {
+      const segs: [Pt3, Pt3][] = [];
+      for (let i = 0; i < pts.length; i++) segs.push([pts[i], pts[(i + 1) % pts.length]]);
+      k.addEdges(segs);
+    };
+    loop([{ x: 0, y: 0, z: 0 }, { x: 20, y: 0, z: 0 }, { x: 20, y: 20, z: 0 }, { x: 0, y: 20, z: 0 }]);
+    loop([{ x: 5, y: 10, z: -5 }, { x: 15, y: 10, z: -5 }, { x: 15, y: 10, z: 5 }, { x: 5, y: 10, z: 5 }]);
+    eq(k.faces().length, 2, "两膜穿插（无自愈改图=与 SU 对齐）");
+    const c = new OrbitCamera();
+    c.target = { x: 10, y: 10, z: 0 };
+    c.halfH = 30;
+    const s = at(c, { x: 8, y: 10, z: 0 });
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND);
+    eq(r.kind, "cross-line", "kind=交线");
+    assert(Math.abs(r.p.y - 10) < 1e-6 && Math.abs(r.p.z) < 1e-6, `吸在交线上，实际 (${r.p.x},${r.p.y},${r.p.z})`);
+    assert(r.hints?.some((h) => h.axis === "i"), "整段交线高亮提示");
+  });
+});

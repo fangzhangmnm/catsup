@@ -11,14 +11,14 @@
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
 import type { Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
-import { type PlaneParams, dist3, dot3, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
+import { type Pt, type PlaneParams, add3, cross3, dist3, dot3, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 
 export interface View { cam: OrbitCamera; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
-  kind: "endpoint" | "origin" | "midpoint" | "edge" | "axis" | "align" | "plane";
+  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane";
   src?: Pt3;
   axis?: AxName;
 }
@@ -28,7 +28,7 @@ export type Locus =
   | { dim: 2; plane: PlaneParams };
 export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; }
 
-export const RANK = { endpoint: 90, origin: 80, midpoint: 70, edge: 60, axisLine: 45, plane: 10 } as const;
+export const RANK = { endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 } as const;
 export const EPS = { point: 10, edge: 7, line: 5, combo: 12 } as const;
 const GAP_WORLD = 1e-5;
 
@@ -178,6 +178,105 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   if (ctx.anchor) addLines(ctx.anchor, "axis");
   addLines({ x: 0, y: 0, z: 0 }, "align");
   for (const src of ctx.alignSources ?? []) addLines(src, "align");
+  // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
+  // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
+  {
+    const es = k.edges().map((e) => {
+      const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
+      const l = dist3(a, b);
+      return l > 0 ? { a, dir: scale3(sub3(b, a), 1 / l), ea: a, eb: b } : null;
+    }).filter((x) => x !== null);
+    for (let i = 0; i < es.length; i++) {
+      for (let j = i + 1; j < es.length; j++) {
+        const p = carrierIntersect(es[i]!, es[j]!);
+        if (!p) continue;
+        // 与既有端点重合（含共享顶点）→ 已是 endpoint 目标，跳过
+        if ([es[i]!.ea, es[i]!.eb, es[j]!.ea, es[j]!.eb].some((q) => dist3(p, q) <= 1e-6)) continue;
+        out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: EPS.point, tag: { kind: "intersection" } });
+      }
+    }
+  }
+  // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
+  {
+    const faces = k.faces();
+    for (let i = 0; i < faces.length; i++) {
+      for (let j = i + 1; j < faces.length; j++) {
+        for (const seg of faceCrossSegments(k, faces[i].id, faces[j].id)) {
+          out.push({ locus: { dim: 1, a: seg.a, dir: seg.dir, len: seg.len }, rank: RANK.cross, eps: EPS.line, tag: { kind: "cross" } });
+        }
+      }
+    }
+  }
   out.push({ locus: { dim: 2, plane: ctx.plane }, rank: RANK.plane, eps: Infinity, tag: { kind: "plane" } });
   return out;
+}
+
+/** 两载线（无限直线）真相交点；平行/异面 → null。 */
+function carrierIntersect(A: { a: Pt3; dir: Pt3 }, B: { a: Pt3; dir: Pt3 }): Pt3 | null {
+  const bb = dot3(A.dir, B.dir);
+  const denom = 1 - bb * bb;
+  if (Math.abs(denom) < 1e-9) return null;
+  const w0 = sub3(A.a, B.a);
+  const e = dot3(A.dir, w0), f = dot3(B.dir, w0);
+  const tA = (bb * f - e) / denom, tB = (f - bb * e) / denom;
+  const qA = { x: A.a.x + A.dir.x * tA, y: A.a.y + A.dir.y * tA, z: A.a.z + A.dir.z * tA };
+  const qB = { x: B.a.x + B.dir.x * tB, y: B.a.y + B.dir.y * tB, z: B.a.z + B.dir.z * tB };
+  if (dist3(qA, qB) > GAP_WORLD) return null;
+  return qA;
+}
+
+/** 直线 p(t)=p0+t·d 与膜区域（外环−洞，even-odd）的相交 t 区间。环 pts 为该面基下 2D。 */
+export function lineFaceIntervals(p0: Pt, d: Pt, rings: readonly (readonly Pt[])[]): [number, number][] {
+  const ts: number[] = [];
+  for (const ring of rings) {
+    for (let i = 0; i < ring.length; i++) {
+      const a = ring[i], b = ring[(i + 1) % ring.length];
+      const ex = b.x - a.x, ey = b.y - a.y;
+      const denom = ex * d.y - ey * d.x;   // cross(e, d)
+      if (Math.abs(denom) < 1e-12) continue;
+      const s = ((p0.x - a.x) * d.y - (p0.y - a.y) * d.x) / denom;   // cross(p0−a, d)/cross(e, d)
+      if (s < 0 || s >= 1) continue;
+      const t = Math.abs(d.x) > Math.abs(d.y)
+        ? (a.x + s * ex - p0.x) / d.x
+        : (a.y + s * ey - p0.y) / d.y;
+      ts.push(t);
+    }
+  }
+  ts.sort((x, y) => x - y);
+  const out: [number, number][] = [];
+  for (let i = 0; i + 1 < ts.length; i += 2) out.push([ts[i], ts[i + 1]]);
+  return out;
+}
+
+/** 面×面交线段（平面∩平面裁到两区域再取区间交）。 */
+export function faceCrossSegments(k: Kernel, f1: import("../kernel/kernel.ts").FaceId, f2: import("../kernel/kernel.ts").FaceId): { a: Pt3; dir: Pt3; len: number }[] {
+  const r1 = k.planeOf(f1), r2 = k.planeOf(f2);
+  const F1 = k.face(f1), F2 = k.face(f2);
+  if (!r1 || !r2 || !F1 || !F2) return [];
+  const n3 = cross3(r1.plane.n, r2.plane.n);
+  const nn = dot3(n3, n3);
+  if (nn < 1e-12) return []; // 平行/共面（共面由 sticky 世界处理）
+  // p0 = (d1·(n2×n3) + d2·(n3×n1)) / |n3|²（三平面求交，第三面取 n3·p=0）
+  const p0 = scale3(add3(scale3(cross3(r2.plane.n, n3), r1.plane.d), scale3(cross3(n3, r1.plane.n), r2.plane.d)), 1 / nn);
+  const dir = scale3(n3, 1 / Math.sqrt(nn));
+  const proj = (rec: NonNullable<ReturnType<Kernel["planeOf"]>>): { p2: Pt; d2: Pt } => ({
+    p2: { x: dot3(p0, rec.basis.u), y: dot3(p0, rec.basis.v) },
+    d2: { x: dot3(dir, rec.basis.u), y: dot3(dir, rec.basis.v) },
+  });
+  const g1 = proj(r1), g2 = proj(r2);
+  const iv1 = lineFaceIntervals(g1.p2, g1.d2, [F1.outer.pts, ...F1.holes.map((h) => h.pts)]);
+  const iv2 = lineFaceIntervals(g2.p2, g2.d2, [F2.outer.pts, ...F2.holes.map((h) => h.pts)]);
+  const segs: { a: Pt3; dir: Pt3; len: number }[] = [];
+  for (const [a1, b1] of iv1) {
+    for (const [a2, b2] of iv2) {
+      const lo = Math.max(a1, a2), hi = Math.min(b1, b2);
+      if (hi - lo < 1e-9) continue;
+      segs.push({
+        a: { x: p0.x + dir.x * lo, y: p0.y + dir.y * lo, z: p0.z + dir.z * lo },
+        dir,
+        len: hi - lo,
+      });
+    }
+  }
+  return segs;
 }

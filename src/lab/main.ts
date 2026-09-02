@@ -312,7 +312,7 @@ function draw(): void {
 const SNAP_LABELS: Record<string, string> = {
   endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
   "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
-  align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴",
+  align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴", intersection: "交点", "cross-line": "交线",
 };
 function updateTip(clientX: number, clientY: number): void {
   if (snapInfo?.kind) {

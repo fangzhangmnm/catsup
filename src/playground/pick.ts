@@ -28,9 +28,10 @@ export const GROUND: DrawPlane = (() => {
 export type SnapKind =
   | "endpoint" | "midpoint" | "on-edge" | "origin"
   | "axis-x" | "axis-y" | "axis-z"
-  | "align" | "align-combo" | "edge-align";
+  | "align" | "align-combo" | "edge-align"
+  | "intersection" | "cross-line";
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
-export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v"; }
+export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v" | "i"; }
 export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
 
 export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
@@ -123,6 +124,10 @@ export function snapPoint(
   for (const c of sol.used) {
     if (c.locus.dim === 1 && (c.tag.kind === "axis" || c.tag.kind === "align") && c.tag.src && c.tag.axis) {
       hints.push({ a: c.tag.src, b: sol.p, axis: c.tag.axis });
+    } else if (c.locus.dim === 1 && c.tag.kind === "cross" && c.locus.len !== undefined) {
+      // 交线：整段高亮（可描的虚拟轨迹）
+      const L = c.locus;
+      hints.push({ a: L.a, b: { x: L.a.x + L.dir.x * L.len!, y: L.a.y + L.dir.y * L.len!, z: L.a.z + L.dir.z * L.len! }, axis: "i" });
     }
   }
   let kind: SnapKind | null;
@@ -133,6 +138,8 @@ export function snapPoint(
     kind = t.kind === "endpoint" ? "endpoint"
       : t.kind === "origin" ? "origin"
       : t.kind === "midpoint" ? "midpoint"
+      : t.kind === "intersection" ? "intersection"
+      : t.kind === "cross" ? "cross-line"
       : t.kind === "edge" ? "on-edge"
       : t.kind === "axis" ? ((t.axis === "u" || t.axis === "v") ? "align" : (("axis-" + t.axis) as SnapKind))
       : t.kind === "align" ? "align"

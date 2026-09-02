@@ -74,7 +74,7 @@ describe("solver: property 不变量", () => {
   });
 
   it("秩表哨兵：RANK/EPS 现值锁定（改值必须连测试一起改=有意识决策）", () => {
-    eq(JSON.stringify(RANK), JSON.stringify({ endpoint: 90, origin: 80, midpoint: 70, edge: 60, axisLine: 45, plane: 10 }), "RANK");
+    eq(JSON.stringify(RANK), JSON.stringify({ endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 }), "RANK");
     eq(JSON.stringify(EPS), JSON.stringify({ point: 10, edge: 7, line: 5, combo: 12 }), "EPS");
   });
 });
