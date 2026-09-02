@@ -3,7 +3,8 @@
 > as-of v0.1.2 / 2026-09-01（创建日）· created by Claude Fable 5
 > 定位：snap 从脚手架转正过程中的**现行模型唯一出处**。演化史散在
 > `20260901-lab-qol-round1.md` §1/§4-§7 与当日对话；重构抢救以本文为准，改模型必须回写本文。
-> 实现 = **`src/playground/solver.ts`（阶段二手术后真身：solvePoint 纯函数 + buildConstraints 情境构建器）**；
+> **一页纸数学定义 = `20260901-solver-math-onepager.md`**（改实现必回写）。
+实现 = **`src/playground/solver.ts`（阶段二手术后真身：solvePoint 纯函数 + buildConstraints 情境构建器）**；
 `pick.ts::snapPoint` 已降级兼容壳（叙事映射，调用方迁完即删）。测试 = `test/solver.test.ts`
 （property 不变量：解在 ε 邻域/确定性/解释完整/字典序/秩表哨兵）+ `test/snap-align.test.ts`（场景 golden）。
 
