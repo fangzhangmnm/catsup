@@ -536,17 +536,31 @@ canvas.addEventListener("pointermove", (ev) => {
     case "pp":
       if (ppFace !== null && anchor3 && ppNormal) {
         const sn = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs());
-        if (sn.kind !== null && sn.kind !== "on-edge") {
+        hoverFace = null;
+        let ref = "";
+        if (sn.kind !== null) {
           snapInfo = sn;
-          ppH = dot3(sub3(sn.p, anchor3), ppNormal);   // 对面高度 snap：任意目标投影到法向
+          ppH = dot3(sub3(sn.p, anchor3), ppNormal);   // 点/线/合成目标 → 投影到法向取高
         } else {
           snapInfo = null;
           const ray1 = cam.screenRay(s.x, s.y, vp());
-          const q = closestOnAxis(anchor3, ppNormal, ray1.origin, ray1.dir);
-          ppH = q ? dot3(sub3(q, anchor3), ppNormal) : ppH;
+          const hitF = pickEntity(kernel, cam, vp(), s.x, s.y, 0.5).face;
+          if (hitF !== undefined && hitF !== ppFace) {
+            // 吸附到面：光标射线∩该面 → 投影法向（平行面=精确同面高度，SU 同款）
+            const rec = kernel.planeOf(hitF)!;
+            const q = rayPlane(ray1.origin, ray1.dir, rec.plane.n, rec.plane.d);
+            if (q) {
+              ppH = dot3(sub3(q, anchor3), ppNormal);
+              hoverFace = hitF;
+              ref = "｜取面#" + hitF + " 高度";
+            }
+          } else {
+            const q = closestOnAxis(anchor3, ppNormal, ray1.origin, ray1.dir);
+            ppH = q ? dot3(sub3(q, anchor3), ppNormal) : ppH;
+          }
         }
         cursor3 = add3(anchor3, scale3(ppNormal, ppH));
-        hintEl.textContent = `推拉 h = ${ppH.toFixed(1)}（松手/再点落定；Esc 取消）`;
+        hintEl.textContent = `推拉 h = ${ppH.toFixed(1)}${ref}（松手/再点落定；Esc 取消）`;
       }
       break;
     case "move":
