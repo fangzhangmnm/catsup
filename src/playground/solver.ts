@@ -403,8 +403,15 @@ export function resolveRectPlane(
   };
   const candidates = [mk({ x: 0, y: 0, z: 1 }), mk({ x: 0, y: 1, z: 0 }), mk({ x: 1, y: 0, z: 0 })];
   const fwd = cam.forward();
-  const facing = (arr: DrawPlane[]): DrawPlane =>
-    arr.reduce((a, b) => (Math.abs(dot3(b.plane.n, fwd)) > Math.abs(dot3(a.plane.n, fwd)) ? b : a));
+  // 与 biasedNormal 同款底面偏置（2026-09-02 二修：此处曾漏，默认视角 |fwd.x| 比 |fwd.z|
+  // 大一线，第二点每帧把矩形改判到立面）：非贴地视角一律优先底面候选
+  const facing = (arr: DrawPlane[]): DrawPlane => {
+    if (Math.abs(fwd.z) >= 0.34) {
+      const ground = arr.find((c) => Math.abs(c.plane.n.z) > 0.999);
+      if (ground) return ground;
+    }
+    return arr.reduce((a, b) => (Math.abs(dot3(b.plane.n, fwd)) > Math.abs(dot3(a.plane.n, fwd)) ? b : a));
+  };
   const camPlane = facing(candidates);
   const snap = snapPoint(k, cam, vp, sx, sy, tolPx, camPlane, p1, null, alignSources);
   const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= Math.max(coplanarTol, 1e-6));

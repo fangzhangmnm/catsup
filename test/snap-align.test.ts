@@ -198,3 +198,14 @@ describe("兜底底面偏置（user 2026-09-02 实测 SU：45° 仍落底面，�
     assert(Math.abs(Math.abs(plane.plane.n.z) - 1) < 1e-9, `45° 应落底面，实际 n=(${plane.plane.n.x},${plane.plane.n.y},${plane.plane.n.z})`);
   });
 });
+
+describe("兜底偏置二修（2026-09-02：resolveRectPlane 每帧重挑也要偏底面）", () => {
+  it("默认 3/4 视角（俯 35°）第二点自由移动 → 平面=底面不是立面", () => {
+    const c = new OrbitCamera();
+    c.pitch = 0.61;   // lab 默认俯角；|fwd.x|≈0.579 略大于 |fwd.z|≈0.573——无偏置时立面误胜
+    c.halfH = 50;
+    const s = at(c, { x: 4, y: 3, z: 0 });
+    const { plane } = resolveRectPlane(new Kernel(), c, VP, { x: 0, y: 0, z: 0 }, s.x, s.y, TOL);
+    assert(Math.abs(Math.abs(plane.plane.n.z) - 1) < 1e-9, `默认视角应落底面，实际 n=(${plane.plane.n.x},${plane.plane.n.y},${plane.plane.n.z})`);
+  });
+});
