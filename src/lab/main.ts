@@ -251,6 +251,13 @@ function computePreview(): void {
   } else if (tool === "rect" && anchor3 && cursor3) {
     const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, cursor3);
     if (segs.length) run((c) => c.addEdges(segs));
+  } else if (tool === "move" && moveVids.length && anchor3 && cursor3) {
+    const delta = { x: cursor3.x - anchor3.x, y: cursor3.y - anchor3.y, z: cursor3.z - anchor3.z };
+    const vids = moveVids;
+    if (Math.hypot(delta.x, delta.y, delta.z) >= 0.3) run((c) => c.moveVertices(translateMoves(kernel, vids, delta)));
+  } else if (tool === "pp" && ppFace !== null && Math.abs(ppH) >= 0.3) {
+    const fid = ppFace, h = ppH;
+    run((c) => c.pushPull(fid, h));
   } else if (tool === "erase" && scrubbing && scrubAcc.size) {
     const ids = [...scrubAcc];
     run((c) => c.eraseEdges(ids));
@@ -279,39 +286,6 @@ function rectPlaneSnap(sx: number, sy: number): Pt3 {
 }
 
 // ---------- 渲染 ----------
-/** move 拖拽纯 ghost：受牵连边按 delta 映射端点（零拓扑裁决——松手才结算）。 */
-function ghostSegs(): [Pt3, Pt3][] | null {
-  if (tool === "pp" && ppFace !== null && ppNormal && Math.abs(ppH) >= 0.3) {
-    const rings = kernel.faceRings3(ppFace);
-    if (!rings) return null;
-    const d = scale3(ppNormal, ppH);
-    const segs: [Pt3, Pt3][] = [];
-    for (const ring of [rings.outer, ...rings.holes]) {
-      for (let i = 0; i < ring.length; i++) {
-        const a = ring[i], b = ring[(i + 1) % ring.length];
-        segs.push([add3(a, d), add3(b, d)]);   // 顶环 ghost
-        segs.push([a, add3(a, d)]);            // 竖棱 ghost
-      }
-    }
-    return segs;
-  }
-  if (tool !== "move" || !moveVids.length || !anchor3 || !cursor3) return null;
-  const d = { x: cursor3.x - anchor3.x, y: cursor3.y - anchor3.y, z: cursor3.z - anchor3.z };
-  if (Math.hypot(d.x, d.y, d.z) < 0.3) return null;
-  const moved = new Set(moveVids);
-  const segs: [Pt3, Pt3][] = [];
-  for (const e of kernel.edges()) {
-    const inA = moved.has(e.a), inB = moved.has(e.b);
-    if (!inA && !inB) continue;
-    const pa = kernel.graph.pt(e.a), pb = kernel.graph.pt(e.b);
-    segs.push([
-      inA ? { x: pa.x + d.x, y: pa.y + d.y, z: pa.z + d.z } : pa,
-      inB ? { x: pb.x + d.x, y: pb.y + d.y, z: pb.z + d.z } : pb,
-    ]);
-  }
-  return segs;
-}
-
 function draw(): void {
   r3.render(kernel, cam, vp(), {
     selectionEdges: selection.edges,
@@ -322,7 +296,6 @@ function draw(): void {
     preview,
     snap: snapInfo,
     snapAnchor: anchor3,
-    ghostSegs: ghostSegs(),
     charged: alignSrcs(),
   });
 }
@@ -436,7 +409,7 @@ canvas.addEventListener("pointerdown", (ev) => {
         armed = false;
         canArm = ev.pointerType === "mouse";
         downScreen = s;
-        hintEl.textContent = "推拉中：沿法向拖或点两下落定（吸到任意点=取其高度）";
+        hintEl.textContent = "推拉中：沿法向拖或点两下落定（所见即所得；吸点线=取其高度）";
       }
       break;
     }
@@ -466,7 +439,7 @@ canvas.addEventListener("pointerdown", (ev) => {
         armed = false;
         canArm = ev.pointerType === "mouse";
         downScreen = s;
-        hintEl.textContent = hasSel ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（纯 ghost，落点才结算）";
+        hintEl.textContent = hasSel ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得）";
       }
       break;
     }
@@ -592,7 +565,7 @@ canvas.addEventListener("pointermove", (ev) => {
     case "eraseFace":
       break;
   }
-  if (tool !== "select" && tool !== "move") computePreview();
+  if (tool !== "select") computePreview();
   updateTip(ev.clientX, ev.clientY);
   draw();
 });
@@ -657,7 +630,7 @@ canvas.addEventListener("pointerup", (ev) => {
       if (justCommitted) { justCommitted = false; break; }
       if (canArm && downScreen && Math.hypot(s.x - downScreen.x, s.y - downScreen.y) <= 4) {
         armed = true;   // 点起 → 移动预览 → 再点放置
-        hintEl.textContent = "移动中：移动预览，再点一下放置；Esc 取消";
+        hintEl.textContent = "移动中：所见即所得预览，再点一下放置；Esc 取消";
         break;
       }
       const excl = moveVids.length === 1 ? moveVids[0] : null;

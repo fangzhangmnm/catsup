@@ -212,6 +212,8 @@ export class Kernel {
     const rec = this.planes.rec(f.planeId);
     const delta = scale3(rec.plane.n, dist);
     if (Math.abs(dist) < 1e-6) return [];
+    const beforeEdges = new Set(this.graph.edges().map((e) => e.id));
+    const opRing = new Set<EdgeId>();
     // 边界分类（2026-09-02 子面案）：travel=裸边（随面走）；stretch=有非共面邻膜（墙 sticky 伸缩）；
     // detach=邻膜全共面（子面：原环留守当井口，目标环下潜）。
     const rings = [f.outer, ...f.holes];
@@ -245,7 +247,9 @@ export class Kernel {
         const p = this.graph.pt(v);
         segs.push({ a: p, b: add3(p, delta), gesture: true });
       }
-      return this.addSegmentsMixed(segs, fRing);
+      const evD = this.addSegmentsMixed(segs, fRing);
+      this.cleanupNakedEdges(beforeEdges, opRing);
+      return evD;
     }
     // 常规模式（travel/stretch：拉整面墙随行伸缩）
     const vids = new Set<VertexId>();
@@ -269,6 +273,7 @@ export class Kernel {
     const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [...bareSegs];
     for (const v of bareVerts) segs.push({ a: oldPos.get(v)!, b: add3(oldPos.get(v)!, delta), gesture: true }); // 竖棱
     const ev2 = segs.length ? this.addSegmentsMixed(segs, new Set<EdgeId>()) : [];
+    this.cleanupNakedEdges(beforeEdges, opRing);
     return [...ev1, ...ev2];
   }
 
@@ -319,6 +324,19 @@ export class Kernel {
   private emit(events: FaceEvent[]): FaceEvent[] {
     this.eventLog.push(...events);
     return events;
+  }
+
+  /**
+   * pp 收尾清裸线（user 2026-09-02「L 的线没删掉」+ WYSIWYG 黄线）：只清**本次操作涉及**的边
+   * （原环 ∪ 新增）中两侧膜全灭者（faceLinks==0）——用户手画的 wire 不碰；E5 空环天然免疫
+   * （顶环 dedup 让位给底环 id，不入候选）。SU 同款：扫带顶边/井口悬线随膜一起走。
+   */
+  private cleanupNakedEdges(beforeEdges: ReadonlySet<EdgeId>, opRing: ReadonlySet<EdgeId>): void {
+    const cand = new Set<EdgeId>(opRing);
+    for (const e of this.graph.edges()) if (!beforeEdges.has(e.id)) cand.add(e.id);
+    for (const eid of cand) {
+      if (this.graph.hasEdge(eid) && this.graph.edge(eid).faceLinks.length === 0) this.graph.removeEdge(eid);
+    }
   }
 
   /**
