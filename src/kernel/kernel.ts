@@ -75,7 +75,7 @@ export class Kernel {
    * 混合手势批：每段自带手势身份开关（pp 补壁用——洞环底边只分割不生膜，管孔保持贯通；
    * 2026-09-02 方管案）。非手势段仍走同一 sticky 插入与 reconcile，只是不入 BIRTH 依据。
    */
-  private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[], toggle = false): FaceEvent[] {
+  private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[], toggleWith?: Set<EdgeId>): FaceEvent[] {
     const gesture = new Set<EdgeId>();
     for (const { a, b, gesture: g } of segs) {
       const r = insertSegment(this.graph, toPt3(a), toPt3(b), (parent, c1, c2) => {
@@ -87,7 +87,7 @@ export class Kernel {
         for (const e of r.retraced) gesture.add(e);
       }
     }
-    return this.emit(this.store.reconcileConstructive(this.graph, this.planes, this.coplanarTol, gesture, toggle));
+    return this.emit(this.store.reconcileConstructive(this.graph, this.planes, this.coplanarTol, gesture, toggleWith));
   }
 
   /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
@@ -224,14 +224,18 @@ export class Kernel {
         else hasOther = true;
       }
     }
-    if (hasDetach && !hasOther) {
-      // 纯子面模式：原环一动不动；原膜蒸发（井口敞开）→ 目标环+竖棱（手势）+ parity 设面：
-      // 半程=井底 BIRTH；到底=着陆环切开对面膜、内片 parity 翻灭=洞穿（E1 甜甜圈，XOR 拍板）。
+    if (hasDetach) {
+      // detach 模式（含混合，E8 墙 L 缺口实证 2026-09-02）：原环一动不动；目标环+竖棱（手势）；
+      // parity 设面统一收割：井口翻灭（原膜外环⊆f环）、墙扫带翻灭（rim∈f环+竖棱/目标段∈手势）、
+      // 着陆打穿（目标环切开对面膜、内片外环⊆手势）；空区照常 BIRTH（井底/内壁）。
+      // 贴边着陆同样打穿=有意不跟 SU（user 拍板：他们是 if 不是代数）。
       const rimVerts = new Set<VertexId>();
+      const fRing = new Set<EdgeId>();
       const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [];
       for (const ring of rings) {
         for (const de of ring.edges) {
           const e = this.graph.edge(de.edge);
+          fRing.add(e.id);
           rimVerts.add(e.a);
           rimVerts.add(e.b);
           segs.push({ a: add3(this.graph.pt(e.a), delta), b: add3(this.graph.pt(e.b), delta), gesture: true });
@@ -241,11 +245,9 @@ export class Kernel {
         const p = this.graph.pt(v);
         segs.push({ a: p, b: add3(p, delta), gesture: true });
       }
-      const evErase = this.eraseFaces([id]);
-      const ev2 = this.addSegmentsMixed(segs, true);
-      return [...evErase, ...ev2];
+      return this.addSegmentsMixed(segs, fRing);
     }
-    // 常规模式（travel/stretch；混有 detach 时降级同 travel——混合顶点语义待 grill，见 pp grill 单）
+    // 常规模式（travel/stretch：拉整面墙随行伸缩）
     const vids = new Set<VertexId>();
     const bareSegs: { a: Pt3; b: Pt3; gesture: boolean }[] = [];
     const bareVerts = new Set<VertexId>();
@@ -266,7 +268,7 @@ export class Kernel {
     const ev1 = this.moveVertices([...vids].map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) })), "xor");
     const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [...bareSegs];
     for (const v of bareVerts) segs.push({ a: oldPos.get(v)!, b: add3(oldPos.get(v)!, delta), gesture: true }); // 竖棱
-    const ev2 = segs.length ? this.addSegmentsMixed(segs, true) : [];
+    const ev2 = segs.length ? this.addSegmentsMixed(segs, new Set<EdgeId>()) : [];
     return [...ev1, ...ev2];
   }
 

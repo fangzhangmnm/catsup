@@ -126,3 +126,35 @@ describe("push/pull: 子面（detach）与 parity 设面（XOR 拍板 2026-09-02
     assert(ev.some((e) => e.type === "BURST"), "洞穿有 BURST 曝光");
   });
 });
+
+describe("push/pull: E8 角块（混合 detach——墙 L 缺口，2026-09-02 实机证实）", () => {
+  function cornerScene(): { k: Kernel; blk: import("../src/kernel/kernel.ts").FaceId } {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    k.pushPull(k.faces()[0].id, 8);
+    // 角块：两边贴 rim（x=20 与 y=0），两边在顶面内部
+    loop(k, [P(12, 0, 8), P(20, 0, 8), P(20, 6, 8), P(12, 6, 8)]);
+    return { k, blk: k.hitTest(P(16, 3, 8), 0.1).face! };
+  }
+
+  it("半推：井口敞开、地板落中、两面墙出 L 缺口（扫带 parity 翻灭）", () => {
+    const { k, blk } = cornerScene();
+    k.pushPull(blk, -3);
+    eq(k.faces().length, 9, "L环带+2完墙+2缺口墙+底+地板+2井壁");
+    assert(k.hitTest(P(16, 3, 8), 0.1).face === undefined, "井口敞开");
+    assert(k.hitTest(P(16, 3, 5), 0.1).face !== undefined, "地板@z=5");
+    assert(k.hitTest(P(16, 0, 6.5), 0.1).face === undefined, "墙 y=0 扫带空（L 缺口）");
+    assert(k.hitTest(P(5, 0, 4), 0.1).face !== undefined, "墙 y=0 余部完好");
+    assert(k.hitTest(P(20, 3, 6.5), 0.1).face === undefined, "墙 x=20 扫带空");
+    assert(k.hitTest(P(5, 10, 8), 0.1).face !== undefined, "顶 L 环带完好");
+  });
+
+  it("推到底：底角打穿（贴边着陆同样 XOR——有意不跟 SU 的留膜 if）", () => {
+    const { k, blk } = cornerScene();
+    k.pushPull(blk, -8);
+    eq(k.faces().length, 8, "直通 L 槽");
+    assert(k.hitTest(P(16, 3, 0), 0.1).face === undefined, "底角被打穿");
+    assert(k.hitTest(P(5, 10, 0), 0.1).face !== undefined, "底余部完好");
+    assert(k.hitTest(P(12, 3, 4), 0.1).face !== undefined, "井壁成型");
+  });
+});

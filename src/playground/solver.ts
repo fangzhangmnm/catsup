@@ -359,7 +359,9 @@ export function snapPoint(
  * 只有相机足够贴地才落立面；阈值=天顶角 60°（|fwd.z|≥cos60°=0.5 → 底面），待手感调参）。 */
 function biasedNormal(cam: OrbitCamera): Pt3 {
   const fwd = cam.forward();
-  if (Math.abs(fwd.z) >= 0.5) return { x: 0, y: 0, z: 1 };
+  // 底面强偏置：只有相机贴地 <20°（|fwd.z|=sin(pitch)<0.34）才给立面。
+  // 2026-09-02 翻车记录：曾用 0.5 阈值，默认俯角 30° 的 sin=0.4999…卡在门槛下→全判立面。调参位。
+  if (Math.abs(fwd.z) >= 0.34) return { x: 0, y: 0, z: 1 };
   return Math.abs(fwd.x) >= Math.abs(fwd.y) ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
 }
 

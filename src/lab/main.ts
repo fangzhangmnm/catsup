@@ -33,7 +33,9 @@ function commitOp(op: LabOp): FaceEvent[] {
   return r.events;
 }
 const cam = new OrbitCamera();
-// 默认三维（user 2026-09-02 拍板：二维模式删除）——SU 式舒适初始 3/4 视角（构造器默认 yaw/pitch）。
+// 默认三维（user 2026-09-02 拍板：二维模式删除）——SU 式舒适初始 3/4 视角；
+// 俯角抬到 35° 避开兜底阈值边界（30° 曾撞 sin=0.4999… 翻车）。
+cam.pitch = 0.61;
 cam.halfH = 220;
 const r3 = new Renderer3(canvas);
 
@@ -531,7 +533,10 @@ canvas.addEventListener("pointermove", (ev) => {
         const sn = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs());
         hoverFace = null;
         let ref = "";
-        if (sn.kind !== null) {
+        // 自平面滤除（user 2026-09-02：被推面自身的 rim/顶点会把 h 吸死在 0=推不动）：
+        // 高度参考只收**离开原平面**的点线目标；同平面目标一律忽略走轴滑
+        const offPlane = sn.kind !== null && Math.abs(dot3(sub3(sn.p, anchor3), ppNormal)) > 1e-3;
+        if (offPlane) {
           snapInfo = sn;
           ppH = dot3(sub3(sn.p, anchor3), ppNormal);   // 点/线/合成目标 → 投影到法向取高
         } else {

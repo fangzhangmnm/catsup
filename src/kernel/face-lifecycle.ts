@@ -93,9 +93,10 @@ export class FaceStore {
 
   // ---------------- 构造手势 ----------------
 
-  reconcileConstructive(g: PlanarGraph, reg: PlaneRegistry, tol: number, gestureEdges: Set<EdgeId>, toggle = false): FaceEvent[] {
-    // toggle=pp 专用 parity 设面（user 2026-09-02 拍板 XOR）：被手势环完整包住的**已有膜**翻灭
-    //（推到底=开洞）；空区照常 BIRTH（推半程=井底）。普通画笔永不传 toggle。
+  reconcileConstructive(g: PlanarGraph, reg: PlaneRegistry, tol: number, gestureEdges: Set<EdgeId>, toggleWith?: Set<EdgeId>): FaceEvent[] {
+    // toggleWith=pp 专用 parity 设面（XOR 拍板；E8 墙 L 缺口实证后统一）：已有膜的区域若其外环
+    // ⊆（手势边 ∪ toggleWith〔被推面的原环〕）→ 翻灭（井口敞开/墙扫带/着陆打穿全走这一条）；
+    // 空区照常 BIRTH。普通画笔永不传 toggleWith。角块着陆贴边也打穿=**有意不跟 SU**（他们是 if 不是代数）。
     const events: FaceEvent[] = [];
     const byPlane = this.regionsByPlane(g, reg, tol);
     const claimed = new Set<Region>();
@@ -106,7 +107,7 @@ export class FaceStore {
       if (covering.length === 1) {
         this.adopt(f, covering[0]);
         claimed.add(covering[0]);
-        if (toggle && covering[0].outer.edges.every((d) => gestureEdges.has(d.edge))) {
+        if (toggleWith && covering[0].outer.edges.every((d) => gestureEdges.has(d.edge) || toggleWith.has(d.edge))) {
           this.byId.delete(f.id);
           events.push({ type: "BURST", face: f.id });   // parity 翻灭（区域保持 claimed，不复生）
         }
@@ -118,7 +119,7 @@ export class FaceStore {
           const nf = this.mint(f.planeId, r);
           into.push(nf.id);
           claimed.add(r);
-          if (toggle && r.outer.edges.every((d) => gestureEdges.has(d.edge))) toggledOff.push(nf.id);
+          if (toggleWith && r.outer.edges.every((d) => gestureEdges.has(d.edge) || toggleWith.has(d.edge))) toggledOff.push(nf.id);
         }
         events.push({ type: "DIVIDE", from: f.id, into });
         for (const nid of toggledOff) {
