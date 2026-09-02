@@ -65,6 +65,22 @@ let armed = false;                     // 点两下模式：第一击已落 anch
 let canArm = false;                    // 只有鼠标解锁点两下（数位笔 tap 误触发意外连线）
 let downScreen: { x: number; y: number } | null = null;
 let justCommitted = false;             // 第二击 down 已落笔，紧随的 up 不再处理
+// 充能制（from-point 源点登记）：hover 端点/中点停留 ≥300ms 充能，LRU 3；紫点反馈
+const charged = new Map<string, Pt3>();
+let dwell: { key: string; since: number } | null = null;
+const alignSrcs = (): Pt3[] => [...charged.values()];
+function trackCharge(sn: Snap3 | null): void {
+  if (!sn || (sn.kind !== "endpoint" && sn.kind !== "midpoint")) { dwell = null; return; }
+  const key = `${sn.p.x},${sn.p.y},${sn.p.z}`;
+  if (charged.has(key)) { dwell = null; return; }
+  const now = performance.now();
+  if (!dwell || dwell.key !== key) { dwell = { key, since: now }; return; }
+  if (now - dwell.since >= 300) {
+    charged.set(key, { ...sn.p });
+    while (charged.size > 3) charged.delete(charged.keys().next().value!);
+    dwell = null;
+  }
+}
 
 const vp = (): Viewport => ({ w: canvas.clientWidth, h: canvas.clientHeight });
 const gestureActive = (): boolean => anchor3 !== null || moveVids.length > 0 || scrubbing || marqueeStart !== null;
@@ -226,10 +242,10 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 /** 矩形第二点：固定面 → 面内吸附；动态 → 平面被第二点拉动（resolveRectPlane）。 */
 function rectPlaneSnap(sx: number, sy: number): Pt3 {
   if (rectFixed) {
-    snapInfo = snapPoint(kernel, cam, vp(), sx, sy, SNAP, gesturePlane);
+    snapInfo = snapPoint(kernel, cam, vp(), sx, sy, SNAP, gesturePlane, null, null, alignSrcs());
     return snapInfo.p;
   }
-  const r = resolveRectPlane(kernel, cam, vp(), anchor3!, sx, sy, SNAP);
+  const r = resolveRectPlane(kernel, cam, vp(), anchor3!, sx, sy, SNAP, alignSrcs());
   gesturePlane = r.plane;
   snapInfo = r.snap;
   return r.snap.p;
@@ -266,6 +282,7 @@ function draw(): void {
     snap: snapInfo,
     snapAnchor: anchor3,
     ghostSegs: ghostSegs(),
+    charged: alignSrcs(),
   });
 }
 
@@ -313,11 +330,19 @@ canvas.addEventListener("pointerdown", (ev) => {
         // 点两下模式第二击 = 落笔（SU 同款；线工具链式连画）
         justCommitted = true;
         if (tool === "line") {
-          // 不连画（user 2026-09-01 裁定：纯鼠标无逃生，连画议题入 backlog 以后 grill）
+          // 连画+出膜停（user 终裁回 SU 方案）：出膜事件（BIRTH/DIVIDE…）=铅笔自动抬起；
+          // 逃生=Esc（SU 官方口径）/原地点击
           const a = anchor3;
-          const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, a).p;
+          const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, a, null, alignSrcs()).p;
+          if (dist(a, b) < 1) { cancelGesture(); break; }
+          const evs = commitOp({ op: "addEdges", segs: [[a, b]] });
+          appendLog(evs);
+          if (evs.length > 0) { cancelGesture(); break; }
           cancelGesture();
-          if (dist(a, b) >= 1) appendLog(commitOp({ op: "addEdges", segs: [[a, b]] }));
+          anchor3 = b;
+          cursor3 = b;
+          armed = true;
+          hintEl.textContent = "连画中：点下一点；出膜自动停；Esc 收笔";
         } else {
           const b = rectPlaneSnap(s.x, s.y);
           const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
@@ -328,7 +353,7 @@ canvas.addEventListener("pointerdown", (ev) => {
       }
       if (tool === "rect") {
         // 元逻辑：首点被低维吸附赢走（角/边/轴）→ 平面延迟给第二点；裸落面内才锁面平行
-        const r = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP);
+        const r = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP, alignSrcs());
         rectFixed = r.fixed;
         gesturePlane = r.fixed ?? cameraPlane(cam, r.snap.p);
         snapInfo = r.snap;
@@ -348,7 +373,7 @@ canvas.addEventListener("pointerdown", (ev) => {
         // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
         justCommitted = true;
         const excl = moveVids.length === 1 ? moveVids[0] : null;
-        const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl).p;
+        const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs()).p;
         const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
         const vids = moveVids;
         const d = Math.hypot(delta.x, delta.y, delta.z);
@@ -357,21 +382,19 @@ canvas.addEventListener("pointerdown", (ev) => {
         break;
       }
       const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
-      const inSel = (hit.edge !== undefined && selection.edges.has(hit.edge)) ||
-        (hit.face !== undefined && selection.faces.has(hit.face));
-      moveVids = inSel && (selection.edges.size || selection.faces.size)
-        ? moveTargetsSelection(kernel, selection)
-        : moveTargets(kernel, hit);
+      const hasSel = selection.edges.size > 0 || selection.faces.size > 0;
+      // SU 语义（user 2026-09-01）：有选区时 move 作用于选区，拾取点可以点任何地方当参考点
+      moveVids = hasSel ? moveTargetsSelection(kernel, selection) : moveTargets(kernel, hit);
       if (moveVids.length) {
         gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
         anchor3 = hit.vertex !== undefined
           ? kernel.graph.pt(hit.vertex)
-          : snapPoint(kernel, cam, vp(), s.x, s.y, 0, gesturePlane).p;
+          : snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, null, null, alignSrcs()).p;
         cursor3 = anchor3;
         armed = false;
         canArm = ev.pointerType === "mouse";
         downScreen = s;
-        hintEl.textContent = "移动中…拖拽或点两下放置（纯 ghost，落点才结算）";
+        hintEl.textContent = hasSel ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（纯 ghost，落点才结算）";
       }
       break;
     }
@@ -410,7 +433,8 @@ canvas.addEventListener("pointermove", (ev) => {
     hoverFace = null;
     if (tool === "line" || tool === "rect" || tool === "move") {
       const plane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
-      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane);
+      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane, null, null, alignSrcs());
+      trackCharge(snapInfo);
     } else if (tool === "erase") {
       hoverEdge = pickEntity(kernel, cam, vp(), s.x, s.y, HIT).edge ?? null;
     } else if (tool === "eraseFace") {
@@ -424,7 +448,8 @@ canvas.addEventListener("pointermove", (ev) => {
   switch (tool) {
     case "line":
       if (anchor3) {
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3);
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs());
+        trackCharge(snapInfo);
         cursor3 = snapInfo.p;
       }
       break;
@@ -434,7 +459,8 @@ canvas.addEventListener("pointermove", (ev) => {
     case "move":
       if (moveVids.length && anchor3) {
         const excl = moveVids.length === 1 ? moveVids[0] : null;
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl);
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs());
+        trackCharge(snapInfo);
         cursor3 = snapInfo.p;
       }
       break;
@@ -480,9 +506,16 @@ canvas.addEventListener("pointerup", (ev) => {
         break;
       }
       const a = anchor3;
-      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3).p;
+      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs()).p;
+      if (dist(a, b) < 1) { cancelGesture(); break; }
+      const evs = commitOp({ op: "addEdges", segs: [[a, b]] });
+      appendLog(evs);
+      if (evs.length > 0) { cancelGesture(); break; }
       cancelGesture();
-      if (dist(a, b) >= 1) appendLog(commitOp({ op: "addEdges", segs: [[a, b]] }));
+      anchor3 = b;
+      cursor3 = b;
+      armed = true;
+      hintEl.textContent = "连画中：点下一点；出膜自动停；Esc 收笔";
       break;
     }
     case "rect": {
@@ -508,7 +541,7 @@ canvas.addEventListener("pointerup", (ev) => {
         break;
       }
       const excl = moveVids.length === 1 ? moveVids[0] : null;
-      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl).p;
+      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs()).p;
       const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
       const vids = moveVids;
       const d = Math.hypot(delta.x, delta.y, delta.z);

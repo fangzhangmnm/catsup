@@ -1,6 +1,6 @@
 // 轴对齐 1-DOF 约束层（QoL 波 2026-09-01：原点/坐标轴 snap + from-point 共轴 + 正交合成）。
 // created by Claude Fable 5, 2026-09-01
-import { describe, it, eq, assert, todo } from "./runner.mjs";
+import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera } from "../src/playground/camera.ts";
@@ -70,7 +70,7 @@ describe("snap: 轴平行 3D（XZ/YZ 画图入口）", () => {
     c.target = { x: 5, y: 0, z: 5 };
     c.halfH = 50;
     const s = at(c, { x: 10.2, y: 0, z: 9.8 });
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 0, z: 0 });
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 0, z: 0 }, null, [{ x: 0, y: 0, z: 10 }]);
     eq(r.kind, "align-combo", "kind=align-combo");
     assert(Math.abs(r.p.x - 10) < 1e-9 && Math.abs(r.p.z - 10) < 1e-9, `角点=(10,0,10)，实际 (${r.p.x},${r.p.y},${r.p.z})`);
   });
@@ -83,7 +83,7 @@ describe("snap: 轴平行 3D（XZ/YZ 画图入口）", () => {
     c.target = { x: 5, y: 2, z: 5 };
     c.halfH = 50;
     const s = at(c, { x: 10.1, y: 4.2, z: 9.9 });
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 5, z: 0 });
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 5, z: 0 }, null, [{ x: 0, y: 0, z: 10 }]);
     assert(r.kind !== "align-combo", `不许假相交合成（实际 kind=${r.kind}）`);
   });
 });
@@ -136,8 +136,7 @@ describe("rect: 首点平面裁决（元逻辑：维度优先+延迟承诺）", 
     eq(r.snap.kind, "endpoint", "首点=角点");
     eq(r.fixed, null, "平面延迟给第二点");
   });
-  todo("裸落墙面内部 → 面平行锁定【幽灵 align 标本挡路：顺视线对齐线深度不定向，" +
-    "全顶点常开是病根；等 snap 模型 grill 拍板来源制（候选=hover 充能）后修】", () => {
+  it("裸落墙面内部 → 面平行锁定（充能制痊愈：无充能源=无幽灵 align）", () => {
     const k = wall(), c = cam3();
     const s = at(c, { x: 0, y: 5, z: 4 });
     const r = rectFirstPlane(k, c, VP, s.x, s.y, TOL);

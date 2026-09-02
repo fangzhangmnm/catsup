@@ -112,6 +112,7 @@ export function snapPoint(
   plane: DrawPlane,
   anchor: Pt3 | null = null,
   excludeVid: VertexId | null = null,
+  alignSources?: readonly Pt3[],
 ): Snap3 {
   const cursor = { x: sx, y: sy };
   // 1. endpoint
@@ -182,12 +183,11 @@ export function snapPoint(
       seen.add(key);
       sources.push({ p, fromAnchor });
     };
+    // 充能制（user 2026-09-01 拍板，取代全顶点常开）：源点 = anchor + 原点（永久）+
+    // 调用方充能点（hover 停留登记；SU from-point 同款）。幽灵 align 病根随全顶点常开一起死。
     if (anchor) addSrc(anchor, true);
     addSrc({ x: 0, y: 0, z: 0 }, false);
-    for (const v of k.vertices()) {
-      if (v.id === excludeVid) continue;
-      addSrc({ x: v.x, y: v.y, z: v.z }, false);
-    }
+    for (const p of alignSources ?? []) addSrc(p, false);
     const better = (a: Cand | null, b: Cand): boolean =>
       !a || b.d < a.d - 1e-9 || (Math.abs(b.d - a.d) <= 1e-9 && b.fromAnchor && !a.fromAnchor);
     const best: Record<AxName, Cand | null> = { x: null, y: null, z: null };
@@ -197,9 +197,8 @@ export function snapPoint(
         if (d > tolPx) continue;
         const q = closestOnAxis(src.p, dir, ray.origin, ray.dir);
         if (!q) continue;
-        // ⚠ 已知结构病（2026-09-01 幽灵 align 标本，grill 议题）：正交投影下任何不顺视线的
-        // 3D 线，其投影扫过光标时线上必有一点精确落在拾取射线上（某深度）——屏距滤波
-        // 无法定向深度。全顶点常开是病根；候选修法=hover 充能制（SU 同款），等 grill 拍板。
+        // 深度歧义护栏=充能制本身：正交投影下屏距滤波无法定向深度（幽灵 align 标本），
+        // 唯一不靠调参的解法是把候选集缩到用户指过的源点——充能点是用户刚看过的，意图已定向。
         const c: Cand = { src: src.p, axis, dir, q, d, fromAnchor: src.fromAnchor };
         if (better(best[axis], c)) best[axis] = c;
       }
@@ -299,6 +298,7 @@ export function rectFirstPlane(
   sx: number,
   sy: number,
   tolPx: number,
+  alignSources?: readonly Pt3[],
 ): { fixed: DrawPlane | null; snap: Snap3 } {
   const hit = pickEntity(k, cam, vp, sx, sy, 0.5);
   let facePl: DrawPlane | null = null;
@@ -306,7 +306,7 @@ export function rectFirstPlane(
     const rec = k.planeOf(hit.face)!;
     facePl = { plane: rec.plane, basis: rec.basis };
   }
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, facePl ?? cameraPlane(cam, cam.target));
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, facePl ?? cameraPlane(cam, cam.target), null, null, alignSources);
   return { fixed: snap.kind === null ? facePl : null, snap };
 }
 
@@ -326,6 +326,7 @@ export function resolveRectPlane(
   sx: number,
   sy: number,
   tolPx: number,
+  alignSources?: readonly Pt3[],
   coplanarTol = 1e-3,
 ): { plane: DrawPlane; snap: Snap3 } {
   const mk = (n: Pt3): DrawPlane => {
@@ -337,7 +338,7 @@ export function resolveRectPlane(
   const facing = (arr: DrawPlane[]): DrawPlane =>
     arr.reduce((a, b) => (Math.abs(dot3(b.plane.n, fwd)) > Math.abs(dot3(a.plane.n, fwd)) ? b : a));
   const camPlane = facing(candidates);
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, camPlane, p1);
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, camPlane, p1, null, alignSources);
   const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= Math.max(coplanarTol, 1e-6));
   return { plane: containing.length ? facing(containing) : camPlane, snap };
 }

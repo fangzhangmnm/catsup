@@ -33,6 +33,8 @@ export interface ViewState {
   snapAnchor: Pt3 | null;      // axis 锁的虚线起点
   /** move 拖拽纯 ghost（零拓扑裁决，spec=20260901-move-spec.md §1；松手才结算）。added by Claude Fable 5 2026-09-01 */
   ghostSegs?: readonly (readonly [Pt3, Pt3])[] | null;
+  /** 充能源点（from-point 共轴的登记源；紫点）。added by Claude Fable 5 2026-09-01 */
+  charged?: readonly Pt3[] | null;
 }
 
 export class Renderer3 {
@@ -142,6 +144,18 @@ export class Renderer3 {
       const pts: Pt3[] = [];
       for (const [a, b] of view.ghostSegs) pts.push(a, b);
       g.add(lineSegments(pts, 0x999999, 1));
+    }
+
+    // ---- 充能源点（紫）----
+    if (view.charged?.length) {
+      for (const p of view.charged) {
+        const m = new THREE.Mesh(
+          new THREE.SphereGeometry(cam.halfH * 0.009, 10, 8),
+          new THREE.MeshBasicMaterial({ color: 0x8b5cf6 }),
+        );
+        m.position.set(p.x, p.y, p.z);
+        g.add(m);
+      }
     }
 
     // ---- 吸附指示 ----
