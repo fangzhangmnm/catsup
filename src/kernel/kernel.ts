@@ -75,7 +75,7 @@ export class Kernel {
    * 混合手势批：每段自带手势身份开关（pp 补壁用——洞环底边只分割不生膜，管孔保持贯通；
    * 2026-09-02 方管案）。非手势段仍走同一 sticky 插入与 reconcile，只是不入 BIRTH 依据。
    */
-  private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[]): FaceEvent[] {
+  private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[], toggle = false): FaceEvent[] {
     const gesture = new Set<EdgeId>();
     for (const { a, b, gesture: g } of segs) {
       const r = insertSegment(this.graph, toPt3(a), toPt3(b), (parent, c1, c2) => {
@@ -87,7 +87,7 @@ export class Kernel {
         for (const e of r.retraced) gesture.add(e);
       }
     }
-    return this.emit(this.store.reconcileConstructive(this.graph, this.planes, this.coplanarTol, gesture));
+    return this.emit(this.store.reconcileConstructive(this.graph, this.planes, this.coplanarTol, gesture, toggle));
   }
 
   /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
@@ -110,7 +110,7 @@ export class Kernel {
    * ④ 覆盖 reconcile 设面（胞腔填 ⟺ 被 ≥1 旧膜像覆盖，1+1=1）。
    * rotate/duplicate/scale 未来同走此协议。edited by Claude Fable 5 2026-09-01
    */
-  moveVertices(moves: readonly { id: VertexId; to: PtIn }[]): FaceEvent[] {
+  moveVertices(moves: readonly { id: VertexId; to: PtIn }[], algebra: "or" | "xor" = "or"): FaceEvent[] {
     // 快照：每面全环（外+洞）顶点 id + 受牵连面
     const snaps = new Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>();
     const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): VertexId[] =>
@@ -194,7 +194,7 @@ export class Kernel {
     //   出平面/平面平移，曾把非平面膜假装成平的（2026-09-01 立方体移墙案，详 move-spec §4）
     const topologyChanged = mergesHappened || changed || movedFaces.size > 0;
     return this.emit(this.store.reconcileCoverage(
-      this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, topologyChanged, folds,
+      this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, topologyChanged, folds, algebra,
     ));
   }
 
@@ -212,10 +212,43 @@ export class Kernel {
     const rec = this.planes.rec(f.planeId);
     const delta = scale3(rec.plane.n, dist);
     if (Math.abs(dist) < 1e-6) return [];
+    // 边界分类（2026-09-02 子面案）：travel=裸边（随面走）；stretch=有非共面邻膜（墙 sticky 伸缩）；
+    // detach=邻膜全共面（子面：原环留守当井口，目标环下潜）。
+    const rings = [f.outer, ...f.holes];
+    let hasDetach = false, hasOther = false;
+    for (const ring of rings) {
+      for (const de of ring.edges) {
+        const e = this.graph.edge(de.edge);
+        const others = e.faceLinks.filter((x) => x !== id);
+        if (others.length && others.every((o) => this.store.face(o)?.planeId === f.planeId)) hasDetach = true;
+        else hasOther = true;
+      }
+    }
+    if (hasDetach && !hasOther) {
+      // 纯子面模式：原环一动不动；原膜蒸发（井口敞开）→ 目标环+竖棱（手势）+ parity 设面：
+      // 半程=井底 BIRTH；到底=着陆环切开对面膜、内片 parity 翻灭=洞穿（E1 甜甜圈，XOR 拍板）。
+      const rimVerts = new Set<VertexId>();
+      const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [];
+      for (const ring of rings) {
+        for (const de of ring.edges) {
+          const e = this.graph.edge(de.edge);
+          rimVerts.add(e.a);
+          rimVerts.add(e.b);
+          segs.push({ a: add3(this.graph.pt(e.a), delta), b: add3(this.graph.pt(e.b), delta), gesture: true });
+        }
+      }
+      for (const v of rimVerts) {
+        const p = this.graph.pt(v);
+        segs.push({ a: p, b: add3(p, delta), gesture: true });
+      }
+      const evErase = this.eraseFaces([id]);
+      const ev2 = this.addSegmentsMixed(segs, true);
+      return [...evErase, ...ev2];
+    }
+    // 常规模式（travel/stretch；混有 detach 时降级同 travel——混合顶点语义待 grill，见 pp grill 单）
     const vids = new Set<VertexId>();
     const bareSegs: { a: Pt3; b: Pt3; gesture: boolean }[] = [];
     const bareVerts = new Set<VertexId>();
-    const rings = [f.outer, ...f.holes];
     for (let ri = 0; ri < rings.length; ri++) {
       for (const de of rings[ri].edges) {
         const e = this.graph.edge(de.edge);
@@ -230,10 +263,10 @@ export class Kernel {
       }
     }
     const oldPos = new Map<VertexId, Pt3>([...vids].map((v) => [v, this.graph.pt(v)]));
-    const ev1 = this.moveVertices([...vids].map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) })));
+    const ev1 = this.moveVertices([...vids].map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) })), "xor");
     const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [...bareSegs];
     for (const v of bareVerts) segs.push({ a: oldPos.get(v)!, b: add3(oldPos.get(v)!, delta), gesture: true }); // 竖棱
-    const ev2 = segs.length ? this.addSegmentsMixed(segs) : [];
+    const ev2 = segs.length ? this.addSegmentsMixed(segs, true) : [];
     return [...ev1, ...ev2];
   }
 

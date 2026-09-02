@@ -58,17 +58,19 @@ describe("push/pull: 灵魂手势", () => {
     assert(k.faces().some((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 5)), "顶面回落 z=5");
   });
 
-  it("推到与底重合 = v1 普通 sticky（dedup 1+1=1 闭盒→平板；挖洞特例待真机裁决）", () => {
+  it("E5 推平到底 = XOR 成对湮灭 → 空环（user 拍板；铅笔描一笔肥皂膜复活）", () => {
     const k = new Kernel();
     loop(k, [P(0, 0), P(10, 0), P(10, 10), P(0, 10)]);
     k.pushPull(k.faces()[0].id, 8);
     const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 8))!;
-    k.pushPull(top.id, -8);
-    assert(k.faces().length >= 1, "不炸即可（终态语义待挖洞 grill 定）");
-    assert(k.edges().every((e) => {
-      const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
-      return a.z === 0 && b.z === 0;
-    }), "全部几何压回地面");
+    const ev = k.pushPull(top.id, -8);
+    eq(k.faces().length, 0, "顶⊕底成对湮灭，无膜");
+    eq(k.edges().length, 4, "只剩地面空环");
+    assert(ev.some((e) => e.type === "BURST"), "湮灭有 BURST 曝光");
+    // 描一笔复活（user：不疼）
+    const rv = k.addEdges([[P(0, 0), P(10, 0)]]);
+    eq(rv[0].type, "BIRTH", "retrace 复活");
+    eq(k.faces().length, 1, "膜回来了");
   });
 });
 
@@ -85,5 +87,42 @@ describe("push/pull: 带洞面（generic 路径）", () => {
     eq(k.faces().length, 10, "方管十膜");
     eq(k.edges().length, 24, "二十四棱");
     assert(k.edges().every((e) => e.faceLinks.length === 2), "每棱 radial 挂两面（流形管）");
+  });
+});
+
+
+describe("push/pull: 子面（detach）与 parity 设面（XOR 拍板 2026-09-02）", () => {
+  function boxWithInner(): { k: Kernel; inner: import("../src/kernel/kernel.ts").FaceId } {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    k.pushPull(k.faces()[0].id, 8);
+    k.addEdges([
+      [P(6, 6, 8), P(14, 6, 8)], [P(14, 6, 8), P(14, 14, 8)],
+      [P(14, 14, 8), P(6, 14, 8)], [P(6, 14, 8), P(6, 6, 8)],
+    ]);
+    const inner = k.hitTest(P(10, 10, 8), 0.1).face!;
+    return { k, inner };
+  }
+
+  it("E3 推半程 = 井（井口敞开、井壁井底、环带留守）", () => {
+    const { k, inner } = boxWithInner();
+    k.pushPull(inner, -3);
+    eq(k.faces().length, 11, "环带顶+4外壁+满底+4井壁+井底");
+    assert(k.hitTest(P(10, 10, 8), 0.1).face === undefined, "井口敞开（原膜蒸发）");
+    assert(k.hitTest(P(10, 10, 5), 0.1).face !== undefined, "井底有膜");
+    assert(k.hitTest(P(10, 10, 0), 0.1).face !== undefined, "大底完好");
+    assert(k.hitTest(P(2, 2, 8), 0.1).face !== undefined, "顶环带留守");
+  });
+
+  it("E1 推到底 = 甜甜圈（着陆环切开大底、内片 parity 翻灭、洞穿）", () => {
+    const { k, inner } = boxWithInner();
+    const ev = k.pushPull(inner, -8);
+    eq(k.faces().length, 10, "顶环带+底环带+4外壁+4井壁，洞穿");
+    assert(k.hitTest(P(10, 10, 8), 0.1).face === undefined, "顶开洞");
+    assert(k.hitTest(P(10, 10, 0), 0.1).face === undefined, "底开洞（XOR 湮灭）");
+    assert(k.hitTest(P(2, 2, 0), 0.1).face !== undefined, "底环带留守");
+    assert(k.hitTest(P(6, 10, 4), 0.1).face !== undefined, "井壁成型");
+    assert(k.edges().every((e) => e.faceLinks.length === 2), "全流形（甜甜圈）");
+    assert(ev.some((e) => e.type === "BURST"), "洞穿有 BURST 曝光");
   });
 });

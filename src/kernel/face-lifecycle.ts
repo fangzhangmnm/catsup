@@ -93,7 +93,9 @@ export class FaceStore {
 
   // ---------------- 构造手势 ----------------
 
-  reconcileConstructive(g: PlanarGraph, reg: PlaneRegistry, tol: number, gestureEdges: Set<EdgeId>): FaceEvent[] {
+  reconcileConstructive(g: PlanarGraph, reg: PlaneRegistry, tol: number, gestureEdges: Set<EdgeId>, toggle = false): FaceEvent[] {
+    // toggle=pp 专用 parity 设面（user 2026-09-02 拍板 XOR）：被手势环完整包住的**已有膜**翻灭
+    //（推到底=开洞）；空区照常 BIRTH（推半程=井底）。普通画笔永不传 toggle。
     const events: FaceEvent[] = [];
     const byPlane = this.regionsByPlane(g, reg, tol);
     const claimed = new Set<Region>();
@@ -104,15 +106,25 @@ export class FaceStore {
       if (covering.length === 1) {
         this.adopt(f, covering[0]);
         claimed.add(covering[0]);
+        if (toggle && covering[0].outer.edges.every((d) => gestureEdges.has(d.edge))) {
+          this.byId.delete(f.id);
+          events.push({ type: "BURST", face: f.id });   // parity 翻灭（区域保持 claimed，不复生）
+        }
       } else if (covering.length >= 2) {
         this.byId.delete(f.id);
         const into: FaceId[] = [];
+        const toggledOff: FaceId[] = [];
         for (const r of covering) {
           const nf = this.mint(f.planeId, r);
           into.push(nf.id);
           claimed.add(r);
+          if (toggle && r.outer.edges.every((d) => gestureEdges.has(d.edge))) toggledOff.push(nf.id);
         }
         events.push({ type: "DIVIDE", from: f.id, into });
+        for (const nid of toggledOff) {
+          this.byId.delete(nid);
+          events.push({ type: "BURST", face: nid });    // 着陆环切开后内片 parity 翻灭（洞穿）
+        }
       }
       // covering=0：构造不减边，防御性保留原面
     }
@@ -265,6 +277,7 @@ export class FaceStore {
     movedFaces: Set<FaceId>,
     topologyChanged: boolean,
     folds?: Map<FaceId, VertexId[][]>,
+    algebra: "or" | "xor" = "or",
   ): FaceEvent[] {
     const events: FaceEvent[] = [];
     if (!topologyChanged) {
@@ -346,10 +359,17 @@ export class FaceStore {
       descend.set(fid, into);
       events.push({ type: "DIVIDE", from: fid, into });
     }
-    // ② 多对一 → MERGE（dedup：膜没有出身）
+    // ② 多对一：OR=MERGE dedup；XOR（pp 注入，user 2026-09-02 拍板）=偶数成对湮灭（着陆开洞）
     for (const [r, owners] of claimants) {
       const unique = [...new Set(owners)];
       if (unique.length < 2) continue;
+      if (algebra === "xor" && unique.length % 2 === 0) {
+        for (const fid of unique) {
+          if (this.byId.delete(fid)) events.push({ type: "BURST", face: fid });
+        }
+        claimants.set(r, []);
+        continue;
+      }
       let planeId: PlaneId | null = null;
       for (const fid of unique) {
         planeId = this.byId.get(fid)?.planeId ?? planeId;
