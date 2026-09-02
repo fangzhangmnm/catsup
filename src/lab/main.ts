@@ -69,15 +69,22 @@ let justCommitted = false;             // 第二击 down 已落笔，紧随的 u
 const charged = new Map<string, Pt3>();
 let dwell: { key: string; since: number } | null = null;
 const alignSrcs = (): Pt3[] => [...charged.values()];
-function trackCharge(sn: Snap3 | null): void {
+function chargePt(p: Pt3): void {
+  const key = `${p.x},${p.y},${p.z}`;
+  charged.delete(key);
+  charged.set(key, { ...p });
+  while (charged.size > 3) charged.delete(charged.keys().next().value!);
+}
+/** dwellMs：hover=300ms；拖动中=120ms（user 2026-09-01 拍板：无悬停设备〔如部分笔/S Pen 场景〕
+ *  靠手势中路过充能兜底）。 */
+function trackCharge(sn: Snap3 | null, dwellMs = 300): void {
   if (!sn || (sn.kind !== "endpoint" && sn.kind !== "midpoint")) { dwell = null; return; }
   const key = `${sn.p.x},${sn.p.y},${sn.p.z}`;
   if (charged.has(key)) { dwell = null; return; }
   const now = performance.now();
   if (!dwell || dwell.key !== key) { dwell = { key, since: now }; return; }
-  if (now - dwell.since >= 300) {
-    charged.set(key, { ...sn.p });
-    while (charged.size > 3) charged.delete(charged.keys().next().value!);
+  if (now - dwell.since >= dwellMs) {
+    chargePt(sn.p);
     dwell = null;
   }
 }
@@ -337,6 +344,7 @@ canvas.addEventListener("pointerdown", (ev) => {
           if (dist(a, b) < 1) { cancelGesture(); break; }
           const evs = commitOp({ op: "addEdges", segs: [[a, b]] });
           appendLog(evs);
+          chargePt(a); chargePt(b);   // 落笔点自动充能（通用兜底）
           if (evs.length > 0) { cancelGesture(); break; }
           cancelGesture();
           anchor3 = b;
@@ -449,7 +457,7 @@ canvas.addEventListener("pointermove", (ev) => {
     case "line":
       if (anchor3) {
         snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs());
-        trackCharge(snapInfo);
+        trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
       }
       break;
@@ -460,7 +468,7 @@ canvas.addEventListener("pointermove", (ev) => {
       if (moveVids.length && anchor3) {
         const excl = moveVids.length === 1 ? moveVids[0] : null;
         snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs());
-        trackCharge(snapInfo);
+        trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
       }
       break;
@@ -510,6 +518,7 @@ canvas.addEventListener("pointerup", (ev) => {
       if (dist(a, b) < 1) { cancelGesture(); break; }
       const evs = commitOp({ op: "addEdges", segs: [[a, b]] });
       appendLog(evs);
+      chargePt(a); chargePt(b);   // 落笔点自动充能（通用兜底）
       if (evs.length > 0) { cancelGesture(); break; }
       cancelGesture();
       anchor3 = b;
