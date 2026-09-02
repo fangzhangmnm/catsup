@@ -148,8 +148,8 @@ describe("push/pull: E8 角块（混合 detach——墙 L 缺口，2026-09-02 �
     // 裸线清理（2026-09-02「L 的线没删掉」修）：扫带顶边两侧膜全灭 → 边随膜走
     assert(!k.edges().some((e) => {
       const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
-      return a.z === 8 && b.z === 8 && a.y === 0 && b.y === 0;
-    }), "y=0 rim 的扫带顶边已清（无悬空裸线）");
+      return a.z === 8 && b.z === 8 && a.y === 0 && b.y === 0 && a.x >= 12 && b.x >= 12;
+    }), "扫带顶边(12..20,0,8)已清（L 环带自己的 rim 段不在此列）");
     assert(k.hitTest(P(20, 3, 6.5), 0.1).face === undefined, "墙 x=20 扫带空");
     assert(k.hitTest(P(5, 10, 8), 0.1).face !== undefined, "顶 L 环带完好");
   });

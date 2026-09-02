@@ -221,6 +221,7 @@ export class Kernel {
     for (const ring of rings) {
       for (const de of ring.edges) {
         const e = this.graph.edge(de.edge);
+        opRing.add(e.id);
         const others = e.faceLinks.filter((x) => x !== id);
         if (others.length && others.every((o) => this.store.face(o)?.planeId === f.planeId)) hasDetach = true;
         else hasOther = true;
@@ -248,7 +249,7 @@ export class Kernel {
         segs.push({ a: p, b: add3(p, delta), gesture: true });
       }
       const evD = this.addSegmentsMixed(segs, fRing);
-      this.cleanupNakedEdges(beforeEdges, opRing);
+      this.cleanupNakedEdges(beforeEdges, fRing);
       return evD;
     }
     // 常规模式（travel/stretch：拉整面墙随行伸缩）
