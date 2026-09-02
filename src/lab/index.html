@@ -34,20 +34,19 @@
   <div id="boardWrap"><canvas id="board"></canvas></div>
   <div id="side">
     <div id="tools">
-      <button id="toolSelect">选择</button>
-      <button id="toolLine">画线</button>
-      <button id="toolRect">矩形</button>
-      <button id="toolMove">移动</button>
-      <button id="toolPP">推拉</button>
-      <button id="toolErase">橡皮</button>
+      <button id="toolSelect" title="Space">选择</button>
+      <button id="toolLine" title="L">画线</button>
+      <button id="toolRect" title="R">矩形</button>
+      <button id="toolMove" title="M">移动</button>
+      <button id="toolPP" title="P">推拉</button>
+      <button id="toolErase" title="E">橡皮</button>
       <button id="toolEraseFace">删面</button>
       <button id="clearAll">清空</button>
       <button id="undoBtn">撤销</button>
       <button id="redoBtn">重做</button>
-      <button id="toggle3D">3D</button>
     </div>
     <div id="presets"><span id="presetsLabel">场景预置（一键摆好，事件照常涌出）</span></div>
-    <div id="hint">画线/矩形：鼠标可点两下；右/中键拖=平移（3D 时=环绕，Shift=平移）滚轮=缩放；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消</div>
+    <div id="hint">快捷键 Space/L/R/M/P/E；右/中键拖=环绕 Shift=平移 滚轮=缩放；画线/矩形/移动/推拉可点两下；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消</div>
     <div id="logBar"><span>膜事件日志（新的在上）</span><button id="clearLog">清日志</button></div>
     <div id="log"></div>
   </div>

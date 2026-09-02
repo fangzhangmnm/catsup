@@ -22,7 +22,7 @@ const logEl = document.getElementById("log")!;
 const hintEl = document.getElementById("hint")!;
 const tipEl = document.getElementById("tip")!;
 const marqueeEl = document.getElementById("marquee")!;
-const HINT_DEFAULT = "画线/矩形：鼠标可点两下；右/中键拖=平移（3D 时=环绕，Shift=平移）滚轮=缩放；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消";
+const HINT_DEFAULT = "快捷键 Space/L/R/M/P/E；右/中键拖=环绕 Shift=平移 滚轮=缩放；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消";
 
 let kernel = new Kernel();
 const journal = new Journal();
@@ -33,9 +33,7 @@ function commitOp(op: LabOp): FaceEvent[] {
   return r.events;
 }
 const cam = new OrbitCamera();
-// 顶视锁死：yaw=-π/2 → 世界 X=屏幕右、Y=屏幕上；pitch 差 1e-4 到 π/2，防 right() 叉积退化。
-cam.yaw = -Math.PI / 2;
-cam.pitch = 1.5707;
+// 默认三维（user 2026-09-02 拍板：二维模式删除）——SU 式舒适初始 3/4 视角（构造器默认 yaw/pitch）。
 cam.halfH = 220;
 const r3 = new Renderer3(canvas);
 
@@ -65,7 +63,6 @@ let hoverFace: FaceId | null = null;
 let preview: Kernel | null = null;
 let previewEvents: FaceEvent[] = [];
 let camDrag: { mode: "orbit" | "pan"; x: number; y: number } | null = null;
-let is3D = false;                      // 3D 解锁（默认顶视 2D 锁）
 let armed = false;                     // 点两下模式：第一击已落 anchor，等第二击
 let canArm = false;                    // 只有鼠标解锁点两下（数位笔 tap 误触发意外连线）
 let downScreen: { x: number; y: number } | null = null;
@@ -226,17 +223,6 @@ function doRedo(): void {
 }
 (document.getElementById("undoBtn") as HTMLButtonElement).addEventListener("click", doUndo);
 (document.getElementById("redoBtn") as HTMLButtonElement).addEventListener("click", doRedo);
-const btn3D = document.getElementById("toggle3D") as HTMLButtonElement;
-btn3D.addEventListener("click", () => {
-  is3D = !is3D;
-  btn3D.classList.toggle("active", is3D);
-  cancelGesture();
-  if (!is3D) {
-    cam.yaw = -Math.PI / 2;   // 回顶视锁（保 target/zoom）
-    cam.pitch = 1.5707;
-  }
-  draw();
-});
 (document.getElementById("clearLog") as HTMLButtonElement).addEventListener("click", () => {
   logEl.textContent = "";
 });
@@ -365,7 +351,7 @@ canvas.addEventListener("pointerdown", (ev) => {
   canvas.setPointerCapture(ev.pointerId);
   const s = localPt(ev);
   if (ev.button === 1 || ev.button === 2) {
-    camDrag = { mode: is3D && !ev.shiftKey ? "orbit" : "pan", x: s.x, y: s.y };
+    camDrag = { mode: ev.shiftKey ? "pan" : "orbit", x: s.x, y: s.y };
     return;
   }
   if (ev.button !== 0) return;
@@ -727,6 +713,16 @@ canvas.addEventListener("pointerleave", () => {
 
 // ---------- 键盘 ----------
 window.addEventListener("keydown", (ev) => {
+  if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
+    // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", m: "move", p: "pp", e: "erase" };
+    const t = map[ev.key.toLowerCase()];
+    if (t) {
+      ev.preventDefault();
+      setTool(t);
+      return;
+    }
+  }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
     ev.preventDefault();
     if (ev.shiftKey) doRedo(); else doUndo();

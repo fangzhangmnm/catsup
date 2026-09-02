@@ -68,14 +68,24 @@ export class Kernel {
 
   /** 构造手势：一批线段（Rect = 4 段）。 */
   addEdges(segs: readonly (readonly [PtIn, PtIn])[]): FaceEvent[] {
+    return this.addSegmentsMixed(segs.map(([a, b]) => ({ a, b, gesture: true })));
+  }
+
+  /**
+   * 混合手势批：每段自带手势身份开关（pp 补壁用——洞环底边只分割不生膜，管孔保持贯通；
+   * 2026-09-02 方管案）。非手势段仍走同一 sticky 插入与 reconcile，只是不入 BIRTH 依据。
+   */
+  private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[]): FaceEvent[] {
     const gesture = new Set<EdgeId>();
-    for (const [a, b] of segs) {
+    for (const { a, b, gesture: g } of segs) {
       const r = insertSegment(this.graph, toPt3(a), toPt3(b), (parent, c1, c2) => {
         // 手势边被后续段切开 → 子边继承手势身份
         if (gesture.delete(parent)) { gesture.add(c1); gesture.add(c2); }
       });
-      for (const e of r.created) gesture.add(e);
-      for (const e of r.retraced) gesture.add(e);
+      if (g) {
+        for (const e of r.created) gesture.add(e);
+        for (const e of r.retraced) gesture.add(e);
+      }
     }
     return this.emit(this.store.reconcileConstructive(this.graph, this.planes, this.coplanarTol, gesture));
   }
@@ -203,15 +213,17 @@ export class Kernel {
     const delta = scale3(rec.plane.n, dist);
     if (Math.abs(dist) < 1e-6) return [];
     const vids = new Set<VertexId>();
-    const bareSegs: [Pt3, Pt3][] = [];
+    const bareSegs: { a: Pt3; b: Pt3; gesture: boolean }[] = [];
     const bareVerts = new Set<VertexId>();
-    for (const ring of [f.outer, ...f.holes]) {
-      for (const de of ring.edges) {
+    const rings = [f.outer, ...f.holes];
+    for (let ri = 0; ri < rings.length; ri++) {
+      for (const de of rings[ri].edges) {
         const e = this.graph.edge(de.edge);
         vids.add(e.a);
         vids.add(e.b);
         if (e.faceLinks.length === 1) {
-          bareSegs.push([this.graph.pt(e.a), this.graph.pt(e.b)]);
+          // 洞环底边不带手势身份：只分割不生膜（管孔贯通，2026-09-02 方管案）；外环底边带
+          bareSegs.push({ a: this.graph.pt(e.a), b: this.graph.pt(e.b), gesture: ri === 0 });
           bareVerts.add(e.a);
           bareVerts.add(e.b);
         }
@@ -219,10 +231,9 @@ export class Kernel {
     }
     const oldPos = new Map<VertexId, Pt3>([...vids].map((v) => [v, this.graph.pt(v)]));
     const ev1 = this.moveVertices([...vids].map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) })));
-    const segs: (readonly [PtIn, PtIn])[] = [];
-    for (const [a, b] of bareSegs) segs.push([a, b]);                                  // 底环（原位重画）
-    for (const v of bareVerts) segs.push([oldPos.get(v)!, add3(oldPos.get(v)!, delta)]); // 竖棱
-    const ev2 = segs.length ? this.addEdges(segs) : [];
+    const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [...bareSegs];
+    for (const v of bareVerts) segs.push({ a: oldPos.get(v)!, b: add3(oldPos.get(v)!, delta), gesture: true }); // 竖棱
+    const ev2 = segs.length ? this.addSegmentsMixed(segs) : [];
     return [...ev1, ...ev2];
   }
 

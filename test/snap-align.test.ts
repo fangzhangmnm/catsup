@@ -187,3 +187,14 @@ describe("rect: 自由落点=轴系统平面本体（2026-09-01 修案：不是�
     assert(Math.abs(r.snap.p.z) < 1e-9, `落在 z=0 轴平面，实际 z=${r.snap.p.z}`);
   });
 });
+
+describe("兜底底面偏置（user 2026-09-02 实测 SU：45° 仍落底面，阈值=天顶角 60°）", () => {
+  it("45° 俯角 → 仍取底面（底/立面非平权）", () => {
+    const c = new OrbitCamera();
+    c.pitch = Math.PI / 4;   // 45°：|fwd.z|≈0.707 ≥ 0.5 → 底面
+    c.halfH = 50;
+    const s = at(c, { x: 3, y: 2, z: 0 });
+    const { plane } = resolveRectPlane(new Kernel(), c, VP, { x: 0, y: 0, z: 0 }, s.x, s.y, TOL);
+    assert(Math.abs(Math.abs(plane.plane.n.z) - 1) < 1e-9, `45° 应落底面，实际 n=(${plane.plane.n.x},${plane.plane.n.y},${plane.plane.n.z})`);
+  });
+});

@@ -148,18 +148,23 @@ export function snapPoint(
   return hints.length ? { p: sol.p, kind, hints } : { p: sol.p, kind };
 }
 
-/** 轴系统平面（d=0 的 XY/YZ/ZX 本体）里最面向相机者——自由落点的兜底（user 2026-09-01 修案：
+/** 底面偏置的法向挑选（user 2026-09-02 实测 SU：底/立面非平权——45° 视角仍落底面，
+ * 只有相机足够贴地才落立面；阈值=天顶角 60°（|fwd.z|≥cos60°=0.5 → 底面），待手感调参）。 */
+function biasedNormal(cam: OrbitCamera): Pt3 {
+  const fwd = cam.forward();
+  if (Math.abs(fwd.z) >= 0.5) return { x: 0, y: 0, z: 1 };
+  return Math.abs(fwd.x) >= Math.abs(fwd.y) ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+}
+
+/** 轴系统平面（d=0 的 XY/YZ/ZX 本体）——自由落点的兜底（user 2026-09-01 修案：
  * 兜底是 axes 的平面本体不是过相机目标的平行面；SU 手动改 axes 即改此系统——可移动轴系 backlog）。 */
 export function axisPlane(cam: OrbitCamera): DrawPlane {
   return cameraPlane(cam, { x: 0, y: 0, z: 0 });
 }
 
-/** 摄像机挑向平面：过 through 的世界轴平面里最面向相机者（锚定在几何上的首点用这个）。 */
+/** 摄像机挑向平面：过 through、底面偏置（锚定在几何上的首点用这个）。 */
 export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
-  const fwd = cam.forward();
-  const ns: Pt3[] = [{ x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }];
-  let bestN = ns[0];
-  for (const n of ns) if (Math.abs(dot3(n, fwd)) > Math.abs(dot3(bestN, fwd))) bestN = n;
+  const bestN = biasedNormal(cam);
   const pl = canonicalPlane(bestN, dot3(bestN, through));
   return { plane: pl, basis: planeBasis(pl) };
 }

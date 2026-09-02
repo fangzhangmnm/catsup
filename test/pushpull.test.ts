@@ -71,3 +71,19 @@ describe("push/pull: 灵魂手势", () => {
     }), "全部几何压回地面");
   });
 });
+
+describe("push/pull: 带洞面（generic 路径）", () => {
+  it("回字环带面 pp → 方管（外壁+内壁+底环带，膜守恒无遗漏）", () => {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    loop(k, [P(6, 6), P(14, 6), P(14, 14), P(6, 14)]);   // 内方 → DIVIDE 环带+岛
+    const ring = k.faces().find((f) => f.holes.length === 1)!;
+    const island = k.faces().find((f) => f.holes.length === 0)!;
+    k.eraseFaces([island.id]);                            // 只留环带膜
+    k.pushPull(ring.id, 5);
+    // 期望：顶环带(跟随) + 底环带(补) + 外壁×4 + 内壁×4 = 10 膜；棱 = 顶8+底8+竖8 = 24
+    eq(k.faces().length, 10, "方管十膜");
+    eq(k.edges().length, 24, "二十四棱");
+    assert(k.edges().every((e) => e.faceLinks.length === 2), "每棱 radial 挂两面（流形管）");
+  });
+});
