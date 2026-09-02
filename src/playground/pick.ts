@@ -148,7 +148,13 @@ export function snapPoint(
   return hints.length ? { p: sol.p, kind, hints } : { p: sol.p, kind };
 }
 
-/** 摄像机托底平面：过 through 的世界轴平面里最面向相机者。 */
+/** 轴系统平面（d=0 的 XY/YZ/ZX 本体）里最面向相机者——自由落点的兜底（user 2026-09-01 修案：
+ * 兜底是 axes 的平面本体不是过相机目标的平行面；SU 手动改 axes 即改此系统——可移动轴系 backlog）。 */
+export function axisPlane(cam: OrbitCamera): DrawPlane {
+  return cameraPlane(cam, { x: 0, y: 0, z: 0 });
+}
+
+/** 摄像机挑向平面：过 through 的世界轴平面里最面向相机者（锚定在几何上的首点用这个）。 */
 export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
   const fwd = cam.forward();
   const ns: Pt3[] = [{ x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }];
@@ -179,7 +185,7 @@ export function rectFirstPlane(
     const rec = k.planeOf(hit.face)!;
     facePl = { plane: rec.plane, basis: rec.basis };
   }
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, facePl ?? cameraPlane(cam, cam.target), null, null, alignSources);
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, facePl ?? axisPlane(cam), null, null, alignSources);
   return { fixed: snap.kind === null ? facePl : null, snap };
 }
 

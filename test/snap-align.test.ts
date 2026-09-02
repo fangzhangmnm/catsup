@@ -176,3 +176,14 @@ describe("snap: 派生相交轨迹（可描不改图，user 2026-09-01 拍板）
     assert(r.hints?.some((h) => h.axis === "i"), "整段交线高亮提示");
   });
 });
+
+describe("rect: 自由落点=轴系统平面本体（2026-09-01 修案：不是过相机目标的平行面）", () => {
+  it("相机目标抬高后，空处首点仍落在 z=0 轴平面上", () => {
+    const c = topCam();
+    c.target = { x: 0, y: 0, z: 4 };   // orbit/pan 把目标抬离地面
+    const s = at(c, { x: 3, y: 2, z: 0 });
+    const r = rectFirstPlane(new Kernel(), c, VP, s.x, s.y, TOL);
+    eq(r.snap.kind, null, "自由落点");
+    assert(Math.abs(r.snap.p.z) < 1e-9, `落在 z=0 轴平面，实际 z=${r.snap.p.z}`);
+  });
+});
