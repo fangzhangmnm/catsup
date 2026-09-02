@@ -189,15 +189,22 @@ for (const preset of PRESETS) {
   btn.addEventListener("click", () => {
     cancelGesture();
     selection = emptySelection();
+    clearCharged();   // 预置=换世界，旧充能源作废
     appendSep(`预置：${preset.name}（${preset.note}）`);
     appendLog(commitOp({ op: "preset", name: preset.name }));
     draw();
   });
   presetsEl.appendChild(btn);
 }
+function clearCharged(): void {
+  charged.clear();
+  dwell = null;
+  lastSnap = null;
+}
 (document.getElementById("clearAll") as HTMLButtonElement).addEventListener("click", () => {
   cancelGesture();
   selection = emptySelection();
+  clearCharged();   // 充能点随世界一起清（2026-09-02 修：清空后紫点残留）
   appendSep("清空");
   commitOp({ op: "clear" });
   draw();
