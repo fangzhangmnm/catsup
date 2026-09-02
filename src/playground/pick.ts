@@ -8,18 +8,15 @@ import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts"
 import {
   type PlaneParams,
   canonicalPlane,
-  dist3,
   distToPlane,
   dot3,
-  len3,
   planeBasis,
   pointInRing,
   projectToPlane,
-  ptKey3,
-  scale3,
   sub3,
 } from "../kernel/geom.ts";
-import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
+import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
+import { EPS as SOLVER_EPS, buildConstraints, solvePoint } from "./solver.ts";
 
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; }
 
@@ -114,168 +111,34 @@ export function snapPoint(
   excludeVid: VertexId | null = null,
   alignSources?: readonly Pt3[],
 ): Snap3 {
-  const cursor = { x: sx, y: sy };
-  // ε 分层（user 2026-09-01 拍板；基准 tolPx=8 时=点10/边7/线5/合成12 CSS px）：
-  // 点=最强意图圈最大；对齐线又多又长圈最窄防误捕；合成一旦成立值得吸远些。磁滞在调用方 UI 态。
-  const T_POINT = tolPx * 1.25, T_EDGE = tolPx * 0.875, T_LINE = tolPx * 0.625, T_COMBO = tolPx * 1.5;
-  // 1. endpoint
-  let bestV: { p: Pt3; d: number } | null = null;
-  for (const v of k.vertices()) {
-    if (v.id === excludeVid) continue;
-    const p3 = { x: v.x, y: v.y, z: v.z };
-    const d = sdist(cursor, cam.worldToScreen(p3, vp));
-    if (d <= T_POINT && (!bestV || d < bestV.d)) bestV = { p: p3, d };
-  }
-  if (bestV) return { p: bestV.p, kind: "endpoint" };
-  {
-    const o: Pt3 = { x: 0, y: 0, z: 0 };
-    if (sdist(cursor, cam.worldToScreen(o, vp)) <= T_POINT) return { p: o, kind: "origin" };
-  }
-
-  const edges = k.edges().filter((e) => e.a !== excludeVid && e.b !== excludeVid);
-  // 2. midpoint
-  let bestM: { p: Pt3; d: number } | null = null;
-  for (const e of edges) {
-    const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
-    const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
-    const d = sdist(cursor, cam.worldToScreen(m, vp));
-    if (d <= T_POINT && (!bestM || d < bestM.d)) bestM = { p: m, d };
-  }
-  if (bestM) return { p: bestM.p, kind: "midpoint" };
-
-  const ray = cam.screenRay(sx, sy, vp);
-  // 3. on-edge 候选：屏幕距离过滤，取边上最接近拾取射线的点（clamp 在边内）。
-  //    ⚠ 不立即返回——边本身是 1-DOF 约束，先给 4.5 的边×轴合成机会（On Edge from Point）。
-  let bestE: { p: Pt3; d: number; a: Pt3; b: Pt3 } | null = null;
-  for (const e of edges) {
-    const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
-    const d = sdistToSeg(cursor, cam.worldToScreen(a, vp), cam.worldToScreen(b, vp));
-    if (d > T_EDGE || (bestE && d >= bestE.d)) continue;
-    const len = dist3(a, b);
-    if (len <= 0) continue;
-    const dir = scale3(sub3(b, a), 1 / len);
-    const q = closestOnAxis(a, dir, ray.origin, ray.dir);
-    if (!q) continue;
-    let t = dot3(sub3(q, a), dir);
-    t = Math.max(0, Math.min(len, t));
-    bestE = { p: { x: a.x + dir.x * t, y: a.y + dir.y * t, z: a.z + dir.z * t }, d, a, b };
-  }
-
-  // 4. 轴平行 1-DOF 约束层（user 2026-09-01：SU 的 XZ/YZ 画图=轴平行 snap，摄像机无关，
-  //    不存在「平面识别」）：每个源点沿世界三轴各伸一条约束线；合成前必须验真相交
-  //    （3D 两线一般不交——共享固定坐标一致才成立；2D 正交必交是特例）。
-  {
-    type AxName = "x" | "y" | "z";
-    const DIRS: { axis: AxName; dir: Pt3 }[] = [
-      { axis: "x", dir: { x: 1, y: 0, z: 0 } },
-      { axis: "y", dir: { x: 0, y: 1, z: 0 } },
-      { axis: "z", dir: { x: 0, y: 0, z: 1 } },
-    ];
-    interface Cand { src: Pt3; axis: AxName; dir: Pt3; q: Pt3; d: number; fromAnchor: boolean; }
-    const lineDist = (src: Pt3, dir: Pt3): number => {
-      const a1 = cam.worldToScreen(src, vp);
-      const a2 = cam.worldToScreen({ x: src.x + dir.x * 100, y: src.y + dir.y * 100, z: src.z + dir.z * 100 }, vp);
-      return sdistToSeg2Line(cursor, a1, a2);
-    };
-    // 源点：anchor（优先）+ 原点（永久源=坐标轴本体）+ 模型顶点；按格点去重
-    const sources: { p: Pt3; fromAnchor: boolean }[] = [];
-    const seen = new Set<string>();
-    const addSrc = (p: Pt3, fromAnchor: boolean): void => {
-      const key = ptKey3(p);
-      if (seen.has(key)) return;
-      seen.add(key);
-      sources.push({ p, fromAnchor });
-    };
-    // 充能制（user 2026-09-01 拍板，取代全顶点常开）：源点 = anchor + 原点（永久）+
-    // 调用方充能点（hover 停留登记；SU from-point 同款）。幽灵 align 病根随全顶点常开一起死。
-    if (anchor) addSrc(anchor, true);
-    addSrc({ x: 0, y: 0, z: 0 }, false);
-    for (const p of alignSources ?? []) addSrc(p, false);
-    const better = (a: Cand | null, b: Cand): boolean =>
-      !a || b.d < a.d - 1e-9 || (Math.abs(b.d - a.d) <= 1e-9 && b.fromAnchor && !a.fromAnchor);
-    const best: Record<AxName, Cand | null> = { x: null, y: null, z: null };
-    for (const src of sources) {
-      for (const { axis, dir } of DIRS) {
-        const d = lineDist(src.p, dir);
-        if (d > T_LINE) continue;
-        const q = closestOnAxis(src.p, dir, ray.origin, ray.dir);
-        if (!q) continue;
-        // 深度歧义护栏=充能制本身：正交投影下屏距滤波无法定向深度（幽灵 align 标本），
-        // 唯一不靠调参的解法是把候选集缩到用户指过的源点——充能点是用户刚看过的，意图已定向。
-        const c: Cand = { src: src.p, axis, dir, q, d, fromAnchor: src.fromAnchor };
-        if (better(best[axis], c)) best[axis] = c;
-      }
-    }
-    // 4.5 边×轴合成 = SU「On Edge from Point」（user 2026-07-28「垂线落边」反馈的本体；
-    //     2026-09-01 实测「到边 snap 就掉」修案）：边是 1-DOF 约束，与轴线求交（真相交 +
-    //     交点须在边段内）→ 边上精确对齐点；无有效合成才退回单独 on-edge。
-    if (bestE) {
-      const segHit = (src: Pt3, dir: Pt3, a: Pt3, b: Pt3): Pt3 | null => {
-        const ab = sub3(b, a);
-        const len = len3(ab);
-        if (len < 1e-12) return null;
-        const d2 = scale3(ab, 1 / len);
-        const bb = dot3(dir, d2);
-        const denom = 1 - bb * bb;
-        if (Math.abs(denom) < 1e-9) return null;      // 平行：不合成
-        const w0 = sub3(src, a);
-        const e0 = dot3(dir, w0), f0 = dot3(d2, w0);
-        const t1 = (bb * f0 - e0) / denom;
-        const t2 = (f0 - bb * e0) / denom;
-        if (t2 < -1e-9 || t2 > len + 1e-9) return null; // 交点出边段
-        const q1 = { x: src.x + dir.x * t1, y: src.y + dir.y * t1, z: src.z + dir.z * t1 };
-        const q2 = { x: a.x + d2.x * t2, y: a.y + d2.y * t2, z: a.z + d2.z * t2 };
-        if (dist3(q1, q2) > 1e-5) return null;         // 3D 假相交拒绝
-        return q2;                                     // 取边上点（保证 sticky 落边）
-      };
-      let bestEC: { p: Pt3; d: number; c: Cand } | null = null;
-      for (const c of [best.x, best.y, best.z]) {
-        if (!c) continue;
-        const q = segHit(c.src, c.dir, bestE.a, bestE.b);
-        if (!q) continue;
-        const d = sdist(cursor, cam.worldToScreen(q, vp));
-        if (d <= T_COMBO && (!bestEC || d < bestEC.d)) bestEC = { p: q, d, c };
-      }
-      if (bestEC) {
-        return { p: bestEC.p, kind: "edge-align", hints: [{ a: bestEC.c.src, b: bestEC.p, axis: bestEC.c.axis }] };
-      }
-      return { p: bestE.p, kind: "on-edge" };
-    }
-    // 双约束合成：p 的 c1 轴坐标取自 c2 的固定坐标、反之；第三轴双方都固定——必须一致（真相交判定）
-    const COORD_TOL = 1e-4;
-    let combo: { p: Pt3; d: number; c1: Cand; c2: Cand } | null = null;
-    const pairs: [AxName, AxName, AxName][] = [["x", "y", "z"], ["x", "z", "y"], ["y", "z", "x"]];
-    for (const [a1, a2, a3] of pairs) {
-      const c1 = best[a1], c2 = best[a2];
-      if (!c1 || !c2) continue;
-      const g = (p: Pt3, ax: AxName): number => (ax === "x" ? p.x : ax === "y" ? p.y : p.z);
-      if (Math.abs(g(c1.src, a3) - g(c2.src, a3)) > COORD_TOL) continue; // 3D 两线不相交，合成不成立
-      const coord = (ax: AxName): number => (ax === a1 ? g(c2.src, a1) : ax === a2 ? g(c1.src, a2) : g(c1.src, a3));
-      const p3: Pt3 = { x: coord("x"), y: coord("y"), z: coord("z") };
-      const d = sdist(cursor, cam.worldToScreen(p3, vp));
-      if (d <= T_COMBO && (!combo || d < combo.d)) combo = { p: p3, d, c1, c2 };
-    }
-    if (combo) {
-      return {
-        p: combo.p,
-        kind: "align-combo",
-        hints: [
-          { a: combo.c1.src, b: combo.p, axis: combo.c1.axis },
-          { a: combo.c2.src, b: combo.p, axis: combo.c2.axis },
-        ],
-      };
-    }
-    let single: Cand | null = null;
-    for (const c of [best.x, best.y, best.z]) if (c && better(single, c)) single = c;
-    if (single) {
-      const legacy: Record<AxName, SnapKind> = { x: "axis-x", y: "axis-y", z: "axis-z" };
-      const kind: SnapKind = single.fromAnchor ? legacy[single.axis] : "align";
-      return { p: single.q, kind, hints: [{ a: single.src, b: single.q, axis: single.axis }] };
+  // === 兼容壳（2026-09-01 阶段二求解器手术）：真身 = solver.solvePoint 纯函数 ===
+  // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
+  // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
+  const scale = tolPx / 8;
+  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, excludeVid, alignSources });
+  if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
+  const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, { comboEps: SOLVER_EPS.combo * scale });
+  if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
+  const hints: SnapHint[] = [];
+  for (const c of sol.used) {
+    if (c.locus.dim === 1 && (c.tag.kind === "axis" || c.tag.kind === "align") && c.tag.src && c.tag.axis) {
+      hints.push({ a: c.tag.src, b: sol.p, axis: c.tag.axis });
     }
   }
-  // 5. 落到画线平面
-  const p = rayPlane(ray.origin, ray.dir, plane.plane.n, plane.plane.d);
-  return { p: p ?? (anchor ?? { x: 0, y: 0, z: 0 }), kind: null };
+  let kind: SnapKind | null;
+  if (sol.used.length === 2) {
+    kind = sol.used.some((c) => c.tag.kind === "edge") ? "edge-align" : "align-combo";
+  } else {
+    const t = sol.used[0].tag;
+    kind = t.kind === "endpoint" ? "endpoint"
+      : t.kind === "origin" ? "origin"
+      : t.kind === "midpoint" ? "midpoint"
+      : t.kind === "edge" ? "on-edge"
+      : t.kind === "axis" ? ((t.axis === "u" || t.axis === "v") ? "align" : (("axis-" + t.axis) as SnapKind))
+      : t.kind === "align" ? "align"
+      : null;
+  }
+  return hints.length ? { p: sol.p, kind, hints } : { p: sol.p, kind };
 }
 
 /** 摄像机托底平面：过 through 的世界轴平面里最面向相机者。 */
@@ -344,14 +207,6 @@ export function resolveRectPlane(
   const snap = snapPoint(k, cam, vp, sx, sy, tolPx, camPlane, p1, null, alignSources);
   const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= Math.max(coplanarTol, 1e-6));
   return { plane: containing.length ? facing(containing) : camPlane, snap };
-}
-
-/** 点到（屏幕投影后的）无限直线距离。 */
-function sdistToSeg2Line(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
-  const dx = b.x - a.x, dy = b.y - a.y;
-  const len = Math.hypot(dx, dy);
-  if (len === 0) return sdist(p, a);
-  return Math.abs((p.x - a.x) * dy - (p.y - a.y) * dx) / len;
 }
 
 /** 屏幕空间框选（window 语义）：边=两端投影都在框内；面=外环全部顶点投影在框内。 */

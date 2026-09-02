@@ -1,9 +1,11 @@
 # Snap 体系模型 SSoT（数学定义 + 现值 + 待裁台账）
 
-> as-of v0.1.0 / 2026-09-01（创建日）· created by Claude Fable 5
+> as-of v0.1.2 / 2026-09-01（创建日）· created by Claude Fable 5
 > 定位：snap 从脚手架转正过程中的**现行模型唯一出处**。演化史散在
 > `20260901-lab-qol-round1.md` §1/§4-§7 与当日对话；重构抢救以本文为准，改模型必须回写本文。
-> 实现 = `src/playground/pick.ts`（DOM-free，node 直测：`test/snap-align.test.ts`）。
+> 实现 = **`src/playground/solver.ts`（阶段二手术后真身：solvePoint 纯函数 + buildConstraints 情境构建器）**；
+`pick.ts::snapPoint` 已降级兼容壳（叙事映射，调用方迁完即删）。测试 = `test/solver.test.ts`
+（property 不变量：解在 ε 邻域/确定性/解释完整/字典序/秩表哨兵）+ `test/snap-align.test.ts`（场景 golden）。
 
 ## 1. 元逻辑三律（2026-09-01 由 S1-S4 标本收敛，user 认可）
 
@@ -52,7 +54,9 @@ from-point 源点 = **anchor（手势起点，天然充能）+ 原点（永久�
 
 ## 6. 工具消费面
 
-- **优先级全排序（现行）**：端点 > 原点 > 中点 > 边×轴 > 边上 > 轴×轴 > 单轴锁(anchor) > 单共轴(充能) > 兜底平面。
+- **优先级=字典序（维度升，rank 降，屏距升）**；秩表：端点90>原点80>中点70>边60>轴线45>平面10；
+  合成秩=max(参与者)。与旧 if 链的两处模型化偏差（有意）：①轴×轴合成（0-D）压过单边上（1-D）——
+  维度优先律的正统结论；②anchor 轴与充能共轴同秩、距离裁决（旧的 anchor 偏好只剩稳定排序 tie-break）。
 - **铅笔**：连画+**出膜事件即抬笔**（含 DIVIDE 等；user 终裁回 SU）；逃生=Esc/原地点击；
   点两下=鼠标专属（笔误触防护），拖拽全输入通用。
 - **矩形平面三规则**：首点裸落面内=面平行锁死；首点被低维吸附赢走=延迟；空处=摄像机托底 +
@@ -65,6 +69,7 @@ from-point 源点 = **anchor（手势起点，天然充能）+ 原点（永久�
 - ~~暗礁①~~ 已结案（user 2026-09-01 确认；膜事件=属性跟随生死簿，贴图纪元消费血缘）。
 - ~~空处自由落点~~ 已裁落地：学矩形（面上锁面/空处摄像机挑最面向轴平面），线工具同规则。
 - ~~autofold~~ 已落地 v0.1.1（最少折缝规则，详 move-spec §6）。
-- 【落】倾斜平面的面内共轴（求解器方向集显式化后=一行注册）。
-- 【落】单一求解器重构（三律物理合一；snap 转正纪元的主刀）。
+- ~~倾斜平面面内共轴~~ 已落（方向集注册 basis u/v，非轴对齐平面自动补）。
+- ~~单一求解器重构~~ **核心已落 v0.1.2**（solvePoint/buildConstraints + property 测试）；
+  尾巴：resolvePlane 并入同机（rect 三规则仍在 pick 层）、调用方直迁 solver 后删 snapPoint 壳。
 - 【远】M4 push/pull + 挖洞特例 + 暗礁②；B–O 换入；增量局部 face-finding；undo 快照环。
