@@ -69,6 +69,21 @@ let justCommitted = false;             // 第二击 down 已落笔，紧随的 u
 const charged = new Map<string, Pt3>();
 let dwell: { key: string; since: number } | null = null;
 const alignSrcs = (): Pt3[] => [...charged.values()];
+// 磁滞（防边界闪烁）：已吸住的目标，光标在其 1.5×ε 圈内不放手（只防脱出，不裁竞争切换）
+const EPS_OF: Record<string, number> = {
+  endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
+  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5,
+};
+let lastSnap: Snap3 | null = null;
+function applyHysteresis(sn: Snap3, sx: number, sy: number): Snap3 {
+  if (sn.kind !== null) { lastSnap = sn; return sn; }
+  if (lastSnap?.kind) {
+    const sp = cam.worldToScreen(lastSnap.p, vp());
+    if (Math.hypot(sx - sp.x, sy - sp.y) <= (EPS_OF[lastSnap.kind] ?? 8) * 1.5) return lastSnap;
+  }
+  lastSnap = null;
+  return sn;
+}
 function chargePt(p: Pt3): void {
   const key = `${p.x},${p.y},${p.z}`;
   charged.delete(key);
@@ -113,6 +128,7 @@ function cancelGesture(): void {
   anchor3 = null;
   moveVids = [];
   rectFixed = null;
+  lastSnap = null;
   armed = false;
   canArm = false;
   downScreen = null;
@@ -366,8 +382,10 @@ canvas.addEventListener("pointerdown", (ev) => {
         gesturePlane = r.fixed ?? cameraPlane(cam, r.snap.p);
         snapInfo = r.snap;
       } else {
-        gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane);
+        // 线的空落点兜底=学矩形（user 2026-09-01 裁决）：面上锁面；空处=摄像机挑最面向的轴平面
+        const r0 = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP, alignSrcs());
+        gesturePlane = r0.fixed ?? cameraPlane(cam, r0.snap.p);
+        snapInfo = r0.snap;
       }
       anchor3 = snapInfo.p;
       cursor3 = anchor3;
@@ -441,7 +459,7 @@ canvas.addEventListener("pointermove", (ev) => {
     hoverFace = null;
     if (tool === "line" || tool === "rect" || tool === "move") {
       const plane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
-      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane, null, null, alignSrcs());
+      snapInfo = applyHysteresis(snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane, null, null, alignSrcs()), s.x, s.y);
       trackCharge(snapInfo);
     } else if (tool === "erase") {
       hoverEdge = pickEntity(kernel, cam, vp(), s.x, s.y, HIT).edge ?? null;
@@ -456,7 +474,7 @@ canvas.addEventListener("pointermove", (ev) => {
   switch (tool) {
     case "line":
       if (anchor3) {
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs());
+        snapInfo = applyHysteresis(snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs()), s.x, s.y);
         trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
       }
@@ -467,7 +485,7 @@ canvas.addEventListener("pointermove", (ev) => {
     case "move":
       if (moveVids.length && anchor3) {
         const excl = moveVids.length === 1 ? moveVids[0] : null;
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs());
+        snapInfo = applyHysteresis(snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs()), s.x, s.y);
         trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
       }

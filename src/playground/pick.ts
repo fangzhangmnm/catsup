@@ -115,18 +115,21 @@ export function snapPoint(
   alignSources?: readonly Pt3[],
 ): Snap3 {
   const cursor = { x: sx, y: sy };
+  // ε 分层（user 2026-09-01 拍板；基准 tolPx=8 时=点10/边7/线5/合成12 CSS px）：
+  // 点=最强意图圈最大；对齐线又多又长圈最窄防误捕；合成一旦成立值得吸远些。磁滞在调用方 UI 态。
+  const T_POINT = tolPx * 1.25, T_EDGE = tolPx * 0.875, T_LINE = tolPx * 0.625, T_COMBO = tolPx * 1.5;
   // 1. endpoint
   let bestV: { p: Pt3; d: number } | null = null;
   for (const v of k.vertices()) {
     if (v.id === excludeVid) continue;
     const p3 = { x: v.x, y: v.y, z: v.z };
     const d = sdist(cursor, cam.worldToScreen(p3, vp));
-    if (d <= tolPx && (!bestV || d < bestV.d)) bestV = { p: p3, d };
+    if (d <= T_POINT && (!bestV || d < bestV.d)) bestV = { p: p3, d };
   }
   if (bestV) return { p: bestV.p, kind: "endpoint" };
   {
     const o: Pt3 = { x: 0, y: 0, z: 0 };
-    if (sdist(cursor, cam.worldToScreen(o, vp)) <= tolPx) return { p: o, kind: "origin" };
+    if (sdist(cursor, cam.worldToScreen(o, vp)) <= T_POINT) return { p: o, kind: "origin" };
   }
 
   const edges = k.edges().filter((e) => e.a !== excludeVid && e.b !== excludeVid);
@@ -136,7 +139,7 @@ export function snapPoint(
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const m = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
     const d = sdist(cursor, cam.worldToScreen(m, vp));
-    if (d <= tolPx && (!bestM || d < bestM.d)) bestM = { p: m, d };
+    if (d <= T_POINT && (!bestM || d < bestM.d)) bestM = { p: m, d };
   }
   if (bestM) return { p: bestM.p, kind: "midpoint" };
 
@@ -147,7 +150,7 @@ export function snapPoint(
   for (const e of edges) {
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const d = sdistToSeg(cursor, cam.worldToScreen(a, vp), cam.worldToScreen(b, vp));
-    if (d > tolPx || (bestE && d >= bestE.d)) continue;
+    if (d > T_EDGE || (bestE && d >= bestE.d)) continue;
     const len = dist3(a, b);
     if (len <= 0) continue;
     const dir = scale3(sub3(b, a), 1 / len);
@@ -194,7 +197,7 @@ export function snapPoint(
     for (const src of sources) {
       for (const { axis, dir } of DIRS) {
         const d = lineDist(src.p, dir);
-        if (d > tolPx) continue;
+        if (d > T_LINE) continue;
         const q = closestOnAxis(src.p, dir, ray.origin, ray.dir);
         if (!q) continue;
         // 深度歧义护栏=充能制本身：正交投影下屏距滤波无法定向深度（幽灵 align 标本），
@@ -231,7 +234,7 @@ export function snapPoint(
         const q = segHit(c.src, c.dir, bestE.a, bestE.b);
         if (!q) continue;
         const d = sdist(cursor, cam.worldToScreen(q, vp));
-        if (d <= tolPx * 2.5 && (!bestEC || d < bestEC.d)) bestEC = { p: q, d, c };
+        if (d <= T_COMBO && (!bestEC || d < bestEC.d)) bestEC = { p: q, d, c };
       }
       if (bestEC) {
         return { p: bestEC.p, kind: "edge-align", hints: [{ a: bestEC.c.src, b: bestEC.p, axis: bestEC.c.axis }] };
@@ -250,7 +253,7 @@ export function snapPoint(
       const coord = (ax: AxName): number => (ax === a1 ? g(c2.src, a1) : ax === a2 ? g(c1.src, a2) : g(c1.src, a3));
       const p3: Pt3 = { x: coord("x"), y: coord("y"), z: coord("z") };
       const d = sdist(cursor, cam.worldToScreen(p3, vp));
-      if (d <= tolPx * 2.5 && (!combo || d < combo.d)) combo = { p: p3, d, c1, c2 };
+      if (d <= T_COMBO && (!combo || d < combo.d)) combo = { p: p3, d, c1, c2 };
     }
     if (combo) {
       return {

@@ -1,7 +1,7 @@
 // golden corpus —— 不动产。膜生命周期事件表（drill L411-419）「你的实验来源」列逐行场景化 + 暗礁①。
 // 这些行为是人类在真 SketchUp 上实机做实验、证伪了两版 AI 假说之后逼出来的，当公理用。
-// 暗礁①的期望值是**推导值**（中环擦=ABSORB 重嵌套、内环擦=BURST），待用户真机 SU 裁决；
-// 若证伪，只改 face-lifecycle.ts 规则 + 本文件对应断言。
+// 暗礁①已结案（user 2026-09-01「三层回字没问题」）：中环擦=ABSORB 重嵌套、内环擦=BURST，
+// 推导值转正为公理级 golden。膜事件=属性（贴图/材质）跟随的生死簿：ABSORB=外膜延展、BURST=区域空。
 
 import { describe, it, eq, assert, todo } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
@@ -127,7 +127,7 @@ describe("golden: 膜事件表逐行", () => {
   });
 });
 
-describe("golden: 暗礁①（三层回字 填-空-填）——期望值为推导值，待真机 SU 裁决", () => {
+describe("golden: 暗礁①（三层回字 填-空-填）——已获 user 真机确认 2026-09-01", () => {
   /** 三层：外方20 / 中方4-16 / 内方8-12；中环带删膜 → 填-空-填 */
   function threeLayer() {
     const k = new Kernel();
