@@ -44,3 +44,16 @@ snapPoint=兼容壳；property 测试 5 件全绿（解在 ε 邻域 200 点扫�
 3. 暗礁②：非流形撞合膜归属（BURST+BIRTH vs DEDUP-MERGE）+ 真机测试清单。
 4. inference 配套：法向轴锁/对面高度 snap/数值输入（VCB）的 v1 范围。
 5. 验收灵魂手势：矩形+pp 三手势出立方体；golden 钉「与手绘六面逐字等价」。
+
+
+## 后续纪元定调（2026-09-02 user）
+
+- **0.3 = app 壳纪元（明天开工）**：lab 本来就是试验台；正式产品用 three 正装、做壳。
+- **数学立宪 doc**：最后做；格式=Claude 定——**决定：单页 Markdown（ai-docs 链路内可 grep 可 diff，
+  数学记号 LaTeX 风格内联；要排版美观可后补 .tex 导出）**。
+- **立宪完备性 critical 审视（user 问：pull 之后是否后面全是 feature？）——结论：基本是，
+  留两条半宪法级悬案**：①**group/component=公理3 的作用域参数化**（重合即同一 per-context
+  +实例引用语义）——宪法修正案，一页纸给公理3 留 context 槽即可先立宪；②非流形接触细则
+  （E7 滑行卡点/E8 notch——XOR 大方向已裁，接触边界待公理化）算半条；③曲线=多边形近似
+  （SU 同款）→ feature 不动公理1；rotate/scale/follow-me=sticky 协议+覆盖代数的既有客户
+  → feature；guides=非几何 annex 一行注记；Intersect Faces 已被「描交线」取代。
