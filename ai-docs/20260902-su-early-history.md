@@ -25,14 +25,40 @@
 3. **首展获奖=demo 的猎奇度是真实资产**（user 的 WP 引流视频直觉有先例背书）。
 4. **生态接口是被收购的杠杆**（Earth 插件）——远期 BTP/Blender 通道的战略地位类似。
 
-## 诚实缺口（未核到，不编）
+## 逐版本工具时间表（2026-09-02 二次考古；主源=SU 官方论坛社区整理帖 + Macworld 当年评测 + SketchUcation）
 
-- 1.0 的精确工具清单；Follow Me / components / Sandbox 各自引入的版本号与日期；
-  早期团队规模与开发实践细节。线索指向 sketchup.fandom（付费墙 402）与 SketchUcation 老帖，
-  将来有需要再挖。
+- **1.0（2000-08）**：老用户口径「**version 1 就有了大部分工具**」——核心原子日一到位。
+  由后续版本的「新增」反推 1.0 **没有**的：autofold、剖切面、平滑曲线渲染、标注、场景页、
+  切线类推断、方向锁、Follow Me、Intersect、sandbox、Ruby、实体布尔。
+  即 1.0 ≈ 画线/矩形/圆/弧、橡皮、移动/旋转/缩放、**push/pull**、卷尺、油漆桶、选择、
+  轨道相机 + 基础 inference（推断项 1.0 版所列不全，此行为反推，标注存疑）。
+  **1.0 的全部设计与编码 = Joe Esch 一人**（SketchUcation 老人证词）。
+- **2.0（2002）**：剖切面（Cutting Plane）、**autofold（！2 年后才有）**、component 与对齐选项、
+  首个 Mac 版、3DS 导出、位图导入。
+- **3.0（2003）**：曲线平滑渲染、柔化线工具、透明材质、标注/尺寸工具、**inference 增强
+  （切线与等距识别）**、场景（当时叫 pages）、EPS/PDF/VRML 导出。
+- **4.0（2004）**：**Follow Me**、**Intersect（首个类布尔）**、sandbox 地形工具、贴图投影、
+  face-me 组件、**inference 方向锁（箭头键锁轴）**、**Ruby 脚本**。
+- **5（2005）**：性能 ×2、walk 碰撞、**pp 的 Ctrl 修饰**（复制拉伸）、Outliner、Google Earth 扩展。
+- **6（2007）**：LayOut、Photo Match、3D 文字、Styles、3D Warehouse。
+- **7（2008）/7.1（2009）**：动态组件、报表、新 3D 引擎、Collada/KMZ。
+- **8（2011）**：**实体概念+布尔运算——发布十一年后才有 solid**。
+- （存疑：sandbox 另有来源称 v6 引入；以论坛整理帖 v4 为主、标注冲突。）
+
+## 对 CatsUp 的参考结论（user：参考价值极高）
+
+1. **立宪核=1.0 全量**：draw/erase/move/pp/基础 inference 日一到位——和我们「pull 之后皆 feature」
+   的立宪审视互为印证。**我们现在的内核 ≈ SU 1.0~2.0 区间**（autofold 我们已有=SU v2 项）。
+2. **feature 是按年长的**：切线推断 3 年、Follow Me/Intersect/方向锁 4 年、布尔 11 年——
+   0.3 壳的工具清单参考系=1.0 集合（补圆/弧/旋转/缩放/卷尺即齐），别被今日全量吓到。
+3. **inference 也是逐版进化的**（1.0 基础集→3.0 切线→4.0 锁）——我们 snap 体系 parked 分级推进
+   与史实同构。
 
 ## 来源
 
 - <https://en.wikipedia.org/wiki/SketchUp> · <https://mastersketchup.com/history-of-sketchup/>
 - <https://blog.cadsoftwaredirect.com/history-of-sketchup/> · <https://www.iqt.org/library/google-acquires-last-software>
 - 专利原文：<https://image-ppubs.uspto.gov/dirsearch-public/print/downloadPdf/6628279>
+- 逐版本表：<https://forums.sketchup.com/t/sketchup-features-by-version/128615>（社区整理）
+- SketchUp 4 当年评测：<https://www.macworld.com/article/171266/sketchup-5.html>
+- 1.0 单人编码证词：<https://community.sketchucation.com/topic/144643/atlast-sketchup-1-0>
