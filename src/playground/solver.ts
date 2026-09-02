@@ -11,8 +11,11 @@
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
 import type { Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
-import { type Pt, type PlaneParams, add3, cross3, dist3, dot3, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
+import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
+
+export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; }
+
 
 export interface View { cam: OrbitCamera; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
@@ -280,3 +283,129 @@ export function faceCrossSegments(k: Kernel, f1: import("../kernel/kernel.ts").F
   }
   return segs;
 }
+
+// ===== Snap3 表现层与平面挑选（2026-09-02 自 pick.ts 并机迁入） =====
+
+export type SnapKind =
+  | "endpoint" | "midpoint" | "on-edge" | "origin"
+  | "axis-x" | "axis-y" | "axis-z"
+  | "align" | "align-combo" | "edge-align"
+  | "intersection" | "cross-line";
+/** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
+export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v" | "i"; }
+export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
+
+
+/**
+ * 取点吸附（脚手架，spec 级 snap 体系 parked）：
+ * 点吸附赢者通吃：endpoint > midpoint > on-edge > 原点；
+ * 其下 = **轴对齐 1-DOF 约束层**（2026-09-01 QoL 波，user 拍板设计）：
+ *   源点 = anchor + 原点（永久源=坐标轴本体）+ 全部模型顶点（from-point「和点共轴」）；
+ *   方向 = 画线平面基 u/v（+过 anchor 的世界 Z——竖直几何入口）；
+ *   **正交双约束合成**（画笔手画矩形的闭合角点）> 单约束（屏距最近，anchor 源优先）。
+ * 全约束组合（垂线/平行等）仍 parked——这里只开轴对齐子集，不碰通用求解器。
+ * excludeVid：移动中被抓顶点（它与它的边不参与吸附）。
+ * edited by Claude Fable 5 2026-09-01
+ */
+export function snapPoint(
+  k: Kernel,
+  cam: OrbitCamera,
+  vp: Viewport,
+  sx: number,
+  sy: number,
+  tolPx: number,
+  plane: DrawPlane,
+  anchor: Pt3 | null = null,
+  excludeVid: VertexId | null = null,
+  alignSources?: readonly Pt3[],
+): Snap3 {
+  // === 兼容壳（2026-09-01 阶段二求解器手术）：真身 = solver.solvePoint 纯函数 ===
+  // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
+  // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
+  const scale = tolPx / 8;
+  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, excludeVid, alignSources });
+  if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
+  const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, { comboEps: EPS.combo * scale });
+  if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
+  const hints: SnapHint[] = [];
+  for (const c of sol.used) {
+    if (c.locus.dim === 1 && (c.tag.kind === "axis" || c.tag.kind === "align") && c.tag.src && c.tag.axis) {
+      hints.push({ a: c.tag.src, b: sol.p, axis: c.tag.axis });
+    } else if (c.locus.dim === 1 && c.tag.kind === "cross" && c.locus.len !== undefined) {
+      // 交线：整段高亮（可描的虚拟轨迹）
+      const L = c.locus;
+      hints.push({ a: L.a, b: { x: L.a.x + L.dir.x * L.len!, y: L.a.y + L.dir.y * L.len!, z: L.a.z + L.dir.z * L.len! }, axis: "i" });
+    }
+  }
+  let kind: SnapKind | null;
+  if (sol.used.length === 2) {
+    kind = sol.used.some((c) => c.tag.kind === "edge") ? "edge-align" : "align-combo";
+  } else {
+    const t = sol.used[0].tag;
+    kind = t.kind === "endpoint" ? "endpoint"
+      : t.kind === "origin" ? "origin"
+      : t.kind === "midpoint" ? "midpoint"
+      : t.kind === "intersection" ? "intersection"
+      : t.kind === "cross" ? "cross-line"
+      : t.kind === "edge" ? "on-edge"
+      : t.kind === "axis" ? ((t.axis === "u" || t.axis === "v") ? "align" : (("axis-" + t.axis) as SnapKind))
+      : t.kind === "align" ? "align"
+      : null;
+  }
+  return hints.length ? { p: sol.p, kind, hints } : { p: sol.p, kind };
+}
+
+/** 底面偏置的法向挑选（user 2026-09-02 实测 SU：底/立面非平权——45° 视角仍落底面，
+ * 只有相机足够贴地才落立面；阈值=天顶角 60°（|fwd.z|≥cos60°=0.5 → 底面），待手感调参）。 */
+function biasedNormal(cam: OrbitCamera): Pt3 {
+  const fwd = cam.forward();
+  if (Math.abs(fwd.z) >= 0.5) return { x: 0, y: 0, z: 1 };
+  return Math.abs(fwd.x) >= Math.abs(fwd.y) ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+}
+
+/** 轴系统平面（d=0 的 XY/YZ/ZX 本体）——自由落点的兜底（user 2026-09-01 修案：
+ * 兜底是 axes 的平面本体不是过相机目标的平行面；SU 手动改 axes 即改此系统——可移动轴系 backlog）。 */
+export function axisPlane(cam: OrbitCamera): DrawPlane {
+  return cameraPlane(cam, { x: 0, y: 0, z: 0 });
+}
+
+/** 摄像机挑向平面：过 through、底面偏置（锚定在几何上的首点用这个）。 */
+export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
+  const bestN = biasedNormal(cam);
+  const pl = canonicalPlane(bestN, dot3(bestN, through));
+  return { plane: pl, basis: planeBasis(pl) };
+}
+
+/**
+ * 矩形工具的画面平面决定（user 2026-09-01 口述 SU 行为）：
+ * ①首点在面上 = 与面平行（调用方直接锁面平面，不进本函数）；
+ * ②空处 = 摄像机托底（过首点的三张世界轴平面里最面向相机者）；
+ * ③**主要看第二点**：第二点解析出的 3D 点若落进某候选平面 → 该平面胜出
+ *   （吸到高处端点/Z 轴锁 → 矩形自动立起来；多个含之取面向相机者）。
+ * 返回本帧用的平面 + 第二点吸附结果（调用方勿重复吸附）。added by Claude Fable 5 2026-09-01
+ */
+export function resolveRectPlane(
+  k: Kernel,
+  cam: OrbitCamera,
+  vp: Viewport,
+  p1: Pt3,
+  sx: number,
+  sy: number,
+  tolPx: number,
+  alignSources?: readonly Pt3[],
+  coplanarTol = 1e-3,
+): { plane: DrawPlane; snap: Snap3 } {
+  const mk = (n: Pt3): DrawPlane => {
+    const pl = canonicalPlane(n, dot3(n, p1));
+    return { plane: pl, basis: planeBasis(pl) };
+  };
+  const candidates = [mk({ x: 0, y: 0, z: 1 }), mk({ x: 0, y: 1, z: 0 }), mk({ x: 1, y: 0, z: 0 })];
+  const fwd = cam.forward();
+  const facing = (arr: DrawPlane[]): DrawPlane =>
+    arr.reduce((a, b) => (Math.abs(dot3(b.plane.n, fwd)) > Math.abs(dot3(a.plane.n, fwd)) ? b : a));
+  const camPlane = facing(candidates);
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, camPlane, p1, null, alignSources);
+  const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= Math.max(coplanarTol, 1e-6));
+  return { plane: containing.length ? facing(containing) : camPlane, snap };
+}
+
