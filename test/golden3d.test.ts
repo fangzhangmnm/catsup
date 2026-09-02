@@ -101,6 +101,5 @@ describe("golden3d: coplanarity 容差旋钮 τ", () => {
 });
 
 describe("golden3d: 占位", () => {
-  todo("把顶点拖出面平面 → AUTOFOLD-SPLIT 折面守恒（M4；当前面会静默消失）");
   todo("倾斜平面（非轴对齐）上的完整事件表回归");
 });

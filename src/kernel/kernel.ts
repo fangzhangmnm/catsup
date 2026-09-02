@@ -9,6 +9,7 @@ import {
   dist3,
   distToPlane,
   distToSegment3,
+  planeFromPoints,
   projectToPlane,
   ptKey3,
   quantize3,
@@ -17,6 +18,7 @@ import {
 import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, PlanarGraph } from "./topology.ts";
 import { insertSegment } from "./subdivide.ts";
 import { planarize } from "./planarize.ts";
+import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
 
@@ -141,13 +143,46 @@ export class Kernel {
       .filter(([id, to]) => this.graph.hasVertex(id) && !samePt3(this.graph.pt(id), to))
       .map(([id, to]) => ({ id, to }));
     this.graph.relocateVertices(batch);
-    // ③ 自愈
+    // ③ 自愈（第一员：planarize 治交叉）
     const { changed } = planarize(this.graph);
+    // ③.5 自愈第二员：autofold 治非平面（最少折缝，user 2026-09-01 拍板「十边形对折只出一条缝」）。
+    //     成功 → 加折缝弦 + 按片认领（膜折而不破=DIVIDE 叙事）；失败/带洞 → 交还覆盖 reconcile BURST 兜底。
+    const chase = (vid0: VertexId): VertexId => {
+      let vid = vid0;
+      while (mergedVerts.has(vid)) vid = mergedVerts.get(vid)!;
+      return vid;
+    };
+    const folds = new Map<FaceId, VertexId[][]>();
+    for (const [fid, snap] of snaps) {
+      if (snap.holes.length) continue; // v1：带洞非平面面不折，BURST 兜底
+      const vids: VertexId[] = [];
+      for (const vid0 of snap.outer) {
+        const vid = chase(vid0);
+        if (!this.graph.hasVertex(vid)) continue;
+        if (vids.length && vids[vids.length - 1] === vid) continue;
+        vids.push(vid);
+      }
+      while (vids.length >= 2 && vids[0] === vids[vids.length - 1]) vids.pop();
+      if (vids.length < 4) continue;
+      const pts = vids.map((vid) => this.graph.pt(vid));
+      let plane = null;
+      for (let i = 0; i + 2 < pts.length && !plane; i++) plane = planeFromPoints(pts[i], pts[i + 1], pts[i + 2]);
+      if (plane && pts.every((p) => distToPlane(p, plane!) <= this.coplanarTol)) continue; // 仍平面
+      const d = foldDecompose(pts, this.coplanarTol);
+      if (!d) continue;
+      for (const [i, j] of d.creases) {
+        const a = vids[i], b = vids[j];
+        if (a === b || this.graph.edgeBetween(a, b) !== undefined) continue;
+        this.graph.addEdge(a, b);
+      }
+      folds.set(fid, d.pieces.map((idxs) => idxs.map((i) => vids[i])));
+    }
+    if (folds.size) planarize(this.graph); // 折缝弦可能穿越他物/骑上顶点
     // ④ 覆盖 reconcile。动到任何膜的顶点必走全路径——快路径的 refreshRingPts 不检测
     //   出平面/平面平移，曾把非平面膜假装成平的（2026-09-01 立方体移墙案，详 move-spec §4）
     const topologyChanged = mergesHappened || changed || movedFaces.size > 0;
     return this.emit(this.store.reconcileCoverage(
-      this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, topologyChanged,
+      this.graph, this.planes, this.coplanarTol, snaps, mergedVerts, movedFaces, topologyChanged, folds,
     ));
   }
 

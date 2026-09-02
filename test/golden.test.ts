@@ -165,7 +165,6 @@ describe("golden: 暗礁①（三层回字 填-空-填）——已获 user 真�
 
 describe("golden: 后续里程碑占位", () => {
   todo("DEDUP-MERGE：sticky 撞合去重成双面单膜（stuck cube；3D，M4）");
-  todo("AUTOFOLD-SPLIT：move 破坏平面性自动折面（3D，M4）");
   todo("move 拖边横穿他面 → 急切 dividing（M2 Move 完整版）");
   todo("push/pull 非流形撞合的膜归属：BURST+BIRTH vs DEDUP-MERGE（暗礁②，M4）");
 });

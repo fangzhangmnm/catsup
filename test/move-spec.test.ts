@@ -222,12 +222,35 @@ describe("move-spec: 3D 膜跟随（2026-09-01 立方体移墙案）", () => {
     assertPlanesHonest(k, "法向");
   });
 
-  it("拉单顶角=真非平面 → 只有顶面诚实 BURST（autofold 空档曝光，两邻墙仍平存活）", () => {
+  it("拉单顶角 → autofold：顶面折成两片（一条缝），膜守恒零 BURST", () => {
     const k = cube();
+    const topId = k.faces().find((f) => Math.abs(k.planeOf(f.id)!.plane.d - 10) < 1e-6
+      && Math.abs(k.planeOf(f.id)!.plane.n.z - 1) < 1e-6)!.id;
     const corner = k.vertices().find((v) => v.x === 10 && v.y === 10 && v.z === 10)!;
     const ev = k.moveVertices([{ id: corner.id, to: { x: 10, y: 10, z: 13 } }]);
-    eq(k.faces().length, 5, "只失顶面");
-    eq(ev.filter((e) => e.type === "BURST").length, 1, "一个 BURST（曝光不静默）");
-    assertPlanesHonest(k, "顶角");
+    eq(k.faces().length, 7, "顶面折成两片：5+2");
+    eq(ev.filter((e) => e.type === "BURST").length, 0, "膜守恒（autofold 兜住）");
+    const div = ev.find((e) => e.type === "DIVIDE");
+    assert(div !== undefined && div.type === "DIVIDE" && div.from === topId && div.into.length === 2, "顶面 DIVIDE 一分为二");
+    eq(k.edges().length, 13, "十二棱 + 一条折缝");
+    assertPlanesHonest(k, "顶角折叠");
+  });
+
+  it("十边形对折 → 只出一条折缝（user 拍板规则：最少折缝，不切三角雨）", () => {
+    const k = new Kernel();
+    const deca: { x: number; y: number; z: number }[] = [
+      P3(5, 0), P3(4, 2), P3(2, 3), P3(-2, 3), P3(-4, 2),
+      P3(-5, 0), P3(-4, -2), P3(-2, -3), P3(2, -3), P3(4, -2),
+    ];
+    loop(k, deca);
+    eq(k.faces().length, 1, "十边形成膜");
+    const top = k.vertices().filter((v) => v.y > 0);
+    eq(top.length, 4, "上半 4 顶点");
+    // 绕 x 轴（过 (±5,0)）把上半折起：(x,y,0) → (x, 0.6y, 0.8y)，折片仍共面
+    const ev = k.moveVertices(top.map((v) => ({ id: v.id, to: { x: v.x, y: 0.6 * v.y, z: 0.8 * v.y } })));
+    eq(k.faces().length, 2, "两片");
+    eq(k.edges().length, 11, "十边 + 一条折缝（不是三角雨）");
+    eq(ev.filter((e) => e.type === "DIVIDE").length, 1, "DIVIDE 一次");
+    assertPlanesHonest(k, "十边形对折");
   });
 });

@@ -1,6 +1,6 @@
 {
   "name": "catsup",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "comment": "无壳纯 TS 几何内核（Phase 0）。运行时零依赖；node 24 strip-types 直跑 test/；devDependencies 仅供 tsc --noEmit 类型门。工具链抄 WebPaint 现役（runner.mjs / build.sh / tsconfig）。",

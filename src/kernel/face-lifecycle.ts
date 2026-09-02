@@ -264,6 +264,7 @@ export class FaceStore {
     mergedVerts: Map<VertexId, VertexId>,
     movedFaces: Set<FaceId>,
     topologyChanged: boolean,
+    folds?: Map<FaceId, VertexId[][]>,
   ): FaceEvent[] {
     const events: FaceEvent[] = [];
     if (!topologyChanged) {
@@ -293,48 +294,53 @@ export class FaceStore {
       return pts;
     };
 
-    // 认领矩阵：face → 覆盖的 region 集；region → 认领者
-    const claims = new Map<FaceId, { planeId: PlaneId; regions: Region[] }>();
+    // 认领矩阵：face → 覆盖的 (region, 平面) 集；region → 认领者。
+    // autofold 折片（folds）：每片在**自己的平面**里认领——膜折而不破，1→n = DIVIDE 叙事。
+    const claims = new Map<FaceId, { r: Region; planeId: PlaneId }[]>();
     const claimants = new Map<Region, FaceId[]>();
     for (const f of this.faces()) {
       const snap = snaps.get(f.id);
-      const outer3 = snap ? ringPts3(snap.outer) : [];
-      let planeId: PlaneId | null = null;
-      let covered: Region[] = [];
-      if (snap && outer3.length >= 3) {
-        // 像的平面拟合（刚移在面内 → 原平面；整体抬升 → 平行新平面；扭出平面 → 放弃认领=autofold 空档曝光）
+      const entries: { r: Region; planeId: PlaneId }[] = [];
+      const folded = folds?.get(f.id);
+      const pieceOuters: VertexId[][] = folded ?? (snap ? [snap.outer] : []);
+      for (const outerVids of pieceOuters) {
+        const outer3 = ringPts3(outerVids);
+        if (outer3.length < 3) continue;
+        // 像的平面拟合（刚移在面内 → 原平面；整体抬升 → 平行新平面；折片 → 各自平面；
+        // 扭出平面且不可折 → 放弃认领 = BURST 兜底曝光）
         let plane = null;
         for (let i = 0; i + 2 < outer3.length && !plane; i++) plane = planeFromPoints(outer3[i], outer3[i + 1], outer3[i + 2]);
-        if (plane && outer3.every((p) => distToPlane(p, plane!) <= tol)) {
-          const rec = reg.ensure(plane, tol);
-          planeId = rec.id;
-          const outer2 = outer3.map((p) => projectToPlane(p, rec.basis));
-          const holes2 = snap.holes.map((h) => ringPts3(h).map((p) => projectToPlane(p, rec.basis)));
-          const windTotal = (p: Pt): number =>
-            windingOf(p, outer2) + holes2.reduce((acc, h) => acc + (h.length >= 3 ? windingOf(p, h) : 0), 0);
-          covered = (byPlane.get(rec.id) ?? []).filter((r) => Math.abs(windTotal(representativePoint(r))) >= 1);
+        if (!plane || !outer3.every((p) => distToPlane(p, plane!) <= tol)) continue;
+        const rec = reg.ensure(plane, tol);
+        const outer2 = outer3.map((p) => projectToPlane(p, rec.basis));
+        const holes2 = folded ? [] : (snap?.holes ?? []).map((h) => ringPts3(h).map((p) => projectToPlane(p, rec.basis)));
+        const windTotal = (p: Pt): number =>
+          windingOf(p, outer2) + holes2.reduce((acc, h) => acc + (h.length >= 3 ? windingOf(p, h) : 0), 0);
+        for (const r of byPlane.get(rec.id) ?? []) {
+          if (entries.some((e) => e.r === r)) continue;
+          if (Math.abs(windTotal(representativePoint(r))) >= 1) entries.push({ r, planeId: rec.id });
         }
       }
-      claims.set(f.id, { planeId: planeId ?? f.planeId, regions: covered });
-      for (const r of covered) {
-        const list = claimants.get(r) ?? [];
+      claims.set(f.id, entries);
+      for (const e of entries) {
+        const list = claimants.get(e.r) ?? [];
         list.push(f.id);
-        claimants.set(r, list);
+        claimants.set(e.r, list);
       }
     }
 
     // 叙事装配。descend: DIVIDE/MERGE 的血缘映射；replaned: 平面平移的膜跟随（STRETCH 叙事）
     const descend = new Map<FaceId, FaceId[]>();
     const replaned = new Map<FaceId, FaceId>();
-    // ① 一对多 → DIVIDE（退休铸新）
-    for (const [fid, c] of claims) {
-      if (c.regions.length < 2) continue;
+    // ① 一对多 → DIVIDE（退休铸新；折片各在自己平面铸）
+    for (const [fid, entries] of claims) {
+      if (entries.length < 2) continue;
       this.byId.delete(fid);
       const into: FaceId[] = [];
-      for (const r of c.regions) {
-        const nf = this.mint(c.planeId, r);
+      for (const e of entries) {
+        const nf = this.mint(e.planeId, e.r);
         into.push(nf.id);
-        const list = claimants.get(r)!;
+        const list = claimants.get(e.r)!;
         list[list.indexOf(fid)] = nf.id;
       }
       descend.set(fid, into);
@@ -355,23 +361,23 @@ export class FaceStore {
       claimants.set(r, [nf.id]);
     }
     // ③ 一对一 → adopt 保 id（换平面则退休铸新，叙事并入 STRETCH）；零认领 → BURST
-    for (const [fid, c] of claims) {
+    for (const [fid, entries] of claims) {
       if (descend.has(fid)) continue;
       const f = this.byId.get(fid);
       if (!f) continue;
-      if (c.regions.length === 0) {
+      if (entries.length === 0) {
         this.byId.delete(fid);
         events.push({ type: "BURST", face: fid });
         continue;
       }
-      const r = c.regions[0];
+      const { r, planeId } = entries[0];
       if ((claimants.get(r) ?? [])[0] !== fid) continue; // 已被 MERGE 收编
-      if (c.planeId === f.planeId) {
+      if (planeId === f.planeId) {
         this.adopt(f, r);
       } else {
         // 膜整体换平面（如面沿法向平移）：退休老 planeId 铸新，膜跟随，计入 STRETCH 叙事
         this.byId.delete(fid);
-        const nf = this.mint(c.planeId, r);
+        const nf = this.mint(planeId, r);
         replaned.set(fid, nf.id);
       }
     }
