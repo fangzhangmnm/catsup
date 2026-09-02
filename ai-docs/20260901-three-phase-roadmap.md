@@ -57,3 +57,11 @@ snapPoint=兼容壳；property 测试 5 件全绿（解在 ε 邻域 200 点扫�
   （E7 滑行卡点/E8 notch——XOR 大方向已裁，接触边界待公理化）算半条；③曲线=多边形近似
   （SU 同款）→ feature 不动公理1；rotate/scale/follow-me=sticky 协议+覆盖代数的既有客户
   → feature；guides=非几何 annex 一行注记；Intersect Faces 已被「描交线」取代。
+
+
+## 0.3 壳纪元 scope（2026-09-02 收工定调，明天权衡开工）
+
+app 壳全量：**gallery（云/文件夹/密码全套机制——评估抽库或模块；与 WebXiaoHeiWu 联动）**、
+undo（workpiece 级）、three 正装，**地基一开始打干净**（architecture 轮同场）。
+明天先行项：①立宪页+核心引擎**固化成小模块**（家族模块/库 ritual：包化+api .h）②WYSIWYG 修
+（被删膜不应显示）③0.2 遗留磨蹭。性质=两个月量级的枯燥软件工程（非学术）。
