@@ -9,7 +9,7 @@
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "../playground/camera.ts";
-import { type DrawPlane, type Snap3, GROUND, axisPlane, cameraPlane, drawPlaneAt, marqueeScreen, pickEntity, rectFirstPlane, resolveRectPlane, snapPoint } from "../playground/pick.ts";
+import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, rectFirstPlane, resolveRectPlane, snapPoint } from "../playground/pick.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "../playground/tools.ts";
 import { Renderer3 } from "../playground/render3.ts";
 import { PRESETS } from "./presets.ts";
@@ -370,13 +370,12 @@ canvas.addEventListener("pointerdown", (ev) => {
         // 元逻辑：首点被低维吸附赢走（角/边/轴）→ 平面延迟给第二点；裸落面内才锁面平行
         const r = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP, alignSrcs());
         rectFixed = r.fixed;
-        // 自由落点=轴系统平面本体（d=0）；锚定在几何上=过锚点的轴向平面
-        gesturePlane = r.fixed ?? (r.snap.kind === null ? axisPlane(cam) : cameraPlane(cam, r.snap.p));
+        gesturePlane = r.plane;   // 平面求解器统一出口（收敛手术 2026-09-02）
         snapInfo = r.snap;
       } else {
         // 线的空落点兜底=学矩形（user 2026-09-01 裁决）：面上锁面；空处=摄像机挑最面向的轴平面
         const r0 = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP, alignSrcs());
-        gesturePlane = r0.fixed ?? (r0.snap.kind === null ? axisPlane(cam) : cameraPlane(cam, r0.snap.p));
+        gesturePlane = r0.plane;
         snapInfo = r0.snap;
       }
       anchor3 = snapInfo.p;

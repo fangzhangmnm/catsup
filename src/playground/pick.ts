@@ -17,10 +17,10 @@ import {
   sub3,
 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
-import { type DrawPlane, type Snap3, axisPlane, snapPoint } from "./solver.ts";
+import { type DrawPlane, type Snap3, resolvePlane } from "./solver.ts";
 
 // 兼容 re-export（调用方历史入口；新码请直接 import solver）
-export { type DrawPlane, type Snap3, type SnapHint, type SnapKind, axisPlane, cameraPlane, resolveRectPlane, snapPoint } from "./solver.ts";
+export { type DrawPlane, type Snap3, type SnapHint, type SnapKind, axisPlane, cameraPlane, resolvePlane, resolveRectPlane, snapPoint } from "./solver.ts";
 
 export const GROUND: DrawPlane = (() => {
   const plane = canonicalPlane({ x: 0, y: 0, z: 1 }, 0);
@@ -83,10 +83,8 @@ export function drawPlaneAt(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: numbe
 }
 
 /**
- * 矩形首点的平面裁决（元逻辑 2026-09-01：维度优先+延迟承诺+工具不自己 raycast）：
- * 首点吸附若被任何低维目标（顶点/边/轴线…kind≠null）赢走 → 这次点击**没有**表达平面意图，
- * fixed=null 延迟给第二点（resolveRectPlane）；只有裸落面内部（kind=null 且面命中）才锁面平行。
- * 修案出处：墙角起笔被私自 raycast 锁进墙平面、拉不出屋顶矩形。added by Claude Fable 5 2026-09-01
+ * 首点平面裁决（薄壳：face raycast 探测 + resolvePlane 首点查询；元逻辑三律见 solver 头注释）。
+ * 返回 plane=本帧用平面、fixed=面锁候选（裸落膜内才非 null）。
  */
 export function rectFirstPlane(
   k: Kernel,
@@ -96,15 +94,15 @@ export function rectFirstPlane(
   sy: number,
   tolPx: number,
   alignSources?: readonly Pt3[],
-): { fixed: DrawPlane | null; snap: Snap3 } {
+): { fixed: DrawPlane | null; plane: DrawPlane; snap: Snap3 } {
   const hit = pickEntity(k, cam, vp, sx, sy, 0.5);
-  let facePl: DrawPlane | null = null;
+  let facePlane: DrawPlane | null = null;
   if (hit.face !== undefined) {
     const rec = k.planeOf(hit.face)!;
-    facePl = { plane: rec.plane, basis: rec.basis };
+    facePlane = { plane: rec.plane, basis: rec.basis };
   }
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, facePl ?? axisPlane(cam), null, null, alignSources);
-  return { fixed: snap.kind === null ? facePl : null, snap };
+  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { facePlane, alignSources });
+  return { fixed: r.fixed ? r.plane : null, plane: r.plane, snap: r.snap };
 }
 
 /** 屏幕空间框选（window 语义）：边=两端投影都在框内；面=外环全部顶点投影在框内。 */

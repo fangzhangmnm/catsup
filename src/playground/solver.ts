@@ -355,37 +355,68 @@ export function snapPoint(
   return hints.length ? { p: sol.p, kind, hints } : { p: sol.p, kind };
 }
 
-/** 底面偏置的法向挑选（user 2026-09-02 实测 SU：底/立面非平权——45° 视角仍落底面，
- * 只有相机足够贴地才落立面；阈值=天顶角 60°（|fwd.z|≥cos60°=0.5 → 底面），待手感调参）。 */
-function biasedNormal(cam: OrbitCamera): Pt3 {
-  const fwd = cam.forward();
-  // 底面强偏置：只有相机贴地 <20°（|fwd.z|=sin(pitch)<0.34）才给立面。
-  // 2026-09-02 翻车记录：曾用 0.5 阈值，默认俯角 30° 的 sin=0.4999…卡在门槛下→全判立面。调参位。
-  if (Math.abs(fwd.z) >= 0.34) return { x: 0, y: 0, z: 1 };
-  return Math.abs(fwd.x) >= Math.abs(fwd.y) ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
-}
+// ===== 平面求解器（2026-09-02 收敛手术：与点求解器同族字典序，一台挑选器吃所有平面决定） =====
+// 秩：面锁（裸落膜内，调用方探测）> 含点平面（第二点拉动）> 过锚点轴向平面 > 轴系平面（d=0 兜底）；
+// 同秩多候选 = 底面偏置（|fwd.z|≥0.34≈非贴地 20° 时底面优先——SU 手感：45° 仍落底）> 面向度。
+// 历史：偏置逻辑曾抄三份，两次翻车（0.5 门槛头发丝、resolveRectPlane 漏偏置）皆同源漂移——此为唯一出处。
 
-/** 轴系统平面（d=0 的 XY/YZ/ZX 本体）——自由落点的兜底（user 2026-09-01 修案：
- * 兜底是 axes 的平面本体不是过相机目标的平行面；SU 手动改 axes 即改此系统——可移动轴系 backlog）。 */
-export function axisPlane(cam: OrbitCamera): DrawPlane {
-  return cameraPlane(cam, { x: 0, y: 0, z: 0 });
-}
+const AXIS_NORMALS: readonly Pt3[] = [{ x: 0, y: 0, z: 1 }, { x: 0, y: 1, z: 0 }, { x: 1, y: 0, z: 0 }];
 
-/** 摄像机挑向平面：过 through、底面偏置（锚定在几何上的首点用这个）。 */
-export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
-  const bestN = biasedNormal(cam);
-  const pl = canonicalPlane(bestN, dot3(bestN, through));
+function mkAxisPlane(n: Pt3, through: Pt3): DrawPlane {
+  const pl = canonicalPlane(n, dot3(n, through));
   return { plane: pl, basis: planeBasis(pl) };
+}
+const axisPlanesThrough = (p: Pt3): DrawPlane[] => AXIS_NORMALS.map((n) => mkAxisPlane(n, p));
+
+/** 唯一平面挑选器：底面偏置 > 面向度。 */
+function pickByFacing(cam: OrbitCamera, arr: readonly DrawPlane[]): DrawPlane {
+  const fwd = cam.forward();
+  if (Math.abs(fwd.z) >= 0.34) {
+    const ground = arr.find((c) => Math.abs(c.plane.n.z) > 0.999);
+    if (ground) return ground;
+  }
+  return arr.reduce((a, b) => (Math.abs(dot3(b.plane.n, fwd)) > Math.abs(dot3(a.plane.n, fwd)) ? b : a));
+}
+
+/** 轴系平面本体（d=0）——自由落点兜底。 */
+export function axisPlane(cam: OrbitCamera): DrawPlane {
+  return pickByFacing(cam, axisPlanesThrough({ x: 0, y: 0, z: 0 }));
+}
+
+/** 过 through 的轴向平面（锚定在几何上的点用）。 */
+export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
+  return pickByFacing(cam, axisPlanesThrough(through));
 }
 
 /**
- * 矩形工具的画面平面决定（user 2026-09-01 口述 SU 行为）：
- * ①首点在面上 = 与面平行（调用方直接锁面平面，不进本函数）；
- * ②空处 = 摄像机托底（过首点的三张世界轴平面里最面向相机者）；
- * ③**主要看第二点**：第二点解析出的 3D 点若落进某候选平面 → 该平面胜出
- *   （吸到高处端点/Z 轴锁 → 矩形自动立起来；多个含之取面向相机者）。
- * 返回本帧用的平面 + 第二点吸附结果（调用方勿重复吸附）。added by Claude Fable 5 2026-09-01
+ * 平面求解（字典序见文件头）。p1 无 = 首点查询（facePlane=调用方 raycast 的面锁候选）；
+ * p1 有 = 第二点查询（含点平面拉动）。fixed=面锁成立（裸落膜内）。
  */
+export function resolvePlane(
+  k: Kernel,
+  cam: OrbitCamera,
+  vp: Viewport,
+  sx: number,
+  sy: number,
+  tolPx: number,
+  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null },
+): { plane: DrawPlane; fixed: boolean; snap: Snap3 } {
+  const { p1, facePlane, alignSources } = opts;
+  if (p1) {
+    const candidates = axisPlanesThrough(p1);
+    const base = pickByFacing(cam, candidates);
+    const snap = snapPoint(k, cam, vp, sx, sy, tolPx, base, p1, null, alignSources ?? undefined);
+    const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
+    return { plane: containing.length ? pickByFacing(cam, containing) : base, fixed: false, snap };
+  }
+  const base = facePlane ?? axisPlane(cam);
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, base, null, null, alignSources ?? undefined);
+  if (snap.kind === null) return { plane: base, fixed: !!facePlane, snap };
+  // 首点被低维吸附赢走：面锁作废（延迟承诺），平面挂到解析点上
+  return { plane: pickByFacing(cam, axisPlanesThrough(snap.p)), fixed: false, snap };
+}
+
+/** 薄壳（历史 API；语义=resolvePlane 第二点查询）。 */
 export function resolveRectPlane(
   k: Kernel,
   cam: OrbitCamera,
@@ -395,26 +426,7 @@ export function resolveRectPlane(
   sy: number,
   tolPx: number,
   alignSources?: readonly Pt3[],
-  coplanarTol = 1e-3,
 ): { plane: DrawPlane; snap: Snap3 } {
-  const mk = (n: Pt3): DrawPlane => {
-    const pl = canonicalPlane(n, dot3(n, p1));
-    return { plane: pl, basis: planeBasis(pl) };
-  };
-  const candidates = [mk({ x: 0, y: 0, z: 1 }), mk({ x: 0, y: 1, z: 0 }), mk({ x: 1, y: 0, z: 0 })];
-  const fwd = cam.forward();
-  // 与 biasedNormal 同款底面偏置（2026-09-02 二修：此处曾漏，默认视角 |fwd.x| 比 |fwd.z|
-  // 大一线，第二点每帧把矩形改判到立面）：非贴地视角一律优先底面候选
-  const facing = (arr: DrawPlane[]): DrawPlane => {
-    if (Math.abs(fwd.z) >= 0.34) {
-      const ground = arr.find((c) => Math.abs(c.plane.n.z) > 0.999);
-      if (ground) return ground;
-    }
-    return arr.reduce((a, b) => (Math.abs(dot3(b.plane.n, fwd)) > Math.abs(dot3(a.plane.n, fwd)) ? b : a));
-  };
-  const camPlane = facing(candidates);
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, camPlane, p1, null, alignSources);
-  const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= Math.max(coplanarTol, 1e-6));
-  return { plane: containing.length ? facing(containing) : camPlane, snap };
+  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources });
+  return { plane: r.plane, snap: r.snap };
 }
-

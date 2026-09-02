@@ -16,4 +16,5 @@
 - **面内共轴的洞环/带洞面 pp 单测补**（generic 路径未单测）→ pushpull-grill-sheet §3。
 - **数值输入 VCB**；**group/sticky 隔离域**；**贴图纪元**（膜血缘消费者）；**B–O**；**增量局部 face-finding**；
   **undo 快照环**；**局部性接缝**（findRegions.bounds）——远期，各自 doc 有钉。
-- 版本：**0.2.0 纪元命名待 user 裁**。
+- **improve-codebase-architecture 轮**：排 0.3 壳纪元开工时（user 2026-09-02 提议；证据=偏置三抄两翻车、
+  lab main 体积；kernel/solver=保的深模块，壳层随 0.3 重建一并理顺）。
