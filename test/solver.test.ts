@@ -78,3 +78,31 @@ describe("solver: property 不变量", () => {
     eq(JSON.stringify(EPS), JSON.stringify({ point: 10, edge: 7, line: 5, combo: 12 }), "EPS");
   });
 });
+
+describe("solvePoint: 1-D 遮挡=可见区间钳制（2026-09-03 抖动破案，单元级语义钉）", () => {
+  const clampCam = topCam();
+  const axisC = [{
+    locus: { dim: 1 as const, a: { x: 0, y: 0, z: 0 }, dir: { x: 1, y: 0, z: 0 } },
+    rank: RANK.axisLine, eps: EPS.line, tag: { kind: "axis" as const, src: { x: 0, y: 0, z: 0 }, axis: "x" as const },
+  }];
+  const spans = (): [number, number][] => [[10, 30]];   // x∈[10,30] 被挡
+  const at2 = (wx: number): { x: number; y: number } => clampCam.worldToScreen({ x: wx, y: 0, z: 0 }, VP);
+  it("光标在被挡段内、离边界 ε 内 → 钳到最近可见边界点（不否决）", () => {
+    const s2 = at2(10.5);   // 离边界 x=10 半个 world unit=4px < EPS.line 7px
+    const sol = solvePoint({ cam: clampCam, vp: VP }, s2, axisC, { spans1D: spans });
+    assert(sol !== null && sol.dim === 1, "应有 1-D 解");
+    assert(Math.abs(sol!.p.x - 10) < 1e-6, `p 应钳在边界 x=10，实际 ${sol!.p.x.toFixed(3)}`);
+  });
+  it("深入被挡段（边界出 ε）→ 干净掉出，无候选", () => {
+    const sol = solvePoint({ cam: clampCam, vp: VP }, at2(20), axisC, { spans1D: spans });
+    assert(sol === null || sol.dim !== 1, `深处不应还有 1-D 解（实际 dim=${sol?.dim}）`);
+  });
+  it("被挡段两侧边界各自钳制：靠右侧钳到 x=30", () => {
+    const sol = solvePoint({ cam: clampCam, vp: VP }, at2(29.6), axisC, { spans1D: spans });
+    assert(sol !== null && Math.abs(sol!.p.x - 30) < 1e-6, `应钳到右边界 x=30，实际 ${sol?.p.x.toFixed(3)}`);
+  });
+  it("可见段照常：候选点跟随光标", () => {
+    const sol = solvePoint({ cam: clampCam, vp: VP }, at2(40), axisC, { spans1D: spans });
+    assert(sol !== null && Math.abs(sol!.p.x - 40) < 0.5, `可见段应跟随光标，实际 ${sol?.p.x.toFixed(3)}`);
+  });
+});

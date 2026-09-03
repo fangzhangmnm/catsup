@@ -59,7 +59,12 @@ export function solvePoint(
   view: View,
   s: { x: number; y: number },
   C: readonly Constraint[],
-  opts?: { comboEps?: number; hidden?: (p: Pt3) => boolean },
+  opts?: {
+    comboEps?: number;
+    hidden?: (p: Pt3) => boolean;
+    /** 1-D 轨迹遮挡裁剪：返回 [tMin,tMax] 内的被挡区间（见 occludedSpansOnLine）；不给=不裁 */
+    spans1D?: (a: Pt3, dir: Pt3, tMin: number, tMax: number) => [number, number][];
+  },
 ): Solution | null {
   const { cam, vp } = view;
   const comboEps = opts?.comboEps ?? EPS.combo;
@@ -98,14 +103,30 @@ export function solvePoint(
       if (d > c.eps) continue;
       const q = closestOnAxis(L.a, L.dir, ray.origin, ray.dir);
       if (!q) continue;
-      let p = q;
-      if (L.len !== undefined) {
-        let t = dot3(sub3(q, L.a), L.dir);
-        t = Math.max(0, Math.min(L.len, t));
-        p = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
+      let t = dot3(sub3(q, L.a), L.dir);
+      if (L.len !== undefined) t = Math.max(0, Math.min(L.len, t));
+      let dEff = d;
+      if (opts?.spans1D) {
+        // 遮挡=裁可见区间：候选 t 落在被挡段 → 钳到最近可见边界（不否决——否决会在剪影边界横跳）
+        const R = L.len !== undefined ? 0 : Math.abs(t) + 1e5;
+        const lo = L.len !== undefined ? 0 : t - R, hi = L.len !== undefined ? L.len : t + R;
+        const occ = opts.spans1D(L.a, L.dir, lo, hi);
+        let inside: [number, number] | null = null;
+        for (const sp of occ) if (t > sp[0] + 1e-9 && t < sp[1] - 1e-9) { inside = sp; break; }
+        if (inside) {
+          const cl = [inside[0], inside[1]].filter((x) => x > lo + 1e-9 && x < hi - 1e-9);
+          if (!cl.length) continue;                                   // 整段可达范围全被挡
+          t = cl.reduce((b, x) => (Math.abs(x - t) < Math.abs(b - t) ? x : b));
+          const pc = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
+          dEff = sd(pc);
+          if (dEff > c.eps) continue;                                 // 边界点已滑出吸附圈=干净掉出
+        }
+      } else if (hid) {
+        const pt0 = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
+        if (hid(pt0)) continue;
       }
-      if (hid && hid(p)) continue;   // 遮挡：候选解点被膜盖住即退赛（轴线/共轴/局部隐藏边全覆盖）
-      cands.push({ p, dim: 1, rank: c.rank, d, used: [c] });
+      const p = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
+      cands.push({ p, dim: 1, rank: c.rank, d: dEff, used: [c] });
       act1.push({ c, l: L });
     } else {
       const q = rayPlane(ray.origin, ray.dir, L.plane.n, L.plane.d);
@@ -178,6 +199,67 @@ function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3, skip?: (fid: FaceId) =>
   return false;
 }
 
+/**
+ * 1-D 轨迹的膜遮挡 = **可见区间裁剪**（2026-09-03 抖动破案：逐点二值判会在剪影边界随光标横跳；
+ * 0-D 点的可见性不随光标变所以二值判无害——user 直觉「边是一个 range」正解）。
+ * 对每张膜求「影柱∩直线」：s(t)=到膜平面的视向距离是 t 的线性函数，q2(t)=命中点在膜基下的 2D 坐标
+ * 是 t 的仿射函数 → 遮挡边界 = s(t)=ε 的根 ∪ q2(t) 与多边形边的交 → 子区间中点采样定内外。
+ * 返回 [tMin,tMax] 内的**被挡**区间（升序、已合并）。
+ */
+export function occludedSpansOnLine(
+  k: Kernel, cam: OrbitCamera, a: Pt3, dir: Pt3, tMin: number, tMax: number,
+  skip?: (fid: FaceId) => boolean,
+): [number, number][] {
+  const e = cam.eyeDir();
+  const spans: [number, number][] = [];
+  for (const f of k.faces()) {
+    if (skip?.(f.id)) continue;
+    const rec = k.planeOf(f.id);
+    const face = k.face(f.id);
+    if (!rec || !face) continue;
+    const n = rec.plane.n, d = rec.plane.d;
+    const den = dot3(n, e);
+    if (Math.abs(den) < 1e-9) continue;                 // 膜侧对视线，不遮
+    const s0 = (d - dot3(n, a)) / den, s1 = -dot3(n, dir) / den;   // s(t)=s0+s1·t
+    const { u, v } = rec.basis;
+    const Ax = dot3(a, u) + s0 * dot3(e, u), Bx = dot3(dir, u) + s1 * dot3(e, u);
+    const Ay = dot3(a, v) + s0 * dot3(e, v), By = dot3(dir, v) + s1 * dot3(e, v);
+    const cuts: number[] = [tMin, tMax];
+    if (Math.abs(s1) > 1e-12) cuts.push((1e-4 - s0) / s1);
+    for (const ring of [face.outer.pts, ...face.holes.map((h) => h.pts)]) {
+      for (let i = 0; i < ring.length; i++) {
+        const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
+        const ex = p2.x - p1.x, ey = p2.y - p1.y;
+        const det = -Bx * ey + By * ex;                 // [Bx −ex; By −ey]
+        if (Math.abs(det) < 1e-12) continue;
+        const rx = p1.x - Ax, ry = p1.y - Ay;
+        const t = (-rx * ey + ry * ex) / det;
+        const w = (Bx * ry - By * rx) / det;
+        if (w >= -1e-9 && w <= 1 + 1e-9) cuts.push(t);
+      }
+    }
+    const ts = cuts.filter((t) => t >= tMin - 1e-9 && t <= tMax + 1e-9).sort((x, y) => x - y);
+    for (let i = 0; i + 1 < ts.length; i++) {
+      const lo = ts[i], hi = ts[i + 1];
+      if (hi - lo < 1e-9) continue;
+      const tm = (lo + hi) / 2;
+      if (s0 + s1 * tm <= 1e-4) continue;               // 膜在点前方才算挡
+      const q2 = { x: Ax + Bx * tm, y: Ay + By * tm };
+      if (!pointInRing(q2, face.outer.pts)) continue;
+      if (face.holes.some((h) => pointInRing(q2, h.pts))) continue;
+      spans.push([lo, hi]);
+    }
+  }
+  spans.sort((x, y) => x[0] - y[0]);
+  const merged: [number, number][] = [];
+  for (const sp of spans) {
+    const last = merged[merged.length - 1];
+    if (last && sp[0] <= last[1] + 1e-9) last[1] = Math.max(last[1], sp[1]);
+    else merged.push([sp[0], sp[1]]);
+  }
+  return merged;
+}
+
 /** 情境构建器：把内核现状 + 工具情境枚举成约束集（单一供餐律的物理化）。 */
 export function buildConstraints(ctx: SnapContext): Constraint[] {
   const out: Constraint[] = [];
@@ -198,7 +280,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     const len = dist3(a, b);
     if (len <= 0) continue;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
-    if (hidden(a) && hidden(b)) continue;   // 两端全被挡的边整条退赛（部分可见细化归 0.3）
+    // （旧「两端全被挡整条退赛」粗筛已撤：1-D 遮挡统一走 solve 层可见区间裁剪）
     if (!hidden(mid)) {
       out.push({ locus: { dim: 0, p: mid }, rank: RANK.midpoint, eps: EPS.point, tag: { kind: "midpoint" } });
     }
@@ -381,6 +463,7 @@ export function snapPoint(
   const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, {
     comboEps: EPS.combo * scale,
     hidden: (p) => occludedBy(k, cam, p, skipFace ?? undefined),
+    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, cam, a, dirL, tMin, tMax, skipFace ?? undefined),
   });
   if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const hints: SnapHint[] = [];
