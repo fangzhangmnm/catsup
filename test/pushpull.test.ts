@@ -276,3 +276,28 @@ describe("push/pull 拖拽预演：XOR 落地推迟（2026-09-03 user proposal�
     eq(kc.faces().length, 0, "commit 全 XOR：彻底湮灭（E5 不变）");
   });
 });
+
+describe("push/pull 预演=开区间样本（2026-09-03 咬合垃圾态案：恰在停靠点不触发共面重合）", () => {
+  it("carry 到共面线框差 2 量子：帽膜完好、线框边不被吞并", () => {
+    const k = new Kernel();
+    const w = [P(0, 0, 0), P(40, 0, 0), P(40, 0, 30), P(0, 0, 30)];
+    k.addEdges([0, 1, 2, 3].map((i) => [w[i], w[(i + 1) % 4]] as [PtIn, PtIn]));
+    const wall = k.faces()[0].id;
+    // 目的地平面 y=-10 上放一圈裸线框（无膜）
+    const r = [P(0, -10, 0), P(40, -10, 0), P(40, -10, 30), P(0, -10, 30)];
+    for (let i = 0; i < 4; i++) k.eraseFaces(k.faces().filter((f) => f.id !== wall).map((f) => f.id));
+    k.addEdges([0, 1, 2, 3].map((i) => [r[i], r[(i + 1) % 4]] as [PtIn, PtIn]));
+    for (const f of k.faces()) if (f.id !== wall) k.eraseFaces([f.id]);   // 拆成裸线框
+    const wireEdges = k.edges().length;
+    const facesBefore = k.faces().length;
+    const h = -10 + 2e-6;   // 开区间样本
+    k.pushPull(wall, h, { settleLanding: false });
+    const capAt = k.faces().find((f) => {
+      const rr = k.faceRings3(f.id);
+      return rr !== undefined && rr.outer.every((p) => Math.abs(p.y - h) < 1e-5);
+    });
+    assert(capAt !== undefined, "开区间样本下帽膜应完好抵达（不破膜）");
+    assert(k.edges().length > wireEdges, `线框边应保留且新增载运几何（before=${wireEdges} after=${k.edges().length}）`);
+    void facesBefore;
+  });
+});

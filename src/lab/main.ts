@@ -307,8 +307,12 @@ function computeLive(): void {
     const vids = moveVids;
     if (Math.hypot(delta.x, delta.y, delta.z) >= 0.3) run((c) => c.moveVertices(translateMoves(checkpoint, vids, delta)));
   } else if (tool === "pp" && ppFace !== null && Math.abs(ppH) >= 0.3) {
-    const fid = ppFace, h = ppH;
-    run((c) => c.pushPull(fid, h, { settleLanding: false }));   // 拖拽=扰动相：XOR 落地留给 commit（不闪）
+    const fid = ppFace;
+    // 落地=commit 事件 ⇒ 预演取 h 的**开区间样本**（差 2 量子，视觉不可见）：恰咬合停靠点时
+    // 不触发共面重合（planarize 合并+OR 打架=合并/破膜垃圾态，user 截图 2026-09-03）；
+    // 穿越型相交（切环）不受影响。commit 用精确 h 全 XOR。
+    const h = ppH - Math.sign(ppH) * 2e-6;
+    run((c) => c.pushPull(fid, h, { settleLanding: false }));
   } else if (tool === "erase" && scrubbing && scrubAcc.size) {
     const ids = [...scrubAcc];
     run((c) => c.eraseEdges(ids));
