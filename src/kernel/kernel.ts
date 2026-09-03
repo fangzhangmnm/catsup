@@ -3,7 +3,7 @@
 // 验收①（drill L79）：Rect 工具 = addEdges(4 段)——本文件（及全内核）没有任何
 // 让调用方构造/注入 Face 的入口；face 只经 face-lifecycle 的事件诞生。
 
-import {
+import { sub3,
   type Pt,
   type Pt3,
   add3,
@@ -267,6 +267,21 @@ export class Kernel {
         vertCls.set(v, rec2);
       }
     }
+    // v3.1 顶点分离守卫（2026-09-03 user 尖刺案：邻面共享顶点被拽走）：环顶点带「外来入射边」
+    // （非环边且不∥推向）→ 扣留（frontier）：原顶点留给邻居——邻居形状不可侵犯，SU 同款。
+    // ∥推向的入射边=伸缩轨（墙棱），放行。全边共享铰链（轨也∥推向）暂不在辖区：判据悬置，
+    // 待 SU 实验裁决（详 ai-docs/20260901-pushpull-grill-sheet.md §v3.1）。
+    for (const e of this.graph.edges()) {
+      if (fRing.has(e.id)) continue;
+      const rc = { a: vertCls.get(e.a), b: vertCls.get(e.b) };
+      if (!rc.a && !rc.b) continue;
+      const pa = this.graph.pt(e.a), pb = this.graph.pt(e.b);
+      const dv = sub3(pb, pa);
+      const l = Math.hypot(dv.x, dv.y, dv.z);
+      if (l > 0 && Math.abs(dot3(scale3(dv, 1 / l), nrm)) > 0.999) continue;   // ∥推向=伸缩轨
+      if (rc.a) rc.a.hasCopy = true;
+      if (rc.b) rc.b.hasCopy = true;
+    }
     const travels = (v: VertexId): boolean => {
       const c = vertCls.get(v)!;
       return c.hasMove && !c.hasCopy;
@@ -276,7 +291,7 @@ export class Kernel {
     for (const v of vertCls.keys()) oldPos.set(v, this.graph.pt(v));
 
     const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [];
-    const hasCopyAny = [...cls.values()].some((c) => c === "copy");
+    const hasCopyAny = [...cls.values()].some((c) => c === "copy") || [...vertCls.values()].some((c) => c.hasCopy);
 
     // ---- COPY 边：目标副本 ----
     for (const eid of fRing) {

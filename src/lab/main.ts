@@ -455,12 +455,9 @@ canvas.addEventListener("pointerdown", (ev) => {
           ...ringVidsTolerant(checkpoint.graph, fRec.outer),
           ...fRec.holes.flatMap((hh) => ringVidsTolerant(checkpoint.graph, hh)),
         ]);
-        const shell = new Set(rim);
-        for (const e of checkpoint.edges()) {   // 一步邻域=井壁另一端 → 被推体整只不参赛（相连邻居远端保留）
-          if (rim.has(e.a)) shell.add(e.b);
-          if (rim.has(e.b)) shell.add(e.a);
-        }
-        ppShellVids = shell;
+        // 手中集=帽环本身（2026-09-03 user：底面四条边应可吸 On Edge=SU 同款——底环顶点不动就不是手；
+        // 旧「+一步邻域」是遮挡机制诞生前的过度排除：穿体吸远角现由 opaque 手中膜遮挡接管）
+        ppShellVids = rim;
         ppKnownVids = new Set(checkpoint.vertices().map((v) => v.id));
         ppNormal = rec.plane.n;
         gesturePlane = { plane: rec.plane, basis: rec.basis };

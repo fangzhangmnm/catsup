@@ -232,3 +232,30 @@ describe("push/pull: F7 棱台甜甜圈（SU 实测回填）", () => {
     assert(k.edges().every((e) => e.faceLinks.length > 0), "零裸边");
   });
 });
+
+describe("push/pull v3.1: 顶点分离守卫（2026-09-03 user 尖刺案——邻面共享顶点不可拽）", () => {
+  it("墙与地板共享一顶点：push 墙，地板四角纹丝不动（原尖刺=共享顶点被拽走）", () => {
+    const k = new Kernel();
+    // 立墙：xz 平面 y=0，x∈[0,40] z∈[0,30]
+    const w = [{ x: 0, y: 0, z: 0 }, { x: 40, y: 0, z: 0 }, { x: 40, y: 0, z: 30 }, { x: 0, y: 0, z: 30 }];
+    k.addEdges([0, 1, 2, 3].map((i) => [w[i], w[(i + 1) % 4]] as [PtIn, PtIn]));
+    // 地板：与墙底右端共享顶点 (40,0,0)
+    const fl = [{ x: 40, y: 0, z: 0 }, { x: 80, y: 0, z: 0 }, { x: 80, y: 40, z: 0 }, { x: 40, y: 40, z: 0 }];
+    k.addEdges([0, 1, 2, 3].map((i) => [fl[i], fl[(i + 1) % 4]] as [PtIn, PtIn]));
+    const wall = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.y) < 1e-6))!.id;
+    k.pushPull(wall, -10);   // 推离地板方向（-y）
+    // 地板四角必须原位存在
+    for (const p of fl) {
+      assert(k.vertices().some((v) => Math.hypot(v.x - p.x, v.y - p.y, v.z - p.z) < 1e-6),
+        `地板角 (${p.x},${p.y},${p.z}) 应原位存在`);
+    }
+    // 地板膜完好：仍有一张 z=0 的膜精确覆盖 [40,80]×[0,40]
+    const floorFace = k.faces().find((f) => {
+      const r = k.faceRings3(f.id);
+      return r !== undefined && r.outer.length === 4 && r.outer.every((p) => Math.abs(p.z) < 1e-6 && p.x >= 40 - 1e-6);
+    });
+    assert(floorFace !== undefined, "地板膜应完好（无尖刺无变形）");
+    // 墙的目标面出现在 y=-10
+    assert(k.faces().some((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.y + 10) < 1e-6)), "墙应移到 y=-10");
+  });
+});
