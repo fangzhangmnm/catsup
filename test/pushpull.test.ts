@@ -213,3 +213,22 @@ describe("push/pull v3: 垂直判据（user 2026-09-02 拍板——move 仅当�
     assert(k.edges().every((e) => e.faceLinks.length > 0), "无裸边");
   });
 });
+
+describe("push/pull: F7 棱台甜甜圈（SU 实测回填）", () => {
+  it("F7 棱台推到底 = 甜甜圈领圈（SU 实测同款 2026-09-02：顶底不同大→着陆打穿）", () => {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    loop(k, [P(0, 0), P(20, 0), P(16, 4, 6), P(4, 4, 6)]);
+    loop(k, [P(20, 0), P(20, 20), P(16, 16, 6), P(16, 4, 6)]);
+    loop(k, [P(20, 20), P(0, 20), P(4, 16, 6), P(16, 16, 6)]);
+    loop(k, [P(0, 20), P(0, 0), P(4, 4, 6), P(4, 16, 6)]);
+    const top = k.hitTest(P(10, 10, 6), 0.1).face!;
+    k.pushPull(top, -6);
+    eq(k.faces().length, 9, "底环带+4斜面+4井壁");
+    assert(k.hitTest(P(10, 10, 0), 0.1).face === undefined, "底中心洞穿");
+    assert(k.hitTest(P(2, 10, 0), 0.1).face !== undefined, "底环带在");
+    assert(k.hitTest(P(4, 10, 3), 0.1).face !== undefined, "井壁在");
+    assert(k.hitTest(P(10, 10, 6), 0.1).face === undefined, "顶口开");
+    assert(k.edges().every((e) => e.faceLinks.length > 0), "零裸边");
+  });
+});
