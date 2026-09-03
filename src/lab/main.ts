@@ -572,7 +572,9 @@ canvas.addEventListener("pointermove", (ev) => {
           ppShellVids.has(vid) ||
           (!ppKnownVids.has(vid) && Math.abs(dot3(sub3(wk.graph.pt(vid), anc), n) - hNow) < 0.01);
         const sn = applyHysteresis(
-          snapPoint(wk, cam, vp(), s.x, s.y, SNAP, gesturePlane, anc, excl, undefined, { axes: false, occluder: kernel }),
+          // 遮挡世界=中间态（user 2026-09-03 bug1：新长的墙必须挡住底面远边；光标在帽上=背后无目标=SU 连续。
+          // 不动点：可见性阈值=自身高度时边界仍可见（贴面不算挡），残余掠射闪烁由滞回吸收）
+          snapPoint(wk, cam, vp(), s.x, s.y, SNAP, gesturePlane, anc, excl, undefined, { axes: false, occluder: wk }),
           s.x, s.y);
         hoverFace = null;
         let ref = "";

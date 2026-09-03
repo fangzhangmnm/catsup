@@ -12,6 +12,7 @@
 
 import type { FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
+import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 
@@ -315,24 +316,32 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
-    const es = k.edges().map((e) => {
-      const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
-      const l = dist3(a, b);
-      return l > 0 ? { a, dir: scale3(sub3(b, a), 1 / l), ea: a, eb: b } : null;
-    }).filter((x) => x !== null);
+    const es = k.edges()
+      .filter((e) => !(ctx.exclude?.(e.a) || ctx.exclude?.(e.b)))   // 手中边不产派生目标（2026-09-03：帽边载线交点会追 h/离体十万八千里）
+      .map((e) => {
+        const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
+        const l = dist3(a, b);
+        return l > 0 ? { a, dir: scale3(sub3(b, a), 1 / l), ea: a, eb: b } : null;
+      }).filter((x) => x !== null);
     for (let i = 0; i < es.length; i++) {
       for (let j = i + 1; j < es.length; j++) {
         const p = carrierIntersect(es[i]!, es[j]!);
         if (!p) continue;
         // 与既有端点重合（含共享顶点）→ 已是 endpoint 目标，跳过
         if ([es[i]!.ea, es[i]!.eb, es[j]!.ea, es[j]!.eb].some((q) => dist3(p, q) <= 1e-6)) continue;
+        if (hidden(p)) continue;
         out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: EPS.point, tag: { kind: "intersection" } });
       }
     }
   }
   // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
   {
-    const faces = k.faces();
+    const inHand = (f: { outer: Ring; holes: Ring[] }): boolean => {
+      if (!ctx.exclude) return false;
+      return [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))]
+        .some((v) => ctx.exclude!(v));
+    };
+    const faces = k.faces().filter((f) => !inHand(f));   // 手中膜不产面交线（帽平面交线=追 h 的目标）
     for (let i = 0; i < faces.length; i++) {
       for (let j = i + 1; j < faces.length; j++) {
         for (const seg of faceCrossSegments(k, faces[i].id, faces[j].id)) {
