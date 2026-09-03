@@ -209,3 +209,23 @@ describe("兜底偏置二修（2026-09-02：resolveRectPlane 每帧重挑也要�
     assert(Math.abs(Math.abs(plane.plane.n.z) - 1) < 1e-9, `默认视角应落底面，实际 n=(${plane.plane.n.x},${plane.plane.n.y},${plane.plane.n.z})`);
   });
 });
+
+describe("snap: 膜遮挡过滤（2026-09-03：隐藏几何不参赛，乱闪修）", () => {
+  it("被上方膜盖住的底层端点不再抢吸附；露天角点照常", () => {
+    const k = new Kernel();
+    const loop = (pts: Pt3[]): void => {
+      const segs: [Pt3, Pt3][] = [];
+      for (let i = 0; i < pts.length; i++) segs.push([pts[i], pts[(i + 1) % pts.length]]);
+      k.addEdges(segs);
+    };
+    loop([{ x: 0, y: 0, z: 5 }, { x: 20, y: 0, z: 5 }, { x: 20, y: 20, z: 5 }, { x: 0, y: 20, z: 5 }]); // 高台膜
+    loop([{ x: 5, y: 5, z: 0 }, { x: 15, y: 5, z: 0 }, { x: 15, y: 15, z: 0 }, { x: 5, y: 15, z: 0 }]); // 其下小方
+    const c = topCam();
+    const s1 = at(c, { x: 5, y: 5, z: 0 });
+    const r1 = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND);
+    assert(!(r1.kind === "endpoint" && Math.abs(r1.p.z) < 1e-9), `底层角点被膜盖住不该赢（实际 kind=${r1.kind} z=${r1.p.z}）`);
+    const s2 = at(c, { x: 0.2, y: 0.3, z: 5 });
+    const r2 = snapPoint(k, c, VP, s2.x, s2.y, TOL, GROUND);
+    eq(r2.kind, "endpoint", "露天高台角点照常吸");
+  });
+});

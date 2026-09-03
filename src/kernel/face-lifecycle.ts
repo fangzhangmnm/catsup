@@ -255,6 +255,19 @@ export class FaceStore {
     return events;
   }
 
+  /** 静默摘除（pp 身份跟随用：蒸发不叙事，等目标膜出生后 rename 回原 id=STRETCH 叙事）。 */
+  deleteSilently(id: FaceId): boolean {
+    return this.byId.delete(id);
+  }
+
+  /** 膜改名（身份跟随：目标膜继承被推膜的 id——SU「材质跟着面走」的本体，贴图纪元地基）。 */
+  renameFace(from: FaceId, to: FaceId): void {
+    const f = this.byId.get(from);
+    if (!f || this.byId.has(to)) return;
+    this.byId.delete(from);
+    this.byId.set(to, { id: to, planeId: f.planeId, outer: f.outer, holes: f.holes });
+  }
+
   eraseFaces(g: PlanarGraph, ids: readonly FaceId[]): FaceEvent[] {
     const events: FaceEvent[] = [];
     for (const id of ids) {
@@ -404,10 +417,10 @@ export class FaceStore {
       if (planeId === f.planeId) {
         this.adopt(f, r);
       } else {
-        // 膜整体换平面（如面沿法向平移）：退休老 planeId 铸新，膜跟随，计入 STRETCH 叙事
+        // 膜整体换平面（如面沿法向平移）：**保 id 跟随**（2026-09-03 身份跟随批：颜色/贴图稳定）
         this.byId.delete(fid);
-        const nf = this.mint(planeId, r);
-        replaned.set(fid, nf.id);
+        this.byId.set(fid, { id: fid, planeId, outer: r.outer, holes: r.holes });
+        replaned.set(fid, fid);
       }
     }
 

@@ -23,6 +23,7 @@ import { insertSegment } from "./subdivide.ts";
 import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
+import { representativePoint } from "./facefind.ts";
 import { PlaneRegistry } from "./planes.ts";
 
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
@@ -332,8 +333,16 @@ export class Kernel {
       }
     }
 
-    // ---- 含 COPY：被拉膜先蒸发（口开），目标环经手势 BIRTH ----
-    const evErase = hasCopyAny ? this.eraseFaces([id]) : [];
+    // ---- 含 COPY：被拉膜静默蒸发（口开），目标膜出生后继承原 id（身份跟随，2026-09-03）----
+    let repDest: Pt3 | null = null;
+    if (hasCopyAny) {
+      const rep2 = representativePoint({ outer: f.outer, holes: f.holes });
+      const b = rec.basis;
+      const lifted = add3(add3(scale3(b.u, rep2.x), scale3(b.v, rep2.y)), scale3(rec.plane.n, rec.plane.d));
+      repDest = add3(lifted, delta);
+      this.store.deleteSilently(id);
+    }
+    const preFaces = new Set(this.store.faces().map((x) => x.id));
     // ---- 随行批（XOR 着陆） ----
     const moves = [...vertCls.keys()].filter((v) => travels(v) && this.graph.hasVertex(v))
       .map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) }));
@@ -342,7 +351,27 @@ export class Kernel {
     // parity toggle 只属于 copy/开口世界；纯 MOVE 的随行膜绝不能被自己的环 id 误杀
     const ev2 = segs.length ? this.addSegmentsMixed(segs, hasCopyAny ? fRing : new Set<EdgeId>()) : [];
     this.cleanupNakedEdges(beforeEdges, fRing);
-    return [...evErase, ...ev1, ...ev2];
+    let evIdent: FaceEvent[] = [];
+    if (hasCopyAny && repDest) {
+      const hit = this.hitTest(repDest, this.coplanarTol).face;
+      if (hit !== undefined && !preFaces.has(hit)) {
+        // 目标膜继承原 id；BIRTH 叙事原位改写为 STRETCH（同一对象在 eventLog 中，日志同步）
+        this.store.renameFace(hit, id);
+        this.store.rebuildFaceLinks(this.graph);
+        for (const e of ev2) {
+          if (e.type === "BIRTH" && e.face === hit) {
+            const m = e as unknown as { type: string; face?: FaceId; faces?: FaceId[] };
+            delete m.face;
+            m.type = "STRETCH";
+            m.faces = [id];
+            break;
+          }
+        }
+      } else {
+        evIdent = this.emit([{ type: "FACE_ERASED", face: id }]); // 着陆打穿等：膜真死，如实叙事
+      }
+    }
+    return [...ev1, ...ev2, ...evIdent];
   }
 
   // ---------------- queries ----------------  // ---------------- queries ----------------

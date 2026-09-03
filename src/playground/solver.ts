@@ -11,7 +11,7 @@
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
 import type { Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
-import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
+import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; }
@@ -129,6 +129,7 @@ export interface SnapContext {
   k: Kernel;
   plane: PlaneParams;                     // 2-D 兜底（画面平面）
   basis?: { u: Pt3; v: Pt3 } | null;      // 画面平面基（非轴对齐平面时补面内共轴方向）
+  cam?: OrbitCamera | null;               // 提供则启用膜遮挡过滤（2026-09-03：隐藏点/边不参赛,乱闪修）
   anchor?: Pt3 | null;
   alignSources?: readonly Pt3[] | null;
   excludeVid?: VertexId | null;
@@ -140,24 +141,50 @@ const DIRS: { axis: AxName; dir: Pt3 }[] = [
   { axis: "z", dir: { x: 0, y: 0, z: 1 } },
 ];
 
+/** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。 */
+function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3): boolean {
+  const dir = cam.eyeDir();
+  for (const f of k.faces()) {
+    const rec = k.planeOf(f.id);
+    const face = k.face(f.id);
+    if (!rec || !face) continue;
+    const denom = dot3(rec.plane.n, dir);
+    if (Math.abs(denom) < 1e-9) continue;
+    const t = (rec.plane.d - dot3(rec.plane.n, p)) / denom;
+    if (t <= 1e-4) continue;
+    const q = add3(p, scale3(dir, t));
+    const q2 = { x: dot3(q, rec.basis.u), y: dot3(q, rec.basis.v) };
+    if (!pointInRing(q2, face.outer.pts)) continue;
+    if (face.holes.some((h) => pointInRing(q2, h.pts))) continue;
+    return true;
+  }
+  return false;
+}
+
 /** 情境构建器：把内核现状 + 工具情境枚举成约束集（单一供餐律的物理化）。 */
 export function buildConstraints(ctx: SnapContext): Constraint[] {
   const out: Constraint[] = [];
   const { k } = ctx;
+  const hidden = (p: Pt3): boolean => (ctx.cam ? occludedBy(k, ctx.cam, p) : false);
   for (const v of k.vertices()) {
     if (v.id === ctx.excludeVid) continue;
-    out.push({ locus: { dim: 0, p: { x: v.x, y: v.y, z: v.z } }, rank: RANK.endpoint, eps: EPS.point, tag: { kind: "endpoint" } });
+    const p = { x: v.x, y: v.y, z: v.z };
+    if (hidden(p)) continue;
+    out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: EPS.point, tag: { kind: "endpoint" } });
   }
-  out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: EPS.point, tag: { kind: "origin" } });
+  if (!hidden({ x: 0, y: 0, z: 0 })) {
+    out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: EPS.point, tag: { kind: "origin" } });
+  }
   for (const e of k.edges()) {
     if (e.a === ctx.excludeVid || e.b === ctx.excludeVid) continue;
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const len = dist3(a, b);
     if (len <= 0) continue;
-    out.push({
-      locus: { dim: 0, p: { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 } },
-      rank: RANK.midpoint, eps: EPS.point, tag: { kind: "midpoint" },
-    });
+    const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
+    if (hidden(a) && hidden(b)) continue;   // 两端全被挡的边整条退赛（部分可见细化归 0.3）
+    if (!hidden(mid)) {
+      out.push({ locus: { dim: 0, p: mid }, rank: RANK.midpoint, eps: EPS.point, tag: { kind: "midpoint" } });
+    }
     out.push({ locus: { dim: 1, a, dir: scale3(sub3(b, a), 1 / len), len }, rank: RANK.edge, eps: EPS.edge, tag: { kind: "edge" } });
   }
   // 轴对齐 1-D：源 = anchor（axis 标签）+ 原点（永久）+ 充能点（align 标签）；充能制=幽灵 align 定理的前置条件
@@ -323,7 +350,7 @@ export function snapPoint(
   // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
   const scale = tolPx / 8;
-  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, excludeVid, alignSources });
+  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, excludeVid, alignSources, cam });
   if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
   const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, { comboEps: EPS.combo * scale });
   if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
