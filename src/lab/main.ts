@@ -308,7 +308,7 @@ function computeLive(): void {
     if (Math.hypot(delta.x, delta.y, delta.z) >= 0.3) run((c) => c.moveVertices(translateMoves(checkpoint, vids, delta)));
   } else if (tool === "pp" && ppFace !== null && Math.abs(ppH) >= 0.3) {
     const fid = ppFace, h = ppH;
-    run((c) => c.pushPull(fid, h));
+    run((c) => c.pushPull(fid, h, { settleLanding: false }));   // 拖拽=扰动相：XOR 落地留给 commit（不闪）
   } else if (tool === "erase" && scrubbing && scrubAcc.size) {
     const ids = [...scrubAcc];
     run((c) => c.eraseEdges(ids));

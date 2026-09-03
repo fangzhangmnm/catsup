@@ -259,3 +259,20 @@ describe("push/pull v3.1: 顶点分离守卫（2026-09-03 user 尖刺案——�
     assert(k.faces().some((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.y + 10) < 1e-6)), "墙应移到 y=-10");
   });
 });
+
+describe("push/pull 拖拽预演：XOR 落地推迟（2026-09-03 user proposal——SU 拖拽中不湮灭不闪）", () => {
+  it("settleLanding:false 推平到底：压扁态存活（边不湮灭）；默认 commit 照旧湮灭", () => {
+    const mk = (): Kernel => { const k = new Kernel();
+      const pts = [P(0, 0), P(40, 0), P(40, 40), P(0, 40)];
+      k.addEdges([0, 1, 2, 3].map((i) => [pts[i], pts[(i + 1) % 4]] as [PtIn, PtIn]));
+      k.pushPull(k.faces()[0].id, 30); return k; };
+    const top = (k: Kernel): number => k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 30) < 1e-6))!.id;
+    const kd = mk();
+    kd.pushPull(top(kd), -30, { settleLanding: false });
+    assert(kd.faces().length > 0, `拖拽预演压扁态应存活（实际 faces=${kd.faces().length}）`);
+    assert(kd.edges().length > 0, "XOR 边拖拽中不湮灭");
+    const kc = mk();
+    kc.pushPull(top(kc), -30);
+    eq(kc.faces().length, 0, "commit 全 XOR：彻底湮灭（E5 不变）");
+  });
+});

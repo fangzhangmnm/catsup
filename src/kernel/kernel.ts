@@ -220,7 +220,10 @@ export class Kernel {
    * 含 COPY 时被拉膜先蒸发（防非平面快照触 autofold），目标环 BIRTH；纯 MOVE 时膜随行。
    * 着陆 XOR/口 parity/裸线收尾照旧。多选 pull＝park（SU 亦多年后才有）。
    */
-  pushPull(id: FaceId, dist: number): FaceEvent[] {
+  /** opts.settleLanding=false：拖拽预演用——XOR 落地（parity 翻灭）推迟到 commit（user 2026-09-03
+   *  proposal：SU 拖拽中 XOR 边不湮灭所以不闪；扰动相只搬运，落地结算是 commit 时刻的事件）。 */
+  pushPull(id: FaceId, dist: number, opts?: { settleLanding?: boolean }): FaceEvent[] {
+    const settleLanding = opts?.settleLanding !== false;
     const f = this.store.face(id);
     if (!f) return [];
     const rec = this.planes.rec(f.planeId);
@@ -345,10 +348,10 @@ export class Kernel {
     // ---- 随行批（XOR 着陆） ----
     const moves = [...vertCls.keys()].filter((v) => travels(v) && this.graph.hasVertex(v))
       .map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) }));
-    const ev1 = moves.length ? this.moveVertices(moves, "xor") : [];
+    const ev1 = moves.length ? this.moveVertices(moves, settleLanding ? "xor" : "or") : [];
     // ---- 构造批（parity 设面） ----
     // parity toggle 只属于 copy/开口世界；纯 MOVE 的随行膜绝不能被自己的环 id 误杀
-    const ev2 = segs.length ? this.addSegmentsMixed(segs, hasCopyAny ? fRing : new Set<EdgeId>()) : [];
+    const ev2 = segs.length ? this.addSegmentsMixed(segs, settleLanding && hasCopyAny ? fRing : new Set<EdgeId>()) : [];
     let evIdent: FaceEvent[] = [];
     if (hasCopyAny && repDest) {
       const hit = this.hitTest(repDest, this.coplanarTol).face;

@@ -124,3 +124,12 @@ edited by Claude Fable 5 2026-09-03（v2 铁律「世界必须 h 无关」被本
 - 回归门：tools/probe-pp-feedback.mts P1-P6 换挡序列重构前后逐一一致。
 
 edited by Claude Fable 5 2026-09-03
+
+## 拖拽=扰动相，XOR 落地=commit 事件（2026-09-03 user proposal）
+
+SU 拖拽中 XOR 边不湮灭所以不闪。CatsUp 同款：pp 拖拽预演 `settleLanding:false`——搬运照做
+（MOVE/frontier/riser/伸缩），**parity 翻灭推迟到 commit**（moveVertices 用 OR、无 toggleWith）。
+收益：①不闪 ②中间态里目标「在自身高度上恰好湮灭」的存在性不连续从源头消灭（不动点条款的
+最后一类反例清零）。sticky 协议本形=快照→扰动→结算——之前每帧全结算是把结算塞进了扰动相。
+
+edited by Claude Fable 5 2026-09-03
