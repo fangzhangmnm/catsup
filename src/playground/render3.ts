@@ -22,6 +22,7 @@ const SNAP_COLORS: Record<string, number> = {
   "axis-x": 0xcc3333,
   "axis-y": 0x2e8b57,
   "axis-z": 0x2b6cb0,
+  "h-stop": 0xd97706,
 };
 
 export interface ViewState {

@@ -169,6 +169,8 @@ export interface SnapContext {
   alignSources?: readonly Pt3[] | null;
   exclude?: ((vid: VertexId) => boolean) | null;
   skipFace?: ((fid: FaceId) => boolean) | null;   // 遮挡豁免：手里抓着的膜（环上有 exclude 顶点）
+  axes?: boolean;   // false = 不注册轴/共轴 1-D 线（pp 通道：user 2026-09-03「push pull 不吸 xyz 轴」）
+  hiddenOverride?: (p: Pt3) => boolean;   // 遮挡判定覆盖（遮挡世界≠目标世界时由 snapPoint 注入）
 
 }
 
@@ -264,7 +266,8 @@ export function occludedSpansOnLine(
 export function buildConstraints(ctx: SnapContext): Constraint[] {
   const out: Constraint[] = [];
   const { k } = ctx;
-  const hidden = (p: Pt3): boolean => (ctx.cam ? occludedBy(k, ctx.cam, p, ctx.skipFace ?? undefined) : false);
+  const hidden = (p: Pt3): boolean =>
+    ctx.hiddenOverride ? ctx.hiddenOverride(p) : (ctx.cam ? occludedBy(k, ctx.cam, p, ctx.skipFace ?? undefined) : false);
   for (const v of k.vertices()) {
     if (ctx.exclude?.(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
@@ -304,9 +307,11 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
       out.push({ locus: { dim: 1, a: src, dir }, rank: RANK.axisLine, eps: EPS.line, tag: { kind, src, axis } });
     }
   };
-  if (ctx.anchor) addLines(ctx.anchor, "axis");
-  addLines({ x: 0, y: 0, z: 0 }, "align");
-  for (const src of ctx.alignSources ?? []) addLines(src, "align");
+  if (ctx.axes !== false) {
+    if (ctx.anchor) addLines(ctx.anchor, "axis");
+    addLines({ x: 0, y: 0, z: 0 }, "align");
+    for (const src of ctx.alignSources ?? []) addLines(src, "align");
+  }
   // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
@@ -416,7 +421,8 @@ export type SnapKind =
   | "endpoint" | "midpoint" | "on-edge" | "origin"
   | "axis-x" | "axis-y" | "axis-z"
   | "align" | "align-combo" | "edge-align"
-  | "intersection" | "cross-line";
+  | "intersection" | "cross-line"
+  | "h-stop";   // pp 高度通道咬合（标量吸附，非光标目标）
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
 export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v" | "i"; }
 export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
@@ -444,13 +450,16 @@ export function snapPoint(
   anchor: Pt3 | null = null,
   exclude: ((vid: VertexId) => boolean) | null = null,
   alignSources?: readonly Pt3[],
+  opts?: { axes?: boolean; occluder?: Kernel },
 ): Snap3 {
   // === 兼容壳（2026-09-01 阶段二求解器手术）：真身 = solver.solvePoint 纯函数 ===
   // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
   const scale = tolPx / 8;
+  // 遮挡世界可与目标世界分离（pp：目标=中间态−手中集，遮挡=旧核=静态面+旧位手中体，h 无关无回路）
+  const occK = opts?.occluder ?? k;
   let skipFace: ((fid: FaceId) => boolean) | null = null;
-  if (exclude) {
+  if (exclude && !opts?.occluder) {
     const hand = new Set<FaceId>();
     for (const f of k.faces()) {
       const vids = [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))];
@@ -458,12 +467,14 @@ export function snapPoint(
     }
     if (hand.size) skipFace = (fid) => hand.has(fid);
   }
-  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, exclude, alignSources, cam, skipFace });
+  const occHidden = (p: Pt3): boolean => occludedBy(occK, cam, p, skipFace ?? undefined);
+  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, exclude, alignSources, cam, skipFace, axes: opts?.axes,
+    hiddenOverride: occHidden });
   if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
   const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, {
     comboEps: EPS.combo * scale,
-    hidden: (p) => occludedBy(k, cam, p, skipFace ?? undefined),
-    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, cam, a, dirL, tMin, tMax, skipFace ?? undefined),
+    hidden: occHidden,
+    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(occK, cam, a, dirL, tMin, tMax, skipFace ?? undefined),
   });
   if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const hints: SnapHint[] = [];

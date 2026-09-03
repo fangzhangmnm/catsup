@@ -136,7 +136,9 @@ function cancelGesture(): void {
   moveVids = [];
   ppFace = null;
   ppNormal = null;
-  ppHandVids = new Set();
+  ppShellVids = new Set();
+  ppKnownVids = new Set();
+  ppStops = [];
   ppH = 0;
   rectFixed = null;
   lastSnap = null;
@@ -263,8 +265,16 @@ function doRedo(): void {
 function dragSnapWorld(moving: ReadonlySet<VertexId>): { k: Kernel; excl: (vid: VertexId) => boolean } {
   return { k: kernel, excl: (vid) => moving.has(vid) };
 }
-/** pp 手中集（落笔时置）：被推面全环顶点——它们与所触边/膜既不参赛也不遮挡 */
-let ppHandVids: ReadonlySet<VertexId> = new Set();
+/**
+ * pp 双通道吸附（2026-09-03 user 拍板终形，对齐 SU）：
+ * - 光标通道：世界=**中间态**（WYSIWYG 无鬼：湮灭的吸不到、切出来的吸得到），排除=落笔壳集
+ *   （帽环+一步邻域=被推体自己）∪ 贴移动帽平面的点（COPY 新生帽环通吃）；不吸轴/共轴。
+ * - 高度通道：h 标量对静态高度集吸附（落笔取全场景顶点沿 n 投影；杀不死→无回路）。
+ * - 遮挡世界=旧核（静态面+旧位手中体，h 无关）。不动点定理见 snap-model SSoT。
+ */
+let ppShellVids: ReadonlySet<VertexId> = new Set();
+let ppKnownVids: ReadonlySet<VertexId> = new Set();   // 落笔时旧核全体 vid（新生判定基准）
+let ppStops: number[] = [];
 
 // ---------- preview（影子副本预演，机制原样） ----------
 function computePreview(): void {
@@ -334,6 +344,7 @@ const SNAP_LABELS: Record<string, string> = {
   endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
   "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
   align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴", intersection: "交点", "cross-line": "交线",
+  "h-stop": "高度咬合",
 };
 function updateTip(clientX: number, clientY: number): void {
   if (snapInfo?.kind) {
@@ -429,15 +440,28 @@ canvas.addEventListener("pointerdown", (ev) => {
         const rec = kernel.planeOf(hit.face)!;
         ppFace = hit.face;
         const fRec = kernel.face(hit.face)!;
-        ppHandVids = new Set([
+        const rim = new Set([
           ...ringVidsTolerant(kernel.graph, fRec.outer),
           ...fRec.holes.flatMap((hh) => ringVidsTolerant(kernel.graph, hh)),
         ]);
+        const shell = new Set(rim);
+        for (const e of kernel.edges()) {   // 一步邻域=井壁另一端 → 被推体整只不参赛（相连邻居远端保留）
+          if (rim.has(e.a)) shell.add(e.b);
+          if (rim.has(e.b)) shell.add(e.a);
+        }
+        ppShellVids = shell;
+        ppKnownVids = new Set(kernel.vertices().map((v) => v.id));
         ppNormal = rec.plane.n;
         gesturePlane = { plane: rec.plane, basis: rec.basis };
         const ray0 = cam.screenRay(s.x, s.y, vp());
         const grab = rayPlane(ray0.origin, ray0.dir, rec.plane.n, rec.plane.d);
         anchor3 = grab ?? kernel.faceRings3(hit.face)!.outer[0];
+        {   // 高度通道停靠集：全场景静态顶点沿 n 的投影高度（含底环/邻面高/0；user 拍板 A 案）
+          const hs = new Set<number>();
+          hs.add(0);
+          for (const v of kernel.vertices()) hs.add(Math.round(dot3(sub3(v, anchor3), rec.plane.n) * 1e6) / 1e6);
+          ppStops = [...hs].sort((a, b) => a - b);
+        }
         cursor3 = anchor3;
         ppH = 0;
         armed = false;
@@ -537,37 +561,56 @@ canvas.addEventListener("pointermove", (ev) => {
       break;
     case "pp":
       if (ppFace !== null && anchor3 && ppNormal) {
-        const w = dragSnapWorld(ppHandVids);
-        const sn = applyHysteresis(snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()), s.x, s.y);   // pp 一直没滞回=目标跳变抖
-
+        const anc = anchor3, n = ppNormal;
+        // 光标通道：世界=中间态（WYSIWYG 无鬼），排除=壳集∪贴移动帽平面（COPY 新生帽环通吃）；
+        // 遮挡世界=旧核（静态面+旧位手中体，h 无关）；不吸轴/共轴（user：pp 不吸 xyz 轴）
+        const wk = preview ?? kernel;
+        const hNow = ppH;   // preview 由它而建 → 谓词与世界同代
+        // 帽平面排除只杀**新生 vid**（COPY 帽环）：静态老 vid 永不按 h 排除——否则「恰在 h 高度
+        // 的静态目标」吸到即被排=回路复发（探针 P5 实锤）；切环=新生但在静态高度 → 保留
+        const excl = (vid: VertexId): boolean =>
+          ppShellVids.has(vid) ||
+          (!ppKnownVids.has(vid) && Math.abs(dot3(sub3(wk.graph.pt(vid), anc), n) - hNow) < 0.01);
+        const sn = applyHysteresis(
+          snapPoint(wk, cam, vp(), s.x, s.y, SNAP, gesturePlane, anc, excl, undefined, { axes: false, occluder: kernel }),
+          s.x, s.y);
         hoverFace = null;
         let ref = "";
-        // 自平面滤除（user 2026-09-02：被推面自身的 rim/顶点会把 h 吸死在 0=推不动）：
-        // 高度参考只收**离开原平面**的点线目标；同平面目标一律忽略走轴滑
-        const offPlane = sn.kind !== null && Math.abs(dot3(sub3(sn.p, anchor3), ppNormal)) > 1e-3;
-        if (offPlane) {
+        if (sn.kind !== null) {
           snapInfo = sn;
-          ppH = dot3(sub3(sn.p, anchor3), ppNormal);   // 点/线/合成目标 → 投影到法向取高
+          ppH = dot3(sub3(sn.p, anc), n);   // 光标目标 → 投影法向取高
+          ref = `｜取${SNAP_LABELS[sn.kind] ?? sn.kind}高度`;
         } else {
           snapInfo = null;
           const ray1 = cam.screenRay(s.x, s.y, vp());
-          // 面高度源保留旧核：静态面两世界恒等，唯一动态面 ppFace 已按 id 排除；影子里的新井壁面∥n 会追光标
+          // 面高度源=旧核：静态面两世界恒等，唯一动态面 ppFace 已按 id 排除
           const hitF = pickEntity(kernel, cam, vp(), s.x, s.y, 0.5).face;
           if (hitF !== undefined && hitF !== ppFace) {
-            // 吸附到面：光标射线∩该面 → 投影法向（平行面=精确同面高度，SU 同款）
             const rec = kernel.planeOf(hitF)!;
             const q = rayPlane(ray1.origin, ray1.dir, rec.plane.n, rec.plane.d);
             if (q) {
-              ppH = dot3(sub3(q, anchor3), ppNormal);
+              ppH = dot3(sub3(q, anc), n);
               hoverFace = hitF;
               ref = "｜取面#" + hitF + " 高度";
             }
           } else {
-            const q = closestOnAxis(anchor3, ppNormal, ray1.origin, ray1.dir);
-            ppH = q ? dot3(sub3(q, anchor3), ppNormal) : ppH;
+            const q = closestOnAxis(anc, n, ray1.origin, ray1.dir);
+            if (q) ppH = dot3(sub3(q, anc), n);
+            // 高度通道：h 标量对静态高度集咬合（ε=7px 折算世界单位；底面/邻面/0 全在停靠集里）
+            const sc0 = cam.worldToScreen(anc, vp());
+            const sc1 = cam.worldToScreen(add3(anc, n), vp());
+            const pxPerUnit = Math.max(Math.hypot(sc1.x - sc0.x, sc1.y - sc0.y), 0.5);
+            const epsH = 7 / pxPerUnit;
+            let best: number | null = null;
+            for (const st of ppStops) if (Math.abs(st - ppH) <= epsH && (best === null || Math.abs(st - ppH) < Math.abs(best - ppH))) best = st;
+            if (best !== null) {
+              ppH = best;
+              ref = `｜高度咬合 ${best.toFixed(1)}`;
+              snapInfo = { p: add3(anc, scale3(n, ppH)), kind: "h-stop" };
+            }
           }
         }
-        cursor3 = add3(anchor3, scale3(ppNormal, ppH));
+        cursor3 = add3(anc, scale3(n, ppH));
         hintEl.textContent = `推拉 h = ${ppH.toFixed(1)}${ref}（松手/再点落定；Esc 取消）`;
       }
       break;
