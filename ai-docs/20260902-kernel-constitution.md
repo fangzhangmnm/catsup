@@ -1,6 +1,6 @@
 # CatsUp 核心几何引擎 · 立宪一页
 
-> as-of v0.2.9 / 2026-09-02（创建日）· created by Claude Fable 5 · rev1=pp 垂直判据（同日）
+> as-of v0.2.9 / 2026-09-02（创建日）· created by Claude Fable 5 · rev1=pp 垂直判据、rev2=边随葬律（同日）
 > **铁律（user）：任何核心改动必须及时回写本页。**
 > 验收标准：代码库丢失时，凭本页 + golden 语料（test/）可复原引擎。细节附件：
 > 求解器数学=`20260901-solver-math-onepager.md`；move/pp 案卷=`20260901-move-spec.md`、`20260901-pushpull-grill-sheet.md`。
@@ -42,7 +42,8 @@ PlaneRegistry（τ 容差的平面 sticky 身份 + 确定性正交基 → 2D 管
   边可 MOVE ⟺ 平移不改任何邻膜的平面（n_邻·n̂=0，邻面平行于拉方向）——裸边=MOVE+原位补底；
   全邻平行=MOVE（墙一体伸缩/结构性缺口）；任一邻不平行（共面半/棱台斜面）=COPY（原边留守，
   目标副本+竖棱）；**frontier**（MOVE 边一端被 COPY 扣留）=删原画新（残线病根）；含 COPY 时
-  被拉膜先蒸发再由目标环 BIRTH。收尾清「操作涉及边中 faceLinks==0」裸线。
+  被拉膜先蒸发再由目标环 BIRTH。**边随葬律（2026-09-02）：parity 杀膜时被消膜的环边失去全部膜引用 → 随葬**（squash/删膜/
+  autofold 兜底 BURST 不触发；用户 wire 天然免疫）+ 操作内清「涉及边 faceLinks==0」。
 - **erase 按 loop 身份**（不做覆盖查找）：外环对 void=BURST；同膜双现（桥）/内环=ABSORB；
   同面共享=MERGE；批量以批始快照裁决，顺序无关。
 - **事件=纯叙事**（贴图纪元消费 id 血缘）：BIRTH/DIVIDE/MERGE/ABSORB/BURST/STRETCH/FACE_ERASED；

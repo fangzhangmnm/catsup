@@ -94,6 +94,7 @@ export class FaceStore {
   // ---------------- 构造手势 ----------------
 
   reconcileConstructive(g: PlanarGraph, reg: PlaneRegistry, tol: number, gestureEdges: Set<EdgeId>, toggleWith?: Set<EdgeId>): FaceEvent[] {
+    const parityDeadRingEdges: EdgeId[] = [];
     // toggleWith=pp 专用 parity 设面（XOR 拍板；E8 墙 L 缺口实证后统一）：已有膜的区域若其外环
     // ⊆（手势边 ∪ toggleWith〔被推面的原环〕）→ 翻灭（井口敞开/墙扫带/着陆打穿全走这一条）；
     // 空区照常 BIRTH。普通画笔永不传 toggleWith。角块着陆贴边也打穿=**有意不跟 SU**（他们是 if 不是代数）。
@@ -108,6 +109,7 @@ export class FaceStore {
         this.adopt(f, covering[0]);
         claimed.add(covering[0]);
         if (toggleWith && covering[0].outer.edges.every((d) => gestureEdges.has(d.edge) || toggleWith.has(d.edge))) {
+          parityDeadRingEdges.push(...this.ringEdgeIds(f));
           this.byId.delete(f.id);
           events.push({ type: "BURST", face: f.id });   // parity 翻灭（区域保持 claimed，不复生）
         }
@@ -123,6 +125,8 @@ export class FaceStore {
         }
         events.push({ type: "DIVIDE", from: f.id, into });
         for (const nid of toggledOff) {
+          const dead = this.byId.get(nid);
+          if (dead) parityDeadRingEdges.push(...this.ringEdgeIds(dead));
           this.byId.delete(nid);
           events.push({ type: "BURST", face: nid });    // 着陆环切开后内片 parity 翻灭（洞穿）
         }
@@ -143,6 +147,7 @@ export class FaceStore {
     }
 
     this.rebuildFaceLinks(g);
+    this.buryEdges(g, parityDeadRingEdges);
     return events;
   }
 
@@ -289,6 +294,7 @@ export class FaceStore {
       return events;
     }
 
+    const parityDeadRingEdges: EdgeId[] = [];
     const byPlane = this.regionsByPlane(g, reg, tol);
     const chase = (vid: VertexId): VertexId => {
       while (mergedVerts.has(vid)) vid = mergedVerts.get(vid)!;
@@ -366,6 +372,8 @@ export class FaceStore {
       if (unique.length < 2) continue;
       if (algebra === "xor" && unique.length % 2 === 0) {
         for (const fid of unique) {
+          const dead = this.byId.get(fid);
+          if (dead) parityDeadRingEdges.push(...this.ringEdgeIds(dead));
           if (this.byId.delete(fid)) events.push({ type: "BURST", face: fid });
         }
         claimants.set(r, []);
@@ -404,6 +412,7 @@ export class FaceStore {
     }
 
     this.rebuildFaceLinks(g);
+    this.buryEdges(g, parityDeadRingEdges);
     const stretched = new Set<FaceId>();
     for (const id of movedFaces) {
       if (this.byId.has(id) && !descend.has(id) && !events.some((e) => e.type === "BURST" && e.face === id)) stretched.add(id);
@@ -412,6 +421,23 @@ export class FaceStore {
     }
     if (stretched.size) events.push({ type: "STRETCH", faces: [...stretched] });
     return events;
+  }
+
+  /**
+   * parity 杀膜的边随葬（user 2026-09-02 规则）：XOR/toggle 消膜时检测被消膜的环边，
+   * 结算后不再被任何膜引用（faceLinks==0）→ 删。只挂 parity 杀点；squash/删膜/autofold
+   * 兜底 BURST 不触发（SU「删膜边必留」口径）。纯用户 wire 不在任何膜环里，天然免疫。
+   */
+  private buryEdges(g: PlanarGraph, ringEdges: Iterable<EdgeId>): void {
+    for (const eid of ringEdges) {
+      if (g.hasEdge(eid) && g.edge(eid).faceLinks.length === 0) g.removeEdge(eid);
+    }
+  }
+
+  private ringEdgeIds(f: Face): EdgeId[] {
+    const out: EdgeId[] = [];
+    for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) out.push(d.edge);
+    return out;
   }
 
   /** 深拷贝（含 id 计数器；preview 影子副本用）。 */

@@ -58,19 +58,16 @@ describe("push/pull: 灵魂手势", () => {
     assert(k.faces().some((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 5)), "顶面回落 z=5");
   });
 
-  it("E5 推平到底 = XOR 成对湮灭 → 空环（user 拍板；铅笔描一笔肥皂膜复活）", () => {
+  it("E5 推平到底 = 彻底消失（边随葬规则的直接推论；F1 待 SU 对照——SU 留单面为已知分歧）", () => {
     const k = new Kernel();
     loop(k, [P(0, 0), P(10, 0), P(10, 10), P(0, 10)]);
     k.pushPull(k.faces()[0].id, 8);
     const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 8))!;
     const ev = k.pushPull(top.id, -8);
-    eq(k.faces().length, 0, "顶⊕底成对湮灭，无膜");
-    eq(k.edges().length, 4, "只剩地面空环");
+    eq(k.faces().length, 0, "顶⊕底成对湮灭");
+    eq(k.edges().length, 0, "湮灭膜的环边无人引用 → 随葬（压到零体积=无）");
+    eq(k.vertices().length, 0, "顶点随边 GC");
     assert(ev.some((e) => e.type === "BURST"), "湮灭有 BURST 曝光");
-    // 描一笔复活（user：不疼）
-    const rv = k.addEdges([[P(0, 0), P(10, 0)]]);
-    eq(rv[0].type, "BIRTH", "retrace 复活");
-    eq(k.faces().length, 1, "膜回来了");
   });
 });
 

@@ -124,3 +124,15 @@ sticky 伸长，非叠段；用户造的真顶点则保守保留（不对称律�
 任一邻不平行=COPY；frontier=删原画新（loose 残线病根拔除）；riser=COPY 顶点全体；
 含 COPY 先蒸发被拉膜（防非平面快照触 autofold）。golden：台阶零缝墙单面 L/棱台斜度不变/
 E1/E3/E5/E8/灵魂手势/方管全绿。多选 pull=park（SU 亦多年后才有）。
+
+
+## 2.13 边随葬规则（user 2026-09-02 拍板，v0.2.11 落地）
+
+**parity 杀膜（XOR 湮灭/toggle 翻灭）时，被消膜的环边若结算后不再被任何膜引用 → 随葬。**
+只挂 parity 杀点；squash/删膜（FACE_ERASED）/autofold 兜底 BURST 不触发（SU「删膜边必留」口径）；
+纯用户 wire 不在任何膜环里，天然免疫。跨操作孤儿 by construction 覆盖（残线终案）。
+**直接推论：E5 推平到底=彻底消失**（golden 已改；压到零体积=无）。
+
+**F 系 SU 对照清单（user 实验）**：F1 推平到底（SU 留单面 vs 我们全消——拍板点）；
+F4 贴边悬挑着陆留什么边；F5 双盒同 footprint 压扁（融合 or 开口；我们=下盒开顶）；
+F7 压扁棱台（非 parity 杀→留框，SU?）；F2/F3/F6 一致性验证（洞缘边在/擦井壁后仍在/删膜边必留）。
