@@ -78,62 +78,42 @@ export class Renderer3 {
     }
     const g = new THREE.Group();
 
-    // ---- 面（WYSIWYG：预览中会死的膜直接不画——user 2026-09-02「被删掉的面不应该显示」） ----
-    for (const f of k.faces()) {
-      if (view.preview && !view.preview.face(f.id)) continue;
-      const mesh = faceMesh(k, f.id, {
+    // ---- WYSIWYG（user 黄线，2026-09-03 终版）：拖拽期间整个场景渲染影子副本——
+    //      几何实时跟手（预览即提交），不再画 live+diff 蓝丝虚框。真内核松手才变，undo 粒度不受影响。
+    const kd = view.preview ?? k;
+
+    // ---- 面 ----
+    for (const f of kd.faces()) {
+      const mesh = faceMesh(kd, f.id, {
         color: FACE_COLORS[f.id % FACE_COLORS.length],
         opacity: 0.55,
       });
       if (mesh) g.add(mesh);
       if (view.selectionFaces.has(f.id) || view.hoverFace === f.id) {
-        const hl = faceMesh(k, f.id, { color: 0x2b6cb0, opacity: view.hoverFace === f.id ? 0.25 : 0.35, offset: -2 });
+        const hl = faceMesh(kd, f.id, { color: 0x2b6cb0, opacity: view.hoverFace === f.id ? 0.25 : 0.35, offset: -2 });
         if (hl) g.add(hl);
       }
     }
     // ---- 边（按类别分桶上色；wire 黑、普通深灰、选中蓝、刮擦/hover 红） ----
     const buckets = new Map<number, Pt3[]>();
-    for (const e of k.edges()) {
+    for (const e of kd.edges()) {
       const color =
         view.scrubEdges.has(e.id) || view.hoverEdge === e.id ? 0xcc3333
         : view.selectionEdges.has(e.id) ? 0x2b6cb0
         : e.faceLinks.length === 0 ? 0x111111
         : 0x444444;
       const list = buckets.get(color) ?? buckets.set(color, []).get(color)!;
-      list.push(k.graph.pt(e.a), k.graph.pt(e.b));
+      list.push(kd.graph.pt(e.a), kd.graph.pt(e.b));
     }
     for (const [color, pts] of buckets) g.add(lineSegments(pts, color, 1));
 
     // ---- 顶点 ----
     const vpts: number[] = [];
-    for (const v of k.vertices()) vpts.push(v.x, v.y, v.z);
+    for (const v of kd.vertices()) vpts.push(v.x, v.y, v.z);
     if (vpts.length) {
       const geo = new THREE.BufferGeometry();
       geo.setAttribute("position", new THREE.Float32BufferAttribute(vpts, 3));
       g.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x222222, size: 5, sizeAttenuation: false })));
-    }
-
-    // ---- 预览 diff（新生蓝面 / 新增蓝边；死膜已在基座层消失） ----
-    if (view.preview) {
-      const pk = view.preview;
-      const realEdges = new Map(k.edges().map((e) => [e.id, e]));
-      const ghost: Pt3[] = [];
-      for (const e of pk.edges()) {
-        const a = pk.graph.pt(e.a), b = pk.graph.pt(e.b);
-        const re = realEdges.get(e.id);
-        if (re) {
-          const ra = k.graph.pt(re.a), rb = k.graph.pt(re.b);
-          if (ra.x === a.x && ra.y === a.y && ra.z === a.z && rb.x === b.x && rb.y === b.y && rb.z === b.z) continue;
-        }
-        ghost.push(a, b);
-      }
-      if (ghost.length) g.add(lineSegments(ghost, 0x2b6cb0, 1));
-      for (const f of pk.faces()) {
-        const rf = k.face(f.id);
-        if (rf && rf.planeId === f.planeId && ringsEq(rf.outer.pts, f.outer.pts) && rf.holes.length === f.holes.length) continue;
-        const nm = faceMesh(pk, f.id, { color: 0x2b6cb0, opacity: 0.18, offset: -1 });
-        if (nm) g.add(nm);
-      }
     }
 
     // ---- move 纯 ghost（灰线；不预演拓扑） ----
