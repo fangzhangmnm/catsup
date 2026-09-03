@@ -271,7 +271,7 @@ canvas.addEventListener("pointermove", (ev) => {
       break;
     case "move":
       if (moveVids.length && anchor3) {
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude);
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude === null ? null : (vid) => vid === moveExclude);
         cursor3 = snapInfo.p;
       }
       break;
@@ -326,7 +326,7 @@ canvas.addEventListener("pointerup", (ev) => {
     }
     case "move": {
       if (!moveVids.length || !anchor3) { cancelGesture(); break; }
-      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude).p;
+      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude === null ? null : (vid) => vid === moveExclude).p;
       const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
       const moves = translateMoves(kernel, moveVids, delta);
       const d = Math.hypot(delta.x, delta.y, delta.z);

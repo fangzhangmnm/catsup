@@ -249,3 +249,24 @@ describe("snap: 遮挡下沉求解层（2026-09-03 二刀：轴线/共轴候选�
     eq(r2.kind, "axis-x", "露天段轴锁照常");
   });
 });
+
+describe("snap: WYSIWYG 吸附源（2026-09-03：拖拽吸影子副本−手中集，旧世界线残影不参赛）", () => {
+  it("move 中：旧位端点/边退赛，手中顶点新位也退赛，影子里的静态目标照吸", () => {
+    const k = new Kernel();
+    k.addEdges([[{ x: 0, y: 0, z: 0 }, { x: 20, y: 0, z: 0 }]]);
+    const B = k.vertices().find((v) => v.x === 20)!.id;
+    const shadow = k.clone();
+    shadow.moveVertices([{ id: B, to: { x: 20, y: 10, z: 0 } }]);   // 上一帧影子：B 已移走
+    const excl = (vid: number): boolean => vid === B;
+    const c = new OrbitCamera();
+    c.halfH = 40;
+    const rOld = snapPoint(shadow, c, VP, at(c, { x: 20, y: 0, z: 0 }).x, at(c, { x: 20, y: 0, z: 0 }).y, TOL, GROUND, null, excl);
+    assert(rOld.kind !== "endpoint" && rOld.kind !== "on-edge" && rOld.kind !== "midpoint", `旧位残影不吸（实际 ${rOld.kind}）`);
+    const sNew = at(c, { x: 20, y: 10, z: 0 });
+    const rNew = snapPoint(shadow, c, VP, sNew.x, sNew.y, TOL, GROUND, null, excl);
+    assert(rNew.kind !== "endpoint", `手中顶点自身不吸（实际 ${rNew.kind}）`);
+    const sA = at(c, { x: 0, y: 0, z: 0 });
+    const rA = snapPoint(shadow, c, VP, sA.x, sA.y, TOL, GROUND, null, excl);
+    eq(rA.kind, "endpoint", "静态固定端照吸");
+  });
+});

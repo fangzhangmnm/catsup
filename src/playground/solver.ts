@@ -135,7 +135,7 @@ export interface SnapContext {
   cam?: OrbitCamera | null;               // 提供则启用膜遮挡过滤（2026-09-03：隐藏点/边不参赛,乱闪修）
   anchor?: Pt3 | null;
   alignSources?: readonly Pt3[] | null;
-  excludeVid?: VertexId | null;
+  exclude?: ((vid: VertexId) => boolean) | null;
 }
 
 const DIRS: { axis: AxName; dir: Pt3 }[] = [
@@ -170,7 +170,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   const { k } = ctx;
   const hidden = (p: Pt3): boolean => (ctx.cam ? occludedBy(k, ctx.cam, p) : false);
   for (const v of k.vertices()) {
-    if (v.id === ctx.excludeVid) continue;
+    if (ctx.exclude?.(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
     if (hidden(p)) continue;
     out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: EPS.point, tag: { kind: "endpoint" } });
@@ -179,7 +179,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: EPS.point, tag: { kind: "origin" } });
   }
   for (const e of k.edges()) {
-    if (e.a === ctx.excludeVid || e.b === ctx.excludeVid) continue;
+    if (ctx.exclude?.(e.a) || ctx.exclude?.(e.b)) continue;   // 任一端在手里 → 整条边是动态残影，退赛
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const len = dist3(a, b);
     if (len <= 0) continue;
@@ -334,7 +334,7 @@ export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
  *   方向 = 画线平面基 u/v（+过 anchor 的世界 Z——竖直几何入口）；
  *   **正交双约束合成**（画笔手画矩形的闭合角点）> 单约束（屏距最近，anchor 源优先）。
  * 全约束组合（垂线/平行等）仍 parked——这里只开轴对齐子集，不碰通用求解器。
- * excludeVid：移动中被抓顶点（它与它的边不参与吸附）。
+ * exclude：谓词=「这个顶点在手里/是预演新生的动态点」——它与它的边不参与吸附（WYSIWYG：吸静态世界）。
  * edited by Claude Fable 5 2026-09-01
  */
 export function snapPoint(
@@ -346,14 +346,14 @@ export function snapPoint(
   tolPx: number,
   plane: DrawPlane,
   anchor: Pt3 | null = null,
-  excludeVid: VertexId | null = null,
+  exclude: ((vid: VertexId) => boolean) | null = null,
   alignSources?: readonly Pt3[],
 ): Snap3 {
   // === 兼容壳（2026-09-01 阶段二求解器手术）：真身 = solver.solvePoint 纯函数 ===
   // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
   const scale = tolPx / 8;
-  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, excludeVid, alignSources, cam });
+  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, exclude, alignSources, cam });
   if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
   const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, {
     comboEps: EPS.combo * scale,

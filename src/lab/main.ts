@@ -7,6 +7,7 @@
 // edited by Claude Fable 5 2026-09-01（move 接入）
 
 import { Kernel } from "../kernel/kernel.ts";
+import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "../playground/camera.ts";
 import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, rectFirstPlane, resolveRectPlane, snapPoint } from "../playground/pick.ts";
@@ -250,6 +251,26 @@ function doRedo(): void {
   logEl.textContent = "";
 });
 
+/**
+ * 拖拽中的吸附世界（user 2026-09-03：黄线管到底——吸「你看见的」影子副本，不吸旧世界线残影）。
+ * 再挖掉手里抓着的动态部分：①指定的移动顶点集 ②预演新生顶点（planarize 切点/井壁——位置追光标，参赛=粘死）。
+ * preview 是上一帧算的：静态几何两帧恒等=正确；动态几何恰好全被排除。
+ */
+function dragSnapWorld(moving: Iterable<VertexId>): { k: Kernel; excl: (vid: VertexId) => boolean } {
+  const movingSet = new Set(moving);
+  if (!preview) return { k: kernel, excl: (vid) => movingSet.has(vid) };
+  const known = new Set(kernel.vertices().map((v) => v.id));
+  return { k: preview, excl: (vid) => movingSet.has(vid) || !known.has(vid) };
+}
+/** pp 手中集 = 目标面在影子副本里的环顶点（膜身份跟随 ⇒ id 不变） */
+function ppMovingVids(): VertexId[] {
+  if (ppFace === null || !preview) return [];
+  const pv = preview;
+  const f = pv.faces().find((x) => x.id === ppFace);
+  if (!f) return [];
+  return [...ringVidsTolerant(pv.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(pv.graph, h))];
+}
+
 // ---------- preview（影子副本预演，机制原样） ----------
 function computePreview(): void {
   preview = null;
@@ -430,8 +451,8 @@ canvas.addEventListener("pointerdown", (ev) => {
       if (armed && moveVids.length && anchor3) {
         // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
         justCommitted = true;
-        const excl = moveVids.length === 1 ? moveVids[0] : null;
-        const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs()).p;
+        const w = dragSnapWorld(moveVids);
+        const target = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()).p;
         const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
         const vids = moveVids;
         const d = Math.hypot(delta.x, delta.y, delta.z);
@@ -516,7 +537,8 @@ canvas.addEventListener("pointermove", (ev) => {
       break;
     case "pp":
       if (ppFace !== null && anchor3 && ppNormal) {
-        const sn = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs());
+        const w = dragSnapWorld(ppMovingVids());
+        const sn = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs());
         hoverFace = null;
         let ref = "";
         // 自平面滤除（user 2026-09-02：被推面自身的 rim/顶点会把 h 吸死在 0=推不动）：
@@ -528,6 +550,7 @@ canvas.addEventListener("pointermove", (ev) => {
         } else {
           snapInfo = null;
           const ray1 = cam.screenRay(s.x, s.y, vp());
+          // 面高度源保留旧核：静态面两世界恒等，唯一动态面 ppFace 已按 id 排除；影子里的新井壁面∥n 会追光标
           const hitF = pickEntity(kernel, cam, vp(), s.x, s.y, 0.5).face;
           if (hitF !== undefined && hitF !== ppFace) {
             // 吸附到面：光标射线∩该面 → 投影法向（平行面=精确同面高度，SU 同款）
@@ -549,8 +572,8 @@ canvas.addEventListener("pointermove", (ev) => {
       break;
     case "move":
       if (moveVids.length && anchor3) {
-        const excl = moveVids.length === 1 ? moveVids[0] : null;
-        snapInfo = applyHysteresis(snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs()), s.x, s.y);
+        const w = dragSnapWorld(moveVids);
+        snapInfo = applyHysteresis(snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()), s.x, s.y);
         trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
       }
@@ -646,8 +669,8 @@ canvas.addEventListener("pointerup", (ev) => {
         hintEl.textContent = "移动中：所见即所得预览，再点一下放置；Esc 取消";
         break;
       }
-      const excl = moveVids.length === 1 ? moveVids[0] : null;
-      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, excl, alignSrcs()).p;
+      const w = dragSnapWorld(moveVids);
+      const target = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()).p;
       const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
       const vids = moveVids;
       const d = Math.hypot(delta.x, delta.y, delta.z);
