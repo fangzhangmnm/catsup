@@ -22,7 +22,7 @@ import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, Planar
 import { insertSegment } from "./subdivide.ts";
 import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
-import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
+import { type Face, type FaceEvent, FaceStore, ringVidsTolerant } from "./face-lifecycle.ts";
 import { representativePoint } from "./facefind.ts";
 import { PlaneRegistry } from "./planes.ts";
 
@@ -78,6 +78,7 @@ export class Kernel {
    * 2026-09-02 方管案）。非手势段仍走同一 sticky 插入与 reconcile，只是不入 BIRTH 依据。
    */
   private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[], toggleWith?: Set<EdgeId>): FaceEvent[] {
+    const preSnaps = this.store.captureSnaps(this.graph);   // 像=扰动前（切割前）快照
     const gesture = new Set<EdgeId>();
     for (const { a, b, gesture: g } of segs) {
       const r = insertSegment(this.graph, toPt3(a), toPt3(b), (parent, c1, c2) => {
@@ -89,7 +90,7 @@ export class Kernel {
         for (const e of r.retraced) gesture.add(e);
       }
     }
-    return this.emit(this.store.reconcileConstructive(this.graph, this.planes, this.coplanarTol, gesture, toggleWith));
+    return this.emit(this.store.reconcileConstructive(this.graph, this.planes, this.coplanarTol, gesture, toggleWith, preSnaps));
   }
 
   /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
@@ -115,28 +116,11 @@ export class Kernel {
   moveVertices(moves: readonly { id: VertexId; to: PtIn }[], algebra: "or" | "xor" = "or"): FaceEvent[] {
     // 快照：每面全环（外+洞）顶点 id + 受牵连面
     const snaps = new Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>();
-    // 容错版环快照（2026-09-02 pp v3：frontier 边可在 move 之前被宏删除——缺失边的起点
-    // 用前一条边的终点补齐，环折线不失顶点）
-    const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): VertexId[] => {
-      const out: VertexId[] = [];
-      const es = r.edges;
-      for (let i = 0; i < es.length; i++) {
-        const d = es[i];
-        if (this.graph.hasEdge(d.edge)) {
-          const e = this.graph.edge(d.edge);
-          out.push(d.forward ? e.a : e.b);
-        } else {
-          const prev = es[(i - 1 + es.length) % es.length];
-          if (this.graph.hasEdge(prev.edge)) {
-            const pe = this.graph.edge(prev.edge);
-            out.push(prev.forward ? pe.b : pe.a);
-          }
-        }
-      }
-      return out;
-    };
     for (const f of this.store.faces()) {
-      snaps.set(f.id, { outer: ringVids(f.outer), holes: f.holes.map(ringVids) });
+      snaps.set(f.id, {
+        outer: ringVidsTolerant(this.graph, f.outer),
+        holes: f.holes.map((h) => ringVidsTolerant(this.graph, h)),
+      });
     }
     const targets = new Map<VertexId, Pt3>();
     for (const mv of moves) {
@@ -350,7 +334,6 @@ export class Kernel {
     // ---- 构造批（parity 设面） ----
     // parity toggle 只属于 copy/开口世界；纯 MOVE 的随行膜绝不能被自己的环 id 误杀
     const ev2 = segs.length ? this.addSegmentsMixed(segs, hasCopyAny ? fRing : new Set<EdgeId>()) : [];
-    this.cleanupNakedEdges(beforeEdges, fRing);
     let evIdent: FaceEvent[] = [];
     if (hasCopyAny && repDest) {
       const hit = this.hitTest(repDest, this.coplanarTol).face;
@@ -421,19 +404,6 @@ export class Kernel {
   private emit(events: FaceEvent[]): FaceEvent[] {
     this.eventLog.push(...events);
     return events;
-  }
-
-  /**
-   * pp 收尾清裸线（user 2026-09-02「L 的线没删掉」+ WYSIWYG 黄线）：只清**本次操作涉及**的边
-   * （原环 ∪ 新增）中两侧膜全灭者（faceLinks==0）——用户手画的 wire 不碰；E5 空环天然免疫
-   * （顶环 dedup 让位给底环 id，不入候选）。SU 同款：扫带顶边/井口悬线随膜一起走。
-   */
-  private cleanupNakedEdges(beforeEdges: ReadonlySet<EdgeId>, opRing: ReadonlySet<EdgeId>): void {
-    const cand = new Set<EdgeId>(opRing);
-    for (const e of this.graph.edges()) if (!beforeEdges.has(e.id)) cand.add(e.id);
-    for (const eid of cand) {
-      if (this.graph.hasEdge(eid) && this.graph.edge(eid).faceLinks.length === 0) this.graph.removeEdge(eid);
-    }
   }
 
   /**

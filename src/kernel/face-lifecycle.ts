@@ -93,62 +93,18 @@ export class FaceStore {
 
   // ---------------- 构造手势 ----------------
 
-  reconcileConstructive(g: PlanarGraph, reg: PlaneRegistry, tol: number, gestureEdges: Set<EdgeId>, toggleWith?: Set<EdgeId>): FaceEvent[] {
-    const parityDeadRingEdges: EdgeId[] = [];
-    // toggleWith=pp 专用 parity 设面（XOR 拍板；E8 墙 L 缺口实证后统一）：已有膜的区域若其外环
-    // ⊆（手势边 ∪ toggleWith〔被推面的原环〕）→ 翻灭（井口敞开/墙扫带/着陆打穿全走这一条）；
-    // 空区照常 BIRTH。普通画笔永不传 toggleWith。角块着陆贴边也打穿=**有意不跟 SU**（他们是 if 不是代数）。
-    const events: FaceEvent[] = [];
-    const byPlane = this.regionsByPlane(g, reg, tol);
-    const claimed = new Set<Region>();
-
-    for (const f of this.faces()) {
-      const regions = byPlane.get(f.planeId) ?? [];
-      const covering = regions.filter((r) => !claimed.has(r) && this.faceContains(f, representativePoint(r)));
-      if (covering.length === 1) {
-        this.adopt(f, covering[0]);
-        claimed.add(covering[0]);
-        if (toggleWith && covering[0].outer.edges.every((d) => gestureEdges.has(d.edge) || toggleWith.has(d.edge))) {
-          parityDeadRingEdges.push(...this.ringEdgeIds(f));
-          this.byId.delete(f.id);
-          events.push({ type: "BURST", face: f.id });   // parity 翻灭（区域保持 claimed，不复生）
-        }
-      } else if (covering.length >= 2) {
-        this.byId.delete(f.id);
-        const into: FaceId[] = [];
-        const toggledOff: FaceId[] = [];
-        for (const r of covering) {
-          const nf = this.mint(f.planeId, r);
-          into.push(nf.id);
-          claimed.add(r);
-          if (toggleWith && r.outer.edges.every((d) => gestureEdges.has(d.edge) || toggleWith.has(d.edge))) toggledOff.push(nf.id);
-        }
-        events.push({ type: "DIVIDE", from: f.id, into });
-        for (const nid of toggledOff) {
-          const dead = this.byId.get(nid);
-          if (dead) parityDeadRingEdges.push(...this.ringEdgeIds(dead));
-          this.byId.delete(nid);
-          events.push({ type: "BURST", face: nid });    // 着陆环切开后内片 parity 翻灭（洞穿）
-        }
-      }
-      // covering=0：构造不减边，防御性保留原面
-    }
-
-    // 无主 region：**外环**含手势边才 BIRTH（内环含手势边≠封闭手势）
-    for (const [planeId, regions] of byPlane) {
-      for (const r of regions) {
-        if (claimed.has(r)) continue;
-        if (r.outer.edges.some((d) => gestureEdges.has(d.edge))) {
-          const nf = this.mint(planeId, r);
-          claimed.add(r);
-          events.push({ type: "BIRTH", face: nf.id });
-        }
-      }
-    }
-
-    this.rebuildFaceLinks(g);
-    this.buryEdges(g, parityDeadRingEdges);
-    return events;
+  /**
+   * 构造结算（薄壳，2026-09-03 统一手术）：= 统一覆盖结算机的特例——像=各膜自身当前环（身份像）、
+   * 代数=OR、零认领=防御保留、出生源=手势边。三台机器收敛为一台 settle 的三组参数。
+   */
+  reconcileConstructive(g: PlanarGraph, reg: PlaneRegistry, tol: number, gestureEdges: Set<EdgeId>, toggleWith?: Set<EdgeId>, preSnaps?: Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>): FaceEvent[] {
+    // 像 = 扰动前快照（普适原则：切割会移除环边 id，事后拍会丢顶点——E8 角案 2026-09-03）
+    const snaps = preSnaps ?? this.captureSnaps(g);
+    return this.settle(g, reg, tol, snaps, new Map(), new Set(), true, undefined, "or", {
+      zeroClaimKeep: true,
+      gestureEdges,
+      toggleWith,
+    });
   }
 
   // ---------------- erase ----------------
@@ -298,6 +254,27 @@ export class FaceStore {
     folds?: Map<FaceId, VertexId[][]>,
     algebra: "or" | "xor" = "or",
   ): FaceEvent[] {
+    return this.settle(g, reg, tol, snaps, mergedVerts, movedFaces, topologyChanged, folds, algebra, {});
+  }
+
+  /**
+   * 统一覆盖结算机（2026-09-03 收敛手术；立宪 §3 的唯一物理实现）。
+   * 各膜以像折线按 |绕数| 认领胞腔：一对一承继（换平面保 id 跟随）、一对多 DIVIDE、
+   * 多对一按代数（OR 并 / XOR 偶湮灭+边随葬）、零认领按策略（burst / 构造防御保留）；
+   * parity 翻灭=已有膜区域外环 ⊆ 手势∪toggleWith（随葬）；无主胞腔外环含手势边 → BIRTH。
+   */
+  private settle(
+    g: PlanarGraph,
+    reg: PlaneRegistry,
+    tol: number,
+    snaps: Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>,
+    mergedVerts: Map<VertexId, VertexId>,
+    movedFaces: Set<FaceId>,
+    topologyChanged: boolean,
+    folds: Map<FaceId, VertexId[][]> | undefined,
+    algebra: "or" | "xor",
+    opts: { zeroClaimKeep?: boolean; gestureEdges?: Set<EdgeId>; toggleWith?: Set<EdgeId> },
+  ): FaceEvent[] {
     const events: FaceEvent[] = [];
     if (!topologyChanged) {
       for (const f of this.faces()) this.refreshRingPts(g, reg, f);
@@ -408,6 +385,7 @@ export class FaceStore {
       const f = this.byId.get(fid);
       if (!f) continue;
       if (entries.length === 0) {
+        if (opts.zeroClaimKeep) continue;   // 构造：不减边，防御保留
         this.byId.delete(fid);
         events.push({ type: "BURST", face: fid });
         continue;
@@ -424,6 +402,33 @@ export class FaceStore {
       }
     }
 
+    // parity 翻灭（pp 构造相位）：已有膜区域外环 ⊆ 手势∪toggleWith → 翻灭+随葬
+    const gset = opts.gestureEdges;
+    const tset = opts.toggleWith;
+    if (tset && gset) {
+      for (const f of this.faces()) {
+        if (f.outer.edges.every((d) => gset.has(d.edge) || tset.has(d.edge))) {
+          parityDeadRingEdges.push(...this.ringEdgeIds(f));
+          this.byId.delete(f.id);
+          events.push({ type: "BURST", face: f.id });
+        }
+      }
+    }
+    // 手势出生：无主胞腔外环含手势边 → BIRTH（内环含手势 ≠ 封闭手势）
+    if (gset && gset.size) {
+      const owned = new Set<Region>();
+      for (const [, es] of claims) for (const en of es) owned.add(en.r);
+      for (const [planeId2, regions2] of byPlane) {
+        for (const r of regions2) {
+          if (owned.has(r)) continue;
+          if (this.faces().some((f) => f.outer === r.outer)) continue; // 已被承继/铸造
+          if (r.outer.edges.some((d) => gset.has(d.edge))) {
+            const nf = this.mint(planeId2, r);
+            events.push({ type: "BIRTH", face: nf.id });
+          }
+        }
+      }
+    }
     this.rebuildFaceLinks(g);
     this.buryEdges(g, parityDeadRingEdges);
     const stretched = new Set<FaceId>();
@@ -451,6 +456,15 @@ export class FaceStore {
     const out: EdgeId[] = [];
     for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) out.push(d.edge);
     return out;
+  }
+
+  /** 全膜身份像快照（扰动前调用）。 */
+  captureSnaps(g: PlanarGraph): Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }> {
+    const snaps = new Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>();
+    for (const f of this.faces()) {
+      snaps.set(f.id, { outer: ringVidsTolerant(g, f.outer), holes: f.holes.map((h) => ringVidsTolerant(g, h)) });
+    }
+    return snaps;
   }
 
   /** 深拷贝（含 id 计数器；preview 影子副本用）。 */
@@ -507,4 +521,24 @@ function windingOf(p: Pt, poly: readonly Pt[]): number {
     } else if (b.y <= p.y && cross(a, b, p) < 0) w--;
   }
   return w;
+}
+
+/** 容错环顶点提取（共享：构造身份像/移动快照）——环边可能已被本批切割移除：缺失边的起点=前一条边的终点。 */
+export function ringVidsTolerant(g: PlanarGraph, r: Ring): VertexId[] {
+  const out: VertexId[] = [];
+  const es = r.edges;
+  for (let i = 0; i < es.length; i++) {
+    const d = es[i];
+    if (g.hasEdge(d.edge)) {
+      const e = g.edge(d.edge);
+      out.push(d.forward ? e.a : e.b);
+    } else {
+      const prev = es[(i - 1 + es.length) % es.length];
+      if (g.hasEdge(prev.edge)) {
+        const pe = g.edge(prev.edge);
+        out.push(prev.forward ? pe.b : pe.a);
+      }
+    }
+  }
+  return out;
 }
