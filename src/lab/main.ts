@@ -30,6 +30,7 @@ const journal = new Journal();
 function commitOp(op: LabOp): FaceEvent[] {
   const r = journal.commit(kernel, op);
   kernel = r.kernel;
+  revalidateCharged();
   return r.events;
 }
 const cam = new OrbitCamera();
@@ -198,6 +199,17 @@ for (const preset of PRESETS) {
   });
   presetsEl.appendChild(btn);
 }
+/** 结算后重验充能点：锚定几何（顶点/边中点）已被搬走/消灭的幽灵源自动消（2026-09-02）。 */
+function revalidateCharged(): void {
+  if (!charged.size) return;
+  const live = new Set<string>();
+  for (const v of kernel.vertices()) live.add(`${v.x},${v.y},${v.z}`);
+  for (const e of kernel.edges()) {
+    const a = kernel.graph.pt(e.a), b = kernel.graph.pt(e.b);
+    live.add(`${(a.x + b.x) / 2},${(a.y + b.y) / 2},${(a.z + b.z) / 2}`);
+  }
+  for (const key of [...charged.keys()]) if (!live.has(key)) charged.delete(key);
+}
 function clearCharged(): void {
   charged.clear();
   dwell = null;
@@ -215,6 +227,7 @@ function doUndo(): void {
   const k2 = journal.undo();
   if (!k2) return;
   kernel = k2;
+  revalidateCharged();
   cancelGesture();
   selection = emptySelection();
   appendSep("撤销");
@@ -224,6 +237,7 @@ function doRedo(): void {
   const r = journal.redo(kernel);
   if (!r) return;
   kernel = r.kernel;
+  revalidateCharged();
   cancelGesture();
   selection = emptySelection();
   appendSep("重做");
