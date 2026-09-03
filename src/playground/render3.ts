@@ -156,9 +156,10 @@ export class Renderer3 {
       // 1-DOF 约束提示线（from-point 共轴/轴锁；per-hint 按轴配色）
       const AXIS_COLORS: Record<string, number> = { x: 0xcc3333, y: 0x2e8b57, z: 0x2b6cb0, u: 0x888888, v: 0x888888, i: 0x111111 };
       if (view.snap.hints?.length) {
-        for (const h of view.snap.hints) g.add(lineSegments([h.a, h.b], AXIS_COLORS[h.axis] ?? 0x888888, 1, true));
+        // 提示线走深度测试：被膜遮住的引导段不显示（user 2026-09-03：z 轴要被面遮）
+        for (const h of view.snap.hints) g.add(lineSegments([h.a, h.b], AXIS_COLORS[h.axis] ?? 0x888888, 1));
       } else if (view.snap.kind.startsWith("axis") && view.snapAnchor) {
-        g.add(lineSegments([view.snapAnchor, view.snap.p], color, 1, true));
+        g.add(lineSegments([view.snapAnchor, view.snap.p], color, 1));
       }
     }
 

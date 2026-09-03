@@ -136,6 +136,7 @@ function cancelGesture(): void {
   moveVids = [];
   ppFace = null;
   ppNormal = null;
+  ppHandVids = new Set();
   ppH = 0;
   rectFixed = null;
   lastSnap = null;
@@ -252,24 +253,18 @@ function doRedo(): void {
 });
 
 /**
- * 拖拽中的吸附世界（user 2026-09-03：黄线管到底——吸「你看见的」影子副本，不吸旧世界线残影）。
- * 再挖掉手里抓着的动态部分：①指定的移动顶点集 ②预演新生顶点（planarize 切点/井壁——位置追光标，参赛=粘死）。
- * preview 是上一帧算的：静态几何两帧恒等=正确；动态几何恰好全被排除。
+ * 拖拽中的吸附世界 = **旧核 − 手中集**（2026-09-03 pp 抖动破案 v2）。
+ * 铁律：吸附世界不得是 h/delta 的函数——用 preview 当世界时，目标的存亡随手势参数变
+ * （推到底=湮灭→高度参考消失→掉回轴滑→h 回来→目标复活→再吸…），snap(world(h))→h′
+ * 无不动点=逐帧振荡（探针 P1-P3 实锤）。旧核是静态不动点；preview 的静态部分与它恒等
+ * （预演不新增静态几何），动态部分（手中几何+其旧位残影）由排除谓词剔除——user
+ * 「不吸旧残影」的语义完整保留。手中集在落笔时从旧核拓扑一次性取，整个手势不变。
  */
-function dragSnapWorld(moving: Iterable<VertexId>): { k: Kernel; excl: (vid: VertexId) => boolean } {
-  const movingSet = new Set(moving);
-  if (!preview) return { k: kernel, excl: (vid) => movingSet.has(vid) };
-  const known = new Set(kernel.vertices().map((v) => v.id));
-  return { k: preview, excl: (vid) => movingSet.has(vid) || !known.has(vid) };
+function dragSnapWorld(moving: ReadonlySet<VertexId>): { k: Kernel; excl: (vid: VertexId) => boolean } {
+  return { k: kernel, excl: (vid) => moving.has(vid) };
 }
-/** pp 手中集 = 目标面在影子副本里的环顶点（膜身份跟随 ⇒ id 不变） */
-function ppMovingVids(): VertexId[] {
-  if (ppFace === null || !preview) return [];
-  const pv = preview;
-  const f = pv.faces().find((x) => x.id === ppFace);
-  if (!f) return [];
-  return [...ringVidsTolerant(pv.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(pv.graph, h))];
-}
+/** pp 手中集（落笔时置）：被推面全环顶点——它们与所触边/膜既不参赛也不遮挡 */
+let ppHandVids: ReadonlySet<VertexId> = new Set();
 
 // ---------- preview（影子副本预演，机制原样） ----------
 function computePreview(): void {
@@ -433,6 +428,11 @@ canvas.addEventListener("pointerdown", (ev) => {
       if (hit.face !== undefined) {
         const rec = kernel.planeOf(hit.face)!;
         ppFace = hit.face;
+        const fRec = kernel.face(hit.face)!;
+        ppHandVids = new Set([
+          ...ringVidsTolerant(kernel.graph, fRec.outer),
+          ...fRec.holes.flatMap((hh) => ringVidsTolerant(kernel.graph, hh)),
+        ]);
         ppNormal = rec.plane.n;
         gesturePlane = { plane: rec.plane, basis: rec.basis };
         const ray0 = cam.screenRay(s.x, s.y, vp());
@@ -451,7 +451,7 @@ canvas.addEventListener("pointerdown", (ev) => {
       if (armed && moveVids.length && anchor3) {
         // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
         justCommitted = true;
-        const w = dragSnapWorld(moveVids);
+        const w = dragSnapWorld(new Set(moveVids));
         const target = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()).p;
         const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
         const vids = moveVids;
@@ -537,7 +537,7 @@ canvas.addEventListener("pointermove", (ev) => {
       break;
     case "pp":
       if (ppFace !== null && anchor3 && ppNormal) {
-        const w = dragSnapWorld(ppMovingVids());
+        const w = dragSnapWorld(ppHandVids);
         const sn = applyHysteresis(snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()), s.x, s.y);   // pp 一直没滞回=目标跳变抖
 
         hoverFace = null;
@@ -573,7 +573,7 @@ canvas.addEventListener("pointermove", (ev) => {
       break;
     case "move":
       if (moveVids.length && anchor3) {
-        const w = dragSnapWorld(moveVids);
+        const w = dragSnapWorld(new Set(moveVids));
         snapInfo = applyHysteresis(snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()), s.x, s.y);
         trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
@@ -670,7 +670,7 @@ canvas.addEventListener("pointerup", (ev) => {
         hintEl.textContent = "移动中：所见即所得预览，再点一下放置；Esc 取消";
         break;
       }
-      const w = dragSnapWorld(moveVids);
+      const w = dragSnapWorld(new Set(moveVids));
       const target = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()).p;
       const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
       const vids = moveVids;
