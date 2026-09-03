@@ -196,7 +196,7 @@ canvas.addEventListener("pointerdown", (ev) => {
     case "line":
     case "rect": {
       gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
-      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane);
+      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane });
       anchor3 = snapInfo.p;
       cursor3 = anchor3;
       break;
@@ -208,7 +208,7 @@ canvas.addEventListener("pointerdown", (ev) => {
         moveExclude = moveVids.length === 1 ? moveVids[0] : null;
         gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
         anchor3 = hit.vertex !== undefined ? kernel.graph.pt(hit.vertex)
-          : snapPoint(kernel, cam, vp(), s.x, s.y, 0, gesturePlane).p;
+          : snapPoint(kernel, cam, vp(), s.x, s.y, 0, { plane: gesturePlane }).p;
         cursor3 = anchor3;
       }
       break;
@@ -249,7 +249,7 @@ canvas.addEventListener("pointermove", (ev) => {
     hoverFace = null;
     if (tool === "line" || tool === "rect" || tool === "move") {
       const plane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
-      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane);
+      snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, { plane });
       if (snapInfo.kind === null) snapInfo = { ...snapInfo, kind: null };
     } else if (tool === "erase") {
       hoverEdge = pickEntity(kernel, cam, vp(), s.x, s.y, HIT).edge ?? null;
@@ -265,13 +265,13 @@ canvas.addEventListener("pointermove", (ev) => {
     case "line":
     case "rect":
       if (anchor3) {
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, tool === "line" ? anchor3 : null);
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: tool === "line" ? anchor3 : null });
         cursor3 = snapInfo.p;
       }
       break;
     case "move":
       if (moveVids.length && anchor3) {
-        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude === null ? null : (vid) => vid === moveExclude);
+        snapInfo = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3, hand: moveExclude === null ? null : { has: (vid) => vid === moveExclude, opaque: false } });
         cursor3 = snapInfo.p;
       }
       break;
@@ -311,14 +311,14 @@ canvas.addEventListener("pointerup", (ev) => {
     case "line": {
       if (!anchor3) break;
       const a = anchor3;
-      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3).p;
+      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3 }).p;
       cancelGesture();
       if (dist(a, b) >= 1) appendLog(kernel.addEdges([[a, b]]));
       break;
     }
     case "rect": {
       if (!anchor3) break;
-      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane).p;
+      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane }).p;
       const segs = rectSegmentsOnPlane(gesturePlane.plane, gesturePlane.basis, anchor3, b);
       cancelGesture();
       if (segs.length) appendLog(kernel.addEdges(segs));
@@ -326,7 +326,7 @@ canvas.addEventListener("pointerup", (ev) => {
     }
     case "move": {
       if (!moveVids.length || !anchor3) { cancelGesture(); break; }
-      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, moveExclude === null ? null : (vid) => vid === moveExclude).p;
+      const target = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3, hand: moveExclude === null ? null : { has: (vid) => vid === moveExclude, opaque: false } }).p;
       const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
       const moves = translateMoves(kernel, moveVids, delta);
       const d = Math.hypot(delta.x, delta.y, delta.z);

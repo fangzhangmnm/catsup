@@ -107,3 +107,20 @@ from-point 源点 = **anchor（手势起点，天然充能）+ 原点（永久�
 - 验收门=反馈回路探针 tools/probe-pp-feedback.mts（P1-P6：下推/棱抓/贴底悬停/上拉/邻高咬合/推穿）。
 
 edited by Claude Fable 5 2026-09-03（v2 铁律「世界必须 h 无关」被本节收窄取代）
+
+## 立法：旧 snapshot 禁入对齐引擎（2026-09-03 user 拍板，结构性）
+
+**「不要把旧 snapshot 叫做真。push 到一半的才是真相！WYSIWYG。」**（user 原话）
+
+- 本体论：手势中间态=真相（lab 变量 `live`）；旧 state 降格为 **`checkpoint`**（commit 基底/cancel 归宿/
+  journal 重放落点），变量已改名。落笔冻结集（壳集/known/高度停靠）取自 checkpoint=手势开始时的现实快照，合法。
+- 结构：**世界只准经 `liveWorld()`**（手势中=live，平时=checkpoint；悬停预告如 eraseFace hover 不算手势现实——
+  预告吃掉自己=拾取振荡，以 gestureActive 为界）。参数屎山（exclude/skipFace/hiddenOverride/occluder/axes）
+  收敛为 `AlignQuery{plane,anchor,alignSources,lines,hand:{has,opaque}}`，遮挡/目标/派生同源一个 hand。
+- 把门：`scripts/build.sh` ghost-world lint 禁 `snapPoint(checkpoint` 等模式进 src/lab。
+- 普查结果（2026-09-03）：lab 全部世界消费点（snapPoint/pickEntity/drawPlaneAt/rectFirstPlane/resolveRectPlane）
+  已一律经 liveWorld()；draw 工具顺手治了橡皮筋端点自吸（基线手=checkpoint 外新生 vid）；
+  博物馆 playground/main.ts 机械迁移签名不迁移语义（CLAUDE.md：别在上面继续长）。
+- 回归门：tools/probe-pp-feedback.mts P1-P6 换挡序列重构前后逐一一致。
+
+edited by Claude Fable 5 2026-09-03

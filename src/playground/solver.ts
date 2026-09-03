@@ -161,18 +161,27 @@ export function solvePoint(
   return cands[0];
 }
 
+/** 手中集：拖拽中属于「手」的顶点谓词 + 手中膜的遮挡性（pp=opaque：光标在帽上背后无目标=SU 连续；
+ *  move=transparent：落点必须可见）。触手膜/触手边/由它们派生的目标一律不参赛。 */
+export interface AlignHand { has(vid: VertexId): boolean; opaque: boolean; }
+/** 对齐查询（2026-09-03 整改收敛：exclude/skipFace/hiddenOverride/occluder/axes 五补丁参数退役）。
+ *  世界 W 只有一个 = 调用方的现实（壳的 liveWorld()；旧 snapshot 结构性禁入——snap-model SSoT 立法节）。 */
+export interface AlignQuery {
+  plane: DrawPlane;                        // 2-D 兜底（画面平面，含基）
+  anchor?: Pt3 | null;                     // 轴线源
+  alignSources?: readonly Pt3[] | null;    // 充能源
+  lines?: boolean;                         // false = 不注册轴/共轴 1-D 线（pp：不吸 xyz 轴）
+  hand?: AlignHand | null;
+}
 export interface SnapContext {
   k: Kernel;
-  plane: PlaneParams;                     // 2-D 兜底（画面平面）
-  basis?: { u: Pt3; v: Pt3 } | null;      // 画面平面基（非轴对齐平面时补面内共轴方向）
-  cam?: OrbitCamera | null;               // 提供则启用膜遮挡过滤（2026-09-03：隐藏点/边不参赛,乱闪修）
+  plane: PlaneParams;
+  basis?: { u: Pt3; v: Pt3 } | null;
+  cam?: OrbitCamera | null;               // 提供则启用膜遮挡过滤
   anchor?: Pt3 | null;
   alignSources?: readonly Pt3[] | null;
-  exclude?: ((vid: VertexId) => boolean) | null;
-  skipFace?: ((fid: FaceId) => boolean) | null;   // 遮挡豁免：手里抓着的膜（环上有 exclude 顶点）
-  axes?: boolean;   // false = 不注册轴/共轴 1-D 线（pp 通道：user 2026-09-03「push pull 不吸 xyz 轴」）
-  hiddenOverride?: (p: Pt3) => boolean;   // 遮挡判定覆盖（遮挡世界≠目标世界时由 snapPoint 注入）
-
+  lines?: boolean;
+  hand?: AlignHand | null;
 }
 
 const DIRS: { axis: AxName; dir: Pt3 }[] = [
@@ -180,6 +189,20 @@ const DIRS: { axis: AxName; dir: Pt3 }[] = [
   { axis: "y", dir: { x: 0, y: 1, z: 0 } },
   { axis: "z", dir: { x: 0, y: 0, z: 1 } },
 ];
+
+/** 膜环是否触手（任一环顶点 ∈ hand）。 */
+function faceTouchesHand(k: Kernel, f: { outer: Ring; holes: Ring[]; id: FaceId }, hand?: AlignHand | null): boolean {
+  if (!hand) return false;
+  return [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))]
+    .some((v) => hand.has(v));
+}
+/** 遮挡豁免集：hand 透明时=触手膜；opaque 或无 hand 时=无豁免。 */
+function handFaceSkip(k: Kernel, hand?: AlignHand | null): ((fid: FaceId) => boolean) | undefined {
+  if (!hand || hand.opaque) return undefined;
+  const skip = new Set<FaceId>();
+  for (const f of k.faces()) if (faceTouchesHand(k, f, hand)) skip.add(f.id);
+  return skip.size ? (fid) => skip.has(fid) : undefined;
+}
 
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。 */
 function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
@@ -267,10 +290,11 @@ export function occludedSpansOnLine(
 export function buildConstraints(ctx: SnapContext): Constraint[] {
   const out: Constraint[] = [];
   const { k } = ctx;
-  const hidden = (p: Pt3): boolean =>
-    ctx.hiddenOverride ? ctx.hiddenOverride(p) : (ctx.cam ? occludedBy(k, ctx.cam, p, ctx.skipFace ?? undefined) : false);
+  const ex = (vid: VertexId): boolean => ctx.hand?.has(vid) ?? false;
+  const skip = handFaceSkip(k, ctx.hand);
+  const hidden = (p: Pt3): boolean => (ctx.cam ? occludedBy(k, ctx.cam, p, skip) : false);
   for (const v of k.vertices()) {
-    if (ctx.exclude?.(v.id)) continue;
+    if (ex(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
     if (hidden(p)) continue;
     out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: EPS.point, tag: { kind: "endpoint" } });
@@ -279,7 +303,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: EPS.point, tag: { kind: "origin" } });
   }
   for (const e of k.edges()) {
-    if (ctx.exclude?.(e.a) || ctx.exclude?.(e.b)) continue;   // 任一端在手里 → 整条边是动态残影，退赛
+    if (ex(e.a) || ex(e.b)) continue;   // 任一端在手里 → 整条边退赛
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const len = dist3(a, b);
     if (len <= 0) continue;
@@ -308,7 +332,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
       out.push({ locus: { dim: 1, a: src, dir }, rank: RANK.axisLine, eps: EPS.line, tag: { kind, src, axis } });
     }
   };
-  if (ctx.axes !== false) {
+  if (ctx.lines !== false) {
     if (ctx.anchor) addLines(ctx.anchor, "axis");
     addLines({ x: 0, y: 0, z: 0 }, "align");
     for (const src of ctx.alignSources ?? []) addLines(src, "align");
@@ -317,7 +341,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
     const es = k.edges()
-      .filter((e) => !(ctx.exclude?.(e.a) || ctx.exclude?.(e.b)))   // 手中边不产派生目标（2026-09-03：帽边载线交点会追 h/离体十万八千里）
+      .filter((e) => !(ex(e.a) || ex(e.b)))   // 手中边不产派生目标（帽边载线交点会追 h/离体十万八千里）
       .map((e) => {
         const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
         const l = dist3(a, b);
@@ -336,12 +360,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   }
   // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
   {
-    const inHand = (f: { outer: Ring; holes: Ring[] }): boolean => {
-      if (!ctx.exclude) return false;
-      return [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))]
-        .some((v) => ctx.exclude!(v));
-    };
-    const faces = k.faces().filter((f) => !inHand(f));   // 手中膜不产面交线（帽平面交线=追 h 的目标）
+    const faces = k.faces().filter((f) => !faceTouchesHand(k, f, ctx.hand));   // 手中膜不产面交线
     for (let i = 0; i < faces.length; i++) {
       for (let j = i + 1; j < faces.length; j++) {
         for (const seg of faceCrossSegments(k, faces[i].id, faces[j].id)) {
@@ -455,37 +474,23 @@ export function snapPoint(
   sx: number,
   sy: number,
   tolPx: number,
-  plane: DrawPlane,
-  anchor: Pt3 | null = null,
-  exclude: ((vid: VertexId) => boolean) | null = null,
-  alignSources?: readonly Pt3[],
-  opts?: { axes?: boolean; occluder?: Kernel },
+  q: AlignQuery,
 ): Snap3 {
   // === 兼容壳（2026-09-01 阶段二求解器手术）：真身 = solver.solvePoint 纯函数 ===
   // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
   const scale = tolPx / 8;
-  // 遮挡世界可与目标世界分离（pp：目标=中间态−手中集，遮挡=旧核=静态面+旧位手中体，h 无关无回路）
-  const occK = opts?.occluder ?? k;
-  let skipFace: ((fid: FaceId) => boolean) | null = null;
-  if (exclude && !opts?.occluder) {
-    const hand = new Set<FaceId>();
-    for (const f of k.faces()) {
-      const vids = [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))];
-      if (vids.some((v) => exclude(v))) hand.add(f.id);
-    }
-    if (hand.size) skipFace = (fid) => hand.has(fid);
-  }
-  const occHidden = (p: Pt3): boolean => occludedBy(occK, cam, p, skipFace ?? undefined);
-  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, exclude, alignSources, cam, skipFace, axes: opts?.axes,
-    hiddenOverride: occHidden });
+  const skip = handFaceSkip(k, q.hand);
+  const occHidden = (p: Pt3): boolean => occludedBy(k, cam, p, skip);
+  const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
+    alignSources: q.alignSources, cam, lines: q.lines, hand: q.hand });
   if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
   const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, {
     comboEps: EPS.combo * scale,
     hidden: occHidden,
-    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(occK, cam, a, dirL, tMin, tMax, skipFace ?? undefined),
+    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, cam, a, dirL, tMin, tMax, skip),
   });
-  if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
+  if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const hints: SnapHint[] = [];
   for (const c of sol.used) {
     if (c.locus.dim === 1 && (c.tag.kind === "axis" || c.tag.kind === "align") && c.tag.src && c.tag.axis) {
@@ -564,12 +569,12 @@ export function resolvePlane(
   if (p1) {
     const candidates = axisPlanesThrough(p1);
     const base = pickByFacing(cam, candidates);
-    const snap = snapPoint(k, cam, vp, sx, sy, tolPx, base, p1, null, alignSources ?? undefined);
+    const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources });
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
     return { plane: containing.length ? pickByFacing(cam, containing) : base, fixed: false, snap };
   }
   const base = facePlane ?? axisPlane(cam);
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, base, null, null, alignSources ?? undefined);
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, alignSources });
   if (snap.kind === null) return { plane: base, fixed: !!facePlane, snap };
   // 首点被低维吸附赢走：面锁作废（延迟承诺），平面挂到解析点上
   return { plane: pickByFacing(cam, axisPlanesThrough(snap.p)), fixed: false, snap };

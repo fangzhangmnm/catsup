@@ -6,7 +6,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-ENTRIES="playground lab"   # 每个 = src/<名>/main.ts → src/<名>/bundle.js
+ENTRIES="playground lab"
+
+# ghost-world lint（user 2026-09-03 立法：旧 snapshot 禁入对齐引擎——世界只准经 liveWorld()）
+if grep -nE 'snapPoint\(checkpoint|pickEntity\(checkpoint|drawPlaneAt\(checkpoint|rectFirstPlane\(checkpoint|resolveRectPlane\(checkpoint' src/lab/main.ts; then
+  echo "[build] ✗ 旧鬼进对齐引擎（上列行）——世界必须经 liveWorld()" >&2; exit 1
+fi   # 每个 = src/<名>/main.ts → src/<名>/bundle.js
 ESBUILD_VER="0.24.0"
 ESBUILD="./tools/esbuild/esbuild"
 

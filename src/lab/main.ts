@@ -10,7 +10,7 @@ import { Kernel } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "../playground/camera.ts";
-import { type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, rectFirstPlane, resolveRectPlane, snapPoint } from "../playground/pick.ts";
+import { type AlignHand, type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, rectFirstPlane, resolveRectPlane, snapPoint } from "../playground/pick.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "../playground/tools.ts";
 import { Renderer3 } from "../playground/render3.ts";
 import { PRESETS } from "./presets.ts";
@@ -25,12 +25,12 @@ const tipEl = document.getElementById("tip")!;
 const marqueeEl = document.getElementById("marquee")!;
 const HINT_DEFAULT = "快捷键 Space/L/R/M/P/E；右/中键拖=环绕 Shift=平移 滚轮=缩放；Ctrl+Z/Y 撤销重做；Delete 删除；Esc 取消";
 
-let kernel = new Kernel();
+let checkpoint = new Kernel();
 const journal = new Journal();
 /** 所有改内核的用户手势走这里：记账（undo 日志）+ 应用。 */
 function commitOp(op: LabOp): FaceEvent[] {
-  const r = journal.commit(kernel, op);
-  kernel = r.kernel;
+  const r = journal.commit(checkpoint, op);
+  checkpoint = r.kernel;
   revalidateCharged();
   return r.events;
 }
@@ -64,8 +64,8 @@ let marqueeStart: { x: number; y: number } | null = null;
 let marqueeCur: { x: number; y: number } | null = null;
 let hoverEdge: EdgeId | null = null;
 let hoverFace: FaceId | null = null;
-let preview: Kernel | null = null;
-let previewEvents: FaceEvent[] = [];
+let live: Kernel | null = null;
+let liveEvents: FaceEvent[] = [];
 let camDrag: { mode: "orbit" | "pan"; x: number; y: number } | null = null;
 let armed = false;                     // 点两下模式：第一击已落 anchor，等第二击
 let canArm = false;                    // 只有鼠标解锁点两下（数位笔 tap 误触发意外连线）
@@ -113,6 +113,19 @@ function trackCharge(sn: Snap3 | null, dwellMs = 300): void {
 const vp = (): Viewport => ({ w: canvas.clientWidth, h: canvas.clientHeight });
 const gestureActive = (): boolean => anchor3 !== null || moveVids.length > 0 || scrubbing || marqueeStart !== null;
 
+/**
+ * 对齐引擎唯一世界源（user 2026-09-03 立法：**旧 snapshot 禁入对齐引擎**——push 到一半的才是真相，
+ * WYSIWYG；checkpoint 只是 commit 基底/cancel 归宿）。手势中=live（中间态真相）；平时=checkpoint（即现实）。
+ * 悬停预告（eraseFace hover 的 live）不算手势现实——预告吃掉自己=拾取振荡，故以 gestureActive 为界。
+ * build lint 把门：src/lab 禁「对齐入口(checkpoint」旧鬼模式（字面量见 scripts/build.sh）。
+ */
+const liveWorld = (): Kernel => (gestureActive() ? (live ?? checkpoint) : checkpoint);
+/** 基线手：checkpoint 之外的新生 vid（wip 线端/planarize 切点——追光标者）+ 工具自报的移动集。 */
+function freshHand(extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
+  const known = new Set(checkpoint.vertices().map((v) => v.id));
+  return { has: (vid) => !known.has(vid) || (extra?.(vid) ?? false), opaque };
+}
+
 // ---------- 工具切换 ----------
 const toolButtons: Record<Tool, HTMLButtonElement> = {
   select: document.getElementById("toolSelect") as HTMLButtonElement,
@@ -153,8 +166,8 @@ function cancelGesture(): void {
   marqueeStart = marqueeCur = null;
   hoverEdge = null;
   hoverFace = null;
-  preview = null;
-  previewEvents = [];
+  live = null;
+  liveEvents = [];
   marqueeEl.style.display = "none";
   tipEl.style.display = "none";
   hintEl.textContent = HINT_DEFAULT;
@@ -207,9 +220,9 @@ for (const preset of PRESETS) {
 function revalidateCharged(): void {
   if (!charged.size) return;
   const live = new Set<string>();
-  for (const v of kernel.vertices()) live.add(`${v.x},${v.y},${v.z}`);
-  for (const e of kernel.edges()) {
-    const a = kernel.graph.pt(e.a), b = kernel.graph.pt(e.b);
+  for (const v of checkpoint.vertices()) live.add(`${v.x},${v.y},${v.z}`);
+  for (const e of checkpoint.edges()) {
+    const a = checkpoint.graph.pt(e.a), b = checkpoint.graph.pt(e.b);
     live.add(`${(a.x + b.x) / 2},${(a.y + b.y) / 2},${(a.z + b.z) / 2}`);
   }
   for (const key of [...charged.keys()]) if (!live.has(key)) charged.delete(key);
@@ -230,7 +243,7 @@ function clearCharged(): void {
 function doUndo(): void {
   const k2 = journal.undo();
   if (!k2) return;
-  kernel = k2;
+  checkpoint = k2;
   revalidateCharged();
   cancelGesture();
   selection = emptySelection();
@@ -238,9 +251,9 @@ function doUndo(): void {
   draw();
 }
 function doRedo(): void {
-  const r = journal.redo(kernel);
+  const r = journal.redo(checkpoint);
   if (!r) return;
-  kernel = r.kernel;
+  checkpoint = r.kernel;
   revalidateCharged();
   cancelGesture();
   selection = emptySelection();
@@ -256,15 +269,13 @@ function doRedo(): void {
 
 /**
  * 拖拽中的吸附世界 = **旧核 − 手中集**（2026-09-03 pp 抖动破案 v2）。
- * 铁律：吸附世界不得是 h/delta 的函数——用 preview 当世界时，目标的存亡随手势参数变
+ * 铁律：吸附世界不得是 h/delta 的函数——用 live 当世界时，目标的存亡随手势参数变
  * （推到底=湮灭→高度参考消失→掉回轴滑→h 回来→目标复活→再吸…），snap(world(h))→h′
- * 无不动点=逐帧振荡（探针 P1-P3 实锤）。旧核是静态不动点；preview 的静态部分与它恒等
+ * 无不动点=逐帧振荡（探针 P1-P3 实锤）。旧核是静态不动点；live 的静态部分与它恒等
  * （预演不新增静态几何），动态部分（手中几何+其旧位残影）由排除谓词剔除——user
  * 「不吸旧残影」的语义完整保留。手中集在落笔时从旧核拓扑一次性取，整个手势不变。
  */
-function dragSnapWorld(moving: ReadonlySet<VertexId>): { k: Kernel; excl: (vid: VertexId) => boolean } {
-  return { k: kernel, excl: (vid) => moving.has(vid) };
-}
+
 /**
  * pp 双通道吸附（2026-09-03 user 拍板终形，对齐 SU）：
  * - 光标通道：世界=**中间态**（WYSIWYG 无鬼：湮灭的吸不到、切出来的吸得到），排除=落笔壳集
@@ -276,14 +287,14 @@ let ppShellVids: ReadonlySet<VertexId> = new Set();
 let ppKnownVids: ReadonlySet<VertexId> = new Set();   // 落笔时旧核全体 vid（新生判定基准）
 let ppStops: number[] = [];
 
-// ---------- preview（影子副本预演，机制原样） ----------
-function computePreview(): void {
-  preview = null;
-  previewEvents = [];
+// ---------- live（影子副本预演，机制原样） ----------
+function computeLive(): void {
+  live = null;
+  liveEvents = [];
   const run = (fn: (c: Kernel) => FaceEvent[]): void => {
-    const c = kernel.clone();
-    previewEvents = fn(c);
-    preview = c;
+    const c = checkpoint.clone();
+    liveEvents = fn(c);
+    live = c;
   };
   if (tool === "line" && anchor3 && cursor3) {
     const a = anchor3, b = cursor3;
@@ -294,7 +305,7 @@ function computePreview(): void {
   } else if (tool === "move" && moveVids.length && anchor3 && cursor3) {
     const delta = { x: cursor3.x - anchor3.x, y: cursor3.y - anchor3.y, z: cursor3.z - anchor3.z };
     const vids = moveVids;
-    if (Math.hypot(delta.x, delta.y, delta.z) >= 0.3) run((c) => c.moveVertices(translateMoves(kernel, vids, delta)));
+    if (Math.hypot(delta.x, delta.y, delta.z) >= 0.3) run((c) => c.moveVertices(translateMoves(checkpoint, vids, delta)));
   } else if (tool === "pp" && ppFace !== null && Math.abs(ppH) >= 0.3) {
     const fid = ppFace, h = ppH;
     run((c) => c.pushPull(fid, h));
@@ -305,9 +316,9 @@ function computePreview(): void {
     const id = hoverFace;
     run((c) => c.eraseFaces([id]));
   }
-  hintEl.textContent = preview
-    ? previewEvents.length
-      ? `预览：${previewEvents.map(describeEvent).join("；")}`
+  hintEl.textContent = live
+    ? liveEvents.length
+      ? `预览：${liveEvents.map(describeEvent).join("；")}`
       : "预览：无膜变化"
     : HINT_DEFAULT;
 }
@@ -316,10 +327,10 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 /** 矩形第二点：固定面 → 面内吸附；动态 → 平面被第二点拉动（resolveRectPlane）。 */
 function rectPlaneSnap(sx: number, sy: number): Pt3 {
   if (rectFixed) {
-    snapInfo = snapPoint(kernel, cam, vp(), sx, sy, SNAP, gesturePlane, null, null, alignSrcs());
+    snapInfo = snapPoint(liveWorld(), cam, vp(), sx, sy, SNAP, { plane: gesturePlane, alignSources: alignSrcs(), hand: freshHand() });
     return snapInfo.p;
   }
-  const r = resolveRectPlane(kernel, cam, vp(), anchor3!, sx, sy, SNAP, alignSrcs());
+  const r = resolveRectPlane(liveWorld(), cam, vp(), anchor3!, sx, sy, SNAP, alignSrcs());
   gesturePlane = r.plane;
   snapInfo = r.snap;
   return r.snap.p;
@@ -327,13 +338,13 @@ function rectPlaneSnap(sx: number, sy: number): Pt3 {
 
 // ---------- 渲染 ----------
 function draw(): void {
-  r3.render(kernel, cam, vp(), {
+  r3.render(checkpoint, cam, vp(), {
     selectionEdges: selection.edges,
     selectionFaces: selection.faces,
     scrubEdges: scrubAcc,
     hoverEdge,
     hoverFace,
-    preview,
+    preview: live,
     snap: snapInfo,
     snapAnchor: anchor3,
     charged: alignSrcs(),
@@ -388,7 +399,7 @@ canvas.addEventListener("pointerdown", (ev) => {
           // 连画+出膜停（user 终裁回 SU 方案）：出膜事件（BIRTH/DIVIDE…）=铅笔自动抬起；
           // 逃生=Esc（SU 官方口径）/原地点击
           const a = anchor3;
-          const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, a, null, alignSrcs()).p;
+          const b = snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: a, alignSources: alignSrcs(), hand: freshHand() }).p;
           if (dist(a, b) < 1) { cancelGesture(); break; }
           const evs = commitOp({ op: "addEdges", segs: [[a, b]] });
           appendLog(evs);
@@ -409,13 +420,13 @@ canvas.addEventListener("pointerdown", (ev) => {
       }
       if (tool === "rect") {
         // 元逻辑：首点被低维吸附赢走（角/边/轴）→ 平面延迟给第二点；裸落面内才锁面平行
-        const r = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP, alignSrcs());
+        const r = rectFirstPlane(liveWorld(), cam, vp(), s.x, s.y, SNAP, alignSrcs());
         rectFixed = r.fixed;
         gesturePlane = r.plane;   // 平面求解器统一出口（收敛手术 2026-09-02）
         snapInfo = r.snap;
       } else {
         // 线的空落点兜底=学矩形（user 2026-09-01 裁决）：面上锁面；空处=摄像机挑最面向的轴平面
-        const r0 = rectFirstPlane(kernel, cam, vp(), s.x, s.y, SNAP, alignSrcs());
+        const r0 = rectFirstPlane(liveWorld(), cam, vp(), s.x, s.y, SNAP, alignSrcs());
         gesturePlane = r0.plane;
         snapInfo = r0.snap;
       }
@@ -435,31 +446,31 @@ canvas.addEventListener("pointerdown", (ev) => {
         if (Math.abs(h) >= 0.3) appendLog(commitOp({ op: "pushpull", face: fid, dist: h }));
         break;
       }
-      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      const hit = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT);
       if (hit.face !== undefined) {
-        const rec = kernel.planeOf(hit.face)!;
+        const rec = checkpoint.planeOf(hit.face)!;
         ppFace = hit.face;
-        const fRec = kernel.face(hit.face)!;
+        const fRec = checkpoint.face(hit.face)!;
         const rim = new Set([
-          ...ringVidsTolerant(kernel.graph, fRec.outer),
-          ...fRec.holes.flatMap((hh) => ringVidsTolerant(kernel.graph, hh)),
+          ...ringVidsTolerant(checkpoint.graph, fRec.outer),
+          ...fRec.holes.flatMap((hh) => ringVidsTolerant(checkpoint.graph, hh)),
         ]);
         const shell = new Set(rim);
-        for (const e of kernel.edges()) {   // 一步邻域=井壁另一端 → 被推体整只不参赛（相连邻居远端保留）
+        for (const e of checkpoint.edges()) {   // 一步邻域=井壁另一端 → 被推体整只不参赛（相连邻居远端保留）
           if (rim.has(e.a)) shell.add(e.b);
           if (rim.has(e.b)) shell.add(e.a);
         }
         ppShellVids = shell;
-        ppKnownVids = new Set(kernel.vertices().map((v) => v.id));
+        ppKnownVids = new Set(checkpoint.vertices().map((v) => v.id));
         ppNormal = rec.plane.n;
         gesturePlane = { plane: rec.plane, basis: rec.basis };
         const ray0 = cam.screenRay(s.x, s.y, vp());
         const grab = rayPlane(ray0.origin, ray0.dir, rec.plane.n, rec.plane.d);
-        anchor3 = grab ?? kernel.faceRings3(hit.face)!.outer[0];
+        anchor3 = grab ?? checkpoint.faceRings3(hit.face)!.outer[0];
         {   // 高度通道停靠集：全场景静态顶点沿 n 的投影高度（含底环/邻面高/0；user 拍板 A 案）
           const hs = new Set<number>();
           hs.add(0);
-          for (const v of kernel.vertices()) hs.add(Math.round(dot3(sub3(v, anchor3), rec.plane.n) * 1e6) / 1e6);
+          for (const v of checkpoint.vertices()) hs.add(Math.round(dot3(sub3(v, anchor3), rec.plane.n) * 1e6) / 1e6);
           ppStops = [...hs].sort((a, b) => a - b);
         }
         cursor3 = anchor3;
@@ -475,24 +486,24 @@ canvas.addEventListener("pointerdown", (ev) => {
       if (armed && moveVids.length && anchor3) {
         // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
         justCommitted = true;
-        const w = dragSnapWorld(new Set(moveVids));
-        const target = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()).p;
+        const mv = new Set(moveVids);
+        const target = snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3, alignSources: alignSrcs(), hand: freshHand((vid) => mv.has(vid)) }).p;
         const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
         const vids = moveVids;
         const d = Math.hypot(delta.x, delta.y, delta.z);
         cancelGesture();
-        if (d >= 0.3) appendLog(commitOp({ op: "move", moves: translateMoves(kernel, vids, delta) }));
+        if (d >= 0.3) appendLog(commitOp({ op: "move", moves: translateMoves(checkpoint, vids, delta) }));
         break;
       }
-      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      const hit = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT);
       const hasSel = selection.edges.size > 0 || selection.faces.size > 0;
       // SU 语义（user 2026-09-01）：有选区时 move 作用于选区，拾取点可以点任何地方当参考点
-      moveVids = hasSel ? moveTargetsSelection(kernel, selection) : moveTargets(kernel, hit);
+      moveVids = hasSel ? moveTargetsSelection(checkpoint, selection) : moveTargets(checkpoint, hit);
       if (moveVids.length) {
-        gesturePlane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
+        gesturePlane = drawPlaneAt(liveWorld(), cam, vp(), s.x, s.y);
         anchor3 = hit.vertex !== undefined
-          ? kernel.graph.pt(hit.vertex)
-          : snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, null, null, alignSrcs()).p;
+          ? checkpoint.graph.pt(hit.vertex)
+          : snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, alignSources: alignSrcs(), hand: freshHand() }).p;
         cursor3 = anchor3;
         armed = false;
         canArm = ev.pointerType === "mouse";
@@ -505,9 +516,9 @@ canvas.addEventListener("pointerdown", (ev) => {
       scrubbing = true;
       scrubAcc = new Set();
       hoverEdge = null;
-      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      const hit = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT);
       if (hit.edge !== undefined) scrubAcc.add(hit.edge);
-      computePreview();
+      computeLive();
       break;
     }
     case "select":
@@ -535,14 +546,14 @@ canvas.addEventListener("pointermove", (ev) => {
     hoverEdge = null;
     hoverFace = null;
     if (tool === "line" || tool === "rect" || tool === "move") {
-      const plane = drawPlaneAt(kernel, cam, vp(), s.x, s.y);
-      snapInfo = applyHysteresis(snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, plane, null, null, alignSrcs()), s.x, s.y);
+      const plane = drawPlaneAt(liveWorld(), cam, vp(), s.x, s.y);
+      snapInfo = applyHysteresis(snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane, alignSources: alignSrcs(), hand: freshHand() }), s.x, s.y);
       trackCharge(snapInfo);
     } else if (tool === "erase") {
-      hoverEdge = pickEntity(kernel, cam, vp(), s.x, s.y, HIT).edge ?? null;
+      hoverEdge = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT).edge ?? null;
     } else if (tool === "eraseFace") {
-      hoverFace = pickEntity(kernel, cam, vp(), s.x, s.y, HIT).face ?? null;
-      computePreview();
+      hoverFace = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT).face ?? null;
+      computeLive();
     }
     updateTip(ev.clientX, ev.clientY);
     draw();
@@ -551,7 +562,7 @@ canvas.addEventListener("pointermove", (ev) => {
   switch (tool) {
     case "line":
       if (anchor3) {
-        snapInfo = applyHysteresis(snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs()), s.x, s.y);
+        snapInfo = applyHysteresis(snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3, alignSources: alignSrcs(), hand: freshHand() }), s.x, s.y);
         trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
       }
@@ -564,17 +575,17 @@ canvas.addEventListener("pointermove", (ev) => {
         const anc = anchor3, n = ppNormal;
         // 光标通道：世界=中间态（WYSIWYG 无鬼），排除=壳集∪贴移动帽平面（COPY 新生帽环通吃）；
         // 遮挡世界=旧核（静态面+旧位手中体，h 无关）；不吸轴/共轴（user：pp 不吸 xyz 轴）
-        const wk = preview ?? kernel;
-        const hNow = ppH;   // preview 由它而建 → 谓词与世界同代
-        // 帽平面排除只杀**新生 vid**（COPY 帽环）：静态老 vid 永不按 h 排除——否则「恰在 h 高度
-        // 的静态目标」吸到即被排=回路复发（探针 P5 实锤）；切环=新生但在静态高度 → 保留
-        const excl = (vid: VertexId): boolean =>
-          ppShellVids.has(vid) ||
-          (!ppKnownVids.has(vid) && Math.abs(dot3(sub3(wk.graph.pt(vid), anc), n) - hNow) < 0.01);
+        const wk = liveWorld();
+        const hNow = ppH;   // live 由它而建 → 谓词与世界同代
+        // pp 手（opaque=帽挡背后=SU 连续）：壳集 ∪（**新生 vid** ∧ 贴移动帽平面——COPY 帽环通吃）。
+        // 静态老 vid 永不按 h 排除（恰在 h 高度的静态目标吸到即被排=回路复发，探针 P5）；切环=新生但静态高度 → 保留
+        const hand: AlignHand = {
+          has: (vid) => ppShellVids.has(vid) ||
+            (!ppKnownVids.has(vid) && Math.abs(dot3(sub3(wk.graph.pt(vid), anc), n) - hNow) < 0.01),
+          opaque: true,
+        };
         const sn = applyHysteresis(
-          // 遮挡世界=中间态（user 2026-09-03 bug1：新长的墙必须挡住底面远边；光标在帽上=背后无目标=SU 连续。
-          // 不动点：可见性阈值=自身高度时边界仍可见（贴面不算挡），残余掠射闪烁由滞回吸收）
-          snapPoint(wk, cam, vp(), s.x, s.y, SNAP, gesturePlane, anc, excl, undefined, { axes: false, occluder: wk }),
+          snapPoint(wk, cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anc, lines: false, hand }),
           s.x, s.y);
         hoverFace = null;
         let ref = "";
@@ -585,11 +596,18 @@ canvas.addEventListener("pointermove", (ev) => {
         } else {
           snapInfo = null;
           const ray1 = cam.screenRay(s.x, s.y, vp());
-          // 面高度源=旧核：静态面两世界恒等，唯一动态面 ppFace 已按 id 排除
-          const hitF = pickEntity(kernel, cam, vp(), s.x, s.y, 0.5).face;
-          if (hitF !== undefined && hitF !== ppFace) {
-            const rec = kernel.planeOf(hitF)!;
-            const q = rayPlane(ray1.origin, ray1.dir, rec.plane.n, rec.plane.d);
+          // 取面高度也查现实 SSoT（user 2026-09-03 立法「遮挡必须用现实的 SSoT，不要用旧鬼」）：
+          // 旧核在下推时「新帽↔旧帽之间的空气带」里还有鬼墙鬼帽=push 吸鬼案真身。
+          // 现实世界拾取 + 手中膜跳过 + ∥推向的面拒收（其"高度"随光标漂=垃圾）
+          const hitF = pickEntity(wk, cam, vp(), s.x, s.y, 0.5).face;
+          const hitRec = hitF !== undefined ? wk.planeOf(hitF) : undefined;
+          const hitHand = hitF !== undefined && (() => {
+            const f = wk.face(hitF);
+            if (!f) return true;
+            return [...ringVidsTolerant(wk.graph, f.outer), ...f.holes.flatMap((hh) => ringVidsTolerant(wk.graph, hh))].some(hand.has);
+          })();
+          if (hitF !== undefined && hitF !== ppFace && !hitHand && hitRec && Math.abs(dot3(hitRec.plane.n, n)) > 0.05) {
+            const q = rayPlane(ray1.origin, ray1.dir, hitRec.plane.n, hitRec.plane.d);
             if (q) {
               ppH = dot3(sub3(q, anc), n);
               hoverFace = hitF;
@@ -618,14 +636,14 @@ canvas.addEventListener("pointermove", (ev) => {
       break;
     case "move":
       if (moveVids.length && anchor3) {
-        const w = dragSnapWorld(new Set(moveVids));
-        snapInfo = applyHysteresis(snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()), s.x, s.y);
+        const mv = new Set(moveVids);
+        snapInfo = applyHysteresis(snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3, alignSources: alignSrcs(), hand: freshHand((vid) => mv.has(vid)) }), s.x, s.y);
         trackCharge(snapInfo, 120);
         cursor3 = snapInfo.p;
       }
       break;
     case "erase": {
-      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      const hit = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT);
       if (hit.edge !== undefined) scrubAcc.add(hit.edge);
       break;
     }
@@ -647,7 +665,7 @@ canvas.addEventListener("pointermove", (ev) => {
     case "eraseFace":
       break;
   }
-  if (tool !== "select") computePreview();
+  if (tool !== "select") computeLive();
   updateTip(ev.clientX, ev.clientY);
   draw();
 });
@@ -666,7 +684,7 @@ canvas.addEventListener("pointerup", (ev) => {
         break;
       }
       const a = anchor3;
-      const b = snapPoint(kernel, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, null, alignSrcs()).p;
+      const b = snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3, alignSources: alignSrcs(), hand: freshHand() }).p;
       if (dist(a, b) < 1) { cancelGesture(); break; }
       const evs = commitOp({ op: "addEdges", segs: [[a, b]] });
       appendLog(evs);
@@ -715,13 +733,13 @@ canvas.addEventListener("pointerup", (ev) => {
         hintEl.textContent = "移动中：所见即所得预览，再点一下放置；Esc 取消";
         break;
       }
-      const w = dragSnapWorld(new Set(moveVids));
-      const target = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()).p;
+      const mv = new Set(moveVids);
+      const target = snapPoint(liveWorld(), cam, vp(), s.x, s.y, SNAP, { plane: gesturePlane, anchor: anchor3, alignSources: alignSrcs(), hand: freshHand((vid) => mv.has(vid)) }).p;
       const delta = { x: target.x - anchor3.x, y: target.y - anchor3.y, z: target.z - anchor3.z };
       const vids = moveVids;
       const d = Math.hypot(delta.x, delta.y, delta.z);
       cancelGesture();
-      if (d >= 0.3) appendLog(commitOp({ op: "move", moves: translateMoves(kernel, vids, delta) }));
+      if (d >= 0.3) appendLog(commitOp({ op: "move", moves: translateMoves(checkpoint, vids, delta) }));
       break;
     }
     case "erase": {
@@ -736,13 +754,13 @@ canvas.addEventListener("pointerup", (ev) => {
       const wasDrag = Math.hypot(marqueeCur.x - marqueeStart.x, marqueeCur.y - marqueeStart.y) > 4;
       let picked: Selection;
       if (wasDrag) {
-        picked = marqueeScreen(kernel, cam, vp(), {
+        picked = marqueeScreen(checkpoint, cam, vp(), {
           minX: Math.min(marqueeStart.x, marqueeCur.x), maxX: Math.max(marqueeStart.x, marqueeCur.x),
           minY: Math.min(marqueeStart.y, marqueeCur.y), maxY: Math.max(marqueeStart.y, marqueeCur.y),
         });
       } else {
         picked = emptySelection();
-        const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+        const hit = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT);
         if (hit.edge !== undefined) picked.edges.add(hit.edge);
         else if (hit.face !== undefined) picked.faces.add(hit.face);
       }
@@ -757,7 +775,7 @@ canvas.addEventListener("pointerup", (ev) => {
       break;
     }
     case "eraseFace": {
-      const hit = pickEntity(kernel, cam, vp(), s.x, s.y, HIT);
+      const hit = pickEntity(liveWorld(), cam, vp(), s.x, s.y, HIT);
       cancelGesture();
       if (hit.face !== undefined) appendLog(commitOp({ op: "eraseFaces", ids: [hit.face] }));
       break;
@@ -771,7 +789,7 @@ canvas.addEventListener("pointerleave", () => {
     snapInfo = null;
     hoverEdge = null;
     hoverFace = null;
-    preview = null;
+    live = null;
     tipEl.style.display = "none";
     hintEl.textContent = HINT_DEFAULT;
     draw();

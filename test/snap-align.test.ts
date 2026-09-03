@@ -22,7 +22,7 @@ describe("snap: 轴对齐约束层", () => {
   it("原点点吸附（永久源）", () => {
     const c = topCam();
     const s = at(c, { x: 0.2, y: 0.3, z: 0 });
-    const r = snapPoint(new Kernel(), c, VP, s.x, s.y, TOL, GROUND);
+    const r = snapPoint(new Kernel(), c, VP, s.x, s.y, TOL, { plane: GROUND });
     eq(r.kind, "origin", "kind=origin");
     assert(Math.abs(r.p.x) < 1e-9 && Math.abs(r.p.y) < 1e-9, "吸到 (0,0)");
   });
@@ -30,7 +30,7 @@ describe("snap: 轴对齐约束层", () => {
   it("坐标轴线吸附 = 过原点的共轴线（无 anchor 也生效）", () => {
     const c = topCam();
     const s = at(c, { x: 5, y: 0.4, z: 0 });
-    const r = snapPoint(new Kernel(), c, VP, s.x, s.y, TOL, GROUND);
+    const r = snapPoint(new Kernel(), c, VP, s.x, s.y, TOL, { plane: GROUND });
     eq(r.kind, "align", "kind=align");
     assert(Math.abs(r.p.y) < 1e-9, "吸到 X 轴上 (y=0)");
     assert(Math.abs(r.p.x - 5) < 0.2, "沿轴滑动到光标处");
@@ -45,7 +45,7 @@ describe("snap: 轴对齐约束层", () => {
     k.addEdges([[{ x: 0, y: 0 }, { x: 10, y: 0 }]]);
     const c = topCam();
     const s = at(c, { x: 0.3, y: 6.2, z: 0 });
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 6, z: 0 });
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, { plane: GROUND, anchor: { x: 10, y: 6, z: 0 } });
     eq(r.kind, "align-combo", "kind=align-combo");
     assert(Math.abs(r.p.x) < 1e-9 && Math.abs(r.p.y - 6) < 1e-9, `角点=(0,6)，实际 (${r.p.x},${r.p.y})`);
     eq(r.hints?.length, 2, "两条提示线");
@@ -54,7 +54,7 @@ describe("snap: 轴对齐约束层", () => {
   it("anchor 世界轴锁保留旧 kind（axis-x）", () => {
     const c = topCam();
     const s = at(c, { x: 7, y: 0.2, z: 0 });
-    const r = snapPoint(new Kernel(), c, VP, s.x, s.y, TOL, GROUND, { x: 0, y: 0, z: 0 });
+    const r = snapPoint(new Kernel(), c, VP, s.x, s.y, TOL, { plane: GROUND, anchor: { x: 0, y: 0, z: 0 } });
     eq(r.kind, "axis-x", "anchor 源 → legacy kind");
     assert(Math.abs(r.p.y) < 1e-9, "锁在 X 轴");
   });
@@ -70,7 +70,7 @@ describe("snap: 轴平行 3D（XZ/YZ 画图入口）", () => {
     c.target = { x: 5, y: 0, z: 5 };
     c.halfH = 50;
     const s = at(c, { x: 10.2, y: 0, z: 9.8 });
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 0, z: 0 }, null, [{ x: 0, y: 0, z: 10 }]);
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, { plane: GROUND, anchor: { x: 10, y: 0, z: 0 }, alignSources: [{ x: 0, y: 0, z: 10 }] });
     eq(r.kind, "align-combo", "kind=align-combo");
     assert(Math.abs(r.p.x - 10) < 1e-9 && Math.abs(r.p.z - 10) < 1e-9, `角点=(10,0,10)，实际 (${r.p.x},${r.p.y},${r.p.z})`);
   });
@@ -83,7 +83,7 @@ describe("snap: 轴平行 3D（XZ/YZ 画图入口）", () => {
     c.target = { x: 5, y: 2, z: 5 };
     c.halfH = 50;
     const s = at(c, { x: 10.1, y: 4.2, z: 9.9 });
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND, { x: 10, y: 5, z: 0 }, null, [{ x: 0, y: 0, z: 10 }]);
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, { plane: GROUND, anchor: { x: 10, y: 5, z: 0 }, alignSources: [{ x: 0, y: 0, z: 10 }] });
     assert(r.kind !== "align-combo", `不许假相交合成（实际 kind=${r.kind}）`);
   });
 });
@@ -151,7 +151,7 @@ describe("snap: 派生相交轨迹（可描不改图，user 2026-09-01 拍板）
     k.addEdges([[{ x: 0, y: 0 }, { x: 6, y: 0 }], [{ x: 10, y: 4 }, { x: 10, y: 1 }]]);
     const c = topCam();
     const s = at(c, { x: 10, y: -0.5, z: 0 });  // 离 (10,1) 端点的 ε 圈远一点（端点 rank 更高）
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND);
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, { plane: GROUND });
     eq(r.kind, "intersection", "kind=交点");
     assert(Math.abs(r.p.x - 10) < 1e-9 && Math.abs(r.p.y) < 1e-9, `延长交点=(10,0)，实际 (${r.p.x},${r.p.y})`);
   });
@@ -170,7 +170,7 @@ describe("snap: 派生相交轨迹（可描不改图，user 2026-09-01 拍板）
     c.target = { x: 10, y: 10, z: 0 };
     c.halfH = 30;
     const s = at(c, { x: 8, y: 10, z: 0 });
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, GROUND);
+    const r = snapPoint(k, c, VP, s.x, s.y, TOL, { plane: GROUND });
     eq(r.kind, "cross-line", "kind=交线");
     assert(Math.abs(r.p.y - 10) < 1e-6 && Math.abs(r.p.z) < 1e-6, `吸在交线上，实际 (${r.p.x},${r.p.y},${r.p.z})`);
     assert(r.hints?.some((h) => h.axis === "i"), "整段交线高亮提示");
@@ -222,10 +222,10 @@ describe("snap: 膜遮挡过滤（2026-09-03：隐藏几何不参赛，乱闪修
     loop([{ x: 5, y: 5, z: 0 }, { x: 15, y: 5, z: 0 }, { x: 15, y: 15, z: 0 }, { x: 5, y: 15, z: 0 }]); // 其下小方
     const c = topCam();
     const s1 = at(c, { x: 5, y: 5, z: 0 });
-    const r1 = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND);
+    const r1 = snapPoint(k, c, VP, s1.x, s1.y, TOL, { plane: GROUND });
     assert(!(r1.kind === "endpoint" && Math.abs(r1.p.z) < 1e-9), `底层角点被膜盖住不该赢（实际 kind=${r1.kind} z=${r1.p.z}）`);
     const s2 = at(c, { x: 0.2, y: 0.3, z: 5 });
-    const r2 = snapPoint(k, c, VP, s2.x, s2.y, TOL, GROUND);
+    const r2 = snapPoint(k, c, VP, s2.x, s2.y, TOL, { plane: GROUND });
     eq(r2.kind, "endpoint", "露天高台角点照常吸");
   });
 });
@@ -242,10 +242,10 @@ describe("snap: 遮挡下沉求解层（2026-09-03 二刀：轴线/共轴候选�
     c.halfH = 40;
     const anchor = { x: 5, y: 15, z: 0 };
     const s1 = at(c, { x: 12, y: 15, z: 0 });    // 墙后：anchor 的 X 轴线候选点被挡
-    const r1 = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND, anchor);
+    const r1 = snapPoint(k, c, VP, s1.x, s1.y, TOL, { plane: GROUND, anchor: anchor });
     assert(r1.kind !== "axis-x", `墙后轴锁应退赛（实际 kind=${r1.kind}）`);
     const s2 = at(c, { x: 40, y: 15, z: 0 });    // 墙外延（x=40+侧移出墙）→ 轴锁照常
-    const r2 = snapPoint(k, c, VP, s2.x, s2.y, TOL, GROUND, anchor);
+    const r2 = snapPoint(k, c, VP, s2.x, s2.y, TOL, { plane: GROUND, anchor: anchor });
     eq(r2.kind, "axis-x", "露天段轴锁照常");
   });
 });
@@ -260,13 +260,13 @@ describe("snap: WYSIWYG 吸附源（2026-09-03：拖拽吸影子副本−手中�
     const excl = (vid: number): boolean => vid === B;
     const c = new OrbitCamera();
     c.halfH = 40;
-    const rOld = snapPoint(shadow, c, VP, at(c, { x: 20, y: 0, z: 0 }).x, at(c, { x: 20, y: 0, z: 0 }).y, TOL, GROUND, null, excl);
+    const rOld = snapPoint(shadow, c, VP, at(c, { x: 20, y: 0, z: 0 }).x, at(c, { x: 20, y: 0, z: 0 }).y, TOL, { plane: GROUND, hand: { has: excl, opaque: false } });
     assert(rOld.kind !== "endpoint" && rOld.kind !== "on-edge" && rOld.kind !== "midpoint", `旧位残影不吸（实际 ${rOld.kind}）`);
     const sNew = at(c, { x: 20, y: 10, z: 0 });
-    const rNew = snapPoint(shadow, c, VP, sNew.x, sNew.y, TOL, GROUND, null, excl);
+    const rNew = snapPoint(shadow, c, VP, sNew.x, sNew.y, TOL, { plane: GROUND, hand: { has: excl, opaque: false } });
     assert(rNew.kind !== "endpoint", `手中顶点自身不吸（实际 ${rNew.kind}）`);
     const sA = at(c, { x: 0, y: 0, z: 0 });
-    const rA = snapPoint(shadow, c, VP, sA.x, sA.y, TOL, GROUND, null, excl);
+    const rA = snapPoint(shadow, c, VP, sA.x, sA.y, TOL, { plane: GROUND, hand: { has: excl, opaque: false } });
     eq(rA.kind, "endpoint", "静态固定端照吸");
   });
 });
@@ -282,9 +282,9 @@ describe("snap: 抖动三修（2026-09-03：手不遮挡/重叠轴稳定裁决�
     c.target = { x: 10, y: 10, z: 4 };
     c.halfH = 40;
     const s1 = at(c, { x: 10, y: 15, z: 0 });
-    const rBlocked = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND);
+    const rBlocked = snapPoint(k, c, VP, s1.x, s1.y, TOL, { plane: GROUND });
     assert(rBlocked.kind !== "endpoint", `对照组：墙在别人手里时目标被挡（实际 ${rBlocked.kind}）`);
-    const rHand = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND, null, (vid) => wallVids.has(vid));
+    const rHand = snapPoint(k, c, VP, s1.x, s1.y, TOL, { plane: GROUND, hand: { has: (vid) => wallVids.has(vid), opaque: false } });
     eq(rHand.kind, "endpoint", "墙在手里：不遮挡 → 身后目标端点照吸");
   });
   it("重叠轴裁决稳定：anchor 轴与共线充能 align 永远判 axis，微扰不翻", () => {
@@ -295,7 +295,7 @@ describe("snap: 抖动三修（2026-09-03：手不遮挡/重叠轴稳定裁决�
     const s0 = at(c, { x: 15, y: 0.2, z: 0 });
     const kinds = new Set<string | null>();
     for (const j of [-0.4, -0.2, 0, 0.2, 0.4]) {
-      kinds.add(snapPoint(new Kernel(), c, VP, s0.x + j, s0.y + j * 0.7, TOL, GROUND, anchor, null, srcs).kind);
+      kinds.add(snapPoint(new Kernel(), c, VP, s0.x + j, s0.y + j * 0.7, TOL, { plane: GROUND, anchor: anchor, alignSources: srcs }).kind);
     }
     eq(kinds.size, 1, `微扰下裁决应唯一（实际 ${[...kinds].join(",")}）`);
     eq([...kinds][0], "axis-x", "重叠时 axis 优先于 align");
