@@ -58,7 +58,7 @@ export function solvePoint(
   view: View,
   s: { x: number; y: number },
   C: readonly Constraint[],
-  opts?: { comboEps?: number },
+  opts?: { comboEps?: number; hidden?: (p: Pt3) => boolean },
 ): Solution | null {
   const { cam, vp } = view;
   const comboEps = opts?.comboEps ?? EPS.combo;
@@ -86,11 +86,12 @@ export function solvePoint(
 
   const cands: Solution[] = [];
   const act1: { c: Constraint; l: { a: Pt3; dir: Pt3; len?: number } }[] = [];
+  const hid = opts?.hidden;
   for (const c of C) {
     const L = c.locus;
     if (L.dim === 0) {
       const d = sd(L.p);
-      if (d <= c.eps) cands.push({ p: L.p, dim: 0, rank: c.rank, d, used: [c] });
+      if (d <= c.eps && !(hid && hid(L.p))) cands.push({ p: L.p, dim: 0, rank: c.rank, d, used: [c] });
     } else if (L.dim === 1) {
       const d = lineScreenDist(L.a, L.dir, L.len);
       if (d > c.eps) continue;
@@ -102,6 +103,7 @@ export function solvePoint(
         t = Math.max(0, Math.min(L.len, t));
         p = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
       }
+      if (hid && hid(p)) continue;   // 遮挡：候选解点被膜盖住即退赛（轴线/共轴/局部隐藏边全覆盖）
       cands.push({ p, dim: 1, rank: c.rank, d, used: [c] });
       act1.push({ c, l: L });
     } else {
@@ -114,6 +116,7 @@ export function solvePoint(
     for (let j = i + 1; j < act1.length; j++) {
       const q = intersect1D(act1[i].l, act1[j].l);
       if (!q) continue;
+      if (hid && hid(q)) continue;
       const d = sd(q);
       if (d > comboEps) continue;
       cands.push({ p: q, dim: 0, rank: Math.max(act1[i].c.rank, act1[j].c.rank), d, used: [act1[i].c, act1[j].c] });
@@ -352,7 +355,10 @@ export function snapPoint(
   const scale = tolPx / 8;
   const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, excludeVid, alignSources, cam });
   if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
-  const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, { comboEps: EPS.combo * scale });
+  const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, {
+    comboEps: EPS.combo * scale,
+    hidden: (p) => occludedBy(k, cam, p),
+  });
   if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const hints: SnapHint[] = [];
   for (const c of sol.used) {

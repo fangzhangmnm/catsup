@@ -229,3 +229,23 @@ describe("snap: 膜遮挡过滤（2026-09-03：隐藏几何不参赛，乱闪修
     eq(r2.kind, "endpoint", "露天高台角点照常吸");
   });
 });
+
+describe("snap: 遮挡下沉求解层（2026-09-03 二刀：轴线/共轴候选点被膜盖住即退赛）", () => {
+  it("墙后的轴锁候选不再吸；墙外区段照常", () => {
+    const k = new Kernel();
+    const segs: [Pt3, Pt3][] = [];
+    const pts = [{ x: 0, y: 10, z: 0 }, { x: 20, y: 10, z: 0 }, { x: 20, y: 10, z: 8 }, { x: 0, y: 10, z: 8 }];
+    for (let i = 0; i < 4; i++) segs.push([pts[i], pts[(i + 1) % 4]]);
+    k.addEdges(segs);   // 竖墙膜 y=10
+    const c = new OrbitCamera();     // 默认视角从 y<10 侧看，y>10 世界被墙挡
+    c.target = { x: 10, y: 10, z: 4 };
+    c.halfH = 40;
+    const anchor = { x: 5, y: 15, z: 0 };
+    const s1 = at(c, { x: 12, y: 15, z: 0 });    // 墙后：anchor 的 X 轴线候选点被挡
+    const r1 = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND, anchor);
+    assert(r1.kind !== "axis-x", `墙后轴锁应退赛（实际 kind=${r1.kind}）`);
+    const s2 = at(c, { x: 40, y: 15, z: 0 });    // 墙外延（x=40+侧移出墙）→ 轴锁照常
+    const r2 = snapPoint(k, c, VP, s2.x, s2.y, TOL, GROUND, anchor);
+    eq(r2.kind, "axis-x", "露天段轴锁照常");
+  });
+});
