@@ -10,7 +10,8 @@
 // 秩表注：anchor 轴与充能共轴同秩（距离裁决）；合成秩 = max(参与者)——天然排出
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
-import type { Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
+import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 
@@ -124,7 +125,17 @@ export function solvePoint(
   }
   if (!cands.length) return null;
   // ③ 字典序选择
-  cands.sort((a, b) => a.dim - b.dim || b.rank - a.rank || a.d - b.d);
+  // 重叠轨迹稳定裁决（user 2026-09-03：两条一直重叠的轴不许来回翻）：
+  // dist 量化 0.5px 桶——同线候选精确同距，浮点噪声不换桶；同桶再按 tag 确定性排序
+  const KIND_PRI: Record<string, number> = { endpoint: 0, origin: 0, midpoint: 0, axis: 1, align: 2, "edge-align": 3, edge: 4 };
+  const tagKey = (x: Solution): string => {
+    const t = x.used[0]?.tag as { kind?: string; axis?: string; src?: Pt3 } | undefined;
+    return `${KIND_PRI[t?.kind ?? ""] ?? 9}|${t?.kind ?? ""}|${t?.axis ?? ""}|${t?.src ? ptKey3(t.src) : ""}`;
+  };
+  cands.sort((a, b) =>
+    a.dim - b.dim || b.rank - a.rank ||
+    Math.round(a.d * 2) - Math.round(b.d * 2) ||
+    (tagKey(a) < tagKey(b) ? -1 : tagKey(a) > tagKey(b) ? 1 : 0));
   return cands[0];
 }
 
@@ -136,6 +147,8 @@ export interface SnapContext {
   anchor?: Pt3 | null;
   alignSources?: readonly Pt3[] | null;
   exclude?: ((vid: VertexId) => boolean) | null;
+  skipFace?: ((fid: FaceId) => boolean) | null;   // 遮挡豁免：手里抓着的膜（环上有 exclude 顶点）
+
 }
 
 const DIRS: { axis: AxName; dir: Pt3 }[] = [
@@ -145,9 +158,10 @@ const DIRS: { axis: AxName; dir: Pt3 }[] = [
 ];
 
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。 */
-function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3): boolean {
+function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
   const dir = cam.eyeDir();
   for (const f of k.faces()) {
+    if (skip?.(f.id)) continue;   // 手中膜不遮挡（2026-09-03：追光标的膜反复遮住目标=振荡假吸）
     const rec = k.planeOf(f.id);
     const face = k.face(f.id);
     if (!rec || !face) continue;
@@ -168,7 +182,7 @@ function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3): boolean {
 export function buildConstraints(ctx: SnapContext): Constraint[] {
   const out: Constraint[] = [];
   const { k } = ctx;
-  const hidden = (p: Pt3): boolean => (ctx.cam ? occludedBy(k, ctx.cam, p) : false);
+  const hidden = (p: Pt3): boolean => (ctx.cam ? occludedBy(k, ctx.cam, p, ctx.skipFace ?? undefined) : false);
   for (const v of k.vertices()) {
     if (ctx.exclude?.(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
@@ -353,11 +367,20 @@ export function snapPoint(
   // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
   const scale = tolPx / 8;
-  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, exclude, alignSources, cam });
+  let skipFace: ((fid: FaceId) => boolean) | null = null;
+  if (exclude) {
+    const hand = new Set<FaceId>();
+    for (const f of k.faces()) {
+      const vids = [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))];
+      if (vids.some((v) => exclude(v))) hand.add(f.id);
+    }
+    if (hand.size) skipFace = (fid) => hand.has(fid);
+  }
+  const C = buildConstraints({ k, plane: plane.plane, basis: plane.basis, anchor, exclude, alignSources, cam, skipFace });
   if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
   const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, {
     comboEps: EPS.combo * scale,
-    hidden: (p) => occludedBy(k, cam, p),
+    hidden: (p) => occludedBy(k, cam, p, skipFace ?? undefined),
   });
   if (!sol) return { p: anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const hints: SnapHint[] = [];

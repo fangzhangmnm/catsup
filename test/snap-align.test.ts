@@ -270,3 +270,34 @@ describe("snap: WYSIWYG 吸附源（2026-09-03：拖拽吸影子副本−手中�
     eq(rA.kind, "endpoint", "静态固定端照吸");
   });
 });
+
+describe("snap: 抖动三修（2026-09-03：手不遮挡/重叠轴稳定裁决）", () => {
+  it("手里的膜不遮挡身后的静态目标", () => {
+    const k = new Kernel();
+    const pts = [{ x: 0, y: 10, z: 0 }, { x: 20, y: 10, z: 0 }, { x: 20, y: 10, z: 8 }, { x: 0, y: 10, z: 8 }];
+    k.addEdges([0, 1, 2, 3].map((i) => [pts[i], pts[(i + 1) % 4]] as [Pt3, Pt3]));
+    k.addEdges([[{ x: 10, y: 15, z: 0 }, { x: 14, y: 15, z: 0 }]]);   // 墙后静态目标
+    const wallVids = new Set(k.vertices().filter((v) => v.y === 10).map((v) => v.id));
+    const c = new OrbitCamera();
+    c.target = { x: 10, y: 10, z: 4 };
+    c.halfH = 40;
+    const s1 = at(c, { x: 10, y: 15, z: 0 });
+    const rBlocked = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND);
+    assert(rBlocked.kind !== "endpoint", `对照组：墙在别人手里时目标被挡（实际 ${rBlocked.kind}）`);
+    const rHand = snapPoint(k, c, VP, s1.x, s1.y, TOL, GROUND, null, (vid) => wallVids.has(vid));
+    eq(rHand.kind, "endpoint", "墙在手里：不遮挡 → 身后目标端点照吸");
+  });
+  it("重叠轴裁决稳定：anchor 轴与共线充能 align 永远判 axis，微扰不翻", () => {
+    const c = new OrbitCamera();
+    c.halfH = 40;
+    const anchor = { x: 0, y: 0, z: 0 };
+    const srcs = [{ x: 30, y: 0, z: 0 }];   // 充能点在 anchor 的 X 轴上 → 两条 1-D 轨迹完全重叠
+    const s0 = at(c, { x: 15, y: 0.2, z: 0 });
+    const kinds = new Set<string | null>();
+    for (const j of [-0.4, -0.2, 0, 0.2, 0.4]) {
+      kinds.add(snapPoint(new Kernel(), c, VP, s0.x + j, s0.y + j * 0.7, TOL, GROUND, anchor, null, srcs).kind);
+    }
+    eq(kinds.size, 1, `微扰下裁决应唯一（实际 ${[...kinds].join(",")}）`);
+    eq([...kinds][0], "axis-x", "重叠时 axis 优先于 align");
+  });
+});

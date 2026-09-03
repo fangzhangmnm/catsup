@@ -538,7 +538,8 @@ canvas.addEventListener("pointermove", (ev) => {
     case "pp":
       if (ppFace !== null && anchor3 && ppNormal) {
         const w = dragSnapWorld(ppMovingVids());
-        const sn = snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs());
+        const sn = applyHysteresis(snapPoint(w.k, cam, vp(), s.x, s.y, SNAP, gesturePlane, anchor3, w.excl, alignSrcs()), s.x, s.y);   // pp 一直没滞回=目标跳变抖
+
         hoverFace = null;
         let ref = "";
         // 自平面滤除（user 2026-09-02：被推面自身的 rim/顶点会把 h 吸死在 0=推不动）：
