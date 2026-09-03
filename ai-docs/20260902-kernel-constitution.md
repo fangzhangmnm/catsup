@@ -1,6 +1,6 @@
 # CatsUp 核心几何引擎 · 立宪一页
 
-> as-of v0.2.8 / 2026-09-02（创建日）· created by Claude Fable 5
+> as-of v0.2.9 / 2026-09-02（创建日）· created by Claude Fable 5 · rev1=pp 垂直判据（同日）
 > **铁律（user）：任何核心改动必须及时回写本页。**
 > 验收标准：代码库丢失时，凭本页 + golden 语料（test/）可复原引擎。细节附件：
 > 求解器数学=`20260901-solver-math-onepager.md`；move/pp 案卷=`20260901-move-spec.md`、`20260901-pushpull-grill-sheet.md`。
@@ -38,8 +38,11 @@ PlaneRegistry（τ 容差的平面 sticky 身份 + 确定性正交基 → 2D 管
   move 不注手势 → 永不生膜（守恒律 by construction）；膜像=顶点 id 环快照经合并映射后的新坐标闭折线。
 - **pp 注 XOR**：着陆偶数认领成对湮灭（甜甜圈/贴边打穿——**有意不跟 SU 的 if**）；构造相位 parity
   翻灭（已有膜区域外环 ⊆ 手势∪被推面原环 → 灭；空区照常 BIRTH）。
-  pp=宏（move(面环,h·n̂) + 裸边界补壁带手势）；边界三分类 **travel**（裸边随行）/**stretch**（非共面邻
-  膜伸缩）/**detach**（共面邻膜=子面：原环留守、目标环下潜）；收尾清「操作涉及边中 faceLinks==0」裸线。
+  pp=宏（move + 补构手势线）；**边分类=平面不变式（2026-09-02 垂直判据，取代共面判据）**：
+  边可 MOVE ⟺ 平移不改任何邻膜的平面（n_邻·n̂=0，邻面平行于拉方向）——裸边=MOVE+原位补底；
+  全邻平行=MOVE（墙一体伸缩/结构性缺口）；任一邻不平行（共面半/棱台斜面）=COPY（原边留守，
+  目标副本+竖棱）；**frontier**（MOVE 边一端被 COPY 扣留）=删原画新（残线病根）；含 COPY 时
+  被拉膜先蒸发再由目标环 BIRTH。收尾清「操作涉及边中 faceLinks==0」裸线。
 - **erase 按 loop 身份**（不做覆盖查找）：外环对 void=BURST；同膜双现（桥）/内环=ABSORB；
   同面共享=MERGE；批量以批始快照裁决，顺序无关。
 - **事件=纯叙事**（贴图纪元消费 id 血缘）：BIRTH/DIVIDE/MERGE/ABSORB/BURST/STRETCH/FACE_ERASED；

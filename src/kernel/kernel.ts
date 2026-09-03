@@ -8,6 +8,7 @@ import {
   type Pt3,
   add3,
   dist3,
+  dot3,
   scale3,
   distToPlane,
   distToSegment3,
@@ -113,8 +114,26 @@ export class Kernel {
   moveVertices(moves: readonly { id: VertexId; to: PtIn }[], algebra: "or" | "xor" = "or"): FaceEvent[] {
     // 快照：每面全环（外+洞）顶点 id + 受牵连面
     const snaps = new Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>();
-    const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): VertexId[] =>
-      r.edges.map((d) => (d.forward ? this.graph.edge(d.edge).a : this.graph.edge(d.edge).b));
+    // 容错版环快照（2026-09-02 pp v3：frontier 边可在 move 之前被宏删除——缺失边的起点
+    // 用前一条边的终点补齐，环折线不失顶点）
+    const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): VertexId[] => {
+      const out: VertexId[] = [];
+      const es = r.edges;
+      for (let i = 0; i < es.length; i++) {
+        const d = es[i];
+        if (this.graph.hasEdge(d.edge)) {
+          const e = this.graph.edge(d.edge);
+          out.push(d.forward ? e.a : e.b);
+        } else {
+          const prev = es[(i - 1 + es.length) % es.length];
+          if (this.graph.hasEdge(prev.edge)) {
+            const pe = this.graph.edge(prev.edge);
+            out.push(prev.forward ? pe.b : pe.a);
+          }
+        }
+      }
+      return out;
+    };
     for (const f of this.store.faces()) {
       snaps.set(f.id, { outer: ringVids(f.outer), holes: f.holes.map(ringVids) });
     }
@@ -206,79 +225,127 @@ export class Kernel {
    * 盒面再拉 = 纯 ①（邻壁伸缩，无补壁）。挖洞（1+1=0 意图特例）与暗礁② 待真机裁决，v1 不做：
    * 推到与他面重合 = 普通 sticky 语义（dedup 1+1=1）。
    */
+  /**
+   * push/pull v3（2026-09-02 垂直判据拍板，user 论证：move 只有在**不改变被引用面斜度**时合法）：
+   * 边分类 = **平面不变式**——边沿 δ=h·n̂ 平移仍留在邻膜平面内 ⟺ n_邻·n̂=0：
+   *   · 裸边（无邻）→ MOVE+原位补底（SU 拉孤面成闭盒）
+   *   · 全部邻膜平行于拉方向 → MOVE（墙 sticky 伸缩/结构性缺口，无缝无 parity 戏法）
+   *   · 任一邻膜不平行（共面半、棱台斜面）→ COPY（原边留守邻膜，目标副本下/上潜）
+   * frontier（MOVE 边的某端被 COPY 边扣留）→ 删原画新（dest 段+端点竖棱）——loose 残线病根即此。
+   * 含 COPY 时被拉膜先蒸发（防非平面快照触 autofold），目标环 BIRTH；纯 MOVE 时膜随行。
+   * 着陆 XOR/口 parity/裸线收尾照旧。多选 pull＝park（SU 亦多年后才有）。
+   */
   pushPull(id: FaceId, dist: number): FaceEvent[] {
     const f = this.store.face(id);
     if (!f) return [];
     const rec = this.planes.rec(f.planeId);
-    const delta = scale3(rec.plane.n, dist);
+    const nrm = rec.plane.n;
+    const delta = scale3(nrm, dist);
     if (Math.abs(dist) < 1e-6) return [];
     const beforeEdges = new Set(this.graph.edges().map((e) => e.id));
-    const opRing = new Set<EdgeId>();
-    // 边界分类（2026-09-02 子面案）：travel=裸边（随面走）；stretch=有非共面邻膜（墙 sticky 伸缩）；
-    // detach=邻膜全共面（子面：原环留守当井口，目标环下潜）。
     const rings = [f.outer, ...f.holes];
-    let hasDetach = false, hasOther = false;
-    for (const ring of rings) {
-      for (const de of ring.edges) {
-        const e = this.graph.edge(de.edge);
-        opRing.add(e.id);
-        const others = e.faceLinks.filter((x) => x !== id);
-        if (others.length && others.every((o) => this.store.face(o)?.planeId === f.planeId)) hasDetach = true;
-        else hasOther = true;
-      }
-    }
-    if (hasDetach) {
-      // detach 模式（含混合，E8 墙 L 缺口实证 2026-09-02）：原环一动不动；目标环+竖棱（手势）；
-      // parity 设面统一收割：井口翻灭（原膜外环⊆f环）、墙扫带翻灭（rim∈f环+竖棱/目标段∈手势）、
-      // 着陆打穿（目标环切开对面膜、内片外环⊆手势）；空区照常 BIRTH（井底/内壁）。
-      // 贴边着陆同样打穿=有意不跟 SU（user 拍板：他们是 if 不是代数）。
-      const rimVerts = new Set<VertexId>();
-      const fRing = new Set<EdgeId>();
-      const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [];
-      for (const ring of rings) {
-        for (const de of ring.edges) {
-          const e = this.graph.edge(de.edge);
-          fRing.add(e.id);
-          rimVerts.add(e.a);
-          rimVerts.add(e.b);
-          segs.push({ a: add3(this.graph.pt(e.a), delta), b: add3(this.graph.pt(e.b), delta), gesture: true });
-        }
-      }
-      for (const v of rimVerts) {
-        const p = this.graph.pt(v);
-        segs.push({ a: p, b: add3(p, delta), gesture: true });
-      }
-      const evD = this.addSegmentsMixed(segs, fRing);
-      this.cleanupNakedEdges(beforeEdges, fRing);
-      return evD;
-    }
-    // 常规模式（travel/stretch：拉整面墙随行伸缩）
-    const vids = new Set<VertexId>();
-    const bareSegs: { a: Pt3; b: Pt3; gesture: boolean }[] = [];
-    const bareVerts = new Set<VertexId>();
+
+    // ---- 分类（平面不变式判据） ----
+    type Cls = "move" | "copy";
+    const cls = new Map<EdgeId, Cls>();
+    const fRing = new Set<EdgeId>();
+    const bare = new Set<EdgeId>();
+    const ringOf = new Map<EdgeId, number>();
     for (let ri = 0; ri < rings.length; ri++) {
       for (const de of rings[ri].edges) {
         const e = this.graph.edge(de.edge);
-        vids.add(e.a);
-        vids.add(e.b);
-        if (e.faceLinks.length === 1) {
-          // 洞环底边不带手势身份：只分割不生膜（管孔贯通，2026-09-02 方管案）；外环底边带
-          bareSegs.push({ a: this.graph.pt(e.a), b: this.graph.pt(e.b), gesture: ri === 0 });
-          bareVerts.add(e.a);
-          bareVerts.add(e.b);
+        fRing.add(e.id);
+        ringOf.set(e.id, ri);
+        const others = e.faceLinks.filter((x) => x !== id);
+        if (others.length === 0) {
+          cls.set(e.id, "move");
+          bare.add(e.id);
+        } else if (others.every((o) => {
+          const g = this.store.face(o);
+          return g ? Math.abs(dot3(this.planes.rec(g.planeId).plane.n, nrm)) <= 1e-3 : true;
+        })) {
+          cls.set(e.id, "move");
+        } else {
+          cls.set(e.id, "copy");
         }
       }
     }
-    const oldPos = new Map<VertexId, Pt3>([...vids].map((v) => [v, this.graph.pt(v)]));
-    const ev1 = this.moveVertices([...vids].map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) })), "xor");
-    const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [...bareSegs];
-    for (const v of bareVerts) segs.push({ a: oldPos.get(v)!, b: add3(oldPos.get(v)!, delta), gesture: true }); // 竖棱
-    const ev2 = segs.length ? this.addSegmentsMixed(segs, new Set<EdgeId>()) : [];
-    this.cleanupNakedEdges(beforeEdges, opRing);
-    return [...ev1, ...ev2];
+    // 顶点：incident 环边全 MOVE → 随行；含 COPY → 留守（frontier 顶点）
+    const vertCls = new Map<VertexId, { hasMove: boolean; hasCopy: boolean }>();
+    for (const eid of fRing) {
+      const e = this.graph.edge(eid);
+      const c = cls.get(eid)!;
+      for (const v of [e.a, e.b]) {
+        const rec2 = vertCls.get(v) ?? { hasMove: false, hasCopy: false };
+        if (c === "move") rec2.hasMove = true;
+        else rec2.hasCopy = true;
+        vertCls.set(v, rec2);
+      }
+    }
+    const travels = (v: VertexId): boolean => {
+      const c = vertCls.get(v)!;
+      return c.hasMove && !c.hasCopy;
+    };
+
+    const oldPos = new Map<VertexId, Pt3>();
+    for (const v of vertCls.keys()) oldPos.set(v, this.graph.pt(v));
+
+    const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [];
+    const hasCopyAny = [...cls.values()].some((c) => c === "copy");
+
+    // ---- COPY 边：目标副本 ----
+    for (const eid of fRing) {
+      if (cls.get(eid) !== "copy") continue;
+      const e = this.graph.edge(eid);
+      segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: true });
+    }
+    // ---- frontier MOVE 边：删原画新（一端被扣留，随行会拉斜——残线病根） ----
+    for (const eid of [...fRing]) {
+      if (cls.get(eid) !== "move" || bare.has(eid)) continue;
+      const e = this.graph.edge(eid);
+      if (travels(e.a) && travels(e.b)) continue; // 纯伸缩：随 moveVertices
+      segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: true });
+      this.graph.removeEdge(eid);
+    }
+    // ---- 裸边：补底副本（洞环不带手势——管孔贯通） + frontier 裸边同删原画新 ----
+    for (const eid of [...bare]) {
+      if (!this.graph.hasEdge(eid)) continue;
+      const e = this.graph.edge(eid);
+      segs.push({ a: oldPos.get(e.a)!, b: oldPos.get(e.b)!, gesture: ringOf.get(eid) === 0 });
+      if (!(travels(e.a) && travels(e.b))) {
+        segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: true });
+        this.graph.removeEdge(eid);
+      }
+    }
+    // ---- 竖棱：frontier 顶点的 riser + 随行裸边顶点的侧棱 ----
+    for (const [v, c] of vertCls) {
+      const p = oldPos.get(v)!;
+      if (c.hasCopy) {
+        segs.push({ a: p, b: add3(p, delta), gesture: true });          // riser（COPY 顶点全体：井壁/frontier）
+      } else if (travels(v) && [...bare].some((eid) => {
+        if (!beforeEdges.has(eid)) return false;
+        const stillHas = this.graph.hasEdge(eid);
+        const e0 = stillHas ? this.graph.edge(eid) : null;
+        return e0 ? (e0.a === v || e0.b === v) : false;
+      })) {
+        segs.push({ a: p, b: add3(p, delta), gesture: true });          // 拉孤面的四侧棱
+      }
+    }
+
+    // ---- 含 COPY：被拉膜先蒸发（口开），目标环经手势 BIRTH ----
+    const evErase = hasCopyAny ? this.eraseFaces([id]) : [];
+    // ---- 随行批（XOR 着陆） ----
+    const moves = [...vertCls.keys()].filter((v) => travels(v) && this.graph.hasVertex(v))
+      .map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) }));
+    const ev1 = moves.length ? this.moveVertices(moves, "xor") : [];
+    // ---- 构造批（parity 设面） ----
+    // parity toggle 只属于 copy/开口世界；纯 MOVE 的随行膜绝不能被自己的环 id 误杀
+    const ev2 = segs.length ? this.addSegmentsMixed(segs, hasCopyAny ? fRing : new Set<EdgeId>()) : [];
+    this.cleanupNakedEdges(beforeEdges, fRing);
+    return [...evErase, ...ev1, ...ev2];
   }
 
-  // ---------------- queries ----------------
+  // ---------------- queries ----------------  // ---------------- queries ----------------
 
   vertices(): Vertex[] { return this.graph.vertices(); }
   edges(): Edge[] { return this.graph.edges(); }

@@ -163,3 +163,56 @@ describe("push/pull: E8 角块（混合 detach——墙 L 缺口，2026-09-02 �
     assert(k.hitTest(P(12, 3, 4), 0.1).face !== undefined, "井壁成型");
   });
 });
+
+describe("push/pull v3: 垂直判据（user 2026-09-02 拍板——move 仅当不改邻膜斜度）", () => {
+  it("台阶：拉半顶 → 墙一体伸缩成 L 单面、零缝边（v2 分歧①修复）", () => {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    k.pushPull(k.faces()[0].id, 8);
+    k.addEdges([[P(0, 10, 8), P(20, 10, 8)]]);
+    const half = k.hitTest(P(10, 15, 8), 0.1).face!;
+    k.pushPull(half, 6);
+    eq(k.faces().length, 8, "下半顶+凸台顶+竖脸+4外墙+底");
+    const seam = k.edges().filter((e) => {
+      const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
+      return a.z === 8 && b.z === 8 && a.y >= 10 && b.y >= 10 && !(a.y === 10 && b.y === 10);
+    });
+    eq(seam.length, 0, "凸台外缘零缝边（墙一体伸缩）");
+    assert(k.hitTest(P(10, 20, 4), 0.1).face !== undefined && k.hitTest(P(10, 20, 11), 0.1).face !== undefined, "y=20 墙上下连续");
+    const wallY20 = k.hitTest(P(10, 20, 4), 0.1).face;
+    eq(k.hitTest(P(10, 20, 11), 0.1).face, wallY20, "上下是同一张墙膜");
+    assert(k.edges().every((e) => e.faceLinks.length > 0), "无裸边");
+    // 拍平回去（用户病例后半）：干净还原
+    const top2 = k.hitTest(P(10, 15, 14), 0.1).face!;
+    k.pushPull(top2, -6);
+    eq(k.faces().length, 7, "盒+分半顶");
+    eq(k.edges().length, 15, "12 棱+中线+顶点切分=15，零残留");
+    assert(!k.edges().some((e) => k.graph.pt(e.a).z > 8 || k.graph.pt(e.b).z > 8), "z>8 无残留");
+  });
+
+  it("棱台：拉斜面围成的顶 → 全 COPY（斜度不变），长方块不拉斜（SU 图19/20）", () => {
+    const k = new Kernel();
+    // 棱台：底 20²、顶 12²（斜壁），手绘五环
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    loop(k, [P(0, 0), P(20, 0), P(16, 4, 6), P(4, 4, 6)]);
+    loop(k, [P(20, 0), P(20, 20), P(16, 16, 6), P(16, 4, 6)]);
+    loop(k, [P(20, 20), P(0, 20), P(4, 16, 6), P(16, 16, 6)]);
+    loop(k, [P(0, 20), P(0, 0), P(4, 4, 6), P(4, 16, 6)]);
+    eq(k.faces().length, 6, "棱台六面（顶自动涌现）");
+    const top = k.hitTest(P(10, 10, 6), 0.1).face!;
+    k.pushPull(top, 5);
+    // 斜面斜度必须不变（COPY 判据本体）
+    for (const f of k.faces()) {
+      const n = k.planeOf(f.id)!.plane.n;
+      const isSlant = Math.abs(n.z) > 1e-6 && Math.abs(Math.abs(n.z) - 1) > 1e-6;
+      if (isSlant) {
+        const r = k.faceRings3(f.id)!;
+        assert(r.outer.every((p) => p.z <= 6 + 1e-6), `斜面未被拉动/拉斜（面#${f.id}）`);
+      }
+    }
+    assert(k.hitTest(P(10, 10, 11), 0.1).face !== undefined, "方块顶@11");
+    assert(k.hitTest(P(4, 10, 8.5), 0.1).face !== undefined, "方块直立侧壁");
+    assert(k.hitTest(P(10, 10, 6), 0.1).face === undefined, "口开（无内部地板）");
+    assert(k.edges().every((e) => e.faceLinks.length > 0), "无裸边");
+  });
+});
