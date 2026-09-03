@@ -78,8 +78,9 @@ export class Renderer3 {
     }
     const g = new THREE.Group();
 
-    // ---- 面 ----
+    // ---- 面（WYSIWYG：预览中会死的膜直接不画——user 2026-09-02「被删掉的面不应该显示」） ----
     for (const f of k.faces()) {
+      if (view.preview && !view.preview.face(f.id)) continue;
       const mesh = faceMesh(k, f.id, {
         color: FACE_COLORS[f.id % FACE_COLORS.length],
         opacity: 0.55,
@@ -112,15 +113,9 @@ export class Renderer3 {
       g.add(new THREE.Points(geo, new THREE.PointsMaterial({ color: 0x222222, size: 5, sizeAttenuation: false })));
     }
 
-    // ---- 预览 diff（会死灰罩 / 新生蓝面 / 新增蓝边） ----
+    // ---- 预览 diff（新生蓝面 / 新增蓝边；死膜已在基座层消失） ----
     if (view.preview) {
       const pk = view.preview;
-      for (const f of k.faces()) {
-        if (!pk.face(f.id)) {
-          const dead = faceMesh(k, f.id, { color: 0x333333, opacity: 0.35, offset: -3 });
-          if (dead) g.add(dead);
-        }
-      }
       const realEdges = new Map(k.edges().map((e) => [e.id, e]));
       const ghost: Pt3[] = [];
       for (const e of pk.edges()) {

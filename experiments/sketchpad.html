@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<!-- 一次性画板（experiments 可丢区）：user 画问题示意图用。created by Claude Fable 5 2026-09-02 -->
+<html lang="zh-CN"><head><meta charset="utf-8"><title>画板</title>
+<style>
+  html,body{margin:0;height:100%;overflow:hidden;background:#fff;font-family:system-ui}
+  #bar{position:fixed;top:8px;left:8px;display:flex;gap:6px;z-index:2}
+  button{padding:6px 12px;border:1px solid #aaa;border-radius:6px;background:#fafafa;font-size:14px}
+  button.on{background:#2b6cb0;color:#fff}
+  canvas{position:fixed;inset:0;touch-action:none;cursor:crosshair}
+</style></head><body>
+<canvas id="c"></canvas>
+<div id="bar">
+  <button data-c="#111" class="on">黑</button>
+  <button data-c="#cc3333">红</button>
+  <button data-c="#2b6cb0">蓝</button>
+  <button data-c="#2e8b57">绿</button>
+  <button id="undo">撤销</button>
+  <button id="clear">清空</button>
+</div>
+<script>
+const cv=document.getElementById('c'),ctx=cv.getContext('2d');
+let color='#111',strokes=[],cur=null;
+function resize(){const d=devicePixelRatio||1;cv.width=innerWidth*d;cv.height=innerHeight*d;ctx.setTransform(d,0,0,d,0,0);draw();}
+function draw(){ctx.clearRect(0,0,innerWidth,innerHeight);for(const s of strokes){ctx.strokeStyle=s.c;ctx.lineWidth=s.w;ctx.lineJoin=ctx.lineCap='round';ctx.beginPath();s.p.forEach((q,i)=>i?ctx.lineTo(q[0],q[1]):ctx.moveTo(q[0],q[1]));ctx.stroke();}}
+cv.addEventListener('pointerdown',e=>{cv.setPointerCapture(e.pointerId);cur={c:color,w:e.pointerType==='pen'?Math.max(1.5,e.pressure*5):2.5,p:[[e.clientX,e.clientY]]};strokes.push(cur);});
+cv.addEventListener('pointermove',e=>{if(!cur)return;for(const ev of (e.getCoalescedEvents?e.getCoalescedEvents():[e]))cur.p.push([ev.clientX,ev.clientY]);draw();});
+addEventListener('pointerup',()=>cur=null);
+document.querySelectorAll('#bar button[data-c]').forEach(b=>b.onclick=()=>{color=b.dataset.c;document.querySelectorAll('#bar button[data-c]').forEach(x=>x.classList.toggle('on',x===b));});
+document.getElementById('undo').onclick=()=>{strokes.pop();draw();};
+document.getElementById('clear').onclick=()=>{strokes=[];draw();};
+addEventListener('resize',resize);resize();
+</script></body></html>
