@@ -58,7 +58,7 @@ describe("push/pull: 灵魂手势", () => {
     assert(k.faces().some((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 5)), "顶面回落 z=5");
   });
 
-  it("E5 推平到底 = 彻底消失（边随葬规则的直接推论；F1 待 SU 对照——SU 留单面为已知分歧）", () => {
+  it("E5 推平到底 = 彻底消失（边随葬推论；F1 实测 SU 同款湮灭 2026-09-02）", () => {
     const k = new Kernel();
     loop(k, [P(0, 0), P(10, 0), P(10, 10), P(0, 10)]);
     k.pushPull(k.faces()[0].id, 8);
