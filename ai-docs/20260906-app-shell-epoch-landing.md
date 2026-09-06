@@ -38,6 +38,8 @@
 - **`catsup-site` 公仓已建（public，只收产物）**——user 可随时改名/删；若走 Ketchup 改名，公仓改名 GitHub 自动跳转。
 - prod 道未推（无 prod）；push prod 时再抄 WeebPaint `kick-pages.sh`（去重坑只在 workflow 道存在，classic Pages 从分支服务不需要）。
 - `@internal/ui` 立户等 user 拍板；立户前三件替身各 ~80 行，别在里面长功能。
-- 持久化：零。刷新即丢（无地骑士口径）。若要「刷新不丢」最便宜的是 op-log 进 localStorage（会话恢复，不是文件格式）——**没做，等 user 说**。
+- 持久化：零，刷新即丢。**user 2026-09-06 拍板：「数据结构都没定持久化个屁」「宣发前不用考虑 backward compatibility」「把 sketchup 1.0 做完之后，component group 摸清楚之后再定，这个我有想法，你不要擅自做决定」**——持久化/文件格式归 user，AI 不提案不预留。
+- 公仓命名：user 问「为什么叫 catsup-site 而不是 catsup」；AI 的理由=给源仓将来走公开工坊道时留 `catsup` 名 + Ketchup 改名未定。GitHub 侧改名/删除归 user 手动，AI 不碰；改名后只需改 `scripts/push-dist.sh` 的 `SITE_REPO`。
+- UI 控件抽包：user 拍板抽，**包名不许叫 `ui`**（之前 scope bleeding 的教训）；**定名 `@internal/workbench-elements`（user 同意）；由 CatsUp session 抽**（user：「第二个用户第三个用户才长抽象，所以你来更适合。不过确实不急今天」）。起手形状=兄弟目录 `20260906 internal-workbench-elements`、tgz 走 vendor-pkgs + pull-package.sh、测试期 0.0.0、源 WET 拷 WeebPaint `src/ui/{popup-menu,anchored-popup,notice,icon}.ts` 不改语义、顶栏下缘 getter 注入、sprite 归宿主、CSS 进包而 --z-*/--ink 等 token 由宿主 :root 提供；发版后 WeebPaint session 收货换 import。**未开工。**
 - iPad 真机：手掌拒绝 / Pencil hover / 双指手势 / 安全区 只按 WeebPaint 教义写，未真机验。
 - Blender 往返单位：OBJ 按世界单位原样写（1 单位 = 1 m 进 Blender）；VCB 立项时再定尺度。
