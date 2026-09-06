@@ -5,7 +5,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt } from "../src/kernel/kernel.ts";
-import { rectSegments, translateMoves, moveTargets } from "../src/playground/tools.ts";
+import { rectSegments, translateMoves, moveTargets } from "../src/editor/tools.ts";
 
 const P = (x: number, y: number): Pt => ({ x, y });
 

@@ -3,7 +3,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt } from "../src/kernel/kernel.ts";
-import { Journal } from "../src/lab/journal.ts";
+import { Journal } from "../src/editor/journal.ts";
 
 const P = (x: number, y: number): Pt => ({ x, y });
 const rectSegs = (x0: number, y0: number, x1: number, y1: number): [Pt, Pt][] => [

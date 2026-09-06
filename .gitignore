@@ -7,8 +7,7 @@ node_modules/
 tools/
 *.log
 .DS_Store
-# playground bundle 是构建产物（Phase 0 无部署不进 git；长成 app 那天再走 dist/ content-hash）
-src/playground/bundle.js
-src/playground/bundle.js.map
-src/lab/bundle.js.map
-src/lab/bundle.js
+# dist/catsup-<hash>.mjs 进 git（家族约定：各分支自己 commit 好 dist，部署只搬不重 build）；sourcemap 不进
+dist/*.map
+# site 仓本地 checkout（scripts/push-dist.sh 用；公仓只收构建产物）
+.site/

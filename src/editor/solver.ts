@@ -206,7 +206,7 @@ function handFaceSkip(k: Kernel, hand?: AlignHand | null): ((fid: FaceId) => boo
 
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。 */
 function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
-  const dir = cam.eyeDir();
+  const dir = cam.viewDirAt(p);   // 透视=p→眼；正交=常向量（2026-09-06 透视化，edited by Claude Fable 5.1）
   for (const f of k.faces()) {
     if (skip?.(f.id)) continue;   // 手中膜不遮挡（2026-09-03：追光标的膜反复遮住目标=振荡假吸）
     const rec = k.planeOf(f.id);
@@ -236,7 +236,8 @@ export function occludedSpansOnLine(
   k: Kernel, cam: OrbitCamera, a: Pt3, dir: Pt3, tMin: number, tMax: number,
   skip?: (fid: FaceId) => boolean,
 ): [number, number][] {
-  const e = cam.eyeDir();
+  // 透视下视向沿线变化，区间代数取线段中点的视向作常向量近似（短线段误差可忽略；正交=精确）
+  const e = cam.viewDirAt(add3(a, scale3(dir, (tMin + tMax) / 2)));
   const spans: [number, number][] = [];
   for (const f of k.faces()) {
     if (skip?.(f.id)) continue;

@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
+<!--
+  27 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
+  Contains work derived from (per-icon provenance in data-src):
+    Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
+    Feather Icons — MIT License, Copyright (c) 2013-2023 Cole Bemis · https://github.com/feathericons/feather
+    Lucide — ISC License, Copyright (c) 2020 Lucide Contributors · https://github.com/lucide-icons/lucide
+-->
+  <!-- drawing-tool -->
+  <!-- eraser — 橡皮:18x11 圆角矩形斜置 -45°, 一道分割线在自下端 30% 处(下段=擦头) -->
+  <symbol id="eraser" data-cat="drawing-tool" data-src="own" data-note="橡皮:18x11 圆角矩形斜置 -45°, 一道分割线在自下端 30% 处(下段=擦头)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g transform="rotate(-45 12 12)"><rect x="3.00" y="6.50" width="18" height="11" rx="2.6"/><path d="M8.40 6.50 V17.50"/></g></symbol>
+  <!-- pencil — 铅笔 Bootstrap Icons MIT -->
+  <symbol id="pencil" data-cat="drawing-tool" data-src="bootstrap:pencil" data-note="铅笔 Bootstrap Icons MIT" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g transform="scale(1.5)" fill="currentColor" stroke="none"><path d="M12.146.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1 0 .708l-10 10a.5.5 0 0 1-.168.11l-5 2a.5.5 0 0 1-.65-.65l2-5a.5.5 0 0 1 .11-.168zM11.207 2.5 13.5 4.793 14.793 3.5 12.5 1.207zm1.586 3L10.5 3.207 4 9.707V10h.5a.5.5 0 0 1 .5.5v.5h.5a.5.5 0 0 1 .5.5v.5h.293zm-9.761 5.175-.106.106-1.528 3.821 3.821-1.528.106-.106A.5.5 0 0 1 5 12.5V12h-.5a.5.5 0 0 1-.5-.5V11h-.5a.5.5 0 0 1-.468-.325"/></g></symbol>
+  <!-- tool -->
+  <!-- select — 鼠标指针·空心 -->
+  <symbol id="select" data-cat="tool" data-src="own" data-note="鼠标指针·空心" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M5.5 3.5 L5.5 17.5 L9 14 L11.4 19.4 L13.6 18.4 L11.2 13.1 L16 13.1 Z"/></symbol>
+  <!-- move — 四向移动箭头 (move tool, for SketchUp-clone) -->
+  <symbol id="move" data-cat="tool" data-src="own" data-note="四向移动箭头 (move tool, for SketchUp-clone)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M3 12h18"/><path d="M9.5 5.5 12 3l2.5 2.5"/><path d="M9.5 18.5 12 21l2.5-2.5"/><path d="M5.5 9.5 3 12l2.5 2.5"/><path d="M18.5 9.5 21 12l-2.5 2.5"/></symbol>
+  <!-- hand — 手/抓取:食指左线裁到与拇指指尖弧交点 y=11.44,不再穿出 -->
+  <symbol id="hand" data-cat="tool" data-src="lucide:hand" data-note="手/抓取:食指左线裁到与拇指指尖弧交点 y=11.44,不再穿出" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v5.44"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-1-5.6-2.8l-3.4-5.4a2 2 0 0 1 3.4-2L8 14"/></symbol>
+  <!-- rotate — 3D 旋转:双弧+直角括号箭头·逆时针(同 rotate-ccw 画法) -->
+  <symbol id="rotate" data-cat="tool" data-src="own" data-note="3D 旋转:双弧+直角括号箭头·逆时针(同 rotate-ccw 画法)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(24,0) scale(-1,1)"><g><path d="M3.03 12.78 A9 9 0 0 1 18.36 5.64"/><path d="M21 3v5h-5"/></g><g transform="rotate(180 12 12)"><path d="M3.03 12.78 A9 9 0 0 1 18.36 5.64"/><path d="M21 3v5h-5"/></g></g><circle cx="12" cy="12" r="2.6"/></symbol>
+  <!-- shapes -->
+  <!-- line — 直线(shapes 基本图元):斜线+两端点, 与 arc 同族(同点径 1.2), 29° 防端点顶角; 20260725 入库 -->
+  <symbol id="line" data-cat="shapes" data-src="own" data-note="直线(shapes 基本图元):斜线+两端点, 与 arc 同族(同点径 1.2), 29° 防端点顶角; 20260725 入库" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 16.8 L20.5 7.2"/><circle cx="3.5" cy="16.8" r="1.2" fill="currentColor" stroke="none"/><circle cx="20.5" cy="7.2" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <!-- rectangle — 矩形(shapes 基本图元) -->
+  <symbol id="rectangle" data-cat="shapes" data-src="own" data-note="矩形(shapes 基本图元)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="0.6"/></symbol>
+  <!-- perspective-reference -->
+  <!-- persp-iso — 等轴测模式·iso 3x3 顶满:hw10.2/hh5.1(x1.8-22.2, 含描边到 0.95/23.05 —— 比库内惯例更满, 看是否可接受); 20260728 候选 3 号入库(顶满版; 2x2 与常规 3x3 落选) -->
+  <symbol id="persp-iso" data-cat="perspective-reference" data-src="own" data-note="等轴测模式·iso 3x3 顶满:hw10.2/hh5.1(x1.8-22.2, 含描边到 0.95/23.05 —— 比库内惯例更满, 看是否可接受); 20260728 候选 3 号入库(顶满版; 2x2 与常规 3x3 落选)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.00 6.90 L22.20 12.00 L12.00 17.10 L1.80 12.00 Z"/><g stroke-width="1.2"><path d="M5.20 10.30 L15.40 15.40"/><path d="M5.20 13.70 L15.40 8.60"/><path d="M8.60 8.60 L18.80 13.70"/><path d="M8.60 15.40 L18.80 10.30"/></g></symbol>
+  <!-- 3d-modeling -->
+  <!-- axes — 3D 坐标轴:等距三轴(三箭头臂长/张角统一) -->
+  <symbol id="axes" data-cat="3d-modeling" data-src="own" data-note="3D 坐标轴:等距三轴(三箭头臂长/张角统一)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 15 V4"/><path d="M6.8 6.2 L9 4 L11.2 6.2"/><path d="M9 15 H20"/><path d="M17.8 12.8 L20 15 L17.8 17.2"/><path d="M9 15 L4 20.5"/><path d="M7.11 20.35 L4 20.5 L3.85 17.39"/></symbol>
+  <!-- push-pull — 推拉(push/pull):等距薄板(顶面菱形+三条竖棱+底沿)+从顶面后角竖直向上的箭头=把面拉出体；与 move 十字箭头不撞【CatsUp 左侧工具条「推拉」钮（默认可见）；2026-09-06 fable 自画未过目】 -->
+  <symbol id="push-pull" data-cat="3d-modeling" data-src="own" data-note="推拉(push/pull):等距薄板(顶面菱形+三条竖棱+底沿)+从顶面后角竖直向上的箭头=把面拉出体；与 move 十字箭头不撞【CatsUp 左侧工具条「推拉」钮（默认可见）；2026-09-06 fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 13 L12 17 L20 13 L12 9 Z"/><path d="M4 13 V16.5 L12 20.5 L20 16.5 V13"/><path d="M12 17 V20.5"/><path d="M12 9 V3"/><path d="M9.4 5.6 L12 3 L14.6 5.6"/></symbol>
+  <!-- edit -->
+  <!-- arrow-undo — 撤销:向左的直角回勾箭头 -->
+  <symbol id="arrow-undo" data-cat="edit" data-src="feather:corner-up-left" data-note="撤销:向左的直角回勾箭头" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline> <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></symbol>
+  <!-- arrow-redo — 重做:arrow-undo 的水平镜像 -->
+  <symbol id="arrow-redo" data-cat="edit" data-src="feather:corner-up-right" data-note="重做:arrow-undo 的水平镜像" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"></polyline> <path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></symbol>
+  <!-- file -->
+  <!-- import — 导入:向下箭头落进托盘(托盘=开口朝上的 U) -->
+  <symbol id="import" data-cat="file" data-src="own" data-note="导入:向下箭头落进托盘(托盘=开口朝上的 U)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 v11"/><polyline points="7 9, 12 14, 17 9"/> <path d="M4 17 v3 a1 1 0 0 0 1 1 h14 a1 1 0 0 0 1 -1 v-3"/></symbol>
+  <!-- export — 导出:向上箭头离开托盘(import 的上下镜像) -->
+  <symbol id="export" data-cat="file" data-src="own" data-note="导出:向上箭头离开托盘(import 的上下镜像)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21 v-11"/><polyline points="7 15, 12 10, 17 15"/> <path d="M4 7 v-3 a1 1 0 0 1 1 -1 h14 a1 1 0 0 1 1 1 v3"/></symbol>
+  <!-- trash-can — 垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own -->
+  <symbol id="trash-can" data-cat="file" data-src="own" data-note="垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 9.5v9"/><path d="M14 9.5v9"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></symbol>
+  <!-- common -->
+  <!-- x — 叉 -->
+  <symbol id="x" data-cat="common" data-src="own" data-note="叉" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 L17.5 17.5 M17.5 6.5 L6.5 17.5"/></symbol>
+  <!-- check — 勾 -->
+  <symbol id="check" data-cat="common" data-src="own" data-note="勾" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5 L9.5 17.5 L19.5 6.5"/></symbol>
+  <!-- chevron-down — 下移:竖线 + 底端 ∨ 箭头 -->
+  <symbol id="chevron-down" data-cat="common" data-src="own" data-note="下移:竖线 + 底端 ∨ 箭头" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/> <polyline points="6 13 12 19 18 13"/></symbol>
+  <!-- cloud -->
+  <!-- refresh — 刷新:顺时针 3/4 圆 + 箭头(从 12 点绕到 9 点, 箭头尖在右上) -->
+  <symbol id="refresh" data-cat="cloud" data-src="own" data-note="刷新:顺时针 3/4 圆 + 箭头(从 12 点绕到 9 点, 箭头尖在右上)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><!-- 顺时针 3/4 圆 + 箭头：从 12 点出发顺时针绕到 9 点；箭头尖在右上 --> <path d="M21 12a9 9 0 1 1-3.5-7.1"/> <polyline points="21 4 21 9 16 9"/></symbol>
+  <!-- viewport -->
+  <!-- maximize-viewport — 适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何) -->
+  <symbol id="maximize-viewport" data-cat="viewport" data-src="own" data-note="适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><!-- 四角向外的箭头 --> <polyline points="4 9 4 4 9 4"/> <polyline points="20 9 20 4 15 4"/> <polyline points="4 15 4 20 9 20"/> <polyline points="20 15 20 20 15 20"/></symbol>
+  <!-- grid — 网格:直角外框 1.2 与内网格线同宽(20260725 甲方定稿; 原 rx1.6 圆角粗框版退役), 内部 4x4 细网格 -->
+  <symbol id="grid" data-cat="viewport" data-src="own" data-note="网格:直角外框 1.2 与内网格线同宽(20260725 甲方定稿; 原 rx1.6 圆角粗框版退役), 内部 4x4 细网格" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="1.2" stroke-linejoin="miter"><rect x="3.5" y="3.5" width="17" height="17"/></g><g stroke-width="1.2"><path d="M7.75 3.5 V20.5"/><path d="M3.5 7.75 H20.5"/><path d="M12.00 3.5 V20.5"/><path d="M3.5 12.00 H20.5"/><path d="M16.25 3.5 V20.5"/><path d="M3.5 16.25 H20.5"/></g></symbol>
+  <!-- ui -->
+  <!-- menu — 汉堡菜单:三条等长横线(y=7/12/17) -->
+  <symbol id="menu" data-cat="ui" data-src="own" data-note="汉堡菜单:三条等长横线(y=7/12/17)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="4" y1="7" x2="20" y2="7"></line> <line x1="4" y1="12" x2="20" y2="12"></line> <line x1="4" y1="17" x2="20" y2="17"></line></symbol>
+  <!-- more — 溢出菜单:横向三点(原 ⋯ 字符跨平台字形不一) -->
+  <symbol id="more" data-cat="ui" data-src="own" data-note="溢出菜单:横向三点(原 ⋯ 字符跨平台字形不一)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/><circle cx="19" cy="12" r="1.6" fill="currentColor" stroke="none"/></symbol>
+  <!-- help — 帮助:圆 + 路径画的问号(不用 text)【WeebPaint ☰ 设置菜单「帮助」= in-app 说明书入口；fable 自画未过目】 -->
+  <symbol id="help" data-cat="ui" data-src="own" data-note="帮助:圆 + 路径画的问号(不用 text)【WeebPaint ☰ 设置菜单「帮助」= in-app 说明书入口；fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.7 a2.7 2.7 0 0 1 5.4 0 c0 1.9 -2.7 2.1 -2.7 4.1"/><circle cx="12" cy="17.1" r="0.95" fill="currentColor" stroke="none"/></symbol>
+  <!-- keyboard — 键盘:圆点加大收紧+空格上移不压框(与 shortcut 不同语义) -->
+  <symbol id="keyboard" data-cat="ui" data-src="own" data-note="键盘:圆点加大收紧+空格上移不压框(与 shortcut 不同语义)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="7.2" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="10.4" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="13.6" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="16.8" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="7.2" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><circle cx="10.4" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><circle cx="13.6" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><circle cx="16.8" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><path d="M8.6 15.6 H15.4"/></symbol>
+  <!-- settings — 设置:齿轮=内圆+外圆+8 根短齿(圆帽)；家族里 sliders 是「调整」别撞【WebXiaoHeiWu 抽屉底栏「设置」入口；fable 自画未过目】 -->
+  <symbol id="settings" data-cat="ui" data-src="own" data-note="设置:齿轮=内圆+外圆+8 根短齿(圆帽)；家族里 sliders 是「调整」别撞【WebXiaoHeiWu 抽屉底栏「设置」入口；fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><circle cx="12" cy="12" r="7"/><path d="M19.00 12.00 L21.60 12.00"/><path d="M16.95 16.95 L18.79 18.79"/><path d="M12.00 19.00 L12.00 21.60"/><path d="M7.05 16.95 L5.21 18.79"/><path d="M5.00 12.00 L2.40 12.00"/><path d="M7.05 7.05 L5.21 5.21"/><path d="M12.00 5.00 L12.00 2.40"/><path d="M16.95 7.05 L18.79 5.21"/></symbol>
+</svg>

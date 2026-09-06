@@ -1,13 +1,15 @@
 {
   "name": "catsup",
-  "version": "0.2.13",
+  "version": "0.3.0",
   "private": true,
   "type": "module",
-  "comment": "无壳纯 TS 几何内核（Phase 0）。运行时零依赖；node 24 strip-types 直跑 test/；devDependencies 仅供 tsc --noEmit 类型门。工具链抄 WebPaint 现役（runner.mjs / build.sh / tsconfig）。",
+  "comment": "0.3 app 壳纪元：纯 TS 几何内核 + three（vendored）正式 app。运行时零 npm 依赖；node 24 strip-types 直跑 test/；devDependencies 仅供 tsc --noEmit 类型门。版本 SSoT = src/version.ts（package.json 只跟着记）。",
   "scripts": {
     "test": "node test/run.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "build": "bash scripts/build.sh"
+    "build": "bash scripts/build.sh",
+    "probe": "node scripts/probe-boot.mjs",
+    "deploy:dev": "bash scripts/push-dist.sh dev"
   },
   "devDependencies": {
     "typescript": "5.7.3"

@@ -1,0 +1,121 @@
+/* styles.css —— CatsUp app 壳样式。created 2026-09-06 by Claude Fable 5.1
+   z band 表（家族约定：z 数字只在这里）：menu 300 / notice 400 / help 500 / err 900 */
+:root {
+  --bg: #f2f0ea;
+  --panel: #ffffff;
+  --ink: #2a2a2a;
+  --muted: #8a8780;
+  --line: #ddd9d0;
+  --accent: #2b6cb0;
+  --accent-soft: #e3edf9;
+  --danger: #c0392b;
+  --z-menu: 300;
+  --z-notice: 400;
+  --z-help: 500;
+  --z-err: 900;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --safe-left: env(safe-area-inset-left, 0px);
+  --safe-right: env(safe-area-inset-right, 0px);
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; overflow: hidden; background: var(--bg); color: var(--ink);
+  font-family: system-ui, -apple-system, "PingFang SC", "Noto Sans CJK SC", sans-serif; font-size: 14px;
+  touch-action: manipulation; -webkit-touch-callout: none; -webkit-user-select: none; user-select: none; overscroll-behavior: none; }
+[hidden] { display: none !important; }
+button { font: inherit; color: inherit; }
+.ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: block; }
+svg.ico use { color: inherit; }
+
+#app { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-top); }
+#topbar { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 6px 0 calc(6px + var(--safe-left));
+  background: var(--panel); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
+.tb-group { display: flex; align-items: center; gap: 2px; }
+.tb-center { flex: 1; justify-content: center; }
+.app-title { font-weight: 600; letter-spacing: .02em; margin-left: 4px; color: #3a3a3a; }
+.tb-btn { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; cursor: pointer; color: var(--ink); }
+.tb-btn:hover { background: #f0ede6; }
+.tb-btn:active, .tb-btn.is-open { background: var(--accent-soft); color: var(--accent); }
+.tb-btn:disabled { opacity: .3; cursor: default; background: transparent; }
+.tb-danger { color: var(--danger); }
+
+#main { flex: 1; min-height: 0; display: flex; }
+#stage { flex: 1; min-width: 0; position: relative; }
+#board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; display: block; }
+
+#toolbar { position: absolute; left: calc(8px + var(--safe-left)); top: 50%; transform: translateY(-50%);
+  display: flex; flex-direction: column; gap: 4px; padding: 6px; background: rgba(255,255,255,.92); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.06); backdrop-filter: blur(6px); }
+.tool { width: 52px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  border: 0; border-radius: 9px; background: transparent; cursor: pointer; color: #444; padding: 0; }
+.tool .ico { width: 22px; height: 22px; }
+.tool-label { font-size: 10.5px; line-height: 1; color: var(--muted); }
+.tool:hover { background: #f3f0ea; }
+.tool.active { background: var(--accent); color: #fff; }
+.tool.active .tool-label { color: #e7f0fb; }
+
+#marquee { position: fixed; z-index: 5; border: 1px dashed #666; background: rgba(43,108,176,.08); pointer-events: none; }
+#tip { position: fixed; z-index: var(--z-notice); padding: 2px 7px; font-size: 12px; background: rgba(255,255,255,.95);
+  border: 1px solid #888; border-radius: 4px; pointer-events: none; white-space: nowrap; }
+
+#statusbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; height: calc(26px + var(--safe-bottom)); padding: 0 10px var(--safe-bottom) calc(10px + var(--safe-left));
+  background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: #555; }
+#hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.build { color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+
+/* 实验台抽屉（lab 仪器；默认关） */
+#lab { width: 300px; flex: 0 0 300px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; padding-right: var(--safe-right); }
+.lab-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 4px 10px; border-bottom: 1px solid #eee; font-weight: 600; }
+.lab-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #eee; }
+.lab-label { flex: 1; font-size: 11px; color: var(--muted); }
+.lab-presets { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px; border-bottom: 1px solid #eee; }
+.lab-presets button, .lab-mini { padding: 5px 9px; border: 1px solid #ccc; border-radius: 6px; background: #f6f3ec; font-size: 12px; cursor: pointer; }
+.lab-tool { width: auto; height: 30px; padding: 0 10px; flex-direction: row; border: 1px solid #ccc; background: #fafafa; }
+.lab-tool .tool-label { font-size: 12px; color: inherit; }
+#labLog { flex: 1; overflow-y: auto; padding: 8px; font-size: 12px; line-height: 1.7; color: #333; touch-action: pan-y; -webkit-user-select: text; user-select: text; }
+#labLog .ev { border-bottom: 1px dashed #eee; }
+#labLog .sep { color: var(--muted); font-size: 11px; padding-top: 6px; }
+
+/* 弹出菜单 */
+.popup-menu { position: fixed; z-index: var(--z-menu); min-width: 220px; max-width: min(92vw, 360px); padding: 6px; background: var(--panel);
+  border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,.14); }
+.menu-item { display: flex; align-items: center; gap: 10px; width: 100%; min-height: 40px; padding: 6px 10px; border: 0; border-radius: 7px;
+  background: transparent; text-align: left; cursor: pointer; }
+.menu-item:hover { background: #f3f0ea; }
+.menu-item:disabled { opacity: .45; cursor: default; }
+.menu-item .ico, .ico-gap { width: 20px; height: 20px; flex: 0 0 20px; }
+.menu-label { flex: 1; }
+.menu-hint { font-size: 11px; color: var(--muted); }
+.menu-check { color: var(--accent); }
+.menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
+
+/* 通知栈（底部居中；一条栈一个样式） */
+#noticeStack { position: fixed; left: 50%; bottom: calc(40px + var(--safe-bottom)); transform: translateX(-50%); z-index: var(--z-notice);
+  display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; max-width: min(92vw, 560px); }
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 10px;
+  background: #2f2f2f; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; }
+.toast-info { background: #24405e; }
+.toast-warning { background: #7a4d00; }
+.toast-error { background: #7a1f16; }
+.toast-text { flex: 1; }
+.toast-actions { display: flex; gap: 6px; }
+.toast-btn { padding: 5px 10px; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; background: transparent; color: #fff; cursor: pointer; }
+.toast-btn.primary { background: #fff; color: #222; border-color: #fff; }
+.toast-x { border: 0; background: transparent; color: rgba(255,255,255,.7); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
+
+/* 帮助 sheet */
+.sheet-backdrop { position: fixed; inset: 0; z-index: var(--z-help); background: rgba(0,0,0,.25); display: grid; place-items: center; padding: 16px; }
+.sheet { width: min(560px, 100%); max-height: 86vh; overflow: auto; background: var(--panel); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.25); padding: 10px 16px 16px; touch-action: pan-y; }
+.sheet-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+.kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
+.kv dt { color: var(--accent); font-weight: 600; white-space: nowrap; }
+.kv dd { margin: 0; color: #444; }
+
+/* 早期错误条 */
+.err-banner { position: fixed; left: 0; right: 0; top: 0; z-index: var(--z-err); padding: 10px 14px; background: #b3261e; color: #fff; font-size: 13px; white-space: pre-wrap; }
+
+@media (max-width: 640px) {
+  .tool { width: 46px; height: 46px; }
+  .tool-label { display: none; }
+  #lab { position: absolute; right: 0; top: 0; bottom: 0; width: min(300px, 80vw); z-index: 6; }
+}

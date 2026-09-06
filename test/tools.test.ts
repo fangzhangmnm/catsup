@@ -1,7 +1,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt } from "../src/kernel/kernel.ts";
-import { moveTargets, rectSegments, rectSegmentsOnPlane, translateMoves } from "../src/playground/tools.ts";
+import { moveTargets, rectSegments, rectSegmentsOnPlane, translateMoves } from "../src/editor/tools.ts";
 import { canonicalPlane, planeBasis } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number): Pt => ({ x, y });

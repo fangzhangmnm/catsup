@@ -3,9 +3,9 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
-import { OrbitCamera, rayPlane } from "../src/playground/camera.ts";
-import { GROUND, marqueeScreen, pickEntity, snapPoint } from "../src/playground/pick.ts";
-import { rectSegments } from "../src/playground/tools.ts";
+import { OrbitCamera, rayPlane } from "../src/editor/camera.ts";
+import { GROUND, marqueeScreen, pickEntity, snapPoint } from "../src/editor/pick.ts";
+import { rectSegments } from "../src/editor/tools.ts";
 import { dist3 } from "../src/kernel/geom.ts";
 
 const VP = { w: 1000, h: 800 };

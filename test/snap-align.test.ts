@@ -3,8 +3,8 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
-import { OrbitCamera } from "../src/playground/camera.ts";
-import { GROUND, rectFirstPlane, resolveRectPlane, snapPoint } from "../src/playground/pick.ts";
+import { OrbitCamera } from "../src/editor/camera.ts";
+import { GROUND, rectFirstPlane, resolveRectPlane, snapPoint } from "../src/editor/pick.ts";
 
 const VP = { w: 1000, h: 800 };
 const TOL = 8;

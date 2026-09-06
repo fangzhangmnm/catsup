@@ -2,7 +2,7 @@
 // created by Claude Fable 5, 2026-09-01
 import { describe, it, eq } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
-import { PRESETS, applyPreset } from "../src/lab/presets.ts";
+import { PRESETS, applyPreset } from "../src/editor/presets.ts";
 
 describe("lab: 场景预置", () => {
   for (const preset of PRESETS) {

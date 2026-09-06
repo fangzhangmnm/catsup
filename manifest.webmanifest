@@ -1,0 +1,16 @@
+{
+  "name": "CatsUp",
+  "short_name": "CatsUp",
+  "description": "肥皂膜建模：画线成面，推拉成体。SketchUp 式的开源网页建模器。",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#f2f0ea",
+  "theme_color": "#f2f0ea",
+  "lang": "zh-CN",
+  "icons": [
+    { "src": "./icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "./icon-512.png", "sizes": "512x512", "type": "image/png" }
+  ]
+}

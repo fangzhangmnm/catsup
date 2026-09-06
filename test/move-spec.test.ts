@@ -5,7 +5,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt } from "../src/kernel/kernel.ts";
-import { emptySelection, moveTargetsSelection, translateMoves } from "../src/playground/tools.ts";
+import { emptySelection, moveTargetsSelection, translateMoves } from "../src/editor/tools.ts";
 import { distToPlane, pointOnSegment3, samePt3, segIntersections3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number): Pt => ({ x, y });

@@ -2,9 +2,9 @@
 // created by Claude Fable 5, 2026-09-01
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
-import { OrbitCamera } from "../src/playground/camera.ts";
-import { EPS, RANK, buildConstraints, solvePoint } from "../src/playground/solver.ts";
-import { GROUND } from "../src/playground/pick.ts";
+import { OrbitCamera } from "../src/editor/camera.ts";
+import { EPS, RANK, buildConstraints, solvePoint } from "../src/editor/solver.ts";
+import { GROUND } from "../src/editor/pick.ts";
 
 const VP = { w: 1000, h: 800 };
 const topCam = (): OrbitCamera => {
