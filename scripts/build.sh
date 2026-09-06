@@ -2,7 +2,7 @@
 # scripts/build.sh —— src/app/main.ts → dist/catsup-<hash>.mjs；in-place 改 index.html 引新 hash。
 # created by Claude Fable 5 2026-09-01（playground 版）；**0.3 app 壳纪元重写 2026-09-06 by Claude Fable 5.1**（家族 content-hash 形，抄 WebXiaoHeiWu）
 # （bundle 名 catsup-；service-worker.js 的 install regex 必须跟它一致。）
-# 用法：编辑 src/ → bash scripts/build.sh → git commit；上线走 scripts/push-dist.sh（→ catsup-site 公仓 /dev/）
+# 用法：编辑 src/ → bash scripts/build.sh → git commit；上线走 scripts/push-dist.sh（→ catsup 公仓 /dev/）
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
