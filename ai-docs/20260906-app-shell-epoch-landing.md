@@ -18,7 +18,7 @@
 | UI 替身 | `src/app/ui/{popup-menu,notice,icon}.ts` | 签名照抄 WeebPaint `src/ui/`；已向 WeebPaint agent 提 `@internal/ui` 抽包提案（对方同意 API 形状、立户由其 escalate 给 user），包出来换 import |
 | PWA 壳 | `service-worker.js` / `manifest.webmanifest` / `src/app/pwa-shell.ts` / `src/version.ts` / `bump.sh` / icons | 抄 WebXiaoHeiWu（`xiaoheiwu-`→`catsup-` 三处），dev=network-first、prod=cache-first；4 路更新检测→toast「刷新」；菜单「强制更新」=清缓存重启 |
 | 构建 | `scripts/build.sh` | tsc 门 + 四道 lint（experiments 隔离 / 对齐引擎无旧鬼 / three 只在 render3 / sprite 内联对账）+ esbuild → `dist/catsup-<hash>.mjs` + sed index.html；**dist 进 git** |
-| 部署 | `.github/workflows/deploy.yml`（+ 过渡期 `scripts/push-dist.sh`） | **公开工坊道**（user 同日改口：「上线就是和 weebpaint 一样，源码和 ai docs 应该也有」；此前误走 site 仓道、`catsup-site` 作废 user 手删）：源仓公开于 `fangzhangmnm/catsup`；deploy.yml 抄 WXHW（main→/dev/，prod→/，无 prod 时根占位页），落地等本机 gh `workflow` scope；过渡期 push-dist.sh 拼 `gh-pages` 分支。dev → https://fangzhangmnm.github.io/catsup/dev/ |
+| 部署 | `.github/workflows/deploy.yml` | **公开工坊道**（user 同日改口：「上线就是和 weebpaint 一样，源码和 ai docs 应该也有」；此前误走 site 仓道、`catsup-site` 作废 user 手删；过渡期的 push-dist.sh / gh-pages 分支已拆）：源仓公开于 `fangzhangmnm/catsup`；deploy.yml 抄 WXHW（main→/dev/，prod→/，无 prod 时根占位页）。dev → https://fangzhangmnm.github.io/catsup/dev/ |
 | 自测 | `scripts/probe-boot.mjs` | headless（借 WeebPaint playwright）：开机无错 → 矩形 1 面 → 推拉 6 面 → 菜单开合 → 撤销回 1 面 + 截图 |
 | 测试 | `test/camera-persp.test.ts` `test/obj-io.test.ts` | 146 绿（+12） |
 | 图标 | `assets/icons.svg`（27 枚）| `push-pull` = fable 自画进图标库 **PENDING 待过目层**（TODO.md 已登记） |

@@ -9,5 +9,3 @@ tools/
 .DS_Store
 # dist/catsup-<hash>.mjs 进 git（家族约定：各分支自己 commit 好 dist，部署只搬不重 build）；sourcemap 不进
 dist/*.map
-# site 仓本地 checkout（scripts/push-dist.sh 用；公仓只收构建产物）
-.site/

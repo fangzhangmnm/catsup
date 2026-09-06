@@ -1,0 +1,81 @@
+# 部署 GitHub Pages：prod 分支 → /，main 分支 → /dev/（家族 dev/prod split，抄 WebXiaoHeiWu deploy.yml ← WeebPaint）
+# created 2026-09-06 by Claude Fable 5.1
+#
+# 各分支自己已经 commit 好构建产物（dist/catsup-<hash>.mjs，scripts/build.sh 产出）。
+# 本 workflow 只做「组合两分支 → upload」，不重 build。
+# prod 分支不存在时（0.3 纪元还没 push 过 prod）：根只放一张「尚未发布」占位页，/dev/ 照常。
+# ⚠ 改运行时 fetch 的根目录 asset 要同时改三处：SW 的 STATIC_PRECACHE、下面的文件清单、（若有）离线测试。
+name: Deploy Pages
+
+on:
+  push:
+    branches: [main, prod]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true   # main+prod 几乎同 push 时最后一次必赢（WeebPaint v130 坑）
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Checkout prod branch (optional)
+        id: prod
+        continue-on-error: true
+        uses: actions/checkout@v4
+        with:
+          ref: prod
+          path: prod-tree
+
+      - name: Checkout main branch
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          path: main-tree
+
+      - name: Compose site (prod=/, main=/dev/)
+        run: |
+          mkdir -p site/dev
+          compose() {   # $1 = 源树, $2 = 目标目录
+            for f in index.html manifest.webmanifest service-worker.js styles.css \
+                     icon-192.png icon-512.png apple-touch-icon-180.png; do
+              cp -p "$1/$f" "$2/" 2>/dev/null || echo "::warning::$1 缺 $f —— $2 上会 404"
+            done
+            for d in dist assets; do
+              [ -d "$1/$d" ] && cp -r "$1/$d" "$2/" || true
+            done
+            find "$2" -name '*.map' -delete
+          }
+          if [ -f prod-tree/index.html ]; then
+            compose prod-tree site
+          else
+            echo "::notice::prod 分支不存在或为空——根放占位页，/dev/ 照常"
+            cat > site/index.html <<'EOF'
+          <!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>CatsUp</title>
+          <style>body{font-family:system-ui,sans-serif;margin:0;display:grid;place-items:center;height:100vh;background:#f2f0ea;color:#333}a{color:#2b6cb0}</style></head>
+          <body><div><h1>CatsUp</h1><p>正式版尚未发布。开发版：<a href="./dev/">/dev/</a></p><p>Source: <a href="https://github.com/fangzhangmnm/catsup">github.com/fangzhangmnm/catsup</a></p></div></body></html>
+          EOF
+          fi
+          compose main-tree site/dev
+          touch site/.nojekyll
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
