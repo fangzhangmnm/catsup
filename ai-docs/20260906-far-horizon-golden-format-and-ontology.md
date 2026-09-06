@@ -7,13 +7,15 @@
 ## 1. user 2026-09-06 剧透（原话，按主题）
 
 - **GitHub 仓名**：「github 应该叫 catsup，这个是我的决定。旧 site 仓我手动删。就是我网址输入都是这个。site 是错语义。weebpaint-site 可能是站点的营销推广网站，weebpaint 是 the app。」→ 已改：产物推 `fangzhangmnm/catsup`，dev = https://fangzhangmnm.github.io/catsup/dev/ 。
-- **GitHub 上放什么**：「github 上什么按照 weebpaint 的标注，ai docs 按毕业 ritual 应该审核之后上？」→ 口径：今天 `catsup` 公仓 = 出货仓（只收 dist）；毕业（公开工坊道：隐私 grill + 分拣）之后，私有源仓（含审过的 ai-docs）替换同名公仓的历史，URL 不变。
+- **GitHub 上放什么**：「github 上什么按照 weebpaint 的标注，ai docs 按毕业 ritual 应该审核之后上？」→ AI 先误读成「只发产物」；user 随后纠正：「我说的上线就是和 weebpaint 一样，源码和 ai docs 应该也有，就是别人可以接手的状态」= **公开工坊道**。隐私分拣（journals 从未入史 / 作者邮箱同 WeebPaint 公仓 / 无密钥绝对路径 / ai-docs 含 user 原话）已列给 user，源仓真史推 GitHub `catsup`。
 - **分层反馈**：①②同意，「不依赖 css px 赞赞赞不过停，感觉吸附的语义还是屏幕大小，就和 weebpaint 的笔手感速度是用 css 像素而不是 doc 像素。high dpi resilient」；③「看起来不错」；④「不知道，weebpaint 我也没理清楚，先这样」；⑤「同意，你是想把 threejs 抽象？不建议，因为以后我们会做这种 pbr, global illumination 之类的。我的建议是学 blender 做 workbench 之类的渲染引擎，切口在引擎这里。」
 - **两种编辑模式（预告）**：「以后会有两个不同的模式，一个是 sketchup 这种偏制图的，一种是 blender 这种 low poly modeling 比如捏角色，有机体。两个应该共存，有点像 blender 里面不同的对象按 tab 进不同的编辑模式」。
 - **OBJ**：「obj 导出是 escape hatch，这个可以先特例，只要知道这个不是正式的 obj 导出就行。以及 gltf 导出也需要 vendor others 吧。」
 - **完成版远景清单**：game scene editing、overambitious game-scene metadata editing、WeebPaint integration and embedding WeebPaint ora、Blender character modeling、overambitious character animating、SketchUp 老本行、component/group 结构。问题：「gltf 是否是像 ora 一样的我们的黄金格式契约，而且有很好的 backward compatibility，因为 ora 就是因为别人定了格式，所以我们抖动也就是 .weebpaint 这个 metadata。」
 - **group/component 本体论**：「group 不是 object，是同一个 mesh，group 只是用来管理对齐，sticky geometry，变换的工具，component 是 object。顺便你知道我很讨厌 scenegraph 吧（考古，包括 gltf 的那些中二），不过 component 引用 component 我倒能接受。所以 group 其实是一个编辑时语义。渲染时就是三角汤。不知道你同意不同意」。
 
+- **type 不叫 kind**：「kind 这个词太难听了，blender 里面叫什么，还是就叫 type。顺便纸片人（reference plane）也可以是 type…Light 之类的也是 type? 又回到了 gdtf 的设计 spiral，也许先不用纠结？但是这个定数据结构契约的时候必须想清楚，但是有没有能让数据结构契约相对不会 suffer 我朝令夕改的东西？」→ AI 答（§3.7）：type 不当封闭枚举、当组件包；必填核心极小；1.0 前不兼容、1.0 后只加不改。
+- **池的澄清**：「运行时长什么样 vs 数据定义长什么样，然后我说的一个 pool 也是说 bake/物化之后丢渲染是一个 vbo 罢了」→ drill L83 的「一个池」说的是物化/渲染层，与「同一 mesh + context」的数据定义无张力（§3.2 张力撤销）。
 - **容器拍板（user 2026-09-06，看完 §3.1 审计后）**：「选 zip 吧，然后之前哲学讨论就是有 glb 的话丢 authoring 人类创意不丢。其实可以。」→ 方向 = `.catsup` = zip 容器（ORA 字面翻版）：自有 JSON 装 authoring SSoT + 一个**标准 .glb bake**（三方直接可读）+ 贴图等附件；哲学：authoring 层丢了或过时了，glb 里的人类创意不丢。数据结构本体仍等 SU 1.0 + component/group 后定。
 
 ## 2. 考古：最初的野心（proposal 2026-06-27 / drill）
@@ -44,7 +46,7 @@
 ### 3.2 group / component：同意，并给出我理解的精确形状（请证实）
 
 - **component = object = definition + instances**；instance = transform + reference + override，= ECS entity 形状（drill ④）。component 引用 component = definition 的 DAG，深度有限。这是文档里唯一的「图」，glTF node 树能扁平地装（scene = instance 列表，嵌套 component = 子 node）；不需要引入「空节点当容器、逻辑挂节点」那套 scenegraph 用法。
-- **group = 同一 mesh 上的编辑时上下文**：立宪页 A3「重合即同一」的 context 槽——同一顶点/边池，group 只改变「谁和谁粘」的判定域，外加一个对齐用的局部轴系。**group 的变换烘进顶点坐标**，不是 node transform（否则就成了 object）；渲染看不见 group。这与 drill L83「每个 sticky-domain 一个独立的共享 vertex/edge 池」有张力：一个是「分池」，一个是「同池 + context 标签」。**同池 + context 标签**更接近今天的原话，也和 A3 context 槽一致；分池是它的一种实现，不必在本体论层面承诺。
+- **group = 同一 mesh 上的编辑时上下文**：立宪页 A3「重合即同一」的 context 槽——同一顶点/边池，group 只改变「谁和谁粘」的判定域，外加一个对齐用的局部轴系。**group 的变换烘进顶点坐标**，不是 node transform（否则就成了 object）；渲染看不见 group。（曾疑与 drill L83「每个 sticky-domain 一个独立的共享 vertex/edge 池」有张力；user 澄清 L83 说的是物化/渲染层的 VBO，不是数据定义——张力撤销。三种表示各管各的：**数据定义** = 一个 mesh + context 标签 + component 实例〔唯一契约〕；**运行时** = 内核里的图/平面注册/带 context 的膜；**渲染物化** = 每实例一个 VBO 的三角汤。只有第一种要扛朝令夕改。）
 - 一个推论要 user 确认：group 内几何被 move 时，group 边界是 sticky 判定的墙（外面的顶点不跟），但**平面注册表/面识别仍在同一世界坐标里跑**——这正是「group 不是 object」的可测含义。
 
 ### 3.3 渲染切口 = 引擎，不抽象 three
@@ -57,15 +59,26 @@
 
 ### 3.5 两种编辑模式（AI 推论，非 user 决定）
 
-制图模式跑肥皂膜内核（平面 arrangement）；有机模式是任意非平面多边形网格，**不是同一个内核**（半边网格 vs 平面图）。合理的落点：component 有 kind（softfilm | mesh），Tab 进的编辑模式 = 该 kind 的动词集 + 内核。动词注册表按模式分组即可，现在做动词插件化时留一个 mode 维度就够，不用现在实现第二个内核。
+制图模式跑肥皂膜内核（平面 arrangement）；有机模式是任意非平面多边形网格，**不是同一个内核**（半边网格 vs 平面图）。合理的落点：component 有 **type**（Blender 用词；softfilm | mesh | reference-plane | light…），Tab 进的编辑模式 = 该 type 的动词集 + 内核。动词注册表按模式分组即可，现在做动词插件化时留一个 mode 维度就够，不用现在实现第二个内核。
 
 ### 3.6 OBJ / glTF 逃生口
 
 OBJ 现状 = 特例逃生口，不是正式导出，`obj-io.ts` 头注释已如此写。glTF 导出若要「现在就有」，可 vendor three 的 GLTFExporter 走 render3 侧（三角汤够用）；正式的 glTF 读写等黄金格式拍板后自写，不走 three。
 
+### 3.7 让数据结构契约扛住朝令夕改（答 user 之问）
+
+- **type 不当封闭枚举，当组件包**：object = id + transform + 若干组件（softfilm 几何 / light / reference-plane / metadata…）；模式由「有哪个组件」推导。加组件永不破坏旧文件，删组件 = 旧数据被忽略。Blender 的 `Object.type` 是封闭枚举，他们为此受过苦（grease pencil 独立 type、Curve/Curves 并存）；glTF 的 `extensionsUsed`/`extras` 与 proposal 的 ECS 元数据都是同一个形状。
+- **必填核心极小**：id、transform、bake 几何、extras；其余全可选可忽略。
+- **时间纪律**：1.0 前不做兼容（user 已拍板）；1.0 后只加不改，改用 deprecate + 迁移表（WeebPaint「ora 布局变更必上报 + 目录表」的经验）。Blender 的真实答案是 SDNA + 每版 versioning 代码，从没冻结过 struct。
+- zip 容器下这条尤其成立：JSON authoring 层随便 churn，glb bake 永远可读。
+
+### 3.8 开源 3D 建模版图（答「除了 blender 没别的了对吧」）
+
+通用只有 Blender。CAD 侧：FreeCAD（OpenCASCADE BRep，带洞面拓扑与肥皂膜同族但重）、SolveSpace（约束求解器，将来 rotate/scale + 约束时值得读）、Dune3D。关卡侧：TrenchBroom（Quake 系 brush 白盒编辑器，精神上最近）。老细分建模器 Wings3D。SketchUp「在纸上画」的空位没人占。
+
 ## 4. 对近期工作的实际约束（可执行）
 
-1. 动词插件化时带 `mode` 维度（制图 / 有机），默认只有制图。
-2. `RenderEngine` 接口的输入定义成「bake」形状，别把 kernel 直接喂给引擎——同一份 bake 将来就是 glTF core。
+1. 动词插件化时带 `mode` 维度（制图 / 有机），默认只有制图；对象的 `type` 将来是组件包不是枚举。
+2. `RenderEngine` 接口的输入定义成「bake」形状，别把 kernel 直接喂给引擎——同一份 bake 将来就是 zip 里的那个 glb。
 3. 核心层继续零 three、零 DOM；glTF 读写将来自写。
 4. group 纪元开工前，先把 A3 context 槽在立宪页写实（同池 + context 标签 vs 分池，user 拍板）。
