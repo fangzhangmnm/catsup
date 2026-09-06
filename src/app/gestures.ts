@@ -54,7 +54,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
 
   function onDown(ev: PointerEvent): void {
     const s = local(ev);
-    canvas.setPointerCapture(ev.pointerId);
+    try { canvas.setPointerCapture(ev.pointerId); } catch { /* 合成事件/已释放的指针会抛 InvalidState，不许把 down 整个打断 */ }
     const base: Tracked = { type: ev.pointerType, role: "hold", x: s.x, y: s.y, downX: s.x, downY: s.y, downAt: performance.now() };
     if (ev.pointerType === "mouse") {
       if (ev.button === 0) base.role = toolPointerActive() ? "hold" : "tool";

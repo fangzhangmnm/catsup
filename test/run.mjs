@@ -17,6 +17,7 @@ import "./solver.test.ts";
 import "./pushpull.test.ts";
 import "./camera-persp.test.ts";
 import "./obj-io.test.ts";
+import "./eps-scale.test.ts";
 import { run } from "./runner.mjs";
 
 await run();

@@ -8,6 +8,8 @@
 //     zoom 仍是「改 halfH」（等价于 dolly），pan 的 px→世界换算在 target 深度处与正交完全一致。
 //   对齐引擎的模型投影无关（snap-model §7 预留）：屏距 ε 走 worldToScreen，射线走 screenRay，
 //   遮挡走 viewDirAt(p)（正交=常向量，透视=p→眼）。
+//   **height + aspect 老 GL 约定**（user 2026-09-06）：相机只由「竖直量 + 视口宽高比」定义——透视=fovY（gluPerspective 的 fovy），
+//   正交=halfH；横向永远 = 竖直量 × aspect。吸附 ε 因此以视口高度为分母（solver.epsScale），≡ fovY 的角度分数。
 
 import type { Pt3 } from "../kernel/kernel.ts";
 import { add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
