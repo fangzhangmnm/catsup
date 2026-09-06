@@ -14,6 +14,8 @@
 - **完成版远景清单**：game scene editing、overambitious game-scene metadata editing、WeebPaint integration and embedding WeebPaint ora、Blender character modeling、overambitious character animating、SketchUp 老本行、component/group 结构。问题：「gltf 是否是像 ora 一样的我们的黄金格式契约，而且有很好的 backward compatibility，因为 ora 就是因为别人定了格式，所以我们抖动也就是 .weebpaint 这个 metadata。」
 - **group/component 本体论**：「group 不是 object，是同一个 mesh，group 只是用来管理对齐，sticky geometry，变换的工具，component 是 object。顺便你知道我很讨厌 scenegraph 吧（考古，包括 gltf 的那些中二），不过 component 引用 component 我倒能接受。所以 group 其实是一个编辑时语义。渲染时就是三角汤。不知道你同意不同意」。
 
+- **容器拍板（user 2026-09-06，看完 §3.1 审计后）**：「选 zip 吧，然后之前哲学讨论就是有 glb 的话丢 authoring 人类创意不丢。其实可以。」→ 方向 = `.catsup` = zip 容器（ORA 字面翻版）：自有 JSON 装 authoring SSoT + 一个**标准 .glb bake**（三方直接可读）+ 贴图等附件；哲学：authoring 层丢了或过时了，glb 里的人类创意不丢。数据结构本体仍等 SU 1.0 + component/group 后定。
+
 ## 2. 考古：最初的野心（proposal 2026-06-27 / drill）
 
 - L11 主要核心目标 = 完美复刻开源 SketchUp PWA（WhiteBoxing/GreyBoxing/Architecture/Level Editor/3D Printing/机甲 HardSurface；「关掉理工科脑，还原在纸上画画设计的体验」，iPad friendly）。
@@ -29,6 +31,8 @@
 ## 3. AI 判断（Claude Fable 5.1，2026-09-06）
 
 ### 3.1 glTF 当黄金格式契约：同意，但要说清它和 ORA 的一处不同
+
+> **结果**：user 看完本节审计后拍板 **zip 容器**（见 §1 末条）：自有 JSON 是 authoring SSoT，glb 是随附的三方可读 bake，不再把 authoring 塞进 glTF 扩展（Y-up 换轴税与「扩展被 Blender 丢弃」两条因此不再是文件内部问题，只是 bake 的导出问题）。下文保留为审计记录。
 
 - 相同处：开放标准、别人维护、三方全认（Blender 官方 importer/exporter、three、Godot/Unity）、扩展机制就是为「抖动」设计的（`extras` 自由 JSON + `CATSUP_*` vendor extension）。**ECS 元数据落 node `extras` 正是 glTF 的本意**，天然只装数据不装逻辑，和 proposal 的「healthy boundary」同构。skins/animations/cameras 原生，character 那条线不用另起格式。
 - 不同处：**ORA 的 PNG 图层本身就是 WeebPaint 的 SSoT；glTF 的三角网格对肥皂膜内核只是烘焙**。肥皂膜的真身（n-gon 带洞的膜、边-膜链接、平面注册表、膜身份、group 上下文）glTF core 装不下，要进 `CATSUP_softfilm` 扩展。所以 glTF 模式 = **core 永远写一份三方可读的 bake（三角汤 + `LINES` 裸边）+ 扩展装 authoring SSoT**。保存必重烘（同 ORA 规范强制 mergedimage.png）。这条契约本身就是「渲染时就是三角汤」的文件版：**渲染引擎的输入 = 黄金格式的 core**，编辑器只在扩展层活。
