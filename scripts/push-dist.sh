@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# scripts/push-dist.sh —— 把构建产物推到 site 公仓 catsup-site（GitHub Pages 从 main 分支根直接服务；无 workflow）。
+# scripts/push-dist.sh —— 把构建产物推到 site 公仓 catsup（GitHub Pages 从 main 分支根直接服务；无 workflow）。
 # created 2026-09-06 by Claude Fable 5.1 —— 家族「site 仓道」首案（家族 CLAUDE.md 家/出货模型：源仓私有，另开公仓只收构建产物；
 #   `/` = prod、`/dev/` = dev；硬规则 #5 映射为「push site 仓根必问」）。
 # 用法：bash scripts/push-dist.sh dev    → 推 /dev/（AI 例行，随 build 走）
@@ -9,7 +9,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 
 LANE="${1:-dev}"
-SITE_REPO="fangzhangmnm/catsup-site"
+SITE_REPO="fangzhangmnm/catsup"
 SITE_DIR=".site"
 FILES=(index.html styles.css manifest.webmanifest service-worker.js icon-192.png icon-512.png apple-touch-icon-180.png)
 DIRS=(dist)
@@ -50,12 +50,12 @@ for d in "${DIRS[@]}"; do rm -rf "$TARGET/$d"; mkdir -p "$TARGET/$d"; cp "$d"/ca
 touch "$SITE_DIR/.nojekyll"
 if [ ! -f "$SITE_DIR/README.md" ]; then
   cat > "$SITE_DIR/README.md" <<EOF
-# catsup-site
+# catsup
 
-Build artifacts of **CatsUp** (a soap-film / SketchUp-style web modeler). The source repository is private; this repo only receives built output, pushed by \`scripts/push-dist.sh\`.
+Build artifacts of **CatsUp** (a soap-film / SketchUp-style web modeler). Until graduation this GitHub repo only receives built output (the source stays private), pushed by \`scripts/push-dist.sh\`.
 
 - \`/\` = prod (none yet)
-- \`/dev/\` = dev → https://fangzhangmnm.github.io/catsup-site/dev/
+- \`/dev/\` = dev → https://fangzhangmnm.github.io/catsup/dev/
 
 Do not edit files here by hand.
 EOF
@@ -68,5 +68,5 @@ git -C "$SITE_DIR" -c user.name="$(git config user.name)" -c user.email="$(git c
 
 Co-Authored-By: Claude Fable 5.1 <noreply@anthropic.com>"
 git -C "$SITE_DIR" push -q -u origin main
-echo "[site] pushed $LANE $VERSION → https://fangzhangmnm.github.io/catsup-site/$([ "$LANE" = dev ] && echo dev/)"
+echo "[site] pushed $LANE $VERSION → https://fangzhangmnm.github.io/catsup/$([ "$LANE" = dev ] && echo dev/)"
 echo "[site] 首次：若 Pages 未开，跑 gh api -X POST repos/$SITE_REPO/pages -f build_type=legacy -f 'source[branch]=main' -f 'source[path]=/'"

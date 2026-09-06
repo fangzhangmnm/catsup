@@ -18,7 +18,7 @@
 | UI 替身 | `src/app/ui/{popup-menu,notice,icon}.ts` | 签名照抄 WeebPaint `src/ui/`；已向 WeebPaint agent 提 `@internal/ui` 抽包提案（对方同意 API 形状、立户由其 escalate 给 user），包出来换 import |
 | PWA 壳 | `service-worker.js` / `manifest.webmanifest` / `src/app/pwa-shell.ts` / `src/version.ts` / `bump.sh` / icons | 抄 WebXiaoHeiWu（`xiaoheiwu-`→`catsup-` 三处），dev=network-first、prod=cache-first；4 路更新检测→toast「刷新」；菜单「强制更新」=清缓存重启 |
 | 构建 | `scripts/build.sh` | tsc 门 + 四道 lint（experiments 隔离 / 对齐引擎无旧鬼 / three 只在 render3 / sprite 内联对账）+ esbuild → `dist/catsup-<hash>.mjs` + sed index.html；**dist 进 git** |
-| 部署 | `scripts/push-dist.sh` | **家族 site 仓道首案**：公仓 `fangzhangmnm/catsup-site`（只收产物），Pages 从 main 根服务，`/dev/` = dev；prod 有 `CATSUP_PROD_OK` 门（硬规则 #5） |
+| 部署 | `scripts/push-dist.sh` | **家族 site 仓道首案**：公仓 `fangzhangmnm/catsup`（只收产物；user 同日改名，原 `catsup-site` 作废由 user 手删），Pages 从 main 根服务，`/dev/` = dev → https://fangzhangmnm.github.io/catsup/dev/ ；prod 有 `CATSUP_PROD_OK` 门（硬规则 #5） |
 | 自测 | `scripts/probe-boot.mjs` | headless（借 WeebPaint playwright）：开机无错 → 矩形 1 面 → 推拉 6 面 → 菜单开合 → 撤销回 1 面 + 截图 |
 | 测试 | `test/camera-persp.test.ts` `test/obj-io.test.ts` | 146 绿（+12） |
 | 图标 | `assets/icons.svg`（27 枚）| `push-pull` = fable 自画进图标库 **PENDING 待过目层**（TODO.md 已登记） |
@@ -35,11 +35,12 @@
 
 ## 3. 没做 / 待 user
 
-- **`catsup-site` 公仓已建（public，只收产物）**——user 可随时改名/删；若走 Ketchup 改名，公仓改名 GitHub 自动跳转。
+- **`catsup` 公仓已建（public，只收产物）**；毕业后源仓替换同名公仓历史，URL 不变。
 - prod 道未推（无 prod）；push prod 时再抄 WeebPaint `kick-pages.sh`（去重坑只在 workflow 道存在，classic Pages 从分支服务不需要）。
 - `@internal/ui` 立户等 user 拍板；立户前三件替身各 ~80 行，别在里面长功能。
 - 持久化：零，刷新即丢。**user 2026-09-06 拍板：「数据结构都没定持久化个屁」「宣发前不用考虑 backward compatibility」「把 sketchup 1.0 做完之后，component group 摸清楚之后再定，这个我有想法，你不要擅自做决定」**——持久化/文件格式归 user，AI 不提案不预留。
-- 公仓命名：user 问「为什么叫 catsup-site 而不是 catsup」；AI 的理由=给源仓将来走公开工坊道时留 `catsup` 名 + Ketchup 改名未定。GitHub 侧改名/删除归 user 手动，AI 不碰；改名后只需改 `scripts/push-dist.sh` 的 `SITE_REPO`。
+- 公仓命名：user 拍板 **`catsup`**（「site 是错语义。weebpaint-site 可能是站点的营销推广网站，weebpaint 是 the app」）；AI 原先留名给源仓的理由作废——毕业时同名替换即可。旧 `catsup-site` user 手删。
+- 远景剧透与黄金格式判断另立 `ai-docs/20260906-far-horizon-golden-format-and-ontology.md`。
 - UI 控件抽包：user 拍板抽，**包名不许叫 `ui`**（之前 scope bleeding 的教训）；**定名 `@internal/workbench-elements`（user 同意）；由 CatsUp session 抽**（user：「第二个用户第三个用户才长抽象，所以你来更适合。不过确实不急今天」）。起手形状=兄弟目录 `20260906 internal-workbench-elements`、tgz 走 vendor-pkgs + pull-package.sh、测试期 0.0.0、源 WET 拷 WeebPaint `src/ui/{popup-menu,anchored-popup,notice,icon}.ts` 不改语义、顶栏下缘 getter 注入、sprite 归宿主、CSS 进包而 --z-*/--ink 等 token 由宿主 :root 提供；发版后 WeebPaint session 收货换 import。WeebPaint agent 钉子：签名以 WeebPaint `api/src/ui/{popup-menu,anchored-popup,notice,icon}.d.ts`（v0.13.15）为准、别参照更早的；包仓测试覆盖「anchored-popup 钳视口 + 顶栏下缘 getter」，收货日它跑 `tools/probes/{context-toolbar,verb-toolbar,pick-once}.mjs` 做回归门。**未开工。**
 - iPad 真机：手掌拒绝 / Pencil hover / 双指手势 / 安全区 只按 WeebPaint 教义写，未真机验。
 - Blender 往返单位：OBJ 按世界单位原样写（1 单位 = 1 m 进 Blender）；VCB 立项时再定尺度。
