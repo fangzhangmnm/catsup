@@ -27,11 +27,19 @@ button { font: inherit; color: inherit; }
 .ico { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; display: block; }
 svg.ico use { color: inherit; }
 
-#app { display: flex; flex-direction: column; height: 100%; padding-top: var(--safe-top); }
-#topbar { display: flex; align-items: center; justify-content: space-between; height: 44px; padding: 0 6px 0 calc(6px + var(--safe-left));
-  background: var(--panel); border-bottom: 1px solid var(--line); flex: 0 0 auto; }
-.tb-group { display: flex; align-items: center; gap: 2px; }
-.tb-center { flex: 1; justify-content: center; }
+#app { position: relative; height: 100%; }
+#stage { position: absolute; inset: 0; }
+#board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; display: block; }
+
+/* HUD：浮在视口里的胶囊（user 2026-09-06「hud 在视口里面…以后转 VR 会无疼」）；画布满屏，胶囊之间的空白全部透给场景 */
+.hud { position: absolute; z-index: 5; display: flex; align-items: center; gap: 2px; padding: 4px; background: rgba(255,255,255,.86); border: 1px solid var(--line);
+  border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.06); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); }
+.hud-tl { top: calc(8px + var(--safe-top)); left: calc(8px + var(--safe-left)); padding-right: 12px; }
+.hud-tc { top: calc(8px + var(--safe-top)); left: 50%; transform: translateX(-50%); }
+.hud-tr { top: calc(8px + var(--safe-top)); right: calc(8px + var(--safe-right)); }
+.hud-left { left: calc(8px + var(--safe-left)); top: 50%; transform: translateY(-50%); flex-direction: column; gap: 4px; padding: 6px; }
+.hud-bl { bottom: calc(8px + var(--safe-bottom)); left: calc(8px + var(--safe-left)); max-width: min(70vw, 900px); padding: 5px 12px; font-size: 12px; color: #555; pointer-events: none; }
+.hud-br { bottom: calc(8px + var(--safe-bottom)); right: calc(8px + var(--safe-right)); padding: 5px 10px; font-size: 12px; pointer-events: none; }
 .app-title { font-weight: 600; letter-spacing: .02em; margin-left: 4px; color: #3a3a3a; }
 .tb-btn { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; cursor: pointer; color: var(--ink); }
 .tb-btn:hover { background: #f0ede6; }
@@ -39,13 +47,6 @@ svg.ico use { color: inherit; }
 .tb-btn:disabled { opacity: .3; cursor: default; background: transparent; }
 .tb-danger { color: var(--danger); }
 
-#main { flex: 1; min-height: 0; display: flex; }
-#stage { flex: 1; min-width: 0; position: relative; }
-#board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; display: block; }
-
-#toolbar { position: absolute; left: calc(8px + var(--safe-left)); top: 50%; transform: translateY(-50%);
-  display: flex; flex-direction: column; gap: 4px; padding: 6px; background: rgba(255,255,255,.92); border: 1px solid var(--line);
-  border-radius: 12px; box-shadow: 0 2px 10px rgba(0,0,0,.06); backdrop-filter: blur(6px); }
 .tool { width: 52px; height: 50px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   border: 0; border-radius: 9px; background: transparent; cursor: pointer; color: #444; padding: 0; }
 .tool .ico { width: 22px; height: 22px; }
@@ -57,14 +58,11 @@ svg.ico use { color: inherit; }
 #marquee { position: fixed; z-index: 5; border: 1px dashed #666; background: rgba(43,108,176,.08); pointer-events: none; }
 #tip { position: fixed; z-index: var(--z-notice); padding: 2px 7px; font-size: 12px; background: rgba(255,255,255,.95);
   border: 1px solid #888; border-radius: 4px; pointer-events: none; white-space: nowrap; }
-
-#statusbar { flex: 0 0 auto; display: flex; align-items: center; gap: 12px; height: calc(26px + var(--safe-bottom)); padding: 0 10px var(--safe-bottom) calc(10px + var(--safe-left));
-  background: var(--panel); border-top: 1px solid var(--line); font-size: 12px; color: #555; }
-#hint { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.build { color: var(--muted); font-variant-numeric: tabular-nums; flex: 0 0 auto; }
+#hint { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.build { color: var(--muted); font-variant-numeric: tabular-nums; }
 
 /* 实验台抽屉（lab 仪器；默认关） */
-#lab { width: 300px; flex: 0 0 300px; border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; padding-right: var(--safe-right); }
+#lab { position: absolute; right: 0; top: 0; bottom: 0; z-index: 6; width: min(300px, 80vw); border-left: 1px solid var(--line); background: var(--panel); display: flex; flex-direction: column; padding-right: var(--safe-right); padding-top: var(--safe-top); }
 .lab-head { display: flex; align-items: center; justify-content: space-between; padding: 4px 4px 4px 10px; border-bottom: 1px solid #eee; font-weight: 600; }
 .lab-row { display: flex; align-items: center; gap: 6px; padding: 6px 8px; border-bottom: 1px solid #eee; }
 .lab-label { flex: 1; font-size: 11px; color: var(--muted); }
@@ -117,5 +115,5 @@ svg.ico use { color: inherit; }
 @media (max-width: 640px) {
   .tool { width: 46px; height: 46px; }
   .tool-label { display: none; }
-  #lab { position: absolute; right: 0; top: 0; bottom: 0; width: min(300px, 80vw); z-index: 6; }
+  .hud-tl .app-title { display: none; }
 }

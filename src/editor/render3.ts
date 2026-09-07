@@ -54,6 +54,7 @@ const SNAP_COLORS: Record<string, number> = {
   "axis-y": PALETTE.axisY,
   "axis-z": PALETTE.axisZ,
   "h-stop": 0xd97706,
+  "on-face": 0x2b6cb0,
 };
 const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
 

@@ -77,7 +77,7 @@ export function drawPlaneAt(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: numbe
   const hit = pickEntity(k, cam, vp, sx, sy, 0.5); // 面命中不需要 px 容差
   if (hit.face !== undefined) {
     const rec = k.planeOf(hit.face)!;
-    return { plane: rec.plane, basis: rec.basis };
+    return { plane: rec.plane, basis: rec.basis, face: hit.face };   // 出身=膜 → 裸落其内报「面上」
   }
   return GROUND;
 }
@@ -99,7 +99,7 @@ export function rectFirstPlane(
   let facePlane: DrawPlane | null = null;
   if (hit.face !== undefined) {
     const rec = k.planeOf(hit.face)!;
-    facePlane = { plane: rec.plane, basis: rec.basis };
+    facePlane = { plane: rec.plane, basis: rec.basis, face: hit.face };
   }
   const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { facePlane, alignSources });
   return { fixed: r.fixed ? r.plane : null, plane: r.plane, snap: r.snap };

@@ -16,7 +16,8 @@ import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 
-export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; }
+/** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
+export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
 
 
 export interface View { cam: OrbitCamera; vp: Viewport; }
@@ -460,6 +461,7 @@ export type SnapKind =
   | "axis-x" | "axis-y" | "axis-z"
   | "align" | "align-combo" | "edge-align"
   | "intersection" | "cross-line"
+  | "on-face"   // 裸落在膜内（2-D 目标；仅当平面来自膜且点在环内）
   | "h-stop";   // pp 高度通道咬合（标量吸附，非光标目标）
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
 export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v" | "i"; }
@@ -524,6 +526,7 @@ export function snapPoint(
       : t.kind === "edge" ? "on-edge"
       : t.kind === "axis" ? ((t.axis === "u" || t.axis === "v") ? "align" : (("axis-" + t.axis) as SnapKind))
       : t.kind === "align" ? "align"
+      : (t.kind === "plane" && insideFace(k, q.plane, sol.p)) ? "on-face"
       : null;
   }
   return hints.length ? { p: sol.p, kind, hints } : { p: sol.p, kind };
@@ -562,6 +565,16 @@ export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
   return pickByFacing(cam, axisPlanesThrough(through));
 }
 
+/** 平面来自膜且 p 落在该膜环内（含洞判定）→ 「面上」；平面不带 face 或点在环外 → false。 */
+function insideFace(k: Kernel, plane: DrawPlane, p: Pt3): boolean {
+  if (plane.face === undefined) return false;
+  const f = k.face(plane.face);
+  if (!f) return false;
+  const q2 = { x: dot3(p, plane.basis.u), y: dot3(p, plane.basis.v) };
+  if (!pointInRing(q2, f.outer.pts)) return false;
+  return !f.holes.some((h) => pointInRing(q2, h.pts));
+}
+
 /** 光标射线命中的第一张膜（最近者）的平面；没命中 → null。零 three、不经 pick.ts（避免环形 import）。 */
 export function faceUnderCursor(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number): DrawPlane | null {
   const ray = cam.screenRay(sx, sy, vp);
@@ -577,7 +590,7 @@ export function faceUnderCursor(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: n
     const q2 = { x: dot3(q, rec.basis.u), y: dot3(q, rec.basis.v) };
     if (!pointInRing(q2, f.outer.pts)) continue;
     if (f.holes.some((h) => pointInRing(q2, h.pts))) continue;
-    best = { t, plane: { plane: rec.plane, basis: rec.basis } };
+    best = { t, plane: { plane: rec.plane, basis: rec.basis, face: f.id } };
   }
   return best?.plane ?? null;
 }
@@ -613,7 +626,7 @@ export function resolvePlane(
   }
   const base = facePlane ?? axisPlane(cam);
   const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, alignSources });
-  if (snap.kind === null) return { plane: base, fixed: !!facePlane, snap };
+  if (snap.kind === null || snap.kind === "on-face") return { plane: base, fixed: !!facePlane, snap };   // 裸落（含「面上」）= 面锁成立
   // 首点被低维吸附赢走：面锁作废（延迟承诺），平面挂到解析点上
   return { plane: pickByFacing(cam, axisPlanesThrough(snap.p)), fixed: false, snap };
 }

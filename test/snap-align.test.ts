@@ -140,7 +140,7 @@ describe("rect: 首点平面裁决（元逻辑：维度优先+延迟承诺）", 
     const k = wall(), c = cam3();
     const s = at(c, { x: 0, y: 5, z: 4 });
     const r = rectFirstPlane(k, c, VP, s.x, s.y, TOL);
-    eq(r.snap.kind, null, "无低维目标");
+    eq(r.snap.kind, "on-face", "无低维目标 = 面上（2026-09-06 起裸落膜内报 on-face）");
     assert(r.fixed !== null && Math.abs(Math.abs(r.fixed.plane.n.x) - 1) < 1e-9, "锁墙平面（n=±x）");
   });
 });

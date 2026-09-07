@@ -112,28 +112,26 @@
 <!-- ICON-SPRITE:END -->
 
     <div id="app">
-      <header id="topbar">
-        <div class="tb-group">
+      <div id="stage">
+        <canvas id="board"></canvas>
+        <!-- HUD（user 2026-09-06：「顶栏透明…类似游戏的那种 immersive hud…hud 在视口里面…以后转 VR 会无疼。就 hud 化吧」）-->
+        <div class="hud hud-tl">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
-          <span class="app-title">CatsUp</span>
+          <span class="app-title" id="docTitle">CatsUp</span>
         </div>
-        <div class="tb-group tb-center">
+        <div class="hud hud-tc">
           <button class="tb-btn" id="btnUndo" type="button" title="撤销（Ctrl+Z / 双指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-undo"/></svg></button>
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
           <button class="tb-btn tb-danger" id="btnDelete" type="button" title="删除选区（Delete）" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
         </div>
-        <div class="tb-group">
+        <div class="hud hud-tr">
           <button class="tb-btn" id="btnFit" type="button" title="缩放到全部"><svg class="ico" aria-hidden="true"><use href="#maximize-viewport"/></svg></button>
           <button class="tb-btn" id="btnView" type="button" title="视图"><svg class="ico" aria-hidden="true"><use href="#axes"/></svg></button>
         </div>
-      </header>
-
-      <div id="main">
-        <div id="stage">
-          <canvas id="board"></canvas>
-          <nav id="toolbar" aria-label="工具"></nav>
-          <div id="marquee" hidden></div>
-        </div>
+        <nav id="toolbar" class="hud hud-left" aria-label="工具"></nav>
+        <div class="hud hud-bl" id="hintWrap"><span id="hint"></span></div>
+        <div class="hud hud-br"><span id="build" class="build"></span></div>
+        <div id="marquee" hidden></div>
         <aside id="lab" hidden>
           <div class="lab-head"><span>实验台</span><button class="tb-btn" id="labClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
           <div class="lab-row"><span class="lab-label">场景预置（一键摆好，事件照常涌出）</span></div>
@@ -146,11 +144,6 @@
           <div id="labLog"></div>
         </aside>
       </div>
-
-      <footer id="statusbar">
-        <span id="hint"></span>
-        <span id="build" class="build"></span>
-      </footer>
     </div>
 
     <div id="tip" hidden></div>
@@ -174,6 +167,6 @@
     </div>
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
-    <script type="module" src="./dist/catsup-8247aa3c483b.mjs"></script>
+    <script type="module" src="./dist/catsup-d5d98784b4e1.mjs"></script>
   </body>
 </html>
