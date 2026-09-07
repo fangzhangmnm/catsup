@@ -1,18 +1,25 @@
 // gestures.ts —— 指针路由：mouse / pen / touch 谁是「工具指针」、谁是「相机手势」。
-// created 2026-09-06 by Claude Fable 5.1（user：「iPad as first class citizen」）
+// created 2026-09-06 by Claude Fable 5.1（user：「iPad as first class citizen」）；同日按 WeebPaint input.ts 的坑重写多指 tap（user：「undo redo 的手势，这个参考 weebpaint 的坑」）
 //
 // 口径（抄 WeebPaint pointer-route.ts 的教义，改成 3D 相机版）：
 //   mouse：左键=工具；中/右键拖=环绕，Shift+中/右=平移；滚轮=朝光标缩放。
 //   pen  ：永远=工具（Apple Pencil 悬停=吸附预告）。见过 pen 的设备，手指永久降级为相机（手掌≡单指 touch，物理不可分）。
-//   touch：单指=环绕；双指=平移+捏合缩放；双指轻点=撤销、三指轻点=重做（WeebPaint 同款）。
+//   touch：单指=环绕；双指=平移+捏合缩放；双指轻点=撤销、三指轻点=重做（Procreate 方言，WeebPaint 同款）。
 //          「手指画」开关打开且没见过 pen → 单指=工具，第二指落下即取消工具手势转相机。
-//   pen 活动后 500ms 内的 touch 一律忽略（手掌落笔前后的误触）。
+//
+// 多指 tap 的四个坑（WeebPaint input.ts 血泪，逐条照抄）：
+//   ① tap 时长从**最早**参与触点落下算（掌根久搁 = 慢 tap = 超限剔除；从第二指到来算会漏掉）。
+//   ② 位移门按**每根手指**离各自起点算（16px），不是质心——捏一下再松开不是 tap。
+//   ③ 掌触门：笔尖活动（落/移/抬）后 600ms 内的多指 tap 一律视作手掌闪灭，吞掉不撤销；只挡 tap，pinch/pan 不动。
+//   ④ 幽灵指针：iOS 偶尔丢 pointerup → 卡在 map 里把单指误判成双指。pen 落下 = 权威信号，清空全部 touch；
+//      任何 down 前清掉 8s 没动静的 touch。
 // Editor 只吃工具指针（pointerDown/Move/Up/Leave）；相机改动直接打 editor.cam 再 draw。
 
 import type { Editor, ToolPointer } from "../editor/editor.ts";
 
 type Role = "tool" | "orbit" | "pan" | "hold" | "multi";
-interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; }
+interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; }
+interface GestureTap { firstDownTime: number; isTap: boolean; maxCount: number; start: Map<number, { x: number; y: number }>; }
 
 export interface GestureOpts {
   fingerDraws(): boolean;
@@ -20,15 +27,18 @@ export interface GestureOpts {
   onRedo(): void;
 }
 
-const PALM_GUARD_MS = 500;
-const TAP_MS = 300;
-const TAP_PX = 12;
+const GESTURE_TAP_MAX_MS = 250;
+const GESTURE_TAP_MAX_MOVE = 16;
+const PALM_PEN_GUARD_MS = 600;
+const STALE_TOUCH_MS = 8000;
+const SINGLE_TAP_MS = 250;
 
 export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: GestureOpts): { dispose(): void; penEverSeen(): boolean } {
   const pointers = new Map<number, Tracked>();
   let penEverSeen = false;
   let lastPenActivity = -Infinity;
-  let multi: { cx: number; cy: number; d: number; maxCount: number; startAt: number; moved: number } | null = null;
+  let multi: { cx: number; cy: number; d: number } | null = null;
+  let tap: GestureTap | null = null;
 
   const local = (ev: PointerEvent): { x: number; y: number } => {
     const r = canvas.getBoundingClientRect();
@@ -38,35 +48,46 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     const s = local(ev);
     return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, shiftKey: ev.shiftKey };
   };
-  const touches = (): Tracked[] => [...pointers.values()].filter((p) => p.type === "touch");
+  const touches = (): [number, Tracked][] => [...pointers.entries()].filter(([, p]) => p.type === "touch");
   const toolPointerActive = (): boolean => [...pointers.values()].some((p) => p.role === "tool");
 
+  function purgeTouches(all: boolean): void {
+    const now = performance.now();
+    for (const [id, p] of touches()) {
+      if (all || now - p.lastAt > STALE_TOUCH_MS) pointers.delete(id);
+    }
+    if (touches().length < 2) multi = null;
+    if (touches().length === 0) tap = null;
+  }
+
+  /** ≥2 指落定：重锚质心/指距；tap 记录只在首次建立（最早触点时刻、各指起点、峰值指数）。 */
   function beginMulti(): void {
     const ts = touches();
     if (ts.length < 2) return;
-    const [a, b] = ts;
-    multi = {
-      cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y),
-      maxCount: Math.max(multi?.maxCount ?? 0, ts.length), startAt: multi?.startAt ?? performance.now(), moved: multi?.moved ?? 0,
-    };
-    for (const t of ts) t.role = "multi";
+    const [[, a], [, b]] = ts;
+    multi = { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+    if (!tap) tap = { firstDownTime: Math.min(...ts.map(([, t]) => t.downAt)), isTap: true, maxCount: 0, start: new Map() };
+    tap.maxCount = Math.max(tap.maxCount, ts.length);
+    for (const [id, t] of ts) { if (!tap.start.has(id)) tap.start.set(id, { x: t.downX, y: t.downY }); t.role = "multi"; }
   }
 
   function onDown(ev: PointerEvent): void {
     const s = local(ev);
     try { canvas.setPointerCapture(ev.pointerId); } catch { /* 合成事件/已释放的指针会抛 InvalidState，不许把 down 整个打断 */ }
-    const base: Tracked = { type: ev.pointerType, role: "hold", x: s.x, y: s.y, downX: s.x, downY: s.y, downAt: performance.now() };
+    const now = performance.now();
+    purgeTouches(ev.pointerType === "pen");   // ④ 幽灵清理：pen 落下清全部 touch；否则只清 stale
+    const base: Tracked = { type: ev.pointerType, role: "hold", x: s.x, y: s.y, downX: s.x, downY: s.y, downAt: now, lastAt: now };
     if (ev.pointerType === "mouse") {
       if (ev.button === 0) base.role = toolPointerActive() ? "hold" : "tool";
       else base.role = ev.shiftKey ? "pan" : "orbit";
       ev.preventDefault();
     } else if (ev.pointerType === "pen") {
       penEverSeen = true;
-      lastPenActivity = performance.now();
+      lastPenActivity = now;
       base.role = toolPointerActive() ? "hold" : "tool";
     } else {
-      // touch
-      if (performance.now() - lastPenActivity < PALM_GUARD_MS) base.role = "hold";
+      // touch：见过 pen 的设备手指永远=相机；笔尖刚活动过的触点先当手掌（hold，仍可凑多指手势）
+      if (now - lastPenActivity < PALM_PEN_GUARD_MS) base.role = "hold";
       else if (!penEverSeen && opts.fingerDraws() && touches().length === 0 && !toolPointerActive()) base.role = "tool";
       else base.role = "orbit";
     }
@@ -75,7 +96,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
       const ts = touches();
       if (ts.length >= 2) {
         // 第二指落下：工具手势让位给相机（手指画模式下画到一半也取消——SU iPad 同款）
-        for (const t of ts) if (t.role === "tool") editor.cancel();
+        for (const [, t] of ts) if (t.role === "tool") editor.cancel();
         beginMulti();
         return;
       }
@@ -92,18 +113,24 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
       return;
     }
     const dx = s.x - t.x, dy = s.y - t.y;
-    t.x = s.x; t.y = s.y;
-    if (ev.pointerType === "pen") lastPenActivity = performance.now();
+    t.x = s.x; t.y = s.y; t.lastAt = performance.now();
+    if (ev.pointerType === "pen") lastPenActivity = t.lastAt;
     switch (t.role) {
       case "tool": editor.pointerMove(tp(ev)); return;
       case "orbit": editor.cam.orbit(dx, dy); editor.draw(); return;
       case "pan": editor.cam.pan(dx, dy, editor.vp()); editor.draw(); return;
       case "multi": {
-        const ts = touches().filter((p) => p.role === "multi");
+        // ② 位移门：每根手指离自己的起点
+        if (tap?.isTap) {
+          for (const [id, p] of touches()) {
+            const st = tap.start.get(id);
+            if (st && Math.hypot(p.x - st.x, p.y - st.y) > GESTURE_TAP_MAX_MOVE) { tap.isTap = false; break; }
+          }
+        }
+        const ts = touches().filter(([, p]) => p.role === "multi");
         if (ts.length < 2 || !multi) return;
-        const [a, b] = ts;
+        const [[, a], [, b]] = ts;
         const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
-        multi.moved += Math.hypot(cx - multi.cx, cy - multi.cy) + Math.abs(d - multi.d);
         editor.cam.pan(cx - multi.cx, cy - multi.cy, editor.vp());
         if (d > 1 && multi.d > 1) editor.cam.zoomAt(multi.d / d, cx, cy, editor.vp());
         multi.cx = cx; multi.cy = cy; multi.d = d;
@@ -118,39 +145,41 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     const t = pointers.get(ev.pointerId);
     if (!t) return;
     pointers.delete(ev.pointerId);
-    if (ev.pointerType === "pen") lastPenActivity = performance.now();
+    const now = performance.now();
+    if (ev.pointerType === "pen") lastPenActivity = now;   // ③ 掌触门从抬笔起算
     if (t.role === "tool") {
       if (cancelled) editor.cancel(); else editor.pointerUp(tp(ev));
       return;
     }
-    if (t.role === "multi") {
-      const rest = touches();
-      if (rest.length === 0 && multi) {
-        // 多指轻点：两指=撤销、三指=重做（短、几乎没动）
-        const dur = performance.now() - multi.startAt;
-        if (dur < TAP_MS && multi.moved < TAP_PX) {
-          if (multi.maxCount === 2) opts.onUndo();
-          else if (multi.maxCount >= 3) opts.onRedo();
+    if (ev.pointerType !== "touch") return;
+    const rest = touches();
+    if (rest.length === 0) {
+      if (tap) {
+        // 所有触点都松手 → 判定双指/三指 tap：①从最早触点算时长 ③笔尖时近性门
+        const elapsed = now - tap.firstDownTime;
+        const palmGuard = now - lastPenActivity < PALM_PEN_GUARD_MS;
+        if (!cancelled && tap.isTap && elapsed < GESTURE_TAP_MAX_MS && !palmGuard) {
+          if (tap.maxCount === 2) opts.onUndo();
+          else if (tap.maxCount >= 3) opts.onRedo();
         }
+        tap = null;
         multi = null;
-      } else if (rest.length === 1) {
-        rest[0].role = "hold";   // 剩下的那根手指不接管为环绕（防抬手瞬间视角跳）
-        multi = null;
-      } else {
-        beginMulti();
+        return;
       }
+      // 单指轻点（从未凑成多指、没动、不在掌触门内）：当作「取消/收笔」——iPad 上 Esc 的替身
+      if (t.role === "orbit" && !cancelled && now - t.downAt < SINGLE_TAP_MS && Math.hypot(t.x - t.downX, t.y - t.downY) < GESTURE_TAP_MAX_MOVE && now - lastPenActivity >= PALM_PEN_GUARD_MS) editor.cancel();
       return;
     }
-    if (t.role === "orbit" && ev.pointerType === "touch" && !cancelled) {
-      // 单指轻点（没动）：当作「取消/收笔」——iPad 上 Esc 的替身
-      if (performance.now() - t.downAt < TAP_MS && Math.hypot(t.x - t.downX, t.y - t.downY) < TAP_PX) editor.cancel();
+    if (t.role === "multi") {
+      if (rest.length >= 2) beginMulti();          // 三指抬一指：重锚，tap 记录保留（峰值指数不变）
+      else { rest[0][1].role = "hold"; multi = null; }   // 剩最后一指：不接管为环绕（防抬手瞬间视角跳）
     }
   }
 
   const onWheel = (ev: WheelEvent): void => {
     ev.preventDefault();
-    const s = { x: ev.clientX - canvas.getBoundingClientRect().left, y: ev.clientY - canvas.getBoundingClientRect().top };
-    editor.cam.zoomAt(ev.deltaY > 0 ? 1.1 : 1 / 1.1, s.x, s.y, editor.vp());
+    const r = canvas.getBoundingClientRect();
+    editor.cam.zoomAt(ev.deltaY > 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top, editor.vp());
     editor.draw();
   };
   const onLeave = (): void => { if (!toolPointerActive()) editor.pointerLeave(); };

@@ -562,6 +562,26 @@ export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
   return pickByFacing(cam, axisPlanesThrough(through));
 }
 
+/** 光标射线命中的第一张膜（最近者）的平面；没命中 → null。零 three、不经 pick.ts（避免环形 import）。 */
+export function faceUnderCursor(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number): DrawPlane | null {
+  const ray = cam.screenRay(sx, sy, vp);
+  let best: { t: number; plane: DrawPlane } | null = null;
+  for (const f of k.faces()) {
+    const rec = k.planeOf(f.id);
+    if (!rec) continue;
+    const denom = dot3(rec.plane.n, ray.dir);
+    if (Math.abs(denom) < 1e-9) continue;
+    const t = (rec.plane.d - dot3(rec.plane.n, ray.origin)) / denom;
+    if (t <= 0 || (best && t >= best.t)) continue;
+    const q = add3(ray.origin, scale3(ray.dir, t));
+    const q2 = { x: dot3(q, rec.basis.u), y: dot3(q, rec.basis.v) };
+    if (!pointInRing(q2, f.outer.pts)) continue;
+    if (f.holes.some((h) => pointInRing(q2, h.pts))) continue;
+    best = { t, plane: { plane: rec.plane, basis: rec.basis } };
+  }
+  return best?.plane ?? null;
+}
+
 /**
  * 平面求解（字典序见文件头）。p1 无 = 首点查询（facePlane=调用方 raycast 的面锁候选）；
  * p1 有 = 第二点查询（含点平面拉动）。fixed=面锁成立（裸落膜内）。
@@ -577,6 +597,14 @@ export function resolvePlane(
 ): { plane: DrawPlane; fixed: boolean; snap: Snap3 } {
   const { p1, facePlane, alignSources } = opts;
   if (p1) {
+    // 含点（膜）：光标射线命中的膜若也含锚点 → 该膜平面胜出（SU：从共享边拖进哪张面，矩形/线就躺哪张面）。
+    // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
+    // 此前第二点只在过锚点的三个轴平面里挑且先按俯视偏置取地面，光标穿过侧面落到地面底边附近 → 永远「边上」。
+    const under = faceUnderCursor(k, cam, vp, sx, sy);
+    if (under && distToPlane(p1, under.plane) <= 1e-3) {
+      const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources });
+      return { plane: under, fixed: false, snap };
+    }
     const candidates = axisPlanesThrough(p1);
     const base = pickByFacing(cam, candidates);
     const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources });

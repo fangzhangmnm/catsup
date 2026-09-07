@@ -352,6 +352,14 @@ export class Editor {
     }
   }
 
+  /** 线的第二点：学矩形（user 2026-09-01 裁决「线的空落点兜底=学矩形」）——含光标的膜 > 过锚点轴平面 > 轴系；
+   *  平面随第二点动态解析并写回 gesturePlane（2026-09-06 修：此前锁死首点平面，从共享边画进侧面时端点落到地面）。 */
+  private lineSecondSnap(sx: number, sy: number): Snap3 {
+    const r = resolveRectPlane(this.liveWorld(), this.cam, this.vp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs());
+    this.gesturePlane = r.plane;
+    return r.snap;
+  }
+
   /** 矩形第二点：固定面 → 面内吸附；动态 → 平面被第二点拉动（resolveRectPlane）。 */
   private rectPlaneSnap(sx: number, sy: number): Pt3 {
     if (this.rectFixed) {
@@ -523,7 +531,7 @@ export class Editor {
     switch (this._tool) {
       case "line":
         if (this.anchor3) {
-          this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand() }), s.x, s.y);
+          this.snapInfo = this.applyHysteresis(this.lineSecondSnap(s.x, s.y), s.x, s.y);
           this.trackCharge(this.snapInfo, 120);
           this.cursor3 = this.snapInfo.p;
         }
@@ -735,7 +743,7 @@ export class Editor {
   /** 连画+出膜停（user 终裁回 SU 方案）：出膜事件=铅笔自动抬起；逃生=Esc/原地点击。 */
   private commitLineTo(sx: number, sy: number): void {
     const a = this.anchor3!;
-    const b = snapPoint(this.liveWorld(), this.cam, this.vp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: a, alignSources: this.alignSrcs(), hand: this.freshHand() }).p;
+    const b = this.lineSecondSnap(sx, sy).p;
     if (dist(a, b) < 1) { this.cancelGesture(); return; }
     const evs = this.commitOp({ op: "addEdges", segs: [[a, b]] });
     this.emit(evs);
