@@ -85,6 +85,7 @@ export class Editor {
   private checkpoint = new Kernel();
   private journal = new Journal();
   private _tool: Tool = "line";
+  private _revision = 0;                  // checkpoint 每次变（commit/undo/redo）+1；碰撞世界等消费方据此重建
 
   // ---- 瞬态 ----
   private anchor3: Pt3 | null = null;
@@ -128,6 +129,8 @@ export class Editor {
   // ---------- 只读 ----------
   get tool(): Tool { return this._tool; }
   get kernel(): Kernel { return this.checkpoint; }
+  /** checkpoint 的代数（commit/undo/redo 各 +1）。 */
+  get revision(): number { return this._revision; }
   canUndo(): boolean { return this.journal.canUndo(); }
   canRedo(): boolean { return this.journal.canRedo(); }
   hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
@@ -195,6 +198,7 @@ export class Editor {
   private commitOp(op: LabOp): FaceEvent[] {
     const r = this.journal.commit(this.checkpoint, op);
     this.checkpoint = r.kernel;
+    this._revision++;
     this.revalidateCharged();
     this.host.changed();
     return r.events;
@@ -205,6 +209,7 @@ export class Editor {
     const k2 = this.journal.undo();
     if (!k2) return;
     this.checkpoint = k2;
+    this._revision++;
     this.revalidateCharged();
     this.cancelGesture();
     this.selection = emptySelection();
@@ -216,6 +221,7 @@ export class Editor {
     const r = this.journal.redo(this.checkpoint);
     if (!r) return;
     this.checkpoint = r.kernel;
+    this._revision++;
     this.revalidateCharged();
     this.cancelGesture();
     this.selection = emptySelection();
