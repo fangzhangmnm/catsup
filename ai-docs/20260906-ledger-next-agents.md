@@ -169,6 +169,7 @@
 - **E11 光照默认先验当方向 cue**（user 2026-09-07「lighting default prior 是另外一个 cue，以后也会做」）：Workbench 默认光向固定于世界（如西南上方）而非相机系，转视角时明暗随之变 → 方向感；等渲染引擎切口（A4）后做。
 - **E13 VR 内粘贴参考/贴图**（user 2026-09-07 Quest 工作模式：进网页 1 的 VR 时可开 system browser overlay 玩网页 2 → 「网页 2 复制图像，然后不出 vr 复制进 catsup 成参考或者贴图」）：沉浸会话里读剪贴板（`navigator.clipboard.read()` 需用户激活，XR `select` 事件算不算激活待验）→ 参考图 / 贴图纪元的入口之一；先存档。
 - **E12 灵感：「生命之粉」= 编辑器内临时物理**（user 2026-09-07 原话存档：「塞尔达里面的超级手可以把 rigidbody **临时**变成 kinematic。我们做一个相反的东西：绿野仙踪里面的生命之粉（时间之粉？newtonian 这种只会往下掉的 non self propotion particle 不符合中世纪生命的语义），效果是临时 in editor, without hit play button 把一个东西变成 falling rock/ water/ cloth，临时，用户可以喊停。用处是你想做沙发布料瓦砾书堆的时候不想折腾时间轴和烘培但需要物理模拟的时候可以用。unity asset store 上面也有一个类似的素材摆放插件。甚至我们以后 asset placement 的时候可以做一个 drop」）：动词形状 = 选中几何 → 撒粉 → 它在编辑器里活起来（落石/水/布）→ 喊停即冻结成普通几何（一次结算 = 一个 op，指令式不破）；asset placement 的「drop」是它的最小子集。未来纪元，先存档。
+  **续（user 2026-09-07）**：「drop 也是一个动词，虽然就相当于从库内拖出+生命之粉。或者这是一种 asset placement 的模式。还记得我们最初讨论的那个提起一只 mascot 丢到场景里吗（虽然那个时候是用 pull up 来画不同高度和 orientation 的树。这么说的话对于 scale variant 的树，石头，用 pull up，对于 scale 固定的 props 用 drop down」→ **asset placement 两种模式**：**pull up**（scale 可变的东西：树、石头——从地面拉起决定高度与朝向，proposal 早期的 mascot/树讨论）vs **drop down**（scale 固定的 props：从库里拎出来丢下去，落地=一次「生命之粉」结算）。
 - **原则（同一段 user 原话，与 A13 碰撞项挂钩）**：「这个和 vr/fps 的导航需求都逼出来：**我们的 geometry 是默认有碰撞的，除非用户 override or assign proxy**」→ 碰撞不是 VR 专属附件而是几何的默认属性；override（关碰撞）与 proxy（简化碰撞体）是将来的 per-几何/per-component 元数据（ECS 元数据落 `extras` 那一层）。
 - **E8 油漆桶=拉矩形**（user 2026-09-06 原话「park进未来设计思路：油漆桶刷贴图采用拉矩形的方式，所以拉矩形可以同时设置贴图和UV」）：贴图纪元的思路存档，现在不做。
 
