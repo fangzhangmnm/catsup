@@ -311,7 +311,15 @@ export class Editor {
   /** 基线手：checkpoint 之外的新生 vid（wip 线端/planarize 切点——追光标者）+ 工具自报的移动集。 */
   private freshHand(extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
     const known = new Set(this.checkpoint.vertices().map((v) => v.id));
-    return { has: (vid) => !known.has(vid) || (extra?.(vid) ?? false), opaque };
+    const hand: AlignHand = { has: (vid) => !known.has(vid) || (extra?.(vid) ?? false), opaque };
+    // draw 类手势：只有预演里 BIRTH 出来的膜才「在手里」（追光标的新膜）；DIVIDE 子膜与母膜同影柱，
+    // 照常遮挡——否则矩形一落在正面上，正面就透明、背后的底边露出来被吸（2026-09-06 user 案）。
+    if (this._tool === "line" || this._tool === "rect") {
+      const born = new Set<FaceId>();
+      for (const e of this.liveEvents) if (e.type === "BIRTH") born.add(e.face);
+      hand.faces = (fid) => born.has(fid);
+    }
+    return hand;
   }
 
   // ---------- live（影子副本预演） ----------
@@ -355,7 +363,7 @@ export class Editor {
   /** 线的第二点：学矩形（user 2026-09-01 裁决「线的空落点兜底=学矩形」）——含光标的膜 > 过锚点轴平面 > 轴系；
    *  平面随第二点动态解析并写回 gesturePlane（2026-09-06 修：此前锁死首点平面，从共享边画进侧面时端点落到地面）。 */
   private lineSecondSnap(sx: number, sy: number): Snap3 {
-    const r = resolveRectPlane(this.liveWorld(), this.cam, this.vp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
+    const r = resolveRectPlane(this.liveWorld(), this.cam, this.vp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(), this.gesturePlane);
     this.gesturePlane = r.plane;
     return r.snap;
   }
@@ -366,7 +374,7 @@ export class Editor {
       this.snapInfo = snapPoint(this.liveWorld(), this.cam, this.vp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() });
       return this.snapInfo.p;
     }
-    const r = resolveRectPlane(this.liveWorld(), this.cam, this.vp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
+    const r = resolveRectPlane(this.liveWorld(), this.cam, this.vp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(), this.gesturePlane);
     this.gesturePlane = r.plane;
     this.snapInfo = r.snap;
     return r.snap.p;

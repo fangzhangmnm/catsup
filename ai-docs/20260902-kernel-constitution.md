@@ -1,6 +1,6 @@
 # CatsUp 核心几何引擎 · 立宪一页
 
-> as-of v0.2.25 / 2026-09-03 · created by Claude Fable 5（rev5=v3.1 守卫+扰动相）
+> as-of v0.3.1 / 2026-09-06 · created by Claude Fable 5（rev5=v3.1 守卫+扰动相；rev6=洞环三律，edited by Claude Fable 5.1）
 > **铁律：任何核心改动必须及时回写本页。** 验收：代码库丢失时凭本页+golden 语料（test/）复原引擎。
 > 附件：对齐引擎数学=`20260901-solver-math-onepager.md`；案卷=move-spec/pushpull-grill-sheet。
 
@@ -56,6 +56,10 @@ frontier（一端被扣留）=删原画新。**v3.1 顶点分离守卫**（2026-
 入射边 ∈ {环边}∪{∥n̂ 伸缩轨}——带外来边（邻面/散线）→扣留走 frontier，邻居形状不可侵犯
 （sticky A3 不背锅，错在只看环边邻面）。［悬置：⊥邻面伸缩 vs 留守的局部同构悖论——盒墙
 stretch 与铰链地板留守局部几何同构，判据不在局部方向代数，SU 实验裁决，详 grill-sheet §v3.1］
+**洞环三律**（2026-09-06 回字含岛案，rev6）：①被拉膜的**洞环副本永不带手势身份**（底副本与目标副本同律，井口/
+管孔贯通；外环副本才是手势）；②parity toggle 集=原环中**随行**的边（留守 COPY 边仍是共面邻膜的边界，
+入集会把「外环⊆原环」的邻膜误翻灭）；③含 COPY 时目标膜靠 BIRTH 复生，其外环可全由随行边构成——
+**随行外环边计入手势**。golden=托盘（地面回字/盒顶回字）。
 事件=纯叙事带血缘（BIRTH/DIVIDE/MERGE/ABSORB/BURST/STRETCH/FACE_ERASED），贴图纪元消费。
 
 ## 4. 对齐引擎（壳层，非内核；数学详一页纸）
@@ -71,4 +75,4 @@ pp 双通道：光标通道（不吸轴）+高度通道（h 标量对静态高�
 undo=日志重放（状态=批序列纯函数，含 id）。坐标=右手系、+Z 上、RGB=XYZ、渲染层禁 Y-up。
 golden 语料=共同 spec（膜事件表/暗礁①/灵魂手势≡手绘/E·F 系实证/fuzz/求解器 property）。
 
-edited by Claude Fable 5 2026-09-03
+edited by Claude Fable 5 2026-09-03 · edited by Claude Fable 5.1 2026-09-06

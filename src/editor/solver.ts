@@ -10,7 +10,7 @@
 // 秩表注：anchor 轴与充能共轴同秩（距离裁决）；合成秩 = max(参与者)——天然排出
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
-import type { FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { Edge, EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
@@ -173,7 +173,13 @@ export function solvePoint(
 
 /** 手中集：拖拽中属于「手」的顶点谓词 + 手中膜的遮挡性（pp=opaque：光标在帽上背后无目标=SU 连续；
  *  move=transparent：落点必须可见）。触手膜/触手边/由它们派生的目标一律不参赛。 */
-export interface AlignHand { has(vid: VertexId): boolean; opaque: boolean; }
+export interface AlignHand {
+  has(vid: VertexId): boolean;             // 顶点在手里（0-D 退赛；边/链的端点在手里 → 整链退赛）
+  opaque: boolean;                         // 手中膜是否遮挡（pp 帽=不透明；move/draw=透明）
+  /** 膜在手里（透明时豁免遮挡、不产面交线）。不给 = 由顶点推（触手膜）。draw 类工具应只报 BIRTH 出来的膜：
+   *  DIVIDE 子膜与母膜同影柱，豁免它=母膜消失=背后几何露出来（2026-09-06 侧面拖矩形吸到背后底边案）。 */
+  faces?(fid: FaceId): boolean;
+}
 /** 「空手」：没有任何手中集（首点查询、无手势的悬停、测试）。**必须显式表态**，不许省略——省略就是 2026-09-06「一 snap 一 snap」自吸事故的根。 */
 export const NO_HAND: AlignHand = { has: () => false, opaque: false };
 /** 对齐查询（2026-09-03 整改收敛：exclude/skipFace/hiddenOverride/occluder/axes 五补丁参数退役）。
@@ -208,12 +214,65 @@ function faceTouchesHand(k: Kernel, f: { outer: Ring; holes: Ring[]; id: FaceId 
   return [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))]
     .some((v) => hand.has(v));
 }
-/** 遮挡豁免集：hand 透明时=触手膜；opaque 或无 hand 时=无豁免。 */
+/** 膜在手里：hand.faces 表态优先；否则由顶点推（触手膜）。 */
+function faceInHand(k: Kernel, f: { outer: Ring; holes: Ring[]; id: FaceId }, hand?: AlignHand | null): boolean {
+  if (!hand) return false;
+  if (hand.faces) return hand.faces(f.id);
+  return faceTouchesHand(k, f, hand);
+}
+/** 遮挡豁免集：hand 透明时=手中膜；opaque 或无 hand 时=无豁免。 */
 function handFaceSkip(k: Kernel, hand?: AlignHand | null): ((fid: FaceId) => boolean) | undefined {
   if (!hand || hand.opaque) return undefined;
   const skip = new Set<FaceId>();
-  for (const f of k.faces()) if (faceTouchesHand(k, f, hand)) skip.add(f.id);
+  for (const f of k.faces()) if (faceInHand(k, f, hand)) skip.add(f.id);
   return skip.size ? (fid) => skip.has(fid) : undefined;
+}
+
+/**
+ * 1-D 边目标集（2026-09-06 侧面拖矩形吸底边案，edited by Claude Fable 5.1）：
+ * 手中顶点若只是把旧边**切开**（切点两侧两边共线反向）→ 两侧并成一条载线段——旧边整条仍是目标，
+ * 不因切点在手里退赛（此前「任一端在手里整条退赛」：上一帧矩形一吸到底边、底边就被切成三段全部退赛，
+ * 下一帧又回来 → 反复横跳「很难吸附」）。链的两端任一端在手里 → 该链是手势边（追光标）→ 整链退赛。
+ */
+function edgeTargets(k: Kernel, ex: (vid: VertexId) => boolean): { a: Pt3; b: Pt3 }[] {
+  const edges = k.edges();
+  const parent = new Map<EdgeId, EdgeId>();
+  const find = (e: EdgeId): EdgeId => {
+    let r = e;
+    while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
+    return r;
+  };
+  const union = (x: EdgeId, y: EdgeId): void => { const rx = find(x), ry = find(y); if (rx !== ry) parent.set(rx, ry); };
+  const inc = new Map<VertexId, Edge[]>();
+  for (const e of edges) for (const v of [e.a, e.b]) {
+    if (!ex(v)) continue;
+    const l = inc.get(v); if (l) l.push(e); else inc.set(v, [e]);
+  }
+  for (const [v, es] of inc) {
+    const pv = k.graph.pt(v);
+    const dirs = es.map((e) => { const o = k.graph.pt(e.a === v ? e.b : e.a); const d = sub3(o, pv); const l = dist3(o, pv); return l > 0 ? scale3(d, 1 / l) : null; });
+    const used = new Set<number>();
+    for (let i = 0; i < es.length; i++) {
+      if (used.has(i) || !dirs[i]) continue;
+      for (let j = i + 1; j < es.length; j++) {
+        if (used.has(j) || !dirs[j]) continue;
+        if (dot3(dirs[i]!, dirs[j]!) < -(1 - 1e-9)) { union(es[i].id, es[j].id); used.add(i); used.add(j); break; }
+      }
+    }
+  }
+  // 链端点 = 分量内只出现一次的顶点
+  const comp = new Map<EdgeId, Edge[]>();
+  for (const e of edges) { const r = find(e.id); const l = comp.get(r); if (l) l.push(e); else comp.set(r, [e]); }
+  const out: { a: Pt3; b: Pt3 }[] = [];
+  for (const es of comp.values()) {
+    const cnt = new Map<VertexId, number>();
+    for (const e of es) for (const v of [e.a, e.b]) cnt.set(v, (cnt.get(v) ?? 0) + 1);
+    const ends = [...cnt].filter(([, c]) => c === 1).map(([v]) => v);
+    if (ends.length !== 2) continue;                 // 退化（不应发生）
+    if (ex(ends[0]) || ex(ends[1])) continue;        // 手势边：整链退赛
+    out.push({ a: k.graph.pt(ends[0]), b: k.graph.pt(ends[1]) });
+  }
+  return out;
 }
 
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。 */
@@ -315,9 +374,8 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   if (!hidden({ x: 0, y: 0, z: 0 })) {
     out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: EPS.point, tag: { kind: "origin" } });
   }
-  for (const e of k.edges()) {
-    if (ex(e.a) || ex(e.b)) continue;   // 任一端在手里 → 整条边退赛
-    const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
+  const segs = edgeTargets(k, ex);         // 手中切点两侧共线并链；链端在手里 → 退赛
+  for (const { a, b } of segs) {
     const len = dist3(a, b);
     if (len <= 0) continue;
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
@@ -353,10 +411,8 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
-    const es = k.edges()
-      .filter((e) => !(ex(e.a) || ex(e.b)))   // 手中边不产派生目标（帽边载线交点会追 h/离体十万八千里）
-      .map((e) => {
-        const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
+    const es = segs                          // 手中边不产派生目标（帽边载线交点会追 h/离体十万八千里）
+      .map(({ a, b }) => {
         const l = dist3(a, b);
         return l > 0 ? { a, dir: scale3(sub3(b, a), 1 / l), ea: a, eb: b } : null;
       }).filter((x) => x !== null);
@@ -373,7 +429,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   }
   // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
   {
-    const faces = k.faces().filter((f) => !faceTouchesHand(k, f, ctx.hand));   // 手中膜不产面交线
+    const faces = k.faces().filter((f) => !faceInHand(k, f, ctx.hand));   // 手中膜不产面交线
     for (let i = 0; i < faces.length; i++) {
       for (let j = i + 1; j < faces.length; j++) {
         for (const seg of faceCrossSegments(k, faces[i].id, faces[j].id)) {
@@ -608,9 +664,9 @@ export function resolvePlane(
   sx: number,
   sy: number,
   tolPx: number,
-  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand },
+  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand; prev?: DrawPlane | null },
 ): { plane: DrawPlane; fixed: boolean; snap: Snap3 } {
-  const { p1, facePlane, alignSources, hand } = opts;
+  const { p1, facePlane, alignSources, hand, prev } = opts;
   if (p1) {
     // 含点（膜）：光标射线命中的膜若也含锚点 → 该膜平面胜出（SU：从共享边拖进哪张面，矩形/线就躺哪张面）。
     // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
@@ -620,9 +676,13 @@ export function resolvePlane(
       const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand });
       return { plane: under, fixed: false, snap };
     }
+    // 平面黏性（2026-09-06 侧面拖矩形案）：光标离开膜（滑出底边）时不重挑——上一帧的平面只要含锚点就沿用，
+    // 否则按落底偏置挑过锚点轴平面会把矩形翻到水平面、角点飞走。换平面只走「含锚点的膜在光标下」或「解析点落到别的候选面上」。
     const candidates = axisPlanesThrough(p1);
-    const base = pickByFacing(cam, candidates);
+    const sticky = prev && distToPlane(p1, prev.plane) <= 1e-3 ? prev : null;
+    const base = sticky ?? pickByFacing(cam, candidates);
     const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand });
+    if (sticky && distToPlane(snap.p, sticky.plane) <= 1e-3) return { plane: sticky, fixed: false, snap };
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
     return { plane: containing.length ? pickByFacing(cam, containing) : base, fixed: false, snap };
   }
@@ -644,9 +704,11 @@ export function resolveRectPlane(
   tolPx: number,
   alignSources: readonly Pt3[] | undefined,
   hand: AlignHand,
+  prev?: DrawPlane | null,
 ): { plane: DrawPlane; snap: Snap3 } {
   // hand = 手中集（预演里新生的顶点/工具自报的移动集）：不传 = 矩形/线会吸到自己上一帧的角点（2026-09-06 user「一 snap 一 snap」真凶，
   // lab 时代就有、ε 放大后显形；线第二点当日改走本函数被拖下水）
-  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources, hand });
+  // prev = 上一帧的手势平面（黏性；首帧不传）
+  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources, hand, prev });
   return { plane: r.plane, snap: r.snap };
 }

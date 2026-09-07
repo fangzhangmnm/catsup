@@ -87,6 +87,55 @@ describe("push/pull: 带洞面（generic 路径）", () => {
   });
 });
 
+// 2026-09-06 回字含岛案（user 截图：「回字 pull up 没有拉出墙，而是拉出了错误的东西」）——内岛在场时内环边
+// 有共面邻膜 → COPY；此前：①洞环副本带手势 → 井口封帽 ②留守内环边入 toggle 集 → 内岛被 parity 翻灭
+// ③顶环带外环全是随行边（非新画）→ 出不生 FACE_ERASED。修法三条见 kernel.pushPull 注释。edited by Claude Fable 5.1
+describe("push/pull: 回字含岛（SU 造托盘的经典手势：矩形→offset→拉环带）", () => {
+  function ringWithIsland(): { k: Kernel; ring: import("../src/kernel/kernel.ts").FaceId; island: import("../src/kernel/kernel.ts").FaceId } {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    loop(k, [P(6, 6), P(14, 6), P(14, 14), P(6, 14)]);
+    const ring = k.faces().find((f) => f.holes.length === 1)!.id;
+    const island = k.faces().find((f) => f.holes.length === 0)!.id;
+    return { k, ring, island };
+  }
+  function checkTray(k: Kernel, ring: import("../src/kernel/kernel.ts").FaceId, island: import("../src/kernel/kernel.ts").FaceId, h: number): void {
+    eq(k.faces().length, 11, "顶环带+底环带+岛+外壁×4+内壁×4");
+    eq(k.edges().length, 24, "二十四棱");
+    assert(k.hitTest(P(10, 10, h), 0.1).face === undefined, "井口敞开（洞环副本不带手势）");
+    eq(k.hitTest(P(10, 10, 0), 0.1).face, island, "内岛原样存活（留守边不入 toggle 集）");
+    eq(k.hitTest(P(3, 3, h), 0.1).face, ring, "顶环带出生且继承原 id（随行外环边计入手势）");
+    assert(k.hitTest(P(3, 3, 0), 0.1).face !== undefined, "底环带补底");
+    for (const w of [P(10, 6, h / 2), P(6, 10, h / 2), P(14, 10, h / 2), P(10, 14, h / 2)]) assert(k.hitTest(w, 0.1).face !== undefined, "内壁四面");
+    assert(k.edges().every((e) => e.faceLinks.length >= 2), "零裸边零单挂");
+  }
+  it("地面回字拉环带 → 开口托盘（岛=井底）；预演与提交同形", () => {
+    for (const preview of [false, true]) {
+      const { k, ring, island } = ringWithIsland();
+      const ev = k.pushPull(ring, 5, preview ? { settleLanding: false } : undefined);
+      checkTray(k, ring, island, 5);
+      assert(!ev.some((e) => e.type === "FACE_ERASED" || e.type === "BURST"), "无误杀叙事");
+      assert(ev.some((e) => e.type === "STRETCH" && (e as { faces: number[] }).faces.includes(ring)), "顶环带=身份跟随 STRETCH 叙事");
+    }
+  });
+  it("盒顶回字拉环带（外环=墙伸缩 MOVE、内环=岛 COPY 混合）→ 墙长高、岛留守、井口敞开", () => {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(20, 0), P(20, 20), P(0, 20)]);
+    k.pushPull(k.faces()[0].id, 8);
+    k.addEdges([[P(6, 6, 8), P(14, 6, 8)], [P(14, 6, 8), P(14, 14, 8)], [P(14, 14, 8), P(6, 14, 8)], [P(6, 14, 8), P(6, 6, 8)]]);
+    const island = k.hitTest(P(10, 10, 8), 0.1).face!;
+    const ring = k.hitTest(P(3, 3, 8), 0.1).face!;
+    k.pushPull(ring, 5);
+    eq(k.faces().length, 11, "顶环带+岛+外壁×4(伸长)+内壁×4+大底");
+    assert(k.hitTest(P(10, 10, 13), 0.1).face === undefined, "井口敞开");
+    eq(k.hitTest(P(10, 10, 8), 0.1).face, island, "岛留守原高");
+    eq(k.hitTest(P(3, 3, 13), 0.1).face, ring, "顶环带身份跟随");
+    assert(k.hitTest(P(10, 0, 6), 0.1).face !== undefined && k.hitTest(P(10, 0, 12), 0.1).face !== undefined, "外墙一体伸长（同一膜覆盖 z=6 与 z=12）");
+    eq(k.hitTest(P(10, 0, 6), 0.1).face, k.hitTest(P(10, 0, 12), 0.1).face, "外墙无缝");
+    assert(k.edges().every((e) => e.faceLinks.length >= 2), "零裸边零单挂");
+  });
+});
+
 
 describe("push/pull: 子面（detach）与 parity 设面（XOR 拍板 2026-09-02）", () => {
   function boxWithInner(): { k: Kernel; inner: import("../src/kernel/kernel.ts").FaceId } {

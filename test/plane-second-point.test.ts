@@ -5,7 +5,7 @@ import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera } from "../src/editor/camera.ts";
 import { resolveRectPlane, faceUnderCursor, NO_HAND } from "../src/editor/solver.ts";
-import { rectSegments } from "../src/editor/tools.ts";
+import { rectSegments, rectSegmentsOnPlane } from "../src/editor/tools.ts";
 import { dist3, distToPlane } from "../src/kernel/geom.ts";
 
 const VP = { w: 1000, h: 800 };
@@ -77,6 +77,73 @@ describe("plane-second-point", () => {
       assert(distToPlane(p1, r.plane.plane) < 1e-6, "平面必须含锚点");
       const n = r.plane.plane.n;
       assert([Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)].some((v) => v > 0.999), "应是轴向平面");
+    });
+  }
+});
+
+// 2026-09-06 user：「矩形侧面上往下拖一个矩形，很难吸附底边，或者干脆不吸附，有时候会吸附到这个面后面的某个底边」
+// 三根因：①上一帧矩形吸到底边 → 底边被手中切点切三段、每段带手中端点 → 整条底边退赛（下一帧又回来 → 横跳）
+// ②触手膜全豁免遮挡 → 正面被矩形 DIVIDE 后透明 → 背后底边露出 ③光标滑出底边 → 平面按落底偏置翻到水平面。
+// 修：edgeTargets 链式溶解 / AlignHand.faces（draw 只报 BIRTH 膜）/ resolvePlane prev 黏性。edited by Claude Fable 5.1
+describe("plane-second-point: 侧面往下拖矩形吸底边（拖拽中的手中集）", () => {
+  /** 盒子挪开原点（底边与世界 x 轴既不重合也不贴近，免得原点轴线冒充「align」）。 */
+  function boxOff(): Kernel {
+    const k = new Kernel();
+    k.addEdges(rectSegments({ x: 10, y: 20 }, { x: 110, y: 80 }));
+    k.pushPull(k.faces()[0].id, 40);
+    return k;
+  }
+  function camOff(proj: "ortho" | "persp"): OrbitCamera {
+    const c = new OrbitCamera();
+    c.projection = proj;
+    c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = P(60, 50, 20);
+    return c;
+  }
+  /** 上一帧的预演世界：矩形从锚点拉到 (70,5,prevZ)；手中集 = 新生顶点 + BIRTH 膜。 */
+  function liveAfterPreview(k: Kernel, p1: Pt3, prevZ: number) {
+    const plane = k.planeOf(k.hitTest(P(60, 20, 20), 0.1).face!)!;
+    const live = k.clone();
+    const ev = live.addEdges(rectSegmentsOnPlane(plane.plane, plane.basis, p1, P(70, 20, prevZ)));
+    const known = new Set(k.vertices().map((v) => v.id));
+    const born = new Set(ev.filter((e) => e.type === "BIRTH").map((e) => (e as { face: number }).face));
+    const hand = { has: (vid: number) => !known.has(vid), opaque: false, faces: (fid: number) => born.has(fid) };
+    return { live, hand, plane: { plane: plane.plane, basis: plane.basis } };
+  }
+
+  for (const proj of ["ortho", "persp"] as const) {
+    it(`${proj}：上一帧已吸到底边（底边被切三段）→ 这一帧仍报边上、点在底边（不横跳）`, () => {
+      const k = boxOff(); const c = camOff(proj);
+      const p1 = P(50, 20, 30);
+      const { live, hand, plane } = liveAfterPreview(k, p1, 0);
+      const s = c.worldToScreen(P(70, 20, 0), VP);
+      for (const dy of [-4, 0, 4]) {
+        const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + dy, 8, [], hand, plane);
+        assert(r.snap.kind === "on-edge", `dy=${dy} kind=${r.snap.kind}`);
+        assert(Math.abs(r.snap.p.z) < 1e-6 && Math.abs(r.snap.p.y - 20) < 1e-6, `dy=${dy} p=${JSON.stringify(r.snap.p)}`);
+      }
+    });
+
+    it(`${proj}：光标滑到底边下方（射线不再命中含锚点的膜）→ 平面黏住正面，不翻到过锚点的水平面`, () => {
+      const k = boxOff(); const c = camOff(proj);
+      const p1 = P(50, 20, 30);
+      const { live, hand, plane } = liveAfterPreview(k, p1, 0);
+      const s = c.worldToScreen(P(70, 20, 0), VP);
+      const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + 12, 8, [], hand, plane);
+      assert(Math.abs(r.plane.plane.n.y) > 0.99, `plane n=${JSON.stringify(r.plane.plane.n)}`);
+      assert(distToPlane(r.snap.p, plane.plane) < 1e-6 && r.snap.p.z < 0, `解析点应在正面平面上、底边下方：${JSON.stringify(r.snap.p)}`);
+    });
+
+    it(`${proj}：拖拽中正面被矩形 DIVIDE → 子膜照常遮挡，背面底边不可吸`, () => {
+      const k = boxOff(); const c = camOff(proj);
+      const p1 = P(50, 20, 30);
+      const { live, hand, plane } = liveAfterPreview(k, p1, 3);   // 上一帧矩形底在 z=3（未触底边）
+      const sBack = c.worldToScreen(P(70, 80, 0), VP);             // 背面底边在屏上投影（落在正面剪影内）
+      const r = resolveRectPlane(live, c, VP, p1, sBack.x, sBack.y, 8, [], hand, plane);
+      assert(Math.abs(r.snap.p.y - 20) < 1e-6, `不该吸到背面（y=80）：kind=${r.snap.kind} p=${JSON.stringify(r.snap.p)}`);
+      // 对照：老定义（触手膜全豁免）会让背面底边露出来
+      const loose = { has: hand.has, opaque: false };
+      const r0 = resolveRectPlane(live, c, VP, p1, sBack.x, sBack.y, 8, [], loose, plane);
+      assert(Math.abs(r0.snap.p.y - 80) < 1e-6, `对照组应复现露背（老定义）：kind=${r0.snap.kind} p=${JSON.stringify(r0.snap.p)}`);
     });
   }
 });

@@ -1,6 +1,6 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
-> as-of v0.3.0 (5b2b72d) / 2026-09-06 深夜 · created by Claude Fable 5.1
+> as-of v0.3.1 / 2026-09-06 深夜（第二批：回字含岛修 + user 连珠炮登记）· created by Claude Fable 5.1
 > user 原话（2026-09-06）：「你尽量保证那些我没看的没拍的和马上要做的都有记录，这样的话我也可以开新 agent，一个一个做，不用怕 fomo，而不是现在这样一次得处理一大堆很要紧的不处理会慢慢腐烂的东西」。
 > **用法**：开新 agent 时把「本文件路径 + 条目编号」丢给它；它先读 `CLAUDE.md` 必读清单再读该条。做完把状态改成 `done <commit>` 并写一行结果；新冒出来的事**只加到这里**，不在聊天里散养。
 > **状态词**：`待做`（已拍板可开工）/ `待拍板`（要 user 一句话）/ `待看`（要 user 过目）/ `等 user 数据`（要 user 复现/实验）/ `park`（明确不做或以后）/ `done`。
@@ -48,6 +48,10 @@
 - **B3 透视视场角**：50° 还是 SU 的 35°。
 - **B4 UI 偏好走 localStorage 的两个开关**（「手指也能画」「实验台」）保留与否——不是模型数据，user 未反对。
 - **B6 推断线 ε 是否随视口放大**：现在点/边/线全按视口高等比放大；SU 手感是点松线紧。自吸修完后若仍觉得拖动被轴线/共轴线拉得太勤，改成线 ε 不放大或只放大一半（`solver.ts` `EPS.line`/`combo`）。等 user 手感反馈。
+- **B7 Offset 工具**（user 2026-09-06：「然后我想要offset了。sketchup是只能针对一个面的吗？然后对于复杂的几何情况你怎么判断。然后offset多了退化了你能搞得定吗（比如一些边长变成0只会拓扑变还能继续offset）顺便offset还能offset到更大的外面，sketchup会长膜」）`待拍板`（讨论中，未 grill 完）。AI 提案摘要（对话里已答，供开工 agent 参考、非定案）：offset = **纯 2D 函数 + `addEdges`，零新内核原语**（与 pp v1 同精神）——在膜的 PlaneRegistry 基里对环做 miter 平行偏移 → 自交/退化用「按绕数保正区」剪枝（Clipper 式：塌成零长的边自然消失、翻转的负绕数瓣丢弃，任意 d 都良定义，边塌缩=拓扑变照常继续）→ 剪枝后的环当手势线画上去：向内 = 原膜被 DIVIDE 成内片+环带；向外 = 环带区外环含手势 → A4 直接 BIRTH（SU「长膜」零特例）。作用对象：单膜（全部环 or 只外环——SU 疑似只偏外环，待 web SU 核）或一串共面连通边（开链两端不封口）；不做多膜（SU 亦无）。d 通道 = pp 高度通道同构（标量对「偏到某点/某边」候选集咬合）+ VCB 以后。拐角=miter 尖角（SU 同款，凹角不倒圆）。**待 user 拍：①带洞膜偏不偏内环 ②d 超过全塌缩时=无操作还是钳到最后有效 d ③是否先只做膜不做边链**。
+- **B8 Select 工具：点击族 + Ctrl+A / Delete**（user 2026-09-06：「select: 单击=选，双击=+neighbor，三击=connected，sketchup是这个行为吧？」「ctrl a和delete的快捷键」）`待拍板`（一句话即转 A）。SU 口径已确认：单击=该实体；双击膜=膜+其环边、双击边=边+其邻膜；三击=整个连通体；Shift=切换加减、Ctrl=加、Shift+Ctrl=减；框选左→右=全含、右→左=相交；Ctrl+A 全选；Delete 删选中（边随葬律/膜删边留照旧走 erase 语义）。触屏：双击/三击用 pen 双 tap/三 tap 计时（手指 tap 已占相机/撤销）。
+- **B9 Move 轴锁 / 面锁 / 法向 / 关闭吸附**（user 2026-09-06：「move: 加上xyz轴吸附的快捷键和触屏方案」「能不能还有别的比如xy yz zx吸附，以及没有有法面吸附。和blender的视口吸附？这个是个UX问题」「以及如何关闭snap」）`待拍板`。参考口径：SU=方向键 ←绿 →红 ↑蓝 ↓平行/垂直于推断边、Shift=锁住当前推断（悬在膜上时=锁「面上」即面锁）；Blender=X/Y/Z 轴锁、Shift+X/Y/Z 面锁（排除该轴）、Ctrl 按住临时反转吸附开关。AI 倾向（对话里已答）：键盘两套都收（SU 方向键 + Blender 字母），**触屏/VR = HUD 锁片行**（X·Y·Z·XY·YZ·ZX·N 法向·⊥∥，move/line/rect 手势中浮现，点亮=锁、再点=解锁），关闭吸附=按住 Alt（桌面）/HUD 磁铁片（触屏）= 求解器 `alignSources` 清空只留平面约束。「视口吸附」待 user 澄清是指 Blender 的视图平面（View 方向）还是屏幕网格。
+- **B10 整数/网格吸附（incremental vs absolute）**（user 2026-09-06：「all snap: 加入整数incremental。然后这个怎么设计。如何对付浮点误差。UX怎么设计网格怎么设置。以及吸附到整数 incremental vs absolute也很迷。这个你怎么看？」）`待拍板`。AI 看法（对话里已答）：两种都要、分工不同——**incremental（SU length snapping / Blender 默认）= 沿手势方向对「长度标量」取整**，是 1-D 结果的后处理、永远让位于几何推断；**absolute（Blender Absolute Grid Snap）= 把画在地上的那张网格当 0-D 目标池**，rank 最低、只在无几何推断时兜底，WYSIWYG（吸到画出来的格线不吸看不见的自适应细分，格距由 HUD 定 1/10/100）。浮点：顶点身份已是 Q=1e-6 格点，整数值用 round(x/g)·g 落到同一格点无漂移；轴向长度重建 a+L·axis 精确；模型单位本体（mm/cm/m）归 user 与文件格式一起定（B5）。
 - **B5 持久化/文件格式本体**：user 明示「SketchUp 1.0 做完、component group 摸清楚之后再定，你不要擅自做决定」；容器方向 = zip（自有 JSON authoring SSoT + 标准 glb bake）。**AI 不提案不预留。**
 
 ---
@@ -66,6 +70,7 @@
 - **D2 悬置判据** `等 user 数据`：推拉时 ⊥ 邻面「随行伸缩」还是「留守」（盒墙 vs 铰链地板悖论），判据不在局部方向代数，要 user 去 SU 做实验。案卷：grill 单 §v3.1「悬置判据」。
 - **D3 pp「挡」（Offset-limited）** `待做但不急`：滑行边撞到别的顶点即卡住（E7 判据）；实现形状 = pp 约束集加 h 上限，零拓扑。grill 单 §2.9。
 - **D4 F4 / 多选 pull / VCB 数值输入** `park`（user 已 park）。
+- **D5 侧面往下拖矩形吸不到底边 / 吸到背后的底边**（user 2026-09-06：「矩形侧面上往下拖一个矩形，很难吸附底边，或者干脆不吸附，有时候会吸附到这个面后面的某个底边」）`done v0.3.1`：求解器夹具复现三根因（上一帧吸到底边后底边被手中切点切段整条退赛 → 横跳；触手膜全豁免遮挡 → 背后底边露出；光标滑出底边后平面按落底偏置翻到水平面）；修=链式溶解 / `AlignHand.faces` 工具表态 / 第二点平面黏性，六案 golden，详 `ai-docs/20260901-snap-model.md` 2026-09-06 深夜节。真机未验。
 
 ---
 
@@ -78,11 +83,14 @@
 - **E5 Ketchup 改名**：关闭。user「就是 catsup 吧。weebpaint 已经把二次元属性定死了」。
 - **E6 透视下 `occludedSpansOnLine` 取线段中点视向作常向量**（近似）：除非抖动复发，不动。
 - **E7 `experiments/sketchpad.html`**：可丢区，不管。
+- **E8 油漆桶=拉矩形**（user 2026-09-06 原话「park进未来设计思路：油漆桶刷贴图采用拉矩形的方式，所以拉矩形可以同时设置贴图和UV」）：贴图纪元的思路存档，现在不做。
 
 ---
 
 ## F. 本日已 done（2026-09-06，供对账）
 
+- 第二批：**侧面拖矩形吸底边案（D5）**：求解器手中集三律（链式溶解 / 膜由工具表态 / 平面黏性），v0.3.1。
+- 第二批：**回字含岛 pp 三律修**（user 截图「回字 pull up 没有拉出墙，而是拉出了错误的东西」→ 井口封帽/内岛翻灭/顶环带出不生三错；立宪页 rev6「洞环三律」+ grill 单 §2.14 + 两案 golden，v0.3.1）。
 - 深夜批：**自吸事故修**（矩形/线第二点吸到预演里自己上一帧的角点 = user「一 snap 一 snap」；`AlignQuery.hand` 改必填表态制 + `NO_HAND`，golden 钉死）。
 - 晚批：**`on-face`「面上」吸附**（悬停未落笔也显示；`DrawPlane.face` 记平面出身）、**HUD 化**（user：「顶栏透明…类似游戏的那种 immersive hud…以后转 VR 会无疼。就 hud 化吧」→ 顶栏/状态栏全部变成视口内浮动胶囊，画布满屏；`#docTitle` 胶囊 = 将来的文件名位）。
 0.3 app 壳纪元开工（lab 退役 → 正式 app）、透视相机、Workbench 渲染雏形、iPad 手势路由、OBJ 逃生口、PWA 壳、公开工坊道上线（`github.com/fangzhangmnm/catsup`，deploy.yml，dev = https://fangzhangmnm.github.io/catsup/dev/ ）、ε 角度语义、第二点「含点膜」修 + 线同修、多指 tap 撤销四坑、LICENSE MIT、旧探针进仓、远景剧透与黄金格式判断落档。详 `ai-docs/20260906-app-shell-epoch-landing.md`、`ai-docs/20260906-far-horizon-golden-format-and-ontology.md`。

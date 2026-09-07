@@ -77,9 +77,9 @@ export class Kernel {
    * 混合手势批：每段自带手势身份开关（pp 补壁用——洞环底边只分割不生膜，管孔保持贯通；
    * 2026-09-02 方管案）。非手势段仍走同一 sticky 插入与 reconcile，只是不入 BIRTH 依据。
    */
-  private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[], toggleWith?: Set<EdgeId>): FaceEvent[] {
+  private addSegmentsMixed(segs: readonly { a: PtIn; b: PtIn; gesture: boolean }[], toggleWith?: Set<EdgeId>, extraGesture?: Set<EdgeId>): FaceEvent[] {
     const preSnaps = this.store.captureSnaps(this.graph);   // 像=扰动前（切割前）快照
-    const gesture = new Set<EdgeId>();
+    const gesture = new Set<EdgeId>(extraGesture);           // pp：随行的外环边也是手势边界（回字含岛案）
     for (const { a, b, gesture: g } of segs) {
       const r = insertSegment(this.graph, toPt3(a), toPt3(b), (parent, c1, c2) => {
         // 手势边被后续段切开 → 子边继承手势身份
@@ -296,27 +296,29 @@ export class Kernel {
     const segs: { a: PtIn; b: PtIn; gesture: boolean }[] = [];
     const hasCopyAny = [...cls.values()].some((c) => c === "copy") || [...vertCls.values()].some((c) => c.hasCopy);
 
-    // ---- COPY 边：目标副本 ----
+    // ---- COPY 边：目标副本（**洞环副本一律不带手势身份**——井口/管孔贯通；2026-09-06 回字含岛案：
+    //      内岛共面 → 内环 COPY，副本带手势曾把井口封成帽）----
+    const isOuter = (eid: EdgeId): boolean => ringOf.get(eid) === 0;
     for (const eid of fRing) {
       if (cls.get(eid) !== "copy") continue;
       const e = this.graph.edge(eid);
-      segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: true });
+      segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: isOuter(eid) });
     }
     // ---- frontier MOVE 边：删原画新（一端被扣留，随行会拉斜——残线病根） ----
     for (const eid of [...fRing]) {
       if (cls.get(eid) !== "move" || bare.has(eid)) continue;
       const e = this.graph.edge(eid);
       if (travels(e.a) && travels(e.b)) continue; // 纯伸缩：随 moveVertices
-      segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: true });
+      segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: isOuter(eid) });
       this.graph.removeEdge(eid);
     }
     // ---- 裸边：补底副本（洞环不带手势——管孔贯通） + frontier 裸边同删原画新 ----
     for (const eid of [...bare]) {
       if (!this.graph.hasEdge(eid)) continue;
       const e = this.graph.edge(eid);
-      segs.push({ a: oldPos.get(e.a)!, b: oldPos.get(e.b)!, gesture: ringOf.get(eid) === 0 });
+      segs.push({ a: oldPos.get(e.a)!, b: oldPos.get(e.b)!, gesture: isOuter(eid) });
       if (!(travels(e.a) && travels(e.b))) {
-        segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: true });
+        segs.push({ a: add3(oldPos.get(e.a)!, delta), b: add3(oldPos.get(e.b)!, delta), gesture: isOuter(eid) });
         this.graph.removeEdge(eid);
       }
     }
@@ -350,8 +352,15 @@ export class Kernel {
       .map((v) => ({ id: v, to: add3(oldPos.get(v)!, delta) }));
     const ev1 = moves.length ? this.moveVertices(moves, settleLanding ? "xor" : "or") : [];
     // ---- 构造批（parity 设面） ----
-    // parity toggle 只属于 copy/开口世界；纯 MOVE 的随行膜绝不能被自己的环 id 误杀
-    const ev2 = segs.length ? this.addSegmentsMixed(segs, settleLanding && hasCopyAny ? fRing : new Set<EdgeId>()) : [];
+    // parity toggle 只属于 copy/开口世界；纯 MOVE 的随行膜绝不能被自己的环 id 误杀。
+    // toggle 集 = 原环里**随行**的边（它们才到达着陆面）；留守的 COPY 边仍是邻膜（如回字内岛）的边界，
+    // 计入 toggle 会把「外环⊆原环」的邻膜误翻灭（2026-09-06 回字含岛案：内岛被 BURST）。
+    const toggle = new Set<EdgeId>([...fRing].filter((eid) => cls.get(eid) === "move"));
+    // 含 COPY 时被拉膜已蒸发，目标膜靠 BIRTH 复生；其外环可能全由随行边（非新画）构成
+    // （裸外环随行 + 内环 COPY），随行的外环边必须计入手势否则目标膜出不生（同案：顶环带 FACE_ERASED）。
+    const movedOuter = new Set<EdgeId>();
+    if (hasCopyAny) for (const eid of fRing) if (cls.get(eid) === "move" && isOuter(eid) && this.graph.hasEdge(eid)) movedOuter.add(eid);
+    const ev2 = segs.length ? this.addSegmentsMixed(segs, settleLanding && hasCopyAny ? toggle : new Set<EdgeId>(), movedOuter) : [];
     let evIdent: FaceEvent[] = [];
     if (hasCopyAny && repDest) {
       const hit = this.hitTest(repDest, this.coplanarTol).face;
