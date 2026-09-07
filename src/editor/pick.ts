@@ -21,7 +21,7 @@ import type { PointerFrame, Viewport } from "./pointer-frame.ts";
 import { type DrawPlane, type Snap3, NO_HAND, occludedBy, resolvePlane } from "./solver.ts";
 
 // 兼容 re-export（调用方历史入口；新码请直接 import solver）
-export { type AlignHand, type AlignQuery, type DrawPlane, type Snap3, type SnapHint, type SnapKind, NO_HAND, axisPlane, cameraPlane, resolvePlane, resolveRectPlane, snapPoint } from "./solver.ts";
+export { type AlignHand, type AlignQuery, type DrawPlane, type Snap3, type SnapHint, type SnapKind, NO_HAND, axisPlane, cameraPlane, grazing, inferAxisByDirection, resolvePlane, resolveRectPlane, snapPoint } from "./solver.ts";
 
 export const GROUND: DrawPlane = (() => {
   const plane = canonicalPlane({ x: 0, y: 0, z: 1 }, 0);

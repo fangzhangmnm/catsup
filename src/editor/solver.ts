@@ -15,7 +15,7 @@ import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
-import type { PointerFrame, Viewport } from "./pointer-frame.ts";
+import type { PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
@@ -606,6 +606,39 @@ function mkAxisPlane(n: Pt3, through: Pt3): DrawPlane {
 }
 const axisPlanesThrough = (p: Pt3): DrawPlane[] => AXIS_NORMALS.map((n) => mkAxisPlane(n, p));
 
+/**
+ * 宽锥三轴三选一（SU move 的方向推断；user 2026-09-07：「effectively 就是三个轴三选一，因为 360 度去掉六个 60 度的吸附 cone 也没剩下
+ * 太多东西了。也许这样的话我们能做的纯激光笔，不需要手势」）：光标相对锚点在角度尺上的方向，与三条世界轴在锚点处的投影方向比，
+ * 最小夹角 ≤ coneDeg（默认 30° = 六个 60° 锥）的轴胜出；点 = 射线到该轴的公垂点。射线与轴近平行（|cos| > 0.985）或轴在角度尺上
+ * 投影退化 → 该轴不参赛。edited by Claude Fable 5.1 2026-09-07
+ */
+export function inferAxisByDirection(pf: PointerFrame, vp: Viewport, anchor: Pt3, sx: number, sy: number, coneDeg = 30): { axis: AxName; p: Pt3 } | null {
+  const a2 = pf.angularPx(anchor, vp);
+  const dx = sx - a2.x, dy = sy - a2.y;
+  const len = Math.hypot(dx, dy);
+  if (len < 1e-6) return null;
+  const ray = pf.ray(sx, sy, vp);
+  const minCos = Math.cos((coneDeg * Math.PI) / 180);
+  let best: { axis: AxName; dir: Pt3; c: number } | null = null;
+  for (const [axis, dir] of [["x", { x: 1, y: 0, z: 0 }], ["y", { x: 0, y: 1, z: 0 }], ["z", { x: 0, y: 0, z: 1 }]] as const) {
+    if (Math.abs(dot3(dir, ray.dir)) > 0.985) continue;
+    const q = pf.angularPx(add3(anchor, scale3(dir, 0.01)), vp);
+    const ax = q.x - a2.x, ay = q.y - a2.y;
+    const al = Math.hypot(ax, ay);
+    if (al < 1e-9) continue;
+    const c = Math.abs(dx * ax + dy * ay) / (len * al);
+    if (c >= minCos && (!best || c > best.c)) best = { axis, dir, c };
+  }
+  if (!best) return null;
+  const p = closestOnAxis(anchor, best.dir, ray.origin, ray.dir);
+  return p ? { axis: best.axis, p } : null;
+}
+
+/** 擦射线：射线与平面夹角 < minDeg → 交点会甩到无穷远，调用方保持上一帧（user 2026-09-07「最后会甩到顶面平面无限远的地方。这个是 bug」）。 */
+export function grazing(plane: DrawPlane, ray: Ray, minDeg = 6): boolean {
+  return Math.abs(dot3(plane.plane.n, ray.dir)) < Math.sin((minDeg * Math.PI) / 180);
+}
+
 /** 唯一平面挑选器：底面偏置 > 面向度。 */
 function pickByFacing(pf: PointerFrame, arr: readonly DrawPlane[]): DrawPlane {
   const fwd = pf.forward();
@@ -694,9 +727,11 @@ export function resolvePlane(
   sx: number,
   sy: number,
   tolPx: number,
-  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand },
+  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand;
+    /** 首点所在平面（如地面）：无膜承接时的兜底平面——不再按指针面向度挑轴平面（2026-09-07 VR：站着画远处地面俯仰 < 20° 就翻成竖直面 =「画线突然跳到空中」）。 */
+    basePlane?: DrawPlane | null },
 ): { plane: DrawPlane; fixed: boolean; snap: Snap3 } {
-  const { p1, facePlane, alignSources, hand } = opts;
+  const { p1, facePlane, alignSources, hand, basePlane } = opts;
   if (p1) {
     // 含点（膜）：光标射线命中的膜若也含锚点 → 该膜平面胜出（SU：从共享边拖进哪张面，矩形/线就躺哪张面）。
     // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
@@ -714,8 +749,9 @@ export function resolvePlane(
       return { plane: near, fixed: false, snap };
     }
     const candidates = axisPlanesThrough(p1);
-    const base = pickByFacing(pf, candidates);
+    const base = basePlane ?? pickByFacing(pf, candidates);
     const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand });
+    if (basePlane && distToPlane(snap.p, basePlane.plane) <= 1e-3) return { plane: basePlane, fixed: false, snap };   // 黏在首点平面上
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
     return { plane: containing.length ? pickByFacing(pf, containing) : base, fixed: false, snap };
   }
@@ -737,9 +773,10 @@ export function resolveRectPlane(
   tolPx: number,
   alignSources: readonly Pt3[] | undefined,
   hand: AlignHand,
+  basePlane?: DrawPlane | null,
 ): { plane: DrawPlane; snap: Snap3 } {
   // hand = 手中集（预演里新生的顶点/工具自报的移动集）：不传 = 矩形/线会吸到自己上一帧的角点（2026-09-06 user「一 snap 一 snap」真凶，
   // lab 时代就有、ε 放大后显形；线第二点当日改走本函数被拖下水）
-  const r = resolvePlane(k, pf, vp, sx, sy, tolPx, { p1, alignSources, hand });
+  const r = resolvePlane(k, pf, vp, sx, sy, tolPx, { p1, alignSources, hand, basePlane });
   return { plane: r.plane, snap: r.snap };
 }

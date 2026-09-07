@@ -11,7 +11,7 @@ import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
-import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
+import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { epsScale } from "./solver.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
@@ -230,6 +230,9 @@ export class Editor {
   private emit(evs: FaceEvent[]): void { if (evs.length) this.host.events(evs); }
 
   undo(): void {
+    // 手势进行中（含连画待命 / 推拉中 / 移动中）：第一下撤销 = 取消当前操作（逃生），不动历史（user 2026-09-07：
+    // 「第一下 ctrl z 是退出连续画线而不是取消上一个线，对 push pull 以及未来的东西同理。第一个 ctrl z 是 cancel ongoing operation 逃生」）
+    if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
     const k2 = this.journal.undo();
     if (!k2) return;
     this.checkpoint = k2;
@@ -282,6 +285,18 @@ export class Editor {
     this.emit(evs);
     this.draw();
     return evs;
+  }
+  /** 指针射线到实时世界（含预演）首张膜的距离；没命中 → null。VR 激光长度用它（与拾取同源——此前用碰撞世界，只跟 checkpoint 且射程 30 m，
+   *  「能拾取到远处的面但激光中途就停了」user 2026-09-08）。 */
+  pointerHitDistance(sx: number, sy: number): number | null {
+    const k = this.liveWorld();
+    const fid = pickFace(k, this.frame(), this.fvp(), sx, sy);
+    if (fid === undefined) return null;
+    const rec = k.planeOf(fid);
+    if (!rec) return null;
+    const ray = this.frame().ray(sx, sy, this.fvp());
+    const q = rayPlane(ray.origin, ray.dir, rec.plane.n, rec.plane.d);
+    return q ? Math.hypot(q.x - ray.origin.x, q.y - ray.origin.y, q.z - ray.origin.z) : null;
   }
   /** 选择工具的拾取（VR / 点击族共用）：屏幕坐标 → 实体。 */
   pickAt(sx: number, sy: number): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx()); }
@@ -466,8 +481,12 @@ export class Editor {
 
   /** 线的第二点：学矩形（user 2026-09-01 裁决「线的空落点兜底=学矩形」）——含光标的膜 > 过锚点轴平面 > 轴系；
    *  平面随第二点动态解析并写回 gesturePlane（2026-09-06 修：此前锁死首点平面，从共享边画进侧面时端点落到地面）。 */
+  /** 首点在地面（z=0）→ 第二点兜底黏地面（不随指针俯仰翻成竖直面）。 */
+  private basePlaneOfAnchor(): DrawPlane | undefined { return this.anchor3 && Math.abs(this.anchor3.z) < 1e-6 ? GROUND : undefined; }
   private lineSecondSnap(sx: number, sy: number): Snap3 {
-    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
+    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(), this.basePlaneOfAnchor());
+    // 擦射线护栏：射线与平面近平行，交点会甩到无穷远 → 保持上一帧
+    if (r.snap.kind === null && this.snapInfo && grazing(r.plane, this.frame().ray(sx, sy, this.fvp()))) return this.snapInfo;
     this.gesturePlane = r.plane;
     return r.snap;
   }
@@ -478,7 +497,8 @@ export class Editor {
       this.snapInfo = snapPoint(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() });
       return this.snapInfo.p;
     }
-    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
+    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(), this.basePlaneOfAnchor());
+    if (r.snap.kind === null && this.snapInfo && grazing(r.plane, this.frame().ray(sx, sy, this.fvp()))) return this.snapInfo.p;
     this.gesturePlane = r.plane;
     this.snapInfo = r.snap;
     return r.snap.p;
@@ -607,6 +627,9 @@ export class Editor {
             ? this.checkpoint.graph.pt(hit.vertex)
             : snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() }).p;
           this.cursor3 = this.anchor3;
+          // 拖动期的兜底平面 = 过锚点、最面向指针的轴平面，**不是**落笔那张膜（那是受影响面：屋脊案里就是旧顶面，
+          // 光标离开它还黏着、射线擦过它就甩到无穷远——user 2026-09-07）
+          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
           this.armed = false;
           this.canArm = ev.pointerType === "mouse";
           this.downScreen = { x: s.x, y: s.y };
@@ -671,7 +694,15 @@ export class Editor {
       case "move":
         if (this.moveVids.length && this.anchor3) {
           const mv = new Set(this.moveVids);
-          this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) }), s.x, s.y);
+          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);   // 随指针面向走的屏幕平面（不是受影响面）
+          let sn = snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) });
+          if (sn.kind === null) {
+            // 无吸附 = SU move 的方向推断：宽锥三轴三选一（六个 60° 锥）；都不在锥内 → 屏幕平面自由移动；擦射线 → 保持上一帧
+            const ax = inferAxisByDirection(this.frame(), this.fvp(), this.anchor3, s.x, s.y);
+            if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
+            else if (this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
+          }
+          this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
           this.trackCharge(this.snapInfo, 120);
           this.cursor3 = this.snapInfo.p;
         }

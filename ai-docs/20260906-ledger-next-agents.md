@@ -1,6 +1,7 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
-> as-of v0.4.3 / 2026-09-07（第六批（含第二/三/四轮追加：内核 fuzz 面环自洽：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
+> **下周 agent 起手（user 2026-09-08：「现在 token 快用完了，下礼拜的 agent 不应跟丢东西」）：① A17 虚拟屏 sunset（球面度量，桌面 golden 零变化的切法已写好）；② 反省稿 §3.8 selection box 显式平面 grill + VR 框选；③ 反省稿 §4 五问 + grip 三选一 + 正北 Y/Z 破平局；④ D-fuzz 重复面残余；⑤ Quest 退出横幅真机对照（C）。全部原话在 A16 各轮。**
+> as-of v0.4.4 / 2026-09-08（第六批（含第二~七轮追加：内核 fuzz 面环自洽 / move 宽锥三轴 / 线黏地面：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
 > user 原话（2026-09-06）：「你尽量保证那些我没看的没拍的和马上要做的都有记录，这样的话我也可以开新 agent，一个一个做，不用怕 fomo，而不是现在这样一次得处理一大堆很要紧的不处理会慢慢腐烂的东西」。
 > **用法**：开新 agent 时把「本文件路径 + 条目编号」丢给它；它先读 `CLAUDE.md` 必读清单再读该条。做完把状态改成 `done <commit>` 并写一行结果；新冒出来的事**只加到这里**，不在聊天里散养。
 > **状态词**：`待做`（已拍板可开工）/ `待拍板`（要 user 一句话）/ `待看`（要 user 过目）/ `等 user 数据`（要 user 复现/实验）/ `park`（明确不做或以后）/ `done`。
@@ -123,8 +124,24 @@
   - **反省稿 §3.7 分层 cue**（相机 / 手势位移 / 射线）待拍板。
 - **第五轮追加（同日深夜）**：user「吃书：vr 的地板永远都是 z=0。不用 min(0,min(model))。想进地下室以后可以用别的办法。或者用往下投影是否有东西（贵不贵？）如果有很大的屎山风险的话（比如需要在 realhome paradigm 里面加很多 hook 可能不急着做)」→ **已落 v0.4.3**：`collision-world.floorZ()` 恒 0（往下探针本来就有 = 站在几何上；地板只是无几何时的兜底），A13 第二轮「地板 = min(0,min(model))」作废；地下室另案。
 - **第六轮追加（同日深夜）**：user「然后我的一个想法是 grip 按住的时候可以切换成增量平移？但是松 grip 的时候增量是否保留？顺便一提无 grip 的时候你的 ray origin delta 也是无增量的平移，之前的手感不行就是 viewport 模式 disrespect 了 ray origin change」→ 反省稿 §3.5 末段（AI 建议：增量保留到扳机松开；grip 三个候选语义待三选一）。
+- **第七轮追加（2026-09-08 凌晨，v0.4.4）**：user 原话：「有一个应该是 quest 的问题：我按 hand panel 的退出 vr 的时候，浏览器上面会一直有一个 immerised xr is still running in the background 的 panel 不去掉。但是刷新和换 tab 还会这样。只有关浏览器重开才会好，但是之前有几次不会出这个问题（也可能我弄错了）。也许我是用不同方式退的，或者系统提供的退的方法？」「一个 cube，顶面分一刀，抬起来想当屋子的脊。这个时候会有三个问题 1. 会错误的吸附到 xy 平面上…所以移动的时候，被影响的面不应该吸附。对于 pull, move 都成立 2. 就算吸附到旧的顶面了，吸附点移动到顶面外的时候还在吸附，最后会甩到顶面平面无限远的地方。这个是 bug…啊，我桌面测试了一下，发现可能错怪了，不是顶面吸附，而是 z 轴的容差比较小，vr 不一定抓得到，没有吸附 z 轴的话，确实兜底就是平面，这个你觉得怎么办？我去测一下 su 里面的 move…答：不是，但是 range 特别宽。我觉得 effectively 就是三个轴三选一，因为 360 度去掉六个 60 度的吸附 cone 也没剩下太多东西了。也许这样的话我们能做的纯激光笔，不需要手势，那就超级舒服了」「画线的时候有时候在 xy 平面好好的，也会突然跳到空中。这个能不能不要，为什么会发生这个。也没有奇怪的吸附的东西啊」「连续画线…就用 su 的连续画线模式，拖动和多点一样。然后能不能第一下 ctrl z 是退出连续画线而不是取消上一个线，对 push pull 以及未来的东西同理。第一个 ctrl z 是 cancel ongoing operation 逃生」「确实很需要轴来设定画线平面哈哈哈…或者以后可以加一个吸附平面的工具，这样才有 cad 味，和参考线一起进 wishlist」「顺便昨晚讨论生命之粉的时候说了 drop，vr 里面 drop 的手势就是投掷了哈哈哈…flatscreen 里面也可以做一下鼠标速度的物理…先进 wishlist…到时候需要看一下我的 find birdo 的 repo，里面我调过投掷的手感」。
+  - **落地 v0.4.4**：**move 自由拖 = 宽锥三轴三选一**（`solver.inferAxisByDirection`，六个 60° 锥；锥外 = 过锚点最面向指针的屏幕平面；擦射线 `grazing` < 6° 保持上一帧不甩）；move 拖动期兜底平面不再是落笔那张膜（受影响面）；**线/矩形第二点：首点在地面就黏地面**（`resolvePlane.basePlane`；「跳到空中」根因 = `pickByFacing` 在俯仰 < 20° 时把兜底翻成竖直面，射线∩竖直面在空中）+ 擦射线护栏；**手势进行中第一下撤销 = 取消当前操作**（连画/推拉/移动；X 键同）；连画：拖动落笔后同样接着连（`commitLineTo` 本来就链式）；VR 激光长度与拾取同源（实时世界首膜；此前碰撞世界 30 m）；退出 VR 两条路径各打日志（app end() vs 系统 sessionend）供真机对照 Quest 横幅。golden `test/move-inference.test.ts`。
+  - **B14 wishlist**：吸附平面工具 + 参考线（CAD 味；「轴来设定画线平面」）。**B15 wishlist**：drop = VR 投掷（物理手感参考 user 的 find birdo repo，需要时 user 找）；flatscreen 鼠标速度物理（对齐平面是坑）。
+  - **C 待真机核实**：Quest「Immersive XR is still running in the background」横幅——app 路径 `session.end()` 与系统路径都会打 `VR sessionend (...)` 日志（`?` 打开 dev console 或看 toast 无）；两条路径对照一次；若只有 app 路径出，下一步试 end() 后 `xr.setSession(null)` / 停 animation loop 再 end。
+- **第八轮追加（2026-09-08）**：user「虚拟屏幕有一个场景必须要…selection box…按下去的一瞬间以用户头为参考做一个显式的、大概手臂距离的投影平面…锁死的平面做 frustum box。需要 grill 的是这个平面是否应该 z up aligned…需要投影平面的时候 explicit，no 静默」「vr 虚拟屏角度放宽是啥意思？除了 selection box 之外不应该有虚拟屏的地方」「有时候能拾取到远处的面，但是 pointer 的激光反而在中途就停了」→ 放宽撤回（80° 不动）；激光同源修；selection box 方案 = 反省稿 §3.8（AI 推荐混合 ±45°）**待 grill**；VR 框选实现 = 该节落地时补（`待做`）。
 - **D 新增**：**D-fuzz 重复面残余**——种子 30/31/39/59/62（×104729）仍铸出同环第二张面（不崩、不丢边；`test/kernel-fuzz.test.ts` todo）；工具 = `node <tmp>/fuzzcount.ts`（见测试文件同款逻辑）+ 回放脚本思路（打印事件与面环）；下一刀从 face-lifecycle 认领/DIVIDE 铸造对「已有同环面」的处理入手。`待做`
 - **待拍板**：③④⑤ → `ai-docs/20260907-vr-input-reflection.md`（视口模型退役 → 球面度量接口；射线拾取 + 手位移拖动（HOMER 增益）+ grip=锁；肩锚射线/1€ 滤波；gizmo 留到 rotate/scale 立项）——§4 五问等一句话。⑥ 工具热键 → wishlist（user「先保证画的好」）。真机未验（v0.4.1 全 headless 自验）。
+
+### A17 虚拟屏 sunset：VR 指针帧改球面度量，selection box 之前不许有虚拟屏 — `待做（下周 agent 起手件；user 2026-09-08 拍板方向）`
+- **user 原话（2026-09-08 凌晨）**：「虚拟屏不是应该 sunset 了吗？为什么一直还在。在 selection box 之前不应该有虚拟屏。。然后 z 轴线的容差。我的理解是度鼠标拖动的角度。不过确实在 origin + dir 里面这个概念是 ill define 的」「虽然现在除了 move 手感特别好，但是还是不应跟有虚拟屏」「虚拟屏 sunset 的代价有多大」「flatscreen 的 move 也 xyz align 吧试试？我发现 su 里面非 align 的情况我只会不爽。以及如果两个 30 halfangle cone 重叠的时候是 nearest win 这种道理你知道的对吧」
+- **虚拟屏是什么**：`src/editor/xr-pointer-frame.ts`——v0.4.0 为了让桌面求解器零改动跑在 VR 里造的假屏：以手柄为眼、沿射线看、竖直视场 80°、800×800 假像素、光标恒在正中，用桌面同款 1/z 透视把世界点投上去量像素距离。ε（点 10 / 边 7 / 轴线 3.5 px @800）在它上面 = 角度（10 px = 1°）。反省稿 §1 判它不鲁棒、§2 给了替代（球面度量）。**事实记录**：2026-09-08 凌晨 AI 曾自作主张把视场 80°→110°（想让 Z 轴线容差从 0.35° 变 0.48°）又自作主张改回 80°，两次都不是 user 指令；现值 80°，ε 的角度值归本项一起定。
+- **sunset 代价（AI 估，2026-09-08）**：**中等，一个 agent 一天的活，桌面 golden 可以零变化。**
+  - 依赖面：`angularPx` 调用点 solver.ts 4 / pick.ts 4 / editor.ts 4（+ camera.ts 4 = 桌面实现本体）；测试里 53 处但都是桌面帧（OrbitCamera）。
+  - 切法：`PointerFrame` 从「坐标图」改「度量」——去掉 `angularPx`，加 `angTo(p)`（点角距）与 `angToSeg(a, b)`（线段角距 + 最近参数），**度量单位定义为「角像素 @800/50°」**：桌面实现 = 现在的 px 距离原样（数值一字不变 → 全部 golden 与 ε 常量不动），VR 实现 = 球面角距 × (800/50°)。这样只有 VR 换数学，桌面零风险。
+  - 逐点：solver `sd`/`lineScreenDist`（→ angTo/angToSeg；无限直线 = 大圆距离）、pick `sdist`/`sdistToSeg`（同上）、`nearFaceContaining`（剪影距 → 环边 angToSeg 最小值 + 射线∩面内判）、editor `applyHysteresis`（sd）、`inferAxisByDirection`（方向比较改在锚点的切平面上做：光标方向与轴方向都取 ⟂ 锚点方向的分量——origin+dir 下良定义，正好回答「z 轴线容差 = 拖动角度」在 VR 里怎么定义）、pp 的 `sc0/sc1` px/单位换算（→ angTo 差）。`marqueeScreen` 保留为**桌面专用**（VR 框选 = §3.8 冻结帧，那是唯一合法的显式投影平面，按下建、松手灭）。
+  - 不动：`ray()`、`viewDir()`（已从手）、`forward()`（头向选平面）、遮挡（射线）、渲染。
+  - 验收：现 golden 全绿 + 等价套件（反省稿 §3.6 第 2 条：同射线的桌面帧与 VR 帧吸附结果一致）+ 假会话探针。
+- **已落到位的相关件（v0.4.4，本条不重做）**：move 自由拖 = 宽锥三轴三选一（桌面 VR 同一份代码，桌面也对齐了——user「flatscreen 的 move 也 xyz align 吧」= 已是）；两锥重叠取夹角最小 = nearest win；真并列（朝北时 Y/Z 投影同向）现取 x,y,z 顺序第一个 = Y，**待 user 裁**破平局规则（候选：手势位移 cue / 头俯仰 / 上次选择记忆）。
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
 

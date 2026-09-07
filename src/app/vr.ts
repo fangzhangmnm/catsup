@@ -68,7 +68,14 @@ export class VR {
       .then((session) => this.opts.editor.renderer3.xr.setSession(session))
       .catch((err) => this.opts.log?.(`VR session failed: ${(err as Error).message}`));
   }
-  exit(): void { this.opts.editor.renderer3.xr.session()?.end().catch(() => {}); }
+  /** 退出（面板/菜单）：end() 走标准路径；Quest 残留「Immersive XR is still running in the background」横幅案（2026-09-07）→ 两条路径各记日志，真机对照。 */
+  exit(): void {
+    const s = this.opts.editor.renderer3.xr.session();
+    if (!s) { this.opts.log?.("VR exit: no session"); return; }
+    this.exitRequested = true;
+    s.end().then(() => this.opts.log?.("VR exit: session.end() resolved (app path)")).catch((err) => this.opts.log?.(`VR exit: session.end() rejected: ${(err as Error).message}`));
+  }
+  private exitRequested = false;
 
   private onStart(): void {
     const { editor, locomotion } = this.opts;
@@ -85,6 +92,8 @@ export class VR {
   }
   private onEnd(): void {
     const { editor, locomotion } = this.opts;
+    this.opts.log?.(`VR sessionend (${this.exitRequested ? "app path" : "system/other path"})`);
+    this.exitRequested = false;
     this.presenting = false;
     if (this.toolDown) { editor.cancel(); this.toolDown = false; }
     editor.setPointerFrame(null);
@@ -186,9 +195,14 @@ export class VR {
           else if (trigUp && this.toolDown) { this.toolDown = false; editor.pointerUp(tp()); pulse(session, toolName, 0.35, 25); }
           else editor.pointerMove(tp());
         }
-        // 光标球：落在射线首个命中（碰撞世界 = 内核膜）或 3 m 处
-        const hit = locomotion.world.segmentHit(toolHand.ray.origin, { x: toolHand.ray.origin.x + toolHand.ray.dir.x * 30, y: toolHand.ray.origin.y + toolHand.ray.dir.y * 30, z: toolHand.ray.origin.z + toolHand.ray.dir.z * 30 });
-        r3.setPointerVisual(toolName, { length: hit ? hit.t * 30 : 3, color: this.toolDown ? 0xcc3333 : 0x2b6cb0 });
+        // 光标球：落在射线首个命中的膜（与拾取同源：实时世界含预演）；没命中 → 碰撞世界（地板等）→ 3 m
+        let len = editor.pointerHitDistance(c.x, c.y);
+        if (len === null) {
+          const R = 300;
+          const hit = locomotion.world.segmentHit(toolHand.ray.origin, { x: toolHand.ray.origin.x + toolHand.ray.dir.x * R, y: toolHand.ray.origin.y + toolHand.ray.dir.y * R, z: toolHand.ray.origin.z + toolHand.ray.dir.z * R });
+          len = hit ? hit.t * R : 3;
+        }
+        r3.setPointerVisual(toolName, { length: len, color: this.toolDown ? 0xcc3333 : 0x2b6cb0 });
       }
     });
 

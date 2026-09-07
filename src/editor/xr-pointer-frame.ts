@@ -11,7 +11,7 @@ import { add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts"
 import type { PointerFrame, Ray, ScreenPt, Viewport } from "./pointer-frame.ts";
 
 export const XR_VIRTUAL_VP: Viewport = { w: 800, h: 800 };
-export const XR_VIRTUAL_FOV = (80 * Math.PI) / 180;
+export const XR_VIRTUAL_FOV = (80 * Math.PI) / 180;   // 不放宽（user 2026-09-08：「除了 selection box 之外不应该有虚拟屏的地方」——ε 的角度值归球面度量重做时定，不靠虚拟屏调）
 const WORLD_UP: Pt3 = { x: 0, y: 0, z: 1 };
 
 export class XRPointerFrame implements PointerFrame {
