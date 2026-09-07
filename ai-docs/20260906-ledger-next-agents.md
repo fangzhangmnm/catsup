@@ -75,7 +75,7 @@
   8. **phase 2（不在本轮）**：大人/小孩/高达视角（rig 缩放）、grab 缩放操纵模型、rotate/scale 动词与 SU move 对齐、VR 下吸附语义重想（pointer ≠ cursor）。
 - **user 2026-09-07 第二轮裁决（改动上面计划）**：
   - 「player.ts 帮我好好模块化一个，尽量不要和别的代码混乱」→ **深模块**：`src/player/`（`player.ts` 纯状态机 `step(input, dt, world)`；`WorldQuery` 接口注入 = `groundBelow(p)` / `sweepCapsule(...)` / `arcHit(...)`，由 editor 侧用内核三角汤实现；不 import kernel/three；输入适配器 `xr-input.ts` / `flat-input.ts` 各自独立；rig 同步只在引擎内）。golden 纯函数可测。
-  - **墙体碰撞进 phase 1**（user：「都有求交了，一口气把墙壁做了吧。没有墙壁反而会容易静默到奇怪的地方。wysiwyg = 反煤气灯」）：移植 RealHome 胶囊三球 + 悬挂 + 台阶（`collision.js` 235 行）；三角汤 = 膜三角化（OBJ 导出已有 `faceTriangles`），模型小先暴力、大了再 BVH。**max slope 做**（user：「行」；RealHome 无显式 slope 限，见对话核实）。
+  - **墙体碰撞进 phase 1**（user：「都有求交了，一口气把墙壁做了吧。没有墙壁反而会容易静默到奇怪的地方。wysiwyg = 反煤气灯」；原则见 E12 旁：**几何默认有碰撞，除非 override 或指定 proxy**——phase 1 全部膜参与碰撞，override/proxy 元数据留到 component 纪元）：移植 RealHome 胶囊三球 + 悬挂 + 台阶（`collision.js` 235 行）；三角汤 = 膜三角化（OBJ 导出已有 `faceTriangles`），模型小先暴力、大了再 BVH。**max slope 做**（user：「行」；RealHome 无显式 slope 限，见对话核实）。
   - **地板 = min(0, min(model z))**（user：「off map falling…地板用 min(0,min(model))」）：安全地板永远在模型最低点或 0 之下，不会掉到无限；RealHome 的 fall-too-far respawn 不需要。
   - **teleport 距离上限**：抛物线射程随手柄俯仰（45° 最远，封顶约 10 m），更远用摇杆平滑移动/noclip 飞；**反悔** = 指向天空/无落点时松手 = 取消（弧线变红），充能中后拉摇杆 = 取消，落地后后推 = 回上一点。「打自己脚底」不当取消（和小步 teleport 歧义）。
   - **相机 flat 模式**：WASD + **Q/E 上下**（user：「相机 wasd 不够，还需要 qe 上下」）+ Shift 冲刺 + Space 跳 + Ctrl 蹲 + 鼠标视角 + ←/→ snap turn。
@@ -157,6 +157,8 @@
 - **E9 OBJ 导出：带洞/凹面的法向坑**（user 2026-09-07「导出 obj 有法向凹面洞面的坑，我还没找你算账。先 parked，这个只是个逃生口」）：`park`。案发形状待 user 给（怀疑 earcut 注入的带洞面三角朝向 / 凹多边形 n-gon 在 Blender 里法向翻），逃生口不阻塞。
 - **E10 触屏小键盘**（user 剧透，见 B12）：数字输入不弹系统键盘，app 内 HUD 小键盘。
 - **E11 光照默认先验当方向 cue**（user 2026-09-07「lighting default prior 是另外一个 cue，以后也会做」）：Workbench 默认光向固定于世界（如西南上方）而非相机系，转视角时明暗随之变 → 方向感；等渲染引擎切口（A4）后做。
+- **E12 灵感：「生命之粉」= 编辑器内临时物理**（user 2026-09-07 原话存档：「塞尔达里面的超级手可以把 rigidbody **临时**变成 kinematic。我们做一个相反的东西：绿野仙踪里面的生命之粉（时间之粉？newtonian 这种只会往下掉的 non self propotion particle 不符合中世纪生命的语义），效果是临时 in editor, without hit play button 把一个东西变成 falling rock/ water/ cloth，临时，用户可以喊停。用处是你想做沙发布料瓦砾书堆的时候不想折腾时间轴和烘培但需要物理模拟的时候可以用。unity asset store 上面也有一个类似的素材摆放插件。甚至我们以后 asset placement 的时候可以做一个 drop」）：动词形状 = 选中几何 → 撒粉 → 它在编辑器里活起来（落石/水/布）→ 喊停即冻结成普通几何（一次结算 = 一个 op，指令式不破）；asset placement 的「drop」是它的最小子集。未来纪元，先存档。
+- **原则（同一段 user 原话，与 A13 碰撞项挂钩）**：「这个和 vr/fps 的导航需求都逼出来：**我们的 geometry 是默认有碰撞的，除非用户 override or assign proxy**」→ 碰撞不是 VR 专属附件而是几何的默认属性；override（关碰撞）与 proxy（简化碰撞体）是将来的 per-几何/per-component 元数据（ECS 元数据落 `extras` 那一层）。
 - **E8 油漆桶=拉矩形**（user 2026-09-06 原话「park进未来设计思路：油漆桶刷贴图采用拉矩形的方式，所以拉矩形可以同时设置贴图和UV」）：贴图纪元的思路存档，现在不做。
 
 ---
