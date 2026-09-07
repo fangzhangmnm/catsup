@@ -20,7 +20,7 @@ export type Projection = "ortho" | "persp";
 
 const WORLD_UP: Pt3 = { x: 0, y: 0, z: 1 };
 const EYE_DIST_ORTHO = 5000; // 正交下 eye 距离只影响 near/far 布置
-const NEAR_MIN = 0.5;        // 透视：眼前的点投影退化，near 之内一律钳到 near（不产生 NaN）
+const NEAR_MIN = 0.5;        // 透视：眼前的点投影退化，near 之内一律钳到 near（不产生 NaN）；第一人称改小（cam.nearMin）
 
 export class OrbitCamera implements PointerFrame {
   target: Pt3 = { x: 0, y: 0, z: 0 };
@@ -29,6 +29,7 @@ export class OrbitCamera implements PointerFrame {
   halfH = 300;                 // 视野半高（世界单位，target 深度处）——zoom 就是改它
   projection: Projection = "ortho";
   fovY = (50 * Math.PI) / 180; // 透视竖直视场角（SU 默认 35° 偏窄；50° 更像 Blender 默认镜头）
+  nearMin = NEAR_MIN;          // 眼前钳位深度（步行模式 0.05：贴墙的吸附目标也要投得准）
 
   /** target→eye 方向（单位）。 */
   eyeDir(): Pt3 {
@@ -78,7 +79,7 @@ export class OrbitCamera implements PointerFrame {
   angularPx(p: Pt3, vp: Viewport): ScreenPt {
     if (this.projection === "persp") {
       const rel = sub3(p, this.eye());
-      const z = Math.max(dot3(rel, this.forward()), NEAR_MIN);
+      const z = Math.max(dot3(rel, this.forward()), this.nearMin);
       const t = Math.tan(this.fovY / 2);
       const sx = dot3(rel, this.right()) / (z * t * (vp.w / vp.h));
       const sy = dot3(rel, this.up()) / (z * t);

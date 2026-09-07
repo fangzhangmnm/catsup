@@ -14,7 +14,7 @@ import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { epsScale } from "./solver.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
-import { Renderer3 } from "./render3.ts";
+import { Renderer3, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type LabOp, Journal } from "./journal.ts";
 import { add3, dot3, scale3, sub3 } from "../kernel/geom.ts";
@@ -410,8 +410,13 @@ export class Editor {
   }
 
   // ---------- 渲染 ----------
+  /** app 层附加的视图状态（近平面 / teleport 弧线等，与工具无关）。 */
+  viewExtras: (() => Partial<ViewState>) | null = null;
+  /** 连续渲染循环（步行 / XR）；null = 停。 */
+  setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void { this.r3.setLoop(cb); }
   draw(): void {
     this.r3.render(this.checkpoint, this.cam, this.vp(), {
+      ...(this.viewExtras?.() ?? {}),
       selectionEdges: this.selection.edges,
       selectionFaces: this.selection.faces,
       scrubEdges: this.scrubAcc,

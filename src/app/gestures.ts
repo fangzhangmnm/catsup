@@ -25,6 +25,10 @@ export interface GestureOpts {
   fingerDraws(): boolean;
   onUndo(): void;
   onRedo(): void;
+  /** 步行模式：环绕/平移手势改成视角（返回 true = 已消费）。2026-09-07 VR 纪元 */
+  look?(dxPx: number, dyPx: number): boolean;
+  /** 步行模式中滚轮无意义（相机每帧由 player 写）。 */
+  walking?(): boolean;
 }
 
 const GESTURE_TAP_MAX_MS = 250;
@@ -117,8 +121,8 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     if (ev.pointerType === "pen") lastPenActivity = t.lastAt;
     switch (t.role) {
       case "tool": editor.pointerMove(tp(ev)); return;
-      case "orbit": editor.cam.orbit(dx, dy); editor.draw(); return;
-      case "pan": editor.cam.pan(dx, dy, editor.vp()); editor.draw(); return;
+      case "orbit": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.orbit(dx, dy); editor.draw(); return;
+      case "pan": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.pan(dx, dy, editor.vp()); editor.draw(); return;
       case "multi": {
         // ② 位移门：每根手指离自己的起点
         if (tap?.isTap) {
@@ -131,6 +135,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
         if (ts.length < 2 || !multi) return;
         const [[, a], [, b]] = ts;
         const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
+        if (opts.walking?.()) { multi.cx = cx; multi.cy = cy; multi.d = d; return; }
         editor.cam.pan(cx - multi.cx, cy - multi.cy, editor.vp());
         if (d > 1 && multi.d > 1) editor.cam.zoomAt(multi.d / d, cx, cy, editor.vp());
         multi.cx = cx; multi.cy = cy; multi.d = d;
@@ -178,6 +183,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
 
   const onWheel = (ev: WheelEvent): void => {
     ev.preventDefault();
+    if (opts.walking?.()) return;
     const r = canvas.getBoundingClientRect();
     editor.cam.zoomAt(ev.deltaY > 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top, editor.vp());
     editor.draw();

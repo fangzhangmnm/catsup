@@ -73,6 +73,10 @@ export interface ViewState {
   snapAnchor: Pt3 | null;      // axis 锁的虚线起点
   /** 充能源点（from-point 共轴的登记源；紫点）。 */
   charged?: readonly Pt3[] | null;
+  /** 透视近平面下限（第一人称 0.05；轨道默认 0.5）。 */
+  near?: number;
+  /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
+  teleport?: { points: readonly Pt3[]; valid: boolean; landing: Pt3 | null } | null;
 }
 
 export class Renderer3 {
@@ -97,6 +101,11 @@ export class Renderer3 {
     this.scene.add(this.staticGroup);
   }
 
+  /** 连续渲染循环（步行模式 / XR 会话）；null = 停（回到按需 draw）。three 的 setAnimationLoop 才能收 XR 帧。 */
+  setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void {
+    this.renderer.setAnimationLoop(cb);
+  }
+
   resize(vp: Viewport, dpr: number): void {
     this.dpr = dpr;
     this.renderer.setPixelRatio(dpr);
@@ -113,7 +122,7 @@ export class Renderer3 {
     return (2 * cam.halfH) / vp.h;
   }
 
-  private syncCamera(cam: OrbitCamera, vp: Viewport): any {
+  private syncCamera(cam: OrbitCamera, vp: Viewport, nearMin = 0.5): any {
     const eye = cam.eye(), up = cam.up();
     let c: any;
     if (cam.projection === "persp") {
@@ -121,7 +130,7 @@ export class Renderer3 {
       const d = cam.eyeDist();
       c.fov = (cam.fovY * 180) / Math.PI;
       c.aspect = vp.w / vp.h;
-      c.near = Math.max(0.5, d * 0.02);
+      c.near = Math.max(nearMin, d * 0.02);
       c.far = d * 40 + 5000;
     } else {
       c = this.camOrtho;
@@ -138,7 +147,7 @@ export class Renderer3 {
   }
 
   render(k: Kernel, cam: OrbitCamera, vp: Viewport, view: ViewState): void {
-    const cam3 = this.syncCamera(cam, vp);
+    const cam3 = this.syncCamera(cam, vp, view.near ?? 0.5);
 
     if (this.dyn) {
       this.scene.remove(this.dyn);
@@ -192,6 +201,24 @@ export class Renderer3 {
       } else if (view.snap.kind.startsWith("axis") && view.snapAnchor) {
         const a = view.snapAnchor, b = view.snap.p;
         g.add(this.fatLines([a.x, a.y, a.z, b.x, b.y, b.z], color, HINT_PX, { offset: true }));
+      }
+    }
+
+    // ---- teleport 弧线（绿=可落 / 红=取消）+ 落点环 ----
+    if (view.teleport && view.teleport.points.length >= 2) {
+      const tp = view.teleport;
+      const color = tp.valid ? 0x2e8b57 : 0xcc3333;
+      const pos: number[] = [];
+      for (let i = 0; i + 1 < tp.points.length; i++) {
+        const a = tp.points[i], b = tp.points[i + 1];
+        pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      }
+      g.add(this.fatLines(pos, color, 2.5, { offset: true }));
+      if (tp.landing) {
+        const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
+        ring.position.set(tp.landing.x, tp.landing.y, tp.landing.z + 0.01);
+        ring.renderOrder = 9;
+        g.add(ring);
       }
     }
 

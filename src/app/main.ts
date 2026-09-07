@@ -10,6 +10,7 @@ import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import type { FaceEvent } from "../kernel/kernel.ts";
 import { attachGestures } from "./gestures.ts";
+import { Locomotion } from "./locomotion.ts";
 import { initPwaShell } from "./pwa-shell.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
@@ -41,10 +42,12 @@ const labEl = $("lab");
 const buildEl = $("build");
 
 const HINT_DEFAULT = "画线 L · 矩形 R · 移动 M · 推拉 P · 橡皮 E · 选择 空格 ｜ 右键/单指拖=环绕 · 双指=平移缩放 · 滚轮=缩放 ｜ Esc 取消";
+const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳 · Ctrl 蹲 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
+const hintDefault = (): string => (locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
 
 // ---------- Editor ----------
 const editor = new Editor(canvas, {
-  hint: (t) => { hintEl.textContent = t ?? HINT_DEFAULT; },
+  hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
   tip: (t, cx, cy) => {
     if (t) {
       tipEl.textContent = t;
@@ -104,21 +107,26 @@ btnRedo.addEventListener("click", () => editor.redo());
 btnDelete.addEventListener("click", () => editor.deleteSelection());
 btnFit.addEventListener("click", () => editor.zoomExtents());
 
-type ViewId = "iso" | "top" | "front" | "right" | "back" | "left" | "persp";
+type ViewId = "iso" | "top" | "front" | "right" | "back" | "left" | "persp" | "walk" | "noclip";
 btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
   anchor: btnView, align: "end",
   items: () => [
     // 视图名带方位（user 2026-09-07「视图菜单同意。前视=向北看」；convention：+Y 北、物体的前朝 −Y）
-    { id: "iso", label: "等轴", icon: "persp-iso" },
-    { id: "top", label: "顶视", hint: "俯视" },
-    { id: "front", label: "前视", hint: "向北看" },
-    { id: "right", label: "右视", hint: "向西看" },
-    { id: "back", label: "后视", hint: "向南看" },
-    { id: "left", label: "左视", hint: "向东看" },
-    { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true },
+    { id: "iso", label: "等轴", icon: "persp-iso", disabled: locomotion.isWalking() },
+    { id: "top", label: "顶视", hint: "俯视", disabled: locomotion.isWalking() },
+    { id: "front", label: "前视", hint: "向北看", disabled: locomotion.isWalking() },
+    { id: "right", label: "右视", hint: "向西看", disabled: locomotion.isWalking() },
+    { id: "back", label: "后视", hint: "向南看", disabled: locomotion.isWalking() },
+    { id: "left", label: "左视", hint: "向东看", disabled: locomotion.isWalking() },
+    { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true, disabled: locomotion.isWalking() },
+    // 0.4 VR 纪元：步行/飞行相机 = 不戴头显验证移动/teleport/碰撞的唯一途径（与 VR 共用 src/player/）
+    { id: "walk", label: "步行相机", hint: "WASD · 空格跳 · 右键拖看", checked: locomotion.isWalking(), separatorBefore: true },
+    { id: "noclip", label: "穿墙飞行", hint: "Q/E 下/上", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
   ],
   onPick: (id) => {
     if (id === "persp") { editor.toggleProjection(); return "keep"; }
+    if (id === "walk") { setWalk(!locomotion.isWalking()); return "keep"; }
+    if (id === "noclip") { locomotion.setNoclip(!locomotion.noclip); return "keep"; }
     editor.setView(id);
   },
 }));
@@ -149,6 +157,29 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     }
   },
 }));
+
+// ---------- 移动（步行相机 / VR 共用的 player）----------
+const locomotion = new Locomotion(editor, canvas);
+editor.viewExtras = () => ({ near: locomotion.isWalking() ? 0.05 : undefined, teleport: locomotion.teleportArc() });
+let loopLast = 0;
+function loopTick(t: number): void {
+  const dt = loopLast ? Math.min(0.1, (t - loopLast) / 1000) : 1 / 60;
+  loopLast = t;
+  locomotion.tick(dt);
+  editor.draw();
+}
+/** 连续渲染循环只在需要时跑（步行 / XR）；否则按需 draw。 */
+function syncLoop(): void {
+  const need = locomotion.isWalking();
+  loopLast = 0;
+  editor.setLoop(need ? loopTick : null);
+}
+function setWalk(on: boolean): void {
+  if (on) locomotion.enterWalk(); else locomotion.exitWalk();
+  syncLoop();
+  hintEl.textContent = hintDefault();
+  syncUi();
+}
 
 // ---------- 状态同步 ----------
 function syncUi(): void {
@@ -237,15 +268,20 @@ const gestures = attachGestures(canvas, editor, {
   fingerDraws: () => fingerDraws,
   onUndo: () => editor.undo(),
   onRedo: () => editor.redo(),
+  look: (dx, dy) => locomotion.look(dx, dy),
+  walking: () => locomotion.isWalking(),
 });
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", m: "move", p: "pp", e: "erase" };
-    const t = map[ev.key.toLowerCase()];
-    if (t) { ev.preventDefault(); editor.setTool(t); return; }
+    // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", m: "move", p: "pp", e: "erase", tab: "select", x: "erase" };
+    const key = ev.key.toLowerCase();
+    const t = map[key];
+    const takenByWalk = locomotion.isWalking() && (key === " " || key === "e");
+    if (t && !takenByWalk) { ev.preventDefault(); editor.setTool(t); return; }
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
     ev.preventDefault();
@@ -273,10 +309,10 @@ buildEl.textContent = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
 if (new URLSearchParams(location.search).has("reset")) showNotice({ text: `已清缓存重启 · ${APP_VERSION}`, level: "info" });
 
 // ---------- 探针钩子（scripts/probe-boot.mjs 用；不是 API） ----------
-(window as unknown as { __catsup: unknown }).__catsup = { editor, version: APP_VERSION };
+(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, version: APP_VERSION };
 
 // ---------- 起 ----------
 labEl.hidden = !labOpen;
 editor.setTool("line");
-hintEl.textContent = HINT_DEFAULT;
+hintEl.textContent = hintDefault();
 resize();
