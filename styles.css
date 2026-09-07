@@ -36,11 +36,15 @@ svg.ico use { color: inherit; }
 .hud { position: absolute; z-index: 5; display: flex; align-items: center; gap: 2px; padding: 4px;
   background: rgba(255,255,255,.55); border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.05);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
-.hud-rail { flex-direction: column; gap: 2px; padding: 4px; top: calc(10px + var(--safe-top)); }
-.hud-rail-left { left: calc(10px + var(--safe-left)); }
-.hud-rail-right { right: calc(10px + var(--safe-right)); }
-.rail-sep { width: 26px; height: 1px; margin: 4px 0; background: rgba(0,0,0,.12); }
-.rail-tools { display: flex; flex-direction: column; gap: 2px; }
+.hud-rail { flex-direction: column; gap: 2px; padding: 4px; }
+/* 工具栏：只有工具、左居中（user 2026-09-07：「工具栏左居中更舒服？…用 tools 的居中，而不是带上其他东西的居中」）*/
+.hud-rail-tools { left: calc(10px + var(--safe-left)); top: 50%; transform: translateY(-50%); }
+.hud-rail-right { right: calc(10px + var(--safe-right)); top: calc(10px + var(--safe-top)); }
+/* 小药丸：☰ 独占左上；撤销/重做一槽两半收左下（状态行上方） */
+.hud-chip { flex-direction: row; }
+.hud-tl-chip { left: calc(10px + var(--safe-left)); top: calc(10px + var(--safe-top)); }
+.hud-bl-chip { left: calc(10px + var(--safe-left)); bottom: calc(52px + var(--safe-bottom)); }
+.hud-bl-chip .tb-btn { width: 36px; height: 36px; }
 /* 文字类 HUD：无背景、白描边（游戏字幕式），指针穿透 */
 .hud-text { position: absolute; z-index: 5; pointer-events: none; font-size: 12px; color: #4a4a4a; line-height: 1.45;
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff, 0 1px 3px rgba(255,255,255,.9); }
@@ -124,6 +128,6 @@ svg.ico use { color: inherit; }
   .hud-bl { max-width: min(80vw, 720px); }
 }
 @media (max-height: 560px) {
-  .hud-rail { top: calc(6px + var(--safe-top)); gap: 0; }
+  .hud-rail-tools { gap: 0; }
   .tool { height: 38px; } .tool-label { display: none; }
 }
