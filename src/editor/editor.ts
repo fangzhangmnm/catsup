@@ -543,7 +543,7 @@ export class Editor {
         this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand() }), s.x, s.y);
         this.trackCharge(this.snapInfo);
       } else if (tool === "erase") {
-        this.hoverEdge = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx()).edge ?? null;
+        this.hoverEdge = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx(), this.checkpoint).edge ?? null;
       } else if (tool === "eraseFace") {
         this.hoverFace = pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) ?? null;
         this.computeLive();
@@ -575,7 +575,8 @@ export class Editor {
         }
         break;
       case "erase": {
-        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
+        // 遮挡以手势开始时的世界为准：预演里死掉的膜不能把背后 innocent 的边露出来（user 2026-09-07）
+        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx(), this.checkpoint);
         if (hit.edge !== undefined) this.scrubAcc.add(hit.edge);
         break;
       }

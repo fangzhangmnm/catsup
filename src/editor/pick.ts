@@ -45,7 +45,11 @@ function sdistToSeg(p: { x: number; y: number }, a: { x: number; y: number }, b:
 }
 
 /** 实体拾取：顶点 > 边（屏幕距离）> 面（射线求交，取沿射线最近者——正确遮挡序）。 */
-export function pickEntity(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number, tolPx: number): HitResult3 {
+/**
+ * @param occluder 遮挡用的世界（默认=k）。橡皮拖擦传 checkpoint：预演里擦掉一条边、前面的膜当场死、背后的边露出来
+ *   会被继续擦到（user 2026-09-07「橡皮也会碰到 innocent 的背面边」）——开始擦时看不见的，这一笔永远擦不到（SU 松手才真删，同款）。
+ */
+export function pickEntity(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number, tolPx: number, occluder: Kernel = k): HitResult3 {
   const cursor = { x: sx, y: sy };
   // 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：顶点/边只在**看得见**时参赛——
   // 与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡，所以棱/角本身不会被自己的邻膜挡掉）。
@@ -53,7 +57,7 @@ export function pickEntity(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number
   for (const v of k.vertices()) {
     const p = { x: v.x, y: v.y, z: v.z };
     const d = sdist(cursor, cam.worldToScreen(p, vp));
-    if (d <= bestVd && !occludedBy(k, cam, p)) { bestVd = d; bestV = v.id; }
+    if (d <= bestVd && !occludedBy(occluder, cam, p)) { bestVd = d; bestV = v.id; }
   }
   if (bestV !== undefined) return { vertex: bestV };
 
@@ -65,7 +69,7 @@ export function pickEntity(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number
     if (d > bestEd) continue;
     const t = segParam(cursor, sa, sb);   // 屏幕最近点回投到边上（透视下参数略偏，仍在边上，遮挡判定够用）
     const q = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), z: a.z + t * (b.z - a.z) };
-    if (occludedBy(k, cam, q)) continue;
+    if (occludedBy(occluder, cam, q)) continue;
     bestEd = d; bestE = e.id;
   }
   if (bestE !== undefined) return { edge: bestE };
