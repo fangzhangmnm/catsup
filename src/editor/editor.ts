@@ -616,6 +616,7 @@ export class Editor {
       sx, sy);
     this.hoverFace = null;
     let ref = "";
+    let ppStuck = false;
     if (sn.kind !== null) {
       this.snapInfo = sn;
       this.ppH = dot3(sub3(sn.p, anc), n);   // 光标目标 → 投影法向取高
@@ -642,6 +643,7 @@ export class Editor {
       } else {
         const q = closestOnAxis(anc, n, ray1.origin, ray1.dir);
         if (q) this.ppH = dot3(sub3(q, anc), n);
+        else ppStuck = true;   // 法向与视线近平行：公垂无解，h 动不了
         // 高度通道：h 标量对静态高度集咬合（ε=7px 折算世界单位；底面/邻面/0 全在停靠集里）
         const sc0 = this.cam.worldToScreen(anc, this.vp());
         const sc1 = this.cam.worldToScreen(add3(anc, n), this.vp());
@@ -657,6 +659,14 @@ export class Editor {
       }
     }
     this.cursor3 = add3(anc, scale3(n, this.ppH));
+    // 卡住提示（user 2026-09-07「推拉如果卡住了推拉不动的话应该有提示」）：光标明显动了、h 却出不来 = 正对着面看
+    // （法向∥视线，光标射线到法向轴没有有意义的最近点）——说清原因和出路，别让人以为坏了。
+    const moved = this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0;
+    const facing = Math.abs(dot3(n, this.cam.viewDirAt(anc)));
+    if (moved > 16 * epsScale(this.vp()) && Math.abs(this.ppH) < 0.3 && (ppStuck || facing > 0.9)) {
+      this.host.hint("推拉没动：正对着这张面看，法向和视线平行，拖不出高度——环绕一下换个角度再拉（Esc 取消）");
+      return;
+    }
     this.host.hint(`推拉 h = ${fmtLen(this.ppH)}${ref}（松手/再点落定；Esc 取消）`);
   }
 
