@@ -117,7 +117,7 @@ await page.click("#btnView"); await page.waitForTimeout(50);
 await page.click(".menu-item:has-text('步行相机')");
 await page.waitForTimeout(80);
 const after = await page.evaluate(() => ({ walking: globalThis.__catsup.locomotion.isWalking(), halfH: globalThis.__catsup.editor.cam.halfH }));
-check(!after.walking && after.halfH === 220, `退出步行恢复轨道相机 ${JSON.stringify(after)}`);
+check(!after.walking && after.halfH === 4, `退出步行恢复轨道相机 ${JSON.stringify(after)}`);
 
 console.log("errors:", errs.length ? errs.join("; ") : "none");
 await browser.close();

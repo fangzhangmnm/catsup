@@ -10,7 +10,8 @@
 //   roomscale：无摇杆时身体追 HMD（XOR）；单步追头位移 > maxRoomscaleStep 视为追踪跳变→只重锚不动身。
 //   snap turn 以 pos 为轴（先强制追头、再重锚、再转）。max slope（user：「行」）：|n.z| < cos(maxSlope) 的面不算地。
 //   安全地板 = min(0, 模型最低 z)（user：「地板用 min(0,min(model))」）——掉不到无穷，不需要 respawn。
-//   noclip：无重力无碰撞，沿视线飞，up/down 竖直。
+//   noclip：无重力无碰撞；摇杆/WASD **水平**飞（Minecraft 约定，不跟头俯仰——user 2026-09-07：「vr 里面飞的时候 wasd 是水平的，
+//   不应跟有高度变化」），up/down（A/B、Q/E）竖直；双击跳 = noclip 开关（input.noclipToggle 边沿，适配器判双击）。
 //
 // **freeze / coyote 机制（user 2026-09-07：「加一个 coyote 机制，一个 verb 进行到一半的 freeze 物理。免得玩家踩自己脚或者被卡的时候
 //   导致鼠标乱飞。等 commit 之后才惩罚玩家」「模块里做一个 freeze 机制…不是简单的几个 monkey patch」）**：
@@ -230,28 +231,20 @@ export function stepPlayer(st: PlayerState, input: InputFrame, dt: number, world
 
   // ② snap turn（边沿已由适配器/PlayerSim 保证一帧一次）
   if (input.turn) snapTurn(st, (input.turn * cfg.snapTurnDeg * Math.PI) / 180, input, world, cfg);
+  // ②' 双击跳 = noclip 开关（Minecraft）：开 = 悬停在原地；关 = 从当前位置照常受重力
+  if (input.noclipToggle) { st.noclip = !st.noclip; st.velZ = 0; if (!st.noclip) st.grounded = false; }
 
   // ③ 水平：摇杆 XOR roomscale
   const mag = Math.hypot(input.walkX, input.walkY);
   if (mag >= cfg.stickDeadzone) {
     const k = Math.min(mag, 1) / mag;
     const f3 = localToWorldFwd(st.heading, input.head.fwdLocal);
-    if (st.noclip) {
-      // 飞行：沿完整视线（含俯仰）
-      const speed = (input.dash ? cfg.flyDashSpeed : cfg.flySpeed) * dt * k;
-      const r = rightOf(st.heading);
-      const rl = worldToLocal2(st.heading, r.x, r.y);   // 右向在 rig 局部 = (1,0)
-      const rw = localToWorld2(st.heading, rl.x, rl.y);
-      st.pos.x += (f3.x * input.walkY + rw.x * input.walkX) * speed;
-      st.pos.y += (f3.y * input.walkY + rw.y * input.walkX) * speed;
-      st.pos.z += f3.z * input.walkY * speed;
-    } else {
-      const fh = Math.hypot(f3.x, f3.y) || 1;
-      const fx = f3.x / fh, fy = f3.y / fh;
-      const rx = fy, ry = -fx;   // 右 = 前 × 上（Z 上）：(fx,fy,0)×(0,0,1) = (fy, −fx, 0)
-      const speed = (input.dash ? cfg.dashSpeed : cfg.walkSpeed) * dt * k;
-      sweepMove(st, (fx * input.walkY + rx * input.walkX) * speed, (fy * input.walkY + ry * input.walkX) * speed, world, cfg);
-    }
+    // 步行与飞行都只取头前向的水平分量（飞行的竖直由 up/down 单独管，Minecraft 约定）
+    const fh = Math.hypot(f3.x, f3.y) || 1;
+    const fx = f3.x / fh, fy = f3.y / fh;
+    const rx = fy, ry = -fx;   // 右 = 前 × 上（Z 上）：(fx,fy,0)×(0,0,1) = (fy, −fx, 0)
+    const speed = (st.noclip ? (input.dash ? cfg.flyDashSpeed : cfg.flySpeed) : (input.dash ? cfg.dashSpeed : cfg.walkSpeed)) * dt * k;
+    sweepMove(st, (fx * input.walkY + rx * input.walkX) * speed, (fy * input.walkY + ry * input.walkX) * speed, world, cfg);
   } else {
     // roomscale：身体追 HMD（冻结期照旧——user：「平时都是头移动会导致身体跟着的」）
     const il = { x: input.head.local.x - st.trackingOrigin.x, y: input.head.local.y - st.trackingOrigin.y };

@@ -21,12 +21,19 @@ export type Projection = "ortho" | "persp";
 const WORLD_UP: Pt3 = { x: 0, y: 0, z: 1 };
 const EYE_DIST_ORTHO = 5000; // 正交下 eye 距离只影响 near/far 布置
 const NEAR_MIN = 0.5;        // 透视：眼前的点投影退化，near 之内一律钳到 near（不产生 NaN）；第一人称改小（cam.nearMin）
+/** 默认视野半高（米）：人体尺度——target 深度处看到约 8 m 高的世界（SU 开场那个人影的量级）。
+ *  2026-09-07 VR 首轮反馈（user：「尺寸错了，进 vr 之后一格有可能 10 米甚至更大」）：此前 220 m 半高 + 50 m 网格是 lab 时代的
+ *  无单位遗产，PC 上看着正常只因为相机站得远；VR 1:1 才露馅。内部单位米（A10 纪律），PC/VR 同一份网格 1 m。edited by Claude Fable 5.1 */
+export const DEFAULT_HALF_H = 4;
+/** zoom 下限（米）：SU 也常拿来做小零件 CAD（user 2026-09-07「下限还可以更小，很多人用 sketchup 做 cad 的」）。 */
+export const HALF_H_MIN = 1e-3;
+export const HALF_H_MAX = 1e5;
 
 export class OrbitCamera implements PointerFrame {
   target: Pt3 = { x: 0, y: 0, z: 0 };
   yaw = -Math.PI / 4;          // 绕 z
   pitch = Math.PI / 6;         // 从地平线抬头
-  halfH = 300;                 // 视野半高（世界单位，target 深度处）——zoom 就是改它
+  halfH = DEFAULT_HALF_H;      // 视野半高（米，target 深度处）——zoom 就是改它
   projection: Projection = "ortho";
   fovY = (50 * Math.PI) / 180; // 透视竖直视场角（SU 默认 35° 偏窄；50° 更像 Blender 默认镜头）
   nearMin = NEAR_MIN;          // 眼前钳位深度（步行模式 0.05：贴墙的吸附目标也要投得准）
@@ -60,8 +67,10 @@ export class OrbitCamera implements PointerFrame {
     this.target = add3(this.target, add3(scale3(this.right(), -dxPx * perPx), scale3(this.up(), dyPx * perPx)));
   }
   zoomBy(f: number): void {
-    this.halfH = Math.max(1, Math.min(1e5, this.halfH * f));
+    this.halfH = Math.max(HALF_H_MIN, Math.min(HALF_H_MAX, this.halfH * f));
   }
+  /** 透视的眼前钳位深度：nearMin 与眼距 5% 取小——贴近小零件时 near 跟着缩，投影/拾取不退化，渲染 near 也用它。 */
+  nearClamp(): number { return Math.min(this.nearMin, this.eyeDist() * 0.05); }
   /** 朝光标缩放：target 深度平面上光标下的世界点保持钉在光标下（两制同式）。 */
   zoomAt(f: number, sx: number, sy: number, vp: Viewport): void {
     const wx = ((sx / vp.w) * 2 - 1) * this.halfW(vp);
@@ -79,7 +88,7 @@ export class OrbitCamera implements PointerFrame {
   angularPx(p: Pt3, vp: Viewport): ScreenPt {
     if (this.projection === "persp") {
       const rel = sub3(p, this.eye());
-      const z = Math.max(dot3(rel, this.forward()), this.nearMin);
+      const z = Math.max(dot3(rel, this.forward()), this.nearClamp());
       const t = Math.tan(this.fovY / 2);
       const sx = dot3(rel, this.right()) / (z * t * (vp.w / vp.h));
       const sy = dot3(rel, this.up()) / (z * t);
@@ -119,7 +128,7 @@ export class OrbitCamera implements PointerFrame {
   }
 
   /** 缩放到包住一组点（空集=回原点默认尺度）。 */
-  fitPoints(pts: readonly Pt3[], vp: Viewport, fallbackHalfH = 220): void {
+  fitPoints(pts: readonly Pt3[], vp: Viewport, fallbackHalfH = DEFAULT_HALF_H): void {
     if (!pts.length) { this.target = { x: 0, y: 0, z: 0 }; this.halfH = fallbackHalfH; return; }
     let cx = 0, cy = 0, cz = 0;
     for (const p of pts) { cx += p.x; cy += p.y; cz += p.z; }
@@ -132,7 +141,7 @@ export class OrbitCamera implements PointerFrame {
       ey = Math.max(ey, Math.abs(dot3(rel, u)));
     }
     const aspect = vp.w / vp.h;
-    this.halfH = Math.max(10, Math.max(ey, ex / aspect) * 1.25);
+    this.halfH = Math.max(HALF_H_MIN, Math.min(HALF_H_MAX, Math.max(ey, ex / aspect) * 1.25));
   }
 }
 

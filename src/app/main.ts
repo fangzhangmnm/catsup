@@ -45,8 +45,8 @@ const labEl = $("lab");
 const buildEl = $("build");
 
 const HINT_DEFAULT = "画线 L · 矩形 R · 移动 M · 推拉 P · 橡皮 E · 选择 空格 ｜ 右键/单指拖=环绕 · 双指=平移缩放 · 滚轮=缩放 ｜ Esc 取消";
-const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳 · Ctrl 蹲 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
-const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳 B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
+const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
+const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
 
 // ---------- Editor ----------
@@ -152,7 +152,7 @@ btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
     { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true, disabled: locomotion.isWalking() },
     // 0.4 VR 纪元：步行/飞行相机 = 不戴头显验证移动/teleport/碰撞的唯一途径（与 VR 共用 src/player/）
     { id: "walk", label: "步行相机", hint: "WASD · 空格跳 · 右键拖看", checked: locomotion.isWalking(), separatorBefore: true },
-    { id: "noclip", label: "穿墙飞行", hint: "Q/E 下/上", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
+    { id: "noclip", label: "穿墙飞行", hint: "双击空格切换 · Q/E 下/上", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
   ],
   onPick: (id) => {
     if (id === "persp") { editor.toggleProjection(); return "keep"; }
@@ -199,12 +199,22 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
 // ---------- 移动（步行相机 / VR 共用的 player）----------
 const locomotion = new Locomotion(editor, canvas);
 editor.viewExtras = () => ({ near: locomotion.isWalking() ? 0.05 : undefined, teleport: locomotion.teleportArc() });
+// XR 画质 A/B（dev 诊断，真机不重 build 就能比：?xrfov=0..1 周边降采样、?xrscale=0.5..2 framebuffer 缩放；默认 0 / 1.0，见 render3）
+{
+  const q = new URLSearchParams(location.search);
+  const fov = Number(q.get("xrfov")), sc = Number(q.get("xrscale"));
+  if (q.has("xrfov") || q.has("xrscale")) editor.renderer3.setXRQuality({ foveation: q.has("xrfov") && Number.isFinite(fov) ? fov : undefined, framebufferScale: q.has("xrscale") && Number.isFinite(sc) ? sc : undefined });
+}
 let loopLast = 0;
 function loopTick(t: number): void {
   const dt = loopLast ? Math.min(0.1, (t - loopLast) / 1000) : 1 / 60;
   loopLast = t;
   if (vr.isPresenting()) vr.tick(dt);   // XR：vr.tick 内含 locomotion.tick + 指针事件 + 面板
-  else locomotion.tick(dt);
+  else {
+    locomotion.tick(dt);
+    // 桌面 T 充能中 = 工具停摆（VR 同款）：手势取消、预告清掉；手势路由的 toolBlocked 挡后续指针事件
+    if (locomotion.sim.state.teleport.charging) { if (editor.isGestureActive()) editor.cancel(); editor.pointerLeave(); }
+  }
   editor.draw();
 }
 /** 连续渲染循环只在需要时跑（步行 / XR）；否则按需 draw。 */
@@ -316,6 +326,7 @@ const gestures = attachGestures(canvas, editor, {
   onRedo: () => editor.redo(),
   look: (dx, dy) => locomotion.look(dx, dy),
   walking: () => locomotion.isWalking(),
+  toolBlocked: () => locomotion.sim.state.teleport.charging,
 });
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;

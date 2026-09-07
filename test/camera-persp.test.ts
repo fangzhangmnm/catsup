@@ -1,7 +1,7 @@
 // 透视相机：worldToScreen ∘ screenRay 往返、视向、缩放钉点、视图预置。created 2026-09-06 by Claude Fable 5.1
 import { describe, it, eq, assert } from "./runner.mjs";
 import type { Pt3 } from "../src/kernel/kernel.ts";
-import { OrbitCamera, rayPlane } from "../src/editor/camera.ts";
+import { OrbitCamera, rayPlane, DEFAULT_HALF_H } from "../src/editor/camera.ts";
 import { dist3 } from "../src/kernel/geom.ts";
 
 const VP = { w: 1000, h: 800 };
@@ -90,6 +90,6 @@ describe("camera persp", () => {
       assert(s.x >= 0 && s.x <= VP.w && s.y >= 0 && s.y <= VP.h, `${JSON.stringify(s)}`);
     }
     c.fitPoints([], VP);
-    eq(c.halfH, 220);
+    eq(c.halfH, DEFAULT_HALF_H);
   });
 });

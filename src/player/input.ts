@@ -33,6 +33,8 @@ export interface InputFrame {
   crouch: boolean;
   /** noclip 上/下（A/B 或 Q/E）。 */
   up: boolean; down: boolean;
+  /** 双击跳（A / 空格）**边沿** = 切换 noclip（Minecraft 约定；user 2026-09-07 VR 首轮反馈）。 */
+  noclipToggle: boolean;
   head: HeadFrame;
   /** 瞄准射线（世界坐标）：VR = 手柄 targetRay；flat = 相机/光标射线。null = 没在瞄。 */
   aim: Ray | null;
@@ -41,7 +43,7 @@ export interface InputFrame {
 export function emptyInput(eyeHeight = 1.7): InputFrame {
   return {
     walkX: 0, walkY: 0, dash: false, turn: 0, tpCharge: false, tpBack: false, tierStep: 0, yawStep: 0,
-    jump: false, crouch: false, up: false, down: false,
+    jump: false, crouch: false, up: false, down: false, noclipToggle: false,
     head: { local: { x: 0, y: 0, z: eyeHeight }, fwdLocal: { x: 0, y: 1, z: 0 } },
     aim: null,
   };
@@ -49,7 +51,7 @@ export function emptyInput(eyeHeight = 1.7): InputFrame {
 
 /** 一帧多步：第 2 步起把边沿类字段清零（同一帧的 turn 不许触发两次）。 */
 export function stripEdges(f: InputFrame): InputFrame {
-  return { ...f, turn: 0, tierStep: 0, yawStep: 0 };
+  return { ...f, turn: 0, tierStep: 0, yawStep: 0, noclipToggle: false };
 }
 
 // ---------------------------------------------------------------------------
@@ -99,6 +101,23 @@ export class ButtonEdge {
   update(pressed: boolean): boolean {
     const fired = pressed && !this.was;
     this.was = pressed;
+    return fired;
+  }
+}
+
+/** 双击判定（Minecraft 双击跳切飞行）：两次按下边沿间隔 ≤ windowSec 的第二次返回 true；第三次重新计。 */
+export class DoubleTap {
+  private lastDown = -Infinity;
+  private was = false;
+  private windowSec: number;
+  constructor(windowSec = 0.35) { this.windowSec = windowSec; }
+  /** pressed = 当前按住；now = 单调秒。 */
+  update(pressed: boolean, now: number): boolean {
+    const edge = pressed && !this.was;
+    this.was = pressed;
+    if (!edge) return false;
+    const fired = now - this.lastDown <= this.windowSec;
+    this.lastDown = fired ? -Infinity : now;
     return fired;
   }
 }

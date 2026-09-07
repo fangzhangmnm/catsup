@@ -1,6 +1,6 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
-> as-of v0.3.10 / 2026-09-07（第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
+> as-of v0.4.1 / 2026-09-07（第六批：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
 > user 原话（2026-09-06）：「你尽量保证那些我没看的没拍的和马上要做的都有记录，这样的话我也可以开新 agent，一个一个做，不用怕 fomo，而不是现在这样一次得处理一大堆很要紧的不处理会慢慢腐烂的东西」。
 > **用法**：开新 agent 时把「本文件路径 + 条目编号」丢给它；它先读 `CLAUDE.md` 必读清单再读该条。做完把状态改成 `done <commit>` 并写一行结果；新冒出来的事**只加到这里**，不在聊天里散养。
 > **状态词**：`待做`（已拍板可开工）/ `待拍板`（要 user 一句话）/ `待看`（要 user 过目）/ `等 user 数据`（要 user 复现/实验）/ `park`（明确不做或以后）/ `done`。
@@ -105,6 +105,16 @@
   10. 线工具**连画待命态也算手势进行中**（冻结），Esc 收笔才解冻——与「verb 进行到一半」口径一致，但若觉得待命时该掉下来，改 `locomotion.tick` 的冻结票条件一处。
   11. VR 站位只在内存（进 VR 落上次站位；A15 草稿箱批了再持久化）；「回出生点」= 原点。
   12. 桌面步行相机 = 右键拖看、光标仍是工具指针（没做 pointer lock 十字准星）；T 按住瞄准瞬移用的是光标射线。
+
+### A16 VR 真机首轮反馈（2026-09-07，Quest；user 九条 + 追加）— `部分 done v0.4.1（Claude Fable 5.1）；#3/#4/#5 = 反省稿待拍板；#6 wishlist`
+- **user 原话（九条）**：① 「尺寸错了，进 vr 之后一格有可能 10 米甚至更大，里面画出来兜底东西退出来也很小」② 「qol: 1. teleport 的时候不应该显示画线，这时候工具也应该禁用？ 2. minecraft convention: 双击跳可以切换 noclip，然后 vr 里面飞的时候 wasd 是水平的，不应跟有高度变化」③ 「因为 vr 手抖，所以很难拾取。几乎无法 xyz 轴平移，也忘了 axis lock 的按钮。不过也许我们需要 move gizmos? 这个确实是不同的工具模式。gizmos 也许可以做 trs shear 一体的」④ 「拾取算法非常不对，有时候会画到别的地方，然后 push 的时候我太瘦也没法造非常高的柱子。会拾取到 1/z 的 z->-z 平面，然后拾取的时候按手还是眼镜当视口也不对。所以我一开始说了，不要用视口，用射线。手是会移动的，所以 ray.origin, direction 都会变！不要用视口，1/z，用射线做无奇点的几何」⑤ 「3 和 4 都不要急着做，停下来好好思考反省。vr 的手势是 6dof 输入不是 2dof，我们应该有更好的输入模式。但是也不应该拉一个 10 米的东西手也需要动 10m。以及 grip 可以用来做 lock 的语义」⑥ 「（不急）切换 tool 的快捷键。以及你把 undo 进快捷键很好。这个不急着设计。先保证画的好」⑦ 「vr 画面觉得很狗牙。realhome 就还好。但是 sketchfab 的 vr 浏览器也狗牙。是不是没有优化性能所以 quest 降分辨率了？还是这种白底+线的设计本来就容易狗牙，不很 HD 就会看着糙？但我确实觉得远没有 RH 流畅」⑧ 「vr 里面点球太大了。以及 workbench 的遮挡逻辑还是应该做好」⑨ 「我不爽已经有一段时间了：充能的点能不能不显示」。
+- **追加（同日对话）**：「奇点的意思是跑到 1/z 的另外一个 branch 了。但反正我觉得 vr 里面假设一个视口平面而不是用 raycast 算就是不鲁棒」「网格不应该 step 是 1m 吗，我是说 vr 里面的网格错误的巨大。vr 和 pc 的网格都是 1m，不应跟 branch」「下限还可以更小，很多人用 sketchup 做 cad 的，设计一些小实体」「性能上我还是觉得，你优化过 drawcall 吗……别还是当 direct mode 画的……」「然后背景比如轴，地板网格也可以 batch」「看看还有啥可以优化的，反正就是尽量打包东西尽量少」。
+- **落地 v0.4.1**：
+  - ① 尺度：网格 1 m/格 ±50 m（PC/VR 同一份；此前 50 m 一格 + 桌面相机半高 220 m 是 lab 无单位遗产）、桌面默认半高 4 m（`camera.ts DEFAULT_HALF_H`）、zoom 下限 1 mm / zoomExtents 下限同（小零件 CAD）、透视 near 随眼距缩（`nearClamp`）、正交深度窗口围 target、实验台预置缩成 ±1 m、`fmtLen` 显示 m / cm。A12「自适应无限网格」仍待做。
+  - ② teleport 充能中工具停摆（VR + 桌面 T：手势取消、预告清掉、指针射线隐藏）；双击跳/双击 A = noclip 开关（`input.ts DoubleTap`，golden）；noclip 下摇杆/WASD 水平飞（不跟头俯仰），Q/E·A/B 竖直。
+  - ⑦ 渲染换 retained mode（`render3.ts` 头注释）：常态 3 个 draw call（网格+三轴一份粗线；全部膜一份几何 + shader 光照；全部边一份粗线），几何按 revision/预演身份/选区键缓存，零每帧分配；XR fixed foveation 默认 0（three 默认 1.0 = 周边降采样，白底细线最吃这个）、粗线 resolution/linewidth 每帧按每眼 viewport 换算（此前用桌面 canvas 尺寸）；`?xrfov=0..1&xrscale=0.5..2` 真机 A/B。**「远没有 RH 流畅」的根因判断 = CPU（每帧重建 + N 个 draw call + GC），不是 Quest 降分辨率**；真机验证归 user。下一刀（未做）：XR 每帧 hover 拾取 O(V·F) 遮挡判定，模型大了再说。
+  - ⑧ 吸附小球 XR 角尺寸减半、走深度测试（墙后不再穿墙显示）；控制器光标球按距离定角尺寸。⑨ 充能源紫点不再显示（机制照旧）。
+- **待拍板**：③④⑤ → `ai-docs/20260907-vr-input-reflection.md`（视口模型退役 → 球面度量接口；射线拾取 + 手位移拖动（HOMER 增益）+ grip=锁；肩锚射线/1€ 滤波；gizmo 留到 rotate/scale 立项）——§4 五问等一句话。⑥ 工具热键 → wishlist（user「先保证画的好」）。真机未验（v0.4.1 全 headless 自验）。
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
 

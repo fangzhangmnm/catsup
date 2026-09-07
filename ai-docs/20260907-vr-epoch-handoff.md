@@ -86,3 +86,7 @@ A3（动词注册表）不是本轮必做；若 editor.ts 的 switch 妨碍接�
 - 真机：只请 user 戴 Quest 进一次会话（或桌面 Chrome 装 Immersive Web Emulator）验会话进出与键位；逻辑层已被假会话探针钉死。
 
 edited by Claude Fable 5.1 2026-09-07
+
+## 9. 真机首轮反馈回填（2026-09-07 晚，Claude Fable 5.1；as-of v0.4.1）
+
+user 戴 Quest 一轮，九条 + 追加原话全在总账 **A16**。已落 v0.4.1：尺度（1 m 网格 / 人体尺度默认相机 / 毫米级 zoom 下限）、teleport 充能中工具停摆、双击跳切 noclip + 水平飞、`render3.ts` retained mode（3 draw call、键缓存、XR foveation 0、粗线 XR 分辨率）、吸附小球缩小 + 深度测试、充能紫点不显示。**#3/#4/#5（拾取奇点 / 6-DOF 输入 / grip 锁）= `ai-docs/20260907-vr-input-reflection.md` 反省稿，不动码，等 user 拍板** §4 五问。

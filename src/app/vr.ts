@@ -9,7 +9,7 @@
 import type { Editor } from "../editor/editor.ts";
 import { XRPointerFrame, XR_VIRTUAL_VP } from "../editor/xr-pointer-frame.ts";
 import type { Locomotion } from "./locomotion.ts";
-import { XRInput, type XRHandState, pulse, upRig, rigDirToWorld } from "../player/xr-input.ts";
+import { XRInput, type XRHandState, pulse } from "../player/xr-input.ts";
 import type { InputFrame } from "../player/input.ts";
 import { emptyInput } from "../player/input.ts";
 import type { HudModel } from "./ui/hud-model.ts";
@@ -133,7 +133,18 @@ export class VR {
     const trig = toolHand.trigger;
     const trigDown = trig && !this.trigWas, trigUp = !trig && this.trigWas;
     this.trigWas = trig;
+    // teleport 充能中 = 工具停摆（user 2026-09-07：「teleport 的时候不应该显示画线，这时候工具也应该禁用」）：
+    // 进行中的手势取消、不再喂指针事件、预告/悬停清掉、工具射线隐藏（弧线就是这时候的指针）
+    const charging = locomotion.sim.state.teleport.charging;
     editor.batchDraw(() => {
+      if (charging) {
+        if (this.toolDown) { editor.cancel(); this.toolDown = false; this.holdStage = 0; }
+        if (this.panelPressId) { this.panelPressId = null; this.panel.setPressed(null); }
+        if (this.panel.hovered()) this.panel.setHover(null);
+        editor.pointerLeave();
+        r3.setPointerVisual(toolName, null);
+        return;
+      }
       if (!toolHand.ray) { r3.setPointerVisual(toolName, null); return; }
       // 面板命中优先（射线穿过面板就不当工具指针）
       const wh = r3.wristHit(toolHand.ray);
@@ -150,9 +161,8 @@ export class VR {
       } else {
         if (this.panel.hovered()) this.panel.setHover(null);
         if (this.panelPressId && trigUp) { this.panelPressId = null; this.panel.setPressed(null); }
-        // 指针帧：控制器射线 + 上向量（射线竖直时定虚拟屏滚转）
-        const upHint = xi.head ? undefined : undefined;
-        this.pointer.set(toolHand.ray, upHint);
+        // 指针帧：控制器射线（虚拟屏模型本身待反省——ai-docs/20260907-vr-input-reflection.md）
+        this.pointer.set(toolHand.ray);
         const c = this.pointer.cursor();
         const tp = () => ({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false, travelPx: this.pointer.travelPx() });
         if (editor.tool === "select") {
@@ -167,7 +177,6 @@ export class VR {
         r3.setPointerVisual(toolName, { length: hit ? hit.t * 30 : 3, color: this.toolDown ? 0xcc3333 : 0x2b6cb0 });
       }
     });
-    void rigDirToWorld; void upRig;
 
     // 5. 面板重画（状态行变了也重画）
     const hint = this.opts.hud.status();

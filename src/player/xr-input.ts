@@ -4,14 +4,14 @@
 // 零 three：直接读 WebXR（frame.getPose / session.inputSources），three 只在 render3 画控制器射线（它也从同一帧姿态更新）。
 // xr-standard gamepad：buttons[0] trigger · [1] grip · [3] 摇杆按下 · [4] A/X · [5] B/Y；axes[2],[3] = 摇杆 x, y（y 前推为负）。
 // 键位（A13 user 拍板）：左摇杆走、按下冲刺；右摇杆 = dpad：左右 snap turn、前推 teleport 充能、后推回上一点；
-//   充能中左摇杆 dpad：上下 = 发射速度档、左右 = 落地朝向；A 跳 B 蹲；noclip 时 A/B = 上下飞。
+//   充能中左摇杆 dpad：上下 = 发射速度档、左右 = 落地朝向；A 跳 B 蹲；noclip 时 A/B = 上下飞；**双击 A = noclip 开关**（Minecraft 双击跳）。
 //   左 X/Y（[4]/[5]）= 撤销/重做 边沿（本文件只报边沿，app 层接）；trigger = 工具指针（app 层接）。
 // 触觉：hapticActuators[0].pulse(强度, 毫秒) 标准写法，不打补丁（user：「先不用做 monkey patch，就按照正确的写」）。
 //
 // 坐标：WebXR local-floor 参考系 Y 上、前 −Z；rig 局部 Z 上、x 右、y 前 → M: (x, y, z)_ref → (x, −z, y)_rig。
 // 世界 = rig 原点 + Rz(heading)·局部（rigPose 见 player.ts）。
 
-import { type HeadFrame, type InputFrame, Dpad, DirEdge, ButtonEdge, emptyInput } from "./input.ts";
+import { type HeadFrame, type InputFrame, Dpad, DirEdge, ButtonEdge, DoubleTap, emptyInput } from "./input.ts";
 import { localToWorld2, type RigPose, type Vec3 } from "./player.ts";
 import type { Ray } from "./world-query.ts";
 
@@ -77,10 +77,11 @@ export class XRInput {
   private tierUp = new DirEdge(); private tierDown = new DirEdge();
   private yawL = new DirEdge(); private yawR = new DirEdge();
   private xEdge = new ButtonEdge(); private yEdge = new ButtonEdge();
+  private dblA = new DoubleTap();
   private lastHead: HeadFrame = { local: { x: 0, y: 0, z: 1.6 }, fwdLocal: { x: 0, y: 1, z: 0 } };
 
   /** 每 XR 帧一次：读 session.inputSources 与头显姿态，产 InputFrame（世界射线按当前 rig 姿态算）。 */
-  read(session: XRSession, frame: XRFrame, ref: XRReferenceSpace, rig: RigPose, noclip: boolean): XRFrameInput {
+  read(session: XRSession, frame: XRFrame, ref: XRReferenceSpace, rig: RigPose, noclip: boolean, now = performance.now() / 1000): XRFrameInput {
     const left = emptyHand(), right = emptyHand();
     let head: RefPose | null = null;
     const vp = frame.getViewerPose(ref);
@@ -134,6 +135,7 @@ export class XRInput {
     f.dash = left.stickPress;
     if (noclip) { f.up = right.a; f.down = right.b; }
     else { f.jump = right.a; f.crouch = right.b; }
+    f.noclipToggle = this.dblA.update(right.a, now);
     const undoEdge = this.xEdge.update(left.a);
     const redoEdge = this.yEdge.update(left.b);
     return { input: f, left, right, undoEdge, redoEdge, head };

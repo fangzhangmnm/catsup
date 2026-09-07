@@ -2,7 +2,7 @@
 // created 2026-09-07 by Claude Fable 5.1（0.4 VR 纪元）。世界替身 = 盒子世界（AABB + 无限地板），不碰内核。
 import { describe, it, assert, eq } from "./runner.mjs";
 import { DEFAULT_CONFIG, PlayerSim, createPlayerState, stepPlayer, fwdOf, PHYS_DT, type PlayerState } from "../src/player/player.ts";
-import { Dpad, HoldLatch, emptyInput, type InputFrame } from "../src/player/input.ts";
+import { Dpad, DoubleTap, HoldLatch, emptyInput, type InputFrame } from "../src/player/input.ts";
 import { SPEED_TIERS, simulateArc, stepTeleport, initialTeleport, BACK_COOLDOWN, BACK_HOLD } from "../src/player/teleport.ts";
 import { flatFloorWorld, type WorldQuery, type WorldHit } from "../src/player/world-query.ts";
 
@@ -122,14 +122,38 @@ describe("player: 竖直", () => {
     run(st, w, emptyInput(), 3);
     assert(near(st.pos.z, -2, 1e-6) && st.grounded, `z=${st.pos.z}`);
   });
-  it("noclip：无重力，up/down 竖直飞，W 沿俯仰视线飞", () => {
+  it("noclip：无重力，up/down 竖直飞，W 水平飞不跟头俯仰（Minecraft 约定）", () => {
     const st = createPlayerState(); st.noclip = true; st.pos.z = 5;
     const w = flatFloorWorld();
     run(st, w, { ...emptyInput(), up: true }, 1);
     assert(near(st.pos.z, 5 + cfg.flySpeed, 1e-6), `z=${st.pos.z}`);
     const inp = { ...emptyInput(), walkY: 1 }; inp.head = { ...inp.head, fwdLocal: { x: 0, y: Math.SQRT1_2, z: -Math.SQRT1_2 } };
     run(st, w, inp, 1);
-    assert(near(st.pos.y, cfg.flySpeed * Math.SQRT1_2, 1e-6) && near(st.pos.z, 5 + cfg.flySpeed - cfg.flySpeed * Math.SQRT1_2, 1e-6), `pos=${JSON.stringify(st.pos)}`);
+    // 低头 45° 往前推：水平走满 flySpeed，高度不变
+    assert(near(st.pos.y, cfg.flySpeed, 1e-6) && near(st.pos.z, 5 + cfg.flySpeed, 1e-6), `pos=${JSON.stringify(st.pos)}`);
+  });
+  it("双击跳 = noclip 开关：开 → 悬停不落；关 → 重力接管落地", () => {
+    const st = createPlayerState(); st.pos.z = 3; st.grounded = false;
+    const w = flatFloorWorld();
+    stepPlayer(st, { ...emptyInput(), noclipToggle: true }, PHYS_DT, w, cfg);
+    assert(st.noclip, "toggle on");
+    run(st, w, emptyInput(), 1);
+    assert(near(st.pos.z, 3, 0.01), `hover z=${st.pos.z}`);
+    stepPlayer(st, { ...emptyInput(), noclipToggle: true }, PHYS_DT, w, cfg);
+    assert(!st.noclip, "toggle off");
+    run(st, w, emptyInput(), 3);
+    assert(near(st.pos.z, 0, 1e-6) && st.grounded, `landed z=${st.pos.z}`);
+  });
+  it("DoubleTap：两次按下 ≤0.35 s 触发一次；慢按不触发；第三次重新计", () => {
+    const d = new DoubleTap();
+    eq(d.update(true, 0), false); eq(d.update(false, 0.05), false);
+    eq(d.update(true, 0.2), true);                       // 第二击
+    eq(d.update(false, 0.25), false);
+    eq(d.update(true, 0.4), false);                      // 触发后重新计：这是新的第一击
+    eq(d.update(false, 0.45), false);
+    eq(d.update(true, 1.0), false);                      // 隔太久
+    eq(d.update(false, 1.05), false);
+    eq(d.update(true, 1.2), true);
   });
 });
 

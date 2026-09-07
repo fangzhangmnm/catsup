@@ -80,8 +80,11 @@ const MIN_GESTURE_LEN = 0.01;
 /** 长度显示（SU 同款「~」）：截到 1 位小数；截掉的部分超过格点量子 → 前缀 ~ 告诉用户「不是 exactly」
  *  （user 2026-09-07：「带小数点的优雅一点，多 truncate 几位，但是让用户知道不是 exactly」）。 */
 export function fmtLen(v: number, digits = 1): string {
-  const shown = Number(v.toFixed(digits));
-  return (Math.abs(v - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits);
+  // 单位：内部永远是米（A10 纪律）；显示 ≥1 m 用 m、否则用 cm（2026-09-07 尺度修正随手补，A10 的显示单位偏好设置仍待拍板）
+  const cm = Math.abs(v) < 1;
+  const val = cm ? v * 100 : v;
+  const shown = Number(val.toFixed(digits));
+  return (Math.abs(val - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits) + (cm ? " cm" : " m");
 }
 
 export class Editor {
@@ -129,8 +132,7 @@ export class Editor {
     this.r3 = new Renderer3(canvas);
     // 默认三维（user 2026-09-02 拍板）——SU 式舒适初始 3/4 视角；俯角 35° 避开兜底阈值边界（30° 曾撞 sin=0.4999 翻车）
     this.cam.pitch = 0.61;
-    this.cam.halfH = 220;
-    this.cam.projection = "persp";   // 2026-09-06 user：做 perspective camera
+    this.cam.projection = "persp";   // halfH = camera.ts DEFAULT_HALF_H（人体尺度，米）   // 2026-09-06 user：做 perspective camera
   }
 
   // ---------- 只读 ----------
@@ -492,7 +494,7 @@ export class Editor {
       preview: this.live,
       snap: this.snapInfo,
       snapAnchor: this.anchor3,
-      charged: this.alignSrcs(),
+      revision: this._revision,
     });
   }
   resize(dpr: number): void {

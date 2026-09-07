@@ -39,8 +39,8 @@ describe("lab journal: undo/redo 日志重放", () => {
     let k = new Kernel();
     k = j.commit(k, { op: "preset", name: "日字" }).kernel;
     const before = canon(k);
-    const vid = k.vertices().find((v) => v.x === -100 && v.y === -60)!.id;
-    k = j.commit(k, { op: "move", moves: [{ id: vid, to: { x: -120, y: -80, z: 0 } }] }).kernel;
+    const vid = k.vertices().find((v) => v.x === -1 && v.y === -0.6)!.id;
+    k = j.commit(k, { op: "move", moves: [{ id: vid, to: { x: -1.2, y: -0.8, z: 0 } }] }).kernel;
     assert(canon(k) !== before, "move 改变了状态");
     k = j.undo()!;
     eq(canon(k), before, "undo 撤回 move");

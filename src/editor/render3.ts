@@ -3,17 +3,29 @@
 // created by Claude Fable 5 2026-09-01（playground 耗材版）；**Workbench 雏形重写 2026-09-06 by Claude Fable 5.1**
 //   （user：「perspective camera」「所有的面同一层灰色，好看一点」「线之间的 z fighting 和有时候有些线看不见…现在需要好好处理」
 //    「可以开始做 workbench(blender renderer) 雏形」）。
+// **retained-mode 重写 2026-09-07 by Claude Fable 5.1**（VR 首轮反馈；user：「你优化过 drawcall 吗……别还是当 direct mode 画的……」
+//   「背景比如轴，地板网格也可以 batch」「尽量打包东西尽量少」）——此前每帧 dispose 整组 + 每张膜一个 Mesh/材质/earcut（direct mode），
+//   XR 90 Hz 下就是 CPU 与 GC 的主要开销。现在：
+//   - **draw call 清单（常态 3 个）**：① 网格+三轴 = 一份 LineSegments2（顶点色）；② 全部膜 = 一份 BufferGeometry（位置/法向/顶点色）
+//     + 一个 ShaderMaterial（光照在 shader 里算，光向是 uniform，头一转不重建）；③ 全部边 = 一份 LineSegments2（顶点色分类别）。
+//     吸附提示线 / 吸附小球 / teleport 弧线与落点环 = 持久节点，只在出现时 visible，各 +1。
+//   - **缓存键**：膜几何键 = 内核身份 + revision + 选区/悬停；边几何键 = 内核身份 + revision + 选区/刮擦/悬停。键不变 = 零重建、零分配；
+//     预演影子副本每次更新都是新 Kernel 对象（editor.ts clone），身份变 = 自然失效。
+//   - 每帧只做：相机同步、光向 uniform、键比对、指示物位姿。不 new 几何/材质（除了键变时的那一次）。
 //
 // Workbench 雏形 = Blender 实体模式的观感：
-//   - 面：统一灰、不透明、**按法向手算的平光**（key light 钉在相机系：|n·L| 映射亮度，双面对称、零灯光配置——
-//     three r155+ 物理光强单位下 Lambert 出来一片黑，手算更可预测）；选中/悬停换蓝灰色（不再叠半透明高亮 mesh）。
+//   - 面：统一灰、不透明、**按法向的平光**（key light 钉在相机系：|n·L| 映射亮度，双面对称、零灯光配置；颜色在 sRGB 空间直接乘亮度，
+//     shader 不再过 colorspace 编码——与旧版 shade() 逐像素同值）；选中/悬停换蓝灰色。
 //   - 边：three addons 粗线（LineSegments2，屏幕像素宽，DPR 无关——1px LineBasicMaterial 在 iPad DPR2 下细成半像素
 //     = 「有些线看不见」的真身之一）。粗线是三角形 → polygonOffset 生效：**面 +1/+1 后推、线 −1/−2 前拉**，
 //     共面线永远赢面、被真正挡住的线仍被挡——z-fight 的结构性修法，不再靠 depthOnly 预通道。
-//   - 相机：两制（cam.projection）——正交 OrthographicCamera / 透视 PerspectiveCamera，near/far 随眼距布置，
-//     深度精度不再是 0.1..20000 一刀切。
-//   - 顶点点不再常显（SU 观感）；吸附/充能指示按屏幕像素定尺寸（透视下按深度换算）。
-// 每帧整组重建（dispose 旧几何）；当前规模无压力，慢了再做增量。
+//   - 相机：两制（cam.projection）——正交 OrthographicCamera / 透视 PerspectiveCamera，near/far 随眼距布置（小零件贴近也不裁）。
+//   - 顶点点不再常显（SU 观感）；吸附指示按屏幕像素定尺寸（透视按深度换算；XR 按角尺寸，比桌面小一半——user「vr 里面点球太大了」），
+//     **走深度测试**（墙后的吸附点不再透视穿墙——user「workbench 的遮挡逻辑还是应该做好」）；充能源点不再显示（user「充能的点能不能不显示」，
+//     机制照旧，对齐命中时提示线仍会出现）。
+//   - XR 画质：three 默认 fixed foveation = 1.0（周边降分辨率）——白底细线是最吃这个的场景，本文件默认关到 0；framebuffer 缩放 1.0；
+//     两者可由 setXRQuality 覆盖（main.ts 读 URL ?xrfov= ?xrscale= 给真机 A/B）。粗线的 resolution/linewidth 在 XR 每帧按每眼 viewport 换算
+//     （此前沿用桌面 canvas 尺寸——XR 里线宽/纵横比都是错的）。
 
 import * as THREE from "three";
 import { LineSegments2 } from "../vendor/three/addons/lines/LineSegments2.js";
@@ -50,7 +62,6 @@ export const PALETTE = {
   axisX: 0xcc3333,
   axisY: 0x2e8b57,
   axisZ: 0x2b6cb0,
-  charged: 0x8b5cf6,
 } as const;
 
 const SNAP_COLORS: Record<string, number> = {
@@ -70,10 +81,20 @@ const SNAP_COLORS: Record<string, number> = {
   "on-face": 0x2b6cb0,
 };
 const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
+const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
 const EDGE_PX = 1.6;        // 边线宽（CSS px）
 const HINT_PX = 1.2;        // 吸附提示线宽
-const AXIS_PX = 1.4;
+const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
+const ARC_PX = 2.5;
+const SNAP_MARKER_PX = 5;
+/** 网格：1 m 一格、±50 m（PC/VR 同一份；user 2026-09-07「vr 和 pc 的网格都是 1m，不应跟 branch」；无限/自适应网格 = A12）。 */
+const GRID_STEP = 1, GRID_N = 50;
+/** XR 里「屏幕像素」的定义：指示物角尺寸 = px / XR_PX_PER_DEG 度。桌面 800 px / 50° = 16 px/°；VR 取 32 = 同 px 数只有桌面一半大。 */
+const XR_PX_PER_DEG = 32;
+/** XR 粗线 px → 设备像素倍率：每眼 viewport 高 / 900（桌面里这个角色是 DPR）。 */
+const XR_LINE_REF_H = 900;
+const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 
 export interface ViewState {
   selectionEdges: ReadonlySet<EdgeId>;
@@ -84,24 +105,58 @@ export interface ViewState {
   preview: Kernel | null;      // 影子副本（预演即提交；WYSIWYG 期间整场景画它）
   snap: Snap3 | null;
   snapAnchor: Pt3 | null;      // axis 锁的虚线起点
-  /** 充能源点（from-point 共轴的登记源；紫点）。 */
-  charged?: readonly Pt3[] | null;
+  /** checkpoint 代数（editor.revision）：几何缓存键的一部分。 */
+  revision?: number;
   /** 透视近平面下限（第一人称 0.05；轨道默认 0.5）。 */
   near?: number;
   /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
   teleport?: { points: readonly Pt3[]; valid: boolean; landing: Pt3 | null } | null;
 }
 
+const FACE_VERT = /* glsl */`
+  attribute vec3 aColor;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  void main() {
+    vColor = aColor;
+    vNormal = normal;
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }`;
+const FACE_FRAG = /* glsl */`
+  uniform vec3 uLight;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  void main() {
+    float k = 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
+    gl_FragColor = vec4(vColor * k, 1.0);   // vColor 已是 sRGB，直接出（与旧 shade() 同值）
+  }`;
+
+/** 0xRRGGBB → sRGB 浮点三元（膜 shader 用；不过 three 的色彩管理）。 */
+const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+
 export class Renderer3 {
   private renderer: any;
   private scene: any;
   private camOrtho: any;
   private camPersp: any;
-  private staticGroup: any;
-  private dyn: any = null;
   private dpr = 1;
-  private lineMats: any[] = [];
-  private resolution: any;
+  private flatRes = { w: 1, h: 1 };
+  private resolution: any;               // 所有 LineMaterial 共享的 resolution uniform（Vector2，原地改）
+  private lineMats: any[] = [];          // 共享粗线材质（linewidth 随 lineScale 原地改）
+  private lineMatPx: number[] = [];
+  // ---- 持久节点（retained）----
+  private faceMesh: any; private faceMat: any;
+  private edgeLines: any; private edgeMat: any;
+  private hintLines: any;
+  private snapMarker: any;
+  private arcLines: any; private landingRing: any;
+  private faceKey = ""; private edgeKey = ""; private hintKey = "";
+  private kernelIds = new WeakMap<object, number>();
+  private nextKernelId = 1;
+  private scratchV = new THREE.Vector3();
+  private scratchV2 = new THREE.Vector3();
+  private scratchM = new THREE.Matrix4();
+  private tmpColor = new THREE.Color();
   // ---- XR（0.4 VR 纪元）----
   // rig = 三层模型的中间层：rig 局部 = WebXR 追踪空间（Y 上）；rig.quaternion = Rz(heading)·Rx(90°) 把它挂进 Z 上世界（渲染层的
   // Y-up 只活在 rig 子树里，世界坐标永远 Z 上——CatsUp 坐标约定）。camPersp 是 rig 的子节点：flat 由 syncCamera 写绝对姿态（rig 单位阵），
@@ -115,18 +170,49 @@ export class Renderer3 {
   readonly xr: XRFacade;
 
   constructor(canvas: HTMLCanvasElement) {
-    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
+    this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(PALETTE.background);
     this.camOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20000);
     this.camPersp = new THREE.PerspectiveCamera(50, 1, 1, 20000);
     this.resolution = new THREE.Vector2(1, 1);
-    this.staticGroup = this.buildStatic();
-    this.scene.add(this.staticGroup);
+    this.scene.add(this.buildStatic());
+
+    // 膜：一份几何 + 一个 shader（光向 uniform）
+    this.faceMat = new THREE.ShaderMaterial({
+      vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
+      uniforms: { uLight: { value: new THREE.Vector3(0, 0, 1) } },
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+    });
+    this.faceMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMat);
+    this.faceMesh.frustumCulled = false; this.faceMesh.visible = false;
+    this.scene.add(this.faceMesh);
+    // 边：一份粗线（顶点色）
+    this.edgeMat = this.lineMat(EDGE_PX, { offset: true, vertexColors: true });
+    this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
+    this.edgeLines.frustumCulled = false; this.edgeLines.visible = false;
+    this.scene.add(this.edgeLines);
+    // 吸附提示线（顶点色：轴色）
+    this.hintLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
+    this.hintLines.frustumCulled = false; this.hintLines.visible = false;
+    this.scene.add(this.hintLines);
+    // 吸附小球（单位球，按屏幕像素缩放；走深度测试）
+    this.snapMarker = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
+    this.snapMarker.visible = false;
+    this.scene.add(this.snapMarker);
+    // teleport 弧线 + 落点环
+    this.arcLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(ARC_PX, { offset: true }));
+    this.arcLines.frustumCulled = false; this.arcLines.visible = false;
+    this.scene.add(this.arcLines);
+    this.landingRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: TP_OK, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
+    this.landingRing.renderOrder = 9; this.landingRing.visible = false;
+    this.scene.add(this.landingRing);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
     xr.setReferenceSpaceType("local-floor");
+    xr.setFoveation(XR_DEFAULT.foveation);
+    xr.setFramebufferScaleFactor(XR_DEFAULT.framebufferScale);
     this.rig = new THREE.Group();
     this.rig.add(this.camPersp);
     this.scene.add(this.rig);
@@ -134,11 +220,11 @@ export class Renderer3 {
       const c = xr.getController(i);
       c.addEventListener("connected", (ev: any) => { this.hands[i] = ev.data?.handedness ?? "none"; });
       c.addEventListener("disconnected", () => { this.hands[i] = "none"; });
-      // 射线 + 光标球（控制器局部：−Z 前）；不用 GLTF 控制器模型（不引依赖）
+      // 射线 + 光标球（控制器局部：−Z 前）；不用 GLTF 控制器模型（不引依赖）。光标球 = 指针本体，永远可见（不走深度），按距离定角尺寸
       const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
       const line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x2b6cb0, transparent: true, opacity: 0.8 }));
       line.visible = false;
-      const cursor = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0x2b6cb0, depthTest: false }));
+      const cursor = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0x2b6cb0, depthTest: false }));
       cursor.renderOrder = 11; cursor.visible = false;
       c.add(line); c.add(cursor);
       this.pointerVis.push({ line, cursor });
@@ -158,6 +244,12 @@ export class Renderer3 {
     };
   }
 
+  /** XR 画质（会话开始前设才生效；dev A/B 用）。foveation 0=全分辨率…1=周边最低；framebufferScale 相对设备推荐值。 */
+  setXRQuality(q: { foveation?: number; framebufferScale?: number }): void {
+    if (q.foveation !== undefined) this.renderer.xr.setFoveation(Math.max(0, Math.min(1, q.foveation)));
+    if (q.framebufferScale !== undefined) this.renderer.xr.setFramebufferScaleFactor(Math.max(0.5, Math.min(2, q.framebufferScale)));
+  }
+
   /** rig 姿态（player 每帧同步；heading 绕 Z、origin 世界坐标）。 */
   setRig(pose: RigPose): void {
     this.rig.position.set(pose.origin.x, pose.origin.y, pose.origin.z);
@@ -165,15 +257,17 @@ export class Renderer3 {
     this.rig.updateMatrixWorld(true);
   }
   private ctrlIndex(hand: XRHand): number { return this.hands.indexOf(hand); }
-  /** 控制器射线视觉：长度（到命中点）与颜色；null = 隐藏。 */
+  /** 控制器射线视觉：长度（到命中点）与颜色；null = 隐藏。光标球半径 ≈ 0.23° 角（1 m 处 4 mm）。 */
   setPointerVisual(hand: XRHand, v: { length: number; color: number } | null): void {
     const i = this.ctrlIndex(hand);
     if (i < 0) return;
     const pv = this.pointerVis[i];
     if (!v) { pv.line.visible = false; pv.cursor.visible = false; return; }
+    const len = Math.max(0.05, v.length);
     pv.line.visible = true; pv.cursor.visible = true;
-    pv.line.scale.set(1, 1, Math.max(0.05, v.length));
-    pv.cursor.position.set(0, 0, -v.length);
+    pv.line.scale.set(1, 1, len);
+    pv.cursor.position.set(0, 0, -len);
+    pv.cursor.scale.setScalar(Math.max(0.002, len * 0.004));
     pv.line.material.color.setHex(v.color);
     pv.cursor.material.color.setHex(v.color);
   }
@@ -207,8 +301,8 @@ export class Renderer3 {
     const m = this.wrist.mesh;
     m.updateWorldMatrix(true, false);
     this.wrist.inv.copy(m.matrixWorld).invert();
-    const o = new THREE.Vector3(ray.origin.x, ray.origin.y, ray.origin.z).applyMatrix4(this.wrist.inv);
-    const d = new THREE.Vector3(ray.dir.x, ray.dir.y, ray.dir.z).transformDirection(this.wrist.inv);
+    const o = this.scratchV.set(ray.origin.x, ray.origin.y, ray.origin.z).applyMatrix4(this.wrist.inv);
+    const d = this.scratchV2.set(ray.dir.x, ray.dir.y, ray.dir.z).transformDirection(this.wrist.inv);
     if (Math.abs(d.z) < 1e-6) return null;
     const t = -o.z / d.z;
     if (t <= 0) return null;
@@ -219,12 +313,11 @@ export class Renderer3 {
     const dist = t * Math.hypot(ray.dir.x, ray.dir.y, ray.dir.z);
     return { u: (x + hw) / (2 * hw), v: 1 - (y + hh) / (2 * hh), dist };
   }
-  /** XR 会话中 HMD 的世界位置（marker 尺寸/光照用）。 */
+  /** XR 会话中 HMD 的世界位置（marker 尺寸用；返回共享 scratch，勿保存）。 */
   private xrEye(): Pt3 | null {
     if (!this.renderer.xr.isPresenting) return null;
     const c = this.renderer.xr.getCamera();
-    const p = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
-    return { x: p.x, y: p.y, z: p.z };
+    return this.scratchV.setFromMatrixPosition(c.matrixWorld);
   }
 
   /** 连续渲染循环（步行模式 / XR 会话）；null = 停（回到按需 draw）。three 的 setAnimationLoop 才能收 XR 帧。 */
@@ -237,21 +330,32 @@ export class Renderer3 {
     this.dpr = dpr;
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(vp.w, vp.h, false);
-    this.resolution.set(vp.w * dpr, vp.h * dpr);
+    this.flatRes = { w: vp.w * dpr, h: vp.h * dpr };
   }
 
-  /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离、fov 90°/1000px 折算。 */
+  /** 粗线 resolution / linewidth：桌面 = canvas 设备像素 + DPR；XR = 每眼 viewport（每帧，WebXRManager 在回调前写好）。 */
+  private syncLineScale(presenting: boolean): void {
+    let scale = this.dpr, w = this.flatRes.w, h = this.flatRes.h;
+    if (presenting) {
+      const v = this.renderer.xr.getCamera().cameras?.[0]?.viewport;
+      if (v && v.w > 0) { w = v.z; h = v.w; scale = v.w / XR_LINE_REF_H; }
+    }
+    this.resolution.set(w, h);
+    for (let i = 0; i < this.lineMats.length; i++) this.lineMats[i].linewidth = this.lineMatPx[i] * scale;
+  }
+
+  /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
   private worldPerPx(cam: OrbitCamera, vp: Viewport, p: Pt3): number {
     const eye = this.xrEye();
-    if (eye) return (2 * Math.max(0.2, Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z))) / 1000;
+    if (eye) return (Math.max(0.2, Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z)) * (Math.PI / 180)) / XR_PX_PER_DEG;
     if (cam.projection === "persp") {
-      const z = Math.max(dot3(sub3(p, cam.eye()), cam.forward()), 0.5);
+      const z = Math.max(dot3(sub3(p, cam.eye()), cam.forward()), cam.nearClamp());
       return (2 * z * Math.tan(cam.fovY / 2)) / vp.h;
     }
     return (2 * cam.halfH) / vp.h;
   }
 
-  private syncCamera(cam: OrbitCamera, vp: Viewport, nearMin = 0.5): any {
+  private syncCamera(cam: OrbitCamera, vp: Viewport): any {
     const eye = cam.eye(), up = cam.up();
     let c: any;
     if (cam.projection === "persp") {
@@ -259,20 +363,28 @@ export class Renderer3 {
       const d = cam.eyeDist();
       c.fov = (cam.fovY * 180) / Math.PI;
       c.aspect = vp.w / vp.h;
-      c.near = Math.max(nearMin, d * 0.02);
-      c.far = d * 40 + 5000;
+      c.near = Math.max(cam.nearClamp(), d * 0.02);
+      c.far = d * 40 + 100;
     } else {
       c = this.camOrtho;
       const halfW = cam.halfW(vp);
       c.left = -halfW; c.right = halfW;
       c.top = cam.halfH; c.bottom = -cam.halfH;
-      c.near = 0.1; c.far = 20000;
+      // 深度窗口围着 target（眼在 5000 m 外）：R 随 zoom 走，小零件也有毫米级深度分辨率
+      const D = cam.eyeDist(), R = Math.max(500, cam.halfH * 100);
+      c.near = Math.max(0.1, D - R); c.far = D + R;
     }
     c.position.set(eye.x, eye.y, eye.z);
     c.up.set(up.x, up.y, up.z);
     c.lookAt(cam.target.x, cam.target.y, cam.target.z);
     c.updateProjectionMatrix();
     return c;
+  }
+
+  private kernelId(k: Kernel): number {
+    let id = this.kernelIds.get(k);
+    if (id === undefined) { id = this.nextKernelId++; this.kernelIds.set(k, id); }
+    return id;
   }
 
   render(k: Kernel, cam: OrbitCamera, vp: Viewport, view: ViewState): void {
@@ -284,85 +396,128 @@ export class Renderer3 {
       cam3.near = view.near ?? 0.05; cam3.far = 2000;
     } else {
       this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
-      cam3 = this.syncCamera(cam, vp, view.near ?? 0.5);
+      cam3 = this.syncCamera(cam, vp);
     }
-
-    if (this.dyn) {
-      this.scene.remove(this.dyn);
-      this.dyn.traverse((o: any) => { o.geometry?.dispose(); o.material?.dispose?.(); });
-    }
-    const g = new THREE.Group();
+    this.syncLineScale(presenting);
 
     // WYSIWYG（user 黄线）：拖拽期间整个场景渲染影子副本。
     const kd = view.preview ?? k;
+    const kid = this.kernelId(kd), rev = view.revision ?? 0;
+    const selF = [...view.selectionFaces].join(","), selE = [...view.selectionEdges].join(",");
 
-    // ---- 面（统一灰，不透明，后推；平光=key light 钉在相机系右上前方；XR 取 HMD 相机系） ----
+    // ---- 面：光向 uniform 每帧；几何只在键变时重建 ----
     const L = presenting ? this.xrKeyLight() : keyLight(cam);
-    for (const f of kd.faces()) {
-      const base = view.selectionFaces.has(f.id) ? PALETTE.faceSelected
-        : view.hoverFace === f.id ? PALETTE.faceHover
-        : PALETTE.face;
-      const rec = kd.planeOf(f.id);
-      const lambert = rec ? Math.abs(dot3(rec.plane.n, L)) : 1;
-      const mesh = faceMesh(kd, f.id, shade(base, 0.66 + 0.34 * lambert));
-      if (mesh) g.add(mesh);
-    }
+    this.faceMat.uniforms.uLight.value.set(L.x, L.y, L.z);
+    const fk = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}`;
+    if (fk !== this.faceKey) { this.faceKey = fk; this.rebuildFaces(kd, view); }
 
-    // ---- 边（按类别分桶；粗线，前拉） ----
-    const buckets = new Map<number, number[]>();
-    for (const e of kd.edges()) {
-      const color =
-        view.scrubEdges.has(e.id) || view.hoverEdge === e.id ? PALETTE.edgeHot
-        : view.selectionEdges.has(e.id) ? PALETTE.edgeSelected
-        : e.faceLinks.length === 0 ? PALETTE.edgeWire
-        : PALETTE.edge;
-      const list = buckets.get(color) ?? buckets.set(color, []).get(color)!;
-      const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
-      list.push(a.x, a.y, a.z, b.x, b.y, b.z);
-    }
-    for (const [color, pos] of buckets) g.add(this.fatLines(pos, color, EDGE_PX, { offset: true }));
+    // ---- 边 ----
+    const ek = `${kid}:${rev}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}`;
+    if (ek !== this.edgeKey) { this.edgeKey = ek; this.rebuildEdges(kd, view); }
 
-    // ---- 充能源点（紫）----
-    if (view.charged?.length) {
-      for (const p of view.charged) g.add(this.marker(p, PALETTE.charged, 4, cam, vp));
-    }
-
-    // ---- 吸附指示 ----
-    if (view.snap?.kind) {
-      const color = SNAP_COLORS[view.snap.kind] ?? 0x2b6cb0;
-      g.add(this.marker(view.snap.p, color, 5, cam, vp));
-      if (view.snap.hints?.length) {
-        // 提示线走深度测试：被膜遮住的引导段不显示（user 2026-09-03：z 轴要被面遮）
-        for (const h of view.snap.hints) {
-          g.add(this.fatLines([h.a.x, h.a.y, h.a.z, h.b.x, h.b.y, h.b.z], AXIS_COLORS[h.axis] ?? 0x888888, HINT_PX, { offset: true }));
+    // ---- 吸附指示（小球 + 提示线）----
+    const sn = view.snap;
+    if (sn?.kind) {
+      const color = SNAP_COLORS[sn.kind] ?? 0x2b6cb0;
+      const m = this.snapMarker;
+      m.visible = true;
+      m.position.set(sn.p.x, sn.p.y, sn.p.z);
+      m.scale.setScalar(SNAP_MARKER_PX * this.worldPerPx(cam, vp, sn.p));
+      m.material.color.setHex(color);
+      let segs: { a: Pt3; b: Pt3; color: number }[] | null = null;
+      if (sn.hints?.length) segs = sn.hints.map((h) => ({ a: h.a, b: h.b, color: AXIS_COLORS[h.axis] ?? 0x888888 }));
+      else if (sn.kind.startsWith("axis") && view.snapAnchor) segs = [{ a: view.snapAnchor, b: sn.p, color }];
+      if (segs) {
+        const hk = segs.map((s) => `${s.color}:${s.a.x},${s.a.y},${s.a.z},${s.b.x},${s.b.y},${s.b.z}`).join("|");
+        if (hk !== this.hintKey) {
+          this.hintKey = hk;
+          const pos: number[] = [], col: number[] = [];
+          for (const s of segs) {
+            pos.push(s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z);
+            const c = this.tmpColor.setHex(s.color);
+            col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+          }
+          this.setLineGeometry(this.hintLines, pos, col);
         }
-      } else if (view.snap.kind.startsWith("axis") && view.snapAnchor) {
-        const a = view.snapAnchor, b = view.snap.p;
-        g.add(this.fatLines([a.x, a.y, a.z, b.x, b.y, b.z], color, HINT_PX, { offset: true }));
-      }
-    }
+        this.hintLines.visible = true;
+      } else this.hintLines.visible = false;
+    } else { this.snapMarker.visible = false; this.hintLines.visible = false; }
 
-    // ---- teleport 弧线（绿=可落 / 红=取消）+ 落点环 ----
-    if (view.teleport && view.teleport.points.length >= 2) {
-      const tp = view.teleport;
-      const color = tp.valid ? 0x2e8b57 : 0xcc3333;
+    // ---- teleport 弧线（绿=可落 / 红=取消）+ 落点环（只在充能中存在，位置每帧变 → 每帧重建这几十段）----
+    const tp = view.teleport;
+    if (tp && tp.points.length >= 2) {
+      const color = tp.valid ? TP_OK : TP_BAD;
       const pos: number[] = [];
       for (let i = 0; i + 1 < tp.points.length; i++) {
         const a = tp.points[i], b = tp.points[i + 1];
         pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
       }
-      g.add(this.fatLines(pos, color, 2.5, { offset: true }));
+      this.setLineGeometry(this.arcLines, pos, null);
+      this.arcLines.material.color.setHex(color);
+      this.arcLines.visible = true;
       if (tp.landing) {
-        const ring = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
-        ring.position.set(tp.landing.x, tp.landing.y, tp.landing.z + 0.01);
-        ring.renderOrder = 9;
-        g.add(ring);
+        this.landingRing.visible = true;
+        this.landingRing.position.set(tp.landing.x, tp.landing.y, tp.landing.z + 0.01);
+        this.landingRing.material.color.setHex(color);
+      } else this.landingRing.visible = false;
+    } else { this.arcLines.visible = false; this.landingRing.visible = false; }
+
+    this.renderer.render(this.scene, cam3);
+  }
+
+  /** 全部膜 → 一份几何（三角汤 + 平法向 + sRGB 顶点色）。 */
+  private rebuildFaces(kd: Kernel, view: ViewState): void {
+    const pos: number[] = [], nor: number[] = [], col: number[] = [];
+    for (const f of kd.faces()) {
+      const base = view.selectionFaces.has(f.id) ? PALETTE.faceSelected
+        : view.hoverFace === f.id ? PALETTE.faceHover
+        : PALETTE.face;
+      const rec = kd.planeOf(f.id);
+      if (!rec) continue;
+      const n = rec.plane.n;
+      const [r, g, b] = srgb(base);
+      for (const tri of faceTriangles(kd, f.id)) {
+        for (const p of tri) { pos.push(p.x, p.y, p.z); nor.push(n.x, n.y, n.z); col.push(r, g, b); }
       }
     }
+    const old = this.faceMesh.geometry;
+    if (!pos.length) { this.faceMesh.visible = false; return; }
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
+    geo.setAttribute("aColor", new THREE.Float32BufferAttribute(col, 3));
+    this.faceMesh.geometry = geo;
+    this.faceMesh.visible = true;
+    old.dispose();
+  }
 
-    this.dyn = g;
-    this.scene.add(g);
-    this.renderer.render(this.scene, cam3);
+  /** 全部边 → 一份粗线（顶点色按类别）。 */
+  private rebuildEdges(kd: Kernel, view: ViewState): void {
+    const pos: number[] = [], col: number[] = [];
+    for (const e of kd.edges()) {
+      const hex =
+        view.scrubEdges.has(e.id) || view.hoverEdge === e.id ? PALETTE.edgeHot
+        : view.selectionEdges.has(e.id) ? PALETTE.edgeSelected
+        : e.faceLinks.length === 0 ? PALETTE.edgeWire
+        : PALETTE.edge;
+      const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
+      pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      const c = this.tmpColor.setHex(hex);
+      col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    }
+    if (!pos.length) { this.edgeLines.visible = false; return; }
+    this.setLineGeometry(this.edgeLines, pos, col);
+    this.edgeLines.visible = true;
+  }
+
+  /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */
+  private setLineGeometry(obj: any, pos: number[], col: number[] | null): void {
+    const old = obj.geometry;
+    const geo = new LineSegmentsGeometry();
+    geo.setPositions(pos);
+    if (col) geo.setColors(col);
+    obj.geometry = geo;
+    old.dispose();
   }
 
   /** XR：key light 钉在 HMD 相机系（同 keyLight 公式）。 */
@@ -375,54 +530,43 @@ export class Renderer3 {
     return { x: v.x / n, y: v.y / n, z: v.z / n };
   }
 
-  /** 屏幕像素定尺寸的小球指示物（永远可见）。 */
-  private marker(p: Pt3, color: number, px: number, cam: OrbitCamera, vp: Viewport): any {
-    const r = px * this.worldPerPx(cam, vp, p);
-    const m = new THREE.Mesh(
-      new THREE.SphereGeometry(r, 12, 8),
-      new THREE.MeshBasicMaterial({ color, depthTest: false }),
-    );
-    m.renderOrder = 10;
-    m.position.set(p.x, p.y, p.z);
-    return m;
-  }
-
-  /** 粗线段（屏幕像素宽）。offset=true：深度前拉，共面线赢面。 */
-  private fatLines(positions: number[], color: number, px: number, opts: { offset?: boolean; overlay?: boolean } = {}): any {
-    const geo = new LineSegmentsGeometry();
-    geo.setPositions(positions);
+  /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
+  private lineMat(px: number, opts: { offset?: boolean; vertexColors?: boolean } = {}): any {
     const mat = new LineMaterial({
-      color,
-      linewidth: px * this.dpr,
+      color: 0xffffff,
+      linewidth: px,
       resolution: this.resolution,
-      depthTest: !opts.overlay,
+      vertexColors: !!opts.vertexColors,
       polygonOffset: !!opts.offset,
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -2,
     });
-    const obj = new LineSegments2(geo, mat);
-    if (opts.overlay) obj.renderOrder = 10;
-    return obj;
+    this.lineMats.push(mat); this.lineMatPx.push(px);
+    return mat;
   }
 
-  /** 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）。 */
+  /** 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）= 一份粗线、一个 draw call。 */
   private buildStatic(): any {
-    const g = new THREE.Group();
-    const grid: number[] = [];
-    const N = 20, STEP = 50;
-    for (let i = -N; i <= N; i++) {
+    const pos: number[] = [], col: number[] = [];
+    const push = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, hex: number): void => {
+      pos.push(ax, ay, az, bx, by, bz);
+      const c = this.tmpColor.setHex(hex);
+      col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    };
+    const L = GRID_N * GRID_STEP;
+    for (let i = -GRID_N; i <= GRID_N; i++) {
       if (i === 0) continue;   // 轴线单独画
-      grid.push(i * STEP, -N * STEP, 0, i * STEP, N * STEP, 0);
-      grid.push(-N * STEP, i * STEP, 0, N * STEP, i * STEP, 0);
+      push(i * GRID_STEP, -L, 0, i * GRID_STEP, L, 0, PALETTE.grid);
+      push(-L, i * GRID_STEP, 0, L, i * GRID_STEP, 0, PALETTE.grid);
     }
-    const gg = new THREE.BufferGeometry();
-    gg.setAttribute("position", new THREE.Float32BufferAttribute(grid, 3));
-    g.add(new THREE.LineSegments(gg, new THREE.LineBasicMaterial({ color: PALETTE.grid })));
-    const L = N * STEP;
-    g.add(this.fatLines([-L, 0, 0, L, 0, 0], PALETTE.axisX, AXIS_PX));
-    g.add(this.fatLines([0, -L, 0, 0, L, 0], PALETTE.axisY, AXIS_PX));
-    g.add(this.fatLines([0, 0, 0, 0, 0, L], PALETTE.axisZ, AXIS_PX));
-    return g;
+    push(-L, 0, 0, L, 0, 0, PALETTE.axisX);
+    push(0, -L, 0, 0, L, 0, PALETTE.axisY);
+    push(0, 0, 0, 0, 0, L, PALETTE.axisZ);
+    const geo = new LineSegmentsGeometry();
+    geo.setPositions(pos); geo.setColors(col);
+    const obj = new LineSegments2(geo, this.lineMat(STATIC_PX, { vertexColors: true }));
+    obj.frustumCulled = false;
+    return obj;
   }
 }
 
@@ -433,42 +577,9 @@ function keyLight(cam: OrbitCamera): Pt3 {
   const n = Math.hypot(v.x, v.y, v.z) || 1;
   return { x: v.x / n, y: v.y / n, z: v.z / n };
 }
-/** 0xRRGGBB × 亮度系数（各通道钳 255）。 */
-function shade(color: number, k: number): number {
-  const ch = (c: number): number => Math.max(0, Math.min(255, Math.round(c * k)));
-  return (ch((color >> 16) & 255) << 16) | (ch((color >> 8) & 255) << 8) | ch(color & 255);
-}
-
-/** face → ShapeGeometry（在平面基 2D 建形，再用基矩阵变换到世界）。 */
-function faceMesh(k: Kernel, id: FaceId, color: number): any | null {
-  const f = k.face(id);
-  const rec = k.planeOf(id);
-  if (!f || !rec) return null;
-  const shape = new THREE.Shape(f.outer.pts.map((p) => new THREE.Vector2(p.x, p.y)));
-  for (const h of f.holes) shape.holes.push(new THREE.Path(h.pts.map((p) => new THREE.Vector2(p.x, p.y))));
-  const geo = new THREE.ShapeGeometry(shape);
-  const { u, v } = rec.basis;
-  const n = rec.plane.n, d = rec.plane.d;
-  const m = new THREE.Matrix4();
-  m.set(
-    u.x, v.x, n.x, n.x * d,
-    u.y, v.y, n.y, n.y * d,
-    u.z, v.z, n.z, n.z * d,
-    0, 0, 0, 1,
-  );
-  geo.applyMatrix4(m);
-  const mat = new THREE.MeshBasicMaterial({
-    color,
-    side: THREE.DoubleSide,
-    polygonOffset: true,
-    polygonOffsetFactor: 1,
-    polygonOffsetUnits: 1,
-  });
-  return new THREE.Mesh(geo, mat);
-}
 
 /**
- * 面的三角剖分（世界坐标；含洞）——给 OBJ 导出等「字节出口」用，three 的 earcut 不出本文件。
+ * 面的三角剖分（世界坐标；含洞）——膜批几何与 OBJ 导出等「字节出口」共用，three 的 earcut 不出本文件。
  */
 export function faceTriangles(k: Kernel, id: FaceId): [Pt3, Pt3, Pt3][] {
   const f = k.face(id);

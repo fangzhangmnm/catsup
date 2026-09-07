@@ -230,7 +230,7 @@ check(Math.abs(pt.z - 1) < 1e-6 && Math.abs(pt.y - 3) < 0.2, `瞬移到盒顶 ${
 // ---- 退出：状态原样、桌面相机恢复 ----
 await page.evaluate(() => { globalThis.__catsup.editor.renderer3.xr._end(); });
 const after = await page.evaluate(() => ({ presenting: globalThis.__catsup.vr.isPresenting(), mode: globalThis.__catsup.locomotion.getMode(), faces: globalThis.__catsup.editor.kernel.faces().length, tool: globalThis.__catsup.editor.tool, halfH: globalThis.__catsup.editor.cam.halfH }));
-check(!after.presenting && after.mode === "orbit" && after.faces === 6 && after.tool === "select" && after.halfH === 220, `退出 VR：模型/工具原样、轨道相机恢复 ${JSON.stringify(after)}`);
+check(!after.presenting && after.mode === "orbit" && after.faces === 6 && after.tool === "select" && after.halfH === 4, `退出 VR：模型/工具原样、轨道相机恢复 ${JSON.stringify(after)}`);
 await page.screenshot({ path: out + "/probe-xr-fake.png" });
 
 console.log("errors:", errs.length ? errs.join("; ") : "none");

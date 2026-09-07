@@ -29,6 +29,8 @@ export interface GestureOpts {
   look?(dxPx: number, dyPx: number): boolean;
   /** 步行模式中滚轮无意义（相机每帧由 player 写）。 */
   walking?(): boolean;
+  /** 工具停摆（teleport 充能中）：不喂工具指针事件、悬停预告清掉（VR 同款，vr.ts）。 */
+  toolBlocked?(): boolean;
 }
 
 const GESTURE_TAP_MAX_MS = 250;
@@ -105,7 +107,10 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
         return;
       }
     }
-    if (base.role === "tool") editor.pointerDown(tp(ev));
+    if (base.role === "tool") {
+      if (opts.toolBlocked?.()) { base.role = "hold"; return; }   // 充能中落笔 = 无事发生（既不画也不转相机）
+      editor.pointerDown(tp(ev));
+    }
   }
 
   function onMove(ev: PointerEvent): void {
@@ -113,7 +118,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     const s = local(ev);
     if (!t) {
       // 悬停（mouse / Pencil hover）：吸附预告
-      if (ev.pointerType !== "touch" && !toolPointerActive()) editor.pointerMove(tp(ev));
+      if (ev.pointerType !== "touch" && !toolPointerActive()) { if (opts.toolBlocked?.()) editor.pointerLeave(); else editor.pointerMove(tp(ev)); }
       return;
     }
     const dx = s.x - t.x, dy = s.y - t.y;
