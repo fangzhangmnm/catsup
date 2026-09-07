@@ -70,6 +70,14 @@ export function pickEntity(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number
   }
   if (bestE !== undefined) return { edge: bestE };
 
+  const bestF = pickFace(k, cam, vp, sx, sy);
+  if (bestF !== undefined) return { face: bestF };
+  return {};
+}
+
+/** 只拾膜（射线最近命中）：推拉/删面这类「面动词」用——不走顶点>边>面优先级，否则细面（屏上几像素宽）
+ *  任何位置都在边的 HIT 圈内、边永远赢、面永远拾不到（2026-09-07 user「推拉的时候拾取不到细的面」）。SU 推拉同款只认面。 */
+export function pickFace(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number): FaceId | undefined {
   const ray = cam.screenRay(sx, sy, vp);
   let bestF: FaceId | undefined, bestT = Infinity;
   for (const f of k.faces()) {
@@ -83,8 +91,7 @@ export function pickEntity(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number
     const t = dot3(sub3(p, ray.origin), ray.dir);
     if (t < bestT) { bestT = t; bestF = f.id; }
   }
-  if (bestF !== undefined) return { face: bestF };
-  return {};
+  return bestF;
 }
 
 /** 画线平面：光标下的面 → 它的平面；否则地面。 */

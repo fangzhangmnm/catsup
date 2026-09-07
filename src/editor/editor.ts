@@ -10,7 +10,7 @@ import { Kernel } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
-import { type AlignHand, type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
+import { type AlignHand, type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { epsScale } from "./solver.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
 import { Renderer3 } from "./render3.ts";
@@ -455,7 +455,8 @@ export class Editor {
           this.commitPP();
           break;
         }
-        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
+        // 面动词只认面（细面上任何位置都在边的 HIT 圈内，走 pickEntity 边永远赢；user 2026-09-07）
+        const hit = { face: pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) };
         if (hit.face !== undefined) {
           const k = this.checkpoint;
           const rec = k.planeOf(hit.face)!;
@@ -544,7 +545,7 @@ export class Editor {
       } else if (tool === "erase") {
         this.hoverEdge = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx()).edge ?? null;
       } else if (tool === "eraseFace") {
-        this.hoverFace = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx()).face ?? null;
+        this.hoverFace = pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) ?? null;
         this.computeLive();
       }
       this.updateTip(ev.clientX, ev.clientY);
@@ -741,7 +742,7 @@ export class Editor {
         break;
       }
       case "eraseFace": {
-        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
+        const hit = { face: pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) };
         this.cancelGesture();
         if (hit.face !== undefined) this.emit(this.commitOp({ op: "eraseFaces", ids: [hit.face] }));
         break;

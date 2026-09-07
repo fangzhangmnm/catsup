@@ -4,7 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera, rayPlane } from "../src/editor/camera.ts";
-import { GROUND, marqueeScreen, pickEntity, snapPoint, NO_HAND } from "../src/editor/pick.ts";
+import { GROUND, marqueeScreen, pickEntity, pickFace, snapPoint, NO_HAND } from "../src/editor/pick.ts";
 import { rectSegments } from "../src/editor/tools.ts";
 import { dist3 } from "../src/kernel/geom.ts";
 
@@ -173,4 +173,22 @@ describe("pickEntity: 膜后的顶点/边不可选（遮挡）", () => {
       assert(pickEntity(k, c, VP2, sv.x, sv.y, 6).vertex !== undefined, "前上角应可选");
     });
   }
+});
+
+// 2026-09-07 user「推拉的时候拾取不到细的面，是不是选取的时候不应该用和 snap 一样的捕捉逻辑？」——是：面动词只认面。
+describe("pickFace: 细面（屏上几像素宽）推拉/删面拾得到", () => {
+  it("2 单位宽的墙顶（≈8px）：pickEntity 让边赢（选择语义），pickFace 拾到顶面（面动词语义）", () => {
+    const k = new Kernel();
+    k.addEdges(rectSegments({ x: 10, y: 20 }, { x: 110, y: 22 }));   // 细墙脚印 100×2
+    k.pushPull(k.faces()[0].id, 40);
+    const c = new OrbitCamera(); c.setView("top"); c.halfH = 100; c.target = { x: 60, y: 21, z: 40 };
+    const VP2 = { w: 1000, h: 800 };                                 // 4 px/单位 → 墙顶 8px 宽
+    const s = c.worldToScreen({ x: 60, y: 21, z: 40 }, VP2);        // 墙顶正中
+    const ent = pickEntity(k, c, VP2, s.x, s.y, 6);
+    assert(ent.edge !== undefined, `选择语义下边应赢：${JSON.stringify(ent)}`);
+    const f = pickFace(k, c, VP2, s.x, s.y);
+    assert(f !== undefined, "面动词应拾到墙顶");
+    const rec = k.planeOf(f!)!;
+    assert(Math.abs(rec.plane.n.z) > 0.99 && Math.abs(Math.abs(rec.plane.d) - 40) < 1e-6, `应是 z=40 的墙顶：n=${JSON.stringify(rec.plane.n)} d=${rec.plane.d}`);
+  });
 });

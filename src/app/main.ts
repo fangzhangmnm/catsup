@@ -108,12 +108,13 @@ type ViewId = "iso" | "top" | "front" | "right" | "back" | "left" | "persp";
 btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
   anchor: btnView, align: "end",
   items: () => [
+    // 视图名带方位（user 2026-09-07「视图菜单同意。前视=向北看」；convention：+Y 北、物体的前朝 −Y）
     { id: "iso", label: "等轴", icon: "persp-iso" },
-    { id: "top", label: "顶视" },
-    { id: "front", label: "前视" },
-    { id: "right", label: "右视" },
-    { id: "back", label: "后视" },
-    { id: "left", label: "左视" },
+    { id: "top", label: "顶视", hint: "俯视" },
+    { id: "front", label: "前视", hint: "向北看" },
+    { id: "right", label: "右视", hint: "向西看" },
+    { id: "back", label: "后视", hint: "向南看" },
+    { id: "left", label: "左视", hint: "向东看" },
     { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true },
   ],
   onPick: (id) => {
