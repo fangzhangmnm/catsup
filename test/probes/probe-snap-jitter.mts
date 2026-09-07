@@ -22,7 +22,7 @@ function march(label: string, k: Kernel, cam: OrbitCamera, from: Pt3, to: Pt3, n
   for (let i=0;i<=n;i++) {
     const t=i/n;
     const wpt = { x: from.x+(to.x-from.x)*t, y: from.y+(to.y-from.y)*t, z: from.z+(to.z-from.z)*t };
-    const s = cam.worldToScreen(wpt, VP);
+    const s = cam.angularPx(wpt, VP);
     const r = snapPoint(k, cam, VP, s.x, s.y, TOL, { plane: GROUND, anchor, hand: excl ? { has: excl, opaque: false } : null, alignSources: aligns ?? undefined });
     const kk = r.kind ?? "·";
     if (kk !== prev) { seq.push({i, kind: kk, p: r.p}); prev = kk; }

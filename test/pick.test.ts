@@ -22,8 +22,8 @@ describe("camera: 正交轨道", () => {
   it("worldToScreen ∘ screenRay∩地面 往返一致", () => {
     const c = cam();
     for (const p of [P(0, 0), P(10, 3), P(-4, 7)]) {
-      const s = c.worldToScreen(p, VP);
-      const r = c.screenRay(s.x, s.y, VP);
+      const s = c.angularPx(p, VP);
+      const r = c.ray(s.x, s.y, VP);
       const q = rayPlane(r.origin, r.dir, { x: 0, y: 0, z: 1 }, 0)!;
       assert(dist3(p, q) < 1e-6, `往返偏差 ${dist3(p, q)}`);
     }
@@ -35,8 +35,8 @@ describe("camera: 正交轨道", () => {
     c.zoomBy(0.5);
     c.pan(30, 20, VP);
     const p = P(3, 8, 0);
-    const s = c.worldToScreen(p, VP);
-    const r = c.screenRay(s.x, s.y, VP);
+    const s = c.angularPx(p, VP);
+    const r = c.ray(s.x, s.y, VP);
     const q = rayPlane(r.origin, r.dir, { x: 0, y: 0, z: 1 }, 0)!;
     assert(dist3(p, q) < 1e-6, "变换后往返一致");
   });
@@ -53,13 +53,13 @@ describe("pick: 实体拾取", () => {
     eq(k.faces().length, 2, "两面");
     const c = cam();
     // 相机从上方看：打在两面公共投影中心 → 命中 z=5 的上面那张（遮挡序）
-    const s = c.worldToScreen(P(5, 5, 5), VP);
+    const s = c.angularPx(P(5, 5, 5), VP);
     const hit = pickEntity(k, c, VP, s.x, s.y, 4);
     assert(hit.face !== undefined, "命中面");
     const rings = k.faceRings3(hit.face!)!;
     assert(rings.outer.every((p) => Math.abs(p.z - 5) < 1e-9), "命中上层面");
     // 顶点优先
-    const sv = c.worldToScreen(P(0, 0, 5), VP);
+    const sv = c.angularPx(P(0, 0, 5), VP);
     assert(pickEntity(k, c, VP, sv.x, sv.y, 6).vertex !== undefined, "顶点优先");
   });
 });
@@ -73,7 +73,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
 
   it("endpoint 吸附", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(0, 0), VP);
+    const s = c.angularPx(P(0, 0), VP);
     const r = snapPoint(k, c, VP, s.x + 3, s.y + 2, 8, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, "endpoint", "endpoint");
     assert(dist3(r.p, P(0, 0)) < 1e-9, "吸到角点");
@@ -81,7 +81,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
 
   it("midpoint 吸附", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(5, 0), VP);
+    const s = c.angularPx(P(5, 0), VP);
     const r = snapPoint(k, c, VP, s.x + 2, s.y + 2, 6, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, "midpoint", "midpoint");
     assert(dist3(r.p, P(5, 0)) < 1e-9, "吸到边中点");
@@ -89,7 +89,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
 
   it("on-edge 吸附（点落在 3D 边上）", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(3, 0), VP);
+    const s = c.angularPx(P(3, 0), VP);
     const r = snapPoint(k, c, VP, s.x, s.y + 2, 5, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, "on-edge", "on-edge");
     assert(Math.abs(r.p.y) < 1e-9 && Math.abs(r.p.z) < 1e-9, "在底边上");
@@ -99,7 +99,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
   it("axis 锁：地面锁 X/Y，锁完仍在平面上；无 anchor 不锁", () => {
     const { k, c } = scene();
     const anchor = P(20, 20, 0); // 远离几何，避免撞 endpoint/edge 吸附
-    const sAim = c.worldToScreen(P(30, 20.2, 0), VP); // 几乎沿 +X
+    const sAim = c.angularPx(P(30, 20.2, 0), VP); // 几乎沿 +X
     const r = snapPoint(k, c, VP, sAim.x, sAim.y, 8, { hand: NO_HAND, plane: GROUND, anchor: anchor });
     eq(r.kind, "axis-x", "锁 X 轴");
     assert(Math.abs(r.p.y - 20) < 1e-6 && Math.abs(r.p.z) < 1e-6, "仍在 y=20、地面上");
@@ -109,7 +109,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
 
   it("落到画线平面（无任何吸附时）", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(30, 30, 0), VP);
+    const s = c.angularPx(P(30, 30, 0), VP);
     const r = snapPoint(k, c, VP, s.x, s.y, 6, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, null, "无吸附");
     assert(Math.abs(r.p.z) < 1e-9, "在地面上");
@@ -124,7 +124,7 @@ describe("pick: 屏幕框选 + 批删", () => {
     k.addEdges(rectSegments({ x: 30, y: 0 }, { x: 40, y: 10 }));
     const c = cam();
     // 旋转视角下两角点不构成包含盒——取左方区域四角投影的包围盒（模拟用户框住整个左方）
-    const corners = [P(-2, -2), P(12, -2), P(12, 12), P(-2, 12)].map((p) => c.worldToScreen(p, VP));
+    const corners = [P(-2, -2), P(12, -2), P(12, 12), P(-2, 12)].map((p) => c.angularPx(p, VP));
     const sel = marqueeScreen(k, c, VP, {
       minX: Math.min(...corners.map((s) => s.x)), minY: Math.min(...corners.map((s) => s.y)),
       maxX: Math.max(...corners.map((s) => s.x)), maxY: Math.max(...corners.map((s) => s.y)),
@@ -150,7 +150,7 @@ describe("pickEntity: 膜后的顶点/边不可选（遮挡）", () => {
     it(`${proj}：光标压在背底边的投影上（落在正面剪影内）→ 选中正面膜，不是背底边`, () => {
       const k = box();
       const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = { x: 60, y: 50, z: 20 };
-      const s = c.worldToScreen({ x: 60, y: 80, z: 0 }, VP2);            // 背底边中点
+      const s = c.angularPx({ x: 60, y: 80, z: 0 }, VP2);            // 背底边中点
       const hit = pickEntity(k, c, VP2, s.x, s.y, 6);
       assert(hit.edge === undefined && hit.vertex === undefined, `不该选到膜后的边/角：${JSON.stringify(hit)}`);
       assert(hit.face !== undefined, "应落到正面膜");
@@ -160,16 +160,16 @@ describe("pickEntity: 膜后的顶点/边不可选（遮挡）", () => {
     it(`${proj}：光标压在背底角的投影上 → 不选到膜后的角`, () => {
       const k = box();
       const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = { x: 60, y: 50, z: 20 };
-      const s = c.worldToScreen({ x: 110, y: 80, z: 0 }, VP2);           // 背右底角（在盒子剪影内）
+      const s = c.angularPx({ x: 110, y: 80, z: 0 }, VP2);           // 背右底角（在盒子剪影内）
       const hit = pickEntity(k, c, VP2, s.x, s.y, 6);
       assert(hit.vertex === undefined, `不该选到膜后的角：${JSON.stringify(hit)}`);
     });
     it(`${proj}：可见的前底边/前底角照常可选（棱不被自己的邻膜挡）`, () => {
       const k = box();
       const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = { x: 60, y: 50, z: 20 };
-      const se = c.worldToScreen({ x: 60, y: 20, z: 0 }, VP2);
+      const se = c.angularPx({ x: 60, y: 20, z: 0 }, VP2);
       assert(pickEntity(k, c, VP2, se.x, se.y, 6).edge !== undefined, "前底边应可选");
-      const sv = c.worldToScreen({ x: 10, y: 20, z: 40 }, VP2);
+      const sv = c.angularPx({ x: 10, y: 20, z: 40 }, VP2);
       assert(pickEntity(k, c, VP2, sv.x, sv.y, 6).vertex !== undefined, "前上角应可选");
     });
   }
@@ -183,7 +183,7 @@ describe("pickFace: 细面（屏上几像素宽）推拉/删面拾得到", () =>
     k.pushPull(k.faces()[0].id, 40);
     const c = new OrbitCamera(); c.setView("top"); c.halfH = 100; c.target = { x: 60, y: 21, z: 40 };
     const VP2 = { w: 1000, h: 800 };                                 // 4 px/单位 → 墙顶 8px 宽
-    const s = c.worldToScreen({ x: 60, y: 21, z: 40 }, VP2);        // 墙顶正中
+    const s = c.angularPx({ x: 60, y: 21, z: 40 }, VP2);        // 墙顶正中
     const ent = pickEntity(k, c, VP2, s.x, s.y, 6);
     assert(ent.edge !== undefined, `选择语义下边应赢：${JSON.stringify(ent)}`);
     const f = pickFace(k, c, VP2, s.x, s.y);

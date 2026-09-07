@@ -10,6 +10,7 @@ import { Kernel } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
+import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { epsScale } from "./solver.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
@@ -132,8 +133,18 @@ export class Editor {
   hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
   isGestureActive(): boolean { return this.gestureActive(); }
   vp(): Viewport { return { w: this.canvas.clientWidth, h: this.canvas.clientHeight }; }
-  private snapPx(): number { return SNAP * epsScale(this.vp()); }
-  private hitPx(): number { return HIT * epsScale(this.vp()); }
+  // ---------- 指针帧（A2）----------
+  // 工具/拾取/求解只认 PointerFrame + 它的角度尺视口：桌面 = OrbitCamera + canvas 尺寸；VR = 控制器射线帧 + 800px 虚拟屏。
+  private pointerFrame: { pf: PointerFrame; vp: Viewport } | null = null;
+  /** 换指针帧（VR 进出时由 app 层调用；null = 回桌面相机）。 */
+  setPointerFrame(pf: PointerFrame | null, vp?: Viewport): void {
+    this.pointerFrame = pf ? { pf, vp: vp ?? { w: 800, h: 800 } } : null;
+  }
+  private frame(): PointerFrame { return this.pointerFrame?.pf ?? this.cam; }
+  /** 指针帧的角度尺视口（ε 分母）。 */
+  private fvp(): Viewport { return this.pointerFrame?.vp ?? this.vp(); }
+  private snapPx(): number { return SNAP * epsScale(this.fvp()); }
+  private hitPx(): number { return HIT * epsScale(this.fvp()); }
 
   // ---------- 工具 ----------
   setTool(t: Tool): void {
@@ -302,8 +313,8 @@ export class Editor {
   private applyHysteresis(sn: Snap3, sx: number, sy: number): Snap3 {
     if (sn.kind !== null) { this.lastSnap = sn; return sn; }
     if (this.lastSnap?.kind) {
-      const sp = this.cam.worldToScreen(this.lastSnap.p, this.vp());
-      if (Math.hypot(sx - sp.x, sy - sp.y) <= (EPS_OF[this.lastSnap.kind] ?? 8) * 1.5 * epsScale(this.vp())) return this.lastSnap;
+      const sp = this.frame().angularPx(this.lastSnap.p, this.vp());
+      if (Math.hypot(sx - sp.x, sy - sp.y) <= (EPS_OF[this.lastSnap.kind] ?? 8) * 1.5 * epsScale(this.fvp())) return this.lastSnap;
     }
     this.lastSnap = null;
     return sn;
@@ -375,7 +386,7 @@ export class Editor {
   /** 线的第二点：学矩形（user 2026-09-01 裁决「线的空落点兜底=学矩形」）——含光标的膜 > 过锚点轴平面 > 轴系；
    *  平面随第二点动态解析并写回 gesturePlane（2026-09-06 修：此前锁死首点平面，从共享边画进侧面时端点落到地面）。 */
   private lineSecondSnap(sx: number, sy: number): Snap3 {
-    const r = resolveRectPlane(this.liveWorld(), this.cam, this.vp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
+    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
     this.gesturePlane = r.plane;
     return r.snap;
   }
@@ -383,10 +394,10 @@ export class Editor {
   /** 矩形第二点：固定面 → 面内吸附；动态 → 平面被第二点拉动（resolveRectPlane）。 */
   private rectPlaneSnap(sx: number, sy: number): Pt3 {
     if (this.rectFixed) {
-      this.snapInfo = snapPoint(this.liveWorld(), this.cam, this.vp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() });
+      this.snapInfo = snapPoint(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() });
       return this.snapInfo.p;
     }
-    const r = resolveRectPlane(this.liveWorld(), this.cam, this.vp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
+    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand());
     this.gesturePlane = r.plane;
     this.snapInfo = r.snap;
     return r.snap.p;
@@ -429,13 +440,13 @@ export class Editor {
         }
         if (this._tool === "rect") {
           // 元逻辑：首点被低维吸附赢走（角/边/轴）→ 平面延迟给第二点；裸落面内才锁面平行
-          const r = rectFirstPlane(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), this.alignSrcs());
+          const r = rectFirstPlane(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
           this.rectFixed = r.fixed;
           this.gesturePlane = r.plane;
           this.snapInfo = r.snap;
         } else {
           // 线的空落点兜底=学矩形（user 2026-09-01 裁决）：面上锁面；空处=摄像机挑最面向的轴平面
-          const r0 = rectFirstPlane(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), this.alignSrcs());
+          const r0 = rectFirstPlane(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
           this.gesturePlane = r0.plane;
           this.snapInfo = r0.snap;
         }
@@ -453,7 +464,7 @@ export class Editor {
           break;
         }
         // 面动词只认面（细面上任何位置都在边的 HIT 圈内，走 pickEntity 边永远赢；user 2026-09-07）
-        const hit = { face: pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) };
+        const hit = { face: pickFace(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y) };
         if (hit.face !== undefined) {
           const k = this.checkpoint;
           const rec = k.planeOf(hit.face)!;
@@ -467,7 +478,7 @@ export class Editor {
           this.ppKnownVids = new Set(k.vertices().map((v) => v.id));
           this.ppNormal = rec.plane.n;
           this.gesturePlane = { plane: rec.plane, basis: rec.basis };
-          const ray0 = this.cam.screenRay(s.x, s.y, this.vp());
+          const ray0 = this.frame().ray(s.x, s.y, this.vp());
           const grab = rayPlane(ray0.origin, ray0.dir, rec.plane.n, rec.plane.d);
           this.anchor3 = grab ?? k.faceRings3(hit.face)!.outer[0];
           {   // 高度通道停靠集：全场景静态顶点沿 n 的投影高度（含底环/邻面高/0；user 拍板 A 案）
@@ -492,15 +503,15 @@ export class Editor {
           this.commitMoveTo(s.x, s.y);
           break;
         }
-        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
+        const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
         const hasSel = this.hasSelection();
         // SU 语义（user 2026-09-01）：有选区时 move 作用于选区，拾取点可以点任何地方当参考点
         this.moveVids = hasSel ? moveTargetsSelection(this.checkpoint, this.selection) : moveTargets(this.checkpoint, hit);
         if (this.moveVids.length) {
-          this.gesturePlane = drawPlaneAt(this.liveWorld(), this.cam, this.vp(), s.x, s.y);
+          this.gesturePlane = drawPlaneAt(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y);
           this.anchor3 = hit.vertex !== undefined
             ? this.checkpoint.graph.pt(hit.vertex)
-            : snapPoint(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() }).p;
+            : snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() }).p;
           this.cursor3 = this.anchor3;
           this.armed = false;
           this.canArm = ev.pointerType === "mouse";
@@ -513,7 +524,7 @@ export class Editor {
         this.scrubbing = true;
         this.scrubAcc = new Set();
         this.hoverEdge = null;
-        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
+        const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
         if (hit.edge !== undefined) this.scrubAcc.add(hit.edge);
         this.computeLive();
         break;
@@ -536,13 +547,13 @@ export class Editor {
       this.hoverFace = null;
       const tool = this._tool;
       if (tool === "line" || tool === "rect" || tool === "move") {
-        const plane = drawPlaneAt(this.liveWorld(), this.cam, this.vp(), s.x, s.y);
-        this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand() }), s.x, s.y);
+        const plane = drawPlaneAt(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y);
+        this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand() }), s.x, s.y);
         this.trackCharge(this.snapInfo);
       } else if (tool === "erase") {
-        this.hoverEdge = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx()).edge ?? null;
+        this.hoverEdge = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx()).edge ?? null;
       } else if (tool === "eraseFace") {
-        this.hoverFace = pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) ?? null;
+        this.hoverFace = pickFace(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y) ?? null;
         this.computeLive();
       }
       this.updateTip(ev.clientX, ev.clientY);
@@ -566,7 +577,7 @@ export class Editor {
       case "move":
         if (this.moveVids.length && this.anchor3) {
           const mv = new Set(this.moveVids);
-          this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) }), s.x, s.y);
+          this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) }), s.x, s.y);
           this.trackCharge(this.snapInfo, 120);
           this.cursor3 = this.snapInfo.p;
         }
@@ -574,7 +585,7 @@ export class Editor {
       case "erase": {
         // 橡皮不预演（user 2026-09-07「橡皮不应该是预演，而是一个静态上面选择，松的时候才删」= SU 同款）：
         // 拖擦只在现实世界上高亮（scrubEdges→edgeHot），松手一次结算；顺带根治「预演里膜死了露出背面 innocent 边」。
-        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
+        const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
         if (hit.edge !== undefined) this.scrubAcc.add(hit.edge);
         break;
       }
@@ -611,7 +622,7 @@ export class Editor {
       opaque: true,
     };
     const sn = this.applyHysteresis(
-      snapPoint(wk, this.cam, this.vp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: anc, lines: false, hand }),
+      snapPoint(wk, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: anc, lines: false, hand }),
       sx, sy);
     this.hoverFace = null;
     let ref = "";
@@ -622,10 +633,10 @@ export class Editor {
       ref = `｜取${SNAP_LABELS[sn.kind] ?? sn.kind}高度`;
     } else {
       this.snapInfo = null;
-      const ray1 = this.cam.screenRay(sx, sy, this.vp());
+      const ray1 = this.frame().ray(sx, sy, this.vp());
       // 取面高度也查现实 SSoT（user 2026-09-03「遮挡必须用现实的 SSoT，不要用旧鬼」）：
       // 现实世界拾取 + 手中膜跳过 + ∥推向的面拒收（其"高度"随光标漂=垃圾）
-      const hitF = pickEntity(wk, this.cam, this.vp(), sx, sy, 0.5).face;
+      const hitF = pickEntity(wk, this.frame(), this.fvp(), sx, sy, 0.5).face;
       const hitRec = hitF !== undefined ? wk.planeOf(hitF) : undefined;
       const hitHand = hitF !== undefined && (() => {
         const f = wk.face(hitF);
@@ -644,10 +655,10 @@ export class Editor {
         if (q) this.ppH = dot3(sub3(q, anc), n);
         else ppStuck = true;   // 法向与视线近平行：公垂无解，h 动不了
         // 高度通道：h 标量对静态高度集咬合（ε=7px 折算世界单位；底面/邻面/0 全在停靠集里）
-        const sc0 = this.cam.worldToScreen(anc, this.vp());
-        const sc1 = this.cam.worldToScreen(add3(anc, n), this.vp());
+        const sc0 = this.frame().angularPx(anc, this.vp());
+        const sc1 = this.frame().angularPx(add3(anc, n), this.vp());
         const pxPerUnit = Math.max(Math.hypot(sc1.x - sc0.x, sc1.y - sc0.y), 0.5);
-        const epsH = (7 * epsScale(this.vp())) / pxPerUnit;
+        const epsH = (7 * epsScale(this.fvp())) / pxPerUnit;
         let best: number | null = null;
         for (const st of this.ppStops) if (Math.abs(st - this.ppH) <= epsH && (best === null || Math.abs(st - this.ppH) < Math.abs(best - this.ppH))) best = st;
         if (best !== null) {
@@ -661,8 +672,8 @@ export class Editor {
     // 卡住提示（user 2026-09-07「推拉如果卡住了推拉不动的话应该有提示」）：光标明显动了、h 却出不来 = 正对着面看
     // （法向∥视线，光标射线到法向轴没有有意义的最近点）——说清原因和出路，别让人以为坏了。
     const moved = this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0;
-    const facing = Math.abs(dot3(n, this.cam.viewDirAt(anc)));
-    if (moved > 16 * epsScale(this.vp()) && Math.abs(this.ppH) < 0.3 && (ppStuck || facing > 0.9)) {
+    const facing = Math.abs(dot3(n, this.frame().viewDir(anc)));
+    if (moved > 16 * epsScale(this.fvp()) && Math.abs(this.ppH) < 0.3 && (ppStuck || facing > 0.9)) {
       this.host.hint("推拉没动：正对着这张面看，法向和视线平行，拖不出高度——环绕一下换个角度再拉（Esc 取消）");
       return;
     }
@@ -729,13 +740,13 @@ export class Editor {
         const wasDrag = Math.hypot(this.marqueeCur.x - this.marqueeStart.x, this.marqueeCur.y - this.marqueeStart.y) > 4;
         let picked: Selection;
         if (wasDrag) {
-          picked = marqueeScreen(this.checkpoint, this.cam, this.vp(), {
+          picked = marqueeScreen(this.checkpoint, this.frame(), this.fvp(), {
             minX: Math.min(this.marqueeStart.x, this.marqueeCur.x), maxX: Math.max(this.marqueeStart.x, this.marqueeCur.x),
             minY: Math.min(this.marqueeStart.y, this.marqueeCur.y), maxY: Math.max(this.marqueeStart.y, this.marqueeCur.y),
           });
         } else {
           picked = emptySelection();
-          const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
+          const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
           if (hit.edge !== undefined) picked.edges.add(hit.edge);
           else if (hit.face !== undefined) picked.faces.add(hit.face);
         }
@@ -751,7 +762,7 @@ export class Editor {
         break;
       }
       case "eraseFace": {
-        const hit = { face: pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) };
+        const hit = { face: pickFace(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y) };
         this.cancelGesture();
         if (hit.face !== undefined) this.emit(this.commitOp({ op: "eraseFaces", ids: [hit.face] }));
         break;
@@ -802,7 +813,7 @@ export class Editor {
   }
   private commitMoveTo(sx: number, sy: number): void {
     const mv = new Set(this.moveVids);
-    const target = snapPoint(this.liveWorld(), this.cam, this.vp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3!, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) }).p;
+    const target = snapPoint(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3!, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) }).p;
     const delta = sub3(target, this.anchor3!);
     const vids = this.moveVids;
     const d = Math.hypot(delta.x, delta.y, delta.z);

@@ -99,6 +99,9 @@ golden = `test/plane-second-point.test.ts`「侧面往下拖矩形吸底边」�
 - ~~单一求解器重构~~ **核心已落 v0.1.2**（solvePoint/buildConstraints + property 测试）；
   尾巴：resolvePlane 并入同机（rect 三规则仍在 pick 层）、调用方直迁 solver 后删 snapPoint 壳。
 - 【远】M4 push/pull + 挖洞特例 + 暗礁②；B–O 换入；增量局部 face-finding；undo 快照环。
+- ~~投影无关接口（A2）~~ 已落 2026-09-07（edited by Claude Fable 5.1）：求解器/拾取只认 **`PointerFrame { ray(x,y,vp); angularPx(p,vp); viewDir(p); forward() }`**
+  （`src/editor/pointer-frame.ts`）——射线 + 角度尺，桌面 `OrbitCamera` 是一个实例（原 worldToScreen/screenRay/viewDirAt 改名，数值零变化），
+  VR 控制器射线 + 800 px 高虚拟屏是第二个实例（`XRPointerFrame`）。user：「不维护两套：为什么不是 2d mode 用射线的语义？」
 
 ## pp 双通道吸附（2026-09-03 终形，user 拍板「争取中间态」成立）
 

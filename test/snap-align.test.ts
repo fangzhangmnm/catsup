@@ -16,7 +16,7 @@ function topCam(): OrbitCamera {
   c.halfH = 50;          // 1 世界单位 = 8px
   return c;
 }
-const at = (c: OrbitCamera, p: Pt3) => c.worldToScreen(p, VP);
+const at = (c: OrbitCamera, p: Pt3) => c.angularPx(p, VP);
 
 describe("snap: 轴对齐约束层", () => {
   it("原点点吸附（永久源）", () => {

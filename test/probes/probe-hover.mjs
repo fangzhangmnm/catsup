@@ -13,7 +13,7 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor; const f = e.ke
 const box = await page.locator("#board").boundingBox();
 const pts = await page.evaluate(() => {
   const e = globalThis.__catsup.editor; const vp = e.vp();
-  return e.kernel.vertices().map((v) => ({ id: v.id, w: { x: v.x, y: v.y, z: v.z }, s: e.cam.worldToScreen(v, vp) }));
+  return e.kernel.vertices().map((v) => ({ id: v.id, w: { x: v.x, y: v.y, z: v.z }, s: e.cam.angularPx(v, vp) }));
 });
 console.log("projection:", pts.map((p) => `#${p.id}(${p.w.x},${p.w.y})->(${p.s.x.toFixed(1)},${p.s.y.toFixed(1)})`).join(" "));
 await page.keyboard.press("l");

@@ -14,13 +14,14 @@ import type { Edge, EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kern
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
-import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
+import { closestOnAxis, rayPlane } from "./camera.ts";
+import type { PointerFrame, Viewport } from "./pointer-frame.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
 
 
-export interface View { cam: OrbitCamera; vp: Viewport; }
+export interface View { pf: PointerFrame; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
@@ -79,10 +80,10 @@ export function solvePoint(
     spans1D?: (a: Pt3, dir: Pt3, tMin: number, tMax: number) => [number, number][];
   },
 ): Solution | null {
-  const { cam, vp } = view;
+  const { pf, vp } = view;
   const comboEps = opts?.comboEps ?? EPS.combo;
-  const ray = cam.screenRay(s.x, s.y, vp);
-  const scr = (p: Pt3): { x: number; y: number } => cam.worldToScreen(p, vp);
+  const ray = pf.ray(s.x, s.y, vp);
+  const scr = (p: Pt3): { x: number; y: number } => pf.angularPx(p, vp);
   const sd = (p: Pt3): number => {
     const q = scr(p);
     return Math.hypot(q.x - s.x, q.y - s.y);
@@ -197,7 +198,7 @@ export interface SnapContext {
   k: Kernel;
   plane: PlaneParams;
   basis?: { u: Pt3; v: Pt3 } | null;
-  cam?: OrbitCamera | null;               // 提供则启用膜遮挡过滤
+  pf?: PointerFrame | null;               // 提供则启用膜遮挡过滤
   anchor?: Pt3 | null;
   alignSources?: readonly Pt3[] | null;
   lines?: boolean;
@@ -278,8 +279,8 @@ function edgeTargets(k: Kernel, ex: (vid: VertexId) => boolean): { a: Pt3; b: Pt
 }
 
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。（拾取 pick.ts 同用） */
-export function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
-  const dir = cam.viewDirAt(p);   // 透视=p→眼；正交=常向量（2026-09-06 透视化，edited by Claude Fable 5.1）
+export function occludedBy(k: Kernel, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
+  const dir = pf.viewDir(p);   // 透视=p→眼；正交=常向量（2026-09-06 透视化，edited by Claude Fable 5.1）
   for (const f of k.faces()) {
     if (skip?.(f.id)) continue;   // 手中膜不遮挡（2026-09-03：追光标的膜反复遮住目标=振荡假吸）
     const rec = k.planeOf(f.id);
@@ -306,11 +307,11 @@ export function occludedBy(k: Kernel, cam: OrbitCamera, p: Pt3, skip?: (fid: Fac
  * 返回 [tMin,tMax] 内的**被挡**区间（升序、已合并）。
  */
 export function occludedSpansOnLine(
-  k: Kernel, cam: OrbitCamera, a: Pt3, dir: Pt3, tMin: number, tMax: number,
+  k: Kernel, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number,
   skip?: (fid: FaceId) => boolean,
 ): [number, number][] {
   // 透视下视向沿线变化，区间代数取线段中点的视向作常向量近似（短线段误差可忽略；正交=精确）
-  const e = cam.viewDirAt(add3(a, scale3(dir, (tMin + tMax) / 2)));
+  const e = pf.viewDir(add3(a, scale3(dir, (tMin + tMax) / 2)));
   const spans: [number, number][] = [];
   for (const f of k.faces()) {
     if (skip?.(f.id)) continue;
@@ -366,7 +367,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   const { k } = ctx;
   const ex = (vid: VertexId): boolean => ctx.hand?.has(vid) ?? false;
   const skip = handFaceSkip(k, ctx.hand);
-  const hidden = (p: Pt3): boolean => (ctx.cam ? occludedBy(k, ctx.cam, p, skip) : false);
+  const hidden = (p: Pt3): boolean => (ctx.pf ? occludedBy(k, ctx.pf, p, skip) : false);
   for (const v of k.vertices()) {
     if (ex(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
@@ -541,7 +542,7 @@ export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
  */
 export function snapPoint(
   k: Kernel,
-  cam: OrbitCamera,
+  pf: PointerFrame,
   vp: Viewport,
   sx: number,
   sy: number,
@@ -553,14 +554,14 @@ export function snapPoint(
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
   const scale = tolPx / 8;
   const skip = handFaceSkip(k, q.hand);
-  const occHidden = (p: Pt3): boolean => occludedBy(k, cam, p, skip);
+  const occHidden = (p: Pt3): boolean => occludedBy(k, pf, p, skip);
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
-    alignSources: q.alignSources, cam, lines: q.lines, hand: q.hand });
+    alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand });
   if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
-  const sol = solvePoint({ cam, vp }, { x: sx, y: sy }, C, {
+  const sol = solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: EPS.combo * scale,
     hidden: occHidden,
-    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, cam, a, dirL, tMin, tMax, skip),
+    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, pf, a, dirL, tMin, tMax, skip),
   });
   if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const hints: SnapHint[] = [];
@@ -606,8 +607,8 @@ function mkAxisPlane(n: Pt3, through: Pt3): DrawPlane {
 const axisPlanesThrough = (p: Pt3): DrawPlane[] => AXIS_NORMALS.map((n) => mkAxisPlane(n, p));
 
 /** 唯一平面挑选器：底面偏置 > 面向度。 */
-function pickByFacing(cam: OrbitCamera, arr: readonly DrawPlane[]): DrawPlane {
-  const fwd = cam.forward();
+function pickByFacing(pf: PointerFrame, arr: readonly DrawPlane[]): DrawPlane {
+  const fwd = pf.forward();
   if (Math.abs(fwd.z) >= 0.34) {
     const ground = arr.find((c) => Math.abs(c.plane.n.z) > 0.999);
     if (ground) return ground;
@@ -616,13 +617,13 @@ function pickByFacing(cam: OrbitCamera, arr: readonly DrawPlane[]): DrawPlane {
 }
 
 /** 轴系平面本体（d=0）——自由落点兜底。 */
-export function axisPlane(cam: OrbitCamera): DrawPlane {
-  return pickByFacing(cam, axisPlanesThrough({ x: 0, y: 0, z: 0 }));
+export function axisPlane(pf: PointerFrame): DrawPlane {
+  return pickByFacing(pf, axisPlanesThrough({ x: 0, y: 0, z: 0 }));
 }
 
 /** 过 through 的轴向平面（锚定在几何上的点用）。 */
-export function cameraPlane(cam: OrbitCamera, through: Pt3): DrawPlane {
-  return pickByFacing(cam, axisPlanesThrough(through));
+export function cameraPlane(pf: PointerFrame, through: Pt3): DrawPlane {
+  return pickByFacing(pf, axisPlanesThrough(through));
 }
 
 /** 平面来自膜且 p 落在该膜环内（含洞判定）→ 「面上」；平面不带 face 或点在环外 → false。 */
@@ -636,8 +637,8 @@ function insideFace(k: Kernel, plane: DrawPlane, p: Pt3): boolean {
 }
 
 /** 光标射线命中的第一张膜（最近者）的平面；没命中 → null。零 three、不经 pick.ts（避免环形 import）。 */
-export function faceUnderCursor(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number): DrawPlane | null {
-  const ray = cam.screenRay(sx, sy, vp);
+export function faceUnderCursor(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number): DrawPlane | null {
+  const ray = pf.ray(sx, sy, vp);
   let best: { t: number; plane: DrawPlane } | null = null;
   for (const f of k.faces()) {
     const rec = k.planeOf(f.id);
@@ -658,14 +659,14 @@ export function faceUnderCursor(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: n
 /** 含锚点的膜里，剪影（屏幕多边形）离光标 ≤ tolPx 的最近一张 → 其平面；没有 → null。
  *  无历史、纯几何：滑出底边几个像素仍在那张墙上（2026-09-06 侧面拖矩形案），远离了就自然放手
  *  （2026-09-07 仓库角点案：此前「黏住上一帧平面」把擦过的竖墙一路黏到空地上——黏性是错的一般化，撤）。 */
-function nearFaceContaining(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number, p1: Pt3, tolPx: number): DrawPlane | null {
+function nearFaceContaining(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number, p1: Pt3, tolPx: number): DrawPlane | null {
   let best: { d: number; plane: DrawPlane } | null = null;
   for (const f of k.faces()) {
     const rec = k.planeOf(f.id);
     if (!rec || distToPlane(p1, rec.plane) > 1e-3) continue;
     const ring = k.faceRings3(f.id)?.outer;
     if (!ring || ring.length < 3) continue;
-    const poly = ring.map((q) => cam.worldToScreen(q, vp));
+    const poly = ring.map((q) => pf.angularPx(q, vp));
     let d = 0;
     if (!pointInRing({ x: sx, y: sy }, poly)) {
       d = Infinity;
@@ -688,7 +689,7 @@ function nearFaceContaining(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: numbe
  */
 export function resolvePlane(
   k: Kernel,
-  cam: OrbitCamera,
+  pf: PointerFrame,
   vp: Viewport,
   sx: number,
   sy: number,
@@ -700,35 +701,35 @@ export function resolvePlane(
     // 含点（膜）：光标射线命中的膜若也含锚点 → 该膜平面胜出（SU：从共享边拖进哪张面，矩形/线就躺哪张面）。
     // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
     // 此前第二点只在过锚点的三个轴平面里挑且先按俯视偏置取地面，光标穿过侧面落到地面底边附近 → 永远「边上」。
-    const under = faceUnderCursor(k, cam, vp, sx, sy);
+    const under = faceUnderCursor(k, pf, vp, sx, sy);
     if (under && distToPlane(p1, under.plane) <= 1e-3) {
-      const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand });
+      const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand });
       return { plane: under, fixed: false, snap };
     }
     // 近擦（2026-09-06 侧面拖矩形案）：光标滑出含锚点膜的剪影几个像素（如底边下方）仍算在那张膜上，
     // 否则按落底偏置挑过锚点轴平面会把矩形翻到水平面、角点飞走。纯几何无历史（黏性版 2026-09-07 撤）。
-    const near = nearFaceContaining(k, cam, vp, sx, sy, p1, PLANE_NEAR_PX * epsScale(vp));
+    const near = nearFaceContaining(k, pf, vp, sx, sy, p1, PLANE_NEAR_PX * epsScale(vp));
     if (near) {
-      const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: near, anchor: p1, alignSources, hand });
+      const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: near, anchor: p1, alignSources, hand });
       return { plane: near, fixed: false, snap };
     }
     const candidates = axisPlanesThrough(p1);
-    const base = pickByFacing(cam, candidates);
-    const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand });
+    const base = pickByFacing(pf, candidates);
+    const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand });
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
-    return { plane: containing.length ? pickByFacing(cam, containing) : base, fixed: false, snap };
+    return { plane: containing.length ? pickByFacing(pf, containing) : base, fixed: false, snap };
   }
-  const base = facePlane ?? axisPlane(cam);
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, alignSources, hand });
+  const base = facePlane ?? axisPlane(pf);
+  const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, alignSources, hand });
   if (snap.kind === null || snap.kind === "on-face") return { plane: base, fixed: !!facePlane, snap };   // 裸落（含「面上」）= 面锁成立
   // 首点被低维吸附赢走：面锁作废（延迟承诺），平面挂到解析点上
-  return { plane: pickByFacing(cam, axisPlanesThrough(snap.p)), fixed: false, snap };
+  return { plane: pickByFacing(pf, axisPlanesThrough(snap.p)), fixed: false, snap };
 }
 
 /** 薄壳（历史 API；语义=resolvePlane 第二点查询）。 */
 export function resolveRectPlane(
   k: Kernel,
-  cam: OrbitCamera,
+  pf: PointerFrame,
   vp: Viewport,
   p1: Pt3,
   sx: number,
@@ -739,6 +740,6 @@ export function resolveRectPlane(
 ): { plane: DrawPlane; snap: Snap3 } {
   // hand = 手中集（预演里新生的顶点/工具自报的移动集）：不传 = 矩形/线会吸到自己上一帧的角点（2026-09-06 user「一 snap 一 snap」真凶，
   // lab 时代就有、ε 放大后显形；线第二点当日改走本函数被拖下水）
-  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources, hand });
+  const r = resolvePlane(k, pf, vp, sx, sy, tolPx, { p1, alignSources, hand });
   return { plane: r.plane, snap: r.snap };
 }

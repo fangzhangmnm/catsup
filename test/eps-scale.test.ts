@@ -26,7 +26,7 @@ describe("eps-scale", () => {
       const corner = { x: 100, y: 60, z: 0 };
       for (const [h, want] of [[800, false], [1600, true]] as const) {
         const vp = { w: 1000, h };
-        const s = c.worldToScreen(corner, vp);
+        const s = c.angularPx(corner, vp);
         const tol = 8 * epsScale(vp);
         // 光标离端点的屏距固定 12px（顺着屏幕 x 方向），与视口高无关
         const sn = snapPoint(k, c, vp, s.x + 12, s.y, tol, { plane: GROUND, alignSources: [], hand });

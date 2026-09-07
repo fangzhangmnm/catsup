@@ -23,7 +23,7 @@ function scene(): { k: Kernel; c: OrbitCamera } {
 describe("on-face", () => {
   it("悬停在膜内（首点查询）→ on-face，点就是射线落点", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(50, 30), VP);
+    const s = c.angularPx(P(50, 30), VP);
     const plane = drawPlaneAt(k, c, VP, s.x, s.y);
     eq(plane.face, k.faces()[0].id);
     const sn = snapPoint(k, c, VP, s.x, s.y, 8, { plane, alignSources: [], hand });
@@ -33,7 +33,7 @@ describe("on-face", () => {
 
   it("同平面但在膜环外（地面空处）→ 轴系平面不带 face → null", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(-40, 30), VP);
+    const s = c.angularPx(P(-40, 30), VP);
     const plane = drawPlaneAt(k, c, VP, s.x, s.y);
     eq(plane.face, undefined);
     const sn = snapPoint(k, c, VP, s.x, s.y, 8, { plane, alignSources: [], hand });
@@ -42,14 +42,14 @@ describe("on-face", () => {
 
   it("GROUND 常量（无出身）永不报面上", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(50, 30), VP);
+    const s = c.angularPx(P(50, 30), VP);
     const sn = snapPoint(k, c, VP, s.x, s.y, 8, { plane: GROUND, alignSources: [], hand });
     eq(sn.kind, null);
   });
 
   it("低维目标仍优先：膜内靠近端点 → endpoint，不被面上抢走", () => {
     const { k, c } = scene();
-    const s = c.worldToScreen(P(100, 60), VP);
+    const s = c.angularPx(P(100, 60), VP);
     const plane = drawPlaneAt(k, c, VP, s.x + 3, s.y);
     const sn = snapPoint(k, c, VP, s.x + 3, s.y, 8, { plane, alignSources: [], hand });
     eq(sn.kind, "endpoint");
@@ -59,7 +59,7 @@ describe("on-face", () => {
     const { k, c } = scene();
     const p1 = P(0, 30);   // 左边上一点（不在轴线上避免 axis 抢先：用 y=31）
     const anchor = P(0, 31);
-    const inside = c.worldToScreen(P(40, 17), VP);
+    const inside = c.angularPx(P(40, 17), VP);
     const r1 = resolveRectPlane(k, c, VP, anchor, inside.x, inside.y, 8, [], NO_HAND);
     eq(r1.snap.kind, "on-face");
     void p1;

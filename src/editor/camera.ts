@@ -1,27 +1,28 @@
 // camera.ts —— 轨道相机：纯数学、零 three 依赖（用户拍板：3D 库模块解耦慢慢攒，相机独立）。
 // 世界约定：z 向上（SU 蓝轴）。渲染适配器（render3.ts）从这里读参数去配 three 的相机；
-// 拾取/求解（pick.ts / solver.ts）用这里的 worldToScreen / screenRay / viewDirAt——完全不经过 three。
+// 拾取/求解（pick.ts / solver.ts）用这里的 angularPx / ray / viewDir（PointerFrame 接口，A2 2026-09-07 改名射线语义）——完全不经过 three。
 //
 // 投影两制（2026-09-06 user「做 perspective camera 吧」，edited by Claude Fable 5.1）：
 //   - ortho：老样子，halfH = 正交半高（世界单位）。测试/探针全部默认此制，数值一字不改。
 //   - persp：halfH 语义不变 = **target 深度处**的视野半高；眼距 = halfH / tan(fov/2)。
 //     zoom 仍是「改 halfH」（等价于 dolly），pan 的 px→世界换算在 target 深度处与正交完全一致。
-//   对齐引擎的模型投影无关（snap-model §7 预留）：屏距 ε 走 worldToScreen，射线走 screenRay，
-//   遮挡走 viewDirAt(p)（正交=常向量，透视=p→眼）。
+//   对齐引擎的模型投影无关（snap-model §7 预留）：屏距 ε 走 angularPx，射线走 ray，
+//   遮挡走 viewDir(p)（正交=常向量，透视=p→眼）。
 //   **height + aspect 老 GL 约定**（user 2026-09-06）：相机只由「竖直量 + 视口宽高比」定义——透视=fovY（gluPerspective 的 fovy），
 //   正交=halfH；横向永远 = 竖直量 × aspect。吸附 ε 因此以视口高度为分母（solver.epsScale），≡ fovY 的角度分数。
 
 import type { Pt3 } from "../kernel/kernel.ts";
 import { add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
 
-export interface Viewport { w: number; h: number; }
+import type { PointerFrame, Ray, ScreenPt, Viewport } from "./pointer-frame.ts";
+export type { Viewport } from "./pointer-frame.ts";
 export type Projection = "ortho" | "persp";
 
 const WORLD_UP: Pt3 = { x: 0, y: 0, z: 1 };
 const EYE_DIST_ORTHO = 5000; // 正交下 eye 距离只影响 near/far 布置
 const NEAR_MIN = 0.5;        // 透视：眼前的点投影退化，near 之内一律钳到 near（不产生 NaN）
 
-export class OrbitCamera {
+export class OrbitCamera implements PointerFrame {
   target: Pt3 = { x: 0, y: 0, z: 0 };
   yaw = -Math.PI / 4;          // 绕 z
   pitch = Math.PI / 6;         // 从地平线抬头
@@ -43,8 +44,8 @@ export class OrbitCamera {
   right(): Pt3 { return normalize3(cross3(this.forward(), WORLD_UP)); }
   up(): Pt3 { return cross3(this.right(), this.forward()); }
 
-  /** 从 p 望向眼睛的单位方向（遮挡判定用；正交=eyeDir 常向量）。 */
-  viewDirAt(p: Pt3): Pt3 {
+  /** 从 p 望向眼睛的单位方向（遮挡判定用；正交=eyeDir 常向量）。PointerFrame.viewDir。 */
+  viewDir(p: Pt3): Pt3 {
     if (this.projection !== "persp") return this.eyeDir();
     return normalize3(sub3(this.eye(), p));
   }
@@ -73,8 +74,8 @@ export class OrbitCamera {
 
   halfW(vp: Viewport): number { return (this.halfH * vp.w) / vp.h; }
 
-  /** 世界 → 屏幕 px。透视：眼前 near 之内的点按 near 深度投影（有限值，不 NaN）。 */
-  worldToScreen(p: Pt3, vp: Viewport): { x: number; y: number } {
+  /** 世界 → 屏幕 px（PointerFrame.angularPx：桌面的角度尺就是屏幕）。透视：眼前 near 之内的点按 near 深度投影（有限值，不 NaN）。 */
+  angularPx(p: Pt3, vp: Viewport): ScreenPt {
     if (this.projection === "persp") {
       const rel = sub3(p, this.eye());
       const z = Math.max(dot3(rel, this.forward()), NEAR_MIN);
@@ -89,8 +90,8 @@ export class OrbitCamera {
     return { x: (sx * 0.5 + 0.5) * vp.w, y: (0.5 - sy * 0.5) * vp.h };
   }
 
-  /** 屏幕 px → 世界拾取射线（正交：方向恒为 forward；透视：过眼点的发散射线）。 */
-  screenRay(x: number, y: number, vp: Viewport): { origin: Pt3; dir: Pt3 } {
+  /** 屏幕 px → 世界拾取射线（PointerFrame.ray；正交：方向恒为 forward；透视：过眼点的发散射线）。 */
+  ray(x: number, y: number, vp: Viewport): Ray {
     if (this.projection === "persp") {
       const t = Math.tan(this.fovY / 2);
       const nx = ((x / vp.w) * 2 - 1) * t * (vp.w / vp.h);

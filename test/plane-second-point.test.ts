@@ -34,7 +34,7 @@ describe("plane-second-point", () => {
     const live = k.clone(); live.addEdges(rectSegments({ x: 0, y: 0 }, { x: 40, y: 25 }));
     const known = new Set(k.vertices().map((v) => v.id));
     const hand = { has: (vid: number) => !known.has(vid), opaque: false };
-    const near = c.worldToScreen(P(40, 25, 0), VP);
+    const near = c.angularPx(P(40, 25, 0), VP);
     const bad = resolveRectPlane(live, c, VP, p1, near.x + 6, near.y, 8, [], NO_HAND);           // 不传手中集 → 吸自己（6px < 端点 ε 10）
     const good = resolveRectPlane(live, c, VP, p1, near.x + 6, near.y, 8, [], hand);    // 传了 → 不吸
     assert(bad.snap.kind === "endpoint", `复现自吸：${bad.snap.kind}`);
@@ -44,7 +44,7 @@ describe("plane-second-point", () => {
   for (const proj of ["ortho", "persp"] as const) {
     it(`${proj}：光标在正面膜内 → faceUnderCursor 命中正面（法向 ±Y）`, () => {
       const k = box(); const c = frontCam(proj);
-      const s = c.worldToScreen(P(60, 0, 25), VP);
+      const s = c.angularPx(P(60, 0, 25), VP);
       const f = faceUnderCursor(k, c, VP, s.x, s.y);
       assert(f && Math.abs(f.plane.n.y) > 0.99, `hit=${JSON.stringify(f?.plane.n)}`);
     });
@@ -52,7 +52,7 @@ describe("plane-second-point", () => {
     it(`${proj}：锚点在正面底边、光标在正面膜内 → 平面=正面，解析点在正面上（不再躺地报「边上」）`, () => {
       const k = box(); const c = frontCam(proj);
       const p1 = P(40, 0, 0);                       // 底边上一点（正面与底面共享）
-      const s = c.worldToScreen(P(60, 0, 25), VP);  // 正面内部、不在任何轴线上
+      const s = c.angularPx(P(60, 0, 25), VP);  // 正面内部、不在任何轴线上
       const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, [], NO_HAND);
       assert(Math.abs(r.plane.plane.n.y) > 0.99, `plane n=${JSON.stringify(r.plane.plane.n)}`);
       assert(distToPlane(r.snap.p, r.plane.plane) < 1e-6, "解析点应在正面平面上");
@@ -63,7 +63,7 @@ describe("plane-second-point", () => {
     it(`${proj}：锚点在背面底边（不在正面平面上）、光标在正面膜内 → 正面不胜出，平面仍含锚点`, () => {
       const k = box(); const c = frontCam(proj);
       const p1 = P(40, 60, 0);
-      const s = c.worldToScreen(P(60, 0, 25), VP);
+      const s = c.angularPx(P(60, 0, 25), VP);
       const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, [], NO_HAND);
       assert(distToPlane(p1, r.plane.plane) < 1e-6, "平面必须含锚点");
       assert(Math.abs(distToPlane(P(60, 0, 25), r.plane.plane)) > 1 || Math.abs(r.plane.plane.n.y) < 0.99 || Math.abs(r.plane.plane.d - 60) < 1e-6, "正面(y=0)不得胜出");
@@ -72,7 +72,7 @@ describe("plane-second-point", () => {
     it(`${proj}：锚点在底边、光标在空中（无膜）→ 退回过锚点轴平面`, () => {
       const k = box(); const c = frontCam(proj);
       const p1 = P(40, 0, 0);
-      const s = c.worldToScreen(P(-80, 0, 30), VP);   // 盒子左侧空中
+      const s = c.angularPx(P(-80, 0, 30), VP);   // 盒子左侧空中
       const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, [], NO_HAND);
       assert(distToPlane(p1, r.plane.plane) < 1e-6, "平面必须含锚点");
       const n = r.plane.plane.n;
@@ -115,7 +115,7 @@ describe("plane-second-point: 侧面往下拖矩形吸底边（拖拽中的手�
       const k = boxOff(); const c = camOff(proj);
       const p1 = P(50, 20, 30);
       const { live, hand, plane } = liveAfterPreview(k, p1, 0);
-      const s = c.worldToScreen(P(70, 20, 0), VP);
+      const s = c.angularPx(P(70, 20, 0), VP);
       for (const dy of [-4, 0, 4]) {
         const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + dy, 8, [], hand);
         assert(r.snap.kind === "on-edge", `dy=${dy} kind=${r.snap.kind}`);
@@ -127,7 +127,7 @@ describe("plane-second-point: 侧面往下拖矩形吸底边（拖拽中的手�
       const k = boxOff(); const c = camOff(proj);
       const p1 = P(50, 20, 30);
       const { live, hand, plane } = liveAfterPreview(k, p1, 0);
-      const s = c.worldToScreen(P(70, 20, 0), VP);
+      const s = c.angularPx(P(70, 20, 0), VP);
       const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + 12, 8, [], hand);
       assert(Math.abs(r.plane.plane.n.y) > 0.99, `plane n=${JSON.stringify(r.plane.plane.n)}`);
       assert(distToPlane(r.snap.p, plane.plane) < 1e-6 && r.snap.p.z < 0, `解析点应在正面平面上、底边下方：${JSON.stringify(r.snap.p)}`);
@@ -137,7 +137,7 @@ describe("plane-second-point: 侧面往下拖矩形吸底边（拖拽中的手�
       const k = boxOff(); const c = camOff(proj);
       const p1 = P(50, 20, 30);
       const { live, hand, plane } = liveAfterPreview(k, p1, 3);   // 上一帧矩形底在 z=3（未触底边）
-      const sBack = c.worldToScreen(P(70, 80, 0), VP);             // 背面底边在屏上投影（落在正面剪影内）
+      const sBack = c.angularPx(P(70, 80, 0), VP);             // 背面底边在屏上投影（落在正面剪影内）
       const r = resolveRectPlane(live, c, VP, p1, sBack.x, sBack.y, 8, [], hand);
       assert(Math.abs(r.snap.p.y - 20) < 1e-6, `不该吸到背面（y=80）：kind=${r.snap.kind} p=${JSON.stringify(r.snap.p)}`);
       // 对照：老定义（触手膜全豁免）会让背面底边露出来
@@ -158,10 +158,10 @@ describe("plane-second-point: 角点起手拖到空地 → 水平面（黏性回
       k.pushPull(k.faces()[0].id, 40);
       const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 160; c.target = P(60, 50, 20);
       const p1 = P(110, 20, 40);                                     // 前右顶角：顶面 + 前墙 + 右墙共享
-      const sWall = c.worldToScreen(P(112, 20, 30), VP);             // 先擦一下前墙（含锚点）
+      const sWall = c.angularPx(P(112, 20, 30), VP);             // 先擦一下前墙（含锚点）
       const r0 = resolveRectPlane(k, c, VP, p1, sWall.x, sWall.y, 8, [], NO_HAND);
       assert(Math.abs(r0.plane.plane.n.y) > 0.99, `擦墙时平面=前墙：${JSON.stringify(r0.plane.plane.n)}`);
-      const sGround = c.worldToScreen(P(-40, -30, 0), VP);           // 再拖到远处空地
+      const sGround = c.angularPx(P(-40, -30, 0), VP);           // 再拖到远处空地
       const r1 = resolveRectPlane(k, c, VP, p1, sGround.x, sGround.y, 8, [], NO_HAND);
       assert(Math.abs(r1.plane.plane.n.z) > 0.99, `空地上平面应水平：n=${JSON.stringify(r1.plane.plane.n)}`);
       assert(Math.abs(r1.plane.plane.d - 40) < 1e-6 || Math.abs(r1.plane.plane.d + 40) < 1e-6, `应是过锚点的 z=40：d=${r1.plane.plane.d}`);

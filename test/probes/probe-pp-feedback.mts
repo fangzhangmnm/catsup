@@ -26,7 +26,7 @@ function run(label, mkScene, anchor, path, tremor){
   const stopsArr=[...stops].sort((a,b)=>a-b);
   let h=0, pv=null, prev="", seq=[], frame=0;
   for(const wpt of path){
-    const s0=cam.worldToScreen(wpt,VP);
+    const s0=cam.angularPx(wpt,VP);
     const s={x:s0.x+(tremor?(frame%2?0.6:-0.6):0), y:s0.y+(tremor?(frame%3?0.4:-0.5):0)};
     const wk=pv??k; const hNow=h;
     const excl=(vid)=> shell.has(vid) || (!known.has(vid) && Math.abs(dot3(sub3(wk.graph.pt(vid),anchor),n)-hNow)<0.01);
@@ -34,9 +34,9 @@ function run(label, mkScene, anchor, path, tremor){
     let kind, refh;
     if(sn.kind!==null){ h=dot3(sub3(sn.p,anchor),n); kind=sn.kind; }
     else{
-      const ray=cam.screenRay(s.x,s.y,VP); const q=closestOnAxis(anchor,n,ray.origin,ray.dir);
+      const ray=cam.ray(s.x,s.y,VP); const q=closestOnAxis(anchor,n,ray.origin,ray.dir);
       if(q) h=dot3(sub3(q,anchor),n);
-      const sc0=cam.worldToScreen(anchor,VP), sc1=cam.worldToScreen(add3(anchor,n),VP);
+      const sc0=cam.angularPx(anchor,VP), sc1=cam.angularPx(add3(anchor,n),VP);
       const ppu=Math.max(Math.hypot(sc1.x-sc0.x,sc1.y-sc0.y),0.5), epsH=7/ppu;
       let best=null; for(const st of stopsArr) if(Math.abs(st-h)<=epsH&&(best===null||Math.abs(st-h)<Math.abs(best-h))) best=st;
       if(best!==null){ h=best; kind="h-stop"; } else kind="(slide)";

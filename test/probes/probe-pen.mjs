@@ -10,7 +10,7 @@ await page.evaluate(() => globalThis.__catsup.editor.applyPreset("日字"));
 await page.keyboard.press("l");
 const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor; const vp = e.vp(); const c = document.getElementById("board"); const r = c.getBoundingClientRect();
-  const pts = e.kernel.vertices().map((v) => e.cam.worldToScreen(v, vp));
+  const pts = e.kernel.vertices().map((v) => e.cam.angularPx(v, vp));
   const fire = (type, x, y, extra) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, pointerId: extra.pointerId ?? 7, pointerType: extra.pointerType, isPrimary: true, button: extra.button ?? -1, buttons: extra.buttons ?? 0, pressure: extra.pressure ?? 0 }));
   const tip = () => { const t = document.getElementById("tip"); return t.hidden ? "-" : t.textContent; };
   const out = {};
