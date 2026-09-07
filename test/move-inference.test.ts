@@ -3,7 +3,7 @@
 import { describe, it, assert, eq } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { OrbitCamera } from "../src/editor/camera.ts";
-import { GROUND, NO_HAND, grazing, inferAxisByDirection, resolvePlane } from "../src/editor/pick.ts";
+import { GROUND, NO_HAND, grazing, inferAxisByDirection, resolvePlane, resolveRectPlane } from "../src/editor/pick.ts";
 
 const VP = { w: 800, h: 800 };
 const near = (a: number, b: number, t = 1e-6): boolean => Math.abs(a - b) <= t;
@@ -54,5 +54,19 @@ describe("线第二点：首点在地面 → 兜底黏地面（不随指针俯�
     const without = resolvePlane(k, c, VP, far.x, far.y, 8, { p1, hand: NO_HAND });
     // 记录现状（不断言其错）：低俯仰下 pickByFacing 挑的是竖直面，点离地 → 这就是「画线突然跳到空中」
     assert(Math.abs(without.plane.plane.n.z) < 0.5 || near(without.snap.p.z, 0, 1e-6), `sanity: ${JSON.stringify(without.plane.plane.n)}`);
+  });
+});
+
+describe("轴线候选：与射线近平行的不参赛（朝北看 Y/Z 并列案）", () => {
+  it("站在南边看北墙，墙脚起笔、光标在墙顶上方偏 2 px：Z 轴对齐胜出，点不飞", () => {
+    const k = new Kernel();
+    const P = (x: number, y: number, z = 0) => ({ x, y, z });
+    k.addEdges([[P(0, 0), P(2, 0)], [P(2, 0), P(2, 2)], [P(2, 2), P(0, 2)], [P(0, 2), P(0, 0)]]);
+    k.pushPull(k.faces()[0].id, 1.5);
+    const c = new OrbitCamera(); c.projection = "persp"; c.yaw = -Math.PI / 2; c.pitch = 0.15; c.halfH = 2; c.target = { x: 1, y: 0, z: 0.75 };
+    const p1 = { x: 1, y: 0, z: 0 };
+    const above = c.angularPx({ x: 1, y: 0, z: 1.8 }, VP);
+    const r = resolveRectPlane(k, c, VP, p1, above.x + 2, above.y, 8, undefined, NO_HAND, GROUND);
+    assert(r.snap.kind === "axis-z" && near(r.snap.p.x, 1, 1e-6) && near(r.snap.p.y, 0, 1e-6) && r.snap.p.z > 1.5, `snap=${JSON.stringify(r.snap)}`);
   });
 });

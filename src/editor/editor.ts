@@ -12,7 +12,7 @@ import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/k
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
-import { frameEps } from "./solver.ts";
+import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
@@ -29,6 +29,8 @@ export interface ToolPointer {
   x: number; y: number;
   clientX: number; clientY: number;
   pointerType: string;
+  /** 允许「点两下」模式（第一击是点击不是拖 → 移动预览再点放置）：桌面鼠标 = true；数位笔/手指/VR = false（误触发意外连线）。由适配器裁决。 */
+  armable?: boolean;
   shiftKey: boolean;
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。VR 的光标坐标恒为名义正中，所以由帧另算（射线转角）；缺省 = 屏距 downScreen。 */
   travel?: number;
@@ -50,9 +52,7 @@ export interface EditorHost {
   error?(err: unknown, where: string): void;
 }
 
-// px 常量按 800px 高视口标定；运行时 × epsScale(vp)（= 视口高度分数 ≡ 角度分数，见 solver.ts）
-const SNAP = 8;
-const HIT = 6;
+// 容差单位 = fovY 的 1/800（桌面）/ 度（VR），全部经 eps() 取本帧容差集（solver.frameEps）；不再有裸 px 常量
 /** VR 帧的磁滞容差按吸附种类取帧自己的角度常量。 */
 function epsOfKindVR(e: EpsSet, kind: string): number {
   if (kind === "on-edge") return e.edge;
@@ -171,7 +171,7 @@ export class Editor {
   // 纪律：凡 this.frame().ray/distTo/... 一律配 fvp()（指针帧的量纲视口），vp() 只给 canvas/渲染/相机 fit/框选用——
   // 2026-09-07 VR 真机通天柱案：推拉自由拖路径把 canvas 尺寸喂给 800×800 虚拟屏的 (400,400) 光标，VR 里射线整个斜掉。
   /** 本帧容差集（A17）：桌面 px（SNAP·vp.h/800 等比）/ VR 度（帧自带）。 */
-  private eps(): EpsSet { return frameEps(this.frame(), this.fvp(), (SNAP * this.fvp().h) / 800); }
+  private eps(): EpsSet { return frameEps(this.frame(), this.fvp(), (SNAP_PX * this.fvp().h) / 800); }
   private snapPx(): number { return this.eps().snap; }
   private hitPx(): number { return this.eps().hit; }
 
@@ -579,7 +579,7 @@ export class Editor {
         this.anchor3 = this.snapInfo!.p;
         this.cursor3 = this.anchor3;
         this.armed = false;
-        this.canArm = ev.pointerType === "mouse";
+        this.canArm = !!ev.armable;
         this.downScreen = { x: s.x, y: s.y };
         break;
       }
@@ -616,7 +616,7 @@ export class Editor {
           this.cursor3 = this.anchor3;
           this.ppH = 0;
           this.armed = false;
-          this.canArm = ev.pointerType === "mouse";
+          this.canArm = !!ev.armable;
           this.downScreen = { x: s.x, y: s.y };
           this.host.hint("推拉中：沿法向拖或点两下落定（所见即所得；吸点线=取其高度）");
         }
@@ -643,7 +643,7 @@ export class Editor {
           // 光标离开它还黏着、射线擦过它就甩到无穷远——user 2026-09-07）
           this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
           this.armed = false;
-          this.canArm = ev.pointerType === "mouse";
+          this.canArm = !!ev.armable;
           this.downScreen = { x: s.x, y: s.y };
           this.host.hint(hasSel ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得）");
         }

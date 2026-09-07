@@ -37,6 +37,8 @@ export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConT
 
 export const RANK = { endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 } as const;
 export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;
+/** 取点基准容差 / 实体拾取容差（单位同 EPS：fovY 的 1/800；编辑器与 frameEps 共用这一份）。 */
+export const SNAP_PX = 8, HIT_PX = 6;
 /** 第二点平面「近擦」容差（CSS px @800 高）：光标离含锚点膜的剪影这么近 = 仍算在那张膜上（滑出底边不翻面）。 */
 export const PLANE_NEAR_PX = 24;   // line 5→3.5：「点松线紧」试验（user 2026-09-07「可以试试」；B6）
 /**
@@ -46,6 +48,10 @@ export const PLANE_NEAR_PX = 24;   // line 5→3.5：「点松线紧」试验（
  * 宽屏/竖屏只看高度（aspect 只管横向裁剪）。测试/探针全用 h=800，数值一字不变。VR 把射线周围的角度空间
  * 当 800 px 高的虚拟屏即可复用。
  */
+/** 1-D 轨迹与指针射线近平行（夹角 < 10°）→ 公垂点病态（射线每动 1° 点飞 1/sin ≈ 6×），该轨迹不参赛。
+ *  2026-09-08 user「小屋子的侧面上画线的时候 z 轴对齐不见了」：朝北看时 Y 轴线与 Z 轴线在视线里重合、并列取 Y、点飞到 18 m 外。单位：度。 */
+export const RAY_PARALLEL_DEG = 10;
+const RAY_PARALLEL_COS = Math.cos((RAY_PARALLEL_DEG * Math.PI) / 180);
 export const REF_VP_H = 800;
 export const epsScale = (vp: Viewport): number => vp.h / REF_VP_H;
 /**
@@ -55,8 +61,8 @@ export const epsScale = (vp: Viewport): number => vp.h / REF_VP_H;
 export function frameEps(pf: PointerFrame, vp: Viewport, tolPx: number): EpsSet {
   const own = pf.eps?.(vp);
   if (own) return own;
-  const k = tolPx / 8;
-  return { point: EPS.point * k, edge: EPS.edge * k, line: EPS.line * k, combo: EPS.combo * k, hit: 6 * k, snap: 8 * k, planeNear: PLANE_NEAR_PX * epsScale(vp), tap: 4, drag: 16 * epsScale(vp) };
+  const k = tolPx / SNAP_PX;
+  return { point: EPS.point * k, edge: EPS.edge * k, line: EPS.line * k, combo: EPS.combo * k, hit: HIT_PX * k, snap: SNAP_PX * k, planeNear: PLANE_NEAR_PX * epsScale(vp), tap: 4, drag: 16 * epsScale(vp) };
 }
 const GAP_WORLD = 1e-5;
 
@@ -111,6 +117,7 @@ export function solvePoint(
     } else if (L.dim === 1) {
       const d = lineScreenDist(L.a, L.dir, L.len);
       if (d > c.eps) continue;
+      if (Math.abs(dot3(L.dir, ray.dir)) > RAY_PARALLEL_COS) continue;   // 近平行：解病态，不参赛
       const q = closestOnAxis(L.a, L.dir, ray.origin, ray.dir);
       if (!q) continue;
       let t = dot3(sub3(q, L.a), L.dir);
