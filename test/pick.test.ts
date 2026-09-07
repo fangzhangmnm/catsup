@@ -192,23 +192,3 @@ describe("pickFace: 细面（屏上几像素宽）推拉/删面拾得到", () =>
     assert(Math.abs(rec.plane.n.z) > 0.99 && Math.abs(Math.abs(rec.plane.d) - 40) < 1e-6, `应是 z=40 的墙顶：n=${JSON.stringify(rec.plane.n)} d=${rec.plane.d}`);
   });
 });
-
-// 2026-09-07 user「v0.3.2 橡皮也会碰到 innocent 的背面边」——拖擦预演里前面的膜死了，背后的边露出来被继续擦到。
-describe("pickEntity(occluder): 橡皮拖擦以手势开始时的世界遮挡", () => {
-  it("擦掉前顶边后（预演里正面膜已死）：以 checkpoint 遮挡 → 背底边仍不可拾；以 live 遮挡 → 会露出来（对照）", () => {
-    const k = new Kernel();
-    k.addEdges(rectSegments({ x: 10, y: 20 }, { x: 110, y: 80 }));
-    k.pushPull(k.faces()[0].id, 40);
-    const c = new OrbitCamera(); c.projection = "persp"; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = { x: 60, y: 50, z: 20 };
-    const VP2 = { w: 1000, h: 800 };
-    const frontTop = k.edges().find((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return a.y === 20 && b.y === 20 && a.z === 40 && b.z === 40; })!;
-    const live = k.clone();
-    live.eraseEdges([frontTop.id]);                                    // 预演：正面膜随之死
-    assert(live.faces().length < k.faces().length, "预演里正面膜应已死");
-    const s = c.worldToScreen({ x: 60, y: 80, z: 0 }, VP2);            // 背底边中点
-    const guarded = pickEntity(live, c, VP2, s.x, s.y, 6, k);
-    assert(guarded.edge === undefined, `以 checkpoint 遮挡不该拾到背底边：${JSON.stringify(guarded)}`);
-    const naive = pickEntity(live, c, VP2, s.x, s.y, 6);
-    assert(naive.edge !== undefined, `对照：以 live 遮挡会露出背底边：${JSON.stringify(naive)}`);
-  });
-});

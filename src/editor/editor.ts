@@ -362,9 +362,6 @@ export class Editor {
       // 不触发共面重合（planarize 合并+OR 打架=合并/破膜垃圾态，user 截图 2026-09-03）；commit 用精确 h 全 XOR。
       const h = this.ppH - Math.sign(this.ppH) * 2e-6;
       run((c) => c.pushPull(fid, h, { settleLanding: false }));
-    } else if (tool === "erase" && this.scrubbing && this.scrubAcc.size) {
-      const ids = [...this.scrubAcc];
-      run((c) => c.eraseEdges(ids));
     } else if (tool === "eraseFace" && this.hoverFace !== null) {
       const id = this.hoverFace;
       run((c) => c.eraseFaces([id]));
@@ -543,7 +540,7 @@ export class Editor {
         this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand() }), s.x, s.y);
         this.trackCharge(this.snapInfo);
       } else if (tool === "erase") {
-        this.hoverEdge = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx(), this.checkpoint).edge ?? null;
+        this.hoverEdge = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx()).edge ?? null;
       } else if (tool === "eraseFace") {
         this.hoverFace = pickFace(this.liveWorld(), this.cam, this.vp(), s.x, s.y) ?? null;
         this.computeLive();
@@ -575,8 +572,9 @@ export class Editor {
         }
         break;
       case "erase": {
-        // 遮挡以手势开始时的世界为准：预演里死掉的膜不能把背后 innocent 的边露出来（user 2026-09-07）
-        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx(), this.checkpoint);
+        // 橡皮不预演（user 2026-09-07「橡皮不应该是预演，而是一个静态上面选择，松的时候才删」= SU 同款）：
+        // 拖擦只在现实世界上高亮（scrubEdges→edgeHot），松手一次结算；顺带根治「预演里膜死了露出背面 innocent 边」。
+        const hit = pickEntity(this.liveWorld(), this.cam, this.vp(), s.x, s.y, this.hitPx());
         if (hit.edge !== undefined) this.scrubAcc.add(hit.edge);
         break;
       }
