@@ -62,6 +62,8 @@
 
 制图模式跑肥皂膜内核（平面 arrangement）；有机模式是任意非平面多边形网格，**不是同一个内核**（半边网格 vs 平面图）。合理的落点：component 有 **type**（Blender 用词；softfilm | mesh | reference-plane | light…），Tab 进的编辑模式 = 该 type 的动词集 + 内核。动词注册表按模式分组即可，现在做动词插件化时留一个 mode 维度就够，不用现在实现第二个内核。
 
+**user 2026-09-07 拍板（edited by Claude Fable 5.1）**：地形（Cliff Maker 式 lowpoly texture-based landscape）**是一个单独的 type，不是 Blender 式的编辑动词**——type 列表将来多一项 terrain，自带内核与动词集；愿望单条目与参考物事实见总账 E14，唤起点 = 地形地编开工（预计插件纪元）。
+
 ### 3.6 OBJ / glTF 逃生口
 
 OBJ 现状 = 特例逃生口，不是正式导出，`obj-io.ts` 头注释已如此写。glTF 导出若要「现在就有」，可 vendor three 的 GLTFExporter 走 render3 侧（三角汤够用）；正式的 glTF 读写等黄金格式拍板后自写，不走 three。
