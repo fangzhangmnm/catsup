@@ -48,6 +48,7 @@
 - **component = object = definition + instances**；instance = transform + reference + override，= ECS entity 形状（drill ④）。component 引用 component = definition 的 DAG，深度有限。这是文档里唯一的「图」，glTF node 树能扁平地装（scene = instance 列表，嵌套 component = 子 node）；不需要引入「空节点当容器、逻辑挂节点」那套 scenegraph 用法。
 - **group = 同一 mesh 上的编辑时上下文**：立宪页 A3「重合即同一」的 context 槽——同一顶点/边池，group 只改变「谁和谁粘」的判定域，外加一个对齐用的局部轴系。**group 的变换烘进顶点坐标**，不是 node transform（否则就成了 object）；渲染看不见 group。（曾疑与 drill L83「每个 sticky-domain 一个独立的共享 vertex/edge 池」有张力；user 澄清 L83 说的是物化/渲染层的 VBO，不是数据定义——张力撤销。三种表示各管各的：**数据定义** = 一个 mesh + context 标签 + component 实例〔唯一契约〕；**运行时** = 内核里的图/平面注册/带 context 的膜；**渲染物化** = 每实例一个 VBO 的三角汤。只有第一种要扛朝令夕改。）
 - 一个推论要 user 确认：group 内几何被 move 时，group 边界是 sticky 判定的墙（外面的顶点不跟），但**平面注册表/面识别仍在同一世界坐标里跑**——这正是「group 不是 object」的可测含义。
+- **2026-09-07 追认（edited by Claude Fable 5.1）**：user 问「group 变换烘进顶点坐标：也许 group 就不带 axis 的语义，sketchup 是这样的吗？只有 component 才带？…redefine axis 是一个很重要的操作，group 应该需要，不应该为了 axis 用 component」。SU 事实：group 也有自己的轴/变换（进组可 Change Axes；SU 内部 group = 单实例 component）。定形（user 原话拍板「**group 存轴，顶点存 component 坐标：同意**」）：**group = 轴框（原点+正交基，纯编辑语义：枢轴 / 进组编辑时推断轴随组轴 / redefine axis 只改轴框顶点不动）+ 顶点仍存世界坐标（烘进，渲染看不见 group）；component = definition 空间坐标（顶点存在定义的局部系里）+ instance 变换**。旋转 group = 顶点转 + 轴框转。
 
 ### 3.3 渲染切口 = 引擎，不抽象 three
 

@@ -339,11 +339,18 @@ export class Editor {
       this.live = c;
     };
     const tool = this._tool;
+    let dims = "";   // 拖拽中的尺寸读数（user 2026-09-07「推拉矩形的时候要显示长度」；推拉的 h 在 ppTrack 里）
     if (tool === "line" && this.anchor3 && this.cursor3) {
       const a = this.anchor3, b = this.cursor3;
+      dims = `长 ${fmtLen(dist(a, b))}`;
       if (dist(a, b) >= 1) run((c) => c.addEdges([[a, b]]));
     } else if (tool === "rect" && this.anchor3 && this.cursor3) {
-      const segs = rectSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3);
+      const { plane, basis } = this.gesturePlane;
+      const segs = rectSegmentsOnPlane(plane, basis, this.anchor3, this.cursor3);
+      const d = sub3(this.cursor3, this.anchor3);
+      const du = d.x * basis.u.x + d.y * basis.u.y + d.z * basis.u.z;
+      const dv = d.x * basis.v.x + d.y * basis.v.y + d.z * basis.v.z;
+      dims = `矩形 ${fmtLen(Math.abs(du))} × ${fmtLen(Math.abs(dv))}`;
       if (segs.length) run((c) => c.addEdges(segs));
     } else if (tool === "move" && this.moveVids.length && this.anchor3 && this.cursor3) {
       const delta = sub3(this.cursor3, this.anchor3);
@@ -362,8 +369,9 @@ export class Editor {
       const id = this.hoverFace;
       run((c) => c.eraseFaces([id]));
     }
-    if (this.live) {
-      this.host.hint(this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化");
+    if (this.live || dims) {
+      const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
+      this.host.hint([dims, ev].filter(Boolean).join(" ｜ "));
     }
   }
 
