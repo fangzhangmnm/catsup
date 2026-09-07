@@ -174,6 +174,8 @@ export function solvePoint(
 /** 手中集：拖拽中属于「手」的顶点谓词 + 手中膜的遮挡性（pp=opaque：光标在帽上背后无目标=SU 连续；
  *  move=transparent：落点必须可见）。触手膜/触手边/由它们派生的目标一律不参赛。 */
 export interface AlignHand { has(vid: VertexId): boolean; opaque: boolean; }
+/** 「空手」：没有任何手中集（首点查询、无手势的悬停、测试）。**必须显式表态**，不许省略——省略就是 2026-09-06「一 snap 一 snap」自吸事故的根。 */
+export const NO_HAND: AlignHand = { has: () => false, opaque: false };
 /** 对齐查询（2026-09-03 整改收敛：exclude/skipFace/hiddenOverride/occluder/axes 五补丁参数退役）。
  *  世界 W 只有一个 = 调用方的现实（壳的 liveWorld()；旧 snapshot 结构性禁入——snap-model SSoT 立法节）。 */
 export interface AlignQuery {
@@ -181,7 +183,7 @@ export interface AlignQuery {
   anchor?: Pt3 | null;                     // 轴线源
   alignSources?: readonly Pt3[] | null;    // 充能源
   lines?: boolean;                         // false = 不注册轴/共轴 1-D 线（pp：不吸 xyz 轴）
-  hand?: AlignHand | null;
+  hand: AlignHand;                         // 手中集，**必填**（表态制：空手写 NO_HAND）——对齐引擎永远不吸手里的东西
 }
 export interface SnapContext {
   k: Kernel;
@@ -606,26 +608,26 @@ export function resolvePlane(
   sx: number,
   sy: number,
   tolPx: number,
-  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null },
+  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand },
 ): { plane: DrawPlane; fixed: boolean; snap: Snap3 } {
-  const { p1, facePlane, alignSources } = opts;
+  const { p1, facePlane, alignSources, hand } = opts;
   if (p1) {
     // 含点（膜）：光标射线命中的膜若也含锚点 → 该膜平面胜出（SU：从共享边拖进哪张面，矩形/线就躺哪张面）。
     // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
     // 此前第二点只在过锚点的三个轴平面里挑且先按俯视偏置取地面，光标穿过侧面落到地面底边附近 → 永远「边上」。
     const under = faceUnderCursor(k, cam, vp, sx, sy);
     if (under && distToPlane(p1, under.plane) <= 1e-3) {
-      const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources });
+      const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand });
       return { plane: under, fixed: false, snap };
     }
     const candidates = axisPlanesThrough(p1);
     const base = pickByFacing(cam, candidates);
-    const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources });
+    const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand });
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
     return { plane: containing.length ? pickByFacing(cam, containing) : base, fixed: false, snap };
   }
   const base = facePlane ?? axisPlane(cam);
-  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, alignSources });
+  const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, alignSources, hand });
   if (snap.kind === null || snap.kind === "on-face") return { plane: base, fixed: !!facePlane, snap };   // 裸落（含「面上」）= 面锁成立
   // 首点被低维吸附赢走：面锁作废（延迟承诺），平面挂到解析点上
   return { plane: pickByFacing(cam, axisPlanesThrough(snap.p)), fixed: false, snap };
@@ -640,8 +642,11 @@ export function resolveRectPlane(
   sx: number,
   sy: number,
   tolPx: number,
-  alignSources?: readonly Pt3[],
+  alignSources: readonly Pt3[] | undefined,
+  hand: AlignHand,
 ): { plane: DrawPlane; snap: Snap3 } {
-  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources });
+  // hand = 手中集（预演里新生的顶点/工具自报的移动集）：不传 = 矩形/线会吸到自己上一帧的角点（2026-09-06 user「一 snap 一 snap」真凶，
+  // lab 时代就有、ε 放大后显形；线第二点当日改走本函数被拖下水）
+  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources, hand });
   return { plane: r.plane, snap: r.snap };
 }

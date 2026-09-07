@@ -4,7 +4,7 @@ import { describe, it, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera } from "../src/editor/camera.ts";
-import { resolveRectPlane, faceUnderCursor } from "../src/editor/solver.ts";
+import { resolveRectPlane, faceUnderCursor, NO_HAND } from "../src/editor/solver.ts";
 import { rectSegments } from "../src/editor/tools.ts";
 import { dist3, distToPlane } from "../src/kernel/geom.ts";
 
@@ -26,6 +26,21 @@ function frontCam(proj: "ortho" | "persp"): OrbitCamera {
 }
 
 describe("plane-second-point", () => {
+  it("矩形第二点不吸自己：预演里新生的角点在手中集，光标停在上一帧角点旁 6px 不报 endpoint（一 snap 一 snap 真凶）", () => {
+    const k = new Kernel();
+    const c = frontCam("persp"); c.setView("top"); c.target = P(50, 30, 0); c.halfH = 100;
+    const p1 = P(0, 0, 0);
+    // 预演：把上一帧的矩形画进影子副本（新生 4 顶点），手中集 = 不在 checkpoint（空核）里的顶点 = 全部
+    const live = k.clone(); live.addEdges(rectSegments({ x: 0, y: 0 }, { x: 40, y: 25 }));
+    const known = new Set(k.vertices().map((v) => v.id));
+    const hand = { has: (vid: number) => !known.has(vid), opaque: false };
+    const near = c.worldToScreen(P(40, 25, 0), VP);
+    const bad = resolveRectPlane(live, c, VP, p1, near.x + 6, near.y, 8, [], NO_HAND);           // 不传手中集 → 吸自己（6px < 端点 ε 10）
+    const good = resolveRectPlane(live, c, VP, p1, near.x + 6, near.y, 8, [], hand);    // 传了 → 不吸
+    assert(bad.snap.kind === "endpoint", `复现自吸：${bad.snap.kind}`);
+    assert(good.snap.kind !== "endpoint" && good.snap.kind !== "on-edge", `仍在吸自己：${good.snap.kind}`);
+  });
+
   for (const proj of ["ortho", "persp"] as const) {
     it(`${proj}：光标在正面膜内 → faceUnderCursor 命中正面（法向 ±Y）`, () => {
       const k = box(); const c = frontCam(proj);
@@ -38,7 +53,7 @@ describe("plane-second-point", () => {
       const k = box(); const c = frontCam(proj);
       const p1 = P(40, 0, 0);                       // 底边上一点（正面与底面共享）
       const s = c.worldToScreen(P(60, 0, 25), VP);  // 正面内部、不在任何轴线上
-      const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, []);
+      const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, [], NO_HAND);
       assert(Math.abs(r.plane.plane.n.y) > 0.99, `plane n=${JSON.stringify(r.plane.plane.n)}`);
       assert(distToPlane(r.snap.p, r.plane.plane) < 1e-6, "解析点应在正面平面上");
       assert(dist3(r.snap.p, P(60, 0, 25)) < 1e-6, `解析点 ${JSON.stringify(r.snap.p)}`);
@@ -49,7 +64,7 @@ describe("plane-second-point", () => {
       const k = box(); const c = frontCam(proj);
       const p1 = P(40, 60, 0);
       const s = c.worldToScreen(P(60, 0, 25), VP);
-      const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, []);
+      const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, [], NO_HAND);
       assert(distToPlane(p1, r.plane.plane) < 1e-6, "平面必须含锚点");
       assert(Math.abs(distToPlane(P(60, 0, 25), r.plane.plane)) > 1 || Math.abs(r.plane.plane.n.y) < 0.99 || Math.abs(r.plane.plane.d - 60) < 1e-6, "正面(y=0)不得胜出");
     });
@@ -58,7 +73,7 @@ describe("plane-second-point", () => {
       const k = box(); const c = frontCam(proj);
       const p1 = P(40, 0, 0);
       const s = c.worldToScreen(P(-80, 0, 30), VP);   // 盒子左侧空中
-      const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, []);
+      const r = resolveRectPlane(k, c, VP, p1, s.x, s.y, 8, [], NO_HAND);
       assert(distToPlane(p1, r.plane.plane) < 1e-6, "平面必须含锚点");
       const n = r.plane.plane.n;
       assert([Math.abs(n.x), Math.abs(n.y), Math.abs(n.z)].some((v) => v > 0.999), "应是轴向平面");

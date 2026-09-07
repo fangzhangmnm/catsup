@@ -4,7 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera, rayPlane } from "../src/editor/camera.ts";
-import { GROUND, marqueeScreen, pickEntity, snapPoint } from "../src/editor/pick.ts";
+import { GROUND, marqueeScreen, pickEntity, snapPoint, NO_HAND } from "../src/editor/pick.ts";
 import { rectSegments } from "../src/editor/tools.ts";
 import { dist3 } from "../src/kernel/geom.ts";
 
@@ -74,7 +74,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
   it("endpoint 吸附", () => {
     const { k, c } = scene();
     const s = c.worldToScreen(P(0, 0), VP);
-    const r = snapPoint(k, c, VP, s.x + 3, s.y + 2, 8, { plane: GROUND });
+    const r = snapPoint(k, c, VP, s.x + 3, s.y + 2, 8, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, "endpoint", "endpoint");
     assert(dist3(r.p, P(0, 0)) < 1e-9, "吸到角点");
   });
@@ -82,7 +82,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
   it("midpoint 吸附", () => {
     const { k, c } = scene();
     const s = c.worldToScreen(P(5, 0), VP);
-    const r = snapPoint(k, c, VP, s.x + 2, s.y + 2, 6, { plane: GROUND });
+    const r = snapPoint(k, c, VP, s.x + 2, s.y + 2, 6, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, "midpoint", "midpoint");
     assert(dist3(r.p, P(5, 0)) < 1e-9, "吸到边中点");
   });
@@ -90,7 +90,7 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
   it("on-edge 吸附（点落在 3D 边上）", () => {
     const { k, c } = scene();
     const s = c.worldToScreen(P(3, 0), VP);
-    const r = snapPoint(k, c, VP, s.x, s.y + 2, 5, { plane: GROUND });
+    const r = snapPoint(k, c, VP, s.x, s.y + 2, 5, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, "on-edge", "on-edge");
     assert(Math.abs(r.p.y) < 1e-9 && Math.abs(r.p.z) < 1e-9, "在底边上");
     assert(Math.abs(r.p.x - 3) < 0.2, "x≈3");
@@ -100,17 +100,17 @@ describe("pick: 吸附（endpoint > midpoint > on-edge > axis > 平面）", () =
     const { k, c } = scene();
     const anchor = P(20, 20, 0); // 远离几何，避免撞 endpoint/edge 吸附
     const sAim = c.worldToScreen(P(30, 20.2, 0), VP); // 几乎沿 +X
-    const r = snapPoint(k, c, VP, sAim.x, sAim.y, 8, { plane: GROUND, anchor: anchor });
+    const r = snapPoint(k, c, VP, sAim.x, sAim.y, 8, { hand: NO_HAND, plane: GROUND, anchor: anchor });
     eq(r.kind, "axis-x", "锁 X 轴");
     assert(Math.abs(r.p.y - 20) < 1e-6 && Math.abs(r.p.z) < 1e-6, "仍在 y=20、地面上");
-    const r2 = snapPoint(k, c, VP, sAim.x, sAim.y, 8, { plane: GROUND });
+    const r2 = snapPoint(k, c, VP, sAim.x, sAim.y, 8, { hand: NO_HAND, plane: GROUND });
     assert(r2.kind === null, "无 anchor 落平面");
   });
 
   it("落到画线平面（无任何吸附时）", () => {
     const { k, c } = scene();
     const s = c.worldToScreen(P(30, 30, 0), VP);
-    const r = snapPoint(k, c, VP, s.x, s.y, 6, { plane: GROUND });
+    const r = snapPoint(k, c, VP, s.x, s.y, 6, { hand: NO_HAND, plane: GROUND });
     eq(r.kind, null, "无吸附");
     assert(Math.abs(r.p.z) < 1e-9, "在地面上");
     assert(dist3(r.p, P(30, 30, 0)) < 1e-6, "就是指的那个点");

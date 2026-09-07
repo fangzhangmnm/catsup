@@ -4,7 +4,7 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera } from "../src/editor/camera.ts";
-import { GROUND, drawPlaneAt, snapPoint } from "../src/editor/pick.ts";
+import { GROUND, drawPlaneAt, snapPoint, NO_HAND } from "../src/editor/pick.ts";
 import { resolveRectPlane } from "../src/editor/solver.ts";
 import { rectSegments } from "../src/editor/tools.ts";
 
@@ -60,7 +60,7 @@ describe("on-face", () => {
     const p1 = P(0, 30);   // 左边上一点（不在轴线上避免 axis 抢先：用 y=31）
     const anchor = P(0, 31);
     const inside = c.worldToScreen(P(40, 17), VP);
-    const r1 = resolveRectPlane(k, c, VP, anchor, inside.x, inside.y, 8, []);
+    const r1 = resolveRectPlane(k, c, VP, anchor, inside.x, inside.y, 8, [], NO_HAND);
     eq(r1.snap.kind, "on-face");
     void p1;
   });

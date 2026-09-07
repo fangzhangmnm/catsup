@@ -17,10 +17,10 @@ import {
   sub3,
 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
-import { type DrawPlane, type Snap3, resolvePlane } from "./solver.ts";
+import { type DrawPlane, type Snap3, NO_HAND, resolvePlane } from "./solver.ts";
 
 // 兼容 re-export（调用方历史入口；新码请直接 import solver）
-export { type AlignHand, type AlignQuery, type DrawPlane, type Snap3, type SnapHint, type SnapKind, axisPlane, cameraPlane, resolvePlane, resolveRectPlane, snapPoint } from "./solver.ts";
+export { type AlignHand, type AlignQuery, type DrawPlane, type Snap3, type SnapHint, type SnapKind, NO_HAND, axisPlane, cameraPlane, resolvePlane, resolveRectPlane, snapPoint } from "./solver.ts";
 
 export const GROUND: DrawPlane = (() => {
   const plane = canonicalPlane({ x: 0, y: 0, z: 1 }, 0);
@@ -101,7 +101,7 @@ export function rectFirstPlane(
     const rec = k.planeOf(hit.face)!;
     facePlane = { plane: rec.plane, basis: rec.basis, face: hit.face };
   }
-  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { facePlane, alignSources });
+  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { facePlane, alignSources, hand: NO_HAND });   // 首点：还没有手
   return { fixed: r.fixed ? r.plane : null, plane: r.plane, snap: r.snap };
 }
 
