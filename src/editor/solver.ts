@@ -15,7 +15,7 @@ import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
-import type { PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
+import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
@@ -48,6 +48,16 @@ export const PLANE_NEAR_PX = 24;   // line 5→3.5：「点松线紧」试验（
  */
 export const REF_VP_H = 800;
 export const epsScale = (vp: Viewport): number => vp.h / REF_VP_H;
+/**
+ * 本帧的容差集（A17）：帧自带 eps → 用它（VR：度常量，独立）；否则桌面 = EPS × (tolPx/8)，单位 = fovY 的 1/800（tolPx = SNAP·vp.h/800，
+ * 即等比 epsScale——数值与旧「scale = tolPx/8」路径逐字相同）。planeNear/hit/tap/drag 同理。
+ */
+export function frameEps(pf: PointerFrame, vp: Viewport, tolPx: number): EpsSet {
+  const own = pf.eps?.(vp);
+  if (own) return own;
+  const k = tolPx / 8;
+  return { point: EPS.point * k, edge: EPS.edge * k, line: EPS.line * k, combo: EPS.combo * k, hit: 6 * k, snap: 8 * k, planeNear: PLANE_NEAR_PX * epsScale(vp), tap: 4, drag: 16 * epsScale(vp) };
+}
 const GAP_WORLD = 1e-5;
 
 export interface Solution { p: Pt3; dim: number; rank: number; d: number; used: Constraint[]; }
@@ -83,25 +93,11 @@ export function solvePoint(
   const { pf, vp } = view;
   const comboEps = opts?.comboEps ?? EPS.combo;
   const ray = pf.ray(s.x, s.y, vp);
-  const scr = (p: Pt3): { x: number; y: number } => pf.angularPx(p, vp);
-  const sd = (p: Pt3): number => {
-    const q = scr(p);
-    return Math.hypot(q.x - s.x, q.y - s.y);
-  };
+  // 度量（A17）：桌面 = px、VR = 度；求解器不再看坐标
+  const sd = (p: Pt3): number => pf.distTo(s.x, s.y, p, vp);
   const lineScreenDist = (a: Pt3, dir: Pt3, len?: number): number => {
-    const p1 = scr(a);
-    const p2 = scr(len !== undefined
-      ? { x: a.x + dir.x * len, y: a.y + dir.y * len, z: a.z + dir.z * len }
-      : { x: a.x + dir.x * 100, y: a.y + dir.y * 100, z: a.z + dir.z * 100 });
-    const dx = p2.x - p1.x, dy = p2.y - p1.y;
-    const l2 = dx * dx + dy * dy;
-    if (l2 === 0) return Math.hypot(s.x - p1.x, s.y - p1.y);
-    if (len !== undefined) {
-      let t = ((s.x - p1.x) * dx + (s.y - p1.y) * dy) / l2;
-      t = Math.max(0, Math.min(1, t));
-      return Math.hypot(s.x - (p1.x + t * dx), s.y - (p1.y + t * dy));
-    }
-    return Math.abs((s.x - p1.x) * dy - (s.y - p1.y) * dx) / Math.sqrt(l2);
+    const b = len !== undefined ? add3(a, scale3(dir, len)) : add3(a, scale3(dir, 100));
+    return pf.distToSeg(s.x, s.y, a, b, vp, len === undefined).d;
   };
 
   const cands: Solution[] = [];
@@ -203,6 +199,8 @@ export interface SnapContext {
   alignSources?: readonly Pt3[] | null;
   lines?: boolean;
   hand?: AlignHand | null;
+  /** 候选 ε（本帧量纲）；缺省 = solver.EPS（桌面 px @800）。 */
+  eps?: { point: number; edge: number; line: number } | null;
 }
 
 const DIRS: { axis: AxName; dir: Pt3 }[] = [
@@ -365,6 +363,7 @@ export function occludedSpansOnLine(
 export function buildConstraints(ctx: SnapContext): Constraint[] {
   const out: Constraint[] = [];
   const { k } = ctx;
+  const E = ctx.eps ?? EPS;
   const ex = (vid: VertexId): boolean => ctx.hand?.has(vid) ?? false;
   const skip = handFaceSkip(k, ctx.hand);
   const hidden = (p: Pt3): boolean => (ctx.pf ? occludedBy(k, ctx.pf, p, skip) : false);
@@ -372,10 +371,10 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     if (ex(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
     if (hidden(p)) continue;
-    out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: EPS.point, tag: { kind: "endpoint" } });
+    out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: E.point, tag: { kind: "endpoint" } });
   }
   if (!hidden({ x: 0, y: 0, z: 0 })) {
-    out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: EPS.point, tag: { kind: "origin" } });
+    out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: E.point, tag: { kind: "origin" } });
   }
   const segs = edgeTargets(k, ex);         // 手中切点两侧共线并链；链端在手里 → 退赛
   for (const { a, b } of segs) {
@@ -384,9 +383,9 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
     // （旧「两端全被挡整条退赛」粗筛已撤：1-D 遮挡统一走 solve 层可见区间裁剪）
     if (!hidden(mid)) {
-      out.push({ locus: { dim: 0, p: mid }, rank: RANK.midpoint, eps: EPS.point, tag: { kind: "midpoint" } });
+      out.push({ locus: { dim: 0, p: mid }, rank: RANK.midpoint, eps: E.point, tag: { kind: "midpoint" } });
     }
-    out.push({ locus: { dim: 1, a, dir: scale3(sub3(b, a), 1 / len), len }, rank: RANK.edge, eps: EPS.edge, tag: { kind: "edge" } });
+    out.push({ locus: { dim: 1, a, dir: scale3(sub3(b, a), 1 / len), len }, rank: RANK.edge, eps: E.edge, tag: { kind: "edge" } });
   }
   // 轴对齐 1-D：源 = anchor（axis 标签）+ 原点（永久）+ 充能点（align 标签）；充能制=幽灵 align 定理的前置条件
   // 方向集 = 世界三轴 ∪ 非轴对齐画面的面内基（倾斜平面共轴——方向集显式化后的一行注册）
@@ -403,7 +402,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     if (seen.has(key)) return;
     seen.add(key);
     for (const { axis, dir } of dirs) {
-      out.push({ locus: { dim: 1, a: src, dir }, rank: RANK.axisLine, eps: EPS.line, tag: { kind, src, axis } });
+      out.push({ locus: { dim: 1, a: src, dir }, rank: RANK.axisLine, eps: E.line, tag: { kind, src, axis } });
     }
   };
   if (ctx.lines !== false) {
@@ -426,7 +425,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
         // 与既有端点重合（含共享顶点）→ 已是 endpoint 目标，跳过
         if ([es[i]!.ea, es[i]!.eb, es[j]!.ea, es[j]!.eb].some((q) => dist3(p, q) <= 1e-6)) continue;
         if (hidden(p)) continue;
-        out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: EPS.point, tag: { kind: "intersection" } });
+        out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: E.point, tag: { kind: "intersection" } });
       }
     }
   }
@@ -436,7 +435,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     for (let i = 0; i < faces.length; i++) {
       for (let j = i + 1; j < faces.length; j++) {
         for (const seg of faceCrossSegments(k, faces[i].id, faces[j].id)) {
-          out.push({ locus: { dim: 1, a: seg.a, dir: seg.dir, len: seg.len }, rank: RANK.cross, eps: EPS.line, tag: { kind: "cross" } });
+          out.push({ locus: { dim: 1, a: seg.a, dir: seg.dir, len: seg.len }, rank: RANK.cross, eps: E.line, tag: { kind: "cross" } });
         }
       }
     }
@@ -552,14 +551,13 @@ export function snapPoint(
   // === 兼容壳（2026-09-01 阶段二求解器手术）：真身 = solver.solvePoint 纯函数 ===
   // ε 分层住 solver.EPS（点10/边7/线5/合成12 @ 基准 tolPx=8）；tolPx 只做等比缩放。
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
-  const scale = tolPx / 8;
+  const E = frameEps(pf, vp, tolPx);
   const skip = handFaceSkip(k, q.hand);
   const occHidden = (p: Pt3): boolean => occludedBy(k, pf, p, skip);
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
-    alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand });
-  if (scale !== 1) for (const c of C) { if (c.eps !== Infinity) c.eps *= scale; }
+    alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand, eps: E });
   const sol = solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
-    comboEps: EPS.combo * scale,
+    comboEps: E.combo,
     hidden: occHidden,
     spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, pf, a, dirL, tMin, tMax, skip),
   });
@@ -613,25 +611,21 @@ const axisPlanesThrough = (p: Pt3): DrawPlane[] => AXIS_NORMALS.map((n) => mkAxi
  * 投影退化 → 该轴不参赛。edited by Claude Fable 5.1 2026-09-07
  */
 export function inferAxisByDirection(pf: PointerFrame, vp: Viewport, anchor: Pt3, sx: number, sy: number, coneDeg = 30): { axis: AxName; p: Pt3 } | null {
-  const a2 = pf.angularPx(anchor, vp);
-  const dx = sx - a2.x, dy = sy - a2.y;
-  const len = Math.hypot(dx, dy);
-  if (len < 1e-6) return null;
   const ray = pf.ray(sx, sy, vp);
   const minCos = Math.cos((coneDeg * Math.PI) / 180);
+  const AX: { axis: AxName; dir: Pt3 }[] = [{ axis: "x", dir: { x: 1, y: 0, z: 0 } }, { axis: "y", dir: { x: 0, y: 1, z: 0 } }, { axis: "z", dir: { x: 0, y: 0, z: 1 } }];
+  const cos = pf.dirCos(sx, sy, anchor, AX.map((a) => a.dir), vp);   // 图向夹角：桌面 = 屏幕向量；VR = 锚点方向切平面
   let best: { axis: AxName; dir: Pt3; c: number } | null = null;
-  for (const [axis, dir] of [["x", { x: 1, y: 0, z: 0 }], ["y", { x: 0, y: 1, z: 0 }], ["z", { x: 0, y: 0, z: 1 }]] as const) {
-    if (Math.abs(dot3(dir, ray.dir)) > 0.985) continue;
-    const q = pf.angularPx(add3(anchor, scale3(dir, 0.01)), vp);
-    const ax = q.x - a2.x, ay = q.y - a2.y;
-    const al = Math.hypot(ax, ay);
-    if (al < 1e-9) continue;
-    const c = Math.abs(dx * ax + dy * ay) / (len * al);
+  AX.forEach(({ axis, dir }, i) => {
+    if (Math.abs(dot3(dir, ray.dir)) > 0.985) return;   // 射线与轴近平行：公垂点病态，不参赛
+    const c = cos[i];
+    if (c === null) return;
     if (c >= minCos && (!best || c > best.c)) best = { axis, dir, c };
-  }
+  });
   if (!best) return null;
-  const p = closestOnAxis(anchor, best.dir, ray.origin, ray.dir);
-  return p ? { axis: best.axis, p } : null;
+  const b: { axis: AxName; dir: Pt3; c: number } = best;
+  const p = closestOnAxis(anchor, b.dir, ray.origin, ray.dir);
+  return p ? { axis: b.axis, p } : null;
 }
 
 /** 擦射线：射线与平面夹角 < minDeg → 交点会甩到无穷远，调用方保持上一帧（user 2026-09-07「最后会甩到顶面平面无限远的地方。这个是 bug」）。 */
@@ -692,26 +686,15 @@ export function faceUnderCursor(k: Kernel, pf: PointerFrame, vp: Viewport, sx: n
 /** 含锚点的膜里，剪影（屏幕多边形）离光标 ≤ tolPx 的最近一张 → 其平面；没有 → null。
  *  无历史、纯几何：滑出底边几个像素仍在那张墙上（2026-09-06 侧面拖矩形案），远离了就自然放手
  *  （2026-09-07 仓库角点案：此前「黏住上一帧平面」把擦过的竖墙一路黏到空地上——黏性是错的一般化，撤）。 */
-function nearFaceContaining(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number, p1: Pt3, tolPx: number): DrawPlane | null {
+function nearFaceContaining(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number, p1: Pt3, tol: number): DrawPlane | null {
   let best: { d: number; plane: DrawPlane } | null = null;
   for (const f of k.faces()) {
     const rec = k.planeOf(f.id);
     if (!rec || distToPlane(p1, rec.plane) > 1e-3) continue;
     const ring = k.faceRings3(f.id)?.outer;
     if (!ring || ring.length < 3) continue;
-    const poly = ring.map((q) => pf.angularPx(q, vp));
-    let d = 0;
-    if (!pointInRing({ x: sx, y: sy }, poly)) {
-      d = Infinity;
-      for (let i = 0; i < poly.length; i++) {
-        const a = poly[i], b = poly[(i + 1) % poly.length];
-        const abx = b.x - a.x, aby = b.y - a.y;
-        const l2 = abx * abx + aby * aby;
-        const t = l2 > 0 ? Math.max(0, Math.min(1, ((sx - a.x) * abx + (sy - a.y) * aby) / l2)) : 0;
-        d = Math.min(d, Math.hypot(sx - (a.x + t * abx), sy - (a.y + t * aby)));
-      }
-    }
-    if (d <= tolPx && (!best || d < best.d)) best = { d, plane: { plane: rec.plane, basis: rec.basis, face: f.id } };
+    const d = pf.distToRing(sx, sy, ring, vp);   // 环内 = 0；否则到剪影最近边（桌面 px / VR 度）
+    if (d <= tol && (!best || d < best.d)) best = { d, plane: { plane: rec.plane, basis: rec.basis, face: f.id } };
   }
   return best?.plane ?? null;
 }
@@ -743,7 +726,7 @@ export function resolvePlane(
     }
     // 近擦（2026-09-06 侧面拖矩形案）：光标滑出含锚点膜的剪影几个像素（如底边下方）仍算在那张膜上，
     // 否则按落底偏置挑过锚点轴平面会把矩形翻到水平面、角点飞走。纯几何无历史（黏性版 2026-09-07 撤）。
-    const near = nearFaceContaining(k, pf, vp, sx, sy, p1, PLANE_NEAR_PX * epsScale(vp));
+    const near = nearFaceContaining(k, pf, vp, sx, sy, p1, frameEps(pf, vp, tolPx).planeNear);
     if (near) {
       const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: near, anchor: p1, alignSources, hand });
       return { plane: near, fixed: false, snap };

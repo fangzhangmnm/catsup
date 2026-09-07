@@ -12,7 +12,7 @@
 //   正交=halfH；横向永远 = 竖直量 × aspect。吸附 ε 因此以视口高度为分母（solver.epsScale），≡ fovY 的角度分数。
 
 import type { Pt3 } from "../kernel/kernel.ts";
-import { add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
+import { add3, cross3, dot3, normalize3, pointInRing, scale3, sub3 } from "../kernel/geom.ts";
 
 import type { PointerFrame, Ray, ScreenPt, Viewport } from "./pointer-frame.ts";
 export type { Viewport } from "./pointer-frame.ts";
@@ -84,7 +84,7 @@ export class OrbitCamera implements PointerFrame {
 
   halfW(vp: Viewport): number { return (this.halfH * vp.w) / vp.h; }
 
-  /** 世界 → 屏幕 px（PointerFrame.angularPx：桌面的角度尺就是屏幕）。透视：眼前 near 之内的点按 near 深度投影（有限值，不 NaN）。 */
+  /** 世界 → 屏幕 px（桌面专属：框选与本类度量的内部算术；**不在 PointerFrame 契约里**——A17 后求解器只认度量）。透视：眼前 near 之内的点按 near 深度投影（有限值，不 NaN）。 */
   angularPx(p: Pt3, vp: Viewport): ScreenPt {
     if (this.projection === "persp") {
       const rel = sub3(p, this.eye());
@@ -98,6 +98,52 @@ export class OrbitCamera implements PointerFrame {
     const sx = dot3(rel, this.right()) / this.halfW(vp);
     const sy = dot3(rel, this.up()) / this.halfH;
     return { x: (sx * 0.5 + 0.5) * vp.w, y: (0.5 - sy * 0.5) * vp.h };
+  }
+
+  // ---- PointerFrame 度量（A17 sunset 2026-09-08）：桌面度量 = CSS px，算术与旧 solver/pick 内联版逐字相同（golden 零变化） ----
+  distTo(x: number, y: number, p: Pt3, vp: Viewport): number {
+    const s = this.angularPx(p, vp);
+    return Math.hypot(s.x - x, s.y - y);
+  }
+  distToSeg(x: number, y: number, a: Pt3, b: Pt3, vp: Viewport, infinite = false): { d: number; t: number } {
+    const p1 = this.angularPx(a, vp), p2 = this.angularPx(b, vp);
+    const dx = p2.x - p1.x, dy = p2.y - p1.y;
+    const l2 = dx * dx + dy * dy;
+    if (l2 === 0) return { d: Math.hypot(x - p1.x, y - p1.y), t: 0 };
+    let t = ((x - p1.x) * dx + (y - p1.y) * dy) / l2;
+    if (infinite) return { d: Math.abs((x - p1.x) * dy - (y - p1.y) * dx) / Math.sqrt(l2), t };
+    t = Math.max(0, Math.min(1, t));
+    return { d: Math.hypot(x - (p1.x + t * dx), y - (p1.y + t * dy)), t };
+  }
+  distBetween(p: Pt3, q: Pt3, vp: Viewport): number {
+    const a = this.angularPx(p, vp), b = this.angularPx(q, vp);
+    return Math.hypot(a.x - b.x, a.y - b.y);
+  }
+  distToRing(x: number, y: number, ring: readonly Pt3[], vp: Viewport): number {
+    const poly = ring.map((q) => this.angularPx(q, vp));
+    if (pointInRing({ x, y }, poly)) return 0;
+    let d = Infinity;
+    for (let i = 0; i < poly.length; i++) {
+      const a = poly[i], b = poly[(i + 1) % poly.length];
+      const abx = b.x - a.x, aby = b.y - a.y;
+      const l2 = abx * abx + aby * aby;
+      const t = l2 > 0 ? Math.max(0, Math.min(1, ((x - a.x) * abx + (y - a.y) * aby) / l2)) : 0;
+      d = Math.min(d, Math.hypot(x - (a.x + t * abx), y - (a.y + t * aby)));
+    }
+    return d;
+  }
+  dirCos(x: number, y: number, anchor: Pt3, dirs: readonly Pt3[], vp: Viewport): (number | null)[] {
+    const a2 = this.angularPx(anchor, vp);
+    const dx = x - a2.x, dy = y - a2.y;
+    const len = Math.hypot(dx, dy);
+    if (len < 1e-6) return dirs.map(() => null);
+    return dirs.map((dir) => {
+      const q = this.angularPx(add3(anchor, scale3(dir, 0.01)), vp);
+      const ax = q.x - a2.x, ay = q.y - a2.y;
+      const al = Math.hypot(ax, ay);
+      if (al < 1e-9) return null;
+      return Math.abs(dx * ax + dy * ay) / (len * al);
+    });
   }
 
   /** 屏幕 px → 世界拾取射线（PointerFrame.ray；正交：方向恒为 forward；透视：过眼点的发散射线）。 */

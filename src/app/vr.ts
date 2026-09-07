@@ -7,7 +7,7 @@
 // 选择工具 = 阶段长按（A13：0.3 s 一震 = 膜 + 环边，0.6 s 二震 = 连通体；松手结算），其余工具 = trigger 按住拖、松开落。
 
 import type { Editor } from "../editor/editor.ts";
-import { XRPointerFrame, XR_VIRTUAL_VP } from "../editor/xr-pointer-frame.ts";
+import { XRPointerFrame, XR_NOMINAL_VP } from "../editor/xr-pointer-frame.ts";
 import type { Locomotion } from "./locomotion.ts";
 import { XRInput, type XRHandState, pulse, forwardRig, rigDirToWorld } from "../player/xr-input.ts";
 import type { InputFrame } from "../player/input.ts";
@@ -85,7 +85,7 @@ export class VR {
     this.pendingResetYaw = null;
     this.trigWas = false; this.toolDown = false; this.panelPressId = null; this.holdStage = 0; this.holdT = 0;
     this.spawn = locomotion.enterXR(() => this.frameIn);
-    editor.setPointerFrame(this.pointer, XR_VIRTUAL_VP);
+    editor.setPointerFrame(this.pointer, XR_NOMINAL_VP);
     editor.renderer3.attachWristPanel(this.panel.canvas, WRIST_M.w, WRIST_M.h, this.opts.leftHanded() ? "right" : "left");
     this.panel.dirty = true;
     this.opts.onChange();
@@ -183,11 +183,11 @@ export class VR {
       } else {
         if (this.panel.hovered()) this.panel.setHover(null);
         if (this.panelPressId && trigUp) { this.panelPressId = null; this.panel.setPressed(null); }
-        // 指针帧：控制器射线（虚拟屏模型本身待反省——ai-docs/20260907-vr-input-reflection.md）；头向只喂平面挑选
+        // 指针帧：手柄射线 + 球面度量（A17 sunset：没有虚拟屏）；头向只喂平面挑选
         const headDir = xi.head ? rigDirToWorld(locomotion.pose(), forwardRig(xi.head.orientation)) : undefined;
         this.pointer.set(toolHand.ray, undefined, headDir);
         const c = this.pointer.cursor();
-        const tp = () => ({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false, travelPx: this.pointer.travelPx() });
+        const tp = () => ({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false, travel: this.pointer.travel() });
         if (editor.tool === "select") {
           this.selectTick(trigDown, trig, trigUp, dt, session, toolName);
         } else if (!this.panelPressId) {

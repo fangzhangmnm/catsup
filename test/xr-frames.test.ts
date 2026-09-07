@@ -2,7 +2,7 @@
 // created 2026-09-07 by Claude Fable 5.1
 import { describe, it, assert } from "./runner.mjs";
 import { refToRig, forwardRig, poseRayWorld, headFrameOf, rotateByQuat, XRInput } from "../src/player/xr-input.ts";
-import { XRPointerFrame, XR_VIRTUAL_VP } from "../src/editor/xr-pointer-frame.ts";
+import { XRPointerFrame, XR_NOMINAL_VP } from "../src/editor/xr-pointer-frame.ts";
 import { rigPose, createPlayerState } from "../src/player/player.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { snapPoint, NO_HAND } from "../src/editor/solver.ts";
@@ -60,20 +60,18 @@ describe("xr-input: 姿态代数", () => {
 });
 
 describe("XRPointerFrame: 控制器射线当指针", () => {
-  it("光标在虚拟屏正中；ray(中心) = 控制器射线；angularPx 与 ray 往返一致；viewDir 指向控制器", () => {
+  it("ray(任意) = 控制器射线；distTo 沿射线方向的点 = 0°；viewDir 指向控制器（A17：无虚拟屏）", () => {
     const pf = new XRPointerFrame();
     pf.set({ origin: { x: 0, y: 0, z: 1.2 }, dir: { x: 0, y: 1, z: -0.3 } });
     const c = pf.cursor();
-    const r = pf.ray(c.x, c.y, XR_VIRTUAL_VP);
-    assert(nearV(r.dir, pf.forward()), "中心射线");
-    const p = { x: 0.5, y: 3, z: 0.4 };
-    const s = pf.angularPx(p, XR_VIRTUAL_VP);
-    const r2 = pf.ray(s.x, s.y, XR_VIRTUAL_VP);
-    // 往返：ray(angularPx(p)) 应指向 p
-    const d = { x: p.x - r2.origin.x, y: p.y - r2.origin.y, z: p.z - r2.origin.z };
+    const r = pf.ray(c.x, c.y, XR_NOMINAL_VP);
+    assert(nearV(r.dir, pf.forward()), "中心射线 = 前向（无头向时）");
+    const p = { x: 0, y: 2, z: 1.2 - 0.3 * 2 };   // 射线上的一点（origin + 2·dir）
+    assert(near(pf.distTo(c.x, c.y, p, XR_NOMINAL_VP), 0, 1e-9), "on-ray point → 0°");
+    const q = { x: 0.5, y: 3, z: 0.4 };
+    const d = { x: q.x - r.origin.x, y: q.y - r.origin.y, z: q.z - r.origin.z };
     const n = Math.hypot(d.x, d.y, d.z);
-    assert(nearV(r2.dir, { x: d.x / n, y: d.y / n, z: d.z / n }, 1e-9), `往返 ${JSON.stringify(r2.dir)}`);
-    assert(nearV(pf.viewDir(p), { x: -d.x / n, y: -d.y / n, z: -d.z / n }, 1e-9), "viewDir");
+    assert(nearV(pf.viewDir(q), { x: -d.x / n, y: -d.y / n, z: -d.z / n }, 1e-9), "viewDir");
   });
   it("求解器吃 XR 帧：射线打在地面矩形角点 1° 内 → 吸到端点", () => {
     const k = new Kernel();
@@ -82,20 +80,20 @@ describe("XRPointerFrame: 控制器射线当指针", () => {
     const origin = { x: 0.3, y: 0, z: 1.3 };
     const target = { x: 1, y: 2, z: 0 };
     const d0 = { x: target.x - origin.x, y: target.y - origin.y, z: target.z - origin.z };
-    // 偏 0.6°（在 10px≈1° 的端点 ε 内）
+    // 偏 0.6°（在端点 ε 1.0° 内，EPS_VR_DEG.point）
     const ang = (0.6 * Math.PI) / 180;
     const dir = { x: d0.x * Math.cos(ang) - d0.y * Math.sin(ang), y: d0.x * Math.sin(ang) + d0.y * Math.cos(ang), z: d0.z };
     pf.set({ origin, dir });
     const c = pf.cursor();
-    const sn = snapPoint(k, pf, XR_VIRTUAL_VP, c.x, c.y, 8, { plane: GROUND, hand: NO_HAND });
+    const sn = snapPoint(k, pf, XR_NOMINAL_VP, c.x, c.y, 8, { plane: GROUND, hand: NO_HAND });
     assert(sn.kind === "endpoint" && nearV(sn.p, target, 1e-6), `snap=${JSON.stringify(sn)}`);
-    // travelPx：射线转过的夹角 / fov × 800（绕 Z 转 8° 的倾斜射线夹角 < 8°，按向量夹角算期望）
+    // travel：射线转过的夹角（度）——绕 Z 转 8° 的倾斜射线夹角 < 8°，按向量夹角算期望
     pf.markDown();
     const a8 = (8 * Math.PI) / 180;
     const d1 = { x: d0.x * Math.cos(a8) - d0.y * Math.sin(a8), y: d0.x * Math.sin(a8) + d0.y * Math.cos(a8), z: d0.z };
     pf.set({ origin, dir: d1 });
     const n0 = Math.hypot(dir.x, dir.y, dir.z), n1 = Math.hypot(d1.x, d1.y, d1.z);
-    const expect = (Math.acos((dir.x * d1.x + dir.y * d1.y + dir.z * d1.z) / (n0 * n1)) / pf.fovY) * 800;
-    assert(near(pf.travelPx(), expect, 1e-6), `travel=${pf.travelPx()} expect=${expect}`);
+    const expect = Math.acos((dir.x * d1.x + dir.y * d1.y + dir.z * d1.z) / (n0 * n1)) * 180 / Math.PI;
+    assert(near(pf.travel(), expect, 1e-6), `travel=${pf.travel()} expect=${expect}`);
   });
 });

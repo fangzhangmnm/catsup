@@ -1,7 +1,7 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
-> **下周 agent 起手（user 2026-09-08：「现在 token 快用完了，下礼拜的 agent 不应跟丢东西」）：① A17 虚拟屏 sunset（球面度量，桌面 golden 零变化的切法已写好）；② 反省稿 §3.8 selection box 显式平面 grill + VR 框选；③ 反省稿 §4 五问 + grip 三选一 + 正北 Y/Z 破平局；④ D-fuzz 重复面残余；⑤ Quest 退出横幅真机对照（C）。全部原话在 A16 各轮。**
-> as-of v0.4.4 / 2026-09-08（第六批（含第二~七轮追加：内核 fuzz 面环自洽 / move 宽锥三轴 / 线黏地面：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
+> **下周 agent 起手（user 2026-09-08：「现在 token 快用完了，下礼拜的 agent 不应跟丢东西」）：① ~~A17 虚拟屏 sunset~~（已落 v0.4.5，剩 VR 框选 / 等价套件 / ε_VR playtest）；② 反省稿 §3.8 selection box 显式平面 grill + VR 框选；③ 反省稿 §4 五问 + grip 三选一 + 正北 Y/Z 破平局；④ D-fuzz 重复面残余；⑤ Quest 退出横幅真机对照（C）。全部原话在 A16 各轮。**
+> as-of v0.4.5 / 2026-09-08（A17 虚拟屏 sunset 落地；第六批（含第二~七轮追加：内核 fuzz 面环自洽 / move 宽锥三轴 / 线黏地面：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
 > user 原话（2026-09-06）：「你尽量保证那些我没看的没拍的和马上要做的都有记录，这样的话我也可以开新 agent，一个一个做，不用怕 fomo，而不是现在这样一次得处理一大堆很要紧的不处理会慢慢腐烂的东西」。
 > **用法**：开新 agent 时把「本文件路径 + 条目编号」丢给它；它先读 `CLAUDE.md` 必读清单再读该条。做完把状态改成 `done <commit>` 并写一行结果；新冒出来的事**只加到这里**，不在聊天里散养。
 > **状态词**：`待做`（已拍板可开工）/ `待拍板`（要 user 一句话）/ `待看`（要 user 过目）/ `等 user 数据`（要 user 复现/实验）/ `park`（明确不做或以后）/ `done`。
@@ -132,7 +132,10 @@
 - **D 新增**：**D-fuzz 重复面残余**——种子 30/31/39/59/62（×104729）仍铸出同环第二张面（不崩、不丢边；`test/kernel-fuzz.test.ts` todo）；工具 = `node <tmp>/fuzzcount.ts`（见测试文件同款逻辑）+ 回放脚本思路（打印事件与面环）；下一刀从 face-lifecycle 认领/DIVIDE 铸造对「已有同环面」的处理入手。`待做`
 - **待拍板**：③④⑤ → `ai-docs/20260907-vr-input-reflection.md`（视口模型退役 → 球面度量接口；射线拾取 + 手位移拖动（HOMER 增益）+ grip=锁；肩锚射线/1€ 滤波；gizmo 留到 rotate/scale 立项）——§4 五问等一句话。⑥ 工具热键 → wishlist（user「先保证画的好」）。真机未验（v0.4.1 全 headless 自验）。
 
-### A17 虚拟屏 sunset：VR 指针帧改球面度量，selection box 之前不许有虚拟屏 — `待做（下周 agent 起手件；user 2026-09-08 拍板方向）`
+### A17 虚拟屏 sunset：VR 指针帧改球面度量，selection box 之前不许有虚拟屏 — `done v0.4.5（2026-09-08，Claude Fable 5.1；user「sunset 吧，做不完也得做。虚拟屏就是严重卫生错误」）`
+- **落地**：`PointerFrame` 从「坐标图」改成「度量」契约（`ray / distTo / distToSeg / distBetween / distToRing / dirCos / viewDir / forward / eps?`，`pointer-frame.ts`）；**两个帧是同一基契约的两个实现，不是 VR 继承桌面**（user：「不应该是 vr solver inherits flatscreen solver，而是两个 inherit a base class，这样 vr 就不会被 pc 里面手感参数给 hijack」）。桌面 `OrbitCamera` 的度量单位 = **fovY 的 1/800**（视口高度分数 ≡ 视场角分数；user 拍板 fov 度而非 css px），算术逐字复刻旧 solver/pick 内联版 → 233 golden 零变化；`angularPx` 只剩桌面框选专用。VR `XRPointerFrame` = 手柄 (origin, dir) + 球面角距（度）：点 = atan2 夹角、线段 = 到大圆弧、无限直线 = 到大圆、环 = 射线∩面内→0 否则最近边、方向比较在锚点切平面（「拖动角度」在 origin+dir 下的良定义）；**没有虚拟屏、没有 fov**；容差集 `EPS_VR_DEG` 独立角度常量（点 1.0 / 边 0.7 / 轴线 0.5 / 合成 1.2 / 拾取 1.0 / 近擦膜 2.0 / tap 0.4 / drag 1.2，playtest 各自调）。solver `frameEps` 按帧取容差；editor 的 tap/drag/磁滞/pp 换算全走度量。`XR_VIRTUAL_VP` → `XR_NOMINAL_VP`（光标坐标名义载体）。
+- **单位纪律（user 2026-09-08）**：「per frame, per pixel 其实没问题，可怕的是 implicit unit…关键是你不能 implicit 依赖，而不是 explicit defined」→ 契约头注释显式声明两套单位。
+- **未做**：VR 框选（§3.8 冻结投影平面 = 唯一合法的屏）；等价套件（§3.6 第 2 条）；ε_VR 常量真机 playtest。
 - **user 原话（2026-09-08 凌晨）**：「虚拟屏不是应该 sunset 了吗？为什么一直还在。在 selection box 之前不应该有虚拟屏。。然后 z 轴线的容差。我的理解是度鼠标拖动的角度。不过确实在 origin + dir 里面这个概念是 ill define 的」「虽然现在除了 move 手感特别好，但是还是不应跟有虚拟屏」「虚拟屏 sunset 的代价有多大」「flatscreen 的 move 也 xyz align 吧试试？我发现 su 里面非 align 的情况我只会不爽。以及如果两个 30 halfangle cone 重叠的时候是 nearest win 这种道理你知道的对吧」
 - **虚拟屏是什么**：`src/editor/xr-pointer-frame.ts`——v0.4.0 为了让桌面求解器零改动跑在 VR 里造的假屏：以手柄为眼、沿射线看、竖直视场 80°、800×800 假像素、光标恒在正中，用桌面同款 1/z 透视把世界点投上去量像素距离。ε（点 10 / 边 7 / 轴线 3.5 px @800）在它上面 = 角度（10 px = 1°）。反省稿 §1 判它不鲁棒、§2 给了替代（球面度量）。**事实记录**：2026-09-08 凌晨 AI 曾自作主张把视场 80°→110°（想让 Z 轴线容差从 0.35° 变 0.48°）又自作主张改回 80°，两次都不是 user 指令；现值 80°，ε 的角度值归本项一起定。
 - **sunset 代价（AI 估，2026-09-08）**：**中等，一个 agent 一天的活，桌面 golden 可以零变化。**

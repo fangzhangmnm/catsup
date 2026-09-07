@@ -12,7 +12,8 @@ import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/k
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
-import { epsScale } from "./solver.ts";
+import { frameEps } from "./solver.ts";
+import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
@@ -28,8 +29,8 @@ export interface ToolPointer {
   clientX: number; clientY: number;
   pointerType: string;
   shiftKey: boolean;
-  /** 自落笔以来指针「走了多远」（px）。VR 指针帧的光标永远在虚拟屏正中，所以由帧另算（射线转角）；缺省 = 屏距 downScreen。 */
-  travelPx?: number;
+  /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。VR 的光标坐标恒为名义正中，所以由帧另算（射线转角）；缺省 = 屏距 downScreen。 */
+  travel?: number;
 }
 
 export interface EditorHost {
@@ -51,6 +52,13 @@ export interface EditorHost {
 // px 常量按 800px 高视口标定；运行时 × epsScale(vp)（= 视口高度分数 ≡ 角度分数，见 solver.ts）
 const SNAP = 8;
 const HIT = 6;
+/** VR 帧的磁滞容差按吸附种类取帧自己的角度常量。 */
+function epsOfKindVR(e: EpsSet, kind: string): number {
+  if (kind === "on-edge") return e.edge;
+  if (kind === "edge-align" || kind === "align-combo") return e.combo;
+  if (kind === "align" || kind.startsWith("axis-")) return e.line;
+  return e.point;
+}
 const EPS_OF: Record<string, number> = {
   endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
   "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5,
@@ -159,10 +167,12 @@ export class Editor {
   private frame(): PointerFrame { return this.pointerFrame?.pf ?? this.cam; }
   /** 指针帧的角度尺视口（ε 分母）。 */
   private fvp(): Viewport { return this.pointerFrame?.vp ?? this.vp(); }
-  // 纪律：凡 this.frame().ray/angularPx 一律配 fvp()（指针帧的角度尺），vp() 只给 canvas/渲染/相机 fit 用——
+  // 纪律：凡 this.frame().ray/distTo/... 一律配 fvp()（指针帧的量纲视口），vp() 只给 canvas/渲染/相机 fit/框选用——
   // 2026-09-07 VR 真机通天柱案：推拉自由拖路径把 canvas 尺寸喂给 800×800 虚拟屏的 (400,400) 光标，VR 里射线整个斜掉。
-  private snapPx(): number { return SNAP * epsScale(this.fvp()); }
-  private hitPx(): number { return HIT * epsScale(this.fvp()); }
+  /** 本帧容差集（A17）：桌面 px（SNAP·vp.h/800 等比）/ VR 度（帧自带）。 */
+  private eps(): EpsSet { return frameEps(this.frame(), this.fvp(), (SNAP * this.fvp().h) / 800); }
+  private snapPx(): number { return this.eps().snap; }
+  private hitPx(): number { return this.eps().hit; }
 
   // ---------- 工具 ----------
   setTool(t: Tool): void {
@@ -408,8 +418,9 @@ export class Editor {
   private applyHysteresis(sn: Snap3, sx: number, sy: number): Snap3 {
     if (sn.kind !== null) { this.lastSnap = sn; return sn; }
     if (this.lastSnap?.kind) {
-      const sp = this.frame().angularPx(this.lastSnap.p, this.fvp());
-      if (Math.hypot(sx - sp.x, sy - sp.y) <= (EPS_OF[this.lastSnap.kind] ?? 8) * 1.5 * epsScale(this.fvp())) return this.lastSnap;
+      const e = this.frame().eps?.(this.fvp());
+      const tol = e ? epsOfKindVR(e, this.lastSnap.kind) : (EPS_OF[this.lastSnap.kind] ?? 8) * (this.fvp().h / 800);
+      if (this.frame().distTo(sx, sy, this.lastSnap.p, this.fvp()) <= tol * 1.5) return this.lastSnap;
     }
     this.lastSnap = null;
     return sn;
@@ -689,7 +700,7 @@ export class Editor {
         if (this.anchor3) this.cursor3 = this.rectPlaneSnap(s.x, s.y);
         break;
       case "pp":
-        this.ppTrack(s.x, s.y, ev.travelPx);
+        this.ppTrack(s.x, s.y, ev.travel);
         break;
       case "move":
         if (this.moveVids.length && this.anchor3) {
@@ -780,10 +791,8 @@ export class Editor {
         if (q) this.ppH = dot3(sub3(q, anc), n);
         else ppStuck = true;   // 法向与视线近平行：公垂无解，h 动不了
         // 高度通道：h 标量对静态高度集咬合（ε=7px 折算世界单位；底面/邻面/0 全在停靠集里）
-        const sc0 = this.frame().angularPx(anc, this.fvp());
-        const sc1 = this.frame().angularPx(add3(anc, n), this.fvp());
-        const pxPerUnit = Math.max(Math.hypot(sc1.x - sc0.x, sc1.y - sc0.y), 0.5);
-        const epsH = (7 * epsScale(this.fvp())) / pxPerUnit;
+        const pxPerUnit = Math.max(this.frame().distBetween(anc, add3(anc, n), this.fvp()), 0.5);   // 单位法向在度量上的长度
+        const epsH = this.eps().edge / pxPerUnit;
         let best: number | null = null;
         for (const st of this.ppStops) if (Math.abs(st - this.ppH) <= epsH && (best === null || Math.abs(st - this.ppH) < Math.abs(best - this.ppH))) best = st;
         if (best !== null) {
@@ -798,7 +807,7 @@ export class Editor {
     // （法向∥视线，光标射线到法向轴没有有意义的最近点）——说清原因和出路，别让人以为坏了。
     const moved = travel ?? (this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0);
     const facing = Math.abs(dot3(n, this.frame().viewDir(anc)));
-    if (moved > 16 * epsScale(this.fvp()) && Math.abs(this.ppH) < MIN_GESTURE_LEN && (ppStuck || facing > 0.9)) {
+    if (moved > this.eps().drag && Math.abs(this.ppH) < MIN_GESTURE_LEN && (ppStuck || facing > 0.9)) {
       this.host.hint("推拉没动：正对着这张面看，法向和视线平行，拖不出高度——环绕一下换个角度再拉（Esc 取消）");
       return;
     }
@@ -807,7 +816,7 @@ export class Editor {
 
   pointerUp(ev: ToolPointer): void {
     const s = ev;
-    const isTap = (): boolean => !!this.downScreen && (ev.travelPx ?? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y)) <= 4;
+    const isTap = (): boolean => !!this.downScreen && (ev.travel ?? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y)) <= this.eps().tap;
     switch (this._tool) {
       case "line": {
         if (!this.anchor3) break;
@@ -865,14 +874,14 @@ export class Editor {
         const wasDrag = Math.hypot(this.marqueeCur.x - this.marqueeStart.x, this.marqueeCur.y - this.marqueeStart.y) > 4;
         let picked: Selection;
         if (wasDrag) {
-          picked = marqueeScreen(this.checkpoint, this.frame(), this.fvp(), {
+          picked = marqueeScreen(this.checkpoint, this.cam, this.vp(), {   // 桌面专属（VR 无框选；§3.8 待做）
             minX: Math.min(this.marqueeStart.x, this.marqueeCur.x), maxX: Math.max(this.marqueeStart.x, this.marqueeCur.x),
             minY: Math.min(this.marqueeStart.y, this.marqueeCur.y), maxY: Math.max(this.marqueeStart.y, this.marqueeCur.y),
           });
         } else {
           // 点击族：双击 = 膜 + 环边、三击 = 连通体（SU 同款；VR/pen 的对应物 = 阶段长按，见 vr.ts）
           const now = performance.now();
-          const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(s.x - this.clickTrain.x, s.y - this.clickTrain.y) <= 6 * epsScale(this.fvp())
+          const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(s.x - this.clickTrain.x, s.y - this.clickTrain.y) <= 6 * (this.fvp().h / 800)
             ? { t: now, x: s.x, y: s.y, n: this.clickTrain.n + 1 } : { t: now, x: s.x, y: s.y, n: 1 };
           this.clickTrain = train;
           const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());

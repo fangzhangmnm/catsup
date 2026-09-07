@@ -16,7 +16,7 @@ import {
   projectToPlane,
   sub3,
 } from "../kernel/geom.ts";
-import { rayPlane } from "./camera.ts";
+import { type OrbitCamera, rayPlane } from "./camera.ts";
 import type { PointerFrame, Viewport } from "./pointer-frame.ts";
 import { type DrawPlane, type Snap3, NO_HAND, occludedBy, resolvePlane } from "./solver.ts";
 
@@ -30,30 +30,14 @@ export const GROUND: DrawPlane = (() => {
 
 export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
-const sdist = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
-/** 屏幕段上离 p 最近点的参数 t∈[0,1]（用来把「最近点」回投到 3D 做遮挡判定）。 */
-function segParam(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
-  const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
-  if (len2 === 0) return 0;
-  return Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / len2));
-}
-function sdistToSeg(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
-  const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
-  if (len2 === 0) return sdist(p, a);
-  let t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / len2;
-  t = Math.max(0, Math.min(1, t));
-  return sdist(p, { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y) });
-}
-
-/** 实体拾取：顶点 > 边（屏幕距离）> 面（射线求交，取沿射线最近者——正确遮挡序）。 */
+/** 实体拾取：顶点 > 边（度量距离：桌面 px / VR 度）> 面（射线求交，取沿射线最近者——正确遮挡序）。tolPx = 本帧量纲的容差。 */
 export function pickEntity(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number): HitResult3 {
-  const cursor = { x: sx, y: sy };
   // 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：顶点/边只在**看得见**时参赛——
   // 与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡，所以棱/角本身不会被自己的邻膜挡掉）。
   let bestV: VertexId | undefined, bestVd = tolPx;
   for (const v of k.vertices()) {
     const p = { x: v.x, y: v.y, z: v.z };
-    const d = sdist(cursor, pf.angularPx(p, vp));
+    const d = pf.distTo(sx, sy, p, vp);
     if (d <= bestVd && !occludedBy(k, pf, p)) { bestVd = d; bestV = v.id; }
   }
   if (bestV !== undefined) return { vertex: bestV };
@@ -61,10 +45,9 @@ export function pickEntity(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number
   let bestE: EdgeId | undefined, bestEd = tolPx;
   for (const e of k.edges()) {
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
-    const sa = pf.angularPx(a, vp), sb = pf.angularPx(b, vp);
-    const d = sdistToSeg(cursor, sa, sb);
+    const { d, t } = pf.distToSeg(sx, sy, a, b, vp);
     if (d > bestEd) continue;
-    const t = segParam(cursor, sa, sb);   // 屏幕最近点回投到边上（透视下参数略偏，仍在边上，遮挡判定够用）
+    // 度量上的最近点回投到边上（透视下参数略偏，仍在边上，遮挡判定够用）
     const q = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), z: a.z + t * (b.z - a.z) };
     if (occludedBy(k, pf, q)) continue;
     bestEd = d; bestE = e.id;
@@ -97,7 +80,7 @@ export function pickFace(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, 
 
 /** 画线平面：光标下的面 → 它的平面；否则地面。 */
 export function drawPlaneAt(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number): DrawPlane {
-  const hit = pickEntity(k, pf, vp, sx, sy, 0.5); // 面命中不需要 px 容差
+  const hit = pickEntity(k, pf, vp, sx, sy, 0); // 只要面：顶点/边容差 0
   if (hit.face !== undefined) {
     const rec = k.planeOf(hit.face)!;
     return { plane: rec.plane, basis: rec.basis, face: hit.face };   // 出身=膜 → 裸落其内报「面上」
@@ -118,7 +101,7 @@ export function rectFirstPlane(
   tolPx: number,
   alignSources?: readonly Pt3[],
 ): { fixed: DrawPlane | null; plane: DrawPlane; snap: Snap3 } {
-  const hit = pickEntity(k, pf, vp, sx, sy, 0.5);
+  const hit = pickEntity(k, pf, vp, sx, sy, 0);
   let facePlane: DrawPlane | null = null;
   if (hit.face !== undefined) {
     const rec = k.planeOf(hit.face)!;
@@ -128,21 +111,22 @@ export function rectFirstPlane(
   return { fixed: r.fixed ? r.plane : null, plane: r.plane, snap: r.snap };
 }
 
-/** 屏幕空间框选（window 语义）：边=两端投影都在框内；面=外环全部顶点投影在框内。 */
+/** 屏幕空间框选（window 语义）：边=两端投影都在框内；面=外环全部顶点投影在框内。**桌面专属**（吃 OrbitCamera 的屏幕投影）；
+ *  VR 框选 = 显式冻结投影平面（反省稿 §3.8，唯一合法的「屏」），待做。 */
 export function marqueeScreen(
   k: Kernel,
-  pf: PointerFrame,
+  cam: OrbitCamera,
   vp: Viewport,
   m: { minX: number; minY: number; maxX: number; maxY: number },
 ): { edges: Set<EdgeId>; faces: Set<FaceId> } {
   const inBox = (p: { x: number; y: number }): boolean => p.x >= m.minX && p.x <= m.maxX && p.y >= m.minY && p.y <= m.maxY;
   const sel = { edges: new Set<EdgeId>(), faces: new Set<FaceId>() };
   for (const e of k.edges()) {
-    if (inBox(pf.angularPx(k.graph.pt(e.a), vp)) && inBox(pf.angularPx(k.graph.pt(e.b), vp))) sel.edges.add(e.id);
+    if (inBox(cam.angularPx(k.graph.pt(e.a), vp)) && inBox(cam.angularPx(k.graph.pt(e.b), vp))) sel.edges.add(e.id);
   }
   for (const f of k.faces()) {
     const rings = k.faceRings3(f.id);
-    if (rings && rings.outer.every((p) => inBox(pf.angularPx(p, vp)))) sel.faces.add(f.id);
+    if (rings && rings.outer.every((p) => inBox(cam.angularPx(p, vp)))) sel.faces.add(f.id);
   }
   return sel;
 }
