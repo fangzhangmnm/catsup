@@ -29,4 +29,4 @@ python3 -m http.server 8765   # 开 http://localhost:8765/
 3. `ai-docs/20260906-app-shell-epoch-landing.md`（0.3 落地 + 遗留清单）
 4. `ai-docs/20260906-far-horizon-golden-format-and-ontology.md`（远景与格式判断）
 
-License：待 user 定（three.js 与图标库各自 MIT/ISC，见 `src/vendor/three/LICENSE` 与 `assets/icons.svg` 头注释）。
+License：MIT（与 WeebPaint 对齐，user 2026-09-06 拍板；见 `LICENSE`）。three.js 与图标库各自 MIT/ISC，见 `src/vendor/three/LICENSE` 与 `assets/icons.svg` 头注释。

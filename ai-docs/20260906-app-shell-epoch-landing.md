@@ -35,6 +35,9 @@
 
 ## 3. 没做 / 待 user
 
+**user 2026-09-06 晚间盘点裁决**（原话）：分层重构三步「开做」（ViewProjection / 动词注册表 / RenderEngine 切口；Session 无头化「先这样」）；License「和 weebpaint 对齐，应该是 MIT 吧」→ 已加 LICENSE；prod 首推「不做」；改名「就是 catsup 吧。weebpaint 已经把二次元属性定死了」→ Ketchup 候选关闭；push-pull 图标「先用你的」；正经 undo「很想马上要，先忍耐到下一个 session」；zip 容器「加油」；抽包 workbench-elements「也是近期要做的」；glTF 导出逃生口「不用了」；家族 CLAUDE.md 记案「好」→ 已记；旧探针进仓 → `test/probes/`。
+
+
 - **源仓公开**（真史 + ai-docs，公开工坊道）；隐私分拣：journals 从未入史、作者邮箱与 WeebPaint 公仓同、无密钥/绝对路径；ai-docs 含大量 user 原话（工坊道本意，user 知情）。
 - prod 道未推（无 prod）；push prod 时再抄 WeebPaint `kick-pages.sh`（去重坑只在 workflow 道存在，classic Pages 从分支服务不需要）。
 - `@internal/ui` 立户等 user 拍板；立户前三件替身各 ~80 行，别在里面长功能。
