@@ -122,6 +122,7 @@
   - **落地**：`test/kernel-fuzz.test.ts` 随机操作 fuzz + 拓扑不变量（80 种子 × 12 步）——抓到「edge N 不存在」整类根因 = 面环里留死边，五处内核修法见立宪页 §5「面环自洽」（repairRings / 擦边全并 / BIRTH 防重 / 区域跨平面去重 / 认领纯几何）；老内核（v0.4.1）同 fuzz 也炸，是老病。selectExpand 命中边 hasEdge 守卫；错误 toast 附栈顶函数名（esbuild --keep-names）；XRPointerFrame.forward() = 头向（只喂平面挑选）；默认出生点 (0, −3) 面朝北、「回出生点」同。
   - **反省稿 §3.7 分层 cue**（相机 / 手势位移 / 射线）待拍板。
 - **第五轮追加（同日深夜）**：user「吃书：vr 的地板永远都是 z=0。不用 min(0,min(model))。想进地下室以后可以用别的办法。或者用往下投影是否有东西（贵不贵？）如果有很大的屎山风险的话（比如需要在 realhome paradigm 里面加很多 hook 可能不急着做)」→ **已落 v0.4.3**：`collision-world.floorZ()` 恒 0（往下探针本来就有 = 站在几何上；地板只是无几何时的兜底），A13 第二轮「地板 = min(0,min(model))」作废；地下室另案。
+- **第六轮追加（同日深夜）**：user「然后我的一个想法是 grip 按住的时候可以切换成增量平移？但是松 grip 的时候增量是否保留？顺便一提无 grip 的时候你的 ray origin delta 也是无增量的平移，之前的手感不行就是 viewport 模式 disrespect 了 ray origin change」→ 反省稿 §3.5 末段（AI 建议：增量保留到扳机松开；grip 三个候选语义待三选一）。
 - **D 新增**：**D-fuzz 重复面残余**——种子 30/31/39/59/62（×104729）仍铸出同环第二张面（不崩、不丢边；`test/kernel-fuzz.test.ts` todo）；工具 = `node <tmp>/fuzzcount.ts`（见测试文件同款逻辑）+ 回放脚本思路（打印事件与面环）；下一刀从 face-lifecycle 认领/DIVIDE 铸造对「已有同环面」的处理入手。`待做`
 - **待拍板**：③④⑤ → `ai-docs/20260907-vr-input-reflection.md`（视口模型退役 → 球面度量接口；射线拾取 + 手位移拖动（HOMER 增益）+ grip=锁；肩锚射线/1€ 滤波；gizmo 留到 rotate/scale 立项）——§4 五问等一句话。⑥ 工具热键 → wishlist（user「先保证画的好」）。真机未验（v0.4.1 全 headless 自验）。
 
