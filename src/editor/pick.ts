@@ -17,7 +17,7 @@ import {
   sub3,
 } from "../kernel/geom.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
-import { type DrawPlane, type Snap3, NO_HAND, resolvePlane } from "./solver.ts";
+import { type DrawPlane, type Snap3, NO_HAND, occludedBy, resolvePlane } from "./solver.ts";
 
 // 兼容 re-export（调用方历史入口；新码请直接 import solver）
 export { type AlignHand, type AlignQuery, type DrawPlane, type Snap3, type SnapHint, type SnapKind, NO_HAND, axisPlane, cameraPlane, resolvePlane, resolveRectPlane, snapPoint } from "./solver.ts";
@@ -30,6 +30,12 @@ export const GROUND: DrawPlane = (() => {
 export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
 const sdist = (a: { x: number; y: number }, b: { x: number; y: number }): number => Math.hypot(a.x - b.x, a.y - b.y);
+/** 屏幕段上离 p 最近点的参数 t∈[0,1]（用来把「最近点」回投到 3D 做遮挡判定）。 */
+function segParam(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
+  const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
+  if (len2 === 0) return 0;
+  return Math.max(0, Math.min(1, ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y)) / len2));
+}
 function sdistToSeg(p: { x: number; y: number }, a: { x: number; y: number }, b: { x: number; y: number }): number {
   const len2 = (b.x - a.x) ** 2 + (b.y - a.y) ** 2;
   if (len2 === 0) return sdist(p, a);
@@ -41,17 +47,26 @@ function sdistToSeg(p: { x: number; y: number }, a: { x: number; y: number }, b:
 /** 实体拾取：顶点 > 边（屏幕距离）> 面（射线求交，取沿射线最近者——正确遮挡序）。 */
 export function pickEntity(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number, tolPx: number): HitResult3 {
   const cursor = { x: sx, y: sy };
+  // 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：顶点/边只在**看得见**时参赛——
+  // 与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡，所以棱/角本身不会被自己的邻膜挡掉）。
   let bestV: VertexId | undefined, bestVd = tolPx;
   for (const v of k.vertices()) {
-    const d = sdist(cursor, cam.worldToScreen({ x: v.x, y: v.y, z: v.z }, vp));
-    if (d <= bestVd) { bestVd = d; bestV = v.id; }
+    const p = { x: v.x, y: v.y, z: v.z };
+    const d = sdist(cursor, cam.worldToScreen(p, vp));
+    if (d <= bestVd && !occludedBy(k, cam, p)) { bestVd = d; bestV = v.id; }
   }
   if (bestV !== undefined) return { vertex: bestV };
 
   let bestE: EdgeId | undefined, bestEd = tolPx;
   for (const e of k.edges()) {
-    const d = sdistToSeg(cursor, cam.worldToScreen(k.graph.pt(e.a), vp), cam.worldToScreen(k.graph.pt(e.b), vp));
-    if (d <= bestEd) { bestEd = d; bestE = e.id; }
+    const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
+    const sa = cam.worldToScreen(a, vp), sb = cam.worldToScreen(b, vp);
+    const d = sdistToSeg(cursor, sa, sb);
+    if (d > bestEd) continue;
+    const t = segParam(cursor, sa, sb);   // 屏幕最近点回投到边上（透视下参数略偏，仍在边上，遮挡判定够用）
+    const q = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), z: a.z + t * (b.z - a.z) };
+    if (occludedBy(k, cam, q)) continue;
+    bestEd = d; bestE = e.id;
   }
   if (bestE !== undefined) return { edge: bestE };
 

@@ -37,14 +37,11 @@ svg.ico use { color: inherit; }
   background: rgba(255,255,255,.55); border-radius: 12px; box-shadow: 0 1px 6px rgba(0,0,0,.05);
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .hud-rail { flex-direction: column; gap: 2px; padding: 4px; }
-/* 工具栏：只有工具、左居中（user 2026-09-07：「工具栏左居中更舒服？…用 tools 的居中，而不是带上其他东西的居中」）*/
+/* 左柱：☰ 叠在工具上、撤销/重做叠在工具下，整柱左居中（user 2026-09-07 终形：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」）*/
 .hud-rail-tools { left: calc(10px + var(--safe-left)); top: 50%; transform: translateY(-50%); }
+.hud-rail-tools > .tb-btn { width: 48px; }
+.rail-tools { display: flex; flex-direction: column; gap: 2px; }
 .hud-rail-right { right: calc(10px + var(--safe-right)); top: calc(10px + var(--safe-top)); }
-/* 小药丸：☰ 独占左上；撤销/重做一槽两半收左下（状态行上方） */
-.hud-chip { flex-direction: row; }
-.hud-tl-chip { left: calc(10px + var(--safe-left)); top: calc(10px + var(--safe-top)); }
-.hud-bl-chip { left: calc(10px + var(--safe-left)); bottom: calc(52px + var(--safe-bottom)); }
-.hud-bl-chip .tb-btn { width: 36px; height: 36px; }
 /* 文字类 HUD：无背景、白描边（游戏字幕式），指针穿透 */
 .hud-text { position: absolute; z-index: 5; pointer-events: none; font-size: 12px; color: #4a4a4a; line-height: 1.45;
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff, 0 1px 3px rgba(255,255,255,.9); }

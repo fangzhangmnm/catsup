@@ -115,16 +115,14 @@
       <div id="stage">
         <canvas id="board"></canvas>
         <!-- HUD（user 2026-09-06：「顶栏透明…类似游戏的那种 immersive hud…以后转 VR 会无疼」；
-             2026-09-07 二稿：顶上清空、视图进右栏弹出、标题字撤、背景弱、版本角标留、左下状态=RPG 对话框；三稿：工具栏单独左居中（WeebPaint 人体工程学）、☰ 独占左上、撤销/重做一槽两半收左下状态行上方）-->
-        <div class="hud hud-chip hud-tl-chip">
+             2026-09-07 二稿：顶上清空、视图进右栏弹出、标题字撤、背景弱、版本角标留、左下状态=RPG 对话框；三稿终形（user：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」）：一根左柱整体居中 = ☰ / 工具 / 撤销 / 重做）-->
+        <nav class="hud hud-rail hud-rail-tools" aria-label="工具">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
-        </div>
-        <nav id="toolbar" class="hud hud-rail hud-rail-tools" aria-label="工具"></nav>
-        <div class="hud hud-chip hud-bl-chip" role="group" aria-label="编辑">
+          <div id="toolbar" class="rail-tools" role="group" aria-label="工具"></div>
           <button class="tb-btn" id="btnUndo" type="button" title="撤销（Ctrl+Z / 双指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-undo"/></svg></button>
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
           <button class="tb-btn tb-danger" id="btnDelete" type="button" title="删除选区（Delete）" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
-        </div>
+        </nav>
         <nav class="hud hud-rail hud-rail-right" aria-label="视图">
           <button class="tb-btn" id="btnView" type="button" title="视图"><svg class="ico" aria-hidden="true"><use href="#axes"/></svg></button>
           <button class="tb-btn" id="btnFit" type="button" title="缩放到全部"><svg class="ico" aria-hidden="true"><use href="#maximize-viewport"/></svg></button>
@@ -167,6 +165,6 @@
     </div>
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
-    <script type="module" src="./dist/catsup-e294ac8e8148.mjs"></script>
+    <script type="module" src="./dist/catsup-8352b922de8a.mjs"></script>
   </body>
 </html>

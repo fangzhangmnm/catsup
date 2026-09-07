@@ -136,3 +136,41 @@ describe("pick: 屏幕框选 + 批删", () => {
     eq(k.faces().length, 1, "右面还在");
   });
 });
+
+// 2026-09-07 user「high：有时候选择会选到面后面的东西」——拾取此前纯屏幕距离，膜后的角/边照样中选。edited by Claude Fable 5.1
+describe("pickEntity: 膜后的顶点/边不可选（遮挡）", () => {
+  const VP2 = { w: 1000, h: 800 };
+  function box(): Kernel {
+    const k = new Kernel();
+    k.addEdges(rectSegments({ x: 10, y: 20 }, { x: 110, y: 80 }));
+    k.pushPull(k.faces()[0].id, 40);
+    return k;
+  }
+  for (const proj of ["ortho", "persp"] as const) {
+    it(`${proj}：光标压在背底边的投影上（落在正面剪影内）→ 选中正面膜，不是背底边`, () => {
+      const k = box();
+      const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = { x: 60, y: 50, z: 20 };
+      const s = c.worldToScreen({ x: 60, y: 80, z: 0 }, VP2);            // 背底边中点
+      const hit = pickEntity(k, c, VP2, s.x, s.y, 6);
+      assert(hit.edge === undefined && hit.vertex === undefined, `不该选到膜后的边/角：${JSON.stringify(hit)}`);
+      assert(hit.face !== undefined, "应落到正面膜");
+      const rec = k.planeOf(hit.face!)!;
+      assert(Math.abs(rec.plane.n.y) > 0.99 && Math.abs(rec.plane.d - 20) < 1e-6 || Math.abs(rec.plane.d + 20) < 1e-6, `应是正面 y=20：n=${JSON.stringify(rec.plane.n)} d=${rec.plane.d}`);
+    });
+    it(`${proj}：光标压在背底角的投影上 → 不选到膜后的角`, () => {
+      const k = box();
+      const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = { x: 60, y: 50, z: 20 };
+      const s = c.worldToScreen({ x: 110, y: 80, z: 0 }, VP2);           // 背右底角（在盒子剪影内）
+      const hit = pickEntity(k, c, VP2, s.x, s.y, 6);
+      assert(hit.vertex === undefined, `不该选到膜后的角：${JSON.stringify(hit)}`);
+    });
+    it(`${proj}：可见的前底边/前底角照常可选（棱不被自己的邻膜挡）`, () => {
+      const k = box();
+      const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 120; c.target = { x: 60, y: 50, z: 20 };
+      const se = c.worldToScreen({ x: 60, y: 20, z: 0 }, VP2);
+      assert(pickEntity(k, c, VP2, se.x, se.y, 6).edge !== undefined, "前底边应可选");
+      const sv = c.worldToScreen({ x: 10, y: 20, z: 40 }, VP2);
+      assert(pickEntity(k, c, VP2, sv.x, sv.y, 6).vertex !== undefined, "前上角应可选");
+    });
+  }
+});
