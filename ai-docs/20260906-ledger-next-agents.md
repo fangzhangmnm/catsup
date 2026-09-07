@@ -72,9 +72,18 @@
   5. **工具在 VR 里 = A2 `ViewProjection` 的第二个实现**：控制器射线 = `screenRay`，射线周围角度空间当 800px 高虚拟屏 = `worldToScreen`/ε，trigger = pointer down/up；对齐引擎数学零改动（snap-model §7 预留的就是这个）。phase 1 只接 线/矩形/推拉/橡皮，工具切换 = 控制器 X/Y 循环；状态行/菜单在 VR 里先不做（见 6）。
   6. **UI 元素与 VR 的适配（user 问）**：`popup-menu`/`notice` 的 API 已是数据驱动（`items()`/`onPick`、`{text,level,actions}`）——抽包 A5 时把「模型」与「DOM 渲染」分层即可，VR 端将来用 three 手腕面板消费同一份模型；**不做 DOM→纹理**。
   7. **验证三件**：① flat 步行模式（键盘）验移动/teleport/snap turn；② 桌面浏览器装 Meta「Immersive Web Emulator」扩展（dev 工具，不是运行时依赖）验 XR 会话进出与控制器映射；③ `test/`：player 模块纯函数 golden（snap turn 边沿、抛物线落点、回上一点、noclip 飞）。真机只需戴一次验会话。
-  8. **phase 2（不在本轮）**：大人/小孩/高达视角（rig 缩放）、grab 缩放操纵模型、墙体碰撞、手腕菜单/状态行、rotate/scale 动词与 SU move 对齐、VR 下吸附语义重想（pointer ≠ cursor）。
+  8. **phase 2（不在本轮）**：大人/小孩/高达视角（rig 缩放）、grab 缩放操纵模型、rotate/scale 动词与 SU move 对齐、VR 下吸附语义重想（pointer ≠ cursor）。
+- **user 2026-09-07 第二轮裁决（改动上面计划）**：
+  - 「player.ts 帮我好好模块化一个，尽量不要和别的代码混乱」→ **深模块**：`src/player/`（`player.ts` 纯状态机 `step(input, dt, world)`；`WorldQuery` 接口注入 = `groundBelow(p)` / `sweepCapsule(...)` / `arcHit(...)`，由 editor 侧用内核三角汤实现；不 import kernel/three；输入适配器 `xr-input.ts` / `flat-input.ts` 各自独立；rig 同步只在引擎内）。golden 纯函数可测。
+  - **墙体碰撞进 phase 1**（user：「都有求交了，一口气把墙壁做了吧。没有墙壁反而会容易静默到奇怪的地方。wysiwyg = 反煤气灯」）：移植 RealHome 胶囊三球 + 悬挂 + 台阶（`collision.js` 235 行）；三角汤 = 膜三角化（OBJ 导出已有 `faceTriangles`），模型小先暴力、大了再 BVH。**max slope 做**（user：「行」；RealHome 无显式 slope 限，见对话核实）。
+  - **地板 = min(0, min(model z))**（user：「off map falling…地板用 min(0,min(model))」）：安全地板永远在模型最低点或 0 之下，不会掉到无限；RealHome 的 fall-too-far respawn 不需要。
+  - **teleport 距离上限**：抛物线射程随手柄俯仰（45° 最远，封顶约 10 m），更远用摇杆平滑移动/noclip 飞；**反悔** = 指向天空/无落点时松手 = 取消（弧线变红），充能中后拉摇杆 = 取消，落地后后推 = 回上一点。「打自己脚底」不当取消（和小步 teleport 歧义）。
+  - **相机 flat 模式**：WASD + **Q/E 上下**（user：「相机 wasd 不够，还需要 qe 上下」）+ Shift 冲刺 + Space 跳 + Ctrl 蹲 + 鼠标视角 + ←/→ snap turn。
+  - **手腕面板进 phase 1**（user：「手腕菜单是 phase 1。缺了这个 vr 没法用。vr 第一公民的意思是不回 flatscreen 可以进去全 workflow（除非有些文件 io 被浏览器硬墙）」）：three 面板挂非惯用手腕，消费与桌面同一份数据驱动 UI 模型（工具 / 撤销重做 / 视图 / 退出 VR / 状态行 / 菜单项）；文字与图标经 canvas 2D 烤成纹理（UI 显示用途，非字节进出）。桌面 HUD 与手腕面板 = 同模型两渲染器（A5 抽包分层的直接受益者）。
+  - **多击在 VR/触屏 = 阶段长按 + 震动**（user：「手柄的位置漂移会比放在桌面上的鼠标远…也许用阶段长按+haptics？」）：按住 0.3 s 一震=膜+环边，0.6 s 二震=连通体；桌面仍双击/三击；pen 同 VR。**不依赖右键**（user：「vr 和 stylus 都讨厌右键」）：现状右键只做环绕、零动词依赖，保持。
+  - **不用物品栏模式**（user：「好不用物品栏模式」）→ A14 结案：常规建模软件组织。
 
-### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `待拍板`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
+### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
 
 ### A15 无地期间的本地草稿持久化 — `待拍板`（硬规则 #1 storage 红线，需 user 明批；user 2026-09-07：「idb 保留还是蛮重要的，即使是无地期间也鼓励我认真画东西，如何在数据契约还在大幅变动的现在实现这个但不屎山，也不是更新版本必丢？」）。AI 提案见对话（op 日志 + OBJ bake 双层信封，盒子可换）。
 
