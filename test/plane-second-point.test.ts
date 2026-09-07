@@ -84,7 +84,7 @@ describe("plane-second-point", () => {
 // 2026-09-06 user：「矩形侧面上往下拖一个矩形，很难吸附底边，或者干脆不吸附，有时候会吸附到这个面后面的某个底边」
 // 三根因：①上一帧矩形吸到底边 → 底边被手中切点切三段、每段带手中端点 → 整条底边退赛（下一帧又回来 → 横跳）
 // ②触手膜全豁免遮挡 → 正面被矩形 DIVIDE 后透明 → 背后底边露出 ③光标滑出底边 → 平面按落底偏置翻到水平面。
-// 修：edgeTargets 链式溶解 / AlignHand.faces（draw 只报 BIRTH 膜）/ resolvePlane prev 黏性。edited by Claude Fable 5.1
+// 修：edgeTargets 链式溶解 / AlignHand.faces（draw 只报 BIRTH 膜）/ resolvePlane 近擦（黏性版 2026-09-07 仓库角点案撤）。edited by Claude Fable 5.1
 describe("plane-second-point: 侧面往下拖矩形吸底边（拖拽中的手中集）", () => {
   /** 盒子挪开原点（底边与世界 x 轴既不重合也不贴近，免得原点轴线冒充「align」）。 */
   function boxOff(): Kernel {
@@ -117,18 +117,18 @@ describe("plane-second-point: 侧面往下拖矩形吸底边（拖拽中的手�
       const { live, hand, plane } = liveAfterPreview(k, p1, 0);
       const s = c.worldToScreen(P(70, 20, 0), VP);
       for (const dy of [-4, 0, 4]) {
-        const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + dy, 8, [], hand, plane);
+        const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + dy, 8, [], hand);
         assert(r.snap.kind === "on-edge", `dy=${dy} kind=${r.snap.kind}`);
         assert(Math.abs(r.snap.p.z) < 1e-6 && Math.abs(r.snap.p.y - 20) < 1e-6, `dy=${dy} p=${JSON.stringify(r.snap.p)}`);
       }
     });
 
-    it(`${proj}：光标滑到底边下方（射线不再命中含锚点的膜）→ 平面黏住正面，不翻到过锚点的水平面`, () => {
+    it(`${proj}：光标滑到底边下方 12px（射线不再命中含锚点的膜）→ 近擦正面剪影 → 平面仍是正面，不翻到过锚点的水平面`, () => {
       const k = boxOff(); const c = camOff(proj);
       const p1 = P(50, 20, 30);
       const { live, hand, plane } = liveAfterPreview(k, p1, 0);
       const s = c.worldToScreen(P(70, 20, 0), VP);
-      const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + 12, 8, [], hand, plane);
+      const r = resolveRectPlane(live, c, VP, p1, s.x, s.y + 12, 8, [], hand);
       assert(Math.abs(r.plane.plane.n.y) > 0.99, `plane n=${JSON.stringify(r.plane.plane.n)}`);
       assert(distToPlane(r.snap.p, plane.plane) < 1e-6 && r.snap.p.z < 0, `解析点应在正面平面上、底边下方：${JSON.stringify(r.snap.p)}`);
     });
@@ -138,12 +138,33 @@ describe("plane-second-point: 侧面往下拖矩形吸底边（拖拽中的手�
       const p1 = P(50, 20, 30);
       const { live, hand, plane } = liveAfterPreview(k, p1, 3);   // 上一帧矩形底在 z=3（未触底边）
       const sBack = c.worldToScreen(P(70, 80, 0), VP);             // 背面底边在屏上投影（落在正面剪影内）
-      const r = resolveRectPlane(live, c, VP, p1, sBack.x, sBack.y, 8, [], hand, plane);
+      const r = resolveRectPlane(live, c, VP, p1, sBack.x, sBack.y, 8, [], hand);
       assert(Math.abs(r.snap.p.y - 20) < 1e-6, `不该吸到背面（y=80）：kind=${r.snap.kind} p=${JSON.stringify(r.snap.p)}`);
       // 对照：老定义（触手膜全豁免）会让背面底边露出来
       const loose = { has: hand.has, opaque: false };
-      const r0 = resolveRectPlane(live, c, VP, p1, sBack.x, sBack.y, 8, [], loose, plane);
+      const r0 = resolveRectPlane(live, c, VP, p1, sBack.x, sBack.y, 8, [], loose);
       assert(Math.abs(r0.snap.p.y - 80) < 1e-6, `对照组应复现露背（老定义）：kind=${r0.snap.kind} p=${JSON.stringify(r0.snap.p)}`);
+    });
+  }
+});
+
+// 2026-09-07 user 截图：「这个时候我想画 xy 面为什么反而画成竖直面了…我是从这个仓库的角点开始拖的」——锚点=角点（同属水平面与竖墙），
+// 光标离开角点时先擦过含锚点的竖墙 → 平面定成竖直，昨夜的「黏住上一帧」把它一路黏到空地 → 大竖板。撤黏性，改近擦（纯几何无历史）。
+describe("plane-second-point: 角点起手拖到空地 → 水平面（黏性回归案）", () => {
+  for (const proj of ["ortho", "persp"] as const) {
+    it(`${proj}：锚点=盒子顶角，光标在远处空地 → 过锚点的水平面，不是擦过的竖墙`, () => {
+      const k = new Kernel();
+      k.addEdges(rectSegments({ x: 10, y: 20 }, { x: 110, y: 80 }));
+      k.pushPull(k.faces()[0].id, 40);
+      const c = new OrbitCamera(); c.projection = proj; c.yaw = -Math.PI / 2; c.pitch = 0.5; c.halfH = 160; c.target = P(60, 50, 20);
+      const p1 = P(110, 20, 40);                                     // 前右顶角：顶面 + 前墙 + 右墙共享
+      const sWall = c.worldToScreen(P(112, 20, 30), VP);             // 先擦一下前墙（含锚点）
+      const r0 = resolveRectPlane(k, c, VP, p1, sWall.x, sWall.y, 8, [], NO_HAND);
+      assert(Math.abs(r0.plane.plane.n.y) > 0.99, `擦墙时平面=前墙：${JSON.stringify(r0.plane.plane.n)}`);
+      const sGround = c.worldToScreen(P(-40, -30, 0), VP);           // 再拖到远处空地
+      const r1 = resolveRectPlane(k, c, VP, p1, sGround.x, sGround.y, 8, [], NO_HAND);
+      assert(Math.abs(r1.plane.plane.n.z) > 0.99, `空地上平面应水平：n=${JSON.stringify(r1.plane.plane.n)}`);
+      assert(Math.abs(r1.plane.plane.d - 40) < 1e-6 || Math.abs(r1.plane.plane.d + 40) < 1e-6, `应是过锚点的 z=40：d=${r1.plane.plane.d}`);
     });
   }
 });

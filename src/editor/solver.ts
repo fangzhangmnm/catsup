@@ -35,7 +35,9 @@ export type Locus =
 export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; }
 
 export const RANK = { endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 } as const;
-export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;   // line 5→3.5：「点松线紧」试验（user 2026-09-07「可以试试」；B6）
+export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;
+/** 第二点平面「近擦」容差（CSS px @800 高）：光标离含锚点膜的剪影这么近 = 仍算在那张膜上（滑出底边不翻面）。 */
+export const PLANE_NEAR_PX = 24;   // line 5→3.5：「点松线紧」试验（user 2026-09-07「可以试试」；B6）
 /**
  * ε 语义（user 2026-09-06「吸附的语义还是屏幕大小…height+aspect 这个老 gl convention」）：
  * 所有 ε 常量按 **800 px 高的视口**标定，实际使用按 `vp.h / 800` 等比缩放——等价于「fovY 的角度分数」
@@ -653,6 +655,33 @@ export function faceUnderCursor(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: n
   return best?.plane ?? null;
 }
 
+/** 含锚点的膜里，剪影（屏幕多边形）离光标 ≤ tolPx 的最近一张 → 其平面；没有 → null。
+ *  无历史、纯几何：滑出底边几个像素仍在那张墙上（2026-09-06 侧面拖矩形案），远离了就自然放手
+ *  （2026-09-07 仓库角点案：此前「黏住上一帧平面」把擦过的竖墙一路黏到空地上——黏性是错的一般化，撤）。 */
+function nearFaceContaining(k: Kernel, cam: OrbitCamera, vp: Viewport, sx: number, sy: number, p1: Pt3, tolPx: number): DrawPlane | null {
+  let best: { d: number; plane: DrawPlane } | null = null;
+  for (const f of k.faces()) {
+    const rec = k.planeOf(f.id);
+    if (!rec || distToPlane(p1, rec.plane) > 1e-3) continue;
+    const ring = k.faceRings3(f.id)?.outer;
+    if (!ring || ring.length < 3) continue;
+    const poly = ring.map((q) => cam.worldToScreen(q, vp));
+    let d = 0;
+    if (!pointInRing({ x: sx, y: sy }, poly)) {
+      d = Infinity;
+      for (let i = 0; i < poly.length; i++) {
+        const a = poly[i], b = poly[(i + 1) % poly.length];
+        const abx = b.x - a.x, aby = b.y - a.y;
+        const l2 = abx * abx + aby * aby;
+        const t = l2 > 0 ? Math.max(0, Math.min(1, ((sx - a.x) * abx + (sy - a.y) * aby) / l2)) : 0;
+        d = Math.min(d, Math.hypot(sx - (a.x + t * abx), sy - (a.y + t * aby)));
+      }
+    }
+    if (d <= tolPx && (!best || d < best.d)) best = { d, plane: { plane: rec.plane, basis: rec.basis, face: f.id } };
+  }
+  return best?.plane ?? null;
+}
+
 /**
  * 平面求解（字典序见文件头）。p1 无 = 首点查询（facePlane=调用方 raycast 的面锁候选）；
  * p1 有 = 第二点查询（含点平面拉动）。fixed=面锁成立（裸落膜内）。
@@ -664,9 +693,9 @@ export function resolvePlane(
   sx: number,
   sy: number,
   tolPx: number,
-  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand; prev?: DrawPlane | null },
+  opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand },
 ): { plane: DrawPlane; fixed: boolean; snap: Snap3 } {
-  const { p1, facePlane, alignSources, hand, prev } = opts;
+  const { p1, facePlane, alignSources, hand } = opts;
   if (p1) {
     // 含点（膜）：光标射线命中的膜若也含锚点 → 该膜平面胜出（SU：从共享边拖进哪张面，矩形/线就躺哪张面）。
     // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
@@ -676,13 +705,16 @@ export function resolvePlane(
       const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand });
       return { plane: under, fixed: false, snap };
     }
-    // 平面黏性（2026-09-06 侧面拖矩形案）：光标离开膜（滑出底边）时不重挑——上一帧的平面只要含锚点就沿用，
-    // 否则按落底偏置挑过锚点轴平面会把矩形翻到水平面、角点飞走。换平面只走「含锚点的膜在光标下」或「解析点落到别的候选面上」。
+    // 近擦（2026-09-06 侧面拖矩形案）：光标滑出含锚点膜的剪影几个像素（如底边下方）仍算在那张膜上，
+    // 否则按落底偏置挑过锚点轴平面会把矩形翻到水平面、角点飞走。纯几何无历史（黏性版 2026-09-07 撤）。
+    const near = nearFaceContaining(k, cam, vp, sx, sy, p1, PLANE_NEAR_PX * epsScale(vp));
+    if (near) {
+      const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: near, anchor: p1, alignSources, hand });
+      return { plane: near, fixed: false, snap };
+    }
     const candidates = axisPlanesThrough(p1);
-    const sticky = prev && distToPlane(p1, prev.plane) <= 1e-3 ? prev : null;
-    const base = sticky ?? pickByFacing(cam, candidates);
+    const base = pickByFacing(cam, candidates);
     const snap = snapPoint(k, cam, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand });
-    if (sticky && distToPlane(snap.p, sticky.plane) <= 1e-3) return { plane: sticky, fixed: false, snap };
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
     return { plane: containing.length ? pickByFacing(cam, containing) : base, fixed: false, snap };
   }
@@ -704,11 +736,9 @@ export function resolveRectPlane(
   tolPx: number,
   alignSources: readonly Pt3[] | undefined,
   hand: AlignHand,
-  prev?: DrawPlane | null,
 ): { plane: DrawPlane; snap: Snap3 } {
   // hand = 手中集（预演里新生的顶点/工具自报的移动集）：不传 = 矩形/线会吸到自己上一帧的角点（2026-09-06 user「一 snap 一 snap」真凶，
   // lab 时代就有、ε 放大后显形；线第二点当日改走本函数被拖下水）
-  // prev = 上一帧的手势平面（黏性；首帧不传）
-  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources, hand, prev });
+  const r = resolvePlane(k, cam, vp, sx, sy, tolPx, { p1, alignSources, hand });
   return { plane: r.plane, snap: r.snap };
 }
