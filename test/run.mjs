@@ -20,6 +20,7 @@ import "./obj-io.test.ts";
 import "./eps-scale.test.ts";
 import "./plane-second-point.test.ts";
 import "./on-face.test.ts";
+import "./player.test.ts";
 import { run } from "./runner.mjs";
 
 await run();
