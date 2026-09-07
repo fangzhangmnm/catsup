@@ -71,6 +71,13 @@ export function describeEvent(ev: FaceEvent): string {
 
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 
+/** 长度显示（SU 同款「~」）：截到 1 位小数；截掉的部分超过格点量子 → 前缀 ~ 告诉用户「不是 exactly」
+ *  （user 2026-09-07：「带小数点的优雅一点，多 truncate 几位，但是让用户知道不是 exactly」）。 */
+export function fmtLen(v: number, digits = 1): string {
+  const shown = Number(v.toFixed(digits));
+  return (Math.abs(v - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits);
+}
+
 export class Editor {
   readonly cam = new OrbitCamera();
   private r3: Renderer3;
@@ -635,13 +642,13 @@ export class Editor {
         for (const st of this.ppStops) if (Math.abs(st - this.ppH) <= epsH && (best === null || Math.abs(st - this.ppH) < Math.abs(best - this.ppH))) best = st;
         if (best !== null) {
           this.ppH = best;
-          ref = `｜高度咬合 ${best.toFixed(1)}`;
+          ref = `｜高度咬合 ${fmtLen(best)}`;
           this.snapInfo = { p: add3(anc, scale3(n, this.ppH)), kind: "h-stop" };
         }
       }
     }
     this.cursor3 = add3(anc, scale3(n, this.ppH));
-    this.host.hint(`推拉 h = ${this.ppH.toFixed(1)}${ref}（松手/再点落定；Esc 取消）`);
+    this.host.hint(`推拉 h = ${fmtLen(this.ppH)}${ref}（松手/再点落定；Esc 取消）`);
   }
 
   pointerUp(ev: ToolPointer): void {

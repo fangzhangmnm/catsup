@@ -75,7 +75,7 @@ describe("solver: property 不变量", () => {
 
   it("秩表哨兵：RANK/EPS 现值锁定（改值必须连测试一起改=有意识决策）", () => {
     eq(JSON.stringify(RANK), JSON.stringify({ endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 }), "RANK");
-    eq(JSON.stringify(EPS), JSON.stringify({ point: 10, edge: 7, line: 5, combo: 12 }), "EPS");
+    eq(JSON.stringify(EPS), JSON.stringify({ point: 10, edge: 7, line: 3.5, combo: 12 }), "EPS");   // line 5→3.5：「点松线紧」试验（user 2026-09-07；B6）
   });
 });
 
@@ -88,7 +88,7 @@ describe("solvePoint: 1-D 遮挡=可见区间钳制（2026-09-03 抖动破案，
   const spans = (): [number, number][] => [[10, 30]];   // x∈[10,30] 被挡
   const at2 = (wx: number): { x: number; y: number } => clampCam.worldToScreen({ x: wx, y: 0, z: 0 }, VP);
   it("光标在被挡段内、离边界 ε 内 → 钳到最近可见边界点（不否决）", () => {
-    const s2 = at2(10.5);   // 离边界 x=10 半个 world unit=4px < EPS.line 7px
+    const s2 = at2(10.3);   // 离边界 x=10 0.3 world unit=2.4px < EPS.line 3.5px（2026-09-07 线 ε 收紧后随改；语义不变）
     const sol = solvePoint({ cam: clampCam, vp: VP }, s2, axisC, { spans1D: spans });
     assert(sol !== null && sol.dim === 1, "应有 1-D 解");
     assert(Math.abs(sol!.p.x - 10) < 1e-6, `p 应钳在边界 x=10，实际 ${sol!.p.x.toFixed(3)}`);

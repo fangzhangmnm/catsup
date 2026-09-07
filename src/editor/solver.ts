@@ -35,7 +35,7 @@ export type Locus =
 export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; }
 
 export const RANK = { endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 } as const;
-export const EPS = { point: 10, edge: 7, line: 5, combo: 12 } as const;
+export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;   // line 5→3.5：「点松线紧」试验（user 2026-09-07「可以试试」；B6）
 /**
  * ε 语义（user 2026-09-06「吸附的语义还是屏幕大小…height+aspect 这个老 gl convention」）：
  * 所有 ε 常量按 **800 px 高的视口**标定，实际使用按 `vp.h / 800` 等比缩放——等价于「fovY 的角度分数」
