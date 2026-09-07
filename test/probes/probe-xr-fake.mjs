@@ -40,8 +40,9 @@ await page.evaluate(() => {
   r3.xr.session = () => session; r3.xr.frame = () => frame; r3.xr.refSpace = () => ref;
   r3.xr._end = () => { vr.onEnd(); };
   globalThis.__fake = fake;
-  // 手动开会话
+  // 手动开会话；随后停掉真实渲染循环（onStart→onChange→syncLoop 会起 loopTick 也调 vr.tick，和探针的手动 tick 叠加多走步——探针只认手动 tick）
   vr.onStart();
+  editor.setLoop(null);
 });
 const st0 = await page.evaluate(() => ({ presenting: globalThis.__catsup.vr.isPresenting(), mode: globalThis.__catsup.locomotion.getMode(), hint: document.getElementById("hint").textContent.slice(0, 3) }));
 check(st0.presenting && st0.mode === "xr" && st0.hint === "VR：", `会话开始 ${JSON.stringify(st0)}`);

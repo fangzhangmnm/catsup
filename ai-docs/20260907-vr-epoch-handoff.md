@@ -74,3 +74,15 @@ A3（动词注册表）不是本轮必做；若 editor.ts 的 switch 妨碍接�
 - `run`：起本地服务跑探针、截图。
 - `diagnose`：真机/模拟器上出怪现象时走复现→最小化→假设→仪表。
 - 不用 plan mode（user 用不惯，要对话）。
+
+---
+
+## 8. 落地回填（2026-09-07 挂机轮，Claude Fable 5.1；as-of v0.4.0）
+
+- 胜利条件 §1 逐条：桌面步行/飞行相机 ✓（视图菜单「步行相机/穿墙飞行」，probe-walk 15 项）· 随时进出 VR ✓（☰「进入 VR」仅 isSessionSupported 露出；sessionend 模型/工具原样，假会话探针验）· VR 内全 workflow ✓（线/矩形/推拉/橡皮/移动 = 扳机；选择 = 阶段长按+震动；撤销重做/删除/穿墙/回出生点/退出 VR/状态行 = 手腕面板；X/Y 也撤销重做）· 移动 ✓（左摇杆走+按下冲刺；右摇杆 dpad 左右 snap/前推充能/后拉回上一点；充能中左摇杆 dpad 档位/朝向；A 跳 B 蹲；noclip A/B 上下）· 碰撞 ✓（三球胶囊+悬挂+台阶+max slope+安全地板+落点合法性）· 测试 ✓（219 绿；probe-boot/hover/pen/touch/walk/xr-fake 绿）。
+- §2 切口按图落地；差异：`collision-world.ts` 是**多边形汤**不是三角汤（膜本来就是平面多边形含洞，球/线段直接对它求最近点/求交，不用 earcut）；A3 没做；`xr-input.ts` 读原生 WebXR（不经 three 控制器对象），three 只在 render3 画射线/光标球/面板。
+- 追加机制：**freeze / coyote**（user 挂机中追加，原话见总账 A13 第四轮）。
+- §5 待 user 的三问 + 挂机攒的问题 → 总账 A13「待 user 一句话」12 条。
+- 真机：只请 user 戴 Quest 进一次会话（或桌面 Chrome 装 Immersive Web Emulator）验会话进出与键位；逻辑层已被假会话探针钉死。
+
+edited by Claude Fable 5.1 2026-09-07

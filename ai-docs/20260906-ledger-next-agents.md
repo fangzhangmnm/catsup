@@ -16,7 +16,7 @@
 - **红线**：动 `src/kernel/` = 改核心必回写立宪页 `ai-docs/20260902-kernel-constitution.md`「时间结构」节；开工前 grill 两点：①undo 时膜事件（BIRTH/BURST…）不重放（事件是叙事不是状态）②`planes.ts` τ 合并在回滚后是否精确可逆。
 - **验收**：全部 golden 不变；`test/preview.test.ts`「预览事件=提交事件逐字」仍绿；新增 undo 往返 golden（每个动词 do→undo→redo 状态逐字一致）；`scripts/probe-boot.mjs` 撤销回 1 面。
 
-### A2 分层重构① `ViewProjection` 接口 — `待做`（user：「开做」）
+### A2 分层重构① `ViewProjection` 接口 — `done 02575f9（2026-09-07，接口名 PointerFrame）`（user：「开做」）
 - **做什么**：把 solver/pick/editor 对 `OrbitCamera` 类的依赖改成接口 `ViewProjection { worldToScreen; screenRay; viewDirAt; forward }`（就这四个，见 `src/editor/solver.ts` / `pick.ts` 的用法）；`OrbitCamera implements ViewProjection`。VR 将来用「控制器射线 + 射线周围角度空间当 800px 高虚拟屏」实现同一接口。
 - **不动**：ε 语义（已是视口高度分数 ≡ 角度分数，`solver.epsScale`）、求解器数学、任何测试数值。
 - **验收**：`npm test` 数值零变化；`tsc` 绿；`ai-docs/20260901-snap-model.md` §7 加一句接口名。
@@ -39,7 +39,7 @@
 ### A6 ε 基准值真机调参 — `待看`（user 刷新后反馈；本日已改成视口高度分数）
 - 常量在 `src/editor/solver.ts` `EPS`（点 10/边 7/线 5/合成 12 @ 800px 高）与 `editor.ts` `SNAP=8/HIT=6`。嫌小 → 整体乘一个系数；透视视场角 `OrbitCamera.fovY` 现 50°（SU 默认 35°），是否换 = B4。
 
-### A7 Select 工具：点击族 + Ctrl+A / Delete — `待做`（user 2026-09-06「同意，然后手势可以看一下weebpaint的坑」）
+### A7 Select 工具：点击族 + Ctrl+A / Delete — `点击族 done v0.4.0（双击=膜+环边、三击=连通体，Editor.selectExpand，VR 长按同源）；Ctrl+A 待做`（user 2026-09-06「同意，然后手势可以看一下weebpaint的坑」）
 - **口径（SU）**：单击=该实体；双击膜=膜+其环边、双击边=边+其邻膜；三击=整个连通体；Shift=切换加减、Ctrl=加、Shift+Ctrl=减；框选左→右=全含、右→左=相交；Ctrl+A 全选；Delete 删选中（走 erase 语义：边随葬律/删膜边留）。多击是**单击的超集** → 第一击立刻选、第二击升级、第三击再升级，不需要等超时（无延迟）。
 - **触屏**：pen 双 tap / 三 tap 计时（手指 tap 已占相机/撤销）。**必读 WeebPaint 的坑**：`../20260524 WeebPaint/ai-docs/20260530-ipad-doubletap-architecture.md`（iPad 双击被系统手势劫持 → 四层防御：body 级 touch-action / pointercancel 全清 / 自定义 doubletap 事件）+ 本仓 `ai-docs/20260906-app-shell-epoch-landing.md` 多指 tap 四坑（tap 位移阈 / 时间阈 / 手掌门 / 见过 pen 后手指永久=相机）。
 - **验收**：合成探针（pen 单/双/三 tap 的选中集）进 `test/probes/`；`npm test` 选中集 golden。
@@ -61,7 +61,7 @@
 - **网格升级 = 无限 + 自适应 major/minor**（user：「以后可能画大的东西需要自适应，或者淘汰掉，或者先考虑自适应+major/minor?」→ 2026-09-07 澄清「不是淘汰是升级，主要就是变成无限网格，或者解决大场景的问题。现在的网格是写死的大小，我说淘汰的是这个」→ **要淘汰的是写死的网格尺寸**：网格随视野无限延伸/按 LOD 换档，大场景不掉队）：AI 建议 = 自适应 + 十进 major/minor（Blender 式：minor 10 cm / major 1 m，zoom 出去换 1 m / 10 m…）；**absolute grid 吸附步长 = 当前可见 minor 格（WYSIWYG，Blender 同款）**，比例尺就是在报这个步长——这条**修正**我此前「固定格距不随 LOD」的建议（有了比例尺就不怕「不知道在吸哪层」）。**user 2026-09-07 裁：网格留（「淘汰也是以后，现在很需要」）**，自适应 major/minor 照做。
 - **视图菜单名字带方位**（user「同意。前视=向北看」）：前视（向北看）/ 后视（向南看）/ 左视（向东看）/ 右视（向西看）/ 顶视 / 等轴——`done v0.3.7`（camera.setView 已是 front=从南看向北）。
 
-### A13 VR 第一公民：加 VR support（0.4 纪元候选） — `待做`（user 2026-09-07 day 1 尾巴原话，全文：「喊口号不如实际逼你一下。在今天 day 1 的尾巴，工具动词还少，ui 还少的，rotate, scale 没做，move 半残，component group 没做的时候开始干这个时期：vr 第一公民，加 VR support。以后想加什么，键鼠，触屏，vr 一起做」）
+### A13 VR 第一公民：加 VR support（0.4 纪元候选） — `done v0.4.0（2026-09-07 挂机轮，Claude Fable 5.1；headless/假会话全绿，Quest 真机未验）`（user 2026-09-07 day 1 尾巴原话，全文：「喊口号不如实际逼你一下。在今天 day 1 的尾巴，工具动词还少，ui 还少的，rotate, scale 没做，move 半残，component group 没做的时候开始干这个时期：vr 第一公民，加 VR support。以后想加什么，键鼠，触屏，vr 一起做」）
 - **控制方案（user 原话）**：「vr controller scheme，请多参考 realhome，里面有我真实 gamedev 经验。不过今天不用做的太复杂。你自己判断要不要做 collision 以及 raycast」「左摇杆 wasd，按下冲刺，右摇杆变成 dpad，左右是 snap rotation，前推是 teleport，后推是 return to last teleport position」「有一个两难的问题：teleport 应该用抛物线，不然很多地面视线遮挡了描不动」「A 跳 B 蹲，noclip 时复制上下飞移动」「vr phase 2 考虑大人小孩高达视角。以及 grab based 自由缩放操纵模型模式。主要蛋疼的还是 UX 还没想清楚」「退 vr 的时候 app 应该继续用，可以随时进和退 vr」「然后 editor elements 的抽象化不是在进行中吗。看看这个怎么和 vr 适配」「sketchup 的 move 的 1001 种用法你应该比我更熟悉吧。rotate 和 scale 也是 sketchup 的 move 对齐」「以及因为是 pointer，所以很多对齐，snapping 语义都得重新想哈哈哈哈哈哈哈」「但是如果我嫌带上带下 vr 烦的话，vr 如何快速验证？」
 - **参考**：RealHome `src/xrControls.js` / `docs/20260521-vr-locomotion.md` / `docs/20260629-character-controller.md`（user 真实 gamedev 经验）。
 - **AI phase 1 计划（2026-09-07，待 user「没问题」；落地 = 0.4.0 VR 纪元，minor 需人类同意）**：
@@ -90,6 +90,21 @@
   - **Quest 触觉有 bug**（user：「先不用做 monkey patch，就按照正确的写」）→ 按 WebXR 标准 `hapticActuators[0].pulse` 写，不打补丁。
   - **VR 的 place 持久化**（user：「vr 的 place 也是不是应该持久化，还是可以点一下编辑。但是平时编辑时还是应该隐藏，不打扰 zen」）→ 出生点/上次站位随草稿箱存为**视图态**（不是模型数据）；「出生点」标记默认隐藏，视图菜单可显、点一下重设；进 VR 落在上次站位。
   - **Quest 工作模式**（user：「在进网页 1 的 vr 的时候可以 system browser overlay 玩网页 2。所以很可能我网页 2 复制图像，然后不出 vr 复制进 catsup 成参考或者贴图」）→ E13。
+- **user 2026-09-07 第四轮（挂机中追加，原话）**：「加一个coyoto机制，一个verb进行到一半的freeze物理。免得玩家踩自己脚或者被卡的时候导致鼠标鼠标乱飞。等commit之后才惩罚玩家」「所以conttoller需要加一个freeze的功能。不过因为平时都是头移动会导致身体跟着的。以及当时的放瞬移护栏。你想的严谨一点。不是简单的几个monkey patch。而是模块里做一个freeze机制」→ **已落 `src/player/player.ts` freeze/coyote**：`freeze(token)/thaw(token)` 多来源计数集；冻结期**被动物理停摆**（重力、悬挂贴地、静止去穿透、teleport 结算、跳；velZ/grounded 原样 = 真悬在半空），**主动动作照常**（摇杆步行带碰撞、roomscale 身体跟头、snap turn、蹲——所以解冻时没有「身体追头」大跳）；**防瞬移护栏做成结构性**：静止去穿透永远限速（三球共享预算 5 cm/步 ≈ 3 m/s）且身体被推着（嵌在几何里）那步不施重力、不往下贴地（实测过僵持→期满弹飞的反例，见 player.ts 头注释）。golden：`test/player.test.ts`「freeze / coyote」五案。app 侧冻结票 = `editor.isGestureActive()`（含线工具连画待命态）。
+- **落地摘要（v0.4.0，全部 headless 自验，真机只请 user 戴一次）**：`src/player/{player,input,teleport,world-query,flat-input,xr-input}.ts` 深模块（零 kernel/three）+ `src/editor/collision-world.ts`（膜多边形汤 → WorldQuery）+ `src/editor/xr-pointer-frame.ts`（PointerFrame 第二实例）+ `src/app/{locomotion,vr}.ts` + `src/app/ui/{hud-model,wrist-panel}.ts`；桌面步行相机（视图菜单）= 不戴头显验证移动/碰撞/teleport 的通道；探针 `test/probes/probe-walk.mjs`（15 项）与 `probe-xr-fake.mjs`（假 XR 会话 18 项：出生 reset、rig 代数、摇杆走/转、扳机画线、面板点按换工具、阶段长按选择、摇杆瞬移、退出恢复）。
+- **待 user 一句话 / 真机核实（挂机轮攒的问题，不阻塞）**：
+  1. **发射速度档常数** `teleport.ts SPEED_TIERS = [5, 8, 12, ∞] m/s`（g=9.8）是占位，playtest 定；默认档 8。
+  2. **手腕面板挂左手、右手持笔**为默认；☰「VR 左手持笔」可对调（localStorage 偏好）。面板元素顺序 = 状态行 / 工具 3×2 / 撤销·重做·删除 / 穿墙飞行·回出生点·退出 VR / 版本。
+  3. **「回上一点」语义**做成「撤销这次跳」（后拉回到出发点；再拉一次又跳回去，来回可反复）——若 user 意指别的口径，改 `teleport.ts` 一处。
+  4. **步行模式热键冲突**：空格=跳、E=上升 抢了 SU 的 选择/橡皮 → 加了双模式通用键 **Tab=选择、X=橡皮**；不满意再挪。
+  5. **手势最小长度统一 1 cm**（`editor.ts MIN_GESTURE_LEN`；lab 时代 line≥1 / move·pp≥0.3 是厘米口径，米制下 VR 画 0.7 m 的线会被吃掉）——属 A10 单位化的一角，其余（网格 50 单位一格、fmtLen 无单位）仍待 A10。
+  6. **有效台阶高 ≈ 0.6 m 而非 0.3**：腹球球心在 stepHeight+r=0.6，低于球心的沿会像轮子上路缘一样滚上去（RealHome 同款几何）；要严格 0.3 得改胶囊形状，先记账。
+  7. **Quest 浏览器 CJK 字体**：面板文字走系统字体，缺字会成豆腐块——真机看一眼；缺了走「中文烤轮廓」老协议或 vendor 字体。
+  8. **Immersive Web Emulator 未跑**（本机无桌面 Chrome 扩展环境）：会话进出/键位映射的最后一层由 user 用模拟器或 Quest 验。
+  9. A3 动词注册表没做（不需要它也接上了第二种指针）；A7 点击族（双击=膜+环边、三击=连通体）作为副产品落地（`Editor.selectExpand`），Ctrl+A 未做。
+  10. 线工具**连画待命态也算手势进行中**（冻结），Esc 收笔才解冻——与「verb 进行到一半」口径一致，但若觉得待命时该掉下来，改 `locomotion.tick` 的冻结票条件一处。
+  11. VR 站位只在内存（进 VR 落上次站位；A15 草稿箱批了再持久化）；「回出生点」= 原点。
+  12. 桌面步行相机 = 右键拖看、光标仍是工具指针（没做 pointer lock 十字准星）；T 按住瞄准瞬移用的是光标射线。
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
 
