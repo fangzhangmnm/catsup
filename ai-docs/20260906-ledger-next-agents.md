@@ -61,6 +61,23 @@
 - **网格升级 = 无限 + 自适应 major/minor**（user：「以后可能画大的东西需要自适应，或者淘汰掉，或者先考虑自适应+major/minor?」→ 2026-09-07 澄清「不是淘汰是升级，主要就是变成无限网格，或者解决大场景的问题。现在的网格是写死的大小，我说淘汰的是这个」→ **要淘汰的是写死的网格尺寸**：网格随视野无限延伸/按 LOD 换档，大场景不掉队）：AI 建议 = 自适应 + 十进 major/minor（Blender 式：minor 10 cm / major 1 m，zoom 出去换 1 m / 10 m…）；**absolute grid 吸附步长 = 当前可见 minor 格（WYSIWYG，Blender 同款）**，比例尺就是在报这个步长——这条**修正**我此前「固定格距不随 LOD」的建议（有了比例尺就不怕「不知道在吸哪层」）。**user 2026-09-07 裁：网格留（「淘汰也是以后，现在很需要」）**，自适应 major/minor 照做。
 - **视图菜单名字带方位**（user「同意。前视=向北看」）：前视（向北看）/ 后视（向南看）/ 左视（向东看）/ 右视（向西看）/ 顶视 / 等轴——`done v0.3.7`（camera.setView 已是 front=从南看向北）。
 
+### A13 VR 第一公民：加 VR support（0.4 纪元候选） — `待做`（user 2026-09-07 day 1 尾巴原话，全文：「喊口号不如实际逼你一下。在今天 day 1 的尾巴，工具动词还少，ui 还少的，rotate, scale 没做，move 半残，component group 没做的时候开始干这个时期：vr 第一公民，加 VR support。以后想加什么，键鼠，触屏，vr 一起做」）
+- **控制方案（user 原话）**：「vr controller scheme，请多参考 realhome，里面有我真实 gamedev 经验。不过今天不用做的太复杂。你自己判断要不要做 collision 以及 raycast」「左摇杆 wasd，按下冲刺，右摇杆变成 dpad，左右是 snap rotation，前推是 teleport，后推是 return to last teleport position」「有一个两难的问题：teleport 应该用抛物线，不然很多地面视线遮挡了描不动」「A 跳 B 蹲，noclip 时复制上下飞移动」「vr phase 2 考虑大人小孩高达视角。以及 grab based 自由缩放操纵模型模式。主要蛋疼的还是 UX 还没想清楚」「退 vr 的时候 app 应该继续用，可以随时进和退 vr」「然后 editor elements 的抽象化不是在进行中吗。看看这个怎么和 vr 适配」「sketchup 的 move 的 1001 种用法你应该比我更熟悉吧。rotate 和 scale 也是 sketchup 的 move 对齐」「以及因为是 pointer，所以很多对齐，snapping 语义都得重新想哈哈哈哈哈哈哈」「但是如果我嫌带上带下 vr 烦的话，vr 如何快速验证？」
+- **参考**：RealHome `src/xrControls.js` / `docs/20260521-vr-locomotion.md` / `docs/20260629-character-controller.md`（user 真实 gamedev 经验）。
+- **AI phase 1 计划（2026-09-07，待 user「没问题」；落地 = 0.4.0 VR 纪元，minor 需人类同意）**：
+  1. **`src/editor/player.ts`（抄 RealHome 三层模型，flat/VR 同一路径）**：gameplay 层 `player_pos / player_rot / tracking_origin` 为 SSoT → `rig`（three Group，只在 render3/引擎内）→ camera（VR 由 XR 写、flat 我们写一次）。固定 60 Hz 步进、渲染帧插值 rig、HMD 姿态永不插值（RealHome 铁律：身体连续移动，只有 teleport/respawn 例外）。
+  2. **输入帧 `InputFrame{walkX,walkZ,dash,snapStickX,teleportPush,teleportBack,jump,crouch}`** 两个来源同型：`xr-input.ts`（xr-standard gamepad：左摇杆走、按下冲刺；右摇杆 = dpad：左右 snap turn、前推 teleport、后推回上一 teleport 点；A 跳 B 蹲；noclip 时 A/B = 上下飞）+ **`flat-input.ts`（WASD/Shift 冲刺/Q E snap turn/Space 跳/Ctrl 蹲/鼠标视角）= 桌面步行/飞行相机**——同一 player 模块，**不戴头显就能验证全部移动逻辑**（user「vr 如何快速验证」答案①），顺手兑现「WASD 留给未来 fly cam」。
+  3. **teleport = 抛物线**（user 两难已裁抛物线）：采样折线段逐段对内核膜做射线命中（已有 rayPlane+pointInRing），落点 = 首段命中且法向朝上的膜；`teleportBack` 回上一落点。**collision/raycast 裁决（user 授权 AI 判断）：phase 1 = noclip 默认、无墙体碰撞、只做「脚下地面感」（向下射线站在最高的朝上膜上）**——建模场景半成品居多，墙体碰撞挡的比帮的多；RealHome 的胶囊+悬挂 = phase 2 可移植（`collision.js` 235 行）。
+  4. **XR 会话**：☰ 菜单「进入 VR」（`navigator.xr.isSessionSupported('immersive-vr')` 才显示），three 的 `renderer.xr`（vendored r155+ 自带，控制器模型不用 GLTF 工厂——画简单射线+光标球），`sessionend` 回 flat 且**模型/工具状态原样**（user：「退 vr 的时候 app 应该继续用，可以随时进和退 vr」）。
+  5. **工具在 VR 里 = A2 `ViewProjection` 的第二个实现**：控制器射线 = `screenRay`，射线周围角度空间当 800px 高虚拟屏 = `worldToScreen`/ε，trigger = pointer down/up；对齐引擎数学零改动（snap-model §7 预留的就是这个）。phase 1 只接 线/矩形/推拉/橡皮，工具切换 = 控制器 X/Y 循环；状态行/菜单在 VR 里先不做（见 6）。
+  6. **UI 元素与 VR 的适配（user 问）**：`popup-menu`/`notice` 的 API 已是数据驱动（`items()`/`onPick`、`{text,level,actions}`）——抽包 A5 时把「模型」与「DOM 渲染」分层即可，VR 端将来用 three 手腕面板消费同一份模型；**不做 DOM→纹理**。
+  7. **验证三件**：① flat 步行模式（键盘）验移动/teleport/snap turn；② 桌面浏览器装 Meta「Immersive Web Emulator」扩展（dev 工具，不是运行时依赖）验 XR 会话进出与控制器映射；③ `test/`：player 模块纯函数 golden（snap turn 边沿、抛物线落点、回上一点、noclip 飞）。真机只需戴一次验会话。
+  8. **phase 2（不在本轮）**：大人/小孩/高达视角（rig 缩放）、grab 缩放操纵模型、墙体碰撞、手腕菜单/状态行、rotate/scale 动词与 SU move 对齐、VR 下吸附语义重想（pointer ≠ cursor）。
+
+### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `待拍板`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
+
+### A15 无地期间的本地草稿持久化 — `待拍板`（硬规则 #1 storage 红线，需 user 明批；user 2026-09-07：「idb 保留还是蛮重要的，即使是无地期间也鼓励我认真画东西，如何在数据契约还在大幅变动的现在实现这个但不屎山，也不是更新版本必丢？」）。AI 提案见对话（op 日志 + OBJ bake 双层信封，盒子可换）。
+
 ### A10 吸附：整数 incremental + 绝对网格 + 内部单位 SI — `待做`（user 2026-09-06「两种吸附都要同意」「内部单位永远是 SI，这个应该是我们的纪律吧」）
 - **纪律：内部单位 = 米（SI），永不改**；顶点**身份**已在 Q=1e-6 格点（= 1 µm 格；`ptKey3` 取整），显示单位可切（mm / cm / m / ft-in）；英制只是显示与网格预设，不进内核（user 曾想强推英制，见对话 2026-09-06：结论=网格步长比单位制更决定手感；关卡编辑常用二进制网格，Source 引擎 16 hu = 1 ft 即此传统）。
 - **incremental**（SU length snapping / Blender 默认）：沿手势方向对长度标量取整 L = n·g（n 整数），点 = 锚 + L·dir，**不累加**（每帧从锚点重算，不是上一帧 +g），结果再落格点 → 0.1×10 ≠ 1.0 那类累计误差结构性不存在（0.30000000000000004 与 0.3 同一格点=同一顶点）。永远让位于几何推断（有 0-D/1-D 目标命中就不取整）。
