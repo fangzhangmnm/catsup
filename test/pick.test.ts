@@ -4,7 +4,8 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { OrbitCamera, rayPlane } from "../src/editor/camera.ts";
-import { GROUND, marqueeScreen, pickEntity, pickFace, snapPoint, NO_HAND } from "../src/editor/pick.ts";
+import { GROUND, pickEntity, pickFace, snapPoint, NO_HAND } from "../src/editor/pick.ts";
+import { marqueeScreen } from "../src/editor/marquee.ts";
 import { rectSegments } from "../src/editor/tools.ts";
 import { dist3 } from "../src/kernel/geom.ts";
 

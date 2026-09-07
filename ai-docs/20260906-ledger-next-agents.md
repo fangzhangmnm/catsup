@@ -129,6 +129,8 @@
   - **B14 wishlist**：吸附平面工具 + 参考线（CAD 味；「轴来设定画线平面」）。**B15 wishlist**：drop = VR 投掷（物理手感参考 user 的 find birdo repo，需要时 user 找）；flatscreen 鼠标速度物理（对齐平面是坑）。
   - **C 待真机核实**：Quest「Immersive XR is still running in the background」横幅——app 路径 `session.end()` 与系统路径都会打 `VR sessionend (...)` 日志（`?` 打开 dev console 或看 toast 无）；两条路径对照一次；若只有 app 路径出，下一步试 end() 后 `xr.setSession(null)` / 停 animation loop 再 end。
 - **第八轮追加（2026-09-08）**：user「虚拟屏幕有一个场景必须要…selection box…按下去的一瞬间以用户头为参考做一个显式的、大概手臂距离的投影平面…锁死的平面做 frustum box。需要 grill 的是这个平面是否应该 z up aligned…需要投影平面的时候 explicit，no 静默」「vr 虚拟屏角度放宽是啥意思？除了 selection box 之外不应该有虚拟屏的地方」「有时候能拾取到远处的面，但是 pointer 的激光反而在中途就停了」→ 放宽撤回（80° 不动）；激光同源修；selection box 方案 = 反省稿 §3.8（AI 推荐混合 ±45°）**待 grill**；VR 框选实现 = 该节落地时补（`待做`）。
+- **第九轮追加（2026-09-08）**：user「顺便我还是 prefer 连续点击画线，而不是拖动画线」→ 线工具两种都在（点击=连画待命链式、拖动=落笔后也接着连）；**默认引导与提示文案偏向点击**待改（hint 现写「连画中：点下一点」已是点击口径；VR 扳机按住拖 vs 点两下的默认待拍板）。user「小房子的还有一个 bug：拖动屋顶（五边形顶点）的时候，侧面会有概率突然三角化，但是橡皮擦边自愈。应该就是你的一些 autofold 算法不对。先记录进 todo 再修」→ **D-autofold**（下）。
+- **D 新增**：**D-autofold 五边形顶点拖动侧面突然三角化**（user 2026-09-08；橡皮擦边自愈 = 折缝是多余的 autofold 折片，非拓扑损坏）`待修`：复现路径 = 立方体顶面分一刀抬脊成五边形山墙，move 山墙顶点；怀疑 `src/kernel/autofold.ts` 的「最少折缝」判据在五边形（非四边形）侧面上误判非平面 → 折成三角；先写 golden（五边形侧面平移顶点保持共面时不许出折缝）再修。
 - **D 新增**：**D-fuzz 重复面残余**——种子 30/31/39/59/62（×104729）仍铸出同环第二张面（不崩、不丢边；`test/kernel-fuzz.test.ts` todo）；工具 = `node <tmp>/fuzzcount.ts`（见测试文件同款逻辑）+ 回放脚本思路（打印事件与面环）；下一刀从 face-lifecycle 认领/DIVIDE 铸造对「已有同环面」的处理入手。`待做`
 - **待拍板**：③④⑤ → `ai-docs/20260907-vr-input-reflection.md`（视口模型退役 → 球面度量接口；射线拾取 + 手位移拖动（HOMER 增益）+ grip=锁；肩锚射线/1€ 滤波；gizmo 留到 rotate/scale 立项）——§4 五问等一句话。⑥ 工具热键 → wishlist（user「先保证画的好」）。真机未验（v0.4.1 全 headless 自验）。
 

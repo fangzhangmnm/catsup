@@ -16,7 +16,7 @@ import {
   projectToPlane,
   sub3,
 } from "../kernel/geom.ts";
-import { type OrbitCamera, rayPlane } from "./camera.ts";
+import { rayPlane } from "./camera.ts";
 import type { PointerFrame, Viewport } from "./pointer-frame.ts";
 import { type DrawPlane, type Snap3, NO_HAND, occludedBy, resolvePlane } from "./solver.ts";
 
@@ -109,24 +109,4 @@ export function rectFirstPlane(
   }
   const r = resolvePlane(k, pf, vp, sx, sy, tolPx, { facePlane, alignSources, hand: NO_HAND });   // 首点：还没有手
   return { fixed: r.fixed ? r.plane : null, plane: r.plane, snap: r.snap };
-}
-
-/** 屏幕空间框选（window 语义）：边=两端投影都在框内；面=外环全部顶点投影在框内。**桌面专属**（吃 OrbitCamera 的屏幕投影）；
- *  VR 框选 = 显式冻结投影平面（反省稿 §3.8，唯一合法的「屏」），待做。 */
-export function marqueeScreen(
-  k: Kernel,
-  cam: OrbitCamera,
-  vp: Viewport,
-  m: { minX: number; minY: number; maxX: number; maxY: number },
-): { edges: Set<EdgeId>; faces: Set<FaceId> } {
-  const inBox = (p: { x: number; y: number }): boolean => p.x >= m.minX && p.x <= m.maxX && p.y >= m.minY && p.y <= m.maxY;
-  const sel = { edges: new Set<EdgeId>(), faces: new Set<FaceId>() };
-  for (const e of k.edges()) {
-    if (inBox(cam.angularPx(k.graph.pt(e.a), vp)) && inBox(cam.angularPx(k.graph.pt(e.b), vp))) sel.edges.add(e.id);
-  }
-  for (const f of k.faces()) {
-    const rings = k.faceRings3(f.id);
-    if (rings && rings.outer.every((p) => inBox(cam.angularPx(p, vp)))) sel.faces.add(f.id);
-  }
-  return sel;
 }
