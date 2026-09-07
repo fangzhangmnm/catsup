@@ -39,6 +39,26 @@
 ### A6 ε 基准值真机调参 — `待看`（user 刷新后反馈；本日已改成视口高度分数）
 - 常量在 `src/editor/solver.ts` `EPS`（点 10/边 7/线 5/合成 12 @ 800px 高）与 `editor.ts` `SNAP=8/HIT=6`。嫌小 → 整体乘一个系数；透视视场角 `OrbitCamera.fovY` 现 50°（SU 默认 35°），是否换 = B4。
 
+### A7 Select 工具：点击族 + Ctrl+A / Delete — `待做`（user 2026-09-06「同意，然后手势可以看一下weebpaint的坑」）
+- **口径（SU）**：单击=该实体；双击膜=膜+其环边、双击边=边+其邻膜；三击=整个连通体；Shift=切换加减、Ctrl=加、Shift+Ctrl=减；框选左→右=全含、右→左=相交；Ctrl+A 全选；Delete 删选中（走 erase 语义：边随葬律/删膜边留）。多击是**单击的超集** → 第一击立刻选、第二击升级、第三击再升级，不需要等超时（无延迟）。
+- **触屏**：pen 双 tap / 三 tap 计时（手指 tap 已占相机/撤销）。**必读 WeebPaint 的坑**：`../20260524 WeebPaint/ai-docs/20260530-ipad-doubletap-architecture.md`（iPad 双击被系统手势劫持 → 四层防御：body 级 touch-action / pointercancel 全清 / 自定义 doubletap 事件）+ 本仓 `ai-docs/20260906-app-shell-epoch-landing.md` 多指 tap 四坑（tap 位移阈 / 时间阈 / 手掌门 / 见过 pen 后手指永久=相机）。
+- **验收**：合成探针（pen 单/双/三 tap 的选中集）进 `test/probes/`；`npm test` 选中集 golden。
+
+### A8 SU 轮廓线加粗（Profiles） — `待做`（user 2026-09-06「su里面有些边会加粗，有些边不会，这个也需要做一下」）
+- **定义（SU Style › Edges › Profiles）**：一条边是轮廓线 ⟺ 它只挂 ≤1 张膜（裸边/散线），**或**两侧膜相对视线朝向相反（一正一背 = 剪影）。其余边细线。随相机每帧重算，O(E)。
+- **实现形状**：`render3.ts`（将来 A4 的 WorkbenchEngine）把边分两组 `LineSegments2`（细 1px / 粗 ≈2–3 CSS px，DPR 无关），相机变才重建分组；polygonOffset 沿用。SU 默认 Profiles 宽 2、Edges 宽 1；Depth cue / Extension / Endpoints 不做。
+- **验收**：`scripts/probe-boot.mjs` 截图肉眼：盒子外轮廓粗、内部棱细；透视旋转后剪影边随之换粗。
+
+### A9 Move/Line/Rect 轴锁·面锁（键盘） — `待做`（user 2026-09-06「axis align 键盘两套都收。然后 shift arrow 能不能是 blender 的 shift x 语义？」→ 能）
+- **键位**：SU 方向键 ←绿(Y) →红(X) ↑蓝(Z) ↓平行/垂直于推断边；Blender 字母 X/Y/Z 同义。**Shift+方向键 / Shift+字母 = Blender Shift+X 语义 = 锁到「排除该轴」的平面**（Shift+← = XZ 面、Shift+→ = YZ 面、Shift+↑ = XY 地面、Shift+↓ = 推断膜的面）。Shift 单独按住 = SU「锁住当前推断」（含悬在膜上=面锁），松开即放。方向键/字母锁是**切换**（再按同键或 Esc 或手势结束解锁）；SU 里 Shift+方向键无绑定，不冲突。
+- **实现形状**：锁 = 求解器查询的附加约束（1-D 轴线 / 2-D 平面，rank 最高，其余目标只在锁的轨迹上参赛=SU 同款「锁后仍可吸到轨迹上的点」）；HUD 状态栏显示当前锁。触屏 HUD 锁片见 B9。
+
+### A10 吸附：整数 incremental + 绝对网格 + 内部单位 SI — `待做`（user 2026-09-06「两种吸附都要同意」「内部单位永远是 SI，这个应该是我们的纪律吧」）
+- **纪律：内部单位 = 米（SI），永不改**；顶点坐标已落在 Q=1e-6 格点（= 1 µm 格），显示单位可切（mm / cm / m / ft-in）；英制只是显示与网格预设，不进内核（user 曾想强推英制，见对话 2026-09-06：结论=网格步长比单位制更决定手感；关卡编辑常用二进制网格，Source 引擎 16 hu = 1 ft 即此传统）。
+- **incremental**（SU length snapping / Blender 默认）：沿手势方向对长度标量取整 L = n·g（n 整数），点 = 锚 + L·dir，**不累加**（每帧从锚点重算，不是上一帧 +g），结果再落格点 → 0.1×10 ≠ 1.0 那类累计误差结构性不存在（0.30000000000000004 落格即 0.3）。永远让位于几何推断（有 0-D/1-D 目标命中就不取整）。
+- **absolute**（Blender Absolute Grid Snap）：把**画在地上的那张网格**当 0-D 目标池，rank 最低、只在无几何推断时兜底；WYSIWYG——吸画出来的格线，不吸看不见的自适应细分；格距 HUD 定（预设 1 m / 10 cm / 1 cm，另给二进制预设给关卡设计）。建筑党基本不用，关卡设计必用（user）。
+- **待拍板**：默认格距、默认视图尺度（内部=米后 camera 默认 halfH 要改成人体尺度）、两种吸附的开关放 HUD 哪里、显示单位默认 m 还是 cm。
+
 ---
 
 ## B. 待拍板（要 user 一句话；不急，各自纪元前）
@@ -49,9 +69,10 @@
 - **B4 UI 偏好走 localStorage 的两个开关**（「手指也能画」「实验台」）保留与否——不是模型数据，user 未反对。
 - **B6 推断线 ε 是否随视口放大**：现在点/边/线全按视口高等比放大；SU 手感是点松线紧。自吸修完后若仍觉得拖动被轴线/共轴线拉得太勤，改成线 ε 不放大或只放大一半（`solver.ts` `EPS.line`/`combo`）。等 user 手感反馈。
 - **B7 Offset 工具**（user 2026-09-06：「然后我想要offset了。sketchup是只能针对一个面的吗？然后对于复杂的几何情况你怎么判断。然后offset多了退化了你能搞得定吗（比如一些边长变成0只会拓扑变还能继续offset）顺便offset还能offset到更大的外面，sketchup会长膜」）`待拍板`（讨论中，未 grill 完）。AI 提案摘要（对话里已答，供开工 agent 参考、非定案）：offset = **纯 2D 函数 + `addEdges`，零新内核原语**（与 pp v1 同精神）——在膜的 PlaneRegistry 基里对环做 miter 平行偏移 → 自交/退化用「按绕数保正区」剪枝（Clipper 式：塌成零长的边自然消失、翻转的负绕数瓣丢弃，任意 d 都良定义，边塌缩=拓扑变照常继续）→ 剪枝后的环当手势线画上去：向内 = 原膜被 DIVIDE 成内片+环带；向外 = 环带区外环含手势 → A4 直接 BIRTH（SU「长膜」零特例）。作用对象：单膜（全部环 or 只外环——SU 疑似只偏外环，待 web SU 核）或一串共面连通边（开链两端不封口）；不做多膜（SU 亦无）。d 通道 = pp 高度通道同构（标量对「偏到某点/某边」候选集咬合）+ VCB 以后。拐角=miter 尖角（SU 同款，凹角不倒圆）。**待 user 拍：①带洞膜偏不偏内环 ②d 超过全塌缩时=无操作还是钳到最后有效 d ③是否先只做膜不做边链**。
-- **B8 Select 工具：点击族 + Ctrl+A / Delete**（user 2026-09-06：「select: 单击=选，双击=+neighbor，三击=connected，sketchup是这个行为吧？」「ctrl a和delete的快捷键」）`待拍板`（一句话即转 A）。SU 口径已确认：单击=该实体；双击膜=膜+其环边、双击边=边+其邻膜；三击=整个连通体；Shift=切换加减、Ctrl=加、Shift+Ctrl=减；框选左→右=全含、右→左=相交；Ctrl+A 全选；Delete 删选中（边随葬律/膜删边留照旧走 erase 语义）。触屏：双击/三击用 pen 双 tap/三 tap 计时（手指 tap 已占相机/撤销）。
-- **B9 Move 轴锁 / 面锁 / 法向 / 关闭吸附**（user 2026-09-06：「move: 加上xyz轴吸附的快捷键和触屏方案」「能不能还有别的比如xy yz zx吸附，以及没有有法面吸附。和blender的视口吸附？这个是个UX问题」「以及如何关闭snap」）`待拍板`。参考口径：SU=方向键 ←绿 →红 ↑蓝 ↓平行/垂直于推断边、Shift=锁住当前推断（悬在膜上时=锁「面上」即面锁）；Blender=X/Y/Z 轴锁、Shift+X/Y/Z 面锁（排除该轴）、Ctrl 按住临时反转吸附开关。AI 倾向（对话里已答）：键盘两套都收（SU 方向键 + Blender 字母），**触屏/VR = HUD 锁片行**（X·Y·Z·XY·YZ·ZX·N 法向·⊥∥，move/line/rect 手势中浮现，点亮=锁、再点=解锁），关闭吸附=按住 Alt（桌面）/HUD 磁铁片（触屏）= 求解器 `alignSources` 清空只留平面约束。「视口吸附」待 user 澄清是指 Blender 的视图平面（View 方向）还是屏幕网格。
-- **B10 整数/网格吸附（incremental vs absolute）**（user 2026-09-06：「all snap: 加入整数incremental。然后这个怎么设计。如何对付浮点误差。UX怎么设计网格怎么设置。以及吸附到整数 incremental vs absolute也很迷。这个你怎么看？」）`待拍板`。AI 看法（对话里已答）：两种都要、分工不同——**incremental（SU length snapping / Blender 默认）= 沿手势方向对「长度标量」取整**，是 1-D 结果的后处理、永远让位于几何推断；**absolute（Blender Absolute Grid Snap）= 把画在地上的那张网格当 0-D 目标池**，rank 最低、只在无几何推断时兜底，WYSIWYG（吸到画出来的格线不吸看不见的自适应细分，格距由 HUD 定 1/10/100）。浮点：顶点身份已是 Q=1e-6 格点，整数值用 round(x/g)·g 落到同一格点无漂移；轴向长度重建 a+L·axis 精确；模型单位本体（mm/cm/m）归 user 与文件格式一起定（B5）。
+  **①续（user 2026-09-06 核实「su确实是只外环」并问带内环有何弱点）**：技术上无弱点——按「区域侵蚀」做（全部环一起 miter + 绕数保正区剪枝）比逐环更稳，洞环长大撞上外环/别的洞会自然合并；逐环 miter 才会撞出垃圾。弱点在 **UX 的意图歧义**：庭院平面要走廊（内外环都要偏）vs 窗洞外框（只偏外环、洞别动）两种需求都常见，任何单一默认都有一半人要多操作。AI 提案 = **默认偏「光标参考边所在的那一个环」**（悬停高亮哪个环一目了然，外环/洞环皆可；洞环向内偏 = 洞里长出环带膜，A4 免费）+ **修饰键/HUD 片切「整个区域」**（全部环）。SU 的「只外环 + 选洞边再偏一次」= 这个方案的子集。
+- **B8** → 已转 A7（user 同意）。
+- **B9 Move 轴锁 / 面锁 / 法向 / 关闭吸附**（user 2026-09-06：「move: 加上xyz轴吸附的快捷键和触屏方案」「能不能还有别的比如xy yz zx吸附，以及没有有法面吸附。和blender的视口吸附？这个是个UX问题」「以及如何关闭snap」）`待拍板`。参考口径：SU=方向键 ←绿 →红 ↑蓝 ↓平行/垂直于推断边、Shift=锁住当前推断（悬在膜上时=锁「面上」即面锁）；Blender=X/Y/Z 轴锁、Shift+X/Y/Z 面锁（排除该轴）、Ctrl 按住临时反转吸附开关。**键盘部分已拍板转 A9**（两套都收 + Shift+方向键=Blender 面锁语义）；本条剩 **触屏/VR = HUD 锁片行**（X·Y·Z·XY·YZ·ZX·N 法向·⊥∥，move/line/rect 手势中浮现，点亮=锁、再点=解锁），关闭吸附=按住 Alt（桌面）/HUD 磁铁片（触屏）= 求解器 `alignSources` 清空只留平面约束。「视口吸附」待 user 澄清是指 Blender 的视图平面（View 方向）还是屏幕网格。
+- **B10** → 已转 A10（user「两种吸附都要同意」+ 内部单位 SI 纪律）；剩余细节（默认格距/视图尺度/开关位置/显示单位默认）在 A10 末尾待拍板。
 - **B5 持久化/文件格式本体**：user 明示「SketchUp 1.0 做完、component group 摸清楚之后再定，你不要擅自做决定」；容器方向 = zip（自有 JSON authoring SSoT + 标准 glb bake）。**AI 不提案不预留。**
 
 ---
