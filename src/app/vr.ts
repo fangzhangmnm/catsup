@@ -9,7 +9,7 @@
 import type { Editor } from "../editor/editor.ts";
 import { XRPointerFrame, XR_VIRTUAL_VP } from "../editor/xr-pointer-frame.ts";
 import type { Locomotion } from "./locomotion.ts";
-import { XRInput, type XRHandState, pulse } from "../player/xr-input.ts";
+import { XRInput, type XRHandState, pulse, forwardRig, rigDirToWorld } from "../player/xr-input.ts";
 import type { InputFrame } from "../player/input.ts";
 import { emptyInput } from "../player/input.ts";
 import type { HudModel } from "./ui/hud-model.ts";
@@ -174,8 +174,9 @@ export class VR {
       } else {
         if (this.panel.hovered()) this.panel.setHover(null);
         if (this.panelPressId && trigUp) { this.panelPressId = null; this.panel.setPressed(null); }
-        // 指针帧：控制器射线（虚拟屏模型本身待反省——ai-docs/20260907-vr-input-reflection.md）
-        this.pointer.set(toolHand.ray);
+        // 指针帧：控制器射线（虚拟屏模型本身待反省——ai-docs/20260907-vr-input-reflection.md）；头向只喂平面挑选
+        const headDir = xi.head ? rigDirToWorld(locomotion.pose(), forwardRig(xi.head.orientation)) : undefined;
+        this.pointer.set(toolHand.ray, undefined, headDir);
         const c = this.pointer.cursor();
         const tp = () => ({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false, travelPx: this.pointer.travelPx() });
         if (editor.tool === "select") {

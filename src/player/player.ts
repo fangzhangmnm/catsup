@@ -9,7 +9,7 @@
 //   五点采样，一阶缓动跟地）+ 水平扫掠子步（防穿薄墙）+ 蹲=角色头高与 HMD 解耦（下自由、上受净空钳）。
 //   roomscale：无摇杆时身体追 HMD（XOR）；单步追头位移 > maxRoomscaleStep 视为追踪跳变→只重锚不动身。
 //   snap turn 以 pos 为轴（先强制追头、再重锚、再转）。max slope（user：「行」）：|n.z| < cos(maxSlope) 的面不算地。
-//   安全地板 = min(0, 模型最低 z)（user：「地板用 min(0,min(model))」）——掉不到无穷，不需要 respawn。
+//   安全地板 = z=0（user 2026-09-07 吃书「vr 的地板永远都是 z=0」，此前 min(0, 模型最低 z)）——掉不到无穷，不需要 respawn。
 //   noclip：无重力无碰撞；摇杆/WASD **水平**飞（Minecraft 约定，不跟头俯仰——user 2026-09-07：「vr 里面飞的时候 wasd 是水平的，
 //   不应跟有高度变化」），up/down（A/B、Q/E）竖直；双击跳 = noclip 开关（input.noclipToggle 边沿，适配器判双击）。
 //

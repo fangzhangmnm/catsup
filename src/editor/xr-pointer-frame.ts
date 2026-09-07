@@ -20,10 +20,14 @@ export class XRPointerFrame implements PointerFrame {
   private rightV: Pt3 = { x: 1, y: 0, z: 0 };
   private upV: Pt3 = { x: 0, y: 0, z: 1 };
   private downDir: Pt3 | null = null;
+  private headDir: Pt3 | null = null;
   fovY = XR_VIRTUAL_FOV;
 
-  /** 每帧喂控制器射线（世界坐标）；upHint = 控制器的上向量（射线近竖直时决定虚拟屏的滚转）。 */
-  set(ray: Ray, upHint?: Pt3): void {
+  /** 每帧喂控制器射线（世界坐标）；upHint = 控制器的上向量（射线近竖直时决定虚拟屏的滚转）；
+   *  headDir = 头显前向（世界）——只喂 forward()（选对齐平面 xy/yz/zx 的「面向度」）：user 2026-09-07「判断对齐哪个面的时候用头的方向」。
+   *  命中/角距/遮挡仍全部从手的射线来（user：「可见性必须是从拿枪的手」）。 */
+  set(ray: Ray, upHint?: Pt3, headDir?: Pt3): void {
+    this.headDir = headDir ? normalize3(headDir) : null;
     this.origin = ray.origin;
     this.dir = normalize3(ray.dir);
     let r = cross3(this.dir, WORLD_UP);
@@ -64,5 +68,6 @@ export class XRPointerFrame implements PointerFrame {
     return { x: (sx * 0.5 + 0.5) * vp.w, y: (0.5 - sy * 0.5) * vp.h };
   }
   viewDir(p: Pt3): Pt3 { return normalize3(sub3(this.origin, p)); }
-  forward(): Pt3 { return this.dir; }
+  /** 平面挑选用的前向 = 头（没有头显姿态时退回手）。 */
+  forward(): Pt3 { return this.headDir ?? this.dir; }
 }

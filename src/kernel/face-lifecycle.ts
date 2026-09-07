@@ -21,9 +21,9 @@
 // face↔region 匹配 = 几何 anchor：面的 representativePoint 落在同平面哪个 region 就是后继。
 // id 纪律：DIVIDE/MERGE/ABSORB 退休旧 id、铸新 id（事件携带血缘）；延续/STRETCH 保 id。
 
-import { type Pt, type Pt3, cross, distToPlane, planeFromPoints, pointInRing, projectToPlane } from "./geom.ts";
+import { type Pt, type Pt3, Q, cross, dist3, distToPlane, dot3, planeFromPoints, pointInRing, pointOnSegment3, projectToPlane } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
-import { type Region, type Ring, findRegions, regionContains, representativePoint } from "./facefind.ts";
+import { type DirEdge, type Region, type Ring, findRegions, regionContains, representativePoint } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, groupCoplanar } from "./planes.ts";
 
 export type FaceEvent =
@@ -80,14 +80,29 @@ export class FaceStore {
   private regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number): RegionsByPlane {
     const groups = groupCoplanar(g, reg, tol, this.planeIds());
     const out: RegionsByPlane = new Map();
+    // 同一个边环只准属于一张平面（2026-09-07 fuzz 案，edited by Claude Fable 5.1）：候选平面来自每顶点任意两邻边（含与既有面共点的
+    // 混合对），归属是 cover 语义（τ=1 mm），小面会同时落进两张近平行候选平面 → 同环两次成面 = 重复面 → 擦边裁决漏、环里留死边。
+    // 去重键 = 外环+洞的边 id 集合；保留顶点离平面最远距离最小（拟合最好）的那张。
+    const best = new Map<string, { planeId: PlaneId; r: Region; err: number }>();
+    const keyOf = (r: Region): string => [r.outer, ...r.holes].map((ring) => [...ring.edges.map((d) => d.edge)].sort((a, b) => a - b).join(",")).join("|");
     for (const [planeId, edges] of groups) {
       const rec = reg.rec(planeId);
       const regions = findRegions(g, {
         edges,
         project: (vid: VertexId) => projectToPlane(g.pt(vid), rec.basis),
       });
-      if (regions.length) out.set(planeId, regions);
+      for (const r of regions) {
+        let err = 0;
+        for (const ring of [r.outer, ...r.holes]) for (const d of ring.edges) {
+          const e = g.edge(d.edge);
+          err = Math.max(err, distToPlane(g.pt(e.a), rec.plane), distToPlane(g.pt(e.b), rec.plane));
+        }
+        const key = keyOf(r);
+        const prev = best.get(key);
+        if (!prev || err < prev.err) best.set(key, { planeId, r, err });
+      }
     }
+    for (const { planeId, r } of best.values()) (out.get(planeId) ?? out.set(planeId, []).get(planeId)!).push(r);
     return out;
   }
 
@@ -126,7 +141,8 @@ export class FaceStore {
       }
       for (const list of byPlane.values()) {
         if (list.length >= 2) {
-          v.mergePairs.push([list[0].f.id, list[1].f.id]);   // 同平面两面共享 → MERGE
+          // 同平面 ≥2 面共享 → 全部 MERGE（并查集链；此前只配前两张，第三张会带着死边活下来——2026-09-07 fuzz）
+          for (let i = 1; i < list.length; i++) v.mergePairs.push([list[0].f.id, list[i].f.id]);
         } else {
           const { f, occ } = list[0];
           if (occ.count >= 2) v.heal.add(f.id);              // 同面双现（桥缝）→ 整理
@@ -322,13 +338,25 @@ export class FaceStore {
         for (let i = 0; i + 2 < outer3.length && !plane; i++) plane = planeFromPoints(outer3[i], outer3[i + 1], outer3[i + 2]);
         if (!plane || !outer3.every((p) => distToPlane(p, plane!) <= tol)) continue;
         const rec = reg.ensure(plane, tol);
+        // 认领 = 纯几何（2026-09-07 fuzz 案，edited by Claude Fable 5.1）：候选平面由每顶点两邻边张成 + cover 归属（τ=1 mm），
+        // 小面会在一张斜了 0.6°/差 16 mm 的「错」记录上被找到并成面，而它的像拟合到真平面记录——按 (n,d) 匹配记录永远配不上 →
+        // 零认领 → 防御保留 + 同环再铸 = 重复面。改成：区域代表点抬回 3D → 到像平面距离 ≤ 3τ（共面门）→ 投到像平面基做 winding。
         const outer2 = outer3.map((p) => projectToPlane(p, rec.basis));
         const holes2 = folded ? [] : (snap?.holes ?? []).map((h) => ringPts3(h).map((p) => projectToPlane(p, rec.basis)));
         const windTotal = (p: Pt): number =>
           windingOf(p, outer2) + holes2.reduce((acc, h) => acc + (h.length >= 3 ? windingOf(p, h) : 0), 0);
-        for (const r of byPlane.get(rec.id) ?? []) {
-          if (entries.some((e) => e.r === r)) continue;
-          if (Math.abs(windTotal(representativePoint(r))) >= 1) entries.push({ r, planeId: rec.id });
+        for (const [pid, regions] of byPlane) {
+          const prec = reg.rec(pid);
+          const c = dot3(prec.plane.n, rec.plane.n);
+          if (Math.abs(c) < 0.999) continue;   // 明显不平行的平面不可能是同一张膜（2.6°）
+          for (const r of regions) {
+            if (entries.some((e) => e.r === r)) continue;
+            const rp = representativePoint(r);
+            const { u, v } = prec.basis, n = prec.plane.n, d = prec.plane.d;
+            const rep3: Pt3 = { x: u.x * rp.x + v.x * rp.y + n.x * d, y: u.y * rp.x + v.y * rp.y + n.y * d, z: u.z * rp.x + v.z * rp.y + n.z * d };
+            if (distToPlane(rep3, rec.plane) > 3 * tol) continue;
+            if (Math.abs(windTotal(projectToPlane(rep3, rec.basis))) >= 1) entries.push({ r, planeId: pid });
+          }
         }
       }
       claims.set(f.id, entries);
@@ -385,7 +413,9 @@ export class FaceStore {
       const f = this.byId.get(fid);
       if (!f) continue;
       if (entries.length === 0) {
-        if (opts.zeroClaimKeep) continue;   // 构造：不减边，防御保留
+        // 构造：不减边，防御保留——但保留的前提是环自洽：切割把环边换成了子边（父边已出图），先把死边换成共线子边链；
+        // 修不了 = 环不可信 → BURST 曝光，绝不带着死边活下去（2026-09-07 VR 真机「edge N 不存在」案；fuzz test/kernel-fuzz.test.ts）
+        if (opts.zeroClaimKeep && this.repairRings(g, f)) { this.refreshRingPts(g, reg, f); continue; }
         this.byId.delete(fid);
         events.push({ type: "BURST", face: fid });
         continue;
@@ -418,10 +448,15 @@ export class FaceStore {
     if (gset && gset.size) {
       const owned = new Set<Region>();
       for (const [, es] of claims) for (const en of es) owned.add(en.r);
+      // 已有面的环键（外环+洞的边集）：零认领防御保留的面其区域仍在 byPlane 里，BIRTH 不许再铸一张同环的面
+      // （2026-09-07 fuzz：pp 补壁后 BIRTH 铸出与保留面同环的重复面 → 擦边裁决漏 → 死边留环）
+      const ringKey = (rr: { outer: Ring; holes: Ring[] }): string => [rr.outer, ...rr.holes].map((ring) => [...ring.edges.map((d) => d.edge)].sort((a, b) => a - b).join(",")).join("|");
+      const existingKeys = new Set(this.faces().map(ringKey));
       for (const [planeId2, regions2] of byPlane) {
         for (const r of regions2) {
           if (owned.has(r)) continue;
           if (this.faces().some((f) => f.outer === r.outer)) continue; // 已被承继/铸造
+          if (existingKeys.has(ringKey(r))) continue;                  // 同环已有面（防御保留者）
           if (r.outer.edges.some((d) => gset.has(d.edge))) {
             const nf = this.mint(planeId2, r);
             events.push({ type: "BIRTH", face: nf.id });
@@ -450,6 +485,15 @@ export class FaceStore {
     for (const eid of ringEdges) {
       if (g.hasEdge(eid) && g.edge(eid).faceLinks.length === 0) g.removeEdge(eid);
     }
+  }
+
+  /**
+   * 环修复：死边（已被切割移出图的父边）→ 从上一活边终点到下一活边起点、沿原线段走既有边的共线链
+   * （切边只在原线段上插顶点，链必然存在）。环全死 / 链断 → false。edited by Claude Fable 5.1 2026-09-07
+   */
+  private repairRings(g: PlanarGraph, f: Face): boolean {
+    for (const ring of [f.outer, ...f.holes]) if (!repairRing(g, ring)) return false;
+    return true;
   }
 
   private ringEdgeIds(f: Face): EdgeId[] {
@@ -541,4 +585,61 @@ export function ringVidsTolerant(g: PlanarGraph, r: Ring): VertexId[] {
     }
   }
   return out;
+}
+
+/** 环内死边替换（见 FaceStore.repairRings）。先把环旋到一条活边开头，死边串两侧必有活边。 */
+function repairRing(g: PlanarGraph, ring: Ring): boolean {
+  const es = ring.edges;
+  if (es.every((d) => g.hasEdge(d.edge))) return true;
+  const first = es.findIndex((d) => g.hasEdge(d.edge));
+  if (first < 0) return false;
+  const rot = [...es.slice(first), ...es.slice(0, first)];
+  const n = rot.length;
+  const vStart = (d: DirEdge): VertexId => (d.forward ? g.edge(d.edge).a : g.edge(d.edge).b);
+  const vEnd = (d: DirEdge): VertexId => (d.forward ? g.edge(d.edge).b : g.edge(d.edge).a);
+  const out: DirEdge[] = [];
+  let i = 0;
+  while (i < n) {
+    const d = rot[i];
+    if (g.hasEdge(d.edge)) { out.push(d); i++; continue; }
+    let j = i;
+    while (j < n && !g.hasEdge(rot[j].edge)) j++;
+    const a = vEnd(rot[i - 1]);                 // rot[0] 是活边，i ≥ 1
+    const b = vStart(j < n ? rot[j] : rot[0]);
+    const chain = collinearChain(g, a, b);
+    if (!chain) return false;
+    out.push(...chain);
+    i = j;
+  }
+  ring.edges = out;
+  return true;
+}
+
+/** a → b 沿原线段 [a,b] 走既有边（每步取线段上最近的下一个顶点，不跳过中间切点）。 */
+function collinearChain(g: PlanarGraph, a: VertexId, b: VertexId): DirEdge[] | null {
+  if (a === b) return [];
+  const pa = g.pt(a), pb = g.pt(b);
+  const out: DirEdge[] = [];
+  const seen = new Set<VertexId>([a]);
+  let cur = a;
+  for (let guard = 0; guard < 100000 && cur !== b; guard++) {
+    const pc = g.pt(cur);
+    const remaining = dist3(pc, pb);
+    let bestE: EdgeId | undefined, bestV: VertexId | undefined, bestT = Infinity;
+    for (const eid of g.vertex(cur).edges) {
+      const e = g.edge(eid);
+      const o = e.a === cur ? e.b : e.a;
+      if (seen.has(o)) continue;
+      const po = g.pt(o);
+      if (!pointOnSegment3(po, pa, pb, Q * 2)) continue;
+      if (dist3(po, pb) >= remaining - 1e-12) continue;   // 必须朝 b 前进
+      const t = dist3(pc, po);
+      if (t < bestT) { bestT = t; bestE = eid; bestV = o; }
+    }
+    if (bestE === undefined || bestV === undefined) return null;
+    out.push({ edge: bestE, forward: g.edge(bestE).a === cur });
+    seen.add(bestV);
+    cur = bestV;
+  }
+  return cur === b ? out : null;
 }

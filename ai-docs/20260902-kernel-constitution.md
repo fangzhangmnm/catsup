@@ -74,6 +74,7 @@ pp 双通道：光标通道（不吸轴）+高度通道（h 标量对静态高�
 
 undo=日志重放（状态=批序列纯函数，含 id）。坐标=右手系、+Z 上、RGB=XYZ、渲染层禁 Y-up。
 golden 语料=共同 spec（膜事件表/暗礁①/灵魂手势≡手绘/E·F 系实证/fuzz/求解器 property）。
+**面环自洽**（2026-09-07 VR 真机「edge N 不存在」案，fuzz `test/kernel-fuzz.test.ts` 随机操作 + 不变量）：任何操作之后，面环的边必须存在、faceLinks 的面必须存在、无重复边、无孤立顶点、同环只准一条面记录。落地：① 零认领防御保留前先修环（死边 → 沿原线段的共线子边链 `repairRings`；修不了 → BURST 曝光）；② 擦边裁决同平面 ≥2 面全部 MERGE（此前只配前两张）；③ BIRTH 不铸与既有面同环的面；④ `regionsByPlane` 同一边环只属一张平面（拟合最好者）；⑤ 认领改纯几何（区域代表点抬回 3D、≤3τ 共面门、投到像平面 winding）——不再按平面记录 (n,d) 匹配（候选平面 cover 归属会让小面落在斜了 0.6° 的「错」记录上）。残余：5/80 种子仍出重复面（不崩），总账 D 节。
 **容差对齐**（2026-09-07 VR 真机「边 4-3 已存在」案）：身份 = 逐轴 Q/2 的量化格；sticky 插入的「碰到」容差 `INSERT_TOL = Q` ≥ 格半对角线——凡可能量化成同一顶点的点都当碰到（切进来）；`splitEdge` 切点落进既有顶点且已相连 → 复用既有边（重合即同一），`addEdge` 的重复边 throw 保留为最后一层断言。fuzz：`test/subdivide-nearmiss.test.ts`。
 
 edited by Claude Fable 5 2026-09-03 · edited by Claude Fable 5.1 2026-09-06 · edited by Claude Fable 5.1 2026-09-07

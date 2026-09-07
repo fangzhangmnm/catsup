@@ -24,7 +24,7 @@ function frames(sim: PlayerSim, input: InputFrame, seconds: number): void { for 
 describe("collision-world: 盒子六膜", () => {
   const k = boxKernel(1);
   const w = new KernelCollisionWorld(k);
-  it("六膜入库；安全地板 = min(0, minZ) = 0", () => {
+  it("六膜入库；安全地板 = 0", () => {
     assert(w.faceCount() === 6, `faces=${w.faceCount()}`);
     assert(w.floorZ() === 0, "floor");
   });
@@ -68,11 +68,11 @@ describe("collision-world: 含洞面 + 抬高模型", () => {
     const h = w.segmentHit({ x: 0, y: 0, z: 3 }, { x: 0, y: 0, z: -1 })!;
     assert(near(h.p.z, 0), "洞里线段穿过去落地板");
   });
-  it("模型有负 z：floorZ 跟到最低点", () => {
+  it("模型有负 z：floorZ 仍是 0（user 2026-09-07 吃书：地板永远 z=0，地下室以后另想办法）", () => {
     const k = new Kernel();
     k.addEdges(rect(-1, -1, 1, 1, -3));
     const w = new KernelCollisionWorld(k);
-    assert(w.floorZ() === -3, `floor=${w.floorZ()}`);
+    assert(w.floorZ() === 0, `floor=${w.floorZ()}`);
   });
 });
 

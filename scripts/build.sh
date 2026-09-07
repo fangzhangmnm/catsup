@@ -49,6 +49,26 @@ if grep -nE 'snapPoint\(this\.checkpoint|pickEntity\(this\.checkpoint|drawPlaneA
 fi
 echo "[build] ✓ 对齐引擎无旧鬼"
 
+# 0.65 flatscreen 护栏 lint（user 2026-09-07 VR 真机轮：「从 lint 的层面把所有 flatscreen 的东西都护栏一下」）
+#   工具/拾取/求解只认 PointerFrame + 它的角度尺视口（fvp）；canvas 尺寸（vp）只给相机 fit / 渲染 / resize。
+#   血案：推拉自由拖把 canvas 尺寸喂给 800×800 虚拟屏的 (400,400) 光标，VR 里射线整个斜掉（桌面 vp≡fvp，golden 抓不到）。
+echo "[build] flatscreen 护栏 lint…"
+FLAT_FAIL=0
+# 剥掉注释再查（// 与 /* */），注释里提 OrbitCamera/editor 是允许的
+strip_comments() { perl -0pe 's#/\*.*?\*/##gs; s#//[^\n]*##g' "$@"; }
+code_grep() { local pat="$1"; shift; local hit=0; for f in "$@"; do if strip_comments "$f" | grep -nE "$pat" | sed "s#^#$f:#"; then hit=1; fi; done; return $((1 - hit)); }
+# ① editor.ts：frame().ray/angularPx/viewDir 的实参里不许出现 this.vp()；epsScale 只准吃 fvp()
+if code_grep 'frame\(\)\.(ray|angularPx|viewDir)\([^;]*this\.vp\(\)' src/editor/editor.ts; then echo "[build] ✗ frame().* 配了 canvas 视口 vp()——指针帧的角度尺是 fvp()" >&2; FLAT_FAIL=1; fi
+if code_grep 'epsScale\(this\.vp\(\)\)' src/editor/editor.ts; then echo "[build] ✗ epsScale 吃了 vp()——ε 的分母是指针帧视口 fvp()" >&2; FLAT_FAIL=1; fi
+# ② editor.ts：指针数学不许直接找桌面相机（cam.ray/angularPx/viewDir/forward）——一律经 frame()
+if code_grep 'this\.cam\.(ray|angularPx|viewDir|forward)\(' src/editor/editor.ts; then echo "[build] ✗ 指针数学直接用了 OrbitCamera——VR 会话中 frame() 才是指针帧" >&2; FLAT_FAIL=1; fi
+# ③ 求解器/拾取/工具/指针帧：零 DOM、零屏幕、零 OrbitCamera（只准认 PointerFrame 接口）
+if code_grep 'OrbitCamera|clientWidth|clientHeight|devicePixelRatio|getBoundingClientRect|\bwindow\.|\bdocument\.|clientX|clientY' src/editor/solver.ts src/editor/pick.ts src/editor/tools.ts src/editor/xr-pointer-frame.ts src/editor/pointer-frame.ts; then echo "[build] ✗ 求解器/拾取层出现屏幕/DOM/相机——只准认 PointerFrame" >&2; FLAT_FAIL=1; fi
+# ④ player 深模块：零 DOM、零 three、零 editor（flat-input.ts 是键盘适配器，允许 window 监听）
+if code_grep "\bwindow\.|\bdocument\.|from ['\"]three|/editor/" src/player/player.ts src/player/input.ts src/player/teleport.ts src/player/world-query.ts src/player/xr-input.ts; then echo "[build] ✗ player 深模块碰了 DOM/three/editor" >&2; FLAT_FAIL=1; fi
+[ "$FLAT_FAIL" = 0 ] || { echo "[build] ✗ flatscreen 护栏未过，已挡下构建。" >&2; exit 1; }
+echo "[build] ✓ flatscreen 护栏通过"
+
 # 0.7 three 边界 lint：three 只准出现在 src/editor/render3.ts（相机/拾取/求解零 three）
 THREE_HITS=$(grep -rlE "from ['\"](three|\.\./vendor/three)" src --include='*.ts' | grep -v "^src/editor/render3.ts" || true)
 if [ -n "$THREE_HITS" ]; then echo "[build] ✗ three 越界（只准 src/editor/render3.ts）：" >&2; echo "$THREE_HITS" >&2; exit 1; fi
@@ -61,7 +81,7 @@ mkdir -p "$OUT_DIR"
 TMP_OUT="$OUT_DIR/catsup-tmp.mjs"
 
 # 1. esbuild bundle（three 走 alias 指向 vendored 文件）
-"$ESBUILD" "$ENTRY" --bundle --format=esm --target=es2020 --minify --sourcemap=linked --tree-shaking=true \
+"$ESBUILD" "$ENTRY" --bundle --format=esm --target=es2020 --minify --keep-names --sourcemap=linked --tree-shaking=true \
   --alias:three=./src/vendor/three/three.module.js \
   --outfile="$TMP_OUT"
 

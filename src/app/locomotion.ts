@@ -19,6 +19,7 @@ const LOOK_SENS = 0.004;        // rad / px
 const PITCH_LIMIT = 1.5;
 const TARGET_DIST = 5;          // 第一人称 OrbitCamera 的 target 距离（只影响 near/far 布置与 zoom 语义）
 const FIRST_PERSON_NEAR = 0.05;
+const SPAWN_SOUTH = 3;          // 默认出生点：原点正南 3 m，面朝北（看得见原点与三轴）
 
 export type LocomotionMode = "orbit" | "walk" | "xr";
 
@@ -57,15 +58,17 @@ export class Locomotion {
     this.flat.setEnabled(false);
     this.syncWorld(true);
     let spawn = this.lastStance;
-    if (!spawn) {
-      const fwd = cam.forward();
-      const t = cam.target;
-      const ground = this.world.floorBelow(t.x, t.y, t.z + 50, this.world.floorZ() - 1, 0.5);
-      spawn = { pos: { x: t.x, y: t.y, z: ground ?? Math.max(t.z, this.world.floorZ()) }, heading: Math.atan2(-fwd.x, fwd.y) };
-    }
+    if (!spawn) spawn = this.defaultSpawn();
     this.mode = "xr";
     this.externalInput = read;
     return spawn;
+  }
+  /** 默认出生点（user 2026-09-07：「vr 里出生点是面对正北 +y 的吧，保证一下，以及不要在原点出生，而是能看到原点的地方」）：
+   *  原点正南 3 m、面朝 +Y（heading 0 = 北），脚落地面。 */
+  defaultSpawn(): { pos: { x: number; y: number; z: number }; heading: number } {
+    const x = 0, y = -SPAWN_SOUTH;
+    const ground = this.world.floorBelow(x, y, 50, this.world.floorZ() - 1, 0.5);
+    return { pos: { x, y, z: ground ?? Math.max(0, this.world.floorZ()) }, heading: 0 };
   }
   exitXR(): void {
     if (this.mode !== "xr") return;

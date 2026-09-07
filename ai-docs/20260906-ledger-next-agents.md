@@ -1,6 +1,6 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
-> as-of v0.4.2 / 2026-09-07（第六批（含第二轮追加：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
+> as-of v0.4.3 / 2026-09-07（第六批（含第二/三/四轮追加：内核 fuzz 面环自洽：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
 > user 原话（2026-09-06）：「你尽量保证那些我没看的没拍的和马上要做的都有记录，这样的话我也可以开新 agent，一个一个做，不用怕 fomo，而不是现在这样一次得处理一大堆很要紧的不处理会慢慢腐烂的东西」。
 > **用法**：开新 agent 时把「本文件路径 + 条目编号」丢给它；它先读 `CLAUDE.md` 必读清单再读该条。做完把状态改成 `done <commit>` 并写一行结果；新冒出来的事**只加到这里**，不在聊天里散养。
 > **状态词**：`待做`（已拍板可开工）/ `待拍板`（要 user 一句话）/ `待看`（要 user 过目）/ `等 user 数据`（要 user 复现/实验）/ `park`（明确不做或以后）/ `done`。
@@ -117,6 +117,12 @@
 - **第二轮追加（同日晚，v0.4.2）**：user 原话「脚本错误 uncaught error 边 4-3 已经存在，重合即同一，调用方应该报 retrace，是在我画线的时候，以及错误的时候 vr 不应跟卡死」「以及 vr 里应该也能看到 toast 报错。可以考虑一下字幕位」「可见性必须是从拿枪的手而不是眼睛来判断啊！这不就是很多 fps 改成 vr 游戏之后子弹还是从眼睛 raycast 导致玩家根本没法瞄准的 bug 吗」「我觉得你的输入只有一个东西，就是手的 Vec3 和 Quaternion。不要看头。就是一个 ray 的 origin 和 dir，这是你有的唯一东西。不知道你能不能 cope 这个，还是数学引擎会崩」「考虑这么一个情况，你想做一个通天柱，先地板上画一个 quad，然后 pull up 手一挥。v0.4 的时候我手抬到 90 度柱子只到我腰间」。
   - **落地 v0.4.2**：内核容差对齐（`subdivide.ts INSERT_TOL = Q` ≥ 量化格半对角线；`splitEdge` 切点落进既有顶点且已相连 → 复用既有边；fuzz 20000 次零 throw，golden `test/subdivide-nearmiss.test.ts`；立宪页 §5 回写）；错误边界三层（`Editor.commitOp`/预演 run → host.error + 取消手势、`main.ts loopTick` try/catch 循环不死、window error/unhandledrejection 全局兜底；同文案 2 s 限流；不吞：console 必留）；VR 字幕位 toast（`ui/vr-toast.ts` 烤字 + `render3.attachSubtitle` 挂头显相机前 1.2 m 下 0.30 m，与桌面 notice 同一份文案，错误 6 s / 其余 4 s）；1/z 镜像 branch 掐掉（`xr-pointer-frame.ts` 手后半球 = 远点，golden `test/xr-pointer-frame.test.ts`）；推拉/线拖动/磁滞三处 `vp()`→`fvp()`（A2 漏网：VR 里射线斜掉）。
   - 反省稿按「只有手的射线、可见性从手」修订；通天柱几何 = h_hand + D·tan α，90° 平行无解 → 归 §3 手位移驱动。
+- **第三轮追加（同日晚）**：user「能不能从 lint 的层面把所有 flatscreen 的东西都护栏一下，然后 lint 之外也系统的排查一下」「哈哈哈还好我开 vr 纪元开的早。如果做完 rotate scale offset follow me 再做的话就是屎山预告哈哈哈」「度量接口也许桌面和 vr 走不同路径？」「然后你说的 6dof 输入模式，平移手确实好用，不会有 2 投 3 的歧义。不过转动手腕的激光笔更爽。如何权衡。以及要现在看来输入的话确实会有两套 code path」「现在的主要决策就是 vr 和桌面是用同一路径还是不同路径，如何尽量的保证 ssot 和不出错，需要好好设计一下架构」→ **lint 已落**（`scripts/build.sh` 0.65 flatscreen 护栏四条，剥注释查；负例验证过会红）；**排查结论**：solver/pick 零相机零 DOM，editor 残留 = 点两下的 `pointerType==="mouse"` 与桌面框选（应归适配器，见反省稿 §3.6 第 5 条）；**架构提案 = 反省稿 §3.5（激光取点、平移拖量）+ §3.6（语义一条路径、适配器 N 个、等价套件为机械保证）**，待拍板。
+- **第四轮追加（同日深夜，v0.4.3）**：user「0.4.2 通天柱很舒服。但是：出错 vr 帧，edge19 不存在」「抱歉吃书：判断对齐哪个面的时候(xy yz zx)用头的方向」「画面的时候还是容易想画水平的会画成竖直的，然后在有几何的时候有时候一个水平面莫名其妙画到 z<0」「move 还是很难 snap to axis 的根因：…你会不由自主地对准正北正南。这样的话 z 和 y 重合，所以总会 snap to y…激光笔用来 raycast，手势来 cue…推理引擎就是有好几层 cue」「vr 里出生点是面对正北 +y 的吧，保证一下，以及不要在原点出生，而是能看到原点的地方」。
+  - **落地**：`test/kernel-fuzz.test.ts` 随机操作 fuzz + 拓扑不变量（80 种子 × 12 步）——抓到「edge N 不存在」整类根因 = 面环里留死边，五处内核修法见立宪页 §5「面环自洽」（repairRings / 擦边全并 / BIRTH 防重 / 区域跨平面去重 / 认领纯几何）；老内核（v0.4.1）同 fuzz 也炸，是老病。selectExpand 命中边 hasEdge 守卫；错误 toast 附栈顶函数名（esbuild --keep-names）；XRPointerFrame.forward() = 头向（只喂平面挑选）；默认出生点 (0, −3) 面朝北、「回出生点」同。
+  - **反省稿 §3.7 分层 cue**（相机 / 手势位移 / 射线）待拍板。
+- **第五轮追加（同日深夜）**：user「吃书：vr 的地板永远都是 z=0。不用 min(0,min(model))。想进地下室以后可以用别的办法。或者用往下投影是否有东西（贵不贵？）如果有很大的屎山风险的话（比如需要在 realhome paradigm 里面加很多 hook 可能不急着做)」→ **已落 v0.4.3**：`collision-world.floorZ()` 恒 0（往下探针本来就有 = 站在几何上；地板只是无几何时的兜底），A13 第二轮「地板 = min(0,min(model))」作废；地下室另案。
+- **D 新增**：**D-fuzz 重复面残余**——种子 30/31/39/59/62（×104729）仍铸出同环第二张面（不崩、不丢边；`test/kernel-fuzz.test.ts` todo）；工具 = `node <tmp>/fuzzcount.ts`（见测试文件同款逻辑）+ 回放脚本思路（打印事件与面环）；下一刀从 face-lifecycle 认领/DIVIDE 铸造对「已有同环面」的处理入手。`待做`
 - **待拍板**：③④⑤ → `ai-docs/20260907-vr-input-reflection.md`（视口模型退役 → 球面度量接口；射线拾取 + 手位移拖动（HOMER 增益）+ grip=锁；肩锚射线/1€ 滤波；gizmo 留到 rotate/scale 立项）——§4 五问等一句话。⑥ 工具热键 → wishlist（user「先保证画的好」）。真机未验（v0.4.1 全 headless 自验）。
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
@@ -160,6 +166,11 @@
 - **B5 持久化/文件格式本体**：user 明示「SketchUp 1.0 做完、component group 摸清楚之后再定，你不要擅自做决定」；容器方向 = zip（自有 JSON authoring SSoT + 标准 glb bake）。**AI 不提案不预留。**
 
 ---
+
+- **B13 group 纪元想法**（user 2026-09-07 原话，「帮我顺便记录几个 group 纪元的想法」；与远景剧透 `ai-docs/20260906-far-horizon-golden-format-and-ontology.md` 的 group/component 语义并读）`远景`：
+  1. 「group 的核心是轴工具。但是不要和 vr 的地板搞混。也许可以用 grip 做 shorthand，这样的话用 grip 设置作画平面然后画，就很舒服？」
+  2. 「group 应该是 transient 的，会 frequently group and ungroup. so it is a burden to name the group. or navigate the hierarchy. so just like sketchup. we do not display group name unless in internal inspection, and we do not need a hierarchy tree for groups. instead we just have enter and exit group with some grey out effects, just like sketchup」
+  - 与 VR 输入稿的交叉：grip 已有两个候选语义（锁推断 / 设作画平面-轴工具 shorthand）——同一个键三个愿望，纪元开工前要拍板一个（反省稿 §4 第 2 问扩为三选）。
 
 ## C. 待看（user 过目即可，不阻塞）
 

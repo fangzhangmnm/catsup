@@ -24,7 +24,9 @@ export interface PlaneRec {
   readonly basis: { u: Pt3; v: Pt3 };
 }
 
-/** 法向一致性（数值尘埃级；刻意倾斜的平面远超此差）。 */
+/** 法向一致性（数值尘埃级；刻意倾斜的平面远超此差）。匹配不分正负（n,d 与 −n,−d 是同一张几何平面；
+ *  canonicalPlane 按「首个非零分量」定号在 n.x≈0 的噪声带会翻转）。同一边环落进两张近平行候选平面的去重在
+ *  face-lifecycle.regionsByPlane（2026-09-07 fuzz 案，edited by Claude Fable 5.1）。 */
 const ANGLE_DOT = 1 - 1e-10;
 
 export class PlaneRegistry {
@@ -38,10 +40,11 @@ export class PlaneRegistry {
     return r;
   }
 
-  /** 容差匹配既有平面（法向同 + |Δd|≤τ）；没有则注册。 */
+  /** 容差匹配既有平面（法向同或反 + |Δd|≤τ，同一张几何平面只准一条记录）；没有则注册。 */
   ensure(pl: PlaneParams, tol: number): PlaneRec {
     for (const r of this.recs.values()) {
-      if (dot3(r.plane.n, pl.n) >= ANGLE_DOT && Math.abs(r.plane.d - pl.d) <= tol) return r;
+      const c = dot3(r.plane.n, pl.n);
+      if (Math.abs(c) >= ANGLE_DOT && Math.abs(r.plane.d - (c < 0 ? -pl.d : pl.d)) <= tol) return r;
     }
     const rec: PlaneRec = { id: this.nextId++, plane: pl, basis: planeBasis(pl) };
     this.recs.set(rec.id, rec);

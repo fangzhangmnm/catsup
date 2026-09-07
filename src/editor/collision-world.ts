@@ -3,7 +3,7 @@
 // created 2026-09-07 by Claude Fable 5.1（0.4 VR 纪元）
 //
 // 原则：几何默认全参与碰撞（user 2026-09-07：「geometry 是默认有碰撞的，除非用户 override or assign proxy」；override/proxy 元数据留给
-// component 纪元）。膜是双面的：法向符号无意义，坡度看 |n.z|。安全地板 = min(0, 模型最低 z)。
+// component 纪元）。膜是双面的：法向符号无意义，坡度看 |n.z|。安全地板永远 z=0（user 2026-09-07 吃书）。
 // 规模：小模型暴力 + AABB 粗筛；>N 面再上 BVH（现阶段模型几十上百面，够用）。
 // 重建时机：checkpoint 变了（Editor.revision 变）才 rebuild——手势中（live 预演）不重建，与 player 的 freeze/coyote 同一口径：
 // 世界只在 commit 后惩罚玩家。
@@ -42,9 +42,7 @@ export class KernelCollisionWorld implements WorldQuery {
   rebuild(k: Kernel, revision = 0): void {
     this.revision = revision;
     this.faces = [];
-    let minZ = 0;
-    for (const v of k.vertices()) if (v.z < minZ) minZ = v.z;
-    this.floor = minZ;
+    this.floor = 0;   // 地板永远 z=0（user 2026-09-07 吃书：「vr 的地板永远都是 z=0。不用 min(0,min(model))。想进地下室以后可以用别的办法」）
     for (const f of k.faces()) {
       const rec = k.planeOf(f.id);
       const rings = k.faceRings3(f.id);

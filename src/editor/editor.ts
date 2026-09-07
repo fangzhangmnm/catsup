@@ -299,10 +299,10 @@ export class Editor {
       picked.faces.add(fid);
       for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) picked.edges.add(d.edge);
     };
-    if (hit.edge !== undefined) {
+    if (hit.edge !== undefined && k.graph.hasEdge(hit.edge)) {   // 命中来自 liveWorld()，选区世界是 checkpoint：不在 = 不选
       picked.edges.add(hit.edge);
       if (stage >= 1) for (const fid of k.graph.edge(hit.edge).faceLinks) picked.faces.add(fid);
-    } else if (hit.face !== undefined) {
+    } else if (hit.face !== undefined && k.face(hit.face)) {
       if (stage >= 1) addFaceRing(hit.face); else picked.faces.add(hit.face);
     }
     if (stage >= 2 && (hit.edge !== undefined || hit.face !== undefined)) {

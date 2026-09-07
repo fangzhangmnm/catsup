@@ -28,7 +28,9 @@ let lastErr = { text: "", at: 0 };
 function reportError(where: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`[catsup] ${where}:`, err);
-  const text = `出错（${where}）：${msg}`;
+  // 栈顶两帧的函数名（esbuild --keep-names 保住）：真机没 devtools，toast 就是唯一线索
+  const frames = err instanceof Error && err.stack ? err.stack.split("\n").slice(1, 4).map((l) => (l.match(/at\s+([\w$.<>]+)/) ?? [])[1]).filter(Boolean) : [];
+  const text = `出错（${where}）：${msg}${frames.length ? ` @ ${frames.join(" < ")}` : ""}`;
   const now = performance.now();
   if (text === lastErr.text && now - lastErr.at < 2000) return;
   lastErr = { text, at: now };
@@ -120,7 +122,7 @@ const hud: HudModel = {
       case "redo": editor.redo(); break;
       case "delete": editor.deleteSelection(); break;
       case "noclip": locomotion.setNoclip(!locomotion.noclip); vr.invalidatePanel(); break;
-      case "respawn": { const p = locomotion.sim.state; locomotion.sim.reset({ x: 0, y: 0, z: Math.max(0, locomotion.world.floorZ()) }, p.heading, locomotion.sim.state.trackingOrigin ? { x: 0, y: 0, z: 1.6 } : { x: 0, y: 0, z: 1.6 }); break; }
+      case "respawn": { const sp = locomotion.defaultSpawn(); locomotion.sim.reset(sp.pos, sp.heading, { x: 0, y: 0, z: 1.6 }); break; }
       case "exitvr": vr.exit(); break;
     }
   },

@@ -4,6 +4,7 @@ import "./smoke.test.ts";
 import "./subdivide.test.ts";
 import "./subdivide-nearmiss.test.ts";
 import "./xr-pointer-frame.test.ts";
+import "./kernel-fuzz.test.ts";
 import "./facefind.test.ts";
 import "./face-lifecycle.test.ts";
 import "./golden.test.ts";

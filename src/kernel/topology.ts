@@ -99,11 +99,17 @@ export class PlanarGraph {
     const a = e.a, b = e.b;
     this.removeEdgeKeepVerts(id);
     const v = this.ensureVertex(p);
-    // 重合即同一：切点落进既有顶点的格、而该顶点已与某端相连 → 那半边就是既有边（retrace），不新建也不 throw
-    const e1 = this.edgeBetween(a, v) ?? this.addEdge(a, v);
-    const e2 = this.edgeBetween(v, b) ?? this.addEdge(v, b);
-    this.edge(e1).faceLinks = [...links];
-    this.edge(e2).faceLinks = [...links];
+    // 重合即同一：切点落进既有顶点的格、而该顶点已与某端相连 → 那半边就是既有边（retrace），不新建也不 throw；
+    // 复用的既有边 faceLinks 取并集（覆盖会清掉它原有的面链接——2026-09-07 v0.4.2 首版之误）
+    const half = (x: VertexId, y: VertexId): EdgeId => {
+      const ex = this.edgeBetween(x, y);
+      if (ex === undefined) { const id = this.addEdge(x, y); this.edge(id).faceLinks = [...links]; return id; }
+      const fl = this.edge(ex).faceLinks;
+      for (const f of links) if (!fl.includes(f)) fl.push(f);
+      return ex;
+    };
+    const e1 = half(a, v);
+    const e2 = half(v, b);
     return { v, e1, e2 };
   }
 
