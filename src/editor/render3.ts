@@ -23,6 +23,19 @@ import type { EdgeId, FaceId, Kernel, Pt3 } from "../kernel/kernel.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { dot3, sub3 } from "../kernel/geom.ts";
+import type { RigPose } from "../player/player.ts";
+import type { Ray } from "../player/world-query.ts";
+
+/** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
+export interface XRFacade {
+  isPresenting(): boolean;
+  setSession(session: XRSession | null): Promise<void>;
+  session(): XRSession | null;
+  frame(): XRFrame | null;
+  refSpace(): XRReferenceSpace | null;
+  on(type: "sessionstart" | "sessionend", cb: () => void): void;
+}
+export type XRHand = "left" | "right";
 
 export const PALETTE = {
   background: 0xf2f0ea,
@@ -89,6 +102,17 @@ export class Renderer3 {
   private dpr = 1;
   private lineMats: any[] = [];
   private resolution: any;
+  // ---- XR（0.4 VR 纪元）----
+  // rig = 三层模型的中间层：rig 局部 = WebXR 追踪空间（Y 上）；rig.quaternion = Rz(heading)·Rx(90°) 把它挂进 Z 上世界（渲染层的
+  // Y-up 只活在 rig 子树里，世界坐标永远 Z 上——CatsUp 坐标约定）。camPersp 是 rig 的子节点：flat 由 syncCamera 写绝对姿态（rig 单位阵），
+  // XR 会话中 three 的 WebXRManager 把 HMD 姿态写进 camPersp（rig 局部）。控制器/手腕面板也挂 rig 下。
+  private rig: any;
+  private controllers: any[] = [];
+  private grips: any[] = [];
+  private hands: ("none" | "left" | "right")[] = ["none", "none"];
+  private pointerVis: { line: any; cursor: any }[] = [];
+  private wrist: { mesh: any; tex: any; inv: any } | null = null;
+  readonly xr: XRFacade;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
@@ -99,6 +123,108 @@ export class Renderer3 {
     this.resolution = new THREE.Vector2(1, 1);
     this.staticGroup = this.buildStatic();
     this.scene.add(this.staticGroup);
+
+    const xr = this.renderer.xr;
+    xr.enabled = true;
+    xr.setReferenceSpaceType("local-floor");
+    this.rig = new THREE.Group();
+    this.rig.add(this.camPersp);
+    this.scene.add(this.rig);
+    for (let i = 0; i < 2; i++) {
+      const c = xr.getController(i);
+      c.addEventListener("connected", (ev: any) => { this.hands[i] = ev.data?.handedness ?? "none"; });
+      c.addEventListener("disconnected", () => { this.hands[i] = "none"; });
+      // 射线 + 光标球（控制器局部：−Z 前）；不用 GLTF 控制器模型（不引依赖）
+      const lg = new THREE.BufferGeometry().setFromPoints([new THREE.Vector3(0, 0, 0), new THREE.Vector3(0, 0, -1)]);
+      const line = new THREE.Line(lg, new THREE.LineBasicMaterial({ color: 0x2b6cb0, transparent: true, opacity: 0.8 }));
+      line.visible = false;
+      const cursor = new THREE.Mesh(new THREE.SphereGeometry(0.012, 12, 8), new THREE.MeshBasicMaterial({ color: 0x2b6cb0, depthTest: false }));
+      cursor.renderOrder = 11; cursor.visible = false;
+      c.add(line); c.add(cursor);
+      this.pointerVis.push({ line, cursor });
+      this.controllers.push(c);
+      this.rig.add(c);
+      const g = xr.getControllerGrip(i);
+      this.grips.push(g);
+      this.rig.add(g);
+    }
+    this.xr = {
+      isPresenting: () => !!xr.isPresenting,
+      setSession: (session) => xr.setSession(session),
+      session: () => xr.getSession() ?? null,
+      frame: () => xr.getFrame() ?? null,
+      refSpace: () => xr.getReferenceSpace() ?? null,
+      on: (type, cb) => xr.addEventListener(type, cb),
+    };
+  }
+
+  /** rig 姿态（player 每帧同步；heading 绕 Z、origin 世界坐标）。 */
+  setRig(pose: RigPose): void {
+    this.rig.position.set(pose.origin.x, pose.origin.y, pose.origin.z);
+    this.rig.rotation.set(Math.PI / 2, 0, pose.heading, "ZYX");   // = Rz(heading)·Rx(90°)
+    this.rig.updateMatrixWorld(true);
+  }
+  private ctrlIndex(hand: XRHand): number { return this.hands.indexOf(hand); }
+  /** 控制器射线视觉：长度（到命中点）与颜色；null = 隐藏。 */
+  setPointerVisual(hand: XRHand, v: { length: number; color: number } | null): void {
+    const i = this.ctrlIndex(hand);
+    if (i < 0) return;
+    const pv = this.pointerVis[i];
+    if (!v) { pv.line.visible = false; pv.cursor.visible = false; return; }
+    pv.line.visible = true; pv.cursor.visible = true;
+    pv.line.scale.set(1, 1, Math.max(0.05, v.length));
+    pv.cursor.position.set(0, 0, -v.length);
+    pv.line.material.color.setHex(v.color);
+    pv.cursor.material.color.setHex(v.color);
+  }
+  /**
+   * 手腕面板：挂在 hand 手的 grip 上（grip 空间：原点掌心、−Z 沿手柄向前、+Y 手背向上）。面板贴在手背上方偏向手腕，
+   * 法向 +Y（手背朝天时正对眼睛）；纹理 = 传入的 canvas（UI 显示用途的 canvas 2D）。
+   */
+  attachWristPanel(canvas: HTMLCanvasElement, widthM: number, heightM: number, hand: XRHand): void {
+    this.detachWristPanel();
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(widthM, heightM), new THREE.MeshBasicMaterial({ map: tex, transparent: true, side: THREE.DoubleSide, depthTest: false }));
+    mesh.renderOrder = 12;
+    mesh.position.set(0, 0.04, 0.09);
+    mesh.rotation.set(-Math.PI / 2 + 0.35, 0, 0);   // 法向 +Y，略朝手腕（用户）倾 20°
+    const i = this.ctrlIndex(hand);
+    const parent = i >= 0 ? this.grips[i] : this.grips[hand === "left" ? 0 : 1];
+    parent.add(mesh);
+    this.wrist = { mesh, tex, inv: new THREE.Matrix4() };
+  }
+  detachWristPanel(): void {
+    if (!this.wrist) return;
+    this.wrist.mesh.parent?.remove(this.wrist.mesh);
+    this.wrist.mesh.geometry.dispose(); this.wrist.mesh.material.dispose(); this.wrist.tex.dispose();
+    this.wrist = null;
+  }
+  updateWristTexture(): void { if (this.wrist) this.wrist.tex.needsUpdate = true; }
+  /** 世界射线 ∩ 面板平面 → 面板 uv（u 右 0..1、v 下 0..1，与 canvas 像素同向）及距离；不在面板内 → null。 */
+  wristHit(ray: Ray): { u: number; v: number; dist: number } | null {
+    if (!this.wrist) return null;
+    const m = this.wrist.mesh;
+    m.updateWorldMatrix(true, false);
+    this.wrist.inv.copy(m.matrixWorld).invert();
+    const o = new THREE.Vector3(ray.origin.x, ray.origin.y, ray.origin.z).applyMatrix4(this.wrist.inv);
+    const d = new THREE.Vector3(ray.dir.x, ray.dir.y, ray.dir.z).transformDirection(this.wrist.inv);
+    if (Math.abs(d.z) < 1e-6) return null;
+    const t = -o.z / d.z;
+    if (t <= 0) return null;
+    const x = o.x + d.x * t, y = o.y + d.y * t;
+    const hw = m.geometry.parameters.width / 2, hh = m.geometry.parameters.height / 2;
+    if (x < -hw || x > hw || y < -hh || y > hh) return null;
+    // 距离按世界尺度（局部无缩放）
+    const dist = t * Math.hypot(ray.dir.x, ray.dir.y, ray.dir.z);
+    return { u: (x + hw) / (2 * hw), v: 1 - (y + hh) / (2 * hh), dist };
+  }
+  /** XR 会话中 HMD 的世界位置（marker 尺寸/光照用）。 */
+  private xrEye(): Pt3 | null {
+    if (!this.renderer.xr.isPresenting) return null;
+    const c = this.renderer.xr.getCamera();
+    const p = new THREE.Vector3().setFromMatrixPosition(c.matrixWorld);
+    return { x: p.x, y: p.y, z: p.z };
   }
 
   /** 连续渲染循环（步行模式 / XR 会话）；null = 停（回到按需 draw）。three 的 setAnimationLoop 才能收 XR 帧。 */
@@ -107,14 +233,17 @@ export class Renderer3 {
   }
 
   resize(vp: Viewport, dpr: number): void {
+    if (this.renderer.xr.isPresenting) return;   // XR 会话中尺寸归 XR layer
     this.dpr = dpr;
     this.renderer.setPixelRatio(dpr);
     this.renderer.setSize(vp.w, vp.h, false);
     this.resolution.set(vp.w * dpr, vp.h * dpr);
   }
 
-  /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。 */
+  /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离、fov 90°/1000px 折算。 */
   private worldPerPx(cam: OrbitCamera, vp: Viewport, p: Pt3): number {
+    const eye = this.xrEye();
+    if (eye) return (2 * Math.max(0.2, Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z))) / 1000;
     if (cam.projection === "persp") {
       const z = Math.max(dot3(sub3(p, cam.eye()), cam.forward()), 0.5);
       return (2 * z * Math.tan(cam.fovY / 2)) / vp.h;
@@ -147,7 +276,16 @@ export class Renderer3 {
   }
 
   render(k: Kernel, cam: OrbitCamera, vp: Viewport, view: ViewState): void {
-    const cam3 = this.syncCamera(cam, vp, view.near ?? 0.5);
+    const presenting = !!this.renderer.xr.isPresenting;
+    let cam3: any;
+    if (presenting) {
+      // XR：three 从 HMD 写 camPersp 姿态与投影；我们只管 near/far（会话 depthNear/Far）
+      cam3 = this.camPersp;
+      cam3.near = view.near ?? 0.05; cam3.far = 2000;
+    } else {
+      this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
+      cam3 = this.syncCamera(cam, vp, view.near ?? 0.5);
+    }
 
     if (this.dyn) {
       this.scene.remove(this.dyn);
@@ -158,8 +296,8 @@ export class Renderer3 {
     // WYSIWYG（user 黄线）：拖拽期间整个场景渲染影子副本。
     const kd = view.preview ?? k;
 
-    // ---- 面（统一灰，不透明，后推；平光=key light 钉在相机系右上前方） ----
-    const L = keyLight(cam);
+    // ---- 面（统一灰，不透明，后推；平光=key light 钉在相机系右上前方；XR 取 HMD 相机系） ----
+    const L = presenting ? this.xrKeyLight() : keyLight(cam);
     for (const f of kd.faces()) {
       const base = view.selectionFaces.has(f.id) ? PALETTE.faceSelected
         : view.hoverFace === f.id ? PALETTE.faceHover
@@ -225,6 +363,16 @@ export class Renderer3 {
     this.dyn = g;
     this.scene.add(g);
     this.renderer.render(this.scene, cam3);
+  }
+
+  /** XR：key light 钉在 HMD 相机系（同 keyLight 公式）。 */
+  private xrKeyLight(): Pt3 {
+    const c = this.renderer.xr.getCamera();
+    const m = c.matrixWorld.elements;
+    const e = { x: m[8], y: m[9], z: m[10] }, u = { x: m[4], y: m[5], z: m[6] }, r = { x: m[0], y: m[1], z: m[2] };
+    const v = { x: e.x + u.x * 0.55 + r.x * 0.35, y: e.y + u.y * 0.55 + r.y * 0.35, z: e.z + u.z * 0.55 + r.z * 0.35 };
+    const n = Math.hypot(v.x, v.y, v.z) || 1;
+    return { x: v.x / n, y: v.y / n, z: v.z / n };
   }
 
   /** 屏幕像素定尺寸的小球指示物（永远可见）。 */

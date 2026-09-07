@@ -22,6 +22,7 @@ import "./plane-second-point.test.ts";
 import "./on-face.test.ts";
 import "./player.test.ts";
 import "./collision-world.test.ts";
+import "./xr-frames.test.ts";
 import { run } from "./runner.mjs";
 
 await run();

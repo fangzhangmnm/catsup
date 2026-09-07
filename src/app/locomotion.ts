@@ -20,7 +20,7 @@ const PITCH_LIMIT = 1.5;
 const TARGET_DIST = 5;          // 第一人称 OrbitCamera 的 target 距离（只影响 near/far 布置与 zoom 语义）
 const FIRST_PERSON_NEAR = 0.05;
 
-export type LocomotionMode = "orbit" | "walk";
+export type LocomotionMode = "orbit" | "walk" | "xr";
 
 export class Locomotion {
   readonly world = new KernelCollisionWorld();
@@ -46,6 +46,38 @@ export class Locomotion {
 
   getMode(): LocomotionMode { return this.mode; }
   isWalking(): boolean { return this.mode === "walk"; }
+  isXR(): boolean { return this.mode === "xr"; }
+  /** 上次 VR 站位（视图态；无地期只在内存，A13：进 VR 落在上次站位）。 */
+  private lastStance: { pos: { x: number; y: number; z: number }; heading: number } | null = null;
+
+  /** 进 XR：输入改由 vr.ts 每帧喂；相机由 XR 写；站位 = 上次站位或轨道相机 target 落地。返回出生点（首帧 reset 用）。 */
+  enterXR(read: (dt: number) => InputFrame): { pos: { x: number; y: number; z: number }; heading: number } {
+    const cam = this.editor.cam;
+    if (this.mode === "orbit") this.saved = { target: { ...cam.target }, yaw: cam.yaw, pitch: cam.pitch, halfH: cam.halfH, projection: cam.projection, nearMin: cam.nearMin };
+    this.flat.setEnabled(false);
+    this.syncWorld(true);
+    let spawn = this.lastStance;
+    if (!spawn) {
+      const fwd = cam.forward();
+      const t = cam.target;
+      const ground = this.world.floorBelow(t.x, t.y, t.z + 50, this.world.floorZ() - 1, 0.5);
+      spawn = { pos: { x: t.x, y: t.y, z: ground ?? Math.max(t.z, this.world.floorZ()) }, heading: Math.atan2(-fwd.x, fwd.y) };
+    }
+    this.mode = "xr";
+    this.externalInput = read;
+    return spawn;
+  }
+  exitXR(): void {
+    if (this.mode !== "xr") return;
+    this.lastStance = { pos: { ...this.sim.state.pos }, heading: this.sim.state.heading };
+    this.externalInput = null;
+    this.mode = "orbit";
+    const cam = this.editor.cam;
+    if (this.saved) {
+      cam.target = this.saved.target; cam.yaw = this.saved.yaw; cam.pitch = this.saved.pitch; cam.halfH = this.saved.halfH; cam.projection = this.saved.projection; cam.nearMin = this.saved.nearMin;
+    }
+    this.editor.draw();
+  }
   get noclip(): boolean { return this.sim.state.noclip; }
   setNoclip(on: boolean): void { this.sim.state.noclip = on; }
 
@@ -94,14 +126,14 @@ export class Locomotion {
     if (force || this.world.revision !== this.editor.revision) this.world.rebuild(this.editor.kernel, this.editor.revision);
   }
 
-  /** 每渲染帧：喂输入、步进、写相机。 */
+  /** 每渲染帧：喂输入、步进、写相机（XR 模式相机归 XR，只步进）。 */
   tick(dt: number): void {
-    if (this.mode !== "walk" && !this.externalInput) return;
+    if (this.mode === "orbit") return;
     this.syncWorld();
     this.sim.setFrozen("gesture", this.editor.isGestureActive());
-    const input = this.externalInput ? this.externalInput(dt) : this.readFlat();
+    const input = this.mode === "xr" && this.externalInput ? this.externalInput(dt) : this.readFlat();
     this.sim.advance(input, dt);
-    if (!this.externalInput) this.syncCamera();
+    if (this.mode === "walk") this.syncCamera();
   }
 
   private readFlat(): InputFrame {

@@ -11,7 +11,7 @@ import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
-import { type AlignHand, type DrawPlane, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
+import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, GROUND, drawPlaneAt, marqueeScreen, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { epsScale } from "./solver.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
@@ -28,6 +28,8 @@ export interface ToolPointer {
   clientX: number; clientY: number;
   pointerType: string;
   shiftKey: boolean;
+  /** 自落笔以来指针「走了多远」（px）。VR 指针帧的光标永远在虚拟屏正中，所以由帧另算（射线转角）；缺省 = 屏距 downScreen。 */
+  travelPx?: number;
 }
 
 export interface EditorHost {
@@ -71,6 +73,9 @@ export function describeEvent(ev: FaceEvent): string {
 }
 
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+/** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。lab 时代的 1 / 0.3 是厘米口径，VR 里画 0.7 m 的线都会被吃掉
+ *  （2026-09-07 假 XR 探针抓到），统一改 1 cm。 */
+const MIN_GESTURE_LEN = 0.01;
 
 /** 长度显示（SU 同款「~」）：截到 1 位小数；截掉的部分超过格点量子 → 前缀 ~ 告诉用户「不是 exactly」
  *  （user 2026-09-07：「带小数点的优雅一点，多 truncate 几位，但是让用户知道不是 exactly」）。 */
@@ -117,6 +122,8 @@ export class Editor {
   private charged = new Map<string, Pt3>();
   private dwell: { key: string; since: number } | null = null;
   private lastSnap: Snap3 | null = null;
+  // 选择点击族（SU 单击/双击/三击；A7）：同一处 350 ms 内连点
+  private clickTrain: { t: number; x: number; y: number; n: number } | null = null;
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost) {
     this.r3 = new Renderer3(canvas);
@@ -129,6 +136,8 @@ export class Editor {
   // ---------- 只读 ----------
   get tool(): Tool { return this._tool; }
   get kernel(): Kernel { return this.checkpoint; }
+  /** 渲染器（app 层 XR 接线用；three 不出 render3）。 */
+  get renderer3(): Renderer3 { return this.r3; }
   /** checkpoint 的代数（commit/undo/redo 各 +1）。 */
   get revision(): number { return this._revision; }
   canUndo(): boolean { return this.journal.canUndo(); }
@@ -259,6 +268,56 @@ export class Editor {
     this.draw();
     return evs;
   }
+  /** 选择工具的拾取（VR / 点击族共用）：屏幕坐标 → 实体。 */
+  pickAt(sx: number, sy: number): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx()); }
+  /**
+   * 选择扩张（SU 点击族：单击 / 双击 / 三击；VR 与 pen = 阶段长按 0.3 s / 0.6 s + 震动，A13）：
+   *   stage 0 = 命中实体本身；1 = 膜 + 其环边（边 → 边 + 所有邻膜）；2 = 连通体（经边↔膜邻接可达的全部）。
+   * 空命中 = 清选区（非加选）。返回是否有变化。
+   */
+  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive = false): boolean {
+    const k = this.checkpoint;
+    const picked = emptySelection();
+    const addFaceRing = (fid: FaceId): void => {
+      const f = k.face(fid);
+      if (!f) return;
+      picked.faces.add(fid);
+      for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) picked.edges.add(d.edge);
+    };
+    if (hit.edge !== undefined) {
+      picked.edges.add(hit.edge);
+      if (stage >= 1) for (const fid of k.graph.edge(hit.edge).faceLinks) picked.faces.add(fid);
+    } else if (hit.face !== undefined) {
+      if (stage >= 1) addFaceRing(hit.face); else picked.faces.add(hit.face);
+    }
+    if (stage >= 2 && (hit.edge !== undefined || hit.face !== undefined)) {
+      // 连通体：BFS（膜 → 环边 → 邻膜；散线经顶点也连）
+      const qE = [...picked.edges], qF = [...picked.faces];
+      while (qE.length || qF.length) {
+        const fid = qF.pop();
+        if (fid !== undefined) {
+          const f = k.face(fid);
+          if (f) for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) if (!picked.edges.has(d.edge)) { picked.edges.add(d.edge); qE.push(d.edge); }
+          continue;
+        }
+        const eid = qE.pop()!;
+        if (!k.graph.hasEdge(eid)) continue;
+        const e = k.graph.edge(eid);
+        for (const f2 of e.faceLinks) if (!picked.faces.has(f2)) { picked.faces.add(f2); qF.push(f2); }
+        for (const vid of [e.a, e.b]) for (const e2 of k.graph.vertex(vid).edges) if (!picked.edges.has(e2)) { picked.edges.add(e2); qE.push(e2); }
+      }
+    }
+    if (additive) {
+      for (const e of picked.edges) this.selection.edges.add(e);
+      for (const f of picked.faces) this.selection.faces.add(f);
+    } else {
+      this.selection = picked;
+    }
+    this.host.changed();
+    this.draw();
+    return true;
+  }
+
   deleteSelection(): void {
     if (!this.hasSelection()) return;
     this.emit(this.commitOp({ op: "eraseSelection", faces: [...this.selection.faces], edges: [...this.selection.edges] }));
@@ -360,7 +419,7 @@ export class Editor {
     if (tool === "line" && this.anchor3 && this.cursor3) {
       const a = this.anchor3, b = this.cursor3;
       dims = `长 ${fmtLen(dist(a, b))}`;
-      if (dist(a, b) >= 1) run((c) => c.addEdges([[a, b]]));
+      if (dist(a, b) >= MIN_GESTURE_LEN) run((c) => c.addEdges([[a, b]]));
     } else if (tool === "rect" && this.anchor3 && this.cursor3) {
       const { plane, basis } = this.gesturePlane;
       const segs = rectSegmentsOnPlane(plane, basis, this.anchor3, this.cursor3);
@@ -372,8 +431,8 @@ export class Editor {
     } else if (tool === "move" && this.moveVids.length && this.anchor3 && this.cursor3) {
       const delta = sub3(this.cursor3, this.anchor3);
       const vids = this.moveVids;
-      if (Math.hypot(delta.x, delta.y, delta.z) >= 0.3) run((c) => c.moveVertices(translateMoves(this.checkpoint, vids, delta)));
-    } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= 0.3) {
+      if (Math.hypot(delta.x, delta.y, delta.z) >= MIN_GESTURE_LEN) run((c) => c.moveVertices(translateMoves(this.checkpoint, vids, delta)));
+    } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= MIN_GESTURE_LEN) {
       const fid = this.ppFace;
       // 落地=commit 事件 ⇒ 预演取 h 的**开区间样本**（差 2 量子，视觉不可见）：恰咬合停靠点时
       // 不触发共面重合（planarize 合并+OR 打架=合并/破膜垃圾态，user 截图 2026-09-03）；commit 用精确 h 全 XOR。
@@ -414,7 +473,15 @@ export class Editor {
   viewExtras: (() => Partial<ViewState>) | null = null;
   /** 连续渲染循环（步行 / XR）；null = 停。 */
   setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void { this.r3.setLoop(cb); }
+  private drawSuspended = false;
+  /** 一帧内多次指针事件只渲染一次（XR 每帧只许一次 render）。 */
+  batchDraw(fn: () => void): void {
+    this.drawSuspended = true;
+    try { fn(); } finally { this.drawSuspended = false; }
+    this.draw();
+  }
   draw(): void {
+    if (this.drawSuspended) return;
     this.r3.render(this.checkpoint, this.cam, this.vp(), {
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: this.selection.edges,
@@ -583,7 +650,7 @@ export class Editor {
         if (this.anchor3) this.cursor3 = this.rectPlaneSnap(s.x, s.y);
         break;
       case "pp":
-        this.ppTrack(s.x, s.y);
+        this.ppTrack(s.x, s.y, ev.travelPx);
         break;
       case "move":
         if (this.moveVids.length && this.anchor3) {
@@ -622,7 +689,7 @@ export class Editor {
    * - 高度通道：h 标量对静态高度集吸附（落笔取全场景顶点沿 n 投影；杀不死→无回路）。
    * 铁律：吸附世界不得是 h 的函数（snap-model SSoT 不动点定理）。
    */
-  private ppTrack(sx: number, sy: number): void {
+  private ppTrack(sx: number, sy: number, travel?: number): void {
     if (this.ppFace === null || !this.anchor3 || !this.ppNormal) return;
     const anc = this.anchor3, n = this.ppNormal;
     const wk = this.liveWorld();
@@ -682,9 +749,9 @@ export class Editor {
     this.cursor3 = add3(anc, scale3(n, this.ppH));
     // 卡住提示（user 2026-09-07「推拉如果卡住了推拉不动的话应该有提示」）：光标明显动了、h 却出不来 = 正对着面看
     // （法向∥视线，光标射线到法向轴没有有意义的最近点）——说清原因和出路，别让人以为坏了。
-    const moved = this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0;
+    const moved = travel ?? (this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0);
     const facing = Math.abs(dot3(n, this.frame().viewDir(anc)));
-    if (moved > 16 * epsScale(this.fvp()) && Math.abs(this.ppH) < 0.3 && (ppStuck || facing > 0.9)) {
+    if (moved > 16 * epsScale(this.fvp()) && Math.abs(this.ppH) < MIN_GESTURE_LEN && (ppStuck || facing > 0.9)) {
       this.host.hint("推拉没动：正对着这张面看，法向和视线平行，拖不出高度——环绕一下换个角度再拉（Esc 取消）");
       return;
     }
@@ -693,7 +760,7 @@ export class Editor {
 
   pointerUp(ev: ToolPointer): void {
     const s = ev;
-    const isTap = (): boolean => !!this.downScreen && Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) <= 4;
+    const isTap = (): boolean => !!this.downScreen && (ev.travelPx ?? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y)) <= 4;
     switch (this._tool) {
       case "line": {
         if (!this.anchor3) break;
@@ -756,8 +823,19 @@ export class Editor {
             minY: Math.min(this.marqueeStart.y, this.marqueeCur.y), maxY: Math.max(this.marqueeStart.y, this.marqueeCur.y),
           });
         } else {
-          picked = emptySelection();
+          // 点击族：双击 = 膜 + 环边、三击 = 连通体（SU 同款；VR/pen 的对应物 = 阶段长按，见 vr.ts）
+          const now = performance.now();
+          const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(s.x - this.clickTrain.x, s.y - this.clickTrain.y) <= 6 * epsScale(this.fvp())
+            ? { t: now, x: s.x, y: s.y, n: this.clickTrain.n + 1 } : { t: now, x: s.x, y: s.y, n: 1 };
+          this.clickTrain = train;
           const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
+          if (train.n >= 2) {
+            this.marqueeStart = this.marqueeCur = null;
+            this.host.marquee(null);
+            this.selectExpand(hit, train.n >= 3 ? 2 : 1, additive);
+            break;
+          }
+          picked = emptySelection();
           if (hit.edge !== undefined) picked.edges.add(hit.edge);
           else if (hit.face !== undefined) picked.faces.add(hit.face);
         }
@@ -799,7 +877,7 @@ export class Editor {
   private commitLineTo(sx: number, sy: number): void {
     const a = this.anchor3!;
     const b = this.lineSecondSnap(sx, sy).p;
-    if (dist(a, b) < 1) { this.cancelGesture(); return; }
+    if (dist(a, b) < MIN_GESTURE_LEN) { this.cancelGesture(); return; }
     const evs = this.commitOp({ op: "addEdges", segs: [[a, b]] });
     this.emit(evs);
     this.chargePt(a); this.chargePt(b);   // 落笔点自动充能（通用兜底）
@@ -820,7 +898,7 @@ export class Editor {
     const h = this.ppH;
     const fid = this.ppFace!;
     this.cancelGesture();
-    if (Math.abs(h) >= 0.3) this.emit(this.commitOp({ op: "pushpull", face: fid, dist: h }));
+    if (Math.abs(h) >= MIN_GESTURE_LEN) this.emit(this.commitOp({ op: "pushpull", face: fid, dist: h }));
   }
   private commitMoveTo(sx: number, sy: number): void {
     const mv = new Set(this.moveVids);
@@ -829,6 +907,6 @@ export class Editor {
     const vids = this.moveVids;
     const d = Math.hypot(delta.x, delta.y, delta.z);
     this.cancelGesture();
-    if (d >= 0.3) this.emit(this.commitOp({ op: "move", moves: translateMoves(this.checkpoint, vids, delta) }));
+    if (d >= MIN_GESTURE_LEN) this.emit(this.commitOp({ op: "move", moves: translateMoves(this.checkpoint, vids, delta) }));
   }
 }
