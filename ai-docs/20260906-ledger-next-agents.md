@@ -82,10 +82,19 @@
   - **手腕面板进 phase 1**（user：「手腕菜单是 phase 1。缺了这个 vr 没法用。vr 第一公民的意思是不回 flatscreen 可以进去全 workflow（除非有些文件 io 被浏览器硬墙）」）：three 面板挂非惯用手腕，消费与桌面同一份数据驱动 UI 模型（工具 / 撤销重做 / 视图 / 退出 VR / 状态行 / 菜单项）；文字与图标经 canvas 2D 烤成纹理（UI 显示用途，非字节进出）。桌面 HUD 与手腕面板 = 同模型两渲染器（A5 抽包分层的直接受益者）。
   - **多击在 VR/触屏 = 阶段长按 + 震动**（user：「手柄的位置漂移会比放在桌面上的鼠标远…也许用阶段长按+haptics？」）：按住 0.3 s 一震=膜+环边，0.6 s 二震=连通体；桌面仍双击/三击；pen 同 VR。**不依赖右键**（user：「vr 和 stylus 都讨厌右键」）：现状右键只做环绕、零动词依赖，保持。
   - **不用物品栏模式**（user：「好不用物品栏模式」）→ A14 结案：常规建模软件组织。
+- **user 2026-09-07 第三轮**（「0.4.0 优先做 vr，这不健康而且风险很大。但是这能逼出后面的每一个设计都 vr 第一公民，而且我预测我的大部分 doodle 时间都会在 vr 里面」= **0.4.0 开工许可**）：
+  - **teleport 充能中的双摇杆**（user：「push right joystick 的时候可以用 left joystick 上下调整射程。left joystick 的左右比起做微调，不如调整跳过去之后面对的方向？注意这个时候 left joystick 必须是 dpad 模式，不能上下的时候误动左右。以及射程有下限。射程的调节你觉得用什么好。以及长射程还是用抛物线吗？」）→ AI 提案（待一句话）：右摇杆前推 = 充能；充能中左摇杆 **dpad 模式**（幅值 ≥0.6 + 60° 扇区判主轴，带磁滞，不串轴）：上下 = **射程档位**（离散步进 ×1.25，跨次 teleport 记忆，下限 1 m 上限约 12 m），左右 = **落地朝向**（Alyx/SteamVR 同款）；手柄俯仰只管瞄准方向不管射程（两个都控射程会打架）。**长射程仍是弧线，但弧顶封高**（非牛顿「lob」：射程只改落点，弧顶 ≤ 手上方 3 m）——弧线的唯一目的是越过遮挡看见落点，不必物理正确。
+  - **后拉过零点**（user：「后拉摇杆会经过零点，你是说需要一个 debounce time？」）→ 是，两道：松手 teleport 触发后 **300 ms 冷却**忽略后拉（弹簧回中会过冲到 −0.2~−0.3）；「回上一点」要求后拉 ≥0.6 幅值并**保持 150 ms**。
+  - **A2 接口改名为射线语义**（user：「不维护两套：为什么不是 2d mode 用射线的语义？我记得昨天我们就是这么设计的」→ 对）：求解器核心本来就是射线 + 角距（ε=角度分数）；桌面屏幕只是「射线发生器 + 角度尺」的一个实例。A2 落地时接口叫 `PointerFrame { ray(); angularPx(p); viewDir(p) }` 之类，不叫 ViewProjection/worldToScreen（那是桌面味的命名）。
+  - **Quest 触觉有 bug**（user：「先不用做 monkey patch，就按照正确的写」）→ 按 WebXR 标准 `hapticActuators[0].pulse` 写，不打补丁。
+  - **VR 的 place 持久化**（user：「vr 的 place 也是不是应该持久化，还是可以点一下编辑。但是平时编辑时还是应该隐藏，不打扰 zen」）→ 出生点/上次站位随草稿箱存为**视图态**（不是模型数据）；「出生点」标记默认隐藏，视图菜单可显、点一下重设；进 VR 落在上次站位。
+  - **Quest 工作模式**（user：「在进网页 1 的 vr 的时候可以 system browser overlay 玩网页 2。所以很可能我网页 2 复制图像，然后不出 vr 复制进 catsup 成参考或者贴图」）→ E13。
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
 
-### A15 无地期间的本地草稿持久化 — `待拍板`（硬规则 #1 storage 红线，需 user 明批；user 2026-09-07：「idb 保留还是蛮重要的，即使是无地期间也鼓励我认真画东西，如何在数据契约还在大幅变动的现在实现这个但不屎山，也不是更新版本必丢？」）。AI 提案见对话（op 日志 + OBJ bake 双层信封，盒子可换）。
+### A15 无地期间的本地草稿持久化 — `待拍板`（硬规则 #1 storage 红线，需 user 明批；user 2026-09-07：「idb 保留还是蛮重要的，即使是无地期间也鼓励我认真画东西，如何在数据契约还在大幅变动的现在实现这个但不屎山，也不是更新版本必丢？」）
+- **user 2026-09-07 否决指令流持久化**（「指令流其实反而问题非常大，因为我们修一个几何拓扑 bug，重放旧的指令流会 pointer overflow。我觉得指令流是最不安全的，指令流和 undo 的生命周期永远是 runtime，我记得 wp 也是这个结论」）→ **草稿箱只存快照，不存 op 日志**；指令流生命周期 = runtime（A1 的 undo 也在内存）。
+- **AI 提案 v2**：快照 = 内核本体最小 dump `{ version, vertices[{x,y,z}], edges[[a,b]], faces[{outer:[vid], holes:[[vid]]}] }` + 视图态（相机 / VR 站位）+ **OBJ 文本 bake 当最后兜底**。读取：快照按 `version` 走小迁移梯（加字段不删字段；group/component 纪元只会加），迁不动就吞 OBJ。这份 dump 就是 B-rep 的本质，任何未来内核都必须能吃它，所以它是最不怕改版的东西；且它就是将来 zip 容器里 JSON authoring 的雏形，不是新格式承诺。盒子：独立 IDB「无地期草稿箱」（明确标注临时）、追加式草稿列表、首次保存请求 `persist()`；将来原样搬进 store collection。**待 user「批」。**
 
 ### A10 吸附：整数 incremental + 绝对网格 + 内部单位 SI — `待做`（user 2026-09-06「两种吸附都要同意」「内部单位永远是 SI，这个应该是我们的纪律吧」）
 - **纪律：内部单位 = 米（SI），永不改**；顶点**身份**已在 Q=1e-6 格点（= 1 µm 格；`ptKey3` 取整），显示单位可切（mm / cm / m / ft-in）；英制只是显示与网格预设，不进内核（user 曾想强推英制，见对话 2026-09-06：结论=网格步长比单位制更决定手感；关卡编辑常用二进制网格，Source 引擎 16 hu = 1 ft 即此传统）。
@@ -117,6 +126,7 @@
 - **B11 方向感标识**（user 2026-09-07：「轴和网格的边缘加前后左右东南西北标识？淡的大箭头？或者天空盒无限远？」）`待拍板`。AI 看法（对话里已答）：三件按性价比排——① **SU 同款轴线正负半轴实虚线**（正=实、负=虚），零 UI、立刻有方向；② **角落三轴小罗盘 gizmo**（Blender 式：随相机转的 X/Y/Z 小三叉 + N 标记，点轴=切视图，HTML/SVG 覆盖层用相机基算、不进 three），比网格边缘大箭头/字母干净，字母会随网格淡出边界漂；③ **天空/地平线**当 Workbench 风格选项（SU 默认风格就有天/地色）：解决「网格有尽头」的观感、给上下与远近感，但它不给东南西北，与 ①② 互补不替代。网格边缘大箭头/东南西北字 = 不推荐（噪、且 +Y=北 只对建筑党有意义，游戏血统更认 gizmo）。
   **2026-09-07 user 续**：「东南西北和 rigging 的前后左右到底是正负 xy 的哪一个一直没有一个 convention…淡化正负 x，强化语义。我想要的就是那种很大的字…虚线感觉不好看，反而 clutter…问题不是判断谁是 +x，而是 +x 是左还是右。这个我希望写死。不过其实还是没有解决角色是面南还是面北的问题…车也是，主要还是面向还是背向是 forward」。**AI 提案（待拍板，全文见对话）**：世界 = SU 契约（+X 东红 / +Y 北绿 / +Z 上）；**前视图 = 相机在南向北看，屏幕右 = +X 东**；**物体（角色/车/房）的「前」= −Y 面南，在前视图里正对相机；物体自己的左手 = +X 东、右手 = −X 西；车头 forward = −Y**——这正是 Blender 的 −Y forward / Z up，Blender→glTF 换轴后 = glTF 的 +Z forward，OBJ/glTF 逃生口零歧义；Unity(+Z fwd, Y up)/Unreal(+X fwd, Z up) 在导出时换轴。网格边缘的大字用**世界语义（北/东/南/西）**、不用前后左右（那是物体语义，会和屏幕左右打架）；虚线撤。
   **user 2026-09-07 拍板：「同意 Y 北 −Y 前。不过这样又和 unity 的 forward 打架，这个本质就是 d3d vs opengl。先不头疼，主要是如何向用户传达这一切？尤其是物体的前」**→ convention 已裁（+Y 北 / −Y 前 / 前视图从南看、屏幕右=+X 东 / 物体左手 +X）；「传达」user 2026-09-07 拍板：「+Y 北，−Y 一个三角前箭头。以及还需要传达一下 1m 哦」「视图菜单同意。前视=向北看」「角落 gizmos 我觉得 zen 模式不用」「lighting default prior 是另外一个 cue，以后也会做」→ **待做 A12**（见 A 节）；gizmo 不做（zen；IFR 场景讨论见对话：贴脸/室内/顶视时的仪表 = 轴线本身 + 状态栏视图名，够用）；光照先验 = 将来 Workbench 的默认光向当方向 cue（E11）。
+- **B14 与 WeebPaint 的交流方式**（user 2026-09-07 原话：「两个情况。1 是我希望我们的 savefile 可以 embed ora。2 是到时候有 bodypaint 了谁 master。一个方案是用某种跨 tab 交流方式，这样的好处是简单，还有别的可能的方案，甚至保持 weebpaint 彻底肢解后变成我们的一个 library。但反正场景就是。1. 不导入导出弄一大堆散文件的 2d 模式编辑贴图，图片，调色。2. weebpaint 级别笔触，multi layer, pixel accurate 的 3d painting。而不是我们重复造轮子。不过 weebpaint 的 bodypaint 纪元还八字没一撇呢！这里主要是想如何交流的问题」）`待拍板`。AI 看法（对话里）：场景 1 = **跨 tab / iframe + ora 交接协议**（BroadcastChannel/postMessage，同源同浏览器；CatsUp 是 3D 主，ora 被 WeebPaint「借出」期间 WeebPaint 是 2D 主，归还即锁回——git checkout 语义；iPad 后台标签会被杀，所以交接必须是显式事务不是常连）；场景 2 = **必须进程内**：笔触要在 3D 里投影到 UV，跨 tab 做不到像素级——把 WeebPaint 的笔刷引擎/图层/ora I-O 抽成 `@internal/paint-engine` 库，WeebPaint 自己成为它的第一个消费者（不是肢解 WeebPaint，是让它也用同一颗心脏）。savefile embed ora = zip 容器天然支持（附件）。两条不互斥：先 1 后 2。WeebPaint 侧 agent 需知会（bodypaint 纪元开工前）。
 - **B5 持久化/文件格式本体**：user 明示「SketchUp 1.0 做完、component group 摸清楚之后再定，你不要擅自做决定」；容器方向 = zip（自有 JSON authoring SSoT + 标准 glb bake）。**AI 不提案不预留。**
 
 ---
@@ -157,6 +167,7 @@
 - **E9 OBJ 导出：带洞/凹面的法向坑**（user 2026-09-07「导出 obj 有法向凹面洞面的坑，我还没找你算账。先 parked，这个只是个逃生口」）：`park`。案发形状待 user 给（怀疑 earcut 注入的带洞面三角朝向 / 凹多边形 n-gon 在 Blender 里法向翻），逃生口不阻塞。
 - **E10 触屏小键盘**（user 剧透，见 B12）：数字输入不弹系统键盘，app 内 HUD 小键盘。
 - **E11 光照默认先验当方向 cue**（user 2026-09-07「lighting default prior 是另外一个 cue，以后也会做」）：Workbench 默认光向固定于世界（如西南上方）而非相机系，转视角时明暗随之变 → 方向感；等渲染引擎切口（A4）后做。
+- **E13 VR 内粘贴参考/贴图**（user 2026-09-07 Quest 工作模式：进网页 1 的 VR 时可开 system browser overlay 玩网页 2 → 「网页 2 复制图像，然后不出 vr 复制进 catsup 成参考或者贴图」）：沉浸会话里读剪贴板（`navigator.clipboard.read()` 需用户激活，XR `select` 事件算不算激活待验）→ 参考图 / 贴图纪元的入口之一；先存档。
 - **E12 灵感：「生命之粉」= 编辑器内临时物理**（user 2026-09-07 原话存档：「塞尔达里面的超级手可以把 rigidbody **临时**变成 kinematic。我们做一个相反的东西：绿野仙踪里面的生命之粉（时间之粉？newtonian 这种只会往下掉的 non self propotion particle 不符合中世纪生命的语义），效果是临时 in editor, without hit play button 把一个东西变成 falling rock/ water/ cloth，临时，用户可以喊停。用处是你想做沙发布料瓦砾书堆的时候不想折腾时间轴和烘培但需要物理模拟的时候可以用。unity asset store 上面也有一个类似的素材摆放插件。甚至我们以后 asset placement 的时候可以做一个 drop」）：动词形状 = 选中几何 → 撒粉 → 它在编辑器里活起来（落石/水/布）→ 喊停即冻结成普通几何（一次结算 = 一个 op，指令式不破）；asset placement 的「drop」是它的最小子集。未来纪元，先存档。
 - **原则（同一段 user 原话，与 A13 碰撞项挂钩）**：「这个和 vr/fps 的导航需求都逼出来：**我们的 geometry 是默认有碰撞的，除非用户 override or assign proxy**」→ 碰撞不是 VR 专属附件而是几何的默认属性；override（关碰撞）与 proxy（简化碰撞体）是将来的 per-几何/per-component 元数据（ECS 元数据落 `extras` 那一层）。
 - **E8 油漆桶=拉矩形**（user 2026-09-06 原话「park进未来设计思路：油漆桶刷贴图采用拉矩形的方式，所以拉矩形可以同时设置贴图和UV」）：贴图纪元的思路存档，现在不做。
