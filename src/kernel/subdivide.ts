@@ -8,8 +8,17 @@
 //   retraced = 画线与既有边重合的段        —— 是手势边（retrace 空环生膜的依据）
 //   既有边被交点切开产生的子边           —— **不是**手势边（T 触碰空环不许生膜）
 
-import { type Pt3, dist3, pointOnSegment3, ptKey3, quantize3, samePt3, segIntersections3 } from "./geom.ts";
+import { type Pt3, Q, dist3, pointOnSegment3, ptKey3, quantize3, samePt3, segIntersections3 } from "./geom.ts";
 import { type EdgeId, PlanarGraph } from "./topology.ts";
+
+/**
+ * sticky 插入的「碰到」容差 = 量化格（2026-09-07 VR 真机案，edited by Claude Fable 5.1）：
+ * 身份是逐轴 Q/2 的格（ptKey3），几何测试原先用 Euclid EPS=Q/2——格的半对角线 0.87Q 比 EPS 大，
+ * 于是一条新段能在「离顶点 0.5Q~0.87Q」的带里擦过一个既有顶点而不把它切进来；之后任何切点落进该顶点的格
+ * 就 ensureVertex 到它，splitEdge 撞上既有边 → 「边 4-3 已存在」。斜置矩形角点量化后边不精确沿轴，
+ * 再沿理想轴向画过头就是这条带（fuzz 50 次内必中）。容差 ≥ 半对角线 = 洞封死：凡可能量化成同一顶点的都当碰到。
+ */
+export const INSERT_TOL = Q;
 
 export interface InsertResult {
   created: EdgeId[];
@@ -41,9 +50,10 @@ export function insertSegment(
   const pendingSplits = new Map<EdgeId, Pt3[]>(); // 既有边 → 待切点（边内部）
   for (const e of g.edges()) {
     const pa = g.pt(e.a), pb = g.pt(e.b);
-    const hits = segIntersections3(a, b, pa, pb);
+    const hits = segIntersections3(a, b, pa, pb, INSERT_TOL);
     for (const p of hits) {
       addCut(p);
+      // 切点落在端点的格里 = 就是那个端点（重合即同一），不切
       if (!samePt3(p, pa) && !samePt3(p, pb)) {
         const list = pendingSplits.get(e.id) ?? [];
         list.push(p);
@@ -53,7 +63,7 @@ export function insertSegment(
   }
   for (const v of g.vertices()) {
     const p = { x: v.x, y: v.y, z: v.z };
-    if (pointOnSegment3(p, a, b)) addCut(p);
+    if (pointOnSegment3(p, a, b, INSERT_TOL)) addCut(p);
   }
 
   // 2. 切开既有边。每条边的切点来自单次 segIntersections（至多 2 个、互异、都在内部）；
@@ -63,6 +73,9 @@ export function insertSegment(
     points.sort((p, q) => dist3(ea, p) - dist3(ea, q));
     let target = eid;
     for (const p of points) {
+      const te = g.edge(target);
+      const at = g.vertexAt(p);
+      if (at !== undefined && (at === te.a || at === te.b)) continue;   // 切点已是本边端点：无事
       const { e1, e2 } = g.splitEdge(target, p);
       onSplit?.(target, e1, e2);
       target = e2;

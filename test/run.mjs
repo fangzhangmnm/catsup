@@ -2,6 +2,8 @@
 // 加新测试文件：在下面 import 一行即可。
 import "./smoke.test.ts";
 import "./subdivide.test.ts";
+import "./subdivide-nearmiss.test.ts";
+import "./xr-pointer-frame.test.ts";
 import "./facefind.test.ts";
 import "./face-lifecycle.test.ts";
 import "./golden.test.ts";

@@ -74,5 +74,6 @@ pp 双通道：光标通道（不吸轴）+高度通道（h 标量对静态高�
 
 undo=日志重放（状态=批序列纯函数，含 id）。坐标=右手系、+Z 上、RGB=XYZ、渲染层禁 Y-up。
 golden 语料=共同 spec（膜事件表/暗礁①/灵魂手势≡手绘/E·F 系实证/fuzz/求解器 property）。
+**容差对齐**（2026-09-07 VR 真机「边 4-3 已存在」案）：身份 = 逐轴 Q/2 的量化格；sticky 插入的「碰到」容差 `INSERT_TOL = Q` ≥ 格半对角线——凡可能量化成同一顶点的点都当碰到（切进来）；`splitEdge` 切点落进既有顶点且已相连 → 复用既有边（重合即同一），`addEdge` 的重复边 throw 保留为最后一层断言。fuzz：`test/subdivide-nearmiss.test.ts`。
 
-edited by Claude Fable 5 2026-09-03 · edited by Claude Fable 5.1 2026-09-06
+edited by Claude Fable 5 2026-09-03 · edited by Claude Fable 5.1 2026-09-06 · edited by Claude Fable 5.1 2026-09-07

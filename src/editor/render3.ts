@@ -313,6 +313,24 @@ export class Renderer3 {
     const dist = t * Math.hypot(ray.dir.x, ray.dir.y, ray.dir.z);
     return { u: (x + hw) / (2 * hw), v: 1 - (y + hh) / (2 * hh), dist };
   }
+  // ---- 字幕位 toast（挂 camPersp 子节点 = 头锁定：XR 中 three 把 HMD 姿态写进 camPersp）----
+  private subtitle: { mesh: any; tex: any } | null = null;
+  attachSubtitle(canvas: HTMLCanvasElement, widthM: number, heightM: number): void {
+    this.detachSubtitle();
+    const tex = new THREE.CanvasTexture(canvas);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    const mesh = new THREE.Mesh(new THREE.PlaneGeometry(widthM, heightM), new THREE.MeshBasicMaterial({ map: tex, transparent: true, depthTest: false }));
+    mesh.renderOrder = 20;
+    mesh.position.set(0, -0.30, -1.2);   // 相机系：前 1.2 m、下 0.30 m ≈ 视野下沿 14°
+    this.camPersp.add(mesh);
+    this.subtitle = { mesh, tex };
+  }
+  detachSubtitle(): void {
+    if (!this.subtitle) return;
+    this.subtitle.mesh.parent?.remove(this.subtitle.mesh);
+    this.subtitle.mesh.geometry.dispose(); this.subtitle.mesh.material.dispose(); this.subtitle.tex.dispose();
+    this.subtitle = null;
+  }
   /** XR 会话中 HMD 的世界位置（marker 尺寸用；返回共享 scratch，勿保存）。 */
   private xrEye(): Pt3 | null {
     if (!this.renderer.xr.isPresenting) return null;

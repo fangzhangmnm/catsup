@@ -1,6 +1,6 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
-> as-of v0.4.1 / 2026-09-07（第六批：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
+> as-of v0.4.2 / 2026-09-07（第六批（含第二轮追加：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
 > user 原话（2026-09-06）：「你尽量保证那些我没看的没拍的和马上要做的都有记录，这样的话我也可以开新 agent，一个一个做，不用怕 fomo，而不是现在这样一次得处理一大堆很要紧的不处理会慢慢腐烂的东西」。
 > **用法**：开新 agent 时把「本文件路径 + 条目编号」丢给它；它先读 `CLAUDE.md` 必读清单再读该条。做完把状态改成 `done <commit>` 并写一行结果；新冒出来的事**只加到这里**，不在聊天里散养。
 > **状态词**：`待做`（已拍板可开工）/ `待拍板`（要 user 一句话）/ `待看`（要 user 过目）/ `等 user 数据`（要 user 复现/实验）/ `park`（明确不做或以后）/ `done`。
@@ -114,6 +114,9 @@
   - ② teleport 充能中工具停摆（VR + 桌面 T：手势取消、预告清掉、指针射线隐藏）；双击跳/双击 A = noclip 开关（`input.ts DoubleTap`，golden）；noclip 下摇杆/WASD 水平飞（不跟头俯仰），Q/E·A/B 竖直。
   - ⑦ 渲染换 retained mode（`render3.ts` 头注释）：常态 3 个 draw call（网格+三轴一份粗线；全部膜一份几何 + shader 光照；全部边一份粗线），几何按 revision/预演身份/选区键缓存，零每帧分配；XR fixed foveation 默认 0（three 默认 1.0 = 周边降采样，白底细线最吃这个）、粗线 resolution/linewidth 每帧按每眼 viewport 换算（此前用桌面 canvas 尺寸）；`?xrfov=0..1&xrscale=0.5..2` 真机 A/B。**「远没有 RH 流畅」的根因判断 = CPU（每帧重建 + N 个 draw call + GC），不是 Quest 降分辨率**；真机验证归 user。下一刀（未做）：XR 每帧 hover 拾取 O(V·F) 遮挡判定，模型大了再说。
   - ⑧ 吸附小球 XR 角尺寸减半、走深度测试（墙后不再穿墙显示）；控制器光标球按距离定角尺寸。⑨ 充能源紫点不再显示（机制照旧）。
+- **第二轮追加（同日晚，v0.4.2）**：user 原话「脚本错误 uncaught error 边 4-3 已经存在，重合即同一，调用方应该报 retrace，是在我画线的时候，以及错误的时候 vr 不应跟卡死」「以及 vr 里应该也能看到 toast 报错。可以考虑一下字幕位」「可见性必须是从拿枪的手而不是眼睛来判断啊！这不就是很多 fps 改成 vr 游戏之后子弹还是从眼睛 raycast 导致玩家根本没法瞄准的 bug 吗」「我觉得你的输入只有一个东西，就是手的 Vec3 和 Quaternion。不要看头。就是一个 ray 的 origin 和 dir，这是你有的唯一东西。不知道你能不能 cope 这个，还是数学引擎会崩」「考虑这么一个情况，你想做一个通天柱，先地板上画一个 quad，然后 pull up 手一挥。v0.4 的时候我手抬到 90 度柱子只到我腰间」。
+  - **落地 v0.4.2**：内核容差对齐（`subdivide.ts INSERT_TOL = Q` ≥ 量化格半对角线；`splitEdge` 切点落进既有顶点且已相连 → 复用既有边；fuzz 20000 次零 throw，golden `test/subdivide-nearmiss.test.ts`；立宪页 §5 回写）；错误边界三层（`Editor.commitOp`/预演 run → host.error + 取消手势、`main.ts loopTick` try/catch 循环不死、window error/unhandledrejection 全局兜底；同文案 2 s 限流；不吞：console 必留）；VR 字幕位 toast（`ui/vr-toast.ts` 烤字 + `render3.attachSubtitle` 挂头显相机前 1.2 m 下 0.30 m，与桌面 notice 同一份文案，错误 6 s / 其余 4 s）；1/z 镜像 branch 掐掉（`xr-pointer-frame.ts` 手后半球 = 远点，golden `test/xr-pointer-frame.test.ts`）；推拉/线拖动/磁滞三处 `vp()`→`fvp()`（A2 漏网：VR 里射线斜掉）。
+  - 反省稿按「只有手的射线、可见性从手」修订；通天柱几何 = h_hand + D·tan α，90° 平行无解 → 归 §3 手位移驱动。
 - **待拍板**：③④⑤ → `ai-docs/20260907-vr-input-reflection.md`（视口模型退役 → 球面度量接口；射线拾取 + 手位移拖动（HOMER 增益）+ grip=锁；肩锚射线/1€ 滤波；gizmo 留到 rotate/scale 立项）——§4 五问等一句话。⑥ 工具热键 → wishlist（user「先保证画的好」）。真机未验（v0.4.1 全 headless 自验）。
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。

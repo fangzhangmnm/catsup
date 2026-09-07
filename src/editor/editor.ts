@@ -44,6 +44,8 @@ export interface EditorHost {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   /** 工具/撤销栈/选区变了 → UI 刷新。 */
   changed(): void;
+  /** 内核/求解器抛错（预演或提交）：app 层报给用户（DOM toast + VR 字幕）。checkpoint 不受影响。 */
+  error?(err: unknown, where: string): void;
 }
 
 // px 常量按 800px 高视口标定；运行时 × epsScale(vp)（= 视口高度分数 ≡ 角度分数，见 solver.ts）
@@ -157,6 +159,8 @@ export class Editor {
   private frame(): PointerFrame { return this.pointerFrame?.pf ?? this.cam; }
   /** 指针帧的角度尺视口（ε 分母）。 */
   private fvp(): Viewport { return this.pointerFrame?.vp ?? this.vp(); }
+  // 纪律：凡 this.frame().ray/angularPx 一律配 fvp()（指针帧的角度尺），vp() 只给 canvas/渲染/相机 fit 用——
+  // 2026-09-07 VR 真机通天柱案：推拉自由拖路径把 canvas 尺寸喂给 800×800 虚拟屏的 (400,400) 光标，VR 里射线整个斜掉。
   private snapPx(): number { return SNAP * epsScale(this.fvp()); }
   private hitPx(): number { return HIT * epsScale(this.fvp()); }
 
@@ -207,12 +211,21 @@ export class Editor {
   // ---------- 记账 ----------
   /** 所有改内核的用户手势走这里：记账（undo 日志）+ 应用。 */
   private commitOp(op: LabOp): FaceEvent[] {
-    const r = this.journal.commit(this.checkpoint, op);
+    // 错误边界（2026-09-07 VR 真机「边 4-3 已存在」uncaught 案）：journal 在副本上重放，抛错 = 这一批不落地、
+    // checkpoint 原样；报给 host（toast/字幕），手势清掉。不吞：console 与 UI 都要看见。
+    let r: ReturnType<Journal["commit"]>;
+    try { r = this.journal.commit(this.checkpoint, op); }
+    catch (err) { this.fail("commit", err); return []; }
     this.checkpoint = r.kernel;
     this._revision++;
     this.revalidateCharged();
     this.host.changed();
     return r.events;
+  }
+  private fail(where: string, err: unknown): void {
+    const msg = err instanceof Error ? err.message : String(err);
+    this.host.error?.(err, where);
+    this.host.hint(`操作失败（${where === "commit" ? "提交" : "预演"}）：${msg}`);
   }
   private emit(evs: FaceEvent[]): void { if (evs.length) this.host.events(evs); }
 
@@ -380,7 +393,7 @@ export class Editor {
   private applyHysteresis(sn: Snap3, sx: number, sy: number): Snap3 {
     if (sn.kind !== null) { this.lastSnap = sn; return sn; }
     if (this.lastSnap?.kind) {
-      const sp = this.frame().angularPx(this.lastSnap.p, this.vp());
+      const sp = this.frame().angularPx(this.lastSnap.p, this.fvp());
       if (Math.hypot(sx - sp.x, sy - sp.y) <= (EPS_OF[this.lastSnap.kind] ?? 8) * 1.5 * epsScale(this.fvp())) return this.lastSnap;
     }
     this.lastSnap = null;
@@ -413,7 +426,8 @@ export class Editor {
     this.liveEvents = [];
     const run = (fn: (c: Kernel) => FaceEvent[]): void => {
       const c = this.checkpoint.clone();
-      this.liveEvents = fn(c);
+      try { this.liveEvents = fn(c); }
+      catch (err) { this.liveEvents = []; this.live = null; this.fail("preview", err); return; }   // 预演失败：无影子，手势继续，松手时 commit 再判
       this.live = c;
     };
     const tool = this._tool;
@@ -558,7 +572,7 @@ export class Editor {
           this.ppKnownVids = new Set(k.vertices().map((v) => v.id));
           this.ppNormal = rec.plane.n;
           this.gesturePlane = { plane: rec.plane, basis: rec.basis };
-          const ray0 = this.frame().ray(s.x, s.y, this.vp());
+          const ray0 = this.frame().ray(s.x, s.y, this.fvp());
           const grab = rayPlane(ray0.origin, ray0.dir, rec.plane.n, rec.plane.d);
           this.anchor3 = grab ?? k.faceRings3(hit.face)!.outer[0];
           {   // 高度通道停靠集：全场景静态顶点沿 n 的投影高度（含底环/邻面高/0；user 拍板 A 案）
@@ -713,7 +727,7 @@ export class Editor {
       ref = `｜取${SNAP_LABELS[sn.kind] ?? sn.kind}高度`;
     } else {
       this.snapInfo = null;
-      const ray1 = this.frame().ray(sx, sy, this.vp());
+      const ray1 = this.frame().ray(sx, sy, this.fvp());
       // 取面高度也查现实 SSoT（user 2026-09-03「遮挡必须用现实的 SSoT，不要用旧鬼」）：
       // 现实世界拾取 + 手中膜跳过 + ∥推向的面拒收（其"高度"随光标漂=垃圾）
       const hitF = pickEntity(wk, this.frame(), this.fvp(), sx, sy, 0.5).face;
@@ -735,8 +749,8 @@ export class Editor {
         if (q) this.ppH = dot3(sub3(q, anc), n);
         else ppStuck = true;   // 法向与视线近平行：公垂无解，h 动不了
         // 高度通道：h 标量对静态高度集咬合（ε=7px 折算世界单位；底面/邻面/0 全在停靠集里）
-        const sc0 = this.frame().angularPx(anc, this.vp());
-        const sc1 = this.frame().angularPx(add3(anc, n), this.vp());
+        const sc0 = this.frame().angularPx(anc, this.fvp());
+        const sc1 = this.frame().angularPx(add3(anc, n), this.fvp());
         const pxPerUnit = Math.max(Math.hypot(sc1.x - sc0.x, sc1.y - sc0.y), 0.5);
         const epsH = (7 * epsScale(this.fvp())) / pxPerUnit;
         let best: number | null = null;

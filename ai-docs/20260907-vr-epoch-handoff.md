@@ -90,3 +90,4 @@ edited by Claude Fable 5.1 2026-09-07
 ## 9. 真机首轮反馈回填（2026-09-07 晚，Claude Fable 5.1；as-of v0.4.1）
 
 user 戴 Quest 一轮，九条 + 追加原话全在总账 **A16**。已落 v0.4.1：尺度（1 m 网格 / 人体尺度默认相机 / 毫米级 zoom 下限）、teleport 充能中工具停摆、双击跳切 noclip + 水平飞、`render3.ts` retained mode（3 draw call、键缓存、XR foveation 0、粗线 XR 分辨率）、吸附小球缩小 + 深度测试、充能紫点不显示。**#3/#4/#5（拾取奇点 / 6-DOF 输入 / grip 锁）= `ai-docs/20260907-vr-input-reflection.md` 反省稿，不动码，等 user 拍板** §4 五问。
+- **v0.4.2 追加**：内核「边 4-3 已存在」案（容差对齐 + splitEdge 复用，fuzz/golden）、错误边界三层 + VR 字幕位 toast、1/z 镜像止血、推拉路径 vp/fvp 错配修；反省稿修订为「只有手的射线」。细节总账 A16 第二轮。

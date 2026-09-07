@@ -178,14 +178,14 @@ export function liftFromPlane(p2: Pt, pl: PlaneParams, basis: { u: Pt3; v: Pt3 }
   return add3(add3(scale3(basis.u, p2.x), scale3(basis.v, p2.y)), scale3(pl.n, pl.d));
 }
 
-/** p 是否落在 3D 线段 ab 上（含端点，EPS 容差）。 */
-export function pointOnSegment3(p: Pt3, a: Pt3, b: Pt3): boolean {
+/** p 是否落在 3D 线段 ab 上（含端点，tol 容差，默认 EPS；sticky 插入用量化格容差 INSERT_TOL——见 subdivide.ts）。 */
+export function pointOnSegment3(p: Pt3, a: Pt3, b: Pt3, tol = EPS): boolean {
   const len = dist3(a, b);
   if (len <= EPS) return samePt3(p, a);
   const d = len3(cross3(sub3(p, a), sub3(b, a))) / len; // 点到直线距离
-  if (d > EPS) return false;
+  if (d > tol) return false;
   const t = dot3(sub3(p, a), sub3(b, a)) / (len * len);
-  return t >= -EPS / len && t <= 1 + EPS / len;
+  return t >= -tol / len && t <= 1 + tol / len;
 }
 
 /** 点到 3D 线段距离。 */
@@ -199,10 +199,10 @@ export function distToSegment3(p: Pt3, a: Pt3, b: Pt3): number {
 }
 
 /**
- * 3D 线段交点集：斜交（距离 > EPS）→ []；共面相交/T 交 → 1 点；共线重叠 → 重叠区两端点。
- * 返回点已量化。
+ * 3D 线段交点集：斜交（距离 > tol）→ []；共面相交/T 交 → 1 点；共线重叠 → 重叠区两端点。
+ * 返回点已量化。tol 默认 EPS；sticky 插入用量化格容差（见 subdivide.ts INSERT_TOL）。
  */
-export function segIntersections3(a1: Pt3, a2: Pt3, b1: Pt3, b2: Pt3): Pt3[] {
+export function segIntersections3(a1: Pt3, a2: Pt3, b1: Pt3, b2: Pt3, tol = EPS): Pt3[] {
   const da = sub3(a2, a1), db = sub3(b2, b1);
   const lenA = len3(da), lenB = len3(db);
   if (lenA <= EPS || lenB <= EPS) return [];
@@ -212,12 +212,12 @@ export function segIntersections3(a1: Pt3, a2: Pt3, b1: Pt3, b2: Pt3): Pt3[] {
   if (nl / (lenA * lenB) < 1e-12) {
     // 平行：共线才有重叠
     const offLine = len3(cross3(sub3(b1, a1), da)) / lenA;
-    if (offLine > EPS) return [];
+    if (offLine > tol) return [];
     const tOf = (p: Pt3): number => dot3(sub3(p, a1), da) / (lenA * lenA);
     let t1 = tOf(b1), t2 = tOf(b2);
     if (t1 > t2) [t1, t2] = [t2, t1];
     const lo = Math.max(0, t1), hi = Math.min(1, t2);
-    if (hi < lo - EPS / lenA) return [];
+    if (hi < lo - tol / lenA) return [];
     const at = (t: number): Pt3 => quantize3(add3(a1, scale3(da, t)));
     const p1 = at(lo), p2 = at(hi);
     return samePt3(p1, p2) ? [p1] : [p1, p2];
@@ -225,11 +225,11 @@ export function segIntersections3(a1: Pt3, a2: Pt3, b1: Pt3, b2: Pt3): Pt3[] {
 
   // skew 距离（公垂线长）超容差 → 不交
   const skew = Math.abs(dot3(sub3(b1, a1), n)) / nl;
-  if (skew > EPS) return [];
+  if (skew > tol) return [];
   const nn = nl * nl;
   const t = dot3(cross3(sub3(b1, a1), db), n) / nn;
   const s = dot3(cross3(sub3(b1, a1), da), n) / nn;
-  const tolT = EPS / lenA, tolS = EPS / lenB;
+  const tolT = tol / lenA, tolS = tol / lenB;
   if (t < -tolT || t > 1 + tolT || s < -tolS || s > 1 + tolS) return [];
   return [quantize3(add3(a1, scale3(da, t)))];
 }

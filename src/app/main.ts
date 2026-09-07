@@ -16,7 +16,24 @@ import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
-import { showNotice } from "./ui/notice.ts";
+import { showNotice, type NoticeOpts } from "./ui/notice.ts";
+
+// 通知 = 桌面 toast + VR 字幕位（同一份文案；vr 未进会话时后者无事）
+function notify(opts: NoticeOpts): void {
+  showNotice(opts);
+  vr?.toast(opts.text, opts.level ?? "neutral");
+}
+// 错误上报（内核/求解器抛错、渲染循环抛错、全局 uncaught）：console 必留 + toast/字幕；同文案 2 s 内只报一次（预演每帧都会撞同一错）
+let lastErr = { text: "", at: 0 };
+function reportError(where: string, err: unknown): void {
+  const msg = err instanceof Error ? err.message : String(err);
+  console.error(`[catsup] ${where}:`, err);
+  const text = `出错（${where}）：${msg}`;
+  const now = performance.now();
+  if (text === lastErr.text && now - lastErr.at < 2000) return;
+  lastErr = { text, at: now };
+  notify({ id: "err", text, level: "error" });
+}
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   const el = document.getElementById(id);
@@ -69,6 +86,7 @@ const editor = new Editor(canvas, {
     Object.assign(marqueeEl.style, { left: `${b.left + r.x}px`, top: `${b.top + r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
   },
   changed: () => syncUi(),
+  error: (err, where) => reportError(where === "commit" ? "提交" : "预演", err),
 });
 
 // ---------- 工具条 ----------
@@ -186,7 +204,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
       case "lab": setLab(!labOpen); return "keep";
       case "clear":
-        showNotice({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
+        notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
       case "help": toggleHelp(true); break;
       case "update": pwa.forceReset(); break;
@@ -209,14 +227,23 @@ let loopLast = 0;
 function loopTick(t: number): void {
   const dt = loopLast ? Math.min(0.1, (t - loopLast) / 1000) : 1 / 60;
   loopLast = t;
-  if (vr.isPresenting()) vr.tick(dt);   // XR：vr.tick 内含 locomotion.tick + 指针事件 + 面板
-  else {
-    locomotion.tick(dt);
-    // 桌面 T 充能中 = 工具停摆（VR 同款）：手势取消、预告清掉；手势路由的 toolBlocked 挡后续指针事件
-    if (locomotion.sim.state.teleport.charging) { if (editor.isGestureActive()) editor.cancel(); editor.pointerLeave(); }
+  // 循环边界（user：「错误的时候 vr 不应跟卡死」）：一帧抛错 = 报错 + 取消手势，循环继续；不吞（console + 字幕都看得见）
+  try {
+    if (vr.isPresenting()) vr.tick(dt);   // XR：vr.tick 内含 locomotion.tick + 指针事件 + 面板
+    else {
+      locomotion.tick(dt);
+      // 桌面 T 充能中 = 工具停摆（VR 同款）：手势取消、预告清掉；手势路由的 toolBlocked 挡后续指针事件
+      if (locomotion.sim.state.teleport.charging) { if (editor.isGestureActive()) editor.cancel(); editor.pointerLeave(); }
+    }
+  } catch (err) {
+    reportError(vr.isPresenting() ? "VR 帧" : "步行帧", err);
+    try { editor.cancel(); } catch { /* 取消本身失败也不许把循环带死 */ }
   }
-  editor.draw();
+  try { editor.draw(); } catch (err) { reportError("渲染", err); }
 }
+// 全局兜底：任何 uncaught error / unhandled rejection 都上 toast（VR 里 = 字幕），不再静默
+window.addEventListener("error", (ev) => reportError("脚本", ev.error ?? ev.message));
+window.addEventListener("unhandledrejection", (ev) => reportError("异步", ev.reason));
 /** 连续渲染循环只在需要时跑（步行 / XR）；否则按需 draw。 */
 function syncLoop(): void {
   const need = locomotion.isWalking() || vr.isPresenting();
@@ -302,7 +329,7 @@ function doExport(): void {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  showNotice({ text: `已导出 ${a.download}（${editor.kernel.faces().length} 面 / ${editor.kernel.edges().length} 边）`, level: "info" });
+  notify({ text: `已导出 ${a.download}（${editor.kernel.faces().length} 面 / ${editor.kernel.edges().length} 边）`, level: "info" });
 }
 objInput.addEventListener("change", async () => {
   const file = objInput.files?.[0];
@@ -310,12 +337,12 @@ objInput.addEventListener("change", async () => {
   if (!file) return;
   try {
     const r = parseObjSegments(await file.text());
-    if (!r.segs.length) { showNotice({ text: "OBJ 里没有可用的边", level: "warning" }); return; }
+    if (!r.segs.length) { notify({ text: "OBJ 里没有可用的边", level: "warning" }); return; }
     const evs = editor.addSegments(r.segs, `导入 ${file.name}`);
     editor.zoomExtents();
-    showNotice({ text: `导入 ${file.name}：${r.segs.length} 条边 → ${evs.length} 个膜事件`, level: "info" });
+    notify({ text: `导入 ${file.name}：${r.segs.length} 条边 → ${evs.length} 个膜事件`, level: "info" });
   } catch (err) {
-    showNotice({ text: `导入失败：${(err as Error).message}`, level: "error" });
+    notify({ text: `导入失败：${(err as Error).message}`, level: "error" });
   }
 });
 
@@ -357,13 +384,13 @@ window.addEventListener("resize", resize);
 
 // ---------- PWA ----------
 const pwa = initPwaShell({
-  onUpdateAvailable: () => showNotice({
+  onUpdateAvailable: () => notify({
     id: "update", text: "有新版本", level: "info",
     actions: [{ label: "刷新", primary: true, onClick: () => { pwa.reload(); } }],
   }),
 });
 buildEl.textContent = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
-if (new URLSearchParams(location.search).has("reset")) showNotice({ text: `已清缓存重启 · ${APP_VERSION}`, level: "info" });
+if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓存重启 · ${APP_VERSION}`, level: "info" });
 
 // ---------- 探针钩子（scripts/probe-boot.mjs 用；不是 API） ----------
 (window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, version: APP_VERSION };

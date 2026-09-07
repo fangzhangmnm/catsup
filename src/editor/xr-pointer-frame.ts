@@ -52,7 +52,12 @@ export class XRPointerFrame implements PointerFrame {
   }
   angularPx(p: Pt3, vp: Viewport): ScreenPt {
     const rel = sub3(p, this.origin);
-    const z = Math.max(dot3(rel, this.dir), 0.01);
+    const zRaw = dot3(rel, this.dir);
+    // 手后半球（z ≤ 0）的点：透视投影会跑到 1/z 的另一个 branch（镜像到屏上），钳 z 只是把它压到无穷远附近——
+    // 2026-09-07 user 真机「会拾取到 1/z 的 z->-z 平面」：直接判「不在屏上」（远点），永不参赛。整个视口平面模型待退役，
+    // 见 ai-docs/20260907-vr-input-reflection.md。
+    if (zRaw <= 1e-6) return { x: 1e9, y: 1e9 };
+    const z = zRaw;
     const t = Math.tan(this.fovY / 2);
     const sx = dot3(rel, this.rightV) / (z * t * (vp.w / vp.h));
     const sy = dot3(rel, this.upV) / (z * t);

@@ -14,6 +14,8 @@ import type { InputFrame } from "../player/input.ts";
 import { emptyInput } from "../player/input.ts";
 import type { HudModel } from "./ui/hud-model.ts";
 import { WristPanel, WRIST_M } from "./ui/wrist-panel.ts";
+import { bakeToast, TOAST_M } from "./ui/vr-toast.ts";
+import type { NoticeLevel } from "./ui/notice.ts";
 
 export interface VROpts {
   editor: Editor;
@@ -87,6 +89,8 @@ export class VR {
     if (this.toolDown) { editor.cancel(); this.toolDown = false; }
     editor.setPointerFrame(null);
     editor.renderer3.detachWristPanel();
+    editor.renderer3.detachSubtitle();
+    if (this.toastTimer) { clearTimeout(this.toastTimer); this.toastTimer = null; }
     editor.renderer3.setPointerVisual("left", null); editor.renderer3.setPointerVisual("right", null);
     locomotion.exitXR();
     this.opts.onChange();
@@ -94,6 +98,15 @@ export class VR {
 
   /** 模型变了（工具/选区/撤销栈/状态行）→ 面板重画。 */
   invalidatePanel(): void { this.panel.dirty = true; }
+
+  private toastTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 字幕位 toast（与桌面 notice 同一份文案；不在会话中 = 无事，DOM toast 已经在）。 */
+  toast(text: string, level: NoticeLevel = "neutral"): void {
+    if (!this.presenting) return;
+    this.opts.editor.renderer3.attachSubtitle(bakeToast(text, level), TOAST_M.w, TOAST_M.h);
+    if (this.toastTimer) clearTimeout(this.toastTimer);
+    this.toastTimer = setTimeout(() => { this.toastTimer = null; this.opts.editor.renderer3.detachSubtitle(); }, level === "error" ? 6000 : 4000);
+  }
 
   /** 每 XR 帧（渲染循环里、editor.draw 之前）。 */
   tick(dt: number): void {
