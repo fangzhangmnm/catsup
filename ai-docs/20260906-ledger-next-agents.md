@@ -141,6 +141,7 @@
   - 逐点：solver `sd`/`lineScreenDist`（→ angTo/angToSeg；无限直线 = 大圆距离）、pick `sdist`/`sdistToSeg`（同上）、`nearFaceContaining`（剪影距 → 环边 angToSeg 最小值 + 射线∩面内判）、editor `applyHysteresis`（sd）、`inferAxisByDirection`（方向比较改在锚点的切平面上做：光标方向与轴方向都取 ⟂ 锚点方向的分量——origin+dir 下良定义，正好回答「z 轴线容差 = 拖动角度」在 VR 里怎么定义）、pp 的 `sc0/sc1` px/单位换算（→ angTo 差）。`marqueeScreen` 保留为**桌面专用**（VR 框选 = §3.8 冻结帧，那是唯一合法的显式投影平面，按下建、松手灭）。
   - 不动：`ray()`、`viewDir()`（已从手）、`forward()`（头向选平面）、遮挡（射线）、渲染。
   - 验收：现 golden 全绿 + 等价套件（反省稿 §3.6 第 2 条：同射线的桌面帧与 VR 帧吸附结果一致）+ 假会话探针。
+- **调参纪律（user 2026-09-08 定性「严重纪律错误」，A17 必守）**：「每一个有物理意义的参数应该都是从物理意义定义的，而不是用几个会影响一大堆别的东西的参数里面网络出来的…我一开始说 flatscreen 用角度还是 css pixel，就是为了让参数尽可能地独立」→ 球面度量落地时 **ε_VR 是独立的角度常量集**（点/边/轴线各一个，量纲 = 度），不从视场或任何共享旋钮推导；桌面 ε 仍是 css px 常量集；两套各自可调、互不牵动。视场 80→110 那种「改 b 去动 a」的做法禁止。
 - **已落到位的相关件（v0.4.4，本条不重做）**：move 自由拖 = 宽锥三轴三选一（桌面 VR 同一份代码，桌面也对齐了——user「flatscreen 的 move 也 xyz align 吧」= 已是）；两锥重叠取夹角最小 = nearest win；真并列（朝北时 Y/Z 投影同向）现取 x,y,z 顺序第一个 = Y，**待 user 裁**破平局规则（候选：手势位移 cue / 头俯仰 / 上次选择记忆）。
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
