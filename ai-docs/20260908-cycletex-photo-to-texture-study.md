@@ -44,8 +44,12 @@ tooltip 原句（C）按顺序拼出来的流程，每步我的读法标 D：
 
 - **色键级零新依赖**：WeebPaint 已有 `magic-wand.ts`（`floodRegionFrom` / `similarRegionFrom`：tolerance + 形态学容隙）+ `defringe.ts` + 选区→alpha。缺的只是两个小函数：按色距出软 alpha、「只留连到边框的分量」过滤。
 - **分割级 A（无模型）**：GrabCut 自写 TS（GMM k=5 + Boykov-Kolmogorov 最大流，估 600–800 行，纯 CPU）。现成参考 `github.com/EatMyGoose/Typescript-GrabCut`（GMM + Dinic / BK 两个求解器；**仓库无许可证、2021 停更**——只能当算法参考不能 vendor）。OpenCV.js 也有 grabCut 但 ~8 MB wasm，为一个函数不值。
-- **分割级 B（模型）**：ISNet（Apache-2.0）/ BiRefNet（MIT）/ U²-Net（Apache-2.0）；**RMBG-1.4 / 2.0 非商用禁**。走 PWA Models 仓 + onnxruntime-web，= 家族第一个视觉模型，黄线区白名单流程 + 许可证核。品牌线「用算法干别人用 genai 干的活」（WeebPaint 总账 #23）→ 先 A。
-- **归属未拍板**：照片→贴图工具链是 CatsUp 地形 type（E14）的附件，还是 WeebPaint 修图族（#23 已含无缝平铺 / PatchMatch）——两处都能放，等 user。
+- **分割级 B（模型）= 另一条技术路线（user 2026-09-08 追加原话：「抠图和背景移除可能是 ai 纪元的第一个不是帮你画的 nn，另外一条技术路线」）**：它是感知型模型（输入照片、输出 alpha），不替人画，所以和品牌线「用算法干别人用 genai 干的活」不冲突——是 WeebPaint 远景 #40（weebpaint-genai）里最可能第一个上船的 NN。
+  - 候选与许可（发行前再核一遍）：**ISNet / DIS**（Apache-2.0，rembg 的 isnet-general-use）、**BiRefNet**（MIT；有 lite 版）、**U²-Net**（Apache-2.0；u2netp 小模型约 5 MB 但质量弱）、**BEN2**（Apache-2.0，待核）；**RMBG-1.4 / 2.0 = BRIA 非商用许可，禁**。体积量级：通用版 fp32 约 150–200 MB（int8 量化后约 1/4），PWA Models 仓 24 MiB 分片 + manifest 哈希正好接。
+  - 运行时：需 vendor onnxruntime-web（wasm，十几 MB 级；WebGPU 后端可选）——家族现有的 sherpa-onnx-wasm 是 ASR 专用绑定，不能复用。黄线区：模型包分发主机已在家族白名单（只读 GET + 逐片 sha256），推理全本机，无新外发。
+  - 它赢在 GrabCut 输的地方：软 alpha（发丝 / 细枝 / 半透明）、杂背景、不用中心先验；输在：确定性（同图同结果但版本换模型就变）、体积、首次加载。**天空色键（§2.1）仍然是树墙的最优解**（零成本、可解释、可微调），模型是给「孤石 / 单株 / 杂背景」那一类的——两条路线是互补不是替代。
+  - 若走 B：先在 CatsUp/WeebPaint 之外做一个「照片 → alpha」探针页（vendored ort-web + 一个量化模型），量真机（iPad / Quest 浏览器）时延与内存，再决定归属。这一步不需要拍板，只是量。
+- **路线与归属都未拍板**：A（GrabCut，无模型）vs B（matting NN）不是二选一，可以 A 先落、B 作 #40 第一船；工具链归 CatsUp 地形 type（E14）附件还是 WeebPaint 修图族（#23 已含无缝平铺 / PatchMatch）——两处都能放，等 user。
 
 ## 3. 透视展平（tab 1 Flatten Perspective）
 
