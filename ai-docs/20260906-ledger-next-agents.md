@@ -32,7 +32,7 @@
 - **顺带**：这份 bake 将来就是 zip 容器里那个 glb 的内容（E1），定义时别塞编辑态。
 - **验收**：截图对比（`scripts/probe-boot.mjs` 出的 probe-2-box.png 与改前肉眼一致）；build.sh 的「three 只在 render3」lint 改成「three 只在 `src/editor/engines/`」。
 
-### A5 抽包 `@internal/workbench-elements` — `待做`（user：「也是近期要做的」；「第二个用户第三个用户才长抽象，所以你来更适合」）
+### A5 抽包 `@internal/workbench-elements` — `包已出生，待收货`（2026-09-09 Claude Fable 5.1：`../20260909 internal-workbench-elements/`，0.0.0，四原子 WET + configureFloors 注入 + CSS 进包，6 测绿；目录日期按家规取首次提交日 0909 而非预名 0906；CatsUp 侧收货 = 删三件替身换 import，归 CatsUp session）（user：「也是近期要做的」；「第二个用户第三个用户才长抽象，所以你来更适合」）
 - **做什么**：新兄弟目录 `20260906 internal-workbench-elements`，按 `@internal/store` 先例（tgz 走 vendor-pkgs + pull-package.sh，测试期版本钉 0.0.0）。源 = WeebPaint `src/ui/{popup-menu,anchored-popup,notice,icon}.ts` **WET 拷、不改语义**，签名以 WeebPaint `api/src/ui/*.d.ts`（v0.13.15）为准；anchored-popup 的「顶栏下缘」改 mount 时注入的 getter；sprite 归宿主，包只拼 `<use>`；CSS 进包，`--z-*`/`--ink` 等 token 由宿主 `:root` 提供。
 - **收货**：CatsUp 侧 `src/app/ui/` 三件替身删掉换 import；WeebPaint 侧由其 session 收货（它会跑 `tools/probes/{context-toolbar,verb-toolbar,pick-once}.mjs` 回归）。包仓测试要覆盖「anchored-popup 钳视口 + 顶栏下缘 getter」。
 - **不许**：叫 `ui`（scope bleeding 教训）。
