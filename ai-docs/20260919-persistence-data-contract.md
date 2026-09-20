@@ -192,42 +192,40 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 ### 5.2 `CATSUP_brep`（肥皂膜内核；每个 definition 一份；**全二进制、最低位宽**）
 
-> rev8 2026-09-20：按 `ai-docs/20260920-brep-file-representation-scout.md` 的讨论与 user 拍板重写（面环 = 顶点索引环 ✔ / **存平面** ✔ / 顶点规范序 ✔ / 装载入口归 AI ✔ / 位语义用名字表 ✔ / 平面参数定点 ✔）；**两条提案等点头**：面无朝向·材质按平面侧挂（§「正反」）、材质槽 + 实例重映射（§5.3）。
+> rev9 2026-09-20：user 拍板——面环 = 顶点索引环 / 存平面（定点）/ 顶点规范序 / **面无朝向、材质按平面侧挂**（「正反只是闭流形的渲染优化」；bool 需要的朝向运算时从闭壳传播推导，脏几何失败是拓扑原因，SU Solid Tools 同样拒绝）/ **材质槽 + 实例重映射**（「更类似游戏引擎」）/ **flags 是引擎的、tag 是 user 的，按域命名属性层 + 同规则共享（ECS/palette）**（「不需要劳烦 user 管理有几个 flag…每个几何记自己的，就像 blender 的 property…同 flag set 的引用同一个规则」）。
 
 ```jsonc
 { "version": 1,
-  "unit": 1e-3, "origin": [x,y,z],                                     // 单位 = 能整除全部坐标的最粗档（1e-2…1e-6 m）；origin = 包围盒角（整数微米）；坐标 = 无符号整数
-  "flagNames": { "edge": ["soft","smooth","hidden","noShadow"], "face": ["hidden","noCast","noReceive"] },   // 位 i = 名字 i；读取器按名字查，未知名字保留；位宽随名字数（≤8→u8，≤16→u16）
-  "vertexCount": 1000, "vertices":  { "bufferView": 3, "componentType": "uint16" },  // ×3；规范序 = 按整数 (z,y,x) 排序 → 同几何同字节
-  "edgeCount":   800,  "edges":     { "bufferView": 4, "indexType": "uint16" },      // 顶点索引对 (min,max)，按 (a,b) 排序；两点至多一边（A3）
-                       "edgeFlags": { "bufferView": 5 }, "edgeGroup": { … }, "edgeTag": { … },   // 缺省 = 全 0，可省
-  "planeCount":  40,   "planes":    { "bufferView": 6 },                             // 每平面 [nx,ny,nz: int32 定点 2^-30, d: int64 µm]，20 B；τ 合并后的注册参数（重建不等价，必须存）
-  "faceCount":   500,  "faces":     { "bufferView": 7, "indexType": "uint16" },      // 环流：每面 [nRings, len0, v…, len1, v…]；外环绕向 = 在该平面基下 CCW、洞 CW（与内核一致）
-                       "facePlane": { "bufferView": 8 },                             // uint16 平面索引
-                       "faceMaterial": { "bufferView": 9 },                          // uint16 对 = [+n 侧槽, −n 侧槽]，0xFFFF = 无（§正反）
-                       "faceFlags": { … }, "faceGroup": { … }, "faceTag": { … }, "faceMapping": { … },
-  "corners":  { "uv": {…}, "colors": [ { "name":"paint", "format":"rgb8", "bufferView": 13 },
-                                       { "name":"bakedLight", "format":"rgb8", "bufferView": 14, "derived": true, "bakeHash": "…" } ],
-                "uv2": { "bufferView": 15, "format": "unorm16", "derived": true, "bakeHash": "…" } },   // 逐面角，环流顺序；稀疏层带面索引表
+  "unit": 1e-3, "origin": [x,y,z],                                     // 单位 = 能整除全部坐标的最粗档；origin = 包围盒角（整数微米）；坐标 = 无符号整数
+  "vertexCount": 1000, "vertices": { "bufferView": 3, "componentType": "uint16" },   // ×3；规范序：整数 (z,y,x) 排序 → 同几何同字节
+  "edgeCount":   800,  "edges":    { "bufferView": 4, "indexType": "uint16" },       // 顶点索引对 (min,max) 排序；两点至多一边（A3）
+  "planeCount":  40,   "planes":   { "bufferView": 5 },                              // 每平面 [nx,ny,nz: int32 定点 2^-30, d: int64 µm]；τ 合并后的注册参数（重建不等价，必须存）
+  "faceCount":   500,  "faces":    { "bufferView": 6, "indexType": "uint16" },       // 环流：每面 [nRings, len0, v…, len1, v…]；外环在该平面基下 CCW、洞 CW
+                       "facePlane": { "bufferView": 7 },                             // uint16 平面索引（面唯一的结构字段）
+  "attributes": {                                                                    // 按域的命名属性层（Blender property / glTF 命名顶点属性套路）
+    "edge":   { "soft": {…}, "smooth": {…}, "hidden": {…}, "noShadow": {…}, "group": {…}, "tag": {…} },
+    "face":   { "material": { "type": "u16x2", … },   // [+n 侧槽, −n 侧槽]，0xFFFF = 无
+                "hidden": {…}, "noCast": {…}, "noReceive": {…}, "group": {…}, "tag": {…}, "mapping": {…} },
+    "corner": { "uv": {…}, "paint": { "type": "rgb8", … }, "bakedLight": { "type": "rgb8", "derived": true, "bakeHash": "…" }, "uv2": { "type": "unorm16", "derived": true, … } },
+    "vertex": {} },
   "curves":  [ { "edges": [12,13,14], "kind": "arc", "params": { "center": [µm×3], "radius": µm, "normal": [2^-30 ×3], "xaxis": [2^-30 ×3] } } ],
   "groups":  [ { "axes": {…}, "parent": null } ],                                    // group = 哑变量：只有轴框与嵌套
   "extras":  {} }
 ```
 
-- **面环 = 顶点索引环**（user 09-20 同意）：A3 保证两点至多一边，边由 (a,b) 查表唯一恢复；不存方向位。
-- **存平面**（user「存，当然要存」）：注册表是 τ 容差合并、按注册顺序取第一条的参数，重建结果依赖顺序 → 会话平面身份不可重建。参数**定点**（user 「咱们不是拍板定点数了吗」）：`n` int32 ×3 定点 2⁻³⁰（角误差 ~1e-9 rad，4 000 km 处 4 µm ≪ τ），`d` int64 µm；写→读→写幂等。只存有面引用的平面；只有边的平面下次手势重推。
-- **正反（提案，等点头）**：**几何层无朝向**（内核现状；平面注册后 n 不变，两侧由 n 唯一命名且跨会话稳定）。面只有 `[+n 侧材质槽, −n 侧材质槽]`，「翻转面」= 交换两槽；**没有 flip 位**。「正面」是导出派生：仅一侧有材质 → 绕向朝它（引擎剔背面）；两侧都有 → 双面 / 两 primitive；都没有 → 闭合实体外向、开放面双面。油漆桶按射线打到的一侧涂槽。内核「换平面重拟合跟随保 id」处新旧 n 反号时交换两槽（SU 式 normal 也得在此更新）。SU 无双面开关、每面永远两侧各一材质——同。
-- **顶点规范序**（user「可以」）：整数 (z,y,x) 排序、边按 (min,max) 排序、面按首顶点排序 → 同一几何同一字节（可 diff、golden 稳定、delta 压缩友好）。
-- **位语义 = 名字表**（user「不定死位语义…和 tag 语义 manifest 共用机制，gltf 就是这个套路」）：`flagNames` 声明位序，flags 流位宽随名字数；tags 表（§5.6）= 同一种「索引 → 名字（+extras）」机制；加位 = 加名字，旧读取器忽略未知名字但原样写回。
-- **最低位宽**（user「尽量用最低的位精度…比 int32 还抠的也有」）：① 单位 = 能整除该 definition 全部坐标的最粗档；② 坐标减包围盒角后按 extent/unit 选 uint8 / 16 / 32 / 64（25 cm 道具 @mm → uint8 = 3 B/顶点；≤ 65 m @mm → uint16）；索引流按 count 选。不做 bit 打包，压缩交给 `EXT_meshopt_compression`（对 bake 与 B-rep 的 bufferView 都作用）。全是写入器的事。
-- **整数是谁要求的**（留档）：内核顶点身份 = 1 µm 整数格；float32 在 |x| > 8.4 m 存不住格点；三方不读这些数。
-- **贴图定位 = 四档**（与 SU 一一对应：默认不存 / projected 投影向量多面共用 / positioned 四图钉固定 = 仿射 6 / UVQ 透视 = 射影 8；第四档显式逐角 UV 是我们多给导入网格的）：每面 `mappingKind` u8 + 稀疏数据；数值定点 2⁻¹⁶（范围不受 [0,1] 限制、精度不随范围掉；写入器可按范围降 int16）。
-- **面角层**：`paint`（状态）/ `bakedLight`（派生）/ `uv2` lightmap（派生）/ 显式 `uv`（状态）；派生层带 `derived` + `bakeHash`，可丢可重算；lightmap 图集 = 每 definition 一张派生 image 同法。格式自描述（`format` 字段），不分拍版本。
-- **阴影 flags**（SU：edge casts、face casts / receives；GI 烘焙输入）已在 `flagNames`。
-- **curves**：曲线列边（稀疏）+ 参数（center / radius 整数微米，normal / xaxis 定点 2⁻³⁰）。
-- **group 的存法 = 同一池 + 每元素一个组索引**（user「group 是一个数组」；SU 是分池——分池运行时读时按组切，同池运行时直接用）。
-- **不存**：`faceLinks`、环 2D `pts`、平面基、法线（smooth 位在 bake 时算）、任何 id（SU 2017 起有 `persistent_id` 给 LayOut 引用；我们跨文件引用时用 2.1 UID）、事件日志。
-- **装载 = 内核新入口 `Kernel.fromBrep`**（user「随便」）：建图 → 按存储参数精确注册平面 → 按顶点环铸膜 → 重算 pts → `rebuildFaceLinks` → 跑面环自洽不变量（环边存在 / 无重边 / 无孤点 / 同环唯一膜 / 绕向与平面一致）；失败**整文件拒开报出**，不静默修。是「复原存储态」不是「构造」，落地回写立宪页。
+**属性层的三条规则**：
+1. **名字归属**：app 定义知名名字（上面那些；语义写在本稿 + 代码常量表，user 不管理）；插件 / 用户属性用前缀命名（`plugin:x` / `user:x`），读取器**未知名字原样保留**。tag 仍是 user 的标签机制（§5.6 tags 表，id + 名字 + extras）；属性层里的 `tag` 只是那个 id。
+2. **编码由写入器按层选**（自描述，读取器全认）：`dense`（typed 流：u8/u16/u32/rgb8/unorm16/定点 i32…）/ `bits`（bool 位打包）/ `palette`（**同规则共享**：去重后的值表 + 每元素一个 u8/u16 索引——(flags, material, tag) 元组只有十来种组合时 1 B/面）/ `sparse`（面索引表 + 值，显式贴图定位 / 显式 UV 这种少数面才有的）。缺省值（全 0 / 全 false）整层省略。
+3. **状态 vs 派生**：`derived: true` 的层（bakedLight / uv2 / lightmap 图集）带 `bakeHash`，可丢可重算，数据类 = 随文件运输的缓存。
+
+其余要点：
+- **面无朝向**：面只有 `material = [+n 侧, −n 侧]`（平面注册后 n 不变、跨会话稳定），「翻转」= 交换两槽；「正面」在导出派生（仅一侧有材质 → 绕向朝它剔背面；两侧 → 双面；都没 → 闭合外向 / 开放双面）。内核「换平面重拟合跟随保 id」处新旧 n 反号时交换两槽。bool / 实体编辑：闭壳上传播绕向 + 有向体积定外向（运算时派生）；脏几何走 Intersect Faces 式纯膜切割。
+- **材质槽**：`material` 的值是 definition `materialSlots` 的槽号（§5.3），实例 `overrides.slots` 重映射（§5.4）。
+- **存平面**：`n` int32 定点 2⁻³⁰（角误差 ~1e-9 rad，4 000 km 处 4 µm ≪ τ）+ `d` int64 µm；写→读→写幂等；只存有面引用的平面。
+- **最低位宽**：单位最粗整除档 + 包围盒相对 + uint8/16/32/64 阶梯；索引按 count；不 bit 打包（bool 层例外），压缩交 `EXT_meshopt_compression`。
+- **贴图定位四档**（`face.mapping`，sparse）：默认不存 / projected 投影共用 / 仿射 6 / 射影 8；定点 2⁻¹⁶；显式逐角 `corner.uv` 是第四档。
+- **不存**：`faceLinks`、环 2D `pts`、平面基、法线（smooth 在 bake 时算）、任何 id（跨文件引用用 2.1 UID）、事件日志。
+- **装载 = `Kernel.fromBrep`**：建图 → 精确注册平面 → 按顶点环铸膜 → 重算 pts → `rebuildFaceLinks` → 面环自洽不变量（环边存在 / 无重边 / 无孤点 / 同环唯一膜 / 绕向与平面一致）；失败整文件拒开报出，不静默修；落地回写立宪页。
 
 ### 5.3 `CATSUP_definitions`（顶层）
 
@@ -235,7 +233,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 { "root": 0,
   "list": [ { "name": "model", "description": "", "axes": {…},
               "behavior": { "glueTo": null, "cutsOpening": false, "faceCamera": false, "shadowsFaceSun": false },
-              "materialSlots": [ <core material idx>… ],                // 提案（等点头）：definition 声明材质槽，面引用槽号；实例可重映射任意槽（§5.4）——取代 SU 的「默认材质向上继承」魔法态（引擎 / KHR_materials_variants 套路）
+              "materialSlots": [ <core material idx>… ],                // user 09-20 拍板：definition 声明材质槽，面引用槽号；实例可重映射任意槽（§5.4）——不抄 SU 的「默认材质向上继承」（引擎 / KHR_materials_variants 套路）
               "brep": <CATSUP_brep>,                                      // 组件包：也可带 mesh / armature / heightmap / voxel（§5.1 末表；各自独立版本）
               "nodes": [ <node idx>… ],                                   // 实例 / 原子 / 灯 / 相机
               "annotations": { "images": [], "sectionPlanes": [], "guides": [], "dimensions": [], "texts": [] },
@@ -245,7 +243,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 ### 5.4 `CATSUP_instance`（节点）
 
-`{ "definition": i, "translationUm": [x,y,z], "overrides": { "slots": { <slot idx>: <core material idx> }, "hidden": false, "locked": false } }` = drill ④「transform + reference + override」= ECS entity 形状。**材质槽重映射（提案，等点头）**：同一组件的不同实例换色 = 重映射槽，不用 Make Unique，且能覆盖任意槽（比 SU 只继承「默认材质」强、无魔法态）；油漆桶：对象模式点实例 = 重映射光标下那个槽，编辑模式点面 = 改 definition（全体实例变）。`translationUm` = 精确整数微米（§3.3 世界半径 2⁵³ µm 的承重字段）；core `node.translation` 是它的 float 影子，旋转 / 缩放只在 core。override 只允许**不改几何**的项，改几何 = Make Unique（新 definition，SU 同款）。嵌套 = definition 的 nodes 里再放 instance 节点（有限深 DAG）。core 里同一 definition 的实例共享一个 `mesh`；展平出的子树节点 `extras.catsup.flattened = true`。
+`{ "definition": i, "translationUm": [x,y,z], "overrides": { "slots": { <slot idx>: <core material idx> }, "hidden": false, "locked": false } }` = drill ④「transform + reference + override」= ECS entity 形状。**材质槽重映射（user 09-20「材质同意。这样更类似游戏引擎」）**：同一组件的不同实例换色 = 重映射槽，不用 Make Unique，且能覆盖任意槽（比 SU 只继承「默认材质」强、无魔法态）；油漆桶：对象模式点实例 = 重映射光标下那个槽，编辑模式点面 = 改 definition（全体实例变）。`translationUm` = 精确整数微米（§3.3 世界半径 2⁵³ µm 的承重字段）；core `node.translation` 是它的 float 影子，旋转 / 缩放只在 core。override 只允许**不改几何**的项，改几何 = Make Unique（新 definition，SU 同款）。嵌套 = definition 的 nodes 里再放 instance 节点（有限深 DAG）。core 里同一 definition 的实例共享一个 `mesh`；展平出的子树节点 `extras.catsup.flattened = true`。
 
 ### 5.5 丢进来的 glTF 模型（原子；用 2.1 core，不另起扩展）
 
