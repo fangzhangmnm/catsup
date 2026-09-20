@@ -75,6 +75,18 @@ if [ -n "$THREE_HITS" ]; then echo "[build] ✗ three 越界（只准 src/editor
 echo "[build] ✓ three 只在 render3.ts"
 
 # 0.8 图标 sprite 内联对账
+
+# ---- 0.8 云同步单一接缝 lint（pwa-cloud-store skill §2；JRB 同款）：value-level @internal/store 只准在 src/app-store.ts，
+#      @internal/encryption 只准在 src/encryption.ts；禁深 import 包内部（CSS 两个例外）。守卫测试 test/redline-guard.test.mjs 同时执法。
+echo "[build] 云同步接缝 lint…"
+VIOL=$(grep -rnE '^import\s+(?!type\s)' src --include='*.ts' -P 2>/dev/null | grep -E 'from "@internal/store"' | grep -v '^src/app-store.ts' || true)
+[ -z "$VIOL" ] || { echo "[build] ✗ value-level @internal/store import outside src/app-store.ts:"; echo "$VIOL"; exit 1; }
+VIOL=$(grep -rnE '^import\s+(?!type\s)' src --include='*.ts' -P 2>/dev/null | grep -E 'from "@internal/encryption"' | grep -v '^src/encryption.ts' || true)
+[ -z "$VIOL" ] || { echo "[build] ✗ value-level @internal/encryption import outside src/encryption.ts:"; echo "$VIOL"; exit 1; }
+VIOL=$(grep -rnE "from ['\"]@internal/(store|encryption|gallery|workbench-elements)/[^'\"]+['\"]" src test --include='*.ts' --include='*.mjs' | grep -vE "@internal/store/testing|gallery\.css|workbench-elements\.css" || true)
+[ -z "$VIOL" ] || { echo "[build] ✗ deep import into @internal package guts:"; echo "$VIOL"; exit 1; }
+echo "[build] ✓ 云同步接缝干净"
+
 python3 scripts/inline-sprites.py --check || { echo "[build] ✗ 图标 sprite 未内联/已陈旧 — 跑: python3 scripts/inline-sprites.py" >&2; exit 1; }
 
 mkdir -p "$OUT_DIR"

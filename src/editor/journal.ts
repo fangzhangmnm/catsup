@@ -45,6 +45,10 @@ export function applyOp(k: Kernel, op: LabOp): ApplyResult {
 export class Journal {
   private ops: LabOp[] = [];
   private undone: LabOp[] = [];
+  /** 重放起点（转正纪元 2026-09-20：从文件装载的内核 = 历史的地基；undo 到底 = 回到刚打开时，不会退成空场景）。 */
+  private base: Kernel | null = null;
+
+  constructor(base?: Kernel) { this.base = base ? base.clone() : null; }
 
   canUndo(): boolean { return this.ops.length > 0; }
   canRedo(): boolean { return this.undone.length > 0; }
@@ -73,7 +77,7 @@ export class Journal {
   }
 
   replay(): Kernel {
-    let k = new Kernel();
+    let k = this.base ? this.base.clone() : new Kernel();
     for (const op of this.ops) k = applyOp(k, op).kernel;
     return k;
   }

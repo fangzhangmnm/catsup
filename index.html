@@ -12,6 +12,8 @@
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
+    <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css" />
+    <link rel="stylesheet" href="./vendor/internal-css/gallery.css" />
     <link rel="stylesheet" href="./styles.css" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
@@ -36,7 +38,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  27 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  54 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -75,6 +77,8 @@
   <symbol id="arrow-undo" data-cat="edit" data-src="feather:corner-up-left" data-note="撤销:向左的直角回勾箭头" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 14 4 9 9 4"></polyline> <path d="M20 20v-7a4 4 0 0 0-4-4H4"></path></symbol>
   <!-- arrow-redo — 重做:arrow-undo 的水平镜像 -->
   <symbol id="arrow-redo" data-cat="edit" data-src="feather:corner-up-right" data-note="重做:arrow-undo 的水平镜像" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"></polyline> <path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></symbol>
+  <!-- copy — 两个文件叠放 -->
+  <symbol id="copy" data-cat="edit" data-src="own" data-note="两个文件叠放" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2 h5 l4 4 v10 a1 1 0 0 1 -1 1 h-8 a1 1 0 0 1 -1 -1 V3 a1 1 0 0 1 1 -1 z"/><path d="M14 2 v4 h4"/><path d="M6 6 H5 a1 1 0 0 0 -1 1 v13 a1 1 0 0 0 1 1 h8 a1 1 0 0 0 1 -1 v-1"/></symbol>
   <!-- file -->
   <!-- import — 导入:向下箭头落进托盘(托盘=开口朝上的 U) -->
   <symbol id="import" data-cat="file" data-src="own" data-note="导入:向下箭头落进托盘(托盘=开口朝上的 U)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 v11"/><polyline points="7 9, 12 14, 17 9"/> <path d="M4 17 v3 a1 1 0 0 0 1 1 h14 a1 1 0 0 0 1 -1 v-3"/></symbol>
@@ -82,6 +86,33 @@
   <symbol id="export" data-cat="file" data-src="own" data-note="导出:向上箭头离开托盘(import 的上下镜像)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21 v-11"/><polyline points="7 15, 12 10, 17 15"/> <path d="M4 7 v-3 a1 1 0 0 1 1 -1 h14 a1 1 0 0 1 1 1 v3"/></symbol>
   <!-- trash-can — 垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own -->
   <symbol id="trash-can" data-cat="file" data-src="own" data-note="垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 9.5v9"/><path d="M14 9.5v9"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></symbol>
+  <!-- new — 新建:纯加号(等长十字线) -->
+  <symbol id="new" data-cat="file" data-src="own" data-note="新建:纯加号(等长十字线)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/> <line x1="5" y1="12" x2="19" y2="12"/></symbol>
+  <!-- floppy-disk — 软盘/保存:滑盖左右对称(7/17)且两竖线顶到顶边 + 防呆角 k=3 -->
+  <symbol id="floppy-disk" data-cat="file" data-src="feather:save" data-note="软盘/保存:滑盖左右对称(7/17)且两竖线顶到顶边 + 防呆角 k=3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 17 8 17 3"/></symbol>
+  <!-- save-as — 另存为(floppy-disk=保存 的配对键):双软盘叠放(copy 的前后件语法), 后盘右上探出, 前盘遮罩留白; 20260724 候选 3 号入库 -->
+  <symbol id="save-as" data-cat="file" data-src="feather:save" data-note="另存为(floppy-disk=保存 的配对键):双软盘叠放(copy 的前后件语法), 后盘右上探出, 前盘遮罩留白; 20260724 候选 3 号入库" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="icSa3"><rect width="24" height="24" fill="#fff"/><g transform="translate(-0.5 5.0) scale(0.75)"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z" fill="#000" stroke="#000" stroke-width="4.3"/></g></mask><g mask="url(#icSa3)"><g transform="translate(5.5 -0.5) scale(0.75)" stroke-width="2.27"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z"/><polyline points="7 3 7 8 17 8 17 3"/></g></g><g transform="translate(-0.5 5.0) scale(0.75)" stroke-width="2.27"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 17 8 17 3"/></g></symbol>
+  <!-- folder — 文件夹:左边 tab + 矩形主体 -->
+  <symbol id="folder" data-cat="file" data-src="lucide:folder" data-note="文件夹:左边 tab + 矩形主体" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><!-- 文件夹：左边 tab + 矩形主体 --> <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></symbol>
+  <!-- folder-open — 打开的文件夹:背板止于盖顶 T 接,不再互相压线 -->
+  <symbol id="folder-open" data-cat="file" data-src="own" data-note="打开的文件夹:背板止于盖顶 T 接,不再互相压线" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 18 V7 a2 2 0 0 1 2 -2 h4 l2 2 h6 a2 2 0 0 1 2 2 v1.8"/><path d="M3 18 L6.4 10.8 H21.6 L18.2 18 Z"/></symbol>
+  <!-- gallery — 图库入口:图片堆叠(沿用 image 的太阳+山母题) -->
+  <symbol id="gallery" data-cat="file" data-src="own" data-note="图库入口:图片堆叠(沿用 image 的太阳+山母题)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="icGalM"><rect width="24" height="24" fill="#fff"/><rect x="2.5" y="7.5" width="16" height="13" rx="1.6" fill="#000" stroke="#000" stroke-width="2.4"/></mask><g mask="url(#icGalM)"><rect x="6" y="3" width="15.5" height="13" rx="1.6"/></g><rect x="2.5" y="7.5" width="16" height="13" rx="1.6"/><circle cx="7.21" cy="12.15" r="1.51"/><path d="M3.03 18.83 L7.83 13.81 L11.39 17.53 L14.06 14.74 L17.97 18.83"/></symbol>
+  <!-- rename — 重命名:文字光标+铅笔 -->
+  <symbol id="rename" data-cat="file" data-src="own" data-note="重命名:文字光标+铅笔" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.5 7.5V5.5h9v2"/><path d="M8 5.5v13"/><path d="M6 18.5h4"/><path d="M14.5 16.8 L19.2 12.1 L21.3 14.2 L16.6 18.9 L13.9 19.5 Z"/></symbol>
+  <!-- restore-trash — 同上但盖只掀 -16° -->
+  <symbol id="restore-trash" data-cat="file" data-src="own" data-note="同上但盖只掀 -16°" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="icRtB"><rect width="24" height="24" fill="#fff" stroke="none"/><g stroke="#000" stroke-width="4.5" fill="none" stroke-linecap="round"><path d="M12 19.2 V9.6"/><path d="M9.4 12.2 L12 9.6 L14.6 12.2"/></g></mask><g mask="url(#icRtB)"><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><g transform="rotate(-16 5 6) translate(0 1.66)"><polyline points="3 6 5 6 21 6"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></g></g><path d="M12 19.2 V9.6"/><path d="M9.4 12.2 L12 9.6 L14.6 12.2"/></symbol>
+  <!-- file — 文档:单张纸+折角(copy/paste/clear-canvas 共用母题) -->
+  <symbol id="file" data-cat="file" data-src="own" data-note="文档:单张纸+折角(copy/paste/clear-canvas 共用母题)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5.6a1.7 1.7 0 0 1 1.7-1.7h6.6l4 4v11.5a1.7 1.7 0 0 1-1.7 1.7H5.7A1.7 1.7 0 0 1 4 20.8z"/><path d="M12.3 3.9V8h4"/></symbol>
+  <!-- hierarchy -->
+  <!-- object — 对象:等距 cube(Unity GameObject 式) -->
+  <symbol id="object" data-cat="hierarchy" data-src="own" data-note="对象:等距 cube(Unity GameObject 式)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L20 7.6 L20 16.4 L12 21 L4 16.4 L4 7.6 Z"/><path d="M12 12 L20 7.6"/><path d="M12 12 L4 7.6"/><path d="M12 12 L12 21"/></symbol>
+  <!-- lock — 锁:体 13x11+锁梁抬高(腿3.5),整体居中 -->
+  <symbol id="lock" data-cat="hierarchy" data-src="own" data-note="锁:体 13x11+锁梁抬高(腿3.5),整体居中" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10" width="13" height="11"/><path d="M8.8 10 V6.5 a3.2 3.2 0 0 1 6.4 0 V10"/></symbol>
+  <!-- unlock — 开锁:同 lock 体型+锁梁弹开 -->
+  <symbol id="unlock" data-cat="hierarchy" data-src="own" data-note="开锁:同 lock 体型+锁梁弹开" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10" width="13" height="11"/><path d="M8.8 10 V6.5 a3.2 3.2 0 0 1 6.3 -1.1"/></symbol>
+  <!-- move-to-folder — 移入文件夹(定 2 号):小 folder + 弧箭头, 箭头头部在 folder 内 · 尾巴在外 -->
+  <symbol id="move-to-folder" data-cat="hierarchy" data-src="own" data-note="移入文件夹(定 2 号):小 folder + 弧箭头, 箭头头部在 folder 内 · 尾巴在外" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g transform="translate(7.46 5.6) scale(0.68)" stroke-width="2.5"><path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></g><path d="M2.6 20.6 A9.5 9.5 0 0 1 13.2 13.6"/><g transform="rotate(30 13.5 13.6)"><path d="M10.4 12.6 L13.5 13.6 L12.7 16.6"/></g></symbol>
   <!-- common -->
   <!-- x — 叉 -->
   <symbol id="x" data-cat="common" data-src="own" data-note="叉" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M6.5 6.5 L17.5 17.5 M17.5 6.5 L6.5 17.5"/></symbol>
@@ -89,9 +120,32 @@
   <symbol id="check" data-cat="common" data-src="own" data-note="勾" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4.5 12.5 L9.5 17.5 L19.5 6.5"/></symbol>
   <!-- chevron-down — 下移:竖线 + 底端 ∨ 箭头 -->
   <symbol id="chevron-down" data-cat="common" data-src="own" data-note="下移:竖线 + 底端 ∨ 箭头" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="5" x2="12" y2="19"/> <polyline points="6 13 12 19 18 13"/></symbol>
+  <!-- back — 返回:左向整箭头(带杆;裸 chevron-left 曾因小尺寸渲染差被 sunset) -->
+  <symbol id="back" data-cat="common" data-src="own" data-note="返回:左向整箭头(带杆;裸 chevron-left 曾因小尺寸渲染差被 sunset)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H5"/><polyline points="11 6 5 12 11 18"/></symbol>
   <!-- cloud -->
   <!-- refresh — 刷新:顺时针 3/4 圆 + 箭头(从 12 点绕到 9 点, 箭头尖在右上) -->
   <symbol id="refresh" data-cat="cloud" data-src="own" data-note="刷新:顺时针 3/4 圆 + 箭头(从 12 点绕到 9 点, 箭头尖在右上)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><!-- 顺时针 3/4 圆 + 箭头：从 12 点出发顺时针绕到 9 点；箭头尖在右上 --> <path d="M21 12a9 9 0 1 1-3.5-7.1"/> <polyline points="21 4 21 9 16 9"/></symbol>
+  <!-- download — 下载 -->
+  <symbol id="download" data-cat="cloud" data-src="feather:download" data-note="下载" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="3" x2="12" y2="15"/></symbol>
+  <!-- upload — 上传 -->
+  <symbol id="upload" data-cat="cloud" data-src="feather:upload" data-note="上传" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></symbol>
+  <!-- cloud — 云 -->
+  <symbol id="cloud" data-cat="cloud" data-src="feather:cloud" data-note="云" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/></symbol>
+  <!-- cloud-upload — 云+上传箭头 (云形统一为 feather 的) -->
+  <symbol id="cloud-upload" data-cat="cloud" data-src="feather:cloud" data-note="云+上传箭头 (云形统一为 feather 的)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><line x1="12" y1="17" x2="12" y2="11"/><polyline points="9 14 12 11 15 14"/></symbol>
+  <!-- cloud-download — 云+下载箭头:cloud-upload 的精确上下镜像(箭头绕 y=14 翻转); WeebPaint gallery 同步徽章 newer-on-cloud, 12px 用量 (甲方 20260825 拍板候选 1 号) -->
+  <symbol id="cloud-download" data-cat="cloud" data-src="own" data-note="云+下载箭头:cloud-upload 的精确上下镜像(箭头绕 y=14 翻转); WeebPaint gallery 同步徽章 newer-on-cloud, 12px 用量 (甲方 20260825 拍板候选 1 号)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><line x1="12" y1="11" x2="12" y2="17"/><polyline points="9 14 12 17 15 14"/></symbol>
+  <!-- cloud-synced — 云+勾 -->
+  <symbol id="cloud-synced" data-cat="cloud" data-src="feather:cloud" data-note="云+勾" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><polyline points="9 13 11 15 15 11"/></symbol>
+  <!-- cloud-pending — 待判定:虚线云 + 云内问号(加粗 2.4, 遮罩描边留白与云脱开;问号下点的半径=描边半宽) -->
+  <symbol id="cloud-pending" data-cat="cloud" data-src="own" data-note="待判定:虚线云 + 云内问号(加粗 2.4, 遮罩描边留白与云脱开;问号下点的半径=描边半宽)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="icQC"><rect width="24" height="24" fill="#fff" stroke="none"/><g transform="translate(-6.00 -8.10) scale(1.500)" stroke="#000" fill="#000" stroke-width="3.33" stroke-linecap="round"><path d="M10.2 12.1a1.9 1.9 0 1 1 2.6 1.75c-.55.25-.8.7-.8 1.35v.4" fill="none"/><circle cx="12" cy="17.5" r="1.67" stroke="none"/></g></mask><g mask="url(#icQC)"><g transform="translate(0 0) scale(1.0)" stroke-width="1.70"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z" stroke-dasharray="2.50 2.50"/></g></g><g transform="translate(-6.00 -8.10) scale(1.500)" stroke-width="1.60"><path d="M10.2 12.1a1.9 1.9 0 1 1 2.6 1.75c-.55.25-.8.7-.8 1.35v.4"/><circle cx="12" cy="17.5" r="0.80" fill="currentColor" stroke="none"/></g></symbol>
+  <!-- cloud-conflict — 云+感叹号(2.4 描边整体收在云内不破轮廓, 点半径=描边半宽; 与 cloud-pending 问号云成对但云为实线); WeebPaint gallery 同步徽章 conflict, 12px 用量 (甲方 20260825 拍板候选 5 号=大号收内) -->
+  <symbol id="cloud-conflict" data-cat="cloud" data-src="own" data-note="云+感叹号(2.4 描边整体收在云内不破轮廓, 点半径=描边半宽; 与 cloud-pending 问号云成对但云为实线); WeebPaint gallery 同步徽章 conflict, 12px 用量 (甲方 20260825 拍板候选 5 号=大号收内)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><line x1="12" y1="9" x2="12" y2="13.8" stroke-width="2.4"/><circle cx="12" cy="17.4" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <symbol id="cloud-unavailable" data-cat="cloud" data-src="feather:cloud" data-note="" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.26A8 8 0 1 0 9 20h9a5 5 0 0 0 0-10z"/><line x1="3" y1="3" x2="21" y2="21"/></symbol>
+  <!-- local-cache — 本地缓存副本:database(=本地已缓存, 与 unload-local-cache 同形去掉删除线) -->
+  <symbol id="local-cache" data-cat="cloud" data-src="own" data-note="本地缓存副本:database(=本地已缓存, 与 unload-local-cache 同形去掉删除线)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></symbol>
+  <!-- unload-local-cache — 卸载本地副本:database(=本地) + 斜删除线(mask 留 gap)【非垃圾桶, 云端仍保留】 -->
+  <symbol id="unload-local-cache" data-cat="cloud" data-src="own" data-note="卸载本地副本:database(=本地) + 斜删除线(mask 留 gap)【非垃圾桶, 云端仍保留】" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="icUnloadM"><rect width="24" height="24" fill="#fff" stroke="none"/><path d="M4.2 19.8 L19.8 4.2" stroke="#000" stroke-width="4" fill="none"/></mask><g mask="url(#icUnloadM)"><ellipse cx="12" cy="5" rx="8" ry="3"/><path d="M4 5v6c0 1.7 3.6 3 8 3s8-1.3 8-3V5"/><path d="M4 11v6c0 1.7 3.6 3 8 3s8-1.3 8-3v-6"/></g><path d="M4.2 19.8 L19.8 4.2"/></symbol>
   <!-- viewport -->
   <!-- maximize-viewport — 适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何) -->
   <symbol id="maximize-viewport" data-cat="viewport" data-src="own" data-note="适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><!-- 四角向外的箭头 --> <polyline points="4 9 4 4 9 4"/> <polyline points="20 9 20 4 15 4"/> <polyline points="4 15 4 20 9 20"/> <polyline points="20 15 20 20 15 20"/></symbol>
@@ -108,6 +162,8 @@
   <symbol id="keyboard" data-cat="ui" data-src="own" data-note="键盘:圆点加大收紧+空格上移不压框(与 shortcut 不同语义)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="7.2" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="10.4" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="13.6" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="16.8" cy="9.7" r="1.15" fill="currentColor" stroke="none"/><circle cx="7.2" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><circle cx="10.4" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><circle cx="13.6" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><circle cx="16.8" cy="12.8" r="1.15" fill="currentColor" stroke="none"/><path d="M8.6 15.6 H15.4"/></symbol>
   <!-- settings — 设置:齿轮=内圆+外圆+8 根短齿(圆帽)；家族里 sliders 是「调整」别撞【WebXiaoHeiWu 抽屉底栏「设置」入口；fable 自画未过目】 -->
   <symbol id="settings" data-cat="ui" data-src="own" data-note="设置:齿轮=内圆+外圆+8 根短齿(圆帽)；家族里 sliders 是「调整」别撞【WebXiaoHeiWu 抽屉底栏「设置」入口；fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><circle cx="12" cy="12" r="7"/><path d="M19.00 12.00 L21.60 12.00"/><path d="M16.95 16.95 L18.79 18.79"/><path d="M12.00 19.00 L12.00 21.60"/><path d="M7.05 16.95 L5.21 18.79"/><path d="M5.00 12.00 L2.40 12.00"/><path d="M7.05 7.05 L5.21 5.21"/><path d="M12.00 5.00 L12.00 2.40"/><path d="M16.95 7.05 L18.79 5.21"/></symbol>
+  <!-- wrench — 扳手:斜置组合扳手轮廓(feather:wrench 衍生), 20260724 候选 1 号入库 -->
+  <symbol id="wrench" data-cat="ui" data-src="feather:wrench" data-note="扳手:斜置组合扳手轮廓(feather:wrench 衍生), 20260724 候选 1 号入库" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
 </svg>
 <!-- ICON-SPRITE:END -->
 
@@ -127,6 +183,8 @@
           <button class="tb-btn" id="btnView" type="button" title="视图"><svg class="ico" aria-hidden="true"><use href="#axes"/></svg></button>
           <button class="tb-btn" id="btnFit" type="button" title="缩放到全部"><svg class="ico" aria-hidden="true"><use href="#maximize-viewport"/></svg></button>
         </nav>
+        <!-- 顶栏「这模型住哪」胶囊（WeebPaint save-status 同义；转正纪元 2026-09-20）：文件名 + 家 + dirty；点 = 保存 / 安家 / 改名 -->
+        <div class="hud hud-tc"><button class="doc-title" id="docTitle" type="button" title="这个模型住哪"><svg class="ico" aria-hidden="true"><use id="docTitleIcon" href="#file"/></svg><span id="docTitleText">新模型</span></button></div>
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
         <div class="hud-text hud-br"><span id="build" class="build"></span></div>
         <div id="marquee" hidden></div>
@@ -146,6 +204,42 @@
 
     <div id="tip" hidden></div>
     <div id="noticeStack"></div>
+
+    <!-- 图库（@internal/gallery 0.4.0；编辑器/图库互斥挂载 ADR-0013 的「隐藏」形态） -->
+    <div id="galleryFull" class="gallery-full" role="dialog" aria-modal="true" aria-hidden="true" aria-label="图库" hidden>
+      <div class="gallery-chrome">
+        <button class="tb-btn" id="galleryBack" type="button" title="回到编辑器"><svg class="ico" aria-hidden="true"><use href="#back"/></svg></button>
+        <div class="gallery-chrome-title">图库</div>
+        <span class="top-spacer" aria-hidden="true"></span>
+        <button class="tb-btn" id="galleryNew" type="button" title="新建模型"><svg class="ico" aria-hidden="true"><use href="#new"/></svg></button>
+        <button class="tb-btn" id="galleryCloudBtn" type="button" title="云端" data-cloud-state="out"><svg class="ico" aria-hidden="true"><use id="galleryCloudIcon" href="#cloud"/></svg></button>
+        <button class="tb-btn" id="galleryRefreshBtn" type="button" title="刷新云端" hidden><svg class="ico" aria-hidden="true"><use href="#refresh"/></svg></button>
+        <button class="tb-btn" id="galleryTrashBtn" type="button" title="回收站"><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
+      </div>
+      <div class="gallery-trashbar" id="galleryTrashBar" hidden>
+        <button class="sheet-choice" id="galleryTrashBack" type="button">回到图库</button>
+        <button class="sheet-choice danger" id="galleryEmptyTrash" type="button">清空回收站</button>
+      </div>
+      <div class="gallery-mount" id="galleryMount"></div>
+    </div>
+
+    <!-- in-app 模态原语（禁系统 alert/prompt/confirm） -->
+    <div id="sheet" class="sheet-backdrop" role="dialog" aria-modal="true" hidden>
+      <div class="sheet sheet-modal">
+        <h3 class="sheet-title" id="sheetTitle"></h3>
+        <p class="sheet-message" id="sheetMessage" hidden></p>
+        <input id="sheetInput" class="sheet-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" hidden />
+        <p id="sheetError" class="sheet-error" hidden></p>
+        <div id="sheetChoices" class="sheet-choices" hidden></div>
+        <div class="sheet-actions">
+          <button id="sheetCancel" class="sheet-choice" type="button">取消</button>
+          <button id="sheetConfirm" class="sheet-choice primary" type="button">确定</button>
+        </div>
+      </div>
+    </div>
+    <div id="busyOverlay" class="busy-overlay" role="dialog" aria-modal="true" aria-label="处理中" hidden>
+      <div class="sheet busy-card"><p class="sheet-title" id="busyOverlayText">处理中…</p><p class="sheet-message" id="busyOverlayHint">请稍候</p></div>
+    </div>
 
     <div id="help" class="sheet-backdrop" hidden>
       <div class="sheet">
@@ -167,6 +261,7 @@
     </div>
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
-    <script type="module" src="./dist/catsup-837ea9ea5f87.mjs"></script>
+    <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
+    <script type="module" src="./dist/catsup-a84ec3a812ca.mjs"></script>
   </body>
 </html>

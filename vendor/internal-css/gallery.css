@@ -1,0 +1,444 @@
+/* @internal/gallery —— 图库屏幕的皮（WET 自 WeebPaint styles.css v0.14.9，2026-09-10，Claude Fable 5.1）。
+   class 名与 gallery-screen 模板一致；宿主 :root 提供 token（--bg --bg-soft --ink --ink-soft --line --shadow --accent --danger --z-*）。
+   宿主已有同名规则时重复无害；WeebPaint 收货后可删自家那份。 */
+.gallery-trash-menu-btn svg, .brush-rack-tile-edit svg { width: 18px; height: 18px; display: block; }
+.palette-tools button svg { width: 20px; height: 20px; display: block; }
+.gallery-back-btn { display: inline-flex; align-items: center; gap: 6px; }
+.gallery-back-btn svg { width: 18px; height: 18px; flex: none; }
+.layer-clip-chip svg { width: 13px; height: 13px; display: block; }
+
+/* v124 menu-item 带 SVG icon（目前只用于图库）：左对齐 + 间距 */
+.menu-item.menu-item-with-icon { justify-content: flex-start; gap: 10px; }
+.menu-item.menu-item-with-icon svg { width: 18px; height: 18px; flex-shrink: 0; }
+/* v419 前缀图标铺开到所有菜单项。动机是 localization：菜单项文字换成英文会变长，
+   图标是语言无关的锚点——也给不认字的小孩和找不到语言设置的人一个能认的入口。
+   with-icon 把 space-between 换成了 flex-start+gap，所以原先靠 space-between 顶到右边的
+   状态字 / 副标题 / 语言下拉，要显式 margin-left:auto 才回得去。 */
+/* 没有图标的菜单项：占一个同宽空位，让这一列文字仍然对齐。
+   是「留空」不是「缺图标」——user 明确要求不为了填满而硬塞图标。 */
+.menu-item-icon-blank { width: 18px; height: 18px; flex: none; }
+.menu-item.menu-item-with-icon .menu-item-state,
+.menu-item.menu-item-with-icon .menu-item-sub,
+.menu-item.menu-item-with-icon .menu-lang-select { margin-left: auto; }
+/* 回收站菜单项不是 .menu-item（另一套 class），单独给一份同样的排版 */
+.gallery-trash-menu-item.menu-item-with-icon { display: flex; align-items: center; gap: 10px; }
+.gallery-trash-menu-item.menu-item-with-icon svg { width: 18px; height: 18px; flex-shrink: 0; }
+/* （.gallery-full / .cloud-full 全屏容器 = 宿主 chrome，提案 §3.1：不在包里定；WeebPaint 自家 styles.css 有，WXHW 自家写。
+     2026-09-10 从包里删：它带的 z-index: var(--z-overlay) 在没定义该变量的宿主上变 auto，把宿主的层级盖掉——WXHW 收货时图库沉到纸面之下。） */
+
+/* v50 重做：左标题 + 右对齐 icon 组。无返回键，点 active tile 关闭。 */
+.gallery-header {
+  display: flex; align-items: center;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.gallery-title { font-size: 20px; font-weight: 600; color: var(--ink); flex: 1; display: flex; align-items: baseline; gap: 8px; min-width: 0; }
+/* 图库名：大标题旁小字下对齐（user 2026-08-28；替代 ☰ 里的「当前图库」信息行） */
+.gallery-title-sub { font-size: 12px; font-weight: 400; color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* 「回到图库」行尾的图库名简写（截断） */
+.gallery-name-clip { max-width: 110px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.gallery-actions { display: flex; align-items: center; gap: 6px; }
+.gallery-icon-btn {
+  width: 36px; height: 36px;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 8px;
+  color: var(--ink); cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  padding: 0;
+}
+.gallery-icon-btn svg { width: 22px; height: 22px; display: block; }
+.gallery-icon-btn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.gallery-icon-btn[aria-pressed="true"] { background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); }
+.gallery-icon-btn[data-cloud-state="signedin"] { color: var(--info); }
+.gallery-icon-btn[data-cloud-state="unconfigured"] { color: var(--ink-soft); opacity: 0.5; }
+
+/*
+ * #galleryMount = Vue 挂载点：内含 .gallery-breadcrumb(自然高) + .gallery-grid(flex:1 滚动) + .gallery-empty。
+ * 它夹在 header/trash-bar(顶) 与 foot(底) 之间，必须自己 flex:1 撑满剩余高度并 min-height:0，
+ * 否则它按内容撑高、.gallery-grid 的 flex:1/overflow-y 失效，图多了就溢出裁切、滚不动。
+ */
+#galleryMount {
+  flex: 1; min-height: 0;
+  display: flex; flex-direction: column;
+  /* **滚动视口在这一层**（不在 .gallery-grid）：网格本身做内容高、不收缩，行永不被压扁
+   *   → 内容超高就在本层溢出滚动。把「滚动器」和「网格内容」分离，是 aspect-ratio 卡片能正常滚的关键
+   *   （aspect-ratio 元素在会收缩的受限上下文里会**丢比例自我压扁以避免溢出**，故网格不能既是网格又是
+   *   会收缩的滚动器——v284-289 的压扁根因）。 */
+  overflow-y: auto;
+}
+
+.gallery-foot {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 8px 16px;
+  border-top: 1px solid var(--line);
+  font-size: 12px; color: var(--ink-soft);
+  background: var(--bg-soft);
+}
+.gallery-foot-usage { font-variant-numeric: tabular-nums; }
+.gallery-foot-version { opacity: 0.55; font-variant-numeric: tabular-nums; letter-spacing: 0.02em; }
+.gallery-foot-usage.usage-warn { color: #d97706; font-weight: 600; }
+.gallery-foot-usage.usage-critical { color: #dc2626; font-weight: 700; }
+.gallery-tile {
+  /* 宽由 grid 列定（流式）；高由内容定（方形缩略图 aspect-ratio + 两行字）。同一行卡片等宽→等高。
+   * display:block：缩略图 img 用 width:100%+aspect-ratio 求高须在块布局里（flex item 下百分比宽
+   *   定不出 aspect 高）。能内容自适应高的前提是 .gallery-grid 有 min-height:0（已加），否则会被压扁。 */
+  display: block;
+  background: var(--bg-soft);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  /* v0.5.39：overflow:hidden 退役——它是给缩略图圆角服务的，却把 tile ⋯ 菜单弹层一并裁掉（user）。
+     圆角改由 thumb 自己承担（只圆上两角，贴卡片弧度）。 */
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.15s ease;
+}
+.gallery-tile[data-busy="1"] {
+  opacity: 0.55;
+  cursor: progress;
+}
+.gallery-tile:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+.gallery-tile.active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
+}
+.gallery-tile-thumb {
+  /* 大厂现行做法：aspect-ratio 让缩略图随卡片宽变成方块（块布局里 width:100% 先定宽、aspect 求等高）。
+   * 同一行卡片等宽→等高。object-fit:contain：方图整张可见、比例正确。 */
+  width: 100%; aspect-ratio: var(--tile-aspect, 1 / 1); height: auto;   /* 0.2.0：比例由 .gallery-grid 的 --tile-aspect 定（方图 / 2:3 书封） */
+  display: block;
+  object-fit: contain;
+  border-radius: 7px 7px 0 0;   /* v0.5.39：卡片放开 overflow 后圆角自理（8px 外框内贴 1px 边） */
+  /* 白纸：alpha 区露白底，跟画在白纸上一样 */
+  background: #ffffff;
+}
+/* 像素画缩略图保锐：thumb 生成侧恒不放大 → natural 长边 <128 = 原作本身就这么小（像素画），
+   而 tile ≥150 CSS px 必被浏览器放大 → 默认双线性糊。JS onload 按 naturalWidth/Height 挂本 class
+   （见 gallery.ts thumbLoadPixelated 的阈值论证）。纯渲染属性，暗色主题无关。 */
+.gallery-tile-thumb.pixelated { image-rendering: pixelated; }
+.gallery-tile-thumb.placeholder {
+  display: flex; align-items: center; justify-content: center;
+  color: rgba(0,0,0,0.35);
+  font-size: 32px;
+}
+/* 0.1.2：宿主给的占位图标（ui.tilePlaceholderHtml），替代名字首字 */
+.gallery-tile-ph-icon { display: inline-flex; width: 40%; height: 40%; color: var(--ink-soft, rgba(0,0,0,0.45)); }
+.gallery-tile-ph-icon svg { width: 100%; height: 100%; }
+/* 加密作品锁定态：点锁可解锁预览（ADR-0012） */
+.gallery-tile-thumb.placeholder.locked {
+  cursor: pointer;
+  color: rgba(0,0,0,0.45);
+  background: repeating-linear-gradient(45deg, #f4f4f4 0 12px, #ececec 12px 24px);
+}
+/* 加密常驻徽章（解锁后也显示，一眼看出这张是加密的） */
+.gallery-tile-state-icon.enc { color: var(--enc); }
+.gallery-tile-state-icon.enc svg { width: 14px; height: 14px; }
+/* 顶栏加密指示：当前画作加密时显示的小锁（点它解除加密） */
+.top-enc-lock { color: var(--enc); }
+.top-enc-lock svg { width: 20px; height: 20px; }
+/* ⋯ 菜单按钮叠在 thumb 右上：半透明白底 + 深字 + 模糊背景 → 跨日 / 夜主题都清楚 */
+.gallery-tile-menu-btn {
+  position: absolute; right: 5px; top: 5px;
+  width: 26px; height: 26px;
+  display: flex; align-items: center; justify-content: center;
+  background: rgba(255, 255, 255, 0.85);
+  color: #333;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 16px; line-height: 1; font-weight: bold;
+  padding: 0; z-index: 2;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: background 0.1s ease;
+}
+.gallery-tile-menu-btn:hover { background: rgba(255, 255, 255, 1); }
+.gallery-tile-menu-popup {
+  position: absolute; right: 4px; top: 34px;
+  /* 外观（实底）：WeebPaint 里走 .menu-panel 共享规则，包内自带一份（2026-09-10 WXHW 收货时菜单透明压在卡片文字上） */
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); color: var(--ink); z-index: 5; padding: 4px;
+  min-width: 140px;
+  z-index: 5;
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+/* #14：卡片贴屏幕下缘时菜单向上翻（JS 量 bbox 超视口底 → 加 .up），底部行不再伸出屏外 */
+.gallery-tile-menu-popup.up { top: auto; bottom: 34px; }
+.gallery-tile-menu-popup button {
+  padding: 8px 12px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+  /* v419 前缀图标：图标 + 文字并排 */
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+.gallery-tile-menu-popup button svg { width: 16px; height: 16px; flex: none; }
+.gallery-tile-menu-popup button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.gallery-tile-menu-popup button.danger { color: #c0392b; }
+.gallery-tile-menu-popup button.danger:hover { background: color-mix(in srgb, #c0392b 12%, transparent); }
+/* cloud-gone ghost 菜单的解释行（非按钮）：窄、灰、可折行 */
+.gallery-menu-note {
+  padding: 8px 12px;
+  max-width: 200px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--ink-soft);
+  white-space: normal;
+  border-bottom: 1px solid var(--line);
+}
+/* 第 1 行名字（ellipsis tooltip 兜底）+ 第 2 行 meta 备注（淡色） */
+.gallery-tile-name-row {
+  padding: 8px 10px 10px;
+  position: relative;
+  min-width: 0;
+}
+.gallery-tile-name {
+  font-size: 13px; line-height: 1.32;
+  color: var(--ink);
+  text-align: left;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  min-width: 0;
+}
+.gallery-tile-meta {
+  font-size: 11px; line-height: 1.3;
+  color: var(--ink-soft);
+  margin-top: 2px;
+  display: flex; align-items: center; gap: 4px;
+  white-space: nowrap; overflow: hidden;
+}
+.gallery-tile-meta > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.gallery-tile-state-icon {
+  flex-shrink: 0;
+  display: inline-flex; align-items: center;
+  color: var(--ink-soft);
+}
+.gallery-tile-state-icon svg { width: 12px; height: 12px; display: block; }
+/* badge 去压扁两态的染色（2026-08-25，甲方回执「conflict 可考虑黄、download 建议蓝」+ 现状 ground）：
+   conflict = var(--warn)（topbar unpushed 同 token = 同一「云侧待你处理」语义族；与 --enc 锁琥珀刻意分 token）；
+   newerOnCloud = var(--accent)（亮=棕/暗=浅棕——注意本仓 accent 不是蓝，旧 #4c8bf5 fallback 从不生效已全删）。
+   其余 badge 保持 --ink-soft 灰。 */
+.gallery-tile-state-icon.b-conflictBoth { color: var(--warn); }
+.gallery-tile-state-icon.b-newerOnCloud { color: var(--accent); }
+/* 「编辑中」角标叠在第 1 行（name）右侧，可压住右端文字（用户：可重叠）。0.2.1：文字从 CSS content 搬进模板走 i18n（gal.tile.active；WXHW 改「打开中」） */
+.gallery-tile-active-tag {
+  position: absolute; right: 6px; top: 8px;
+  pointer-events: none;
+  font-size: 10px;
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 14%, transparent);
+  border-radius: 3px;
+  padding: 1px 6px;
+  margin-left: 6px;
+  vertical-align: middle;
+}
+.gallery-empty {
+  flex: 1;
+  display: flex; align-items: center; justify-content: center;
+  color: var(--ink-soft);
+  font-size: 14px;
+  padding: 32px;
+  text-align: center;
+}
+.gallery-loading {
+  grid-column: 1 / -1;
+  text-align: center;
+  padding: 48px;
+  color: var(--ink-soft);
+  font-size: 14px;
+}
+
+/* 面包屑 —— 现在它和网格同在 #galleryMount 滚动层内，sticky 钉顶不随网格滚走 */
+.gallery-breadcrumb {
+  position: sticky; top: 0; z-index: 1;
+  background: var(--bg);
+  display: flex; flex-wrap: wrap; align-items: center;
+  gap: 4px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  font-size: 13px;
+  color: var(--ink-soft);
+}
+.gallery-breadcrumb button {
+  background: transparent;
+  border: none;
+  color: var(--ink-soft);
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  font-size: 13px;
+}
+.gallery-breadcrumb button:hover:not(.current) {
+  background: color-mix(in srgb, var(--ink) 8%, transparent);
+  color: var(--ink);
+}
+.gallery-breadcrumb button.current {
+  color: var(--ink);
+  font-weight: 500;
+  cursor: default;
+}
+.gallery-breadcrumb .sep {
+  color: var(--ink-soft);
+  opacity: 0.6;
+}
+
+/* Folder tile（gallery 内显示为文件夹的特殊 tile） */
+.gallery-tile.folder .gallery-tile-thumb {
+  display: flex; align-items: center; justify-content: center;
+  /* v232：跟日夜配色走（之前混 white，夜间模式文件夹刺眼） */
+  background: color-mix(in srgb, var(--accent) 8%, var(--bg));
+  color: var(--accent);
+}
+.gallery-tile.folder .gallery-tile-thumb svg {
+  width: 80px; height: 80px;
+}
+.gallery-tile.folder .gallery-tile-name {
+  font-weight: 500;
+}
+/* 图片文件次级 tile（v0.9.34 拍板：可见但视觉降级，与画作一眼可分；点击=孪生开画）
+   v0.9.35（QA 1）：降级只罩缩略图+名字行——罩整 tile 会连坐 ⋯ 菜单弹层（iPad 无 hover 恢复不了） */
+.gallery-tile.image-file .gallery-tile-thumb,
+.gallery-tile.image-file .gallery-tile-name-row { opacity: 0.72; }
+.gallery-tile.image-file:hover .gallery-tile-thumb,
+.gallery-tile.image-file:hover .gallery-tile-name-row { opacity: 1; }
+.gallery-tile.image-file .gallery-tile-thumb {
+  /* 素材图整图看全（contain）；画作 thumb 维持既有裁切规则不动 */
+  object-fit: contain;
+  background: color-mix(in srgb, var(--ink, #e8eaed) 4%, var(--bg));
+}
+.gallery-tile.image-file .gallery-tile-name { font-weight: 400; color: var(--ink-soft, #9aa0a6); }
+/* 回收站 bar：trash 视图独立 header，含返回 + 标题 + 清空按钮 */
+.gallery-trash-bar {
+  display: flex; align-items: center;
+  gap: 12px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--line);
+  background: color-mix(in srgb, #c0392b 4%, var(--bg-soft));
+}
+.gallery-back-btn {
+  background: transparent; border: 1px solid var(--line);
+  color: var(--ink); padding: 4px 10px;
+  border-radius: 4px; cursor: pointer; font-size: 13px;
+}
+.gallery-back-btn:hover { background: color-mix(in srgb, var(--ink) 6%, transparent); }
+.gallery-trash-title {
+  flex: 1; font-size: 14px; font-weight: 500; color: #c0392b;
+}
+/* 回收站 ⋯ menu：parent relative + popup absolute 右上 → 简单可靠 */
+.gallery-trash-menu-wrap { position: relative; }
+.gallery-trash-menu-btn {
+  background: transparent; border: none;
+  color: var(--ink-soft);
+  font-size: 18px; font-weight: bold; line-height: 1;
+  padding: 4px 10px; cursor: pointer; border-radius: 4px;
+}
+.gallery-trash-menu-btn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.gallery-trash-menu-popup {
+  position: absolute; right: 0; top: calc(100% + 4px);
+  background: color-mix(in srgb, var(--bg) 96%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  box-shadow: var(--shadow);
+  min-width: 140px;
+  z-index: var(--z-menu);
+  display: flex; flex-direction: column;
+  overflow: hidden;
+}
+.gallery-trash-menu-item {
+  padding: 10px 14px;
+  text-align: left;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--ink);
+  white-space: nowrap;
+}
+.gallery-trash-menu-item:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.gallery-trash-menu-item.danger { color: #c0392b; }
+.gallery-trash-menu-item.danger:hover { background: color-mix(in srgb, #c0392b 12%, transparent); }
+/* disabled 占位项（备份箱预告）：跟 .menu-item:disabled 同款淡化 */
+.gallery-trash-menu-item:disabled { opacity: 0.35; cursor: not-allowed; }
+.gallery-trash-menu-item:disabled:hover { background: transparent; }
+
+.gallery-tile.other-file { opacity: .55; cursor: default; }
+.gallery-tile.other-file .gallery-tile-thumb { display: flex; align-items: center; justify-content: center; }
+.gallery-tile.other-file .gallery-tile-thumb svg { width: 40%; height: 40%; color: var(--ink-soft); }
+
+/* A2 首帧看门狗（2026-08-31）：loading 卡住时网格内显原因 + 重试（.gallery-loading 已 grid-column 1/-1 居中） */
+.gallery-stalled { margin-bottom: 12px; color: var(--ink-soft); }
+.gallery-retry-btn { display: inline-block; width: auto; padding: 8px 20px; }
+
+/* ── 2026-09-10 补漏（WXHW 收货时 playwright 实测 .gallery-grid 缺失 → 卡片撑满整行）：网格本体 + 卡住态钮行 + 底栏提示 ── */
+.gallery-grid {
+  /* 内容高、不伸不缩（flex:none）——滚动交给 #galleryMount。这样 aspect-ratio 卡片行不会被收缩压扁。 */
+  flex: none;
+  padding: 16px;
+  display: grid;
+  /* 宽流式（消右侧空白）；高用 aspect-ratio 跟宽走成方块（大厂现行做法，见 .gallery-tile-thumb）。
+   * 列：minmax(150,1fr) auto-fill —— 塞尽量多列 + 1fr 均摊不足一列的余量撑开
+   *   （旧 `repeat(auto-fill,180px)` 固定宽左对齐，余量全堆右边：SE2 竖屏只 1 列、右空 ~160px）。
+   * ⚠⚠ `min-height: 0` 是命门：本网格是 flex 链里的滚动视口，少了它 → 非-rigid 卡片建不起滚动区，
+   *   容器把内容强行 fit-all、卡片被压扁成一条（v284-287 用 aspect/内容高全栽在这——不是 aspect 的错，
+   *   是这行漏了；当年用 rigid 238px 死高才掩盖过去）。#galleryMount 早有同一行同一注释。 */
+  /* 列宽两档变量（0.2.0）：--tile-min = 宽屏下限；--tile-min-narrow = 窄屏下限（容器装不下 N 个 --tile-min 时按 N 等分）。
+   *   方图（默认）：150px / 两列；竖版书封（.tall，WXHW 书库）：120px / 三列（user 2026-09-10「iphone se2 可以一排三本」）。
+   *   窄屏永远至少 N 列（user「应该还是两个 card 这样缩放」）：minmax(min(宽屏下限, 窄屏下限), 1fr)。
+   *   窄屏下限里的减数 = gap × (N-1) / N（16px 时两列 8px、三列 10.667px），改 gap 要一起改。edited by Claude Fable 5.1 2026-09-10 */
+  --tile-min: 150px; --tile-min-narrow: calc(50% - 8px); --tile-aspect: 1 / 1;
+  grid-template-columns: repeat(auto-fill, minmax(min(var(--tile-min), var(--tile-min-narrow)), 1fr));
+  gap: 16px;
+  align-content: start;
+}
+.gallery-grid.tall { --tile-min: 120px; --tile-min-narrow: calc(33.333% - 10.667px); --tile-aspect: 2 / 3; }
+/* ── 0.3.0 列表视图（tile.layout:"list"，JRB 第三消费者；提案 ai-docs/20260919-proposal-list-view.md）：一行一件，名字整行最多折两行，副标题一行，右侧 ⋯。默认 cards 规则一字不动。 ── */
+.gallery-grid.list { display: flex; flex-direction: column; gap: 0; padding: 0 0 16px; }
+.gallery-grid.list .gallery-tile { display: grid; grid-template-columns: 40px minmax(0, 1fr) 30px; grid-template-areas: "thumb name menu"; align-items: center; column-gap: 10px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
+.gallery-grid.list .gallery-tile:hover { transform: none; box-shadow: none; background: color-mix(in srgb, var(--ink) 4%, transparent); }
+.gallery-grid.list .gallery-tile.active { box-shadow: inset 3px 0 0 var(--accent); }
+.gallery-grid.list .gallery-tile-thumb { grid-area: thumb; width: 40px; aspect-ratio: var(--tile-aspect, 1 / 1); border-radius: 4px; font-size: 16px; }
+.gallery-grid.list .gallery-tile-ph-icon { width: 60%; height: 60%; }
+.gallery-grid.list .gallery-tile.folder .gallery-tile-thumb svg { width: 26px; height: 26px; }
+.gallery-grid.list .gallery-tile-name-row { grid-area: name; padding: 0; min-width: 0; }
+.gallery-grid.list .gallery-tile-name { white-space: normal; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; font-size: 14px; line-height: 1.3; }
+.gallery-grid.list .gallery-tile-active-tag { position: static; display: inline-block; margin: 0 0 2px; }
+.gallery-grid.list .gallery-tile-menu-btn { grid-area: menu; position: static; background: transparent; border-color: transparent; color: var(--ink-soft); backdrop-filter: none; -webkit-backdrop-filter: none; }
+.gallery-grid.list .gallery-tile-menu-popup { right: 12px; top: 40px; }
+.gallery-grid.list .gallery-tile-menu-popup.up { top: auto; bottom: 40px; }
+/* 副标题（tile.subtitle；cards 里排在 meta 行前，list 里第二行）与角标（tile.marker：未读点） */
+.gallery-tile-sub { font-size: 11px; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 1px; }
+.gallery-marker { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; vertical-align: middle; flex: none; }
+.gallery-marker.unread { background: var(--accent); }
+/*
+ * 滚动条策略：默认（含移动/触摸）走系统 overlay/auto，不常显，保移动端观感。
+ * 仅 Windows 桌面（粗略地 pointer:fine = 鼠标）常显一条窄滚动条，否则桌面上看不出能滚。
+ */
+@media (pointer: fine) {
+  #galleryMount {
+    scrollbar-width: thin;
+    scrollbar-gutter: stable;
+  }
+  #galleryMount::-webkit-scrollbar { width: 10px; }
+  #galleryMount::-webkit-scrollbar-thumb {
+    background: color-mix(in srgb, var(--ink) 22%, transparent);
+    border-radius: 6px;
+    border: 2px solid transparent;
+    background-clip: padding-box;
+  }
+  #galleryMount::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--ink) 36%, transparent);
+    background-clip: padding-box;
+  }
+}
+.gallery-stalled-actions { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-top: 8px; }
+.gallery-foot-hint { color: var(--ink-soft); font-size: 11px; opacity: 0.7; }
+
+/* ── 包模板用到的 .hidden（tile 菜单 / 面包屑）：宿主未必有通用 .hidden 规则（WXHW 就没有）→ 包内自带、作用域限包 ── */
+.gallery-tile-menu-popup.hidden, .gallery-breadcrumb.hidden, .gallery-grid .hidden { display: none !important; }

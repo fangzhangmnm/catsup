@@ -1,0 +1,91 @@
+/* @internal/workbench-elements —— 四个原子的皮（WET 自 WeebPaint styles.css，2026-09-09，Claude Fable 5.1）。
+   class 名与 WeebPaint 完全一致（不改语义）；宿主已有同名规则时重复无害，日后可删自家那份。
+   需要宿主 :root 提供的 token：--bg --bg-soft --ink --ink-soft --line --shadow --accent --danger
+                              --z-menu --z-popover --z-modal --z-notice --z-toast */
+
+/* ── popup-menu · list 变体（.menu-panel 皮） ── */
+.menu-panel {
+  position: fixed;
+  min-width: 200px;
+  max-width: min(320px, calc(100vw - 24px));
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  box-shadow: var(--shadow);
+  color: var(--ink);
+  z-index: var(--z-menu);
+  padding: 6px;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior: contain;
+}
+.popup-menu.band-menu    { z-index: var(--z-menu); }
+.popup-menu.band-popover { z-index: var(--z-popover); }
+.popup-menu.band-modal   { z-index: calc(var(--z-modal) + 5); }
+.popup-menu--list { top: auto; left: auto; }          /* 坐标全由 positionPopup 写 inline */
+.popup-menu-sep { border: none; border-top: 1px solid var(--line); margin: 4px 2px; }
+.popup-menu-item.danger, .popup-menu-item.danger svg { color: var(--danger); }
+.popup-menu-group { font-size: 10px; color: var(--ink-soft); padding: 6px 8px 2px; text-transform: uppercase; letter-spacing: .06em; user-select: none; }
+
+.menu-item {
+  width: 100%;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 10px 12px;
+  background: transparent; border: none; border-radius: 6px;
+  font: inherit; color: var(--ink); cursor: pointer; text-align: left;
+}
+.menu-item:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+.menu-item:disabled { opacity: 0.35; cursor: not-allowed; }
+.menu-item:disabled:hover { background: transparent; }
+.menu-item.menu-item-with-icon { justify-content: flex-start; gap: 10px; }
+.menu-item.menu-item-with-icon svg { width: 18px; height: 18px; flex-shrink: 0; }
+.menu-item-icon-blank { width: 18px; height: 18px; flex: none; }
+.menu-item-label { min-width: 0; }
+
+/* ── popup-menu · compact 变体（.lasso-icon-menu.lasso-icon-list 皮 + .lasso-tool-btn 药丸行） ── */
+.lasso-icon-menu {
+  position: fixed; display: flex; gap: 2px; padding: 4px;
+  z-index: var(--z-popover);
+  background: var(--bg-soft); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow);
+  color: var(--ink);
+}
+.lasso-icon-menu.lasso-icon-list { flex-direction: column; align-items: stretch; min-width: 168px; }
+.lasso-icon-menu.lasso-icon-list > button { display: flex; align-items: center; justify-content: flex-start; gap: 8px; padding: 5px 8px; font-size: 12px; }
+.lasso-icon-menu.lasso-icon-list > button svg { width: 18px; height: 18px; flex: 0 0 auto; }
+.lasso-tool-btn {
+  background: transparent; border: none;
+  padding: 4px 10px; font: inherit; font-size: 13px; color: var(--ink);
+  cursor: pointer; border-radius: 999px; white-space: nowrap;
+}
+.lasso-tool-btn:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+
+/* ── notice · 栈 + .toast 皮 ── */
+.toast {
+  position: fixed; left: 50%; bottom: max(env(safe-area-inset-bottom, 0px), 20px); transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 8px 12px;
+  background: var(--ink); color: var(--bg);
+  border-radius: 999px; box-shadow: var(--shadow);
+  z-index: var(--z-toast); font-size: 13px;
+}
+.toast button {
+  background: transparent; border: 1px solid color-mix(in srgb, var(--bg) 40%, transparent); color: var(--bg);
+  padding: 4px 10px; border-radius: 999px; font-size: 12px; cursor: pointer;
+}
+.toast button.dismiss { border: none; font-size: 16px; padding: 2px 6px; }
+.dismiss svg { width: 16px; height: 16px; display: block; }
+.notice-stack {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: max(env(safe-area-inset-bottom, 0px), 20px);
+  display: flex; flex-direction: column; align-items: center; gap: 8px;
+  max-width: calc(100vw - 24px);
+  z-index: var(--z-notice);
+  pointer-events: none;
+}
+.notice-stack.docked-top { bottom: auto; }
+.notice-stack > .toast { position: static; transform: none; pointer-events: auto; max-width: min(640px, calc(100vw - 24px)); flex-wrap: wrap; justify-content: center; }
+.notice-stack > .toast .notice-text { white-space: pre-wrap; word-break: break-word; max-height: 40vh; overflow: auto; }
+.toast.notice-error   { background: #c0392b; color: #fff; }
+.toast.notice-warning { background: #b7791f; color: #fff; }
+.toast.notice-error button, .toast.notice-warning button { color: #fff; border-color: rgba(255, 255, 255, 0.4); }
+.toast button.primary { background: rgba(255, 255, 255, 0.18); font-weight: 600; }

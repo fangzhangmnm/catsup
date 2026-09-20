@@ -4,6 +4,13 @@
 // 无地骑士：零持久化——模型只活在内存里；OBJ 是唯一出入口。
 
 import { APP_VERSION } from "../version.ts";
+import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
+import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
+import { initGalleryHost } from "./gallery-host.ts";
+import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
+import { captureThumbnail } from "./thumbnail.ts";
+import { initSheets, openChoiceSheet } from "./ui/sheets.ts";
+import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, TOOLS, type Tool, describeEvent } from "../editor/editor.ts";
 import { PRESETS } from "../editor/presets.ts";
 import { faceTriangles } from "../editor/render3.ts";
@@ -43,10 +50,11 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
   return el as T;
 };
 
-// ---------- UI 偏好（纯 UI 状态，不是模型数据；无地骑士不碰任何模型持久化） ----------
+// ---------- UI 偏好（纯 UI 状态，不是模型数据）——device-kv 器官（全 app 唯一 localStorage 入口，红线守卫执法） ----------
+migrateLegacyUiPrefs(["fingerDraws", "leftHanded", "lab"]);
 const PREF = {
-  get(key: string): string | null { try { return localStorage.getItem(`catsup.ui.${key}`); } catch { return null; } },
-  set(key: string, v: string): void { try { localStorage.setItem(`catsup.ui.${key}`, v); } catch { /* 无痕/禁用：偏好不落地也能用 */ } },
+  get(key: string): string | null { return deviceKvGet(`ui.${key}`); },
+  set(key: string, v: string): void { deviceKvSet(`ui.${key}`, v); },
 };
 let fingerDraws = PREF.get("fingerDraws") === "1";
 let leftHanded = PREF.get("leftHanded") === "1";   // VR：左手持笔（工具手/面板手对调）
@@ -182,11 +190,19 @@ btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
   },
 }));
 
-type MenuId = "export" | "import" | "finger" | "lab" | "clear" | "help" | "update" | "vr" | "lefthand";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "lab" | "clear" | "help" | "update" | "vr" | "lefthand";
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu,
   items: () => [
-    { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口" },
+    // 转正纪元（2026-09-20）：文档生命周期 = WeebPaint 无地标准三态；图库 = @internal/gallery
+    { id: "new", label: "新建模型", icon: "new" },
+    { id: "gallery", label: "图库", icon: "gallery", hint: hasStore() ? undefined : "本机 + OneDrive" },
+    { id: "save", label: session.home.kind === "transient" ? (supportsSavePicker() ? "保存到磁盘…" : "保存（下载 .glb）") : "保存", icon: "floppy-disk", hint: "Ctrl+S", separatorBefore: true },
+    ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as" }] : []),
+    { id: "open", label: "打开本地 .glb…", icon: "folder-open", hint: "Ctrl+O" },
+    { id: "download", label: "导出 .glb（下载一份）", icon: "download" },
+    { id: "cloud", label: auth.isSignedIn() ? "退出 OneDrive 登录" : "登录 OneDrive", icon: "cloud", separatorBefore: true, disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? undefined : "未配置 client id" },
+    { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口", separatorBefore: true },
     { id: "import", label: "导入 OBJ…", icon: "import" },
     // 0.4 VR 纪元：只在 navigator.xr 支持 immersive-vr 时露出（Quest 浏览器）；随时进出，模型与工具状态原样
     ...(vr.isSupported() ? [
@@ -201,6 +217,13 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   ],
   onPick: (id) => {
     switch (id) {
+      case "new": void session.newDoc(); break;
+      case "gallery": void galleryHost.open(); break;
+      case "save": void session.save(); break;
+      case "saveas": void session.settleToFile(); break;
+      case "open": openLocal(); break;
+      case "download": session.exportDownload(); break;
+      case "cloud": if (auth.isSignedIn()) { void cloudSignOut(); } else { cloudSignIn(); } break;
       case "export": doExport(); break;
       case "import": objInput.click(); break;
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
@@ -395,7 +418,117 @@ buildEl.textContent = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
 if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓存重启 · ${APP_VERSION}`, level: "info" });
 
 // ---------- 探针钩子（scripts/probe-boot.mjs 用；不是 API） ----------
-(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, version: APP_VERSION };
+// ---------- 转正纪元（2026-09-20）：文档生命周期 + 图库 + 云端 ----------
+initSheets();
+const docTitleBtn = $<HTMLButtonElement>("docTitle");
+const docTitleText = $("docTitleText");
+const docTitleIcon = document.getElementById("docTitleIcon") as unknown as SVGUseElement;
+function updateDocTitle(): void {
+  const st = session.homeState();
+  docTitleText.textContent = session.displayName();
+  docTitleBtn.dataset.state = st;
+  const icon = session.home.kind === "gallery" ? (st === "saving" ? "cloud-upload" : auth.isSignedIn() ? "cloud" : "local-cache") : session.home.kind === "file" ? "floppy-disk" : "file";
+  docTitleIcon.setAttribute("href", `#${icon}`);
+  docTitleBtn.title = session.home.kind === "gallery" ? `图库：${session.home.path}${session.dirty() ? "（有改动，30 s 后自动保存）" : ""}` : session.home.kind === "file" ? `文件：${session.home.fileName}${session.dirty() ? "（未保存）" : ""}` : "还没有家：点击另存到磁盘";
+  if (session.home.kind === "gallery") deviceKvSet("last-doc", session.home.path);   // 只在有图库家时记；transient（含开机瞬间）不清，file 才清
+  else if (session.home.kind === "file") deviceKvSet("last-doc", null);
+  deviceKvSet("gallery-attached", hasStore() ? "1" : null);
+}
+const session = new Session({
+  editor,
+  captureThumbnail: () => captureThumbnail(editor),
+  onHomeChanged: updateDocTitle,
+  setStatus: (text, error) => notify({ text, level: error ? "error" : "info" }),
+  online: () => navigator.onLine !== false,
+});
+let storeWired = false;
+function wireStore(): void {
+  if (storeWired) return;
+  const st = ensureStore();
+  storeWired = true;
+  st.files.onRenamed((from, to) => { if (session.home.kind === "gallery" && session.home.path === from) session.setActivePath(to); });
+  updateDocTitle();
+}
+const galleryHost = initGalleryHost({
+  mountEl: $("galleryMount"), fullEl: $("galleryFull"),
+  activeName: () => (session.home.kind === "gallery" ? session.home.path : null),
+  openDoc: (n) => session.openFromGallery(n),
+  renameActive: () => session.renameActive(),
+  setActiveName: (n) => session.setActivePath(n),
+  pushDoc: (n) => session.pushDoc(n),
+  offloadDoc: (n) => session.offloadDoc(n),
+  flushLocal: () => session.flushLocal(),
+  setStatus: (text, error) => notify({ text, level: error ? "error" : "info" }),
+  onFolderChanged: (dir) => { session.currentDir = dir; },
+  onOpened: () => { wireStore(); Session.persistOnGesture(); },
+  onClosed: () => { (document.activeElement as HTMLElement | null)?.blur?.(); editor.resize(window.devicePixelRatio || 1); },   // 图库按钮别留着焦点吃快捷键
+});
+docTitleBtn.addEventListener("click", () => {
+  if (session.home.kind === "gallery") void session.renameActive();
+  else if (session.home.kind === "file") void session.save();
+  else void session.settleToFile();
+});
+$("galleryBack").addEventListener("click", () => galleryHost.close());
+$("galleryNew").addEventListener("click", () => { void session.newDoc().then((ok) => { if (ok) galleryHost.close(); }); });
+$("galleryTrashBtn").addEventListener("click", () => { galleryHost.setView("trash"); $("galleryTrashBar").hidden = false; });
+$("galleryTrashBack").addEventListener("click", () => { galleryHost.setView("files"); $("galleryTrashBar").hidden = true; });
+$("galleryEmptyTrash").addEventListener("click", () => {
+  void openChoiceSheet<"local" | "cloud" | "both">("清空回收站", "清空哪边？（不可恢复）", [{ label: "本机与云端", value: "both", danger: true }, { label: "只清本机", value: "local" }, { label: "只清云端", value: "cloud" }])
+    .then((scope) => { if (scope) void galleryHost.emptyTrash(scope); });
+});
+const cloudBtn = $<HTMLButtonElement>("galleryCloudBtn");
+function cloudSignIn(): void {
+  if (!auth.isAuthConfigured()) { notify({ text: "云端未配置（client id 为空）", level: "warning" }); return; }
+  Session.persistOnGesture(); wireStore();
+  auth.signIn({ prompt: "select_account" }).catch((e) => funnel(e));   // 手势同步栈起跳（iOS redirect）
+}
+async function cloudSignOut(): Promise<void> { try { await auth.signOut(); notify({ text: "已退出 OneDrive 登录（本机副本仍在）", level: "info" }); } catch (e) { funnel(e); } }
+type CloudId = "in" | "out" | "refresh";
+cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
+  anchor: cloudBtn, align: "end",
+  items: () => [
+    ...(auth.isSignedIn()
+      ? [{ id: "refresh" as CloudId, label: "刷新云端", icon: "refresh" }, { id: "out" as CloudId, label: "退出登录", icon: "cloud", hint: (auth.getActiveAccount() as { username?: string } | null)?.username }]
+      : [{ id: "in" as CloudId, label: "登录 OneDrive", icon: "cloud", disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? "个人账号" : "未配置 client id" }]),
+  ],
+  onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else galleryHost.refresh(); },
+}));
+function updateCloudChip(): void { cloudBtn.dataset.cloudState = auth.isSignedIn() ? "in" : "out"; (document.getElementById("galleryCloudIcon") as unknown as SVGUseElement).setAttribute("href", auth.isSignedIn() ? "#cloud-synced" : "#cloud"); }
+auth.onAuthChanged(() => { updateCloudChip(); updateDocTitle(); if (galleryHost.isOpen()) galleryHost.refresh(); });
+// 打开本地 .glb：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
+const glbInput = $<HTMLInputElement>("glbFile");
+function openLocal(): void { if (supportsOpenPicker()) void session.openLocalPicker(); else glbInput.click(); }
+glbInput.addEventListener("change", async () => {
+  const file = glbInput.files?.[0]; glbInput.value = "";
+  if (file) await session.openLocalBytes(new Uint8Array(await file.arrayBuffer()), file.name, null);
+});
+stage.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); } });
+stage.addEventListener("drop", async (e) => {
+  const file = e.dataTransfer?.files?.[0];
+  if (!file || !/\.glb$/i.test(file.name)) return;
+  e.preventDefault();
+  await session.openLocalBytes(new Uint8Array(await file.arrayBuffer()), file.name, null);
+});
+document.addEventListener("keydown", (e) => {
+  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
+  const k = e.key.toLowerCase();
+  if (k === "s") { e.preventDefault(); void session.save(); }
+  else if (k === "o") { e.preventDefault(); openLocal(); }
+});
+window.addEventListener("pagehide", () => { if (session.home.kind === "gallery" && session.dirty()) void session.save({ implicit: true }); });
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && galleryHost.isOpen()) galleryHost.refresh(); });
+window.addEventListener("online", () => { if (galleryHost.isOpen()) galleryHost.refresh(); });
+setInterval(() => { if (document.visibilityState === "visible" && galleryHost.isOpen()) galleryHost.refresh(); }, 60_000);
+void (async () => {
+  if (auth.isAuthConfigured()) { try { await auth.initAuth(); } catch (e) { funnel(e, "log"); } }
+  if (auth.isSignedIn() || deviceKvGet("gallery-attached") === "1") { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
+  updateCloudChip();
+  if (hasStore() && galleryHost.wasInGallery()) await galleryHost.open();
+  else if (hasStore()) { const last = deviceKvGet("last-doc"); if (last && !(await session.openFromGallery(last))) await galleryHost.open(); }
+  updateDocTitle();
+})();
+
+(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, session, galleryHost, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION };
 
 // ---------- 起 ----------
 labEl.hidden = !labOpen;

@@ -11,6 +11,10 @@ const STATIC_PRECACHE = [
   "./icon-512.png",
   "./apple-touch-icon-180.png",
   "./styles.css",
+  "./vendor/msal/msal-browser.min.js",
+  "./vendor/internal-css/gallery.css",
+  "./vendor/internal-css/workbench-elements.css",
+  "./vendor/vue/vue.esm-browser.prod.js",
 ];
 
 let CACHE_NAME = "catsup-boot";

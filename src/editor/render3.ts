@@ -483,6 +483,32 @@ export class Renderer3 {
     this.renderer.render(this.scene, cam3);
   }
 
+  /**
+   * 离屏截图（缩略图；转正纪元 2026-09-20）：渲到 w×h 的 render target 再 readRenderTargetPixels。
+   * 返回 RGBA、行序**自上而下**（three 读回是自下而上，这里翻好）。XR 会话中不截（相机归 XR）。
+   */
+  captureRgba(k: Kernel, cam: OrbitCamera, vp: Viewport, view: ViewState): Uint8Array {
+    if (this.renderer.xr.isPresenting) throw new Error("captureRgba: not available during an XR session");
+    const rt = new THREE.WebGLRenderTarget(vp.w, vp.h, { depthBuffer: true });
+    const prevKeys = { f: this.faceKey, e: this.edgeKey };
+    this.faceKey = ""; this.edgeKey = "";   // 强制按干净视图重建（选区/悬停不进缩略图）
+    try {
+      this.renderer.setRenderTarget(rt);
+      this.render(k, cam, vp, view);
+      const buf = new Uint8Array(vp.w * vp.h * 4);
+      this.renderer.readRenderTargetPixels(rt, 0, 0, vp.w, vp.h, buf);
+      const out = new Uint8Array(buf.length);
+      const row = vp.w * 4;
+      for (let y = 0; y < vp.h; y++) out.set(buf.subarray(y * row, (y + 1) * row), (vp.h - 1 - y) * row);
+      return out;
+    } finally {
+      this.renderer.setRenderTarget(null);
+      rt.dispose();
+      this.faceKey = prevKeys.f === "" ? "" : "";   // 下一帧按主视图键重建
+      this.edgeKey = "";
+    }
+  }
+
   /** 全部膜 → 一份几何（三角汤 + 平法向 + sRGB 顶点色）。 */
   private rebuildFaces(kd: Kernel, view: ViewState): void {
     const pos: number[] = [], nor: number[] = [], col: number[] = [];

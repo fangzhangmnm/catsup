@@ -128,3 +128,60 @@ svg.ico use { color: inherit; }
   .hud-rail-tools { gap: 0; }
   .tool { height: 38px; } .tool-label { display: none; }
 }
+
+/* ---- 宿主自己在图库/sheet 里用到的 token ---- */
+:root {
+  --bg-0: #f4f4f2;
+  --bg-1: #ebebe8;
+  --paper: #ffffff;
+  --ink-muted: #7a7a76;
+  --line-strong: #c4c4bf;
+  --overlay: rgba(0,0,0,.28);
+  --font-ui: system-ui, -apple-system, 'Segoe UI', 'PingFang SC', 'Noto Sans CJK SC', sans-serif;
+  --z-busy: 700;
+}
+/* ---- @internal/gallery / workbench-elements 需要的宿主 token（2026-09-20 转正纪元；包只用 var()，值归宿主） ---- */
+:root {
+  --bg-soft: #ececea;
+  --enc: #c98a00;
+  --info: #4c7fb5;
+  --ink-soft: #6b6b66;
+  --shadow: 0 12px 40px rgba(0,0,0,.25);
+  --tile-aspect: 1 / 1;
+  --tile-min: 148px;
+  --tile-min-narrow: 120px;
+  --warn: #b7791f;
+  --z-modal: 600;
+  --z-overlay: 250;   /* 图库全屏：在 HUD(5) 之上、菜单(300) 之下 */
+  --z-popover: var(--z-menu);
+  --z-toast: var(--z-notice);
+}
+
+/* ---- 转正纪元（2026-09-20）：标题胶囊 / 图库容器 / sheet 模态 / busy ---- */
+.hud-tc { top: calc(10px + var(--safe-top)); left: 50%; transform: translateX(-50%); }
+.doc-title { display: inline-flex; align-items: center; gap: 6px; max-width: min(60vw, 420px); padding: 6px 12px; border: 0; border-radius: 999px; background: var(--panel); color: #2a2a2a; font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
+.doc-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.doc-title[data-state$="dirty"] span::after { content: " •"; color: #b7791f; }
+.doc-title[data-state="saving"] { opacity: .7; }
+.gallery-full { position: fixed; inset: 0; z-index: var(--z-overlay); display: flex; flex-direction: column; background: var(--bg-0); color: var(--ink); font-family: var(--font-ui); }
+.gallery-full[hidden] { display: none; }
+.gallery-chrome { display: flex; align-items: center; gap: 6px; padding: max(env(safe-area-inset-top, 0px), 8px) 12px 8px; border-bottom: 1px solid var(--line); }
+.gallery-chrome-title { font-weight: 600; }
+.gallery-chrome .top-spacer { flex: 1 1 auto; }
+.gallery-trashbar { display: flex; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
+.gallery-trashbar[hidden] { display: none; }
+.gallery-mount { flex: 1 1 auto; overflow: auto; padding: 0 0 12px; display: flex; flex-direction: column; min-height: 0; }
+.sheet-modal { width: min(440px, 100%); }
+.sheet-title { margin: 4px 0 8px; font-size: 16px; font-weight: 600; }
+.sheet-message { margin: 0 0 10px; font-size: 14px; color: #4a4a4a; white-space: pre-wrap; }
+.sheet-message.warning { color: #b7791f; }
+.sheet-input { width: 100%; box-sizing: border-box; padding: 9px 12px; border: 1px solid var(--line-strong); border-radius: 10px; font: inherit; font-size: 15px; margin-bottom: 8px; }
+.sheet-error { margin: 0 0 8px; font-size: 13px; color: var(--danger); }
+.sheet-choices { display: flex; flex-direction: column; gap: 8px; margin: 6px 0 4px; }
+.sheet-choice { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--paper); color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.sheet-choice.primary { background: var(--accent); color: #fff; border-color: transparent; }
+.sheet-choice.danger { color: var(--danger); }
+.sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
+.busy-overlay { position: fixed; inset: 0; z-index: var(--z-busy); background: rgba(0,0,0,.25); display: grid; place-items: center; cursor: default; }
+.busy-overlay[hidden] { display: none; }
+.busy-card { width: min(320px, 90vw); text-align: center; }

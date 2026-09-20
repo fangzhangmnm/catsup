@@ -1,14 +1,15 @@
 {
   "name": "catsup",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "private": true,
   "type": "module",
   "comment": "0.4 VR 纪元（0.3 app 壳纪元之上）：纯 TS 几何内核 + three（vendored）正式 app。运行时零 npm 依赖；node 24 strip-types 直跑 test/；devDependencies 仅供 tsc --noEmit 类型门。版本 SSoT = src/version.ts（package.json 只跟着记）。",
   "scripts": {
-    "test": "node test/run.mjs",
+    "test": "node test/run.mjs && node test/redline-guard.test.mjs",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "build": "bash scripts/build.sh",
     "probe": "node scripts/probe-boot.mjs",
+    "smoke": "node test/boot-smoke.mjs",
     "deploy:dev": "bash scripts/push-dist.sh dev"
   },
   "devDependencies": {

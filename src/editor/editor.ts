@@ -268,6 +268,28 @@ export class Editor {
     this.host.changed();
     this.draw();
   }
+  /**
+   * 装载一个内核当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始（journal 以它为地基），选区/充能/手势全清。
+   * 转正纪元 2026-09-20，Claude Fable 5.1。
+   */
+  loadKernel(k: Kernel, label = "打开"): void {
+    this.cancelGesture();
+    this.checkpoint = k;
+    this.journal = new Journal(k);
+    this._revision++;
+    this.selection = emptySelection();
+    this.clearCharged();
+    this.host.separator(label);
+    this.host.changed();
+    this.draw();
+  }
+  /** 干净视角截图（无选区/悬停/吸附/预演）→ RGBA 自上而下；保存时的缩略图源。 */
+  captureRgba(w: number, h: number): Uint8Array {
+    return this.r3.captureRgba(this.checkpoint, this.cam, { w, h }, {
+      selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(),
+      hoverEdge: null, hoverFace: null, preview: null, snap: null, snapAnchor: null, revision: this._revision,
+    });
+  }
   clearAll(): void {
     this.cancelGesture();
     this.selection = emptySelection();
