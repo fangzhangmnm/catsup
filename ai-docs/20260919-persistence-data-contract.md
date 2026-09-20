@@ -1,6 +1,6 @@
-# CatsUp 持久化数据契约（远见版）—— 设计稿 rev3，等 grill 第三轮
+# CatsUp 持久化数据契约（远见版）—— 设计稿 rev4，第三轮已答
 
-> as-of v0.4.6 / 2026-09-20 · created by Claude Fable 5.1 2026-09-19 · **rev2 2026-09-20（edited by Claude Fable 5.1）：按 user 第二轮回答 + glTF 2.1 草案 schema + GDTF 教训重写；rev1 的「ORA 式 zip 薄壳」判**作废**，改为一个 `.glb`。rev3 同日：user 纠偏「我们不是游戏引擎，我们是 sketchup 竞品，也许有做 data driven 场景编辑器的潜力，所以我觉得我们的 spec 不会像 gdtf 里面说的那么未定型，而是有一个比较明确的图像」「还记得我说的那一大堆 component, group，以及丢 gltf 模型之类的早期设想吗」→ SU 竞品 + 场景编辑器的核心本体**现在写定**（§5），GDTF 教训只管游戏层词汇。**
+> as-of v0.4.6 / 2026-09-20 · created by Claude Fable 5.1 2026-09-19 · **rev2 2026-09-20（edited by Claude Fable 5.1）：按 user 第二轮回答 + glTF 2.1 草案 schema + GDTF 教训重写；rev1 的「ORA 式 zip 薄壳」判**作废**，改为一个 `.glb`。rev3 同日：user 纠偏「我们不是游戏引擎，我们是 sketchup 竞品，也许有做 data driven 场景编辑器的潜力，所以我觉得我们的 spec 不会像 gdtf 里面说的那么未定型，而是有一个比较明确的图像」「还记得我说的那一大堆 component, group，以及丢 gltf 模型之类的早期设想吗」→ SU 竞品 + 场景编辑器的核心本体**现在写定**（§5），GDTF 教训只管游戏层词汇。**rev4 2026-09-20**：user「核心还是 sketchup，好好想一下」→ §5 改成 **SketchUp .skp 本体逐项对照表**（Edge/Face/Curve/Group/Definition/Instance/Image/SectionPlane/Guide/Dimension/Text/Material/Tag/Scene/Style/Shadow/ModelInfo/Attributes），每项落哪、三方看到什么；第三轮 (a)(c) 同意、(b) 整数范围答在 §5.2、(d) 用人话解释在 §10；§3.1 答「和只支持 2.0 的工具兼容吗」。**
 > **性质：提案，未拍板。** user 原话定的题（2026-09-19）：「现在就设计一个有远见的持久化数据契约…看全量 wishlist 包括 overambitious…多依托现有规范」「尽量是类似 ora 的依照已经是格式标准的框架」「考虑后面会有 GTA VCS 级别的场景，甚至 zbrush」；第二轮（2026-09-19/20）：「我不喜欢散一地，但是我们也有 zip 了。以及是否可以就一个 glb。新的 gltf 规则本来就支持 thumb!」「远景还有就是我会 embedding weebpaint」「我确实喜欢整数。但是这个是谁要求的？会不会和 gltf 大家」「gltf 的 new spec 你看一下，有很多我会内耗的」「你可以看一下我以前打回的那个 GDTF 的 proposal，以及后来的反思反省。gtdf is obsolete!」「.catsup 还是 .glb」「无地按照 weebpaint 标准做」「可以 bump minor」「它是被内容需求逼出的自适应格式 嗯应该就是那个教训」。
 > 时机：推翻 2026-09-06「SU 1.0 之后再定」（总账 B5）；容器：09-06 的「zip」拍板被 user 本轮「是否可以就一个 glb」重开——本稿答：可以，理由 §2。
 > 后门政策（无向后兼容，AI 脚本改 user 的 OneDrive appfolder，逐次许可）见 `CLAUDE.md`；§7 按它设计。
@@ -88,6 +88,10 @@ BIN chunk
 - `asset.version "2.1"` + `minVersion "2.0"`：我们用的 2.1 属性全部可被 2.0 加载器忽略（three GLTFLoader / Blender 只认 major），`minVersion` 就是规范给这种情况的字段。规范未定稿的属性名若变 → 后门脚本改名（§7）。
 - 定型即用的 2.1 内容：`asset.thumbnail`（现在）、`files` + `externalAssets` + `node.externalAsset`（丢模型，形状现在定、prefab 纪元实现）；`shapes` / UID / 新 componentType 属于游戏层或大模型，等内容逼出来。
 
+### 3.1 和只支持 glTF 2.0 的工具兼容吗（答 user）
+
+**兼容，而且是规范保证的**：GLB 容器仍写 version 2（v3 只在 > 4 GiB 时）；2.0 规范要求加载器**忽略不认识的属性和未声明为 required 的扩展**，`extensionsRequired` 永远空；`asset.minVersion: "2.0"` 就是规范给「文件是 2.1 但 2.0 能开」这种情况的字段（three GLTFLoader 只拒 major < 2；Blender / Godot 只认 major）。2.0 工具看到的 = 全部 bake（三角 / 边线 / 材质 / 灯 / 相机）；看不到的 = 缩略图（`asset.thumbnail` 是 2.1）、外部资产节点（2.1；显示为空节点）、包围体、我们的 `CATSUP_*`。**为了不碰 2.0 校验器会报错的地方**：整数 B-rep 数据**不走 core `accessors[]`**（2.0 的 componentType 枚举没有 int32/int64），而是扩展直接引用 `bufferView` + 自己声明布局（`KHR_draco` / `EXT_meshopt` 就是这么做的）；严格校验器最多给「未使用的 image / bufferView」「未知属性」warning，不报 error。等 2.1 定稿、three/Blender 出 2.1 加载器，缩略图和外部资产自动亮起来，文件不用改。
+
 ---
 
 ## 4. core = bake 的规则
@@ -103,53 +107,98 @@ BIN chunk
 
 ---
 
-## 5. `CATSUP_*` 扩展（核心本体：四个，现在写定）
+## 5. 核心本体 = SketchUp（user「核心还是 sketchup，好好想一下」）
 
-命名照 glTF 规则（厂商前缀 + 下划线）；全部登记 `extensionsUsed`；每个带整数 `version`；总版本在 `CATSUP_document.formatVersion`。核心本体（B-rep / group / component / 丢模型 / 材质 / tags / views / 单位）的形状**在本节定死**；核心之外（游戏层词汇、地形、雕刻）不预留扩展名，立项条件 = 一个真实文件装不下。
+方法：拿 SketchUp 的 .skp 本体（Ruby API 的实体类 + Model Info + Scenes/Styles/Shadows）逐项过一遍——**每一项要么有落点，要么写明「不做」**；再叠 data-driven 场景编辑器的三件（丢 glTF 原子 / 灯 / extras）。形状在本节定死，实现分纪元。
 
-### 5.1 `CATSUP_document`（文档级，挂顶层 `extensions`）
+### 5.1 SketchUp 本体 → 文件（对照表）
+
+| SketchUp | 我们存哪 | glTF 2.0 三方看到 | 实现 |
+|---|---|---|---|
+| **Edge**（soft / smooth / hidden / 投影阴影） | `brep.edges` + `edgeFlags` 位 | `LINES`（hidden 不出） | 现在 |
+| **Face**（loops 带洞、前/后材质、每顶点 UV 贴图定位、hidden、cast/receive shadows） | `brep.faces[{outer, holes, m:[front,back], uv, hidden, flags}]` | `TRIANGLES`（按材质分 primitive；前后材质 = 两组或 `doubleSided`） | 现在（uv / m 贴图纪元填） |
+| **Curve / ArcCurve**（圆 / 弧 / 多边形 / 徒手 = 一串边当一个实体：选一段全选、可平滑、保留圆心半径参数） | `brep.curves[{edges:[…], kind:"arc"|"circle"|"polygon"|"freehand", params:{center, radius, normal, startAngle, endAngle, sides}}]` | 同上（只是段） | 圆/弧工具纪元 |
+| **Group**（自己的轴/变换、名字、hidden、locked、可嵌套；SU 内部 = 单实例 component） | `brep.groups[{axes, parent, name, hidden, locked}]`，元素按 group 分池（§5.2；B1 拍板「group 存轴，顶点存 component 坐标」） | 不可见（顶点已在 definition 坐标） | 现在（axes 先恒等） |
+| **ComponentDefinition**（名字、描述、轴/插入点、**行为**：glue-to 面 / cuts opening 挖洞 / always face camera 纸片人 / shadows face sun；内容 = 一整套 entities） | `definitions.list[{name, description, axes, behavior:{glueTo:"any"|"horizontal"|"vertical"|"sloped"|null, cutsOpening, faceCamera, shadowsFaceSun}, brep, nodes:[…], annotations:{…}}]` | 一个共享 `mesh` | 现在（behavior 先全 null/false） |
+| **ComponentInstance**（变换、名字、hidden、locked、实例级材质覆盖、attributes） | 节点 + `CATSUP_instance{definition, overrides:{materials, hidden, locked}}` + `extras` | `node{mesh, TRS}`（`KHR_node_visibility`） | 现在 |
+| **文件当组件**（导入一个 .skp = 一个 component；Reload 同步） | 2.1 `externalAssets` 指向另一个 **CatsUp `.glb`**（其 root definition 就是这个组件；可编辑、可 reload）——与「丢进来的外来 glb 原子」（不可编辑）用同一机制，靠对方有没有 `CATSUP_document` 区分 | 2.1 加载器实例化；2.0 空节点 | prefab 纪元 |
+| **Image**（导入图片当参考 / 贴图面；有尺寸与变换） | `definitions.list[i].annotations.images[{image:<idx>, size:[w,h], transform}]`（= 纸片人 reference plane，far-horizon §1） | **可见**：bake 成带贴图的四边形 mesh | 参考图纪元 |
+| **SectionPlane**（剖切面：位置 / 法向 / 名字 / 激活；建筑核心） | `annotations.sectionPlanes[{origin, normal, name, active, symbol}]`；scene 记哪张激活 | 不出（extras 备查） | 剖切纪元 |
+| **ConstructionLine / ConstructionPoint**（卷尺 / 量角器留下的辅助线点，可擦） | `annotations.guides[{kind:"line"|"point"|"ray", origin, dir?, stipple}]` | 不出 | 卷尺纪元 |
+| **Dimension**（线性 / 半径标注）、**Text**（屏幕 / 引线文字）、3D Text（= 面，已覆盖） | `annotations.dimensions[…]` / `annotations.texts[{anchor, text, leader, screen?}]` | 不出（extras 备查） | 标注纪元 |
+| **Material**（名、颜色、贴图 + **贴图在模型里的实际尺寸**、透明度、colorize） | core `materials` + `extras.catsup{ textureSize:[w,h], colorName }` | `materials`（PBR；无光照风格 = `KHR_materials_unlit`） | 贴图纪元 |
+| **Layer / Tag**（名、颜色、可见、tag 文件夹）+ 每实体一个 tag | `document.tags[{name, color, visible, folder}]`；brep 元素 / 节点 `tag:<idx>` | `extras.tags` | 现在（tags 表可空） |
+| **Scene / Page**（相机 + 保存项：hidden 几何、可见 tags、激活剖面、style、阴影设置、轴位置；过渡时间） | `document.views[{name, camera:<node>, saved:{tags, sections, style, shadows, hidden}, spawn, transition}]` | `cameras` | 现在（只 camera + lastView） |
+| **Style**（边：轮廓线 / 延伸 / 端点 / 深度提示；面：着色 / 贴图 / 单色 / X 光 / 线框 / 隐藏线；背景 / 天空 / 地面色；辅助线可见性） | `document.styles[{…}]` + `views.saved.style`（Workbench 的显示参数，A8 轮廓线在此） | `extras.catsup.background` 可选 | 样式纪元 |
+| **Shadow Info**（地理位置 lat/long/北偏角、日期时间、明暗、落在面 / 地面） | `document.geo{lat, lon, northAngle}` + `document.shadows{time, date, on, light, dark}` | **烘一盏太阳**：`KHR_lights_punctual` directional（方向按地理+时间算）——三方直接有光 | 阴影纪元 |
+| **Model Info**（单位 / 精度 / 长度吸附 + 增量 / 角度吸附；文件信息 作者 描述） | `document.settings` + `asset.copyright` / `extras.catsup.description` | `asset` | 现在 |
+| **模型轴**（Axes 工具移过的原点/朝向） | `document.axes{origin, x, y, z}`（只影响推断与显示，顶点不动） | — | 轴工具纪元 |
+| **AttributeDictionary**（每实体任意键值：动态组件、IFC 分类、插件数据） | 节点 / definition = glTF `extras`；brep 元素 = 元素上的 `extras` 键（同名，同规则：未知保留） | `extras` | 现在（空） |
+| Hidden / Locked（每实体） | 各元素 `hidden` / `locked` 位 | `KHR_node_visibility` | 现在 |
+| Camera（透视 / 平行、fov、eye/target/up） | core `cameras` + `document.lastView` | `cameras` | 现在 |
+| Outliner / Entity Info / 统计 | 派生，不存 | — | — |
+| Follow Me / Sandbox / Solid Tools / Intersect / Offset | 工具，产物是几何 | — | — |
+| Match Photo | scene + image，等参考图纪元 | — | 后 |
+| Dynamic / Live Components | attributes（extras），等 | — | 后 |
+| 3D Warehouse / Extension Warehouse | externalAssets / 插件扩展 | — | 后 |
+| **不做**：Classifier（IFC 树）、LayOut 联动、Trimble Connect | — | — | — |
+
+**data-driven 场景编辑器叠加的三件**（SU 没有）：**丢进来的外来 glb 原子**（§5.5）、**灯**（节点 + `KHR_lights_punctual`，core）、**ECS 元数据**（节点 `extras` 组件包；游戏层词汇，GDTF 纪律）。
+
+### 5.2 `CATSUP_brep`（肥皂膜内核；每个 definition 一份）
+
+```jsonc
+{ "unit": 1e-6,                       // 顶点整数 → 米；= 内核 Q（立宪 §0 格点身份）
+  "groups": [                         // 每 group 一个池；0 号 = 未分组
+    { "axes": { "origin":[0,0,0], "x":[1,0,0], "y":[0,1,0], "z":[0,0,1] }, "parent": null, "name": null, "hidden": false, "locked": false, "tag": null,
+      "vertices": [x0,y0,z0, …],                       // 整数微米、Z-up、definition 局部系；JSON 内联（见下）或 { "bufferView": n, "count": k, "componentType": "int32"|"int64" }
+      "edges":    [a,b, c,d, …], "edgeFlags": [0,0,2,…],   // 位：1 soft 2 smooth 4 hidden 8 noShadow
+      "curves":   [ { "edges":[…], "kind":"arc", "params":{…} } ],
+      "faces":    [ { "outer":[…], "holes":[[…]], "m":[front,back], "uv":null, "hidden":false, "tag":null, "extras":{} } ] } ] }
+```
+
+- **整数范围（答 user「能存多大、要不要 32/64 两个选项」）**：**JSON 内联时没有 32 位问题**——JSON 数字是 double，整数到 2⁵³ 精确 = ±9.0×10⁹ m（900 万公里）的 1 µm 格，和内核自己（JS double × 1e-6 量化）一模一样；**这是默认存法**。**二进制**（大模型才用）：不做用户选项，**写入器按该 definition 的包围盒自动选** `int32`（±2147 m，4 B/坐标）或 `int64`（8 B/坐标，JS 用 `BigInt64Array`），`componentType` 写在扩展里，读取器两种都认。为什么必须留 int64：SU 用户会把几公里的场地 / 道路当裸几何放在模型根（不是 component），根 definition 的 |x| 轻易过 2 km。数据放 `bufferView` 不进 core `accessors`（§3.1，避开 2.0 枚举）。
+- **整数是谁要求的**（第二轮答，留档）：内核的顶点身份就是 1 µm 整数格，float32 24 位尾数在 |x| > 8.4 m 存不住格点；三方不读这些数（bake 的 `POSITION` 仍是 FLOAT），与 glTF 大家无冲突。
+- **每 group 一个池**：运行时「同池 + context 标签」vs「分池」未定（B1）；文件按 group 分池两边都能读（同池实现加载时按格点合并重合顶点 = 重合即同一）。
+- 平面注册表 / arrangement / faceLinks 不存（从 faces 确定性重建）；膜 = 文件内索引，不铸 id。
+
+### 5.3 `CATSUP_definitions`（顶层）
+
+```jsonc
+{ "root": 0,
+  "list": [ { "name": "model", "description": "", "axes": {…},
+              "behavior": { "glueTo": null, "cutsOpening": false, "faceCamera": false, "shadowsFaceSun": false },
+              "brep": <CATSUP_brep>,
+              "nodes": [ <node idx>… ],                                   // 实例 / 原子 / 灯 / 相机
+              "annotations": { "images": [], "sectionPlanes": [], "guides": [], "dimensions": [], "texts": [] },
+              "extras": {} } ] }
+```
+模型空间 = `list[root]`（SU 的 model 也是一个 definition；文件当组件 = 别人的 root）。
+
+### 5.4 `CATSUP_instance`（节点）
+
+`{ "definition": i, "overrides": { "materials": { <face-material idx>: <material idx> }, "hidden": false, "locked": false } }` = drill ④「transform + reference + override」= ECS entity 形状。override 只允许**不改几何**的项，改几何 = Make Unique（新 definition，SU 同款）。嵌套 = definition 的 nodes 里再放 instance 节点（有限深 DAG）。core 里同一 definition 的实例共享一个 `mesh`；展平出的子树节点 `extras.catsup.flattened = true`。
+
+### 5.5 丢进来的 glTF 模型（原子；用 2.1 core，不另起扩展）
+
+- **本体（proposal L21/L66，定型）**：外来 glb 是**原子**——不转成 SU 几何、不可进入编辑；足迹 = 节点 `{ TRS, externalAsset: i, extras:{ …variation… } }`，`externalAssets[i].file → files[j]`。
+- **两种存法都是标准的**：`files[j].uri = "props/bench.glb"`（旁侧库，相对 store 文件夹；改名裂引用 = 已知 wart）或 `files[j].bufferView`（内嵌自包含）。内建资产（Tomato & Sam、缩小帽 rig）= app 保留 uri 前缀。
+- 与 SU「文件当组件」共用机制：对方带 `CATSUP_document` → 可编辑组件（reload 同步）；不带 → 原子。
+- variation 元数据 = 节点 extras（游戏层词汇）；原子是叶子，不能含 SU 几何；CatsUp 动词（拉出猫娘 / PickUp 栈 / drop）都是运行时。
+
+### 5.6 `CATSUP_document`（顶层）
 
 ```jsonc
 { "formatVersion": 1,
-  "settings": { "displayUnit": "m", "gridStep": 1, "snapIncrement": 0.1, "absoluteGrid": false },   // A10：内部永远米
-  "tags":  [ { "name": "墙", "color": [r,g,b], "visible": true } ],                                    // SU Tags；元素按索引引用
-  "views": [ { "name": "正面", "camera": <node idx>, "default": true, "spawn": true, "style": {} } ],  // SU Scenes；spawn = VR/步行出生点（A16 出生点 (0,−3) 朝北的文件版）
-  "lastView": { … } }                                                                                  // 软字段，任何一端可覆盖
+  "settings": { "displayUnit": "m", "lengthPrecision": 3, "snapIncrement": 0.1, "gridStep": 1, "absoluteGrid": false, "angleSnap": 15 },
+  "axes":  { "origin":[0,0,0], "x":[1,0,0], "y":[0,1,0], "z":[0,0,1] },
+  "tags":  [ { "name":"墙", "color":[…], "visible":true, "folder":null } ],
+  "views": [ { "name":"正面", "camera":<node>, "saved":{ "tags":[…], "sections":[…], "style":0, "shadows":{…}, "hidden":[] }, "spawn":true, "transition":1.0 } ],
+  "styles":[ { "name":"Workbench", "edges":{ "profiles":2, "width":1 }, "faces":"shaded", "background":[…], "guides":true } ],
+  "geo":   { "lat":…, "lon":…, "northAngle":0 }, "shadows": { "on":false, "date":…, "time":…, "light":80, "dark":45 },
+  "lastView": { … } }                                                                   // 软字段
 ```
-environment（天空 / 雾 / 风）等渲染纪元字段有内容时再加（同 formatVersion 内只加不改）。
-
-### 5.2 `CATSUP_brep`（肥皂膜内核；挂在 definition 上）
-
-```jsonc
-{ "unit": 1e-6,                      // 顶点整数 → 米；= 内核 Q（立宪页 §0 格点身份）
-  "groups": [                        // 每 group 一个池；0 号 = 未分组
-    { "axes": { "origin":[0,0,0], "x":[1,0,0], "y":[0,1,0], "z":[0,0,1] }, "parent": null, "name": null, "locked": false, "hidden": false,
-      "vertices": [x0,y0,z0, x1,y1,z1, …],       // 整数微米、Z-up、definition 局部系（JSON 内联）
-      "edges":    [a,b, c,d, …],                  // 顶点索引对
-      "edgeFlags":[0,0,2,…],                      // 位：1 soft 2 smooth 4 hidden
-      "faces": [ { "outer":[…], "holes":[[…]], "m":[front,back], "uv":null, "hidden":false } ] } ] }
-```
-
-- **整数微米是谁要求的**（答 user）：不是外部要求，是**两条事实的交集**——内核的顶点身份就是 1 µm 整数格（`ptKey3` 取整，立宪 §0），而 float32 只有 24 位尾数，|x| > 8.4 m 就存不住 1 µm 格点（bake 用 float32 没关系，那是渲染）。**和 glTF 大家不冲突**：这些数只在我们的扩展里，三方不读；bake 的 `POSITION` 仍是标准 FLOAT。JSON 内联的 number 是 double，整数精确。**大模型时**（内容逼出来）换成 bufferView：2.1 公布稿说为扩展加了 `SIGNED_INT` / `DOUBLE` / `INT64` componentType（草案 schema 还没落），到时候用它；今天不依赖。替代方案「DOUBLE 存米」同样精确、体积翻倍、格点不显式——两者都行，整数更诚实。
-- **每 group 一个池**：运行时「同池 + context 标签」vs「分池」未定（B1）；文件按 group 分池两边都能读（同池实现加载时按格点合并重合顶点 = 重合即同一）。这是本稿唯一为内核未定预留的形状。
-- 平面注册表 / arrangement / faceLinks 不存（从 faces 确定性重建）；膜 = 文件内索引，不铸 id（涌现物，公理①）。材质索引指向 core `materials`（front/back 同 SU）；`uv` 缺省 = bake 时自动投影。
-
-### 5.3 `CATSUP_definitions`（顶层）+ `CATSUP_instance`（节点）
-
-- 顶层 `{ "root": 0, "list": [ { "name", "axes", "brep": <CATSUP_brep>, "children": [node idx…] } ] }`；模型空间 = `list[root]`（SU 的 model 也是一个 definition）。
-- 节点 `CATSUP_instance: { "definition": i, "overrides": { "materials": { <face-material idx>: <material idx> }, "hidden": false } }` = drill ④「transform + reference + override」= ECS entity 形状；override 只允许**不改几何**的项（材质替换 / 显隐 / extras），改几何 = Make Unique（新 definition，SU 同款）。嵌套 = children 里再放 instance 节点（有限深 DAG，「component 引用 component 我倒能接受」）。
-- core 里同一 definition 的实例共享一个 `mesh`；展平出的子树节点 `extras.catsup.flattened = true`，reader 不看。
-- 跨文件的 definition（prefab 库）= 2.1 `externalAssets`（§5.4），不在本扩展里。
-
-### 5.4 丢进来的 glTF 模型（原子；用 2.1 core，不另起扩展）
-
-- **本体（proposal L21/L66，定型）**：一个 glb 模型是**原子**——不转成 SU 几何、不可进入编辑、game-ready 高模也安心放；文档里的足迹 = 一个节点 `{ translation, rotation, scale, externalAsset: i, extras: { …variation… } }`，`externalAssets[i].file → files[j]`。
-- **两种存法都是标准的**（L66「not sure to ship it with level file or leave them as sidecar」→ 两个都给，按资产选）：`files[j].uri = "props/bench.glb"`（旁侧库，相对本文件所在 store 文件夹；Collection，改名裂引用是已知 wart）或 `files[j].bufferView`（内嵌，自包含）。内建资产（Tomato & Sam、缩小帽 rig）= app 保留 uri 前缀（三方见空节点，无所谓）。
-- **variation 元数据**（L66「少量 variation 的 metadata」）= 该节点 extras：`{ tint, seed, clip:"scared", tags:[…] }`——键开放，属游戏层词汇（GDTF 纪律）。
-- **组件与原子的关系**：definition 的 `children` 里可以放原子节点（家具进房子组件）；原子不能包含 SU 几何（它是叶子）。CatsUp 动词（拉出一只猫娘 / PickUp 栈 / drop）都是运行时，只落这一个节点。
-- 三方读到：Blender / three 会按 2.1 把外部资产实例化进场景（2.0 加载器忽略 → 空节点）；「烘进来」的扁平导出（把原子 mesh 拷进本文件）另做。
-
----
+现在只写 `formatVersion / settings / lastView`，其余字段空数组或缺省——形状定死，内容按纪元填。
 
 ## 6. 分级 + 无地 = WeebPaint 标准
 
@@ -240,12 +289,11 @@ environment（天空 / 雾 / 风）等渲染纪元字段有内容时再加（同
 
 **已答（user 09-20 纠偏）**：核心本体定型、现在写全（§5，含 §5.4 丢模型）；GDTF 教训只管游戏层——已按此改 rev3。
 
-**第三轮**：
-- (a) §2「一个 glb」+ `.glb` 扩展名 —— 点头 / 打回？
-- (b) §5.2 整数微米（JSON 内联；大模型时换 2.1 SIGNED_INT）—— 点头 / 改 DOUBLE 存米？
-- (c) store 加「头片 peek」（§9）—— 准 escalate 到 store？
-- (d) 4/5 两条沿用提案 —— 默认沿用，不点头也开工。
-- (e) §5.3 override 只许不改几何项（材质 / 显隐 / extras），改几何 = Make Unique —— SU 同款，默认沿用。
+**第三轮已答（user 2026-09-20）**：(a) 一个 glb + `.glb` **同意**；(b)「整数的话能存多大的范围。要不要做 32 64 两个选项」→ §5.2：JSON 内联到 2⁵³ 精确（±9×10⁹ m），二进制写入器按包围盒自动选 int32/int64，不做用户选项；(c) store 头片 peek **同意**（escalate 走 `pwa-cloud-store` skill）；(d)「不懂」→ 人话：
+- **分池**：文件里每个 group 自带自己的顶点/边/面表（没分组的几何在 0 号表），而不是整个组件一张大表再给每个元素标「属于哪个 group」。为什么：内核到底要不要让 group 内外的几何共用顶点还没定（B1），按 group 分表两种内核都能读。对用户无感。
+- **extras 放 ECS**：glTF 每个节点都有一个自由 JSON 口袋叫 `extras`；关卡元数据（碰撞开关 / 出生点 / 巡逻路径这类游戏层信息）放这个口袋而不是我们的扩展，因为 Godot / Blender 导入 glb 时会自动把 extras 读进节点的 metadata / custom properties，三方引擎零代码就拿到。
+- **override 只许不改几何**：同一个 component 的多个实例，每个实例可以单独换材质 / 隐藏，但不能单独改形状；要改形状 = SU 的 Make Unique（复制成新 definition）。就是 SU 的规则。
+三条都按默认沿用。**(a)(c) 过 → A18 可开工，等 user「开做」。**
 
 ---
 
