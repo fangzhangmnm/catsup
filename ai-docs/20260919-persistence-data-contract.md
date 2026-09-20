@@ -30,7 +30,7 @@
 | 肥皂膜 B-rep、group 轴框、component 定义与实例（proposal L11/L21、drill L73–83、B1「group 存轴，顶点存 component 坐标」） | CATSUP_brep / definitions / instance | node 共享 mesh = 实例 | **定型，现在** |
 | 缩略图（图库封面） | core `asset.thumbnail` → `images[i]`（2.1） | glTF 2.1 | **定型，现在** |
 | 材质 / 贴图 / 油漆桶=拉矩形设贴图+UV（E8、L72 auto UV） | core `materials` / `textures` / `images`；面前后材质 + UV 在 CATSUP_brep（§5.2 已定字段） | PBR、`KHR_texture_transform`、`KHR_materials_unlit`（复古）、sampler NEAREST | **定型**；实现在贴图纪元 |
-| **embedding WeebPaint**（user 09-19）/ savefile embed ora（B14 案 1）/ bodypaint（案 2） | CATSUP：image 挂一个 ora 源 bufferView（同 `KHR_draco` 自管 bufferView 的先例）；png 是它的 bake | ORA | WeebPaint 嵌入时 |
+| **embedding WeebPaint = iframe + ORA 交接协议**（user 2026-09-06 journal L294「iframe 加 ora 交接协议同意。这个比跨 tab 好」；postMessage + Transferable；iframe 里的 WeebPaint 跑无地模式、永不碰 OneDrive，CatsUp 是存储 master——appfolder 墙因此无碍）/ savefile embed ora（B14 案 1） | **默认嵌入**（user 原意：嵌的是小贴图；20 张 N64 贴图 ≈ 200 KB）：ORA 裸字节进 bufferView（`CATSUP_source`），**glTF image 直接指向 ORA 内 `mergedimage.png` 的字节区间**（要求 WeebPaint 的 zip 写入器对 PNG 项用 STORED——PNG 已压缩，deflate 只省 0–3%）→ 单层贴图总成本 ≈ 2× PNG + 缩略图，零重复；大原稿走显式「拆到旁侧」（Blender pack/unpack 同款，`files[].uri`，不做自动阈值只提示） | ORA / glTF 2.1 `files` | WeebPaint 嵌入纪元 |
 | **丢进来的 glTF 模型 = 原子** / 家具 / 3D Warehouse（L21「prefab 是 ngon 的 glb atom，不进 SU 的数据结构」、L66「足迹就是一个 transform + 一个 reference 以及少量 variation 的 metadata 的 ECS」） | core `files` + `externalAssets` + `node.externalAsset`（2.1）+ 节点 extras 装 variation（§5.4） | glTF 2.1 | **定型，现在写定；实现在 prefab 纪元** |
 | **GTA VCS 级**：流式开放世界、数万实例（user 09-19、L13/L37） | core：外部资产按 cell 分文件、`node.boundingVolume` 做 BVH/剔除、`EXT_mesh_gpu_instancing`、GLB v3 64 位 | glTF 2.1 + 已批准扩展 | 开放世界纪元 |
 | collision 默认开 + override/proxy（L70、E12 原则）、VR 碰撞 | core `shapes`（box/sphere/capsule/cylinder/plane）+ `node.boundingVolume`；extras `collision:{mode}` | glTF 2.1 core；`KHR_collision_shapes`/`KHR_physics_rigid_bodies` 仍 review draft | VR 碰撞代理需要时 |
@@ -111,6 +111,12 @@ BIN chunk
 | **合计** | | **≈ 55 KB**（无颜色层）；`EXT_meshopt_compression`（bake 与 B-rep 的 bufferView 都能压）后 **≈ 30 KB** |
 
 对照：rev3/4 的 JSON 内联 B-rep ≈ 150–200 KB；带 float32 法线不共享顶点的朴素 bake ≈ 400 KB。规则：**裸二进制先落地，meshopt 是同一纪元内的开关**——golden 体积测试给每个 golden 场景一个预算，超了就开压缩。bake 各行的数字只是导出器的目标（§4 原则一），怎么达到归导出器 spec。
+
+**压缩政策（user 2026-09-20 三问后定）**：
+- **GLB 本身不压缩**（binary = 打包不是压缩；JSON chunk / BIN chunk 都是裸字节），**整文件永不压**（`.glb.gz` = 不再是 GLB，三方全断）。
+- **JSON 只能不长，不能压**：文件内无标准手段压 JSON；glTF 的答案是大块搬进二进制（实例多 → `EXT_mesh_gpu_instancing` / 我们的每实例数据走 bufferView 表）。JSON = 固定 ~2 KB 结构开销，不随几何长；字段名不缩写（防 hidden convention）。
+- **按 payload 类别**：几何流（顶点 / 索引 / B-rep）按需 `EXT_meshopt_compression`（只对我们自己读的流；bake 压不压归导出器按目标选：Blender 只认 Draco、web 认 meshopt）；**媒体（PNG / JPEG / KTX2 / ORA / 缩略图）永远裸存，不再压**（已压缩，再压 0–2% 白烧 CPU，meshopt 对非属性字节不适用）。
+- user「顶点之类的压缩本来油水就不多」→ meshopt 开关 **park**，等真有 N64 级样本超预算再开。
 
 ### 3.3 世界尺度契约（no farland；答「这个心智模型舒服吗…说清楚、约束好」）
 
