@@ -18,8 +18,8 @@ export interface CatsupDocument {
   bakeMode: BakeMode;
   root: { name: string; brep: BrepSnapshot; extras?: Record<string, unknown> };
   thumbnail?: { mimeType: string; bytes: Uint8Array };
-  /** round-trip 保真：读到的未知顶层键 / 未知扩展 / extras，写回时原样带上（v1 限 JSON；未知扩展的二进制不带——总账 A18 待办）。 */
-  carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; brepKeep?: Record<string, unknown> };
+  /** round-trip 保真：读到的未知顶层键 / 未知扩展 / extras 原样带回；其中任何 `{ bufferView: N }` 引用的二进制也随 `views` 携带，写回时重新落 BIN 并重映射索引（契约 §7 第 1 条）。 */
+  carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; brepKeep?: Record<string, unknown>; views: Map<number, Uint8Array> };
 }
 
 export const DEFAULT_SETTINGS: DocumentSettings = { displayUnit: "m", gridStep: 1, snapIncrement: 0.1, absoluteGrid: false };
@@ -29,6 +29,6 @@ export function newDocument(brep: BrepSnapshot, name = "model"): CatsupDocument 
     settings: { ...DEFAULT_SETTINGS },
     bakeMode: "wysiwyg",
     root: { name, brep },
-    carry: { topLevel: {}, extensions: {}, documentExtra: {}, definitionsExtra: {} },
+    carry: { topLevel: {}, extensions: {}, documentExtra: {}, definitionsExtra: {}, views: new Map() },
   };
 }

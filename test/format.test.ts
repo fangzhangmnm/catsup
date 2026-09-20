@@ -87,6 +87,27 @@ describe("format: golden 往返", () => {
     eq(out.extensions.CATSUP_document.settings.gridStep, 1);
   });
 
+  it("round-trip 保真（二进制）：未知扩展引用的 bufferView 随行、重写后字节一致且索引重映射", () => {
+    const bytes = writeCatsup(newDocument(SCENES.box().toBrep(), "t"));
+    const { json, bin } = decodeGlb(bytes) as { json: any; bin: Uint8Array };
+    const payload = new Uint8Array([7, 7, 7, 7, 8, 8, 8, 8]);
+    const grown = new Uint8Array(bin.byteLength + 8); grown.set(bin); grown.set(payload, bin.byteLength);
+    json.bufferViews.push({ buffer: 0, byteOffset: bin.byteLength, byteLength: 8 });
+    json.buffers[0].byteLength = grown.byteLength;
+    const idx = json.bufferViews.length - 1;
+    json.extensions.FOO_bin = { blob: { bufferView: idx, note: "opaque" } };
+    json.extensions.CATSUP_definitions.list[0].brep.attributes.face = { "plugin:heat": { type: "u8", bufferView: idx } };
+    const doc = readCatsup(encodeGlb(json, grown));
+    eq(doc.carry.views.size, 1);
+    const out = decodeGlb(writeCatsup(doc)) as { json: any; bin: Uint8Array };
+    const newIdx = out.json.extensions.FOO_bin.blob.bufferView;
+    assert(typeof newIdx === "number" && newIdx !== idx, "索引重映射");
+    eq(out.json.extensions.CATSUP_definitions.list[0].brep.attributes.face["plugin:heat"].bufferView, newIdx, "同一视图同一新索引");
+    const bv = out.json.bufferViews[newIdx];
+    const got = out.bin.subarray(bv.byteOffset, bv.byteOffset + bv.byteLength);
+    eq(Array.from(got).join(","), Array.from(payload).join(","), "字节一致");
+  });
+
   it("拒开比 app 新的子结构版本（FormatTooNewError），老版本缺迁移步骤报错，缺 version 视为 1", () => {
     const bytes = writeCatsup(newDocument(SCENES.box().toBrep(), "t"));
     const { json, bin } = decodeGlb(bytes) as { json: any; bin: Uint8Array };

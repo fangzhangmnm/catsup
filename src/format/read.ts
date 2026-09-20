@@ -8,6 +8,7 @@ import type { CatsupDocument } from "./document.ts";
 import { DEFAULT_SETTINGS } from "./document.ts";
 import { migrateExtension } from "./migrate/index.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
+import { collectBufferViewRefs } from "./carry.ts";
 
 const fail = (msg: string): never => { throw new Error(`readCatsup: ${msg}`); };
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -67,6 +68,9 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   for (const [k, v] of Object.entries(defsExt)) if (!DEF_KEYS.has(k)) definitionsExtra[k] = v;
   const brepKeep = { attributes: brepJson.attributes, curves: brepJson.curves, groups: brepJson.groups, ...(brepJson.extras ? { extras: brepJson.extras } : {}) };
 
+  // 未知内容引用的二进制随行（索引 = 本文件的 bufferView 索引；写回时重映射）
+  const views = new Map<number, Uint8Array>();
+  for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep])) views.set(i, new Uint8Array(view(i)));
   const settingsIn = isObj(docExt.settings) ? (docExt.settings as Record<string, unknown>) : {};
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
   return {
@@ -75,6 +79,6 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     bakeMode: bake.mode === "engine" ? "engine" : "wysiwyg",
     root: { name: typeof rootDef.name === "string" ? rootDef.name : "model", brep, ...(isObj(rootDef.extras) ? { extras: rootDef.extras as Record<string, unknown> } : {}) },
     ...(thumbnail ? { thumbnail } : {}),
-    carry: { topLevel, extensions, documentExtra, definitionsExtra, brepKeep },
+    carry: { topLevel, extensions, documentExtra, definitionsExtra, brepKeep, views },
   };
 }

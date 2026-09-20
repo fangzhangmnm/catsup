@@ -9,6 +9,7 @@ import { bakeDefinition } from "./bake.ts";
 import type { CatsupDocument } from "./document.ts";
 import { EXTENSION_VERSIONS } from "./migrate/index.ts";
 import { MIN_GLTF_VERSION, WRITE_GLTF_VERSION } from "./migrate/gltf/index.ts";
+import { remapBufferViewRefs } from "./carry.ts";
 
 export const CATSUP_EXTENSIONS = ["CATSUP_document", "CATSUP_definitions", "CATSUP_brep", "CATSUP_instance"] as const;
 
@@ -33,10 +34,15 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const brep = canonicalize(doc.root.brep);
   const baked = bakeDefinition(brep, sink, 0);
   for (const [i, t] of baked.bufferViewTargets) bufferViews[i] = { ...bufferViews[i], target: t };
-  const brepJson: CatsupBrepJson = encodeBrep(brep, sink, doc.carry.brepKeep as never);
+  // 携带的未知二进制先落 BIN，再把未知 JSON 里的旧索引改成新索引
+  const viewMap = new Map<number, number>();
+  for (const [oldIdx, bytes] of doc.carry.views) viewMap.set(oldIdx, sink.add(bytes));
+  const remap = (old: number): number => { const n = viewMap.get(old); if (n === undefined) throw new Error(`writeCatsup: carried JSON references bufferView ${old} that was not carried`); return n; };
+  const carry = remapBufferViewRefs({ topLevel: doc.carry.topLevel, extensions: doc.carry.extensions, documentExtra: doc.carry.documentExtra, definitionsExtra: doc.carry.definitionsExtra, brepKeep: doc.carry.brepKeep ?? {} }, remap);
+  const brepJson: CatsupBrepJson = encodeBrep(brep, sink, carry.brepKeep as never);
 
   const json: Record<string, unknown> = {
-    ...doc.carry.topLevel,
+    ...carry.topLevel,
     asset: { version: WRITE_GLTF_VERSION, minVersion: MIN_GLTF_VERSION, generator: `CatsUp ${APP_VERSION}`, ...(thumbnail !== undefined ? { thumbnail } : {}) },
     extensionsUsed: [...CATSUP_EXTENSIONS],
     extensionsRequired: [],
@@ -49,20 +55,20 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     scenes: [{ nodes: [0] }],
     scene: 0,
     extensions: {
-      ...doc.carry.extensions,
+      ...carry.extensions,
       CATSUP_document: {
         version: EXTENSION_VERSIONS.CATSUP_document,
         formatVersion: 1,
         settings: doc.settings,
         bake: { mode: doc.bakeMode, generator: `CatsUp ${APP_VERSION}` },
         ...(doc.lastView !== undefined ? { lastView: doc.lastView } : {}),
-        ...doc.carry.documentExtra,
+        ...carry.documentExtra,
       },
       CATSUP_definitions: {
         version: EXTENSION_VERSIONS.CATSUP_definitions,
         root: 0,
         list: [{ name: doc.root.name, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [], nodes: [], brep: brepJson, ...(doc.root.extras ? { extras: doc.root.extras } : {}) }],
-        ...doc.carry.definitionsExtra,
+        ...carry.definitionsExtra,
       },
     },
   };
