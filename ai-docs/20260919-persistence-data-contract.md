@@ -1,6 +1,6 @@
-# CatsUp 持久化数据契约（远见版）—— 设计稿 rev6，第五轮已答
+# CatsUp 持久化数据契约（远见版）—— 设计稿 rev7，第六轮已答
 
-> as-of v0.4.6 / 2026-09-20 · created by Claude Fable 5.1 2026-09-19 · **rev2 2026-09-20（edited by Claude Fable 5.1）：按 user 第二轮回答 + glTF 2.1 草案 schema + GDTF 教训重写；rev1 的「ORA 式 zip 薄壳」判**作废**，改为一个 `.glb`。rev3 同日：user 纠偏「我们不是游戏引擎，我们是 sketchup 竞品，也许有做 data driven 场景编辑器的潜力，所以我觉得我们的 spec 不会像 gdtf 里面说的那么未定型，而是有一个比较明确的图像」「还记得我说的那一大堆 component, group，以及丢 gltf 模型之类的早期设想吗」→ SU 竞品 + 场景编辑器的核心本体**现在写定**（§5），GDTF 教训只管游戏层词汇。**rev4 2026-09-20**：user「核心还是 sketchup，好好想一下」→ §5 改成 **SketchUp .skp 本体逐项对照表**（Edge/Face/Curve/Group/Definition/Instance/Image/SectionPlane/Guide/Dimension/Text/Material/Tag/Scene/Style/Shadow/ModelInfo/Attributes），每项落哪、三方看到什么；第三轮 (a)(c) 同意、(b) 整数范围答在 §5.2、(d) 用人话解释在 §10；§3.1 答「和只支持 2.0 的工具兼容吗」。**rev5 2026-09-20**：user 第四轮「为什么用 json 而不是二进制。大文件啊。以及我还是希望 glb 节省流量的！你看我 catsup 也做的很抠。如果一个 n64 的小模型希望包大小也相应的很小」→ B-rep **全二进制**、bake 瘦身、§3.2 体积预算；「我记得我拍过，group 是纯编辑逻辑。是一个数组。component 才是 object 层…命名=commitment and frozen。我怕命名。group 是哑变量。就像用 tensor network 去逃 einsum 的上下表追踪」→ group 去掉 name/hidden/locked/tag，只剩成员 + 轴（考古：与 09-06「编辑时语义」、09-07 B13「transient、不命名、无 hierarchy tree」一致）；「我会支持 blender 式的有机体角色建模，骨骼，以及 minecraft 式的高度图和体素地形。所以自定义格式蛮多的。也许 backward compatibility 逃不了，而是应该第一天设计。每个子数据结构都有自己的版本拍，然后专门一个文件夹放迁移代码」→ §7 改：每个子结构 = 独立扩展 + 独立版本 + `src/format/migrate/`，后门退为兜底。**rev6 2026-09-20**：user 第五轮「关于面属性，可以想象超级马里奥 64 的关卡。确实会给面打 tag。tag 需要有很强的自定义性。所以也许 id+字符串名称表？然后保存的时候尽量用最低的位精度。能小就小。对于非 gltf 规范的可以用很小的位精度。这也是整数无损的好处之一。取决于 bbox 大小。那么 uv 的精度你怎么看，uv 很多场景会跑到 1 外面。以及 autouv 的时候也许不保存 uv。然后顶点色和顶点光照也是我未来一定会做的」→ §5.1 tag 表、§5.2 位宽 / 单位选择、面贴图定位（不存逐顶点 UV）、颜色层；§4 bake 的 tag 分 primitive 与 COLOR_n。**
+> as-of v0.4.6 / 2026-09-20 · created by Claude Fable 5.1 2026-09-19 · **rev2 2026-09-20（edited by Claude Fable 5.1）：按 user 第二轮回答 + glTF 2.1 草案 schema + GDTF 教训重写；rev1 的「ORA 式 zip 薄壳」判**作废**，改为一个 `.glb`。rev3 同日：user 纠偏「我们不是游戏引擎，我们是 sketchup 竞品，也许有做 data driven 场景编辑器的潜力，所以我觉得我们的 spec 不会像 gdtf 里面说的那么未定型，而是有一个比较明确的图像」「还记得我说的那一大堆 component, group，以及丢 gltf 模型之类的早期设想吗」→ SU 竞品 + 场景编辑器的核心本体**现在写定**（§5），GDTF 教训只管游戏层词汇。**rev4 2026-09-20**：user「核心还是 sketchup，好好想一下」→ §5 改成 **SketchUp .skp 本体逐项对照表**（Edge/Face/Curve/Group/Definition/Instance/Image/SectionPlane/Guide/Dimension/Text/Material/Tag/Scene/Style/Shadow/ModelInfo/Attributes），每项落哪、三方看到什么；第三轮 (a)(c) 同意、(b) 整数范围答在 §5.2、(d) 用人话解释在 §10；§3.1 答「和只支持 2.0 的工具兼容吗」。**rev5 2026-09-20**：user 第四轮「为什么用 json 而不是二进制。大文件啊。以及我还是希望 glb 节省流量的！你看我 catsup 也做的很抠。如果一个 n64 的小模型希望包大小也相应的很小」→ B-rep **全二进制**、bake 瘦身、§3.2 体积预算；「我记得我拍过，group 是纯编辑逻辑。是一个数组。component 才是 object 层…命名=commitment and frozen。我怕命名。group 是哑变量。就像用 tensor network 去逃 einsum 的上下表追踪」→ group 去掉 name/hidden/locked/tag，只剩成员 + 轴（考古：与 09-06「编辑时语义」、09-07 B13「transient、不命名、无 hierarchy tree」一致）；「我会支持 blender 式的有机体角色建模，骨骼，以及 minecraft 式的高度图和体素地形。所以自定义格式蛮多的。也许 backward compatibility 逃不了，而是应该第一天设计。每个子数据结构都有自己的版本拍，然后专门一个文件夹放迁移代码」→ §7 改：每个子结构 = 独立扩展 + 独立版本 + `src/format/migrate/`，后门退为兜底。**rev6 2026-09-20**：user 第五轮「关于面属性，可以想象超级马里奥 64 的关卡。确实会给面打 tag。tag 需要有很强的自定义性。所以也许 id+字符串名称表？然后保存的时候尽量用最低的位精度。能小就小。对于非 gltf 规范的可以用很小的位精度。这也是整数无损的好处之一。取决于 bbox 大小。那么 uv 的精度你怎么看，uv 很多场景会跑到 1 外面。以及 autouv 的时候也许不保存 uv。然后顶点色和顶点光照也是我未来一定会做的」→ §5.1 tag 表、§5.2 位宽 / 单位选择、面贴图定位（不存逐顶点 UV）、颜色层；§4 bake 的 tag 分 primitive 与 COLOR_n。**rev7 2026-09-20**：user 第六轮「90 亿米…这个心智模型舒服吗。这种核心用户契约还是要说清楚滴。然后约束好。no farland…这个比 int64 的更大的范围精度好，因为给 float64 面子了」「每个 blob 按需用最抠精度。比 int32 还抠的也有」「normal 没有的话有平滑组或者 auto angle 吗」「几何不管自定义游戏规则。只做 tag」「有特定 uv 也支持…不同的 uv data 也许需要和 geom 分拍版本？会不会太复杂了」「一组面用一个投影也是一种…gltf 这种交付物的格式比 blend 这种 content creation program 的格式要 wise？再学习一下 blend 和 skp」→ §3.3 世界尺度契约、§5.2 位宽阶梯 / 平滑 / 四档贴图定位 + 共享投影 / 流自描述、§12 .blend / .skp / glTF 策略对照。同轮追加「bake 应该不在数据契约里面而在导出器渲染器 spec 里面吧，到时候就事论事的干。就两个原则。1 省流。2 第三方查看器尽量 wysiwyg（which means gi baking, sometimes. lots of time i even use unlit and vertex color baked lighting. for game engine export there is another escape hatch. or when saving we can choose wysiwyg or game engine friendly）」→ §4 只剩两原则 + 保存模式字段，细则移出契约。**
 > **性质：提案，未拍板。** user 原话定的题（2026-09-19）：「现在就设计一个有远见的持久化数据契约…看全量 wishlist 包括 overambitious…多依托现有规范」「尽量是类似 ora 的依照已经是格式标准的框架」「考虑后面会有 GTA VCS 级别的场景，甚至 zbrush」；第二轮（2026-09-19/20）：「我不喜欢散一地，但是我们也有 zip 了。以及是否可以就一个 glb。新的 gltf 规则本来就支持 thumb!」「远景还有就是我会 embedding weebpaint」「我确实喜欢整数。但是这个是谁要求的？会不会和 gltf 大家」「gltf 的 new spec 你看一下，有很多我会内耗的」「你可以看一下我以前打回的那个 GDTF 的 proposal，以及后来的反思反省。gtdf is obsolete!」「.catsup 还是 .glb」「无地按照 weebpaint 标准做」「可以 bump minor」「它是被内容需求逼出的自适应格式 嗯应该就是那个教训」。
 > 时机：推翻 2026-09-06「SU 1.0 之后再定」（总账 B5）；容器：09-06 的「zip」拍板被 user 本轮「是否可以就一个 glb」重开——本稿答：可以，理由 §2。
 > **持久化立宪（user 2026-09-20）：「我接受了 backward compatibility 之后就不需要后面啦。而且现在我们 backward compatibility 反而是第一天的设计立宪之一」→ 09-19 的后门政策（无向后兼容 + AI 脚本改 OneDrive）作废；向后兼容 = 第一天立宪，§7 是它的条文。追加：「第一天就做好完美 backward compatibility」「以后随着 gltf 格式进化，我们也会跟着变。比如如果 gltf 支持体素了，我们数据会和他对齐」「跨 gltf 版本的 compatibility 也要做」→ §7 第 9/10 款。**
@@ -15,6 +15,7 @@
 - **group = 哑变量**（user 09-20）：只是「成员的数组 + 一个轴框」，**没有名字、没有显隐 / 锁 / tag / attributes**——那些都在成员（边 / 面）和 object 层（component 实例）上；不显示、不进 hierarchy 树（B13）。
 - **两个层，两种纪律**（user 09-20 纠偏后的口径）：**① SU 竞品 + data-driven 场景编辑器的核心本体是定型的，现在写全**——肥皂膜 B-rep、group（sticky 边界 + 轴框，编辑时语义）、component（definition + instance = transform + reference + override）、**丢进来的 glTF 模型 = 原子**（不进 SU 数据结构，足迹 = transform + reference + 少量 variation 元数据 = ECS entity，proposal L21/L66）、材质（面前后）、tags / hide、scenes（相机）、单位；**② 游戏层词汇（extras 里的组件包）才适用 GDTF 教训**（user 2026-08-14：「genre 的原语归私设。我掉进的坑就是 universal-ness」「我不定规矩，规矩自己长出来。被内容逼出来」「关系型也是表。guid 阴魂不散」）→ 组件键开放集、不预定义 genre 原语、不铸 id 除非跨文件引用逼出来（那时用 2.1 UID）。
 - **远见三件的落点**：GTA VCS 级 = 2.1 core（`externalAssets` + 包装成 bufferView 的 `files` + `boundingVolume` BVH + 64 位 GLB v3 + `EXT_mesh_gpu_instancing`），零自造；ZBrush / Blender 有机体 / 骨骼 / 高度图 / 体素（user 09-20）= **各自一个 `CATSUP_*` 子结构扩展，各自独立版本戳**（§5.7、§7）；bake 全走 core（三角 / skins / mesh），三方都看得见。**B-rep 全二进制**：顶点整数微米 int32（按包围盒自动升 int64）、边/面/组是索引流，只有结构与小元数据是 JSON（§5.2）。
+- **世界尺度契约 = no farland**（user 09-20；§3.3）：**单个 definition 内 ≤ 4 000 km 半径（2²² m）**，内核算术 ulp < 1 nm，每次推断都精确落回 1 µm 格；**世界（实例摆放 / 外部 cell）≤ 9.0×10⁹ m 半径（2⁵³ µm，给 float64 面子）**，实例平移在我们的扩展里存精确整数微米；越界 = 拒绝操作并报出，**永不降精度**。Outer Wilds 整个星系塞在一个 definition 里都绰绰有余。
 - **抠**（user「我还是希望 glb 节省流量的」）：bake 去 NORMAL（规范要求加载器自算平面法线）、位置 int16 量化（`KHR_mesh_quantization`，2.1 升 core）、无贴图时顶点共享、uint16 索引、缩略图 192 px JPEG；N64 小模型目标 **≤ 60 KB 裸 / ≤ 35 KB meshopt**（§3.2 预算表）。
 - **演化 = 立宪：向后兼容第一天设计**（§7；user 09-20「backward compatibility 反而是第一天的设计立宪之一」）：每个子结构独立版本戳 + `src/format/migrate/` + 冻结旧样本语料 + round-trip 保真；老文件永远能开；**后门作废**。**无地 = WeebPaint 标准**（§6）：transient / 文件家 / 图库家三态，IDB 永不当家，T-crash 盲快照。
 
@@ -109,7 +110,20 @@ BIN chunk
 | 缩略图 | JPEG 192 px | ~10 KB |
 | **合计** | | **≈ 55 KB**（无颜色层）；`EXT_meshopt_compression`（bake 与 B-rep 的 bufferView 都能压）后 **≈ 30 KB** |
 
-对照：rev3/4 的 JSON 内联 B-rep ≈ 150–200 KB；带 float32 法线不共享顶点的朴素 bake ≈ 400 KB。规则：**裸二进制先落地，meshopt 是同一纪元内的开关**——golden 体积测试给每个 golden 场景一个预算，超了就开压缩。
+对照：rev3/4 的 JSON 内联 B-rep ≈ 150–200 KB；带 float32 法线不共享顶点的朴素 bake ≈ 400 KB。规则：**裸二进制先落地，meshopt 是同一纪元内的开关**——golden 体积测试给每个 golden 场景一个预算，超了就开压缩。bake 各行的数字只是导出器的目标（§4 原则一），怎么达到归导出器 spec。
+
+### 3.3 世界尺度契约（no farland；答「这个心智模型舒服吗…说清楚、约束好」）
+
+两个半径，两种保证，都是**硬边界**（越界拒绝，不是渐变劣化——Minecraft Far Lands 是 float 精度渐变出来的，我们没有渐变）：
+
+| 层 | 半径 | 为什么是这个数 | 保证 |
+|---|---|---|---|
+| **单个 definition 的几何**（一个组件 / 模型空间里的裸几何） | **4 000 km**（2²² m，地球半径量级） | 内核用双精度米做算术（平面拟合、交点、公垂点），double 在 2²² m 处 ulp = 2⁻³⁰ m ≈ 1 nm ≪ 1 µm 格，所以每次推断的结果量化回格点时**无歧义**；再远 ulp 会逼近 µm，重合即同一开始误判 | 推断精确、sticky 不误判、无抖动 |
+| **世界**（实例平移、外部 cell、相机） | **9.0×10⁹ m**（2⁵³ µm；user「给 float64 面子」） | 文件里实例平移存精确整数微米（`CATSUP_instance.translationUm`，int64 但值 < 2⁵³），app 内用 double 读回仍是精确整数；bake 的 `node.translation` 是 float32（三方渲染用，9×10⁹ m 处分辨率 512 m，只影响三方看到的摆放，不影响我们） | 摆放精确到 1 µm；跨实例推断（吸到 9×10⁹ m 外另一实例的顶点）允许 ±2 µm 误差但仍落格点、不漂 |
+
+- 心智模型：**一个 Outer Wilds 星系 ≪ 一个 definition**；晶壁系半径 = 9×10⁹ m（≈ 0.06 AU，比真的托勒密 / Spelljammer 晶壁小，比任何关卡大 10⁶ 倍）。
+- 要比 4 000 km 大的东西 = 拆成多个 definition / cell 用实例摆（floating-origin 的标准做法，也是 SU 的做法）。
+- 文件层允许 uint64 编码但值永不超 2⁵³；int64 「更大的范围」没有意义，因为内核是 double——user 判断正确。
 
 ### 3.1 和只支持 glTF 2.0 的工具兼容吗（答 user）
 
@@ -117,18 +131,16 @@ BIN chunk
 
 ---
 
-## 4. core = bake 的规则
+## 4. core = bake：契约只定两条原则，细则归导出器 spec
 
-- **坐标**：glTF +Y 上、米、右手。内核 +Z 上 → 只在 `src/format/` 边界换轴（(x,y,z)ᶜ → (x, z, −y)ᵍ），与 OBJ 逃生口同做法；`CATSUP_*` 内数据**保持 Z-up、米**（authoring 零换轴）。
-- **网格（抠）**：每个 definition 一个 `mesh`；面按材质分 primitive（`TRIANGLES`）；**不写 `NORMAL`**（规范：缺省时加载器 MUST 自算平面法线——肥皂膜本来就是平面着色）；`POSITION` = int16 量化 + node 缩放/平移反量化（`KHR_mesh_quantization`，已批准、2.1 升 core；三方广泛支持）；**无贴图的 primitive 顶点共享**（只有带 `TEXCOORD_0` 的面才按面拆顶点）；索引 uint16（< 65536 时）；边一个 `LINES` primitive 复用同一位置 accessor（轮廓粗细是渲染态）。**primitive 按 (材质, tag) 拆**，primitive `extras.tag = name`（马里奥 64 式面属性三方可读）；`TEXCOORD_0` 由面映射算出、写成 `KHR_mesh_quantization` 的 SHORT + `KHR_texture_transform` 缩放（平铺 > 1 照样表示）；颜色层 → `COLOR_0` / `COLOR_1`（RGB ubyte normalized）。`EXT_meshopt_compression` 覆盖 bake 与 B-rep 全部 bufferView，按 §3.2 预算开关。
-- **实例**：definition 的每个 instance = `node{mesh, translation, rotation, scale, extras}`；嵌套 definition 在 bake 里逐实例展平成 node 子树（mesh 共享）——三方看到「实例有 transform、渲染是三角汤」，不引入空节点当容器（proposal L44「healthy boundary」）。
-- **材质 / 灯 / 相机 / 可见性**：标准件（PBR、`KHR_lights_punctual`、`cameras`、`KHR_node_visibility`）；`extras.catsup.colorName` 挂家族色彩库色名。
-- **ECS 元数据 = 节点 `extras`**：`{ tags, components:{ collision:{mode}, marker:{kind}, … } }`；component 键开放集（B2）；未知键保留。
-- **provenance**：`asset.generator` / `asset.copyright`；第三方资产许可 = `KHR_xmp_json_ld`。
-- **bake 是可再生派生物**：读文件时 app 只读扩展重建内核再自己 bake；core 只为三方与「authoring 坏了创意不丢」（E1 哲学）。
-- **明确不用**：`KHR_interactivity`（已批准的行为图扩展）**不装游戏逻辑**——那是 Unity「UnityEvent 接 animator」的 glTF 版；GDTF 反省「业务逻辑描述和幻想世界描述 heaven vs earth」「for LLM the best data is code」；逻辑住代码 / 文本，文件只装世界。
+user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec 里面吧，到时候就事论事的干。就两个原则。1 省流。2 第三方查看器尽量 wysiwyg」。所以本节只写**契约层**的四句话，其余全部归将来的 `ai-docs/<date>-bake-exporter-spec.md`（与渲染引擎 A4 同一个 spec，因为 bake 就是 RenderScene 的文件版）：
 
----
+1. **core 是 bake、只写不读**：app 读文件只读 `CATSUP_*` 重建内核，再自己 bake；core 只为三方与「authoring 坏了创意不丢」（E1）。bake 可再生 → 迁移只搬 authoring。
+2. **原则一：省流**——体积预算（§3.2）是导出器的验收指标，手段（量化、去法线、顶点共享、按需 NORMAL、meshopt…）由导出器 spec 就事论事。
+3. **原则二：第三方查看器尽量 WYSIWYG**——CatsUp 里看到什么，Blender / 网页 viewer / OneDrive 预览就看到什么：常用形态 = `KHR_materials_unlit` + 顶点色 × 烘焙光照预乘进 `COLOR_0`；需要时烘 GI。
+4. **保存模式（user「when saving we can choose wysiwyg or game engine friendly」）**：保存时二选一，文件记录 `CATSUP_document.bake = { "mode": "wysiwyg" | "engine", "generator": "…" }`——`wysiwyg` = 上面那种（三方看到的就是画面）；`engine` = 引擎友好（PBR 材质、颜色层分开不预乘、tag/extras 齐全、不烘 GI）；游戏引擎导出另有逃生口（专门的导出动词，产物不是本文件）。两种模式 authoring 层完全相同，只是 core 不同。
+
+坐标约定仍是契约（导出器不能改）：core 按 glTF +Y 上、米，换轴只在 `src/format/` 边界；`CATSUP_*` 内 Z-up、米。`KHR_interactivity` 不装逻辑（§5.2「几何零语义」同理）。
 
 ## 5. 核心本体 = SketchUp（user「核心还是 sketchup，好好想一下」）
 
@@ -136,7 +148,7 @@ BIN chunk
 
 ### 5.1 SketchUp 本体 → 文件（对照表）
 
-| SketchUp | 我们存哪 | glTF 2.0 三方看到 | 实现 |
+| SketchUp | 我们存哪 | 三方看到（**示意**，细则归导出器 spec） | 实现 |
 |---|---|---|---|
 | **Edge**（soft / smooth / hidden / 投影阴影） | `brep.edges` + `edgeFlags` 位 | `LINES`（hidden 不出） | 现在 |
 | **Face**（loops 带洞、前/后材质、每顶点 UV 贴图定位、hidden、cast/receive shadows） | `brep.faces[{outer, holes, m:[front,back], uv, hidden, flags}]` | `TRIANGLES`（按材质分 primitive；前后材质 = 两组或 `doubleSided`） | 现在（uv / m 贴图纪元填） |
@@ -170,7 +182,7 @@ BIN chunk
 
 **第二内核 / 地形子结构**（user 2026-09-20「我会支持 blender 式的有机体角色建模，骨骼，以及 minecraft 式的高度图和体素地形」；far-horizon §3.5「地形 = 独立 type」）：各自一个扩展、各自版本戳，挂在 definition 上（B2「type = 组件包」：一个 definition 可同时带 brep / mesh / armature…）：
 
-| 子结构 | authoring 扩展（形状等各自纪元） | glTF 2.0 三方看到（bake，core） |
+| 子结构 | authoring 扩展（形状等各自纪元） | 三方看到（示意，归导出器 spec） |
 |---|---|---|
 | Blender 式有机网格（四边 / n-gon、非平面、无 sticky） | `CATSUP_mesh`（顶点 int32 µm、多边形流、UV/法线选项、polygroup、掩码 `_MASK`） | `TRIANGLES`（三角化）+ `COLOR_0` polypaint |
 | 骨骼 / 权重 / 姿态 | `CATSUP_armature`（编辑态：骨长、roll、IK 目标、对称）；权重与静止姿态本身就是 core | `skins` + `joints` + `animations` |
@@ -198,10 +210,12 @@ BIN chunk
   "extras":  {} }
 ```
 
-- **最低位宽（user「尽量用最低的位精度，能小就小，取决于 bbox 大小」）**——整数无损让写入器可以两步选：**① 单位**：内核身份是 1 µm 格，但吸附 / 整数增量画出来的坐标绝大多数落在 mm 或 cm 格上；写入器取「能整除该 definition 全部坐标」的最粗单位（1e-3 → 1e-6 m），无损；**② 位宽**：坐标减去包围盒角 `origin` 后是无符号整数，按 `extent / unit` 选 uint16（≤ 65 m @ mm）/ uint32 / uint64。N64 小模型（≤ 65 m、mm 格）= 6 B/顶点，是 int32 µm 的一半。不做任意 bit 打包——那 20–35% 的收益远不如 **`EXT_meshopt_compression`**（标准扩展，作用于任何 bufferView：delta + 熵友好打包，量化整数流典型 2–4×，bake 也一起压）；两者叠加。位宽 / 单位 / 压缩全是写入器的事，读取器都认，模型不感知。
+- **最低位宽（user「尽量用最低的位精度，能小就小，取决于 bbox 大小」「比 int32 还抠的也有」）**——整数无损让写入器可以两步选：**① 单位**：内核身份是 1 µm 格，但吸附 / 整数增量画出来的坐标绝大多数落在 mm 或 cm 格上；写入器取「能整除该 definition 全部坐标」的最粗单位（1e-2 → 1e-6 m），无损；**② 位宽阶梯 uint8 / uint16 / uint32 / uint64**：坐标减去包围盒角 `origin` 后是无符号整数，按 `extent / unit` 选——一个 25 cm 的道具 @ mm = 250 → **uint8，3 B/顶点**；N64 小模型 ≤ 65 m @ mm → uint16，6 B/顶点；µm/uint32 是兜底。索引流同理按 count 选 uint8/16/32。这就是「每个 blob 按需最抠」——全是写入器的事。不做任意 bit 打包——那 20–35% 的收益远不如 **`EXT_meshopt_compression`**（标准扩展，作用于任何 bufferView：delta + 熵友好打包，量化整数流典型 2–4×，bake 也一起压）；两者叠加。位宽 / 单位 / 压缩全是写入器的事，读取器都认，模型不感知。
 - **整数是谁要求的**（留档）：内核顶点身份 = 1 µm 整数格；float32 24 位尾数在 |x| > 8.4 m 存不住格点；三方不读这些数（bake 的 `POSITION` 是量化 int16），与 glTF 大家无冲突。
-- **贴图定位（答「uv 精度 / uv 跑到 1 外面 / autouv 不存」）**：**不存逐顶点 UV**。SU 的贴图定位本来就是「面平面 → 贴图空间」的一个 2D 映射：默认 = 材质缺省投影（**autoUV，不存任何东西**，算法版本 = brep `version` 的一部分，算法变了 = 一条迁移把旧文件的受影响面冻结成显式映射）；用户调过的面 = 显式映射：**仿射 6 个数**（SU 4 图钉的固定模式：平移 / 缩放 / 旋转 / 斜切）或 **射影 8 个数**（4 图钉自由模式）。数值 = 定点整数：单位 2⁻¹⁶ 贴图重复数、int32（范围 ±32768 次重复、分辨率 1.5×10⁻⁵ ≈ 8K 贴图亚像素）——跑出 [0,1] 多远都无所谓，精度也不随范围掉（这是定点比 float16 好、比 float32 省的原因；写入器同样可按范围降到 int16 = 单位 2⁻¹² / ±8 次重复 / 1/4096 ≈ 4K 贴图一像素）。每面 24–32 B，只有显式定位的面付这个钱。逐顶点 UV 只在有机网格 `CATSUP_mesh` 里出现（那里没有「面平面」）。
-- **颜色层（user「顶点色和顶点光照也是我未来一定会做的」）**：`colorLayers` = 命名的逐**面角**颜色流（顺序 = 面环流；面角而非顶点，因为同一顶点在不同面上颜色可以不同——Blender 的 color attribute 也是 per-corner）；格式默认 `rgb8`（8-bit sRGB，N64/PS1 就是这个精度），需要透明才 `rgba8`，`rgb16` 留给 HDR 光照；**`derived: true` 的层是烘焙产物**（顶点 GI，proposal L68），可丢可重算——数据类 = 随文件运输的缓存。bake：`paint` → `COLOR_0`，`bakedLight` → `COLOR_1`（core 允许多组），有颜色差异的面角不共享顶点。
+- **贴图定位 = 四档（答「uv 精度 / 跑到 1 外面 / autouv 不存 / 特定 uv 也支持 / 一组面用一个投影」）**：**① auto**：什么都不存；**② 共享投影**：`projections[{ kind:"planar"|"box"|"cylindrical", frame, scale }]`，一组面引用同一个 id（SU 的 project texture、Blender 的 box projection；只存一份）；**③ 面映射**：仿射 6 / 射影 8 个定点整数（SU 四图钉）；**④ 显式逐面角 UV**：`faceUV` 流（导入的网格、扭曲贴图；同样定点 2⁻¹⁶ 整数，范围不限）。每面一个 `mappingKind` 字节 + 稀疏索引，只有 ②③④ 的面付钱。以下原写的是 ③：SU 的贴图定位本来就是「面平面 → 贴图空间」的一个 2D 映射：默认 = 材质缺省投影（**autoUV，不存任何东西**，算法版本 = brep `version` 的一部分，算法变了 = 一条迁移把旧文件的受影响面冻结成显式映射）；用户调过的面 = 显式映射：**仿射 6 个数**（SU 4 图钉的固定模式：平移 / 缩放 / 旋转 / 斜切）或 **射影 8 个数**（4 图钉自由模式）。数值 = 定点整数：单位 2⁻¹⁶ 贴图重复数、int32（范围 ±32768 次重复、分辨率 1.5×10⁻⁵ ≈ 8K 贴图亚像素）——跑出 [0,1] 多远都无所谓，精度也不随范围掉（这是定点比 float16 好、比 float32 省的原因；写入器同样可按范围降到 int16 = 单位 2⁻¹² / ±8 次重复 / 1/4096 ≈ 4K 贴图一像素）。每面 24–32 B，只有显式定位的面付这个钱。有机网格 `CATSUP_mesh` 只有 ④（那里没有「面平面」）。
+- **UV 要不要和几何分拍版本（答「会不会太复杂」）**：**不分**——版本号只到子结构（brep 一个），但 brep 里每条可选流**自描述布局**：`faceMapping.layout = "affine-i32-2^-16"`、`colorLayers[].format = "rgb8"`、`faceUV.layout = "corner-i32-2^-16"`。新布局 = 新枚举值，读取器保留旧解码器，写入器只写新的；这和 glTF 自己的做法一样（accessor 用 componentType/type 自描述，没有每个 accessor 一个版本号）。复杂度 = 一个字符串字段，迁移函数按需只碰那一条流。
+- **几何零语义（user「几何不管自定义游戏规则。只做 tag」）**：brep 只认 tag id 与材质索引；tag 的含义在 `document.tags[].extras` 与外部关卡数据里，内核 / 求解器 / bake 一行代码不读 extras。规则进 scenegraph = 禁（§4 不用 `KHR_interactivity` 同理）。
+- **颜色层（user「顶点色和顶点光照也是我未来一定会做的」）**：`colorLayers` = 命名的逐**面角**颜色流（顺序 = 面环流；面角而非顶点，因为同一顶点在不同面上颜色可以不同——Blender 的 color attribute 也是 per-corner）；格式默认 `rgb8`（8-bit sRGB，N64/PS1 就是这个精度），需要透明才 `rgba8`，`rgb16` 留给 HDR 光照；**`derived: true` 的层是烘焙产物**（顶点 GI，proposal L68），可丢可重算——数据类 = 随文件运输的缓存。bake 怎么用它们（wysiwyg 预乘进 `COLOR_0` / engine 分 `COLOR_0`·`COLOR_1`）归导出器 spec。
 - **group 的存法 = 同一池 + 每元素一个组索引**（user「group 是一个数组」的关系式表示，2 B/元素）。同池即 B1 数据层拍板；运行时 sticky 墙语义待内核纪元核实。
 - 平面注册表 / arrangement / faceLinks 不存（从 faces 确定性重建）；膜 = 文件内索引，不铸 id。
 
@@ -220,7 +234,7 @@ BIN chunk
 
 ### 5.4 `CATSUP_instance`（节点）
 
-`{ "definition": i, "overrides": { "materials": { <face-material idx>: <material idx> }, "hidden": false, "locked": false } }` = drill ④「transform + reference + override」= ECS entity 形状。override 只允许**不改几何**的项，改几何 = Make Unique（新 definition，SU 同款）。嵌套 = definition 的 nodes 里再放 instance 节点（有限深 DAG）。core 里同一 definition 的实例共享一个 `mesh`；展平出的子树节点 `extras.catsup.flattened = true`。
+`{ "definition": i, "translationUm": [x,y,z], "overrides": { "materials": { <face-material idx>: <material idx> }, "hidden": false, "locked": false } }` = drill ④「transform + reference + override」= ECS entity 形状。`translationUm` = 精确整数微米（§3.3 世界半径 2⁵³ µm 的承重字段）；core `node.translation` 是它的 float 影子，旋转 / 缩放只在 core。override 只允许**不改几何**的项，改几何 = Make Unique（新 definition，SU 同款）。嵌套 = definition 的 nodes 里再放 instance 节点（有限深 DAG）。core 里同一 definition 的实例共享一个 `mesh`；展平出的子树节点 `extras.catsup.flattened = true`。
 
 ### 5.5 丢进来的 glTF 模型（原子；用 2.1 core，不另起扩展）
 
@@ -347,7 +361,7 @@ BIN chunk
 
 **第四轮已答（user 2026-09-20）**：「90 亿米多大」→ 9×10⁹ m ≈ 0.06 AU ≈ 23 个地月距离 ≈ 6.5 个太阳直径，连水星轨道（5.8×10¹⁰ m）的六分之一都不到——**已无关**：JSON 内联作废，二进制 int32 = 每 definition ±2147 m、自动升 int64。「为什么 json 不用二进制、要抠」→ §5.2 全二进制 + §4 bake 瘦身 + §3.2 预算表。「group 是纯编辑逻辑、一个数组、哑变量、怕命名」→ §5.1/§5.2 group 只剩轴框 + 成员索引。「有机体 / 骨骼 / 高度图 / 体素…backward compatibility 第一天设计，每个子结构版本戳 + 迁移文件夹」→ §5.1 末表 + §7；「接受了 backward compatibility 之后就不需要后门啦…是第一天的设计立宪之一」→ 后门作废，§7 = 立宪条文；「第一天就做好完美 backward compatibility」「跟着 gltf 进化对齐（体素等）」「跨 gltf 版本兼容也要做」→ §7 第 9/10 款。
 
-**第五轮已答（user 2026-09-20）**：马里奥 64 式面 tag → `document.tags` = id + 名称表（id 身份、name 显示、extras 自定义数据），每元素一个 tag id，bake 按 (材质, tag) 拆 primitive + `extras.tag`，标准追随候选 `EXT_mesh_features`/`EXT_structural_metadata`；最低位宽 → 写入器两步选（最粗整除单位 + 包围盒相对无符号位宽）叠 meshopt，不做 bit 打包；UV → 不存逐顶点 UV，面贴图定位 = 仿射 6 / 射影 8 定点整数（2⁻¹⁶，范围不受 [0,1] 限制）；autoUV 不存、算法版本化；顶点色 / 顶点光照 → 命名逐面角颜色层，rgb8 默认，烘焙层标 derived，bake 出 `COLOR_0/1`。**A18 可开工，等 user「开做」。**
+**第五轮已答（user 2026-09-20）**：马里奥 64 式面 tag → `document.tags` = id + 名称表（id 身份、name 显示、extras 自定义数据），每元素一个 tag id，bake 按 (材质, tag) 拆 primitive + `extras.tag`，标准追随候选 `EXT_mesh_features`/`EXT_structural_metadata`；最低位宽 → 写入器两步选（最粗整除单位 + 包围盒相对无符号位宽）叠 meshopt，不做 bit 打包；UV → 不存逐顶点 UV，面贴图定位 = 仿射 6 / 射影 8 定点整数（2⁻¹⁶，范围不受 [0,1] 限制）；autoUV 不存、算法版本化；顶点色 / 顶点光照 → 命名逐面角颜色层，rgb8 默认，烘焙层标 derived，bake 出 `COLOR_0/1`。**第六轮已答（user 2026-09-20）**：世界尺度契约 → §3.3（definition 4 000 km / 世界 9×10⁹ m，越界拒绝不降级，int64 无意义）；比 int32 更抠 → 位宽阶梯含 uint8；平滑 → 逐边 smooth 位，bake 只在有 smooth 边处写 NORMAL，角度阈值是工具不存；几何零语义只认 tag → §5.2；显式 UV 支持 + 一组面共用投影 → 四档贴图定位；UV 与几何不分拍版本、流自描述布局；.blend/.skp/glTF 对照 → §12；「bake 不在数据契约里…两个原则：省流、第三方查看器尽量 wysiwyg…保存时选 wysiwyg 或 game engine friendly」→ §4 缩成两原则 + `bake.mode` 字段。**A18 可开工，等 user「开做」。**
 
 ---
 
@@ -360,3 +374,21 @@ BIN chunk
 5. QoL：A20 配色样张、A21 松笔 unsnap grill。
 
 体重估算：format ~600 行 + 测试；store/gallery 接线 ~400 行；A1 归自己的条目。
+
+---
+
+## 12. .blend / .skp / glTF 三家策略对照（答「交付格式比创作格式 wise 吗」）
+
+| | **.blend**（Blender） | **.skp**（SketchUp） | **glTF**（交付） | 我们取哪一半 |
+|---|---|---|---|---|
+| 本质 | 运行时 C 结构体的内存镜像；文件**内嵌自己的 schema（DNA/SDNA：每个 struct 的字段名 / 类型 / 大小）** | 私有二进制容器，内容是一组「类记录」，**每个类各自带版本号**（CModel / CLayer / CDib …）；随年份出大版本 | 冻结的 JSON schema + 二进制 buffer；扩展用命名空间登记，未知忽略 | 壳 = glTF（冻结、生态）；内容层 = blend/skp 式版本化 |
+| 向后兼容 | **完美**：任何版本的 .blend 都能开——读取器按文件内 DNA 解释旧 struct，再跑 `do_versions`（逐版本补丁代码，二十多年只增不删） | 新 SU 开旧文件没问题；**旧 SU 开不了新文件**，要「另存为旧版本」显式降级 | core 2.0 自 2017 冻结，2.1 只加不改；扩展各自版本 | user 的「每子结构版本 + 迁移文件夹」= skp 的每类版本 + blend 的 do_versions，两家都验证过 |
+| 向前兼容 | 部分：旧 Blender 靠 DNA 能读新文件里认识的字段，不认识的字段丢（再保存就没了） | 无 | 好：未知属性 / 扩展按规范忽略 | 我们：未知**保留**（round-trip），比 blend 强；比 app 新的子结构版本拒开（不猜） |
+| 三方可读 | 几乎只有 Blender 自己 | 只有 SU + 官方 SDK | 所有引擎 / DCC | glTF core = bake 永远可读 |
+| 内容与程序的耦合 | 极紧（文件 = 内存布局） | 紧 | 零（文件 = 交付契约） | authoring 在扩展里紧耦合我们的内核（无法避免，B-rep 就是我们的），bake 零耦合 |
+| 缩略图 | 有（文件头 PNG） | 有（PNG，资源管理器预览） | 2.1 `asset.thumbnail` | 同 |
+| 教训 | ① 文件自带 schema 让「旧文件永远能开」变成机械活；② versioning 代码只增不删是可持续的（Blender 证明了 25 年） | ① 每类独立版本号是对的；② 「只能往上不能往下」用户能接受 | ① 冻结 + 命名空间扩展 = 别人不会弄坏你；② 交付格式不适合装 authoring | — |
+
+**结论**：不是「glTF 比 blend wise」，是**分工**——交付层要冻结（glTF 做对了），创作层必然随程序演化（blend / skp 都靠版本化代码活下来）。我们的 `.glb` = 两层叠在一个文件里：core 按 glTF 的纪律冻结，`CATSUP_*` 按 blend/skp 的纪律版本化。**从 .blend 多学一招（可选，DNA-lite）**：每条流自描述布局（§5.2）已经是轻量 DNA；若将来想让「没有迁移代码的读者」也能解释旧文件，可在 `CATSUP_document` 里放一个几 KB 的布局说明（各流的字段表），按需再加。
+
+来源：Blender 开发者文档「Blender File Format / DNA structs & do_versions」；SketchUp C SDK 文档（`SUModelSaveToFileWithVersion` 另存旧版）与 .skp 逆向记录里的 per-class version map；glTF 2.0/2.1 规范。
