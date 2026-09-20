@@ -1,5 +1,7 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
+> **2026-09-19 改道（user 原话）：「虽然很想修 bug 但是一直每次都画个小房子关还是不行，我的想法是走转正（之前你用毕业这个词）流程，接 pwa 壳，和 weebpaint 商量一下抽 workpiece，或者也可以自己搓，如果实际形状差的太多不适合抽象父类的话。以及最重要的，接 store 和 gallery，开 onedrive 仓。这个才是我能长期做的。然后是一堆 qol improvement」→ 起手 = A19 数据契约 grill → A18 转正纪元（等「开做」）→ A20/A21 QoL。下面 09-08 的 VR 六条降级为「等 token 到了再做」。后门政策见 `CLAUDE.md`。edited by Claude Fable 5.1 2026-09-19**
+> as-of v0.4.6 / 2026-09-19（转正改道 + 数据契约稿 `ai-docs/20260919-persistence-data-contract.md` + journal 09-07 四条补账）
 > **下周 agent 起手（user 2026-09-08 结案：「激光笔 almost good enough…靠修 bug 和调手感能救。先不用考虑平移手和 grip 离合器。也许 grip 留给 ctrl mode」）：路线 = 纯激光笔修 bug/调手感。① 反省稿 §3.8 selection box 显式冻结平面 + VR 框选；② ε_VR 常量真机调参 + 等价套件；③ 正北 Y/Z 并列破平局；④ D-fuzz 重复面残余、D-autofold 山墙案（等 user 一句话）；⑤ Quest 退出横幅真机对照（C）；⑥ Z 轴刻度（A12 子项待拍板）。**已 park：平移手驱动（HOMER）、grip 离合器；grip → 「ctrl mode」待定义。全部原话在 A16 各轮。**
 > as-of v0.4.6 / 2026-09-08（近平行轴线不参赛 + 清理；A17 虚拟屏 sunset 落地；第六批（含第二~七轮追加：内核 fuzz 面环自洽 / move 宽锥三轴 / 线黏地面：内核容差/错误边界/字幕 toast/1/z 止血）：VR 真机首轮反馈 A16 = 尺度/teleport 停摆/noclip/retained 渲染/点球/充能点，反省稿待拍板；此前第五批：平面黏性回归修 + 细面推拉修 + 视图名带方位 + A12 地面与方向传达立项）· created by Claude Fable 5.1
 > user 原话（2026-09-06）：「你尽量保证那些我没看的没拍的和马上要做的都有记录，这样的话我也可以开新 agent，一个一个做，不用怕 fomo，而不是现在这样一次得处理一大堆很要紧的不处理会慢慢腐烂的东西」。
@@ -9,6 +11,23 @@
 ---
 
 ## A. 马上要做（user 已拍板）
+
+### A18 转正纪元（0.5 候选）：接 store + gallery，开 OneDrive appfolder 仓 — `待 user「开做」`（user 2026-09-19：「最重要的，接 store 和 gallery，开 onedrive 仓。这个才是我能长期做的」）
+- **前提**：A19 数据契约过 grill（文件格式先定，store 只搬不透明 blob）。PWA 壳（SW / manifest / 更新检测 `src/app/pwa-shell.ts`）**已在 0.3 落地，不用再接**。
+- **做什么**（JRB 0.1.5 是最新样板，`../20260523 JustReadBooks/src/{app-store,store-ui,encryption,gallery-host}.ts` + `test/redline-guard.test.mjs`）：① `src/format/` 纯模块（读写 `.catsup` + bake glTF + 缩略图）；② `src/app-store.ts` 单一接缝 + createStore 全部显式声明（store 0.14.0）+ 零编解码 encryption + 守卫测试；③ `@internal/gallery` 0.4.0 挂载、编辑器/图库互斥（ADR-0013）、`#docTitle` 胶囊 = 文件名、封面 = zip peek `Thumbnails/thumbnail.png`（IDB 缩略缓存开建前逐案 escalate）；④ `localStorage catsup.ui.*` 偏好搬进库（家规）；⑤ Azure 注册 = personal only + authority `/consumers`（硬规则 #7，成对做）。
+- **红线**：动 storage 前读 `MASTER.md`；走 `pwa-cloud-store` skill；bump 0.5.0 前问「要不要先把 v0.4.6 推 prod」。
+- **workpiece（user：「和 weebpaint 商量一下抽 workpiece，或者也可以自己搓」）**：WeebPaint `src/backend/workpiece/{workpiece,undo-stack,history}.ts` 是领域无关基类（写令牌 begin→commit/cancel、undo 策略、commit/state version、dirty/markSaved；ADR-0008 令牌+collector），文件身份/autosave 在其 `session-state.ts`（不在 workpiece 里）。A1 正经 undo 的 `kernel.begin()→tx` 正好是同一协议形状 → **先找 WeebPaint session 商量抽 `@internal/workpiece`（新内部库出生要 user 批）；抽不成就本地同名协议搓，将来合并机械**。
+- **验收**：boot-smoke（画 → 保存 → 刷新 → 图库 → 重开逐字节一致）；守卫测试绿；真机 = user 一次交付。
+
+### A19 持久化数据契约（远见版）— `待 grill`（user 2026-09-19：「现在就设计一个有远见的持久化数据契约…看全量 wishlist 包括 overambitious…多依托现有规范…类似 ora 的依照已经是格式标准的框架…考虑后面会有 GTA VCS 级别的场景，甚至 zbrush」）
+- 设计稿 = `ai-docs/20260919-persistence-data-contract.md`（Claude Fable 5.1）：承重框架 = glTF 2.0（core = bake、`CATSUP_*` 扩展 = authoring SSoT、`extras` = ECS 元数据），容器 = ORA 式薄 zip 壳（mimetype / `Thumbnails/thumbnail.png` / `model.gltf`+`bin`+松散贴图）；B-rep 顶点整数微米；文件按 group 分池；`CATSUP_ref` 相对路径 = GTA 级多文件流式；`CATSUP_sculpt` = ZBrush 槽；演化 = 无兼容 + 后门 + round-trip 保真。**§10 八个 grill 点等 user 逐条一句话**；过了 grill 才是 A18 的输入。推翻了 B5 的「SU 1.0 之后再定」时机（user 09-19 主动）。
+
+### A20 场景配色 QoL — `待做`（user 2026-09-19：「优化一下颜色，现在这个场景我一进去就有一些负面的精神感受哈哈哈」）
+- 范围 = Workbench 默认色（背景 / 网格 / 三轴 / 膜灰 / 边黑 / 吸附球 / 高亮）+ HUD 胶囊色；色值走家族色彩库色名（`../20260730 Colors/colors.json`），不私自硬编码分叉。**先出样张给 user 过目再接线**（讨论≠授权）。转正纪元之后做。
+
+### A21 松笔瞬间 unsnap（肌肉抖动）— `待 grill`（user 2026-09-19：「松笔的一瞬间会突然 unsnap，因为人类肌肉抖动。这个鼠标，笔都有，quest 手柄最严重」；journal 09-07 ⑤ 同案「需要 grill 和思考…vr 手柄在松开扳机的时候手总是会抖一下，很容易让 snap 失效」）
+- 问题陈述（math/手感类禁猜测式调试）：输入 = 松开前 N ms 的指针轨迹 + 每帧求解结果；输出 = 提交用哪一帧的解。候选：① 提交取「松开前最后一次稳定解」（磁滞已有，加时间窗）；② 松开事件本身不重新求解，只用上一帧；③ 松开前速度突增 = 抖动，回退到突增前的解。桌面 / 笔 / Quest 三套阈值各自独立量纲（调参纪律）。**先写清楚再动手；等 user grill。**
+
 
 ### A1 正经 undo：kernel 原语变更日志统一「扰动相回滚」与「撤销/重做」 — `待做`（user：「很想马上要，先忍耐到下一个 session」）
 - **现状**：`src/editor/journal.ts` = op 日志重放（每次 undo 从空内核重放全部 op）；拖拽预演 = `checkpoint.clone()` + apply（`Editor.computeLive`）。user 不喜欢副本语义：「你此时看到的就是 SSoT」「工具之前更像是 backup or reference checkpoint」「应该有正经的 undo，而不是之前那个 replay」。
@@ -49,6 +68,7 @@
 - **定义（SU Style › Edges › Profiles）**：一条边是轮廓线 ⟺ 它只挂 ≤1 张膜（裸边/散线），**或**两侧膜相对视线朝向相反（一正一背 = 剪影）。其余边细线。随相机每帧重算，O(E)。
 - **实现形状**：`render3.ts`（将来 A4 的 WorkbenchEngine）把边分两组 `LineSegments2`（细 1px / 粗 ≈2–3 CSS px，DPR 无关），相机变才重建分组；polygonOffset 沿用。SU 默认 Profiles 宽 2、Edges 宽 1；Depth cue / Extension / Endpoints 不做。
 - **验收**：`scripts/probe-boot.mjs` 截图肉眼：盒子外轮廓粗、内部棱细；透视旋转后剪影边随之换粗。
+- **journal 09-07 补账（user 手记，2026-09-19 由 Claude Fable 5.1 补入）**：「线宽太宽了。细线细一点，1px？粗线 2px? 然后 3d 的情况处理好 z shift。然后你确定线需要用矩形吗？还是 gl 里面没有 batch friendly 的 drawline? 线宽了像玩具而且影响观察」→ 落地时一并：细 1 / 粗 2 CSS px（DPR 无关）；`LineSegments2` 是矩形条带（WebGL 原生 `gl.LINES` 线宽钉死 1px，粗线只能条带）——保留条带但收窄；polygonOffset 的 z shift 复查。
 
 ### A9 Move/Line/Rect 轴锁·面锁（键盘） — `待做`（user 2026-09-06「axis align 键盘两套都收。然后 shift arrow 能不能是 blender 的 shift x 语义？」→ 能）
 - **键位**：SU 方向键 ←绿(Y) →红(X) ↑蓝(Z) ↓平行/垂直于推断边；Blender 字母 X/Y/Z 同义。**Shift+方向键 / Shift+字母 = Blender Shift+X 语义 = 锁到「排除该轴」的平面**（Shift+← = XZ 面、Shift+→ = YZ 面、Shift+↑ = XY 地面、Shift+↓ = 推断膜的面）。Shift 单独按住 = SU「锁住当前推断」（含悬在膜上=面锁），松开即放。方向键/字母锁是**切换**（再按同键或 Esc 或手势结束解锁）；SU 里 Shift+方向键无绑定，不冲突。
@@ -155,7 +175,7 @@
 
 ### A14 UI 组织：Minecraft 物品栏 vs 常规建模软件 — `done（裁：不用物品栏）`（user 2026-09-07：「minecraft 的自定义 1234567890 物品栏放动词，从背包里面取，wasd 的操作方式是不是不太理智，还是按照正常的 3d modeling software 来？注意以后会有 component, hide show, not sure if i want layers, 不同的 type（sketchup 模型 vs blender 有机模型），weebpaint 整合，一大堆东西。还有就是高质量的渲染和伪 GI」）。AI 看法见对话。
 
-### A15 无地期间的本地草稿持久化 — `待拍板`（硬规则 #1 storage 红线，需 user 明批；user 2026-09-07：「idb 保留还是蛮重要的，即使是无地期间也鼓励我认真画东西，如何在数据契约还在大幅变动的现在实现这个但不屎山，也不是更新版本必丢？」）
+### A15 无地期间的本地草稿持久化 — `待拍板`（**2026-09-19 注：转正纪元 A18 接 store 后本条很可能作废——草稿就是文件；是否作废等 user 一句话，见契约稿 §9**）（硬规则 #1 storage 红线，需 user 明批；user 2026-09-07：「idb 保留还是蛮重要的，即使是无地期间也鼓励我认真画东西，如何在数据契约还在大幅变动的现在实现这个但不屎山，也不是更新版本必丢？」）
 - **user 2026-09-07 否决指令流持久化**（「指令流其实反而问题非常大，因为我们修一个几何拓扑 bug，重放旧的指令流会 pointer overflow。我觉得指令流是最不安全的，指令流和 undo 的生命周期永远是 runtime，我记得 wp 也是这个结论」）→ **草稿箱只存快照，不存 op 日志**；指令流生命周期 = runtime（A1 的 undo 也在内存）。
 - **AI 提案 v2**：快照 = 内核本体最小 dump `{ version, vertices[{x,y,z}], edges[[a,b]], faces[{outer:[vid], holes:[[vid]]}] }` + 视图态（相机 / VR 站位）+ **OBJ 文本 bake 当最后兜底**。读取：快照按 `version` 走小迁移梯（加字段不删字段；group/component 纪元只会加），迁不动就吞 OBJ。这份 dump 就是 B-rep 的本质，任何未来内核都必须能吃它，所以它是最不怕改版的东西；且它就是将来 zip 容器里 JSON authoring 的雏形，不是新格式承诺。盒子：独立 IDB「无地期草稿箱」（明确标注临时）、追加式草稿列表、首次保存请求 `persist()`；将来原样搬进 store collection。**待 user「批」。**
 
@@ -191,7 +211,9 @@
   **user 2026-09-07 拍板：「同意 Y 北 −Y 前。不过这样又和 unity 的 forward 打架，这个本质就是 d3d vs opengl。先不头疼，主要是如何向用户传达这一切？尤其是物体的前」**→ convention 已裁（+Y 北 / −Y 前 / 前视图从南看、屏幕右=+X 东 / 物体左手 +X）；「传达」user 2026-09-07 拍板：「+Y 北，−Y 一个三角前箭头。以及还需要传达一下 1m 哦」「视图菜单同意。前视=向北看」「角落 gizmos 我觉得 zen 模式不用」「lighting default prior 是另外一个 cue，以后也会做」→ **待做 A12**（见 A 节）；gizmo 不做（zen；IFR 场景讨论见对话：贴脸/室内/顶视时的仪表 = 轴线本身 + 状态栏视图名，够用）；光照先验 = 将来 Workbench 的默认光向当方向 cue（E11）。
 - **命名 neta 游戏**（user 2026-09-07：「因为我们现在有大量的创新，所以很多新原子，动词都可以 neta 游戏，比如缩小帽，生命之粉」）：新原子/动词的**内部代号**可以 neta 游戏（缩小帽=rig 缩放模式、生命之粉=编辑器内临时物理、超级手…）；用户可见文案仍归 user 定（家族命名美学=低调 normie，是否让 neta 露出到 UI 由 user 逐个裁）。
 - **B14 与 WeebPaint 的交流方式**（user 2026-09-07 原话：「两个情况。1 是我希望我们的 savefile 可以 embed ora。2 是到时候有 bodypaint 了谁 master。一个方案是用某种跨 tab 交流方式，这样的好处是简单，还有别的可能的方案，甚至保持 weebpaint 彻底肢解后变成我们的一个 library。但反正场景就是。1. 不导入导出弄一大堆散文件的 2d 模式编辑贴图，图片，调色。2. weebpaint 级别笔触，multi layer, pixel accurate 的 3d painting。而不是我们重复造轮子。不过 weebpaint 的 bodypaint 纪元还八字没一撇呢！这里主要是想如何交流的问题」）`待拍板`。AI 看法（对话里）：场景 1 = **跨 tab / iframe + ora 交接协议**（BroadcastChannel/postMessage，同源同浏览器；CatsUp 是 3D 主，ora 被 WeebPaint「借出」期间 WeebPaint 是 2D 主，归还即锁回——git checkout 语义；iPad 后台标签会被杀，所以交接必须是显式事务不是常连）；场景 2 = **必须进程内**：笔触要在 3D 里投影到 UV，跨 tab 做不到像素级——把 WeebPaint 的笔刷引擎/图层/ora I-O 抽成 `@internal/paint-engine` 库，WeebPaint 自己成为它的第一个消费者（不是肢解 WeebPaint，是让它也用同一颗心脏）。savefile embed ora = zip 容器天然支持（附件）。两条不互斥：先 1 后 2。**user 2026-09-07 裁：场景 1 = iframe + ora 交接协议（「同意。这个比跨 tab 好」「我不喜欢跨 tab」）；跨 tab 各机制科普见对话（BroadcastChannel / postMessage / SharedWorker / storage 事件 / SW 信箱 / Web Locks / IDB 信箱）。** WeebPaint 侧已留便条 + 钩子：`../20260524 WeebPaint/ai-docs/inbox/20260907-from-catsup-paint-engine-and-ora-handoff.md` + 其 CLAUDE.md「开工先看便条箱」（user：「现在只有你活着。你 weebpaint 那里留个便条和看便条的钩子呗」；user 补：「weebpaint 无头骑士失败了很多次，可能只是因为缺第二个消费者逼出形状」→ 抽库时机 = CatsUp bodypaint 真要用时，不提前）。
+- **B16 VR 悬浮窗机制（hand panel = toolbar）**（journal 09-07 ⑧ user 手记，2026-09-19 补账：「vr hand panel 就需要大改了。我觉得 hand panel 就是 toolbar 吧。也许我们需要定一下窗口的机制。我的想法就是悬浮窗，y up aligned，跟着你，tracking space damping（不是 world space）。setting panel, hierarchy, whatsoever 都需要这个」；⑨「meta quest controller 没有十字键。想一下 tool switching 怎么做比较舒服」；④「非常高频的，在 vr 里面我以为我选中了工具但是没选中。先做两个护栏 1: 切换工具的时候眼前有一个类似 mac 里面的调音量的半透明图标…还是 hud 眼角？ 2. haptics. 然后根治就是看一下 hand panel 的点触逻辑」；⑩「双击跳跃切换飞行模式不太容易 hit」）`待拍板`：窗口机制 = 一个深模块（跟随 + tracking-space 阻尼 + Y-up 对齐），toolbar / settings / hierarchy 都是它的租户；等转正纪元之后。
 - **B5 持久化/文件格式本体**：user 明示「SketchUp 1.0 做完、component group 摸清楚之后再定，你不要擅自做决定」；容器方向 = zip（自有 JSON authoring SSoT + 标准 glb bake）。**AI 不提案不预留。**
+  **2026-09-19 user 改口：「现在就设计一个有远见的持久化数据契约」→ 提案已写 = A19 / `ai-docs/20260919-persistence-data-contract.md`；本条转由 A19 承接（容器仍 zip，承重框架提案改 glTF 2.0 本身，等 grill）。**
 
 ---
 
@@ -205,11 +227,14 @@
 - **C1 `push-pull` 图标**：fable 自画，图标库 `PENDING` 层，user「先用你的」；过目后进库/打回/删归 user（`20260708 SVG Icons/TODO.md` 待过目表）。
 - **C2 README 与公开的 ai-docs**（含大量 user 原话）——公开工坊道本意，抽空扫一眼。
 - **C4 HUD 二稿过目**（user 2026-09-07 口径：「HUD 你先看着办，以后要好好收，先放视图里面。undo redo 不要放顶上…hud 应该更参考游戏一点。CatsUp 这个字不用占地方不够 zen，三条杠和 undo redo 要不要放在左栏，把顶上空了，然后视图放右栏的点开菜单？…无 background 的字…background 弱一点的…version 标识确实需要，左下角的状态显示我也觉得很重要，相当于 rpg 游戏的对话」）：v0.3.2 落地 = 顶上清空、左栏 ☰/撤销/重做/删除+分隔+工具、右栏 视图弹出+全览、标题字撤、栏=弱玻璃无边框、状态/版本=无背景白描边字、状态行最多两行超出省略。**三稿终形 v0.3.5**（user 2026-09-07 收口：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」→ 一根左柱整体居中 = ☰ / 工具 / 撤销 / 重做 / 删除(有选区时)；此前一版 user 口径：「工具栏左居中更舒服？…用 tools 的居中，而不是带上其他东西的居中。以及 undo redo 能不能放下面，以及能不能两个按钮收到一个槽里面（也许不好）」）：工具栏只含工具、左居中；☰ 独占左上小药丸；撤销/重做做成**一槽两半**横向小药丸（36px 格）收左下状态行上方——不做单键长按藏 redo（不可发现）。**「以后要好好收」= 以后再整轮**（HUD 锁片/吸附开关/单位显示进来时一起）。
+- **C5 Quest「Immersive XR is still running」横幅**：journal 09-07 ① user 手记「如果从 quest 系统菜单走 quit 就不会出 banner」= A16 第七轮「C 待真机核实」的答案（只有 app 路径 `session.end()` 出横幅）→ 下一步已在 A16 写明：end() 后 `xr.setSession(null)` / 停 animation loop 再 end。`待做`（VR 六条之一，等 token）。2026-09-19 补账 Claude Fable 5.1。
 - **C3 iPad 真机**：Pencil 悬停吸附、手指=相机、双指平移捏合、双指 tap 撤销/三指重做、手掌拒绝（pen 后 600ms 掌触门）。桌面 user 已看（2026-09-06）。
 
 ---
 
 ## D. 老 bug 尾巴（0.2 推拉纪元遗留，需 user 参与）
+
+- **D-bevel 角切三角推到底剩两条边、擦边毁对面**（journal 09-07 user 手记，2026-09-19 补账）`待修`：user 原文「in sketchup, the way of making a bevel is to first make a cube, then use the line tool to cut a small triangle at one face corner. then pull the triangle inside to 削出 bevel. however, in catsup, after pulling the triangle bevel towards the end, there are still two remaining edge. whats worse is that erasing the remaining edge destroys the opposite side face. which might suggests the opposite face loop after resolution, becomes a twisted stuff, instead of a 五边形」。复现路径明确（立方体→角上画三角→推到底），先写 golden（推到底后邻面环应为五边形、无残边；擦残边不许毁面）再修；怀疑 pp 边界三分类 travel/stretch/detach 在「推到与邻面共面」终态的湮灭 + 面环重铸（与 D1 湮灭疑案同族）。同手记另有「我感觉有很大的拾取错误。很多时候都点不中面，是不是面的朝向的问题？」→ 已由 D6/D8（v0.3.5/0.3.7）与 A16 遮挡修覆盖，若仍复现归 A16 ④。
 
 - **D1 湮灭疑案六变体** `等 user 数据`：user 09-03 报「推平到底面还有膜」类现象；六种变体在 commit 层全对，等 user 精确复现步骤。案卷：`ai-docs/20260901-pushpull-grill-sheet.md` §v3.1 附近 + 立宪页「扰动相」。
 - **D2 悬置判据** `等 user 数据`：推拉时 ⊥ 邻面「随行伸缩」还是「留守」（盒墙 vs 铰链地板悖论），判据不在局部方向代数，要 user 去 SU 做实验。案卷：grill 单 §v3.1「悬置判据」。
