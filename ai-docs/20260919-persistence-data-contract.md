@@ -3,7 +3,7 @@
 > as-of v0.4.6 / 2026-09-20 · created by Claude Fable 5.1 2026-09-19 · **rev2 2026-09-20（edited by Claude Fable 5.1）：按 user 第二轮回答 + glTF 2.1 草案 schema + GDTF 教训重写；rev1 的「ORA 式 zip 薄壳」判**作废**，改为一个 `.glb`。rev3 同日：user 纠偏「我们不是游戏引擎，我们是 sketchup 竞品，也许有做 data driven 场景编辑器的潜力，所以我觉得我们的 spec 不会像 gdtf 里面说的那么未定型，而是有一个比较明确的图像」「还记得我说的那一大堆 component, group，以及丢 gltf 模型之类的早期设想吗」→ SU 竞品 + 场景编辑器的核心本体**现在写定**（§5），GDTF 教训只管游戏层词汇。**rev4 2026-09-20**：user「核心还是 sketchup，好好想一下」→ §5 改成 **SketchUp .skp 本体逐项对照表**（Edge/Face/Curve/Group/Definition/Instance/Image/SectionPlane/Guide/Dimension/Text/Material/Tag/Scene/Style/Shadow/ModelInfo/Attributes），每项落哪、三方看到什么；第三轮 (a)(c) 同意、(b) 整数范围答在 §5.2、(d) 用人话解释在 §10；§3.1 答「和只支持 2.0 的工具兼容吗」。**rev5 2026-09-20**：user 第四轮「为什么用 json 而不是二进制。大文件啊。以及我还是希望 glb 节省流量的！你看我 catsup 也做的很抠。如果一个 n64 的小模型希望包大小也相应的很小」→ B-rep **全二进制**、bake 瘦身、§3.2 体积预算；「我记得我拍过，group 是纯编辑逻辑。是一个数组。component 才是 object 层…命名=commitment and frozen。我怕命名。group 是哑变量。就像用 tensor network 去逃 einsum 的上下表追踪」→ group 去掉 name/hidden/locked/tag，只剩成员 + 轴（考古：与 09-06「编辑时语义」、09-07 B13「transient、不命名、无 hierarchy tree」一致）；「我会支持 blender 式的有机体角色建模，骨骼，以及 minecraft 式的高度图和体素地形。所以自定义格式蛮多的。也许 backward compatibility 逃不了，而是应该第一天设计。每个子数据结构都有自己的版本拍，然后专门一个文件夹放迁移代码」→ §7 改：每个子结构 = 独立扩展 + 独立版本 + `src/format/migrate/`，后门退为兜底。**
 > **性质：提案，未拍板。** user 原话定的题（2026-09-19）：「现在就设计一个有远见的持久化数据契约…看全量 wishlist 包括 overambitious…多依托现有规范」「尽量是类似 ora 的依照已经是格式标准的框架」「考虑后面会有 GTA VCS 级别的场景，甚至 zbrush」；第二轮（2026-09-19/20）：「我不喜欢散一地，但是我们也有 zip 了。以及是否可以就一个 glb。新的 gltf 规则本来就支持 thumb!」「远景还有就是我会 embedding weebpaint」「我确实喜欢整数。但是这个是谁要求的？会不会和 gltf 大家」「gltf 的 new spec 你看一下，有很多我会内耗的」「你可以看一下我以前打回的那个 GDTF 的 proposal，以及后来的反思反省。gtdf is obsolete!」「.catsup 还是 .glb」「无地按照 weebpaint 标准做」「可以 bump minor」「它是被内容需求逼出的自适应格式 嗯应该就是那个教训」。
 > 时机：推翻 2026-09-06「SU 1.0 之后再定」（总账 B5）；容器：09-06 的「zip」拍板被 user 本轮「是否可以就一个 glb」重开——本稿答：可以，理由 §2。
-> **持久化立宪（user 2026-09-20）：「我接受了 backward compatibility 之后就不需要后面啦。而且现在我们 backward compatibility 反而是第一天的设计立宪之一」→ 09-19 的后门政策（无向后兼容 + AI 脚本改 OneDrive）作废；向后兼容 = 第一天立宪，§7 是它的条文。**
+> **持久化立宪（user 2026-09-20）：「我接受了 backward compatibility 之后就不需要后面啦。而且现在我们 backward compatibility 反而是第一天的设计立宪之一」→ 09-19 的后门政策（无向后兼容 + AI 脚本改 OneDrive）作废；向后兼容 = 第一天立宪，§7 是它的条文。追加：「第一天就做好完美 backward compatibility」「以后随着 gltf 格式进化，我们也会跟着变。比如如果 gltf 支持体素了，我们数据会和他对齐」「跨 gltf 版本的 compatibility 也要做」→ §7 第 9/10 款。**
 
 ---
 
@@ -269,6 +269,11 @@ BIN chunk
 6. **让迁移便宜**：`src/format/` 纯模块（零 DOM / 零 three / node 可 import；GLB 读写自写）；bake 可再生（迁移只搬 authoring，bake 整个重烘）；2.1 属性名定稿前变动 = 一条 document 迁移。**迁移写入的时机**：读到旧版 → 内存升级 → 只有用户真的保存时才写新版（不静默改云端字节；读不等于写）。
 7. **GDTF 教训的执法范围 = 游戏层词汇**（extras 组件包）：不预定义 genre 原语；不为 universal 加层。核心本体与已点名的子结构（§5）不适用——形状允许先于内容，靠各自版本戳吸收改动。
 8. 宣发前后同一规则：迁移链只增不删，老文件永远能开。
+9. **「完美」的定义**（user 09-20「第一天就做好完美 backward compatibility」）：**CatsUp 任何发布版写出的任何文件，当前版都能开且语义无损**——验收 = 冻结样本 → 读 → 写 → 再读，与「直接读样本」语义逐字段一致，且样本自身在语料库里永不删；三方改过的文件（Blender 往返）按 round-trip 保真规则尽量保留。第一天 = 0.5.0 的第一个 golden 文件就进语料库；没有「太早不用兼容」的豁免期。
+10. **标准追随迁移 + 跨 glTF 版本**（user 09-20「随着 gltf 格式进化，我们也会跟着变。比如如果 gltf 支持体素了，我们数据会和他对齐」「跨 gltf 版本的 compatibility 也要做」）：
+   - 每个 `CATSUP_*` 扩展在本稿登记它的**标准替代物**（已有或预期）；一旦 glTF core / 已批准的 KHR·EXT 覆盖同一数据，**写入器改写标准形、读取器保留旧扩展的读法**（一条 `CATSUP_x@vN → <标准>` 迁移），不写双份。已知对照：`CATSUP_ref`→2.1 `externalAssets`（已改）；缩略图→2.1 `asset.thumbnail`（已用）；整数顶点→2.1 `SIGNED_INT`/`INT64` accessor（等定稿）；`CATSUP_voxel`→将来的体素扩展；`CATSUP_mesh` 的 polygroup / 掩码→`_GROUP` / `_MASK` 顶点属性（core 已允许）；碰撞代理→2.1 `shapes`；LOD→到时候的 KHR。
+   - **跨 glTF 版本**：读取器接受任何 `asset.version` 2.x 与 GLB 容器 v2/v3；迁移键 = (glTF 版本, 扩展, 扩展版本)；2.x 之间的改名 / 废弃（如 2.1 废弃多 scene）由 `src/format/migrate/gltf/` 承接；语料库按 glTF 版本分目录（`test/fixtures/format/gltf-2.0/`、`gltf-2.1/`…），每次我们改写的目标版本变了就冻结一份。
+   - 写入目标 = 「当时 three / Blender 已支持的最高版本」（不为了 spec 定稿抢跑：定稿而加载器没跟上时仍写旧形 + `minVersion`）。
 
 ---
 
@@ -335,7 +340,7 @@ BIN chunk
 - **override 只许不改几何**：同一个 component 的多个实例，每个实例可以单独换材质 / 隐藏，但不能单独改形状；要改形状 = SU 的 Make Unique（复制成新 definition）。就是 SU 的规则。
 三条都按默认沿用。
 
-**第四轮已答（user 2026-09-20）**：「90 亿米多大」→ 9×10⁹ m ≈ 0.06 AU ≈ 23 个地月距离 ≈ 6.5 个太阳直径，连水星轨道（5.8×10¹⁰ m）的六分之一都不到——**已无关**：JSON 内联作废，二进制 int32 = 每 definition ±2147 m、自动升 int64。「为什么 json 不用二进制、要抠」→ §5.2 全二进制 + §4 bake 瘦身 + §3.2 预算表。「group 是纯编辑逻辑、一个数组、哑变量、怕命名」→ §5.1/§5.2 group 只剩轴框 + 成员索引。「有机体 / 骨骼 / 高度图 / 体素…backward compatibility 第一天设计，每个子结构版本戳 + 迁移文件夹」→ §5.1 末表 + §7；「接受了 backward compatibility 之后就不需要后门啦…是第一天的设计立宪之一」→ 后门作废，§7 = 立宪条文。**A18 可开工，等 user「开做」。**
+**第四轮已答（user 2026-09-20）**：「90 亿米多大」→ 9×10⁹ m ≈ 0.06 AU ≈ 23 个地月距离 ≈ 6.5 个太阳直径，连水星轨道（5.8×10¹⁰ m）的六分之一都不到——**已无关**：JSON 内联作废，二进制 int32 = 每 definition ±2147 m、自动升 int64。「为什么 json 不用二进制、要抠」→ §5.2 全二进制 + §4 bake 瘦身 + §3.2 预算表。「group 是纯编辑逻辑、一个数组、哑变量、怕命名」→ §5.1/§5.2 group 只剩轴框 + 成员索引。「有机体 / 骨骼 / 高度图 / 体素…backward compatibility 第一天设计，每个子结构版本戳 + 迁移文件夹」→ §5.1 末表 + §7；「接受了 backward compatibility 之后就不需要后门啦…是第一天的设计立宪之一」→ 后门作废，§7 = 立宪条文；「第一天就做好完美 backward compatibility」「跟着 gltf 进化对齐（体素等）」「跨 gltf 版本兼容也要做」→ §7 第 9/10 款。**A18 可开工，等 user「开做」。**
 
 ---
 
