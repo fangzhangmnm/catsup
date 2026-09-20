@@ -77,4 +77,10 @@ golden 语料=共同 spec（膜事件表/暗礁①/灵魂手势≡手绘/E·F �
 **面环自洽**（2026-09-07 VR 真机「edge N 不存在」案，fuzz `test/kernel-fuzz.test.ts` 随机操作 + 不变量）：任何操作之后，面环的边必须存在、faceLinks 的面必须存在、无重复边、无孤立顶点、同环只准一条面记录。落地：① 零认领防御保留前先修环（死边 → 沿原线段的共线子边链 `repairRings`；修不了 → BURST 曝光）；② 擦边裁决同平面 ≥2 面全部 MERGE（此前只配前两张）；③ BIRTH 不铸与既有面同环的面；④ `regionsByPlane` 同一边环只属一张平面（拟合最好者）；⑤ 认领改纯几何（区域代表点抬回 3D、≤3τ 共面门、投到像平面 winding）——不再按平面记录 (n,d) 匹配（候选平面 cover 归属会让小面落在斜了 0.6° 的「错」记录上）。残余：5/80 种子仍出重复面（不崩），总账 D 节。
 **容差对齐**（2026-09-07 VR 真机「边 4-3 已存在」案）：身份 = 逐轴 Q/2 的量化格；sticky 插入的「碰到」容差 `INSERT_TOL = Q` ≥ 格半对角线——凡可能量化成同一顶点的点都当碰到（切进来）；`splitEdge` 切点落进既有顶点且已相连 → 复用既有边（重合即同一），`addEdge` 的重复边 throw 保留为最后一层断言。fuzz：`test/subdivide-nearmiss.test.ts`。
 
+**持久化装载**（2026-09-20，转正纪元；契约 = ai-docs/20260919-persistence-data-contract.md §5.2）：`Kernel.fromBrep(BrepSnapshot)`
+= **复原存储态**，不是构造——「没有让调用方构造/注入 Face 的入口」仍成立：唯一入口只吃快照形状（顶点 / 边 / 平面注册参数 /
+顶点环膜），不跑 face-finding（A4：闭环可以无面，文件说几张膜就几张），装载后全量校验面环自洽（A3 格点唯一、无重边、
+无孤点、环边存在、共面 τ 内、外环 CCW 洞 CW、同环唯一膜）——**失败整份拒开报出，不修不猜**。平面注册参数是状态（τ 合并
+顺序相关，重建不等价，必须存）；faceLinks / 环 pts / 基 / id / 事件是派生，不存。`toBrep()` 为其逆。edited by Claude Fable 5.1 2026-09-20
+
 edited by Claude Fable 5 2026-09-03 · edited by Claude Fable 5.1 2026-09-06 · edited by Claude Fable 5.1 2026-09-07

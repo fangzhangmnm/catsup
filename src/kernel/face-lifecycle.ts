@@ -511,6 +511,28 @@ export class FaceStore {
     return snaps;
   }
 
+  /**
+   * 持久化装载：从顶点环**复原**一张存储态的膜（不是构造——不跑 face-finding、不发事件；A4「膜涌现且被存储」
+   * 的存储态由文件带回）。环 = 顶点 id 序列（A3：两点至多一边，边由 edgeBetween 唯一恢复）；pts 按平面基重算。
+   * 只给 Kernel.fromBrep 用，调用方负责校验（Kernel.fromBrep 的不变量检查）。created 2026-09-20 by Claude Fable 5.1
+   */
+  restoreFace(g: PlanarGraph, reg: PlaneRegistry, planeId: PlaneId, outer: readonly VertexId[], holes: readonly (readonly VertexId[])[]): Face {
+    const basis = reg.rec(planeId).basis;
+    const ring = (vids: readonly VertexId[]): Ring => {
+      const edges: DirEdge[] = [];
+      for (let i = 0; i < vids.length; i++) {
+        const a = vids[i], b = vids[(i + 1) % vids.length];
+        const eid = g.edgeBetween(a, b);
+        if (eid === undefined) throw new Error(`restoreFace: no edge between vertices ${a} and ${b}`);
+        edges.push({ edge: eid, forward: g.edge(eid).a === a });
+      }
+      return { edges, pts: vids.map((v) => projectToPlane(g.pt(v), basis)) };
+    };
+    const f: Face = { id: this.nextId++, planeId, outer: ring(outer), holes: holes.map(ring) };
+    this.byId.set(f.id, f);
+    return f;
+  }
+
   /** 深拷贝（含 id 计数器；preview 影子副本用）。 */
   clone(): FaceStore {
     const s = new FaceStore();

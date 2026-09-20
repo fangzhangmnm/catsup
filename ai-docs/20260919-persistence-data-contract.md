@@ -215,7 +215,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 **属性层的三条规则**：
 1. **名字归属**：app 定义知名名字（上面那些；语义写在本稿 + 代码常量表，user 不管理）；插件 / 用户属性用前缀命名（`plugin:x` / `user:x`），读取器**未知名字原样保留**。tag 仍是 user 的标签机制（§5.6 tags 表，id + 名字 + extras）；属性层里的 `tag` 只是那个 id。
-2. **编码由写入器按层选**（自描述，读取器全认）：`dense`（typed 流：u8/u16/u32/rgb8/unorm16/定点 i32…）/ `bits`（bool 位打包）/ `palette`（**同规则共享**：去重后的值表 + 每元素一个 u8/u16 索引——(flags, material, tag) 元组只有十来种组合时 1 B/面）/ `sparse`（面索引表 + 值，显式贴图定位 / 显式 UV 这种少数面才有的）。缺省值（全 0 / 全 false）整层省略。
+2. **编码由写入器按层选**（自描述，读取器全认）：`dense`（typed 流：u8/u16/u32/rgb8/unorm16/定点 i32…）/ `bits`（bool 层位打包：同一物体声明了几个 bool 名字就几位，按名字顺序，≤8 位 u8、≤16 位 u16——**面级别就是 bits**）/ `sparse`（面索引表 + 值，显式贴图定位 / 显式 UV 这种少数面才有的）。缺省值（全 0 / 全 false）整层省略。~~palette（去重值表 + 索引）~~ **撤**：user 09-20「我们本来也要 zip 一遍」——低熵流交给 `EXT_meshopt_compression`，不另造编码。**flag 数量是每个物体自己声明的**（每个 definition 的 brep 自带 `attributes` 名表，「每个几何记自己的，就像 blender 的 property」）；**名字用字符串是为了防 hidden convention**。
 3. **状态 vs 派生**：`derived: true` 的层（bakedLight / uv2 / lightmap 图集）带 `bakeHash`，可丢可重算，数据类 = 随文件运输的缓存。
 
 其余要点：

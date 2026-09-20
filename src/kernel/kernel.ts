@@ -6,6 +6,9 @@
 import { sub3,
   type Pt,
   type Pt3,
+  type PlaneParams,
+  normalize3,
+  signedArea,
   add3,
   dist3,
   dot3,
@@ -37,6 +40,20 @@ const toPt3 = (p: PtIn): Pt3 => ({ x: p.x, y: p.y, z: p.z ?? 0 });
 
 export interface HitResult { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
+/**
+ * 内核 B-rep 的**存储态快照**（持久化契约 ai-docs/20260919-persistence-data-contract.md §5.2 的内存形状；
+ * src/format 负责它与字节的互换，内核只认这个）。全部用**索引**不用 id（不铸 id）；坐标 = 米（装载时量化）。
+ * 只装状态：顶点、边、平面（τ 合并后的注册参数——重建不等价，必须存）、膜（顶点环，外环 CCW / 洞 CW，
+ * 相对该平面的 canonical 基）。不装派生：faceLinks / 环 2D pts / 基 / id / 事件。created 2026-09-20 by Claude Fable 5.1
+ */
+export interface BrepSnapshot {
+  readonly coplanarTol: number;
+  readonly vertices: readonly Pt3[];
+  readonly edges: readonly (readonly [number, number])[];
+  readonly planes: readonly PlaneParams[];
+  readonly faces: readonly { readonly plane: number; readonly outer: readonly number[]; readonly holes: readonly (readonly number[])[] }[];
+}
+
 export class Kernel {
   private _graph = new PlanarGraph();
   private store = new FaceStore();
@@ -51,6 +68,79 @@ export class Kernel {
 
   /** 只读窥视用（playground 渲染/测试断言）；改图必须走下面的批量 mutations。 */
   get graph(): PlanarGraph { return this._graph; }
+
+  /**
+   * 持久化装载 = **复原存储态**，不是构造（本文件头注释的不变量「没有让调用方构造/注入 Face 的入口」仍成立：
+   * 这里只吃 BrepSnapshot 这一种形状，且全量校验面环自洽——校验失败整份拒开报出，不修不猜）。
+   * 不跑 face-finding（A4：闭环可以无面，文件说有几张膜就是几张）。立宪页 §5「持久化装载」条。
+   * created 2026-09-20 by Claude Fable 5.1
+   */
+  static fromBrep(snap: BrepSnapshot): Kernel {
+    const k = new Kernel({ coplanarTol: snap.coplanarTol });
+    const g = k._graph;
+    const fail = (msg: string): never => { throw new Error(`fromBrep: ${msg}`); };
+    // 顶点：量化后落格；两个输入落同格 = 文件违反 A3
+    const vid: VertexId[] = [];
+    for (let i = 0; i < snap.vertices.length; i++) {
+      const q = quantize3(snap.vertices[i]);
+      if (g.vertexAt(q) !== undefined) fail(`vertex ${i} collides with an earlier vertex on the grid`);
+      vid.push(g.ensureVertex(q));
+    }
+    // 边：索引合法、无自环、无重边
+    for (let i = 0; i < snap.edges.length; i++) {
+      const [a, b] = snap.edges[i];
+      if (!(a in vid) || !(b in vid)) fail(`edge ${i} references a missing vertex`);
+      if (a === b) fail(`edge ${i} is a loop`);
+      if (g.edgeBetween(vid[a], vid[b]) !== undefined) fail(`edge ${i} duplicates an earlier edge`);
+      g.addEdge(vid[a], vid[b]);
+    }
+    // 平面：精确注册（归一化法向；d 原样）
+    const pid = snap.planes.map((pl) => k.planes.restore({ n: normalize3(pl.n), d: pl.d }).id);
+    // 膜：顶点环 → 有向边环；校验 环长 / 边存在 / 共面 / 绕向 / 同环唯一
+    const ringKeys = new Set<string>();
+    for (let i = 0; i < snap.faces.length; i++) {
+      const f = snap.faces[i];
+      if (!(f.plane in pid)) fail(`face ${i} references a missing plane`);
+      const rec = k.planes.rec(pid[f.plane]);
+      const rings = [f.outer, ...f.holes];
+      for (const r of rings) {
+        if (r.length < 3) fail(`face ${i} has a ring with fewer than 3 vertices`);
+        for (const v of r) {
+          if (!(v in vid)) fail(`face ${i} references a missing vertex`);
+          if (distToPlane(g.pt(vid[v]), rec.plane) > snap.coplanarTol) fail(`face ${i} vertex ${v} is off its plane`);
+        }
+      }
+      const key = rings.map((r) => [...r].sort((a, b) => a - b).join(",")).join("|");
+      if (ringKeys.has(key)) fail(`face ${i} duplicates an earlier face (same rings)`);
+      ringKeys.add(key);
+      let face: Face;
+      try {
+        face = k.store.restoreFace(g, k.planes, rec.id, f.outer.map((v) => vid[v]), f.holes.map((h) => h.map((v) => vid[v])));
+      } catch (e) { fail(`face ${i}: ${(e as Error).message}`); }
+      if (!(signedArea(face!.outer.pts) > 0)) fail(`face ${i} outer ring is not CCW in its plane basis`);
+      for (const h of face!.holes) if (!(signedArea(h.pts) < 0)) fail(`face ${i} has a hole ring that is not CW`);
+    }
+    k.store.rebuildFaceLinks(g);
+    for (const v of g.vertices()) if (v.edges.size === 0) fail(`vertex ${v.id} is isolated`);
+    return k;
+  }
+
+  /** 存储态快照（fromBrep 的逆）：索引 = 当前枚举顺序；只含被膜引用的平面。规范排序归 src/format。 */
+  toBrep(): BrepSnapshot {
+    const vs = this.graph.vertices();
+    const vIdx = new Map<VertexId, number>(vs.map((v, i) => [v.id, i]));
+    const planeIds = [...new Set(this.store.faces().map((f) => f.planeId))];
+    const pIdx = new Map<number, number>(planeIds.map((id, i) => [id, i]));
+    const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): number[] =>
+      r.edges.map((d) => vIdx.get(d.forward ? this.graph.edge(d.edge).a : this.graph.edge(d.edge).b)!);
+    return {
+      coplanarTol: this.coplanarTol,
+      vertices: vs.map((v) => ({ x: v.x, y: v.y, z: v.z })),
+      edges: this.graph.edges().map((e) => [vIdx.get(e.a)!, vIdx.get(e.b)!] as const),
+      planes: planeIds.map((id) => this.planes.rec(id).plane),
+      faces: this.store.faces().map((f) => ({ plane: pIdx.get(f.planeId)!, outer: ringVids(f.outer), holes: f.holes.map(ringVids) })),
+    };
+  }
 
   /**
    * 影子副本（preview 架构）：clone → 在副本上跑**同一套** mutation → 渲染 diff →

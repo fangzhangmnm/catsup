@@ -27,6 +27,9 @@ import "./on-face.test.ts";
 import "./player.test.ts";
 import "./collision-world.test.ts";
 import "./xr-frames.test.ts";
+import "./format-binary.test.ts";
+import "./kernel-brep.test.ts";
+import "./format.test.ts";
 import { run } from "./runner.mjs";
 
 await run();

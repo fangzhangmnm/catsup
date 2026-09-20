@@ -51,6 +51,16 @@ export class PlaneRegistry {
     return rec;
   }
 
+  /**
+   * 持久化装载：按存储参数**精确**注册（不做容差匹配——文件里的记录本来就是 τ 合并后的产物；
+   * 装载顺序 = 文件顺序，id 从当前计数器起）。只给 Kernel.fromBrep 用。created 2026-09-20 by Claude Fable 5.1
+   */
+  restore(pl: PlaneParams): PlaneRec {
+    const rec: PlaneRec = { id: this.nextId++, plane: pl, basis: planeBasis(pl) };
+    this.recs.set(rec.id, rec);
+    return rec;
+  }
+
   /** 清理无人引用的平面（keep = 当前有边组或有存储 face 的平面）。 */
   prune(keep: ReadonlySet<PlaneId>): void {
     for (const id of [...this.recs.keys()]) {
