@@ -1,6 +1,6 @@
-# CatsUp 持久化数据契约（远见版）—— 设计稿 rev5，第四轮已答
+# CatsUp 持久化数据契约（远见版）—— 设计稿 rev6，第五轮已答
 
-> as-of v0.4.6 / 2026-09-20 · created by Claude Fable 5.1 2026-09-19 · **rev2 2026-09-20（edited by Claude Fable 5.1）：按 user 第二轮回答 + glTF 2.1 草案 schema + GDTF 教训重写；rev1 的「ORA 式 zip 薄壳」判**作废**，改为一个 `.glb`。rev3 同日：user 纠偏「我们不是游戏引擎，我们是 sketchup 竞品，也许有做 data driven 场景编辑器的潜力，所以我觉得我们的 spec 不会像 gdtf 里面说的那么未定型，而是有一个比较明确的图像」「还记得我说的那一大堆 component, group，以及丢 gltf 模型之类的早期设想吗」→ SU 竞品 + 场景编辑器的核心本体**现在写定**（§5），GDTF 教训只管游戏层词汇。**rev4 2026-09-20**：user「核心还是 sketchup，好好想一下」→ §5 改成 **SketchUp .skp 本体逐项对照表**（Edge/Face/Curve/Group/Definition/Instance/Image/SectionPlane/Guide/Dimension/Text/Material/Tag/Scene/Style/Shadow/ModelInfo/Attributes），每项落哪、三方看到什么；第三轮 (a)(c) 同意、(b) 整数范围答在 §5.2、(d) 用人话解释在 §10；§3.1 答「和只支持 2.0 的工具兼容吗」。**rev5 2026-09-20**：user 第四轮「为什么用 json 而不是二进制。大文件啊。以及我还是希望 glb 节省流量的！你看我 catsup 也做的很抠。如果一个 n64 的小模型希望包大小也相应的很小」→ B-rep **全二进制**、bake 瘦身、§3.2 体积预算；「我记得我拍过，group 是纯编辑逻辑。是一个数组。component 才是 object 层…命名=commitment and frozen。我怕命名。group 是哑变量。就像用 tensor network 去逃 einsum 的上下表追踪」→ group 去掉 name/hidden/locked/tag，只剩成员 + 轴（考古：与 09-06「编辑时语义」、09-07 B13「transient、不命名、无 hierarchy tree」一致）；「我会支持 blender 式的有机体角色建模，骨骼，以及 minecraft 式的高度图和体素地形。所以自定义格式蛮多的。也许 backward compatibility 逃不了，而是应该第一天设计。每个子数据结构都有自己的版本拍，然后专门一个文件夹放迁移代码」→ §7 改：每个子结构 = 独立扩展 + 独立版本 + `src/format/migrate/`，后门退为兜底。**
+> as-of v0.4.6 / 2026-09-20 · created by Claude Fable 5.1 2026-09-19 · **rev2 2026-09-20（edited by Claude Fable 5.1）：按 user 第二轮回答 + glTF 2.1 草案 schema + GDTF 教训重写；rev1 的「ORA 式 zip 薄壳」判**作废**，改为一个 `.glb`。rev3 同日：user 纠偏「我们不是游戏引擎，我们是 sketchup 竞品，也许有做 data driven 场景编辑器的潜力，所以我觉得我们的 spec 不会像 gdtf 里面说的那么未定型，而是有一个比较明确的图像」「还记得我说的那一大堆 component, group，以及丢 gltf 模型之类的早期设想吗」→ SU 竞品 + 场景编辑器的核心本体**现在写定**（§5），GDTF 教训只管游戏层词汇。**rev4 2026-09-20**：user「核心还是 sketchup，好好想一下」→ §5 改成 **SketchUp .skp 本体逐项对照表**（Edge/Face/Curve/Group/Definition/Instance/Image/SectionPlane/Guide/Dimension/Text/Material/Tag/Scene/Style/Shadow/ModelInfo/Attributes），每项落哪、三方看到什么；第三轮 (a)(c) 同意、(b) 整数范围答在 §5.2、(d) 用人话解释在 §10；§3.1 答「和只支持 2.0 的工具兼容吗」。**rev5 2026-09-20**：user 第四轮「为什么用 json 而不是二进制。大文件啊。以及我还是希望 glb 节省流量的！你看我 catsup 也做的很抠。如果一个 n64 的小模型希望包大小也相应的很小」→ B-rep **全二进制**、bake 瘦身、§3.2 体积预算；「我记得我拍过，group 是纯编辑逻辑。是一个数组。component 才是 object 层…命名=commitment and frozen。我怕命名。group 是哑变量。就像用 tensor network 去逃 einsum 的上下表追踪」→ group 去掉 name/hidden/locked/tag，只剩成员 + 轴（考古：与 09-06「编辑时语义」、09-07 B13「transient、不命名、无 hierarchy tree」一致）；「我会支持 blender 式的有机体角色建模，骨骼，以及 minecraft 式的高度图和体素地形。所以自定义格式蛮多的。也许 backward compatibility 逃不了，而是应该第一天设计。每个子数据结构都有自己的版本拍，然后专门一个文件夹放迁移代码」→ §7 改：每个子结构 = 独立扩展 + 独立版本 + `src/format/migrate/`，后门退为兜底。**rev6 2026-09-20**：user 第五轮「关于面属性，可以想象超级马里奥 64 的关卡。确实会给面打 tag。tag 需要有很强的自定义性。所以也许 id+字符串名称表？然后保存的时候尽量用最低的位精度。能小就小。对于非 gltf 规范的可以用很小的位精度。这也是整数无损的好处之一。取决于 bbox 大小。那么 uv 的精度你怎么看，uv 很多场景会跑到 1 外面。以及 autouv 的时候也许不保存 uv。然后顶点色和顶点光照也是我未来一定会做的」→ §5.1 tag 表、§5.2 位宽 / 单位选择、面贴图定位（不存逐顶点 UV）、颜色层；§4 bake 的 tag 分 primitive 与 COLOR_n。**
 > **性质：提案，未拍板。** user 原话定的题（2026-09-19）：「现在就设计一个有远见的持久化数据契约…看全量 wishlist 包括 overambitious…多依托现有规范」「尽量是类似 ora 的依照已经是格式标准的框架」「考虑后面会有 GTA VCS 级别的场景，甚至 zbrush」；第二轮（2026-09-19/20）：「我不喜欢散一地，但是我们也有 zip 了。以及是否可以就一个 glb。新的 gltf 规则本来就支持 thumb!」「远景还有就是我会 embedding weebpaint」「我确实喜欢整数。但是这个是谁要求的？会不会和 gltf 大家」「gltf 的 new spec 你看一下，有很多我会内耗的」「你可以看一下我以前打回的那个 GDTF 的 proposal，以及后来的反思反省。gtdf is obsolete!」「.catsup 还是 .glb」「无地按照 weebpaint 标准做」「可以 bump minor」「它是被内容需求逼出的自适应格式 嗯应该就是那个教训」。
 > 时机：推翻 2026-09-06「SU 1.0 之后再定」（总账 B5）；容器：09-06 的「zip」拍板被 user 本轮「是否可以就一个 glb」重开——本稿答：可以，理由 §2。
 > **持久化立宪（user 2026-09-20）：「我接受了 backward compatibility 之后就不需要后面啦。而且现在我们 backward compatibility 反而是第一天的设计立宪之一」→ 09-19 的后门政策（无向后兼容 + AI 脚本改 OneDrive）作废；向后兼容 = 第一天立宪，§7 是它的条文。追加：「第一天就做好完美 backward compatibility」「以后随着 gltf 格式进化，我们也会跟着变。比如如果 gltf 支持体素了，我们数据会和他对齐」「跨 gltf 版本的 compatibility 也要做」→ §7 第 9/10 款。**
@@ -98,14 +98,16 @@ BIN chunk
 | 部件 | 存法 | 估算 |
 |---|---|---|
 | JSON 结构（asset / materials / nodes / definitions / document） | 文本 | ~3 KB |
-| B-rep 顶点 | int32 µm ×3 | 12 KB |
+| B-rep 顶点 | 最粗整除单位（多为 mm）+ 包围盒相对、uint16 ×3 | 6 KB（µm/int32 兜底 12 KB） |
 | B-rep 边 + 标志 + 组索引 | uint16 对 + uint8 + uint16 | ~5 KB |
-| B-rep 面（环流 + 材质对 + 标志 + 组索引） | uint16 流 | ~8 KB |
+| B-rep 面（环流 + 材质对 + 标志 + 组索引 + tag） | uint16 流 | ~9 KB |
+| 贴图定位 | 只有显式定位的面，每面 24–32 B 定点 | ~1 KB |
+| 颜色层（若有） | 每面角 rgb8 | ~7 KB / 层 |
 | bake 位置 | int16 量化（`KHR_mesh_quantization`），无 NORMAL，顶点共享 | 6 KB |
 | bake 三角 + 边线索引 | uint16 | ~12 KB |
 | 贴图 | png 原样 | ~4 KB |
 | 缩略图 | JPEG 192 px | ~10 KB |
-| **合计** | | **≈ 60 KB**；`EXT_meshopt_compression`（bake 与 B-rep 的 bufferView 都能压）后 **≈ 35 KB** |
+| **合计** | | **≈ 55 KB**（无颜色层）；`EXT_meshopt_compression`（bake 与 B-rep 的 bufferView 都能压）后 **≈ 30 KB** |
 
 对照：rev3/4 的 JSON 内联 B-rep ≈ 150–200 KB；带 float32 法线不共享顶点的朴素 bake ≈ 400 KB。规则：**裸二进制先落地，meshopt 是同一纪元内的开关**——golden 体积测试给每个 golden 场景一个预算，超了就开压缩。
 
@@ -118,7 +120,7 @@ BIN chunk
 ## 4. core = bake 的规则
 
 - **坐标**：glTF +Y 上、米、右手。内核 +Z 上 → 只在 `src/format/` 边界换轴（(x,y,z)ᶜ → (x, z, −y)ᵍ），与 OBJ 逃生口同做法；`CATSUP_*` 内数据**保持 Z-up、米**（authoring 零换轴）。
-- **网格（抠）**：每个 definition 一个 `mesh`；面按材质分 primitive（`TRIANGLES`）；**不写 `NORMAL`**（规范：缺省时加载器 MUST 自算平面法线——肥皂膜本来就是平面着色）；`POSITION` = int16 量化 + node 缩放/平移反量化（`KHR_mesh_quantization`，已批准、2.1 升 core；三方广泛支持）；**无贴图的 primitive 顶点共享**（只有带 `TEXCOORD_0` 的面才按面拆顶点）；索引 uint16（< 65536 时）；边一个 `LINES` primitive 复用同一位置 accessor（轮廓粗细是渲染态）。`EXT_meshopt_compression` 按 §3.2 预算开关。
+- **网格（抠）**：每个 definition 一个 `mesh`；面按材质分 primitive（`TRIANGLES`）；**不写 `NORMAL`**（规范：缺省时加载器 MUST 自算平面法线——肥皂膜本来就是平面着色）；`POSITION` = int16 量化 + node 缩放/平移反量化（`KHR_mesh_quantization`，已批准、2.1 升 core；三方广泛支持）；**无贴图的 primitive 顶点共享**（只有带 `TEXCOORD_0` 的面才按面拆顶点）；索引 uint16（< 65536 时）；边一个 `LINES` primitive 复用同一位置 accessor（轮廓粗细是渲染态）。**primitive 按 (材质, tag) 拆**，primitive `extras.tag = name`（马里奥 64 式面属性三方可读）；`TEXCOORD_0` 由面映射算出、写成 `KHR_mesh_quantization` 的 SHORT + `KHR_texture_transform` 缩放（平铺 > 1 照样表示）；颜色层 → `COLOR_0` / `COLOR_1`（RGB ubyte normalized）。`EXT_meshopt_compression` 覆盖 bake 与 B-rep 全部 bufferView，按 §3.2 预算开关。
 - **实例**：definition 的每个 instance = `node{mesh, translation, rotation, scale, extras}`；嵌套 definition 在 bake 里逐实例展平成 node 子树（mesh 共享）——三方看到「实例有 transform、渲染是三角汤」，不引入空节点当容器（proposal L44「healthy boundary」）。
 - **材质 / 灯 / 相机 / 可见性**：标准件（PBR、`KHR_lights_punctual`、`cameras`、`KHR_node_visibility`）；`extras.catsup.colorName` 挂家族色彩库色名。
 - **ECS 元数据 = 节点 `extras`**：`{ tags, components:{ collision:{mode}, marker:{kind}, … } }`；component 键开放集（B2）；未知键保留。
@@ -148,7 +150,7 @@ BIN chunk
 | **ConstructionLine / ConstructionPoint**（卷尺 / 量角器留下的辅助线点，可擦） | `annotations.guides[{kind:"line"|"point"|"ray", origin, dir?, stipple}]` | 不出 | 卷尺纪元 |
 | **Dimension**（线性 / 半径标注）、**Text**（屏幕 / 引线文字）、3D Text（= 面，已覆盖） | `annotations.dimensions[…]` / `annotations.texts[{anchor, text, leader, screen?}]` | 不出（extras 备查） | 标注纪元 |
 | **Material**（名、颜色、贴图 + **贴图在模型里的实际尺寸**、透明度、colorize） | core `materials` + `extras.catsup{ textureSize:[w,h], colorName }` | `materials`（PBR；无光照风格 = `KHR_materials_unlit`） | 贴图纪元 |
-| **Layer / Tag**（名、颜色、可见、tag 文件夹）+ 每实体一个 tag | `document.tags[{name, color, visible, folder}]`；边 / 面 / 实例节点各一个 `tag` 索引（**group 不带 tag**；「给组打 tag」= 成员全打） | `extras.tags` | 现在（tags 表可空） |
+| **Layer / Tag**（SU：名、颜色、可见、文件夹）+ **马里奥 64 式面属性**（user：地面类型 / 岩浆 / 冰面 / 音效面…「tag 需要有很强的自定义性，id + 字符串名称表」） | `document.tags[{ id, name, color, visible, folder, extras }]`（**id 是身份、name 只是显示**：改名不动几何；`extras` 装自定义数据，如 `{surface:"lava", damage:1}`）；边 / 面 / 实例节点各**一个** `tag` id（uint16，0 = 无；组合语义 = 建一个组合 tag，SM64 同款「死表」）；**group 不带 tag**（「给组打 tag」= 成员全打） | bake 按 (材质, tag) 拆 primitive，primitive `extras.tag = name`（Blender / Godot 都能读到）；标准追随候选 = `EXT_mesh_features` + `EXT_structural_metadata`（Cesium 的「feature id + 属性表」，就是 id + 名称表的 glTF 标准版；等有消费者再切） | 现在（tags 表可空） |
 | **Scene / Page**（相机 + 保存项：hidden 几何、可见 tags、激活剖面、style、阴影设置、轴位置；过渡时间） | `document.views[{name, camera:<node>, saved:{tags, sections, style, shadows, hidden}, spawn, transition}]` | `cameras` | 现在（只 camera + lastView） |
 | **Style**（边：轮廓线 / 延伸 / 端点 / 深度提示；面：着色 / 贴图 / 单色 / X 光 / 线框 / 隐藏线；背景 / 天空 / 地面色；辅助线可见性） | `document.styles[{…}]` + `views.saved.style`（Workbench 的显示参数，A8 轮廓线在此） | `extras.catsup.background` 可选 | 样式纪元 |
 | **Shadow Info**（地理位置 lat/long/北偏角、日期时间、明暗、落在面 / 地面） | `document.geo{lat, lon, northAngle}` + `document.shadows{time, date, on, light, dark}` | **烘一盏太阳**：`KHR_lights_punctual` directional（方向按地理+时间算）——三方直接有光 | 阴影纪元 |
@@ -176,28 +178,31 @@ BIN chunk
 | Minecraft 式体素 | `CATSUP_voxel`（调色板 + chunk 化 run-length 块流） | 烘成 mesh（贪心合并面） |
 | ZBrush 式雕刻层级 | `CATSUP_sculpt`（基笼 + 每级位移） | 顶级 mesh |
 
-### 5.2 `CATSUP_brep`（肥皂膜内核；每个 definition 一份；**全二进制**）
+### 5.2 `CATSUP_brep`（肥皂膜内核；每个 definition 一份；**全二进制、最低位宽**）
 
 ```jsonc
-{ "version": 1, "unit": 1e-6,                                    // 顶点整数 → 米；= 内核 Q（立宪 §0 格点身份）
-  "vertexCount": 1000, "vertices":   { "bufferView": 3, "componentType": "int32" },   // ×3，Z-up、definition 局部系；包围盒超 ±2147 m 时写入器自动改 "int64"
-  "edgeCount":   800,  "edges":      { "bufferView": 4, "indexType": "uint16" },      // 顶点索引对
-                       "edgeFlags":  { "bufferView": 5 },                             // uint8 位：1 soft 2 smooth 4 hidden 8 noShadow
-                       "edgeGroup":  { "bufferView": 6 },                             // uint16 组索引（0 = 未分组）
-                       "edgeTag":    { "bufferView": 7 },                             // uint16（可缺省 = 全部默认 tag）
-  "faceCount":   500,  "faces":      { "bufferView": 8, "indexType": "uint16" },      // 环流：每面 [nRings, len0, v…, len1, v…]
-                       "faceMaterial": { "bufferView": 9 },                           // uint16 对 (front, back)，0xFFFF = 默认
+{ "version": 1,
+  "unit": 1e-3, "origin": [x,y,z],                                     // 写入器选：单位 = 能整除全部坐标的最粗档（1e-3…1e-6 m），origin = 包围盒角；坐标 = 无符号整数
+  "vertexCount": 1000, "vertices":   { "bufferView": 3, "componentType": "uint16" },   // ×3；位宽由 (extent / unit) 决定：uint16 / uint32 / uint64
+  "edgeCount":   800,  "edges":      { "bufferView": 4, "indexType": "uint16" },       // 顶点索引对；索引位宽由 count 决定
+                       "edgeFlags":  { "bufferView": 5 },                              // uint8 位：1 soft 2 smooth 4 hidden 8 noShadow
+                       "edgeGroup":  { "bufferView": 6 }, "edgeTag": { "bufferView": 7 },   // uint16 组索引 / tag id（可缺省 = 全 0）
+  "faceCount":   500,  "faces":      { "bufferView": 8, "indexType": "uint16" },       // 环流：每面 [nRings, len0, v…, len1, v…]
+                       "faceMaterial": { "bufferView": 9 },                            // uint16 对 (front, back)，0xFFFF = 默认
                        "faceFlags":  { "bufferView": 10 }, "faceGroup": {…}, "faceTag": {…},
-                       "faceUV":     { "bufferView": 11, "faces": { "bufferView": 12 } },   // 可选、稀疏：只有显式贴图定位的面才有（float32 每环顶点 u,v，前后各一份）
-  "curves":  [ { "edges": [12,13,14], "kind": "arc", "params": {…} } ],              // 少量，JSON
-  "groups":  [ { "axes": { "origin":[0,0,0], "x":[1,0,0], "y":[0,1,0], "z":[0,0,1] }, "parent": null } ],   // group = 哑变量：只有轴框与嵌套，无名无态
+                       "faceMapping": { "faces": {…}, "data": {…} },                   // 稀疏：只有显式贴图定位的面（§贴图定位）
+                       "colorLayers": [ { "name": "paint", "format": "rgb8", "bufferView": 13 },
+                                        { "name": "bakedLight", "format": "rgb8", "bufferView": 14, "derived": true } ],   // 逐面角，环流顺序（§颜色层）
+  "curves":  [ { "edges": [12,13,14], "kind": "arc", "params": {…} } ],
+  "groups":  [ { "axes": {…}, "parent": null } ],                                       // group = 哑变量
   "extras":  {} }
 ```
 
-- **为什么二进制**（user 第四轮）：同一顶点 JSON 文本 ≈ 24 B、int32 = 12 B；面环 / 边索引同理减半以上；且 bufferView 才能吃 `EXT_meshopt_compression`。JSON 只剩结构（curves / groups / extras）。「脚本可改」不受影响——转换脚本 import `src/format/`（node 可跑），不手解 JSON。
-- **整数范围**：int32 µm = 每个 definition 局部 ±2147 m；写入器按包围盒自动升 int64（JS `BigInt64Array`），读取器两种都认；不是用户选项。必须留 int64 的原因：SU 用户会把几公里的场地 / 道路当裸几何放模型根。
+- **最低位宽（user「尽量用最低的位精度，能小就小，取决于 bbox 大小」）**——整数无损让写入器可以两步选：**① 单位**：内核身份是 1 µm 格，但吸附 / 整数增量画出来的坐标绝大多数落在 mm 或 cm 格上；写入器取「能整除该 definition 全部坐标」的最粗单位（1e-3 → 1e-6 m），无损；**② 位宽**：坐标减去包围盒角 `origin` 后是无符号整数，按 `extent / unit` 选 uint16（≤ 65 m @ mm）/ uint32 / uint64。N64 小模型（≤ 65 m、mm 格）= 6 B/顶点，是 int32 µm 的一半。不做任意 bit 打包——那 20–35% 的收益远不如 **`EXT_meshopt_compression`**（标准扩展，作用于任何 bufferView：delta + 熵友好打包，量化整数流典型 2–4×，bake 也一起压）；两者叠加。位宽 / 单位 / 压缩全是写入器的事，读取器都认，模型不感知。
 - **整数是谁要求的**（留档）：内核顶点身份 = 1 µm 整数格；float32 24 位尾数在 |x| > 8.4 m 存不住格点；三方不读这些数（bake 的 `POSITION` 是量化 int16），与 glTF 大家无冲突。
-- **group 的存法 = 同一池 + 每元素一个组索引**（user「group 是一个数组」的关系式表示，2 B/元素；与「每组一个成员列表」信息等价、更省）。同池即 B1 数据层拍板；运行时 sticky 墙语义（B1 推论）不变、仍待内核纪元核实。
+- **贴图定位（答「uv 精度 / uv 跑到 1 外面 / autouv 不存」）**：**不存逐顶点 UV**。SU 的贴图定位本来就是「面平面 → 贴图空间」的一个 2D 映射：默认 = 材质缺省投影（**autoUV，不存任何东西**，算法版本 = brep `version` 的一部分，算法变了 = 一条迁移把旧文件的受影响面冻结成显式映射）；用户调过的面 = 显式映射：**仿射 6 个数**（SU 4 图钉的固定模式：平移 / 缩放 / 旋转 / 斜切）或 **射影 8 个数**（4 图钉自由模式）。数值 = 定点整数：单位 2⁻¹⁶ 贴图重复数、int32（范围 ±32768 次重复、分辨率 1.5×10⁻⁵ ≈ 8K 贴图亚像素）——跑出 [0,1] 多远都无所谓，精度也不随范围掉（这是定点比 float16 好、比 float32 省的原因；写入器同样可按范围降到 int16 = 单位 2⁻¹² / ±8 次重复 / 1/4096 ≈ 4K 贴图一像素）。每面 24–32 B，只有显式定位的面付这个钱。逐顶点 UV 只在有机网格 `CATSUP_mesh` 里出现（那里没有「面平面」）。
+- **颜色层（user「顶点色和顶点光照也是我未来一定会做的」）**：`colorLayers` = 命名的逐**面角**颜色流（顺序 = 面环流；面角而非顶点，因为同一顶点在不同面上颜色可以不同——Blender 的 color attribute 也是 per-corner）；格式默认 `rgb8`（8-bit sRGB，N64/PS1 就是这个精度），需要透明才 `rgba8`，`rgb16` 留给 HDR 光照；**`derived: true` 的层是烘焙产物**（顶点 GI，proposal L68），可丢可重算——数据类 = 随文件运输的缓存。bake：`paint` → `COLOR_0`，`bakedLight` → `COLOR_1`（core 允许多组），有颜色差异的面角不共享顶点。
+- **group 的存法 = 同一池 + 每元素一个组索引**（user「group 是一个数组」的关系式表示，2 B/元素）。同池即 B1 数据层拍板；运行时 sticky 墙语义待内核纪元核实。
 - 平面注册表 / arrangement / faceLinks 不存（从 faces 确定性重建）；膜 = 文件内索引，不铸 id。
 
 ### 5.3 `CATSUP_definitions`（顶层）
@@ -263,7 +268,7 @@ BIN chunk
 
 1. **round-trip 保真**：reader 保留一切不认识的（未知扩展、未知 extras 键、未知顶层属性、未引用的 bufferView），writer 原样写回。插件与未来版本互不销毁；这是 glTF `extras`/`extensionsUsed` 的规则。
 2. **同 formatVersion 内只加不改**；删字段 = 保留读、停止写。
-3. **每个子结构独立版本戳 + app 内迁移文件夹**（user 2026-09-20「也许 backward compatibility 逃不了，而是应该第一天设计。每个子数据结构都有自己的版本拍，然后专门一个文件夹放迁移代码」）：`CATSUP_document / brep / definitions / instance / mesh / armature / heightmap / voxel / sculpt` **各自** `version` 整数，互不牵连（改 brep 布局不动 armature）；迁移代码全部住 `src/format/migrate/<extension>/v<N>-to-v<N+1>.ts`，每个 = 纯函数（JSON + bufferView 进 → 出），读取器逐级链式升到当前版，写入器只写当前版；**语料 = `test/fixtures/format/<extension>/v<N>/*.glb`**（每发过一版就冻结一份样本，迁移测试 = 旧样本 → 当前 → 与 golden 逐字节一致）。
+3. **每个子结构独立版本戳 + app 内迁移文件夹**（user 2026-09-20「也许 backward compatibility 逃不了，而是应该第一天设计。每个子数据结构都有自己的版本拍，然后专门一个文件夹放迁移代码」）：`CATSUP_document / brep / definitions / instance / mesh / armature / heightmap / voxel / sculpt` **各自** `version` 整数，互不牵连（改 brep 布局不动 armature）；迁移代码全部住 `src/format/migrate/<extension>/v<N>-to-v<N+1>.ts`，每个 = 纯函数（JSON + bufferView 进 → 出），读取器逐级链式升到当前版，写入器只写当前版；**语料 = `test/fixtures/format/<extension>/v<N>/*.glb`**（每发过一版就冻结一份样本，迁移测试 = 旧样本 → 当前 → 与 golden 逐字节一致）。**算法也是格式的一部分**：autoUV 投影算法、位宽 / 单位选择规则都由 brep `version` 覆盖——算法改了 = 版本 +1 + 一条迁移（如把旧算法下的受影响面冻结成显式映射），不许静默改变老文件的外观。
 4. **拒开只剩一种情况**：子结构版本比 app 自己**新**（不能降级、不猜）→ 原文报版本。旧的一律能开。
 5. **后门作废**（user 09-20「我接受了 backward compatibility 之后就不需要后面啦」）：不再有「AI 脚本进 OneDrive 改文件」这条路；任何格式改动都必须附带迁移函数 + 冻结样本，否则不许合并（这是立宪条款，与立宪页「改核心必回写」同级）。
 6. **让迁移便宜**：`src/format/` 纯模块（零 DOM / 零 three / node 可 import；GLB 读写自写）；bake 可再生（迁移只搬 authoring，bake 整个重烘）；2.1 属性名定稿前变动 = 一条 document 迁移。**迁移写入的时机**：读到旧版 → 内存升级 → 只有用户真的保存时才写新版（不静默改云端字节；读不等于写）。
@@ -340,7 +345,9 @@ BIN chunk
 - **override 只许不改几何**：同一个 component 的多个实例，每个实例可以单独换材质 / 隐藏，但不能单独改形状；要改形状 = SU 的 Make Unique（复制成新 definition）。就是 SU 的规则。
 三条都按默认沿用。
 
-**第四轮已答（user 2026-09-20）**：「90 亿米多大」→ 9×10⁹ m ≈ 0.06 AU ≈ 23 个地月距离 ≈ 6.5 个太阳直径，连水星轨道（5.8×10¹⁰ m）的六分之一都不到——**已无关**：JSON 内联作废，二进制 int32 = 每 definition ±2147 m、自动升 int64。「为什么 json 不用二进制、要抠」→ §5.2 全二进制 + §4 bake 瘦身 + §3.2 预算表。「group 是纯编辑逻辑、一个数组、哑变量、怕命名」→ §5.1/§5.2 group 只剩轴框 + 成员索引。「有机体 / 骨骼 / 高度图 / 体素…backward compatibility 第一天设计，每个子结构版本戳 + 迁移文件夹」→ §5.1 末表 + §7；「接受了 backward compatibility 之后就不需要后门啦…是第一天的设计立宪之一」→ 后门作废，§7 = 立宪条文；「第一天就做好完美 backward compatibility」「跟着 gltf 进化对齐（体素等）」「跨 gltf 版本兼容也要做」→ §7 第 9/10 款。**A18 可开工，等 user「开做」。**
+**第四轮已答（user 2026-09-20）**：「90 亿米多大」→ 9×10⁹ m ≈ 0.06 AU ≈ 23 个地月距离 ≈ 6.5 个太阳直径，连水星轨道（5.8×10¹⁰ m）的六分之一都不到——**已无关**：JSON 内联作废，二进制 int32 = 每 definition ±2147 m、自动升 int64。「为什么 json 不用二进制、要抠」→ §5.2 全二进制 + §4 bake 瘦身 + §3.2 预算表。「group 是纯编辑逻辑、一个数组、哑变量、怕命名」→ §5.1/§5.2 group 只剩轴框 + 成员索引。「有机体 / 骨骼 / 高度图 / 体素…backward compatibility 第一天设计，每个子结构版本戳 + 迁移文件夹」→ §5.1 末表 + §7；「接受了 backward compatibility 之后就不需要后门啦…是第一天的设计立宪之一」→ 后门作废，§7 = 立宪条文；「第一天就做好完美 backward compatibility」「跟着 gltf 进化对齐（体素等）」「跨 gltf 版本兼容也要做」→ §7 第 9/10 款。
+
+**第五轮已答（user 2026-09-20）**：马里奥 64 式面 tag → `document.tags` = id + 名称表（id 身份、name 显示、extras 自定义数据），每元素一个 tag id，bake 按 (材质, tag) 拆 primitive + `extras.tag`，标准追随候选 `EXT_mesh_features`/`EXT_structural_metadata`；最低位宽 → 写入器两步选（最粗整除单位 + 包围盒相对无符号位宽）叠 meshopt，不做 bit 打包；UV → 不存逐顶点 UV，面贴图定位 = 仿射 6 / 射影 8 定点整数（2⁻¹⁶，范围不受 [0,1] 限制）；autoUV 不存、算法版本化；顶点色 / 顶点光照 → 命名逐面角颜色层，rgb8 默认，烘焙层标 derived，bake 出 `COLOR_0/1`。**A18 可开工，等 user「开做」。**
 
 ---
 
