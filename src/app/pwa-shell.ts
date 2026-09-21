@@ -14,6 +14,8 @@ export interface PwaShellOptions {
   onUpdateAvailable: () => void;
   onForeground?: () => void;
   onBeforeReload?: () => void | Promise<void>;
+  /** 黑匣子面包屑（SW 注册失败等；不给 = 只 console）。 */
+  onLog?: (msg: string) => void;
 }
 export interface PwaShell {
   readonly isDevRoute: boolean;
@@ -75,7 +77,7 @@ export function initPwaShell(opts: PwaShellOptions): PwaShell {
         });
       });
       setInterval(() => { reg.update().catch(() => {}); }, 10 * 60 * 1000);
-    }).catch((err: unknown) => { console.warn("[pwa] SW register failed", err); });
+    }).catch((err: unknown) => { console.warn("[pwa] SW register failed", err); opts.onLog?.(`SW register failed: ${String((err as { message?: unknown })?.message ?? err)}`); });
   }
 
   return { isDevRoute, reload, forceReset };

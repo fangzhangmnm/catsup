@@ -13,6 +13,7 @@ import { extractThumbnail, headBytesNeeded } from "../format/peek.ts";
 import { openConfirmSheet, openInputSheet, openChoiceSheet, withBusy } from "./ui/sheets.ts";
 import { deviceKvGet, deviceKvSet } from "./device-kv.ts";
 import { reportError } from "./error-funnel.ts";
+import { openDebugLogSheet } from "./debug-log-sheet.ts";
 
 export interface GalleryHostDeps {
   mountEl: HTMLElement;
@@ -95,6 +96,7 @@ export function initGalleryHost(d: GalleryHostDeps) {
     isGalleryVisible: () => document.body.dataset.mode === "gallery",
     reportError: (e, level) => reportError(e, level ?? "error"),
     reloadApp: () => location.reload(),
+    openDiag: () => openDebugLogSheet(),   // 图库卡住态的「打开诊断」钮 → 同一个黑匣子 sheet（WeebPaint 09-06 同款入口）
     text: { lang: "zh" as never },
     deviceKv: { get: deviceKvGet, set: deviceKvSet },
   };

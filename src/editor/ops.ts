@@ -88,3 +88,18 @@ export function applyOp(k: Kernel, op: Op): ApplyResult {
     case "pushpull": { const fid = resolveFace(k, op.face); return { kernel: k, events: k.pushPull(fid, op.dist) }; }
   }
 }
+
+// ---------- 摘要（调试日志一行：动词 + 数量，不含坐标——黑匣子记「做了什么」；失败那条另附 op JSON 当复现钥匙）----------
+// created 2026-09-20 by Claude Fable 5.1（user 09-20「op 操作是否要上 Log」→ 上，一 op 一行）
+export function describeOp(op: Op): string {
+  switch (op.op) {
+    case "clear": return "clear";
+    case "preset": return `preset ${op.name}`;
+    case "addEdges": return `addEdges segs=${op.segs.length}`;
+    case "eraseEdges": return `eraseEdges n=${op.edges.length}`;
+    case "eraseFaces": return `eraseFaces n=${op.faces.length}`;
+    case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}`;
+    case "move": return `move verts=${op.moves.length}`;
+    case "pushpull": return `pushpull ring=${op.face.length} dist=${Number(op.dist.toFixed(4))}`;
+  }
+}

@@ -1,4 +1,4 @@
-// main.ts —— app 壳接线：工具条 / 顶栏 / 菜单 / 状态行 / 实验台抽屉 / OBJ 逃生口 / PWA 更新 toast。
+// main.ts —— app 壳接线：工具条 / 顶栏 / 菜单 / 状态行 / 调试日志 sheet / OBJ 逃生口 / PWA 更新 toast。
 // created 2026-09-06 by Claude Fable 5.1（0.3 app 壳纪元开工：user「离开 lab 变成一个 prototypical 但是正经的东西…先做无地骑士，
 // 无 store 无导入导出…去掉那些很 lab 的东西，好好做 ui，可以留一个 gltf 或者 obj 的 io 逃生口」）
 // 无地骑士：零持久化——模型只活在内存里；OBJ 是唯一出入口。
@@ -11,11 +11,9 @@ import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
-import { Editor, TOOLS, type Tool, describeEvent } from "../editor/editor.ts";
-import { PRESETS } from "../editor/presets.ts";
+import { Editor, TOOLS, type Tool } from "../editor/editor.ts";
 import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
-import type { FaceEvent } from "../kernel/kernel.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
 import { VR } from "./vr.ts";
@@ -26,6 +24,12 @@ import { togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-
 import { showNotice, type NoticeOpts } from "./ui/notice.ts";
 import { initCrashRecovery } from "./crash-recovery.ts";
 import { crashStore } from "./crash-store.ts";
+import { initDebugLog, note, record, toText as debugLogText, entries as debugLogEntries } from "./debug-log.ts";
+import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet } from "./debug-log-sheet.ts";
+import { traceLine } from "./debug-lines.ts";
+
+// 黑匣子最早起（实验台 sunset → 调试日志，user 2026-09-20）：开机 URL 行必须在 initAuth 之前抓——MSAL 处理完 redirect 会抹掉 hash。
+initDebugLog();
 
 // 通知 = 桌面 toast + VR 字幕位（同一份文案；vr 未进会话时后者无事）
 function notify(opts: NoticeOpts): void {
@@ -43,6 +47,7 @@ function reportError(where: string, err: unknown): void {
   const now = performance.now();
   if (text === lastErr.text && now - lastErr.at < 2000) return;
   lastErr = { text, at: now };
+  record("error", `[${where}] ${msg}${frames.length ? ` @ ${frames.join(" < ")}` : ""}`);   // 黑匣子（去重之后：预演每帧撞同一错只记一次）
   notify({ id: "err", text, level: "error" });
 }
 
@@ -53,14 +58,14 @@ const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
 };
 
 // ---------- UI 偏好（纯 UI 状态，不是模型数据）——device-kv 器官（全 app 唯一 localStorage 入口，红线守卫执法） ----------
-migrateLegacyUiPrefs(["fingerDraws", "leftHanded", "lab"]);
+migrateLegacyUiPrefs(["fingerDraws", "leftHanded"]);
+deviceKvSet("ui.lab", null);   // 实验台 sunset（2026-09-20）：旧开关键清掉
 const PREF = {
   get(key: string): string | null { return deviceKvGet(`ui.${key}`); },
   set(key: string, v: string): void { deviceKvSet(`ui.${key}`, v); },
 };
 let fingerDraws = PREF.get("fingerDraws") === "1";
 let leftHanded = PREF.get("leftHanded") === "1";   // VR：左手持笔（工具手/面板手对调）
-let labOpen = PREF.get("lab") === "1" || new URLSearchParams(location.search).has("lab");
 
 // ---------- DOM ----------
 const canvas = $<HTMLCanvasElement>("board");
@@ -69,8 +74,6 @@ const hintEl = $("hint");
 const tipEl = $("tip");
 const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
-const logEl = $("labLog");
-const labEl = $("lab");
 const buildEl = $("build");
 
 const HINT_DEFAULT = "画线 L · 矩形 R · 移动 M · 推拉 P · 橡皮 E · 选择 空格 ｜ 右键/单指拖=环绕 · 双指=平移缩放 · 滚轮=缩放 ｜ Esc 取消";
@@ -89,8 +92,7 @@ const editor = new Editor(canvas, {
       tipEl.style.top = `${cy - 28}px`;
     } else tipEl.hidden = true;
   },
-  events: (evs) => appendLog(evs),
-  separator: (t) => appendSep(t),
+  trace: (e) => note("op", traceLine(e)),   // 记账面包屑 → 黑匣子（一 op 一行；失败行带 op JSON）
   marquee: (r) => {
     if (!r) { marqueeEl.hidden = true; return; }
     const b = canvas.getBoundingClientRect();
@@ -149,12 +151,6 @@ for (const spec of hud.tools()) {
   toolbarEl.appendChild(b);
   toolBtns.set(spec.id as Tool, b);
 }
-// 删面（lab 仪器：SU 没有这个工具——选面+Delete 才是正道；只在实验台里露出）
-{
-  const b = $<HTMLButtonElement>("labEraseFace");
-  b.addEventListener("click", () => editor.setTool("eraseFace"));
-  toolBtns.set("eraseFace", b);
-}
 
 // ---------- 顶栏 ----------
 const btnUndo = $<HTMLButtonElement>("btnUndo");
@@ -192,7 +188,7 @@ btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
   },
 }));
 
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "lab" | "clear" | "help" | "update" | "vr" | "lefthand";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand";
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu,
   items: () => [
@@ -212,9 +208,9 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" },
     ] : []),
     { id: "finger", label: "手指也能画", checked: fingerDraws, separatorBefore: true, hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
-    { id: "lab", label: "实验台（膜事件日志 / 场景预置）", checked: labOpen },
     { id: "clear", label: "清空模型", icon: "trash-can", separatorBefore: true },
     { id: "help", label: "快捷键与手势", icon: "keyboard" },
+    { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
     { id: "update", label: `强制更新（清缓存重启）· ${APP_VERSION}`, icon: "refresh" },
   ],
   onPick: (id) => {
@@ -229,12 +225,12 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       case "export": doExport(); break;
       case "import": objInput.click(); break;
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
-      case "lab": setLab(!labOpen); return "keep";
+      case "debuglog": openDebugLogSheet(); break;
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
       case "help": toggleHelp(true); break;
-      case "update": pwa.forceReset(); break;
+      case "update": note("sw", "force reset requested (menu)"); pwa.forceReset(); break;
       case "vr": if (vr.isPresenting()) vr.exit(); else vr.enter(); break;
       case "lefthand": leftHanded = !leftHanded; PREF.set("leftHanded", leftHanded ? "1" : "0"); return "keep";
     }
@@ -297,43 +293,6 @@ function syncUi(): void {
   btnRedo.disabled = !editor.canRedo();
   btnDelete.hidden = !editor.hasSelection();
   vr?.invalidatePanel();
-}
-
-// ---------- 实验台抽屉 ----------
-function appendLog(events: FaceEvent[]): void {
-  for (const ev of events) {
-    const div = document.createElement("div");
-    div.className = "ev";
-    div.textContent = describeEvent(ev);
-    logEl.prepend(div);
-  }
-  while (logEl.childElementCount > 400) logEl.lastElementChild?.remove();
-}
-function appendSep(text: string): void {
-  const div = document.createElement("div");
-  div.className = "sep";
-  div.textContent = `── ${text} ──`;
-  logEl.prepend(div);
-}
-{
-  const presetsEl = $("labPresets");
-  for (const p of PRESETS) {
-    const b = document.createElement("button");
-    b.type = "button";
-    b.textContent = p.name;
-    b.title = p.note;
-    b.addEventListener("click", () => editor.applyPreset(p.name));
-    presetsEl.appendChild(b);
-  }
-  $("labClearLog").addEventListener("click", () => { logEl.textContent = ""; });
-  $("labClose").addEventListener("click", () => setLab(false));
-}
-function setLab(on: boolean): void {
-  labOpen = on;
-  PREF.set("lab", on ? "1" : "0");
-  labEl.hidden = !on;
-  if (!on && editor.tool === "eraseFace") editor.setTool("select");
-  requestAnimationFrame(resize);
 }
 
 // ---------- 帮助 ----------
@@ -401,7 +360,7 @@ window.addEventListener("keydown", (ev) => {
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "y" || ev.key === "Y")) { ev.preventDefault(); editor.redo(); return; }
   if (ev.key === "Delete" || ev.key === "Backspace") { if (editor.hasSelection()) { ev.preventDefault(); editor.deleteSelection(); } return; }
-  if (ev.key === "Escape") { closePopupMenu(); toggleHelp(false); editor.cancel(); }
+  if (ev.key === "Escape") { closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); editor.cancel(); }
 });
 
 // ---------- 尺寸 ----------
@@ -411,10 +370,11 @@ window.addEventListener("resize", resize);
 
 // ---------- PWA ----------
 const pwa = initPwaShell({
-  onUpdateAvailable: () => notify({
+  onUpdateAvailable: () => { note("sw", "update available → notice"); notify({
     id: "update", text: "有新版本", level: "info",
-    actions: [{ label: "刷新", primary: true, onClick: () => { pwa.reload(); } }],
-  }),
+    actions: [{ label: "刷新", primary: true, onClick: () => { note("sw", "reload requested"); pwa.reload(); } }],
+  }); },
+  onLog: (m) => note("sw", m),
 });
 buildEl.textContent = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
 if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓存重启 · ${APP_VERSION}`, level: "info" });
@@ -422,6 +382,7 @@ if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓
 // ---------- 探针钩子（scripts/probe-boot.mjs 用；不是 API） ----------
 // ---------- 转正纪元（2026-09-20）：文档生命周期 + 图库 + 云端 ----------
 initSheets();
+initDebugLogSheet();
 // smart save 钮（三条杠下面；对齐 WeebPaint save-status + smartSaveAndPush；user 2026-09-20「title 意义不明可以不要，三条杠下面加一个 smart save button」）
 const btnSave = $<HTMLButtonElement>("btnSave");
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
@@ -453,7 +414,7 @@ const session = new Session({
   editor,
   captureThumbnail: () => captureThumbnail(editor),
   onHomeChanged: updateSaveStatus,
-  setStatus: (text, error) => notify({ text, level: error ? "error" : "info" }),
+  setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   online: () => navigator.onLine !== false,
 });
 let storeWired = false;
@@ -473,7 +434,7 @@ const galleryHost = initGalleryHost({
   pushDoc: (n) => session.pushDoc(n),
   offloadDoc: (n) => session.offloadDoc(n),
   flushLocal: () => session.flushLocal(),
-  setStatus: (text, error) => notify({ text, level: error ? "error" : "info" }),
+  setStatus: (text, error) => { note("gallery", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   onFolderChanged: (dir) => { session.currentDir = dir; },
   onOpened: () => { wireStore(); Session.persistOnGesture(); },
   onClosed: () => { (document.activeElement as HTMLElement | null)?.blur?.(); editor.resize(window.devicePixelRatio || 1); },   // 图库按钮别留着焦点吃快捷键
@@ -488,15 +449,26 @@ $("galleryEmptyTrash").addEventListener("click", () => {
 });
 const cloudBtn = $<HTMLButtonElement>("galleryCloudBtn");
 let signInNav = false;   // 登录 redirect 导航中：beforeunload 别挡（WeebPaint _signInNav 同款）
+const acct = (a: unknown): string => { const h = (a as { homeAccountId?: unknown } | null)?.homeAccountId; return typeof h === "string" && h ? h.slice(0, 8) + "…" : "-"; };
 function cloudSignIn(): void {
   if (!auth.isAuthConfigured()) { notify({ text: "云端未配置（client id 为空）", level: "warning" }); return; }
+  // 黑匣子（user 09-20「onedrive 授权还是没反应」）：点击 → 快照 → signIn 起跳，每一步一行；回程在 boot 的 [auth] init 行
+  note("auth", `sign-in click: home=${session.home.kind} dirtyLocal=${session.dirtyLocalHome()} online=${String(navigator.onLine)} store=${hasStore()}`);
   Session.persistOnGesture(); wireStore();
-  const go = (): void => { signInNav = true; auth.signIn({ prompt: "select_account" }).catch((e) => { signInNav = false; funnel(e); }); };
+  const go = (): void => {
+    signInNav = true;
+    note("auth", "signIn(redirect, select_account) → leaving page");
+    auth.signIn({ prompt: "select_account" }).catch((e) => { signInNav = false; note("auth", "signIn rejected (still on page)"); funnel(e); });
+  };
   // 脏的 file / transient 模型：redirect 前留 pending-adoption 帧（IDB 写必须在导航前落完——bfcache/IDB 锁案卷），回来自动领养
-  if (session.needsRedirectSnapshot()) void session.prepareForRedirect().finally(go);
-  else go();   // 手势同步栈起跳（iOS redirect）
+  if (session.needsRedirectSnapshot()) {
+    const t0 = performance.now();
+    void session.prepareForRedirect()
+      .then(() => note("auth", `redirect snapshot ok ${(performance.now() - t0).toFixed(0)}ms`), (e) => note("auth", `redirect snapshot failed: ${String((e as { message?: unknown })?.message ?? e)}`))
+      .finally(go);
+  } else go();   // 手势同步栈起跳（iOS redirect）
 }
-async function cloudSignOut(): Promise<void> { try { await auth.signOut(); notify({ text: "已退出 OneDrive 登录（本机副本仍在）", level: "info" }); } catch (e) { funnel(e); } }
+async function cloudSignOut(): Promise<void> { note("auth", "sign-out click"); try { await auth.signOut(); notify({ text: "已退出 OneDrive 登录（本机副本仍在）", level: "info" }); } catch (e) { funnel(e); } }
 type CloudId = "in" | "out" | "refresh";
 cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   anchor: cloudBtn, align: "end",
@@ -508,7 +480,7 @@ cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else galleryHost.refresh(); },
 }));
 function updateCloudChip(): void { cloudBtn.dataset.cloudState = auth.isSignedIn() ? "in" : "out"; (document.getElementById("galleryCloudIcon") as unknown as SVGUseElement).setAttribute("href", auth.isSignedIn() ? "#cloud-synced" : "#cloud"); }
-auth.onAuthChanged(() => { updateCloudChip(); updateSaveStatus(); if (galleryHost.isOpen()) galleryHost.refresh(); });
+auth.onAuthChanged((st) => { note("auth", `changed signedIn=${st.signedIn} reason=${st.reason ?? "-"} probing=${!!st.probing} account=${acct(st.account)}`); updateCloudChip(); updateSaveStatus(); if (galleryHost.isOpen()) galleryHost.refresh(); });
 window.addEventListener("online", updateSaveStatus); window.addEventListener("offline", updateSaveStatus);
 // 打开本地 .glb：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
 const glbInput = $<HTMLInputElement>("glbFile");
@@ -540,8 +512,17 @@ document.addEventListener("visibilitychange", () => { if (document.visibilitySta
 window.addEventListener("online", () => { if (galleryHost.isOpen()) galleryHost.refresh(); });
 setInterval(() => { if (document.visibilityState === "visible" && galleryHost.isOpen()) galleryHost.refresh(); }, 60_000);
 void (async () => {
-  if (auth.isAuthConfigured()) { try { await auth.initAuth(); } catch (e) { funnel(e, "log"); } }
+  // 黑匣子前提（2026-09-20 发现）：store 的 reportStoreError 在 createStore() 之前是静默 no-op（0.15.0 error-handling.ts），而 redirect 回程的
+  //   handleRedirectPromise 失败（error 级）/ [auth] init 诊断（log 级）都发生在 initAuth 里 → 曾挂过图库（登录点击必挂 → 回程必真）
+  //   或 URL 带 OAuth 回程碎片时**先接线再 initAuth**，一条都不许漏。纯无地首开仍不碰 createStore。
+  const oauthReturn = /(^|[#&?])(code|error|state)=/.test(location.hash);
+  if (deviceKvGet("gallery-attached") === "1" || oauthReturn) { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
+  if (auth.isAuthConfigured()) {
+    try { const st = await auth.initAuth(); note("auth", `init signedIn=${st.signedIn} probing=${!!st.probing} account=${acct(st.account)}`); }
+    catch (e) { note("auth", "init failed (MSAL not loaded — sign-in click will retry)"); funnel(e, "log"); }
+  } else note("auth", "not configured (client id empty)");
   if (auth.isSignedIn() || deviceKvGet("gallery-attached") === "1") { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
+  note("boot", `store=${hasStore()} scene=${galleryHost.wasInGallery() ? "gallery" : "editor"} last-doc=${deviceKvGet("last-doc") ?? "-"}`);
   updateCloudChip();
   if (hasStore() && galleryHost.wasInGallery()) await galleryHost.open();
   else if (hasStore()) { const last = deviceKvGet("last-doc"); if (last && !(await session.openFromGallery(last))) await galleryHost.open(); }
@@ -549,10 +530,9 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION };
+(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
-labEl.hidden = !labOpen;
 editor.setTool("line");
 hintEl.textContent = hintDefault();
 resize();

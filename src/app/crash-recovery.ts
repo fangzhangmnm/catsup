@@ -10,6 +10,7 @@ import { crashStore, type CrashRecordMeta } from "./crash-store.ts";
 import type { Session } from "./session.ts";
 import type { NoticeOpts } from "./ui/notice.ts";
 import { reportError } from "./error-funnel.ts";
+import { note } from "./debug-log.ts";
 
 export interface CrashRecoveryDeps {
   session: Session;
@@ -22,10 +23,12 @@ const putBack = (m: CrashRecordMeta, bytes: Blob) => crashStore.put(m.tag, bytes
 
 async function recover(d: CrashRecoveryDeps, m: CrashRecordMeta, gate: boolean): Promise<boolean> {
   const bytes = await crashStore.adopt(m.tag);
+  note("boot", `t-crash recover ${m.state} "${m.name}" homeKind=${m.homeKind} bytes=${bytes ? bytes.size : "gone"}`);
   if (!bytes) { d.notify({ text: `「${m.name}」已被别的窗口接走`, level: "warning" }); return false; }
   try {
     const where = await d.session.adoptRecovered(new Uint8Array(await bytes.arrayBuffer()), m.name, { gate });
-    if (!where) { void putBack(m, bytes); return false; }   // 挽留门取消 = 不恢复（记录放回，下次再问）
+    if (!where) { note("boot", "t-crash recover cancelled at leave gate → record put back"); void putBack(m, bytes); return false; }   // 挽留门取消 = 不恢复（记录放回，下次再问）
+    note("boot", `t-crash recovered → ${where} "${d.session.displayName()}"`);
     d.closeGallery();
     d.notify({ text: where === "gallery" ? `已接回「${m.name}」，存进图库为「${d.session.displayName()}」` : `已接回「${m.name}」（还没有家：记得保存到磁盘）`, level: "info" });
     return true;
@@ -53,6 +56,7 @@ function ask(d: CrashRecoveryDeps, m: CrashRecordMeta, onDone: () => void): void
 export async function initCrashRecovery(d: CrashRecoveryDeps): Promise<void> {
   try {
     const metas = await crashStore.listAtBoot();
+    note("boot", `t-crash scan: pending=${metas.filter((x) => x.state === "pending-adoption").length} crash=${metas.filter((x) => x.state === "crash").length}`);
     for (const m of metas.filter((x) => x.state === "pending-adoption")) await recover(d, m, true);   // gate：boot 若已开了上次的图库文档，先照规矩离开
     const queue = metas.filter((x) => x.state === "crash");
     const next = (): void => { const m = queue.shift(); if (m) ask(d, m, next); };

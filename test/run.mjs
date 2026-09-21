@@ -32,6 +32,7 @@ import "./kernel-brep.test.ts";
 import "./format.test.ts";
 import "./format-jpeg.test.ts";
 import "./crash-store.test.ts";
+import "./debug-lines.test.ts";   // 黑匣子文本行（实验台 sunset → 调试日志，2026-09-20）
 import { run } from "./runner.mjs";
 
 await run();

@@ -184,21 +184,9 @@
           <button class="tb-btn" id="btnView" type="button" title="视图"><svg class="ico" aria-hidden="true"><use href="#axes"/></svg></button>
           <button class="tb-btn" id="btnFit" type="button" title="缩放到全部"><svg class="ico" aria-hidden="true"><use href="#maximize-viewport"/></svg></button>
         </nav>
-        <!-- 顶栏「这模型住哪」胶囊（WeebPaint save-status 同义；转正纪元 2026-09-20）：文件名 + 家 + dirty；点 = 保存 / 安家 / 改名 -->
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
         <div class="hud-text hud-br"><span id="build" class="build"></span></div>
         <div id="marquee" hidden></div>
-        <aside id="lab" hidden>
-          <div class="lab-head"><span>实验台</span><button class="tb-btn" id="labClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
-          <div class="lab-row"><span class="lab-label">场景预置（一键摆好，事件照常涌出）</span></div>
-          <div id="labPresets" class="lab-presets"></div>
-          <div class="lab-row">
-            <button class="tool lab-tool" id="labEraseFace" type="button" title="删面（lab 仪器）"><span class="tool-label">删面</span></button>
-            <span class="lab-label">膜事件日志（新的在上）</span>
-            <button class="lab-mini" id="labClearLog" type="button">清日志</button>
-          </div>
-          <div id="labLog"></div>
-        </aside>
       </div>
     </div>
 
@@ -260,8 +248,22 @@
       </div>
     </div>
 
+    <!-- 调试日志（黑匣子；debug-log-sheet.ts）：实验台 sunset 的接班人（user 2026-09-20）。<pre> 可选中；复制 / 分享 .txt / 清空 -->
+    <div id="debugLog" class="sheet-backdrop" hidden>
+      <div class="sheet debug-log-sheet" role="dialog" aria-modal="true" aria-label="调试日志">
+        <div class="sheet-head"><span>调试日志</span><button class="tb-btn" id="debugLogClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
+        <p class="sheet-message" id="debugLogHint"></p>
+        <pre class="debug-log-pre" id="debugLogText"></pre>
+        <div class="sheet-actions">
+          <button class="sheet-choice" id="debugLogClear" type="button">清空</button>
+          <button class="sheet-choice" id="debugLogShare" type="button">分享…</button>
+          <button class="sheet-choice primary" id="debugLogCopy" type="button">复制</button>
+        </div>
+      </div>
+    </div>
+
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-74292eb5b55c.mjs"></script>
+    <script type="module" src="./dist/catsup-9449fd842a04.mjs"></script>
   </body>
 </html>

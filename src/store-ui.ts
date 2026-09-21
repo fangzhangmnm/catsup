@@ -6,6 +6,7 @@ import type { StoreUI, StoreTextKey, StoreTextParams } from "@internal/store";
 import { withBusy, openChoiceSheet, openConfirmSheet } from "./app/ui/sheets.ts";
 import { showNotice, type NoticeHandle } from "./app/ui/notice.ts";
 import { reportError } from "./app/error-funnel.ts";
+import { note } from "./app/debug-log.ts";
 import { DOC_EXT } from "./config.ts";
 
 // 库 15 个 busy 文案 key → 中文（孵化中项目不走 i18n SSoT；毕业时搬）。穷举 Record：库加 key 本表漏映 = 编译错。
@@ -44,11 +45,13 @@ export const storeUI: StoreUI = {
 
   resolveConflict: async ({ name, occasion }): Promise<"keepMine" | "takeCloud" | "cancel"> => {
     const n = stripExt(name);
+    note("store", `conflict occasion=${occasion} name=${n}`);
     const choice = occasion === "open"
       ? await openChoiceSheet<"cancel" | "takeCloud">("云端有另一个版本", `「${n}」在云端和本机各有一份不同的内容。两边都会保留（输的一方进 .backup）。`,
           [{ label: "先开本机的，稍后再定", value: "cancel", primary: true }, { label: "用云端的版本", value: "takeCloud" }])
       : await openChoiceSheet<"keepMine" | "takeCloud" | "cancel">("保存撞上云端新版本", `「${n}」在云端已被改过。选一边覆盖，另一边会留在 .backup。`,
           [{ label: "以本机为准（覆盖云端）", value: "keepMine", primary: true }, { label: "以云端为准（本机重载）", value: "takeCloud" }, { label: "取消", value: "cancel" }]);
+    note("store", `conflict resolved → ${choice ?? "cancel"}`);
     return choice ?? "cancel";
   },
 
@@ -60,6 +63,7 @@ export const storeUI: StoreUI = {
 
   onReplayStatus: ({ phase, name, done, total }): void => {
     const n = name ? stripExt(name) : "";
+    note("store", `replay ${phase} ${n} ${done ?? ""}/${total ?? ""}`);
     if (phase === "collision") reportError(new Error(`「${n}」补推时云端已有同名文件，已跳过`), "warning");
     else if (phase === "done") reportError(`离线保存的模型已补推云端（${done}/${total}）`, "info");
   },
@@ -68,7 +72,7 @@ export const storeUI: StoreUI = {
   offlineEscape: (): { probe: Promise<unknown>; settle: () => void } => {
     let onSkip!: () => void;
     const probe = new Promise<unknown>((res) => { onSkip = () => res(undefined); });
-    const h = showNotice({ id: "store-offline-escape", level: "info", text: "正在检查云端…", timeoutMs: null, actions: [{ label: "跳过，先开本机的", onClick: () => onSkip() }] });
+    const h = showNotice({ id: "store-offline-escape", level: "info", text: "正在检查云端…", timeoutMs: null, actions: [{ label: "跳过，先开本机的", onClick: () => { note("store", "offline escape: user skipped cloud check"); onSkip(); } }] });
     return { probe, settle: () => h.close() };
   },
 };

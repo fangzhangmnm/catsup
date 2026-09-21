@@ -154,6 +154,30 @@ eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 
 eq((await page.evaluate(() => globalThis.__catsup.crash.listAtBoot())).length, 0, "crash record consumed");
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-7-recovered.png") });
 
+// ⑥ 调试日志（实验台 sunset → 黑匣子，user 2026-09-20）：菜单开 sheet → 有开机 URL 行 / auth init 行 / op 行；复制钮有反馈；关闭
+await page.evaluate(() => globalThis.__catsup.debugLog.open());
+await page.waitForFunction(() => !document.getElementById("debugLog").hidden);
+const diagText = await page.evaluate(() => document.getElementById("debugLogText").textContent);
+eq(diagText.includes("CatsUp v0."), true, "debug log header carries app + version");
+eq(/· \[boot\] url path=/.test(diagText), true, "debug log has boot url line");
+eq(/\[auth\] init signedIn=false/.test(diagText), true, "debug log has auth init line (client id configured, signed out)");
+eq(/\[op\] addEdges segs=/.test(diagText), true, "debug log has op lines (rect draw)");
+eq(/\[doc\] 已/.test(diagText), true, "debug log has doc status breadcrumbs");
+eq(diagText.includes("[boot] t-crash"), true, "debug log has t-crash scan breadcrumb");
+await page.click("#debugLogCopy");
+await page.waitForTimeout(300);
+const hint = await page.evaluate(() => document.getElementById("debugLogHint").textContent);
+eq(/^已复制 \d+ 条|^复制失败/.test(hint), true, `copy button gives feedback (${hint})`);
+if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-8-debug-log.png") });
+await page.click("#debugLogClose");
+eq(await page.evaluate(() => document.getElementById("debugLog").hidden), true, "debug log sheet closes");
+// 刷新后黑匣子还在（device-kv 持久，不住 IDB）
+await page.reload({ waitUntil: "load" });
+await page.waitForFunction(() => globalThis.__catsup?.session, null, { timeout: 15000 });
+const persisted = await page.evaluate(() => globalThis.__catsup.debugLog.toText());
+eq(/\[op\] addEdges segs=/.test(persisted), true, "debug log survives reload");
+eq(/L \[auth\] init: redirectResponse=no cachedAccounts=0/.test(persisted), true, "store's own [auth] init diagnostic reaches the black box (store wired before initAuth when gallery was attached)");
+
 await browser.close();
 if (errors.length) { fail("page errors:\n" + errors.join("\n")); }
 else console.log(process.exitCode ? "smoke FAILED" : "smoke ok, no page errors");
