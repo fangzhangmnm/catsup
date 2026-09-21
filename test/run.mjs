@@ -15,7 +15,7 @@ import "./pick.test.ts";
 import "./preview.test.ts";
 import "./lab-presets.test.ts";
 import "./move-spec.test.ts";
-import "./lab-journal.test.ts";
+import "./history.test.ts";   // A1 正规 undo（2026-09-20）：op 日志 + 检查点环，接替 lab-journal
 import "./snap-align.test.ts";
 import "./solver.test.ts";
 import "./pushpull.test.ts";

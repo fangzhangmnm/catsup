@@ -18,7 +18,8 @@ import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
-import { type LabOp, Journal } from "./journal.ts";
+import { type Op, edgeKey, faceKey, moveOp } from "./ops.ts";
+import { History, OpApplyError } from "./history.ts";
 import { add3, dot3, scale3, sub3 } from "../kernel/geom.ts";
 
 export type Tool = "select" | "line" | "rect" | "move" | "pp" | "erase" | "eraseFace";
@@ -102,7 +103,7 @@ export class Editor {
   readonly cam = new OrbitCamera();
   private r3: Renderer3;
   private checkpoint = new Kernel();
-  private journal = new Journal();
+  private history = new History();
   private _tool: Tool = "line";
   private _revision = 0;                  // checkpoint 每次变（commit/undo/redo）+1；碰撞世界等消费方据此重建
 
@@ -153,8 +154,8 @@ export class Editor {
   get renderer3(): Renderer3 { return this.r3; }
   /** checkpoint 的代数（commit/undo/redo 各 +1）。 */
   get revision(): number { return this._revision; }
-  canUndo(): boolean { return this.journal.canUndo(); }
-  canRedo(): boolean { return this.journal.canRedo(); }
+  canUndo(): boolean { return this.history.canUndo(); }
+  canRedo(): boolean { return this.history.canRedo(); }
   hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
   isGestureActive(): boolean { return this.gestureActive(); }
   vp(): Viewport { return { w: this.canvas.clientWidth, h: this.canvas.clientHeight }; }
@@ -220,13 +221,17 @@ export class Editor {
   }
 
   // ---------- 记账 ----------
-  /** 所有改内核的用户手势走这里：记账（undo 日志）+ 应用。 */
-  private commitOp(op: LabOp): FaceEvent[] {
-    // 错误边界（2026-09-07 VR 真机「边 4-3 已存在」uncaught 案）：journal 在副本上重放，抛错 = 这一批不落地、
-    // checkpoint 原样；报给 host（toast/字幕），手势清掉。不吞：console 与 UI 都要看见。
-    let r: ReturnType<Journal["commit"]>;
-    try { r = this.journal.commit(this.checkpoint, op); }
-    catch (err) { this.fail("commit", err); return []; }
+  /** 所有改内核的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
+  private commitOp(op: Op): FaceEvent[] {
+    // 错误边界（2026-09-07 VR 真机「边 4-3 已存在」uncaught 案）：应用抛错 = 这一批不记账、checkpoint 换成 History 交回的
+    // 提交前状态（A1 2026-09-20 起真的「原样」——此前原地半改动）；报给 host（toast/字幕），手势清掉。不吞：console 与 UI 都要看见。
+    let r: ReturnType<History["commit"]>;
+    try { r = this.history.commit(this.checkpoint, op); }
+    catch (err) {
+      if (err instanceof OpApplyError) { this.checkpoint = err.restored; this._revision++; this.fail("commit", err.cause); }
+      else this.fail("commit", err);
+      return [];
+    }
     this.checkpoint = r.kernel;
     this._revision++;
     this.revalidateCharged();
@@ -244,7 +249,7 @@ export class Editor {
     // 手势进行中（含连画待命 / 推拉中 / 移动中）：第一下撤销 = 取消当前操作（逃生），不动历史（user 2026-09-07：
     // 「第一下 ctrl z 是退出连续画线而不是取消上一个线，对 push pull 以及未来的东西同理。第一个 ctrl z 是 cancel ongoing operation 逃生」）
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
-    const k2 = this.journal.undo();
+    const k2 = this.history.undo();
     if (!k2) return;
     this.checkpoint = k2;
     this._revision++;
@@ -256,7 +261,9 @@ export class Editor {
     this.draw();
   }
   redo(): void {
-    const r = this.journal.redo(this.checkpoint);
+    let r: ReturnType<History["redo"]>;
+    try { r = this.history.redo(this.checkpoint); }
+    catch (err) { if (err instanceof OpApplyError) { this.checkpoint = err.restored; this._revision++; this.fail("commit", err.cause); } else this.fail("commit", err); return; }
     if (!r) return;
     this.checkpoint = r.kernel;
     this._revision++;
@@ -269,13 +276,13 @@ export class Editor {
     this.draw();
   }
   /**
-   * 装载一个内核当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始（journal 以它为地基），选区/充能/手势全清。
+   * 装载一个内核当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始（History 以它为 base），选区/充能/手势全清。
    * 转正纪元 2026-09-20，Claude Fable 5.1。
    */
   loadKernel(k: Kernel, label = "打开"): void {
     this.cancelGesture();
     this.checkpoint = k;
-    this.journal = new Journal(k);
+    this.history = new History(k);
     this._revision++;
     this.selection = emptySelection();
     this.clearCharged();
@@ -383,7 +390,8 @@ export class Editor {
 
   deleteSelection(): void {
     if (!this.hasSelection()) return;
-    this.emit(this.commitOp({ op: "eraseSelection", faces: [...this.selection.faces], edges: [...this.selection.edges] }));
+    const k = this.checkpoint;
+    this.emit(this.commitOp({ op: "eraseSelection", faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) }));
     this.selection = emptySelection();
     this.host.changed();
     this.draw();
@@ -888,7 +896,9 @@ export class Editor {
       case "erase": {
         const ids = [...this.scrubAcc];
         this.cancelGesture();
-        if (ids.length) this.emit(this.commitOp({ op: "eraseEdges", ids }));
+        const k = this.checkpoint;
+        const edges = ids.filter((id) => k.graph.hasEdge(id)).map((id) => edgeKey(k, id));
+        if (edges.length) this.emit(this.commitOp({ op: "eraseEdges", edges }));
         break;
       }
       case "select": {
@@ -932,7 +942,7 @@ export class Editor {
       case "eraseFace": {
         const hit = { face: pickFace(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y) };
         this.cancelGesture();
-        if (hit.face !== undefined) this.emit(this.commitOp({ op: "eraseFaces", ids: [hit.face] }));
+        if (hit.face !== undefined && this.checkpoint.face(hit.face)) this.emit(this.commitOp({ op: "eraseFaces", faces: [faceKey(this.checkpoint, hit.face)] }));
         break;
       }
     }
@@ -977,7 +987,7 @@ export class Editor {
     const h = this.ppH;
     const fid = this.ppFace!;
     this.cancelGesture();
-    if (Math.abs(h) >= MIN_GESTURE_LEN) this.emit(this.commitOp({ op: "pushpull", face: fid, dist: h }));
+    if (Math.abs(h) >= MIN_GESTURE_LEN && this.checkpoint.face(fid)) this.emit(this.commitOp({ op: "pushpull", face: faceKey(this.checkpoint, fid), dist: h }));
   }
   private commitMoveTo(sx: number, sy: number): void {
     const mv = new Set(this.moveVids);
@@ -986,6 +996,6 @@ export class Editor {
     const vids = this.moveVids;
     const d = Math.hypot(delta.x, delta.y, delta.z);
     this.cancelGesture();
-    if (d >= MIN_GESTURE_LEN) this.emit(this.commitOp({ op: "move", moves: translateMoves(this.checkpoint, vids, delta) }));
+    if (d >= MIN_GESTURE_LEN) this.emit(this.commitOp(moveOp(this.checkpoint, translateMoves(this.checkpoint, vids, delta))));
   }
 }
