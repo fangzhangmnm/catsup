@@ -96,15 +96,15 @@ svg.ico use { color: inherit; }
 
 /* 通知栈（底部居中；一条栈一个样式） */
 #noticeStack { position: fixed; left: 50%; bottom: calc(40px + var(--safe-bottom)); transform: translateX(-50%); z-index: var(--z-notice);
-  display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; max-width: min(92vw, 560px); }
-.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 10px;
+  display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: min(92vw, 560px); }   /* 定宽：fixed 元素 shrink-to-fit 会在长句 + 按钮时坍成 min-content（中文逐字折行，v0.5.2 崩溃通知截图） */
+.toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 10px; max-width: 100%;
   background: #2f2f2f; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; }
 .toast-info { background: #24405e; }
 .toast-warning { background: #7a4d00; }
 .toast-error { background: #7a1f16; }
 .toast-text { flex: 1; }
 .toast-actions { display: flex; gap: 6px; }
-.toast-btn { padding: 5px 10px; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; background: transparent; color: #fff; cursor: pointer; }
+.toast-btn { padding: 5px 10px; border: 1px solid rgba(255,255,255,.4); border-radius: 6px; background: transparent; color: #fff; cursor: pointer; white-space: nowrap; }
 .toast-btn.primary { background: #fff; color: #222; border-color: #fff; }
 .toast-x { border: 0; background: transparent; color: rgba(255,255,255,.7); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 4px; }
 

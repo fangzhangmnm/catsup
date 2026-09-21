@@ -24,6 +24,8 @@ import { initPwaShell } from "./pwa-shell.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
 import { showNotice, type NoticeOpts } from "./ui/notice.ts";
+import { initCrashRecovery } from "./crash-recovery.ts";
+import { crashStore } from "./crash-store.ts";
 
 // 通知 = 桌面 toast + VR 字幕位（同一份文案；vr 未进会话时后者无事）
 function notify(opts: NoticeOpts): void {
@@ -477,10 +479,14 @@ $("galleryEmptyTrash").addEventListener("click", () => {
     .then((scope) => { if (scope) void galleryHost.emptyTrash(scope); });
 });
 const cloudBtn = $<HTMLButtonElement>("galleryCloudBtn");
+let signInNav = false;   // 登录 redirect 导航中：beforeunload 别挡（WeebPaint _signInNav 同款）
 function cloudSignIn(): void {
   if (!auth.isAuthConfigured()) { notify({ text: "云端未配置（client id 为空）", level: "warning" }); return; }
   Session.persistOnGesture(); wireStore();
-  auth.signIn({ prompt: "select_account" }).catch((e) => funnel(e));   // 手势同步栈起跳（iOS redirect）
+  const go = (): void => { signInNav = true; auth.signIn({ prompt: "select_account" }).catch((e) => { signInNav = false; funnel(e); }); };
+  // 脏的 file / transient 模型：redirect 前留 pending-adoption 帧（IDB 写必须在导航前落完——bfcache/IDB 锁案卷），回来自动领养
+  if (session.needsRedirectSnapshot()) void session.prepareForRedirect().finally(go);
+  else go();   // 手势同步栈起跳（iOS redirect）
 }
 async function cloudSignOut(): Promise<void> { try { await auth.signOut(); notify({ text: "已退出 OneDrive 登录（本机副本仍在）", level: "info" }); } catch (e) { funnel(e); } }
 type CloudId = "in" | "out" | "refresh";
@@ -515,7 +521,12 @@ document.addEventListener("keydown", (e) => {
   if (k === "s") { e.preventDefault(); void session.save(); }
   else if (k === "o") { e.preventDefault(); openLocal(); }
 });
-window.addEventListener("pagehide", () => { if (session.home.kind === "gallery" && session.dirty()) void session.save({ implicit: true }); });
+window.addEventListener("pagehide", (e) => {
+  if (session.home.kind === "gallery" && session.dirty()) void session.save({ implicit: true });
+  session.onPageHide(e.persisted);   // file / transient：正常关闭即焚快照（bfcache 冻结不算；pending-adoption 库内拒删）
+});
+// 承重层（T-crash 附加层的设计前提）：脏的 file / transient 模型关页 / 刷新前浏览器挽留；登录 redirect 期间不挡。
+window.addEventListener("beforeunload", (e) => { if (!signInNav && session.dirtyLocalHome()) { e.preventDefault(); e.returnValue = ""; } });
 document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && galleryHost.isOpen()) galleryHost.refresh(); });
 window.addEventListener("online", () => { if (galleryHost.isOpen()) galleryHost.refresh(); });
 setInterval(() => { if (document.visibilityState === "visible" && galleryHost.isOpen()) galleryHost.refresh(); }, 60_000);
@@ -526,9 +537,10 @@ void (async () => {
   if (hasStore() && galleryHost.wasInGallery()) await galleryHost.open();
   else if (hasStore()) { const last = deviceKvGet("last-doc"); if (last && !(await session.openFromGallery(last))) await galleryHost.open(); }
   updateDocTitle();
+  await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, session, galleryHost, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION };
+(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION };
 
 // ---------- 起 ----------
 labEl.hidden = !labOpen;

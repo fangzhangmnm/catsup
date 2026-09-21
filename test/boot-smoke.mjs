@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// test/boot-smoke.mjs —— 转正纪元 ② 冒烟（headless，借 WeebPaint 的 playwright）：无地导出/重开 → 图库懒建 → 新建安家 → 保存（缩略图）→ 刷新回到上次文档。
+// test/boot-smoke.mjs —— 转正纪元 ② 冒烟（headless，借 WeebPaint 的 playwright）：无地导出/重开 → 图库懒建 → 新建安家 → 保存（缩略图）→ 刷新回到上次文档
+//   → ③ 缩略图 IDB 命中 → ④ 盲快照 / redirect 留声 / 自动领养 → ⑤ crash 帧通知 → 恢复（0.5.2，user 2026-09-20「234批准」）。
 // 用法：python3 -m http.server 8765 后 `node test/boot-smoke.mjs [url] [outdir]`。created 2026-09-20 by Claude Fable 5.1
 import { createRequire } from "node:module";
 import path from "node:path";
@@ -99,6 +100,58 @@ eq(await page.evaluate(() => globalThis.__catsup.session.home.kind), "gallery", 
 eq(await page.evaluate(() => globalThis.__catsup.session.home.path), gpath, "reload restores same path");
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "reload restores geometry");
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-4-reloaded.png") });
+
+// ③ 缩略图 IDB 缓存（user 2026-09-20 批）：刷新后再开图库——内存已空，命中只能来自 IDB
+await page.evaluate(() => globalThis.__catsup.galleryHost.open());
+await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+await page.waitForTimeout(1500);
+const thumb2 = await page.evaluate(() => ({ imgs: document.querySelectorAll("#galleryMount img").length, stats: globalThis.__catsup.galleryHost.thumbStats() }));
+console.log("  · tile thumbnails after reload:", JSON.stringify(thumb2));
+eq(!!thumb2.stats && thumb2.stats.hits >= 1, true, "thumbnail served from IDB cache after reload (cache hit)");
+eq(thumb2.imgs >= 1, true, "tile still shows a thumbnail");
+await page.evaluate(() => globalThis.__catsup.galleryHost.close());
+
+// ④ T-crash（file 家）：本地重开 → 画 → 盲快照 → 登录 redirect 前留声（pending-adoption）→ 刷新 → 自动领养进图库
+await page.setInputFiles("#glbFile", dlPath);
+await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "file");
+const revBefore = await page.evaluate(() => globalThis.__catsup.editor.revision);
+await page.keyboard.press("r");
+await page.mouse.move(cx - 100, cy - 60); await page.mouse.down(); await page.mouse.move(cx + 100, cy + 20, { steps: 10 }); await page.mouse.up();
+await page.waitForTimeout(1300);   // 标题胶囊随 1 s tick 刷新
+const facesBefore = await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length);
+eq((await page.evaluate(() => globalThis.__catsup.editor.revision)) > revBefore, true, "draw on file-home doc bumped revision");
+eq(await page.evaluate(() => document.getElementById("docTitle").dataset.state), "file-dirty", "file home dirty after draw");
+eq(await page.evaluate(() => globalThis.__catsup.session.snapshot("crash")), true, "blind snapshot written to crash store");
+let recs = await page.evaluate(() => globalThis.__catsup.crash.listAtBoot());
+eq(recs.length, 1, "one crash record"); eq(recs[0]?.state, "crash", "record state crash"); eq(recs[0]?.homeKind, "file", "record homeKind file"); eq(recs[0]?.name, "smoke-export", "record carries display name");
+await page.evaluate(() => globalThis.__catsup.session.prepareForRedirect());
+recs = await page.evaluate(() => globalThis.__catsup.crash.listAtBoot());
+eq(recs.length === 1 && recs[0].state === "pending-adoption", true, "redirect prep → same tag flipped to pending-adoption");
+page.once("dialog", (d) => d.accept());   // beforeunload 承重层：脏的 file 家刷新会被浏览器挽留 → 冒烟放行
+await page.reload({ waitUntil: "load" });
+await page.waitForFunction(() => globalThis.__catsup?.session?.home?.kind === "gallery" && /-恢复/.test(globalThis.__catsup.session.home.path), null, { timeout: 15000 }).catch(() => {});
+await page.waitForTimeout(300);
+const adoptedPath = await page.evaluate(() => globalThis.__catsup.session.home.path ?? "");
+eq(/^smoke-export-恢复(-\d+)?\.glb$/.test(adoptedPath), true, `pending record auto-adopted into gallery as <name>-恢复 (${adoptedPath})`);
+eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), facesBefore, "adopted geometry matches the snapshot");
+eq(await page.evaluate(() => globalThis.__catsup.session.dirty()), false, "adopted doc saved into gallery (clean)");
+eq((await page.evaluate(() => globalThis.__catsup.crash.listAtBoot())).length, 0, "pending record consumed");
+if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-5-adopted.png") });
+
+// ⑤ crash 帧通知：人工放一帧（= 真 crash 幸存的快照）→ 刷新 → 非模态通知 → 恢复
+await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { isZip: false, mode: "existing" }).open(); await globalThis.__catsup.crash.put("tag-smoke-ghost", b, { state: "crash", name: "幽灵", at: Date.now(), homeKind: "transient" }); }, gpath);
+await page.reload({ waitUntil: "load" });
+await page.waitForFunction(() => (document.getElementById("noticeStack")?.textContent ?? "").includes("幽灵"), null, { timeout: 15000 }).catch(() => {});
+eq((await page.evaluate(() => document.getElementById("noticeStack")?.textContent ?? "")).includes("上次没保存的模型「幽灵」"), true, "boot notice offers the crash frame");
+if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-6-crash-notice.png") });
+await page.evaluate(() => { const t = [...document.querySelectorAll("#noticeStack .toast")].find((x) => x.textContent.includes("幽灵")); t.querySelector(".toast-btn.primary").click(); });
+await page.waitForFunction(() => /幽灵-恢复/.test(globalThis.__catsup.session.home.path ?? ""), null, { timeout: 15000 }).catch(() => {});
+await page.waitForTimeout(300);
+const ghostPath = await page.evaluate(() => globalThis.__catsup.session.home.path ?? "");
+eq(/^幽灵-恢复(-\d+)?\.glb$/.test(ghostPath), true, `crash frame recovered into gallery (${ghostPath})`);
+eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "recovered geometry (1 face)");
+eq((await page.evaluate(() => globalThis.__catsup.crash.listAtBoot())).length, 0, "crash record consumed");
+if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-7-recovered.png") });
 
 await browser.close();
 if (errors.length) { fail("page errors:\n" + errors.join("\n")); }

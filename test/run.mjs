@@ -31,6 +31,7 @@ import "./format-binary.test.ts";
 import "./kernel-brep.test.ts";
 import "./format.test.ts";
 import "./format-jpeg.test.ts";
+import "./crash-store.test.ts";
 import { run } from "./runner.mjs";
 
 await run();

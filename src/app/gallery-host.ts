@@ -1,13 +1,15 @@
 // gallery-host.ts —— @internal/gallery 0.4.0 的 CatsUp 消费面（JRB gallery-host.ts 同形）。包出屏幕 + 动词 + 数据面；
 //   本文件只出：Vue 注入、DocHost（编辑器端口 → session）、policy（只认 .glb、身份 = 全名、显示去扩展名、缩略图 = 字节头 peek）、
-//   记忆（当前夹 / 上次场景走 device-kv）。缩略缓存 = 内存（IDB 缓存开建等 user 批）。created 2026-09-20 by Claude Fable 5.1
+//   记忆（当前夹 / 上次场景走 device-kv）。缩略缓存 = 包的 idbThumbStore（独立 IDB `THUMB_DB_NAME`，key = 文件身份、token = 时间/大小，
+//   全删可再生；user 2026-09-20 批）；封面取字节 = store 0.15.0 `getHead` 分步拉（本机 slice / 纯云端 byte-range 不整份下载）。
+//   created 2026-09-20 by Claude Fable 5.1
 import { createApp, defineComponent, reactive, ref, computed, watch, onMounted, onUnmounted, nextTick } from "../../vendor/vue/vue.esm-browser.prod.js";
-import { createGallery, memoryThumbStore, type CreateGalleryDeps, type GalleryDocHost, type VueRuntime, type GItem, type VerbStore, type DataFaceStore, type Gallery } from "@internal/gallery";
+import { createGallery, type CreateGalleryDeps, type GalleryDocHost, type VueRuntime, type GItem, type VerbStore, type DataFaceStore, type Gallery } from "@internal/gallery";
 import { iconHtml } from "@internal/workbench-elements";
 import { ensureStore, auth, docFile } from "../app-store.ts";
-import { HIDDEN_NAME_RE } from "../config.ts";
+import { HEAD_PEEK_BYTES, HIDDEN_NAME_RE, THUMB_DB_NAME } from "../config.ts";
 import { bareName, fullName, isDocName } from "./session.ts";
-import { extractThumbnail } from "../format/peek.ts";
+import { extractThumbnail, headBytesNeeded } from "../format/peek.ts";
 import { openConfirmSheet, openInputSheet, openChoiceSheet, withBusy } from "./ui/sheets.ts";
 import { deviceKvGet, deviceKvSet } from "./device-kv.ts";
 import { reportError } from "./error-funnel.ts";
@@ -66,16 +68,24 @@ export function initGalleryHost(d: GalleryHostDeps) {
     hasThumb: (n) => isDoc(n) || isDoc(NAMING.full(n)),   // 包在 tile 里传的是裸名（GItem.name），policy 处传全名——两边都认
     policy: {
       isDoc, isImage: () => false, naming: NAMING,
-      // 缩略图 = .glb 字节头里的 asset.thumbnail（契约 §3：BIN 首段）。本机有副本才取；纯云端的等 store 头片 peek（escalate 中）。
+      // 缩略图 = .glb 字节头里的 asset.thumbnail（契约 §3：BIN 首段）。store 0.15.0 getHead：本机 slice / 纯云端 byte-range，
+      //   先 64 KB，头片不够（JSON 大 / 缩略图靠后）按 headBytesNeeded 补拉，最多三步。契约：null = 确定没有（缓存）；抛 = 未知（不缓存）。
       thumbs: {
         fetch: async (name, source) => {
-          if (source !== "local") return null;
-          const blob = await docFile(NAMING.full(name)).open();
-          if (!blob) return null;
-          const t = extractThumbnail(new Uint8Array(await blob.arrayBuffer()));
-          return t ? new Blob([t.bytes], { type: t.mimeType }) : null;
+          const f = docFile(NAMING.full(name));
+          let want = HEAD_PEEK_BYTES;
+          for (let step = 0; step < 3; step++) {
+            const blob = await f.getHead({ bytesLength: want, source });   // 云端不可达 → 库抛 → 未知
+            if (!blob) throw new Error("head peek unavailable (no local copy and cloud unreachable / encrypted)");
+            const head = new Uint8Array(await blob.arrayBuffer());
+            const need = headBytesNeeded(head);
+            if (need === null || need <= head.length) { const t = extractThumbnail(head); return t ? new Blob([t.bytes], { type: t.mimeType }) : null; }
+            if (head.length < want) return null;   // 文件比要的还短却还不够 = 截断 / 损坏 → 确定没有
+            want = need;
+          }
+          return null;
         },
-        store: memoryThumbStore(),
+        dbName: THUMB_DB_NAME,
         galleryId: () => "default",
         has: (n) => isDoc(n) || isDoc(NAMING.full(n)),
       },

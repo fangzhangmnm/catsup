@@ -6,6 +6,7 @@ import { decodeGlb, encodeGlb, isGlb } from "../src/format/glb.ts";
 import { isCatsupGltf } from "../src/format/read.ts";
 import { FormatTooNewError, EXTENSION_VERSIONS } from "../src/format/migrate/index.ts";
 import { canonicalize } from "../src/format/brep-codec.ts";
+import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
 import { SCENES, fingerprint } from "./format-scenes.ts";
 import { listFixtures, readFixture } from "./fixtures/format/fixtures.mjs";
 
@@ -121,6 +122,23 @@ describe("format: golden 往返", () => {
     eq(Kernel.fromBrep(doc.root.brep).faces().length, 6);
   });
 
+  it("headBytesNeeded：头片分步导航（头 → JSON 全 → 缩略图末 → 定局）；无缩略图 → 定局", () => {
+    const doc = newDocument(new Kernel().toBrep(), "t");
+    doc.thumbnail = { mimeType: "image/jpeg", bytes: new Uint8Array(3000).fill(0xab) };
+    const bytes = writeCatsup(doc);
+    eq(headBytesNeeded(bytes.subarray(0, 8)), 20, "不到 20 字节 → 先要 20");
+    const step2 = headBytesNeeded(bytes.subarray(0, 20))!;
+    assert(step2 > 20 && step2 < bytes.byteLength, "20 字节 → 要到 JSON 末 + BIN chunk 头");
+    const step3 = headBytesNeeded(bytes.subarray(0, step2))!;
+    assert(step3 > step2 && step3 <= bytes.byteLength, "JSON 全 → 要到缩略图末");
+    eq(headBytesNeeded(bytes.subarray(0, step3)), null, "缩略图末 → 定局");
+    eq(extractThumbnail(bytes.subarray(0, step3))!.bytes.byteLength, 3000, "定局的头片真能抠出缩略图");
+    eq(headBytesNeeded(bytes.subarray(0, step3 - 1)), step3, "差一字节仍要");
+    eq(headBytesNeeded(new TextEncoder().encode("<html>not a glb....")), null, "不是 GLB → 定局");
+    const plain = writeCatsup(newDocument(new Kernel().toBrep(), "p"));
+    eq(headBytesNeeded(plain), null, "没有缩略图 → 定局");
+    eq(extractThumbnail(plain), null);
+  });
   it("缩略图：BIN 首段 + asset.thumbnail → images[0]；往返带回", () => {
     const doc = newDocument(SCENES.box().toBrep(), "t");
     doc.thumbnail = { mimeType: "image/jpeg", bytes: new Uint8Array([0xff, 0xd8, 0xff, 0xd9]) };

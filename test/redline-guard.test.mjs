@@ -1,5 +1,6 @@
 // test/redline-guard.test.mjs —— 红线守卫：结构性 grep，不跑行为。app 长出第二条存储/云路径 = 直接红。
-// 白名单 = 单一接缝 src/app-store.ts + device-kv 器官 + config；pwa-shell 可碰 caches（SW 壳）。
+// 白名单 = 单一接缝 src/app-store.ts + device-kv 器官 + config；pwa-shell 可碰 caches（SW 壳）；crash-store 可碰 indexedDB（崩溃影子，逐案批）。
+// 缩略图 IDB 在 @internal/gallery 包内（idbThumbStore），app 源码不直接碰。
 // 照 pwa-cloud-store skill §4 + JRB test/redline-guard.test.mjs。created 2026-09-20 by Claude Fable 5.1
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
@@ -9,7 +10,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SEAM = new Set(["src/app-store.ts", "src/app/device-kv.ts", "src/config.ts"]);
 const BAD = [
   { re: /\blocalStorage\b/, what: "localStorage" },
-  { re: /\bindexedDB\b/, what: "indexedDB" },
+  { re: /\bindexedDB\b/, what: "indexedDB", allow: new Set(["src/app/crash-store.ts"]) },   // T-crash 附加层的独立 IDB（user 2026-09-20 批）
   { re: /PublicClientApplication|msal-browser/, what: "MSAL" },
   { re: /graph\.microsoft\.com/, what: "Graph" },
   { re: /\bcaches\b\s*\.\s*open/, what: "caches.open", allow: new Set(["src/app/pwa-shell.ts"]) },

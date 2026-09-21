@@ -2,7 +2,9 @@
 //   「每个模型任一时刻恰好有一个家：图库、或磁盘上的一个文件、或还没有家（transient）。保存 = 送回家，只有回了家才清 dirty；导出永不清 dirty。」
 //   两个模式：Gallery+Editor（挂了 store：新模型自动安家进图库、退出自动保存）/ Editor Only（无 store：transient，Ctrl+S = 安家 = FSA 另存 / 下载兜底）。
 //   store 的写路径（.save / .tryMove）只在本文件（守卫测试执法）。T-crash：图库家 = 30 s 空闲自动保存到 store 本地（即崩溃影子）；
-//   transient / 文件家的崩溃影子需要自己的 IDB —— 等 user 批准后再加（总账 A18 ②）。created 2026-09-20 by Claude Fable 5.1
+//   transient / 文件家 = 同节律**盲快照**进 crash-store（独立 IDB，user 2026-09-20 批；WeebPaint 同形：行李牌每次打开现铸、
+//   同牌覆盖单帧、正常关闭即焚、boot 通知恢复；登录 redirect 前留 pending-adoption 帧，回来自动领养）。附加层：承重层仍是
+//   dirty 徽章 + 挽留 sheet + beforeunload。created 2026-09-20 by Claude Fable 5.1
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { newDocument, readCatsup, writeCatsup, type CatsupDocument } from "../format/index.ts";
@@ -10,6 +12,7 @@ import { AUTOSAVE_IDLE_MS, DOC_EXT, defaultDocName } from "../config.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { openChoiceSheet, openInputSheet } from "./ui/sheets.ts";
 import { reportError } from "./error-funnel.ts";
+import { crashStore, mintLuggageTag, type LuggageTag } from "./crash-store.ts";
 
 interface FSHandle { readonly name: string; createWritable(): Promise<{ write(b: Blob): Promise<void>; close(): Promise<void> }>; getFile(): Promise<File> }
 const fsa = window as unknown as {
@@ -23,7 +26,7 @@ export const supportsOpenPicker = (): boolean => typeof fsa.showOpenFilePicker =
 export type DocHome =
   | { kind: "gallery"; path: string }
   | { kind: "file"; handle: FSHandle | null; fileName: string }
-  | { kind: "transient" };
+  | { kind: "transient"; name?: string };   // name：恢复 / 领养出来的模型带原名（另存建议名 + 标题）
 
 export interface SessionDeps {
   editor: Editor;
@@ -46,11 +49,15 @@ export class Session {
   private lastEditAt = 0;
   private loaded: CatsupDocument | null = null;   // 打开的文档（含 round-trip 携带的未知内容）；保存时以它为底
   private timer: number;
+  /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
+  private luggage: LuggageTag | null = null;
+  private snapRevision = -1;
   /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
   currentDir = "";
 
   constructor(private d: SessionDeps) {
     this.savedRevision = this.lastSeenRevision = d.editor.revision;
+    this.mintLuggage();   // 开机的初始 transient 也要有牌（否则开机就画的模型没影子）
     this.timer = window.setInterval(() => this.tick(), 1000);
   }
 
@@ -60,9 +67,12 @@ export class Session {
     switch (this.home.kind) {
       case "gallery": return bareName(this.home.path);
       case "file": return this.home.fileName.replace(new RegExp(`\\${DOC_EXT}$`, "i"), "");
-      case "transient": return "新模型";
+      case "transient": return this.home.name ?? "新模型";
     }
   }
+  /** file / transient 家 且脏（beforeunload 承重层用）。 */
+  dirtyLocalHome(): boolean { return this.localHomeKind() !== null && this.dirty(); }
+  private localHomeKind(): "file" | "transient" | null { return this.home.kind === "gallery" ? null : this.home.kind; }
   /** 「这模型住哪」徽章的状态词。 */
   homeState(): "transient" | "transient-dirty" | "file" | "file-dirty" | "gallery" | "gallery-dirty" | "saving" {
     if (this.saving) return "saving";
@@ -76,9 +86,61 @@ export class Session {
     const rev = this.d.editor.revision;
     if (rev !== this.lastSeenRevision) { this.lastSeenRevision = rev; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
     // T-crash / 自动保存（图库家）：空闲 30 s 且脏且不在手势中 → 落本地（在线且登录则一并推云）
-    if (this.home.kind === "gallery" && this.dirty() && !this.saving && !this.d.editor.isGestureActive() && Date.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS) {
+    const idle = !this.saving && !this.d.editor.isGestureActive() && Date.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
+    if (this.home.kind === "gallery" && this.dirty() && idle) {
       void this.save({ implicit: true });
+    } else if (this.localHomeKind() && this.luggage && this.dirty() && rev !== this.snapRevision && idle) {
+      void this.snapshot("crash");   // file / transient 家：盲快照进 crash-store（附加层，best-effort）
     }
+  }
+
+  // ---------- T-crash（附加层）----------
+  private mintLuggage(): void { this.luggage = mintLuggageTag(); this.snapRevision = this.d.editor.revision; }
+  /** 释放行李牌（离开 file / transient 家的每条路都要过这）：正常关闭即删（pending-adoption 由库内拒删）。 */
+  private dropLuggage(): void {
+    const t = this.luggage; this.luggage = null;
+    if (t) crashStore.dropOnCleanClose(t).catch(() => {});   // best-effort：清扫失败顶多多一条陈旧通知
+  }
+  /** 盲快照：与保存同一 encode 字节，同一张牌覆盖写单帧。state="pending-adoption" = 登录 redirect 前留声（pagehide 不焚）。 */
+  async snapshot(state: "crash" | "pending-adoption" = "crash"): Promise<boolean> {
+    const kind = this.localHomeKind(); const tag = this.luggage;
+    if (!kind || !tag) return false;
+    const rev = this.d.editor.revision;
+    try {
+      const bytes = this.encode();
+      if (this.luggage !== tag) return false;   // encode 间隙换了家——别把别的模型写进这张牌
+      await crashStore.put(tag, new Blob([bytes], { type: "model/gltf-binary" }), { state, name: this.displayName(), at: Date.now(), homeKind: kind });
+      this.snapRevision = rev;
+      return true;
+    } catch (e) { reportError(new Error("[t-crash] snapshot failed (best-effort, load-bearing layers unaffected): " + String(e)), "log"); return false; }
+  }
+  /** 登录 redirect 前：脏的 file / transient 模型留 pending-adoption 帧（页面将死但不是关闭；回来 crash-recovery 自动领养）。 */
+  needsRedirectSnapshot(): boolean { return this.dirtyLocalHome(); }
+  async prepareForRedirect(): Promise<void> { if (this.needsRedirectSnapshot()) await this.snapshot("pending-adoption"); }
+  /** pagehide（非 bfcache）= 用户过完挽留门选择离开 → 快照焚；真 crash 不触发 pagehide → 快照幸存。 */
+  onPageHide(persisted: boolean): void { if (persisted) return; if (this.luggage) crashStore.dropOnCleanClose(this.luggage).catch(() => {}); }
+  /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
+   *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
+  async adoptRecovered(bytes: Uint8Array, name: string, opts: { gate: boolean }): Promise<"gallery" | "transient" | null> {
+    if (opts.gate && !(await this.leaveGate())) return null;
+    const doc = readCatsup(bytes);
+    const k = Kernel.fromBrep(doc.root.brep);
+    this.dropLuggage();
+    this.loaded = doc;
+    this.d.editor.loadKernel(k, "恢复");
+    this.d.editor.zoomExtents();
+    this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
+    if (hasStore()) {
+      const files = requireStore().files;
+      const base = `${name}-恢复`;
+      let path = fullName(this.currentDir, base);
+      for (let n = 1; n < 100 && (await files.nameOccupied(path)); n++) path = fullName(this.currentDir, `${base}-${n}`);
+      this.setHome({ kind: "gallery", path });
+      await this.save({ implicit: true, createNew: true });   // 没成也留在图库家 + dirty，30 s 自动保存补
+      return "gallery";
+    }
+    this.setHome({ kind: "transient", name });
+    return "transient";
   }
 
   private encode(): Uint8Array {
@@ -102,6 +164,7 @@ export class Session {
   }
   private setHome(h: DocHome): void {
     this.home = h;
+    if (h.kind === "gallery") this.dropLuggage(); else if (!this.luggage) this.mintLuggage();   // 图库家的影子 = store 本地副本；本地家要牌
     setActiveDocName(h.kind === "gallery" ? h.path : null);
     this.d.onHomeChanged();
   }
@@ -113,6 +176,7 @@ export class Session {
     this.loaded = null;
     this.d.editor.loadKernel(new Kernel(), "新建");
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+    this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌
     if (hasStore()) {
       const files = requireStore().files;
       let path = fullName(this.currentDir, defaultDocName());
@@ -131,6 +195,7 @@ export class Session {
       const blob = await docFile(path).open();
       if (!blob) { this.d.setStatus(`「${bareName(path)}」本机没有副本，云端也连不上`, true); return false; }
       this.adopt(new Uint8Array(await blob.arrayBuffer()));
+      this.dropLuggage();
       this.setHome({ kind: "gallery", path });
       this.d.setStatus(`已打开 ${bareName(path)}`);
       return true;
@@ -141,6 +206,7 @@ export class Session {
     if (!(await this.leaveGate())) return false;
     try {
       this.adopt(bytes);
+      this.dropLuggage();
       this.setHome({ kind: "file", handle, fileName });
       this.d.setStatus(`已打开 ${fileName}`);
       return true;
@@ -169,6 +235,7 @@ export class Session {
           const w = await home.handle.createWritable();
           await w.write(new Blob([bytes], { type: "model/gltf-binary" })); await w.close();
           this.savedRevision = revAtStart;
+          if (this.luggage) { crashStore.dropOnCleanClose(this.luggage).catch(() => {}); this.snapRevision = revAtStart; }   // 旧快照作废：磁盘已是最新（牌留着）
           if (!opts.implicit) this.d.setStatus(`已保存 ${home.fileName}`);
           return true;
         }
