@@ -158,11 +158,17 @@ svg.ico use { color: inherit; }
 }
 
 /* ---- 转正纪元（2026-09-20）：标题胶囊 / 图库容器 / sheet 模态 / busy ---- */
-.hud-tc { top: calc(10px + var(--safe-top)); left: 50%; transform: translateX(-50%); }
-.doc-title { display: inline-flex; align-items: center; gap: 6px; max-width: min(60vw, 420px); padding: 6px 12px; border: 0; border-radius: 999px; background: var(--panel); color: #2a2a2a; font: inherit; font-size: 13px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,.12); }
-.doc-title span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.doc-title[data-state$="dirty"] span::after { content: " •"; color: #b7791f; }
-.doc-title[data-state="saving"] { opacity: .7; }
+/* smart save 钮（三条杠下面，对齐 WeebPaint topSaveBtn；user 2026-09-20「最顶上那个 title 意义不明，可以不要」）：
+   状态全交给 [data-state]，按钮永远可点（synced 的灰只是「没什么可存」的视觉，不是禁用）。 */
+#btnSave { position: relative; }
+#btnSave[data-state="none"] { opacity: .45; }
+#btnSave[data-state="local-only"], #btnSave[data-state="cloud-off"] { color: var(--muted); }
+#btnSave[data-state="dirty"] { color: var(--accent); }
+#btnSave[data-state="dirty"]::after { content: ""; position: absolute; right: 7px; top: 7px; width: 7px; height: 7px; border-radius: 50%; background: #b7791f; }
+#btnSave[data-state="unpushed"] { color: #b7791f; }
+#btnSave[data-state="synced"] { color: #2f7d4f; }
+#btnSave[data-state="saving"] .ico { animation: save-pulse 1s ease-in-out infinite; }
+@keyframes save-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .35; } }
 .gallery-full { position: fixed; inset: 0; z-index: var(--z-overlay); display: flex; flex-direction: column; background: var(--bg-0); color: var(--ink); font-family: var(--font-ui); }
 .gallery-full[hidden] { display: none; }
 .gallery-chrome { display: flex; align-items: center; gap: 6px; padding: max(env(safe-area-inset-top, 0px), 8px) 12px 8px; border-bottom: 1px solid var(--line); }

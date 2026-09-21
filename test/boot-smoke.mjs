@@ -26,7 +26,7 @@ await page.goto(url, { waitUntil: "load" });
 await page.waitForFunction(() => globalThis.__catsup?.session);
 await page.waitForTimeout(400);
 eq(await page.evaluate(() => globalThis.__catsup.session.home.kind), "transient", "boot: transient home");
-eq(await page.evaluate(() => document.getElementById("docTitleText").textContent), "新模型", "boot: title capsule");
+eq(await page.evaluate(() => document.title), "新模型 — CatsUp", "boot: document.title = 名 — CatsUp"); eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "none", "boot: save btn none");
 
 // 画一个矩形 → dirty
 const box = await page.locator("#board").boundingBox();
@@ -35,7 +35,7 @@ await page.keyboard.press("r");
 await page.mouse.move(cx - 120, cy + 40); await page.mouse.down(); await page.mouse.move(cx + 80, cy + 120, { steps: 10 }); await page.mouse.up();
 await page.waitForTimeout(1300);
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "rect drawn");
-eq(await page.evaluate(() => document.getElementById("docTitle").dataset.state), "transient-dirty", "title shows dirty");
+eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "dirty", "save btn dirty"); eq((await page.evaluate(() => document.title)).startsWith("● "), true, "document.title carries dirty dot");
 
 // 无地导出 .glb（下载）→ node 侧读回
 const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportDownload())]);
@@ -58,7 +58,7 @@ await page.click("#sheetChoices .sheet-choice.danger");
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "file");
 eq(await page.evaluate(() => globalThis.__catsup.session.home.fileName), "smoke-export.glb", "opened local file → file home");
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "local open restores 1 face");
-eq(await page.evaluate(() => document.getElementById("docTitle").dataset.state), "file", "title: file, clean");
+eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "local-only", "save btn: file, clean = local-only");
 
 // 图库：懒建 store（未配置云 → 本机图库），新建自动安家，保存（含缩略图），列表出现
 await page.evaluate(() => globalThis.__catsup.galleryHost.open());
@@ -82,6 +82,7 @@ eq(await page.evaluate(() => globalThis.__catsup.session.save()), true, "explici
 const savedBytes = await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { isZip: false, mode: "existing" }).open(); return b ? b.size : -1; }, gpath);
 console.log("  · saved size in store", savedBytes, "B");
 eq(await page.evaluate(() => globalThis.__catsup.session.dirty()), false, "clean after save");
+eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "local-only", "save btn: gallery home, configured but signed out = local-only（斜杠云）");
 await page.evaluate(() => globalThis.__catsup.galleryHost.open());
 await page.waitForTimeout(1200);
 const tileText = await page.evaluate((p) => document.getElementById("galleryMount").textContent.includes(p.replace(/\.glb$/, "")), gpath);
@@ -120,7 +121,7 @@ await page.mouse.move(cx - 100, cy - 60); await page.mouse.down(); await page.mo
 await page.waitForTimeout(1300);   // 标题胶囊随 1 s tick 刷新
 const facesBefore = await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length);
 eq((await page.evaluate(() => globalThis.__catsup.editor.revision)) > revBefore, true, "draw on file-home doc bumped revision");
-eq(await page.evaluate(() => document.getElementById("docTitle").dataset.state), "file-dirty", "file home dirty after draw");
+eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "dirty", "save btn dirty after draw (file home)");
 eq(await page.evaluate(() => globalThis.__catsup.session.snapshot("crash")), true, "blind snapshot written to crash store");
 let recs = await page.evaluate(() => globalThis.__catsup.crash.listAtBoot());
 eq(recs.length, 1, "one crash record"); eq(recs[0]?.state, "crash", "record state crash"); eq(recs[0]?.homeKind, "file", "record homeKind file"); eq(recs[0]?.name, "smoke-export", "record carries display name");

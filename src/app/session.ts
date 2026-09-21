@@ -41,9 +41,15 @@ export const bareName = (full: string): string => full.replace(/^.*\//, "").repl
 export const fullName = (dir: string, bare: string): string => `${dir ? dir + "/" : ""}${bare}${DOC_EXT}`;
 export const isDocName = (p: string): boolean => p.toLowerCase().endsWith(DOC_EXT);
 
+/** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
+ *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
+export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
+
 export class Session {
   home: DocHome = { kind: "transient" };
   saving = false;
+  /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
+  pushPending = false;
   private savedRevision: number;
   private lastSeenRevision: number;
   private lastEditAt = 0;
@@ -73,13 +79,32 @@ export class Session {
   /** file / transient 家 且脏（beforeunload 承重层用）。 */
   dirtyLocalHome(): boolean { return this.localHomeKind() !== null && this.dirty(); }
   private localHomeKind(): "file" | "transient" | null { return this.home.kind === "gallery" ? null : this.home.kind; }
-  /** 「这模型住哪」徽章的状态词。 */
-  homeState(): "transient" | "transient-dirty" | "file" | "file-dirty" | "gallery" | "gallery-dirty" | "saving" {
+  /** smart save 钮的状态（顺序 = WeebPaint computeSaveState：saving → dirty → cloud-off → unpushed/synced → local-only）。 */
+  saveState(): SaveState {
     if (this.saving) return "saving";
     const dirty = this.dirty();
-    if (this.home.kind === "transient") return dirty ? "transient-dirty" : "transient";
-    if (this.home.kind === "file") return dirty ? "file-dirty" : "file";
-    return dirty ? "gallery-dirty" : "gallery";
+    switch (this.home.kind) {
+      case "transient": return dirty ? "dirty" : "none";
+      case "file": return dirty ? "dirty" : "local-only";
+      case "gallery":
+        if (dirty) return "dirty";
+        if (!auth.isAuthConfigured()) return "cloud-off";
+        if (auth.isSignedIn() && this.d.online()) return this.pushPending ? "unpushed" : "synced";
+        return "local-only";
+    }
+  }
+  /** 钮的 tooltip 文案（状态 + 住哪）。 */
+  saveTitle(): string {
+    const name = this.displayName();
+    switch (this.saveState()) {
+      case "none": return "还没有内容可保存";
+      case "dirty": return this.home.kind === "transient" ? `「${name}」还没有家：保存 = 另存到磁盘` : this.home.kind === "file" ? `「${name}」有改动：保存 = 写回文件` : `「${name}」有改动：保存到本机并同步（30 s 空闲也会自动保存）`;
+      case "local-only": return this.home.kind === "file" ? `「${name}」已保存到文件` : `「${name}」已保存到本机；云端不可达（登录 OneDrive 后同步）`;
+      case "saving": return `正在保存「${name}」…`;
+      case "cloud-off": return `「${name}」已保存到本机（云端未配置）`;
+      case "unpushed": return `「${name}」已保存到本机，云端那份还没推上去——再点一次保存重推`;
+      case "synced": return `「${name}」已同步到 OneDrive；再点 = 重新保存并推送`;
+    }
   }
 
   private tick(): void {
@@ -157,6 +182,7 @@ export class Session {
   private adopt(bytes: Uint8Array): void {
     const doc = readCatsup(bytes);
     const k = Kernel.fromBrep(doc.root.brep);
+    this.pushPending = false;
     this.loaded = doc;
     this.d.editor.loadKernel(k);
     this.d.editor.zoomExtents();
@@ -253,6 +279,7 @@ export class Session {
         return true;
       }
       this.savedRevision = revAtStart;
+      this.pushPending = !r.pushed;
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;
     } catch (e) { reportError(e); return false; }

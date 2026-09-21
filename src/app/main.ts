@@ -221,7 +221,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     switch (id) {
       case "new": void session.newDoc(); break;
       case "gallery": void galleryHost.open(); break;
-      case "save": void session.save(); break;
+      case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
       case "open": openLocal(); break;
       case "download": session.exportDownload(); break;
@@ -422,24 +422,37 @@ if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓
 // ---------- 探针钩子（scripts/probe-boot.mjs 用；不是 API） ----------
 // ---------- 转正纪元（2026-09-20）：文档生命周期 + 图库 + 云端 ----------
 initSheets();
-const docTitleBtn = $<HTMLButtonElement>("docTitle");
-const docTitleText = $("docTitleText");
-const docTitleIcon = document.getElementById("docTitleIcon") as unknown as SVGUseElement;
-function updateDocTitle(): void {
-  const st = session.homeState();
-  docTitleText.textContent = session.displayName();
-  docTitleBtn.dataset.state = st;
-  const icon = session.home.kind === "gallery" ? (st === "saving" ? "cloud-upload" : auth.isSignedIn() ? "cloud" : "local-cache") : session.home.kind === "file" ? "floppy-disk" : "file";
-  docTitleIcon.setAttribute("href", `#${icon}`);
-  docTitleBtn.title = session.home.kind === "gallery" ? `图库：${session.home.path}${session.dirty() ? "（有改动，30 s 后自动保存）" : ""}` : session.home.kind === "file" ? `文件：${session.home.fileName}${session.dirty() ? "（未保存）" : ""}` : "还没有家：点击另存到磁盘";
+// smart save 钮（三条杠下面；对齐 WeebPaint save-status + smartSaveAndPush；user 2026-09-20「title 意义不明可以不要，三条杠下面加一个 smart save button」）
+const btnSave = $<HTMLButtonElement>("btnSave");
+const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
+const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
+function updateSaveStatus(): void {
+  const st = session.saveState();
+  btnSave.dataset.state = st;
+  btnSaveIcon.setAttribute("href", `#${st === "local-only" && session.home.kind === "gallery" ? "cloud-unavailable" : SAVE_ICON[st]}`);   // 图库家未登录 = 斜杠云（云不可用，登录可修）
+  btnSave.title = session.saveTitle();
+  document.title = `${session.dirty() ? "● " : ""}${session.displayName()} — CatsUp`;   // 文档名住标题栏（不产生历史记录）
   if (session.home.kind === "gallery") deviceKvSet("last-doc", session.home.path);   // 只在有图库家时记；transient（含开机瞬间）不清，file 才清
   else if (session.home.kind === "file") deviceKvSet("last-doc", null);
   deviceKvSet("gallery-attached", hasStore() ? "1" : null);
 }
+/** smart save = Ctrl+S = 点钮：非图库家 → 保存/安家；图库家已登录 → 存+推（不脏也推，让时间戳走字）；已配置未登录 → 本地存 + 「现在登录同步？」。 */
+let cloudPromptDeclined = false;   // 同一 session 点过「暂不」→ 之后只状态行提示，不再弹
+function smartSave(): void {
+  if (session.home.kind !== "gallery" || !auth.isAuthConfigured() || (auth.isSignedIn() && navigator.onLine !== false)) { void session.save(); return; }
+  void session.save();   // 已配置未登录：本地保存照做（不 await——sheet 与 IDB 事务并行）
+  if (cloudPromptDeclined || navigator.onLine === false) return;
+  // iOS 红线：loginRedirect 必须在 click listener 内同步发起 → 走 onPick（sheets.ts 在 resolve 之前同步调它）
+  void openChoiceSheet<"signin" | "later">("现在登录 OneDrive 同步？", "已保存到本机。登录后这台和其他设备的图库都能看到它。", [
+    { label: "登录", value: "signin", primary: true, onPick: () => cloudSignIn() },
+    { label: "暂不", value: "later" },
+  ]).then((c) => { if (c === "later") cloudPromptDeclined = true; });
+}
+btnSave.addEventListener("click", () => smartSave());
 const session = new Session({
   editor,
   captureThumbnail: () => captureThumbnail(editor),
-  onHomeChanged: updateDocTitle,
+  onHomeChanged: updateSaveStatus,
   setStatus: (text, error) => notify({ text, level: error ? "error" : "info" }),
   online: () => navigator.onLine !== false,
 });
@@ -449,7 +462,7 @@ function wireStore(): void {
   const st = ensureStore();
   storeWired = true;
   st.files.onRenamed((from, to) => { if (session.home.kind === "gallery" && session.home.path === from) session.setActivePath(to); });
-  updateDocTitle();
+  updateSaveStatus();
 }
 const galleryHost = initGalleryHost({
   mountEl: $("galleryMount"), fullEl: $("galleryFull"),
@@ -464,11 +477,6 @@ const galleryHost = initGalleryHost({
   onFolderChanged: (dir) => { session.currentDir = dir; },
   onOpened: () => { wireStore(); Session.persistOnGesture(); },
   onClosed: () => { (document.activeElement as HTMLElement | null)?.blur?.(); editor.resize(window.devicePixelRatio || 1); },   // 图库按钮别留着焦点吃快捷键
-});
-docTitleBtn.addEventListener("click", () => {
-  if (session.home.kind === "gallery") void session.renameActive();
-  else if (session.home.kind === "file") void session.save();
-  else void session.settleToFile();
 });
 $("galleryBack").addEventListener("click", () => galleryHost.close());
 $("galleryNew").addEventListener("click", () => { void session.newDoc().then((ok) => { if (ok) galleryHost.close(); }); });
@@ -500,7 +508,8 @@ cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else galleryHost.refresh(); },
 }));
 function updateCloudChip(): void { cloudBtn.dataset.cloudState = auth.isSignedIn() ? "in" : "out"; (document.getElementById("galleryCloudIcon") as unknown as SVGUseElement).setAttribute("href", auth.isSignedIn() ? "#cloud-synced" : "#cloud"); }
-auth.onAuthChanged(() => { updateCloudChip(); updateDocTitle(); if (galleryHost.isOpen()) galleryHost.refresh(); });
+auth.onAuthChanged(() => { updateCloudChip(); updateSaveStatus(); if (galleryHost.isOpen()) galleryHost.refresh(); });
+window.addEventListener("online", updateSaveStatus); window.addEventListener("offline", updateSaveStatus);
 // 打开本地 .glb：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
 const glbInput = $<HTMLInputElement>("glbFile");
 function openLocal(): void { if (supportsOpenPicker()) void session.openLocalPicker(); else glbInput.click(); }
@@ -518,7 +527,7 @@ stage.addEventListener("drop", async (e) => {
 document.addEventListener("keydown", (e) => {
   if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
   const k = e.key.toLowerCase();
-  if (k === "s") { e.preventDefault(); void session.save(); }
+  if (k === "s") { e.preventDefault(); smartSave(); }
   else if (k === "o") { e.preventDefault(); openLocal(); }
 });
 window.addEventListener("pagehide", (e) => {
@@ -536,7 +545,7 @@ void (async () => {
   updateCloudChip();
   if (hasStore() && galleryHost.wasInGallery()) await galleryHost.open();
   else if (hasStore()) { const last = deviceKvGet("last-doc"); if (last && !(await session.openFromGallery(last))) await galleryHost.open(); }
-  updateDocTitle();
+  updateSaveStatus();
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 

@@ -174,6 +174,7 @@
              2026-09-07 二稿：顶上清空、视图进右栏弹出、标题字撤、背景弱、版本角标留、左下状态=RPG 对话框；三稿终形（user：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」）：一根左柱整体居中 = ☰ / 工具 / 撤销 / 重做）-->
         <nav class="hud hud-rail hud-rail-tools" aria-label="工具">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
+          <button class="tb-btn" id="btnSave" type="button" title="保存（Ctrl+S）" data-state="none"><svg class="ico" aria-hidden="true"><use id="btnSaveIcon" href="#floppy-disk"/></svg></button>
           <div id="toolbar" class="rail-tools" role="group" aria-label="工具"></div>
           <button class="tb-btn" id="btnUndo" type="button" title="撤销（Ctrl+Z / 双指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-undo"/></svg></button>
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
@@ -184,7 +185,6 @@
           <button class="tb-btn" id="btnFit" type="button" title="缩放到全部"><svg class="ico" aria-hidden="true"><use href="#maximize-viewport"/></svg></button>
         </nav>
         <!-- 顶栏「这模型住哪」胶囊（WeebPaint save-status 同义；转正纪元 2026-09-20）：文件名 + 家 + dirty；点 = 保存 / 安家 / 改名 -->
-        <div class="hud hud-tc"><button class="doc-title" id="docTitle" type="button" title="这个模型住哪"><svg class="ico" aria-hidden="true"><use id="docTitleIcon" href="#file"/></svg><span id="docTitleText">新模型</span></button></div>
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
         <div class="hud-text hud-br"><span id="build" class="build"></span></div>
         <div id="marquee" hidden></div>
@@ -262,6 +262,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-867f03fad1d2.mjs"></script>
+    <script type="module" src="./dist/catsup-74292eb5b55c.mjs"></script>
   </body>
 </html>
