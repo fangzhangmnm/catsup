@@ -4,7 +4,7 @@
 # 各分支自己已经 commit 好构建产物（dist/catsup-<hash>.mjs，scripts/build.sh 产出）。
 # 本 workflow 只做「组合两分支 → upload」，不重 build。
 # prod 分支不存在时（0.3 纪元还没 push 过 prod）：根只放一张「尚未发布」占位页，/dev/ 照常。
-# ⚠ 改运行时 fetch 的根目录 asset 要同时改三处：SW 的 STATIC_PRECACHE、下面的文件清单、（若有）离线测试。
+# ⚠ 改运行时 fetch 的根目录 asset 要同时改三处：SW 的 STATIC_PRECACHE、下面的文件清单（含 compose 的目录列表 dist/assets/vendor）、（若有）离线测试。
 name: Deploy Pages
 
 on:
@@ -50,7 +50,9 @@ jobs:
                      icon-192.png icon-512.png apple-touch-icon-180.png; do
               cp -p "$1/$f" "$2/" 2>/dev/null || echo "::warning::$1 缺 $f —— $2 上会 404"
             done
-            for d in dist assets; do
+            # vendor/ = 运行时依赖（msal / vue / 包 CSS；0.5.1 起 index.html 与 SW 预缓存都引用）——2026-09-20 真机 MSAL load failed 案：
+            #   此前只搬 dist/assets，vendor 在 Pages 上 404（本地 http.server 什么都能 serve，冒烟抓不到）。edited by Claude Fable 5.1
+            for d in dist assets vendor; do
               [ -d "$1/$d" ] && cp -r "$1/$d" "$2/" || true
             done
             find "$2" -name '*.map' -delete
