@@ -56,7 +56,17 @@ export const storeUI: StoreUI = {
   },
 
   reportError: (err: unknown, level): void => {
-    if ((err as { message?: string } | null)?.message === "Not signed in") { reportError(err, "log"); return; }
+    const msg = (err as { message?: string } | null)?.message ?? "";
+    if (msg === "Not signed in") { reportError(err, "log"); return; }
+    // 登录 redirect 回程裸 `server_error`（零 error_description）= 浏览器会话状态：该窗口登着多个微软身份 → consent 页 Accept 后 /authorize 直接顶回
+    //   （家族案卷 ai-docs/20260823-onedrive-new-consent-403-and-authority-mismatch.md §9.1，微软 Graph Explorer 独立复现；无痕窗口即通）。
+    //   CatsUp 2026-09-20 真机回执正是这一签名（user 09-22 贴的黑匣子）。原文照旧进黑匣子（log 级），用户看人话 + 处方。
+    if (msg.includes("handleRedirectPromise") && msg.includes("server_error")) {
+      reportError(err, "log");
+      showNotice({ id: "auth-server-error", level: "error", timeoutMs: null,
+        text: "微软登录页把授权顶回来了（server_error）。这通常是浏览器会话状态：这个窗口登着多个微软身份。请开一个 InPrivate / 无痕窗口打开本页再登录，或清掉 login.live.com 的 cookie 后重试。" });
+      return;
+    }
     if ((err as { name?: string } | null)?.name === "CloudNetworkError") { reportError(err, "log"); reportError(new Error("云端暂时连不上（已离线工作，稍后自动重试）"), level ?? "warning"); return; }
     reportError(err, level ?? "error");
   },
