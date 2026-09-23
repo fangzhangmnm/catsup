@@ -31,7 +31,7 @@ export interface GalleryHostDeps {
   onClosed?: () => void;
 }
 const KV_FOLDER = "gallery-folder";
-const KV_SCENE = "last-scene";
+// （v0.5.7：last-scene 键退役——「上次停在图库」归 @internal/gallery 回执条，写点在 session.slateGalleryOpened/Closed。）
 const NAMING = { bare: (full: string) => full.replace(/\.glb$/i, ""), full: (bare: string) => `${bare}.glb`, display: (n: string) => bareName(n) };
 const isDoc = (p: string): boolean => isDocName(p) && !HIDDEN_NAME_RE.test(p);
 
@@ -111,20 +111,18 @@ export function initGalleryHost(d: GalleryHostDeps) {
     const dir = deviceKvGet(KV_FOLDER) ?? "";
     if (dir !== g.handle.getFolder()) g.handle.setFolder(dir);
     g.handle.setView("files");
-    deviceKvSet(KV_SCENE, "gallery");
     d.onFolderChanged(g.handle.getFolder());
     d.onOpened?.();
   }
   function close(): void {
+    if (d.fullEl.hidden) return;   // 幂等：boot 落点 / 恢复路径可能重复关
     d.fullEl.hidden = true; d.fullEl.setAttribute("aria-hidden", "true");
     delete document.body.dataset.mode;
-    deviceKvSet(KV_SCENE, null);
     d.onClosed?.();
   }
   const isOpen = () => !d.fullEl.hidden;
   return {
     open, close, isOpen,
-    wasInGallery: () => deviceKvGet(KV_SCENE) === "gallery",
     refresh: () => gallery?.handle.refresh(),
     setView: (v: "files" | "trash") => ensureMounted().handle.setView(v),
     getView: () => gallery?.handle.getView() ?? "files",

@@ -67,8 +67,14 @@ await page.waitForTimeout(800);
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-2-gallery-empty.png") });
 await page.click("#galleryNew");
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
-const gpath = await page.evaluate(() => globalThis.__catsup.session.home.path);
-eq(/^\d{8}-[0-9a-f]{4}\.glb$/.test(gpath), true, `new doc auto-homed in gallery (${gpath})`);
+const plannedPath = await page.evaluate(() => globalThis.__catsup.session.home.path);
+eq(/^\d{8}-[0-9a-f]{4}\.glb$/.test(plannedPath), true, `new doc gets a gallery-home date name (${plannedPath})`);
+// v0.5.7 lazyblank（WeebPaint P1.5）：新建 = 日期名只在内存，**不建文件**；空白期 save 钮 none、显式保存诚实回话、回执条不指它
+eq(await page.evaluate(() => globalThis.__catsup.session.lazy), true, "new doc is lazyblank (no file until first stroke)");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), plannedPath), false, "untouched new doc created NO file");
+eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "none", "save btn none while blank");
+eq(await page.evaluate(() => globalThis.__catsup.session.save()), false, "explicit save on blank lazyblank = nothing to save (no file)");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), plannedPath), false, "…still no file after Ctrl+S on blank");
 await page.waitForTimeout(300);
 console.log("  · pre-draw state:", JSON.stringify(await page.evaluate((c) => ({ tool: globalThis.__catsup.editor.tool, active: document.activeElement?.tagName + "#" + document.activeElement?.id, top: document.elementFromPoint(c.x, c.y)?.id, saving: globalThis.__catsup.session.saving, gesture: globalThis.__catsup.editor.isGestureActive() }), { x: cx, y: cy })));
 await page.keyboard.press("r");
@@ -78,6 +84,11 @@ await page.waitForTimeout(300);
 console.log("  · post-draw state:", JSON.stringify(await page.evaluate((c) => ({ tool: globalThis.__catsup.editor.tool, faces: globalThis.__catsup.editor.kernel.faces().length, edges: globalThis.__catsup.editor.kernel.edges().length, rev: globalThis.__catsup.editor.revision, gesture: globalThis.__catsup.editor.isGestureActive(), topEnd: document.elementFromPoint(c.x + 60, c.y + 30)?.id, marquee: document.getElementById("marquee")?.hidden, ed: (() => { const e = globalThis.__catsup.editor; return { armed: e.armed, canArm: e.canArm, anchor3: e.anchor3, down: e.downScreen, jc: e.justCommitted, live: !!e.live, suspended: e.drawSuspended }; })(), gest: (() => { const g = globalThis.__catsup.gestures; return g ? { pen: g.penEverSeen?.() } : null; })(), notices: document.getElementById("noticeStack")?.textContent }), { x: cx, y: cy })));
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-2b-after-draw.png") });
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "rect drawn in gallery-home doc");
+// 首笔安家：lazy 翻 false、名字落定（撞名消歧）、首存 mode:"new" 自动落盘 → 文件出现
+await page.waitForFunction(() => !globalThis.__catsup.session.lazy && !globalThis.__catsup.session.saving && !globalThis.__catsup.session.dirty(), null, { timeout: 10000 });
+const gpath = await page.evaluate(() => globalThis.__catsup.session.home.path);
+eq(gpath, plannedPath, "first stroke adopted the planned name (no collision)");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), gpath), true, "first stroke created the gallery file (auto-saved)");
 eq(await page.evaluate(() => globalThis.__catsup.session.save()), true, "explicit save to gallery home");
 const savedBytes = await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { isZip: false, mode: "existing" }).open(); return b ? b.size : -1; }, gpath);
 console.log("  · saved size in store", savedBytes, "B");
@@ -93,14 +104,42 @@ console.log("  · tile thumbnails:", JSON.stringify(thumb));
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-3-gallery-one.png") });
 await page.evaluate(() => globalThis.__catsup.galleryHost.close());
 
-// 刷新：自动回到上次文档（device-kv last-doc → store 本地副本）
+// 刷新：自动回到上次文档（@internal/gallery 回执条 {doc} → restoreLastSession → store 本地副本；v0.5.7 恢复先于 initAuth）
 await page.reload({ waitUntil: "load" });
-await page.waitForFunction(() => globalThis.__catsup?.session?.home?.kind === "gallery", null, { timeout: 15000 }).catch(() => {});
+await page.waitForFunction(() => globalThis.__catsup?.session?.home?.kind === "gallery" && !globalThis.__catsup.session.lazy, null, { timeout: 15000 }).catch(() => {});
 await page.waitForTimeout(500);
 eq(await page.evaluate(() => globalThis.__catsup.session.home.kind), "gallery", "reload restores gallery home");
 eq(await page.evaluate(() => globalThis.__catsup.session.home.path), gpath, "reload restores same path");
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "reload restores geometry");
+eq(await page.evaluate(() => globalThis.__catsup.session.lazy), false, "restored doc is a real gallery home (not lazy)");
+{ // 开机顺序契约：本地恢复行必须先于 [auth] init 行（store 未登录 → 零网络秒开）
+  const txt = await page.evaluate(() => globalThis.__catsup.debugLog.toText());
+  const lines = txt.split("\n"); const lastBoot = lines.map((l, i) => (/\[boot\] url path=/.test(l) ? i : -1)).filter((i) => i >= 0).pop() ?? -1;
+  const after = lines.slice(lastBoot);
+  const iRestore = after.findIndex((l) => /\[boot\] restore store=true outcome=restored/.test(l));
+  const iAuth = after.findIndex((l) => /\[auth\] init signedIn=/.test(l));
+  eq(iRestore >= 0 && iAuth >= 0 && iRestore < iAuth, true, `boot order: local restore (${iRestore}) before initAuth (${iAuth})`);
+  const m = after[iRestore]?.match(/(\d+)ms$/); console.log("  · boot restore took", m ? m[1] : "?", "ms");
+}
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-4-reloaded.png") });
+// 新建后不动 → 刷新：空白 lazyblank 不写回执条、不建文件 → 回到的仍是上次那个真文档（WeebPaint「空画布不算上次开着的画」）
+await page.evaluate(() => globalThis.__catsup.session.newDoc());
+await page.waitForFunction(() => globalThis.__catsup.session.lazy);
+const lazyPath = await page.evaluate(() => globalThis.__catsup.session.home.path);
+await page.reload({ waitUntil: "load" });
+await page.waitForFunction(() => globalThis.__catsup?.session?.home?.kind === "gallery" && !globalThis.__catsup.session.lazy, null, { timeout: 15000 }).catch(() => {});
+eq(await page.evaluate(() => globalThis.__catsup.session.home.path), gpath, "untouched new doc leaves the slate alone → reload returns to the previous doc");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), lazyPath), false, "untouched new doc left no junk file behind");
+// 停在图库 → 刷新回图库（回执条 {gallery}）；关图库回到底下的 lazyblank；再从图库开那个文档 → 刷新回文档
+await page.evaluate(() => globalThis.__catsup.galleryHost.open());
+await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+await page.reload({ waitUntil: "load" });
+await page.waitForFunction(() => globalThis.__catsup?.session && !document.getElementById("galleryFull").hidden, null, { timeout: 15000 }).catch(() => {});
+eq(await page.evaluate(() => !document.getElementById("galleryFull").hidden), true, "left in gallery → reload lands in gallery (deliberate)");
+eq(await page.evaluate(() => globalThis.__catsup.session.lazy), true, "…with a lazyblank underneath");
+await page.evaluate(() => globalThis.__catsup.galleryHost.close());
+eq(await page.evaluate((p) => globalThis.__catsup.session.openFromGallery(p), gpath), true, "open the doc from gallery again");
+await page.waitForTimeout(200);
 
 // ③ 缩略图 IDB 缓存（user 2026-09-20 批）：刷新后再开图库——内存已空，命中只能来自 IDB
 await page.evaluate(() => globalThis.__catsup.galleryHost.open());

@@ -1,11 +1,14 @@
-// main.ts —— app 壳接线：工具条 / 顶栏 / 菜单 / 状态行 / 调试日志 sheet / OBJ 逃生口 / PWA 更新 toast。
+// main.ts —— app 壳接线：工具条 / 顶栏 / 菜单 / 状态行 / 调试日志 sheet / OBJ 逃生口 / PWA 更新 toast / 文档生命周期 boot 编排。
 // created 2026-09-06 by Claude Fable 5.1（0.3 app 壳纪元开工：user「离开 lab 变成一个 prototypical 但是正经的东西…先做无地骑士，
 // 无 store 无导入导出…去掉那些很 lab 的东西，好好做 ui，可以留一个 gltf 或者 obj 的 io 逃生口」）
-// 无地骑士：零持久化——模型只活在内存里；OBJ 是唯一出入口。
+// 0.5 转正纪元起：文档生命周期 = src/app/session.ts（三态家）+ @internal/store 单一接缝 + @internal/gallery；OBJ 只剩逃生口。
+// v0.5.7（2026-09-22，Claude Fable 5.1）：boot 改用包的 restoreLastSession（回执条三态编排）+ **本地恢复先于 initAuth**（零网络秒开）
+//   + 登录 / 回线 / 回前台显式快进 + 崩溃安全 flush 三件；审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md。
 
 import { APP_VERSION } from "../version.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
+import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
 import { initGalleryHost } from "./gallery-host.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
@@ -82,6 +85,7 @@ const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 �
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
 
 // ---------- Editor ----------
+let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
 const editor = new Editor(canvas, {
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
   tip: (t, cx, cy) => {
@@ -99,7 +103,7 @@ const editor = new Editor(canvas, {
     marqueeEl.hidden = false;
     Object.assign(marqueeEl.style, { left: `${b.left + r.x}px`, top: `${b.top + r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
   },
-  changed: () => syncUi(),
+  changed: () => { syncUi(); _session?.noteChange(); },   // 同步：首笔安家在 commit 的同一调用栈里翻旗（WeebPaint wp:histchange 同形）
   error: (err, where) => reportError(where === "commit" ? "提交" : "预演", err),
 });
 
@@ -375,6 +379,10 @@ const pwa = initPwaShell({
     actions: [{ label: "刷新", primary: true, onClick: () => { note("sw", "reload requested"); pwa.reload(); } }],
   }); },
   onLog: (m) => note("sw", m),
+  // WeebPaint 同形：点「刷新」前先把脏文档落本地（图库家 implicit 存；transient/file 家 implicit = no-op，由 beforeunload 挽留兜）
+  onBeforeReload: async () => { note("sw", "reload requested → implicit save"); await _session?.save({ implicit: true, localOnly: true }); },
+  // 回前台：打开中文档显式快进 + 图库开着就刷列表（WeebPaint onForeground 同形；判据 = 登录态）
+  onForeground: () => { void _session?.refreshOpenDoc(); if (galleryHost.isOpen()) galleryHost.refresh(); },
 });
 buildEl.textContent = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
 if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓存重启 · ${APP_VERSION}`, level: "info" });
@@ -393,8 +401,8 @@ function updateSaveStatus(): void {
   btnSaveIcon.setAttribute("href", `#${st === "local-only" && session.home.kind === "gallery" ? "cloud-unavailable" : SAVE_ICON[st]}`);   // 图库家未登录 = 斜杠云（云不可用，登录可修）
   btnSave.title = session.saveTitle();
   document.title = `${session.dirty() ? "● " : ""}${session.displayName()} — CatsUp`;   // 文档名住标题栏（不产生历史记录）
-  if (session.home.kind === "gallery") deviceKvSet("last-doc", session.home.path);   // 只在有图库家时记；transient（含开机瞬间）不清，file 才清
-  else if (session.home.kind === "file") deviceKvSet("last-doc", null);
+  // 「上次开着什么」= @internal/gallery 回执条，唯一写点在 session.setHome（v0.5.7；旧 last-doc / last-scene 键退役）。
+  //   gallery-attached = 「这台设备曾挂过图库」（WeebPaint registry 的单库等价物）：boot 据此在 initAuth 之前接店、本地恢复。
   deviceKvSet("gallery-attached", hasStore() ? "1" : null);
 }
 /** smart save = Ctrl+S = 点钮：非图库家 → 保存/安家；图库家已登录 → 存+推（不脏也推，让时间戳走字）；已配置未登录 → 本地存 + 「现在登录同步？」。 */
@@ -417,6 +425,7 @@ const session = new Session({
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   online: () => navigator.onLine !== false,
 });
+_session = session;
 let storeWired = false;
 function wireStore(): void {
   if (storeWired) return;
@@ -436,8 +445,8 @@ const galleryHost = initGalleryHost({
   flushLocal: () => session.flushLocal(),
   setStatus: (text, error) => { note("gallery", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   onFolderChanged: (dir) => { session.currentDir = dir; },
-  onOpened: () => { wireStore(); Session.persistOnGesture(); },
-  onClosed: () => { (document.activeElement as HTMLElement | null)?.blur?.(); editor.resize(window.devicePixelRatio || 1); },   // 图库按钮别留着焦点吃快捷键
+  onOpened: () => { wireStore(); Session.persistOnGesture(); session.slateGalleryOpened(); },   // 回执条：停在图库（有意状态 → 下次开机回图库）
+  onClosed: () => { session.slateGalleryClosed(); (document.activeElement as HTMLElement | null)?.blur?.(); editor.resize(window.devicePixelRatio || 1); },   // 图库按钮别留着焦点吃快捷键
 });
 $("galleryBack").addEventListener("click", () => galleryHost.close());
 $("galleryNew").addEventListener("click", () => { void session.newDoc().then((ok) => { if (ok) galleryHost.close(); }); });
@@ -480,8 +489,13 @@ cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else galleryHost.refresh(); },
 }));
 function updateCloudChip(): void { cloudBtn.dataset.cloudState = auth.isSignedIn() ? "in" : "out"; (document.getElementById("galleryCloudIcon") as unknown as SVGUseElement).setAttribute("href", auth.isSignedIn() ? "#cloud-synced" : "#cloud"); }
-auth.onAuthChanged((st) => { note("auth", `changed signedIn=${st.signedIn} reason=${st.reason ?? "-"} probing=${!!st.probing} account=${acct(st.account)}`); updateCloudChip(); updateSaveStatus(); if (galleryHost.isOpen()) galleryHost.refresh(); });
-window.addEventListener("online", updateSaveStatus); window.addEventListener("offline", updateSaveStatus);
+auth.onAuthChanged((st) => {
+  note("auth", `changed signedIn=${st.signedIn} reason=${st.reason ?? "-"} probing=${!!st.probing} account=${acct(st.account)}`);
+  updateCloudChip(); updateSaveStatus();
+  if (st.signedIn) void session.refreshOpenDoc();   // 登录落地（boot 静默 / redirect 回程 / 续签）→ 打开中文档显式快进（WeebPaint wp:auth-changed 同形）
+  if (galleryHost.isOpen()) galleryHost.refresh();
+});
+window.addEventListener("online", () => { updateSaveStatus(); void session.refreshOpenDoc(); }); window.addEventListener("offline", updateSaveStatus);
 // 打开本地 .glb：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
 const glbInput = $<HTMLInputElement>("glbFile");
 function openLocal(): void { if (supportsOpenPicker()) void session.openLocalPicker(); else glbInput.click(); }
@@ -502,30 +516,74 @@ document.addEventListener("keydown", (e) => {
   if (k === "s") { e.preventDefault(); smartSave(); }
   else if (k === "o") { e.preventDefault(); openLocal(); }
 });
+// 崩溃安全 flush 三件（WeebPaint es.start 同形，只本地不推）：hidden（切后台被系统回收的唯一可靠钩子）/ blur / pagehide。
+//   #60-C：pagehide persisted=true（要进 bfcache）**不写**——冻结页里起的 IDB 写在 WebKit 永远 commit 不了、只会持锁（案卷 20260909-bfcache-idb-lock）。
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "hidden") session.flushForHide();
+  else if (galleryHost.isOpen()) galleryHost.refresh();   // 回前台的文档快进走 pwa-shell onForeground（无条件挂）
+});
+window.addEventListener("blur", () => session.flushForHide());
 window.addEventListener("pagehide", (e) => {
-  if (session.home.kind === "gallery" && session.dirty()) void session.save({ implicit: true });
+  if (!e.persisted) session.flushForHide();
   session.onPageHide(e.persisted);   // file / transient：正常关闭即焚快照（bfcache 冻结不算；pending-adoption 库内拒删）
 });
-// 承重层（T-crash 附加层的设计前提）：脏的 file / transient 模型关页 / 刷新前浏览器挽留；登录 redirect 期间不挡。
-window.addEventListener("beforeunload", (e) => { if (!signInNav && session.dirtyLocalHome()) { e.preventDefault(); e.returnValue = ""; } });
-document.addEventListener("visibilitychange", () => { if (document.visibilityState === "visible" && galleryHost.isOpen()) galleryHost.refresh(); });
+// 承重层（T-crash 附加层的设计前提）：**任何家**脏 → 关页 / 刷新前浏览器挽留 + 偷偷起本地保存（dialog 弹着时后台 IDB 事务大概率跑完；
+//   WeebPaint topbar-menu 同形，user「可以弹挽留对话框，应该弹」「挽留的时候偷偷本地备份」）；登录 redirect 期间不挡。
+window.addEventListener("beforeunload", (e) => {
+  if (signInNav || !session.dirty()) return;
+  e.preventDefault(); e.returnValue = "";
+  session.save({ implicit: true, localOnly: true }).catch(() => {});   // transient / file 家 implicit = no-op（不背着用户写磁盘）
+});
 window.addEventListener("online", () => { if (galleryHost.isOpen()) galleryHost.refresh(); });
 setInterval(() => { if (document.visibilityState === "visible" && galleryHost.isOpen()) galleryHost.refresh(); }, 60_000);
+
+// ---------- boot：文档生命周期三态恢复（@internal/gallery restoreLastSession；WeebPaint boot.ts 同形接线）----------
+/** 端口注入；编排（首次 → lazyblank / 上次图库 → 图库 / 上次文档 → 恢复；崩溃环断路；失败 canvas-first 不清回执条）在包里，有单测。 */
+function bootRestore(): Promise<RestoreOutcome> {
+  return restoreLastSession({
+    hasGallery: () => hasStore(),
+    getResume: () => readSlate().opened,
+    restore: (name) => session.restore(name),
+    setNameMemoryOnly: () => {},          // CatsUp 的家只在内存（Session.home），落点函数自己重立身份；回执条永不在此清（纪律②）
+    updateSaveStatus,
+    openGallery: async () => { session.beginLazyBlank(); await galleryHost.open(); },   // 覆盖层底下要有画布：lazyblank 垫底
+    openFreshCanvas: async () => { session.beginLazyBlank(); },
+    openBlankCanvas: async () => {},      // 无库：开机就是 transient（Session 初始态），零变更
+    onNoGallery: () => {},
+    onOpened: (name) => note("boot", `restored "${name}"`),
+    onNotFound: (name) => { note("boot", `restore failed "${name}" → fresh canvas (slate kept)`); notify({ text: `上次的模型「${name.replace(/\.glb$/i, "")}」本机没有副本；登录后会再试`, level: "warning" }); },
+    getRestoreAttempt: () => readSlate().restoreAttempt,
+    setRestoreAttempt: (name) => setRestoreAttempt(name),
+    onCrashLoopSkipped: (name) => notify({ text: `上次打开「${name.replace(/\.glb$/i, "")}」时崩溃了，这次没有自动打开——可从图库手动打开`, level: "warning" }),
+    isDocLockedElsewhere: async () => false,   // 双实例互认（Web Locks）未移植——审计 §5 后续
+    onLockedElsewhere: () => {},
+  });
+}
 void (async () => {
   // 黑匣子前提（2026-09-20 发现）：store 的 reportStoreError 在 createStore() 之前是静默 no-op（0.15.0 error-handling.ts），而 redirect 回程的
   //   handleRedirectPromise 失败（error 级）/ [auth] init 诊断（log 级）都发生在 initAuth 里 → 曾挂过图库（登录点击必挂 → 回程必真）
   //   或 URL 带 OAuth 回程碎片时**先接线再 initAuth**，一条都不许漏。纯无地首开仍不碰 createStore。
   const oauthReturn = /(^|[#&?])(code|error|state)=/.test(location.hash);
   if (deviceKvGet("gallery-attached") === "1" || oauthReturn) { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
+  // ① 先从本地恢复上次的模型，**再** initAuth（v0.5.7；WeebPaint 顺序）：此刻 store 视为未登录（0.14 起在线 = 有网 ∧ 已登录）→ open()
+  //   直接读本地副本、零网络，模型秒开；登录落地后 onAuthChanged → refreshOpenDoc 后台干净快进。反过来先等 MSAL（脚本 + 静默续签 iframe）
+  //   再开 = 开机多等一次 Graph 往返才见模型（v0.5.6 的样子）。app-store.ts 头注释钉了这条顺序契约。
+  const t0 = performance.now();
+  let outcome: RestoreOutcome | null = null;
+  if (hasStore()) { try { outcome = await bootRestore(); } catch (e) { funnel(new Error("[boot] restore failed: " + String(e)), "warning"); } }
+  note("boot", `restore store=${hasStore()} outcome=${outcome ?? "landless"} home=${session.home.kind}${session.home.kind === "gallery" ? ":" + session.home.path + (session.lazy ? " (lazy)" : "") : ""} ${(performance.now() - t0).toFixed(0)}ms`);
+  updateSaveStatus();
   if (auth.isAuthConfigured()) {
     try { const st = await auth.initAuth(); note("auth", `init signedIn=${st.signedIn} probing=${!!st.probing} account=${acct(st.account)}`); }
     catch (e) { note("auth", "init failed (MSAL not loaded — sign-in click will retry)"); funnel(e, "log"); }
   } else note("auth", "not configured (client id empty)");
-  if (auth.isSignedIn() || deviceKvGet("gallery-attached") === "1") { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
-  note("boot", `store=${hasStore()} scene=${galleryHost.wasInGallery() ? "gallery" : "editor"} last-doc=${deviceKvGet("last-doc") ?? "-"}`);
   updateCloudChip();
-  if (hasStore() && galleryHost.wasInGallery()) await galleryHost.open();
-  else if (hasStore()) { const last = deviceKvGet("last-doc"); if (last && !(await session.openFromGallery(last))) await galleryHost.open(); }
+  if (auth.isSignedIn() && !hasStore()) {   // 登录了但这台设备还没挂过图库（清过 device-kv / 新装）：接店 + 走一遍三态（回执条多半空 → lazyblank）
+    try { wireStore(); outcome = await bootRestore(); note("boot", `restore after auth outcome=${outcome}`); } catch (e) { funnel(e, "warning"); }
+  } else if (outcome === "blank-failed" && auth.isSignedIn() && session.isUntouchedLazyBlank()) {
+    // ② 本地没副本（iOS 7 天驱逐 / 卸载过 / 别台设备的回执条不会到这）→ ① 时未登录拉不到；现在登录了、用户还没动笔 → 再试一次（回执条没清，纪律②）
+    try { outcome = await bootRestore(); note("boot", `restore retry after auth outcome=${outcome}`); } catch (e) { funnel(e, "warning"); }
+  }
   updateSaveStatus();
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();

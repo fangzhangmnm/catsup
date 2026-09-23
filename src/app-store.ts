@@ -11,6 +11,9 @@
 //   hiddenName = 写入方半成品（夹里有什么是 store 的事，不是图库的）。
 // 无地模式（WeebPaint 标准）：**不挂图库时 createStore 完全不被调用**（零 IDB/localStorage 副作用，file:// 也能跑）；
 //   store 在首次开图库 / 登录时懒建（ensureStore），之后常驻。
+// 开机顺序契约（v0.5.7，ai-docs/20260922-lifecycle-alignment-with-weebpaint.md §1.3 / §3.3）：**boot 的本地恢复必须在 initAuth 之前发起并等完**。
+//   库 0.14 起「在线 = 有网 ∧ signedIn()」，`open()` 在线时先等一次云端 etag 往返；未登录 → 直接读本地零网络。谁把 initAuth 排到恢复前面，
+//   谁就把「开机秒开」变回「开机等一次 Graph」。登录落地后的新鲜度由 session.refreshOpenDoc（pullIfClean）后台补。
 import { createStore, createOneDriveProvider, requestStoragePersistence, isCached, isDirty } from "@internal/store";
 import type { Store, RawFile } from "@internal/store";
 import { APP_ID, AUTHORITY, CLIENT_ID, HIDDEN_NAME_RE, MSAL_URL, SCOPES } from "./config.ts";

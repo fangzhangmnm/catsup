@@ -52,7 +52,7 @@ function ask(d: CrashRecoveryDeps, m: CrashRecordMeta, onDone: () => void): void
   });
 }
 
-/** boot 接线（main 的开机 IIFE 末尾，last-doc 恢复之后）：pending 先自动领养，再逐条问 crash 帧。 */
+/** boot 接线（main 的开机 IIFE 末尾，restoreLastSession 三态恢复之后）：pending 先自动领养，再逐条问 crash 帧。 */
 export async function initCrashRecovery(d: CrashRecoveryDeps): Promise<void> {
   try {
     const metas = await crashStore.listAtBoot();
