@@ -39,5 +39,15 @@ for (const abs of walk(join(ROOT, "src"))) {
   if (rel === "src/app/session.ts" || rel === "src/app-store.ts") continue;
   readFileSync(abs, "utf8").split("\n").forEach((l, i) => { if (/\)\s*\.save\(/.test(l.replace(/\/\/.*$/, ""))) hits.push(`${rel}:${i + 1}: store .save( outside session.ts`); });
 }
+// 清缓存只许动自己的（家族 CLAUDE.md「共享模型库 · 命名与共享规矩」第 2 条；2026-10-01 by Claude Fable 5.1）：
+//   同域名下还有兄弟 app 的离线壳和家族共享的模型缓存 pwa-models——不许「注销全部 service worker」，删缓存必须先按自己的前缀筛。
+for (const abs of walk(join(ROOT, "src"))) {
+  const rel = abs.slice(ROOT.length).replace(/\\/g, "/");
+  readFileSync(abs, "utf8").split("\n").forEach((l, i) => {
+    const code = l.replace(/\/\/.*$/, "");
+    if (/getRegistrations\s*\(/.test(code)) hits.push(`${rel}:${i + 1}: getRegistrations() — unregister only the registration that controls this page (getRegistration())`);
+    if (/caches\s*\.\s*delete\s*\(/.test(code) && !/startsWith\(SHELL_CACHE_PREFIX\)/.test(code)) hits.push(`${rel}:${i + 1}: caches.delete without the own-prefix filter`);
+  });
+}
 if (hits.length) { console.error("red-line guard: storage/cloud access outside the seam:\n" + hits.join("\n")); process.exit(1); }
 console.log("  ✓ red-line guard（接缝 = app-store / device-kv / config；写路径 = session）");
