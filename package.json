@@ -1,6 +1,6 @@
 {
   "name": "catsup",
-  "version": "0.5.8",
+  "version": "0.5.9",
   "private": true,
   "type": "module",
   "comment": "0.4 VR 纪元（0.3 app 壳纪元之上）：纯 TS 几何内核 + three（vendored）正式 app。运行时零 npm 依赖；node 24 strip-types 直跑 test/；devDependencies 仅供 tsc --noEmit 类型门。版本 SSoT = src/version.ts（package.json 只跟着记）。",
@@ -16,7 +16,7 @@
     "typescript": "5.7.3"
   },
   "dependencies": {
-    "@internal/store": "file:./vendor-pkgs/internal-store-0.15.0.tgz",
+    "@internal/store": "file:./vendor-pkgs/internal-store-0.15.2.tgz",
     "@internal/encryption": "file:./vendor-pkgs/internal-encryption-0.1.0.tgz",
     "@internal/gallery": "file:./vendor-pkgs/internal-gallery-0.4.0.tgz",
     "@internal/workbench-elements": "file:./vendor-pkgs/internal-workbench-elements-0.1.0.tgz"
