@@ -1,6 +1,7 @@
 // 测试入口：node test/run.mjs（node 24 strip-types 直跑导入的 .ts）。
 // 加新测试文件：在下面 import 一行即可。
 import "./smoke.test.ts";
+import "./page-title.test.ts";   // 网页标题只是 CatsUp（user 2026-10-14）
 import "./subdivide.test.ts";
 import "./subdivide-nearmiss.test.ts";
 import "./xr-pointer-frame.test.ts";

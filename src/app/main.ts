@@ -400,7 +400,7 @@ function updateSaveStatus(): void {
   btnSave.dataset.state = st;
   btnSaveIcon.setAttribute("href", `#${st === "local-only" && session.home.kind === "gallery" ? "cloud-unavailable" : SAVE_ICON[st]}`);   // 图库家未登录 = 斜杠云（云不可用，登录可修）
   btnSave.title = session.saveTitle();
-  document.title = `${session.dirty() ? "● " : ""}${session.displayName()} — CatsUp`;   // 文档名住标题栏（不产生历史记录）
+  // 网页标题永远只是「CatsUp」（index.html 写死）：文档名进标题 = 浏览器历史按文档名记那个地址（user 2026-10-14「就放一个自己的名字，不解释，google也这么干的」，全家族同一标准）
   // 「上次开着什么」= @internal/gallery 回执条，唯一写点在 session.setHome（v0.5.7；旧 last-doc / last-scene 键退役）。
   //   gallery-attached = 「这台设备曾挂过图库」（WeebPaint registry 的单库等价物）：boot 据此在 initAuth 之前接店、本地恢复。
   deviceKvSet("gallery-attached", hasStore() ? "1" : null);
