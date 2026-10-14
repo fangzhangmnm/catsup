@@ -26,7 +26,7 @@ await page.goto(url, { waitUntil: "load" });
 await page.waitForFunction(() => globalThis.__catsup?.session);
 await page.waitForTimeout(400);
 eq(await page.evaluate(() => globalThis.__catsup.session.home.kind), "transient", "boot: transient home");
-eq(await page.evaluate(() => document.title), "新模型 — CatsUp", "boot: document.title = 名 — CatsUp"); eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "none", "boot: save btn none");
+eq(await page.evaluate(() => document.title), "CatsUp", "boot: document.title = CatsUp（不带文档名；user 2026-10-14）"); eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "none", "boot: save btn none");
 
 // 画一个矩形 → dirty
 const box = await page.locator("#board").boundingBox();
@@ -35,7 +35,7 @@ await page.keyboard.press("r");
 await page.mouse.move(cx - 120, cy + 40); await page.mouse.down(); await page.mouse.move(cx + 80, cy + 120, { steps: 10 }); await page.mouse.up();
 await page.waitForTimeout(1300);
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "rect drawn");
-eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "dirty", "save btn dirty"); eq((await page.evaluate(() => document.title)).startsWith("● "), true, "document.title carries dirty dot");
+eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "dirty", "save btn dirty"); eq(await page.evaluate(() => document.title), "CatsUp", "dirty 时 document.title 照旧只是 CatsUp（脏不脏看保存钮）");
 
 // 无地导出 .glb（下载）→ node 侧读回
 const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportDownload())]);
