@@ -8,7 +8,8 @@ import type { BrepSnapshot } from "../kernel/kernel.ts";
 import type { PlaneParams, Pt3 } from "../kernel/geom.ts";
 import { type UintType, decodeUints, encodeUints, isUintType, pickUintType } from "./binary.ts";
 
-export const BREP_VERSION = 2;
+export const BREP_VERSION = 3;
+const NO_MATERIAL = 0xffff;
 const UM = 1e-6;                       // 内核格点 Q（立宪 §0）；文件坐标单位是它的 10^k 倍
 const N_FIX = 2 ** 30;                 // 平面法向定点比例
 const UNIT_LADDER_UM = [10000, 1000, 100, 10, 1];   // 1 cm … 1 µm
@@ -63,9 +64,11 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
     for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
     return a.length - b.length;
   };
-  const faces = snap.faces.map((f) => ({ plane: premap[f.plane], outer: rotate(f.outer), holes: f.holes.map(rotate).sort(cmpArr) }))
-    .sort((a, b) => a.plane - b.plane || cmpArr(a.outer, b.outer));
-  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}) };
+  const facesTagged = snap.faces.map((f, i) => ({ f: { plane: premap[f.plane], outer: rotate(f.outer), holes: f.holes.map(rotate).sort(cmpArr) }, mat: snap.faceMaterial?.[i] ?? -1 }))
+    .sort((a, b) => a.f.plane - b.f.plane || cmpArr(a.f.outer, b.f.outer));
+  const faces = facesTagged.map((t) => t.f);
+  const faceMaterial = facesTagged.map((t) => t.mat);
+  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
 }
 
 function pickUnitUm(vum: readonly (readonly [number, number, number])[]): number {
@@ -115,6 +118,14 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<
     const bytes = new Uint8Array(snap.edges.length);
     for (const i of snap.softEdges) bytes[i] = 1;
     attributes.edge.soft = { bufferView: sink.add(bytes), componentType: "uint8" };
+  }
+  attributes.face = { ...(attributes.face ?? {}) };
+  delete attributes.face.material;
+  if (snap.faceMaterial?.some((m) => m >= 0)) {
+    // 契约 §5.2：u16x2 = [+n 侧槽, −n 侧槽]，0xFFFF = 无；本版两侧同值（哪一侧 = 总账 B17）
+    const u = new Uint16Array(snap.faces.length * 2);
+    snap.faceMaterial.forEach((m, i) => { const v = m >= 0 ? m : NO_MATERIAL; u[i * 2] = v; u[i * 2 + 1] = v; });
+    attributes.face.material = { bufferView: sink.add(new Uint8Array(u.buffer)), componentType: "uint16", type: "u16x2" };
   }
 
   return {
@@ -208,5 +219,15 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     softEdges = [];
     for (let i = 0; i < json.edgeCount; i++) if (bytes[i]) softEdges.push(i);
   }
-  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(softEdges?.length ? { softEdges } : {}) };
+  // 面材质层（可选；u16x2，取 +n 侧；0xFFFF = 无）
+  let faceMaterial: number[] | undefined;
+  const matJ = json.attributes?.face?.material as { bufferView?: number } | undefined;
+  if (matJ && typeof matJ.bufferView === "number") {
+    const bytes = view(matJ.bufferView);
+    if (bytes.byteLength < json.faceCount * 4) fail("attributes.face.material stream too short");
+    const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
+    faceMaterial = [];
+    for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * 4, true); faceMaterial.push(v === NO_MATERIAL ? -1 : v); }
+  }
+  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(softEdges?.length ? { softEdges } : {}), ...(faceMaterial?.some((m) => m >= 0) ? { faceMaterial } : {}) };
 }

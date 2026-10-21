@@ -58,6 +58,8 @@ export interface BrepSnapshot {
   readonly faces: readonly { readonly plane: number; readonly outer: readonly number[]; readonly holes: readonly (readonly number[])[] }[];
   /** 软边索引（边表下标；缺省 = 无）。属性层，2026-10-21。 */
   readonly softEdges?: readonly number[];
+  /** 每面材质槽（与 faces 对齐；−1 = 默认；缺省 = 全默认）。属性层，2026-10-21。 */
+  readonly faceMaterial?: readonly number[];
 }
 
 export class Kernel {
@@ -67,6 +69,9 @@ export class Kernel {
   private planes = new PlaneRegistry();
   /** 软边（圆 / 弧的多边形近似边、它们推拉出的侧棱）：渲染不画线、推断照常吸。属性层，切割继承（结算机维护）。added 2026-10-21 */
   readonly soft = new Set<EdgeId>();
+  /** 面材质槽（definition.materialSlots 的槽号；缺省 = 默认材质）。属性层，按事件血缘继承：DIVIDE 子膜继承、MERGE 取首个有的、
+   *  一对一承继保 id 所以天然保留（pp 的帽跟着原膜走，侧壁新膜 = 默认——SU 同款）。贴图纪元 2026-10-21。 */
+  readonly faceMat = new Map<FaceId, number>();
   /** coplanarity 容差 τ——头号 UX 旋钮（drill L297）。只管平面分组/归属；几何保持精确共面。 */
   readonly coplanarTol: number;
 
@@ -122,6 +127,8 @@ export class Kernel {
       } catch (e) { fail(`face ${i}: ${(e as Error).message}`); }
       if (!(signedArea(face!.outer.pts) > 0)) fail(`face ${i} outer ring is not CCW in its plane basis`);
       for (const h of face!.holes) if (!(signedArea(h.pts) < 0)) fail(`face ${i} has a hole ring that is not CW`);
+      const slot = snap.faceMaterial?.[i];
+      if (slot !== undefined && slot >= 0) k.faceMat.set(face!.id, slot);
     }
     k.store.rebuildFaceLinks(g);
     for (const v of g.vertices()) if (v.edges.size === 0) fail(`vertex ${v.id} is isolated`);
@@ -140,13 +147,16 @@ export class Kernel {
       r.edges.map((d) => vIdx.get(d.forward ? this.graph.edge(d.edge).a : this.graph.edge(d.edge).b)!);
     const es = this.graph.edges();
     const softEdges = es.map((e, i) => (this.soft.has(e.id) ? i : -1)).filter((i) => i >= 0);
+    const fs = this.store.faces();
+    const faceMaterial = fs.map((f) => this.faceMat.get(f.id) ?? -1);
     return {
       coplanarTol: this.coplanarTol,
       vertices: vs.map((v) => ({ x: v.x, y: v.y, z: v.z })),
       edges: es.map((e) => [vIdx.get(e.a)!, vIdx.get(e.b)!] as const),
       planes: planeIds.map((id) => this.planes.rec(id).plane),
-      faces: this.store.faces().map((f) => ({ plane: pIdx.get(f.planeId)!, outer: ringVids(f.outer), holes: f.holes.map(ringVids) })),
+      faces: fs.map((f) => ({ plane: pIdx.get(f.planeId)!, outer: ringVids(f.outer), holes: f.holes.map(ringVids) })),
       ...(softEdges.length ? { softEdges } : {}),
+      ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}),
     };
   }
 
@@ -160,6 +170,7 @@ export class Kernel {
     k.store = this.store.clone();
     k.planes = this.planes.clone();
     for (const e of this.soft) k.soft.add(e);
+    for (const [f, m] of this.faceMat) k.faceMat.set(f, m);
     return k; // 事件日志不拷：副本的 log 只属于预演
   }
 
@@ -302,9 +313,9 @@ export class Kernel {
    * 吸收外来几何（炸开 group / 粘贴 / 导入）：膜当像（OR、新 id）、裸边当线段，走结算机——与既有几何 sticky（切割 / 合并 / 共面 dedup）。
    * added 2026-10-21 by Claude Fable 5.1（group / component 纪元）
    */
-  absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], softSegs: readonly Seg3[] = []): FaceEvent[] {
-    const images: Image[] = faces.map((rings) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or" }));
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images, wires, soft: this.soft, softSegs }));
+  absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], softSegs: readonly Seg3[] = [], materials?: readonly number[]): FaceEvent[] {
+    const images: Image[] = faces.map((rings, i) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or", ...(materials && materials[i] >= 0 ? { material: materials[i] } : {}) }));
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images, wires, soft: this.soft, softSegs, faceMat: this.faceMat }));
   }
 
   /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */
@@ -317,6 +328,8 @@ export class Kernel {
   vertices(): Vertex[] { return this.graph.vertices(); }
   edges(): Edge[] { return this.graph.edges(); }
   isSoft(id: EdgeId): boolean { return this.soft.has(id); }
+  /** GeomView 契约：裸内核不知道材质表（槽号在 faceMat），渲染单内核时一律默认。 */
+  faceMaterial(_id: FaceId): null { return null; }
   faces(): Face[] { return this.store.faces(); }
   face(id: FaceId): Face | undefined { return this.store.face(id); }
   log(): readonly FaceEvent[] { return this.eventLog; }
@@ -356,8 +369,22 @@ export class Kernel {
 
   // ---------------- 内部 ----------------
 
+  /** 涂材质（槽号；null = 回默认）。 */
+  setFaceMaterial(ids: readonly FaceId[], slot: number | null): void {
+    for (const id of ids) { if (!this.store.face(id)) continue; if (slot === null) this.faceMat.delete(id); else this.faceMat.set(id, slot); }
+  }
+  faceMaterialOf(id: FaceId): number | undefined { return this.faceMat.get(id); }
+
   private emit(events: FaceEvent[]): FaceEvent[] {
     this.eventLog.push(...events);
+    // 材质层跟着血缘走：DIVIDE 子膜继承；MERGE 取首个有的；死膜清。一对一承继保 id 不需要动。
+    for (const ev of events) {
+      if (ev.type === "DIVIDE") { const m = this.faceMat.get(ev.from); this.faceMat.delete(ev.from); if (m !== undefined) for (const c of ev.into) this.faceMat.set(c, m); }
+      else if (ev.type === "MERGE") { let m: number | undefined; for (const f of ev.from) { if (m === undefined) m = this.faceMat.get(f); this.faceMat.delete(f); } if (m !== undefined) this.faceMat.set(ev.into, m); }
+      else if (ev.type === "ABSORB") { const m = this.faceMat.get(ev.from); this.faceMat.delete(ev.from); if (m !== undefined) this.faceMat.set(ev.into, m); }
+      else if (ev.type === "BURST" || ev.type === "FACE_ERASED") this.faceMat.delete(ev.face);
+    }
+    for (const id of [...this.faceMat.keys()]) if (!this.store.face(id)) this.faceMat.delete(id);
     return events;
   }
 

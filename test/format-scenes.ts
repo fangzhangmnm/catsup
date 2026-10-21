@@ -64,13 +64,33 @@ export function sceneGrouped(): Scene {
   s = applyOp(s, { op: "placeInstance", at: { def: s.root, group: null }, definition: defId, xform: translation({ x: 2, y: 3, z: 0 }) }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped };
+/** 2×2 PNG（红 / 绿 / 蓝 / 白，zlib stored 块），当贴图样本：不依赖任何编码库。 */
+export const TINY_PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2, 8, 2, 0, 0, 0, 253, 212, 154, 115, 0, 0, 0, 25, 73, 68, 65, 84, 120, 1, 1, 14, 0, 241, 255, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255, 36, 151, 5, 253, 45, 31, 36, 196, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
+/** 盒子 + 顶面涂「赭石」色、一面墙贴 2×2 贴图、顶面建组件再放一份（槽号跨 definition）。 */
+export function scenePainted(): Scene {
+  let s = new Scene(sceneBox(2, 1.5));
+  s = applyOp(s, { op: "addMaterial", name: "赭石", color: [0x86 / 255, 0x26 / 255, 0x17 / 255] }).scene;
+  s = applyOp(s, { op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: TINY_PNG, sizeM: [0.5, 0.5] } }).scene;
+  const k = rootK(s);
+  const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 1.5))!;
+  const wall = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.y === 0))!;
+  s = applyOp(s, { op: "paintFaces", at: { def: s.root, group: null }, faces: [faceKey(k, top.id)], material: 0 }).scene;
+  s = applyOp(s, { op: "paintFaces", at: { def: s.root, group: null }, faces: [faceKey(k, wall.id)], material: 1 }).scene;
+  const k2 = rootK(s);
+  const top2 = k2.faces().find((f) => k2.faceRings3(f.id)!.outer.every((p) => p.z === 1.5))!;
+  s = applyOp(s, { op: "makeComponent", at: { def: s.root, group: null }, faces: [faceKey(k2, top2.id)], edges: [], name: "lid" }).scene;
+  const defId = [...s.defs.keys()].find((id) => id !== s.root)!;
+  s = applyOp(s, { op: "placeInstance", at: { def: s.root, group: null }, definition: defId, xform: translation({ x: 0, y: 0, z: 1 }) }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted };
 /** 场景指纹：每个池的指纹 + group / instance 结构。 */
 export function sceneFingerprint(s: Scene): string {
   const parts: string[] = [];
   const label = (id: number): string => (id === s.root ? "(root)" : s.def(id).name);   // 根 definition 的名字 = 文档名（保存时改写），不进指纹
+  for (const [i, m] of s.materials.entries()) parts.push(`mat ${i} ${m.name} ${m.color.map((c) => c.toFixed(4)).join(",")}${m.texture ? ` tex ${m.texture.mimeType} ${m.texture.bytes.length}B ${m.texture.sizeM.join("x")}` : ""}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
-    parts.push(`def ${label(d.id)}: ${fingerprint(d.kernel)}`);
+    parts.push(`def ${label(d.id)} slots=${d.materialSlots.join(",")}: ${fingerprint(d.kernel)} mats=${d.kernel.faces().map((f) => d.kernel.faceMaterialOf(f.id) ?? -1).sort().join(",")}`);
     for (const g of d.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}`);
     for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`);
   }

@@ -81,6 +81,17 @@ const res = await page.evaluate(async () => {
   await browserSelectFace(e, topCyl);
   e.setTool("scale");
   out.scaleHandles = (e.scaleHandles ?? []).length;
+  // ⑥b 油漆桶：蘸「赭石」涂圆柱顶面 → 材质表 1 条、面有槽；再蘸贴图（2×2 PNG）涂另一面 → 两条材质、渲染不报错
+  e.setPaint({ kind: "color", name: "赭石", color: [0.525, 0.149, 0.09] });
+  e.setTool("paint");
+  if (topCyl) { const rr = e.kernel.faceRings3(topCyl.id).outer; const cx3 = rr.reduce((a, p) => a + p.x, 0) / rr.length, cy3 = rr.reduce((a, p) => a + p.y, 0) / rr.length; const sp = px({ x: cx3, y: cy3, z: rr[0].z }); fire("pointerdown", sp.x, sp.y, { button: 0, buttons: 1 }); fire("pointerup", sp.x, sp.y, { button: 0 }); await sleep(30); }
+  out.paintedMaterials = e.materials().length;
+  out.topPainted = topCyl ? e.kernel.faceMaterialOf(topCyl.id) !== undefined : false;
+  const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2, 8, 2, 0, 0, 0, 253, 212, 154, 115, 0, 0, 0, 25, 73, 68, 65, 84, 120, 1, 1, 14, 0, 241, 255, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255, 36, 151, 5, 253, 45, 31, 36, 196, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
+  e.setPaint({ kind: "texture", name: "格子", mimeType: "image/png", bytes: png, sizeM: [0.5, 0.5] });
+  const sideCyl = e.kernel.faces().find((f) => f.outer.edges.length === 4 && e.kernel.faceRings3(f.id).outer.some((p) => p.z > 0.1) && e.kernel.faceRings3(f.id).outer.some((p) => p.z < 0.01));
+  if (sideCyl) { const rr = e.kernel.faceRings3(sideCyl.id).outer; const c3 = rr.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4, z: a.z + p.z / 4 }), { x: 0, y: 0, z: 0 }); const sp = px(c3); fire("pointerdown", sp.x, sp.y, { button: 0, buttons: 1 }); fire("pointerup", sp.x, sp.y, { button: 0 }); await sleep(60); }
+  out.texturedMaterials = e.materials().filter((m) => m.texture).length;
   // ⑦ 撤销链：全部撤到空
   let n = 0; while (e.canUndo() && n < 50) { e.undo(); n++; }
   out.undoSteps = n;
@@ -90,7 +101,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.boxFaces === 6 && res.selectedAll && res.afterComponent.rootFaces === 0 && res.afterComponent.defs === 2 && res.worldFacesTwoBoxes === 12 && res.bothGrew && res.backAtRoot && res.instSelected && res.rotated && res.circleSoft === 24 && res.cylinderSoft >= 48 && res.emptyAtEnd && errs.length === 0;
+const ok = res.boxFaces === 6 && res.selectedAll && res.afterComponent.rootFaces === 0 && res.afterComponent.defs === 2 && res.worldFacesTwoBoxes === 12 && res.bothGrew && res.backAtRoot && res.instSelected && res.rotated && res.circleSoft === 24 && res.cylinderSoft >= 48 && res.paintedMaterials === 1 && res.topPainted && res.texturedMaterials === 1 && res.emptyAtEnd && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

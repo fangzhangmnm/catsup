@@ -31,6 +31,8 @@ export interface Image {
   algebra: Algebra;
   /** 继承的身份；缺省 = 新膜（独占胞腔 → BIRTH）。 */
   inherit?: FaceId;
+  /** 新膜的材质槽（absorb 用：炸开 / 粘贴带着材质回来）。 */
+  material?: number;
 }
 export interface ImageTable {
   /** 被动词替换的膜：出库；身份只经 images[].inherit 延续；旧环边 = 随葬候选。 */
@@ -51,6 +53,8 @@ export interface ImageTable {
   soft?: Set<EdgeId>;
   /** 这些线段上落下的边 = 软边（圆的近似边、软边推拉出的侧棱与帽边）。 */
   softSegs?: readonly Seg3[];
+  /** 面材质层（内核的）：新像带 material 时，它独占的胞腔铸出的膜记上。 */
+  faceMat?: Map<FaceId, number>;
 }
 
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
@@ -267,9 +271,11 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     }
     events.push({ type: "DIVIDE", from: id, into });
   }
-  // 新像独占的胞腔
+  // 新像独占的胞腔（记下带材质的新像：胞腔 → 材质槽）
   const newClaimed = new Map<Region, number>();
+  const newMaterial = new Map<Region, number>();
   for (const c of newImageCells) newClaimed.set(c.r, (newClaimed.get(c.r) ?? 0) + 1);
+  for (const [im, cells] of cellsOf) if (im.inherit === undefined && im.material !== undefined) for (const c of cells) if (filled.has(c.r) && !newMaterial.has(c.r)) newMaterial.set(c.r, im.material);
 
   // ⑧ 逐填充胞腔定膜
   const stretched: FaceId[] = [];
@@ -278,7 +284,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     const ids = [...new Set(owners.get(r) ?? [])];
     const hasNew = (newClaimed.get(r) ?? 0) > 0;
     if (ids.length === 0) {
-      if (hasNew) { const nf = store.mint(pid, r); events.push({ type: "BIRTH", face: nf.id }); }
+      if (hasNew) { const nf = store.mint(pid, r); events.push({ type: "BIRTH", face: nf.id }); const mat = newMaterial.get(r); if (mat !== undefined) table.faceMat?.set(nf.id, mat); }
       continue;
     }
     if (ids.length === 1 && !hasNew) {

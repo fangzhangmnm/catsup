@@ -5,7 +5,7 @@
 import { decodeGlb } from "./glb.ts";
 import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
-import type { CatsupDocument, DefinitionDoc, GroupDoc, InstanceDoc } from "./document.ts";
+import type { CatsupDocument, DefinitionDoc, GroupDoc, InstanceDoc, MaterialDoc } from "./document.ts";
 import { DEFAULT_SETTINGS } from "./document.ts";
 import { migrateExtension } from "./migrate/index.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
@@ -74,7 +74,28 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
       return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
-    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, brep, groups, instances, ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
+    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
+    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, brep, groups, instances, materialSlots, ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
+  });
+
+  // 材质：glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
+  const texList = Array.isArray(json.textures) ? (json.textures as Record<string, unknown>[]) : [];
+  const imgList = Array.isArray(json.images) ? (json.images as Record<string, unknown>[]) : [];
+  const materials: MaterialDoc[] = (Array.isArray(json.materials) ? (json.materials as Record<string, unknown>[]) : []).map((m, mi) => {
+    const pbr = isObj(m.pbrMetallicRoughness) ? (m.pbrMetallicRoughness as Record<string, unknown>) : {};
+    const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
+    const out: MaterialDoc = { name: typeof m.name === "string" ? m.name : `material ${mi}`, color: [bc[0] ?? 0.8, bc[1] ?? 0.8, bc[2] ?? 0.8] };
+    const bt = isObj(pbr.baseColorTexture) ? (pbr.baseColorTexture as Record<string, unknown>) : null;
+    if (bt && typeof bt.index === "number" && isObj(texList[bt.index])) {
+      const src = (texList[bt.index] as Record<string, unknown>).source;
+      const img = typeof src === "number" ? imgList[src] : undefined;
+      if (isObj(img) && typeof img.bufferView === "number") {
+        const ext = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? migrateExtension("CATSUP_material", (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown>) : {};
+        const sz = Array.isArray(ext.sizeM) && ext.sizeM.length === 2 ? (ext.sizeM as number[]) : [1, 1];
+        out.texture = { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(img.bufferView)), sizeM: [sz[0], sz[1]] };
+      }
+    }
+    return out;
   });
 
   // 缩略图
@@ -86,7 +107,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   }
 
   // round-trip 保真：未知顶层键 / 未知扩展 / 文档与定义扩展里的未知键 / 根池 brep 里的属性层等
-  const OURS_TOP = new Set(["asset", "extensionsUsed", "extensionsRequired", "buffers", "bufferViews", "accessors", "images", "meshes", "nodes", "scenes", "scene", "extensions"]);
+  const OURS_TOP = new Set(["asset", "extensionsUsed", "extensionsRequired", "buffers", "bufferViews", "accessors", "images", "textures", "materials", "meshes", "nodes", "scenes", "scene", "extensions"]);
   const topLevel: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
@@ -109,6 +130,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     definitions,
     rootIndex: rootIdx as number,
     root: definitions[rootIdx as number],
+    materials,
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), views },
   };

@@ -42,6 +42,10 @@ export type Op =
   | { op: "eraseInstance"; def: number; instance: number }
   /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
   | { op: "copyGroup"; at: PoolRef; group: number; xform: Xform }
+  /** 新材质（文档级，只增）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
+  | { op: "addMaterial"; name: string; color: [number, number, number]; texture?: { mimeType: string; bytes: Uint8Array; sizeM: [number, number] } }
+  /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
+  | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null }
   | { op: "eraseGroup"; at: PoolRef; group: number };
 
 export interface ApplyResult { scene: Scene; events: FaceEvent[]; }
@@ -131,6 +135,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const origin = bboxMin(snap.vertices);
       const local = transformSnapshot(snap, translation({ x: -origin.x, y: -origin.y, z: -origin.z }));
       const def = s.mintDef(op.name, Kernel.fromBrep(local));
+      def.materialSlots = [...s.def(ref.def).materialSlots];   // 槽号沿用（同一张槽表拷一份；面上的槽号不用改）
       s.mintInstance(ref.def, ref.group, def.id, translation(origin));
       return { scene: s, events };
     }
@@ -150,11 +155,13 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
         const inst = d.instances.get(op.instance);
         if (!inst || inst.parent !== ref.group) throw new OpTargetError(`instance ${op.instance}`);
         const src = s.def(inst.def);
-        absorbSnapshot(kernel, src.kernel.toBrep(), inst.xform);
+        const remap = (slot: number): number => { const mat = src.materialSlots[slot]; return mat === undefined ? -1 : s.slotFor(ref.def, mat); };
+        absorbSnapshot(kernel, src.kernel.toBrep(), inst.xform, remap);
         // 定义里的子 group / 子实例 → 复制成父池下的 group / 实例（经实例变换）
         const gmap = new Map<number, number>();
         for (const sg of src.groups.values()) {
-          const gk = Kernel.fromBrep(transformSnapshot(sg.kernel.toBrep(), inst.xform));
+          const snapG = transformSnapshot(sg.kernel.toBrep(), inst.xform);
+          const gk = Kernel.fromBrep({ ...snapG, ...(snapG.faceMaterial ? { faceMaterial: snapG.faceMaterial.map((sl) => (sl >= 0 ? remap(sl) : -1)) } : {}) });
           const ng = s.mintGroup(ref.def, ref.group, gk, transformFrame(inst.xform, sg.axes));
           gmap.set(sg.id, ng.id);
         }
@@ -200,6 +207,17 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       }
       for (const gid of desc) { const g = d.groups.get(gid)!; if (g.parent !== null && gmap.has(g.parent)) s.group({ def: ref.def, group: gmap.get(gid)! }).parent = gmap.get(g.parent)!; }
       for (const inst of [...d.instances.values()]) if (inst.parent !== null && desc.has(inst.parent)) s.mintInstance(ref.def, gmap.get(inst.parent)!, inst.def, compose(op.xform, inst.xform));
+      return { scene: s, events: [] };
+    }
+    case "addMaterial": {
+      s.addMaterial({ name: op.name, color: [op.color[0], op.color[1], op.color[2]], ...(op.texture ? { texture: { mimeType: op.texture.mimeType, bytes: op.texture.bytes, sizeM: [op.texture.sizeM[0], op.texture.sizeM[1]] } } : {}) });
+      return { scene: s, events: [] };
+    }
+    case "paintFaces": {
+      const { kernel, ref } = poolOf(s, op.at);
+      const fids = op.faces.map((f) => resolveFace(kernel, f));
+      if (op.material !== null && !(op.material in s.materials)) throw new OpTargetError(`material ${op.material}`);
+      kernel.setFaceMaterial(fids, op.material === null ? null : s.slotFor(ref.def, op.material));
       return { scene: s, events: [] };
     }
     case "eraseInstance": {
@@ -249,6 +267,8 @@ export function describeOp(op: Op): string {
     case "placeInstance": return `placeInstance def=${op.definition}${at}`;
     case "eraseInstance": return `eraseInstance ${op.def}/${op.instance}`;
     case "copyGroup": return `copyGroup ${op.group}${at}`;
+    case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;
+    case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
   }
 }

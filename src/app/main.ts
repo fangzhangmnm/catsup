@@ -15,6 +15,7 @@ import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, TOOLS, type Tool } from "../editor/editor.ts";
+import { PALETTE_ZH } from "./palette.ts";
 import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { attachGestures } from "./gestures.ts";
@@ -79,7 +80,7 @@ const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
 const buildEl = $("build");
 
-const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
+const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
 const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
@@ -117,6 +118,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
   { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },
   { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
+  { tool: "paint", icon: "paint-bucket", label: "油漆桶", key: "B" },
   { tool: "erase", icon: "eraser", label: "橡皮", key: "E" },
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
@@ -176,6 +178,7 @@ const btnDelete = $<HTMLButtonElement>("btnDelete");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
 const btnView = $<HTMLButtonElement>("btnView");
 const btnFit = $<HTMLButtonElement>("btnFit");
+const btnMaterial = $<HTMLButtonElement>("btnMaterial");
 btnUndo.addEventListener("click", () => editor.undo());
 btnRedo.addEventListener("click", () => editor.redo());
 btnDelete.addEventListener("click", () => editor.deleteSelection());
@@ -318,6 +321,55 @@ function toggleHelp(on: boolean): void { helpEl.hidden = !on; }
 $("helpClose").addEventListener("click", () => toggleHelp(false));
 helpEl.addEventListener("click", (e) => { if (e.target === helpEl) toggleHelp(false); });
 
+// ---------- 材质面板（油漆桶蘸什么）：家族色库 pull 的色板 + 导入图片 + 默认灰 ----------
+const matSheet = $("matSheet");
+const matGrid = $("matGrid");
+const matImageInput = $<HTMLInputElement>("matImage");
+const hexToRgb = (hex: string): [number, number, number] => { const n = parseInt(hex.slice(1), 16); return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
+function toggleMatSheet(on: boolean): void { matSheet.hidden = !on; if (on) renderMatGrid(); }
+function renderMatGrid(): void {
+  matGrid.replaceChildren();
+  const cur = editor.paint;
+  const mk = (label: string, bg: string, onPick: () => void, active: boolean, title?: string): void => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "swatch" + (active ? " active" : ""); b.title = title ?? label;
+    b.style.background = bg;
+    const t = document.createElement("span"); t.className = "swatch-label"; t.textContent = label; b.appendChild(t);
+    b.addEventListener("click", () => { onPick(); renderMatGrid(); if (editor.tool !== "paint") editor.setTool("paint"); });
+    matGrid.appendChild(b);
+  };
+  mk("默认", "#d6d6d6", () => editor.setPaint(null), cur === null, "默认灰（去掉材质）");
+  for (const c of PALETTE_ZH) mk(c.name, c.hex, () => editor.setPaint({ kind: "color", name: c.name, color: hexToRgb(c.hex) }), cur?.kind === "color" && cur.name === c.name, `${c.name} ${c.hex}`);
+  // 文档里已有的贴图材质（可再蘸）
+  editor.materials().forEach((m) => {
+    if (!m.texture) return;
+    const url = URL.createObjectURL(new Blob([m.texture.bytes as BlobPart], { type: m.texture.mimeType }));
+    mk(m.name, `center / cover url(${url})`, () => editor.setPaint({ kind: "texture", name: m.name, mimeType: m.texture!.mimeType, bytes: m.texture!.bytes, sizeM: [m.texture!.sizeM[0], m.texture!.sizeM[1]] }), cur?.kind === "texture" && cur.bytes === m.texture!.bytes, `${m.name}（${m.texture.sizeM[0]} × ${m.texture.sizeM[1]} m）`);
+  });
+}
+$("matClose").addEventListener("click", () => toggleMatSheet(false));
+$("matPickImage").addEventListener("click", () => matImageInput.click());
+matSheet.addEventListener("click", (e) => { if (e.target === matSheet) toggleMatSheet(false); });
+matImageInput.addEventListener("change", async () => {
+  const file = matImageInput.files?.[0];
+  matImageInput.value = "";
+  if (!file) return;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    const bmp = await createImageBitmap(new Blob([bytes as BlobPart], { type: file.type || "image/png" }));
+    const w = 1, h = bmp.height / Math.max(1, bmp.width);   // 默认 1 m 宽，按比例高（SU 导入图片材质同款起点；尺寸调整 = 以后的「摆贴图」）
+    bmp.close();
+    const name = file.name.replace(/\.[^.]+$/, "") || "贴图";
+    editor.setPaint({ kind: "texture", name, mimeType: file.type || "image/png", bytes, sizeM: [w, h] });
+    toggleMatSheet(false);
+    editor.setTool("paint");
+    notify({ text: `贴图「${name}」已蘸上（${bmp.width}×${bmp.height} px → ${w} × ${h.toFixed(2)} m）：点面涂上`, level: "info" });
+  } catch (err) {
+    notify({ text: `图片读不了：${(err as Error).message}`, level: "error" });
+  }
+});
+btnMaterial.addEventListener("click", () => toggleMatSheet(matSheet.hidden));
+
 // ---------- OBJ 逃生口 ----------
 const objInput = $<HTMLInputElement>("objFile");
 function doExport(): void {
@@ -365,7 +417,7 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", e: "erase", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", b: "paint", e: "erase", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q");
@@ -381,7 +433,7 @@ window.addEventListener("keydown", (ev) => {
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "y" || ev.key === "Y")) { ev.preventDefault(); editor.redo(); return; }
   if (ev.key === "Delete" || ev.key === "Backspace") { if (editor.hasSelection()) { ev.preventDefault(); editor.deleteSelection(); } return; }
   if (ev.key === "Escape") {
-    closePopupMenu(); toggleHelp(false); closeDebugLogSheet();
+    closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); toggleMatSheet(false);
     // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
     if (!editor.isGestureActive() && !editor.hasSelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
   }

@@ -34,8 +34,11 @@ import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extra
 import { type PoolSlot, WorldView, slotKey } from "../scene/world-view.ts";
 import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
-export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "erase" | "eraseFace";
-export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "move", "rotate", "scale", "pp", "erase", "eraseFace"];
+export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "paint" | "erase" | "eraseFace";
+export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "move", "rotate", "scale", "pp", "paint", "erase", "eraseFace"];
+
+/** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
+export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
 
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
 export interface ToolPointer {
@@ -176,6 +179,7 @@ export class Editor {
   private dwell: { key: string; since: number } | null = null;
   private lastSnap: Snap3 | null = null;
   private clickTrain: { t: number; x: number; y: number; n: number } | null = null;
+  private paintPick: PaintPick = null;
   private viewCache: { key: string; view: WorldView } | null = null;
   private kids = new WeakMap<object, number>();
   private nextKid = 1;
@@ -661,6 +665,40 @@ export class Editor {
     return true;
   }
 
+  // ---------- 材质 / 油漆桶 ----------
+  get paint(): PaintPick { return this.paintPick; }
+  setPaint(p: PaintPick): void { this.paintPick = p; this.host.changed(); }
+  /** 文档材质表（只读）。 */
+  materials(): readonly import("../scene/scene.ts").Material[] { return this.scene.materials; }
+  /** 蘸的材质在文档材质表里的索引（没有就新建一条 addMaterial op）；null = 默认。 */
+  private materialIndexForPick(): number | null {
+    const p = this.paintPick;
+    if (!p) return null;
+    const same = (m: import("../scene/scene.ts").Material): boolean => p.kind === "color"
+      ? !m.texture && m.name === p.name && m.color.every((c, i) => Math.abs(c - p.color[i]) < 1e-6)
+      : !!m.texture && m.name === p.name && m.texture.bytes === p.bytes;
+    const i = this.scene.materials.findIndex(same);
+    if (i >= 0) return i;
+    if (p.kind === "color") this.commitOp({ op: "addMaterial", name: p.name, color: p.color });
+    else this.commitOp({ op: "addMaterial", name: p.name, color: [1, 1, 1], texture: { mimeType: p.mimeType, bytes: p.bytes, sizeM: p.sizeM } });
+    return this.scene.materials.length - 1;
+  }
+  /** 给活动池里的这些面涂当前材质（op）。 */
+  paintFaces(faces: readonly FaceId[]): void {
+    const k = this.kernel;
+    const keys = faces.filter((f) => k.face(f)).map((f) => faceKey(k, f));
+    if (!keys.length) return;
+    const material = this.materialIndexForPick();
+    this.commitOp({ op: "paintFaces", at: this.activePool(), faces: keys, material });
+  }
+  /** 把选区（面）涂上当前材质。 */
+  paintSelection(): boolean {
+    if (!this.selection.faces.size) return false;
+    this.paintFaces([...this.selection.faces]);
+    this.draw();
+    return true;
+  }
+
   // ---------- 相机 ----------
   setView(name: Parameters<OrbitCamera["setView"]>[0]): void { this.cam.setView(name); this.draw(); }
   zoomExtents(): void {
@@ -725,7 +763,13 @@ export class Editor {
     const known = new Set(this.kernel.vertices().map((v) => v.id));
     const active = view.activeSlot();
     const hand: AlignHand = {
-      has: (gid) => { if (view.slotOf(gid) !== active) return false; const { id } = view.local(gid); return !known.has(id) || (extra?.(id) ?? false); },
+      has: (gid) => {
+        const slot = view.slotOf(gid);
+        if (slot?.overridden) return true;   // 正被整体搬的 group / 组件：在手里，不吸自己（SU 把被移实体排除在推断外）
+        if (slot !== active) return false;
+        const { id } = view.local(gid);
+        return !known.has(id) || (extra?.(id) ?? false);
+      },
       opaque,
     };
     if (this._tool === "line" || this._tool === "rect" || this._tool === "circle") {
@@ -1078,6 +1122,7 @@ export class Editor {
         this.marqueeStart = { x: s.x, y: s.y };
         this.marqueeCur = { x: s.x, y: s.y };
         break;
+      case "paint":
       case "eraseFace":
         break;
     }
@@ -1102,11 +1147,11 @@ export class Editor {
       } else if (tool === "erase") {
         const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
         this.hoverEdge = c.kind === "entity" ? (c.local.edge ?? null) : null;
-      } else if (tool === "eraseFace") {
+      } else if (tool === "eraseFace" || tool === "paint") {
         const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
         const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
         this.hoverFace = c.kind === "entity" ? (c.local.face ?? null) : null;
-        this.computeLive();
+        if (tool === "eraseFace") this.computeLive();
       } else if (tool === "select") {
         const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
         this.hoverPool = c.kind === "pool" ? c.key : null;
@@ -1383,6 +1428,18 @@ export class Editor {
         const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
         this.cancelGesture();
         if (c.kind === "entity" && c.local.face !== undefined && this.kernel.face(c.local.face)) this.commitOp({ op: "eraseFaces", at: this.activePool(), faces: [faceKey(this.kernel, c.local.face)] });
+        break;
+      }
+      case "paint": {
+        // 油漆桶：点到活动池的面 → 涂；有面选区且点在选区内 → 整个选区一起涂（SU 同款）；点到子 group / 组件 → 提示进入
+        const view = this.liveWorld();
+        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
+        const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
+        this.hoverFace = null;
+        if (c.kind === "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再涂"); break; }
+        if (c.kind !== "entity" || c.local.face === undefined) break;
+        const fid = c.local.face;
+        this.paintFaces(this.selection.faces.has(fid) ? [...this.selection.faces] : [fid]);
         break;
       }
     }

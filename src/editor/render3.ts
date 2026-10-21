@@ -140,6 +140,24 @@ const FACE_FRAG = /* glsl */`
     float k = 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
     gl_FragColor = vec4(vColor * k, 1.0);   // vColor 已是 sRGB，直接出（与旧 shade() 同值）
   }`;
+const TEX_VERT = /* glsl */`
+  attribute vec2 aUv;
+  attribute vec3 aColor;
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  void main() { vUv = aUv; vColor = aColor; vNormal = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const TEX_FRAG = /* glsl */`
+  uniform vec3 uLight;
+  uniform sampler2D uMap;
+  varying vec2 vUv;
+  varying vec3 vColor;
+  varying vec3 vNormal;
+  void main() {
+    float k = 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
+    vec3 c = texture2D(uMap, vUv).rgb * vColor;
+    gl_FragColor = vec4(c * k, 1.0);
+  }`;
 
 /** 0xRRGGBB → sRGB 浮点三元（膜 shader 用；不过 three 的色彩管理）。 */
 const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
@@ -156,6 +174,8 @@ export class Renderer3 {
   private lineMatPx: number[] = [];
   // ---- 持久节点（retained）----
   private faceMesh: any; private faceMat: any;
+  private texMeshes: { mesh: any; mat: any; tex: any; key: string }[] = [];   // 每种贴图材质一份网格（自己的 UV）
+  private texCache = new Map<object, any>();                                  // Material 对象 → three Texture（原图解码一次）
   private edgeLines: any; private edgeMat: any;
   private hintLines: any;
   private snapMarker: any;
@@ -569,33 +589,106 @@ export class Renderer3 {
     }
   }
 
-  /** 全部膜 → 一份几何（三角汤 + 平法向 + sRGB 顶点色）。 */
+  /**
+   * 全部膜 → 几何：无贴图材质的一份（三角汤 + 法向 + sRGB 顶点色 = 材质颜色 × 状态色），每种贴图材质一份（+UV）。
+   * 平滑组（贴图纪元 2026-10-21，user「圆的平滑组」）：被软边连起来的膜共用顶点法向（角度加权平均）——圆柱侧面不再一片片。
+   */
   private rebuildFaces(kd: GeomView, view: ViewState): void {
-    const pos: number[] = [], nor: number[] = [], col: number[] = [];
     const dim = view.dimSlots;
+    const smooth = smoothNormals(kd);
+    const groups = new Map<object | null, { pos: number[]; nor: number[]; col: number[]; uv: number[]; mat: { texture?: { mimeType: string; bytes: Uint8Array; sizeM: readonly [number, number] } } | null }>();
     for (const f of kd.faces()) {
-      const base = view.selectionFaces.has(f.id) ? PALETTE.faceSelected
-        : view.hoverFace === f.id ? PALETTE.faceHover
-        : dim?.has(Math.floor(f.id / ID_STRIDE)) ? PALETTE.faceDim
-        : PALETTE.face;
       const rec = kd.planeOf(f.id);
       if (!rec) continue;
+      const mat = kd.faceMaterial(f.id);
+      const state = view.selectionFaces.has(f.id) ? PALETTE.faceSelected : view.hoverFace === f.id ? PALETTE.faceHover : dim?.has(Math.floor(f.id / ID_STRIDE)) ? PALETTE.faceDim : null;
+      let r: number, g: number, b: number;
+      if (state !== null) { [r, g, b] = srgb(state); if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; } }
+      else if (mat && !mat.texture) [r, g, b] = mat.color;
+      else if (mat?.texture) [r, g, b] = [1, 1, 1];
+      else [r, g, b] = srgb(PALETTE.face);
+      const key = mat?.texture ? mat : null;
+      let grp = groups.get(key);
+      if (!grp) { grp = { pos: [], nor: [], col: [], uv: [], mat: key }; groups.set(key, grp); }
       const n = rec.plane.n;
-      const [r, g, b] = srgb(base);
+      const sm = smooth.get(f.id);
+      const texW = mat?.texture?.sizeM[0] ?? 1, texH = mat?.texture?.sizeM[1] ?? 1;
       for (const tri of faceTriangles(kd, f.id)) {
-        for (const p of tri) { pos.push(p.x, p.y, p.z); nor.push(n.x, n.y, n.z); col.push(r, g, b); }
+        for (const p of tri) {
+          grp.pos.push(p.x, p.y, p.z);
+          const nn = sm?.get(`${p.x},${p.y},${p.z}`) ?? n;
+          grp.nor.push(nn.x, nn.y, nn.z);
+          grp.col.push(r, g, b);
+          if (key) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
+        }
       }
     }
+    // 默认 / 纯色材质：一份
+    const plain = groups.get(null);
     const old = this.faceMesh.geometry;
-    if (!pos.length) { this.faceMesh.visible = false; return; }
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    geo.setAttribute("normal", new THREE.Float32BufferAttribute(nor, 3));
-    geo.setAttribute("aColor", new THREE.Float32BufferAttribute(col, 3));
-    this.faceMesh.geometry = geo;
-    this.faceMesh.visible = true;
-    old.dispose();
+    if (!plain || !plain.pos.length) this.faceMesh.visible = false;
+    else {
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(plain.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(plain.nor, 3));
+      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(plain.col, 3));
+      this.faceMesh.geometry = geo;
+      this.faceMesh.visible = true;
+      old.dispose();
+    }
+    // 贴图材质：每种一份网格（复用已有节点，多退少补）
+    const texGroups = [...groups.entries()].filter(([k]) => k !== null);
+    for (let i = 0; i < Math.max(texGroups.length, this.texMeshes.length); i++) {
+      const tg = texGroups[i];
+      let slot = this.texMeshes[i];
+      if (!tg) { if (slot) slot.mesh.visible = false; continue; }
+      const [matObj, grp] = tg as [object, typeof plain & object];
+      if (!slot) {
+        const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+        const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+        mesh.frustumCulled = false;
+        this.scene.add(mesh);
+        slot = { mesh, mat, tex: null, key: "" };
+        this.texMeshes.push(slot);
+      }
+      const tex = this.textureFor(matObj as { texture?: { mimeType: string; bytes: Uint8Array } });
+      slot.mat.uniforms.uMap.value = tex;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(grp!.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(grp!.nor, 3));
+      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(grp!.col, 3));
+      geo.setAttribute("aUv", new THREE.Float32BufferAttribute(grp!.uv, 2));
+      const oldG = slot.mesh.geometry;
+      slot.mesh.geometry = geo;
+      slot.mesh.visible = true;
+      oldG.dispose();
+    }
   }
+  /** 材质对象 → three 纹理（原图字节解码一次缓存；解码是异步的，先给 1×1 灰占位，解好后 needsUpdate 并请求重画）。 */
+  private textureFor(mat: { texture?: { mimeType: string; bytes: Uint8Array } }): any {
+    let tex = this.texCache.get(mat);
+    if (tex) return tex;
+    tex = new THREE.DataTexture(new Uint8Array([200, 200, 200, 255]), 1, 1);
+    tex.colorSpace = THREE.SRGBColorSpace;
+    tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+    tex.needsUpdate = true;
+    this.texCache.set(mat, tex);
+    const bytes = mat.texture?.bytes;
+    if (bytes && typeof createImageBitmap === "function") {
+      const blob = new Blob([bytes as BlobPart], { type: mat.texture!.mimeType });
+      createImageBitmap(blob, { imageOrientation: "flipY" }).then((bmp) => {
+        tex.image = bmp;
+        tex.flipY = false;
+        tex.generateMipmaps = true;
+        tex.minFilter = THREE.LinearMipmapLinearFilter;
+        tex.needsUpdate = true;
+        this.onTextureReady?.();
+      }).catch(() => { /* 解码失败：留灰占位 */ });
+    }
+    return tex;
+  }
+  /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
+  onTextureReady: (() => void) | null = null;
 
   /** 全部边 → 一份粗线（顶点色按类别）。 */
   private rebuildEdges(kd: GeomView, view: ViewState): void {
@@ -678,6 +771,64 @@ export class Renderer3 {
     obj.frustumCulled = false;
     return obj;
   }
+}
+
+/**
+ * 平滑组法向：软边两侧的膜视为同一曲面——对每张膜的每个角点，取「经软边连通、且含该顶点」的膜的法向按内角加权平均。
+ * 返回 面 id → (顶点坐标键 → 法向)；没有软边邻接的膜不出现在表里（用平面法向）。
+ */
+function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
+  const out = new Map<FaceId, Map<string, Pt3>>();
+  // 软边 → 其两侧膜连通（并查集）
+  const parent = new Map<FaceId, FaceId>();
+  const find = (x: FaceId): FaceId => { let r = x; while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!; return r; };
+  const union = (a: FaceId, b: FaceId): void => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  let any = false;
+  for (const e of kd.edges()) {
+    if (!kd.isSoft(e.id) || e.faceLinks.length < 2) continue;
+    const fl = [...new Set(e.faceLinks)];
+    for (let i = 1; i < fl.length; i++) union(fl[0], fl[i]);
+    any = true;
+  }
+  if (!any) return out;
+  // 组内：顶点 → [膜法向 × 该膜在此顶点的内角]
+  const groupOf = (f: FaceId): FaceId | null => (parent.has(f) ? find(f) : null);
+  const acc = new Map<string, Pt3>();   // `${group}|${vertexKey}` → 加权法向和
+  const faceInfo = new Map<FaceId, { n: Pt3; ring: Pt3[]; g: FaceId }>();
+  for (const f of kd.faces()) {
+    const g = groupOf(f.id);
+    if (g === null) continue;
+    const rec = kd.planeOf(f.id);
+    const rings = kd.faceRings3(f.id);
+    if (!rec || !rings) continue;
+    const n = rec.plane.n;
+    faceInfo.set(f.id, { n, ring: rings.outer, g });
+    const ring = rings.outer;
+    for (let i = 0; i < ring.length; i++) {
+      const p = ring[i], a = ring[(i + ring.length - 1) % ring.length], b = ring[(i + 1) % ring.length];
+      const u = sub3(a, p), v = sub3(b, p);
+      const lu = Math.hypot(u.x, u.y, u.z), lv = Math.hypot(v.x, v.y, v.z);
+      const w = lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, dot3(u, v) / (lu * lv)))) : 0;
+      const key = `${g}|${p.x},${p.y},${p.z}`;
+      const cur = acc.get(key) ?? { x: 0, y: 0, z: 0 };
+      // 法向取与「组里第一张膜」同侧（膜无朝向：n 可能翻；按 dot 校正）
+      acc.set(key, { x: cur.x + n.x * w, y: cur.y + n.y * w, z: cur.z + n.z * w });
+    }
+  }
+  for (const [fid, info] of faceInfo) {
+    const m = new Map<string, Pt3>();
+    for (const p of info.ring) {
+      const v = acc.get(`${info.g}|${p.x},${p.y},${p.z}`);
+      if (!v) continue;
+      const l = Math.hypot(v.x, v.y, v.z);
+      if (l < 1e-9) continue;
+      let nn = { x: v.x / l, y: v.y / l, z: v.z / l };
+      if (dot3(nn, info.n) < 0) nn = { x: -nn.x, y: -nn.y, z: -nn.z };   // 与本膜同侧（双面光照取 |n·L|，侧向一致即可）
+      m.set(`${p.x},${p.y},${p.z}`, nn);
+    }
+    out.set(fid, m);
+  }
+  return out;
 }
 
 /** 相机系 key light：眼方向 + 上 0.55 + 右 0.35（Blender studio 光的最小近似）。 */

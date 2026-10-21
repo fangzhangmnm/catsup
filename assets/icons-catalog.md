@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-58 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+60 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -22,6 +22,7 @@
 |------|------|
 | `eraser` | 橡皮:18x11 圆角矩形斜置 -45°, 一道分割线在自下端 30% 处(下段=擦头) |
 | `pencil` | 铅笔 Bootstrap Icons MIT |
+| `paint-bucket` | 线描桶+实心水滴 (定稿:把手弧高≈4.9=原 -3) |
 
 ## tool
 
@@ -52,6 +53,12 @@
 |------|------|
 | `axes` | 3D 坐标轴:等距三轴(三箭头臂长/张角统一) |
 | `push-pull` 👁待过目 | 推拉(push/pull):等距薄板(顶面菱形+三条竖棱+底沿)+从顶面后角竖直向上的箭头=把面拉出体；与 move 十字箭头不撞【CatsUp 左侧工具条「推拉」钮（默认可见）；2026-09-06 fable 自画未过目】 |
+
+## image-processing
+
+| name | 说明 |
+|------|------|
+| `color` | 三色文氏图(弱半透明填充,重叠处自然叠深) |
 
 ## transform
 

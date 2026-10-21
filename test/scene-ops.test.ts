@@ -8,7 +8,7 @@ import { WorldView } from "../src/scene/world-view.ts";
 import { applyOp, faceKey, edgeKey, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
 import { rotationAbout, scalingAbout, translation, applyPt, invert, compose, isRigid } from "../src/scene/xform.ts";
-import { fingerprint, sceneBox } from "./format-scenes.ts";
+import { fingerprint, sceneBox, scenePainted } from "./format-scenes.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 const rootK = (s: Scene): Kernel => s.kernelOf({ def: s.root, group: null });
@@ -129,5 +129,40 @@ describe("scene: component", () => {
     const fp = (sc: Scene): string => [...new WorldView(sc, ROOT_CONTEXT).vertices()].map((v) => `${v.x.toFixed(6)},${v.y.toFixed(6)},${v.z.toFixed(6)}`).sort().join(" ");
     eq(fp(s2), fp(s), "重放后世界几何一致");
     eq(s2.def(s2.root).groups.size, 1); eq(s2.def(s2.root).instances.size, 2);
+  });
+});
+
+describe("scene: 材质（贴图纪元 2026-10-21）", () => {
+  it("涂色 → 推拉：帽继承材质、侧壁默认；切面两半都继承；建组件槽号跟着走；炸开回来槽号重映射", () => {
+    let s = scenePainted();
+    const k = rootK(s);
+    const wall = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.y === 0))!;
+    eq(s.materialOfSlot(s.root, k.faceMaterialOf(wall.id))?.name, "格子", "墙贴了格子");
+    // y=0 墙的 canonical 法向是 +y：dist −0.5 = 往外拉到 y=−0.5；邻墙是褶边（伸长），没有新侧壁
+    s = applyOp(s, { op: "pushpull", at: rootAt(s), face: faceKey(k, wall.id), dist: -0.5 }).scene;
+    const k2 = rootK(s);
+    const cap = k2.faces().find((f) => k2.faceRings3(f.id)!.outer.every((p) => Math.abs(p.y + 0.5) < 1e-9))!;
+    eq(s.materialOfSlot(s.root, k2.faceMaterialOf(cap.id))?.name, "格子", "帽跟着材质走");
+    const others = k2.faces().filter((f) => f.id !== cap.id);
+    assert(others.every((f) => k2.faceMaterialOf(f.id) === undefined), "被拉伸的邻墙仍是默认");
+    s = applyOp(s, { op: "addEdges", at: rootAt(s), segs: [[{ x: 1, y: -0.5, z: 0 }, { x: 1, y: -0.5, z: 1.5 }]] }).scene;
+    const k3 = rootK(s);
+    const halves = k3.faces().filter((f) => k3.faceRings3(f.id)!.outer.every((p) => Math.abs(p.y + 0.5) < 1e-9));
+    eq(halves.length, 2, "切成两半");
+    assert(halves.every((f) => s.materialOfSlot(s.root, k3.faceMaterialOf(f.id))?.name === "格子"), "两半都是格子");
+    // 组件里的盖子（孤面）推拉：帽继承赭石，四侧壁 + 留下的源面 = 默认
+    const lidDef = [...s.defs.values()].find((d) => d.name === "lid")!;
+    const lidFace = lidDef.kernel.faces()[0];
+    eq(s.materialOfSlot(lidDef.id, lidDef.kernel.faceMaterialOf(lidFace.id))?.name, "赭石", "组件里的面仍是赭石");
+    s = applyOp(s, { op: "pushpull", at: { def: lidDef.id, group: null }, face: faceKey(lidDef.kernel, lidFace.id), dist: 0.3 }).scene;
+    eq(lidDef.kernel.faces().length, 6, "盖子拉成盒");
+    const painted = lidDef.kernel.faces().filter((f) => lidDef.kernel.faceMaterialOf(f.id) !== undefined);
+    eq(painted.length, 1, "只有帽带材质（侧壁 + 源面默认）");
+    assert(lidDef.kernel.faceRings3(painted[0].id)!.outer.every((p) => Math.abs(p.z - 0.3) < 1e-9), "带材质的是帽");
+    const inst = [...s.def(s.root).instances.values()][0];
+    s = applyOp(s, { op: "explode", at: rootAt(s), instance: inst.id }).scene;
+    const k4 = rootK(s);
+    const back = k4.faces().find((f) => k4.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 1.8) < 1e-9))!;   // 盖子盒的帽（z=1.5+0.3）
+    eq(s.materialOfSlot(s.root, k4.faceMaterialOf(back.id))?.name, "赭石", "炸开回来还是赭石（槽号已重映射到根池槽表）");
   });
 });

@@ -5,12 +5,16 @@
 // 版本史：
 //   CATSUP_brep        v1 → v2（2026-10-21）：去掉 v1 的占位 `groups`（group 搬到 definition 层）；新增属性层 attributes.edge.soft（软边，每边 1 字节）。
 //   CATSUP_definitions v1 → v2（2026-10-21）：list[i] 新增 `groups`（各自 B-rep + 轴框 + 父）与 `instances`（definition 索引 + 3×4 变换 + 父 group）。
+//   CATSUP_brep        v2 → v3（2026-10-21 贴图纪元）：属性层 attributes.face.material（u16x2：[+n 侧槽, −n 侧槽]，0xFFFF = 无）本版读写。
+//   CATSUP_definitions v2 → v3（2026-10-21 贴图纪元）：list[i].materialSlots 生效（槽号 → glTF core materials 索引；v2 一直写空表）。
+//   CATSUP_material    v1（2026-10-21）：挂在 glTF core material 上的 authoring 补充 { sizeM:[w,h] }（贴图物理尺寸，米）。
 
 export const EXTENSION_VERSIONS = {
   CATSUP_document: 1,
-  CATSUP_brep: 2,
-  CATSUP_definitions: 2,
+  CATSUP_brep: 3,
+  CATSUP_definitions: 3,
   CATSUP_instance: 1,
+  CATSUP_material: 1,
 } as const;
 export type CatsupExtension = keyof typeof EXTENSION_VERSIONS;
 
@@ -19,6 +23,7 @@ export type MigrationStep = (json: Record<string, unknown>) => Record<string, un
 const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
   CATSUP_brep: {
     1: (j) => { const { groups: _groups, ...rest } = j; void _groups; return { ...rest, version: 2 }; },
+    2: (j) => ({ ...j, version: 3 }),   // v2 文件没有 face.material 层 = 全默认；层本身是可选的
   },
   CATSUP_definitions: {
     1: (j) => ({
@@ -26,6 +31,7 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
       version: 2,
       list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => ({ ...d, groups: Array.isArray(d.groups) ? d.groups : [], instances: Array.isArray(d.instances) ? d.instances : [] })) : j.list,
     }),
+    2: (j) => ({ ...j, version: 3, list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => ({ ...d, materialSlots: Array.isArray(d.materialSlots) ? d.materialSlots : [] })) : j.list }),
   },
 };
 

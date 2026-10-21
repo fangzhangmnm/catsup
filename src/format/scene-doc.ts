@@ -10,12 +10,14 @@ import { newDocument } from "./document.ts";
 /** 文档 → 场景。 */
 export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep));
+  for (const m of doc.materials) scene.addMaterial({ name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } } : {}) });
   const idOf = new Map<number, DefId>();
   idOf.set(doc.rootIndex, scene.root);
   scene.def(scene.root).name = doc.root.name;
   doc.definitions.forEach((d, i) => { if (i !== doc.rootIndex) idOf.set(i, scene.mintDef(d.name, Kernel.fromBrep(d.brep)).id); });
   doc.definitions.forEach((d, i) => {
     const def = scene.def(idOf.get(i)!);
+    def.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
     for (const g of d.groups) {
       const grp = scene.mintGroup(def.id, null, Kernel.fromBrep(g.brep), g.axes);
       (grp as { id: number }).id = g.id;   // 保留文件里的 id（稳定；parent 引用按它）
@@ -53,13 +55,16 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
       brep: d.kernel.toBrep(),
       groups: [...d.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), ...(g.name !== undefined ? { name: g.name } : {}) })),
       instances: [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) })),
+      materialSlots: [...d.materialSlots],
     };
   });
+  const materials = scene.materials.map((m) => ({ name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));
   const root = definitions[rootIndex];
-  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) } };
+  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials };
   const doc = newDocument(root.brep, name);
   doc.definitions = definitions;
   doc.rootIndex = rootIndex;
   doc.root = definitions[rootIndex];
+  doc.materials = materials;
   return doc;
 }

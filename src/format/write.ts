@@ -14,7 +14,7 @@ import { MIN_GLTF_VERSION, WRITE_GLTF_VERSION } from "./migrate/gltf/index.ts";
 import { remapBufferViewRefs } from "./carry.ts";
 import type { Xform } from "../scene/xform.ts";
 
-export const CATSUP_EXTENSIONS = ["CATSUP_document", "CATSUP_definitions", "CATSUP_brep", "CATSUP_instance"] as const;
+export const CATSUP_EXTENSIONS = ["CATSUP_document", "CATSUP_definitions", "CATSUP_brep", "CATSUP_instance", "CATSUP_material"] as const;
 
 /** Z-up 3×4 → glTF Y-up 4×4 列主序：C·M·C⁻¹，C = (x,y,z)→(x,z,−y)。 */
 export function xformToGltfMatrix(m: Xform): number[] {
@@ -46,13 +46,30 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     images.push({ bufferView: v, mimeType: doc.thumbnail.mimeType, name: "thumbnail" });
     thumbnail = 0;
   }
-  // 每个 definition：规范序一次（bake 与 B-rep 流共用同一份顶点顺序）→ mesh
+  // 材质 = glTF core materials（+ images / textures；贴图原字节原样进 BIN）+ CATSUP_material{sizeM}
+  const textures: Record<string, unknown>[] = [];
+  const materials = doc.materials.map((m) => {
+    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [m.color[0], m.color[1], m.color[2], 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
+    if (m.texture) {
+      const v = sink.add(m.texture.bytes);
+      images.push({ bufferView: v, mimeType: m.texture.mimeType, name: m.name });
+      textures.push({ source: images.length - 1 });
+      (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: textures.length - 1 };
+      out.extensions = { CATSUP_material: { version: EXTENSION_VERSIONS.CATSUP_material, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } };
+    }
+    return out;
+  });
+  // 每个 definition：规范序一次（bake 与 B-rep 流共用同一份顶点顺序）→ mesh（按材质拆 primitive）
   const accessors: Record<string, unknown>[] = [];
   const meshes: Record<string, unknown>[] = [];
   const canon = doc.definitions.map((d) => ({ root: canonicalize(d.brep), groups: d.groups.map((g) => ({ ...g, brep: canonicalize(g.brep) })) }));
   for (let i = 0; i < doc.definitions.length; i++) {
     const merged = mergeBrep([canon[i].root, ...canon[i].groups.map((g) => g.brep)]);
-    const baked = bakeDefinition(merged, sink, accessors.length);
+    const slots = doc.definitions[i].materialSlots;
+    const baked = bakeDefinition(merged, sink, accessors.length, {
+      slotToCore: (slot) => { const c = slots[slot]; return c !== undefined && c in doc.materials ? c : undefined; },
+      sizeOfCore: (core) => doc.materials[core]?.texture?.sizeM ?? null,
+    });
     for (const [bi, t] of baked.bufferViewTargets) bufferViews[bi] = { ...bufferViews[bi], target: t };
     accessors.push(...baked.accessors);
     meshes.push({ name: doc.definitions[i].name, ...baked.mesh });
@@ -72,7 +89,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       brep: encodeBrep(g.brep, sink),
     }));
     const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}) }));
-    return { name: d.name, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [], nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
+    return { name: d.name, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
   });
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）
@@ -103,6 +120,8 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     bufferViews,
     accessors,
     ...(images.length ? { images } : {}),
+    ...(textures.length ? { textures } : {}),
+    ...(materials.length ? { materials } : {}),
     meshes,
     nodes,
     scenes: [{ nodes: [0] }],

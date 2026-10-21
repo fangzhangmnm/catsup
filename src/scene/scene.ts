@@ -13,6 +13,12 @@ export type DefId = number;
 export type GroupId = number;
 export type InstId = number;
 
+/** 材质（文档级，= glTF core material）：颜色（sRGB 0..1）+ 可选贴图（原图字节 + 物理尺寸 米）。只增不删（面按索引引用）。 */
+export interface Material {
+  readonly name: string;
+  readonly color: readonly [number, number, number];
+  readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly [number, number] };
+}
 export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; }
 export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; }
 export interface Definition {
@@ -23,6 +29,8 @@ export interface Definition {
   instances: Map<InstId, Instance>;
   nextGroup: number;
   nextInst: number;
+  /** 材质槽：槽号 → 文档材质索引（契约 §5.3；面存槽号，实例可重映射——重映射未做）。 */
+  materialSlots: number[];
 }
 
 /** 几何池地址 = (definition, group | null)。 */
@@ -37,6 +45,8 @@ export const ROOT_CONTEXT: EditContext = { chain: [], group: null };
 export class Scene {
   readonly defs = new Map<DefId, Definition>();
   readonly root: DefId;
+  /** 文档材质表（只增）。 */
+  readonly materials: Material[] = [];
   private nextDef = 1;
 
   constructor(rootKernel?: Kernel) {
@@ -45,7 +55,7 @@ export class Scene {
 
   // ---------- 铸造 ----------
   mintDef(name: string, kernel: Kernel): Definition {
-    const d: Definition = { id: this.nextDef++, name, kernel, groups: new Map(), instances: new Map(), nextGroup: 1, nextInst: 1 };
+    const d: Definition = { id: this.nextDef++, name, kernel, groups: new Map(), instances: new Map(), nextGroup: 1, nextInst: 1, materialSlots: [] };
     this.defs.set(d.id, d);
     return d;
   }
@@ -61,6 +71,22 @@ export class Scene {
     d.instances.set(inst.id, inst);
     return inst;
   }
+
+  /** 材质在某 definition 里的槽号（没有就开一个）。 */
+  slotFor(defId: DefId, material: number): number {
+    const d = this.def(defId);
+    const i = d.materialSlots.indexOf(material);
+    if (i >= 0) return i;
+    d.materialSlots.push(material);
+    return d.materialSlots.length - 1;
+  }
+  /** 槽号 → 材质（无 / 越界 = null）。 */
+  materialOfSlot(defId: DefId, slot: number | undefined): Material | null {
+    if (slot === undefined) return null;
+    const idx = this.def(defId).materialSlots[slot];
+    return idx === undefined ? null : (this.materials[idx] ?? null);
+  }
+  addMaterial(m: Material): number { this.materials.push(m); return this.materials.length - 1; }
 
   // ---------- 查 ----------
   def(id: DefId): Definition {
@@ -131,12 +157,13 @@ export class Scene {
     (s as { defs: Map<DefId, Definition> }).defs = new Map();
     (s as { root: DefId }).root = this.root;
     (s as unknown as { nextDef: number }).nextDef = this.nextDef;
+    (s as { materials: Material[] }).materials = [...this.materials];   // 材质对象不可变，浅拷安全
     for (const [id, d] of this.defs) {
       const groups = new Map<GroupId, Group>();
       for (const [gid, g] of d.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), ...(g.name !== undefined ? { name: g.name } : {}) });
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) });
-      s.defs.set(id, { id: d.id, name: d.name, kernel: d.kernel.clone(), groups, instances, nextGroup: d.nextGroup, nextInst: d.nextInst });
+      s.defs.set(id, { id: d.id, name: d.name, kernel: d.kernel.clone(), groups, instances, nextGroup: d.nextGroup, nextInst: d.nextInst, materialSlots: [...d.materialSlots] });
     }
     return s;
   }
@@ -157,6 +184,7 @@ export function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: read
   const planeIdx = new Map<number, number>();
   const planes: { n: Pt3; d: number }[] = [];
   const outFaces: { plane: number; outer: number[]; holes: number[][] }[] = [];
+  const faceMaterial: number[] = [];
   for (const fid of faces) {
     const f = k.face(fid);
     const rec = k.planeOf(fid);
@@ -165,6 +193,7 @@ export function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: read
     if (pi === undefined) { pi = planes.length; planeIdx.set(f.planeId, pi); planes.push(rec.plane); }
     const ring = (r: { edges: { edge: EdgeId; forward: boolean }[] }): number[] => r.edges.map((d) => { edgeSet.add(d.edge); const e = k.graph.edge(d.edge); return vid(d.forward ? e.a : e.b); });
     outFaces.push({ plane: pi, outer: ring(f.outer), holes: f.holes.map(ring) });
+    faceMaterial.push(k.faceMaterialOf(fid) ?? -1);
   }
   const outEdges: [number, number][] = [];
   const softEdges: number[] = [];
@@ -174,23 +203,25 @@ export function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: read
     if (k.soft.has(eid)) softEdges.push(outEdges.length);
     outEdges.push([vid(e.a), vid(e.b)]);
   }
-  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(softEdges.length ? { softEdges } : {}) };
+  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(softEdges.length ? { softEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
 }
 
 /** 快照整体变换（坐标 + 平面）。 */
 export function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot {
-  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.softEdges ? { softEdges: snap.softEdges } : {}) };
+  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.softEdges ? { softEdges: snap.softEdges } : {}), ...(snap.faceMaterial ? { faceMaterial: snap.faceMaterial } : {}) };
 }
 
-/** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。 */
-export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTITY): void {
+/** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
+ *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。 */
+export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTITY, materialMap?: (slot: number) => number): void {
   const P = snap.vertices.map((p) => applyPt(m, p));
   const faces = snap.faces.map((f) => [f.outer.map((i) => P[i]), ...f.holes.map((h) => h.map((i) => P[i]))]);
   const inFace = new Set<string>();
   for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
   const wires = snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => ({ a: P[a], b: P[b] }));
   const softSegs = (snap.softEdges ?? []).map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
-  k.absorb(faces, wires, softSegs);
+  const mats = snap.faceMaterial?.map((s) => (s >= 0 ? (materialMap ? materialMap(s) : s) : -1));
+  k.absorb(faces, wires, softSegs, mats);
 }
 
 /** 轴框默认：选区包围盒的最小角（SU 把组件轴放在包围盒角）。 */

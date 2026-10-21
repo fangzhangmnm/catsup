@@ -8,7 +8,7 @@ import type { Face } from "../kernel/face-lifecycle.ts";
 import type { PlaneRec } from "../kernel/planes.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type PlaneParams, planeBasis, projectToPlane } from "../kernel/geom.ts";
-import { type EditContext, type InstId, type PoolRef, Scene, poolKey, samePool } from "./scene.ts";
+import { type EditContext, type InstId, type Material, type PoolRef, Scene, poolKey, samePool } from "./scene.ts";
 import { type Xform, applyPlane, applyPt, compose, isIdentity } from "./xform.ts";
 
 /** 求解器 / 拾取 / 渲染认识的几何读接口（Kernel 结构上满足）。 */
@@ -21,12 +21,14 @@ export interface GeomView {
   faceRings3(id: FaceId): { outer: Pt3[]; holes: Pt3[][] } | undefined;
   /** 软边（圆的近似边等）：渲染不画线。 */
   isSoft(id: EdgeId): boolean;
+  /** 面的材质（null = 默认灰）。 */
+  faceMaterial(id: FaceId): Material | null;
   graph: { pt(id: VertexId): Pt3; edge(id: EdgeId): Edge; vertex(id: VertexId): Vertex; hasEdge(id: EdgeId): boolean; hasVertex(id: VertexId): boolean };
 }
 
 export const ID_STRIDE = 1 << 22;
 
-export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; }
+export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; }
 
 export class WorldView implements GeomView {
   private verts = new Map<VertexId, Vertex>();
@@ -56,10 +58,10 @@ export class WorldView implements GeomView {
       const sameDefChain = chain.join("/") === chainKey;
       const index = this.slots.length;
       const key = `${chain.join("/")}#${poolKey(pool)}`;
-      let m = xform;
-      if (overrides) for (const ov of overrides) if (ov.match(pool, chain)) m = compose(ov.xform, m);
+      let m = xform, overridden = false;
+      if (overrides) for (const ov of overrides) if (ov.match(pool, chain)) { m = compose(ov.xform, m); overridden = true; }
       const kernel = isActive && live ? live : scene.kernelOf(pool);
-      this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain });
+      this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain, overridden });
       this.byKey.set(key, index);
       this.ingest(index, kernel, m);
     }
@@ -104,6 +106,13 @@ export class WorldView implements GeomView {
   vertices(): Vertex[] { return [...this.verts.values()]; }
   edges(): Edge[] { return [...this.edgeMap.values()]; }
   isSoft(id: EdgeId): boolean { return this.softSet.has(id); }
+  faceMaterial(id: FaceId): Material | null {
+    const slot = this.faceSlot.get(id);
+    if (slot === undefined) return null;
+    const ps = this.slots[slot];
+    const { id: local } = this.local(id);
+    return this.scene.materialOfSlot(ps.pool.def, ps.kernel.faceMaterialOf(local));
+  }
   faces(): Face[] { return [...this.faceMap.values()]; }
   face(id: FaceId): Face | undefined { return this.faceMap.get(id); }
   planeOf(id: FaceId): PlaneRec | undefined { return this.planeMap.get(id); }
