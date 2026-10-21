@@ -196,19 +196,20 @@ export function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: read
     faceMaterial.push(k.faceMaterialOf(fid) ?? -1);
   }
   const outEdges: [number, number][] = [];
-  const softEdges: number[] = [];
+  const softEdges: number[] = [], curveEdges: number[] = [];
   for (const eid of edgeSet) {
     if (!k.graph.hasEdge(eid)) continue;
     const e = k.graph.edge(eid);
     if (k.soft.has(eid)) softEdges.push(outEdges.length);
+    if (k.curve.has(eid)) curveEdges.push(outEdges.length);
     outEdges.push([vid(e.a), vid(e.b)]);
   }
-  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(softEdges.length ? { softEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(softEdges.length ? { softEdges } : {}), ...(curveEdges.length ? { curveEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
 }
 
 /** 快照整体变换（坐标 + 平面）。 */
 export function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot {
-  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.softEdges ? { softEdges: snap.softEdges } : {}), ...(snap.faceMaterial ? { faceMaterial: snap.faceMaterial } : {}) };
+  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.softEdges ? { softEdges: snap.softEdges } : {}), ...(snap.curveEdges ? { curveEdges: snap.curveEdges } : {}), ...(snap.faceMaterial ? { faceMaterial: snap.faceMaterial } : {}) };
 }
 
 /** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
@@ -220,8 +221,9 @@ export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTIT
   for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
   const wires = snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => ({ a: P[a], b: P[b] }));
   const softSegs = (snap.softEdges ?? []).map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
+  const curveSegs = (snap.curveEdges ?? []).map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
   const mats = snap.faceMaterial?.map((s) => (s >= 0 ? (materialMap ? materialMap(s) : s) : -1));
-  k.absorb(faces, wires, softSegs, mats);
+  k.absorb(faces, wires, softSegs, mats, curveSegs);
 }
 
 /** 轴框默认：选区包围盒的最小角（SU 把组件轴放在包围盒角）。 */

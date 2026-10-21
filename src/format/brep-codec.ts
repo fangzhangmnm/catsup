@@ -44,10 +44,11 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
   const remap = new Array<number>(order.length);
   order.forEach((old, i) => { remap[old] = i; });
   const vertices = order.map((i) => snap.vertices[i]);
-  const edgesTagged = snap.edges.map(([a, b], i) => { const x = remap[a], y = remap[b]; return { e: (x < y ? [x, y] : [y, x]) as readonly [number, number], soft: snap.softEdges?.includes(i) ?? false }; })
+  const edgesTagged = snap.edges.map(([a, b], i) => { const x = remap[a], y = remap[b]; return { e: (x < y ? [x, y] : [y, x]) as readonly [number, number], soft: snap.softEdges?.includes(i) ?? false, curve: snap.curveEdges?.includes(i) ?? false }; })
     .sort((p, q) => p.e[0] - q.e[0] || p.e[1] - q.e[1]);
   const edges = edgesTagged.map((t) => t.e);
   const softEdges = edgesTagged.map((t, i) => (t.soft ? i : -1)).filter((i) => i >= 0);
+  const curveEdges = edgesTagged.map((t, i) => (t.curve ? i : -1)).filter((i) => i >= 0);
   const planeKey = (pl: PlaneParams): number[] => [Math.round(pl.n.x * N_FIX), Math.round(pl.n.y * N_FIX), Math.round(pl.n.z * N_FIX), toUm(pl.d)];
   const pkeys = snap.planes.map(planeKey);
   const porder = pkeys.map((_, i) => i).sort((a, b) => { for (let k = 0; k < 4; k++) if (pkeys[a][k] !== pkeys[b][k]) return pkeys[a][k] - pkeys[b][k]; return 0; });
@@ -68,7 +69,7 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
     .sort((a, b) => a.f.plane - b.f.plane || cmpArr(a.f.outer, b.f.outer));
   const faces = facesTagged.map((t) => t.f);
   const faceMaterial = facesTagged.map((t) => t.mat);
-  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}), ...(curveEdges.length ? { curveEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
 }
 
 function pickUnitUm(vum: readonly (readonly [number, number, number])[]): number {
@@ -118,6 +119,12 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<
     const bytes = new Uint8Array(snap.edges.length);
     for (const i of snap.softEdges) bytes[i] = 1;
     attributes.edge.soft = { bufferView: sink.add(bytes), componentType: "uint8" };
+  }
+  delete attributes.edge.curve;
+  if (snap.curveEdges?.length) {
+    const bytes = new Uint8Array(snap.edges.length);
+    for (const i of snap.curveEdges) bytes[i] = 1;
+    attributes.edge.curve = { bufferView: sink.add(bytes), componentType: "uint8" };
   }
   attributes.face = { ...(attributes.face ?? {}) };
   delete attributes.face.material;
@@ -219,6 +226,14 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     softEdges = [];
     for (let i = 0; i < json.edgeCount; i++) if (bytes[i]) softEdges.push(i);
   }
+  let curveEdges: number[] | undefined;
+  const curveJ = json.attributes?.edge?.curve as { bufferView?: number } | undefined;
+  if (curveJ && typeof curveJ.bufferView === "number") {
+    const bytes = view(curveJ.bufferView);
+    if (bytes.byteLength < json.edgeCount) fail("attributes.edge.curve stream too short");
+    curveEdges = [];
+    for (let i = 0; i < json.edgeCount; i++) if (bytes[i]) curveEdges.push(i);
+  }
   // 面材质层（可选；u16x2，取 +n 侧；0xFFFF = 无）
   let faceMaterial: number[] | undefined;
   const matJ = json.attributes?.face?.material as { bufferView?: number } | undefined;
@@ -229,5 +244,5 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     faceMaterial = [];
     for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * 4, true); faceMaterial.push(v === NO_MATERIAL ? -1 : v); }
   }
-  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(softEdges?.length ? { softEdges } : {}), ...(faceMaterial?.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(softEdges?.length ? { softEdges } : {}), ...(curveEdges?.length ? { curveEdges } : {}), ...(faceMaterial?.some((m) => m >= 0) ? { faceMaterial } : {}) };
 }

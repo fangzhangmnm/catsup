@@ -67,12 +67,13 @@ const res = await page.evaluate(async () => {
   e.cancel(); e.setTool("circle");
   const cc = px({ x: -3, y: -3, z: 0 }), cr = px({ x: -2, y: -3, z: 0 });
   await drag(cc, cr, 4);
-  const soft = e.kernel.soft.size;
-  out.circleSoft = soft;
+  out.circleSoft = e.kernel.soft.size;      // 圆本身：0 软边（画黑边）
+  out.circleCurve = e.kernel.curve.size;    // 24 条曲线成员边
   e.setTool("pp");
   const ccTop = px({ x: -3, y: -3, z: 0 });
   await drag(ccTop, { x: ccTop.x, y: ccTop.y - 80 });
-  out.cylinderSoft = e.kernel.soft.size;
+  out.cylinderSoft = e.kernel.soft.size;    // 侧棱 24 条软
+  out.cylinderCurve = e.kernel.curve.size;  // 底圈 + 顶圈 48 条曲线边（都画黑边）
   out.cylinderFaces = e.kernel.faces().length;
   // ⑥ 缩放：选圆柱顶面 → 拖角柄
   e.setTool("select");
@@ -101,7 +102,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.boxFaces === 6 && res.selectedAll && res.afterComponent.rootFaces === 0 && res.afterComponent.defs === 2 && res.worldFacesTwoBoxes === 12 && res.bothGrew && res.backAtRoot && res.instSelected && res.rotated && res.circleSoft === 24 && res.cylinderSoft >= 48 && res.paintedMaterials === 1 && res.topPainted && res.texturedMaterials === 1 && res.emptyAtEnd && errs.length === 0;
+const ok = res.boxFaces === 6 && res.selectedAll && res.afterComponent.rootFaces === 0 && res.afterComponent.defs === 2 && res.worldFacesTwoBoxes === 12 && res.bothGrew && res.backAtRoot && res.instSelected && res.rotated && res.circleSoft === 0 && res.circleCurve === 24 && res.cylinderSoft === 24 && res.cylinderCurve === 48 && res.paintedMaterials === 1 && res.topPainted && res.texturedMaterials === 1 && res.emptyAtEnd && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

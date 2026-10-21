@@ -55,6 +55,9 @@ export interface ImageTable {
   softSegs?: readonly Seg3[];
   /** 面材质层（内核的）：新像带 material 时，它独占的胞腔铸出的膜记上。 */
   faceMat?: Map<FaceId, number>;
+  /** 曲线成员边集 + 新曲线段（同软边机制：切割继承 / 删边清理 / 段上落边入集）。 */
+  curve?: Set<EdgeId>;
+  curveSegs?: readonly Seg3[];
 }
 
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
@@ -164,11 +167,12 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const gesture = new Set<EdgeId>();
   const explicitEnds = new Set<string>();
   const splitChildren = new Map<EdgeId, EdgeId[]>();   // 切割血缘（身份膜环边的随葬要沿血缘找后代）
-  const soft = table.soft;
+  const soft = table.soft, curve = table.curve;
   const onSplit = (parent: EdgeId, children: readonly EdgeId[]): void => {
     if (gesture.delete(parent)) for (const c of children) gesture.add(c);
     if (buryCand.delete(parent)) for (const c of children) buryCand.add(c);
     if (soft?.delete(parent)) for (const c of children) soft.add(c);
+    if (curve?.delete(parent)) for (const c of children) curve.add(c);
     splitChildren.set(parent, [...children]);
   };
   const descendants = (eid: EdgeId): EdgeId[] => {
@@ -335,6 +339,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     const ne = g.addEdge(c.a, c.b);
     g.edge(ne).faceLinks = [...fa];
     if (soft?.has(c.ea) && soft.has(c.eb)) soft.add(ne);
+    if (curve?.has(c.ea) && curve.has(c.eb)) curve.add(ne);
     for (const fid of new Set(fa)) {
       const f = store.face(fid);
       if (f) for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne);
@@ -342,17 +347,19 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     g.removeEdge(c.ea);
     g.removeEdge(c.eb);
   }
-  // ⑪ 软边属性层：删掉的边出集；新软段上的边入集
-  if (soft) {
-    for (const eid of [...soft]) if (!g.hasEdge(eid)) soft.delete(eid);
-    if (table.softSegs?.length) {
-      for (const e of g.edges()) {
-        if (soft.has(e.id)) continue;
-        const pa = g.pt(e.a), pb = g.pt(e.b);
-        if (table.softSegs.some((sg) => pointOnSegment3(pa, sg.a, sg.b, INSERT_TOL) && pointOnSegment3(pb, sg.a, sg.b, INSERT_TOL))) soft.add(e.id);
-      }
+  // ⑪ 边属性层（软边 / 曲线成员）：删掉的边出集；新段上落下的边入集
+  const layer = (set: Set<EdgeId> | undefined, segs: readonly Seg3[] | undefined): void => {
+    if (!set) return;
+    for (const eid of [...set]) if (!g.hasEdge(eid)) set.delete(eid);
+    if (!segs?.length) return;
+    for (const e of g.edges()) {
+      if (set.has(e.id)) continue;
+      const pa = g.pt(e.a), pb = g.pt(e.b);
+      if (segs.some((sg) => pointOnSegment3(pa, sg.a, sg.b, INSERT_TOL) && pointOnSegment3(pb, sg.a, sg.b, INSERT_TOL))) set.add(e.id);
     }
-  }
+  };
+  layer(soft, table.softSegs);
+  layer(curve, table.curveSegs);
   if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
   return events;
 }

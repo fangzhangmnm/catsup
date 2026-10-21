@@ -23,13 +23,13 @@ export type FaceKey = Pt3[];
 export type Op =
   | { op: "clear" }
   | { op: "preset"; name: string }
-  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; soft?: boolean }
+  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean }
   | { op: "eraseEdges"; at?: PoolRef; edges: EdgeKey[] }
   | { op: "eraseFaces"; at?: PoolRef; faces: FaceKey[] }
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[] }
   | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number }
-  | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; soft?: [Pt3, Pt3][] }
+  | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; soft?: [Pt3, Pt3][]; curve?: [Pt3, Pt3][] }
   /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
   | { op: "makeGroup"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   /** 选区 → 新 definition + 一个实例（轴 = 包围盒最小角）。 */
@@ -103,7 +103,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const preset = PRESETS.find((p) => p.name === op.name);
       return { scene: new Scene(k2), events: preset ? applyPreset(k2, preset).flat() : [] };
     }
-    case "addEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.addEdges(op.segs, op.soft ? { soft: true } : undefined) }; }
+    case "addEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.addEdges(op.segs, op.curve ? { curve: true } : undefined) }; }
     case "eraseEdges": { const { kernel } = poolOf(s, op.at); const ids = op.edges.map((e) => resolveEdge(kernel, e)); return { scene: s, events: kernel.eraseEdges(ids) }; }
     case "eraseFaces": { const { kernel } = poolOf(s, op.at); const ids = op.faces.map((f) => resolveFace(kernel, f)); return { scene: s, events: kernel.eraseFaces(ids) }; }
     case "eraseSelection": {
@@ -114,7 +114,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
     }
     case "move": { const { kernel } = poolOf(s, op.at); const moves = op.moves.map((m) => ({ id: resolveVertex(kernel, m.from), to: m.to })); return { scene: s, events: kernel.moveVertices(moves) }; }
     case "pushpull": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.pushPull(fid, op.dist) }; }
-    case "absorb": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.absorb(op.faces, op.wires.map(([a, b]) => ({ a, b })), (op.soft ?? []).map(([a, b]) => ({ a, b }))) }; }
+    case "absorb": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.absorb(op.faces, op.wires.map(([a, b]) => ({ a, b })), (op.soft ?? []).map(([a, b]) => ({ a, b })), undefined, (op.curve ?? []).map(([a, b]) => ({ a, b }))) }; }
     case "makeGroup":
     case "makeComponent": {
       const { kernel, ref } = poolOf(s, op.at);
@@ -252,7 +252,7 @@ export function describeOp(op: Op): string {
   switch (op.op) {
     case "clear": return "clear";
     case "preset": return `preset ${op.name}`;
-    case "addEdges": return `addEdges segs=${op.segs.length}${op.soft ? " soft" : ""}${at}`;
+    case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? " curve" : ""}${at}`;
     case "eraseEdges": return `eraseEdges n=${op.edges.length}${at}`;
     case "eraseFaces": return `eraseFaces n=${op.faces.length}${at}`;
     case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}${at}`;

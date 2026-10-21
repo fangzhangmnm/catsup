@@ -53,7 +53,7 @@ export function sceneGrouped(): Scene {
   // 圆柱：地上画圆 → 推拉 → 建组件 → 再放一份
   const k2 = rootK(s);
   const segs = circleSegmentsOnPlane(GROUND.plane, GROUND.basis, P(4, 1, 0), P(4.5, 1, 0), 12);
-  s = applyOp(s, { op: "addEdges", at: { def: s.root, group: null }, segs, soft: true }).scene;
+  s = applyOp(s, { op: "addEdges", at: { def: s.root, group: null }, segs, curve: true }).scene;
   const disk = k2.faces().find((f) => k2.faceRings3(f.id)!.outer.every((p) => p.z === 0 && p.x >= 3.4))!;
   s = applyOp(s, { op: "pushpull", at: { def: s.root, group: null }, face: faceKey(k2, disk.id), dist: 1 }).scene;
   const k3 = rootK(s);

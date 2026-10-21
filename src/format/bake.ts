@@ -25,7 +25,7 @@ export function mergeBrep(snaps: readonly BrepSnapshot[]): BrepSnapshot {
   const edges: [number, number][] = [];
   const planes: BrepSnapshot["planes"][number][] = [];
   const faces: { plane: number; outer: number[]; holes: number[][] }[] = [];
-  const softEdges: number[] = [];
+  const softEdges: number[] = [], curveEdges: number[] = [];
   const faceMaterial: number[] = [];
   for (const s of snaps) {
     const vo = vertices.length, eo = edges.length, po = planes.length;
@@ -34,9 +34,10 @@ export function mergeBrep(snaps: readonly BrepSnapshot[]): BrepSnapshot {
     planes.push(...s.planes);
     for (const f of s.faces) faces.push({ plane: f.plane + po, outer: f.outer.map((i) => i + vo), holes: f.holes.map((h) => h.map((i) => i + vo)) });
     for (const i of s.softEdges ?? []) softEdges.push(i + eo);
+    for (const i of s.curveEdges ?? []) curveEdges.push(i + eo);
     for (let i = 0; i < s.faces.length; i++) faceMaterial.push(s.faceMaterial?.[i] ?? -1);
   }
-  return { coplanarTol: snaps[0]?.coplanarTol ?? 1e-3, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  return { coplanarTol: snaps[0]?.coplanarTol ?? 1e-3, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}), ...(curveEdges.length ? { curveEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
 }
 
 /** 材质槽 → glTF core 材质索引 + 贴图物理尺寸（bake 按材质拆 primitive、算 TEXCOORD_0 用）。 */
