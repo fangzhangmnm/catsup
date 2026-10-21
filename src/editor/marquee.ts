@@ -2,13 +2,14 @@
 // 不在拾取层（pick.ts 零相机零屏幕，build.sh 0.65 护栏）。VR 框选 = 显式冻结投影平面（反省稿 §3.8），待做。
 // created 2026-09-08 by Claude Fable 5.1（A17 虚拟屏 sunset 时从 pick.ts 搬出）
 
-import type { EdgeId, FaceId, Kernel } from "../kernel/kernel.ts";
+import type { EdgeId, FaceId } from "../kernel/kernel.ts";
+import type { GeomView } from "../scene/world-view.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 
 /** 屏幕空间框选（window 语义）：边=两端投影都在框内；面=外环全部顶点投影在框内。**桌面专属**（吃 OrbitCamera 的屏幕投影）；
  *  VR 框选 = 显式冻结投影平面（反省稿 §3.8，唯一合法的「屏」），待做。 */
 export function marqueeScreen(
-  k: Kernel,
+  k: GeomView,
   cam: OrbitCamera,
   vp: Viewport,
   m: { minX: number; minY: number; maxX: number; maxY: number },

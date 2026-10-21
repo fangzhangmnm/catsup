@@ -31,7 +31,9 @@ import * as THREE from "three";
 import { LineSegments2 } from "../vendor/three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "../vendor/three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "../vendor/three/addons/lines/LineMaterial.js";
-import type { EdgeId, FaceId, Kernel, Pt3 } from "../kernel/kernel.ts";
+import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
+import type { GeomView } from "../scene/world-view.ts";
+import { ID_STRIDE } from "../scene/world-view.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { dot3, sub3 } from "../kernel/geom.ts";
@@ -54,6 +56,8 @@ export const PALETTE = {
   face: 0xd6d6d6,
   faceSelected: 0x8fb4e8,
   faceHover: 0xb6cff0,
+  faceDim: 0xe9e9e9,        // 上下文之外的几何（淡出）
+  edgeDim: 0xb8b8b8,
   edge: 0x2a2a2a,
   edgeWire: 0x111111,
   edgeSelected: 0x2b6cb0,
@@ -102,7 +106,7 @@ export interface ViewState {
   scrubEdges: ReadonlySet<EdgeId>;
   hoverEdge: EdgeId | null;
   hoverFace: FaceId | null;
-  preview: Kernel | null;      // 影子副本（预演即提交；WYSIWYG 期间整场景画它）
+  preview: GeomView | null;    // 影子副本（预演即提交；WYSIWYG 期间整场景画它）；2026-10-21 起编辑器直接递合成好的世界视图，此字段多为 null
   snap: Snap3 | null;
   snapAnchor: Pt3 | null;      // axis 锁的虚线起点
   /** checkpoint 代数（editor.revision）：几何缓存键的一部分。 */
@@ -111,6 +115,12 @@ export interface ViewState {
   near?: number;
   /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
   teleport?: { points: readonly Pt3[]; valid: boolean; landing: Pt3 | null } | null;
+  /** 变暗的池槽序号（进了 group / 组件后，上下文之外的几何；SU 同款淡出）。null = 不变暗。2026-10-21 */
+  dimSlots?: ReadonlySet<number> | null;
+  /** 缩放柄（世界点；active = 正在拖的那个）。 */
+  handles?: readonly { p: Pt3; active: boolean }[] | null;
+  /** 量角器：圆心 + 转轴 + 参考点 + 当前角（弧度）。 */
+  protractor?: { center: Pt3; axis: Pt3; ref: Pt3 | null; angle: number } | null;
 }
 
 const FACE_VERT = /* glsl */`
@@ -150,7 +160,9 @@ export class Renderer3 {
   private hintLines: any;
   private snapMarker: any;
   private arcLines: any; private landingRing: any;
-  private faceKey = ""; private edgeKey = ""; private hintKey = "";
+  private handleMarkers: any[] = [];
+  private protractorLines: any;
+  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
   private scratchV = new THREE.Vector3();
@@ -207,6 +219,17 @@ export class Renderer3 {
     this.landingRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: TP_OK, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
     this.landingRing.renderOrder = 9; this.landingRing.visible = false;
     this.scene.add(this.landingRing);
+    // 缩放柄（14 个小方块，按屏幕像素定尺寸；走深度测试）
+    for (let i = 0; i < 14; i++) {
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x2e8b57 }));
+      m.visible = false;
+      this.scene.add(m);
+      this.handleMarkers.push(m);
+    }
+    // 量角器（圆环 + 刻度 + 参考线 + 当前角线）
+    this.protractorLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
+    this.protractorLines.frustumCulled = false; this.protractorLines.visible = false;
+    this.scene.add(this.protractorLines);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -399,13 +422,13 @@ export class Renderer3 {
     return c;
   }
 
-  private kernelId(k: Kernel): number {
+  private kernelId(k: GeomView): number {
     let id = this.kernelIds.get(k);
     if (id === undefined) { id = this.nextKernelId++; this.kernelIds.set(k, id); }
     return id;
   }
 
-  render(k: Kernel, cam: OrbitCamera, vp: Viewport, view: ViewState): void {
+  render(k: GeomView, cam: OrbitCamera, vp: Viewport, view: ViewState): void {
     const presenting = !!this.renderer.xr.isPresenting;
     let cam3: any;
     if (presenting) {
@@ -426,12 +449,49 @@ export class Renderer3 {
     // ---- 面：光向 uniform 每帧；几何只在键变时重建 ----
     const L = presenting ? this.xrKeyLight() : keyLight(cam);
     this.faceMat.uniforms.uLight.value.set(L.x, L.y, L.z);
-    const fk = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}`;
+    const dimK = view.dimSlots ? [...view.dimSlots].join(",") : "";
+    const fk = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${dimK}`;
     if (fk !== this.faceKey) { this.faceKey = fk; this.rebuildFaces(kd, view); }
 
     // ---- 边 ----
-    const ek = `${kid}:${rev}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}`;
+    const ek = `${kid}:${rev}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}:${dimK}`;
     if (ek !== this.edgeKey) { this.edgeKey = ek; this.rebuildEdges(kd, view); }
+
+    // ---- 缩放柄 ----
+    const hs = view.handles ?? [];
+    for (let i = 0; i < this.handleMarkers.length; i++) {
+      const m = this.handleMarkers[i], h = hs[i];
+      if (!h) { m.visible = false; continue; }
+      m.visible = true;
+      m.position.set(h.p.x, h.p.y, h.p.z);
+      m.scale.setScalar((h.active ? 9 : 6) * this.worldPerPx(cam, vp, h.p));
+      m.material.color.setHex(h.active ? 0xd97706 : 0x2e8b57);
+    }
+    // ---- 量角器 ----
+    const pr = view.protractor;
+    if (pr) {
+      const pk = `${pr.center.x},${pr.center.y},${pr.center.z}|${pr.axis.x},${pr.axis.y},${pr.axis.z}|${pr.ref ? `${pr.ref.x},${pr.ref.y},${pr.ref.z}` : "-"}|${pr.angle.toFixed(4)}|${this.worldPerPx(cam, vp, pr.center).toExponential(2)}`;
+      if (pk !== this.protKey) {
+        this.protKey = pk;
+        const R = 60 * this.worldPerPx(cam, vp, pr.center);
+        const n = pr.axis;
+        const seed = Math.abs(n.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
+        const ux0 = { x: n.y * seed.z - n.z * seed.y, y: n.z * seed.x - n.x * seed.z, z: n.x * seed.y - n.y * seed.x };
+        const ul = Math.hypot(ux0.x, ux0.y, ux0.z) || 1;
+        let u = { x: ux0.x / ul, y: ux0.y / ul, z: ux0.z / ul };
+        if (pr.ref) { const r = { x: pr.ref.x - pr.center.x, y: pr.ref.y - pr.center.y, z: pr.ref.z - pr.center.z }; const rl = Math.hypot(r.x, r.y, r.z) || 1; u = { x: r.x / rl, y: r.y / rl, z: r.z / rl }; }
+        const v = { x: n.y * u.z - n.z * u.y, y: n.z * u.x - n.x * u.z, z: n.x * u.y - n.y * u.x };
+        const at = (a: number, rr: number): Pt3 => ({ x: pr.center.x + rr * (Math.cos(a) * u.x + Math.sin(a) * v.x), y: pr.center.y + rr * (Math.cos(a) * u.y + Math.sin(a) * v.y), z: pr.center.z + rr * (Math.cos(a) * u.z + Math.sin(a) * v.z) });
+        const pos: number[] = [], col: number[] = [];
+        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+        const N = 72;
+        for (let i = 0; i < N; i++) push(at((2 * Math.PI * i) / N, R), at((2 * Math.PI * (i + 1)) / N, R), 0x8b5cf6);
+        for (let i = 0; i < 24; i++) { const a = (2 * Math.PI * i) / 24; push(at(a, R), at(a, i % 6 === 0 ? R * 0.8 : R * 0.9), 0x8b5cf6); }
+        if (pr.ref) { push(pr.center, at(0, R * 1.15), 0x111111); push(pr.center, at(pr.angle, R * 1.15), 0xd97706); }
+        this.setLineGeometry(this.protractorLines, pos, col);
+      }
+      this.protractorLines.visible = true;
+    } else { this.protractorLines.visible = false; this.protKey = ""; }
 
     // ---- 吸附指示（小球 + 提示线）----
     const sn = view.snap;
@@ -487,7 +547,7 @@ export class Renderer3 {
    * 离屏截图（缩略图；转正纪元 2026-09-20）：渲到 w×h 的 render target 再 readRenderTargetPixels。
    * 返回 RGBA、行序**自上而下**（three 读回是自下而上，这里翻好）。XR 会话中不截（相机归 XR）。
    */
-  captureRgba(k: Kernel, cam: OrbitCamera, vp: Viewport, view: ViewState): Uint8Array {
+  captureRgba(k: GeomView, cam: OrbitCamera, vp: Viewport, view: ViewState): Uint8Array {
     if (this.renderer.xr.isPresenting) throw new Error("captureRgba: not available during an XR session");
     const rt = new THREE.WebGLRenderTarget(vp.w, vp.h, { depthBuffer: true });
     const prevKeys = { f: this.faceKey, e: this.edgeKey };
@@ -510,11 +570,13 @@ export class Renderer3 {
   }
 
   /** 全部膜 → 一份几何（三角汤 + 平法向 + sRGB 顶点色）。 */
-  private rebuildFaces(kd: Kernel, view: ViewState): void {
+  private rebuildFaces(kd: GeomView, view: ViewState): void {
     const pos: number[] = [], nor: number[] = [], col: number[] = [];
+    const dim = view.dimSlots;
     for (const f of kd.faces()) {
       const base = view.selectionFaces.has(f.id) ? PALETTE.faceSelected
         : view.hoverFace === f.id ? PALETTE.faceHover
+        : dim?.has(Math.floor(f.id / ID_STRIDE)) ? PALETTE.faceDim
         : PALETTE.face;
       const rec = kd.planeOf(f.id);
       if (!rec) continue;
@@ -536,12 +598,16 @@ export class Renderer3 {
   }
 
   /** 全部边 → 一份粗线（顶点色按类别）。 */
-  private rebuildEdges(kd: Kernel, view: ViewState): void {
+  private rebuildEdges(kd: GeomView, view: ViewState): void {
     const pos: number[] = [], col: number[] = [];
+    const dim = view.dimSlots;
     for (const e of kd.edges()) {
+      const selected = view.selectionEdges.has(e.id);
+      if (kd.isSoft(e.id) && !selected && !view.scrubEdges.has(e.id) && view.hoverEdge !== e.id) continue;   // 软边不画（圆柱不长竖纹）
       const hex =
         view.scrubEdges.has(e.id) || view.hoverEdge === e.id ? PALETTE.edgeHot
-        : view.selectionEdges.has(e.id) ? PALETTE.edgeSelected
+        : selected ? PALETTE.edgeSelected
+        : dim?.has(Math.floor(e.id / ID_STRIDE)) ? PALETTE.edgeDim
         : e.faceLinks.length === 0 ? PALETTE.edgeWire
         : PALETTE.edge;
       const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
@@ -625,7 +691,7 @@ function keyLight(cam: OrbitCamera): Pt3 {
 /**
  * 面的三角剖分（世界坐标；含洞）——膜批几何与 OBJ 导出等「字节出口」共用，three 的 earcut 不出本文件。
  */
-export function faceTriangles(k: Kernel, id: FaceId): [Pt3, Pt3, Pt3][] {
+export function faceTriangles(k: GeomView, id: FaceId): [Pt3, Pt3, Pt3][] {
   const f = k.face(id);
   const rec = k.planeOf(id);
   if (!f || !rec) return [];

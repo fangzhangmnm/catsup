@@ -287,7 +287,7 @@ export class FaceStore {
 }
 
 /** 容错环顶点提取（共享：移动快照 / 壳层手中集）——环边可能已被本批切割移除：缺失边的起点=前一条边的终点。 */
-export function ringVidsTolerant(g: PlanarGraph, r: Ring): VertexId[] {
+export function ringVidsTolerant(g: { hasEdge(id: EdgeId): boolean; edge(id: EdgeId): { a: VertexId; b: VertexId } }, r: Ring): VertexId[] {
   const out: VertexId[] = [];
   const es = r.edges;
   for (let i = 0; i < es.length; i++) {

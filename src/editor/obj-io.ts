@@ -10,11 +10,12 @@
 // 面：无洞 = n-gon（Blender 里保留为一个多边形，好编辑）；带洞 = 三角化（回调注入；OBJ 没有洞的概念）。
 // 裸边（faceLinks==0）= `l` 线元素（Blender 导入为 loose edge）。
 
-import type { FaceId, Kernel, Pt3 } from "../kernel/kernel.ts";
+import type { FaceId, Pt3 } from "../kernel/kernel.ts";
+import type { GeomView } from "../scene/world-view.ts";
 
 export interface ObjExportOpts {
   /** 带洞面的三角化（世界坐标）。缺省 → 带洞面只导出外环（洞丢失，导出文本里留注释）。 */
-  triangulateHoled?: (k: Kernel, id: FaceId) => [Pt3, Pt3, Pt3][];
+  triangulateHoled?: (k: GeomView, id: FaceId) => [Pt3, Pt3, Pt3][];
   /** 写进文件头的版本戳。 */
   version?: string;
 }
@@ -24,7 +25,7 @@ const fmt = (n: number): string => {
   return s === "-0" ? "0" : s;
 };
 
-export function exportObj(k: Kernel, opts: ObjExportOpts = {}): string {
+export function exportObj(k: GeomView, opts: ObjExportOpts = {}): string {
   const lines: string[] = [];
   lines.push(`# CatsUp OBJ export${opts.version ? ` (${opts.version})` : ""} — Z-up world written as Y-up (x, z, -y)`);
   const index = new Map<string, number>();

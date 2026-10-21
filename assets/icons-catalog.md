@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-54 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+58 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -38,6 +38,7 @@
 |------|------|
 | `line` | 直线(shapes 基本图元):斜线+两端点, 与 arc 同族(同点径 1.2), 29° 防端点顶角; 20260725 入库 |
 | `rectangle` | 矩形(shapes 基本图元) |
+| `circle` | 圆(shapes 基本图元,无圆心点) |
 
 ## perspective-reference
 
@@ -51,6 +52,12 @@
 |------|------|
 | `axes` | 3D 坐标轴:等距三轴(三箭头臂长/张角统一) |
 | `push-pull` 👁待过目 | 推拉(push/pull):等距薄板(顶面菱形+三条竖棱+底沿)+从顶面后角竖直向上的箭头=把面拉出体；与 move 十字箭头不撞【CatsUp 左侧工具条「推拉」钮（默认可见）；2026-09-06 fable 自画未过目】 |
+
+## transform
+
+| name | 说明 |
+|------|------|
+| `scale-uniform` | 等比缩放(正方框+小方虚线) |
 
 ## edit
 
@@ -85,6 +92,8 @@
 | `lock` | 锁:体 13x11+锁梁抬高(腿3.5),整体居中 |
 | `unlock` | 开锁:同 lock 体型+锁梁弹开 |
 | `move-to-folder` | 移入文件夹(定 2 号):小 folder + 弧箭头, 箭头头部在 folder 内 · 尾巴在外 |
+| `collection` | 收纳箱 (Blender collection · copy of archive-box) |
+| `explode-folder` | 解散文件夹:虚线 folder 残影 + 内容三方块排成一行落在下方 |
 
 ## common
 

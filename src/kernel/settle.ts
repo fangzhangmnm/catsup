@@ -47,6 +47,10 @@ export interface ImageTable {
    * move 不开通则：膜移扁留一条线（SU 同款，靶4）。
    */
   buryOrphans?: boolean;
+  /** 软边集（内核的属性层；机器维护切割继承 / 删边清理 / 新软段登记）。 */
+  soft?: Set<EdgeId>;
+  /** 这些线段上落下的边 = 软边（圆的近似边、软边推拉出的侧棱与帽边）。 */
+  softSegs?: readonly Seg3[];
 }
 
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
@@ -156,9 +160,11 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const gesture = new Set<EdgeId>();
   const explicitEnds = new Set<string>();
   const splitChildren = new Map<EdgeId, EdgeId[]>();   // 切割血缘（身份膜环边的随葬要沿血缘找后代）
+  const soft = table.soft;
   const onSplit = (parent: EdgeId, children: readonly EdgeId[]): void => {
     if (gesture.delete(parent)) for (const c of children) gesture.add(c);
     if (buryCand.delete(parent)) for (const c of children) buryCand.add(c);
+    if (soft?.delete(parent)) for (const c of children) soft.add(c);
     splitChildren.set(parent, [...children]);
   };
   const descendants = (eid: EdgeId): EdgeId[] => {
@@ -322,12 +328,24 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     if (g.edgeBetween(c.a, c.b) !== undefined) continue;   // 退化三角，不动
     const ne = g.addEdge(c.a, c.b);
     g.edge(ne).faceLinks = [...fa];
+    if (soft?.has(c.ea) && soft.has(c.eb)) soft.add(ne);
     for (const fid of new Set(fa)) {
       const f = store.face(fid);
       if (f) for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne);
     }
     g.removeEdge(c.ea);
     g.removeEdge(c.eb);
+  }
+  // ⑪ 软边属性层：删掉的边出集；新软段上的边入集
+  if (soft) {
+    for (const eid of [...soft]) if (!g.hasEdge(eid)) soft.delete(eid);
+    if (table.softSegs?.length) {
+      for (const e of g.edges()) {
+        if (soft.has(e.id)) continue;
+        const pa = g.pt(e.a), pb = g.pt(e.b);
+        if (table.softSegs.some((sg) => pointOnSegment3(pa, sg.a, sg.b, INSERT_TOL) && pointOnSegment3(pb, sg.a, sg.b, INSERT_TOL))) soft.add(e.id);
+      }
+    }
   }
   if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
   return events;

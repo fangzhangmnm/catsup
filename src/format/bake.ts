@@ -17,7 +17,26 @@ export interface BakeResult {
   mesh: Record<string, unknown>;
 }
 
-/** 把一个 definition 的 B-rep 烘成 glTF mesh（accessor 索引从 accessorBase 起）。 */
+/** 多个池（definition 根池 + 各 group）合并成一份快照（索引平移；平面各自保留）。bake 用。added 2026-10-21 */
+export function mergeBrep(snaps: readonly BrepSnapshot[]): BrepSnapshot {
+  if (snaps.length === 1) return snaps[0];
+  const vertices: BrepSnapshot["vertices"][number][] = [];
+  const edges: [number, number][] = [];
+  const planes: BrepSnapshot["planes"][number][] = [];
+  const faces: { plane: number; outer: number[]; holes: number[][] }[] = [];
+  const softEdges: number[] = [];
+  for (const s of snaps) {
+    const vo = vertices.length, eo = edges.length, po = planes.length;
+    vertices.push(...s.vertices);
+    for (const [a, b] of s.edges) edges.push([a + vo, b + vo]);
+    planes.push(...s.planes);
+    for (const f of s.faces) faces.push({ plane: f.plane + po, outer: f.outer.map((i) => i + vo), holes: f.holes.map((h) => h.map((i) => i + vo)) });
+    for (const i of s.softEdges ?? []) softEdges.push(i + eo);
+  }
+  return { coplanarTol: snaps[0]?.coplanarTol ?? 1e-3, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}) };
+}
+
+/** 把一个 definition 的 B-rep 烘成 glTF mesh（accessor 索引从 accessorBase 起）。软边不进 LINES（圆柱侧面不出竖线）。 */
 export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase: number): BakeResult {
   const pos: number[] = [];
   let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
@@ -29,7 +48,8 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
   }
   const tris: number[] = [];
   for (const f of snap.faces) for (const t of triangulateRings(snap.vertices, snap.planes[f.plane], f.outer, f.holes)) tris.push(...t);
-  const lines: number[] = snap.edges.flatMap((e) => [e[0], e[1]]);
+  const soft = new Set(snap.softEdges ?? []);
+  const lines: number[] = snap.edges.flatMap((e, i) => (soft.has(i) ? [] : [e[0], e[1]]));
   const idxType = pickUintType(Math.max(0, snap.vertices.length - 1));
   const idxGl = idxType === "uint8" ? GL_UNSIGNED_BYTE : idxType === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
   const idxEnc = idxType === "uint64" ? "uint32" : idxType;   // glTF 索引最大 uint32；2^32 顶点以上不在 v1 范围

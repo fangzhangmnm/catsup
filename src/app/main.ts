@@ -79,7 +79,7 @@ const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
 const buildEl = $("build");
 
-const HINT_DEFAULT = "画线 L · 矩形 R · 移动 M · 推拉 P · 橡皮 E · 选择 空格 ｜ 右键/单指拖=环绕 · 双指=平移缩放 · 滚轮=缩放 ｜ Esc 取消";
+const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
 const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
@@ -112,7 +112,10 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "select", icon: "select", label: "选择", key: "空格" },
   { tool: "line", icon: "line", label: "画线", key: "L" },
   { tool: "rect", icon: "rectangle", label: "矩形", key: "R" },
+  { tool: "circle", icon: "circle", label: "圆", key: "C" },
   { tool: "move", icon: "move", label: "移动", key: "M" },
+  { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
+  { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },
   { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
   { tool: "erase", icon: "eraser", label: "橡皮", key: "E" },
 ];
@@ -124,6 +127,11 @@ const hud: HudModel = {
     { id: "undo", label: "撤销", icon: "arrow-undo", disabled: !editor.canUndo() },
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
     { id: "delete", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },
+    { id: "group", label: "建组", icon: "collection", hidden: !editor.hasGeometrySelection() },
+    { id: "component", label: "建组件", icon: "object", hidden: !editor.hasGeometrySelection() },
+    { id: "explode", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },
+    { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
+    { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
   ],
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -137,6 +145,11 @@ const hud: HudModel = {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
       case "delete": editor.deleteSelection(); break;
+      case "group": editor.makeGroup(); break;
+      case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
+      case "explode": editor.explodeSelection(); break;
+      case "enter": editor.enterSelected(); break;
+      case "exit": editor.exitContext(); break;
       case "noclip": locomotion.setNoclip(!locomotion.noclip); vr.invalidatePanel(); break;
       case "respawn": { const sp = locomotion.defaultSpawn(); locomotion.sim.reset(sp.pos, sp.heading, { x: 0, y: 0, z: 1.6 }); break; }
       case "exitvr": vr.exit(); break;
@@ -308,7 +321,8 @@ helpEl.addEventListener("click", (e) => { if (e.target === helpEl) toggleHelp(fa
 // ---------- OBJ 逃生口 ----------
 const objInput = $<HTMLInputElement>("objFile");
 function doExport(): void {
-  const text = exportObj(editor.kernel, { triangulateHoled: faceTriangles, version: APP_VERSION });
+  const world = editor.worldGeom();
+  const text = exportObj(world, { triangulateHoled: faceTriangles, version: APP_VERSION });
   const blob = new Blob([text], { type: "model/obj" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -319,7 +333,7 @@ function doExport(): void {
   a.click();
   a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  notify({ text: `已导出 ${a.download}（${editor.kernel.faces().length} 面 / ${editor.kernel.edges().length} 边）`, level: "info" });
+  notify({ text: `已导出 ${a.download}（${world.faces().length} 面 / ${world.edges().length} 边）`, level: "info" });
 }
 objInput.addEventListener("change", async () => {
   const file = objInput.files?.[0];
@@ -351,12 +365,14 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", m: "move", p: "pp", e: "erase", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", e: "erase", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
-    const takenByWalk = locomotion.isWalking() && (key === " " || key === "e");
+    const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q");
     if (t && !takenByWalk) { ev.preventDefault(); editor.setTool(t); return; }
+    if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件
   }
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "g" || ev.key === "G")) { ev.preventDefault(); if (ev.shiftKey) editor.explodeSelection(); else editor.makeGroup(); return; }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
     ev.preventDefault();
     if (ev.shiftKey) editor.redo(); else editor.undo();
@@ -364,7 +380,11 @@ window.addEventListener("keydown", (ev) => {
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "y" || ev.key === "Y")) { ev.preventDefault(); editor.redo(); return; }
   if (ev.key === "Delete" || ev.key === "Backspace") { if (editor.hasSelection()) { ev.preventDefault(); editor.deleteSelection(); } return; }
-  if (ev.key === "Escape") { closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); editor.cancel(); }
+  if (ev.key === "Escape") {
+    closePopupMenu(); toggleHelp(false); closeDebugLogSheet();
+    // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
+    if (!editor.isGestureActive() && !editor.hasSelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
+  }
 });
 
 // ---------- 尺寸 ----------

@@ -19,6 +19,26 @@ export function rectSegmentsOnPlane(
   return [[p1, p2], [p2, p3], [p3, p4], [p4, p1]];
 }
 
+/** Circle 工具：圆心 + 半径点（都在平面上）→ n 段正多边形（SU 默认 24 段；第一个顶点在半径点方向）。退化 → []。added 2026-10-21 */
+export function circleSegmentsOnPlane(
+  plane: PlaneParams,
+  basis: { u: Pt3; v: Pt3 },
+  c3: Pt3,
+  r3: Pt3,
+  n = 24,
+): [Pt3, Pt3][] {
+  const c = projectToPlane(c3, basis), r = projectToPlane(r3, basis);
+  const radius = Math.hypot(r.x - c.x, r.y - c.y);
+  if (radius < 1e-9 || n < 3) return [];
+  const a0 = Math.atan2(r.y - c.y, r.x - c.x);
+  const pts: Pt3[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = a0 + (2 * Math.PI * i) / n;
+    pts.push(liftFromPlane({ x: c.x + radius * Math.cos(a), y: c.y + radius * Math.sin(a) }, plane, basis));
+  }
+  return pts.map((p, i) => [p, pts[(i + 1) % n]] as [Pt3, Pt3]);
+}
+
 /** Rect 工具（2D/俯视版，测试与验收①沿用）：对角两点 → 4 条边（轴对齐）。退化 → []。 */
 export function rectSegments(a: Pt, b: Pt): [Pt, Pt][] {
   if (Math.abs(a.x - b.x) < 1e-9 || Math.abs(a.y - b.y) < 1e-9) return [];

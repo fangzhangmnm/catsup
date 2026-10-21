@@ -1,18 +1,33 @@
 // migrate/index.ts —— 持久化立宪（契约 §7）：每个 CATSUP_* 子结构独立版本；迁移 = 纯函数，全住本文件夹
-// `<extension>/v<N>-to-v<N+1>.ts`；读取器链式升到当前版，写入器只写当前版；比 app 新 → 拒开报版本（不降级不猜）。
-// 语料 = test/fixtures/format/<extension>/v<N>/（每发过一版冻结一份）。created 2026-09-20 by Claude Fable 5.1
+// （小步直接登记在 STEPS 里）；读取器链式升到当前版，写入器只写当前版；比 app 新 → 拒开报版本（不降级不猜）。
+// 语料 = test/fixtures/format/v<N>/（每发过一版冻结一份）。created 2026-09-20 by Claude Fable 5.1
+//
+// 版本史：
+//   CATSUP_brep        v1 → v2（2026-10-21）：去掉 v1 的占位 `groups`（group 搬到 definition 层）；新增属性层 attributes.edge.soft（软边，每边 1 字节）。
+//   CATSUP_definitions v1 → v2（2026-10-21）：list[i] 新增 `groups`（各自 B-rep + 轴框 + 父）与 `instances`（definition 索引 + 3×4 变换 + 父 group）。
 
 export const EXTENSION_VERSIONS = {
   CATSUP_document: 1,
-  CATSUP_brep: 1,
-  CATSUP_definitions: 1,
+  CATSUP_brep: 2,
+  CATSUP_definitions: 2,
   CATSUP_instance: 1,
 } as const;
 export type CatsupExtension = keyof typeof EXTENSION_VERSIONS;
 
 export type MigrationStep = (json: Record<string, unknown>) => Record<string, unknown>;
 /** STEPS[ext][fromVersion] = 升到 fromVersion+1 的纯函数。加迁移 = 在这里登记一条 + 冻结样本。 */
-const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {};
+const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
+  CATSUP_brep: {
+    1: (j) => { const { groups: _groups, ...rest } = j; void _groups; return { ...rest, version: 2 }; },
+  },
+  CATSUP_definitions: {
+    1: (j) => ({
+      ...j,
+      version: 2,
+      list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => ({ ...d, groups: Array.isArray(d.groups) ? d.groups : [], instances: Array.isArray(d.instances) ? d.instances : [] })) : j.list,
+    }),
+  },
+};
 
 export class FormatTooNewError extends Error {
   readonly extension: string;

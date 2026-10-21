@@ -1,0 +1,96 @@
+// test/probes/probe-scene.mjs —— group / component / 圆 / 旋转 / 缩放 的 headless 探针（2026-10-21，Claude Fable 5.1）。
+// 用法：先 python3 -m http.server 8765；node test/probes/probe-scene.mjs（借 WeebPaint 的 playwright）。
+import { createRequire } from "node:module";
+const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
+const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: 2 });
+const errs = []; page.on("pageerror", (e) => errs.push(e.message));
+page.on("console", (m) => { if (m.type() === "error") errs.push("console: " + m.text()); });
+await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400);
+const res = await page.evaluate(async () => {
+  const e = globalThis.__catsup.editor; const vp = () => e.vp(); const c = document.getElementById("board"); const r = c.getBoundingClientRect();
+  const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
+  const px = (p) => e.cam.angularPx(p, vp());
+  const fire = (type, x, y, extra = {}) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, pointerId: 9, pointerType: "mouse", isPrimary: true, button: extra.button ?? 0, buttons: extra.buttons ?? 0 }));
+  const drag = async (a, b, steps = 6) => { fire("pointerdown", a.x, a.y, { button: 0, buttons: 1 }); for (let i = 1; i <= steps; i++) { fire("pointermove", a.x + (b.x - a.x) * i / steps, a.y + (b.y - a.y) * i / steps, { buttons: 1 }); } await sleep(120); fire("pointerup", b.x, b.y, { button: 0 }); await sleep(30); };
+  const world = () => e.worldGeom();
+  const out = {};
+  // ① 地上画矩形 + 推拉成盒（走 op 接口，省事）
+  e.addSegments([[{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }], [{ x: 2, y: 0, z: 0 }, { x: 2, y: 2, z: 0 }], [{ x: 2, y: 2, z: 0 }, { x: 0, y: 2, z: 0 }], [{ x: 0, y: 2, z: 0 }, { x: 0, y: 0, z: 0 }]], "probe");
+  e.setTool("pp");
+  e.cam.setView("iso"); e.zoomExtents();
+  const top0 = px({ x: 1, y: 1, z: 0 });
+  await drag(top0, { x: top0.x, y: top0.y - 120 });
+  out.boxFaces = e.kernel.faces().length;
+  // ② 三击选连通体 → 建组件 → 复制一份
+  e.setTool("select");
+  const hit = e.pickAt(top0.x, top0.y - 60);
+  e.selectExpand(hit, 2);
+  out.selectedAll = e.hasGeometrySelection();
+  e.makeComponent("盒子");
+  out.afterComponent = { rootFaces: e.kernel.faces().length, defs: e.sceneRef.defs.size, poolSel: e.hasPoolSelection() };
+  e.copyInstance({ x: 4, y: 0, z: 0 });
+  out.worldFacesTwoBoxes = world().faces().length;
+  // ③ 进入第一份实例，推顶面 → 两份都长高
+  const picks = e.selectedPoolPicks();
+  e.cancel();
+  const inst1 = [...e.sceneRef.def(e.sceneRef.root).instances.values()][0];
+  e.enterPool({ kind: "instance", instance: inst1.id });
+  out.contextLabel = e.contextLabel();
+  const topZ = Math.max(...e.kernel.vertices().map((v) => v.z));
+  const topF = e.kernel.faces().find((f) => e.kernel.faceRings3(f.id).outer.every((p) => Math.abs(p.z - topZ) < 1e-9));
+  const tf = e.kernel.faceRings3(topF.id).outer; const cx = tf.reduce((a, p) => a + p.x, 0) / 4, cy = tf.reduce((a, p) => a + p.y, 0) / 4;
+  e.setTool("pp");
+  const tp = px({ x: cx, y: cy, z: topZ });
+  await drag(tp, { x: tp.x, y: tp.y - 60 });
+  const zs = world().vertices().map((v) => v.z);
+  out.bothGrew = zs.filter((z) => z > topZ + 1e-6).length === 8;
+  e.exitContext();
+  out.backAtRoot = e.contextDepth() === 0;
+  // ④ 旋转第二份实例 90°（量角器两笔：圆心 → 参考点拖）
+  e.cancel();
+  const inst2 = [...e.sceneRef.def(e.sceneRef.root).instances.values()][1];
+  e.setTool("select");
+  const v2 = world().vertices().filter((v) => v.x > 3.5);
+  const anyV = v2[0];
+  const hit2 = e.pickAt(px(anyV).x, px(anyV).y);
+  e.selectExpand(hit2, 0);
+  out.instSelected = e.hasPoolSelection();
+  e.setTool("rotate");
+  const center = px({ x: 4, y: 0, z: 0 });
+  fire("pointerdown", center.x, center.y, { button: 0, buttons: 1 }); fire("pointerup", center.x, center.y, { button: 0 }); await sleep(30);
+  const ref = px({ x: 6, y: 0, z: 0 }), to = px({ x: 4, y: 2, z: 0 });
+  await drag(ref, to, 10);
+  const after = world().vertices().filter((v) => v.x < 3.5 && v.x > 1.5 && v.y > 0.5).length;
+  out.rotated = after > 0 && world().vertices().some((v) => Math.abs(v.x - 2) < 1e-6 && Math.abs(v.y - 2) < 1e-6);
+  // ⑤ 圆：地上画圆（24 段软边）→ 推拉 → 边线只剩两圈（软边不画）
+  e.cancel(); e.setTool("circle");
+  const cc = px({ x: -3, y: -3, z: 0 }), cr = px({ x: -2, y: -3, z: 0 });
+  await drag(cc, cr, 4);
+  const soft = e.kernel.soft.size;
+  out.circleSoft = soft;
+  e.setTool("pp");
+  const ccTop = px({ x: -3, y: -3, z: 0 });
+  await drag(ccTop, { x: ccTop.x, y: ccTop.y - 80 });
+  out.cylinderSoft = e.kernel.soft.size;
+  out.cylinderFaces = e.kernel.faces().length;
+  // ⑥ 缩放：选圆柱顶面 → 拖角柄
+  e.setTool("select");
+  const topCyl = e.kernel.faces().find((f) => f.outer.edges.length === 24 && e.kernel.faceRings3(f.id).outer.every((p) => p.z > 0.1));
+  out.hasCylTop = !!topCyl;
+  await browserSelectFace(e, topCyl);
+  e.setTool("scale");
+  out.scaleHandles = (e.scaleHandles ?? []).length;
+  // ⑦ 撤销链：全部撤到空
+  let n = 0; while (e.canUndo() && n < 50) { e.undo(); n++; }
+  out.undoSteps = n;
+  out.emptyAtEnd = world().faces().length === 0 && e.sceneRef.defs.size === 1;
+  return out;
+  async function browserSelectFace(ed, f) { if (!f) return; const rr = ed.kernel.faceRings3(f.id).outer; const cx2 = rr.reduce((a, p) => a + p.x, 0) / rr.length, cy2 = rr.reduce((a, p) => a + p.y, 0) / rr.length; const s = px({ x: cx2, y: cy2, z: rr[0].z }); const h = ed.pickAt(s.x, s.y); ed.selectExpand(h, 0); }
+});
+console.log(JSON.stringify(res));
+console.log("errors:", errs.length ? errs.join("; ") : "none");
+const ok = res.boxFaces === 6 && res.selectedAll && res.afterComponent.rootFaces === 0 && res.afterComponent.defs === 2 && res.worldFacesTwoBoxes === 12 && res.bothGrew && res.backAtRoot && res.instSelected && res.rotated && res.circleSoft === 24 && res.cylinderSoft >= 48 && res.emptyAtEnd && errs.length === 0;
+console.log(ok ? "PROBE OK" : "PROBE FAIL");
+await browser.close();
+process.exit(ok ? 0 : 1);

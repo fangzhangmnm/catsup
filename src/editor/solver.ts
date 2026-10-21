@@ -10,7 +10,8 @@
 // 秩表注：anchor 轴与充能共轴同秩（距离裁决）；合成秩 = max(参与者)——天然排出
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
-import type { Edge, EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { Edge, EdgeId, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { GeomView } from "../scene/world-view.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
@@ -198,7 +199,7 @@ export interface AlignQuery {
   hand: AlignHand;                         // 手中集，**必填**（表态制：空手写 NO_HAND）——对齐引擎永远不吸手里的东西
 }
 export interface SnapContext {
-  k: Kernel;
+  k: GeomView;
   plane: PlaneParams;
   basis?: { u: Pt3; v: Pt3 } | null;
   pf?: PointerFrame | null;               // 提供则启用膜遮挡过滤
@@ -217,19 +218,19 @@ const DIRS: { axis: AxName; dir: Pt3 }[] = [
 ];
 
 /** 膜环是否触手（任一环顶点 ∈ hand）。 */
-function faceTouchesHand(k: Kernel, f: { outer: Ring; holes: Ring[]; id: FaceId }, hand?: AlignHand | null): boolean {
+function faceTouchesHand(k: GeomView, f: { outer: Ring; holes: Ring[]; id: FaceId }, hand?: AlignHand | null): boolean {
   if (!hand) return false;
   return [...ringVidsTolerant(k.graph, f.outer), ...f.holes.flatMap((h) => ringVidsTolerant(k.graph, h))]
     .some((v) => hand.has(v));
 }
 /** 膜在手里：hand.faces 表态优先；否则由顶点推（触手膜）。 */
-function faceInHand(k: Kernel, f: { outer: Ring; holes: Ring[]; id: FaceId }, hand?: AlignHand | null): boolean {
+function faceInHand(k: GeomView, f: { outer: Ring; holes: Ring[]; id: FaceId }, hand?: AlignHand | null): boolean {
   if (!hand) return false;
   if (hand.faces) return hand.faces(f.id);
   return faceTouchesHand(k, f, hand);
 }
 /** 遮挡豁免集：hand 透明时=手中膜；opaque 或无 hand 时=无豁免。 */
-function handFaceSkip(k: Kernel, hand?: AlignHand | null): ((fid: FaceId) => boolean) | undefined {
+function handFaceSkip(k: GeomView, hand?: AlignHand | null): ((fid: FaceId) => boolean) | undefined {
   if (!hand || hand.opaque) return undefined;
   const skip = new Set<FaceId>();
   for (const f of k.faces()) if (faceInHand(k, f, hand)) skip.add(f.id);
@@ -242,7 +243,7 @@ function handFaceSkip(k: Kernel, hand?: AlignHand | null): ((fid: FaceId) => boo
  * 不因切点在手里退赛（此前「任一端在手里整条退赛」：上一帧矩形一吸到底边、底边就被切成三段全部退赛，
  * 下一帧又回来 → 反复横跳「很难吸附」）。链的两端任一端在手里 → 该链是手势边（追光标）→ 整链退赛。
  */
-function edgeTargets(k: Kernel, ex: (vid: VertexId) => boolean): { a: Pt3; b: Pt3 }[] {
+function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean): { a: Pt3; b: Pt3 }[] {
   const edges = k.edges();
   const parent = new Map<EdgeId, EdgeId>();
   const find = (e: EdgeId): EdgeId => {
@@ -284,7 +285,7 @@ function edgeTargets(k: Kernel, ex: (vid: VertexId) => boolean): { a: Pt3; b: Pt
 }
 
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。（拾取 pick.ts 同用） */
-export function occludedBy(k: Kernel, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
+export function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
   const dir = pf.viewDir(p);   // 透视=p→眼；正交=常向量（2026-09-06 透视化，edited by Claude Fable 5.1）
   for (const f of k.faces()) {
     if (skip?.(f.id)) continue;   // 手中膜不遮挡（2026-09-03：追光标的膜反复遮住目标=振荡假吸）
@@ -312,7 +313,7 @@ export function occludedBy(k: Kernel, pf: PointerFrame, p: Pt3, skip?: (fid: Fac
  * 返回 [tMin,tMax] 内的**被挡**区间（升序、已合并）。
  */
 export function occludedSpansOnLine(
-  k: Kernel, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number,
+  k: GeomView, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number,
   skip?: (fid: FaceId) => boolean,
 ): [number, number][] {
   // 透视下视向沿线变化，区间代数取线段中点的视向作常向量近似（短线段误差可忽略；正交=精确）
@@ -489,7 +490,7 @@ export function lineFaceIntervals(p0: Pt, d: Pt, rings: readonly (readonly Pt[])
 }
 
 /** 面×面交线段（平面∩平面裁到两区域再取区间交）。 */
-export function faceCrossSegments(k: Kernel, f1: import("../kernel/kernel.ts").FaceId, f2: import("../kernel/kernel.ts").FaceId): { a: Pt3; dir: Pt3; len: number }[] {
+export function faceCrossSegments(k: GeomView, f1: import("../kernel/kernel.ts").FaceId, f2: import("../kernel/kernel.ts").FaceId): { a: Pt3; dir: Pt3; len: number }[] {
   const r1 = k.planeOf(f1), r2 = k.planeOf(f2);
   const F1 = k.face(f1), F2 = k.face(f2);
   if (!r1 || !r2 || !F1 || !F2) return [];
@@ -499,7 +500,7 @@ export function faceCrossSegments(k: Kernel, f1: import("../kernel/kernel.ts").F
   // p0 = (d1·(n2×n3) + d2·(n3×n1)) / |n3|²（三平面求交，第三面取 n3·p=0）
   const p0 = scale3(add3(scale3(cross3(r2.plane.n, n3), r1.plane.d), scale3(cross3(n3, r1.plane.n), r2.plane.d)), 1 / nn);
   const dir = scale3(n3, 1 / Math.sqrt(nn));
-  const proj = (rec: NonNullable<ReturnType<Kernel["planeOf"]>>): { p2: Pt; d2: Pt } => ({
+  const proj = (rec: NonNullable<ReturnType<GeomView["planeOf"]>>): { p2: Pt; d2: Pt } => ({
     p2: { x: dot3(p0, rec.basis.u), y: dot3(p0, rec.basis.v) },
     d2: { x: dot3(dir, rec.basis.u), y: dot3(dir, rec.basis.v) },
   });
@@ -547,7 +548,7 @@ export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
  * edited by Claude Fable 5 2026-09-01
  */
 export function snapPoint(
-  k: Kernel,
+  k: GeomView,
   pf: PointerFrame,
   vp: Viewport,
   sx: number,
@@ -661,7 +662,7 @@ export function cameraPlane(pf: PointerFrame, through: Pt3): DrawPlane {
 }
 
 /** 平面来自膜且 p 落在该膜环内（含洞判定）→ 「面上」；平面不带 face 或点在环外 → false。 */
-function insideFace(k: Kernel, plane: DrawPlane, p: Pt3): boolean {
+function insideFace(k: GeomView, plane: DrawPlane, p: Pt3): boolean {
   if (plane.face === undefined) return false;
   const f = k.face(plane.face);
   if (!f) return false;
@@ -671,7 +672,7 @@ function insideFace(k: Kernel, plane: DrawPlane, p: Pt3): boolean {
 }
 
 /** 光标射线命中的第一张膜（最近者）的平面；没命中 → null。零 three、不经 pick.ts（避免环形 import）。 */
-export function faceUnderCursor(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number): DrawPlane | null {
+export function faceUnderCursor(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): DrawPlane | null {
   const ray = pf.ray(sx, sy, vp);
   let best: { t: number; plane: DrawPlane } | null = null;
   for (const f of k.faces()) {
@@ -693,7 +694,7 @@ export function faceUnderCursor(k: Kernel, pf: PointerFrame, vp: Viewport, sx: n
 /** 含锚点的膜里，剪影（屏幕多边形）离光标 ≤ tolPx 的最近一张 → 其平面；没有 → null。
  *  无历史、纯几何：滑出底边几个像素仍在那张墙上（2026-09-06 侧面拖矩形案），远离了就自然放手
  *  （2026-09-07 仓库角点案：此前「黏住上一帧平面」把擦过的竖墙一路黏到空地上——黏性是错的一般化，撤）。 */
-function nearFaceContaining(k: Kernel, pf: PointerFrame, vp: Viewport, sx: number, sy: number, p1: Pt3, tol: number): DrawPlane | null {
+function nearFaceContaining(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, p1: Pt3, tol: number): DrawPlane | null {
   let best: { d: number; plane: DrawPlane } | null = null;
   for (const f of k.faces()) {
     const rec = k.planeOf(f.id);
@@ -711,7 +712,7 @@ function nearFaceContaining(k: Kernel, pf: PointerFrame, vp: Viewport, sx: numbe
  * p1 有 = 第二点查询（含点平面拉动）。fixed=面锁成立（裸落膜内）。
  */
 export function resolvePlane(
-  k: Kernel,
+  k: GeomView,
   pf: PointerFrame,
   vp: Viewport,
   sx: number,
@@ -754,7 +755,7 @@ export function resolvePlane(
 
 /** 薄壳（历史 API；语义=resolvePlane 第二点查询）。 */
 export function resolveRectPlane(
-  k: Kernel,
+  k: GeomView,
   pf: PointerFrame,
   vp: Viewport,
   p1: Pt3,

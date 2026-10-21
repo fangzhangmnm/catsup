@@ -14,7 +14,7 @@
 //   · flushForHide = hidden / blur / pagehide(!persisted) 的崩溃安全 flush（只本地不推）。
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
-import { newDocument, readCatsup, writeCatsup, type CatsupDocument } from "../format/index.ts";
+import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, defaultDocName } from "../config.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { setOpened } from "@internal/gallery";
@@ -98,7 +98,7 @@ export class Session {
   private localHomeKind(): "file" | "transient" | null { return this.home.kind === "gallery" ? null : this.home.kind; }
   /** lazyblank 且还没动过（boot 登录后重试恢复 / 挂库不塞空白 用）。 */
   isUntouchedLazyBlank(): boolean { return this.lazy && !this.dirty(); }
-  private hasContent(): boolean { return this.d.editor.kernel.edges().length > 0; }
+  private hasContent(): boolean { for (const { pool } of this.d.editor.sceneRef.pools()) if (this.d.editor.sceneRef.kernelOf(pool).edges().length > 0) return true; return false; }
   /** smart save 钮的状态（顺序 = WeebPaint computeSaveState：saving → dirty → cloud-off → unpushed/synced → local-only）。 */
   saveState(): SaveState {
     if (this.saving) return "saving";
@@ -188,11 +188,11 @@ export class Session {
   async adoptRecovered(bytes: Uint8Array, name: string, opts: { gate: boolean }): Promise<"gallery" | "transient" | null> {
     if (opts.gate && !(await this.leaveGate())) return null;
     const doc = readCatsup(bytes);
-    const k = Kernel.fromBrep(doc.root.brep);
+    const sc = sceneFromDocument(doc);
     this.dropLuggage();
     this.loaded = doc;
     this.lazy = false;
-    this.d.editor.loadKernel(k, "恢复");
+    this.d.editor.loadScene(sc, "恢复");
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
     if (hasStore()) {
@@ -207,11 +207,8 @@ export class Session {
   }
 
   private encode(): Uint8Array {
-    const brep = this.d.editor.kernel.toBrep();
     const name = this.displayName();
-    const doc: CatsupDocument = this.loaded
-      ? { ...this.loaded, root: { ...this.loaded.root, name, brep } }
-      : newDocument(brep, name);
+    const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
     const thumb = this.d.captureThumbnail();
     if (thumb) doc.thumbnail = thumb; else delete doc.thumbnail;
     this.loaded = doc;
@@ -219,11 +216,11 @@ export class Session {
   }
   private adopt(bytes: Uint8Array): void {
     const doc = readCatsup(bytes);
-    const k = Kernel.fromBrep(doc.root.brep);
+    const sc = sceneFromDocument(doc);
     this.pushPending = false;
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
-    this.d.editor.loadKernel(k);
+    this.d.editor.loadScene(sc);
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
   }

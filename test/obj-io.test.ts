@@ -38,7 +38,7 @@ describe("obj-io", () => {
     const plain = exportObj(k);
     assert(plain.includes("# warning"), plain);
     const tri = exportObj(k, {
-      triangulateHoled: (kk: Kernel, id: FaceId) => {
+      triangulateHoled: (kk, id: FaceId) => {
         const r = kk.faceRings3(id)!;
         // 假三角器：外环扇形（只验管线接线，不验几何）
         const out: [Pt3, Pt3, Pt3][] = [];

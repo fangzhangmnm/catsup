@@ -1,14 +1,14 @@
 // src/format golden：往返 / 幂等 / 未知保留 / 拒开更新版 / 体积预算 / 冻结样本语料（立宪 §7）。created 2026-09-20 by Claude Fable 5.1
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
-import { newDocument, writeCatsup, readCatsup } from "../src/format/index.ts";
+import { newDocument, writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from "../src/format/index.ts";
 import { decodeGlb, encodeGlb, isGlb } from "../src/format/glb.ts";
 import { isCatsupGltf } from "../src/format/read.ts";
 import { FormatTooNewError, EXTENSION_VERSIONS } from "../src/format/migrate/index.ts";
 import { canonicalize } from "../src/format/brep-codec.ts";
 import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
-import { SCENES, fingerprint } from "./format-scenes.ts";
-import { listFixtures, readFixture } from "./fixtures/format/fixtures.mjs";
+import { SCENES, SCENE_DOCS, fingerprint, sceneFingerprint } from "./format-scenes.ts";
+import { listFixtures, readFixture, hasFixtureDir } from "./fixtures/format/fixtures.mjs";
 
 const BUDGET_BYTES: Record<string, number> = { box: 2600, holed: 2800, house: 2800 };   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
@@ -159,18 +159,41 @@ describe("format: golden 往返", () => {
   });
 });
 
+describe("format: group / component / 软边 往返（v2，2026-10-21）", () => {
+  for (const [name, make] of Object.entries(SCENE_DOCS)) {
+    it(`${name}：scene → doc → glb → doc → scene 场景指纹一致；再写逐字节一致`, () => {
+      const s = make();
+      const bytes = writeCatsup(documentFromScene(s, name));
+      const doc = readCatsup(bytes);
+      const s2 = sceneFromDocument(doc);
+      eq(sceneFingerprint(s2), sceneFingerprint(s), "场景指纹");
+      assert([...s2.defs.values()].some((d) => d.kernel.soft.size > 0 || [...d.groups.values()].some((g) => g.kernel.soft.size > 0)), "软边随文件往返");
+      const again = writeCatsup(documentFromScene(s2, name));
+      eq(again.byteLength, bytes.byteLength, "长度");
+      assert(again.every((b, i) => b === bytes[i]), "逐字节");
+      const { json } = decodeGlb(bytes) as { json: any };
+      eq(json.meshes.length, s.defs.size, "一个 definition 一个 mesh");
+      assert(json.nodes.length >= 1 + 2, "根节点 + 两个实例节点");
+      assert(json.nodes.some((n: any) => Array.isArray(n.matrix) && n.matrix.length === 16), "实例节点带 4×4 matrix");
+    });
+  }
+});
+
 describe("format: 冻结样本语料（立宪 §7；老样本永远能开）", () => {
-  const v = EXTENSION_VERSIONS.CATSUP_brep;
-  const files: string[] = listFixtures(v);
-  it(`v${v} 目录里每个 golden 场景都有样本`, () => {
-    for (const name of Object.keys(SCENES)) assert(files.includes(`${name}.glb`), `缺样本 v${v}/${name}.glb（node scripts/freeze-format-fixtures.mjs）`);
+  const vCur = Math.max(...Object.values(EXTENSION_VERSIONS));
+  const filesCur: string[] = hasFixtureDir(vCur) ? listFixtures(vCur) : [];
+  it(`v${vCur} 目录里每个 golden 场景都有样本`, () => {
+    for (const name of [...Object.keys(SCENES), ...Object.keys(SCENE_DOCS)]) assert(filesCur.includes(`${name}.glb`), `缺样本 v${vCur}/${name}.glb（node scripts/freeze-format-fixtures.mjs）`);
   });
-  for (const f of files) {
-    it(`v${v}/${f}：读 → fromBrep → 指纹 = 当前场景；重写后语义一致`, () => {
+  const versions: number[] = [];
+  for (let v = 1; v <= vCur; v++) if (hasFixtureDir(v)) versions.push(v);
+  for (const v of versions) for (const f of listFixtures(v)) {
+    it(`v${v}/${f}：读 → 复原 → 指纹 = 当前场景；重写后语义一致`, () => {
       const name = f.replace(/\.glb$/, "");
       const doc = readCatsup(readFixture(v, f));
       const k = Kernel.fromBrep(doc.root.brep);
       if (SCENES[name]) eq(fingerprint(k), fingerprint(SCENES[name]()), "样本 vs 当前场景");
+      if (SCENE_DOCS[name]) eq(sceneFingerprint(sceneFromDocument(doc)), sceneFingerprint(SCENE_DOCS[name]()), "样本 vs 当前场景（group / component）");
       const doc2 = readCatsup(writeCatsup(doc));
       eq(JSON.stringify(canonicalize(doc2.root.brep)), JSON.stringify(canonicalize(doc.root.brep)), "重写语义一致");
     });

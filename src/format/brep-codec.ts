@@ -1,12 +1,14 @@
 // brep-codec.ts —— 内核 BrepSnapshot ↔ `CATSUP_brep` 扩展（JSON + bufferView 二进制流）。
 // 契约 = ai-docs/20260919-persistence-data-contract.md §5.2（rev9）：全二进制、最低位宽、规范序、存平面（定点）、
-// 面 = 顶点索引环、按域命名属性层（v1 只保留，不生成）。零 DOM / 零 three。created 2026-09-20 by Claude Fable 5.1
+// 面 = 顶点索引环、按域命名属性层。零 DOM / 零 three。created 2026-09-20 by Claude Fable 5.1
+// v2（2026-10-21）：group 搬到 definition 层（v1 占位 `groups` 退场）；第一个真属性层 attributes.edge.soft（软边：每边 1 字节 0/1，
+// 全无则不写）——其余未知属性层仍原样保留。
 
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 import type { PlaneParams, Pt3 } from "../kernel/geom.ts";
 import { type UintType, decodeUints, encodeUints, isUintType, pickUintType } from "./binary.ts";
 
-export const BREP_VERSION = 1;
+export const BREP_VERSION = 2;
 const UM = 1e-6;                       // 内核格点 Q（立宪 §0）；文件坐标单位是它的 10^k 倍
 const N_FIX = 2 ** 30;                 // 平面法向定点比例
 const UNIT_LADDER_UM = [10000, 1000, 100, 10, 1];   // 1 cm … 1 µm
@@ -26,9 +28,8 @@ export interface CatsupBrepJson {
   edgeCount: number; edges: BrepStream;
   planeCount: number; planes: BrepStream;
   faceCount: number; faces: BrepStream; facePlane: BrepStream;
-  attributes: Record<string, Record<string, unknown>>;   // 按域：edge / face / corner / vertex（v1 原样保留）
+  attributes: Record<string, Record<string, unknown>>;   // 按域：edge / face / corner / vertex；edge.soft 本版读写，其余原样保留
   curves: unknown[];
-  groups: { axes: { origin: number[]; x: number[]; y: number[]; z: number[] }; parent: number | null }[];
   extras?: Record<string, unknown>;
   [k: string]: unknown;                  // 未知键保留（round-trip 保真）
 }
@@ -42,8 +43,10 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
   const remap = new Array<number>(order.length);
   order.forEach((old, i) => { remap[old] = i; });
   const vertices = order.map((i) => snap.vertices[i]);
-  const edges = snap.edges.map(([a, b]) => { const x = remap[a], y = remap[b]; return (x < y ? [x, y] : [y, x]) as readonly [number, number]; })
-    .sort((e, f) => e[0] - f[0] || e[1] - f[1]);
+  const edgesTagged = snap.edges.map(([a, b], i) => { const x = remap[a], y = remap[b]; return { e: (x < y ? [x, y] : [y, x]) as readonly [number, number], soft: snap.softEdges?.includes(i) ?? false }; })
+    .sort((p, q) => p.e[0] - q.e[0] || p.e[1] - q.e[1]);
+  const edges = edgesTagged.map((t) => t.e);
+  const softEdges = edgesTagged.map((t, i) => (t.soft ? i : -1)).filter((i) => i >= 0);
   const planeKey = (pl: PlaneParams): number[] => [Math.round(pl.n.x * N_FIX), Math.round(pl.n.y * N_FIX), Math.round(pl.n.z * N_FIX), toUm(pl.d)];
   const pkeys = snap.planes.map(planeKey);
   const porder = pkeys.map((_, i) => i).sort((a, b) => { for (let k = 0; k < 4; k++) if (pkeys[a][k] !== pkeys[b][k]) return pkeys[a][k] - pkeys[b][k]; return 0; });
@@ -62,7 +65,7 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
   };
   const faces = snap.faces.map((f) => ({ plane: premap[f.plane], outer: rotate(f.outer), holes: f.holes.map(rotate).sort(cmpArr) }))
     .sort((a, b) => a.plane - b.plane || cmpArr(a.outer, b.outer));
-  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces };
+  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}) };
 }
 
 function pickUnitUm(vum: readonly (readonly [number, number, number])[]): number {
@@ -73,7 +76,7 @@ function pickUnitUm(vum: readonly (readonly [number, number, number])[]): number
 }
 
 /** 编码（先规范化）。返回的 JSON 里 bufferView 索引由 sink 分配。 */
-export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Pick<CatsupBrepJson, "attributes" | "curves" | "groups" | "extras">): CatsupBrepJson {
+export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<Pick<CatsupBrepJson, "attributes" | "curves" | "extras">>): CatsupBrepJson {
   const snap = canonicalize(snapIn);
   const vum = snap.vertices.map((p) => [toUm(p.x), toUm(p.y), toUm(p.z)] as const);
   const origin: [number, number, number] = vum.length
@@ -104,6 +107,15 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Pick<Cat
   const fStreamType = pickUintType(Math.max(vIdxType === "uint8" ? 255 : 0, ...ringStream, 0));
   const faces = sink.add(encodeUints(ringStream, fStreamType));
   const facePlane = sink.add(encodeUints(snap.faces.map((f) => f.plane), pIdxType));
+  // 属性层：未知层原样保留；edge.soft 由本版生成（覆盖旧值）
+  const attributes: Record<string, Record<string, unknown>> = { vertex: {}, edge: {}, face: {}, corner: {}, ...(keep?.attributes ?? {}) };
+  attributes.edge = { ...(attributes.edge ?? {}) };
+  delete attributes.edge.soft;
+  if (snap.softEdges?.length) {
+    const bytes = new Uint8Array(snap.edges.length);
+    for (const i of snap.softEdges) bytes[i] = 1;
+    attributes.edge.soft = { bufferView: sink.add(bytes), componentType: "uint8" };
+  }
 
   return {
     version: BREP_VERSION,
@@ -114,9 +126,8 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Pick<Cat
     edgeCount: snap.edges.length, edges: { bufferView: edges, indexType: vIdxType },
     planeCount: snap.planes.length, planes: { bufferView: planes },
     faceCount: snap.faces.length, faces: { bufferView: faces, indexType: fStreamType }, facePlane: { bufferView: facePlane, indexType: pIdxType },
-    attributes: keep?.attributes ?? { vertex: {}, edge: {}, face: {}, corner: {} },
+    attributes,
     curves: keep?.curves ?? [],
-    groups: keep?.groups ?? [{ axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, parent: null }],
     ...(keep?.extras ? { extras: keep.extras } : {}),
   };
 }
@@ -188,5 +199,14 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     if (facePlane[i] >= json.planeCount) fail(`face ${i} plane index out of range`);
     faces.push({ plane: facePlane[i], outer: rings[0], holes: rings.slice(1) });
   }
-  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces };
+  // 软边层（可选）
+  let softEdges: number[] | undefined;
+  const softJ = json.attributes?.edge?.soft as { bufferView?: number } | undefined;
+  if (softJ && typeof softJ.bufferView === "number") {
+    const bytes = view(softJ.bufferView);
+    if (bytes.byteLength < json.edgeCount) fail("attributes.edge.soft stream too short");
+    softEdges = [];
+    for (let i = 0; i < json.edgeCount; i++) if (bytes[i]) softEdges.push(i);
+  }
+  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(softEdges?.length ? { softEdges } : {}) };
 }

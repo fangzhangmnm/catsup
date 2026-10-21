@@ -1,15 +1,19 @@
 // editor.ts —— 工具手势状态机（无 DOM 依赖：只认 canvas 尺寸与屏幕坐标，UI 经 EditorHost 回调）。
-// created 2026-09-06 by Claude Fable 5.1 —— 从 src/lab/main.ts（Claude Fable 5，2026-09-01～09-03）原样搬入：
-// 语义层一字不动（点两下/充能制/磁滞/WYSIWYG 预演/pp 双通道/连画出膜停），只剥掉 DOM 接线与 lab 面板。
+// created 2026-09-06 by Claude Fable 5.1 —— 从 src/lab/main.ts（Claude Fable 5，2026-09-01～09-03）原样搬入。
 // 相机手势（环绕/平移/缩放）不在这里：那是 app 层手势路由（src/app/gestures.ts）的事，本类只吃「工具指针」。
+//
+// **2026-10-21 group / component 纪元重写（Claude Fable 5.1；user「supersprint where at least i have groups and components…rotate, scale, move…circle」）**：
+//   · 状态 = Scene（definition / group / instance，src/scene/scene.ts）+ 编辑上下文 ctx（进了哪些实例、在哪个 group 里）；
+//     `kernel` = 活动池（上下文的几何池）；op 带池地址；history 存 Scene。
+//   · 渲染 / 拾取 / 吸附吃 **WorldView**（全部池变换到世界坐标的只读合成视图，id 全局化）：吸附看得见所有几何（SU 同款），
+//     但只能编辑活动池；命中别的子 group / 实例 = 选中它整体（move / rotate / scale 整体变换）；双击进、点空处出（SU 同款）。
+//   · 新工具：circle（24 段软边）、rotate（量角器：先点圆心定平面，再按参考点拖角度）、scale（包围盒柄：角 = 等比、面心 = 单轴）。
 //
 // 对齐引擎唯一世界源（user 2026-09-03 立法：**旧 snapshot 禁入对齐引擎**——push 到一半的才是真相，WYSIWYG；
 // checkpoint 只是 commit 基底/cancel 归宿）。手势中=live（中间态真相）；平时=checkpoint。build lint 把门（scripts/build.sh）。
-// **例外：推拉的推断世界 = 按下那一刻的模型 + 源面原位不透明（2026-10-21，Claude Fable 5.1；09-23 算法 QA bug 2 根因）**——
-// 推拉只有一个自由度 h，拖拽中新长的帽/侧壁高度恒等于 h（对 h 零信息），中间态唯一贡献是遮挡，而遮挡正是「吸端面 / 不吸」
-// 逐帧交替的反馈回路；世界不依赖 h → 不动点条款 / 开区间样本 / 磁滞防抖按构造不再需要。预演只管渲染，永不回流进推断。
-// **抬笔结算（A21，2026-10-21）**：松开前 RELEASE_WINDOW_MS 内若有过更高维的吸附解（点 > 线/轴/高度咬合 > 自由），而松开那一帧
-// 是更低维的，提交用那个高维解——抬笔时的肌肉抖动不改变已对齐的点（user 2026-10-21「抬笔的时候总是会抖一下然后歪掉」）。
+// **例外：推拉的推断世界 = 按下那一刻的模型 + 源面原位不透明（2026-10-21；09-23 算法 QA bug 2 根因）**——推拉只有一个自由度 h，
+// 拖拽中新长的帽/侧壁高度恒等于 h（对 h 零信息），中间态唯一贡献是遮挡，而遮挡正是「吸端面 / 不吸」逐帧交替的反馈回路。
+// **抬笔结算（A21，2026-10-21）**：抬笔前停留过的地方才是意图，末尾的短抖动不算（user「抬笔的时候总是会抖一下然后歪掉」）。
 
 import { Kernel } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
@@ -20,29 +24,32 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, translateMoves } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane } from "./tools.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
-import { type Op, edgeKey, faceKey, moveOp } from "./ops.ts";
+import { type Op, edgeKey, faceKey } from "./ops.ts";
 import { History, OpApplyError } from "./history.ts";
-import { add3, dot3, scale3, sub3 } from "../kernel/geom.ts";
+import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
+import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, poolBounds } from "../scene/scene.ts";
+import { type PoolSlot, WorldView, slotKey } from "../scene/world-view.ts";
+import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
-export type Tool = "select" | "line" | "rect" | "move" | "pp" | "erase" | "eraseFace";
-export const TOOLS: readonly Tool[] = ["select", "line", "rect", "move", "pp", "erase", "eraseFace"];
+export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "erase" | "eraseFace";
+export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "move", "rotate", "scale", "pp", "erase", "eraseFace"];
 
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
 export interface ToolPointer {
   x: number; y: number;
   clientX: number; clientY: number;
   pointerType: string;
-  /** 允许「点两下」模式（第一击是点击不是拖 → 移动预览再点放置）：桌面鼠标 = true；数位笔/手指/VR = false（误触发意外连线）。由适配器裁决。 */
+  /** 允许「点两下」模式（第一击是点击不是拖 → 移动预览再点放置）：桌面鼠标 = true；数位笔/手指 = false（误触发意外连线）。由适配器裁决。 */
   armable?: boolean;
   shiftKey: boolean;
-  /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。VR 的光标坐标恒为名义正中，所以由帧另算（射线转角）；缺省 = 屏距 downScreen。 */
+  /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px）。缺省 = 屏距 downScreen。 */
   travel?: number;
 }
 
-/** 记账面包屑（2026-09-20 实验台 sunset → 调试日志；op 一行一条，user「op 操作是否要上 Log」→ 上）。 */
+/** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace =
   | { kind: "op"; op: Op; events: number; ms: number; position: number }
   | { kind: "undo" | "redo"; position: number; depth: number }
@@ -50,22 +57,14 @@ export type EditorTrace =
   | { kind: "fail"; where: string; op: Op | null; message: string };
 
 export interface EditorHost {
-  /** 状态行文案；null = 回默认提示。 */
   hint(text: string | null): void;
-  /** 光标旁吸附标签；null = 隐藏。 */
   tip(text: string | null, clientX: number, clientY: number): void;
-  /** 记账面包屑（调试日志）：提交的 op 摘要 / 撤销重做 / 装载 / 提交失败。可选（探针与测试不接）。 */
   trace?(entry: EditorTrace): void;
-  /** 框选矩形（canvas 本地 px）；null = 隐藏。 */
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
-  /** 工具/撤销栈/选区变了 → UI 刷新。 */
   changed(): void;
-  /** 内核/求解器抛错（预演或提交）：app 层报给用户（DOM toast + VR 字幕）。checkpoint 不受影响。 */
   error?(err: unknown, where: string): void;
 }
 
-// 容差单位 = fovY 的 1/800（桌面）/ 度（VR），全部经 eps() 取本帧容差集（solver.frameEps）；不再有裸 px 常量
-/** VR 帧的磁滞容差按吸附种类取帧自己的角度常量。 */
 function epsOfKindVR(e: EpsSet, kind: string): number {
   if (kind === "on-edge") return e.edge;
   if (kind === "edge-align" || kind === "align-combo") return e.combo;
@@ -96,113 +95,227 @@ export function describeEvent(ev: FaceEvent): string {
 }
 
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-/** 抬笔结算（A21）三个物理量，各自量纲独立（调参纪律）：
- *  RELEASE_WINDOW_MS —— 只回看松开前这么久（毫秒）；FINAL_HOLD_MS —— 松开位置被按住了这么久就算有意（毫秒）；
- *  MIN_DWELL_MS —— 之前某处停留至少这么久才算「对齐过」（毫秒）；HOLD_PX —— 同一处的判定半径（指针帧度量单位，桌面 = px@800）。 */
+/** 抬笔结算（A21）三个物理量，各自量纲独立（调参纪律）。 */
 const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
-/** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。lab 时代的 1 / 0.3 是厘米口径，VR 里画 0.7 m 的线都会被吃掉
- *  （2026-09-07 假 XR 探针抓到），统一改 1 cm。 */
+/** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 const MIN_GESTURE_LEN = 0.01;
+/** 圆的多边形段数（SU 默认 24）。 */
+export const CIRCLE_SEGMENTS = 24;
+/** 量角器角度咬合：步长（度）与咬合半宽（度）。 */
+const ANGLE_STEP_DEG = 15, ANGLE_SNAP_DEG = 1.5;
+/** 缩放柄：角柄 8 个（等比）+ 面心柄 6 个（单轴）；拾取半径用本帧 hit 容差。 */
+const SCALE_HANDLE_TYPES = ["corner", "face"] as const;
 
-/** 长度显示（SU 同款「~」）：截到 1 位小数；截掉的部分超过格点量子 → 前缀 ~ 告诉用户「不是 exactly」
- *  （user 2026-09-07：「带小数点的优雅一点，多 truncate 几位，但是让用户知道不是 exactly」）。 */
 export function fmtLen(v: number, digits = 1): string {
-  // 单位：内部永远是米（A10 纪律）；显示 ≥1 m 用 m、否则用 cm（2026-09-07 尺度修正随手补，A10 的显示单位偏好设置仍待拍板）
   const cm = Math.abs(v) < 1;
   const val = cm ? v * 100 : v;
   const shown = Number(val.toFixed(digits));
   return (Math.abs(val - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits) + (cm ? " cm" : " m");
 }
+const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(1)}°`;
+
+/** 子池选区项（相对活动上下文的直接子项）。 */
+export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; instance: InstId };
+interface ScaleHandle { kind: typeof SCALE_HANDLE_TYPES[number]; p: Pt3; anchor: Pt3; axis: Pt3 | null; }
 
 export class Editor {
   readonly cam = new OrbitCamera();
   private r3: Renderer3;
-  private checkpoint = new Kernel();
+  private scene = new Scene();
+  private ctx: EditContext = ROOT_CONTEXT;
   private history = new History();
   private _tool: Tool = "line";
-  private _revision = 0;                  // checkpoint 每次变（commit/undo/redo）+1；碰撞世界等消费方据此重建
+  private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建
 
   // ---- 瞬态 ----
   private anchor3: Pt3 | null = null;
   private gesturePlane: DrawPlane = GROUND;
-  private rectFixed: DrawPlane | null = null;   // 矩形首点在面上 → 与面平行锁死；否则动态（看第二点）
+  private rectFixed: DrawPlane | null = null;
   private cursor3: Pt3 | null = null;
   private snapInfo: Snap3 | null = null;
   private moveVids: VertexId[] = [];
+  private movePools: PoolPick[] = [];
   private ppFace: FaceId | null = null;
   private ppNormal: Pt3 | null = null;
   private ppH = 0;
   private ppShellVids: ReadonlySet<VertexId> = new Set();
   private ppStops: number[] = [];
-  /** 抬笔结算样本环：手势中每帧的解（时间 / 指针位置 / 光标点 / 推拉高度 / 手势平面 / 吸附）。 */
-  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null }[] = [];
+  // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
+  private rotStage: 0 | 1 | 2 = 0;
+  private rotCenter: Pt3 | null = null;
+  private rotAxis: Pt3 | null = null;
+  private rotRef: Pt3 | null = null;
+  private rotAngle = 0;
+  // 缩放柄
+  private scaleHandles: ScaleHandle[] = [];
+  private scaleActive: ScaleHandle | null = null;
+  private scaleT0 = 1;
+  private scaleFactor: Pt3 = { x: 1, y: 1, z: 1 };
+  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3 }[] = [];
   private scrubAcc = new Set<EdgeId>();
   private scrubbing = false;
   private selection: Selection = emptySelection();
+  private selectedPools = new Map<string, PoolPick>();
   private marqueeStart: { x: number; y: number } | null = null;
   private marqueeCur: { x: number; y: number } | null = null;
   private hoverEdge: EdgeId | null = null;
   private hoverFace: FaceId | null = null;
+  private hoverPool: string | null = null;
   private live: Kernel | null = null;
+  private liveOverride: { picks: PoolPick[]; xform: Xform } | null = null;
   private liveEvents: FaceEvent[] = [];
-  private armed = false;                  // 点两下模式：第一击已落 anchor，等第二击
-  private canArm = false;                 // 只有鼠标解锁点两下（数位笔/手指 tap 误触发意外连线）
+  private armed = false;
+  private canArm = false;
   private downScreen: { x: number; y: number } | null = null;
-  private justCommitted = false;          // 第二击 down 已落笔，紧随的 up 不再处理
-  // 充能制（from-point 源点登记）：hover 端点/中点停留 ≥300ms 充能，LRU 3；紫点反馈
+  private justCommitted = false;
   private charged = new Map<string, Pt3>();
   private dwell: { key: string; since: number } | null = null;
   private lastSnap: Snap3 | null = null;
-  // 选择点击族（SU 单击/双击/三击；A7）：同一处 350 ms 内连点
   private clickTrain: { t: number; x: number; y: number; n: number } | null = null;
+  private viewCache: { key: string; view: WorldView } | null = null;
+  private kids = new WeakMap<object, number>();
+  private nextKid = 1;
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost) {
     this.r3 = new Renderer3(canvas);
-    // 默认三维（user 2026-09-02 拍板）——SU 式舒适初始 3/4 视角；俯角 35° 避开兜底阈值边界（30° 曾撞 sin=0.4999 翻车）
     this.cam.pitch = 0.61;
-    this.cam.projection = "persp";   // halfH = camera.ts DEFAULT_HALF_H（人体尺度，米）   // 2026-09-06 user：做 perspective camera
+    this.cam.projection = "persp";
   }
 
   // ---------- 只读 ----------
   get tool(): Tool { return this._tool; }
-  get kernel(): Kernel { return this.checkpoint; }
-  /** 渲染器（app 层 XR 接线用；three 不出 render3）。 */
+  /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
+  get kernel(): Kernel { return this.scene.kernelOf(this.activePool()); }
+  get sceneRef(): Scene { return this.scene; }
+  /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
+  worldGeom(): WorldView { return this.worldView(); }
+  get context(): EditContext { return this.ctx; }
   get renderer3(): Renderer3 { return this.r3; }
-  /** checkpoint 的代数（commit/undo/redo 各 +1）。 */
   get revision(): number { return this._revision; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }
-  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
+  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selectedPools.size > 0; }
+  hasGeometrySelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
+  hasPoolSelection(): boolean { return this.selectedPools.size > 0; }
+  selectedPoolPicks(): PoolPick[] { return [...this.selectedPools.values()]; }
   isGestureActive(): boolean { return this.gestureActive(); }
-  vp(): Viewport { return { w: this.canvas.clientWidth, h: this.canvas.clientHeight }; }
-  // ---------- 指针帧（A2）----------
-  // 工具/拾取/求解只认 PointerFrame + 它的角度尺视口：桌面 = OrbitCamera + canvas 尺寸；VR = 控制器射线帧 + 800px 虚拟屏。
-  private pointerFrame: { pf: PointerFrame; vp: Viewport } | null = null;
-  /** 换指针帧（VR 进出时由 app 层调用；null = 回桌面相机）。 */
-  setPointerFrame(pf: PointerFrame | null, vp?: Viewport): void {
-    this.pointerFrame = pf ? { pf, vp: vp ?? { w: 800, h: 800 } } : null;
+  /** 上下文深度（0 = 根）。 */
+  contextDepth(): number { return this.ctx.chain.length + (this.ctx.group !== null ? this.groupDepth(this.ctx.group) : 0); }
+  /** 上下文人话：「根」/「组件 名 › 组」。 */
+  contextLabel(): string {
+    const parts: string[] = [];
+    let def = this.scene.root;
+    for (const iid of this.ctx.chain) { const inst = this.scene.instance(def, iid); def = inst.def; parts.push(`组件「${this.scene.def(def).name}」`); }
+    if (this.ctx.group !== null) parts.push("组");
+    return parts.length ? parts.join(" › ") : "根";
   }
+  private groupDepth(gid: number): number { let n = 0, g: number | null = gid; const def = this.scene.defOfContext(this.ctx); while (g !== null) { n++; g = this.scene.group({ def, group: g }).parent; } return n; }
+  vp(): Viewport { return { w: this.canvas.clientWidth, h: this.canvas.clientHeight }; }
+
+  // ---------- 指针帧（A2）----------
+  private pointerFrame: { pf: PointerFrame; vp: Viewport } | null = null;
+  setPointerFrame(pf: PointerFrame | null, vp?: Viewport): void { this.pointerFrame = pf ? { pf, vp: vp ?? { w: 800, h: 800 } } : null; }
   private frame(): PointerFrame { return this.pointerFrame?.pf ?? this.cam; }
-  /** 指针帧的角度尺视口（ε 分母）。 */
   private fvp(): Viewport { return this.pointerFrame?.vp ?? this.vp(); }
-  // 纪律：凡 this.frame().ray/distTo/... 一律配 fvp()（指针帧的量纲视口），vp() 只给 canvas/渲染/相机 fit/框选用——
-  // 2026-09-07 VR 真机通天柱案：推拉自由拖路径把 canvas 尺寸喂给 800×800 虚拟屏的 (400,400) 光标，VR 里射线整个斜掉。
-  /** 本帧容差集（A17）：桌面 px（SNAP·vp.h/800 等比）/ VR 度（帧自带）。 */
   private eps(): EpsSet { return frameEps(this.frame(), this.fvp(), (SNAP_PX * this.fvp().h) / 800); }
   private snapPx(): number { return this.eps().snap; }
   private hitPx(): number { return this.eps().hit; }
+
+  // ---------- 上下文 / 世界 ----------
+  private activePool(): PoolRef { return this.scene.poolOfContext(this.ctx); }
+  private ctxXform(): Xform { return this.scene.xformOfContext(this.ctx); }
+  private toLocal(p: Pt3): Pt3 { const m = this.ctxXform(); return m === IDENTITY ? p : applyPt(invert(m), p); }
+  private toWorld(p: Pt3): Pt3 { const m = this.ctxXform(); return m === IDENTITY ? p : applyPt(m, p); }
+  /** 世界空间里的变换 → 活动上下文空间（父空间）里的同一变换：M⁻¹ ∘ X ∘ M。 */
+  private xformToLocal(x: Xform): Xform { const m = this.ctxXform(); return m === IDENTITY ? x : compose(invert(m), compose(x, m)); }
+  private kid(o: object): number { let id = this.kids.get(o); if (id === undefined) { id = this.nextKid++; this.kids.set(o, id); } return id; }
+  private ctxKey(): string { return `${this.ctx.chain.join("/")}#${this.ctx.group ?? "root"}`; }
+  /** 世界视图（缓存：场景代数 + 影子副本身份 + 上下文 + 整体变换预演）。 */
+  private worldView(live: Kernel | null = null, override: { picks: PoolPick[]; xform: Xform } | null = null): WorldView {
+    const ovKey = override ? `${override.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${override.xform.map((v) => v.toFixed(9)).join(",")}` : "";
+    const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}`;
+    if (this.viewCache?.key === key) return this.viewCache.view;
+    const overrides = override ? this.overrideList(override) : undefined;
+    const view = new WorldView(this.scene, this.ctx, live, overrides);
+    this.viewCache = { key, view };
+    return view;
+  }
+  private overrideList(o: { picks: PoolPick[]; xform: Xform }): { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[] {
+    const def = this.scene.defOfContext(this.ctx), chainKey = this.ctx.chain.join("/");
+    const groupDesc = (gid: number): Set<number> => {
+      const out = new Set<number>([gid]);
+      let grew = true;
+      while (grew) { grew = false; for (const g of this.scene.def(def).groups.values()) if (g.parent !== null && out.has(g.parent) && !out.has(g.id)) { out.add(g.id); grew = true; } }
+      return out;
+    };
+    return o.picks.map((p) => {
+      if (p.kind === "group") {
+        const desc = groupDesc(p.group);
+        return { match: (pool: PoolRef, chain: readonly InstId[]) => {
+          if (pool.def === def && chain.join("/") === chainKey && pool.group !== null && desc.has(pool.group)) return true;
+          // 组里的实例（及其子树）也跟着走
+          if (chain.length > this.ctx.chain.length && chain.slice(0, this.ctx.chain.length).join("/") === chainKey) {
+            const inst = this.scene.def(def).instances.get(chain[this.ctx.chain.length]);
+            return !!inst && inst.parent !== null && desc.has(inst.parent);
+          }
+          return false;
+        }, xform: o.xform };
+      }
+      const prefix = [...this.ctx.chain, p.instance].join("/");
+      return { match: (_pool: PoolRef, chain: readonly InstId[]) => chain.length > this.ctx.chain.length && chain.slice(0, this.ctx.chain.length + 1).join("/") === prefix, xform: o.xform };
+    });
+  }
+  /** 命中的全局实体 → 本地实体（活动池）或子池（直接子项）或空。 */
+  private classify(view: WorldView, hit: HitResult3): { kind: "entity"; local: HitResult3 } | { kind: "pool"; pick: PoolPick; key: string } | { kind: "none" } {
+    const gid = hit.vertex ?? hit.edge ?? hit.face;
+    if (gid === undefined) return { kind: "none" };
+    const { slot, id } = view.local(gid);
+    if (slot.active) {
+      const local: HitResult3 = hit.vertex !== undefined ? { vertex: id } : hit.edge !== undefined ? { edge: id } : { face: id };
+      return { kind: "entity", local };
+    }
+    const pick = this.topChild(slot);
+    return pick ? { kind: "pool", pick, key: this.pickKey(pick) } : { kind: "none" };
+  }
+  private pickKey(p: PoolPick): string { return p.kind === "group" ? `g${p.group}` : `i${p.instance}`; }
+  /** 槽 → 它所属的、活动上下文的直接子项（组 / 实例）；不在上下文子树里 → null。 */
+  private topChild(slot: PoolSlot): PoolPick | null {
+    const n = this.ctx.chain.length, chainKey = this.ctx.chain.join("/");
+    if (slot.chain.length < n || slot.chain.slice(0, n).join("/") !== chainKey) return null;
+    const def = this.scene.defOfContext(this.ctx);
+    if (slot.chain.length === n) {
+      if (slot.pool.group === null) return null;   // 同池的根几何（活动池是某个 group 时，根几何不是子项）
+      let g: number | null = slot.pool.group;
+      while (g !== null) { const grp = this.scene.group({ def, group: g }); if (grp.parent === this.ctx.group) return { kind: "group", group: g }; g = grp.parent; }
+      return null;
+    }
+    const inst = this.scene.def(def).instances.get(slot.chain[n]);
+    if (!inst) return null;
+    if (inst.parent === this.ctx.group) return { kind: "instance", instance: inst.id };
+    let g: number | null = inst.parent;
+    while (g !== null) { const grp = this.scene.group({ def, group: g }); if (grp.parent === this.ctx.group) return { kind: "group", group: g }; g = grp.parent; }
+    return null;
+  }
+  /** 子项在当前视图里的槽键集合（渲染高亮 / 包围盒）。 */
+  private slotsOfPick(view: WorldView, p: PoolPick): PoolSlot[] {
+    const [ov] = this.overrideList({ picks: [p], xform: IDENTITY });
+    return view.slots.filter((s) => ov.match(s.pool, s.chain));
+  }
 
   // ---------- 工具 ----------
   setTool(t: Tool): void {
     this._tool = t;
     this.cancelGesture();
+    if (t === "scale") this.rebuildScaleHandles();
     this.host.changed();
     this.draw();
   }
 
   cancel(): void {
     this.selection = emptySelection();
+    this.selectedPools.clear();
     this.cancelGesture();
+    this.scaleHandles = [];
     this.host.changed();
     this.draw();
   }
@@ -210,12 +323,15 @@ export class Editor {
   private cancelGesture(): void {
     this.anchor3 = null;
     this.moveVids = [];
+    this.movePools = [];
     this.ppFace = null;
     this.ppNormal = null;
     this.ppShellVids = new Set();
     this.ppStops = [];
-    this.samples = [];
     this.ppH = 0;
+    this.rotStage = 0; this.rotCenter = null; this.rotAxis = null; this.rotRef = null; this.rotAngle = 0;
+    this.scaleActive = null; this.scaleFactor = { x: 1, y: 1, z: 1 };
+    this.samples = [];
     this.rectFixed = null;
     this.lastSnap = null;
     this.armed = false;
@@ -229,7 +345,9 @@ export class Editor {
     this.marqueeStart = this.marqueeCur = null;
     this.hoverEdge = null;
     this.hoverFace = null;
+    this.hoverPool = null;
     this.live = null;
+    this.liveOverride = null;
     this.liveEvents = [];
     this.host.marquee(null);
     this.host.tip(null, 0, 0);
@@ -237,26 +355,41 @@ export class Editor {
   }
 
   // ---------- 记账 ----------
-  /** 所有改内核的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
+  /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitOp(op: Op): FaceEvent[] {
-    // 错误边界（2026-09-07 VR 真机「边 4-3 已存在」uncaught 案）：应用抛错 = 这一批不记账、checkpoint 换成 History 交回的
-    // 提交前状态（A1 2026-09-20 起真的「原样」——此前原地半改动）；报给 host（toast/字幕），手势清掉。不吞：console 与 UI 都要看见。
     const t0 = performance.now();
     let r: ReturnType<History["commit"]>;
-    try { r = this.history.commit(this.checkpoint, op); }
+    try { r = this.history.commit(this.scene, op); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
-      if (err instanceof OpApplyError) { this.checkpoint = err.restored; this._revision++; }
+      if (err instanceof OpApplyError) { this.scene = err.restored; this.bump(); }
       this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause) });
       this.fail("commit", cause);
       return [];
     }
-    this.checkpoint = r.kernel;
-    this._revision++;
+    this.scene = r.scene;
+    this.bump();
     this.revalidateCharged();
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
     this.host.changed();
     return r.events;
+  }
+  private bump(): void {
+    this._revision++;
+    // 上下文可能已不存在（undo 掉了建组）→ 回根
+    try { this.scene.poolOfContext(this.ctx); this.scene.xformOfContext(this.ctx); } catch { this.ctx = ROOT_CONTEXT; }
+    if (this.ctx.group !== null && !this.scene.def(this.scene.defOfContext(this.ctx)).groups.has(this.ctx.group)) this.ctx = { chain: this.ctx.chain, group: null };
+    this.pruneSelection();
+  }
+  private pruneSelection(): void {
+    const k = this.kernel;
+    for (const e of [...this.selection.edges]) if (!k.graph.hasEdge(e)) this.selection.edges.delete(e);
+    for (const f of [...this.selection.faces]) if (!k.face(f)) this.selection.faces.delete(f);
+    const def = this.scene.defOfContext(this.ctx);
+    for (const [key, p] of [...this.selectedPools]) {
+      const ok = p.kind === "group" ? this.scene.def(def).groups.get(p.group)?.parent === this.ctx.group : this.scene.def(def).instances.get(p.instance)?.parent === this.ctx.group;
+      if (!ok) this.selectedPools.delete(key);
+    }
   }
   private fail(where: string, err: unknown): void {
     const msg = err instanceof Error ? err.message : String(err);
@@ -265,66 +398,65 @@ export class Editor {
   }
 
   undo(): void {
-    // 手势进行中（含连画待命 / 推拉中 / 移动中）：第一下撤销 = 取消当前操作（逃生），不动历史（user 2026-09-07：
-    // 「第一下 ctrl z 是退出连续画线而不是取消上一个线，对 push pull 以及未来的东西同理。第一个 ctrl z 是 cancel ongoing operation 逃生」）
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
-    const k2 = this.history.undo();
-    if (!k2) return;
-    this.checkpoint = k2;
-    this._revision++;
+    const s2 = this.history.undo();
+    if (!s2) return;
+    this.scene = s2;
+    this.bump();
     this.revalidateCharged();
     this.cancelGesture();
-    this.selection = emptySelection();
+    this.selection = emptySelection(); this.selectedPools.clear();
     this.host.trace?.({ kind: "undo", position: this.history.position(), depth: this.history.depth() });
     this.host.changed();
     this.draw();
   }
   redo(): void {
     let r: ReturnType<History["redo"]>;
-    try { r = this.history.redo(this.checkpoint); }
+    try { r = this.history.redo(this.scene); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
-      if (err instanceof OpApplyError) { this.checkpoint = err.restored; this._revision++; }
+      if (err instanceof OpApplyError) { this.scene = err.restored; this.bump(); }
       this.host.trace?.({ kind: "fail", where: "redo", op: null, message: cause instanceof Error ? cause.message : String(cause) });
       this.fail("commit", cause);
       return;
     }
     if (!r) return;
-    this.checkpoint = r.kernel;
-    this._revision++;
+    this.scene = r.scene;
+    this.bump();
     this.revalidateCharged();
     this.cancelGesture();
-    this.selection = emptySelection();
+    this.selection = emptySelection(); this.selectedPools.clear();
     this.host.trace?.({ kind: "redo", position: this.history.position(), depth: this.history.depth() });
     this.host.changed();
     this.draw();
   }
-  /**
-   * 装载一个内核当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始（History 以它为 base），选区/充能/手势全清。
-   * 转正纪元 2026-09-20，Claude Fable 5.1。
-   */
-  loadKernel(k: Kernel, label = "打开"): void {
+  /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
+  loadScene(s: Scene, label = "打开"): void {
     this.cancelGesture();
-    this.checkpoint = k;
-    this.history = new History(k);
+    this.scene = s;
+    this.ctx = ROOT_CONTEXT;
+    this.history = new History(s);
     this._revision++;
-    this.selection = emptySelection();
+    this.selection = emptySelection(); this.selectedPools.clear();
     this.clearCharged();
     this.host.trace?.({ kind: "load", label });
     this.host.changed();
     this.draw();
   }
+  /** 兼容：单内核当根池装载。 */
+  loadKernel(k: Kernel, label = "打开"): void { this.loadScene(new Scene(k), label); }
   /** 干净视角截图（无选区/悬停/吸附/预演）→ RGBA 自上而下；保存时的缩略图源。 */
   captureRgba(w: number, h: number): Uint8Array {
-    return this.r3.captureRgba(this.checkpoint, this.cam, { w, h }, {
-      selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(),
-      hoverEdge: null, hoverFace: null, preview: null, snap: null, snapAnchor: null, revision: this._revision,
-    });
+    return this.r3.captureRgba(this.worldView(), this.cam, { w, h }, this.cleanState());
+  }
+  private cleanState(): ViewState {
+    return { selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(), hoverEdge: null, hoverFace: null, preview: null, snap: null, snapAnchor: null, revision: this._revision, dimSlots: null, handles: null };
   }
   clearAll(): void {
     this.cancelGesture();
-    this.selection = emptySelection();
-    this.clearCharged();   // 充能点随世界一起清（2026-09-02 修：清空后紫点残留）
+    this.selection = emptySelection(); this.selectedPools.clear();
+    this.clearCharged();
+    this.ctx = ROOT_CONTEXT;
     this.commitOp({ op: "clear" });
     this.draw();
   }
@@ -332,23 +464,22 @@ export class Editor {
     const preset = PRESETS.find((p) => p.name === name);
     if (!preset) return false;
     this.cancelGesture();
-    this.selection = emptySelection();
-    this.clearCharged();   // 预置=换世界，旧充能源作废
+    this.selection = emptySelection(); this.selectedPools.clear();
+    this.clearCharged();
+    this.ctx = ROOT_CONTEXT;
     this.commitOp({ op: "preset", name });
     this.draw();
     return true;
   }
-  /** 外部喂线段（OBJ 导入等）：一次 addEdges = 一个手势。 */
+  /** 外部喂线段（OBJ 导入等）：一次 addEdges = 一个手势（进活动池，世界坐标 → 本地）。 */
   addSegments(segs: [PtIn, PtIn][], label: string): FaceEvent[] {
     this.cancelGesture();
-    this.selection = emptySelection();
+    this.selection = emptySelection(); this.selectedPools.clear();
     this.host.trace?.({ kind: "load", label });
-    const evs = this.commitOp({ op: "addEdges", segs });
+    const evs = this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([a, b]) => [this.toLocal({ x: a.x, y: a.y, z: a.z ?? 0 }), this.toLocal({ x: b.x, y: b.y, z: b.z ?? 0 })]) });
     this.draw();
     return evs;
   }
-  /** 指针射线到实时世界（含预演）首张膜的距离；没命中 → null。VR 激光长度用它（与拾取同源——此前用碰撞世界，只跟 checkpoint 且射程 30 m，
-   *  「能拾取到远处的面但激光中途就停了」user 2026-09-08）。 */
   pointerHitDistance(sx: number, sy: number): number | null {
     const k = this.liveWorld();
     const fid = pickFace(k, this.frame(), this.fvp(), sx, sy);
@@ -359,30 +490,37 @@ export class Editor {
     const q = rayPlane(ray.origin, ray.dir, rec.plane.n, rec.plane.d);
     return q ? Math.hypot(q.x - ray.origin.x, q.y - ray.origin.y, q.z - ray.origin.z) : null;
   }
-  /** 选择工具的拾取（VR / 点击族共用）：屏幕坐标 → 实体。 */
+  /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
   pickAt(sx: number, sy: number): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx()); }
+
   /**
-   * 选择扩张（SU 点击族：单击 / 双击 / 三击；VR 与 pen = 阶段长按 0.3 s / 0.6 s + 震动，A13）：
-   *   stage 0 = 命中实体本身；1 = 膜 + 其环边（边 → 边 + 所有邻膜）；2 = 连通体（经边↔膜邻接可达的全部）。
-   * 空命中 = 清选区（非加选）。返回是否有变化。
+   * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
+   * 空命中 = 清选区（非加选）。hit 是 WorldView 的全局 id。
    */
   selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive = false): boolean {
-    const k = this.checkpoint;
+    const view = this.liveWorld();
+    const c = this.classify(view, hit);
+    if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
+    if (c.kind === "pool") { this.selectedPools.set(c.key, c.pick); this.afterSelect(); return true; }
+    if (c.kind === "none") { this.afterSelect(); return true; }
+    const k = this.kernel;
     const picked = emptySelection();
+    const h = c.local;
     const addFaceRing = (fid: FaceId): void => {
       const f = k.face(fid);
       if (!f) return;
       picked.faces.add(fid);
       for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) picked.edges.add(d.edge);
     };
-    if (hit.edge !== undefined && k.graph.hasEdge(hit.edge)) {   // 命中来自 liveWorld()，选区世界是 checkpoint：不在 = 不选
-      picked.edges.add(hit.edge);
-      if (stage >= 1) for (const fid of k.graph.edge(hit.edge).faceLinks) picked.faces.add(fid);
-    } else if (hit.face !== undefined && k.face(hit.face)) {
-      if (stage >= 1) addFaceRing(hit.face); else picked.faces.add(hit.face);
+    if (h.edge !== undefined && k.graph.hasEdge(h.edge)) {
+      picked.edges.add(h.edge);
+      if (stage >= 1) for (const fid of k.graph.edge(h.edge).faceLinks) picked.faces.add(fid);
+    } else if (h.face !== undefined && k.face(h.face)) {
+      if (stage >= 1) addFaceRing(h.face); else picked.faces.add(h.face);
+    } else if (h.vertex !== undefined && k.graph.hasVertex(h.vertex)) {
+      for (const eid of k.graph.vertex(h.vertex).edges) picked.edges.add(eid);
     }
-    if (stage >= 2 && (hit.edge !== undefined || hit.face !== undefined)) {
-      // 连通体：BFS（膜 → 环边 → 邻膜；散线经顶点也连）
+    if (stage >= 2 && (h.edge !== undefined || h.face !== undefined)) {
       const qE = [...picked.edges], qF = [...picked.faces];
       while (qE.length || qF.length) {
         const fid = qF.pop();
@@ -398,30 +536,128 @@ export class Editor {
         for (const vid of [e.a, e.b]) for (const e2 of k.graph.vertex(vid).edges) if (!picked.edges.has(e2)) { picked.edges.add(e2); qE.push(e2); }
       }
     }
-    if (additive) {
-      for (const e of picked.edges) this.selection.edges.add(e);
-      for (const f of picked.faces) this.selection.faces.add(f);
-    } else {
-      this.selection = picked;
-    }
+    for (const e of picked.edges) this.selection.edges.add(e);
+    for (const f of picked.faces) this.selection.faces.add(f);
+    this.afterSelect();
+    return true;
+  }
+  private afterSelect(): void {
+    if (this._tool === "scale") this.rebuildScaleHandles();
     this.host.changed();
     this.draw();
-    return true;
   }
 
   deleteSelection(): void {
     if (!this.hasSelection()) return;
-    const k = this.checkpoint;
-    this.commitOp({ op: "eraseSelection", faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) });
-    this.selection = emptySelection();
+    const k = this.kernel, at = this.activePool();
+    if (this.selection.faces.size || this.selection.edges.size) {
+      this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) });
+    }
+    const def = this.scene.defOfContext(this.ctx);
+    for (const p of [...this.selectedPools.values()]) {
+      if (p.kind === "group") this.commitOp({ op: "eraseGroup", at, group: p.group });
+      else this.commitOp({ op: "eraseInstance", def, instance: p.instance });
+    }
+    this.selection = emptySelection(); this.selectedPools.clear();
     this.host.changed();
     this.draw();
+  }
+
+  // ---------- group / component ----------
+  /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
+  makeGroup(): boolean {
+    if (!this.hasSelection()) return false;
+    const at = this.activePool(), k = this.kernel;
+    const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
+    const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
+    if (!faces.length && !edges.length) return false;
+    this.commitOp({ op: "makeGroup", at, faces, edges });
+    this.selection = emptySelection(); this.selectedPools.clear();
+    const def = this.scene.def(this.scene.defOfContext(this.ctx));
+    const newest = [...def.groups.values()].filter((g) => g.parent === this.ctx.group).pop();
+    if (newest) this.selectedPools.set(`g${newest.id}`, { kind: "group", group: newest.id });
+    this.host.changed(); this.draw();
+    return true;
+  }
+  /** 选区 → component（新 definition + 一个实例；轴 = 包围盒最小角）。 */
+  makeComponent(name: string): boolean {
+    if (!this.hasSelection()) return false;
+    const at = this.activePool(), k = this.kernel;
+    const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
+    const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
+    if (!faces.length && !edges.length) return false;
+    this.commitOp({ op: "makeComponent", at, faces, edges, name });
+    this.selection = emptySelection(); this.selectedPools.clear();
+    const def = this.scene.def(this.scene.defOfContext(this.ctx));
+    const newest = [...def.instances.values()].filter((i) => i.parent === this.ctx.group).pop();
+    if (newest) this.selectedPools.set(`i${newest.id}`, { kind: "instance", instance: newest.id });
+    this.host.changed(); this.draw();
+    return true;
+  }
+  /** 炸开选中的子 group / 实例。 */
+  explodeSelection(): boolean {
+    if (!this.selectedPools.size) return false;
+    const at = this.activePool();
+    for (const p of [...this.selectedPools.values()]) this.commitOp(p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance });
+    this.selectedPools.clear();
+    this.host.changed(); this.draw();
+    return true;
+  }
+  /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
+  copyInstance(delta: Pt3): boolean {
+    const picks = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance");
+    if (!picks.length) return false;
+    const def = this.scene.defOfContext(this.ctx), at = this.activePool();
+    for (const p of picks) {
+      const inst = this.scene.instance(def, p.instance);
+      this.commitOp({ op: "placeInstance", at, definition: inst.def, xform: compose(this.xformToLocal(translation(delta)), inst.xform) });
+    }
+    this.host.changed(); this.draw();
+    return true;
+  }
+  /** 进入选中（或命中）的子 group / 实例编辑。 */
+  enterPool(p: PoolPick): void {
+    this.cancelGesture();
+    this.selection = emptySelection(); this.selectedPools.clear();
+    if (p.kind === "group") this.ctx = { chain: this.ctx.chain, group: p.group };
+    else this.ctx = { chain: [...this.ctx.chain, p.instance], group: null };
+    this._revision++;
+    this.host.changed(); this.draw();
+  }
+  enterSelected(): boolean {
+    const p = [...this.selectedPools.values()][0];
+    if (!p) return false;
+    this.enterPool(p);
+    return true;
+  }
+  /** 退出一层（到父 group / 父实例）；已在根 → false。 */
+  exitContext(): boolean {
+    if (this.ctx.chain.length === 0 && this.ctx.group === null) return false;
+    this.cancelGesture();
+    this.selection = emptySelection(); this.selectedPools.clear();
+    const def = this.scene.defOfContext(this.ctx);
+    let reselect: PoolPick | null = null;
+    if (this.ctx.group !== null) {
+      const g = this.scene.group({ def, group: this.ctx.group });
+      reselect = { kind: "group", group: g.id };
+      this.ctx = { chain: this.ctx.chain, group: g.parent };
+    } else {
+      const chain = this.ctx.chain.slice(0, -1);
+      const parentDef = this.scene.defOfContext({ chain, group: null });
+      const inst = this.scene.instance(parentDef, this.ctx.chain[this.ctx.chain.length - 1]);
+      reselect = { kind: "instance", instance: inst.id };
+      this.ctx = { chain, group: inst.parent };
+    }
+    if (reselect) this.selectedPools.set(this.pickKey(reselect), reselect);
+    this._revision++;
+    this.host.changed(); this.draw();
+    return true;
   }
 
   // ---------- 相机 ----------
   setView(name: Parameters<OrbitCamera["setView"]>[0]): void { this.cam.setView(name); this.draw(); }
   zoomExtents(): void {
-    this.cam.fitPoints(this.checkpoint.vertices(), this.vp());
+    this.cam.fitPoints(this.worldView().vertices(), this.vp());
     this.draw();
   }
   toggleProjection(): void {
@@ -438,35 +674,26 @@ export class Editor {
     this.charged.set(key, { ...p });
     while (this.charged.size > 3) this.charged.delete(this.charged.keys().next().value!);
   }
-  /** dwellMs：hover=300ms；拖动中=120ms（user 2026-09-01 拍板：无悬停设备靠手势中路过充能兜底）。 */
   private trackCharge(sn: Snap3 | null, dwellMs = 300): void {
     if (!sn || (sn.kind !== "endpoint" && sn.kind !== "midpoint")) { this.dwell = null; return; }
     const key = `${sn.p.x},${sn.p.y},${sn.p.z}`;
     if (this.charged.has(key)) { this.dwell = null; return; }
     const now = performance.now();
     if (!this.dwell || this.dwell.key !== key) { this.dwell = { key, since: now }; return; }
-    if (now - this.dwell.since >= dwellMs) {
-      this.chargePt(sn.p);
-      this.dwell = null;
-    }
+    if (now - this.dwell.since >= dwellMs) { this.chargePt(sn.p); this.dwell = null; }
   }
-  /** 结算后重验充能点：锚定几何（顶点/边中点）已被搬走/消灭的幽灵源自动消（2026-09-02）。 */
   private revalidateCharged(): void {
     if (!this.charged.size) return;
+    const view = this.worldView();
     const live = new Set<string>();
-    for (const v of this.checkpoint.vertices()) live.add(`${v.x},${v.y},${v.z}`);
-    for (const e of this.checkpoint.edges()) {
-      const a = this.checkpoint.graph.pt(e.a), b = this.checkpoint.graph.pt(e.b);
+    for (const v of view.vertices()) live.add(`${v.x},${v.y},${v.z}`);
+    for (const e of view.edges()) {
+      const a = view.graph.pt(e.a), b = view.graph.pt(e.b);
       live.add(`${(a.x + b.x) / 2},${(a.y + b.y) / 2},${(a.z + b.z) / 2}`);
     }
     for (const key of [...this.charged.keys()]) if (!live.has(key)) this.charged.delete(key);
   }
-  private clearCharged(): void {
-    this.charged.clear();
-    this.dwell = null;
-    this.lastSnap = null;
-  }
-  // 磁滞（防边界闪烁）：已吸住的目标，光标在其 1.5×ε 圈内不放手（只防脱出，不裁竞争切换）
+  private clearCharged(): void { this.charged.clear(); this.dwell = null; this.lastSnap = null; }
   private applyHysteresis(sn: Snap3, sx: number, sy: number): Snap3 {
     if (sn.kind !== null) { this.lastSnap = sn; return sn; }
     if (this.lastSnap?.kind) {
@@ -480,22 +707,24 @@ export class Editor {
 
   // ---------- 世界源 ----------
   private gestureActive(): boolean {
-    return this.anchor3 !== null || this.moveVids.length > 0 || this.scrubbing || this.marqueeStart !== null;
+    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.scrubbing || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null;
   }
-  /** 悬停预告（eraseFace hover 的 live）不算手势现实——预告吃掉自己=拾取振荡，故以 gestureActive 为界。 */
-  private liveWorld(): Kernel { return this.gestureActive() ? (this.live ?? this.checkpoint) : this.checkpoint; }
-  /** 推拉的推断世界 = 按下那一刻的模型（文件头注释「例外」条；09-23 bug 2：世界依赖 h 的回路无不动点）。 */
-  private ppInferenceWorld(): Kernel { return this.checkpoint; }
-  /** 基线手：checkpoint 之外的新生 vid（wip 线端/planarize 切点——追光标者）+ 工具自报的移动集。 */
-  private freshHand(extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
-    const known = new Set(this.checkpoint.vertices().map((v) => v.id));
-    const hand: AlignHand = { has: (vid) => !known.has(vid) || (extra?.(vid) ?? false), opaque };
-    // draw 类手势：只有预演里 BIRTH 出来的膜才「在手里」（追光标的新膜）；DIVIDE 子膜与母膜同影柱，
-    // 照常遮挡——否则矩形一落在正面上，正面就透明、背后的底边露出来被吸（2026-09-06 user 案）。
-    if (this._tool === "line" || this._tool === "rect") {
+  /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
+  private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
+  /** 推拉的推断世界 = 按下那一刻的模型（文件头「例外」条）。 */
+  private ppInferenceWorld(): WorldView { return this.worldView(); }
+  /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
+  private freshHand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
+    const known = new Set(this.kernel.vertices().map((v) => v.id));
+    const active = view.activeSlot();
+    const hand: AlignHand = {
+      has: (gid) => { if (view.slotOf(gid) !== active) return false; const { id } = view.local(gid); return !known.has(id) || (extra?.(id) ?? false); },
+      opaque,
+    };
+    if (this._tool === "line" || this._tool === "rect" || this._tool === "circle") {
       const born = new Set<FaceId>();
       for (const e of this.liveEvents) if (e.type === "BIRTH") born.add(e.face);
-      hand.faces = (fid) => born.has(fid);
+      hand.faces = (fid) => view.slotOf(fid) === active && born.has(view.local(fid).id);
     }
     return hand;
   }
@@ -503,19 +732,20 @@ export class Editor {
   // ---------- live（影子副本预演） ----------
   private computeLive(): void {
     this.live = null;
+    this.liveOverride = null;
     this.liveEvents = [];
     const run = (fn: (c: Kernel) => FaceEvent[]): void => {
-      const c = this.checkpoint.clone();
+      const c = this.kernel.clone();
       try { this.liveEvents = fn(c); }
-      catch (err) { this.liveEvents = []; this.live = null; this.fail("preview", err); return; }   // 预演失败：无影子，手势继续，松手时 commit 再判
+      catch (err) { this.liveEvents = []; this.live = null; this.fail("preview", err); return; }
       this.live = c;
     };
     const tool = this._tool;
-    let dims = "";   // 拖拽中的尺寸读数（user 2026-09-07「推拉矩形的时候要显示长度」；推拉的 h 在 ppTrack 里）
+    let dims = "";
     if (tool === "line" && this.anchor3 && this.cursor3) {
       const a = this.anchor3, b = this.cursor3;
       dims = `长 ${fmtLen(dist(a, b))}`;
-      if (dist(a, b) >= MIN_GESTURE_LEN) run((c) => c.addEdges([[a, b]]));
+      if (dist(a, b) >= MIN_GESTURE_LEN) run((c) => c.addEdges([[this.toLocal(a), this.toLocal(b)]]));
     } else if (tool === "rect" && this.anchor3 && this.cursor3) {
       const { plane, basis } = this.gesturePlane;
       const segs = rectSegmentsOnPlane(plane, basis, this.anchor3, this.cursor3);
@@ -523,45 +753,71 @@ export class Editor {
       const du = d.x * basis.u.x + d.y * basis.u.y + d.z * basis.u.z;
       const dv = d.x * basis.v.x + d.y * basis.v.y + d.z * basis.v.z;
       dims = `矩形 ${fmtLen(Math.abs(du))} × ${fmtLen(Math.abs(dv))}`;
-      if (segs.length) run((c) => c.addEdges(segs));
-    } else if (tool === "move" && this.moveVids.length && this.anchor3 && this.cursor3) {
+      if (segs.length) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)])));
+    } else if (tool === "circle" && this.anchor3 && this.cursor3) {
+      const r = dist(this.anchor3, this.cursor3);
+      dims = `圆 半径 ${fmtLen(r)}`;
+      const segs = circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, CIRCLE_SEGMENTS);
+      if (segs.length && r >= MIN_GESTURE_LEN) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]), { soft: true }));
+    } else if (tool === "move" && this.anchor3 && this.cursor3 && (this.moveVids.length || this.movePools.length)) {
       const delta = sub3(this.cursor3, this.anchor3);
-      const vids = this.moveVids;
-      if (Math.hypot(delta.x, delta.y, delta.z) >= MIN_GESTURE_LEN) run((c) => c.moveVertices(translateMoves(this.checkpoint, vids, delta)));
+      dims = `移动 ${fmtLen(len3(delta))}`;
+      if (len3(delta) >= MIN_GESTURE_LEN) {
+        if (this.moveVids.length) { const vids = this.moveVids, dl = applyDir(invert(this.ctxXform()), delta); run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: add3(c.graph.pt(id), dl) })))); }
+        if (this.movePools.length) this.liveOverride = { picks: this.movePools, xform: translation(delta) };
+      }
+    } else if (tool === "rotate" && this.rotStage === 2 && this.rotCenter && this.rotAxis) {
+      dims = `旋转 ${fmtDeg(this.rotAngle)}`;
+      if (Math.abs(this.rotAngle) > 1e-6) {
+        const X = rotationAbout(this.rotCenter, this.rotAxis, this.rotAngle);
+        this.previewXform(X, run);
+      }
+    } else if (tool === "scale" && this.scaleActive) {
+      const s = this.scaleFactor;
+      dims = `缩放 ${s.x.toFixed(3)} × ${s.y.toFixed(3)} × ${s.z.toFixed(3)}`;
+      const X = scalingAbout(this.scaleActive.anchor, s);
+      this.previewXform(X, run);
     } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= MIN_GESTURE_LEN) {
-      const fid = this.ppFace;
-      // 预演用精确 h（像表结算机 2026-10-21：落在既有膜上 = OR 合并一张，不再有开区间样本 / 碎边）；commit 用 XOR 落地。
-      const h = this.ppH;
+      const fid = this.ppFace, h = this.ppLocalH(this.ppH);
       run((c) => c.pushPull(fid, h, { settleLanding: false }));
     } else if (tool === "eraseFace" && this.hoverFace !== null) {
       const id = this.hoverFace;
       run((c) => c.eraseFaces([id]));
     }
-    if (this.live || dims) {
+    if (this.live || this.liveOverride || dims) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
       this.host.hint([dims, ev].filter(Boolean).join(" ｜ "));
     }
   }
+  /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
+  private previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void): void {
+    const vids = moveTargetsSelection(this.kernel, this.selection);
+    if (vids.length) { const XL = this.xformToLocal(X); run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) })))); }
+    const picks = this.selectedPoolPicks();
+    if (picks.length) this.liveOverride = { picks, xform: X };
+  }
+  /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
+  private ppLocalH(h: number): number {
+    const m = this.ctxXform();
+    if (m === IDENTITY || !this.ppNormal) return h;
+    return h * len3(applyDir(invert(m), this.ppNormal));
+  }
 
-  /** 线的第二点：学矩形（user 2026-09-01 裁决「线的空落点兜底=学矩形」）——含光标的膜 > 过锚点轴平面 > 轴系；
-   *  平面随第二点动态解析并写回 gesturePlane（2026-09-06 修：此前锁死首点平面，从共享边画进侧面时端点落到地面）。 */
-  /** 首点在地面（z=0）→ 第二点兜底黏地面（不随指针俯仰翻成竖直面）。 */
   private basePlaneOfAnchor(): DrawPlane | undefined { return this.anchor3 && Math.abs(this.anchor3.z) < 1e-6 ? GROUND : undefined; }
   private lineSecondSnap(sx: number, sy: number): Snap3 {
-    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(), this.basePlaneOfAnchor());
-    // 擦射线护栏：射线与平面近平行，交点会甩到无穷远 → 保持上一帧
+    const w = this.liveWorld();
+    const r = resolveRectPlane(w, this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(w), this.basePlaneOfAnchor());
     if (r.snap.kind === null && this.snapInfo && grazing(r.plane, this.frame().ray(sx, sy, this.fvp()))) return this.snapInfo;
     this.gesturePlane = r.plane;
     return r.snap;
   }
-
-  /** 矩形第二点：固定面 → 面内吸附；动态 → 平面被第二点拉动（resolveRectPlane）。 */
   private rectPlaneSnap(sx: number, sy: number): Pt3 {
+    const w = this.liveWorld();
     if (this.rectFixed) {
-      this.snapInfo = snapPoint(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() });
+      this.snapInfo = snapPoint(w, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand(w) });
       return this.snapInfo.p;
     }
-    const r = resolveRectPlane(this.liveWorld(), this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(), this.basePlaneOfAnchor());
+    const r = resolveRectPlane(w, this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(w), this.basePlaneOfAnchor());
     if (r.snap.kind === null && this.snapInfo && grazing(r.plane, this.frame().ray(sx, sy, this.fvp()))) return this.snapInfo.p;
     this.gesturePlane = r.plane;
     this.snapInfo = r.snap;
@@ -569,12 +825,9 @@ export class Editor {
   }
 
   // ---------- 渲染 ----------
-  /** app 层附加的视图状态（近平面 / teleport 弧线等，与工具无关）。 */
   viewExtras: (() => Partial<ViewState>) | null = null;
-  /** 连续渲染循环（步行 / XR）；null = 停。 */
   setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void { this.r3.setLoop(cb); }
   private drawSuspended = false;
-  /** 一帧内多次指针事件只渲染一次（XR 每帧只许一次 render）。 */
   batchDraw(fn: () => void): void {
     this.drawSuspended = true;
     try { fn(); } finally { this.drawSuspended = false; }
@@ -582,50 +835,100 @@ export class Editor {
   }
   draw(): void {
     if (this.drawSuspended) return;
-    this.r3.render(this.checkpoint, this.cam, this.vp(), {
+    const view = this.liveWorld();
+    const active = view.activeSlot();
+    const off = active.index;
+    const g = (id: number): number => id + off * (1 << 22);
+    const selE = new Set<number>([...this.selection.edges].map(g)), selF = new Set<number>([...this.selection.faces].map(g));
+    // 子池选区 / 悬停：整池的面与边高亮
+    const slotHighlight = (picks: Iterable<PoolPick>): void => {
+      for (const p of picks) for (const s of this.slotsOfPick(view, p)) {
+        const o = s.index * (1 << 22);
+        for (const f of s.kernel.faces()) selF.add(f.id + o);
+        for (const e of s.kernel.edges()) selE.add(e.id + o);
+      }
+    };
+    slotHighlight(this.selectedPools.values());
+    const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !s.active).map((s) => s.index)) : null;
+    this.r3.render(view, this.cam, this.vp(), {
       ...(this.viewExtras?.() ?? {}),
-      selectionEdges: this.selection.edges,
-      selectionFaces: this.selection.faces,
-      scrubEdges: this.scrubAcc,
-      hoverEdge: this.hoverEdge,
-      hoverFace: this.hoverFace,
-      preview: this.live,
+      selectionEdges: selE,
+      selectionFaces: selF,
+      scrubEdges: new Set([...this.scrubAcc].map(g)),
+      hoverEdge: this.hoverEdge !== null ? g(this.hoverEdge) : null,
+      hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
+      preview: null,
       snap: this.snapInfo,
-      snapAnchor: this.anchor3,
+      snapAnchor: this._tool === "rotate" ? this.rotCenter : this.anchor3,
       revision: this._revision,
+      dimSlots: dimmed,
+      handles: this._tool === "scale" ? this.scaleHandles.map((h) => ({ p: h.p, active: h === this.scaleActive })) : null,
+      protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
     });
   }
-  resize(dpr: number): void {
-    this.r3.resize(this.vp(), dpr);
-    this.draw();
-  }
+  resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
   private updateTip(clientX: number, clientY: number): void {
     this.host.tip(this.snapInfo?.kind ? SNAP_LABELS[this.snapInfo.kind] ?? this.snapInfo.kind : null, clientX, clientY);
+  }
+
+  // ---------- 缩放柄 ----------
+  private targetBounds(): { min: Pt3; max: Pt3 } | null {
+    const view = this.worldView();
+    let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+    const add = (p: Pt3): void => { min = { x: Math.min(min.x, p.x), y: Math.min(min.y, p.y), z: Math.min(min.z, p.z) }; max = { x: Math.max(max.x, p.x), y: Math.max(max.y, p.y), z: Math.max(max.z, p.z) }; };
+    const k = this.kernel, m = this.ctxXform();
+    for (const vid of moveTargetsSelection(k, this.selection)) add(applyPt(m, k.graph.pt(vid)));
+    for (const p of this.selectedPools.values()) for (const s of this.slotsOfPick(view, p)) { const b = poolBounds(s.kernel, s.xform); if (b) { add(b.min); add(b.max); } }
+    return Number.isFinite(min.x) ? { min, max } : null;
+  }
+  private rebuildScaleHandles(): void {
+    this.scaleHandles = [];
+    const b = this.targetBounds();
+    if (!b) return;
+    const { min, max } = b;
+    const mid = { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 };
+    for (const sx of [0, 1]) for (const sy of [0, 1]) for (const sz of [0, 1]) {
+      const p = { x: sx ? max.x : min.x, y: sy ? max.y : min.y, z: sz ? max.z : min.z };
+      const anchor = { x: sx ? min.x : max.x, y: sy ? min.y : max.y, z: sz ? min.z : max.z };
+      this.scaleHandles.push({ kind: "corner", p, anchor, axis: null });
+    }
+    const faces: [Pt3, Pt3, Pt3][] = [
+      [{ x: max.x, y: mid.y, z: mid.z }, { x: min.x, y: mid.y, z: mid.z }, { x: 1, y: 0, z: 0 }], [{ x: min.x, y: mid.y, z: mid.z }, { x: max.x, y: mid.y, z: mid.z }, { x: -1, y: 0, z: 0 }],
+      [{ x: mid.x, y: max.y, z: mid.z }, { x: mid.x, y: min.y, z: mid.z }, { x: 0, y: 1, z: 0 }], [{ x: mid.x, y: min.y, z: mid.z }, { x: mid.x, y: max.y, z: mid.z }, { x: 0, y: -1, z: 0 }],
+      [{ x: mid.x, y: mid.y, z: max.z }, { x: mid.x, y: mid.y, z: min.z }, { x: 0, y: 0, z: 1 }], [{ x: mid.x, y: mid.y, z: min.z }, { x: mid.x, y: mid.y, z: max.z }, { x: 0, y: 0, z: -1 }],
+    ];
+    for (const [p, anchor, axis] of faces) if (dist(p, anchor) >= MIN_GESTURE_LEN) this.scaleHandles.push({ kind: "face", p, anchor, axis });
+  }
+  private pickScaleHandle(sx: number, sy: number): ScaleHandle | null {
+    let best: ScaleHandle | null = null, bd = this.hitPx() * 1.5;
+    for (const h of this.scaleHandles) { const d = this.frame().distTo(sx, sy, h.p, this.fvp()); if (d <= bd) { bd = d; best = h; } }
+    return best;
   }
 
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void {
     const s = ev;
+    const view = this.liveWorld();
     switch (this._tool) {
       case "line":
-      case "rect": {
+      case "rect":
+      case "circle": {
         if (this.armed && this.anchor3) {
-          // 点两下模式第二击 = 落笔（SU 同款；线工具链式连画）
           this.justCommitted = true;
           this.trackGesture(s);
           if (this._tool === "line") this.commitLine(this.currentSample());
-          else this.commitRect(this.currentSample());
+          else if (this._tool === "rect") this.commitRect(this.currentSample());
+          else this.commitCircle(this.currentSample());
           break;
         }
-        if (this._tool === "rect") {
-          // 元逻辑：首点被低维吸附赢走（角/边/轴）→ 平面延迟给第二点；裸落面内才锁面平行
-          const r = rectFirstPlane(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
+        if (this._tool === "rect" || this._tool === "circle") {
+          const r = rectFirstPlane(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
           this.rectFixed = r.fixed;
           this.gesturePlane = r.plane;
           this.snapInfo = r.snap;
+          if (this._tool === "circle" && !this.rectFixed) this.rectFixed = r.plane;   // 圆：首点定平面（没落在膜内就用解析出的平面）
         } else {
-          // 线的空落点兜底=学矩形（user 2026-09-01 裁决）：面上锁面；空处=摄像机挑最面向的轴平面
-          const r0 = rectFirstPlane(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
+          const r0 = rectFirstPlane(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
           this.gesturePlane = r0.plane;
           this.snapInfo = r0.snap;
         }
@@ -643,72 +946,115 @@ export class Editor {
           this.commitPP(this.currentSample());
           break;
         }
-        // 面动词只认面（细面上任何位置都在边的 HIT 圈内，走 pickEntity 边永远赢；user 2026-09-07）
-        const hit = { face: pickFace(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y) };
-        if (hit.face !== undefined) {
-          const k = this.checkpoint;
-          const rec = k.planeOf(hit.face)!;
-          this.ppFace = hit.face;
-          const fRec = k.face(hit.face)!;
-          // 手中集=帽环本身（2026-09-03 user：底面四条边应可吸 On Edge=SU 同款；穿体吸远角由 opaque 手中膜遮挡接管）
-          this.ppShellVids = new Set([
-            ...ringVidsTolerant(k.graph, fRec.outer),
-            ...fRec.holes.flatMap((hh) => ringVidsTolerant(k.graph, hh)),
-          ]);
-          this.ppNormal = rec.plane.n;
-          this.gesturePlane = { plane: rec.plane, basis: rec.basis };
-          const ray0 = this.frame().ray(s.x, s.y, this.fvp());
-          const grab = rayPlane(ray0.origin, ray0.dir, rec.plane.n, rec.plane.d);
-          this.anchor3 = grab ?? k.faceRings3(hit.face)!.outer[0];
-          {   // 高度通道停靠集：全场景静态顶点沿 n 的投影高度（含底环/邻面高/0；user 拍板 A 案）
-            const hs = new Set<number>();
-            hs.add(0);
-            for (const v of k.vertices()) hs.add(Math.round(dot3(sub3(v, this.anchor3), rec.plane.n) * 1e6) / 1e6);
-            this.ppStops = [...hs].sort((a, b) => a - b);
-          }
-          this.cursor3 = this.anchor3;
-          this.ppH = 0;
-          this.armed = false;
-          this.canArm = !!ev.armable;
-          this.downScreen = { x: s.x, y: s.y };
-          this.host.hint("推拉中：沿法向拖或点两下落定（所见即所得；吸点线=取其高度）");
+        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
+        if (gf === undefined) break;
+        const c = this.classify(view, { face: gf });
+        if (c.kind === "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再推拉"); break; }
+        if (c.kind !== "entity" || c.local.face === undefined) break;
+        const k = this.kernel;
+        const rec = k.planeOf(c.local.face)!;
+        const wrec = view.planeOf(gf)!;
+        this.ppFace = c.local.face;
+        const fRec = k.face(c.local.face)!;
+        this.ppShellVids = new Set([...ringVidsTolerant(k.graph, fRec.outer), ...fRec.holes.flatMap((hh) => ringVidsTolerant(k.graph, hh))]);
+        this.ppNormal = wrec.plane.n;
+        this.gesturePlane = { plane: wrec.plane, basis: wrec.basis };
+        const ray0 = this.frame().ray(s.x, s.y, this.fvp());
+        const grab = rayPlane(ray0.origin, ray0.dir, wrec.plane.n, wrec.plane.d);
+        this.anchor3 = grab ?? view.faceRings3(gf)!.outer[0];
+        {   // 高度通道停靠集：全场景静态顶点沿 n 的投影高度（含别的 group / 组件）
+          const hs = new Set<number>([0]);
+          for (const v of view.vertices()) hs.add(Math.round(dot3(sub3(v, this.anchor3), wrec.plane.n) * 1e6) / 1e6);
+          this.ppStops = [...hs].sort((a, b) => a - b);
         }
+        void rec;
+        this.cursor3 = this.anchor3;
+        this.ppH = 0;
+        this.armed = false;
+        this.canArm = !!ev.armable;
+        this.downScreen = { x: s.x, y: s.y };
+        this.host.hint("推拉中：沿法向拖或点两下落定（所见即所得；吸点线=取其高度）");
         break;
       }
       case "move": {
-        if (this.armed && this.moveVids.length && this.anchor3) {
-          // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
+        if (this.armed && (this.moveVids.length || this.movePools.length) && this.anchor3) {
           this.justCommitted = true;
           this.trackGesture(s);
           this.commitMove(this.currentSample());
           break;
         }
-        const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
-        const hasSel = this.hasSelection();
-        // SU 语义（user 2026-09-01）：有选区时 move 作用于选区，拾取点可以点任何地方当参考点
-        this.moveVids = hasSel ? moveTargetsSelection(this.checkpoint, this.selection) : moveTargets(this.checkpoint, hit);
-        if (this.moveVids.length) {
-          this.gesturePlane = drawPlaneAt(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y);
+        const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
+        const c = this.classify(view, hit);
+        if (this.hasSelection()) {
+          this.moveVids = moveTargetsSelection(this.kernel, this.selection);
+          this.movePools = this.selectedPoolPicks();
+        } else if (c.kind === "entity") { this.moveVids = moveTargets(this.kernel, c.local); this.movePools = []; }
+        else if (c.kind === "pool") { this.moveVids = []; this.movePools = [c.pick]; }
+        else { this.moveVids = []; this.movePools = []; }
+        if (this.moveVids.length || this.movePools.length) {
+          this.gesturePlane = drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y);
           this.anchor3 = hit.vertex !== undefined
-            ? this.checkpoint.graph.pt(hit.vertex)
-            : snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand() }).p;
+            ? view.graph.pt(hit.vertex)
+            : snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }).p;
           this.cursor3 = this.anchor3;
-          // 拖动期的兜底平面 = 过锚点、最面向指针的轴平面，**不是**落笔那张膜（那是受影响面：屋脊案里就是旧顶面，
-          // 光标离开它还黏着、射线擦过它就甩到无穷远——user 2026-09-07）
           this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
           this.armed = false;
           this.canArm = !!ev.armable;
           this.downScreen = { x: s.x, y: s.y };
-          this.host.hint(hasSel ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得）");
+          this.host.hint(this.movePools.length ? "移动 group / 组件：拖拽或点两下放置" : this.hasSelection() ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得）");
         }
+        break;
+      }
+      case "rotate": {
+        if (!this.hasSelection()) { this.host.hint("先选中要旋转的东西（选择工具），再用量角器"); break; }
+        if (this.rotStage === 0) {
+          // 圆心：落在膜上 → 转轴 = 膜法向；否则 → 画线平面（地面 / 面向的轴平面）
+          const r = rectFirstPlane(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
+          this.rotCenter = r.snap.p;
+          this.rotAxis = r.plane.plane.n;
+          this.gesturePlane = r.plane;
+          this.snapInfo = r.snap;
+          this.rotStage = 1;
+          this.downScreen = { x: s.x, y: s.y };
+          this.host.hint(`圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）：再按住一点当参考方向，拖出角度`);
+          break;
+        }
+        if (this.rotStage === 1 && this.rotCenter) {
+          const sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view) });
+          const q = this.projectToPlaneThrough(sn.p, this.rotCenter, this.rotAxis!);
+          if (dist(q, this.rotCenter) < MIN_GESTURE_LEN) { this.host.hint("参考点离圆心太近"); break; }
+          this.rotRef = q;
+          this.rotAngle = 0;
+          this.rotStage = 2;
+          this.cursor3 = q;
+          this.downScreen = { x: s.x, y: s.y };
+          this.host.hint("拖出角度（15° 咬合）；松手落定");
+        }
+        break;
+      }
+      case "scale": {
+        if (!this.hasSelection()) { this.host.hint("先选中要缩放的东西（选择工具），再拖包围盒上的柄"); break; }
+        if (!this.scaleHandles.length) this.rebuildScaleHandles();
+        const h = this.pickScaleHandle(s.x, s.y);
+        if (!h) { this.host.hint("按住包围盒上的柄拖：角 = 等比，面心 = 单轴"); break; }
+        this.scaleActive = h;
+        this.scaleFactor = { x: 1, y: 1, z: 1 };
+        const dir = normalize3(sub3(h.p, h.anchor));
+        const ray = this.frame().ray(s.x, s.y, this.fvp());
+        const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
+        this.scaleT0 = q ? Math.max(dot3(sub3(q, h.anchor), dir), MIN_GESTURE_LEN) : dist(h.p, h.anchor);
+        this.cursor3 = h.p;
+        this.downScreen = { x: s.x, y: s.y };
+        this.host.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖");
         break;
       }
       case "erase": {
         this.scrubbing = true;
         this.scrubAcc = new Set();
         this.hoverEdge = null;
-        const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
-        if (hit.edge !== undefined) this.scrubAcc.add(hit.edge);
+        const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
+        const c = this.classify(view, hit);
+        if (c.kind === "entity" && c.local.edge !== undefined) this.scrubAcc.add(c.local.edge);
         this.computeLive();
         break;
       }
@@ -728,16 +1074,26 @@ export class Editor {
       this.snapInfo = null;
       this.hoverEdge = null;
       this.hoverFace = null;
+      this.hoverPool = null;
       const tool = this._tool;
-      if (tool === "line" || tool === "rect" || tool === "move") {
-        const plane = drawPlaneAt(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y);
-        this.snapInfo = this.applyHysteresis(snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand() }), s.x, s.y);
+      const view = this.liveWorld();
+      if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || (tool === "rotate" && this.rotStage === 0)) {
+        const plane = drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y);
+        this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y);
         this.trackCharge(this.snapInfo);
+      } else if (tool === "rotate" && this.rotStage === 1 && this.rotCenter) {
+        this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y);
       } else if (tool === "erase") {
-        this.hoverEdge = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx()).edge ?? null;
+        const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
+        this.hoverEdge = c.kind === "entity" ? (c.local.edge ?? null) : null;
       } else if (tool === "eraseFace") {
-        this.hoverFace = pickFace(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y) ?? null;
+        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
+        const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
+        this.hoverFace = c.kind === "entity" ? (c.local.face ?? null) : null;
         this.computeLive();
+      } else if (tool === "select") {
+        const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
+        this.hoverPool = c.kind === "pool" ? c.key : null;
       }
       this.updateTip(ev.clientX, ev.clientY);
       this.draw();
@@ -746,10 +1102,9 @@ export class Editor {
     this.trackGesture(s, ev.travel);
     switch (this._tool) {
       case "erase": {
-        // 橡皮不预演（user 2026-09-07「橡皮不应该是预演，而是一个静态上面选择，松的时候才删」= SU 同款）：
-        // 拖擦只在现实世界上高亮（scrubEdges→edgeHot），松手一次结算；顺带根治「预演里膜死了露出背面 innocent 边」。
-        const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
-        if (hit.edge !== undefined) this.scrubAcc.add(hit.edge);
+        const view = this.liveWorld();
+        const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
+        if (c.kind === "entity" && c.local.edge !== undefined) this.scrubAcc.add(c.local.edge);
         break;
       }
       case "select":
@@ -760,8 +1115,7 @@ export class Editor {
           this.host.marquee({ x: minX, y: minY, w: maxX - minX, h: maxY - minY });
         }
         break;
-      case "eraseFace":
-        break;
+      default: break;
     }
     this.recordSample(s);
     if (this._tool !== "select") this.computeLive();
@@ -769,8 +1123,9 @@ export class Editor {
     this.draw();
   }
 
-  /** 手势中的取点（line / rect / pp / move 的拖拽态；pointerMove 与松开帧共用）。 */
+  /** 手势中的取点（line / rect / circle / pp / move / rotate / scale 的拖拽态；pointerMove 与松开帧共用）。 */
   private trackGesture(s: { x: number; y: number }, travel?: number): void {
+    const view = this.liveWorld();
     switch (this._tool) {
       case "line":
         if (this.anchor3) {
@@ -780,18 +1135,18 @@ export class Editor {
         }
         break;
       case "rect":
+      case "circle":
         if (this.anchor3) this.cursor3 = this.rectPlaneSnap(s.x, s.y);
         break;
       case "pp":
         this.ppTrack(s.x, s.y, travel);
         break;
       case "move":
-        if (this.moveVids.length && this.anchor3) {
+        if ((this.moveVids.length || this.movePools.length) && this.anchor3) {
           const mv = new Set(this.moveVids);
-          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);   // 随指针面向走的屏幕平面（不是受影响面）
-          let sn = snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) });
+          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
+          let sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand(view, (vid) => mv.has(vid), false) });
           if (sn.kind === null) {
-            // 无吸附 = SU move 的方向推断：宽锥三轴三选一（六个 60° 锥）；都不在锥内 → 屏幕平面自由移动；擦射线 → 保持上一帧
             const ax = inferAxisByDirection(this.frame(), this.fvp(), this.anchor3, s.x, s.y);
             if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
             else if (this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
@@ -801,32 +1156,61 @@ export class Editor {
           this.cursor3 = this.snapInfo.p;
         }
         break;
+      case "rotate":
+        if (this.rotStage === 2 && this.rotCenter && this.rotAxis && this.rotRef) {
+          const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view), lines: false });
+          const q = this.projectToPlaneThrough(sn.p, this.rotCenter, this.rotAxis);
+          const a = sub3(this.rotRef, this.rotCenter), b = sub3(q, this.rotCenter);
+          if (len3(b) >= MIN_GESTURE_LEN) {
+            let ang = Math.atan2(dot3(cross3(a, b), this.rotAxis), dot3(a, b));
+            const step = ANGLE_STEP_DEG * Math.PI / 180, near = Math.round(ang / step) * step;
+            if (sn.kind === null && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; this.snapInfo = { p: q, kind: "h-stop" }; }
+            else this.snapInfo = sn.kind ? { ...sn, p: q } : null;
+            this.rotAngle = ang;
+            this.cursor3 = q;
+          }
+        }
+        break;
+      case "scale":
+        if (this.scaleActive) {
+          const h = this.scaleActive;
+          const dir = normalize3(sub3(h.p, h.anchor));
+          const ray = this.frame().ray(s.x, s.y, this.fvp());
+          const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
+          if (q) {
+            const t = dot3(sub3(q, h.anchor), dir);
+            let f = t / this.scaleT0;
+            if (Math.abs(f) < 1e-3) f = 1e-3;   // 不许缩到零（退化）
+            const snapped = [0.5, 1, 1.5, 2, 3, 4].find((v) => Math.abs(f - v) < 0.02);
+            if (snapped !== undefined) f = snapped;
+            this.scaleFactor = h.kind === "corner" ? { x: f, y: f, z: f } : { x: h.axis!.x ? f : 1, y: h.axis!.y ? f : 1, z: h.axis!.z ? f : 1 };
+            this.cursor3 = add3(h.anchor, scale3(dir, t));
+            this.snapInfo = snapped !== undefined ? { p: this.cursor3, kind: "h-stop" } : null;
+          }
+        }
+        break;
       default: break;
     }
   }
-  /** 当前帧的解（点两下模式第二击：显式点击，不走抬笔窗口）。 */
-  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null } {
-    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo };
+  private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
+  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3 } {
+    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor };
   }
-  /** 抬笔结算：记录本帧的解（只在工具手势中）。 */
   private recordSample(s: { x: number; y: number }): void {
     if (!this.gestureActive()) return;
     const t = performance.now();
-    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo });
+    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor });
     while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
   }
   /**
-   * 抬笔结算（A21）——按物理过程判：把样本按「同一处」（HOLD_PX 内）分成一段段停留。
-   * 松开处停留 ≥ FINAL_HOLD_MS → 有意，用松开帧；否则回看 RELEASE_WINDOW_MS 内结束的停留，取最长的那段
-   * （≥ MIN_DWELL_MS 且比松开处停得久）= 用户对齐时看着吸附指示停住的地方，用它末尾那帧的解；都没有 → 松开帧。
-   * 调用前先把松开位置当最后一帧 track 一遍（样本环最后一项 = 松开帧）。
+   * 抬笔结算（A21）——按物理过程判：样本按「同一处」（HOLD_PX 内）分成一段段停留。松开处停留 ≥ FINAL_HOLD_MS → 有意，用松开帧；
+   * 否则回看 RELEASE_WINDOW_MS 内结束的停留，取最长的那段（≥ MIN_DWELL_MS 且比松开处停得久）= 用户对齐时停住的地方；都没有 → 松开帧。
    */
-  private settledSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null } | null {
+  private settledSample(): ReturnType<Editor["currentSample"]> | null {
     const n = this.samples.length;
     if (!n) return null;
     const last = this.samples[n - 1];
     const holdScale = this.fvp().h / 800;
-    // 分段：每段 = 连续、都在首样本 HOLD_PX 内的样本；段时长 = 下一段首样本时刻 − 本段首样本时刻（末段到松开）
     const runs: { first: number; lastIdx: number; dur: number }[] = [];
     for (let i = 0; i < n; i++) {
       const r = runs[runs.length - 1];
@@ -846,53 +1230,38 @@ export class Editor {
     return dwell ? this.samples[dwell.lastIdx] : last;
   }
 
-  /**
-   * pp 双通道吸附（2026-09-03 user 拍板终形，对齐 SU）：
-   * - 光标通道：世界=**中间态**（WYSIWYG 无鬼），排除=落笔壳集（帽环）∪ 贴移动帽平面的新生点；不吸轴/共轴。
-   * - 高度通道：h 标量对静态高度集吸附（落笔取全场景顶点沿 n 投影；杀不死→无回路）。
-   * 铁律：吸附世界不得是 h 的函数（snap-model SSoT 不动点定理）。
-   */
+  /** pp 双通道吸附：光标通道（世界 = 按下时模型，源面原位不透明；不吸轴）+ 高度通道（h 对静态高度集咬合）。 */
   private ppTrack(sx: number, sy: number, travel?: number): void {
     if (this.ppFace === null || !this.anchor3 || !this.ppNormal) return;
     const anc = this.anchor3, n = this.ppNormal;
     const wk = this.ppInferenceWorld();
-    // 手中集 = 帽环顶点（它们的高度就是 h，对 h 零信息）；opaque = 源面原位当不透明挡板（光标在帽上 → 背后无目标 = SU 连续）
-    const hand: AlignHand = { has: (vid) => this.ppShellVids.has(vid), opaque: true };
+    const active = wk.activeSlot();
+    const shell = this.ppShellVids;
+    const hand: AlignHand = { has: (gid) => wk.slotOf(gid) === active && shell.has(wk.local(gid).id), opaque: true };
     const sn = this.applyHysteresis(
       snapPoint(wk, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: anc, lines: false, hand }),
       sx, sy);
     this.hoverFace = null;
     let ref = "";
     let ppStuck = false;
+    const ppGlobal = wk.global(this.ppFace);
     if (sn.kind !== null) {
       this.snapInfo = sn;
-      this.ppH = dot3(sub3(sn.p, anc), n);   // 光标目标 → 投影法向取高
+      this.ppH = dot3(sub3(sn.p, anc), n);
       ref = `｜取${SNAP_LABELS[sn.kind] ?? sn.kind}高度`;
     } else {
       this.snapInfo = null;
       const ray1 = this.frame().ray(sx, sy, this.fvp());
-      // 取面高度也查现实 SSoT（user 2026-09-03「遮挡必须用现实的 SSoT，不要用旧鬼」）：
-      // 现实世界拾取 + 手中膜跳过 + ∥推向的面拒收（其"高度"随光标漂=垃圾）
       const hitF = pickEntity(wk, this.frame(), this.fvp(), sx, sy, 0.5).face;
       const hitRec = hitF !== undefined ? wk.planeOf(hitF) : undefined;
-      const hitHand = hitF !== undefined && (() => {
-        const f = wk.face(hitF);
-        if (!f) return true;
-        return [...ringVidsTolerant(wk.graph, f.outer), ...f.holes.flatMap((hh) => ringVidsTolerant(wk.graph, hh))].some(hand.has);
-      })();
-      if (hitF !== undefined && hitF !== this.ppFace && !hitHand && hitRec && Math.abs(dot3(hitRec.plane.n, n)) > 0.05) {
+      if (hitF !== undefined && hitF !== ppGlobal && hitRec && Math.abs(dot3(hitRec.plane.n, n)) > 0.05) {
         const q = rayPlane(ray1.origin, ray1.dir, hitRec.plane.n, hitRec.plane.d);
-        if (q) {
-          this.ppH = dot3(sub3(q, anc), n);
-          this.hoverFace = hitF;
-          ref = "｜取面#" + hitF + " 高度";
-        }
+        if (q) { this.ppH = dot3(sub3(q, anc), n); ref = "｜取面高度"; }
       } else {
         const q = closestOnAxis(anc, n, ray1.origin, ray1.dir);
         if (q) this.ppH = dot3(sub3(q, anc), n);
-        else ppStuck = true;   // 法向与视线近平行：公垂无解，h 动不了
-        // 高度通道：h 标量对静态高度集咬合（ε=7px 折算世界单位；底面/邻面/0 全在停靠集里）
-        const pxPerUnit = Math.max(this.frame().distBetween(anc, add3(anc, n), this.fvp()), 0.5);   // 单位法向在度量上的长度
+        else ppStuck = true;
+        const pxPerUnit = Math.max(this.frame().distBetween(anc, add3(anc, n), this.fvp()), 0.5);
         const epsH = this.eps().edge / pxPerUnit;
         let best: number | null = null;
         for (const st of this.ppStops) if (Math.abs(st - this.ppH) <= epsH && (best === null || Math.abs(st - this.ppH) < Math.abs(best - this.ppH))) best = st;
@@ -904,8 +1273,6 @@ export class Editor {
       }
     }
     this.cursor3 = add3(anc, scale3(n, this.ppH));
-    // 卡住提示（user 2026-09-07「推拉如果卡住了推拉不动的话应该有提示」）：光标明显动了、h 却出不来 = 正对着面看
-    // （法向∥视线，光标射线到法向轴没有有意义的最近点）——说清原因和出路，别让人以为坏了。
     const moved = travel ?? (this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0);
     const facing = Math.abs(dot3(n, this.frame().viewDir(anc)));
     if (moved > this.eps().drag && Math.abs(this.ppH) < MIN_GESTURE_LEN && (ppStuck || facing > 0.9)) {
@@ -918,7 +1285,6 @@ export class Editor {
   pointerUp(ev: ToolPointer): void {
     const s = ev;
     const isTap = (): boolean => !!this.downScreen && (ev.travel ?? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y)) <= this.eps().tap;
-    // 抬笔结算：松开位置先当最后一帧求解进样本环，再在窗口里挑最高维的解（肌肉抖动不改变已对齐的点）
     const settle = (): ReturnType<Editor["settledSample"]> => {
       if (this.justCommitted) return null;
       this.trackGesture(s);
@@ -926,100 +1292,81 @@ export class Editor {
       return this.settledSample();
     };
     switch (this._tool) {
-      case "line": {
+      case "line":
+      case "rect":
+      case "circle": {
         if (!this.anchor3) break;
         if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) {
-          this.armed = true;   // 第一击是点击不是拖 → 进点两下模式
-          this.host.hint("移动预览，再点一下落笔；Esc 取消");
-          break;
-        }
-        this.commitLine(settle());
-        break;
-      }
-      case "rect": {
-        if (!this.anchor3) break;
-        if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) {
-          this.armed = true;
-          this.host.hint("移动预览，再点一下落矩形；Esc 取消");
-          break;
-        }
-        this.commitRect(settle());
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；Esc 取消"); break; }
+        const smp = settle();
+        if (this._tool === "line") this.commitLine(smp); else if (this._tool === "rect") this.commitRect(smp); else this.commitCircle(smp);
         break;
       }
       case "pp": {
         if (this.ppFace === null || !this.anchor3) { this.cancelGesture(); break; }
         if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) {
-          this.armed = true;
-          this.host.hint("推拉中：移动定高度，再点一下落定；Esc 取消");
-          break;
-        }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("推拉中：移动定高度，再点一下落定；Esc 取消"); break; }
         this.commitPP(settle());
         break;
       }
       case "move": {
-        if (!this.moveVids.length || !this.anchor3) { this.cancelGesture(); break; }
+        if (!(this.moveVids.length || this.movePools.length) || !this.anchor3) { this.cancelGesture(); break; }
         if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) {
-          this.armed = true;   // 点起 → 移动预览 → 再点放置
-          this.host.hint("移动中：所见即所得预览，再点一下放置；Esc 取消");
-          break;
-        }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动中：所见即所得预览，再点一下放置；Esc 取消"); break; }
         this.commitMove(settle());
+        break;
+      }
+      case "rotate": {
+        if (this.rotStage === 2) { this.commitRotate(settle()); }
+        break;
+      }
+      case "scale": {
+        if (this.scaleActive) this.commitScale(settle());
         break;
       }
       case "erase": {
         const ids = [...this.scrubAcc];
         this.cancelGesture();
-        const k = this.checkpoint;
+        const k = this.kernel;
         const edges = ids.filter((id) => k.graph.hasEdge(id)).map((id) => edgeKey(k, id));
-        if (edges.length) this.commitOp({ op: "eraseEdges", edges });
+        if (edges.length) this.commitOp({ op: "eraseEdges", at: this.activePool(), edges });
         break;
       }
       case "select": {
         if (!this.marqueeStart || !this.marqueeCur) { this.cancelGesture(); break; }
         const additive = ev.shiftKey;
         const wasDrag = Math.hypot(this.marqueeCur.x - this.marqueeStart.x, this.marqueeCur.y - this.marqueeStart.y) > 4;
-        let picked: Selection;
+        const view = this.liveWorld();
         if (wasDrag) {
-          picked = marqueeScreen(this.checkpoint, this.cam, this.vp(), {   // 桌面专属（VR 无框选；§3.8 待做）
-            minX: Math.min(this.marqueeStart.x, this.marqueeCur.x), maxX: Math.max(this.marqueeStart.x, this.marqueeCur.x),
-            minY: Math.min(this.marqueeStart.y, this.marqueeCur.y), maxY: Math.max(this.marqueeStart.y, this.marqueeCur.y),
-          });
-        } else {
-          // 点击族：双击 = 膜 + 环边、三击 = 连通体（SU 同款；VR/pen 的对应物 = 阶段长按，见 vr.ts）
-          const now = performance.now();
-          const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(s.x - this.clickTrain.x, s.y - this.clickTrain.y) <= 6 * (this.fvp().h / 800)
-            ? { t: now, x: s.x, y: s.y, n: this.clickTrain.n + 1 } : { t: now, x: s.x, y: s.y, n: 1 };
-          this.clickTrain = train;
-          const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
-          if (train.n >= 2) {
-            this.marqueeStart = this.marqueeCur = null;
-            this.host.marquee(null);
-            this.selectExpand(hit, train.n >= 3 ? 2 : 1, additive);
-            break;
-          }
-          picked = emptySelection();
-          if (hit.edge !== undefined) picked.edges.add(hit.edge);
-          else if (hit.face !== undefined) picked.faces.add(hit.face);
+          const box = { minX: Math.min(this.marqueeStart.x, this.marqueeCur.x), maxX: Math.max(this.marqueeStart.x, this.marqueeCur.x), minY: Math.min(this.marqueeStart.y, this.marqueeCur.y), maxY: Math.max(this.marqueeStart.y, this.marqueeCur.y) };
+          const picked = marqueeScreen(view, this.cam, this.vp(), box);
+          if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
+          for (const gid of picked.edges) { const c = this.classify(view, { edge: gid }); if (c.kind === "entity" && c.local.edge !== undefined) this.selection.edges.add(c.local.edge); else if (c.kind === "pool") this.selectedPools.set(c.key, c.pick); }
+          for (const gid of picked.faces) { const c = this.classify(view, { face: gid }); if (c.kind === "entity" && c.local.face !== undefined) this.selection.faces.add(c.local.face); else if (c.kind === "pool") this.selectedPools.set(c.key, c.pick); }
+          this.marqueeStart = this.marqueeCur = null;
+          this.host.marquee(null);
+          this.afterSelect();
+          break;
         }
-        if (additive) {
-          for (const e of picked.edges) this.selection.edges.add(e);
-          for (const f of picked.faces) this.selection.faces.add(f);
-        } else {
-          this.selection = picked;
-        }
+        const now = performance.now();
+        const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(s.x - this.clickTrain.x, s.y - this.clickTrain.y) <= 6 * (this.fvp().h / 800)
+          ? { t: now, x: s.x, y: s.y, n: this.clickTrain.n + 1 } : { t: now, x: s.x, y: s.y, n: 1 };
+        this.clickTrain = train;
+        const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
+        const c = this.classify(view, hit);
         this.marqueeStart = this.marqueeCur = null;
         this.host.marquee(null);
-        this.host.changed();
+        if (c.kind === "pool" && train.n >= 2) { this.enterPool(c.pick); break; }   // 双击子 group / 组件 = 进入
+        if (c.kind === "none" && !additive && (this.ctx.chain.length || this.ctx.group !== null) && train.n === 1 && !this.hasSelection()) { this.exitContext(); break; }   // 点空处 = 退出一层（SU 同款）
+        this.selectExpand(hit, train.n >= 3 ? 2 : train.n === 2 ? 1 : 0, additive);
         break;
       }
       case "eraseFace": {
-        const hit = { face: pickFace(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y) };
+        const view = this.liveWorld();
+        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
+        const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
         this.cancelGesture();
-        if (hit.face !== undefined && this.checkpoint.face(hit.face)) this.commitOp({ op: "eraseFaces", faces: [faceKey(this.checkpoint, hit.face)] });
+        if (c.kind === "entity" && c.local.face !== undefined && this.kernel.face(c.local.face)) this.commitOp({ op: "eraseFaces", at: this.activePool(), faces: [faceKey(this.kernel, c.local.face)] });
         break;
       }
     }
@@ -1031,6 +1378,7 @@ export class Editor {
       this.snapInfo = null;
       this.hoverEdge = null;
       this.hoverFace = null;
+      this.hoverPool = null;
       this.live = null;
       this.host.tip(null, 0, 0);
       this.host.hint(null);
@@ -1039,13 +1387,12 @@ export class Editor {
   }
 
   // ---------- 落笔 ----------
-  /** 连画+出膜停（user 终裁回 SU 方案）：出膜事件=铅笔自动抬起；逃生=Esc/原地点击。 */
   private commitLine(smp: { cursor3: Pt3 | null } | null): void {
     const a = this.anchor3!;
     const b = smp?.cursor3 ?? this.cursor3 ?? a;
     if (dist(a, b) < MIN_GESTURE_LEN) { this.cancelGesture(); return; }
-    const evs = this.commitOp({ op: "addEdges", segs: [[a, b]] });
-    this.chargePt(a); this.chargePt(b);   // 落笔点自动充能（通用兜底）
+    const evs = this.commitOp({ op: "addEdges", at: this.activePool(), segs: [[this.toLocal(a), this.toLocal(b)]] });
+    this.chargePt(a); this.chargePt(b);
     this.cancelGesture();
     if (evs.length > 0) return;
     this.anchor3 = b;
@@ -1058,20 +1405,58 @@ export class Editor {
     const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
     const segs = rectSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b);
     this.cancelGesture();
-    if (segs.length) this.commitOp({ op: "addEdges", segs });
+    if (segs.length) this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+  }
+  private commitCircle(smp: { cursor3: Pt3 | null; plane: DrawPlane } | null): void {
+    const plane = smp?.plane ?? this.gesturePlane;
+    const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
+    const segs = dist(this.anchor3!, b) >= MIN_GESTURE_LEN ? circleSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b, CIRCLE_SEGMENTS) : [];
+    this.cancelGesture();
+    if (segs.length) this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), soft: true });
   }
   private commitPP(smp: { ppH: number } | null): void {
     const h = smp?.ppH ?? this.ppH;
     const fid = this.ppFace!;
+    const hl = this.ppLocalH(h);
     this.cancelGesture();
-    if (Math.abs(h) >= MIN_GESTURE_LEN && this.checkpoint.face(fid)) this.commitOp({ op: "pushpull", face: faceKey(this.checkpoint, fid), dist: h });
+    if (Math.abs(h) >= MIN_GESTURE_LEN && this.kernel.face(fid)) this.commitOp({ op: "pushpull", at: this.activePool(), face: faceKey(this.kernel, fid), dist: hl });
   }
   private commitMove(smp: { cursor3: Pt3 | null } | null): void {
     const target = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
     const delta = sub3(target, this.anchor3!);
-    const vids = this.moveVids;
-    const d = Math.hypot(delta.x, delta.y, delta.z);
+    const vids = this.moveVids, pools = this.movePools;
     this.cancelGesture();
-    if (d >= MIN_GESTURE_LEN) this.commitOp(moveOp(this.checkpoint, translateMoves(this.checkpoint, vids, delta)));
+    if (len3(delta) < MIN_GESTURE_LEN) return;
+    this.commitXform(translation(delta), vids, pools);
+  }
+  private commitRotate(smp: { angle: number } | null): void {
+    const ang = smp?.angle ?? this.rotAngle;
+    const c = this.rotCenter!, ax = this.rotAxis!;
+    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.selectedPoolPicks();
+    this.cancelGesture();
+    if (Math.abs(ang) < 1e-6) return;
+    this.commitXform(rotationAbout(c, ax, ang), vids, pools);
+  }
+  private commitScale(smp: { scale: Pt3 } | null): void {
+    const s = smp?.scale ?? this.scaleFactor;
+    const anchor = this.scaleActive!.anchor;
+    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.selectedPoolPicks();
+    this.cancelGesture();
+    if (Math.abs(s.x - 1) < 1e-9 && Math.abs(s.y - 1) < 1e-9 && Math.abs(s.z - 1) < 1e-9) return;
+    this.commitXform(scalingAbout(anchor, s), vids, pools);
+    this.rebuildScaleHandles();
+  }
+  /** 世界系变换 X 作用于：活动池顶点集（move op，本地坐标）+ 子池（transformPool / transformInstance，父空间变换）。 */
+  private commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void {
+    const at = this.activePool(), k = this.kernel, XL = this.xformToLocal(X);
+    if (vids.length) {
+      const moves = vids.filter((id) => k.graph.hasVertex(id)).map((id) => ({ from: k.graph.pt(id), to: applyPt(XL, k.graph.pt(id)) }));
+      this.commitOp({ op: "move", at, moves });
+    }
+    const def = this.scene.defOfContext(this.ctx);
+    for (const p of pools) {
+      if (p.kind === "group") this.commitOp({ op: "transformPool", at: { def, group: p.group }, xform: XL });
+      else this.commitOp({ op: "transformInstance", def, instance: p.instance, xform: XL });
+    }
   }
 }

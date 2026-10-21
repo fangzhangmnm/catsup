@@ -4,16 +4,21 @@
 // created 2026-09-20 by Claude Fable 5.1
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { SCENES } from "../test/format-scenes.ts";
-import { newDocument, writeCatsup, EXTENSION_VERSIONS } from "../src/format/index.ts";
+import { SCENES, SCENE_DOCS } from "../test/format-scenes.ts";
+import { newDocument, writeCatsup, documentFromScene, EXTENSION_VERSIONS } from "../src/format/index.ts";
 import { fixtureDir, writeFixture } from "../test/fixtures/format/fixtures.mjs";
 
 const force = process.argv.includes("--force");
-const v = EXTENSION_VERSIONS.CATSUP_brep;
-for (const [name, make] of Object.entries(SCENES)) {
+// 样本目录版本 = 子结构版本里最大的那个（哪个子结构升版都要冻一份新语料）
+const v = Math.max(...Object.values(EXTENSION_VERSIONS));
+const all = [
+  ...Object.entries(SCENES).map(([name, make]) => [name, () => newDocument(make().toBrep(), name)]),
+  ...Object.entries(SCENE_DOCS).map(([name, make]) => [name, () => documentFromScene(make(), name)]),
+];
+for (const [name, mk] of all) {
   const file = `${name}.glb`;
   if (!force && existsSync(join(fixtureDir(v), file))) { console.log(`keep   v${v}/${file}`); continue; }
-  const bytes = writeCatsup(newDocument(make().toBrep(), name));
+  const bytes = writeCatsup(mk());
   writeFixture(v, file, bytes);
   console.log(`freeze v${v}/${file} ${bytes.byteLength} B`);
 }

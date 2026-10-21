@@ -56,6 +56,8 @@ export interface BrepSnapshot {
   readonly edges: readonly (readonly [number, number])[];
   readonly planes: readonly PlaneParams[];
   readonly faces: readonly { readonly plane: number; readonly outer: readonly number[]; readonly holes: readonly (readonly number[])[] }[];
+  /** 软边索引（边表下标；缺省 = 无）。属性层，2026-10-21。 */
+  readonly softEdges?: readonly number[];
 }
 
 export class Kernel {
@@ -63,6 +65,8 @@ export class Kernel {
   private store = new FaceStore();
   private eventLog: FaceEvent[] = [];
   private planes = new PlaneRegistry();
+  /** 软边（圆 / 弧的多边形近似边、它们推拉出的侧棱）：渲染不画线、推断照常吸。属性层，切割继承（结算机维护）。added 2026-10-21 */
+  readonly soft = new Set<EdgeId>();
   /** coplanarity 容差 τ——头号 UX 旋钮（drill L297）。只管平面分组/归属；几何保持精确共面。 */
   readonly coplanarTol: number;
 
@@ -121,6 +125,8 @@ export class Kernel {
     }
     k.store.rebuildFaceLinks(g);
     for (const v of g.vertices()) if (v.edges.size === 0) fail(`vertex ${v.id} is isolated`);
+    const eids = g.edges().map((e) => e.id);
+    for (const i of snap.softEdges ?? []) { if (!(i in eids)) fail(`softEdges index ${i} out of range`); k.soft.add(eids[i]); }
     return k;
   }
 
@@ -132,12 +138,15 @@ export class Kernel {
     const pIdx = new Map<number, number>(planeIds.map((id, i) => [id, i]));
     const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): number[] =>
       r.edges.map((d) => vIdx.get(d.forward ? this.graph.edge(d.edge).a : this.graph.edge(d.edge).b)!);
+    const es = this.graph.edges();
+    const softEdges = es.map((e, i) => (this.soft.has(e.id) ? i : -1)).filter((i) => i >= 0);
     return {
       coplanarTol: this.coplanarTol,
       vertices: vs.map((v) => ({ x: v.x, y: v.y, z: v.z })),
-      edges: this.graph.edges().map((e) => [vIdx.get(e.a)!, vIdx.get(e.b)!] as const),
+      edges: es.map((e) => [vIdx.get(e.a)!, vIdx.get(e.b)!] as const),
       planes: planeIds.map((id) => this.planes.rec(id).plane),
       faces: this.store.faces().map((f) => ({ plane: pIdx.get(f.planeId)!, outer: ringVids(f.outer), holes: f.holes.map(ringVids) })),
+      ...(softEdges.length ? { softEdges } : {}),
     };
   }
 
@@ -150,15 +159,16 @@ export class Kernel {
     k._graph = this._graph.clone();
     k.store = this.store.clone();
     k.planes = this.planes.clone();
+    for (const e of this.soft) k.soft.add(e);
     return k; // 事件日志不拷：副本的 log 只属于预演
   }
 
   // ---------------- mutations（全部批量收口；每个动词 = 一张像表） ----------------
 
-  /** 构造手势：一批线段（Rect = 4 段）。 */
-  addEdges(segs: readonly (readonly [PtIn, PtIn])[]): FaceEvent[] {
+  /** 构造手势：一批线段（Rect = 4 段）。opts.soft = 这批线是曲线的多边形近似（圆 / 弧）→ 软边。 */
+  addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: { soft?: boolean }): FaceEvent[] {
     const gesture: Seg3[] = segs.map(([a, b]) => ({ a: toPt3(a), b: toPt3(b) }));
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images: [], gesture }));
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images: [], gesture, soft: this.soft, ...(opts?.soft ? { softSegs: gesture } : {}) }));
   }
 
   /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
@@ -226,7 +236,7 @@ export class Kernel {
       if (!snap || !this.store.face(fid)) continue;
       images.push({ rings: [ringPts(snap.outer), ...snap.holes.map(ringPts)], algebra: "or", inherit: fid });
     }
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: touched, images }));
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: touched, images, soft: this.soft }));
   }
 
   /**
@@ -253,12 +263,14 @@ export class Kernel {
     const images: Image[] = [];
     images.push({ rings: translateImage(ringsOf(g, f), delta), algebra: settleLanding ? "xor" : "or", inherit: id });
     const rewrite = new Map<FaceId, Set<EdgeId>>();
+    const softSegs: Seg3[] = [];   // 软边的帽边 + 侧棱也是软的（圆柱侧面不画竖线）
     let anyBare = false;
     for (const ring of [f.outer, ...f.holes]) {
       for (const d of ring.edges) {
         const e = g.edge(d.edge);
         const a = g.pt(d.forward ? e.a : e.b), b = g.pt(d.forward ? e.b : e.a);
         const others = e.faceLinks.filter((x) => x !== id);
+        if (this.soft.has(e.id)) { softSegs.push({ a: add3(a, delta), b: add3(b, delta) }); softSegs.push({ a, b: add3(a, delta) }); softSegs.push({ a: b, b: add3(b, delta) }); }
         if (others.length > 0 && others.every(parallel)) {
           for (const gid of others) { (rewrite.get(gid) ?? rewrite.set(gid, new Set()).get(gid)!).add(e.id); consumed.add(gid); }
           continue;
@@ -283,13 +295,28 @@ export class Kernel {
       images.push({ rings, algebra: "or", inherit: gid });
     }
     if (anyBare) images.push({ rings: ringsOf(g, f), algebra: "or" });
-    return this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true }));
+    return this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true, soft: this.soft, softSegs }));
+  }
+
+  /**
+   * 吸收外来几何（炸开 group / 粘贴 / 导入）：膜当像（OR、新 id）、裸边当线段，走结算机——与既有几何 sticky（切割 / 合并 / 共面 dedup）。
+   * added 2026-10-21 by Claude Fable 5.1（group / component 纪元）
+   */
+  absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], softSegs: readonly Seg3[] = []): FaceEvent[] {
+    const images: Image[] = faces.map((rings) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or" }));
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images, wires, soft: this.soft, softSegs }));
+  }
+
+  /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */
+  transformAll(fn: (p: Pt3) => Pt3): FaceEvent[] {
+    return this.moveVertices(this.graph.vertices().map((v) => ({ id: v.id, to: fn({ x: v.x, y: v.y, z: v.z }) })));
   }
 
   // ---------------- queries ----------------
 
   vertices(): Vertex[] { return this.graph.vertices(); }
   edges(): Edge[] { return this.graph.edges(); }
+  isSoft(id: EdgeId): boolean { return this.soft.has(id); }
   faces(): Face[] { return this.store.faces(); }
   face(id: FaceId): Face | undefined { return this.store.face(id); }
   log(): readonly FaceEvent[] { return this.eventLog; }
@@ -345,7 +372,9 @@ export class Kernel {
       if (other !== to && this.graph.edgeBetween(to, other) === undefined) {
         const ne = this.graph.addEdge(to, other);
         this.graph.edge(ne).faceLinks = [...e.faceLinks];
+        if (this.soft.has(eid)) this.soft.add(ne);
       }
+      this.soft.delete(eid);
       this.graph.removeEdge(eid);
     }
   }
