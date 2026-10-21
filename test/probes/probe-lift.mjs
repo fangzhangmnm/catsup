@@ -52,11 +52,31 @@ const res = await page.evaluate(async () => {
   fire("pointermove", m.x + 60, m.y + 50, { buttons: 1, pressure: 0.5 }); await sleep(350);
   fire("pointerup", m.x + 60, m.y + 50, { button: 0, buttons: 0 });
   out.lateLiftUsesFreePoint = e.kernel.vertices().some((v) => ![-1, 1, 0].includes(v.x) || ![-0.6, 0.6, 0].includes(v.y));
+  // ④ 意图门（user 10-21 夜「如果是push的话所有snap到pull的应该都不合法」）：往上拉 1.0 时，指针正好压在一个**地面之下**的端点上
+  //    （构造：过「拉到 0.2 的屏幕点」的视线与 z=−0.5 的交点放一条小线段）——旧行为会吸到它 = 推下去 0.5；意图门下应仍是拉 ≈ 1.0
+  e.cancel(); e.clearAll(); e.applyPreset("日字");
+  const cc = { x: -0.5, y: 0, z: 0 };                              // 左格中心
+  const S = px({ x: cc.x, y: cc.y, z: 1.0 });                      // 拉到 h = 1.0 时指针该在的屏幕点（够高，屏上不压在邻格上——压邻格 = 「取面高度」h=0，那是另一条既有规则）
+  const ry = e.cam.ray(S.x, S.y, vp);
+  const tz = (-0.5 - ry.origin.z) / ry.dir.z;
+  const Pb = { x: ry.origin.x + ry.dir.x * tz, y: ry.origin.y + ry.dir.y * tz, z: -0.5 };
+  e.addSegments([[Pb, { x: Pb.x + 0.01, y: Pb.y, z: -0.5 }]], "probe");
+  e.setTool("pp");
+  out.ppSnapCandidateAtS = e.pickAt(S.x, S.y).vertex !== undefined;   // 证明那里确实有个可吸的端点（没有它这一段就没在考验意图门）
+  const c0 = px(cc);
+  fire("pointerdown", c0.x, c0.y, { button: 0, buttons: 1, pressure: 0.5 });
+  for (let i = 1; i <= 6; i++) fire("pointermove", c0.x + (S.x - c0.x) * i / 6, c0.y + (S.y - c0.y) * i / 6, { buttons: 1, pressure: 0.5 });
+  await sleep(80);
+  out.ppTipAtEnd = document.getElementById("hint").textContent;
+  fire("pointerup", S.x, S.y, { button: 0, buttons: 0 });
+  const zs = e.kernel.faces().flatMap((f) => e.kernel.faceRings3(f.id).outer.map((p) => p.z));
+  out.ppMaxZ = Math.max(...zs); out.ppMinZ = Math.min(...zs);
+  out.ppPulledNotPushed = out.ppMinZ >= -1e-9 && out.ppMaxZ > 0.7 && out.ppMaxZ < 1.3;
   return out;
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.lineEndsOnMidpoint && res.moveMerged && res.moveStray.length === 0 && res.lateLiftUsesFreePoint && errs.length === 0;
+const ok = res.lineEndsOnMidpoint && res.moveMerged && res.moveStray.length === 0 && res.lateLiftUsesFreePoint && res.ppSnapCandidateAtS && res.ppPulledNotPushed && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

@@ -28,6 +28,7 @@ import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, mov
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
+import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { simplifyPath, sweepStations } from "../kernel/sweep.ts";
 import { liftFromPlane, projectToPlane } from "../kernel/geom.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
@@ -109,6 +110,8 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 const MIN_GESTURE_LEN = 0.01;
+/** 旋转的意图死区（弧度）：半度以内还看不出转向。 */
+const ANGLE_DEAD = 0.5 * Math.PI / 180;
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
@@ -1372,7 +1375,12 @@ export class Editor {
     switch (this._tool) {
       case "line":
         if (this.anchor3) {
-          this.snapInfo = this.applyHysteresis(this.lineSecondSnap(s.x, s.y), s.x, s.y);
+          let sn = this.lineSecondSnap(s.x, s.y);
+          // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法
+          const camL = cameraPlane(this.frame(), this.anchor3), rayL = this.frame().ray(s.x, s.y, this.fvp());
+          const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
+          if (sn.kind !== null && freeL && this.intentOn(s, travel) && !intentAllows3D(sub3(freeL, this.anchor3), sub3(sn.p, this.anchor3), MIN_GESTURE_LEN)) { sn = { p: this.rectPlaneSnap(s.x, s.y), kind: null }; this.lastSnap = null; }
+          this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
           this.trackCharge(this.snapInfo, 120);
           this.cursor3 = this.snapInfo.p;
         }
@@ -1387,9 +1395,15 @@ export class Editor {
       case "offset":
         if (this.offFace !== null && this.offPlane && this.offInward && this.anchor3) {
           const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.offPlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand(view), lines: false });
-          const q = this.projectToPlaneThrough(sn.p, this.anchor3, this.offPlane.plane.n);
+          // 意图门：自由距离（指针落在面上的点沿内法向的距离）定内缩 / 外扩；反号的吸附不合法
+          const rayO = this.frame().ray(s.x, s.y, this.fvp());
+          const freeO = rayPlane(rayO.origin, rayO.dir, this.offPlane.plane.n, this.offPlane.plane.d);
+          const dFree = freeO ? dot3(sub3(freeO, this.anchor3), this.offInward) : NaN;
+          let q = this.projectToPlaneThrough(sn.p, this.anchor3, this.offPlane.plane.n);
+          let kind = sn.kind;
+          if (kind !== null && freeO && this.intentOn(s, travel) && !intentAllows1D(dFree, dot3(sub3(q, this.anchor3), this.offInward), MIN_GESTURE_LEN)) { q = freeO; kind = null; }
           this.offDist = dot3(sub3(q, this.anchor3), this.offInward);
-          this.snapInfo = sn.kind ? { ...sn, p: q } : null;
+          this.snapInfo = kind ? { ...sn, kind, p: q } : null;
           this.cursor3 = q;
         }
         break;
@@ -1398,6 +1412,10 @@ export class Editor {
           const mv = new Set(this.moveVids);
           this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
           let sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand(view, (vid) => mv.has(vid), false) });
+          // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法（抬笔那一下滑到反方向的点 = 本案）
+          const rayM = this.frame().ray(s.x, s.y, this.fvp());
+          const freeM = rayPlane(rayM.origin, rayM.dir, this.gesturePlane.plane.n, this.gesturePlane.plane.d);
+          if (sn.kind !== null && freeM && this.intentOn(s, travel) && !intentAllows3D(sub3(freeM, this.anchor3), sub3(sn.p, this.anchor3), MIN_GESTURE_LEN)) { sn = { p: freeM, kind: null }; this.lastSnap = null; }
           if (sn.kind === null) {
             const ax = inferAxisByDirection(this.frame(), this.fvp(), this.anchor3, s.x, s.y);
             if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
@@ -1411,13 +1429,20 @@ export class Editor {
       case "rotate":
         if (this.rotStage === 2 && this.rotCenter && this.rotAxis && this.rotRef) {
           const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view), lines: false });
-          const q = this.projectToPlaneThrough(sn.p, this.rotCenter, this.rotAxis);
-          const a = sub3(this.rotRef, this.rotCenter), b = sub3(q, this.rotCenter);
+          const a = sub3(this.rotRef, this.rotCenter);
+          const angOf = (pt: Pt3): number => { const bb = sub3(pt, this.rotCenter!); return Math.atan2(dot3(cross3(a, bb), this.rotAxis!), dot3(a, bb)); };
+          // 意图门：自由角（指针落在旋转平面上的点）的符号 = 转向；反向的点吸附不合法
+          const rayR = this.frame().ray(s.x, s.y, this.fvp());
+          const freeR = rayPlane(rayR.origin, rayR.dir, this.rotAxis, dot3(this.rotAxis, this.rotCenter));
+          let q = this.projectToPlaneThrough(sn.p, this.rotCenter, this.rotAxis);
+          let kind = sn.kind;
+          if (kind !== null && freeR && len3(sub3(freeR, this.rotCenter)) >= MIN_GESTURE_LEN && this.intentOn(s, travel) && !intentAllows1D(angOf(freeR), angOf(q), ANGLE_DEAD)) { q = freeR; kind = null; }
+          const b = sub3(q, this.rotCenter);
           if (len3(b) >= MIN_GESTURE_LEN) {
-            let ang = Math.atan2(dot3(cross3(a, b), this.rotAxis), dot3(a, b));
+            let ang = angOf(q);
             const step = ANGLE_STEP_DEG * Math.PI / 180, near = Math.round(ang / step) * step;
-            if (sn.kind === null && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; this.snapInfo = { p: q, kind: "h-stop" }; }
-            else this.snapInfo = sn.kind ? { ...sn, p: q } : null;
+            if (kind === null && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; this.snapInfo = { p: q, kind: "h-stop" }; }
+            else this.snapInfo = kind ? { ...sn, kind, p: q } : null;
             this.rotAngle = ang;
             this.cursor3 = q;
           }
@@ -1433,7 +1458,8 @@ export class Editor {
             const t = dot3(sub3(q, h.anchor), dir);
             let f = t / this.scaleT0;
             if (Math.abs(f) < 1e-3) f = 1e-3;   // 不许缩到零（退化）
-            const snapped = [0.5, 1, 1.5, 2, 3, 4].find((v) => Math.abs(f - v) < 0.02);
+            // 意图门：倍率相对 1 的符号 = 放大 / 缩小；反向的咬合不合法（1 本身保留）
+            const snapped = [0.5, 1, 1.5, 2, 3, 4].find((v) => Math.abs(f - v) < 0.02 && (!this.intentOn(s, travel) || intentAllows1D(f - 1, v - 1, 0.01)));
             if (snapped !== undefined) f = snapped;
             this.scaleFactor = h.kind === "corner" ? { x: f, y: f, z: f } : { x: h.axis!.x ? f : 1, y: h.axis!.y ? f : 1, z: h.axis!.z ? f : 1 };
             this.cursor3 = add3(h.anchor, scale3(dir, t));
@@ -1497,26 +1523,36 @@ export class Editor {
     let ref = "";
     let ppStuck = false;
     const ppGlobal = wk.global(this.ppFace);
-    if (sn.kind !== null) {
+    // 意图门（intent.ts；user 2026-10-21 夜「如果是push的话所有snap到pull的应该都不合法」）：
+    // 自由高度 = 不吸附时指针沿法向给出的高度，它的符号就是推 / 拉意图；点吸附 / 面高度 / 高度咬合三路候选反号一律不合法，零点保留。
+    const ray1 = this.frame().ray(sx, sy, this.fvp());
+    const qFree = closestOnAxis(anc, n, ray1.origin, ray1.dir);
+    const hFree = qFree ? dot3(sub3(qFree, anc), n) : NaN;
+    const moved = travel ?? (this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0);
+    const allowed = (h: number): boolean => !hasIntent(moved, this.eps().drag) || intentAllows1D(hFree, h, MIN_GESTURE_LEN);
+    const hSnap = sn.kind !== null ? dot3(sub3(sn.p, anc), n) : NaN;
+    if (sn.kind !== null && allowed(hSnap)) {
       this.snapInfo = sn;
-      this.ppH = dot3(sub3(sn.p, anc), n);
+      this.ppH = hSnap;
       ref = `｜取${SNAP_LABELS[sn.kind] ?? sn.kind}高度`;
     } else {
       this.snapInfo = null;
-      const ray1 = this.frame().ray(sx, sy, this.fvp());
+      if (sn.kind !== null) this.lastSnap = null;   // 被意图门否掉的吸附不许黏住（迟滞也不留）
       const hitF = pickEntity(wk, this.frame(), this.fvp(), sx, sy, 0.5).face;
       const hitRec = hitF !== undefined ? wk.planeOf(hitF) : undefined;
+      let hFace: number | null = null;
       if (hitF !== undefined && hitF !== ppGlobal && hitRec && Math.abs(dot3(hitRec.plane.n, n)) > 0.05) {
         const q = rayPlane(ray1.origin, ray1.dir, hitRec.plane.n, hitRec.plane.d);
-        if (q) { this.ppH = dot3(sub3(q, anc), n); ref = "｜取面高度"; }
-      } else {
-        const q = closestOnAxis(anc, n, ray1.origin, ray1.dir);
-        if (q) this.ppH = dot3(sub3(q, anc), n);
+        if (q) hFace = dot3(sub3(q, anc), n);
+      }
+      if (hFace !== null && allowed(hFace)) { this.ppH = hFace; ref = "｜取面高度"; }
+      else {
+        if (qFree) this.ppH = hFree;
         else ppStuck = true;
         const pxPerUnit = Math.max(this.frame().distBetween(anc, add3(anc, n), this.fvp()), 0.5);
         const epsH = this.eps().edge / pxPerUnit;
         let best: number | null = null;
-        for (const st of this.ppStops) if (Math.abs(st - this.ppH) <= epsH && (best === null || Math.abs(st - this.ppH) < Math.abs(best - this.ppH))) best = st;
+        for (const st of this.ppStops) if (allowed(st) && Math.abs(st - this.ppH) <= epsH && (best === null || Math.abs(st - this.ppH) < Math.abs(best - this.ppH))) best = st;
         if (best !== null) {
           this.ppH = best;
           ref = `｜高度咬合 ${fmtLen(best)}`;
@@ -1525,13 +1561,17 @@ export class Editor {
       }
     }
     this.cursor3 = add3(anc, scale3(n, this.ppH));
-    const moved = travel ?? (this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0);
     const facing = Math.abs(dot3(n, this.frame().viewDir(anc)));
     if (moved > this.eps().drag && Math.abs(this.ppH) < MIN_GESTURE_LEN && (ppStuck || facing > 0.9)) {
       this.host.hint("推拉没动：正对着这张面看，法向和视线平行，拖不出高度——环绕一下换个角度再拉（Esc 取消）");
       return;
     }
     this.host.hint(`推拉 h = ${fmtLen(this.ppH)}${ref}（松手/再点落定；Esc 取消）`);
+  }
+  /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
+  private intentOn(s: { x: number; y: number }, travel?: number): boolean {
+    const moved = travel ?? (this.downScreen ? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) : 0);
+    return hasIntent(moved, this.eps().drag);
   }
 
   pointerUp(ev: ToolPointer): void {

@@ -313,6 +313,8 @@ export declare class Editor {
     private settledSample;
     /** pp 双通道吸附：光标通道（世界 = 按下时模型，源面原位不透明；不吸轴）+ 高度通道（h 对静态高度集咬合）。 */
     private ppTrack;
+    /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
+    private intentOn;
     pointerUp(ev: ToolPointer): void;
     pointerLeave(): void;
     private commitLine;
