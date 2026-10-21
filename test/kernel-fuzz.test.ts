@@ -7,8 +7,9 @@ import type { Pt3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 
-/** 残余：这些种子仍会出「重复面」（同环两条记录；不崩不丢边）——face-lifecycle 的认领/铸造还有第二层洞，见总账 D 节。 */
-const KNOWN_DUP_SEEDS = new Set([30, 31, 39, 59, 62]);
+/** 残余（2026-10-21 像表结算机后只剩 1 个）：种子 31 = 两张近共线（µm 噪声）矩形共享一角，第二张的边与第一张的边不在 INSERT_TOL 内
+ *  又在 τ 内 → 同平面两膜重叠（A3 破）→ 擦边 MERGE 铸出与既有面同环的第二张；根在 τ 带内的近共线嵌入，见总账 D 节。 */
+const KNOWN_DUP_SEEDS = new Set([31]);
 
 function checkInvariants(k: Kernel, ctx: string, allowDup = false): void {
   const vids = new Set(k.graph.vertices().map((v) => v.id));
@@ -37,6 +38,15 @@ function checkInvariants(k: Kernel, ctx: string, allowDup = false): void {
     for (const ring of [face.outer, ...face.holes]) for (const d of ring.edges) {
       assert(k.graph.hasEdge(d.edge), `${ctx}: 面 ${f.id} 环边 ${d.edge} 不存在`);
       assert(k.graph.edge(d.edge).faceLinks.includes(f.id), `${ctx}: 面 ${f.id} 环边 ${d.edge} 的 faceLinks 不含它`);
+    }
+    // 环连通（2026-10-21 新增）：每条有向边的终点 = 下一条的起点——findRegions 曾把 τ 带内投影相交的开环当面
+    for (const ring of [face.outer, ...face.holes]) {
+      const n = ring.edges.length;
+      for (let i = 0; i < n; i++) {
+        const d1 = ring.edges[i], d2 = ring.edges[(i + 1) % n];
+        const e1 = k.graph.edge(d1.edge), e2 = k.graph.edge(d2.edge);
+        assert((d1.forward ? e1.b : e1.a) === (d2.forward ? e2.a : e2.b), `${ctx}: 面 ${f.id} 环在第 ${i} 条边后不连通`);
+      }
     }
   }
 }
@@ -88,8 +98,8 @@ function run(seed: number, steps: number, allowDup = false): void {
 }
 
 describe("kernel fuzz: 随机操作序列的拓扑不变量", () => {
-  it("80 个种子 × 12 步：合法操作永不 throw；环边存在 / faceLinks 面存在 / 无重复边 / 无孤立顶点；无重复面（5 个已知种子除外）", () => {
+  it("80 个种子 × 12 步：合法操作永不 throw；环边存在 / faceLinks 面存在 / 无重复边 / 无孤立顶点 / 环连通；无重复面（1 个已知种子除外）", () => {
     for (let seed = 1; seed <= 80; seed++) run(seed * 104729, 12, KNOWN_DUP_SEEDS.has(seed));
   });
-  todo(`重复面残余：种子 ${[...KNOWN_DUP_SEEDS].join("/")}（×104729）仍铸出同环第二张面——face-lifecycle 认领/铸造第二层洞，总账 D 节`);
+  todo(`重复面残余：种子 ${[...KNOWN_DUP_SEEDS].join("/")}（×104729）——τ 带内近共线嵌入让同平面两膜重叠，擦边 MERGE 铸出同环第二张，总账 D 节`);
 });

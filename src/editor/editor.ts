@@ -5,6 +5,11 @@
 //
 // 对齐引擎唯一世界源（user 2026-09-03 立法：**旧 snapshot 禁入对齐引擎**——push 到一半的才是真相，WYSIWYG；
 // checkpoint 只是 commit 基底/cancel 归宿）。手势中=live（中间态真相）；平时=checkpoint。build lint 把门（scripts/build.sh）。
+// **例外：推拉的推断世界 = 按下那一刻的模型 + 源面原位不透明（2026-10-21，Claude Fable 5.1；09-23 算法 QA bug 2 根因）**——
+// 推拉只有一个自由度 h，拖拽中新长的帽/侧壁高度恒等于 h（对 h 零信息），中间态唯一贡献是遮挡，而遮挡正是「吸端面 / 不吸」
+// 逐帧交替的反馈回路；世界不依赖 h → 不动点条款 / 开区间样本 / 磁滞防抖按构造不再需要。预演只管渲染，永不回流进推断。
+// **抬笔结算（A21，2026-10-21）**：松开前 RELEASE_WINDOW_MS 内若有过更高维的吸附解（点 > 线/轴/高度咬合 > 自由），而松开那一帧
+// 是更低维的，提交用那个高维解——抬笔时的肌肉抖动不改变已对齐的点（user 2026-10-21「抬笔的时候总是会抖一下然后歪掉」）。
 
 import { Kernel } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
@@ -91,6 +96,10 @@ export function describeEvent(ev: FaceEvent): string {
 }
 
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
+/** 抬笔结算（A21）三个物理量，各自量纲独立（调参纪律）：
+ *  RELEASE_WINDOW_MS —— 只回看松开前这么久（毫秒）；FINAL_HOLD_MS —— 松开位置被按住了这么久就算有意（毫秒）；
+ *  MIN_DWELL_MS —— 之前某处停留至少这么久才算「对齐过」（毫秒）；HOLD_PX —— 同一处的判定半径（指针帧度量单位，桌面 = px@800）。 */
+const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。lab 时代的 1 / 0.3 是厘米口径，VR 里画 0.7 m 的线都会被吃掉
  *  （2026-09-07 假 XR 探针抓到），统一改 1 cm。 */
 const MIN_GESTURE_LEN = 0.01;
@@ -124,8 +133,9 @@ export class Editor {
   private ppNormal: Pt3 | null = null;
   private ppH = 0;
   private ppShellVids: ReadonlySet<VertexId> = new Set();
-  private ppKnownVids: ReadonlySet<VertexId> = new Set();   // 落笔时旧核全体 vid（新生判定基准）
   private ppStops: number[] = [];
+  /** 抬笔结算样本环：手势中每帧的解（时间 / 指针位置 / 光标点 / 推拉高度 / 手势平面 / 吸附）。 */
+  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null }[] = [];
   private scrubAcc = new Set<EdgeId>();
   private scrubbing = false;
   private selection: Selection = emptySelection();
@@ -203,8 +213,8 @@ export class Editor {
     this.ppFace = null;
     this.ppNormal = null;
     this.ppShellVids = new Set();
-    this.ppKnownVids = new Set();
     this.ppStops = [];
+    this.samples = [];
     this.ppH = 0;
     this.rectFixed = null;
     this.lastSnap = null;
@@ -474,6 +484,8 @@ export class Editor {
   }
   /** 悬停预告（eraseFace hover 的 live）不算手势现实——预告吃掉自己=拾取振荡，故以 gestureActive 为界。 */
   private liveWorld(): Kernel { return this.gestureActive() ? (this.live ?? this.checkpoint) : this.checkpoint; }
+  /** 推拉的推断世界 = 按下那一刻的模型（文件头注释「例外」条；09-23 bug 2：世界依赖 h 的回路无不动点）。 */
+  private ppInferenceWorld(): Kernel { return this.checkpoint; }
   /** 基线手：checkpoint 之外的新生 vid（wip 线端/planarize 切点——追光标者）+ 工具自报的移动集。 */
   private freshHand(extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
     const known = new Set(this.checkpoint.vertices().map((v) => v.id));
@@ -518,9 +530,8 @@ export class Editor {
       if (Math.hypot(delta.x, delta.y, delta.z) >= MIN_GESTURE_LEN) run((c) => c.moveVertices(translateMoves(this.checkpoint, vids, delta)));
     } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= MIN_GESTURE_LEN) {
       const fid = this.ppFace;
-      // 落地=commit 事件 ⇒ 预演取 h 的**开区间样本**（差 2 量子，视觉不可见）：恰咬合停靠点时
-      // 不触发共面重合（planarize 合并+OR 打架=合并/破膜垃圾态，user 截图 2026-09-03）；commit 用精确 h 全 XOR。
-      const h = this.ppH - Math.sign(this.ppH) * 2e-6;
+      // 预演用精确 h（像表结算机 2026-10-21：落在既有膜上 = OR 合并一张，不再有开区间样本 / 碎边）；commit 用 XOR 落地。
+      const h = this.ppH;
       run((c) => c.pushPull(fid, h, { settleLanding: false }));
     } else if (tool === "eraseFace" && this.hoverFace !== null) {
       const id = this.hoverFace;
@@ -601,8 +612,9 @@ export class Editor {
         if (this.armed && this.anchor3) {
           // 点两下模式第二击 = 落笔（SU 同款；线工具链式连画）
           this.justCommitted = true;
-          if (this._tool === "line") this.commitLineTo(s.x, s.y);
-          else this.commitRectTo(s.x, s.y);
+          this.trackGesture(s);
+          if (this._tool === "line") this.commitLine(this.currentSample());
+          else this.commitRect(this.currentSample());
           break;
         }
         if (this._tool === "rect") {
@@ -627,7 +639,8 @@ export class Editor {
       case "pp": {
         if (this.armed && this.ppFace !== null && this.anchor3) {
           this.justCommitted = true;
-          this.commitPP();
+          this.trackGesture(s);
+          this.commitPP(this.currentSample());
           break;
         }
         // 面动词只认面（细面上任何位置都在边的 HIT 圈内，走 pickEntity 边永远赢；user 2026-09-07）
@@ -642,7 +655,6 @@ export class Editor {
             ...ringVidsTolerant(k.graph, fRec.outer),
             ...fRec.holes.flatMap((hh) => ringVidsTolerant(k.graph, hh)),
           ]);
-          this.ppKnownVids = new Set(k.vertices().map((v) => v.id));
           this.ppNormal = rec.plane.n;
           this.gesturePlane = { plane: rec.plane, basis: rec.basis };
           const ray0 = this.frame().ray(s.x, s.y, this.fvp());
@@ -667,7 +679,8 @@ export class Editor {
         if (this.armed && this.moveVids.length && this.anchor3) {
           // 点两下模式第二击 = 放置（SU move 就是点起-移动-点放）
           this.justCommitted = true;
-          this.commitMoveTo(s.x, s.y);
+          this.trackGesture(s);
+          this.commitMove(this.currentSample());
           break;
         }
         const hit = pickEntity(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.hitPx());
@@ -730,36 +743,8 @@ export class Editor {
       this.draw();
       return;
     }
+    this.trackGesture(s, ev.travel);
     switch (this._tool) {
-      case "line":
-        if (this.anchor3) {
-          this.snapInfo = this.applyHysteresis(this.lineSecondSnap(s.x, s.y), s.x, s.y);
-          this.trackCharge(this.snapInfo, 120);
-          this.cursor3 = this.snapInfo.p;
-        }
-        break;
-      case "rect":
-        if (this.anchor3) this.cursor3 = this.rectPlaneSnap(s.x, s.y);
-        break;
-      case "pp":
-        this.ppTrack(s.x, s.y, ev.travel);
-        break;
-      case "move":
-        if (this.moveVids.length && this.anchor3) {
-          const mv = new Set(this.moveVids);
-          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);   // 随指针面向走的屏幕平面（不是受影响面）
-          let sn = snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) });
-          if (sn.kind === null) {
-            // 无吸附 = SU move 的方向推断：宽锥三轴三选一（六个 60° 锥）；都不在锥内 → 屏幕平面自由移动；擦射线 → 保持上一帧
-            const ax = inferAxisByDirection(this.frame(), this.fvp(), this.anchor3, s.x, s.y);
-            if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
-            else if (this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
-          }
-          this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
-          this.trackCharge(this.snapInfo, 120);
-          this.cursor3 = this.snapInfo.p;
-        }
-        break;
       case "erase": {
         // 橡皮不预演（user 2026-09-07「橡皮不应该是预演，而是一个静态上面选择，松的时候才删」= SU 同款）：
         // 拖擦只在现实世界上高亮（scrubEdges→edgeHot），松手一次结算；顺带根治「预演里膜死了露出背面 innocent 边」。
@@ -778,9 +763,87 @@ export class Editor {
       case "eraseFace":
         break;
     }
+    this.recordSample(s);
     if (this._tool !== "select") this.computeLive();
     this.updateTip(ev.clientX, ev.clientY);
     this.draw();
+  }
+
+  /** 手势中的取点（line / rect / pp / move 的拖拽态；pointerMove 与松开帧共用）。 */
+  private trackGesture(s: { x: number; y: number }, travel?: number): void {
+    switch (this._tool) {
+      case "line":
+        if (this.anchor3) {
+          this.snapInfo = this.applyHysteresis(this.lineSecondSnap(s.x, s.y), s.x, s.y);
+          this.trackCharge(this.snapInfo, 120);
+          this.cursor3 = this.snapInfo.p;
+        }
+        break;
+      case "rect":
+        if (this.anchor3) this.cursor3 = this.rectPlaneSnap(s.x, s.y);
+        break;
+      case "pp":
+        this.ppTrack(s.x, s.y, travel);
+        break;
+      case "move":
+        if (this.moveVids.length && this.anchor3) {
+          const mv = new Set(this.moveVids);
+          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);   // 随指针面向走的屏幕平面（不是受影响面）
+          let sn = snapPoint(this.liveWorld(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) });
+          if (sn.kind === null) {
+            // 无吸附 = SU move 的方向推断：宽锥三轴三选一（六个 60° 锥）；都不在锥内 → 屏幕平面自由移动；擦射线 → 保持上一帧
+            const ax = inferAxisByDirection(this.frame(), this.fvp(), this.anchor3, s.x, s.y);
+            if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
+            else if (this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
+          }
+          this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
+          this.trackCharge(this.snapInfo, 120);
+          this.cursor3 = this.snapInfo.p;
+        }
+        break;
+      default: break;
+    }
+  }
+  /** 当前帧的解（点两下模式第二击：显式点击，不走抬笔窗口）。 */
+  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null } {
+    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo };
+  }
+  /** 抬笔结算：记录本帧的解（只在工具手势中）。 */
+  private recordSample(s: { x: number; y: number }): void {
+    if (!this.gestureActive()) return;
+    const t = performance.now();
+    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo });
+    while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
+  }
+  /**
+   * 抬笔结算（A21）——按物理过程判：把样本按「同一处」（HOLD_PX 内）分成一段段停留。
+   * 松开处停留 ≥ FINAL_HOLD_MS → 有意，用松开帧；否则回看 RELEASE_WINDOW_MS 内结束的停留，取最长的那段
+   * （≥ MIN_DWELL_MS 且比松开处停得久）= 用户对齐时看着吸附指示停住的地方，用它末尾那帧的解；都没有 → 松开帧。
+   * 调用前先把松开位置当最后一帧 track 一遍（样本环最后一项 = 松开帧）。
+   */
+  private settledSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null } | null {
+    const n = this.samples.length;
+    if (!n) return null;
+    const last = this.samples[n - 1];
+    const holdScale = this.fvp().h / 800;
+    // 分段：每段 = 连续、都在首样本 HOLD_PX 内的样本；段时长 = 下一段首样本时刻 − 本段首样本时刻（末段到松开）
+    const runs: { first: number; lastIdx: number; dur: number }[] = [];
+    for (let i = 0; i < n; i++) {
+      const r = runs[runs.length - 1];
+      if (r && Math.hypot(this.samples[i].sx - this.samples[r.first].sx, this.samples[i].sy - this.samples[r.first].sy) <= HOLD_PX * holdScale) { r.lastIdx = i; continue; }
+      if (r) r.dur = this.samples[i].t - this.samples[r.first].t;
+      runs.push({ first: i, lastIdx: i, dur: 0 });
+    }
+    const fin = runs[runs.length - 1];
+    fin.dur = last.t - this.samples[fin.first].t;
+    if (fin.dur >= FINAL_HOLD_MS) return last;
+    let dwell: typeof fin | null = null;
+    for (let k = runs.length - 2; k >= 0; k--) {
+      const r = runs[k];
+      if (last.t - this.samples[r.lastIdx].t > RELEASE_WINDOW_MS) break;
+      if (r.dur >= MIN_DWELL_MS && r.dur > fin.dur && (!dwell || r.dur > dwell.dur)) dwell = r;
+    }
+    return dwell ? this.samples[dwell.lastIdx] : last;
   }
 
   /**
@@ -792,13 +855,9 @@ export class Editor {
   private ppTrack(sx: number, sy: number, travel?: number): void {
     if (this.ppFace === null || !this.anchor3 || !this.ppNormal) return;
     const anc = this.anchor3, n = this.ppNormal;
-    const wk = this.liveWorld();
-    const hNow = this.ppH;   // live 由它而建 → 谓词与世界同代
-    const hand: AlignHand = {
-      has: (vid) => this.ppShellVids.has(vid) ||
-        (!this.ppKnownVids.has(vid) && Math.abs(dot3(sub3(wk.graph.pt(vid), anc), n) - hNow) < 0.01),
-      opaque: true,
-    };
+    const wk = this.ppInferenceWorld();
+    // 手中集 = 帽环顶点（它们的高度就是 h，对 h 零信息）；opaque = 源面原位当不透明挡板（光标在帽上 → 背后无目标 = SU 连续）
+    const hand: AlignHand = { has: (vid) => this.ppShellVids.has(vid), opaque: true };
     const sn = this.applyHysteresis(
       snapPoint(wk, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: anc, lines: false, hand }),
       sx, sy);
@@ -859,6 +918,13 @@ export class Editor {
   pointerUp(ev: ToolPointer): void {
     const s = ev;
     const isTap = (): boolean => !!this.downScreen && (ev.travel ?? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y)) <= this.eps().tap;
+    // 抬笔结算：松开位置先当最后一帧求解进样本环，再在窗口里挑最高维的解（肌肉抖动不改变已对齐的点）
+    const settle = (): ReturnType<Editor["settledSample"]> => {
+      if (this.justCommitted) return null;
+      this.trackGesture(s);
+      this.recordSample(s);
+      return this.settledSample();
+    };
     switch (this._tool) {
       case "line": {
         if (!this.anchor3) break;
@@ -868,7 +934,7 @@ export class Editor {
           this.host.hint("移动预览，再点一下落笔；Esc 取消");
           break;
         }
-        this.commitLineTo(s.x, s.y);
+        this.commitLine(settle());
         break;
       }
       case "rect": {
@@ -879,7 +945,7 @@ export class Editor {
           this.host.hint("移动预览，再点一下落矩形；Esc 取消");
           break;
         }
-        this.commitRectTo(s.x, s.y);
+        this.commitRect(settle());
         break;
       }
       case "pp": {
@@ -890,7 +956,7 @@ export class Editor {
           this.host.hint("推拉中：移动定高度，再点一下落定；Esc 取消");
           break;
         }
-        this.commitPP();
+        this.commitPP(settle());
         break;
       }
       case "move": {
@@ -901,7 +967,7 @@ export class Editor {
           this.host.hint("移动中：所见即所得预览，再点一下放置；Esc 取消");
           break;
         }
-        this.commitMoveTo(s.x, s.y);
+        this.commitMove(settle());
         break;
       }
       case "erase": {
@@ -974,9 +1040,9 @@ export class Editor {
 
   // ---------- 落笔 ----------
   /** 连画+出膜停（user 终裁回 SU 方案）：出膜事件=铅笔自动抬起；逃生=Esc/原地点击。 */
-  private commitLineTo(sx: number, sy: number): void {
+  private commitLine(smp: { cursor3: Pt3 | null } | null): void {
     const a = this.anchor3!;
-    const b = this.lineSecondSnap(sx, sy).p;
+    const b = smp?.cursor3 ?? this.cursor3 ?? a;
     if (dist(a, b) < MIN_GESTURE_LEN) { this.cancelGesture(); return; }
     const evs = this.commitOp({ op: "addEdges", segs: [[a, b]] });
     this.chargePt(a); this.chargePt(b);   // 落笔点自动充能（通用兜底）
@@ -987,21 +1053,21 @@ export class Editor {
     this.armed = true;
     this.host.hint("连画中：点下一点；出膜自动停；Esc 收笔");
   }
-  private commitRectTo(sx: number, sy: number): void {
-    const b = this.rectPlaneSnap(sx, sy);
-    const segs = rectSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3!, b);
+  private commitRect(smp: { cursor3: Pt3 | null; plane: DrawPlane } | null): void {
+    const plane = smp?.plane ?? this.gesturePlane;
+    const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
+    const segs = rectSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b);
     this.cancelGesture();
     if (segs.length) this.commitOp({ op: "addEdges", segs });
   }
-  private commitPP(): void {
-    const h = this.ppH;
+  private commitPP(smp: { ppH: number } | null): void {
+    const h = smp?.ppH ?? this.ppH;
     const fid = this.ppFace!;
     this.cancelGesture();
     if (Math.abs(h) >= MIN_GESTURE_LEN && this.checkpoint.face(fid)) this.commitOp({ op: "pushpull", face: faceKey(this.checkpoint, fid), dist: h });
   }
-  private commitMoveTo(sx: number, sy: number): void {
-    const mv = new Set(this.moveVids);
-    const target = snapPoint(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3!, alignSources: this.alignSrcs(), hand: this.freshHand((vid) => mv.has(vid)) }).p;
+  private commitMove(smp: { cursor3: Pt3 | null } | null): void {
+    const target = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
     const delta = sub3(target, this.anchor3!);
     const vids = this.moveVids;
     const d = Math.hypot(delta.x, delta.y, delta.z);

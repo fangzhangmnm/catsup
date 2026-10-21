@@ -333,13 +333,17 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   return events;
 }
 
-/** 环内把相邻的两条边 (ea, eb)（经某个二度顶点相连）换成一条边 ne；去掉中间点。 */
+/** 环内把相邻的两条边 (ea, eb)（经某个二度顶点相连）换成一条边 ne；去掉中间点。桥边（同面两侧）会出现两对，全部替换。 */
 function spliceRing(g: PlanarGraph, ring: Ring, ea: EdgeId, eb: EdgeId, ne: EdgeId): void {
-  const n = ring.edges.length;
-  for (let i = 0; i < n; i++) {
-    const d1 = ring.edges[i], d2 = ring.edges[(i + 1) % n];
-    const pair = (d1.edge === ea && d2.edge === eb) || (d1.edge === eb && d2.edge === ea);
-    if (!pair) continue;
+  for (let guard = 0; guard < 4; guard++) {
+    const n = ring.edges.length;
+    let i = -1;
+    for (let j = 0; j < n; j++) {
+      const d1 = ring.edges[j], d2 = ring.edges[(j + 1) % n];
+      if ((d1.edge === ea && d2.edge === eb) || (d1.edge === eb && d2.edge === ea)) { i = j; break; }
+    }
+    if (i < 0) return;
+    const d1 = ring.edges[i];
     const start = d1.forward ? g.edge(d1.edge).a : g.edge(d1.edge).b;
     const rep: DirEdge = { edge: ne, forward: g.edge(ne).a === start };
     const edges: DirEdge[] = [], pts: Pt[] = [];
@@ -349,7 +353,6 @@ function spliceRing(g: PlanarGraph, ring: Ring, ea: EdgeId, eb: EdgeId, ne: Edge
       edges.push(ring.edges[j]); pts.push(ring.pts[j]);
     }
     ring.edges = edges; ring.pts = pts;
-    return;
   }
 }
 
