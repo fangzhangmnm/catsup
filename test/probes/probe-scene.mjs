@@ -3,7 +3,7 @@
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const page = await browser.newPage({ viewport: { width: 1200, height: 800 }, deviceScaleFactor: 2 });
+const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 /* iPad mini 6 竖屏（user 2026-10-21「默认测试按 ipad mini」「我比较习惯竖屏」）*/ });
 const errs = []; page.on("pageerror", (e) => errs.push(e.message));
 page.on("console", (m) => { if (m.type() === "error") errs.push("console: " + m.text()); });
 await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400);
@@ -93,6 +93,23 @@ const res = await page.evaluate(async () => {
   const sideCyl = e.kernel.faces().find((f) => f.outer.edges.length === 4 && e.kernel.faceRings3(f.id).outer.some((p) => p.z > 0.1) && e.kernel.faceRings3(f.id).outer.some((p) => p.z < 0.01));
   if (sideCyl) { const rr = e.kernel.faceRings3(sideCyl.id).outer; const c3 = rr.reduce((a, p) => ({ x: a.x + p.x / 4, y: a.y + p.y / 4, z: a.z + p.z / 4 }), { x: 0, y: 0, z: 0 }); const sp = px(c3); fire("pointerdown", sp.x, sp.y, { button: 0, buttons: 1 }); fire("pointerup", sp.x, sp.y, { button: 0 }); await sleep(60); }
   out.texturedMaterials = e.materials().filter((m) => m.texture).length;
+  // ⑥c 偏移：在圆柱顶面按住、往里拖 → 顶面分成环带 + 内岛（面数 +1）
+  e.cancel(); e.setTool("offset");
+  if (topCyl) {
+    const rr = e.kernel.faceRings3(topCyl.id).outer;
+    const cx4 = rr.reduce((a, p) => a + p.x, 0) / rr.length, cy4 = rr.reduce((a, p) => a + p.y, 0) / rr.length;
+    const edgeMid = { x: (rr[0].x + rr[1].x) / 2, y: (rr[0].y + rr[1].y) / 2, z: rr[0].z };
+    const inward = { x: cx4 - edgeMid.x, y: cy4 - edgeMid.y };
+    const from = px({ x: edgeMid.x + inward.x * 0.05, y: edgeMid.y + inward.y * 0.05, z: rr[0].z });
+    const to = px({ x: edgeMid.x + inward.x * 0.4, y: edgeMid.y + inward.y * 0.4, z: rr[0].z });
+    const before = e.kernel.faces().length;
+    await drag(from, to, 8);
+    out.offsetFacesDelta = e.kernel.faces().length - before;
+  }
+  // ⑥d 软化：选圆柱全部 → 菜单软化 ≤ 20°（12 段圆：侧棱夹角 30° > 20° 不动；再按 35° 全软）
+  e.cancel();
+  out.softenAt20 = e.softenByAngle(20);
+  out.softenAt35 = e.softenByAngle(35);
   // ⑦ 撤销链：全部撤到空
   let n = 0; while (e.canUndo() && n < 50) { e.undo(); n++; }
   out.undoSteps = n;
@@ -102,7 +119,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.boxFaces === 6 && res.selectedAll && res.afterComponent.rootFaces === 0 && res.afterComponent.defs === 2 && res.worldFacesTwoBoxes === 12 && res.bothGrew && res.backAtRoot && res.instSelected && res.rotated && res.circleSoft === 0 && res.circleCurve === 24 && res.cylinderSoft === 24 && res.cylinderCurve === 48 && res.paintedMaterials === 1 && res.topPainted && res.texturedMaterials === 1 && res.emptyAtEnd && errs.length === 0;
+const ok = res.boxFaces === 6 && res.selectedAll && res.afterComponent.rootFaces === 0 && res.afterComponent.defs === 2 && res.worldFacesTwoBoxes === 12 && res.bothGrew && res.backAtRoot && res.instSelected && res.rotated && res.circleSoft === 0 && res.circleCurve === 24 && res.cylinderSoft === 24 && res.cylinderCurve === 48 && res.paintedMaterials === 1 && res.topPainted && res.texturedMaterials === 1 && res.offsetFacesDelta === 1 && res.emptyAtEnd && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

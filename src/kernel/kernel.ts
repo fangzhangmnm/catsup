@@ -341,6 +341,17 @@ export class Kernel {
   edges(): Edge[] { return this.graph.edges(); }
   isSoft(id: EdgeId): boolean { return this.soft.has(id); }
   isCurve(id: EdgeId): boolean { return this.curve.has(id); }
+  isSmooth(id: EdgeId): boolean { return this.edgeLayers.has("smooth", id); }
+  /** 两膜之间的边的二面角（度）；不是恰好两膜 → null。软化工具按角度阈值用。 */
+  dihedralDeg(id: EdgeId): number | null {
+    const e = this.graph.edge(id);
+    const fl = [...new Set(e.faceLinks)];
+    if (fl.length !== 2) return null;
+    const a = this.planeOf(fl[0]), b = this.planeOf(fl[1]);
+    if (!a || !b) return null;
+    const c = Math.min(1, Math.abs(dot3(a.plane.n, b.plane.n)));
+    return (Math.acos(c) * 180) / Math.PI;
+  }
   /** GeomView 契约：裸内核不知道材质表（槽号在 faceMat），渲染单内核时一律默认。 */
   faceMaterial(_id: FaceId): null { return null; }
   faces(): Face[] { return this.store.faces(); }

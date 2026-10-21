@@ -10,6 +10,10 @@ import { History } from "../src/editor/history.ts";
 import { rotationAbout, scalingAbout, translation, applyPt, invert, compose, isRigid } from "../src/scene/xform.ts";
 import { fingerprint, sceneBox, scenePainted } from "./format-scenes.ts";
 import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from "../src/format/index.ts";
+import { circleSegmentsOnPlane } from "../src/editor/tools.ts";
+import { GROUND } from "../src/editor/pick.ts";
+import { smoothNormalsOf } from "../src/format/bake.ts";
+import { decodeGlb } from "../src/format/glb.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 const rootK = (s: Scene): Kernel => s.kernelOf({ def: s.root, group: null });
@@ -235,5 +239,44 @@ describe("scene: group / component 审计（user 10-21「好好 audit 一下」�
     s = applyOp(s, { op: "pushpull", at: { def: s.root, group: g.id }, face: faceKey(g.kernel, top), dist: 1 }).scene;
     eq(g.kernel.faces().length, 6, "仍六面");
     assert(g.kernel.vertices().some((v) => Math.abs(v.z - 2.5) < 1e-9), "顶到 2.5");
+  });
+});
+
+describe("平滑组（0.8）：soft / smooth 两层、推拉策略、软化工具、bake NORMAL", () => {
+  it("画圆推拉：侧棱 soft+smooth、顶底圈 curve（画线、不平滑）；按角度软化 / 硬化；bake 带逐角 NORMAL", () => {
+    const k = new Kernel();
+    const segs = circleSegmentsOnPlane(GROUND.plane, GROUND.basis, P(0, 0, 0), P(1, 0, 0), 12);
+    k.addEdges(segs, { curve: true });
+    eq(k.curve.size, 12, "圆边 = 曲线成员");
+    eq(k.soft.size, 0, "圆边不软");
+    k.pushPull(k.faces()[0].id, 1);
+    const risers = k.edges().filter((e) => Math.abs(k.graph.pt(e.a).z - k.graph.pt(e.b).z) > 0.5);
+    eq(risers.length, 12, "12 条侧棱");
+    assert(risers.every((e) => k.isSoft(e.id) && k.isSmooth(e.id)), "侧棱 soft + smooth");
+    const rims = k.edges().filter((e) => !risers.includes(e));
+    eq(rims.length, 24, "顶底圈 24 条");
+    assert(rims.every((e) => k.isCurve(e.id) && !k.isSoft(e.id) && !k.isSmooth(e.id)), "圈边是曲线成员、不软不平滑");
+    // 硬化侧棱再按角度软化回来（12 段圆：相邻侧面夹角 30°）
+    k.setEdgeLayer("soft", risers.map((e) => e.id), false); k.setEdgeLayer("smooth", risers.map((e) => e.id), false);
+    assert(risers.every((e) => !k.isSmooth(e.id)), "硬化了");
+    const d = k.dihedralDeg(risers[0].id)!;
+    assert(Math.abs(d - 30) < 1e-3, `侧棱二面角 ${d}° ≈ 30°`);
+    const soften = risers.filter((e) => (k.dihedralDeg(e.id) ?? 999) <= 35).map((e) => e.id);
+    k.setEdgeLayer("soft", soften, true); k.setEdgeLayer("smooth", soften, true);
+    assert(risers.every((e) => k.isSmooth(e.id)), "≤ 35° 全软化回来");
+    // bake：默认材质 primitive 也逐角、带 NORMAL；平滑组顶点法向不等于平面法向
+    const snap = k.toBrep();
+    assert(snap.edgeLayers?.smooth?.length === 12 && snap.edgeLayers?.soft?.length === 12 && snap.edgeLayers?.curve?.length === 24, "快照三层");
+    const sm = smoothNormalsOf(snap);
+    assert(sm.size === 12, `平滑组覆盖 12 张侧面（实得 ${sm.size}）`);
+    const bytes = writeCatsup(documentFromScene(new Scene(k), "cyl"));
+    const { json } = decodeGlb(bytes) as { json: any };
+    const tri = json.meshes[0].primitives.filter((p: any) => p.mode === 4);
+    const withN = tri.filter((p: any) => p.attributes.NORMAL !== undefined);
+    eq(withN.length, 1, "平滑组里的 12 张侧面走逐角 primitive 带 NORMAL（顶底盘走省流共享档）");
+    eq(json.accessors[withN[0].attributes.POSITION].count, 12 * 2 * 3, "12 面 × 2 三角 × 3 角");
+    // 读回：三层往返
+    const back = sceneFromDocument(readCatsup(bytes)).kernelOf({ def: 1, group: null });
+    eq(back.edgeLayers.layer("smooth").size, 12); eq(back.soft.size, 12); eq(back.curve.size, 24);
   });
 });

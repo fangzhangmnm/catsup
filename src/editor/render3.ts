@@ -591,7 +591,8 @@ export class Renderer3 {
 
   /**
    * 全部膜 → 几何：无贴图材质的一份（三角汤 + 法向 + sRGB 顶点色 = 材质颜色 × 状态色），每种贴图材质一份（+UV）。
-   * 平滑组（贴图纪元 2026-10-21，user「圆的平滑组」）：被软边连起来的膜共用顶点法向（角度加权平均）——圆柱侧面不再一片片。
+   * 平滑组（0.8，user「平滑组是一个很重要的概念，好好设计一下」）：被 **smooth** 边连起来的膜 = 一个平滑组，组内顶点法向 = 含该顶点的膜法向按内角加权平均；
+   * soft（不画线）与 smooth（插值法向）是两个独立的边层（SU 的 Soft / Smooth），推拉侧棱两者都给、软化工具默认两者都给。
    */
   private rebuildFaces(kd: GeomView, view: ViewState): void {
     const dim = view.dimSlots;
@@ -774,7 +775,7 @@ export class Renderer3 {
 }
 
 /**
- * 平滑组法向：软边两侧的膜视为同一曲面——对每张膜的每个角点，取「经软边连通、且含该顶点」的膜的法向按内角加权平均。
+ * 平滑组法向：smooth 边两侧的膜视为同一曲面——对每张膜的每个角点，取「经 smooth 边连通、且含该顶点」的膜的法向按内角加权平均。
  * 返回 面 id → (顶点坐标键 → 法向)；没有软边邻接的膜不出现在表里（用平面法向）。
  */
 function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
@@ -785,7 +786,7 @@ function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
   const union = (a: FaceId, b: FaceId): void => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
   let any = false;
   for (const e of kd.edges()) {
-    if (!kd.isSoft(e.id) || e.faceLinks.length < 2) continue;
+    if (!kd.isSmooth(e.id) || e.faceLinks.length < 2) continue;
     const fl = [...new Set(e.faceLinks)];
     for (let i = 1; i < fl.length; i++) union(fl[0], fl[i]);
     any = true;

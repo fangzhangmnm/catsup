@@ -44,6 +44,8 @@ export type Op =
   | { op: "copyGroup"; at: PoolRef; group: number; xform: Xform }
   /** 新材质（文档级，只增）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
   | { op: "addMaterial"; name: string; color: [number, number, number]; texture?: { mimeType: string; bytes: Uint8Array; sizeM: [number, number] } }
+  /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
+  | { op: "setEdgeLayers"; at: PoolRef; edges: EdgeKey[]; layers: string[]; on: boolean }
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
   | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null }
   | { op: "eraseGroup"; at: PoolRef; group: number };
@@ -217,6 +219,12 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       s.addMaterial({ name: op.name, color: [op.color[0], op.color[1], op.color[2]], ...(op.texture ? { texture: { mimeType: op.texture.mimeType, bytes: op.texture.bytes, sizeM: [op.texture.sizeM[0], op.texture.sizeM[1]] } } : {}) });
       return { scene: s, events: [] };
     }
+    case "setEdgeLayers": {
+      const { kernel } = poolOf(s, op.at);
+      const ids = op.edges.map((e) => resolveEdge(kernel, e));
+      for (const n of op.layers) kernel.setEdgeLayer(n, ids, op.on);
+      return { scene: s, events: [] };
+    }
     case "paintFaces": {
       const { kernel, ref } = poolOf(s, op.at);
       const fids = op.faces.map((f) => resolveFace(kernel, f));
@@ -273,6 +281,7 @@ export function describeOp(op: Op): string {
     case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${at}`;
+    case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
   }
 }

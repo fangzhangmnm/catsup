@@ -256,7 +256,9 @@
       <div class="sheet">
         <div class="sheet-head"><span>快捷键与手势</span><button class="tb-btn" id="helpClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
         <dl class="kv">
-          <dt>空格 / L / R / C / M / Q / S / P / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 油漆桶 / 橡皮（对齐 SketchUp）</dd>
+          <dt>空格 / L / R / C / M / Q / S / P / F / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 油漆桶 / 橡皮（对齐 SketchUp）</dd>
+          <dt>偏移</dt><dd>按住一张面沿面拖：往里内缩、往外外扩（只偏移外环；边长缩到 0 的边自动合并）</dd>
+          <dt>橡皮 + Ctrl / Shift</dt><dd>刮过的边软化（不画线 + 平滑着色）/ 硬化；菜单「软化所有 ≤ 20° 的边」= SU 软化边对话框默认角</dd>
           <dt>油漆桶</dt><dd>右栏「材质」选颜色或导入图片，点面涂上；点在选中的面上 = 整个选区一起涂；贴图默认 1 m 宽按比例、沿面投影</dd>
           <dt>G / Ctrl+G / Ctrl+Shift+G</dt><dd>建组件 / 建组 / 炸开（选区）；双击组或组件=进入编辑，点空处或 Esc=退出一层；移动工具可直接拖组或组件</dd>
           <dt>旋转</dt><dd>先选中，点圆心（落在面上=绕该面法向），再按住参考点拖出角度（15° 咬合）</dd>
@@ -291,6 +293,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-3b61d3625dcb.mjs"></script>
+    <script type="module" src="./dist/catsup-759b665c5afd.mjs"></script>
   </body>
 </html>

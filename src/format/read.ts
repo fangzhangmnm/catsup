@@ -59,7 +59,20 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     if (!isObj(d.brep)) fail(`definition ${di} has no brep`);
     const brepJson = migrateExtension("CATSUP_brep", d.brep as Record<string, unknown>) as unknown as CatsupBrepJson;
     const brep = decodeBrep(brepJson, view);
-    if (di === rootIdx) brepKeep = { attributes: brepJson.attributes, curves: brepJson.curves, ...(brepJson.extras ? { extras: brepJson.extras } : {}) };
+    if (di === rootIdx) {
+      // 携带未知属性层；本版已解析的层（边 u8 流 / 面 u16 流）不携带——否则重写时会多一份孤儿 bufferView，字节不幂等
+      const attrs: Record<string, Record<string, unknown>> = {};
+      for (const [dom, layers] of Object.entries(brepJson.attributes ?? {})) {
+        const keep: Record<string, unknown> = {};
+        for (const [n, st] of Object.entries(layers ?? {})) {
+          const ct = isObj(st) ? (st as Record<string, unknown>).componentType : undefined;
+          const ours = (dom === "edge" && (ct === "uint8" || ct === undefined) && isObj(st) && typeof (st as Record<string, unknown>).bufferView === "number") || (dom === "face" && ct === "uint16");
+          if (!ours) keep[n] = st;
+        }
+        attrs[dom] = keep;
+      }
+      brepKeep = { attributes: attrs, curves: brepJson.curves, ...(brepJson.extras ? { extras: brepJson.extras } : {}) };
+    }
     const groups: GroupDoc[] = (Array.isArray(d.groups) ? d.groups : []).map((gRaw: unknown, gi: number) => {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;

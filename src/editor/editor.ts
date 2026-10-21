@@ -25,6 +25,8 @@ import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane } from "./tools.ts";
+import { offsetRing } from "./offset.ts";
+import { liftFromPlane, projectToPlane } from "../kernel/geom.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey } from "./ops.ts";
@@ -34,8 +36,8 @@ import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extra
 import { type PoolSlot, WorldView, slotKey } from "../scene/world-view.ts";
 import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
-export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "paint" | "erase" | "eraseFace";
-export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "move", "rotate", "scale", "pp", "paint", "erase", "eraseFace"];
+export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "offset" | "paint" | "erase" | "eraseFace";
+export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "move", "rotate", "scale", "pp", "offset", "paint", "erase", "eraseFace"];
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
@@ -147,6 +149,11 @@ export class Editor {
   private ppH = 0;
   private ppShellVids: ReadonlySet<VertexId> = new Set();
   private ppStops: number[] = [];
+  // 偏移（SU Offset）：面 + 按下点 + 按下时离外环最近的那条边的内法向（面内）；距离沿它量（正 = 向内）
+  private offFace: FaceId | null = null;
+  private offPlane: DrawPlane | null = null;
+  private offInward: Pt3 | null = null;
+  private offDist = 0;
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
   private rotStage: 0 | 1 | 2 = 0;
   private rotCenter: Pt3 | null = null;
@@ -158,9 +165,10 @@ export class Editor {
   private scaleActive: ScaleHandle | null = null;
   private scaleT0 = 1;
   private scaleFactor: Pt3 = { x: 1, y: 1, z: 1 };
-  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3 }[] = [];
+  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; off: number }[] = [];
   private scrubAcc = new Set<EdgeId>();
   private scrubbing = false;
+  private eraseMode: "erase" | "soften" | "harden" = "erase";
   private selection: Selection = emptySelection();
   private selectedPools = new Map<string, PoolPick>();
   private marqueeStart: { x: number; y: number } | null = null;
@@ -340,6 +348,7 @@ export class Editor {
     this.ppShellVids = new Set();
     this.ppStops = [];
     this.ppH = 0;
+    this.offFace = null; this.offPlane = null; this.offInward = null; this.offDist = 0;
     this.rotStage = 0; this.rotCenter = null; this.rotAxis = null; this.rotRef = null; this.rotAngle = 0;
     this.scaleActive = null; this.scaleFactor = { x: 1, y: 1, z: 1 };
     this.samples = [];
@@ -699,6 +708,38 @@ export class Editor {
     return true;
   }
 
+  // ---------- 平滑组：软化 / 硬化 ----------
+  /** 给这些边（本地 id）软化（soft + smooth）或硬化。 */
+  softenEdges(ids: readonly EdgeId[], on: boolean): void {
+    const k = this.kernel;
+    const edges = ids.filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
+    if (!edges.length) return;
+    this.commitOp({ op: "setEdgeLayers", at: this.activePool(), edges, layers: ["soft", "smooth"], on });
+    this.draw();
+  }
+  /** 按二面角阈值软化：有选区 → 选区的边（含选中膜的环边）；否则活动池全部。只碰恰好两膜的边。 */
+  softenByAngle(maxDeg: number, on = true): number {
+    const k = this.kernel;
+    let pool: EdgeId[];
+    if (this.hasGeometrySelection()) {
+      const set = new Set<EdgeId>(this.selection.edges);
+      for (const fid of this.selection.faces) { const f = k.face(fid); if (f) for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) set.add(d.edge); }
+      pool = [...set];
+    } else pool = k.edges().map((e) => e.id);
+    const hit = pool.filter((e) => { const a = k.dihedralDeg(e); return a !== null && a <= maxDeg + 1e-9 && a > 1e-9; });
+    if (hit.length) this.softenEdges(hit, on);
+    return hit.length;
+  }
+  /** 选区的边软化 / 硬化（不看角度）。 */
+  softenSelection(on: boolean): number {
+    const k = this.kernel;
+    const set = new Set<EdgeId>(this.selection.edges);
+    for (const fid of this.selection.faces) { const f = k.face(fid); if (f) for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) set.add(d.edge); }
+    const ids = [...set].filter((e) => k.graph.hasEdge(e) && k.graph.edge(e).faceLinks.length >= 2);
+    if (ids.length) this.softenEdges(ids, on);
+    return ids.length;
+  }
+
   // ---------- 相机 ----------
   setView(name: Parameters<OrbitCamera["setView"]>[0]): void { this.cam.setView(name); this.draw(); }
   zoomExtents(): void {
@@ -752,7 +793,7 @@ export class Editor {
 
   // ---------- 世界源 ----------
   private gestureActive(): boolean {
-    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.scrubbing || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null;
+    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.scrubbing || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null || this.offFace !== null;
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
   private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
@@ -832,6 +873,10 @@ export class Editor {
       dims = `缩放 ${s.x.toFixed(3)} × ${s.y.toFixed(3)} × ${s.z.toFixed(3)}`;
       const X = scalingAbout(this.scaleActive.anchor, s);
       this.previewXform(X, run);
+    } else if (tool === "offset" && this.offFace !== null && Math.abs(this.offDist) >= MIN_GESTURE_LEN) {
+      dims = `偏移 ${this.offDist > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(this.offDist))}`;
+      const segs = this.offsetSegs(this.offDist);
+      if (segs.length) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)])));
     } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= MIN_GESTURE_LEN) {
       const fid = this.ppFace, h = this.ppLocalH(this.ppH);
       run((c) => c.pushPull(fid, h, { settleLanding: false }));
@@ -850,6 +895,19 @@ export class Editor {
     if (vids.length) { const XL = this.xformToLocal(X); run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) })))); }
     const picks = this.selectedPoolPicks();
     if (picks.length) this.liveOverride = { picks, xform: X };
+  }
+  /** 偏移环（世界坐标线段）：活动池里 offFace 的外环投到面基 → offsetRing（SU 只外环）→ 抬回 3D。 */
+  private offsetSegs(d: number): [Pt3, Pt3][] {
+    if (this.offFace === null || !this.offPlane) return [];
+    const k = this.kernel, f = k.face(this.offFace), rec = k.planeOf(this.offFace);
+    if (!f || !rec) return [];
+    const m = this.ctxXform();
+    const outer3 = k.faceRings3(this.offFace)!.outer.map((p) => applyPt(m, p));
+    const ring2 = outer3.map((p) => projectToPlane(p, this.offPlane!.basis));
+    const r = offsetRing(ring2, -d);   // offsetRing 的 d>0 = 外扩；工具的 d>0 = 向内
+    if (r.length < 3) return [];
+    const r3 = r.map((q) => liftFromPlane(q, this.offPlane!.plane, this.offPlane!.basis));
+    return r3.map((p, i) => [p, r3[(i + 1) % r3.length]] as [Pt3, Pt3]);
   }
   /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
   private ppLocalH(h: number): number {
@@ -917,7 +975,8 @@ export class Editor {
       snapAnchor: this._tool === "rotate" ? this.rotCenter : this.anchor3,
       revision: this._revision,
       dimSlots: dimmed,
-      handles: this._tool === "scale" ? this.scaleHandles.map((h) => ({ p: h.p, active: h === this.scaleActive })) : null,
+      // 缩放柄跟着预演实时动（user 2026-10-21「缩放的handle应该跟着实时动」）：拖动中按当前倍率把柄过一遍同一个变换
+      handles: this._tool === "scale" ? (() => { const X = this.scaleActive ? scalingAbout(this.scaleActive.anchor, this.scaleFactor) : null; return this.scaleHandles.map((h) => ({ p: X ? applyPt(X, h.p) : h.p, active: h === this.scaleActive })); })() : null,
       protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
     });
   }
@@ -1112,6 +1171,8 @@ export class Editor {
         this.scrubbing = true;
         this.scrubAcc = new Set();
         this.hoverEdge = null;
+        this.eraseMode = ev.copy ? "soften" : ev.shiftKey ? "harden" : "erase";
+        this.host.hint(this.eraseMode === "soften" ? "软化：刮过的边变软 + 平滑（Ctrl）" : this.eraseMode === "harden" ? "硬化：刮过的边变硬（Shift）" : null);
         const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
         const c = this.classify(view, hit);
         if (c.kind === "entity" && c.local.edge !== undefined) this.scrubAcc.add(c.local.edge);
@@ -1122,6 +1183,41 @@ export class Editor {
         this.marqueeStart = { x: s.x, y: s.y };
         this.marqueeCur = { x: s.x, y: s.y };
         break;
+      case "offset": {
+        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
+        if (gf === undefined) break;
+        const c = this.classify(view, { face: gf });
+        if (c.kind === "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再偏移"); break; }
+        if (c.kind !== "entity" || c.local.face === undefined) break;
+        const wrec = view.planeOf(gf)!;
+        const ray0 = this.frame().ray(s.x, s.y, this.fvp());
+        const hit = rayPlane(ray0.origin, ray0.dir, wrec.plane.n, wrec.plane.d);
+        if (!hit) break;
+        // 离按下点最近的外环边 → 它的面内内法向（朝面心）；偏移距离沿它量
+        const outer = view.faceRings3(gf)!.outer;
+        let best = 0, bd = Infinity;
+        for (let i = 0; i < outer.length; i++) {
+          const a = outer[i], b = outer[(i + 1) % outer.length];
+          const ab = sub3(b, a), l2 = dot3(ab, ab) || 1;
+          const t = Math.max(0, Math.min(1, dot3(sub3(hit, a), ab) / l2));
+          const dd = dist(hit, add3(a, scale3(ab, t)));
+          if (dd < bd) { bd = dd; best = i; }
+        }
+        const a = outer[best], b = outer[(best + 1) % outer.length];
+        const dir = normalize3(sub3(b, a));
+        let inward = cross3(wrec.plane.n, dir);
+        const cen = outer.reduce((acc, p) => add3(acc, scale3(p, 1 / outer.length)), { x: 0, y: 0, z: 0 });
+        if (dot3(sub3(cen, a), inward) < 0) inward = scale3(inward, -1);
+        this.offFace = c.local.face;
+        this.offPlane = { plane: wrec.plane, basis: wrec.basis, face: gf };
+        this.offInward = normalize3(inward);
+        this.offDist = 0;
+        this.anchor3 = hit;
+        this.cursor3 = hit;
+        this.downScreen = { x: s.x, y: s.y };
+        this.host.hint("偏移：沿面拖——向里内缩、向外外扩（松手落定）");
+        break;
+      }
       case "paint":
       case "eraseFace":
         break;
@@ -1202,6 +1298,15 @@ export class Editor {
       case "pp":
         this.ppTrack(s.x, s.y, travel);
         break;
+      case "offset":
+        if (this.offFace !== null && this.offPlane && this.offInward && this.anchor3) {
+          const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.offPlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand(view), lines: false });
+          const q = this.projectToPlaneThrough(sn.p, this.anchor3, this.offPlane.plane.n);
+          this.offDist = dot3(sub3(q, this.anchor3), this.offInward);
+          this.snapInfo = sn.kind ? { ...sn, p: q } : null;
+          this.cursor3 = q;
+        }
+        break;
       case "move":
         if ((this.moveVids.length || this.movePools.length) && this.anchor3) {
           const mv = new Set(this.moveVids);
@@ -1254,13 +1359,13 @@ export class Editor {
     }
   }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
-  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3 } {
-    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor };
+  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; off: number } {
+    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, off: this.offDist };
   }
   private recordSample(s: { x: number; y: number }): void {
     if (!this.gestureActive()) return;
     const t = performance.now();
-    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor });
+    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, off: this.offDist });
     while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
   }
   /**
@@ -1381,14 +1486,25 @@ export class Editor {
         if (this.rotStage === 2) { this.commitRotate(settle()); }
         break;
       }
+      case "offset": {
+        if (this.offFace === null) break;
+        const smp = settle();
+        const d = smp?.off ?? this.offDist;
+        const segs = Math.abs(d) >= MIN_GESTURE_LEN ? this.offsetSegs(d) : [];
+        this.cancelGesture();
+        if (segs.length) this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+        break;
+      }
       case "scale": {
         if (this.scaleActive) this.commitScale(settle());
         break;
       }
       case "erase": {
         const ids = [...this.scrubAcc];
+        const mode = this.eraseMode;
         this.cancelGesture();
         const k = this.kernel;
+        if (mode !== "erase") { this.softenEdges(ids.filter((id) => k.graph.hasEdge(id) && k.graph.edge(id).faceLinks.length >= 2), mode === "soften"); break; }   // 橡皮 + Ctrl = 软化、+ Shift = 硬化（SU 同款修饰）
         const edges = ids.filter((id) => k.graph.hasEdge(id)).map((id) => edgeKey(k, id));
         if (edges.length) this.commitOp({ op: "eraseEdges", at: this.activePool(), edges });
         break;

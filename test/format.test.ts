@@ -52,7 +52,7 @@ describe("format: golden 往返", () => {
     assert(ba.byteLength === bb.byteLength && ba.every((x, i) => x === bb[i]), "同几何同字节");
   });
 
-  it("bake 结构：一个 mesh，TRIANGLES + LINES，POSITION float32 Y-up，无 NORMAL；asset 2.1/minVersion 2.0；extensionsRequired 空", () => {
+  it("bake 结构（省流档）：没平滑组、没材质 → 一个 mesh，TRIANGLES + LINES 共享顶点、无 NORMAL（加载器自算平面法向）；asset 2.1/minVersion 2.0；extensionsRequired 空", () => {
     const bytes = writeCatsup(newDocument(SCENES.box().toBrep(), "t"));
     const { json } = decodeGlb(bytes) as { json: any };
     eq(json.asset.version, "2.1"); eq(json.asset.minVersion, "2.0");
@@ -60,7 +60,7 @@ describe("format: golden 往返", () => {
     eq(json.meshes.length, 1);
     const modes = json.meshes[0].primitives.map((p: any) => p.mode).sort();
     eq(JSON.stringify(modes), "[1,4]");
-    assert(json.meshes[0].primitives.every((p: any) => p.attributes.NORMAL === undefined), "无 NORMAL");
+    assert(json.meshes[0].primitives.every((p: any) => p.attributes.NORMAL === undefined), "无 NORMAL（有平滑组或材质时才逐角写 NORMAL）");
     const pos = json.accessors[json.meshes[0].primitives[0].attributes.POSITION];
     eq(pos.componentType, 5126); eq(pos.count, 8);
     eq(pos.min[1], 0, "Y-up：z→y 最小 0"); eq(pos.max[1], 1.5, "最大 1.5");

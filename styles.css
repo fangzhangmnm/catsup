@@ -38,7 +38,8 @@ svg.ico use { color: inherit; }
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .hud-rail { flex-direction: column; gap: 2px; padding: 4px; }
 /* 左柱：☰ 叠在工具上、撤销/重做叠在工具下，整柱左居中（user 2026-09-07 终形：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」）*/
-.hud-rail-tools { left: calc(10px + var(--safe-left)); top: 50%; transform: translateY(-50%); }
+.hud-rail-tools { left: calc(10px + var(--safe-left)); top: 50%; transform: translateY(-50%); max-height: calc(100vh - 20px - var(--safe-top) - var(--safe-bottom)); overflow-y: auto; scrollbar-width: none; }   /* 15 个钮 ≈ 720 px：iPad mini 竖屏放得下、横屏（744 px 高）要能滚 */
+.hud-rail-tools::-webkit-scrollbar { display: none; }
 .hud-rail-tools > .tb-btn { width: 48px; }
 .rail-tools { display: flex; flex-direction: column; gap: 2px; }
 .hud-rail-right { right: calc(10px + var(--safe-right)); top: calc(10px + var(--safe-top)); }

@@ -19,8 +19,10 @@ export interface GeomView {
   face(id: FaceId): Face | undefined;
   planeOf(id: FaceId): PlaneRec | undefined;
   faceRings3(id: FaceId): { outer: Pt3[]; holes: Pt3[][] } | undefined;
-  /** 软边（圆的近似边等）：渲染不画线。 */
+  /** 软边：渲染不画线。 */
   isSoft(id: EdgeId): boolean;
+  /** 平滑边：两侧膜的法向跨边插值（平滑组）。 */
+  isSmooth(id: EdgeId): boolean;
   /** 面的材质（null = 默认灰）。 */
   faceMaterial(id: FaceId): Material | null;
   graph: { pt(id: VertexId): Pt3; edge(id: EdgeId): Edge; vertex(id: VertexId): Vertex; hasEdge(id: EdgeId): boolean; hasVertex(id: VertexId): boolean };
@@ -37,6 +39,7 @@ export class WorldView implements GeomView {
   private planeMap = new Map<FaceId, PlaneRec>();
   private faceSlot = new Map<FaceId, number>();
   private softSet = new Set<EdgeId>();
+  private smoothSet = new Set<EdgeId>();
   readonly slots: PoolSlot[] = [];
   private byKey = new Map<string, number>();
   readonly graph: GeomView["graph"];
@@ -84,6 +87,7 @@ export class WorldView implements GeomView {
     }
     for (const e of k.edges()) this.edgeMap.set(e.id + off, { id: e.id + off, a: e.a + off, b: e.b + off, faceLinks: e.faceLinks.map((f) => f + off) });
     for (const e of k.soft) this.softSet.add(e + off);
+    for (const e of k.edgeLayers.layer("smooth")) this.smoothSet.add(e + off);
     for (const f of k.faces()) {
       const rec = k.planeOf(f.id)!;
       let plane: PlaneParams = rec.plane, basis = rec.basis;
@@ -106,6 +110,7 @@ export class WorldView implements GeomView {
   vertices(): Vertex[] { return [...this.verts.values()]; }
   edges(): Edge[] { return [...this.edgeMap.values()]; }
   isSoft(id: EdgeId): boolean { return this.softSet.has(id); }
+  isSmooth(id: EdgeId): boolean { return this.smoothSet.has(id); }
   faceMaterial(id: FaceId): Material | null {
     const slot = this.faceSlot.get(id);
     if (slot === undefined) return null;

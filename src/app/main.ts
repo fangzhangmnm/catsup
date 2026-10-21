@@ -80,7 +80,7 @@ const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
 const buildEl = $("build");
 
-const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
+const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 偏移 F · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
 const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
@@ -118,6 +118,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
   { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },
   { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
+  { tool: "offset", icon: "selection-expand", label: "偏移", key: "F" },   // 图标 = stopgap（图标库 TODO 已登记 offset）
   { tool: "paint", icon: "paint-bucket", label: "油漆桶", key: "B" },
   { tool: "erase", icon: "eraser", label: "橡皮", key: "E" },
 ];
@@ -134,6 +135,8 @@ const hud: HudModel = {
     { id: "explode", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },
     { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
+    { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
+    { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
   ],
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -152,6 +155,8 @@ const hud: HudModel = {
       case "explode": editor.explodeSelection(); break;
       case "enter": editor.enterSelected(); break;
       case "exit": editor.exitContext(); break;
+      case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
+      case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "noclip": locomotion.setNoclip(!locomotion.noclip); vr.invalidatePanel(); break;
       case "respawn": { const sp = locomotion.defaultSpawn(); locomotion.sim.reset(sp.pos, sp.heading, { x: 0, y: 0, z: 1.6 }); break; }
       case "exitvr": vr.exit(); break;
@@ -208,7 +213,7 @@ btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
   },
 }));
 
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll";
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu,
   items: () => [
@@ -228,6 +233,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" },
     ] : []),
     { id: "finger", label: "手指也能画", checked: fingerDraws, separatorBefore: true, hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
+    { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", separatorBefore: true, hint: "平滑组：相邻膜夹角小的边变软 + 平滑" },
     { id: "clear", label: "清空模型", icon: "trash-can", separatorBefore: true },
     { id: "help", label: "快捷键与手势", icon: "keyboard" },
     { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
@@ -246,6 +252,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       case "import": objInput.click(); break;
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
       case "debuglog": openDebugLogSheet(); break;
+      case "softenAll": { const n = editor.softenByAngle(20); notify({ text: n ? `软化了 ${n} 条边（夹角 ≤ 20°）` : "没有夹角 ≤ 20° 的边", level: "info" }); break; }
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
@@ -417,7 +424,7 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", b: "paint", e: "erase", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", b: "paint", e: "erase", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q");
