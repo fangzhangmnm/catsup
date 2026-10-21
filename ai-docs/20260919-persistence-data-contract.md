@@ -408,3 +408,5 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 **结论**：不是「glTF 比 blend wise」，是**分工**——交付层要冻结（glTF 做对了），创作层必然随程序演化（blend / skp 都靠版本化代码活下来）。我们的 `.glb` = 两层叠在一个文件里：core 按 glTF 的纪律冻结，`CATSUP_*` 按 blend/skp 的纪律版本化。**从 .blend 多学一招（可选，DNA-lite）**：每条流自描述布局（§5.2）已经是轻量 DNA；若将来想让「没有迁移代码的读者」也能解释旧文件，可在 `CATSUP_document` 里放一个几 KB 的布局说明（各流的字段表），按需再加。
 
 来源：Blender 开发者文档「Blender File Format / DNA structs & do_versions」；SketchUp C SDK 文档（`SUModelSaveToFileWithVersion` 另存旧版）与 .skp 逆向记录里的 per-class version map；glTF 2.0/2.1 规范。
+
+> **2026-10-21 落地注（Claude Fable 5.1，v0.6.0）**：`CATSUP_definitions` **v2** = list[i] 加 `groups[{id, parent, axes, brep}]`（**按 group 分池**：每个 group 自带一份 `CATSUP_brep`，§10「分池」提案采纳）与 `instances[{id, definition, parent, matrix[12]（3×4 行主序，Z-up 本地→父）}]`；glTF 侧每个 definition 一个 mesh（根池 + 全部 group 合并烘焙）、实例 = 节点树（`matrix` 4×4 Y-up）+ `CATSUP_instance`。`CATSUP_brep` **v2** = 去掉 v1 占位 `groups`、首个真属性层 `attributes.edge.soft`（每边 1 字节；圆 / 弧近似边）；软边不进 bake 的 LINES。迁移 `src/format/migrate/index.ts`，样本 `test/fixtures/format/v2/`。桥 = `src/format/scene-doc.ts`。

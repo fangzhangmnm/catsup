@@ -40,6 +40,8 @@ export type Op =
   | { op: "transformInstance"; def: number; instance: number; xform: Xform }
   | { op: "placeInstance"; at: PoolRef; definition: number; xform: Xform }
   | { op: "eraseInstance"; def: number; instance: number }
+  /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
+  | { op: "copyGroup"; at: PoolRef; group: number; xform: Xform }
   | { op: "eraseGroup"; at: PoolRef; group: number };
 
 export interface ApplyResult { scene: Scene; events: FaceEvent[]; }
@@ -182,6 +184,24 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       s.mintInstance(ref.def, ref.group, op.definition, op.xform);
       return { scene: s, events: [] };
     }
+    case "copyGroup": {
+      const { ref } = poolOf(s, op.at);
+      const d = s.def(ref.def);
+      const src = d.groups.get(op.group);
+      if (!src || src.parent !== ref.group) throw new OpTargetError(`group ${op.group}`);
+      const gmap = new Map<number, number>();
+      const desc = new Set<number>([src.id]);
+      let grew = true;
+      while (grew) { grew = false; for (const g of d.groups.values()) if (g.parent !== null && desc.has(g.parent) && !desc.has(g.id)) { desc.add(g.id); grew = true; } }
+      for (const gid of desc) {
+        const g = d.groups.get(gid)!;
+        const ng = s.mintGroup(ref.def, ref.group, Kernel.fromBrep(transformSnapshot(g.kernel.toBrep(), op.xform)), transformFrame(op.xform, g.axes));
+        gmap.set(gid, ng.id);
+      }
+      for (const gid of desc) { const g = d.groups.get(gid)!; if (g.parent !== null && gmap.has(g.parent)) s.group({ def: ref.def, group: gmap.get(gid)! }).parent = gmap.get(g.parent)!; }
+      for (const inst of [...d.instances.values()]) if (inst.parent !== null && desc.has(inst.parent)) s.mintInstance(ref.def, gmap.get(inst.parent)!, inst.def, compose(op.xform, inst.xform));
+      return { scene: s, events: [] };
+    }
     case "eraseInstance": {
       const d = s.def(op.def);
       if (!d.instances.delete(op.instance)) throw new OpTargetError(`instance ${op.instance}`);
@@ -228,6 +248,7 @@ export function describeOp(op: Op): string {
     case "transformInstance": return `transformInstance ${op.def}/${op.instance}`;
     case "placeInstance": return `placeInstance def=${op.definition}${at}`;
     case "eraseInstance": return `eraseInstance ${op.def}/${op.instance}`;
+    case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
   }
 }

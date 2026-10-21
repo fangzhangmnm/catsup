@@ -30,7 +30,7 @@ import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey } from "./ops.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
-import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, poolBounds } from "../scene/scene.ts";
+import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey } from "../scene/world-view.ts";
 import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
@@ -45,6 +45,8 @@ export interface ToolPointer {
   /** 允许「点两下」模式（第一击是点击不是拖 → 移动预览再点放置）：桌面鼠标 = true；数位笔/手指 = false（误触发意外连线）。由适配器裁决。 */
   armable?: boolean;
   shiftKey: boolean;
+  /** 复制修饰（Ctrl / Alt / ⌘）：移动 = 留一份原件再放（SU Move+Ctrl）。 */
+  copy?: boolean;
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px）。缺省 = 屏距 downScreen。 */
   travel?: number;
 }
@@ -135,6 +137,8 @@ export class Editor {
   private snapInfo: Snap3 | null = null;
   private moveVids: VertexId[] = [];
   private movePools: PoolPick[] = [];
+  private moveCopy = false;
+  private moveEntities: { faces: FaceId[]; edges: EdgeId[] } = { faces: [], edges: [] };
   private ppFace: FaceId | null = null;
   private ppNormal: Pt3 | null = null;
   private ppH = 0;
@@ -162,7 +166,7 @@ export class Editor {
   private hoverFace: FaceId | null = null;
   private hoverPool: string | null = null;
   private live: Kernel | null = null;
-  private liveOverride: { picks: PoolPick[]; xform: Xform } | null = null;
+  private liveOverride: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null;
   private liveEvents: FaceEvent[] = [];
   private armed = false;
   private canArm = false;
@@ -231,7 +235,8 @@ export class Editor {
   private kid(o: object): number { let id = this.kids.get(o); if (id === undefined) { id = this.nextKid++; this.kids.set(o, id); } return id; }
   private ctxKey(): string { return `${this.ctx.chain.join("/")}#${this.ctx.group ?? "root"}`; }
   /** 世界视图（缓存：场景代数 + 影子副本身份 + 上下文 + 整体变换预演）。 */
-  private worldView(live: Kernel | null = null, override: { picks: PoolPick[]; xform: Xform } | null = null): WorldView {
+  private worldView(live: Kernel | null = null, override: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null): WorldView {
+    if (override?.copy) override = null;   // 复制模式：原件不动（副本在 commit 时出现）
     const ovKey = override ? `${override.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${override.xform.map((v) => v.toFixed(9)).join(",")}` : "";
     const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
@@ -324,6 +329,8 @@ export class Editor {
     this.anchor3 = null;
     this.moveVids = [];
     this.movePools = [];
+    this.moveCopy = false;
+    this.moveEntities = { faces: [], edges: [] };
     this.ppFace = null;
     this.ppNormal = null;
     this.ppShellVids = new Set();
@@ -761,10 +768,14 @@ export class Editor {
       if (segs.length && r >= MIN_GESTURE_LEN) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]), { soft: true }));
     } else if (tool === "move" && this.anchor3 && this.cursor3 && (this.moveVids.length || this.movePools.length)) {
       const delta = sub3(this.cursor3, this.anchor3);
-      dims = `移动 ${fmtLen(len3(delta))}`;
+      dims = `${this.moveCopy ? "复制" : "移动"} ${fmtLen(len3(delta))}`;
       if (len3(delta) >= MIN_GESTURE_LEN) {
-        if (this.moveVids.length) { const vids = this.moveVids, dl = applyDir(invert(this.ctxXform()), delta); run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: add3(c.graph.pt(id), dl) })))); }
-        if (this.movePools.length) this.liveOverride = { picks: this.movePools, xform: translation(delta) };
+        if (this.moveVids.length) {
+          const vids = this.moveVids, dl = applyDir(invert(this.ctxXform()), delta);
+          if (this.moveCopy) { const payload = this.copyPayload(translation(dl)); if (payload) run((c) => c.absorb(payload.faces, payload.wires.map(([a, b]) => ({ a, b })), payload.soft.map(([a, b]) => ({ a, b })))); }
+          else run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: add3(c.graph.pt(id), dl) }))));
+        }
+        if (this.movePools.length) this.liveOverride = { picks: this.movePools, xform: translation(delta), copy: this.moveCopy };
       }
     } else if (tool === "rotate" && this.rotStage === 2 && this.rotCenter && this.rotAxis) {
       dims = `旋转 ${fmtDeg(this.rotAngle)}`;
@@ -985,11 +996,16 @@ export class Editor {
         }
         const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
         const c = this.classify(view, hit);
+        this.moveCopy = !!ev.copy;
         if (this.hasSelection()) {
           this.moveVids = moveTargetsSelection(this.kernel, this.selection);
           this.movePools = this.selectedPoolPicks();
-        } else if (c.kind === "entity") { this.moveVids = moveTargets(this.kernel, c.local); this.movePools = []; }
-        else if (c.kind === "pool") { this.moveVids = []; this.movePools = [c.pick]; }
+          this.moveEntities = { faces: [...this.selection.faces], edges: [...this.selection.edges] };
+        } else if (c.kind === "entity") {
+          this.moveVids = moveTargets(this.kernel, c.local); this.movePools = [];
+          this.moveEntities = { faces: c.local.face !== undefined ? [c.local.face] : [], edges: c.local.edge !== undefined ? [c.local.edge] : [] };
+        }
+        else if (c.kind === "pool") { this.moveVids = []; this.movePools = [c.pick]; this.moveEntities = { faces: [], edges: [] }; }
         else { this.moveVids = []; this.movePools = []; }
         if (this.moveVids.length || this.movePools.length) {
           this.gesturePlane = drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y);
@@ -1001,7 +1017,7 @@ export class Editor {
           this.armed = false;
           this.canArm = !!ev.armable;
           this.downScreen = { x: s.x, y: s.y };
-          this.host.hint(this.movePools.length ? "移动 group / 组件：拖拽或点两下放置" : this.hasSelection() ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得）");
+          this.host.hint((this.moveCopy ? "复制：" : "") + (this.movePools.length ? "移动 group / 组件：拖拽或点两下放置" : this.hasSelection() ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得；按住 Ctrl/Alt = 复制）"));
         }
         break;
       }
@@ -1424,10 +1440,38 @@ export class Editor {
   private commitMove(smp: { cursor3: Pt3 | null } | null): void {
     const target = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
     const delta = sub3(target, this.anchor3!);
-    const vids = this.moveVids, pools = this.movePools;
+    const vids = this.moveVids, pools = this.movePools, copy = this.moveCopy;
+    const X = translation(delta);
+    if (copy) {
+      const payload = this.copyPayload(this.xformToLocal(X));
+      this.cancelGesture();
+      if (len3(delta) < MIN_GESTURE_LEN) return;
+      const at = this.activePool(), def = this.scene.defOfContext(this.ctx), XL = this.xformToLocal(X);
+      if (payload) this.commitOp({ op: "absorb", at, faces: payload.faces, wires: payload.wires, soft: payload.soft });
+      for (const p of pools) {
+        if (p.kind === "group") this.commitOp({ op: "copyGroup", at, group: p.group, xform: XL });
+        else { const inst = this.scene.instance(def, p.instance); this.commitOp({ op: "placeInstance", at, definition: inst.def, xform: compose(XL, inst.xform) }); }
+      }
+      return;
+    }
     this.cancelGesture();
     if (len3(delta) < MIN_GESTURE_LEN) return;
-    this.commitXform(translation(delta), vids, pools);
+    this.commitXform(X, vids, pools);
+  }
+  /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
+  private copyPayload(XL: Xform): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; soft: [Pt3, Pt3][] } | null {
+    const k = this.kernel;
+    const faces = this.moveEntities.faces.filter((f) => k.face(f)), edges = this.moveEntities.edges.filter((e) => k.graph.hasEdge(e));
+    if (!faces.length && !edges.length) return null;
+    const snap = transformSnapshot(extractSnapshot(k, faces, edges), XL);
+    const P = snap.vertices;
+    const inFace = new Set<string>();
+    for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
+    return {
+      faces: snap.faces.map((f) => [f.outer.map((i) => P[i]), ...f.holes.map((h) => h.map((i) => P[i]))]),
+      wires: snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => [P[a], P[b]] as [Pt3, Pt3]),
+      soft: (snap.softEdges ?? []).map((i) => [P[snap.edges[i][0]], P[snap.edges[i][1]]] as [Pt3, Pt3]),
+    };
   }
   private commitRotate(smp: { angle: number } | null): void {
     const ang = smp?.angle ?? this.rotAngle;

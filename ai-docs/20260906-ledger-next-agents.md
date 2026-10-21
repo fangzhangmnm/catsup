@@ -1,6 +1,12 @@
 # CatsUp 待办总账 —— 一条 = 一个新 agent 能独立吃下的活
 
 > **2026-09-19 改道（user 原话）：「虽然很想修 bug 但是一直每次都画个小房子关还是不行，我的想法是走转正（之前你用毕业这个词）流程，接 pwa 壳，和 weebpaint 商量一下抽 workpiece，或者也可以自己搓，如果实际形状差的太多不适合抽象父类的话。以及最重要的，接 store 和 gallery，开 onedrive 仓。这个才是我能长期做的。然后是一堆 qol improvement」→ 起手 = A19 数据契约 grill → A18 转正纪元（等「开做」）→ A20/A21 QoL。下面 09-08 的 VR 六条降级为「等 token 到了再做」。~~后门政策~~ → 09-20 作废，改「持久化立宪：向后兼容第一天设计」见 `CLAUDE.md`。edited by Claude Fable 5.1 2026-09-19/20**
+> **2026-10-21 超级冲刺（user「supersprint where at least i have groups and components…rotate, scale, and move…push pull should be perfect…circle」「i give up using human math verificable to block each step」「优先做ipad，vr可以先sunset」；Claude Fable 5.1）→ v0.6.0 group / component 纪元**。
+> ① **内核 = 像表结算机**（`src/kernel/settle.ts`；09-23 算法 QA 两案根因 = 身份靠 id；详 `ai-docs/20261021-image-settlement-machine.md`，立宪页 rev7）：pp 的 MOVE/COPY/frontier/riser/蒸发 rename/toggle/洞环三律全退役；289 测试绿；扩展 fuzz 500×14 旧内核 92 坏 → 7。
+> ② **推拉推断世界 = 按下时模型 + 源面不透明**（bug 2；翻 09-03「争取中间态」拍板，user 10-21 授权往前走）；**A21 抬笔结算 done**（停留 ≥ 40 ms 才是意图，末尾 < 100 ms 抖动不算；`test/probes/probe-lift.mjs`）。
+> ③ **group / component**：`src/scene/`（Scene / WorldView / xform）；group = 自己的 Kernel 池 + 轴框（A3 context 槽落地），component = definition + 实例；op 带池地址；双击进 / 点空处或 Esc 出；上下文外淡出；移动 / 旋转 / 缩放整体；Ctrl 拖 = 复制；格式 v2（definitions groups / instances、brep 软边层、每 definition 一个 mesh + 实例节点树）+ 迁移 + v2 冻结样本。
+> ④ **圆**（24 段软边，渲染不画、推拉侧棱继承）、**旋转**（量角器两笔 + 15° 咬合）、**缩放**（包围盒柄：角等比 / 面心单轴）。
+> **没做 / 留给下一 session**：贴图（user「if things goes successful tonight we can add textures」——等 user 看过再说）；follow-me（user「next sprint」）；VCB 数值 / 阵列 x9 ÷8（B12）；T1–T9 SketchUp 实验（褶边判据默认沿用 (a)）；VR 路径 sunset 中（代码仍在，未验、未维护）；group 的「组内轴 / redefine axis」UI；component「Make Unique」；实例级材质覆盖。**真机零验证**（iPad Edge：圆 / 旋转两笔 / 缩放柄 / 双击进组 / 抬笔结算的手感全要 user 一次交付）。D-fuzz 残余 = 种子 31 近共线嵌入重复面 + planarize 不收敛 2 例（老病）。
 > **2026-09-22 追加（同日第二 session，Claude Fable 5.1）：A24 文档生命周期对齐 WeebPaint 已落 v0.5.7**（开机零网络回到上次模型 / lazyblank 首笔安家不产废文件 / 崩溃安全 flush / 显式快进；审计 `ai-docs/20260922-lifecycle-alignment-with-weebpaint.md`）。真机未验项追加到 A23。
 > **2026-09-22 结案（转正纪元真机首轮；user「那么这个 session 先结案了…之后的功能我会开新的 session」；Claude Fable 5.1）**。as-of **v0.5.6**。**真机已验（Windows Edge，user 一次交付）**：登录（桌面普通窗口 consent 撞 `server_error` = 脏浏览器窗口，手机 consent 即通 → 桌面静默登录）· 图库 · 新建/画/推拉 · `已保存并同步` · OneDrive 网页见 `应用/CatsUp/<名>.glb` · grant = 最小集（应用文件夹 + offline_access + 基本资料）· 调试日志黑匣子复制回执两次。**真机未验**：iPad / Quest 整条；T-crash 通知与领养；图库缩略图（真机）；smart save 七态里 unpushed / saving 两态；file 家（FSA 原地写回）；离线补推 sheet；改名/回收站动词。**下一 session 起手**：① **IBL**（VR 头晕，user 09-20 点名）→ ② **group / component**（远景剧透 §1 本体论：group = 同 mesh 编辑时语义、component = object）→ ③ move / rotate / scale；QoL 走 A20 配色 / A21 松笔 unsnap；A22（黑匣子 MSAL Info 进料，要改库）待拍板；A23 真机未验清单等 user。**已知缺口（不阻塞）**：file 家 FSA 句柄跨刷新不可恢复（恢复只进图库/transient）；外来 .glb 显示为杂物；bake 固定 wysiwyg；lastView 未持久化；`pushPending` 只在下次显式保存清；编辑器 `eraseFace` 工具无 UI 入口；OneDrive「新授权 403」修复定性 = 反证候选（门户抖动混杂），干净对照 park 宣发轮。
 > as-of v0.4.6 / 2026-09-19（转正改道 + 数据契约稿 `ai-docs/20260919-persistence-data-contract.md` + journal 09-07 四条补账）
@@ -46,7 +52,7 @@
 ### A20 场景配色 QoL — `待做`（user 2026-09-19：「优化一下颜色，现在这个场景我一进去就有一些负面的精神感受哈哈哈」）
 - 范围 = Workbench 默认色（背景 / 网格 / 三轴 / 膜灰 / 边黑 / 吸附球 / 高亮）+ HUD 胶囊色；色值走家族色彩库色名（`../20260730 Colors/colors.json`），不私自硬编码分叉。**先出样张给 user 过目再接线**（讨论≠授权）。转正纪元之后做。
 
-### A21 松笔瞬间 unsnap（肌肉抖动）— `待 grill`（user 2026-09-19：「松笔的一瞬间会突然 unsnap，因为人类肌肉抖动。这个鼠标，笔都有，quest 手柄最严重」；journal 09-07 ⑤ 同案「需要 grill 和思考…vr 手柄在松开扳机的时候手总是会抖一下，很容易让 snap 失效」）
+### A21 松笔瞬间 unsnap（肌肉抖动）— `done v0.6.0（2026-10-21，Claude Fable 5.1；user「抬笔的时候总是会抖一下然后歪掉」）：抬笔结算 = 停留 ≥ 40 ms 才是意图、末尾 < 100 ms 抖动不算、停留窗口 150 ms（editor.ts settledSample；三个常量各自量纲）；probe-lift 三条绿；Quest 手柄未做（VR sunset）`（user 2026-09-19：「松笔的一瞬间会突然 unsnap，因为人类肌肉抖动。这个鼠标，笔都有，quest 手柄最严重」；journal 09-07 ⑤ 同案「需要 grill 和思考…vr 手柄在松开扳机的时候手总是会抖一下，很容易让 snap 失效」）
 - 问题陈述（math/手感类禁猜测式调试）：输入 = 松开前 N ms 的指针轨迹 + 每帧求解结果；输出 = 提交用哪一帧的解。候选：① 提交取「松开前最后一次稳定解」（磁滞已有，加时间窗）；② 松开事件本身不重新求解，只用上一帧；③ 松开前速度突增 = 抖动，回退到突增前的解。桌面 / 笔 / Quest 三套阈值各自独立量纲（调参纪律）。**先写清楚再动手；等 user grill。**
 
 
