@@ -1,0 +1,152 @@
+import type { Editor } from "../editor/editor.ts";
+interface FSHandle {
+    readonly name: string;
+    createWritable(): Promise<{
+        write(b: Blob): Promise<void>;
+        close(): Promise<void>;
+    }>;
+    getFile(): Promise<File>;
+}
+export declare const supportsSavePicker: () => boolean;
+export declare const supportsOpenPicker: () => boolean;
+export type DocHome = {
+    kind: "gallery";
+    path: string;
+} | {
+    kind: "file";
+    handle: FSHandle | null;
+    fileName: string;
+} | {
+    kind: "transient";
+    name?: string;
+};
+export interface SessionDeps {
+    editor: Editor;
+    captureThumbnail: () => {
+        mimeType: string;
+        bytes: Uint8Array;
+    } | null;
+    onHomeChanged: () => void;
+    setStatus: (text: string, error?: boolean) => void;
+    online: () => boolean;
+}
+export declare const bareName: (full: string) => string;
+export declare const fullName: (dir: string, bare: string) => string;
+export declare const isDocName: (p: string) => boolean;
+/** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
+ *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
+export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
+export declare class Session {
+    private d;
+    home: DocHome;
+    saving: boolean;
+    /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
+    pushPending: boolean;
+    /** lazyblank（WeebPaint P1.5）：图库家 + 日期名只在内存，文件还没建；首笔有内容 → adoptLazy 翻 false。空白期永不落盘、回执条不写。 */
+    lazy: boolean;
+    /** 首存必须 mode:"new"（撞名不静默覆盖）直到第一次真落盘成功；失败后 30 s 自动保存重试仍带 new。 */
+    private createPending;
+    /** lazyblank 安家中（消歧名字）；save / leaveGate 先等它落定，别把字节写到还没定的名字上。 */
+    private adopting;
+    private refreshInFlight;
+    private savedRevision;
+    private lastSeenRevision;
+    private lastEditAt;
+    private loaded;
+    private timer;
+    /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
+    private luggage;
+    private snapRevision;
+    /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
+    currentDir: string;
+    constructor(d: SessionDeps);
+    dirty(): boolean;
+    displayName(): string;
+    /** file / transient 家 且脏（beforeunload 承重层用）。 */
+    dirtyLocalHome(): boolean;
+    private localHomeKind;
+    /** lazyblank 且还没动过（boot 登录后重试恢复 / 挂库不塞空白 用）。 */
+    isUntouchedLazyBlank(): boolean;
+    private hasContent;
+    /** smart save 钮的状态（顺序 = WeebPaint computeSaveState：saving → dirty → cloud-off → unpushed/synced → local-only）。 */
+    saveState(): SaveState;
+    /** 钮的 tooltip 文案（状态 + 住哪）。 */
+    saveTitle(): string;
+    /** 编辑器每次 checkpoint 变化（commit / undo / redo / load）同步进来（main 的 editor.host.changed）：
+     *  刷徽章 + **lazyblank 首笔安家**（WeebPaint session-state onChange 钩子同形：真出现内容才绑身份）。 */
+    noteChange(): void;
+    private tick;
+    private mintLuggage;
+    /** 释放行李牌（离开 file / transient 家的每条路都要过这）：正常关闭即删（pending-adoption 由库内拒删）。 */
+    private dropLuggage;
+    /** 盲快照：与保存同一 encode 字节，同一张牌覆盖写单帧。state="pending-adoption" = 登录 redirect 前留声（pagehide 不焚）。 */
+    snapshot(state?: "crash" | "pending-adoption"): Promise<boolean>;
+    /** 登录 redirect 前：脏的 file / transient 模型留 pending-adoption 帧（页面将死但不是关闭；回来 crash-recovery 自动领养）。 */
+    needsRedirectSnapshot(): boolean;
+    prepareForRedirect(): Promise<void>;
+    /** pagehide（非 bfcache）= 用户过完挽留门选择离开 → 快照焚；真 crash 不触发 pagehide → 快照幸存。 */
+    onPageHide(persisted: boolean): void;
+    /** 崩溃安全 flush（WeebPaint es.start 三件：visibilitychange:hidden / blur / pagehide(!persisted)）：图库家脏 → 只落本地不推
+     *  （页面要走，push 未必完成；push-pending 留着下次显式保存推）；file / transient 家脏 → 盲快照。不等空闲、不看手势（encode 读的是
+     *  checkpoint = 上次 commit 的世界，手势中途也一致）。fire-and-forget：卸载期没有时间预算。 */
+    flushForHide(): void;
+    /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
+     *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
+    adoptRecovered(bytes: Uint8Array, name: string, opts: {
+        gate: boolean;
+    }): Promise<"gallery" | "transient" | null>;
+    private encode;
+    private adopt;
+    /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeFileName / **回执条**（@internal/gallery resume-slate）都从这收口。
+     *  回执条语义（WeebPaint 同）：图库家（非 lazy）→ {doc}；文件家 → {gallery}（句柄跨刷新不可恢复，下次落图库）；transient / lazyblank 不碰
+     *  （空白不算「上次开着的画」）；未挂库时回执条无意义，一律不碰。 */
+    private setHome;
+    /** 图库覆盖层开 / 关时的回执条（WeebPaint：退到图库 = {gallery}；回到图库家文档 = {doc}；lazyblank / 本地家底下 → 停在 {gallery}）。 */
+    slateGalleryOpened(): void;
+    slateGalleryClosed(): void;
+    /** 撞名消歧：`base`、`base-1`、`base-2`…（store nameOccupied 本机 ∪ 云端）。 */
+    private freeName;
+    /** lazyblank 新场景（WeebPaint beginLazyBlank）：空内核 + 图库家日期名只在内存；不建文件、不写回执条；首笔有内容 → noteChange 安家。
+     *  boot 的「可画新场景」落点（首次 / 恢复失败 / 崩溃断路）+ 挂库时的「新建」。 */
+    beginLazyBlank(): void;
+    /** lazyblank 首笔安家：消歧名字 → 身份落定（回执条从此指它）→ 首存 mode:"new"。名字落定与字节落盘分两步：
+     *  `adopting` 只覆盖前者，后者是普通 save（失败留 dirty + createPending，30 s 自动保存重试）。 */
+    private adoptLazy;
+    /** 新建：脏则挽留；挂了图库 → lazyblank（不建文件，首笔安家），否则 transient。 */
+    newDoc(): Promise<boolean>;
+    /** boot 恢复端口（restoreLastSession.restore）：无挽留门、无状态行（端口自己报）；本地优先——boot 在 initAuth 之前调，
+     *  store 此刻视为未登录 → 直接读本地副本零网络（ai-docs/20260922 §1.3）。返回是否装入了字节。 */
+    restore(path: string): Promise<boolean>;
+    /** 从图库打开（本地优先；没本地且离线 → 诚实报）。 */
+    openFromGallery(path: string): Promise<boolean>;
+    /** 登录落地 / 回线 / 回前台的**显式快进**（WeebPaint refreshOpenDoc，P1 2026-08-25）：图库家 ∧ 干净 ∧ 云可达 → pullIfClean；
+     *  云端更新且本地干净 → 库拉字节（期间 busy 遮罩：别让用户在换字节的半路落笔）→ 同名重开。脏 / push-pending / lazyblank 一律不快进
+     *  （分歧留给保存的 412 冲突面）。库侧 localDirty 二次核对 fetchMeta 期间有没有落笔。 */
+    refreshOpenDoc(): Promise<void>;
+    /** 打开本地文件字节（拖入 / 文件输入 / FSA 句柄）。 */
+    openLocalBytes(bytes: Uint8Array, fileName: string, handle: FSHandle | null): Promise<boolean>;
+    openLocalPicker(): Promise<boolean>;
+    /** 保存 = 送回家。transient 显式保存 = 安家仪式（FSA 另存 / 下载兜底）；implicit（自动 / 离开）在 transient 上是 noop。
+     *  localOnly：崩溃安全 flush 用，只落本地不推（push-pending 留着）。 */
+    save(opts?: {
+        implicit?: boolean;
+        localOnly?: boolean;
+    }): Promise<boolean>;
+    /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
+    settleToFile(): Promise<boolean>;
+    /** 导出一份（永不清 dirty）。 */
+    exportDownload(): void;
+    private download;
+    /** 离开当前文档前的挽留：图库家 = 自动保存（WeebPaint 图库模式 UX）；文件家 / transient 且脏 = 三键。 */
+    leaveGate(): Promise<boolean>;
+    renameActive(): Promise<string | null>;
+    /** 图库把活动文档改名/移动了（onRenamed / 图库动词）→ 换身份。 */
+    setActivePath(path: string): void;
+    pushDoc(path: string): Promise<void>;
+    offloadDoc(path: string): Promise<void>;
+    /** 去图库前：图库家的脏文档落本地（WeebPaint：退出自动 ctrl+s）。 */
+    flushLocal(): Promise<void>;
+    /** 挂图库的用户手势时刻（首次开图库 / 登录 / 首存）：persist 表态落点。 */
+    static persistOnGesture(): void;
+}
+export {};

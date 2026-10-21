@@ -1,0 +1,41 @@
+import { Scene } from "../scene/scene.ts";
+import { type ApplyResult, type Op } from "./ops.ts";
+/** 每多少条 op 留一个场景快照（clone）——undo 最多重放 SNAP_EVERY_OPS−1 条。量纲：op 条数。 */
+export declare const SNAP_EVERY_OPS = 8;
+/** 最多保留几个快照（≈ SNAP_EVERY_OPS×KEEP_SNAPS 条 op 内 O(k) 撤销；更深回 base 全量重放，仍正确只是慢）。量纲：个。 */
+export declare const KEEP_SNAPS = 8;
+/** 应用失败：cause = 内核 / 解析抛的原错；restored = 提交前状态（新实例，调用方直接换用）。 */
+export declare class OpApplyError extends Error {
+    readonly cause: unknown;
+    readonly restored: Scene;
+    constructor(cause: unknown, restored: Scene);
+}
+export declare class History {
+    private readonly base;
+    private ops;
+    private cursor;
+    private snaps;
+    private readonly snapEvery;
+    private readonly keepSnaps;
+    constructor(base?: Scene, opts?: {
+        snapEvery?: number;
+        keepSnaps?: number;
+    });
+    canUndo(): boolean;
+    canRedo(): boolean;
+    depth(): number;
+    position(): number;
+    log(): readonly Op[];
+    snapshotIndices(): number[];
+    /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。失败抛 OpApplyError（不记账，带回滚场景）。 */
+    commit(s: Scene, op: Op): ApplyResult;
+    /** 撤销 = 回到最近检查点重放到 cursor−1。返回新场景（调用方换用）；没得撤 → null。 */
+    undo(): Scene | null;
+    /** 重做 = 把下一条 op 原地应用到当前场景。失败抛 OpApplyError（cursor 不动）。 */
+    redo(s: Scene): ApplyResult | null;
+    /** 应用 ops[0..i) 后的状态（新实例）：取 ≤ i 的最近快照 clone 再重放剩余。 */
+    stateAt(i: number): Scene;
+    /** 当前状态的独立重建（测试 / 校验用）。 */
+    replay(): Scene;
+    private prune;
+}
