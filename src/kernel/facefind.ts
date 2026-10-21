@@ -121,11 +121,13 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
       let curEdge = eid;
       let from = forward ? e.a : e.b;
       let to = forward ? e.b : e.a;
+      const startKey = hk(eid, forward);
+      let closed = false;
       // 沿最紧转弯走到回到起始半边
       for (;;) {
         const fwd = g.edge(curEdge).a === from;
         const k = hk(curEdge, fwd);
-        if (visited.has(k)) break; // 回到已走的半边 = 环闭合
+        if (visited.has(k)) { closed = k === startKey; break; }   // 回到自己的起始半边 = 环闭合；撞到别的环 = 嵌入不一致（τ 带内投影相交），开环丢弃
         visited.add(k);
         edges.push({ edge: curEdge, forward: fwd });
         pts.push(p2(from));
@@ -134,7 +136,7 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
         to = nx.to;
         curEdge = nx.eid;
       }
-      if (edges.length < 2) continue;
+      if (!closed || edges.length < 2) continue;
       const area = signedArea(pts);
       const ring: Ring = { edges, pts };
       if (area > EPS_AREA) ccw.push({ ring, area });

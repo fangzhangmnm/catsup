@@ -23,7 +23,8 @@ export interface PlanarizeResult {
 
 const MAX_ROUNDS = 32; // 量化把切点拍进新重合的连锁极短；超限=数值异常，宁炸不糊
 
-export function planarize(g: PlanarGraph): PlanarizeResult {
+/** onSplit：既有边被切成链时回调（parent, children）——结算机用它维护手势集 / 随葬集的切割血缘。 */
+export function planarize(g: PlanarGraph, onSplit?: (parent: EdgeId, children: readonly EdgeId[]) => void): PlanarizeResult {
   let changed = false;
   for (let round = 0; round < MAX_ROUNDS; round++) {
     // 1. 收集每条边的内部切点：边边交点/重叠端点 + 骑在边内部的既有顶点
@@ -58,7 +59,8 @@ export function planarize(g: PlanarGraph): PlanarizeResult {
       if (!g.hasEdge(eid)) continue; // 防御：同轮内不应失效（切割只换自己的 id）
       const ea = g.pt(g.edge(eid).a);
       const pts = [...m.values()].sort((p, q) => dist3(ea, p) - dist3(ea, q));
-      g.replaceEdgeWithChain(eid, pts);
+      const chain = g.replaceEdgeWithChain(eid, pts);
+      onSplit?.(eid, chain.map((c) => c.edge));
     }
   }
   throw new Error("planarize 未收敛（>32 轮）——量化连锁异常，检查输入几何");

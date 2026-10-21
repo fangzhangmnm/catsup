@@ -20,6 +20,7 @@ import "./history.test.ts";   // A1 正规 undo（2026-09-20）：op 日志 + �
 import "./snap-align.test.ts";
 import "./solver.test.ts";
 import "./pushpull.test.ts";
+import "./settle-images.test.ts";   // 像表结算机 golden（2026-10-21）：09-23 两案 + 规则
 import "./camera-persp.test.ts";
 import "./obj-io.test.ts";
 import "./eps-scale.test.ts";
