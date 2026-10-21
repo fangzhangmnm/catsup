@@ -11,7 +11,7 @@ import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { ptKey3, quantize3 } from "../kernel/geom.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
-import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, transformSnapshot } from "../scene/scene.ts";
+import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Xform, applyPt, compose, frameAt, transformFrame, translation } from "../scene/xform.ts";
 
 export type Seg = [PtIn, PtIn];
@@ -29,7 +29,7 @@ export type Op =
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[] }
   | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number }
-  | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; soft?: [Pt3, Pt3][]; curve?: [Pt3, Pt3][] }
+  | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs?: Record<string, [Pt3, Pt3][]>; faceLayers?: (Record<string, number> | undefined)[] }
   /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
   | { op: "makeGroup"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   /** 选区 → 新 definition + 一个实例（轴 = 包围盒最小角）。 */
@@ -114,7 +114,12 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
     }
     case "move": { const { kernel } = poolOf(s, op.at); const moves = op.moves.map((m) => ({ id: resolveVertex(kernel, m.from), to: m.to })); return { scene: s, events: kernel.moveVertices(moves) }; }
     case "pushpull": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.pushPull(fid, op.dist) }; }
-    case "absorb": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.absorb(op.faces, op.wires.map(([a, b]) => ({ a, b })), (op.soft ?? []).map(([a, b]) => ({ a, b })), undefined, (op.curve ?? []).map(([a, b]) => ({ a, b }))) }; }
+    case "absorb": {
+      const { kernel } = poolOf(s, op.at);
+      const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {};
+      for (const [n, segs] of Object.entries(op.edgeSegs ?? {})) edgeSegs[n] = segs.map(([a, b]) => ({ a, b }));
+      return { scene: s, events: kernel.absorb(op.faces, op.wires.map(([a, b]) => ({ a, b })), { edgeSegs, faceLayers: op.faceLayers }) };
+    }
     case "makeGroup":
     case "makeComponent": {
       const { kernel, ref } = poolOf(s, op.at);
@@ -160,8 +165,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
         // 定义里的子 group / 子实例 → 复制成父池下的 group / 实例（经实例变换）
         const gmap = new Map<number, number>();
         for (const sg of src.groups.values()) {
-          const snapG = transformSnapshot(sg.kernel.toBrep(), inst.xform);
-          const gk = Kernel.fromBrep({ ...snapG, ...(snapG.faceMaterial ? { faceMaterial: snapG.faceMaterial.map((sl) => (sl >= 0 ? remap(sl) : -1)) } : {}) });
+          const gk = Kernel.fromBrep(remapSnapshotMaterial(transformSnapshot(sg.kernel.toBrep(), inst.xform), remap));
           const ng = s.mintGroup(ref.def, ref.group, gk, transformFrame(inst.xform, sg.axes));
           gmap.set(sg.id, ng.id);
         }

@@ -30,7 +30,7 @@ import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey } from "./ops.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
-import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, transformSnapshot } from "../scene/scene.ts";
+import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey } from "../scene/world-view.ts";
 import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
@@ -816,7 +816,7 @@ export class Editor {
       if (len3(delta) >= MIN_GESTURE_LEN) {
         if (this.moveVids.length) {
           const vids = this.moveVids, dl = applyDir(invert(this.ctxXform()), delta);
-          if (this.moveCopy) { const payload = this.copyPayload(translation(dl)); if (payload) run((c) => c.absorb(payload.faces, payload.wires.map(([a, b]) => ({ a, b })), payload.soft.map(([a, b]) => ({ a, b })), undefined, payload.curve.map(([a, b]) => ({ a, b })))); }
+          if (this.moveCopy) { const payload = this.copyPayload(translation(dl)); if (payload) run((c) => { const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {}; for (const [n, segs] of Object.entries(payload.edgeSegs)) edgeSegs[n] = segs.map(([a, b]) => ({ a, b })); return c.absorb(payload.faces, payload.wires.map(([a, b]) => ({ a, b })), { edgeSegs, faceLayers: payload.faceLayers }); }); }
           else run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: add3(c.graph.pt(id), dl) }))));
         }
         if (this.movePools.length) this.liveOverride = { picks: this.movePools, xform: translation(delta), copy: this.moveCopy };
@@ -1504,7 +1504,7 @@ export class Editor {
       this.cancelGesture();
       if (len3(delta) < MIN_GESTURE_LEN) return;
       const at = this.activePool(), def = this.scene.defOfContext(this.ctx), XL = this.xformToLocal(X);
-      if (payload) this.commitOp({ op: "absorb", at, faces: payload.faces, wires: payload.wires, soft: payload.soft, curve: payload.curve });
+      if (payload) this.commitOp({ op: "absorb", at, faces: payload.faces, wires: payload.wires, edgeSegs: payload.edgeSegs, faceLayers: payload.faceLayers });
       for (const p of pools) {
         if (p.kind === "group") this.commitOp({ op: "copyGroup", at, group: p.group, xform: XL });
         else { const inst = this.scene.instance(def, p.instance); this.commitOp({ op: "placeInstance", at, definition: inst.def, xform: compose(XL, inst.xform) }); }
@@ -1516,7 +1516,7 @@ export class Editor {
     this.commitXform(X, vids, pools);
   }
   /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
-  private copyPayload(XL: Xform): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; soft: [Pt3, Pt3][]; curve: [Pt3, Pt3][] } | null {
+  private copyPayload(XL: Xform): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs: Record<string, [Pt3, Pt3][]>; faceLayers: (Record<string, number> | undefined)[] } | null {
     const k = this.kernel;
     const faces = this.moveEntities.faces.filter((f) => k.face(f)), edges = this.moveEntities.edges.filter((e) => k.graph.hasEdge(e));
     if (!faces.length && !edges.length) return null;
@@ -1524,11 +1524,14 @@ export class Editor {
     const P = snap.vertices;
     const inFace = new Set<string>();
     for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
+    const lp = snapshotLayerPayload(snap, P);
+    const edgeSegs: Record<string, [Pt3, Pt3][]> = {};
+    for (const [n, segs] of Object.entries(lp.edgeSegs)) edgeSegs[n] = segs.map((sg) => [sg.a, sg.b] as [Pt3, Pt3]);
     return {
       faces: snap.faces.map((f) => [f.outer.map((i) => P[i]), ...f.holes.map((h) => h.map((i) => P[i]))]),
       wires: snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => [P[a], P[b]] as [Pt3, Pt3]),
-      soft: (snap.softEdges ?? []).map((i) => [P[snap.edges[i][0]], P[snap.edges[i][1]]] as [Pt3, Pt3]),
-      curve: (snap.curveEdges ?? []).map((i) => [P[snap.edges[i][0]], P[snap.edges[i][1]]] as [Pt3, Pt3]),
+      edgeSegs,
+      faceLayers: lp.faceLayers,
     };
   }
   private commitRotate(smp: { angle: number } | null): void {

@@ -44,11 +44,11 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
   const remap = new Array<number>(order.length);
   order.forEach((old, i) => { remap[old] = i; });
   const vertices = order.map((i) => snap.vertices[i]);
-  const edgesTagged = snap.edges.map(([a, b], i) => { const x = remap[a], y = remap[b]; return { e: (x < y ? [x, y] : [y, x]) as readonly [number, number], soft: snap.softEdges?.includes(i) ?? false, curve: snap.curveEdges?.includes(i) ?? false }; })
+  const edgesTagged = snap.edges.map(([a, b], i) => { const x = remap[a], y = remap[b]; return { e: (x < y ? [x, y] : [y, x]) as readonly [number, number], i }; })
     .sort((p, q) => p.e[0] - q.e[0] || p.e[1] - q.e[1]);
   const edges = edgesTagged.map((t) => t.e);
-  const softEdges = edgesTagged.map((t, i) => (t.soft ? i : -1)).filter((i) => i >= 0);
-  const curveEdges = edgesTagged.map((t, i) => (t.curve ? i : -1)).filter((i) => i >= 0);
+  const edgeLayers: Record<string, number[]> = {};
+  for (const [n, idx] of Object.entries(snap.edgeLayers ?? {})) { const set = new Set(idx); const out = edgesTagged.map((t, j) => (set.has(t.i) ? j : -1)).filter((j) => j >= 0); if (out.length) edgeLayers[n] = out; }
   const planeKey = (pl: PlaneParams): number[] => [Math.round(pl.n.x * N_FIX), Math.round(pl.n.y * N_FIX), Math.round(pl.n.z * N_FIX), toUm(pl.d)];
   const pkeys = snap.planes.map(planeKey);
   const porder = pkeys.map((_, i) => i).sort((a, b) => { for (let k = 0; k < 4; k++) if (pkeys[a][k] !== pkeys[b][k]) return pkeys[a][k] - pkeys[b][k]; return 0; });
@@ -65,11 +65,12 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
     for (let i = 0; i < Math.min(a.length, b.length); i++) if (a[i] !== b[i]) return a[i] - b[i];
     return a.length - b.length;
   };
-  const facesTagged = snap.faces.map((f, i) => ({ f: { plane: premap[f.plane], outer: rotate(f.outer), holes: f.holes.map(rotate).sort(cmpArr) }, mat: snap.faceMaterial?.[i] ?? -1 }))
+  const facesTagged = snap.faces.map((f, i) => ({ f: { plane: premap[f.plane], outer: rotate(f.outer), holes: f.holes.map(rotate).sort(cmpArr) }, i }))
     .sort((a, b) => a.f.plane - b.f.plane || cmpArr(a.f.outer, b.f.outer));
   const faces = facesTagged.map((t) => t.f);
-  const faceMaterial = facesTagged.map((t) => t.mat);
-  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}), ...(curveEdges.length ? { curveEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  const faceLayers: Record<string, number[]> = {};
+  for (const [n, vals] of Object.entries(snap.faceLayers ?? {})) { const out = facesTagged.map((t) => vals[t.i] ?? -1); if (out.some((v) => v >= 0)) faceLayers[n] = out; }
+  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}) };
 }
 
 function pickUnitUm(vum: readonly (readonly [number, number, number])[]): number {
@@ -113,26 +114,20 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<
   const facePlane = sink.add(encodeUints(snap.faces.map((f) => f.plane), pIdxType));
   // 属性层：未知层原样保留；edge.soft 由本版生成（覆盖旧值）
   const attributes: Record<string, Record<string, unknown>> = { vertex: {}, edge: {}, face: {}, corner: {}, ...(keep?.attributes ?? {}) };
+  // 边层：每层一条 u8 流（每边 0/1）；本版写的层覆盖同名旧层，未知层原样保留
   attributes.edge = { ...(attributes.edge ?? {}) };
-  delete attributes.edge.soft;
-  if (snap.softEdges?.length) {
+  for (const [n, idx] of Object.entries(snap.edgeLayers ?? {})) {
     const bytes = new Uint8Array(snap.edges.length);
-    for (const i of snap.softEdges) bytes[i] = 1;
-    attributes.edge.soft = { bufferView: sink.add(bytes), componentType: "uint8" };
+    for (const i of idx) bytes[i] = 1;
+    attributes.edge[n] = { bufferView: sink.add(bytes), componentType: "uint8", type: "u8" };
   }
-  delete attributes.edge.curve;
-  if (snap.curveEdges?.length) {
-    const bytes = new Uint8Array(snap.edges.length);
-    for (const i of snap.curveEdges) bytes[i] = 1;
-    attributes.edge.curve = { bufferView: sink.add(bytes), componentType: "uint8" };
-  }
+  // 面层：material = 契约 §5.2 的 u16x2（[+n 侧槽, −n 侧槽]，0xFFFF = 无；本版两侧同值——哪一侧 = 总账 B17）；其余层 u16（0xFFFF = 无）
   attributes.face = { ...(attributes.face ?? {}) };
-  delete attributes.face.material;
-  if (snap.faceMaterial?.some((m) => m >= 0)) {
-    // 契约 §5.2：u16x2 = [+n 侧槽, −n 侧槽]，0xFFFF = 无；本版两侧同值（哪一侧 = 总账 B17）
-    const u = new Uint16Array(snap.faces.length * 2);
-    snap.faceMaterial.forEach((m, i) => { const v = m >= 0 ? m : NO_MATERIAL; u[i * 2] = v; u[i * 2 + 1] = v; });
-    attributes.face.material = { bufferView: sink.add(new Uint8Array(u.buffer)), componentType: "uint16", type: "u16x2" };
+  for (const [n, vals] of Object.entries(snap.faceLayers ?? {})) {
+    const two = n === "material";
+    const u = new Uint16Array(snap.faces.length * (two ? 2 : 1));
+    vals.forEach((m, i) => { const v = m >= 0 ? m : NO_MATERIAL; if (two) { u[i * 2] = v; u[i * 2 + 1] = v; } else u[i] = v; });
+    attributes.face[n] = { bufferView: sink.add(new Uint8Array(u.buffer)), componentType: "uint16", type: two ? "u16x2" : "u16" };
   }
 
   return {
@@ -217,32 +212,28 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     if (facePlane[i] >= json.planeCount) fail(`face ${i} plane index out of range`);
     faces.push({ plane: facePlane[i], outer: rings[0], holes: rings.slice(1) });
   }
-  // 软边层（可选）
-  let softEdges: number[] | undefined;
-  const softJ = json.attributes?.edge?.soft as { bufferView?: number } | undefined;
-  if (softJ && typeof softJ.bufferView === "number") {
-    const bytes = view(softJ.bufferView);
-    if (bytes.byteLength < json.edgeCount) fail("attributes.edge.soft stream too short");
-    softEdges = [];
-    for (let i = 0; i < json.edgeCount; i++) if (bytes[i]) softEdges.push(i);
+  // 属性层：边层 = u8 每边一字节（u8 流）；面层 = u16 / u16x2（取 +n 侧），0xFFFF = 无。其它编码的层留在 attributes 原样携带
+  const edgeLayers: Record<string, number[]> = {};
+  for (const [n, j] of Object.entries(json.attributes?.edge ?? {})) {
+    const st = j as { bufferView?: number; componentType?: string; type?: string } | undefined;
+    if (!st || typeof st.bufferView !== "number" || (st.componentType ?? "uint8") !== "uint8") continue;
+    const bytes = view(st.bufferView);
+    if (bytes.byteLength < json.edgeCount) fail(`attributes.edge.${n} stream too short`);
+    const idx: number[] = [];
+    for (let i = 0; i < json.edgeCount; i++) if (bytes[i]) idx.push(i);
+    if (idx.length) edgeLayers[n] = idx;
   }
-  let curveEdges: number[] | undefined;
-  const curveJ = json.attributes?.edge?.curve as { bufferView?: number } | undefined;
-  if (curveJ && typeof curveJ.bufferView === "number") {
-    const bytes = view(curveJ.bufferView);
-    if (bytes.byteLength < json.edgeCount) fail("attributes.edge.curve stream too short");
-    curveEdges = [];
-    for (let i = 0; i < json.edgeCount; i++) if (bytes[i]) curveEdges.push(i);
-  }
-  // 面材质层（可选；u16x2，取 +n 侧；0xFFFF = 无）
-  let faceMaterial: number[] | undefined;
-  const matJ = json.attributes?.face?.material as { bufferView?: number } | undefined;
-  if (matJ && typeof matJ.bufferView === "number") {
-    const bytes = view(matJ.bufferView);
-    if (bytes.byteLength < json.faceCount * 4) fail("attributes.face.material stream too short");
+  const faceLayers: Record<string, number[]> = {};
+  for (const [n, j] of Object.entries(json.attributes?.face ?? {})) {
+    const st = j as { bufferView?: number; componentType?: string; type?: string } | undefined;
+    if (!st || typeof st.bufferView !== "number" || st.componentType !== "uint16") continue;
+    const two = st.type === "u16x2";
+    const bytes = view(st.bufferView);
+    if (bytes.byteLength < json.faceCount * (two ? 4 : 2)) fail(`attributes.face.${n} stream too short`);
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
-    faceMaterial = [];
-    for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * 4, true); faceMaterial.push(v === NO_MATERIAL ? -1 : v); }
+    const vals: number[] = [];
+    for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * (two ? 4 : 2), true); vals.push(v === NO_MATERIAL ? -1 : v); }
+    if (vals.some((v) => v >= 0)) faceLayers[n] = vals;
   }
-  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(softEdges?.length ? { softEdges } : {}), ...(curveEdges?.length ? { curveEdges } : {}), ...(faceMaterial?.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}) };
 }

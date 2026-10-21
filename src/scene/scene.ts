@@ -6,7 +6,7 @@
 // 运行时 id（DefId / GroupId / InstId）由本类顺序铸造：op 日志重放同序列 → 同 id（与顶点 µm 寻址同理，联机也成立）。
 // created 2026-10-21 by Claude Fable 5.1（group / component 纪元；user「supersprint where at least i have groups and components」）
 
-import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3 } from "../kernel/kernel.ts";
+import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
 
 export type DefId = number;
@@ -184,7 +184,7 @@ export function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: read
   const planeIdx = new Map<number, number>();
   const planes: { n: Pt3; d: number }[] = [];
   const outFaces: { plane: number; outer: number[]; holes: number[][] }[] = [];
-  const faceMaterial: number[] = [];
+  const faceIds: FaceId[] = [];
   for (const fid of faces) {
     const f = k.face(fid);
     const rec = k.planeOf(fid);
@@ -193,23 +193,23 @@ export function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: read
     if (pi === undefined) { pi = planes.length; planeIdx.set(f.planeId, pi); planes.push(rec.plane); }
     const ring = (r: { edges: { edge: EdgeId; forward: boolean }[] }): number[] => r.edges.map((d) => { edgeSet.add(d.edge); const e = k.graph.edge(d.edge); return vid(d.forward ? e.a : e.b); });
     outFaces.push({ plane: pi, outer: ring(f.outer), holes: f.holes.map(ring) });
-    faceMaterial.push(k.faceMaterialOf(fid) ?? -1);
+    faceIds.push(fid);
   }
   const outEdges: [number, number][] = [];
-  const softEdges: number[] = [], curveEdges: number[] = [];
+  const edgeIds: EdgeId[] = [];
   for (const eid of edgeSet) {
     if (!k.graph.hasEdge(eid)) continue;
     const e = k.graph.edge(eid);
-    if (k.soft.has(eid)) softEdges.push(outEdges.length);
-    if (k.curve.has(eid)) curveEdges.push(outEdges.length);
+    edgeIds.push(eid);
     outEdges.push([vid(e.a), vid(e.b)]);
   }
-  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(softEdges.length ? { softEdges } : {}), ...(curveEdges.length ? { curveEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  const edgeLayers = k.edgeLayers.toIndex(edgeIds), faceLayers = k.faceLayers.toIndex(faceIds);
+  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(edgeLayers ? { edgeLayers } : {}), ...(faceLayers ? { faceLayers } : {}) };
 }
 
 /** 快照整体变换（坐标 + 平面）。 */
 export function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot {
-  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.softEdges ? { softEdges: snap.softEdges } : {}), ...(snap.curveEdges ? { curveEdges: snap.curveEdges } : {}), ...(snap.faceMaterial ? { faceMaterial: snap.faceMaterial } : {}) };
+  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.edgeLayers ? { edgeLayers: snap.edgeLayers } : {}), ...(snap.faceLayers ? { faceLayers: snap.faceLayers } : {}) };
 }
 
 /** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
@@ -220,10 +220,25 @@ export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTIT
   const inFace = new Set<string>();
   for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
   const wires = snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => ({ a: P[a], b: P[b] }));
-  const softSegs = (snap.softEdges ?? []).map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
-  const curveSegs = (snap.curveEdges ?? []).map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
-  const mats = snap.faceMaterial?.map((s) => (s >= 0 ? (materialMap ? materialMap(s) : s) : -1));
-  k.absorb(faces, wires, softSegs, mats, curveSegs);
+  k.absorb(faces, wires, snapshotLayerPayload(snap, P, materialMap));
+}
+
+/** 快照的属性层 → absorb 载荷（边层按线段、面层按每面值；material 可重映射）。 */
+export function snapshotLayerPayload(snap: BrepSnapshot, P: readonly Pt3[], materialMap?: (slot: number) => number): { edgeSegs: Record<string, Seg3[]>; faceLayers: (Record<string, number> | undefined)[] } {
+  const edgeSegs: Record<string, Seg3[]> = {};
+  for (const [n, idx] of Object.entries(snap.edgeLayers ?? {})) edgeSegs[n] = idx.map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
+  const faceLayers = snap.faces.map((_, i) => {
+    const vals: Record<string, number> = {};
+    for (const [n, arr] of Object.entries(snap.faceLayers ?? {})) { let v = arr[i] ?? -1; if (v >= 0 && n === "material" && materialMap) v = materialMap(v); if (v >= 0) vals[n] = v; }
+    return Object.keys(vals).length ? vals : undefined;
+  });
+  return { edgeSegs, faceLayers };
+}
+/** 快照里 material 面层按映射改写（跨 definition 搬家）。 */
+export function remapSnapshotMaterial(snap: BrepSnapshot, remap: (slot: number) => number): BrepSnapshot {
+  const mat = snap.faceLayers?.material;
+  if (!mat) return snap;
+  return { ...snap, faceLayers: { ...snap.faceLayers, material: mat.map((v) => (v >= 0 ? remap(v) : -1)) } };
 }
 
 /** 轴框默认：选区包围盒的最小角（SU 把组件轴放在包围盒角）。 */

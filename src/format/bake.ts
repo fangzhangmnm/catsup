@@ -25,19 +25,18 @@ export function mergeBrep(snaps: readonly BrepSnapshot[]): BrepSnapshot {
   const edges: [number, number][] = [];
   const planes: BrepSnapshot["planes"][number][] = [];
   const faces: { plane: number; outer: number[]; holes: number[][] }[] = [];
-  const softEdges: number[] = [], curveEdges: number[] = [];
-  const faceMaterial: number[] = [];
+  const edgeLayers: Record<string, number[]> = {}, faceLayers: Record<string, number[]> = {};
+  const edgeNames = new Set(snaps.flatMap((s) => Object.keys(s.edgeLayers ?? {}))), faceNames = new Set(snaps.flatMap((s) => Object.keys(s.faceLayers ?? {})));
   for (const s of snaps) {
-    const vo = vertices.length, eo = edges.length, po = planes.length;
+    const vo = vertices.length, eo = edges.length, po = planes.length, fo = faces.length;
     vertices.push(...s.vertices);
     for (const [a, b] of s.edges) edges.push([a + vo, b + vo]);
     planes.push(...s.planes);
     for (const f of s.faces) faces.push({ plane: f.plane + po, outer: f.outer.map((i) => i + vo), holes: f.holes.map((h) => h.map((i) => i + vo)) });
-    for (const i of s.softEdges ?? []) softEdges.push(i + eo);
-    for (const i of s.curveEdges ?? []) curveEdges.push(i + eo);
-    for (let i = 0; i < s.faces.length; i++) faceMaterial.push(s.faceMaterial?.[i] ?? -1);
+    for (const n of edgeNames) for (const i of s.edgeLayers?.[n] ?? []) (edgeLayers[n] ?? (edgeLayers[n] = [])).push(i + eo);
+    for (const n of faceNames) { const arr = faceLayers[n] ?? (faceLayers[n] = []); while (arr.length < fo) arr.push(-1); for (let i = 0; i < s.faces.length; i++) arr.push(s.faceLayers?.[n]?.[i] ?? -1); }
   }
-  return { coplanarTol: snaps[0]?.coplanarTol ?? 1e-3, vertices, edges, planes, faces, ...(softEdges.length ? { softEdges } : {}), ...(curveEdges.length ? { curveEdges } : {}), ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}) };
+  return { coplanarTol: snaps[0]?.coplanarTol ?? 1e-3, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}) };
 }
 
 /** 材质槽 → glTF core 材质索引 + 贴图物理尺寸（bake 按材质拆 primitive、算 TEXCOORD_0 用）。 */
@@ -60,12 +59,12 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
   const tris: number[] = [];
   const byMat = new Map<number, number[]>();   // core material → face indices
   snap.faces.forEach((f, i) => {
-    const slot = snap.faceMaterial?.[i] ?? -1;
+    const slot = snap.faceLayers?.material?.[i] ?? -1;
     const core = slot >= 0 ? mats?.slotToCore(slot) : undefined;
     if (core === undefined) { for (const t of triangulateRings(snap.vertices, snap.planes[f.plane], f.outer, f.holes)) tris.push(...t); }
     else (byMat.get(core) ?? byMat.set(core, []).get(core)!).push(i);
   });
-  const soft = new Set(snap.softEdges ?? []);
+  const soft = new Set(snap.edgeLayers?.soft ?? []);
   const lines: number[] = snap.edges.flatMap((e, i) => (soft.has(i) ? [] : [e[0], e[1]]));
   const idxType = pickUintType(Math.max(0, snap.vertices.length - 1));
   const idxGl = idxType === "uint8" ? GL_UNSIGNED_BYTE : idxType === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;

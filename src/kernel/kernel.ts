@@ -28,12 +28,14 @@ import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, Planar
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type Image, type Seg3, ringsOf, settle, translateImage } from "./settle.ts";
+import { EDGE_LAYER_POLICY, EdgeLayers, FaceLayers } from "./layers.ts";
 
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
 export type { Edge, EdgeId, FaceId, Vertex, VertexId } from "./topology.ts";
 export type { Pt, Pt3 } from "./geom.ts";
 export type { PlaneId, PlaneRec } from "./planes.ts";
 export type { Image, ImageTable, Seg3 } from "./settle.ts";
+export { EDGE_LAYERS, FACE_LAYERS, EdgeLayers, FaceLayers } from "./layers.ts";
 
 /** API 取点：z 缺省 = 0（2D 场景/测试直接传 {x,y}）。 */
 export interface PtIn { x: number; y: number; z?: number; }
@@ -56,12 +58,10 @@ export interface BrepSnapshot {
   readonly edges: readonly (readonly [number, number])[];
   readonly planes: readonly PlaneParams[];
   readonly faces: readonly { readonly plane: number; readonly outer: readonly number[]; readonly holes: readonly (readonly number[])[] }[];
-  /** 软边索引（边表下标；缺省 = 无）。属性层，2026-10-21。 */
-  readonly softEdges?: readonly number[];
-  /** 曲线成员边索引（圆 / 弧近似边；画线、推拉侧棱自动软）。属性层，2026-10-21。 */
-  readonly curveEdges?: readonly number[];
-  /** 每面材质槽（与 faces 对齐；−1 = 默认；缺省 = 全默认）。属性层，2026-10-21。 */
-  readonly faceMaterial?: readonly number[];
+  /** 边属性层：名字 → 有标记的边下标（soft / curve / smooth / hidden…；layers.ts）。缺省 = 无。 */
+  readonly edgeLayers?: Readonly<Record<string, readonly number[]>>;
+  /** 面属性层：名字 → 每面一个整数（与 faces 对齐；−1 = 无）。material = definition 槽号。 */
+  readonly faceLayers?: Readonly<Record<string, readonly number[]>>;
 }
 
 export class Kernel {
@@ -69,13 +69,13 @@ export class Kernel {
   private store = new FaceStore();
   private eventLog: FaceEvent[] = [];
   private planes = new PlaneRegistry();
-  /** 软边（圆 / 弧的多边形近似边、它们推拉出的侧棱）：渲染不画线、推断照常吸。属性层，切割继承（结算机维护）。added 2026-10-21 */
-  readonly soft = new Set<EdgeId>();
-  /** 曲线成员边（圆 / 弧的多边形近似边）：**画出来**（SU 的圆有黑边），但从它们推拉出的侧棱是软边 + 平滑组；切割继承。2026-10-21（user「你画出来的圆为什么没有黑边」）。 */
-  readonly curve = new Set<EdgeId>();
-  /** 面材质槽（definition.materialSlots 的槽号；缺省 = 默认材质）。属性层，按事件血缘继承：DIVIDE 子膜继承、MERGE 取首个有的、
-   *  一对一承继保 id 所以天然保留（pp 的帽跟着原膜走，侧壁新膜 = 默认——SU 同款）。贴图纪元 2026-10-21。 */
-  readonly faceMat = new Map<FaceId, number>();
+  /** 边属性层登记处（soft / curve / smooth / hidden；规则全在 layers.ts）。 */
+  edgeLayers = new EdgeLayers();
+  /** 面属性层登记处（material = definition 槽号；按事件血缘继承）。 */
+  faceLayers = new FaceLayers();
+  /** 便利视图：软边集（不画线）/ 曲线成员边集（圆 / 弧近似边，画线；推拉侧棱软）。 */
+  get soft(): Set<EdgeId> { return this.edgeLayers.layer("soft"); }
+  get curve(): Set<EdgeId> { return this.edgeLayers.layer("curve"); }
   /** coplanarity 容差 τ——头号 UX 旋钮（drill L297）。只管平面分组/归属；几何保持精确共面。 */
   readonly coplanarTol: number;
 
@@ -110,6 +110,7 @@ export class Kernel {
     }
     const pid = snap.planes.map((pl) => k.planes.restore({ n: normalize3(pl.n), d: pl.d }).id);
     const ringKeys = new Set<string>();
+    const faceIds: FaceId[] = [];
     for (let i = 0; i < snap.faces.length; i++) {
       const f = snap.faces[i];
       if (!(f.plane in pid)) fail(`face ${i} references a missing plane`);
@@ -131,14 +132,12 @@ export class Kernel {
       } catch (e) { fail(`face ${i}: ${(e as Error).message}`); }
       if (!(signedArea(face!.outer.pts) > 0)) fail(`face ${i} outer ring is not CCW in its plane basis`);
       for (const h of face!.holes) if (!(signedArea(h.pts) < 0)) fail(`face ${i} has a hole ring that is not CW`);
-      const slot = snap.faceMaterial?.[i];
-      if (slot !== undefined && slot >= 0) k.faceMat.set(face!.id, slot);
+      faceIds.push(face!.id);
     }
     k.store.rebuildFaceLinks(g);
     for (const v of g.vertices()) if (v.edges.size === 0) fail(`vertex ${v.id} is isolated`);
-    const eids = g.edges().map((e) => e.id);
-    for (const i of snap.softEdges ?? []) { if (!(i in eids)) fail(`softEdges index ${i} out of range`); k.soft.add(eids[i]); }
-    for (const i of snap.curveEdges ?? []) { if (!(i in eids)) fail(`curveEdges index ${i} out of range`); k.curve.add(eids[i]); }
+    k.edgeLayers = EdgeLayers.fromIndex(snap.edgeLayers, g.edges().map((e) => e.id), fail);
+    k.faceLayers = FaceLayers.fromIndex(snap.faceLayers, faceIds);
     return k;
   }
 
@@ -151,19 +150,17 @@ export class Kernel {
     const ringVids = (r: { edges: { edge: EdgeId; forward: boolean }[] }): number[] =>
       r.edges.map((d) => vIdx.get(d.forward ? this.graph.edge(d.edge).a : this.graph.edge(d.edge).b)!);
     const es = this.graph.edges();
-    const softEdges = es.map((e, i) => (this.soft.has(e.id) ? i : -1)).filter((i) => i >= 0);
-    const curveEdges = es.map((e, i) => (this.curve.has(e.id) ? i : -1)).filter((i) => i >= 0);
     const fs = this.store.faces();
-    const faceMaterial = fs.map((f) => this.faceMat.get(f.id) ?? -1);
+    const edgeLayers = this.edgeLayers.toIndex(es.map((e) => e.id));
+    const faceLayers = this.faceLayers.toIndex(fs.map((f) => f.id));
     return {
       coplanarTol: this.coplanarTol,
       vertices: vs.map((v) => ({ x: v.x, y: v.y, z: v.z })),
       edges: es.map((e) => [vIdx.get(e.a)!, vIdx.get(e.b)!] as const),
       planes: planeIds.map((id) => this.planes.rec(id).plane),
       faces: fs.map((f) => ({ plane: pIdx.get(f.planeId)!, outer: ringVids(f.outer), holes: f.holes.map(ringVids) })),
-      ...(softEdges.length ? { softEdges } : {}),
-      ...(curveEdges.length ? { curveEdges } : {}),
-      ...(faceMaterial.some((m) => m >= 0) ? { faceMaterial } : {}),
+      ...(edgeLayers ? { edgeLayers } : {}),
+      ...(faceLayers ? { faceLayers } : {}),
     };
   }
 
@@ -176,18 +173,20 @@ export class Kernel {
     k._graph = this._graph.clone();
     k.store = this.store.clone();
     k.planes = this.planes.clone();
-    for (const e of this.soft) k.soft.add(e);
-    for (const e of this.curve) k.curve.add(e);
-    for (const [f, m] of this.faceMat) k.faceMat.set(f, m);
+    k.edgeLayers = this.edgeLayers.clone();
+    k.faceLayers = this.faceLayers.clone();
     return k; // 事件日志不拷：副本的 log 只属于预演
   }
 
   // ---------------- mutations（全部批量收口；每个动词 = 一张像表） ----------------
 
-  /** 构造手势：一批线段（Rect = 4 段）。opts.curve = 这批线是曲线的多边形近似（圆 / 弧）→ 曲线成员边（画黑边；推拉侧棱软）。 */
-  addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: { curve?: boolean; soft?: boolean }): FaceEvent[] {
+  /** 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层（圆 → ["curve"]）。 */
+  addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: { layers?: readonly string[]; curve?: boolean }): FaceEvent[] {
     const gesture: Seg3[] = segs.map(([a, b]) => ({ a: toPt3(a), b: toPt3(b) }));
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images: [], gesture, soft: this.soft, curve: this.curve, ...(opts?.curve ? { curveSegs: gesture } : {}), ...(opts?.soft ? { softSegs: gesture } : {}) }));
+    const names = [...(opts?.layers ?? []), ...(opts?.curve ? ["curve"] : [])];
+    const layerSegs: Record<string, Seg3[]> = {};
+    for (const n of names) layerSegs[n] = gesture;
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images: [], gesture, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
   }
 
   /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
@@ -255,7 +254,7 @@ export class Kernel {
       if (!snap || !this.store.face(fid)) continue;
       images.push({ rings: [ringPts(snap.outer), ...snap.holes.map(ringPts)], algebra: "or", inherit: fid });
     }
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: touched, images, soft: this.soft, curve: this.curve }));
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers }));
   }
 
   /**
@@ -282,16 +281,19 @@ export class Kernel {
     const images: Image[] = [];
     images.push({ rings: translateImage(ringsOf(g, f), delta), algebra: settleLanding ? "xor" : "or", inherit: id });
     const rewrite = new Map<FaceId, Set<EdgeId>>();
-    const softSegs: Seg3[] = [];   // 软边 / 曲线边推拉出的侧棱 = 软（圆柱侧面不画竖线、平滑着色）；软边的帽边也软
-    const curveSegs: Seg3[] = [];  // 曲线边的帽边仍是曲线边（圆柱顶圈画黑边）
+    // 边层推拉策略（layers.ts EDGE_LAYER_POLICY）：帽边继承原边的全部层；侧棱按表（soft / curve / smooth → 侧棱 soft+smooth）
+    const layerSegs: Record<string, Seg3[]> = {};
+    const push = (n: string, sg: Seg3): void => { (layerSegs[n] ?? (layerSegs[n] = [])).push(sg); };
     let anyBare = false;
     for (const ring of [f.outer, ...f.holes]) {
       for (const d of ring.edges) {
         const e = g.edge(d.edge);
         const a = g.pt(d.forward ? e.a : e.b), b = g.pt(d.forward ? e.b : e.a);
         const others = e.faceLinks.filter((x) => x !== id);
-        if (this.soft.has(e.id)) { softSegs.push({ a: add3(a, delta), b: add3(b, delta) }); softSegs.push({ a, b: add3(a, delta) }); softSegs.push({ a: b, b: add3(b, delta) }); }
-        else if (this.curve.has(e.id)) { curveSegs.push({ a: add3(a, delta), b: add3(b, delta) }); softSegs.push({ a, b: add3(a, delta) }); softSegs.push({ a: b, b: add3(b, delta) }); }
+        for (const L of this.edgeLayers.of(e.id)) {
+          push(L, { a: add3(a, delta), b: add3(b, delta) });
+          for (const R of EDGE_LAYER_POLICY[L] ?? []) { push(R, { a, b: add3(a, delta) }); push(R, { a: b, b: add3(b, delta) }); }
+        }
         if (others.length > 0 && others.every(parallel)) {
           for (const gid of others) { (rewrite.get(gid) ?? rewrite.set(gid, new Set()).get(gid)!).add(e.id); consumed.add(gid); }
           continue;
@@ -316,16 +318,16 @@ export class Kernel {
       images.push({ rings, algebra: "or", inherit: gid });
     }
     if (anyBare) images.push({ rings: ringsOf(g, f), algebra: "or" });
-    return this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true, soft: this.soft, softSegs, curve: this.curve, curveSegs }));
+    return this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
   }
 
   /**
    * 吸收外来几何（炸开 group / 粘贴 / 导入）：膜当像（OR、新 id）、裸边当线段，走结算机——与既有几何 sticky（切割 / 合并 / 共面 dedup）。
    * added 2026-10-21 by Claude Fable 5.1（group / component 纪元）
    */
-  absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], softSegs: readonly Seg3[] = [], materials?: readonly number[], curveSegs: readonly Seg3[] = []): FaceEvent[] {
-    const images: Image[] = faces.map((rings, i) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or", ...(materials && materials[i] >= 0 ? { material: materials[i] } : {}) }));
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images, wires, soft: this.soft, softSegs, curve: this.curve, curveSegs, faceMat: this.faceMat }));
+  absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], opts?: { edgeSegs?: Readonly<Record<string, readonly Seg3[]>>; faceLayers?: readonly (Readonly<Record<string, number>> | undefined)[] }): FaceEvent[] {
+    const images: Image[] = faces.map((rings, i) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or", ...(opts?.faceLayers?.[i] ? { face: opts.faceLayers[i] } : {}) }));
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images, wires, edgeLayers: this.edgeLayers, layerSegs: opts?.edgeSegs, faceLayers: this.faceLayers }));
   }
 
   /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */
@@ -382,20 +384,19 @@ export class Kernel {
 
   /** 涂材质（槽号；null = 回默认）。 */
   setFaceMaterial(ids: readonly FaceId[], slot: number | null): void {
-    for (const id of ids) { if (!this.store.face(id)) continue; if (slot === null) this.faceMat.delete(id); else this.faceMat.set(id, slot); }
+    for (const id of ids) { if (!this.store.face(id)) continue; if (slot === null) this.faceLayers.delete("material", id); else this.faceLayers.set("material", id, slot); }
   }
-  faceMaterialOf(id: FaceId): number | undefined { return this.faceMat.get(id); }
+  faceMaterialOf(id: FaceId): number | undefined { return this.faceLayers.get("material", id); }
+  /** 给一批边打 / 去一个边层（软化 / 硬化工具）。 */
+  setEdgeLayer(name: string, ids: readonly EdgeId[], on: boolean): void {
+    for (const id of ids) { if (!this.graph.hasEdge(id)) continue; if (on) this.edgeLayers.add(name, id); else this.edgeLayers.delete(name, id); }
+  }
 
   private emit(events: FaceEvent[]): FaceEvent[] {
     this.eventLog.push(...events);
-    // 材质层跟着血缘走：DIVIDE 子膜继承；MERGE 取首个有的；死膜清。一对一承继保 id 不需要动。
-    for (const ev of events) {
-      if (ev.type === "DIVIDE") { const m = this.faceMat.get(ev.from); this.faceMat.delete(ev.from); if (m !== undefined) for (const c of ev.into) this.faceMat.set(c, m); }
-      else if (ev.type === "MERGE") { let m: number | undefined; for (const f of ev.from) { if (m === undefined) m = this.faceMat.get(f); this.faceMat.delete(f); } if (m !== undefined) this.faceMat.set(ev.into, m); }
-      else if (ev.type === "ABSORB") { const m = this.faceMat.get(ev.from); this.faceMat.delete(ev.from); if (m !== undefined) this.faceMat.set(ev.into, m); }
-      else if (ev.type === "BURST" || ev.type === "FACE_ERASED") this.faceMat.delete(ev.face);
-    }
-    for (const id of [...this.faceMat.keys()]) if (!this.store.face(id)) this.faceMat.delete(id);
+    this.faceLayers.applyEvents(events);           // 面层跟着血缘走（layers.ts）
+    this.faceLayers.prune((id) => !!this.store.face(id));
+    this.edgeLayers.prune((id) => this.graph.hasEdge(id));
     return events;
   }
 
@@ -410,11 +411,9 @@ export class Kernel {
       if (other !== to && this.graph.edgeBetween(to, other) === undefined) {
         const ne = this.graph.addEdge(to, other);
         this.graph.edge(ne).faceLinks = [...e.faceLinks];
-        if (this.soft.has(eid)) this.soft.add(ne);
-        if (this.curve.has(eid)) this.curve.add(ne);
+        this.edgeLayers.copy(eid, ne);
       }
-      this.soft.delete(eid);
-      this.curve.delete(eid);
+      this.edgeLayers.onRemove(eid);
       this.graph.removeEdge(eid);
     }
   }

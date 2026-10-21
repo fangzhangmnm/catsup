@@ -21,6 +21,7 @@ import { INSERT_TOL, insertSegment } from "./subdivide.ts";
 import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
+import type { EdgeLayers, FaceLayers } from "./layers.ts";
 
 export type Algebra = "or" | "xor";
 export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
@@ -31,8 +32,8 @@ export interface Image {
   algebra: Algebra;
   /** 继承的身份；缺省 = 新膜（独占胞腔 → BIRTH）。 */
   inherit?: FaceId;
-  /** 新膜的材质槽（absorb 用：炸开 / 粘贴带着材质回来）。 */
-  material?: number;
+  /** 新膜的面层值（absorb 用：炸开 / 粘贴带着材质回来）。 */
+  face?: Readonly<Record<string, number>>;
 }
 export interface ImageTable {
   /** 被动词替换的膜：出库；身份只经 images[].inherit 延续；旧环边 = 随葬候选。 */
@@ -49,15 +50,12 @@ export interface ImageTable {
    * move 不开通则：膜移扁留一条线（SU 同款，靶4）。
    */
   buryOrphans?: boolean;
-  /** 软边集（内核的属性层；机器维护切割继承 / 删边清理 / 新软段登记）。 */
-  soft?: Set<EdgeId>;
-  /** 这些线段上落下的边 = 软边（圆的近似边、软边推拉出的侧棱与帽边）。 */
-  softSegs?: readonly Seg3[];
-  /** 面材质层（内核的）：新像带 material 时，它独占的胞腔铸出的膜记上。 */
-  faceMat?: Map<FaceId, number>;
-  /** 曲线成员边集 + 新曲线段（同软边机制：切割继承 / 删边清理 / 段上落边入集）。 */
-  curve?: Set<EdgeId>;
-  curveSegs?: readonly Seg3[];
+  /** 边属性层登记处（内核的；机器只调它的四条规则：切割继承 / 删边清理 / 段上落边入集 / 溶解并层）。 */
+  edgeLayers?: EdgeLayers;
+  /** 名字 → 线段：这些段上落下的边进该层（圆的近似边 → curve；推拉侧棱 → soft+smooth）。 */
+  layerSegs?: Readonly<Record<string, readonly Seg3[]>>;
+  /** 面属性层登记处：新像带 face 值时，它独占的胞腔铸出的膜记上。 */
+  faceLayers?: FaceLayers;
 }
 
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
@@ -167,12 +165,11 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const gesture = new Set<EdgeId>();
   const explicitEnds = new Set<string>();
   const splitChildren = new Map<EdgeId, EdgeId[]>();   // 切割血缘（身份膜环边的随葬要沿血缘找后代）
-  const soft = table.soft, curve = table.curve;
+  const EL = table.edgeLayers;
   const onSplit = (parent: EdgeId, children: readonly EdgeId[]): void => {
     if (gesture.delete(parent)) for (const c of children) gesture.add(c);
     if (buryCand.delete(parent)) for (const c of children) buryCand.add(c);
-    if (soft?.delete(parent)) for (const c of children) soft.add(c);
-    if (curve?.delete(parent)) for (const c of children) curve.add(c);
+    EL?.onSplit(parent, children);
     splitChildren.set(parent, [...children]);
   };
   const descendants = (eid: EdgeId): EdgeId[] => {
@@ -277,9 +274,9 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   }
   // 新像独占的胞腔（记下带材质的新像：胞腔 → 材质槽）
   const newClaimed = new Map<Region, number>();
-  const newMaterial = new Map<Region, number>();
+  const newFaceVals = new Map<Region, Readonly<Record<string, number>>>();
   for (const c of newImageCells) newClaimed.set(c.r, (newClaimed.get(c.r) ?? 0) + 1);
-  for (const [im, cells] of cellsOf) if (im.inherit === undefined && im.material !== undefined) for (const c of cells) if (filled.has(c.r) && !newMaterial.has(c.r)) newMaterial.set(c.r, im.material);
+  for (const [im, cells] of cellsOf) if (im.inherit === undefined && im.face) for (const c of cells) if (filled.has(c.r) && !newFaceVals.has(c.r)) newFaceVals.set(c.r, im.face);
 
   // ⑧ 逐填充胞腔定膜
   const stretched: FaceId[] = [];
@@ -288,7 +285,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     const ids = [...new Set(owners.get(r) ?? [])];
     const hasNew = (newClaimed.get(r) ?? 0) > 0;
     if (ids.length === 0) {
-      if (hasNew) { const nf = store.mint(pid, r); events.push({ type: "BIRTH", face: nf.id }); const mat = newMaterial.get(r); if (mat !== undefined) table.faceMat?.set(nf.id, mat); }
+      if (hasNew) { const nf = store.mint(pid, r); events.push({ type: "BIRTH", face: nf.id }); table.faceLayers?.setAll(nf.id, newFaceVals.get(r)); }
       continue;
     }
     if (ids.length === 1 && !hasNew) {
@@ -338,8 +335,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     if (g.edgeBetween(c.a, c.b) !== undefined) continue;   // 退化三角，不动
     const ne = g.addEdge(c.a, c.b);
     g.edge(ne).faceLinks = [...fa];
-    if (soft?.has(c.ea) && soft.has(c.eb)) soft.add(ne);
-    if (curve?.has(c.ea) && curve.has(c.eb)) curve.add(ne);
+    EL?.onMerge(ne, c.ea, c.eb);
     for (const fid of new Set(fa)) {
       const f = store.face(fid);
       if (f) for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne);
@@ -347,19 +343,11 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     g.removeEdge(c.ea);
     g.removeEdge(c.eb);
   }
-  // ⑪ 边属性层（软边 / 曲线成员）：删掉的边出集；新段上落下的边入集
-  const layer = (set: Set<EdgeId> | undefined, segs: readonly Seg3[] | undefined): void => {
-    if (!set) return;
-    for (const eid of [...set]) if (!g.hasEdge(eid)) set.delete(eid);
-    if (!segs?.length) return;
-    for (const e of g.edges()) {
-      if (set.has(e.id)) continue;
-      const pa = g.pt(e.a), pb = g.pt(e.b);
-      if (segs.some((sg) => pointOnSegment3(pa, sg.a, sg.b, INSERT_TOL) && pointOnSegment3(pb, sg.a, sg.b, INSERT_TOL))) set.add(e.id);
-    }
-  };
-  layer(soft, table.softSegs);
-  layer(curve, table.curveSegs);
+  // ⑪ 边属性层：删掉的边出集；新段上落下的边入集（规则在 layers.ts）
+  if (EL) {
+    EL.prune((id) => g.hasEdge(id));
+    if (table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
+  }
   if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
   return events;
 }
