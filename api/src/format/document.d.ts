@@ -7,6 +7,16 @@ export interface DocumentSettings {
     snapIncrement: number;
     absoluteGrid: boolean;
 }
+/** 材质（= glTF core material）：颜色 sRGB 0..1 + 可选贴图（原图字节 + 物理尺寸 米）。 */
+export interface MaterialDoc {
+    name: string;
+    color: [number, number, number];
+    texture?: {
+        mimeType: string;
+        bytes: Uint8Array;
+        sizeM: [number, number];
+    };
+}
 export interface GroupDoc {
     id: number;
     parent: number | null;
@@ -25,7 +35,8 @@ export interface DefinitionDoc {
     name: string;
     brep: BrepSnapshot;
     groups: GroupDoc[];
-    instances: InstanceDoc[];
+    instances: InstanceDoc[]; /** 槽号 → materials 索引。 */
+    materialSlots: number[];
     extras?: Record<string, unknown>;
 }
 export interface CatsupDocument {
@@ -36,6 +47,8 @@ export interface CatsupDocument {
     definitions: DefinitionDoc[];
     rootIndex: number;
     root: DefinitionDoc;
+    /** 文档材质表（glTF materials；只增）。 */
+    materials: MaterialDoc[];
     thumbnail?: {
         mimeType: string;
         bytes: Uint8Array;

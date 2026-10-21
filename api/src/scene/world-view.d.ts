@@ -2,7 +2,7 @@ import type { Kernel } from "../kernel/kernel.ts";
 import type { Edge, EdgeId, FaceId, Pt3, Vertex, VertexId } from "../kernel/kernel.ts";
 import type { Face } from "../kernel/face-lifecycle.ts";
 import type { PlaneRec } from "../kernel/planes.ts";
-import { type EditContext, type InstId, type PoolRef, Scene } from "./scene.ts";
+import { type EditContext, type InstId, type Material, type PoolRef, Scene } from "./scene.ts";
 import { type Xform } from "./xform.ts";
 /** 求解器 / 拾取 / 渲染认识的几何读接口（Kernel 结构上满足）。 */
 export interface GeomView {
@@ -17,6 +17,8 @@ export interface GeomView {
     } | undefined;
     /** 软边（圆的近似边等）：渲染不画线。 */
     isSoft(id: EdgeId): boolean;
+    /** 面的材质（null = 默认灰）。 */
+    faceMaterial(id: FaceId): Material | null;
     graph: {
         pt(id: VertexId): Pt3;
         edge(id: EdgeId): Edge;
@@ -33,7 +35,8 @@ export interface PoolSlot {
     xform: Xform;
     kernel: Kernel;
     active: boolean;
-    inContext: boolean;
+    inContext: boolean; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */
+    overridden: boolean;
 }
 export declare class WorldView implements GeomView {
     private verts;
@@ -61,6 +64,7 @@ export declare class WorldView implements GeomView {
     vertices(): Vertex[];
     edges(): Edge[];
     isSoft(id: EdgeId): boolean;
+    faceMaterial(id: FaceId): Material | null;
     faces(): Face[];
     face(id: FaceId): Face | undefined;
     planeOf(id: FaceId): PlaneRec | undefined;

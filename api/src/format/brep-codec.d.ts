@@ -1,6 +1,6 @@
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 import { type UintType } from "./binary.ts";
-export declare const BREP_VERSION = 2;
+export declare const BREP_VERSION = 3;
 /** 写入器要的 bufferView 登记口（write.ts 提供；index = glTF bufferViews 索引）。 */
 export interface ViewSink {
     add(bytes: Uint8Array): number;

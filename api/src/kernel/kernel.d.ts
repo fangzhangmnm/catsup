@@ -38,6 +38,10 @@ export interface BrepSnapshot {
     }[];
     /** 软边索引（边表下标；缺省 = 无）。属性层，2026-10-21。 */
     readonly softEdges?: readonly number[];
+    /** 曲线成员边索引（圆 / 弧近似边；画线、推拉侧棱自动软）。属性层，2026-10-21。 */
+    readonly curveEdges?: readonly number[];
+    /** 每面材质槽（与 faces 对齐；−1 = 默认；缺省 = 全默认）。属性层，2026-10-21。 */
+    readonly faceMaterial?: readonly number[];
 }
 export declare class Kernel {
     private _graph;
@@ -46,6 +50,11 @@ export declare class Kernel {
     private planes;
     /** 软边（圆 / 弧的多边形近似边、它们推拉出的侧棱）：渲染不画线、推断照常吸。属性层，切割继承（结算机维护）。added 2026-10-21 */
     readonly soft: Set<number>;
+    /** 曲线成员边（圆 / 弧的多边形近似边）：**画出来**（SU 的圆有黑边），但从它们推拉出的侧棱是软边 + 平滑组；切割继承。2026-10-21（user「你画出来的圆为什么没有黑边」）。 */
+    readonly curve: Set<number>;
+    /** 面材质槽（definition.materialSlots 的槽号；缺省 = 默认材质）。属性层，按事件血缘继承：DIVIDE 子膜继承、MERGE 取首个有的、
+     *  一对一承继保 id 所以天然保留（pp 的帽跟着原膜走，侧壁新膜 = 默认——SU 同款）。贴图纪元 2026-10-21。 */
+    readonly faceMat: Map<number, number>;
     /** coplanarity 容差 τ——头号 UX 旋钮（drill L297）。只管平面分组/归属；几何保持精确共面。 */
     readonly coplanarTol: number;
     constructor(opts?: {
@@ -66,8 +75,9 @@ export declare class Kernel {
      * id 计数器一起拷 → 副本上的事件与真身提交的事件逐字相同。
      */
     clone(): Kernel;
-    /** 构造手势：一批线段（Rect = 4 段）。opts.soft = 这批线是曲线的多边形近似（圆 / 弧）→ 软边。 */
+    /** 构造手势：一批线段（Rect = 4 段）。opts.curve = 这批线是曲线的多边形近似（圆 / 弧）→ 曲线成员边（画黑边；推拉侧棱软）。 */
     addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: {
+        curve?: boolean;
         soft?: boolean;
     }): FaceEvent[];
     /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
@@ -99,12 +109,15 @@ export declare class Kernel {
      * 吸收外来几何（炸开 group / 粘贴 / 导入）：膜当像（OR、新 id）、裸边当线段，走结算机——与既有几何 sticky（切割 / 合并 / 共面 dedup）。
      * added 2026-10-21 by Claude Fable 5.1（group / component 纪元）
      */
-    absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], softSegs?: readonly Seg3[]): FaceEvent[];
+    absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], softSegs?: readonly Seg3[], materials?: readonly number[], curveSegs?: readonly Seg3[]): FaceEvent[];
     /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */
     transformAll(fn: (p: Pt3) => Pt3): FaceEvent[];
     vertices(): Vertex[];
     edges(): Edge[];
     isSoft(id: EdgeId): boolean;
+    isCurve(id: EdgeId): boolean;
+    /** GeomView 契约：裸内核不知道材质表（槽号在 faceMat），渲染单内核时一律默认。 */
+    faceMaterial(_id: FaceId): null;
     faces(): Face[];
     face(id: FaceId): Face | undefined;
     log(): readonly FaceEvent[];
@@ -116,6 +129,9 @@ export declare class Kernel {
         holes: Pt3[][];
     } | undefined;
     planeOf(id: FaceId): import("./planes.ts").PlaneRec | undefined;
+    /** 涂材质（槽号；null = 回默认）。 */
+    setFaceMaterial(ids: readonly FaceId[], slot: number | null): void;
+    faceMaterialOf(id: FaceId): number | undefined;
     private emit;
     /**
      * 合并组执行体：from 的边全部搬到 to（坍缩边丢弃、平行边去重——sticky 有损，公理 3）；

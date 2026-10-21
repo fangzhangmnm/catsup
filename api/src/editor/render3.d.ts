@@ -76,6 +76,8 @@ export declare class Renderer3 {
     private lineMatPx;
     private faceMesh;
     private faceMat;
+    private texMeshes;
+    private texCache;
     private edgeLines;
     private edgeMat;
     private hintLines;
@@ -148,8 +150,15 @@ export declare class Renderer3 {
      * 返回 RGBA、行序**自上而下**（three 读回是自下而上，这里翻好）。XR 会话中不截（相机归 XR）。
      */
     captureRgba(k: GeomView, cam: OrbitCamera, vp: Viewport, view: ViewState): Uint8Array;
-    /** 全部膜 → 一份几何（三角汤 + 平法向 + sRGB 顶点色）。 */
+    /**
+     * 全部膜 → 几何：无贴图材质的一份（三角汤 + 法向 + sRGB 顶点色 = 材质颜色 × 状态色），每种贴图材质一份（+UV）。
+     * 平滑组（贴图纪元 2026-10-21，user「圆的平滑组」）：被软边连起来的膜共用顶点法向（角度加权平均）——圆柱侧面不再一片片。
+     */
     private rebuildFaces;
+    /** 材质对象 → three 纹理（原图字节解码一次缓存；解码是异步的，先给 1×1 灰占位，解好后 needsUpdate 并请求重画）。 */
+    private textureFor;
+    /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
+    onTextureReady: (() => void) | null;
     /** 全部边 → 一份粗线（顶点色按类别）。 */
     private rebuildEdges;
     /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */

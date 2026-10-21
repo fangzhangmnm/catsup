@@ -3,6 +3,16 @@ import { type Frame, type Xform, WORLD_FRAME, frameAt, transformFrame } from "./
 export type DefId = number;
 export type GroupId = number;
 export type InstId = number;
+/** 材质（文档级，= glTF core material）：颜色（sRGB 0..1）+ 可选贴图（原图字节 + 物理尺寸 米）。只增不删（面按索引引用）。 */
+export interface Material {
+    readonly name: string;
+    readonly color: readonly [number, number, number];
+    readonly texture?: {
+        readonly mimeType: string;
+        readonly bytes: Uint8Array;
+        readonly sizeM: readonly [number, number];
+    };
+}
 export interface Group {
     readonly id: GroupId;
     parent: GroupId | null;
@@ -25,6 +35,8 @@ export interface Definition {
     instances: Map<InstId, Instance>;
     nextGroup: number;
     nextInst: number;
+    /** 材质槽：槽号 → 文档材质索引（契约 §5.3；面存槽号，实例可重映射——重映射未做）。 */
+    materialSlots: number[];
 }
 /** 几何池地址 = (definition, group | null)。 */
 export interface PoolRef {
@@ -42,11 +54,18 @@ export declare const ROOT_CONTEXT: EditContext;
 export declare class Scene {
     readonly defs: Map<number, Definition>;
     readonly root: DefId;
+    /** 文档材质表（只增）。 */
+    readonly materials: Material[];
     private nextDef;
     constructor(rootKernel?: Kernel);
     mintDef(name: string, kernel: Kernel): Definition;
     mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame): Group;
     mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform): Instance;
+    /** 材质在某 definition 里的槽号（没有就开一个）。 */
+    slotFor(defId: DefId, material: number): number;
+    /** 槽号 → 材质（无 / 越界 = null）。 */
+    materialOfSlot(defId: DefId, slot: number | undefined): Material | null;
+    addMaterial(m: Material): number;
     def(id: DefId): Definition;
     group(ref: {
         def: DefId;
@@ -82,8 +101,9 @@ export declare class Scene {
 export declare function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: readonly EdgeId[]): BrepSnapshot;
 /** 快照整体变换（坐标 + 平面）。 */
 export declare function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot;
-/** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。 */
-export declare function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m?: Xform): void;
+/** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
+ *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。 */
+export declare function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m?: Xform, materialMap?: (slot: number) => number): void;
 /** 轴框默认：选区包围盒的最小角（SU 把组件轴放在包围盒角）。 */
 export declare function bboxMin(pts: readonly Pt3[]): Pt3;
 export declare function poolBounds(k: Kernel, m?: Xform): {

@@ -1,5 +1,5 @@
 import { Kernel } from "../kernel/kernel.ts";
-import type { FaceEvent, Pt3, PtIn } from "../kernel/kernel.ts";
+import type { FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type HitResult3 } from "./pick.ts";
@@ -7,8 +7,20 @@ import { Renderer3, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
-export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "erase" | "eraseFace";
+export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "paint" | "erase" | "eraseFace";
 export declare const TOOLS: readonly Tool[];
+/** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
+export type PaintPick = {
+    kind: "color";
+    name: string;
+    color: [number, number, number];
+} | {
+    kind: "texture";
+    name: string;
+    mimeType: string;
+    bytes: Uint8Array;
+    sizeM: [number, number];
+} | null;
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
 export interface ToolPointer {
     x: number;
@@ -124,6 +136,7 @@ export declare class Editor {
     private dwell;
     private lastSnap;
     private clickTrain;
+    private paintPick;
     private viewCache;
     private kids;
     private nextKid;
@@ -219,6 +232,16 @@ export declare class Editor {
     enterSelected(): boolean;
     /** 退出一层（到父 group / 父实例）；已在根 → false。 */
     exitContext(): boolean;
+    get paint(): PaintPick;
+    setPaint(p: PaintPick): void;
+    /** 文档材质表（只读）。 */
+    materials(): readonly import("../scene/scene.ts").Material[];
+    /** 蘸的材质在文档材质表里的索引（没有就新建一条 addMaterial op）；null = 默认。 */
+    private materialIndexForPick;
+    /** 给活动池里的这些面涂当前材质（op）。 */
+    paintFaces(faces: readonly FaceId[]): void;
+    /** 把选区（面）涂上当前材质。 */
+    paintSelection(): boolean;
     setView(name: Parameters<OrbitCamera["setView"]>[0]): void;
     zoomExtents(): void;
     toggleProjection(): void;

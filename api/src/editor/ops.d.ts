@@ -16,7 +16,7 @@ export type Op = {
     op: "addEdges";
     at?: PoolRef;
     segs: Seg[];
-    soft?: boolean;
+    curve?: boolean;
 } | {
     op: "eraseEdges";
     at?: PoolRef;
@@ -48,6 +48,7 @@ export type Op = {
     faces: Pt3[][][];
     wires: [Pt3, Pt3][];
     soft?: [Pt3, Pt3][];
+    curve?: [Pt3, Pt3][];
 }
 /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
  | {
@@ -95,6 +96,24 @@ export type Op = {
     at: PoolRef;
     group: number;
     xform: Xform;
+}
+/** 新材质（文档级，只增）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
+ | {
+    op: "addMaterial";
+    name: string;
+    color: [number, number, number];
+    texture?: {
+        mimeType: string;
+        bytes: Uint8Array;
+        sizeM: [number, number];
+    };
+}
+/** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
+ | {
+    op: "paintFaces";
+    at: PoolRef;
+    faces: FaceKey[];
+    material: number | null;
 } | {
     op: "eraseGroup";
     at: PoolRef;

@@ -15,6 +15,8 @@ export interface Image {
     algebra: Algebra;
     /** 继承的身份；缺省 = 新膜（独占胞腔 → BIRTH）。 */
     inherit?: FaceId;
+    /** 新膜的材质槽（absorb 用：炸开 / 粘贴带着材质回来）。 */
+    material?: number;
 }
 export interface ImageTable {
     /** 被动词替换的膜：出库；身份只经 images[].inherit 延续；旧环边 = 随葬候选。 */
@@ -35,6 +37,11 @@ export interface ImageTable {
     soft?: Set<EdgeId>;
     /** 这些线段上落下的边 = 软边（圆的近似边、软边推拉出的侧棱与帽边）。 */
     softSegs?: readonly Seg3[];
+    /** 面材质层（内核的）：新像带 material 时，它独占的胞腔铸出的膜记上。 */
+    faceMat?: Map<FaceId, number>;
+    /** 曲线成员边集 + 新曲线段（同软边机制：切割继承 / 删边清理 / 段上落边入集）。 */
+    curve?: Set<EdgeId>;
+    curveSegs?: readonly Seg3[];
 }
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
 export declare function ringsOf(g: PlanarGraph, f: {

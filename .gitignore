@@ -9,3 +9,6 @@ tools/
 .DS_Store
 # dist/catsup-<hash>.mjs 进 git（家族约定：各分支自己 commit 好 dist，部署只搬不重 build）；sourcemap 不进
 dist/*.map
+
+# 架构自审 HTML 报告（improve-codebase-architecture 生成物，含 CDN 引用，只留本机）
+ai-docs/reports/
