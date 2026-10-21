@@ -43,12 +43,19 @@ export type Op = {
     face: FaceKey;
     dist: number;
 } | {
+    op: "followme";
+    at?: PoolRef;
+    face: FaceKey;
+    path: Pt3[];
+    closed: boolean;
+    smoothJoints: boolean[];
+} | {
     op: "absorb";
     at?: PoolRef;
     faces: Pt3[][][];
     wires: [Pt3, Pt3][];
-    soft?: [Pt3, Pt3][];
-    curve?: [Pt3, Pt3][];
+    edgeSegs?: Record<string, [Pt3, Pt3][]>;
+    faceLayers?: (Record<string, number> | undefined)[];
 }
 /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
  | {
@@ -107,6 +114,14 @@ export type Op = {
         bytes: Uint8Array;
         sizeM: [number, number];
     };
+}
+/** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
+ | {
+    op: "setEdgeLayers";
+    at: PoolRef;
+    edges: EdgeKey[];
+    layers: string[];
+    on: boolean;
 }
 /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
  | {

@@ -1,5 +1,5 @@
 import { Kernel } from "../kernel/kernel.ts";
-import type { FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
+import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type HitResult3 } from "./pick.ts";
@@ -7,7 +7,7 @@ import { Renderer3, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
-export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "paint" | "erase" | "eraseFace";
+export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
 export declare const TOOLS: readonly Tool[];
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
@@ -106,6 +106,10 @@ export declare class Editor {
     private ppH;
     private ppShellVids;
     private ppStops;
+    private offFace;
+    private offPlane;
+    private offInward;
+    private offDist;
     private rotStage;
     private rotCenter;
     private rotAxis;
@@ -118,6 +122,7 @@ export declare class Editor {
     private samples;
     private scrubAcc;
     private scrubbing;
+    private eraseMode;
     private selection;
     private selectedPools;
     private marqueeStart;
@@ -242,6 +247,12 @@ export declare class Editor {
     paintFaces(faces: readonly FaceId[]): void;
     /** 把选区（面）涂上当前材质。 */
     paintSelection(): boolean;
+    /** 给这些边（本地 id）软化（soft + smooth）或硬化。 */
+    softenEdges(ids: readonly EdgeId[], on: boolean): void;
+    /** 按二面角阈值软化：有选区 → 选区的边（含选中膜的环边）；否则活动池全部。只碰恰好两膜的边。 */
+    softenByAngle(maxDeg: number, on?: boolean): number;
+    /** 选区的边软化 / 硬化（不看角度）。 */
+    softenSelection(on: boolean): number;
     setView(name: Parameters<OrbitCamera["setView"]>[0]): void;
     zoomExtents(): void;
     toggleProjection(): void;
@@ -261,6 +272,8 @@ export declare class Editor {
     private computeLive;
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
+    /** 偏移环（世界坐标线段）：活动池里 offFace 的外环投到面基 → offsetRing（SU 只外环）→ 抬回 3D。 */
+    private offsetSegs;
     /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
     private ppLocalH;
     private basePlaneOfAnchor;
@@ -277,6 +290,12 @@ export declare class Editor {
     private rebuildScaleHandles;
     private pickScaleHandle;
     pointerDown(ev: ToolPointer): void;
+    /**
+     * 跟随的路径 = 当前选区：一串边（链，无分叉）；没选边就取选中的一张面（不是轮廓面本身）的外环 = 闭路径。
+     * 取向：起点必须落在轮廓面的平面上，且首段不平行于它；闭路径候选起点多时取离轮廓最近的；两个方向都试，取 |n·d₀| 大的。
+     * 关节平滑 = 两侧路径边都是曲线成员（圆 / 弧路径 → 旋转体侧面光滑）。
+     */
+    private followPath;
     pointerMove(ev: ToolPointer): void;
     /** 手势中的取点（line / rect / circle / pp / move / rotate / scale 的拖拽态；pointerMove 与松开帧共用）。 */
     private trackGesture;

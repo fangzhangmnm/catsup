@@ -1,6 +1,6 @@
 # 平滑组设计（0.8 纪元，2026-10-21）
 
-> created 20261021 · as-of v0.8.0 / 2026-10-21 · created by Claude Fable 5.1
+> created 20261021 · as-of v0.8.0 / 2026-10-21（收尾时补侧棱规则与跟随关节）· created by Claude Fable 5.1
 > user 2026-10-21：「然后圆的平滑组」「平滑组是一个很重要的概念，好好设计一下」「平滑 offset follow me是0.8」。
 > 代码：`src/kernel/layers.ts`（层登记处 + 推拉策略表）、`src/editor/render3.ts smoothNormals`、`src/format/bake.ts smoothNormalsOf`、编辑器 `softenEdges / softenByAngle / softenSelection`。
 
@@ -18,7 +18,8 @@
 
 ## 2. 谁给边打层
 
-- **推拉**（`EDGE_LAYER_POLICY`）：原边带 soft / curve / smooth 任一 → 它扫出的两条侧棱 = **soft + smooth**；帽边继承原边的全部层（圆柱顶圈仍是 curve = 画黑边）。这就是「画圆 → 推拉 = 光滑圆柱」。
+- **推拉 / 跟随**（`EDGE_LAYER_POLICY` + `riserLayers`）：帽边 / 站圈边继承原边的全部层（圆柱顶圈仍是 curve = 画黑边）；**侧棱（顶点沿扫掠方向拉出的棱）只在两侧环边都带策略层（soft / curve / smooth）时才 soft + smooth**——圆弧内部顶点软、圆弧端点 / 直边角点硬（0.8 从「每条策略边两端都软」改过来，半圆推拉的两条端棱不再被错软）。这就是「画圆 → 推拉 = 光滑圆柱」。
+- **跟随的路径关节**：两侧路径边都是曲线成员（圆 / 弧路径）→ 该站的整圈边 soft + smooth（旋转体侧面光滑，站圈不画）；硬拐角的站圈继承轮廓边的层（圆轮廓沿 L 路径 = 拐角处一圈黑边）。
 - **软化工具**：橡皮 + Ctrl 刮 = 软化（soft + smooth），橡皮 + Shift 刮 = 硬化（SU 同款修饰）；菜单「软化所有 ≤ 20° 的边」（SU Soften Edges 对话框的默认角）；选区菜单「软化 / 硬化选区」。只碰恰好两膜之间的边。
 - **跟随 / 继承**（层登记处四条规则）：切割按父传子、删边出集、新段落边入集、溶解时两边都有才并出的边有。
 - 文件：`CATSUP_brep.attributes.edge.{soft,smooth,curve}` 各一条 u8 流（契约早有名字）。

@@ -1,8 +1,9 @@
 import { type Pt, type Pt3 } from "./geom.ts";
-import { type EdgeId, type FaceId, PlanarGraph } from "./topology.ts";
+import { type FaceId, PlanarGraph } from "./topology.ts";
 import { type Ring } from "./facefind.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type FaceEvent, FaceStore } from "./face-lifecycle.ts";
+import type { EdgeLayers, FaceLayers } from "./layers.ts";
 export type Algebra = "or" | "xor";
 export interface Seg3 {
     readonly a: Pt3;
@@ -15,8 +16,8 @@ export interface Image {
     algebra: Algebra;
     /** 继承的身份；缺省 = 新膜（独占胞腔 → BIRTH）。 */
     inherit?: FaceId;
-    /** 新膜的材质槽（absorb 用：炸开 / 粘贴带着材质回来）。 */
-    material?: number;
+    /** 新膜的面层值（absorb 用：炸开 / 粘贴带着材质回来）。 */
+    face?: Readonly<Record<string, number>>;
 }
 export interface ImageTable {
     /** 被动词替换的膜：出库；身份只经 images[].inherit 延续；旧环边 = 随葬候选。 */
@@ -33,15 +34,12 @@ export interface ImageTable {
      * move 不开通则：膜移扁留一条线（SU 同款，靶4）。
      */
     buryOrphans?: boolean;
-    /** 软边集（内核的属性层；机器维护切割继承 / 删边清理 / 新软段登记）。 */
-    soft?: Set<EdgeId>;
-    /** 这些线段上落下的边 = 软边（圆的近似边、软边推拉出的侧棱与帽边）。 */
-    softSegs?: readonly Seg3[];
-    /** 面材质层（内核的）：新像带 material 时，它独占的胞腔铸出的膜记上。 */
-    faceMat?: Map<FaceId, number>;
-    /** 曲线成员边集 + 新曲线段（同软边机制：切割继承 / 删边清理 / 段上落边入集）。 */
-    curve?: Set<EdgeId>;
-    curveSegs?: readonly Seg3[];
+    /** 边属性层登记处（内核的；机器只调它的四条规则：切割继承 / 删边清理 / 段上落边入集 / 溶解并层）。 */
+    edgeLayers?: EdgeLayers;
+    /** 名字 → 线段：这些段上落下的边进该层（圆的近似边 → curve；推拉侧棱 → soft+smooth）。 */
+    layerSegs?: Readonly<Record<string, readonly Seg3[]>>;
+    /** 面属性层登记处：新像带 face 值时，它独占的胞腔铸出的膜记上。 */
+    faceLayers?: FaceLayers;
 }
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
 export declare function ringsOf(g: PlanarGraph, f: {

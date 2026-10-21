@@ -7,6 +7,14 @@ export interface BakeResult {
 }
 /** 多个池（definition 根池 + 各 group）合并成一份快照（索引平移；平面各自保留）。bake 用。added 2026-10-21 */
 export declare function mergeBrep(snaps: readonly BrepSnapshot[]): BrepSnapshot;
+export declare function quantNormal(n: {
+    x: number;
+    y: number;
+    z: number;
+}): [number, number, number];
+/** 平滑组法向（快照版，与 render3.smoothNormals 同算法）：smooth 边连通的膜 = 一组；组内每个 (膜, 顶点) 的法向 = 组里含该顶点的膜法向按内角加权。
+ *  返回 面下标 → (顶点下标 → 法向)；没平滑组的膜不在表里（用平面法向）。 */
+export declare function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [number, number, number]>>;
 /** 材质槽 → glTF core 材质索引 + 贴图物理尺寸（bake 按材质拆 primitive、算 TEXCOORD_0 用）。 */
 export interface BakeMaterials {
     slotToCore: (slot: number) => number | undefined;

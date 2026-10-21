@@ -15,8 +15,10 @@ export interface GeomView {
         outer: Pt3[];
         holes: Pt3[][];
     } | undefined;
-    /** 软边（圆的近似边等）：渲染不画线。 */
+    /** 软边：渲染不画线。 */
     isSoft(id: EdgeId): boolean;
+    /** 平滑边：两侧膜的法向跨边插值（平滑组）。 */
+    isSmooth(id: EdgeId): boolean;
     /** 面的材质（null = 默认灰）。 */
     faceMaterial(id: FaceId): Material | null;
     graph: {
@@ -45,6 +47,7 @@ export declare class WorldView implements GeomView {
     private planeMap;
     private faceSlot;
     private softSet;
+    private smoothSet;
     readonly slots: PoolSlot[];
     private byKey;
     readonly graph: GeomView["graph"];
@@ -64,6 +67,7 @@ export declare class WorldView implements GeomView {
     vertices(): Vertex[];
     edges(): Edge[];
     isSoft(id: EdgeId): boolean;
+    isSmooth(id: EdgeId): boolean;
     faceMaterial(id: FaceId): Material | null;
     faces(): Face[];
     face(id: FaceId): Face | undefined;
