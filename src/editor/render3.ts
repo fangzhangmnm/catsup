@@ -16,8 +16,11 @@
 // Workbench 雏形 = Blender 实体模式的观感：
 //   - 面：统一灰、不透明、**按法向的平光**（key light 钉在相机系：|n·L| 映射亮度，双面对称、零灯光配置；颜色在 sRGB 空间直接乘亮度，
 //     shader 不再过 colorspace 编码——与旧版 shade() 逐像素同值）；选中/悬停换蓝灰色。
-//   - 边：three addons 粗线（LineSegments2，屏幕像素宽，DPR 无关——1px LineBasicMaterial 在 iPad DPR2 下细成半像素
-//     = 「有些线看不见」的真身之一）。粗线是三角形 → polygonOffset 生效：**面 +1/+1 后推、线 −1/−2 前拉**，
+//   - 边（0.9.2 翻案，user 2026-10-21「线稿能不能不要用实体的几何，而是用带像素宽度的线，不然vr很难看，pc也很卡通，伤性能」）：
+//     **默认 = 原生 GL 线（THREE.LineSegments，1 设备像素，2 顶点/段，最省）**；选中 / 刮擦 / 悬停的边仍走粗线（要看得见）；
+//     视图菜单「粗线稿」= 全部边走粗线（旧默认，setLineStyle("thick")）。原生线没有 polygonOffset，靠面 +1/+1 后推让共面线赢面。
+//     旧注：1px LineBasicMaterial 在 iPad DPR2 下细成半 CSS 像素 = 「有些线看不见」的真身之一——所以粗线留作选项，不删。
+//     粗线 = three addons LineSegments2（屏幕像素宽，DPR 无关），是三角形 → polygonOffset 生效：**面 +1/+1 后推、线 −1/−2 前拉**，
 //     共面线永远赢面、被真正挡住的线仍被挡——z-fight 的结构性修法，不再靠 depthOnly 预通道。
 //   - 相机：两制（cam.projection）——正交 OrthographicCamera / 透视 PerspectiveCamera，near/far 随眼距布置（小零件贴近也不裁）。
 //   - 顶点点不再常显（SU 观感）；吸附指示按屏幕像素定尺寸（透视按深度换算；XR 按角尺寸，比桌面小一半——user「vr 里面点球太大了」），
@@ -87,7 +90,9 @@ const SNAP_COLORS: Record<string, number> = {
 const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
 const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
-const EDGE_PX = 1.6;        // 边线宽（CSS px）
+/** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
+export type LineStyle = "pixel" | "thick";
+const EDGE_PX = 1.6;        // 边线宽（CSS px；thick 风格 + 选中 / 刮擦 / 悬停边）
 const HINT_PX = 1.2;        // 吸附提示线宽
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
 const ARC_PX = 2.5;
@@ -177,6 +182,8 @@ export class Renderer3 {
   private texMeshes: { mesh: any; mat: any; tex: any; key: string }[] = [];   // 每种贴图材质一份网格（自己的 UV）
   private texCache = new Map<object, any>();                                  // Material 对象 → three Texture（原图解码一次）
   private edgeLines: any; private edgeMat: any;
+  private edgePixel: any;                 // 原生 GL 线（1 设备像素）：默认线稿
+  private lineStyle: LineStyle = "pixel";
   private hintLines: any;
   private snapMarker: any;
   private arcLines: any; private landingRing: any;
@@ -224,6 +231,10 @@ export class Renderer3 {
     this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
     this.edgeLines.frustumCulled = false; this.edgeLines.visible = false;
     this.scene.add(this.edgeLines);
+    // 边：原生 GL 线（默认线稿；顶点色）
+    this.edgePixel = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true }));
+    this.edgePixel.frustumCulled = false; this.edgePixel.visible = false;
+    this.scene.add(this.edgePixel);
     // 吸附提示线（顶点色：轴色）
     this.hintLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.hintLines.frustumCulled = false; this.hintLines.visible = false;
@@ -692,26 +703,41 @@ export class Renderer3 {
   onTextureReady: (() => void) | null = null;
 
   /** 全部边 → 一份粗线（顶点色按类别）。 */
+  /** 线稿风格（视图菜单「粗线稿」）。 */
+  setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.edgeKey = ""; } }
+  getLineStyle(): LineStyle { return this.lineStyle; }
+
   private rebuildEdges(kd: GeomView, view: ViewState): void {
-    const pos: number[] = [], col: number[] = [];
+    // thick：全部边进粗线。pixel：强调边（选中 / 刮擦 / 悬停）进粗线，其余进原生 GL 线。
+    const pos: number[] = [], col: number[] = [];       // 粗线
+    const ppos: number[] = [], pcol: number[] = [];     // 原生线
     const dim = view.dimSlots;
     for (const e of kd.edges()) {
       const selected = view.selectionEdges.has(e.id);
-      if (kd.isSoft(e.id) && !selected && !view.scrubEdges.has(e.id) && view.hoverEdge !== e.id) continue;   // 软边不画（圆柱不长竖纹）
+      const hot = view.scrubEdges.has(e.id) || view.hoverEdge === e.id;
+      if (kd.isSoft(e.id) && !selected && !hot) continue;   // 软边不画（圆柱不长竖纹）
       const hex =
-        view.scrubEdges.has(e.id) || view.hoverEdge === e.id ? PALETTE.edgeHot
+        hot ? PALETTE.edgeHot
         : selected ? PALETTE.edgeSelected
         : dim?.has(Math.floor(e.id / ID_STRIDE)) ? PALETTE.edgeDim
         : e.faceLinks.length === 0 ? PALETTE.edgeWire
         : PALETTE.edge;
       const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
-      pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
       const c = this.tmpColor.setHex(hex);
-      col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      const thick = this.lineStyle === "thick" || selected || hot;
+      const P = thick ? pos : ppos, C = thick ? col : pcol;
+      P.push(a.x, a.y, a.z, b.x, b.y, b.z);
+      C.push(c.r, c.g, c.b, c.r, c.g, c.b);
     }
-    if (!pos.length) { this.edgeLines.visible = false; return; }
-    this.setLineGeometry(this.edgeLines, pos, col);
-    this.edgeLines.visible = true;
+    if (pos.length) { this.setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;
+    if (ppos.length) {
+      const old = this.edgePixel.geometry;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(ppos, 3));
+      geo.setAttribute("color", new THREE.Float32BufferAttribute(pcol, 3));
+      this.edgePixel.geometry = geo; old.dispose();
+      this.edgePixel.visible = true;
+    } else this.edgePixel.visible = false;
   }
 
   /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */

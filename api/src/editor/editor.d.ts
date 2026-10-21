@@ -4,7 +4,7 @@ import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type HitResult3 } from "./pick.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
-import { Renderer3, type ViewState } from "./render3.ts";
+import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
@@ -259,6 +259,9 @@ export declare class Editor {
     softenSelection(on: boolean): number;
     setView(name: Parameters<OrbitCamera["setView"]>[0]): void;
     zoomExtents(): void;
+    /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
+    get lineStyle(): LineStyle;
+    setLineStyle(s: LineStyle): void;
     toggleProjection(): void;
     private alignSrcs;
     private chargePt;

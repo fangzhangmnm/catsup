@@ -30,6 +30,8 @@ export declare const PALETTE: {
     readonly axisY: 3050327;
     readonly axisZ: 2845872;
 };
+/** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
+export type LineStyle = "pixel" | "thick";
 export interface ViewState {
     selectionEdges: ReadonlySet<EdgeId>;
     selectionFaces: ReadonlySet<FaceId>;
@@ -80,6 +82,8 @@ export declare class Renderer3 {
     private texCache;
     private edgeLines;
     private edgeMat;
+    private edgePixel;
+    private lineStyle;
     private hintLines;
     private snapMarker;
     private arcLines;
@@ -161,6 +165,9 @@ export declare class Renderer3 {
     /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
     onTextureReady: (() => void) | null;
     /** 全部边 → 一份粗线（顶点色按类别）。 */
+    /** 线稿风格（视图菜单「粗线稿」）。 */
+    setLineStyle(style: LineStyle): void;
+    getLineStyle(): LineStyle;
     private rebuildEdges;
     /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */
     private setLineGeometry;

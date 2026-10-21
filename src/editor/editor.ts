@@ -31,7 +31,7 @@ import { facesForPaint } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { simplifyPath, sweepStations } from "../kernel/sweep.ts";
 import { liftFromPlane, projectToPlane } from "../kernel/geom.ts";
-import { Renderer3, type ViewState } from "./render3.ts";
+import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey } from "./ops.ts";
 import { History, OpApplyError } from "./history.ts";
@@ -755,6 +755,9 @@ export class Editor {
     this.cam.fitPoints(this.worldView().vertices(), this.vp());
     this.draw();
   }
+  /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
+  get lineStyle(): LineStyle { return this.r3.getLineStyle(); }
+  setLineStyle(s: LineStyle): void { this.r3.setLineStyle(s); this.host.changed(); this.draw(); }
   toggleProjection(): void {
     this.cam.projection = this.cam.projection === "persp" ? "ortho" : "persp";
     this.host.changed();

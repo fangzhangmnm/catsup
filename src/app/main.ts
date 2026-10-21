@@ -191,7 +191,7 @@ btnRedo.addEventListener("click", () => editor.redo());
 btnDelete.addEventListener("click", () => editor.deleteSelection());
 btnFit.addEventListener("click", () => editor.zoomExtents());
 
-type ViewId = "iso" | "top" | "front" | "right" | "back" | "left" | "persp" | "walk" | "noclip";
+type ViewId = "iso" | "top" | "front" | "right" | "back" | "left" | "persp" | "walk" | "noclip" | "thick";
 btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
   anchor: btnView, align: "end",
   items: () => [
@@ -203,12 +203,14 @@ btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
     { id: "back", label: "后视", hint: "向南看", disabled: locomotion.isWalking() },
     { id: "left", label: "左视", hint: "向东看", disabled: locomotion.isWalking() },
     { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true, disabled: locomotion.isWalking() },
+    { id: "thick", label: "粗线稿", hint: "屏幕像素宽的粗线；默认 = 1 设备像素细线（省性能）", checked: editor.lineStyle === "thick" },
     // 0.4 VR 纪元：步行/飞行相机 = 不戴头显验证移动/teleport/碰撞的唯一途径（与 VR 共用 src/player/）
     { id: "walk", label: "步行相机", hint: "WASD · 空格跳 · 右键拖看", checked: locomotion.isWalking(), separatorBefore: true },
     { id: "noclip", label: "穿墙飞行", hint: "双击空格切换 · Q/E 下/上", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
   ],
   onPick: (id) => {
     if (id === "persp") { editor.toggleProjection(); return "keep"; }
+    if (id === "thick") { editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep"; }
     if (id === "walk") { setWalk(!locomotion.isWalking()); return "keep"; }
     if (id === "noclip") { locomotion.setNoclip(!locomotion.noclip); return "keep"; }
     editor.setView(id);

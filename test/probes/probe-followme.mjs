@@ -57,11 +57,15 @@ const res = await page.evaluate(async () => {
   out.paintedSingle = e.kernel.faces().filter((f) => e.kernel.faceMaterialOf(f.id) !== undefined).length;
   e.setTool("line");
   out.stripHiddenForLine = strip.hidden;
+  // ⑥ 线稿风格：默认 pixel；切 thick 再切回，渲染不报错
+  out.lineStyleDefault = e.lineStyle;
+  e.setLineStyle("thick"); e.draw(); e.setLineStyle("pixel"); e.draw();
+  out.lineStyleBack = e.lineStyle;
   return out;
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.facesBefore === 7 && res.pathSelected && res.facesAfter === 10 && res.manifold && res.topFaces === 1 && res.topBounds && Math.abs(res.topBounds[0] - 0.5) < 1e-6 && Math.abs(res.topBounds[1] - 1.5) < 1e-6 && res.facesAfterUndo === 7 && res.stripShown && res.stripSelectValue === "connected" && res.paintedConnected === 7 && res.paintedSingle === 1 && res.stripHiddenForLine && errs.length === 0;
+const ok = res.facesBefore === 7 && res.pathSelected && res.facesAfter === 10 && res.manifold && res.topFaces === 1 && res.topBounds && Math.abs(res.topBounds[0] - 0.5) < 1e-6 && Math.abs(res.topBounds[1] - 1.5) < 1e-6 && res.facesAfterUndo === 7 && res.stripShown && res.stripSelectValue === "connected" && res.paintedConnected === 7 && res.paintedSingle === 1 && res.stripHiddenForLine && res.lineStyleDefault === "pixel" && res.lineStyleBack === "pixel" && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);
