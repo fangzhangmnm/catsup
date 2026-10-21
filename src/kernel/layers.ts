@@ -18,8 +18,19 @@ export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
 export const EDGE_LAYERS = ["soft", "curve", "smooth", "hidden"] as const;
 /** 知名面层。 */
 export const FACE_LAYERS = ["material"] as const;
-/** 推拉：原边带哪层 → 它扫出的侧棱带哪些层（帽边 = 原边的全部层）。 */
+/** 推拉 / 跟随：原边带哪层 → 它扫出的侧棱带哪些层（帽边 = 原边的全部层）。 */
 export const EDGE_LAYER_POLICY: Readonly<Record<string, readonly string[]>> = { soft: ["soft", "smooth"], curve: ["soft", "smooth"], smooth: ["soft", "smooth"] };
+/**
+ * 环上一个顶点的侧棱（riser：顶点沿扫掠方向拉出的那条棱）该带的层：**两侧的环边都带策略层才软**
+ * （圆弧内部顶点的侧棱软 + 平滑；圆弧端点 / 直边角点的侧棱硬）。推拉与跟随共用这一条（2026-10-21）。
+ */
+export function riserLayers(prev: readonly string[], next: readonly string[]): string[] {
+  const hit = (ls: readonly string[]): boolean => ls.some((l) => l in EDGE_LAYER_POLICY);
+  if (!hit(prev) || !hit(next)) return [];
+  const out = new Set<string>();
+  for (const l of [...prev, ...next]) for (const r of EDGE_LAYER_POLICY[l] ?? []) out.add(r);
+  return [...out];
+}
 
 export class EdgeLayers {
   private sets = new Map<string, Set<EdgeId>>();

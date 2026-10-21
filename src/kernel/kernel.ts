@@ -28,7 +28,8 @@ import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, Planar
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type Image, type Seg3, ringsOf, settle, translateImage } from "./settle.ts";
-import { EDGE_LAYER_POLICY, EdgeLayers, FaceLayers } from "./layers.ts";
+import { EdgeLayers, FaceLayers, riserLayers } from "./layers.ts";
+import { dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
 
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
 export type { Edge, EdgeId, FaceId, Vertex, VertexId } from "./topology.ts";
@@ -286,14 +287,18 @@ export class Kernel {
     const push = (n: string, sg: Seg3): void => { (layerSegs[n] ?? (layerSegs[n] = [])).push(sg); };
     let anyBare = false;
     for (const ring of [f.outer, ...f.holes]) {
+      const ringLayers = ring.edges.map((d) => this.edgeLayers.of(d.edge));
+      ring.edges.forEach((d, j) => {
+        const e = g.edge(d.edge);
+        const a = g.pt(d.forward ? e.a : e.b);
+        // 顶点 a 的侧棱：两侧环边（j−1、j）都带策略层才软（layers.ts riserLayers）
+        for (const R of riserLayers(ringLayers[(j + ring.edges.length - 1) % ring.edges.length], ringLayers[j])) push(R, { a, b: add3(a, delta) });
+      });
       for (const d of ring.edges) {
         const e = g.edge(d.edge);
         const a = g.pt(d.forward ? e.a : e.b), b = g.pt(d.forward ? e.b : e.a);
         const others = e.faceLinks.filter((x) => x !== id);
-        for (const L of this.edgeLayers.of(e.id)) {
-          push(L, { a: add3(a, delta), b: add3(b, delta) });
-          for (const R of EDGE_LAYER_POLICY[L] ?? []) { push(R, { a, b: add3(a, delta) }); push(R, { a: b, b: add3(b, delta) }); }
-        }
+        for (const L of this.edgeLayers.of(e.id)) push(L, { a: add3(a, delta), b: add3(b, delta) });
         if (others.length > 0 && others.every(parallel)) {
           for (const gid of others) { (rewrite.get(gid) ?? rewrite.set(gid, new Set()).get(gid)!).add(e.id); consumed.add(gid); }
           continue;
@@ -319,6 +324,60 @@ export class Kernel {
     }
     if (anyBare) images.push({ rings: ringsOf(g, f), algebra: "or" });
     return this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+  }
+
+  /**
+   * 跟随（SU Follow Me）—— 轮廓面 id 沿折线 path 扫掠（几何 = sweep.ts 斜切投影），像表提交规则（2026-10-21，Claude Fable 5.1）：
+   *   · 扫出的全部面（侧面 + 开路径的两端帽）一律 **XOR**：与既有膜重合的部分成对湮灭 = 沿实体的棱倒角时顶条 / 侧条自动消失（SU 同款）；
+   *     按体积说 = 模型 △ 扫掠体（∂(B △ S) = ∂B △ ∂S），倒角 = 减、接管 = 加，一句话。
+   *   · 轮廓面**依附**于别的膜（任一环边有第二张膜）→ 它是模型表面的一部分，留在表里参加 XOR（开路径的起始帽与它湮灭 = 棱的起点也切掉）；
+   *     **孤立**轮廓面（画在空中的圆 / 方）→ 出库，开路径时起始帽继承它的身份（= 推拉的底帽），闭路径不留横截面。
+   *   · 闭路径 + 依附轮廓面没被扫到（扫掠体没盖住它）→ 结算后它还在 → 当横截面删掉（SU：闭路径删起始面）。
+   *   · 层：路径关节两侧都是曲线成员（圆 / 弧路径）→ 该站环边 soft+smooth（旋转体侧面光滑）；否则站环边继承轮廓边的层（圆轮廓的拐角圈 = curve 画黑边）；
+   *     沿扫掠方向的棱按 riserLayers（圆弧内部顶点软、端点硬）；开路径末帽继承轮廓边的层。
+   * 预检用 sweepStations（编辑器选取向 / 起点时已跑过）；这里失败就 throw，commitOp 回滚。
+   */
+  followMe(id: FaceId, pathIn: readonly Pt3[], opts: { closed: boolean; smoothJoints?: readonly boolean[] }): FaceEvent[] {
+    const f = this.store.face(id);
+    if (!f) return [];
+    const g = this.graph;
+    const rings = ringsOf(g, f);
+    const { path, smoothJoints } = simplifyPath(pathIn, opts.closed, opts.smoothJoints);   // 共线关节不设站
+    const st = sweepStations(rings, path, opts.closed);
+    if (typeof st === "string") throw new Error(`followMe: ${st}`);
+    const ringEdges = [f.outer, ...f.holes].map((r) => r.edges.map((d) => d.edge));
+    const ringLayers = ringEdges.map((es) => es.map((e) => this.edgeLayers.of(e)));
+    const attached = ringEdges.some((es) => es.some((e) => g.edge(e).faceLinks.length >= 2));
+    const nSt = st.length, segs = opts.closed ? nSt : nSt - 1;
+    const smooth = (i: number): boolean => !!smoothJoints?.[i];
+    const images: Image[] = [];
+    const layerSegs: Record<string, Seg3[]> = {};
+    const push = (n: string, sg: Seg3): void => { (layerSegs[n] ?? (layerSegs[n] = [])).push(sg); };
+    for (let i = 0; i < segs; i++) {
+      const A = st[i], B = st[(i + 1) % nSt];
+      for (let r = 0; r < A.length; r++) {
+        const m = A[r].length;
+        for (let j = 0; j < m; j++) {
+          const quad = dedupeRing([A[r][j], A[r][(j + 1) % m], B[r][(j + 1) % m], B[r][j]]);
+          if (quad.length) images.push({ rings: [quad], algebra: "xor" });
+          for (const R of riserLayers(ringLayers[r][(j + m - 1) % m], ringLayers[r][j])) push(R, { a: A[r][j], b: B[r][j] });
+        }
+      }
+    }
+    // 站环的层：关节（闭路径全部站；开路径中间站）平滑 → soft+smooth，否则继承；开路径末帽继承
+    const jointStations = opts.closed ? [...Array(nSt).keys()] : [...Array(Math.max(0, nSt - 2)).keys()].map((i) => i + 1);
+    for (const i of jointStations) for (let r = 0; r < st[i].length; r++) { const m = st[i][r].length; for (let j = 0; j < m; j++) { const sg = { a: st[i][r][j], b: st[i][r][(j + 1) % m] }; if (smooth(i)) { push("soft", sg); push("smooth", sg); } else for (const L of ringLayers[r][j]) push(L, sg); } }
+    const consumed = new Set<FaceId>();
+    if (!opts.closed) {
+      images.push({ rings: rings.map((r) => r.map((p) => ({ ...p }))), algebra: "xor", ...(attached ? {} : { inherit: id }) });
+      const E = st[nSt - 1];
+      images.push({ rings: E.map((r) => r.map((p) => ({ ...p }))), algebra: "xor" });
+      for (let r = 0; r < E.length; r++) { const m = E[r].length; for (let j = 0; j < m; j++) for (const L of ringLayers[r][j]) push(L, { a: E[r][j], b: E[r][(j + 1) % m] }); }
+    }
+    if (!attached) consumed.add(id);
+    const events = this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    if (opts.closed && attached && this.store.face(id)) events.push(...this.eraseFaces([id]));
+    return events;
   }
 
   /**

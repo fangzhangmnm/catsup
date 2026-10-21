@@ -18,7 +18,8 @@ import "./lab-presets.test.ts";
 import "./move-spec.test.ts";
 import "./history.test.ts";
 import "./scene-ops.test.ts";
-import "./offset.test.ts";   // offset 几何（0.8，2026-10-21）   // group / component / 整体变换（2026-10-21）   // A1 正规 undo（2026-09-20）：op 日志 + 检查点环，接替 lab-journal
+import "./offset.test.ts";   // offset 几何（0.8，2026-10-21）
+import "./followme.test.ts";   // follow-me 扫掠 + 像表 XOR（0.8，2026-10-21）
 import "./snap-align.test.ts";
 import "./solver.test.ts";
 import "./pushpull.test.ts";

@@ -29,6 +29,7 @@ export type Op =
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[] }
   | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number }
+  | { op: "followme"; at?: PoolRef; face: FaceKey; path: Pt3[]; closed: boolean; smoothJoints: boolean[] }
   | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs?: Record<string, [Pt3, Pt3][]>; faceLayers?: (Record<string, number> | undefined)[] }
   /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
   | { op: "makeGroup"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
@@ -116,6 +117,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
     }
     case "move": { const { kernel } = poolOf(s, op.at); const moves = op.moves.map((m) => ({ id: resolveVertex(kernel, m.from), to: m.to })); return { scene: s, events: kernel.moveVertices(moves) }; }
     case "pushpull": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.pushPull(fid, op.dist) }; }
+    case "followme": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.followMe(fid, op.path, { closed: op.closed, smoothJoints: op.smoothJoints }) }; }
     case "absorb": {
       const { kernel } = poolOf(s, op.at);
       const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {};
@@ -270,6 +272,7 @@ export function describeOp(op: Op): string {
     case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}${at}`;
     case "move": return `move verts=${op.moves.length}${at}`;
     case "pushpull": return `pushpull ring=${op.face.length} dist=${Number(op.dist.toFixed(4))}${at}`;
+    case "followme": return `followme ring=${op.face.length} path=${op.path.length}${op.closed ? " closed" : ""}${at}`;
     case "absorb": return `absorb faces=${op.faces.length} wires=${op.wires.length}${at}`;
     case "makeGroup": return `makeGroup faces=${op.faces.length} edges=${op.edges.length}${at}`;
     case "makeComponent": return `makeComponent "${op.name}" faces=${op.faces.length} edges=${op.edges.length}${at}`;

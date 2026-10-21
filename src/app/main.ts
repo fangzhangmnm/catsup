@@ -80,7 +80,7 @@ const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
 const buildEl = $("build");
 
-const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 偏移 F · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
+const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 偏移 F · 跟随 W · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
 const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
@@ -119,6 +119,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },
   { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
   { tool: "offset", icon: "selection-expand", label: "偏移", key: "F" },   // 图标 = stopgap（图标库 TODO 已登记 offset）
+  { tool: "followme", icon: "move-to-folder", label: "跟随", key: "W" },   // 图标 = stopgap（图标库 TODO 已登记 follow-me）
   { tool: "paint", icon: "paint-bucket", label: "油漆桶", key: "B" },
   { tool: "erase", icon: "eraser", label: "橡皮", key: "E" },
 ];
@@ -424,7 +425,7 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", b: "paint", e: "erase", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q");
