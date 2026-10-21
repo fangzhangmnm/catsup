@@ -20,6 +20,8 @@ import "./history.test.ts";
 import "./scene-ops.test.ts";
 import "./offset.test.ts";   // offset 几何（0.8，2026-10-21）
 import "./followme.test.ts";   // follow-me 扫掠 + 像表 XOR（0.8，2026-10-21）
+import "./tool-config.test.ts";   // 工具配置深模块（0.9，2026-10-21）
+import "./paint-modes.test.ts";   // 油漆桶模式面集（0.9，2026-10-21）
 import "./snap-align.test.ts";
 import "./solver.test.ts";
 import "./pushpull.test.ts";

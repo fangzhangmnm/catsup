@@ -48,6 +48,17 @@ svg.ico use { color: inherit; }
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff, 0 1px 3px rgba(255,255,255,.9); }
 .hud-bl { bottom: calc(10px + var(--safe-bottom)); left: calc(10px + var(--safe-left)); max-width: min(62vw, 720px); }
 .hud-br { bottom: calc(10px + var(--safe-bottom)); right: calc(10px + var(--safe-right)); }
+/* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：底居中、提示行之上 */
+.hud-strip { left: 50%; transform: translateX(-50%); bottom: calc(40px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 140px); flex-wrap: wrap; justify-content: center; }
+.strip-field { display: inline-flex; align-items: center; gap: 6px; }
+.strip-label { color: var(--muted); font-size: 12px; }
+.strip-select { font: inherit; color: inherit; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; padding: 4px 8px; min-height: 32px; }
+.strip-number { display: inline-flex; align-items: center; gap: 2px; }
+.strip-step { width: 32px; height: 32px; border: 0; border-radius: 8px; background: rgba(0,0,0,.05); cursor: pointer; font-size: 16px; }
+.strip-step:active { background: var(--accent-soft); color: var(--accent); }
+.strip-value { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+.strip-toggle { min-height: 32px; padding: 0 12px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; cursor: pointer; }
+.strip-toggle.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .tb-btn { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; cursor: pointer; color: var(--ink); }
 .tb-btn:hover { background: rgba(0,0,0,.06); }
 .tb-btn:active, .tb-btn.is-open { background: var(--accent-soft); color: var(--accent); }

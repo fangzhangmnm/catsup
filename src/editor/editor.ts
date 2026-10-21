@@ -26,6 +26,8 @@ import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane } from "./tools.ts";
 import { offsetRing } from "./offset.ts";
+import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
+import { facesForPaint } from "./paint-flood.ts";
 import { simplifyPath, sweepStations } from "../kernel/sweep.ts";
 import { liftFromPlane, projectToPlane } from "../kernel/geom.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
@@ -108,7 +110,8 @@ const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX =
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 const MIN_GESTURE_LEN = 0.01;
 /** 圆的多边形段数（SU 默认 24）。 */
-export const CIRCLE_SEGMENTS = 24;
+/** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
+export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 /** 量角器角度咬合：步长（度）与咬合半宽（度）。 */
 const ANGLE_STEP_DEG = 15, ANGLE_SNAP_DEG = 1.5;
 /** 缩放柄：角柄 8 个（等比）+ 面心柄 6 个（单轴）；拾取半径用本帧 hit 容差。 */
@@ -189,6 +192,8 @@ export class Editor {
   private lastSnap: Snap3 | null = null;
   private clickTrain: { t: number; x: number; y: number; n: number } | null = null;
   private paintPick: PaintPick = null;
+  /** 工具选项（声明式表 `tool-config.ts`，SSoT）；UI 从它生成，工具从它读。 */
+  readonly config: CatsUpToolConfig = new ToolConfig(TOOL_OPTIONS);
   private viewCache: { key: string; view: WorldView } | null = null;
   private kids = new WeakMap<object, number>();
   private nextKid = 1;
@@ -850,7 +855,7 @@ export class Editor {
     } else if (tool === "circle" && this.anchor3 && this.cursor3) {
       const r = dist(this.anchor3, this.cursor3);
       dims = `圆 半径 ${fmtLen(r)}`;
-      const segs = circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, CIRCLE_SEGMENTS);
+      const segs = circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, this.config.get("circle", "segments"));
       if (segs.length && r >= MIN_GESTURE_LEN) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]), { curve: true }));
     } else if (tool === "move" && this.anchor3 && this.cursor3 && (this.moveVids.length || this.movePools.length)) {
       const delta = sub3(this.cursor3, this.anchor3);
@@ -1628,15 +1633,29 @@ export class Editor {
         break;
       }
       case "paint": {
-        // 油漆桶：点到活动池的面 → 涂；有面选区且点在选区内 → 整个选区一起涂（SU 同款）；点到子 group / 组件 → 提示进入
+        // 油漆桶：模式来自工具选项（一张面 / 平滑组 / 到锐角为止 / 连通体 / 整个组或组件；Ctrl / Shift 按住 = 临时切模式，SU 同款）。
+        // 一张面：有面选区且点在选区内 → 整个选区一起涂；点到子 group / 组件 → 只有「整个组 / 组件」模式能从外面涂，其余提示进入。
         const view = this.liveWorld();
         const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
         const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
         this.hoverFace = null;
-        if (c.kind === "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再涂"); break; }
+        const mode = this.config.effective("paint", "mode", { ctrl: !!ev.copy, shift: ev.shiftKey });
+        const modeLabel = this.config.labelOf("paint", "mode", mode);
+        if (c.kind === "pool") {
+          if (mode !== "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再涂，或把模式换成「整个组 / 组件」"); break; }
+          const def = this.scene.defOfContext(this.ctx);
+          const ref: PoolRef = c.pick.kind === "group" ? { def, group: c.pick.group } : { def: this.scene.def(def).instances.get(c.pick.instance)!.def, group: null };
+          const pk = this.scene.kernelOf(ref);
+          const keys = pk.faces().map((f) => faceKey(pk, f.id));
+          if (keys.length) this.commitOp({ op: "paintFaces", at: ref, faces: keys, material: this.materialIndexForPick() });
+          this.host.hint(`涂了 ${keys.length} 张面（${modeLabel}${c.pick.kind === "instance" ? "：组件的全部实例一起变" : ""}）`);
+          break;
+        }
         if (c.kind !== "entity" || c.local.face === undefined) break;
         const fid = c.local.face;
-        this.paintFaces(this.selection.faces.has(fid) ? [...this.selection.faces] : [fid]);
+        const faces = mode === "single" ? (this.selection.faces.has(fid) ? [...this.selection.faces] : [fid]) : facesForPaint(this.kernel, fid, mode, this.config.get("paint", "sharpDeg"));
+        this.paintFaces(faces);
+        this.host.hint(`涂了 ${faces.length} 张面（${modeLabel}）`);
         break;
       }
     }
@@ -1680,7 +1699,7 @@ export class Editor {
   private commitCircle(smp: { cursor3: Pt3 | null; plane: DrawPlane } | null): void {
     const plane = smp?.plane ?? this.gesturePlane;
     const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
-    const segs = dist(this.anchor3!, b) >= MIN_GESTURE_LEN ? circleSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b, CIRCLE_SEGMENTS) : [];
+    const segs = dist(this.anchor3!, b) >= MIN_GESTURE_LEN ? circleSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b, this.config.get("circle", "segments")) : [];
     this.cancelGesture();
     if (segs.length) this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: true });
   }

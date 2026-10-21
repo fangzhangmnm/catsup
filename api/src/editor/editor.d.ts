@@ -3,6 +3,7 @@ import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type HitResult3 } from "./pick.ts";
+import { type CatsUpToolConfig } from "./tool-config.ts";
 import { Renderer3, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, Scene } from "../scene/scene.ts";
@@ -72,7 +73,8 @@ export interface EditorHost {
 export declare const SNAP_LABELS: Record<string, string>;
 export declare function describeEvent(ev: FaceEvent): string;
 /** 圆的多边形段数（SU 默认 24）。 */
-export declare const CIRCLE_SEGMENTS = 24;
+/** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
+export declare const CIRCLE_SEGMENTS: 24;
 export declare function fmtLen(v: number, digits?: number): string;
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = {
@@ -142,6 +144,8 @@ export declare class Editor {
     private lastSnap;
     private clickTrain;
     private paintPick;
+    /** 工具选项（声明式表 `tool-config.ts`，SSoT）；UI 从它生成，工具从它读。 */
+    readonly config: CatsUpToolConfig;
     private viewCache;
     private kids;
     private nextKid;

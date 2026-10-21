@@ -199,6 +199,7 @@
           <button class="tb-btn" id="btnFit" type="button" title="缩放到全部"><svg class="ico" aria-hidden="true"><use href="#maximize-viewport"/></svg></button>
           <button class="tb-btn" id="btnMaterial" type="button" title="材质（油漆桶蘸什么）"><svg class="ico" aria-hidden="true"><use href="#color"/></svg></button>
         </nav>
+        <div class="hud hud-strip" id="toolStrip" aria-label="工具选项" hidden></div>
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
         <div class="hud-text hud-br"><span id="build" class="build"></span></div>
         <div id="marquee" hidden></div>
@@ -257,6 +258,8 @@
         <div class="sheet-head"><span>快捷键与手势</span><button class="tb-btn" id="helpClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
         <dl class="kv">
           <dt>空格 / L / R / C / M / Q / S / P / F / W / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 跟随 / 油漆桶 / 橡皮（对齐 SketchUp）</dd>
+          <dt>油漆桶的模式</dt><dd>底部选项条「涂哪些」：一张面 / 平滑组 / 到锐角为止（阈值可调）/ 连通体 / 整个组或组件；按住 Ctrl = 平滑组、Shift = 连通体、Ctrl+Shift = 到锐角为止（松开回选项条的值）</dd>
+          <dt>圆的段数</dt><dd>圆工具的底部选项条 − / +（3–96，默认 24）</dd>
           <dt>偏移</dt><dd>按住一张面沿面拖：往里内缩、往外外扩（只偏移外环；边长缩到 0 的边自动合并）</dd>
           <dt>跟随（Follow Me）W</dt><dd>先用选择工具选好路径（一串边，或一张面 = 它的外环），再点轮廓面：沿路径扫出实体。与既有面重合的部分自动湮灭——在盒子的棱上画个倒角轮廓、选顶面当路径、点轮廓 = 四条棱一起倒角；圆路径 = 旋转体（侧面自动平滑）</dd>
           <dt>橡皮 + Ctrl / Shift</dt><dd>刮过的边软化（不画线 + 平滑着色）/ 硬化；菜单「软化所有 ≤ 20° 的边」= SU 软化边对话框默认角</dd>
@@ -294,6 +297,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-f2d917c5f549.mjs"></script>
+    <script type="module" src="./dist/catsup-654116ea029a.mjs"></script>
   </body>
 </html>

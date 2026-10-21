@@ -6,6 +6,7 @@
 //   + 登录 / 回线 / 回前台显式快进 + 崩溃安全 flush 三件；审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md。
 
 import { APP_VERSION } from "../version.ts";
+import { mountToolStrip } from "./tool-strip.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
@@ -315,8 +316,10 @@ function setWalk(on: boolean): void {
 }
 
 // ---------- 状态同步 ----------
+const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor);
 function syncUi(): void {
   for (const [t, b] of toolBtns) b.classList.toggle("active", t === editor.tool);
+  toolStrip.render();
   btnUndo.disabled = !editor.canUndo();
   btnRedo.disabled = !editor.canRedo();
   btnDelete.hidden = !editor.hasSelection();

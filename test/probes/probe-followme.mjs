@@ -42,11 +42,26 @@ const res = await page.evaluate(async () => {
   // ④ 撤销一步 → 回 7 面
   e.undo();
   out.facesAfterUndo = e.kernel.faces().length;
+  // ⑤ 油漆桶模式（0.9 工具配置）：选项条随工具出现；模式「连通体」点一张面 → 整个盒子 7 张面都有材质；再「一张面」只涂 1 张
+  e.setPaint({ kind: "color", name: "探针红", color: [0.8, 0.2, 0.2] });
+  e.setTool("paint");
+  const strip = document.getElementById("toolStrip");
+  out.stripShown = !strip.hidden && !!strip.querySelector("select");
+  e.config.set("paint", "mode", "connected");
+  out.stripSelectValue = strip.querySelector("select")?.value;
+  await tap(px(Pt(1, 1, 2)));
+  out.paintedConnected = e.kernel.faces().filter((f) => e.kernel.faceMaterialOf(f.id) !== undefined).length;
+  e.undo();
+  e.config.set("paint", "mode", "single");
+  await tap(px(Pt(1, 1, 2)));
+  out.paintedSingle = e.kernel.faces().filter((f) => e.kernel.faceMaterialOf(f.id) !== undefined).length;
+  e.setTool("line");
+  out.stripHiddenForLine = strip.hidden;
   return out;
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.facesBefore === 7 && res.pathSelected && res.facesAfter === 10 && res.manifold && res.topFaces === 1 && res.topBounds && Math.abs(res.topBounds[0] - 0.5) < 1e-6 && Math.abs(res.topBounds[1] - 1.5) < 1e-6 && res.facesAfterUndo === 7 && errs.length === 0;
+const ok = res.facesBefore === 7 && res.pathSelected && res.facesAfter === 10 && res.manifold && res.topFaces === 1 && res.topBounds && Math.abs(res.topBounds[0] - 0.5) < 1e-6 && Math.abs(res.topBounds[1] - 1.5) < 1e-6 && res.facesAfterUndo === 7 && res.stripShown && res.stripSelectValue === "connected" && res.paintedConnected === 7 && res.paintedSingle === 1 && res.stripHiddenForLine && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);
