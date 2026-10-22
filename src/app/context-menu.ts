@@ -1,0 +1,48 @@
+// context-menu.ts —— 选区上下文菜单 + 选区浮条（#19，2026-10-21，Claude Fable 5.1）。
+// user 2026-10-21：「component相关的是否右键菜单是最好的选项。然后ipad怎么办，长按吗？」
+// 一份内容（= HudModel.edits() 去掉撤销 / 重做）、三个入口：桌面右键（任何工具，SU 同款：指针下的东西不在选区就先选它）、
+// 触屏长按（只在选择工具里，gestures.ts 计时）、顶部选区浮条（选中东西就出现，零长按可发现）。菜单本体 = 共享 popup-menu 深模块，
+// 定位靠一个 0×0 的锚点元素挪到指针处。
+import type { Editor } from "../editor/editor.ts";
+import type { HudModel } from "./ui/hud-model.ts";
+import { openPopupMenu } from "./ui/popup-menu.ts";
+import { iconHtml } from "./ui/icon.ts";
+import { type SelectionRoute, selectionActions } from "./selection-actions.ts";
+
+/** 在画布点 (x, y)（client 坐标 cx, cy）弹菜单。没有可做的动作就不弹。 */
+export function openContextMenuAt(editor: Editor, hud: HudModel, x: number, y: number, cx: number, cy: number): void {
+  const hit = editor.pickAt(x, y);
+  const hasHit = hit.face !== undefined || hit.edge !== undefined || hit.vertex !== undefined;
+  if (hasHit && !editor.hitInSelection(hit)) editor.selectExpand(hit, 0);
+  const items = selectionActions(hud);
+  if (!items.length) return;
+  let anchor = document.getElementById("ctxAnchor") as HTMLElement | null;
+  if (!anchor) { anchor = document.createElement("div"); anchor.id = "ctxAnchor"; document.body.appendChild(anchor); }
+  anchor.style.left = `${cx}px`; anchor.style.top = `${cy}px`;
+  openPopupMenu({
+    anchor,
+    items: () => selectionActions(hud).map((it) => ({ id: it.id, label: it.label, icon: it.icon, disabled: it.disabled })),
+    onPick: (id) => { hud.pick(id); },
+  });
+}
+
+export interface SelectionBar { render(): void; }
+
+/** 顶部选区浮条（触屏路由）：选中东西且没在手势中且当前输入是笔 / 手指 → 显示可用动作；鼠标走右键菜单，不浮。 */
+export function mountSelectionBar(root: HTMLElement, editor: Editor, hud: HudModel, route: () => SelectionRoute): SelectionBar {
+  const render = (): void => {
+    const items = route() === "bar" && editor.hasSelection() && !editor.isGestureActive() ? selectionActions(hud) : [];
+    root.hidden = items.length === 0;
+    root.replaceChildren();
+    for (const it of items) {
+      const b = document.createElement("button");
+      b.type = "button"; b.className = "selbar-btn" + (it.danger ? " danger" : ""); b.disabled = !!it.disabled; b.title = it.label;
+      b.innerHTML = `${it.icon ? iconHtml(it.icon) : ""}<span></span>`;
+      (b.lastElementChild as HTMLElement).textContent = it.label;
+      b.addEventListener("click", () => hud.pick(it.id));
+      root.appendChild(b);
+    }
+  };
+  render();
+  return { render };
+}

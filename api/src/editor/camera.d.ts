@@ -48,7 +48,7 @@ export declare class OrbitCamera implements PointerFrame {
     /** 屏幕 px → 世界拾取射线（PointerFrame.ray；正交：方向恒为 forward；透视：过眼点的发散射线）。 */
     ray(x: number, y: number, vp: Viewport): Ray;
     /** 视图预置（SU 视图菜单同款；yaw 以 +X 为 0、逆时针；pitch 正=俯视）。 */
-    setView(name: "iso" | "top" | "front" | "right" | "back" | "left"): void;
+    setView(name: "iso" | "top" | "bottom" | "front" | "right" | "back" | "left"): void;
     /** 缩放到包住一组点（空集=回原点默认尺度）。 */
     fitPoints(pts: readonly Pt3[], vp: Viewport, fallbackHalfH?: number): void;
 }

@@ -162,10 +162,11 @@ export class OrbitCamera implements PointerFrame {
   }
 
   /** 视图预置（SU 视图菜单同款；yaw 以 +X 为 0、逆时针；pitch 正=俯视）。 */
-  setView(name: "iso" | "top" | "front" | "right" | "back" | "left"): void {
+  setView(name: "iso" | "top" | "bottom" | "front" | "right" | "back" | "left"): void {
     switch (name) {
       case "iso": this.yaw = -Math.PI / 4; this.pitch = 0.61; break;
       case "top": this.yaw = -Math.PI / 2; this.pitch = 1.55; break;
+      case "bottom": this.yaw = -Math.PI / 2; this.pitch = -1.55; break;   // 底视（gizmo 的 −Z 球）
       case "front": this.yaw = -Math.PI / 2; this.pitch = 0; break;   // 从 -Y（南）看向 +Y
       case "back": this.yaw = Math.PI / 2; this.pitch = 0; break;
       case "right": this.yaw = 0; this.pitch = 0; break;             // 从 +X 看

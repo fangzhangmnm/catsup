@@ -9,6 +9,10 @@ export interface GestureOpts {
     walking?(): boolean;
     /** 工具停摆（teleport 充能中）：不喂工具指针事件、悬停预告清掉（VR 同款，vr.ts）。 */
     toolBlocked?(): boolean;
+    /** 上下文菜单（#19，2026-10-21）：桌面右键（没拖成环绕）/ 触屏长按（没动）→ 在该点弹菜单。坐标 = 画布本地 + client。 */
+    onContext?(x: number, y: number, clientX: number, clientY: number): void;
+    /** 长按是否可用（main：只在选择工具里）。 */
+    longPressEnabled?(): boolean;
 }
 export declare function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: GestureOpts): {
     dispose(): void;

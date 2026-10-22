@@ -42,7 +42,15 @@ svg.ico use { color: inherit; }
 .hud-rail-tools::-webkit-scrollbar { display: none; }
 .hud-rail-tools > .tb-btn { width: 48px; }
 .rail-tools { display: flex; flex-direction: column; gap: 2px; }
-.hud-rail-right { right: calc(10px + var(--safe-right)); top: calc(10px + var(--safe-top)); }
+/* 右柱已撤（2026-10-21 user：全部在一侧，像 WeebPaint）；视图 = 右上角导航 gizmo（Blender / Unity 式） */
+.hud-gizmo { position: absolute; z-index: 5; right: calc(8px + var(--safe-right)); top: calc(8px + var(--safe-top)); display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.gizmo-svg { width: 96px; height: 96px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; filter: drop-shadow(0 1px 2px rgba(255,255,255,.9)); }
+.gizmo-svg:active { cursor: grabbing; }
+.gizmo-btns { display: flex; flex-direction: column; gap: 2px; padding: 3px; border-radius: 10px; background: rgba(255,255,255,.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.gizmo-btn { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; }
+.gizmo-btn .ico { width: 20px; height: 20px; }
+.gizmo-btn:hover { background: rgba(0,0,0,.06); }
+.gizmo-btn.on { background: var(--accent-soft); color: var(--accent); }
 /* 文字类 HUD：无背景、白描边（游戏字幕式），指针穿透 */
 .hud-text { position: absolute; z-index: 5; pointer-events: none; font-size: 12px; color: #4a4a4a; line-height: 1.45;
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff, 0 1px 3px rgba(255,255,255,.9); }
@@ -50,6 +58,14 @@ svg.ico use { color: inherit; }
 .hud-br { bottom: calc(10px + var(--safe-bottom)); right: calc(10px + var(--safe-right)); }
 /* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
 .hud-strip { left: calc(10px + var(--safe-left)); bottom: calc(48px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 240px); flex-wrap: wrap; }
+/* 选区浮条（#19）：顶居中；选中东西且没在手势中才出现；项 = HUD 编辑动作表 */
+.hud-selbar { left: 50%; transform: translateX(-50%); top: calc(10px + var(--safe-top)); gap: 2px; padding: 4px 6px; max-width: calc(100vw - 160px); flex-wrap: wrap; justify-content: center; }
+.selbar-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
+.selbar-btn .ico { width: 18px; height: 18px; }
+.selbar-btn:hover { background: rgba(0,0,0,.06); }
+.selbar-btn:active { background: var(--accent-soft); color: var(--accent); }
+.selbar-btn.danger { color: var(--danger); }
+#ctxAnchor { position: fixed; width: 0; height: 0; pointer-events: none; }
 /* 数值小窗（SU Measurements）：右下、版本角标之上；键盘往上展开 */
 .hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(48px + var(--safe-bottom)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
 .vcb-label { color: var(--muted); font-size: 11px; text-align: right; }

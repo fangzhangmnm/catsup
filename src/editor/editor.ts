@@ -924,6 +924,26 @@ export class Editor {
     }
   }
 
+  // ---------- 上下文菜单（#19）给壳的三个小口 ----------
+  /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
+  abortGesture(): void { this.cancelGesture(); this.host.marquee(null); this.host.hint(null); this.draw(); }
+  /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
+  hitInSelection(hit: HitResult3): boolean {
+    const c = this.classify(this.liveWorld(), hit);
+    if (c.kind === "pool") return this.selectedPools.has(c.key);
+    if (c.kind !== "entity") return false;
+    const h = c.local;
+    return (h.face !== undefined && this.selection.faces.has(h.face)) || (h.edge !== undefined && this.selection.edges.has(h.edge)) || (h.vertex !== undefined && [...this.selection.edges].some((e) => { const ed = this.kernel.graph.edge(e); return ed.a === h.vertex || ed.b === h.vertex; }));
+  }
+  /** 把选区扩成连通体（SU「选择 → 所有相连」）。 */
+  selectConnected(): boolean {
+    const view = this.worldView();
+    const seeds: HitResult3[] = [...[...this.selection.faces].map((f) => ({ face: view.global(f) })), ...[...this.selection.edges].map((e) => ({ edge: view.global(e) }))];
+    if (!seeds.length) return false;
+    for (const h of seeds) this.selectExpand(h, 2, true);
+    return true;
+  }
+
   /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
   get lineStyle(): LineStyle { return this.r3.getLineStyle(); }
   setLineStyle(s: LineStyle): void { this.r3.setLineStyle(s); this.host.changed(); this.draw(); }

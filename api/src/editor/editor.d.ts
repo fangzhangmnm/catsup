@@ -287,6 +287,12 @@ export declare class Editor {
     private undoN;
     /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
     private redoXform;
+    /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
+    abortGesture(): void;
+    /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
+    hitInSelection(hit: HitResult3): boolean;
+    /** 把选区扩成连通体（SU「选择 → 所有相连」）。 */
+    selectConnected(): boolean;
     /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
     get lineStyle(): LineStyle;
     setLineStyle(s: LineStyle): void;

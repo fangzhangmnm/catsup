@@ -17,16 +17,16 @@ await page.evaluate(() => {
   const P = (x, y, z = 0) => ({ x, y, z });
   e.addSegments([[P(1, -1), P(3, -1)], [P(3, -1), P(3, 1)], [P(3, 1), P(1, 1)], [P(1, 1), P(1, -1)]], "probe box");
   const fid = e.kernel.faces()[0].id;
-  e.commitOp({ op: "pushpull", face: fid, dist: 0.8 });   // TS private 只是编译期；探针不是 API
+  e.commitOp({ op: "pushpull", at: e.activePool(), face: e.kernel.faceRings3(fid).outer, dist: 0.8 });   // TS private 只是编译期；探针不是 API（op 按坐标寻址：face = 外环）
 });
 const faces = await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length);
 check(faces === 6, `盒子六膜 (faces=${faces})`);
 
-// 经视图菜单开步行相机（走 UI 一次 = 接线 + 起循环），再把人放到 (-1,0,0) 面朝 +X
-await page.click("#btnView"); await page.waitForTimeout(80);
+// 经 ☰ 菜单开步行相机（2026-10-21 视图弹层退役，步行进 ☰；走 UI 一次 = 接线 + 起循环），再把人放到 (-1,0,0) 面朝 +X
+await page.click("#btnMenu"); await page.waitForTimeout(80);
 await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(80);
 const walkChecked = await page.evaluate(() => [...document.querySelectorAll(".menu-item")].some((b) => b.textContent.includes("步行相机") && b.querySelector(".menu-check")));
-check(walkChecked, "视图菜单「步行相机」已勾");
+check(walkChecked, "☰ 菜单「步行相机」已勾");
 await page.keyboard.press("Escape"); await page.waitForTimeout(50);
 await page.evaluate(() => { globalThis.__catsup.locomotion.sim.reset({ x: -1, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 1.7 }); });
 const st0 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos, walking: globalThis.__catsup.locomotion.isWalking() }));
@@ -113,7 +113,7 @@ const st3 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.s
 check(st3.x > -3.5, `瞬移落地 ${JSON.stringify(st3)}`);
 
 // 退出步行：轨道相机恢复
-await page.click("#btnView"); await page.waitForTimeout(50);
+await page.click("#btnMenu"); await page.waitForTimeout(50);
 await page.click(".menu-item:has-text('步行相机')");
 await page.waitForTimeout(80);
 const after = await page.evaluate(() => ({ walking: globalThis.__catsup.locomotion.isWalking(), halfH: globalThis.__catsup.editor.cam.halfH }));

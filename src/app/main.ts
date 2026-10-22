@@ -9,6 +9,10 @@ import { APP_VERSION } from "../version.ts";
 import { mountToolStrip } from "./tool-strip.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
+import { LENGTH_UNITS } from "../editor/vcb.ts";
+import { mountSelectionBar, openContextMenuAt } from "./context-menu.ts";
+import { selectionRoute } from "./selection-actions.ts";
+import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
@@ -141,6 +145,7 @@ const hud: HudModel = {
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
+    { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() },
   ],
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -149,6 +154,7 @@ const hud: HudModel = {
   ],
   status: () => hintEl.textContent ?? "",
   pick: (id) => {
+    if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
     switch (id) {
       case "undo": editor.undo(); break;
@@ -161,6 +167,7 @@ const hud: HudModel = {
       case "exit": editor.exitContext(); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
+      case "connected": editor.selectConnected(); break;
       case "noclip": locomotion.setNoclip(!locomotion.noclip); vr.invalidatePanel(); break;
       case "respawn": { const sp = locomotion.defaultSpawn(); locomotion.sim.reset(sp.pos, sp.heading, { x: 0, y: 0, z: 1.6 }); break; }
       case "exitvr": vr.exit(); break;
@@ -185,41 +192,7 @@ const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnDelete = $<HTMLButtonElement>("btnDelete");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
-const btnView = $<HTMLButtonElement>("btnView");
-const btnFit = $<HTMLButtonElement>("btnFit");
-const btnMaterial = $<HTMLButtonElement>("btnMaterial");
-btnUndo.addEventListener("click", () => editor.undo());
-btnRedo.addEventListener("click", () => editor.redo());
-btnDelete.addEventListener("click", () => editor.deleteSelection());
-btnFit.addEventListener("click", () => editor.zoomExtents());
-
-type ViewId = "iso" | "top" | "front" | "right" | "back" | "left" | "persp" | "walk" | "noclip" | "thick";
-btnView.addEventListener("click", () => togglePopupMenu<ViewId>({
-  anchor: btnView, align: "end",
-  items: () => [
-    // 视图名带方位（user 2026-09-07「视图菜单同意。前视=向北看」；convention：+Y 北、物体的前朝 −Y）
-    { id: "iso", label: "等轴", icon: "persp-iso", disabled: locomotion.isWalking() },
-    { id: "top", label: "顶视", hint: "俯视", disabled: locomotion.isWalking() },
-    { id: "front", label: "前视", hint: "向北看", disabled: locomotion.isWalking() },
-    { id: "right", label: "右视", hint: "向西看", disabled: locomotion.isWalking() },
-    { id: "back", label: "后视", hint: "向南看", disabled: locomotion.isWalking() },
-    { id: "left", label: "左视", hint: "向东看", disabled: locomotion.isWalking() },
-    { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true, disabled: locomotion.isWalking() },
-    { id: "thick", label: "粗线稿", hint: "屏幕像素宽的粗线；默认 = 1 设备像素细线（省性能）", checked: editor.lineStyle === "thick" },
-    // 0.4 VR 纪元：步行/飞行相机 = 不戴头显验证移动/teleport/碰撞的唯一途径（与 VR 共用 src/player/）
-    { id: "walk", label: "步行相机", hint: "WASD · 空格跳 · 右键拖看", checked: locomotion.isWalking(), separatorBefore: true },
-    { id: "noclip", label: "穿墙飞行", hint: "双击空格切换 · Q/E 下/上", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
-  ],
-  onPick: (id) => {
-    if (id === "persp") { editor.toggleProjection(); return "keep"; }
-    if (id === "thick") { editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep"; }
-    if (id === "walk") { setWalk(!locomotion.isWalking()); return "keep"; }
-    if (id === "noclip") { locomotion.setNoclip(!locomotion.noclip); return "keep"; }
-    editor.setView(id);
-  },
-}));
-
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "noclip" | "persp" | "walk";
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu,
   items: () => [
@@ -240,6 +213,13 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     ] : []),
     { id: "finger", label: "手指也能画", checked: fingerDraws, separatorBefore: true, hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", separatorBefore: true, hint: "平滑组：相邻膜夹角小的边变软 + 平滑" },
+    { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "数值小窗的默认长度单位（点一下换下一个；内部永远是米）" },
+    { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么（油漆桶已选中再点一下也开）" },
+    // 视图类（2026-10-21：右上角 gizmo 只留切视图 + 缩放到全部；这些偶尔才用的收在这里）
+    { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true, disabled: locomotion.isWalking() },
+    { id: "thick", label: "粗线稿", checked: editor.lineStyle === "thick", hint: "屏幕像素宽的粗线；默认 1 设备像素细线" },
+    { id: "walk", label: "步行相机", hint: "WASD · 空格跳 · 右键拖看", checked: locomotion.isWalking() },
+    { id: "noclip", label: "穿墙飞行", hint: "步行相机里双击空格切换 · Q/E 下/上", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
     { id: "clear", label: "清空模型", icon: "trash-can", separatorBefore: true },
     { id: "help", label: "快捷键与手势", icon: "keyboard" },
     { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
@@ -259,6 +239,12 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
       case "debuglog": openDebugLogSheet(); break;
       case "softenAll": { const n = editor.softenByAngle(20); notify({ text: n ? `软化了 ${n} 条边（夹角 ≤ 20°）` : "没有夹角 ≤ 20° 的边", level: "info" }); break; }
+      case "material": toggleMatSheet(true); break;
+      case "persp": editor.toggleProjection(); return "keep";
+      case "walk": setWalk(!locomotion.isWalking()); return "keep";
+      case "thick": editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep";
+      case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
+      case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; syncUi(); return "keep"; }
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
@@ -322,10 +308,14 @@ function setWalk(on: boolean): void {
 // ---------- 状态同步 ----------
 const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor);
 const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
+const selBar = mountSelectionBar(document.getElementById("selBar") as HTMLElement, editor, hud, () => selectionRoute(lastPointerType));
+let lastPointerType = "mouse";
+canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; syncUi(); } }, { capture: true });
 function syncUi(): void {
   for (const [t, b] of toolBtns) b.classList.toggle("active", t === editor.tool);
   toolStrip.render();
   vcb.render();
+  selBar.render();
   btnUndo.disabled = !editor.canUndo();
   btnRedo.disabled = !editor.canRedo();
   btnDelete.hidden = !editor.hasSelection();
@@ -385,7 +375,7 @@ matImageInput.addEventListener("change", async () => {
     notify({ text: `图片读不了：${(err as Error).message}`, level: "error" });
   }
 });
-btnMaterial.addEventListener("click", () => toggleMatSheet(matSheet.hidden));
+
 
 // ---------- OBJ 逃生口 ----------
 const objInput = $<HTMLInputElement>("objFile");
@@ -427,7 +417,14 @@ const gestures = attachGestures(canvas, editor, {
   look: (dx, dy) => locomotion.look(dx, dy),
   walking: () => locomotion.isWalking(),
   toolBlocked: () => locomotion.sim.state.teleport.charging,
+  // #19 上下文菜单：桌面右键任何工具都行（SU）；触屏长按只在选择工具里
+  onContext: (x, y, cx, cy) => openContextMenuAt(editor, hud, x, y, cx, cy),
+  longPressEnabled: () => editor.tool === "select",
 });
+// 视图 = 右上角导航 gizmo（Blender / Unity 式；user 2026-10-21「视图之类的能不能参考unity blender editor」）。视图弹层退役；透视 / 步行 / 穿墙 / 粗线稿进 ☰。
+// 放在 locomotion 之后（render 立刻会问 isWalking）。
+const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => locomotion.isWalking() });
+void viewGizmo;
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
@@ -441,6 +438,7 @@ window.addEventListener("keydown", (ev) => {
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q");
     if (t && !takenByWalk) { ev.preventDefault(); editor.setTool(t); return; }
     if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件
+    if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "g" || ev.key === "G")) { ev.preventDefault(); if (ev.shiftKey) editor.explodeSelection(); else editor.makeGroup(); return; }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {

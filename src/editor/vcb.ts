@@ -2,7 +2,7 @@
 // created 2026-10-21 by Claude Fable 5.1（0.9 QoL #11；user 2026-10-21「sketchup的输入小窗，我希望触屏上有数字键盘，而不是弹软键盘」
 // 「就是move rotate scale的精确输入，square circle也有输入精确尺寸，跟着你是用什么单位制度」「move rotate scale的x5 /5以及其他一些feature」）。
 //
-// 单位制（没有文档级单位设置之前的默认，user 过目）：内部永远米；输入默认单位 = ctx.unit（出厂 m），后缀覆盖 m / cm / mm；
+// 单位制（user 2026-10-21「先默认米吧虽然我喜欢英制」）：内部永远米；输入默认单位 = ctx.unit（出厂 m，菜单可切，先 session），后缀覆盖 m / cm / mm / ft / in 与 ' " 写法；
 // 角度用度；缩放用倍数；`24s` = 圆段数；阵列 = `5x` / `*5`（x 在后，免得和橡皮快捷键 X 撞）/ `/5`。
 // 语义（SU 同款）：输入作用于**刚做完的那一步**（撤销它、按精确值重做），直到下一步开始；一步做完后可以连续改几次。
 import type { Pt3 } from "../kernel/geom.ts";
@@ -10,7 +10,8 @@ import type { Xform } from "../scene/xform.ts";
 import { rotationAbout, translation } from "../scene/xform.ts";
 import { scale3 } from "../kernel/geom.ts";
 
-export type LengthUnit = "m" | "cm" | "mm";
+export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
+export const LENGTH_UNITS: readonly { id: LengthUnit; label: string }[] = [{ id: "m", label: "米" }, { id: "cm", label: "厘米" }, { id: "mm", label: "毫米" }, { id: "ft", label: "英尺英寸" }, { id: "in", label: "英寸" }];
 export interface VcbCtx { unit: LengthUnit; }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
 export type VcbKind = "line" | "rect" | "circle" | "pp" | "offset" | "move" | "rotate" | "scale";
@@ -23,11 +24,24 @@ export type VcbValue =
   | { kind: "segments"; n: number }
   | { kind: "array"; mode: "x" | "/"; n: number };
 
-const UNIT_M: Record<string, number> = { m: 1, cm: 0.01, mm: 0.001 };
+const UNIT_M: Record<string, number> = { m: 1, cm: 0.01, mm: 0.001, ft: 0.3048, in: 0.0254 };
+
+/** 英制写法：`3'6"`、`3' 6 1/2"`、`42"`、`12'`、`5ft`、`30in`（user 喜欢英制；默认单位 ft 时裸数 = 英尺，in 时 = 英寸）。 */
+function imperial(part: string): number | null {
+  const t = part.trim().replace(/[’′]/g, "'").replace(/[”″]/g, '"');
+  const m = /^([-+]?)\s*(?:(\d+(?:\.\d+)?)\s*(?:'|ft)\s*)?(?:(\d+(?:\.\d+)?)(?:\s+(\d+)\/(\d+))?\s*(?:"|in))?$/i.exec(t);
+  if (!m || (m[2] === undefined && m[3] === undefined)) return null;
+  const ft = m[2] ? Number(m[2]) : 0;
+  let inch = m[3] ? Number(m[3]) : 0;
+  if (m[4] && m[5] && Number(m[5]) > 0) inch += Number(m[4]) / Number(m[5]);
+  const v = ft * UNIT_M.ft + inch * UNIT_M.in;
+  return m[1] === "-" ? -v : v;
+}
 
 /** 一个数（可带单位后缀）→ 米；角度 / 倍率时忽略长度后缀。 */
 function num(part: string, ctx: VcbCtx, as: "length" | "plain"): number | string {
-  const m = /^([-+]?(?:\d+\.?\d*|\.\d+))\s*(m|cm|mm|°|deg)?$/i.exec(part.trim());
+  if (as === "length") { const imp = imperial(part); if (imp !== null) return imp; }
+  const m = /^([-+]?(?:\d+\.?\d*|\.\d+))\s*(m|cm|mm|ft|in|°|deg)?$/i.exec(part.trim());
   if (!m) return `看不懂「${part.trim()}」`;
   const v = Number(m[1]);
   if (!Number.isFinite(v)) return `看不懂「${part.trim()}」`;
@@ -116,8 +130,17 @@ export function vcbPrompt(kind: VcbKind | null): string {
   }
 }
 
-/** 长度显示（小窗回显用）：按 ctx.unit。 */
+/** 长度显示（小窗回显用）：按 unit；英尺英寸写成 3' 6.5"。 */
 export function fmtVcbLength(m: number, unit: LengthUnit): string {
+  if (unit === "ft") {
+    const sign = m < 0 ? "-" : "", a = Math.abs(m);
+    const totalIn = a / UNIT_M.in;
+    let ft = Math.floor(totalIn / 12), inch = totalIn - ft * 12;
+    inch = Math.round(inch * 16) / 16;
+    if (inch >= 12) { ft += 1; inch -= 12; }
+    return `${sign}${ft}' ${Number(inch.toFixed(2))}"`;
+  }
+  if (unit === "in") return `${Number((m / UNIT_M.in).toFixed(2))}"`;
   const v = m / UNIT_M[unit];
   return `${Number(v.toFixed(unit === "m" ? 3 : 1))} ${unit}`;
 }

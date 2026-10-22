@@ -50,11 +50,12 @@ const afterPP = await page.evaluate(() => ({ faces: globalThis.__catsup.editor.k
 console.log("after pp:", JSON.stringify(afterPP));
 await page.screenshot({ path: path.join(out, "probe-2-box.png") });
 
-// 菜单开合 + 视图切换 + 撤销
-await page.click("#btnView");
+// gizmo 切顶视 + 菜单开合 + 撤销（2026-10-21：视图弹层退役，右上角 gizmo）
+await page.click('.gizmo-axis[data-id="+z"]');
 await page.waitForTimeout(100);
-await page.screenshot({ path: path.join(out, "probe-3-viewmenu.png") });
-await page.keyboard.press("Escape");
+const topPitch = await page.evaluate(() => globalThis.__catsup.editor.cam.pitch);
+if (Math.abs(topPitch - 1.55) > 1e-6) throw new Error(`gizmo +Z 应切到顶视（pitch 1.55），实得 ${topPitch}`);
+await page.screenshot({ path: path.join(out, "probe-3-top.png") });
 await page.click("#btnMenu");
 await page.waitForTimeout(100);
 await page.screenshot({ path: path.join(out, "probe-4-menu.png") });

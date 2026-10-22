@@ -31,7 +31,12 @@ export interface GestureOpts {
   walking?(): boolean;
   /** 工具停摆（teleport 充能中）：不喂工具指针事件、悬停预告清掉（VR 同款，vr.ts）。 */
   toolBlocked?(): boolean;
+  /** 上下文菜单（#19，2026-10-21）：桌面右键（没拖成环绕）/ 触屏长按（没动）→ 在该点弹菜单。坐标 = 画布本地 + client。 */
+  onContext?(x: number, y: number, clientX: number, clientY: number): void;
+  /** 长按是否可用（main：只在选择工具里）。 */
+  longPressEnabled?(): boolean;
 }
+const LONG_PRESS_MS = 500;
 
 const GESTURE_TAP_MAX_MS = 250;
 const GESTURE_TAP_MAX_MOVE = 16;
@@ -77,6 +82,27 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     for (const [id, t] of ts) { if (!tap.start.has(id)) tap.start.set(id, { x: t.downX, y: t.downY }); t.role = "multi"; }
   }
 
+  // 右键 / 长按 → 上下文菜单
+  let rightDown: { x: number; y: number; moved: boolean } | null = null;
+  let longPress: { id: number; timer: number; x: number; y: number; cx: number; cy: number } | null = null;
+  const clearLongPress = (): void => { if (longPress) { clearTimeout(longPress.timer); longPress = null; } };
+  const armLongPress = (ev: PointerEvent, t: Tracked): void => {
+    clearLongPress();
+    if (!opts.onContext || !(opts.longPressEnabled?.() ?? false)) return;
+    if (ev.pointerType === "mouse") return;
+    if (!(t.role === "tool" || (ev.pointerType === "touch" && t.role === "orbit" && touches().length === 1))) return;
+    const id = ev.pointerId, x = t.x, y = t.y, cx = ev.clientX, cy = ev.clientY;
+    const timer = window.setTimeout(() => {
+      longPress = null;
+      const cur = pointers.get(id);
+      if (!cur || Math.hypot(cur.x - x, cur.y - y) > GESTURE_TAP_MAX_MOVE) return;
+      if (cur.role === "tool") editor.abortGesture();   // 选择工具的框选起手作废，选区保留
+      cur.role = "hold";
+      opts.onContext!(x, y, cx, cy);
+    }, LONG_PRESS_MS);
+    longPress = { id, timer, x, y, cx, cy };
+  };
+
   function onDown(ev: PointerEvent): void {
     const s = local(ev);
     try { canvas.setPointerCapture(ev.pointerId); } catch { /* 合成事件/已释放的指针会抛 InvalidState，不许把 down 整个打断 */ }
@@ -98,9 +124,12 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
       else base.role = "orbit";
     }
     pointers.set(ev.pointerId, base);
+    if (ev.pointerType === "mouse" && ev.button === 2) rightDown = { x: s.x, y: s.y, moved: false };
+    armLongPress(ev, base);
     if (ev.pointerType === "touch") {
       const ts = touches();
       if (ts.length >= 2) {
+        clearLongPress();
         // 第二指落下：工具手势让位给相机（手指画模式下画到一半也取消——SU iPad 同款）
         for (const [, t] of ts) if (t.role === "tool") editor.cancel();
         beginMulti();
@@ -114,6 +143,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   }
 
   function onMove(ev: PointerEvent): void {
+    if (longPress && longPress.id === ev.pointerId) { const q = local(ev); if (Math.hypot(q.x - longPress.x, q.y - longPress.y) > GESTURE_TAP_MAX_MOVE) clearLongPress(); }
     const t = pointers.get(ev.pointerId);
     const s = local(ev);
     if (!t) {
@@ -153,8 +183,10 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
 
   function onUp(ev: PointerEvent, cancelled: boolean): void {
     const t = pointers.get(ev.pointerId);
+    if (longPress && longPress.id === ev.pointerId) clearLongPress();
     if (!t) return;
     pointers.delete(ev.pointerId);
+    if (ev.pointerType === "mouse" && ev.button === 2 && rightDown) rightDown.moved = Math.hypot(t.x - rightDown.x, t.y - rightDown.y) > GESTURE_TAP_MAX_MOVE;
     const now = performance.now();
     if (ev.pointerType === "pen") lastPenActivity = now;   // ③ 掌触门从抬笔起算
     if (t.role === "tool") {
@@ -194,7 +226,17 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     editor.draw();
   };
   const onLeave = (): void => { if (!toolPointerActive()) editor.pointerLeave(); };
-  const onCtx = (e: Event): void => e.preventDefault();
+  const onCtx = (e: Event): void => {
+    e.preventDefault();
+    const me = e as MouseEvent;
+    if (!opts.onContext) return;
+    // 右键拖成了环绕就不弹；触屏长按走自家计时器（系统 contextmenu 事件在 iOS 上不来）
+    if (rightDown?.moved) { rightDown = null; return; }
+    rightDown = null;
+    if ((me as PointerEvent).pointerType === "touch") return;
+    const r = canvas.getBoundingClientRect();
+    opts.onContext(me.clientX - r.left, me.clientY - r.top, me.clientX, me.clientY);
+  };
   const up = (ev: PointerEvent): void => onUp(ev, false);
   const cancel = (ev: PointerEvent): void => onUp(ev, true);
 

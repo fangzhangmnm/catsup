@@ -1,6 +1,10 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import type { Xform } from "../scene/xform.ts";
-export type LengthUnit = "m" | "cm" | "mm";
+export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
+export declare const LENGTH_UNITS: readonly {
+    id: LengthUnit;
+    label: string;
+}[];
 export interface VcbCtx {
     unit: LengthUnit;
 }
@@ -37,5 +41,5 @@ export declare function arrayTranslations(delta: Pt3, mode: "x" | "/", n: number
 export declare function arrayRotations(center: Pt3, axis: Pt3, angle: number, mode: "x" | "/", n: number): Xform[];
 /** 小窗旁的提示字：这一步能输什么。 */
 export declare function vcbPrompt(kind: VcbKind | null): string;
-/** 长度显示（小窗回显用）：按 ctx.unit。 */
+/** 长度显示（小窗回显用）：按 unit；英尺英寸写成 3' 6.5"。 */
 export declare function fmtVcbLength(m: number, unit: LengthUnit): string;
