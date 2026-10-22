@@ -5,23 +5,25 @@
 //
 // 规则：
 //   ① 一维手势（推拉高度 / 偏移距离 / 缩放倍率相对 1 / 旋转角）：**自由值**（不吸附时指针给出的值）的符号 = 意图；
-//      候选与之反号 → 不合法；零点（原位）保留；没走出死区（屏上没拖够）= 还没有意图 → 全合法。
-//   ② 三维手势（移动 / 画线）：候选位移与自由位移点积 < 0（在锚点另一侧）→ 不合法；没走出死区同上。
+//      候选与之反号 → 不合法；**零点也不合法**（user 2026-10-21 夜「推拉的时候不会吸附导致推拉距离为0的面」：拉了一点却被
+//      同平面邻面的「取面高度」/ 高度咬合 0 拉回去 = 推拉了个 0 = 滑掉）；没走出死区（屏上没拖够）= 还没有意图 → 全合法。
+//   ② 三维手势（移动 / 画线）：候选位移与自由位移点积 < 0（在锚点另一侧）→ 不合法；吸回锚点本身（零位移）→ 不合法；没走出死区同上。
 // 抬笔结算（A21）管的是「最后一下抖动不算」；意图门管的是「就算算，也不许跳到反方向」——两层各自承重。
 import type { Pt3 } from "../kernel/geom.ts";
 import { dot3 } from "../kernel/geom.ts";
 
-/** 一维：自由值 free 的符号 = 意图；候选 candidate 反号 → false；零保留；|free| < dead → 全合法。 */
+/** 一维：自由值 free 的符号 = 意图；候选 candidate 反号或为零 → false；|free| < dead → 全合法。 */
 export function intentAllows1D(free: number, candidate: number, dead: number): boolean {
   if (!(Math.abs(free) >= dead)) return true;
-  if (candidate === 0) return true;
+  if (Math.abs(candidate) < dead) return false;   // 有意图了还吸回零位 = 做了个 0
   return Math.sign(candidate) === Math.sign(free);
 }
 
-/** 三维：自由位移 free 决定意图；候选位移 candidate 与之点积 < 0 → false；|free| < dead → 全合法。 */
+/** 三维：自由位移 free 决定意图；候选位移 candidate 与之点积 < 0 或候选 = 零位移 → false；|free| < dead → 全合法。 */
 export function intentAllows3D(free: Pt3, candidate: Pt3, dead: number): boolean {
   const l = Math.hypot(free.x, free.y, free.z);
   if (!(l >= dead)) return true;
+  if (Math.hypot(candidate.x, candidate.y, candidate.z) < dead) return false;   // 吸回锚点 = 没动
   return dot3(free, candidate) >= 0;
 }
 

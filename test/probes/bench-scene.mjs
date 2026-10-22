@@ -38,6 +38,7 @@ const res = await page.evaluate(async (N) => {
   const mid = px(Pt(side, side, 1));
   e.setTool("line");
   out.hoverLineMs = timeIt(() => fire("pointermove", mid.x + Math.random() * 4, mid.y + Math.random() * 4), 20);
+  out.perfHover = Object.entries(globalThis.__catsup.perf.last).filter(([k]) => k.startsWith("snap.")).map(([k, v]) => `${k.slice(5)}=${+v.toFixed(1)}`).join(" ");
   e.setTool("pp");
   out.hoverPPMs = timeIt(() => fire("pointermove", mid.x + Math.random() * 4, mid.y + Math.random() * 4), 20);
   e.setTool("select");

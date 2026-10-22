@@ -17,6 +17,7 @@ import type { Ring } from "../kernel/facefind.ts";
 import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, projectToPlane, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
+import { perf } from "./perf-stats.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
@@ -396,16 +397,22 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     const p2 = projectToPlane(hit, rec.basis);
     return pointInRing(p2, face.outer.pts) && !face.holes.some((h) => pointInRing(p2, h.pts));
   };
+  let tq = performance.now();
+  const lap = (name: string): void => { const t = performance.now(); perf.last[`snap.${name}`] = t - tq; tq = t; };
   for (const v of k.vertices()) {
     if (ex(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
     if (!nearPt(p) || hidden(p)) continue;
     out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: E.point, tag: { kind: "endpoint" } });
   }
+  lap("vertices");
   if (nearPt({ x: 0, y: 0, z: 0 }) && !hidden({ x: 0, y: 0, z: 0 })) {
     out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: E.point, tag: { kind: "origin" } });
   }
-  const segs = edgeTargets(k, ex).filter(({ a, b }) => nearSeg(a, b));   // 手中切点两侧共线并链；链端在手里 → 退赛；远离指针的不进集
+  const segsAll = edgeTargets(k, ex);
+  lap("edgeTargets");
+  const segs = segsAll.filter(({ a, b }) => nearSeg(a, b));   // 手中切点两侧共线并链；链端在手里 → 退赛；远离指针的不进集
+  lap("nearSeg");
   for (const { a, b } of segs) {
     const len = dist3(a, b);
     if (len <= 0) continue;
@@ -439,11 +446,15 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     addLines({ x: 0, y: 0, z: 0 }, "align");
     for (const src of ctx.alignSources ?? []) addLines(src, "align");
   }
+  lap("edges");
   // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
-    const es = segs                          // 手中边不产派生目标（帽边载线交点会追 h/离体十万八千里）；载线不经过指针附近的不进
-      .filter(({ a, b }) => nearSeg(a, b, true))
+    // 只在**段本身**离指针不远（4 倍半径）的边之间求载线交点：按「载线经过指针附近」筛在网格场景里几乎不筛（所有轴向边的载线都穿过来，
+    // 2400 面时 667 ms），而延长线交点这种推断本来就是「附近两条边」的事。
+    // 密到一定程度（缩得很远）就不做延长线推断：那时它只是噪音，而且 O(k²)。交点先按屏距筛再做遮挡（遮挡是 O(膜数)）。
+    const esNear = cur ? segsAll.filter(({ a, b }) => cur.pf.distToSeg(cur.x, cur.y, a, b, cur.vp).d <= cur.radiusPx * 2) : segsAll;
+    const es = (esNear.length > 60 ? [] : esNear)
       .map(({ a, b }) => {
         const l = dist3(a, b);
         return l > 0 ? { a, dir: scale3(sub3(b, a), 1 / l), ea: a, eb: b } : null;
@@ -451,7 +462,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     for (let i = 0; i < es.length; i++) {
       for (let j = i + 1; j < es.length; j++) {
         const p = carrierIntersect(es[i]!, es[j]!);
-        if (!p) continue;
+        if (!p || !nearPt(p)) continue;
         // 与既有端点重合（含共享顶点）→ 已是 endpoint 目标，跳过
         if ([es[i]!.ea, es[i]!.eb, es[j]!.ea, es[j]!.eb].some((q) => dist3(p, q) <= 1e-6)) continue;
         if (hidden(p)) continue;
@@ -459,9 +470,11 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
       }
     }
   }
+  lap("carriers");
   // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
   {
     const faces = k.faces().filter((f) => !faceInHand(k, f, ctx.hand) && nearFace(f.id));   // 手中膜不产面交线；交线裁在两膜区域里，所以两膜都得在指针附近
+    lap("nearFace");
     for (let i = 0; i < faces.length; i++) {
       for (let j = i + 1; j < faces.length; j++) {
         for (const seg of faceCrossSegments(k, faces[i].id, faces[j].id)) {
@@ -470,6 +483,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
       }
     }
   }
+  lap("cross");
   out.push({ locus: { dim: 2, plane: ctx.plane }, rank: RANK.plane, eps: Infinity, tag: { kind: "plane" } });
   return out;
 }
@@ -587,11 +601,12 @@ export function snapPoint(
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
     alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand, eps: E,
     cursor: { x: sx, y: sy, vp, radiusPx: E.combo * 3 } });   // 局部性：候选只从指针 3·ε_combo 以内长出来（≥ 最大 ε，无损）
-  const sol = solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
+  const sol = perf.time("snap.solve", () => solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: E.combo,
     hidden: occHidden,
     spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, pf, a, dirL, tMin, tMax, skip),
-  });
+  }));
+  perf.last["snap.constraints"] = C.length;
   if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const hints: SnapHint[] = [];
   for (const c of sol.used) {
