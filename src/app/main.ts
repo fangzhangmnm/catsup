@@ -348,8 +348,24 @@ const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
 const selBar = mountSelectionBar(document.getElementById("selBar") as HTMLElement, editor, hud, () => selectionRoute(lastPointerType));
 let lastPointerType = "mouse";
 canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; syncUi(); } }, { capture: true });
+const crumbsEl = document.getElementById("crumbs") as HTMLElement;
+function renderCrumbs(): void {
+  const crumbs = editor.contextCrumbs();
+  crumbsEl.hidden = crumbs.length <= 1;
+  crumbsEl.replaceChildren();
+  crumbs.forEach((c, i) => {
+    if (i > 0) { const sep = document.createElement("span"); sep.className = "crumb-sep"; sep.textContent = "›"; crumbsEl.appendChild(sep); }
+    const last = i === crumbs.length - 1;
+    const b = document.createElement(last ? "span" : "button");
+    b.className = "crumb" + (last ? " current" : "");
+    b.textContent = c.label;
+    if (!last) { (b as HTMLButtonElement).type = "button"; b.title = `退到这里`; b.addEventListener("click", () => editor.exitTo(c.depth)); }
+    crumbsEl.appendChild(b);
+  });
+}
 function syncUi(): void {
   renderSlots();
+  renderCrumbs();
   toolStrip.render();
   vcb.render();
   selBar.render();

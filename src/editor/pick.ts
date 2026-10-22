@@ -62,6 +62,12 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
 
 /** 只拾膜（射线最近命中）：推拉/删面这类「面动词」用——不走顶点>边>面优先级，否则细面（屏上几像素宽）
  *  任何位置都在边的 HIT 圈内、边永远赢、面永远拾不到（2026-09-07 user「推拉的时候拾取不到细的面」）。SU 推拉同款只认面。 */
+/** 这张面在活动池里吗（WorldView 才有槽；裸内核 = 全部活动）。 */
+function preferActive(k: GeomView, fid: FaceId): boolean {
+  const v = k as unknown as { activeSlot?: () => { index: number }; slotOf?: (gid: number) => { index: number } };
+  if (!v.activeSlot || !v.slotOf) return true;
+  return v.slotOf(fid).index === v.activeSlot().index;
+}
 export function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): FaceId | undefined {
   const ray = pf.ray(sx, sy, vp);
   let bestF: FaceId | undefined, bestT = Infinity;
@@ -74,7 +80,9 @@ export function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number
     if (!pointInRing(p2, f.outer.pts)) continue;
     if (f.holes.some((h) => pointInRing(p2, h.pts))) continue;
     const t = dot3(sub3(p, ray.origin), ray.dir);
-    if (t < bestT) { bestT = t; bestF = f.id; }
+    // 共面重叠（别的池的面正好贴着）：深度打平时活动池 / loose 几何优先（#25 user「overlap的时候优先显示loose geometry」）
+    const tie = Math.abs(t - bestT) <= 1e-9 && bestF !== undefined;
+    if (t < bestT - 1e-9 || (tie && preferActive(k, f.id) && !preferActive(k, bestF!))) { bestT = t; bestF = f.id; }
   }
   return bestF;
 }

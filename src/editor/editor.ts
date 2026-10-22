@@ -253,6 +253,20 @@ export class Editor {
     if (this.ctx.group !== null) parts.push("组");
     return parts.length ? parts.join(" › ") : "根";
   }
+  /** 面包屑（#25）：根 › 组件「名」› 组 › …；depth = 点它要退到的层数。 */
+  contextCrumbs(): { label: string; depth: number }[] {
+    const out: { label: string; depth: number }[] = [{ label: "根", depth: 0 }];
+    let def = this.scene.root, depth = 0;
+    for (const iid of this.ctx.chain) { const inst = this.scene.instance(def, iid); def = inst.def; depth++; out.push({ label: `组件「${this.scene.def(def).name}」`, depth }); }
+    if (this.ctx.group !== null) {
+      const chain: number[] = []; let g: number | null = this.ctx.group; const d = this.scene.defOfContext(this.ctx);
+      while (g !== null) { chain.unshift(g); g = this.scene.group({ def: d, group: g }).parent; }
+      for (const gid of chain) { depth++; out.push({ label: this.scene.group({ def: d, group: gid }).name ?? "组", depth }); }
+    }
+    return out;
+  }
+  /** 退到第 depth 层（0 = 根）。 */
+  exitTo(depth: number): void { let guard = 64; while (this.contextDepth() > depth && guard-- > 0) { if (!this.exitContext()) break; } }
   private groupDepth(gid: number): number { let n = 0, g: number | null = gid; const def = this.scene.defOfContext(this.ctx); while (g !== null) { n++; g = this.scene.group({ def, group: g }).parent; } return n; }
   vp(): Viewport { return { w: this.canvas.clientWidth, h: this.canvas.clientHeight }; }
 

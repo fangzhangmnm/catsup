@@ -94,6 +94,7 @@ const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
 export type LineStyle = "pixel" | "thick";
 const EDGE_PX = 1.6;        // 边线宽（CSS px；thick 风格 + 选中 / 刮擦 / 悬停边）
+const OTHER_KEY = { other: true } as const;   // rebuildFaces 分组键：别的池的纯色面
 const HINT_PX = 1.2;        // 吸附提示线宽
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
 const ARC_PX = 2.5;
@@ -182,6 +183,7 @@ export class Renderer3 {
   private faceMesh: any; private faceMat: any;
   private texMeshes: { mesh: any; mat: any; tex: any; key: string }[] = [];   // 每种贴图材质一份网格（自己的 UV）
   private texCache = new Map<object, any>();                                  // Material 对象 → three Texture（原图解码一次）
+  private faceMeshOther: any; private faceMatOther: any;
   private edgeLines: any; private edgeMat: any;
   private edgePixel: any;                 // 原生 GL 线（1 设备像素）：默认线稿
   private lineStyle: LineStyle = "pixel";
@@ -227,6 +229,15 @@ export class Renderer3 {
     this.faceMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMat);
     this.faceMesh.frustumCulled = false; this.faceMesh.visible = false;
     this.scene.add(this.faceMesh);
+    // 别的池的面：同一 shader、polygonOffset 再往后推一格 → 共面重叠时活动池 / loose 几何赢（#25 user「overlap的时候优先显示loose geometry」）
+    this.faceMatOther = new THREE.ShaderMaterial({
+      vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
+      uniforms: { uLight: this.faceMat.uniforms.uLight },
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 4,
+    });
+    this.faceMeshOther = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMatOther);
+    this.faceMeshOther.frustumCulled = false; this.faceMeshOther.visible = false;
+    this.scene.add(this.faceMeshOther);
     // 边：一份粗线（顶点色）
     this.edgeMat = this.lineMat(EDGE_PX, { offset: true, vertexColors: true });
     this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
@@ -608,6 +619,7 @@ export class Renderer3 {
    */
   private rebuildFaces(kd: GeomView, view: ViewState): void {
     const dim = view.dimSlots;
+    const activeIndex = (kd as unknown as { activeSlot?: () => { index: number } }).activeSlot?.().index ?? null;
     const smooth = perf.time("smoothNormals", () => smoothNormals(kd));
     const groups = new Map<object | null, { pos: number[]; nor: number[]; col: number[]; uv: number[]; mat: { texture?: { mimeType: string; bytes: Uint8Array; sizeM: readonly [number, number] } } | null }>();
     for (const f of kd.faces()) {
@@ -620,9 +632,9 @@ export class Renderer3 {
       else if (mat && !mat.texture) [r, g, b] = mat.color;
       else if (mat?.texture) [r, g, b] = [1, 1, 1];
       else [r, g, b] = srgb(PALETTE.face);
-      const key = mat?.texture ? mat : null;
+      const key = mat?.texture ? mat : (activeIndex !== null && Math.floor(f.id / ID_STRIDE) !== activeIndex ? OTHER_KEY : null);
       let grp = groups.get(key);
-      if (!grp) { grp = { pos: [], nor: [], col: [], uv: [], mat: key }; groups.set(key, grp); }
+      if (!grp) { grp = { pos: [], nor: [], col: [], uv: [], mat: mat?.texture ? mat : null }; groups.set(key, grp); }
       const n = rec.plane.n;
       const sm = smooth.get(f.id);
       const texW = mat?.texture?.sizeM[0] ?? 1, texH = mat?.texture?.sizeM[1] ?? 1;
@@ -636,26 +648,25 @@ export class Renderer3 {
         }
       }
     }
-    // 默认 / 纯色材质：一份
-    const plain = groups.get(null);
-    const old = this.faceMesh.geometry;
-    if (!plain || !plain.pos.length) this.faceMesh.visible = false;
-    else {
+    // 默认 / 纯色材质：活动池一份、别的池一份（后者 polygonOffset 更靠后）
+    const setPlain = (mesh: any, grp: { pos: number[]; nor: number[]; col: number[] } | undefined): void => {
+      const old = mesh.geometry;
+      if (!grp || !grp.pos.length) { mesh.visible = false; return; }
       const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(plain.pos, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(plain.nor, 3));
-      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(plain.col, 3));
-      this.faceMesh.geometry = geo;
-      this.faceMesh.visible = true;
-      old.dispose();
-    }
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(grp.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(grp.nor, 3));
+      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(grp.col, 3));
+      mesh.geometry = geo; mesh.visible = true; old.dispose();
+    };
+    setPlain(this.faceMesh, groups.get(null));
+    setPlain(this.faceMeshOther, groups.get(OTHER_KEY));
     // 贴图材质：每种一份网格（复用已有节点，多退少补）
-    const texGroups = [...groups.entries()].filter(([k]) => k !== null);
+    const texGroups = [...groups.entries()].filter(([k]) => k !== null && k !== OTHER_KEY);
     for (let i = 0; i < Math.max(texGroups.length, this.texMeshes.length); i++) {
       const tg = texGroups[i];
       let slot = this.texMeshes[i];
       if (!tg) { if (slot) slot.mesh.visible = false; continue; }
-      const [matObj, grp] = tg as [object, typeof plain & object];
+      const [matObj, grp] = tg as [object, { pos: number[]; nor: number[]; col: number[]; uv: number[]; mat: object | null }];
       if (!slot) {
         const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
         const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);

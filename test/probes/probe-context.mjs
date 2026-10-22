@@ -46,6 +46,12 @@ const res = await page.evaluate(async () => {
   fire("pointerdown", top.x, top.y, { pt: "pen", id: 12, button: 0, buttons: 1 }); fire("pointerup", top.x, top.y, { pt: "pen", id: 12, button: 0, buttons: 0 }); await sleep(30);
   out.selBarShown = !document.getElementById("selBar").hidden;
   out.selBarLabels = [...document.querySelectorAll("#selBar .selbar-btn")].map((b) => b.title);
+  // ③b 面包屑（#25）：进 group → 左上角出「根 › 组」；点「根」退出
+  e.enterSelected();
+  const crumbsEl = document.getElementById("crumbs");
+  out.crumbsShown = !crumbsEl.hidden && [...crumbsEl.querySelectorAll(".crumb")].map((x) => x.textContent).join("›") === "根›组";
+  crumbsEl.querySelector("button.crumb")?.click(); await sleep(30);
+  out.crumbsExit = e.contextDepth() === 0 && crumbsEl.hidden;
   // ④ Pencil 长按（选择工具）：600 ms 不动 → 菜单
   e.cancel();
   const side = px(Pt(2, 1, 1));
@@ -81,7 +87,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.selBarHiddenBefore && res.rightClickSelected && res.menuOpen && res.menuLabels.includes("建组") && res.groupMade && res.menuClosedAfterPick && res.selBarHiddenForMouse && res.selBarShown && res.selBarLabels.includes("炸开") && res.longPressMenu && res.longPressSelected && res.imperialOk && res.imperialExact && res.echo === "3' 6\"" && errs.length === 0;
+const ok = res.selBarHiddenBefore && res.rightClickSelected && res.menuOpen && res.menuLabels.includes("建组") && res.groupMade && res.menuClosedAfterPick && res.selBarHiddenForMouse && res.selBarShown && res.selBarLabels.includes("炸开") && res.crumbsShown && res.crumbsExit && res.longPressMenu && res.longPressSelected && res.imperialOk && res.imperialExact && res.echo === "3' 6\"" && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

@@ -207,6 +207,7 @@
           <button class="tb-btn tb-danger" id="btnDelete" type="button" title="删除选区（Delete）" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
         </nav>
         <div class="hud-gizmo" id="viewGizmo" aria-label="视图"></div>
+        <nav class="hud hud-crumbs" id="crumbs" aria-label="所在的组 / 组件" hidden></nav>
         <div class="hud hud-strip" id="toolStrip" aria-label="工具选项" hidden></div>
         <div class="hud hud-vcb" id="vcb" aria-label="数值小窗" hidden></div>
         <div class="hud hud-selbar" id="selBar" aria-label="选区动作" hidden></div>
@@ -269,6 +270,7 @@
         <dl class="kv">
           <dt>空格 / L / R / C / M / Q / S / P / F / W / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 跟随 / 油漆桶 / 橡皮（对齐 SketchUp）。左柱是动词位：画（画线 / 矩形 / 圆）、变换（移动 / 旋转 / 缩放）、成形（推拉 / 偏移 / 跟随）——钮面是当前子工具，右下角小三角 = 长按或右键换子工具</dd>
           <dt>油漆桶的模式</dt><dd>底部选项条「涂哪些」：一张面 / 平滑组 / 到锐角为止（阈值可调）/ 连通体 / 整个组或组件；按住 Ctrl = 平滑组、Shift = 连通体、Ctrl+Shift = 到锐角为止（松开回选项条的值）</dd>
+          <dt>在哪个组里</dt><dd>进了组 / 组件后，左上角出面包屑「根 › 组件「盒子」› 组」，点前面一级就退到那级。重叠的面：正在编辑的那一层（在根就是散放的几何）画在上面、也优先被点到</dd>
           <dt>移动 / 旋转：点而不是拖</dt><dd>移动 = 点一下拿起、点一下放下（拖着放也行）；旋转 = 点圆心、点参考方向、点角度（三下；也可以第三步拖）。笔和手指都一样</dd>
           <dt>右上角 gizmo</dt><dd>Blender / Unity 式：点 X / Y / Z 球 = 右视 / 后视 / 顶视，再点一次翻到对面（左 / 前 / 底），空心球 = 负向；在 gizmo 上拖 = 环绕。下面三个小拖柄：✋ 按住拖 = 平移、🔍 按住上下拖 = 缩放、⛶ 点 = 缩放到全部（Shift+Z）——数位笔 / 无键盘鼠标也能完整导航</dd>
           <dt>右键 / 长按</dt><dd>画布上右键（桌面）或在选择工具里长按（iPad，Pencil 或手指）：指针下的东西不在选区就先选上，弹出同一份菜单——删除 / 建组 / 建组件 / 炸开 / 进入编辑 / 退出一层 / 软化 / 硬化 / 选择连通体。用笔或手指时，选中东西后顶部还会浮出这排动词（鼠标有右键，就不浮了）</dd>
@@ -312,6 +314,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-6281b3c1059f.mjs"></script>
+    <script type="module" src="./dist/catsup-64f77867bdc7.mjs"></script>
   </body>
 </html>
