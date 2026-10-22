@@ -4,6 +4,7 @@ import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type HitResult3 } from "./pick.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
+import { type LengthUnit, type VcbKind } from "./vcb.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, Scene } from "../scene/scene.ts";
@@ -146,6 +147,11 @@ export declare class Editor {
     private paintPick;
     /** 工具选项（声明式表 `tool-config.ts`，SSoT）；UI 从它生成，工具从它读。 */
     readonly config: CatsUpToolConfig;
+    /** 数值小窗：刚做完的那一步（null = 没有可改的）；opCount 给它数这一步占了几个 op。 */
+    private last;
+    private opCount;
+    /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
+    vcbUnit: LengthUnit;
     private viewCache;
     private kids;
     private nextKid;
@@ -259,6 +265,26 @@ export declare class Editor {
     softenSelection(on: boolean): number;
     setView(name: Parameters<OrbitCamera["setView"]>[0]): void;
     zoomExtents(): void;
+    /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
+    vcbState(): {
+        kind: VcbKind | null;
+        prompt: string;
+        echo: string;
+    };
+    /** 手势进行中不能输（例外：画线的连画态只是下一笔的锚点）。 */
+    private vcbBlocked;
+    /** 应用一条输入：解析 → 撤销那一步的 op → 按精确值重做 → 更新 last（可以连着改）。 */
+    applyVcb(text: string): {
+        ok: true;
+        message: string;
+    } | {
+        ok: false;
+        error: string;
+    };
+    /** 撤销 n 个 op（数值小窗重做用；不清 last、不清选区之外的状态）。 */
+    private undoN;
+    /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
+    private redoXform;
     /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
     get lineStyle(): LineStyle;
     setLineStyle(s: LineStyle): void;
@@ -325,6 +351,8 @@ export declare class Editor {
     private commitCircle;
     private commitPP;
     private commitMove;
+    /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
+    private commitCopies;
     /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
     private copyPayload;
     private commitRotate;

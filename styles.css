@@ -48,8 +48,19 @@ svg.ico use { color: inherit; }
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff, 0 1px 3px rgba(255,255,255,.9); }
 .hud-bl { bottom: calc(10px + var(--safe-bottom)); left: calc(10px + var(--safe-left)); max-width: min(62vw, 720px); }
 .hud-br { bottom: calc(10px + var(--safe-bottom)); right: calc(10px + var(--safe-right)); }
-/* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：底居中、提示行之上 */
-.hud-strip { left: 50%; transform: translateX(-50%); bottom: calc(40px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 140px); flex-wrap: wrap; justify-content: center; }
+/* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
+.hud-strip { left: calc(10px + var(--safe-left)); bottom: calc(48px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 240px); flex-wrap: wrap; }
+/* 数值小窗（SU Measurements）：右下、版本角标之上；键盘往上展开 */
+.hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(48px + var(--safe-bottom)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
+.vcb-label { color: var(--muted); font-size: 11px; text-align: right; }
+.vcb-field { font: inherit; min-width: 120px; min-height: 32px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; padding: 4px 10px; text-align: right; font-variant-numeric: tabular-nums; cursor: pointer; }
+.vcb-field.typing { border-color: var(--accent); color: var(--accent); }
+.vcb-pad { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
+.vcb-row { display: flex; gap: 4px; }
+.vcb-key { flex: 1; min-width: 44px; min-height: 40px; border: 0; border-radius: 8px; background: rgba(0,0,0,.05); font: inherit; font-size: 16px; cursor: pointer; }
+.vcb-key:active { background: var(--accent-soft); color: var(--accent); }
+.vcb-key.primary { background: var(--accent); color: #fff; }
+.vcb-key.wide { flex: 3; }
 .strip-field { display: inline-flex; align-items: center; gap: 6px; }
 .strip-label { color: var(--muted); font-size: 12px; }
 .strip-select { font: inherit; color: inherit; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; padding: 4px 8px; min-height: 32px; }

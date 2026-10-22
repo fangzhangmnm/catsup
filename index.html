@@ -207,6 +207,7 @@
           <button class="tb-btn" id="btnMaterial" type="button" title="材质（油漆桶蘸什么）"><svg class="ico" aria-hidden="true"><use href="#color"/></svg></button>
         </nav>
         <div class="hud hud-strip" id="toolStrip" aria-label="工具选项" hidden></div>
+        <div class="hud hud-vcb" id="vcb" aria-label="数值小窗" hidden></div>
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
         <div class="hud-text hud-br"><span id="build" class="build"></span></div>
         <div id="marquee" hidden></div>
@@ -266,6 +267,7 @@
         <dl class="kv">
           <dt>空格 / L / R / C / M / Q / S / P / F / W / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 跟随 / 油漆桶 / 橡皮（对齐 SketchUp）</dd>
           <dt>油漆桶的模式</dt><dd>底部选项条「涂哪些」：一张面 / 平滑组 / 到锐角为止（阈值可调）/ 连通体 / 整个组或组件；按住 Ctrl = 平滑组、Shift = 连通体、Ctrl+Shift = 到锐角为止（松开回选项条的值）</dd>
+          <dt>数值小窗（精确输入）</dt><dd>刚做完一步（画线 / 矩形 / 圆 / 推拉 / 偏移 / 移动 / 旋转 / 缩放）后，右下角小窗亮起：桌面直接打数字 + Enter；触屏点小窗展开自家数字键盘（不弹系统键盘）。长度默认米，后缀 cm / mm 覆盖；矩形 `宽,高`；圆 `0.5` 半径或 `24s` 段数；旋转 度；缩放 倍率或 `x,y,z`；移动复制后 `5x` 向外阵列 / `/5` 内分。可以连着改几次，直到开始下一步</dd>
           <dt>线稿</dt><dd>默认 1 设备像素的细线（最省，VR / PC 都不卡通）；选中 / 刮擦 / 悬停的边仍是粗线。视图菜单「粗线稿」切回全粗线</dd>
           <dt>圆的段数</dt><dd>圆工具的底部选项条 − / +（3–96，默认 24）</dd>
           <dt>偏移</dt><dd>按住一张面沿面拖：往里内缩、往外外扩（只偏移外环；边长缩到 0 的边自动合并）</dd>
@@ -305,6 +307,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-160363127caa.mjs"></script>
+    <script type="module" src="./dist/catsup-8e0706558c68.mjs"></script>
   </body>
 </html>

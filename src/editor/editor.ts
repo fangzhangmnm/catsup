@@ -29,6 +29,8 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
+import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
+import type { FaceKey } from "./ops.ts";
 import { simplifyPath, sweepStations } from "../kernel/sweep.ts";
 import { liftFromPlane, projectToPlane } from "../kernel/geom.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
@@ -36,7 +38,7 @@ import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey } from "./ops.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
-import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
+import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey } from "../scene/world-view.ts";
 import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
@@ -132,6 +134,17 @@ const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(1)}°`;
 export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; instance: InstId };
 interface ScaleHandle { kind: typeof SCALE_HANDLE_TYPES[number]; p: Pt3; anchor: Pt3; axis: Pt3 | null; }
 
+/** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
+type LastGesture =
+  | { kind: "line"; ops: number; at: PoolRef; a: Pt3; b: Pt3 }
+  | { kind: "rect"; ops: number; at: PoolRef; plane: DrawPlane; anchor: Pt3; corner: Pt3 }
+  | { kind: "circle"; ops: number; at: PoolRef; plane: DrawPlane; center: Pt3; rim: Pt3; segments: number }
+  | { kind: "pp"; ops: number; at: PoolRef; face: FaceKey; h: number; hl: number }
+  | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number }
+  | { kind: "move"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; delta: Pt3; copy: boolean; entities: { faces: FaceId[]; edges: EdgeId[] } }
+  | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number }
+  | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3 };
+
 export class Editor {
   readonly cam = new OrbitCamera();
   private r3: Renderer3;
@@ -197,6 +210,11 @@ export class Editor {
   private paintPick: PaintPick = null;
   /** 工具选项（声明式表 `tool-config.ts`，SSoT）；UI 从它生成，工具从它读。 */
   readonly config: CatsUpToolConfig = new ToolConfig(TOOL_OPTIONS);
+  /** 数值小窗：刚做完的那一步（null = 没有可改的）；opCount 给它数这一步占了几个 op。 */
+  private last: LastGesture | null = null;
+  private opCount = 0;
+  /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
+  vcbUnit: LengthUnit = "m";
   private viewCache: { key: string; view: WorldView } | null = null;
   private kids = new WeakMap<object, number>();
   private nextKid = 1;
@@ -330,6 +348,7 @@ export class Editor {
 
   // ---------- 工具 ----------
   setTool(t: Tool): void {
+    this.last = null;
     this._tool = t;
     this.cancelGesture();
     if (t === "scale") this.rebuildScaleHandles();
@@ -338,6 +357,7 @@ export class Editor {
   }
 
   cancel(): void {
+    this.last = null;
     this.selection = emptySelection();
     this.selectedPools.clear();
     this.cancelGesture();
@@ -397,9 +417,11 @@ export class Editor {
       return [];
     }
     this.scene = r.scene;
+    this.opCount++;
     this.bump();
     this.revalidateCharged();
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
+    this.host.changed();   // HUD（撤销钮 / 选项条 / 数值小窗）随每个 op 刷新
     this.host.changed();
     return r.events;
   }
@@ -427,6 +449,7 @@ export class Editor {
   }
 
   undo(): void {
+    this.last = null;
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
     const s2 = this.history.undo();
     if (!s2) return;
@@ -440,6 +463,7 @@ export class Editor {
     this.draw();
   }
   redo(): void {
+    this.last = null;
     let r: ReturnType<History["redo"]>;
     try { r = this.history.redo(this.scene); }
     catch (err) {
@@ -461,6 +485,7 @@ export class Editor {
   }
   /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
   loadScene(s: Scene, label = "打开"): void {
+    this.last = null;
     this.cancelGesture();
     this.scene = s;
     this.ctx = ROOT_CONTEXT;
@@ -482,6 +507,7 @@ export class Editor {
     return { selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(), hoverEdge: null, hoverFace: null, preview: null, snap: null, snapAnchor: null, revision: this._revision, dimSlots: null, handles: null };
   }
   clearAll(): void {
+    this.last = null;
     this.cancelGesture();
     this.selection = emptySelection(); this.selectedPools.clear();
     this.clearCharged();
@@ -646,6 +672,7 @@ export class Editor {
   }
   /** 进入选中（或命中）的子 group / 实例编辑。 */
   enterPool(p: PoolPick): void {
+    this.last = null;
     this.cancelGesture();
     this.selection = emptySelection(); this.selectedPools.clear();
     if (p.kind === "group") this.ctx = { chain: this.ctx.chain, group: p.group };
@@ -661,6 +688,7 @@ export class Editor {
   }
   /** 退出一层（到父 group / 父实例）；已在根 → false。 */
   exitContext(): boolean {
+    this.last = null;
     if (this.ctx.chain.length === 0 && this.ctx.group === null) return false;
     this.cancelGesture();
     this.selection = emptySelection(); this.selectedPools.clear();
@@ -755,6 +783,146 @@ export class Editor {
     this.cam.fitPoints(this.worldView().vertices(), this.vp());
     this.draw();
   }
+  // ---------- 数值小窗（vcb.ts；SU Measurements）：刚做完的那一步，撤销后按精确值重做 ----------
+  /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
+  vcbState(): { kind: VcbKind | null; prompt: string; echo: string } {
+    const L = this.last;
+    if (!L || this.vcbBlocked()) return { kind: null, prompt: "", echo: "" };
+    const u = this.vcbUnit, fl = (m: number): string => fmtVcbLength(m, u);
+    const echo = L.kind === "line" ? fl(dist(L.a, L.b)) : L.kind === "pp" ? fl(L.h) : L.kind === "offset" ? fl(L.d) : L.kind === "move" ? fl(len3(L.delta))
+      : L.kind === "circle" ? `${fl(dist(L.center, L.rim))} · ${L.segments}s` : L.kind === "rotate" ? fmtDeg(L.angle) : L.kind === "scale" ? (L.axis ? `${(L.axis.x ? L.f.x : L.axis.y ? L.f.y : L.f.z).toFixed(3)}` : `${L.f.x.toFixed(3)}`)
+      : L.kind === "rect" ? (() => { const d = sub3(L.corner, L.anchor), [bu, bv] = Editor.rectAxes(L.plane.basis); return `${fl(Math.abs(dot3(d, bu)))} , ${fl(Math.abs(dot3(d, bv)))}`; })() : "";
+    return { kind: L.kind, prompt: vcbPrompt(L.kind), echo };
+  }
+  /** 矩形「宽,高」的两根轴：面基 (u, v) 里更贴近世界 X 的那根算「宽」（平手看 Y）——地面矩形 = (x, y)，立面 = (水平, 竖直)。 */
+  private static rectAxes(basis: { u: Pt3; v: Pt3 }): [Pt3, Pt3] {
+    const score = (a: Pt3): number => Math.abs(a.x) * 4 + Math.abs(a.y) * 2 + Math.abs(a.z);
+    return score(basis.u) >= score(basis.v) ? [basis.u, basis.v] : [basis.v, basis.u];
+  }
+  /** 手势进行中不能输（例外：画线的连画态只是下一笔的锚点）。 */
+  private vcbBlocked(): boolean { return this.gestureActive() && !(this._tool === "line" && this.armed && this.anchor3 !== null); }
+  /** 应用一条输入：解析 → 撤销那一步的 op → 按精确值重做 → 更新 last（可以连着改）。 */
+  applyVcb(text: string): { ok: true; message: string } | { ok: false; error: string } {
+    const L = this.last;
+    if (!L) return { ok: false, error: "先做一步（画 / 推拉 / 移动…），再输精确值" };
+    if (this.vcbBlocked()) return { ok: false, error: "先松手落定，再输精确值" };
+    const v = parseVcb(text, L.kind, { unit: this.vcbUnit });
+    if ("error" in v) return { ok: false, error: v.error };
+    const at = L.at;
+    if (!samePool(at, this.activePool())) return { ok: false, error: "已经换了上下文，这一步改不了了" };
+    const sign = (x: number): number => (x < 0 ? -1 : 1);
+    // 撤销那一步
+    this.undoN(L.ops);
+    const n0 = this.opCount;
+    let msg = "";
+    switch (L.kind) {
+      case "line": {
+        if (v.kind !== "length") break;
+        const b = add3(L.a, scale3(normalize3(sub3(L.b, L.a)), v.m));
+        this.commitOp({ op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]] });
+        this.last = { ...L, ops: this.opCount - n0, b };
+        if (this._tool === "line") { this.anchor3 = b; this.cursor3 = b; this.armed = true; }
+        msg = `线长 ${fmtLen(Math.abs(v.m))}`;
+        break;
+      }
+      case "rect": {
+        if (v.kind !== "dims") break;
+        const d = sub3(L.corner, L.anchor), [u, w] = Editor.rectAxes(L.plane.basis);
+        const corner = add3(L.anchor, add3(scale3(u, sign(dot3(d, u)) * Math.abs(v.a)), scale3(w, sign(dot3(d, w)) * Math.abs(v.b))));
+        const segs = rectSegmentsOnPlane(L.plane.plane, L.plane.basis, L.anchor, corner);
+        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+        this.last = { ...L, ops: this.opCount - n0, corner };
+        msg = `矩形 ${fmtLen(Math.abs(v.a))} × ${fmtLen(Math.abs(v.b))}`;
+        break;
+      }
+      case "circle": {
+        let rim = L.rim, segments = L.segments;
+        if (v.kind === "length") rim = add3(L.center, scale3(normalize3(sub3(L.rim, L.center)), Math.abs(v.m)));
+        else if (v.kind === "segments") { segments = v.n; this.config.set("circle", "segments", v.n); }
+        else break;
+        const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
+        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: true });
+        this.last = { ...L, ops: this.opCount - n0, rim, segments };
+        msg = `圆 半径 ${fmtLen(dist(L.center, rim))} · ${segments} 段`;
+        break;
+      }
+      case "pp": {
+        if (v.kind !== "length") break;
+        const h = sign(L.h) * v.m, hl = L.h !== 0 ? h * (L.hl / L.h) : h;
+        this.commitOp({ op: "pushpull", at, face: L.face, dist: hl });
+        this.last = { ...L, ops: this.opCount - n0, h, hl };
+        msg = `推拉 ${fmtLen(h)}`;
+        break;
+      }
+      case "offset": {
+        if (v.kind !== "length") break;
+        const d = sign(L.d) * v.m;
+        const ring2 = L.ring.map((p) => projectToPlane(p, L.plane.basis));
+        const r = offsetRing(ring2, -d);
+        if (r.length >= 3) { const r3 = r.map((q) => liftFromPlane(q, L.plane.plane, L.plane.basis)); this.commitOp({ op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]) }); }
+        this.last = { ...L, ops: this.opCount - n0, d };
+        msg = `偏移 ${d > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(d))}`;
+        break;
+      }
+      case "move": {
+        if (v.kind === "array") {
+          if (!L.copy) { this.redoXform(translation(L.delta), L.froms, L.pools, at); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: "先 Ctrl 拖复制一份，再输阵列（5x 向外 / /5 内分）" }; }
+          const Xs = arrayTranslations(L.delta, v.mode, v.n);
+          const copies = Xs.map((X) => { const XL = this.xformToLocal(X); return { payload: this.copyPayload(XL, L.entities), XL }; });   // 全部先从撤销后的内核算
+          this.commitCopies(copies, L.pools, at);
+          this.last = { ...L, ops: this.opCount - n0 };
+          msg = v.mode === "x" ? `阵列 ${v.n} 份（每份 ${fmtLen(len3(L.delta))}）` : `内分 ${v.n} 份`;
+          break;
+        }
+        if (v.kind !== "length") break;
+        const delta = scale3(normalize3(L.delta), v.m);
+        if (L.copy) { const XL = this.xformToLocal(translation(delta)); this.commitCopies([{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); }
+        else this.redoXform(translation(delta), L.froms, L.pools, at);
+        this.last = { ...L, ops: this.opCount - n0, delta };
+        msg = `${L.copy ? "复制" : "移动"} ${fmtLen(Math.abs(v.m))}`;
+        break;
+      }
+      case "rotate": {
+        if (v.kind === "array") { this.redoXform(rotationAbout(L.center, L.axis, L.angle), L.froms, L.pools, at); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: "旋转阵列要先有复制模式（还没做）" }; }
+        if (v.kind !== "angle") break;
+        const angle = (v.deg * Math.PI) / 180;
+        this.redoXform(rotationAbout(L.center, L.axis, angle), L.froms, L.pools, at);
+        this.last = { ...L, ops: this.opCount - n0, angle };
+        msg = `旋转 ${fmtDeg(angle)}`;
+        break;
+      }
+      case "scale": {
+        if (v.kind !== "factor") break;
+        const f: Pt3 = v.f.length === 3 ? { x: v.f[0], y: v.f[1], z: v.f[2] } : L.axis ? { x: L.axis.x ? v.f[0] : 1, y: L.axis.y ? v.f[0] : 1, z: L.axis.z ? v.f[0] : 1 } : { x: v.f[0], y: v.f[0], z: v.f[0] };
+        this.redoXform(scalingAbout(L.anchor, f), L.froms, L.pools, at);
+        this.rebuildScaleHandles();
+        this.last = { ...L, ops: this.opCount - n0, f };
+        msg = `缩放 ${f.x.toFixed(3)} × ${f.y.toFixed(3)} × ${f.z.toFixed(3)}`;
+        break;
+      }
+    }
+    if (!msg) { this.last = null; this.host.changed(); this.draw(); return { ok: false, error: "这一步不收这种输入" }; }
+    this.host.changed(); this.draw();
+    return { ok: true, message: msg };
+  }
+  /** 撤销 n 个 op（数值小窗重做用；不清 last、不清选区之外的状态）。 */
+  private undoN(n: number): void {
+    for (let i = 0; i < n; i++) { const s2 = this.history.undo(); if (!s2) break; this.scene = s2; this.opCount--; }
+    this.bump();
+    this.revalidateCharged();
+    this.selection = emptySelection(); this.selectedPools.clear();
+  }
+  /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
+  private redoXform(X: Xform, froms: readonly Pt3[], pools: readonly PoolPick[], at: PoolRef): void {
+    const XL = this.xformToLocal(X);
+    if (froms.length) this.commitOp({ op: "move", at, moves: froms.map((f) => ({ from: f, to: applyPt(XL, f) })) });
+    const def = this.scene.defOfContext(this.ctx);
+    for (const p of pools) {
+      if (p.kind === "group") this.commitOp({ op: "transformPool", at: { def, group: p.group }, xform: XL });
+      else this.commitOp({ op: "transformInstance", def, instance: p.instance, xform: XL });
+    }
+  }
+
   /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
   get lineStyle(): LineStyle { return this.r3.getLineStyle(); }
   setLineStyle(s: LineStyle): void { this.r3.setLineStyle(s); this.host.changed(); this.draw(); }
@@ -1620,8 +1788,10 @@ export class Editor {
         const smp = settle();
         const d = smp?.off ?? this.offDist;
         const segs = Math.abs(d) >= MIN_GESTURE_LEN ? this.offsetSegs(d) : [];
+        const ring = this.offFace !== null && this.offPlane ? this.kernel.faceRings3(this.offFace)!.outer.map((p) => applyPt(this.ctxXform(), p)) : [];
+        const plane = this.offPlane!, n0 = this.opCount, at0 = this.activePool();
         this.cancelGesture();
-        if (segs.length) this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+        if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) }); this.last = { kind: "offset", ops: this.opCount - n0, at: at0, ring, plane, d }; }
         break;
       }
       case "scale": {
@@ -1702,6 +1872,7 @@ export class Editor {
         break;
       }
     }
+    this.host.changed();   // 手势落定后再刷一次 HUD：数值小窗要看到刚记下的 last
     this.draw();
   }
 
@@ -1723,9 +1894,11 @@ export class Editor {
     const a = this.anchor3!;
     const b = smp?.cursor3 ?? this.cursor3 ?? a;
     if (dist(a, b) < MIN_GESTURE_LEN) { this.cancelGesture(); return; }
-    const evs = this.commitOp({ op: "addEdges", at: this.activePool(), segs: [[this.toLocal(a), this.toLocal(b)]] });
+    const n0 = this.opCount, at0 = this.activePool();
+    const evs = this.commitOp({ op: "addEdges", at: at0, segs: [[this.toLocal(a), this.toLocal(b)]] });
     this.chargePt(a); this.chargePt(b);
     this.cancelGesture();
+    this.last = { kind: "line", ops: this.opCount - n0, at: at0, a, b };
     if (evs.length > 0) return;
     this.anchor3 = b;
     this.cursor3 = b;
@@ -1736,48 +1909,65 @@ export class Editor {
     const plane = smp?.plane ?? this.gesturePlane;
     const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
     const segs = rectSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b);
+    const anchor = this.anchor3!, n0 = this.opCount, at0 = this.activePool();
     this.cancelGesture();
-    if (segs.length) this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+    if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) }); this.last = { kind: "rect", ops: this.opCount - n0, at: at0, plane, anchor, corner: b }; }
   }
   private commitCircle(smp: { cursor3: Pt3 | null; plane: DrawPlane } | null): void {
     const plane = smp?.plane ?? this.gesturePlane;
     const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
-    const segs = dist(this.anchor3!, b) >= MIN_GESTURE_LEN ? circleSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b, this.config.get("circle", "segments")) : [];
+    const segments = this.config.get("circle", "segments");
+    const segs = dist(this.anchor3!, b) >= MIN_GESTURE_LEN ? circleSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b, segments) : [];
+    const center = this.anchor3!, n0 = this.opCount, at0 = this.activePool();
     this.cancelGesture();
-    if (segs.length) this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: true });
+    if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: true }); this.last = { kind: "circle", ops: this.opCount - n0, at: at0, plane, center, rim: b, segments }; }
   }
   private commitPP(smp: { ppH: number } | null): void {
     const h = smp?.ppH ?? this.ppH;
     const fid = this.ppFace!;
     const hl = this.ppLocalH(h);
     this.cancelGesture();
-    if (Math.abs(h) >= MIN_GESTURE_LEN && this.kernel.face(fid)) this.commitOp({ op: "pushpull", at: this.activePool(), face: faceKey(this.kernel, fid), dist: hl });
+    if (Math.abs(h) >= MIN_GESTURE_LEN && this.kernel.face(fid)) {
+      const n0 = this.opCount, at0 = this.activePool(), face = faceKey(this.kernel, fid);
+      this.commitOp({ op: "pushpull", at: at0, face, dist: hl });
+      this.last = { kind: "pp", ops: this.opCount - n0, at: at0, face, h, hl };
+    }
   }
   private commitMove(smp: { cursor3: Pt3 | null } | null): void {
     const target = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
     const delta = sub3(target, this.anchor3!);
-    const vids = this.moveVids, pools = this.movePools, copy = this.moveCopy;
+    const vids = this.moveVids, pools = this.movePools, copy = this.moveCopy, entities = { faces: [...this.moveEntities.faces], edges: [...this.moveEntities.edges] };
     const X = translation(delta);
+    const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
+    const n0 = this.opCount, at0 = this.activePool();
     if (copy) {
-      const payload = this.copyPayload(this.xformToLocal(X));
+      const payload = this.copyPayload(this.xformToLocal(X), entities);
       this.cancelGesture();
       if (len3(delta) < MIN_GESTURE_LEN) return;
-      const at = this.activePool(), def = this.scene.defOfContext(this.ctx), XL = this.xformToLocal(X);
-      if (payload) this.commitOp({ op: "absorb", at, faces: payload.faces, wires: payload.wires, edgeSegs: payload.edgeSegs, faceLayers: payload.faceLayers });
-      for (const p of pools) {
-        if (p.kind === "group") this.commitOp({ op: "copyGroup", at, group: p.group, xform: XL });
-        else { const inst = this.scene.instance(def, p.instance); this.commitOp({ op: "placeInstance", at, definition: inst.def, xform: compose(XL, inst.xform) }); }
-      }
+      this.commitCopies([{ payload, XL: this.xformToLocal(X) }], pools, at0);
+      this.last = { kind: "move", ops: this.opCount - n0, at: at0, froms, pools, delta, copy: true, entities };
       return;
     }
     this.cancelGesture();
     if (len3(delta) < MIN_GESTURE_LEN) return;
     this.commitXform(X, vids, pools);
+    this.last = { kind: "move", ops: this.opCount - n0, at: at0, froms, pools, delta, copy: false, entities };
+  }
+  /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
+  private commitCopies(copies: { payload: ReturnType<Editor["copyPayload"]>; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void {
+    const def = this.scene.defOfContext(this.ctx);
+    for (const { payload, XL } of copies) {
+      if (payload) this.commitOp({ op: "absorb", at, faces: payload.faces, wires: payload.wires, edgeSegs: payload.edgeSegs, faceLayers: payload.faceLayers });
+      for (const p of pools) {
+        if (p.kind === "group") this.commitOp({ op: "copyGroup", at, group: p.group, xform: XL });
+        else { const inst = this.scene.instance(def, p.instance); this.commitOp({ op: "placeInstance", at, definition: inst.def, xform: compose(XL, inst.xform) }); }
+      }
+    }
   }
   /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
-  private copyPayload(XL: Xform): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs: Record<string, [Pt3, Pt3][]>; faceLayers: (Record<string, number> | undefined)[] } | null {
+  private copyPayload(XL: Xform, entities: { faces: readonly FaceId[]; edges: readonly EdgeId[] } = this.moveEntities): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs: Record<string, [Pt3, Pt3][]>; faceLayers: (Record<string, number> | undefined)[] } | null {
     const k = this.kernel;
-    const faces = this.moveEntities.faces.filter((f) => k.face(f)), edges = this.moveEntities.edges.filter((e) => k.graph.hasEdge(e));
+    const faces = entities.faces.filter((f) => k.face(f)), edges = entities.edges.filter((e) => k.graph.hasEdge(e));
     if (!faces.length && !edges.length) return null;
     const snap = transformSnapshot(extractSnapshot(k, faces, edges), XL);
     const P = snap.vertices;
@@ -1797,18 +1987,24 @@ export class Editor {
     const ang = smp?.angle ?? this.rotAngle;
     const c = this.rotCenter!, ax = this.rotAxis!;
     const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.selectedPoolPicks();
+    const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
+    const n0 = this.opCount, at0 = this.activePool();
     this.cancelGesture();
     if (Math.abs(ang) < 1e-6) return;
     this.commitXform(rotationAbout(c, ax, ang), vids, pools);
+    this.last = { kind: "rotate", ops: this.opCount - n0, at: at0, froms, pools, center: c, axis: ax, angle: ang };
   }
   private commitScale(smp: { scale: Pt3 } | null): void {
     const s = smp?.scale ?? this.scaleFactor;
-    const anchor = this.scaleActive!.anchor;
+    const anchor = this.scaleActive!.anchor, axis = this.scaleActive!.axis;
     const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.selectedPoolPicks();
+    const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
+    const n0 = this.opCount, at0 = this.activePool();
     this.cancelGesture();
     if (Math.abs(s.x - 1) < 1e-9 && Math.abs(s.y - 1) < 1e-9 && Math.abs(s.z - 1) < 1e-9) return;
     this.commitXform(scalingAbout(anchor, s), vids, pools);
     this.rebuildScaleHandles();
+    this.last = { kind: "scale", ops: this.opCount - n0, at: at0, froms, pools, anchor, axis, f: s };
   }
   /** 世界系变换 X 作用于：活动池顶点集（move op，本地坐标）+ 子池（transformPool / transformInstance，父空间变换）。 */
   private commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void {

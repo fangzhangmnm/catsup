@@ -7,6 +7,7 @@
 
 import { APP_VERSION } from "../version.ts";
 import { mountToolStrip } from "./tool-strip.ts";
+import { mountVcb } from "./vcb.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
@@ -319,9 +320,11 @@ function setWalk(on: boolean): void {
 
 // ---------- 状态同步 ----------
 const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor);
+const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
 function syncUi(): void {
   for (const [t, b] of toolBtns) b.classList.toggle("active", t === editor.tool);
   toolStrip.render();
+  vcb.render();
   btnUndo.disabled = !editor.canUndo();
   btnRedo.disabled = !editor.canRedo();
   btnDelete.hidden = !editor.hasSelection();
@@ -427,6 +430,7 @@ const gestures = attachGestures(canvas, editor, {
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+  if (vcb.feedKey(ev)) { ev.preventDefault(); return; }   // 数值小窗：数字开头直接进小窗（SU 同款），字母只在缓冲非空时进
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
