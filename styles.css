@@ -107,10 +107,9 @@ svg.ico use { color: inherit; }
 .tool:hover { background: rgba(0,0,0,.06); }
 .tool.active { background: var(--accent); color: #fff; }
 .tool.active .tool-label { color: #e7f0fb; }
-/* 动词位角标（WeebPaint .lasso-slot-caret 同形：右下角 8×8 小三角，≥2 个子工具才画） */
-.tool-slot { position: relative; }
-.tool-caret { position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; opacity: .55; pointer-events: none; }
-.tool.active .tool-caret { opacity: .9; }
+/* 最近用过的非钉工具（≤ 2 格，屏幕矮就 0 格）；和钉死的长一样，只是会变 */
+.rail-recent { display: flex; flex-direction: column; gap: 2px; }
+.rail-recent:not(:empty) { border-top: 1px dashed rgba(0,0,0,.12); padding-top: 2px; }
 
 #marquee { position: fixed; z-index: 5; border: 1px dashed #666; background: rgba(43,108,176,.08); pointer-events: none; }
 #tip { position: fixed; z-index: var(--z-notice); padding: 2px 7px; font-size: 12px; background: rgba(255,255,255,.95);

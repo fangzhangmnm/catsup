@@ -174,60 +174,53 @@ const hud: HudModel = {
     }
   },
 };
-// 左柱动词位（2026-10-21 user「只放常用的其他的收到...里面，以及要不要小三角。好好学一下weebpaint」= WeebPaint ADR-0012 动词位：
-// 钮面 = 当前子工具 + 右下角小三角（≥2 个子工具才画）；点 = 用它；长按 450 ms / 右键 = 子工具单。快捷键照旧直达，钮面跟着换。
-const RAIL_SLOTS: { id: string; tools: Tool[] }[] = [
-  { id: "select", tools: ["select"] },
-  { id: "draw", tools: ["line", "rect", "circle"] },
-  { id: "xform", tools: ["move", "rotate", "scale"] },
-  { id: "form", tools: ["pp", "offset", "followme"] },
-  { id: "paint", tools: ["paint"] },
-  { id: "erase", tools: ["erase"] },
-];
-const CARET_SVG = '<svg class="tool-caret" viewBox="0 0 8 8" aria-hidden="true"><path d="M7.2 2.8 V7.2 H2.8 Z" fill="currentColor" stroke="none"/></svg>';
+// 左柱（2026-10-21 user 定稿：「你的小三角思路不行，这样，hanburger, cloud, undo redo select line rect eraser move rotate scale pushpull ...
+// 然后非pin的工具给2个格子，屏幕太短就不给」）：钉死的常用工具一字排开；不常用的收进「…」弹层；最近用过的非钉工具在「…」上面
+// 留最多两格（按柱子可用高度算，屏幕矮就不留）。快捷键照旧直达（用了非钉工具会进最近格）。
+const PINNED: Tool[] = ["select", "line", "rect", "erase", "move", "rotate", "scale", "pp"];
+const UNPINNED: Tool[] = ["circle", "offset", "followme", "paint"];
 const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
-const slotCurrent = new Map<string, Tool>(RAIL_SLOTS.map((sl) => [sl.id, sl.tools[0]]));
-const slotBtns = new Map<string, HTMLButtonElement>();
-const openSlotMenu = (slot: { id: string; tools: Tool[] }, anchor: HTMLElement): void => {
-  openPopupMenu<Tool>({
-    anchor, align: "start",
-    items: () => slot.tools.map((t) => { const sp = specOf(t); return { id: t, label: sp.label, icon: sp.icon, hint: sp.key, checked: editor.tool === t }; }),
-    onPick: (t) => { slotCurrent.set(slot.id, t); editor.setTool(t); },
-  });
-};
-for (const slot of RAIL_SLOTS) {
+const recentTools: Tool[] = [];                 // 最近用过的非钉工具（MRU，最多 2）
+const toolBtns = new Map<Tool, HTMLButtonElement>();
+const mkToolBtn = (t: Tool): HTMLButtonElement => {
+  const sp = specOf(t);
   const b = document.createElement("button");
-  b.type = "button";
-  b.className = "tool" + (slot.tools.length > 1 ? " tool-slot" : "");
-  b.innerHTML = `${iconHtml(specOf(slot.tools[0]).icon)}<span class="tool-label"></span>${slot.tools.length > 1 ? CARET_SVG : ""}`;
-  let suppressClick = false;
-  b.addEventListener("click", () => { if (suppressClick) { suppressClick = false; return; } hud.pick(slotCurrent.get(slot.id)!); });
-  if (slot.tools.length > 1) {
-    let timer = 0, down: { x: number; y: number } | null = null;
-    const clear = (): void => { if (timer) { clearTimeout(timer); timer = 0; } down = null; };
-    b.addEventListener("pointerdown", (ev) => { down = { x: ev.clientX, y: ev.clientY }; timer = window.setTimeout(() => { timer = 0; suppressClick = true; openSlotMenu(slot, b); }, 450); });
-    b.addEventListener("pointermove", (ev) => { if (down && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 8) clear(); });
-    b.addEventListener("pointerup", clear); b.addEventListener("pointercancel", clear); b.addEventListener("pointerleave", clear);
-    b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); clear(); openSlotMenu(slot, b); });
-  }
-  toolbarEl.appendChild(b);
-  slotBtns.set(slot.id, b);
+  b.type = "button"; b.className = "tool"; b.title = `${sp.label}（${sp.key}）`;
+  b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>`;
+  (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
+  b.addEventListener("click", () => hud.pick(t));
+  return b;
+};
+for (const t of PINNED) { const b = mkToolBtn(t); toolbarEl.appendChild(b); toolBtns.set(t, b); }
+const recentEl = document.createElement("div"); recentEl.className = "rail-recent"; toolbarEl.appendChild(recentEl);
+const moreBtn = document.createElement("button");
+moreBtn.type = "button"; moreBtn.className = "tool"; moreBtn.title = "更多工具（圆 / 偏移 / 跟随 / 油漆桶）";
+moreBtn.innerHTML = `${iconHtml("more")}<span class="tool-label">更多</span>`;
+moreBtn.addEventListener("click", () => togglePopupMenu<Tool>({
+  anchor: moreBtn, align: "start",
+  items: () => UNPINNED.map((t) => { const sp = specOf(t); return { id: t, label: sp.label, icon: sp.icon, hint: sp.key, checked: editor.tool === t }; }),
+  onPick: (t) => hud.pick(t),
+}));
+toolbarEl.appendChild(moreBtn);
+/** 最近格数：柱子可用高度减去固定格（☰ 云 撤销 重做 + 钉死 8 + 更多 1 = 13 格），最多 2。 */
+function recentCapacity(): number {
+  const cell = 48, fixed = 13;
+  const avail = window.innerHeight - 20;
+  return Math.max(0, Math.min(2, Math.floor(avail / cell) - fixed));
 }
 function renderSlots(): void {
-  for (const slot of RAIL_SLOTS) {
-    if (slot.tools.includes(editor.tool)) slotCurrent.set(slot.id, editor.tool);
-    const cur = slotCurrent.get(slot.id)!, sp = specOf(cur), b = slotBtns.get(slot.id)!;
-    b.querySelector("use")?.setAttribute("href", `#${sp.icon}`);
-    (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
-    b.title = `${sp.label}（${sp.key}）${slot.tools.length > 1 ? " · 长按 / 右键换子工具" : ""}`;
-    b.classList.toggle("active", editor.tool === cur);
-  }
+  if (UNPINNED.includes(editor.tool)) { const i = recentTools.indexOf(editor.tool); if (i !== 0) { if (i > 0) recentTools.splice(i, 1); recentTools.unshift(editor.tool); recentTools.length = Math.min(recentTools.length, 2); } }
+  for (const [t, b] of toolBtns) b.classList.toggle("active", t === editor.tool);
+  const cap = recentCapacity();
+  recentEl.replaceChildren();
+  for (const t of recentTools.slice(0, cap)) { const b = mkToolBtn(t); b.classList.toggle("active", t === editor.tool); recentEl.appendChild(b); }
+  moreBtn.classList.toggle("active", UNPINNED.includes(editor.tool) && !recentTools.slice(0, cap).includes(editor.tool));
 }
+window.addEventListener("resize", () => renderSlots());
 
 // ---------- 顶栏 ----------
 const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
-const btnDelete = $<HTMLButtonElement>("btnDelete");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
 type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "noclip" | "persp" | "walk";
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
@@ -371,7 +364,7 @@ function syncUi(): void {
   selBar.render();
   btnUndo.disabled = !editor.canUndo();
   btnRedo.disabled = !editor.canRedo();
-  btnDelete.hidden = !editor.hasSelection();
+
   vr?.invalidatePanel();
 }
 
