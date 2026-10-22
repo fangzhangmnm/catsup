@@ -6,6 +6,7 @@ import "./subdivide.test.ts";
 import "./subdivide-nearmiss.test.ts";
 import "./xr-pointer-frame.test.ts";
 import "./kernel-fuzz.test.ts";
+import "./kernel-rev.test.ts";    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
 import "./move-inference.test.ts";
 import "./facefind.test.ts";
 import "./face-lifecycle.test.ts";

@@ -164,6 +164,7 @@ export function solvePoint(
       cands.push({ p: q, dim: 0, rank: Math.max(act1[i].c.rank, act1[j].c.rank), d, used: [act1[i].c, act1[j].c] });
     }
   }
+  perf.last["snap.act1"] = act1.length; perf.last["snap.cands"] = cands.length;
   if (!cands.length) return null;
   // ③ 字典序选择
   // 重叠轨迹稳定裁决（user 2026-09-03：两条一直重叠的轴不许来回翻）：
@@ -604,15 +605,23 @@ export function snapPoint(
   const radiusPx = E.combo * 2;   // 局部性：候选只从指针 2·ε_combo 以内长出来（≥ 最大 ε，无损）
   // 遮挡只对指针附近的膜做（挡得住附近候选的膜，自己也在指针附近；屏幕索引给超集）
   const idx = ScreenIndex.for(k, pf, vp);
-  const occluders = idx ? idx.facesNear(sx, sy, radiusPx + 8) : undefined;
-  const occHidden = (p: Pt3): boolean => occludedBy(k, pf, p, skip, occluders);
+  // 0-D 候选：只对「屏上盖住候选点的那一格」里的膜做遮挡（缩远时指针周围 32 px 内有几百张膜，逐候选只看它自己那格 ≈ 1/10）；
+  // 1-D 可见区间：只需要候选 t 附近（ε 内）的遮挡，取指针 ε_combo 内的膜
+  const occluders = idx ? idx.facesNear(sx, sy, E.combo + 8) : undefined;
+  perf.last["snap.occluders"] = occluders?.length ?? -1;
+  perf.last["snap.hidCalls"] = 0; perf.last["snap.spanCalls"] = 0;
+  const occHidden = (p: Pt3): boolean => {
+    perf.last["snap.hidCalls"]++;
+    if (idx && pf.project) { const q = pf.project(p, vp); if (q) return occludedBy(k, pf, p, skip, idx.facesNear(q.x, q.y, 0)); }
+    return occludedBy(k, pf, p, skip, occluders);
+  };
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
     alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand, eps: E,
     cursor: { x: sx, y: sy, vp, radiusPx } });
   const sol = perf.time("snap.solve", () => solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: E.combo,
     hidden: occHidden,
-    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, pf, a, dirL, tMin, tMax, skip, occluders),
+    spans1D: (a, dirL, tMin, tMax) => { perf.last["snap.spanCalls"]++; return occludedSpansOnLine(k, pf, a, dirL, tMin, tMax, skip, occluders); },
   }));
   perf.last["snap.constraints"] = C.length;
   if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };

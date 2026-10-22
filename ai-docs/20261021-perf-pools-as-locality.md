@@ -61,6 +61,17 @@ GTA VCS 级 = 几百个物体 × 几十到几百面 = 1–5 万面。**按 user 
 
 做完 1–3，场景总量只影响「变了的池」和「指针附近的池」；这就是 SU / PSP 游戏那种「实体多但每帧只碰一点点」的形状。顺序建议：3（最小、立刻见效）→ 1 → 2（最大，改渲染结构）。
 
+## 4½. 池级局部性落地（v0.9.15）：§4 的 1–3 都落了，外加 user 的三问
+
+user 10-21 夜：「还得想一下很多实例和很多组的情况。以及如果transform最大的uber组会发生什么。要不要proxy」。答：**不做 proxy**。
+
+- **池版本号** `Kernel.rev`：每个改写动词 +1，是下面所有缓存的键（`test/kernel-rev.test.ts` 反射守卫，加新动词必须登记）。
+- **合成视图（§4-1）**：每槽的世界几何 = 缓存单元 `SlotPart`（键 = kernel 对象 × 槽序号；失效 = rev 或变换变了）；查询按 gid 的槽序号路由到 part。**在手里的槽 = 空 part**：它本来就不吸附、不遮挡，渲染只改矩阵 → 拖 uber 组每帧 ≈ 0。
+- **渲染（§4-2）**：每 kernel 一份本地坐标几何（同 definition 的 N 个实例共用），每槽一个 three Group 带矩阵；选中 / 悬停 = 覆盖层；法向视空间 `normalMatrix`。变体按 (rev, definition, 材质表长, 淡出, 线稿风格) 缓存，两代没人用的释放。
+- **拾取 / 吸附（§4-3）**：屏幕索引按 part 复合（子索引按 (part, 相机戳) 缓存），`pickEntity / pickFace` 也走索引；遮挡只看盖住候选点那一格的膜。
+- **数字**（`bench-pools.mjs`，每帧中位数）：inst 200 拖实例 23 → 16 ms、进组件推拉 29 → 15（渲染重建 10 → 0.2 / 0.8）；groups 100 拖 13.5 → 8、推拉 17 → 9；uber 200 拖 13.6 → **1.2**。
+- **还剩**：① hover 的 buildConstraints 候选链 / 近膜筛（缩远时 10–18 ms）；② definition 改了 → 该 definition 全部实例的 part 重算（200 实例 15 ms，每槽 74 µs：可共享本地结构只变换点）；③ undo = Scene clone → 全部 kernel 新对象 → 全部缓存重建一次（History 结构共享留后）；④ draw call = 槽数 ×（面 + 线 + 贴图材质），很多组 → Unity 式静态合批（按父上下文合块、块存父局部坐标）；很多实例 → InstancedMesh（同 definition 一个 draw call）。④ 两条都等 bench 测到 draw call 成瓶颈再上（swiftshader 的 600 个对象 0.6 ms 不代表 iPad）。
+
 ## 5. 不做 / 以后
 
 - Bentley–Ottmann 换 all-pairs：空间网格够用，先不上扫描线。

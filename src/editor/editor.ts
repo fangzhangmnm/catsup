@@ -42,7 +42,7 @@ import { type Op, edgeKey, faceKey } from "./ops.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
 import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
-import { type PoolSlot, WorldView, slotKey } from "../scene/world-view.ts";
+import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
 export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
@@ -295,7 +295,9 @@ export class Editor {
     const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
+    PART_STATS.ms = 0; PART_STATS.n = 0;
     const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides));
+    perf.last["worldView.parts"] = PART_STATS.ms; perf.last["worldView.partsN"] = PART_STATS.n;
     this.viewCache = { key, view };
     return view;
   }
@@ -1416,8 +1418,8 @@ export class Editor {
       const tool = this._tool;
       const view = this.liveWorld();
       if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || (tool === "rotate" && this.rotStage === 0)) {
-        const plane = drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y);
-        this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y);
+        const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
+        this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y));
         this.trackCharge(this.snapInfo);
       } else if (tool === "rotate" && this.rotStage === 1 && this.rotCenter) {
         this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y);
@@ -1434,7 +1436,7 @@ export class Editor {
         this.hoverPool = c.kind === "pool" ? c.key : null;
       }
       this.updateTip(ev.clientX, ev.clientY);
-      this.draw();
+      perf.time("hover.draw", () => this.draw());
       return;
     }
     this.trackGesture(s, ev.travel);

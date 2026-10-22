@@ -20,6 +20,7 @@ import {
 import { rayPlane } from "./camera.ts";
 import type { PointerFrame, Viewport } from "./pointer-frame.ts";
 import { type DrawPlane, type Snap3, NO_HAND, occludedBy, resolvePlane } from "./solver.ts";
+import { ScreenIndex } from "./screen-index.ts";
 
 // 兼容 re-export（调用方历史入口；新码请直接 import solver）
 export { type AlignHand, type AlignQuery, type DrawPlane, type Snap3, type SnapHint, type SnapKind, NO_HAND, axisPlane, cameraPlane, grazing, inferAxisByDirection, resolvePlane, resolveRectPlane, snapPoint } from "./solver.ts";
@@ -35,22 +36,28 @@ export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number): HitResult3 {
   // 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：顶点/边只在**看得见**时参赛——
   // 与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡，所以棱/角本身不会被自己的邻膜挡掉）。
+  // 屏幕索引（#22）：候选只从指针附近的格取；遮挡只看盖住候选点那一格的膜（超集，判定照旧）。
+  const idx = ScreenIndex.for(k, pf, vp);
+  const hidden = (p: Pt3): boolean => {
+    if (idx && pf.project) { const q = pf.project(p, vp); if (q) return occludedBy(k, pf, p, undefined, idx.facesNear(q.x, q.y, 0)); }
+    return occludedBy(k, pf, p);
+  };
   let bestV: VertexId | undefined, bestVd = tolPx;
-  for (const v of k.vertices()) {
+  for (const v of idx ? idx.verticesNear(sx, sy, tolPx + 1) : k.vertices()) {
     const p = { x: v.x, y: v.y, z: v.z };
     const d = pf.distTo(sx, sy, p, vp);
-    if (d <= bestVd && !occludedBy(k, pf, p)) { bestVd = d; bestV = v.id; }
+    if (d <= bestVd && !hidden(p)) { bestVd = d; bestV = v.id; }
   }
   if (bestV !== undefined) return { vertex: bestV };
 
   let bestE: EdgeId | undefined, bestEd = tolPx;
-  for (const e of k.edges()) {
+  for (const e of idx ? idx.edgesNear(sx, sy, tolPx + 1) : k.edges()) {
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const { d, t } = pf.distToSeg(sx, sy, a, b, vp);
     if (d > bestEd) continue;
     // 度量上的最近点回投到边上（透视下参数略偏，仍在边上，遮挡判定够用）
     const q = { x: a.x + t * (b.x - a.x), y: a.y + t * (b.y - a.y), z: a.z + t * (b.z - a.z) };
-    if (occludedBy(k, pf, q)) continue;
+    if (hidden(q)) continue;
     bestEd = d; bestE = e.id;
   }
   if (bestE !== undefined) return { edge: bestE };
@@ -70,8 +77,9 @@ function preferActive(k: GeomView, fid: FaceId): boolean {
 }
 export function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): FaceId | undefined {
   const ray = pf.ray(sx, sy, vp);
+  const idx = ScreenIndex.for(k, pf, vp);
   let bestF: FaceId | undefined, bestT = Infinity;
-  for (const f of k.faces()) {
+  for (const f of idx ? idx.facesNear(sx, sy, 0) : k.faces()) {
     const rec = k.planeOf(f.id);
     if (!rec) continue;
     const p = rayPlane(ray.origin, ray.dir, rec.plane.n, rec.plane.d);

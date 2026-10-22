@@ -52,6 +52,9 @@ export declare class Kernel {
     edgeLayers: EdgeLayers;
     /** 面属性层登记处（material = definition 槽号；按事件血缘继承）。 */
     faceLayers: FaceLayers;
+    /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
+    private _rev;
+    get rev(): number;
     /** 便利视图：软边集（不画线）/ 曲线成员边集（圆 / 弧近似边，画线；推拉侧棱软）。 */
     get soft(): Set<EdgeId>;
     get curve(): Set<EdgeId>;

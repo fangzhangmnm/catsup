@@ -78,6 +78,17 @@ export declare class Renderer3 {
     private lineMatPx;
     private faceMesh;
     private faceMat;
+    private faceMatTop;
+    private pixelMat;
+    private texMats;
+    private slotNodes;
+    private geomCache;
+    private geomsAlive;
+    private syncGen;
+    private poolKey;
+    private overlayKey;
+    private emptyGeo;
+    private emptyLineGeo;
     private texMeshes;
     private texCache;
     private faceMeshOther;
@@ -171,6 +182,14 @@ export declare class Renderer3 {
     setLineStyle(style: LineStyle): void;
     getLineStyle(): LineStyle;
     private rebuildEdges;
+    private syncPools;
+    private hidePools;
+    private makeSlotNodes;
+    private texMatFor;
+    private kernelGeom;
+    private disposeGeom;
+    /** 覆盖层：选中 / 悬停的面（世界坐标，只这几张）+ 选中 / 刮擦 / 悬停的边（粗线）。 */
+    private rebuildOverlay;
     /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */
     private setLineGeometry;
     /** XR：key light 钉在 HMD 相机系（同 keyLight 公式）。 */

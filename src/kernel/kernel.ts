@@ -74,6 +74,9 @@ export class Kernel {
   edgeLayers = new EdgeLayers();
   /** 面属性层登记处（material = definition 槽号；按事件血缘继承）。 */
   faceLayers = new FaceLayers();
+  /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
+  private _rev = 0;
+  get rev(): number { return this._rev; }
   /** 便利视图：软边集（不画线）/ 曲线成员边集（圆 / 弧近似边，画线；推拉侧棱软）。 */
   get soft(): Set<EdgeId> { return this.edgeLayers.layer("soft"); }
   get curve(): Set<EdgeId> { return this.edgeLayers.layer("curve"); }
@@ -176,6 +179,7 @@ export class Kernel {
     k.planes = this.planes.clone();
     k.edgeLayers = this.edgeLayers.clone();
     k.faceLayers = this.faceLayers.clone();
+    k._rev = this._rev;
     return k; // 事件日志不拷：副本的 log 只属于预演
   }
 
@@ -183,6 +187,7 @@ export class Kernel {
 
   /** 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层（圆 → ["curve"]）。 */
   addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: { layers?: readonly string[]; curve?: boolean }): FaceEvent[] {
+    this._rev++;
     const gesture: Seg3[] = segs.map(([a, b]) => ({ a: toPt3(a), b: toPt3(b) }));
     const names = [...(opts?.layers ?? []), ...(opts?.curve ? ["curve"] : [])];
     const layerSegs: Record<string, Seg3[]> = {};
@@ -192,6 +197,7 @@ export class Kernel {
 
   /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
   eraseEdges(ids: readonly EdgeId[]): FaceEvent[] {
+    this._rev++;
     const valid = [...new Set(ids)].filter((id) => this.graph.hasEdge(id));
     const verdicts = this.store.snapshotEraseVerdicts(valid);
     for (const id of valid) this.graph.removeEdge(id);
@@ -200,6 +206,7 @@ export class Kernel {
 
   /** 只删膜不动拓扑（「闭环无面」态；之后 retrace 可复生）。 */
   eraseFaces(ids: readonly FaceId[]): FaceEvent[] {
+    this._rev++;
     return this.emit(this.store.eraseFaces(this.graph, ids));
   }
 
@@ -210,6 +217,7 @@ export class Kernel {
    * 不注入手势 → 永不生膜（守恒律 by construction）。rotate / scale 同走此路（顶点映射不同）。
    */
   moveVertices(moves: readonly { id: VertexId; to: PtIn }[]): FaceEvent[] {
+    this._rev++;
     const snaps = this.store.captureSnaps(this.graph);
     const targets = new Map<VertexId, Pt3>();
     for (const mv of moves) if (this.graph.hasVertex(mv.id)) targets.set(mv.id, quantize3(toPt3(mv.to)));
@@ -271,6 +279,7 @@ export class Kernel {
    * 顶点守卫 / 频谱整段退役：第三张只共享顶点的膜的像没动 → 它不动（邻居形状不可侵犯 by construction）。
    */
   pushPull(id: FaceId, dist: number, opts?: { settleLanding?: boolean }): FaceEvent[] {
+    this._rev++;
     const settleLanding = opts?.settleLanding !== false;
     const f = this.store.face(id);
     if (!f) return [];
@@ -342,6 +351,7 @@ export class Kernel {
    * 预检用 sweepStations（编辑器选取向 / 起点时已跑过）；这里失败就 throw，commitOp 回滚。
    */
   followMe(id: FaceId, pathIn: readonly Pt3[], opts: { closed: boolean; smoothJoints?: readonly boolean[] }): FaceEvent[] {
+    this._rev++;
     const f = this.store.face(id);
     if (!f) return [];
     const g = this.graph;
@@ -389,12 +399,14 @@ export class Kernel {
    * added 2026-10-21 by Claude Fable 5.1（group / component 纪元）
    */
   absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], opts?: { edgeSegs?: Readonly<Record<string, readonly Seg3[]>>; faceLayers?: readonly (Readonly<Record<string, number>> | undefined)[] }): FaceEvent[] {
+    this._rev++;
     const images: Image[] = faces.map((rings, i) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or", ...(opts?.faceLayers?.[i] ? { face: opts.faceLayers[i] } : {}) }));
     return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images, wires, edgeLayers: this.edgeLayers, layerSegs: opts?.edgeSegs, faceLayers: this.faceLayers }));
   }
 
   /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */
   transformAll(fn: (p: Pt3) => Pt3): FaceEvent[] {
+    this._rev++;
     return this.moveVertices(this.graph.vertices().map((v) => ({ id: v.id, to: fn({ x: v.x, y: v.y, z: v.z }) })));
   }
 
@@ -458,11 +470,13 @@ export class Kernel {
 
   /** 涂材质（槽号；null = 回默认）。 */
   setFaceMaterial(ids: readonly FaceId[], slot: number | null): void {
+    this._rev++;
     for (const id of ids) { if (!this.store.face(id)) continue; if (slot === null) this.faceLayers.delete("material", id); else this.faceLayers.set("material", id, slot); }
   }
   faceMaterialOf(id: FaceId): number | undefined { return this.faceLayers.get("material", id); }
   /** 给一批边打 / 去一个边层（软化 / 硬化工具）。 */
   setEdgeLayer(name: string, ids: readonly EdgeId[], on: boolean): void {
+    this._rev++;
     for (const id of ids) { if (!this.graph.hasEdge(id)) continue; if (on) this.edgeLayers.add(name, id); else this.edgeLayers.delete(name, id); }
   }
 

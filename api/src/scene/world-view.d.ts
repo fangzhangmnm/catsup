@@ -40,15 +40,26 @@ export interface PoolSlot {
     inContext: boolean; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */
     overridden: boolean;
 }
+/** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
+export interface SlotPart {
+    rev: number;
+    xform: Xform;
+    verts: Map<VertexId, Vertex>;
+    edges: Map<EdgeId, Edge>;
+    faces: Map<FaceId, Face>;
+    planes: Map<FaceId, PlaneRec>;
+    soft: Set<EdgeId>;
+    smooth: Set<EdgeId>;
+}
+/** 本进程累计的 part 重算统计（编辑器把它抄进 perf；scene 层不 import editor）。 */
+export declare const PART_STATS: {
+    ms: number;
+    n: number;
+};
 export declare class WorldView implements GeomView {
-    private verts;
-    private edgeMap;
-    private faceMap;
-    private planeMap;
-    private faceSlot;
-    private softSet;
-    private smoothSet;
     readonly slots: PoolSlot[];
+    /** 每槽一份世界坐标几何（缓存单元；屏幕索引也按它缓存）。在手里的槽 = 空 part（见 OVERRIDDEN_PARTS_EMPTY）。 */
+    readonly parts: SlotPart[];
     private byKey;
     readonly graph: GeomView["graph"];
     /**
@@ -63,7 +74,7 @@ export declare class WorldView implements GeomView {
         match(pool: PoolRef, chain: readonly InstId[]): boolean;
         xform: Xform;
     }[]);
-    private ingest;
+    private partOf;
     vertices(): Vertex[];
     edges(): Edge[];
     isSoft(id: EdgeId): boolean;
@@ -76,6 +87,9 @@ export declare class WorldView implements GeomView {
         outer: Pt3[];
         holes: Pt3[][];
     } | undefined;
+    /** 某个槽的几何（按池遍历：渲染 / 拾取先按槽筛）。 */
+    slotFaces(index: number): Iterable<Face>;
+    slotEdges(index: number): Iterable<Edge>;
     slotOf(gid: number): PoolSlot;
     local(gid: number): {
         slot: PoolSlot;

@@ -2,6 +2,8 @@
 // 求解器 / 拾取 / 渲染只认 GeomView（Kernel 结构上就是一个 GeomView）；id 全局化 = 池序号 × ID_STRIDE + 本地 id，
 // `local(gid)` 反查回池。活动池可被「影子副本」替换（手势预演）；可对若干池叠加临时变换（整体 move / rotate / scale 的预演，渲染用）。
 // created 2026-10-21 by Claude Fable 5.1
+// **按槽缓存（#22 池级局部性，2026-10-21）**：每个槽变换到世界坐标的那份几何（parts）按 (kernel 对象, 槽序号) 缓存，键 = 池版本号 Kernel.rev + 变换；
+// 新建一份 WorldView 只重算「池变了 / 变换变了」的槽（预演 = 只有活动池的影子副本），其余槽直接复用上一份的 part。查询按 gid 的槽序号路由到 part。
 import type { Kernel } from "../kernel/kernel.ts";
 import type { Edge, EdgeId, FaceId, Pt3, Vertex, VertexId } from "../kernel/kernel.ts";
 import type { Face } from "../kernel/face-lifecycle.ts";
@@ -32,15 +34,56 @@ export const ID_STRIDE = 1 << 22;
 
 export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; }
 
+
+/** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
+export interface SlotPart {
+  rev: number; xform: Xform;
+  verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>;
+  soft: Set<EdgeId>; smooth: Set<EdgeId>;
+}
+/** kernel 对象 → 槽序号 → part（同一 definition 的多个实例 = 同一 kernel、不同槽 / 变换）。 */
+const PART_CACHE = new WeakMap<Kernel, Map<number, SlotPart>>();
+/** 本进程累计的 part 重算统计（编辑器把它抄进 perf；scene 层不 import editor）。 */
+export const PART_STATS = { ms: 0, n: 0 };
+/** 在手里（整体变换预演）的槽不算世界坐标：它不吸附、不遮挡、渲染只改矩阵——拖最大的 uber 组每帧成本 ≈ 0（user 2026-10-21「如果transform最大的uber组会发生什么」）。 */
+const OVERRIDDEN_PARTS_EMPTY = true;
+const emptyPart = (m: Xform): SlotPart => ({ rev: -1, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set() });
+const sameXform = (a: Xform, b: Xform): boolean => { for (let i = 0; i < 12; i++) if (a[i] !== b[i]) return false; return true; };
+
+function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
+  const off = index * ID_STRIDE;
+  const ident = isIdentity(m);
+  const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set() };
+  for (const v of k.vertices()) {
+    const p = ident ? v : applyPt(m, v);
+    part.verts.set(v.id + off, { id: v.id + off, x: p.x, y: p.y, z: p.z, edges: new Set([...v.edges].map((e) => e + off)) });
+  }
+  for (const e of k.edges()) part.edges.set(e.id + off, { id: e.id + off, a: e.a + off, b: e.b + off, faceLinks: e.faceLinks.map((f) => f + off) });
+  for (const e of k.soft) part.soft.add(e + off);
+  for (const e of k.edgeLayers.layer("smooth")) part.smooth.add(e + off);
+  for (const f of k.faces()) {
+    const rec = k.planeOf(f.id)!;
+    let plane: PlaneParams = rec.plane, basis = rec.basis;
+    const mapRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ edge: d.edge + off, forward: d.forward })), pts: r.pts });
+    let outer = mapRing(f.outer), holes = f.holes.map(mapRing);
+    if (!ident) {
+      plane = applyPlane(m, rec.plane);
+      basis = planeBasis(plane);
+      const reproject = (r: Ring, src: Ring): Ring => ({ edges: r.edges, pts: src.edges.map((d) => { const e = k.graph.edge(d.edge); return projectToPlane(applyPt(m, k.graph.pt(d.forward ? e.a : e.b)), basis); }) });
+      outer = reproject(outer, f.outer);
+      holes = holes.map((h, i) => reproject(h, f.holes[i]));
+    }
+    const gid = f.id + off;
+    part.faces.set(gid, { id: gid, planeId: rec.id + off, outer, holes });
+    part.planes.set(gid, { id: rec.id + off, plane, basis });
+  }
+  return part;
+}
+
 export class WorldView implements GeomView {
-  private verts = new Map<VertexId, Vertex>();
-  private edgeMap = new Map<EdgeId, Edge>();
-  private faceMap = new Map<FaceId, Face>();
-  private planeMap = new Map<FaceId, PlaneRec>();
-  private faceSlot = new Map<FaceId, number>();
-  private softSet = new Set<EdgeId>();
-  private smoothSet = new Set<EdgeId>();
   readonly slots: PoolSlot[] = [];
+  /** 每槽一份世界坐标几何（缓存单元；屏幕索引也按它缓存）。在手里的槽 = 空 part（见 OVERRIDDEN_PARTS_EMPTY）。 */
+  readonly parts: SlotPart[] = [];
   private byKey = new Map<string, number>();
   readonly graph: GeomView["graph"];
 
@@ -56,6 +99,7 @@ export class WorldView implements GeomView {
     this.scene = scene; this.ctx = ctx;   // 不用参数属性：node strip-types 不支持
     const activePool = scene.poolOfContext(ctx);
     const chainKey = ctx.chain.join("/");
+    const used = new Map<Kernel, Set<number>>();
     for (const { pool, xform, chain } of scene.pools()) {
       const isActive = samePool(pool, activePool) && chain.join("/") === chainKey;
       const sameDefChain = chain.join("/") === chainKey;
@@ -66,67 +110,51 @@ export class WorldView implements GeomView {
       const kernel = isActive && live ? live : scene.kernelOf(pool);
       this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain, overridden });
       this.byKey.set(key, index);
-      this.ingest(index, kernel, m);
+      // part：命中缓存（同 kernel 对象 + 同槽序号 + 池版本没变 + 变换没变）就复用，否则重算这一个槽
+      if (overridden && OVERRIDDEN_PARTS_EMPTY) { this.parts.push(emptyPart(m)); continue; }
+      let perK = PART_CACHE.get(kernel);
+      if (!perK) { perK = new Map(); PART_CACHE.set(kernel, perK); }
+      let part = perK.get(index);
+      if (!part || part.rev !== kernel.rev || !sameXform(part.xform, m)) { const t = performance.now(); part = buildPart(index, kernel, m); PART_STATS.ms += performance.now() - t; PART_STATS.n++; perK.set(index, part); }
+      this.parts.push(part);
+      (used.get(kernel) ?? used.set(kernel, new Set()).get(kernel)!).add(index);
     }
-    const verts = this.verts, edges = this.edgeMap;
+    // 修剪：一个 kernel 在本次没用到的槽序号（池增删后序号挪了）丢掉，缓存体积 = 槽数
+    for (const [k, idxs] of used) { const perK = PART_CACHE.get(k)!; for (const i of [...perK.keys()]) if (!idxs.has(i)) perK.delete(i); }
+    const parts = this.parts;
+    const partOf = (id: number): SlotPart | undefined => parts[Math.floor(id / ID_STRIDE)];
     this.graph = {
-      pt: (id) => { const v = verts.get(id); if (!v) throw new Error(`vertex ${id} 不存在`); return { x: v.x, y: v.y, z: v.z }; },
-      edge: (id) => { const e = edges.get(id); if (!e) throw new Error(`edge ${id} 不存在`); return e; },
-      vertex: (id) => { const v = verts.get(id); if (!v) throw new Error(`vertex ${id} 不存在`); return v; },
-      hasEdge: (id) => edges.has(id),
-      hasVertex: (id) => verts.has(id),
+      pt: (id) => { const v = partOf(id)?.verts.get(id); if (!v) throw new Error(`vertex ${id} 不存在`); return { x: v.x, y: v.y, z: v.z }; },
+      edge: (id) => { const e = partOf(id)?.edges.get(id); if (!e) throw new Error(`edge ${id} 不存在`); return e; },
+      vertex: (id) => { const v = partOf(id)?.verts.get(id); if (!v) throw new Error(`vertex ${id} 不存在`); return v; },
+      hasEdge: (id) => partOf(id)?.edges.has(id) ?? false,
+      hasVertex: (id) => partOf(id)?.verts.has(id) ?? false,
     };
   }
+  private partOf(id: number): SlotPart | undefined { return this.parts[Math.floor(id / ID_STRIDE)]; }
 
-  private ingest(index: number, k: Kernel, m: Xform): void {
-    const off = index * ID_STRIDE;
-    const ident = isIdentity(m);
-    for (const v of k.vertices()) {
-      const p = ident ? v : applyPt(m, v);
-      this.verts.set(v.id + off, { id: v.id + off, x: p.x, y: p.y, z: p.z, edges: new Set([...v.edges].map((e) => e + off)) });
-    }
-    for (const e of k.edges()) this.edgeMap.set(e.id + off, { id: e.id + off, a: e.a + off, b: e.b + off, faceLinks: e.faceLinks.map((f) => f + off) });
-    for (const e of k.soft) this.softSet.add(e + off);
-    for (const e of k.edgeLayers.layer("smooth")) this.smoothSet.add(e + off);
-    for (const f of k.faces()) {
-      const rec = k.planeOf(f.id)!;
-      let plane: PlaneParams = rec.plane, basis = rec.basis;
-      const mapRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ edge: d.edge + off, forward: d.forward })), pts: r.pts });
-      let outer = mapRing(f.outer), holes = f.holes.map(mapRing);
-      if (!ident) {
-        plane = applyPlane(m, rec.plane);
-        basis = planeBasis(plane);
-        const reproject = (r: Ring, src: Ring): Ring => ({ edges: r.edges, pts: src.edges.map((d) => { const e = k.graph.edge(d.edge); return projectToPlane(applyPt(m, k.graph.pt(d.forward ? e.a : e.b)), basis); }) });
-        outer = reproject(outer, f.outer);
-        holes = holes.map((h, i) => reproject(h, f.holes[i]));
-      }
-      const gid = f.id + off;
-      this.faceMap.set(gid, { id: gid, planeId: rec.id + off, outer, holes });
-      this.planeMap.set(gid, { id: rec.id + off, plane, basis });
-      this.faceSlot.set(gid, index);
-    }
-  }
-
-  vertices(): Vertex[] { return [...this.verts.values()]; }
-  edges(): Edge[] { return [...this.edgeMap.values()]; }
-  isSoft(id: EdgeId): boolean { return this.softSet.has(id); }
-  isSmooth(id: EdgeId): boolean { return this.smoothSet.has(id); }
+  vertices(): Vertex[] { const out: Vertex[] = []; for (const p of this.parts) for (const v of p.verts.values()) out.push(v); return out; }
+  edges(): Edge[] { const out: Edge[] = []; for (const p of this.parts) for (const e of p.edges.values()) out.push(e); return out; }
+  isSoft(id: EdgeId): boolean { return this.partOf(id)?.soft.has(id) ?? false; }
+  isSmooth(id: EdgeId): boolean { return this.partOf(id)?.smooth.has(id) ?? false; }
   faceMaterial(id: FaceId): Material | null {
-    const slot = this.faceSlot.get(id);
-    if (slot === undefined) return null;
-    const ps = this.slots[slot];
+    const ps = this.faceSlotOf(id);
+    if (!ps) return null;
     const { id: local } = this.local(id);
     return this.scene.materialOfSlot(ps.pool.def, ps.kernel.faceMaterialOf(local));
   }
-  faces(): Face[] { return [...this.faceMap.values()]; }
-  face(id: FaceId): Face | undefined { return this.faceMap.get(id); }
-  planeOf(id: FaceId): PlaneRec | undefined { return this.planeMap.get(id); }
+  faces(): Face[] { const out: Face[] = []; for (const p of this.parts) for (const f of p.faces.values()) out.push(f); return out; }
+  face(id: FaceId): Face | undefined { return this.partOf(id)?.faces.get(id); }
+  planeOf(id: FaceId): PlaneRec | undefined { return this.partOf(id)?.planes.get(id); }
   faceRings3(id: FaceId): { outer: Pt3[]; holes: Pt3[][] } | undefined {
-    const f = this.faceMap.get(id);
+    const f = this.face(id);
     if (!f) return undefined;
     const ring3 = (r: Ring): Pt3[] => r.edges.map((d) => this.graph.pt(d.forward ? this.graph.edge(d.edge).a : this.graph.edge(d.edge).b));
     return { outer: ring3(f.outer), holes: f.holes.map(ring3) };
   }
+  /** 某个槽的几何（按池遍历：渲染 / 拾取先按槽筛）。 */
+  slotFaces(index: number): Iterable<Face> { return this.parts[index]?.faces.values() ?? []; }
+  slotEdges(index: number): Iterable<Edge> { return this.parts[index]?.edges.values() ?? []; }
 
   // ---------- 全局 id ↔ 池 ----------
   slotOf(gid: number): PoolSlot { return this.slots[Math.floor(gid / ID_STRIDE)]; }
@@ -137,7 +165,7 @@ export class WorldView implements GeomView {
   isActive(gid: number): boolean { return this.slotOf(gid)?.active ?? false; }
   slotByKey(key: string): PoolSlot | undefined { const i = this.byKey.get(key); return i === undefined ? undefined : this.slots[i]; }
   /** 面所在的池槽。 */
-  faceSlotOf(gid: FaceId): PoolSlot | undefined { const i = this.faceSlot.get(gid); return i === undefined ? undefined : this.slots[i]; }
+  faceSlotOf(gid: FaceId): PoolSlot | undefined { const i = Math.floor(gid / ID_STRIDE); return this.parts[i]?.faces.has(gid) ? this.slots[i] : undefined; }
 }
 
 export const slotKey = (s: { chain: readonly InstId[]; pool: PoolRef }): string => `${s.chain.join("/")}#${poolKey(s.pool)}`;

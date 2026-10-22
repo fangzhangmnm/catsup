@@ -36,8 +36,11 @@ import { LineSegmentsGeometry } from "../vendor/three/addons/lines/LineSegmentsG
 import { LineMaterial } from "../vendor/three/addons/lines/LineMaterial.js";
 import { perf } from "./perf-stats.ts";
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
-import type { GeomView } from "../scene/world-view.ts";
-import { ID_STRIDE } from "../scene/world-view.ts";
+import type { GeomView, PoolSlot, WorldView } from "../scene/world-view.ts";
+import { ID_STRIDE, slotKey } from "../scene/world-view.ts";
+import type { Kernel } from "../kernel/kernel.ts";
+import type { Material, Scene } from "../scene/scene.ts";
+import type { Xform } from "../scene/xform.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { dot3, sub3 } from "../kernel/geom.ts";
@@ -107,6 +110,11 @@ const XR_PX_PER_DEG = 32;
 const XR_LINE_REF_H = 900;
 const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 
+/** 一个 kernel（池）的一份 GPU 几何（本地坐标；同 definition 的所有实例共用，各自一个矩阵）。变体键 = 池版本 | definition | 材质表长 | 淡出 | 线稿风格。 */
+interface KernelGeom { key: string; kernel: Kernel; plain: any; tex: { mat: Material; geo: any }[]; pixel: any; thick: any; gen: number; }
+/** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
+interface SlotNodes { root: any; plain: any; tex: { mesh: any }[]; pixel: any; thick: any; gen: number; }
+
 export interface ViewState {
   selectionEdges: ReadonlySet<EdgeId>;
   selectionFaces: ReadonlySet<FaceId>;
@@ -136,7 +144,7 @@ const FACE_VERT = /* glsl */`
   varying vec3 vNormal;
   void main() {
     vColor = aColor;
-    vNormal = normal;
+    vNormal = normalMatrix * normal;   // 视空间（每槽自己的矩阵、非均匀缩放 / 镜像都对）；uLight 也按视空间喂
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }`;
 const FACE_FRAG = /* glsl */`
@@ -153,7 +161,7 @@ const TEX_VERT = /* glsl */`
   varying vec2 vUv;
   varying vec3 vColor;
   varying vec3 vNormal;
-  void main() { vUv = aUv; vColor = aColor; vNormal = normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+  void main() { vUv = aUv; vColor = aColor; vNormal = normalMatrix * normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const TEX_FRAG = /* glsl */`
   uniform vec3 uLight;
   uniform sampler2D uMap;
@@ -181,6 +189,16 @@ export class Renderer3 {
   private lineMatPx: number[] = [];
   // ---- 持久节点（retained）----
   private faceMesh: any; private faceMat: any;
+  // ---- 池级几何（#22 池级局部性，2026-10-21）：每个槽一组节点 + 每个 kernel 一份共享几何；选中 / 悬停走覆盖层 ----
+  private faceMatTop: any;                          // 覆盖层材质（polygonOffset 0：压在底几何上）
+  private pixelMat: any;                            // 原生线材质（顶点色，共享）
+  private texMats = new Map<object, any>();         // 贴图材质对象 → 共享 ShaderMaterial（uMap）
+  private slotNodes = new Map<string, SlotNodes>();
+  private geomCache = new WeakMap<Kernel, KernelGeom[]>();
+  private geomsAlive = new Set<KernelGeom>();
+  private syncGen = 0;
+  private poolKey = ""; private overlayKey = "";
+  private emptyGeo: any; private emptyLineGeo: any;
   private texMeshes: { mesh: any; mat: any; tex: any; key: string }[] = [];   // 每种贴图材质一份网格（自己的 UV）
   private texCache = new Map<object, any>();                                  // Material 对象 → three Texture（原图解码一次）
   private faceMeshOther: any; private faceMatOther: any;
@@ -238,6 +256,15 @@ export class Renderer3 {
     this.faceMeshOther = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMatOther);
     this.faceMeshOther.frustumCulled = false; this.faceMeshOther.visible = false;
     this.scene.add(this.faceMeshOther);
+    // 覆盖层（选中 / 悬停的面）：同 shader、polygonOffset 0 → 压在各槽底几何（1 / 4）上面
+    this.faceMatTop = new THREE.ShaderMaterial({
+      vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
+      uniforms: { uLight: this.faceMat.uniforms.uLight },
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 0,
+    });
+    this.pixelMat = new THREE.LineBasicMaterial({ vertexColors: true });
+    this.emptyGeo = new THREE.BufferGeometry();
+    this.emptyLineGeo = new LineSegmentsGeometry();
     // 边：一份粗线（顶点色）
     this.edgeMat = this.lineMat(EDGE_PX, { offset: true, vertexColors: true });
     this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
@@ -489,16 +516,29 @@ export class Renderer3 {
     const kid = this.kernelId(kd), rev = view.revision ?? 0;
     const selF = [...view.selectionFaces].join(","), selE = [...view.selectionEdges].join(",");
 
-    // ---- 面：光向 uniform 每帧；几何只在键变时重建 ----
+    // ---- 面：光向 uniform 每帧（视空间：法向走 normalMatrix）；几何只在键变时重建 ----
     const L = presenting ? this.xrKeyLight() : keyLight(cam);
-    this.faceMat.uniforms.uLight.value.set(L.x, L.y, L.z);
+    cam3.updateMatrixWorld();
+    this.scratchV.set(L.x, L.y, L.z).transformDirection(cam3.matrixWorldInverse);
+    this.faceMat.uniforms.uLight.value.copy(this.scratchV);
     const dimK = view.dimSlots ? [...view.dimSlots].join(",") : "";
-    const fk = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${dimK}`;
-    if (fk !== this.faceKey) { this.faceKey = fk; perf.time("rebuildFaces", () => this.rebuildFaces(kd, view)); }
-
-    // ---- 边 ----
-    const ek = `${kid}:${rev}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}:${dimK}`;
-    if (ek !== this.edgeKey) { this.edgeKey = ek; perf.time("rebuildEdges", () => this.rebuildEdges(kd, view)); }
+    const wv = kd as Partial<WorldView>;
+    if (wv.slots && wv.scene) {
+      // 池级路径：每槽一组节点 + 每 kernel 一份几何（只重建变了的池）；选中 / 悬停 = 覆盖层
+      const pk = `${kid}:${rev}:${dimK}:${this.lineStyle}`;
+      if (pk !== this.poolKey) { this.poolKey = pk; perf.time("syncPools", () => this.syncPools(kd as WorldView, view)); }
+      const ok = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}`;
+      if (ok !== this.overlayKey) { this.overlayKey = ok; perf.time("rebuildOverlay", () => this.rebuildOverlay(kd, view)); }
+      this.faceKey = ""; this.edgeKey = "";
+    } else {
+      // 平铺路径（没有槽的裸 GeomView）：整场景一份几何
+      this.hidePools();
+      const fk = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${dimK}`;
+      if (fk !== this.faceKey) { this.faceKey = fk; perf.time("rebuildFaces", () => this.rebuildFaces(kd, view)); }
+      const ek = `${kid}:${rev}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}:${dimK}`;
+      if (ek !== this.edgeKey) { this.edgeKey = ek; perf.time("rebuildEdges", () => this.rebuildEdges(kd, view)); }
+      this.poolKey = ""; this.overlayKey = "";
+    }
 
     // ---- 缩放柄 ----
     const hs = view.handles ?? [];
@@ -594,7 +634,7 @@ export class Renderer3 {
     if (this.renderer.xr.isPresenting) throw new Error("captureRgba: not available during an XR session");
     const rt = new THREE.WebGLRenderTarget(vp.w, vp.h, { depthBuffer: true });
     const prevKeys = { f: this.faceKey, e: this.edgeKey };
-    this.faceKey = ""; this.edgeKey = "";   // 强制按干净视图重建（选区/悬停不进缩略图）
+    this.faceKey = ""; this.edgeKey = ""; this.poolKey = ""; this.overlayKey = "";   // 强制按干净视图重建（选区/悬停不进缩略图）
     try {
       this.renderer.setRenderTarget(rt);
       this.render(k, cam, vp, view);
@@ -608,7 +648,7 @@ export class Renderer3 {
       this.renderer.setRenderTarget(null);
       rt.dispose();
       this.faceKey = prevKeys.f === "" ? "" : "";   // 下一帧按主视图键重建
-      this.edgeKey = "";
+      this.edgeKey = ""; this.poolKey = ""; this.overlayKey = "";
     }
   }
 
@@ -716,7 +756,7 @@ export class Renderer3 {
 
   /** 全部边 → 一份粗线（顶点色按类别）。 */
   /** 线稿风格（视图菜单「粗线稿」）。 */
-  setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.edgeKey = ""; } }
+  setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.edgeKey = ""; this.poolKey = ""; } }
   getLineStyle(): LineStyle { return this.lineStyle; }
 
   private rebuildEdges(kd: GeomView, view: ViewState): void {
@@ -750,6 +790,151 @@ export class Renderer3 {
       this.edgePixel.geometry = geo; old.dispose();
       this.edgePixel.visible = true;
     } else this.edgePixel.visible = false;
+  }
+
+
+  // ================= 池级几何（#22 池级局部性，2026-10-21，Claude Fable 5.1）=================
+  // 每个槽一个 Group（矩阵 = 槽的世界变换）→ 下面的网格引用「这个 kernel 的共享几何」（本地坐标）。
+  // 同 definition 的 N 个实例 = 一份几何 N 个矩阵；编辑某个池 = 只重建它那份；拖整棵子树 = 只改矩阵。
+  // 几何变体按 (池版本 rev, definition, 材质表长, 淡出, 线稿风格) 缓存；两代没人用的变体释放 GPU 缓冲。
+  private syncPools(kd: WorldView, view: ViewState): void {
+    this.syncGen++;
+    const dim = view.dimSlots;
+    const used = new Set<KernelGeom>();
+    for (const s of kd.slots) {
+      const key = slotKey(s);
+      let n = this.slotNodes.get(key);
+      if (!n) { n = this.makeSlotNodes(); this.slotNodes.set(key, n); }
+      n.gen = this.syncGen;
+      n.root.visible = true;
+      setMatrix(n.root, s.xform);
+      const g = this.kernelGeom(s.kernel, kd.scene, s.pool.def, !!dim?.has(s.index));
+      used.add(g);
+      // 面：活动池 polygonOffset 1、别的池 4（#25 重叠时活动池 / loose 几何赢）
+      n.plain.material = s.active ? this.faceMat : this.faceMatOther;
+      n.plain.geometry = g.plain ?? this.emptyGeo; n.plain.visible = !!g.plain;
+      for (let i = 0; i < Math.max(g.tex.length, n.tex.length); i++) {
+        const t = g.tex[i];
+        let slot = n.tex[i];
+        if (!t) { if (slot) slot.mesh.visible = false; continue; }
+        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(t.mat)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
+        slot.mesh.material = this.texMatFor(t.mat);
+        slot.mesh.geometry = t.geo; slot.mesh.visible = true;
+      }
+      // 边
+      if (this.lineStyle === "thick") { n.thick.geometry = g.thick ?? this.emptyLineGeo; n.thick.visible = !!g.thick; n.pixel.visible = false; }
+      else { n.pixel.geometry = g.pixel ?? this.emptyGeo; n.pixel.visible = !!g.pixel; n.thick.visible = false; }
+    }
+    // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
+    for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
+    // 几何变体：本代用到的续命；两代没人用的释放（预演影子副本每帧一个新 kernel → 上一帧的那份下下帧释放；checkpoint 的那份手势结束回来还在）
+    for (const g of this.geomsAlive) {
+      if (used.has(g)) { g.gen = this.syncGen; continue; }
+      if (g.gen < this.syncGen - 1) this.disposeGeom(g);
+    }
+    this.faceMeshOther.visible = false;   // 平铺路径的节点
+  }
+  private hidePools(): void { for (const n of this.slotNodes.values()) n.root.visible = false; }
+  private makeSlotNodes(): SlotNodes {
+    const root = new THREE.Group();
+    root.matrixAutoUpdate = false;
+    const plain = new THREE.Mesh(this.emptyGeo, this.faceMat); plain.frustumCulled = false; plain.visible = false;
+    const pixel = new THREE.LineSegments(this.emptyGeo, this.pixelMat); pixel.frustumCulled = false; pixel.visible = false;
+    const thick = new LineSegments2(this.emptyLineGeo, this.edgeMat); thick.frustumCulled = false; thick.visible = false;
+    root.add(plain); root.add(pixel); root.add(thick);
+    this.scene.add(root);
+    return { root, plain, tex: [], pixel, thick, gen: 0 };
+  }
+  private texMatFor(mat: Material): any {
+    let m = this.texMats.get(mat);
+    if (m) return m;
+    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: this.textureFor(mat) } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    this.texMats.set(mat, m);
+    return m;
+  }
+  private kernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean): KernelGeom {
+    const key = `${k.rev}|${defId}|${scene.materials.length}|${dim ? 1 : 0}|${this.lineStyle}`;
+    let arr = this.geomCache.get(k);
+    if (!arr) { arr = []; this.geomCache.set(k, arr); }
+    let g = arr.find((x) => x.key === key);
+    if (g) return g;
+    g = perf.time("buildKernelGeom", () => buildKernelGeom(k, scene, defId, dim, this.lineStyle));
+    g.key = key; g.gen = this.syncGen;
+    arr.push(g); this.geomsAlive.add(g);
+    return g;
+  }
+  private disposeGeom(g: KernelGeom): void {
+    g.plain?.dispose(); for (const t of g.tex) t.geo.dispose(); g.pixel?.dispose(); g.thick?.dispose();
+    this.geomsAlive.delete(g);
+    const arr = this.geomCache.get(g.kernel);
+    if (arr) { const i = arr.indexOf(g); if (i >= 0) arr.splice(i, 1); }
+  }
+  /** 覆盖层：选中 / 悬停的面（世界坐标，只这几张）+ 选中 / 刮擦 / 悬停的边（粗线）。 */
+  private rebuildOverlay(kd: GeomView, view: ViewState): void {
+    const ids = new Set<FaceId>(view.selectionFaces);
+    if (view.hoverFace !== null) ids.add(view.hoverFace);
+    const groups = new Map<object | null, { pos: number[]; nor: number[]; col: number[]; uv: number[] }>();
+    for (const fid of ids) {
+      const f = kd.face(fid), rec = kd.planeOf(fid);
+      if (!f || !rec) continue;
+      const mat = kd.faceMaterial(fid);
+      let [r, g, b] = srgb(view.selectionFaces.has(fid) ? PALETTE.faceSelected : PALETTE.faceHover);
+      if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; }
+      const key = mat?.texture ? mat : null;
+      let grp = groups.get(key);
+      if (!grp) { grp = { pos: [], nor: [], col: [], uv: [] }; groups.set(key, grp); }
+      const n = rec.plane.n;
+      const texW = mat?.texture?.sizeM[0] ?? 1, texH = mat?.texture?.sizeM[1] ?? 1;
+      for (const tri of faceTriangles(kd, fid)) for (const p of tri) {
+        grp.pos.push(p.x, p.y, p.z); grp.nor.push(n.x, n.y, n.z); grp.col.push(r, g, b);
+        if (key) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
+      }
+    }
+    const plain = groups.get(null);
+    this.faceMesh.material = this.faceMatTop;
+    if (plain && plain.pos.length) {
+      const old = this.faceMesh.geometry;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(plain.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(plain.nor, 3));
+      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(plain.col, 3));
+      this.faceMesh.geometry = geo; this.faceMesh.visible = true; if (old !== this.emptyGeo) old.dispose();
+    } else this.faceMesh.visible = false;
+    const texGroups = [...groups.entries()].filter(([k]) => k !== null) as [Material, { pos: number[]; nor: number[]; col: number[]; uv: number[] }][];
+    for (let i = 0; i < Math.max(texGroups.length, this.texMeshes.length); i++) {
+      const tg = texGroups[i];
+      let slot = this.texMeshes[i];
+      if (!tg) { if (slot) slot.mesh.visible = false; continue; }
+      if (!slot) {
+        const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 0 });
+        const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
+        mesh.frustumCulled = false;
+        this.scene.add(mesh);
+        slot = { mesh, mat, tex: null, key: "" };
+        this.texMeshes.push(slot);
+      }
+      slot.mat.uniforms.uMap.value = this.textureFor(tg[0]);
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(tg[1].pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(tg[1].nor, 3));
+      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(tg[1].col, 3));
+      geo.setAttribute("aUv", new THREE.Float32BufferAttribute(tg[1].uv, 2));
+      const oldG = slot.mesh.geometry; slot.mesh.geometry = geo; slot.mesh.visible = true; oldG.dispose();
+    }
+    // 边覆盖层：选中 / 刮擦 / 悬停 → 粗线
+    const pos: number[] = [], col: number[] = [];
+    const eids = new Set<EdgeId>([...view.selectionEdges, ...view.scrubEdges]);
+    if (view.hoverEdge !== null) eids.add(view.hoverEdge);
+    for (const id of eids) {
+      if (!kd.graph.hasEdge(id)) continue;
+      const e = kd.graph.edge(id);
+      const hot = view.scrubEdges.has(id) || view.hoverEdge === id;
+      const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
+      const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : PALETTE.edgeSelected);
+      pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    }
+    if (pos.length) { this.setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;
+    this.edgePixel.visible = false;
   }
 
   /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */
@@ -810,6 +995,74 @@ export class Renderer3 {
     obj.frustumCulled = false;
     return obj;
   }
+}
+
+/** 3×4 行主序 Xform → three 矩阵（Group 的本地矩阵；matrixAutoUpdate 关着）。 */
+function setMatrix(obj: any, m: Xform): void {
+  obj.matrix.set(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], 0, 0, 0, 1);
+  obj.matrixWorldNeedsUpdate = true;
+}
+
+/**
+ * 一个 kernel（池）的全部膜 / 边 → 本地坐标几何：纯色一份、每种贴图材质一份（+UV，用本地平面基 → 贴图跟着实例走）、原生线 / 粗线各一份。
+ * 淡出（上下文之外）烤进顶点色（dim 是变体键的一部分）。选中 / 悬停不在这里（覆盖层）。
+ */
+function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, style: LineStyle): KernelGeom {
+  const kv = k as unknown as GeomView;
+  const smooth = smoothNormals(kv);
+  const groups = new Map<Material | null, { pos: number[]; nor: number[]; col: number[]; uv: number[] }>();
+  for (const f of k.faces()) {
+    const rec = k.planeOf(f.id);
+    if (!rec) continue;
+    const mat = scene.materialOfSlot(defId, k.faceMaterialOf(f.id));
+    let r: number, g: number, b: number;
+    if (dim) { [r, g, b] = srgb(PALETTE.faceDim); if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; } }
+    else if (mat && !mat.texture) [r, g, b] = mat.color;
+    else if (mat?.texture) [r, g, b] = [1, 1, 1];
+    else [r, g, b] = srgb(PALETTE.face);
+    const key = mat?.texture ? mat : null;
+    let grp = groups.get(key);
+    if (!grp) { grp = { pos: [], nor: [], col: [], uv: [] }; groups.set(key, grp); }
+    const n = rec.plane.n;
+    const sm = smooth.get(f.id);
+    const texW = mat?.texture?.sizeM[0] ?? 1, texH = mat?.texture?.sizeM[1] ?? 1;
+    for (const tri of faceTriangles(kv, f.id)) for (const p of tri) {
+      grp.pos.push(p.x, p.y, p.z);
+      const nn = sm?.get(`${p.x},${p.y},${p.z}`) ?? n;
+      grp.nor.push(nn.x, nn.y, nn.z);
+      grp.col.push(r, g, b);
+      if (key) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
+    }
+  }
+  const mk = (grp: { pos: number[]; nor: number[]; col: number[]; uv: number[] }, uv: boolean): any => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute("position", new THREE.Float32BufferAttribute(grp.pos, 3));
+    geo.setAttribute("normal", new THREE.Float32BufferAttribute(grp.nor, 3));
+    geo.setAttribute("aColor", new THREE.Float32BufferAttribute(grp.col, 3));
+    if (uv) geo.setAttribute("aUv", new THREE.Float32BufferAttribute(grp.uv, 2));
+    return geo;
+  };
+  const plainG = groups.get(null);
+  const plain = plainG && plainG.pos.length ? mk(plainG, false) : null;
+  const tex: { mat: Material; geo: any }[] = [];
+  for (const [key, grp] of groups) if (key !== null && grp.pos.length) tex.push({ mat: key, geo: mk(grp, true) });
+  // 边：软边不画；裸线 / 膜边两色；淡出一色
+  const pos: number[] = [], col: number[] = [];
+  const c = new THREE.Color();
+  for (const e of k.edges()) {
+    if (k.isSoft(e.id)) continue;
+    const hex = dim ? PALETTE.edgeDim : e.faceLinks.length === 0 ? PALETTE.edgeWire : PALETTE.edge;
+    const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
+    c.setHex(hex);
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
+    col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+  }
+  let pixel: any = null, thick: any = null;
+  if (pos.length) {
+    if (style === "thick") { thick = new LineSegmentsGeometry(); thick.setPositions(pos); thick.setColors(col); }
+    else { pixel = new THREE.BufferGeometry(); pixel.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); pixel.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); }
+  }
+  return { key: "", kernel: k, plain, tex, pixel, thick, gen: 0 };
 }
 
 /**
