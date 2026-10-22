@@ -29,6 +29,7 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
+import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
 import { simplifyPath, sweepStations } from "../kernel/sweep.ts";
@@ -280,7 +281,7 @@ export class Editor {
     const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
-    const view = new WorldView(this.scene, this.ctx, live, overrides);
+    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides));
     this.viewCache = { key, view };
     return view;
   }
@@ -408,7 +409,7 @@ export class Editor {
   private commitOp(op: Op): FaceEvent[] {
     const t0 = performance.now();
     let r: ReturnType<History["commit"]>;
-    try { r = this.history.commit(this.scene, op); }
+    try { r = perf.time("commit", () => this.history.commit(this.scene, op)); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
       if (err instanceof OpApplyError) { this.scene = err.restored; this.bump(); }

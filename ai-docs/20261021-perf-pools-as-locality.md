@@ -1,0 +1,51 @@
+# 性能（#14）：局部性是唯一的药 —— 基线、已落地的三刀、通往 PSP 级实体数的路
+
+> created 20261021 · as-of v0.9.4 / 2026-10-21 夜 · created by Claude Fable 5.1
+> user 原话：「wishlist: 优化到支持gta vcs psp级别场景的实体数。可以最后做」；家规「先量后优」「perf-aware from the start」。
+> 量具：`test/probes/bench-scene.mjs [N]`（浏览器：N 个盒子的加法 / 悬停 / 推拉手势 / 撤销 / 建组件；读 `__catsup.perf.line()`）、
+> 节点级 `perf-stats` 计时器在结算机十一步 + 编辑器 commit / worldView + 渲染 rebuildFaces / rebuildEdges / smoothNormals 上常开。
+
+## 1. 基线（100 个盒子 = 600 面 / 1200 边，iPad mini 视口，headless swiftshader；CPU 侧数字是真的）
+
+| 量 | 改前 | 三刀后 | 说明 |
+|---|---|---|---|
+| 画线工具悬停一次 | **1288 ms** | ~20 ms | 求解器对全场景做 边×边载线交点（O(E²)）+ 面×面交线（O(F²)）+ 每个顶点一次 O(F) 遮挡测试 |
+| 推拉手势（6 次预演 + 落定） | **8945 ms** | ~300 ms | 每次预演 = 克隆内核跑一次 pushPull 结算 = 全场景 all-pairs planarize + 全部膜重新认领 |
+| 加第 96 个盒子 | 150 ms | ~35 ms | 同上（结算全局扫描） |
+| 撤销 | 790 ms | ~220 ms | History 从检查点重放 op，每个 op 一次结算 |
+| 渲染重建（600 面） | 2–7 ms | 同 | retained mode 本来就不慢 |
+
+结算机一步一步（节点级，600 面，一次 addEdges 盒子 / 一次 pushPull）：
+`insert 2.7 / 6.8 · planarize 2.9 / 4.0 · regions 4.4 / 5.4 · claims 1.6 / 3.1（改前 13.6 / 12.9）· 其余 < 1`。
+
+**400 盒 = 2400 面**（三刀后）：画线悬停 **673 ms**（求解器剩下的 O(E+V+F) 全扫 + 逐面 distToRing + 遮挡）、加盒 89 ms、推拉手势 1464 ms；结算机：regions 89–115 ms（地面一张平面 400 张膜全找一遍）、claims 26–35 ms（400 身份像 × 400 胞腔的包围盒粗筛仍是 16 万对）、insert 16–52 ms、planarize 19–37 ms。→ 线性项的常数还太大，§3 / §4 是下一轮的活。
+
+## 2. 已落地（v0.9.4，三刀都是「候选只从被碰到的地方长出来」）
+
+1. **求解器局部性**（`solver.ts SnapContext.cursor`）：给了指针位置，端点 / 中点 / 边 / 载线交点 / 面交线都按屏距 ≤ 3·ε_combo 筛；远处候选本来也赢不了（求解按屏距 ≤ ε 取），所以**无损**。轴线 / 对齐线（无限长）不筛。遮挡测试只给近处候选做。
+2. **结算机只结算被碰到的平面**（`settle.ts` + `planarize.ts` dirty + `planes.ts groupCoplanar scope`）：脏边 = 本次插入 / 切出 / 动过坐标的边（moveVertices 经 `ImageTable.dirtyEdges` 报邻边）；自愈只做 脏边×全部 / 脏边×顶点 / 全部边×脏顶点；被碰平面 = 被消耗膜的平面 ∪ 动词像的平面 ∪ 含任一脏边的平面 ∪ 脏顶点周围新长的候选平面；胞腔只算这些平面、身份像只认领这些平面上的膜，其余膜**原地不动**。跨平面同环去重在局部模式接不到没碰的平面 → 用「没碰的膜的边 id 集」把同环胞腔剔掉。全家测试（fuzz 80 种子 / 像表 golden / 推拉 / 格式）全绿。
+3. **认领缓存**：每个胞腔的代表点算一次（原来每对像 × 胞腔重算）+ 像的 2D 包围盒粗筛 → 13.6 → 1.6 ms。
+
+## 3. 还剩什么（都是 O(E) 的常数项；600 面时 ≈ 13–25 ms / op）
+
+- `insertSegment`：每条新段扫全部边 + 全部顶点（E + V）。
+- `planarize`（脏模式）：脏边 × 全部边、全部边 × 脏顶点。
+- `groupCoplanar` 第 2 步：每张被碰平面扫全部边归属；`findRegions` 对整张平面（地面这种大共面集 = 全部地面膜）。
+- 上面三个都要同一把钥匙：**边的空间网格**（`PlanarGraph` 维护 uniform grid，addEdge / removeEdge / relocate 时更新；`edgesNear(bbox)`）。有了它：插入 / 自愈 = O(邻域)，归属 = O(平面 ∩ 邻域)。
+- `findRegions` 的面内局部化：`FindScope.bounds` 接缝已留；要做成「邻域膜」粒度（邻域 = 环里含脏边的膜 ∪ 与脏包围盒相交的膜；只用它们的边 + 脏边 + 盒内裸线找胞腔，邻域外的膜连环都不碰）。这是结算机的下一刀，动核心，fuzz 守着。
+
+## 4. 通往 PSP 级实体数：池是局部性的单位
+
+GTA VCS 级 = 几百个物体 × 几十到几百面 = 1–5 万面。**按 user 的建模方式（组件 = 对象）内核是按池分的**：在一个组件里编辑，结算只跑那个池的内核（几百面）——上面的常数项在那个尺度下是 1 ms 级。真正随场景总量长的是三处，全在池的上层：
+
+1. **WorldView 合成**（`src/scene/world-view.ts`）：每次 revision 变了把全部池重新合并（O(总面数)）。→ 按槽缓存：键 = (definition 修订号, xform)，只重合并变了的池；全局 id 映射保持（槽号 × 2²²）。
+2. **渲染重建**（`render3.ts rebuildFaces / rebuildEdges`）：任何 op 后整场景重新三角化 + 上传。→ **每个 definition 一份几何（本地坐标）+ 每个实例一个矩阵**（three 的 Object3D 层级或 InstancedMesh）；在一个 definition 里改 = 只重建它；挪一个实例 = 只改矩阵；选中 / 悬停高亮用 per-instance 颜色属性或一层覆盖网格，不碰共享几何。
+3. **拾取 / 吸附**（`pick.ts pickFace`、`solver.ts buildConstraints`）：遍历合成视图的全部面 / 边 / 顶点。→ 先按**槽的世界包围盒**筛（射线不穿过 / 屏距太远的池整个跳过），再在池内查；池内再用上面的空间网格。
+
+做完 1–3，场景总量只影响「变了的池」和「指针附近的池」；这就是 SU / PSP 游戏那种「实体多但每帧只碰一点点」的形状。顺序建议：3（最小、立刻见效）→ 1 → 2（最大，改渲染结构）。
+
+## 5. 不做 / 以后
+
+- Bentley–Ottmann 换 all-pairs：空间网格够用，先不上扫描线。
+- WebWorker 跑结算：先把算法降到 O(邻域)，再谈线程。
+- 撤销：改为更密的检查点或结构共享快照；等结算快了再看是否还需要。

@@ -130,6 +130,17 @@ export interface SnapContext {
         edge: number;
         line: number;
     } | null;
+    /**
+     * 局部性（2026-10-21 #14）：给了指针位置，候选只从指针 radiusPx 以内长出来——点 / 中点 / 边 / 载线交点 / 面交线都按屏距筛，
+     * 远处的根本进不了约束集（它们本来也赢不了：求解按屏距 ≤ ε 取，radius ≥ 最大 ε 就是无损的）。
+     * 不给 = 全场景（旧行为，测试 / 离线用）。轴线 / 对齐线（无限长）不筛。
+     */
+    cursor?: {
+        x: number;
+        y: number;
+        vp: Viewport;
+        radiusPx: number;
+    } | null;
 }
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。（拾取 pick.ts 同用） */
 export declare function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean): boolean;

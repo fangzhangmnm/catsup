@@ -34,6 +34,7 @@ import * as THREE from "three";
 import { LineSegments2 } from "../vendor/three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "../vendor/three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "../vendor/three/addons/lines/LineMaterial.js";
+import { perf } from "./perf-stats.ts";
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { ID_STRIDE } from "../scene/world-view.ts";
@@ -482,11 +483,11 @@ export class Renderer3 {
     this.faceMat.uniforms.uLight.value.set(L.x, L.y, L.z);
     const dimK = view.dimSlots ? [...view.dimSlots].join(",") : "";
     const fk = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${dimK}`;
-    if (fk !== this.faceKey) { this.faceKey = fk; this.rebuildFaces(kd, view); }
+    if (fk !== this.faceKey) { this.faceKey = fk; perf.time("rebuildFaces", () => this.rebuildFaces(kd, view)); }
 
     // ---- 边 ----
     const ek = `${kid}:${rev}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}:${dimK}`;
-    if (ek !== this.edgeKey) { this.edgeKey = ek; this.rebuildEdges(kd, view); }
+    if (ek !== this.edgeKey) { this.edgeKey = ek; perf.time("rebuildEdges", () => this.rebuildEdges(kd, view)); }
 
     // ---- 缩放柄 ----
     const hs = view.handles ?? [];
@@ -607,7 +608,7 @@ export class Renderer3 {
    */
   private rebuildFaces(kd: GeomView, view: ViewState): void {
     const dim = view.dimSlots;
-    const smooth = smoothNormals(kd);
+    const smooth = perf.time("smoothNormals", () => smoothNormals(kd));
     const groups = new Map<object | null, { pos: number[]; nor: number[]; col: number[]; uv: number[]; mat: { texture?: { mimeType: string; bytes: Uint8Array; sizeM: readonly [number, number] } } | null }>();
     for (const f of kd.faces()) {
       const rec = kd.planeOf(f.id);

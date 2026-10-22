@@ -255,7 +255,11 @@ export class Kernel {
       if (!snap || !this.store.face(fid)) continue;
       images.push({ rings: [ringPts(snap.outer), ...snap.holes.map(ringPts)], algebra: "or", inherit: fid });
     }
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers }));
+    // 局部性：动过坐标的顶点（含合并幸存者）的邻边 = 脏边，结算机只围绕它们自愈 / 认领
+    const dirtyEdges = new Set<EdgeId>();
+    for (const { id } of batch) if (this.graph.hasVertex(id)) for (const eid of this.graph.vertex(id).edges) dirtyEdges.add(eid);
+    for (const sv of new Set(merged.values())) if (this.graph.hasVertex(sv)) for (const eid of this.graph.vertex(sv).edges) dirtyEdges.add(eid);
+    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges }));
   }
 
   /**

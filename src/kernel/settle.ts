@@ -22,6 +22,7 @@ import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import type { EdgeLayers, FaceLayers } from "./layers.ts";
+import { perf } from "../editor/perf-stats.ts";
 
 export type Algebra = "or" | "xor";
 export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
@@ -56,6 +57,8 @@ export interface ImageTable {
   layerSegs?: Readonly<Record<string, readonly Seg3[]>>;
   /** 面属性层登记处：新像带 face 值时，它独占的胞腔铸出的膜记上。 */
   faceLayers?: FaceLayers;
+  /** 本次动过坐标的边（moveVertices：被移 / 被合并顶点的邻边）——局部性：自愈与认领只围绕脏边 + 像 + 被消耗膜的平面（2026-10-21 #14）。 */
+  dirtyEdges?: Iterable<EdgeId>;
 }
 
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
@@ -126,13 +129,20 @@ interface Claim { im: Image; }
  */
 export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable): FaceEvent[] {
   const events: FaceEvent[] = [];
+  let tMark = performance.now();
+  const mark = (name: string): void => { const t = performance.now(); perf.last[`settle.${name}`] = t - tMark; tMark = t; };
 
-  // ① 身份像（插边前拍）+ 溶解基线 + 随葬候选
+  // ① 身份像（插边前拍）+ 溶解基线 + 随葬候选。局部性：记下每张膜的平面，稍后只认领「被碰到的平面」上的膜（其余原地不动）
   const identity: Image[] = [];
+  const facePlane = new Map<FaceId, PlaneId>();
   for (const f of store.faces()) {
+    facePlane.set(f.id, f.planeId);
     if (table.consumed.has(f.id)) continue;
     identity.push({ rings: ringsOf(g, f), algebra: "or", inherit: f.id });
   }
+  const touchedPlanes = new Set<PlaneId>();
+  for (const id of table.consumed) { const pid = facePlane.get(id); if (pid !== undefined) touchedPlanes.add(pid); }
+  const dirty = new Set<EdgeId>(table.dirtyEdges ?? []);
   const wasCollinear2 = new Set<VertexId>();
   for (const v of g.vertices()) if (collinear2(g, v.id)) wasCollinear2.add(v.id);
   const preWires = new Set<EdgeId>();                 // 操作前就是裸线的边（随葬豁免，含后代）
@@ -161,6 +171,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     }
   }
 
+  mark("identity");
   // ② 插边
   const gesture = new Set<EdgeId>();
   const explicitEnds = new Set<string>();
@@ -171,6 +182,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     if (buryCand.delete(parent)) for (const c of children) buryCand.add(c);
     EL?.onSplit(parent, children);
     splitChildren.set(parent, [...children]);
+    dirty.delete(parent); for (const c of children) dirty.add(c);
   };
   const descendants = (eid: EdgeId): EdgeId[] => {
     const kids = splitChildren.get(eid);
@@ -179,6 +191,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const userEdges = new Set<EdgeId>();                // 本次显式画的线（随葬豁免，含后代）
   const ins = (a: Pt3, b: Pt3, kind: "gesture" | "wire" | "image"): void => {
     const r = insertSegment(g, a, b, (parent, c1, c2) => onSplit(parent, [c1, c2]));
+    for (const e of r.created) dirty.add(e); for (const e of r.retraced) dirty.add(e);
     if (kind === "gesture") { for (const e of r.created) gesture.add(e); for (const e of r.retraced) gesture.add(e); }
     if (kind !== "image") { for (const e of r.created) userEdges.add(e); for (const e of r.retraced) userEdges.add(e); }
   };
@@ -192,15 +205,47 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   }
   for (const im of verbImages) for (const ring of im.rings) for (let i = 0; i < ring.length; i++) ins(ring[i], ring[(i + 1) % ring.length], "image");
 
-  // ③ 自愈（搬迁造成的交叉 / 骑边；切割血缘喂回手势集与随葬集）
-  planarize(g, onSplit);
+  mark("insert");
+  // ③ 自愈（搬迁造成的交叉 / 骑边；切割血缘喂回手势集与随葬集）——只围绕脏边
+  planarize(g, onSplit, dirty);
+  mark("planarize");
 
-  // ④ 胞腔
-  const byPlane = store.regionsByPlane(g, reg, tol);
+  // ④ 胞腔——只算「被碰到的平面」：被消耗膜的平面 + 动词像的平面 + 含任一脏边的平面（+ 脏边周围新长出的候选平面）
+  for (const im of verbImages) {
+    const ring = im.rings[0];
+    let plane = null;
+    for (let i = 0; i + 2 < ring.length && !plane; i++) plane = planeFromPoints(ring[i], ring[i + 1], ring[i + 2]);
+    if (plane) touchedPlanes.add(reg.ensure(plane, tol).id);
+  }
+  const dirtyLive = [...dirty].filter((id) => g.hasEdge(id)).map((id) => g.edge(id));
+  for (const rec of reg.all()) {
+    if (touchedPlanes.has(rec.id)) continue;
+    for (const e of dirtyLive) if (distToPlane(g.pt(e.a), rec.plane) <= tol && distToPlane(g.pt(e.b), rec.plane) <= tol) { touchedPlanes.add(rec.id); break; }
+  }
+  const dirtyVerts = new Set<VertexId>();
+  for (const e of dirtyLive) { dirtyVerts.add(e.a); dirtyVerts.add(e.b); }
+  mark("touched");
+  const byPlane = store.regionsByPlane(g, reg, tol, { only: touchedPlanes, seedVertices: dirtyVerts });
+  mark("regions");
+  // 没碰到的平面上的膜原地不动；它们的边环若与被碰平面上的某胞腔同一组边（近平行平面同环），那胞腔不算（regionsByPlane 的跨平面去重在局部模式下接不到它们）
+  {
+    const keyOf = (rings: readonly { edges: readonly { edge: EdgeId }[] }[]): string => rings.map((ring) => [...ring.edges.map((d) => d.edge)].sort((a, b) => a - b).join(",")).join("|");
+    const untouchedKeys = new Set<string>();
+    for (const f of store.faces()) if (!touchedPlanes.has(f.planeId)) untouchedKeys.add(keyOf([f.outer, ...f.holes]));
+    if (untouchedKeys.size) for (const [pid, regions] of byPlane) byPlane.set(pid, regions.filter((r) => !untouchedKeys.has(keyOf([r.outer, ...r.holes]))));
+  }
 
   // ⑤ 认领：像 → 胞腔集；胞腔 → 认领像集
+  //   每个胞腔的代表点只算一次（像 × 胞腔是本机最贵的一步：#14 基线 600 面时 13 ms 全花在逐对重算代表点上）；
+  //   像的 2D 包围盒先粗筛，再做绕数。
   const claimsOf = new Map<Region, Claim[]>();
   const cellsOf = new Map<Image, { r: Region; planeId: PlaneId }[]>();
+  const repOf = new Map<Region, Pt3>();
+  for (const [pid, regions] of byPlane) {
+    const prec = reg.rec(pid);
+    const { u, v } = prec.basis, n = prec.plane.n, d = prec.plane.d;
+    for (const r of regions) { const rp = representativePoint(r); repOf.set(r, { x: u.x * rp.x + v.x * rp.y + n.x * d, y: u.y * rp.x + v.y * rp.y + n.y * d, z: u.z * rp.x + v.z * rp.y + n.z * d }); }
+  }
   const claim = (im: Image): void => {
     const cells: { r: Region; planeId: PlaneId }[] = [];
     cellsOf.set(im, cells);
@@ -210,24 +255,28 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     if (!plane) return;   // 零面积 → 零认领
     const rec = reg.ensure(plane, tol);
     const rings2 = im.rings.map((r) => r.map((p) => projectToPlane(p, rec.basis)));
+    let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+    for (const r of rings2) for (const q of r) { if (q.x < bx0) bx0 = q.x; if (q.y < by0) by0 = q.y; if (q.x > bx1) bx1 = q.x; if (q.y > by1) by1 = q.y; }
     const wind = (p: Pt): number => rings2.reduce((acc, r) => acc + (r.length >= 3 ? windingOf(p, r) : 0), 0);
     for (const [pid, regions] of byPlane) {
       const prec = reg.rec(pid);
       if (Math.abs(dot3(prec.plane.n, rec.plane.n)) < 0.999) continue;   // 明显不平行 → 不可能是同一张膜（2.6°）
       for (const r of regions) {
-        const rp = representativePoint(r);
-        const { u, v } = prec.basis, n = prec.plane.n, d = prec.plane.d;
-        const rep3: Pt3 = { x: u.x * rp.x + v.x * rp.y + n.x * d, y: u.y * rp.x + v.y * rp.y + n.y * d, z: u.z * rp.x + v.z * rp.y + n.z * d };
+        const rep3 = repOf.get(r)!;
         if (distToPlane(rep3, rec.plane) > 3 * tol) continue;
-        if (Math.abs(wind(projectToPlane(rep3, rec.basis))) < 1) continue;
+        const q = projectToPlane(rep3, rec.basis);
+        if (q.x < bx0 || q.x > bx1 || q.y < by0 || q.y > by1) continue;   // 包围盒外，绕数必为 0
+        if (Math.abs(wind(q)) < 1) continue;
         cells.push({ r, planeId: pid });
         (claimsOf.get(r) ?? claimsOf.set(r, []).get(r)!).push({ im });
       }
     }
   };
-  for (const im of identity) claim(im);
+  const identityTouched = identity.filter((im) => touchedPlanes.has(facePlane.get(im.inherit!)!));
+  for (const im of identityTouched) claim(im);
   for (const im of verbImages) claim(im);
 
+  mark("claims");
   // ⑥ 逐胞腔裁决：填 / 不填
   const filled = new Set<Region>();
   for (const [r, cs] of claimsOf) {
@@ -244,7 +293,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
       else (cellsById.get(im.inherit) ?? cellsById.set(im.inherit, []).get(im.inherit)!).push(c);
     }
   }
-  const allIds = new Set<FaceId>([...consumedIds, ...identity.map((im) => im.inherit!)]);
+  const allIds = new Set<FaceId>([...consumedIds, ...identityTouched.map((im) => im.inherit!)]);
   const planeOfRegion = new Map<Region, PlaneId>();
   for (const [pid, regions] of byPlane) for (const r of regions) planeOfRegion.set(r, pid);
 
@@ -314,7 +363,9 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
       }
     }
   }
+  mark("decide");
   store.rebuildFaceLinks(g);
+  mark("faceLinks");
 
   // ⑨ 随葬第二相（通则，动词开关）：结算后无膜的边只许是用户画的线（本次的 / 之前就是裸线的，含切割后代）
   if (table.buryOrphans) {
@@ -324,6 +375,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     for (const e of g.edges()) if (e.faceLinks.length === 0 && !exempt.has(e.id)) g.removeEdge(e.id);
   }
 
+  mark("bury");
   // ⑩ 溶解：因本次操作新成为二度共线的顶点
   for (const v of g.vertices()) {
     if (wasCollinear2.has(v.id)) continue;
@@ -343,11 +395,13 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     g.removeEdge(c.ea);
     g.removeEdge(c.eb);
   }
+  mark("dissolve");
   // ⑪ 边属性层：删掉的边出集；新段上落下的边入集（规则在 layers.ts）
   if (EL) {
     EL.prune((id) => g.hasEdge(id));
     if (table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
   }
+  mark("layers");
   if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
   return events;
 }

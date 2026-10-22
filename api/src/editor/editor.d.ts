@@ -271,6 +271,8 @@ export declare class Editor {
         prompt: string;
         echo: string;
     };
+    /** 矩形「宽,高」的两根轴：面基 (u, v) 里更贴近世界 X 的那根算「宽」（平手看 Y）——地面矩形 = (x, y)，立面 = (水平, 竖直)。 */
+    private static rectAxes;
     /** 手势进行中不能输（例外：画线的连画态只是下一笔的锚点）。 */
     private vcbBlocked;
     /** 应用一条输入：解析 → 撤销那一步的 op → 按精确值重做 → 更新 last（可以连着改）。 */

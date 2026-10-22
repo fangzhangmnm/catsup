@@ -14,7 +14,7 @@ import type { Edge, EdgeId, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
-import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
+import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, projectToPlane, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 
@@ -209,6 +209,12 @@ export interface SnapContext {
   hand?: AlignHand | null;
   /** 候选 ε（本帧量纲）；缺省 = solver.EPS（桌面 px @800）。 */
   eps?: { point: number; edge: number; line: number } | null;
+  /**
+   * 局部性（2026-10-21 #14）：给了指针位置，候选只从指针 radiusPx 以内长出来——点 / 中点 / 边 / 载线交点 / 面交线都按屏距筛，
+   * 远处的根本进不了约束集（它们本来也赢不了：求解按屏距 ≤ ε 取，radius ≥ 最大 ε 就是无损的）。
+   * 不给 = 全场景（旧行为，测试 / 离线用）。轴线 / 对齐线（无限长）不筛。
+   */
+  cursor?: { x: number; y: number; vp: Viewport; radiusPx: number } | null;
 }
 
 const DIRS: { axis: AxName; dir: Pt3 }[] = [
@@ -375,16 +381,31 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   const ex = (vid: VertexId): boolean => ctx.hand?.has(vid) ?? false;
   const skip = handFaceSkip(k, ctx.hand);
   const hidden = (p: Pt3): boolean => (ctx.pf ? occludedBy(k, ctx.pf, p, skip) : false);
+  // 局部性筛（ctx.cursor）：屏距超过 radius 的候选不进集（遮挡测试是 O(膜数)，只给近处候选做）
+  const cur = ctx.cursor && ctx.pf ? { pf: ctx.pf, ...ctx.cursor } : null;
+  const nearPt = (p: Pt3): boolean => !cur || cur.pf.distTo(cur.x, cur.y, p, cur.vp) <= cur.radiusPx;
+  const nearSeg = (a: Pt3, b: Pt3, infinite = false): boolean => !cur || cur.pf.distToSeg(cur.x, cur.y, a, b, cur.vp, infinite).d <= cur.radiusPx;
+  const nearFace = (fid: FaceId): boolean => {
+    if (!cur) return true;
+    const rings = k.faceRings3(fid), rec = k.planeOf(fid), face = k.face(fid);
+    if (!rings || !rec || !face) return false;
+    if (cur.pf.distToRing(cur.x, cur.y, rings.outer, cur.vp) <= cur.radiusPx) return true;
+    const ray = cur.pf.ray(cur.x, cur.y, cur.vp);
+    const hit = rayPlane(ray.origin, ray.dir, rec.plane.n, rec.plane.d);
+    if (!hit) return false;
+    const p2 = projectToPlane(hit, rec.basis);
+    return pointInRing(p2, face.outer.pts) && !face.holes.some((h) => pointInRing(p2, h.pts));
+  };
   for (const v of k.vertices()) {
     if (ex(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
-    if (hidden(p)) continue;
+    if (!nearPt(p) || hidden(p)) continue;
     out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: E.point, tag: { kind: "endpoint" } });
   }
-  if (!hidden({ x: 0, y: 0, z: 0 })) {
+  if (nearPt({ x: 0, y: 0, z: 0 }) && !hidden({ x: 0, y: 0, z: 0 })) {
     out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: E.point, tag: { kind: "origin" } });
   }
-  const segs = edgeTargets(k, ex);         // 手中切点两侧共线并链；链端在手里 → 退赛
+  const segs = edgeTargets(k, ex).filter(({ a, b }) => nearSeg(a, b));   // 手中切点两侧共线并链；链端在手里 → 退赛；远离指针的不进集
   for (const { a, b } of segs) {
     const len = dist3(a, b);
     if (len <= 0) continue;
@@ -421,7 +442,8 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
-    const es = segs                          // 手中边不产派生目标（帽边载线交点会追 h/离体十万八千里）
+    const es = segs                          // 手中边不产派生目标（帽边载线交点会追 h/离体十万八千里）；载线不经过指针附近的不进
+      .filter(({ a, b }) => nearSeg(a, b, true))
       .map(({ a, b }) => {
         const l = dist3(a, b);
         return l > 0 ? { a, dir: scale3(sub3(b, a), 1 / l), ea: a, eb: b } : null;
@@ -439,7 +461,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   }
   // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
   {
-    const faces = k.faces().filter((f) => !faceInHand(k, f, ctx.hand));   // 手中膜不产面交线
+    const faces = k.faces().filter((f) => !faceInHand(k, f, ctx.hand) && nearFace(f.id));   // 手中膜不产面交线；交线裁在两膜区域里，所以两膜都得在指针附近
     for (let i = 0; i < faces.length; i++) {
       for (let j = i + 1; j < faces.length; j++) {
         for (const seg of faceCrossSegments(k, faces[i].id, faces[j].id)) {
@@ -563,7 +585,8 @@ export function snapPoint(
   const skip = handFaceSkip(k, q.hand);
   const occHidden = (p: Pt3): boolean => occludedBy(k, pf, p, skip);
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
-    alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand, eps: E });
+    alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand, eps: E,
+    cursor: { x: sx, y: sy, vp, radiusPx: E.combo * 3 } });   // 局部性：候选只从指针 3·ε_combo 以内长出来（≥ 最大 ε，无损）
   const sol = solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: E.combo,
     hidden: occHidden,

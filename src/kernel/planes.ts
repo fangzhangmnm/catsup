@@ -14,7 +14,7 @@ import {
   planeBasis,
   planeFromPoints,
 } from "./geom.ts";
-import { type EdgeId, PlanarGraph } from "./topology.ts";
+import { type VertexId, type EdgeId, PlanarGraph } from "./topology.ts";
 
 export type PlaneId = number;
 
@@ -81,14 +81,23 @@ export class PlaneRegistry {
  * 归属 = 两端点都在 τ 内的边。keepPlanes = 存储 face 的平面（防被 prune）。
  * 返回 planeId → 边集（≥3 条才可能围面；少于 3 条的组丢弃）。
  */
+/**
+ * 局部性接缝（2026-10-21 #14）：scope.only = 只给这些平面归属边（结算机算出的「被碰到的平面」）；scope.seedVertices = 只从这些顶点
+ * 的邻边对里长新候选平面（新平面只会出现在新几何周围）。新长出来的平面 id **就地加进 scope.only**（调用方拿回去当 touched）。
+ * 不给 scope = 全局（旧行为）。
+ */
+export interface CoplanarScope { only: Set<PlaneId>; seedVertices: Iterable<VertexId>; }
+
 export function groupCoplanar(
   g: PlanarGraph,
   reg: PlaneRegistry,
   tol: number,
   keepPlanes: ReadonlySet<PlaneId>,
+  scope?: CoplanarScope,
 ): Map<PlaneId, EdgeId[]> {
   // 1. 候选平面
-  for (const v of g.vertices()) {
+  const seeds = scope ? [...new Set(scope.seedVertices)].filter((id) => g.hasVertex(id)).map((id) => g.vertex(id)) : g.vertices();
+  for (const v of seeds) {
     const star = [...v.edges];
     const pv = g.pt(v.id);
     for (let i = 0; i < star.length; i++) {
@@ -96,7 +105,7 @@ export function groupCoplanar(
         const pi = g.pt(g.otherEnd(g.edge(star[i]), v.id));
         const pj = g.pt(g.otherEnd(g.edge(star[j]), v.id));
         const pl = planeFromPoints(pv, pi, pj);
-        if (pl) reg.ensure(pl, tol);
+        if (pl) { const rec = reg.ensure(pl, tol); scope?.only.add(rec.id); }
       }
     }
   }
@@ -104,6 +113,7 @@ export function groupCoplanar(
   const out = new Map<PlaneId, EdgeId[]>();
   const edges = g.edges();
   for (const rec of reg.all()) {
+    if (scope && !scope.only.has(rec.id)) continue;
     const members: EdgeId[] = [];
     for (const e of edges) {
       if (distToPlane(g.pt(e.a), rec.plane) <= tol && distToPlane(g.pt(e.b), rec.plane) <= tol) {
@@ -112,8 +122,9 @@ export function groupCoplanar(
     }
     if (members.length >= 3) out.set(rec.id, members);
   }
-  // 3. prune
+  // 3. prune（局部模式：没检查过的平面一律留着）
   const keep = new Set<PlaneId>([...out.keys(), ...keepPlanes]);
+  if (scope) for (const rec of reg.all()) if (!scope.only.has(rec.id)) keep.add(rec.id);
   reg.prune(keep);
   return out;
 }

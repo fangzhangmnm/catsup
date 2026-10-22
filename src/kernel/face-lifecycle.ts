@@ -16,7 +16,7 @@
 import { type Pt, distToPlane, pointInRing, projectToPlane } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type DirEdge, type Region, type Ring, findRegions, regionContains, representativePoint } from "./facefind.ts";
-import { type PlaneId, PlaneRegistry, groupCoplanar } from "./planes.ts";
+import { type PlaneId, PlaneRegistry, type CoplanarScope, groupCoplanar } from "./planes.ts";
 
 export type FaceEvent =
   | { type: "BIRTH"; face: FaceId }
@@ -68,8 +68,8 @@ export class FaceStore {
   }
 
   /** coplanarity 分组 + 每平面跑 findRegions（canonical 基投影）。 */
-  regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number): RegionsByPlane {
-    const groups = groupCoplanar(g, reg, tol, this.planeIds());
+  regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number, scope?: CoplanarScope): RegionsByPlane {
+    const groups = groupCoplanar(g, reg, tol, this.planeIds(), scope);
     const out: RegionsByPlane = new Map();
     // 同一个边环只准属于一张平面（2026-09-07 fuzz 案）：候选平面来自每顶点任意两邻边，归属是 cover 语义（τ=1 mm），
     // 小面会同时落进两张近平行候选平面 → 同环两次成面。去重键 = 外环+洞的边 id 集合；保留拟合最好的那张。

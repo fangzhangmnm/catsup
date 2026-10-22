@@ -1,7 +1,7 @@
 import { type Pt } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Region, type Ring } from "./facefind.ts";
-import { type PlaneId, PlaneRegistry } from "./planes.ts";
+import { type PlaneId, PlaneRegistry, type CoplanarScope } from "./planes.ts";
 export type FaceEvent = {
     type: "BIRTH";
     face: FaceId;
@@ -52,7 +52,7 @@ export declare class FaceStore {
     faceContains(f: Face, p: Pt): boolean;
     private occurrences;
     /** coplanarity 分组 + 每平面跑 findRegions（canonical 基投影）。 */
-    regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number): RegionsByPlane;
+    regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number, scope?: CoplanarScope): RegionsByPlane;
     /** 删边**前**按 loop 身份裁决。radial：命中面先按平面分组，各平面独立裁决。 */
     snapshotEraseVerdicts(edgeIds: readonly EdgeId[]): EraseVerdicts;
     reconcileErase(g: PlanarGraph, reg: PlaneRegistry, tol: number, v: EraseVerdicts): FaceEvent[];

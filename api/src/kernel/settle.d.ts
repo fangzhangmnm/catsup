@@ -1,5 +1,5 @@
 import { type Pt, type Pt3 } from "./geom.ts";
-import { type FaceId, PlanarGraph } from "./topology.ts";
+import { type EdgeId, type FaceId, PlanarGraph } from "./topology.ts";
 import { type Ring } from "./facefind.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type FaceEvent, FaceStore } from "./face-lifecycle.ts";
@@ -40,6 +40,8 @@ export interface ImageTable {
     layerSegs?: Readonly<Record<string, readonly Seg3[]>>;
     /** 面属性层登记处：新像带 face 值时，它独占的胞腔铸出的膜记上。 */
     faceLayers?: FaceLayers;
+    /** 本次动过坐标的边（moveVertices：被移 / 被合并顶点的邻边）——局部性：自愈与认领只围绕脏边 + 像 + 被消耗膜的平面（2026-10-21 #14）。 */
+    dirtyEdges?: Iterable<EdgeId>;
 }
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
 export declare function ringsOf(g: PlanarGraph, f: {

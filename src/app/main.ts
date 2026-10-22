@@ -8,6 +8,7 @@
 import { APP_VERSION } from "../version.ts";
 import { mountToolStrip } from "./tool-strip.ts";
 import { mountVcb } from "./vcb.ts";
+import { perf } from "../editor/perf-stats.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
@@ -677,7 +678,7 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
+(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
 editor.setTool("line");
