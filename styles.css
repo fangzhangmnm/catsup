@@ -51,6 +51,8 @@ svg.ico use { color: inherit; }
 .gizmo-btn .ico { width: 20px; height: 20px; }
 .gizmo-btn:hover { background: rgba(0,0,0,.06); }
 .gizmo-btn.on { background: var(--accent-soft); color: var(--accent); }
+.gizmo-btn { touch-action: none; }
+.gizmo-btn.dragging { background: var(--accent-soft); color: var(--accent); }
 /* 文字类 HUD：无背景、白描边（游戏字幕式），指针穿透 */
 .hud-text { position: absolute; z-index: 5; pointer-events: none; font-size: 12px; color: #4a4a4a; line-height: 1.45;
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff, 0 1px 3px rgba(255,255,255,.9); }
@@ -59,7 +61,7 @@ svg.ico use { color: inherit; }
 /* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
 .hud-strip { left: calc(10px + var(--safe-left)); bottom: calc(48px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 240px); flex-wrap: wrap; }
 /* 选区浮条（#19）：顶居中；选中东西且没在手势中才出现；项 = HUD 编辑动作表 */
-.hud-selbar { left: 50%; transform: translateX(-50%); top: calc(10px + var(--safe-top)); gap: 2px; padding: 4px 6px; max-width: calc(100vw - 160px); flex-wrap: wrap; justify-content: center; }
+.hud-selbar { left: 50%; transform: translateX(-50%); top: calc(10px + var(--safe-top)); gap: 2px; padding: 4px 6px; max-width: calc(100vw - 250px); flex-wrap: wrap; justify-content: center; }   /* 右上角给 gizmo 留 ~115 px */
 .selbar-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
 .selbar-btn .ico { width: 18px; height: 18px; }
 .selbar-btn:hover { background: rgba(0,0,0,.06); }
@@ -99,6 +101,10 @@ svg.ico use { color: inherit; }
 .tool:hover { background: rgba(0,0,0,.06); }
 .tool.active { background: var(--accent); color: #fff; }
 .tool.active .tool-label { color: #e7f0fb; }
+/* 动词位角标（WeebPaint .lasso-slot-caret 同形：右下角 8×8 小三角，≥2 个子工具才画） */
+.tool-slot { position: relative; }
+.tool-caret { position: absolute; right: 3px; bottom: 3px; width: 8px; height: 8px; opacity: .55; pointer-events: none; }
+.tool.active .tool-caret { opacity: .9; }
 
 #marquee { position: fixed; z-index: 5; border: 1px dashed #666; background: rgba(43,108,176,.08); pointer-events: none; }
 #tip { position: fixed; z-index: var(--z-notice); padding: 2px 7px; font-size: 12px; background: rgba(255,255,255,.95);

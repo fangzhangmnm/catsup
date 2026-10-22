@@ -38,7 +38,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  63 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  64 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -172,6 +172,8 @@
   <symbol id="grid" data-cat="viewport" data-src="own" data-note="网格:直角外框 1.2 与内网格线同宽(20260725 甲方定稿; 原 rx1.6 圆角粗框版退役), 内部 4x4 细网格" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g stroke-width="1.2" stroke-linejoin="miter"><rect x="3.5" y="3.5" width="17" height="17"/></g><g stroke-width="1.2"><path d="M7.75 3.5 V20.5"/><path d="M3.5 7.75 H20.5"/><path d="M12.00 3.5 V20.5"/><path d="M3.5 12.00 H20.5"/><path d="M16.25 3.5 V20.5"/><path d="M3.5 16.25 H20.5"/></g></symbol>
   <!-- maximize-viewport — 适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何) -->
   <symbol id="maximize-viewport" data-cat="viewport" data-src="own" data-note="适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><!-- 四角向外的箭头 --> <polyline points="4 9 4 4 9 4"/> <polyline points="20 9 20 4 15 4"/> <polyline points="4 15 4 20 9 20"/> <polyline points="20 15 20 20 15 20"/></symbol>
+  <!-- zoom — 放大镜:左上圆镜片(r6) + 右下短柄(粗 2 圆帽)；与 maximize-viewport(四角取景框=缩放到全部)/ hand(平移)分工【CatsUp 右上角视图 gizmo 下的「缩放」拖柄（按住上下拖）；2026-10-21 fable 自画未过目】 -->
+  <symbol id="zoom" data-cat="viewport" data-src="own" data-note="放大镜:左上圆镜片(r6) + 右下短柄(粗 2 圆帽)；与 maximize-viewport(四角取景框=缩放到全部)/ hand(平移)分工【CatsUp 右上角视图 gizmo 下的「缩放」拖柄（按住上下拖）；2026-10-21 fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15.2 15.2 L20.5 20.5" stroke-width="2.2"/></symbol>
   <!-- ui -->
   <!-- help — 帮助:圆 + 路径画的问号(不用 text)【WeebPaint ☰ 设置菜单「帮助」= in-app 说明书入口；fable 自画未过目】 -->
   <symbol id="help" data-cat="ui" data-src="own" data-note="帮助:圆 + 路径画的问号(不用 text)【WeebPaint ☰ 设置菜单「帮助」= in-app 说明书入口；fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.7 a2.7 2.7 0 0 1 5.4 0 c0 1.9 -2.7 2.1 -2.7 4.1"/><circle cx="12" cy="17.1" r="0.95" fill="currentColor" stroke="none"/></symbol>
@@ -196,11 +198,12 @@
         <nav class="hud hud-rail hud-rail-tools" aria-label="工具">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
           <button class="tb-btn" id="btnSave" type="button" title="保存（Ctrl+S）" data-state="none"><svg class="ico" aria-hidden="true"><use id="btnSaveIcon" href="#floppy-disk"/></svg></button>
-          <div id="toolbar" class="rail-tools" role="group" aria-label="工具"></div>
-          <!-- 2026-10-21 user「右边那三个钮…能不能做成weebpaint那样？」「左边会太挤」「视图之类的能不能参考unity blender editor」：
+          <!-- 2026-10-21 左柱定形（user：「首先是汉堡，然后是云，undo redo 挤一格会不会误触。然后是只放常用的其他的收到...里面，以及要不要小三角。好好学一下weebpaint」
+               「undo redo是否应该放在云的下面」）：☰ → 云 → 撤销 / 重做各一格 → 动词位（WeebPaint ADR-0012：钮面 = 当前子工具 + 右下角小三角，点 = 用，长按 / 右键 = 子工具单）→ 删除（有选区才出）。
                右柱撤、材质钮撤（油漆桶已选中再点一下 = 材质面板）、视图 = 右上角 Blender / Unity 式导航 gizmo（#viewGizmo） -->
           <button class="tb-btn" id="btnUndo" type="button" title="撤销（Ctrl+Z / 双指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-undo"/></svg></button>
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
+          <div id="toolbar" class="rail-tools" role="group" aria-label="工具"></div>
           <button class="tb-btn tb-danger" id="btnDelete" type="button" title="删除选区（Delete）" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
         </nav>
         <div class="hud-gizmo" id="viewGizmo" aria-label="视图"></div>
@@ -264,9 +267,9 @@
       <div class="sheet">
         <div class="sheet-head"><span>快捷键与手势</span><button class="tb-btn" id="helpClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
         <dl class="kv">
-          <dt>空格 / L / R / C / M / Q / S / P / F / W / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 跟随 / 油漆桶 / 橡皮（对齐 SketchUp）</dd>
+          <dt>空格 / L / R / C / M / Q / S / P / F / W / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 跟随 / 油漆桶 / 橡皮（对齐 SketchUp）。左柱是动词位：画（画线 / 矩形 / 圆）、变换（移动 / 旋转 / 缩放）、成形（推拉 / 偏移 / 跟随）——钮面是当前子工具，右下角小三角 = 长按或右键换子工具</dd>
           <dt>油漆桶的模式</dt><dd>底部选项条「涂哪些」：一张面 / 平滑组 / 到锐角为止（阈值可调）/ 连通体 / 整个组或组件；按住 Ctrl = 平滑组、Shift = 连通体、Ctrl+Shift = 到锐角为止（松开回选项条的值）</dd>
-          <dt>右上角 gizmo</dt><dd>Blender / Unity 式：点 X / Y / Z 球 = 右视 / 后视 / 顶视，再点一次翻到对面（左 / 前 / 底），空心球 = 负向；在 gizmo 上拖 = 环绕。下面三钮：透视 / 正交、缩放到全部（Shift+Z）、步行相机</dd>
+          <dt>右上角 gizmo</dt><dd>Blender / Unity 式：点 X / Y / Z 球 = 右视 / 后视 / 顶视，再点一次翻到对面（左 / 前 / 底），空心球 = 负向；在 gizmo 上拖 = 环绕。下面三个小拖柄：✋ 按住拖 = 平移、🔍 按住上下拖 = 缩放、⛶ 点 = 缩放到全部（Shift+Z）——数位笔 / 无键盘鼠标也能完整导航</dd>
           <dt>右键 / 长按</dt><dd>画布上右键（桌面）或在选择工具里长按（iPad，Pencil 或手指）：指针下的东西不在选区就先选上，弹出同一份菜单——删除 / 建组 / 建组件 / 炸开 / 进入编辑 / 退出一层 / 软化 / 硬化 / 选择连通体。用笔或手指时，选中东西后顶部还会浮出这排动词（鼠标有右键，就不浮了）</dd>
           <dt>数值小窗（精确输入）</dt><dd>刚做完一步（画线 / 矩形 / 圆 / 推拉 / 偏移 / 移动 / 旋转 / 缩放）后，右下角小窗亮起：桌面直接打数字 + Enter；触屏点小窗展开自家数字键盘（不弹系统键盘）。长度默认米（菜单「单位」可换米 / 厘米 / 毫米 / 英尺英寸 / 英寸），后缀 cm / mm / ft / in 或 3'6" 写法覆盖；矩形 `宽,高`；圆 `0.5` 半径或 `24s` 段数；旋转 度；缩放 倍率或 `x,y,z`；移动复制后 `5x` 向外阵列 / `/5` 内分。可以连着改几次，直到开始下一步</dd>
           <dt>线稿</dt><dd>默认 1 设备像素的细线（最省，VR / PC 都不卡通）；选中 / 刮擦 / 悬停的边仍是粗线。视图菜单「粗线稿」切回全粗线</dd>
@@ -308,6 +311,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-c9d4e0b031f0.mjs"></script>
+    <script type="module" src="./dist/catsup-ae978365810a.mjs"></script>
   </body>
 </html>

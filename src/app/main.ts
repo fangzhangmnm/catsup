@@ -31,7 +31,7 @@ import { VR } from "./vr.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
 import { iconHtml } from "./ui/icon.ts";
-import { togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
+import { openPopupMenu, togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
 import { showNotice, type NoticeOpts } from "./ui/notice.ts";
 import { initCrashRecovery } from "./crash-recovery.ts";
 import { crashStore } from "./crash-store.ts";
@@ -174,17 +174,54 @@ const hud: HudModel = {
     }
   },
 };
-const toolBtns = new Map<Tool, HTMLButtonElement>();
-for (const spec of hud.tools()) {
+// 左柱动词位（2026-10-21 user「只放常用的其他的收到...里面，以及要不要小三角。好好学一下weebpaint」= WeebPaint ADR-0012 动词位：
+// 钮面 = 当前子工具 + 右下角小三角（≥2 个子工具才画）；点 = 用它；长按 450 ms / 右键 = 子工具单。快捷键照旧直达，钮面跟着换。
+const RAIL_SLOTS: { id: string; tools: Tool[] }[] = [
+  { id: "select", tools: ["select"] },
+  { id: "draw", tools: ["line", "rect", "circle"] },
+  { id: "xform", tools: ["move", "rotate", "scale"] },
+  { id: "form", tools: ["pp", "offset", "followme"] },
+  { id: "paint", tools: ["paint"] },
+  { id: "erase", tools: ["erase"] },
+];
+const CARET_SVG = '<svg class="tool-caret" viewBox="0 0 8 8" aria-hidden="true"><path d="M7.2 2.8 V7.2 H2.8 Z" fill="currentColor" stroke="none"/></svg>';
+const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
+const slotCurrent = new Map<string, Tool>(RAIL_SLOTS.map((sl) => [sl.id, sl.tools[0]]));
+const slotBtns = new Map<string, HTMLButtonElement>();
+const openSlotMenu = (slot: { id: string; tools: Tool[] }, anchor: HTMLElement): void => {
+  openPopupMenu<Tool>({
+    anchor, align: "start",
+    items: () => slot.tools.map((t) => { const sp = specOf(t); return { id: t, label: sp.label, icon: sp.icon, hint: sp.key, checked: editor.tool === t }; }),
+    onPick: (t) => { slotCurrent.set(slot.id, t); editor.setTool(t); },
+  });
+};
+for (const slot of RAIL_SLOTS) {
   const b = document.createElement("button");
   b.type = "button";
-  b.className = "tool";
-  b.title = `${spec.label}（${spec.key}）`;
-  b.innerHTML = `${iconHtml(spec.icon!)}<span class="tool-label"></span>`;
-  (b.querySelector(".tool-label") as HTMLElement).textContent = spec.label;
-  b.addEventListener("click", () => hud.pick(spec.id));
+  b.className = "tool" + (slot.tools.length > 1 ? " tool-slot" : "");
+  b.innerHTML = `${iconHtml(specOf(slot.tools[0]).icon)}<span class="tool-label"></span>${slot.tools.length > 1 ? CARET_SVG : ""}`;
+  let suppressClick = false;
+  b.addEventListener("click", () => { if (suppressClick) { suppressClick = false; return; } hud.pick(slotCurrent.get(slot.id)!); });
+  if (slot.tools.length > 1) {
+    let timer = 0, down: { x: number; y: number } | null = null;
+    const clear = (): void => { if (timer) { clearTimeout(timer); timer = 0; } down = null; };
+    b.addEventListener("pointerdown", (ev) => { down = { x: ev.clientX, y: ev.clientY }; timer = window.setTimeout(() => { timer = 0; suppressClick = true; openSlotMenu(slot, b); }, 450); });
+    b.addEventListener("pointermove", (ev) => { if (down && Math.hypot(ev.clientX - down.x, ev.clientY - down.y) > 8) clear(); });
+    b.addEventListener("pointerup", clear); b.addEventListener("pointercancel", clear); b.addEventListener("pointerleave", clear);
+    b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); clear(); openSlotMenu(slot, b); });
+  }
   toolbarEl.appendChild(b);
-  toolBtns.set(spec.id as Tool, b);
+  slotBtns.set(slot.id, b);
+}
+function renderSlots(): void {
+  for (const slot of RAIL_SLOTS) {
+    if (slot.tools.includes(editor.tool)) slotCurrent.set(slot.id, editor.tool);
+    const cur = slotCurrent.get(slot.id)!, sp = specOf(cur), b = slotBtns.get(slot.id)!;
+    b.querySelector("use")?.setAttribute("href", `#${sp.icon}`);
+    (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
+    b.title = `${sp.label}（${sp.key}）${slot.tools.length > 1 ? " · 长按 / 右键换子工具" : ""}`;
+    b.classList.toggle("active", editor.tool === cur);
+  }
 }
 
 // ---------- 顶栏 ----------
@@ -312,7 +349,7 @@ const selBar = mountSelectionBar(document.getElementById("selBar") as HTMLElemen
 let lastPointerType = "mouse";
 canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; syncUi(); } }, { capture: true });
 function syncUi(): void {
-  for (const [t, b] of toolBtns) b.classList.toggle("active", t === editor.tool);
+  renderSlots();
   toolStrip.render();
   vcb.render();
   selBar.render();
