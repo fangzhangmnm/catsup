@@ -14,6 +14,7 @@ import type { PoolRef } from "../scene/scene.ts";
 import type { Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
+import type { Selection } from "./tools.ts";
 import type { LastGesture, PoolPick, Tool, ToolPointer } from "./editor.ts";
 
 /** 指针下的东西属于谁：活动池里的实体 / 子池（group 或实例）整体 / 什么都没有。 */
@@ -27,6 +28,8 @@ export interface ToolCtx {
   readonly config: CatsUpToolConfig;
   /** 活动池的 checkpoint 内核（本地坐标）。 */
   kernel(): Kernel;
+  /** 当前选区（活动池本地 id；只读）。 */
+  selection(): Readonly<Selection>;
   /** 静态推断世界（全池合成，世界坐标）。 */
   world(): WorldView;
   /** 手势中的实时世界（没手势 = world）。 */

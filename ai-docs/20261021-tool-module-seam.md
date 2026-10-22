@@ -1,6 +1,6 @@
 # 工具 = 一个模块：底座 / 工具模块的接缝（提案 .h）
 
-> created 20261021 · as-of v0.9.11 / 2026-10-21 夜 · created by Claude Fable 5.1
+> created 20261021 · as-of v0.9.12 / 2026-10-21 夜 · created by Claude Fable 5.1
 > user 2026-10-21：「架构重构同意，帮我科普一下」「优先做架构重构」；起因 = 架构自审 0.8 首选（`ai-docs/reports/20261021-architecture-review-0.8.html`）：加一个工具要碰 9 处。
 > 代码：`src/editor/tool-handler.ts`（接口 = 这里的 .h）、`src/editor/tools/offset.ts`（样板）、editor.ts 的委托点（down / track / up / live / cancel / active / 样本 extra）。
 
@@ -23,7 +23,7 @@
 ```ts
 export interface ToolCtx {
   readonly config: CatsUpToolConfig;
-  kernel(): Kernel;  world(): WorldView;  live(): WorldView;
+  kernel(): Kernel;  selection(): Readonly<Selection>;  world(): WorldView;  live(): WorldView;
   frame(): PointerFrame;  vp(): Viewport;  eps(): EpsSet;  snapPx(): number;
   pickFace(sx, sy): FaceId | undefined;
   classify(view, hit): Classified;                 // entity / pool / none
@@ -50,8 +50,8 @@ export interface ToolHandler {
 
 ## 4. 搬迁顺序（Opus 票 3）
 
-1. 已搬：偏移（样板）。
-2. 状态少的先：跟随、油漆桶、橡皮（含软化 / 硬化修饰）。
+1. 已搬：偏移（样板，有拖拽态）、跟随（第二个适配器：无拖拽态，纯函数 `pathFromSelection` 可 node 直测；为它给 ctx 加了 `selection()`）。
+2. 状态少的先：油漆桶、橡皮（含软化 / 硬化修饰）。
 3. 画线 / 矩形 / 圆（共用「锚点 + 画线平面」底座态；连画态留底座）。
 4. 推拉（ppStops / ppInferenceWorld / 高度通道）、移动（复制 / 池 / 阵列载荷）、旋转（三击）、缩放（柄）——和抬笔结算、两击 arm 耦合最深，每个单独一轮。
 5. 选择最后（框选 + 点击族）。
