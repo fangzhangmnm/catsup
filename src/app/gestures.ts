@@ -35,6 +35,8 @@ export interface GestureOpts {
   onContext?(x: number, y: number, clientX: number, clientY: number): void;
   /** 长按是否可用（main：只在选择工具里）。 */
   longPressEnabled?(): boolean;
+  /** 「点两下 / 点三下」是否可用（缺省 = 只有鼠标）：#23 移动 / 旋转对笔和手指也开。 */
+  armable?(pointerType: string): boolean;
 }
 const LONG_PRESS_MS = 500;
 
@@ -57,7 +59,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   };
   const tp = (ev: PointerEvent): ToolPointer => {
     const s = local(ev);
-    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: ev.pointerType === "mouse", shiftKey: ev.shiftKey, copy: ev.ctrlKey || ev.altKey || ev.metaKey };
+    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey, copy: ev.ctrlKey || ev.altKey || ev.metaKey };
   };
   const touches = (): [number, Tracked][] => [...pointers.entries()].filter(([, p]) => p.type === "touch");
   const toolPointerActive = (): boolean => [...pointers.values()].some((p) => p.role === "tool");

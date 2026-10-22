@@ -457,6 +457,8 @@ const gestures = attachGestures(canvas, editor, {
   // #19 上下文菜单：桌面右键任何工具都行（SU）；触屏长按只在选择工具里
   onContext: (x, y, cx, cy) => openContextMenuAt(editor, hud, x, y, cx, cy),
   longPressEnabled: () => editor.tool === "select",
+  // #23 user「move反而是点两下」「旋转和move对齐」：移动 = 点两下、旋转 = 点三下，笔 / 手指也开；画线 / 矩形 / 推拉在笔 / 手指上仍只拖（误触连线案）
+  armable: (pt) => pt === "mouse" || editor.tool === "move" || editor.tool === "rotate",
 });
 // 视图 = 右上角导航 gizmo（Blender / Unity 式；user 2026-10-21「视图之类的能不能参考unity blender editor」）。视图弹层退役；透视 / 步行 / 穿墙 / 粗线稿进 ☰。
 // 放在 locomotion 之后（render 立刻会问 isWalking）。

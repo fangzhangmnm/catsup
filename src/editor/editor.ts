@@ -1326,6 +1326,13 @@ export class Editor {
         break;
       }
       case "rotate": {
+        // 点三下（#23，user「旋转功能第二下是拖动很反直觉。而是应该点三下？」「旋转和move对齐」）：圆心 → 参考点 → 角度；拖着也能落定
+        if (this.armed && this.rotStage === 2 && this.rotCenter && this.rotRef) {
+          this.justCommitted = true;
+          this.trackGesture(s);
+          this.commitRotate(this.currentSample());
+          break;
+        }
         if (!this.hasSelection()) { this.host.hint("先选中要旋转的东西（选择工具），再用量角器"); break; }
         if (this.rotStage === 0) {
           // 圆心：落在膜上 → 转轴 = 膜法向；否则 → 画线平面（地面 / 面向的轴平面）
@@ -1336,7 +1343,7 @@ export class Editor {
           this.snapInfo = r.snap;
           this.rotStage = 1;
           this.downScreen = { x: s.x, y: s.y };
-          this.host.hint(`圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）：再按住一点当参考方向，拖出角度`);
+          this.host.hint(`圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）：再点一下参考方向`);
           break;
         }
         if (this.rotStage === 1 && this.rotCenter) {
@@ -1347,8 +1354,10 @@ export class Editor {
           this.rotAngle = 0;
           this.rotStage = 2;
           this.cursor3 = q;
+          this.armed = false;
+          this.canArm = !!ev.armable;
           this.downScreen = { x: s.x, y: s.y };
-          this.host.hint("拖出角度（15° 咬合）；松手落定");
+          this.host.hint("参考方向已定：转到角度再点一下落定（15° 咬合）；也可以直接拖");
         }
         break;
       }
@@ -1801,7 +1810,10 @@ export class Editor {
         break;
       }
       case "rotate": {
-        if (this.rotStage === 2) { this.commitRotate(settle()); }
+        if (this.rotStage !== 2) break;
+        if (this.justCommitted) { this.justCommitted = false; break; }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("转到角度再点一下落定（15° 咬合）；Esc 取消"); break; }
+        this.commitRotate(settle());
         break;
       }
       case "offset": {
