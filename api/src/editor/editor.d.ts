@@ -2,12 +2,13 @@ import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
-import { type HitResult3 } from "./pick.ts";
+import { type DrawPlane, type HitResult3 } from "./pick.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
+import type { FaceKey } from "./ops.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
-import { type EditContext, type InstId, Scene } from "../scene/scene.ts";
+import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
 export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
 export declare const TOOLS: readonly Tool[];
@@ -73,6 +74,8 @@ export interface EditorHost {
 }
 export declare const SNAP_LABELS: Record<string, string>;
 export declare function describeEvent(ev: FaceEvent): string;
+/** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
+export declare const MIN_GESTURE_LEN = 0.01;
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export declare const CIRCLE_SEGMENTS: 24;
@@ -84,6 +87,73 @@ export type PoolPick = {
 } | {
     kind: "instance";
     instance: InstId;
+};
+/** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
+export type LastGesture = {
+    kind: "line";
+    ops: number;
+    at: PoolRef;
+    a: Pt3;
+    b: Pt3;
+} | {
+    kind: "rect";
+    ops: number;
+    at: PoolRef;
+    plane: DrawPlane;
+    anchor: Pt3;
+    corner: Pt3;
+} | {
+    kind: "circle";
+    ops: number;
+    at: PoolRef;
+    plane: DrawPlane;
+    center: Pt3;
+    rim: Pt3;
+    segments: number;
+} | {
+    kind: "pp";
+    ops: number;
+    at: PoolRef;
+    face: FaceKey;
+    h: number;
+    hl: number;
+} | {
+    kind: "offset";
+    ops: number;
+    at: PoolRef;
+    ring: Pt3[];
+    plane: DrawPlane;
+    d: number;
+} | {
+    kind: "move";
+    ops: number;
+    at: PoolRef;
+    froms: Pt3[];
+    pools: PoolPick[];
+    delta: Pt3;
+    copy: boolean;
+    entities: {
+        faces: FaceId[];
+        edges: EdgeId[];
+    };
+} | {
+    kind: "rotate";
+    ops: number;
+    at: PoolRef;
+    froms: Pt3[];
+    pools: PoolPick[];
+    center: Pt3;
+    axis: Pt3;
+    angle: number;
+} | {
+    kind: "scale";
+    ops: number;
+    at: PoolRef;
+    froms: Pt3[];
+    pools: PoolPick[];
+    anchor: Pt3;
+    axis: Pt3 | null;
+    f: Pt3;
 };
 export declare class Editor {
     private canvas;
@@ -109,10 +179,8 @@ export declare class Editor {
     private ppH;
     private ppShellVids;
     private ppStops;
-    private offFace;
-    private offPlane;
-    private offInward;
-    private offDist;
+    private readonly handlers;
+    private readonly toolCtx;
     private rotStage;
     private rotCenter;
     private rotAxis;
@@ -176,6 +244,13 @@ export declare class Editor {
     contextDepth(): number;
     /** 上下文人话：「根」/「组件 名 › 组」。 */
     contextLabel(): string;
+    /** 面包屑（#25）：根 › 组件「名」› 组 › …；depth = 点它要退到的层数。 */
+    contextCrumbs(): {
+        label: string;
+        depth: number;
+    }[];
+    /** 退到第 depth 层（0 = 根）。 */
+    exitTo(depth: number): void;
     private groupDepth;
     vp(): Viewport;
     private pointerFrame;
@@ -313,8 +388,6 @@ export declare class Editor {
     private computeLive;
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
-    /** 偏移环（世界坐标线段）：活动池里 offFace 的外环投到面基 → offsetRing（SU 只外环）→ 抬回 3D。 */
-    private offsetSegs;
     /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
     private ppLocalH;
     private basePlaneOfAnchor;
@@ -340,6 +413,8 @@ export declare class Editor {
     pointerMove(ev: ToolPointer): void;
     /** 手势中的取点（line / rect / circle / pp / move / rotate / scale 的拖拽态；pointerMove 与松开帧共用）。 */
     private trackGesture;
+    /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
+    private makeToolCtx;
     private projectToPlaneThrough;
     private currentSample;
     private recordSample;

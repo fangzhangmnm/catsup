@@ -80,6 +80,8 @@ export declare class Renderer3 {
     private faceMat;
     private texMeshes;
     private texCache;
+    private faceMeshOther;
+    private faceMatOther;
     private edgeLines;
     private edgeMat;
     private edgePixel;

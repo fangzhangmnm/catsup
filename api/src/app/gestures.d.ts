@@ -13,6 +13,8 @@ export interface GestureOpts {
     onContext?(x: number, y: number, clientX: number, clientY: number): void;
     /** 长按是否可用（main：只在选择工具里）。 */
     longPressEnabled?(): boolean;
+    /** 「点两下 / 点三下」是否可用（缺省 = 只有鼠标）：#23 移动 / 旋转对笔和手指也开。 */
+    armable?(pointerType: string): boolean;
 }
 export declare function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: GestureOpts): {
     dispose(): void;

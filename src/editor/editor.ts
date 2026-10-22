@@ -28,6 +28,8 @@ import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, mov
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
+import type { ToolCtx, ToolHandler } from "./tool-handler.ts";
+import { OffsetTool } from "./tools/offset.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
@@ -112,7 +114,7 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 /** 抬笔结算（A21）三个物理量，各自量纲独立（调参纪律）。 */
 const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
-const MIN_GESTURE_LEN = 0.01;
+export const MIN_GESTURE_LEN = 0.01;
 /** 旋转的意图死区（弧度）：半度以内还看不出转向。 */
 const ANGLE_DEAD = 0.5 * Math.PI / 180;
 /** 圆的多边形段数（SU 默认 24）。 */
@@ -136,7 +138,7 @@ export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; in
 interface ScaleHandle { kind: typeof SCALE_HANDLE_TYPES[number]; p: Pt3; anchor: Pt3; axis: Pt3 | null; }
 
 /** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
-type LastGesture =
+export type LastGesture =
   | { kind: "line"; ops: number; at: PoolRef; a: Pt3; b: Pt3 }
   | { kind: "rect"; ops: number; at: PoolRef; plane: DrawPlane; anchor: Pt3; corner: Pt3 }
   | { kind: "circle"; ops: number; at: PoolRef; plane: DrawPlane; center: Pt3; rim: Pt3; segments: number }
@@ -170,11 +172,9 @@ export class Editor {
   private ppH = 0;
   private ppShellVids: ReadonlySet<VertexId> = new Set();
   private ppStops: number[] = [];
-  // 偏移（SU Offset）：面 + 按下点 + 按下时离外环最近的那条边的内法向（面内）；距离沿它量（正 = 向内）
-  private offFace: FaceId | null = null;
-  private offPlane: DrawPlane | null = null;
-  private offInward: Pt3 | null = null;
-  private offDist = 0;
+  // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
+  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool() };
+  private readonly toolCtx: ToolCtx = this.makeToolCtx();
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
   private rotStage: 0 | 1 | 2 = 0;
   private rotCenter: Pt3 | null = null;
@@ -186,7 +186,7 @@ export class Editor {
   private scaleActive: ScaleHandle | null = null;
   private scaleT0 = 1;
   private scaleFactor: Pt3 = { x: 1, y: 1, z: 1 };
-  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; off: number }[] = [];
+  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> }[] = [];
   private scrubAcc = new Set<EdgeId>();
   private scrubbing = false;
   private eraseMode: "erase" | "soften" | "harden" = "erase";
@@ -392,7 +392,7 @@ export class Editor {
     this.ppShellVids = new Set();
     this.ppStops = [];
     this.ppH = 0;
-    this.offFace = null; this.offPlane = null; this.offInward = null; this.offDist = 0;
+    for (const h of Object.values(this.handlers)) h.cancel();
     this.rotStage = 0; this.rotCenter = null; this.rotAxis = null; this.rotRef = null; this.rotAngle = 0;
     this.scaleActive = null; this.scaleFactor = { x: 1, y: 1, z: 1 };
     this.samples = [];
@@ -1008,7 +1008,7 @@ export class Editor {
 
   // ---------- 世界源 ----------
   private gestureActive(): boolean {
-    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.scrubbing || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null || this.offFace !== null;
+    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.scrubbing || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
   private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
@@ -1049,7 +1049,10 @@ export class Editor {
     };
     const tool = this._tool;
     let dims = "";
-    if (tool === "line" && this.anchor3 && this.cursor3) {
+    const H = this.handlers[tool];
+    if (H && H.active()) {
+      dims = H.live(this.toolCtx, run);
+    } else if (tool === "line" && this.anchor3 && this.cursor3) {
       const a = this.anchor3, b = this.cursor3;
       dims = `长 ${fmtLen(dist(a, b))}`;
       if (dist(a, b) >= MIN_GESTURE_LEN) run((c) => c.addEdges([[this.toLocal(a), this.toLocal(b)]]));
@@ -1088,10 +1091,6 @@ export class Editor {
       dims = `缩放 ${s.x.toFixed(3)} × ${s.y.toFixed(3)} × ${s.z.toFixed(3)}`;
       const X = scalingAbout(this.scaleActive.anchor, s);
       this.previewXform(X, run);
-    } else if (tool === "offset" && this.offFace !== null && Math.abs(this.offDist) >= MIN_GESTURE_LEN) {
-      dims = `偏移 ${this.offDist > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(this.offDist))}`;
-      const segs = this.offsetSegs(this.offDist);
-      if (segs.length) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)])));
     } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= MIN_GESTURE_LEN) {
       const fid = this.ppFace, h = this.ppLocalH(this.ppH);
       run((c) => c.pushPull(fid, h, { settleLanding: false }));
@@ -1110,19 +1109,6 @@ export class Editor {
     if (vids.length) { const XL = this.xformToLocal(X); run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) })))); }
     const picks = this.selectedPoolPicks();
     if (picks.length) this.liveOverride = { picks, xform: X };
-  }
-  /** 偏移环（世界坐标线段）：活动池里 offFace 的外环投到面基 → offsetRing（SU 只外环）→ 抬回 3D。 */
-  private offsetSegs(d: number): [Pt3, Pt3][] {
-    if (this.offFace === null || !this.offPlane) return [];
-    const k = this.kernel, f = k.face(this.offFace), rec = k.planeOf(this.offFace);
-    if (!f || !rec) return [];
-    const m = this.ctxXform();
-    const outer3 = k.faceRings3(this.offFace)!.outer.map((p) => applyPt(m, p));
-    const ring2 = outer3.map((p) => projectToPlane(p, this.offPlane!.basis));
-    const r = offsetRing(ring2, -d);   // offsetRing 的 d>0 = 外扩；工具的 d>0 = 向内
-    if (r.length < 3) return [];
-    const r3 = r.map((q) => liftFromPlane(q, this.offPlane!.plane, this.offPlane!.basis));
-    return r3.map((p, i) => [p, r3[(i + 1) % r3.length]] as [Pt3, Pt3]);
   }
   /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
   private ppLocalH(h: number): number {
@@ -1407,39 +1393,10 @@ export class Editor {
         this.marqueeStart = { x: s.x, y: s.y };
         this.marqueeCur = { x: s.x, y: s.y };
         break;
-      case "offset": {
-        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
-        if (gf === undefined) break;
-        const c = this.classify(view, { face: gf });
-        if (c.kind === "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再偏移"); break; }
-        if (c.kind !== "entity" || c.local.face === undefined) break;
-        const wrec = view.planeOf(gf)!;
-        const ray0 = this.frame().ray(s.x, s.y, this.fvp());
-        const hit = rayPlane(ray0.origin, ray0.dir, wrec.plane.n, wrec.plane.d);
-        if (!hit) break;
-        // 离按下点最近的外环边 → 它的面内内法向（朝面心）；偏移距离沿它量
-        const outer = view.faceRings3(gf)!.outer;
-        let best = 0, bd = Infinity;
-        for (let i = 0; i < outer.length; i++) {
-          const a = outer[i], b = outer[(i + 1) % outer.length];
-          const ab = sub3(b, a), l2 = dot3(ab, ab) || 1;
-          const t = Math.max(0, Math.min(1, dot3(sub3(hit, a), ab) / l2));
-          const dd = dist(hit, add3(a, scale3(ab, t)));
-          if (dd < bd) { bd = dd; best = i; }
-        }
-        const a = outer[best], b = outer[(best + 1) % outer.length];
-        const dir = normalize3(sub3(b, a));
-        let inward = cross3(wrec.plane.n, dir);
-        const cen = outer.reduce((acc, p) => add3(acc, scale3(p, 1 / outer.length)), { x: 0, y: 0, z: 0 });
-        if (dot3(sub3(cen, a), inward) < 0) inward = scale3(inward, -1);
-        this.offFace = c.local.face;
-        this.offPlane = { plane: wrec.plane, basis: wrec.basis, face: gf };
-        this.offInward = normalize3(inward);
-        this.offDist = 0;
-        this.anchor3 = hit;
-        this.cursor3 = hit;
-        this.downScreen = { x: s.x, y: s.y };
-        this.host.hint("偏移：沿面拖——向里内缩、向外外扩（松手落定）");
+      default: {
+        // 工具模块（tool-handler.ts）：有模块的工具在这里接按下
+        const H = this.handlers[this._tool];
+        if (H) { this.downScreen = { x: s.x, y: s.y }; H.down(this.toolCtx, ev); }
         break;
       }
       case "followme": {
@@ -1607,21 +1564,6 @@ export class Editor {
       case "pp":
         this.ppTrack(s.x, s.y, travel);
         break;
-      case "offset":
-        if (this.offFace !== null && this.offPlane && this.offInward && this.anchor3) {
-          const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.offPlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand(view), lines: false });
-          // 意图门：自由距离（指针落在面上的点沿内法向的距离）定内缩 / 外扩；反号的吸附不合法
-          const rayO = this.frame().ray(s.x, s.y, this.fvp());
-          const freeO = rayPlane(rayO.origin, rayO.dir, this.offPlane.plane.n, this.offPlane.plane.d);
-          const dFree = freeO ? dot3(sub3(freeO, this.anchor3), this.offInward) : NaN;
-          let q = this.projectToPlaneThrough(sn.p, this.anchor3, this.offPlane.plane.n);
-          let kind = sn.kind;
-          if (kind !== null && freeO && this.intentOn(s, travel) && !intentAllows1D(dFree, dot3(sub3(q, this.anchor3), this.offInward), MIN_GESTURE_LEN)) { q = freeO; kind = null; }
-          this.offDist = dot3(sub3(q, this.anchor3), this.offInward);
-          this.snapInfo = kind ? { ...sn, kind, p: q } : null;
-          this.cursor3 = q;
-        }
-        break;
       case "move":
         if ((this.moveVids.length || this.movePools.length) && this.anchor3) {
           const mv = new Set(this.moveVids);
@@ -1682,17 +1624,51 @@ export class Editor {
           }
         }
         break;
-      default: break;
+      default: {
+        const H = this.handlers[this._tool];
+        if (H?.active()) H.track(this.toolCtx, s, travel);
+        break;
+      }
     }
   }
+  /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
+  private makeToolCtx(): ToolCtx {
+    return {
+      config: this.config,
+      kernel: () => this.kernel,
+      world: () => this.worldView(),
+      live: () => this.liveWorld(),
+      frame: () => this.frame(),
+      vp: () => this.fvp(),
+      eps: () => this.eps(),
+      snapPx: () => this.snapPx(),
+      pickFace: (sx, sy) => pickFace(this.liveWorld(), this.frame(), this.fvp(), sx, sy),
+      classify: (view, hit) => this.classify(view, hit),
+      snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), q),
+      alignSources: () => this.alignSrcs(),
+      hand: (view) => this.freshHand(view),
+      toLocal: (p) => this.toLocal(p),
+      ctxXform: () => this.ctxXform(),
+      activePool: () => this.activePool(),
+      intentOn: (s, travel) => this.intentOn(s, travel),
+      commitOp: (op) => this.commitOp(op),
+      opCount: () => this.opCount,
+      hint: (t) => this.host.hint(t),
+      anchor: () => this.anchor3,
+      setAnchor: (p) => { this.anchor3 = p; },
+      setCursor: (p) => { this.cursor3 = p; },
+      setSnap: (sn) => { this.snapInfo = sn; },
+      recordLast: (L) => { this.last = L; },
+    };
+  }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
-  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; off: number } {
-    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, off: this.offDist };
+  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> } {
+    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, extra: this.handlers[this._tool]?.sample() ?? {} };
   }
   private recordSample(s: { x: number; y: number }): void {
     if (!this.gestureActive()) return;
     const t = performance.now();
-    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, off: this.offDist });
+    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, extra: this.handlers[this._tool]?.sample() ?? {} });
     while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
   }
   /**
@@ -1830,15 +1806,9 @@ export class Editor {
         this.commitRotate(settle());
         break;
       }
-      case "offset": {
-        if (this.offFace === null) break;
-        const smp = settle();
-        const d = smp?.off ?? this.offDist;
-        const segs = Math.abs(d) >= MIN_GESTURE_LEN ? this.offsetSegs(d) : [];
-        const ring = this.offFace !== null && this.offPlane ? this.kernel.faceRings3(this.offFace)!.outer.map((p) => applyPt(this.ctxXform(), p)) : [];
-        const plane = this.offPlane!, n0 = this.opCount, at0 = this.activePool();
-        this.cancelGesture();
-        if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) }); this.last = { kind: "offset", ops: this.opCount - n0, at: at0, ring, plane, d }; }
+      default: {
+        const H = this.handlers[this._tool];
+        if (H?.active()) H.up(this.toolCtx, ev, () => { const smp = settle(); return smp ? { cursor3: smp.cursor3, plane: smp.plane, snap: smp.snap, extra: smp.extra } : null; });
         break;
       }
       case "scale": {

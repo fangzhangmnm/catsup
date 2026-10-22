@@ -199,11 +199,12 @@
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
           <button class="tb-btn" id="btnSave" type="button" title="保存（Ctrl+S）" data-state="none"><svg class="ico" aria-hidden="true"><use id="btnSaveIcon" href="#floppy-disk"/></svg></button>
           <!-- 2026-10-21 左柱定形（user：「hanburger, cloud, undo redo select line rect eraser move rotate scale pushpull ... 然后非pin的工具给2个格子，屏幕太短就不给」
-               「undo redo是否应该放在云的下面」）：☰ → 云 → 撤销 / 重做各一格 → 钉死 8 个 → 最近用过的非钉工具 ≤ 2 格 → 「…」（圆 / 偏移 / 跟随 / 油漆桶）。小三角动词位撤了。
+               「undo redo是否应该放在云的下面」）：☰ → 云 → 钉死 7 个 → 最近用过的非钉工具 ≤ 2 格 → 「…」（圆 / 缩放 / 偏移 / 跟随 / 油漆桶）→ 撤销 / 重做各一格。小三角动词位撤了。
                右柱撤、材质钮撤（油漆桶已选中再点一下 = 材质面板）、视图 = 右上角 Blender / Unity 式导航 gizmo（#viewGizmo） -->
+          <div id="toolbar" class="rail-tools" role="group" aria-label="工具"></div>
+          <!-- user 10-21「undo redo是不是放下面好一点」：撤销 / 重做回到最下面 -->
           <button class="tb-btn" id="btnUndo" type="button" title="撤销（Ctrl+Z / 双指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-undo"/></svg></button>
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
-          <div id="toolbar" class="rail-tools" role="group" aria-label="工具"></div>
         </nav>
         <div class="hud-gizmo" id="viewGizmo" aria-label="视图"></div>
         <nav class="hud hud-crumbs" id="crumbs" aria-label="所在的组 / 组件" hidden></nav>
@@ -267,7 +268,7 @@
       <div class="sheet">
         <div class="sheet-head"><span>快捷键与手势</span><button class="tb-btn" id="helpClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
         <dl class="kv">
-          <dt>空格 / L / R / C / M / Q / S / P / F / W / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 跟随 / 油漆桶 / 橡皮（对齐 SketchUp）。左柱钉死 选择 / 画线 / 矩形 / 橡皮 / 移动 / 旋转 / 缩放 / 推拉；圆 / 偏移 / 跟随 / 油漆桶在「更多」里，用过的会在「更多」上面留两格（屏幕矮就不留）</dd>
+          <dt>空格 / L / R / C / M / Q / S / P / F / W / B / E</dt><dd>选择 / 画线 / 矩形 / 圆 / 移动 / 旋转 / 缩放 / 推拉 / 偏移 / 跟随 / 油漆桶 / 橡皮（对齐 SketchUp）。左柱钉死 选择 / 画线 / 矩形 / 橡皮 / 移动 / 旋转 / 推拉；圆 / 缩放 / 偏移 / 跟随 / 油漆桶在「更多」里，用过的会在「更多」上面留两格（屏幕矮就不留）</dd>
           <dt>油漆桶的模式</dt><dd>底部选项条「涂哪些」：一张面 / 平滑组 / 到锐角为止（阈值可调）/ 连通体 / 整个组或组件；按住 Ctrl = 平滑组、Shift = 连通体、Ctrl+Shift = 到锐角为止（松开回选项条的值）</dd>
           <dt>在哪个组里</dt><dd>进了组 / 组件后，左上角出面包屑「根 › 组件「盒子」› 组」，点前面一级就退到那级。重叠的面：正在编辑的那一层（在根就是散放的几何）画在上面、也优先被点到</dd>
           <dt>移动 / 旋转：点而不是拖</dt><dd>移动 = 点一下拿起、点一下放下（拖着放也行）；旋转 = 点圆心、点参考方向、点角度（三下；也可以第三步拖）。笔和手指都一样</dd>
@@ -313,6 +314,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-c92f1e66bebe.mjs"></script>
+    <script type="module" src="./dist/catsup-a4913363e551.mjs"></script>
   </body>
 </html>

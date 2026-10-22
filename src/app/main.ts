@@ -177,8 +177,8 @@ const hud: HudModel = {
 // 左柱（2026-10-21 user 定稿：「你的小三角思路不行，这样，hanburger, cloud, undo redo select line rect eraser move rotate scale pushpull ...
 // 然后非pin的工具给2个格子，屏幕太短就不给」）：钉死的常用工具一字排开；不常用的收进「…」弹层；最近用过的非钉工具在「…」上面
 // 留最多两格（按柱子可用高度算，屏幕矮就不留）。快捷键照旧直达（用了非钉工具会进最近格）。
-const PINNED: Tool[] = ["select", "line", "rect", "erase", "move", "rotate", "scale", "pp"];
-const UNPINNED: Tool[] = ["circle", "offset", "followme", "paint"];
+const PINNED: Tool[] = ["select", "line", "rect", "erase", "move", "rotate", "pp"];   // user 10-21「缩放不pin」
+const UNPINNED: Tool[] = ["circle", "scale", "offset", "followme", "paint"];
 const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
 const recentTools: Tool[] = [];                 // 最近用过的非钉工具（MRU，最多 2）
 const toolBtns = new Map<Tool, HTMLButtonElement>();
@@ -194,7 +194,7 @@ const mkToolBtn = (t: Tool): HTMLButtonElement => {
 for (const t of PINNED) { const b = mkToolBtn(t); toolbarEl.appendChild(b); toolBtns.set(t, b); }
 const recentEl = document.createElement("div"); recentEl.className = "rail-recent"; toolbarEl.appendChild(recentEl);
 const moreBtn = document.createElement("button");
-moreBtn.type = "button"; moreBtn.className = "tool"; moreBtn.title = "更多工具（圆 / 偏移 / 跟随 / 油漆桶）";
+moreBtn.type = "button"; moreBtn.className = "tool"; moreBtn.title = "更多工具（圆 / 缩放 / 偏移 / 跟随 / 油漆桶）";
 moreBtn.innerHTML = `${iconHtml("more")}<span class="tool-label">更多</span>`;
 moreBtn.addEventListener("click", () => togglePopupMenu<Tool>({
   anchor: moreBtn, align: "start",
@@ -204,7 +204,7 @@ moreBtn.addEventListener("click", () => togglePopupMenu<Tool>({
 toolbarEl.appendChild(moreBtn);
 /** 最近格数：柱子可用高度减去固定格（☰ 云 撤销 重做 + 钉死 8 + 更多 1 = 13 格），最多 2。 */
 function recentCapacity(): number {
-  const cell = 48, fixed = 13;
+  const cell = 48, fixed = 12;
   const avail = window.innerHeight - 20;
   return Math.max(0, Math.min(2, Math.floor(avail / cell) - fixed));
 }
