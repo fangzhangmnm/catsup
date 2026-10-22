@@ -1,6 +1,6 @@
 # 性能（#14）：局部性是唯一的药 —— 基线、已落地的三刀、通往 PSP 级实体数的路
 
-> created 20261021 · as-of v0.9.4 / 2026-10-21 夜 · created by Claude Fable 5.1
+> created 20261021 · as-of v0.9.13 / 2026-10-21 夜 · created by Claude Fable 5.1
 > user 原话：「wishlist: 优化到支持gta vcs psp级别场景的实体数。可以最后做」；家规「先量后优」「perf-aware from the start」。
 > 量具：`test/probes/bench-scene.mjs [N]`（浏览器：N 个盒子的加法 / 悬停 / 推拉手势 / 撤销 / 建组件；读 `__catsup.perf.line()`）、
 > 节点级 `perf-stats` 计时器在结算机十一步 + 编辑器 commit / worldView + 渲染 rebuildFaces / rebuildEdges / smoothNormals 上常开。
@@ -34,6 +34,14 @@
 - `groupCoplanar` 第 2 步：每张被碰平面扫全部边归属；`findRegions` 对整张平面（地面这种大共面集 = 全部地面膜）。
 - 上面三个都要同一把钥匙：**边的空间网格**（`PlanarGraph` 维护 uniform grid，addEdge / removeEdge / relocate 时更新；`edgesNear(bbox)`）。有了它：插入 / 自愈 = O(邻域)，归属 = O(平面 ∩ 邻域)。
 - `findRegions` 的面内局部化：`FindScope.bounds` 接缝已留；要做成「邻域膜」粒度（邻域 = 环里含脏边的膜 ∪ 与脏包围盒相交的膜；只用它们的边 + 脏边 + 盒内裸线找胞腔，邻域外的膜连环都不碰）。这是结算机的下一刀，动核心，fuzz 守着。
+
+## 3½. 第二轮前半（v0.9.13）：§3 的三件都落了
+
+- 边的空间网格（`topology.ts`：CELL 1 m，沿线采样登记，`edgesNear / verticesNear` 超集查询）→ insert / planarize 常数项消失。
+- 平面 → 边归属缓存（`planes.ts PlaneMembership`）→ 归属只算脏边。
+- 面内邻域（`settle.ts`，种子 → 可达顶点 → 挨着的膜）→ 大共面集不再整张重找。2400 面一次结算 ≈ 1–4 ms。
+- 浏览器端 2400 面：加盒 12–24 ms、推拉手势 452 ms（6 次预演，每次还含渲染重建 ~20 ms + 求解器）、撤销 34 ms。
+- 还剩的全在**求解器每次悬停的 O(N)**：顶点逐个屏距、近处候选逐个 O(膜) 遮挡、约束数。下一刀 = 屏幕索引（见 §4 ③ 的池内版）。
 
 ## 4. 通往 PSP 级实体数：池是局部性的单位
 

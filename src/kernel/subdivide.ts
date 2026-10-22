@@ -48,7 +48,7 @@ export function insertSegment(
   addCut(a); addCut(b);
 
   const pendingSplits = new Map<EdgeId, Pt3[]>(); // 既有边 → 待切点（边内部）
-  for (const e of g.edges()) {
+  for (const e of g.edgesNear(a, b)) {   // 空间网格：只看新段附近的边（超集，判定照旧）
     const pa = g.pt(e.a), pb = g.pt(e.b);
     const hits = segIntersections3(a, b, pa, pb, INSERT_TOL);
     for (const p of hits) {
@@ -61,7 +61,7 @@ export function insertSegment(
       }
     }
   }
-  for (const v of g.vertices()) {
+  for (const v of g.verticesNear(a, b)) {
     const p = { x: v.x, y: v.y, z: v.z };
     if (pointOnSegment3(p, a, b, INSERT_TOL)) addCut(p);
   }

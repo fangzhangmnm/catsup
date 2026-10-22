@@ -14,7 +14,7 @@ import {
   planeBasis,
   planeFromPoints,
 } from "./geom.ts";
-import { type VertexId, type EdgeId, PlanarGraph } from "./topology.ts";
+import { type Edge, type VertexId, type EdgeId, PlanarGraph } from "./topology.ts";
 
 export type PlaneId = number;
 
@@ -86,7 +86,19 @@ export class PlaneRegistry {
  * 的邻边对里长新候选平面（新平面只会出现在新几何周围）。新长出来的平面 id **就地加进 scope.only**（调用方拿回去当 touched）。
  * 不给 scope = 全局（旧行为）。
  */
-export interface CoplanarScope { only: Set<PlaneId>; seedVertices: Iterable<VertexId>; }
+export interface CoplanarScope {
+  only: Set<PlaneId>;
+  seedVertices: Iterable<VertexId>;
+  /** 本次新来 / 动过的边：它们的平面归属要重算，其余边的归属照缓存。 */
+  dirtyEdges?: Iterable<EdgeId>;
+  /** 面内邻域：平面 → 只用这些边找胞腔（挨着脏边的膜的环 + 连着的裸线）；没给的平面用全部成员。 */
+  subset?: ReadonlyMap<PlaneId, ReadonlySet<EdgeId>>;
+}
+/** 平面 → 边归属缓存（#14 第二轮）：边的归属只在它自己动了时变；新平面首次出现时全扫一次。 */
+export class PlaneMembership {
+  readonly planeEdges = new Map<PlaneId, Set<EdgeId>>();
+  clone(): PlaneMembership { const c = new PlaneMembership(); for (const [k, v] of this.planeEdges) c.planeEdges.set(k, new Set(v)); return c; }
+}
 
 export function groupCoplanar(
   g: PlanarGraph,
@@ -94,6 +106,7 @@ export function groupCoplanar(
   tol: number,
   keepPlanes: ReadonlySet<PlaneId>,
   scope?: CoplanarScope,
+  cache?: PlaneMembership,
 ): Map<PlaneId, EdgeId[]> {
   // 1. 候选平面
   const seeds = scope ? [...new Set(scope.seedVertices)].filter((id) => g.hasVertex(id)).map((id) => g.vertex(id)) : g.vertices();
@@ -109,16 +122,23 @@ export function groupCoplanar(
       }
     }
   }
-  // 2. 归属（cover：一条边可进多组）
+  // 2. 归属（cover：一条边可进多组）。有缓存 + 局部模式：已知平面只重算脏边，新平面全扫一次；全局模式：全算并把缓存填满
   const out = new Map<PlaneId, EdgeId[]>();
   const edges = g.edges();
+  const onPlane = (e: Edge, pl: PlaneParams): boolean => distToPlane(g.pt(e.a), pl) <= tol && distToPlane(g.pt(e.b), pl) <= tol;
+  const dirtyList = scope?.dirtyEdges ? [...scope.dirtyEdges].filter((id) => g.hasEdge(id)).map((id) => g.edge(id)) : null;
   for (const rec of reg.all()) {
     if (scope && !scope.only.has(rec.id)) continue;
-    const members: EdgeId[] = [];
-    for (const e of edges) {
-      if (distToPlane(g.pt(e.a), rec.plane) <= tol && distToPlane(g.pt(e.b), rec.plane) <= tol) {
-        members.push(e.id);
-      }
+    let members: EdgeId[];
+    const cached = cache?.planeEdges.get(rec.id);
+    if (cache && scope && cached && dirtyList) {
+      for (const e of dirtyList) { if (onPlane(e, rec.plane)) cached.add(e.id); else cached.delete(e.id); }
+      for (const id of [...cached]) if (!g.hasEdge(id)) cached.delete(id);
+      members = [...cached];
+    } else {
+      members = [];
+      for (const e of edges) if (onPlane(e, rec.plane)) members.push(e.id);
+      cache?.planeEdges.set(rec.id, new Set(members));
     }
     if (members.length >= 3) out.set(rec.id, members);
   }
@@ -126,5 +146,6 @@ export function groupCoplanar(
   const keep = new Set<PlaneId>([...out.keys(), ...keepPlanes]);
   if (scope) for (const rec of reg.all()) if (!scope.only.has(rec.id)) keep.add(rec.id);
   reg.prune(keep);
+  if (cache) for (const id of [...cache.planeEdges.keys()]) if (!keep.has(id)) cache.planeEdges.delete(id);
   return out;
 }

@@ -404,12 +404,6 @@ export declare class Editor {
     private rebuildScaleHandles;
     private pickScaleHandle;
     pointerDown(ev: ToolPointer): void;
-    /**
-     * 跟随的路径 = 当前选区：一串边（链，无分叉）；没选边就取选中的一张面（不是轮廓面本身）的外环 = 闭路径。
-     * 取向：起点必须落在轮廓面的平面上，且首段不平行于它；闭路径候选起点多时取离轮廓最近的；两个方向都试，取 |n·d₀| 大的。
-     * 关节平滑 = 两侧路径边都是曲线成员（圆 / 弧路径 → 旋转体侧面光滑）。
-     */
-    private followPath;
     pointerMove(ev: ToolPointer): void;
     /** 手势中的取点（line / rect / circle / pp / move / rotate / scale 的拖拽态；pointerMove 与松开帧共用）。 */
     private trackGesture;

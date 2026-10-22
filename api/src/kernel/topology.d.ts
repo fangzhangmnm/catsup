@@ -22,6 +22,16 @@ export declare class PlanarGraph {
     private vertByKey;
     private nextV;
     private nextE;
+    private grid;
+    private edgeCells;
+    /** 线段 ab 穿过的格（去重）。 */
+    private cellsAlong;
+    private indexEdge;
+    private unindexEdge;
+    /** 离线段 ab 不远的边（超集；含 a / b 落在一格里 = 点查）。 */
+    edgesNear(a: Pt3, b: Pt3): Edge[];
+    /** 离线段 ab 不远的顶点（= 近边的端点；孤立顶点不存在，所以这就是全集的超集）。 */
+    verticesNear(a: Pt3, b: Pt3): Vertex[];
     vertices(): Vertex[];
     edges(): Edge[];
     vertexCount(): number;

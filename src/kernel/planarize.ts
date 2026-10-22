@@ -41,8 +41,8 @@ export function planarize(g: PlanarGraph, onSplit?: (parent: EdgeId, children: r
       m.set(ptKey3(p), p);
     };
     const edges = g.edges();
-    const verts = g.vertices();
     if (!dirty) {
+      const verts = g.vertices();
       for (let i = 0; i < edges.length; i++) {
         const e = edges[i];
         const ea = g.pt(e.a), eb = g.pt(e.b);
@@ -61,12 +61,13 @@ export function planarize(g: PlanarGraph, onSplit?: (parent: EdgeId, children: r
         }
       }
     } else {
+      // 空间网格（topology.ts edgesNear / verticesNear）：脏边只和自己附近的边 / 顶点配；脏顶点只和自己附近的边配（超集，判定照旧）
       const dirtyEdges = edges.filter((e) => dirty!.has(e.id));
       const dirtyVerts = new Set<number>();
       for (const e of dirtyEdges) { dirtyVerts.add(e.a); dirtyVerts.add(e.b); }
       for (const e of dirtyEdges) {
         const ea = g.pt(e.a), eb = g.pt(e.b);
-        for (const o of edges) {
+        for (const o of g.edgesNear(ea, eb)) {
           if (o.id === e.id) continue;
           if (dirty.has(o.id) && o.id < e.id) continue;   // 脏×脏只配一次
           const oa = g.pt(o.a), ob = g.pt(o.b);
@@ -75,18 +76,18 @@ export function planarize(g: PlanarGraph, onSplit?: (parent: EdgeId, children: r
             if (!samePt3(p, oa) && !samePt3(p, ob)) addCut(o.id, p);
           }
         }
-        for (const v of verts) {
+        for (const v of g.verticesNear(ea, eb)) {
           if (v.id === e.a || v.id === e.b) continue;
           const p = { x: v.x, y: v.y, z: v.z };
           if (pointOnSegment3(p, ea, eb)) addCut(e.id, p);
         }
       }
-      for (const o of edges) {
-        if (dirty.has(o.id)) continue;
-        const oa = g.pt(o.a), ob = g.pt(o.b);
-        for (const vid of dirtyVerts) {
-          if (vid === o.a || vid === o.b || !g.hasVertex(vid)) continue;
-          const p = g.pt(vid);
+      for (const vid of dirtyVerts) {
+        if (!g.hasVertex(vid)) continue;
+        const p = g.pt(vid);
+        for (const o of g.edgesNear(p, p)) {
+          if (dirty.has(o.id) || vid === o.a || vid === o.b) continue;
+          const oa = g.pt(o.a), ob = g.pt(o.b);
           if (pointOnSegment3(p, oa, ob)) addCut(o.id, p);
         }
       }

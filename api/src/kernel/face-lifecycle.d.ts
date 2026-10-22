@@ -44,6 +44,8 @@ export type RegionsByPlane = Map<PlaneId, Region[]>;
 export declare class FaceStore {
     private byId;
     private nextId;
+    /** 平面 → 边归属缓存（局部结算时只重算脏边；见 planes.ts PlaneMembership）。 */
+    private membership;
     faces(): Face[];
     face(id: FaceId): Face | undefined;
     faceCount(): number;

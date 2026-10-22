@@ -13,7 +13,7 @@
 //   按边 id 的 parity toggle、洞环三律、movedOuter 补手势、预演开区间样本；结算机的 zeroClaimKeep + repairRings、ringKey 去重。
 // 不在本机的：擦边（loop 身份即意图：外环=BURST / 洞=ABSORB / 同平面共享=MERGE，face-lifecycle.ts）、删膜（纯出库）。
 
-import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeFromPoints, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, sub3 } from "./geom.ts";
+import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeFromPoints, pointInRing, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, sub3 } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type DirEdge, type Region, type Ring, representativePoint } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry } from "./planes.ts";
@@ -148,12 +148,13 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const preWires = new Set<EdgeId>();                 // 操作前就是裸线的边（随葬豁免，含后代）
   for (const e of g.edges()) if (e.faceLinks.length === 0) preWires.add(e.id);
   const buryCand = new Set<EdgeId>();                 // 第一相候选 = 被消耗膜的旧环边
+  const consumedEdges = new Set<EdgeId>();            // 被消耗膜的全部旧环边（面内邻域的种子，不受随葬第一相筛减）
   const consumedIds: FaceId[] = [];
   for (const id of table.consumed) {
     const f = store.face(id);
     if (!f) continue;
     consumedIds.push(id);
-    for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) buryCand.add(d.edge);
+    for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) { buryCand.add(d.edge); consumedEdges.add(d.edge); }
     store.deleteSilently(id);
   }
   // 随葬第一相：候选边若不在任何像（身份像 + 动词像）的环段上、也不被未动膜引用 → 现在就摘（它已不是任何膜的边界）
@@ -224,14 +225,54 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   }
   const dirtyVerts = new Set<VertexId>();
   for (const e of dirtyLive) { dirtyVerts.add(e.a); dirtyVerts.add(e.b); }
+  // 面内邻域（#14 第二轮）：每张被碰平面上只重算「挨着脏边」的东西——脏边 + 被消耗膜的旧环边为种子；
+  // 膜入选 = 环上有种子顶点 或 内部含种子顶点；裸线入选 = 从种子顶点沿无膜边传递（闭合一个大环只差最后一笔的情形）。
+  // 其余膜原地不动（环都不碰）：它们不进身份认领、它们的胞腔不算。
+  const neighFaces = new Set<FaceId>();
+  const subset = new Map<PlaneId, Set<EdgeId>>();
+  {
+    const onPlaneE = (e: { a: VertexId; b: VertexId }, pl: { n: Pt3; d: number }): boolean => distToPlane(g.pt(e.a), pl) <= tol && distToPlane(g.pt(e.b), pl) <= tol;
+    const facesByPlane = new Map<PlaneId, Face[]>();
+    for (const f of store.faces()) if (touchedPlanes.has(f.planeId)) (facesByPlane.get(f.planeId) ?? facesByPlane.set(f.planeId, []).get(f.planeId)!).push(f);
+    for (const pid of touchedPlanes) {
+      const rec = reg.rec(pid);
+      const sub = new Set<EdgeId>();
+      for (const e of dirtyLive) if (onPlaneE(e, rec.plane)) sub.add(e.id);
+      for (const eid0 of consumedEdges) for (const eid of descendants(eid0)) if (g.hasEdge(eid)) { const e = g.edge(eid); if (onPlaneE(e, rec.plane)) sub.add(eid); }
+      // ① 可达顶点：种子边的端点，再沿「不属于这张平面上活膜」的边传递（裸线、别的平面的膜的边、死膜残留链接）——闭合一个大环只差最后一笔
+      const reach = new Set<VertexId>();
+      for (const eid of sub) { const e = g.edge(eid); reach.add(e.a); reach.add(e.b); }
+      const stack = [...reach];
+      while (stack.length) {
+        const v = stack.pop()!;
+        if (!g.hasVertex(v)) continue;
+        for (const eid of g.vertex(v).edges) {
+          const e = g.edge(eid);
+          if (!onPlaneE(e, rec.plane)) continue;
+          if (e.faceLinks.some((fid) => { const f = store.face(fid); return !!f && f.planeId === pid; })) continue;
+          sub.add(eid);
+          const o = g.otherEnd(e, v);
+          if (!reach.has(o)) { reach.add(o); stack.push(o); }
+        }
+      }
+      // ② 膜入选 = 环上有可达顶点 或 内部含可达顶点（膜的顶点**不**再往外传递——否则整张平面连成片）
+      for (const f of facesByPlane.get(pid) ?? []) {
+        let hit = false;
+        for (const ring of [f.outer, ...f.holes]) { for (const d of ring.edges) { if (!g.hasEdge(d.edge)) { hit = true; break; } const e = g.edge(d.edge); if (reach.has(e.a) || reach.has(e.b)) { hit = true; break; } } if (hit) break; }
+        if (!hit) for (const v of reach) { if (!g.hasVertex(v)) continue; const p2 = projectToPlane(g.pt(v), rec.basis); if (pointInRing(p2, f.outer.pts) && !f.holes.some((h) => pointInRing(p2, h.pts))) { hit = true; break; } }
+        if (hit) { neighFaces.add(f.id); for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) if (g.hasEdge(d.edge)) sub.add(d.edge); }
+      }
+      subset.set(pid, sub);
+    }
+  }
   mark("touched");
-  const byPlane = store.regionsByPlane(g, reg, tol, { only: touchedPlanes, seedVertices: dirtyVerts });
+  const byPlane = store.regionsByPlane(g, reg, tol, { only: touchedPlanes, seedVertices: dirtyVerts, dirtyEdges: dirty, subset });
   mark("regions");
-  // 没碰到的平面上的膜原地不动；它们的边环若与被碰平面上的某胞腔同一组边（近平行平面同环），那胞腔不算（regionsByPlane 的跨平面去重在局部模式下接不到它们）
+  // 没进邻域的膜原地不动；它们的边环若与某胞腔同一组边（近平行平面同环 / 邻域边界），那胞腔不算
   {
     const keyOf = (rings: readonly { edges: readonly { edge: EdgeId }[] }[]): string => rings.map((ring) => [...ring.edges.map((d) => d.edge)].sort((a, b) => a - b).join(",")).join("|");
     const untouchedKeys = new Set<string>();
-    for (const f of store.faces()) if (!touchedPlanes.has(f.planeId)) untouchedKeys.add(keyOf([f.outer, ...f.holes]));
+    for (const f of store.faces()) if (!neighFaces.has(f.id)) untouchedKeys.add(keyOf([f.outer, ...f.holes]));
     if (untouchedKeys.size) for (const [pid, regions] of byPlane) byPlane.set(pid, regions.filter((r) => !untouchedKeys.has(keyOf([r.outer, ...r.holes]))));
   }
 
@@ -272,7 +313,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
       }
     }
   };
-  const identityTouched = identity.filter((im) => touchedPlanes.has(facePlane.get(im.inherit!)!));
+  const identityTouched = identity.filter((im) => neighFaces.has(im.inherit!));
   for (const im of identityTouched) claim(im);
   for (const im of verbImages) claim(im);
 

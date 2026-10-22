@@ -14,9 +14,10 @@
 // id 纪律：DIVIDE/MERGE/ABSORB 退休旧 id、铸新 id（事件携带血缘）；延续/STRETCH 保 id。
 
 import { type Pt, distToPlane, pointInRing, projectToPlane } from "./geom.ts";
+import { perf } from "../editor/perf-stats.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type DirEdge, type Region, type Ring, findRegions, regionContains, representativePoint } from "./facefind.ts";
-import { type PlaneId, PlaneRegistry, type CoplanarScope, groupCoplanar } from "./planes.ts";
+import { type PlaneId, PlaneRegistry, type CoplanarScope, PlaneMembership, groupCoplanar } from "./planes.ts";
 
 export type FaceEvent =
   | { type: "BIRTH"; face: FaceId }
@@ -47,6 +48,8 @@ export type RegionsByPlane = Map<PlaneId, Region[]>;
 export class FaceStore {
   private byId = new Map<FaceId, Face>();
   private nextId = 1;
+  /** 平面 → 边归属缓存（局部结算时只重算脏边；见 planes.ts PlaneMembership）。 */
+  private membership = new PlaneMembership();
 
   faces(): Face[] { return [...this.byId.values()]; }
   face(id: FaceId): Face | undefined { return this.byId.get(id); }
@@ -69,14 +72,18 @@ export class FaceStore {
 
   /** coplanarity 分组 + 每平面跑 findRegions（canonical 基投影）。 */
   regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number, scope?: CoplanarScope): RegionsByPlane {
-    const groups = groupCoplanar(g, reg, tol, this.planeIds(), scope);
+    const t0 = performance.now();
+    const groups = groupCoplanar(g, reg, tol, this.planeIds(), scope, this.membership);
+    perf.last["regions.group"] = performance.now() - t0; const t1 = performance.now();
     const out: RegionsByPlane = new Map();
     // 同一个边环只准属于一张平面（2026-09-07 fuzz 案）：候选平面来自每顶点任意两邻边，归属是 cover 语义（τ=1 mm），
     // 小面会同时落进两张近平行候选平面 → 同环两次成面。去重键 = 外环+洞的边 id 集合；保留拟合最好的那张。
     const best = new Map<string, { planeId: PlaneId; r: Region; err: number }>();
     const keyOf = (r: Region): string => [r.outer, ...r.holes].map((ring) => [...ring.edges.map((d) => d.edge)].sort((a, b) => a - b).join(",")).join("|");
-    for (const [planeId, edges] of groups) {
+    for (const [planeId, edgesAll] of groups) {
       const rec = reg.rec(planeId);
+      const sub = scope?.subset?.get(planeId);
+      const edges = sub ? edgesAll.filter((id) => sub.has(id)) : edgesAll;
       const regions = findRegions(g, {
         edges,
         project: (vid: VertexId) => projectToPlane(g.pt(vid), rec.basis),
@@ -93,6 +100,9 @@ export class FaceStore {
       }
     }
     for (const { planeId, r } of best.values()) (out.get(planeId) ?? out.set(planeId, []).get(planeId)!).push(r);
+    perf.last["regions.find"] = performance.now() - t1;
+    perf.last["regions.planes"] = groups.size;
+    perf.last["regions.edges"] = [...groups.values()].reduce((a, es) => a + es.length, 0);
     return out;
   }
 
@@ -250,6 +260,7 @@ export class FaceStore {
   clone(): FaceStore {
     const s = new FaceStore();
     s.nextId = this.nextId;
+    s.membership = this.membership.clone();
     const cloneRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ ...d })), pts: r.pts.map((p) => ({ ...p })) });
     for (const [id, f] of this.byId) {
       s.byId.set(id, { id: f.id, planeId: f.planeId, outer: cloneRing(f.outer), holes: f.holes.map(cloneRing) });

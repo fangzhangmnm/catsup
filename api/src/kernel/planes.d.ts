@@ -38,5 +38,14 @@ export declare class PlaneRegistry {
 export interface CoplanarScope {
     only: Set<PlaneId>;
     seedVertices: Iterable<VertexId>;
+    /** 本次新来 / 动过的边：它们的平面归属要重算，其余边的归属照缓存。 */
+    dirtyEdges?: Iterable<EdgeId>;
+    /** 面内邻域：平面 → 只用这些边找胞腔（挨着脏边的膜的环 + 连着的裸线）；没给的平面用全部成员。 */
+    subset?: ReadonlyMap<PlaneId, ReadonlySet<EdgeId>>;
 }
-export declare function groupCoplanar(g: PlanarGraph, reg: PlaneRegistry, tol: number, keepPlanes: ReadonlySet<PlaneId>, scope?: CoplanarScope): Map<PlaneId, EdgeId[]>;
+/** 平面 → 边归属缓存（#14 第二轮）：边的归属只在它自己动了时变；新平面首次出现时全扫一次。 */
+export declare class PlaneMembership {
+    readonly planeEdges: Map<number, Set<number>>;
+    clone(): PlaneMembership;
+}
+export declare function groupCoplanar(g: PlanarGraph, reg: PlaneRegistry, tol: number, keepPlanes: ReadonlySet<PlaneId>, scope?: CoplanarScope, cache?: PlaneMembership): Map<PlaneId, EdgeId[]>;

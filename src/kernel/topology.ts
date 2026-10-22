@@ -13,12 +13,75 @@ export type FaceId = number;
 export interface Vertex { readonly id: VertexId; x: number; y: number; z: number; readonly edges: Set<EdgeId>; }
 export interface Edge { readonly id: EdgeId; a: VertexId; b: VertexId; faceLinks: FaceId[]; }
 
+/**
+ * 边的空间网格（#14 性能第二轮，2026-10-21，Claude Fable 5.1）：均匀格（CELL 米），每条边登记在它穿过的格里（沿线每 CELL/2 采一点）；
+ * 查询「离线段 ab 不远的边」= 沿 ab 采样格 ∪ 各自 26 邻格里的边（邻格扩一圈 = 容差 + 采样漏格的保险）。返回的是**超集**，调用方照旧做几何判定。
+ * 场景很小（全在一格里）就退化成全扫（= 旧行为，不会更差）。
+ */
+const CELL = 1;
+const cellOf = (v: number): number => Math.floor(v / CELL);
+const cellKey = (ix: number, iy: number, iz: number): number => ((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) | 0;
+
 export class PlanarGraph {
   private vertsById = new Map<VertexId, Vertex>();
   private edgesById = new Map<EdgeId, Edge>();
   private vertByKey = new Map<string, VertexId>();
   private nextV = 1;
   private nextE = 1;
+  private grid = new Map<number, Set<EdgeId>>();
+  private edgeCells = new Map<EdgeId, number[]>();
+
+  /** 线段 ab 穿过的格（去重）。 */
+  private cellsAlong(a: Pt3, b: Pt3): { ix: number; iy: number; iz: number }[] {
+    const out: { ix: number; iy: number; iz: number }[] = [];
+    const seen = new Set<number>();
+    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+    const len = Math.hypot(dx, dy, dz);
+    const n = Math.max(1, Math.ceil(len / (CELL / 2)));
+    for (let i = 0; i <= n; i++) {
+      const t = i / n;
+      const ix = cellOf(a.x + dx * t), iy = cellOf(a.y + dy * t), iz = cellOf(a.z + dz * t);
+      const k = cellKey(ix, iy, iz);
+      if (seen.has(k)) continue;
+      seen.add(k); out.push({ ix, iy, iz });
+    }
+    return out;
+  }
+  private indexEdge(id: EdgeId): void {
+    const e = this.edge(id);
+    const keys: number[] = [];
+    for (const c of this.cellsAlong(this.pt(e.a), this.pt(e.b))) {
+      const k = cellKey(c.ix, c.iy, c.iz);
+      (this.grid.get(k) ?? this.grid.set(k, new Set()).get(k)!).add(id);
+      keys.push(k);
+    }
+    this.edgeCells.set(id, keys);
+  }
+  private unindexEdge(id: EdgeId): void {
+    for (const k of this.edgeCells.get(id) ?? []) { const set = this.grid.get(k); if (set) { set.delete(id); if (!set.size) this.grid.delete(k); } }
+    this.edgeCells.delete(id);
+  }
+  /** 离线段 ab 不远的边（超集；含 a / b 落在一格里 = 点查）。 */
+  edgesNear(a: Pt3, b: Pt3): Edge[] {
+    const ids = new Set<EdgeId>();
+    for (const c of this.cellsAlong(a, b)) {
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        const set = this.grid.get(cellKey(c.ix + dx, c.iy + dy, c.iz + dz));
+        if (set) for (const id of set) ids.add(id);
+      }
+    }
+    const out: Edge[] = [];
+    for (const id of ids) { const e = this.edgesById.get(id); if (e) out.push(e); }
+    return out;
+  }
+  /** 离线段 ab 不远的顶点（= 近边的端点；孤立顶点不存在，所以这就是全集的超集）。 */
+  verticesNear(a: Pt3, b: Pt3): Vertex[] {
+    const ids = new Set<VertexId>();
+    for (const e of this.edgesNear(a, b)) { ids.add(e.a); ids.add(e.b); }
+    const out: Vertex[] = [];
+    for (const id of ids) { const v = this.vertsById.get(id); if (v) out.push(v); }
+    return out;
+  }
 
   vertices(): Vertex[] { return [...this.vertsById.values()]; }
   edges(): Edge[] { return [...this.edgesById.values()]; }
@@ -72,12 +135,14 @@ export class PlanarGraph {
     this.edgesById.set(id, { id, a: v1, b: v2, faceLinks: [] });
     this.vertex(v1).edges.add(id);
     this.vertex(v2).edges.add(id);
+    this.indexEdge(id);
     return id;
   }
 
   /** 删边；孤立顶点顺带回收（无边的顶点不是一等实体——SU 的 stray vertex 不存在）。 */
   removeEdge(id: EdgeId): void {
     const e = this.edge(id);
+    this.unindexEdge(id);
     this.edgesById.delete(id);
     for (const vid of [e.a, e.b]) {
       const v = this.vertex(vid);
@@ -119,10 +184,13 @@ export class PlanarGraph {
    * kernel 层做完顶点合并再来）。added by Claude Fable 5 2026-09-01
    */
   relocateVertices(batch: readonly { id: VertexId; to: Pt3 }[]): void {
+    const touched = new Set<EdgeId>();
     for (const { id } of batch) {
       const v = this.vertex(id);
       this.vertByKey.delete(ptKey3({ x: v.x, y: v.y, z: v.z }));
+      for (const eid of v.edges) touched.add(eid);
     }
+    for (const eid of touched) this.unindexEdge(eid);
     for (const { id, to } of batch) {
       const v = this.vertex(id);
       const k = ptKey3(to);
@@ -130,6 +198,7 @@ export class PlanarGraph {
       v.x = to.x; v.y = to.y; v.z = to.z;
       this.vertByKey.set(k, id);
     }
+    for (const eid of touched) this.indexEdge(eid);
   }
 
   /**
@@ -168,12 +237,15 @@ export class PlanarGraph {
       throw new Error("relocateVertex 目标格点已被占用——sticky 合并该在调用方先做");
     }
     this.vertByKey.delete(oldKey);
+    for (const eid of v.edges) this.unindexEdge(eid);
     v.x = p.x; v.y = p.y; v.z = p.z;
     this.vertByKey.set(ptKey3(p), id);
+    for (const eid of v.edges) this.indexEdge(eid);
   }
 
   private removeEdgeKeepVerts(id: EdgeId): void {
     const e = this.edge(id);
+    this.unindexEdge(id);
     this.edgesById.delete(id);
     this.vertex(e.a).edges.delete(id);
     this.vertex(e.b).edges.delete(id);
@@ -187,6 +259,8 @@ export class PlanarGraph {
     for (const [id, v] of this.vertsById) g.vertsById.set(id, { id: v.id, x: v.x, y: v.y, z: v.z, edges: new Set(v.edges) });
     for (const [id, e] of this.edgesById) g.edgesById.set(id, { id: e.id, a: e.a, b: e.b, faceLinks: [...e.faceLinks] });
     for (const [k, vid] of this.vertByKey) g.vertByKey.set(k, vid);
+    for (const [k, set] of this.grid) g.grid.set(k, new Set(set));
+    for (const [id, keys] of this.edgeCells) g.edgeCells.set(id, [...keys]);
     return g;
   }
 }
