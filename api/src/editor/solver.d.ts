@@ -1,4 +1,4 @@
-import type { FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { Face, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { type Pt, type PlaneParams } from "../kernel/geom.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
@@ -143,7 +143,7 @@ export interface SnapContext {
     } | null;
 }
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。（拾取 pick.ts 同用） */
-export declare function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean): boolean;
+export declare function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean, faces?: readonly Face[]): boolean;
 /**
  * 1-D 轨迹的膜遮挡 = **可见区间裁剪**（2026-09-03 抖动破案：逐点二值判会在剪影边界随光标横跳；
  * 0-D 点的可见性不随光标变所以二值判无害——user 直觉「边是一个 range」正解）。
@@ -151,7 +151,7 @@ export declare function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?:
  * 是 t 的仿射函数 → 遮挡边界 = s(t)=ε 的根 ∪ q2(t) 与多边形边的交 → 子区间中点采样定内外。
  * 返回 [tMin,tMax] 内的**被挡**区间（升序、已合并）。
  */
-export declare function occludedSpansOnLine(k: GeomView, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number, skip?: (fid: FaceId) => boolean): [number, number][];
+export declare function occludedSpansOnLine(k: GeomView, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number, skip?: (fid: FaceId) => boolean, faces?: readonly Face[]): [number, number][];
 /** 情境构建器：把内核现状 + 工具情境枚举成约束集（单一供餐律的物理化）。 */
 export declare function buildConstraints(ctx: SnapContext): Constraint[];
 /** 直线 p(t)=p0+t·d 与膜区域（外环−洞，even-odd）的相交 t 区间。环 pts 为该面基下 2D。 */

@@ -132,21 +132,48 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   let tMark = performance.now();
   const mark = (name: string): void => { const t = performance.now(); perf.last[`settle.${name}`] = t - tMark; tMark = t; };
 
-  // ① 身份像（插边前拍）+ 溶解基线 + 随葬候选。局部性：记下每张膜的平面，稍后只认领「被碰到的平面」上的膜（其余原地不动）
+  // ① 身份像（插边前拍）+ 溶解基线 + 随葬候选。局部性：稍后只认领「被碰到的平面」上的膜（其余原地不动）
+  const dirty = new Set<EdgeId>(table.dirtyEdges ?? []);
+  const verbImages: Image[] = [];
+  const creases: { a: Pt3; b: Pt3 }[] = [];
+  for (const im of table.images) { const r = planarPieces(im, tol); verbImages.push(...r.images); creases.push(...r.creases); }
+  const touchedPlanes = new Set<PlaneId>();
+  for (const id of table.consumed) { const f = store.face(id); if (f) touchedPlanes.add(f.planeId); }
+  // 身份像只拍「可能被碰到的平面」上的膜（④ 的超集，用插边前的坐标算：被消耗膜的平面 + 动词像的平面 + 含任一脏边 / 任一待插线段的平面，
+  // 容差放宽 INSERT_TOL 盖住插边时的粘连位移）。其余膜本次保证原地不动，不需要身份像——2400 面全拍 ringsOf 一次 5.5 ms（#22）
+  const maybeTouched = new Set<PlaneId>(touchedPlanes);
+  for (const im of verbImages) {
+    const ring = im.rings[0];
+    let plane = null;
+    for (let i = 0; i + 2 < ring.length && !plane; i++) plane = planeFromPoints(ring[i], ring[i + 1], ring[i + 2]);
+    if (plane) maybeTouched.add(reg.ensure(plane, tol).id);
+  }
+  {
+    const segs: [Pt3, Pt3][] = [];
+    for (const id of dirty) if (g.hasEdge(id)) { const e = g.edge(id); segs.push([g.pt(e.a), g.pt(e.b)]); }
+    for (const s of [...(table.gesture ?? []), ...(table.wires ?? []), ...creases]) segs.push([s.a, s.b]);
+    for (const im of verbImages) for (const ring of im.rings) for (let i = 0; i < ring.length; i++) segs.push([ring[i], ring[(i + 1) % ring.length]]);
+    // 插边会切开 / 粘住线段附近的既有边，它们的后代也算脏边（onSplit）→ 它们所在的平面也会被碰到：用空间网格取同一份超集
+    const near = new Set<EdgeId>();
+    for (const [pa, pb] of segs) for (const e of g.edgesNear(pa, pb)) near.add(e.id);
+    for (const id of near) { const e = g.edge(id); segs.push([g.pt(e.a), g.pt(e.b)]); }
+    const tol2 = tol + INSERT_TOL;
+    for (const rec of reg.all()) {
+      if (maybeTouched.has(rec.id)) continue;
+      for (const [pa, pb] of segs) if (distToPlane(pa, rec.plane) <= tol2 && distToPlane(pb, rec.plane) <= tol2) { maybeTouched.add(rec.id); break; }
+    }
+  }
   const identity: Image[] = [];
-  const facePlane = new Map<FaceId, PlaneId>();
   for (const f of store.faces()) {
-    facePlane.set(f.id, f.planeId);
-    if (table.consumed.has(f.id)) continue;
+    if (table.consumed.has(f.id) || !maybeTouched.has(f.planeId)) continue;
     identity.push({ rings: ringsOf(g, f), algebra: "or", inherit: f.id });
   }
-  const touchedPlanes = new Set<PlaneId>();
-  for (const id of table.consumed) { const pid = facePlane.get(id); if (pid !== undefined) touchedPlanes.add(pid); }
-  const dirty = new Set<EdgeId>(table.dirtyEdges ?? []);
+  mark("identity.rings");
   const wasCollinear2 = new Set<VertexId>();
   for (const v of g.vertices()) if (collinear2(g, v.id)) wasCollinear2.add(v.id);
   const preWires = new Set<EdgeId>();                 // 操作前就是裸线的边（随葬豁免，含后代）
   for (const e of g.edges()) if (e.faceLinks.length === 0) preWires.add(e.id);
+  mark("identity.pre");
   const buryCand = new Set<EdgeId>();                 // 第一相候选 = 被消耗膜的旧环边
   const consumedEdges = new Set<EdgeId>();            // 被消耗膜的全部旧环边（面内邻域的种子，不受随葬第一相筛减）
   const consumedIds: FaceId[] = [];
@@ -159,12 +186,14 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   }
   // 随葬第一相：候选边若不在任何像（身份像 + 动词像）的环段上、也不被未动膜引用 → 现在就摘（它已不是任何膜的边界）
   if (buryCand.size) {
-    const kept = new Set<EdgeId>();
-    for (const f of store.faces()) for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) kept.add(d.edge);
+    // 「还被活膜引用」直接问 faceLinks（fuzz 守着「环边的 faceLinks 含它」不变量；被消耗的膜已出库 → 查不到），不再扫全部膜的环（2400 面 2 ms）
+    const kept = (eid: EdgeId): boolean => g.edge(eid).faceLinks.some((fid) => store.face(fid) !== undefined);
+    mark("identity.kept");
+    // 只扫动词像的环段：身份像的环段 = 未动膜的图边（ringsOf 一段一边），已全在 kept 里；再扫一遍是 O(候选 × 全部环段)（2400 面推拉提交 27 ms，#22）
     const segs: [Pt3, Pt3][] = [];
-    for (const im of [...identity, ...table.images]) for (const ring of im.rings) for (let i = 0; i < ring.length; i++) segs.push([ring[i], ring[(i + 1) % ring.length]]);
+    for (const im of table.images) for (const ring of im.rings) for (let i = 0; i < ring.length; i++) segs.push([ring[i], ring[(i + 1) % ring.length]]);
     for (const eid of [...buryCand]) {
-      if (!g.hasEdge(eid) || kept.has(eid)) { buryCand.delete(eid); continue; }
+      if (!g.hasEdge(eid) || kept(eid)) { buryCand.delete(eid); continue; }
       const e = g.edge(eid);
       const pa = g.pt(e.a), pb = g.pt(e.b);
       const onBoundary = segs.some(([p, q]) => pointOnSegment3(pa, p, q, INSERT_TOL) && pointOnSegment3(pb, p, q, INSERT_TOL));
@@ -172,7 +201,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     }
   }
 
-  mark("identity");
+  mark("identity.bury");
   // ② 插边
   const gesture = new Set<EdgeId>();
   const explicitEnds = new Set<string>();
@@ -198,12 +227,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   };
   for (const s of table.gesture ?? []) { ins(s.a, s.b, "gesture"); explicitEnds.add(ptKey3(quantize3(s.a))); explicitEnds.add(ptKey3(quantize3(s.b))); }
   for (const s of table.wires ?? []) { ins(s.a, s.b, "wire"); explicitEnds.add(ptKey3(quantize3(s.a))); explicitEnds.add(ptKey3(quantize3(s.b))); }
-  const verbImages: Image[] = [];
-  for (const im of table.images) {
-    const { images, creases } = planarPieces(im, tol);
-    verbImages.push(...images);
-    for (const c of creases) ins(c.a, c.b, "image");
-  }
+  for (const c of creases) ins(c.a, c.b, "image");
   for (const im of verbImages) for (const ring of im.rings) for (let i = 0; i < ring.length; i++) ins(ring[i], ring[(i + 1) % ring.length], "image");
 
   mark("insert");

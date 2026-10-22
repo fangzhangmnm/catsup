@@ -44,4 +44,6 @@ export interface PointerFrame {
   viewDir(p: Pt3): Pt3;
   forward(): Pt3;
   eps?(vp: Viewport): EpsSet;
+  /** 世界点 → 屏幕点（有则可建屏幕索引 screen-index.ts；XR 帧没有）。 */
+  project?(p: Pt3, vp: Viewport): { x: number; y: number } | null;
 }

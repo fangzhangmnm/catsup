@@ -36,6 +36,11 @@ export declare class OrbitCamera implements PointerFrame {
     zoomAt(f: number, sx: number, sy: number, vp: Viewport): void;
     halfW(vp: Viewport): number;
     /** 世界 → 屏幕 px（桌面专属：框选与本类度量的内部算术；**不在 PointerFrame 契约里**——A17 后求解器只认度量）。透视：眼前 near 之内的点按 near 深度投影（有限值，不 NaN）。 */
+    /** PointerFrame.project：屏幕索引用（= angularPx）。 */
+    project(p: Pt3, vp: Viewport): {
+        x: number;
+        y: number;
+    } | null;
     angularPx(p: Pt3, vp: Viewport): ScreenPt;
     distTo(x: number, y: number, p: Pt3, vp: Viewport): number;
     distToSeg(x: number, y: number, a: Pt3, b: Pt3, vp: Viewport, infinite?: boolean): {

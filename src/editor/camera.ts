@@ -85,6 +85,8 @@ export class OrbitCamera implements PointerFrame {
   halfW(vp: Viewport): number { return (this.halfH * vp.w) / vp.h; }
 
   /** 世界 → 屏幕 px（桌面专属：框选与本类度量的内部算术；**不在 PointerFrame 契约里**——A17 后求解器只认度量）。透视：眼前 near 之内的点按 near 深度投影（有限值，不 NaN）。 */
+  /** PointerFrame.project：屏幕索引用（= angularPx）。 */
+  project(p: Pt3, vp: Viewport): { x: number; y: number } | null { return this.angularPx(p, vp); }
   angularPx(p: Pt3, vp: Viewport): ScreenPt {
     if (this.projection === "persp") {
       const rel = sub3(p, this.eye());

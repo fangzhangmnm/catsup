@@ -1042,8 +1042,8 @@ export class Editor {
     this.liveOverride = null;
     this.liveEvents = [];
     const run = (fn: (c: Kernel) => FaceEvent[]): void => {
-      const c = this.kernel.clone();
-      try { this.liveEvents = fn(c); }
+      const c = perf.time("live.clone", () => this.kernel.clone());
+      try { this.liveEvents = perf.time("live.run", () => fn(c)); }
       catch (err) { this.liveEvents = []; this.live = null; this.fail("preview", err); return; }
       this.live = c;
     };

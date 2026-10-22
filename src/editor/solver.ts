@@ -10,7 +10,7 @@
 // 秩表注：anchor 轴与充能共轴同秩（距离裁决）；合成秩 = max(参与者)——天然排出
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
-import type { Edge, EdgeId, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { Edge, EdgeId, Face, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
@@ -18,6 +18,7 @@ import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToP
 import { closestOnAxis, rayPlane } from "./camera.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 import { perf } from "./perf-stats.ts";
+import { ScreenIndex } from "./screen-index.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
@@ -250,8 +251,8 @@ function handFaceSkip(k: GeomView, hand?: AlignHand | null): ((fid: FaceId) => b
  * 不因切点在手里退赛（此前「任一端在手里整条退赛」：上一帧矩形一吸到底边、底边就被切成三段全部退赛，
  * 下一帧又回来 → 反复横跳「很难吸附」）。链的两端任一端在手里 → 该链是手势边（追光标）→ 整链退赛。
  */
-function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean): { a: Pt3; b: Pt3 }[] {
-  const edges = k.edges();
+function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean, edgesIn?: readonly Edge[]): { a: Pt3; b: Pt3 }[] {
+  const edges = edgesIn ?? k.edges();
   const parent = new Map<EdgeId, EdgeId>();
   const find = (e: EdgeId): EdgeId => {
     let r = e;
@@ -292,9 +293,9 @@ function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean): { a: Pt3; b: 
 }
 
 /** 膜遮挡：p 与眼睛之间隔着某膜（射线命中膜区域内部、t>ε）→ 被挡。贴在膜面上的点不算。（拾取 pick.ts 同用） */
-export function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean): boolean {
+export function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: FaceId) => boolean, faces?: readonly Face[]): boolean {
   const dir = pf.viewDir(p);   // 透视=p→眼；正交=常向量（2026-09-06 透视化，edited by Claude Fable 5.1）
-  for (const f of k.faces()) {
+  for (const f of faces ?? k.faces()) {
     if (skip?.(f.id)) continue;   // 手中膜不遮挡（2026-09-03：追光标的膜反复遮住目标=振荡假吸）
     const rec = k.planeOf(f.id);
     const face = k.face(f.id);
@@ -321,12 +322,12 @@ export function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: F
  */
 export function occludedSpansOnLine(
   k: GeomView, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number,
-  skip?: (fid: FaceId) => boolean,
+  skip?: (fid: FaceId) => boolean, faces?: readonly Face[],
 ): [number, number][] {
   // 透视下视向沿线变化，区间代数取线段中点的视向作常向量近似（短线段误差可忽略；正交=精确）
   const e = pf.viewDir(add3(a, scale3(dir, (tMin + tMax) / 2)));
   const spans: [number, number][] = [];
-  for (const f of k.faces()) {
+  for (const f of faces ?? k.faces()) {
     if (skip?.(f.id)) continue;
     const rec = k.planeOf(f.id);
     const face = k.face(f.id);
@@ -381,9 +382,12 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   const E = ctx.eps ?? EPS;
   const ex = (vid: VertexId): boolean => ctx.hand?.has(vid) ?? false;
   const skip = handFaceSkip(k, ctx.hand);
-  const hidden = (p: Pt3): boolean => (ctx.pf ? occludedBy(k, ctx.pf, p, skip) : false);
   // 局部性筛（ctx.cursor）：屏距超过 radius 的候选不进集（遮挡测试是 O(膜数)，只给近处候选做）
   const cur = ctx.cursor && ctx.pf ? { pf: ctx.pf, ...ctx.cursor } : null;
+  // 屏幕索引（screen-index.ts）：相机不动就复用；只拿指针附近的格（超集，精确判定照旧）。
+  // 遮挡不在这里做：solvePoint 只对 ε 内的 0-D 候选调 hidden（懒而不漏）；这里先前对每个近候选都做一遍 O(膜) 遮挡是重复的（#14 第二轮）。
+  const idx = cur ? ScreenIndex.for(k, cur.pf, cur.vp) : null;
+  const hidden = (p: Pt3): boolean => (cur ? false : (ctx.pf ? occludedBy(k, ctx.pf, p, skip) : false));   // 无指针（离线 / 测试）保留旧的即时遮挡
   const nearPt = (p: Pt3): boolean => !cur || cur.pf.distTo(cur.x, cur.y, p, cur.vp) <= cur.radiusPx;
   const nearSeg = (a: Pt3, b: Pt3, infinite = false): boolean => !cur || cur.pf.distToSeg(cur.x, cur.y, a, b, cur.vp, infinite).d <= cur.radiusPx;
   const nearFace = (fid: FaceId): boolean => {
@@ -399,7 +403,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   };
   let tq = performance.now();
   const lap = (name: string): void => { const t = performance.now(); perf.last[`snap.${name}`] = t - tq; tq = t; };
-  for (const v of k.vertices()) {
+  for (const v of idx && cur ? idx.verticesNear(cur.x, cur.y, cur.radiusPx + 1) : k.vertices()) {
     if (ex(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
     if (!nearPt(p) || hidden(p)) continue;
@@ -409,7 +413,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   if (nearPt({ x: 0, y: 0, z: 0 }) && !hidden({ x: 0, y: 0, z: 0 })) {
     out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: E.point, tag: { kind: "origin" } });
   }
-  const segsAll = edgeTargets(k, ex);
+  const segsAll = edgeTargets(k, ex, idx && cur ? idx.edgesNear(cur.x, cur.y, cur.radiusPx * 2 + 8) : undefined);
   lap("edgeTargets");
   const segs = segsAll.filter(({ a, b }) => nearSeg(a, b));   // 手中切点两侧共线并链；链端在手里 → 退赛；远离指针的不进集
   lap("nearSeg");
@@ -473,7 +477,7 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   lap("carriers");
   // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
   {
-    const faces = k.faces().filter((f) => !faceInHand(k, f, ctx.hand) && nearFace(f.id));   // 手中膜不产面交线；交线裁在两膜区域里，所以两膜都得在指针附近
+    const faces = (idx && cur ? idx.facesNear(cur.x, cur.y, cur.radiusPx + 1) : k.faces()).filter((f) => !faceInHand(k, f, ctx.hand) && nearFace(f.id));   // 手中膜不产面交线；交线裁在两膜区域里，所以两膜都得在指针附近
     lap("nearFace");
     for (let i = 0; i < faces.length; i++) {
       for (let j = i + 1; j < faces.length; j++) {
@@ -597,14 +601,18 @@ export function snapPoint(
   // 本壳仅做 Constraint→Snap3 的叙事映射；待调用方全部迁到 solver 后删除。
   const E = frameEps(pf, vp, tolPx);
   const skip = handFaceSkip(k, q.hand);
-  const occHidden = (p: Pt3): boolean => occludedBy(k, pf, p, skip);
+  const radiusPx = E.combo * 2;   // 局部性：候选只从指针 2·ε_combo 以内长出来（≥ 最大 ε，无损）
+  // 遮挡只对指针附近的膜做（挡得住附近候选的膜，自己也在指针附近；屏幕索引给超集）
+  const idx = ScreenIndex.for(k, pf, vp);
+  const occluders = idx ? idx.facesNear(sx, sy, radiusPx + 8) : undefined;
+  const occHidden = (p: Pt3): boolean => occludedBy(k, pf, p, skip, occluders);
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
     alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand, eps: E,
-    cursor: { x: sx, y: sy, vp, radiusPx: E.combo * 3 } });   // 局部性：候选只从指针 3·ε_combo 以内长出来（≥ 最大 ε，无损）
+    cursor: { x: sx, y: sy, vp, radiusPx } });
   const sol = perf.time("snap.solve", () => solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: E.combo,
     hidden: occHidden,
-    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, pf, a, dirL, tMin, tMax, skip),
+    spans1D: (a, dirL, tMin, tMax) => occludedSpansOnLine(k, pf, a, dirL, tMin, tMax, skip, occluders),
   }));
   perf.last["snap.constraints"] = C.length;
   if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
