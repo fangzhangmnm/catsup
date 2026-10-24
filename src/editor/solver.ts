@@ -37,7 +37,9 @@ export type Locus =
   | { dim: 0; p: Pt3 }
   | { dim: 1; a: Pt3; dir: Pt3; len?: number }   // len 有=线段 [a, a+dir·len]；无=无限直线
   | { dim: 2; plane: PlaneParams };
-export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; }
+export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; /** 层级档（#30）：0 自己 / 1 近亲 / 2 其他；缺省 0。ε 按 TIER_EPS 缩、排序距离按 TIER_DIST 放大 = 近亲优先、远亲照样能吸。 */ tier?: 0 | 1 | 2; }
+/** #30 捕获半径按层级加权（user 2026-10-24「4听你的」「同组优先就是捕获半径之类的？」）：不是排除——远亲的圈小一点、排序里远一点。 */
+export const TIER_EPS = [1, 0.85, 0.7] as const, TIER_DIST = [1, 1.25, 1.6] as const;
 
 /** 秩（0.11 尺规纪元加参考几何：参考点在端点与中点之间，参考线与边同秩「线上」；线 × 线交点由合成器涌现、0-D 先于 1-D 胜出）。 */
 export const RANK = { endpoint: 90, origin: 80, guidePoint: 75, midpoint: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, grid: 20, plane: 10 } as const;
@@ -116,12 +118,13 @@ export function solvePoint(
   const hid = opts?.hidden;
   for (const c of C) {
     const L = c.locus;
+    const tw = TIER_EPS[c.tier ?? 0], td = TIER_DIST[c.tier ?? 0];   // #30：远亲圈小、排序靠后
     if (L.dim === 0) {
       const d = sd(L.p);
-      if (d <= c.eps && !(hid && hid(L.p))) cands.push({ p: L.p, dim: 0, rank: c.rank, d, used: [c] });
+      if (d <= c.eps * tw && !(hid && hid(L.p))) cands.push({ p: L.p, dim: 0, rank: c.rank, d: d * td, used: [c] });
     } else if (L.dim === 1) {
       const d = lineScreenDist(L.a, L.dir, L.len);
-      if (d > c.eps) continue;
+      if (d > c.eps * tw) continue;
       if (Math.abs(dot3(L.dir, ray.dir)) > RAY_PARALLEL_COS) continue;   // 近平行：解病态，不参赛
       const q = closestOnAxis(L.a, L.dir, ray.origin, ray.dir);
       if (!q) continue;
@@ -141,14 +144,14 @@ export function solvePoint(
           t = cl.reduce((b, x) => (Math.abs(x - t) < Math.abs(b - t) ? x : b));
           const pc = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
           dEff = sd(pc);
-          if (dEff > c.eps) continue;                                 // 边界点已滑出吸附圈=干净掉出
+          if (dEff > c.eps * tw) continue;                            // 边界点已滑出吸附圈=干净掉出
         }
       } else if (hid) {
         const pt0 = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
         if (hid(pt0)) continue;
       }
       const p = { x: L.a.x + L.dir.x * t, y: L.a.y + L.dir.y * t, z: L.a.z + L.dir.z * t };
-      cands.push({ p, dim: 1, rank: c.rank, d: dEff, used: [c] });
+      cands.push({ p, dim: 1, rank: c.rank, d: dEff * td, used: [c] });
       act1.push({ c, l: L });
     } else {
       const q = rayPlane(ray.origin, ray.dir, L.plane.n, L.plane.d);
@@ -162,8 +165,9 @@ export function solvePoint(
       if (!q) continue;
       if (hid && hid(q)) continue;
       const d = sd(q);
-      if (d > comboEps) continue;
-      cands.push({ p: q, dim: 0, rank: Math.max(act1[i].c.rank, act1[j].c.rank), d, used: [act1[i].c, act1[j].c] });
+      const tj = Math.max(act1[i].c.tier ?? 0, act1[j].c.tier ?? 0) as 0 | 1 | 2;
+      if (d > comboEps * TIER_EPS[tj]) continue;
+      cands.push({ p: q, dim: 0, rank: Math.max(act1[i].c.rank, act1[j].c.rank), d: d * TIER_DIST[tj], used: [act1[i].c, act1[j].c] });
     }
   }
   perf.last["snap.act1"] = act1.length; perf.last["snap.cands"] = cands.length;
@@ -250,7 +254,7 @@ function handFaceSkip(k: GeomView, hand?: AlignHand | null): ((fid: FaceId) => b
  * 不因切点在手里退赛（此前「任一端在手里整条退赛」：上一帧矩形一吸到底边、底边就被切成三段全部退赛，
  * 下一帧又回来 → 反复横跳「很难吸附」）。链的两端任一端在手里 → 该链是手势边（追光标）→ 整链退赛。
  */
-function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean, edgesIn?: readonly Edge[]): { a: Pt3; b: Pt3 }[] {
+function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean, edgesIn?: readonly Edge[]): { a: Pt3; b: Pt3; id: EdgeId }[] {
   const edges = edgesIn ?? k.edges();
   const parent = new Map<EdgeId, EdgeId>();
   const find = (e: EdgeId): EdgeId => {
@@ -279,14 +283,14 @@ function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean, edgesIn?: read
   // 链端点 = 分量内只出现一次的顶点
   const comp = new Map<EdgeId, Edge[]>();
   for (const e of edges) { const r = find(e.id); const l = comp.get(r); if (l) l.push(e); else comp.set(r, [e]); }
-  const out: { a: Pt3; b: Pt3 }[] = [];
+  const out: { a: Pt3; b: Pt3; id: EdgeId }[] = [];
   for (const es of comp.values()) {
     const cnt = new Map<VertexId, number>();
     for (const e of es) for (const v of [e.a, e.b]) cnt.set(v, (cnt.get(v) ?? 0) + 1);
     const ends = [...cnt].filter(([, c]) => c === 1).map(([v]) => v);
     if (ends.length !== 2) continue;                 // 退化（不应发生）
     if (ex(ends[0]) || ex(ends[1])) continue;        // 手势边：整链退赛
-    out.push({ a: k.graph.pt(ends[0]), b: k.graph.pt(ends[1]) });
+    out.push({ a: k.graph.pt(ends[0]), b: k.graph.pt(ends[1]), id: es[0].id });   // id 给层级档用（同链一池）
   }
   return out;
 }
@@ -405,11 +409,12 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   };
   let tq = performance.now();
   const lap = (name: string): void => { const t = performance.now(); perf.last[`snap.${name}`] = t - tq; tq = t; };
+  const tierOf = (id: number): 0 | 1 | 2 => k.tierOf?.(id) ?? 0;
   for (const v of idx && cur ? idx.verticesNear(cur.x, cur.y, cur.radiusPx + 1) : k.vertices()) {
     if (ex(v.id)) continue;
     const p = { x: v.x, y: v.y, z: v.z };
     if (!nearPt(p) || hidden(p)) continue;
-    out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: E.point, tag: { kind: "endpoint" } });
+    out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: E.point, tag: { kind: "endpoint" }, tier: tierOf(v.id) });
   }
   lap("vertices");
   if (nearPt(O) && !hidden(O)) {
@@ -419,15 +424,16 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   lap("edgeTargets");
   const segs = segsAll.filter(({ a, b }) => nearSeg(a, b));   // 手中切点两侧共线并链；链端在手里 → 退赛；远离指针的不进集
   lap("nearSeg");
-  for (const { a, b } of segs) {
+  for (const { a, b, id } of segs) {
     const len = dist3(a, b);
     if (len <= 0) continue;
+    const tier = tierOf(id);
     const mid = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2, z: (a.z + b.z) / 2 };
     // （旧「两端全被挡整条退赛」粗筛已撤：1-D 遮挡统一走 solve 层可见区间裁剪）
     if (!hidden(mid)) {
-      out.push({ locus: { dim: 0, p: mid }, rank: RANK.midpoint, eps: E.point, tag: { kind: "midpoint" } });
+      out.push({ locus: { dim: 0, p: mid }, rank: RANK.midpoint, eps: E.point, tag: { kind: "midpoint" }, tier });
     }
-    out.push({ locus: { dim: 1, a, dir: scale3(sub3(b, a), 1 / len), len }, rank: RANK.edge, eps: E.edge, tag: { kind: "edge" } });
+    out.push({ locus: { dim: 1, a, dir: scale3(sub3(b, a), 1 / len), len }, rank: RANK.edge, eps: E.edge, tag: { kind: "edge" }, tier });
   }
   // 轴对齐 1-D：源 = anchor（axis 标签）+ 原点（永久）+ 充能点（align 标签）；充能制=幽灵 align 定理的前置条件
   // 方向集 = 世界三轴 ∪ 非轴对齐画面的面内基（倾斜平面共轴——方向集显式化后的一行注册）
@@ -480,13 +486,13 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     const CE = (ctx.chargedEdges ?? []).map(({ a, b }) => { const l = dist3(a, b); return l > 0 ? { a, b, dir: scale3(sub3(b, a), 1 / l) } : null; }).filter((x) => x !== null);
     for (const ce of CE) {
       if (nearSeg(ce.a, ce.b, true)) out.push({ locus: { dim: 1, a: ce.a, dir: ce.dir }, rank: RANK.axisLine, eps: E.line, tag: { kind: "edgeExt", src: ce.a } });
-      for (const { a, b } of segs) {
+      for (const { a, b, id } of segs) {
         const l = dist3(a, b);
         if (l <= 0) continue;
         const p = intersect1D({ a: ce.a, dir: ce.dir }, { a, dir: scale3(sub3(b, a), 1 / l), len: l });
         if (!p || !nearPt(p) || hidden(p)) continue;
         if ([ce.a, ce.b, a, b].some((q) => dist3(p, q) <= 1e-6)) continue;   // 落在端点上 = 已是端点目标
-        out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: E.point, tag: { kind: "intersection" } });
+        out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: E.point, tag: { kind: "intersection" }, tier: tierOf(id) });
       }
     }
     for (let i = 0; i < CE.length; i++) for (let j = i + 1; j < CE.length; j++) {

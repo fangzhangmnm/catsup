@@ -36,6 +36,7 @@ import { AxesTool } from "./tools/axes.ts";
 import { ProtractorTool } from "./tools/protractor.ts";
 import { axisAlignAngle, rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, DEFAULT_GRID } from "./grid-settings.ts";
+import { ppStopsOf } from "./pp-stops.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { FollowMeTool } from "./tools/followme.ts";
@@ -1450,11 +1451,8 @@ export class Editor {
         const ray0 = this.frame().ray(s.x, s.y, this.fvp());
         const grab = rayPlane(ray0.origin, ray0.dir, wrec.plane.n, wrec.plane.d);
         this.anchor3 = grab ?? view.faceRings3(gf)!.outer[0];
-        {   // 高度通道停靠集：全场景静态顶点沿 n 的投影高度（含别的 group / 组件）
-          const hs = new Set<number>([0]);
-          for (const v of view.vertices()) hs.add(Math.round(dot3(sub3(v, this.anchor3), wrec.plane.n) * 1e6) / 1e6);
-          this.ppStops = [...hs].sort((a, b) => a - b);
-        }
+        // 高度通道停靠集（2026-10-24 退役「全场顶点高度」）：0 + 同柱子里的平行面（穿透 / 挖通）+ 参考点 / 平行参考线的高度（pp-stops.ts）
+        this.ppStops = ppStopsOf(view, gf, this.anchor3, wrec.plane.n);
         void rec;
         this.cursor3 = this.anchor3;
         this.ppH = 0;
@@ -1848,6 +1846,13 @@ export class Editor {
           this.ppH = best;
           ref = `｜高度咬合 ${fmtLen(best)}`;
           this.snapInfo = { p: add3(anc, scale3(n, this.ppH)), kind: "h-stop" };
+        } else if (this._grid.on) {   // 整数长度（0.11 ⑤；与格点同一开关）：没停靠点时高度取整到吸附步
+          const step = this._grid.step / this._grid.subdiv, r = Math.round(this.ppH / step) * step;
+          if (Math.abs(r) >= MIN_GESTURE_LEN && allowed(r) && Math.abs(r - this.ppH) <= epsH) {
+            this.ppH = r;
+            ref = `｜整数长度 ${fmtLen(r)}`;
+            this.snapInfo = { p: add3(anc, scale3(n, this.ppH)), kind: "increment" };
+          }
         }
       }
     }

@@ -38,12 +38,14 @@ export interface GeomView {
   guides?(): GuidesWorld;
   /** 绝对网格（0.11 ⑤）：开着才有；格点是最低秩的 0-D 目标，整数长度沿锚点方向取整。 */
   grid?(): GridSpec | null;
+  /** 候选所在池离活动上下文的层级距离（#30，user 2026-10-24「4听你的」）：0 = 自己；1 = 父母 / 孩子 / 父母的孩子；2 = 其他。不给 = 全 0。 */
+  tierOf?(id: number): 0 | 1 | 2;
   graph: { pt(id: VertexId): Pt3; edge(id: EdgeId): Edge; vertex(id: VertexId): Vertex; hasEdge(id: EdgeId): boolean; hasVertex(id: VertexId): boolean };
 }
 
 export const ID_STRIDE = 1 << 22;
 
-export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; }
+export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */ tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; }
 
 
 /** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
@@ -91,6 +93,49 @@ function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
   return part;
 }
 
+/**
+ * 层级距离（#30）：相对活动上下文 (chainA, groupA)，近亲 = 自己的孩子（同 definition 里 parent 链上有 groupA 的 group、parent === groupA 的实例及其整棵）、
+ * 父母（groupA 的 parent 池；进了实例则是放它的那个池）、父母的孩子（兄弟 group / 兄弟实例）。其余 = 2。
+ */
+function tierOfSlot(scene: Scene, ctx: EditContext, pool: PoolRef, chain: readonly InstId[]): 0 | 1 | 2 {
+  const chainA = ctx.chain, groupA = ctx.group, defA = scene.defOfContext(ctx);
+  const sameChain = chain.length === chainA.length && chain.every((c, i) => c === chainA[i]);
+  const prefix = chain.length > chainA.length && chainA.every((c, i) => c === chain[i]);
+  const groupParent = (def: number, gid: number | null): number | null => (gid === null ? null : scene.group({ def, group: gid }).parent);
+  const ancestors = (def: number, gid: number | null): Set<number | null> => { const out = new Set<number | null>(); let g = gid; let guard = 64; while (g !== null && guard-- > 0) { g = groupParent(def, g); out.add(g); } return out; };
+  if (sameChain && pool.def === defA) {
+    if (pool.group === groupA) return 0;
+    if (ancestors(defA, pool.group).has(groupA)) return 1;                         // 孩子（任意深）
+    const parentA = groupParent(defA, groupA);
+    if (groupA !== null && pool.group === parentA) return 1;                       // 父母
+    if (pool.group !== null && groupParent(defA, pool.group) === parentA) return 1;   // 兄弟
+    return 2;
+  }
+  if (prefix) {
+    const inst = scene.instance(defA, chain[chainA.length]);                       // 从活动 definition 出去的第一个实例
+    const parentA = groupParent(defA, groupA);
+    if (inst.parent === groupA || ancestors(defA, inst.parent).has(groupA)) return 1;   // 孩子实例（及其整棵）
+    if (inst.parent === parentA && chain.length === chainA.length + 1 && groupA !== null) return 1;   // 兄弟实例
+    return 2;
+  }
+  if (chainA.length && chain.length === chainA.length - 1 && chain.every((c, i) => c === chainA[i])) {
+    // 父母那一层：放着当前实例的池 = 父母；父母的其他孩子 = 兄弟
+    const up = chainA.length === 1 ? scene.root : scene.instance(scene.defOfContext({ chain: chainA.slice(0, -2), group: null }), chainA[chainA.length - 2]).def;
+    const inst = scene.instance(up, chainA[chainA.length - 1]);
+    if (pool.def !== up) return 2;
+    if (pool.group === inst.parent) return 1;                                      // 父母
+    if (pool.group !== null && groupParent(up, pool.group) === inst.parent) return 1;   // 兄弟 group
+    return 2;
+  }
+  if (chainA.length && chain.length === chainA.length && chain.slice(0, -1).every((c, i) => c === chainA[i])) {
+    // 兄弟实例：同一父池里放的别的实例
+    const up = chainA.length === 1 ? scene.root : scene.instance(scene.defOfContext({ chain: chainA.slice(0, -2), group: null }), chainA[chainA.length - 2]).def;
+    const mine = scene.instance(up, chainA[chainA.length - 1]), theirs = scene.instance(up, chain[chain.length - 1]);
+    return mine.parent === theirs.parent ? 1 : 2;
+  }
+  return 2;
+}
+
 export class WorldView implements GeomView {
   readonly slots: PoolSlot[] = [];
   /** 每槽一份世界坐标几何（缓存单元；屏幕索引也按它缓存）。在手里的槽 = 空 part（见 OVERRIDDEN_PARTS_EMPTY）。 */
@@ -128,7 +173,7 @@ export class WorldView implements GeomView {
       let m = xform, overridden = false;
       if (overrides) for (const ov of overrides) if (ov.match(pool, chain)) { m = compose(ov.xform, m); overridden = true; }
       const kernel = isActive && live ? live : scene.kernelOf(pool);
-      this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain, overridden });
+      this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain, overridden, tier: isActive ? 0 : tierOfSlot(scene, ctx, pool, chain) });
       this.byKey.set(key, index);
       // part：命中缓存（同 kernel 对象 + 同槽序号 + 池版本没变 + 变换没变）就复用，否则重算这一个槽
       if (overridden && OVERRIDDEN_PARTS_EMPTY) { this.parts.push(emptyPart(m)); continue; }
@@ -178,6 +223,7 @@ export class WorldView implements GeomView {
 
   // ---------- 全局 id ↔ 池 ----------
   slotOf(gid: number): PoolSlot { return this.slots[Math.floor(gid / ID_STRIDE)]; }
+  tierOf(gid: number): 0 | 1 | 2 { return this.slots[Math.floor(gid / ID_STRIDE)]?.tier ?? 2; }
   local(gid: number): { slot: PoolSlot; id: number } { const slot = this.slotOf(gid); return { slot, id: gid - slot.index * ID_STRIDE }; }
   /** 活动池的本地 id → 全局 id。 */
   global(localId: number): number { return localId + this.activeSlot().index * ID_STRIDE; }
