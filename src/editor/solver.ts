@@ -29,10 +29,19 @@ export interface View { pf: PointerFrame; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
-  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt";
+  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool";
   src?: Pt3;
   axis?: AxName;
+  /** 工具目标的人话标签（「正方形」「黄金分割」「半圆」…），直接进光标提示。 */
+  label?: string;
 }
+/**
+ * 工具自带的推断目标（B22，user 2026-10-24「rect, 2 point arc 这些是不是正方形，半圆，你忘了做 snap？这些工具提供的 snap 点你想一下怎么设计接口」）：
+ * SU 的「正方形 / 黄金分割」= 第二点落在从首点出发的对角线上（1-D），「半圆」= 凸度点落在弦中垂线上离弦 |AB|/2 处（0-D），
+ * 「平行 / 垂直于边」= 从首点出发的两条线（1-D）。它们和端点、轴线一样是约束，只是由**工具按当前手势状态造**出来——
+ * 一个口：AlignQuery.toolTargets；求解器当普通约束一起字典序裁决（能与轴线合成交点），标签进提示。
+ */
+export interface ToolTarget { locus: Locus; rank: number; label: string; src?: Pt3; eps?: "point" | "line"; }
 export type Locus =
   | { dim: 0; p: Pt3 }
   | { dim: 1; a: Pt3; dir: Pt3; len?: number }   // len 有=线段 [a, a+dir·len]；无=无限直线
@@ -205,6 +214,7 @@ export interface AlignQuery {
   anchor?: Pt3 | null;                     // 轴线源
   alignSources?: readonly Pt3[] | null;    // 充能源
   chargedEdges?: readonly { a: Pt3; b: Pt3 }[] | null;   // 充能边（0.11.6）：出延长线 + 延长线与附近边 / 另一条充能延长线的交点
+  toolTargets?: readonly ToolTarget[] | null;             // 工具自带目标（B22）：正方形 / 黄金分割 / 半圆…
   lines?: boolean;                         // false = 不注册轴/共轴 1-D 线（pp：不吸 xyz 轴）
   hand: AlignHand;                         // 手中集，**必填**（表态制：空手写 NO_HAND）——对齐引擎永远不吸手里的东西
 }
@@ -216,6 +226,7 @@ export interface SnapContext {
   anchor?: Pt3 | null;
   alignSources?: readonly Pt3[] | null;
   chargedEdges?: readonly { a: Pt3; b: Pt3 }[] | null;
+  toolTargets?: readonly ToolTarget[] | null;
   lines?: boolean;
   hand?: AlignHand | null;
   /** 候选 ε（本帧量纲）；缺省 = solver.EPS（桌面 px @800）。 */
@@ -466,6 +477,11 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     for (const l of G.lines) { if (!nearSeg(l.p, add3(l.p, l.dir), true)) continue; out.push({ locus: { dim: 1, a: l.p, dir: l.dir }, rank: RANK.guide, eps: E.line, tag: { kind: "guide" } }); }
   }
   lap("guides");
+  // 工具自带目标（B22）：按工具给的秩 / 轨迹原样登记；0-D 用点 ε，1-D 用线 ε
+  for (const t of ctx.toolTargets ?? []) {
+    if (t.locus.dim === 0 && (!nearPt(t.locus.p) || hidden(t.locus.p))) continue;
+    out.push({ locus: t.locus, rank: t.rank, eps: t.eps === "point" || t.locus.dim === 0 ? E.point : E.line, tag: { kind: "tool", label: t.label, ...(t.src ? { src: t.src } : {}) } });
+  }
   // 绝对网格（0.11 ⑤；A10「几何推断优先于网格」= 最低秩 0-D）：格点是帧坐标下 step/sub 的格子点，只取离光标自由点（射线 ∩ 画面）最近的那一个，
   // 且它得真落在画面平面上（轴对齐的墙 / 地面才有；斜面没有格点）。O(1)，不枚举。
   const GR = ctx.k.grid?.();
@@ -600,11 +616,12 @@ export type SnapKind =
   | "intersection" | "cross-line"
   | "on-guide" | "guide-point" | "guide-cross"   // 参考线上 / 参考点 / 参考线交点（0.11 尺规纪元）
   | "grid-point" | "increment"                    // 格点 / 整数长度（0.11 ⑤ 绝对网格）
+  | "tool"                                        // 工具自带目标（B22）：标签在 Snap3.label
   | "on-face"   // 裸落在膜内（2-D 目标；仅当平面来自膜且点在环内）
   | "h-stop";   // pp 高度通道咬合（标量吸附，非光标目标）
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
 export interface SnapHint { a: Pt3; b: Pt3; axis: "x" | "y" | "z" | "u" | "v" | "i"; }
-export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; }
+export interface Snap3 { p: Pt3; kind: SnapKind | null; hints?: SnapHint[]; /** 工具目标的人话标签（kind = "tool" 时）。 */ label?: string; }
 
 
 /**
@@ -646,7 +663,7 @@ export function snapPoint(
     return occludedBy(k, pf, p, skip, occluders);
   };
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
-    alignSources: q.alignSources, chargedEdges: q.chargedEdges, pf, lines: q.lines, hand: q.hand, eps: E,
+    alignSources: q.alignSources, chargedEdges: q.chargedEdges, toolTargets: q.toolTargets, pf, lines: q.lines, hand: q.hand, eps: E,
     cursor: { x: sx, y: sy, vp, radiusPx } });
   const sol = perf.time("snap.solve", () => solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: E.combo,
@@ -672,6 +689,8 @@ export function snapPoint(
       hints.push({ a: c.tag.src, b: sol.p, axis: c.tag.axis });
     } else if (c.locus.dim === 1 && c.tag.kind === "edgeExt" && c.tag.src) {
       hints.push({ a: c.tag.src, b: sol.p, axis: "i" });   // 延长线：从充能边的端点到吸附点
+    } else if (c.locus.dim === 1 && c.tag.kind === "tool" && c.tag.src) {
+      hints.push({ a: c.tag.src, b: sol.p, axis: "i" });   // 工具目标线（正方形对角线…）：从首点到吸附点
     } else if (c.locus.dim === 1 && c.tag.kind === "cross" && c.locus.len !== undefined) {
       // 交线：整段高亮（可描的虚拟轨迹）
       const L = c.locus;
@@ -679,7 +698,10 @@ export function snapPoint(
     }
   }
   let kind: SnapKind | null;
-  if (sol.used.length === 2) {
+  const toolUsed = sol.used.find((c) => c.tag.kind === "tool");
+  if (toolUsed) {
+    kind = "tool";
+  } else if (sol.used.length === 2) {
     kind = sol.used.some((c) => c.tag.kind === "guide") ? "guide-cross" : sol.used.some((c) => c.tag.kind === "edge") ? "edge-align" : "align-combo";
   } else {
     const t = sol.used[0].tag;
@@ -698,7 +720,8 @@ export function snapPoint(
       : (t.kind === "plane" && insideFace(k, q.plane, sol.p)) ? "on-face"
       : null;
   }
-  return hints.length ? { p: sol.p, kind, hints } : { p: sol.p, kind };
+  const label = toolUsed ? `${toolUsed.tag.label ?? "工具"}${sol.used.length === 2 ? "·交点" : ""}` : undefined;
+  return { p: sol.p, kind, ...(hints.length ? { hints } : {}), ...(label ? { label } : {}) };
 }
 
 // ===== 平面求解器（2026-09-02 收敛手术：与点求解器同族字典序，一台挑选器吃所有平面决定） =====
@@ -822,28 +845,30 @@ export function resolvePlane(
   tolPx: number,
   opts: { p1?: Pt3 | null; facePlane?: DrawPlane | null; alignSources?: readonly Pt3[] | null; hand: AlignHand;
     /** 首点所在平面（如地面）：无膜承接时的兜底平面——不再按指针面向度挑轴平面（2026-09-07 VR：站着画远处地面俯仰 < 20° 就翻成竖直面 =「画线突然跳到空中」）。 */
-    basePlane?: DrawPlane | null },
+    basePlane?: DrawPlane | null;
+    /** 工具自带目标（B22；按平面基算的话由调用方按上一帧平面给）。 */
+    toolTargets?: readonly ToolTarget[] | null },
 ): { plane: DrawPlane; fixed: boolean; snap: Snap3 } {
-  const { p1, facePlane, alignSources, hand, basePlane } = opts;
+  const { p1, facePlane, alignSources, hand, basePlane, toolTargets } = opts;
   if (p1) {
     // 含点（膜）：光标射线命中的膜若也含锚点 → 该膜平面胜出（SU：从共享边拖进哪张面，矩形/线就躺哪张面）。
     // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
     // 此前第二点只在过锚点的三个轴平面里挑且先按俯视偏置取地面，光标穿过侧面落到地面底边附近 → 永远「边上」。
     const under = faceUnderCursor(k, pf, vp, sx, sy);
     if (under && distToPlane(p1, under.plane) <= 1e-3) {
-      const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand });
+      const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand, toolTargets });
       return { plane: under, fixed: false, snap };
     }
     // 近擦（2026-09-06 侧面拖矩形案）：光标滑出含锚点膜的剪影几个像素（如底边下方）仍算在那张膜上，
     // 否则按落底偏置挑过锚点轴平面会把矩形翻到水平面、角点飞走。纯几何无历史（黏性版 2026-09-07 撤）。
     const near = nearFaceContaining(k, pf, vp, sx, sy, p1, frameEps(pf, vp, tolPx).planeNear);
     if (near) {
-      const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: near, anchor: p1, alignSources, hand });
+      const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: near, anchor: p1, alignSources, hand, toolTargets });
       return { plane: near, fixed: false, snap };
     }
     const candidates = axisPlanesThrough(p1);
     const base = basePlane ?? pickByFacing(pf, candidates);
-    const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand });
+    const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand, toolTargets });
     if (basePlane && distToPlane(snap.p, basePlane.plane) <= 1e-3) return { plane: basePlane, fixed: false, snap };   // 黏在首点平面上
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
     return { plane: containing.length ? pickByFacing(pf, containing) : base, fixed: false, snap };
@@ -867,9 +892,10 @@ export function resolveRectPlane(
   alignSources: readonly Pt3[] | undefined,
   hand: AlignHand,
   basePlane?: DrawPlane | null,
+  toolTargets?: readonly ToolTarget[] | null,
 ): { plane: DrawPlane; snap: Snap3 } {
   // hand = 手中集（预演里新生的顶点/工具自报的移动集）：不传 = 矩形/线会吸到自己上一帧的角点（2026-09-06 user「一 snap 一 snap」真凶，
   // lab 时代就有、ε 放大后显形；线第二点当日改走本函数被拖下水）
-  const r = resolvePlane(k, pf, vp, sx, sy, tolPx, { p1, alignSources, hand, basePlane });
+  const r = resolvePlane(k, pf, vp, sx, sy, tolPx, { p1, alignSources, hand, basePlane, toolTargets });
   return { plane: r.plane, snap: r.snap };
 }

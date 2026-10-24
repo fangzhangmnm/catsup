@@ -5,7 +5,7 @@
 import type { Edge, EdgeId, Face, FaceId, Kernel, Pt, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { applyPt, type Xform } from "../scene/xform.ts";
-import { liftFromPlane, projectToPlane, type PlaneParams, add3, sub3, scale3, dist3, normalize3 } from "../kernel/geom.ts";
+import { liftFromPlane, projectToPlane, type PlaneParams, add3, sub3, scale3, dist3, normalize3, len3, cross3 } from "../kernel/geom.ts";
 
 /** Rect 工具（任意平面版）：对角两点（须在平面上）→ 4 条边。退化 → []。 */
 export function rectSegmentsOnPlane(
@@ -169,3 +169,29 @@ export function moveTargetsSelection(k: Kernel, sel: Selection): VertexId[] {
 
 /** 类型 re-export 便利（main.ts 少一层 import）。 */
 export type { Edge, Face };
+
+
+// ---------- 工具自带的推断目标（B22，2026-10-24，Claude Fable 5.1；接口 = solver.ts ToolTarget）----------
+import type { ToolTarget } from "./solver.ts";
+import { RANK as _RANK } from "./solver.ts";
+const PHI = (1 + Math.sqrt(5)) / 2;
+/** 矩形第二点：从首点出发的两条对角线 = 正方形（秩同轴线）；四条黄金分割线（稍低）。 */
+export function rectToolTargets(anchor: Pt3, basis: { u: Pt3; v: Pt3 }): ToolTarget[] {
+  const { u, v } = basis;
+  const line = (dir: Pt3, label: string, rank: number): ToolTarget => ({ locus: { dim: 1, a: anchor, dir: normalize3(dir) }, rank, label, src: anchor });
+  return [
+    line(add3(u, v), "正方形", _RANK.axisLine), line(sub3(u, v), "正方形", _RANK.axisLine),
+    line(add3(scale3(u, PHI), v), "黄金分割", _RANK.axisLine - 3), line(add3(u, scale3(v, PHI)), "黄金分割", _RANK.axisLine - 3),
+    line(sub3(scale3(u, PHI), v), "黄金分割", _RANK.axisLine - 3), line(sub3(u, scale3(v, PHI)), "黄金分割", _RANK.axisLine - 3),
+  ];
+}
+/** 两点弧第三点（凸度）：弦中垂线上离弦 |AB|/2 的两个点 = 半圆。 */
+export function arcToolTargets(a: Pt3, b: Pt3, n: Pt3): ToolTarget[] {
+  const mid = scale3(add3(a, b), 0.5), ab = sub3(b, a), r = len3(ab) / 2;
+  if (r < 1e-9) return [];
+  const perp = normalize3(cross3(n, ab));
+  return [
+    { locus: { dim: 0, p: add3(mid, scale3(perp, r)) }, rank: _RANK.intersection, label: "半圆" },
+    { locus: { dim: 0, p: sub3(mid, scale3(perp, r)) }, rank: _RANK.intersection, label: "半圆" },
+  ];
+}

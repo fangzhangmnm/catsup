@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, rectToolTargets } from "./tools.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
@@ -99,7 +99,7 @@ function epsOfKindVR(e: EpsSet, kind: string): number {
 }
 const EPS_OF: Record<string, number> = {
   endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
-  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5,
+  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5, tool: 5,
 };
 export const SNAP_LABELS: Record<string, string> = {
   endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
@@ -1284,11 +1284,12 @@ export class Editor {
   }
   private rectPlaneSnap(sx: number, sy: number): Pt3 {
     const w = this.liveWorld();
+    const targets = this._tool === "rect" && this.anchor3 ? rectToolTargets(this.anchor3, this.gesturePlane.basis) : null;   // 正方形 / 黄金分割（B22；按上一帧平面基）
     if (this.rectFixed) {
-      this.snapInfo = snapPoint(w, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(w) });
+      this.snapInfo = snapPoint(w, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(w), toolTargets: targets });
       return this.snapInfo.p;
     }
-    const r = resolveRectPlane(w, this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(w), this.basePlaneOfAnchor());
+    const r = resolveRectPlane(w, this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(w), this.basePlaneOfAnchor(), targets);
     if (r.snap.kind === null && this.snapInfo && grazing(r.plane, this.frame().ray(sx, sy, this.fvp()))) return this.snapInfo.p;
     this.gesturePlane = r.plane;
     this.snapInfo = r.snap;
@@ -1355,7 +1356,7 @@ export class Editor {
     return out;
   }
   private updateTip(clientX: number, clientY: number): void {
-    this.host.tip(this.snapInfo?.kind ? SNAP_LABELS[this.snapInfo.kind] ?? this.snapInfo.kind : null, clientX, clientY);
+    this.host.tip(this.snapInfo?.kind ? (this.snapInfo.kind === "tool" ? this.snapInfo.label ?? "工具" : SNAP_LABELS[this.snapInfo.kind] ?? this.snapInfo.kind) : null, clientX, clientY);
   }
 
   // ---------- 缩放柄 ----------
