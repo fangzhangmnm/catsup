@@ -168,6 +168,14 @@ svg.ico use { color: inherit; }
 .sheet-backdrop { position: fixed; inset: 0; z-index: var(--z-help); background: rgba(0,0,0,.25); display: grid; place-items: center; padding: 16px; }
 .sheet { width: min(560px, 100%); max-height: 86vh; overflow: auto; background: var(--panel); border-radius: 14px; box-shadow: 0 12px 40px rgba(0,0,0,.25); padding: 10px 16px 16px; touch-action: pan-y; }
 .sheet-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
+/* 底部抽屉（竖屏：大面板从屏幕底下抽上来，不占左右；user 10-24「我还是习惯ipad竖屏，所以物品栏弹出来应该在屏幕底下」） */
+.sheet-backdrop.bottom { place-items: end center; padding: 0; }
+.sheet.sheet-bottom { width: min(720px, 100%); border-radius: 14px 14px 0 0; padding-bottom: calc(16px + var(--safe-bottom)); max-height: 60vh; }
+.shop-list { display: flex; flex-direction: column; gap: 4px; }
+.shop-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 8px; border-radius: 8px; background: rgba(0,0,0,.03); }
+.shop-row .ico { width: 20px; height: 20px; flex: 0 0 20px; }
+.shop-name { flex: 1; }
+.shop-count { font-size: 12px; color: var(--muted); }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
 .kv dt { color: var(--accent); font-weight: 600; white-space: nowrap; }
 .kv dd { margin: 0; color: #444; }

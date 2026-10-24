@@ -285,6 +285,26 @@ window.addEventListener("resize", () => renderSlots());
 const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
+// 商城 = 物品栏（B27：资产 / 以后的图层 / 场景树的家；user「先左上 汉堡云商城吧。以后想到有趣的再说」）：第一版 = 模型里的组件清单（真数据），从底部抽上来
+const btnShop = $<HTMLButtonElement>("btnShop"), shopEl = $<HTMLElement>("shop"), shopList = $<HTMLElement>("shopList"), shopHint = $<HTMLElement>("shopHint");
+function renderShop(): void {
+  const scene = editor.sceneRef;
+  const counts = new Map<number, number>();
+  for (const d of scene.defs.values()) for (const inst of d.instances.values()) counts.set(inst.def, (counts.get(inst.def) ?? 0) + 1);
+  const defs = [...scene.defs.values()].filter((d) => d.id !== scene.root);
+  shopList.replaceChildren();
+  for (const d of defs) {
+    const row = document.createElement("div"); row.className = "shop-row";
+    row.innerHTML = `${iconHtml("object")}<span class="shop-name"></span><span class="shop-count"></span>`;
+    (row.querySelector(".shop-name") as HTMLElement).textContent = d.name;
+    (row.querySelector(".shop-count") as HTMLElement).textContent = `${counts.get(d.id) ?? 0} 个实例 · ${d.kernel.faces().length} 面`;
+    shopList.appendChild(row);
+  }
+  shopHint.textContent = defs.length ? `组件 ${defs.length} 种 · 图层 / 场景树以后在这里` : "还没有组件：选中几何 → 建组件（G）。图层 / 场景树以后在这里";
+}
+btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
+$("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
+shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
 type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "noclip" | "persp" | "walk";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {

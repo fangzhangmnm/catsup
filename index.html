@@ -206,6 +206,8 @@
         <div class="hud-topleft" aria-label="菜单与云">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
           <button class="tb-btn" id="btnSave" type="button" title="保存（Ctrl+S）" data-state="none"><svg class="ico" aria-hidden="true"><use id="btnSaveIcon" href="#floppy-disk"/></svg></button>
+          <!-- 商城 = 物品栏（资产 / 以后的图层 / 场景树）；图标 stopgap = collection（图标库 TODO 已登记 shop）；user「先左上 汉堡云商城吧」 -->
+          <button class="tb-btn" id="btnShop" type="button" title="物品栏（组件 · 以后：图层 / 场景树）"><svg class="ico" aria-hidden="true"><use href="#collection"/></svg></button>
         </div>
         <nav class="hud hud-rail hud-rail-tools" aria-label="工具">
           <!-- 2026-10-21 左柱定形（user：「hanburger, cloud, undo redo select line rect eraser move rotate scale pushpull ... 然后非pin的工具给2个格子，屏幕太短就不给」
@@ -310,6 +312,14 @@
     </div>
 
     <!-- 调试日志（黑匣子；debug-log-sheet.ts）：实验台 sunset 的接班人（user 2026-09-20）。<pre> 可选中；复制 / 分享 .txt / 清空 -->
+    <!-- 物品栏（商城）：竖屏从底部抽上来（版图 ai-docs/20261024-ui-layout.md §2） -->
+    <div id="shop" class="sheet-backdrop bottom" hidden>
+      <div class="sheet sheet-bottom" role="dialog" aria-modal="true" aria-label="物品栏">
+        <div class="sheet-head"><span>物品栏</span><button class="tb-btn" id="shopClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
+        <p class="sheet-message" id="shopHint"></p>
+        <div id="shopList" class="shop-list"></div>
+      </div>
+    </div>
     <div id="debugLog" class="sheet-backdrop" hidden>
       <div class="sheet debug-log-sheet" role="dialog" aria-modal="true" aria-label="调试日志">
         <div class="sheet-head"><span>调试日志</span><button class="tb-btn" id="debugLogClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
@@ -326,6 +336,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-80edd0d98b0a.mjs"></script>
+    <script type="module" src="./dist/catsup-13bb00589069.mjs"></script>
   </body>
 </html>
