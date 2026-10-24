@@ -20,6 +20,7 @@ import "./tier.test.ts";         // #30 层级档加权
 import "./weld.test.ts";         // B19 焊接（边链 → 曲线）
 import "./erasers.test.ts";      // 橡皮家族：溶解 / 断口 / 焊边 / 软边 / batch（v0.13.16）
 import "./shapes.test.ts";       // 形状批：旋转矩形 / 四种弧 / 矩形从中心 / VCB（v0.13.17）
+import "./exact-geometry.test.ts";   // EGC 期 1：精确谓词 + snap rounding（2026-10-24）
 import "./lock.test.ts";         // A27 锁定（对象层属性；0.13）
 import "./body-kind.test.ts";    // 门 1：definition 身体 brep | card（0.13 刀 ①）
 import "./final.test.ts";        // 定稿：内容指纹 + 记录往返（ai-docs/20261024-finalize.md）

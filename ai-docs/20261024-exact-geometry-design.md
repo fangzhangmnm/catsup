@@ -1,6 +1,6 @@
 # 内核精确几何（EGC）路线：问题陈述 + 架构 + 分期（user「用学术上最专业的」「内核数学要完美。除非性能伤的太差」「3 > 2 > 1」）
 
-> created 20261024 · as-of v0.13.24 / 2026-10-24 · created by Claude Fable 5.1
+> created 20261024 · as-of v0.13.25 / 2026-10-24 · created by Claude Fable 5.1
 > 性质：设计 + 第一期实现记录。user 已拍方向（精确谓词 + snap rounding 优先于「按平面立不变量」优先于「op 带引用」）；每期落地前后都用 fuzz / 差分 oracle / 全量 golden 当仪表。
 
 ## 0. 一句话
@@ -32,7 +32,7 @@
 
 ## 4. 分期（每期可独立交付、可回退）
 
-- **期 1（本稿落地）**：`exact/` 三件 + 测试 + 基准。不接内核。
+- **期 1（done v0.13.25，2026-10-24）**：`exact/lattice.ts` / `predicates.ts`（orient2d / orient3d 过滤 + BigInt、segSeg2d 四分类、有理交点 / 像素、像素穿过判定）/ `snap-round.ts`（迭代 snap rounding + PSLG 校验）+ `test/exact-geometry.test.ts`（谓词 26k 例与纯 BigInt 逐一一致；随机 150 段 × 12 种子 PSLG 零问题、Hausdorff ≤ P√2、端点落像素、确定性；级联分离性）。基准（随机段、像素 P = 4 格、密度恒定）：200 段 9 ms / 1000 段 21 ms / 5000 段 157 ms，2–3 轮收敛；过滤器后备率 ≈ 1/50000 以下。不接内核。
 - **期 2**：`planarize` / `insertSegment` 的判定换精确谓词（结构不变、ε 退场），fuzz 计数对照。
 - **期 3**：结算机 ④ 的按平面排列：`regionsByPlane` 前先对每个被碰平面做「主轴投影 + snap rounding」（= 立 PSLG 不变量），`findRegions` 只吃整数 PSLG；`collinear2`、`representativePoint`、`pointInRing` 换精确版。守恒断言此后只能由**建模矛盾**触发。
 - **期 4（原「1」）**：op 带引用 / 约束（推拉到某顶点所在平面、端点 = 顶点 id）——只在 2 / 3 之后还剩下的意图丢失上做。
