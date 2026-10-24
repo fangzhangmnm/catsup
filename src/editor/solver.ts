@@ -29,7 +29,7 @@ export interface View { pf: PointerFrame; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
-  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid";
+  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt";
   src?: Pt3;
   axis?: AxName;
 }
@@ -200,6 +200,7 @@ export interface AlignQuery {
   plane: DrawPlane;                        // 2-D 兜底（画面平面，含基）
   anchor?: Pt3 | null;                     // 轴线源
   alignSources?: readonly Pt3[] | null;    // 充能源
+  chargedEdges?: readonly { a: Pt3; b: Pt3 }[] | null;   // 充能边（0.11.6）：出延长线 + 延长线与附近边 / 另一条充能延长线的交点
   lines?: boolean;                         // false = 不注册轴/共轴 1-D 线（pp：不吸 xyz 轴）
   hand: AlignHand;                         // 手中集，**必填**（表态制：空手写 NO_HAND）——对齐引擎永远不吸手里的东西
 }
@@ -210,6 +211,7 @@ export interface SnapContext {
   pf?: PointerFrame | null;               // 提供则启用膜遮挡过滤
   anchor?: Pt3 | null;
   alignSources?: readonly Pt3[] | null;
+  chargedEdges?: readonly { a: Pt3; b: Pt3 }[] | null;
   lines?: boolean;
   hand?: AlignHand | null;
   /** 候选 ε（本帧量纲）；缺省 = solver.EPS（桌面 px @800）。 */
@@ -471,27 +473,27 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
       if (distToPlane(q, ctx.plane) <= 1e-6 && nearPt(q) && !hidden(q)) out.push({ locus: { dim: 0, p: q }, rank: RANK.grid, eps: E.point, tag: { kind: "grid" } });
     }
   }
-  // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
-  // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
+  // 延长线（0.11.6；user 2026-10-24 退役清单「载线交点 充能」）：只有**充能过的边**（悬停 ≥ 300 ms）才出延长线——
+  // 它的无限载线 = 1-D 目标（SU「On Line」），它与附近真实边段的交点 / 两条充能载线的交点 = 0-D 目标（SU「Intersection」）。
+  // 之前「附近任意两条边两两延长求交」= 满屏幽灵点且秩高，退役。user 2026-09-01「snap 时生成线和点用户可以描」仍成立：描到才成真几何。
   {
-    // 只在**段本身**离指针不远（4 倍半径）的边之间求载线交点：按「载线经过指针附近」筛在网格场景里几乎不筛（所有轴向边的载线都穿过来，
-    // 2400 面时 667 ms），而延长线交点这种推断本来就是「附近两条边」的事。
-    // 密到一定程度（缩得很远）就不做延长线推断：那时它只是噪音，而且 O(k²)。交点先按屏距筛再做遮挡（遮挡是 O(膜数)）。
-    const esNear = cur ? segsAll.filter(({ a, b }) => cur.pf.distToSeg(cur.x, cur.y, a, b, cur.vp).d <= cur.radiusPx * 2) : segsAll;
-    const es = (esNear.length > 60 ? [] : esNear)
-      .map(({ a, b }) => {
+    const CE = (ctx.chargedEdges ?? []).map(({ a, b }) => { const l = dist3(a, b); return l > 0 ? { a, b, dir: scale3(sub3(b, a), 1 / l) } : null; }).filter((x) => x !== null);
+    for (const ce of CE) {
+      if (nearSeg(ce.a, ce.b, true)) out.push({ locus: { dim: 1, a: ce.a, dir: ce.dir }, rank: RANK.axisLine, eps: E.line, tag: { kind: "edgeExt", src: ce.a } });
+      for (const { a, b } of segs) {
         const l = dist3(a, b);
-        return l > 0 ? { a, dir: scale3(sub3(b, a), 1 / l), ea: a, eb: b } : null;
-      }).filter((x) => x !== null);
-    for (let i = 0; i < es.length; i++) {
-      for (let j = i + 1; j < es.length; j++) {
-        const p = carrierIntersect(es[i]!, es[j]!);
-        if (!p || !nearPt(p)) continue;
-        // 与既有端点重合（含共享顶点）→ 已是 endpoint 目标，跳过
-        if ([es[i]!.ea, es[i]!.eb, es[j]!.ea, es[j]!.eb].some((q) => dist3(p, q) <= 1e-6)) continue;
-        if (hidden(p)) continue;
+        if (l <= 0) continue;
+        const p = intersect1D({ a: ce.a, dir: ce.dir }, { a, dir: scale3(sub3(b, a), 1 / l), len: l });
+        if (!p || !nearPt(p) || hidden(p)) continue;
+        if ([ce.a, ce.b, a, b].some((q) => dist3(p, q) <= 1e-6)) continue;   // 落在端点上 = 已是端点目标
         out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: E.point, tag: { kind: "intersection" } });
       }
+    }
+    for (let i = 0; i < CE.length; i++) for (let j = i + 1; j < CE.length; j++) {
+      const p = carrierIntersect(CE[i]!, CE[j]!);
+      if (!p || !nearPt(p) || hidden(p)) continue;
+      if ([CE[i]!.a, CE[i]!.b, CE[j]!.a, CE[j]!.b].some((q) => dist3(p, q) <= 1e-6)) continue;
+      out.push({ locus: { dim: 0, p }, rank: RANK.intersection, eps: E.point, tag: { kind: "intersection" } });
     }
   }
   lap("carriers");
@@ -588,6 +590,7 @@ export type SnapKind =
   | "endpoint" | "midpoint" | "on-edge" | "origin"
   | "axis-x" | "axis-y" | "axis-z"
   | "align" | "align-combo" | "edge-align"
+  | "on-extension"   // 充能边的延长线上（0.11.6）
   | "intersection" | "cross-line"
   | "on-guide" | "guide-point" | "guide-cross"   // 参考线上 / 参考点 / 参考线交点（0.11 尺规纪元）
   | "grid-point" | "increment"                    // 格点 / 整数长度（0.11 ⑤ 绝对网格）
@@ -637,7 +640,7 @@ export function snapPoint(
     return occludedBy(k, pf, p, skip, occluders);
   };
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
-    alignSources: q.alignSources, pf, lines: q.lines, hand: q.hand, eps: E,
+    alignSources: q.alignSources, chargedEdges: q.chargedEdges, pf, lines: q.lines, hand: q.hand, eps: E,
     cursor: { x: sx, y: sy, vp, radiusPx } });
   const sol = perf.time("snap.solve", () => solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: E.combo,
@@ -661,6 +664,8 @@ export function snapPoint(
   for (const c of sol.used) {
     if (c.locus.dim === 1 && (c.tag.kind === "axis" || c.tag.kind === "align") && c.tag.src && c.tag.axis) {
       hints.push({ a: c.tag.src, b: sol.p, axis: c.tag.axis });
+    } else if (c.locus.dim === 1 && c.tag.kind === "edgeExt" && c.tag.src) {
+      hints.push({ a: c.tag.src, b: sol.p, axis: "i" });   // 延长线：从充能边的端点到吸附点
     } else if (c.locus.dim === 1 && c.tag.kind === "cross" && c.locus.len !== undefined) {
       // 交线：整段高亮（可描的虚拟轨迹）
       const L = c.locus;
@@ -680,6 +685,7 @@ export function snapPoint(
       : t.kind === "edge" ? "on-edge"
       : t.kind === "axis" ? ((t.axis === "u" || t.axis === "v") ? "align" : (("axis-" + t.axis) as SnapKind))
       : t.kind === "align" ? "align"
+      : t.kind === "edgeExt" ? "on-extension"
       : t.kind === "guide" ? "on-guide"
       : t.kind === "guidePoint" ? "guide-point"
       : t.kind === "grid" ? "grid-point"

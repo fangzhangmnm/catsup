@@ -96,7 +96,9 @@ const SNAP_COLORS: Record<string, number> = {
   "guide-cross": 0x111111,
   "grid-point": 0x9ca3af,
   increment: 0xd97706,
+  "on-extension": 0x8b5cf6,
 };
+const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
 const GUIDE_COLOR = 0x6b7280, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;
 
@@ -151,6 +153,8 @@ export interface ViewState {
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
   grid?: { frame: Frame; step: number } | null;
+  /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
+  charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
@@ -227,8 +231,8 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
-  private guideLines: any; private tapeLines: any; private gridObj: any = null;
-  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = "";
+  private guideLines: any; private tapeLines: any; private gridObj: any = null; private chargedLines: any;
+  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
   private scratchV = new THREE.Vector3();
@@ -325,6 +329,9 @@ export class Renderer3 {
     this.tapeLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tapeLines.frustumCulled = false; this.tapeLines.visible = false;
     this.scene.add(this.tapeLines);
+    this.chargedLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
+    this.chargedLines.frustumCulled = false; this.chargedLines.visible = false;
+    this.scene.add(this.chargedLines);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -625,6 +632,33 @@ export class Renderer3 {
     const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1;
     const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep); }
+
+    // ---- 充能标记：点 = 小菱形（像素尺寸），边 = 淡淡的延长线 ----
+    const ch = view.charged;
+    if (ch && (ch.points.length || ch.edges.length)) {
+      const px0 = ch.points.length ? this.worldPerPx(cam, vp, ch.points[0]) : 0;
+      const ck = `${ch.points.map((p) => `${p.x},${p.y},${p.z}`).join("|")}#${ch.edges.map((e) => `${e.a.x},${e.a.y},${e.a.z}>${e.b.x},${e.b.y},${e.b.z}`).join("|")}#${px0.toExponential(2)}`;
+      if (ck !== this.chargedKey) {
+        this.chargedKey = ck;
+        const pos: number[] = [], col: number[] = [];
+        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+        for (const e of ch.edges) {
+          const d = sub3(e.b, e.a), l = Math.hypot(d.x, d.y, d.z) || 1, u = { x: d.x / l, y: d.y / l, z: d.z / l };
+          push({ x: e.a.x - u.x * GUIDE_LEN, y: e.a.y - u.y * GUIDE_LEN, z: e.a.z - u.z * GUIDE_LEN }, e.a, CHARGED_EXT_COLOR);
+          push(e.b, { x: e.b.x + u.x * GUIDE_LEN, y: e.b.y + u.y * GUIDE_LEN, z: e.b.z + u.z * GUIDE_LEN }, CHARGED_EXT_COLOR);
+        }
+        const right = { x: cam3.matrixWorld.elements[0], y: cam3.matrixWorld.elements[1], z: cam3.matrixWorld.elements[2] };
+        const up = { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] };
+        for (const p of ch.points) {
+          const r = CHARGED_PX * this.worldPerPx(cam, vp, p);
+          const N = { x: p.x + up.x * r, y: p.y + up.y * r, z: p.z + up.z * r }, S = { x: p.x - up.x * r, y: p.y - up.y * r, z: p.z - up.z * r };
+          const E2 = { x: p.x + right.x * r, y: p.y + right.y * r, z: p.z + right.z * r }, W = { x: p.x - right.x * r, y: p.y - right.y * r, z: p.z - right.z * r };
+          push(N, E2, CHARGED_COLOR); push(E2, S, CHARGED_COLOR); push(S, W, CHARGED_COLOR); push(W, N, CHARGED_COLOR);
+        }
+        this.setLineGeometry(this.chargedLines, pos, col);
+      }
+      this.chargedLines.visible = true;
+    } else { this.chargedLines.visible = false; this.chargedKey = ""; }
 
     // ---- 卷尺预演：量线 + 候选参考线 / 参考点 ----
     const tp0 = view.tape;

@@ -98,7 +98,7 @@ function epsOfKindVR(e: EpsSet, kind: string): number {
 }
 const EPS_OF: Record<string, number> = {
   endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
-  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5,
+  "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5,
 };
 export const SNAP_LABELS: Record<string, string> = {
   endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
@@ -106,7 +106,7 @@ export const SNAP_LABELS: Record<string, string> = {
   align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴", intersection: "交点", "cross-line": "交线",
   "h-stop": "高度咬合", "on-face": "面上",
   "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",
-  "grid-point": "格点", increment: "整数长度",
+  "grid-point": "格点", increment: "整数长度", "on-extension": "延长线上",
 };
 export { type GridSettings, GRID_STEPS } from "./grid-settings.ts";
 
@@ -229,6 +229,8 @@ export class Editor {
   private downScreen: { x: number; y: number } | null = null;
   private justCommitted = false;
   private charged = new Map<string, Pt3>();
+  /** 充能边（0.11.6，user「载线交点 充能」）：悬停在边上 ≥ 300 ms 的边，最近 2 条；出延长线与延长线交点。 */
+  private chargedEdges = new Map<string, { a: Pt3; b: Pt3 }>();
   private dwell: { key: string; since: number } | null = null;
   private lastSnap: Snap3 | null = null;
   private clickTrain: { t: number; x: number; y: number; n: number } | null = null;
@@ -1076,13 +1078,35 @@ export class Editor {
 
   // ---------- 充能制 ----------
   private alignSrcs(): Pt3[] { return [...this.charged.values()]; }
+  private alignEdges(): { a: Pt3; b: Pt3 }[] { return [...this.chargedEdges.values()]; }
+  private chargeEdge(e: { a: Pt3; b: Pt3 }): void {
+    const key = `e:${e.a.x},${e.a.y},${e.a.z}|${e.b.x},${e.b.y},${e.b.z}`;
+    this.chargedEdges.delete(key);
+    this.chargedEdges.set(key, { a: { ...e.a }, b: { ...e.b } });
+    while (this.chargedEdges.size > 2) this.chargedEdges.delete(this.chargedEdges.keys().next().value!);
+  }
+  /** 悬停在「边上」时那条边的两端（世界坐标；给充能用）。 */
+  private hoveredEdge(view: WorldView, sx: number, sy: number): { a: Pt3; b: Pt3 } | null {
+    const hit = pickEntity(view, this.frame(), this.fvp(), sx, sy, this.hitPx());
+    if (hit.edge === undefined || !view.graph.hasEdge(hit.edge)) return null;
+    const e = view.graph.edge(hit.edge);
+    return { a: view.graph.pt(e.a), b: view.graph.pt(e.b) };
+  }
   private chargePt(p: Pt3): void {
     const key = `${p.x},${p.y},${p.z}`;
     this.charged.delete(key);
     this.charged.set(key, { ...p });
     while (this.charged.size > 3) this.charged.delete(this.charged.keys().next().value!);
   }
-  private trackCharge(sn: Snap3 | null, dwellMs = 300): void {
+  private trackCharge(sn: Snap3 | null, edge: { a: Pt3; b: Pt3 } | null = null, dwellMs = 300): void {
+    if (sn?.kind === "on-edge" && edge) {   // 充能边：停在边上 ≥ dwell
+      const key = `e:${edge.a.x},${edge.a.y},${edge.a.z}|${edge.b.x},${edge.b.y},${edge.b.z}`;
+      if (this.chargedEdges.has(key)) { this.dwell = null; return; }
+      const now = performance.now();
+      if (!this.dwell || this.dwell.key !== key) { this.dwell = { key, since: now }; return; }
+      if (now - this.dwell.since >= dwellMs) { this.chargeEdge(edge); this.dwell = null; }
+      return;
+    }
     if (!sn || (sn.kind !== "endpoint" && sn.kind !== "midpoint")) { this.dwell = null; return; }
     const key = `${sn.p.x},${sn.p.y},${sn.p.z}`;
     if (this.charged.has(key)) { this.dwell = null; return; }
@@ -1100,8 +1124,9 @@ export class Editor {
       live.add(`${(a.x + b.x) / 2},${(a.y + b.y) / 2},${(a.z + b.z) / 2}`);
     }
     for (const key of [...this.charged.keys()]) if (!live.has(key)) this.charged.delete(key);
+    for (const [key, e] of [...this.chargedEdges]) if (!live.has(`${e.a.x},${e.a.y},${e.a.z}`) || !live.has(`${e.b.x},${e.b.y},${e.b.z}`)) this.chargedEdges.delete(key);
   }
-  private clearCharged(): void { this.charged.clear(); this.dwell = null; this.lastSnap = null; }
+  private clearCharged(): void { this.charged.clear(); this.chargedEdges.clear(); this.dwell = null; this.lastSnap = null; }
   private applyHysteresis(sn: Snap3, sx: number, sy: number): Snap3 {
     if (sn.kind !== null) { this.lastSnap = sn; return sn; }
     if (this.lastSnap?.kind) {
@@ -1257,7 +1282,7 @@ export class Editor {
   private rectPlaneSnap(sx: number, sy: number): Pt3 {
     const w = this.liveWorld();
     if (this.rectFixed) {
-      this.snapInfo = snapPoint(w, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand(w) });
+      this.snapInfo = snapPoint(w, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(w) });
       return this.snapInfo.p;
     }
     const r = resolveRectPlane(w, this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(w), this.basePlaneOfAnchor());
@@ -1311,6 +1336,7 @@ export class Editor {
       guides: view.guides(),
       frame: view.frame(),
       grid: { frame: view.frame(), step: this._grid.on ? this._grid.step : 1 },
+      charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       ...(this.handlers[this._tool]?.viewExtras?.() ?? {}),
     });
   }
@@ -1462,7 +1488,7 @@ export class Editor {
           this.gesturePlane = drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y);
           this.anchor3 = hit.vertex !== undefined
             ? view.graph.pt(hit.vertex)
-            : snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }).p;
+            : snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }).p;
           this.cursor3 = this.anchor3;
           this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
           this.armed = false;
@@ -1494,7 +1520,7 @@ export class Editor {
           break;
         }
         if (this.rotStage === 1 && this.rotCenter) {
-          const sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view) });
+          const sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) });
           const q = this.projectToPlaneThrough(sn.p, this.rotCenter, this.rotAxis!);
           if (dist(q, this.rotCenter) < MIN_GESTURE_LEN) { this.host.hint("参考点离圆心太近"); break; }
           this.rotRef = q;
@@ -1564,10 +1590,10 @@ export class Editor {
       const view = this.liveWorld();
       if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || tool === "tape" || tool === "axes" || tool === "protractor" || (tool === "rotate" && this.rotStage === 0)) {
         const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
-        this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y));
-        this.trackCharge(this.snapInfo);
+        this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y));
+        this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
       } else if (tool === "rotate" && this.rotStage === 1 && this.rotCenter) {
-        this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y);
+        this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y);
       } else if (tool === "erase") {
         const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
         this.hoverEdge = c.kind === "entity" ? (c.local.edge ?? null) : null;
@@ -1620,7 +1646,7 @@ export class Editor {
           const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
           if (sn.kind !== null && freeL && this.intentOn(s, travel) && !intentAllows3D(sub3(freeL, this.anchor3), sub3(sn.p, this.anchor3), MIN_GESTURE_LEN)) { sn = { p: this.rectPlaneSnap(s.x, s.y), kind: null }; this.lastSnap = null; }
           this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
-          this.trackCharge(this.snapInfo, 120);
+          this.trackCharge(this.snapInfo, null, 120);
           this.cursor3 = this.snapInfo.p;
         }
         break;
@@ -1635,7 +1661,7 @@ export class Editor {
         if ((this.moveVids.length || this.movePools.length) && this.anchor3) {
           const mv = new Set(this.moveVids);
           this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
-          let sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), hand: this.freshHand(view, (vid) => mv.has(vid), false) });
+          let sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view, (vid) => mv.has(vid), false) });
           // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法（抬笔那一下滑到反方向的点 = 本案）
           const rayM = this.frame().ray(s.x, s.y, this.fvp());
           const freeM = rayPlane(rayM.origin, rayM.dir, this.gesturePlane.plane.n, this.gesturePlane.plane.d);
@@ -1646,13 +1672,13 @@ export class Editor {
             else if (this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
           }
           this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
-          this.trackCharge(this.snapInfo, 120);
+          this.trackCharge(this.snapInfo, null, 120);
           this.cursor3 = this.snapInfo.p;
         }
         break;
       case "rotate":
         if (this.rotStage === 2 && this.rotCenter && this.rotAxis && this.rotRef) {
-          const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), hand: this.freshHand(view), lines: false });
+          const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view), lines: false });
           const a = sub3(this.rotRef, this.rotCenter);
           const angOf = (pt: Pt3): number => { const bb = sub3(pt, this.rotCenter!); return Math.atan2(dot3(cross3(a, bb), this.rotAxis!), dot3(a, bb)); };
           // 意图门：自由角（指针落在旋转平面上的点）的符号 = 转向；反向的点吸附不合法
@@ -1716,7 +1742,7 @@ export class Editor {
       pickFace: (sx, sy) => pickFace(this.liveWorld(), this.frame(), this.fvp(), sx, sy),
       pick: (sx, sy) => this.pickAt(sx, sy),
       classify: (view, hit) => this.classify(view, hit),
-      snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), q),
+      snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), ...q }),
       alignSources: () => this.alignSrcs(),
       hand: (view) => this.freshHand(view),
       toLocal: (p) => this.toLocal(p),

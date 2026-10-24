@@ -146,14 +146,27 @@ describe("rect: 首点平面裁决（元逻辑：维度优先+延迟承诺）", 
 });
 
 describe("snap: 派生相交轨迹（可描不改图，user 2026-09-01 拍板）", () => {
-  it("线×线延长交点：两边载线段外相交 → 交点可捕捉", () => {
+  it("线×线延长交点只对充能边（user 2026-10-24「载线交点 充能」）：不充能没有；充一条 = 它的延长线 + 与真实边的交点；充两条 = 两条延长线的交点", () => {
     const k = new Kernel();
-    k.addEdges([[{ x: 0, y: 0 }, { x: 6, y: 0 }], [{ x: 10, y: 4 }, { x: 10, y: 1 }]]);
+    const e1 = { a: { x: 0, y: 0, z: 0 }, b: { x: 6, y: 0, z: 0 } }, e2 = { a: { x: 10, y: 4, z: 0 }, b: { x: 10, y: 1, z: 0 } };
+    k.addEdges([[e1.a, e1.b], [e2.a, e2.b]]);
     const c = topCam();
     const s = at(c, { x: 10, y: -0.5, z: 0 });  // 离 (10,1) 端点的 ε 圈远一点（端点 rank 更高）
-    const r = snapPoint(k, c, VP, s.x, s.y, TOL, { hand: NO_HAND, plane: GROUND });
-    eq(r.kind, "intersection", "kind=交点");
-    assert(Math.abs(r.p.x - 10) < 1e-9 && Math.abs(r.p.y) < 1e-9, `延长交点=(10,0)，实际 (${r.p.x},${r.p.y})`);
+    const none = snapPoint(k, c, VP, s.x, s.y, TOL, { hand: NO_HAND, plane: GROUND, lines: false });
+    assert(none.kind !== "intersection", `不充能没有延长交点（实得 ${none.kind}）`);
+    const both = snapPoint(k, c, VP, s.x, s.y, TOL, { hand: NO_HAND, plane: GROUND, lines: false, chargedEdges: [e1, e2] });
+    eq(both.kind, "intersection", "两条都充能 → 延长线交点");
+    assert(Math.abs(both.p.x - 10) < 1e-9 && Math.abs(both.p.y) < 1e-9, `延长交点=(10,0)，实际 (${both.p.x},${both.p.y})`);
+    // 只充 e1：它的延长线是 1-D 目标；延长线与真实边 e2 段 (10,1)-(10,4) 不相交（交点 (10,0) 在段外）→ 不出交点，但「延长线上」可吸
+    const s2 = at(c, { x: 8, y: 0.3, z: 0 });
+    const one = snapPoint(k, c, VP, s2.x, s2.y, TOL, { hand: NO_HAND, plane: GROUND, lines: false, chargedEdges: [e1] });
+    eq(one.kind, "on-extension", "充能边的延长线上"); assert(Math.abs(one.p.y) < 1e-9 && Math.abs(one.p.x - 8) < 0.5, "落在 y=0 延长线");
+    // 充 e1 + 一条真实边穿过它的延长线：交点可吸（新内核：屏幕索引按视图对象缓存，裸 Kernel 改了要换对象——app 里每次修订都是新 WorldView）
+    const k2 = new Kernel();
+    k2.addEdges([[e1.a, e1.b], [e2.a, e2.b], [{ x: 9, y: -3 }, { x: 9, y: 3 }]]);   // 端点离光标远（21 px），交点近（2.4 px）
+    const s3 = at(c, { x: 9, y: -0.3, z: 0 });
+    const x = snapPoint(k2, c, VP, s3.x, s3.y, TOL, { hand: NO_HAND, plane: GROUND, lines: false, chargedEdges: [e1] });
+    eq(x.kind, "intersection", "充能延长线 × 真实边 = 交点"); assert(Math.abs(x.p.x - 9) < 1e-9 && Math.abs(x.p.y) < 1e-9);
   });
 
   it("面×面交线：穿插两膜的交线段可吸附（SU 摆烂处的 snap 升级）", () => {
