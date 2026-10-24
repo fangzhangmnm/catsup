@@ -79,5 +79,6 @@ interface EditorCore { doc: DocState; session: SessionState; commitOp(op): FaceE
 **user 2026-10-24 对三件事的裁决**（AI 一句话解释后）：
 - 参数化历史（Fusion / SolidWorks：存步骤和参数、改一个全重算）→ user「显然我不喜欢」→ **不做**（总账 E 节，免再问）。
 - 时间维求值（动画：每个时刻一个状态，撤销 / 选择 / 渲染都要多问「哪个时刻」）→ user「很未来才头疼」→ **远期，不预留**。
-- 多表示并存、不自动互转（各种池并存；显式互转 = 用户动作）→ user「这个建议现在就接好」→ **门 1 升格为刀 ① 必做**：Scene 的池带 `kind`、`applyOp` 按 kind 派发、WorldView 按 kind bake；当前只有 `brep` 一种实现，网格池 / 显式互转动词以后再开。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
+- 多表示并存、不自动互转（各种池并存；显式互转 = 用户动作）→ user「这个建议现在就接好」→ **门 1 升格为刀 ① 必做**：Scene 的池带 `kind`、`applyOp` 按 kind 派发、WorldView 按 kind bake；当前只有 `brep` 一种实现，网格池 / 显式互转动词以后再开。
+- **第二个物体类别已有实物 = 参考人卡片**（user 2026-10-24「马上有一个刚需就是参考人卡片，比如一个pngtuber的猫娘，带自己的关键帧动画集合和状态机。这个就是第二个物体类别」）：一张带贴图的卡（billboard / 定向面片）+ 帧集合 + 关键帧动画片段（clips）+ 状态机（idle / talk / blink…）；兼 SU 比例小人的位置（比例参考）。**对架构的意思**：definition 的 kind 从刀 ① 起就是 `"brep" | "card"` 两个真成员；card 不是 B-rep、不进肥皂膜内核；bake = 一张四边形 + 贴图；op = 换状态 / 换帧集 / 摆放（实例照旧走 instances）；它的动画是**物体自己的运行时状态机**（像游戏实体，住 Session / 播放器），不是场景时间轴 → 与「时间维很未来」不冲突。格式 = `CATSUP_definitions[i].kind = "card"` + card 载荷（贴图走 glTF images / textures）；细设计另开稿（A26）。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
 

@@ -282,6 +282,9 @@ store 0.15.0 `providers/auth.ts` 的 MSAL logger 只把 Error/Warning 即时转�
 user 2026-09-22：「现在行为还是没有和 weebpaint 对齐。weebpaint 应该是打开 app 后自动打开上一个编辑的文件，这里面如何减小网络延迟你也看一下 weebpaint 怎么实现的。然后这一块如何公有库化。以及有改动的时候自动新建入库的机制也必须学，没改动的时候不会产生废文件…这个在让你开始真正做作品而不是总是 tmp.ora 上面非常非常重要」「可以多看看还有哪些没对齐的，多和 weebpaint 学学」。
 审计 + 差距表 + 公有库化提案 = `ai-docs/20260922-lifecycle-alignment-with-weebpaint.md`。落地：① boot 改用 `@internal/gallery` 的回执条 + `restoreLastSession`（旧 `last-doc`/`last-scene` 键退役；`gallery-attached` 保留）；② **本地恢复先于 `initAuth`**（store 0.14 起未登录 = 离线路径 → 零网络秒开，冒烟 50 ms；登录落地 → `refreshOpenDoc` 干净快进；无本地副本且登录后自动 retry 一次）；③ lazyblank（新建 / 开机新场景 = 日期名内存态，首笔有边才 `nameOccupied` 消歧 + `mode:"new"` 首存；空白 Ctrl+S「空白场景，还没有需要保存的内容」；回执条不指空白）；④ hidden / blur / pagehide(!persisted) 只本地 flush，beforeunload 任何家脏都挽留 + 偷存；⑤ pwa-shell `onBeforeReload` 先存、`onForeground` 快进。**未做（下一轮）**：双实例 Web Locks（端口恒 false）、退图库推云失败 retry sheet、`@internal/editor-session` 抽包（第三个编辑器 app 出生再抽；新内部库要 user 批）。真机零验证（A23 追加：开机秒回上次模型、切后台再回来不丢 30 s 内的改动、另一台设备存的新版本登录后自动更新）。
 
+### A26 参考人卡片 = 第二个物体类别（card pool kind）— `待设计（刚需）`（user 2026-10-24「马上有一个刚需就是参考人卡片，比如一个pngtuber的猫娘，带自己的关键帧动画集合和状态机。这个就是第二个物体类别」；Claude Fable 5.1）
+PNGtuber 式：一张带贴图的卡 + 帧集合 + 关键帧动画片段 + 状态机；兼 SU 比例小人。definition kind = `card`（刀 ① 门 1 的第二个真成员，与 `brep` 并存、不互转）；渲染 = 四边形 + 贴图（bake 口）；动画 = 物体自己的运行时状态机（Session / 播放器），不是场景时间轴；格式 = `CATSUP_definitions[i].kind="card"` + 载荷，贴图走 glTF images。等刀 ①② 落地后出设计稿（卡的朝向 = billboard / 固定？帧集从哪来 = 图片序列 / 精灵图？状态机 DSL 多简单？与「猫娘 = context」远景的关系）。提案稿 §5。
+
 ### A25 工具上下文菜单深模块 — `待做`（user 2026-10-24「工具的上下文菜单该开始做了」「sketchup的加一个小三角的方案不错，然后工具的上下文菜单（类似weebpaint）加你要的中心对齐。rotated rectangle和polygon也要。circle的段数也是工具的上下文菜单。上下文菜单你做一个深模块窄接口，不要屎山」；Claude Fable 5.1）
 每个工具一张上下文菜单（WeebPaint 式，挂在工具条 / 左柱格子上）：矩形 = 中心对齐 / 旋转矩形；多边形 = 边数；圆 = 段数；轴 = 归工具不归 ☰。形状 = 一个深模块、窄接口（工具声明自己的选项表，菜单层不认识任何具体工具；`tool-config.ts` 的 `tool-config-spec` 是现成的声明处，先看能不能直接长在它上面）。左柱小三角（flyout）v0.12.4 已做，这条只剩菜单本体。留档 §7。
 
