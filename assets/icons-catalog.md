@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-66 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+67 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -11,6 +11,9 @@
 <!-- 内联 icons.svg -->
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
+
+> ⚠ 库里还没有这些图标，当前用 `icon-missing` 占位：`protractor`
+> 等它们进 `icons.svg` 后重跑本脚本即可换成真图标。
 
 > 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`push-pull`、`zoom`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
@@ -156,3 +159,9 @@
 | `more` | 溢出菜单:横向三点(原 ⋯ 字符跨平台字形不一) |
 | `settings` 👁待过目 | 设置:齿轮=内圆+外圆+8 根短齿(圆帽)；家族里 sliders 是「调整」别撞【WebXiaoHeiWu 抽屉底栏「设置」入口；fable 自画未过目】 |
 | `wrench` | 扳手:斜置组合扳手轮廓(feather:wrench 衍生), 20260724 候选 1 号入库 |
+
+## missing
+
+| name | 说明 |
+|------|------|
+| `protractor` ⚠占位 | 缺图标占位 — protractor 尚未进 icons.svg |

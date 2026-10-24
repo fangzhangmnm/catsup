@@ -14,7 +14,7 @@ export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
 export const LENGTH_UNITS: readonly { id: LengthUnit; label: string }[] = [{ id: "m", label: "米" }, { id: "cm", label: "厘米" }, { id: "mm", label: "毫米" }, { id: "ft", label: "英尺英寸" }, { id: "in", label: "英寸" }];
 export interface VcbCtx { unit: LengthUnit; }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
-export type VcbKind = "line" | "rect" | "circle" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape";
+export type VcbKind = "line" | "rect" | "circle" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
 
 export type VcbValue =
   | { kind: "length"; m: number }
@@ -73,7 +73,8 @@ export function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): VcbValue |
   }
   const parts = text.split(",").map((p) => p.trim()).filter(Boolean);
   switch (kind) {
-    case "rotate": {
+    case "rotate":
+    case "protractor": {
       if (parts.length !== 1) return { error: "旋转：一个角度（度）" };
       const v = num(parts[0], ctx, "plain");
       return typeof v === "string" ? { error: v } : { kind: "angle", deg: v };
@@ -124,6 +125,7 @@ export function vcbPrompt(kind: VcbKind | null): string {
     case "pp": return "高度";
     case "offset": return "距离";
     case "tape": return "距离";
+    case "protractor": return "角度";
     case "move": return "距离 · 阵列 5x /5";
     case "rotate": return "角度";
     case "scale": return "倍率 · x,y,z";
