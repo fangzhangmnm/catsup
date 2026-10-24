@@ -3,7 +3,7 @@
 // 格点是地板（D16）：吸到格点时轴向锥照跑；轻擦平面保持上一点。created 2026-10-24 by Claude Fable 5.1
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
-import { add3, len3, sub3 } from "../../kernel/geom.ts";
+import { add3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { intentAllows3D } from "../intent.ts";
 import { cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, type SnapKind } from "../pick.ts";
@@ -72,7 +72,11 @@ export class MoveTool implements ToolHandler {
       if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
       else if (sn.kind === null && cur && grazing(plane, ctx.frame().ray(s.x, s.y, ctx.vp()))) sn = { p: cur, kind: null };
     }
-    const snapped = ctx.hysteresis(sn, s.x, s.y);
+    let snapped = ctx.hysteresis(sn, s.x, s.y);
+    if (ctx.mods().shift) {   // Shift = 整数增量（user 2026-10-24「move之类的的shift就是snap to incremental」）：沿当前方向把距离取整到网格步长，不管网格开没开
+      const g = ctx.grid(), step = g.step / g.subdiv, d = sub3(snapped.p, anchor), L = len3(d);
+      if (L >= MIN_GESTURE_LEN) { const r = Math.max(step, Math.round(L / step) * step); snapped = { p: add3(anchor, scale3(d, r / L)), kind: "increment", label: `整数长度 ${fmtLen(r)}` }; }
+    }
     ctx.setSnap(snapped);
     ctx.charge(snapped, 120);
     ctx.setCursor(snapped.p);

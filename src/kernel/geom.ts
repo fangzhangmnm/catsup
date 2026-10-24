@@ -120,6 +120,15 @@ export function ptKey3(p: Pt3): string {
 export function samePt3(a: Pt3, b: Pt3): boolean {
   return Math.abs(a.x - b.x) <= EPS && Math.abs(a.y - b.y) <= EPS && Math.abs(a.z - b.z) <= EPS;
 }
+/** 三维平面多边形的面积（Newell 法向的模 / 2；环的顶点顺序任意）。带洞的面 = 外环减内环。 */
+export function polygonArea3(ring: readonly Pt3[]): number {
+  let nx = 0, ny = 0, nz = 0;
+  for (let i = 0; i < ring.length; i++) {
+    const a = ring[i], b = ring[(i + 1) % ring.length];
+    nx += (a.y - b.y) * (a.z + b.z); ny += (a.z - b.z) * (a.x + b.x); nz += (a.x - b.x) * (a.y + b.y);
+  }
+  return Math.hypot(nx, ny, nz) / 2;
+}
 export function dist3(a: Pt3, b: Pt3): number { return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }
 export const sub3 = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x - b.x, y: a.y - b.y, z: a.z - b.z });
 export const add3 = (a: Pt3, b: Pt3): Pt3 => ({ x: a.x + b.x, y: a.y + b.y, z: a.z + b.z });

@@ -3,11 +3,11 @@
 // 数值小窗改完长度后画线继续连画（vcbContinue）。它们是 draw 类工具：手里的膜只算 BIRTH 出来的（底座 freshHand 看 `draws`）。created 2026-10-24 by Claude Fable 5.1
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
-import { dist3, sub3 } from "../../kernel/geom.ts";
+import { cross3, dist3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { intentAllows3D } from "../intent.ts";
 import { GROUND, cameraPlane, grazing, rectFirstPlane, resolveRectPlane, type DrawPlane, type Snap3 } from "../pick.ts";
-import { circleCurveSpec, circleSegmentsOnPlane, rectSegmentsOnPlane, rectToolTargets } from "../tools.ts";
+import { circleCurveSpec, circleSegmentsOnPlane, rectSegmentsOnPlane, rectToolTargets, snapDirectionInPlane } from "../tools.ts";
 import { MIN_GESTURE_LEN, fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
@@ -83,6 +83,14 @@ export class LineTool extends DrawTool {
     const camL = cameraPlane(ctx.frame(), a), rayL = ctx.frame().ray(s.x, s.y, ctx.vp());
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
     if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), MIN_GESTURE_LEN)) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
+    if (ctx.mods().shift) {   // Shift = 15° 角度对齐（B33）：以上下文帧的 X（投到手势平面）为 0°，长度不变；比点吸附优先（用户按着 Shift 就是要角度）
+      const n = this.plane.plane.n, F = ctx.contextFrame();
+      let u = sub3(F.x, scale3(n, dot3(F.x, n)));
+      if (dot3(u, u) < 1e-9) u = sub3(F.y, scale3(n, dot3(F.y, n)));
+      u = normalize3(u);
+      const q = snapDirectionInPlane(a, sn.p, { u, v: cross3(n, u) }, 15);
+      sn = { p: q.p, kind: "tool", label: `${q.deg}°` };
+    }
     const snapped = ctx.hysteresis(sn, s.x, s.y);
     ctx.setSnap(snapped);
     ctx.charge(snapped, 120);

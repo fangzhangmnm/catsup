@@ -122,10 +122,14 @@ export class PushPullTool implements ToolHandler {
           if (Math.abs(r) >= MIN_GESTURE_LEN && allowed(r) && Math.abs(r - this.h) <= epsH) {
             this.h = r;
             ref = `｜整数长度 ${fmtLen(r)}`;
-            ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "increment" });
+            ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "increment", label: `整数长度 ${fmtLen(r)}` });
           }
         }
       }
+    }
+    if (ctx.mods().shift && Math.abs(this.h) >= MIN_GESTURE_LEN) {   // Shift = 整数增量（高度取整到网格步长）
+      const g = ctx.grid(), step = g.step / g.subdiv, r = Math.round(this.h / step) * step;
+      if (Math.abs(r) >= MIN_GESTURE_LEN) { this.h = r; ref = `｜整数长度 ${fmtLen(r)}`; ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "increment", label: `整数长度 ${fmtLen(r)}` }); }
     }
     ctx.setCursor(add3(anc, scale3(n, this.h)));
     const facing = Math.abs(dot3(n, ctx.frame().viewDir(anc)));

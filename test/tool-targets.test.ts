@@ -52,3 +52,28 @@ describe("tool-targets: 两点弧的半圆", () => {
     eq(arcToolTargets(P(1, 1, 0), P(1, 1, 0), P(0, 0, 1)).length, 0, "弦退化没有目标");
   });
 });
+
+describe("Shift 15° 方向咬合 + 三维多边形面积（小事批 v0.13.13）", () => {
+  it("snapDirectionInPlane：地面上 37° → 30°、52° → 45°，长度不变；零长度原样", async () => {
+    const { snapDirectionInPlane } = await import("../src/editor/tools.ts");
+    const basis = { u: { x: 1, y: 0, z: 0 }, v: { x: 0, y: 1, z: 0 } };
+    const a = { x: 1, y: 1, z: 0 };
+    const p37 = { x: 1 + Math.cos(37 * Math.PI / 180) * 2, y: 1 + Math.sin(37 * Math.PI / 180) * 2, z: 0 };
+    const r = snapDirectionInPlane(a, p37, basis, 15);
+    eq(r.deg, 30); assert(Math.abs(Math.hypot(r.p.x - a.x, r.p.y - a.y) - 2) < 1e-9, "长度不变");
+    assert(Math.abs(Math.atan2(r.p.y - a.y, r.p.x - a.x) - Math.PI / 6) < 1e-9, "方向 30°");
+    const p52 = { x: 1 + Math.cos(52 * Math.PI / 180), y: 1 + Math.sin(52 * Math.PI / 180), z: 0 };
+    eq(snapDirectionInPlane(a, p52, basis, 15).deg, 45);
+    eq(snapDirectionInPlane(a, a, basis, 15).deg, 0);
+  });
+  it("polygonArea3：单位正方形 1；2×1.5 矩形 3；倾斜面同样；顶点顺序任意", async () => {
+    const { polygonArea3 } = await import("../src/kernel/geom.ts");
+    const sq = [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 1, y: 1, z: 0 }, { x: 0, y: 1, z: 0 }];
+    assert(Math.abs(polygonArea3(sq) - 1) < 1e-12);
+    assert(Math.abs(polygonArea3([...sq].reverse()) - 1) < 1e-12, "反向同面积");
+    const rect = [{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 2, y: 1.5, z: 0 }, { x: 0, y: 1.5, z: 0 }];
+    assert(Math.abs(polygonArea3(rect) - 3) < 1e-12);
+    const tilted = [{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 2, y: 1, z: 1 }, { x: 0, y: 1, z: 1 }];   // 2 × √2
+    assert(Math.abs(polygonArea3(tilted) - 2 * Math.SQRT2) < 1e-12);
+  });
+});

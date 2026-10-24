@@ -20,6 +20,7 @@ export class SurfaceMode implements Mode {
       verb: "涂",
       apply: (ctx, faces) => ctx.paintFaces(faces),
       sample: (ctx, face) => ctx.pickMaterialOf(face),
+      describe: (ctx, face) => ctx.scene().materialOfSlot(ctx.scene().defOfContext(ctx.context()), ctx.kernel().faceMaterialOf(face))?.name ?? "默认灰",
     }),
   };
 }

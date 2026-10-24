@@ -61,6 +61,8 @@ export interface ToolCtx {
   commitOp(op: Op): FaceEvent[];
   opCount(): number;
   hint(text: string | null): void;
+  /** 跟指针走的小提示（优先于吸附标签；null = 回到吸附标签）。吸色「吸：赭石」、整数增量的数值都走它。 */
+  tip(text: string | null): void;
   // ---- 底座拥有的手势公共状态，工具只经这几个口写 ----
   anchor(): Pt3 | null;
   setAnchor(p: Pt3 | null): void;
@@ -77,6 +79,8 @@ export interface ToolCtx {
   /** 自落笔以来走了多远（本帧度量；ev.travel 优先，否则按 downScreen 算）。 */
   moved(s: { x: number; y: number }, travel?: number): number;
   cursor(): Pt3 | null;
+  /** 当前按着的修饰键（最近一次指针事件带来的）：Shift = 角度对齐 / 追加选区，copy = Ctrl / Alt / ⌘。 */
+  mods(): { shift: boolean; copy: boolean };
   /** 上一帧的吸附（轻擦平面时保持用）。 */
   currentSnap(): Snap3 | null;
   grid(): Readonly<GridSettings>;

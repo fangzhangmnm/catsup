@@ -101,6 +101,7 @@ const hintEl = $("hint");
 const tipEl = $("tip");
 const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
+const readoutEl = $("readout");
 const buildEl = $("build");
 
 const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 弧 A · 卷尺 T · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 偏移 F · 跟随 W · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
@@ -133,6 +134,7 @@ const editor = new Editor(canvas, {
   },
   changed: () => { syncUi(); _session?.noteChange(); },   // 同步：首笔安家在 commit 的同一调用栈里翻旗（WeebPaint wp:histchange 同形）
   error: (err, where) => reportError(where === "commit" ? "提交" : "预演", err),
+  readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !text; },   // 右下血槽位（A28）
 });
 
 // ---------- 工具条 ----------
@@ -674,6 +676,7 @@ window.addEventListener("keydown", (ev) => {
     if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件
     if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
   }
+  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); editor.selectAll(); return; }   // Ctrl+A 全选（A7）
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "g" || ev.key === "G")) { ev.preventDefault(); if (ev.shiftKey) editor.explodeSelection(); else editor.makeGroup(); return; }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
     ev.preventDefault();

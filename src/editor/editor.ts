@@ -41,7 +41,7 @@ import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey, resolveEdge } from "./ops.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
-import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
+import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
@@ -85,6 +85,8 @@ export interface EditorHost {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   changed(): void;
   error?(err: unknown, where: string): void;
+  /** 右下角血槽位的尺寸读数（手势中的 dims / 选中面的面积 / 选中边的长度；"" = 空）。A28。 */
+  readout?(text: string): void;
   /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
   optionKv?: OptionKv;
 }
@@ -235,6 +237,9 @@ export class Editor {
   readonly config: CatsUpToolConfig;
   /** 数值小窗：刚做完的那一步（null = 没有可改的）；opCount 给它数这一步占了几个 op。 */
   private last: LastGesture | null = null;
+  private mods: { shift: boolean; copy: boolean } = { shift: false, copy: false };
+  private dims = "";   // 手势中的尺寸读数（血槽位）
+  private toolTip: string | null = null;   // 工具自己要的跟指针提示（优先于吸附标签）
   private opCount = 0;
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
   vcbUnit: LengthUnit = "m";
@@ -446,8 +451,10 @@ export class Editor {
     this.liveOverride = null;
     this.liveEvents = [];
     this.host.marquee(null);
+    this.toolTip = null;
     this.host.tip(null, 0, 0);
     this.host.hint(null);
+    if (this.dims) { this.dims = ""; this.host.readout?.(this.readoutText()); }
   }
 
   // ---------- 记账 ----------
@@ -666,6 +673,7 @@ export class Editor {
     return true;
   }
   private afterSelect(): void {
+    this.host.readout?.(this.readoutText());
     const info = this.selectionInfo();
     if (info) this.host.hint(info);
     this.host.changed();
@@ -1269,6 +1277,7 @@ export class Editor {
     let dims = "";
     const H = this.handlers[tool];
     if (H && (H.active() || H.previewOnHover)) dims = H.live(this.toolCtx, run);
+    if (dims !== this.dims) { this.dims = dims; this.host.readout?.(this.readoutText()); }
     if (this.live || this.liveOverride || dims) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
       this.host.hint([dims, ev].filter(Boolean).join(" ｜ "));
@@ -1331,7 +1340,9 @@ export class Editor {
   }
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
   private updateTip(clientX: number, clientY: number): void {
-    this.host.tip(this.snapInfo?.kind ? (this.snapInfo.kind === "tool" ? this.snapInfo.label ?? "工具" : SNAP_LABELS[this.snapInfo.kind] ?? this.snapInfo.kind) : null, clientX, clientY);
+    // 工具提示 > 吸附自带 label（15° / 整数长度的数值…）> 吸附种类标签（user 2026-10-24「incremental 是不是可以 tooltip 跟着指针走」）
+    const sn = this.snapInfo;
+    this.host.tip(this.toolTip ?? (sn?.kind ? sn.label ?? (sn.kind === "tool" ? "工具" : SNAP_LABELS[sn.kind] ?? sn.kind) : null), clientX, clientY);
   }
 
   // ---------- 缩放柄 ----------
@@ -1347,6 +1358,7 @@ export class Editor {
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void {
     const s = ev;
+    this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     const H = this.handlers[this._tool];
     if (H) {
       if (H.grammar === "steps" && this.armed && H.active()) {
@@ -1365,6 +1377,37 @@ export class Editor {
     this.consumeCharges();
     this.draw();
   }
+  // ---------- 血槽位读数（A28；user 2026-10-24「右下角的血槽位应该显示推拉距离，方形大小面积之类的。然后你点中面血槽位也可以显示面积」）----------
+  /** 手势中 = 工具的 dims；否则选中面的面积合计 / 选中边的长度合计；都没有 = ""。 */
+  readoutText(): string {
+    if (this.dims) return this.dims;
+    const k = this.kernel;
+    const fs = [...this.selection.faces].filter((f) => k.face(f)), es = [...this.selection.edges].filter((e) => k.graph.hasEdge(e));
+    const parts: string[] = [];
+    if (fs.length) {
+      let a = 0;
+      for (const f of fs) { const r = k.faceRings3(f); if (!r) continue; a += polygonArea3(r.outer); for (const h of r.holes) a -= polygonArea3(h); }
+      parts.push(`面积 ${a < 1 ? `${(a * 1e4).toFixed(a * 1e4 < 10 ? 2 : 0)} cm²` : `${a.toFixed(a < 10 ? 3 : 2)} m²`}${fs.length > 1 ? `（${fs.length} 面）` : ""}`);
+    }
+    if (es.length) {
+      let L = 0;
+      for (const e of es) { const E = k.graph.edge(e); L += len3(sub3(k.graph.pt(E.b), k.graph.pt(E.a))); }
+      parts.push(`长 ${fmtLen(L)}${es.length > 1 ? `（${es.length} 边）` : ""}`);
+    }
+    return parts.join(" · ");
+  }
+  /** 全选（Ctrl+A，A7）：当前上下文的全部几何 + 直接子 group / 实例。 */
+  selectAll(): boolean {
+    const k = this.kernel;
+    this.selection = emptySelection(); this.selectedPools.clear();
+    for (const f of k.faces()) this.selection.faces.add(f.id);
+    for (const e of k.edges()) this.selection.edges.add(e.id);
+    const def = this.scene.def(this.scene.defOfContext(this.ctx));
+    if (def.body.kind === "brep") for (const g of def.body.groups.values()) if (g.parent === this.ctx.group) this.selectedPools.set(`g${g.id}`, { kind: "group", group: g.id });
+    for (const i of def.instances.values()) if (i.parent === this.ctx.group) this.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id });
+    this.afterSelect();
+    return this.hasSelection();
+  }
   /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
   private endStepGesture(): void {
     this.anchor3 = null; this.cursor3 = null; this.snapInfo = null;
@@ -1376,6 +1419,7 @@ export class Editor {
 
   pointerMove(ev: ToolPointer): void {
     const s = ev;
+    this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     if (!this.gestureActive()) {
       this.snapInfo = null;
       this.hoverEdge = null;
@@ -1428,6 +1472,7 @@ export class Editor {
       commitOp: (op) => this.commitOp(op),
       opCount: () => this.opCount,
       hint: (t) => this.host.hint(t),
+      tip: (t) => { this.toolTip = t; },
       anchor: () => this.anchor3,
       setAnchor: (p) => { this.anchor3 = p; },
       setCursor: (p) => { this.cursor3 = p; },
@@ -1442,6 +1487,7 @@ export class Editor {
       charge: (sn, dwellMs) => this.trackCharge(sn, null, dwellMs),
       moved: (s, travel) => travel ?? (this.downScreen ? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) : 0),
       cursor: () => this.cursor3,
+      mods: () => this.mods,
       currentSnap: () => this.snapInfo,
       setHoverFace: (f) => { this.hoverFace = f; },
       paintMaterialIndex: () => this.materialIndexForPick(),

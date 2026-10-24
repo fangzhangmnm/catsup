@@ -683,7 +683,7 @@ export function snapPoint(
     if (d > 1e-9 && kd > 0) {
       const p2 = add3(q.anchor, scale3(v, kd / d));
       const ax = sol.dim === 1 ? (sol.used[0].tag.axis ?? "i") : "i";
-      return { p: p2, kind: "increment", hints: [{ a: q.anchor, b: p2, axis: ax }] };
+      return { p: p2, kind: "increment", label: `整数长度 ${kd < 1 ? `${+(kd * 100).toFixed(1)} cm` : `${+kd.toFixed(3)} m`}`, hints: [{ a: q.anchor, b: p2, axis: ax }] };
     }
   }
   const hints: SnapHint[] = [];

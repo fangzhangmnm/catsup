@@ -56,6 +56,8 @@ export interface SurfaceAssignOpts {
   apply(ctx: ToolCtx, faces: readonly FaceId[]): void;
   /** 吸：从这张面读值回工具的「蘸的」。 */
   sample(ctx: ToolCtx, face: FaceId): void;
+  /** 这张面现在的值叫什么（吸色提示用）；不给就只说「这张面」。 */
+  describe?(ctx: ToolCtx, face: FaceId): string;
 }
 
 export class SurfaceAssignTool implements ToolHandler {
@@ -84,7 +86,12 @@ export class SurfaceAssignTool implements ToolHandler {
     return c.kind === "entity" ? (c.local.face ?? null) : null;
   }
 
-  hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.setHoverFace(this.faceAt(ctx, s)); }
+  hover(ctx: ToolCtx, s: { x: number; y: number }): void {
+    const f = this.faceAt(ctx, s);
+    ctx.setHoverFace(f);
+    const eye = this.eyedropper || ctx.mods().copy;   // 吸色时提示能吸到什么（user 2026-10-24「alt eyedropper的时候tooltip也显示你可以吸什么」）
+    ctx.tip(eye ? (f !== null ? `吸：${this.opts.describe?.(ctx, f) ?? "这张面"}` : "吸色：点一张面") : null);
+  }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     this.pressed = true; this.scrub = new Set(); this.poolHit = false;
