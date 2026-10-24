@@ -105,3 +105,30 @@ describe("grid: 文档 settings 往返", () => {
     eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: -1, gridSubdiv: 7 }).step, 1); eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridSubdiv: 7 }).subdiv, 5);
   });
 });
+
+describe("grid: 网格面 xy / yz / xz（user 2026-10-24「方便我吸附画立面」）", () => {
+  it("gridFrame：yz / xz 都是右手系，法向 = 另一根轴；settings 往返只在非 xy 时写 gridPlane", async () => {
+    const { gridFrame, gridFromSettings, settingsFromGrid } = await import("../src/editor/grid-settings.ts");
+    const cross = (a: Pt3, b: Pt3): Pt3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+    for (const pl of ["xy", "yz", "xz"] as const) {
+      const F = gridFrame(WORLD_FRAME, pl);
+      assert(near(cross(F.x, F.y), F.z), `${pl} 右手系`);
+    }
+    assert(near(gridFrame(WORLD_FRAME, "yz").z, P(1, 0, 0)), "yz 的法向 = X");
+    assert(near(gridFrame(WORLD_FRAME, "xz").z, P(0, -1, 0)), "xz 的法向 = −Y");
+    const s = settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "yz" });
+    eq(s.gridPlane, "yz"); eq(gridFromSettings(s).plane, "yz");
+    eq(settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "xy" }).gridPlane, undefined, "xy 不写键");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPlane: "zz" as never }).plane, "xy", "坏值回 xy");
+  });
+  it("网格面 yz 开着：空处首点落在 x=0 的立面上，格点也在立面上", async () => {
+    const { gridFrame } = await import("../src/editor/grid-settings.ts");
+    const { rectFirstPlane } = await import("../src/editor/pick.ts");
+    const cam = new OrbitCamera(); cam.yaw = 0; cam.pitch = 0.2; cam.halfH = 50;   // 从 +X 侧看 YZ 面
+    const v = viewOf(far(), gridFrame(WORLD_FRAME, "yz"), { step: 1, sub: 5 });
+    const s = cam.angularPx(P(0, 2.13, 1.02), VP);
+    const r = rectFirstPlane(v, cam, VP, s.x, s.y, 8);
+    assert(Math.abs(r.plane.plane.n.x) > 0.999, `首点平面法向 = X，实得 ${JSON.stringify(r.plane.plane.n)}`);
+    eq(r.snap.kind, "grid-point"); assert(near(r.snap.p, P(0, 2.2, 1.0), 1e-9), `格点 (0,2.2,1)，实得 ${r.snap.p.x},${r.snap.p.y},${r.snap.p.z}`);
+  });
+});

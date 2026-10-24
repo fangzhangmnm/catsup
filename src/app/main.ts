@@ -21,7 +21,7 @@ import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
-import { Editor, GRID_STEPS, TOOLS, type Tool } from "../editor/editor.ts";
+import { Editor, GRID_STEPS, GRID_PLANES, TOOLS, type Tool, type GridPlane } from "../editor/editor.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
 import { README_SECTIONS } from "./readme-docs.ts";
@@ -484,7 +484,7 @@ function renderCrumbs(): void {
   });
 }
 // 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
-type GridMenuId = `step:${number}` | "sub:5" | "sub:10" | "off";
+type GridMenuId = `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off";
 const gridChip = document.getElementById("gridChip") as HTMLElement;
 /** 左上编辑模式下拉框（几何 / 表面）。 */
 function renderModeSelect(): void {
@@ -495,19 +495,21 @@ function renderModeSelect(): void {
 function renderGridChip(): void {
   const g = editor.grid;
   gridChip.hidden = !g.on;
-  gridChip.textContent = `网格 ${fmtVcbLength(g.step, editor.vcbUnit)} · 1/${g.subdiv}`;
+  gridChip.textContent = `网格 ${g.plane.toUpperCase()} · ${fmtVcbLength(g.step, editor.vcbUnit)} · 1/${g.subdiv}`;
 }
 gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
   anchor: gridChip, align: "end",
   items: () => [
     ...GRID_STEPS.map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtVcbLength(s, editor.vcbUnit)}`, checked: Math.abs(editor.grid.step - s) < 1e-9 })),
+    ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: `网格面 ${p.label}`, checked: editor.grid.plane === p.id, ...(p.id === "xy" ? { separatorBefore: true } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
     { id: "sub:5" as GridMenuId, label: "吸附 1/5", checked: editor.grid.subdiv === 5, separatorBefore: true, hint: "仪表盘式" },
     { id: "sub:10" as GridMenuId, label: "吸附 1/10", checked: editor.grid.subdiv === 10, hint: "尺子式" },
     { id: "off" as GridMenuId, label: "关闭网格", separatorBefore: true },
   ],
   onPick: (id) => {
     if (id === "off") { editor.setGrid({ on: false }); return; }
-    if (id === "sub:5" || id === "sub:10") editor.setGrid({ subdiv: id === "sub:5" ? 5 : 10 });
+    if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane });
+    else if (id === "sub:5" || id === "sub:10") editor.setGrid({ subdiv: id === "sub:5" ? 5 : 10 });
     else editor.setGrid({ step: Number(id.slice(5)) });
     return "keep";
   },

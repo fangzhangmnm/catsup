@@ -28,7 +28,7 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
-import { type GridSettings, DEFAULT_GRID } from "./grid-settings.ts";
+import { type GridSettings, DEFAULT_GRID, gridFrame } from "./grid-settings.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
@@ -109,7 +109,7 @@ export const SNAP_LABELS: Record<string, string> = {
   "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",
   "grid-point": "格点", increment: "整数长度", "on-extension": "延长线上",
 };
-export { type GridSettings, GRID_STEPS } from "./grid-settings.ts";
+export { type GridSettings, type GridPlane, GRID_STEPS, GRID_PLANES } from "./grid-settings.ts";
 
 export function describeEvent(ev: FaceEvent): string {
   switch (ev.type) {
@@ -320,7 +320,7 @@ export class Editor {
   private worldView(live: Kernel | null = null, override: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null): WorldView {
     if (override?.copy) override = null;   // 复制模式：原件不动（副本在 commit 时出现）
     const ovKey = override ? `${override.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${override.xform.map((v) => v.toFixed(9)).join(",")}` : "";
-    const grid = this._grid.on ? { step: this._grid.step, sub: this._grid.subdiv } : null;
+    const grid = this._grid.on ? { step: this._grid.step, sub: this._grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this._grid.plane) } : null;
     const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
@@ -1332,7 +1332,7 @@ export class Editor {
       protractor: null,
       guides: view.guides(),
       frame: view.frame(),
-      grid: { frame: view.frame(), step: this._grid.on ? this._grid.step : 1 },
+      grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.on ? this._grid.step : 1 },
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),

@@ -19,7 +19,7 @@ import {
 } from "../kernel/geom.ts";
 import { rayPlane } from "./camera.ts";
 import type { PointerFrame, Viewport } from "./pointer-frame.ts";
-import { type DrawPlane, type Snap3, NO_HAND, occludedBy, resolvePlane } from "./solver.ts";
+import { type DrawPlane, type Snap3, NO_HAND, gridDrawPlane, occludedBy, resolvePlane } from "./solver.ts";
 import { ScreenIndex } from "./screen-index.ts";
 
 // 兼容 re-export（调用方历史入口；新码请直接 import solver）
@@ -103,7 +103,7 @@ export function drawPlaneAt(k: GeomView, pf: PointerFrame, vp: Viewport, sx: num
     const rec = k.planeOf(hit.face)!;
     return { plane: rec.plane, basis: rec.basis, face: hit.face };   // 出身=膜 → 裸落其内报「面上」
   }
-  return GROUND;
+  return gridDrawPlane(k) ?? GROUND;   // 网格开着 → 网格面（yz / xz 立面）
 }
 
 /**

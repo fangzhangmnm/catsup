@@ -157,11 +157,11 @@ export class WorldView implements GeomView {
   frame(): Frame { return this.ctxFrame; }
   guides(): GuidesWorld { return this.ctxGuides; }
   grid(): GridSpec | null { return this.ctxGrid; }
-  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number } | null }) {
+  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number; frame?: Frame } | null }) {
     this.scene = scene; this.ctx = ctx;   // 不用参数属性：node strip-types 不支持
     const activePool = scene.poolOfContext(ctx);
     this.ctxFrame = scene.frameOfContext(ctx);
-    this.ctxGrid = extras?.grid ? { frame: this.ctxFrame, step: extras.grid.step, sub: extras.grid.sub } : null;
+    this.ctxGrid = extras?.grid ? { frame: extras.grid.frame ?? this.ctxFrame, step: extras.grid.step, sub: extras.grid.sub } : null;   // 网格面可换（yz / xz 立面）：帧由编辑器按 gridFrame 换好递来
     this.ctxGuides = guidesToWorld(scene.guidesOf(activePool), scene.xformOfContext(ctx));
     const chainKey = ctx.chain.join("/");
     const used = new Map<Kernel, Set<number>>();

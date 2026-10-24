@@ -783,6 +783,13 @@ function pickByFacing(pf: PointerFrame, arr: readonly DrawPlane[]): DrawPlane {
 export function axisPlane(pf: PointerFrame): DrawPlane {
   return pickByFacing(pf, axisPlanesThrough({ x: 0, y: 0, z: 0 }));
 }
+/** 网格开着时的「空处落点平面」= 网格面（user 2026-10-24「grid可以配置成xy yz xz，这样方便我吸附画立面」）；网格关着 = null。 */
+export function gridDrawPlane(k: GeomView, through?: Pt3): DrawPlane | null {
+  const g = k.grid?.();
+  if (!g) return null;
+  const n = g.frame.z, o = through ?? g.frame.origin;
+  return { plane: { n, d: dot3(n, o) }, basis: { u: g.frame.x, v: g.frame.y } };
+}
 
 /** 过 through 的轴向平面（锚定在几何上的点用）。 */
 export function cameraPlane(pf: PointerFrame, through: Pt3): DrawPlane {
@@ -870,13 +877,13 @@ export function resolvePlane(
       return { plane: near, fixed: false, snap };
     }
     const candidates = axisPlanesThrough(p1);
-    const base = basePlane ?? pickByFacing(pf, candidates);
+    const base = basePlane ?? gridDrawPlane(k, p1) ?? pickByFacing(pf, candidates);   // 网格开着：第二点默认落网格面（画立面）
     const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand, toolTargets });
     if (basePlane && distToPlane(snap.p, basePlane.plane) <= 1e-3) return { plane: basePlane, fixed: false, snap };   // 黏在首点平面上
     const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
     return { plane: containing.length ? pickByFacing(pf, containing) : base, fixed: false, snap };
   }
-  const base = facePlane ?? axisPlane(pf);
+  const base = facePlane ?? gridDrawPlane(k) ?? axisPlane(pf);   // 网格开着：空处首点落网格面
   const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, alignSources, hand });
   if (snap.kind === null || snap.kind === "on-face") return { plane: base, fixed: !!facePlane, snap };   // 裸落（含「面上」）= 面锁成立
   // 首点被低维吸附赢走：面锁作废（延迟承诺），平面挂到解析点上
