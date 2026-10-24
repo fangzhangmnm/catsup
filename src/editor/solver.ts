@@ -191,7 +191,10 @@ export function solvePoint(
   };
   // 秩序（D16，2026-10-24）：强 0-D（实几何 / 参考点 / 交点 / 合成交点）> 1-D（边上 / 轴线 / 参考线）> 格点（地板：只在没别的时才赢）> 平面。
   // 之前是纯「维度优先」——网格一开满屏格点（秩 20 的 0-D）压过锚点的轴线，竖直拖屋脊永远落到地面格点（user「开了吸附之后move没法把屋脊抬起来了」）。
-  const cls = (x: Solution): number => (x.dim === 0 ? (x.rank <= RANK.grid ? 2 : 0) : x.dim === 1 ? 1 : 3);
+  // 显式 > 隐式（user 2026-10-24「正方形的时候格点吸附被覆盖了。我估计背后有系统性问题」）：用户开的网格是显式意图，工具自带的软目标**线**
+  // （正方形 / 黄金分割对角线）是隐式提示 → 软目标线排在格点之后；软目标**点**（半圆）与合成交点仍是强 0-D。网格关着时一切照旧。
+  const softLine = (x: Solution): boolean => x.dim === 1 && (x.used[0]?.tag as { kind?: string } | undefined)?.kind === "tool";
+  const cls = (x: Solution): number => (x.dim === 0 ? (x.rank <= RANK.grid ? 2 : 0) : x.dim === 1 ? (softLine(x) ? 2.5 : 1) : 3);
   cands.sort((a, b) =>
     cls(a) - cls(b) || b.rank - a.rank ||
     Math.round(a.d * 2) - Math.round(b.d * 2) ||
@@ -746,13 +749,19 @@ const axisPlanesThrough = (p: Pt3): DrawPlane[] => AXIS_NORMALS.map((n) => mkAxi
  * 最小夹角 ≤ coneDeg（默认 30° = 六个 60° 锥）的轴胜出；点 = 射线到该轴的公垂点。射线与轴近平行（|cos| > 0.985）或轴在角度尺上
  * 投影退化 → 该轴不参赛。edited by Claude Fable 5.1 2026-09-07
  */
-export function inferAxisByDirection(pf: PointerFrame, vp: Viewport, anchor: Pt3, sx: number, sy: number, coneDeg = 30): { axis: AxName; p: Pt3 } | null {
+export function inferAxisByDirection(pf: PointerFrame, vp: Viewport, anchor: Pt3, sx: number, sy: number, coneDeg = 30, keep?: { axis: AxName; coneDeg: number }): { axis: AxName; p: Pt3 } | null {
   const ray = pf.ray(sx, sy, vp);
   const minCos = Math.cos((coneDeg * Math.PI) / 180);
   const AX: { axis: AxName; dir: Pt3 }[] = [{ axis: "x", dir: { x: 1, y: 0, z: 0 } }, { axis: "y", dir: { x: 0, y: 1, z: 0 } }, { axis: "z", dir: { x: 0, y: 0, z: 1 } }];
   const cos = pf.dirCos(sx, sy, anchor, AX.map((a) => a.dir), vp);   // 图向夹角：桌面 = 屏幕向量；VR = 锚点方向切平面
   let best: { axis: AxName; dir: Pt3; c: number } | null = null;
-  AX.forEach(({ axis, dir }, i) => {
+  // 轴锁迟滞（D17，2026-10-24）：上一帧已经锁在某根轴上 → 这一帧只要还在更宽的退出锥内就继续锁它（进 30° / 出 keep.coneDeg）——
+  // 抬笔前的飘、手腕的小弧线不再把锁甩掉（甩掉 = 落定帧退回相机平面自由点 = 屋脊两端带着侧墙一起折）。
+  if (keep) {
+    const i = AX.findIndex((a) => a.axis === keep.axis), c = i >= 0 ? cos[i] : null;
+    if (i >= 0 && c !== null && c >= Math.cos((keep.coneDeg * Math.PI) / 180) && Math.abs(dot3(AX[i].dir, ray.dir)) <= 0.985) best = { axis: AX[i].axis, dir: AX[i].dir, c };
+  }
+  if (!best) AX.forEach(({ axis, dir }, i) => {
     if (Math.abs(dot3(dir, ray.dir)) > 0.985) return;   // 射线与轴近平行：公垂点病态，不参赛
     const c = cos[i];
     if (c === null) return;

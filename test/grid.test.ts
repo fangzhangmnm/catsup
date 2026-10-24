@@ -11,6 +11,7 @@ import { axisAlignAngle } from "../src/editor/protractor-geom.ts";
 import { newDocument, readCatsup, writeCatsup } from "../src/format/index.ts";
 import { DEFAULT_SETTINGS } from "../src/format/document.ts";
 import { gridFromSettings } from "../src/editor/grid-settings.ts";
+import { rectToolTargets } from "../src/editor/tools.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 const near = (a: Pt3, b: Pt3, tol = 1e-9): boolean => Math.abs(a.x - b.x) < tol && Math.abs(a.y - b.y) < tol && Math.abs(a.z - b.z) < tol;
@@ -45,6 +46,17 @@ describe("grid: 格点 = 最低秩 0-D；几何先于网格；帧坐标系", () 
     const s2 = cam.angularPx(P(2.33, 1.72, 0), VP);   // 离任何轴线都远 → 格点 (2.4,1.8)
     const b = snapPoint(v, cam, VP, s2.x, s2.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
     eq(b.kind, "grid-point"); assert(near(b.p, P(2.4, 1.8, 0)), `格点，实得 ${b.p.x},${b.p.y}`);
+  });
+  it("显式 > 隐式（D21）：网格开着，矩形的正方形对角线（软目标线）让位给格点；网格关着对角线照旧赢", () => {
+    const cam = topCam();
+    const anchor = P(0, 0, 0), targets = rectToolTargets(anchor, GROUND.basis);
+    const s = cam.angularPx(P(2.0, 2.03, 0), VP);   // 离对角线 x=y 0.17 px、离格点 (2,2) 0.24 px
+    const v = viewOf(far(), WORLD_FRAME, { step: 1, sub: 5 });
+    const a = snapPoint(v, cam, VP, s.x, s.y, 8, { plane: GROUND, hand: NO_HAND, anchor, toolTargets: targets });
+    eq(a.kind, "grid-point"); assert(near(a.p, P(2, 2, 0), 1e-9), `格点 (2,2)，实得 ${a.p.x},${a.p.y}`);
+    const off = snapPoint(viewOf(far(), WORLD_FRAME, null), cam, VP, s.x, s.y, 8, { plane: GROUND, hand: NO_HAND, anchor, toolTargets: targets });
+    eq(off.kind, "tool"); eq(off.label, "正方形");
+    assert(Math.abs(off.p.x - off.p.y) < 1e-9, "网格关着：落在对角线上");
   });
   it("端点在旁边 → 端点赢；网格关着 → 没有格点；帧转 45° → 格点沿帧", () => {
     const cam = topCam();

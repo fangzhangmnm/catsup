@@ -127,6 +127,8 @@ export function describeEvent(ev: FaceEvent): string {
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
 /** 抬笔结算（A21）三个物理量，各自量纲独立（调参纪律）。 */
 const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
+/** 抬笔小滑上限（CSS px @800 高）：停留帧与最后一帧相距超过它 = 不是抖动是挪动，按最后一帧。 */
+const DWELL_SLIP_PX = 24;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 export const MIN_GESTURE_LEN = 0.01;
 /** 圆的多边形段数（SU 默认 24）。 */
@@ -1618,7 +1620,9 @@ export class Editor {
       if (last.t - this.samples[r.lastIdx].t > RELEASE_WINDOW_MS) break;
       if (r.dur >= MIN_DWELL_MS && r.dur > fin.dur && (!dwell || r.dur > dwell.dur)) dwell = r;
     }
-    return dwell ? this.samples[dwell.lastIdx] : last;
+    // 停留帧只在「抬笔小滑」范围内顶替最后一帧：滑出 DWELL_SLIP_PX 之外 = 抬笔前又有意挪了地方，按最后一帧（A21 只杀肌肉抖动，不改人的最后决定）
+    if (dwell) { const d = this.samples[dwell.lastIdx]; if (Math.hypot(last.sx - d.sx, last.sy - d.sy) <= DWELL_SLIP_PX * holdScale) return d; }
+    return last;
   }
 
   /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
@@ -1645,7 +1649,9 @@ export class Editor {
         // 拖拽松手 = 松手处（抬笔结算帧）的一次按下：先把工具跟到结算帧，再按下
         const smp = settle();
         if (smp) H.track(this.toolCtx, { x: smp.sx, y: smp.sy }, ev.travel);
-        H.down(this.toolCtx, ev);
+        // 按下也发生在结算帧的位置（不是原始抬笔点）：弧 / 旋转矩形 / 轴 / 量角器这类在 down 里重新取点的工具，落定的点 = 预演的点
+        // （user 2026-10-24「笔的时候吸附的点和落笔实际画的点不一样，你是不是接线接错了」——是，之前这里递的是 ev）。
+        H.down(this.toolCtx, smp ? { ...ev, x: smp.sx, y: smp.sy } : ev);
         if (H.active()) this.armed = true; else this.endStepGesture();
       }
     }

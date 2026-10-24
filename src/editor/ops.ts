@@ -334,7 +334,7 @@ export function describeOp(op: Op): string {
     case "eraseEdges": return `eraseEdges n=${op.edges.length}${at}`;
     case "eraseFaces": return `eraseFaces n=${op.faces.length}${at}`;
     case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}${at}`;
-    case "move": return `move verts=${op.moves.length}${at}`;
+    case "move": { const m = op.moves[0]; const d = m ? ` Δ=${(m.to.x - m.from.x).toFixed(3)},${(m.to.y - m.from.y).toFixed(3)},${(m.to.z - m.from.z).toFixed(3)}` : ""; return `move verts=${op.moves.length}${d}${at}`; }   // 位移不是坐标：D17 要靠它判断落定帧纯不纯
     case "pushpull": return `pushpull ring=${op.face.length} dist=${Number(op.dist.toFixed(4))}${at}`;
     case "followme": return `followme ring=${op.face.length} path=${op.path.length}${op.closed ? " closed" : ""}${at}`;
     case "absorb": return `absorb faces=${op.faces.length} wires=${op.wires.length}${at}`;

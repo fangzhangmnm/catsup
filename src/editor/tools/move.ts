@@ -7,6 +7,7 @@ import { add3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { intentAllows3D } from "../intent.ts";
 import { cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, type SnapKind } from "../pick.ts";
+import type { AxName } from "../solver.ts";
 import { moveTargets, moveTargetsSelection } from "../tools.ts";
 import { applyDir, invert, translation } from "../../scene/xform.ts";
 import { MIN_GESTURE_LEN, fmtLen } from "../editor.ts";
@@ -67,7 +68,9 @@ export class MoveTool implements ToolHandler {
     const freeM = rayPlane(rayM.origin, rayM.dir, plane.plane.n, plane.plane.d);
     if (sn.kind !== null && freeM && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeM, anchor), sub3(sn.p, anchor), MIN_GESTURE_LEN)) { sn = { p: freeM, kind: null }; ctx.dropHysteresis(); }
     if (sn.kind === null || sn.kind === "grid-point") {   // 格点是地板（D16）：拖出方向意图时轴向锥先于格点
-      const ax = inferAxisByDirection(ctx.frame(), ctx.vp(), anchor, s.x, s.y);
+      const prevKind = ctx.currentSnap()?.kind;
+      const keep = prevKind && prevKind.startsWith("axis-") ? { axis: prevKind.slice(5) as AxName, coneDeg: 55 } : undefined;   // 轴锁迟滞：进 30° / 出 55°（D17）
+      const ax = inferAxisByDirection(ctx.frame(), ctx.vp(), anchor, s.x, s.y, 30, keep);
       const cur = ctx.cursor();
       if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
       else if (sn.kind === null && cur && grazing(plane, ctx.frame().ray(s.x, s.y, ctx.vp()))) sn = { p: cur, kind: null };

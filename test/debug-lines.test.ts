@@ -17,7 +17,7 @@ describe("debug-lines", () => {
   it("describeOp / traceLine：一 op 一行，不含坐标；失败行带 op JSON", () => {
     eq(describeOp({ op: "addEdges", segs: [[{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }]] }), "addEdges segs=1");
     eq(describeOp({ op: "pushpull", face: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 1, y: 1, z: 0 }], dist: 0.123456 }), "pushpull ring=3 dist=0.1235");
-    eq(describeOp({ op: "move", moves: [{ from: { x: 0, y: 0, z: 0 }, to: { x: 1, y: 0, z: 0 } }] }), "move verts=1");
+    eq(describeOp({ op: "move", moves: [{ from: { x: 0, y: 0, z: 0 }, to: { x: 1, y: 0, z: 0 } }] }), "move verts=1 Δ=1.000,0.000,0.000");
     eq(describeOp({ op: "eraseSelection", faces: [], edges: [[{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }]] }), "eraseSelection faces=0 edges=1");
     eq(describeOp({ op: "clear" }), "clear"); eq(describeOp({ op: "preset", name: "日字" }), "preset 日字");
     const opLine = traceLine({ kind: "op", op: { op: "addEdges", segs: [[{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }]] }, events: 2, ms: 1.26, position: 7 });
