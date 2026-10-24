@@ -28,6 +28,8 @@ export type Op =
   | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean | CurveSpec }
   /** 炸开曲线（SU Explode Curve）：edges 里每条边所在的曲线散成普通边。 */
   | { op: "explodeCurves"; at: PoolRef; edges: EdgeKey[] }
+  /** 焊接（B19）：edges = 有序链的各边（坐标寻址）→ 一条曲线。 */
+  | { op: "weldEdges"; at: PoolRef; edges: EdgeKey[] }
   | { op: "eraseEdges"; at?: PoolRef; edges: EdgeKey[] }
   | { op: "eraseFaces"; at?: PoolRef; faces: FaceKey[] }
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
@@ -122,6 +124,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       return { scene: new Scene(k2), events: preset ? applyPreset(k2, preset).flat() : [] };
     }
     case "addEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.addEdges(op.segs, op.curve ? { curve: op.curve } : undefined) }; }
+    case "weldEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.weldEdges(op.edges.map((e) => resolveEdge(kernel, e))) }; }
     case "explodeCurves": { const { kernel } = poolOf(s, op.at); const ids = new Set<number>(); for (const e of op.edges) { const cid = kernel.curveOf(resolveEdge(kernel, e)); if (cid !== undefined) ids.add(cid); } return { scene: s, events: kernel.explodeCurves([...ids]) }; }
     case "eraseEdges": { const { kernel } = poolOf(s, op.at); const ids = op.edges.map((e) => resolveEdge(kernel, e)); return { scene: s, events: kernel.eraseEdges(ids) }; }
     case "eraseFaces": { const { kernel } = poolOf(s, op.at); const ids = op.faces.map((f) => resolveFace(kernel, f)); return { scene: s, events: kernel.eraseFaces(ids) }; }
@@ -319,6 +322,7 @@ export function describeOp(op: Op): string {
     case "preset": return `preset ${op.name}`;
     case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? (typeof op.curve === "object" ? ` curve:${op.curve.kind}` : " curve") : ""}${at}`;
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
+    case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "eraseEdges": return `eraseEdges n=${op.edges.length}${at}`;
     case "eraseFaces": return `eraseFaces n=${op.faces.length}${at}`;
     case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}${at}`;

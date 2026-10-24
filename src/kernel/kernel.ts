@@ -32,6 +32,7 @@ import { PlaneRegistry } from "./planes.ts";
 import { type Image, type ImageTable, type Seg3, ringsOf, settle, translateImage } from "./settle.ts";
 import { EdgeLayers, FaceLayers, riserLayers } from "./layers.ts";
 import { type Curve, type CurveId, type CurveParams, type CurveSpec, CurveRegistry } from "./curves.ts";
+import { planWeld } from "./weld.ts";
 import { alignClosedPath, dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
 
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
@@ -271,6 +272,17 @@ export class Kernel {
     return this.emit(this.store.reconcileErase(this.graph, this.planes, this.coplanarTol, verdicts));
   }
   /** 炸开曲线（SU Explode Curve）：实体没了，边留着、不再带 curve 层（之后推拉它们的侧棱是硬的）。 */
+  /** 焊接（B19）：选中的边（所属曲线整条连坐）焊成一条曲线——同圆参数的弧 → 弧 / 圆，否则折线曲线。不是一条链 → 抛（人话）。 */
+  weldEdges(ids: readonly EdgeId[]): FaceEvent[] {
+    const plan = planWeld(this, ids);
+    if (typeof plan === "string") throw new Error(plan);
+    this._rev++;
+    for (const cid of plan.curves) { const c = this.curveReg.curve(cid); if (c) for (const e of c.edges) this.edgeLayers.delete("curve", e); this.curveReg.explode(cid); }
+    const c = this.curveReg.create(this.graph, plan.edges, plan.spec);
+    if (!c) throw new Error("焊接：链没登记上（内部）");
+    for (const e of c.edges) this.edgeLayers.add("curve", e);
+    return [];
+  }
   explodeCurves(ids: readonly CurveId[]): FaceEvent[] {
     this._rev++;
     for (const id of ids) {

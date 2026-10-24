@@ -17,6 +17,7 @@ import "./grid.test.ts";         // 绝对网格 + 整数长度 + 轴向咬合�
 import "./repro-box.test.ts";    // 复现包黑匣子
 import "./pp-stops.test.ts";     // 推拉停靠集（退役清单④）
 import "./tier.test.ts";         // #30 层级档加权
+import "./weld.test.ts";         // B19 焊接（边链 → 曲线）
 import "./lock.test.ts";         // A27 锁定（对象层属性；0.13）
 import "./body-kind.test.ts";    // 门 1：definition 身体 brep | card（0.13 刀 ①）
 import "./final.test.ts";        // 定稿：内容指纹 + 记录往返（ai-docs/20261024-finalize.md）

@@ -42,7 +42,8 @@ import type { FaceKey } from "./ops.ts";
 import { liftFromPlane, projectToPlane } from "../kernel/geom.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
-import { type Op, edgeKey, faceKey } from "./ops.ts";
+import { type Op, edgeKey, faceKey, resolveEdge } from "./ops.ts";
+import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
 import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
@@ -720,6 +721,21 @@ export class Editor {
   /** 选区里有没有曲线的边（炸开曲线钮）。 */
   hasCurveSelection(): boolean { const k = this.kernel; for (const e of this.selection.edges) if (k.graph.hasEdge(e) && k.curveOf(e) !== undefined) return true; return false; }
   /** 炸开选区里的曲线（SU Explode Curve）：每条曲线给一条代表边，op 按坐标寻址。 */
+  /** 选区能焊吗（粗筛，菜单显示用；真判在 planWeld）：≥ 2 条边、没选面。 */
+  canWeldSelection(): boolean { const k = this.kernel; return !this.selection.faces.size && [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).length >= 2; }
+  /** 焊接选区（B19，SU Weld Edges）：成一条曲线，之后选中整条。 */
+  weldSelection(): boolean {
+    const k = this.kernel, at = this.activePool();
+    const plan = planWeld(k, [...this.selection.edges].filter((e) => k.graph.hasEdge(e)));
+    if (typeof plan === "string") { this.host.hint(plan); return false; }
+    const keys = plan.edges.map((e) => edgeKey(k, e));
+    this.commitOp({ op: "weldEdges", at, edges: keys });
+    const k2 = this.kernel; this.selection = emptySelection(); this.selectedPools.clear();
+    for (const key of keys) { try { this.selection.edges.add(resolveEdge(k2, key)); } catch { /* 没了就不选 */ } }
+    this.host.hint(`焊接：${plan.edges.length} 段 → 一条${plan.spec.kind === "circle" ? "圆" : plan.spec.kind === "arc" ? "弧" : "曲线"}（选 / 擦 / 高亮当整体）`);
+    this.host.changed(); this.draw();
+    return true;
+  }
   explodeCurveSelection(): void {
     const k = this.kernel, at = this.activePool();
     const seen = new Set<number>(); const edges: ReturnType<typeof edgeKey>[] = [];

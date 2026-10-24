@@ -25,6 +25,7 @@ const VERBS: Record<string, (k: Kernel) => void> = {
   transformAll: (k) => { k.transformAll((p) => P(p.x + 1, p.y, p.z)); },
   setFaceMaterial: (k) => { k.setFaceMaterial([k.faces()[0].id], 1); },
   setEdgeLayer: (k) => { k.setEdgeLayer("soft", [k.edges()[0].id], true); },
+  weldEdges: (k) => { const before = new Set(k.edges().map((e) => e.id)); k.addEdges([[P(5, 5), P(6, 5)], [P(6, 5), P(6, 6)]]); k.weldEdges(k.edges().map((e) => e.id).filter((id) => !before.has(id))); },
   explodeCurves: (k) => { k.addEdges([[P(5, 5), P(6, 5)], [P(6, 5), P(6, 6)], [P(6, 6), P(5, 5)]], { curve: { kind: "polyline", closed: true } }); k.explodeCurves(k.curves().map((c) => c.id)); },
 };
 

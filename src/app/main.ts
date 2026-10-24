@@ -163,6 +163,7 @@ const hud: HudModel = {
     { id: "group", label: "建组", icon: "collection", hidden: !editor.hasGeometrySelection() },
     { id: "component", label: "建组件", icon: "object", hidden: !editor.hasGeometrySelection() },
     { id: "explode", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },
+    { id: "weld", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
     { id: "explodeCurve", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
     { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "lock", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
@@ -190,6 +191,7 @@ const hud: HudModel = {
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
       case "explode": editor.explodeSelection(); break;
+      case "weld": editor.weldSelection(); break;
       case "explodeCurve": editor.explodeCurveSelection(); break;
       case "enter": editor.enterSelected(); break;
       case "lock": editor.lockSelection(true); break;
