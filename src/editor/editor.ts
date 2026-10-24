@@ -35,6 +35,7 @@ import { ppStopsOf } from "./pp-stops.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
+import { pickGuide, withoutGuides } from "./guide-pick.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
@@ -217,6 +218,7 @@ export class Editor {
   private scaleFactor: Pt3 = { x: 1, y: 1, z: 1 };
   private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> }[] = [];
   private scrubAcc = new Set<EdgeId>();
+  private scrubGuides = new Set<number>();   // 橡皮刮过的参考线 / 参考点 id（D18；活动池的）
   private scrubbing = false;
   private eraseMode: "erase" | "soften" | "harden" = "erase";
   private selection: Selection = emptySelection();
@@ -458,6 +460,7 @@ export class Editor {
     this.cursor3 = null;
     this.snapInfo = null;
     this.scrubAcc = new Set();
+    this.scrubGuides = new Set();
     this.scrubbing = false;
     this.marqueeStart = this.marqueeCur = null;
     this.hoverEdge = null;
@@ -1362,7 +1365,7 @@ export class Editor {
       // 缩放柄跟着预演实时动（user 2026-10-21「缩放的handle应该跟着实时动」）：拖动中按当前倍率把柄过一遍同一个变换
       handles: this._tool === "scale" ? (() => { const X = this.scaleActive ? scalingAbout(this.scaleActive.anchor, this.scaleFactor) : null; return this.scaleHandles.map((h) => ({ p: X ? applyPt(X, h.p) : h.p, active: h === this.scaleActive })); })() : null,
       protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
-      guides: view.guides(),
+      guides: withoutGuides(view.guides(), this.scrubGuides),   // 橡皮刮过的参考几何先从画面消失（D18）
       frame: view.frame(),
       grid: { frame: view.frame(), step: this._grid.on ? this._grid.step : 1 },
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
@@ -1371,6 +1374,11 @@ export class Editor {
     });
   }
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
+  /** 橡皮刮到参考几何（D18）：活动池的参考线（无限长）/ 参考点，屏距 ≤ hit 容差就进刮集。 */
+  private scrubGuideAt(view: WorldView, sx: number, sy: number): void {
+    const g = pickGuide(view.guides(), this.frame(), this.fvp(), sx, sy, this.hitPx());
+    if (g) this.scrubGuides.add(g.id);
+  }
   /** 展开到整条曲线（本地 id；显示用，与内核 eraseEdges 的「擦一段 = 整条」同口径）。 */
   private wholeCurves(ids: Iterable<EdgeId>): Set<EdgeId> {
     const k = this.kernel, out = new Set<EdgeId>();
@@ -1586,6 +1594,7 @@ export class Editor {
         const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
         const c = this.classify(view, hit);
         if (c.kind === "entity" && c.local.edge !== undefined) this.scrubAcc.add(c.local.edge);
+        this.scrubGuideAt(view, s.x, s.y);
         this.computeLive();
         break;
       }
@@ -1646,6 +1655,7 @@ export class Editor {
         const view = this.liveWorld();
         const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
         if (c.kind === "entity" && c.local.edge !== undefined) this.scrubAcc.add(c.local.edge);
+        this.scrubGuideAt(view, s.x, s.y);
         break;
       }
       case "select":
@@ -1958,10 +1968,11 @@ export class Editor {
         break;
       }
       case "erase": {
-        const ids = [...this.scrubAcc];
+        const ids = [...this.scrubAcc], gids = [...this.scrubGuides];
         const mode = this.eraseMode;
         this.cancelGesture();
         const k = this.kernel;
+        if (mode === "erase" && gids.length) this.eraseGuides(gids);   // D18：刮过的参考线 / 参考点一起擦（活动池的）
         if (mode !== "erase") { this.softenEdges(ids.filter((id) => k.graph.hasEdge(id) && k.graph.edge(id).faceLinks.length >= 2), mode === "soften"); break; }   // 橡皮 + Ctrl = 软化、+ Shift = 硬化（SU 同款修饰）
         const edges = ids.filter((id) => k.graph.hasEdge(id)).map((id) => edgeKey(k, id));
         if (edges.length) this.commitOp({ op: "eraseEdges", at: this.activePool(), edges });

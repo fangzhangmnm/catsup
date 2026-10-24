@@ -127,3 +127,24 @@ describe("guides: 求解器把帧当纸的边、把参考几何当目标", () =>
     assert(RANK.guidePoint > RANK.midpoint && RANK.guidePoint < RANK.endpoint && RANK.guide === RANK.edge, "秩：端点 > 参考点 > 中点；参考线 = 线上");
   });
 });
+
+describe("guides: 橡皮拾取参考几何（D18）", () => {
+  it("参考点先于参考线；容差外 = null；withoutGuides 过滤", async () => {
+    const { pickGuide, withoutGuides } = await import("../src/editor/guide-pick.ts");
+    const { OrbitCamera } = await import("../src/editor/camera.ts");
+    const cam = new OrbitCamera(); cam.yaw = -Math.PI / 2; cam.pitch = 1.5707; cam.halfH = 50;
+    const VP = { w: 1000, h: 800 };
+    const G = { lines: [{ id: 1, p: { x: 0, y: 2, z: 0 }, dir: { x: 1, y: 0, z: 0 } }], points: [{ id: 2, p: { x: 3, y: 2, z: 0 } }] };
+    const at = (p: { x: number; y: number; z: number }) => cam.angularPx(p, VP);
+    const s1 = at({ x: 3.05, y: 2.05, z: 0 });
+    eq(pickGuide(G, cam, VP, s1.x, s1.y, 6)?.kind, "point", "点上：点先于线");
+    const s2 = at({ x: -4, y: 2.1, z: 0 });
+    const r2 = pickGuide(G, cam, VP, s2.x, s2.y, 6);
+    eq(r2?.kind, "line"); eq(r2?.id, 1);
+    const s3 = at({ x: -4, y: 5, z: 0 });
+    eq(pickGuide(G, cam, VP, s3.x, s3.y, 6), null, "离得远 = null");
+    const left = withoutGuides(G, new Set([1]));
+    eq(left.lines.length, 0); eq(left.points.length, 1);
+    eq(withoutGuides(G, new Set()), G, "空集原样返回");
+  });
+});
