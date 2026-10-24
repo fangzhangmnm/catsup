@@ -163,7 +163,7 @@ describe("snap: 派生相交轨迹（可描不改图，user 2026-09-01 拍板）
     eq(one.kind, "on-extension", "充能边的延长线上"); assert(Math.abs(one.p.y) < 1e-9 && Math.abs(one.p.x - 8) < 0.5, "落在 y=0 延长线");
     // 充 e1 + 一条真实边穿过它的延长线：交点可吸（新内核：屏幕索引按视图对象缓存，裸 Kernel 改了要换对象——app 里每次修订都是新 WorldView）
     const k2 = new Kernel();
-    k2.addEdges([[e1.a, e1.b], [e2.a, e2.b], [{ x: 9, y: -3 }, { x: 9, y: 3 }]]);   // 端点离光标远（21 px），交点近（2.4 px）
+    k2.addEdges([[e1.a, e1.b], [e2.a, e2.b], [{ x: 9, y: -2 }, { x: 9, y: 8 }]]);   // 端点 13.6 px、中点 26 px 都在 ε 外，交点 2.4 px
     const s3 = at(c, { x: 9, y: -0.3, z: 0 });
     const x = snapPoint(k2, c, VP, s3.x, s3.y, TOL, { hand: NO_HAND, plane: GROUND, lines: false, chargedEdges: [e1] });
     eq(x.kind, "intersection", "充能延长线 × 真实边 = 交点"); assert(Math.abs(x.p.x - 9) < 1e-9 && Math.abs(x.p.y) < 1e-9);
