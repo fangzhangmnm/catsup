@@ -82,3 +82,12 @@ interface EditorCore { doc: DocState; session: SessionState; commitOp(op): FaceE
 - 多表示并存、不自动互转（各种池并存；显式互转 = 用户动作）→ user「这个建议现在就接好」→ **门 1 升格为刀 ① 必做**：Scene 的池带 `kind`、`applyOp` 按 kind 派发、WorldView 按 kind bake；当前只有 `brep` 一种实现，网格池 / 显式互转动词以后再开。
 - **第二个物体类别已有实物 = 参考人卡片**（user 2026-10-24「马上有一个刚需就是参考人卡片，比如一个pngtuber的猫娘，带自己的关键帧动画集合和状态机。这个就是第二个物体类别」）：一张带贴图的卡（billboard / 定向面片）+ 帧集合 + 关键帧动画片段（clips）+ 状态机（idle / talk / blink…）；兼 SU 比例小人的位置（比例参考）。**对架构的意思**：definition 的 kind 从刀 ① 起就是 `"brep" | "card"` 两个真成员；card 不是 B-rep、不进肥皂膜内核；bake = 一张四边形 + 贴图；op = 换状态 / 换帧集 / 摆放（实例照旧走 instances）；它的动画是**物体自己的运行时状态机**（像游戏实体，住 Session / 播放器），不是场景时间轴 → 与「时间维很未来」不冲突。格式 = `CATSUP_definitions[i].kind = "card"` + card 载荷（贴图走 glTF images / textures）；细设计另开稿（A26）。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
 
+## 6. 模式 × 物体种类 + 排期（user 2026-10-24 拍板）
+
+> user：「这么说的话不同的物体也会有不同的可用编辑模式，然后有一个统一的物体管理模式，你自己排期」「可以bump minor如果这是一把大刀的话」
+
+- **两层模式**（= Blender 的 Object Mode / Edit Mode 分法）：**物体模式**（统一，kind 无关：选物体、摆放、移 / 旋 / 缩、复制、打组 / 炸开、锁定、元数据）+ **编辑模式按 kind**：brep → 几何 / 表面；card → 卡片自己的（帧 / 状态机）。左上下拉框只列当前物体 kind 可用的模式。`Mode.kinds: PoolKind[]` 声明自己管哪些 kind。
+- **锁定（A27）**是物体层属性：`Group.locked / Instance.locked`，所有 kind 通用；WorldView 不看锁（锁住的照样当推断参考），Editor 在 commitOp / 整体变换 / 进入三处拦。user 思考题「用 brep 画立面图，然后锁住，推到旁边做拉几何的对齐参考，你要能接住，而不是把立面图搞坏」= 分池（不粘）+ 锁（不坏）+ 推断照吃（能参考）。
+- **排期（0.13 编辑模式纪元；AI 排、user 可改）**：0.13.0 刀 ① → A27 锁定 → 0.13.x 刀 ②（九工具搬迁，含票 3）→ 0.13.x 刀 ③ 表面模式 → 0.14 物体模式 + 卡片（A26）。物体模式晚到的理由：只有一种物体时 SU 式混编就是它，拆早了多一层空壳。
+- **刀 ① 的实际形状（回写提案，与 §2 的差别）**：Editor 类保留为 HUD 的 facade（main.ts 的几十个 getter 不改——HUD 改读 EditorCore 的收益配不上 churn）；EditorCore = ToolCtx 往上长一层（加 scene / context / revision / grid 只读口），模式与工具只认它；`handlers` 表从 Editor 搬进 `GeometryMode`；门 1 在 Scene / ops / 格式三处落地，`kind` 只在非 brep 时写进文件（golden 字节不变）。
+
