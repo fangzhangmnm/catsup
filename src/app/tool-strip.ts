@@ -6,16 +6,23 @@ import type { Editor } from "../editor/editor.ts";
 import type { OptionEntry } from "../editor/tool-config.ts";
 
 export interface ToolStrip { render(): void; }
+/** 工具自己的动作（user 2026-10-24「轴是工具，轴不归汉堡管，归工具管，工具的上下文菜单该开始做了」）：轴 → 重置轴；卷尺 / 量角器 → 删除所有参考线。 */
+export interface StripAction { id: string; label: string; disabled?: boolean; onClick(): void; }
 
-export function mountToolStrip(root: HTMLElement, editor: Editor): ToolStrip {
+export function mountToolStrip(root: HTMLElement, editor: Editor, opts?: { actions?(tool: string): StripAction[] }): ToolStrip {
   const config = editor.config;
   const render = (): void => {
     const tool = editor.tool;
     const entries = config.entries(tool);
-    root.hidden = entries.length === 0;
+    const actions = opts?.actions?.(tool) ?? [];
+    root.hidden = entries.length === 0 && actions.length === 0;
     root.replaceChildren();
-    if (!entries.length) return;
     for (const e of entries) root.appendChild(control(tool, e));
+    for (const a of actions) {
+      const b = document.createElement("button"); b.type = "button"; b.className = "strip-action"; b.textContent = a.label; b.disabled = !!a.disabled;
+      b.addEventListener("click", () => { a.onClick(); render(); });
+      root.appendChild(b);
+    }
   };
   const control = (tool: string, e: OptionEntry): HTMLElement => {
     const wrap = document.createElement("label");

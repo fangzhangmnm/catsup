@@ -234,42 +234,8 @@ const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
 type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "noclip" | "persp" | "walk";
-btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
-  anchor: btnMenu,
-  items: () => [
-    // 转正纪元（2026-09-20）：文档生命周期 = WeebPaint 无地标准三态；图库 = @internal/gallery
-    { id: "new", label: "新建模型", icon: "new" },
-    { id: "gallery", label: "图库", icon: "gallery", hint: hasStore() ? undefined : "本机 + OneDrive" },
-    { id: "save", label: session.home.kind === "transient" ? (supportsSavePicker() ? "保存到磁盘…" : "保存（下载 .glb）") : "保存", icon: "floppy-disk", hint: "Ctrl+S", separatorBefore: true },
-    ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as" }] : []),
-    { id: "open", label: "打开本地 .glb…", icon: "folder-open", hint: "Ctrl+O" },
-    { id: "download", label: "导出 .glb（下载一份）", icon: "download" },
-    { id: "cloud", label: auth.isSignedIn() ? "退出 OneDrive 登录" : "登录 OneDrive", icon: "cloud", separatorBefore: true, disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? undefined : "未配置 client id" },
-    { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口", separatorBefore: true },
-    { id: "import", label: "导入 OBJ…", icon: "import" },
-    // 0.4 VR 纪元：只在 navigator.xr 支持 immersive-vr 时露出（Quest 浏览器）；随时进出，模型与工具状态原样
-    ...(vr.isSupported() ? [
-      { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", separatorBefore: true, hint: "Quest · 手腕面板" },
-      { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" },
-    ] : []),
-    { id: "finger", label: "手指也能画", checked: fingerDraws, separatorBefore: true, hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
-    { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", separatorBefore: true, hint: "平滑组：相邻膜夹角小的边变软 + 平滑" },
-    { id: "guidesClear", label: "删除所有参考线", hint: "只删当前上下文（这个组 / 根）里的参考线与参考点", disabled: !editor.hasGuides() },
-    { id: "axesReset", label: "重置轴", hint: "根 = 回到世界轴；组里 = 原点不动、方向回正" },
-    { id: "grid", label: "网格吸附", checked: editor.grid.on, hint: `格点 + 整数长度 · 格距 ${fmtVcbLength(editor.grid.step, editor.vcbUnit)} · 吸附 1/${editor.grid.subdiv}（开着时右下角可调）` },
-    { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "数值小窗的默认长度单位（点一下换下一个；内部永远是米）" },
-    { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么（油漆桶已选中再点一下也开）" },
-    // 视图类（2026-10-21：右上角 gizmo 只留切视图 + 缩放到全部；这些偶尔才用的收在这里）
-    { id: "persp", label: "透视", checked: editor.cam.projection === "persp", separatorBefore: true, disabled: locomotion.isWalking() },
-    { id: "thick", label: "粗线稿", checked: editor.lineStyle === "thick", hint: "屏幕像素宽的粗线；默认 1 设备像素细线" },
-    { id: "walk", label: "步行相机", hint: "WASD · 空格跳 · 右键拖看", checked: locomotion.isWalking() },
-    { id: "noclip", label: "穿墙飞行", hint: "步行相机里双击空格切换 · Q/E 下/上", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
-    { id: "clear", label: "清空模型", icon: "trash-can", separatorBefore: true },
-    { id: "help", label: "快捷键与手势", icon: "keyboard" },
-    { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
-    { id: "update", label: `强制更新（清缓存重启）· ${APP_VERSION}`, icon: "refresh" },
-  ],
-  onPick: (id) => {
+/** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
+function menuPick(id: MenuId): void | "keep" {
     switch (id) {
       case "new": void session.newDoc(); break;
       case "gallery": void galleryHost.open(); break;
@@ -300,7 +266,31 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       case "vr": if (vr.isPresenting()) vr.exit(); else vr.enter(); break;
       case "lefthand": leftHanded = !leftHanded; PREF.set("leftHanded", leftHanded ? "1" : "0"); return "keep";
     }
-  },
+}
+// ☰（左上）：文件 / 云 / 模型 / 设置 / 帮助——票 2 WeebPaint 范式：人话小标题分区，不是子菜单（user 2026-10-24「汉堡菜单weebpaint化也应该开始做了」）。
+// 视图类（透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR）归右上角「视图」（user「步行飞行粗线稿这些都是视图啊，视图时是归右上角的汉堡管」「单位也归视图管」）；
+// 轴 / 参考线归工具条（user「轴是工具，轴不归汉堡管，归工具管」）。
+btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
+  anchor: btnMenu,
+  items: () => [
+    { id: "new", label: "新建模型", icon: "new", sectionBefore: "文件" },
+    { id: "gallery", label: "图库", icon: "gallery", hint: hasStore() ? undefined : "本机 + OneDrive" },
+    { id: "save", label: session.home.kind === "transient" ? (supportsSavePicker() ? "保存到磁盘…" : "保存（下载 .glb）") : "保存", icon: "floppy-disk", hint: "Ctrl+S" },
+    ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as" }] : []),
+    { id: "open", label: "打开本地 .glb…", icon: "folder-open", hint: "Ctrl+O" },
+    { id: "download", label: "导出 .glb（下载一份）", icon: "download" },
+    { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口" },
+    { id: "import", label: "导入 OBJ…", icon: "import" },
+    { id: "cloud", label: auth.isSignedIn() ? "退出 OneDrive 登录" : "登录 OneDrive", icon: "cloud", sectionBefore: "云", disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? undefined : "未配置 client id" },
+    { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", sectionBefore: "模型", hint: "平滑组" },
+    { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么" },
+    { id: "clear", label: "清空模型", icon: "trash-can" },
+    { id: "finger", label: "手指也能画", checked: fingerDraws, sectionBefore: "设置", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
+    { id: "help", label: "快捷键与手势", icon: "keyboard", sectionBefore: "帮助" },
+    { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
+    { id: "update", label: `强制更新（清缓存重启）· ${APP_VERSION}`, icon: "refresh" },
+  ],
+  onPick: menuPick,
 }));
 
 // ---------- 移动（步行相机 / VR 共用的 player）----------
@@ -353,7 +343,14 @@ function setWalk(on: boolean): void {
 }
 
 // ---------- 状态同步 ----------
-const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor);
+const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor, {
+  // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
+  actions: (tool) => {
+    if (tool === "axes") return [{ id: "axesReset", label: "重置轴", onClick: () => { menuPick("axesReset"); } }];
+    if (tool === "tape" || tool === "protractor") return [{ id: "guidesClear", label: "删除所有参考线", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
+    return [];
+  },
+});
 const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
 const selBar = mountSelectionBar(document.getElementById("selBar") as HTMLElement, editor, hud, () => selectionRoute(lastPointerType));
 let lastPointerType = "mouse";
@@ -513,6 +510,26 @@ const gestures = attachGestures(canvas, editor, {
 // 视图 = 右上角导航 gizmo（Blender / Unity 式；user 2026-10-21「视图之类的能不能参考unity blender editor」）。视图弹层退役；透视 / 步行 / 穿墙 / 粗线稿进 ☰。
 // 放在 locomotion 之后（render 立刻会问 isWalking）。
 const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => locomotion.isWalking() });
+// 右上角「视图」菜单（user 2026-10-24「视图时是归右上角的汉堡管」）：透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR
+const viewMenuBtn = document.createElement("button");
+viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("menu");
+($("viewGizmo").querySelector(".gizmo-btns") as HTMLElement).prepend(viewMenuBtn);
+viewMenuBtn.addEventListener("click", () => togglePopupMenu<MenuId>({
+  anchor: viewMenuBtn, align: "end",
+  items: () => [
+    { id: "persp", label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), sectionBefore: "视图" },
+    { id: "thick", label: "粗线稿", checked: editor.lineStyle === "thick", hint: "屏幕像素宽" },
+    { id: "grid", label: "网格吸附", checked: editor.grid.on, hint: `${fmtVcbLength(editor.grid.step, editor.vcbUnit)} · 1/${editor.grid.subdiv}` },
+    { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "点一下换下一个" },
+    { id: "walk", label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), sectionBefore: "相机" },
+    { id: "noclip", label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
+    ...(vr.isSupported() ? [
+      { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", sectionBefore: "VR", hint: "Quest" },
+      { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" },
+    ] : []),
+  ],
+  onPick: menuPick,
+}));
 void viewGizmo;
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;

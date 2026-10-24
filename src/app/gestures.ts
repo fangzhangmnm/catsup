@@ -49,12 +49,14 @@ const GESTURE_TAP_MAX_MOVE = 16;
 const PALM_PEN_GUARD_MS = 600;
 const STALE_TOUCH_MS = 8000;
 const SINGLE_TAP_MS = 250;
+const UNLOCK_PX = 28;
 
 export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: GestureOpts): { dispose(): void; penEverSeen(): boolean } {
   const pointers = new Map<number, Tracked>();
   let penEverSeen = false;
   let lastPenActivity = -Infinity;
-  let multi: { cx: number; cy: number; d: number } | null = null;
+  /** locked = 笔按住拖的中途凑成的双指：先当手掌，质心 / 指距累计动过 UNLOCK_PX 才解锁成相机（user 2026-10-24「要不要大动作解锁」）。 */
+  let multi: { cx: number; cy: number; d: number; locked: boolean; travel: number } | null = null;
   let tap: GestureTap | null = null;
 
   const local = (ev: PointerEvent): { x: number; y: number } => {
@@ -85,7 +87,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     const ts = touches();
     if (ts.length < 2) return;
     const [[, a], [, b]] = ts;
-    multi = { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y) };
+    multi = { cx: (a.x + b.x) / 2, cy: (a.y + b.y) / 2, d: Math.hypot(a.x - b.x, a.y - b.y), locked: toolPointerActive(), travel: 0 };
     if (!tap) tap = { firstDownTime: Math.min(...ts.map(([, t]) => t.downAt)), isTap: true, maxCount: 0, start: new Map() };
     tap.maxCount = Math.max(tap.maxCount, ts.length);
     for (const [id, t] of ts) { if (!tap.start.has(id)) tap.start.set(id, { x: t.downX, y: t.downY }); t.role = "multi"; }
@@ -181,6 +183,13 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
         const [[, a], [, b]] = ts;
         const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
         if (opts.walking?.()) { multi.cx = cx; multi.cy = cy; multi.d = d; return; }
+        if (multi.locked) {   // 大动作解锁：没动够 UNLOCK_PX 之前当手掌，不碰相机；解锁时从当前位置起算，不把积累的位移一下子甩出去
+          multi.travel += Math.hypot(cx - multi.cx, cy - multi.cy) + Math.abs(d - multi.d);
+          multi.cx = cx; multi.cy = cy; multi.d = d;
+          if (multi.travel < UNLOCK_PX) return;
+          multi.locked = false;
+          return;
+        }
         // 笔按住拖的中途（工具指针活着）：双指质心 = 环绕（单指被当手掌，转不了）；平时 = 平移
         if (toolPointerActive()) editor.cam.orbit(cx - multi.cx, cy - multi.cy); else editor.cam.pan(cx - multi.cx, cy - multi.cy, editor.vp());
         if (d > 1 && multi.d > 1) editor.cam.zoomAt(multi.d / d, cx, cy, editor.vp());
