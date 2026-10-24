@@ -6,6 +6,10 @@
 //   pen  ：永远=工具（Apple Pencil 悬停=吸附预告）。见过 pen 的设备，手指永久降级为相机（手掌≡单指 touch，物理不可分）。
 //   touch：单指=环绕；双指=平移+捏合缩放；双指轻点=撤销、三指轻点=重做（Procreate 方言，WeebPaint 同款）。
 //          「手指画」开关打开且没见过 pen → 单指=工具，第二指落下即取消工具手势转相机。
+//   画到一半转视角（B23，2026-10-24 user「能不能一根线或者别的操作画到一半的时候调整视角」）：
+//     · 笔也能「点两下」（main armable）：点一下定首点、抬笔、手指转视角、再点落定（SU iPad 同款）；单指轻点 / Esc 取消
+//     · 笔按住拖的中途：双指 = 环绕 + 捏合缩放（单指仍当手掌）；平时双指 = 平移 + 缩放不变
+//     · 相机一动就按工具指针最后的屏幕位置重算预览（retrack），不用动笔
 //
 // 多指 tap 的四个坑（WeebPaint input.ts 血泪，逐条照抄）：
 //   ① tap 时长从**最早**参与触点落下算（掌根久搁 = 慢 tap = 超限剔除；从第二指到来算会漏掉）。
@@ -63,6 +67,9 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   };
   const touches = (): [number, Tracked][] => [...pointers.entries()].filter(([, p]) => p.type === "touch");
   const toolPointerActive = (): boolean => [...pointers.values()].some((p) => p.role === "tool");
+  /** 工具指针（或悬停）最后一次的屏幕位置：相机动了之后拿它重算预览（B23）。 */
+  let lastTool: ToolPointer | null = null;
+  const retrack = (): void => { if (lastTool && (toolPointerActive() || editor.gestureInProgress())) editor.pointerMove(lastTool); };
 
   function purgeTouches(all: boolean): void {
     const now = performance.now();
@@ -140,7 +147,8 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     }
     if (base.role === "tool") {
       if (opts.toolBlocked?.()) { base.role = "hold"; return; }   // 充能中落笔 = 无事发生（既不画也不转相机）
-      editor.pointerDown(tp(ev));
+      lastTool = tp(ev);
+      editor.pointerDown(lastTool);
     }
   }
 
@@ -150,16 +158,16 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     const s = local(ev);
     if (!t) {
       // 悬停（mouse / Pencil hover）：吸附预告
-      if (ev.pointerType !== "touch" && !toolPointerActive()) { if (opts.toolBlocked?.()) editor.pointerLeave(); else editor.pointerMove(tp(ev)); }
+      if (ev.pointerType !== "touch" && !toolPointerActive()) { if (opts.toolBlocked?.()) editor.pointerLeave(); else { lastTool = tp(ev); editor.pointerMove(lastTool); } }
       return;
     }
     const dx = s.x - t.x, dy = s.y - t.y;
     t.x = s.x; t.y = s.y; t.lastAt = performance.now();
     if (ev.pointerType === "pen") lastPenActivity = t.lastAt;
     switch (t.role) {
-      case "tool": editor.pointerMove(tp(ev)); return;
-      case "orbit": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.orbit(dx, dy); editor.draw(); return;
-      case "pan": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.pan(dx, dy, editor.vp()); editor.draw(); return;
+      case "tool": lastTool = tp(ev); editor.pointerMove(lastTool); return;
+      case "orbit": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.orbit(dx, dy); retrack(); editor.draw(); return;
+      case "pan": if (opts.look?.(dx, dy)) { editor.draw(); return; } editor.cam.pan(dx, dy, editor.vp()); retrack(); editor.draw(); return;
       case "multi": {
         // ② 位移门：每根手指离自己的起点
         if (tap?.isTap) {
@@ -173,9 +181,11 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
         const [[, a], [, b]] = ts;
         const cx = (a.x + b.x) / 2, cy = (a.y + b.y) / 2, d = Math.hypot(a.x - b.x, a.y - b.y);
         if (opts.walking?.()) { multi.cx = cx; multi.cy = cy; multi.d = d; return; }
-        editor.cam.pan(cx - multi.cx, cy - multi.cy, editor.vp());
+        // 笔按住拖的中途（工具指针活着）：双指质心 = 环绕（单指被当手掌，转不了）；平时 = 平移
+        if (toolPointerActive()) editor.cam.orbit(cx - multi.cx, cy - multi.cy); else editor.cam.pan(cx - multi.cx, cy - multi.cy, editor.vp());
         if (d > 1 && multi.d > 1) editor.cam.zoomAt(multi.d / d, cx, cy, editor.vp());
         multi.cx = cx; multi.cy = cy; multi.d = d;
+        retrack();
         editor.draw();
         return;
       }
@@ -225,6 +235,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     if (opts.walking?.()) return;
     const r = canvas.getBoundingClientRect();
     editor.cam.zoomAt(ev.deltaY > 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top, editor.vp());
+    retrack();
     editor.draw();
   };
   const onLeave = (): void => { if (!toolPointerActive()) editor.pointerLeave(); };

@@ -1051,6 +1051,8 @@ export class Editor {
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
   abortGesture(): void { this.cancelGesture(); this.host.marquee(null); this.host.hint(null); this.draw(); }
+  /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
+  gestureInProgress(): boolean { return this.gestureActive(); }
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
   hitInSelection(hit: HitResult3): boolean {
     const c = this.classify(this.liveWorld(), hit);
@@ -1885,7 +1887,7 @@ export class Editor {
       case "circle": {
         if (!this.anchor3) break;
         if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；Esc 取消"); break; }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); break; }
         const smp = settle();
         if (this._tool === "line") this.commitLine(smp); else if (this._tool === "rect") this.commitRect(smp); else this.commitCircle(smp);
         break;
@@ -1893,21 +1895,21 @@ export class Editor {
       case "pp": {
         if (this.ppFace === null || !this.anchor3) { this.cancelGesture(); break; }
         if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("推拉中：移动定高度，再点一下落定；Esc 取消"); break; }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("推拉中：移动定高度，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); break; }
         this.commitPP(settle());
         break;
       }
       case "move": {
         if (!(this.moveVids.length || this.movePools.length) || !this.anchor3) { this.cancelGesture(); break; }
         if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动中：所见即所得预览，再点一下放置；Esc 取消"); break; }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动中：所见即所得预览，再点一下放置；中途可以转视角；Esc / 单指轻点取消"); break; }
         this.commitMove(settle());
         break;
       }
       case "rotate": {
         if (this.rotStage !== 2) break;
         if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("转到角度再点一下落定（15° 咬合）；Esc 取消"); break; }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("转到角度再点一下落定（15° 咬合）；中途可以转视角；Esc / 单指轻点取消"); break; }
         this.commitRotate(settle());
         break;
       }
