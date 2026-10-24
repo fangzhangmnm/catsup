@@ -31,6 +31,7 @@ import { facesForPaint } from "./paint-flood.ts";
 import type { ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { OffsetTool } from "./tools/offset.ts";
 import { ArcTool } from "./tools/arc.ts";
+import { TapeTool } from "./tools/tape.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { FollowMeTool } from "./tools/followme.ts";
@@ -48,8 +49,8 @@ import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extra
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
-export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
-export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "arc", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace"];
+export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace" | "tape";
+export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "arc", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace", "tape"];
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
@@ -150,7 +151,9 @@ export type LastGesture =
   | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number; circle?: CurveParams }
   | { kind: "move"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; delta: Pt3; copy: boolean; entities: { faces: FaceId[]; edges: EdgeId[] } }
   | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number }
-  | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3 };
+  | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3 }
+  /** 卷尺（0.11）：起点 a、产物方向 dir（线 = 垂直偏移方向；点 = 起点→终点）、距离 d；line 另带参考线方向。 */
+  | { kind: "tape"; ops: number; at: PoolRef; a: Pt3; dir: Pt3; d: number; make: "line" | "point"; lineDir?: Pt3 };
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -177,7 +180,7 @@ export class Editor {
   private ppShellVids: ReadonlySet<VertexId> = new Set();
   private ppStops: number[] = [];
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
-  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool() };
+  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool() };
   private readonly toolCtx: ToolCtx = this.makeToolCtx();
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
   private rotStage: 0 | 1 | 2 = 0;
@@ -864,7 +867,8 @@ export class Editor {
     const u = this.vcbUnit, fl = (m: number): string => fmtVcbLength(m, u);
     const echo = L.kind === "line" ? fl(dist(L.a, L.b)) : L.kind === "pp" ? fl(L.h) : L.kind === "offset" ? fl(L.d) : L.kind === "move" ? fl(len3(L.delta))
       : L.kind === "circle" ? `${fl(dist(L.center, L.rim))} · ${L.segments}s` : L.kind === "rotate" ? fmtDeg(L.angle) : L.kind === "scale" ? (L.axis ? `${(L.axis.x ? L.f.x : L.axis.y ? L.f.y : L.f.z).toFixed(3)}` : `${L.f.x.toFixed(3)}`)
-      : L.kind === "rect" ? (() => { const d = sub3(L.corner, L.anchor), [bu, bv] = Editor.rectAxes(L.plane.basis); return `${fl(Math.abs(dot3(d, bu)))} , ${fl(Math.abs(dot3(d, bv)))}`; })() : "";
+      : L.kind === "rect" ? (() => { const d = sub3(L.corner, L.anchor), [bu, bv] = Editor.rectAxes(L.plane.basis); return `${fl(Math.abs(dot3(d, bu)))} , ${fl(Math.abs(dot3(d, bv)))}`; })()
+      : L.kind === "tape" ? fl(L.d) : "";
     return { kind: L.kind, prompt: vcbPrompt(L.kind), echo };
   }
   /** 矩形「宽,高」的两根轴：面基 (u, v) 里更贴近世界 X 的那根算「宽」（平手看 Y）——地面矩形 = (x, y)，立面 = (水平, 竖直)。 */
@@ -939,6 +943,17 @@ export class Editor {
         }
         this.last = { ...L, ops: this.opCount - n0, d };
         msg = `偏移 ${d > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(d))}`;
+        break;
+      }
+      case "tape": {
+        if (v.kind !== "length") break;
+        const d = Math.abs(v.m);
+        const p = add3(L.a, scale3(L.dir, d));
+        const mInv = invert(this.ctxXform());
+        if (L.make === "line" && L.lineDir) this.commitOp({ op: "addGuide", at, line: { p: this.toLocal(p), dir: normalize3(applyDir(mInv, L.lineDir)) } });
+        else this.commitOp({ op: "addGuide", at, point: this.toLocal(p) });
+        this.last = { ...L, ops: this.opCount - n0, d };
+        msg = L.make === "line" ? `参考线 · 偏移 ${fmtLen(d)}` : `参考点 · 距 ${fmtLen(d)}`;
         break;
       }
       case "move": {
@@ -1243,6 +1258,7 @@ export class Editor {
       protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
       guides: view.guides(),
       frame: view.frame(),
+      ...(this.handlers[this._tool]?.viewExtras?.() ?? {}),
     });
   }
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
@@ -1493,7 +1509,7 @@ export class Editor {
       this.hoverPool = null;
       const tool = this._tool;
       const view = this.liveWorld();
-      if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || (tool === "rotate" && this.rotStage === 0)) {
+      if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || tool === "tape" || (tool === "rotate" && this.rotStage === 0)) {
         const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
         this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y));
         this.trackCharge(this.snapInfo);
@@ -1642,6 +1658,7 @@ export class Editor {
       eps: () => this.eps(),
       snapPx: () => this.snapPx(),
       pickFace: (sx, sy) => pickFace(this.liveWorld(), this.frame(), this.fvp(), sx, sy),
+      pick: (sx, sy) => this.pickAt(sx, sy),
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), q),
       alignSources: () => this.alignSrcs(),

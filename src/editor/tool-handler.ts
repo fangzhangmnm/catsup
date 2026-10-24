@@ -16,6 +16,7 @@ import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
 import type { Selection } from "./tools.ts";
 import type { LastGesture, PoolPick, Tool, ToolPointer } from "./editor.ts";
+import type { ViewState } from "./render3.ts";
 
 /** 指针下的东西属于谁：活动池里的实体 / 子池（group 或实例）整体 / 什么都没有。 */
 export type Classified = { kind: "entity"; local: HitResult3 } | { kind: "pool"; pick: PoolPick; key: string } | { kind: "none" };
@@ -40,6 +41,8 @@ export interface ToolCtx {
   snapPx(): number;
   /** 屏幕点下的面（全局 id）。 */
   pickFace(sx: number, sy: number): FaceId | undefined;
+  /** 屏幕点下的实体（顶点 > 边 > 面，全局 id；0.11 卷尺要知道起点落在哪条边上）。 */
+  pick(sx: number, sy: number): HitResult3;
   classify(view: WorldView, hit: HitResult3): Classified;
   /** 吸附求解（世界视图 + 帧 + ε 由底座配好）。 */
   snap(view: WorldView, sx: number, sy: number, q: AlignQuery): Snap3;
@@ -77,4 +80,6 @@ export interface ToolHandler {
   live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
   /** 本工具要进样本环的数（抬笔结算回放时按 extra 读回）。 */
   sample(): Record<string, number>;
+  /** 本工具的叠加层（量线 / 候选参考线…）：底座每帧并进 ViewState（0.11）。 */
+  viewExtras?(): Partial<ViewState>;
 }

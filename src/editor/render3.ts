@@ -148,6 +148,8 @@ export interface ViewState {
   guides?: GuidesWorld | null;
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
+  /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
+  tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
 
 const FACE_VERT = /* glsl */`
@@ -222,8 +224,8 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
-  private guideLines: any; private ctxAxesLines: any;
-  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private ctxAxesKey = "";
+  private guideLines: any; private ctxAxesLines: any; private tapeLines: any;
+  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private ctxAxesKey = ""; private tapeKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
   private scratchV = new THREE.Vector3();
@@ -320,6 +322,9 @@ export class Renderer3 {
     this.ctxAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { offset: true, vertexColors: true }));
     this.ctxAxesLines.frustumCulled = false; this.ctxAxesLines.visible = false;
     this.scene.add(this.ctxAxesLines);
+    this.tapeLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
+    this.tapeLines.frustumCulled = false; this.tapeLines.visible = false;
+    this.scene.add(this.tapeLines);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -633,6 +638,23 @@ export class Renderer3 {
       }
       this.ctxAxesLines.visible = true;
     } else { this.ctxAxesLines.visible = false; this.ctxAxesKey = ""; }
+
+    // ---- 卷尺预演：量线 + 候选参考线 / 参考点 ----
+    const tp0 = view.tape;
+    if (tp0) {
+      const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, tp0.b);
+      const tk = `${tp0.a.x},${tp0.a.y},${tp0.a.z}>${tp0.b.x},${tp0.b.y},${tp0.b.z}|${tp0.guide ? `${tp0.guide.p.x},${tp0.guide.p.y},${tp0.guide.p.z}/${tp0.guide.dir.x},${tp0.guide.dir.y},${tp0.guide.dir.z}` : ""}|${tp0.point ? "P" : ""}|${r.toExponential(2)}`;
+      if (tk !== this.tapeKey) {
+        this.tapeKey = tk;
+        const pos: number[] = [], col: number[] = [];
+        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+        push(tp0.a, tp0.b, 0x111111);
+        if (tp0.guide) { const g = tp0.guide; push({ x: g.p.x - g.dir.x * GUIDE_LEN, y: g.p.y - g.dir.y * GUIDE_LEN, z: g.p.z - g.dir.z * GUIDE_LEN }, { x: g.p.x + g.dir.x * GUIDE_LEN, y: g.p.y + g.dir.y * GUIDE_LEN, z: g.p.z + g.dir.z * GUIDE_LEN }, GUIDE_COLOR); }
+        if (tp0.point) { const q = tp0.point; push({ x: q.x - r, y: q.y, z: q.z }, { x: q.x + r, y: q.y, z: q.z }, GUIDE_COLOR); push({ x: q.x, y: q.y - r, z: q.z }, { x: q.x, y: q.y + r, z: q.z }, GUIDE_COLOR); push({ x: q.x, y: q.y, z: q.z - r }, { x: q.x, y: q.y, z: q.z + r }, GUIDE_COLOR); }
+        this.setLineGeometry(this.tapeLines, pos, col);
+      }
+      this.tapeLines.visible = true;
+    } else { this.tapeLines.visible = false; this.tapeKey = ""; }
 
     // ---- 吸附指示（小球 + 提示线）----
     const sn = view.snap;
