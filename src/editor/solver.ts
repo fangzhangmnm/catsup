@@ -678,8 +678,35 @@ export function snapPoint(
   }));
   perf.last["snap.constraints"] = C.length;
   if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
-  // 整数长度（0.11 ⑤，与格点同一开关）：没吸到几何（兜底平面 / 从锚点出发的轴线）时，离锚点的距离取整到吸附步
   const GR = k.grid?.();
+  // 网格开着 = 世界是格子（user 2026-10-24「当我想在边上找点的时候，grid snap也没了」「你想想游戏里面我们需要画格子，比如dnd那种格子地图」）：
+  // 几何推断管方向（赢的 1-D 轨迹：边上 / 轴线 / 参考线 / 延长线 / 工具线），格子管落在哪——沿线找最近的格线交点（线 ∩ 帧的 x / y / z = m·s），
+  // 在吸附圈内就落格；强 0-D（端点 / 中点 / 交点）照旧赢；没有格线交点才退到下面的整数长度。
+  if (GR && sol.dim === 1 && sol.used.length === 1 && sol.used[0].locus.dim === 1) {
+    const L = sol.used[0].locus, s0 = GR.step / GR.sub, F = GR.frame;
+    const dl = Math.hypot(L.dir.x, L.dir.y, L.dir.z) || 1, dir = scale3(L.dir, 1 / dl);
+    const t0 = dot3(sub3(sol.p, L.a), dir), lenW = L.len !== undefined ? L.len * dl : undefined;
+    let best: { t: number; d: number } | null = null;
+    for (const ax of [F.x, F.y, F.z]) {
+      const dd = dot3(dir, ax);
+      if (Math.abs(dd) < 1e-6) continue;
+      const c0 = dot3(sub3(L.a, F.origin), ax);
+      const t = (Math.round((c0 + t0 * dd) / s0) * s0 - c0) / dd;
+      if (lenW !== undefined && (t < -1e-9 || t > lenW + 1e-9)) continue;
+      const d = Math.abs(t - t0);
+      if (!best || d < best.d) best = { t, d };
+    }
+    if (best) {
+      const p2 = add3(L.a, scale3(dir, best.t));
+      if (pf.distTo(sx, sy, p2, vp) <= E.point) {
+        const tk = sol.used[0].tag as { kind: string; src?: Pt3; axis?: string; label?: string };
+        const under = tk.kind === "edge" ? "边上" : tk.kind === "axis" ? (tk.axis === "u" || tk.axis === "v" ? "共轴" : `${String(tk.axis ?? "").toUpperCase()} 轴`) : tk.kind === "guide" ? "参考线" : tk.kind === "edgeExt" ? "延长线" : tk.kind === "tool" ? (tk.label ?? "工具") : tk.kind === "align" ? "共轴" : "线上";
+        const hs: SnapHint[] = tk.src ? [{ a: tk.src, b: p2, axis: ((tk.axis as SnapHint["axis"] | undefined) ?? "i") }] : [];
+        return { p: p2, kind: "grid-point", label: `格点 · ${under}`, ...(hs.length ? { hints: hs } : {}) };
+      }
+    }
+  }
+  // 整数长度（0.11 ⑤，与格点同一开关）：没吸到几何（兜底平面 / 从锚点出发的轴线）时，离锚点的距离取整到吸附步
   if (GR && q.anchor && sol.dim >= 1 && (sol.dim === 2 || (sol.used.length === 1 && sol.used[0].tag.kind === "axis"))) {
     const s = GR.step / GR.sub, v = sub3(sol.p, q.anchor), d = dist3(sol.p, q.anchor);
     const kd = Math.round(d / s) * s;

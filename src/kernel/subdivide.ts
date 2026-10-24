@@ -18,12 +18,15 @@ import { type EdgeId, PlanarGraph } from "./topology.ts";
  * 就 ensureVertex 到它，splitEdge 撞上既有边 → 「边 4-3 已存在」。斜置矩形角点量化后边不精确沿轴，
  * 再沿理想轴向画过头就是这条带（fuzz 50 次内必中）。容差 ≥ 半对角线 = 洞封死：凡可能量化成同一顶点的都当碰到。
  */
-export const INSERT_TOL = Q;
 /**
- * 【D11 实验旋钮，2026-10-24 Claude Fable 5.1；默认 = 现状】sticky 半径：新段端点 / 交点落在既有顶点 r 之内 → 就是那个顶点；既有顶点离新段 ≤ r → 切进来。
- * r = Q 时与原逻辑等价（只差「端点吸到 Q 内的既有顶点」，Q 格内本来就同 key）。研究稿用 nasty fuzz 的守恒拒绝计数当仪表，定了再决定默认值。
+ * sticky 半径 = 身份分辨率（D11，user 2026-10-24「3um可以，确实要比最小精度要大一点」）：Q = 1 µm 只是存储格；相距 ≤ STICKY_R 的两个点就是一个点。
+ * 新段端点 / 交点落在既有顶点 r 内 → 就是那个顶点；既有顶点离新段 ≤ r → 切进来；本次切点彼此 ≤ r → 合一（优先既有顶点）；moveVertices 落点 ≤ r → 落到既有顶点上；
+ * planarize 自愈同一把尺。INSERT_TOL（「这条边在这段上」的归属判定：手势边 / 曲线 / 层）跟着它走，不然吸过去的端点会让边掉出自己的曲线。
+ * 研究稿 ai-docs/20261024-d11-tau-band-study.md：nasty fuzz 守恒拒绝 29 → 4，clean / 全量 golden 零变化。STICKY.r 仍可被 scripts/d11-sticky-sweep.mjs 进程内改（仪表）。
  */
-export const STICKY = { r: Q };
+export const STICKY_R = 3 * Q;
+export const STICKY = { r: STICKY_R };
+export const INSERT_TOL = STICKY_R;
 
 export interface InsertResult {
   created: EdgeId[];
@@ -41,30 +44,32 @@ export function insertSegment(
   bIn: Pt3,
   onSplit?: (parent: EdgeId, child1: EdgeId, child2: EdgeId) => void,
 ): InsertResult {
-  let a = quantize3(aIn), b = quantize3(bIn);
-  if (STICKY.r > Q) {   // 端点吸到 r 内最近的既有顶点（D11 实验）
-    const snapTo = (p: Pt3): Pt3 => { let best: Pt3 | null = null, bd = STICKY.r; for (const v of g.verticesNear(p, p)) { const d = dist3(p, v); if (d <= bd) { bd = d; best = { x: v.x, y: v.y, z: v.z }; } } return best ?? p; };
-    a = snapTo(a); b = snapTo(b);
-  }
-  if (samePt3(a, b)) return { created: [], retraced: [] };
+  const r = STICKY.r;
+  /** r 内最近的既有顶点（身份分辨率：就是它）。 */
+  const nearestVertex = (p: Pt3): Pt3 | null => { let best: Pt3 | null = null, bd = r; for (const v of g.verticesNear(p, p)) { const d = dist3(p, v); if (d <= bd) { bd = d; best = { x: v.x, y: v.y, z: v.z }; } } return best; };
+  const a = nearestVertex(quantize3(aIn)) ?? quantize3(aIn), b = nearestVertex(quantize3(bIn)) ?? quantize3(bIn);
+  if (samePt3(a, b) || dist3(a, b) <= r) return { created: [], retraced: [] };
   const lenAB = dist3(a, b);
   const tOf = (p: Pt3): number =>
     ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y) + (p.z - a.z) * (b.z - a.z)) / (lenAB * lenAB);
 
   // 1. 收集切割点：新段自身端点 + 与全部既有边的交点/重叠端点 + 落在新段上的既有顶点
   const cutByKey = new Map<string, Pt3>();
-  const addCut = (p: Pt3): void => { cutByKey.set(ptKey3(p), p); };
+  /** 切点 ≤ r 内合一：既有顶点优先，其次先到者（身份分辨率；切点间 1–2 µm 的双胞就是尖刺）。 */
+  const addCut = (p: Pt3): void => {
+    const isV = g.vertexAt(p) !== undefined;
+    for (const [key, q] of cutByKey) { if (dist3(p, q) <= r) { if (isV && g.vertexAt(q) === undefined) { cutByKey.delete(key); break; } return; } }
+    cutByKey.set(ptKey3(p), p);
+  };
   addCut(a); addCut(b);
 
   const pendingSplits = new Map<EdgeId, Pt3[]>(); // 既有边 → 待切点（边内部）
   for (const e of g.edgesNear(a, b)) {   // 空间网格：只看新段附近的边（超集，判定照旧）
     const pa = g.pt(e.a), pb = g.pt(e.b);
-    const hits = segIntersections3(a, b, pa, pb, STICKY.r);
+    const hits = segIntersections3(a, b, pa, pb, r);
     for (let p of hits) {
-      if (STICKY.r > Q) {   // 交点落在某个既有顶点 r 内 = 就是那个顶点（本边端点优先；D11 实验）
-        if (dist3(p, pa) <= STICKY.r) p = pa; else if (dist3(p, pb) <= STICKY.r) p = pb;
-        else { let best: Pt3 | null = null, bd = STICKY.r; for (const v of g.verticesNear(p, p)) { const d = dist3(p, v); if (d <= bd) { bd = d; best = { x: v.x, y: v.y, z: v.z }; } } if (best) p = best; }
-      }
+      // 交点落在某个既有顶点 r 内 = 就是那个顶点（本边端点优先）
+      if (dist3(p, pa) <= r) p = pa; else if (dist3(p, pb) <= r) p = pb; else p = nearestVertex(p) ?? p;
       addCut(p);
       // 切点落在端点的格里 = 就是那个端点（重合即同一），不切
       if (!samePt3(p, pa) && !samePt3(p, pb)) {
@@ -76,19 +81,22 @@ export function insertSegment(
   }
   for (const v of g.verticesNear(a, b)) {
     const p = { x: v.x, y: v.y, z: v.z };
-    if (pointOnSegment3(p, a, b, STICKY.r)) addCut(p);
+    if (pointOnSegment3(p, a, b, r)) addCut(p);
   }
 
   // 2. 切开既有边。每条边的切点来自单次 segIntersections（至多 2 个、互异、都在内部）；
   //    按离该边 a 端的距离排序依次切，后一刀落在前一刀的 e2 半边里。
-  for (const [eid, points] of pendingSplits) {
+  const rep = (p: Pt3): Pt3 => { for (const q of cutByKey.values()) if (dist3(p, q) <= r) return q; return p; };
+  for (const [eid, points0] of pendingSplits) {
     const ea = g.pt(g.edge(eid).a);
+    const points = [...new Map(points0.map((p) => { const q = rep(p); return [ptKey3(q), q] as const; })).values()];
     points.sort((p, q) => dist3(ea, p) - dist3(ea, q));
     let target = eid;
     for (const p of points) {
       const te = g.edge(target);
       const at = g.vertexAt(p);
       if (at !== undefined && (at === te.a || at === te.b)) continue;   // 切点已是本边端点：无事
+      if (dist3(p, g.pt(te.a)) <= r || dist3(p, g.pt(te.b)) <= r) continue;   // r 内 = 端点（身份分辨率）
       const { e1, e2 } = g.splitEdge(target, p);
       onSplit?.(target, e1, e2);
       target = e2;

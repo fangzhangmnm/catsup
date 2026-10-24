@@ -3,7 +3,7 @@
 // 格点是地板（D16）：吸到格点时轴向锥照跑；轻擦平面保持上一点。created 2026-10-24 by Claude Fable 5.1
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
-import { add3, len3, scale3, sub3 } from "../../kernel/geom.ts";
+import { add3, dot3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { intentAllows3D } from "../intent.ts";
 import { cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, type SnapKind } from "../pick.ts";
@@ -76,8 +76,24 @@ export class MoveTool implements ToolHandler {
       else if (sn.kind === null && cur && grazing(plane, ctx.frame().ray(s.x, s.y, ctx.vp()))) sn = { p: cur, kind: null };
     }
     let snapped = ctx.hysteresis(sn, s.x, s.y);
+    const g = ctx.grid(), step = g.step / g.subdiv;
+    if (g.on && !ctx.mods().shift) {   // 网格开着 = 世界是格子（user 2026-10-24「move怎么没做incremental or grid snap」「dnd那种格子地图」）：几何推断管方向，格子管落在哪
+      const F = ctx.contextFrame();
+      const lat = (p: Pt3): Pt3 => { const d = sub3(p, F.origin); const c = (ax: Pt3): Pt3 => scale3(ax, Math.round(dot3(d, ax) / step) * step); return add3(F.origin, add3(add3(c(F.x), c(F.y)), c(F.z))); };
+      if (snapped.kind && snapped.kind.startsWith("axis-")) {   // 轴锁：沿轴落到绝对格（锚点在格上时 = 整数增量）
+        const d = sub3(snapped.p, anchor), L = len3(d);
+        if (L >= MIN_GESTURE_LEN) {
+          const dir = scale3(d, 1 / L), q = lat(snapped.p);   // 格点投回轴线
+          const t = dot3(sub3(q, anchor), dir), p2 = add3(anchor, scale3(dir, t));
+          if (len3(sub3(p2, snapped.p)) <= step * 0.5 + 1e-9) snapped = { p: p2, kind: "increment", label: `格点 · ${fmtLen(Math.abs(t))}` };
+        }
+      } else if (snapped.kind === null) {   // 自由移动：离 3D 格点在吸附圈内 → 落格
+        const q = lat(snapped.p);
+        if (ctx.frame().distTo(s.x, s.y, q, ctx.vp()) <= ctx.snapPx()) snapped = { p: q, kind: "grid-point" };
+      }
+    }
     if (ctx.mods().shift) {   // Shift = 整数增量（user 2026-10-24「move之类的的shift就是snap to incremental」）：沿当前方向把距离取整到网格步长，不管网格开没开
-      const g = ctx.grid(), step = g.step / g.subdiv, d = sub3(snapped.p, anchor), L = len3(d);
+      const d = sub3(snapped.p, anchor), L = len3(d);
       if (L >= MIN_GESTURE_LEN) { const r = Math.max(step, Math.round(L / step) * step); snapped = { p: add3(anchor, scale3(d, r / L)), kind: "increment", label: `整数长度 ${fmtLen(r)}` }; }
     }
     ctx.setSnap(snapped);

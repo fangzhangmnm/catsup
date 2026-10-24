@@ -41,11 +41,26 @@ describe("grid: 格点 = 最低秩 0-D；几何先于网格；帧坐标系", () 
     const anchor = P(0.3, 0.3, 0);
     const s = cam.angularPx(P(2.33, 0.31, 0), VP);   // 离锚点 X 轴线 0.08 px，离格点 (2.4,0.4) 0.9 px：旧裁决格点赢（0-D 优先）
     const a = snapPoint(v, cam, VP, s.x, s.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
-    eq(a.kind, "increment", "轴线 + 整数长度");
-    assert(Math.abs(a.p.y - 0.3) < 1e-9 && Math.abs(a.p.x - 2.3) < 1e-9, `该在锚点的 X 轴线上取整到 (2.3,0.3)，实得 ${a.p.x},${a.p.y}`);
+    // 2026-10-24 网格语义定稿：方向归轴线（y = 0.3 不变），位置归格子 = 沿轴线最近的格线交点 x = 2.4（绝对格，不是离锚点的整数长度 2.3）
+    eq(a.kind, "grid-point", "轴线上的格线交点"); eq(a.label, "格点 · X 轴");
+    assert(Math.abs(a.p.y - 0.3) < 1e-9 && Math.abs(a.p.x - 2.4) < 1e-9, `该在锚点的 X 轴线上落到格线 x=2.4，实得 ${a.p.x},${a.p.y}`);
     const s2 = cam.angularPx(P(2.33, 1.72, 0), VP);   // 离任何轴线都远 → 格点 (2.4,1.8)
     const b = snapPoint(v, cam, VP, s2.x, s2.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
     eq(b.kind, "grid-point"); assert(near(b.p, P(2.4, 1.8, 0)), `格点，实得 ${b.p.x},${b.p.y}`);
+  });
+  it("边上找点（user「当我想在边上找点的时候，grid snap也没了」）：斜边上落到最近的格线交点；网格关着 = 普通边上", () => {
+    const cam = topCam();
+    const k = new Kernel(); k.addEdges([[P(0, 0), P(9, 3)], [P(-30, -30), P(-29, -30)]]);   // 端点 / 中点离测试点 ≥ 15 px（点 ε = 10 px）
+    const v = viewOf(k, WORLD_FRAME, { step: 1, sub: 5 });
+    const s = cam.angularPx(P(1.83, 0.61, 0), VP);   // 边 y = x/3：x = 1.8 处格线交点 (1.8, 0.6)
+    const a = snapPoint(v, cam, VP, s.x, s.y, 8, { plane: GROUND, hand: NO_HAND });
+    eq(a.kind, "grid-point"); eq(a.label, "格点 · 边上");
+    assert(Math.abs(a.p.x - 1.8) < 1e-9 && Math.abs(a.p.y - 0.6) < 1e-9, `(1.8,0.6)，实得 ${a.p.x},${a.p.y}`);
+    const off = snapPoint(viewOf(k, WORLD_FRAME, null), cam, VP, s.x, s.y, 8, { plane: GROUND, hand: NO_HAND });
+    eq(off.kind, "on-edge");
+    // 端点仍然赢：指针贴着 (9,3)
+    const s2 = cam.angularPx(P(8.99, 2.997, 0), VP);
+    eq(snapPoint(v, cam, VP, s2.x, s2.y, 8, { plane: GROUND, hand: NO_HAND }).kind, "endpoint");
   });
   it("显式 > 隐式（D21）：网格开着，矩形的正方形对角线（软目标线）让位给格点；网格关着对角线照旧赢", () => {
     const cam = topCam();

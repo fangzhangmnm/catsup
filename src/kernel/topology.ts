@@ -270,6 +270,35 @@ export class PlanarGraph {
     for (const eid of v.edges) this.indexEdge(eid);
   }
 
+  /**
+   * 把顶点 from 并进 to（身份分辨率：两点 ≤ r 就是一个点；planarize 的合并原语，2026-10-24 D11）。
+   * 尽量**保边 id**：from 的边改接到 to（曲线 / 层登记的 id 不变）；坍缩边（另一端就是 to）删；与 to 已有边平行重合的删（faceLinks 并进既有边）。from 随之消亡。
+   */
+  mergeVertex(from: VertexId, to: VertexId): void {
+    if (from === to) return;
+    const vf = this.vertex(from), vt = this.vertex(to);
+    for (const eid of [...vf.edges]) {
+      const e = this.edge(eid);
+      const o = e.a === from ? e.b : e.a;
+      if (o === to) { this.removeEdge(eid); continue; }   // 坍缩
+      const dup = this.edgeBetween(o, to);
+      if (dup !== undefined) {   // 平行重合：并进既有边
+        const d = this.edge(dup);
+        for (const f of e.faceLinks) if (!d.faceLinks.includes(f)) d.faceLinks.push(f);
+        this.removeEdge(eid);
+        continue;
+      }
+      this.unindexEdge(eid);
+      if (e.a === from) e.a = to; else e.b = to;
+      vf.edges.delete(eid); vt.edges.add(eid);
+      this.indexEdge(eid);
+    }
+    if (this.vertsById.has(from) && this.vertex(from).edges.size === 0) {
+      this.vertsById.delete(from);
+      this.vertByKey.delete(ptKey3({ x: vf.x, y: vf.y, z: vf.z }));
+    }
+  }
+
   private removeEdgeKeepVerts(id: EdgeId): void {
     const e = this.edge(id);
     this.unindexEdge(id);

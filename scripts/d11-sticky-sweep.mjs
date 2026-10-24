@@ -11,7 +11,7 @@ for (const k of ks) {
   const R = [];
   onReject.fn = ({ seed, step, op, k: kern }) => R.push({ seed, step, op, ...classify(kern) });
   let rejected = 0, nastyOtherFail = 0, cleanFail = 0;
-  for (let seed = 1; seed <= 80; seed++) { try { rejected += run(seed * 104729, 12, false, "nasty"); } catch { nastyOtherFail++; } }
+  for (let seed = 1; seed <= 80; seed++) { try { rejected += run(seed * 104729, 12, false, "nasty"); } catch (e) { nastyOtherFail++; if (list) console.log(`  OTHER seed ${seed}: ${String(e.message ?? e).slice(0, 260)}`); } }
   for (let seed = 1; seed <= 80; seed++) { try { run(seed * 104729, 12, false, "clean"); } catch { cleanFail++; } }
   if (list) for (const r of R) console.log(`  seed ${r.seed} step ${r.step} [${r.op}] minVert=${r.minVert.toExponential(2)} minVertSeg=${r.minVertSeg.toExponential(2)} nearParallel=${r.nearParallel}${r.nearParallel ? `(${r.nearParallelMin.toExponential(2)})` : ""}`);
   console.log(JSON.stringify({ r_um: k, rejected, vertSegLe10um: R.filter((r) => r.minVertSeg < 1e-5).length, vertVertLe10um: R.filter((r) => r.minVert < 1e-5).length, nearParallel: R.filter((r) => r.nearParallel > 0).length, nastyOtherFail, cleanFail }));
