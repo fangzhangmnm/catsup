@@ -101,9 +101,12 @@ export function moveOp(k: Kernel, moves: readonly { id: VertexId; to: PtIn }[], 
 }
 
 // ---------- 应用（重放与实时同一条路；clear / preset 换新场景，其余原地）----------
+// 门 1（0.13 刀 ①）：内核 op 只对 brep 池成立；别的 kind（card…）各有自己的 op 集，到时按 s.kindOf(ref.def) 在这里分叉，不改既有分支。
 const poolOf = (s: Scene, at?: PoolRef): { kernel: Kernel; ref: PoolRef } => {
   const ref = at ?? { def: s.root, group: null };
   if (!s.hasPool(ref)) throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"}`);
+  const kind = s.kindOf(ref.def);
+  if (kind !== "brep") throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"} is a ${kind} pool: no brep op applies`);
   return { kernel: s.kernelOf(ref), ref };
 };
 
@@ -155,36 +158,36 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const origin = bboxMin(snap.vertices);
       const local = transformSnapshot(snap, translation({ x: -origin.x, y: -origin.y, z: -origin.z }));
       const def = s.mintDef(op.name, Kernel.fromBrep(local));
-      def.materialSlots = [...s.def(ref.def).materialSlots];   // 槽号沿用（同一张槽表拷一份；面上的槽号不用改）
+      s.brep(def.id).materialSlots = [...s.brep(ref.def).materialSlots];   // 槽号沿用（同一张槽表拷一份；面上的槽号不用改）
       s.mintInstance(ref.def, ref.group, def.id, translation(origin));
       return { scene: s, events };
     }
     case "explode": {
       const { kernel, ref } = poolOf(s, op.at);
-      const d = s.def(ref.def);
+      const d = s.def(ref.def), db = s.brep(ref.def);
       if (op.group !== undefined) {
-        const g = d.groups.get(op.group);
+        const g = db.groups.get(op.group);
         if (!g || g.parent !== ref.group) throw new OpTargetError(`group ${op.group}`);
         absorbSnapshot(kernel, g.kernel.toBrep());
-        for (const cg of d.groups.values()) if (cg.parent === g.id) cg.parent = ref.group;
+        for (const cg of db.groups.values()) if (cg.parent === g.id) cg.parent = ref.group;
         for (const ci of d.instances.values()) if (ci.parent === g.id) ci.parent = ref.group;
-        d.groups.delete(g.id);
+        db.groups.delete(g.id);
         return { scene: s, events: [] };
       }
       if (op.instance !== undefined) {
         const inst = d.instances.get(op.instance);
         if (!inst || inst.parent !== ref.group) throw new OpTargetError(`instance ${op.instance}`);
-        const src = s.def(inst.def);
-        const remap = (slot: number): number => { const mat = src.materialSlots[slot]; return mat === undefined ? -1 : s.slotFor(ref.def, mat); };
-        absorbSnapshot(kernel, src.kernel.toBrep(), inst.xform, remap);
+        const src = s.def(inst.def), srcB = s.brep(inst.def);
+        const remap = (slot: number): number => { const mat = srcB.materialSlots[slot]; return mat === undefined ? -1 : s.slotFor(ref.def, mat); };
+        absorbSnapshot(kernel, srcB.kernel.toBrep(), inst.xform, remap);
         // 定义里的子 group / 子实例 → 复制成父池下的 group / 实例（经实例变换）
         const gmap = new Map<number, number>();
-        for (const sg of src.groups.values()) {
+        for (const sg of srcB.groups.values()) {
           const gk = Kernel.fromBrep(remapSnapshotMaterial(transformSnapshot(sg.kernel.toBrep(), inst.xform), remap));
           const ng = s.mintGroup(ref.def, ref.group, gk, transformFrame(inst.xform, sg.axes));
           gmap.set(sg.id, ng.id);
         }
-        for (const sg of src.groups.values()) if (sg.parent !== null) s.group({ def: ref.def, group: gmap.get(sg.id)! }).parent = gmap.get(sg.parent) ?? ref.group;
+        for (const sg of srcB.groups.values()) if (sg.parent !== null) s.group({ def: ref.def, group: gmap.get(sg.id)! }).parent = gmap.get(sg.parent) ?? ref.group;
         for (const si of src.instances.values()) s.mintInstance(ref.def, si.parent === null ? ref.group : (gmap.get(si.parent) ?? ref.group), si.def, compose(inst.xform, si.xform));
         d.instances.delete(inst.id);
         if (s.instanceCount(src.id) === 0 && src.id !== s.root) s.defs.delete(src.id);
@@ -213,20 +216,20 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
     }
     case "copyGroup": {
       const { ref } = poolOf(s, op.at);
-      const d = s.def(ref.def);
-      const src = d.groups.get(op.group);
+      const d = s.def(ref.def), db = s.brep(ref.def);
+      const src = db.groups.get(op.group);
       if (!src || src.parent !== ref.group) throw new OpTargetError(`group ${op.group}`);
       const gmap = new Map<number, number>();
       const desc = new Set<number>([src.id]);
       let grew = true;
-      while (grew) { grew = false; for (const g of d.groups.values()) if (g.parent !== null && desc.has(g.parent) && !desc.has(g.id)) { desc.add(g.id); grew = true; } }
+      while (grew) { grew = false; for (const g of db.groups.values()) if (g.parent !== null && desc.has(g.parent) && !desc.has(g.id)) { desc.add(g.id); grew = true; } }
       for (const gid of desc) {
-        const g = d.groups.get(gid)!;
+        const g = db.groups.get(gid)!;
         const ng = s.mintGroup(ref.def, ref.group, Kernel.fromBrep(transformSnapshot(g.kernel.toBrep(), op.xform)), transformFrame(op.xform, g.axes));
         ng.guides = cloneGuides(g.guides); transformGuides(ng.guides, op.xform);
         gmap.set(gid, ng.id);
       }
-      for (const gid of desc) { const g = d.groups.get(gid)!; if (g.parent !== null && gmap.has(g.parent)) s.group({ def: ref.def, group: gmap.get(gid)! }).parent = gmap.get(g.parent)!; }
+      for (const gid of desc) { const g = db.groups.get(gid)!; if (g.parent !== null && gmap.has(g.parent)) s.group({ def: ref.def, group: gmap.get(gid)! }).parent = gmap.get(g.parent)!; }
       for (const inst of [...d.instances.values()]) if (inst.parent !== null && desc.has(inst.parent)) s.mintInstance(ref.def, gmap.get(inst.parent)!, inst.def, compose(op.xform, inst.xform));
       return { scene: s, events: [] };
     }
@@ -270,14 +273,14 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "eraseGroup": {
-      const d = s.def(op.at.def);
-      const g = d.groups.get(op.group);
+      const d = s.def(op.at.def), db = s.brep(op.at.def);
+      const g = db.groups.get(op.group);
       if (!g) throw new OpTargetError(`group ${op.group}`);
       // 子项一并删（递归）
       const kill = new Set<number>([g.id]);
       let grew = true;
-      while (grew) { grew = false; for (const cg of d.groups.values()) if (cg.parent !== null && kill.has(cg.parent) && !kill.has(cg.id)) { kill.add(cg.id); grew = true; } }
-      for (const id of kill) d.groups.delete(id);
+      while (grew) { grew = false; for (const cg of db.groups.values()) if (cg.parent !== null && kill.has(cg.parent) && !kill.has(cg.id)) { kill.add(cg.id); grew = true; } }
+      for (const id of kill) db.groups.delete(id);
       for (const [iid, ci] of [...d.instances]) if (ci.parent !== null && kill.has(ci.parent)) d.instances.delete(iid);
       return { scene: s, events: [] };
     }

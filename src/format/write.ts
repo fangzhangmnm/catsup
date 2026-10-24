@@ -92,7 +92,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       brep: encodeBrep(g.brep, sink),
     }));
     const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}) }));
-    return { name: d.name, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
+    return { name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
   });
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）

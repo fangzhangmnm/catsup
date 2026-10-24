@@ -10,6 +10,8 @@ import { add3, sub3, scale3, dist3, normalize3, cross3 } from "../kernel/geom.ts
 import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
+import type { BodyKind } from "./body-kind.ts";
+export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 
 export type DefId = number;
 export type GroupId = number;
@@ -23,18 +25,27 @@ export interface Material {
 }
 export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }
 export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; }
-export interface Definition {
-  readonly id: DefId;
-  name: string;
+/** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
+export interface BrepBody {
+  readonly kind: "brep";
   kernel: Kernel;                       // 根池（不在任何 group 里的几何）
   groups: Map<GroupId, Group>;
-  instances: Map<InstId, Instance>;
   nextGroup: number;
-  nextInst: number;
   /** 材质槽：槽号 → 文档材质索引（契约 §5.3；面存槽号，实例可重映射——重映射未做）。 */
   materialSlots: number[];
   /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
   guides: Guides;
+}
+/** 卡片身体（A26 参考人卡片）：载荷以后定；现在只是让 kind 联合有第二个真成员。 */
+export interface CardBody { readonly kind: "card"; }
+export type Body = BrepBody | CardBody;
+/** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
+export interface Definition {
+  readonly id: DefId;
+  name: string;
+  body: Body;
+  instances: Map<InstId, Instance>;
+  nextInst: number;
 }
 
 /** 几何池地址 = (definition, group | null)。 */
@@ -61,12 +72,12 @@ export class Scene {
 
   // ---------- 铸造 ----------
   mintDef(name: string, kernel: Kernel): Definition {
-    const d: Definition = { id: this.nextDef++, name, kernel, groups: new Map(), instances: new Map(), nextGroup: 1, nextInst: 1, materialSlots: [], guides: emptyGuides() };
+    const d: Definition = { id: this.nextDef++, name, body: { kind: "brep", kernel, groups: new Map(), nextGroup: 1, materialSlots: [], guides: emptyGuides() }, instances: new Map(), nextInst: 1 };
     this.defs.set(d.id, d);
     return d;
   }
   mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame): Group {
-    const d = this.def(defId);
+    const d = this.brep(defId);
     const g: Group = { id: d.nextGroup++, parent, axes, kernel, guides: emptyGuides() };
     d.groups.set(g.id, g);
     return g;
@@ -80,7 +91,7 @@ export class Scene {
 
   /** 材质在某 definition 里的槽号（没有就开一个）。 */
   slotFor(defId: DefId, material: number): number {
-    const d = this.def(defId);
+    const d = this.brep(defId);
     const i = d.materialSlots.indexOf(material);
     if (i >= 0) return i;
     d.materialSlots.push(material);
@@ -89,7 +100,7 @@ export class Scene {
   /** 槽号 → 材质（无 / 越界 = null）。 */
   materialOfSlot(defId: DefId, slot: number | undefined): Material | null {
     if (slot === undefined) return null;
-    const idx = this.def(defId).materialSlots[slot];
+    const idx = this.brep(defId).materialSlots[slot];
     return idx === undefined ? null : (this.materials[idx] ?? null);
   }
   addMaterial(m: Material): number { this.materials.push(m); return this.materials.length - 1; }
@@ -101,7 +112,7 @@ export class Scene {
     return d;
   }
   group(ref: { def: DefId; group: GroupId }): Group {
-    const g = this.def(ref.def).groups.get(ref.group);
+    const g = this.brep(ref.def).groups.get(ref.group);
     if (!g) throw new Error(`group ${ref.group} does not exist in definition ${ref.def}`);
     return g;
   }
@@ -110,8 +121,16 @@ export class Scene {
     if (!inst) throw new Error(`instance ${id} does not exist in definition ${defId}`);
     return inst;
   }
-  kernelOf(p: PoolRef): Kernel { return p.group === null ? this.def(p.def).kernel : this.group({ def: p.def, group: p.group }).kernel; }
-  hasPool(p: PoolRef): boolean { const d = this.defs.get(p.def); return !!d && (p.group === null || d.groups.has(p.group)); }
+  /** definition 身体的种类（门 1：op / 渲染 / 格式按它派发）。 */
+  kindOf(def: DefId): BodyKind { return this.def(def).body.kind; }
+  /** definition 的 brep 身体（不是 brep → 抛：内核 op / 分组 / 参考几何只对 brep 成立）。 */
+  brep(id: DefId): BrepBody {
+    const d = this.def(id);
+    if (d.body.kind !== "brep") throw new Error(`definition ${id} body is "${d.body.kind}", not brep`);
+    return d.body;
+  }
+  kernelOf(p: PoolRef): Kernel { return p.group === null ? this.brep(p.def).kernel : this.group({ def: p.def, group: p.group }).kernel; }
+  hasPool(p: PoolRef): boolean { const d = this.defs.get(p.def); return !!d && (p.group === null || (d.body.kind === "brep" && d.body.groups.has(p.group))); }
 
   /** 上下文的 definition（链末实例的定义；空链 = 根）。 */
   defOfContext(ctx: EditContext): DefId {
@@ -121,7 +140,7 @@ export class Scene {
   }
   poolOfContext(ctx: EditContext): PoolRef { return { def: this.defOfContext(ctx), group: ctx.group }; }
   /** 池的参考几何（可变引用；池本地坐标）。 */
-  guidesOf(ref: PoolRef): Guides { return ref.group !== null ? this.group({ def: ref.def, group: ref.group }).guides : this.def(ref.def).guides; }
+  guidesOf(ref: PoolRef): Guides { return ref.group !== null ? this.group({ def: ref.def, group: ref.group }).guides : this.brep(ref.def).guides; }
   /**
    * 上下文的帧（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①）：根 = 绘图轴；进了 group = 那个 group 的轴；
    * 进了组件实例 = 那个 definition 的轴（= 单位帧，组件的轴工具未做）——都乘上链上的实例变换。
@@ -139,7 +158,7 @@ export class Scene {
     return m;
   }
   /** group 的子 group / 子实例（同一 definition 内，按 parent 链）。 */
-  childGroups(defId: DefId, parent: GroupId | null): Group[] { return [...this.def(defId).groups.values()].filter((g) => g.parent === parent); }
+  childGroups(defId: DefId, parent: GroupId | null): Group[] { return [...this.brep(defId).groups.values()].filter((g) => g.parent === parent); }
   childInstances(defId: DefId, parent: GroupId | null): Instance[] { return [...this.def(defId).instances.values()].filter((i) => i.parent === parent); }
   /** definition 是否（直接或间接）引用 target——防循环引用。 */
   references(defId: DefId, target: DefId, seen = new Set<DefId>()): boolean {
@@ -162,7 +181,7 @@ export class Scene {
       if (depth > 32) return;
       const d = this.def(def);
       yield { pool: { def, group: null }, xform, chain, depth };
-      for (const g of d.groups.values()) yield { pool: { def, group: g.id }, xform, chain, depth };
+      if (d.body.kind === "brep") for (const g of d.body.groups.values()) yield { pool: { def, group: g.id }, xform, chain, depth };
       for (const inst of d.instances.values()) yield* walk.call(this, inst.def, [...chain, inst.id], compose(xform, inst.xform), depth + 1);
     };
     void ctx; void opts;
@@ -178,11 +197,15 @@ export class Scene {
     (s as { materials: Material[] }).materials = [...this.materials];   // 材质对象不可变，浅拷安全
     s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
     for (const [id, d] of this.defs) {
-      const groups = new Map<GroupId, Group>();
-      for (const [gid, g] of d.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
+      let body: Body;
+      if (d.body.kind === "brep") {
+        const groups = new Map<GroupId, Group>();
+        for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
+        body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
+      } else body = { kind: "card" };
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) });
-      s.defs.set(id, { id: d.id, name: d.name, kernel: d.kernel.clone(), groups, instances, nextGroup: d.nextGroup, nextInst: d.nextInst, materialSlots: [...d.materialSlots], guides: cloneGuides(d.guides) });
+      s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });
     }
     return s;
   }

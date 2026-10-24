@@ -8,7 +8,11 @@ import type { Frame, Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
 import type { Selection } from "./tools.ts";
-import type { LastGesture, PoolPick, Tool, ToolPointer } from "./editor.ts";
+import type { LastGesture, PoolPick, ToolPointer } from "./editor.ts";
+import type { Tool } from "./tool-ids.ts";
+import type { Scene, EditContext } from "../scene/scene.ts";
+import type { GridSettings } from "./grid-settings.ts";
+import type { ModeId } from "./mode.ts";
 import type { ViewState } from "./render3.ts";
 /** 指针下的东西属于谁：活动池里的实体 / 子池（group 或实例）整体 / 什么都没有。 */
 export type Classified = {
@@ -74,6 +78,17 @@ export interface ToolCtx {
     contextFrame(): Frame;
     /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴。 */
     setAxes(frame: Frame): void;
+}
+/**
+ * 编辑器核（0.13 刀 ①）= ToolCtx 往上长一层：模式（mode.ts）与 HUD 级消费方看到的全部能力。只读口；写都走 commitOp。
+ * 三层 state 的读法（提案 §2）：doc = scene / revision；session = context / grid / selection；mode = modeId。
+ */
+export interface EditorCore extends ToolCtx {
+    scene(): Scene;
+    context(): EditContext;
+    revision(): number;
+    grid(): Readonly<GridSettings>;
+    modeId(): ModeId;
 }
 export interface ToolHandler {
     readonly tool: Tool;

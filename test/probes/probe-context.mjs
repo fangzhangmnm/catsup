@@ -34,11 +34,11 @@ const res = await page.evaluate(async () => {
   out.menuOpen = !!menu();
   out.menuLabels = menuLabels();
   // ② 点「建组」→ group +1
-  const defsBefore = e.sceneRef.def(e.sceneRef.root).groups.size;
+  const defsBefore = e.sceneRef.brep(e.sceneRef.root).groups.size;
   const groupBtn = [...document.querySelectorAll(".popup-menu .menu-item")].find((b) => b.textContent.includes("建组") && !b.textContent.includes("组件"));
   groupBtn?.click();
   await sleep(30);
-  out.groupMade = e.sceneRef.def(e.sceneRef.root).groups.size === defsBefore + 1;
+  out.groupMade = e.sceneRef.brep(e.sceneRef.root).groups.size === defsBefore + 1;
   out.menuClosedAfterPick = !menu();
   // ③ 选区浮条：鼠标路由下不浮（右键在手边）；换成笔之后才浮（含「炸开」）
   out.selBarHiddenForMouse = document.getElementById("selBar").hidden;

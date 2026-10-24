@@ -21,7 +21,7 @@ export async function contentFingerprint(doc: CatsupDocument): Promise<string> {
   };
   const guides = (g: { lines: { p: { x: number; y: number; z: number }; dir: { x: number; y: number; z: number } }[]; points: { p: { x: number; y: number; z: number } }[] }): unknown => ({ l: g.lines.map((l) => [...p3(l.p), ...p3(l.dir)]), p: g.points.map((q) => p3(q.p)) });
   const defs = doc.definitions.map((d, i) => ({
-    root: i === doc.rootIndex, name: i === doc.rootIndex ? "" : d.name, brep: brepJson(d.brep), slots: d.materialSlots, guides: guides(d.guides),
+    root: i === doc.rootIndex, name: i === doc.rootIndex ? "" : d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), brep: brepJson(d.brep), slots: d.materialSlots, guides: guides(d.guides),
     groups: d.groups.map((g) => ({ id: g.id, parent: g.parent, axes: [...p3(g.axes.origin), ...p3(g.axes.x), ...p3(g.axes.y), ...p3(g.axes.z)], brep: brepJson(g.brep), guides: guides(g.guides) })),
     instances: d.instances.map((it) => ({ id: it.id, def: it.definition, parent: it.parent, m: it.xform.map(r6) })),
   }));

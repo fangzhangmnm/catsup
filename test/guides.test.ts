@@ -46,7 +46,7 @@ describe("guides: 场景层 ops", () => {
     const k = s.kernelOf(ROOT(s));
     const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 1) < 1e-9))!;
     s = applyOp(s, { op: "makeGroup", at: ROOT(s), faces: [faceKey(k, top.id)], edges: [] }).scene;
-    const gid = [...s.def(s.root).groups.keys()][0];
+    const gid = [...s.brep(s.root).groups.keys()][0];
     const before = s.group({ def: s.root, group: gid }).kernel.toBrep().vertices.length;
     s = applyOp(s, { op: "setAxes", at: { def: s.root, group: gid }, frame: { ...WORLD_FRAME, origin: P(9, 9, 9) } }).scene;
     assert(near(s.group({ def: s.root, group: gid }).axes.origin, P(9, 9, 9)), "组的轴换了");
@@ -58,14 +58,14 @@ describe("guides: 场景层 ops", () => {
     const k = s.kernelOf(ROOT(s));
     const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 1) < 1e-9))!;
     s = applyOp(s, { op: "makeGroup", at: ROOT(s), faces: [faceKey(k, top.id)], edges: [] }).scene;
-    const gid = [...s.def(s.root).groups.keys()][0];
+    const gid = [...s.brep(s.root).groups.keys()][0];
     const G = { def: s.root, group: gid };
     s = applyOp(s, { op: "addGuide", at: G, line: { p: P(0, 0, 1), dir: P(1, 0, 0) } }).scene;
     s = applyOp(s, { op: "addGuide", at: G, point: P(1, 1, 1) }).scene;
     s = applyOp(s, { op: "transformPool", at: G, xform: translation(P(10, 0, 0)) }).scene;
     assert(near(s.guidesOf(G).lines[0].p, P(10, 0, 1)) && near(s.guidesOf(G).points[0].p, P(11, 1, 1)), "跟着池平移");
     s = applyOp(s, { op: "copyGroup", at: ROOT(s), group: gid, xform: translation(P(0, 5, 0)) }).scene;
-    const gid2 = [...s.def(s.root).groups.keys()].find((id) => id !== gid)!;
+    const gid2 = [...s.brep(s.root).groups.keys()].find((id) => id !== gid)!;
     assert(near(s.guidesOf({ def: s.root, group: gid2 }).points[0].p, P(11, 6, 1)), "副本的参考点随副本平移");
     eq(s.guidesOf(G).points[0].p.y, 1, "原件不动");
   });
@@ -77,7 +77,7 @@ describe("guides: 世界视图的帧与参考几何", () => {
     const F: Frame = { origin: P(1, 2, 0), x: P(0, 1, 0), y: P(-1, 0, 0), z: P(0, 0, 1) };
     s = applyOp(s, { op: "setAxes", at: ROOT(s), frame: F }).scene;
     assert(near(new WorldView(s, { chain: [], group: null }).frame().origin, P(1, 2, 0)), "根 = 绘图轴");
-    const gid = [...s.def(s.root).groups.keys()][0];
+    const gid = [...s.brep(s.root).groups.keys()][0];
     const gf = new WorldView(s, { chain: [], group: gid }).frame();
     assert(near(gf.origin, s.group({ def: s.root, group: gid }).axes.origin), "进组 = 组的轴（链上无实例变换）");
     const inst = [...s.def(s.root).instances.values()][0];

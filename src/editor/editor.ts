@@ -28,18 +28,12 @@ import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, mov
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
-import type { ToolCtx, ToolHandler } from "./tool-handler.ts";
-import { OffsetTool } from "./tools/offset.ts";
-import { ArcTool } from "./tools/arc.ts";
-import { TapeTool } from "./tools/tape.ts";
-import { AxesTool } from "./tools/axes.ts";
-import { ProtractorTool } from "./tools/protractor.ts";
+import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { axisAlignAngle, rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, DEFAULT_GRID } from "./grid-settings.ts";
 import { ppStopsOf } from "./pp-stops.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
-import { FollowMeTool } from "./tools/followme.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
@@ -54,8 +48,10 @@ import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extra
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
-export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace" | "tape" | "axes" | "protractor";
-export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "arc", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace", "tape", "axes", "protractor"];
+export { TOOLS, type Tool } from "./tool-ids.ts";
+import type { Tool } from "./tool-ids.ts";
+import type { Mode, ModeId } from "./mode.ts";
+import { GeometryMode } from "./modes/geometry.ts";
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
@@ -203,8 +199,11 @@ export class Editor {
   private ppShellVids: ReadonlySet<VertexId> = new Set();
   private ppStops: number[] = [];
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
-  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool() };
-  private readonly toolCtx: ToolCtx = this.makeToolCtx();
+  /** 当前编辑模式（0.13 刀 ①）：工具集 + 手势模块表住它；刀 ③ 加 setMode / 表面模式。 */
+  private readonly mode: Mode = new GeometryMode();
+  get modeId(): ModeId { return this.mode.id; }
+  private get handlers(): Partial<Record<Tool, ToolHandler>> { return this.mode.handlers; }
+  private readonly toolCtx: EditorCore = this.makeToolCtx();
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
   private rotStage: 0 | 1 | 2 = 0;
   private rotCenter: Pt3 | null = null;
@@ -339,7 +338,7 @@ export class Editor {
     const groupDesc = (gid: number): Set<number> => {
       const out = new Set<number>([gid]);
       let grew = true;
-      while (grew) { grew = false; for (const g of this.scene.def(def).groups.values()) if (g.parent !== null && out.has(g.parent) && !out.has(g.id)) { out.add(g.id); grew = true; } }
+      while (grew) { grew = false; for (const g of this.scene.brep(def).groups.values()) if (g.parent !== null && out.has(g.parent) && !out.has(g.id)) { out.add(g.id); grew = true; } }
       return out;
     };
     return o.picks.map((p) => {
@@ -500,7 +499,7 @@ export class Editor {
     this._revision++;
     // 上下文可能已不存在（undo 掉了建组）→ 回根
     try { this.scene.poolOfContext(this.ctx); this.scene.xformOfContext(this.ctx); } catch { this.ctx = ROOT_CONTEXT; }
-    if (this.ctx.group !== null && !this.scene.def(this.scene.defOfContext(this.ctx)).groups.has(this.ctx.group)) this.ctx = { chain: this.ctx.chain, group: null };
+    if (this.ctx.group !== null && !this.scene.brep(this.scene.defOfContext(this.ctx)).groups.has(this.ctx.group)) this.ctx = { chain: this.ctx.chain, group: null };
     this.pruneSelection();
   }
   private pruneSelection(): void {
@@ -509,7 +508,7 @@ export class Editor {
     for (const f of [...this.selection.faces]) if (!k.face(f)) this.selection.faces.delete(f);
     const def = this.scene.defOfContext(this.ctx);
     for (const [key, p] of [...this.selectedPools]) {
-      const ok = p.kind === "group" ? this.scene.def(def).groups.get(p.group)?.parent === this.ctx.group : this.scene.def(def).instances.get(p.instance)?.parent === this.ctx.group;
+      const ok = p.kind === "group" ? this.scene.brep(def).groups.get(p.group)?.parent === this.ctx.group : this.scene.def(def).instances.get(p.instance)?.parent === this.ctx.group;
       if (!ok) this.selectedPools.delete(key);
     }
   }
@@ -735,7 +734,7 @@ export class Editor {
     if (!faces.length && !edges.length) return false;
     this.commitOp({ op: "makeGroup", at, faces, edges });
     this.selection = emptySelection(); this.selectedPools.clear();
-    const def = this.scene.def(this.scene.defOfContext(this.ctx));
+    const def = this.scene.brep(this.scene.defOfContext(this.ctx));
     const newest = [...def.groups.values()].filter((g) => g.parent === this.ctx.group).pop();
     if (newest) this.selectedPools.set(`g${newest.id}`, { kind: "group", group: newest.id });
     this.host.changed(); this.draw();
@@ -1353,6 +1352,7 @@ export class Editor {
       frame: view.frame(),
       grid: { frame: view.frame(), step: this._grid.on ? this._grid.step : 1 },
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
+      ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.() ?? {}),
     });
   }
@@ -1741,8 +1741,13 @@ export class Editor {
     }
   }
   /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
-  private makeToolCtx(): ToolCtx {
+  private makeToolCtx(): EditorCore {
     return {
+      scene: () => this.scene,
+      context: () => this.ctx,
+      revision: () => this._revision,
+      grid: () => this._grid,
+      modeId: () => this.mode.id,
       config: this.config,
       kernel: () => this.kernel,
       selection: () => this.selection,

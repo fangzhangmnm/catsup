@@ -26,23 +26,23 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   scene.def(scene.root).name = doc.root.name;
   doc.definitions.forEach((d, i) => { if (i !== doc.rootIndex) idOf.set(i, scene.mintDef(d.name, Kernel.fromBrep(d.brep)).id); });
   doc.definitions.forEach((d, i) => {
-    const def = scene.def(idOf.get(i)!);
-    def.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
-    def.guides = guidesFromDoc(d.guides);
+    const def = scene.def(idOf.get(i)!), body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
+    body.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
+    body.guides = guidesFromDoc(d.guides);
     for (const g of d.groups) {
       const grp = scene.mintGroup(def.id, null, Kernel.fromBrep(g.brep), g.axes);
       grp.guides = guidesFromDoc(g.guides);
       (grp as { id: number }).id = g.id;   // 保留文件里的 id（稳定；parent 引用按它）
-      def.groups.delete(grp.id === g.id ? -1 : grp.id);
-      def.groups.set(g.id, grp);
+      body.groups.delete(grp.id === g.id ? -1 : grp.id);
+      body.groups.set(g.id, grp);
       if (g.name !== undefined) grp.name = g.name;
     }
-    for (const g of d.groups) { const grp = def.groups.get(g.id)!; grp.parent = g.parent !== null && def.groups.has(g.parent) ? g.parent : null; }
-    def.nextGroup = Math.max(1, ...[...def.groups.keys()].map((k) => k + 1));
+    for (const g of d.groups) { const grp = body.groups.get(g.id)!; grp.parent = g.parent !== null && body.groups.has(g.parent) ? g.parent : null; }
+    body.nextGroup = Math.max(1, ...[...body.groups.keys()].map((k) => k + 1));
     for (const inst of d.instances) {
       const target = idOf.get(inst.definition);
       if (target === undefined) continue;
-      const ii = scene.mintInstance(def.id, inst.parent !== null && def.groups.has(inst.parent) ? inst.parent : null, target, inst.xform);
+      const ii = scene.mintInstance(def.id, inst.parent !== null && body.groups.has(inst.parent) ? inst.parent : null, target, inst.xform);
       (ii as { id: number }).id = inst.id;
       def.instances.delete(ii.id === inst.id ? -1 : ii.id);
       def.instances.set(inst.id, ii);
@@ -61,14 +61,15 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   const rootIndex = ids.indexOf(scene.root);
   const idx = new Map<DefId, number>(ids.map((id, i) => [id, i]));
   const definitions: DefinitionDoc[] = ids.map((id) => {
-    const d = scene.def(id);
+    const d = scene.def(id), b = scene.brep(id);   // 现在只有 brep 身体能写文件；card 的载荷随 A26 加（那时 CATSUP_definitions 升 minor）
     return {
       name: id === scene.root ? name : d.name,
-      brep: d.kernel.toBrep(),
-      groups: [...d.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) })),
+      kind: d.body.kind,
+      brep: b.kernel.toBrep(),
+      groups: [...b.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) })),
       instances: [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) })),
-      materialSlots: [...d.materialSlots],
-      guides: guidesToDoc(d.guides),
+      materialSlots: [...b.materialSlots],
+      guides: guidesToDoc(b.guides),
     };
   });
   const materials = scene.materials.map((m) => ({ name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));

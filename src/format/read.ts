@@ -105,7 +105,9 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
-    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
+    // 门 1：definition 的种类。缺省 brep；别的种类（card…）这一版还不认 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
+    if (d.kind !== undefined && d.kind !== "brep") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
+    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind: "brep", brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
 
   // 材质：glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}

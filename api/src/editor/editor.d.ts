@@ -13,8 +13,9 @@ import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
 import { type Frame } from "../scene/xform.ts";
-export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace" | "tape" | "axes" | "protractor";
-export declare const TOOLS: readonly Tool[];
+export { TOOLS, type Tool } from "./tool-ids.ts";
+import type { Tool } from "./tool-ids.ts";
+import type { ModeId } from "./mode.ts";
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
     kind: "color";
@@ -218,7 +219,10 @@ export declare class Editor {
     private ppH;
     private ppShellVids;
     private ppStops;
-    private readonly handlers;
+    /** 当前编辑模式（0.13 刀 ①）：工具集 + 手势模块表住它；刀 ③ 加 setMode / 表面模式。 */
+    private readonly mode;
+    get modeId(): ModeId;
+    private get handlers();
     private readonly toolCtx;
     private rotStage;
     private rotCenter;

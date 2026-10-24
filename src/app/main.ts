@@ -299,7 +299,7 @@ function renderShop(): void {
     const row = document.createElement("div"); row.className = "shop-row";
     row.innerHTML = `${iconHtml("object")}<span class="shop-name"></span><span class="shop-count"></span>`;
     (row.querySelector(".shop-name") as HTMLElement).textContent = d.name;
-    (row.querySelector(".shop-count") as HTMLElement).textContent = `${counts.get(d.id) ?? 0} 个实例 · ${d.kernel.faces().length} 面`;
+    (row.querySelector(".shop-count") as HTMLElement).textContent = `${counts.get(d.id) ?? 0} 个实例 · ${d.body.kind === "brep" ? d.body.kernel.faces().length : 0} 面`;
     shopList.appendChild(row);
   }
   shopHint.textContent = defs.length ? `组件 ${defs.length} 种 · 图层 / 场景树以后在这里` : "还没有组件：选中几何 → 建组件（G）。图层 / 场景树以后在这里";

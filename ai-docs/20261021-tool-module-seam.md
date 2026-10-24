@@ -20,6 +20,8 @@
 
 ## 3. 接口（= `src/editor/tool-handler.ts`，实现中形状变了要回写这里）
 
+> 0.13 刀 ①（2026-10-24，Claude Fable 5.1）：加 `EditorCore extends ToolCtx`（scene / context / revision / grid / modeId 只读口）= 模式（`mode.ts`）看到的核；`handlers` 表从 Editor 搬进 `modes/geometry.ts`；工具仍只认 ToolCtx。提案 `20261024-editor-state-and-modes.md` §6。
+
 ```ts
 export interface ToolCtx {
   readonly config: CatsUpToolConfig;

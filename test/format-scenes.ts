@@ -97,7 +97,7 @@ export function sceneGuided(): Scene {
   let s = sceneGrouped();
   s = applyOp(s, { op: "addGuide", at: { def: s.root, group: null }, line: { p: { x: 0.5, y: 0, z: 0 }, dir: { x: 0, y: 1, z: 0 } } }).scene;
   s = applyOp(s, { op: "addGuide", at: { def: s.root, group: null }, point: { x: 1.5, y: 2.5, z: 0 } }).scene;
-  const gid = [...s.def(s.root).groups.keys()][0];
+  const gid = [...s.brep(s.root).groups.keys()][0];
   if (gid !== undefined) s = applyOp(s, { op: "addGuide", at: { def: s.root, group: gid }, line: { p: { x: 0, y: 0, z: 1.5 }, dir: { x: 1, y: 0, z: 0 } } }).scene;
   const c = Math.SQRT1_2;
   s = applyOp(s, { op: "setAxes", at: { def: s.root, group: null }, frame: { origin: { x: 1, y: 2, z: 0 }, x: { x: c, y: c, z: 0 }, y: { x: -c, y: c, z: 0 }, z: { x: 0, y: 0, z: 1 } } }).scene;
@@ -114,8 +114,9 @@ export function sceneFingerprint(s: Scene): string {
   const guidesFp = (g: { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[] }): string => (g.lines.length || g.points.length) ? ` guides=[${g.lines.map((l) => `L${l.id}:${f3(l.p)}>${f3(l.dir)}`).join(" ")} ${g.points.map((q) => `P${q.id}:${f3(q.p)}`).join(" ")}]` : "";
   parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
-    parts.push(`def ${label(d.id)} slots=${d.materialSlots.join(",")}: ${fingerprint(d.kernel)} mats=${d.kernel.faces().map((f) => d.kernel.faceMaterialOf(f.id) ?? -1).sort().join(",")}${guidesFp(d.guides)}`);
-    for (const g of d.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);
+    const b = s.brep(d.id);
+    parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => b.kernel.faceMaterialOf(f.id) ?? -1).sort().join(",")}${guidesFp(b.guides)}`);
+    for (const g of b.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);
     for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`);
   }
   return parts.join("\n");

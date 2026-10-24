@@ -1,5 +1,6 @@
 import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
+import type { BodyKind } from "../scene/body-kind.ts";
 export type BakeMode = "wysiwyg" | "engine";
 export interface DocumentSettings {
     displayUnit: string;
@@ -47,7 +48,8 @@ export interface InstanceDoc {
     name?: string;
 }
 export interface DefinitionDoc {
-    name: string;
+    name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */
+    kind?: BodyKind;
     brep: BrepSnapshot;
     groups: GroupDoc[];
     instances: InstanceDoc[]; /** 槽号 → materials 索引。 */

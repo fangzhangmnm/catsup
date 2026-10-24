@@ -25,7 +25,7 @@ describe("scene: group", () => {
     let s = new Scene(sceneBox(2, 1.5));
     const k = rootK(s);
     s = applyOp(s, { op: "makeGroup", at: rootAt(s), faces: [faceKey(k, topFace(k, 1.5))], edges: [] }).scene;
-    const d = s.def(s.root);
+    const d = s.brep(s.root);
     eq(d.groups.size, 1, "一个 group");
     const g = [...d.groups.values()][0];
     eq(rootK(s).faces().length, 5, "根池剩五面");
@@ -39,7 +39,7 @@ describe("scene: group", () => {
     eq(rootK(s).faces().length, 5, "根池纹丝不动");
     // 炸开：并回根池，sticky 合并（共面 dedup）
     s = applyOp(s, { op: "explode", at: rootAt(s), group: g.id }).scene;
-    eq(s.def(s.root).groups.size, 0, "group 没了");
+    eq(s.brep(s.root).groups.size, 0, "group 没了");
     const k2 = rootK(s);
     assert(k2.faces().length >= 10, `炸开后面数 ${k2.faces().length}（盒 5 + 组盒 6 − 共面 dedup）`);
     assert(k2.edges().every((e) => e.faceLinks.length > 0 || true), "不崩");
@@ -50,14 +50,14 @@ describe("scene: group", () => {
     const k = rootK(s);
     const h = new History(s);
     s = h.commit(s, { op: "makeGroup", at: rootAt(s), faces: [faceKey(k, topFace(k, 1.5))], edges: [] }).scene;
-    const g = [...s.def(s.root).groups.values()][0];
+    const g = [...s.brep(s.root).groups.values()][0];
     const before = fingerprint(g.kernel);
     s = h.commit(s, { op: "transformPool", at: { def: s.root, group: g.id }, xform: translation(P(0, 0, 2)) }).scene;
-    const g2 = [...s.def(s.root).groups.values()][0];
+    const g2 = [...s.brep(s.root).groups.values()][0];
     assert(g2.kernel.vertices().every((v) => Math.abs(v.z - 3.5) < 1e-9), "顶点到 z=3.5");
     eq(g2.axes.origin.z, 3.5, "轴框同移");
     s = h.undo()!;
-    eq(fingerprint([...s.def(s.root).groups.values()][0].kernel), before, "撤销回原位");
+    eq(fingerprint([...s.brep(s.root).groups.values()][0].kernel), before, "撤销回原位");
   });
 });
 
@@ -70,7 +70,7 @@ describe("scene: component", () => {
     eq(rootK(s).faces().length, 0, "根池空了");
     eq(rootK(s).edges().length, 0);
     const defId = [...s.defs.keys()].find((id) => id !== s.root)!;
-    const def = s.def(defId);
+    const def = s.brep(defId);
     eq(def.kernel.faces().length, 6, "定义里六面");
     assert(def.kernel.vertices().some((v) => v.x === 0 && v.y === 0 && v.z === 0), "定义坐标从原点起");
     const inst = [...s.def(s.root).instances.values()][0];
@@ -133,7 +133,7 @@ describe("scene: component", () => {
     for (const op of wire) s2 = applyOp(s2, op).scene;
     const fp = (sc: Scene): string => [...new WorldView(sc, ROOT_CONTEXT).vertices()].map((v) => `${v.x.toFixed(6)},${v.y.toFixed(6)},${v.z.toFixed(6)}`).sort().join(" ");
     eq(fp(s2), fp(s), "重放后世界几何一致");
-    eq(s2.def(s2.root).groups.size, 1); eq(s2.def(s2.root).instances.size, 2);
+    eq(s2.brep(s2.root).groups.size, 1); eq(s2.def(s2.root).instances.size, 2);
   });
 });
 
@@ -156,14 +156,14 @@ describe("scene: 材质（贴图纪元 2026-10-21）", () => {
     eq(halves.length, 2, "切成两半");
     assert(halves.every((f) => s.materialOfSlot(s.root, k3.faceMaterialOf(f.id))?.name === "格子"), "两半都是格子");
     // 组件里的盖子（孤面）推拉：帽继承赭石，四侧壁 + 留下的源面 = 默认
-    const lidDef = [...s.defs.values()].find((d) => d.name === "lid")!;
-    const lidFace = lidDef.kernel.faces()[0];
-    eq(s.materialOfSlot(lidDef.id, lidDef.kernel.faceMaterialOf(lidFace.id))?.name, "赭石", "组件里的面仍是赭石");
-    s = applyOp(s, { op: "pushpull", at: { def: lidDef.id, group: null }, face: faceKey(lidDef.kernel, lidFace.id), dist: 0.3 }).scene;
-    eq(lidDef.kernel.faces().length, 6, "盖子拉成盒");
-    const painted = lidDef.kernel.faces().filter((f) => lidDef.kernel.faceMaterialOf(f.id) !== undefined);
+    const lidDef = [...s.defs.values()].find((d) => d.name === "lid")!, lidB = s.brep(lidDef.id);
+    const lidFace = lidB.kernel.faces()[0];
+    eq(s.materialOfSlot(lidDef.id, lidB.kernel.faceMaterialOf(lidFace.id))?.name, "赭石", "组件里的面仍是赭石");
+    s = applyOp(s, { op: "pushpull", at: { def: lidDef.id, group: null }, face: faceKey(lidB.kernel, lidFace.id), dist: 0.3 }).scene;
+    eq(lidB.kernel.faces().length, 6, "盖子拉成盒");
+    const painted = lidB.kernel.faces().filter((f) => lidB.kernel.faceMaterialOf(f.id) !== undefined);
     eq(painted.length, 1, "只有帽带材质（侧壁 + 源面默认）");
-    assert(lidDef.kernel.faceRings3(painted[0].id)!.outer.every((p) => Math.abs(p.z - 0.3) < 1e-9), "带材质的是帽");
+    assert(lidB.kernel.faceRings3(painted[0].id)!.outer.every((p) => Math.abs(p.z - 0.3) < 1e-9), "带材质的是帽");
     const inst = [...s.def(s.root).instances.values()][0];
     s = applyOp(s, { op: "explode", at: rootAt(s), instance: inst.id }).scene;
     const k4 = rootK(s);
@@ -178,18 +178,18 @@ describe("scene: group / component 审计（user 10-21「好好 audit 一下」�
     let s = mkBoxScene();
     const k = rootK(s);
     s = applyOp(s, { op: "makeGroup", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: [] }).scene;
-    const outer = [...s.def(s.root).groups.values()][0];
+    const outer = [...s.brep(s.root).groups.values()][0];
     const gk = outer.kernel;
     s = applyOp(s, { op: "makeGroup", at: { def: s.root, group: outer.id }, faces: [faceKey(gk, topFace(gk, 1.5))], edges: [] }).scene;
-    const inner = [...s.def(s.root).groups.values()].find((g) => g.id !== outer.id)!;
+    const inner = [...s.brep(s.root).groups.values()].find((g) => g.id !== outer.id)!;
     eq(inner.parent, outer.id, "内层的父 = 外层");
     eq(gk.faces().length, 5, "外层池剩五面");
     s = applyOp(s, { op: "explode", at: rootAt(s), group: outer.id }).scene;
-    eq(s.def(s.root).groups.size, 1, "外层没了，内层还在");
-    eq([...s.def(s.root).groups.values()][0].parent, null, "内层升到根");
+    eq(s.brep(s.root).groups.size, 1, "外层没了，内层还在");
+    eq([...s.brep(s.root).groups.values()][0].parent, null, "内层升到根");
     eq(rootK(s).faces().length, 5, "外层几何回根池");
     s = applyOp(s, { op: "eraseGroup", at: rootAt(s), group: inner.id }).scene;
-    eq(s.def(s.root).groups.size, 0, "删完");
+    eq(s.brep(s.root).groups.size, 0, "删完");
   });
 
   it("copyGroup：含子实例的 group 复制一份 → 子实例也复制且经变换；原件不动", () => {
@@ -198,13 +198,13 @@ describe("scene: group / component 审计（user 10-21「好好 audit 一下」�
     s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: [faceKey(k, topFace(k, 1.5))], edges: [], name: "lid" }).scene;
     const k2 = rootK(s);
     s = applyOp(s, { op: "makeGroup", at: rootAt(s), faces: k2.faces().map((f) => faceKey(k2, f.id)), edges: [] }).scene;
-    const g = [...s.def(s.root).groups.values()][0];
+    const g = [...s.brep(s.root).groups.values()][0];
     const lidInst = [...s.def(s.root).instances.values()][0];
     lidInst.parent = g.id;   // 把盖子实例挂进组（UI 上 = 组里建的组件；这里直接摆）
     s = applyOp(s, { op: "copyGroup", at: rootAt(s), group: g.id, xform: translation(P(5, 0, 0)) }).scene;
-    eq(s.def(s.root).groups.size, 2, "两个组");
+    eq(s.brep(s.root).groups.size, 2, "两个组");
     eq(s.def(s.root).instances.size, 2, "两个盖子实例");
-    const copyG = [...s.def(s.root).groups.values()].find((x) => x.id !== g.id)!;
+    const copyG = [...s.brep(s.root).groups.values()].find((x) => x.id !== g.id)!;
     assert(copyG.kernel.vertices().every((v) => v.x >= 5 - 1e-9), "副本几何在 x≥5");
     const copyInst = [...s.def(s.root).instances.values()].find((i) => i.parent === copyG.id)!;
     assert(copyInst && Math.abs(copyInst.xform[3] - (lidInst.xform[3] + 5)) < 1e-9, "副本实例平移 +5");
@@ -215,13 +215,13 @@ describe("scene: group / component 审计（user 10-21「好好 audit 一下」�
     let s = mkBoxScene();
     const k = rootK(s);
     s = applyOp(s, { op: "makeGroup", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: [] }).scene;
-    const outer = [...s.def(s.root).groups.values()][0];
+    const outer = [...s.brep(s.root).groups.values()][0];
     s = applyOp(s, { op: "makeGroup", at: { def: s.root, group: outer.id }, faces: [faceKey(outer.kernel, topFace(outer.kernel, 1.5))], edges: [] }).scene;
-    const inner = [...s.def(s.root).groups.values()].find((g) => g.id !== outer.id)!;
+    const inner = [...s.brep(s.root).groups.values()].find((g) => g.id !== outer.id)!;
     s = applyOp(s, { op: "addMaterial", name: "m", color: [0.2, 0.4, 0.6] }).scene;
     s = applyOp(s, { op: "paintFaces", at: { def: s.root, group: inner.id }, faces: [faceKey(inner.kernel, inner.kernel.faces()[0].id)], material: 0 }).scene;
     const s2 = sceneFromDocument(readCatsup(writeCatsup(documentFromScene(s, "t"))));
-    const d2 = s2.def(s2.root);
+    const d2 = s2.brep(s2.root);
     eq(d2.groups.size, 2);
     const inner2 = d2.groups.get(inner.id)!, outer2 = d2.groups.get(outer.id)!;
     eq(inner2.parent, outer2.id, "parent 链往返");
@@ -232,7 +232,7 @@ describe("scene: group / component 审计（user 10-21「好好 audit 一下」�
     let s = mkBoxScene();
     const k = rootK(s);
     s = applyOp(s, { op: "makeGroup", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: [] }).scene;
-    const g = [...s.def(s.root).groups.values()][0];
+    const g = [...s.brep(s.root).groups.values()][0];
     s = applyOp(s, { op: "transformPool", at: { def: s.root, group: g.id }, xform: scalingAbout(P(0, 0, 0), P(2, 1, 1)) }).scene;
     assert(g.kernel.vertices().some((v) => Math.abs(v.x - 4) < 1e-9), "x 向拉成 4");
     const top = topFace(g.kernel, 1.5);

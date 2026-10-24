@@ -18,13 +18,13 @@ const topCam = (): OrbitCamera => { const c = new OrbitCamera(); c.yaw = -Math.P
 describe("tier: 槽的层级档", () => {
   it("根上下文：顶层 group / 顶层实例 = 1；进 group：根池 = 父母 1、兄弟实例 1；进实例：放它的池 = 父母 1、兄弟 group = 1", () => {
     let s = sceneGrouped();
-    const gid = [...s.def(s.root).groups.keys()][0];
+    const gid = [...s.brep(s.root).groups.keys()][0];
     const inst = [...s.def(s.root).instances.values()][0];
     // 再在 group 里建一个子 group（孙辈）
     const gk = s.group({ def: s.root, group: gid }).kernel;
     const f0 = gk.faces()[0];
     s = applyOp(s, { op: "makeGroup", at: { def: s.root, group: gid }, faces: [faceKey(gk, f0.id)], edges: [] }).scene;
-    const kid = [...s.def(s.root).groups.values()].find((g) => g.parent === gid)!.id;
+    const kid = [...s.brep(s.root).groups.values()].find((g) => g.parent === gid)!.id;
     const root = new WorldView(s, { chain: [], group: null });
     const tier = (v: WorldView, pool: { def: number; group: number | null }, chainLen = 0): number => v.slots.find((x) => x.pool.def === pool.def && x.pool.group === pool.group && x.chain.length === chainLen)!.tier;
     eq(tier(root, { def: s.root, group: null }), 0, "自己");

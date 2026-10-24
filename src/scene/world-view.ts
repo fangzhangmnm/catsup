@@ -166,6 +166,7 @@ export class WorldView implements GeomView {
     const chainKey = ctx.chain.join("/");
     const used = new Map<Kernel, Set<number>>();
     for (const { pool, xform, chain } of scene.pools()) {
+      if (scene.kindOf(pool.def) !== "brep") continue;   // 门 1：只有 brep 池有 kernel 可 bake；card 等别的 kind 以后各自 bake
       const isActive = samePool(pool, activePool) && chain.join("/") === chainKey;
       const sameDefChain = chain.join("/") === chainKey;
       const index = this.slots.length;
