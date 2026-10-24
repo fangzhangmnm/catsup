@@ -72,6 +72,21 @@ export interface ToolCtx {
   setHoverEdge(e: EdgeId | null): void;
   /** 软化 / 硬化一批边（layers soft + smooth 一条 op；橡皮的 Ctrl / Shift 修饰用）。 */
   softenEdges(ids: readonly EdgeId[], on: boolean): void;
+  // ---- 选择工具的底座服务（选区是会话态，住底座；工具只经这几个口写）----
+  /** 屏幕框选矩形（HUD 画；null = 收）。 */
+  marquee(r: { x: number; y: number; w: number; h: number } | null): void;
+  /** 屏幕矩形里的边 / 面（全局 id）。 */
+  marqueePick(box: { minX: number; minY: number; maxX: number; maxY: number }): { edges: Iterable<number>; faces: Iterable<number> };
+  /** 换掉 / 追加选区（本地 id + 子池项）。 */
+  replaceSelection(sel: { edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[] }, additive: boolean): void;
+  /** 选区变了之后的收尾（提示 / 缩放柄 / HUD）。 */
+  afterSelect(): void;
+  /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体。 */
+  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive: boolean): boolean;
+  enterPool(p: PoolPick): void;
+  exitContext(): boolean;
+  contextDepth(): number;
+  hasSelection(): boolean;
   /** 取点悬停（无手势）：画面平面 + 吸附 + 充能 + 光标提示——line / rect / 卷尺 / 轴 / 量角器都用这一套。 */
   hoverSnap(s: { x: number; y: number }): void;
   // ---- 0.11 尺规纪元：轴 ----

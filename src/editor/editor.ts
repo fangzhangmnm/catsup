@@ -222,11 +222,8 @@ export class Editor {
   private samples: GestureSample[] = [];
   private selection: Selection = emptySelection();
   private selectedPools = new Map<string, PoolPick>();
-  private marqueeStart: { x: number; y: number } | null = null;
-  private marqueeCur: { x: number; y: number } | null = null;
   private hoverEdge: EdgeId | null = null;
   private hoverFace: FaceId | null = null;
-  private hoverPool: string | null = null;
   private live: Kernel | null = null;
   private liveOverride: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null;
   private liveEvents: FaceEvent[] = [];
@@ -239,7 +236,6 @@ export class Editor {
   private chargedEdges = new Map<string, { a: Pt3; b: Pt3 }>();
   private dwell: { key: string; since: number } | null = null;
   private lastSnap: Snap3 | null = null;
-  private clickTrain: { t: number; x: number; y: number; n: number } | null = null;
   private paintPick: PaintPick = null;
   /** 工具选项（声明式表 `tool-config.ts`，SSoT）；UI 从它生成，工具从它读。 */
   readonly config: CatsUpToolConfig = new ToolConfig(TOOL_OPTIONS);
@@ -458,10 +454,8 @@ export class Editor {
     this.justCommitted = false;
     this.cursor3 = null;
     this.snapInfo = null;
-    this.marqueeStart = this.marqueeCur = null;
     this.hoverEdge = null;
     this.hoverFace = null;
-    this.hoverPool = null;
     this.live = null;
     this.liveOverride = null;
     this.liveEvents = [];
@@ -1231,7 +1225,7 @@ export class Editor {
 
   // ---------- 世界源 ----------
   private gestureActive(): boolean {
-    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null || Object.values(this.handlers).some((h) => h.active());
+    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.rotStage === 2 || this.scaleActive !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
   private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
@@ -1631,10 +1625,6 @@ export class Editor {
         this.host.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖");
         break;
       }
-      case "select":
-        this.marqueeStart = { x: s.x, y: s.y };
-        this.marqueeCur = { x: s.x, y: s.y };
-        break;
       default: {
         // 工具模块（tool-handler.ts）：steps 工具 = 每次按下取一个量（armed 的按下 = 用悬停跟到的值）；direct 工具原样递
         const H = this.handlers[this._tool];
@@ -1674,8 +1664,7 @@ export class Editor {
       this.snapInfo = null;
       this.hoverEdge = null;
       this.hoverFace = null;
-      this.hoverPool = null;
-      const tool = this._tool;
+        const tool = this._tool;
       const view = this.liveWorld();
       const H = this.handlers[tool];
       if (H) {
@@ -1689,26 +1678,12 @@ export class Editor {
         const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
         this.hoverFace = c.kind === "entity" ? (c.local.face ?? null) : null;
         if (tool === "eraseFace") this.computeLive();
-      } else if (tool === "select") {
-        const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
-        this.hoverPool = c.kind === "pool" ? c.key : null;
       }
       this.updateTip(ev.clientX, ev.clientY);
       perf.time("hover.draw", () => this.draw());
       return;
     }
     this.trackGesture(s, ev.travel);
-    switch (this._tool) {
-      case "select":
-        if (this.marqueeStart) {
-          this.marqueeCur = { x: s.x, y: s.y };
-          const minX = Math.min(this.marqueeStart.x, s.x), maxX = Math.max(this.marqueeStart.x, s.x);
-          const minY = Math.min(this.marqueeStart.y, s.y), maxY = Math.max(this.marqueeStart.y, s.y);
-          this.host.marquee({ x: minX, y: minY, w: maxX - minX, h: maxY - minY });
-        }
-        break;
-      default: break;
-    }
     this.recordSample(s);
     if (this._tool !== "select") this.computeLive();
     this.updateTip(ev.clientX, ev.clientY);
@@ -1847,6 +1822,20 @@ export class Editor {
       setAxes: (f) => this.setContextAxes(f),
       hoverSnap: (s) => this.hoverSnap(s),
       setHoverEdge: (e) => { this.hoverEdge = e; },
+      marquee: (r) => this.host.marquee(r),
+      marqueePick: (box) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), box),
+      replaceSelection: (sel, additive) => {
+        if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
+        for (const e of sel.edges) this.selection.edges.add(e);
+        for (const f of sel.faces) this.selection.faces.add(f);
+        for (const p of sel.pools) this.selectedPools.set(this.pickKey(p), p);
+      },
+      afterSelect: () => this.afterSelect(),
+      selectExpand: (hit, stage, additive) => this.selectExpand(hit, stage, additive),
+      enterPool: (p) => this.enterPool(p),
+      exitContext: () => this.exitContext(),
+      contextDepth: () => this.contextDepth(),
+      hasSelection: () => this.hasSelection(),
       softenEdges: (ids, on) => this.softenEdges(ids, on),
     };
   }
@@ -2026,35 +2015,6 @@ export class Editor {
         if (this.scaleActive) this.commitScale(settle());
         break;
       }
-      case "select": {
-        if (!this.marqueeStart || !this.marqueeCur) { this.cancelGesture(); break; }
-        const additive = ev.shiftKey;
-        const wasDrag = Math.hypot(this.marqueeCur.x - this.marqueeStart.x, this.marqueeCur.y - this.marqueeStart.y) > 4;
-        const view = this.liveWorld();
-        if (wasDrag) {
-          const box = { minX: Math.min(this.marqueeStart.x, this.marqueeCur.x), maxX: Math.max(this.marqueeStart.x, this.marqueeCur.x), minY: Math.min(this.marqueeStart.y, this.marqueeCur.y), maxY: Math.max(this.marqueeStart.y, this.marqueeCur.y) };
-          const picked = marqueeScreen(view, this.cam, this.vp(), box);
-          if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
-          for (const gid of picked.edges) { const c = this.classify(view, { edge: gid }); if (c.kind === "entity" && c.local.edge !== undefined) this.selection.edges.add(c.local.edge); else if (c.kind === "pool") this.selectedPools.set(c.key, c.pick); }
-          for (const gid of picked.faces) { const c = this.classify(view, { face: gid }); if (c.kind === "entity" && c.local.face !== undefined) this.selection.faces.add(c.local.face); else if (c.kind === "pool") this.selectedPools.set(c.key, c.pick); }
-          this.marqueeStart = this.marqueeCur = null;
-          this.host.marquee(null);
-          this.afterSelect();
-          break;
-        }
-        const now = performance.now();
-        const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(s.x - this.clickTrain.x, s.y - this.clickTrain.y) <= 6 * (this.fvp().h / 800)
-          ? { t: now, x: s.x, y: s.y, n: this.clickTrain.n + 1 } : { t: now, x: s.x, y: s.y, n: 1 };
-        this.clickTrain = train;
-        const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
-        const c = this.classify(view, hit);
-        this.marqueeStart = this.marqueeCur = null;
-        this.host.marquee(null);
-        if (c.kind === "pool" && train.n >= 2) { this.enterPool(c.pick); break; }   // 双击子 group / 组件 = 进入
-        if (c.kind === "none" && !additive && (this.ctx.chain.length || this.ctx.group !== null) && train.n === 1 && !this.hasSelection()) { this.exitContext(); break; }   // 点空处 = 退出一层（SU 同款）
-        this.selectExpand(hit, train.n >= 3 ? 2 : train.n === 2 ? 1 : 0, additive);
-        break;
-      }
       case "eraseFace": {
         const view = this.liveWorld();
         const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
@@ -2100,8 +2060,7 @@ export class Editor {
       this.snapInfo = null;
       this.hoverEdge = null;
       this.hoverFace = null;
-      this.hoverPool = null;
-      this.live = null;
+        this.live = null;
       this.host.tip(null, 0, 0);
       this.host.hint(null);
       this.draw();

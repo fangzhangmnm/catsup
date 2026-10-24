@@ -11,6 +11,7 @@ import { AxesTool } from "../tools/axes.ts";
 import { ProtractorTool } from "../tools/protractor.ts";
 import { FollowMeTool } from "../tools/followme.ts";
 import { EraseTool } from "../tools/erase.ts";
+import { SelectTool } from "../tools/select.ts";
 
 export class GeometryMode implements Mode {
   readonly id = "geometry" as const;
@@ -20,6 +21,6 @@ export class GeometryMode implements Mode {
   readonly defaultTool: Tool = "line";
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
     offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(),
-    erase: new EraseTool(),
+    erase: new EraseTool(), select: new SelectTool(),
   };
 }
