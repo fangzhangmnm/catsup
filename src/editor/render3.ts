@@ -1160,7 +1160,7 @@ export class Renderer3 {
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -2,
     });
-    if (opts.blend === "multiply") { mat.blending = THREE.MultiplyBlending; mat.transparent = true; mat.depthWrite = false; }   // 正片叠底：只变暗底下的东西，不盖色（网格）
+    if (opts.blend === "multiply") { mat.blending = THREE.MultiplyBlending; mat.premultipliedAlpha = true; mat.transparent = true; mat.depthWrite = false; }   // 正片叠底：只变暗底下的东西，不盖色；three 要求 premultipliedAlpha
     this.lineMats.push(mat); this.lineMatPx.push(px);
     return mat;
   }
@@ -1176,7 +1176,7 @@ export class Renderer3 {
       this.gridMat = new THREE.ShaderMaterial({
         uniforms: { uStep: { value: 1 }, uSub: { value: 1 }, uPx: { value: STATIC_PX }, uMajor: { value: new THREE.Color(PALETTE.gridMajor) }, uMinor: { value: new THREE.Color(PALETTE.gridMinor) } },
         vertexShader: GRID_VERT, fragmentShader: GRID_FRAG,
-        transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, side: THREE.DoubleSide,
+        transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, premultipliedAlpha: true, side: THREE.DoubleSide,   // three 的 MultiplyBlending 只在 premultipliedAlpha 下生效（否则只报错不混合 = 白格子盖满地面）
         polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,   // 前拉：贴地的面不再 z-fight（user「加一个 z-offset 的事情」）
       });
       this.gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, 2 * L), this.gridMat);
