@@ -5,6 +5,7 @@
 // v0.5.7（2026-09-22，Claude Fable 5.1）：boot 改用包的 restoreLastSession（回执条三态编排）+ **本地恢复先于 initAuth**（零网络秒开）
 //   + 登录 / 回线 / 回前台显式快进 + 崩溃安全 flush 三件；审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md。
 
+import { ERASERS } from "../editor/tool-ids.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountToolStrip } from "./tool-strip.ts";
 import { mountVcb } from "./vcb.ts";
@@ -152,6 +153,8 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "followme", icon: "move-to-folder", label: "跟随", key: "W" },   // 图标 = stopgap（图标库 TODO 已登记 follow-me）
   { tool: "paint", icon: "paint-bucket", label: "油漆桶", key: "B" },
   { tool: "erase", icon: "eraser", label: "橡皮", key: "E" },
+  { tool: "weldErase", icon: "eraser-weld", label: "焊边橡皮", key: "" },   // 橡皮家族（user 10-24）；图标 = 图标库 PENDING 层自画未过目
+  { tool: "softErase", icon: "eraser-soft", label: "软边橡皮", key: "" },   // 同上
   { tool: "tape", icon: "dimensions", label: "卷尺", key: "T" },   // 0.11 尺规；图标 = stopgap（图标库 TODO 已登记 tape-measure）
   { tool: "axes", icon: "axes", label: "轴", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
   { tool: "protractor", icon: "protractor", label: "量角器", key: "" },   // 0.11 尺规；图标库没有 → 占位（TODO 已登记 protractor）
@@ -217,6 +220,8 @@ const hud: HudModel = {
 //   su 的视角操作不进左柱（右边 view 栏管）。旧「更多」钮与按高度给最近格的逻辑撤。
 type RailGroup = { id: string; pinned: Tool[]; pool: Tool[]; budget: number };
 const SHAPES: Tool[] = ["rect", "circle", "arc"];
+/** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
+let eraserCurrent: Tool = "erase";
 const RAIL_GROUPS: RailGroup[] = [
   { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale"], budget: 4 },
   { id: "measure", pinned: ["tape", "axes"], pool: ["protractor"], budget: 3 },
@@ -231,6 +236,7 @@ const groupMru = new Map<string, Tool[]>(RAIL_GROUPS.map((g) => [g.id, [...g.pin
 const bumpFront = (list: Tool[], t: Tool): void => { const i = list.indexOf(t); if (i > 0) list.splice(i, 1); if (i !== 0) list.unshift(t); };
 function noteToolUse(t: Tool): void {
   if (SHAPES.includes(t)) shapeCurrent = t;
+  if (ERASERS.includes(t)) eraserCurrent = t;
   for (const g of RAIL_GROUPS) {
     if (g.pool.includes(t)) bumpFront(usedPool.get(g.id)!, t);
     if (g.pinned.includes(t) || g.pool.includes(t)) bumpFront(groupMru.get(g.id)!, t);
@@ -287,7 +293,7 @@ function renderSlots(): void {
   toolbarEl.replaceChildren();
   const inMode = (t: Tool): boolean => editor.modeTools().includes(t);   // 左柱只排当前模式的工具（刀 ③：表面模式 = 选择 + 油漆桶）
   const add = (t: Tool, fly?: () => Tool[]): void => { if (!inMode(t)) return; const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
-  add("select"); add("line"); if (SHAPES.some(inMode)) add(shapeCurrent, () => SHAPES.filter(inMode)); add("erase");   // 第一组常驻
+  add("select"); add("line"); if (SHAPES.some(inMode)) add(shapeCurrent, () => SHAPES.filter(inMode)); if (ERASERS.some(inMode)) add(eraserCurrent, () => ERASERS.filter(inMode));   // 第一组常驻
   const slots = allocate();
   RAIL_GROUPS.forEach((g, gi) => {
     const k = slots[gi];

@@ -44,7 +44,7 @@ import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
-import { dot3, sub3 } from "../kernel/geom.ts";
+import { cross3, dot3, sub3 } from "../kernel/geom.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
 
@@ -101,6 +101,8 @@ const SNAP_COLORS: Record<string, number> = {
 const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
 const GUIDE_COLOR = 0x6b7280, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;
+/** A33 断口小垂线：半长 px + 颜色（提醒色，与参考线 / 充能区分）。 */
+const TICK_PX = 5, TICK_COLOR = 0xd9822b;
 
 const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
 const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
@@ -156,6 +158,8 @@ export interface ViewState {
   protractor?: { center: Pt3; axis: Pt3; ref: Pt3 | null; angle: number } | null;
   /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
   guides?: GuidesWorld | null;
+  /** A33 断口提示：一根直线中间断了一截的接点（世界坐标 + 边向）→ 屏幕定长的小垂线（焊边橡皮刮一下就没）。 */
+  ticks?: readonly { p: Pt3; dir: Pt3 }[] | null;
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
@@ -240,8 +244,8 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
-  private guideLines: any; private tapeLines: any; private gridObj: any = null; private chargedLines: any;
-  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = "";
+  private guideLines: any; private tapeLines: any; private gridObj: any = null; private chargedLines: any; private tickLines: any;
+  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
   private scratchV = new THREE.Vector3();
@@ -358,6 +362,9 @@ export class Renderer3 {
     this.chargedLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.chargedLines.frustumCulled = false; this.chargedLines.visible = false;
     this.scene.add(this.chargedLines);
+    this.tickLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
+    this.tickLines.frustumCulled = false; this.tickLines.visible = false;
+    this.scene.add(this.tickLines);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -689,6 +696,29 @@ export class Renderer3 {
       }
       this.chargedLines.visible = true;
     } else { this.chargedLines.visible = false; this.chargedKey = ""; }
+
+    // ---- A33 断口小垂线：屏幕定长，垂直于边、面向相机 ----
+    const tks = view.ticks;
+    if (tks && tks.length) {
+      const px = this.worldPerPx(cam, vp, tks[0].p);
+      const fwd = cam.forward();
+      const kk = `${tks.map((t) => `${t.p.x},${t.p.y},${t.p.z}>${t.dir.x},${t.dir.y},${t.dir.z}`).join("|")}#${px.toExponential(2)}#${fwd.x.toFixed(3)},${fwd.y.toFixed(3)},${fwd.z.toFixed(3)}`;
+      if (kk !== this.tickKey) {
+        this.tickKey = kk;
+        const pos: number[] = [], col: number[] = [];
+        const c = this.tmpColor.setHex(TICK_COLOR);
+        for (const t of tks) {
+          let n = cross3(t.dir, fwd);
+          let l = Math.hypot(n.x, n.y, n.z);
+          if (l < 1e-6) { n = Math.abs(t.dir.z) < 0.9 ? cross3(t.dir, { x: 0, y: 0, z: 1 }) : cross3(t.dir, { x: 1, y: 0, z: 0 }); l = Math.hypot(n.x, n.y, n.z); }
+          const r = TICK_PX * this.worldPerPx(cam, vp, t.p) / l;
+          pos.push(t.p.x - n.x * r, t.p.y - n.y * r, t.p.z - n.z * r, t.p.x + n.x * r, t.p.y + n.y * r, t.p.z + n.z * r);
+          col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+        }
+        this.setLineGeometry(this.tickLines, pos, col);
+      }
+      this.tickLines.visible = true;
+    } else { this.tickLines.visible = false; this.tickKey = ""; }
 
     // ---- 卷尺预演：量线 + 候选参考线 / 参考点 ----
     const tp0 = view.tape;

@@ -806,6 +806,7 @@ export class Editor {
   /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
   private opTouchesLocked(op: Op): boolean {
     if (op.op === "setLocked") return false;
+    if (op.op === "batch") return op.ops.some((o) => this.opTouchesLocked(o));
     const s = this.scene;
     if ("at" in op && op.at && s.hasPool(op.at) && s.poolLocked(op.at)) return true;
     if (op.op === "transformPool") return s.poolLocked(op.at);
@@ -1334,9 +1335,33 @@ export class Editor {
       frame: view.frame(),
       grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.on ? this._grid.step : 1 },
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
+      ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
     });
+  }
+  /**
+   * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：
+   * 活动池里 Kernel.isBreakJunction 的顶点 → 世界坐标的点 + 边向（渲染器画屏幕定长的小垂线）。按池版本缓存。
+   */
+  private ticksCache: { kernel: Kernel; rev: number; xform: Xform; ticks: { p: Pt3; dir: Pt3 }[] } | null = null;
+  breakTicks(view: WorldView = this.liveWorld()): readonly { p: Pt3; dir: Pt3 }[] {
+    const slot = view.activeSlot(), k = slot.kernel;
+    const c = this.ticksCache;
+    if (c && c.kernel === k && c.rev === k.rev && c.xform === slot.xform) return c.ticks;
+    const ticks: { p: Pt3; dir: Pt3 }[] = [];
+    const g = k.graph;
+    for (const v of k.vertices()) {
+      if (v.edges.size !== 2 || !k.isBreakJunction(v.id)) continue;
+      const [ea] = [...v.edges];
+      const other = g.pt(g.otherEnd(g.edge(ea), v.id));
+      const p0 = applyPt(slot.xform, { x: v.x, y: v.y, z: v.z }), p1 = applyPt(slot.xform, other);
+      const d = sub3(p1, p0), l = Math.hypot(d.x, d.y, d.z);
+      if (l === 0) continue;
+      ticks.push({ p: p0, dir: { x: d.x / l, y: d.y / l, z: d.z / l } });
+    }
+    this.ticksCache = { kernel: k, rev: k.rev, xform: slot.xform, ticks };
+    return ticks;
   }
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
   private updateTip(clientX: number, clientY: number): void {

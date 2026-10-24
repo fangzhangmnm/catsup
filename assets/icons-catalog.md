@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-67 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+69 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -15,7 +15,7 @@
 > ⚠ 库里还没有这些图标，当前用 `icon-missing` 占位：`protractor`
 > 等它们进 `icons.svg` 后重跑本脚本即可换成真图标。
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`push-pull`、`zoom`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`push-pull`、`eraser-weld`、`eraser-soft`、`zoom`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -60,6 +60,8 @@
 | `axes` | 3D 坐标轴:等距三轴(三箭头臂长/张角统一) |
 | `push-pull` 👁待过目 | 推拉(push/pull):等距薄板(顶面菱形+三条竖棱+底沿)+从顶面后角竖直向上的箭头=把面拉出体；与 move 十字箭头不撞【CatsUp 左侧工具条「推拉」钮（默认可见）；2026-09-06 fable 自画未过目】 |
 | `dimensions` | 更紧:track-2.4(墨迹 11.30->10.10) |
+| `eraser-weld` 👁待过目 | 焊边橡皮:eraser 本体缩 0.8 挪到左上(旋 -45 围绕 9.6,9.6) + 右下一条短横线中间一粒实心焊点(=两段边在接点处焊成一条)；与 eraser(擦)/ eraser-soft(软)同族靠右下徽记分辨【CatsUp 左柱橡皮格小三角里的「焊边橡皮」（刮两条相邻的边 → 接点共轴真合并 / 护栏角内焊成一条曲线）；2026-10-24 Claude Fable 5.1 自画未过目】 |
+| `eraser-soft` 👁待过目 | 软边橡皮:eraser 本体同 eraser-weld 缩放挪位 + 右下一道正弦小波(=两膜之间的边变软、连成曲面)【CatsUp 左柱橡皮格小三角里的「软边橡皮」（刮两膜之间的边 → 共面删边并面 / 护栏角内软化 + 平滑）；2026-10-24 Claude Fable 5.1 自画未过目】 |
 
 ## image-processing
 

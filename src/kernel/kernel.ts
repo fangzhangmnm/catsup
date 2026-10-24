@@ -29,7 +29,7 @@ import {
 import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
-import { type Image, type ImageTable, type Seg3, ringsOf, settle, translateImage } from "./settle.ts";
+import { type Image, type ImageTable, type Seg3, ringsOf, settle, translateImage, collinear2, dissolveAt } from "./settle.ts";
 import { EdgeLayers, FaceLayers, riserLayers } from "./layers.ts";
 import { type Curve, type CurveId, type CurveParams, type CurveSpec, CurveRegistry } from "./curves.ts";
 import { planWeld } from "./weld.ts";
@@ -282,6 +282,34 @@ export class Kernel {
     if (!c) throw new Error("焊接：链没登记上（内部）");
     for (const e of c.edges) this.edgeLayers.add("curve", e);
     return [];
+  }
+  /**
+   * 溶解（焊边橡皮的「共轴 → 真合并」；user 2026-10-24「共轴就变成一个边」「对焊接只认degree2同意」）：
+   * 每个顶点须是二度共线、两边面链接相同、两端之间尚无边；不满足的跳过。合并逻辑 = 结算机 ⑩ 同一份（settle.dissolveAt）。返回真的合并了几个。
+   */
+  dissolveVertices(ids: readonly VertexId[]): number {
+    this._rev++;
+    let n = 0;
+    for (const vid of ids) {
+      if (!this.graph.hasVertex(vid)) continue;
+      const c = collinear2(this.graph, vid);
+      if (!c) continue;
+      if (dissolveAt(this.graph, this.store, c, this.edgeLayers, this.curveReg)) n++;
+    }
+    if (n) { this.edgeLayers.prune((id) => this.graph.hasEdge(id)); this.curveReg.prune(this.graph); }
+    return n;
+  }
+  /** A33 断口：二度共线、两边面链接相同、两端之间没边、两边不在同一条曲线里的顶点（= 一根直线中间断了一截，溶解得掉）。 */
+  isBreakJunction(vid: VertexId): boolean {
+    const g = this.graph;
+    if (!g.hasVertex(vid)) return false;
+    const c = collinear2(g, vid);
+    if (!c) return false;
+    const fa = g.edge(c.ea).faceLinks, fb = g.edge(c.eb).faceLinks;
+    if (fa.length !== fb.length || !fa.every((f) => fb.includes(f))) return false;
+    if (g.edgeBetween(c.a, c.b) !== undefined) return false;
+    const ca = this.curveReg.curveOf(c.ea), cb = this.curveReg.curveOf(c.eb);
+    return ca === undefined || ca !== cb;
   }
   explodeCurves(ids: readonly CurveId[]): FaceEvent[] {
     this._rev++;

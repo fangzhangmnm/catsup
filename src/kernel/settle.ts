@@ -92,8 +92,8 @@ export function windingOf(p: Pt, poly: readonly Pt[]): number {
   return w;
 }
 
-/** 顶点是否「二度共线」（两条边反向共线）。 */
-function collinear2(g: PlanarGraph, vid: VertexId): { a: VertexId; b: VertexId; ea: EdgeId; eb: EdgeId } | null {
+/** 顶点是否「二度共线」（两条边反向共线）。导出给内核的显式溶解动词（焊边橡皮 / A33 断口判定）复用——同一把尺子。 */
+export function collinear2(g: PlanarGraph, vid: VertexId): { a: VertexId; b: VertexId; ea: EdgeId; eb: EdgeId } | null {
   const v = g.vertex(vid);
   if (v.edges.size !== 2) return null;
   const [ea, eb] = [...v.edges];
@@ -105,6 +105,28 @@ function collinear2(g: PlanarGraph, vid: VertexId): { a: VertexId; b: VertexId; 
   if (la === 0 || lb === 0) return null;
   if (dot3(da, db) / (la * lb) > -(1 - 1e-9)) return null;
   return { a, b, ea, eb };
+}
+
+/**
+ * 溶解一个二度共线顶点：ea、eb 并成一条新边 a–b（层 / 曲线按 onMerge 并、所属膜的环就地 splice、旧边删）。
+ * 前提（调用方负责判，不满足返回 false 不动）：两边的面链接相同；a–b 之间还没有边（退化三角不动）。
+ * 结算机 ⑩ 与 Kernel.dissolveVertices（焊边橡皮的「共轴 → 真合并」，user 2026-10-24）共用这一份——合并只有一种写法。
+ */
+export function dissolveAt(g: PlanarGraph, store: FaceStore, c: { a: VertexId; b: VertexId; ea: EdgeId; eb: EdgeId }, EL?: EdgeLayers, curves?: CurveRegistry): boolean {
+  const fa = g.edge(c.ea).faceLinks, fb = g.edge(c.eb).faceLinks;
+  if (fa.length !== fb.length || !fa.every((f) => fb.includes(f))) return false;
+  if (g.edgeBetween(c.a, c.b) !== undefined) return false;   // 退化三角，不动
+  const ne = g.addEdge(c.a, c.b);
+  g.edge(ne).faceLinks = [...fa];
+  EL?.onMerge(ne, c.ea, c.eb);
+  curves?.onMerge(ne, c.ea, c.eb);
+  for (const fid of new Set(fa)) {
+    const f = store.face(fid);
+    if (f) for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne);
+  }
+  g.removeEdge(c.ea);
+  g.removeEdge(c.eb);
+  return true;
 }
 
 /** 像的平面化：共面 → 原样；非平面无洞 → autofold 成片 + 折缝；非平面带洞 / 折不动 → 丢弃（零认领 = BURST 曝光）。 */
@@ -519,19 +541,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     const c = collinear2(g, v.id);
     if (!c) continue;
     if (explicitEnds.has(ptKey3({ x: v.x, y: v.y, z: v.z }))) continue;
-    const fa = g.edge(c.ea).faceLinks, fb = g.edge(c.eb).faceLinks;
-    if (fa.length !== fb.length || !fa.every((f) => fb.includes(f))) continue;
-    if (g.edgeBetween(c.a, c.b) !== undefined) continue;   // 退化三角，不动
-    const ne = g.addEdge(c.a, c.b);
-    g.edge(ne).faceLinks = [...fa];
-    EL?.onMerge(ne, c.ea, c.eb);
-    table.curves?.onMerge(ne, c.ea, c.eb);
-    for (const fid of new Set(fa)) {
-      const f = store.face(fid);
-      if (f) for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne);
-    }
-    g.removeEdge(c.ea);
-    g.removeEdge(c.eb);
+    dissolveAt(g, store, c, EL, table.curves);
   }
   mark("dissolve");
   // ⑪ 边属性层：删掉的边出集；新段上落下的边入集（规则在 layers.ts）

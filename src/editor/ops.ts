@@ -30,6 +30,10 @@ export type Op =
   | { op: "explodeCurves"; at: PoolRef; edges: EdgeKey[] }
   /** 焊接（B19）：edges = 有序链的各边（坐标寻址）→ 一条曲线。 */
   | { op: "weldEdges"; at: PoolRef; edges: EdgeKey[] }
+  /** 溶解（焊边橡皮「共轴 → 真合并」；user 2026-10-24）：这些顶点（坐标寻址）各并成一条边——须二度共线、两边面链接相同、两端之间没边，不满足的跳过。 */
+  | { op: "dissolveVertices"; at: PoolRef; points: Pt3[] }
+  /** 批：几个 op 当一步（一次撤销；焊边橡皮一刮 = 溶解 + 焊接、软边橡皮一刮 = 删边 + 软化）。顺序执行；中途抛 = 整批回滚（history 装回快照）。 */
+  | { op: "batch"; label: string; ops: Op[] }
   | { op: "eraseEdges"; at?: PoolRef; edges: EdgeKey[] }
   | { op: "eraseFaces"; at?: PoolRef; faces: FaceKey[] }
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
@@ -125,6 +129,8 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
     }
     case "addEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.addEdges(op.segs, op.curve ? { curve: op.curve } : undefined) }; }
     case "weldEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.weldEdges(op.edges.map((e) => resolveEdge(kernel, e))) }; }
+    case "dissolveVertices": { const { kernel } = poolOf(s, op.at); kernel.dissolveVertices(op.points.map((q) => resolveVertex(kernel, q))); return { scene: s, events: [] }; }
+    case "batch": { let sc = s; const events: FaceEvent[] = []; for (const o of op.ops) { const r = applyOp(sc, o); sc = r.scene; events.push(...r.events); } return { scene: sc, events }; }
     case "explodeCurves": { const { kernel } = poolOf(s, op.at); const ids = new Set<number>(); for (const e of op.edges) { const cid = kernel.curveOf(resolveEdge(kernel, e)); if (cid !== undefined) ids.add(cid); } return { scene: s, events: kernel.explodeCurves([...ids]) }; }
     case "eraseEdges": { const { kernel } = poolOf(s, op.at); const ids = op.edges.map((e) => resolveEdge(kernel, e)); return { scene: s, events: kernel.eraseEdges(ids) }; }
     case "eraseFaces": { const { kernel } = poolOf(s, op.at); const ids = op.faces.map((f) => resolveFace(kernel, f)); return { scene: s, events: kernel.eraseFaces(ids) }; }
@@ -323,6 +329,8 @@ export function describeOp(op: Op): string {
     case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? (typeof op.curve === "object" ? ` curve:${op.curve.kind}` : " curve") : ""}${at}`;
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
+    case "dissolveVertices": return `dissolveVertices n=${op.points.length}${at}`;
+    case "batch": return `batch ${op.label} [${op.ops.map(describeOp).join("; ")}]`;
     case "eraseEdges": return `eraseEdges n=${op.edges.length}${at}`;
     case "eraseFaces": return `eraseFaces n=${op.faces.length}${at}`;
     case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}${at}`;
