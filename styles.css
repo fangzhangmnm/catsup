@@ -61,7 +61,10 @@ svg.ico use { color: inherit; }
 /* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
 .hud-strip { left: calc(10px + var(--safe-left)); bottom: calc(48px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 240px); flex-wrap: wrap; }
 /* 面包屑（#25）：左上角，进了组 / 组件才出现 */
-.hud-crumbs { left: calc(10px + var(--safe-left)); top: calc(10px + var(--safe-top)); gap: 4px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 250px); flex-wrap: wrap; }
+/* 左上横排：没有底板，嵌在纸面里；按下 / 悬停才显出可按（user 10-24） */
+.hud-topleft { position: absolute; z-index: 5; left: calc(10px + var(--safe-left)); top: calc(8px + var(--safe-top)); display: flex; align-items: center; gap: 4px; }
+.hud-topleft .tb-btn { width: 40px; height: 40px; filter: drop-shadow(0 1px 1px rgba(255,255,255,.9)); }
+.hud-crumbs { left: calc(10px + var(--safe-left)); top: calc(56px + var(--safe-top)); gap: 4px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 250px); flex-wrap: wrap; }
 .crumb { border: 0; background: transparent; font: inherit; color: var(--accent); cursor: pointer; padding: 4px 4px; border-radius: 6px; }
 .crumb:hover { background: rgba(0,0,0,.06); }
 .crumb.current { color: var(--ink); cursor: default; font-weight: 600; }

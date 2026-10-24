@@ -202,9 +202,12 @@
         <canvas id="board"></canvas>
         <!-- HUD（user 2026-09-06：「顶栏透明…类似游戏的那种 immersive hud…以后转 VR 会无疼」；
              2026-09-07 二稿：顶上清空、视图进右栏弹出、标题字撤、背景弱、版本角标留、左下状态=RPG 对话框；三稿终形（user：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」）：一根左柱整体居中 = ☰ / 工具 / 撤销 / 重做）-->
-        <nav class="hud hud-rail hud-rail-tools" aria-label="工具">
+        <!-- 左上横排（2026-10-24 user：「汉堡和必须常驻屏幕的云状态放左上顶端横着放，做成那张嵌入纸面但是让人觉得可以按的东西，也许不需要background」；版图 = ai-docs/20261024-ui-layout.md） -->
+        <div class="hud-topleft" aria-label="菜单与云">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
           <button class="tb-btn" id="btnSave" type="button" title="保存（Ctrl+S）" data-state="none"><svg class="ico" aria-hidden="true"><use id="btnSaveIcon" href="#floppy-disk"/></svg></button>
+        </div>
+        <nav class="hud hud-rail hud-rail-tools" aria-label="工具">
           <!-- 2026-10-21 左柱定形（user：「hanburger, cloud, undo redo select line rect eraser move rotate scale pushpull ... 然后非pin的工具给2个格子，屏幕太短就不给」
                「undo redo是否应该放在云的下面」）：☰ → 云 → 钉死 7 个 → 最近用过的非钉工具 ≤ 2 格 → 「…」（圆 / 缩放 / 偏移 / 跟随 / 油漆桶）→ 撤销 / 重做各一格。小三角动词位撤了。
                右柱撤、材质钮撤（油漆桶已选中再点一下 = 材质面板）、视图 = 右上角 Blender / Unity 式导航 gizmo（#viewGizmo） -->
@@ -323,6 +326,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-dba9e8e4f88c.mjs"></script>
+    <script type="module" src="./dist/catsup-80edd0d98b0a.mjs"></script>
   </body>
 </html>

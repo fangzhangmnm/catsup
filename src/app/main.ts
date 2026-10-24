@@ -249,10 +249,10 @@ const mkMore = (tools: Tool[]): HTMLButtonElement => {
   b.addEventListener("click", () => togglePopupMenu<Tool>({ anchor: b, align: "start", items: () => flyoutItems(tools), onPick: (x) => hud.pick(x) }));
   return b;
 };
-/** 第一组之外能放几格：格 48 px；固定 = ☰ 云 撤销 重做 4 + 第一组 4；每组一条矮展开条 ≈ 22 px。 */
+/** 第一组之外能放几格：格 48 px；固定 = 撤销 重做 2（☰ / 云 2026-10-24 搬去左上横排）+ 第一组 4；每组一条矮展开条 ≈ 22 px。 */
 function groupCapacity(): number {
   const avail = window.innerHeight - 20 - RAIL_GROUPS.length * 22;
-  return Math.max(RAIL_GROUPS.length, Math.floor(avail / 48) - 8);
+  return Math.max(RAIL_GROUPS.length, Math.floor(avail / 48) - 6);
 }
 /** 每组想要几格 = min(预算, 常驻 + 用过的)；分配：先每组 1，再按组序补到想要的。 */
 function allocate(): number[] {
@@ -326,7 +326,7 @@ function menuPick(id: MenuId): void | "keep" {
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu,
   items: () => [
-    { id: "new", label: "新建模型", icon: "new", sectionBefore: "文件" },
+    { id: "new", label: "新建模型", icon: "new", sectionBefore: "文件" },   // 版图 = ai-docs/20261024-ui-layout.md
     { id: "gallery", label: "图库", icon: "gallery", hint: hasStore() ? undefined : "本机 + OneDrive" },
     { id: "save", label: session.home.kind === "transient" ? (supportsSavePicker() ? "保存到磁盘…" : "保存（下载 .glb）") : "保存", icon: "floppy-disk", hint: "Ctrl+S" },
     ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as" }] : []),
