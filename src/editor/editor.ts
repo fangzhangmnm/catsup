@@ -16,22 +16,20 @@
 // **抬笔结算（A21，2026-10-21）**：抬笔前停留过的地方才是意图，末尾的短抖动不算（user「抬笔的时候总是会抖一下然后歪掉」）。
 
 import { Kernel } from "../kernel/kernel.ts";
-import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
+import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
-import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
+import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, rectToolTargets } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, rectToolTargets } from "./tools.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, DEFAULT_GRID } from "./grid-settings.ts";
-import { ppStopsOf } from "./pp-stops.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
@@ -156,7 +154,7 @@ export type LastGesture =
   | { kind: "protractor"; ops: number; at: PoolRef; center: Pt3; axis: Pt3; ref: Pt3; angle: number };
 
 /** 样本环的一帧（抬笔结算 A21）：屏幕位置 + 当时的手势量。 */
-interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> }
+interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> }
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -186,15 +184,6 @@ export class Editor {
   private rectFixed: DrawPlane | null = null;
   private cursor3: Pt3 | null = null;
   private snapInfo: Snap3 | null = null;
-  private moveVids: VertexId[] = [];
-  private movePools: PoolPick[] = [];
-  private moveCopy = false;
-  private moveEntities: { faces: FaceId[]; edges: EdgeId[] } = { faces: [], edges: [] };
-  private ppFace: FaceId | null = null;
-  private ppNormal: Pt3 | null = null;
-  private ppH = 0;
-  private ppShellVids: ReadonlySet<VertexId> = new Set();
-  private ppStops: number[] = [];
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
   /** 当前编辑模式（0.13 刀 ①）：工具集 + 手势模块表住它；刀 ③ 加 setMode / 表面模式。 */
   private readonly mode: Mode = new GeometryMode();
@@ -415,15 +404,6 @@ export class Editor {
   }
   private cancelGesture(): void {
     this.anchor3 = null;
-    this.moveVids = [];
-    this.movePools = [];
-    this.moveCopy = false;
-    this.moveEntities = { faces: [], edges: [] };
-    this.ppFace = null;
-    this.ppNormal = null;
-    this.ppShellVids = new Set();
-    this.ppStops = [];
-    this.ppH = 0;
     for (const h of Object.values(this.handlers)) h.cancel();
     this.samples = [];
     this.rectFixed = null;
@@ -1203,12 +1183,10 @@ export class Editor {
 
   // ---------- 世界源 ----------
   private gestureActive(): boolean {
-    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || Object.values(this.handlers).some((h) => h.active());
+    return this.anchor3 !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
   private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
-  /** 推拉的推断世界 = 按下那一刻的模型（文件头「例外」条）。 */
-  private ppInferenceWorld(): WorldView { return this.worldView(); }
   /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
   private freshHand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
     const known = new Set(this.kernel.vertices().map((v) => v.id));
@@ -1235,16 +1213,14 @@ export class Editor {
   private previewDescriptor(): Record<string, unknown> {
     const tool = this._tool, k = this.kernel;
     const d: Record<string, unknown> = { tool };
-    if (tool === "pp" && this.ppFace !== null && k.face(this.ppFace)) { d.face = faceKey(k, this.ppFace); d.h = this.ppLocalH(this.ppH); }
     if ((tool === "line" || tool === "rect" || tool === "circle") && this.anchor3 && this.cursor3) {
       const segs = tool === "line" ? [[this.anchor3, this.cursor3] as [Pt3, Pt3]]
         : tool === "rect" ? rectSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3)
         : circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, this.config.get("circle", "segments"));
       d.segs = segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]);
     }
-    if (tool === "move") d.move = { anchor: this.anchor3, cursor: this.cursor3, vids: this.moveVids.length, pools: this.movePools.length, copy: this.moveCopy };
     const H = this.handlers[tool];
-    if (H?.active()) { d.sample = H.sample(); Object.assign(d, H.describe?.() ?? {}); }
+    if (H?.active()) { d.sample = H.sample(); Object.assign(d, H.describe?.(this.toolCtx) ?? {}); }
     return d;
   }
   // ---------- live（影子副本预演） ----------
@@ -1284,20 +1260,6 @@ export class Editor {
       dims = `圆 半径 ${fmtLen(r)}`;
       const segs = circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, this.config.get("circle", "segments"));
       if (segs.length && r >= MIN_GESTURE_LEN) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]), { curve: true }));
-    } else if (tool === "move" && this.anchor3 && this.cursor3 && (this.moveVids.length || this.movePools.length)) {
-      const delta = sub3(this.cursor3, this.anchor3);
-      dims = `${this.moveCopy ? "复制" : "移动"} ${fmtLen(len3(delta))}`;
-      if (len3(delta) >= MIN_GESTURE_LEN) {
-        if (this.moveVids.length) {
-          const vids = this.moveVids, dl = applyDir(invert(this.ctxXform()), delta);
-          if (this.moveCopy) { const payload = this.copyPayload(translation(dl)); if (payload) run((c) => { const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {}; for (const [n, segs] of Object.entries(payload.edgeSegs)) edgeSegs[n] = segs.map(([a, b]) => ({ a, b })); return c.absorb(payload.faces, payload.wires.map(([a, b]) => ({ a, b })), { edgeSegs, faceLayers: payload.faceLayers }); }); }
-          else run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: add3(c.graph.pt(id), dl) }))));
-        }
-        if (this.movePools.length) this.liveOverride = { picks: this.movePools, xform: translation(delta), copy: this.moveCopy };
-      }
-    } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= MIN_GESTURE_LEN) {
-      const fid = this.ppFace, h = this.ppLocalH(this.ppH);
-      run((c) => c.pushPull(fid, h, { settleLanding: false }));
     } else if (tool === "eraseFace" && this.hoverFace !== null) {
       const id = this.hoverFace;
       run((c) => c.eraseFaces([id]));
@@ -1314,13 +1276,6 @@ export class Editor {
     const picks = this.movablePoolPicks(false);
     if (picks.length) this.liveOverride = { picks, xform: X };
   }
-  /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
-  private ppLocalH(h: number): number {
-    const m = this.ctxXform();
-    if (m === IDENTITY || !this.ppNormal) return h;
-    return h * len3(applyDir(invert(m), this.ppNormal));
-  }
-
   private basePlaneOfAnchor(): DrawPlane | undefined { return this.anchor3 && Math.abs(this.anchor3.z) < 1e-6 ? GROUND : undefined; }
   private lineSecondSnap(sx: number, sy: number): Snap3 {
     const w = this.liveWorld();
@@ -1440,79 +1395,6 @@ export class Editor {
         this.downScreen = { x: s.x, y: s.y };
         break;
       }
-      case "pp": {
-        if (this.armed && this.ppFace !== null && this.anchor3) {
-          this.justCommitted = true;
-          this.trackGesture(s);
-          this.commitPP(this.currentSample());
-          break;
-        }
-        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
-        if (gf === undefined) break;
-        const c = this.classify(view, { face: gf });
-        if (c.kind === "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再推拉"); break; }
-        if (c.kind !== "entity" || c.local.face === undefined) break;
-        const k = this.kernel;
-        const rec = k.planeOf(c.local.face)!;
-        const wrec = view.planeOf(gf)!;
-        {   // 0.10 护栏（设计稿 §6-①，user「推拉单片没有任何意义」）：曲面的一片不许推拉，先硬化；整张曲面推拉 = wishlist B18
-          const f0 = k.face(c.local.face)!;
-          if ([f0.outer, ...f0.holes].some((r) => r.edges.some((d) => k.isSoft(d.edge)))) { this.host.hint("这是曲面的一片：先用橡皮 + Shift 硬化它周围的软边，再推拉（整张曲面推拉在 wishlist）"); break; }
-        }
-        this.ppFace = c.local.face;
-        const fRec = k.face(c.local.face)!;
-        this.ppShellVids = new Set([...ringVidsTolerant(k.graph, fRec.outer), ...fRec.holes.flatMap((hh) => ringVidsTolerant(k.graph, hh))]);
-        this.ppNormal = wrec.plane.n;
-        this.gesturePlane = { plane: wrec.plane, basis: wrec.basis };
-        const ray0 = this.frame().ray(s.x, s.y, this.fvp());
-        const grab = rayPlane(ray0.origin, ray0.dir, wrec.plane.n, wrec.plane.d);
-        this.anchor3 = grab ?? view.faceRings3(gf)!.outer[0];
-        // 高度通道停靠集（2026-10-24 退役「全场顶点高度」）：0 + 同柱子里的平行面（穿透 / 挖通）+ 参考点 / 平行参考线的高度（pp-stops.ts）
-        this.ppStops = ppStopsOf(view, gf, this.anchor3, wrec.plane.n);
-        void rec;
-        this.cursor3 = this.anchor3;
-        this.ppH = 0;
-        this.armed = false;
-        this.canArm = !!ev.armable;
-        this.downScreen = { x: s.x, y: s.y };
-        this.host.hint("推拉中：沿法向拖或点两下落定（所见即所得；吸点线=取其高度）");
-        break;
-      }
-      case "move": {
-        if (this.armed && (this.moveVids.length || this.movePools.length) && this.anchor3) {
-          this.justCommitted = true;
-          this.trackGesture(s);
-          this.commitMove(this.currentSample());
-          break;
-        }
-        const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
-        const c = this.classify(view, hit);
-        this.moveCopy = !!ev.copy;
-        if (this.hasSelection()) {
-          this.moveVids = moveTargetsSelection(this.kernel, this.selection);
-          this.movePools = this.movablePoolPicks();
-          this.moveEntities = { faces: [...this.selection.faces], edges: [...this.selection.edges] };
-        } else if (c.kind === "pool" && this.pickIsLocked(c.pick)) { this.host.hint("已锁定：不能移（选中它 → 解锁）"); break; }
-        else if (c.kind === "entity") {
-          this.moveVids = moveTargets(this.kernel, c.local); this.movePools = [];
-          this.moveEntities = { faces: c.local.face !== undefined ? [c.local.face] : [], edges: c.local.edge !== undefined ? [c.local.edge] : [] };
-        }
-        else if (c.kind === "pool") { this.moveVids = []; this.movePools = [c.pick]; this.moveEntities = { faces: [], edges: [] }; }
-        else { this.moveVids = []; this.movePools = []; }
-        if (this.moveVids.length || this.movePools.length) {
-          this.gesturePlane = drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y);
-          this.anchor3 = hit.vertex !== undefined
-            ? view.graph.pt(hit.vertex)
-            : snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }).p;
-          this.cursor3 = this.anchor3;
-          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
-          this.armed = false;
-          this.canArm = !!ev.armable;
-          this.downScreen = { x: s.x, y: s.y };
-          this.host.hint((this.moveCopy ? "复制：" : "") + (this.movePools.length ? "移动 group / 组件：拖拽或点两下放置" : this.hasSelection() ? "移动选区：参考点已拾取，拖拽或点两下放置" : "移动中…拖拽或点两下放置（所见即所得；按住 Ctrl/Alt = 复制）"));
-        }
-        break;
-      }
       default: {
         // 工具模块（tool-handler.ts）：steps 工具 = 每次按下取一个量（armed 的按下 = 用悬停跟到的值）；direct 工具原样递
         const H = this.handlers[this._tool];
@@ -1558,7 +1440,7 @@ export class Editor {
       const H = this.handlers[tool];
       if (H) {
         H.hover?.(this.toolCtx, s);
-      } else if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" ) {
+      } else if (tool === "line" || tool === "rect" || tool === "circle") {
         this.hoverSnap(s);
       } else if (tool === "eraseFace" || tool === "paint") {
         const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
@@ -1597,28 +1479,6 @@ export class Editor {
       case "circle":
         if (this.anchor3) this.cursor3 = this.rectPlaneSnap(s.x, s.y);
         break;
-      case "pp":
-        this.ppTrack(s.x, s.y, travel);
-        break;
-      case "move":
-        if ((this.moveVids.length || this.movePools.length) && this.anchor3) {
-          const mv = new Set(this.moveVids);
-          this.gesturePlane = cameraPlane(this.frame(), this.anchor3);
-          let sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.anchor3, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view, (vid) => mv.has(vid), false) });
-          // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法（抬笔那一下滑到反方向的点 = 本案）
-          const rayM = this.frame().ray(s.x, s.y, this.fvp());
-          const freeM = rayPlane(rayM.origin, rayM.dir, this.gesturePlane.plane.n, this.gesturePlane.plane.d);
-          if (sn.kind !== null && freeM && this.intentOn(s, travel) && !intentAllows3D(sub3(freeM, this.anchor3), sub3(sn.p, this.anchor3), MIN_GESTURE_LEN)) { sn = { p: freeM, kind: null }; this.lastSnap = null; }
-          if (sn.kind === null || sn.kind === "grid-point") {   // 格点是地板（D16）：拖出方向意图时轴向锥先于格点
-            const ax = inferAxisByDirection(this.frame(), this.fvp(), this.anchor3, s.x, s.y);
-            if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
-            else if (sn.kind === null && this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
-          }
-          this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
-          this.trackCharge(this.snapInfo, null, 120);
-          this.cursor3 = this.snapInfo.p;
-        }
-        break;
       default: {
         const H = this.handlers[this._tool];
         if (H?.active()) H.track(this.toolCtx, s, travel);
@@ -1632,7 +1492,6 @@ export class Editor {
       scene: () => this.scene,
       context: () => this.ctx,
       revision: () => this._revision,
-      grid: () => this._grid,
       modeId: () => this.mode.id,
       config: this.config,
       kernel: () => this.kernel,
@@ -1648,7 +1507,7 @@ export class Editor {
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), ...q }),
       alignSources: () => this.alignSrcs(),
-      hand: (view) => this.freshHand(view),
+      hand: (view, extra, opaque) => this.freshHand(view, extra, opaque),
       toLocal: (p) => this.toLocal(p),
       ctxXform: () => this.ctxXform(),
       activePool: () => this.activePool(),
@@ -1666,6 +1525,16 @@ export class Editor {
       hoverSnap: (s) => this.hoverSnap(s),
       setHoverEdge: (e) => { this.hoverEdge = e; },
       hysteresis: (sn, sx, sy) => this.applyHysteresis(sn, sx, sy),
+      dropHysteresis: () => { this.lastSnap = null; },
+      charge: (sn, dwellMs) => this.trackCharge(sn, null, dwellMs),
+      moved: (s, travel) => travel ?? (this.downScreen ? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) : 0),
+      cursor: () => this.cursor3,
+      grid: () => this._grid,
+      pickLocked: (p) => this.pickIsLocked(p),
+      setLiveOverride: (o) => { this.liveOverride = o; },
+      xformToLocal: (X) => this.xformToLocal(X),
+      copyPayload: (XL, entities) => this.copyPayload(XL, entities),
+      commitCopies: (copies, pools, at) => this.commitCopies(copies, pools, at),
       commitXform: (X, vids, pools) => this.commitXform(X, vids, pools),
       previewXform: (X, run) => this.previewXform(X, run),
       movablePoolPicks: (say) => this.movablePoolPicks(say),
@@ -1695,13 +1564,13 @@ export class Editor {
     this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
   }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
-  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> } {
-    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} };
+  private currentSample(): { cursor3: Pt3 | null; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> } {
+    return { cursor3: this.cursor3, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} };
   }
   private recordSample(s: { x: number; y: number }): void {
     if (!this.gestureActive()) return;
     const t = performance.now();
-    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} });
+    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} });
     while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
   }
   /**
@@ -1732,73 +1601,6 @@ export class Editor {
     return dwell ? this.samples[dwell.lastIdx] : last;
   }
 
-  /** pp 双通道吸附：光标通道（世界 = 按下时模型，源面原位不透明；不吸轴）+ 高度通道（h 对静态高度集咬合）。 */
-  private ppTrack(sx: number, sy: number, travel?: number): void {
-    if (this.ppFace === null || !this.anchor3 || !this.ppNormal) return;
-    const anc = this.anchor3, n = this.ppNormal;
-    const wk = this.ppInferenceWorld();
-    const active = wk.activeSlot();
-    const shell = this.ppShellVids;
-    const hand: AlignHand = { has: (gid) => wk.slotOf(gid) === active && shell.has(wk.local(gid).id), opaque: true };
-    const sn = this.applyHysteresis(
-      snapPoint(wk, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, anchor: anc, lines: false, hand }),
-      sx, sy);
-    this.hoverFace = null;
-    let ref = "";
-    let ppStuck = false;
-    const ppGlobal = wk.global(this.ppFace);
-    // 意图门（intent.ts；user 2026-10-21 夜「如果是push的话所有snap到pull的应该都不合法」）：
-    // 自由高度 = 不吸附时指针沿法向给出的高度，它的符号就是推 / 拉意图；点吸附 / 面高度 / 高度咬合三路候选反号一律不合法，零点保留。
-    const ray1 = this.frame().ray(sx, sy, this.fvp());
-    const qFree = closestOnAxis(anc, n, ray1.origin, ray1.dir);
-    const hFree = qFree ? dot3(sub3(qFree, anc), n) : NaN;
-    const moved = travel ?? (this.downScreen ? Math.hypot(sx - this.downScreen.x, sy - this.downScreen.y) : 0);
-    const allowed = (h: number): boolean => !hasIntent(moved, this.eps().drag) || intentAllows1D(hFree, h, MIN_GESTURE_LEN);
-    const hSnap = sn.kind !== null ? dot3(sub3(sn.p, anc), n) : NaN;
-    if (sn.kind !== null && allowed(hSnap)) {
-      this.snapInfo = sn;
-      this.ppH = hSnap;
-      ref = `｜取${SNAP_LABELS[sn.kind] ?? sn.kind}高度`;
-    } else {
-      this.snapInfo = null;
-      if (sn.kind !== null) this.lastSnap = null;   // 被意图门否掉的吸附不许黏住（迟滞也不留）
-      const hitF = pickEntity(wk, this.frame(), this.fvp(), sx, sy, 0.5).face;
-      const hitRec = hitF !== undefined ? wk.planeOf(hitF) : undefined;
-      let hFace: number | null = null;
-      if (hitF !== undefined && hitF !== ppGlobal && hitRec && Math.abs(dot3(hitRec.plane.n, n)) > 0.05) {
-        const q = rayPlane(ray1.origin, ray1.dir, hitRec.plane.n, hitRec.plane.d);
-        if (q) hFace = dot3(sub3(q, anc), n);
-      }
-      if (hFace !== null && allowed(hFace)) { this.ppH = hFace; ref = "｜取面高度"; }
-      else {
-        if (qFree) this.ppH = hFree;
-        else ppStuck = true;
-        const pxPerUnit = Math.max(this.frame().distBetween(anc, add3(anc, n), this.fvp()), 0.5);
-        const epsH = this.eps().edge / pxPerUnit;
-        let best: number | null = null;
-        for (const st of this.ppStops) if (allowed(st) && Math.abs(st - this.ppH) <= epsH && (best === null || Math.abs(st - this.ppH) < Math.abs(best - this.ppH))) best = st;
-        if (best !== null) {
-          this.ppH = best;
-          ref = `｜高度咬合 ${fmtLen(best)}`;
-          this.snapInfo = { p: add3(anc, scale3(n, this.ppH)), kind: "h-stop" };
-        } else if (this._grid.on) {   // 整数长度（0.11 ⑤；与格点同一开关）：没停靠点时高度取整到吸附步
-          const step = this._grid.step / this._grid.subdiv, r = Math.round(this.ppH / step) * step;
-          if (Math.abs(r) >= MIN_GESTURE_LEN && allowed(r) && Math.abs(r - this.ppH) <= epsH) {
-            this.ppH = r;
-            ref = `｜整数长度 ${fmtLen(r)}`;
-            this.snapInfo = { p: add3(anc, scale3(n, this.ppH)), kind: "increment" };
-          }
-        }
-      }
-    }
-    this.cursor3 = add3(anc, scale3(n, this.ppH));
-    const facing = Math.abs(dot3(n, this.frame().viewDir(anc)));
-    if (moved > this.eps().drag && Math.abs(this.ppH) < MIN_GESTURE_LEN && (ppStuck || facing > 0.9)) {
-      this.host.hint("推拉没动：正对着这张面看，法向和视线平行，拖不出高度——环绕一下换个角度再拉（Esc 取消）");
-      return;
-    }
-    this.host.hint(`推拉 h = ${fmtLen(this.ppH)}${ref}（松手/再点落定；Esc 取消）`);
-  }
   /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
   private intentOn(s: { x: number; y: number }, travel?: number): boolean {
     const moved = travel ?? (this.downScreen ? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) : 0);
@@ -1823,20 +1625,6 @@ export class Editor {
         if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); break; }
         const smp = settle();
         if (this._tool === "line") this.commitLine(smp); else if (this._tool === "rect") this.commitRect(smp); else this.commitCircle(smp);
-        break;
-      }
-      case "pp": {
-        if (this.ppFace === null || !this.anchor3) { this.cancelGesture(); break; }
-        if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("推拉中：移动定高度，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); break; }
-        this.commitPP(settle());
-        break;
-      }
-      case "move": {
-        if (!(this.moveVids.length || this.movePools.length) || !this.anchor3) { this.cancelGesture(); break; }
-        if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动中：所见即所得预览，再点一下放置；中途可以转视角；Esc / 单指轻点取消"); break; }
-        this.commitMove(settle());
         break;
       }
       default: {
@@ -1940,37 +1728,6 @@ export class Editor {
     this.cancelGesture();
     if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: this.circleSpec(center, b, plane, segments) }); this.last = { kind: "circle", ops: this.opCount - n0, at: at0, plane, center, rim: b, segments }; }
   }
-  private commitPP(smp: { ppH: number } | null): void {
-    const h = smp?.ppH ?? this.ppH;
-    const fid = this.ppFace!;
-    const hl = this.ppLocalH(h);
-    this.cancelGesture();
-    if (Math.abs(h) >= MIN_GESTURE_LEN && this.kernel.face(fid)) {
-      const n0 = this.opCount, at0 = this.activePool(), face = faceKey(this.kernel, fid);
-      this.commitOp({ op: "pushpull", at: at0, face, dist: hl });
-      this.last = { kind: "pp", ops: this.opCount - n0, at: at0, face, h, hl };
-    }
-  }
-  private commitMove(smp: { cursor3: Pt3 | null } | null): void {
-    const target = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
-    const delta = sub3(target, this.anchor3!);
-    const vids = this.moveVids, pools = this.movePools, copy = this.moveCopy, entities = { faces: [...this.moveEntities.faces], edges: [...this.moveEntities.edges] };
-    const X = translation(delta);
-    const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
-    const n0 = this.opCount, at0 = this.activePool();
-    if (copy) {
-      const payload = this.copyPayload(this.xformToLocal(X), entities);
-      this.cancelGesture();
-      if (len3(delta) < MIN_GESTURE_LEN) return;
-      this.commitCopies([{ payload, XL: this.xformToLocal(X) }], pools, at0);
-      this.last = { kind: "move", ops: this.opCount - n0, at: at0, froms, pools, delta, copy: true, entities };
-      return;
-    }
-    this.cancelGesture();
-    if (len3(delta) < MIN_GESTURE_LEN) return;
-    this.commitXform(X, vids, pools);
-    this.last = { kind: "move", ops: this.opCount - n0, at: at0, froms, pools, delta, copy: false, entities };
-  }
   /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
   private commitCopies(copies: { payload: ReturnType<Editor["copyPayload"]>; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void {
     const def = this.scene.defOfContext(this.ctx);
@@ -1983,7 +1740,7 @@ export class Editor {
     }
   }
   /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
-  private copyPayload(XL: Xform, entities: { faces: readonly FaceId[]; edges: readonly EdgeId[] } = this.moveEntities): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs: Record<string, [Pt3, Pt3][]>; faceLayers: (Record<string, number> | undefined)[] } | null {
+  private copyPayload(XL: Xform, entities: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs: Record<string, [Pt3, Pt3][]>; faceLayers: (Record<string, number> | undefined)[] } | null {
     const k = this.kernel;
     const faces = entities.faces.filter((f) => k.face(f)), edges = entities.edges.filter((e) => k.graph.hasEdge(e));
     if (!faces.length && !edges.length) return null;

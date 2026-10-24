@@ -51,8 +51,8 @@ export interface ToolCtx {
   /** 吸附求解（世界视图 + 帧 + ε 由底座配好）。 */
   snap(view: WorldView, sx: number, sy: number, q: AlignQuery): Snap3;
   alignSources(): Pt3[];
-  /** 「手里」谓词（在手的几何不参与吸附）。 */
-  hand(view: WorldView): AlignHand;
+  /** 「手里」谓词（在手的几何不参与吸附）；extra = 工具自报的移动集（本地 id），opaque = 手中膜是否遮挡。 */
+  hand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque?: boolean): AlignHand;
   toLocal(p: Pt3): Pt3;
   ctxXform(): Xform;
   activePool(): PoolRef;
@@ -70,6 +70,23 @@ export interface ToolCtx {
   recordLast(L: LastGesture): void;
   /** 吸附迟滞（同线候选不许来回翻；底座的 lastSnap 状态）。 */
   hysteresis(sn: Snap3, sx: number, sy: number): Snap3;
+  /** 被意图门否掉的吸附不许黏住：清迟滞记忆。 */
+  dropHysteresis(): void;
+  /** 充能（拖拽中：停留 dwellMs 的吸附点进充能集）。 */
+  charge(sn: Snap3 | null, dwellMs?: number): void;
+  /** 自落笔以来走了多远（本帧度量；ev.travel 优先，否则按 downScreen 算）。 */
+  moved(s: { x: number; y: number }, travel?: number): number;
+  cursor(): Pt3 | null;
+  grid(): Readonly<GridSettings>;
+  /** 子 group / 实例锁着吗（A27）。 */
+  pickLocked(p: PoolPick): boolean;
+  /** 整体变换预演的叠加层（子池跟着指针走；null = 清）。 */
+  setLiveOverride(o: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null): void;
+  xformToLocal(X: Xform): Xform;
+  /** 复制模式的几何载荷（被移实体抠成快照 → 经本地变换 → absorb 的坐标载荷）。 */
+  copyPayload(XL: Xform, entities: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): CopyPayload | null;
+  /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance。 */
+  commitCopies(copies: { payload: CopyPayload | null; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void;
   /** 整体变换提交：世界系 X 作用于活动池顶点集（move op）+ 子池（transformPool / transformInstance）。 */
   commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void;
   /** 整体变换预演：选区顶点走影子副本、子池走叠加变换。 */
@@ -114,9 +131,10 @@ export interface EditorCore extends ToolCtx {
   scene(): Scene;
   context(): EditContext;
   revision(): number;
-  grid(): Readonly<GridSettings>;
   modeId(): ModeId;
 }
+
+export type CopyPayload = { faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs: Record<string, [Pt3, Pt3][]>; faceLayers: (Record<string, number> | undefined)[] };
 
 /**
  * 手势语法（提案 §7「工具 = 子步序列」，user 2026-10-24 同意；A29 全工具统一「点几下」）：
@@ -144,7 +162,7 @@ export interface ToolHandler {
   /** 本工具要进样本环的数（抬笔结算回放时按 extra 读回）。 */
   sample(): Record<string, number>;
   /** 复现包用的手势描述（预演失败时随黑匣子走）。 */
-  describe?(): Record<string, unknown>;
+  describe?(ctx: ToolCtx): Record<string, unknown>;
   /** 本工具的叠加层（量线 / 候选参考线…）：底座每帧并进 ViewState（0.11）。 */
   viewExtras?(ctx: ToolCtx): Partial<ViewState>;
 }
