@@ -106,4 +106,58 @@ describe("curves: 曲线实体", () => {
     assert(circles.some((c) => Math.abs(c.params!.center.z - 2) < 1e-9 && Math.abs(c.params!.radius - 1) < 1e-9), "末帽圆心 z=2 半径 1");
     invariants(k);
   });
+
+  // ---- 0.10.2 断点规则只在结算尾声判（user 2026-10-24「上一个纪元没做干净。这种时候我希望留下 1/4，我 su 里面都是这么画圆弧的」「这里也会误伤，同一个病。没有自动切弧」）----
+  const loop = (k: Kernel, pts: PtIn[]) => { const segs: [PtIn, PtIn][] = []; for (let i = 0; i < pts.length; i++) segs.push([pts[i], pts[(i + 1) % pts.length]]); k.addEdges(segs); };
+  const shape = (k: Kernel) => k.curves().map((c) => `${c.kind}${c.closed ? "●" : "○"}×${c.edges.length}`).sort().join(" ");
+  it("截图 ①：先盒后圆（圆心在盒角）→ 盒底边把圆切成 1/4 + 3/4；擦 3/4 只剩 1/4；断是永久的", () => {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(10, 0), P(10, 10), P(0, 10)]); k.pushPull(k.faces()[0].id, 10);
+    circle(k, 0, 0, 2);
+    eq(shape(k), "arc○×18 arc○×6", "两条开弧：盒外 3/4 = 18 段、盒内 1/4 = 6 段");
+    assert(k.curves().every((c) => Math.abs(c.params!.radius - 2) < 1e-9), "弧还带圆参数");
+    const big = k.curves().find((c) => c.edges.length === 18)!;
+    k.eraseEdges([big.edges[3]]);
+    eq(shape(k), "arc○×6", "留下 1/4");
+    invariants(k);
+  });
+  it("截图 ②：先盒后圆（圆被一条盒边切成两半）→ 推拉盒外半圆成半柱；擦盒内那半只擦掉它，半柱完好", () => {
+    const k = new Kernel();
+    loop(k, [P(0, 0), P(10, 0), P(10, 10), P(0, 10)]); k.pushPull(k.faces()[0].id, 10);
+    circle(k, 0, 5, 2);
+    eq(shape(k), "arc○×12 arc○×12", "一条盒边把圆切成两个半圆");
+    const outer = faceAt(k, P(-1, 5))!; assert(outer !== undefined, "盒外半圆有面");
+    k.pushPull(outer, 3);
+    eq(shape(k), "arc○×12 arc○×12 arc○×12", "半柱的帽是第三条弧；基圈不再是整圆");
+    const nFaces = k.faces().length;
+    const inner = k.curves().find((c) => c.edges.every((e) => { const x = k.graph.edge(e); return k.graph.pt(x.a).x >= -1e-9 && k.graph.pt(x.a).z < 1e-9; }))!;
+    assert(inner, "盒内那半弧还在地上");
+    k.eraseEdges([inner.edges[0]]);
+    eq(shape(k), "arc○×12 arc○×12", "只擦掉盒内半弧");
+    eq(k.faces().length, nFaces - 1, "只少一张：盒内半圆面与盒底面合并（SU 同）；半柱的帽与侧面一张没少");
+    assert(faceAt(k, P(-1, 5, 3)) !== undefined, "半柱的帽还在");
+    invariants(k);
+  });
+  it("永久断：圆 + 弦 → 两弧；擦掉弦两弧不自愈（SU 要 Weld 才合；身份是历史）", () => {
+    const k = new Kernel(); circle(k, 0, 0, 2);
+    k.addEdges([[P(-3, 0.3), P(3, 0.3)]]);
+    eq(shape(k), "arc○×12 arc○×14");
+    const chord = k.graph.edges().filter((e) => Math.abs(k.graph.pt(e.a).y - 0.3) < 1e-9 && Math.abs(k.graph.pt(e.b).y - 0.3) < 1e-9).map((e) => e.id);
+    assert(chord.length >= 1, "找到弦");
+    k.eraseEdges(chord);
+    eq(shape(k), "arc○×12 arc○×14", "仍是两条弧");
+    invariants(k);
+  });
+  it("出平面的边不断：圆柱 / 从圆顶点手画竖线 → 圆仍整；同平面的弧碰到圆周 → 圆变 360° 弧", () => {
+    const k = new Kernel(); circle(k, 0, 0, 1); k.pushPull(k.faces()[0].id, 2);
+    eq(shape(k), "circle●×24 circle●×24", "圆柱顶圈 / 底圈整");
+    k.addEdges([[P(1, 0, 2), P(1, 0, 5)]]);
+    eq(shape(k), "circle●×24 circle●×24", "顶圈顶点上长出的竖线不切圈（与 SU 有意分歧）");
+    const c2 = { x: 2, y: 0, z: 2 };
+    const segs = circleSegmentsOnPlane({ n: Z, d: 2 }, GROUND.basis, c2, { x: 3, y: 0, z: 2 }, 24).slice(12, 18);   // 180°→270°：起点 (1,0,2) 外切顶圈
+    k.addEdges(segs.map(([a, b]) => [a, b] as [PtIn, PtIn]), { curve: { kind: "arc", closed: false, params: { center: c2, radius: 1, normal: Z, xaxis: X, segments: 24 } } });
+    const shapes = shape(k);
+    eq(shapes, "arc○×24 arc○×6 circle●×24", "同平面的弧端点落在顶圈顶点 (1,0,2) 上 → 顶圈变 360° 弧；底圈不动");
+    invariants(k);
+  });
 });

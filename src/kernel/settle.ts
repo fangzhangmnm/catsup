@@ -22,7 +22,7 @@ import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore, ringEdgeIds } from "./face-lifecycle.ts";
 import type { EdgeLayers, FaceLayers } from "./layers.ts";
-import type { CurveRegistry } from "./curves.ts";
+import { type CurveRegistry, type CurveSpec, edgesAlongSegs } from "./curves.ts";
 import { perf } from "../editor/perf-stats.ts";
 
 export type Algebra = "or" | "xor";
@@ -37,6 +37,9 @@ export interface Image {
   /** 新膜的面层值（absorb 用：炸开 / 粘贴带着材质回来）。 */
   face?: Readonly<Record<string, number>>;
 }
+/** 动词提交的「这批段是一条曲线」（0.10.2 起登记归结算机，动词不再自己 create / cut）。 */
+export interface NewCurve { readonly segs: readonly Seg3[]; readonly spec: CurveSpec; }
+
 export interface ImageTable {
   /** 被动词替换的膜：出库；身份只经 images[].inherit 延续；旧环边 = 随葬候选。 */
   consumed: ReadonlySet<FaceId>;
@@ -62,6 +65,8 @@ export interface ImageTable {
   dirtyEdges?: Iterable<EdgeId>;
   /** 曲线登记处（0.10）：机器只调它的钩子——切割按序传子 / 删边出链 / 溶解顶替 / 结算后 prune。 */
   curves?: CurveRegistry;
+  /** 本次落下的曲线（圆 / 弧 / 折线）：段 + 规格。结算完才登记（段上的边那时才存在），随后对本次动过的顶点跑断点规则（curves.ts rechain）。 */
+  newCurves?: readonly NewCurve[];
 }
 
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
@@ -529,6 +534,12 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     if (table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
   }
   table.curves?.prune(g);
+  // ⑫ 曲线：登记本次新曲线（两端都在段上的边，INSERT_TOL），再对本次星形变过的顶点（candVerts = 删 / 加 / 切的端点，含 dirtyEdges）跑断点规则——唯一判断点
+  if (table.curves) {
+    const C = table.curves;
+    for (const nc of table.newCurves ?? []) C.create(g, edgesAlongSegs(g, nc.segs, (pa, pb, a, b) => pointOnSegment3(pa, a, b, INSERT_TOL) && pointOnSegment3(pb, a, b, INSERT_TOL)), nc.spec);
+    C.rechain(g, candVerts, tol);
+  }
   mark("layers");
   if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
   return events;

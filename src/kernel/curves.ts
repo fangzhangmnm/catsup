@@ -10,7 +10,7 @@
 //   · 结算后 prune：死边出链、断链拆开、空曲线删。
 //   · 曲面不在这里：曲面 = 沿软边泛洪的面集，派生态（editor/paint-flood.ts surfaceFaces）。
 import type { EdgeId, VertexId, PlanarGraph } from "./topology.ts";
-import type { Pt3 } from "./geom.ts";
+import { type PlaneParams, type Pt3, distToPlane, planeOfRing } from "./geom.ts";
 
 export type CurveId = number;
 export type CurveKind = "circle" | "arc" | "polyline";
@@ -20,7 +20,7 @@ export interface Curve { readonly id: CurveId; kind: CurveKind; closed: boolean;
 /** 登记一条曲线要说的话（Op 可序列化：纯数字）。 */
 export interface CurveSpec { kind: CurveKind; closed: boolean; params?: CurveParams }
 
-type G = Pick<PlanarGraph, "hasEdge" | "edge">;
+type G = Pick<PlanarGraph, "hasEdge" | "edge" | "hasVertex" | "vertex" | "pt">;
 
 const ends = (g: G, e: EdgeId): [VertexId, VertexId] => { const x = g.edge(e); return [x.a, x.b]; };
 const shares = (g: G, e1: EdgeId, e2: EdgeId): boolean => { const [a, b] = ends(g, e1), [c, d] = ends(g, e2); return a === c || a === d || b === c || b === d; };
@@ -142,24 +142,53 @@ export class CurveRegistry {
     if (i >= 0) { c.edges[i] = ne; this.ofEdge.set(ne, cid); }
   }
   /**
-   * 在顶点 v 处切断经过它的链（设计稿 §6-④「一条线切过曲线 = 两条曲线」）：用户画的线落在曲线的顶点上就从那里断开——
-   * 闭环 → 从 v 起的开弧；开链中间 → 两条。推拉的侧棱不走这里（不是用户画的线），所以圆柱顶圈不断。
+   * 断点规则（0.10.2，**只在这里判**，结算机尾声对本次星形变过的顶点调一次；user 2026-10-24「这种时候我希望留下 1/4，我 su 里面都是这么画圆弧的」）：
+   * 顶点上有「不属于本曲线、且另一端在本曲线平面 τ 内」的边 → 曲线在此断开（线穿圆 = 两弧；盒底边穿过地上的圆 = 1/4 + 3/4；弧碰到圆周 = 圆变 360° 弧）。
+   * 出平面的边（推拉 / 跟随的侧棱、手画的竖线）= 挂上去，不断（圆柱 / 锥顶圈整）——这是与 SU 的有意分歧：SU 任何线碰顶点都断，但侧棱与手画竖线拓扑上无法区分。
+   * 断是永久的（SU 要 Weld 才合）：擦掉弦，两弧不自愈——身份是历史，不是几何的派生量（否则推拉过的弧会被重新粘回圈里、下次擦一段连柱体底圈一起没）。
+   * 0.10.1 之前这条规则散在动词里（addEdges 先切再登记 → 新圆切不到自己；pushPull / followMe / absorb 根本不切），截图里擦地上一段连推拉体底圈一起没 = 那个病。
    */
-  cutAtVertex(g: G, v: VertexId): void {
-    for (const c of [...this.byId.values()]) {
-      const n = c.edges.length;
-      if (n < 2) continue;
-      const at = (i: number): boolean => { const e = c.edges[i]; return g.hasEdge(e) && hasVertex(g, e, v); };
-      // 链上 v 所在的位置：相邻两边都含 v（闭环含首尾那一对）
-      let cut = -1;
-      for (let i = 0; i < n; i++) { const j = (i + 1) % n; if (!c.closed && j === 0) break; if (at(i) && at(j)) { cut = j; break; } }
-      if (cut < 0) continue;
-      if (c.closed) { c.edges = [...c.edges.slice(cut), ...c.edges.slice(0, cut)]; c.closed = false; if (c.kind === "circle") c.kind = "arc"; continue; }
-      const tail = c.edges.splice(cut);
-      const nc: Curve = { id: this.nextId++, kind: c.kind, closed: false, edges: tail, ...(c.params ? { params: { ...c.params } } : {}) };
-      this.byId.set(nc.id, nc);
-      for (const t of tail) this.ofEdge.set(t, nc.id);
+  rechain(g: G, verts: Iterable<VertexId>, tol: number): void {
+    for (const v of verts) {
+      if (!g.hasVertex(v)) continue;
+      const star = [...g.vertex(v).edges];
+      const here = new Set<CurveId>();
+      for (const e of star) { const c = this.ofEdge.get(e); if (c !== undefined) here.add(c); }
+      for (const cid of here) {
+        const c = this.byId.get(cid);
+        if (!c) continue;
+        const pl = this.planeOf(g, c);
+        let junction = false;
+        for (const e of star) {
+          if (this.ofEdge.get(e) === cid) continue;
+          if (!pl) { junction = true; break; }                       // 退化链（共线）：任何外来边都算
+          const x = g.edge(e);
+          if (distToPlane(g.pt(x.a === v ? x.b : x.a), pl) <= tol) { junction = true; break; }
+        }
+        if (junction) this.cutAt(g, c, v);
+      }
     }
+  }
+  /** 曲线所在平面：有参数用圆心 + 法向；折线用链上顶点的 Newell 平面；退化 → null。 */
+  private planeOf(g: G, c: Curve): PlaneParams | null {
+    if (c.params) { const n = c.params.normal; return { n, d: n.x * c.params.center.x + n.y * c.params.center.y + n.z * c.params.center.z }; }
+    const pts: Pt3[] = [];
+    for (const e of c.edges) { if (!g.hasEdge(e)) continue; const x = g.edge(e); pts.push(g.pt(x.a), g.pt(x.b)); }
+    return pts.length >= 3 ? planeOfRing(pts) : null;
+  }
+  /** 把曲线 c 在顶点 v 处断开：闭环 → 从 v 起的一条开链；开链 → v 之后的尾巴成新曲线。v 不在链内部（端点 / 不在链上）= 不动。 */
+  private cutAt(g: G, c: Curve, v: VertexId): void {
+    const n = c.edges.length;
+    if (n < 2) return;
+    const at = (i: number): boolean => { const e = c.edges[i]; return g.hasEdge(e) && hasVertex(g, e, v); };
+    let cut = -1;
+    for (let i = 0; i < n; i++) { const j = (i + 1) % n; if (!c.closed && j === 0) break; if (at(i) && at(j)) { cut = j; break; } }
+    if (cut < 0) return;
+    if (c.closed) { c.edges = [...c.edges.slice(cut), ...c.edges.slice(0, cut)]; c.closed = false; if (c.kind === "circle") c.kind = "arc"; return; }
+    const tail = c.edges.splice(cut);
+    const nc: Curve = { id: this.nextId++, kind: c.kind, closed: false, edges: tail, ...(c.params ? { params: { ...c.params } } : {}) };
+    this.byId.set(nc.id, nc);
+    for (const t of tail) this.ofEdge.set(t, nc.id);
   }
   /** absorbVertex 搬边：from → to。 */
   copy(from: EdgeId, to: EdgeId): void {
