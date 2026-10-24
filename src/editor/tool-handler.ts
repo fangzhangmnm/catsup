@@ -11,7 +11,7 @@ import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
 import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
 import type { WorldView } from "../scene/world-view.ts";
 import type { PoolRef } from "../scene/scene.ts";
-import type { Xform } from "../scene/xform.ts";
+import type { Frame, Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
 import type { Selection } from "./tools.ts";
@@ -64,6 +64,11 @@ export interface ToolCtx {
   setSnap(sn: Snap3 | null): void;
   /** 数值小窗：记下「刚做完的那一步」。 */
   recordLast(L: LastGesture): void;
+  // ---- 0.11 尺规纪元：轴 ----
+  /** 上下文的帧（世界坐标）。 */
+  contextFrame(): Frame;
+  /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴。 */
+  setAxes(frame: Frame): void;
 }
 
 export interface ToolHandler {

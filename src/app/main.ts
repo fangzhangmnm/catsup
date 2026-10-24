@@ -38,6 +38,7 @@ import { crashStore } from "./crash-store.ts";
 import { initDebugLog, note, record, toText as debugLogText, entries as debugLogEntries } from "./debug-log.ts";
 import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet } from "./debug-log-sheet.ts";
 import { traceLine } from "./debug-lines.ts";
+import { WORLD_FRAME } from "../scene/xform.ts";
 
 // 黑匣子最早起（实验台 sunset → 调试日志，user 2026-09-20）：开机 URL 行必须在 initAuth 之前抓——MSAL 处理完 redirect 会抹掉 hash。
 initDebugLog();
@@ -131,6 +132,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "paint", icon: "paint-bucket", label: "油漆桶", key: "B" },
   { tool: "erase", icon: "eraser", label: "橡皮", key: "E" },
   { tool: "tape", icon: "dimensions", label: "卷尺", key: "T" },   // 0.11 尺规；图标 = stopgap（图标库 TODO 已登记 tape-measure）
+  { tool: "axes", icon: "axes", label: "轴", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
 const hud: HudModel = {
@@ -182,7 +184,7 @@ const hud: HudModel = {
 // 然后非pin的工具给2个格子，屏幕太短就不给」）：钉死的常用工具一字排开；不常用的收进「…」弹层；最近用过的非钉工具在「…」上面
 // 留最多两格（按柱子可用高度算，屏幕矮就不留）。快捷键照旧直达（用了非钉工具会进最近格）。
 const PINNED: Tool[] = ["select", "line", "rect", "erase", "move", "rotate", "pp"];   // user 10-21「缩放不pin」
-const UNPINNED: Tool[] = ["circle", "arc", "tape", "scale", "offset", "followme", "paint"];
+const UNPINNED: Tool[] = ["circle", "arc", "tape", "axes", "scale", "offset", "followme", "paint"];
 const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
 const recentTools: Tool[] = [];                 // 最近用过的非钉工具（MRU，最多 2）
 const toolBtns = new Map<Tool, HTMLButtonElement>();
@@ -226,7 +228,7 @@ window.addEventListener("resize", () => renderSlots());
 const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "noclip" | "persp" | "walk";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "noclip" | "persp" | "walk";
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu,
   items: () => [
@@ -248,6 +250,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     { id: "finger", label: "手指也能画", checked: fingerDraws, separatorBefore: true, hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", separatorBefore: true, hint: "平滑组：相邻膜夹角小的边变软 + 平滑" },
     { id: "guidesClear", label: "删除所有参考线", hint: "只删当前上下文（这个组 / 根）里的参考线与参考点", disabled: !editor.hasGuides() },
+    { id: "axesReset", label: "重置轴", hint: "根 = 回到世界轴；组里 = 原点不动、方向回正" },
     { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "数值小窗的默认长度单位（点一下换下一个；内部永远是米）" },
     { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么（油漆桶已选中再点一下也开）" },
     // 视图类（2026-10-21：右上角 gizmo 只留切视图 + 缩放到全部；这些偶尔才用的收在这里）
@@ -279,6 +282,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       case "walk": setWalk(!locomotion.isWalking()); return "keep";
       case "thick": editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep";
       case "guidesClear": editor.clearGuides(); return "keep";
+      case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
       case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; syncUi(); return "keep"; }
       case "clear":

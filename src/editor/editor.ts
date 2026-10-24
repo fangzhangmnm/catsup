@@ -32,6 +32,7 @@ import type { ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { OffsetTool } from "./tools/offset.ts";
 import { ArcTool } from "./tools/arc.ts";
 import { TapeTool } from "./tools/tape.ts";
+import { AxesTool } from "./tools/axes.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { FollowMeTool } from "./tools/followme.ts";
@@ -49,8 +50,8 @@ import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extra
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
-export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace" | "tape";
-export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "arc", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace", "tape"];
+export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace" | "tape" | "axes";
+export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "arc", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace", "tape", "axes"];
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
@@ -180,7 +181,7 @@ export class Editor {
   private ppShellVids: ReadonlySet<VertexId> = new Set();
   private ppStops: number[] = [];
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
-  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool() };
+  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool() };
   private readonly toolCtx: ToolCtx = this.makeToolCtx();
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
   private rotStage: 0 | 1 | 2 = 0;
@@ -1509,7 +1510,7 @@ export class Editor {
       this.hoverPool = null;
       const tool = this._tool;
       const view = this.liveWorld();
-      if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || tool === "tape" || (tool === "rotate" && this.rotStage === 0)) {
+      if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || tool === "tape" || tool === "axes" || (tool === "rotate" && this.rotStage === 0)) {
         const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
         this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), hand: this.freshHand(view) }), s.x, s.y));
         this.trackCharge(this.snapInfo);
@@ -1675,6 +1676,8 @@ export class Editor {
       setCursor: (p) => { this.cursor3 = p; },
       setSnap: (sn) => { this.snapInfo = sn; },
       recordLast: (L) => { this.last = L; },
+      contextFrame: () => this.contextFrame(),
+      setAxes: (f) => this.setContextAxes(f),
     };
   }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }

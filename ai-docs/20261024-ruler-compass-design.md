@@ -62,6 +62,7 @@ document.axes: Frame                                                // 绘图轴
 - 渲染：参考线 = ±200 m 的灰线（视觉上无限），参考点 = 像素尺寸的三轴小叉；上下文轴 = 帧 ≠ 世界帧时三色线 ±50 m 穿过帧原点。**没做**：随工作集 / 光标距离淡出（§3 的创新点）、虚线样式。
 - 动词：ops `addGuide`（线或点）/ `eraseGuides` / `clearGuides` / `setAxes`（根 / group；组件定义拒绝）；transformPool 搬池参考几何随行、copyGroup 复制一份；编辑器 API `addGuideLine / addGuidePoint / eraseGuides / clearGuides / setContextAxes / contextFrame`。**造参考线的工具（③④⑤⑥）还没有**——这一版用户看不到参考线，只有进组后轴与原点换成组的。
 - 卷尺（v0.11.1，§4 表第一行照落）：`tools/tape.ts`；起点身份由吸附种类定（`tape-geom.ts classifyStart`）：边上 / 参考线上 = 带方向 → 偏移参考线（第二点减去沿线分量 = 垂距）；点类 → 参考点；面上 / 空处 → 只量。SU 的 Ctrl「不造参考线只量」没做（起点落面上就是只量）。量完回到第一下（SU：卷尺一直在手上）。VCB 输距离 = 撤销那条、沿同方向按精确值重造。**SU 的「量两点后输数 = 缩放整个模型」故意不做**（吃书级危险动作，等 user 点名）。
+- 轴工具（v0.11.2，§4 表第三行）：`tools/axes.ts`，三下定帧（`axes-geom.ts frameFrom3`：x = 原点→X 点，z = x × (原点→Y 点)，y = z × x；Y 共线时 z 取手势平面法向）。根 = `Scene.axes`（推断、上下文轴线、以后的网格都跟它）；group = `Group.axes`（Change Axes：几何不动，帧换掉——SU 同）；组件定义的轴没做（`setAxes` 拒绝；SU 改组件轴会动所有实例，另议）。「重置轴」在菜单。
 - 误 snap 候选（载线交点 / 面交线 / 充能点 / ppStops 全场顶点高度）**没退役**：user「退役前我一个一个批，你误伤了一些，也有用尺规太麻烦还是需要充能或者全量留的」→ 工具落地后列清单逐条批。
 
 ## 6. 等 user 拍的
