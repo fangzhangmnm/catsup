@@ -25,6 +25,12 @@ export declare function circleOfFace(k: Kernel, face: FaceId, m: Xform): CurvePa
 /** 偏移一个圆（d > 0 = 向内）：同圆心同法向、半径 r − d 的新圆；塌没了 → null。 */
 export declare function offsetCircleSpec(params: CurveParams, d: number): CurveSpec | null;
 /** 曲线规格换到池本地坐标：点经 toLocal，方向经两点之差，半径按两点距离（池有缩放时跟着缩）。 */
+/** 圆的曲线规格（世界系 → 池本地）：圆心、半径、法向、x 轴指向半径点、段数。画圆与数值小窗重做共用。 */
+export declare function circleCurveSpec(toLocal: (p: Pt3) => Pt3, center: Pt3, rim: Pt3, plane: {
+    plane: {
+        n: Pt3;
+    };
+}, segments: number): CurveSpec;
 export declare function curveSpecToLocal(toLocal: (p: Pt3) => Pt3, spec: CurveSpec): CurveSpec;
 /** Circle 工具：圆心 + 半径点（都在平面上）→ n 段正多边形（SU 默认 24 段；第一个顶点在半径点方向）。退化 → []。added 2026-10-21 */
 export declare function circleSegmentsOnPlane(plane: PlaneParams, basis: {

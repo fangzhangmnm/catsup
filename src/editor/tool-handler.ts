@@ -26,7 +26,7 @@ import type { ViewState } from "./render3.ts";
 export type Classified = { kind: "entity"; local: HitResult3 } | { kind: "pool"; pick: PoolPick; key: string } | { kind: "none" };
 
 /** 抬笔结算回放给工具的那一帧（底座公共字段 + 工具自己报的数）。 */
-export interface ToolSample { cursor3: Pt3 | null; plane: DrawPlane; snap: Snap3 | null; extra: Readonly<Record<string, number>>; }
+export interface ToolSample { cursor3: Pt3 | null; snap: Snap3 | null; extra: Readonly<Record<string, number>>; }
 
 /** 底座递给工具的全部能力（窄接口 = 测试面：给假 ctx 喂事件序列，断言 commitOp 收到的 op）。 */
 export interface ToolCtx {
@@ -77,7 +77,17 @@ export interface ToolCtx {
   /** 自落笔以来走了多远（本帧度量；ev.travel 优先，否则按 downScreen 算）。 */
   moved(s: { x: number; y: number }, travel?: number): number;
   cursor(): Pt3 | null;
+  /** 上一帧的吸附（轻擦平面时保持用）。 */
+  currentSnap(): Snap3 | null;
   grid(): Readonly<GridSettings>;
+  scene(): Scene;
+  context(): EditContext;
+  /** 悬停高亮光标下的面（渲染 hoverFace；null = 清）。 */
+  setHoverFace(f: FaceId | null): void;
+  /** 蘸的材质在文档材质表里的索引（没有就新建一条 addMaterial op）；null = 默认。 */
+  paintMaterialIndex(): number | null;
+  /** 给活动池里的这些面涂当前材质（op）。 */
+  paintFaces(faces: readonly FaceId[]): void;
   /** 子 group / 实例锁着吗（A27）。 */
   pickLocked(p: PoolPick): boolean;
   /** 整体变换预演的叠加层（子池跟着指针走；null = 清）。 */
@@ -128,8 +138,6 @@ export interface ToolCtx {
  * 三层 state 的读法（提案 §2）：doc = scene / revision；session = context / grid / selection；mode = modeId。
  */
 export interface EditorCore extends ToolCtx {
-  scene(): Scene;
-  context(): EditContext;
   revision(): number;
   modeId(): ModeId;
 }
@@ -147,6 +155,10 @@ export type ToolGrammar = "steps" | "direct";
 export interface ToolHandler {
   readonly tool: Tool;
   readonly grammar: ToolGrammar;
+  /** draw 类工具（画线 / 矩形 / 圆…）：手里的膜只算 BIRTH 出来的（底座 freshHand 据此豁免遮挡）。 */
+  readonly draws?: boolean;
+  /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
+  readonly previewOnHover?: boolean;
   /** 手势进行中？（底座 gestureActive 的一票；为真时 pointerMove 走 track、computeLive 走 live）。 */
   active(): boolean;
   /** 清掉自己的手势状态（底座 cancelGesture 时对所有工具调）。 */
@@ -163,6 +175,8 @@ export interface ToolHandler {
   sample(): Record<string, number>;
   /** 复现包用的手势描述（预演失败时随黑匣子走）。 */
   describe?(ctx: ToolCtx): Record<string, unknown>;
+  /** 数值小窗按精确值重做了这一步之后，工具从新的终点继续（画线连画）。 */
+  vcbContinue?(ctx: ToolCtx, p: Pt3): void;
   /** 本工具的叠加层（量线 / 候选参考线…）：底座每帧并进 ViewState（0.11）。 */
   viewExtras?(ctx: ToolCtx): Partial<ViewState>;
 }

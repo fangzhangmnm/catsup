@@ -52,6 +52,8 @@ export interface ToolHandler {
 
 ## 4. 搬迁顺序（Opus 票 3）
 
+> **done v0.13.7–v0.13.11（2026-10-24 深夜，Claude Fable 5.1）**：erase / select / scale / rotate / pp / move / line / rect / circle / paint / eraseFace 全部搬进 `src/editor/tools/`；Editor 不再有工具 switch；`ToolHandler.grammar`（steps / direct）+ `hover` / `describe` / `vcbContinue` / `draws` / `previewOnHover`；ToolCtx 的全部口见 `tool-handler.ts`。
+
 1. 已搬：偏移（样板，有拖拽态）、跟随（第二个适配器：无拖拽态，纯函数 `pathFromSelection` 可 node 直测；为它给 ctx 加了 `selection()`）。
 2. 状态少的先：油漆桶、橡皮（含软化 / 硬化修饰）。
 3. 画线 / 矩形 / 圆（共用「锚点 + 画线平面」底座态；连画态留底座）。

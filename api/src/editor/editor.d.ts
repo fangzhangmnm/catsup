@@ -90,6 +90,7 @@ export declare const MIN_GESTURE_LEN = 0.01;
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export declare const CIRCLE_SEGMENTS: 24;
 export declare function fmtLen(v: number, digits?: number): string;
+export declare const fmtDeg: (rad: number) => string;
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = {
     kind: "group";
@@ -206,45 +207,18 @@ export declare class Editor {
     private _tool;
     private _revision;
     private anchor3;
-    private gesturePlane;
-    private rectFixed;
     private cursor3;
     private snapInfo;
-    private moveVids;
-    private movePools;
-    private moveCopy;
-    private moveEntities;
-    private ppFace;
-    private ppNormal;
-    private ppH;
-    private ppShellVids;
-    private ppStops;
     /** 当前编辑模式（0.13 刀 ①）：工具集 + 手势模块表住它；刀 ③ 加 setMode / 表面模式。 */
     private readonly mode;
     get modeId(): ModeId;
     private get handlers();
     private readonly toolCtx;
-    private rotStage;
-    private rotCenter;
-    private rotAxis;
-    private rotRef;
-    private rotAngle;
-    private scaleHandles;
-    private scaleActive;
-    private scaleT0;
-    private scaleFactor;
     private samples;
-    private scrubAcc;
-    private scrubGuides;
-    private scrubbing;
-    private eraseMode;
     private selection;
     private selectedPools;
-    private marqueeStart;
-    private marqueeCur;
     private hoverEdge;
     private hoverFace;
-    private hoverPool;
     private live;
     private liveOverride;
     private liveEvents;
@@ -257,7 +231,6 @@ export declare class Editor {
     private chargedEdges;
     private dwell;
     private lastSnap;
-    private clickTrain;
     private paintPick;
     /** 工具选项（声明式表 `tool-config.ts`，SSoT）；UI 从它生成，工具从它读。 */
     readonly config: CatsUpToolConfig;
@@ -375,6 +348,10 @@ export declare class Editor {
     /** 选区里有没有曲线的边（炸开曲线钮）。 */
     hasCurveSelection(): boolean;
     /** 炸开选区里的曲线（SU Explode Curve）：每条曲线给一条代表边，op 按坐标寻址。 */
+    /** 选区能焊吗（粗筛，菜单显示用；真判在 planWeld）：≥ 2 条边、没选面。 */
+    canWeldSelection(): boolean;
+    /** 焊接选区（B19，SU Weld Edges）：成一条曲线，之后选中整条。 */
+    weldSelection(): boolean;
     explodeCurveSelection(): void;
     deleteSelection(): void;
     /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
@@ -469,8 +446,6 @@ export declare class Editor {
     private gestureActive;
     /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
     private liveWorld;
-    /** 推拉的推断世界 = 按下那一刻的模型（文件头「例外」条）。 */
-    private ppInferenceWorld;
     /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
     private freshHand;
     /** 预演失败时的复现描述（黑匣子）：工具 + 能重建那一步的参数（活动池本地坐标）。 */
@@ -478,33 +453,26 @@ export declare class Editor {
     private computeLive;
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
-    /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
-    private ppLocalH;
-    private basePlaneOfAnchor;
-    private lineSecondSnap;
-    private rectPlaneSnap;
     viewExtras: (() => Partial<ViewState>) | null;
     setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void;
     private drawSuspended;
     batchDraw(fn: () => void): void;
     draw(): void;
     resize(dpr: number): void;
-    /** 橡皮刮到参考几何（D18）：活动池的参考线（无限长）/ 参考点，屏距 ≤ hit 容差就进刮集。 */
-    private scrubGuideAt;
-    /** 展开到整条曲线（本地 id；显示用，与内核 eraseEdges 的「擦一段 = 整条」同口径）。 */
-    private wholeCurves;
     private updateTip;
     private targetBounds;
-    private rebuildScaleHandles;
-    private pickScaleHandle;
     pointerDown(ev: ToolPointer): void;
+    /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
+    private endStepGesture;
     /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
     private consumeCharges;
     pointerMove(ev: ToolPointer): void;
-    /** 手势中的取点（line / rect / circle / pp / move / rotate / scale 的拖拽态；pointerMove 与松开帧共用）。 */
+    /** 手势中的取点（pointerMove 与松开帧共用）：交给当前工具模块。 */
     private trackGesture;
     /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
     private makeToolCtx;
+    /** 取点悬停（无手势）：画面平面 + 吸附（迟滞）+ 充能。内建的画线 / 矩形 / 圆 / 移动与模块工具共用。 */
+    private hoverSnap;
     private projectToPlaneThrough;
     private currentSample;
     private recordSample;
@@ -513,25 +481,14 @@ export declare class Editor {
      * 否则回看 RELEASE_WINDOW_MS 内结束的停留，取最长的那段（≥ MIN_DWELL_MS 且比松开处停得久）= 用户对齐时停住的地方；都没有 → 松开帧。
      */
     private settledSample;
-    /** pp 双通道吸附：光标通道（世界 = 按下时模型，源面原位不透明；不吸轴）+ 高度通道（h 对静态高度集咬合）。 */
-    private ppTrack;
     /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
     private intentOn;
     pointerUp(ev: ToolPointer): void;
     pointerLeave(): void;
-    private commitLine;
-    private commitRect;
-    /** 圆的曲线规格（世界系 → 池本地）：圆心、半径、法向、x 轴指向半径点、段数。 */
-    private circleSpec;
-    private commitCircle;
-    private commitPP;
-    private commitMove;
     /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
     private commitCopies;
     /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
     private copyPayload;
-    private commitRotate;
-    private commitScale;
     /** 世界系变换 X 作用于：活动池顶点集（move op，本地坐标）+ 子池（transformPool / transformInstance，父空间变换）。 */
     private commitXform;
 }

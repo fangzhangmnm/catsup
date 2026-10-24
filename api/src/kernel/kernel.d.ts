@@ -110,6 +110,8 @@ export declare class Kernel {
     /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。擦到曲线的一段 = 整条曲线（SU；0.10）。 */
     eraseEdges(ids: readonly EdgeId[]): FaceEvent[];
     /** 炸开曲线（SU Explode Curve）：实体没了，边留着、不再带 curve 层（之后推拉它们的侧棱是硬的）。 */
+    /** 焊接（B19）：选中的边（所属曲线整条连坐）焊成一条曲线——同圆参数的弧 → 弧 / 圆，否则折线曲线。不是一条链 → 抛（人话）。 */
+    weldEdges(ids: readonly EdgeId[]): FaceEvent[];
     explodeCurves(ids: readonly CurveId[]): FaceEvent[];
     /** 只删膜不动拓扑（「闭环无面」态；之后 retrace 可复生）。 */
     eraseFaces(ids: readonly FaceId[]): FaceEvent[];

@@ -24,6 +24,12 @@ export type Op = {
     op: "explodeCurves";
     at: PoolRef;
     edges: EdgeKey[];
+}
+/** 焊接（B19）：edges = 有序链的各边（坐标寻址）→ 一条曲线。 */
+ | {
+    op: "weldEdges";
+    at: PoolRef;
+    edges: EdgeKey[];
 } | {
     op: "eraseEdges";
     at?: PoolRef;

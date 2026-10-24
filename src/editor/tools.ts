@@ -76,6 +76,11 @@ export function offsetCircleSpec(params: CurveParams, d: number): CurveSpec | nu
 }
 
 /** 曲线规格换到池本地坐标：点经 toLocal，方向经两点之差，半径按两点距离（池有缩放时跟着缩）。 */
+/** 圆的曲线规格（世界系 → 池本地）：圆心、半径、法向、x 轴指向半径点、段数。画圆与数值小窗重做共用。 */
+export function circleCurveSpec(toLocal: (p: Pt3) => Pt3, center: Pt3, rim: Pt3, plane: { plane: { n: Pt3 } }, segments: number): CurveSpec {
+  const dx = rim.x - center.x, dy = rim.y - center.y, dz = rim.z - center.z, r = Math.hypot(dx, dy, dz) || 1;
+  return curveSpecToLocal(toLocal, { kind: "circle", closed: true, params: { center, radius: Math.hypot(dx, dy, dz), normal: plane.plane.n, xaxis: { x: dx / r, y: dy / r, z: dz / r }, segments } });
+}
 export function curveSpecToLocal(toLocal: (p: Pt3) => Pt3, spec: CurveSpec): CurveSpec {
   if (!spec.params) return spec;
   const p = spec.params, c = toLocal(p.center);

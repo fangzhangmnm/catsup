@@ -23,10 +23,9 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, rectToolTargets } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec } from "./tools.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
-import { facesForPaint } from "./paint-flood.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, DEFAULT_GRID } from "./grid-settings.ts";
@@ -154,7 +153,7 @@ export type LastGesture =
   | { kind: "protractor"; ops: number; at: PoolRef; center: Pt3; axis: Pt3; ref: Pt3; angle: number };
 
 /** 样本环的一帧（抬笔结算 A21）：屏幕位置 + 当时的手势量。 */
-interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> }
+interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -180,8 +179,6 @@ export class Editor {
 
   // ---- 瞬态 ----
   private anchor3: Pt3 | null = null;
-  private gesturePlane: DrawPlane = GROUND;
-  private rectFixed: DrawPlane | null = null;
   private cursor3: Pt3 | null = null;
   private snapInfo: Snap3 | null = null;
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
@@ -406,7 +403,6 @@ export class Editor {
     this.anchor3 = null;
     for (const h of Object.values(this.handlers)) h.cancel();
     this.samples = [];
-    this.rectFixed = null;
     this.lastSnap = null;
     this.armed = false;
     this.canArm = false;
@@ -959,7 +955,7 @@ export class Editor {
         const b = add3(L.a, scale3(normalize3(sub3(L.b, L.a)), v.m));
         this.commitOp({ op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]] });
         this.last = { ...L, ops: this.opCount - n0, b };
-        if (this._tool === "line") { this.anchor3 = b; this.cursor3 = b; this.armed = true; }
+        { const HL = this.handlers.line; if (this._tool === "line" && HL) { HL.vcbContinue?.(this.toolCtx, b); this.armed = HL.active(); } }
         msg = `线长 ${fmtLen(Math.abs(v.m))}`;
         break;
       }
@@ -979,7 +975,7 @@ export class Editor {
         else if (v.kind === "segments") { segments = v.n; this.config.set("circle", "segments", v.n); }
         else break;
         const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
-        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: this.circleSpec(L.center, rim, L.plane, segments) });
+        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
         this.last = { ...L, ops: this.opCount - n0, rim, segments };
         msg = `圆 半径 ${fmtLen(dist(L.center, rim))} · ${segments} 段`;
         break;
@@ -1201,7 +1197,7 @@ export class Editor {
       },
       opaque,
     };
-    if (this._tool === "line" || this._tool === "rect" || this._tool === "circle") {
+    if (this.handlers[this._tool]?.draws) {
       const born = new Set<FaceId>();
       for (const e of this.liveEvents) if (e.type === "BIRTH") born.add(e.face);
       hand.faces = (fid) => view.slotOf(fid) === active && born.has(view.local(fid).id);
@@ -1213,12 +1209,6 @@ export class Editor {
   private previewDescriptor(): Record<string, unknown> {
     const tool = this._tool, k = this.kernel;
     const d: Record<string, unknown> = { tool };
-    if ((tool === "line" || tool === "rect" || tool === "circle") && this.anchor3 && this.cursor3) {
-      const segs = tool === "line" ? [[this.anchor3, this.cursor3] as [Pt3, Pt3]]
-        : tool === "rect" ? rectSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3)
-        : circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, this.config.get("circle", "segments"));
-      d.segs = segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]);
-    }
     const H = this.handlers[tool];
     if (H?.active()) { d.sample = H.sample(); Object.assign(d, H.describe?.(this.toolCtx) ?? {}); }
     return d;
@@ -1241,29 +1231,7 @@ export class Editor {
     const tool = this._tool;
     let dims = "";
     const H = this.handlers[tool];
-    if (H && H.active()) {
-      dims = H.live(this.toolCtx, run);
-    } else if (tool === "line" && this.anchor3 && this.cursor3) {
-      const a = this.anchor3, b = this.cursor3;
-      dims = `长 ${fmtLen(dist(a, b))}`;
-      if (dist(a, b) >= MIN_GESTURE_LEN) run((c) => c.addEdges([[this.toLocal(a), this.toLocal(b)]]));
-    } else if (tool === "rect" && this.anchor3 && this.cursor3) {
-      const { plane, basis } = this.gesturePlane;
-      const segs = rectSegmentsOnPlane(plane, basis, this.anchor3, this.cursor3);
-      const d = sub3(this.cursor3, this.anchor3);
-      const du = d.x * basis.u.x + d.y * basis.u.y + d.z * basis.u.z;
-      const dv = d.x * basis.v.x + d.y * basis.v.y + d.z * basis.v.z;
-      dims = `矩形 ${fmtLen(Math.abs(du))} × ${fmtLen(Math.abs(dv))}`;
-      if (segs.length) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)])));
-    } else if (tool === "circle" && this.anchor3 && this.cursor3) {
-      const r = dist(this.anchor3, this.cursor3);
-      dims = `圆 半径 ${fmtLen(r)}`;
-      const segs = circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, this.config.get("circle", "segments"));
-      if (segs.length && r >= MIN_GESTURE_LEN) run((c) => c.addEdges(segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]), { curve: true }));
-    } else if (tool === "eraseFace" && this.hoverFace !== null) {
-      const id = this.hoverFace;
-      run((c) => c.eraseFaces([id]));
-    }
+    if (H && (H.active() || H.previewOnHover)) dims = H.live(this.toolCtx, run);
     if (this.live || this.liveOverride || dims) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
       this.host.hint([dims, ev].filter(Boolean).join(" ｜ "));
@@ -1276,28 +1244,6 @@ export class Editor {
     const picks = this.movablePoolPicks(false);
     if (picks.length) this.liveOverride = { picks, xform: X };
   }
-  private basePlaneOfAnchor(): DrawPlane | undefined { return this.anchor3 && Math.abs(this.anchor3.z) < 1e-6 ? GROUND : undefined; }
-  private lineSecondSnap(sx: number, sy: number): Snap3 {
-    const w = this.liveWorld();
-    const r = resolveRectPlane(w, this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(w), this.basePlaneOfAnchor());
-    if (r.snap.kind === null && this.snapInfo && grazing(r.plane, this.frame().ray(sx, sy, this.fvp()))) return this.snapInfo;
-    this.gesturePlane = r.plane;
-    return r.snap;
-  }
-  private rectPlaneSnap(sx: number, sy: number): Pt3 {
-    const w = this.liveWorld();
-    const targets = this._tool === "rect" && this.anchor3 ? rectToolTargets(this.anchor3, this.gesturePlane.basis) : null;   // 正方形 / 黄金分割（B22；按上一帧平面基）
-    if (this.rectFixed) {
-      this.snapInfo = snapPoint(w, this.frame(), this.fvp(), sx, sy, this.snapPx(), { plane: this.gesturePlane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(w), toolTargets: targets });
-      return this.snapInfo.p;
-    }
-    const r = resolveRectPlane(w, this.frame(), this.fvp(), this.anchor3!, sx, sy, this.snapPx(), this.alignSrcs(), this.freshHand(w), this.basePlaneOfAnchor(), targets);
-    if (r.snap.kind === null && this.snapInfo && grazing(r.plane, this.frame().ray(sx, sy, this.fvp()))) return this.snapInfo.p;
-    this.gesturePlane = r.plane;
-    this.snapInfo = r.snap;
-    return r.snap.p;
-  }
-
   // ---------- 渲染 ----------
   viewExtras: (() => Partial<ViewState>) | null = null;
   setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void { this.r3.setLoop(cb); }
@@ -1364,58 +1310,20 @@ export class Editor {
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void {
     const s = ev;
-    const view = this.liveWorld();
-    switch (this._tool) {
-      case "line":
-      case "rect":
-      case "circle": {
-        if (this.armed && this.anchor3) {
-          this.justCommitted = true;
-          this.trackGesture(s);
-          if (this._tool === "line") this.commitLine(this.currentSample());
-          else if (this._tool === "rect") this.commitRect(this.currentSample());
-          else this.commitCircle(this.currentSample());
-          break;
-        }
-        if (this._tool === "rect" || this._tool === "circle") {
-          const r = rectFirstPlane(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
-          this.rectFixed = r.fixed;
-          this.gesturePlane = r.plane;
-          this.snapInfo = r.snap;
-          if (this._tool === "circle" && !this.rectFixed) this.rectFixed = r.plane;   // 圆：首点定平面（没落在膜内就用解析出的平面）
-        } else {
-          const r0 = rectFirstPlane(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
-          this.gesturePlane = r0.plane;
-          this.snapInfo = r0.snap;
-        }
-        this.anchor3 = this.snapInfo!.p;
-        this.cursor3 = this.anchor3;
-        this.armed = false;
-        this.canArm = !!ev.armable;
-        this.downScreen = { x: s.x, y: s.y };
-        break;
-      }
-      default: {
-        // 工具模块（tool-handler.ts）：steps 工具 = 每次按下取一个量（armed 的按下 = 用悬停跟到的值）；direct 工具原样递
-        const H = this.handlers[this._tool];
-        if (!H) break;
-        if (H.grammar === "steps" && this.armed && H.active()) {
-          this.justCommitted = true;
-          H.track(this.toolCtx, s, ev.travel);
-          H.down(this.toolCtx, ev);
-          if (H.active()) this.armed = true;   // 还有下一子步 → 继续 arm（鼠标已松着）
-          else this.endStepGesture();
-          break;
-        }
+    const H = this.handlers[this._tool];
+    if (H) {
+      if (H.grammar === "steps" && this.armed && H.active()) {
+        // armed 的按下 = 用悬停跟到的值取这一子步
+        this.justCommitted = true;
+        H.track(this.toolCtx, s, ev.travel);
+        H.down(this.toolCtx, ev);
+        if (H.active()) this.armed = true; else this.endStepGesture();   // 还有下一子步 → 继续 arm（鼠标已松着）
+      } else {
         this.downScreen = { x: s.x, y: s.y };
         this.samples = [];   // 新手势：样本环从零（抬笔结算只看这一次）
         H.down(this.toolCtx, ev);
         if (H.grammar === "steps") { if (H.active()) { this.armed = false; this.canArm = !!ev.armable; } else this.endStepGesture(); }
-        break;
       }
-      case "paint":
-      case "eraseFace":
-        break;
     }
     this.consumeCharges();
     this.draw();
@@ -1435,19 +1343,8 @@ export class Editor {
       this.snapInfo = null;
       this.hoverEdge = null;
       this.hoverFace = null;
-        const tool = this._tool;
-      const view = this.liveWorld();
-      const H = this.handlers[tool];
-      if (H) {
-        H.hover?.(this.toolCtx, s);
-      } else if (tool === "line" || tool === "rect" || tool === "circle") {
-        this.hoverSnap(s);
-      } else if (tool === "eraseFace" || tool === "paint") {
-        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
-        const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
-        this.hoverFace = c.kind === "entity" ? (c.local.face ?? null) : null;
-        if (tool === "eraseFace") this.computeLive();
-      }
+      const H = this.handlers[this._tool];
+      if (H) { H.hover?.(this.toolCtx, s); if (H.previewOnHover) this.computeLive(); }
       this.updateTip(ev.clientX, ev.clientY);
       perf.time("hover.draw", () => this.draw());
       return;
@@ -1459,41 +1356,20 @@ export class Editor {
     this.draw();
   }
 
-  /** 手势中的取点（line / rect / circle / pp / move / rotate / scale 的拖拽态；pointerMove 与松开帧共用）。 */
+  /** 手势中的取点（pointerMove 与松开帧共用）：交给当前工具模块。 */
   private trackGesture(s: { x: number; y: number }, travel?: number): void {
-    const view = this.liveWorld();
-    switch (this._tool) {
-      case "line":
-        if (this.anchor3) {
-          let sn = this.lineSecondSnap(s.x, s.y);
-          // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法
-          const camL = cameraPlane(this.frame(), this.anchor3), rayL = this.frame().ray(s.x, s.y, this.fvp());
-          const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
-          if (sn.kind !== null && freeL && this.intentOn(s, travel) && !intentAllows3D(sub3(freeL, this.anchor3), sub3(sn.p, this.anchor3), MIN_GESTURE_LEN)) { sn = { p: this.rectPlaneSnap(s.x, s.y), kind: null }; this.lastSnap = null; }
-          this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
-          this.trackCharge(this.snapInfo, null, 120);
-          this.cursor3 = this.snapInfo.p;
-        }
-        break;
-      case "rect":
-      case "circle":
-        if (this.anchor3) this.cursor3 = this.rectPlaneSnap(s.x, s.y);
-        break;
-      default: {
-        const H = this.handlers[this._tool];
-        if (H?.active()) H.track(this.toolCtx, s, travel);
-        break;
-      }
-    }
+    const H = this.handlers[this._tool];
+    if (H?.active()) H.track(this.toolCtx, s, travel);
   }
   /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
   private makeToolCtx(): EditorCore {
+    const self = this;
     return {
       scene: () => this.scene,
       context: () => this.ctx,
       revision: () => this._revision,
       modeId: () => this.mode.id,
-      config: this.config,
+      get config() { return self.config; },   // getter：toolCtx 字段先于 config 字段初始化，直接取值会是 undefined（v0.13.11 vcb / scene 探针抓到）
       kernel: () => this.kernel,
       selection: () => this.selection,
       world: () => this.worldView(),
@@ -1529,6 +1405,10 @@ export class Editor {
       charge: (sn, dwellMs) => this.trackCharge(sn, null, dwellMs),
       moved: (s, travel) => travel ?? (this.downScreen ? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) : 0),
       cursor: () => this.cursor3,
+      currentSnap: () => this.snapInfo,
+      setHoverFace: (f) => { this.hoverFace = f; },
+      paintMaterialIndex: () => this.materialIndexForPick(),
+      paintFaces: (faces) => this.paintFaces(faces),
       grid: () => this._grid,
       pickLocked: (p) => this.pickIsLocked(p),
       setLiveOverride: (o) => { this.liveOverride = o; },
@@ -1564,13 +1444,13 @@ export class Editor {
     this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
   }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
-  private currentSample(): { cursor3: Pt3 | null; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> } {
-    return { cursor3: this.cursor3, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} };
+  private currentSample(): { cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> } {
+    return { cursor3: this.cursor3, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} };
   }
   private recordSample(s: { x: number; y: number }): void {
     if (!this.gestureActive()) return;
     const t = performance.now();
-    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} });
+    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} });
     while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
   }
   /**
@@ -1610,69 +1490,23 @@ export class Editor {
   pointerUp(ev: ToolPointer): void {
     const s = ev;
     const isTap = (): boolean => !!this.downScreen && (ev.travel ?? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y)) <= this.eps().tap;
-    const settle = (): ReturnType<Editor["settledSample"]> => {
+    const settle = (): GestureSample | null => {
       if (this.justCommitted) return null;
       this.trackGesture(s);
       this.recordSample(s);
       return this.settledSample();
     };
-    switch (this._tool) {
-      case "line":
-      case "rect":
-      case "circle": {
-        if (!this.anchor3) break;
-        if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); break; }
-        const smp = settle();
-        if (this._tool === "line") this.commitLine(smp); else if (this._tool === "rect") this.commitRect(smp); else this.commitCircle(smp);
-        break;
-      }
-      default: {
-        const H = this.handlers[this._tool];
-        if (!H?.active()) break;
-        if (H.grammar === "direct") { H.up?.(this.toolCtx, ev, () => { const smp = settle(); return smp ? { cursor3: smp.cursor3, plane: smp.plane, snap: smp.snap, extra: smp.extra } : null; }); break; }
-        if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); break; }
+    const H = this.handlers[this._tool];
+    if (H?.active()) {
+      if (H.grammar === "direct") H.up?.(this.toolCtx, ev, () => { const smp = settle(); return smp ? { cursor3: smp.cursor3, snap: smp.snap, extra: smp.extra } : null; });
+      else if (this.justCommitted) this.justCommitted = false;
+      else if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); }
+      else {
         // 拖拽松手 = 松手处（抬笔结算帧）的一次按下：先把工具跟到结算帧，再按下
         const smp = settle();
         if (smp) H.track(this.toolCtx, { x: smp.sx, y: smp.sy }, ev.travel);
         H.down(this.toolCtx, ev);
         if (H.active()) this.armed = true; else this.endStepGesture();
-        break;
-      }
-      case "eraseFace": {
-        const view = this.liveWorld();
-        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
-        const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
-        this.cancelGesture();
-        if (c.kind === "entity" && c.local.face !== undefined && this.kernel.face(c.local.face)) this.commitOp({ op: "eraseFaces", at: this.activePool(), faces: [faceKey(this.kernel, c.local.face)] });
-        break;
-      }
-      case "paint": {
-        // 油漆桶：模式来自工具选项（一张面 / 平滑组 / 到锐角为止 / 连通体 / 整个组或组件；Ctrl / Shift 按住 = 临时切模式，SU 同款）。
-        // 一张面：有面选区且点在选区内 → 整个选区一起涂；点到子 group / 组件 → 只有「整个组 / 组件」模式能从外面涂，其余提示进入。
-        const view = this.liveWorld();
-        const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
-        const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
-        this.hoverFace = null;
-        const mode = this.config.effective("paint", "mode", { ctrl: !!ev.copy, shift: ev.shiftKey });
-        const modeLabel = this.config.labelOf("paint", "mode", mode);
-        if (c.kind === "pool") {
-          if (mode !== "pool") { this.host.hint("这张面在子 group / 组件里：双击进入后再涂，或把模式换成「整个组 / 组件」"); break; }
-          const def = this.scene.defOfContext(this.ctx);
-          const ref: PoolRef = c.pick.kind === "group" ? { def, group: c.pick.group } : { def: this.scene.def(def).instances.get(c.pick.instance)!.def, group: null };
-          const pk = this.scene.kernelOf(ref);
-          const keys = pk.faces().map((f) => faceKey(pk, f.id));
-          if (keys.length) this.commitOp({ op: "paintFaces", at: ref, faces: keys, material: this.materialIndexForPick() });
-          this.host.hint(`涂了 ${keys.length} 张面（${modeLabel}${c.pick.kind === "instance" ? "：组件的全部实例一起变" : ""}）`);
-          break;
-        }
-        if (c.kind !== "entity" || c.local.face === undefined) break;
-        const fid = c.local.face;
-        const faces = mode === "single" ? (this.selection.faces.has(fid) ? [...this.selection.faces] : [fid]) : facesForPaint(this.kernel, fid, mode, this.config.get("paint", "sharpDeg"));
-        this.paintFaces(faces);
-        this.host.hint(`涂了 ${faces.length} 张面（${modeLabel}）`);
-        break;
       }
     }
     this.consumeCharges();
@@ -1692,42 +1526,6 @@ export class Editor {
     }
   }
 
-  // ---------- 落笔 ----------
-  private commitLine(smp: { cursor3: Pt3 | null } | null): void {
-    const a = this.anchor3!;
-    const b = smp?.cursor3 ?? this.cursor3 ?? a;
-    if (dist(a, b) < MIN_GESTURE_LEN) { this.cancelGesture(); return; }
-    const n0 = this.opCount, at0 = this.activePool();
-    const evs = this.commitOp({ op: "addEdges", at: at0, segs: [[this.toLocal(a), this.toLocal(b)]] });
-    this.cancelGesture();   // 落定不再自动充能两端（充能只活到下一次按下；锚点的轴线本来就在）
-    this.last = { kind: "line", ops: this.opCount - n0, at: at0, a, b };
-    if (evs.length > 0) return;
-    this.anchor3 = b;
-    this.cursor3 = b;
-    this.armed = true;
-    this.host.hint("连画中：点下一点；出膜自动停；Esc 收笔");
-  }
-  private commitRect(smp: { cursor3: Pt3 | null; plane: DrawPlane } | null): void {
-    const plane = smp?.plane ?? this.gesturePlane;
-    const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
-    const segs = rectSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b);
-    const anchor = this.anchor3!, n0 = this.opCount, at0 = this.activePool();
-    this.cancelGesture();
-    if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) }); this.last = { kind: "rect", ops: this.opCount - n0, at: at0, plane, anchor, corner: b }; }
-  }
-  /** 圆的曲线规格（世界系 → 池本地）：圆心、半径、法向、x 轴指向半径点、段数。 */
-  private circleSpec(center: Pt3, rim: Pt3, plane: DrawPlane, segments: number): CurveSpec {
-    return curveSpecToLocal((pt) => this.toLocal(pt), { kind: "circle", closed: true, params: { center, radius: dist(center, rim), normal: plane.plane.n, xaxis: normalize3(sub3(rim, center)), segments } });
-  }
-  private commitCircle(smp: { cursor3: Pt3 | null; plane: DrawPlane } | null): void {
-    const plane = smp?.plane ?? this.gesturePlane;
-    const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
-    const segments = this.config.get("circle", "segments");
-    const segs = dist(this.anchor3!, b) >= MIN_GESTURE_LEN ? circleSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b, segments) : [];
-    const center = this.anchor3!, n0 = this.opCount, at0 = this.activePool();
-    this.cancelGesture();
-    if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: this.circleSpec(center, b, plane, segments) }); this.last = { kind: "circle", ops: this.opCount - n0, at: at0, plane, center, rim: b, segments }; }
-  }
   /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
   private commitCopies(copies: { payload: ReturnType<Editor["copyPayload"]>; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void {
     const def = this.scene.defOfContext(this.ctx);
