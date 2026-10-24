@@ -1,9 +1,10 @@
 import { Kernel } from "../kernel/kernel.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
+import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3 } from "./pick.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
+import { type GridSettings } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
@@ -11,7 +12,8 @@ import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
-export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
+import { type Frame } from "../scene/xform.ts";
+export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace" | "tape" | "axes" | "protractor";
 export declare const TOOLS: readonly Tool[];
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
@@ -54,11 +56,16 @@ export type EditorTrace = {
 } | {
     kind: "load";
     label: string;
-} | {
+}
+/** 失败行另带复现材料（黑匣子，2026-10-24）：那一步之前的活动池 B-rep + 池地址；预演失败带工具描述。宿主只在内存里留。 */
+ | {
     kind: "fail";
     where: string;
     op: Op | null;
     message: string;
+    brep?: BrepSnapshot;
+    pool?: PoolRef;
+    preview?: Record<string, unknown>;
 };
 export interface EditorHost {
     hint(text: string | null): void;
@@ -74,6 +81,7 @@ export interface EditorHost {
     error?(err: unknown, where: string): void;
 }
 export declare const SNAP_LABELS: Record<string, string>;
+export { type GridSettings, GRID_STEPS } from "./grid-settings.ts";
 export declare function describeEvent(ev: FaceEvent): string;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 export declare const MIN_GESTURE_LEN = 0.01;
@@ -156,6 +164,27 @@ export type LastGesture = {
     anchor: Pt3;
     axis: Pt3 | null;
     f: Pt3;
+}
+/** 卷尺（0.11）：起点 a、产物方向 dir（线 = 垂直偏移方向；点 = 起点→终点）、距离 d；line 另带参考线方向。 */
+ | {
+    kind: "tape";
+    ops: number;
+    at: PoolRef;
+    a: Pt3;
+    dir: Pt3;
+    d: number;
+    make: "line" | "point";
+    lineDir?: Pt3;
+}
+/** 量角器（0.11）：圆心 / 转轴 / 参考点 / 角度 → 角度参考线；VCB 改度数。 */
+ | {
+    kind: "protractor";
+    ops: number;
+    at: PoolRef;
+    center: Pt3;
+    axis: Pt3;
+    ref: Pt3;
+    angle: number;
 };
 export declare class Editor {
     private canvas;
@@ -164,6 +193,14 @@ export declare class Editor {
     private r3;
     private scene;
     private ctx;
+    private _grid;
+    /** 定稿锁（护栏 ②，ai-docs/20261024-finalize.md）：true = 改内容的入口全拒（commit / undo / redo / VCB）。由 session 按文件记录设。 */
+    private _locked;
+    get locked(): boolean;
+    setLocked(on: boolean): void;
+    private lockedSay;
+    get grid(): Readonly<GridSettings>;
+    setGrid(patch: Partial<GridSettings>): void;
     private history;
     private _tool;
     private _revision;
@@ -211,6 +248,8 @@ export declare class Editor {
     private downScreen;
     private justCommitted;
     private charged;
+    /** 充能边（0.11.6，user「载线交点 充能」）：悬停在边上 ≥ 300 ms 的边，最近 2 条；出延长线与延长线交点。 */
+    private chargedEdges;
     private dwell;
     private lastSnap;
     private clickTrain;
@@ -282,6 +321,16 @@ export declare class Editor {
     private slotsOfPick;
     setTool(t: Tool): void;
     cancel(): void;
+    /** 上下文的帧（世界坐标）：根 = 绘图轴，进组 = 组的轴。 */
+    contextFrame(): Frame;
+    addGuideLine(p: Pt3, dir: Pt3): void;
+    addGuidePoint(p: Pt3): void;
+    eraseGuides(ids: readonly number[]): void;
+    /** 清空活动池的参考几何（SU「删除参考线」同款）。 */
+    clearGuides(): void;
+    hasGuides(): boolean;
+    /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴（几何不动）。 */
+    setContextAxes(frame: Frame): void;
     private cancelGesture;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
     private commitOp;
@@ -372,6 +421,8 @@ export declare class Editor {
     private redoXform;
     /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
     abortGesture(): void;
+    /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
+    gestureInProgress(): boolean;
     /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
     hitInSelection(hit: HitResult3): boolean;
     /** 把选区扩成连通体（SU「选择 → 所有相连」）。 */
@@ -379,8 +430,15 @@ export declare class Editor {
     /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
     get lineStyle(): LineStyle;
     setLineStyle(s: LineStyle): void;
+    /** 线稿粗细（设备像素；1 = 原生线，> 1 = 粗线 + SU 轮廓线）。 */
+    get lineWeight(): number;
+    setLineWeight(w: number): void;
     toggleProjection(): void;
     private alignSrcs;
+    private alignEdges;
+    private chargeEdge;
+    /** 悬停在「边上」时那条边的两端（世界坐标；给充能用）。 */
+    private hoveredEdge;
     private chargePt;
     private trackCharge;
     private revalidateCharged;
@@ -393,6 +451,8 @@ export declare class Editor {
     private ppInferenceWorld;
     /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
     private freshHand;
+    /** 预演失败时的复现描述（黑匣子）：工具 + 能重建那一步的参数（活动池本地坐标）。 */
+    private previewDescriptor;
     private computeLive;
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
@@ -407,6 +467,8 @@ export declare class Editor {
     batchDraw(fn: () => void): void;
     draw(): void;
     resize(dpr: number): void;
+    /** 展开到整条曲线（本地 id；显示用，与内核 eraseEdges 的「擦一段 = 整条」同口径）。 */
+    private wholeCurves;
     private updateTip;
     private targetBounds;
     private rebuildScaleHandles;

@@ -171,6 +171,11 @@ export class Editor {
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private _grid: GridSettings = { ...DEFAULT_GRID };
+  /** 定稿锁（护栏 ②，ai-docs/20261024-finalize.md）：true = 改内容的入口全拒（commit / undo / redo / VCB）。由 session 按文件记录设。 */
+  private _locked = false;
+  get locked(): boolean { return this._locked; }
+  setLocked(on: boolean): void { if (this._locked === on) return; this._locked = on; this.cancelGesture(); this.host.changed(); this.draw(); }
+  private lockedSay(): void { this.host.hint("定稿了：锁着。☰「改稿」才能改"); }
   get grid(): Readonly<GridSettings> { return this._grid; }
   setGrid(patch: Partial<GridSettings>): void {
     this._grid = { ...this._grid, ...patch };
@@ -469,6 +474,7 @@ export class Editor {
   // ---------- 记账 ----------
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitOp(op: Op): FaceEvent[] {
+    if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     const t0 = performance.now();
     let r: ReturnType<History["commit"]>;
     try { r = perf.time("commit", () => this.history.commit(this.scene, op)); }
@@ -516,6 +522,7 @@ export class Editor {
   undo(): void {
     this.last = null;
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
+    if (this._locked) { this.lockedSay(); return; }
     const s2 = this.history.undo();
     if (!s2) return;
     this.scene = s2;
@@ -529,6 +536,7 @@ export class Editor {
   }
   redo(): void {
     this.last = null;
+    if (this._locked) { this.lockedSay(); return; }
     let r: ReturnType<History["redo"]>;
     try { r = this.history.redo(this.scene); }
     catch (err) {
@@ -906,6 +914,7 @@ export class Editor {
     const L = this.last;
     if (!L) return { ok: false, error: "先做一步（画 / 推拉 / 移动…），再输精确值" };
     if (this.vcbBlocked()) return { ok: false, error: "先松手落定，再输精确值" };
+    if (this._locked) return { ok: false, error: "定稿了：锁着。☰「改稿」才能改" };
     const v = parseVcb(text, L.kind, { unit: this.vcbUnit });
     if ("error" in v) return { ok: false, error: v.error };
     const at = L.at;

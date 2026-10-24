@@ -1,5 +1,7 @@
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
+import { type Frame } from "../scene/xform.ts";
+import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import type { RigPose } from "../player/player.ts";
@@ -32,6 +34,12 @@ export declare const PALETTE: {
 };
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
 export type LineStyle = "pixel" | "thick";
+/**
+ * 线稿粗细（0.12.3；user 2026-10-24「ipad上面细线稿是不舒服。但是粗线稿又太粗了，有1.5这种选项吗」「sketchup里面粗细线是有区分的啊, dangling edge和轮廓是粗线」）：
+ * 单位 = **设备像素**。1 = 原生 GL 线（最细、最快，没有轮廓区分）；> 1 = 屏幕空间粗线（LineSegments2，不是 3D 实体），
+ * 并按 SU 轮廓线规则加粗：零面边（悬空）/ 单面边（边界）/ 两张面朝向相反的边（剪影）= 轮廓，比内边粗 profileAdd；判定在顶点着色器里按实例做，相机转动不重建几何。
+ */
+export declare const LINE_WEIGHTS: readonly number[];
 export interface ViewState {
     selectionEdges: ReadonlySet<EdgeId>;
     selectionFaces: ReadonlySet<FaceId>;
@@ -65,6 +73,33 @@ export interface ViewState {
         ref: Pt3 | null;
         angle: number;
     } | null;
+    /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
+    guides?: GuidesWorld | null;
+    /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
+    frame?: Frame | null;
+    /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
+    grid?: {
+        frame: Frame;
+        step: number;
+    } | null;
+    /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
+    charged?: {
+        points: readonly Pt3[];
+        edges: readonly {
+            a: Pt3;
+            b: Pt3;
+        }[];
+    } | null;
+    /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
+    tape?: {
+        a: Pt3;
+        b: Pt3;
+        guide?: {
+            p: Pt3;
+            dir: Pt3;
+        } | null;
+        point?: Pt3 | null;
+    } | null;
 }
 export declare class Renderer3 {
     private renderer;
@@ -97,16 +132,26 @@ export declare class Renderer3 {
     private edgeMat;
     private edgePixel;
     private lineStyle;
+    private lineWeight;
+    private readonly profileAdd;
     private hintLines;
     private snapMarker;
     private arcLines;
     private landingRing;
     private handleMarkers;
     private protractorLines;
+    private guideLines;
+    private tapeLines;
+    private gridObj;
+    private chargedLines;
     private faceKey;
     private edgeKey;
     private hintKey;
     private protKey;
+    private guideKey;
+    private tapeKey;
+    private gridKey;
+    private chargedKey;
     private kernelIds;
     private nextKernelId;
     private scratchV;
@@ -181,6 +226,9 @@ export declare class Renderer3 {
     /** 线稿风格（视图菜单「粗线稿」）。 */
     setLineStyle(style: LineStyle): void;
     getLineStyle(): LineStyle;
+    /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
+    setLineWeight(w: number): void;
+    getLineWeight(): number;
     private rebuildEdges;
     private syncPools;
     private hidePools;
@@ -196,8 +244,11 @@ export declare class Renderer3 {
     private xrKeyLight;
     /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
     private lineMat;
-    /** 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）= 一份粗线、一个 draw call。 */
-    private buildStatic;
+    /**
+     * 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）= 一份粗线、一个 draw call。0.11 ⑤ 起跟帧与格距走：线画在帧的 XY 面上、
+     * 过帧原点、沿帧的 x / y；格距太密时按 ≤ 100 格 / 侧抽稀显示（吸附仍按真格距）。
+     */
+    private rebuildGrid;
 }
 /**
  * 面的三角剖分（世界坐标；含洞）——膜批几何与 OBJ 导出等「字节出口」共用，three 的 earcut 不出本文件。

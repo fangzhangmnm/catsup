@@ -73,7 +73,7 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   });
   const materials = scene.materials.map((m) => ({ name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));
   const root = definitions[rootIndex];
-  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes) };
+  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes) };   // final / finalRev 随 base 带
   const doc = newDocument(root.brep, name);
   doc.axes = copyFrame(scene.axes);
   doc.definitions = definitions;

@@ -19,7 +19,7 @@ import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome }
 import { initGalleryHost } from "./gallery-host.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_STEPS, TOOLS, type Tool } from "../editor/editor.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
@@ -307,11 +307,13 @@ function renderShop(): void {
 btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "noclip" | "persp" | "walk";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "finalize" | "revise" | "noclip" | "persp" | "walk";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     switch (id) {
       case "new": void session.newDoc(); break;
+      case "finalize": void (async () => { if (await openConfirmSheet(`定稿第 ${session.finalRev() + 1} 版？`, "之后锁住几何与材质，只能看、量、导出；☰「改稿」随时解锁（版本号不减）。", { okLabel: "定稿" })) await session.finalize(); })(); break;
+      case "revise": void session.revise(); break;
       case "gallery": void galleryHost.open(); break;
       case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
@@ -356,6 +358,9 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     { id: "download", label: "导出 .glb（下载一份）", icon: "download" },
     { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口" },
     { id: "import", label: "导入 OBJ…", icon: "import" },
+    session.finalRecord()
+      ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock" }
+      : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", hint: "锁住几何 / 材质，只能看量导出" },
     { id: "cloud", label: auth.isSignedIn() ? "退出 OneDrive 登录" : "登录 OneDrive", icon: "cloud", sectionBefore: "云", disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? undefined : "未配置 client id" },
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", sectionBefore: "模型", hint: "平滑组" },
     { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么" },
@@ -670,9 +675,11 @@ initSheets();
 initDebugLogSheet();
 // smart save 钮（三条杠下面；对齐 WeebPaint save-status + smartSaveAndPush；user 2026-09-20「title 意义不明可以不要，三条杠下面加一个 smart save button」）
 const btnSave = $<HTMLButtonElement>("btnSave");
+const finalBadge = $<HTMLElement>("finalBadge");   // 定稿角标（ai-docs/20261024-finalize.md）
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {
+  { const f = session.finalRecord(); finalBadge.hidden = !f; if (f) finalBadge.textContent = `定稿 ${f.rev}`; document.body.classList.toggle("doc-final", editor.locked); }   // 护栏 ①：定稿着 → 工具区灰掉
   const st = session.saveState();
   btnSave.dataset.state = st;
   btnSaveIcon.setAttribute("href", `#${st === "local-only" && session.home.kind === "gallery" ? "cloud-unavailable" : SAVE_ICON[st]}`);   // 图库家未登录 = 斜杠云（云不可用，登录可修）

@@ -6,6 +6,8 @@ export interface PopupMenuItem<Id extends string = string> {
     checked?: boolean;
     disabled?: boolean;
     separatorBefore?: boolean;
+    /** 分区小标题（票 2，WeebPaint 范式「人话小标题分区」，不是子菜单）：渲染在本项之前。 */
+    sectionBefore?: string;
 }
 export interface PopupMenuOpts<Id extends string = string> {
     anchor: HTMLElement;

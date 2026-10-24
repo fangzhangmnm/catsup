@@ -68,3 +68,11 @@ export declare function translateMoves(k: Kernel, vids: readonly VertexId[], del
 export declare function moveTargetsSelection(k: Kernel, sel: Selection): VertexId[];
 /** 类型 re-export 便利（main.ts 少一层 import）。 */
 export type { Edge, Face };
+import type { ToolTarget } from "./solver.ts";
+/** 矩形第二点：从首点出发的两条对角线 = 正方形（秩同轴线）；四条黄金分割线（稍低）。 */
+export declare function rectToolTargets(anchor: Pt3, basis: {
+    u: Pt3;
+    v: Pt3;
+}): ToolTarget[];
+/** 两点弧第三点（凸度）：弦中垂线上离弦 |AB|/2 的两个点 = 半圆。 */
+export declare function arcToolTargets(a: Pt3, b: Pt3, n: Pt3): ToolTarget[];

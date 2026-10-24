@@ -95,6 +95,21 @@ export declare class Session {
     adoptRecovered(bytes: Uint8Array, name: string, opts: {
         gate: boolean;
     }): Promise<"gallery" | "transient" | null>;
+    /** 当前文件的定稿记录（null = 没定稿 / 已改稿）。 */
+    finalRecord(): {
+        at: string;
+        rev: number;
+        fingerprint: string;
+    } | null;
+    finalRev(): number;
+    /** 定稿：rev +1，记内容指纹，锁住，保存。 */
+    finalize(): Promise<boolean>;
+    /** 改稿：去掉记录（rev 不减），解锁，存。 */
+    revise(): Promise<boolean>;
+    /** 读文件后核：记录在 → 指纹对得上就锁，对不上 = 作废 + 说一声（旧版 app / 别的软件改过）。 */
+    private verifyFinal;
+    /** 护栏 ③：定稿着时内容指纹必须和记录一致，否则这一轮不写。 */
+    private finalIntact;
     private encode;
     private adopt;
     /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeFileName / **回执条**（@internal/gallery resume-slate）都从这收口。

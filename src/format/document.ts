@@ -28,6 +28,10 @@ export interface CatsupDocument {
   settings: DocumentSettings;
   /** 绘图轴（0.11；document v2）：根上下文的推断原点与三轴，世界坐标；默认世界帧。 */
   axes: Frame;
+  /** 定稿记录（仿 MoonSinger；ai-docs/20261024-finalize.md）：在 = 锁着；读时指纹对不上 = 作废。可选键，不升版本。 */
+  final?: { at: string; rev: number; app: string; fingerprint: string };
+  /** 定稿过几次（改稿不减）。 */
+  finalRev?: number;
   lastView?: unknown;                 // 软字段：相机状态，任何一端可覆盖
   bakeMode: BakeMode;
   /** 全部 definition；root = definitions[rootIndex]（同一对象）。 */

@@ -1,7 +1,7 @@
 export declare const EXTENSION_VERSIONS: {
-    readonly CATSUP_document: 1;
+    readonly CATSUP_document: 2;
     readonly CATSUP_brep: 4;
-    readonly CATSUP_definitions: 3;
+    readonly CATSUP_definitions: 4;
     readonly CATSUP_instance: 1;
     readonly CATSUP_material: 1;
 };

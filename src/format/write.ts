@@ -136,6 +136,8 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
         formatVersion: 1,
         settings: doc.settings,
         axes: { origin: v3(doc.axes.origin), x: v3(doc.axes.x), y: v3(doc.axes.y), z: v3(doc.axes.z) },
+        ...(doc.final ? { final: { ...doc.final } } : {}),
+        ...(doc.finalRev !== undefined ? { finalRev: doc.finalRev } : {}),
         bake: { mode: doc.bakeMode, generator: `CatsUp ${APP_VERSION}` },
         ...(doc.lastView !== undefined ? { lastView: doc.lastView } : {}),
         ...carry.documentExtra,

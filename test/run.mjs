@@ -17,6 +17,7 @@ import "./grid.test.ts";         // 绝对网格 + 整数长度 + 轴向咬合�
 import "./repro-box.test.ts";    // 复现包黑匣子
 import "./pp-stops.test.ts";     // 推拉停靠集（退役清单④）
 import "./tier.test.ts";         // #30 层级档加权
+import "./final.test.ts";        // 定稿：内容指纹 + 记录往返（ai-docs/20261024-finalize.md）
 import "./tool-targets.test.ts"; // 工具自带目标（B22：正方形 / 黄金分割 / 半圆）   // 局部性定理差分 oracle：局部结算 = 全局结算（#26，2026-10-23）    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
 import "./move-inference.test.ts";
 import "./facefind.test.ts";

@@ -10,6 +10,7 @@ import { DEFAULT_SETTINGS } from "./document.ts";
 import { migrateExtension } from "./migrate/index.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
+import { isFinalRecord } from "./final.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
 import { WORLD_FRAME } from "../scene/xform.ts";
 
@@ -141,7 +142,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions") extensions[k] = v;
-  const DOC_KEYS = new Set(["version", "formatVersion", "settings", "bake", "lastView", "axes"]);
+  const DOC_KEYS = new Set(["version", "formatVersion", "settings", "bake", "lastView", "axes", "final", "finalRev"]);
   const documentExtra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(docExt)) if (!DOC_KEYS.has(k)) documentExtra[k] = v;
   const DEF_KEYS = new Set(["version", "root", "list"]);
@@ -155,6 +156,8 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   return {
     settings: { ...DEFAULT_SETTINGS, ...settingsIn } as CatsupDocument["settings"],
     axes: frameOf(docExt.axes, "document.axes"),
+    ...(isFinalRecord(docExt.final) ? { final: { at: docExt.final.at, rev: docExt.final.rev, app: typeof docExt.final.app === "string" ? docExt.final.app : "", fingerprint: docExt.final.fingerprint } } : {}),
+    ...(typeof docExt.finalRev === "number" ? { finalRev: docExt.finalRev } : {}),
     ...(docExt.lastView !== undefined ? { lastView: docExt.lastView } : {}),
     bakeMode: bake.mode === "engine" ? "engine" : "wysiwyg",
     definitions,

@@ -22,13 +22,6 @@ export interface HitResult {
     edge?: EdgeId;
     face?: FaceId;
 }
-/**
- * 褶边判据（pp 哪条环边让邻膜跟着伸缩）：邻膜平面含推向 ⟺ n_邻·n̂ = 0。
- * 2026-10-23 起与 τ 一致（Claude Fable 5.1，总账 #26 清障）：邻膜被拉伸后环的离面量 = |n_邻·n̂|·|h|，**≤ τ 才算褶边**（拉伸像仍在 τ 内平面），
- * 另有角度上限 CREASE_COS_MAX。此前固定 1e-3 弧度：mm 吸附的斜矩形两面墙差 ~5e-4 弧度，正好骑在门槛上——判成「不是褶边」时长出来的侧壁像
- * 离邻膜平面只有零点几毫米（τ 内）→ 同一张平面上两套边投影互撞 → 邻膜胞腔丢失（旧内核静默 BURST 三张面；fuzz clean 种子 418916）。
- * 判据跟 τ 走之后，「不是褶边」就保证侧壁像离邻膜平面 > τ，不会落进同一张平面。
- */
 export declare const CREASE_COS_MAX = 0.1;
 /**
  * 内核 B-rep 的**存储态快照**（持久化契约 ai-docs/20260919-persistence-data-contract.md §5.2 的内存形状；
@@ -83,9 +76,14 @@ export declare class Kernel {
         coplanarTol?: number;
         settleMode?: "local" | "global";
     });
+    /**
+     * 站点粘连（v0.10.3，D11 的跟随这一面）：站环点彼此、或与既有顶点，距离 ≤ SWEEP_STICKY → 同一坐标。
+     * 为什么：斜切投影在双精度下是精确的刚体运动（圆跟随圆两半错位 1e-15），但路径 / 轮廓是内核里 1 µm 格点上的顶点，
+     * 24 站逐站投影把格点噪声放大到 ~1.2 µm = 正好卡在身份量子 Q=1 µm 上 → 一半点合并一半不合并 → 两半的四边形差一根头发 → 共面 τ 内互切出满天尖刺。
+     * SU 的全局合并容差 ≈ 25 µm 天然吞掉这一层；我们身份是 Q 格点，所以在动词里把「同一张扫掠面上本该是一个点的点」先认成一个。
+     */
+    private _stickyStations;
     private _settle;
-    /** 线段上的边（两端都在段上，INSERT_TOL）——登记曲线用。 */
-    private _edgesOn;
     /** 只读窥视用（渲染/测试断言）；改图必须走下面的批量 mutations。 */
     get graph(): PlanarGraph;
     /**

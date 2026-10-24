@@ -1,5 +1,6 @@
 import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, WORLD_FRAME, frameAt, transformFrame } from "./xform.ts";
+import { type Guides } from "./guides.ts";
 export type DefId = number;
 export type GroupId = number;
 export type InstId = number;
@@ -18,7 +19,8 @@ export interface Group {
     parent: GroupId | null;
     axes: Frame;
     kernel: Kernel;
-    name?: string;
+    name?: string; /** 参考几何（0.11；本 definition 坐标）。 */
+    guides: Guides;
 }
 export interface Instance {
     readonly id: InstId;
@@ -37,6 +39,8 @@ export interface Definition {
     nextInst: number;
     /** 材质槽：槽号 → 文档材质索引（契约 §5.3；面存槽号，实例可重映射——重映射未做）。 */
     materialSlots: number[];
+    /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
+    guides: Guides;
 }
 /** 几何池地址 = (definition, group | null)。 */
 export interface PoolRef {
@@ -56,6 +60,8 @@ export declare class Scene {
     readonly root: DefId;
     /** 文档材质表（只增）。 */
     readonly materials: Material[];
+    /** 绘图轴（0.11 尺规纪元）：根上下文的轴，世界坐标；轴工具可搬 / 转，默认 = 世界帧。进 CATSUP_document.axes。 */
+    axes: Frame;
     private nextDef;
     constructor(rootKernel?: Kernel);
     mintDef(name: string, kernel: Kernel): Definition;
@@ -77,6 +83,13 @@ export declare class Scene {
     /** 上下文的 definition（链末实例的定义；空链 = 根）。 */
     defOfContext(ctx: EditContext): DefId;
     poolOfContext(ctx: EditContext): PoolRef;
+    /** 池的参考几何（可变引用；池本地坐标）。 */
+    guidesOf(ref: PoolRef): Guides;
+    /**
+     * 上下文的帧（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①）：根 = 绘图轴；进了 group = 那个 group 的轴；
+     * 进了组件实例 = 那个 definition 的轴（= 单位帧，组件的轴工具未做）——都乘上链上的实例变换。
+     */
+    frameOfContext(ctx: EditContext): Frame;
     /** 上下文的世界变换（链上实例变换的乘积；group 不带变换）。 */
     xformOfContext(ctx: EditContext): Xform;
     /** group 的子 group / 子实例（同一 definition 内，按 parent 链）。 */

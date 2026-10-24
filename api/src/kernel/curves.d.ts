@@ -1,5 +1,5 @@
 import type { EdgeId, VertexId, PlanarGraph } from "./topology.ts";
-import type { Pt3 } from "./geom.ts";
+import { type Pt3 } from "./geom.ts";
 export type CurveId = number;
 export type CurveKind = "circle" | "arc" | "polyline";
 /** 圆 / 弧参数（世界 = 本池本地坐标）：segments = 整圆的段数（弧按它的比例取段）。 */
@@ -23,7 +23,7 @@ export interface CurveSpec {
     closed: boolean;
     params?: CurveParams;
 }
-type G = Pick<PlanarGraph, "hasEdge" | "edge">;
+type G = Pick<PlanarGraph, "hasEdge" | "edge" | "hasVertex" | "vertex" | "pt">;
 export declare class CurveRegistry {
     private byId;
     private ofEdge;
@@ -51,10 +51,17 @@ export declare class CurveRegistry {
     /** ③ 溶解：ea、eb 并成 ne。同链相邻 → 一条顶两条；只有一条在链上 → 顶替它；两条在不同链 → 归 ea 的链，eb 出链。 */
     onMerge(ne: EdgeId, ea: EdgeId, eb: EdgeId): void;
     /**
-     * 在顶点 v 处切断经过它的链（设计稿 §6-④「一条线切过曲线 = 两条曲线」）：用户画的线落在曲线的顶点上就从那里断开——
-     * 闭环 → 从 v 起的开弧；开链中间 → 两条。推拉的侧棱不走这里（不是用户画的线），所以圆柱顶圈不断。
+     * 断点规则（0.10.2，**只在这里判**，结算机尾声对本次星形变过的顶点调一次；user 2026-10-24「这种时候我希望留下 1/4，我 su 里面都是这么画圆弧的」）：
+     * 顶点上有「不属于本曲线、且另一端在本曲线平面 τ 内」的边 → 曲线在此断开（线穿圆 = 两弧；盒底边穿过地上的圆 = 1/4 + 3/4；弧碰到圆周 = 圆变 360° 弧）。
+     * 出平面的边（推拉 / 跟随的侧棱、手画的竖线）= 挂上去，不断（圆柱 / 锥顶圈整）——这是与 SU 的有意分歧：SU 任何线碰顶点都断，但侧棱与手画竖线拓扑上无法区分。
+     * 断是永久的（SU 要 Weld 才合）：擦掉弦，两弧不自愈——身份是历史，不是几何的派生量（否则推拉过的弧会被重新粘回圈里、下次擦一段连柱体底圈一起没）。
+     * 0.10.1 之前这条规则散在动词里（addEdges 先切再登记 → 新圆切不到自己；pushPull / followMe / absorb 根本不切），截图里擦地上一段连推拉体底圈一起没 = 那个病。
      */
-    cutAtVertex(g: G, v: VertexId): void;
+    rechain(g: G, verts: Iterable<VertexId>, tol: number): void;
+    /** 曲线所在平面：有参数用圆心 + 法向；折线用链上顶点的 Newell 平面；退化 → null。 */
+    private planeOf;
+    /** 把曲线 c 在顶点 v 处断开：闭环 → 从 v 起的一条开链；开链 → v 之后的尾巴成新曲线。v 不在链内部（端点 / 不在链上）= 不动。 */
+    private cutAt;
     /** absorbVertex 搬边：from → to。 */
     copy(from: EdgeId, to: EdgeId): void;
     /** 结算后清理：死边出链；链不连通 → 拆成连通段；空的删。 */

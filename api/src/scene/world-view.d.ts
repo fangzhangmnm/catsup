@@ -3,7 +3,14 @@ import type { Edge, EdgeId, FaceId, Pt3, Vertex, VertexId } from "../kernel/kern
 import type { Face } from "../kernel/face-lifecycle.ts";
 import type { PlaneRec } from "../kernel/planes.ts";
 import { type EditContext, type InstId, type Material, type PoolRef, Scene } from "./scene.ts";
-import { type Xform } from "./xform.ts";
+import { type Frame, type Xform } from "./xform.ts";
+import { type GuidesWorld } from "./guides.ts";
+/** 绝对网格（0.11 ⑤）：帧 = 上下文的帧（绘图轴），step = 显示格距（米），sub = 吸附细分（吸附步 = step / sub）。 */
+export interface GridSpec {
+    frame: Frame;
+    step: number;
+    sub: number;
+}
 /** 求解器 / 拾取 / 渲染认识的几何读接口（Kernel 结构上满足）。 */
 export interface GeomView {
     vertices(): Vertex[];
@@ -21,6 +28,14 @@ export interface GeomView {
     isSmooth(id: EdgeId): boolean;
     /** 面的材质（null = 默认灰）。 */
     faceMaterial(id: FaceId): Material | null;
+    /** 上下文的帧（世界坐标；0.11 尺规纪元）：推断的原点与三轴。不给 = 世界帧。 */
+    frame?(): Frame;
+    /** 活动池的参考几何（世界坐标；0.11）。不给 = 没有。 */
+    guides?(): GuidesWorld;
+    /** 绝对网格（0.11 ⑤）：开着才有；格点是最低秩的 0-D 目标，整数长度沿锚点方向取整。 */
+    grid?(): GridSpec | null;
+    /** 候选所在池离活动上下文的层级距离（#30，user 2026-10-24「4听你的」）：0 = 自己；1 = 父母 / 孩子 / 父母的孩子；2 = 其他。不给 = 全 0。 */
+    tierOf?(id: number): 0 | 1 | 2;
     graph: {
         pt(id: VertexId): Pt3;
         edge(id: EdgeId): Edge;
@@ -37,7 +52,8 @@ export interface PoolSlot {
     xform: Xform;
     kernel: Kernel;
     active: boolean;
-    inContext: boolean; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */
+    inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */
+    tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */
     overridden: boolean;
 }
 /** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
@@ -70,10 +86,21 @@ export declare class WorldView implements GeomView {
      */
     readonly scene: Scene;
     readonly ctx: EditContext;
+    private readonly ctxFrame;
+    private readonly ctxGuides;
+    private readonly ctxGrid;
+    frame(): Frame;
+    guides(): GuidesWorld;
+    grid(): GridSpec | null;
     constructor(scene: Scene, ctx: EditContext, live?: Kernel | null, overrides?: readonly {
         match(pool: PoolRef, chain: readonly InstId[]): boolean;
         xform: Xform;
-    }[]);
+    }[], extras?: {
+        grid?: {
+            step: number;
+            sub: number;
+        } | null;
+    });
     private partOf;
     vertices(): Vertex[];
     edges(): Edge[];
@@ -91,6 +118,7 @@ export declare class WorldView implements GeomView {
     slotFaces(index: number): Iterable<Face>;
     slotEdges(index: number): Iterable<Edge>;
     slotOf(gid: number): PoolSlot;
+    tierOf(gid: number): 0 | 1 | 2;
     local(gid: number): {
         slot: PoolSlot;
         id: number;

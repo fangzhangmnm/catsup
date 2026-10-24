@@ -2,7 +2,7 @@ import type { CurveSpec } from "../kernel/kernel.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, Scene } from "../scene/scene.ts";
-import { type Xform } from "../scene/xform.ts";
+import { type Frame, type Xform } from "../scene/xform.ts";
 export type Seg = [PtIn, PtIn];
 /** 边的寻址 = 两端点坐标。 */
 export type EdgeKey = [Pt3, Pt3];
@@ -140,6 +140,27 @@ export type Op = {
     op: "eraseGroup";
     at: PoolRef;
     group: number;
+} | {
+    op: "addGuide";
+    at: PoolRef;
+    line?: {
+        p: Pt3;
+        dir: Pt3;
+    };
+    point?: Pt3;
+} | {
+    op: "eraseGuides";
+    at: PoolRef;
+    ids: number[];
+} | {
+    op: "clearGuides";
+    at: PoolRef;
+}
+/** 改轴：group = 换 group 的帧（definition 坐标，几何不动）；根 = 绘图轴（世界坐标）；组件定义暂不支持。 */
+ | {
+    op: "setAxes";
+    at: PoolRef;
+    frame: Frame;
 };
 export interface ApplyResult {
     scene: Scene;

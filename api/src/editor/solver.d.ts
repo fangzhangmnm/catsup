@@ -17,9 +17,24 @@ export interface View {
 }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 export interface ConTag {
-    kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane";
+    kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool";
     src?: Pt3;
     axis?: AxName;
+    /** 工具目标的人话标签（「正方形」「黄金分割」「半圆」…），直接进光标提示。 */
+    label?: string;
+}
+/**
+ * 工具自带的推断目标（B22，user 2026-10-24「rect, 2 point arc 这些是不是正方形，半圆，你忘了做 snap？这些工具提供的 snap 点你想一下怎么设计接口」）：
+ * SU 的「正方形 / 黄金分割」= 第二点落在从首点出发的对角线上（1-D），「半圆」= 凸度点落在弦中垂线上离弦 |AB|/2 处（0-D），
+ * 「平行 / 垂直于边」= 从首点出发的两条线（1-D）。它们和端点、轴线一样是约束，只是由**工具按当前手势状态造**出来——
+ * 一个口：AlignQuery.toolTargets；求解器当普通约束一起字典序裁决（能与轴线合成交点），标签进提示。
+ */
+export interface ToolTarget {
+    locus: Locus;
+    rank: number;
+    label: string;
+    src?: Pt3;
+    eps?: "point" | "line";
 }
 export type Locus = {
     dim: 0;
@@ -37,16 +52,23 @@ export interface Constraint {
     locus: Locus;
     rank: number;
     eps: number;
-    tag: ConTag;
+    tag: ConTag; /** 层级档（#30）：0 自己 / 1 近亲 / 2 其他；缺省 0。ε 按 TIER_EPS 缩、排序距离按 TIER_DIST 放大 = 近亲优先、远亲照样能吸。 */
+    tier?: 0 | 1 | 2;
 }
+/** #30 捕获半径按层级加权（user 2026-10-24「4听你的」「同组优先就是捕获半径之类的？」）：不是排除——远亲的圈小一点、排序里远一点。 */
+export declare const TIER_EPS: readonly [1, 0.85, 0.7], TIER_DIST: readonly [1, 1.25, 1.6];
+/** 秩（0.11 尺规纪元加参考几何：参考点在端点与中点之间，参考线与边同秩「线上」；线 × 线交点由合成器涌现、0-D 先于 1-D 胜出）。 */
 export declare const RANK: {
     readonly endpoint: 90;
     readonly origin: 80;
+    readonly guidePoint: 75;
     readonly midpoint: 70;
     readonly intersection: 65;
     readonly edge: 60;
+    readonly guide: 60;
     readonly cross: 55;
     readonly axisLine: 45;
+    readonly grid: 20;
     readonly plane: 10;
 };
 export declare const EPS: {
@@ -109,6 +131,11 @@ export interface AlignQuery {
     plane: DrawPlane;
     anchor?: Pt3 | null;
     alignSources?: readonly Pt3[] | null;
+    chargedEdges?: readonly {
+        a: Pt3;
+        b: Pt3;
+    }[] | null;
+    toolTargets?: readonly ToolTarget[] | null;
     lines?: boolean;
     hand: AlignHand;
 }
@@ -122,6 +149,11 @@ export interface SnapContext {
     pf?: PointerFrame | null;
     anchor?: Pt3 | null;
     alignSources?: readonly Pt3[] | null;
+    chargedEdges?: readonly {
+        a: Pt3;
+        b: Pt3;
+    }[] | null;
+    toolTargets?: readonly ToolTarget[] | null;
     lines?: boolean;
     hand?: AlignHand | null;
     /** 候选 ε（本帧量纲）；缺省 = solver.EPS（桌面 px @800）。 */
@@ -162,7 +194,7 @@ export declare function faceCrossSegments(k: GeomView, f1: import("../kernel/ker
     dir: Pt3;
     len: number;
 }[];
-export type SnapKind = "endpoint" | "midpoint" | "on-edge" | "origin" | "axis-x" | "axis-y" | "axis-z" | "align" | "align-combo" | "edge-align" | "intersection" | "cross-line" | "on-face" | "h-stop";
+export type SnapKind = "endpoint" | "midpoint" | "on-edge" | "origin" | "axis-x" | "axis-y" | "axis-z" | "align" | "align-combo" | "edge-align" | "on-extension" | "intersection" | "cross-line" | "on-guide" | "guide-point" | "guide-cross" | "grid-point" | "increment" | "tool" | "on-face" | "h-stop";
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
 export interface SnapHint {
     a: Pt3;
@@ -172,7 +204,8 @@ export interface SnapHint {
 export interface Snap3 {
     p: Pt3;
     kind: SnapKind | null;
-    hints?: SnapHint[];
+    hints?: SnapHint[]; /** 工具目标的人话标签（kind = "tool" 时）。 */
+    label?: string;
 }
 /**
  * 取点吸附（脚手架，spec 级 snap 体系 parked）：
@@ -215,13 +248,15 @@ export declare function resolvePlane(k: GeomView, pf: PointerFrame, vp: Viewport
     hand: AlignHand;
     /** 首点所在平面（如地面）：无膜承接时的兜底平面——不再按指针面向度挑轴平面（2026-09-07 VR：站着画远处地面俯仰 < 20° 就翻成竖直面 =「画线突然跳到空中」）。 */
     basePlane?: DrawPlane | null;
+    /** 工具自带目标（B22；按平面基算的话由调用方按上一帧平面给）。 */
+    toolTargets?: readonly ToolTarget[] | null;
 }): {
     plane: DrawPlane;
     fixed: boolean;
     snap: Snap3;
 };
 /** 薄壳（历史 API；语义=resolvePlane 第二点查询）。 */
-export declare function resolveRectPlane(k: GeomView, pf: PointerFrame, vp: Viewport, p1: Pt3, sx: number, sy: number, tolPx: number, alignSources: readonly Pt3[] | undefined, hand: AlignHand, basePlane?: DrawPlane | null): {
+export declare function resolveRectPlane(k: GeomView, pf: PointerFrame, vp: Viewport, p1: Pt3, sx: number, sy: number, tolPx: number, alignSources: readonly Pt3[] | undefined, hand: AlignHand, basePlane?: DrawPlane | null, toolTargets?: readonly ToolTarget[] | null): {
     plane: DrawPlane;
     snap: Snap3;
 };

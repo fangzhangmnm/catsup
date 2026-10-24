@@ -15,7 +15,7 @@ export declare function simplifyPath(path: readonly Pt3[], closed: boolean, smoo
  * 让第 0 段 = 与轮廓法向最不平行、且离轮廓质心最近的那一段；smoothJoints 同步旋转。开路径不动。
  * 不对齐的后果：第 0 段落在轮廓平面内 → 第 0 站投影塌成线段 → 全部侧面退化被丢 → 扫掠静默变成「只切了几刀」（test/followme 倒角案）。
  */
-export declare function alignClosedPath(rings: readonly (readonly Pt3[])[], path: readonly Pt3[], smoothJoints?: readonly boolean[]): {
+export declare function alignClosedPath(rings: readonly (readonly Pt3[])[], path: readonly Pt3[], smoothJoints?: readonly boolean[], tol?: number): {
     path: Pt3[];
     smoothJoints: boolean[] | undefined;
 };
