@@ -17,7 +17,7 @@
 
 import { Kernel } from "../kernel/kernel.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
+import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, closestOnAxis, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
@@ -78,7 +78,8 @@ export type EditorTrace =
   | { kind: "op"; op: Op; events: number; ms: number; position: number }
   | { kind: "undo" | "redo"; position: number; depth: number }
   | { kind: "load"; label: string }
-  | { kind: "fail"; where: string; op: Op | null; message: string };
+  /** 失败行另带复现材料（黑匣子，2026-10-24）：那一步之前的活动池 B-rep + 池地址；预演失败带工具描述。宿主只在内存里留。 */
+  | { kind: "fail"; where: string; op: Op | null; message: string; brep?: BrepSnapshot; pool?: PoolRef; preview?: Record<string, unknown> };
 
 export interface EditorHost {
   hint(text: string | null): void;
@@ -471,7 +472,9 @@ export class Editor {
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
       if (err instanceof OpApplyError) { this.scene = err.restored; this.bump(); }
-      this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause) });
+      const pool = ("at" in op && op.at) ? op.at : this.activePool();
+      const pre = this.scene.kernelOf(pool);   // err.restored 已装回 = 那一步之前
+      this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause), brep: pre.toBrep(), pool });
       this.fail("commit", cause);
       return [];
     }
@@ -1140,6 +1143,24 @@ export class Editor {
     return hand;
   }
 
+  /** 预演失败时的复现描述（黑匣子）：工具 + 能重建那一步的参数（活动池本地坐标）。 */
+  private previewDescriptor(): Record<string, unknown> {
+    const tool = this._tool, k = this.kernel;
+    const d: Record<string, unknown> = { tool };
+    if (tool === "pp" && this.ppFace !== null && k.face(this.ppFace)) { d.face = faceKey(k, this.ppFace); d.h = this.ppLocalH(this.ppH); }
+    if ((tool === "line" || tool === "rect" || tool === "circle") && this.anchor3 && this.cursor3) {
+      const segs = tool === "line" ? [[this.anchor3, this.cursor3] as [Pt3, Pt3]]
+        : tool === "rect" ? rectSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3)
+        : circleSegmentsOnPlane(this.gesturePlane.plane, this.gesturePlane.basis, this.anchor3, this.cursor3, this.config.get("circle", "segments"));
+      d.segs = segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]);
+    }
+    if (tool === "move") d.move = { anchor: this.anchor3, cursor: this.cursor3, vids: this.moveVids.length, pools: this.movePools.length, copy: this.moveCopy };
+    if (tool === "rotate") d.rotate = { center: this.rotCenter, axis: this.rotAxis, angle: this.rotAngle };
+    if (tool === "scale") d.scale = { anchor: this.scaleActive?.anchor ?? null, f: this.scaleFactor };
+    const H = this.handlers[tool];
+    if (H?.active()) d.sample = H.sample();
+    return d;
+  }
   // ---------- live（影子副本预演） ----------
   private computeLive(): void {
     this.live = null;
@@ -1148,7 +1169,11 @@ export class Editor {
     const run = (fn: (c: Kernel) => FaceEvent[]): void => {
       const c = perf.time("live.clone", () => this.kernel.clone());
       try { this.liveEvents = perf.time("live.run", () => fn(c)); }
-      catch (err) { this.liveEvents = []; this.live = null; this.fail("preview", err); return; }
+      catch (err) {
+        this.liveEvents = []; this.live = null;
+        this.host.trace?.({ kind: "fail", where: "preview", op: null, message: err instanceof Error ? err.message : String(err), brep: this.kernel.toBrep(), pool: this.activePool(), preview: this.previewDescriptor() });
+        this.fail("preview", err); return;
+      }
       this.live = c;
     };
     const tool = this._tool;

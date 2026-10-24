@@ -37,6 +37,7 @@ import { initCrashRecovery } from "./crash-recovery.ts";
 import { crashStore } from "./crash-store.ts";
 import { initDebugLog, note, record, toText as debugLogText, entries as debugLogEntries } from "./debug-log.ts";
 import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet } from "./debug-log-sheet.ts";
+import { capture as reproCapture } from "./repro-box.ts";
 import { traceLine } from "./debug-lines.ts";
 import { WORLD_FRAME } from "../scene/xform.ts";
 
@@ -105,7 +106,10 @@ const editor = new Editor(canvas, {
       tipEl.style.top = `${cy - 28}px`;
     } else tipEl.hidden = true;
   },
-  trace: (e) => note("op", traceLine(e)),   // 记账面包屑 → 黑匣子（一 op 一行；失败行带 op JSON）
+  trace: (e) => {
+    note("op", traceLine(e));   // 记账面包屑 → 黑匣子（一 op 一行；失败行带 op JSON）
+    if (e.kind === "fail" && e.brep) reproCapture({ where: e.where, message: e.message, brep: e.brep, ...(e.op ? { op: e.op } : {}), ...(e.preview ? { preview: e.preview } : {}), ...(e.pool ? { pool: e.pool } : {}) });   // 复现包（只住内存，关窗就没）
+  },
   marquee: (r) => {
     if (!r) { marqueeEl.hidden = true; return; }
     const b = canvas.getBoundingClientRect();
