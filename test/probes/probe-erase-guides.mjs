@@ -24,8 +24,12 @@ await page.evaluate(() => { globalThis.__catsup.editor.addGuideLine({ x: 0, y: 1
 await scrub(setup.empty, { x: setup.empty.x + 10, y: setup.empty.y + 10 });
 const afterEmpty = await page.evaluate(() => { const g = globalThis.__catsup.editor.worldGeom().guides(); return [g.lines.length, g.points.length]; });
 const undo = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.undo(); const g = e.worldGeom().guides(); return [g.lines.length, g.points.length]; });
-const res = { setupN: setup.n, afterLine, afterPoint, afterEmpty, undo };
+// 边：画一条线，橡皮刮过去 → 没了；刮空处 → 还在
+const edgeSetup = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "addEdges", segs: [[{ x: -2, y: 0, z: 0 }, { x: -2, y: 2, z: 0 }]] }); const vp = e.vp(); return { n: e.kernel.edges().length, on: e.cam.angularPx({ x: -2, y: 1, z: 0 }, vp) }; });
+await scrub({ x: edgeSetup.on.x - 6, y: edgeSetup.on.y }, { x: edgeSetup.on.x + 6, y: edgeSetup.on.y });
+const edgesAfter = await page.evaluate(() => globalThis.__catsup.editor.kernel.edges().length);
+const res = { setupN: setup.n, afterLine, afterPoint, afterEmpty, undo, edgeSetupN: edgeSetup.n, edgesAfter };
 console.log(JSON.stringify(res));
-const ok = setup.n === 2 && afterLine[0] === 0 && afterLine[1] === 1 && afterPoint[1] === 0 && afterEmpty[0] === 1 && undo[0] === 0;
+const ok = setup.n === 2 && afterLine[0] === 0 && afterLine[1] === 1 && afterPoint[1] === 0 && afterEmpty[0] === 1 && undo[0] === 0 && edgeSetup.n === 1 && edgesAfter === 0;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

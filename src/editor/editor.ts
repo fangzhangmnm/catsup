@@ -35,7 +35,6 @@ import { ppStopsOf } from "./pp-stops.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
-import { pickGuide, withoutGuides } from "./guide-pick.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
@@ -221,10 +220,6 @@ export class Editor {
   private scaleT0 = 1;
   private scaleFactor: Pt3 = { x: 1, y: 1, z: 1 };
   private samples: GestureSample[] = [];
-  private scrubAcc = new Set<EdgeId>();
-  private scrubGuides = new Set<number>();   // 橡皮刮过的参考线 / 参考点 id（D18；活动池的）
-  private scrubbing = false;
-  private eraseMode: "erase" | "soften" | "harden" = "erase";
   private selection: Selection = emptySelection();
   private selectedPools = new Map<string, PoolPick>();
   private marqueeStart: { x: number; y: number } | null = null;
@@ -463,9 +458,6 @@ export class Editor {
     this.justCommitted = false;
     this.cursor3 = null;
     this.snapInfo = null;
-    this.scrubAcc = new Set();
-    this.scrubGuides = new Set();
-    this.scrubbing = false;
     this.marqueeStart = this.marqueeCur = null;
     this.hoverEdge = null;
     this.hoverFace = null;
@@ -1239,7 +1231,7 @@ export class Editor {
 
   // ---------- 世界源 ----------
   private gestureActive(): boolean {
-    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.scrubbing || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null || Object.values(this.handlers).some((h) => h.active());
+    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.marqueeStart !== null || this.rotStage === 2 || this.scaleActive !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
   private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
@@ -1422,7 +1414,7 @@ export class Editor {
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,
       selectionFaces: selF,
-      scrubEdges: new Set([...this.wholeCurves([...this.scrubAcc, ...(this._tool === "erase" && this.hoverEdge !== null ? [this.hoverEdge] : [])])].map(g)),   // 橡皮：擦一段 = 整条，高亮也整条（user 10-24「delete 的时候也应该整体高亮」）
+      scrubEdges: new Set<number>(),   // 橡皮模块经 viewExtras 覆盖（擦一段 = 整条，高亮也整条）
       hoverEdge: this.hoverEdge !== null ? g(this.hoverEdge) : null,
       hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
       preview: null,
@@ -1433,30 +1425,15 @@ export class Editor {
       // 缩放柄跟着预演实时动（user 2026-10-21「缩放的handle应该跟着实时动」）：拖动中按当前倍率把柄过一遍同一个变换
       handles: this._tool === "scale" ? (() => { const X = this.scaleActive ? scalingAbout(this.scaleActive.anchor, this.scaleFactor) : null; return this.scaleHandles.map((h) => ({ p: X ? applyPt(X, h.p) : h.p, active: h === this.scaleActive })); })() : null,
       protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
-      guides: withoutGuides(view.guides(), this.scrubGuides),   // 橡皮刮过的参考几何先从画面消失（D18）
+      guides: view.guides(),
       frame: view.frame(),
       grid: { frame: view.frame(), step: this._grid.on ? this._grid.step : 1 },
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       ...(this.mode.viewExtras?.() ?? {}),
-      ...(this.handlers[this._tool]?.viewExtras?.() ?? {}),
+      ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
     });
   }
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
-  /** 橡皮刮到参考几何（D18）：活动池的参考线（无限长）/ 参考点，屏距 ≤ hit 容差就进刮集。 */
-  private scrubGuideAt(view: WorldView, sx: number, sy: number): void {
-    const g = pickGuide(view.guides(), this.frame(), this.fvp(), sx, sy, this.hitPx());
-    if (g) this.scrubGuides.add(g.id);
-  }
-  /** 展开到整条曲线（本地 id；显示用，与内核 eraseEdges 的「擦一段 = 整条」同口径）。 */
-  private wholeCurves(ids: Iterable<EdgeId>): Set<EdgeId> {
-    const k = this.kernel, out = new Set<EdgeId>();
-    for (const e of ids) {
-      out.add(e);
-      const cid = k.graph.hasEdge(e) ? k.curveOf(e) : undefined;
-      if (cid !== undefined) for (const x of k.curveById(cid)!.edges) if (k.graph.hasEdge(x)) out.add(x);
-    }
-    return out;
-  }
   private updateTip(clientX: number, clientY: number): void {
     this.host.tip(this.snapInfo?.kind ? (this.snapInfo.kind === "tool" ? this.snapInfo.label ?? "工具" : SNAP_LABELS[this.snapInfo.kind] ?? this.snapInfo.kind) : null, clientX, clientY);
   }
@@ -1654,19 +1631,6 @@ export class Editor {
         this.host.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖");
         break;
       }
-      case "erase": {
-        this.scrubbing = true;
-        this.scrubAcc = new Set();
-        this.hoverEdge = null;
-        this.eraseMode = ev.copy ? "soften" : ev.shiftKey ? "harden" : "erase";
-        this.host.hint(this.eraseMode === "soften" ? "软化：刮过的边变软 + 平滑（Ctrl）" : this.eraseMode === "harden" ? "硬化：刮过的边变硬（Shift）" : null);
-        const hit = pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx());
-        const c = this.classify(view, hit);
-        if (c.kind === "entity" && c.local.edge !== undefined) this.scrubAcc.add(c.local.edge);
-        this.scrubGuideAt(view, s.x, s.y);
-        this.computeLive();
-        break;
-      }
       case "select":
         this.marqueeStart = { x: s.x, y: s.y };
         this.marqueeCur = { x: s.x, y: s.y };
@@ -1720,9 +1684,6 @@ export class Editor {
         this.hoverSnap(s);
       } else if (tool === "rotate" && this.rotStage === 1 && this.rotCenter) {
         this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y);
-      } else if (tool === "erase") {
-        const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
-        this.hoverEdge = c.kind === "entity" ? (c.local.edge ?? null) : null;
       } else if (tool === "eraseFace" || tool === "paint") {
         const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
         const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
@@ -1738,13 +1699,6 @@ export class Editor {
     }
     this.trackGesture(s, ev.travel);
     switch (this._tool) {
-      case "erase": {
-        const view = this.liveWorld();
-        const c = this.classify(view, pickEntity(view, this.frame(), this.fvp(), s.x, s.y, this.hitPx()));
-        if (c.kind === "entity" && c.local.edge !== undefined) this.scrubAcc.add(c.local.edge);
-        this.scrubGuideAt(view, s.x, s.y);
-        break;
-      }
       case "select":
         if (this.marqueeStart) {
           this.marqueeCur = { x: s.x, y: s.y };
@@ -1892,6 +1846,8 @@ export class Editor {
       contextFrame: () => this.contextFrame(),
       setAxes: (f) => this.setContextAxes(f),
       hoverSnap: (s) => this.hoverSnap(s),
+      setHoverEdge: (e) => { this.hoverEdge = e; },
+      softenEdges: (ids, on) => this.softenEdges(ids, on),
     };
   }
   /** 取点悬停（无手势）：画面平面 + 吸附（迟滞）+ 充能。内建的画线 / 矩形 / 圆 / 移动与模块工具共用。 */
@@ -2068,17 +2024,6 @@ export class Editor {
       }
       case "scale": {
         if (this.scaleActive) this.commitScale(settle());
-        break;
-      }
-      case "erase": {
-        const ids = [...this.scrubAcc], gids = [...this.scrubGuides];
-        const mode = this.eraseMode;
-        this.cancelGesture();
-        const k = this.kernel;
-        if (mode === "erase" && gids.length) this.eraseGuides(gids);   // D18：刮过的参考线 / 参考点一起擦（活动池的）
-        if (mode !== "erase") { this.softenEdges(ids.filter((id) => k.graph.hasEdge(id) && k.graph.edge(id).faceLinks.length >= 2), mode === "soften"); break; }   // 橡皮 + Ctrl = 软化、+ Shift = 硬化（SU 同款修饰）
-        const edges = ids.filter((id) => k.graph.hasEdge(id)).map((id) => edgeKey(k, id));
-        if (edges.length) this.commitOp({ op: "eraseEdges", at: this.activePool(), edges });
         break;
       }
       case "select": {

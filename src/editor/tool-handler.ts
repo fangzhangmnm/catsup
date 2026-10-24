@@ -6,7 +6,7 @@
 // 工具只认这里递给它的 ToolCtx，**不 import 别的工具、不碰 editor.ts 的私有字段**——这就是以后 VR 换一套手势实现的接缝。
 // 搬迁纪律：行为零变更（搬的是代码位置不是语义），每搬一个过同一套探针。
 import type { Kernel } from "../kernel/kernel.ts";
-import type { FaceEvent, FaceId, Pt3 } from "../kernel/kernel.ts";
+import type { EdgeId, FaceEvent, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
 import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
 import type { WorldView } from "../scene/world-view.ts";
@@ -68,6 +68,10 @@ export interface ToolCtx {
   setSnap(sn: Snap3 | null): void;
   /** 数值小窗：记下「刚做完的那一步」。 */
   recordLast(L: LastGesture): void;
+  /** 悬停高亮光标下的边（渲染 hoverEdge；null = 清）。 */
+  setHoverEdge(e: EdgeId | null): void;
+  /** 软化 / 硬化一批边（layers soft + smooth 一条 op；橡皮的 Ctrl / Shift 修饰用）。 */
+  softenEdges(ids: readonly EdgeId[], on: boolean): void;
   /** 取点悬停（无手势）：画面平面 + 吸附 + 充能 + 光标提示——line / rect / 卷尺 / 轴 / 量角器都用这一套。 */
   hoverSnap(s: { x: number; y: number }): void;
   // ---- 0.11 尺规纪元：轴 ----
@@ -115,5 +119,5 @@ export interface ToolHandler {
   /** 本工具要进样本环的数（抬笔结算回放时按 extra 读回）。 */
   sample(): Record<string, number>;
   /** 本工具的叠加层（量线 / 候选参考线…）：底座每帧并进 ViewState（0.11）。 */
-  viewExtras?(): Partial<ViewState>;
+  viewExtras?(ctx: ToolCtx): Partial<ViewState>;
 }
