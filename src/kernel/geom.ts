@@ -156,6 +156,40 @@ export function planeFromPoints(a: Pt3, b: Pt3, c: Pt3): PlaneParams | null {
   return canonicalPlane(n, dot3(n, a));
 }
 
+/**
+ * 环的平面（Newell 法：法向 = 各边 (a×b) 之和，对整环求和；d = n·质心），canonical。
+ * 比「取前三个点」稳：µm 级尖刺 / 近共线三点不会给出垃圾法向（2026-10-23 fuzz 种子 314187：环起点一换、前三点近共线 → 认领不到）。
+ * 退化（法向长度 ≤ EPS·周长²）→ null。非平面环给出的是「平均平面」，只配拿来做共面测试 / 候选匹配。added by Claude Fable 5.1
+ */
+export function planeOfRing(ring: readonly Pt3[]): PlaneParams | null {
+  const n = ring.length;
+  if (n < 3) return null;
+  let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0, per = 0;
+  for (let i = 0; i < n; i++) {
+    const a = ring[i], b = ring[(i + 1) % n];
+    nx += (a.y - b.y) * (a.z + b.z);
+    ny += (a.z - b.z) * (a.x + b.x);
+    nz += (a.x - b.x) * (a.y + b.y);
+    cx += a.x; cy += a.y; cz += a.z;
+    per += dist3(a, b);
+  }
+  const l = Math.hypot(nx, ny, nz);
+  if (per <= EPS) return null;
+  // 退化门槛按「高度」算：|N| = 2·面积 ≈ 底 × 高，底 ≲ 周长 ⇒ 高 ≲ |N| / 周长 ≤ EPS 才算退化（1 µm 高的尖刺三角是合法几何，Q 格点就这么细）。
+  // Newell 抵消（蝴蝶结两瓣面积相等 → 和为零）或退化时，退回良态三元组：a = 首点，b = 离 a 最远，c = 与 ab 叉积最大。
+  if (l <= EPS * per) {
+    const a = ring[0];
+    let b = a, lb = 0;
+    for (const p of ring) { const d = dist3(a, p); if (d > lb) { lb = d; b = p; } }
+    let c = a, lc = 0;
+    const ab = sub3(b, a);
+    for (const p of ring) { const cr = cross3(ab, sub3(p, a)); const m = len3(cr); if (m > lc) { lc = m; c = p; } }
+    return planeFromPoints(a, b, c);
+  }
+  const nrm = { x: nx / l, y: ny / l, z: nz / l };
+  return canonicalPlane(nrm, dot3(nrm, { x: cx / n, y: cy / n, z: cz / n }));
+}
+
 export function distToPlane(p: Pt3, pl: PlaneParams): number {
   return Math.abs(dot3(p, pl.n) - pl.d);
 }

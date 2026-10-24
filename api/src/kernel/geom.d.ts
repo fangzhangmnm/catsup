@@ -50,6 +50,12 @@ export interface PlaneParams {
 export declare function canonicalPlane(nRaw: Pt3, d: number): PlaneParams;
 /** 三点定平面；共线（叉积过小）→ null。 */
 export declare function planeFromPoints(a: Pt3, b: Pt3, c: Pt3): PlaneParams | null;
+/**
+ * 环的平面（Newell 法：法向 = 各边 (a×b) 之和，对整环求和；d = n·质心），canonical。
+ * 比「取前三个点」稳：µm 级尖刺 / 近共线三点不会给出垃圾法向（2026-10-23 fuzz 种子 314187：环起点一换、前三点近共线 → 认领不到）。
+ * 退化（法向长度 ≤ EPS·周长²）→ null。非平面环给出的是「平均平面」，只配拿来做共面测试 / 候选匹配。added by Claude Fable 5.1
+ */
+export declare function planeOfRing(ring: readonly Pt3[]): PlaneParams | null;
 export declare function distToPlane(p: Pt3, pl: PlaneParams): number;
 /** 确定性正交基：同一 canonical 平面每次算出同一 (u,v)——投影坐标跨重跑稳定的根基。 */
 export declare function planeBasis(pl: PlaneParams): {

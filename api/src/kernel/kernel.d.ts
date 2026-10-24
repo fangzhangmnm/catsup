@@ -20,8 +20,14 @@ export interface HitResult {
     edge?: EdgeId;
     face?: FaceId;
 }
-/** 褶边判据（pp 哪条环边让邻膜跟着伸缩）：邻膜平面含推向 ⟺ n_邻·n̂ = 0。数值门限：法向夹角余弦。 */
-export declare const CREASE_COS = 0.001;
+/**
+ * 褶边判据（pp 哪条环边让邻膜跟着伸缩）：邻膜平面含推向 ⟺ n_邻·n̂ = 0。
+ * 2026-10-23 起与 τ 一致（Claude Fable 5.1，总账 #26 清障）：邻膜被拉伸后环的离面量 = |n_邻·n̂|·|h|，**≤ τ 才算褶边**（拉伸像仍在 τ 内平面），
+ * 另有角度上限 CREASE_COS_MAX。此前固定 1e-3 弧度：mm 吸附的斜矩形两面墙差 ~5e-4 弧度，正好骑在门槛上——判成「不是褶边」时长出来的侧壁像
+ * 离邻膜平面只有零点几毫米（τ 内）→ 同一张平面上两套边投影互撞 → 邻膜胞腔丢失（旧内核静默 BURST 三张面；fuzz clean 种子 418916）。
+ * 判据跟 τ 走之后，「不是褶边」就保证侧壁像离邻膜平面 > τ，不会落进同一张平面。
+ */
+export declare const CREASE_COS_MAX = 0.1;
 /**
  * 内核 B-rep 的**存储态快照**（持久化契约 ai-docs/20260919-persistence-data-contract.md §5.2 的内存形状；
  * src/format 负责它与字节的互换，内核只认这个）。全部用**索引**不用 id（不铸 id）；坐标 = 米（装载时量化）。
@@ -60,9 +66,13 @@ export declare class Kernel {
     get curve(): Set<EdgeId>;
     /** coplanarity 容差 τ——头号 UX 旋钮（drill L297）。只管平面分组/归属；几何保持精确共面。 */
     readonly coplanarTol: number;
+    /** 结算模式：local = 影响域局部结算（默认）；global = 全平面全膜（差分 oracle 用，结果必须与 local 逐字相同——立宪页 §3「局部性定理」）。 */
+    readonly settleMode: "local" | "global";
     constructor(opts?: {
         coplanarTol?: number;
+        settleMode?: "local" | "global";
     });
+    private _settle;
     /** 只读窥视用（渲染/测试断言）；改图必须走下面的批量 mutations。 */
     get graph(): PlanarGraph;
     /**

@@ -74,6 +74,33 @@ export class PlanarGraph {
     for (const id of ids) { const e = this.edgesById.get(id); if (e) out.push(e); }
     return out;
   }
+  /**
+   * 落在包围盒 [min, max]（外扩一格）附近的边（超集；调用方照旧做几何判定）。影响域定理的第四项用它：
+   * 新膜包围盒里不连通的旧闭环 = 它的洞，不走顶点传递也得进边集。格太多（盒比边还多）就退化成全扫 + 包围盒相交测试。
+   * added 2026-10-23 by Claude Fable 5.1
+   */
+  edgesInBox(min: Pt3, max: Pt3): Edge[] {
+    const ix0 = cellOf(min.x) - 1, iy0 = cellOf(min.y) - 1, iz0 = cellOf(min.z) - 1;
+    const ix1 = cellOf(max.x) + 1, iy1 = cellOf(max.y) + 1, iz1 = cellOf(max.z) + 1;
+    const cells = (ix1 - ix0 + 1) * (iy1 - iy0 + 1) * (iz1 - iz0 + 1);
+    const out: Edge[] = [];
+    if (cells > this.edgesById.size) {
+      const lo = { x: (ix0) * CELL, y: (iy0) * CELL, z: (iz0) * CELL }, hi = { x: (ix1 + 1) * CELL, y: (iy1 + 1) * CELL, z: (iz1 + 1) * CELL };
+      for (const e of this.edgesById.values()) {
+        const a = this.pt(e.a), b = this.pt(e.b);
+        if (Math.max(a.x, b.x) < lo.x || Math.min(a.x, b.x) > hi.x || Math.max(a.y, b.y) < lo.y || Math.min(a.y, b.y) > hi.y || Math.max(a.z, b.z) < lo.z || Math.min(a.z, b.z) > hi.z) continue;
+        out.push(e);
+      }
+      return out;
+    }
+    const ids = new Set<EdgeId>();
+    for (let ix = ix0; ix <= ix1; ix++) for (let iy = iy0; iy <= iy1; iy++) for (let iz = iz0; iz <= iz1; iz++) {
+      const set = this.grid.get(cellKey(ix, iy, iz));
+      if (set) for (const id of set) ids.add(id);
+    }
+    for (const id of ids) { const e = this.edgesById.get(id); if (e) out.push(e); }
+    return out;
+  }
   /** 离线段 ab 不远的顶点（= 近边的端点；孤立顶点不存在，所以这就是全集的超集）。 */
   verticesNear(a: Pt3, b: Pt3): Vertex[] {
     const ids = new Set<VertexId>();

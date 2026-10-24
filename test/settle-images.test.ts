@@ -69,6 +69,50 @@ describe("像表结算机: 规则", () => {
     for (const f of k.faces()) eq(f.outer.edges.length, 4, "每面四边");
   });
 
+  it("#26 第二次拉之后贴棱描线：墙不许 BURST（10-23 截图根因 = 平面归属缓存在溶解后过期；现在归属按影响域现算）", () => {
+    const k = cube();
+    k.pushPull(faceAt(k, P(5, 5, 10))!, 2);          // 竖棱经溶解合并成新 id
+    const ev = k.addEdges([[P(3, 0, 12), P(7, 0, 12)]]);   // 只在前顶棱上描一段线
+    invariants(k);
+    eq(ev.length, 0, "描线不该有任何事件");
+    eq(k.faces().length, 6, "六面都在");
+    assert(faceAt(k, P(5, 0, 6)) !== undefined, "前墙还在");
+  });
+  it("#26 先拉侧墙再在顶面贴着那条顶棱画矩形：顶面要 DIVIDE（此前静默零事件）", () => {
+    const k = cube();
+    k.pushPull(faceAt(k, P(10, 5, 5))!, 2);
+    const ev = loop(k, [P(8, 3, 10), P(12, 3, 10), P(12, 7, 10), P(8, 7, 10)]);
+    invariants(k);
+    eq(ev.filter((e) => e.type === "DIVIDE").length, 1, "一条 DIVIDE");
+    eq(k.faces().length, 7, "7 面");
+    assert(faceAt(k, P(10, 5, 10)) !== undefined, "内矩形有膜");
+  });
+  it("#26 拉顶面后在前墙里画矩形：前墙 DIVIDE 成环带 + 内岛，不许整张被静默换成小矩形", () => {
+    const k = cube();
+    k.pushPull(faceAt(k, P(5, 5, 10))!, 2);
+    const ev = loop(k, [P(3, 0, 3), P(7, 0, 3), P(7, 0, 8), P(3, 0, 8)]);
+    invariants(k);
+    eq(ev.filter((e) => e.type === "DIVIDE").length, 1, "一条 DIVIDE");
+    eq(k.faces().length, 7, "7 面");
+    assert(faceAt(k, P(1, 0, 1)) !== undefined, "前墙环带还在");
+    assert(faceAt(k, P(5, 0, 5)) !== undefined, "内岛有膜");
+  });
+  it("跟随：闭路径起点任意（面环起点只是追踪顺序的产物）——四种旋转都得到同一个倒角实体", () => {
+    const mk = (): Kernel => { const k = cube(); k.addEdges([[P(10, 0, 9), P(10, 1, 10)]]); return k; };
+    const faceCount = new Set<number>();
+    for (let rot = 0; rot < 4; rot++) {
+      const k = mk();
+      const tri = k.faces().find((f) => f.outer.edges.length === 3)!;
+      const top = faceAt(k, P(5, 5, 10))!;
+      const ring = k.faceRings3(top)!.outer;
+      const path = [...ring.slice(rot), ...ring.slice(0, rot)];
+      k.followMe(tri.id, path, { closed: true, smoothJoints: path.map(() => false) });
+      invariants(k);
+      faceCount.add(k.faces().length);
+      eq(k.faces().length, 10, `旋转 ${rot}：6 + 4 倒角面`);
+    }
+    eq(faceCount.size, 1);
+  });
   it("用户自己的分割点不溶解（不对称律）：两笔共线画线留两条边，之后推拉也不并", () => {
     const k = new Kernel();
     loop(k, [P(0, 0), P(10, 0), P(10, 10), P(0, 10)]);

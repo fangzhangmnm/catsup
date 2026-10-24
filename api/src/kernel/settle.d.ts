@@ -52,7 +52,10 @@ export declare function ringsOf(g: PlanarGraph, f: {
 export declare function windingOf(p: Pt, poly: readonly Pt[]): number;
 /**
  * 结算机本体。g / store / reg 原地修改；返回事件叙事。
+ * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
  */
-export declare function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable): FaceEvent[];
+export declare function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable, opts?: {
+    global?: boolean;
+}): FaceEvent[];
 /** 一张像沿 δ 平移（pp 的帽）。 */
 export declare const translateImage: (rings: readonly (readonly Pt3[])[], delta: Pt3) => Pt3[][];

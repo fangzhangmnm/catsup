@@ -13,10 +13,10 @@
 //   按边 id 的 parity toggle、洞环三律、movedOuter 补手势、预演开区间样本；结算机的 zeroClaimKeep + repairRings、ringKey 去重。
 // 不在本机的：擦边（loop 身份即意图：外环=BURST / 洞=ABSORB / 同平面共享=MERGE，face-lifecycle.ts）、删膜（纯出库）。
 
-import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeFromPoints, pointInRing, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, sub3 } from "./geom.ts";
+import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeOfRing, pointInRing, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, sub3 } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type DirEdge, type Region, type Ring, representativePoint } from "./facefind.ts";
-import { type PlaneId, PlaneRegistry } from "./planes.ts";
+import { type PlaneId, PlaneRegistry, discoverPlanes } from "./planes.ts";
 import { INSERT_TOL, insertSegment } from "./subdivide.ts";
 import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
@@ -98,8 +98,7 @@ function collinear2(g: PlanarGraph, vid: VertexId): { a: VertexId; b: VertexId; 
 function planarPieces(im: Image, tol: number): { images: Image[]; creases: Seg3[] } {
   const outer = dedupeRing(im.rings[0]);
   if (outer.length < 3) return { images: [], creases: [] };
-  let plane = null;
-  for (let i = 0; i + 2 < outer.length && !plane; i++) plane = planeFromPoints(outer[i], outer[i + 1], outer[i + 2]);
+  const plane = planeOfRing(outer);
   if (!plane) return { images: [], creases: [] };   // 整环退化成线
   const all = [outer, ...im.rings.slice(1).map(dedupeRing)];
   if (all.every((r) => r.every((p) => distToPlane(p, plane!) <= tol))) return { images: [{ ...im, rings: all }], creases: [] };
@@ -126,8 +125,10 @@ interface Claim { im: Image; }
 
 /**
  * 结算机本体。g / store / reg 原地修改；返回事件叙事。
+ * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
  */
-export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable): FaceEvent[] {
+export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable, opts?: { global?: boolean }): FaceEvent[] {
+  const GLOBAL = !!opts?.global;
   const events: FaceEvent[] = [];
   let tMark = performance.now();
   const mark = (name: string): void => { const t = performance.now(); perf.last[`settle.${name}`] = t - tMark; tMark = t; };
@@ -142,13 +143,12 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   // 身份像只拍「可能被碰到的平面」上的膜（④ 的超集，用插边前的坐标算：被消耗膜的平面 + 动词像的平面 + 含任一脏边 / 任一待插线段的平面，
   // 容差放宽 INSERT_TOL 盖住插边时的粘连位移）。其余膜本次保证原地不动，不需要身份像——2400 面全拍 ringsOf 一次 5.5 ms（#22）
   const maybeTouched = new Set<PlaneId>(touchedPlanes);
+  if (GLOBAL) for (const rec of reg.all()) maybeTouched.add(rec.id);
   for (const im of verbImages) {
-    const ring = im.rings[0];
-    let plane = null;
-    for (let i = 0; i + 2 < ring.length && !plane; i++) plane = planeFromPoints(ring[i], ring[i + 1], ring[i + 2]);
+    const plane = planeOfRing(im.rings[0]);
     if (plane) maybeTouched.add(reg.ensure(plane, tol).id);
   }
-  {
+  if (!GLOBAL) {
     const segs: [Pt3, Pt3][] = [];
     for (const id of dirty) if (g.hasEdge(id)) { const e = g.edge(id); segs.push([g.pt(e.a), g.pt(e.b)]); }
     for (const s of [...(table.gesture ?? []), ...(table.wires ?? []), ...creases]) segs.push([s.a, s.b]);
@@ -237,9 +237,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
 
   // ④ 胞腔——只算「被碰到的平面」：被消耗膜的平面 + 动词像的平面 + 含任一脏边的平面（+ 脏边周围新长出的候选平面）
   for (const im of verbImages) {
-    const ring = im.rings[0];
-    let plane = null;
-    for (let i = 0; i + 2 < ring.length && !plane; i++) plane = planeFromPoints(ring[i], ring[i + 1], ring[i + 2]);
+    const plane = planeOfRing(im.rings[0]);
     if (plane) touchedPlanes.add(reg.ensure(plane, tol).id);
   }
   const dirtyLive = [...dirty].filter((id) => g.hasEdge(id)).map((id) => g.edge(id));
@@ -249,9 +247,17 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   }
   const dirtyVerts = new Set<VertexId>();
   for (const e of dirtyLive) { dirtyVerts.add(e.a); dirtyVerts.add(e.b); }
-  // 面内邻域（#14 第二轮）：每张被碰平面上只重算「挨着脏边」的东西——脏边 + 被消耗膜的旧环边为种子；
-  // 膜入选 = 环上有种子顶点 或 内部含种子顶点；裸线入选 = 从种子顶点沿无膜边传递（闭合一个大环只差最后一笔的情形）。
-  // 其余膜原地不动（环都不碰）：它们不进身份认领、它们的胞腔不算。
+  // 候选平面发现（原在 groupCoplanar 第 1 步；影响域定理把它搬到这里：新平面与旧平面走同一套边集构造）。全局模式 = 全部顶点、全部平面
+  // 脏顶点永远先发现（两种模式同序 → sticky 平面代表相同，差分 oracle 才能逐字比）；全局模式再把其余顶点补上
+  for (const pid of discoverPlanes(g, reg, tol, dirtyVerts)) touchedPlanes.add(pid);
+  if (GLOBAL) { discoverPlanes(g, reg, tol, g.vertices().map((v) => v.id)); for (const rec of reg.all()) touchedPlanes.add(rec.id); }
+  // 影响域（立宪页 §3「局部性定理」，2026-10-23）：每张被碰平面 P 上这次要用的边集 S =
+  //   ① 脏边 + 被消耗膜旧环边的后代（在 P 上的）
+  //   ② 从 ① 的端点出发、沿「在 P 上且不属于 P 上活膜」的边可达的裸线（闭合一个大环只差最后一笔）
+  //   ③ 影响域包围盒内落在 P 上的边（空间网格现查；不连通的旧闭环 = 新膜的洞）
+  //   ④ 受影响膜（环上有可达顶点 / 环里有死边 / 内部含可达顶点）的全部环边
+  // 定理：在 S 上切出的胞腔去掉「与未受影响膜同环」的，= 在 P 全部边上切出的胞腔去掉未受影响膜的胞腔。其余膜原地不动（环都不碰）。
+  // 「边属于哪张平面」是谓词现算，不是状态——10-21 的 PlaneMembership 缓存在溶解步后过期且永不自愈（总账 #26），已删。
   const neighFaces = new Set<FaceId>();
   const subset = new Map<PlaneId, Set<EdgeId>>();
   {
@@ -279,9 +285,16 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
           if (!reach.has(o)) { reach.add(o); stack.push(o); }
         }
       }
-      // ② 膜入选 = 环上有可达顶点 或 内部含可达顶点（膜的顶点**不**再往外传递——否则整张平面连成片）
+      // ③ 影响域包围盒内落在这张平面上的边（全局模式 = 整张平面）
+      if (GLOBAL) { for (const e of g.edges()) if (onPlaneE(e, rec.plane)) sub.add(e.id); }
+      else if (sub.size) {
+        const mn = { x: Infinity, y: Infinity, z: Infinity }, mx = { x: -Infinity, y: -Infinity, z: -Infinity };
+        for (const eid of sub) { const e = g.edge(eid); for (const p of [g.pt(e.a), g.pt(e.b)]) { if (p.x < mn.x) mn.x = p.x; if (p.y < mn.y) mn.y = p.y; if (p.z < mn.z) mn.z = p.z; if (p.x > mx.x) mx.x = p.x; if (p.y > mx.y) mx.y = p.y; if (p.z > mx.z) mx.z = p.z; } }
+        for (const e of g.edgesInBox(mn, mx)) if (onPlaneE(e, rec.plane)) sub.add(e.id);
+      }
+      // ④ 膜入选 = 环上有可达顶点 或 环里有死边 或 内部含可达顶点（膜的顶点**不**再往外传递——否则整张平面连成片）
       for (const f of facesByPlane.get(pid) ?? []) {
-        let hit = false;
+        let hit = GLOBAL;
         for (const ring of [f.outer, ...f.holes]) { for (const d of ring.edges) { if (!g.hasEdge(d.edge)) { hit = true; break; } const e = g.edge(d.edge); if (reach.has(e.a) || reach.has(e.b)) { hit = true; break; } } if (hit) break; }
         if (!hit) for (const v of reach) { if (!g.hasVertex(v)) continue; const p2 = projectToPlane(g.pt(v), rec.basis); if (pointInRing(p2, f.outer.pts) && !f.holes.some((h) => pointInRing(p2, h.pts))) { hit = true; break; } }
         if (hit) { neighFaces.add(f.id); for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) if (g.hasEdge(d.edge)) sub.add(d.edge); }
@@ -290,13 +303,14 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     }
   }
   mark("touched");
-  const byPlane = store.regionsByPlane(g, reg, tol, { only: touchedPlanes, seedVertices: dirtyVerts, dirtyEdges: dirty, subset });
+  const byPlane = store.regionsByPlane(g, reg, tol, { only: touchedPlanes, edges: subset });
   mark("regions");
   // 没进邻域的膜原地不动；它们的边环若与某胞腔同一组边（近平行平面同环 / 邻域边界），那胞腔不算
   {
     const keyOf = (rings: readonly { edges: readonly { edge: EdgeId }[] }[]): string => rings.map((ring) => [...ring.edges.map((d) => d.edge)].sort((a, b) => a - b).join(",")).join("|");
     const untouchedKeys = new Set<string>();
     for (const f of store.faces()) if (!neighFaces.has(f.id)) untouchedKeys.add(keyOf([f.outer, ...f.holes]));
+    for (const f of store.faces()) if (neighFaces.has(f.id)) untouchedKeys.delete(keyOf([f.outer, ...f.holes]));   // 同环双胞（已知残余）里有一张受影响 → 这胞腔要算
     if (untouchedKeys.size) for (const [pid, regions] of byPlane) byPlane.set(pid, regions.filter((r) => !untouchedKeys.has(keyOf([r.outer, ...r.holes]))));
   }
 
@@ -314,28 +328,32 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const claim = (im: Image): void => {
     const cells: { r: Region; planeId: PlaneId }[] = [];
     cellsOf.set(im, cells);
-    const outer3 = im.rings[0];
-    let plane = null;
-    for (let i = 0; i + 2 < outer3.length && !plane; i++) plane = planeFromPoints(outer3[i], outer3[i + 1], outer3[i + 2]);
+    const plane = planeOfRing(im.rings[0]);   // Newell 整环：µm 尖刺 / 近共线三点不给垃圾法向
     if (!plane) return;   // 零面积 → 零认领
     const rec = reg.ensure(plane, tol);
     const rings2 = im.rings.map((r) => r.map((p) => projectToPlane(p, rec.basis)));
     let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
     for (const r of rings2) for (const q of r) { if (q.x < bx0) bx0 = q.x; if (q.y < by0) by0 = q.y; if (q.x > bx1) bx1 = q.x; if (q.y > by1) by1 = q.y; }
     const wind = (p: Pt): number => rings2.reduce((acc, r) => acc + (r.length >= 3 ? windingOf(p, r) : 0), 0);
-    for (const [pid, regions] of byPlane) {
-      const prec = reg.rec(pid);
-      if (Math.abs(dot3(prec.plane.n, rec.plane.n)) < 0.999) continue;   // 明显不平行 → 不可能是同一张膜（2.6°）
-      for (const r of regions) {
-        const rep3 = repOf.get(r)!;
-        if (distToPlane(rep3, rec.plane) > 3 * tol) continue;
-        const q = projectToPlane(rep3, rec.basis);
-        if (q.x < bx0 || q.x > bx1 || q.y < by0 || q.y > by1) continue;   // 包围盒外，绕数必为 0
-        if (Math.abs(wind(q)) < 1) continue;
-        cells.push({ r, planeId: pid });
-        (claimsOf.get(r) ?? claimsOf.set(r, []).get(r)!).push({ im });
+    // 共面门先 τ、认领不到再放宽到 3τ（2026-10-23）：固定 3τ 会让 2 mm 之隔的两张平行膜互相认领对方的胞腔（差分 oracle clean 种子 300922：
+    // 全局机把 x=2.437 / 2.439 两面墙互相 DIVIDE / MERGE，几何没变、id 乱换）；3τ 的兜底仍留着给 09-07 那种「小面落在斜了 0.6° 的记录上」的情形。
+    const gather = (gate: number): void => {
+      for (const [pid, regions] of byPlane) {
+        const prec = reg.rec(pid);
+        if (Math.abs(dot3(prec.plane.n, rec.plane.n)) < 0.999) continue;   // 明显不平行 → 不可能是同一张膜（2.6°）
+        for (const r of regions) {
+          const rep3 = repOf.get(r)!;
+          if (distToPlane(rep3, rec.plane) > gate) continue;
+          const q = projectToPlane(rep3, rec.basis);
+          if (q.x < bx0 || q.x > bx1 || q.y < by0 || q.y > by1) continue;   // 包围盒外，绕数必为 0
+          if (Math.abs(wind(q)) < 1) continue;
+          cells.push({ r, planeId: pid });
+        }
       }
-    }
+    };
+    gather(tol);
+    if (!cells.length) gather(3 * tol);
+    for (const c of cells) (claimsOf.get(c.r) ?? claimsOf.set(c.r, []).get(c.r)!).push({ im });
   };
   const identityTouched = identity.filter((im) => neighFaces.has(im.inherit!));
   for (const im of identityTouched) claim(im);
@@ -348,10 +366,12 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     const hasXor = cs.some((c) => c.im.algebra === "xor");
     if (hasXor ? cs.length % 2 === 1 : cs.length >= 1) filled.add(r);
   }
-  // 身份 → 它的像们认领到的**填充**胞腔
+  // 身份 → 它的像们认领到的**填充**胞腔；另记几何认领数（不管填不填）给守恒断言用
   const cellsById = new Map<FaceId, { r: Region; planeId: PlaneId }[]>();
+  const geomClaims = new Map<FaceId, number>();
   const newImageCells: { r: Region; planeId: PlaneId }[] = [];
   for (const [im, cells] of cellsOf) {
+    if (im.inherit !== undefined) geomClaims.set(im.inherit, (geomClaims.get(im.inherit) ?? 0) + cells.length);
     for (const c of cells) {
       if (!filled.has(c.r)) continue;
       if (im.inherit === undefined) newImageCells.push(c);
@@ -370,6 +390,9 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   for (const id of allIds) {
     const cells = [...new Set(cellsById.get(id) ?? [])];
     if (cells.length === 0) {
+      // 守恒断言（2026-10-23，总账 #26）：没被动词消耗、环还在的膜，它的身份像**几何上**一个胞腔都认领不到 = 结算机自相矛盾
+      // （影响域漏边 / τ 带内嵌入不一致），不是结果——宁炸不糊：throw，commitOp 整批回滚。XOR 湮灭（认领到了但不填）仍是合法 BURST。
+      if (!table.consumed.has(id) && (geomClaims.get(id) ?? 0) === 0) throw new Error(`settle: 膜 ${id} 未被消耗、环还在，身份像却认领不到任何胞腔——结算机自相矛盾，拒绝这次操作`);
       store.deleteSilently(id);
       events.push({ type: "BURST", face: id });
       continue;

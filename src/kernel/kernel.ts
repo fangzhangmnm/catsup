@@ -27,9 +27,9 @@ import {
 import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
-import { type Image, type Seg3, ringsOf, settle, translateImage } from "./settle.ts";
+import { type Image, type ImageTable, type Seg3, ringsOf, settle, translateImage } from "./settle.ts";
 import { EdgeLayers, FaceLayers, riserLayers } from "./layers.ts";
-import { dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
+import { alignClosedPath, dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
 
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
 export type { Edge, EdgeId, FaceId, Vertex, VertexId } from "./topology.ts";
@@ -44,8 +44,14 @@ const toPt3 = (p: PtIn): Pt3 => ({ x: p.x, y: p.y, z: p.z ?? 0 });
 
 export interface HitResult { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
-/** 褶边判据（pp 哪条环边让邻膜跟着伸缩）：邻膜平面含推向 ⟺ n_邻·n̂ = 0。数值门限：法向夹角余弦。 */
-export const CREASE_COS = 1e-3;
+/**
+ * 褶边判据（pp 哪条环边让邻膜跟着伸缩）：邻膜平面含推向 ⟺ n_邻·n̂ = 0。
+ * 2026-10-23 起与 τ 一致（Claude Fable 5.1，总账 #26 清障）：邻膜被拉伸后环的离面量 = |n_邻·n̂|·|h|，**≤ τ 才算褶边**（拉伸像仍在 τ 内平面），
+ * 另有角度上限 CREASE_COS_MAX。此前固定 1e-3 弧度：mm 吸附的斜矩形两面墙差 ~5e-4 弧度，正好骑在门槛上——判成「不是褶边」时长出来的侧壁像
+ * 离邻膜平面只有零点几毫米（τ 内）→ 同一张平面上两套边投影互撞 → 邻膜胞腔丢失（旧内核静默 BURST 三张面；fuzz clean 种子 418916）。
+ * 判据跟 τ 走之后，「不是褶边」就保证侧壁像离邻膜平面 > τ，不会落进同一张平面。
+ */
+export const CREASE_COS_MAX = 0.1;
 
 /**
  * 内核 B-rep 的**存储态快照**（持久化契约 ai-docs/20260919-persistence-data-contract.md §5.2 的内存形状；
@@ -82,9 +88,15 @@ export class Kernel {
   get curve(): Set<EdgeId> { return this.edgeLayers.layer("curve"); }
   /** coplanarity 容差 τ——头号 UX 旋钮（drill L297）。只管平面分组/归属；几何保持精确共面。 */
   readonly coplanarTol: number;
+  /** 结算模式：local = 影响域局部结算（默认）；global = 全平面全膜（差分 oracle 用，结果必须与 local 逐字相同——立宪页 §3「局部性定理」）。 */
+  readonly settleMode: "local" | "global";
 
-  constructor(opts?: { coplanarTol?: number }) {
+  constructor(opts?: { coplanarTol?: number; settleMode?: "local" | "global" }) {
     this.coplanarTol = opts?.coplanarTol ?? 1e-3;
+    this.settleMode = opts?.settleMode ?? "local";
+  }
+  private _settle(table: ImageTable): FaceEvent[] {
+    return settle(this.graph, this.store, this.planes, this.coplanarTol, table, { global: this.settleMode === "global" });
   }
 
   /** 只读窥视用（渲染/测试断言）；改图必须走下面的批量 mutations。 */
@@ -173,7 +185,7 @@ export class Kernel {
    * id 计数器一起拷 → 副本上的事件与真身提交的事件逐字相同。
    */
   clone(): Kernel {
-    const k = new Kernel({ coplanarTol: this.coplanarTol });
+    const k = new Kernel({ coplanarTol: this.coplanarTol, settleMode: this.settleMode });
     k._graph = this._graph.clone();
     k.store = this.store.clone();
     k.planes = this.planes.clone();
@@ -192,7 +204,7 @@ export class Kernel {
     const names = [...(opts?.layers ?? []), ...(opts?.curve ? ["curve"] : [])];
     const layerSegs: Record<string, Seg3[]> = {};
     for (const n of names) layerSegs[n] = gesture;
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images: [], gesture, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    return this.emit(this._settle({ consumed: new Set(), images: [], gesture, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
   }
 
   /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
@@ -267,7 +279,7 @@ export class Kernel {
     const dirtyEdges = new Set<EdgeId>();
     for (const { id } of batch) if (this.graph.hasVertex(id)) for (const eid of this.graph.vertex(id).edges) dirtyEdges.add(eid);
     for (const sv of new Set(merged.values())) if (this.graph.hasVertex(sv)) for (const eid of this.graph.vertex(sv).edges) dirtyEdges.add(eid);
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges }));
+    return this.emit(this._settle({ consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges }));
   }
 
   /**
@@ -289,7 +301,9 @@ export class Kernel {
     const delta = scale3(n, dist);
     const parallel = (gid: FaceId): boolean => {
       const other = this.store.face(gid);
-      return other ? Math.abs(dot3(this.planes.rec(other.planeId).plane.n, n)) <= CREASE_COS : true;
+      if (!other) return true;
+      const c = Math.abs(dot3(this.planes.rec(other.planeId).plane.n, n));
+      return c <= CREASE_COS_MAX && c * Math.abs(dist) <= this.coplanarTol;   // 拉伸后离面量 ≤ τ 才褶
     };
     const consumed = new Set<FaceId>([id]);
     const images: Image[] = [];
@@ -336,7 +350,7 @@ export class Kernel {
       images.push({ rings, algebra: "or", inherit: gid });
     }
     if (anyBare) images.push({ rings: ringsOf(g, f), algebra: "or" });
-    return this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    return this.emit(this._settle({ consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
   }
 
   /**
@@ -356,7 +370,8 @@ export class Kernel {
     if (!f) return [];
     const g = this.graph;
     const rings = ringsOf(g, f);
-    const { path, smoothJoints } = simplifyPath(pathIn, opts.closed, opts.smoothJoints);   // 共线关节不设站
+    const simp = simplifyPath(pathIn, opts.closed, opts.smoothJoints);   // 共线关节不设站
+    const { path, smoothJoints } = opts.closed ? alignClosedPath(rings, simp.path, simp.smoothJoints) : simp;   // 闭路径：第 0 段横穿轮廓平面（环起点任意）
     const st = sweepStations(rings, path, opts.closed);
     if (typeof st === "string") throw new Error(`followMe: ${st}`);
     const ringEdges = [f.outer, ...f.holes].map((r) => r.edges.map((d) => d.edge));
@@ -389,7 +404,7 @@ export class Kernel {
       for (let r = 0; r < E.length; r++) { const m = E[r].length; for (let j = 0; j < m; j++) for (const L of ringLayers[r][j]) push(L, { a: E[r][j], b: E[r][(j + 1) % m] }); }
     }
     if (!attached) consumed.add(id);
-    const events = this.emit(settle(g, this.store, this.planes, this.coplanarTol, { consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    const events = this.emit(this._settle({ consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
     if (opts.closed && attached && this.store.face(id)) events.push(...this.eraseFaces([id]));
     return events;
   }
@@ -401,7 +416,7 @@ export class Kernel {
   absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], opts?: { edgeSegs?: Readonly<Record<string, readonly Seg3[]>>; faceLayers?: readonly (Readonly<Record<string, number>> | undefined)[] }): FaceEvent[] {
     this._rev++;
     const images: Image[] = faces.map((rings, i) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or", ...(opts?.faceLayers?.[i] ? { face: opts.faceLayers[i] } : {}) }));
-    return this.emit(settle(this.graph, this.store, this.planes, this.coplanarTol, { consumed: new Set(), images, wires, edgeLayers: this.edgeLayers, layerSegs: opts?.edgeSegs, faceLayers: this.faceLayers }));
+    return this.emit(this._settle({ consumed: new Set(), images, wires, edgeLayers: this.edgeLayers, layerSegs: opts?.edgeSegs, faceLayers: this.faceLayers }));
   }
 
   /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */

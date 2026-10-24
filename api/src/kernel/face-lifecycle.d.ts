@@ -44,8 +44,6 @@ export type RegionsByPlane = Map<PlaneId, Region[]>;
 export declare class FaceStore {
     private byId;
     private nextId;
-    /** 平面 → 边归属缓存（局部结算时只重算脏边；见 planes.ts PlaneMembership）。 */
-    private membership;
     faces(): Face[];
     face(id: FaceId): Face | undefined;
     faceCount(): number;
@@ -53,7 +51,7 @@ export declare class FaceStore {
     /** p 须为该 face 平面 canonical 基下的 2D 坐标。 */
     faceContains(f: Face, p: Pt): boolean;
     private occurrences;
-    /** coplanarity 分组 + 每平面跑 findRegions（canonical 基投影）。 */
+    /** coplanarity 分组 + 每平面跑 findRegions（canonical 基投影）。scope = 局部结算的影响域（planes.ts CoplanarScope）；不给 = 全局。 */
     regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number, scope?: CoplanarScope): RegionsByPlane;
     /** 删边**前**按 loop 身份裁决。radial：命中面先按平面分组，各平面独立裁决。 */
     snapshotEraseVerdicts(edgeIds: readonly EdgeId[]): EraseVerdicts;

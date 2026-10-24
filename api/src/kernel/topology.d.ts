@@ -30,6 +30,12 @@ export declare class PlanarGraph {
     private unindexEdge;
     /** 离线段 ab 不远的边（超集；含 a / b 落在一格里 = 点查）。 */
     edgesNear(a: Pt3, b: Pt3): Edge[];
+    /**
+     * 落在包围盒 [min, max]（外扩一格）附近的边（超集；调用方照旧做几何判定）。影响域定理的第四项用它：
+     * 新膜包围盒里不连通的旧闭环 = 它的洞，不走顶点传递也得进边集。格太多（盒比边还多）就退化成全扫 + 包围盒相交测试。
+     * added 2026-10-23 by Claude Fable 5.1
+     */
+    edgesInBox(min: Pt3, max: Pt3): Edge[];
     /** 离线段 ab 不远的顶点（= 近边的端点；孤立顶点不存在，所以这就是全集的超集）。 */
     verticesNear(a: Pt3, b: Pt3): Vertex[];
     vertices(): Vertex[];

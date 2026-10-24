@@ -88,6 +88,38 @@ export function simplifyPath(path: readonly Pt3[], closed: boolean, smoothJoints
   return { path: pts, smoothJoints: sm };
 }
 
+/**
+ * 闭路径起点对齐（规则 ① 的闭路径版，2026-10-23 Claude Fable 5.1）：第 0 站是「轮廓沿第 0 段方向投到 p₀ 的切面」，所以第 0 段必须**横穿**轮廓平面
+ * （方向与轮廓法向不平行 ⇒ 投影良态）且轮廓就在它的一端。调用方给的环起点任意（面环的起点只是追踪顺序的产物），这里旋转路径
+ * 让第 0 段 = 与轮廓法向最不平行、且离轮廓质心最近的那一段；smoothJoints 同步旋转。开路径不动。
+ * 不对齐的后果：第 0 段落在轮廓平面内 → 第 0 站投影塌成线段 → 全部侧面退化被丢 → 扫掠静默变成「只切了几刀」（test/followme 倒角案）。
+ */
+export function alignClosedPath(rings: readonly (readonly Pt3[])[], path: readonly Pt3[], smoothJoints?: readonly boolean[]): { path: Pt3[]; smoothJoints: boolean[] | undefined } {
+  const n = path.length;
+  const pts = path.map((p) => ({ x: p.x, y: p.y, z: p.z }));
+  const sm = smoothJoints ? [...smoothJoints] : undefined;
+  const outer = rings[0];
+  if (n < 3 || !outer || outer.length < 3) return { path: pts, smoothJoints: sm };
+  let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
+  for (let i = 0; i < outer.length; i++) { const a = outer[i], b = outer[(i + 1) % outer.length]; nx += (a.y - b.y) * (a.z + b.z); ny += (a.z - b.z) * (a.x + b.x); nz += (a.x - b.x) * (a.y + b.y); cx += a.x; cy += a.y; cz += a.z; }
+  const nl = Math.hypot(nx, ny, nz);
+  if (nl < EPS) return { path: pts, smoothJoints: sm };
+  const nrm = { x: nx / nl, y: ny / nl, z: nz / nl }, c = { x: cx / outer.length, y: cy / outer.length, z: cz / outer.length };
+  let best = -1, bestD = Infinity;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    const d = sub3(b, a), l = Math.hypot(d.x, d.y, d.z);
+    if (l < EPS) continue;
+    if (Math.abs(dot3(nrm, d)) / l < 1e-3) continue;          // 段落在轮廓平面内 → 投影塌缩，不候选
+    const t = Math.max(0, Math.min(1, dot3(sub3(c, a), d) / (l * l)));
+    const q = add3(a, scale3(d, t));
+    const dist = Math.hypot(q.x - c.x, q.y - c.y, q.z - c.z);
+    if (dist < bestD) { bestD = dist; best = i; }
+  }
+  if (best <= 0) return { path: pts, smoothJoints: sm };
+  return { path: [...pts.slice(best), ...pts.slice(0, best)], smoothJoints: sm ? [...sm.slice(best), ...sm.slice(0, best)] : undefined };
+}
+
 /** 去掉连续重复点（退化四边形 → 三角）；不足 3 点 → []。 */
 export function dedupeRing(pts: readonly Pt3[]): Pt3[] {
   const out: Pt3[] = [];

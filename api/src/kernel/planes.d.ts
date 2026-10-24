@@ -26,26 +26,24 @@ export declare class PlaneRegistry {
     clone(): PlaneRegistry;
 }
 /**
- * 平面分组：候选平面 = 每顶点处两两 incident 边张成的平面（经 registry 容差合并）；
- * 归属 = 两端点都在 τ 内的边。keepPlanes = 存储 face 的平面（防被 prune）。
- * 返回 planeId → 边集（≥3 条才可能围面；少于 3 条的组丢弃）。
+ * 候选平面发现：seeds 处两两 incident 边张成的平面经 registry 容差合并（sticky 身份）；返回这些平面的 id。
+ * 新平面只会出现在新几何周围，所以局部结算只从脏顶点长；全局模式从全部顶点长。
  */
+export declare function discoverPlanes(g: PlanarGraph, reg: PlaneRegistry, tol: number, seeds: Iterable<VertexId>): Set<PlaneId>;
 /**
- * 局部性接缝（2026-10-21 #14）：scope.only = 只给这些平面归属边（结算机算出的「被碰到的平面」）；scope.seedVertices = 只从这些顶点
- * 的邻边对里长新候选平面（新平面只会出现在新几何周围）。新长出来的平面 id **就地加进 scope.only**（调用方拿回去当 touched）。
- * 不给 scope = 全局（旧行为）。
+ * 局部结算的作用域（影响域定理，2026-10-23，Claude Fable 5.1；立宪页 §3「局部性定理」）：
+ *   only  = 被碰到的平面；
+ *   edges = 每张被碰平面上**这次要用的边集**，由结算机按影响域算出（脏边 ∪ 受影响膜的环边 ∪ 从脏顶点沿裸线可达的边 ∪ 影响域包围盒内落在该平面上的边）。
+ * 这里不再维护「平面 → 全部成员边」的缓存（10-21 的 PlaneMembership 在溶解步之后过期且永不自愈 → 总账 #26）：
+ * 边属于哪张平面是一个几何谓词，不是状态；要用时按影响域现算。不给 scope = 全局（擦边路径 / 差分 oracle）。
  */
 export interface CoplanarScope {
-    only: Set<PlaneId>;
-    seedVertices: Iterable<VertexId>;
-    /** 本次新来 / 动过的边：它们的平面归属要重算，其余边的归属照缓存。 */
-    dirtyEdges?: Iterable<EdgeId>;
-    /** 面内邻域：平面 → 只用这些边找胞腔（挨着脏边的膜的环 + 连着的裸线）；没给的平面用全部成员。 */
-    subset?: ReadonlyMap<PlaneId, ReadonlySet<EdgeId>>;
+    only: ReadonlySet<PlaneId>;
+    edges: ReadonlyMap<PlaneId, ReadonlySet<EdgeId>>;
 }
-/** 平面 → 边归属缓存（#14 第二轮）：边的归属只在它自己动了时变；新平面首次出现时全扫一次。 */
-export declare class PlaneMembership {
-    readonly planeEdges: Map<number, Set<number>>;
-    clone(): PlaneMembership;
-}
-export declare function groupCoplanar(g: PlanarGraph, reg: PlaneRegistry, tol: number, keepPlanes: ReadonlySet<PlaneId>, scope?: CoplanarScope, cache?: PlaneMembership): Map<PlaneId, EdgeId[]>;
+/**
+ * 平面分组 → planeId → 边集（≥3 条才可能围面；少于 3 条的组丢弃）。keepPlanes = 存储 face 的平面（防被 prune）。
+ * 全局：候选平面从全部顶点长，归属 = 两端点都在 τ 内的边，全扫（cover：一条边可进多组）。
+ * 局部：只按 scope.edges 分发（成员边由调用方按影响域给出，已在平面上），没检查过的平面一律留着。
+ */
+export declare function groupCoplanar(g: PlanarGraph, reg: PlaneRegistry, tol: number, keepPlanes: ReadonlySet<PlaneId>, scope?: CoplanarScope): Map<PlaneId, EdgeId[]>;

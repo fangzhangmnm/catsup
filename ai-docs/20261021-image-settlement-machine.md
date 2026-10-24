@@ -1,6 +1,6 @@
 # 像表结算机：内核只剩几条规则（2026-10-21 落地）
 
-> created 20261021 · as-of v0.6.0 / 2026-10-21 · created by Claude Fable 5.1
+> created 20261021 · as-of v0.9.16 / 2026-10-23 · created by Claude Fable 5.1 · edited 2026-10-23（§9 局部性定理）
 > 来源：2026-09-23 算法 QA（user「think very critically and outside the box on the highest level…perhaps instead of monkey patch each edge case, there might be some abstract, overall elegant rule set」）；2026-10-21 user「仔细地想一下如何简化数学规则内核，可以有行为的小变化，关键是这个内核能不能简化成很简单的几条规则」「i give up using human math verificable to block each step. instead its you to help me understand the math but you can go forward before i understand the math」。
 > 代码：`src/kernel/settle.ts`（机器）、`src/kernel/kernel.ts`（动词 = 像表）、`src/kernel/face-lifecycle.ts`（仓库 + 擦边）。golden：`test/settle-images.test.ts`。
 
@@ -61,8 +61,15 @@ pp 的 MOVE/COPY 顶点随行、frontier 删原画新、riser、v3.1 顶点分�
 
 ## 7. 验证
 
-- `npm test` 289 绿（含新 `test/settle-images.test.ts`：bug 1、bevel 推到底 + 精确 h 预演无碎边、盒顶拉高八顶点、用户分割点不溶解、共享顶点邻膜不动、推穿管子）。
+- `npm test` 289 绿（含新 `test/settle-images.test.ts`：bug 1、bevel 推到底 + 精确 h 预演无碎边、盒顶拉高八顶点、用户分割点不溶解、共享顶点邻膜不动、推穿管子）。**2026-10-23 加**：#26 三个 golden（拉顶后贴棱描线 / 先拉侧墙再贴棱画矩形 / 拉顶后墙里画矩形）+ 跟随闭路径四种旋转同一实体；`test/settle-differential.test.ts` 差分 oracle 三档；`kernel-fuzz` 分 clean / nasty 两档。
 - 扩展 fuzz（500 种子 × 14 步，加「环连通」不变量，`$CLAUDE_JOB_DIR/tmp/fuzz-ext.mts` 未进仓）：旧内核 92 坏 → 新内核 7 坏。残余 = ① findRegions 在 τ 容差带里（边 1 µm 级近共面、投影后相交但 3D 不相交）走出开环——已改为丢弃开环；② 近共线嵌入让同平面两膜重叠 → 擦边 MERGE 铸出同环第二张（种子 31，`KNOWN_DUP_SEEDS`）；③ planarize 不收敛 2 例。都是老病，总账 D 节。
+
+## 9. 局部性定理（2026-10-23，v0.9.16，总账 #26；edited by Claude Fable 5.1）
+
+10-21 性能两轮把「只重算被碰到的那一小块」塞进了十一步里（四个筛 + 两个缓存），其中平面归属缓存在同一次结算的第 ⑩ 步溶解之后过期且永不自愈 →
+第二次拉过的盒子上贴棱描线墙 BURST、墙里画矩形墙被静默换成小矩形（10-23 截图）。修法 = 把局部化写成它自己的定理（立宪页 §3「局部性定理」）：
+影响域 S 由 id 和谓词构成，归属缓存删掉，新旧平面同一套边集构造（新平面也走空间网格查包围盒）；加守恒断言（未消耗、环还在的膜认领不到胞腔 = 拒绝这一步）；
+加差分 oracle（`settleMode: "global"` 的第二台机 vs 出货的局部机）。顺手清掉三处被环起点掩盖的顺序敏感：像的平面改 Newell 整环；pp 褶边判据与 τ 一致；闭路径跟随起点对齐。
 
 ## 8. 吸附那一半（bug 2）
 
