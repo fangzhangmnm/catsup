@@ -1073,6 +1073,9 @@ export class Editor {
   /** 线稿风格：pixel（默认，原生 GL 线 1 设备像素）/ thick（屏幕像素宽粗线）。本版只活这一次会话（持久化要 user 同意）。 */
   get lineStyle(): LineStyle { return this.r3.getLineStyle(); }
   setLineStyle(s: LineStyle): void { this.r3.setLineStyle(s); this.host.changed(); this.draw(); }
+  /** 线稿粗细（设备像素；1 = 原生线，> 1 = 粗线 + SU 轮廓线）。 */
+  get lineWeight(): number { return this.r3.getLineWeight(); }
+  setLineWeight(w: number): void { this.r3.setLineWeight(w); this.host.changed(); this.draw(); }
   toggleProjection(): void {
     this.cam.projection = this.cam.projection === "persp" ? "ortho" : "persp";
     this.host.changed();

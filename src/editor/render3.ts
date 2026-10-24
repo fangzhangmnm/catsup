@@ -107,7 +107,14 @@ const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
 export type LineStyle = "pixel" | "thick";
-const EDGE_PX = 1.6;        // 边线宽（CSS px；thick 风格 + 选中 / 刮擦 / 悬停边）
+const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 刮擦 / 悬停边的基准；0.12.3 起由 lineWeight 覆盖）
+/**
+ * 线稿粗细（0.12.3；user 2026-10-24「ipad上面细线稿是不舒服。但是粗线稿又太粗了，有1.5这种选项吗」「sketchup里面粗细线是有区分的啊, dangling edge和轮廓是粗线」）：
+ * 单位 = **设备像素**。1 = 原生 GL 线（最细、最快，没有轮廓区分）；> 1 = 屏幕空间粗线（LineSegments2，不是 3D 实体），
+ * 并按 SU 轮廓线规则加粗：零面边（悬空）/ 单面边（边界）/ 两张面朝向相反的边（剪影）= 轮廓，比内边粗 profileAdd；判定在顶点着色器里按实例做，相机转动不重建几何。
+ */
+export const LINE_WEIGHTS: readonly number[] = [1, 1.5, 2, 3];
+const profileAddFor = (w: number): number => Math.min(w, 5 - w);   // 轮廓 ≈ 两倍粗，总宽不超过 5 设备像素
 const OTHER_KEY = { other: true } as const;   // rebuildFaces 分组键：别的池的纯色面
 const HINT_PX = 1.2;        // 吸附提示线宽
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
@@ -226,6 +233,8 @@ export class Renderer3 {
   private edgeLines: any; private edgeMat: any;
   private edgePixel: any;                 // 原生 GL 线（1 设备像素）：默认线稿
   private lineStyle: LineStyle = "pixel";
+  private lineWeight = 1;                              // 设备像素；1 = 原生线
+  private readonly profileAdd = { value: 1 };          // 轮廓线加粗（设备像素）；edgeMat 的 shader uniform
   private hintLines: any;
   private snapMarker: any;
   private arcLines: any; private landingRing: any;
@@ -287,8 +296,25 @@ export class Renderer3 {
     this.pixelMat = new THREE.LineBasicMaterial({ vertexColors: true });
     this.emptyGeo = new THREE.BufferGeometry();
     this.emptyLineGeo = new LineSegmentsGeometry();
-    // 边：一份粗线（顶点色）
+    // 边：一份粗线（顶点色）+ SU 轮廓线（per-instance 两侧面法向 + 面数 → 着色器里判剪影 / 边界 / 悬空，加粗 profileAdd）
     this.edgeMat = this.lineMat(EDGE_PX, { offset: true, vertexColors: true });
+    const profileAdd = this.profileAdd;
+    this.edgeMat.onBeforeCompile = (shader: { uniforms: Record<string, unknown>; vertexShader: string }): void => {
+      shader.uniforms.profileAdd = profileAdd;
+      shader.vertexShader = shader.vertexShader
+        .replace("uniform float linewidth;", "uniform float linewidth;\nuniform float profileAdd;\nattribute vec3 instanceN1;\nattribute vec3 instanceN2;\nattribute float instanceFlag;")
+        .replace("float aspect = resolution.x / resolution.y;", `float aspect = resolution.x / resolution.y;
+			// SU 轮廓线：flag = 这条边的面数（0 悬空 / 1 边界 / 2 内边或剪影 / 3+ 非流形）；两面朝向相反 = 剪影
+			vec4 csA = modelViewMatrix * vec4( instanceStart, 1.0 );
+			vec3 vdir = ( projectionMatrix[ 2 ][ 3 ] == - 1.0 ) ? normalize( csA.xyz ) : vec3( 0.0, 0.0, - 1.0 );
+			bool fa = dot( normalMatrix * instanceN1, vdir ) < 0.0;
+			bool fb = dot( normalMatrix * instanceN2, vdir ) < 0.0;
+			bool isProfile = instanceFlag < 1.5 || instanceFlag > 2.5 || ( fa != fb );
+			float lw = linewidth + ( isProfile ? profileAdd : 0.0 );`)
+        .replace("float hw = linewidth * 0.5;", "float hw = lw * 0.5;")
+        .replace("offset *= linewidth;", "offset *= lw;");
+    };
+    this.edgeMat.customProgramCacheKey = (): string => "catsup-profile-edges";
     this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
     this.edgeLines.frustumCulled = false; this.edgeLines.visible = false;
     this.scene.add(this.edgeLines);
@@ -485,6 +511,10 @@ export class Renderer3 {
     }
     this.resolution.set(w, h);
     for (let i = 0; i < this.lineMats.length; i++) this.lineMats[i].linewidth = this.lineMatPx[i] * scale;
+    // 边线：lineWeight 是设备像素（桌面 scale = dpr 已经折进 resolution；XR 按 viewport 高折算）
+    const k = presenting ? scale : 1;
+    this.edgeMat.linewidth = Math.max(this.lineWeight, 1) * k;
+    this.profileAdd.value = profileAddFor(Math.max(this.lineWeight, 1)) * k;
   }
 
   /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
@@ -859,6 +889,9 @@ export class Renderer3 {
   /** 线稿风格（视图菜单「粗线稿」）。 */
   setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.edgeKey = ""; this.poolKey = ""; } }
   getLineStyle(): LineStyle { return this.lineStyle; }
+  /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
+  setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
+  getLineWeight(): number { return this.lineWeight; }
 
   private rebuildEdges(kd: GeomView, view: ViewState): void {
     // thick：全部边进粗线。pixel：强调边（选中 / 刮擦 / 悬停）进粗线，其余进原生 GL 线。
@@ -1154,6 +1187,7 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
   // 边：软边不画；裸线 / 膜边两色；淡出一色
   const pos: number[] = [], col: number[] = [];
   const c = new THREE.Color();
+  const n1: number[] = [], n2: number[] = [], flag: number[] = [];   // SU 轮廓线：两侧面法向（本地坐标）+ 面数（着色器按视向判剪影）
   for (const e of k.edges()) {
     if (k.isSoft(e.id)) continue;
     const hex = dim ? PALETTE.edgeDim : e.faceLinks.length === 0 ? PALETTE.edgeWire : PALETTE.edge;
@@ -1161,10 +1195,21 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
     c.setHex(hex);
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
     col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+    if (style === "thick") {
+      const fa = e.faceLinks[0] !== undefined ? k.planeOf(e.faceLinks[0])?.plane.n : undefined;
+      const fb = e.faceLinks[1] !== undefined ? k.planeOf(e.faceLinks[1])?.plane.n : undefined;
+      const A = fa ?? { x: 0, y: 0, z: 0 }, B = fb ?? A;
+      n1.push(A.x, A.y, A.z); n2.push(B.x, B.y, B.z); flag.push(Math.min(e.faceLinks.length, 3));
+    }
   }
   let pixel: any = null, thick: any = null;
   if (pos.length) {
-    if (style === "thick") { thick = new LineSegmentsGeometry(); thick.setPositions(pos); thick.setColors(col); }
+    if (style === "thick") {
+      thick = new LineSegmentsGeometry(); thick.setPositions(pos); thick.setColors(col);
+      thick.setAttribute("instanceN1", new THREE.InstancedBufferAttribute(new Float32Array(n1), 3));
+      thick.setAttribute("instanceN2", new THREE.InstancedBufferAttribute(new Float32Array(n2), 3));
+      thick.setAttribute("instanceFlag", new THREE.InstancedBufferAttribute(new Float32Array(flag), 1));
+    }
     else { pixel = new THREE.BufferGeometry(); pixel.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); pixel.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); }
   }
   return { key: "", kernel: k, plain, tex, pixel, thick, gen: 0 };

@@ -22,6 +22,7 @@ import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_STEPS, TOOLS, type Tool } from "../editor/editor.ts";
+import { LINE_WEIGHTS } from "../editor/render3.ts";
 import { PALETTE_ZH } from "./palette.ts";
 import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
@@ -79,6 +80,8 @@ const PREF = {
 };
 let fingerDraws = PREF.get("fingerDraws") === "1";
 let leftHanded = PREF.get("leftHanded") === "1";   // VR：左手持笔（工具手/面板手对调）
+/** 线稿粗细（设备像素）：存过就用存的；没存过 → 高 DPI（iPad / Retina）默认 1.5，否则 1（原生）。user 10-24「ipad上面细线稿是不舒服…有1.5这种选项吗」 */
+const lineWeightInit = (): number => { const v = Number(PREF.get("lineWeight")); return LINE_WEIGHTS.includes(v) ? v : (window.devicePixelRatio >= 2 ? 1.5 : 1); };
 
 // ---------- DOM ----------
 const canvas = $<HTMLCanvasElement>("board");
@@ -235,7 +238,7 @@ window.addEventListener("resize", () => renderSlots());
 const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "noclip" | "persp" | "walk";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "noclip" | "persp" | "walk";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     switch (id) {
@@ -255,6 +258,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "persp": editor.toggleProjection(); return "keep";
       case "walk": setWalk(!locomotion.isWalking()); return "keep";
       case "thick": editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep";
+      case "lw:1": case "lw:1.5": case "lw:2": case "lw:3": { const w = Number(id.slice(3)); editor.setLineWeight(w); PREF.set("lineWeight", String(w)); return "keep"; }
       case "guidesClear": editor.clearGuides(); return "keep";
       case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
       case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
@@ -345,6 +349,7 @@ function setWalk(on: boolean): void {
 }
 
 // ---------- 状态同步 ----------
+editor.renderer3.setLineWeight(lineWeightInit());   // 线稿粗细：存的 / 高 DPI 默认 1.5（直接打渲染器：此时 HUD 元素还没挂，不能走 host.changed）
 const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor, {
   // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
   actions: (tool) => {
@@ -520,7 +525,7 @@ viewMenuBtn.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: viewMenuBtn, align: "end",
   items: () => [
     { id: "persp", label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), sectionBefore: "视图" },
-    { id: "thick", label: "粗线稿", checked: editor.lineStyle === "thick", hint: "屏幕像素宽" },
+    ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
     { id: "grid", label: "网格吸附", checked: editor.grid.on, hint: `${fmtVcbLength(editor.grid.step, editor.vcbUnit)} · 1/${editor.grid.subdiv}` },
     { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "点一下换下一个" },
     { id: "walk", label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), sectionBefore: "相机" },
