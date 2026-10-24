@@ -46,7 +46,7 @@ import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
 import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
-import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
 export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
 export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "arc", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace"];
@@ -99,6 +99,7 @@ export const SNAP_LABELS: Record<string, string> = {
   "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
   align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴", intersection: "交点", "cross-line": "交线",
   "h-stop": "高度咬合", "on-face": "面上",
+  "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",
 };
 
 export function describeEvent(ev: FaceEvent): string {
@@ -386,6 +387,24 @@ export class Editor {
     this.draw();
   }
 
+  // ---------- 参考几何 / 轴（0.11 尺规纪元；世界坐标进、池本地坐标存）----------
+  /** 上下文的帧（世界坐标）：根 = 绘图轴，进组 = 组的轴。 */
+  contextFrame(): Frame { return this.scene.frameOfContext(this.ctx); }
+  addGuideLine(p: Pt3, dir: Pt3): void {
+    const m = invert(this.ctxXform());
+    this.commitOp({ op: "addGuide", at: this.activePool(), line: { p: this.toLocal(p), dir: normalize3(applyDir(m, dir)) } });
+  }
+  addGuidePoint(p: Pt3): void { this.commitOp({ op: "addGuide", at: this.activePool(), point: this.toLocal(p) }); }
+  eraseGuides(ids: readonly number[]): void { if (ids.length) this.commitOp({ op: "eraseGuides", at: this.activePool(), ids: [...ids] }); }
+  /** 清空活动池的参考几何（SU「删除参考线」同款）。 */
+  clearGuides(): void { this.commitOp({ op: "clearGuides", at: this.activePool() }); }
+  hasGuides(): boolean { const g = this.scene.guidesOf(this.activePool()); return g.lines.length + g.points.length > 0; }
+  /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴（几何不动）。 */
+  setContextAxes(frame: Frame): void {
+    const m = invert(this.ctxXform());
+    const local: Frame = { origin: this.toLocal(frame.origin), x: normalize3(applyDir(m, frame.x)), y: normalize3(applyDir(m, frame.y)), z: normalize3(applyDir(m, frame.z)) };
+    this.commitOp({ op: "setAxes", at: this.activePool(), frame: local });
+  }
   private cancelGesture(): void {
     this.anchor3 = null;
     this.moveVids = [];
@@ -1222,6 +1241,8 @@ export class Editor {
       // 缩放柄跟着预演实时动（user 2026-10-21「缩放的handle应该跟着实时动」）：拖动中按当前倍率把柄过一遍同一个变换
       handles: this._tool === "scale" ? (() => { const X = this.scaleActive ? scalingAbout(this.scaleActive.anchor, this.scaleFactor) : null; return this.scaleHandles.map((h) => ({ p: X ? applyPt(X, h.p) : h.p, active: h === this.scaleActive })); })() : null,
       protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
+      guides: view.guides(),
+      frame: view.frame(),
     });
   }
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }

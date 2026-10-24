@@ -9,11 +9,13 @@
 //   CATSUP_definitions v2 → v3（2026-10-21 贴图纪元）：list[i].materialSlots 生效（槽号 → glTF core materials 索引；v2 一直写空表）。
 //   CATSUP_material    v1（2026-10-21）：挂在 glTF core material 上的 authoring 补充 { sizeM:[w,h] }（贴图物理尺寸，米）。
 //   CATSUP_brep        v3 → v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（有序边链 + 种类 + 闭合 + 圆弧参数，契约 §5）；v3 文件的 curves 一直是空表 = 无曲线。
+//   CATSUP_definitions v3 → v4（2026-10-24 尺规纪元）：list[i].guides 与 groups[j].guides（参考线 / 参考点，池本地坐标）；缺 = 空。
+//   CATSUP_document    v1 → v2（2026-10-24 尺规纪元）：axes（绘图轴，世界坐标 Frame）；缺 = 世界帧。
 
 export const EXTENSION_VERSIONS = {
-  CATSUP_document: 1,
+  CATSUP_document: 2,
   CATSUP_brep: 4,
-  CATSUP_definitions: 3,
+  CATSUP_definitions: 4,
   CATSUP_instance: 1,
   CATSUP_material: 1,
 } as const;
@@ -21,7 +23,11 @@ export type CatsupExtension = keyof typeof EXTENSION_VERSIONS;
 
 export type MigrationStep = (json: Record<string, unknown>) => Record<string, unknown>;
 /** STEPS[ext][fromVersion] = 升到 fromVersion+1 的纯函数。加迁移 = 在这里登记一条 + 冻结样本。 */
+const NO_GUIDES = (): Record<string, unknown> => ({ lines: [], points: [] });
 const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
+  CATSUP_document: {
+    1: (j) => ({ ...j, version: 2, axes: isPlainObject(j.axes) ? j.axes : { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] } }),
+  },
   CATSUP_brep: {
     1: (j) => { const { groups: _groups, ...rest } = j; void _groups; return { ...rest, version: 2 }; },
     2: (j) => ({ ...j, version: 3 }),   // v2 文件没有 face.material 层 = 全默认；层本身是可选的
@@ -34,8 +40,18 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
       list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => ({ ...d, groups: Array.isArray(d.groups) ? d.groups : [], instances: Array.isArray(d.instances) ? d.instances : [] })) : j.list,
     }),
     2: (j) => ({ ...j, version: 3, list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => ({ ...d, materialSlots: Array.isArray(d.materialSlots) ? d.materialSlots : [] })) : j.list }),
+    3: (j) => ({
+      ...j,
+      version: 4,
+      list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => ({
+        ...d,
+        guides: isPlainObject(d.guides) ? d.guides : NO_GUIDES(),
+        groups: Array.isArray(d.groups) ? (d.groups as Record<string, unknown>[]).map((g) => ({ ...g, guides: isPlainObject(g.guides) ? g.guides : NO_GUIDES() })) : d.groups,
+      })) : j.list,
+    }),
   },
 };
+const isPlainObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 
 export class FormatTooNewError extends Error {
   readonly extension: string;

@@ -1,6 +1,6 @@
 # 尺规纪元：轴、参考线、网格 = 最少的原子做 CAD 精度（设计稿，待 grill）
 
-> created 20261024 · as-of v0.10.1 / 2026-10-24 · created by Claude Fable 5.1
+> created 20261024 · as-of v0.11.0 / 2026-10-24 · created by Claude Fable 5.1 · **已开工**（user「那么bump minor吧哈哈哈」）；§8 = 落地差异
 > 出处（user 2026-10-24，纠正我在总账 #29 的排序）：「su的优雅点就是你最少的原子能cad精确，而不是需要加动词加插件」「尺规作图只有两个tool，除了17边形还有啥不能做」「线有面不要。尺规作图就行了。还是我说的最小原子」「5要。6要，就是尺规。7也是尺规。你可能不理解为什么blender平替不了su。尺规就是思考的过程」。
 > 性质：讨论稿，不是授权。#29 里的 ①从中心画 ③对齐动词 ④VCB 坐标 降为「可做、不承重、低频」；承重的是本稿三件。
 
@@ -53,6 +53,15 @@ document.axes: Frame                                                // 绘图轴
 ⑤ 绝对网格 + incremental（A10）挂在绘图轴上
 ⑥ 量角器
 ⑦ 格式：`annotations.guides` + `document.axes`，冻结样本；app minor = 0.11 尺规纪元
+
+## 8. 落地（v0.11.0 = §5 的 ①②，2026-10-24）
+
+- 帧的来源：`Scene.frameOfContext(ctx)`（根 = `Scene.axes` 绘图轴；group = `Group.axes` × 链变换；组件实例 = 链变换 × 单位帧——组件定义的轴工具没做）。推断引擎不认「世界轴」了，只认世界视图给的帧（`GeomView.frame?()`，裸 Kernel 当世界 = 世界帧）。
+- 参考几何按池（§6-①，按建议落）：`Definition.guides` / `Group.guides`，池本地坐标；`WorldView.guides()` 只给活动池、换到世界坐标——进组只看组里的。存文件（§6-②）：definitions v4 `list[i].guides` / `groups[j].guides`，document v2 `axes`；老文件缺 = 空 / 世界帧。
+- 秩：参考点 75（端点 90 与中点 70 之间）；参考线 60 = 边「线上」；交点不登记——两条 1-D 同时活跃时合成器自己涌现 0-D，字典序里 0-D 先于 1-D，所以「参考线交点 > 参考线上」不需要秩表写它。圆弧中心（§6-④）还没进目标。
+- 渲染：参考线 = ±200 m 的灰线（视觉上无限），参考点 = 像素尺寸的三轴小叉；上下文轴 = 帧 ≠ 世界帧时三色线 ±50 m 穿过帧原点。**没做**：随工作集 / 光标距离淡出（§3 的创新点）、虚线样式。
+- 动词：ops `addGuide`（线或点）/ `eraseGuides` / `clearGuides` / `setAxes`（根 / group；组件定义拒绝）；transformPool 搬池参考几何随行、copyGroup 复制一份；编辑器 API `addGuideLine / addGuidePoint / eraseGuides / clearGuides / setContextAxes / contextFrame`。**造参考线的工具（③④⑤⑥）还没有**——这一版用户看不到参考线，只有进组后轴与原点换成组的。
+- 误 snap 候选（载线交点 / 面交线 / 充能点 / ppStops 全场顶点高度）**没退役**：user「退役前我一个一个批，你误伤了一些，也有用尺规太麻烦还是需要充能或者全量留的」→ 工具落地后列清单逐条批。
 
 ## 6. 等 user 拍的
 

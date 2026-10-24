@@ -4,12 +4,22 @@
 // created 2026-10-21 by Claude Fable 5.1
 import { Kernel } from "../kernel/kernel.ts";
 import { Scene, type DefId } from "../scene/scene.ts";
-import type { CatsupDocument, DefinitionDoc } from "./document.ts";
+import type { CatsupDocument, DefinitionDoc, GuidesDoc } from "./document.ts";
+import type { Guides } from "../scene/guides.ts";
 import { newDocument } from "./document.ts";
+
+const guidesFromDoc = (g: GuidesDoc): Guides => ({
+  lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })),
+  points: g.points.map((q) => ({ id: q.id, p: { ...q.p } })),
+  next: Math.max(1, ...g.lines.map((l) => l.id + 1), ...g.points.map((q) => q.id + 1)),
+});
+const guidesToDoc = (g: Guides): GuidesDoc => ({ lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })), points: g.points.map((q) => ({ id: q.id, p: { ...q.p } })) });
+const copyFrame = (f: CatsupDocument["axes"]): CatsupDocument["axes"] => ({ origin: { ...f.origin }, x: { ...f.x }, y: { ...f.y }, z: { ...f.z } });
 
 /** 文档 → 场景。 */
 export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep));
+  scene.axes = copyFrame(doc.axes);
   for (const m of doc.materials) scene.addMaterial({ name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } } : {}) });
   const idOf = new Map<number, DefId>();
   idOf.set(doc.rootIndex, scene.root);
@@ -18,8 +28,10 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   doc.definitions.forEach((d, i) => {
     const def = scene.def(idOf.get(i)!);
     def.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
+    def.guides = guidesFromDoc(d.guides);
     for (const g of d.groups) {
       const grp = scene.mintGroup(def.id, null, Kernel.fromBrep(g.brep), g.axes);
+      grp.guides = guidesFromDoc(g.guides);
       (grp as { id: number }).id = g.id;   // 保留文件里的 id（稳定；parent 引用按它）
       def.groups.delete(grp.id === g.id ? -1 : grp.id);
       def.groups.set(g.id, grp);
@@ -53,15 +65,17 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
     return {
       name: id === scene.root ? name : d.name,
       brep: d.kernel.toBrep(),
-      groups: [...d.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), ...(g.name !== undefined ? { name: g.name } : {}) })),
+      groups: [...d.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) })),
       instances: [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) })),
       materialSlots: [...d.materialSlots],
+      guides: guidesToDoc(d.guides),
     };
   });
   const materials = scene.materials.map((m) => ({ name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));
   const root = definitions[rootIndex];
-  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials };
+  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes) };
   const doc = newDocument(root.brep, name);
+  doc.axes = copyFrame(scene.axes);
   doc.definitions = definitions;
   doc.rootIndex = rootIndex;
   doc.root = definitions[rootIndex];

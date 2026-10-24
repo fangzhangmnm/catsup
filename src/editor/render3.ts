@@ -40,7 +40,8 @@ import type { GeomView, PoolSlot, WorldView } from "../scene/world-view.ts";
 import { ID_STRIDE, slotKey } from "../scene/world-view.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { Material, Scene } from "../scene/scene.ts";
-import type { Xform } from "../scene/xform.ts";
+import type { Frame, Xform } from "../scene/xform.ts";
+import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { dot3, sub3 } from "../kernel/geom.ts";
@@ -90,7 +91,14 @@ const SNAP_COLORS: Record<string, number> = {
   "axis-z": PALETTE.axisZ,
   "h-stop": 0xd97706,
   "on-face": 0x2b6cb0,
+  "on-guide": 0x6b7280,
+  "guide-point": 0x6b7280,
+  "guide-cross": 0x111111,
 };
+/** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
+const GUIDE_COLOR = 0x6b7280, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;
+/** 上下文轴（进组 / 绘图轴搬过）：三色线穿过帧原点 ±CTX_AXES_LEN；世界帧时不画（地面网格那三条已是）。 */
+const CTX_AXES_LEN = 50;
 const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
 const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
@@ -136,6 +144,10 @@ export interface ViewState {
   handles?: readonly { p: Pt3; active: boolean }[] | null;
   /** 量角器：圆心 + 转轴 + 参考点 + 当前角（弧度）。 */
   protractor?: { center: Pt3; axis: Pt3; ref: Pt3 | null; angle: number } | null;
+  /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
+  guides?: GuidesWorld | null;
+  /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
+  frame?: Frame | null;
 }
 
 const FACE_VERT = /* glsl */`
@@ -210,7 +222,8 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
-  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = "";
+  private guideLines: any; private ctxAxesLines: any;
+  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private ctxAxesKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
   private scratchV = new THREE.Vector3();
@@ -300,6 +313,13 @@ export class Renderer3 {
     this.protractorLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.protractorLines.frustumCulled = false; this.protractorLines.visible = false;
     this.scene.add(this.protractorLines);
+    // 参考几何（0.11）+ 上下文轴：各一份粗线
+    this.guideLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
+    this.guideLines.frustumCulled = false; this.guideLines.visible = false;
+    this.scene.add(this.guideLines);
+    this.ctxAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { offset: true, vertexColors: true }));
+    this.ctxAxesLines.frustumCulled = false; this.ctxAxesLines.visible = false;
+    this.scene.add(this.ctxAxesLines);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -575,6 +595,44 @@ export class Renderer3 {
       }
       this.protractorLines.visible = true;
     } else { this.protractorLines.visible = false; this.protKey = ""; }
+
+    // ---- 参考几何（0.11 尺规纪元）：参考线 = 长线；参考点 = 像素尺寸的小叉 ----
+    const gd = view.guides;
+    if (gd && (gd.lines.length || gd.points.length)) {
+      const px = gd.points.length ? this.worldPerPx(cam, vp, gd.points[0].p) : 0;
+      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${px.toExponential(2)}`;
+      if (gk !== this.guideKey) {
+        this.guideKey = gk;
+        const pos: number[] = [], col: number[] = [];
+        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+        for (const l of gd.lines) push({ x: l.p.x - l.dir.x * GUIDE_LEN, y: l.p.y - l.dir.y * GUIDE_LEN, z: l.p.z - l.dir.z * GUIDE_LEN }, { x: l.p.x + l.dir.x * GUIDE_LEN, y: l.p.y + l.dir.y * GUIDE_LEN, z: l.p.z + l.dir.z * GUIDE_LEN }, GUIDE_COLOR);
+        for (const q of gd.points) {
+          const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, q.p);
+          push({ x: q.p.x - r, y: q.p.y, z: q.p.z }, { x: q.p.x + r, y: q.p.y, z: q.p.z }, GUIDE_COLOR);
+          push({ x: q.p.x, y: q.p.y - r, z: q.p.z }, { x: q.p.x, y: q.p.y + r, z: q.p.z }, GUIDE_COLOR);
+          push({ x: q.p.x, y: q.p.y, z: q.p.z - r }, { x: q.p.x, y: q.p.y, z: q.p.z + r }, GUIDE_COLOR);
+        }
+        this.setLineGeometry(this.guideLines, pos, col);
+      }
+      this.guideLines.visible = true;
+    } else { this.guideLines.visible = false; this.guideKey = ""; }
+    // ---- 上下文轴：帧 ≠ 世界帧（进组 / 绘图轴搬过）时画三色线穿过帧原点 ----
+    const fr = view.frame;
+    const isWorld = !fr || (Math.abs(fr.origin.x) + Math.abs(fr.origin.y) + Math.abs(fr.origin.z) < 1e-9 && Math.abs(fr.x.x - 1) + Math.abs(fr.y.y - 1) + Math.abs(fr.z.z - 1) < 1e-9);
+    if (fr && !isWorld) {
+      const ak = `${fr.origin.x},${fr.origin.y},${fr.origin.z}|${fr.x.x},${fr.x.y},${fr.x.z}|${fr.y.x},${fr.y.y},${fr.y.z}|${fr.z.x},${fr.z.y},${fr.z.z}`;
+      if (ak !== this.ctxAxesKey) {
+        this.ctxAxesKey = ak;
+        const pos: number[] = [], col: number[] = [];
+        const push = (d: Pt3, hex: number): void => {
+          pos.push(fr.origin.x - d.x * CTX_AXES_LEN, fr.origin.y - d.y * CTX_AXES_LEN, fr.origin.z - d.z * CTX_AXES_LEN, fr.origin.x + d.x * CTX_AXES_LEN, fr.origin.y + d.y * CTX_AXES_LEN, fr.origin.z + d.z * CTX_AXES_LEN);
+          const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+        };
+        push(fr.x, PALETTE.axisX); push(fr.y, PALETTE.axisY); push(fr.z, PALETTE.axisZ);
+        this.setLineGeometry(this.ctxAxesLines, pos, col);
+      }
+      this.ctxAxesLines.visible = true;
+    } else { this.ctxAxesLines.visible = false; this.ctxAxesKey = ""; }
 
     // ---- 吸附指示（小球 + 提示线）----
     const sn = view.snap;

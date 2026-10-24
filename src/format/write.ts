@@ -80,16 +80,19 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const remap = (old: number): number => { const n = viewMap.get(old); if (n === undefined) throw new Error(`writeCatsup: carried JSON references bufferView ${old} that was not carried`); return n; };
   const carry = remapBufferViewRefs({ topLevel: doc.carry.topLevel, extensions: doc.carry.extensions, documentExtra: doc.carry.documentExtra, definitionsExtra: doc.carry.definitionsExtra, brepKeep: doc.carry.brepKeep ?? {} }, remap);
 
+  const v3 = (p: { x: number; y: number; z: number }): number[] => [p.x, p.y, p.z];
+  const encGuides = (g: DefinitionDoc["guides"]): Record<string, unknown> => ({ lines: g.lines.map((l) => ({ id: l.id, p: v3(l.p), dir: v3(l.dir) })), points: g.points.map((q) => ({ id: q.id, p: v3(q.p) })) });
   const defList = doc.definitions.map((d, i) => {
     const brepJson: CatsupBrepJson = encodeBrep(canon[i].root, sink, i === doc.rootIndex ? (carry.brepKeep as never) : undefined);
     const groups = canon[i].groups.map((g) => ({
       id: g.id, parent: g.parent,
       axes: { origin: [g.axes.origin.x, g.axes.origin.y, g.axes.origin.z], x: [g.axes.x.x, g.axes.x.y, g.axes.x.z], y: [g.axes.y.x, g.axes.y.y, g.axes.y.z], z: [g.axes.z.x, g.axes.z.y, g.axes.z.z] },
       ...(g.name !== undefined ? { name: g.name } : {}),
+      guides: encGuides(g.guides),
       brep: encodeBrep(g.brep, sink),
     }));
     const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}) }));
-    return { name: d.name, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
+    return { name: d.name, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
   });
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）
@@ -132,6 +135,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
         version: EXTENSION_VERSIONS.CATSUP_document,
         formatVersion: 1,
         settings: doc.settings,
+        axes: { origin: v3(doc.axes.origin), x: v3(doc.axes.x), y: v3(doc.axes.y), z: v3(doc.axes.z) },
         bake: { mode: doc.bakeMode, generator: `CatsUp ${APP_VERSION}` },
         ...(doc.lastView !== undefined ? { lastView: doc.lastView } : {}),
         ...carry.documentExtra,

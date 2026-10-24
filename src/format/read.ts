@@ -5,7 +5,7 @@
 import { decodeGlb } from "./glb.ts";
 import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
-import type { CatsupDocument, DefinitionDoc, GroupDoc, InstanceDoc, MaterialDoc } from "./document.ts";
+import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc } from "./document.ts";
 import { DEFAULT_SETTINGS } from "./document.ts";
 import { migrateExtension } from "./migrate/index.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
@@ -23,6 +23,22 @@ const num3 = (x: unknown, what: string): { x: number; y: number; z: number } => 
 const frameOf = (j: unknown, what: string): Frame => {
   if (!isObj(j)) return WORLD_FRAME;
   return { origin: num3(j.origin, `${what}.origin`), x: num3(j.x, `${what}.x`), y: num3(j.y, `${what}.y`), z: num3(j.z, `${what}.z`) };
+};
+
+/** 参考几何（definitions v4）：缺 = 空；坏条目整份拒开（与其他字段同口径）。 */
+const guidesOf = (j: unknown, what: string): GuidesDoc => {
+  if (!isObj(j)) return { lines: [], points: [] };
+  const lines = (Array.isArray(j.lines) ? j.lines : []).map((l: unknown, i: number) => {
+    if (!isObj(l)) fail(`${what}.lines[${i}] invalid`);
+    const L = l as Record<string, unknown>;
+    return { id: typeof L.id === "number" ? L.id : i + 1, p: num3(L.p, `${what}.lines[${i}].p`), dir: num3(L.dir, `${what}.lines[${i}].dir`) };
+  });
+  const points = (Array.isArray(j.points) ? j.points : []).map((q: unknown, i: number) => {
+    if (!isObj(q)) fail(`${what}.points[${i}] invalid`);
+    const Q = q as Record<string, unknown>;
+    return { id: typeof Q.id === "number" ? Q.id : i + 1, p: num3(Q.p, `${what}.points[${i}].p`) };
+  });
+  return { lines, points };
 };
 
 /** 只看 JSON：是不是 CatsUp 文档（validateAdopt 用；外来 glb 不 adopt）。 */
@@ -77,7 +93,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;
       const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>) as unknown as CatsupBrepJson;
-      return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
+      return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
     });
     const instances: InstanceDoc[] = (Array.isArray(d.instances) ? d.instances : []).map((iRaw: unknown, ii: number) => {
       if (!isObj(iRaw)) fail(`definition ${di} instance ${ii} invalid`);
@@ -88,7 +104,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
-    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, brep, groups, instances, materialSlots, ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
+    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
 
   // 材质：glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
@@ -125,7 +141,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions") extensions[k] = v;
-  const DOC_KEYS = new Set(["version", "formatVersion", "settings", "bake", "lastView"]);
+  const DOC_KEYS = new Set(["version", "formatVersion", "settings", "bake", "lastView", "axes"]);
   const documentExtra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(docExt)) if (!DOC_KEYS.has(k)) documentExtra[k] = v;
   const DEF_KEYS = new Set(["version", "root", "list"]);
@@ -138,6 +154,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
   return {
     settings: { ...DEFAULT_SETTINGS, ...settingsIn } as CatsupDocument["settings"],
+    axes: frameOf(docExt.axes, "document.axes"),
     ...(docExt.lastView !== undefined ? { lastView: docExt.lastView } : {}),
     bakeMode: bake.mode === "engine" ? "engine" : "wysiwyg",
     definitions,

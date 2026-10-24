@@ -19,6 +19,7 @@ import { closestOnAxis, rayPlane } from "./camera.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 import { perf } from "./perf-stats.ts";
 import { ScreenIndex } from "./screen-index.ts";
+import { type Frame, WORLD_FRAME } from "../scene/xform.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
@@ -28,7 +29,7 @@ export interface View { pf: PointerFrame; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
-  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane";
+  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint";
   src?: Pt3;
   axis?: AxName;
 }
@@ -38,7 +39,8 @@ export type Locus =
   | { dim: 2; plane: PlaneParams };
 export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; }
 
-export const RANK = { endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 } as const;
+/** 秩（0.11 尺规纪元加参考几何：参考点在端点与中点之间，参考线与边同秩「线上」；线 × 线交点由合成器涌现、0-D 先于 1-D 胜出）。 */
+export const RANK = { endpoint: 90, origin: 80, guidePoint: 75, midpoint: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, plane: 10 } as const;
 export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;
 /** 取点基准容差 / 实体拾取容差（单位同 EPS：fovY 的 1/800；编辑器与 frameEps 共用这一份）。 */
 export const SNAP_PX = 8, HIT_PX = 6;
@@ -220,12 +222,6 @@ export interface SnapContext {
   cursor?: { x: number; y: number; vp: Viewport; radiusPx: number } | null;
 }
 
-const DIRS: { axis: AxName; dir: Pt3 }[] = [
-  { axis: "x", dir: { x: 1, y: 0, z: 0 } },
-  { axis: "y", dir: { x: 0, y: 1, z: 0 } },
-  { axis: "z", dir: { x: 0, y: 0, z: 1 } },
-];
-
 /** 膜环是否触手（任一环顶点 ∈ hand）。 */
 function faceTouchesHand(k: GeomView, f: { outer: Ring; holes: Ring[]; id: FaceId }, hand?: AlignHand | null): boolean {
   if (!hand) return false;
@@ -381,6 +377,9 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   const out: Constraint[] = [];
   const { k } = ctx;
   const E = ctx.eps ?? EPS;
+  // 上下文的帧（0.11 尺规纪元 ①）：原点与三轴来自世界视图（根 = 绘图轴；进组 = 组的轴），裸 Kernel 当世界 = 世界帧
+  const F: Frame = ctx.k.frame?.() ?? WORLD_FRAME;
+  const O = F.origin;
   const ex = (vid: VertexId): boolean => ctx.hand?.has(vid) ?? false;
   const skip = handFaceSkip(k, ctx.hand);
   // 局部性筛（ctx.cursor）：屏距超过 radius 的候选不进集（遮挡测试是 O(膜数)，只给近处候选做）
@@ -411,8 +410,8 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     out.push({ locus: { dim: 0, p }, rank: RANK.endpoint, eps: E.point, tag: { kind: "endpoint" } });
   }
   lap("vertices");
-  if (nearPt({ x: 0, y: 0, z: 0 }) && !hidden({ x: 0, y: 0, z: 0 })) {
-    out.push({ locus: { dim: 0, p: { x: 0, y: 0, z: 0 } }, rank: RANK.origin, eps: E.point, tag: { kind: "origin" } });
+  if (nearPt(O) && !hidden(O)) {
+    out.push({ locus: { dim: 0, p: O }, rank: RANK.origin, eps: E.point, tag: { kind: "origin" } });
   }
   const segsAll = edgeTargets(k, ex, idx && cur ? idx.edgesNear(cur.x, cur.y, cur.radiusPx * 2 + 8) : undefined);
   lap("edgeTargets");
@@ -430,10 +429,10 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   }
   // 轴对齐 1-D：源 = anchor（axis 标签）+ 原点（永久）+ 充能点（align 标签）；充能制=幽灵 align 定理的前置条件
   // 方向集 = 世界三轴 ∪ 非轴对齐画面的面内基（倾斜平面共轴——方向集显式化后的一行注册）
-  const dirs: { axis: AxName; dir: Pt3 }[] = [...DIRS];
+  const dirs: { axis: AxName; dir: Pt3 }[] = [{ axis: "x", dir: F.x }, { axis: "y", dir: F.y }, { axis: "z", dir: F.z }];
   if (ctx.basis) {
     const axisAligned = (d: Pt3): boolean =>
-      Math.abs(d.x) > 0.999 || Math.abs(d.y) > 0.999 || Math.abs(d.z) > 0.999;
+      Math.abs(dot3(d, F.x)) > 0.999 || Math.abs(dot3(d, F.y)) > 0.999 || Math.abs(dot3(d, F.z)) > 0.999;
     if (!axisAligned(ctx.basis.u)) dirs.push({ axis: "u", dir: ctx.basis.u });
     if (!axisAligned(ctx.basis.v)) dirs.push({ axis: "v", dir: ctx.basis.v });
   }
@@ -448,10 +447,17 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
   };
   if (ctx.lines !== false) {
     if (ctx.anchor) addLines(ctx.anchor, "axis");
-    addLines({ x: 0, y: 0, z: 0 }, "align");
+    addLines(O, "align");
     for (const src of ctx.alignSources ?? []) addLines(src, "align");
   }
   lap("edges");
+  // 参考几何（0.11 尺规纪元 ②）：参考点 = 0-D；参考线 = 无限 1-D（屏距局部性同边）。线 × 线 / 线 × 边 / 线 × 轴的交点由 1-D×1-D 合成器涌现。
+  const G = ctx.k.guides?.();
+  if (G) {
+    for (const q of G.points) { if (!nearPt(q.p) || hidden(q.p)) continue; out.push({ locus: { dim: 0, p: q.p }, rank: RANK.guidePoint, eps: E.point, tag: { kind: "guidePoint" } }); }
+    for (const l of G.lines) { if (!nearSeg(l.p, add3(l.p, l.dir), true)) continue; out.push({ locus: { dim: 1, a: l.p, dir: l.dir }, rank: RANK.guide, eps: E.line, tag: { kind: "guide" } }); }
+  }
+  lap("guides");
   // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
@@ -570,6 +576,7 @@ export type SnapKind =
   | "axis-x" | "axis-y" | "axis-z"
   | "align" | "align-combo" | "edge-align"
   | "intersection" | "cross-line"
+  | "on-guide" | "guide-point" | "guide-cross"   // 参考线上 / 参考点 / 参考线交点（0.11 尺规纪元）
   | "on-face"   // 裸落在膜内（2-D 目标；仅当平面来自膜且点在环内）
   | "h-stop";   // pp 高度通道咬合（标量吸附，非光标目标）
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
@@ -637,7 +644,7 @@ export function snapPoint(
   }
   let kind: SnapKind | null;
   if (sol.used.length === 2) {
-    kind = sol.used.some((c) => c.tag.kind === "edge") ? "edge-align" : "align-combo";
+    kind = sol.used.some((c) => c.tag.kind === "guide") ? "guide-cross" : sol.used.some((c) => c.tag.kind === "edge") ? "edge-align" : "align-combo";
   } else {
     const t = sol.used[0].tag;
     kind = t.kind === "endpoint" ? "endpoint"
@@ -648,6 +655,8 @@ export function snapPoint(
       : t.kind === "edge" ? "on-edge"
       : t.kind === "axis" ? ((t.axis === "u" || t.axis === "v") ? "align" : (("axis-" + t.axis) as SnapKind))
       : t.kind === "align" ? "align"
+      : t.kind === "guide" ? "on-guide"
+      : t.kind === "guidePoint" ? "guide-point"
       : (t.kind === "plane" && insideFace(k, q.plane, sol.p)) ? "on-face"
       : null;
   }

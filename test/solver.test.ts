@@ -74,7 +74,7 @@ describe("solver: property 不变量", () => {
   });
 
   it("秩表哨兵：RANK/EPS 现值锁定（改值必须连测试一起改=有意识决策）", () => {
-    eq(JSON.stringify(RANK), JSON.stringify({ endpoint: 90, origin: 80, midpoint: 70, intersection: 65, edge: 60, cross: 55, axisLine: 45, plane: 10 }), "RANK");
+    eq(JSON.stringify(RANK), JSON.stringify({ endpoint: 90, origin: 80, guidePoint: 75, midpoint: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, plane: 10 }), "RANK");   // 0.11 尺规：参考点 75（端点与中点之间）、参考线 60（与边同秩「线上」）
     eq(JSON.stringify(EPS), JSON.stringify({ point: 10, edge: 7, line: 3.5, combo: 12 }), "EPS");   // line 5→3.5：「点松线紧」试验（user 2026-09-07；B6）
   });
 });

@@ -92,15 +92,30 @@ export function scenePainted(): Scene {
   s = applyOp(s, { op: "placeInstance", at: { def: s.root, group: null }, definition: defId, xform: translation({ x: 0, y: 0, z: 1 }) }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted };
+/** 尺规纪元（0.11）：参考线 / 参考点（根池 + group 里各一份）+ 绘图轴搬到 (1,2,0) 转 45°。 */
+export function sceneGuided(): Scene {
+  let s = sceneGrouped();
+  s = applyOp(s, { op: "addGuide", at: { def: s.root, group: null }, line: { p: { x: 0.5, y: 0, z: 0 }, dir: { x: 0, y: 1, z: 0 } } }).scene;
+  s = applyOp(s, { op: "addGuide", at: { def: s.root, group: null }, point: { x: 1.5, y: 2.5, z: 0 } }).scene;
+  const gid = [...s.def(s.root).groups.keys()][0];
+  if (gid !== undefined) s = applyOp(s, { op: "addGuide", at: { def: s.root, group: gid }, line: { p: { x: 0, y: 0, z: 1.5 }, dir: { x: 1, y: 0, z: 0 } } }).scene;
+  const c = Math.SQRT1_2;
+  s = applyOp(s, { op: "setAxes", at: { def: s.root, group: null }, frame: { origin: { x: 1, y: 2, z: 0 }, x: { x: c, y: c, z: 0 }, y: { x: -c, y: c, z: 0 }, z: { x: 0, y: 0, z: 1 } } }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided };
 /** 场景指纹：每个池的指纹 + group / instance 结构。 */
 export function sceneFingerprint(s: Scene): string {
   const parts: string[] = [];
   const label = (id: number): string => (id === s.root ? "(root)" : s.def(id).name);   // 根 definition 的名字 = 文档名（保存时改写），不进指纹
   for (const [i, m] of s.materials.entries()) parts.push(`mat ${i} ${m.name} ${m.color.map((c) => c.toFixed(4)).join(",")}${m.texture ? ` tex ${m.texture.mimeType} ${m.texture.bytes.length}B ${m.texture.sizeM.join("x")}` : ""}`);
+  const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
+  const f3 = (p: Pt3): string => `${r6(p.x)},${r6(p.y)},${r6(p.z)}`;
+  const guidesFp = (g: { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[] }): string => (g.lines.length || g.points.length) ? ` guides=[${g.lines.map((l) => `L${l.id}:${f3(l.p)}>${f3(l.dir)}`).join(" ")} ${g.points.map((q) => `P${q.id}:${f3(q.p)}`).join(" ")}]` : "";
+  parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
-    parts.push(`def ${label(d.id)} slots=${d.materialSlots.join(",")}: ${fingerprint(d.kernel)} mats=${d.kernel.faces().map((f) => d.kernel.faceMaterialOf(f.id) ?? -1).sort().join(",")}`);
-    for (const g of d.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}`);
+    parts.push(`def ${label(d.id)} slots=${d.materialSlots.join(",")}: ${fingerprint(d.kernel)} mats=${d.kernel.faces().map((f) => d.kernel.faceMaterialOf(f.id) ?? -1).sort().join(",")}${guidesFp(d.guides)}`);
+    for (const g of d.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);
     for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`);
   }
   return parts.join("\n");

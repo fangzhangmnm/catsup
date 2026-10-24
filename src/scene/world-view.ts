@@ -12,7 +12,8 @@ import type { PlaneRec } from "../kernel/planes.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type PlaneParams, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type EditContext, type InstId, type Material, type PoolRef, Scene, poolKey, samePool } from "./scene.ts";
-import { type Xform, applyPlane, applyPt, compose, isIdentity } from "./xform.ts";
+import { type Frame, type Xform, applyPlane, applyPt, compose, isIdentity } from "./xform.ts";
+import { type GuidesWorld, guidesToWorld } from "./guides.ts";
 
 /** 求解器 / 拾取 / 渲染认识的几何读接口（Kernel 结构上满足）。 */
 export interface GeomView {
@@ -28,6 +29,10 @@ export interface GeomView {
   isSmooth(id: EdgeId): boolean;
   /** 面的材质（null = 默认灰）。 */
   faceMaterial(id: FaceId): Material | null;
+  /** 上下文的帧（世界坐标；0.11 尺规纪元）：推断的原点与三轴。不给 = 世界帧。 */
+  frame?(): Frame;
+  /** 活动池的参考几何（世界坐标；0.11）。不给 = 没有。 */
+  guides?(): GuidesWorld;
   graph: { pt(id: VertexId): Pt3; edge(id: EdgeId): Edge; vertex(id: VertexId): Vertex; hasEdge(id: EdgeId): boolean; hasVertex(id: VertexId): boolean };
 }
 
@@ -96,9 +101,15 @@ export class WorldView implements GeomView {
    */
   readonly scene: Scene;
   readonly ctx: EditContext;
+  private readonly ctxFrame: Frame;
+  private readonly ctxGuides: GuidesWorld;
+  frame(): Frame { return this.ctxFrame; }
+  guides(): GuidesWorld { return this.ctxGuides; }
   constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[]) {
     this.scene = scene; this.ctx = ctx;   // 不用参数属性：node strip-types 不支持
     const activePool = scene.poolOfContext(ctx);
+    this.ctxFrame = scene.frameOfContext(ctx);
+    this.ctxGuides = guidesToWorld(scene.guidesOf(activePool), scene.xformOfContext(ctx));
     const chainKey = ctx.chain.join("/");
     const used = new Map<Kernel, Set<number>>();
     for (const { pool, xform, chain } of scene.pools()) {

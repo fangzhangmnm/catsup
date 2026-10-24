@@ -2,8 +2,8 @@
 // 文档设置、lastView、bake 模式、缩略图；未知 JSON 原样携带（round-trip 保真）。created 2026-09-20 by Claude Fable 5.1
 // v2（2026-10-21，group / component 纪元）：group = 自己的 B-rep 池 + 轴框 + 父 group；instance = definition 索引 + 3×4 变换 + 父 group。
 
-import type { BrepSnapshot } from "../kernel/kernel.ts";
-import type { Frame, Xform } from "../scene/xform.ts";
+import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
+import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 
 export type BakeMode = "wysiwyg" | "engine";
 
@@ -16,12 +16,17 @@ export interface DocumentSettings {
 
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + 可选贴图（原图字节 + 物理尺寸 米）。 */
 export interface MaterialDoc { name: string; color: [number, number, number]; texture?: { mimeType: string; bytes: Uint8Array; sizeM: [number, number] }; }
-export interface GroupDoc { id: number; parent: number | null; axes: Frame; brep: BrepSnapshot; name?: string; }
+/** 参考几何（0.11 尺规纪元；definitions v4）：池本地坐标，id 线 / 点同一空间。 */
+export interface GuidesDoc { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[] }
+export const emptyGuidesDoc = (): GuidesDoc => ({ lines: [], points: [] });
+export interface GroupDoc { id: number; parent: number | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; }
 export interface InstanceDoc { id: number; definition: number; parent: number | null; xform: Xform; name?: string; }
-export interface DefinitionDoc { name: string; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; extras?: Record<string, unknown>; }
+export interface DefinitionDoc { name: string; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; extras?: Record<string, unknown>; }
 
 export interface CatsupDocument {
   settings: DocumentSettings;
+  /** 绘图轴（0.11；document v2）：根上下文的推断原点与三轴，世界坐标；默认世界帧。 */
+  axes: Frame;
   lastView?: unknown;                 // 软字段：相机状态，任何一端可覆盖
   bakeMode: BakeMode;
   /** 全部 definition；root = definitions[rootIndex]（同一对象）。 */
@@ -38,9 +43,10 @@ export interface CatsupDocument {
 export const DEFAULT_SETTINGS: DocumentSettings = { displayUnit: "m", gridStep: 1, snapIncrement: 0.1, absoluteGrid: false };
 
 export function newDocument(brep: BrepSnapshot, name = "model"): CatsupDocument {
-  const root: DefinitionDoc = { name, brep, groups: [], instances: [], materialSlots: [] };
+  const root: DefinitionDoc = { name, brep, groups: [], instances: [], materialSlots: [], guides: emptyGuidesDoc() };
   return {
     settings: { ...DEFAULT_SETTINGS },
+    axes: { origin: { ...WORLD_FRAME.origin }, x: { ...WORLD_FRAME.x }, y: { ...WORLD_FRAME.y }, z: { ...WORLD_FRAME.z } },
     bakeMode: "wysiwyg",
     definitions: [root],
     rootIndex: 0,

@@ -13,7 +13,8 @@ import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/k
 import { ptKey3, quantize3 } from "../kernel/geom.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import { type Xform, applyPt, compose, frameAt, transformFrame, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, applyPt, compose, frameAt, transformFrame, translation } from "../scene/xform.ts";
+import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 
 export type Seg = [PtIn, PtIn];
 /** 边的寻址 = 两端点坐标。 */
@@ -52,7 +53,13 @@ export type Op =
   | { op: "setEdgeLayers"; at: PoolRef; edges: EdgeKey[]; layers: string[]; on: boolean }
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
   | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null }
-  | { op: "eraseGroup"; at: PoolRef; group: number };
+  | { op: "eraseGroup"; at: PoolRef; group: number }
+  // ---- 参考几何 / 轴（0.11 尺规纪元；池本地坐标）----
+  | { op: "addGuide"; at: PoolRef; line?: { p: Pt3; dir: Pt3 }; point?: Pt3 }
+  | { op: "eraseGuides"; at: PoolRef; ids: number[] }
+  | { op: "clearGuides"; at: PoolRef }
+  /** 改轴：group = 换 group 的帧（definition 坐标，几何不动）；根 = 绘图轴（世界坐标）；组件定义暂不支持。 */
+  | { op: "setAxes"; at: PoolRef; frame: Frame };
 
 export interface ApplyResult { scene: Scene; events: FaceEvent[]; }
 
@@ -189,6 +196,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const { kernel, ref } = poolOf(s, op.at);
       const events = kernel.transformAll((p) => applyPt(op.xform, p));
       if (ref.group !== null) { const g = s.group({ def: ref.def, group: ref.group }); g.axes = transformFrame(op.xform, g.axes); }
+      transformGuides(s.guidesOf(ref), op.xform);   // 参考几何跟着池走
       return { scene: s, events };
     }
     case "transformInstance": {
@@ -215,10 +223,28 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       for (const gid of desc) {
         const g = d.groups.get(gid)!;
         const ng = s.mintGroup(ref.def, ref.group, Kernel.fromBrep(transformSnapshot(g.kernel.toBrep(), op.xform)), transformFrame(op.xform, g.axes));
+        ng.guides = cloneGuides(g.guides); transformGuides(ng.guides, op.xform);
         gmap.set(gid, ng.id);
       }
       for (const gid of desc) { const g = d.groups.get(gid)!; if (g.parent !== null && gmap.has(g.parent)) s.group({ def: ref.def, group: gmap.get(gid)! }).parent = gmap.get(g.parent)!; }
       for (const inst of [...d.instances.values()]) if (inst.parent !== null && desc.has(inst.parent)) s.mintInstance(ref.def, gmap.get(inst.parent)!, inst.def, compose(op.xform, inst.xform));
+      return { scene: s, events: [] };
+    }
+    case "addGuide": {
+      const { ref } = poolOf(s, op.at);
+      const G = s.guidesOf(ref);
+      if (op.line) addGuideLine(G, op.line.p, op.line.dir);
+      if (op.point) addGuidePoint(G, op.point);
+      return { scene: s, events: [] };
+    }
+    case "eraseGuides": { const { ref } = poolOf(s, op.at); eraseGuides(s.guidesOf(ref), new Set(op.ids)); return { scene: s, events: [] }; }
+    case "clearGuides": { const { ref } = poolOf(s, op.at); const G = s.guidesOf(ref); G.lines = []; G.points = []; return { scene: s, events: [] }; }
+    case "setAxes": {
+      const { ref } = poolOf(s, op.at);
+      const f: Frame = { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } };
+      if (ref.group !== null) s.group({ def: ref.def, group: ref.group }).axes = f;
+      else if (ref.def === s.root) s.axes = f;
+      else throw new OpTargetError("component definition axes are not editable yet");
       return { scene: s, events: [] };
     }
     case "addMaterial": {
@@ -291,5 +317,9 @@ export function describeOp(op: Op): string {
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
+    case "addGuide": return `addGuide ${op.line ? "line" : "point"}${at}`;
+    case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;
+    case "clearGuides": return `clearGuides${at}`;
+    case "setAxes": return `setAxes${at}`;
   }
 }

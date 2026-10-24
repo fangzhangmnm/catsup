@@ -9,6 +9,7 @@
 import { add3, sub3, scale3, dist3, normalize3, cross3 } from "../kernel/geom.ts";
 import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
+import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
 
 export type DefId = number;
 export type GroupId = number;
@@ -20,7 +21,7 @@ export interface Material {
   readonly color: readonly [number, number, number];
   readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly [number, number] };
 }
-export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; }
+export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }
 export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; }
 export interface Definition {
   readonly id: DefId;
@@ -32,6 +33,8 @@ export interface Definition {
   nextInst: number;
   /** 材质槽：槽号 → 文档材质索引（契约 §5.3；面存槽号，实例可重映射——重映射未做）。 */
   materialSlots: number[];
+  /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
+  guides: Guides;
 }
 
 /** 几何池地址 = (definition, group | null)。 */
@@ -48,6 +51,8 @@ export class Scene {
   readonly root: DefId;
   /** 文档材质表（只增）。 */
   readonly materials: Material[] = [];
+  /** 绘图轴（0.11 尺规纪元）：根上下文的轴，世界坐标；轴工具可搬 / 转，默认 = 世界帧。进 CATSUP_document.axes。 */
+  axes: Frame = WORLD_FRAME;
   private nextDef = 1;
 
   constructor(rootKernel?: Kernel) {
@@ -56,13 +61,13 @@ export class Scene {
 
   // ---------- 铸造 ----------
   mintDef(name: string, kernel: Kernel): Definition {
-    const d: Definition = { id: this.nextDef++, name, kernel, groups: new Map(), instances: new Map(), nextGroup: 1, nextInst: 1, materialSlots: [] };
+    const d: Definition = { id: this.nextDef++, name, kernel, groups: new Map(), instances: new Map(), nextGroup: 1, nextInst: 1, materialSlots: [], guides: emptyGuides() };
     this.defs.set(d.id, d);
     return d;
   }
   mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame): Group {
     const d = this.def(defId);
-    const g: Group = { id: d.nextGroup++, parent, axes, kernel };
+    const g: Group = { id: d.nextGroup++, parent, axes, kernel, guides: emptyGuides() };
     d.groups.set(g.id, g);
     return g;
   }
@@ -115,6 +120,18 @@ export class Scene {
     return def;
   }
   poolOfContext(ctx: EditContext): PoolRef { return { def: this.defOfContext(ctx), group: ctx.group }; }
+  /** 池的参考几何（可变引用；池本地坐标）。 */
+  guidesOf(ref: PoolRef): Guides { return ref.group !== null ? this.group({ def: ref.def, group: ref.group }).guides : this.def(ref.def).guides; }
+  /**
+   * 上下文的帧（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①）：根 = 绘图轴；进了 group = 那个 group 的轴；
+   * 进了组件实例 = 那个 definition 的轴（= 单位帧，组件的轴工具未做）——都乘上链上的实例变换。
+   */
+  frameOfContext(ctx: EditContext): Frame {
+    const m = this.xformOfContext(ctx);
+    if (ctx.group !== null) return transformFrame(m, this.group({ def: this.defOfContext(ctx), group: ctx.group }).axes);
+    if (!ctx.chain.length) return this.axes;
+    return transformFrame(m, WORLD_FRAME);
+  }
   /** 上下文的世界变换（链上实例变换的乘积；group 不带变换）。 */
   xformOfContext(ctx: EditContext): Xform {
     let def = this.root, m: Xform = IDENTITY;
@@ -159,12 +176,13 @@ export class Scene {
     (s as { root: DefId }).root = this.root;
     (s as unknown as { nextDef: number }).nextDef = this.nextDef;
     (s as { materials: Material[] }).materials = [...this.materials];   // 材质对象不可变，浅拷安全
+    s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
     for (const [id, d] of this.defs) {
       const groups = new Map<GroupId, Group>();
-      for (const [gid, g] of d.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), ...(g.name !== undefined ? { name: g.name } : {}) });
+      for (const [gid, g] of d.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) });
-      s.defs.set(id, { id: d.id, name: d.name, kernel: d.kernel.clone(), groups, instances, nextGroup: d.nextGroup, nextInst: d.nextInst, materialSlots: [...d.materialSlots] });
+      s.defs.set(id, { id: d.id, name: d.name, kernel: d.kernel.clone(), groups, instances, nextGroup: d.nextGroup, nextInst: d.nextInst, materialSlots: [...d.materialSlots], guides: cloneGuides(d.guides) });
     }
     return s;
   }
