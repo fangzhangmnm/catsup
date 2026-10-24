@@ -113,8 +113,12 @@ svg.ico use { color: inherit; }
 .tool.active { background: var(--accent); color: #fff; }
 .tool.active .tool-label { color: #e7f0fb; }
 /* 最近用过的非钉工具（≤ 2 格，屏幕矮就 0 格）；和钉死的长一样，只是会变 */
-.rail-recent { display: flex; flex-direction: column; gap: 2px; }
-.rail-recent:not(:empty) { border-top: 1px dashed rgba(0,0,0,.12); padding-top: 2px; }
+.rail-sep { height: 1px; margin: 3px 8px; background: rgba(0,0,0,.12); }   /* 左柱分组线（2026-10-24 user 排列：画 / 改 / 量 / 涂） */
+.tool { position: relative; }
+.tool-flyout { position: absolute; right: 3px; bottom: 3px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--muted); }   /* SU 小三角：点角 / 长按 / 右键 = 弹出整组 */
+.rail-more { width: 48px; height: 20px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--muted); cursor: pointer; }   /* 矮的「⌄」展开条：弹整组 */
+.rail-more .ico { width: 14px; height: 14px; }
+.rail-more:hover { background: rgba(0,0,0,.06); }
 
 #marquee { position: fixed; z-index: 5; border: 1px dashed #666; background: rgba(43,108,176,.08); pointer-events: none; }
 #tip { position: fixed; z-index: var(--z-notice); padding: 2px 7px; font-size: 12px; background: rgba(255,255,255,.95);

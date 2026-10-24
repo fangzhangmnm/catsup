@@ -190,47 +190,94 @@ const hud: HudModel = {
     }
   },
 };
-// 左柱（2026-10-21 user 定稿：「你的小三角思路不行，这样，hanburger, cloud, undo redo select line rect eraser move rotate scale pushpull ...
-// 然后非pin的工具给2个格子，屏幕太短就不给」）：钉死的常用工具一字排开；不常用的收进「…」弹层；最近用过的非钉工具在「…」上面
-// 留最多两格（按柱子可用高度算，屏幕矮就不留）。快捷键照旧直达（用了非钉工具会进最近格）。
-const PINNED: Tool[] = ["select", "line", "rect", "erase", "move", "rotate", "pp"];   // user 10-21「缩放不pin」
-const UNPINNED: Tool[] = ["circle", "arc", "tape", "protractor", "axes", "scale", "offset", "followme", "paint"];
+// 左柱（2026-10-24 user 定稿，参考 SU 不照抄；「鼠标就是选择」）：
+//   第一组常驻：选择 / 画线 / 形状格（矩形 / 圆 / 弧，显示当前那个，小三角换）/ 橡皮。
+//   后面每组有**预算**，开局只显示常驻的，组下面一条矮的「⌄」展开条弹整组；池里的工具用过了、且还有预算，就长出一格「最近」槽；
+//   柱子不够高时先吃最近槽、再吃常驻（吃掉的都在 ⌄ 里）。第二组常驻推拉 / 移动，第三组常驻卷尺 / 轴，第四组常驻油漆桶（以后 + 元数据分析）。
+//   su 的视角操作不进左柱（右边 view 栏管）。旧「更多」钮与按高度给最近格的逻辑撤。
+type RailGroup = { id: string; pinned: Tool[]; pool: Tool[]; budget: number };
+const SHAPES: Tool[] = ["rect", "circle", "arc"];
+const RAIL_GROUPS: RailGroup[] = [
+  { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale"], budget: 4 },
+  { id: "measure", pinned: ["tape", "axes"], pool: ["protractor"], budget: 3 },
+  { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
+];
 const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
-const recentTools: Tool[] = [];                 // 最近用过的非钉工具（MRU，最多 2）
-const toolBtns = new Map<Tool, HTMLButtonElement>();
-const mkToolBtn = (t: Tool): HTMLButtonElement => {
+let shapeCurrent: Tool = "rect";
+/** 本次会话里用过的池工具（按最近使用）；开局为空 = 只显示常驻。 */
+const usedPool = new Map<string, Tool[]>(RAIL_GROUPS.map((g) => [g.id, []]));
+/** 组内全部工具按最近使用（吃常驻时按它填）。 */
+const groupMru = new Map<string, Tool[]>(RAIL_GROUPS.map((g) => [g.id, [...g.pinned, ...g.pool]]));
+const bumpFront = (list: Tool[], t: Tool): void => { const i = list.indexOf(t); if (i > 0) list.splice(i, 1); if (i !== 0) list.unshift(t); };
+function noteToolUse(t: Tool): void {
+  if (SHAPES.includes(t)) shapeCurrent = t;
+  for (const g of RAIL_GROUPS) {
+    if (g.pool.includes(t)) bumpFront(usedPool.get(g.id)!, t);
+    if (g.pinned.includes(t) || g.pool.includes(t)) bumpFront(groupMru.get(g.id)!, t);
+  }
+}
+const LONG_PRESS_MS = 450;
+const flyoutItems = (tools: Tool[]) => tools.map((x) => { const s2 = specOf(x); return { id: x, label: s2.label, icon: s2.icon, hint: s2.key, checked: editor.tool === x }; });
+const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   const sp = specOf(t);
   const b = document.createElement("button");
-  b.type = "button"; b.className = "tool"; b.title = `${sp.label}（${sp.key}）`;
-  b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>`;
+  b.type = "button"; b.className = "tool"; b.title = sp.key ? `${sp.label}（${sp.key}）` : sp.label;
+  b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>${flyout ? '<span class="tool-flyout" aria-hidden="true"></span>' : ""}`;
   (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
-  b.addEventListener("click", () => hud.pick(t));
+  if (!flyout) { b.addEventListener("click", () => hud.pick(t)); return b; }
+  // 小三角 / 长按 / 右键 = 弹出整组；点主体 = 用当前这个（SU 小三角，user 10-24「sketchup 的加一个小三角的方案不错」）
+  const openFlyout = (): void => { togglePopupMenu<Tool>({ anchor: b, align: "start", items: () => flyoutItems(flyout()), onPick: (x) => hud.pick(x) }); };
+  const inCorner = (ev: MouseEvent): boolean => ev.offsetX > b.clientWidth - 18 && ev.offsetY > b.clientHeight - 18;
+  let press: { timer: number; x: number; y: number } | null = null;
+  const clearPress = (): void => { if (press) { clearTimeout(press.timer); press = null; } };
+  b.addEventListener("pointerdown", (ev) => {
+    if (ev.pointerType === "mouse" && ev.button !== 0) return;
+    if (inCorner(ev)) { press = null; return; }
+    clearPress();
+    press = { x: ev.clientX, y: ev.clientY, timer: window.setTimeout(() => { press = null; openFlyout(); }, LONG_PRESS_MS) };
+  });
+  b.addEventListener("pointermove", (ev) => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 12) clearPress(); });
+  b.addEventListener("pointerup", clearPress); b.addEventListener("pointercancel", clearPress); b.addEventListener("pointerleave", clearPress);
+  b.addEventListener("click", (ev) => { if (inCorner(ev)) openFlyout(); else hud.pick(t); });
+  b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openFlyout(); });
   return b;
 };
-for (const t of PINNED) { const b = mkToolBtn(t); toolbarEl.appendChild(b); toolBtns.set(t, b); }
-const recentEl = document.createElement("div"); recentEl.className = "rail-recent"; toolbarEl.appendChild(recentEl);
-const moreBtn = document.createElement("button");
-moreBtn.type = "button"; moreBtn.className = "tool"; moreBtn.title = "更多工具（圆 / 弧 / 缩放 / 偏移 / 跟随 / 油漆桶）";
-moreBtn.innerHTML = `${iconHtml("more")}<span class="tool-label">更多</span>`;
-moreBtn.addEventListener("click", () => togglePopupMenu<Tool>({
-  anchor: moreBtn, align: "start",
-  items: () => UNPINNED.map((t) => { const sp = specOf(t); return { id: t, label: sp.label, icon: sp.icon, hint: sp.key, checked: editor.tool === t }; }),
-  onPick: (t) => hud.pick(t),
-}));
-toolbarEl.appendChild(moreBtn);
-/** 最近格数：柱子可用高度减去固定格（☰ 云 撤销 重做 + 钉死 8 + 更多 1 = 13 格），最多 2。 */
-function recentCapacity(): number {
-  const cell = 48, fixed = 12;
-  const avail = window.innerHeight - 20;
-  return Math.max(0, Math.min(2, Math.floor(avail / cell) - fixed));
+/** 矮的「⌄」展开条：弹整组（user「...和下箭头做矮一点」）。 */
+const mkMore = (tools: Tool[]): HTMLButtonElement => {
+  const b = document.createElement("button");
+  b.type = "button"; b.className = "rail-more"; b.title = "这一组的全部工具"; b.innerHTML = iconHtml("chevron-down");
+  b.addEventListener("click", () => togglePopupMenu<Tool>({ anchor: b, align: "start", items: () => flyoutItems(tools), onPick: (x) => hud.pick(x) }));
+  return b;
+};
+/** 第一组之外能放几格：格 48 px；固定 = ☰ 云 撤销 重做 4 + 第一组 4；每组一条矮展开条 ≈ 22 px。 */
+function groupCapacity(): number {
+  const avail = window.innerHeight - 20 - RAIL_GROUPS.length * 22;
+  return Math.max(RAIL_GROUPS.length, Math.floor(avail / 48) - 8);
+}
+/** 每组想要几格 = min(预算, 常驻 + 用过的)；分配：先每组 1，再按组序补到想要的。 */
+function allocate(): number[] {
+  const want = RAIL_GROUPS.map((g) => Math.min(g.budget, g.pinned.length + usedPool.get(g.id)!.length));
+  const out = RAIL_GROUPS.map(() => 1);
+  let left = groupCapacity() - out.length;
+  for (let i = 0; i < out.length && left > 0; i++) { const add = Math.max(0, Math.min(want[i] - out[i], left)); out[i] += add; left -= add; }
+  return out;
 }
 function renderSlots(): void {
-  if (UNPINNED.includes(editor.tool)) { const i = recentTools.indexOf(editor.tool); if (i !== 0) { if (i > 0) recentTools.splice(i, 1); recentTools.unshift(editor.tool); recentTools.length = Math.min(recentTools.length, 2); } }
-  for (const [t, b] of toolBtns) b.classList.toggle("active", t === editor.tool);
-  const cap = recentCapacity();
-  recentEl.replaceChildren();
-  for (const t of recentTools.slice(0, cap)) { const b = mkToolBtn(t); b.classList.toggle("active", t === editor.tool); recentEl.appendChild(b); }
-  moreBtn.classList.toggle("active", UNPINNED.includes(editor.tool) && !recentTools.slice(0, cap).includes(editor.tool));
+  noteToolUse(editor.tool);
+  toolbarEl.replaceChildren();
+  const add = (t: Tool, fly?: () => Tool[]): void => { const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
+  add("select"); add("line"); add(shapeCurrent, () => SHAPES); add("erase");   // 第一组常驻
+  const slots = allocate();
+  RAIL_GROUPS.forEach((g, gi) => {
+    const k = slots[gi];
+    const all = [...g.pinned, ...g.pool];
+    const sep = document.createElement("div"); sep.className = "rail-sep"; toolbarEl.appendChild(sep);
+    let shown: Tool[];
+    if (k >= g.pinned.length) shown = [...g.pinned, ...usedPool.get(g.id)!.slice(0, k - g.pinned.length)];
+    else shown = groupMru.get(g.id)!.slice(0, k);   // 常驻也被吃：按组内最近使用填
+    for (const t of shown) add(t);
+    if (all.length > shown.length) toolbarEl.appendChild(mkMore(all));
+  });
 }
 window.addEventListener("resize", () => renderSlots());
 
