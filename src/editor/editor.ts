@@ -110,7 +110,7 @@ export const SNAP_LABELS: Record<string, string> = {
   "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",
   "grid-point": "格点", increment: "整数长度", "on-extension": "延长线上",
 };
-export { type GridSettings, type GridPlane, GRID_STEPS, GRID_PLANES } from "./grid-settings.ts";
+export { type GridSettings, type GridPlane, GRID_STEPS, GRID_PLANES, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 
 export function describeEvent(ev: FaceEvent): string {
   switch (ev.type) {
@@ -1366,7 +1366,7 @@ export class Editor {
       protractor: null,
       guides: view.guides(),
       frame: view.frame(),
-      grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.on ? this._grid.step : 1 },
+      grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.on ? this._grid.step : 1, sub: this._grid.subdiv, on: this._grid.on },
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       ...(this.mode.viewExtras?.() ?? {}),

@@ -71,8 +71,8 @@ export const PALETTE = {
   edgeSelected: 0x2b6cb0,
   edgeHot: 0xcc3333,      // 刮擦/悬停将删
   grid: 0xd9d6cf,
-  /** 网格线正片叠底用的系数色：× 背景 0xf2f0ea ≈ 原来的 grid 色；压在深色材质上只暗 ~10%。 */
-  gridMultiply: 0xe6e4df,
+  /** 网格正片叠底的系数色（× 背景 ≈ 原 grid 灰）：主线 / 细线；压在深色材质上只暗 ~10% / ~5%。 */
+  gridMajor: 0xe3e1dc, gridMinor: 0xf0eeea,
   axisX: 0xcc3333,
   axisY: 0x2e8b57,
   axisZ: 0x2b6cb0,
@@ -165,13 +165,39 @@ export interface ViewState {
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
-  grid?: { frame: Frame; step: number } | null;
+  grid?: { frame: Frame; step: number; sub?: number; on?: boolean } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
 
+/** 地面网格 = 一张 shader 平面（Blender 式；user 2026-10-24「根治，修……z-fight 加一个 z-offset」）：主线每 uStep、细线每 uStep/uSub，像素定宽（fwidth 抗锯齿），
+ *  太密自动淡出；正片叠底只变暗底下的东西；polygonOffset 前拉 = 贴在 z=0 的面不再 z-fight，网格直接「印」在地面材质上。 */
+const GRID_VERT = /* glsl */`
+  varying vec2 vUv;
+  void main() { vUv = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+const GRID_FRAG = /* glsl */`
+  uniform float uStep, uSub, uPx;
+  uniform vec3 uMajor, uMinor;
+  varying vec2 vUv;
+  float lineMask(vec2 coord, float spacing, vec2 d, float px) {
+    vec2 g = abs(fract(coord / spacing - 0.5) - 0.5) * spacing;   // 到最近格线的距离（世界）
+    vec2 w = d * px * 0.5;                                          // 半线宽（世界）
+    vec2 a = vec2(1.0) - smoothstep(w - d, w + d, g);
+    return max(a.x, a.y);
+  }
+  void main() {
+    vec2 d = fwidth(vUv);
+    float dm = max(d.x, d.y) + 1e-9;
+    float major = lineMask(vUv, uStep, d, uPx) * smoothstep(3.0, 9.0, uStep / dm);
+    float minor = 0.0;
+    if (uSub > 1.5) { float sp = uStep / uSub; minor = lineMask(vUv, sp, d, uPx) * smoothstep(4.0, 14.0, sp / dm); }
+    if (major < 0.004 && minor < 0.004) discard;
+    vec3 col = mix(vec3(1.0), uMinor, minor);
+    col = mix(col, uMajor, major);
+    gl_FragColor = vec4(col, 1.0);   // MultiplyBlending：result = dst × col
+  }`;
 const FACE_VERT = /* glsl */`
   attribute vec3 aColor;
   varying vec3 vColor;
@@ -246,7 +272,7 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
-  private guideLines: any; private tapeLines: any; private gridObj: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any;
+  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any;
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -273,7 +299,7 @@ export class Renderer3 {
     this.camOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20000);
     this.camPersp = new THREE.PerspectiveCamera(50, 1, 1, 20000);
     this.resolution = new THREE.Vector2(1, 1);
-    this.rebuildGrid(WORLD_FRAME, 1);
+    this.rebuildGrid(WORLD_FRAME, 1, 1);
 
     // 膜：一份几何 + 一个 shader（光向 uniform）
     this.faceMat = new THREE.ShaderMaterial({
@@ -668,9 +694,9 @@ export class Renderer3 {
       this.guideLines.visible = true;
     } else { this.guideLines.visible = false; this.guideKey = ""; }
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
-    const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1;
-    const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}`;
-    if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep); }
+    const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = view.grid?.on ? (view.grid?.sub ?? 1) : 1;
+    const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}`;
+    if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
 
     // ---- 充能标记：点 = 小菱形（像素尺寸），边 = 淡淡的延长线 ----
     const ch = view.charged;
@@ -1140,38 +1166,36 @@ export class Renderer3 {
   }
 
   /**
-   * 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）= 一份粗线、一个 draw call。0.11 ⑤ 起跟帧与格距走：线画在帧的 XY 面上、
-   * 过帧原点、沿帧的 x / y；格距太密时按 ≤ 100 格 / 侧抽稀显示（吸附仍按真格距）。
+   * 地面网格 = 一张 shader 平面（GRID_FRAG；0.13.23 起不再一条条线）+ 三色轴一份粗线（SU 约定：X 红 / Y 绿 / Z 蓝向上）。
+   * 0.11 ⑤ 起跟帧与格距走：平面贴在帧的 XY 面上、过帧原点；格距 / 细分是 uniform。网格关着时只画 1 m 主线（sub = 1）。
    */
-  private rebuildGrid(frame: Frame, step: number): void {
-    const pos: number[] = [], col: number[] = [];
+  private rebuildGrid(frame: Frame, step: number, sub: number): void {
     const o = frame.origin, X = frame.x, Y = frame.y, Zd = frame.z;
-    const at = (u: number, v: number, w: number): Pt3 => ({ x: o.x + X.x * u + Y.x * v + Zd.x * w, y: o.y + X.y * u + Y.y * v + Zd.y * w, z: o.z + X.z * u + Y.z * v + Zd.z * w });
-    const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
     const L = GRID_N * GRID_STEP;
-    let s = step > 1e-6 ? step : 1, n = Math.floor(L / s);
-    if (n > 100) { s *= Math.ceil(n / 100); n = Math.floor(L / s); }
-    for (let i = -n; i <= n; i++) {
-      if (i === 0) continue;   // 轴线单独画
-      push(at(i * s, -L, 0), at(i * s, L, 0), PALETTE.gridMultiply);
-      push(at(-L, i * s, 0), at(L, i * s, 0), PALETTE.gridMultiply);
+    if (!this.gridMesh) {
+      this.gridMat = new THREE.ShaderMaterial({
+        uniforms: { uStep: { value: 1 }, uSub: { value: 1 }, uPx: { value: STATIC_PX }, uMajor: { value: new THREE.Color(PALETTE.gridMajor) }, uMinor: { value: new THREE.Color(PALETTE.gridMinor) } },
+        vertexShader: GRID_VERT, fragmentShader: GRID_FRAG,
+        transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, side: THREE.DoubleSide,
+        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,   // 前拉：贴地的面不再 z-fight（user「加一个 z-offset 的事情」）
+      });
+      this.gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, 2 * L), this.gridMat);
+      this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false;
+      this.scene.add(this.gridMesh);
+      this.axesObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true, offset: true }));
+      this.axesObj.frustumCulled = false;
+      this.scene.add(this.axesObj);
     }
-    // 轴线另一份（正常混合，要看得见颜色）；网格线正片叠底（user 2026-10-24「grid用叠加而不是overlay，不然深色材质上面很跳」「background是日模式是multiply」）：
-    // 只把底下的东西变暗 ~10%，深色材质上不再跳。两份都是屏幕像素宽的粗线（LineSegments2 = 屏幕空间四边形，WebGL 原生线宽只有 1 px）。
+    this.gridMat.uniforms.uStep.value = step > 1e-6 ? step : 1;
+    this.gridMat.uniforms.uSub.value = sub > 1 ? sub : 1;
+    this.gridMesh.matrix.set(X.x, Y.x, Zd.x, o.x, X.y, Y.y, Zd.y, o.y, X.z, Y.z, Zd.z, o.z, 0, 0, 0, 1);
+    this.gridMesh.matrixWorldNeedsUpdate = true;
+    const at = (u: number, v: number, w: number): Pt3 => ({ x: o.x + X.x * u + Y.x * v + Zd.x * w, y: o.y + X.y * u + Y.y * v + Zd.y * w, z: o.z + X.z * u + Y.z * v + Zd.z * w });
     const apos: number[] = [], acol: number[] = [];
     const pushA = (a: Pt3, b: Pt3, hex: number): void => { apos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); acol.push(c.r, c.g, c.b, c.r, c.g, c.b); };
     pushA(at(-L, 0, 0), at(L, 0, 0), PALETTE.axisX);
     pushA(at(0, -L, 0), at(0, L, 0), PALETTE.axisY);
     pushA(at(0, 0, 0), at(0, 0, L), PALETTE.axisZ);
-    if (!this.gridObj) {
-      this.gridObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true, blend: "multiply" }));
-      this.gridObj.frustumCulled = false; this.gridObj.renderOrder = -1;   // 透明批里最先画：别的半透明覆盖它，它不覆盖别人
-      this.scene.add(this.gridObj);
-      this.axesObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true }));
-      this.axesObj.frustumCulled = false;
-      this.scene.add(this.axesObj);
-    }
-    this.setLineGeometry(this.gridObj, pos, col);
     this.setLineGeometry(this.axesObj, apos, acol);
   }
 }

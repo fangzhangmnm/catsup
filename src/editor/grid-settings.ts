@@ -9,6 +9,11 @@ export const GRID_PLANES: readonly { id: GridPlane; label: string }[] = [{ id: "
 /** on = 格点 + 整数长度同一开关；step = 显示格距（米）；subdiv = 吸附细分（吸附步 = step / subdiv）。存进文档 settings、不进 undo。 */
 export interface GridSettings { on: boolean; step: number; subdiv: 5 | 10; plane: GridPlane; }
 export const GRID_STEPS: readonly number[] = [5, 1, 0.5, 0.1, 0.05, 0.01];
+/** 英制格距（user 2026-10-24「网格和你的单位设置对齐。默认还是si。不过我可能每次会用dnd」）：10 ft / 5 ft（D&D 一格）/ 1 ft / 6 in / 1 in；1/5 细分下 5 ft = 1 ft。 */
+export const GRID_STEPS_IMPERIAL: readonly number[] = [3.048, 1.524, 0.3048, 0.1524, 0.0254];
+export function gridStepsFor(unit: string): readonly number[] { return unit === "ft" || unit === "in" ? GRID_STEPS_IMPERIAL : GRID_STEPS; }
+/** 换单位制时把格距挪到新制里最近的一档（SI ↔ 英制）。 */
+export function nearestGridStep(step: number, unit: string): number { const list = gridStepsFor(unit); return list.includes(step) ? step : list.reduce((b, x) => (Math.abs(Math.log(x / step)) < Math.abs(Math.log(b / step)) ? x : b), list[0]); }
 export const DEFAULT_GRID: GridSettings = { on: false, step: 1, subdiv: 5, plane: "xy" };
 /** 网格帧：把上下文帧的轴换到网格面上（右手系；网格画在帧的 XY、法向 = 帧的 Z）。xy = 原样；yz：x←y, y←z, z←x；xz：x←x, y←z, z←−y。 */
 export function gridFrame(F: Frame, plane: GridPlane): Frame {

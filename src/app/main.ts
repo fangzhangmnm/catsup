@@ -22,7 +22,7 @@ import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
-import { Editor, GRID_STEPS, GRID_PLANES, TOOLS, type Tool, type GridPlane } from "../editor/editor.ts";
+import { Editor, GRID_PLANES, TOOLS, gridStepsFor, nearestGridStep, type Tool, type GridPlane } from "../editor/editor.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
 import { README_SECTIONS } from "./readme-docs.ts";
@@ -362,7 +362,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
       case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
-      case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; syncUi(); return "keep"; }
+      case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; const st = nearestGridStep(editor.grid.step, editor.vcbUnit); if (st !== editor.grid.step) editor.setGrid({ step: st }); syncUi(); return "keep"; }
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
@@ -507,7 +507,7 @@ function renderGridChip(): void {
 gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
   anchor: gridChip, align: "end",
   items: () => [
-    ...GRID_STEPS.map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtVcbLength(s, editor.vcbUnit)}`, checked: Math.abs(editor.grid.step - s) < 1e-9 })),
+    ...gridStepsFor(editor.vcbUnit).map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtVcbLength(s, editor.vcbUnit)}`, checked: Math.abs(editor.grid.step - s) < 1e-9 })),   // 格距跟单位制（user 10-24：默认 SI，英制 = 5 ft 等）
     ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: `栅格面 ${p.label}`, checked: editor.grid.plane === p.id, ...(p.id === "xy" ? { separatorBefore: true } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
     { id: "sub:5" as GridMenuId, label: "吸附 1/5", checked: editor.grid.subdiv === 5, separatorBefore: true, hint: "仪表盘式" },
     { id: "sub:10" as GridMenuId, label: "吸附 1/10", checked: editor.grid.subdiv === 10, hint: "尺子式" },
