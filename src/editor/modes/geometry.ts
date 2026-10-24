@@ -1,5 +1,5 @@
 // modes/geometry.ts —— 几何模式（SketchUp 血统：画 / 推拉 / 移动 / 旋转 / 缩放 / 偏移 / 跟随 / 橡皮 / 尺规）。0.13 刀 ①：先只是把 handlers 表从 Editor 搬过来，
-// 工具集 = 全部（油漆桶留到刀 ③ 搬进表面模式）；刀 ② 把 Editor 内建的九个工具逐个搬成模块加进 handlers。行为零变更。
+// 工具集 = 全部减油漆桶（表面模式的）；九个内建工具刀 ② 已全部成模块。
 // created 2026-10-24 by Claude Fable 5.1
 import type { Mode } from "../mode.ts";
 import type { ToolHandler } from "../tool-handler.ts";
@@ -17,17 +17,17 @@ import { RotateTool } from "../tools/rotate.ts";
 import { PushPullTool } from "../tools/pushpull.ts";
 import { MoveTool } from "../tools/move.ts";
 import { LineTool, RectTool, CircleTool } from "../tools/draw.ts";
-import { PaintTool, EraseFaceTool } from "../tools/paint.ts";
+import { EraseFaceTool } from "../tools/erase-face.ts";
 
 export class GeometryMode implements Mode {
   readonly id = "geometry" as const;
   readonly label = "几何";
   readonly kinds = ["brep"] as const;
-  readonly tools: readonly Tool[] = TOOLS;
+  readonly tools: readonly Tool[] = TOOLS.filter((t) => t !== "paint");   // 油漆桶归表面模式（刀 ③）
   readonly defaultTool: Tool = "line";
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
     offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(),
     erase: new EraseTool(), select: new SelectTool(), scale: new ScaleTool(), rotate: new RotateTool(), pp: new PushPullTool(), move: new MoveTool(),
-    line: new LineTool(), rect: new RectTool(), circle: new CircleTool(), paint: new PaintTool(), eraseFace: new EraseFaceTool(),
+    line: new LineTool(), rect: new RectTool(), circle: new CircleTool(), eraseFace: new EraseFaceTool(),
   };
 }

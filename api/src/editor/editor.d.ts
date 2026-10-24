@@ -4,6 +4,7 @@ import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3 } from "./pick.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
+import type { ToolHandler } from "./tool-handler.ts";
 import { type GridSettings } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
@@ -16,6 +17,7 @@ import { type Frame } from "../scene/xform.ts";
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ModeId } from "./mode.ts";
+import type { OptionKv } from "./tool-config.ts";
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
     kind: "color";
@@ -80,6 +82,8 @@ export interface EditorHost {
     } | null): void;
     changed(): void;
     error?(err: unknown, where: string): void;
+    /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
+    optionKv?: OptionKv;
 }
 export declare const SNAP_LABELS: Record<string, string>;
 export { type GridSettings, GRID_STEPS } from "./grid-settings.ts";
@@ -209,9 +213,20 @@ export declare class Editor {
     private anchor3;
     private cursor3;
     private snapInfo;
-    /** 当前编辑模式（0.13 刀 ①）：工具集 + 手势模块表住它；刀 ③ 加 setMode / 表面模式。 */
-    private readonly mode;
+    /** 编辑模式（0.13 刀 ① / 刀 ③）：几何 / 表面；工具集 + 手势模块表住模式里；左上下拉框切（user「切换编辑模式还是左上下拉框」）。 */
+    private readonly modeList;
+    private mode;
     get modeId(): ModeId;
+    modes(): readonly {
+        id: ModeId;
+        label: string;
+    }[];
+    /** 当前模式有哪些工具（左柱按它排）。 */
+    modeTools(): readonly Tool[];
+    /** 某工具的手势模块（上下文条要碰工具自己的状态，如吸色锁定）。 */
+    toolHandler(t: Tool): ToolHandler | undefined;
+    /** 切模式：清手势；当前工具不在新模式里 → 换成它的默认工具；选区留着（面选区两边都认）。 */
+    setMode(id: ModeId): void;
     private get handlers();
     private readonly toolCtx;
     private samples;
@@ -386,6 +401,8 @@ export declare class Editor {
     private materialIndexForPick;
     /** 给活动池里的这些面涂当前材质（op）。 */
     paintFaces(faces: readonly FaceId[]): void;
+    /** 吸色：把这张面的材质设成油漆桶当前「蘸的」（没材质 = 默认灰）。 */
+    pickMaterialOf(face: FaceId): void;
     /** 把选区（面）涂上当前材质。 */
     paintSelection(): boolean;
     /** 给这些边（本地 id）软化（soft + smooth）或硬化。 */

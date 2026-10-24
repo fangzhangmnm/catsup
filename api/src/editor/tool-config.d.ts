@@ -76,28 +76,8 @@ export declare class ToolConfig<T extends OptionTable> {
     subscribe(fn: (tool: string, key: string) => void): () => void;
     private coerce;
 }
-/** 油漆桶涂哪些面（user 2026-10-21「油漆桶应该有不同的模式，对应平滑组啊，整个connected啊，整个component啊，以及锐角之类的」）。 */
-export declare const PAINT_MODES: readonly [{
-    readonly id: "single";
-    readonly label: "一张面";
-    readonly hint: "只涂点到的面（有面选区且点在选区里 = 整个选区）";
-}, {
-    readonly id: "smooth";
-    readonly label: "平滑组";
-    readonly hint: "沿平滑边（smooth）连通的面一起涂（Ctrl）";
-}, {
-    readonly id: "sharp";
-    readonly label: "到锐角为止";
-    readonly hint: "沿夹角 ≤ 阈值的边连通的面一起涂（Ctrl+Shift）";
-}, {
-    readonly id: "connected";
-    readonly label: "连通体";
-    readonly hint: "沿任何边连通的面一起涂（Shift）";
-}, {
-    readonly id: "pool";
-    readonly label: "整个组 / 组件";
-    readonly hint: "点到的 group / 组件里的全部面（在外面点也行）";
-}];
+/** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
+export declare function optionGroupOf(tool: string): string;
 export declare const TOOL_OPTIONS: {
     readonly circle: {
         readonly segments: {
@@ -121,38 +101,26 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
-    readonly paint: {
-        readonly mode: {
+    /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
+    readonly surface: {
+        readonly tier: {
             readonly kind: "enum";
-            readonly label: "涂哪些";
+            readonly label: "范围";
             readonly values: readonly [{
-                readonly id: "single";
-                readonly label: "一张面";
-                readonly hint: "只涂点到的面（有面选区且点在选区里 = 整个选区）";
-            }, {
                 readonly id: "smooth";
                 readonly label: "平滑组";
-                readonly hint: "沿平滑边（smooth）连通的面一起涂（Ctrl）";
+                readonly hint: "沿软边连通的面 = 一张逻辑面（单击）";
             }, {
                 readonly id: "sharp";
                 readonly label: "到锐角为止";
-                readonly hint: "沿夹角 ≤ 阈值的边连通的面一起涂（Ctrl+Shift）";
+                readonly hint: "沿软边或夹角 ≤ 阈值的边连通的面（双击）";
             }, {
                 readonly id: "connected";
                 readonly label: "连通体";
-                readonly hint: "沿任何边连通的面一起涂（Shift）";
-            }, {
-                readonly id: "pool";
-                readonly label: "整个组 / 组件";
-                readonly hint: "点到的 group / 组件里的全部面（在外面点也行）";
+                readonly hint: "沿任何边连通的面（三击）";
             }];
-            readonly def: "single";
-            readonly scope: "session";
-            readonly modifiers: {
-                readonly ctrl: "smooth";
-                readonly shift: "connected";
-                readonly ctrlShift: "sharp";
-            };
+            readonly def: "smooth";
+            readonly scope: "device";
         };
         readonly sharpDeg: {
             readonly kind: "number";
@@ -162,10 +130,9 @@ export declare const TOOL_OPTIONS: {
             readonly max: 90;
             readonly step: 1;
             readonly unit: "°";
-            readonly scope: "session";
+            readonly scope: "device";
         };
     };
 };
 export type CatsUpToolConfig = ToolConfig<typeof TOOL_OPTIONS>;
-export type PaintMode = (typeof PAINT_MODES)[number]["id"];
 export {};

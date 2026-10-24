@@ -50,6 +50,8 @@ export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { Mode, ModeId } from "./mode.ts";
 import { GeometryMode } from "./modes/geometry.ts";
+import { SurfaceMode } from "./modes/surface.ts";
+import type { OptionKv } from "./tool-config.ts";
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
@@ -83,6 +85,8 @@ export interface EditorHost {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   changed(): void;
   error?(err: unknown, where: string): void;
+  /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
+  optionKv?: OptionKv;
 }
 
 function epsOfKindVR(e: EpsSet, kind: string): number {
@@ -182,9 +186,29 @@ export class Editor {
   private cursor3: Pt3 | null = null;
   private snapInfo: Snap3 | null = null;
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
-  /** 当前编辑模式（0.13 刀 ①）：工具集 + 手势模块表住它；刀 ③ 加 setMode / 表面模式。 */
-  private readonly mode: Mode = new GeometryMode();
+  /** 编辑模式（0.13 刀 ① / 刀 ③）：几何 / 表面；工具集 + 手势模块表住模式里；左上下拉框切（user「切换编辑模式还是左上下拉框」）。 */
+  private readonly modeList: readonly Mode[] = [new GeometryMode(), new SurfaceMode()];
+  private mode: Mode = this.modeList[0];
   get modeId(): ModeId { return this.mode.id; }
+  modes(): readonly { id: ModeId; label: string }[] { return this.modeList.map((m) => ({ id: m.id, label: m.label })); }
+  /** 当前模式有哪些工具（左柱按它排）。 */
+  modeTools(): readonly Tool[] { return this.mode.tools; }
+  /** 某工具的手势模块（上下文条要碰工具自己的状态，如吸色锁定）。 */
+  toolHandler(t: Tool): ToolHandler | undefined { return this.mode.handlers[t]; }
+  /** 切模式：清手势；当前工具不在新模式里 → 换成它的默认工具；选区留着（面选区两边都认）。 */
+  setMode(id: ModeId): void {
+    const next = this.modeList.find((m) => m.id === id);
+    if (!next || next === this.mode) return;
+    this.cancelGesture();
+    this.mode.leave?.(this.toolCtx);
+    this.mode = next;
+    this.mode.enter?.(this.toolCtx);
+    if (!next.tools.includes(this._tool)) this._tool = next.defaultTool;
+    this.last = null;
+    this.clearCharged();
+    this.host.changed();
+    this.draw();
+  }
   private get handlers(): Partial<Record<Tool, ToolHandler>> { return this.mode.handlers; }
   private readonly toolCtx: EditorCore = this.makeToolCtx();
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
@@ -208,7 +232,7 @@ export class Editor {
   private lastSnap: Snap3 | null = null;
   private paintPick: PaintPick = null;
   /** 工具选项（声明式表 `tool-config.ts`，SSoT）；UI 从它生成，工具从它读。 */
-  readonly config: CatsUpToolConfig = new ToolConfig(TOOL_OPTIONS);
+  readonly config: CatsUpToolConfig;
   /** 数值小窗：刚做完的那一步（null = 没有可改的）；opCount 给它数这一步占了几个 op。 */
   private last: LastGesture | null = null;
   private opCount = 0;
@@ -219,6 +243,7 @@ export class Editor {
   private nextKid = 1;
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost) {
+    this.config = new ToolConfig(TOOL_OPTIONS, host.optionKv);   // 字段初始化先于构造体（es2022）：config 在这里建，toolCtx 用 getter 取
     this.r3 = new Renderer3(canvas);
     this.cam.pitch = 0.61;
     this.cam.projection = "persp";
@@ -364,6 +389,11 @@ export class Editor {
 
   // ---------- 工具 ----------
   setTool(t: Tool): void {
+    if (!this.mode.tools.includes(t)) {   // 工具属于别的模式（快捷键 B 在几何模式按了油漆桶）→ 先切过去
+      const owner = this.modeList.find((m) => m.tools.includes(t));
+      if (!owner) return;
+      this.setMode(owner.id);
+    }
     this.last = null;
     this._tool = t;
     this.cancelGesture();
@@ -868,6 +898,13 @@ export class Editor {
     if (!keys.length) return;
     const material = this.materialIndexForPick();
     this.commitOp({ op: "paintFaces", at: this.activePool(), faces: keys, material });
+  }
+  /** 吸色：把这张面的材质设成油漆桶当前「蘸的」（没材质 = 默认灰）。 */
+  pickMaterialOf(face: FaceId): void {
+    const k = this.kernel;
+    const m = this.scene.materialOfSlot(this.scene.defOfContext(this.ctx), k.faceMaterialOf(face));
+    if (!m) { this.setPaint(null); return; }
+    this.setPaint(m.texture ? { kind: "texture", name: m.name, mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : { kind: "color", name: m.name, color: [m.color[0], m.color[1], m.color[2]] });
   }
   /** 把选区（面）涂上当前材质。 */
   paintSelection(): boolean {
@@ -1409,6 +1446,7 @@ export class Editor {
       setHoverFace: (f) => { this.hoverFace = f; },
       paintMaterialIndex: () => this.materialIndexForPick(),
       paintFaces: (faces) => this.paintFaces(faces),
+      pickMaterialOf: (f) => this.pickMaterialOf(f),
       grid: () => this._grid,
       pickLocked: (p) => this.pickIsLocked(p),
       setLiveOverride: (o) => { this.liveOverride = o; },

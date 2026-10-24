@@ -3,8 +3,8 @@ journals/
 journal/
 .claude/
 node_modules/
-# tools/ = 构建工具（esbuild 二进制跨 OS 不通用，build.sh 自动 curl）；区别于运行时 vendor
-tools/
+# /tools/（只匹配仓根）= 构建工具（esbuild 二进制跨 OS 不通用，build.sh 自动 curl）；区别于运行时 vendor。2026-10-24 前写成 tools/ 把 src/editor/tools/ 也吞了（工具模块自 0.9.11 起从未进 git），Claude Fable 5.1 修
+/tools/
 *.log
 .DS_Store
 # dist/catsup-<hash>.mjs 进 git（家族约定：各分支自己 commit 好 dist，部署只搬不重 build）；sourcemap 不进

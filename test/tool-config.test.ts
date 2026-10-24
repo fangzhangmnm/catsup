@@ -1,6 +1,7 @@
 // 工具配置深模块（0.9 QoL，2026-10-21，Claude Fable 5.1）：表 → 校验 / 修饰键覆盖 / 订阅 / device 路由；CatsUp 表本身的健全性。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { ToolConfig, TOOL_OPTIONS, PAINT_MODES, type OptionDef } from "../src/editor/tool-config.ts";
+import { ToolConfig, TOOL_OPTIONS, optionGroupOf, type OptionDef } from "../src/editor/tool-config.ts";
+import { SURFACE_TIERS } from "../src/editor/surface-assign.ts";
 
 const TABLE = {
   paint: {
@@ -59,10 +60,10 @@ describe("tool-config: 表驱动", () => {
   it("CatsUp 的表健全：默认值合法、修饰键指向表内值、本版全部 session（没开新持久化）", () => {
     const c = new ToolConfig(TOOL_OPTIONS);
     for (const [tool, opts] of Object.entries(TOOL_OPTIONS)) for (const [key, def] of Object.entries(opts as Record<string, OptionDef>)) {
-      eq(def.scope, "session", `${tool}.${key} 本版只许 session（开 device / doc 要 user 同意）`);
+      eq(def.scope, tool === "surface" ? "device" : "session", `${tool}.${key}：surface 组 = device（user 2026-10-24「锐角阈值和模式的持久化不同工具共享」）；其余本版只许 session（开 device / doc 要 user 同意）`);
       if (def.kind === "enum") { assert(def.values.some((v) => v.id === def.def), `${tool}.${key} 默认值在表里`); for (const m of Object.values(def.modifiers ?? {})) assert(def.values.some((v) => v.id === m), `${tool}.${key} 修饰键目标在表里`); }
     }
-    eq(c.get("circle", "segments"), 24); eq(c.get("paint", "mode"), "single");
-    eq(PAINT_MODES.length, 5);
+    eq(c.get("circle", "segments"), 24); eq(c.get("surface", "tier"), "smooth"); eq(c.get("surface", "sharpDeg"), 20);
+    eq(SURFACE_TIERS.length, 3); eq(optionGroupOf("paint"), "surface"); eq(optionGroupOf("circle"), "circle");
   });
 });

@@ -96,6 +96,8 @@ export interface ToolCtx {
     paintMaterialIndex(): number | null;
     /** 给活动池里的这些面涂当前材质（op）。 */
     paintFaces(faces: readonly FaceId[]): void;
+    /** 吸色：把这张面的材质设成油漆桶当前「蘸的」。 */
+    pickMaterialOf(face: FaceId): void;
     /** 子 group / 实例锁着吗（A27）。 */
     pickLocked(p: PoolPick): boolean;
     /** 整体变换预演的叠加层（子池跟着指针走；null = 清）。 */

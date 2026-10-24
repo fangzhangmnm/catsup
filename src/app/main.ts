@@ -22,6 +22,7 @@ import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_STEPS, TOOLS, type Tool } from "../editor/editor.ts";
+import type { ModeId } from "../editor/mode.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
 import { README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
@@ -110,6 +111,7 @@ const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.is
 // ---------- Editor ----------
 let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
 const editor = new Editor(canvas, {
+  optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
   tip: (t, cx, cy) => {
     if (t) {
@@ -281,16 +283,19 @@ function allocate(): number[] {
 function renderSlots(): void {
   noteToolUse(editor.tool);
   toolbarEl.replaceChildren();
-  const add = (t: Tool, fly?: () => Tool[]): void => { const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
-  add("select"); add("line"); add(shapeCurrent, () => SHAPES); add("erase");   // 第一组常驻
+  const inMode = (t: Tool): boolean => editor.modeTools().includes(t);   // 左柱只排当前模式的工具（刀 ③：表面模式 = 选择 + 油漆桶）
+  const add = (t: Tool, fly?: () => Tool[]): void => { if (!inMode(t)) return; const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
+  add("select"); add("line"); if (SHAPES.some(inMode)) add(shapeCurrent, () => SHAPES.filter(inMode)); add("erase");   // 第一组常驻
   const slots = allocate();
   RAIL_GROUPS.forEach((g, gi) => {
     const k = slots[gi];
-    const all = [...g.pinned, ...g.pool];
+    const all = [...g.pinned, ...g.pool].filter(inMode);
+    if (!all.length) return;
     const sep = document.createElement("div"); sep.className = "rail-sep"; toolbarEl.appendChild(sep);
     let shown: Tool[];
     if (k >= g.pinned.length) shown = [...g.pinned, ...usedPool.get(g.id)!.slice(0, k - g.pinned.length)];
     else shown = groupMru.get(g.id)!.slice(0, k);   // 常驻也被吃：按组内最近使用填
+    shown = shown.filter(inMode);
     for (const t of shown) add(t);
     if (all.length > shown.length) toolbarEl.appendChild(mkMore(all));
   });
@@ -440,6 +445,17 @@ function setWalk(on: boolean): void {
 editor.renderer3.setLineWeight(lineWeightInit());   // 线稿粗细：存的 / 高 DPI 默认 1.5（直接打渲染器：此时 HUD 元素还没挂，不能走 host.changed）
 const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor, {
   // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
+  // 表面工具的上下文条开头（user 2026-10-24「先显示选中的材质，然后是eyedropper，然后是范围，然后是阈值」）
+  leading: (tool) => {
+    if (tool !== "paint") return [];
+    const p = editor.paint;
+    const swatch = p === null ? "#d6d6d6" : p.kind === "color" ? `rgb(${Math.round(p.color[0] * 255)}, ${Math.round(p.color[1] * 255)}, ${Math.round(p.color[2] * 255)})` : `center / cover url(${textureUrl(p.bytes, p.mimeType)})`;
+    const H = editor.toolHandler("paint") as { eyedropper?: boolean } | undefined;
+    return [
+      { id: "paintPick", label: p === null ? "默认" : p.name, swatch, title: "当前材质（点开换）", onClick: () => { toggleMatSheet(true); } },
+      { id: "eyedropper", label: "吸色", active: !!H?.eyedropper, title: "吸色：点一张面读它的材质（Ctrl / Alt 按住 = 临时）", onClick: () => { if (H) H.eyedropper = !H.eyedropper; } },
+    ];
+  },
   actions: (tool) => {
     if (tool === "axes") return [{ id: "axesReset", label: "重置轴", onClick: () => { menuPick("axesReset"); } }];
     if (tool === "tape" || tool === "protractor") return [{ id: "guidesClear", label: "删除所有参考线", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
@@ -468,6 +484,12 @@ function renderCrumbs(): void {
 // 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
 type GridMenuId = `step:${number}` | "sub:5" | "sub:10" | "off";
 const gridChip = document.getElementById("gridChip") as HTMLElement;
+/** 左上编辑模式下拉框（几何 / 表面）。 */
+function renderModeSelect(): void {
+  const modes = editor.modes();
+  if (modeSelect.options.length !== modes.length) { modeSelect.replaceChildren(); for (const m of modes) { const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; modeSelect.appendChild(o); } }
+  modeSelect.value = editor.modeId;
+}
 function renderGridChip(): void {
   const g = editor.grid;
   gridChip.hidden = !g.on;
@@ -490,6 +512,7 @@ gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
 }));
 function syncUi(): void {
   renderGridChip();
+  renderModeSelect();
   renderSlots();
   renderCrumbs();
   toolStrip.render();
@@ -518,6 +541,9 @@ helpEl.addEventListener("click", (e) => { if (e.target === helpEl) toggleHelp(fa
 const matSheet = $("matSheet");
 const matGrid = $("matGrid");
 const matImageInput = $<HTMLInputElement>("matImage");
+/** 贴图字节 → object URL（按字节对象缓存，免得每次刷新上下文条都漏一个 URL）。 */
+const _texUrls = new WeakMap<Uint8Array, string>();
+const textureUrl = (bytes: Uint8Array, mime: string): string => { let u = _texUrls.get(bytes); if (!u) { u = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime })); _texUrls.set(bytes, u); } return u; };
 const hexToRgb = (hex: string): [number, number, number] => { const n = parseInt(hex.slice(1), 16); return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
 function toggleMatSheet(on: boolean): void { matSheet.hidden = !on; if (on) renderMatGrid(); }
 function renderMatGrid(): void {
@@ -691,7 +717,9 @@ lastStepProvider = () => editor.lastStep();
 setLastStepProvider(lastStepProvider);
 // smart save 钮（三条杠下面；对齐 WeebPaint save-status + smartSaveAndPush；user 2026-09-20「title 意义不明可以不要，三条杠下面加一个 smart save button」）
 const btnSave = $<HTMLButtonElement>("btnSave");
-const finalBadge = $<HTMLElement>("finalBadge");   // 定稿角标（ai-docs/20261024-finalize.md）
+const finalBadge = $<HTMLElement>("finalBadge");
+const modeSelect = $<HTMLSelectElement>("modeSelect");
+modeSelect.addEventListener("change", () => { editor.setMode(modeSelect.value as ModeId); });   // 定稿角标（ai-docs/20261024-finalize.md）
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {

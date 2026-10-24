@@ -61,6 +61,12 @@ svg.ico use { color: inherit; }
 /* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
 .hud-strip { left: calc(10px + var(--safe-left)); bottom: calc(48px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 240px); flex-wrap: wrap; }
 /* 面包屑（#25）：左上角，进了组 / 组件才出现 */
+/* 编辑模式下拉框（刀 ③；user「切换编辑模式还是左上下拉框」）：嵌纸面、像能按，同左上横排 */
+.mode-select { height: 30px; padding: 0 8px; border: 1px solid rgba(0,0,0,.14); border-radius: 8px; background: rgba(255,255,255,.75); font: inherit; font-size: 13px; color: inherit; }
+/* 表面工具上下文条的 chip：材质色块 + 吸色开关 */
+.strip-action.on { background: var(--accent); color: #fff; border-color: var(--accent); }
+.strip-chip { display: inline-flex; align-items: center; gap: 6px; }
+.strip-swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); background-size: cover; background-position: center; }
 /* 定稿（ai-docs/20261024-finalize.md）：角标 + 护栏 ① 界面灰掉 */
 .final-badge { font-size: 12px; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent); border-radius: 999px; background: rgba(255,255,255,.7); align-self: center; }
 body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBar, body.doc-final #vcb { pointer-events: none; opacity: .45; }

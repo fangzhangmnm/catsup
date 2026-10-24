@@ -7,8 +7,13 @@ export interface StripAction {
     id: string;
     label: string;
     disabled?: boolean;
-    onClick(): void;
+    onClick(): void; /** 色块（CSS background；材质 chip）。 */
+    swatch?: string; /** 开关态（吸色锁定）。 */
+    active?: boolean;
+    title?: string;
 }
+/** leading = 排在选项前面的 chip（表面工具：当前材质 → 吸色 → 范围 → 阈值，user 2026-10-24 定的顺序）。 */
 export declare function mountToolStrip(root: HTMLElement, editor: Editor, opts?: {
     actions?(tool: string): StripAction[];
+    leading?(tool: string): StripAction[];
 }): ToolStrip;

@@ -130,14 +130,10 @@ export class ToolConfig<T extends OptionTable> {
 }
 
 // ---------------- CatsUp 的表（SSoT）----------------
-/** 油漆桶涂哪些面（user 2026-10-21「油漆桶应该有不同的模式，对应平滑组啊，整个connected啊，整个component啊，以及锐角之类的」）。 */
-export const PAINT_MODES = [
-  { id: "single", label: "一张面", hint: "只涂点到的面（有面选区且点在选区里 = 整个选区）" },
-  { id: "smooth", label: "平滑组", hint: "沿平滑边（smooth）连通的面一起涂（Ctrl）" },
-  { id: "sharp", label: "到锐角为止", hint: "沿夹角 ≤ 阈值的边连通的面一起涂（Ctrl+Shift）" },
-  { id: "connected", label: "连通体", hint: "沿任何边连通的面一起涂（Shift）" },
-  { id: "pool", label: "整个组 / 组件", hint: "点到的 group / 组件里的全部面（在外面点也行）" },
-] as const;
+/** 表面指派的档位（user 2026-10-24 定稿：三档 平滑组 / 到锐角为止 / 连通体 ↔ 单击 / 双击 / 三击；选项档 = 下限）。定义住 surface-assign.ts。 */
+import { SURFACE_TIERS } from "./surface-assign.ts";
+/** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
+export function optionGroupOf(tool: string): string { return tool === "paint" ? "surface" : tool; }
 
 export const TOOL_OPTIONS = {
   circle: {
@@ -146,11 +142,11 @@ export const TOOL_OPTIONS = {
   arc: {
     segments: { kind: "number", label: "段数", def: 12, min: 2, max: 96, step: 1, scope: "session" },
   },
-  paint: {
-    mode: { kind: "enum", label: "涂哪些", values: PAINT_MODES, def: "single", scope: "session", modifiers: { ctrl: "smooth", shift: "connected", ctrlShift: "sharp" } },
-    sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "session" },
+  /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
+  surface: {
+    tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },
+    sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "device" },
   },
-} as const satisfies Partial<Record<Tool, Readonly<Record<string, OptionDef>>>>;
+} as const satisfies Partial<Record<Tool | "surface", Readonly<Record<string, OptionDef>>>>;
 
 export type CatsUpToolConfig = ToolConfig<typeof TOOL_OPTIONS>;
-export type PaintMode = (typeof PAINT_MODES)[number]["id"];
