@@ -68,6 +68,8 @@ export interface ToolCtx {
   setSnap(sn: Snap3 | null): void;
   /** 数值小窗：记下「刚做完的那一步」。 */
   recordLast(L: LastGesture): void;
+  /** 取点悬停（无手势）：画面平面 + 吸附 + 充能 + 光标提示——line / rect / 卷尺 / 轴 / 量角器都用这一套。 */
+  hoverSnap(s: { x: number; y: number }): void;
   // ---- 0.11 尺规纪元：轴 ----
   /** 上下文的帧（世界坐标）。 */
   contextFrame(): Frame;
@@ -87,16 +89,27 @@ export interface EditorCore extends ToolCtx {
   modeId(): ModeId;
 }
 
+/**
+ * 手势语法（提案 §7「工具 = 子步序列」，user 2026-10-24 同意；A29 全工具统一「点几下」）：
+ * - `steps`（取量型）：每次 **按下 = 取一个量、进下一子步**（`down`）；底座统一管：点一下抬起 = arm（移动预览、再点 = 下一次按下）；
+ *   按住拖再松手 = 松手处（抬笔结算帧）的一次按下；工具还 active 就继续 arm；充能按子步消费；Esc 清。工具不实现 `up`。
+ * - `direct`（直接操作型：橡皮刮、框选、拖柄、点涂）：底座原样递 down / track / up，不 arm。
+ */
+export type ToolGrammar = "steps" | "direct";
+
 export interface ToolHandler {
   readonly tool: Tool;
+  readonly grammar: ToolGrammar;
   /** 手势进行中？（底座 gestureActive 的一票；为真时 pointerMove 走 track、computeLive 走 live）。 */
   active(): boolean;
   /** 清掉自己的手势状态（底座 cancelGesture 时对所有工具调）。 */
   cancel(): void;
   down(ctx: ToolCtx, ev: ToolPointer): void;
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void;
-  /** settle() = 抬笔结算后的那一帧（null = 没样本）。 */
-  up(ctx: ToolCtx, ev: ToolPointer, settle: () => ToolSample | null): void;
+  /** direct 工具的松手；settle() = 抬笔结算后的那一帧（null = 没样本）。steps 工具不用（底座把松手变成一次 down）。 */
+  up?(ctx: ToolCtx, ev: ToolPointer, settle: () => ToolSample | null): void;
+  /** 没手势时的悬停（吸附预告 / 高亮）；没有就什么都不画。常见的「取点悬停」= `ctx.hoverSnap(s)`。 */
+  hover?(ctx: ToolCtx, s: { x: number; y: number }): void;
   /** 预演：把本工具当前状态跑到克隆内核上（run 一次 = 一份影子）；返回尺寸文案（"" = 无）。 */
   live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
   /** 本工具要进样本环的数（抬笔结算回放时按 extra 读回）。 */

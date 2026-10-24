@@ -163,6 +163,9 @@ export type LastGesture =
   /** 量角器（0.11）：圆心 / 转轴 / 参考点 / 角度 → 角度参考线；VCB 改度数。 */
   | { kind: "protractor"; ops: number; at: PoolRef; center: Pt3; axis: Pt3; ref: Pt3; angle: number };
 
+/** 样本环的一帧（抬笔结算 A21）：屏幕位置 + 当时的手势量。 */
+interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> }
+
 export class Editor {
   readonly cam = new OrbitCamera();
   private r3: Renderer3;
@@ -217,7 +220,7 @@ export class Editor {
   private scaleActive: ScaleHandle | null = null;
   private scaleT0 = 1;
   private scaleFactor: Pt3 = { x: 1, y: 1, z: 1 };
-  private samples: { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> }[] = [];
+  private samples: GestureSample[] = [];
   private scrubAcc = new Set<EdgeId>();
   private scrubGuides = new Set<number>();   // 橡皮刮过的参考线 / 参考点 id（D18；活动池的）
   private scrubbing = false;
@@ -1669,9 +1672,20 @@ export class Editor {
         this.marqueeCur = { x: s.x, y: s.y };
         break;
       default: {
-        // 工具模块（tool-handler.ts）：有模块的工具在这里接按下
+        // 工具模块（tool-handler.ts）：steps 工具 = 每次按下取一个量（armed 的按下 = 用悬停跟到的值）；direct 工具原样递
         const H = this.handlers[this._tool];
-        if (H) { this.downScreen = { x: s.x, y: s.y }; H.down(this.toolCtx, ev); }
+        if (!H) break;
+        if (H.grammar === "steps" && this.armed && H.active()) {
+          this.justCommitted = true;
+          H.track(this.toolCtx, s, ev.travel);
+          H.down(this.toolCtx, ev);
+          if (H.active()) this.armed = true;   // 还有下一子步 → 继续 arm（鼠标已松着）
+          else this.endStepGesture();
+          break;
+        }
+        this.downScreen = { x: s.x, y: s.y };
+        H.down(this.toolCtx, ev);
+        if (H.grammar === "steps") { if (H.active()) { this.armed = false; this.canArm = !!ev.armable; } else this.endStepGesture(); }
         break;
       }
       case "paint":
@@ -1680,6 +1694,12 @@ export class Editor {
     }
     this.consumeCharges();
     this.draw();
+  }
+  /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
+  private endStepGesture(): void {
+    this.anchor3 = null; this.cursor3 = null; this.snapInfo = null;
+    this.samples = []; this.armed = false; this.canArm = false; this.downScreen = null; this.justCommitted = false;
+    this.live = null; this.liveOverride = null; this.liveEvents = [];
   }
   /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
   private consumeCharges(): void { this.clearCharged(); }
@@ -1693,10 +1713,11 @@ export class Editor {
       this.hoverPool = null;
       const tool = this._tool;
       const view = this.liveWorld();
-      if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || tool === "tape" || tool === "axes" || tool === "protractor" || (tool === "rotate" && this.rotStage === 0)) {
-        const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
-        this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y));
-        this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
+      const H = this.handlers[tool];
+      if (H) {
+        H.hover?.(this.toolCtx, s);
+      } else if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || (tool === "rotate" && this.rotStage === 0)) {
+        this.hoverSnap(s);
       } else if (tool === "rotate" && this.rotStage === 1 && this.rotCenter) {
         this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y);
       } else if (tool === "erase") {
@@ -1870,7 +1891,15 @@ export class Editor {
       recordLast: (L) => { this.last = L; },
       contextFrame: () => this.contextFrame(),
       setAxes: (f) => this.setContextAxes(f),
+      hoverSnap: (s) => this.hoverSnap(s),
     };
+  }
+  /** 取点悬停（无手势）：画面平面 + 吸附（迟滞）+ 充能。内建的画线 / 矩形 / 圆 / 移动与模块工具共用。 */
+  private hoverSnap(s: { x: number; y: number }): void {
+    const view = this.liveWorld();
+    const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
+    this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y));
+    this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
   }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
   private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> } {
@@ -1886,7 +1915,7 @@ export class Editor {
    * 抬笔结算（A21）——按物理过程判：样本按「同一处」（HOLD_PX 内）分成一段段停留。松开处停留 ≥ FINAL_HOLD_MS → 有意，用松开帧；
    * 否则回看 RELEASE_WINDOW_MS 内结束的停留，取最长的那段（≥ MIN_DWELL_MS 且比松开处停得久）= 用户对齐时停住的地方；都没有 → 松开帧。
    */
-  private settledSample(): ReturnType<Editor["currentSample"]> | null {
+  private settledSample(): GestureSample | null {
     const n = this.samples.length;
     if (!n) return null;
     const last = this.samples[n - 1];
@@ -2026,7 +2055,15 @@ export class Editor {
       }
       default: {
         const H = this.handlers[this._tool];
-        if (H?.active()) H.up(this.toolCtx, ev, () => { const smp = settle(); return smp ? { cursor3: smp.cursor3, plane: smp.plane, snap: smp.snap, extra: smp.extra } : null; });
+        if (!H?.active()) break;
+        if (H.grammar === "direct") { H.up?.(this.toolCtx, ev, () => { const smp = settle(); return smp ? { cursor3: smp.cursor3, plane: smp.plane, snap: smp.snap, extra: smp.extra } : null; }); break; }
+        if (this.justCommitted) { this.justCommitted = false; break; }
+        if (this.canArm && isTap()) { this.armed = true; this.host.hint("移动预览，再点一下落定；中途可以转视角；Esc / 单指轻点取消"); break; }
+        // 拖拽松手 = 松手处（抬笔结算帧）的一次按下：先把工具跟到结算帧，再按下
+        const smp = settle();
+        if (smp) H.track(this.toolCtx, { x: smp.sx, y: smp.sy }, ev.travel);
+        H.down(this.toolCtx, ev);
+        if (H.active()) this.armed = true; else this.endStepGesture();
         break;
       }
       case "scale": {
