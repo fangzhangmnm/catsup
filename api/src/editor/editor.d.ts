@@ -235,6 +235,7 @@ export declare class Editor {
     private scaleFactor;
     private samples;
     private scrubAcc;
+    private scrubGuides;
     private scrubbing;
     private eraseMode;
     private selection;
@@ -341,6 +342,12 @@ export declare class Editor {
     private bump;
     private pruneSelection;
     private fail;
+    /** 刚提交的那一步：op + 它之前的活动池 B-rep（复现包「上一步」；成功但错的也能寄）。没有 / 池不是 brep → null。 */
+    lastStep(): {
+        op: Op;
+        brep: BrepSnapshot;
+        pool: PoolRef;
+    } | null;
     undo(): void;
     redo(): void;
     /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
@@ -378,6 +385,17 @@ export declare class Editor {
     explodeSelection(): boolean;
     /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
     copyInstance(delta: Pt3): boolean;
+    /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
+    private opTouchesLocked;
+    /** 当前上下文链上有锁住的实例（进不去的地方本来也到不了；双保险）。 */
+    private contextLocked;
+    private pickIsLocked;
+    hasLockedSelection(): boolean;
+    hasUnlockedPoolSelection(): boolean;
+    /** 选中的子 group / 实例里能整体动的那些（锁住的不动；提示一次）。 */
+    private movablePoolPicks;
+    /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
+    lockSelection(on: boolean): boolean;
     /** 进入选中（或命中）的子 group / 实例编辑。 */
     enterPool(p: PoolPick): void;
     enterSelected(): boolean;
@@ -471,6 +489,8 @@ export declare class Editor {
     batchDraw(fn: () => void): void;
     draw(): void;
     resize(dpr: number): void;
+    /** 橡皮刮到参考几何（D18）：活动池的参考线（无限长）/ 参考点，屏距 ≤ hit 容差就进刮集。 */
+    private scrubGuideAt;
     /** 展开到整条曲线（本地 id；显示用，与内核 eraseEdges 的「擦一段 = 整条」同口径）。 */
     private wholeCurves;
     private updateTip;
@@ -478,6 +498,8 @@ export declare class Editor {
     private rebuildScaleHandles;
     private pickScaleHandle;
     pointerDown(ev: ToolPointer): void;
+    /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
+    private consumeCharges;
     pointerMove(ev: ToolPointer): void;
     /** 手势中的取点（line / rect / circle / pp / move / rotate / scale 的拖拽态；pointerMove 与松开帧共用）。 */
     private trackGesture;

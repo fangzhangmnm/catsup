@@ -478,6 +478,7 @@ export class Editor {
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitOp(op: Op): FaceEvent[] {
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
+    if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     const t0 = performance.now();
     let r: ReturnType<History["commit"]>;
     try { r = perf.time("commit", () => this.history.commit(this.scene, op)); }
@@ -697,6 +698,8 @@ export class Editor {
   }
   /** 实体信息（0.10）：选区恰是一条曲线 → 「圆 r=… · N 段」/「弧 …」/「曲线 · N 段」；恰是一张曲面 → 「曲面 · N 面」；别的 → null（不抢提示行）。 */
   private selectionInfo(): string | null {
+    const lockedN = [...this.selectedPools.values()].filter((p) => this.pickIsLocked(p)).length;
+    if (lockedN) return `已锁定 ${lockedN} 个（不能改 / 移 / 进入；可当推断参考；选区菜单 → 解锁）`;
     const k = this.kernel;
     const es = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)), fs = [...this.selection.faces].filter((f) => k.face(f));
     if (es.length && !fs.length) {
@@ -732,11 +735,14 @@ export class Editor {
       this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) });
     }
     const def = this.scene.defOfContext(this.ctx);
-    for (const p of [...this.selectedPools.values()]) {
+    const kept = new Map<string, PoolPick>();   // 锁住的不删、留在选区里（要解锁得先选中它）
+    for (const [key, p] of [...this.selectedPools]) {
+      if (this.pickIsLocked(p)) { kept.set(key, p); continue; }
       if (p.kind === "group") this.commitOp({ op: "eraseGroup", at, group: p.group });
       else this.commitOp({ op: "eraseInstance", def, instance: p.instance });
     }
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = emptySelection(); this.selectedPools = kept;
+    if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没删（选区菜单 → 解锁）`);
     this.host.changed();
     this.draw();
   }
@@ -776,8 +782,13 @@ export class Editor {
   explodeSelection(): boolean {
     if (!this.selectedPools.size) return false;
     const at = this.activePool();
-    for (const p of [...this.selectedPools.values()]) this.commitOp(p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance });
-    this.selectedPools.clear();
+    const kept = new Map<string, PoolPick>();
+    for (const [key, p] of [...this.selectedPools]) {
+      if (this.pickIsLocked(p)) { kept.set(key, p); continue; }
+      this.commitOp(p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance });
+    }
+    this.selectedPools = kept;
+    if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没炸开（选区菜单 → 解锁）`);
     this.host.changed(); this.draw();
     return true;
   }
@@ -793,8 +804,46 @@ export class Editor {
     this.host.changed(); this.draw();
     return true;
   }
+  // ---------- 锁定（A27，SU Lock；user 2026-10-24 立面图思考题）：对象层属性，所有 kind 通用；推断照吃（WorldView 不看锁）----------
+  /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
+  private opTouchesLocked(op: Op): boolean {
+    if (op.op === "setLocked") return false;
+    const s = this.scene;
+    if ("at" in op && op.at && s.hasPool(op.at) && s.poolLocked(op.at)) return true;
+    if (op.op === "transformPool") return s.poolLocked(op.at);
+    if (op.op === "eraseGroup" || (op.op === "explode" && op.group !== undefined)) return s.poolLocked({ def: op.at.def, group: op.group! });
+    if (op.op === "transformInstance" || op.op === "eraseInstance") return s.pickLocked(op.def, { kind: "instance", instance: op.instance });
+    if (op.op === "explode" && op.instance !== undefined) return s.pickLocked(op.at.def, { kind: "instance", instance: op.instance });
+    return this.contextLocked();
+  }
+  /** 当前上下文链上有锁住的实例（进不去的地方本来也到不了；双保险）。 */
+  private contextLocked(): boolean {
+    let def = this.scene.root;
+    for (const iid of this.ctx.chain) { if (this.scene.pickLocked(def, { kind: "instance", instance: iid })) return true; def = this.scene.instance(def, iid).def; }
+    return false;
+  }
+  private pickIsLocked(p: PoolPick): boolean { return this.scene.pickLocked(this.scene.defOfContext(this.ctx), p); }
+  hasLockedSelection(): boolean { return [...this.selectedPools.values()].some((p) => this.pickIsLocked(p)); }
+  hasUnlockedPoolSelection(): boolean { return [...this.selectedPools.values()].some((p) => !this.pickIsLocked(p)); }
+  /** 选中的子 group / 实例里能整体动的那些（锁住的不动；提示一次）。 */
+  private movablePoolPicks(say = true): PoolPick[] {
+    const all = this.selectedPoolPicks(), ok = all.filter((p) => !this.pickIsLocked(p));
+    if (say && ok.length < all.length) this.host.hint(`${all.length - ok.length} 个已锁定的组 / 组件不动（解锁后再移）`);
+    return ok;
+  }
+  /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
+  lockSelection(on: boolean): boolean {
+    const picks = [...this.selectedPools.values()].filter((p) => this.pickIsLocked(p) !== on);
+    if (!picks.length) return false;
+    const at = this.activePool();
+    for (const p of picks) this.commitOp(p.kind === "group" ? { op: "setLocked", at, group: p.group, on } : { op: "setLocked", at, instance: p.instance, on });
+    this.host.hint(on ? `已锁定 ${picks.length} 个：不能改、不能移、不能进入；仍可当推断参考` : `已解锁 ${picks.length} 个`);
+    this.host.changed(); this.draw();
+    return true;
+  }
   /** 进入选中（或命中）的子 group / 实例编辑。 */
   enterPool(p: PoolPick): void {
+    if (this.pickIsLocked(p)) { this.host.hint("已锁定：解锁后再进入（选中它 → 解锁）"); return; }
     this.last = null;
     this.cancelGesture();
     this.selection = emptySelection(); this.selectedPools.clear();
@@ -1292,7 +1341,7 @@ export class Editor {
   private previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void): void {
     const vids = moveTargetsSelection(this.kernel, this.selection);
     if (vids.length) { const XL = this.xformToLocal(X); run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) })))); }
-    const picks = this.selectedPoolPicks();
+    const picks = this.movablePoolPicks(false);
     if (picks.length) this.liveOverride = { picks, xform: X };
   }
   /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
@@ -1511,9 +1560,10 @@ export class Editor {
         this.moveCopy = !!ev.copy;
         if (this.hasSelection()) {
           this.moveVids = moveTargetsSelection(this.kernel, this.selection);
-          this.movePools = this.selectedPoolPicks();
+          this.movePools = this.movablePoolPicks();
           this.moveEntities = { faces: [...this.selection.faces], edges: [...this.selection.edges] };
-        } else if (c.kind === "entity") {
+        } else if (c.kind === "pool" && this.pickIsLocked(c.pick)) { this.host.hint("已锁定：不能移（选中它 → 解锁）"); break; }
+        else if (c.kind === "entity") {
           this.moveVids = moveTargets(this.kernel, c.local); this.movePools = [];
           this.moveEntities = { faces: c.local.face !== undefined ? [c.local.face] : [], edges: c.local.edge !== undefined ? [c.local.edge] : [] };
         }
@@ -2160,7 +2210,7 @@ export class Editor {
   private commitRotate(smp: { angle: number } | null): void {
     const ang = smp?.angle ?? this.rotAngle;
     const c = this.rotCenter!, ax = this.rotAxis!;
-    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.selectedPoolPicks();
+    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.movablePoolPicks(false);
     const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
     const n0 = this.opCount, at0 = this.activePool();
     this.cancelGesture();
@@ -2171,7 +2221,7 @@ export class Editor {
   private commitScale(smp: { scale: Pt3 } | null): void {
     const s = smp?.scale ?? this.scaleFactor;
     const anchor = this.scaleActive!.anchor, axis = this.scaleActive!.axis;
-    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.selectedPoolPicks();
+    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.movablePoolPicks(false);
     const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
     const n0 = this.opCount, at0 = this.activePool();
     this.cancelGesture();

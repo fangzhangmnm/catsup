@@ -54,6 +54,8 @@ export type Op =
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
   | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null }
   | { op: "eraseGroup"; at: PoolRef; group: number }
+  /** 锁定 / 解锁一个子 group 或实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。 */
+  | { op: "setLocked"; at: PoolRef; group?: number; instance?: number; on: boolean }
   // ---- 参考几何 / 轴（0.11 尺规纪元；池本地坐标）----
   | { op: "addGuide"; at: PoolRef; line?: { p: Pt3; dir: Pt3 }; point?: Pt3 }
   | { op: "eraseGuides"; at: PoolRef; ids: number[] }
@@ -272,6 +274,22 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       if (!d.instances.delete(op.instance)) throw new OpTargetError(`instance ${op.instance}`);
       return { scene: s, events: [] };
     }
+    case "setLocked": {
+      const d = s.def(op.at.def);
+      if (op.group !== undefined) {
+        const g = s.brep(op.at.def).groups.get(op.group);
+        if (!g || g.parent !== op.at.group) throw new OpTargetError(`group ${op.group}`);
+        if (op.on) g.locked = true; else delete g.locked;
+        return { scene: s, events: [] };
+      }
+      if (op.instance !== undefined) {
+        const inst = d.instances.get(op.instance);
+        if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
+        if (op.on) inst.locked = true; else delete inst.locked;
+        return { scene: s, events: [] };
+      }
+      throw new OpTargetError("setLocked: no target");
+    }
     case "eraseGroup": {
       const d = s.def(op.at.def), db = s.brep(op.at.def);
       const g = db.groups.get(op.group);
@@ -320,6 +338,7 @@ export function describeOp(op: Op): string {
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
+    case "setLocked": return `setLocked ${op.on ? "on" : "off"} ${op.group !== undefined ? `group ${op.group}` : `instance ${op.instance}`}${at}`;
     case "addGuide": return `addGuide ${op.line ? "line" : "point"}${at}`;
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;
     case "clearGuides": return `clearGuides${at}`;

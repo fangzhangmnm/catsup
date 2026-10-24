@@ -38,14 +38,16 @@ export interface GroupDoc {
     axes: Frame;
     brep: BrepSnapshot;
     name?: string;
-    guides: GuidesDoc;
+    guides: GuidesDoc; /** 锁定（A27）；只在 true 时写。 */
+    locked?: boolean;
 }
 export interface InstanceDoc {
     id: number;
     definition: number;
     parent: number | null;
     xform: Xform;
-    name?: string;
+    name?: string; /** 锁定（A27）；只在 true 时写。 */
+    locked?: boolean;
 }
 export interface DefinitionDoc {
     name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */

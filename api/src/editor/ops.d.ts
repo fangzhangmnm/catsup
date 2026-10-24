@@ -140,6 +140,14 @@ export type Op = {
     op: "eraseGroup";
     at: PoolRef;
     group: number;
+}
+/** 锁定 / 解锁一个子 group 或实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。 */
+ | {
+    op: "setLocked";
+    at: PoolRef;
+    group?: number;
+    instance?: number;
+    on: boolean;
 } | {
     op: "addGuide";
     at: PoolRef;

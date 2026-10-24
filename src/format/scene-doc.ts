@@ -36,6 +36,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
       body.groups.delete(grp.id === g.id ? -1 : grp.id);
       body.groups.set(g.id, grp);
       if (g.name !== undefined) grp.name = g.name;
+      if (g.locked) grp.locked = true;
     }
     for (const g of d.groups) { const grp = body.groups.get(g.id)!; grp.parent = g.parent !== null && body.groups.has(g.parent) ? g.parent : null; }
     body.nextGroup = Math.max(1, ...[...body.groups.keys()].map((k) => k + 1));
@@ -47,6 +48,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
       def.instances.delete(ii.id === inst.id ? -1 : ii.id);
       def.instances.set(inst.id, ii);
       if (inst.name !== undefined) ii.name = inst.name;
+      if (inst.locked) ii.locked = true;
     }
     def.nextInst = Math.max(1, ...[...def.instances.keys()].map((k) => k + 1));
   });
@@ -66,8 +68,8 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
       name: id === scene.root ? name : d.name,
       kind: d.body.kind,
       brep: b.kernel.toBrep(),
-      groups: [...b.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) })),
-      instances: [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) })),
+      groups: [...b.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}), ...(g.locked ? { locked: true } : {}) })),
+      instances: [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}) })),
       materialSlots: [...b.materialSlots],
       guides: guidesToDoc(b.guides),
     };

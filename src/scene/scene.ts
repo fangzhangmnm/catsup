@@ -23,8 +23,8 @@ export interface Material {
   readonly color: readonly [number, number, number];
   readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly [number, number] };
 }
-export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }
-export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; }
+export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; /** 锁定（A27，SU Lock）：不能改内部、不能整体移 / 删 / 进入；推断照吃。对象层属性，所有 kind 通用。 */ locked?: boolean; }
+export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; /** 锁定（A27）。 */ locked?: boolean; }
 /** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
 export interface BrepBody {
   readonly kind: "brep";
@@ -130,6 +130,20 @@ export class Scene {
     return d.body;
   }
   kernelOf(p: PoolRef): Kernel { return p.group === null ? this.brep(p.def).kernel : this.group({ def: p.def, group: p.group }).kernel; }
+  /** 池锁着吗（A27）：group 自己或任何祖先 group 锁着；根池永不锁（锁的是对象，不是定义）。 */
+  poolLocked(p: PoolRef): boolean {
+    if (p.group === null) return false;
+    const b = this.brep(p.def);
+    let g: GroupId | null = p.group, guard = 64;
+    while (g !== null && guard-- > 0) { const G = b.groups.get(g); if (!G) return false; if (G.locked) return true; g = G.parent; }
+    return false;
+  }
+  /** 子项锁着吗（自己或祖先 group）。 */
+  pickLocked(def: DefId, pick: { kind: "group"; group: GroupId } | { kind: "instance"; instance: InstId }): boolean {
+    if (pick.kind === "group") return this.poolLocked({ def, group: pick.group });
+    const inst = this.def(def).instances.get(pick.instance);
+    return !!inst && (!!inst.locked || (inst.parent !== null && this.poolLocked({ def, group: inst.parent })));
+  }
   hasPool(p: PoolRef): boolean { const d = this.defs.get(p.def); return !!d && (p.group === null || (d.body.kind === "brep" && d.body.groups.has(p.group))); }
 
   /** 上下文的 definition（链末实例的定义；空链 = 根）。 */
@@ -200,11 +214,11 @@ export class Scene {
       let body: Body;
       if (d.body.kind === "brep") {
         const groups = new Map<GroupId, Group>();
-        for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
+        for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}), ...(g.locked ? { locked: true } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
       } else body = { kind: "card" };
       const instances = new Map<InstId, Instance>();
-      for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}) });
+      for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}) });
       s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });
     }
     return s;

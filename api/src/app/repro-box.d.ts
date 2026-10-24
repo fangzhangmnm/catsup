@@ -17,4 +17,15 @@ export declare function entries(): readonly ReproEntry[];
 export declare function count(): number;
 export declare function clear(): void;
 /** 导出：一个 JSON 文件（entries 数组；brep 是纯数组对象，Kernel.fromBrep 直接吃）。 */
-export declare function toJson(): string;
+export declare function toJson(list?: readonly ReproEntry[]): string;
+/** 「上一步」条目（user 2026-10-24「错误之后的小胶囊好像没有给下载上一步的包和操作的选项」）：成功但错的那一步也要能寄——op + 那一步之前的活动池，形状同失败条目，replay 同一条路。 */
+export declare function lastStepEntry(step: {
+    op: unknown;
+    brep: BrepSnapshot;
+    pool: {
+        def: number;
+        group: number | null;
+    };
+}): ReproEntry;
+/** 分享（有 Web Share）或下载一个 .json；say = 状态行回执。 */
+export declare function exportJson(json: string, stem: string, say: (text: string) => void): Promise<void>;

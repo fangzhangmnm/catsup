@@ -94,7 +94,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;
       const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>) as unknown as CatsupBrepJson;
-      return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
+      return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), ...(g.locked === true ? { locked: true } : {}), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
     });
     const instances: InstanceDoc[] = (Array.isArray(d.instances) ? d.instances : []).map((iRaw: unknown, ii: number) => {
       if (!isObj(iRaw)) fail(`definition ${di} instance ${ii} invalid`);
@@ -102,7 +102,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (typeof inst.definition !== "number" || !(inst.definition in (list as unknown[]))) fail(`definition ${di} instance ${ii} references a missing definition`);
       const m = inst.matrix;
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
-      return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
+      return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
     // 门 1：definition 的种类。缺省 brep；别的种类（card…）这一版还不认 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。

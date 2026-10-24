@@ -22,14 +22,16 @@ export interface Group {
     axes: Frame;
     kernel: Kernel;
     name?: string; /** 参考几何（0.11；本 definition 坐标）。 */
-    guides: Guides;
+    guides: Guides; /** 锁定（A27，SU Lock）：不能改内部、不能整体移 / 删 / 进入；推断照吃。对象层属性，所有 kind 通用。 */
+    locked?: boolean;
 }
 export interface Instance {
     readonly id: InstId;
     def: DefId;
     parent: GroupId | null;
     xform: Xform;
-    name?: string;
+    name?: string; /** 锁定（A27）。 */
+    locked?: boolean;
 }
 /** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
 export interface BrepBody {
@@ -96,6 +98,16 @@ export declare class Scene {
     /** definition 的 brep 身体（不是 brep → 抛：内核 op / 分组 / 参考几何只对 brep 成立）。 */
     brep(id: DefId): BrepBody;
     kernelOf(p: PoolRef): Kernel;
+    /** 池锁着吗（A27）：group 自己或任何祖先 group 锁着；根池永不锁（锁的是对象，不是定义）。 */
+    poolLocked(p: PoolRef): boolean;
+    /** 子项锁着吗（自己或祖先 group）。 */
+    pickLocked(def: DefId, pick: {
+        kind: "group";
+        group: GroupId;
+    } | {
+        kind: "instance";
+        instance: InstId;
+    }): boolean;
     hasPool(p: PoolRef): boolean;
     /** 上下文的 definition（链末实例的定义；空链 = 根）。 */
     defOfContext(ctx: EditContext): DefId;
