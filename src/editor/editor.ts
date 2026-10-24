@@ -518,6 +518,19 @@ export class Editor {
     this.host.hint(`操作失败（${where === "commit" ? "提交" : "预演"}）：${msg}`);
   }
 
+  /** 刚提交的那一步：op + 它之前的活动池 B-rep（复现包「上一步」；成功但错的也能寄）。没有 / 池不是 brep → null。 */
+  lastStep(): { op: Op; brep: BrepSnapshot; pool: PoolRef } | null {
+    const pos = this.history.position();
+    if (pos === 0) return null;
+    const op = this.history.log()[pos - 1];
+    const pool: PoolRef = ("at" in op && op.at) ? op.at : { def: this.scene.root, group: null };
+    try {
+      const before = this.history.stateAt(pos - 1);
+      if (!before.hasPool(pool) || before.kindOf(pool.def) !== "brep") return null;
+      return { op, brep: before.kernelOf(pool).toBrep(), pool };
+    } catch { return null; }
+  }
+
   undo(): void {
     this.last = null;
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }

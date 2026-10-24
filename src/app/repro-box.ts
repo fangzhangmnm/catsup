@@ -25,4 +25,22 @@ export function entries(): readonly ReproEntry[] { return ring; }
 export function count(): number { return ring.length; }
 export function clear(): void { ring.length = 0; }
 /** 导出：一个 JSON 文件（entries 数组；brep 是纯数组对象，Kernel.fromBrep 直接吃）。 */
-export function toJson(): string { return JSON.stringify({ app: "CatsUp", version: APP_VERSION, exported: new Date().toISOString(), entries: ring }, null, 0); }
+export function toJson(list: readonly ReproEntry[] = ring): string { return JSON.stringify({ app: "CatsUp", version: APP_VERSION, exported: new Date().toISOString(), entries: list }, null, 0); }
+/** 「上一步」条目（user 2026-10-24「错误之后的小胶囊好像没有给下载上一步的包和操作的选项」）：成功但错的那一步也要能寄——op + 那一步之前的活动池，形状同失败条目，replay 同一条路。 */
+export function lastStepEntry(step: { op: unknown; brep: BrepSnapshot; pool: { def: number; group: number | null } }): ReproEntry {
+  return { t: new Date().toISOString(), version: APP_VERSION, where: "last-step", message: "user exported the last committed step (not a kernel rejection)", op: step.op, brep: step.brep, pool: step.pool };
+}
+/** 分享（有 Web Share）或下载一个 .json；say = 状态行回执。 */
+export async function exportJson(json: string, stem: string, say: (text: string) => void): Promise<void> {
+  const f = new File([json], `${stem}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, { type: "application/json" });
+  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
+  if (typeof navigator.share === "function" && nav.canShare?.({ files: [f] })) {
+    try { await navigator.share({ title: "CatsUp 复现包", files: [f] }); say(`已分享 ${f.name}`); } catch (e) { if (!(e instanceof Error && e.name === "AbortError")) say(`分享失败：${e instanceof Error ? e.message : String(e)}`); }
+    return;
+  }
+  const url = URL.createObjectURL(f);
+  const a = document.createElement("a"); a.href = url; a.download = f.name; a.style.display = "none";
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  say(`已下载 ${f.name}`);
+}

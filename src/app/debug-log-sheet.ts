@@ -5,7 +5,7 @@
 //   没有 navigator.share（桌面）→ 钮变「下载 .txt」。反馈写进 sheet 自己的提示行（无系统弹窗，家规）。
 import { entries, toText, clear } from "./debug-log.ts";
 import { reportError } from "./error-funnel.ts";
-import { count as reproCount, toJson as reproJson } from "./repro-box.ts";
+import { count as reproCount, toJson as reproJson, exportJson, lastStepEntry } from "./repro-box.ts";
 
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
@@ -20,15 +20,20 @@ export function openDebugLogSheet(): void { _open?.(); }
 export function closeDebugLogSheet(): void { _close?.(); }
 export function isDebugLogOpen(): boolean { return !$("debugLog").hidden; }
 
+let _lastStep: (() => Parameters<typeof lastStepEntry>[0] | null) | null = null;
+/** 宿主递「上一步」提供者（Editor.lastStep）；没递 = 没那个钮。 */
+export function setLastStepProvider(fn: () => Parameters<typeof lastStepEntry>[0] | null): void { _lastStep = fn; }
+
 export function initDebugLogSheet(): void {
   const sheet = $("debugLog"), pre = $("debugLogText"), hint = $("debugLogHint");
-  const copyBtn = $("debugLogCopy"), shareBtn = $("debugLogShare"), clearBtn = $("debugLogClear"), closeBtn = $("debugLogClose"), reproBtn = $("debugLogRepro");
+  const copyBtn = $("debugLogCopy"), shareBtn = $("debugLogShare"), clearBtn = $("debugLogClear"), closeBtn = $("debugLogClose"), reproBtn = $("debugLogRepro"), lastBtn = $("debugLogLastStep");
 
   function render(): void {
     const n = entries().length;
     const r = reproCount();
     reproBtn.hidden = r === 0;
     reproBtn.textContent = `复现包 (${r})`;
+    lastBtn.hidden = !_lastStep?.();
     hint.textContent = `共 ${n} 条（旧在上、新在下）· 复制或分享给开发者${r ? ` · 本次有 ${r} 条内核拒绝的复现包（关窗即清）` : ""}`;
     pre.textContent = n ? toText() : "（空）";
     pre.scrollTop = pre.scrollHeight;   // 最新在底
@@ -70,19 +75,9 @@ export function initDebugLogSheet(): void {
 
   const logFile = (): File => new File([toText()], `catsup-debug-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.txt`, { type: "text/plain" });
   // 复现包：出错那一步之前的活动池 + op / 预演描述（repro-box.ts）；分享 / 下载 .json（scripts/replay-repro.mjs 回放）
-  reproBtn.addEventListener("click", async () => {
-    const f = new File([reproJson()], `catsup-repro-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, { type: "application/json" });
-    const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-    if (typeof navigator.share === "function" && nav.canShare?.({ files: [f] })) {
-      try { await navigator.share({ title: "CatsUp 复现包", files: [f] }); say(`已分享 ${f.name}`); } catch (e) { if (!(e instanceof Error && e.name === "AbortError")) say(`分享失败：${e instanceof Error ? e.message : String(e)}`); }
-      return;
-    }
-    const url = URL.createObjectURL(f);
-    const a = document.createElement("a"); a.href = url; a.download = f.name; a.style.display = "none";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(url), 10_000);
-    say(`已下载 ${f.name}`);
-  });
+  reproBtn.addEventListener("click", () => { void exportJson(reproJson(), "catsup-repro", say); });
+  // 上一步（成功但错的那一步也能寄）：op + 它之前的活动池；replay-repro.mjs 同一条路回放
+  lastBtn.addEventListener("click", () => { const st = _lastStep?.(); if (!st) { say("还没有提交过的步骤"); return; } void exportJson(reproJson([lastStepEntry(st)]), "catsup-last-step", say); });
   const canShare = typeof navigator.share === "function";
   if (!canShare) shareBtn.textContent = "下载 .txt";
   shareBtn.addEventListener("click", async () => {

@@ -39,8 +39,8 @@ import { showNotice, type NoticeOpts } from "./ui/notice.ts";
 import { initCrashRecovery } from "./crash-recovery.ts";
 import { crashStore } from "./crash-store.ts";
 import { initDebugLog, note, record, toText as debugLogText, entries as debugLogEntries } from "./debug-log.ts";
-import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet } from "./debug-log-sheet.ts";
-import { capture as reproCapture } from "./repro-box.ts";
+import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet, setLastStepProvider } from "./debug-log-sheet.ts";
+import { capture as reproCapture, count as reproCount, toJson as reproJson, exportJson as reproExport, lastStepEntry } from "./repro-box.ts";
 import { traceLine } from "./debug-lines.ts";
 import { WORLD_FRAME } from "../scene/xform.ts";
 
@@ -54,6 +54,7 @@ function notify(opts: NoticeOpts): void {
 }
 // 错误上报（内核/求解器抛错、渲染循环抛错、全局 uncaught）：console 必留 + toast/字幕；同文案 2 s 内只报一次（预演每帧都会撞同一错）
 let lastErr = { text: "", at: 0 };
+let lastStepProvider: (() => Parameters<typeof lastStepEntry>[0] | null) | null = null;   // editor 建好后接上（reportError 在它之前就可能被叫）
 function reportError(where: string, err: unknown): void {
   const msg = err instanceof Error ? err.message : String(err);
   console.error(`[catsup] ${where}:`, err);
@@ -64,7 +65,14 @@ function reportError(where: string, err: unknown): void {
   if (text === lastErr.text && now - lastErr.at < 2000) return;
   lastErr = { text, at: now };
   record("error", `[${where}] ${msg}${frames.length ? ` @ ${frames.join(" < ")}` : ""}`);   // 黑匣子（去重之后：预演每帧撞同一错只记一次）
-  notify({ id: "err", text, level: "error" });
+  // 胶囊上直接给寄包的口（user 2026-10-24「错误之后的小胶囊好像没有给下载上一步的包和操作的选项」）：内核拒绝的复现包 + 刚提交的上一步
+  const actions: NoticeOpts["actions"] = [];
+  const say = (t: string): void => notify({ id: "repro", text: t, level: "info" });
+  if (reproCount() > 0) actions.push({ label: `复现包 (${reproCount()})`, onClick: () => { void reproExport(reproJson(), "catsup-repro", say); } });
+  const step = lastStepProvider?.();
+  if (step) actions.push({ label: "上一步", onClick: () => { void reproExport(reproJson([lastStepEntry(step)]), "catsup-last-step", say); } });
+  actions.push({ label: "日志", onClick: () => openDebugLogSheet() });
+  notify({ id: "err", text, level: "error", actions });
 }
 
 const $ = <T extends HTMLElement = HTMLElement>(id: string): T => {
@@ -673,6 +681,8 @@ if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓
 // ---------- 转正纪元（2026-09-20）：文档生命周期 + 图库 + 云端 ----------
 initSheets();
 initDebugLogSheet();
+lastStepProvider = () => editor.lastStep();
+setLastStepProvider(lastStepProvider);
 // smart save 钮（三条杠下面；对齐 WeebPaint save-status + smartSaveAndPush；user 2026-09-20「title 意义不明可以不要，三条杠下面加一个 smart save button」）
 const btnSave = $<HTMLButtonElement>("btnSave");
 const finalBadge = $<HTMLElement>("finalBadge");   // 定稿角标（ai-docs/20261024-finalize.md）

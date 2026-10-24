@@ -16,7 +16,7 @@ console.log(`复现包：${pack.app} ${pack.version} · ${list.length} 条 · �
 list.forEach((e, i) => {
   if (only !== null && i !== only) return;
   const k = Kernel.fromBrep(e.brep);
-  console.log(`\n#${i} ${e.t} ${e.version} [${e.where}] 原始拒绝：${e.message}`);
+  console.log(`\n#${i} ${e.t} ${e.version} [${e.where}] 原始理由：${e.message}`);
   console.log(`  活动池：${k.vertices().length} 顶点 / ${k.edges().length} 边 / ${k.faces().length} 面`);
   try {
     if (e.op) {
