@@ -1,6 +1,6 @@
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 import { type UintType } from "./binary.ts";
-export declare const BREP_VERSION = 3;
+export declare const BREP_VERSION = 4;
 /** 写入器要的 bufferView 登记口（write.ts 提供；index = glTF bufferViews 索引）。 */
 export interface ViewSink {
     add(bytes: Uint8Array): number;
@@ -27,6 +27,7 @@ export interface CatsupBrepJson {
     faces: BrepStream;
     facePlane: BrepStream;
     attributes: Record<string, Record<string, unknown>>;
+    /** 曲线（v4 起本版读写）：{ edges:[边下标…有序链], kind, closed, params?:{ center:[µm×3], radius:µm, normal:[2^-30×3], xaxis:[2^-30×3], segments } } */
     curves: unknown[];
     extras?: Record<string, unknown>;
     [k: string]: unknown;

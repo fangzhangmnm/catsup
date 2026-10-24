@@ -110,6 +110,17 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
+    readonly arc: {
+        readonly segments: {
+            readonly kind: "number";
+            readonly label: "段数";
+            readonly def: 12;
+            readonly min: 2;
+            readonly max: 96;
+            readonly step: 1;
+            readonly scope: "session";
+        };
+    };
     readonly paint: {
         readonly mode: {
             readonly kind: "enum";

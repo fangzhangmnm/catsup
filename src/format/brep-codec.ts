@@ -4,11 +4,12 @@
 // v2（2026-10-21）：group 搬到 definition 层（v1 占位 `groups` 退场）；第一个真属性层 attributes.edge.soft（软边：每边 1 字节 0/1，
 // 全无则不写）——其余未知属性层仍原样保留。
 
+import type { CurveParams } from "../kernel/curves.ts";
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 import type { PlaneParams, Pt3 } from "../kernel/geom.ts";
 import { type UintType, decodeUints, encodeUints, isUintType, pickUintType } from "./binary.ts";
 
-export const BREP_VERSION = 3;
+export const BREP_VERSION = 4;   // v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（契约 §5）
 const NO_MATERIAL = 0xffff;
 const UM = 1e-6;                       // 内核格点 Q（立宪 §0）；文件坐标单位是它的 10^k 倍
 const N_FIX = 2 ** 30;                 // 平面法向定点比例
@@ -30,6 +31,7 @@ export interface CatsupBrepJson {
   planeCount: number; planes: BrepStream;
   faceCount: number; faces: BrepStream; facePlane: BrepStream;
   attributes: Record<string, Record<string, unknown>>;   // 按域：edge / face / corner / vertex；edge.soft 本版读写，其余原样保留
+  /** 曲线（v4 起本版读写）：{ edges:[边下标…有序链], kind, closed, params?:{ center:[µm×3], radius:µm, normal:[2^-30×3], xaxis:[2^-30×3], segments } } */
   curves: unknown[];
   extras?: Record<string, unknown>;
   [k: string]: unknown;                  // 未知键保留（round-trip 保真）
@@ -70,7 +72,10 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
   const faces = facesTagged.map((t) => t.f);
   const faceLayers: Record<string, number[]> = {};
   for (const [n, vals] of Object.entries(snap.faceLayers ?? {})) { const out = facesTagged.map((t) => vals[t.i] ?? -1); if (out.some((v) => v >= 0)) faceLayers[n] = out; }
-  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}) };
+  const eremap = new Array<number>(edgesTagged.length);
+  edgesTagged.forEach((t, j) => { eremap[t.i] = j; });
+  const curves = (snap.curves ?? []).map((c) => ({ ...c, edges: c.edges.map((i) => eremap[i]) }));   // 链的顺序不动，只换下标
+  return { coplanarTol: snap.coplanarTol, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}), ...(curves.length ? { curves } : {}) };
 }
 
 function pickUnitUm(vum: readonly (readonly [number, number, number])[]): number {
@@ -140,7 +145,17 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<
     planeCount: snap.planes.length, planes: { bufferView: planes },
     faceCount: snap.faces.length, faces: { bufferView: faces, indexType: fStreamType }, facePlane: { bufferView: facePlane, indexType: pIdxType },
     attributes,
-    curves: keep?.curves ?? [],
+    // 曲线（v4）：本版生成，覆盖旧值（未知的 keep.curves 不再原样带回——它们在 v3 文件里一直是空表）
+    curves: (snap.curves ?? []).map((c) => ({
+      edges: [...c.edges], kind: c.kind, closed: c.closed,
+      ...(c.params ? { params: {
+        center: [toUm(c.params.center.x), toUm(c.params.center.y), toUm(c.params.center.z)],
+        radius: toUm(c.params.radius),
+        normal: [Math.round(c.params.normal.x * N_FIX), Math.round(c.params.normal.y * N_FIX), Math.round(c.params.normal.z * N_FIX)],
+        xaxis: [Math.round(c.params.xaxis.x * N_FIX), Math.round(c.params.xaxis.y * N_FIX), Math.round(c.params.xaxis.z * N_FIX)],
+        segments: Math.round(c.params.segments),
+      } } : {}),
+    })),
     ...(keep?.extras ? { extras: keep.extras } : {}),
   };
 }
@@ -235,5 +250,27 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * (two ? 4 : 2), true); vals.push(v === NO_MATERIAL ? -1 : v); }
     if (vals.some((v) => v >= 0)) faceLayers[n] = vals;
   }
-  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}) };
+  // 曲线（v4）：形状校验在这里（下标范围 / 字段类型），链连通性归 Kernel.fromBrep（CurveRegistry.fromIndex）。未知 kind → polyline（身份留着，参数丢）
+  const curves: NonNullable<BrepSnapshot["curves"]>[number][] = [];
+  if (Array.isArray(json.curves)) {
+    json.curves.forEach((raw, i) => {
+      const c = raw as { edges?: unknown; kind?: unknown; closed?: unknown; params?: { center?: unknown; radius?: unknown; normal?: unknown; xaxis?: unknown; segments?: unknown } } | null;
+      if (!c || !Array.isArray(c.edges)) fail(`curves[${i}]: missing edges`);
+      const edges = (c!.edges as unknown[]).map((e) => { if (typeof e !== "number" || !Number.isInteger(e) || e < 0 || e >= json.edgeCount) fail(`curves[${i}]: edge index out of range`); return e as number; });
+      const kind = c!.kind === "circle" || c!.kind === "arc" ? c!.kind : "polyline";
+      const closed = c!.closed === true;
+      let params: CurveParams | undefined;
+      const p = c!.params;
+      const v3 = (x: unknown): [number, number, number] | null => (Array.isArray(x) && x.length === 3 && x.every((n) => typeof n === "number") ? (x as [number, number, number]) : null);
+      if (p && typeof p === "object") {
+        const center = v3(p.center), normal = v3(p.normal), xaxis = v3(p.xaxis);
+        if (!center || !normal || !xaxis || typeof p.radius !== "number") fail(`curves[${i}]: bad params`);
+        const nrm = { x: normal![0] / N_FIX, y: normal![1] / N_FIX, z: normal![2] / N_FIX }, xa = { x: xaxis![0] / N_FIX, y: xaxis![1] / N_FIX, z: xaxis![2] / N_FIX };
+        const ln = Math.hypot(nrm.x, nrm.y, nrm.z) || 1, lx = Math.hypot(xa.x, xa.y, xa.z) || 1;
+        params = { center: { x: center![0] * UM, y: center![1] * UM, z: center![2] * UM }, radius: (p.radius as number) * UM, normal: { x: nrm.x / ln, y: nrm.y / ln, z: nrm.z / ln }, xaxis: { x: xa.x / lx, y: xa.y / lx, z: xa.z / lx }, segments: typeof p.segments === "number" ? Math.round(p.segments) : 24 };
+      }
+      curves.push({ edges, kind, closed, ...(params ? { params } : {}) });
+    });
+  }
+  return { coplanarTol: json.coplanarTol, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}), ...(curves.length ? { curves } : {}) };
 }

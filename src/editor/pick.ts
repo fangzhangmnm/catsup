@@ -52,6 +52,7 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
 
   let bestE: EdgeId | undefined, bestEd = tolPx;
   for (const e of idx ? idx.edgesNear(sx, sy, tolPx + 1) : k.edges()) {
+    if (k.isSoft(e.id)) continue;   // 软边不可拾（0.10：看不见的东西不该被橡皮 / 选择碰到；「显示隐藏几何」视图开关 = wishlist）
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const { d, t } = pf.distToSeg(sx, sy, a, b, vp);
     if (d > bestEd) continue;

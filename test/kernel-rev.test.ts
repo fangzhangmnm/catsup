@@ -12,7 +12,7 @@ const box = (k: Kernel): void => {
 };
 
 /** 查询 / 构造类方法（不改状态，不要求 bump）。 */
-const QUERIES = new Set(["constructor", "toBrep", "clone", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "dihedralDeg", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3"]);
+const QUERIES = new Set(["constructor", "toBrep", "clone", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "dihedralDeg", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3", "curves", "curveById", "curveOf", "curveProblems"]);
 /** 改写动词：每个在这里被调一次，rev 必须严格递增。 */
 const VERBS: Record<string, (k: Kernel) => void> = {
   addEdges: (k) => { k.addEdges([[P(5, 5), P(6, 5)]]); },
@@ -25,6 +25,7 @@ const VERBS: Record<string, (k: Kernel) => void> = {
   transformAll: (k) => { k.transformAll((p) => P(p.x + 1, p.y, p.z)); },
   setFaceMaterial: (k) => { k.setFaceMaterial([k.faces()[0].id], 1); },
   setEdgeLayer: (k) => { k.setEdgeLayer("soft", [k.edges()[0].id], true); },
+  explodeCurves: (k) => { k.addEdges([[P(5, 5), P(6, 5)], [P(6, 5), P(6, 6)], [P(6, 6), P(5, 5)]], { curve: { kind: "polyline", closed: true } }); k.explodeCurves(k.curves().map((c) => c.id)); },
 };
 
 describe("kernel.rev: 池版本号", () => {

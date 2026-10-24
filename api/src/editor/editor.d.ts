@@ -10,7 +10,7 @@ import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
-export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
+export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
 export declare const TOOLS: readonly Tool[];
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
@@ -308,6 +308,12 @@ export declare class Editor {
      */
     selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive?: boolean): boolean;
     private afterSelect;
+    /** 实体信息（0.10）：选区恰是一条曲线 → 「圆 r=… · N 段」/「弧 …」/「曲线 · N 段」；恰是一张曲面 → 「曲面 · N 面」；别的 → null（不抢提示行）。 */
+    private selectionInfo;
+    /** 选区里有没有曲线的边（炸开曲线钮）。 */
+    hasCurveSelection(): boolean;
+    /** 炸开选区里的曲线（SU Explode Curve）：每条曲线给一条代表边，op 按坐标寻址。 */
+    explodeCurveSelection(): void;
     deleteSelection(): void;
     /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
     makeGroup(): boolean;
@@ -425,6 +431,8 @@ export declare class Editor {
     pointerLeave(): void;
     private commitLine;
     private commitRect;
+    /** 圆的曲线规格（世界系 → 池本地）：圆心、半径、法向、x 轴指向半径点、段数。 */
+    private circleSpec;
     private commitCircle;
     private commitPP;
     private commitMove;

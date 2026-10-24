@@ -6,6 +6,7 @@
 // 运行时 id（DefId / GroupId / InstId）由本类顺序铸造：op 日志重放同序列 → 同 id（与顶点 µm 寻址同理，联机也成立）。
 // created 2026-10-21 by Claude Fable 5.1（group / component 纪元；user「supersprint where at least i have groups and components」）
 
+import { add3, sub3, scale3, dist3, normalize3, cross3 } from "../kernel/geom.ts";
 import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
 
@@ -220,7 +221,22 @@ export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTIT
   const inFace = new Set<string>();
   for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
   const wires = snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => ({ a: P[a], b: P[b] }));
-  k.absorb(faces, wires, snapshotLayerPayload(snap, P, materialMap));
+  // 曲线随行（0.10）：边链按变换后的点给线段；参数用两点之差换方向、半径按变换后距离（非相似 → 作废成 polyline）
+  const curves = (snap.curves ?? []).map((c) => {
+    const segs = c.edges.map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
+    let params = c.params ? { ...c.params } : undefined;
+    let kind = c.kind;
+    if (params) {
+      const c0 = applyPt(m, params.center);
+      const dir = (d: Pt3): Pt3 => normalize3(sub3(applyPt(m, add3(params!.center, d)), c0));
+      const yax = normalize3(cross3(params.normal, params.xaxis));
+      const rx = dist3(applyPt(m, add3(params.center, scale3(normalize3(params.xaxis), params.radius))), c0), ry = dist3(applyPt(m, add3(params.center, scale3(yax, params.radius))), c0);
+      if (Math.abs(rx - ry) > 1e-6 * Math.max(rx, ry, 1e-9) || rx < 1e-9) { params = undefined; kind = "polyline"; }
+      else params = { center: c0, radius: rx, normal: dir(params.normal), xaxis: dir(params.xaxis), segments: params.segments };
+    }
+    return { segs, spec: { kind, closed: c.closed, ...(params ? { params } : {}) } };
+  });
+  k.absorb(faces, wires, { ...snapshotLayerPayload(snap, P, materialMap), curves });
 }
 
 /** 快照的属性层 → absorb 载荷（边层按线段、面层按每面值；material 可重映射）。 */

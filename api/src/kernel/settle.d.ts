@@ -4,6 +4,7 @@ import { type Ring } from "./facefind.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import type { EdgeLayers, FaceLayers } from "./layers.ts";
+import type { CurveRegistry } from "./curves.ts";
 export type Algebra = "or" | "xor";
 export interface Seg3 {
     readonly a: Pt3;
@@ -42,6 +43,8 @@ export interface ImageTable {
     faceLayers?: FaceLayers;
     /** 本次动过坐标的边（moveVertices：被移 / 被合并顶点的邻边）——局部性：自愈与认领只围绕脏边 + 像 + 被消耗膜的平面（2026-10-21 #14）。 */
     dirtyEdges?: Iterable<EdgeId>;
+    /** 曲线登记处（0.10）：机器只调它的钩子——切割按序传子 / 删边出链 / 溶解顶替 / 结算后 prune。 */
+    curves?: CurveRegistry;
 }
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
 export declare function ringsOf(g: PlanarGraph, f: {

@@ -8,10 +8,11 @@
 //   CATSUP_brep        v2 → v3（2026-10-21 贴图纪元）：属性层 attributes.face.material（u16x2：[+n 侧槽, −n 侧槽]，0xFFFF = 无）本版读写。
 //   CATSUP_definitions v2 → v3（2026-10-21 贴图纪元）：list[i].materialSlots 生效（槽号 → glTF core materials 索引；v2 一直写空表）。
 //   CATSUP_material    v1（2026-10-21）：挂在 glTF core material 上的 authoring 补充 { sizeM:[w,h] }（贴图物理尺寸，米）。
+//   CATSUP_brep        v3 → v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（有序边链 + 种类 + 闭合 + 圆弧参数，契约 §5）；v3 文件的 curves 一直是空表 = 无曲线。
 
 export const EXTENSION_VERSIONS = {
   CATSUP_document: 1,
-  CATSUP_brep: 3,
+  CATSUP_brep: 4,
   CATSUP_definitions: 3,
   CATSUP_instance: 1,
   CATSUP_material: 1,
@@ -24,6 +25,7 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
   CATSUP_brep: {
     1: (j) => { const { groups: _groups, ...rest } = j; void _groups; return { ...rest, version: 2 }; },
     2: (j) => ({ ...j, version: 3 }),   // v2 文件没有 face.material 层 = 全默认；层本身是可选的
+    3: (j) => ({ ...j, version: 4, curves: Array.isArray(j.curves) ? j.curves : [] }),   // v3 的 curves 是空占位 = 无曲线
   },
   CATSUP_definitions: {
     1: (j) => ({

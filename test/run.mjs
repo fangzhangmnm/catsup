@@ -7,7 +7,8 @@ import "./subdivide-nearmiss.test.ts";
 import "./xr-pointer-frame.test.ts";
 import "./kernel-fuzz.test.ts";
 import "./kernel-rev.test.ts";
-import "./settle-differential.test.ts";   // 局部性定理差分 oracle：局部结算 = 全局结算（#26，2026-10-23）    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
+import "./settle-differential.test.ts";
+import "./curves.test.ts";   // 曲线实体（0.10，2026-10-24）   // 局部性定理差分 oracle：局部结算 = 全局结算（#26，2026-10-23）    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
 import "./move-inference.test.ts";
 import "./facefind.test.ts";
 import "./face-lifecycle.test.ts";

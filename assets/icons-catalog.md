@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-64 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+65 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -42,6 +42,7 @@
 | `circle` | 圆(shapes 基本图元,无圆心点) |
 | `line` | 直线(shapes 基本图元):斜线+两端点, 与 arc 同族(同点径 1.2), 29° 防端点顶角; 20260725 入库 |
 | `rectangle` | 矩形(shapes 基本图元) |
+| `arc` | 圆弧:升弧+两端点(shapes 基本图元) |
 
 ## perspective-reference
 

@@ -3,12 +3,14 @@ import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, Planar
 import { type Face, type FaceEvent } from "./face-lifecycle.ts";
 import { type Seg3 } from "./settle.ts";
 import { EdgeLayers, FaceLayers } from "./layers.ts";
+import { type Curve, type CurveId, type CurveParams, type CurveSpec } from "./curves.ts";
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
 export type { Edge, EdgeId, FaceId, Vertex, VertexId } from "./topology.ts";
 export type { Pt, Pt3 } from "./geom.ts";
 export type { PlaneId, PlaneRec } from "./planes.ts";
 export type { Image, ImageTable, Seg3 } from "./settle.ts";
 export { EDGE_LAYERS, FACE_LAYERS, EdgeLayers, FaceLayers } from "./layers.ts";
+export type { Curve, CurveId, CurveKind, CurveParams, CurveSpec } from "./curves.ts";
 /** API 取点：z 缺省 = 0（2D 场景/测试直接传 {x,y}）。 */
 export interface PtIn {
     x: number;
@@ -48,6 +50,13 @@ export interface BrepSnapshot {
     readonly edgeLayers?: Readonly<Record<string, readonly number[]>>;
     /** 面属性层：名字 → 每面一个整数（与 faces 对齐；−1 = 无）。material = definition 槽号。 */
     readonly faceLayers?: Readonly<Record<string, readonly number[]>>;
+    /** 曲线（0.10，契约 §5 brep.curves）：有序边下标 + 种类 + 闭合 + 圆弧参数（本地坐标，米）。缺省 = 无。 */
+    readonly curves?: readonly {
+        readonly edges: readonly number[];
+        readonly kind: "circle" | "arc" | "polyline";
+        readonly closed: boolean;
+        readonly params?: CurveParams;
+    }[];
 }
 export declare class Kernel {
     private _graph;
@@ -58,6 +67,8 @@ export declare class Kernel {
     edgeLayers: EdgeLayers;
     /** 面属性层登记处（material = definition 槽号；按事件血缘继承）。 */
     faceLayers: FaceLayers;
+    /** 曲线登记处（0.10）：一串有序边 = 一个实体，可带圆弧参数；结算机经像表钩子维护。 */
+    private curveReg;
     /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
     private _rev;
     get rev(): number;
@@ -73,6 +84,8 @@ export declare class Kernel {
         settleMode?: "local" | "global";
     });
     private _settle;
+    /** 线段上的边（两端都在段上，INSERT_TOL）——登记曲线用。 */
+    private _edgesOn;
     /** 只读窥视用（渲染/测试断言）；改图必须走下面的批量 mutations。 */
     get graph(): PlanarGraph;
     /**
@@ -88,13 +101,18 @@ export declare class Kernel {
      * id 计数器一起拷 → 副本上的事件与真身提交的事件逐字相同。
      */
     clone(): Kernel;
-    /** 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层（圆 → ["curve"]）。 */
+    /**
+     * 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层；
+     * opts.curve = 这批线段（按给的顺序）是一条曲线：true = 无参数的闭合折线（旧接口），CurveSpec = 圆 / 弧（0.10）——落下的边带 curve 层并登记成一个实体。
+     */
     addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: {
         layers?: readonly string[];
-        curve?: boolean;
+        curve?: boolean | CurveSpec;
     }): FaceEvent[];
-    /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
+    /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。擦到曲线的一段 = 整条曲线（SU；0.10）。 */
     eraseEdges(ids: readonly EdgeId[]): FaceEvent[];
+    /** 炸开曲线（SU Explode Curve）：实体没了，边留着、不再带 curve 层（之后推拉它们的侧棱是硬的）。 */
+    explodeCurves(ids: readonly CurveId[]): FaceEvent[];
     /** 只删膜不动拓扑（「闭环无面」态；之后 retrace 可复生）。 */
     eraseFaces(ids: readonly FaceId[]): FaceEvent[];
     /**
@@ -140,8 +158,12 @@ export declare class Kernel {
     absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], opts?: {
         edgeSegs?: Readonly<Record<string, readonly Seg3[]>>;
         faceLayers?: readonly (Readonly<Record<string, number>> | undefined)[];
+        curves?: readonly {
+            segs: readonly Seg3[];
+            spec: CurveSpec;
+        }[];
     }): FaceEvent[];
-    /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */
+    /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。曲线参数按 fn 重算：相似变换保圆，非均匀缩放 → polyline。 */
     transformAll(fn: (p: Pt3) => Pt3): FaceEvent[];
     vertices(): Vertex[];
     edges(): Edge[];
@@ -154,6 +176,12 @@ export declare class Kernel {
     faceMaterial(_id: FaceId): null;
     faces(): Face[];
     face(id: FaceId): Face | undefined;
+    /** 曲线实体（0.10）：全部 / 按 id / 这条边属于哪条。 */
+    curves(): Curve[];
+    curveById(id: CurveId): Curve | undefined;
+    curveOf(edge: EdgeId): CurveId | undefined;
+    /** 曲线自洽校验（fuzz / 测试）：边存在、链相邻共顶点、每边至多一条、闭合首尾相接；空 = 好。 */
+    curveProblems(): string[];
     log(): readonly FaceEvent[];
     /** 命中测试（3D 距离；面 = 落在平面 τ 邻域内且投影在环内）：顶点 > 边 > 面。 */
     hitTest(pIn: PtIn, tol: number): HitResult;

@@ -24,12 +24,15 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal } from "./tools.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
 import type { ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { OffsetTool } from "./tools/offset.ts";
+import { ArcTool } from "./tools/arc.ts";
+import type { CurveSpec } from "../kernel/kernel.ts";
+import { surfaceFaces } from "./paint-flood.ts";
 import { FollowMeTool } from "./tools/followme.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { perf } from "./perf-stats.ts";
@@ -45,8 +48,8 @@ import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extra
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
-export type Tool = "select" | "line" | "rect" | "circle" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
-export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace"];
+export type Tool = "select" | "line" | "rect" | "circle" | "arc" | "move" | "rotate" | "scale" | "pp" | "offset" | "followme" | "paint" | "erase" | "eraseFace";
+export const TOOLS: readonly Tool[] = ["select", "line", "rect", "circle", "arc", "move", "rotate", "scale", "pp", "offset", "followme", "paint", "erase", "eraseFace"];
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
@@ -173,7 +176,7 @@ export class Editor {
   private ppShellVids: ReadonlySet<VertexId> = new Set();
   private ppStops: number[] = [];
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
-  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool(), followme: new FollowMeTool() };
+  private readonly handlers: Partial<Record<Tool, ToolHandler>> = { offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool() };
   private readonly toolCtx: ToolCtx = this.makeToolCtx();
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
   private rotStage: 0 | 1 | 2 = 0;
@@ -586,9 +589,12 @@ export class Editor {
     };
     if (h.edge !== undefined && k.graph.hasEdge(h.edge)) {
       picked.edges.add(h.edge);
+      const cid = k.curveOf(h.edge);                                             // 0.10：单击曲线的一段 = 整条（SU）
+      if (cid !== undefined) for (const e of k.curveById(cid)!.edges) if (k.graph.hasEdge(e)) picked.edges.add(e);
       if (stage >= 1) for (const fid of k.graph.edge(h.edge).faceLinks) picked.faces.add(fid);
     } else if (h.face !== undefined && k.face(h.face)) {
-      if (stage >= 1) addFaceRing(h.face); else picked.faces.add(h.face);
+      const surf = surfaceFaces(k, h.face);                                        // 0.10：单击曲面的一片 = 整张（沿软边泛洪；SU）
+      if (stage >= 1) for (const f of surf) addFaceRing(f); else for (const f of surf) picked.faces.add(f);
     } else if (h.vertex !== undefined && k.graph.hasVertex(h.vertex)) {
       for (const eid of k.graph.vertex(h.vertex).edges) picked.edges.add(eid);
     }
@@ -615,8 +621,39 @@ export class Editor {
   }
   private afterSelect(): void {
     if (this._tool === "scale") this.rebuildScaleHandles();
+    const info = this.selectionInfo();
+    if (info) this.host.hint(info);
     this.host.changed();
     this.draw();
+  }
+  /** 实体信息（0.10）：选区恰是一条曲线 → 「圆 r=… · N 段」/「弧 …」/「曲线 · N 段」；恰是一张曲面 → 「曲面 · N 面」；别的 → null（不抢提示行）。 */
+  private selectionInfo(): string | null {
+    const k = this.kernel;
+    const es = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)), fs = [...this.selection.faces].filter((f) => k.face(f));
+    if (es.length && !fs.length) {
+      const cid = k.curveOf(es[0]);
+      if (cid === undefined) return null;
+      const c = k.curveById(cid);
+      if (!c || es.some((e) => k.curveOf(e) !== cid) || es.length !== c.edges.filter((e) => k.graph.hasEdge(e)).length) return null;
+      if (c.kind === "circle" && c.params) return `圆 r=${fmtLen(c.params.radius)} · ${c.edges.length} 段`;
+      if (c.kind === "arc" && c.params) return `弧 r=${fmtLen(c.params.radius)} · ${c.edges.length} 段`;
+      return `曲线 · ${c.edges.length} 段`;
+    }
+    if (fs.length > 1 && !es.length) {
+      const surf = new Set(surfaceFaces(k, fs[0]));
+      if (surf.size === fs.length && fs.every((f) => surf.has(f))) return `曲面 · ${fs.length} 面`;
+    }
+    return null;
+  }
+  /** 选区里有没有曲线的边（炸开曲线钮）。 */
+  hasCurveSelection(): boolean { const k = this.kernel; for (const e of this.selection.edges) if (k.graph.hasEdge(e) && k.curveOf(e) !== undefined) return true; return false; }
+  /** 炸开选区里的曲线（SU Explode Curve）：每条曲线给一条代表边，op 按坐标寻址。 */
+  explodeCurveSelection(): void {
+    const k = this.kernel, at = this.activePool();
+    const seen = new Set<number>(); const edges: ReturnType<typeof edgeKey>[] = [];
+    for (const e of this.selection.edges) { if (!k.graph.hasEdge(e)) continue; const cid = k.curveOf(e); if (cid === undefined || seen.has(cid)) continue; seen.add(cid); edges.push(edgeKey(k, e)); }
+    if (edges.length) this.commitOp({ op: "explodeCurves", at, edges });
+    this.host.changed(); this.draw();
   }
 
   deleteSelection(): void {
@@ -858,7 +895,7 @@ export class Editor {
         else if (v.kind === "segments") { segments = v.n; this.config.set("circle", "segments", v.n); }
         else break;
         const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
-        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: true });
+        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: this.circleSpec(L.center, rim, L.plane, segments) });
         this.last = { ...L, ops: this.opCount - n0, rim, segments };
         msg = `圆 半径 ${fmtLen(dist(L.center, rim))} · ${segments} 段`;
         break;
@@ -1271,6 +1308,10 @@ export class Editor {
         const k = this.kernel;
         const rec = k.planeOf(c.local.face)!;
         const wrec = view.planeOf(gf)!;
+        {   // 0.10 护栏（设计稿 §6-①，user「推拉单片没有任何意义」）：曲面的一片不许推拉，先硬化；整张曲面推拉 = wishlist B18
+          const f0 = k.face(c.local.face)!;
+          if ([f0.outer, ...f0.holes].some((r) => r.edges.some((d) => k.isSoft(d.edge)))) { this.host.hint("这是曲面的一片：先用橡皮 + Shift 硬化它周围的软边，再推拉（整张曲面推拉在 wishlist）"); break; }
+        }
         this.ppFace = c.local.face;
         const fRec = k.face(c.local.face)!;
         this.ppShellVids = new Set([...ringVidsTolerant(k.graph, fRec.outer), ...fRec.holes.flatMap((hh) => ringVidsTolerant(k.graph, hh))]);
@@ -1853,6 +1894,10 @@ export class Editor {
     this.cancelGesture();
     if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) }); this.last = { kind: "rect", ops: this.opCount - n0, at: at0, plane, anchor, corner: b }; }
   }
+  /** 圆的曲线规格（世界系 → 池本地）：圆心、半径、法向、x 轴指向半径点、段数。 */
+  private circleSpec(center: Pt3, rim: Pt3, plane: DrawPlane, segments: number): CurveSpec {
+    return curveSpecToLocal((pt) => this.toLocal(pt), { kind: "circle", closed: true, params: { center, radius: dist(center, rim), normal: plane.plane.n, xaxis: normalize3(sub3(rim, center)), segments } });
+  }
   private commitCircle(smp: { cursor3: Pt3 | null; plane: DrawPlane } | null): void {
     const plane = smp?.plane ?? this.gesturePlane;
     const b = smp?.cursor3 ?? this.cursor3 ?? this.anchor3!;
@@ -1860,7 +1905,7 @@ export class Editor {
     const segs = dist(this.anchor3!, b) >= MIN_GESTURE_LEN ? circleSegmentsOnPlane(plane.plane, plane.basis, this.anchor3!, b, segments) : [];
     const center = this.anchor3!, n0 = this.opCount, at0 = this.activePool();
     this.cancelGesture();
-    if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: true }); this.last = { kind: "circle", ops: this.opCount - n0, at: at0, plane, center, rim: b, segments }; }
+    if (segs.length) { this.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: this.circleSpec(center, b, plane, segments) }); this.last = { kind: "circle", ops: this.opCount - n0, at: at0, plane, center, rim: b, segments }; }
   }
   private commitPP(smp: { ppH: number } | null): void {
     const h = smp?.ppH ?? this.ppH;

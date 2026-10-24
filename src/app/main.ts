@@ -87,7 +87,7 @@ const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
 const buildEl = $("build");
 
-const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 偏移 F · 跟随 W · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
+const HINT_DEFAULT = "画线 L · 矩形 R · 圆 C · 弧 A · 移动 M · 旋转 Q · 缩放 S · 推拉 P · 偏移 F · 跟随 W · 油漆桶 B · 橡皮 E · 选择 空格 ｜ 建组 Ctrl+G · 建组件 G · 双击进组 / 点空处或 Esc 出 ｜ 右键/单指拖=环绕 · 双指=平移缩放";
 const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
@@ -121,6 +121,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "line", icon: "line", label: "画线", key: "L" },
   { tool: "rect", icon: "rectangle", label: "矩形", key: "R" },
   { tool: "circle", icon: "circle", label: "圆", key: "C" },
+  { tool: "arc", icon: "arc", label: "弧", key: "A" },
   { tool: "move", icon: "move", label: "移动", key: "M" },
   { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
   { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },
@@ -141,6 +142,7 @@ const hud: HudModel = {
     { id: "group", label: "建组", icon: "collection", hidden: !editor.hasGeometrySelection() },
     { id: "component", label: "建组件", icon: "object", hidden: !editor.hasGeometrySelection() },
     { id: "explode", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },
+    { id: "explodeCurve", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
     { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
@@ -163,6 +165,7 @@ const hud: HudModel = {
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
       case "explode": editor.explodeSelection(); break;
+      case "explodeCurve": editor.explodeCurveSelection(); break;
       case "enter": editor.enterSelected(); break;
       case "exit": editor.exitContext(); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
@@ -178,7 +181,7 @@ const hud: HudModel = {
 // 然后非pin的工具给2个格子，屏幕太短就不给」）：钉死的常用工具一字排开；不常用的收进「…」弹层；最近用过的非钉工具在「…」上面
 // 留最多两格（按柱子可用高度算，屏幕矮就不留）。快捷键照旧直达（用了非钉工具会进最近格）。
 const PINNED: Tool[] = ["select", "line", "rect", "erase", "move", "rotate", "pp"];   // user 10-21「缩放不pin」
-const UNPINNED: Tool[] = ["circle", "scale", "offset", "followme", "paint"];
+const UNPINNED: Tool[] = ["circle", "arc", "scale", "offset", "followme", "paint"];
 const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
 const recentTools: Tool[] = [];                 // 最近用过的非钉工具（MRU，最多 2）
 const toolBtns = new Map<Tool, HTMLButtonElement>();
@@ -194,7 +197,7 @@ const mkToolBtn = (t: Tool): HTMLButtonElement => {
 for (const t of PINNED) { const b = mkToolBtn(t); toolbarEl.appendChild(b); toolBtns.set(t, b); }
 const recentEl = document.createElement("div"); recentEl.className = "rail-recent"; toolbarEl.appendChild(recentEl);
 const moreBtn = document.createElement("button");
-moreBtn.type = "button"; moreBtn.className = "tool"; moreBtn.title = "更多工具（圆 / 缩放 / 偏移 / 跟随 / 油漆桶）";
+moreBtn.type = "button"; moreBtn.className = "tool"; moreBtn.title = "更多工具（圆 / 弧 / 缩放 / 偏移 / 跟随 / 油漆桶）";
 moreBtn.innerHTML = `${iconHtml("more")}<span class="tool-label">更多</span>`;
 moreBtn.addEventListener("click", () => togglePopupMenu<Tool>({
   anchor: moreBtn, align: "start",
@@ -480,10 +483,10 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
-    const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q");
+    const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q" || key === "a");
     if (t && !takenByWalk) { ev.preventDefault(); editor.setTool(t); return; }
     if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件
     if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部

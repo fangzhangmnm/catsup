@@ -12,6 +12,8 @@ import {
   type Pt3,
   type PlaneParams,
   normalize3,
+  sub3,
+  cross3,
   signedArea,
   add3,
   dist3,
@@ -29,6 +31,9 @@ import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type Image, type ImageTable, type Seg3, ringsOf, settle, translateImage } from "./settle.ts";
 import { EdgeLayers, FaceLayers, riserLayers } from "./layers.ts";
+import { type Curve, type CurveId, type CurveParams, type CurveSpec, CurveRegistry, edgesAlongSegs } from "./curves.ts";
+import { INSERT_TOL } from "./subdivide.ts";
+import { pointOnSegment3 } from "./geom.ts";
 import { alignClosedPath, dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
 
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
@@ -37,6 +42,7 @@ export type { Pt, Pt3 } from "./geom.ts";
 export type { PlaneId, PlaneRec } from "./planes.ts";
 export type { Image, ImageTable, Seg3 } from "./settle.ts";
 export { EDGE_LAYERS, FACE_LAYERS, EdgeLayers, FaceLayers } from "./layers.ts";
+export type { Curve, CurveId, CurveKind, CurveParams, CurveSpec } from "./curves.ts";
 
 /** API 取点：z 缺省 = 0（2D 场景/测试直接传 {x,y}）。 */
 export interface PtIn { x: number; y: number; z?: number; }
@@ -69,6 +75,8 @@ export interface BrepSnapshot {
   readonly edgeLayers?: Readonly<Record<string, readonly number[]>>;
   /** 面属性层：名字 → 每面一个整数（与 faces 对齐；−1 = 无）。material = definition 槽号。 */
   readonly faceLayers?: Readonly<Record<string, readonly number[]>>;
+  /** 曲线（0.10，契约 §5 brep.curves）：有序边下标 + 种类 + 闭合 + 圆弧参数（本地坐标，米）。缺省 = 无。 */
+  readonly curves?: readonly { readonly edges: readonly number[]; readonly kind: "circle" | "arc" | "polyline"; readonly closed: boolean; readonly params?: CurveParams }[];
 }
 
 export class Kernel {
@@ -80,6 +88,8 @@ export class Kernel {
   edgeLayers = new EdgeLayers();
   /** 面属性层登记处（material = definition 槽号；按事件血缘继承）。 */
   faceLayers = new FaceLayers();
+  /** 曲线登记处（0.10）：一串有序边 = 一个实体，可带圆弧参数；结算机经像表钩子维护。 */
+  private curveReg = new CurveRegistry();
   /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
   private _rev = 0;
   get rev(): number { return this._rev; }
@@ -96,7 +106,11 @@ export class Kernel {
     this.settleMode = opts?.settleMode ?? "local";
   }
   private _settle(table: ImageTable): FaceEvent[] {
-    return settle(this.graph, this.store, this.planes, this.coplanarTol, table, { global: this.settleMode === "global" });
+    return settle(this.graph, this.store, this.planes, this.coplanarTol, { ...table, curves: this.curveReg }, { global: this.settleMode === "global" });
+  }
+  /** 线段上的边（两端都在段上，INSERT_TOL）——登记曲线用。 */
+  private _edgesOn(segs: readonly Seg3[]): EdgeId[] {
+    return edgesAlongSegs(this.graph, segs, (pa, pb, a, b) => pointOnSegment3(pa, a, b, INSERT_TOL) && pointOnSegment3(pb, a, b, INSERT_TOL));
   }
 
   /** 只读窥视用（渲染/测试断言）；改图必须走下面的批量 mutations。 */
@@ -152,8 +166,10 @@ export class Kernel {
     }
     k.store.rebuildFaceLinks(g);
     for (const v of g.vertices()) if (v.edges.size === 0) fail(`vertex ${v.id} is isolated`);
-    k.edgeLayers = EdgeLayers.fromIndex(snap.edgeLayers, g.edges().map((e) => e.id), fail);
+    const edgeIds = g.edges().map((e) => e.id);
+    k.edgeLayers = EdgeLayers.fromIndex(snap.edgeLayers, edgeIds, fail);
     k.faceLayers = FaceLayers.fromIndex(snap.faceLayers, faceIds);
+    k.curveReg = CurveRegistry.fromIndex(g, snap.curves, edgeIds, fail);
     return k;
   }
 
@@ -169,6 +185,7 @@ export class Kernel {
     const fs = this.store.faces();
     const edgeLayers = this.edgeLayers.toIndex(es.map((e) => e.id));
     const faceLayers = this.faceLayers.toIndex(fs.map((f) => f.id));
+    const curves = this.curveReg.toIndex(es.map((e) => e.id));
     return {
       coplanarTol: this.coplanarTol,
       vertices: vs.map((v) => ({ x: v.x, y: v.y, z: v.z })),
@@ -177,6 +194,7 @@ export class Kernel {
       faces: fs.map((f) => ({ plane: pIdx.get(f.planeId)!, outer: ringVids(f.outer), holes: f.holes.map(ringVids) })),
       ...(edgeLayers ? { edgeLayers } : {}),
       ...(faceLayers ? { faceLayers } : {}),
+      ...(curves ? { curves } : {}),
     };
   }
 
@@ -191,29 +209,59 @@ export class Kernel {
     k.planes = this.planes.clone();
     k.edgeLayers = this.edgeLayers.clone();
     k.faceLayers = this.faceLayers.clone();
+    k.curveReg = this.curveReg.clone();
     k._rev = this._rev;
     return k; // 事件日志不拷：副本的 log 只属于预演
   }
 
   // ---------------- mutations（全部批量收口；每个动词 = 一张像表） ----------------
 
-  /** 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层（圆 → ["curve"]）。 */
-  addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: { layers?: readonly string[]; curve?: boolean }): FaceEvent[] {
+  /**
+   * 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层；
+   * opts.curve = 这批线段（按给的顺序）是一条曲线：true = 无参数的闭合折线（旧接口），CurveSpec = 圆 / 弧（0.10）——落下的边带 curve 层并登记成一个实体。
+   */
+  addEdges(segs: readonly (readonly [PtIn, PtIn])[], opts?: { layers?: readonly string[]; curve?: boolean | CurveSpec }): FaceEvent[] {
     this._rev++;
     const gesture: Seg3[] = segs.map(([a, b]) => ({ a: toPt3(a), b: toPt3(b) }));
     const names = [...(opts?.layers ?? []), ...(opts?.curve ? ["curve"] : [])];
     const layerSegs: Record<string, Seg3[]> = {};
     for (const n of names) layerSegs[n] = gesture;
-    return this.emit(this._settle({ consumed: new Set(), images: [], gesture, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    const events = this.emit(this._settle({ consumed: new Set(), images: [], gesture, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    // 用户画的线落在既有曲线的顶点上 → 曲线从那里断开（设计稿 §6-④：线切过圆 = 两条弧；画线碰到圆周 = 圆变成一条 360° 的弧）
+    const onGesture = this._edgesOn(gesture);
+    for (const e of onGesture) { const x = this.graph.edge(e); this.curveReg.cutAtVertex(this.graph, x.a); this.curveReg.cutAtVertex(this.graph, x.b); }
+    if (opts?.curve) {
+      const spec: CurveSpec = typeof opts.curve === "object" ? opts.curve : { kind: "polyline", closed: true };
+      this.curveReg.create(this.graph, onGesture, spec);
+    }
+    return events;
   }
 
-  /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。 */
+  /** 擦边：裁决快照以批开始时的环结构为准，再统一删除（删除顺序无关）。擦到曲线的一段 = 整条曲线（SU；0.10）。 */
   eraseEdges(ids: readonly EdgeId[]): FaceEvent[] {
     this._rev++;
-    const valid = [...new Set(ids)].filter((id) => this.graph.hasEdge(id));
+    const set = new Set<EdgeId>();
+    for (const id of ids) {
+      if (!this.graph.hasEdge(id)) continue;
+      set.add(id);
+      const cid = this.curveReg.curveOf(id);
+      if (cid !== undefined) for (const e of this.curveReg.curve(cid)!.edges) if (this.graph.hasEdge(e)) set.add(e);
+    }
+    const valid = [...set];
     const verdicts = this.store.snapshotEraseVerdicts(valid);
-    for (const id of valid) this.graph.removeEdge(id);
+    for (const id of valid) { this.curveReg.onRemove(id); this.graph.removeEdge(id); }
     return this.emit(this.store.reconcileErase(this.graph, this.planes, this.coplanarTol, verdicts));
+  }
+  /** 炸开曲线（SU Explode Curve）：实体没了，边留着、不再带 curve 层（之后推拉它们的侧棱是硬的）。 */
+  explodeCurves(ids: readonly CurveId[]): FaceEvent[] {
+    this._rev++;
+    for (const id of ids) {
+      const c = this.curveReg.curve(id);
+      if (!c) continue;
+      for (const e of c.edges) this.edgeLayers.delete("curve", e);
+      this.curveReg.explode(id);
+    }
+    return [];
   }
 
   /** 只删膜不动拓扑（「闭环无面」态；之后 retrace 可复生）。 */
@@ -255,6 +303,13 @@ export class Kernel {
     }
     for (const { other } of plan) for (const eid of this.graph.vertex(other).edges) for (const fid of this.graph.edge(eid).faceLinks) touched.add(fid);
     const snaps = this.store.captureSnaps(this.graph, touched);   // 只拍被牵连的膜（合并前拍：顶点 id 环）
+    // 曲线：被挪 / 被合并的顶点所在的曲线——整条曲线的顶点都挪了同一个 δ → 参数平移；否则参数作废（身份留着）
+    const deltaOf = new Map<VertexId, Pt3>();
+    for (const [id, to] of targets) { const p = this.graph.pt(id); deltaOf.set(id, { x: to.x - p.x, y: to.y - p.y, z: to.z - p.z }); }
+    const curveTouched = new Set<CurveId>();
+    for (const vid of [...targets.keys(), ...plan.map((p) => p.other)]) for (const eid of this.graph.vertex(vid).edges) { const cid = this.curveReg.curveOf(eid); if (cid !== undefined) curveTouched.add(cid); }
+    const curveVerts = new Map<CurveId, Set<VertexId>>();
+    for (const cid of curveTouched) { const vs = new Set<VertexId>(); for (const e of this.curveReg.curve(cid)!.edges) { const x = this.graph.edge(e); vs.add(x.a); vs.add(x.b); } curveVerts.set(cid, vs); }
     for (const { other, survivor } of plan) {
       merged.set(other, survivor);
       this.absorbVertex(other, survivor);
@@ -283,7 +338,16 @@ export class Kernel {
     const dirtyEdges = new Set<EdgeId>();
     for (const { id } of batch) if (this.graph.hasVertex(id)) for (const eid of this.graph.vertex(id).edges) dirtyEdges.add(eid);
     for (const sv of new Set(merged.values())) if (this.graph.hasVertex(sv)) for (const eid of this.graph.vertex(sv).edges) dirtyEdges.add(eid);
-    return this.emit(this._settle({ consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges }));
+    const events = this.emit(this._settle({ consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges }));
+    for (const [cid, vs] of curveVerts) {
+      const c = this.curveReg.curve(cid);
+      if (!c) continue;
+      let delta: Pt3 | undefined, rigid = merged.size === 0;
+      for (const v of vs) { const d = deltaOf.get(v); if (!d) { rigid = false; break; } if (!delta) delta = d; else if (!samePt3(quantize3(d), quantize3(delta))) { rigid = false; break; } }
+      if (rigid && delta && c.params) this.curveReg.setParams(cid, c.kind, { ...c.params, center: add3(c.params.center, delta) });
+      else this.curveReg.invalidate(cid);
+    }
+    return events;
   }
 
   /**
@@ -354,7 +418,22 @@ export class Kernel {
       images.push({ rings, algebra: "or", inherit: gid });
     }
     if (anyBare) images.push({ rings: ringsOf(g, f), algebra: "or" });
-    return this.emit(this._settle({ consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    // 曲线：环上的曲线随帽平移成**新曲线**（圆心 + δ；SU 推拉圆柱顶圈仍是 Circle）——帽边继承层那条规则的实体版
+    const capCurves: { segs: Seg3[]; spec: CurveSpec }[] = [];
+    {
+      const seen = new Set<CurveId>();
+      for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) {
+        const cid = this.curveReg.curveOf(d.edge);
+        if (cid === undefined || seen.has(cid)) continue;
+        seen.add(cid);
+        const c = this.curveReg.curve(cid)!;
+        const segs: Seg3[] = c.edges.filter((e) => g.hasEdge(e)).map((e) => { const x = g.edge(e); return { a: add3(g.pt(x.a), delta), b: add3(g.pt(x.b), delta) }; });
+        capCurves.push({ segs, spec: { kind: c.kind, closed: c.closed, ...(c.params ? { params: { ...c.params, center: add3(c.params.center, delta) } } : {}) } });
+      }
+    }
+    const events = this.emit(this._settle({ consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    for (const cc of capCurves) this.curveReg.create(g, this._edgesOn(cc.segs), cc.spec);
+    return events;
   }
 
   /**
@@ -408,7 +487,24 @@ export class Kernel {
       for (let r = 0; r < E.length; r++) { const m = E[r].length; for (let j = 0; j < m; j++) for (const L of ringLayers[r][j]) push(L, { a: E[r][j], b: E[r][(j + 1) % m] }); }
     }
     if (!attached) consumed.add(id);
+    // 曲线：轮廓环上的曲线在每一站的圈上各成一条（斜切投影不保圆 → polyline，只留身份；开路径末帽同）
+    const stationCurves: { segs: Seg3[]; spec: CurveSpec }[] = [];
+    for (let r = 0; r < ringEdges.length; r++) {
+      const m = ringEdges[r].length;
+      const runs = new Map<CurveId, number[]>();
+      ringEdges[r].forEach((e, j) => { const cid = this.curveReg.curveOf(e); if (cid !== undefined) (runs.get(cid) ?? runs.set(cid, []).get(cid)!).push(j); });
+      for (const [cid, js] of runs) {
+        const whole = js.length === m && this.curveReg.curve(cid)!.closed;
+        const targets = [...st.map((S, i) => ({ S, cap: !opts.closed && (i === 0 || i === nSt - 1) }))];
+        for (const { S } of targets) {
+          const ring = S[r];
+          const segs: Seg3[] = js.map((j) => ({ a: ring[j], b: ring[(j + 1) % m] })).filter((sg) => dist3(sg.a, sg.b) > 1e-9);
+          if (segs.length) stationCurves.push({ segs, spec: { kind: "polyline", closed: whole } });
+        }
+      }
+    }
     const events = this.emit(this._settle({ consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));
+    for (const sc of stationCurves) this.curveReg.create(g, this._edgesOn(sc.segs), sc.spec);
     if (opts.closed && attached && this.store.face(id)) events.push(...this.eraseFaces([id]));
     return events;
   }
@@ -417,16 +513,29 @@ export class Kernel {
    * 吸收外来几何（炸开 group / 粘贴 / 导入）：膜当像（OR、新 id）、裸边当线段，走结算机——与既有几何 sticky（切割 / 合并 / 共面 dedup）。
    * added 2026-10-21 by Claude Fable 5.1（group / component 纪元）
    */
-  absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], opts?: { edgeSegs?: Readonly<Record<string, readonly Seg3[]>>; faceLayers?: readonly (Readonly<Record<string, number>> | undefined)[] }): FaceEvent[] {
+  absorb(faces: readonly (readonly (readonly Pt3[])[])[], wires: readonly Seg3[], opts?: { edgeSegs?: Readonly<Record<string, readonly Seg3[]>>; faceLayers?: readonly (Readonly<Record<string, number>> | undefined)[]; curves?: readonly { segs: readonly Seg3[]; spec: CurveSpec }[] }): FaceEvent[] {
     this._rev++;
     const images: Image[] = faces.map((rings, i) => ({ rings: rings.map((r) => r.map((p) => ({ x: p.x, y: p.y, z: p.z }))), algebra: "or", ...(opts?.faceLayers?.[i] ? { face: opts.faceLayers[i] } : {}) }));
-    return this.emit(this._settle({ consumed: new Set(), images, wires, edgeLayers: this.edgeLayers, layerSegs: opts?.edgeSegs, faceLayers: this.faceLayers }));
+    const events = this.emit(this._settle({ consumed: new Set(), images, wires, edgeLayers: this.edgeLayers, layerSegs: opts?.edgeSegs, faceLayers: this.faceLayers }));
+    for (const c of opts?.curves ?? []) this.curveReg.create(this.graph, this._edgesOn(c.segs), c.spec);
+    return events;
   }
 
-  /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。 */
+  /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。曲线参数按 fn 重算：相似变换保圆，非均匀缩放 → polyline。 */
   transformAll(fn: (p: Pt3) => Pt3): FaceEvent[] {
     this._rev++;
-    return this.moveVertices(this.graph.vertices().map((v) => ({ id: v.id, to: fn({ x: v.x, y: v.y, z: v.z }) })));
+    const before = this.curveReg.curves().filter((c) => c.params).map((c) => ({ id: c.id, kind: c.kind, params: { ...c.params! } }));
+    const events = this.moveVertices(this.graph.vertices().map((v) => ({ id: v.id, to: fn({ x: v.x, y: v.y, z: v.z }) })));
+    for (const b of before) {
+      if (!this.curveReg.curve(b.id)) continue;
+      const p = b.params, c0 = fn(p.center);
+      const dir = (d: Pt3): Pt3 => sub3(fn(add3(p.center, d)), c0);
+      const yax = normalize3(cross3(p.normal, p.xaxis));
+      const rx = dist3(fn(add3(p.center, scale3(p.xaxis, p.radius))), c0), ry = dist3(fn(add3(p.center, scale3(yax, p.radius))), c0);
+      if (Math.abs(rx - ry) > 1e-6 * Math.max(rx, ry, 1e-9) || rx < 1e-9) { this.curveReg.invalidate(b.id); continue; }
+      this.curveReg.setParams(b.id, b.kind, { center: c0, radius: rx, normal: normalize3(dir(p.normal)), xaxis: normalize3(dir(p.xaxis)), segments: p.segments });
+    }
+    return events;
   }
 
   // ---------------- queries ----------------
@@ -450,6 +559,12 @@ export class Kernel {
   faceMaterial(_id: FaceId): null { return null; }
   faces(): Face[] { return this.store.faces(); }
   face(id: FaceId): Face | undefined { return this.store.face(id); }
+  /** 曲线实体（0.10）：全部 / 按 id / 这条边属于哪条。 */
+  curves(): Curve[] { return this.curveReg.curves(); }
+  curveById(id: CurveId): Curve | undefined { return this.curveReg.curve(id); }
+  curveOf(edge: EdgeId): CurveId | undefined { return this.curveReg.curveOf(edge); }
+  /** 曲线自洽校验（fuzz / 测试）：边存在、链相邻共顶点、每边至多一条、闭合首尾相接；空 = 好。 */
+  curveProblems(): string[] { return this.curveReg.validate(this.graph); }
   log(): readonly FaceEvent[] { return this.eventLog; }
 
   /** 命中测试（3D 距离；面 = 落在平面 τ 邻域内且投影在环内）：顶点 > 边 > 面。 */
@@ -504,6 +619,7 @@ export class Kernel {
     this.faceLayers.applyEvents(events);           // 面层跟着血缘走（layers.ts）
     this.faceLayers.prune((id) => !!this.store.face(id));
     this.edgeLayers.prune((id) => this.graph.hasEdge(id));
+    this.curveReg.prune(this.graph);
     return events;
   }
 
@@ -519,8 +635,10 @@ export class Kernel {
         const ne = this.graph.addEdge(to, other);
         this.graph.edge(ne).faceLinks = [...e.faceLinks];
         this.edgeLayers.copy(eid, ne);
+        this.curveReg.copy(eid, ne);
       }
       this.edgeLayers.onRemove(eid);
+      this.curveReg.onRemove(eid);
       this.graph.removeEdge(eid);
     }
   }

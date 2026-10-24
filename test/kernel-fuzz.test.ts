@@ -34,6 +34,9 @@ function checkInvariants(k: Kernel, ctx: string, allowDup = false): void {
     for (const f of e.faceLinks) assert(fids.has(f), `${ctx}: edge ${e.id} faceLinks 指向不存在的面 ${f}`);
   }
   for (const v of k.graph.vertices()) assert(v.edges.size > 0, `${ctx}: 孤立顶点 ${v.id}`);
+  // 曲线（0.10）：链连通有序、每边至多一条、闭合首尾相接、边都存在
+  const cp = k.curveProblems();
+  assert(!cp.length, `${ctx}: 曲线不自洽——${cp.join("; ")}`);
   // 无重复面：同一组环边（外环+洞）只准有一张面记录（2026-09-07 fuzz 抓到 54/90 同环 → 擦边裁决漏掉第三张）
   if (allowDup) return;
   const ringKeys = new Map<string, number>();
@@ -83,7 +86,15 @@ function run(seed: number, steps: number, allowDup = false, tier: "clean" | "nas
     const r = rnd();
     let op = "";
     try {
-      if (r < 0.35 || es.length === 0) {
+      if (r < 0.12 && es.length > 0) {
+        // 圆（0.10）：随机圆心半径，水平面上（clean）或斜置（nasty），12 段，带曲线规格
+        const o = P(q(rnd() * 3), q(rnd() * 3), tier === "clean" ? q(rnd() < 0.5 ? 0 : 2) : q(rnd() * 2)), rad = q(0.3 + rnd() * 1.2);
+        const th = tier === "clean" ? 0 : rnd() * 0.4;
+        const n = { x: Math.sin(th), y: 0, z: Math.cos(th) }, u = { x: Math.cos(th), y: 0, z: -Math.sin(th) }, v = { x: 0, y: 1, z: 0 };
+        const segs: [Pt3, Pt3][] = [];
+        for (let i = 0; i < 12; i++) { const a0 = (i / 12) * Math.PI * 2, a1 = ((i + 1) / 12) * Math.PI * 2; const pt = (a: number): Pt3 => P(q(o.x + rad * (Math.cos(a) * u.x + Math.sin(a) * v.x)), q(o.y + rad * (Math.cos(a) * u.y + Math.sin(a) * v.y)), q(o.z + rad * (Math.cos(a) * u.z + Math.sin(a) * v.z))); segs.push([pt(a0), pt(a1)]); }
+        op = "circle"; k.addEdges(segs, { curve: { kind: "circle", closed: true, params: { center: o, radius: rad, normal: n, xaxis: u, segments: 12 } } });
+      } else if (r < 0.35 || es.length === 0) {
         op = "rect"; k.addEdges(tiltedRect());
       } else if (r < 0.6) {
         // 从既有顶点沿某条邻边的理想方向画过头（带 µm 级偏差）

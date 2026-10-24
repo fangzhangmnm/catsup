@@ -22,6 +22,7 @@ import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore, ringEdgeIds } from "./face-lifecycle.ts";
 import type { EdgeLayers, FaceLayers } from "./layers.ts";
+import type { CurveRegistry } from "./curves.ts";
 import { perf } from "../editor/perf-stats.ts";
 
 export type Algebra = "or" | "xor";
@@ -59,6 +60,8 @@ export interface ImageTable {
   faceLayers?: FaceLayers;
   /** 本次动过坐标的边（moveVertices：被移 / 被合并顶点的邻边）——局部性：自愈与认领只围绕脏边 + 像 + 被消耗膜的平面（2026-10-21 #14）。 */
   dirtyEdges?: Iterable<EdgeId>;
+  /** 曲线登记处（0.10）：机器只调它的钩子——切割按序传子 / 删边出链 / 溶解顶替 / 结算后 prune。 */
+  curves?: CurveRegistry;
 }
 
 /** 面环 → 世界坐标环（沿环取每条有向边的起点）。 */
@@ -189,7 +192,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
       const e = g.edge(eid);
       const pa = g.pt(e.a), pb = g.pt(e.b);
       const onBoundary = segs.some(([p, q]) => pointOnSegment3(pa, p, q, INSERT_TOL) && pointOnSegment3(pb, p, q, INSERT_TOL));
-      if (!onBoundary) { candVerts.add(e.a); candVerts.add(e.b); g.removeEdge(eid); buryCand.delete(eid); }
+      if (!onBoundary) { candVerts.add(e.a); candVerts.add(e.b); table.curves?.onRemove(eid); g.removeEdge(eid); buryCand.delete(eid); }
     }
   }
 
@@ -203,6 +206,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     if (gesture.delete(parent)) for (const c of children) gesture.add(c);
     if (buryCand.delete(parent)) for (const c of children) buryCand.add(c);
     EL?.onSplit(parent, children);
+    table.curves?.onSplit(g, parent, children);
     splitChildren.set(parent, [...children]);
     dirty.delete(parent); for (const c of children) dirty.add(c);
   };
@@ -491,7 +495,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     for (const eid of orphanCands) { const e = g.edge(eid); if (e.faceLinks.length === 0 && !exempt.has(eid)) doomed.push(eid); }
     // 影响域外的顶点：插边 / 自愈碰不到它们的星形，所以「此刻」= 「操作前」——删边之前先把它们的二度共线状态补进快照
     for (const eid of doomed) { const e = g.edge(eid); for (const v of [e.a, e.b]) if (!preVerts.has(v)) { preVerts.add(v); if (collinear2(g, v)) wasCollinear2.add(v); } }
-    for (const eid of doomed) { const e = g.edge(eid); candVerts.add(e.a); candVerts.add(e.b); g.removeEdge(eid); }
+    for (const eid of doomed) { const e = g.edge(eid); candVerts.add(e.a); candVerts.add(e.b); table.curves?.onRemove(eid); g.removeEdge(eid); }
   }
 
   mark("bury");
@@ -510,6 +514,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     const ne = g.addEdge(c.a, c.b);
     g.edge(ne).faceLinks = [...fa];
     EL?.onMerge(ne, c.ea, c.eb);
+    table.curves?.onMerge(ne, c.ea, c.eb);
     for (const fid of new Set(fa)) {
       const f = store.face(fid);
       if (f) for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne);
@@ -523,6 +528,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     EL.prune((id) => g.hasEdge(id));
     if (table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
   }
+  table.curves?.prune(g);
   mark("layers");
   if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
   return events;

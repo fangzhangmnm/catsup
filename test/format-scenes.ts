@@ -40,7 +40,16 @@ export function sceneHouse(): Kernel {
   k.moveVertices(ridge.map((v) => ({ id: v.id, to: P(v.x, v.y, 3) })));         // 抬脊 → 两坡 + 山墙五边形
   return k;
 }
-export const SCENES: Record<string, () => Kernel> = { box: sceneBox, holed: sceneHoledOpen, house: sceneHouse };
+/** 圆柱（0.10 曲线与曲面纪元）：圆 = circle 曲线，推拉后顶圈 = 新曲线、侧棱软；v4 语料的曲线样本。 */
+export function sceneCylinder(): Kernel {
+  const k = new Kernel();
+  const Z = { x: 0, y: 0, z: 1 }, X = { x: 1, y: 0, z: 0 }, Y = { x: 0, y: 1, z: 0 };
+  const segs = circleSegmentsOnPlane({ n: Z, d: 0 }, { u: X, v: Y }, P(1, 1), P(2, 1), 12);
+  k.addEdges(segs, { curve: { kind: "circle", closed: true, params: { center: P(1, 1), radius: 1, normal: Z, xaxis: X, segments: 12 } } });
+  k.pushPull(k.faces()[0].id, 1.5);
+  return k;
+}
+export const SCENES: Record<string, () => Kernel> = { box: sceneBox, holed: sceneHoledOpen, house: sceneHouse, cylinder: sceneCylinder };
 
 // ---- v2（2026-10-21，group / component 纪元）：场景级 golden ----
 const rootK = (s: Scene): Kernel => s.kernelOf({ def: s.root, group: null });

@@ -10,7 +10,7 @@ import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
 import { SCENES, SCENE_DOCS, fingerprint, sceneFingerprint } from "./format-scenes.ts";
 import { listFixtures, readFixture, hasFixtureDir } from "./fixtures/format/fixtures.mjs";
 
-const BUDGET_BYTES: Record<string, number> = { box: 2600, holed: 2800, house: 2800 };   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
+const BUDGET_BYTES: Record<string, number> = { box: 2600, holed: 2800, house: 2800, cylinder: 6400 };   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
 function roundTrip(k: Kernel): { bytes: Uint8Array; k2: Kernel } {
   const bytes = writeCatsup(newDocument(k.toBrep(), "t"));

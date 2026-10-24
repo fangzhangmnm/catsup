@@ -1,10 +1,26 @@
 import type { Edge, EdgeId, Face, FaceId, Kernel, Pt, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { CurveSpec } from "../kernel/kernel.ts";
 import { type PlaneParams } from "../kernel/geom.ts";
 /** Rect 工具（任意平面版）：对角两点（须在平面上）→ 4 条边。退化 → []。 */
 export declare function rectSegmentsOnPlane(plane: PlaneParams, basis: {
     u: Pt3;
     v: Pt3;
 }, a3: Pt3, b3: Pt3): [Pt3, Pt3][];
+/**
+ * Arc 工具（0.10，SU 两点 + 凸度）：起点 a、终点 b、弧上一点 p（都在平面上）→ 过三点的圆上从 a 到 b 经过 p 的那段弧，n 段。
+ * 三点共线 / 太近 → null。返回段 + 圆参数（sweep 带号：正 = 绕法向逆时针）。added 2026-10-24 by Claude Fable 5.1
+ */
+export declare function arcSegmentsOnPlane(plane: PlaneParams, basis: {
+    u: Pt3;
+    v: Pt3;
+}, a3: Pt3, b3: Pt3, p3: Pt3, n?: number): {
+    segs: [Pt3, Pt3][];
+    center: Pt3;
+    radius: number;
+    sweep: number;
+} | null;
+/** 曲线规格换到池本地坐标：点经 toLocal，方向经两点之差，半径按两点距离（池有缩放时跟着缩）。 */
+export declare function curveSpecToLocal(toLocal: (p: Pt3) => Pt3, spec: CurveSpec): CurveSpec;
 /** Circle 工具：圆心 + 半径点（都在平面上）→ n 段正多边形（SU 默认 24 段；第一个顶点在半径点方向）。退化 → []。added 2026-10-21 */
 export declare function circleSegmentsOnPlane(plane: PlaneParams, basis: {
     u: Pt3;

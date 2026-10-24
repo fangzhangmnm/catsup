@@ -143,6 +143,9 @@ export const TOOL_OPTIONS = {
   circle: {
     segments: { kind: "number", label: "段数", def: 24, min: 3, max: 96, step: 1, scope: "session" },
   },
+  arc: {
+    segments: { kind: "number", label: "段数", def: 12, min: 2, max: 96, step: 1, scope: "session" },
+  },
   paint: {
     mode: { kind: "enum", label: "涂哪些", values: PAINT_MODES, def: "single", scope: "session", modifiers: { ctrl: "smooth", shift: "connected", ctrlShift: "sharp" } },
     sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "session" },

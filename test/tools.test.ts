@@ -64,3 +64,32 @@ describe("tools: Move 目标展开", () => {
     assert(k.hitTest(P(105, 55), 0.1).face === fid, "面到了新位置");
   });
 });
+
+// ---- 弧（0.10，2026-10-24）
+import { arcSegmentsOnPlane, curveSpecToLocal } from "../src/editor/tools.ts";
+describe("tools: arcSegmentsOnPlane（SU 两点 + 凸度）", () => {
+  const Z = { x: 0, y: 0, z: 1 }, X = { x: 1, y: 0, z: 0 }, Y = { x: 0, y: 1, z: 0 };
+  const plane = { n: Z, d: 0 }, basis = { u: X, v: Y };
+  it("A=(-1,0) B=(1,0) 凸度点 (0,1) → 半圆 12 段，经过凸度点，圆心原点半径 1；凸度在另一侧 → 走另一边", () => {
+    const up = arcSegmentsOnPlane(plane, basis, { x: -1, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 1, z: 0 }, 12)!;
+    assert(up, "有弧");
+    eq(up.segs.length, 12);
+    assert(Math.abs(up.radius - 1) < 1e-9 && Math.abs(up.center.x) < 1e-9 && Math.abs(up.center.y) < 1e-9, "圆心原点半径 1");
+    assert(Math.abs(Math.abs(up.sweep) - Math.PI) < 1e-9, "半圆");
+    assert(up.segs[6][0].y > 0.99, "中点在上面（经过凸度点那一侧）");
+    const down = arcSegmentsOnPlane(plane, basis, { x: -1, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: -1, z: 0 }, 12)!;
+    assert(down.segs[6][0].y < -0.99, "凸度在下面 → 走下面");
+    assert(Math.sign(down.sweep) !== Math.sign(up.sweep), "方向相反");
+  });
+  it("三点共线 → null；优弧（凸度点离弦远）扫过 > 180°", () => {
+    eq(arcSegmentsOnPlane(plane, basis, { x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, 12), null);
+    const major = arcSegmentsOnPlane(plane, basis, { x: -1, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 0, y: 3, z: 0 }, 12)!;
+    assert(Math.abs(major.sweep) > Math.PI, "优弧");
+  });
+  it("curveSpecToLocal：平移 + 均匀缩放的池里，圆心跟着走、半径按比例、方向不变", () => {
+    const spec = { kind: "circle" as const, closed: true, params: { center: { x: 1, y: 1, z: 0 }, radius: 2, normal: Z, xaxis: X, segments: 24 } };
+    const local = curveSpecToLocal((p) => ({ x: (p.x - 1) * 0.5, y: (p.y - 1) * 0.5, z: p.z * 0.5 }), spec);
+    assert(Math.abs(local.params!.center.x) < 1e-9 && Math.abs(local.params!.radius - 1) < 1e-9, "圆心 (0,0) 半径 1");
+    assert(Math.abs(local.params!.normal.z - 1) < 1e-9 && Math.abs(local.params!.xaxis.x - 1) < 1e-9, "方向不变");
+  });
+});

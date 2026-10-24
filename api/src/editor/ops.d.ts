@@ -1,3 +1,4 @@
+import type { CurveSpec } from "../kernel/kernel.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, Scene } from "../scene/scene.ts";
@@ -16,7 +17,13 @@ export type Op = {
     op: "addEdges";
     at?: PoolRef;
     segs: Seg[];
-    curve?: boolean;
+    curve?: boolean | CurveSpec;
+}
+/** 炸开曲线（SU Explode Curve）：edges 里每条边所在的曲线散成普通边。 */
+ | {
+    op: "explodeCurves";
+    at: PoolRef;
+    edges: EdgeKey[];
 } | {
     op: "eraseEdges";
     at?: PoolRef;

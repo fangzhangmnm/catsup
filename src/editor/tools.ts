@@ -3,7 +3,8 @@
 // 全链路无任何 Face 构造。
 
 import type { Edge, EdgeId, Face, FaceId, Kernel, Pt, Pt3, VertexId } from "../kernel/kernel.ts";
-import { liftFromPlane, projectToPlane, type PlaneParams } from "../kernel/geom.ts";
+import type { CurveSpec } from "../kernel/kernel.ts";
+import { liftFromPlane, projectToPlane, type PlaneParams, add3, sub3, scale3, dist3, normalize3 } from "../kernel/geom.ts";
 
 /** Rect 工具（任意平面版）：对角两点（须在平面上）→ 4 条边。退化 → []。 */
 export function rectSegmentsOnPlane(
@@ -17,6 +18,47 @@ export function rectSegmentsOnPlane(
   const c = (x: number, y: number): Pt3 => liftFromPlane({ x, y }, plane, basis);
   const p1 = c(a.x, a.y), p2 = c(b.x, a.y), p3 = c(b.x, b.y), p4 = c(a.x, b.y);
   return [[p1, p2], [p2, p3], [p3, p4], [p4, p1]];
+}
+
+/**
+ * Arc 工具（0.10，SU 两点 + 凸度）：起点 a、终点 b、弧上一点 p（都在平面上）→ 过三点的圆上从 a 到 b 经过 p 的那段弧，n 段。
+ * 三点共线 / 太近 → null。返回段 + 圆参数（sweep 带号：正 = 绕法向逆时针）。added 2026-10-24 by Claude Fable 5.1
+ */
+export function arcSegmentsOnPlane(
+  plane: PlaneParams,
+  basis: { u: Pt3; v: Pt3 },
+  a3: Pt3,
+  b3: Pt3,
+  p3: Pt3,
+  n = 12,
+): { segs: [Pt3, Pt3][]; center: Pt3; radius: number; sweep: number } | null {
+  const a = projectToPlane(a3, basis), b = projectToPlane(b3, basis), p = projectToPlane(p3, basis);
+  const d = 2 * (a.x * (b.y - p.y) + b.x * (p.y - a.y) + p.x * (a.y - b.y));
+  if (Math.abs(d) < 1e-12 || n < 1) return null;
+  const a2 = a.x * a.x + a.y * a.y, b2 = b.x * b.x + b.y * b.y, p2 = p.x * p.x + p.y * p.y;
+  const cx = (a2 * (b.y - p.y) + b2 * (p.y - a.y) + p2 * (a.y - b.y)) / d;
+  const cy = (a2 * (p.x - b.x) + b2 * (a.x - p.x) + p2 * (b.x - a.x)) / d;
+  const r = Math.hypot(a.x - cx, a.y - cy);
+  if (r < 1e-9) return null;
+  const TAU = Math.PI * 2;
+  const ta = Math.atan2(a.y - cy, a.x - cx), tb = Math.atan2(b.y - cy, b.x - cx), tp = Math.atan2(p.y - cy, p.x - cx);
+  const ccwTo = (t: number): number => ((t - ta) % TAU + TAU) % TAU;
+  const sAB = ccwTo(tb) || TAU, sAP = ccwTo(tp);
+  const sweep = sAP <= sAB ? sAB : sAB - TAU;   // p 在逆时针路上 → 走逆时针，否则走顺时针（负）
+  const pts: Pt3[] = [];
+  for (let i = 0; i <= n; i++) { const t = ta + (sweep * i) / n; pts.push(liftFromPlane({ x: cx + r * Math.cos(t), y: cy + r * Math.sin(t) }, plane, basis)); }
+  const segs: [Pt3, Pt3][] = [];
+  for (let i = 0; i < n; i++) segs.push([pts[i], pts[i + 1]]);
+  return { segs, center: liftFromPlane({ x: cx, y: cy }, plane, basis), radius: r, sweep };
+}
+
+/** 曲线规格换到池本地坐标：点经 toLocal，方向经两点之差，半径按两点距离（池有缩放时跟着缩）。 */
+export function curveSpecToLocal(toLocal: (p: Pt3) => Pt3, spec: CurveSpec): CurveSpec {
+  if (!spec.params) return spec;
+  const p = spec.params, c = toLocal(p.center);
+  const dir = (d: Pt3): Pt3 => normalize3(sub3(toLocal(add3(p.center, d)), c));
+  const radius = dist3(toLocal(add3(p.center, scale3(normalize3(p.xaxis), p.radius))), c);
+  return { ...spec, params: { center: c, radius, normal: dir(p.normal), xaxis: dir(p.xaxis), segments: p.segments } };
 }
 
 /** Circle 工具：圆心 + 半径点（都在平面上）→ n 段正多边形（SU 默认 24 段；第一个顶点在半径点方向）。退化 → []。added 2026-10-21 */

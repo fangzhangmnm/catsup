@@ -7,6 +7,7 @@
 // 为什么按坐标寻址：单机重放靠 id 计数器逐字一致也成立，但联机各 peer 的 id 历史不同——线协议上只有几何本身是共识。
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
+import type { CurveSpec } from "../kernel/kernel.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { ptKey3, quantize3 } from "../kernel/geom.ts";
@@ -23,7 +24,9 @@ export type FaceKey = Pt3[];
 export type Op =
   | { op: "clear" }
   | { op: "preset"; name: string }
-  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean }
+  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean | CurveSpec }
+  /** 炸开曲线（SU Explode Curve）：edges 里每条边所在的曲线散成普通边。 */
+  | { op: "explodeCurves"; at: PoolRef; edges: EdgeKey[] }
   | { op: "eraseEdges"; at?: PoolRef; edges: EdgeKey[] }
   | { op: "eraseFaces"; at?: PoolRef; faces: FaceKey[] }
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
@@ -106,7 +109,8 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const preset = PRESETS.find((p) => p.name === op.name);
       return { scene: new Scene(k2), events: preset ? applyPreset(k2, preset).flat() : [] };
     }
-    case "addEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.addEdges(op.segs, op.curve ? { curve: true } : undefined) }; }
+    case "addEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.addEdges(op.segs, op.curve ? { curve: op.curve } : undefined) }; }
+    case "explodeCurves": { const { kernel } = poolOf(s, op.at); const ids = new Set<number>(); for (const e of op.edges) { const cid = kernel.curveOf(resolveEdge(kernel, e)); if (cid !== undefined) ids.add(cid); } return { scene: s, events: kernel.explodeCurves([...ids]) }; }
     case "eraseEdges": { const { kernel } = poolOf(s, op.at); const ids = op.edges.map((e) => resolveEdge(kernel, e)); return { scene: s, events: kernel.eraseEdges(ids) }; }
     case "eraseFaces": { const { kernel } = poolOf(s, op.at); const ids = op.faces.map((f) => resolveFace(kernel, f)); return { scene: s, events: kernel.eraseFaces(ids) }; }
     case "eraseSelection": {
@@ -266,7 +270,8 @@ export function describeOp(op: Op): string {
   switch (op.op) {
     case "clear": return "clear";
     case "preset": return `preset ${op.name}`;
-    case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? " curve" : ""}${at}`;
+    case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? (typeof op.curve === "object" ? ` curve:${op.curve.kind}` : " curve") : ""}${at}`;
+    case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "eraseEdges": return `eraseEdges n=${op.edges.length}${at}`;
     case "eraseFaces": return `eraseFaces n=${op.faces.length}${at}`;
     case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}${at}`;
