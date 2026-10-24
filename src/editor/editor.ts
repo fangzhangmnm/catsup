@@ -400,6 +400,7 @@ export class Editor {
     this.last = null;
     this._tool = t;
     this.cancelGesture();
+    this.clearCharged();   // 充能生命周期 = 工具子步（user 2026-10-24）：换工具就清
     if (t === "scale") this.rebuildScaleHandles();
     this.host.changed();
     this.draw();
@@ -1602,8 +1603,11 @@ export class Editor {
       case "eraseFace":
         break;
     }
+    this.consumeCharges();
     this.draw();
   }
+  /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
+  private consumeCharges(): void { this.clearCharged(); }
 
   pointerMove(ev: ToolPointer): void {
     const s = ev;
@@ -1692,10 +1696,10 @@ export class Editor {
           const rayM = this.frame().ray(s.x, s.y, this.fvp());
           const freeM = rayPlane(rayM.origin, rayM.dir, this.gesturePlane.plane.n, this.gesturePlane.plane.d);
           if (sn.kind !== null && freeM && this.intentOn(s, travel) && !intentAllows3D(sub3(freeM, this.anchor3), sub3(sn.p, this.anchor3), MIN_GESTURE_LEN)) { sn = { p: freeM, kind: null }; this.lastSnap = null; }
-          if (sn.kind === null) {
+          if (sn.kind === null || sn.kind === "grid-point") {   // 格点是地板（D16）：拖出方向意图时轴向锥先于格点
             const ax = inferAxisByDirection(this.frame(), this.fvp(), this.anchor3, s.x, s.y);
             if (ax) sn = { p: ax.p, kind: `axis-${ax.axis}` as SnapKind };
-            else if (this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
+            else if (sn.kind === null && this.cursor3 && grazing(this.gesturePlane, this.frame().ray(s.x, s.y, this.fvp()))) sn = { p: this.cursor3, kind: null };
           }
           this.snapInfo = this.applyHysteresis(sn, s.x, s.y);
           this.trackCharge(this.snapInfo, null, 120);
@@ -2027,6 +2031,7 @@ export class Editor {
         break;
       }
     }
+    this.consumeCharges();
     this.host.changed();   // 手势落定后再刷一次 HUD：数值小窗要看到刚记下的 last
     this.draw();
   }
@@ -2051,8 +2056,7 @@ export class Editor {
     if (dist(a, b) < MIN_GESTURE_LEN) { this.cancelGesture(); return; }
     const n0 = this.opCount, at0 = this.activePool();
     const evs = this.commitOp({ op: "addEdges", at: at0, segs: [[this.toLocal(a), this.toLocal(b)]] });
-    this.chargePt(a); this.chargePt(b);
-    this.cancelGesture();
+    this.cancelGesture();   // 落定不再自动充能两端（充能只活到下一次按下；锚点的轴线本来就在）
     this.last = { kind: "line", ops: this.opCount - n0, at: at0, a, b };
     if (evs.length > 0) return;
     this.anchor3 = b;

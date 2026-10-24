@@ -189,8 +189,11 @@ export function solvePoint(
     const t = x.used[0]?.tag as { kind?: string; axis?: string; src?: Pt3 } | undefined;
     return `${KIND_PRI[t?.kind ?? ""] ?? 9}|${t?.kind ?? ""}|${t?.axis ?? ""}|${t?.src ? ptKey3(t.src) : ""}`;
   };
+  // 秩序（D16，2026-10-24）：强 0-D（实几何 / 参考点 / 交点 / 合成交点）> 1-D（边上 / 轴线 / 参考线）> 格点（地板：只在没别的时才赢）> 平面。
+  // 之前是纯「维度优先」——网格一开满屏格点（秩 20 的 0-D）压过锚点的轴线，竖直拖屋脊永远落到地面格点（user「开了吸附之后move没法把屋脊抬起来了」）。
+  const cls = (x: Solution): number => (x.dim === 0 ? (x.rank <= RANK.grid ? 2 : 0) : x.dim === 1 ? 1 : 3);
   cands.sort((a, b) =>
-    a.dim - b.dim || b.rank - a.rank ||
+    cls(a) - cls(b) || b.rank - a.rank ||
     Math.round(a.d * 2) - Math.round(b.d * 2) ||
     (tagKey(a) < tagKey(b) ? -1 : tagKey(a) > tagKey(b) ? 1 : 0));
   return cands[0];

@@ -34,6 +34,18 @@ describe("grid: 格点 = 最低秩 0-D；几何先于网格；帧坐标系", () 
     const c = snapPoint(v, cam, VP, s.x, s.y, 8, { plane: lifted, hand: NO_HAND });
     assert(c.kind !== "grid-point", "非格点高度的平面上没有格点");
   });
+  it("格点是地板（D16）：锚点的轴线在容差内 → 轴线（整数长度）赢过近处格点；没轴线才落格点", () => {
+    const cam = topCam();
+    const v = viewOf(far(), WORLD_FRAME, { step: 1, sub: 5 });
+    const anchor = P(0.3, 0.3, 0);
+    const s = cam.angularPx(P(2.33, 0.31, 0), VP);   // 离锚点 X 轴线 0.08 px，离格点 (2.4,0.4) 0.9 px：旧裁决格点赢（0-D 优先）
+    const a = snapPoint(v, cam, VP, s.x, s.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
+    eq(a.kind, "increment", "轴线 + 整数长度");
+    assert(Math.abs(a.p.y - 0.3) < 1e-9 && Math.abs(a.p.x - 2.3) < 1e-9, `该在锚点的 X 轴线上取整到 (2.3,0.3)，实得 ${a.p.x},${a.p.y}`);
+    const s2 = cam.angularPx(P(2.33, 1.72, 0), VP);   // 离任何轴线都远 → 格点 (2.4,1.8)
+    const b = snapPoint(v, cam, VP, s2.x, s2.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
+    eq(b.kind, "grid-point"); assert(near(b.p, P(2.4, 1.8, 0)), `格点，实得 ${b.p.x},${b.p.y}`);
+  });
   it("端点在旁边 → 端点赢；网格关着 → 没有格点；帧转 45° → 格点沿帧", () => {
     const cam = topCam();
     const k = far(); k.addEdges([[P(2.25, 3.0), P(2.25, 9)]]);
