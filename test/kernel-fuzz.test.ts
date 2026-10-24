@@ -7,9 +7,9 @@ import type { Pt3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 
-/** 残余（2026-10-21 像表结算机后只剩 1 个）：种子 31 = 两张近共线（µm 噪声）矩形共享一角，第二张的边与第一张的边不在 INSERT_TOL 内
- *  又在 τ 内 → 同平面两膜重叠（A3 破）→ 擦边 MERGE 铸出与既有面同环的第二张；根在 τ 带内的近共线嵌入，见总账 D 节。 */
-const KNOWN_DUP_SEEDS = new Set([31]);
+/** 重复面残余已清零（2026-10-24 D12：reconcileErase 不再铸别的活膜占着的胞腔 + 外环代表点第二次机会）。种子 31 = 两张近共线（µm 噪声）矩形
+ *  共享一角，τ 带里的脏嵌入给膜配了碰着外环的假「洞」，代表点落进邻膜 → 旧代码把邻膜的胞腔再铸一张。根（假洞）仍在 τ 带，见总账 D 节。 */
+const KNOWN_DUP_SEEDS = new Set<number>();
 /**
  * 两档生成器（2026-10-23，总账 #26，Claude Fable 5.1）：
  *   clean = **轴对齐** + 坐标吸 mm 格、画线不加 µm 抖动 —— 真实建模的主体形态（吸附 / 格点，坐标永远落在格点上）：**合法操作永不 throw**，一条都不许。
@@ -136,6 +136,5 @@ describe("kernel fuzz: 随机操作序列的拓扑不变量", () => {
     for (let seed = 1; seed <= 80; seed++) rejected += run(seed * 104729, 12, KNOWN_DUP_SEEDS.has(seed), "nasty");
     assert(rejected <= 40, `nasty 档守恒断言拒绝的种子数 ${rejected} 超过 40——τ 带残余在涨，去看总账 D 节`);
   });
-  todo(`重复面残余：种子 ${[...KNOWN_DUP_SEEDS].join("/")}（×104729）——擦边 MERGE 铸出与既有膜同环的第二张（reconcileErase 按代表点找后继区域找到了邻膜的胞腔）。2026-10-23 clean 档（mm 格点、零 µm 噪声）同一种子同样复现 → 根因在擦边裁决的区域查找，不是 τ 带；旧内核同样如此；总账 D 节`);
   todo(`τ 带残余（nasty 档）：守恒断言拒绝的种子数见运行日志 [fuzz] 行——µm 尖刺的胞腔算不出来；旧内核在同样的步里静默 BURST 膜（含正经的大面），现在拒绝这一步。根治 = 格点身份 / τ 带，总账 D 节`);
 });

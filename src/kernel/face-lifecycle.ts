@@ -183,8 +183,17 @@ export class FaceStore {
 
     const byPlane = this.regionsByPlane(g, reg, tol);
     const taken = new Set<Region>();
+    // D12（2026-10-24，Claude Fable 5.1）：后继区域不许是**别的活膜已经占着的胞腔**。τ 带里的脏嵌入会给膜配上碰着外环的假「洞」，
+    // 代表点（按外环 + 洞的奇偶扫描）落到邻膜肚子里，旧代码就把邻膜的胞腔再铸一张 = 同环双胞（fuzz 种子 31）。
+    // 占用判定按环边 id 集合；本次要出库的膜（并组成员 / 整理 / 死）不算占用。第二次机会：只按外环取代表点（假洞不参与）。
+    const leaving = new Set<FaceId>([...v.burst, ...v.heal]);
+    for (const [a, b] of v.mergePairs) { leaving.add(a); leaving.add(b); }
+    const ringKey = (rings: readonly { edges: readonly { edge: EdgeId }[] }[]): string => rings.map((ring) => [...ring.edges.map((d) => d.edge)].sort((x, y) => x - y).join(",")).join("|");
+    const owned = new Set<string>();
+    for (const f of this.faces()) if (!leaving.has(f.id)) owned.add(ringKey([f.outer, ...f.holes]));
     const findRegionAt = (planeId: PlaneId, p: Pt): Region | undefined =>
-      (byPlane.get(planeId) ?? []).find((r) => !taken.has(r) && regionContains(r, p));
+      (byPlane.get(planeId) ?? []).find((r) => !taken.has(r) && !owned.has(ringKey([r.outer, ...r.holes])) && regionContains(r, p));
+    const findSuccessor = (f: Face): Region | undefined => findRegionAt(f.planeId, representativePoint(f)) ?? findRegionAt(f.planeId, representativePoint({ outer: f.outer, holes: [] }));
 
     const dead = new Set<FaceId>(v.burst);
 
@@ -197,7 +206,7 @@ export class FaceStore {
         for (const m of members) {
           const f = this.byId.get(m);
           if (!f) continue;
-          survivorRegion = findRegionAt(f.planeId, representativePoint(f));
+          survivorRegion = findSuccessor(f);
           if (survivorRegion) { survivorPlane = f.planeId; break; }
         }
       }
@@ -215,7 +224,7 @@ export class FaceStore {
     for (const id of v.heal) {
       if (dead.has(id) || !this.byId.has(id)) continue;
       const f = this.byId.get(id)!;
-      const r = findRegionAt(f.planeId, representativePoint(f));
+      const r = findSuccessor(f);
       if (r) {
         this.drop(id);
         const nf = this.mint(f.planeId, r);
