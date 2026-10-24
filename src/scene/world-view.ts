@@ -4,6 +4,7 @@
 // created 2026-10-21 by Claude Fable 5.1
 // **按槽缓存（#22 池级局部性，2026-10-21）**：每个槽变换到世界坐标的那份几何（parts）按 (kernel 对象, 槽序号) 缓存，键 = 池版本号 Kernel.rev + 变换；
 // 新建一份 WorldView 只重算「池变了 / 变换变了」的槽（预演 = 只有活动池的影子副本），其余槽直接复用上一份的 part。查询按 gid 的槽序号路由到 part。
+import { bboxOfRing } from "../kernel/face-lifecycle.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { Edge, EdgeId, FaceId, Pt3, Vertex, VertexId } from "../kernel/kernel.ts";
 import type { Face } from "../kernel/face-lifecycle.ts";
@@ -64,17 +65,17 @@ function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
   for (const f of k.faces()) {
     const rec = k.planeOf(f.id)!;
     let plane: PlaneParams = rec.plane, basis = rec.basis;
-    const mapRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ edge: d.edge + off, forward: d.forward })), pts: r.pts });
+    const mapRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ edge: d.edge + off, forward: d.forward })), pts: r.pts, vids: r.vids.map((v) => v + off) });
     let outer = mapRing(f.outer), holes = f.holes.map(mapRing);
     if (!ident) {
       plane = applyPlane(m, rec.plane);
       basis = planeBasis(plane);
-      const reproject = (r: Ring, src: Ring): Ring => ({ edges: r.edges, pts: src.edges.map((d) => { const e = k.graph.edge(d.edge); return projectToPlane(applyPt(m, k.graph.pt(d.forward ? e.a : e.b)), basis); }) });
+      const reproject = (r: Ring, src: Ring): Ring => ({ edges: r.edges, vids: r.vids, pts: src.edges.map((d) => { const e = k.graph.edge(d.edge); return projectToPlane(applyPt(m, k.graph.pt(d.forward ? e.a : e.b)), basis); }) });
       outer = reproject(outer, f.outer);
       holes = holes.map((h, i) => reproject(h, f.holes[i]));
     }
     const gid = f.id + off;
-    part.faces.set(gid, { id: gid, planeId: rec.id + off, outer, holes });
+    part.faces.set(gid, { id: gid, planeId: rec.id + off, outer, holes, bbox: ident ? f.bbox : bboxOfRing(outer) });
     part.planes.set(gid, { id: rec.id + off, plane, basis });
   }
   return part;

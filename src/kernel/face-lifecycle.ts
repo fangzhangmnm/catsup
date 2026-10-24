@@ -33,6 +33,13 @@ export interface Face {
   readonly planeId: PlaneId;
   outer: Ring;   // pts = 该平面 canonical 基下的 2D
   holes: Ring[];
+  /** 外环 2D 包围盒（平面基下；入库时算一次）——结算机「膜入选」的粗筛，不用逐膜 pointInRing（2026-10-23）。 */
+  readonly bbox: { x0: number; y0: number; x1: number; y1: number };
+}
+export function bboxOfRing(r: Ring): { x0: number; y0: number; x1: number; y1: number } {
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const p of r.pts) { if (p.x < x0) x0 = p.x; if (p.y < y0) y0 = p.y; if (p.x > x1) x1 = p.x; if (p.y > y1) y1 = p.y; }
+  return { x0, y0, x1, y1 };
 }
 
 /** erase 前的裁决快照（删边前算好；loop 身份以批开始时的状态为准，删除顺序无关）。 */
@@ -47,12 +54,32 @@ export type RegionsByPlane = Map<PlaneId, Region[]>;
 
 export class FaceStore {
   private byId = new Map<FaceId, Face>();
+  /** 平面 → 膜 id（单主人：只在 put / drop 里维护；结算机按被碰平面取膜，不扫全表。2026-10-23） */
+  private byPlane = new Map<PlaneId, Set<FaceId>>();
   private nextId = 1;
+
+  private put(f: Face): Face {
+    const old = this.byId.get(f.id);
+    if (old) this.byPlane.get(old.planeId)?.delete(f.id);
+    this.byId.set(f.id, f);
+    (this.byPlane.get(f.planeId) ?? this.byPlane.set(f.planeId, new Set()).get(f.planeId)!).add(f.id);
+    return f;
+  }
+  private drop(id: FaceId): boolean {
+    const f = this.byId.get(id);
+    if (!f) return false;
+    this.byId.delete(id);
+    const set = this.byPlane.get(f.planeId);
+    if (set) { set.delete(id); if (!set.size) this.byPlane.delete(f.planeId); }
+    return true;
+  }
 
   faces(): Face[] { return [...this.byId.values()]; }
   face(id: FaceId): Face | undefined { return this.byId.get(id); }
   faceCount(): number { return this.byId.size; }
-  planeIds(): Set<PlaneId> { return new Set([...this.byId.values()].map((f) => f.planeId)); }
+  planeIds(): Set<PlaneId> { return new Set(this.byPlane.keys()); }
+  /** 这张平面上的膜（索引，O(该平面膜数)）。 */
+  facesOnPlane(pid: PlaneId): Face[] { const set = this.byPlane.get(pid); if (!set) return []; const out: Face[] = []; for (const id of set) { const f = this.byId.get(id); if (f) out.push(f); } return out; }
 
   /** p 须为该 face 平面 canonical 基下的 2D 坐标。 */
   faceContains(f: Face, p: Pt): boolean {
@@ -175,7 +202,7 @@ export class FaceStore {
         }
       }
       if (survivorRegion && survivorPlane !== undefined) {
-        for (const m of members) this.byId.delete(m);
+        for (const m of members) this.drop(m);
         const nf = this.mint(survivorPlane, survivorRegion);
         taken.add(survivorRegion);
         events.push({ type: "MERGE", from: members, into: nf.id });
@@ -190,7 +217,7 @@ export class FaceStore {
       const f = this.byId.get(id)!;
       const r = findRegionAt(f.planeId, representativePoint(f));
       if (r) {
-        this.byId.delete(id);
+        this.drop(id);
         const nf = this.mint(f.planeId, r);
         taken.add(r);
         events.push({ type: "ABSORB", from: id, into: nf.id });
@@ -200,7 +227,7 @@ export class FaceStore {
     }
 
     for (const id of dead) {
-      if (this.byId.delete(id)) events.push({ type: "BURST", face: id });
+      if (this.drop(id)) events.push({ type: "BURST", face: id });
     }
 
     this.rebuildFaceLinks(g);
@@ -209,24 +236,29 @@ export class FaceStore {
 
   /** 静默出库（结算机 / 删膜用；叙事由调用方负责）。 */
   deleteSilently(id: FaceId): boolean {
-    return this.byId.delete(id);
+    return this.drop(id);
   }
 
   eraseFaces(g: PlanarGraph, ids: readonly FaceId[]): FaceEvent[] {
     const events: FaceEvent[] = [];
+    const changed: FaceId[] = [];
+    const oldRings = new Map<FaceId, EdgeId[]>();
     for (const id of ids) {
-      if (this.byId.delete(id)) events.push({ type: "FACE_ERASED", face: id });
+      const f = this.byId.get(id);
+      if (!f) continue;
+      oldRings.set(id, ringEdgeIds(f));
+      this.drop(id); changed.push(id);
+      events.push({ type: "FACE_ERASED", face: id });
     }
-    this.rebuildFaceLinks(g);
+    this.relinkFaces(g, changed, oldRings);
     return events;
   }
 
-  /** 全膜顶点 id 环快照（搬迁前拍；经合并映射 + 新坐标读出 = 像）。 */
-  captureSnaps(g: PlanarGraph): Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }> {
+  /** 顶点 id 环快照（搬迁前拍；经合并映射 + 新坐标读出 = 像）。只拍给定的膜（moveVertices 只要被牵连的）；不给 = 全部。 */
+  captureSnaps(_g: PlanarGraph, ids?: Iterable<FaceId>): Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }> {
     const snaps = new Map<FaceId, { outer: VertexId[]; holes: VertexId[][] }>();
-    for (const f of this.faces()) {
-      snaps.set(f.id, { outer: ringVidsTolerant(g, f.outer), holes: f.holes.map((h) => ringVidsTolerant(g, h)) });
-    }
+    const list = ids ? [...ids].map((id) => this.byId.get(id)).filter((f): f is Face => !!f) : this.faces();
+    for (const f of list) snaps.set(f.id, { outer: [...f.outer.vids], holes: f.holes.map((h) => [...h.vids]) });
     return snaps;
   }
 
@@ -245,21 +277,18 @@ export class FaceStore {
         if (eid === undefined) throw new Error(`restoreFace: no edge between vertices ${a} and ${b}`);
         edges.push({ edge: eid, forward: g.edge(eid).a === a });
       }
-      return { edges, pts: vids.map((v) => projectToPlane(g.pt(v), basis)) };
+      return { edges, pts: vids.map((v) => projectToPlane(g.pt(v), basis)), vids: [...vids] };
     };
-    const f: Face = { id: this.nextId++, planeId, outer: ring(outer), holes: holes.map(ring) };
-    this.byId.set(f.id, f);
-    return f;
+    const o = ring(outer);
+    return this.put({ id: this.nextId++, planeId, outer: o, holes: holes.map(ring), bbox: bboxOfRing(o) });
   }
 
   /** 深拷贝（含 id 计数器；preview 影子副本用）。 */
   clone(): FaceStore {
     const s = new FaceStore();
     s.nextId = this.nextId;
-    const cloneRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ ...d })), pts: r.pts.map((p) => ({ ...p })) });
-    for (const [id, f] of this.byId) {
-      s.byId.set(id, { id: f.id, planeId: f.planeId, outer: cloneRing(f.outer), holes: f.holes.map(cloneRing) });
-    }
+    const cloneRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ ...d })), pts: r.pts.map((p) => ({ ...p })), vids: [...r.vids] });
+    for (const [id, f] of this.byId) s.put({ id: f.id, planeId: f.planeId, outer: cloneRing(f.outer), holes: f.holes.map(cloneRing), bbox: { ...f.bbox } });
     return s;
   }
 
@@ -267,19 +296,15 @@ export class FaceStore {
 
   /** 铸新膜。 */
   mint(planeId: PlaneId, r: Region): Face {
-    const f: Face = { id: this.nextId++, planeId, outer: r.outer, holes: r.holes };
-    this.byId.set(f.id, f);
-    return f;
+    return this.put({ id: this.nextId++, planeId, outer: r.outer, holes: r.holes, bbox: bboxOfRing(r.outer) });
   }
 
   /** 以给定 id 落一张膜（一对一承继：保 id，换平面亦跟随）。 */
   setFace(id: FaceId, planeId: PlaneId, r: Region): Face {
-    const f: Face = { id, planeId, outer: r.outer, holes: r.holes };
-    this.byId.set(id, f);
-    return f;
+    return this.put({ id, planeId, outer: r.outer, holes: r.holes, bbox: bboxOfRing(r.outer) });
   }
 
-  /** faceLinks 权威重建：per 出现（桥边同面双现 → 同 id 两次；radial：多平面各挂一次）。 */
+  /** faceLinks 权威重建（全量；装载 / 擦边用）：per 出现（桥边同面双现 → 同 id 两次；radial：多平面各挂一次）。 */
   rebuildFaceLinks(g: PlanarGraph): void {
     for (const e of g.edges()) e.faceLinks = [];
     for (const f of this.byId.values()) {
@@ -290,6 +315,36 @@ export class FaceStore {
       }
     }
   }
+
+  /**
+   * faceLinks 增量维护（结算机用，O(变了的膜的环)，2026-10-23）：changed = 本次出库 / 入库 / 换环的膜 id；oldRings = 它们改动前的环边
+   * （出库 / 换环前记下）。先把 id 从旧环边上摘干净，再按现在的环逐次挂回（per 出现）。没变的膜与边一个不碰。
+   * 前提（fuzz 守着）：膜环边的 faceLinks 含它；切边时子边继承父边的 faceLinks（topology.splitEdge / replaceEdgeWithChain）。
+   */
+  relinkFaces(g: PlanarGraph, changed: Iterable<FaceId>, oldRings: ReadonlyMap<FaceId, readonly EdgeId[]>): void {
+    const ids = new Set(changed);
+    for (const id of ids) {
+      for (const eid of oldRings.get(id) ?? []) {
+        if (!g.hasEdge(eid)) continue;
+        const e = g.edge(eid);
+        if (e.faceLinks.includes(id)) e.faceLinks = e.faceLinks.filter((x) => x !== id);
+      }
+    }
+    const touched = new Set<EdgeId>();
+    for (const id of ids) {
+      const f = this.byId.get(id);
+      if (!f) continue;
+      for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) if (g.hasEdge(d.edge)) { g.edge(d.edge).faceLinks.push(id); touched.add(d.edge); }
+    }
+    for (const eid of touched) g.edge(eid).faceLinks.sort((a, b) => a - b);   // 与全量重建同序（按 id 升），链接顺序不带历史
+  }
+}
+
+/** 膜现在的全部环边 id（外环 + 洞），给 relinkFaces 记旧环用。 */
+export function ringEdgeIds(f: Face): EdgeId[] {
+  const out: EdgeId[] = [];
+  for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) out.push(d.edge);
+  return out;
 }
 
 /** 容错环顶点提取（共享：移动快照 / 壳层手中集）——环边可能已被本批切割移除：缺失边的起点=前一条边的终点。 */

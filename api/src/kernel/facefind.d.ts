@@ -15,6 +15,7 @@ export interface DirEdge {
 export interface Ring {
     edges: DirEdge[];
     pts: Pt[];
+    vids: VertexId[];
 }
 export interface Region {
     outer: Ring;

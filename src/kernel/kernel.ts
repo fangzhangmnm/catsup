@@ -230,31 +230,35 @@ export class Kernel {
    */
   moveVertices(moves: readonly { id: VertexId; to: PtIn }[]): FaceEvent[] {
     this._rev++;
-    const snaps = this.store.captureSnaps(this.graph);
     const targets = new Map<VertexId, Pt3>();
     for (const mv of moves) if (this.graph.hasVertex(mv.id)) targets.set(mv.id, quantize3(toPt3(mv.to)));
     const touched = new Set<FaceId>();
     for (const vid of targets.keys()) {
       for (const eid of this.graph.vertex(vid).edges) for (const fid of this.graph.edge(eid).faceLinks) touched.add(fid);
     }
-    // ① 合并组：所有顶点按终态格点分组；同格 = 合并（幸存者优先取未移动者）
-    const byFinal = new Map<string, VertexId[]>();
-    for (const v of this.graph.vertices()) {
-      const p = targets.get(v.id) ?? { x: v.x, y: v.y, z: v.z };
+    // ① 合并组：只看被移动的顶点——按终态格点分组，再问格点上有没有不动的既有顶点（vertexAt，O(目标数)，不扫全部顶点；2026-10-23）
+    const byFinal = new Map<string, Set<VertexId>>();
+    for (const [id, p] of targets) {
       const k = ptKey3(p);
-      (byFinal.get(k) ?? byFinal.set(k, []).get(k)!).push(v.id);
+      const group = byFinal.get(k) ?? byFinal.set(k, new Set()).get(k)!;
+      group.add(id);
+      const ex = this.graph.vertexAt(p);
+      if (ex !== undefined && ex !== id && !targets.has(ex)) group.add(ex);
     }
     const merged = new Map<VertexId, VertexId>();
+    const plan: { other: VertexId; survivor: VertexId }[] = [];
     for (const group of byFinal.values()) {
-      if (group.length < 2) continue;
-      const survivor = group.find((id) => !targets.has(id)) ?? Math.min(...group);
-      for (const other of group) {
-        if (other === survivor) continue;
-        merged.set(other, survivor);
-        for (const eid of [...this.graph.vertex(other).edges]) for (const fid of this.graph.edge(eid).faceLinks) touched.add(fid);
-        this.absorbVertex(other, survivor);
-        targets.delete(other);
-      }
+      if (group.size < 2) continue;
+      const ids = [...group];
+      const survivor = ids.find((id) => !targets.has(id)) ?? Math.min(...ids);
+      for (const other of ids) if (other !== survivor) plan.push({ other, survivor });
+    }
+    for (const { other } of plan) for (const eid of this.graph.vertex(other).edges) for (const fid of this.graph.edge(eid).faceLinks) touched.add(fid);
+    const snaps = this.store.captureSnaps(this.graph, touched);   // 只拍被牵连的膜（合并前拍：顶点 id 环）
+    for (const { other, survivor } of plan) {
+      merged.set(other, survivor);
+      this.absorbVertex(other, survivor);
+      targets.delete(other);
     }
     // ② 批量刚移（先摘 key 后上 key，无瞬态碰撞）
     const batch = [...targets]

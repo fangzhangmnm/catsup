@@ -26,6 +26,7 @@ export interface DirEdge { readonly edge: EdgeId; readonly forward: boolean; }
 export interface Ring {
   edges: DirEdge[];      // 沿环行进的有向边序列
   pts: Pt[];             // pts[i] = edges[i] 的起点；长度 = edges.length
+  vids: VertexId[];      // vids[i] = edges[i] 的起点顶点 id（2026-10-23：边会被切、顶点不会——身份像在插边之后仍能按顶点 id 读环）
 }
 
 export interface Region {
@@ -118,6 +119,7 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
       if (visited.has(hk(eid, forward))) continue;
       const edges: DirEdge[] = [];
       const pts: Pt[] = [];
+      const vids: VertexId[] = [];
       let curEdge = eid;
       let from = forward ? e.a : e.b;
       let to = forward ? e.b : e.a;
@@ -131,6 +133,7 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
         visited.add(k);
         edges.push({ edge: curEdge, forward: fwd });
         pts.push(p2(from));
+        vids.push(from);
         const nx = nextDir(from, to);
         from = to;
         to = nx.to;
@@ -138,7 +141,7 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
       }
       if (!closed || edges.length < 2) continue;
       const area = signedArea(pts);
-      const ring: Ring = { edges, pts };
+      const ring: Ring = { edges, pts, vids };
       if (area > EPS_AREA) ccw.push({ ring, area });
       else if (area < -EPS_AREA) shells.push({ ring, areaAbs: -area });
       // |area|≈0：退化环（filament 剥离后不应出现），丢弃

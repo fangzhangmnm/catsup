@@ -22,7 +22,14 @@ function samePointSet(a: readonly Pt3[], b: readonly Pt3[]): boolean {
   return true;
 }
 type FaceShape = { id: number; rings: Pt3[][] };
-const shapesOf = (k: Kernel, pred: (outer: Pt3[]) => boolean = () => true): FaceShape[] => k.faces().map((f) => ({ id: f.id, rings: (() => { const r = k.faceRings3(f.id)!; return [r.outer, ...r.holes]; })() })).filter((s) => pred(s.rings[0]));
+/** 环上相距 < τ 的相邻点并成一个（两台机的平面代表不同时，τ 以下的近重点落在环上还是切成尖刺是随机的；几何比较只看 τ 以上的形状）。 */
+function dedupeTol(ring: readonly Pt3[]): Pt3[] {
+  const out: Pt3[] = [];
+  for (const p of ring) { const q = out[out.length - 1]; if (q && Math.hypot(p.x - q.x, p.y - q.y, p.z - q.z) < TOL) continue; out.push(p); }
+  while (out.length > 1 && Math.hypot(out[0].x - out[out.length - 1].x, out[0].y - out[out.length - 1].y, out[0].z - out[out.length - 1].z) < TOL) out.pop();
+  return out;
+}
+const shapesOf = (k: Kernel, pred: (outer: Pt3[]) => boolean = () => true): FaceShape[] => k.faces().map((f) => ({ id: f.id, rings: (() => { const r = k.faceRings3(f.id)!; return [r.outer, ...r.holes].map(dedupeTol); })() })).filter((s) => pred(s.rings[0]));
 function sameShapes(a: FaceShape[], b: FaceShape[], withIds: boolean): boolean {
   if (a.length !== b.length) return false;
   const used = new Array(b.length).fill(false);
@@ -49,17 +56,18 @@ function sameEdges(a: Kernel, b: Kernel): boolean {
 }
 const sameFingerprint = (a: Kernel, b: Kernel, withIds: boolean): boolean => sameEdges(a, b) && sameShapes(shapesOf(a), shapesOf(b), withIds);
 const describeShapes = (k: Kernel): string => shapesOf(k).map((s) => `#${s.id}[` + s.rings.map((r) => r.map((p) => `(${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)})`).join(" ")).join(" | ") + "]").sort().join("  ");
-/** 量子尖刺：环里有两个相邻顶点 ≤ 3 µm，或 高 = 2·面积 / 周长 ≤ 3 µm——Q = 1 µm 格点身份 + τ = 1 mm 共面的夹缝产物，τ 带档的几何比较忽略它们。 */
+/** τ 以下的尖刺：环里有两个相邻顶点 ≤ τ，或 高 = 2·面积 / 周长 ≤ τ——Q = 1 µm 格点身份 + τ = 1 mm 共面的夹缝产物（两点相距 < τ 却是两个顶点），
+ *  内核在 τ 以下本来就不区分，两台机的平面代表不同时它们落在哪一侧是随机的；tilted / nasty 档的几何比较忽略它们。 */
 function isQuantumSliver(ring: readonly Pt3[]): boolean {
   let nx = 0, ny = 0, nz = 0, per = 0;
   for (let i = 0; i < ring.length; i++) {
     const a = ring[i], b = ring[(i + 1) % ring.length];
     const d = Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-    if (d <= 3e-6) return true;
+    if (d <= TOL) return true;
     per += d;
     nx += (a.y - b.y) * (a.z + b.z); ny += (a.z - b.z) * (a.x + b.x); nz += (a.x - b.x) * (a.y + b.y);
   }
-  return per <= 0 || Math.hypot(nx, ny, nz) / per <= 3e-6;
+  return per <= 0 || Math.hypot(nx, ny, nz) / per <= TOL;
 }
 
 type Step = { kind: "rect"; segs: [Pt3, Pt3][] } | { kind: "line"; vi: number; ei: number; kk: number; j: Pt3 } | { kind: "pp"; fi: number; dist: number } | { kind: "erase"; ei: number } | { kind: "move"; vi: number; d: Pt3 };
@@ -133,6 +141,8 @@ function runSeed(seed: number, steps: number, tier: Tier): { globalOnlyThrows: n
       return { globalOnlyThrows, localOnlyThrows };
     }
     assert(sameSolidFaces(local, global), `[nasty] seed ${seed} step ${i} [${st.kind}] 局部结算几何 ≠ 全局结算几何（量子尖刺已忽略）\n  local : ${describeShapes(local)}\n  global: ${describeShapes(global)}\n  history: ${log.join(" | ")}`);
+    // τ 以上的几何相同但面数 / 面 id 不同（一边多了个 τ 以下的尖刺 → 之后的裁决顺序分叉）：之后按下标取面的 op 会在两台机上落到不同的面，比较失去意义——这个种子到此为止
+    if (local.faces().length !== global.faces().length || !sameFingerprint(local, global, true)) return { globalOnlyThrows, localOnlyThrows };
   }
   return { globalOnlyThrows, localOnlyThrows };
 }
