@@ -71,6 +71,8 @@ export const PALETTE = {
   edgeSelected: 0x2b6cb0,
   edgeHot: 0xcc3333,      // 刮擦/悬停将删
   grid: 0xd9d6cf,
+  /** 网格线正片叠底用的系数色：× 背景 0xf2f0ea ≈ 原来的 grid 色；压在深色材质上只暗 ~10%。 */
+  gridMultiply: 0xe6e4df,
   axisX: 0xcc3333,
   axisY: 0x2e8b57,
   axisZ: 0x2b6cb0,
@@ -244,7 +246,7 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
-  private guideLines: any; private tapeLines: any; private gridObj: any = null; private chargedLines: any; private tickLines: any;
+  private guideLines: any; private tapeLines: any; private gridObj: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any;
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -1122,7 +1124,7 @@ export class Renderer3 {
   }
 
   /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
-  private lineMat(px: number, opts: { offset?: boolean; vertexColors?: boolean } = {}): any {
+  private lineMat(px: number, opts: { offset?: boolean; vertexColors?: boolean; blend?: "multiply" } = {}): any {
     const mat = new LineMaterial({
       color: 0xffffff,
       linewidth: px,
@@ -1132,6 +1134,7 @@ export class Renderer3 {
       polygonOffsetFactor: -1,
       polygonOffsetUnits: -2,
     });
+    if (opts.blend === "multiply") { mat.blending = THREE.MultiplyBlending; mat.transparent = true; mat.depthWrite = false; }   // 正片叠底：只变暗底下的东西，不盖色（网格）
     this.lineMats.push(mat); this.lineMatPx.push(px);
     return mat;
   }
@@ -1150,18 +1153,26 @@ export class Renderer3 {
     if (n > 100) { s *= Math.ceil(n / 100); n = Math.floor(L / s); }
     for (let i = -n; i <= n; i++) {
       if (i === 0) continue;   // 轴线单独画
-      push(at(i * s, -L, 0), at(i * s, L, 0), PALETTE.grid);
-      push(at(-L, i * s, 0), at(L, i * s, 0), PALETTE.grid);
+      push(at(i * s, -L, 0), at(i * s, L, 0), PALETTE.gridMultiply);
+      push(at(-L, i * s, 0), at(L, i * s, 0), PALETTE.gridMultiply);
     }
-    push(at(-L, 0, 0), at(L, 0, 0), PALETTE.axisX);
-    push(at(0, -L, 0), at(0, L, 0), PALETTE.axisY);
-    push(at(0, 0, 0), at(0, 0, L), PALETTE.axisZ);
+    // 轴线另一份（正常混合，要看得见颜色）；网格线正片叠底（user 2026-10-24「grid用叠加而不是overlay，不然深色材质上面很跳」「background是日模式是multiply」）：
+    // 只把底下的东西变暗 ~10%，深色材质上不再跳。两份都是屏幕像素宽的粗线（LineSegments2 = 屏幕空间四边形，WebGL 原生线宽只有 1 px）。
+    const apos: number[] = [], acol: number[] = [];
+    const pushA = (a: Pt3, b: Pt3, hex: number): void => { apos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); acol.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+    pushA(at(-L, 0, 0), at(L, 0, 0), PALETTE.axisX);
+    pushA(at(0, -L, 0), at(0, L, 0), PALETTE.axisY);
+    pushA(at(0, 0, 0), at(0, 0, L), PALETTE.axisZ);
     if (!this.gridObj) {
-      this.gridObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true }));
-      this.gridObj.frustumCulled = false;
+      this.gridObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true, blend: "multiply" }));
+      this.gridObj.frustumCulled = false; this.gridObj.renderOrder = -1;   // 透明批里最先画：别的半透明覆盖它，它不覆盖别人
       this.scene.add(this.gridObj);
+      this.axesObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true }));
+      this.axesObj.frustumCulled = false;
+      this.scene.add(this.axesObj);
     }
     this.setLineGeometry(this.gridObj, pos, col);
+    this.setLineGeometry(this.axesObj, apos, acol);
   }
 }
 
