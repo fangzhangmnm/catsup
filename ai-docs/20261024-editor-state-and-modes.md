@@ -76,5 +76,8 @@ interface EditorCore { doc: DocState; session: SessionState; commitOp(op): FaceE
 2. **选区 = 开放的元素引用集**：现在 face | edge | pool 三选一；写成 `{ pool, kind, id }` 的集合，模式决定能选哪些 kind、怎么展开（表面模式的面集展开 = 油漆桶五模式）。
 3. **渲染只吃 bake（A4），模式只加叠加层**：每种池自己 bake 成三角 + 线；sculpt / terrain / 3D 打印导出都从这一个口出；模式 `viewExtras` 只画叠加。
 
-**明确不做的**：参数化历史、时间维求值、多表示**自动**互转（显式互转是以后网格池的配套动词，user「可以互转，但是不建议blender直接动brep」）。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
+**user 2026-10-24 对三件事的裁决**（AI 一句话解释后）：
+- 参数化历史（Fusion / SolidWorks：存步骤和参数、改一个全重算）→ user「显然我不喜欢」→ **不做**（总账 E 节，免再问）。
+- 时间维求值（动画：每个时刻一个状态，撤销 / 选择 / 渲染都要多问「哪个时刻」）→ user「很未来才头疼」→ **远期，不预留**。
+- 多表示并存、不自动互转（各种池并存；显式互转 = 用户动作）→ user「这个建议现在就接好」→ **门 1 升格为刀 ① 必做**：Scene 的池带 `kind`、`applyOp` 按 kind 派发、WorldView 按 kind bake；当前只有 `brep` 一种实现，网格池 / 显式互转动词以后再开。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
 
