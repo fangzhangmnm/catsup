@@ -49,5 +49,32 @@ interface EditorCore { doc: DocState; session: SessionState; commitOp(op): FaceE
 ## 4. 等 user
 
 - ~~第二模式叫什么~~ → **「表面」**（user 2026-10-24 拍板）。
-- 第二模式里要不要「选择」工具，还是油漆桶自己就是选择（点 = 涂 / 长按 = 选面集）。
-- ② 的搬迁要不要和票 3 合并成一轮（架构自审 0.8 的「动词注册表 A3 + 工具配置合成一刀」）。
+- ~~第二模式里要不要「选择」工具~~ → **要**（user 2026-10-24「选择当然要」）：表面模式有独立选择工具，选的是面集；油漆桶照旧点一下就涂，五模式 = 面集展开规则，两边复用同一套。
+- ~~② 的搬迁要不要和票 3 合并成一轮~~ → **合**（user 2026-10-24「23合并按你推荐」）：九个几何工具搬进模块只搬一次。
+- **开不开刀 ①②**：等 user 一句（§5 的架构答案先过目）。
+
+## 5. 以后的模式接得住吗（user 2026-10-24 问；Claude Fable 5.1 答，讨论记录）
+
+> user：「选择当然要，然后大架构设计。我们以后会有blender，weebpaint，还会有animation，level design。sculpting， terrain，。。。。。。这个我们的架构接得住吗」「好，表面，把cad工程3d打印也接了。」
+
+**直答：Mode 这一刀接得住一半。接得住「同一份模型、不同的手」，接不住「不同的模型本体」；后一半不是 Mode 的事，是 DocState 要开口。** 用 user 自己的 MVC 话说（memory `user_gamedev_habits`）：Mode = C；M 和 V 各要留一个口。
+
+| 以后的模式 | 要的是什么 | 本提案接不接 |
+|---|---|---|
+| Blender 式操作（同一份几何；G / R / S 模态键盘；顶点 / 边 / 面选择模式） | 另一套 C，M 不变 | **接**：一个 Mode。前提 = 共享的东西（选区 / 吸附 / 相机 / VCB / 历史）住 EditorCore 不住 GeometryMode，否则 Blender 模式会复制一份 SketchUp 模式 |
+| WeebPaint | 贴图像素编辑 | **不是模式**，是表面模式里的一个工具：iframe + ora 交接（B14 已裁） |
+| 表面 / level design（摆组件、碰撞、触发器、出生点、导航） | 另一套 C + 场景级元数据 | **接**：Mode + 格式加可选键（面属性层 / instances.extras） |
+| 3D 打印（水密 / 壁厚 / 悬垂检查；STL / 3MF 导出；体积） | 分析工具 + 叠加层 + 导出，全吃 bake 三角 | **接**：Mode（工具）+ viewExtras（叠加层）+ A4 bake 口；SU「实体」= 水密组，判定是内核查询 |
+| CAD / 工程（精确尺寸、标注、2D 图纸、公差、BOM） | 标注 = 池里新一种元素；图纸 = V 的另一种投影；精确尺寸 VCB 已有；内部 SI 已定 | **半接**：Mode 接工具；标注要 M 加一种元素 kind；图纸要 V 开口 |
+| 参数化 CAD（特征树 / 约束草图，Fusion 式） | **另一种 M**：几何由参数派生、历史记参数不记几何 | **不接，也不该硬接**：直接建模是我们的 core（SU 血统）。能接的形状 = **生成器层挂在组件边界**（SU Live / Dynamic Components 同款：参数 → 重生成组件内的 B-rep 池；B2 组件包的内存侧）；约束草图 = 另一种池 + 生成器 |
+| sculpting（高密度三角网格、动态拓扑） | **另一种 M**（不是平面 B-rep） | **不接**：要 Scene 的池带 kind；雕刻池与 B-rep 池并存、**不互转**（user 10-24「不同 core 可混搭不能 fallback」） |
+| terrain（高度场） | **另一种 M** | 同上：heightfield 池 |
+| animation（时间轴、关键帧、骨骼） | M 加轨道、Session 加当前时间、V 要「t 时刻求值视图」 | **不接**：时间维横切三层。glTF 文件层本来就有 animation，缺的是内存模型与求值 |
+
+**所以刀 ① 就要守住的三道门**（现在便宜、以后省命；是「不钉死」，不是「现在建」）：
+1. **池带 kind，op 按池种分发**：`PoolRef` 现在只认 B-rep；DocState 写成 `pools: Map<id, Pool<kind>>`，`applyOp` 按 kind 派发（现在只有一种实现）。B2「type 当组件包」已同意，这是它的内存侧；glTF 本来就有 mesh / animation，文件层不用预留。
+2. **选区 = 开放的元素引用集**：现在 face | edge | pool 三选一；写成 `{ pool, kind, id }` 的集合，模式决定能选哪些 kind、怎么展开（表面模式的面集展开 = 油漆桶五模式）。
+3. **渲染只吃 bake（A4），模式只加叠加层**：每种池自己 bake 成三角 + 线；sculpt / terrain / 3D 打印导出都从这一个口出；模式 `viewExtras` 只画叠加。
+
+**明确不做的**：参数化历史、时间维求值、多表示互转。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
+
