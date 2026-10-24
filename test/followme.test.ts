@@ -106,4 +106,25 @@ describe("followMe: 内核像表", () => {
     eq(faceWhere(k, (p) => near(p.x, 0)).length, 1, "对面端面一张（角被切）");
     eq(faceWhere(k, (p) => near(p.x, 0))[0] && k.faceRings3(faceWhere(k, (p) => near(p.x, 0))[0].id)!.outer.length, 5, "对面端面五边");
   });
+  it("SU 不用插件画球 = 圆跟随圆（user 2026-10-24「答案是让 circle followme 一个 circle」「不要有重叠面」）：轮廓穿过转轴、两半各扫一遍精确重合 → 288 面无重叠、极点 48 三角", () => {
+    const k = new Kernel();
+    const path = circleSegmentsOnPlane(GROUND.plane, GROUND.basis, P(0, 0, 0), P(2, 0, 0), 24);                 // 路径：地上 r=2（SU 教程：路径比轮廓大，事后好删）
+    k.addEdges(path, { curve: true });
+    const Y = { x: 0, y: 1, z: 0 };
+    k.addEdges(circleSegmentsOnPlane({ n: Y, d: 0 }, { u: { x: 1, y: 0, z: 0 }, v: { x: 0, y: 0, z: 1 } }, P(0, 0, 0), P(1, 0, 0), 24), { curve: true });   // 轮廓：x-z 面 r=1，面穿过 z 轴
+    const prof = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => near(p.y, 0)))!;
+    assert(prof, "轮廓盘");
+    k.followMe(prof.id, path.map(([a]) => a), { closed: true, smoothJoints: path.map(() => true) });
+    const onSphere = (p: Pt3): boolean => Math.abs(Math.hypot(p.x, p.y, p.z) - 1) < 1e-5;   // 顶点格点 1 µm，半径误差 ~1e-6
+    const sphere = k.faces().filter((f) => f.outer.edges.length <= 4 && k.faceRings3(f.id)!.outer.every(onSphere));
+    eq(sphere.length, 288, "24 经 × 12 纬 = 240 四边形 + 48 极点三角");
+    eq(sphere.filter((f) => f.outer.edges.length === 3).length, 48, "极点三角");
+    const keys = new Set(sphere.map((f) => f.outer.edges.map((d) => d.edge).sort((a, b) => a - b).join(",")));
+    eq(keys.size, 288, "无重叠面（同环只一张）");
+    for (const e of k.edges()) {
+      if (!onSphere(k.graph.pt(e.a)) || !onSphere(k.graph.pt(e.b))) continue;
+      eq(e.faceLinks.filter((f) => sphere.some((s) => s.id === f)).length, 2, "球面每条边恰两张球面膜");
+    }
+    assert(k.curveProblems().length === 0, k.curveProblems().join("; "));
+  });
 });

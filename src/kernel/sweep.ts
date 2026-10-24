@@ -94,17 +94,34 @@ export function simplifyPath(path: readonly Pt3[], closed: boolean, smoothJoints
  * 让第 0 段 = 与轮廓法向最不平行、且离轮廓质心最近的那一段；smoothJoints 同步旋转。开路径不动。
  * 不对齐的后果：第 0 段落在轮廓平面内 → 第 0 站投影塌成线段 → 全部侧面退化被丢 → 扫掠静默变成「只切了几刀」（test/followme 倒角案）。
  */
-export function alignClosedPath(rings: readonly (readonly Pt3[])[], path: readonly Pt3[], smoothJoints?: readonly boolean[]): { path: Pt3[]; smoothJoints: boolean[] | undefined } {
+export function alignClosedPath(rings: readonly (readonly Pt3[])[], path: readonly Pt3[], smoothJoints?: readonly boolean[], tol = 1e-6): { path: Pt3[]; smoothJoints: boolean[] | undefined } {
   const n = path.length;
   const pts = path.map((p) => ({ x: p.x, y: p.y, z: p.z }));
   const sm = smoothJoints ? [...smoothJoints] : undefined;
   const outer = rings[0];
   if (n < 3 || !outer || outer.length < 3) return { path: pts, smoothJoints: sm };
+  const rotate = (best: number): { path: Pt3[]; smoothJoints: boolean[] | undefined } =>
+    best <= 0 ? { path: pts, smoothJoints: sm } : { path: [...pts.slice(best), ...pts.slice(0, best)], smoothJoints: sm ? [...sm.slice(best), ...sm.slice(0, best)] : undefined };
   let nx = 0, ny = 0, nz = 0, cx = 0, cy = 0, cz = 0;
   for (let i = 0; i < outer.length; i++) { const a = outer[i], b = outer[(i + 1) % outer.length]; nx += (a.y - b.y) * (a.z + b.z); ny += (a.z - b.z) * (a.x + b.x); nz += (a.x - b.x) * (a.y + b.y); cx += a.x; cy += a.y; cz += a.z; }
   const nl = Math.hypot(nx, ny, nz);
   if (nl < EPS) return { path: pts, smoothJoints: sm };
   const nrm = { x: nx / nl, y: ny / nl, z: nz / nl }, c = { x: cx / outer.length, y: cy / outer.length, z: cz / outer.length };
+  // 规则 ⓪（v0.10.3，SU 的前提「轮廓垂直于路径」）：轮廓平面**过某个路径顶点**且与它的出段垂直 → 从那个顶点起（第 0 站的切面就是轮廓平面，投影 = 恒等）。
+  // 圆跟随圆画球就是这种：轮廓圆心 = 路径圆心，下面「离质心最近的段」24 路平手、由浮点噪声裁决 → 起点错一站 = 轮廓沿弦向斜投到别的切面、整颗球塌成 r≈0.13。
+  // 次选：过顶点但不垂直 → 取最垂直的（倒角案：轮廓画在端面、过拐角顶点）。都没有 → 老规则。
+  const d0 = dot3(nrm, c);
+  let onBest = -1, onCos = 0;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n];
+    if (Math.abs(dot3(nrm, a) - d0) > tol) continue;
+    const d = sub3(b, a), l = Math.hypot(d.x, d.y, d.z);
+    if (l < EPS) continue;
+    const cs = Math.abs(dot3(nrm, d)) / l;
+    if (cs < 1e-3) continue;
+    if (cs > onCos + 1e-9) { onCos = cs; onBest = i; }
+  }
+  if (onBest >= 0) return rotate(onBest);
   let best = -1, bestD = Infinity;
   for (let i = 0; i < n; i++) {
     const a = pts[i], b = pts[(i + 1) % n];
@@ -116,8 +133,7 @@ export function alignClosedPath(rings: readonly (readonly Pt3[])[], path: readon
     const dist = Math.hypot(q.x - c.x, q.y - c.y, q.z - c.z);
     if (dist < bestD) { bestD = dist; best = i; }
   }
-  if (best <= 0) return { path: pts, smoothJoints: sm };
-  return { path: [...pts.slice(best), ...pts.slice(0, best)], smoothJoints: sm ? [...sm.slice(best), ...sm.slice(0, best)] : undefined };
+  return rotate(best);
 }
 
 /** 去掉连续重复点（退化四边形 → 三角）；不足 3 点 → []。 */

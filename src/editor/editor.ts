@@ -1211,7 +1211,7 @@ export class Editor {
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,
       selectionFaces: selF,
-      scrubEdges: new Set([...this.scrubAcc].map(g)),
+      scrubEdges: new Set([...this.wholeCurves([...this.scrubAcc, ...(this._tool === "erase" && this.hoverEdge !== null ? [this.hoverEdge] : [])])].map(g)),   // 橡皮：擦一段 = 整条，高亮也整条（user 10-24「delete 的时候也应该整体高亮」）
       hoverEdge: this.hoverEdge !== null ? g(this.hoverEdge) : null,
       hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
       preview: null,
@@ -1225,6 +1225,16 @@ export class Editor {
     });
   }
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
+  /** 展开到整条曲线（本地 id；显示用，与内核 eraseEdges 的「擦一段 = 整条」同口径）。 */
+  private wholeCurves(ids: Iterable<EdgeId>): Set<EdgeId> {
+    const k = this.kernel, out = new Set<EdgeId>();
+    for (const e of ids) {
+      out.add(e);
+      const cid = k.graph.hasEdge(e) ? k.curveOf(e) : undefined;
+      if (cid !== undefined) for (const x of k.curveById(cid)!.edges) if (k.graph.hasEdge(x)) out.add(x);
+    }
+    return out;
+  }
   private updateTip(clientX: number, clientY: number): void {
     this.host.tip(this.snapInfo?.kind ? SNAP_LABELS[this.snapInfo.kind] ?? this.snapInfo.kind : null, clientX, clientY);
   }

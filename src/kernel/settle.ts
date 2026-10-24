@@ -36,6 +36,11 @@ export interface Image {
   inherit?: FaceId;
   /** 新膜的面层值（absorb 用：炸开 / 粘贴带着材质回来）。 */
   face?: Readonly<Record<string, number>>;
+  /**
+   * 分片组（v0.10.3）：同组的像是**同一张面的分片**（跟随的扫掠面 = 它的全部四边形），一个胞腔被同组几张认领只算一次（组内是并），
+   * 组与世界之间才按 algebra 算。没有它，轮廓穿过转轴的跟随（SU 不用插件画球：圆跟随圆）两半各扫一遍、每胞腔两张 XOR 像 → 偶数 → 不填 → 球是空的。
+   */
+  group?: number;
 }
 /** 动词提交的「这批段是一条曲线」（0.10.2 起登记归结算机，动词不再自己 create / cut）。 */
 export interface NewCurve { readonly segs: readonly Seg3[]; readonly spec: CurveSpec; }
@@ -114,7 +119,7 @@ function planarPieces(im: Image, tol: number): { images: Image[]; creases: Seg3[
   const d = foldDecompose(outer, tol);
   if (!d) return { images: [], creases: [] };
   return {
-    images: d.pieces.map((idxs) => ({ rings: [idxs.map((i) => outer[i])], algebra: im.algebra, ...(im.inherit !== undefined ? { inherit: im.inherit } : {}) })),
+    images: d.pieces.map((idxs) => ({ rings: [idxs.map((i) => outer[i])], algebra: im.algebra, ...(im.inherit !== undefined ? { inherit: im.inherit } : {}), ...(im.group !== undefined ? { group: im.group } : {}) })),
     creases: d.creases.map(([i, j]) => ({ a: outer[i], b: outer[j] })),
   };
 }
@@ -387,7 +392,8 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const filled = new Set<Region>();
   for (const [r, cs] of claimsOf) {
     const hasXor = cs.some((c) => c.im.algebra === "xor");
-    if (hasXor ? cs.length % 2 === 1 : cs.length >= 1) filled.add(r);
+    const n = new Set<Image | number>(cs.map((c) => c.im.group ?? c.im)).size;   // 同组分片算一个认领者
+    if (hasXor ? n % 2 === 1 : n >= 1) filled.add(r);
   }
   // 身份 → 它的像们认领到的**填充**胞腔；另记几何认领数（不管填不填）给守恒断言用
   const cellsById = new Map<FaceId, { r: Region; planeId: PlaneId }[]>();

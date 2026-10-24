@@ -55,6 +55,8 @@ export interface HitResult { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
  * 离邻膜平面只有零点几毫米（τ 内）→ 同一张平面上两套边投影互撞 → 邻膜胞腔丢失（旧内核静默 BURST 三张面；fuzz clean 种子 418916）。
  * 判据跟 τ 走之后，「不是褶边」就保证侧壁像离邻膜平面 > τ，不会落进同一张平面。
  */
+/** 跟随站点粘连容差（米）：见 _stickyStations。SU 合并容差 ≈ 25 µm；取 10 µm，比 1 µm 格点噪声放大后的 ~1–2 µm 宽一个量级，比任何真实轮廓细节窄三个量级。 */
+const SWEEP_STICKY = 1e-5;
 export const CREASE_COS_MAX = 0.1;
 
 /**
@@ -102,6 +104,34 @@ export class Kernel {
   constructor(opts?: { coplanarTol?: number; settleMode?: "local" | "global" }) {
     this.coplanarTol = opts?.coplanarTol ?? 1e-3;
     this.settleMode = opts?.settleMode ?? "local";
+  }
+  /**
+   * 站点粘连（v0.10.3，D11 的跟随这一面）：站环点彼此、或与既有顶点，距离 ≤ SWEEP_STICKY → 同一坐标。
+   * 为什么：斜切投影在双精度下是精确的刚体运动（圆跟随圆两半错位 1e-15），但路径 / 轮廓是内核里 1 µm 格点上的顶点，
+   * 24 站逐站投影把格点噪声放大到 ~1.2 µm = 正好卡在身份量子 Q=1 µm 上 → 一半点合并一半不合并 → 两半的四边形差一根头发 → 共面 τ 内互切出满天尖刺。
+   * SU 的全局合并容差 ≈ 25 µm 天然吞掉这一层；我们身份是 Q 格点，所以在动词里把「同一张扫掠面上本该是一个点的点」先认成一个。
+   */
+  private _stickyStations(st: Pt3[][][]): Pt3[][][] {
+    const TOL = SWEEP_STICKY, cell = TOL;
+    const reps = new Map<string, Pt3[]>();
+    const keyOf = (ix: number, iy: number, iz: number): string => `${ix},${iy},${iz}`;
+    const cellOf = (p: Pt3): [number, number, number] => [Math.floor(p.x / cell), Math.floor(p.y / cell), Math.floor(p.z / cell)];
+    const find = (p: Pt3): Pt3 | undefined => {
+      const [cx, cy, cz] = cellOf(p);
+      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
+        for (const r of reps.get(keyOf(cx + dx, cy + dy, cz + dz)) ?? []) if (dist3(r, p) <= TOL) return r;
+      }
+      return undefined;
+    };
+    const add = (p: Pt3): void => { const [cx, cy, cz] = cellOf(p); const k = keyOf(cx, cy, cz); (reps.get(k) ?? reps.set(k, []).get(k)!).push(p); };
+    // 既有顶点先占位（扫掠回到自己 / 落在既有几何上的站点贴到既有顶点）
+    let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+    for (const S of st) for (const r of S) for (const p of r) { min = { x: Math.min(min.x, p.x), y: Math.min(min.y, p.y), z: Math.min(min.z, p.z) }; max = { x: Math.max(max.x, p.x), y: Math.max(max.y, p.y), z: Math.max(max.z, p.z) }; }
+    const seen = new Set<VertexId>();
+    for (const e of this.graph.edgesInBox({ x: min.x - TOL, y: min.y - TOL, z: min.z - TOL }, { x: max.x + TOL, y: max.y + TOL, z: max.z + TOL })) {
+      for (const v of [e.a, e.b]) { if (seen.has(v)) continue; seen.add(v); add(this.graph.pt(v)); }
+    }
+    return st.map((S) => S.map((r) => r.map((p) => { const hit = find(p); if (hit) return { ...hit }; const q = { ...p }; add(q); return q; })));
   }
   private _settle(table: ImageTable): FaceEvent[] {
     return settle(this.graph, this.store, this.planes, this.coplanarTol, { ...table, curves: this.curveReg }, { global: this.settleMode === "global" });
@@ -440,9 +470,10 @@ export class Kernel {
     const g = this.graph;
     const rings = ringsOf(g, f);
     const simp = simplifyPath(pathIn, opts.closed, opts.smoothJoints);   // 共线关节不设站
-    const { path, smoothJoints } = opts.closed ? alignClosedPath(rings, simp.path, simp.smoothJoints) : simp;   // 闭路径：第 0 段横穿轮廓平面（环起点任意）
-    const st = sweepStations(rings, path, opts.closed);
-    if (typeof st === "string") throw new Error(`followMe: ${st}`);
+    const { path, smoothJoints } = opts.closed ? alignClosedPath(rings, simp.path, simp.smoothJoints, this.coplanarTol) : simp;   // 闭路径：第 0 段横穿轮廓平面（环起点任意）
+    const st0 = sweepStations(rings, path, opts.closed);
+    if (typeof st0 === "string") throw new Error(`followMe: ${st0}`);
+    const st = this._stickyStations(st0);
     const ringEdges = [f.outer, ...f.holes].map((r) => r.edges.map((d) => d.edge));
     const ringLayers = ringEdges.map((es) => es.map((e) => this.edgeLayers.of(e)));
     const attached = ringEdges.some((es) => es.some((e) => g.edge(e).faceLinks.length >= 2));
@@ -451,13 +482,15 @@ export class Kernel {
     const images: Image[] = [];
     const layerSegs: Record<string, Seg3[]> = {};
     const push = (n: string, sg: Seg3): void => { (layerSegs[n] ?? (layerSegs[n] = [])).push(sg); };
+    // 扫掠面 = 一张面，四边形是它的分片（group）：轮廓穿过转轴时两半各扫一遍，分片重合要并不要抵消（SU 画球 = 圆跟随圆；v0.10.3）
+    const SWEEP = 1;
     for (let i = 0; i < segs; i++) {
       const A = st[i], B = st[(i + 1) % nSt];
       for (let r = 0; r < A.length; r++) {
         const m = A[r].length;
         for (let j = 0; j < m; j++) {
           const quad = dedupeRing([A[r][j], A[r][(j + 1) % m], B[r][(j + 1) % m], B[r][j]]);
-          if (quad.length) images.push({ rings: [quad], algebra: "xor" });
+          if (quad.length) images.push({ rings: [quad], algebra: "xor", group: SWEEP });
           for (const R of riserLayers(ringLayers[r][(j + m - 1) % m], ringLayers[r][j])) push(R, { a: A[r][j], b: B[r][j] });
         }
       }
