@@ -15,6 +15,7 @@
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
+import { DEFAULT_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, defaultDocName } from "../config.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { setOpened } from "@internal/gallery";
@@ -193,6 +194,7 @@ export class Session {
     this.loaded = doc;
     this.lazy = false;
     this.d.editor.loadScene(sc, "恢复");
+    this.d.editor.setGrid(gridFromSettings(doc.settings));
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
     if (hasStore()) {
@@ -209,6 +211,7 @@ export class Session {
   private encode(): Uint8Array {
     const name = this.displayName();
     const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
+    doc.settings = settingsFromGrid(doc.settings, this.d.editor.grid);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
     const thumb = this.d.captureThumbnail();
     if (thumb) doc.thumbnail = thumb; else delete doc.thumbnail;
     this.loaded = doc;
@@ -221,6 +224,7 @@ export class Session {
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
     this.d.editor.loadScene(sc);
+    this.d.editor.setGrid(gridFromSettings(doc.settings));
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
   }
@@ -258,6 +262,7 @@ export class Session {
     this.pushPending = false; this.createPending = false;
     this.lazy = false;   // loadKernel 会同步 changed → noteChange；此刻别当首笔
     this.d.editor.loadKernel(new Kernel(), "新建");
+    this.d.editor.setGrid({ ...DEFAULT_GRID });
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();
     this.lazy = true;
@@ -284,6 +289,7 @@ export class Session {
     this.loaded = null;
     this.lazy = false; this.createPending = false;
     this.d.editor.loadKernel(new Kernel(), "新建");
+    this.d.editor.setGrid({ ...DEFAULT_GRID });
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌
     this.setHome({ kind: "transient" });

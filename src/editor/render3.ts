@@ -40,7 +40,7 @@ import type { GeomView, PoolSlot, WorldView } from "../scene/world-view.ts";
 import { ID_STRIDE, slotKey } from "../scene/world-view.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { Material, Scene } from "../scene/scene.ts";
-import type { Frame, Xform } from "../scene/xform.ts";
+import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
@@ -94,11 +94,12 @@ const SNAP_COLORS: Record<string, number> = {
   "on-guide": 0x6b7280,
   "guide-point": 0x6b7280,
   "guide-cross": 0x111111,
+  "grid-point": 0x9ca3af,
+  increment: 0xd97706,
 };
 /** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
 const GUIDE_COLOR = 0x6b7280, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;
-/** 上下文轴（进组 / 绘图轴搬过）：三色线穿过帧原点 ±CTX_AXES_LEN；世界帧时不画（地面网格那三条已是）。 */
-const CTX_AXES_LEN = 50;
+
 const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
 const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
@@ -148,6 +149,8 @@ export interface ViewState {
   guides?: GuidesWorld | null;
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
+  /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
+  grid?: { frame: Frame; step: number } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
@@ -224,8 +227,8 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
-  private guideLines: any; private ctxAxesLines: any; private tapeLines: any;
-  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private ctxAxesKey = ""; private tapeKey = "";
+  private guideLines: any; private tapeLines: any; private gridObj: any = null;
+  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
   private scratchV = new THREE.Vector3();
@@ -251,7 +254,7 @@ export class Renderer3 {
     this.camOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20000);
     this.camPersp = new THREE.PerspectiveCamera(50, 1, 1, 20000);
     this.resolution = new THREE.Vector2(1, 1);
-    this.scene.add(this.buildStatic());
+    this.rebuildGrid(WORLD_FRAME, 1);
 
     // 膜：一份几何 + 一个 shader（光向 uniform）
     this.faceMat = new THREE.ShaderMaterial({
@@ -319,9 +322,6 @@ export class Renderer3 {
     this.guideLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.guideLines.frustumCulled = false; this.guideLines.visible = false;
     this.scene.add(this.guideLines);
-    this.ctxAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { offset: true, vertexColors: true }));
-    this.ctxAxesLines.frustumCulled = false; this.ctxAxesLines.visible = false;
-    this.scene.add(this.ctxAxesLines);
     this.tapeLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tapeLines.frustumCulled = false; this.tapeLines.visible = false;
     this.scene.add(this.tapeLines);
@@ -621,23 +621,10 @@ export class Renderer3 {
       }
       this.guideLines.visible = true;
     } else { this.guideLines.visible = false; this.guideKey = ""; }
-    // ---- 上下文轴：帧 ≠ 世界帧（进组 / 绘图轴搬过）时画三色线穿过帧原点 ----
-    const fr = view.frame;
-    const isWorld = !fr || (Math.abs(fr.origin.x) + Math.abs(fr.origin.y) + Math.abs(fr.origin.z) < 1e-9 && Math.abs(fr.x.x - 1) + Math.abs(fr.y.y - 1) + Math.abs(fr.z.z - 1) < 1e-9);
-    if (fr && !isWorld) {
-      const ak = `${fr.origin.x},${fr.origin.y},${fr.origin.z}|${fr.x.x},${fr.x.y},${fr.x.z}|${fr.y.x},${fr.y.y},${fr.y.z}|${fr.z.x},${fr.z.y},${fr.z.z}`;
-      if (ak !== this.ctxAxesKey) {
-        this.ctxAxesKey = ak;
-        const pos: number[] = [], col: number[] = [];
-        const push = (d: Pt3, hex: number): void => {
-          pos.push(fr.origin.x - d.x * CTX_AXES_LEN, fr.origin.y - d.y * CTX_AXES_LEN, fr.origin.z - d.z * CTX_AXES_LEN, fr.origin.x + d.x * CTX_AXES_LEN, fr.origin.y + d.y * CTX_AXES_LEN, fr.origin.z + d.z * CTX_AXES_LEN);
-          const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-        };
-        push(fr.x, PALETTE.axisX); push(fr.y, PALETTE.axisY); push(fr.z, PALETTE.axisZ);
-        this.setLineGeometry(this.ctxAxesLines, pos, col);
-      }
-      this.ctxAxesLines.visible = true;
-    } else { this.ctxAxesLines.visible = false; this.ctxAxesKey = ""; }
+    // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
+    const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1;
+    const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}`;
+    if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep); }
 
     // ---- 卷尺预演：量线 + 候选参考线 / 参考点 ----
     const tp0 = view.tape;
@@ -1052,28 +1039,32 @@ export class Renderer3 {
     return mat;
   }
 
-  /** 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）= 一份粗线、一个 draw call。 */
-  private buildStatic(): any {
+  /**
+   * 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）= 一份粗线、一个 draw call。0.11 ⑤ 起跟帧与格距走：线画在帧的 XY 面上、
+   * 过帧原点、沿帧的 x / y；格距太密时按 ≤ 100 格 / 侧抽稀显示（吸附仍按真格距）。
+   */
+  private rebuildGrid(frame: Frame, step: number): void {
     const pos: number[] = [], col: number[] = [];
-    const push = (ax: number, ay: number, az: number, bx: number, by: number, bz: number, hex: number): void => {
-      pos.push(ax, ay, az, bx, by, bz);
-      const c = this.tmpColor.setHex(hex);
-      col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-    };
+    const o = frame.origin, X = frame.x, Y = frame.y, Zd = frame.z;
+    const at = (u: number, v: number, w: number): Pt3 => ({ x: o.x + X.x * u + Y.x * v + Zd.x * w, y: o.y + X.y * u + Y.y * v + Zd.y * w, z: o.z + X.z * u + Y.z * v + Zd.z * w });
+    const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
     const L = GRID_N * GRID_STEP;
-    for (let i = -GRID_N; i <= GRID_N; i++) {
+    let s = step > 1e-6 ? step : 1, n = Math.floor(L / s);
+    if (n > 100) { s *= Math.ceil(n / 100); n = Math.floor(L / s); }
+    for (let i = -n; i <= n; i++) {
       if (i === 0) continue;   // 轴线单独画
-      push(i * GRID_STEP, -L, 0, i * GRID_STEP, L, 0, PALETTE.grid);
-      push(-L, i * GRID_STEP, 0, L, i * GRID_STEP, 0, PALETTE.grid);
+      push(at(i * s, -L, 0), at(i * s, L, 0), PALETTE.grid);
+      push(at(-L, i * s, 0), at(L, i * s, 0), PALETTE.grid);
     }
-    push(-L, 0, 0, L, 0, 0, PALETTE.axisX);
-    push(0, -L, 0, 0, L, 0, PALETTE.axisY);
-    push(0, 0, 0, 0, 0, L, PALETTE.axisZ);
-    const geo = new LineSegmentsGeometry();
-    geo.setPositions(pos); geo.setColors(col);
-    const obj = new LineSegments2(geo, this.lineMat(STATIC_PX, { vertexColors: true }));
-    obj.frustumCulled = false;
-    return obj;
+    push(at(-L, 0, 0), at(L, 0, 0), PALETTE.axisX);
+    push(at(0, -L, 0), at(0, L, 0), PALETTE.axisY);
+    push(at(0, 0, 0), at(0, 0, L), PALETTE.axisZ);
+    if (!this.gridObj) {
+      this.gridObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true }));
+      this.gridObj.frustumCulled = false;
+      this.scene.add(this.gridObj);
+    }
+    this.setLineGeometry(this.gridObj, pos, col);
   }
 }
 

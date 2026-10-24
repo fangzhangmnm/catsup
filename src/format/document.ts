@@ -10,8 +10,9 @@ export type BakeMode = "wysiwyg" | "engine";
 export interface DocumentSettings {
   displayUnit: string;      // "m" | "cm" | "mm" | "ft-in"
   gridStep: number;         // 米
-  snapIncrement: number;    // 米
+  snapIncrement: number;    // 米（= gridStep / gridSubdiv，写入时派生；契约里保留）
   absoluteGrid: boolean;
+  gridSubdiv: number;       // 吸附细分（0.11 ⑤；user 2026-10-24「snap 比显示要细，1/5 还是 1/10 没想好」→ 5 默认、10 可选）
 }
 
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + 可选贴图（原图字节 + 物理尺寸 米）。 */
@@ -40,7 +41,7 @@ export interface CatsupDocument {
   carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; brepKeep?: Record<string, unknown>; views: Map<number, Uint8Array> };
 }
 
-export const DEFAULT_SETTINGS: DocumentSettings = { displayUnit: "m", gridStep: 1, snapIncrement: 0.1, absoluteGrid: false };
+export const DEFAULT_SETTINGS: DocumentSettings = { displayUnit: "m", gridStep: 1, snapIncrement: 0.2, absoluteGrid: false, gridSubdiv: 5 };
 
 export function newDocument(brep: BrepSnapshot, name = "model"): CatsupDocument {
   const root: DefinitionDoc = { name, brep, groups: [], instances: [], materialSlots: [], guides: emptyGuidesDoc() };

@@ -66,6 +66,9 @@ svg.ico use { color: inherit; }
 .crumb:hover { background: rgba(0,0,0,.06); }
 .crumb.current { color: var(--ink); cursor: default; font-weight: 600; }
 .crumb-sep { color: var(--muted); }
+/* 网格芯片（0.11 ⑤）：网格开着才露出，右下角、版本号上方；点开 = 格距 / 细分 / 关 */
+.hud-gridchip { right: calc(10px + var(--safe-right)); bottom: calc(34px + var(--safe-bottom)); padding: 4px 10px; font: inherit; font-size: 12px; color: var(--accent); border: 0; cursor: pointer; border-radius: 8px; }
+.hud-gridchip:hover { background: rgba(0,0,0,.06); }
 /* 选区浮条（#19）：顶居中；选中东西且没在手势中才出现；项 = HUD 编辑动作表 */
 .hud-selbar { left: 50%; transform: translateX(-50%); top: calc(10px + var(--safe-top)); gap: 2px; padding: 4px 6px; max-width: calc(100vw - 250px); flex-wrap: wrap; justify-content: center; }   /* 右上角给 gizmo 留 ~115 px */
 .selbar-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }

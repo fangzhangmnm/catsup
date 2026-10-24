@@ -12,7 +12,8 @@ import "./curves.test.ts";   // 曲线实体（0.10，2026-10-24）
 import "./guides.test.ts";   // 参考几何 + 上下文帧（0.11 尺规纪元，2026-10-24）
 import "./tape.test.ts";     // 卷尺（0.11 尺规纪元 ③）
 import "./axes.test.ts";     // 轴工具（0.11 尺规纪元 ④）
-import "./protractor.test.ts";   // 量角器（0.11 尺规纪元 ⑥）   // 局部性定理差分 oracle：局部结算 = 全局结算（#26，2026-10-23）    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
+import "./protractor.test.ts";   // 量角器（0.11 尺规纪元 ⑥）
+import "./grid.test.ts";         // 绝对网格 + 整数长度 + 轴向咬合（0.11 尺规纪元 ⑤）   // 局部性定理差分 oracle：局部结算 = 全局结算（#26，2026-10-23）    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
 import "./move-inference.test.ts";
 import "./facefind.test.ts";
 import "./face-lifecycle.test.ts";

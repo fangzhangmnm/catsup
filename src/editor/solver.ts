@@ -29,7 +29,7 @@ export interface View { pf: PointerFrame; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
-  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint";
+  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid";
   src?: Pt3;
   axis?: AxName;
 }
@@ -40,7 +40,7 @@ export type Locus =
 export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; }
 
 /** 秩（0.11 尺规纪元加参考几何：参考点在端点与中点之间，参考线与边同秩「线上」；线 × 线交点由合成器涌现、0-D 先于 1-D 胜出）。 */
-export const RANK = { endpoint: 90, origin: 80, guidePoint: 75, midpoint: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, plane: 10 } as const;
+export const RANK = { endpoint: 90, origin: 80, guidePoint: 75, midpoint: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, grid: 20, plane: 10 } as const;
 export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;
 /** 取点基准容差 / 实体拾取容差（单位同 EPS：fovY 的 1/800；编辑器与 frameEps 共用这一份）。 */
 export const SNAP_PX = 8, HIT_PX = 6;
@@ -458,6 +458,19 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     for (const l of G.lines) { if (!nearSeg(l.p, add3(l.p, l.dir), true)) continue; out.push({ locus: { dim: 1, a: l.p, dir: l.dir }, rank: RANK.guide, eps: E.line, tag: { kind: "guide" } }); }
   }
   lap("guides");
+  // 绝对网格（0.11 ⑤；A10「几何推断优先于网格」= 最低秩 0-D）：格点是帧坐标下 step/sub 的格子点，只取离光标自由点（射线 ∩ 画面）最近的那一个，
+  // 且它得真落在画面平面上（轴对齐的墙 / 地面才有；斜面没有格点）。O(1)，不枚举。
+  const GR = ctx.k.grid?.();
+  if (GR && cur) {
+    const ray = cur.pf.ray(cur.x, cur.y, cur.vp);
+    const free = rayPlane(ray.origin, ray.dir, ctx.plane.n, ctx.plane.d);
+    if (free) {
+      const s = GR.step / GR.sub, F0 = GR.frame, d = sub3(free, F0.origin);
+      const u = Math.round(dot3(d, F0.x) / s) * s, v = Math.round(dot3(d, F0.y) / s) * s, w = Math.round(dot3(d, F0.z) / s) * s;
+      const q = add3(F0.origin, add3(add3(scale3(F0.x, u), scale3(F0.y, v)), scale3(F0.z, w)));
+      if (distToPlane(q, ctx.plane) <= 1e-6 && nearPt(q) && !hidden(q)) out.push({ locus: { dim: 0, p: q }, rank: RANK.grid, eps: E.point, tag: { kind: "grid" } });
+    }
+  }
   // 派生 0-D：线×线载线交点（段外延长；段内相交早被 planarize 焊成顶点）。
   // user 2026-09-01：「snap 时生成线和点用户可以描」——虚拟目标，描到才成真几何。
   {
@@ -577,6 +590,7 @@ export type SnapKind =
   | "align" | "align-combo" | "edge-align"
   | "intersection" | "cross-line"
   | "on-guide" | "guide-point" | "guide-cross"   // 参考线上 / 参考点 / 参考线交点（0.11 尺规纪元）
+  | "grid-point" | "increment"                    // 格点 / 整数长度（0.11 ⑤ 绝对网格）
   | "on-face"   // 裸落在膜内（2-D 目标；仅当平面来自膜且点在环内）
   | "h-stop";   // pp 高度通道咬合（标量吸附，非光标目标）
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
@@ -632,6 +646,17 @@ export function snapPoint(
   }));
   perf.last["snap.constraints"] = C.length;
   if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
+  // 整数长度（0.11 ⑤，与格点同一开关）：没吸到几何（兜底平面 / 从锚点出发的轴线）时，离锚点的距离取整到吸附步
+  const GR = k.grid?.();
+  if (GR && q.anchor && sol.dim >= 1 && (sol.dim === 2 || (sol.used.length === 1 && sol.used[0].tag.kind === "axis"))) {
+    const s = GR.step / GR.sub, v = sub3(sol.p, q.anchor), d = dist3(sol.p, q.anchor);
+    const kd = Math.round(d / s) * s;
+    if (d > 1e-9 && kd > 0) {
+      const p2 = add3(q.anchor, scale3(v, kd / d));
+      const ax = sol.dim === 1 ? (sol.used[0].tag.axis ?? "i") : "i";
+      return { p: p2, kind: "increment", hints: [{ a: q.anchor, b: p2, axis: ax }] };
+    }
+  }
   const hints: SnapHint[] = [];
   for (const c of sol.used) {
     if (c.locus.dim === 1 && (c.tag.kind === "axis" || c.tag.kind === "align") && c.tag.src && c.tag.axis) {
@@ -657,6 +682,7 @@ export function snapPoint(
       : t.kind === "align" ? "align"
       : t.kind === "guide" ? "on-guide"
       : t.kind === "guidePoint" ? "guide-point"
+      : t.kind === "grid" ? "grid-point"
       : (t.kind === "plane" && insideFace(k, q.plane, sol.p)) ? "on-face"
       : null;
   }

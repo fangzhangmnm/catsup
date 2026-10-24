@@ -9,7 +9,7 @@ import { APP_VERSION } from "../version.ts";
 import { mountToolStrip } from "./tool-strip.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
-import { LENGTH_UNITS } from "../editor/vcb.ts";
+import { LENGTH_UNITS, fmtVcbLength } from "../editor/vcb.ts";
 import { mountSelectionBar, openContextMenuAt } from "./context-menu.ts";
 import { selectionRoute } from "./selection-actions.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
@@ -21,7 +21,7 @@ import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
-import { Editor, TOOLS, type Tool } from "../editor/editor.ts";
+import { Editor, GRID_STEPS, TOOLS, type Tool } from "../editor/editor.ts";
 import { PALETTE_ZH } from "./palette.ts";
 import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
@@ -229,7 +229,7 @@ window.addEventListener("resize", () => renderSlots());
 const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "noclip" | "persp" | "walk";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "noclip" | "persp" | "walk";
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu,
   items: () => [
@@ -252,6 +252,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", separatorBefore: true, hint: "平滑组：相邻膜夹角小的边变软 + 平滑" },
     { id: "guidesClear", label: "删除所有参考线", hint: "只删当前上下文（这个组 / 根）里的参考线与参考点", disabled: !editor.hasGuides() },
     { id: "axesReset", label: "重置轴", hint: "根 = 回到世界轴；组里 = 原点不动、方向回正" },
+    { id: "grid", label: "网格吸附", checked: editor.grid.on, hint: `格点 + 整数长度 · 格距 ${fmtVcbLength(editor.grid.step, editor.vcbUnit)} · 吸附 1/${editor.grid.subdiv}（开着时右下角可调）` },
     { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "数值小窗的默认长度单位（点一下换下一个；内部永远是米）" },
     { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么（油漆桶已选中再点一下也开）" },
     // 视图类（2026-10-21：右上角 gizmo 只留切视图 + 缩放到全部；这些偶尔才用的收在这里）
@@ -283,6 +284,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       case "walk": setWalk(!locomotion.isWalking()); return "keep";
       case "thick": editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep";
       case "guidesClear": editor.clearGuides(); return "keep";
+      case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
       case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
       case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; syncUi(); return "keep"; }
@@ -367,7 +369,31 @@ function renderCrumbs(): void {
     crumbsEl.appendChild(b);
   });
 }
+// 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
+type GridMenuId = `step:${number}` | "sub:5" | "sub:10" | "off";
+const gridChip = document.getElementById("gridChip") as HTMLElement;
+function renderGridChip(): void {
+  const g = editor.grid;
+  gridChip.hidden = !g.on;
+  gridChip.textContent = `网格 ${fmtVcbLength(g.step, editor.vcbUnit)} · 1/${g.subdiv}`;
+}
+gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
+  anchor: gridChip, align: "end",
+  items: () => [
+    ...GRID_STEPS.map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtVcbLength(s, editor.vcbUnit)}`, checked: Math.abs(editor.grid.step - s) < 1e-9 })),
+    { id: "sub:5" as GridMenuId, label: "吸附 1/5", checked: editor.grid.subdiv === 5, separatorBefore: true, hint: "仪表盘式" },
+    { id: "sub:10" as GridMenuId, label: "吸附 1/10", checked: editor.grid.subdiv === 10, hint: "尺子式" },
+    { id: "off" as GridMenuId, label: "关闭网格", separatorBefore: true },
+  ],
+  onPick: (id) => {
+    if (id === "off") { editor.setGrid({ on: false }); return; }
+    if (id === "sub:5" || id === "sub:10") editor.setGrid({ subdiv: id === "sub:5" ? 5 : 10 });
+    else editor.setGrid({ step: Number(id.slice(5)) });
+    return "keep";
+  },
+}));
 function syncUi(): void {
+  renderGridChip();
   renderSlots();
   renderCrumbs();
   toolStrip.render();

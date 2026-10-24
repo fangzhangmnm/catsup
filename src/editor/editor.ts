@@ -34,7 +34,8 @@ import { ArcTool } from "./tools/arc.ts";
 import { TapeTool } from "./tools/tape.ts";
 import { AxesTool } from "./tools/axes.ts";
 import { ProtractorTool } from "./tools/protractor.ts";
-import { rotateDir } from "./protractor-geom.ts";
+import { axisAlignAngle, rotateDir } from "./protractor-geom.ts";
+import { type GridSettings, DEFAULT_GRID } from "./grid-settings.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { FollowMeTool } from "./tools/followme.ts";
@@ -104,7 +105,9 @@ export const SNAP_LABELS: Record<string, string> = {
   align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴", intersection: "交点", "cross-line": "交线",
   "h-stop": "高度咬合", "on-face": "面上",
   "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",
+  "grid-point": "格点", increment: "整数长度",
 };
+export { type GridSettings, GRID_STEPS } from "./grid-settings.ts";
 
 export function describeEvent(ev: FaceEvent): string {
   switch (ev.type) {
@@ -165,6 +168,14 @@ export class Editor {
   private r3: Renderer3;
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
+  private _grid: GridSettings = { ...DEFAULT_GRID };
+  get grid(): Readonly<GridSettings> { return this._grid; }
+  setGrid(patch: Partial<GridSettings>): void {
+    this._grid = { ...this._grid, ...patch };
+    this.viewCache = null;
+    this.host.changed();
+    this.draw();
+  }
   private history = new History();
   private _tool: Tool = "line";
   private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建
@@ -304,11 +315,12 @@ export class Editor {
   private worldView(live: Kernel | null = null, override: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null): WorldView {
     if (override?.copy) override = null;   // 复制模式：原件不动（副本在 commit 时出现）
     const ovKey = override ? `${override.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${override.xform.map((v) => v.toFixed(9)).join(",")}` : "";
-    const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}`;
+    const grid = this._grid.on ? { step: this._grid.step, sub: this._grid.subdiv } : null;
+    const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
     PART_STATS.ms = 0; PART_STATS.n = 0;
-    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides));
+    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides, { grid }));
     perf.last["worldView.parts"] = PART_STATS.ms; perf.last["worldView.partsN"] = PART_STATS.n;
     this.viewCache = { key, view };
     return view;
@@ -1273,6 +1285,7 @@ export class Editor {
       protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
       guides: view.guides(),
       frame: view.frame(),
+      grid: { frame: view.frame(), step: this._grid.on ? this._grid.step : 1 },
       ...(this.handlers[this._tool]?.viewExtras?.() ?? {}),
     });
   }
@@ -1627,7 +1640,10 @@ export class Editor {
           if (len3(b) >= MIN_GESTURE_LEN) {
             let ang = angOf(q);
             const step = ANGLE_STEP_DEG * Math.PI / 180, near = Math.round(ang / step) * step;
-            if (kind === null && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; this.snapInfo = { p: q, kind: "h-stop" }; }
+            // 轴向咬合先于 15° 档（user 2026-10-24「旋转的时候坐标轴方向也有snap」）：参考方向转到与上下文某轴平行时吸住
+            const axHit = kind === null ? axisAlignAngle(this.rotCenter, this.rotAxis, this.rotRef, this.contextFrame(), ang, ANGLE_SNAP_DEG) : null;
+            if (axHit) { ang = axHit.ang; this.snapInfo = { p: q, kind: `axis-${axHit.axis}` as SnapKind }; }
+            else if (kind === null && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; this.snapInfo = { p: q, kind: "h-stop" }; }
             else this.snapInfo = kind ? { ...sn, kind, p: q } : null;
             this.rotAngle = ang;
             this.cursor3 = q;

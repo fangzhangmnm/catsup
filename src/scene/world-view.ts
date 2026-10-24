@@ -15,6 +15,9 @@ import { type EditContext, type InstId, type Material, type PoolRef, Scene, pool
 import { type Frame, type Xform, applyPlane, applyPt, compose, isIdentity } from "./xform.ts";
 import { type GuidesWorld, guidesToWorld } from "./guides.ts";
 
+/** 绝对网格（0.11 ⑤）：帧 = 上下文的帧（绘图轴），step = 显示格距（米），sub = 吸附细分（吸附步 = step / sub）。 */
+export interface GridSpec { frame: Frame; step: number; sub: number; }
+
 /** 求解器 / 拾取 / 渲染认识的几何读接口（Kernel 结构上满足）。 */
 export interface GeomView {
   vertices(): Vertex[];
@@ -33,6 +36,8 @@ export interface GeomView {
   frame?(): Frame;
   /** 活动池的参考几何（世界坐标；0.11）。不给 = 没有。 */
   guides?(): GuidesWorld;
+  /** 绝对网格（0.11 ⑤）：开着才有；格点是最低秩的 0-D 目标，整数长度沿锚点方向取整。 */
+  grid?(): GridSpec | null;
   graph: { pt(id: VertexId): Pt3; edge(id: EdgeId): Edge; vertex(id: VertexId): Vertex; hasEdge(id: EdgeId): boolean; hasVertex(id: VertexId): boolean };
 }
 
@@ -103,12 +108,15 @@ export class WorldView implements GeomView {
   readonly ctx: EditContext;
   private readonly ctxFrame: Frame;
   private readonly ctxGuides: GuidesWorld;
+  private readonly ctxGrid: GridSpec | null;
   frame(): Frame { return this.ctxFrame; }
   guides(): GuidesWorld { return this.ctxGuides; }
-  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[]) {
+  grid(): GridSpec | null { return this.ctxGrid; }
+  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number } | null }) {
     this.scene = scene; this.ctx = ctx;   // 不用参数属性：node strip-types 不支持
     const activePool = scene.poolOfContext(ctx);
     this.ctxFrame = scene.frameOfContext(ctx);
+    this.ctxGrid = extras?.grid ? { frame: this.ctxFrame, step: extras.grid.step, sub: extras.grid.sub } : null;
     this.ctxGuides = guidesToWorld(scene.guidesOf(activePool), scene.xformOfContext(ctx));
     const chainKey = ctx.chain.join("/");
     const used = new Map<Kernel, Set<number>>();
