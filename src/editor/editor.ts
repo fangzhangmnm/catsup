@@ -24,14 +24,14 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargets, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec } from "./tools.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
 import type { ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { OffsetTool } from "./tools/offset.ts";
 import { ArcTool } from "./tools/arc.ts";
-import type { CurveSpec } from "../kernel/kernel.ts";
+import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { FollowMeTool } from "./tools/followme.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
@@ -146,7 +146,7 @@ export type LastGesture =
   | { kind: "rect"; ops: number; at: PoolRef; plane: DrawPlane; anchor: Pt3; corner: Pt3 }
   | { kind: "circle"; ops: number; at: PoolRef; plane: DrawPlane; center: Pt3; rim: Pt3; segments: number }
   | { kind: "pp"; ops: number; at: PoolRef; face: FaceKey; h: number; hl: number }
-  | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number }
+  | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number; circle?: CurveParams }
   | { kind: "move"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; delta: Pt3; copy: boolean; entities: { faces: FaceId[]; edges: EdgeId[] } }
   | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number }
   | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3 };
@@ -913,7 +913,11 @@ export class Editor {
         const d = sign(L.d) * v.m;
         const ring2 = L.ring.map((p) => projectToPlane(p, L.plane.basis));
         const r = offsetRing(ring2, -d);
-        if (r.length >= 3) { const r3 = r.map((q) => liftFromPlane(q, L.plane.plane, L.plane.basis)); this.commitOp({ op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]) }); }
+        if (r.length >= 3) {
+          const r3 = r.map((q) => liftFromPlane(q, L.plane.plane, L.plane.basis));
+          const spec = L.circle ? offsetCircleSpec(L.circle, d) : null;   // 0.10：源面是圆 → 偏移环也是圆
+          this.commitOp({ op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]), ...(spec ? { curve: curveSpecToLocal((pt) => this.toLocal(pt), spec) } : {}) });
+        }
         this.last = { ...L, ops: this.opCount - n0, d };
         msg = `偏移 ${d > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(d))}`;
         break;

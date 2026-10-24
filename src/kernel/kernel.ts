@@ -494,13 +494,18 @@ export class Kernel {
       const runs = new Map<CurveId, number[]>();
       ringEdges[r].forEach((e, j) => { const cid = this.curveReg.curveOf(e); if (cid !== undefined) (runs.get(cid) ?? runs.set(cid, []).get(cid)!).push(j); });
       for (const [cid, js] of runs) {
-        const whole = js.length === m && this.curveReg.curve(cid)!.closed;
-        const targets = [...st.map((S, i) => ({ S, cap: !opts.closed && (i === 0 || i === nSt - 1) }))];
-        for (const { S } of targets) {
+        const cv = this.curveReg.curve(cid)!;
+        const whole = js.length === m && cv.closed;
+        // 单段直路径（开）：末站 = 轮廓整体平移 → 圆保圆（圆心 + 路径向量）；其余站（斜切）只留身份
+        const straight = !opts.closed && path.length === 2;
+        st.forEach((S, i) => {
+          if (!opts.closed && i === 0) return;   // 起始帽 = 轮廓自己（身份像承继），曲线原地不动
           const ring = S[r];
           const segs: Seg3[] = js.map((j) => ({ a: ring[j], b: ring[(j + 1) % m] })).filter((sg) => dist3(sg.a, sg.b) > 1e-9);
-          if (segs.length) stationCurves.push({ segs, spec: { kind: "polyline", closed: whole } });
-        }
+          if (!segs.length) return;
+          const rigid = straight && i === nSt - 1 && whole && cv.kind === "circle" && cv.params;
+          stationCurves.push({ segs, spec: rigid ? { kind: "circle", closed: true, params: { ...cv.params!, center: add3(cv.params!.center, sub3(path[1], path[0])) } } : { kind: "polyline", closed: whole } });
+        });
       }
     }
     const events = this.emit(this._settle({ consumed, images, buryOrphans: true, edgeLayers: this.edgeLayers, layerSegs, faceLayers: this.faceLayers }));

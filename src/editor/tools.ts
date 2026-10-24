@@ -3,7 +3,8 @@
 // 全链路无任何 Face 构造。
 
 import type { Edge, EdgeId, Face, FaceId, Kernel, Pt, Pt3, VertexId } from "../kernel/kernel.ts";
-import type { CurveSpec } from "../kernel/kernel.ts";
+import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
+import { applyPt, type Xform } from "../scene/xform.ts";
 import { liftFromPlane, projectToPlane, type PlaneParams, add3, sub3, scale3, dist3, normalize3 } from "../kernel/geom.ts";
 
 /** Rect 工具（任意平面版）：对角两点（须在平面上）→ 4 条边。退化 → []。 */
@@ -50,6 +51,28 @@ export function arcSegmentsOnPlane(
   const segs: [Pt3, Pt3][] = [];
   for (let i = 0; i < n; i++) segs.push([pts[i], pts[i + 1]]);
   return { segs, center: liftFromPlane({ x: cx, y: cy }, plane, basis), radius: r, sweep };
+}
+
+/** 面的外环若恰是一条闭合圆曲线 → 它的圆参数（换到世界系：圆心经 m，方向经两点之差，半径按变换后距离）；否则 null。（纯函数，node 直测） */
+export function circleOfFace(k: Kernel, face: FaceId, m: Xform): CurveParams | null {
+  const f = k.face(face);
+  if (!f || f.holes.length) return null;
+  const cid = k.curveOf(f.outer.edges[0].edge);
+  if (cid === undefined) return null;
+  const c = k.curveById(cid);
+  if (!c || !c.closed || c.kind !== "circle" || !c.params) return null;
+  if (f.outer.edges.length !== c.edges.length || f.outer.edges.some((d) => k.curveOf(d.edge) !== cid)) return null;
+  const p = c.params, c0 = applyPt(m, p.center);
+  const dir = (d: Pt3): Pt3 => normalize3(sub3(applyPt(m, add3(p.center, d)), c0));
+  const radius = dist3(applyPt(m, add3(p.center, scale3(normalize3(p.xaxis), p.radius))), c0);
+  return { center: c0, radius, normal: dir(p.normal), xaxis: dir(p.xaxis), segments: p.segments };
+}
+
+/** 偏移一个圆（d > 0 = 向内）：同圆心同法向、半径 r − d 的新圆；塌没了 → null。 */
+export function offsetCircleSpec(params: CurveParams, d: number): CurveSpec | null {
+  const radius = params.radius - d;
+  if (!(radius > 1e-6)) return null;
+  return { kind: "circle", closed: true, params: { ...params, radius } };
 }
 
 /** 曲线规格换到池本地坐标：点经 toLocal，方向经两点之差，半径按两点距离（池有缩放时跟着缩）。 */

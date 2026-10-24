@@ -4,6 +4,7 @@ import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3 } from "./pick.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
+import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
@@ -124,6 +125,7 @@ export type LastGesture = {
     ring: Pt3[];
     plane: DrawPlane;
     d: number;
+    circle?: CurveParams;
 } | {
     kind: "move";
     ops: number;

@@ -6,6 +6,8 @@ import { Kernel } from "../src/kernel/kernel.ts";
 import type { CurveSpec, PtIn } from "../src/kernel/kernel.ts";
 import { circleSegmentsOnPlane } from "../src/editor/tools.ts";
 import { writeCatsup, readCatsup, newDocument } from "../src/format/index.ts";
+import { circleOfFace, offsetCircleSpec } from "../src/editor/tools.ts";
+import { IDENTITY } from "../src/scene/xform.ts";
 
 const P = (x: number, y: number, z = 0): PtIn => ({ x, y, z });
 const Z = { x: 0, y: 0, z: 1 }, X = { x: 1, y: 0, z: 0 };
@@ -85,5 +87,23 @@ describe("curves: 曲线实体", () => {
     eq(k2.curves().length, 2);
     for (const c of k2.curves()) { eq(c.kind, "circle"); eq(c.closed, true); eq(c.edges.length, 24); assert(Math.abs(c.params!.radius - 1) < 1e-6); }
     invariants(k2);
+  });
+  it("偏移圆：外环是闭合圆 → circleOfFace 给圆参数；offsetCircleSpec 半径 r − d，塌没 → null", () => {
+    const k = new Kernel(); circle(k, 0, 0, 1);
+    const c = circleOfFace(k, k.faces()[0].id, IDENTITY)!;
+    assert(c && Math.abs(c.radius - 1) < 1e-9 && Math.abs(c.center.x) < 1e-9, "拿到圆参数");
+    const inner = offsetCircleSpec(c, 0.3)!;
+    assert(Math.abs(inner.params!.radius - 0.7) < 1e-9 && inner.kind === "circle" && inner.closed, "向内 0.3 → r 0.7");
+    eq(offsetCircleSpec(c, 1), null, "塌没");
+    const k2 = new Kernel(); circle(k2, 0, 0, 1); k2.addEdges([[P(-2, 0.1), P(2, 0.1)]]);   // 切过 → 不再是一条闭合圆
+    eq(circleOfFace(k2, k2.faces()[0].id, IDENTITY), null);
+  });
+  it("跟随：圆沿直线扫一段 → 末帽是同参数的圆（圆心平移）；侧面站圈不另立曲线", () => {
+    const k = new Kernel(); circle(k, 0, 0, 1);
+    k.followMe(k.faces()[0].id, [{ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 2 }], { closed: false });
+    const circles = k.curves().filter((c) => c.kind === "circle" && c.closed);
+    eq(circles.length, 2, "起始帽（原圆）+ 末帽");
+    assert(circles.some((c) => Math.abs(c.params!.center.z - 2) < 1e-9 && Math.abs(c.params!.radius - 1) < 1e-9), "末帽圆心 z=2 半径 1");
+    invariants(k);
   });
 });

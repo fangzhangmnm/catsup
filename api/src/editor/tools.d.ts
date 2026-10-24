@@ -1,5 +1,6 @@
 import type { Edge, EdgeId, Face, FaceId, Kernel, Pt, Pt3, VertexId } from "../kernel/kernel.ts";
-import type { CurveSpec } from "../kernel/kernel.ts";
+import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
+import { type Xform } from "../scene/xform.ts";
 import { type PlaneParams } from "../kernel/geom.ts";
 /** Rect 工具（任意平面版）：对角两点（须在平面上）→ 4 条边。退化 → []。 */
 export declare function rectSegmentsOnPlane(plane: PlaneParams, basis: {
@@ -19,6 +20,10 @@ export declare function arcSegmentsOnPlane(plane: PlaneParams, basis: {
     radius: number;
     sweep: number;
 } | null;
+/** 面的外环若恰是一条闭合圆曲线 → 它的圆参数（换到世界系：圆心经 m，方向经两点之差，半径按变换后距离）；否则 null。（纯函数，node 直测） */
+export declare function circleOfFace(k: Kernel, face: FaceId, m: Xform): CurveParams | null;
+/** 偏移一个圆（d > 0 = 向内）：同圆心同法向、半径 r − d 的新圆；塌没了 → null。 */
+export declare function offsetCircleSpec(params: CurveParams, d: number): CurveSpec | null;
 /** 曲线规格换到池本地坐标：点经 toLocal，方向经两点之差，半径按两点距离（池有缩放时跟着缩）。 */
 export declare function curveSpecToLocal(toLocal: (p: Pt3) => Pt3, spec: CurveSpec): CurveSpec;
 /** Circle 工具：圆心 + 半径点（都在平面上）→ n 段正多边形（SU 默认 24 段；第一个顶点在半径点方向）。退化 → []。added 2026-10-21 */
