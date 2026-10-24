@@ -6,7 +6,7 @@
 // 工具只认这里递给它的 ToolCtx，**不 import 别的工具、不碰 editor.ts 的私有字段**——这就是以后 VR 换一套手势实现的接缝。
 // 搬迁纪律：行为零变更（搬的是代码位置不是语义），每搬一个过同一套探针。
 import type { Kernel } from "../kernel/kernel.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3 } from "../kernel/kernel.ts";
+import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
 import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
 import type { WorldView } from "../scene/world-view.ts";
@@ -68,6 +68,16 @@ export interface ToolCtx {
   setSnap(sn: Snap3 | null): void;
   /** 数值小窗：记下「刚做完的那一步」。 */
   recordLast(L: LastGesture): void;
+  /** 吸附迟滞（同线候选不许来回翻；底座的 lastSnap 状态）。 */
+  hysteresis(sn: Snap3, sx: number, sy: number): Snap3;
+  /** 整体变换提交：世界系 X 作用于活动池顶点集（move op）+ 子池（transformPool / transformInstance）。 */
+  commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void;
+  /** 整体变换预演：选区顶点走影子副本、子池走叠加变换。 */
+  previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void): void;
+  /** 选中的子 group / 实例里能整体动的（锁住的不动；say = 提示一次）。 */
+  movablePoolPicks(say?: boolean): PoolPick[];
+  /** 选区的世界包围盒（缩放柄）。 */
+  targetBounds(): { min: Pt3; max: Pt3 } | null;
   /** 悬停高亮光标下的边（渲染 hoverEdge；null = 清）。 */
   setHoverEdge(e: EdgeId | null): void;
   /** 软化 / 硬化一批边（layers soft + smooth 一条 op；橡皮的 Ctrl / Shift 修饰用）。 */
@@ -133,6 +143,8 @@ export interface ToolHandler {
   live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
   /** 本工具要进样本环的数（抬笔结算回放时按 extra 读回）。 */
   sample(): Record<string, number>;
+  /** 复现包用的手势描述（预演失败时随黑匣子走）。 */
+  describe?(): Record<string, unknown>;
   /** 本工具的叠加层（量线 / 候选参考线…）：底座每帧并进 ViewState（0.11）。 */
   viewExtras?(ctx: ToolCtx): Partial<ViewState>;
 }

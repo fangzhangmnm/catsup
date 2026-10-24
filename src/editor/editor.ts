@@ -29,7 +29,7 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import { facesForPaint } from "./paint-flood.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
-import { axisAlignAngle, rotateDir } from "./protractor-geom.ts";
+import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, DEFAULT_GRID } from "./grid-settings.ts";
 import { ppStopsOf } from "./pp-stops.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
@@ -125,15 +125,9 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 export const MIN_GESTURE_LEN = 0.01;
-/** 旋转的意图死区（弧度）：半度以内还看不出转向。 */
-const ANGLE_DEAD = 0.5 * Math.PI / 180;
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
-/** 量角器角度咬合：步长（度）与咬合半宽（度）。 */
-const ANGLE_STEP_DEG = 15, ANGLE_SNAP_DEG = 1.5;
-/** 缩放柄：角柄 8 个（等比）+ 面心柄 6 个（单轴）；拾取半径用本帧 hit 容差。 */
-const SCALE_HANDLE_TYPES = ["corner", "face"] as const;
 
 export function fmtLen(v: number, digits = 1): string {
   const cm = Math.abs(v) < 1;
@@ -141,11 +135,10 @@ export function fmtLen(v: number, digits = 1): string {
   const shown = Number(val.toFixed(digits));
   return (Math.abs(val - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits) + (cm ? " cm" : " m");
 }
-const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(1)}°`;
+export const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(1)}°`;
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; instance: InstId };
-interface ScaleHandle { kind: typeof SCALE_HANDLE_TYPES[number]; p: Pt3; anchor: Pt3; axis: Pt3 | null; }
 
 /** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
 export type LastGesture =
@@ -163,7 +156,7 @@ export type LastGesture =
   | { kind: "protractor"; ops: number; at: PoolRef; center: Pt3; axis: Pt3; ref: Pt3; angle: number };
 
 /** 样本环的一帧（抬笔结算 A21）：屏幕位置 + 当时的手势量。 */
-interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> }
+interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> }
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -209,16 +202,7 @@ export class Editor {
   private get handlers(): Partial<Record<Tool, ToolHandler>> { return this.mode.handlers; }
   private readonly toolCtx: EditorCore = this.makeToolCtx();
   // 量角器：阶段 0 = 等圆心；1 = 圆心已定、等参考点；2 = 拖角度中
-  private rotStage: 0 | 1 | 2 = 0;
-  private rotCenter: Pt3 | null = null;
-  private rotAxis: Pt3 | null = null;
-  private rotRef: Pt3 | null = null;
-  private rotAngle = 0;
   // 缩放柄
-  private scaleHandles: ScaleHandle[] = [];
-  private scaleActive: ScaleHandle | null = null;
-  private scaleT0 = 1;
-  private scaleFactor: Pt3 = { x: 1, y: 1, z: 1 };
   private samples: GestureSample[] = [];
   private selection: Selection = emptySelection();
   private selectedPools = new Map<string, PoolPick>();
@@ -398,7 +382,6 @@ export class Editor {
     this._tool = t;
     this.cancelGesture();
     this.clearCharged();   // 充能生命周期 = 工具子步（user 2026-10-24）：换工具就清
-    if (t === "scale") this.rebuildScaleHandles();
     this.host.changed();
     this.draw();
   }
@@ -408,7 +391,6 @@ export class Editor {
     this.selection = emptySelection();
     this.selectedPools.clear();
     this.cancelGesture();
-    this.scaleHandles = [];
     this.host.changed();
     this.draw();
   }
@@ -443,8 +425,6 @@ export class Editor {
     this.ppStops = [];
     this.ppH = 0;
     for (const h of Object.values(this.handlers)) h.cancel();
-    this.rotStage = 0; this.rotCenter = null; this.rotAxis = null; this.rotRef = null; this.rotAngle = 0;
-    this.scaleActive = null; this.scaleFactor = { x: 1, y: 1, z: 1 };
     this.samples = [];
     this.rectFixed = null;
     this.lastSnap = null;
@@ -680,7 +660,6 @@ export class Editor {
     return true;
   }
   private afterSelect(): void {
-    if (this._tool === "scale") this.rebuildScaleHandles();
     const info = this.selectionInfo();
     if (info) this.host.hint(info);
     this.host.changed();
@@ -1099,7 +1078,6 @@ export class Editor {
         if (v.kind !== "factor") break;
         const f: Pt3 = v.f.length === 3 ? { x: v.f[0], y: v.f[1], z: v.f[2] } : L.axis ? { x: L.axis.x ? v.f[0] : 1, y: L.axis.y ? v.f[0] : 1, z: L.axis.z ? v.f[0] : 1 } : { x: v.f[0], y: v.f[0], z: v.f[0] };
         this.redoXform(scalingAbout(L.anchor, f), L.froms, L.pools, at);
-        this.rebuildScaleHandles();
         this.last = { ...L, ops: this.opCount - n0, f };
         msg = `缩放 ${f.x.toFixed(3)} × ${f.y.toFixed(3)} × ${f.z.toFixed(3)}`;
         break;
@@ -1225,7 +1203,7 @@ export class Editor {
 
   // ---------- 世界源 ----------
   private gestureActive(): boolean {
-    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || this.rotStage === 2 || this.scaleActive !== null || Object.values(this.handlers).some((h) => h.active());
+    return this.anchor3 !== null || this.moveVids.length > 0 || this.movePools.length > 0 || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
   private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
@@ -1265,10 +1243,8 @@ export class Editor {
       d.segs = segs.map(([a, b]) => [this.toLocal(a), this.toLocal(b)]);
     }
     if (tool === "move") d.move = { anchor: this.anchor3, cursor: this.cursor3, vids: this.moveVids.length, pools: this.movePools.length, copy: this.moveCopy };
-    if (tool === "rotate") d.rotate = { center: this.rotCenter, axis: this.rotAxis, angle: this.rotAngle };
-    if (tool === "scale") d.scale = { anchor: this.scaleActive?.anchor ?? null, f: this.scaleFactor };
     const H = this.handlers[tool];
-    if (H?.active()) d.sample = H.sample();
+    if (H?.active()) { d.sample = H.sample(); Object.assign(d, H.describe?.() ?? {}); }
     return d;
   }
   // ---------- live（影子副本预演） ----------
@@ -1319,17 +1295,6 @@ export class Editor {
         }
         if (this.movePools.length) this.liveOverride = { picks: this.movePools, xform: translation(delta), copy: this.moveCopy };
       }
-    } else if (tool === "rotate" && this.rotStage === 2 && this.rotCenter && this.rotAxis) {
-      dims = `旋转 ${fmtDeg(this.rotAngle)}`;
-      if (Math.abs(this.rotAngle) > 1e-6) {
-        const X = rotationAbout(this.rotCenter, this.rotAxis, this.rotAngle);
-        this.previewXform(X, run);
-      }
-    } else if (tool === "scale" && this.scaleActive) {
-      const s = this.scaleFactor;
-      dims = `缩放 ${s.x.toFixed(3)} × ${s.y.toFixed(3)} × ${s.z.toFixed(3)}`;
-      const X = scalingAbout(this.scaleActive.anchor, s);
-      this.previewXform(X, run);
     } else if (tool === "pp" && this.ppFace !== null && Math.abs(this.ppH) >= MIN_GESTURE_LEN) {
       const fid = this.ppFace, h = this.ppLocalH(this.ppH);
       run((c) => c.pushPull(fid, h, { settleLanding: false }));
@@ -1413,12 +1378,11 @@ export class Editor {
       hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
       preview: null,
       snap: this.snapInfo,
-      snapAnchor: this._tool === "rotate" ? this.rotCenter : this.anchor3,
+      snapAnchor: this.anchor3,
       revision: this._revision,
       dimSlots: dimmed,
-      // 缩放柄跟着预演实时动（user 2026-10-21「缩放的handle应该跟着实时动」）：拖动中按当前倍率把柄过一遍同一个变换
-      handles: this._tool === "scale" ? (() => { const X = this.scaleActive ? scalingAbout(this.scaleActive.anchor, this.scaleFactor) : null; return this.scaleHandles.map((h) => ({ p: X ? applyPt(X, h.p) : h.p, active: h === this.scaleActive })); })() : null,
-      protractor: this._tool === "rotate" && this.rotCenter && this.rotAxis ? { center: this.rotCenter, axis: this.rotAxis, ref: this.rotRef, angle: this.rotAngle } : null,
+      handles: null,
+      protractor: null,
       guides: view.guides(),
       frame: view.frame(),
       grid: { frame: view.frame(), step: this._grid.on ? this._grid.step : 1 },
@@ -1442,30 +1406,6 @@ export class Editor {
     for (const p of this.selectedPools.values()) for (const s of this.slotsOfPick(view, p)) { const b = poolBounds(s.kernel, s.xform); if (b) { add(b.min); add(b.max); } }
     return Number.isFinite(min.x) ? { min, max } : null;
   }
-  private rebuildScaleHandles(): void {
-    this.scaleHandles = [];
-    const b = this.targetBounds();
-    if (!b) return;
-    const { min, max } = b;
-    const mid = { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 };
-    for (const sx of [0, 1]) for (const sy of [0, 1]) for (const sz of [0, 1]) {
-      const p = { x: sx ? max.x : min.x, y: sy ? max.y : min.y, z: sz ? max.z : min.z };
-      const anchor = { x: sx ? min.x : max.x, y: sy ? min.y : max.y, z: sz ? min.z : max.z };
-      this.scaleHandles.push({ kind: "corner", p, anchor, axis: null });
-    }
-    const faces: [Pt3, Pt3, Pt3][] = [
-      [{ x: max.x, y: mid.y, z: mid.z }, { x: min.x, y: mid.y, z: mid.z }, { x: 1, y: 0, z: 0 }], [{ x: min.x, y: mid.y, z: mid.z }, { x: max.x, y: mid.y, z: mid.z }, { x: -1, y: 0, z: 0 }],
-      [{ x: mid.x, y: max.y, z: mid.z }, { x: mid.x, y: min.y, z: mid.z }, { x: 0, y: 1, z: 0 }], [{ x: mid.x, y: min.y, z: mid.z }, { x: mid.x, y: max.y, z: mid.z }, { x: 0, y: -1, z: 0 }],
-      [{ x: mid.x, y: mid.y, z: max.z }, { x: mid.x, y: mid.y, z: min.z }, { x: 0, y: 0, z: 1 }], [{ x: mid.x, y: mid.y, z: min.z }, { x: mid.x, y: mid.y, z: max.z }, { x: 0, y: 0, z: -1 }],
-    ];
-    for (const [p, anchor, axis] of faces) if (dist(p, anchor) >= MIN_GESTURE_LEN) this.scaleHandles.push({ kind: "face", p, anchor, axis });
-  }
-  private pickScaleHandle(sx: number, sy: number): ScaleHandle | null {
-    let best: ScaleHandle | null = null, bd = this.hitPx() * 1.5;
-    for (const h of this.scaleHandles) { const d = this.frame().distTo(sx, sy, h.p, this.fvp()); if (d <= bd) { bd = d; best = h; } }
-    return best;
-  }
-
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void {
     const s = ev;
@@ -1573,58 +1513,6 @@ export class Editor {
         }
         break;
       }
-      case "rotate": {
-        // 点三下（#23，user「旋转功能第二下是拖动很反直觉。而是应该点三下？」「旋转和move对齐」）：圆心 → 参考点 → 角度；拖着也能落定
-        if (this.armed && this.rotStage === 2 && this.rotCenter && this.rotRef) {
-          this.justCommitted = true;
-          this.trackGesture(s);
-          this.commitRotate(this.currentSample());
-          break;
-        }
-        if (!this.hasSelection()) { this.host.hint("先选中要旋转的东西（选择工具），再用量角器"); break; }
-        if (this.rotStage === 0) {
-          // 圆心：落在膜上 → 转轴 = 膜法向；否则 → 画线平面（地面 / 面向的轴平面）
-          const r = rectFirstPlane(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), this.alignSrcs());
-          this.rotCenter = r.snap.p;
-          this.rotAxis = r.plane.plane.n;
-          this.gesturePlane = r.plane;
-          this.snapInfo = r.snap;
-          this.rotStage = 1;
-          this.downScreen = { x: s.x, y: s.y };
-          this.host.hint(`圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）：再点一下参考方向`);
-          break;
-        }
-        if (this.rotStage === 1 && this.rotCenter) {
-          const sn = snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) });
-          const q = this.projectToPlaneThrough(sn.p, this.rotCenter, this.rotAxis!);
-          if (dist(q, this.rotCenter) < MIN_GESTURE_LEN) { this.host.hint("参考点离圆心太近"); break; }
-          this.rotRef = q;
-          this.rotAngle = 0;
-          this.rotStage = 2;
-          this.cursor3 = q;
-          this.armed = false;
-          this.canArm = !!ev.armable;
-          this.downScreen = { x: s.x, y: s.y };
-          this.host.hint("参考方向已定：转到角度再点一下落定（15° 咬合）；也可以直接拖");
-        }
-        break;
-      }
-      case "scale": {
-        if (!this.hasSelection()) { this.host.hint("先选中要缩放的东西（选择工具），再拖包围盒上的柄"); break; }
-        if (!this.scaleHandles.length) this.rebuildScaleHandles();
-        const h = this.pickScaleHandle(s.x, s.y);
-        if (!h) { this.host.hint("按住包围盒上的柄拖：角 = 等比，面心 = 单轴"); break; }
-        this.scaleActive = h;
-        this.scaleFactor = { x: 1, y: 1, z: 1 };
-        const dir = normalize3(sub3(h.p, h.anchor));
-        const ray = this.frame().ray(s.x, s.y, this.fvp());
-        const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
-        this.scaleT0 = q ? Math.max(dot3(sub3(q, h.anchor), dir), MIN_GESTURE_LEN) : dist(h.p, h.anchor);
-        this.cursor3 = h.p;
-        this.downScreen = { x: s.x, y: s.y };
-        this.host.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖");
-        break;
-      }
       default: {
         // 工具模块（tool-handler.ts）：steps 工具 = 每次按下取一个量（armed 的按下 = 用悬停跟到的值）；direct 工具原样递
         const H = this.handlers[this._tool];
@@ -1638,6 +1526,7 @@ export class Editor {
           break;
         }
         this.downScreen = { x: s.x, y: s.y };
+        this.samples = [];   // 新手势：样本环从零（抬笔结算只看这一次）
         H.down(this.toolCtx, ev);
         if (H.grammar === "steps") { if (H.active()) { this.armed = false; this.canArm = !!ev.armable; } else this.endStepGesture(); }
         break;
@@ -1669,10 +1558,8 @@ export class Editor {
       const H = this.handlers[tool];
       if (H) {
         H.hover?.(this.toolCtx, s);
-      } else if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" || (tool === "rotate" && this.rotStage === 0)) {
+      } else if (tool === "line" || tool === "rect" || tool === "circle" || tool === "move" ) {
         this.hoverSnap(s);
-      } else if (tool === "rotate" && this.rotStage === 1 && this.rotCenter) {
-        this.snapInfo = this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y);
       } else if (tool === "eraseFace" || tool === "paint") {
         const gf = pickFace(view, this.frame(), this.fvp(), s.x, s.y);
         const c = gf !== undefined ? this.classify(view, { face: gf }) : { kind: "none" as const };
@@ -1732,50 +1619,6 @@ export class Editor {
           this.cursor3 = this.snapInfo.p;
         }
         break;
-      case "rotate":
-        if (this.rotStage === 2 && this.rotCenter && this.rotAxis && this.rotRef) {
-          const sn = snapPoint(this.worldView(), this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane: this.gesturePlane, anchor: this.rotCenter, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view), lines: false });
-          const a = sub3(this.rotRef, this.rotCenter);
-          const angOf = (pt: Pt3): number => { const bb = sub3(pt, this.rotCenter!); return Math.atan2(dot3(cross3(a, bb), this.rotAxis!), dot3(a, bb)); };
-          // 意图门：自由角（指针落在旋转平面上的点）的符号 = 转向；反向的点吸附不合法
-          const rayR = this.frame().ray(s.x, s.y, this.fvp());
-          const freeR = rayPlane(rayR.origin, rayR.dir, this.rotAxis, dot3(this.rotAxis, this.rotCenter));
-          let q = this.projectToPlaneThrough(sn.p, this.rotCenter, this.rotAxis);
-          let kind = sn.kind;
-          if (kind !== null && freeR && len3(sub3(freeR, this.rotCenter)) >= MIN_GESTURE_LEN && this.intentOn(s, travel) && !intentAllows1D(angOf(freeR), angOf(q), ANGLE_DEAD)) { q = freeR; kind = null; }
-          const b = sub3(q, this.rotCenter);
-          if (len3(b) >= MIN_GESTURE_LEN) {
-            let ang = angOf(q);
-            const step = ANGLE_STEP_DEG * Math.PI / 180, near = Math.round(ang / step) * step;
-            // 轴向咬合先于 15° 档（user 2026-10-24「旋转的时候坐标轴方向也有snap」）：参考方向转到与上下文某轴平行时吸住
-            const axHit = kind === null ? axisAlignAngle(this.rotCenter, this.rotAxis, this.rotRef, this.contextFrame(), ang, ANGLE_SNAP_DEG) : null;
-            if (axHit) { ang = axHit.ang; this.snapInfo = { p: q, kind: `axis-${axHit.axis}` as SnapKind }; }
-            else if (kind === null && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; this.snapInfo = { p: q, kind: "h-stop" }; }
-            else this.snapInfo = kind ? { ...sn, kind, p: q } : null;
-            this.rotAngle = ang;
-            this.cursor3 = q;
-          }
-        }
-        break;
-      case "scale":
-        if (this.scaleActive) {
-          const h = this.scaleActive;
-          const dir = normalize3(sub3(h.p, h.anchor));
-          const ray = this.frame().ray(s.x, s.y, this.fvp());
-          const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
-          if (q) {
-            const t = dot3(sub3(q, h.anchor), dir);
-            let f = t / this.scaleT0;
-            if (Math.abs(f) < 1e-3) f = 1e-3;   // 不许缩到零（退化）
-            // 意图门：倍率相对 1 的符号 = 放大 / 缩小；反向的咬合不合法（1 本身保留）
-            const snapped = [0.5, 1, 1.5, 2, 3, 4].find((v) => Math.abs(f - v) < 0.02 && (!this.intentOn(s, travel) || intentAllows1D(f - 1, v - 1, 0.01)));
-            if (snapped !== undefined) f = snapped;
-            this.scaleFactor = h.kind === "corner" ? { x: f, y: f, z: f } : { x: h.axis!.x ? f : 1, y: h.axis!.y ? f : 1, z: h.axis!.z ? f : 1 };
-            this.cursor3 = add3(h.anchor, scale3(dir, t));
-            this.snapInfo = snapped !== undefined ? { p: this.cursor3, kind: "h-stop" } : null;
-          }
-        }
-        break;
       default: {
         const H = this.handlers[this._tool];
         if (H?.active()) H.track(this.toolCtx, s, travel);
@@ -1822,6 +1665,11 @@ export class Editor {
       setAxes: (f) => this.setContextAxes(f),
       hoverSnap: (s) => this.hoverSnap(s),
       setHoverEdge: (e) => { this.hoverEdge = e; },
+      hysteresis: (sn, sx, sy) => this.applyHysteresis(sn, sx, sy),
+      commitXform: (X, vids, pools) => this.commitXform(X, vids, pools),
+      previewXform: (X, run) => this.previewXform(X, run),
+      movablePoolPicks: (say) => this.movablePoolPicks(say),
+      targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
       marqueePick: (box) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), box),
       replaceSelection: (sel, additive) => {
@@ -1847,13 +1695,13 @@ export class Editor {
     this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
   }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
-  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; angle: number; scale: Pt3; extra: Record<string, number> } {
-    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, extra: this.handlers[this._tool]?.sample() ?? {} };
+  private currentSample(): { cursor3: Pt3 | null; ppH: number; plane: DrawPlane; snap: Snap3 | null; extra: Record<string, number> } {
+    return { cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} };
   }
   private recordSample(s: { x: number; y: number }): void {
     if (!this.gestureActive()) return;
     const t = performance.now();
-    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, angle: this.rotAngle, scale: this.scaleFactor, extra: this.handlers[this._tool]?.sample() ?? {} });
+    this.samples.push({ t, sx: s.x, sy: s.y, cursor3: this.cursor3, ppH: this.ppH, plane: this.gesturePlane, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} });
     while (this.samples.length > 256 || (this.samples.length && t - this.samples[0].t > 2000)) this.samples.shift();
   }
   /**
@@ -1991,13 +1839,6 @@ export class Editor {
         this.commitMove(settle());
         break;
       }
-      case "rotate": {
-        if (this.rotStage !== 2) break;
-        if (this.justCommitted) { this.justCommitted = false; break; }
-        if (this.canArm && isTap()) { this.armed = true; this.host.hint("转到角度再点一下落定（15° 咬合）；中途可以转视角；Esc / 单指轻点取消"); break; }
-        this.commitRotate(settle());
-        break;
-      }
       default: {
         const H = this.handlers[this._tool];
         if (!H?.active()) break;
@@ -2009,10 +1850,6 @@ export class Editor {
         if (smp) H.track(this.toolCtx, { x: smp.sx, y: smp.sy }, ev.travel);
         H.down(this.toolCtx, ev);
         if (H.active()) this.armed = true; else this.endStepGesture();
-        break;
-      }
-      case "scale": {
-        if (this.scaleActive) this.commitScale(settle());
         break;
       }
       case "eraseFace": {
@@ -2163,29 +2000,6 @@ export class Editor {
       edgeSegs,
       faceLayers: lp.faceLayers,
     };
-  }
-  private commitRotate(smp: { angle: number } | null): void {
-    const ang = smp?.angle ?? this.rotAngle;
-    const c = this.rotCenter!, ax = this.rotAxis!;
-    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.movablePoolPicks(false);
-    const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
-    const n0 = this.opCount, at0 = this.activePool();
-    this.cancelGesture();
-    if (Math.abs(ang) < 1e-6) return;
-    this.commitXform(rotationAbout(c, ax, ang), vids, pools);
-    this.last = { kind: "rotate", ops: this.opCount - n0, at: at0, froms, pools, center: c, axis: ax, angle: ang };
-  }
-  private commitScale(smp: { scale: Pt3 } | null): void {
-    const s = smp?.scale ?? this.scaleFactor;
-    const anchor = this.scaleActive!.anchor, axis = this.scaleActive!.axis;
-    const vids = moveTargetsSelection(this.kernel, this.selection), pools = this.movablePoolPicks(false);
-    const k0 = this.kernel, froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
-    const n0 = this.opCount, at0 = this.activePool();
-    this.cancelGesture();
-    if (Math.abs(s.x - 1) < 1e-9 && Math.abs(s.y - 1) < 1e-9 && Math.abs(s.z - 1) < 1e-9) return;
-    this.commitXform(scalingAbout(anchor, s), vids, pools);
-    this.rebuildScaleHandles();
-    this.last = { kind: "scale", ops: this.opCount - n0, at: at0, froms, pools, anchor, axis, f: s };
   }
   /** 世界系变换 X 作用于：活动池顶点集（move op，本地坐标）+ 子池（transformPool / transformInstance，父空间变换）。 */
   private commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void {
