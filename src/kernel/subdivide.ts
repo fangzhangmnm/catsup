@@ -19,6 +19,11 @@ import { type EdgeId, PlanarGraph } from "./topology.ts";
  * 再沿理想轴向画过头就是这条带（fuzz 50 次内必中）。容差 ≥ 半对角线 = 洞封死：凡可能量化成同一顶点的都当碰到。
  */
 export const INSERT_TOL = Q;
+/**
+ * 【D11 实验旋钮，2026-10-24 Claude Fable 5.1；默认 = 现状】sticky 半径：新段端点 / 交点落在既有顶点 r 之内 → 就是那个顶点；既有顶点离新段 ≤ r → 切进来。
+ * r = Q 时与原逻辑等价（只差「端点吸到 Q 内的既有顶点」，Q 格内本来就同 key）。研究稿用 nasty fuzz 的守恒拒绝计数当仪表，定了再决定默认值。
+ */
+export const STICKY = { r: Q };
 
 export interface InsertResult {
   created: EdgeId[];
@@ -36,7 +41,11 @@ export function insertSegment(
   bIn: Pt3,
   onSplit?: (parent: EdgeId, child1: EdgeId, child2: EdgeId) => void,
 ): InsertResult {
-  const a = quantize3(aIn), b = quantize3(bIn);
+  let a = quantize3(aIn), b = quantize3(bIn);
+  if (STICKY.r > Q) {   // 端点吸到 r 内最近的既有顶点（D11 实验）
+    const snapTo = (p: Pt3): Pt3 => { let best: Pt3 | null = null, bd = STICKY.r; for (const v of g.verticesNear(p, p)) { const d = dist3(p, v); if (d <= bd) { bd = d; best = { x: v.x, y: v.y, z: v.z }; } } return best ?? p; };
+    a = snapTo(a); b = snapTo(b);
+  }
   if (samePt3(a, b)) return { created: [], retraced: [] };
   const lenAB = dist3(a, b);
   const tOf = (p: Pt3): number =>
@@ -50,8 +59,12 @@ export function insertSegment(
   const pendingSplits = new Map<EdgeId, Pt3[]>(); // 既有边 → 待切点（边内部）
   for (const e of g.edgesNear(a, b)) {   // 空间网格：只看新段附近的边（超集，判定照旧）
     const pa = g.pt(e.a), pb = g.pt(e.b);
-    const hits = segIntersections3(a, b, pa, pb, INSERT_TOL);
-    for (const p of hits) {
+    const hits = segIntersections3(a, b, pa, pb, STICKY.r);
+    for (let p of hits) {
+      if (STICKY.r > Q) {   // 交点落在某个既有顶点 r 内 = 就是那个顶点（本边端点优先；D11 实验）
+        if (dist3(p, pa) <= STICKY.r) p = pa; else if (dist3(p, pb) <= STICKY.r) p = pb;
+        else { let best: Pt3 | null = null, bd = STICKY.r; for (const v of g.verticesNear(p, p)) { const d = dist3(p, v); if (d <= bd) { bd = d; best = { x: v.x, y: v.y, z: v.z }; } } if (best) p = best; }
+      }
       addCut(p);
       // 切点落在端点的格里 = 就是那个端点（重合即同一），不切
       if (!samePt3(p, pa) && !samePt3(p, pb)) {
@@ -63,7 +76,7 @@ export function insertSegment(
   }
   for (const v of g.verticesNear(a, b)) {
     const p = { x: v.x, y: v.y, z: v.z };
-    if (pointOnSegment3(p, a, b, INSERT_TOL)) addCut(p);
+    if (pointOnSegment3(p, a, b, STICKY.r)) addCut(p);
   }
 
   // 2. 切开既有边。每条边的切点来自单次 segIntersections（至多 2 个、互异、都在内部）；

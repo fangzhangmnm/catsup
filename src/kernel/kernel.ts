@@ -8,6 +8,7 @@
 //   erase  = 擦边自己的 loop 身份规则（face-lifecycle.ts）；eraseFaces = 纯出库。
 //   rotate / scale = move（顶点映射不同而已）。
 
+import { STICKY } from "./subdivide.ts";
 import {
   type Pt3,
   type PlaneParams,
@@ -24,8 +25,7 @@ import {
   projectToPlane,
   ptKey3,
   quantize3,
-  samePt3,
-} from "./geom.ts";
+  samePt3, Q } from "./geom.ts";
 import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
@@ -338,6 +338,9 @@ export class Kernel {
     this._rev++;
     const targets = new Map<VertexId, Pt3>();
     for (const mv of moves) if (this.graph.hasVertex(mv.id)) targets.set(mv.id, quantize3(toPt3(mv.to)));
+    if (STICKY.r > Q) {   // D11 实验：落点离某个不在手里的既有顶点 ≤ r → 就落到它身上（合并走既有的同格点路径）
+      for (const [vid, to] of targets) { let best: Pt3 | null = null, bd = STICKY.r; for (const v of this.graph.verticesNear(to, to)) { if (targets.has(v.id)) continue; const d = dist3(to, v); if (d <= bd) { bd = d; best = { x: v.x, y: v.y, z: v.z }; } } if (best) targets.set(vid, best); }
+    }
     const touched = new Set<FaceId>();
     for (const vid of targets.keys()) {
       for (const eid of this.graph.vertex(vid).edges) for (const fid of this.graph.edge(eid).faceLinks) touched.add(fid);

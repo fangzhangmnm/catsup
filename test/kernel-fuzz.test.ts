@@ -65,7 +65,27 @@ function checkInvariants(k: Kernel, ctx: string, allowDup = false): void {
   }
 }
 
-function run(seed: number, steps: number, allowDup = false, tier: "clean" | "nasty" = "nasty"): number {
+/** 拒绝前的三个分类量（D11 研究稿 §2）：最近两顶点距离 / 顶点到非邻接边最近距离 / 近平行且 0 < Δd < τ 的平面对。 */
+export function classify(k: Kernel): { minVert: number; minVertSeg: number; nearParallel: number; nearParallelMin: number; faces: number } {
+  const vs = k.vertices(); let minVert = Infinity;
+  for (let i = 0; i < vs.length; i++) for (let j = i + 1; j < vs.length; j++) { const d = Math.hypot(vs[i].x - vs[j].x, vs[i].y - vs[j].y, vs[i].z - vs[j].z); if (d < minVert) minVert = d; }
+  let minVertSeg = Infinity;
+  const es = k.edges();
+  for (const v of vs) for (const e of es) { if (e.a === v.id || e.b === v.id) continue; const a = k.graph.pt(e.a), b = k.graph.pt(e.b); const ab = { x: b.x - a.x, y: b.y - a.y, z: b.z - a.z }; const L2 = ab.x * ab.x + ab.y * ab.y + ab.z * ab.z; if (L2 === 0) continue; let t = ((v.x - a.x) * ab.x + (v.y - a.y) * ab.y + (v.z - a.z) * ab.z) / L2; t = Math.max(0, Math.min(1, t)); const d = Math.hypot(v.x - a.x - ab.x * t, v.y - a.y - ab.y * t, v.z - a.z - ab.z * t); if (d < minVertSeg) minVertSeg = d; }
+  const planes = k.faces().map((f) => k.planeOf(f.id)!.plane);
+  let nearParallel = 0, nearParallelMin = Infinity;
+  for (let i = 0; i < planes.length; i++) for (let j = i + 1; j < planes.length; j++) {
+    const a = planes[i], b = planes[j]; const c = a.n.x * b.n.x + a.n.y * b.n.y + a.n.z * b.n.z;
+    if (Math.abs(c) < 0.999) continue;
+    const dd = Math.abs(a.d - (c > 0 ? b.d : -b.d));
+    if (dd > 1e-9 && dd < 1e-3) { nearParallel++; if (dd < nearParallelMin) nearParallelMin = dd; }
+  }
+  return { minVert, minVertSeg, nearParallel, nearParallelMin, faces: k.faces().length };
+}
+/** 拒绝记录钩子（sweep 脚本装；测试本身不装）。 */
+export const onReject: { fn: ((r: { seed: number; step: number; op: string; k: Kernel }) => void) | null } = { fn: null };
+
+export function run(seed: number, steps: number, allowDup = false, tier: "clean" | "nasty" = "nasty"): number {
   let s = seed; const rnd = (): number => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
   const pick = <T>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)];
   const q = (v: number): number => (tier === "clean" ? Math.round(v * 1000) / 1000 : v);
@@ -118,7 +138,7 @@ function run(seed: number, steps: number, allowDup = false, tier: "clean" | "nas
         op = `move ${v.id}`; k.moveVertices([{ id: v.id, to }]);
       }
     } catch (err) {
-      if (tier === "nasty" && CONSERVATION_RE.test((err as Error).message)) return 1;   // τ 带残余：守恒断言拒绝这一步（见上），这个种子到此为止
+      if (tier === "nasty" && CONSERVATION_RE.test((err as Error).message)) { onReject.fn?.({ seed, step: i, op, k }); return 1; }   // τ 带残余：守恒断言拒绝这一步（见上），这个种子到此为止
       assert(false, `[${tier}] seed ${seed} step ${i} [${op}] throw: ${(err as Error).message}\n  history: ${log.join(" | ")}`);
     }
     log.push(op);
