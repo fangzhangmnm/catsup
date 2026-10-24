@@ -23,6 +23,8 @@ import { initSheets, openChoiceSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_STEPS, TOOLS, type Tool } from "../editor/editor.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
+import { README_SECTIONS } from "./readme-docs.ts";
+import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
 import { PALETTE_ZH } from "./palette.ts";
 import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
@@ -245,7 +247,7 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
 /** 矮的「⌄」展开条：弹整组（user「...和下箭头做矮一点」）。 */
 const mkMore = (tools: Tool[]): HTMLButtonElement => {
   const b = document.createElement("button");
-  b.type = "button"; b.className = "rail-more"; b.title = "这一组的全部工具"; b.innerHTML = iconHtml("chevron-down");
+  b.type = "button"; b.className = "rail-more"; b.title = "这一组的全部工具"; b.innerHTML = iconHtml("more");   // user 10-24「工具栏用...不要用小箭头。也是黑色」
   b.addEventListener("click", () => togglePopupMenu<Tool>({ anchor: b, align: "start", items: () => flyoutItems(tools), onPick: (x) => hud.pick(x) }));
   return b;
 };
@@ -359,7 +361,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么" },
     { id: "clear", label: "清空模型", icon: "trash-can" },
     { id: "finger", label: "手指也能画", checked: fingerDraws, sectionBefore: "设置", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
-    { id: "help", label: "快捷键与手势", icon: "keyboard", sectionBefore: "帮助" },
+    { id: "help", label: "使用手册", icon: "help", sectionBefore: "帮助" },
     { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
     { id: "update", label: `强制更新（清缓存重启）· ${APP_VERSION}`, icon: "refresh" },
   ],
@@ -482,7 +484,14 @@ function syncUi(): void {
 
 // ---------- 帮助 ----------
 const helpEl = $("help");
-function toggleHelp(on: boolean): void { helpEl.hidden = !on; }
+let helpRendered = false;
+function toggleHelp(on: boolean): void {
+  if (on && !helpRendered) {   // 使用手册 = readme-docs.ts 各节（md-lite 渲染，抄 WeebPaint readme-panel）
+    helpRendered = true;
+    $("helpBody").innerHTML = README_SECTIONS.map((sec) => `<section id="help-${sec.id}"><h3>${escapeHtml(sec.title)}</h3>${renderMdLite(sec.body)}</section>`).join("");
+  }
+  helpEl.hidden = !on;
+}
 $("helpClose").addEventListener("click", () => toggleHelp(false));
 helpEl.addEventListener("click", (e) => { if (e.target === helpEl) toggleHelp(false); });
 
