@@ -85,7 +85,7 @@ interface EditorCore { doc: DocState; session: SessionState; commitOp(op): FaceE
 - 多表示并存、不自动互转（各种池并存；显式互转 = 用户动作）→ user「这个建议现在就接好」→ **门 1 升格为刀 ① 必做**：Scene 的池带 `kind`、`applyOp` 按 kind 派发、WorldView 按 kind bake；当前只有 `brep` 一种实现，网格池 / 显式互转动词以后再开。
 - **第二个物体类别已有实物 = 参考人卡片**（user 2026-10-24「马上有一个刚需就是参考人卡片，比如一个pngtuber的猫娘，带自己的关键帧动画集合和状态机。这个就是第二个物体类别」）：一张带贴图的卡（billboard / 定向面片）+ 帧集合 + 关键帧动画片段（clips）+ 状态机（idle / talk / blink…）；兼 SU 比例小人的位置（比例参考）。**对架构的意思**：definition 的 kind 从刀 ① 起就是 `"brep" | "card"` 两个真成员；card 不是 B-rep、不进肥皂膜内核；bake = 一张四边形 + 贴图；op = 换状态 / 换帧集 / 摆放（实例照旧走 instances）；它的动画是**物体自己的运行时状态机**（像游戏实体，住 Session / 播放器），不是场景时间轴 → 与「时间维很未来」不冲突。格式 = `CATSUP_definitions[i].kind = "card"` + card 载荷（贴图走 glTF images / textures）；细设计另开稿（A26）。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
 
-### 5½. 第三种身体的名字（待 user 拍；user 2026-10-24「blender有正反面，做出来的都是默认hide backface的。然后blender是不是应该叫bmesh？帮我想一下名字」）
+### 5½. 第三种身体的名字（**user 2026-10-24「请你确认这两项命名。同意」= 拍板：代码 `mesh` / 中文「网格」；grid 改「栅格」（v0.13.15 界面字已改）**；user 2026-10-24「blender有正反面，做出来的都是默认hide backface的。然后blender是不是应该叫bmesh？帮我想一下名字」）
 AI 推荐：代码 `mesh`、中文「网格」；不叫 bmesh（Blender 内部 API 名 = 品牌引用，b 又和 brep 撞；家族命名 = 低调 normie 可拼写）。对照：**brep = 膜**（无向、双面、黏连成形体）/ **mesh = 网**（有向、默认剔背面、三角 / n-gon 汤；正反面 = 天然 winding）。撞名：grid 现在叫「网格」→ 建议 grid 改「栅格」，「网格」让给 mesh。两件等 user。
 
 ## 6. 模式 × 物体种类 + 排期（user 2026-10-24 拍板）

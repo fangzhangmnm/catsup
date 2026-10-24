@@ -495,16 +495,16 @@ function renderModeSelect(): void {
 function renderGridChip(): void {
   const g = editor.grid;
   gridChip.hidden = !g.on;
-  gridChip.textContent = `网格 ${g.plane.toUpperCase()} · ${fmtVcbLength(g.step, editor.vcbUnit)} · 1/${g.subdiv}`;
+  gridChip.textContent = `栅格 ${g.plane.toUpperCase()} · ${fmtVcbLength(g.step, editor.vcbUnit)} · 1/${g.subdiv}`;
 }
 gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
   anchor: gridChip, align: "end",
   items: () => [
     ...GRID_STEPS.map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtVcbLength(s, editor.vcbUnit)}`, checked: Math.abs(editor.grid.step - s) < 1e-9 })),
-    ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: `网格面 ${p.label}`, checked: editor.grid.plane === p.id, ...(p.id === "xy" ? { separatorBefore: true } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
+    ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: `栅格面 ${p.label}`, checked: editor.grid.plane === p.id, ...(p.id === "xy" ? { separatorBefore: true } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
     { id: "sub:5" as GridMenuId, label: "吸附 1/5", checked: editor.grid.subdiv === 5, separatorBefore: true, hint: "仪表盘式" },
     { id: "sub:10" as GridMenuId, label: "吸附 1/10", checked: editor.grid.subdiv === 10, hint: "尺子式" },
-    { id: "off" as GridMenuId, label: "关闭网格", separatorBefore: true },
+    { id: "off" as GridMenuId, label: "关闭栅格", separatorBefore: true },
   ],
   onPick: (id) => {
     if (id === "off") { editor.setGrid({ on: false }); return; }
@@ -651,7 +651,7 @@ viewMenuBtn.addEventListener("click", () => togglePopupMenu<MenuId>({
   items: () => [
     { id: "persp", label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), sectionBefore: "视图" },
     ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
-    { id: "grid", label: "网格吸附", checked: editor.grid.on, hint: `${fmtVcbLength(editor.grid.step, editor.vcbUnit)} · 1/${editor.grid.subdiv}` },
+    { id: "grid", label: "栅格吸附", checked: editor.grid.on, hint: `${fmtVcbLength(editor.grid.step, editor.vcbUnit)} · 1/${editor.grid.subdiv}` },
     { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "点一下换下一个" },
     { id: "walk", label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), sectionBefore: "相机" },
     { id: "noclip", label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking() },

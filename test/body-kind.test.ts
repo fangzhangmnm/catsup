@@ -11,11 +11,11 @@ import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { sceneBox } from "./format-scenes.ts";
 
 describe("body kind: 对象层 / 内容层", () => {
-  it("mintDef 默认 brep 身体；kindOf / brep() 取得到；BODY_KINDS 两个真成员", () => {
+  it("mintDef 默认 brep 身体；kindOf / brep() 取得到；BODY_KINDS 三个成员（brep / card / mesh）", () => {
     const s = new Scene(sceneBox());
     eq(s.kindOf(s.root), "brep");
     eq(s.brep(s.root).kernel.faces().length, 6);
-    eq(BODY_KINDS.length, 2); assert(isBodyKind("brep") && isBodyKind("card") && !isBodyKind("mesh"));
+    eq(BODY_KINDS.length, 3); assert(isBodyKind("brep") && isBodyKind("card") && isBodyKind("mesh") && !isBodyKind("nurbs"));
   });
   it("card 身体：没有内核（kernelOf 抛）、内核 op 拒（OpTargetError）、hasPool 对根成立对 group 不成立、WorldView 跳过它、clone 保留 kind", () => {
     const s = new Scene(sceneBox());

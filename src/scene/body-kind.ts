@@ -4,6 +4,7 @@
 // 现在唯一有实现的种类）；card = 参考人卡片（A26：贴图卡 + 帧集 + 状态机，不进内核，以后做）。
 // 规矩：各种身体并存、显式互转（用户动作）、不自动 fallback；op / 渲染 / 格式按 kind 派发，加新种类 = 加一个实现，不改既有的。
 // created 2026-10-24 by Claude Fable 5.1
-export type BodyKind = "brep" | "card";
-export const BODY_KINDS: readonly BodyKind[] = ["brep", "card"];
+// mesh = Blender 式有向多边形网（user 2026-10-24 拍板命名 `mesh` / 「网格」；默认剔背面；显式与 brep 互转；以后做）。
+export type BodyKind = "brep" | "card" | "mesh";
+export const BODY_KINDS: readonly BodyKind[] = ["brep", "card", "mesh"];
 export const isBodyKind = (x: unknown): x is BodyKind => typeof x === "string" && (BODY_KINDS as readonly string[]).includes(x);

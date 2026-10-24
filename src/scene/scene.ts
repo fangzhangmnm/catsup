@@ -38,7 +38,9 @@ export interface BrepBody {
 }
 /** 卡片身体（A26 参考人卡片）：载荷以后定；现在只是让 kind 联合有第二个真成员。 */
 export interface CardBody { readonly kind: "card"; }
-export type Body = BrepBody | CardBody;
+/** 网格身体（Blender 式有向多边形网，user 2026-10-24 命名 `mesh` / 「网格」）：载荷以后定。 */
+export interface MeshBody { readonly kind: "mesh"; }
+export type Body = BrepBody | CardBody | MeshBody;
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
   readonly id: DefId;
@@ -216,7 +218,7 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}), ...(g.locked ? { locked: true } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
-      } else body = { kind: "card" };
+      } else body = d.body.kind === "card" ? { kind: "card" } : { kind: "mesh" };
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}) });
       s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });
