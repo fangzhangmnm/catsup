@@ -156,6 +156,7 @@ const hud: HudModel = {
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
     { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() },
+    { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
   ],
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -170,6 +171,7 @@ const hud: HudModel = {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
       case "delete": editor.deleteSelection(); break;
+      case "deselect": editor.cancel(); break;
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
       case "explode": editor.explodeSelection(); break;
