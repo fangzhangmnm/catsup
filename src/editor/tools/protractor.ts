@@ -40,7 +40,7 @@ export class ProtractorTool implements ToolHandler {
       this.plane = r.plane; this.center = r.snap.p; this.ref = null; this.angle = 0;
       ctx.setAnchor(this.center); ctx.setSnap(r.snap); ctx.setCursor(this.center);
       this.stage = 1;
-      ctx.hint(`量角器：圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）；点参考方向`);
+      ctx.hint(`量角器 ②/③：圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）；点参考方向`);
       return;
     }
     if (this.stage === 1) {
@@ -49,7 +49,7 @@ export class ProtractorTool implements ToolHandler {
       if (dist3(q, this.center!) < PROT_MIN) { ctx.hint("量角器：参考点离圆心太近"); return; }
       this.ref = q; this.angle = 0;
       this.stage = 2;
-      ctx.hint("量角器：转到角度再点一下 → 角度参考线（15° 咬合；输度数可精确）");
+      ctx.hint("量角器 ③/③：转到角度再点一下 → 角度参考线（15° 咬合；输度数可精确）");
       return;
     }
     const dir = rotateDir(this.center!, this.axis(), this.ref!, this.angle);

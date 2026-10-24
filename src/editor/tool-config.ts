@@ -132,14 +132,21 @@ export class ToolConfig<T extends OptionTable> {
 // ---------------- CatsUp 的表（SSoT）----------------
 /** 表面指派的档位（user 2026-10-24 定稿：三档 平滑组 / 到锐角为止 / 连通体 ↔ 单击 / 双击 / 三击；选项档 = 下限）。定义住 surface-assign.ts。 */
 import { SURFACE_TIERS } from "./surface-assign.ts";
+import { ARC_MODES } from "./arc-build.ts";
 /** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
 export function optionGroupOf(tool: string): string { return tool === "paint" ? "surface" : tool; }
 
 export const TOOL_OPTIONS = {
+  /** 矩形从哪画（user 2026-10-24「中心rect……还是要」；SU 按 Ctrl / Option 从中心）：Ctrl 按着 = 临时从中心。 */
+  rect: {
+    from: { kind: "enum", label: "起点", values: [{ id: "corner", label: "从角" }, { id: "center", label: "从中心" }], def: "corner", scope: "session", modifiers: { ctrl: "center" } },
+  },
   circle: {
     segments: { kind: "number", label: "段数", def: 24, min: 3, max: 96, step: 1, scope: "session" },
   },
+  /** 弧的四种（SU 对照；user 2026-10-24「几种arc模式也看一下」）：两点弧 / 圆心弧 / 三点弧 / 扇形；定义住 arc-build.ts。 */
   arc: {
+    mode: { kind: "enum", label: "画法", values: ARC_MODES, def: "two", scope: "session" },
     segments: { kind: "number", label: "段数", def: 12, min: 2, max: 96, step: 1, scope: "session" },
   },
   /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */

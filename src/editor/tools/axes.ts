@@ -42,7 +42,7 @@ export class AxesTool implements ToolHandler {
       this.plane = r.plane; this.o = r.snap.p; this.px = this.cur = null;
       ctx.setAnchor(this.o); ctx.setSnap(r.snap); ctx.setCursor(this.o);
       this.stage = 1;
-      ctx.hint("轴：点 X 方向（红）");
+      ctx.hint("轴 ②/③：点 X 方向（红）——三色轴跟着预览");
       return;
     }
     const sn = this.snapAt(ctx, ev.x, ev.y, this.stage === 1 ? this.o! : this.o!);
@@ -50,7 +50,7 @@ export class AxesTool implements ToolHandler {
       if (!frameFrom3(this.o!, sn.p, null, this.plane!.plane.n)) { ctx.hint("轴：X 方向点离原点太近"); return; }
       this.px = sn.p; this.cur = null;
       this.stage = 2;
-      ctx.hint("轴：点 Y 方向（绿）；Z 随右手系");
+      ctx.hint("轴 ③/③：点 Y 方向（绿）；Z 随右手系");
       return;
     }
     const f = frameFrom3(this.o!, this.px!, sn.p, this.plane!.plane.n);
@@ -70,7 +70,7 @@ export class AxesTool implements ToolHandler {
 
 
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
-    return this.stage === 1 ? "轴：X 方向" : this.stage === 2 ? "轴：Y 方向" : "";
+    return this.stage === 1 ? "轴 ②/③：X 方向" : this.stage === 2 ? "轴 ③/③：Y 方向" : "";
   }
 
   /** 候选帧直接画成上下文轴。 */

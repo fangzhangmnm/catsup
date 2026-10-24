@@ -7,10 +7,20 @@ import { cross3, dist3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom
 import { rayPlane } from "../camera.ts";
 import { intentAllows3D } from "../intent.ts";
 import { GROUND, cameraPlane, grazing, rectFirstPlane, resolveRectPlane, type DrawPlane, type Snap3 } from "../pick.ts";
-import { circleCurveSpec, circleSegmentsOnPlane, rectSegmentsOnPlane, rectToolTargets, snapDirectionInPlane } from "../tools.ts";
+import { circleCurveSpec, circleSegmentsOnPlane, rectOpposite, rectSegmentsOnPlane, rectToolTargets, snapDirectionInPlane } from "../tools.ts";
 import { MIN_GESTURE_LEN, fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+
+/** Shift = 15° 角度对齐（B33）：以上下文帧的 X（投到手势平面）为 0°，长度不变；比点吸附优先（用户按着 Shift 就是要角度）。画线 / 旋转矩形第一边共用。 */
+export function shiftAngleSnap(ctx: ToolCtx, a: Pt3, p: Pt3, n: Pt3): Snap3 {
+  const F = ctx.contextFrame();
+  let u = sub3(F.x, scale3(n, dot3(F.x, n)));
+  if (dot3(u, u) < 1e-9) u = sub3(F.y, scale3(n, dot3(F.y, n)));
+  u = normalize3(u);
+  const q = snapDirectionInPlane(a, p, { u, v: cross3(n, u) }, 15);
+  return { p: q.p, kind: "tool", label: `${q.deg}°` };
+}
 
 abstract class DrawTool implements ToolHandler {
   abstract readonly tool: "line" | "rect" | "circle";
@@ -83,14 +93,7 @@ export class LineTool extends DrawTool {
     const camL = cameraPlane(ctx.frame(), a), rayL = ctx.frame().ray(s.x, s.y, ctx.vp());
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
     if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), MIN_GESTURE_LEN)) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
-    if (ctx.mods().shift) {   // Shift = 15° 角度对齐（B33）：以上下文帧的 X（投到手势平面）为 0°，长度不变；比点吸附优先（用户按着 Shift 就是要角度）
-      const n = this.plane.plane.n, F = ctx.contextFrame();
-      let u = sub3(F.x, scale3(n, dot3(F.x, n)));
-      if (dot3(u, u) < 1e-9) u = sub3(F.y, scale3(n, dot3(F.y, n)));
-      u = normalize3(u);
-      const q = snapDirectionInPlane(a, sn.p, { u, v: cross3(n, u) }, 15);
-      sn = { p: q.p, kind: "tool", label: `${q.deg}°` };
-    }
+    if (ctx.mods().shift) sn = shiftAngleSnap(ctx, a, sn.p, this.plane.plane.n);   // Shift = 15° 角度对齐（B33）
     const snapped = ctx.hysteresis(sn, s.x, s.y);
     ctx.setSnap(snapped);
     ctx.charge(snapped, 120);
@@ -120,23 +123,25 @@ export class LineTool extends DrawTool {
 
 export class RectTool extends DrawTool {
   readonly tool = "rect" as const;
-  protected segsFor(_ctx: ToolCtx, b: Pt3): [Pt3, Pt3][] { return rectSegmentsOnPlane(this.plane.plane, this.plane.basis, this.anchor!, b); }
+  /** 起点语义：选项 rect.from；Ctrl 按着 = 临时从中心（SU Ctrl / Option 同款）。 */
+  private from(ctx: ToolCtx): "corner" | "center" { const m = ctx.mods(); return ctx.config.effective("rect", "from", { ctrl: m.copy, shift: m.shift }); }
+  protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][] { return rectSegmentsOnPlane(this.plane.plane, this.plane.basis, rectOpposite(this.anchor!, b, this.from(ctx)), b); }
   protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     const a = this.anchor, b = ctx.cursor();
     if (!a || !b) return "";
-    const { basis } = this.plane;
-    const segs = rectSegmentsOnPlane(this.plane.plane, basis, a, b);
-    const d = sub3(b, a);
+    const { basis } = this.plane, from = this.from(ctx);
+    const segs = rectSegmentsOnPlane(this.plane.plane, basis, rectOpposite(a, b, from), b);
+    const d = sub3(b, a), k = from === "center" ? 2 : 1;
     const du = d.x * basis.u.x + d.y * basis.u.y + d.z * basis.u.z, dv = d.x * basis.v.x + d.y * basis.v.y + d.z * basis.v.z;
     if (segs.length) run((c) => c.addEdges(segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)])));
-    return `矩形 ${fmtLen(Math.abs(du))} × ${fmtLen(Math.abs(dv))}`;
+    return `矩形 ${fmtLen(Math.abs(du) * k)} × ${fmtLen(Math.abs(dv) * k)}${from === "center" ? "（从中心）" : ""}`;
   }
   protected commit(ctx: ToolCtx): void {
-    const plane = this.plane, anchor = this.anchor!, b = ctx.cursor() ?? anchor;
-    const segs = rectSegmentsOnPlane(plane.plane, plane.basis, anchor, b);
+    const plane = this.plane, anchor = this.anchor!, b = ctx.cursor() ?? anchor, from = this.from(ctx);
+    const segs = rectSegmentsOnPlane(plane.plane, plane.basis, rectOpposite(anchor, b, from), b);
     const n0 = ctx.opCount(), at0 = ctx.activePool();
     this.finish(ctx);
-    if (segs.length) { ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]) }); ctx.recordLast({ kind: "rect", ops: ctx.opCount() - n0, at: at0, plane, anchor, corner: b }); }
+    if (segs.length) { ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]) }); ctx.recordLast({ kind: "rect", ops: ctx.opCount() - n0, at: at0, plane, anchor, corner: b, from }); }
   }
 }
 

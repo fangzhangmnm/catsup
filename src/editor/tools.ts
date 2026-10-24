@@ -211,3 +211,97 @@ export function arcToolTargets(a: Pt3, b: Pt3, n: Pt3): ToolTarget[] {
     { locus: { dim: 0, p: sub3(mid, scale3(perp, r)) }, rank: _RANK.intersection, label: "半圆" },
   ];
 }
+
+// ---------------- 形状批（2026-10-24；user「中心rect和旋转rect还是要……几种arc模式也看一下」）：纯几何，node 直测 ----------------
+
+/** 带号角度的连续化：raw ∈ (−π, π] 加减 2π 使其离 prev 最近（圆心弧 / 旋转一直转过 180° 不跳）。 */
+export function unwrapAngle(prev: number, raw: number): number {
+  const TAU = Math.PI * 2;
+  let a = raw;
+  while (a - prev > Math.PI) a -= TAU;
+  while (prev - a > Math.PI) a += TAU;
+  return a;
+}
+
+/** 圆心弧（SU Arc / Pie）：圆心 c、起点 a（定半径与 0°）、扫角 sweep（弧度，带号，可超 180°）→ n 段。退化（半径 0 / 扫角 0）→ null。 */
+export function centerArcSegments(
+  plane: PlaneParams,
+  basis: { u: Pt3; v: Pt3 },
+  c3: Pt3,
+  a3: Pt3,
+  sweep: number,
+  n = 12,
+): { segs: [Pt3, Pt3][]; center: Pt3; radius: number; end: Pt3 } | null {
+  const c = projectToPlane(c3, basis), a = projectToPlane(a3, basis);
+  const r = Math.hypot(a.x - c.x, a.y - c.y);
+  if (r < 1e-9 || n < 1 || Math.abs(sweep) < 1e-9) return null;
+  const t0 = Math.atan2(a.y - c.y, a.x - c.x);
+  const pts: Pt3[] = [];
+  for (let i = 0; i <= n; i++) { const t = t0 + (sweep * i) / n; pts.push(liftFromPlane({ x: c.x + r * Math.cos(t), y: c.y + r * Math.sin(t) }, plane, basis)); }
+  const segs: [Pt3, Pt3][] = [];
+  for (let i = 0; i < n; i++) segs.push([pts[i], pts[i + 1]]);
+  return { segs, center: liftFromPlane({ x: c.x, y: c.y }, plane, basis), radius: r, end: pts[n] };
+}
+
+/** 平面上从 c→a 转到 c→p 的带号角（绕法向 n，右手；(−π, π]）。 */
+export function sweepAngle(c: Pt3, a: Pt3, p: Pt3, n: Pt3): number {
+  const u = normalize3(sub3(a, c)), w = sub3(p, c);
+  const v = cross3(n, u);
+  const x = u.x * w.x + u.y * w.y + u.z * w.z, y = v.x * w.x + v.y * w.y + v.z * w.z;
+  if (Math.hypot(x, y) < 1e-12) return 0;
+  return Math.atan2(y, x);
+}
+
+/** 两点弧：弦 a–b、同侧、给定半径 r（≥ 弦半长）→ 劣弧的凸度点（VCB 改半径用）；r 太小 → 半圆。 */
+export function bulgePointForRadius(a: Pt3, b: Pt3, side: Pt3, r: number): Pt3 {
+  const mid = scale3(add3(a, b), 0.5), half = dist3(a, b) / 2;
+  const rr = Math.max(r, half);
+  const h = rr - Math.sqrt(Math.max(0, rr * rr - half * half));
+  const dir = normalize3(sub3(side, mid));
+  return add3(mid, scale3(dir, h));
+}
+
+/** 矩形的对角（从角 = 锚点本身；从中心 = 锚点关于 b 的对称点，user 2026-10-24「中心rect……还是要」）。 */
+export function rectOpposite(anchor: Pt3, b: Pt3, from: "corner" | "center"): Pt3 { return from === "center" ? sub3(scale3(anchor, 2), b) : anchor; }
+
+/**
+ * 旋转矩形（SU Rotated Rectangle）：A 第一角、B 第一边终点、C 第二边终点（都在平面上）→ 四角 A B C D，D = A + (C − B)。
+ * 角度不限 90°（平行四边形合法，SU 同款）；退化（边长 0 / C 落在 AB 直线上）→ null。
+ */
+export function rrectCorners(a: Pt3, b: Pt3, c: Pt3): [Pt3, Pt3, Pt3, Pt3] | null {
+  const ab = sub3(b, a), bc = sub3(c, b);
+  if (len3(ab) < 1e-9 || len3(bc) < 1e-9) return null;
+  if (len3(cross3(ab, bc)) < 1e-9 * len3(ab) * len3(bc)) return null;
+  return [a, b, c, add3(a, bc)];
+}
+export function rrectSegments(a: Pt3, b: Pt3, c: Pt3): [Pt3, Pt3][] {
+  const q = rrectCorners(a, b, c);
+  return q ? [[q[0], q[1]], [q[1], q[2]], [q[2], q[3]], [q[3], q[0]]] : [];
+}
+/** 第二边在 B 处相对 BA 的内角（度，0..180）与转向（沿 A→B 走到 B 后向左转 = +1（绕 n 逆时针）、向右 = −1）。 */
+export function rrectAngle(a: Pt3, b: Pt3, c: Pt3, n: Pt3): { deg: number; side: 1 | -1 } {
+  const ba = normalize3(sub3(a, b)), bc = normalize3(sub3(c, b));
+  const d = Math.max(-1, Math.min(1, ba.x * bc.x + ba.y * bc.y + ba.z * bc.z));
+  const s = cross3(scale3(ba, -1), bc);   // ab × bc
+  return { deg: (Math.acos(d) * 180) / Math.PI, side: (s.x * n.x + s.y * n.y + s.z * n.z) >= 0 ? 1 : -1 };
+}
+/** 角度 + 宽 → C：B + w·(cos·BA + side·sin·(n × AB))——内角 deg、转向 side，与 rrectAngle 互逆。 */
+export function rrectCornerFromAngle(a: Pt3, b: Pt3, n: Pt3, deg: number, w: number, side: 1 | -1): Pt3 {
+  const ba = normalize3(sub3(a, b)), v = cross3(normalize3(n), scale3(ba, -1));
+  const t = (deg * Math.PI) / 180;
+  return add3(b, scale3(add3(scale3(ba, Math.cos(t)), scale3(v, side * Math.sin(t))), w));
+}
+/**
+ * 第二边角度咬合（A34 的量角器手感）：90° 强吸（±strongDeg 内直接 90°）；Shift 按着 → 15° 格；其余照指针。长度 |BC| 不变。
+ * 返回咬合后的 C 与角度（度）；snapped = 是否咬住了格。
+ */
+export function rrectSnapAngle(a: Pt3, b: Pt3, c: Pt3, n: Pt3, opts: { shift: boolean; stepDeg?: number; strongDeg?: number }): { c: Pt3; deg: number; snapped: boolean } {
+  const { deg, side } = rrectAngle(a, b, c, n);
+  const w = dist3(c, b);
+  const step = opts.stepDeg ?? 15, strong = opts.strongDeg ?? 5;
+  let target: number | null = null;
+  if (Math.abs(deg - 90) <= strong) target = 90;
+  else if (opts.shift) target = Math.min(180 - step, Math.max(step, Math.round(deg / step) * step));
+  if (target === null) return { c, deg, snapped: false };
+  return { c: rrectCornerFromAngle(a, b, n, target, w, side), deg: target, snapped: true };
+}

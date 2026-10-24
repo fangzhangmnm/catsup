@@ -14,7 +14,7 @@ export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
 export const LENGTH_UNITS: readonly { id: LengthUnit; label: string }[] = [{ id: "m", label: "米" }, { id: "cm", label: "厘米" }, { id: "mm", label: "毫米" }, { id: "ft", label: "英尺英寸" }, { id: "in", label: "英寸" }];
 export interface VcbCtx { unit: LengthUnit; }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
-export type VcbKind = "line" | "rect" | "circle" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
+export type VcbKind = "line" | "rect" | "rrect" | "circle" | "arc" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
 
 export type VcbValue =
   | { kind: "length"; m: number }
@@ -22,6 +22,8 @@ export type VcbValue =
   | { kind: "angle"; deg: number }
   | { kind: "factor"; f: number[] }
   | { kind: "segments"; n: number }
+  /** 旋转矩形：角度,宽。 */
+  | { kind: "angleWidth"; deg: number; m: number }
   | { kind: "array"; mode: "x" | "/"; n: number };
 
 const UNIT_M: Record<string, number> = { m: 1, cm: 0.01, mm: 0.001, ft: 0.3048, in: 0.0254 };
@@ -57,9 +59,10 @@ export function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): VcbValue |
   if (!text) return { error: "没输入" };
   let m: RegExpExecArray | null;
   if ((m = /^(\d+)\s*s$/.exec(text))) {
-    if (kind !== "circle") return { error: "段数只对圆有效" };
+    if (kind !== "circle" && kind !== "arc") return { error: "段数只对圆 / 弧有效" };
     const n = Number(m[1]);
-    return n >= 3 && n <= 96 ? { kind: "segments", n } : { error: "段数 3–96" };
+    const lo = kind === "arc" ? 2 : 3;
+    return n >= lo && n <= 96 ? { kind: "segments", n } : { error: `段数 ${lo}–96` };
   }
   if ((m = /^(?:\*|x)\s*(\d+)$/.exec(text)) || (m = /^(\d+)\s*x$/.exec(text))) {
     const n = Number(m[1]);
@@ -84,6 +87,24 @@ export function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): VcbValue |
       const f: number[] = [];
       for (const p of parts) { const v = num(p, ctx, "plain"); if (typeof v === "string") return { error: v }; if (Math.abs(v) < 1e-3) return { error: "倍率不能是 0" }; f.push(v); }
       return { kind: "factor", f };
+    }
+    case "rrect": {
+      if (parts.length === 1) { const v = num(parts[0], ctx, "length"); if (typeof v === "string") return { error: v }; if (Math.abs(v) < 1e-6) return { error: "宽不能是 0" }; return { kind: "length", m: Math.abs(v) }; }
+      if (parts.length !== 2) return { error: "旋转矩形：角度,宽（或只输宽）" };
+      const deg = num(parts[0], ctx, "plain"), w = num(parts[1], ctx, "length");
+      if (typeof deg === "string") return { error: deg };
+      if (typeof w === "string") return { error: w };
+      if (deg <= 0 || deg >= 180) return { error: "角度 0–180 之间" };
+      if (Math.abs(w) < 1e-6) return { error: "宽不能是 0" };
+      return { kind: "angleWidth", deg, m: Math.abs(w) };
+    }
+    case "arc": {
+      if (parts.length !== 1) return { error: "弧：半径、角度（45°）或段数（12s）" };
+      if (/(°|deg)$/i.test(parts[0])) { const v = num(parts[0], ctx, "plain"); if (typeof v === "string") return { error: v }; if (Math.abs(v) < 1e-6 || Math.abs(v) > 360) return { error: "角度 ±360° 以内、不能是 0" }; return { kind: "angle", deg: v }; }
+      const v = num(parts[0], ctx, "length");
+      if (typeof v === "string") return { error: v };
+      if (Math.abs(v) < 1e-6) return { error: "半径不能是 0" };
+      return { kind: "length", m: Math.abs(v) };
     }
     case "rect": {
       if (parts.length !== 2) return { error: "矩形：宽,高" };
@@ -121,7 +142,9 @@ export function vcbPrompt(kind: VcbKind | null): string {
   switch (kind) {
     case "line": return "长度";
     case "rect": return "宽,高";
+    case "rrect": return "角度,宽 · 宽";
     case "circle": return "半径 · 段数 24s";
+    case "arc": return "半径 · 角度 45° · 段数 12s";
     case "pp": return "高度";
     case "offset": return "距离";
     case "tape": return "距离";

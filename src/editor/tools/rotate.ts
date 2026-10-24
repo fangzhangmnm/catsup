@@ -43,7 +43,7 @@ export class RotateTool implements ToolHandler {
       this.center = r.snap.p; this.axis = r.plane.plane.n; this.plane = r.plane;
       ctx.setAnchor(this.center); ctx.setSnap(r.snap);
       this.stage = 1;
-      ctx.hint(`圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）：再点一下参考方向`);
+      ctx.hint(`旋转 ②/③：圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）；点参考方向`);
       return;
     }
     if (this.stage === 1) {
@@ -54,7 +54,7 @@ export class RotateTool implements ToolHandler {
       this.ref = q; this.angle = 0;
       this.stage = 2;
       ctx.setCursor(q);
-      ctx.hint("参考方向已定：转到角度再点一下落定（15° 咬合）；也可以直接拖");
+      ctx.hint("旋转 ③/③：转到角度再点一下落定（15° 咬合）；也可以直接拖");
       return;
     }
     this.commit(ctx);

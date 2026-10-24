@@ -23,7 +23,8 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectAngle, rrectCornerFromAngle, rrectSegments, bulgePointForRadius, rectOpposite } from "./tools.ts";
+import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
@@ -146,7 +147,11 @@ export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; in
 /** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
 export type LastGesture =
   | { kind: "line"; ops: number; at: PoolRef; a: Pt3; b: Pt3 }
-  | { kind: "rect"; ops: number; at: PoolRef; plane: DrawPlane; anchor: Pt3; corner: Pt3 }
+  | { kind: "rect"; ops: number; at: PoolRef; plane: DrawPlane; anchor: Pt3; corner: Pt3; from?: "corner" | "center" }
+  /** 旋转矩形：A 第一角 / B 第一边终点 / C 第二边终点；VCB「角度,宽」或「宽」。 */
+  | { kind: "rrect"; ops: number; at: PoolRef; plane: DrawPlane; a: Pt3; b: Pt3; c: Pt3 }
+  /** 弧（四种画法，arc-build.ts）：VCB 半径 / 角度（圆心弧 · 扇形）/ 段数。 */
+  | ({ kind: "arc"; ops: number; at: PoolRef } & ArcGesture)
   | { kind: "circle"; ops: number; at: PoolRef; plane: DrawPlane; center: Pt3; rim: Pt3; segments: number }
   | { kind: "pp"; ops: number; at: PoolRef; face: FaceKey; h: number; hl: number }
   | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number; circle?: CurveParams }
@@ -1007,12 +1012,38 @@ export class Editor {
       }
       case "rect": {
         if (v.kind !== "dims") break;
-        const d = sub3(L.corner, L.anchor), [u, w] = Editor.rectAxes(L.plane.basis);
-        const corner = add3(L.anchor, add3(scale3(u, sign(dot3(d, u)) * Math.abs(v.a)), scale3(w, sign(dot3(d, w)) * Math.abs(v.b))));
-        const segs = rectSegmentsOnPlane(L.plane.plane, L.plane.basis, L.anchor, corner);
+        const d = sub3(L.corner, L.anchor), [u, w] = Editor.rectAxes(L.plane.basis), from = L.from ?? "corner", k = from === "center" ? 0.5 : 1;
+        const corner = add3(L.anchor, add3(scale3(u, sign(dot3(d, u)) * Math.abs(v.a) * k), scale3(w, sign(dot3(d, w)) * Math.abs(v.b) * k)));
+        const segs = rectSegmentsOnPlane(L.plane.plane, L.plane.basis, rectOpposite(L.anchor, corner, from), corner);
         if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
         this.last = { ...L, ops: this.opCount - n0, corner };
         msg = `矩形 ${fmtLen(Math.abs(v.a))} × ${fmtLen(Math.abs(v.b))}`;
+        break;
+      }
+      case "rrect": {
+        const n = L.plane.plane.n, cur = rrectAngle(L.a, L.b, L.c, n);
+        let c: Pt3;
+        if (v.kind === "angleWidth") c = rrectCornerFromAngle(L.a, L.b, n, v.deg, v.m, cur.side);
+        else if (v.kind === "length") c = rrectCornerFromAngle(L.a, L.b, n, cur.deg, v.m, cur.side);
+        else break;
+        const segs = rrectSegments(L.a, L.b, c);
+        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+        this.last = { ...L, ops: this.opCount - n0, c };
+        msg = `旋转矩形 ${fmtLen(dist(L.a, L.b))} × ${fmtLen(dist(L.b, c))} · ${Math.round(rrectAngle(L.a, L.b, c, n).deg)}°`;
+        break;
+      }
+      case "arc": {
+        const g: ArcGesture = { mode: L.mode, plane: L.plane, a: L.a, b: L.b, p: L.p, center: L.center, sweep: L.sweep, segments: L.segments };
+        if (v.kind === "segments") { g.segments = v.n; this.config.set("arc", "segments", v.n); }
+        else if (v.kind === "angle" && (g.mode === "center" || g.mode === "pie")) g.sweep = (v.deg * Math.PI / 180) * ((g.sweep ?? 1) < 0 ? -1 : 1);
+        else if (v.kind === "length" && (g.mode === "center" || g.mode === "pie") && g.center) g.a = add3(g.center, scale3(normalize3(sub3(g.a, g.center)), v.m));
+        else if (v.kind === "length" && g.b && g.p) g.p = bulgePointForRadius(g.a, g.b, g.p, v.m);
+        else { msg = ""; this.last = L; break; }
+        const built = buildArc(g);
+        if (!built) { this.last = L; break; }
+        this.commitOp(arcOp((p) => this.toLocal(p), at, built));
+        this.last = { ...L, ...g, ops: this.opCount - n0 };
+        msg = `弧 r=${fmtLen(built.radius)} · ${fmtDeg(Math.abs(built.sweep))} · ${built.segs.length} 段`;
         break;
       }
       case "circle": {

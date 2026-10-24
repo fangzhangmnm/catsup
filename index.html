@@ -38,7 +38,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  69 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  70 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -74,6 +74,8 @@
   <symbol id="rectangle" data-cat="shapes" data-src="own" data-note="矩形(shapes 基本图元)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="6" width="16" height="12" rx="0.6"/></symbol>
   <!-- arc — 圆弧:升弧+两端点(shapes 基本图元) -->
   <symbol id="arc" data-cat="shapes" data-src="own" data-note="圆弧:升弧+两端点(shapes 基本图元)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19 A13 13 0 0 1 19 6"/><circle cx="4" cy="19" r="1.2" fill="currentColor" stroke="none"/><circle cx="19" cy="6" r="1.2" fill="currentColor" stroke="none"/></symbol>
+  <!-- rotated-rectangle — 旋转矩形:rectangle 同体量的圆角矩形整体转 -22° + 左下角外侧一道基线 + 一小段角度弧(=先拉第一边、再转角度；SU Rotated Rectangle 图标同一语义)；与 rectangle(正放)分工【CatsUp 左柱形状格小三角里的「旋转矩形」；2026-10-24 Claude Fable 5.1 自画未过目】 -->
+  <symbol id="rotated-rectangle" data-cat="shapes" data-src="own" data-note="旋转矩形:rectangle 同体量的圆角矩形整体转 -22° + 左下角外侧一道基线 + 一小段角度弧(=先拉第一边、再转角度；SU Rotated Rectangle 图标同一语义)；与 rectangle(正放)分工【CatsUp 左柱形状格小三角里的「旋转矩形」；2026-10-24 Claude Fable 5.1 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g transform="rotate(-22 12 12)"><rect x="4" y="6.5" width="16" height="11" rx="1"/></g><path d="M3 20.5 H9"/><path d="M8.2 18.3 A5.2 5.2 0 0 0 6.1 15.4" stroke-width="1.4"/></symbol>
   <!-- perspective-reference -->
   <!-- persp-iso — 等轴测模式·iso 3x3 顶满:hw10.2/hh5.1(x1.8-22.2, 含描边到 0.95/23.05 —— 比库内惯例更满, 看是否可接受); 20260728 候选 3 号入库(顶满版; 2x2 与常规 3x3 落选) -->
   <symbol id="persp-iso" data-cat="perspective-reference" data-src="own" data-note="等轴测模式·iso 3x3 顶满:hw10.2/hh5.1(x1.8-22.2, 含描边到 0.95/23.05 —— 比库内惯例更满, 看是否可接受); 20260728 候选 3 号入库(顶满版; 2x2 与常规 3x3 落选)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.00 6.90 L22.20 12.00 L12.00 17.10 L1.80 12.00 Z"/><g stroke-width="1.2"><path d="M5.20 10.30 L15.40 15.40"/><path d="M5.20 13.70 L15.40 8.60"/><path d="M8.60 8.60 L18.80 13.70"/><path d="M8.60 15.40 L18.80 10.30"/></g></symbol>
@@ -316,6 +318,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-b001efd9c318.mjs"></script>
+    <script type="module" src="./dist/catsup-a3e3edd8401c.mjs"></script>
   </body>
 </html>

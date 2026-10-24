@@ -143,6 +143,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "select", icon: "select", label: "选择", key: "空格" },
   { tool: "line", icon: "line", label: "画线", key: "L" },
   { tool: "rect", icon: "rectangle", label: "矩形", key: "R" },
+  { tool: "rrect", icon: "rotated-rectangle", label: "旋转矩形", key: "" },   // SU Rotated Rectangle（user 10-24）；图标 = 图标库 PENDING 层自画未过目
   { tool: "circle", icon: "circle", label: "圆", key: "C" },
   { tool: "arc", icon: "arc", label: "弧", key: "A" },
   { tool: "move", icon: "move", label: "移动", key: "M" },
@@ -219,7 +220,7 @@ const hud: HudModel = {
 //   柱子不够高时先吃最近槽、再吃常驻（吃掉的都在 ⌄ 里）。第二组常驻推拉 / 移动，第三组常驻卷尺 / 轴，第四组常驻油漆桶（以后 + 元数据分析）。
 //   su 的视角操作不进左柱（右边 view 栏管）。旧「更多」钮与按高度给最近格的逻辑撤。
 type RailGroup = { id: string; pinned: Tool[]; pool: Tool[]; budget: number };
-const SHAPES: Tool[] = ["rect", "circle", "arc"];
+const SHAPES: Tool[] = ["rect", "rrect", "circle", "arc"];
 /** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
 let eraserCurrent: Tool = "erase";
 const RAIL_GROUPS: RailGroup[] = [

@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-69 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+70 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -15,7 +15,7 @@
 > ⚠ 库里还没有这些图标，当前用 `icon-missing` 占位：`protractor`
 > 等它们进 `icons.svg` 后重跑本脚本即可换成真图标。
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`push-pull`、`eraser-weld`、`eraser-soft`、`zoom`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`zoom`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -46,6 +46,7 @@
 | `line` | 直线(shapes 基本图元):斜线+两端点, 与 arc 同族(同点径 1.2), 29° 防端点顶角; 20260725 入库 |
 | `rectangle` | 矩形(shapes 基本图元) |
 | `arc` | 圆弧:升弧+两端点(shapes 基本图元) |
+| `rotated-rectangle` 👁待过目 | 旋转矩形:rectangle 同体量的圆角矩形整体转 -22° + 左下角外侧一道基线 + 一小段角度弧(=先拉第一边、再转角度；SU Rotated Rectangle 图标同一语义)；与 rectangle(正放)分工【CatsUp 左柱形状格小三角里的「旋转矩形」；2026-10-24 Claude Fable 5.1 自画未过目】 |
 
 ## perspective-reference
 
