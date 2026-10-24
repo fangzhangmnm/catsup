@@ -61,13 +61,13 @@ interface EditorCore { doc: DocState; session: SessionState; commitOp(op): FaceE
 
 | 以后的模式 | 要的是什么 | 本提案接不接 |
 |---|---|---|
-| Blender 式操作（同一份几何；G / R / S 模态键盘；顶点 / 边 / 面选择模式） | 另一套 C，M 不变 | **接**：一个 Mode。前提 = 共享的东西（选区 / 吸附 / 相机 / VCB / 历史）住 EditorCore 不住 GeometryMode，否则 Blender 模式会复制一份 SketchUp 模式 |
+| Blender 式建模（网格：任意拓扑、n-gon、非平面；G / R / S 模态键盘；顶点 / 边 / 面选择模式） | **另一种 M**（网格池）+ 另一套 C。**user 2026-10-24 纠正**：「blender和sketchup是不同的模型数据，可以互转，但是不建议blender直接动brep」 | **接一半**：C 是一个 Mode；M 要网格池（门 1）。B-rep ⇄ 网格 = **显式互转**（用户动作、按值拷进另一种池；B-rep → 网格无损，网格 → B-rep 只收平面面、有损要说清），不是 Blender 模式直接改 B-rep。共享的（选区 / 吸附 / 相机 / VCB / 历史）仍住 EditorCore |
 | WeebPaint | 贴图像素编辑 | **不是模式**，是表面模式里的一个工具：iframe + ora 交接（B14 已裁） |
 | 表面 / level design（摆组件、碰撞、触发器、出生点、导航） | 另一套 C + 场景级元数据 | **接**：Mode + 格式加可选键（面属性层 / instances.extras） |
 | 3D 打印（水密 / 壁厚 / 悬垂检查；STL / 3MF 导出；体积） | 分析工具 + 叠加层 + 导出，全吃 bake 三角 | **接**：Mode（工具）+ viewExtras（叠加层）+ A4 bake 口；SU「实体」= 水密组，判定是内核查询 |
 | CAD / 工程（精确尺寸、标注、2D 图纸、公差、BOM） | 标注 = 池里新一种元素；图纸 = V 的另一种投影；精确尺寸 VCB 已有；内部 SI 已定 | **半接**：Mode 接工具；标注要 M 加一种元素 kind；图纸要 V 开口 |
 | 参数化 CAD（特征树 / 约束草图，Fusion 式） | **另一种 M**：几何由参数派生、历史记参数不记几何 | **不接，也不该硬接**：直接建模是我们的 core（SU 血统）。能接的形状 = **生成器层挂在组件边界**（SU Live / Dynamic Components 同款：参数 → 重生成组件内的 B-rep 池；B2 组件包的内存侧）；约束草图 = 另一种池 + 生成器 |
-| sculpting（高密度三角网格、动态拓扑） | **另一种 M**（不是平面 B-rep） | **不接**：要 Scene 的池带 kind；雕刻池与 B-rep 池并存、**不互转**（user 10-24「不同 core 可混搭不能 fallback」） |
+| sculpting（高密度三角网格、动态拓扑） | **另一种 M**（不是平面 B-rep） | **不接**：要 Scene 的池带 kind；雕刻池与 B-rep 池并存、**不自动互转**（显式转可以；user 10-24「不同 core 可混搭不能 fallback」） |
 | terrain（高度场） | **另一种 M** | 同上：heightfield 池 |
 | animation（时间轴、关键帧、骨骼） | M 加轨道、Session 加当前时间、V 要「t 时刻求值视图」 | **不接**：时间维横切三层。glTF 文件层本来就有 animation，缺的是内存模型与求值 |
 
@@ -76,5 +76,5 @@ interface EditorCore { doc: DocState; session: SessionState; commitOp(op): FaceE
 2. **选区 = 开放的元素引用集**：现在 face | edge | pool 三选一；写成 `{ pool, kind, id }` 的集合，模式决定能选哪些 kind、怎么展开（表面模式的面集展开 = 油漆桶五模式）。
 3. **渲染只吃 bake（A4），模式只加叠加层**：每种池自己 bake 成三角 + 线；sculpt / terrain / 3D 打印导出都从这一个口出；模式 `viewExtras` 只画叠加。
 
-**明确不做的**：参数化历史、时间维求值、多表示互转。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
+**明确不做的**：参数化历史、时间维求值、多表示**自动**互转（显式互转是以后网格池的配套动词，user「可以互转，但是不建议blender直接动brep」）。各是一轮纪元，到时候再开（「先考期末考」，memory `feedback_graduation_exam_not_active_20261023`）；现在只保证池 kind / 选区 kind / bake 三个口没被钉成 B-rep 单例。
 
