@@ -20,6 +20,15 @@ res.tap = await cam();
 // 拖 40 px = 缩放（halfH 变），不改 target
 await page.mouse.move(zc[0], zc[1]); await page.mouse.down(); await page.mouse.move(zc[0], zc[1] + 40, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(120);
 res.drag = await cam();
+// 放大镜按多下 = 选区 → 当前物体 → 全部轮换，只有合法的档才入档（user「按多下是选区 当前物体 全局 切换……只有合法的切换才入档」）
+res.stagesNoSel = await page.evaluate(() => globalThis.__catsup.editor.zoomStages().map((x) => x.key).join(","));
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setTool("select"); });
+const em = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.zoomExtents(); return e.cam.angularPx({ x: 7, y: 6, z: 0 }, e.vp()); });
+const bb = await page.locator("#board").boundingBox();
+await page.mouse.click(bb.x + em.x, bb.y + em.y); await page.waitForTimeout(120);
+res.stagesSel = await page.evaluate(() => globalThis.__catsup.editor.zoomStages().map((x) => x.key).join(","));
+const tapZoom = async () => { await page.mouse.click(zc[0], zc[1]); await page.waitForTimeout(150); return page.evaluate(() => +globalThis.__catsup.editor.cam.halfH.toFixed(4)); };
+res.cycle = [await tapZoom(), await tapZoom(), await tapZoom()];
 // gizmo 空处双击 = 透视 / 平行切换（user「gizmos双击可以切换透视和平行」）：左上角没有钮、轴球也不在那
 const g = await page.locator(".gizmo-svg").boundingBox(), ex = g.x + 8, ey = g.y + 8;
 res.proj0 = await page.evaluate(() => globalThis.__catsup.editor.cam.projection);
@@ -32,6 +41,7 @@ console.log(JSON.stringify({ ...res, errs }));
 const ok = res.layout.menuTR && res.layout.panBL && res.layout.zoomBR
   && Math.abs(res.tap.tx - 7) < 1.5 && Math.abs(res.tap.ty - 7) < 1.5 && res.tap.halfH < res.before.halfH
   && Math.abs(res.drag.halfH - res.tap.halfH) > 1e-3 && res.drag.tx === res.tap.tx
-  && res.proj0 !== res.proj1 && res.proj2 === res.proj1 && res.hint === "";
+  && res.proj0 !== res.proj1 && res.proj2 === res.proj1 && /^(|缩放到.*)$/.test(res.hint)
+  && res.stagesNoSel === "all" && res.stagesSel === "sel,all" && res.cycle[0] < res.cycle[1] && Math.abs(res.cycle[2] - res.cycle[0]) < 1e-3;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

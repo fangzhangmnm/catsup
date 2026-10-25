@@ -1089,15 +1089,35 @@ export class Editor {
     this.cam.fitPoints(this.worldView().vertices(), this.vp());
     this.draw();
   }
-  /** 放大镜点一下：有选区 = 缩放到选区，没有 = 缩放到全部（user 2026-10-21「视口是有选择就zoom to selected没有就zoom to fit」）。 */
+  /** 放大镜点一下（user 2026-10-25「放大镜按一下是Zoom to fit, 取决于是否有选区。然后按多下是选区 当前物体 全局 切换。……只有合法的切换才入档」）：
+   *  档 = 选区（有选区才有）→ 当前物体（进组编辑时 = 那一组）→ 全部；和前一档一样大的不入档。
+   *  相机没被动过就接着往下一档（按多下轮换），动过相机再按 = 从第一档起。 */
+  private zoomCycle: { keys: string; idx: number; cam: string } | null = null;
   zoomTo(): void {
-    const b = this.hasSelection() ? this.targetBounds() : null;
-    if (!b) { this.zoomExtents(); return; }
-    const pts: Pt3[] = [];
+    const stages = this.zoomStages();
+    if (!stages.length) { this.zoomExtents(); return; }
+    const keys = stages.map((x) => x.key).join("|"), zc = this.zoomCycle;
+    const idx = zc && zc.keys === keys && zc.cam === this.camKey() ? (zc.idx + 1) % stages.length : 0;
+    const b = stages[idx].b, pts: Pt3[] = [];
     for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) pts.push({ x, y, z });
     this.cam.fitPoints(pts, this.vp());
+    this.zoomCycle = { keys, idx, cam: this.camKey() };
+    this.host.hint(stages.length > 1 ? `缩放到${stages[idx].label}（再按 = ${stages[(idx + 1) % stages.length].label}）` : `缩放到${stages[idx].label}`);
     this.draw();
   }
+  /** 放大镜的档（只有合法的才入档）。 */
+  zoomStages(): { key: string; label: string; b: { min: Pt3; max: Pt3 } }[] {
+    const out: { key: string; label: string; b: { min: Pt3; max: Pt3 } }[] = [];
+    const sel = this.hasSelection() ? this.targetBounds() : null;
+    if (sel) out.push({ key: "sel", label: "选区", b: sel });
+    if (this.contextDepth() > 0) { const s = this.worldView().activeSlot(); const b = poolBounds(s.kernel, s.xform); if (b) out.push({ key: "obj", label: "当前物体", b }); }
+    let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+    for (const v of this.worldView().vertices()) { min = { x: Math.min(min.x, v.x), y: Math.min(min.y, v.y), z: Math.min(min.z, v.z) }; max = { x: Math.max(max.x, v.x), y: Math.max(max.y, v.y), z: Math.max(max.z, v.z) }; }
+    if (Number.isFinite(min.x)) out.push({ key: "all", label: "全部", b: { min, max } });
+    const same = (a: { min: Pt3; max: Pt3 }, c: { min: Pt3; max: Pt3 }): boolean => { const tol = 1e-6 * Math.max(1, Math.hypot(a.max.x - a.min.x, a.max.y - a.min.y, a.max.z - a.min.z)); return [a.min.x - c.min.x, a.min.y - c.min.y, a.min.z - c.min.z, a.max.x - c.max.x, a.max.y - c.max.y, a.max.z - c.max.z].every((d) => Math.abs(d) <= tol); };
+    return out.filter((x, i) => i === 0 || !same(out[i - 1].b, x.b));
+  }
+  private camKey(): string { const c = this.cam, t = c.target; return `${c.yaw.toFixed(5)}|${c.pitch.toFixed(5)}|${c.halfH.toFixed(5)}|${t.x.toFixed(4)},${t.y.toFixed(4)},${t.z.toFixed(4)}|${c.projection}`; }
   // ---------- 数值小窗（vcb.ts；SU Measurements）：刚做完的那一步，撤销后按精确值重做 ----------
   /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
   vcbState(): { kind: VcbKind | null; prompt: string; echo: string } {
