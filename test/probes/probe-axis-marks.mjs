@@ -13,7 +13,12 @@ res.ft = await keys();
 await page.evaluate(() => { globalThis.__catsup.editor.vcbUnit = "m"; });
 // 表面模式不挂（只在几何模式）——这里只核换回来还在
 res.back = await keys();
+// 有东西了「1 m」就不要了（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "addEdges", segs: [[{ x: 3, y: 3, z: 0 }, { x: 4, y: 3, z: 0 }]] }); });
+res.withGeom = await keys();
+await page.evaluate(() => globalThis.__catsup.editor.undo());
+res.emptyAgain = await keys();
 console.log(JSON.stringify(res));
-const ok = res.metric === "unit-x=1 m" && res.ft === "unit-x=1 ft" && res.back === "unit-x=1 m";
+const ok = res.metric === "unit-x=1 m" && res.ft === "unit-x=1 ft" && res.back === "unit-x=1 m" && res.withGeom === "" && res.emptyAgain === "unit-x=1 m";
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

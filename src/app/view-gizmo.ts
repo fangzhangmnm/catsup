@@ -19,32 +19,44 @@ const AXES: { id: string; v: [number, number, number]; color: string; label: str
 ];
 const SIZE = 96, C = SIZE / 2, LEN = 34, R_POS = 9.5, R_NEG = 7;
 
-export interface ViewGizmoOpts { isWalking(): boolean; }
+export interface ViewGizmoOpts { isWalking(): boolean; /** 透视 / 平行切了（宿主刷新菜单勾选之类）。 */ onProjection?(): void; }
 export interface ViewGizmo { render(): void; dispose(): void; }
 
 export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizmoOpts): ViewGizmo {
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("viewBox", `0 0 ${SIZE} ${SIZE}`); svg.setAttribute("class", "gizmo-svg"); svg.setAttribute("aria-label", "视图方向");
-  root.appendChild(svg);
-  const btns = document.createElement("div"); btns.className = "gizmo-btns"; root.appendChild(btns);
+  // 钮挤在 gizmo 圆圈外的角上（user 2026-10-25 手绘：☰ 右上、手左下、放大镜右下）：外面套一个比圆大一圈的方框，钮摆在方框的角上，不压轴的小球
+  const dial = document.createElement("div"); dial.className = "gizmo-dial"; root.appendChild(dial);
+  dial.appendChild(svg);
+  const btns = document.createElement("div"); btns.className = "gizmo-btns gizmo-nav"; dial.appendChild(btns);   // ☰ 由 main 插进来（.gizmo-menu）
   const mk = (icon: string, title: string, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement("button"); b.type = "button"; b.className = "gizmo-btn"; b.title = title; b.innerHTML = iconHtml(icon);
     b.addEventListener("click", onClick); btns.appendChild(b); return b;
   };
-  // 拖柄：按住拖 = 平移 / 缩放（点一下不动 = 无事）；缩放到全部 = 点
-  const drag = (b: HTMLButtonElement, onDrag: (dx: number, dy: number) => void): void => {
-    let d: { id: number; x: number; y: number } | null = null;
-    b.addEventListener("pointerdown", (ev) => { ev.preventDefault(); ev.stopPropagation(); b.setPointerCapture(ev.pointerId); d = { id: ev.pointerId, x: ev.clientX, y: ev.clientY }; b.classList.add("dragging"); });
-    b.addEventListener("pointermove", (ev) => { if (!d || ev.pointerId !== d.id) return; onDrag(ev.clientX - d.x, ev.clientY - d.y); d.x = ev.clientX; d.y = ev.clientY; editor.draw(); });
-    const end = (ev: PointerEvent): void => { if (d && ev.pointerId === d.id) { d = null; b.classList.remove("dragging"); } };
+  // 拖柄：按住拖 = 平移 / 缩放；点一下 = onTap（user 2026-10-25「放大镜和fit vp合租」「怎么区分双击和pan？怎么防抖？」）。
+  // 点 vs 拖：按下后挪过 DRAG_SLOP 才算拖、才开始动相机——笔点下去手抖几 px 不会误缩放 / 误平移（防抖）；没挪过就松手 = 点一下。
+  const DRAG_SLOP = 6;   // CSS px
+  const drag = (b: HTMLButtonElement, onDrag: (dx: number, dy: number) => void, onTap?: () => void): void => {
+    let d: { id: number; x: number; y: number; x0: number; y0: number; moving: boolean } | null = null;
+    b.addEventListener("pointerdown", (ev) => { ev.preventDefault(); ev.stopPropagation(); b.setPointerCapture(ev.pointerId); d = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, x0: ev.clientX, y0: ev.clientY, moving: false }; b.classList.add("dragging"); });
+    b.addEventListener("pointermove", (ev) => {
+      if (!d || ev.pointerId !== d.id) return;
+      if (!d.moving) { if (Math.hypot(ev.clientX - d.x0, ev.clientY - d.y0) < DRAG_SLOP) return; d.moving = true; d.x = ev.clientX; d.y = ev.clientY; return; }   // 过了门槛从这儿起算，不把门槛那几 px 补进去
+      onDrag(ev.clientX - d.x, ev.clientY - d.y); d.x = ev.clientX; d.y = ev.clientY; editor.draw();
+    });
+    const end = (ev: PointerEvent): void => {
+      if (!d || ev.pointerId !== d.id) return;
+      const tap = !d.moving && ev.type === "pointerup";
+      d = null; b.classList.remove("dragging");
+      if (tap) onTap?.();
+    };
     b.addEventListener("pointerup", end); b.addEventListener("pointercancel", end);
   };
-  const bPan = mk("hand", "平移（按住拖）", () => {});
+  const bPan = mk("hand", "平移（按住拖）", () => {}); bPan.classList.add("gizmo-pan");
   drag(bPan, (dx, dy) => editor.cam.pan(dx, dy, editor.vp()));
-  const bZoom = mk("zoom", "缩放（按住上下拖）", () => {});   // 图标 zoom = 图标库 PENDING（fable 自画未过目）
-  drag(bZoom, (_dx, dy) => editor.cam.zoomBy(Math.pow(1.01, dy)));
-  mk("maximize-viewport", "缩放到全部（Shift+Z）", () => editor.zoomExtents());
+  const bZoom = mk("zoom", "缩放：点一下 = 有选区缩放到选区、没有就缩放到全部（Shift+Z）；按住上下拖 = 缩放", () => {}); bZoom.classList.add("gizmo-zoom");   // 图标 zoom = 图标库 PENDING（fable 自画未过目）
+  drag(bZoom, (_dx, dy) => editor.cam.zoomBy(Math.pow(1.01, dy)), () => editor.zoomTo());   // 缩放到全部的钮并进来了（user「zoom to selected和zoom to fit可以合租用放大镜……点击是zoom to，拖动是放大」）
 
   // 轴 → 屏幕 2D（相机 right / up / forward）
   const project = (): { a: typeof AXES[number]; x: number; y: number; depth: number }[] => {
@@ -83,6 +95,7 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
     editor.cam.orbit(dx, dy); editor.draw(); render();
     down.x = ev.clientX; down.y = ev.clientY;
   });
+  let lastEmptyTap: { t: number; x: number; y: number } | null = null;   // 空处双击 = 透视 / 平行切换
   const up = (ev: PointerEvent): void => {
     if (!down || ev.pointerId !== down.id) return;
     const wasClick = !down.moved; down = null;
@@ -90,7 +103,14 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
     const p = toSvg(ev);
     let best: (typeof AXES)[number] | null = null, bd = 14;
     for (const q of project()) { const d = Math.hypot(q.x - p.x, q.y - p.y); if (d < bd) { bd = d; best = q.a; } }
-    if (!best) return;
+    if (!best) {
+      // 空处（没点中轴球）双击 = 透视 / 平行切换（user 2026-10-25「gizmos双击可以切换透视和平行」）；轴球上的点击照旧切视图，两下 = 翻到对面
+      const now = performance.now(), l = lastEmptyTap;
+      if (l && now - l.t < 400 && Math.hypot(ev.clientX - l.x, ev.clientY - l.y) < 12) { lastEmptyTap = null; editor.toggleProjection(); render(); opts.onProjection?.(); return; }
+      lastEmptyTap = { t: now, x: ev.clientX, y: ev.clientY };
+      return;
+    }
+    lastEmptyTap = null;
     const cam = editor.cam, before = `${cam.yaw.toFixed(3)}|${cam.pitch.toFixed(3)}`;
     editor.setView(best.view);
     if (`${cam.yaw.toFixed(3)}|${cam.pitch.toFixed(3)}` === before) editor.setView(best.opposite);   // 已经在这个视图 → 翻到对面

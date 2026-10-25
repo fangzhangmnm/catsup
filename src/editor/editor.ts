@@ -1089,6 +1089,15 @@ export class Editor {
     this.cam.fitPoints(this.worldView().vertices(), this.vp());
     this.draw();
   }
+  /** 放大镜点一下：有选区 = 缩放到选区，没有 = 缩放到全部（user 2026-10-21「视口是有选择就zoom to selected没有就zoom to fit」）。 */
+  zoomTo(): void {
+    const b = this.hasSelection() ? this.targetBounds() : null;
+    if (!b) { this.zoomExtents(); return; }
+    const pts: Pt3[] = [];
+    for (const x of [b.min.x, b.max.x]) for (const y of [b.min.y, b.max.y]) for (const z of [b.min.z, b.max.z]) pts.push({ x, y, z });
+    this.cam.fitPoints(pts, this.vp());
+    this.draw();
+  }
   // ---------- 数值小窗（vcb.ts；SU Measurements）：刚做完的那一步，撤销后按精确值重做 ----------
   /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
   vcbState(): { kind: VcbKind | null; prompt: string; echo: string } {
@@ -1501,9 +1510,16 @@ export class Editor {
    * 活动池里 Kernel.isBreakJunction 的顶点 → 世界坐标的点 + 边向（渲染器画屏幕定长的小垂线）。按池版本缓存。
    */
   /** X 轴 +1 个单位处的「1 m / 1 ft」+ Z 轴刻度间距（user 2026-10-25「能不能在x轴+1的地方背景颜色的小字写上1m或者别的单位定义。以及我还是希望z轴有刻度」）。 */
-  private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number } {
-    const m = unitMark(this._vcbUnit);
-    return { axisTickM: m.unitM, labels: [{ id: "unit-x", text: m.label, at: { x: F.origin.x + F.x.x * m.unitM, y: F.origin.y + F.x.y * m.unitM, z: F.origin.z + F.x.z * m.unitM }, style: "scale", anchor: "below" }] };
+  private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number; axisUnitX: boolean } {
+    const m = unitMark(this._vcbUnit), empty = this.sceneEmpty();
+    // 「1 m」只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在
+    return { axisTickM: m.unitM, axisUnitX: empty, labels: empty ? [{ id: "unit-x", text: m.label, at: { x: F.origin.x + F.x.x * m.unitM, y: F.origin.y + F.x.y * m.unitM, z: F.origin.z + F.x.z * m.unitM }, style: "scale", anchor: "below" }] : [] };
+  }
+  /** 场景里一个顶点都没有（按场景版本号缓存，不每帧数）。 */
+  private emptyCache: { rev: number; empty: boolean } | null = null;
+  private sceneEmpty(): boolean {
+    if (this.emptyCache?.rev !== this._revision) this.emptyCache = { rev: this._revision, empty: this.worldView().vertices().length === 0 };
+    return this.emptyCache.empty;
   }
   private ticksCache: { kernel: Kernel; rev: number; xform: Xform; ticks: { p: Pt3; dir: Pt3 }[] } | null = null;
   breakTicks(view: WorldView = this.liveWorld()): readonly { p: Pt3; dir: Pt3 }[] {

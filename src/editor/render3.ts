@@ -170,6 +170,8 @@ export interface ViewState {
   labels?: readonly WorldLabel[] | null;
   /** Z 轴刻度间距（米；1 m 或 1 ft；user「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）；null = 不画。 */
   axisTickM?: number | null;
+  /** X 轴 +1 个单位处那根小短线（跟「1 m」字一起，只在空场景）。 */
+  axisUnitX?: boolean;
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
@@ -794,7 +796,7 @@ export class Renderer3 {
       while (step / wpp0 < 6 && step < 1e6) step *= 10;
       const L = GRID_N * GRID_STEP;
       for (let k = 1; k * step <= L + 1e-9; k++) tks.push({ p: { x: o.x + zd.x * k * step, y: o.y + zd.y * k * step, z: o.z + zd.z * k * step }, dir: zd, color: PALETTE.axisZ });
-      tks.push({ p: { x: o.x + xd.x * atm, y: o.y + xd.y * atm, z: o.z + xd.z * atm }, dir: xd, color: PALETTE.axisX });
+      if (view.axisUnitX) tks.push({ p: { x: o.x + xd.x * atm, y: o.y + xd.y * atm, z: o.z + xd.z * atm }, dir: xd, color: PALETTE.axisX });
     }
     if (tks.length) {
       const px = this.worldPerPx(cam, vp, tks[0].p);
