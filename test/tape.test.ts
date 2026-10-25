@@ -27,16 +27,24 @@ describe("tape: 起点身份 → 产物", () => {
     const r = tapeResult({ kind: "measure", p: P(0, 0, 0) }, P(3, 4, 0));
     eq(r.make, "measure"); eq(r.d, 5);
   });
+  it("从参考点起手 = 过两点的参考线（参考点留着，user 10-25「好，不删点」）；模型端点起手照旧打点", () => {
+    eq(classifyStart({ p: P(1, 1, 0), kind: "guide-point" }, null).kind, "through");
+    eq(classifyStart({ p: P(1, 1, 0), kind: "endpoint" }, null).kind, "point");
+    const r = tapeResult({ kind: "through", p: P(1, 1, 0) }, P(1, 3, 0));
+    assert(r.make === "through" && Math.abs(r.dir.y - 1) < 1e-12 && r.p.x === 1 && r.p.y === 1, JSON.stringify(r));
+    eq(tapeResult({ kind: "through", p: P(1, 1, 0) }, P(1, 1.001, 0)).make, "measure");
+  });
   it("classifyStart：栅格把「边上」改写成格点时，调用方给了方向就仍按边起手出平行线；没给方向 = 只量（D23）", () => {
     eq(classifyStart({ p: P(1, 0, 0), kind: "grid-point" }, P(1, 0, 0)).kind, "line");
     eq(classifyStart({ p: P(1, 0, 0), kind: "increment" }, P(1, 0, 0)).kind, "line");
     eq(classifyStart({ p: P(1, 0.3, 0), kind: "grid-point" }, null).kind, "measure");
   });
-  it("classifyStart：吸附种类分三类；边类没拿到方向就退成只量", () => {
+  it("classifyStart：吸附种类分四类（2026-10-25 加「参考点起手 = 过两点」）；边类没拿到方向就退成只量", () => {
     eq(classifyStart({ p: P(0, 0, 0), kind: "on-edge" }, P(0, 1, 0)).kind, "line");
     eq(classifyStart({ p: P(0, 0, 0), kind: "on-guide" }, P(1, 0, 0)).kind, "line");
     eq(classifyStart({ p: P(0, 0, 0), kind: "on-edge" }, null).kind, "measure", "没方向 = 只量");
-    for (const k of ["endpoint", "midpoint", "intersection", "origin", "guide-point", "guide-cross"] as const) eq(classifyStart({ p: P(0, 0, 0), kind: k }, null).kind, "point", k);
+    for (const k of ["endpoint", "midpoint", "intersection", "origin", "guide-cross"] as const) eq(classifyStart({ p: P(0, 0, 0), kind: k }, null).kind, "point", k);
+    eq(classifyStart({ p: P(0, 0, 0), kind: "guide-point" }, null).kind, "through", "参考点起手 = 过两点的线（2026-10-25 起）");
     eq(classifyStart({ p: P(0, 0, 0), kind: "on-face" }, null).kind, "measure");
     eq(classifyStart({ p: P(0, 0, 0), kind: null }, null).kind, "measure");
   });

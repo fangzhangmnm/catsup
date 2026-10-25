@@ -7,8 +7,9 @@ import type { Snap3, SnapKind } from "./solver.ts";
 export const TAPE_MIN = 0.01;
 
 /** 起点的身份：决定产物。 */
-export type TapeStart = { kind: "line"; p: Pt3; dir: Pt3 } | { kind: "point"; p: Pt3 } | { kind: "measure"; p: Pt3 };
-export type TapeResult = { make: "line"; p: Pt3; dir: Pt3; d: number } | { make: "point"; p: Pt3; d: number } | { make: "measure"; d: number };
+/** through = 起手在参考点上：出过两点的参考线、参考点留着（user 2026-10-25「有了点，再拉一次……」「好，不删点」；尺规 2.0 稿 §0）。 */
+export type TapeStart = { kind: "line"; p: Pt3; dir: Pt3 } | { kind: "point"; p: Pt3 } | { kind: "through"; p: Pt3 } | { kind: "measure"; p: Pt3 };
+export type TapeResult = { make: "line"; p: Pt3; dir: Pt3; d: number } | { make: "point"; p: Pt3; d: number } | { make: "through"; p: Pt3; dir: Pt3; d: number } | { make: "measure"; d: number };
 
 /** 起点 + 第二点 → 产物（纯函数，测试面）。 */
 export function tapeResult(start: TapeStart, b: Pt3): TapeResult {
@@ -20,6 +21,7 @@ export function tapeResult(start: TapeStart, b: Pt3): TapeResult {
     return { make: "line", p: add3(start.p, w), dir: start.dir, d };
   }
   const d = dist3(start.p, b);
+  if (start.kind === "through") return d < TAPE_MIN ? { make: "measure", d: 0 } : { make: "through", p: start.p, dir: normalize3(sub3(b, start.p)), d };
   if (start.kind === "point") return d < TAPE_MIN ? { make: "measure", d: 0 } : { make: "point", p: b, d };
   return { make: "measure", d };
 }
@@ -32,6 +34,7 @@ const ON_LATTICE = new Set<SnapKind>(["grid-point", "increment"]);
 /** 按吸附结果给起点定身份：边 / 参考线 → 带方向；点类 → 参考点；其余 → 只量。edgeDir / guideDir 由调用方按命中补。 */
 export function classifyStart(sn: Snap3, lineDir: Pt3 | null): TapeStart {
   if (sn.kind && (LINE_KINDS.has(sn.kind) || ON_LATTICE.has(sn.kind)) && lineDir) return { kind: "line", p: sn.p, dir: normalize3(lineDir) };
+  if (sn.kind === "guide-point") return { kind: "through", p: sn.p };   // 从参考点再拉一次 = 过两点的线（不删点）
   if (sn.kind && POINT_KINDS.has(sn.kind)) return { kind: "point", p: sn.p };
   return { kind: "measure", p: sn.p };
 }

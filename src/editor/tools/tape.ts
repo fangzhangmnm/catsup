@@ -57,12 +57,16 @@ export class TapeTool implements ToolHandler {
       this.b = null;
       ctx.setAnchor(this.start.p); ctx.setSnap(r.snap); ctx.setCursor(this.start.p);
       this.stage = 1;
-      ctx.hint(this.start.kind === "line" ? "卷尺：拖开 → 平行参考线（输距离可精确）" : this.start.kind === "point" ? "卷尺：沿方向拖 → 参考点（输距离可精确）" : "卷尺：点第二点只量长度");
+      ctx.hint(this.start.kind === "line" ? "卷尺：拖开 → 平行参考线（输距离可精确）" : this.start.kind === "through" ? "卷尺：从参考点拉 → 过两点的参考线（参考点留着）" : this.start.kind === "point" ? "卷尺：沿方向拖 → 参考点（输距离可精确）" : "卷尺：点第二点只量长度");
       return;
     }
     const b = this.b ?? this.start!.p;
     const res = tapeResult(this.start!, b);
-    if (res.make === "line" || res.make === "point") {
+    if (res.make === "through") {   // 过两点的参考线：没有距离参数，不登记给数值小窗
+      const mInv = invert(ctx.ctxXform());
+      ctx.commitOp({ op: "addGuide", at: ctx.activePool(), line: { p: ctx.toLocal(res.p), dir: normalize3(applyDir(mInv, res.dir)) } });
+      ctx.hint("参考线 · 过两点");
+    } else if (res.make === "line" || res.make === "point") {
       const at = ctx.activePool(), n0 = ctx.opCount();
       const mInv = invert(ctx.ctxXform());
       if (res.make === "line") ctx.commitOp({ op: "addGuide", at, line: { p: ctx.toLocal(res.p), dir: normalize3(applyDir(mInv, res.dir)) } });
@@ -90,13 +94,13 @@ export class TapeTool implements ToolHandler {
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     if (this.stage !== 1 || !this.start || !this.b) return "";
     const r = tapeResult(this.start, this.b);
-    return r.make === "line" ? `偏移 ${fmtLen(r.d)}` : r.make === "point" ? `距 ${fmtLen(r.d)}` : `距离 ${fmtLen(r.d)}`;
+    return r.make === "line" ? `偏移 ${fmtLen(r.d)}` : r.make === "through" ? `过两点 · ${fmtLen(r.d)}` : r.make === "point" ? `距 ${fmtLen(r.d)}` : `距离 ${fmtLen(r.d)}`;
   }
 
   /** 量线 + 候选参考线 / 参考点（render3 tape 层）。 */
   viewExtras(): Partial<ViewState> {
     if (this.stage !== 1 || !this.start || !this.b) return {};
     const r = tapeResult(this.start, this.b);
-    return { tape: { a: this.start.p, b: this.b, guide: r.make === "line" ? { p: r.p, dir: r.dir } : null, point: r.make === "point" ? r.p : null } };
+    return { tape: { a: this.start.p, b: this.b, guide: r.make === "line" || r.make === "through" ? { p: r.p, dir: r.dir } : null, point: r.make === "point" ? r.p : null } };
   }
 }

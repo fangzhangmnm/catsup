@@ -1,0 +1,21 @@
+// 卷尺从参考点再拉一次 = 过两点的参考线，参考点留着（user 2026-10-25「有了点，再拉一次……」「好，不删点」）。created 2026-10-25 by Claude Opus 5.5
+import { createRequire } from "node:module";
+const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
+const url = process.argv[2] ?? "http://127.0.0.1:8765/";
+const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
+const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
+await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
+const box = await page.locator("#board").boundingBox();
+const px = (p) => page.evaluate((p) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(p, e.vp()); }, p);
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "addGuide", at: e.activePool(), point: { x: 1, y: 1, z: 0 } }); e.commitOp({ op: "addGuide", at: e.activePool(), point: { x: 2.5, y: 0.4, z: 0 } }); globalThis.__catsup.hud.pick("tape"); });
+const a = await px({ x: 1, y: 1, z: 0 }), c = await px({ x: 2.5, y: 0.4, z: 0 });
+await page.mouse.move(box.x + a.x, box.y + a.y); await page.waitForTimeout(100); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(120);
+await page.mouse.move(box.x + c.x, box.y + c.y, { steps: 8 }); await page.waitForTimeout(200);
+await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(250);
+const res = await page.evaluate(() => { const g = globalThis.__catsup.editor.worldGeom().guides(); return { lines: g.lines.map((l) => ({ p: [+l.p.x.toFixed(4), +l.p.y.toFixed(4)], dir: [+l.dir.x.toFixed(4), +l.dir.y.toFixed(4)] })), points: g.points.length }; });
+console.log(JSON.stringify(res));
+const L = res.lines[0], want = (() => { const dx = 1.5, dy = -0.6, n = Math.hypot(dx, dy); return [dx / n, dy / n]; })();
+const ok = res.lines.length === 1 && res.points === 2 && L && Math.abs(L.p[0] - 1) < 1e-6 && Math.abs(L.p[1] - 1) < 1e-6 && Math.abs(Math.abs(L.dir[0]) - want[0]) < 1e-3 && Math.abs(Math.abs(L.dir[1]) - Math.abs(want[1])) < 1e-3;
+console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
+await b.close(); process.exit(ok ? 0 : 1);
