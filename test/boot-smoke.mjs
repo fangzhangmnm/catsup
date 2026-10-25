@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // test/boot-smoke.mjs —— 转正纪元 ② 冒烟（headless，借 WeebPaint 的 playwright）：无地导出/重开 → 图库懒建 → 新建安家 → 保存（缩略图）→ 刷新回到上次文档
 //   → ③ 缩略图 IDB 命中 → ④ 盲快照 / redirect 留声 / 自动领养 → ⑤ crash 帧通知 → 恢复（0.5.2，user 2026-09-20「234批准」）。
-// 用法：python3 -m http.server 8765 后 `node test/boot-smoke.mjs [url] [outdir]`。created 2026-09-20 by Claude Fable 5.1
+// 用法：python3 -m http.server 8765 后 `node test/boot-smoke.mjs [url] [outdir]`。created 2026-09-20 by Claude Fable 5.1 · 2026-10-25 收 store 2.2.0（occupied / file 去 isZip；Claude Fable 5.1）
 import { createRequire } from "node:module";
 import path from "node:path";
 import { readFileSync } from "node:fs";
@@ -71,13 +71,13 @@ const plannedPath = await page.evaluate(() => globalThis.__catsup.session.home.p
 eq(/^\d{8}-[0-9a-f]{4}\.glb$/.test(plannedPath), true, `new doc gets a gallery-home date name (${plannedPath})`);
 // v0.5.7 lazyblank（WeebPaint P1.5）：新建 = 日期名只在内存，**不建文件**；空白期 save 钮 none、显式保存诚实回话、回执条不指它
 eq(await page.evaluate(() => globalThis.__catsup.session.lazy), true, "new doc is lazyblank (no file until first stroke)");
-eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), plannedPath), false, "untouched new doc created NO file");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.occupied(p), plannedPath), false, "untouched new doc created NO file");
 eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "none", "save btn none while blank");
 eq(await page.evaluate(() => globalThis.__catsup.session.save()), false, "explicit save on blank lazyblank = nothing to save (no file)");
-eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), plannedPath), false, "…still no file after Ctrl+S on blank");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.occupied(p), plannedPath), false, "…still no file after Ctrl+S on blank");
 await page.waitForTimeout(300);
 console.log("  · pre-draw state:", JSON.stringify(await page.evaluate((c) => ({ tool: globalThis.__catsup.editor.tool, active: document.activeElement?.tagName + "#" + document.activeElement?.id, top: document.elementFromPoint(c.x, c.y)?.id, saving: globalThis.__catsup.session.saving, gesture: globalThis.__catsup.editor.isGestureActive() }), { x: cx, y: cy })));
-await page.keyboard.press("r");
+await page.evaluate(() => globalThis.__catsup.editor.setTool("rect"));   // 不按 R：已经是矩形时再按 R = 组内轮换成旋转矩形（v0.13.6x 同键轮换），拖一下就出不了面
 // 拖的对角线别和世界轴平行（yaw −45° 下屏幕对角 (160,90) 会投成零宽矩形 = 合法的「画了个线」，冒烟要的是面）
 await page.mouse.move(cx - 100, cy - 60); await page.mouse.down(); await page.mouse.move(cx + 100, cy + 20, { steps: 10 }); await page.mouse.up();
 await page.waitForTimeout(300);
@@ -88,9 +88,9 @@ eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 
 await page.waitForFunction(() => !globalThis.__catsup.session.lazy && !globalThis.__catsup.session.saving && !globalThis.__catsup.session.dirty(), null, { timeout: 10000 });
 const gpath = await page.evaluate(() => globalThis.__catsup.session.home.path);
 eq(gpath, plannedPath, "first stroke adopted the planned name (no collision)");
-eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), gpath), true, "first stroke created the gallery file (auto-saved)");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.occupied(p), gpath), true, "first stroke created the gallery file (auto-saved)");
 eq(await page.evaluate(() => globalThis.__catsup.session.save()), true, "explicit save to gallery home");
-const savedBytes = await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { isZip: false, mode: "existing" }).open(); return b ? b.size : -1; }, gpath);
+const savedBytes = await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { mode: "existing" }).open(); return b ? b.size : -1; }, gpath);
 console.log("  · saved size in store", savedBytes, "B");
 eq(await page.evaluate(() => globalThis.__catsup.session.dirty()), false, "clean after save");
 eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "local-only", "save btn: gallery home, configured but signed out = local-only（斜杠云）");
@@ -129,7 +129,7 @@ const lazyPath = await page.evaluate(() => globalThis.__catsup.session.home.path
 await page.reload({ waitUntil: "load" });
 await page.waitForFunction(() => globalThis.__catsup?.session?.home?.kind === "gallery" && !globalThis.__catsup.session.lazy, null, { timeout: 15000 }).catch(() => {});
 eq(await page.evaluate(() => globalThis.__catsup.session.home.path), gpath, "untouched new doc leaves the slate alone → reload returns to the previous doc");
-eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), lazyPath), false, "untouched new doc left no junk file behind");
+eq(await page.evaluate((p) => globalThis.__catsup.store().files.occupied(p), lazyPath), false, "untouched new doc left no junk file behind");
 // 停在图库 → 刷新回图库（回执条 {gallery}）；关图库回到底下的 lazyblank；再从图库开那个文档 → 刷新回文档
 await page.evaluate(() => globalThis.__catsup.galleryHost.open());
 await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
@@ -155,7 +155,7 @@ await page.evaluate(() => globalThis.__catsup.galleryHost.close());
 await page.setInputFiles("#glbFile", dlPath);
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "file");
 const revBefore = await page.evaluate(() => globalThis.__catsup.editor.revision);
-await page.keyboard.press("r");
+await page.evaluate(() => globalThis.__catsup.editor.setTool("rect"));   // 不按 R：已经是矩形时再按 R = 组内轮换成旋转矩形（v0.13.6x 同键轮换），拖一下就出不了面
 await page.mouse.move(cx - 100, cy - 60); await page.mouse.down(); await page.mouse.move(cx + 100, cy + 20, { steps: 10 }); await page.mouse.up();
 await page.waitForTimeout(1300);   // 标题胶囊随 1 s tick 刷新
 const facesBefore = await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length);
@@ -179,7 +179,7 @@ eq((await page.evaluate(() => globalThis.__catsup.crash.listAtBoot())).length, 0
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-5-adopted.png") });
 
 // ⑤ crash 帧通知：人工放一帧（= 真 crash 幸存的快照）→ 刷新 → 非模态通知 → 恢复
-await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { isZip: false, mode: "existing" }).open(); await globalThis.__catsup.crash.put("tag-smoke-ghost", b, { state: "crash", name: "幽灵", at: Date.now(), homeKind: "transient" }); }, gpath);
+await page.evaluate(async (p) => { const b = await globalThis.__catsup.store().file(p, { mode: "existing" }).open(); await globalThis.__catsup.crash.put("tag-smoke-ghost", b, { state: "crash", name: "幽灵", at: Date.now(), homeKind: "transient" }); }, gpath);
 await page.reload({ waitUntil: "load" });
 await page.waitForFunction(() => (document.getElementById("noticeStack")?.textContent ?? "").includes("幽灵"), null, { timeout: 15000 }).catch(() => {});
 eq((await page.evaluate(() => document.getElementById("noticeStack")?.textContent ?? "")).includes("上次没保存的模型「幽灵」"), true, "boot notice offers the crash frame");

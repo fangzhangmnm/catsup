@@ -1,1 +1,1 @@
-gallery.css ← @internal/gallery 0.4.0；workbench-elements.css ← @internal/workbench-elements 0.1.0。收货时随包一起更新（pull-package 后手动拷）。2026-09-20 Claude Fable 5.1
+gallery.css ← @internal/gallery 0.8.7；workbench-elements.css ← @internal/workbench-elements 0.1.3（与 0.1.0 逐字节相同）。收货时随包一起更新（pull-package 后手动拷：`tar -xOf vendor-pkgs/internal-gallery-<ver>.tgz package/src/gallery.css > vendor/internal-css/gallery.css`）。2026-09-20 Claude Fable 5.1 · 2026-10-25 收 0.8.7 / 0.1.3 edited by Claude Fable 5.1

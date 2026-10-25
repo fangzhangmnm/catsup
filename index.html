@@ -13,7 +13,7 @@
     <link rel="icon" href="./icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
-    <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=b311ce739b64" />
+    <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=5a25e80abd73" />
     <link rel="stylesheet" href="./styles.css?v=d6fb27ed6448" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
@@ -245,7 +245,7 @@
     <div id="tip" hidden></div>
     <div id="noticeStack"></div>
 
-    <!-- 图库（@internal/gallery 0.4.0；编辑器/图库互斥挂载 ADR-0013 的「隐藏」形态） -->
+    <!-- 图库（@internal/gallery 0.8.7；编辑器/图库互斥挂载 ADR-0013 的「隐藏」形态；回收站 / 备份箱视图的清空钮在包里） -->
     <div id="galleryFull" class="gallery-full" role="dialog" aria-modal="true" aria-hidden="true" aria-label="图库" hidden>
       <div class="gallery-chrome">
         <!-- 图库页 ☰（F-81，user 2026-10-25「图库页的 ☰：还没加。 做」）：回收站（从顶栏收进来，WeebPaint 同款）/ 使用手册 / 调试日志 / 强制更新 -->
@@ -260,7 +260,6 @@
       </div>
       <div class="gallery-trashbar" id="galleryTrashBar" hidden>
         <button class="sheet-choice" id="galleryTrashBack" type="button">回到图库</button>
-        <button class="sheet-choice danger" id="galleryEmptyTrash" type="button">清空回收站</button>
       </div>
       <div class="gallery-mount" id="galleryMount"></div>
     </div>
@@ -324,6 +323,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-fe4886e37067.mjs"></script>
+    <script type="module" src="./dist/catsup-ced2cc04d1b6.mjs"></script>
   </body>
 </html>

@@ -9,8 +9,10 @@
 //
 // v0.5.7（2026-09-22，Claude Fable 5.1；对齐审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md）：
 //   · 回执条（@internal/gallery resume-slate）**唯一写点 = setHome**：图库家（非 lazy）→ {doc}；文件家（挂库时）→ {gallery}；transient / lazyblank 不碰。
-//   · lazyblank：beginLazyBlank（日期名内存态）→ noteChange（editor.host.changed 同步钩）首笔有边 → adoptLazy（nameOccupied 消歧 → 首存 mode:"new"）。
-//   · restore(path) = boot 端口（无挽留门、无状态行）；refreshOpenDoc = 登录 / 回线 / 回前台的干净快进（pullIfClean + busy 遮罩 + 同名重开）；
+//   · lazyblank：beginLazyBlank（日期名内存态）→ noteChange（editor.host.changed 同步钩）首笔有边 → adoptLazy（files.occupied 消歧 → 首存 mode:"new"）。
+//   · restore(path) = boot 端口（无挽留门、无状态行）；refreshOpenDoc = 登录 / 回线 / 回前台的干净快进（pullIfClean trustHints:false + busy 遮罩 + 同名重开）；
+//   · 2026-10-25 收 store 2.2.0（Claude Fable 5.1）：nameOccupied → occupied；pushDoc（图库卡片「推送到云端」）退役——方向动词不在词汇表上（user 2026-10-16「禁止越狱」），
+//     没同步好的文件 = 卡片「处理…」→ store file.resolve() 三选一；refreshOpenDoc 传 trustHints:false（0.18.1）。
 //   · flushForHide = hidden / blur / pagehide(!persisted) 的崩溃安全 flush（只本地不推）。
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
@@ -306,7 +308,7 @@ export class Session {
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
   }
-  /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeFileName / **回执条**（@internal/gallery resume-slate）都从这收口。
+  /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeIdentifier / **回执条**（@internal/gallery resume-slate）都从这收口。
    *  回执条语义（WeebPaint 同）：图库家（非 lazy）→ {doc}；文件家 → {gallery}（句柄跨刷新不可恢复，下次落图库）；transient / lazyblank 不碰
    *  （空白不算「上次开着的画」）；未挂库时回执条无意义，一律不碰。 */
   private setHome(h: DocHome): void {
@@ -324,11 +326,11 @@ export class Session {
   /** 图库覆盖层开 / 关时的回执条（WeebPaint：退到图库 = {gallery}；回到图库家文档 = {doc}；lazyblank / 本地家底下 → 停在 {gallery}）。 */
   slateGalleryOpened(): void { if (hasStore()) try { setOpened({ kind: "gallery" }); } catch { /* device-kv 不抛 */ } }
   slateGalleryClosed(): void { if (hasStore() && this.home.kind === "gallery" && !this.lazy) try { setOpened({ kind: "doc", path: this.home.path }); } catch { /* 同上 */ } }
-  /** 撞名消歧：`base`、`base-1`、`base-2`…（store nameOccupied 本机 ∪ 云端）。 */
+  /** 撞名消歧：`base`、`base-1`、`base-2`…（store files.occupied 本机 ∪ 云端）。 */
   private async freeName(dir: string, base: string): Promise<string> {
     const files = requireStore().files;
     let path = fullName(dir, base);
-    for (let n = 1; n < 100 && (await files.nameOccupied(path)); n++) path = fullName(dir, `${base}-${n}`);
+    for (let n = 1; n < 100 && (await files.occupied(path)); n++) path = fullName(dir, `${base}-${n}`);
     return path;
   }
 
@@ -417,6 +419,9 @@ export class Session {
       const r = await docFile(path).pullIfClean({
         localDirty: () => this.dirty(),
         onReplaceStart: () => { gate = true; showBusy("正在从云端更新…", bareName(path)); },
+        // store 0.18.1：登录落地 / 回线 / 回前台正是「怀疑自己过期」的时刻——不采信 30 s 内图库刚列过的旧清单（0.17.0 fresh-hints），一定问一趟云端，
+        //   别的设备这 30 s 里刚存的也能快进（家族根数据安全模型 §3 A4；库发版说明写明的消费方义务）。
+        trustHints: false,
       });
       if (r.status !== "fast-forwarded") { if (r.status && r.status !== "in-sync") note("doc", `refresh ${bareName(path)}: ${r.status}${r.reason ? " " + r.reason : ""}`); return; }
       if (this.home.kind !== "gallery" || this.home.path !== path || this.dirty()) return;   // 换了家 / 期间落笔（遮罩前的窗口）：本地字节已新，画布留用户的
@@ -549,10 +554,7 @@ export class Session {
   }
   /** 图库把活动文档改名/移动了（onRenamed / 图库动词）→ 换身份。 */
   setActivePath(path: string): void { if (this.home.kind === "gallery") this.setHome({ kind: "gallery", path }); }
-  async pushDoc(path: string): Promise<void> {
-    const f = docFile(path); const blob = await f.open(); if (!blob) return;
-    await f.save(blob, { tryPush: true });
-  }
+  // （pushDoc 已删 2026-10-25：那是「open 再 save 刷新基准 + 传上去」的越狱形（store 0.18.3 滥用警示点名）；gallery ≥ 0.8.1 不再有这个动词。）
   async offloadDoc(path: string): Promise<void> { await docFile(path).offload(); }
   /** 去图库前：图库家的脏文档落本地（WeebPaint：退出自动 ctrl+s）。 */
   async flushLocal(): Promise<void> { if (this.adopting) await this.adopting; if (this.home.kind === "gallery" && !this.lazy && this.dirty()) await this.save({ implicit: true }); }

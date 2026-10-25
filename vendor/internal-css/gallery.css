@@ -91,13 +91,25 @@
      圆角改由 thumb 自己承担（只圆上两角，贴卡片弧度）。 */
   cursor: pointer;
   position: relative;
-  transition: transform 0.08s ease, box-shadow 0.08s ease, opacity 0.15s ease;
+  transition: box-shadow 0.08s ease, opacity 0.15s ease;
 }
 .gallery-tile[data-busy="1"] {
   opacity: 0.55;
   cursor: progress;
 }
-.gallery-tile:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+/* 0.6.3：hover 只给真有指针的设备（@media (hover: hover)），且不再 transform——
+   ① iOS 触屏没有 hover，tap 会把 :hover 粘在卡片上；菜单出了卡片之后（0.6.2）手指点菜单项 = 离开卡片 → 粘着的 hover 解除 → 版面一变，
+     Safari 把这一下当 mouseover 处理、吞掉 click（user 真机 2026-09-30「gallery的删除好像有问题，删不了」的头号嫌疑）；
+   ② transform 让卡片自成层叠上下文（0.6.2 修的那个根因），抬 1px 的装饰不值这个价。悬停提示只剩阴影。 */
+@media (hover: hover) {
+  .gallery-tile:hover { box-shadow: 0 4px 12px rgba(0,0,0,0.08); }
+  .gallery-tile-menu-btn:hover { background: rgba(255, 255, 255, 1); }
+  .gallery-tile-menu-popup button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
+  .gallery-tile-menu-popup button.danger:hover { background: color-mix(in srgb, #c0392b 12%, transparent); }
+  .gallery-tile.image-file:hover .gallery-tile-thumb,
+  .gallery-tile.image-file:hover .gallery-tile-name-row { opacity: 1; }
+  .gallery-grid.list .gallery-tile:hover { box-shadow: none; background: color-mix(in srgb, var(--ink) 4%, transparent); }
+}
 .gallery-tile.active {
   border-color: var(--accent);
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--accent) 30%, transparent);
@@ -105,7 +117,7 @@
 .gallery-tile-thumb {
   /* 大厂现行做法：aspect-ratio 让缩略图随卡片宽变成方块（块布局里 width:100% 先定宽、aspect 求等高）。
    * 同一行卡片等宽→等高。object-fit:contain：方图整张可见、比例正确。 */
-  width: 100%; aspect-ratio: var(--tile-aspect, 1 / 1); height: auto;   /* 0.2.0：比例由 .gallery-grid 的 --tile-aspect 定（方图 / 2:3 书封） */
+  width: 100%; aspect-ratio: var(--tile-aspect, 1 / 1); height: auto;   /* 比例由 .gallery-grid 的 --tile-aspect 定（默认方图；宿主可给任意比例） */
   display: block;
   object-fit: contain;
   border-radius: 7px 7px 0 0;   /* v0.5.39：卡片放开 overflow 后圆角自理（8px 外框内贴 1px 边） */
@@ -124,6 +136,16 @@
 /* 0.1.2：宿主给的占位图标（ui.tilePlaceholderHtml），替代名字首字 */
 .gallery-tile-ph-icon { display: inline-flex; width: 40%; height: 40%; color: var(--ink-soft, rgba(0,0,0,0.45)); }
 .gallery-tile-ph-icon svg { width: 100%; height: 100%; }
+/* 0.5.0：宿主盖在封面上的一层（ui.tileOverlayHtml）。铺满封面那一块（和缩略图同宽同比例），不吃指针事件；
+   里面画什么归宿主。紧跟在缩略图元素后面 → 宿主可用 `img.gallery-tile-thumb + .gallery-tile-overlay` 区分底下是图还是占位。 */
+.gallery-tile-overlay {
+  position: absolute; top: 0; left: 0;
+  width: 100%; aspect-ratio: var(--tile-aspect, 1 / 1);
+  display: block; overflow: hidden;
+  border-radius: 7px 7px 0 0;
+  pointer-events: none;
+}
+.gallery-grid.list .gallery-tile-overlay { display: none; }
 /* 加密作品锁定态：点锁可解锁预览（ADR-0012） */
 .gallery-tile-thumb.placeholder.locked {
   cursor: pointer;
@@ -152,18 +174,17 @@
   -webkit-backdrop-filter: blur(4px);
   transition: background 0.1s ease;
 }
-.gallery-tile-menu-btn:hover { background: rgba(255, 255, 255, 1); }
 .gallery-tile-menu-popup {
-  position: absolute; right: 4px; top: 34px;
+  /* 0.6.2：不再住卡片里（卡片 :hover 的 transform 在 iOS 上粘住 → 卡片自成层叠上下文 → 菜单被下一排卡片盖住）。
+     <Teleport> 到图库挂载点，fixed，坐标由 gallery-screen.ts placeMenu 按 ⋯ 钮算（贴屏幕下缘往上翻 #14），层级 = 宿主的菜单 band
+     （宿主没定义 --z-menu 时兜底 400，别再像 2026-09-10 那样掉成 auto）。 */
+  position: fixed; z-index: var(--z-menu, 400);
   /* 外观（实底）：WeebPaint 里走 .menu-panel 共享规则，包内自带一份（2026-09-10 WXHW 收货时菜单透明压在卡片文字上） */
-  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); color: var(--ink); z-index: 5; padding: 4px;
+  background: var(--bg); border: 1px solid var(--line); border-radius: 8px; box-shadow: var(--shadow); color: var(--ink); padding: 4px;
   min-width: 140px;
-  z-index: 5;
   display: flex; flex-direction: column;
   overflow: hidden;
 }
-/* #14：卡片贴屏幕下缘时菜单向上翻（JS 量 bbox 超视口底 → 加 .up），底部行不再伸出屏外 */
-.gallery-tile-menu-popup.up { top: auto; bottom: 34px; }
 .gallery-tile-menu-popup button {
   padding: 8px 12px;
   text-align: left;
@@ -179,9 +200,7 @@
   gap: 9px;
 }
 .gallery-tile-menu-popup button svg { width: 16px; height: 16px; flex: none; }
-.gallery-tile-menu-popup button:hover { background: color-mix(in srgb, var(--ink) 8%, transparent); }
 .gallery-tile-menu-popup button.danger { color: #c0392b; }
-.gallery-tile-menu-popup button.danger:hover { background: color-mix(in srgb, #c0392b 12%, transparent); }
 /* cloud-gone ghost 菜单的解释行（非按钮）：窄、灰、可折行 */
 .gallery-menu-note {
   padding: 8px 12px;
@@ -226,6 +245,26 @@
 .gallery-tile-state-icon.b-conflictBoth { color: var(--warn); }
 .gallery-tile-state-icon.b-newerOnCloud { color: var(--accent); }
 /* 「编辑中」角标叠在第 1 行（name）右侧，可压住右端文字（用户：可重叠）。0.2.1：文字从 CSS content 搬进模板走 i18n（gal.tile.active；WXHW 改「打开中」） */
+/* 0.6.1：加密的文档卡片左上角一把大锁（覆盖层之上、名字行之下），解锁与否都显示——一眼分出加密和不加密
+   （WXHW user 2026-09-30「gallery里面加密和不加密也需要有辨识度。左上角加一把大锁？」）。宿主可改位置 / 大小；列表布局不画。 */
+.gallery-tile-lockmark {
+  position: absolute; left: 8px; top: 8px; width: 22%; max-width: 40px; aspect-ratio: 1;
+  display: block; pointer-events: none; color: var(--enc, #b45309);
+  filter: drop-shadow(0 0 1px #fff) drop-shadow(0 0 1px #fff);
+}
+.gallery-tile-lockmark svg { width: 100%; height: 100%; display: block; }
+.gallery-grid.list .gallery-tile-lockmark { display: none; }
+/* 0.8.0：卡片右下角的动作钮（ui.tileAction；MoonSinger「听定稿的 mp3」第一个用）。槽和缩略图 / 覆盖层同一块几何（top:0 + aspect-ratio），槽不吃指针事件、钮吃；
+   点了走 doc.tileAction、不打开那份（@click.stop）。state：ready = 亮、unknown = 淡（事实还没到）。宿主可改颜色 / 位置；列表布局不画。 */
+.gallery-tile-action-slot { position: absolute; top: 0; left: 0; width: 100%; aspect-ratio: var(--tile-aspect, 1 / 1); pointer-events: none; z-index: 2; }
+.gallery-tile-action {
+  position: absolute; right: 8px; bottom: 8px; width: 34px; height: 34px; border-radius: 50%; border: 0; padding: 0; cursor: pointer; pointer-events: auto;
+  display: flex; align-items: center; justify-content: center; color: #fff; background: var(--accent, #3b6fd4); box-shadow: 0 2px 8px rgba(0, 0, 0, .25);
+}
+.gallery-tile-action svg, .gallery-tile-action .ico { width: 18px; height: 18px; }
+.gallery-tile-action.unknown { opacity: .45; }
+@media (hover: hover) { .gallery-tile-action:hover { filter: brightness(1.08); } }
+.gallery-grid.list .gallery-tile-action-slot { display: none; }
 .gallery-tile-active-tag {
   position: absolute; right: 6px; top: 8px;
   pointer-events: none;
@@ -304,8 +343,6 @@
    v0.9.35（QA 1）：降级只罩缩略图+名字行——罩整 tile 会连坐 ⋯ 菜单弹层（iPad 无 hover 恢复不了） */
 .gallery-tile.image-file .gallery-tile-thumb,
 .gallery-tile.image-file .gallery-tile-name-row { opacity: 0.72; }
-.gallery-tile.image-file:hover .gallery-tile-thumb,
-.gallery-tile.image-file:hover .gallery-tile-name-row { opacity: 1; }
 .gallery-tile.image-file .gallery-tile-thumb {
   /* 素材图整图看全（contain）；画作 thumb 维持既有裁切规则不动 */
   object-fit: contain;
@@ -397,11 +434,10 @@
   gap: 16px;
   align-content: start;
 }
-.gallery-grid.tall { --tile-min: 120px; --tile-min-narrow: calc(33.333% - 10.667px); --tile-aspect: 2 / 3; }
+.gallery-grid.tall { --tile-min: 120px; --tile-min-narrow: calc(33.333% - 10.667px); }   /* 竖版（宿主给的比例 < 1）：卡片窄一档、窄屏一排三张。比例本身 = 宿主给的数，写在这个元素的 style 里（--tile-aspect） */
 /* ── 0.3.0 列表视图（tile.layout:"list"，JRB 第三消费者；提案 ai-docs/20260919-proposal-list-view.md）：一行一件，名字整行最多折两行，副标题一行，右侧 ⋯。默认 cards 规则一字不动。 ── */
 .gallery-grid.list { display: flex; flex-direction: column; gap: 0; padding: 0 0 16px; }
 .gallery-grid.list .gallery-tile { display: grid; grid-template-columns: 40px minmax(0, 1fr) 30px; grid-template-areas: "thumb name menu"; align-items: center; column-gap: 10px; padding: 8px 12px; border: 0; border-bottom: 1px solid var(--line); border-radius: 0; background: transparent; }
-.gallery-grid.list .gallery-tile:hover { transform: none; box-shadow: none; background: color-mix(in srgb, var(--ink) 4%, transparent); }
 .gallery-grid.list .gallery-tile.active { box-shadow: inset 3px 0 0 var(--accent); }
 .gallery-grid.list .gallery-tile-thumb { grid-area: thumb; width: 40px; aspect-ratio: var(--tile-aspect, 1 / 1); border-radius: 4px; font-size: 16px; }
 .gallery-grid.list .gallery-tile-ph-icon { width: 60%; height: 60%; }

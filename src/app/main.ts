@@ -956,7 +956,6 @@ const galleryHost = initGalleryHost({
   openDoc: (n) => session.openFromGallery(n),
   renameActive: () => session.renameActive(),
   setActiveName: (n) => session.setActivePath(n),
-  pushDoc: (n) => session.pushDoc(n),
   offloadDoc: (n) => session.offloadDoc(n),
   flushLocal: () => session.flushLocal(),
   setStatus: (text, error) => { note("gallery", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
@@ -966,24 +965,23 @@ const galleryHost = initGalleryHost({
 });
 $("galleryBack").addEventListener("click", () => galleryHost.close());
 $("galleryNew").addEventListener("click", () => { void session.newDoc().then((ok) => { if (ok) galleryHost.close(); }); });
-$("galleryTrashBtn").addEventListener("click", () => { galleryHost.setView("trash"); $("galleryTrashBar").hidden = false; });
+// 搁置区两箱（gallery 0.5.0：回收站 = 删掉的；备份箱 = 冲突面里被换下的那一版）。清空钮在包的视图里（0.8.6），宿主只切视图 + 露「回到图库」条。
+const showAside = (view: "trash" | "backup"): void => { galleryHost.setView(view); $("galleryTrashBar").hidden = false; };
+$("galleryTrashBtn").addEventListener("click", () => showAside("trash"));
 // 图库页 ☰（F-81；WeebPaint 图库菜单同款，回收站从顶栏收进来）。与文件无关的几项；动作借主菜单的 menuPick
-type GalleryMenuId = "trash" | "help" | "debuglog" | "update";
+type GalleryMenuId = "trash" | "backup" | "help" | "debuglog" | "update";
 $("galleryMenuBtn").addEventListener("click", () => togglePopupMenu<GalleryMenuId>({
   anchor: $("galleryMenuBtn"),
   items: () => [
     { id: "trash", label: "回收站", icon: "restore-trash" },
+    { id: "backup", label: "备份箱", icon: "restore-trash", hint: "冲突里换下的那版" },
     { id: "help", label: "使用手册", icon: "help", separatorBefore: true },
     { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
     { id: "update", label: "强制更新", icon: "refresh", hint: APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "") },
   ],
-  onPick: (id) => { if (id === "trash") { galleryHost.setView("trash"); $("galleryTrashBar").hidden = false; return; } return menuPick(id); },
+  onPick: (id) => { if (id === "trash" || id === "backup") { showAside(id); return; } return menuPick(id); },
 }));
 $("galleryTrashBack").addEventListener("click", () => { galleryHost.setView("files"); $("galleryTrashBar").hidden = true; });
-$("galleryEmptyTrash").addEventListener("click", () => {
-  void openChoiceSheet<"local" | "cloud" | "both">("清空回收站", "清空哪边？（不可恢复）", [{ label: "本机与云端", value: "both", danger: true }, { label: "只清本机", value: "local" }, { label: "只清云端", value: "cloud" }])
-    .then((scope) => { if (scope) void galleryHost.emptyTrash(scope); });
-});
 const cloudBtn = $<HTMLButtonElement>("galleryCloudBtn");
 let signInNav = false;   // 登录 redirect 导航中：beforeunload 别挡（WeebPaint _signInNav 同款）
 const acct = (a: unknown): string => { const h = (a as { homeAccountId?: unknown } | null)?.homeAccountId; return typeof h === "string" && h ? h.slice(0, 8) + "…" : "-"; };

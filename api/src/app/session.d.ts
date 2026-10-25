@@ -119,14 +119,14 @@ export declare class Session {
     private finalIntact;
     private encode;
     private adopt;
-    /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeFileName / **回执条**（@internal/gallery resume-slate）都从这收口。
+    /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeIdentifier / **回执条**（@internal/gallery resume-slate）都从这收口。
      *  回执条语义（WeebPaint 同）：图库家（非 lazy）→ {doc}；文件家 → {gallery}（句柄跨刷新不可恢复，下次落图库）；transient / lazyblank 不碰
      *  （空白不算「上次开着的画」）；未挂库时回执条无意义，一律不碰。 */
     private setHome;
     /** 图库覆盖层开 / 关时的回执条（WeebPaint：退到图库 = {gallery}；回到图库家文档 = {doc}；lazyblank / 本地家底下 → 停在 {gallery}）。 */
     slateGalleryOpened(): void;
     slateGalleryClosed(): void;
-    /** 撞名消歧：`base`、`base-1`、`base-2`…（store nameOccupied 本机 ∪ 云端）。 */
+    /** 撞名消歧：`base`、`base-1`、`base-2`…（store files.occupied 本机 ∪ 云端）。 */
     private freeName;
     /** lazyblank 新场景（WeebPaint beginLazyBlank）：空内核 + 图库家日期名只在内存；不建文件、不写回执条；首笔有内容 → noteChange 安家。
      *  boot 的「可画新场景」落点（首次 / 恢复失败 / 崩溃断路）+ 挂库时的「新建」。 */
@@ -164,7 +164,6 @@ export declare class Session {
     renameActive(): Promise<string | null>;
     /** 图库把活动文档改名/移动了（onRenamed / 图库动词）→ 换身份。 */
     setActivePath(path: string): void;
-    pushDoc(path: string): Promise<void>;
     offloadDoc(path: string): Promise<void>;
     /** 去图库前：图库家的脏文档落本地（WeebPaint：退出自动 ctrl+s）。 */
     flushLocal(): Promise<void>;

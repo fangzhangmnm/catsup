@@ -1,25 +1,29 @@
 // store-ui.ts —— 给 @internal/store 的 ui bundle（busy / text / resolveConflict / reportError / offlineEscape / onReplayStatus / confirmReplay）。
-// 形状照 JRB / WeebPaint store-ui.ts（pwa-cloud-store skill §2）。created 2026-09-20 by Claude Fable 5.1
+// 形状照 JRB / WeebPaint store-ui.ts（pwa-cloud-store skill §2）。created 2026-09-20 by Claude Fable 5.1 · 2026-10-25 收 store 2.2.0（Claude Fable 5.1）
 //   · 后台节律（推云 / 改名 / 拉取 / 云端检查）**不上全屏遮罩**——走 notice 栈同 id 原地更新、完成即收；用户动作（回收站 / 建删夹 / 重传）才遮罩。
 //   · 冲突必 surface（ADR-0009）：真 sheet，绝不静默 cancel；takeCloud 由 session 整份重载。
-import type { StoreUI, StoreTextKey, StoreTextParams } from "@internal/store";
+//   · 冲突面词汇表只有三个词（家族 2026-10-16，user「冲突面文案用『云端覆盖本地 / 本地覆盖云端』」「默认云端才是 authority」）；主按钮 = 云端覆盖本地（别的设备刚存的）；
+//     措辞按 store 0.18.2 的 cloudState 分四条，文案逐字 = gallery 包自带的 zh（cf.body.* / cf.cloudGoneTitle / cf.note.keptSafe），全家一个口径。
+//     absent / never 时「云端覆盖本地」= 本机这份进回收站、不是备份箱——「会留底」那句只在 changed / unchanged 显示（否则是撒谎；JRB 迁库 doc §1）。
+import type { StoreUI, StoreTextKey, StoreTextParams, ResolveChoice } from "@internal/store";
 import { withBusy, openChoiceSheet, openConfirmSheet } from "./app/ui/sheets.ts";
 import { showNotice, type NoticeHandle } from "./app/ui/notice.ts";
 import { reportError } from "./app/error-funnel.ts";
 import { note } from "./app/debug-log.ts";
 import { DOC_EXT } from "./config.ts";
 
-// 库 15 个 busy 文案 key → 中文（孵化中项目不走 i18n SSoT；毕业时搬）。穷举 Record：库加 key 本表漏映 = 编译错。
+// 库 16 个 busy 文案 key → 中文（孵化中项目不走 i18n SSoT；毕业时搬）。穷举 Record：库加 key 本表漏映 = 编译错。
 const STORE_TEXT: Record<StoreTextKey, (p?: StoreTextParams) => string> = {
   "sync.pushing": () => "正在同步到云端…",
   "file.renaming": (p) => `正在改名 ${p?.name ?? ""}…`,
+  "file.uploading": (p) => `正在上传 ${p?.name ?? ""}…`,   // store 0.17.0 files.uploadStream（本 app 不用流式上传，映射只为穷举表完整）
   "file.pulling": (p) => `正在从云端拉取 ${p?.name ?? ""}…`,
   "cloud.checking": () => "正在检查云端…",
   "file.deleting": (p) => `正在删除 ${p?.name ?? ""}…`,
   "trash.restoring": () => "正在从回收站恢复…",
   "trash.purging": () => "正在彻底删除…",
   "trash.emptyTrash": () => "正在清空回收站…",
-  "trash.emptyBackups": () => "正在清空备份…",
+  "trash.emptyBackups": () => "正在清空备份箱…",
   "file.encrypting": () => "正在加密…",
   "file.decrypting": () => "正在解密…",
   "file.rekeying": () => "正在换密码…",
@@ -27,7 +31,7 @@ const STORE_TEXT: Record<StoreTextKey, (p?: StoreTextParams) => string> = {
   "folder.creating": () => "正在新建文件夹…",
   "folder.deleting": () => "正在删除文件夹…",
 };
-const stripExt = (n: string): string => n.replace(new RegExp(`\\${DOC_EXT}$`, "i"), "");
+const stripExt = (n: string): string => n.replace(/^.*\//, "").replace(new RegExp(`\\${DOC_EXT}$`, "i"), "");
 
 const QUIET_KEYS = new Set<StoreTextKey>(["sync.pushing", "file.renaming", "file.pulling", "cloud.checking"]);
 let _quietDepth = 0;
@@ -39,18 +43,32 @@ async function quietBusy<T>(label: string, fn: () => Promise<T>): Promise<T> {
   finally { _quietDepth--; if (_quietDepth <= 0) { _quietDepth = 0; _quietNotice?.close(); _quietNotice = null; } }
 }
 
+const KEPT_SAFE = "被替换的版本会自动留底，不会丢失。";
+
 export const storeUI: StoreUI = {
   busy: (label, fn, key) => (key && QUIET_KEYS.has(key) ? quietBusy(label, fn) : withBusy(label, fn)),
   text: (key: StoreTextKey, params?: StoreTextParams): string | undefined => STORE_TEXT[key]?.(params),
 
-  resolveConflict: async ({ name, occasion }): Promise<"keepMine" | "takeCloud" | "cancel"> => {
+  resolveConflict: async ({ name, occasion, cloudState }): Promise<ResolveChoice> => {
     const n = stripExt(name);
-    note("store", `conflict occasion=${occasion} name=${n}`);
-    const choice = occasion === "open"
-      ? await openChoiceSheet<"cancel" | "takeCloud">("云端有另一个版本", `「${n}」在云端和本机各有一份不同的内容。两边都会保留（输的一方进 .backup）。`,
-          [{ label: "先开本机的，稍后再定", value: "cancel", primary: true }, { label: "用云端的版本", value: "takeCloud" }])
-      : await openChoiceSheet<"keepMine" | "takeCloud" | "cancel">("保存撞上云端新版本", `「${n}」在云端已被改过。选一边覆盖，另一边会留在 .backup。`,
-          [{ label: "以本机为准（覆盖云端）", value: "keepMine", primary: true }, { label: "以云端为准（本机重载）", value: "takeCloud" }, { label: "取消", value: "cancel" }]);
+    note("store", `conflict occasion=${occasion} cloudState=${cloudState ?? "-"} name=${n}`);
+    let choice: ResolveChoice | null;
+    if (occasion === "open") {
+      // 打开时：两个按钮都不丢字节——打开本地 = 先开本机这份、保存时再裁；云端覆盖本地 = 本机这份进备份箱、拉云端的。
+      choice = await openChoiceSheet<"cancel" | "takeCloud">("云端有新版本", `「${n}」本机还有未上传的改动。${KEPT_SAFE}`,
+        [{ label: "打开本地", value: "cancel", primary: true }, { label: "云端覆盖本地", value: "takeCloud" }]);
+    } else {
+      const gone = cloudState === "absent" || cloudState === "never";
+      const body = cloudState === "absent"
+        ? `「${n}」在云端已经不在了（别的设备删了，或移进了回收站），本机还有一份没上传的。云端覆盖本地 = 跟着云端，本机这份移到回收站；本地覆盖云端 = 把本机的传回去。`
+        : cloudState === "never"
+          ? `「${n}」从没传到云端过。本地覆盖云端 = 第一次上传；云端覆盖本地 = 云端没有这份，本机这份移到回收站。`
+          : cloudState === "unchanged"
+            ? `「${n}」云端还是上次同步的那一版，本机有新改动没上传。${KEPT_SAFE}`
+            : `「${n}」在云端和本机各有一版新改动。${KEPT_SAFE}`;
+      choice = await openChoiceSheet<ResolveChoice>(gone ? "云端没有这份" : "云端有新版本", body,
+        [{ label: "云端覆盖本地", value: "takeCloud", primary: true }, { label: "本地覆盖云端", value: "keepMine" }, { label: "取消", value: "cancel" }]);
+    }
     note("store", `conflict resolved → ${choice ?? "cancel"}`);
     return choice ?? "cancel";
   },
