@@ -129,9 +129,10 @@ Instance.layer?: number          // 缺省 = 继承父上下文的有效层
 - 渲染：card = 一张带透明贴图的竖直四边形（billboard 绕 Z 朝相机）；mesh = 三角网 + 默认剔背面；两者都走现有 FACE / TEX shader 一族，不另开材质系统。
 - 视图挂件条 / 吸附挂件 / 轴锁（见总账「→ Opus 交接」条）。
 
-## 9. 进度
-- [ ] 类型：`CardBody` / `MeshBody` 载荷、`ImageAsset`、`LayerDoc`、`Instance.layer`
-- [ ] 格式：document v3 / definitions v5 / brep v5 + 迁移 + 冻结样本
-- [ ] ops：`castDefinition`（brep → mesh）/ 层四件 / `placeCard`
-- [ ] kind 登记表 + `alignGeometry`（brep / card / mesh）
-- [ ] 可见性函数 + 守卫测试
+## 9. 进度（v0.13.26 全部落地，2026-10-24 夜；勾选补记 by Claude Fable 5.1 同日深夜——落地时漏勾）
+- [x] 类型：`CardBody` / `MeshBody` 载荷、`ImageAsset`、`LayerDoc`、`Instance.layer`
+- [x] 格式：document v3 / definitions v5 / brep v5 + 迁移 + 冻结样本
+- [x] ops：`castDefinition`（brep → mesh）/ 层四件 / `placeCard`
+- [x] kind 登记表 + `alignGeometry`（brep / card / mesh）
+- [x] 可见性函数 + 守卫测试
+- **数据结构这半没有再等 user 的问题**；§0「脑洞」栏不排期。UI / 渲染接线全在 §8 给 Opus。
