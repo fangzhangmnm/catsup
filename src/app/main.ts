@@ -517,29 +517,25 @@ function renderCrumbs(): void {
 type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
 /** 格距怎么念：按制式自带的单位（D&D 的 5 ft 不念成 1.524 m），不跟 vcbUnit。 */
 const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(step, gridPreset(preset).unit);
-const gridChip = document.getElementById("gridChip") as HTMLElement;
 /** 左上编辑模式下拉框（几何 / 表面）。 */
 function renderModeSelect(): void {
   modeField?.refresh();
 }
-function renderGridChip(): void {
-  const g = editor.grid;
-  gridChip.hidden = !g.on;
-  gridChip.textContent = `栅格 ${g.plane.toUpperCase()} · ${fmtGridStep(g.step, g.preset)} · 1/${g.subdiv}`;
-}
-/** 栅格 / 吸附 / 轴锁的菜单（栅格芯片与视图侧吸附挂件共用一份；user 2026-10-24「视图侧有一个按钮可以toggle snap，然后那个也负责x y z……的snap」）。 */
-function gridMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
+/** 视图汉堡「栅格」页（user 2026-10-25「先把右下收到右上汉堡里」：右下角栅格芯片撤了，栅格设置只住这一处）：吸附开关 + 制式 / 格距 / 栅格面 / 细分。 */
+function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string; tab: string }[] {
+  const g = editor.grid, steps = gridStepsFor(g.preset);
   return [
-    ...lockMenuItems(),
-    ...(editor.grid.on ? [] : [{ id: "on" as GridMenuId, label: "打开栅格吸附", sectionBefore: "栅格" }]),
-
-    ...GRID_PRESETS.map((p, i) => ({ id: `preset:${p.id}` as GridMenuId, label: `制式 ${p.label}`, checked: editor.grid.preset === p.id, ...(i === 0 && editor.grid.on ? { sectionBefore: "栅格" } : {}), ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })),   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）；下拉深模块化归 Opus（B40）
-    ...gridStepsFor(editor.grid.preset).map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtGridStep(s, editor.grid.preset)}`, checked: Math.abs(editor.grid.step - s) < 1e-9, ...(s === gridStepsFor(editor.grid.preset)[0] ? { separatorBefore: true } : {}) })),
-    ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: `栅格面 ${p.label}`, checked: editor.grid.plane === p.id, ...(p.id === "xy" ? { separatorBefore: true } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
-    { id: "sub:5" as GridMenuId, label: "吸附 1/5", checked: editor.grid.subdiv === 5, separatorBefore: true, hint: "仪表盘式" },
-    { id: "sub:10" as GridMenuId, label: "吸附 1/10", checked: editor.grid.subdiv === 10, hint: "尺子式" },
-    { id: "off" as GridMenuId, label: "关闭栅格", separatorBefore: true },
+    { id: "grid" as MenuId, label: "栅格吸附", checked: g.on, tab: "grid", hint: g.on ? `${gridPreset(g.preset).label} · ${fmtGridStep(g.step, g.preset)} · 1/${g.subdiv}` : "关" },
+    ...GRID_PRESETS.map((p, i) => ({ id: `preset:${p.id}` as GridMenuId, label: p.label, checked: g.preset === p.id, tab: "grid", ...(i === 0 ? { sectionBefore: "制式" } : {}), ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })),   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）
+    ...steps.map((st, i) => ({ id: `step:${st}` as GridMenuId, label: fmtGridStep(st, g.preset), checked: Math.abs(g.step - st) < 1e-9, tab: "grid", ...(i === 0 ? { sectionBefore: "格距" } : {}) })),
+    ...GRID_PLANES.map((p, i) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.plane === p.id, tab: "grid", ...(i === 0 ? { sectionBefore: "栅格面" } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
+    { id: "sub:5" as GridMenuId, label: "1/5", checked: g.subdiv === 5, tab: "grid", sectionBefore: "吸附细分", hint: "仪表盘式" },
+    { id: "sub:10" as GridMenuId, label: "1/10", checked: g.subdiv === 10, tab: "grid", hint: "尺子式" },
   ];
+}
+/** 吸附钮的菜单（右键 / 长按）：锁 + 跳到视图汉堡的「栅格」页。栅格设置不在这里重复一份。 */
+function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
+  return [...lockMenuItems(), { id: "gridSettings", label: "栅格设置…", separatorBefore: true, hint: "视图 ☰ · 栅格" }];
 }
 /** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 轴锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
 function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
@@ -561,6 +557,7 @@ function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hi
   ];
   return [];
 }
+const isGridId = (id: string): id is GridMenuId => /^(preset|step|plane|sub|lock|plock):/.test(id) || id === "on" || id === "off";
 function onGridPick(id: GridMenuId): "keep" | void {
     if (id.startsWith("lock:")) { const a = id.slice(5); editor.setAxisLock(a === "none" ? null : (a as "x" | "y" | "z")); syncUi(); return "keep"; }
     if (id.startsWith("plock:")) { editor.setPlaneLock(id.slice(6) as "x" | "y" | "z"); syncUi(); return "keep"; }
@@ -573,9 +570,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
     else editor.setGrid({ step: Number(id.slice(5)) });
     return "keep";
 }
-gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({ anchor: gridChip, align: "end", items: gridMenuItems, onPick: onGridPick }));
 function syncUi(): void {
-  renderGridChip();
   renderSnapWidget();
   renderModeSelect();
   renderSlots();
@@ -706,31 +701,42 @@ const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => loco
 const viewMenuBtn = document.createElement("button");
 viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("menu");
 ($("viewGizmo").querySelector(".gizmo-btns") as HTMLElement).prepend(viewMenuBtn);
-viewMenuBtn.addEventListener("click", () => togglePopupMenu<MenuId>({
-  anchor: viewMenuBtn, align: "end",
-  items: () => [
-    { id: "persp", label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), sectionBefore: "视图" },
-    ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
-    { id: "grid", label: "栅格吸附", checked: editor.grid.on, hint: `${gridPreset(editor.grid.preset).label} · ${fmtGridStep(editor.grid.step, editor.grid.preset)} · 1/${editor.grid.subdiv}` },
-    ...LENGTH_UNITS.map((u, i) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id, ...(i === 0 ? { sectionBefore: "单位（显示 / 输入）" } : {}) })),   // 一排可勾选项，不再「点一下换下一个」（B40）
-    { id: "walk", label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), sectionBefore: "相机" },
-    { id: "noclip", label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
-    ...(vr.isSupported() ? [
-      { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", sectionBefore: "VR", hint: "Quest" },
-      { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" },
-    ] : []),
-  ],
-  onPick: menuPick,
-}));
+/** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：显示 / 栅格 / 相机；以后「参考」（B43）、渲染方案也进来。 */
+const VIEW_MENU_TABS = [
+  { id: "display", label: "显示" },
+  { id: "grid", label: "栅格" },
+  { id: "camera", label: "相机" },
+] as const;
+type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
+function openViewMenu(tab?: ViewTab): void {
+  const opts = {
+    anchor: viewMenuBtn, align: "end" as const, tabs: VIEW_MENU_TABS, tabKey: "view", tab,
+    items: () => [
+      { id: "persp" as MenuId, label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), tab: "display" },
+      ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", tab: "display", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
+      ...LENGTH_UNITS.map((u, i) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id, tab: "display", ...(i === 0 ? { sectionBefore: "单位（显示 / 输入）" } : {}) })),   // 一排可勾选项（B40）
+      ...gridTabItems(),
+      { id: "walk" as MenuId, label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), tab: "camera" },
+      { id: "noclip" as MenuId, label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking(), tab: "camera" },
+      ...(vr.isSupported() ? [
+        { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", sectionBefore: "VR", hint: "Quest", tab: "camera" },
+        { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手", tab: "camera" },
+      ] : []),
+    ],
+    onPick: (id: MenuId | GridMenuId): void | "keep" => { if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
+  };
+  if (tab) openPopupMenu<MenuId | GridMenuId>(opts); else togglePopupMenu<MenuId | GridMenuId>(opts);
+}
+viewMenuBtn.addEventListener("click", () => openViewMenu());
 void viewGizmo;
 // 视图侧挂件条（user 2026-10-24「以后视图侧会有很多挂件。snap只是其中第一个」）：gizmo 下面一列；第一个 = 吸附——点一下开 / 关栅格吸附，
 // 右键 / 长按 = 菜单（轴锁、制式、栅格面、格距、细分）；钮角标 = 当前轴锁。
 const widgets = document.createElement("div"); widgets.className = "gizmo-btns gizmo-widgets"; $("viewGizmo").appendChild(widgets);
-const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 选项）";
+const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 轴锁 / 面锁、栅格设置）";
 snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span>';
 widgets.appendChild(snapBtn);
 snapBtnRef = snapBtn;
-const openSnapMenu = (): void => { togglePopupMenu<GridMenuId>({ anchor: snapBtn, align: "end", items: gridMenuItems, onPick: onGridPick }); };
+const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("grid"); return; } return onGridPick(id); } }); };
 let snapPress: { t: number; fired: boolean } | null = null;
 snapBtn.addEventListener("pointerdown", () => { const press = { t: window.setTimeout(() => { press.fired = true; openSnapMenu(); }, 450), fired: false }; snapPress = press; });
 const snapPressEnd = (): void => { if (snapPress) window.clearTimeout(snapPress.t); };

@@ -28,6 +28,8 @@ export interface PopupMenuOpts<Id extends string = string> {
   tabs?: readonly PopupMenuTab[];
   /** 记住上次停在哪个 tab（本次会话内；同一个 key 共用）。 */
   tabKey?: string;
+  /** 这次打开直接停在这个 tab（别处的「XX 设置…」跳进来用；也记进 tabKey）。 */
+  tab?: string;
 }
 const _lastTab = new Map<string, string>();
 export interface PopupMenuHandle {
@@ -57,7 +59,8 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   let open = true;
 
   const tabs = opts.tabs ?? [];
-  let tab = tabs.length ? (opts.tabKey && _lastTab.get(opts.tabKey)) || tabs[0].id : "";
+  let tab = tabs.length ? opts.tab || (opts.tabKey && _lastTab.get(opts.tabKey)) || tabs[0].id : "";
+  if (opts.tab && opts.tabKey) _lastTab.set(opts.tabKey, opts.tab);
   if (tabs.length && !tabs.some((t) => t.id === tab)) tab = tabs[0].id;
   const render = (): void => {
     el.textContent = "";
