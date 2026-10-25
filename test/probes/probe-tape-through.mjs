@@ -5,7 +5,7 @@ const url = process.argv[2] ?? "http://127.0.0.1:8765/";
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
+await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const box = await page.locator("#board").boundingBox();
 const px = (p) => page.evaluate((p) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(p, e.vp()); }, p);
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "addGuide", at: e.activePool(), point: { x: 1, y: 1, z: 0 } }); e.commitOp({ op: "addGuide", at: e.activePool(), point: { x: 2.5, y: 0.4, z: 0 } }); globalThis.__catsup.hud.pick("tape"); });

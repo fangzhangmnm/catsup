@@ -5,7 +5,7 @@ const url = process.argv[2] ?? "http://127.0.0.1:8765/";
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
+await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 await page.mouse.move(500, 400);
 const seq = async (k, n) => { const out = []; for (let i = 0; i < n; i++) { await page.keyboard.press(k); await page.waitForTimeout(40); out.push(await page.evaluate(() => globalThis.__catsup.editor.tool)); } return out; };
 const res = { e: await seq("e", 4), r: await seq("r", 3), t: await seq("t", 4), l: await seq("l", 2) };

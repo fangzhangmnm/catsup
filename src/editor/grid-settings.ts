@@ -25,6 +25,8 @@ export function gridStepsFor(preset: GridPreset): readonly number[] { return gri
 /** 换制式时把格距挪到新制里最近的一档。 */
 export function nearestGridStep(step: number, preset: GridPreset): number { const list = gridStepsFor(preset); return list.includes(step) ? step : list.reduce((b, x) => (Math.abs(Math.log(x / step)) < Math.abs(Math.log(b / step)) ? x : b), list[0]); }
 export const DEFAULT_GRID: GridSettings = { on: false, step: 1, subdiv: 5, plane: "xy", preset: "si" };
+/** 新文档的栅格：吸附默认开（user 2026-10-25「以及默认snap开」）。读老文件时缺 absoluteGrid 键照旧按关（DEFAULT_GRID / DEFAULT_SETTINGS 不动 = 老文件语义不变）。 */
+export const NEW_DOC_GRID: GridSettings = { ...DEFAULT_GRID, on: true };
 /** 网格帧：把上下文帧的轴换到网格面上（右手系；网格画在帧的 XY、法向 = 帧的 Z）。xy = 原样；yz：x←y, y←z, z←x；xz：x←x, y←z, z←−y。 */
 export function gridFrame(F: Frame, plane: GridPlane): Frame {
   if (plane === "yz") return { origin: F.origin, x: F.y, y: F.z, z: F.x };

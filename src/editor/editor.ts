@@ -30,7 +30,7 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
-import { type GridSettings, DEFAULT_GRID, gridFrame } from "./grid-settings.ts";
+import { type GridSettings, NEW_DOC_GRID, gridFrame } from "./grid-settings.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
@@ -172,7 +172,7 @@ export class Editor {
   private r3: Renderer3;
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
-  private _grid: GridSettings = { ...DEFAULT_GRID };
+  private _grid: GridSettings = { ...NEW_DOC_GRID };
   /** 定稿锁（护栏 ②，ai-docs/20261024-finalize.md）：true = 改内容的入口全拒（commit / undo / redo / VCB）。由 session 按文件记录设。 */
   private _locked = false;
   get locked(): boolean { return this._locked; }

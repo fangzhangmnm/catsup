@@ -5,7 +5,7 @@ const url = process.argv[2] ?? "http://127.0.0.1:8765/";
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
+await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const box = await page.locator("#board").boundingBox();
 const at = async (p) => { const s = await page.evaluate((q) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(q, e.vp()); }, p); return { x: box.x + s.x, y: box.y + s.y }; };
 const out = {};
@@ -18,7 +18,8 @@ await page.evaluate(() => globalThis.__catsup.editor.setTool("line"));
 const a = await at({ x: 4, y: 0, z: 0 }); await page.mouse.move(a.x, a.y); await page.waitForTimeout(40); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(80);
 await page.keyboard.down("Shift");
 const q = await at({ x: 4 + Math.cos(37 * Math.PI / 180) * 2, y: Math.sin(37 * Math.PI / 180) * 2, z: 0 }); await page.mouse.move(q.x, q.y, { steps: 6 }); await page.waitForTimeout(120);
-out.shift = await page.evaluate(() => { const t = document.getElementById("tip"); const e = globalThis.__catsup.editor; const c = e.cursor ? null : null; return { tip: t.hidden ? null : t.textContent, cursor: globalThis.__catsup.editor.toolCtx ? null : null }; });
+out.shift = await page.evaluate(() => { const t = document.getElementById("tip"); const e = globalThis.__catsup.editor; const c = e.cursor ? null : null; return { tip: t.hidden ? null : (t.querySelector(".tip-snap") ?? t.querySelector(".tip-main"))?.textContent ?? t.textContent,   // v0.13.58 起读数在第一行、吸附字小字跟在后面（.tip-snap）
+      full: t.hidden ? null : t.textContent, cursor: globalThis.__catsup.editor.toolCtx ? null : null }; });
 out.cursor = await page.evaluate(() => { const e = globalThis.__catsup.editor; const p = e.cursor3 ?? null; return p ? { x: p.x, y: p.y, z: p.z } : null; });
 await page.keyboard.up("Shift"); await page.evaluate(() => globalThis.__catsup.editor.cancel());
 const ang = out.cursor ? Math.atan2(out.cursor.y, out.cursor.x - 4) * 180 / Math.PI : NaN;

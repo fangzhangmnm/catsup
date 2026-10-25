@@ -8,7 +8,7 @@ const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftsha
 const rows = [];
 for (const view of ["default", "top"]) for (const [name, d] of [["same", [0, 0]], ["up3", [0, -3]], ["up6", [0, -6]], ["right3", [3, 0]], ["down4", [0, 4]]]) for (const mode of ["tap2", "drag-tap-end"]) {
   const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
-  await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1000);
+  await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1000); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
   await page.evaluate((v) => { const e = globalThis.__catsup.editor; if (v === "top") e.setView("top"); e.draw(); globalThis.__catsup.hud.pick("line"); }, view);
   const box = await page.locator("#board").boundingBox();
   const px = async (p) => { const q = await page.evaluate((p) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(p, e.vp()); }, p); return [box.x + q.x, box.y + q.y]; };

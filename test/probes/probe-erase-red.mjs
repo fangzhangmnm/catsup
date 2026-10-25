@@ -8,7 +8,7 @@ const res = {};
 for (const lw of ["1.5", "1"]) {   // 粗线稿（iPad 默认）和原生细线两种都核
   const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
   await page.addInitScript((w) => { try { localStorage.setItem("catsup.kv.ui.lineWeight", w); } catch {} }, lw);
-  await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
+  await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
   await page.evaluate((w) => globalThis.__catsup.editor.renderer3.setLineWeight(Number(w)), lw);
   const box = await page.locator("#board").boundingBox();
   const px = (p) => page.evaluate((p) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(p, e.vp()); }, p);

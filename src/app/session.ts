@@ -15,7 +15,7 @@
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
-import { DEFAULT_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
+import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
 import { unitFromSettings, unitToSettings } from "../editor/units.ts";
 import { contentFingerprint } from "../format/final.ts";
@@ -320,7 +320,7 @@ export class Session {
     this.pushPending = false; this.createPending = false;
     this.lazy = false;   // loadKernel 会同步 changed → noteChange；此刻别当首笔
     this.d.editor.loadKernel(new Kernel(), "新建");
-    this.d.editor.setGrid({ ...DEFAULT_GRID });
+    this.d.editor.setGrid({ ...NEW_DOC_GRID });
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
@@ -349,7 +349,7 @@ export class Session {
     this.loaded = null;
     this.lazy = false; this.createPending = false;
     this.d.editor.loadKernel(new Kernel(), "新建");
-    this.d.editor.setGrid({ ...DEFAULT_GRID });
+    this.d.editor.setGrid({ ...NEW_DOC_GRID });
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;

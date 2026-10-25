@@ -6,7 +6,7 @@ const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=sw
 const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 /* iPad mini 6 竖屏 */ });
 const errs = []; page.on("pageerror", (e) => errs.push(e.message));
 page.on("console", (m) => { if (m.type() === "error") errs.push("console: " + m.text()); });
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400);
+await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor; const vp = () => e.vp(); const c = document.getElementById("board"); const r = c.getBoundingClientRect();
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));

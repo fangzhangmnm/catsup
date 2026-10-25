@@ -6,7 +6,7 @@ const out = process.env.PROBE_OUT ?? "/tmp";
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 /* iPad mini 6 竖屏（user 2026-10-21「默认测试按 ipad mini」「我比较习惯竖屏」）*/ });
 const errs = []; page.on("pageerror", (e) => errs.push(e.message)); page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
-await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(500);
+await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 // 用预置摆一个日字（走 addEdges 正门），再推拉一面
 await page.evaluate(() => { globalThis.__catsup.editor.applyPreset("日字"); });
 await page.evaluate(() => { const e = globalThis.__catsup.editor; const f = e.kernel.faces()[0].id; e.kernel; });

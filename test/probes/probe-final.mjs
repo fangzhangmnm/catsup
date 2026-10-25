@@ -8,7 +8,7 @@ const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 const errs = [];
 page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 400)));
 await page.goto(url, { waitUntil: "load", timeout: 30000 });
-await page.waitForTimeout(2500);
+await page.waitForTimeout(2500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const res = await page.evaluate(async () => {
   const g = globalThis.__catsup; const e = g.editor, s = g.session;
   const out = {};

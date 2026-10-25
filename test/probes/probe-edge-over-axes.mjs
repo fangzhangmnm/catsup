@@ -24,7 +24,7 @@ const errs = [], res = {};
 for (const lw of [1, 1.5]) {
   const page = await b.newPage({ viewport: { width: 900, height: 700 }, deviceScaleFactor: 2 });
   page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-  await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
+  await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
   const box = await page.locator("#board").boundingBox();
   const pts = await page.evaluate((lw) => { const e = globalThis.__catsup.editor, P = (x, y) => ({ x, y, z: 0 });
     e.commitOp({ op: "addEdges", segs: [[P(0.3, 0), P(2.5, 0)]] }); e.setLineWeight(lw); e.draw();
