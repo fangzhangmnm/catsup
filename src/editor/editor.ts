@@ -244,6 +244,33 @@ export class Editor {
   private toolTip: string | null = null;   // 工具自己要的跟指针提示（优先于吸附标签）
   private opCount = 0;
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
+  /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
+   *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.lockAxis 的工具生效（画线 / 移动 / 卷尺）。 */
+  private _axisLock: "x" | "y" | "z" | null = null;
+  get axisLock(): "x" | "y" | "z" | null { return this._axisLock; }
+  setAxisLock(a: "x" | "y" | "z" | null): void {
+    if (this._axisLock === a) return;
+    this._axisLock = a;
+    this.host.hint(a ? `轴锁 ${a.toUpperCase()}（再按同一个方向键或 ↓ 解锁）` : null);
+    this.host.changed(); this.draw();
+  }
+  toggleAxisLock(a: "x" | "y" | "z"): void { this.setAxisLock(this._axisLock === a ? null : a); }
+  /** 把求解器结果投到锁住的轴线（过锚点）上：吸到实几何 → 投影（SU「从点」）；没吸到 → 光标射线离轴线最近的点；栅格开着 → 沿轴落绝对格。
+   *  求解器本身不动（排序规则归 Fable）；这里只是事后约束。 */
+  private lockToAxis(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
+    if (!this._axisLock || !anchor) return sn;
+    const F = this.contextFrame(), ax = this._axisLock, raw = F[ax], dl = Math.hypot(raw.x, raw.y, raw.z) || 1, dir = { x: raw.x / dl, y: raw.y / dl, z: raw.z / dl };
+    const strong = sn.kind !== null && sn.kind !== "on-face" && sn.kind !== "grid-point" && sn.kind !== "increment" && !sn.kind.startsWith("axis-");
+    let t = dot3(sub3(sn.p, anchor), dir);
+    if (!strong) {   // 射线 vs 轴线的最近点（俯视锁 Z 也能拉高）
+      const ray = this.frame().ray(sx, sy, this.fvp()), r = ray.dir, w0 = sub3(anchor, ray.origin);
+      const b = dot3(dir, r), c = dot3(r, r), d = dot3(dir, w0), e = dot3(r, w0), den = c - b * b;
+      if (den > 1e-9) t = (b * e - c * d) / den;
+    }
+    if (this._grid.on) { const s0 = this._grid.step / this._grid.subdiv, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
+    const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t };
+    return { p, kind: `axis-${ax}` as SnapKind, label: `轴锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
+  }
   private _vcbUnit: LengthUnit = "m";
   /** 显示 / 输入单位：数值小窗按它读，所有读数（fmtLen / fmtArea）按它念——换单位只走这里（units.ts 窄接口）。 */
   get vcbUnit(): LengthUnit { return this._vcbUnit; }
@@ -441,6 +468,7 @@ export class Editor {
   }
   private cancelGesture(): void {
     this.anchor3 = null;
+    this._axisLock = null;   // 轴锁随手势解（换工具 / Esc / 取消）
     for (const h of Object.values(this.handlers)) h.cancel();
     this.samples = [];
     this.lastSnap = null;
@@ -1469,6 +1497,7 @@ export class Editor {
   /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
   private endStepGesture(): void {
     this.anchor3 = null; this.cursor3 = null; this.snapInfo = null;
+    this._axisLock = null;   // 手势落定 = 轴锁解（SU 同款）
     this.samples = []; this.armed = false; this.canArm = false; this.downScreen = null; this.justCommitted = false;
     this.live = null; this.liveOverride = null; this.liveEvents = [];
   }
@@ -1521,6 +1550,7 @@ export class Editor {
       pick: (sx, sy) => this.pickAt(sx, sy),
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), ...q }),
+      lockAxis: (sn, sx, sy) => this.lockToAxis(sn, this.anchor3, sx, sy),
       alignSources: () => this.alignSrcs(),
       hand: (view, extra, opaque) => this.freshHand(view, extra, opaque),
       toLocal: (p) => this.toLocal(p),

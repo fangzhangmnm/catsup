@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-70 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+71 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -151,6 +151,7 @@
 | `grid` | 网格:直角外框 1.2 与内网格线同宽(20260725 甲方定稿; 原 rx1.6 圆角粗框版退役), 内部 4x4 细网格 |
 | `maximize-viewport` | 适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何) |
 | `zoom` 👁待过目 | 放大镜:左上圆镜片(r6) + 右下短柄(粗 2 圆帽)；与 maximize-viewport(四角取景框=缩放到全部)/ hand(平移)分工【CatsUp 右上角视图 gizmo 下的「缩放」拖柄（按住上下拖）；2026-10-21 fable 自画未过目】 |
+| `snap-grid` | 主栅格/对齐网格(WeebPaint ☰「主栅格(对齐网格)」): **实线**外框(1.7, 与 grid-border 同重)+**虚线**十字(1.2, dash 2.25/2.0)。三件并置可辨: grid=实线密 4x4 / grid-border=虚框+实十字 / snap-grid=实框+虚十字。20260821 甲方拍板候选1号入库(全虚线版、3x3 虚线版、细框 1.2 版落选); 原与像素栅格/主栅格尺寸三条菜单同挂 #grid, 本轮分家 |
 
 ## ui
 

@@ -38,7 +38,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  70 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  71 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -184,6 +184,8 @@
   <symbol id="maximize-viewport" data-cat="viewport" data-src="own" data-note="适配视口:四角向外的箭头(reset-transform=同形别名 id, 改动保持同几何)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><!-- 四角向外的箭头 --> <polyline points="4 9 4 4 9 4"/> <polyline points="20 9 20 4 15 4"/> <polyline points="4 15 4 20 9 20"/> <polyline points="20 15 20 20 15 20"/></symbol>
   <!-- zoom — 放大镜:左上圆镜片(r6) + 右下短柄(粗 2 圆帽)；与 maximize-viewport(四角取景框=缩放到全部)/ hand(平移)分工【CatsUp 右上角视图 gizmo 下的「缩放」拖柄（按住上下拖）；2026-10-21 fable 自画未过目】 -->
   <symbol id="zoom" data-cat="viewport" data-src="own" data-note="放大镜:左上圆镜片(r6) + 右下短柄(粗 2 圆帽)；与 maximize-viewport(四角取景框=缩放到全部)/ hand(平移)分工【CatsUp 右上角视图 gizmo 下的「缩放」拖柄（按住上下拖）；2026-10-21 fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="10.5" cy="10.5" r="6"/><path d="M15.2 15.2 L20.5 20.5" stroke-width="2.2"/></symbol>
+  <!-- snap-grid — 主栅格/对齐网格(WeebPaint ☰「主栅格(对齐网格)」): **实线**外框(1.7, 与 grid-border 同重)+**虚线**十字(1.2, dash 2.25/2.0)。三件并置可辨: grid=实线密 4x4 / grid-border=虚框+实十字 / snap-grid=实框+虚十字。20260821 甲方拍板候选1号入库(全虚线版、3x3 虚线版、细框 1.2 版落选); 原与像素栅格/主栅格尺寸三条菜单同挂 #grid, 本轮分家 -->
+  <symbol id="snap-grid" data-cat="viewport" data-src="own" data-note="主栅格/对齐网格(WeebPaint ☰「主栅格(对齐网格)」): **实线**外框(1.7, 与 grid-border 同重)+**虚线**十字(1.2, dash 2.25/2.0)。三件并置可辨: grid=实线密 4x4 / grid-border=虚框+实十字 / snap-grid=实框+虚十字。20260821 甲方拍板候选1号入库(全虚线版、3x3 虚线版、细框 1.2 版落选); 原与像素栅格/主栅格尺寸三条菜单同挂 #grid, 本轮分家" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><g stroke-linejoin="miter"><rect x="3.5" y="3.5" width="17" height="17"/></g><g stroke-width="1.2" stroke-dasharray="2.25 2.0"><path d="M12 3.5 V20.5"/><path d="M3.5 12 H20.5"/></g></symbol>
   <!-- ui -->
   <!-- help — 帮助:圆 + 路径画的问号(不用 text)【WeebPaint ☰ 设置菜单「帮助」= in-app 说明书入口；fable 自画未过目】 -->
   <symbol id="help" data-cat="ui" data-src="own" data-note="帮助:圆 + 路径画的问号(不用 text)【WeebPaint ☰ 设置菜单「帮助」= in-app 说明书入口；fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M9.3 9.7 a2.7 2.7 0 0 1 5.4 0 c0 1.9 -2.7 2.1 -2.7 4.1"/><circle cx="12" cy="17.1" r="0.95" fill="currentColor" stroke="none"/></symbol>
@@ -318,6 +320,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-24eb954c6108.mjs"></script>
+    <script type="module" src="./dist/catsup-9818fb673065.mjs"></script>
   </body>
 </html>

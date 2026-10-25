@@ -62,7 +62,7 @@ export class MoveTool implements ToolHandler {
     const view = ctx.live();
     const mv = new Set(this.vids);
     const plane = cameraPlane(ctx.frame(), anchor);
-    let sn = ctx.snap(view, s.x, s.y, { plane, anchor, alignSources: ctx.alignSources(), hand: ctx.hand(view, (vid) => mv.has(vid), false) });
+    let sn = ctx.lockAxis(ctx.snap(view, s.x, s.y, { plane, anchor, alignSources: ctx.alignSources(), hand: ctx.hand(view, (vid) => mv.has(vid), false) }), s.x, s.y);   // A9 轴锁：锁着就不再按方向推断轴
     // 意图门：候选在锚点另一侧（相机平面上与拖动方向点积 < 0）不合法（抬笔那一下滑到反方向的点 = 本案）
     const rayM = ctx.frame().ray(s.x, s.y, ctx.vp());
     const freeM = rayPlane(rayM.origin, rayM.dir, plane.plane.n, plane.plane.d);

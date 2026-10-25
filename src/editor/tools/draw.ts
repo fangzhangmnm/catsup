@@ -94,6 +94,7 @@ export class LineTool extends DrawTool {
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
     if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), MIN_GESTURE_LEN)) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
     if (ctx.mods().shift) sn = shiftAngleSnap(ctx, a, sn.p, this.plane.plane.n);   // Shift = 15° 角度对齐（B33）
+    sn = ctx.lockAxis(sn, s.x, s.y);   // A9 轴锁（没锁 = 原样）
     const snapped = ctx.hysteresis(sn, s.x, s.y);
     ctx.setSnap(snapped);
     ctx.charge(snapped, 120);

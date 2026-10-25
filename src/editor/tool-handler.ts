@@ -50,6 +50,8 @@ export interface ToolCtx {
   classify(view: WorldView, hit: HitResult3): Classified;
   /** 吸附求解（世界视图 + 帧 + ε 由底座配好）。 */
   snap(view: WorldView, sx: number, sy: number, q: AlignQuery): Snap3;
+  /** A9 轴锁：没锁 = 原样返回；锁着 = 投到过锚点的那根轴线上（底座的 lockToAxis）。沿一根轴走的工具在自己算完吸附之后调一次。 */
+  lockAxis(sn: Snap3, sx: number, sy: number): Snap3;
   alignSources(): Pt3[];
   /** 「手里」谓词（在手的几何不参与吸附）；extra = 工具自报的移动集（本地 id），opaque = 手中膜是否遮挡。 */
   hand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque?: boolean): AlignHand;

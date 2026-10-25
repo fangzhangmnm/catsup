@@ -73,7 +73,7 @@ export class TapeTool implements ToolHandler {
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
     if (this.stage === 0 || !this.start) return;
     const view = ctx.live();
-    const sn = ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.start.p, alignSources: ctx.alignSources(), hand: ctx.hand(view) });
+    const sn = ctx.lockAxis(ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.start.p, alignSources: ctx.alignSources(), hand: ctx.hand(view) }), s.x, s.y);   // A9 轴锁
     this.b = sn.p;
     ctx.setSnap(sn); ctx.setCursor(sn.p);
   }

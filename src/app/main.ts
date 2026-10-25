@@ -491,7 +491,7 @@ function renderCrumbs(): void {
   });
 }
 // 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
-type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off";
+type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}`;
 /** 格距怎么念：按制式自带的单位（D&D 的 5 ft 不念成 1.524 m），不跟 vcbUnit。 */
 const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(step, gridPreset(preset).unit);
 const gridChip = document.getElementById("gridChip") as HTMLElement;
@@ -506,27 +506,38 @@ function renderGridChip(): void {
   gridChip.hidden = !g.on;
   gridChip.textContent = `栅格 ${g.plane.toUpperCase()} · ${fmtGridStep(g.step, g.preset)} · 1/${g.subdiv}`;
 }
-gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
-  anchor: gridChip, align: "end",
-  items: () => [
-    ...GRID_PRESETS.map((p) => ({ id: `preset:${p.id}` as GridMenuId, label: `制式 ${p.label}`, checked: editor.grid.preset === p.id, ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })),   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）；下拉深模块化归 Opus（B40）
+/** 栅格 / 吸附 / 轴锁的菜单（栅格芯片与视图侧吸附挂件共用一份；user 2026-10-24「视图侧有一个按钮可以toggle snap，然后那个也负责x y z……的snap」）。 */
+function gridMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
+  return [
+    { id: "lock:none" as GridMenuId, label: "轴锁 无", checked: editor.axisLock === null, sectionBefore: "轴锁（画线 / 移动 / 卷尺）", hint: "↓" },
+    { id: "lock:x" as GridMenuId, label: "轴锁 X", checked: editor.axisLock === "x", hint: "→" },
+    { id: "lock:y" as GridMenuId, label: "轴锁 Y", checked: editor.axisLock === "y", hint: "←" },
+    { id: "lock:z" as GridMenuId, label: "轴锁 Z", checked: editor.axisLock === "z", hint: "↑" },
+    ...(editor.grid.on ? [] : [{ id: "on" as GridMenuId, label: "打开栅格吸附", sectionBefore: "栅格" }]),
+
+    ...GRID_PRESETS.map((p, i) => ({ id: `preset:${p.id}` as GridMenuId, label: `制式 ${p.label}`, checked: editor.grid.preset === p.id, ...(i === 0 && editor.grid.on ? { sectionBefore: "栅格" } : {}), ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })),   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）；下拉深模块化归 Opus（B40）
     ...gridStepsFor(editor.grid.preset).map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtGridStep(s, editor.grid.preset)}`, checked: Math.abs(editor.grid.step - s) < 1e-9, ...(s === gridStepsFor(editor.grid.preset)[0] ? { separatorBefore: true } : {}) })),
     ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: `栅格面 ${p.label}`, checked: editor.grid.plane === p.id, ...(p.id === "xy" ? { separatorBefore: true } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
     { id: "sub:5" as GridMenuId, label: "吸附 1/5", checked: editor.grid.subdiv === 5, separatorBefore: true, hint: "仪表盘式" },
     { id: "sub:10" as GridMenuId, label: "吸附 1/10", checked: editor.grid.subdiv === 10, hint: "尺子式" },
     { id: "off" as GridMenuId, label: "关闭栅格", separatorBefore: true },
-  ],
-  onPick: (id) => {
-    if (id === "off") { editor.setGrid({ on: false }); return; }
+  ];
+}
+function onGridPick(id: GridMenuId): "keep" | void {
+    if (id.startsWith("lock:")) { const a = id.slice(5); editor.setAxisLock(a === "none" ? null : (a as "x" | "y" | "z")); syncUi(); return "keep"; }
+    if (id === "on") { editor.setGrid({ on: true }); syncUi(); return "keep"; }
+
+    if (id === "off") { editor.setGrid({ on: false }); syncUi(); return; }
     if (id.startsWith("preset:")) { const preset = id.slice(7) as GridPreset; editor.setGrid({ preset, step: nearestGridStep(editor.grid.step, preset) }); }
     else if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane });
     else if (id === "sub:5" || id === "sub:10") editor.setGrid({ subdiv: id === "sub:5" ? 5 : 10 });
     else editor.setGrid({ step: Number(id.slice(5)) });
     return "keep";
-  },
-}));
+}
+gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({ anchor: gridChip, align: "end", items: gridMenuItems, onPick: onGridPick }));
 function syncUi(): void {
   renderGridChip();
+  renderSnapWidget();
   renderModeSelect();
   renderSlots();
   renderCrumbs();
@@ -674,6 +685,30 @@ viewMenuBtn.addEventListener("click", () => togglePopupMenu<MenuId>({
   onPick: menuPick,
 }));
 void viewGizmo;
+// 视图侧挂件条（user 2026-10-24「以后视图侧会有很多挂件。snap只是其中第一个」）：gizmo 下面一列；第一个 = 吸附——点一下开 / 关栅格吸附，
+// 右键 / 长按 = 菜单（轴锁、制式、栅格面、格距、细分）；钮角标 = 当前轴锁。
+const widgets = document.createElement("div"); widgets.className = "gizmo-btns gizmo-widgets"; $("viewGizmo").appendChild(widgets);
+const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 选项）";
+snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span>';
+widgets.appendChild(snapBtn);
+snapBtnRef = snapBtn;
+const openSnapMenu = (): void => { togglePopupMenu<GridMenuId>({ anchor: snapBtn, align: "end", items: gridMenuItems, onPick: onGridPick }); };
+let snapPress: { t: number; fired: boolean } | null = null;
+snapBtn.addEventListener("pointerdown", () => { const press = { t: window.setTimeout(() => { press.fired = true; openSnapMenu(); }, 450), fired: false }; snapPress = press; });
+const snapPressEnd = (): void => { if (snapPress) window.clearTimeout(snapPress.t); };
+snapBtn.addEventListener("pointerup", snapPressEnd); snapBtn.addEventListener("pointercancel", snapPressEnd); snapBtn.addEventListener("pointerleave", snapPressEnd);
+snapBtn.addEventListener("click", () => { if (snapPress?.fired) { snapPress = null; return; } snapPress = null; editor.setGrid({ on: !editor.grid.on }); syncUi(); });
+snapBtn.addEventListener("contextmenu", (ev) => { ev.preventDefault(); snapPressEnd(); openSnapMenu(); });
+// var（提升）而不是 const：editor 的 host.changed → syncUi 可能在本段执行之前就被叫到（加载过程），那时挂件还没建，跳过即可
+// eslint-disable-next-line no-var
+var snapBtnRef: HTMLButtonElement | undefined;
+function renderSnapWidget(): void {
+  const btn = snapBtnRef;
+  if (!btn) return;
+  btn.classList.toggle("on", editor.grid.on);
+  const badge = btn.querySelector(".gizmo-badge") as HTMLElement;
+  const a = editor.axisLock; badge.hidden = !a; badge.textContent = a ? a.toUpperCase() : ""; badge.dataset.axis = a ?? "";
+}
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
@@ -697,6 +732,12 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "y" || ev.key === "Y")) { ev.preventDefault(); editor.redo(); return; }
+  if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey && (ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === "ArrowUp" || ev.key === "ArrowDown") && !locomotion.isWalking()) {
+    // A9 轴锁（SU 同款）：→ X 红、← Y 绿、↑ Z 蓝、↓ 解锁；同一个键再按 = 解锁（Shift+方向键 = 平面锁，没做）
+    ev.preventDefault();
+    if (ev.key === "ArrowDown") editor.setAxisLock(null); else editor.toggleAxisLock(ev.key === "ArrowRight" ? "x" : ev.key === "ArrowLeft" ? "y" : "z");
+    syncUi(); return;
+  }
   if (ev.key === "Delete" || ev.key === "Backspace") { if (editor.hasSelection()) { ev.preventDefault(); editor.deleteSelection(); } return; }
   if (ev.key === "Escape") {
     closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); toggleMatSheet(false);
