@@ -95,9 +95,9 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
         if (!alive.has(eid)) continue;
         s.push({ eid, to: g.otherEnd(g.edge(eid), vid) });
       }
-      const o = p2(vid);
-      s.sort((p, q) => cmpDir(o, p2(p.to), p2(q.to)) || p.eid - q.eid);
-      if (FF_DEBUG.log) { const byAtan = [...s].sort((p, q) => angleOf(o, p2(p.to)) - angleOf(o, p2(q.to))); if (byAtan.some((x, i) => x.eid !== s[i].eid)) FF_DEBUG.log(`star ${vid} o=(${o.x},${o.y}) exact=[${s.map((x) => `${x.eid}:${rank(o, p2(x.to))}:(${p2(x.to).x - o.x},${p2(x.to).y - o.y})`).join(" ")}] atan=[${byAtan.map((x) => `${x.eid}:${angleOf(o, p2(x.to)).toFixed(17)}`).join(" ")}]`); }
+      const o = p2(vid), sorted = s;
+      sorted.sort((p, q) => cmpDir(o, p2(p.to), p2(q.to)) || p.eid - q.eid);
+      if (FF_DEBUG.log) { const byAtan = [...sorted].sort((p, q) => angleOf(o, p2(p.to)) - angleOf(o, p2(q.to))); if (byAtan.some((x, i) => x.eid !== sorted[i].eid)) FF_DEBUG.log(`star ${vid} o=(${o.x},${o.y}) exact=[${sorted.map((x) => `${x.eid}:${rank(o, p2(x.to))}:(${p2(x.to).x - o.x},${p2(x.to).y - o.y})`).join(" ")}] atan=[${byAtan.map((x) => `${x.eid}:${angleOf(o, p2(x.to)).toFixed(17)}`).join(" ")}]`); }
       sortedStar.set(vid, s);
     }
     return s;
