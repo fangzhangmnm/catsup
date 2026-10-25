@@ -1548,6 +1548,15 @@ export class Editor {
     const H = this.handlers[this._tool];
     if (H) {
       if (H.grammar === "steps" && this.armed && H.active()) {
+        // 位移防抖：等下一点时按下的地方离当前锚点在点按容差内 = 「同一处又点了一下」，不取这一子步——画线（连画）= 收笔，别的工具 = 吞掉这一下。
+        // 起因（user 2026-10-25「为什么会在同一个地方点两下会在垂直的方向画线？」）：笔点两下差 6 px，第二点被吸到过锚点的竖直线上 = 7 cm 竖线
+        // （屏上只有 6 px，世界长度却过了 MIN_GESTURE_LEN 1 cm）。根因（锚点附近不该推竖直线）在求解器，归 Fable（总账记了）；这里是手势层的护栏。探针 probe-pen-tap。
+        // 半径 = 吸附半径（点按容差 4 px 拦不住：Pencil「同一处」点两下常差 5–8 px）——这么近本来就该吸回锚点本身，不该另起一段；要画更短的线就放大或输长度。
+        if (this.anchor3 && this.frame().distTo(s.x, s.y, this.anchor3, this.fvp()) <= Math.max(this.eps().tap, this.eps().snap)) {
+          if (this._tool === "line") { this.cancelGesture(); this.host.hint(null); this.host.changed(); }
+          this.draw();
+          return;
+        }
         // armed 的按下 = 用悬停跟到的值取这一子步
         this.justCommitted = true;
         H.track(this.toolCtx, s, ev.travel);
