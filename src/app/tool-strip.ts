@@ -2,6 +2,7 @@
 // created 2026-10-21 by Claude Fable 5.1（0.9 QoL：工具配置深模块）。
 // 形状：enum → 带文字的下拉（≥ 4 项走 select，feedback 2026-09-09「纯图标行打哑谜 → 带文字下拉」）；number → − 值 +（触屏友好，不弹软键盘；
 // 精确输入归 VCB #11）；bool → 开关钮。当前工具没有选项 → 整条隐藏。不进 HudModel（VR 已 sunset；要进时按同一张表再长一个渲染器）。
+import { createSelectField } from "./ui/select-field.ts";
 import type { Editor } from "../editor/editor.ts";
 import { optionGroupOf, type OptionEntry } from "../editor/tool-config.ts";
 
@@ -37,13 +38,10 @@ export function mountToolStrip(root: HTMLElement, editor: Editor, opts?: { actio
     const lab = document.createElement("span"); lab.className = "strip-label"; lab.textContent = e.def.label; wrap.appendChild(lab);
     switch (e.def.kind) {
       case "enum": {
-        const sel = document.createElement("select");
-        sel.className = "strip-select";
-        for (const v of e.def.values) { const o = document.createElement("option"); o.value = v.id; o.textContent = v.label; if (v.hint) o.title = v.hint; sel.appendChild(o); }
-        sel.value = String(e.value);
-        sel.title = e.def.values.find((v) => v.id === e.value)?.hint ?? "";
-        sel.addEventListener("change", () => { config.set(tool as never, e.key as never, sel.value); });
-        wrap.appendChild(sel);
+        // 下拉标准件（B40，user「不要用ios自带的。丑」）：受控值 = 工具配置里的当前值
+        const def = e.def, cur = String(e.value);
+        const sel = createSelectField({ className: "strip-select", ariaLabel: def.label, items: () => def.values.map((v) => ({ value: v.id, label: v.label, ...(v.hint ? { hint: v.hint } : {}) })), value: () => cur, onChange: (v) => { config.set(tool as never, e.key as never, v); } });
+        wrap.appendChild(sel.el);
         break;
       }
       case "number": {

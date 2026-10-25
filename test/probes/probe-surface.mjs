@@ -15,7 +15,7 @@ const out = {};
 await page.evaluate(() => { const e = globalThis.__catsup.editor; const P = (x, y, z = 0) => ({ x, y, z }); const S = 2, H = 1.5; const loops = [[P(0, 0), P(S, 0), P(S, S), P(0, S)], [P(0, 0), P(S, 0), P(S, 0, H), P(0, 0, H)], [P(S, 0), P(S, S), P(S, S, H), P(S, 0, H)], [P(S, S), P(0, S), P(0, S, H), P(S, S, H)], [P(0, S), P(0, 0), P(0, 0, H), P(0, S, H)]]; for (const l of loops) e.commitOp({ op: "addEdges", segs: l.map((p, i) => [p, l[(i + 1) % l.length]]) }); });
 out.railGeom = await page.evaluate(() => document.querySelectorAll("#toolbar button").length);
 await page.keyboard.press("b"); await page.waitForTimeout(150);
-out.afterB = await page.evaluate(() => ({ mode: globalThis.__catsup.editor.modeId, tool: globalThis.__catsup.editor.tool, select: document.getElementById("modeSelect").value, rail: document.querySelectorAll("#toolbar button").length, strip: [...document.querySelectorAll("#toolStrip .strip-action, #toolStrip .strip-label")].map((x) => x.textContent.trim()) }));
+out.afterB = await page.evaluate(() => ({ mode: globalThis.__catsup.editor.modeId, tool: globalThis.__catsup.editor.tool, select: document.getElementById("modeSelect").dataset.value, rail: document.querySelectorAll("#toolbar button").length, strip: [...document.querySelectorAll("#toolStrip .strip-action, #toolStrip .strip-label")].map((x) => x.textContent.trim()) }));
 await page.evaluate(() => globalThis.__catsup.editor.setPaint({ kind: "color", name: "赭石", color: [0.6, 0.3, 0.1] }));
 await clicks({ x: 1, y: 1, z: 1.5 }, 1); out.single = await painted();          // 顶面：平滑组 = 1
 await clicks({ x: 1, y: 0, z: 0.75 }, 2); out.double = await painted();         // 前墙：到锐角（90° 挡）→ 又 1 张 = 2

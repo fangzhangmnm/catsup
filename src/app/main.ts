@@ -5,12 +5,13 @@
 // v0.5.7（2026-09-22，Claude Fable 5.1）：boot 改用包的 restoreLastSession（回执条三态编排）+ **本地恢复先于 initAuth**（零网络秒开）
 //   + 登录 / 回线 / 回前台显式快进 + 崩溃安全 flush 三件；审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md。
 
+import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS } from "../editor/tool-ids.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountToolStrip } from "./tool-strip.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
-import { LENGTH_UNITS, fmtVcbLength } from "../editor/units.ts";
+import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts";
 import { mountSelectionBar, openContextMenuAt } from "./context-menu.ts";
 import { selectionRoute } from "./selection-actions.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
@@ -335,9 +336,10 @@ function renderShop(): void {
 btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | "unit" | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "finalize" | "revise" | "noclip" | "persp" | "walk";
+type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "finalize" | "revise" | "noclip" | "persp" | "walk";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
+    if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
     switch (id) {
       case "new": void session.newDoc(); break;
       case "finalize": void (async () => { if (await openConfirmSheet(`定稿第 ${session.finalRev() + 1} 版？`, "之后锁住几何与材质，只能看、量、导出；☰「改稿」随时解锁（版本号不减）。", { okLabel: "定稿" })) await session.finalize(); })(); break;
@@ -362,7 +364,6 @@ function menuPick(id: MenuId): void | "keep" {
       case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
       case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
-      case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; syncUi(); return "keep"; }   // 长度单位只管显示 / 输入；栅格制式是另一个旋钮（user 10-24「这两个分开来」）
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
@@ -497,9 +498,7 @@ const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(s
 const gridChip = document.getElementById("gridChip") as HTMLElement;
 /** 左上编辑模式下拉框（几何 / 表面）。 */
 function renderModeSelect(): void {
-  const modes = editor.modes();
-  if (modeSelect.options.length !== modes.length) { modeSelect.replaceChildren(); for (const m of modes) { const o = document.createElement("option"); o.value = m.id; o.textContent = m.label; modeSelect.appendChild(o); } }
-  modeSelect.value = editor.modeId;
+  modeField?.refresh();
 }
 function renderGridChip(): void {
   const g = editor.grid;
@@ -674,7 +673,7 @@ viewMenuBtn.addEventListener("click", () => togglePopupMenu<MenuId>({
     { id: "persp", label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), sectionBefore: "视图" },
     ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
     { id: "grid", label: "栅格吸附", checked: editor.grid.on, hint: `${gridPreset(editor.grid.preset).label} · ${fmtGridStep(editor.grid.step, editor.grid.preset)} · 1/${editor.grid.subdiv}` },
-    { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "点一下换下一个" },
+    ...LENGTH_UNITS.map((u, i) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id, ...(i === 0 ? { sectionBefore: "单位（显示 / 输入）" } : {}) })),   // 一排可勾选项，不再「点一下换下一个」（B40）
     { id: "walk", label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), sectionBefore: "相机" },
     { id: "noclip", label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking() },
     ...(vr.isSupported() ? [
@@ -775,8 +774,9 @@ setLastStepProvider(lastStepProvider);
 // smart save 钮（三条杠下面；对齐 WeebPaint save-status + smartSaveAndPush；user 2026-09-20「title 意义不明可以不要，三条杠下面加一个 smart save button」）
 const btnSave = $<HTMLButtonElement>("btnSave");
 const finalBadge = $<HTMLElement>("finalBadge");
-const modeSelect = $<HTMLSelectElement>("modeSelect");
-modeSelect.addEventListener("change", () => { editor.setMode(modeSelect.value as ModeId); });   // 定稿角标（ai-docs/20261024-finalize.md）
+// 编辑模式下拉（几何 / 表面）：下拉标准件，不用原生 <select>（user 2026-10-24「不要用ios自带的。丑」）
+// eslint-disable-next-line no-var
+var modeField: SelectField | undefined = mountSelectField($("modeSelect"), { items: () => editor.modes().map((m) => ({ value: m.id, label: m.label })), value: () => editor.modeId, onChange: (v) => editor.setMode(v as ModeId), ariaLabel: "编辑模式" });
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {
