@@ -84,12 +84,15 @@ export function signedArea(ring: readonly Pt[]): number {
 }
 
 /** 射线法点在环内（不含环上；环上结果未定义——调用方自己保证离边界有距离）。 */
+/** 点在环内（奇偶规则；EGC 期 3：跨越判定用精确 orient2dD，不再做浮点除法——边界上仍未定义）。 */
 export function pointInRing(p: Pt, ring: readonly Pt[]): boolean {
   let inside = false;
   for (let i = 0, j = ring.length - 1; i < ring.length; j = i++) {
     const a = ring[i], b = ring[j];
-    if (a.y > p.y !== b.y > p.y && p.x < ((b.x - a.x) * (p.y - a.y)) / (b.y - a.y) + a.x) {
-      inside = !inside;
+    if (a.y > p.y !== b.y > p.y) {
+      // 边 j→i 跨过 p 的水平线：p 在边的左侧（向上走时）⇔ 射线向右命中。orient2dD(a, b, p) > 0 = p 在 a→b 左边
+      const o = orient2dD(a, b, p);
+      if (b.y > a.y ? o > 0 : o < 0) inside = !inside;
     }
   }
   return inside;
@@ -108,6 +111,7 @@ export function distToSegment(p: Pt, a: Pt, b: Pt): number {
 // 拓扑存 3D 点；face-finding 仍是 2D 管线——每个平面用**确定性正交基**投影下来跑。
 // coplanarity 容差 τ 只用于「平面分组/归属」判定；几何本身保持精确共面
 // （把点拍到平面上是输入侧 inference 的职责——drill L297 的结论，防 τ 松了 PSLG 被斜边打脏）。
+import { orient2dD } from "./exact/predicates.ts";
 
 export interface Pt3 { readonly x: number; readonly y: number; readonly z: number; }
 

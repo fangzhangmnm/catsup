@@ -28,6 +28,51 @@ export function orient2d(a: IPt2, b: IPt2, c: IPt2): -1 | 0 | 1 {
   return sgnBig(BigInt(acx) * BigInt(bcy) - BigInt(acy) * BigInt(bcx));
 }
 
+/**
+ * 任意 double 的精确 2D 定向（期 3：面环 / 绕数 / 角序都在浮点投影坐标里判——那些坐标是精确的有理数，判定可以精确）。
+ * 过滤：Shewchuk 的 Stage A 界对任意输入成立（差值的舍入也包含在内）；后备：把六个 double 按同一个 2 的幂精确放大成 BigInt 整数再算行列式（平移 / 等比放大不改符号）。
+ */
+const F64 = new Float64Array(1), U32 = new Uint32Array(F64.buffer);
+const LITTLE = new Uint8Array(new Uint16Array([1]).buffer)[0] === 1;
+/** double → (尾数整数 M, 指数 E)，x = M · 2^E 精确；0 → (0, 0)。 */
+function decompose(x: number): { m: bigint; e: number } {
+  if (x === 0) return { m: 0n, e: 0 };
+  F64[0] = x;
+  const hi = U32[LITTLE ? 1 : 0], lo = U32[LITTLE ? 0 : 1];
+  const sign = hi >>> 31 ? -1n : 1n;
+  const exp = (hi >>> 20) & 0x7ff;
+  const mantHi = hi & 0xfffff;
+  let m = (BigInt(mantHi) << 32n) | BigInt(lo);
+  let e: number;
+  if (exp === 0) e = -1074;                       // 次正规
+  else { m |= 1n << 52n; e = exp - 1075; }
+  return { m: sign * m, e };
+}
+function scaledInts(vals: number[]): bigint[] {
+  const parts = vals.map(decompose);
+  let emin = Infinity; for (const q of parts) if (q.m !== 0n && q.e < emin) emin = q.e;
+  if (!Number.isFinite(emin)) return parts.map(() => 0n);
+  return parts.map((q) => (q.m === 0n ? 0n : q.m << BigInt(q.e - emin)));
+}
+export function orient2dD(a: { x: number; y: number }, b: { x: number; y: number }, c: { x: number; y: number }): -1 | 0 | 1 {
+  const detleft = (a.x - c.x) * (b.y - c.y), detright = (a.y - c.y) * (b.x - c.x);
+  const det = detleft - detright;
+  let detsum: number;
+  if (detleft > 0) { if (detright <= 0) { PRED_STATS.fast++; return sgn(det); } detsum = detleft + detright; }
+  else if (detleft < 0) { if (detright >= 0) { PRED_STATS.fast++; return sgn(det); } detsum = -detleft - detright; }
+  else if (detright !== 0) { PRED_STATS.fast++; return sgn(det); }   // detleft 恰为 0（或下溢成 0）而 detright 正常：符号由 detright 决定，可靠
+  else {
+    // 两个乘积都是 0：没有下溢时 = 某个因子恰为 0 = 真共线（轴对齐几何里极常见，走快路径）；因子都非零却乘出 0 = 下溢 → 精确算
+    const acx = a.x - c.x, bcy = b.y - c.y, acy = a.y - c.y, bcx = b.x - c.x;
+    if ((acx === 0 || bcy === 0) && (acy === 0 || bcx === 0)) { PRED_STATS.fast++; return 0; }
+    detsum = -1;
+  }
+  if (detsum >= 0 && Math.abs(det) >= CCW_ERR_A * detsum) { PRED_STATS.fast++; return sgn(det); }
+  PRED_STATS.slow++;
+  const [ax, ay, bx, by, cx, cy] = scaledInts([a.x, a.y, b.x, b.y, c.x, c.y]);
+  return sgnBig((ax - cx) * (by - cy) - (ay - cy) * (bx - cx));
+}
+
 /** 3D 定向：d 在 a,b,c 所定平面的哪一侧（右手：+1 = d 在 (b−a)×(c−a) 的正侧），共面 0。 */
 export function orient3d(a: IPt3, b: IPt3, c: IPt3, d: IPt3): -1 | 0 | 1 {
   const adx = a.x - d.x, bdx = b.x - d.x, cdx = c.x - d.x;

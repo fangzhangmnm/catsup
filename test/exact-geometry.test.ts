@@ -1,7 +1,7 @@
 // EGC 期 1（ai-docs/20261024-exact-geometry-design.md）：精确谓词（过滤器 vs 纯 BigInt 一致）、线段关系分类、像素判定；snap rounding 的 PSLG / Hausdorff / 分离性 / 确定性不变量。
 // created 2026-10-24 by Claude Fable 5.1
 import { describe, it, eq, assert } from "./runner.mjs";
-import { PRED_STATS, cellOf, intersectParam, intersectionCell, onSegment2d, orient2d, orient3d, segSeg2d } from "../src/kernel/exact/predicates.ts";
+import { PRED_STATS, cellOf, intersectParam, intersectionCell, onSegment2d, orient2d, orient2dD, orient3d, segSeg2d } from "../src/kernel/exact/predicates.ts";
 import { cellRep, pslgProblems, segPassesCell, snapRound, type ISeg } from "../src/kernel/exact/snap-round.ts";
 import type { IPt2, IPt3 } from "../src/kernel/exact/lattice.ts";
 
@@ -115,5 +115,36 @@ describe("exact: snap rounding", () => {
     const segs: ISeg[] = [{ a: { x: 0, y: 0 }, b: { x: 1000, y: 3 } }, { a: { x: 0, y: 5 }, b: { x: 1000, y: 8 } }, { a: { x: 500, y: -50 }, b: { x: 503, y: 60 } }, { a: { x: 10, y: 1 }, b: { x: 990, y: 7 } }];
     const out = snapRound(segs, P);
     eq(pslgProblems(out).length, 0, pslgProblems(out).join("; "));
+  });
+});
+
+describe("exact: 任意 double 的 orient2dD（期 3）", () => {
+  it("随机 double（米级坐标 + 1e-12 级扰动 + 次正规）与「精确有理」暴力对照逐一一致；近共线专打过滤器", () => {
+    const r = rng(23);
+    // 暴力：用 BigInt 有理数（分子 / 2^k）算——与实现共用的 decompose 不同路径：通过 toFixed? 不行；用 Number → 字符串 → 精确分数太重。
+    // 退而求其次：只在「乘积与差都能被 double 精确表示」的小整数网格上和纯 BigInt 对照（一致性），再用缩放不变性 / 对称性检验一般 double。
+    for (let i = 0; i < 4000; i++) {
+      const a = { x: Math.floor(r() * 2001) - 1000, y: Math.floor(r() * 2001) - 1000 }, b = { x: Math.floor(r() * 2001) - 1000, y: Math.floor(r() * 2001) - 1000 };
+      const t = r(); const c = i % 2 ? { x: Math.floor(r() * 2001) - 1000, y: Math.floor(r() * 2001) - 1000 } : { x: Math.round(a.x + (b.x - a.x) * t) + Math.floor(r() * 3) - 1, y: Math.round(a.y + (b.y - a.y) * t) + Math.floor(r() * 3) - 1 };
+      eq(orient2dD(a, b, c), bigOrient2d(a, b, c), `整数网格 ${JSON.stringify([a, b, c])}`);
+      // 等比缩放与平移不改符号——只有**精确**的变换才能这么断言（2 的幂缩放 + 二进制小数平移；1e-6 不是 2 的幂，乘完会舍入，共线会真的变不共线）
+      const s = 2 ** -20, o = { x: 3.25, y: -2.75 };
+      const S = (p: IPt2): { x: number; y: number } => ({ x: p.x * s + o.x, y: p.y * s + o.y });
+      eq(orient2dD(S(a), S(b), S(c)), bigOrient2d(a, b, c), `缩放平移 ${JSON.stringify([a, b, c])}`);
+    }
+    // 反对称 / 循环对称
+    for (let i = 0; i < 2000; i++) {
+      const P = (): { x: number; y: number } => ({ x: (r() - 0.5) * 50, y: (r() - 0.5) * 50 });
+      const a = P(), b = P(), c = i % 3 === 0 ? { x: a.x + (b.x - a.x) * 0.37 + (r() - 0.5) * 1e-12, y: a.y + (b.y - a.y) * 0.37 + (r() - 0.5) * 1e-12 } : P();
+      const o = orient2dD(a, b, c);
+      eq(orient2dD(b, c, a), o, "循环对称"); eq(orient2dD(c, a, b), o, "循环对称");
+      eq(orient2dD(b, a, c), (-o) as -1 | 0 | 1, "反对称");
+    }
+    // 精确共线的 double：三点在同一条直线上（参数化构造，坐标是 2 的幂的倍数 → 构造精确）
+    eq(orient2dD({ x: 0.25, y: 0.5 }, { x: 1.25, y: 2.5 }, { x: 2.25, y: 4.5 }), 0);
+    eq(orient2dD({ x: 0.25, y: 0.5 }, { x: 1.25, y: 2.5 }, { x: 2.25, y: 4.5 + 2 ** -40 }), 1);
+    eq(orient2dD({ x: 0.25, y: 0.5 }, { x: 1.25, y: 2.5 }, { x: 2.25, y: 4.5 - 2 ** -40 }), -1);
+    // 次正规也不炸
+    eq(orient2dD({ x: 0, y: 0 }, { x: 5e-324, y: 0 }, { x: 0, y: 5e-324 }), 1);
   });
 });

@@ -9,6 +9,7 @@
 // 「增量局部 face-finding」是 spec 点名的工程命门（SU 流畅手感的真正来源），
 // 以后在此接缝内换入最小重算，接口不变。M3 起 scope.edges/project 承载平面组投影。
 
+import { orient2dD } from "./exact/predicates.ts";
 import { type Pt, EPS_AREA, angleOf, pointInRing, signedArea } from "./geom.ts";
 import { type EdgeId, type VertexId, PlanarGraph } from "./topology.ts";
 
@@ -38,6 +39,8 @@ export interface Region {
 /** M3 局部性接缝的形参占位（M1 忽略）。 */
 export interface Bounds { minX: number; minY: number; maxX: number; maxY: number; }
 
+/** 调试钩子（期 3 角序对照；默认 null 零开销）。 */
+export const FF_DEBUG: { log: ((line: string) => void) | null } = { log: null };
 const hk = (e: EdgeId, forward: boolean): string => `${e}:${forward ? "f" : "r"}`;
 
 export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
@@ -77,7 +80,12 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
 
   // --- 1. wedge：每个顶点把存活出边按辐射角排序（环形缓冲区）。
   //     平面内方向是 S¹ 可全序——这正是先切平面的意义（drill L245）。
-  const sortedStar = new Map<VertexId, { eid: EdgeId; to: VertexId; angle: number }[]>();
+  // 角序精确（EGC 期 3）：atan2 在两条几乎同向的边上会错序（格点方向夹角可到 2^-64）；改成 S¹ 全序比较器 = 半平面等级 + 精确 orient2dD。
+  // 等级与 atan2 升序一致：(−π,0) → 0 → (0,π) → π。
+  // 零长投影（垂直于本平面的边，两端投到同一点；τ 带里会进组）：atan2(0,0) = 0，沿用这个约定 = 等级 1，否则遍历顺序和老结算机不一致（clean fuzz 种子 10）
+  const rank = (o: Pt, q: Pt): number => { const dx = q.x - o.x, dy = q.y - o.y; return dy < 0 ? 0 : dy === 0 && dx >= 0 ? 1 : dy > 0 ? 2 : 3; };
+  const cmpDir = (o: Pt, a: Pt, b: Pt): number => { const ra = rank(o, a), rb = rank(o, b); if (ra !== rb) return ra - rb; if (ra === 1 || ra === 3) return 0; return -orient2dD(o, a, b); };   // 同半平面：a 在 b 的顺时针侧 = 角更小
+  const sortedStar = new Map<VertexId, { eid: EdgeId; to: VertexId }[]>();
   const starOf = (vid: VertexId) => {
     let s = sortedStar.get(vid);
     if (!s) {
@@ -85,10 +93,11 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
       const v = g.vertex(vid);
       for (const eid of v.edges) {
         if (!alive.has(eid)) continue;
-        const to = g.otherEnd(g.edge(eid), vid);
-        s.push({ eid, to, angle: angleOf(p2(vid), p2(to)) });
+        s.push({ eid, to: g.otherEnd(g.edge(eid), vid) });
       }
-      s.sort((p, q) => p.angle - q.angle);
+      const o = p2(vid);
+      s.sort((p, q) => cmpDir(o, p2(p.to), p2(q.to)) || p.eid - q.eid);
+      if (FF_DEBUG.log) { const byAtan = [...s].sort((p, q) => angleOf(o, p2(p.to)) - angleOf(o, p2(q.to))); if (byAtan.some((x, i) => x.eid !== s[i].eid)) FF_DEBUG.log(`star ${vid} o=(${o.x},${o.y}) exact=[${s.map((x) => `${x.eid}:${rank(o, p2(x.to))}:(${p2(x.to).x - o.x},${p2(x.to).y - o.y})`).join(" ")}] atan=[${byAtan.map((x) => `${x.eid}:${angleOf(o, p2(x.to)).toFixed(17)}`).join(" ")}]`); }
       sortedStar.set(vid, s);
     }
     return s;
@@ -98,11 +107,11 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
   // 该规则让内部面 trace 成 CCW、每条有向半边恰好属于一个环（drill L247-255）。
   const nextDir = (arriveFrom: VertexId, at: VertexId): { eid: EdgeId; to: VertexId } => {
     const star = starOf(at);
-    const back = angleOf(p2(at), p2(arriveFrom));
-    // 找 angle 严格小于 back 的最大者；没有则环回最大 angle
+    const o = p2(at), back = p2(arriveFrom);
+    // 找方向严格小于 back 的最大者；没有则环回最大
     let best: { eid: EdgeId; to: VertexId } | undefined;
     for (let i = star.length - 1; i >= 0; i--) {
-      if (star[i].angle < back - 1e-12) { best = star[i]; break; }
+      if (cmpDir(o, p2(star[i].to), back) < 0) { best = star[i]; break; }
     }
     if (!best) best = star[star.length - 1];
     return best;

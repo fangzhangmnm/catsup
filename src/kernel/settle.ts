@@ -13,11 +13,14 @@
 //   按边 id 的 parity toggle、洞环三律、movedOuter 补手势、预演开区间样本；结算机的 zeroClaimKeep + repairRings、ringKey 去重。
 // 不在本机的：擦边（loop 身份即意图：外环=BURST / 洞=ABSORB / 同平面共享=MERGE，face-lifecycle.ts）、删膜（纯出库）。
 
-import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeOfRing, pointInRing, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, sub3 } from "./geom.ts";
+import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeOfRing, pointInRing, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, sub3, Q } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type DirEdge, type Region, type Ring, representativePoint } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, discoverPlanes } from "./planes.ts";
-import { INSERT_TOL, insertSegment } from "./subdivide.ts";
+import { INSERT_TOL, STICKY, insertSegment } from "./subdivide.ts";
+import { toLattice3 } from "./exact/lattice.ts";
+import { pointNearSegment } from "./exact/predicates3d.ts";
+import { orient2dD } from "./exact/predicates.ts";
 import { planarize } from "./planarize.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore, ringEdgeIds } from "./face-lifecycle.ts";
@@ -86,8 +89,8 @@ export function windingOf(p: Pt, poly: readonly Pt[]): number {
   for (let i = 0; i < poly.length; i++) {
     const a = poly[i], b = poly[(i + 1) % poly.length];
     if (a.y <= p.y) {
-      if (b.y > p.y && cross(a, b, p) > 0) w++;
-    } else if (b.y <= p.y && cross(a, b, p) < 0) w--;
+      if (b.y > p.y && orient2dD(a, b, p) > 0) w++;   // 精确（EGC 期 3）
+    } else if (b.y <= p.y && orient2dD(a, b, p) < 0) w--;
   }
   return w;
 }
@@ -100,10 +103,12 @@ export function collinear2(g: PlanarGraph, vid: VertexId): { a: VertexId; b: Ver
   const a = g.otherEnd(g.edge(ea), vid), b = g.otherEnd(g.edge(eb), vid);
   if (a === b) return null;
   const pv = g.pt(vid), pa = g.pt(a), pb = g.pt(b);
-  const da = sub3(pa, pv), db = sub3(pb, pv);
-  const la = dist3(pa, pv), lb = dist3(pb, pv);
-  if (la === 0 || lb === 0) return null;
-  if (dot3(da, db) / (la * lb) > -(1 - 1e-9)) return null;
+  // EGC 期 3：共线 = 中间点离两端连线 ≤ r（身份分辨率那把尺，格点精确），且两边反向（点积 < 0）——不再是裸角度 1e⁻⁹
+  const La = toLattice3(pa), Lb = toLattice3(pb), Lv = toLattice3(pv);
+  if ((La.x === Lv.x && La.y === Lv.y && La.z === Lv.z) || (Lb.x === Lv.x && Lb.y === Lv.y && Lb.z === Lv.z)) return null;
+  const dx1 = La.x - Lv.x, dy1 = La.y - Lv.y, dz1 = La.z - Lv.z, dx2 = Lb.x - Lv.x, dy2 = Lb.y - Lv.y, dz2 = Lb.z - Lv.z;
+  if (BigInt(dx1) * BigInt(dx2) + BigInt(dy1) * BigInt(dy2) + BigInt(dz1) * BigInt(dz2) >= 0n) return null;
+  if (!pointNearSegment(Lv, La, Lb, Math.round(STICKY.r / Q))) return null;
   return { a, b, ea, eb };
 }
 
