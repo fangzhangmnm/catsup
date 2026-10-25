@@ -33,25 +33,20 @@ export function scaleTipHtml(text: string | null, view: ScaleTipView | null, sty
     });
     return head + `<div class="tip-bars">${rows.join("")}</div>`;
   }
-  // 航空迷你带（高度表那种竖带）：读数钉在正中，往上 = 更大（对数尺，窗口 ÷/× 1.5）。
-  // 列出来的那几项各占一条细竖道画它的合理范围（浓淡同字），规格点画刻度线；名字标在典型值的高度。
-  // （v0.13.52 起先把窗口里全部带子叠在一根柱上 = 几十条叠成实心，看不出在不在范围里，截图核过后改成每项一道。）
-  const H = 112, mid = H / 2, half = mid - 6, LANE = 4, TX = 4 + Math.max(1, items.length) * LANE, W = TX + 132;
-  const [lo, hi] = view.window, k = Math.log(hi / view.reading) || 1;
-  const y = (v: number): number => mid - (Math.log(v / view.reading) / k) * half;
-  const clampY = (v: number): number => Math.max(2, Math.min(H - 2, v));
-  let svg = `<rect x="0" y="0" width="${TX}" height="${H}" class="tape-bg"/>`;
-  for (const m of view.marks) if (m.shape === "point") { const ty = clampY(y(m.value)).toFixed(1); svg += `<line x1="0" x2="${TX}" y1="${ty}" y2="${ty}" class="tape-tick"/>`; }
+  // 迷你带：和一行字一样高的细条放在名字前面，不比提示框本身更抢眼（user 2026-10-25「你那个飞行仪表太占地方了，我希望不比tooltip抢更多注意力，到没到是很不重要的信息」）。
+  // 横着的对数尺（窗口 ÷/× 1.5，左小右大），读数 = 中间一根淡竖线；列出来的几项各一条极细的横道（浓淡同字），规格点 = 小刻度；全灰，不用强调色，也不标「到了」。
+  // （v0.13.52–54 是一根 112 px 高的竖带 + 每项一条道 + 名字标在典型值高度，太大，换掉。）
+  const W = 64, H = 10, mid = W / 2, half = mid - 2;
+  const k = Math.log(view.window[1] / view.reading) || 1;
+  const x = (v: number): number => Math.max(0, Math.min(W, mid + (Math.log(v / view.reading) / k) * half));
+  const n = Math.max(1, items.length), row = Math.min(2, (H - 2) / n), gap = Math.min(1, ((H - 2) - row * n) / Math.max(1, n - 1));
+  let svg = `<rect x="0" y="0" width="${W}" height="${H}" rx="2" class="tape-bg"/>`;
+  for (const m of view.marks) if (m.shape === "point") { const tx = x(m.value).toFixed(1); svg += `<line x1="${tx}" x2="${tx}" y1="${H - 3}" y2="${H}" class="tape-tick"/>`; }
   items.forEach((it, i) => {
-    const x = 2 + i * LANE, y1 = clampY(y(Math.min(it.hi, hi))), y0 = clampY(y(Math.max(it.lo, lo)));
-    svg += `<rect x="${x}" y="${y1.toFixed(1)}" width="${LANE - 1}" height="${Math.max(1, y0 - y1).toFixed(1)}" rx="1" class="tape-band${it.hit ? " hit" : ""}" style="opacity:${it.hit ? "0.9" : (0.25 + 0.55 * it.strength).toFixed(2)}"/>`;
+    const x0 = x(it.lo), x1 = x(it.hi), y0 = 1 + i * (row + gap);
+    svg += `<rect x="${x0.toFixed(1)}" y="${y0.toFixed(2)}" width="${Math.max(1, x1 - x0).toFixed(1)}" height="${row.toFixed(2)}" class="tape-band" style="opacity:${(0.2 + 0.5 * it.strength).toFixed(2)}"/>`;
   });
-  svg += `<line x1="0" x2="${TX + 6}" y1="${mid}" y2="${mid}" class="tape-now"/><path d="M${TX + 6} ${mid - 4}L${TX + 1} ${mid}L${TX + 6} ${mid + 4}Z" class="tape-now-head"/>`;
-  const labs = items.map((it) => ({ it, y: clampY(y(it.value)) })).sort((a, b) => a.y - b.y);
-  let last = -Infinity;
-  for (const l of labs) {
-    const ly = Math.max(l.y, last + 12); if (ly > H - 2) break; last = ly;
-    svg += `<line x1="${TX}" x2="${TX + 8}" y1="${l.y.toFixed(1)}" y2="${(ly - 3).toFixed(1)}" class="tape-leader"/><text x="${TX + 10}" y="${(ly + 1).toFixed(1)}" class="tape-label${l.it.hit ? " hit" : ""}" style="opacity:${l.it.hit ? "1" : alpha(l.it.strength)}">${esc(l.it.name)}</text>`;
-  }
-  return head + `<div class="tip-tape"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${svg}</svg></div>`;
+  svg += `<line x1="${mid}" x2="${mid}" y1="0" y2="${H}" class="tape-now"/>`;
+  const names = items.map((it) => `<span style="opacity:${alpha(it.strength)}">${esc(it.name)}</span>`).join('<span class="sep"> / </span>');
+  return head + `<div class="tip-ref tip-tape"><svg width="${W}" height="${H}" viewBox="0 0 ${W} ${H}" aria-hidden="true">${svg}</svg> ${names}</div>`;
 }
