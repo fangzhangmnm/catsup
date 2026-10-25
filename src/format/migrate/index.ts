@@ -13,12 +13,13 @@
 //   CATSUP_document    v1 → v2（2026-10-24 尺规纪元）：axes（绘图轴，世界坐标 Frame）；缺 = 世界帧。
 //   CATSUP_document    v2 → v3（2026-10-24 0.14 物体模型）：layers（层表；缺 = 只有默认层 {id 0}）。minor：加可选键。
 //   CATSUP_definitions v4 → v5（2026-10-24 0.14 物体模型）：instances[j].layer（缺 = 继承）；list[i].kind = card 时 list[i].card{image 索引, sizeM, anchor, billboard}、= mesh 时 list[i].mesh{positions/indices/… bufferView}；
+//   CATSUP_definitions v5 → v6（2026-10-24 深夜 CardBody sunset，user「cardbody需要sunset」「拆」）：list[i].kind = card 的定义降成**空 brep 定义**（name / instances / 空 brep 占位留，card 载荷丢；dev 里从没有文件存过 card，拆在零成本窗口里）。
 //                      groups[j].locked **丢弃**（组不是物体，user 2026-10-24）。minor：老读者只是少看见一个可选键 / 不认的 kind 本来就拒开。
 
 export const EXTENSION_VERSIONS = {
   CATSUP_document: 3,
   CATSUP_brep: 4,
-  CATSUP_definitions: 5,
+  CATSUP_definitions: 6,
   CATSUP_instance: 1,
   CATSUP_material: 1,
 } as const;
@@ -60,6 +61,11 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
         ...d,
         groups: Array.isArray(d.groups) ? (d.groups as Record<string, unknown>[]).map((g) => { const { locked: _l, ...rest } = g; void _l; return rest; }) : d.groups,   // 组不是物体：锁丢弃
       })) : j.list,
+    }),
+    5: (j) => ({
+      ...j,
+      version: 6,
+      list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => { if (d.kind !== "card") return d; const { card: _c, kind: _k, ...rest } = d; void _c; void _k; return rest; }) : j.list,   // CardBody sunset：card → 空 brep 定义
     }),
   },
 };

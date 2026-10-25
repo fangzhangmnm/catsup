@@ -41,7 +41,7 @@
 
 ## 2. kind 与身体
 
-> **CardBody sunset 方向（user 2026-10-24 深夜「以及猫娘的本质那篇稿子你看过了应该知道cardbody需要sunset。哈哈哈」；记录 by Claude Fable 5.1）**：卡片这个 kind 的两个由头都没了——「猫娘」的本质是**验证**（`20261024-design-verification-overlay.md`：注释 = 举牌子、断点 = 钉在位置上的谓词），不是一张带动画的贴图卡；「参考小人」= 读全局角色档（胶囊体 / 眼高 / 台阶高）的**人形验证器实体**（`20261024-design-entity-classes-onvalidate.md`），也不是图片。`ImageAsset`（§3）**留**：贴图 / matte 还要它。拆法（等 user 一句话「拆」再动）：删 `CardBody` / `placeCard` / kind=card 登记、definitions 格式 card 载荷退场（dev 里没有任何文件存过 card，Opus 侧也没接 UI，现在拆零成本；拖到有文件存了再拆就是 major）。
+> **CardBody 已拆（v0.13.32，2026-10-24 深夜；user「cardbody需要sunset」→「你说一句「拆」我就拆 拆」）**：删 `CardBody` / `placeCard` / kind=card 登记；definitions 格式 v5 → v6（card 定义迁成空 brep 定义，dev 里从没有文件存过 card）。**方向（user 同夜原话）**：「猫娘的问题是她是entity的子类，所以需要实现的是entity，然后reference image是另外一个可以独立出来的ssot，毕竟refernce image不会face camera不会billboard。所以都是一张图，但是其实逻辑上是根本不一样的东西」；「entity今天不用急着做。现在我还没画出成品呢也不用急着做管卡编辑器」。→ 以后两份独立契约：**Entity**（验证实体的父类：人形验证器 / 注释牌 / 用户自定义类型，见 `20261024-design-entity-classes-onvalidate.md`；不排期）与 **ReferenceImage**（世界里一张带尺度的平贴参考图，不朝相机；不排期）。`ImageAsset`（§3）留着给贴图，两者以后都复用它装字节。
 
 ```ts
 type BodyKind = "brep" | "card" | "mesh";            // 开放集，加 kind = 加一个实现（EasyRoads 式「road」以后在这里长）
@@ -63,7 +63,7 @@ interface KindDef<B extends Body> {
 ```
 - **cast**：`{ op: "castDefinition"; def: DefId; to: BodyKind }`，定义级、可撤销。本版通的只有 **brep → mesh**（`triangulateRings` 每面三角化、材质槽照抄、曲线 / 软边 / 组 / 参考几何丢弃——都在 `loses` 里写明）；mesh → brep、card ↔ 其它 = 拒（报「还没有这条路」），不做部分转换。UI 的确认面 = Opus（文案来自 `loses` + 实例数）。
 
-## 3. 图片资产（贴图与卡片共用）
+## 3. 图片资产（贴图用；以后 ReferenceImage / Entity 的图也装在这）
 
 ```ts
 interface ImageAsset { mimeType: "image/png" | "image/jpeg"; bytes: Uint8Array; sizeM: [number, number] /* 物理宽高，米，必填 > 0 */ }

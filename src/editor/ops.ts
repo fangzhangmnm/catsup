@@ -10,7 +10,6 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { type ImageAsset, assertImageAsset } from "../format/document.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { ptKey3, quantize3 } from "../kernel/geom.ts";
@@ -75,8 +74,6 @@ export type Op =
   | { op: "removeLayer"; layer: number }
   /** 归层：at 定义的子实例归到某层；null = 回到继承。（面不打层——user 2026-10-24「facelayer可能太复杂了……不要」：要藏汤里的一部分 = 做成组件再归层。） */
   | { op: "assignLayer"; at: PoolRef; instances: number[]; layer: number | null }
-  /** naive 导入参考卡片：新建一个 card 定义 + 一个实例（原点 = 底边中点；image 必须带 sizeM）。 */
-  | { op: "placeCard"; at: PoolRef; image: ImageAsset; xform: Xform; name?: string; billboard?: boolean }
   // ---- 参考几何 / 轴（0.11 尺规纪元；池本地坐标）----
   | { op: "addGuide"; at: PoolRef; line?: { p: Pt3; dir: Pt3 }; point?: Pt3 }
   | { op: "eraseGuides"; at: PoolRef; ids: number[] }
@@ -124,7 +121,7 @@ export function moveOp(k: Kernel, moves: readonly { id: VertexId; to: PtIn }[], 
 }
 
 // ---------- 应用（重放与实时同一条路；clear / preset 换新场景，其余原地）----------
-// 门 1（0.13 刀 ①）：内核 op 只对 brep 池成立；别的 kind（card…）各有自己的 op 集，到时按 s.kindOf(ref.def) 在这里分叉，不改既有分支。
+// 门 1（0.13 刀 ①）：内核 op 只对 brep 池成立；别的 kind（mesh…）各有自己的 op 集，到时按 s.kindOf(ref.def) 在这里分叉，不改既有分支。
 const poolOf = (s: Scene, at?: PoolRef): { kernel: Kernel; ref: PoolRef } => {
   const ref = at ?? { def: s.root, group: null };
   if (!s.hasPool(ref)) throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"}`);
@@ -331,12 +328,6 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       for (const iid of op.instances) { const inst = def.instances.get(iid); if (!inst) throw new OpTargetError(`instance ${iid}`); if (op.layer === null) delete inst.layer; else inst.layer = op.layer; }
       return { scene: s, events: [] };
     }
-    case "placeCard": {
-      assertImageAsset(op.image, "placeCard");
-      const def = s.mintCardDef(op.name ?? "卡片", { kind: "card", image: op.image, anchor: "bottom-center", billboard: op.billboard ?? false });
-      s.mintInstance(op.at.def, op.at.group, def.id, op.xform);
-      return { scene: s, events: [] };
-    }
     case "eraseGroup": {
       const d = s.def(op.at.def), db = s.brep(op.at.def);
       const g = db.groups.get(op.group);
@@ -373,7 +364,6 @@ export function describeOp(op: Op): string {
     case "setLayerVisible": return `setLayerVisible ${op.layer} ${op.visible ? "on" : "off"}`;
     case "removeLayer": return `removeLayer ${op.layer}`;
     case "assignLayer": return `assignLayer inst=${op.instances.length} → ${op.layer === null ? "inherit" : op.layer}${at}`;
-    case "placeCard": return `placeCard ${op.image.sizeM[0].toFixed(3)}×${op.image.sizeM[1].toFixed(3)}${at}`;
     case "dissolveVertices": return `dissolveVertices n=${op.points.length}${at}`;
     case "batch": return `batch ${op.label} [${op.ops.map(describeOp).join("; ")}]`;
     case "eraseEdges": return `eraseEdges n=${op.edges.length}${at}`;

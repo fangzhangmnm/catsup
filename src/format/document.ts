@@ -27,8 +27,6 @@ export interface MaterialDoc { name: string; color: [number, number, number]; te
 export interface LayerDoc { id: number; name: string; visible: boolean; color?: [number, number, number]; }
 export const DEFAULT_LAYER: LayerDoc = { id: 0, name: "默认", visible: true };
 export const defaultLayers = (): LayerDoc[] => [{ ...DEFAULT_LAYER }];
-/** 卡片身体载荷（契约 §2）：一张竖直的卡，定义坐标里原点 = 底边中点，卡面在 XZ 面朝 −Y；billboard = 渲染时绕 Z 转向相机。 */
-export interface CardDoc { image: ImageAsset; anchor: "bottom-center"; billboard: boolean; }
 /** 网格身体载荷（契约 §2；Blender 式三角网的最小形）：positions xyz（米，定义坐标）、indices 三角、可选法向 / uv / 每三角材质槽。 */
 export interface MeshDoc { positions: Float32Array; indices: Uint32Array; normals?: Float32Array; uvs?: Float32Array; triMaterial?: Uint16Array; }
 /** 参考几何（0.11 尺规纪元；definitions v4）：池本地坐标，id 线 / 点同一空间。 */
@@ -36,7 +34,7 @@ export interface GuidesDoc { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: 
 export const emptyGuidesDoc = (): GuidesDoc => ({ lines: [], points: [] });
 export interface GroupDoc { id: number; parent: number | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; }   // 组不是物体（user 10-24）：无锁、无层；旧文件的 locked 读时丢弃（definitions v5）
 export interface InstanceDoc { id: number; definition: number; parent: number | null; xform: Xform; name?: string; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */ layer?: number; }
-export interface DefinitionDoc { name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = card 时的载荷（definitions v5）。 */ card?: CardDoc; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; extras?: Record<string, unknown>; }
+export interface DefinitionDoc { name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; extras?: Record<string, unknown>; }
 
 export interface CatsupDocument {
   settings: DocumentSettings;

@@ -37,11 +37,9 @@ export interface BrepBody {
   /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
   guides: Guides;
 }
-/** 卡片身体（A26 参考人卡片；契约 §2）：一张带尺度的图，定义坐标里原点 = 底边中点、卡面在 XZ 面朝 −Y；billboard = 渲染绕 Z 朝相机（对齐几何不转）。帧集 / 状态机 = 远景。 */
-export interface CardBody { readonly kind: "card"; image: ImageAsset; anchor: "bottom-center"; billboard: boolean; }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
 export interface MeshBody { readonly kind: "mesh"; positions: Float32Array; indices: Uint32Array; normals?: Float32Array; uvs?: Float32Array; triMaterial?: Uint16Array; materialSlots: number[]; }
-export type Body = BrepBody | CardBody | MeshBody;
+export type Body = BrepBody | MeshBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
   readonly id: DefId;
@@ -77,12 +75,6 @@ export class Scene {
   }
 
   // ---------- 铸造 ----------
-  /** 非 brep 身体的定义（0.14：卡片 / 网格）。 */
-  mintCardDef(name: string, body: CardBody): Definition {
-    const d: Definition = { id: this.nextDef++, name, body, instances: new Map(), nextInst: 1 };
-    this.defs.set(d.id, d);
-    return d;
-  }
   mintDef(name: string, kernel: Kernel): Definition {
     const d: Definition = { id: this.nextDef++, name, body: { kind: "brep", kernel, groups: new Map(), nextGroup: 1, materialSlots: [], guides: emptyGuides() }, instances: new Map(), nextInst: 1 };
     this.defs.set(d.id, d);
@@ -229,8 +221,7 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
-      } else if (d.body.kind === "card") body = { kind: "card", image: d.body.image, anchor: d.body.anchor, billboard: d.body.billboard };   // 图片字节不可变，共享
-      else body = { kind: "mesh", positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}), materialSlots: [...d.body.materialSlots] };   // 网格数组按不可变对待（cast 整体换）
+      } else body = { kind: "mesh", positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}), materialSlots: [...d.body.materialSlots] };   // 网格数组按不可变对待（cast 整体换）
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}) });
       s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });

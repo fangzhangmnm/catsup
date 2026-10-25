@@ -92,13 +92,9 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       brep: encodeBrep(g.brep, sink),
     }));
     const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}) }));
-    // 0.14 身体载荷（definitions v5）：card = 图进 glTF images + 尺度；mesh = 几条 bufferView
+    // 0.14 身体载荷（definitions v5）：mesh = 几条 bufferView（card 载荷 v6 退场）
     let payload: Record<string, unknown> = {};
-    if (d.kind === "card" && d.card) {
-      const v = sink.add(d.card.image.bytes);
-      images.push({ bufferView: v, mimeType: d.card.image.mimeType, name: d.name });
-      payload = { card: { image: images.length - 1, sizeM: [d.card.image.sizeM[0], d.card.image.sizeM[1]], anchor: d.card.anchor, billboard: d.card.billboard } };
-    } else if (d.kind === "mesh" && d.mesh) {
+    if (d.kind === "mesh" && d.mesh) {
       const m = d.mesh;
       const bv = (arr: Float32Array | Uint32Array | Uint16Array): number => sink.add(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));
       payload = { mesh: { positions: { bufferView: bv(m.positions), count: m.positions.length / 3 }, indices: { bufferView: bv(m.indices), count: m.indices.length }, ...(m.normals ? { normals: { bufferView: bv(m.normals) } } : {}), ...(m.uvs ? { uvs: { bufferView: bv(m.uvs) } } : {}), ...(m.triMaterial ? { triMaterial: { bufferView: bv(m.triMaterial) } } : {}) } };

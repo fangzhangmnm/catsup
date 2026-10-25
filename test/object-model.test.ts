@@ -1,5 +1,5 @@
 // 0.14 物体模型契约守卫（ai-docs/20261024-object-model-contract.md §6）：层级只有物体（组不可锁）；ImageAsset 必带尺度；cast 只认登记方向且失败不改文档；
-// 可见性继承单调（祖先藏 ⇒ 子藏）且 WorldView 过滤；card / mesh / layers / instance.layer 格式往返；v4 老样本读进来 = 默认层 + 全继承。created 2026-10-24 by Claude Fable 5.1
+// 可见性继承单调（祖先藏 ⇒ 子藏）且 WorldView 过滤；mesh / layers / instance.layer 格式往返（card 2026-10-24 深夜 sunset）；v4 老样本读进来 = 默认层 + 全继承。created 2026-10-24 by Claude Fable 5.1
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { Scene } from "../src/scene/scene.ts";
@@ -35,28 +35,16 @@ describe("object model: 层级只有物体", () => {
 });
 
 describe("object model: 图片资产必带尺度 + cast 登记表", () => {
-  it("assertImageAsset 拒 0 尺度 / 空字节；placeCard 走它", () => {
+  it("assertImageAsset 拒 0 尺度 / 空字节（贴图导入走它；card 已退场）", () => {
     let t = 0;
     try { assertImageAsset({ mimeType: "image/png", bytes: PNG, sizeM: [0, 1] }); } catch { t++; }
     try { assertImageAsset({ mimeType: "image/png", bytes: new Uint8Array(0), sizeM: [1, 1] }); } catch { t++; }
     eq(t, 2);
-    const s = new Scene(box());
-    let threw = false; try { applyOp(s, { op: "placeCard", at: { def: s.root, group: null }, image: { mimeType: "image/png", bytes: PNG, sizeM: [0.6, 0] }, xform: I }); } catch { threw = true; }
-    assert(threw, "没有尺度的卡片进不来");
-    eq(s.defs.size, 1, "失败不改文档");
-    applyOp(s, { op: "placeCard", at: { def: s.root, group: null }, image: { mimeType: "image/png", bytes: PNG, sizeM: [0.6, 1.2] }, xform: I, name: "猫娘" });
-    eq(s.defs.size, 2);
-    const card = [...s.defs.values()].find((d) => d.body.kind === "card")!;
-    eq(card.name, "猫娘"); eq(s.def(s.root).instances.size, 1);
-    const g = KINDS.card.alignGeometry(card.body);
-    eq(g.points.length, 6); eq(g.segments.length, 4);
-    assert(g.points.some((p) => p.x === 0 && p.y === 0 && p.z === 0), "底边中点是原点");
-    assert(g.points.some((p) => Math.abs(p.z - 1.2) < 1e-9), "顶高 = sizeM[1]");
   });
-  it("cast：brep → mesh 通（盒子 12 三角、材质槽照抄）；mesh → brep / card 任何方向拒且文档不动", () => {
+  it("cast：brep → mesh 通（盒子 12 三角、材质槽照抄）；mesh → brep 拒且文档不动", () => {
     const s = new Scene(box());
     const child = s.mintDef("盒", box()); s.mintInstance(s.root, null, child.id, at(2, 0, 0));
-    assert(canCast("brep", "mesh").ok && !canCast("mesh", "brep").ok && !canCast("card", "brep").ok && !canCast("brep", "brep").ok);
+    assert(canCast("brep", "mesh").ok && !canCast("mesh", "brep").ok && !canCast("brep", "brep").ok);
     const m = brepToMesh(s.brep(child.id));
     eq(m.indices.length, 12 * 3); eq(m.triMaterial!.length, 12);
     applyOp(s, { op: "castDefinition", def: child.id, to: "mesh" });
@@ -94,11 +82,11 @@ describe("object model: 层", () => {
   });
 });
 
-describe("object model: 格式往返（document v3 / definitions v5）", () => {
-  it("card / mesh / layers / instance.layer 写了再读逐字相等；组没有 locked", () => {
+describe("object model: 格式往返（document v3 / definitions v6）", () => {
+  it("mesh / layers / instance.layer 写了再读逐字相等；组没有 locked", () => {
     const s = new Scene(box());
     applyOp(s, { op: "addLayer", name: "参考", color: [1, 0, 0] });
-    applyOp(s, { op: "placeCard", at: { def: s.root, group: null }, image: { mimeType: "image/png", bytes: PNG, sizeM: [0.6, 1.2] }, xform: at(1, 0, 0), name: "猫娘", billboard: true });
+    const ref = s.mintDef("参考体", box()); s.mintInstance(s.root, null, ref.id, at(1, 0, 0));
     const cardInst = [...s.def(s.root).instances.values()][0];
     applyOp(s, { op: "assignLayer", at: { def: s.root, group: null }, instances: [cardInst.id], layer: 1 });
     const m = s.mintDef("网格", box()); s.mintInstance(s.root, null, m.id, at(0, 3, 0));
@@ -107,19 +95,14 @@ describe("object model: 格式往返（document v3 / definitions v5）", () => {
     const bytes = writeCatsup(doc);
     const back = readCatsup(bytes);
     eq(back.layers.length, 2); eq(back.layers[1].name, "参考"); eq(JSON.stringify(back.layers[1].color), JSON.stringify([1, 0, 0]));
-    const cardDoc = back.definitions.find((d) => d.kind === "card")!;
-    assert(cardDoc && cardDoc.card, "card 载荷在");
-    eq(JSON.stringify(cardDoc.card!.image.sizeM), JSON.stringify([0.6, 1.2])); eq(cardDoc.card!.billboard, true);
-    eq(Array.from(cardDoc.card!.image.bytes).join(","), Array.from(PNG).join(","));
     const meshDoc = back.definitions.find((d) => d.kind === "mesh")!;
     assert(meshDoc && meshDoc.mesh, "mesh 载荷在");
     eq(meshDoc.mesh!.indices.length, 36); eq(meshDoc.mesh!.positions.length, 8 * 3); eq(meshDoc.mesh!.triMaterial!.length, 12);
     const rootDoc = back.root;
-    const ci = rootDoc.instances.find((i) => back.definitions[i.definition].kind === "card")!;
+    const ci = rootDoc.instances.find((i) => back.definitions[i.definition].name === "参考体")!;
     eq(ci.layer, 1);
     const s2 = sceneFromDocument(back);
     eq(s2.layers.length, 2);
-    eq([...s2.defs.values()].filter((d) => d.body.kind === "card").length, 1);
     eq([...s2.defs.values()].filter((d) => d.body.kind === "mesh").length, 1);
     // 第二次写：字节幂等
     const bytes2 = writeCatsup(documentFromScene(s2, "t"));

@@ -34,8 +34,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   doc.definitions.forEach((d, i) => { if (i !== doc.rootIndex) idOf.set(i, scene.mintDef(d.name, Kernel.fromBrep(d.brep)).id); });
   doc.definitions.forEach((d, i) => {
     const def = scene.def(idOf.get(i)!);
-    // 0.14 身体种类（契约 §2）：card / mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
-    if (d.kind === "card" && d.card) { def.body = { kind: "card", image: d.card.image, anchor: d.card.anchor, billboard: d.card.billboard }; for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; } return; }
+    // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
     if (d.kind === "mesh" && d.mesh) { def.body = { kind: "mesh", positions: d.mesh.positions, indices: d.mesh.indices, ...(d.mesh.normals ? { normals: d.mesh.normals } : {}), ...(d.mesh.uvs ? { uvs: d.mesh.uvs } : {}), ...(d.mesh.triMaterial ? { triMaterial: d.mesh.triMaterial } : {}), materialSlots: d.materialSlots.map((m) => (m in doc.materials ? m : -1)) }; for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; } return; }
     const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
     body.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
@@ -76,7 +75,6 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   const definitions: DefinitionDoc[] = ids.map((id) => {
     const d = scene.def(id);
     const instances = [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}) }));
-    if (d.body.kind === "card") return { name: d.name, kind: "card", card: { image: d.body.image, anchor: d.body.anchor, billboard: d.body.billboard }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: [], guides: emptyGuidesDoc() };
     if (d.body.kind === "mesh") return { name: d.name, kind: "mesh", mesh: { positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: [...d.body.materialSlots], guides: emptyGuidesDoc() };
     const b = d.body;
     return {

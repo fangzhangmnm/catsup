@@ -107,25 +107,13 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
-    // 门 1：definition 的种类。缺省 brep；0.14 起认 card / mesh（载荷：definitions v5）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
+    // 门 1：definition 的种类。缺省 brep；0.14 起认 mesh（载荷：definitions v5；card 在 v6 退场 = 迁成空 brep）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
     const kindRaw = d.kind === undefined ? "brep" : d.kind;
-    if (kindRaw !== "brep" && kindRaw !== "card" && kindRaw !== "mesh") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
+    if (kindRaw !== "brep" && kindRaw !== "mesh") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
     const kind = kindRaw as BodyKind;
     const sliceOf = (bv: number): ArrayBuffer => { const u = view(bv); return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer; };
     let payload: Partial<DefinitionDoc> = {};
-    if (kind === "card") {
-      if (!isObj(d.card)) fail(`definition ${di} card payload missing`);
-      const c = d.card as Record<string, unknown>;
-      const imgRaw = typeof c.image === "number" ? imgListEarly[c.image] : undefined;
-      if (!isObj(imgRaw)) fail(`definition ${di} card image missing`);
-      const img = imgRaw as Record<string, unknown>;
-      if (typeof img.bufferView !== "number") fail(`definition ${di} card image has no bufferView`);
-      const bvi = img.bufferView as number;
-      const szRaw = c.sizeM;
-      if (!Array.isArray(szRaw) || szRaw.length !== 2 || !szRaw.every((v) => typeof v === "number" && v > 0)) fail(`definition ${di} card sizeM invalid（每张图必须带长度尺度）`);
-      const sz = szRaw as number[];
-      payload = { card: { image: { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(bvi)), sizeM: [sz[0], sz[1]] }, anchor: "bottom-center", billboard: c.billboard === true } };
-    } else if (kind === "mesh") {
+    if (kind === "mesh") {
       if (!isObj(d.mesh)) fail(`definition ${di} mesh payload missing`);
       const mj = d.mesh as Record<string, unknown>;
       const bvOf = (k: string): number | null => { const o = mj[k]; return isObj(o) && typeof (o as Record<string, unknown>).bufferView === "number" ? ((o as Record<string, unknown>).bufferView as number) : null; };

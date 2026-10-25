@@ -4,7 +4,7 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import type { PlaneParams } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
-import type { Body, BrepBody, CardBody, MeshBody } from "./scene.ts";
+import type { Body, BrepBody, MeshBody } from "./scene.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 
 export type KindModeId = "geometry" | "surface";
@@ -38,19 +38,6 @@ export const BREP_KIND: KindDef<BrepBody> = {
   },
   bounds(b) { return boundsOf(b.kernel.vertices()); },
 };
-/** 卡片：原点 = 底边中点，卡面在 XZ 面（宽沿 X、高沿 Z），朝 −Y。 */
-export const cardCorners = (c: CardBody): [Pt3, Pt3, Pt3, Pt3] => { const [w, h] = c.image.sizeM; return [{ x: -w / 2, y: 0, z: 0 }, { x: w / 2, y: 0, z: 0 }, { x: w / 2, y: 0, z: h }, { x: -w / 2, y: 0, z: h }]; };
-export const CARD_KIND: KindDef<CardBody> = {
-  id: "card", label: "卡片",
-  modes: [],
-  castsTo: [],
-  alignGeometry(c) {
-    const [a, b, d, e] = cardCorners(c), [w, h] = c.image.sizeM;
-    return { points: [a, b, d, e, { x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: h }], segments: [[a, b], [b, d], [d, e], [e, a]], planes: [{ n: { x: 0, y: -1, z: 0 }, d: 0 }] };
-    void w;
-  },
-  bounds(c) { return boundsOf(cardCorners(c)); },
-};
 export const MESH_KIND: KindDef<MeshBody> = {
   id: "mesh", label: "网格",
   modes: [],
@@ -64,7 +51,7 @@ export const MESH_KIND: KindDef<MeshBody> = {
   },
   bounds(m) { const pts: Pt3[] = []; for (let i = 0; i + 2 < m.positions.length; i += 3) pts.push({ x: m.positions[i], y: m.positions[i + 1], z: m.positions[i + 2] }); return boundsOf(pts); },
 };
-export const KINDS: Readonly<Record<BodyKind, KindDef>> = { brep: BREP_KIND as KindDef, card: CARD_KIND as KindDef, mesh: MESH_KIND as KindDef };
+export const KINDS: Readonly<Record<BodyKind, KindDef>> = { brep: BREP_KIND as KindDef, mesh: MESH_KIND as KindDef };
 export const kindOfBody = (b: Body): KindDef => KINDS[b.kind];
 export function canCast(from: BodyKind, to: BodyKind): { ok: true; loses: readonly string[] } | { ok: false; why: string } {
   if (from === to) return { ok: false, why: "已经是这种身体" };
