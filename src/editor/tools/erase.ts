@@ -5,7 +5,7 @@ import type { EdgeId } from "../../kernel/kernel.ts";
 import type { WorldView } from "../../scene/world-view.ts";
 import { edgeKey } from "../ops.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx } from "../tool-handler.ts";
+import type { ToolCtx, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../render3.ts";
 import { pickGuide, withoutGuides } from "../guide-pick.ts";
 import { EdgeScrubTool } from "./scrub.ts";
@@ -16,6 +16,7 @@ export class EraseTool extends EdgeScrubTool {
   readonly tool = "erase" as const;
   protected readonly wholeCurve = true;
   private guides = new Set<number>();       // 刮过的参考线 / 参考点 id（活动池的）
+  private toErase: number[] = [];           // 抬笔那一刻拿出来的参考几何单子（底座 up 先 cancel 再 commit，cancel 会清 guides）
   private mode: Mode = "erase";
 
   override cancel(): void { super.cancel(); this.guides = new Set(); }
@@ -29,9 +30,15 @@ export class EraseTool extends EdgeScrubTool {
     const g = pickGuide(view.guides(), ctx.frame(), ctx.vp(), sx, sy, ctx.eps().hit);
     if (g) this.guides.add(g.id);
   }
+  /** 抬笔：先把刮过的参考几何单子拿出来——底座的 up 是「先 cancel 再 commit」，cancel 会把 guides 清空。
+   *  （v0.13.16 搬进橡皮家族共用底座时这里读的是已经清空的 guides = 参考线 / 参考点从此擦不掉；user 2026-10-25「bug：橡皮擦不了辅助线了」。探针 probe-erase-guides。） */
+  override up(ctx: ToolCtx, ev: ToolPointer, settle: () => ToolSample | null): void {
+    this.toErase = [...this.guides];
+    super.up(ctx, ev, settle);
+  }
   protected commit(ctx: ToolCtx, ids: EdgeId[]): void {
-    const gids = [...this.guides], mode = this.mode;
-    this.guides = new Set();
+    const gids = this.toErase, mode = this.mode;
+    this.toErase = [];
     const k = ctx.kernel(), at = ctx.activePool();
     if (mode === "erase" && gids.length) ctx.commitOp({ op: "eraseGuides", at, ids: gids });   // D18：刮过的参考线 / 参考点一起擦
     if (mode !== "erase") { ctx.softenEdges(ids.filter((id) => k.graph.hasEdge(id) && k.graph.edge(id).faceLinks.length >= 2), mode === "soften"); return; }
