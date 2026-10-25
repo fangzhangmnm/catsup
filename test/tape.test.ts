@@ -27,6 +27,11 @@ describe("tape: 起点身份 → 产物", () => {
     const r = tapeResult({ kind: "measure", p: P(0, 0, 0) }, P(3, 4, 0));
     eq(r.make, "measure"); eq(r.d, 5);
   });
+  it("classifyStart：栅格把「边上」改写成格点时，调用方给了方向就仍按边起手出平行线；没给方向 = 只量（D23）", () => {
+    eq(classifyStart({ p: P(1, 0, 0), kind: "grid-point" }, P(1, 0, 0)).kind, "line");
+    eq(classifyStart({ p: P(1, 0, 0), kind: "increment" }, P(1, 0, 0)).kind, "line");
+    eq(classifyStart({ p: P(1, 0.3, 0), kind: "grid-point" }, null).kind, "measure");
+  });
   it("classifyStart：吸附种类分三类；边类没拿到方向就退成只量", () => {
     eq(classifyStart({ p: P(0, 0, 0), kind: "on-edge" }, P(0, 1, 0)).kind, "line");
     eq(classifyStart({ p: P(0, 0, 0), kind: "on-guide" }, P(1, 0, 0)).kind, "line");

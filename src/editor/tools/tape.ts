@@ -17,13 +17,21 @@ import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../render3.ts";
 import type { WorldView } from "../../scene/world-view.ts";
 
-/** 吸附点所在的边 / 参考线的方向（世界坐标）；找不到 = null。 */
+/** 吸附点所在的边 / 参考线的方向（世界坐标）；找不到 = null。
+ *  D23（2026-10-25 Opus，user「卷尺在snap模式下还是只能打点不能打线」）：栅格开着时「边上 / 参考线上」被求解器改写成落格的点——
+ *  这时只认「这个点正落在光标下那条边或某条参考线上」，落在线上才给方向（卷尺出平行线），否则照旧只量。 */
 function lineDirAt(view: WorldView, sn: Snap3, pick: { edge?: number }): Pt3 | null {
+  const onLine = (a: Pt3, dir: Pt3): boolean => { const v = sub3(sn.p, a); const off = sub3(v, scale3(dir, dot3(v, dir))); return Math.hypot(off.x, off.y, off.z) < 1e-6; };
+  const lattice = sn.kind === "grid-point" || sn.kind === "increment";
   if (sn.kind === "on-guide") {
-    for (const l of view.guides().lines) { const v = sub3(sn.p, l.p); const off = sub3(v, scale3(l.dir, dot3(v, l.dir))); if (Math.hypot(off.x, off.y, off.z) < 1e-6) return l.dir; }
+    for (const l of view.guides().lines) if (onLine(l.p, l.dir)) return l.dir;
     return null;
   }
-  if (pick.edge !== undefined && view.graph.hasEdge(pick.edge)) { const e = view.graph.edge(pick.edge); return normalize3(sub3(view.graph.pt(e.b), view.graph.pt(e.a))); }
+  if (pick.edge !== undefined && view.graph.hasEdge(pick.edge)) {
+    const e = view.graph.edge(pick.edge), a = view.graph.pt(e.a), d = normalize3(sub3(view.graph.pt(e.b), a));
+    if (!lattice || onLine(a, d)) return d;
+  }
+  if (lattice) for (const l of view.guides().lines) if (onLine(l.p, l.dir)) return l.dir;
   return null;
 }
 

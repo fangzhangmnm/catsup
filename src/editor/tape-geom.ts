@@ -26,10 +26,12 @@ export function tapeResult(start: TapeStart, b: Pt3): TapeResult {
 
 const POINT_KINDS = new Set<SnapKind>(["endpoint", "midpoint", "intersection", "origin", "guide-point", "guide-cross", "align-combo"]);
 const LINE_KINDS = new Set<SnapKind>(["on-edge", "edge-align", "on-guide"]);
+/** 栅格开着时，求解器把「边上 / 参考线上」改写成落格的点（「格点 · 边上」）；调用方确认这点正落在那条边 / 参考线上才给 lineDir（D23，2026-10-25 Opus）。 */
+const ON_LATTICE = new Set<SnapKind>(["grid-point", "increment"]);
 
 /** 按吸附结果给起点定身份：边 / 参考线 → 带方向；点类 → 参考点；其余 → 只量。edgeDir / guideDir 由调用方按命中补。 */
 export function classifyStart(sn: Snap3, lineDir: Pt3 | null): TapeStart {
-  if (sn.kind && LINE_KINDS.has(sn.kind) && lineDir) return { kind: "line", p: sn.p, dir: normalize3(lineDir) };
+  if (sn.kind && (LINE_KINDS.has(sn.kind) || ON_LATTICE.has(sn.kind)) && lineDir) return { kind: "line", p: sn.p, dir: normalize3(lineDir) };
   if (sn.kind && POINT_KINDS.has(sn.kind)) return { kind: "point", p: sn.p };
   return { kind: "measure", p: sn.p };
 }
