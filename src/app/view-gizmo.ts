@@ -76,10 +76,23 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
       return { a, x: C + LEN * (x * r.x + y * r.y + z * r.z), y: C - LEN * (x * u.x + y * u.y + z * u.z), depth: x * f.x + y * f.y + z * f.z };
     }).sort((p, q) => q.depth - p.depth);   // 远的先画
   };
+  // 方框裁到轴端小球最远能到的地方，上下的钮贴着（user 2026-10-25「gizmos上下空间留多了。你重新算一下。贴着」）：
+  // 平行投影 = LEN + R_POS；透视 = LEN / √(1 − 1/D²) + R_POS（轴斜向镜头 sinφ = 1/D 时屏上最长）；+1 = 描边。视场 50° → 46.5（原来留到 48）。
+  let boxR = C, boxFov = NaN;
+  const fitBox = (): void => {
+    const fov = editor.cam.fovY;
+    if (fov === boxFov) return;
+    boxFov = fov;
+    const D = (C / LEN) / Math.tan(fov / 2);
+    boxR = D * D > 1.05 ? Math.min(C, Math.max(LEN, LEN / Math.sqrt(1 - 1 / (D * D))) + R_POS + 1) : C;
+    svg.setAttribute("viewBox", `${C - boxR} ${C - boxR} ${2 * boxR} ${2 * boxR}`);
+    root.style.setProperty("--gizmo-w", `${2 * boxR}px`);
+  };
   let key = "";
   const render = (): void => {
     const cam = editor.cam;
-    const k = `${cam.yaw.toFixed(4)}|${cam.pitch.toFixed(4)}|${cam.projection}|${opts.isWalking()}`;
+    fitBox();
+    const k = `${cam.yaw.toFixed(4)}|${cam.pitch.toFixed(4)}|${cam.projection}|${opts.isWalking()}|${boxR}`;
     if (k === key) return;
     key = k;
     const pts = project();
@@ -95,7 +108,7 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
   };
   // 点球 = 切视图（已在该视图 → 对面）；拖 = 环绕
   let down: { x: number; y: number; moved: boolean; id: number } | null = null;
-  const toSvg = (ev: PointerEvent): { x: number; y: number } => { const b = svg.getBoundingClientRect(); return { x: ((ev.clientX - b.left) / b.width) * SIZE, y: ((ev.clientY - b.top) / b.height) * SIZE }; };
+  const toSvg = (ev: PointerEvent): { x: number; y: number } => { const b = svg.getBoundingClientRect(); return { x: C - boxR + ((ev.clientX - b.left) / b.width) * 2 * boxR, y: C - boxR + ((ev.clientY - b.top) / b.height) * 2 * boxR }; };   // 方框裁过：viewBox 从 C − boxR 起
   svg.addEventListener("pointerdown", (ev) => { ev.preventDefault(); ev.stopPropagation(); svg.setPointerCapture(ev.pointerId); down = { x: ev.clientX, y: ev.clientY, moved: false, id: ev.pointerId }; });
   svg.addEventListener("pointermove", (ev) => {
     if (!down || ev.pointerId !== down.id) return;

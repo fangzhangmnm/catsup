@@ -43,8 +43,8 @@ svg.ico use { color: inherit; }
 .hud-rail-tools > .tb-btn { width: 48px; }
 .rail-tools { display: flex; flex-direction: column; gap: 2px; }
 /* 右柱已撤（2026-10-21 user：全部在一侧，像 WeebPaint）；视图 = 右上角导航 gizmo（Blender / Unity 式） */
-.hud-gizmo { position: absolute; z-index: 5; right: calc(8px + var(--safe-right)); top: calc(8px + var(--safe-top)); display: flex; flex-direction: column; align-items: center; gap: 4px; }
-.gizmo-svg { width: 96px; height: 96px; touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; filter: drop-shadow(0 1px 2px rgba(255,255,255,.9)); }
+.hud-gizmo { position: absolute; z-index: 5; right: calc(8px + var(--safe-right)); top: calc(8px + var(--safe-top)); display: flex; flex-direction: column; align-items: center; gap: 0; }   /* ☰ / gizmo / 手 + 放大镜 贴着（user 2026-10-25「贴着」） */
+.gizmo-svg { width: var(--gizmo-w, 96px); height: var(--gizmo-w, 96px); touch-action: none; cursor: grab; user-select: none; -webkit-user-select: none; filter: drop-shadow(0 1px 2px rgba(255,255,255,.9)); }
 .gizmo-svg:active { cursor: grabbing; }
 .gizmo-btns { display: flex; flex-direction: column; gap: 2px; padding: 3px; border-radius: 10px; background: rgba(255,255,255,.55); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .gizmo-btn { width: 34px; height: 34px; display: grid; place-items: center; border: 0; border-radius: 8px; background: transparent; color: var(--ink); cursor: pointer; }
@@ -55,13 +55,12 @@ svg.ico use { color: inherit; }
 .gizmo-btn.dragging { background: var(--accent-soft); color: var(--accent); }
 /* 视图侧挂件条（2026-10-24 Opus）：gizmo 拖柄下面另一组；第一个 = 吸附；角标 = 轴锁（颜色同三色轴） */
 /* ☰ 在上、手 + 放大镜在下（user 2026-10-25「汉堡，手和放大镜，上下挪一下。给gizmos留出空间」「手和放大镜可以大一些，占满gizmos的行宽」）：
-   gizmo 本体 96 px 不被压；☰ 一行靠右（还是右上角那颗）；手 + 放大镜一行、各占半宽、比 34 px 高一点 */
-.gizmo-top { width: 96px; display: flex; justify-content: flex-end; }
-.gizmo-top .gizmo-btn { background: rgba(255,255,255,.6); }
-.gizmo-nav { flex-direction: row; width: 96px; gap: 4px; padding: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
+   gizmo 本体不被压、方框裁到轴端小球最远处（view-gizmo.ts fitBox，--gizmo-w）；☰ 一行靠右（还是右上角那颗）；手 + 放大镜一行、各占半宽、比 34 px 高一点 */
+.gizmo-top { width: var(--gizmo-w, 96px); display: flex; justify-content: flex-end; }   /* ☰ 不带底（user 2026-10-25「三条杠背景拿掉」） */
+.gizmo-nav { flex-direction: row; width: var(--gizmo-w, 96px); gap: 4px; padding: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .gizmo-nav .gizmo-btn { flex: 1; width: auto; height: 42px; background: rgba(255,255,255,.6); }
 .gizmo-nav .gizmo-btn .ico { width: 24px; height: 24px; }
-.gizmo-widgets { margin-top: 6px; align-self: flex-end; }   /* 别的钮靠右对齐（user「另外的按钮比如gridlock右对齐」） */
+.gizmo-widgets { margin-top: 10px; align-self: flex-end; }   /* 别的钮靠右对齐（user「另外的按钮比如gridlock右对齐」） */
 .gizmo-snap { position: relative; }
 .gizmo-snaplock { position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; pointer-events: none; background: var(--panel); border-radius: 3px; }
 .gizmo-snaplock .ico { width: 12px; height: 12px; }

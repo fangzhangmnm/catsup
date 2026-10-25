@@ -37,11 +37,16 @@ res.proj1 = await page.evaluate(() => globalThis.__catsup.editor.cam.projection)
 await page.mouse.click(ex, ey); await page.waitForTimeout(600); await page.mouse.click(ex, ey); await page.waitForTimeout(120);   // 隔太久 = 不算双击
 res.proj2 = await page.evaluate(() => globalThis.__catsup.editor.cam.projection);
 res.hint = await page.evaluate(() => document.getElementById("hint").textContent);
+// 点 +X 球 = 右视图（方框裁过之后点击坐标照样对得上：view-gizmo.ts toSvg 从 C − boxR 起算）
+{ const xb = await page.locator('.gizmo-axis[data-id="+x"] circle').boundingBox(); await page.mouse.click(xb.x + xb.width / 2, xb.y + xb.height / 2); await page.waitForTimeout(150);
+  res.ballX = await page.evaluate(() => { const c = globalThis.__catsup.editor.cam, f = c.forward(); return [f.x, f.y, f.z].map((v) => Math.round(v * 100) / 100); });
+  res.boxW = await page.evaluate(() => Math.round(document.querySelector(".gizmo-svg").getBoundingClientRect().width * 10) / 10); }
 console.log(JSON.stringify({ ...res, errs }));
 const ok = res.layout.menuTR && res.layout.panBL && res.layout.zoomBR && res.layout.big
   && Math.abs(res.tap.tx - 7) < 1.5 && Math.abs(res.tap.ty - 7) < 1.5 && res.tap.halfH < res.before.halfH
   && Math.abs(res.drag.halfH - res.tap.halfH) > 1e-3 && res.drag.tx === res.tap.tx
   && res.proj0 !== res.proj1 && res.proj2 === res.proj1 && /^(|缩放到.*)$/.test(res.hint)
+  && res.ballX[0] === -1 && res.boxW < 96 && res.boxW > 90
   && res.stagesNoSel === "all" && res.stagesSel === "sel,all" && res.cycle[0] < res.cycle[1] && Math.abs(res.cycle[2] - res.cycle[0]) < 1e-3;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

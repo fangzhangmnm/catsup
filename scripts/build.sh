@@ -109,6 +109,13 @@ find "$OUT_DIR" -maxdepth 1 -name 'catsup-*.mjs.map' -not -name "catsup-$HASH.mj
 # 3. index.html 指向新 hash
 sed -i -E "s|src=\"\./dist/catsup-[a-z0-9-]+\.mjs\"|src=\"./dist/catsup-$HASH.mjs\"|" index.html
 grep -q "catsup-$HASH.mjs" index.html || { echo "[build] ✗ index.html bundle reference not updated" >&2; exit 1; }
+# 3b. 样式表带内容哈希查询串：文件名不变的 css 会被 Pages 让浏览器缓存 10 分钟 → 新 bundle 配旧 css（2026-10-25 iPad 上 gizmo 新 DOM + 旧样式 = 放大镜压在吸附锁下面、☰ 居中）。
+#     SW 按 ignoreSearch 取缓存，查询串不影响离线回退。
+for CSS in styles.css vendor/internal-css/gallery.css vendor/internal-css/workbench-elements.css; do
+  CH=$(sha256sum "$CSS" | awk '{print substr($1, 1, 12)}')
+  sed -i -E "s#href=\"\./${CSS//./\\.}(\?v=[a-z0-9]+)?\"#href=\"./$CSS?v=$CH\"#" index.html
+  grep -q "href=\"./$CSS?v=$CH\"" index.html || { echo "[build] ✗ index.html stylesheet $CSS not versioned" >&2; exit 1; }
+done
 
 echo "[build] $OUT ($(stat -c%s "$OUT") bytes, hash=$HASH)"
 echo "[build] 本地看：python3 -m http.server 8765 → http://localhost:8765/"
