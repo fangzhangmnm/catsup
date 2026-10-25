@@ -176,6 +176,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .menu-sep { height: 1px; margin: 4px 6px; background: var(--line); }
 /* ☰ tab 制（A30，2026-10-24 Opus；抄 WeebPaint styles.css .menu-tabs）：图标 + 小字一排，定宽面板里均分 */
 .popup-menu.has-tabs { width: min(92vw, 300px); }
+.popup-menu.has-tabs .menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* 定宽面板：长标签省略，不撑出去 */
 .menu-tabs { display: flex; gap: 2px; padding: 2px 2px 4px; border-bottom: 1px solid var(--line); margin-bottom: 4px; }
 .menu-tab { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; gap: 1px; padding: 4px 2px; background: transparent; border: none; border-radius: 6px; color: var(--muted); cursor: pointer; font: inherit; font-size: 11px; line-height: 1.2; }
 .menu-tab span { max-width: 100%; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

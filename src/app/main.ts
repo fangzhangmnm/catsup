@@ -336,11 +336,21 @@ function renderShop(): void {
 btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
-type MenuId = "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "finalize" | "revise" | "noclip" | "persp" | "walk";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "finalize" | "revise" | "noclip" | "persp" | "walk";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
     switch (id) {
+      case "newOpen": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
+        { id: "new", label: "新建模型", icon: "new" },
+        { id: "open", label: "打开本地 .glb…", icon: "folder-open", hint: "Ctrl+O" },
+        { id: "import", label: "导入 OBJ…", icon: "import" },
+      ], onPick: menuPick }); break;
+      case "exportHub": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
+        ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as" }] : []),
+        { id: "download", label: "导出 .glb（下载一份）", icon: "download" },
+        { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口" },
+      ], onPick: menuPick }); break;
       case "new": void session.newDoc(); break;
       case "finalize": void (async () => { if (await openConfirmSheet(`定稿第 ${session.finalRev() + 1} 版？`, "之后锁住几何与材质，只能看、量、导出；☰「改稿」随时解锁（版本号不减）。", { okLabel: "定稿" })) await session.finalize(); })(); break;
       case "revise": void session.revise(); break;
@@ -387,25 +397,21 @@ const MAIN_MENU_TABS = [
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu, tabs: MAIN_MENU_TABS, tabKey: "main",
   items: () => [
+    // 文件页 = WeebPaint 合租法（user 10-24「看一下weebpaint是怎么收的更干净的，谁和谁合租」）：新建 / 打开 / 导入合一行、另存 / 导出合一行，各开小弹层；
+    // 保存走顶栏保存钮（Ctrl+S），登录走保存时的问询与图库页云账号钮——都不占菜单行（WeebPaint 同款）
     { id: "gallery", label: "图库", icon: "gallery", tab: "file", hint: hasStore() ? undefined : "本机 + OneDrive" },
-    { id: "new", label: "新建模型", icon: "new", tab: "file", separatorBefore: true },
-    { id: "open", label: "打开本地 .glb…", icon: "folder-open", tab: "file", hint: "Ctrl+O" },
-    { id: "import", label: "导入 OBJ…", icon: "import", tab: "file" },
-    { id: "save", label: session.home.kind === "transient" ? (supportsSavePicker() ? "保存到磁盘…" : "保存（下载 .glb）") : "保存", icon: "floppy-disk", tab: "file", hint: "Ctrl+S", separatorBefore: true },
-    ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as", tab: "file" }] : []),
-    { id: "download", label: "导出 .glb（下载一份）", icon: "download", tab: "file" },
-    { id: "export", label: "导出 OBJ…", icon: "export", tab: "file", hint: "Blender 逃生口" },
+    { id: "newOpen", label: "新建 / 打开…", icon: "folder-open", tab: "file", hint: "Ctrl+O" },
+    { id: "exportHub", label: "导出与另存…", icon: "export", tab: "file" },
     session.finalRecord()
-      ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock", tab: "file", separatorBefore: true }
-      : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", tab: "file", separatorBefore: true, hint: "锁住几何 / 材质，只能看量导出" },
-    { id: "cloud", label: auth.isSignedIn() ? "退出 OneDrive 登录" : "登录 OneDrive", icon: "cloud", tab: "file", sectionBefore: "云", disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? undefined : "未配置 client id" },
+      ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock", tab: "file" }
+      : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", tab: "file", hint: "锁住几何 / 材质" },
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", tab: "model", hint: "平滑组" },
     { id: "material", label: "材质…", icon: "color", tab: "model", hint: "油漆桶蘸什么" },
     { id: "clear", label: "清空模型", icon: "trash-can", tab: "model", separatorBefore: true },
     { id: "finger", label: "手指也能画", checked: fingerDraws, tab: "settings", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
     { id: "help", label: "使用手册", icon: "help", tab: "help" },
     { id: "debuglog", label: "调试日志", icon: "wrench", tab: "help", hint: "复制给开发者" },
-    { id: "update", label: `强制更新（清缓存重启）· ${APP_VERSION}`, icon: "refresh", tab: "help" },
+    { id: "update", label: "强制更新", icon: "refresh", tab: "help", hint: APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "") },   // WeebPaint 同款：版本号 = 行尾小字（user 10-24「字超了……weebpaint用的应该是小字」）
   ],
   onPick: menuPick,
 }));
