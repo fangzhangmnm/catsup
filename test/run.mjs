@@ -6,6 +6,7 @@ import "./subdivide.test.ts";
 import "./subdivide-nearmiss.test.ts";
 import "./xr-pointer-frame.test.ts";
 import "./kernel-fuzz.test.ts";
+import "./tau-flatten.test.ts";   // EGC 期 3b：τ 带投影一致性（2026-10-24）
 import "./kernel-rev.test.ts";
 import "./settle-differential.test.ts";
 import "./curves.test.ts";   // 曲线实体（0.10，2026-10-24）

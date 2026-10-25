@@ -22,6 +22,7 @@ import { toLattice3 } from "./exact/lattice.ts";
 import { pointNearSegment } from "./exact/predicates3d.ts";
 import { orient2dD } from "./exact/predicates.ts";
 import { planarize } from "./planarize.ts";
+import { flattenPlanes } from "./tau-flatten.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore, ringEdgeIds } from "./face-lifecycle.ts";
 import type { EdgeLayers, FaceLayers } from "./layers.ts";
@@ -235,6 +236,9 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
 
   mark("identity.bury");
   // ② 插边
+  const vFloor = g.nextVertexId, eFloor = g.nextEdgeId;   // 旧 / 新界线（τ-flatten：新几何让位给旧几何）
+  const parentOf = new Map<EdgeId, EdgeId>();              // 切割血缘反向（子 → 父）：旧边的后代仍算旧
+  const isOldEdge = (eid: EdgeId): boolean => { let id = eid; for (let i = 0; i < 64; i++) { if (id < eFloor) return true; const par = parentOf.get(id); if (par === undefined) return false; id = par; } return false; };
   const gesture = new Set<EdgeId>();
   const explicitEnds = new Set<string>();
   const splitChildren = new Map<EdgeId, EdgeId[]>();   // 切割血缘（身份膜环边的随葬要沿血缘找后代）
@@ -245,6 +249,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     EL?.onSplit(parent, children);
     table.curves?.onSplit(g, parent, children);
     splitChildren.set(parent, [...children]);
+    for (const c of children) if (c !== parent && !parentOf.has(c)) parentOf.set(c, parent);
     dirty.delete(parent); for (const c of children) dirty.add(c);
   };
   const descendants = (eid: EdgeId): EdgeId[] => {
@@ -268,6 +273,10 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   planarize(g, onSplit, dirty);
   mark("planarize");
 
+  const neighFaces = new Set<FaceId>();
+  const subset = new Map<PlaneId, Set<EdgeId>>();
+  const scope = (): void => {
+  neighFaces.clear(); subset.clear();
   // ④ 胞腔——只算「被碰到的平面」：被消耗膜的平面 + 动词像的平面 + 含任一脏边的平面（+ 脏边周围新长出的候选平面）
   for (const im of verbImages) {
     const plane = planeOfRing(im.rings[0]);
@@ -291,8 +300,6 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   //   ④ 受影响膜（环上有可达顶点 / 环里有死边 / 内部含可达顶点）的全部环边
   // 定理：在 S 上切出的胞腔去掉「与未受影响膜同环」的，= 在 P 全部边上切出的胞腔去掉未受影响膜的胞腔。其余膜原地不动（环都不碰）。
   // 「边属于哪张平面」是谓词现算，不是状态——10-21 的 PlaneMembership 缓存在溶解步后过期且永不自愈（总账 #26），已删。
-  const neighFaces = new Set<FaceId>();
-  const subset = new Map<PlaneId, Set<EdgeId>>();
   {
     const onPlaneE = (e: { a: VertexId; b: VertexId }, pl: { n: Pt3; d: number }): boolean => distToPlane(g.pt(e.a), pl) <= tol && distToPlane(g.pt(e.b), pl) <= tol;
     for (const pid of touchedPlanes) {
@@ -348,6 +355,31 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
       subset.set(pid, sub);
     }
   }
+  };
+  scope();
+  // ④½ τ-flatten（EGC 期 3b，tau-flatten.ts）：同一平面组里 3D 相距 (r, 2τ] 的东西在投影里相交 / 骑边 / 重合 → 并成一个；
+  //    改了图就再跑一轮 3D planarize + 重算影响域，直到不动点。不收敛 = 数值异常，宁炸不糊（守恒断言之前就报）。
+  {
+    const flattenCtx = {
+      r: STICKY.r, dirty, isOldEdge, isOldVertex: (v: VertexId) => v < vFloor,
+      onSplit,
+      // 旧顶点被并掉（两个旧顶点在投影里 ≤ r）：引用它的活膜环按 id 改写——这些膜都在影响域里，等下按环点重新认领；环点现在按 to 读
+      onMerge: (from: VertexId, to: VertexId): void => {
+        for (const eid of g.vertex(from).edges) for (const fid of g.edge(eid).faceLinks) {
+          const f = store.face(fid); if (!f) continue;
+          for (const ring of [f.outer, ...f.holes]) for (let i = 0; i < ring.vids.length; i++) if (ring.vids[i] === from) ring.vids[i] = to;
+        }
+        candVerts.add(to);
+      },
+    };
+    for (let round = 0; ; round++) {
+      if (round >= 16) throw new Error("tau-flatten did not converge (>16 rounds) — numeric anomaly in the coplanar band");
+      const planes = [...subset].map(([pid, sub]) => ({ basis: reg.rec(pid).basis, edges: sub }));
+      if (!flattenPlanes(g, planes, flattenCtx)) break;
+      planarize(g, onSplit, dirty);
+      scope();
+    }
+  }
   mark("touched");
   const byPlane = store.regionsByPlane(g, reg, tol, { only: touchedPlanes, edges: subset });
   mark("regions");
@@ -365,7 +397,8 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const identity: Image[] = [];
   for (const fid of [...neighFaces].sort((a, b) => a - b)) {   // 按 id 序：两台机（局部 / 全局）入选顺序不同，裁决顺序必须一致
     const f = store.face(fid)!;
-    identity.push({ rings: [f.outer, ...f.holes].map((r) => r.vids.map((v) => g.pt(v))), algebra: "or", inherit: fid });
+    // 合并过的环里相邻两个 id 可能变成同一个（坍缩边）→ 去掉连续重复点
+    identity.push({ rings: [f.outer, ...f.holes].map((r) => r.vids.filter((v, i, a) => v !== a[(i + 1) % a.length]).map((v) => g.pt(v))), algebra: "or", inherit: fid });
   }
   mark("identity.rings");
 

@@ -127,6 +127,9 @@ export class PlanarGraph {
   }
   hasEdge(id: EdgeId): boolean { return this.edgesById.has(id); }
   hasVertex(id: VertexId): boolean { return this.vertsById.has(id); }
+  /** 下一个会分配的 id（单调递增）——结算机用它划「本次操作前就存在」的旧 / 新界线（τ-flatten 的参照物选择）。 */
+  get nextVertexId(): number { return this.nextV; }
+  get nextEdgeId(): number { return this.nextE; }
   pt(id: VertexId): Pt3 { const v = this.vertex(id); return { x: v.x, y: v.y, z: v.z }; }
   otherEnd(e: Edge, v: VertexId): VertexId { return e.a === v ? e.b : e.a; }
 

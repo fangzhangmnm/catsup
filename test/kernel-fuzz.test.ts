@@ -22,7 +22,7 @@ const KNOWN_DUP_SEEDS = new Set<number>();
  */
 const CONSERVATION_RE = /结算机自相矛盾/;
 
-function checkInvariants(k: Kernel, ctx: string, allowDup = false): void {
+export function checkInvariants(k: Kernel, ctx: string, allowDup = false): void {
   const vids = new Set(k.graph.vertices().map((v) => v.id));
   const seen = new Set<string>();
   const fids = new Set(k.faces().map((f) => f.id));
@@ -82,6 +82,8 @@ export function classify(k: Kernel): { minVert: number; minVertSeg: number; near
   }
   return { minVert, minVertSeg, nearParallel, nearParallelMin, faces: k.faces().length };
 }
+/** 实验旋钮（sweep 脚本改；测试本身用默认 = 内核默认 τ + 开平行膜样本——期 3b 起门槛 rejected === 0 连这类一起守）。 */
+export const FUZZ_OPTS: { coplanarTol?: number; parallelMembranes: boolean } = { parallelMembranes: true };
 /** 拒绝记录钩子（sweep 脚本装；测试本身不装）。 */
 export const onReject: { fn: ((r: { seed: number; step: number; op: string; k: Kernel }) => void) | null } = { fn: null };
 
@@ -89,7 +91,7 @@ export function run(seed: number, steps: number, allowDup = false, tier: "clean"
   let s = seed; const rnd = (): number => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
   const pick = <T>(arr: T[]): T => arr[Math.floor(rnd() * arr.length)];
   const q = (v: number): number => (tier === "clean" ? Math.round(v * 1000) / 1000 : v);
-  const k = new Kernel();
+  const k = new Kernel(FUZZ_OPTS.coplanarTol !== undefined ? { coplanarTol: FUZZ_OPTS.coplanarTol } : undefined);
   const log: string[] = [];
   const tiltedRect = (): [Pt3, Pt3][] => {
     const th = tier === "clean" ? 0 : rnd() * 0.4, ph = tier === "clean" ? 0 : rnd() < 0.5 ? 0 : rnd() * 0.4;
@@ -125,8 +127,15 @@ export function run(seed: number, steps: number, allowDup = false, tier: "clean"
         const d = tier === "clean" ? P(q.x - o.x, q.y - o.y, q.z - o.z) : P(q.x - o.x + jx, q.y - o.y + jy, q.z - o.z + jz);
         op = `line ${v.id}→过头`; k.addEdges([[o, P(o.x + d.x * kk, o.y + d.y * kk, o.z + d.z * kk)]]);
       } else if (r < 0.75 && fs.length) {
-        const f = pick(fs); const dist = q((rnd() - 0.3) * 1.5);
-        op = `pp ${f.id} ${dist.toFixed(3)}`; k.pushPull(f.id, dist);
+        const f = pick(fs);
+        // 期 3b 样本（nasty 档一半概率）：推到离某张**平行膜**只差 0.1–0.9 mm（τ 带内、> r）——「推拉帽离平行膜 < τ 但没重合」那类（总账 D11 第二张脸）
+        let dist = q((rnd() - 0.3) * 1.5);
+        if (tier === "nasty" && FUZZ_OPTS.parallelMembranes && rnd() < 0.5) {
+          const pl = k.planeOf(f.id)!.plane;
+          const par = fs.filter((g) => g.id !== f.id).map((g) => k.planeOf(g.id)!.plane).filter((q2) => Math.abs(q2.n.x * pl.n.x + q2.n.y * pl.n.y + q2.n.z * pl.n.z) > 0.999);
+          if (par.length) { const g = pick(par); const sgn = (g.n.x * pl.n.x + g.n.y * pl.n.y + g.n.z * pl.n.z) > 0 ? 1 : -1; const gap = sgn * g.d - pl.d; if (Math.abs(gap) > 0.05) dist = gap + (rnd() < 0.5 ? 1 : -1) * (0.0001 + rnd() * 0.0008); }
+        }
+        op = `pp ${f.id} ${dist.toFixed(4)}`; k.pushPull(f.id, dist);
       } else if (r < 0.9) {
         const e = pick(es); op = `erase ${e.id}`; k.eraseEdges([e.id]);
       } else if (tier === "clean" && fs.length) {
