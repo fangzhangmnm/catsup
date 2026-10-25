@@ -15,7 +15,7 @@
 - 「layer就是类似unity的render layer。用处是关闭天花板放东西，然后再打开，是纯管理用的。可以想一下父亲儿子怎么继承」
 - 「每一个图片必须有一个长度尺度」「可以先naive导入」「透视修正和像素化ux我让opus做」
 - 更早（同日）：「不同的物体也会有不同的可用编辑模式，然后有一个统一的物体管理模式，你自己排期」；「多表示并存不自动互转 这个建议现在就接好」；「blender和sketchup是不同的模型数据，可以互转，但是不建议blender直接动brep」；「第三种身体 = mesh / 网格」（命名拍板）；参考卡片导入规格：「不要直接复制，而是弹一个窗口，让你裁剪，调分辨率，png or jpg，以及设置参考高度。才能进，然后是bottom middle为origin」
-- 图片导入深模块（同日，wishlist，「你只要负责数据结构就行」）：「参考卡片和贴图都走这个。要求有透视和crop调整，鼠标拖动时有像素放大镜预览。然后可以调整分辨率，aspect ratio和压缩格式质量。以及是否nearest采样。然后需要设置参考长度，要在上面拖gizmo量。比如一个一米二的猫娘，但是图片包括额外的呆毛，那么你输入一米二然后定义是从哪里到哪里。然后有裁剪和预览两个tab。然后wrap。以及其实非常有用的几种wrap模式比如flip h flip v都可以在高级里面设置，可以预览。未来还考虑atlasmaker多张图片拼，这样之后还可以修改加图，但是没必要保存原图片大图。然后也许支持像素和比例snap。然后虽然非常不建议被拉伸的贴图但是别的软件进来能接住……但是这样uv拉伸的问题要有系统的处理方法，不要屎山」「card以后可以支持动画和不同动画切换，但是现在先做普通的图片参考」「半透明，没有透明像素就默认不开。然后可能建议转jpeg。有的话你detect一下能开transparent cutout就开，只有少数情况才alpha」。atlas 的形态参考（2026-10-25）：「https://puszke.itch.io/pucks-texture-ripper 基本就是我当时想的atlas maker的理想形态」（照片上框多边形透视抠图 → 拼 atlas → 无缝化；详总账 B42。edited by Claude Opus 5.5）
+- 图片导入深模块（同日，wishlist，「你只要负责数据结构就行」）：「参考卡片和贴图都走这个。要求有透视和crop调整，鼠标拖动时有像素放大镜预览。然后可以调整分辨率，aspect ratio和压缩格式质量。以及是否nearest采样。然后需要设置参考长度，要在上面拖gizmo量。比如一个一米二的猫娘，但是图片包括额外的呆毛，那么你输入一米二然后定义是从哪里到哪里。然后有裁剪和预览两个tab。然后wrap。以及其实非常有用的几种wrap模式比如flip h flip v都可以在高级里面设置，可以预览。未来还考虑atlasmaker多张图片拼，这样之后还可以修改加图，但是没必要保存原图片大图。然后也许支持像素和比例snap。然后虽然非常不建议被拉伸的贴图但是别的软件进来能接住……但是这样uv拉伸的问题要有系统的处理方法，不要屎山」「card以后可以支持动画和不同动画切换，但是现在先做普通的图片参考」「半透明，没有透明像素就默认不开。然后可能建议转jpeg。有的话你detect一下能开transparent cutout就开，只有少数情况才alpha」。atlas 的形态参考（2026-10-25）：「https://puszke.itch.io/pucks-texture-ripper 基本就是我当时想的atlas maker的理想形态」（照片上框多边形透视抠图 → 拼 atlas → 无缝化；详总账 B42。edited by Claude Opus 5.5）；接着：「我们只要抄他的毕业考就行了（一个gba的照片，框，出一个模型。pixel perfect aligned）。连ux都不用按他的来」
 - 层（同日）：「facelayer可能太复杂了，不好管理，容易出bug，不要？」「出bug的意思是用户容易搞混淆，比如给自己埋了个雷」→ 采纳：**面不打层**，层只在实例上（§4 已改）——藏掉的东西必须是一个能在物体面板里看见的物体，不能是汤里几张无名的面。
 - 下一纪元（同日）：「我让opus把天空盒，pbr渲染，shadow，甚至是gi都做一下。解决一下看不到成品的问题。然后贴图只是其中一块」（家族周账 F-83）；「weebpaint发一个工单就是抠山抠树的功能」（F-82，便条已投）。
 - 轴（同日）：「轴只管编辑层，不动表示」「origin和axis还是同一个语义吗。关键是axes是一直变的夹具」→ 我答：定义的原点 = 表示层（出生时定，改它是显式重写），绘图轴 = 夹具，不写进坐标（现状已如此）；user 未反对。
@@ -91,7 +91,7 @@ interface ImageAsset {
   - **mesh = 显式 UV**（`MeshBody.uvs`）：别的软件进来的「被拉伸的贴图」只能住这里；cast brep → mesh 时按投影规则生成 uvs 一次。
   - 同一张 `ImageAsset` 被材质与卡片共用时各自带自己的映射；图不知道自己被谁用。
 - **wrap / flip** 住材质的映射，不住图：`MaterialDoc.mapping?: { wrap: ["repeat" | "clamp" | "mirror", 同]; flip: [boolean, boolean] }`（flip = 对应 glTF texture transform 的负 scale）。
-- **atlas（未来）**：`ImageAsset.atlas?: { sheet: 资产 id; rect: [x, y, w, h] 像素 }`——逻辑图仍有自己的 `sizeM`；加图 = 重排 sheet 改 rect，不需要原图大图。放这里只占位，本版不实现。形态参考 = Puck's Texture Ripper 的 Texture Atlas 面板（user 2026-10-25「理想形态」，总账 B42；edited by Claude Opus 5.5）。
+- **atlas（未来）**：`ImageAsset.atlas?: { sheet: 资产 id; rect: [x, y, w, h] 像素 }`——逻辑图仍有自己的 `sizeM`；加图 = 重排 sheet 改 rect，不需要原图大图。放这里只占位，本版不实现。参考 = Puck's Texture Ripper，只抄它的验收考题（GBA 照片 → 框 → 出模型，像素严格对齐），不抄 UX（user 2026-10-25，总账 B42；edited by Claude Opus 5.5）。
 - **card 动画（未来）**：`CardBody.frames?: { sheet: ImageAsset; cells: [cols, rows]; clips: { name: string; frames: number[]; fps: number; loop: boolean }[]; state?: string }`；本版只有单图。
 - 导入 UI（Opus）：裁剪 / 预览两个 tab、像素放大镜、分辨率 / 比例 / 格式质量、nearest 开关、参考长度 gizmo、wrap 与 flip 预览、像素 / 比例 snap、alpha detect 与 JPEG 建议——全在对话框里把 `bytes + sizeM + 其余字段` 准备好再提交 op；op 层不做图像处理。
 
