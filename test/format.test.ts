@@ -7,7 +7,7 @@ import { isCatsupGltf } from "../src/format/read.ts";
 import { FormatTooNewError, EXTENSION_VERSIONS, formatTag } from "../src/format/migrate/index.ts";
 import { canonicalize } from "../src/format/brep-codec.ts";
 import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
-import { SCENES, SCENE_DOCS, fingerprint, sceneFingerprint } from "./format-scenes.ts";
+import { SCENES, SCENE_DOCS, DOC_SAMPLES, fingerprint, sceneFingerprint } from "./format-scenes.ts";
 import { listFixtures, readFixture, hasFixtureDir, listCorpusDirs } from "./fixtures/format/fixtures.mjs";
 
 const BUDGET_BYTES: Record<string, number> = { box: 2700, holed: 2800, house: 2800, cylinder: 6400 };   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
@@ -186,7 +186,7 @@ describe("format: 冻结样本语料（立宪 §7；老样本永远能开）", (
   const vCur = formatTag();   // 任何一个拍子（major / minor / patch）动了 = 新目录；没冻样本 = 这里红
   const filesCur: string[] = hasFixtureDir(vCur) ? listFixtures(vCur) : [];
   it(`v${vCur} 目录里每个 golden 场景都有样本`, () => {
-    for (const name of [...Object.keys(SCENES), ...Object.keys(SCENE_DOCS)]) assert(filesCur.includes(`${name}.glb`), `缺样本 v${vCur}/${name}.glb（node scripts/freeze-format-fixtures.mjs）`);
+    for (const name of [...Object.keys(SCENES), ...Object.keys(SCENE_DOCS), ...Object.keys(DOC_SAMPLES)]) assert(filesCur.includes(`${name}.glb`), `缺样本 v${vCur}/${name}.glb（node scripts/freeze-format-fixtures.mjs）`);
   });
   for (const v of listCorpusDirs()) for (const f of listFixtures(v)) {
     it(`v${v}/${f}：读 → 复原 → 指纹 = 当前场景；重写后语义一致`, () => {
@@ -195,6 +195,14 @@ describe("format: 冻结样本语料（立宪 §7；老样本永远能开）", (
       const k = Kernel.fromBrep(doc.root.brep);
       if (SCENES[name]) eq(fingerprint(k), fingerprint(SCENES[name]()), "样本 vs 当前场景");
       if (SCENE_DOCS[name]) eq(sceneFingerprint(sceneFromDocument(doc)), sceneFingerprint(SCENE_DOCS[name]()), "样本 vs 当前场景（group / component）");
+      if (DOC_SAMPLES[name]) {   // 文档级样本：几何同 newDocument 的那份；参考窗目录逐字节、窗的位置（desk.refPanel）都在
+        const want = DOC_SAMPLES[name]();
+        eq(fingerprint(k), fingerprint(Kernel.fromBrep(want.root.brep)), "样本 vs 当前文档（几何）");
+        const files = (d: typeof doc) => JSON.stringify(d.references.files.map((x) => [x.path, x.mimeType, [...x.bytes]]));
+        eq(files(doc), files(want), "参考窗目录原样");
+        eq(JSON.stringify(doc.desk.refPanel ?? null), JSON.stringify(want.desk.refPanel ?? null), "参考窗的窗");
+        eq(files(readCatsup(writeCatsup(doc))), files(want), "重写后参考窗目录原样");
+      }
       const doc2 = readCatsup(writeCatsup(doc));
       eq(JSON.stringify(canonicalize(doc2.root.brep)), JSON.stringify(canonicalize(doc.root.brep)), "重写语义一致");
     });

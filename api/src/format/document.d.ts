@@ -105,6 +105,8 @@ export interface CatsupDocument {
     finalRev?: number;
     /** 桌面态（`CATSUP_desk`，2026-10-25）= WeebPaint `.weebpaint/editor-state.json` 在 glb 里的镜像：跟文件走、不是内容（定稿指纹不含）、不标脏、新建必 reset。 */
     desk: DeskDoc;
+    /** 参考窗牌组（`CATSUP_references`，2026-10-25；契约 §5.8）：空 files = 没有（不写扩展）。 */
+    references: ReferencesDoc;
     bakeMode: BakeMode;
     /** 全部 definition；root = definitions[rootIndex]（同一对象）。 */
     definitions: DefinitionDoc[];
@@ -133,10 +135,33 @@ export interface CatsupDocument {
  *  契约 §7.2「保留读、停止写」搬来；本版 app 仍没写它）；extra = 本版不认识的顶层键（直通）。desk 的 major 比本版新 → 不拒开：原字节带回，这里是默认值。 */
 export interface DeskDoc {
     menuTabs: Record<string, string>;
-    lastView?: unknown;
+    lastView?: unknown; /** 参考窗开着没有 + 在哪（desk 1.1；开过窗才有）。 */
+    refPanel?: RefPanelDoc;
     extra: Record<string, unknown>;
 }
 export declare const defaultDesk: () => DeskDoc;
+/** 参考窗的窗（视图态，CSS px）：WeebPaint / MoonSinger 同形 { open, left, top, width, height }。 */
+export interface RefPanelDoc {
+    open: boolean;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+/** 文件里的 refPanel → 五个字段都对才收；坏形状 = 没有（落回「没开过」）。 */
+export declare function refPanelOf(p: unknown): RefPanelDoc | undefined;
+/** 参考窗牌组（`CATSUP_references`，契约 §5.8）= @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡的字节）原样搬进 glb：
+ *  一个文件 = 一条 { path, mimeType, bytes }。**format 层不懂清单**（清单的形状 / 拍子 / 迁移归库；ORA 成员文件 ≡ 这里的一条）。extra = 本版不认识的顶层键（直通）。 */
+export interface ReferencesDoc {
+    files: RefFileDoc[];
+    extra: Record<string, unknown>;
+}
+export interface RefFileDoc {
+    path: string;
+    mimeType: string;
+    bytes: Uint8Array;
+}
+export declare const emptyReferences: () => ReferencesDoc;
 /** 文件里的 menuTabs → 只收字符串值；坏形状 = 空。 */
 export declare function menuTabsOf(m: unknown): Record<string, string>;
 export declare const DEFAULT_SETTINGS: DocumentSettings;

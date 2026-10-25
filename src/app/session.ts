@@ -17,7 +17,7 @@ import { Kernel } from "../kernel/kernel.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
-import { defaultDesk, type DeskDoc } from "../format/document.ts";
+import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { fmtStamp } from "../format/migrate/index.ts";
 import { unitFromSettings, unitToSettings } from "../editor/units.ts";
 import { contentFingerprint } from "../format/final.ts";
@@ -44,8 +44,20 @@ export type DocHome =
   | { kind: "file"; handle: FSHandle | null; fileName: string }
   | { kind: "transient"; name?: string };   // name：恢复 / 领养出来的模型带原名（另存建议名 + 标题）
 
+/** 参考窗的接缝（src/app/reference-host.ts 满足它）：牌组跟文件走（CATSUP_references + desk.refPanel），加删卡 = rev +1 = 脏；不进撤销。 */
+export interface RefsPort {
+  files(): RefFileDoc[];
+  rev(): number;
+  settled(): Promise<void>;
+  count(): number;
+  panel(): RefPanelDoc | null;
+  apply(refs: ReferencesDoc, panel: RefPanelDoc | null, opts?: { tooNew?: boolean }): void;
+}
+
 export interface SessionDeps {
   editor: Editor;
+  /** 参考窗（缺 = 没有参考窗：文件里的牌组原样带着写回）。 */
+  refs?: RefsPort;
   captureThumbnail: () => { mimeType: string; bytes: Uint8Array } | null;
   onHomeChanged: () => void;
   setStatus: (text: string, error?: boolean) => void;
@@ -76,12 +88,16 @@ export class Session {
   private refreshInFlight = false;
   private savedRevision: number;
   private lastSeenRevision: number;
+  /** 参考窗牌组的修订号（加删卡；视图态不算）：存过的 / 看到过的。dirty = 几何改了 ∨ 牌组改了。 */
+  private savedRefRev = 0;
+  private lastSeenRefRev = 0;
   private lastEditAt = 0;
   private loaded: CatsupDocument | null = null;   // 打开的文档（含 round-trip 携带的未知内容）；保存时以它为底
   private timer: number;
   /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
   private luggage: LuggageTag | null = null;
   private snapRevision = -1;
+  private snapRefRev = -1;   // 同上，参考窗牌组那一半（只加了参考卡也要有影子）
   /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
   currentDir = "";
 
@@ -99,12 +115,19 @@ export class Session {
   }
   constructor(private d: SessionDeps) {
     this.savedRevision = this.lastSeenRevision = d.editor.revision;
+    this.savedRefRev = this.lastSeenRefRev = this.refRev();
     this.mintLuggage();   // 开机的初始 transient 也要有牌（否则开机就画的模型没影子）
     this.timer = window.setInterval(() => this.tick(), 1000);
   }
 
   // ---------- 只读 ----------
-  dirty(): boolean { return this.d.editor.revision !== this.savedRevision; }
+  dirty(): boolean { return this.d.editor.revision !== this.savedRevision || this.refRev() !== this.savedRefRev; }
+  private refRev(): number { return this.d.refs?.rev() ?? 0; }
+  /** 参考窗跟着文件换：目录 + 窗交给接缝，牌组修订号对齐成「已存」（载入不是改动）。 */
+  private applyRefs(doc: CatsupDocument | null): void {
+    this.d.refs?.apply(doc?.references ?? emptyReferences(), doc?.desk.refPanel ?? null, { tooNew: !!doc?.readNotes?.referencesTooNew });
+    this.savedRefRev = this.lastSeenRefRev = this.refRev();
+  }
   displayName(): string {
     switch (this.home.kind) {
       case "gallery": return bareName(this.home.path);
@@ -117,7 +140,7 @@ export class Session {
   private localHomeKind(): "file" | "transient" | null { return this.home.kind === "gallery" ? null : this.home.kind; }
   /** lazyblank 且还没动过（boot 登录后重试恢复 / 挂库不塞空白 用）。 */
   isUntouchedLazyBlank(): boolean { return this.lazy && !this.dirty(); }
-  private hasContent(): boolean { for (const { pool } of this.d.editor.sceneRef.pools()) if (this.d.editor.sceneRef.kernelOf(pool).edges().length > 0) return true; return false; }
+  private hasContent(): boolean { if ((this.d.refs?.count() ?? 0) > 0) return true; for (const { pool } of this.d.editor.sceneRef.pools()) if (this.d.editor.sceneRef.kernelOf(pool).edges().length > 0) return true; return false; }   // 空白场景里只放了参考卡也算有内容（安家，别让新建 / 开别的时静默丢掉）
   /** smart save 钮的状态（顺序 = WeebPaint computeSaveState：saving → dirty → cloud-off → unpushed/synced → local-only）。 */
   saveState(): SaveState {
     if (this.saving) return "saving";
@@ -150,8 +173,8 @@ export class Session {
   /** 编辑器每次 checkpoint 变化（commit / undo / redo / load）同步进来（main 的 editor.host.changed）：
    *  刷徽章 + **lazyblank 首笔安家**（WeebPaint session-state onChange 钩子同形：真出现内容才绑身份）。 */
   noteChange(): void {
-    const rev = this.d.editor.revision;
-    if (rev !== this.lastSeenRevision) { this.lastSeenRevision = rev; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
+    const rev = this.d.editor.revision, rr = this.refRev();
+    if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
     if (this.lazy && this.home.kind === "gallery" && this.hasContent()) {
       this.lazy = false;   // 同步翻旗：同一 tick 内第二次 changed 不会重复安家
       this.adopting = this.adoptLazy().catch((e) => reportError(e)).finally(() => { this.adopting = null; this.d.onHomeChanged(); });
@@ -159,19 +182,19 @@ export class Session {
   }
 
   private tick(): void {
-    const rev = this.d.editor.revision;
-    if (rev !== this.lastSeenRevision) { this.lastSeenRevision = rev; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
+    const rev = this.d.editor.revision, rr = this.refRev();
+    if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
     // T-crash / 自动保存（图库家）：空闲 30 s 且脏且不在手势中 → 落本地（在线且登录则一并推云）
     const idle = !this.saving && !this.d.editor.isGestureActive() && Date.now() - this.lastEditAt >= AUTOSAVE_IDLE_MS;
     if (this.home.kind === "gallery" && !this.lazy && this.dirty() && idle) {
       void this.save({ implicit: true });
-    } else if (this.localHomeKind() && this.luggage && this.dirty() && rev !== this.snapRevision && idle) {
+    } else if (this.localHomeKind() && this.luggage && this.dirty() && (rev !== this.snapRevision || rr !== this.snapRefRev) && idle) {
       void this.snapshot("crash");   // file / transient 家：盲快照进 crash-store（附加层，best-effort）
     }
   }
 
   // ---------- T-crash（附加层）----------
-  private mintLuggage(): void { this.luggage = mintLuggageTag(); this.snapRevision = this.d.editor.revision; }
+  private mintLuggage(): void { this.luggage = mintLuggageTag(); this.snapRevision = this.d.editor.revision; this.snapRefRev = this.refRev(); }
   /** 释放行李牌（离开 file / transient 家的每条路都要过这）：正常关闭即删（pending-adoption 由库内拒删）。 */
   private dropLuggage(): void {
     const t = this.luggage; this.luggage = null;
@@ -181,12 +204,12 @@ export class Session {
   async snapshot(state: "crash" | "pending-adoption" = "crash"): Promise<boolean> {
     const kind = this.localHomeKind(); const tag = this.luggage;
     if (!kind || !tag) return false;
-    const rev = this.d.editor.revision;
+    const rev = this.d.editor.revision, rr = this.refRev();
     try {
       const bytes = this.encode();
       if (this.luggage !== tag) return false;   // encode 间隙换了家——别把别的模型写进这张牌
       await crashStore.put(tag, new Blob([bytes], { type: "model/gltf-binary" }), { state, name: this.displayName(), at: Date.now(), homeKind: kind });
-      this.snapRevision = rev;
+      this.snapRevision = rev; this.snapRefRev = rr;
       return true;
     } catch (e) { reportError(new Error("[t-crash] snapshot failed (best-effort, load-bearing layers unaffected): " + String(e)), "log"); return false; }
   }
@@ -200,7 +223,7 @@ export class Session {
    *  checkpoint = 上次 commit 的世界，手势中途也一致）。fire-and-forget：卸载期没有时间预算。 */
   flushForHide(): void {
     if (this.home.kind === "gallery") { if (!this.lazy && this.dirty() && !this.saving) void this.save({ implicit: true, localOnly: true }); }
-    else if (this.luggage && this.dirty() && this.d.editor.revision !== this.snapRevision) void this.snapshot("crash");
+    else if (this.luggage && this.dirty() && (this.d.editor.revision !== this.snapRevision || this.refRev() !== this.snapRefRev)) void this.snapshot("crash");
   }
   /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
    *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
@@ -216,6 +239,7 @@ export class Session {
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
+    this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
     void this.verifyFinal(doc);
     this.d.editor.zoomExtents();
@@ -284,11 +308,17 @@ export class Session {
     const name = this.displayName();
     const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
     doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
-    doc.desk = this.desk;   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）
+    doc.desk = this.deskForSave();   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）；含参考窗的窗
+    if (this.d.refs) doc.references = { files: this.d.refs.files(), extra: this.loaded?.references.extra ?? {} };   // 参考窗目录（接缝编好的字节；太新时 = 原样那份，写入器另走 carry）
     const thumb = this.d.captureThumbnail();
     if (thumb) doc.thumbnail = thumb; else delete doc.thumbnail;
     this.loaded = doc;
     return writeCatsup(doc);
+  }
+  /** desk 存盘形状：参考窗的窗以接缝为准（开过窗才有；这个文件里没开过 = 文件里原来那份）。 */
+  private deskForSave(): DeskDoc {
+    const p = this.d.refs?.panel() ?? null;
+    return p ? { ...this.desk, refPanel: p } : this.desk;
   }
   private adopt(bytes: Uint8Array): void {
     const doc = readCatsup(bytes);
@@ -301,6 +331,7 @@ export class Session {
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
+    this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
     void this.verifyFinal(doc);
     this.d.editor.zoomExtents();
@@ -343,6 +374,7 @@ export class Session {
     this.d.editor.setGrid({ ...NEW_DOC_GRID });
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();
+    this.applyRefs(null);   // 新文件 = 空牌组、窗收着
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();
@@ -373,6 +405,7 @@ export class Session {
     this.d.editor.setGrid({ ...NEW_DOC_GRID });
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();
+    this.applyRefs(null);   // 新文件 = 空牌组、窗收着
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌
@@ -459,15 +492,16 @@ export class Session {
     if (home.kind === "gallery" && this.lazy) { if (!opts.implicit) this.d.setStatus("空白场景，还没有需要保存的内容"); return false; }   // WeebPaint blankNothingToSave
     this.saving = true; this.d.onHomeChanged();
     try {
-      const revAtStart = this.d.editor.revision;
+      if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的
+      const revAtStart = this.d.editor.revision, refRevAtStart = this.refRev();
       if (!(await this.finalIntact())) { this.d.setStatus("定稿着的模型内容变了：不保存（☰ 改稿后再存）", true); return false; }   // 护栏 ③④：指纹对不上就不写、脏留着
       const bytes = this.encode();
       if (home.kind === "file") {
         if (home.handle) {
           const w = await home.handle.createWritable();
           await w.write(new Blob([bytes], { type: "model/gltf-binary" })); await w.close();
-          this.savedRevision = revAtStart;
-          if (this.luggage) { crashStore.dropOnCleanClose(this.luggage).catch(() => {}); this.snapRevision = revAtStart; }   // 旧快照作废：磁盘已是最新（牌留着）
+          this.savedRevision = revAtStart; this.savedRefRev = refRevAtStart;
+          if (this.luggage) { crashStore.dropOnCleanClose(this.luggage).catch(() => {}); this.snapRevision = revAtStart; this.snapRefRev = refRevAtStart; }   // 旧快照作废：磁盘已是最新（牌留着）
           if (!opts.implicit) this.d.setStatus(`已保存 ${home.fileName}`);
           return true;
         }
@@ -485,7 +519,7 @@ export class Session {
         return true;
       }
       this.createPending = false;
-      this.savedRevision = revAtStart;
+      this.savedRevision = revAtStart; this.savedRefRev = refRevAtStart;
       this.pushPending = !r.pushed;
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;

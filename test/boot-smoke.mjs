@@ -77,7 +77,7 @@ eq(await page.evaluate(() => globalThis.__catsup.session.save()), false, "explic
 eq(await page.evaluate((p) => globalThis.__catsup.store().files.nameOccupied(p), plannedPath), false, "…still no file after Ctrl+S on blank");
 await page.waitForTimeout(300);
 console.log("  · pre-draw state:", JSON.stringify(await page.evaluate((c) => ({ tool: globalThis.__catsup.editor.tool, active: document.activeElement?.tagName + "#" + document.activeElement?.id, top: document.elementFromPoint(c.x, c.y)?.id, saving: globalThis.__catsup.session.saving, gesture: globalThis.__catsup.editor.isGestureActive() }), { x: cx, y: cy })));
-await page.keyboard.press("r");
+await page.evaluate(() => globalThis.__catsup.editor.setTool("rect"));   // 不按 R：已经是矩形时再按 R = 组内轮换成旋转矩形（v0.13.6x 同键轮换），拖一下就出不了面
 // 拖的对角线别和世界轴平行（yaw −45° 下屏幕对角 (160,90) 会投成零宽矩形 = 合法的「画了个线」，冒烟要的是面）
 await page.mouse.move(cx - 100, cy - 60); await page.mouse.down(); await page.mouse.move(cx + 100, cy + 20, { steps: 10 }); await page.mouse.up();
 await page.waitForTimeout(300);
@@ -155,7 +155,7 @@ await page.evaluate(() => globalThis.__catsup.galleryHost.close());
 await page.setInputFiles("#glbFile", dlPath);
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "file");
 const revBefore = await page.evaluate(() => globalThis.__catsup.editor.revision);
-await page.keyboard.press("r");
+await page.evaluate(() => globalThis.__catsup.editor.setTool("rect"));   // 不按 R：已经是矩形时再按 R = 组内轮换成旋转矩形（v0.13.6x 同键轮换），拖一下就出不了面
 await page.mouse.move(cx - 100, cy - 60); await page.mouse.down(); await page.mouse.move(cx + 100, cy + 20, { steps: 10 }); await page.mouse.up();
 await page.waitForTimeout(1300);   // 标题胶囊随 1 s tick 刷新
 const facesBefore = await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length);

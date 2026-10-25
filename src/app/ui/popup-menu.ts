@@ -38,6 +38,8 @@ export interface PopupMenuOpts<Id extends string = string> {
   tabKey?: string;
   /** 这次打开直接停在这个 tab（别处的「XX 设置…」跳进来用；也记进 tabKey）。 */
   tab?: string;
+  /** 这个菜单关掉了（任何原因：选了 / 外点 / Esc / 被别的菜单顶掉 / toggle）——调一次。参考窗库靠它清自己的菜单句柄和「再点一次删掉」（2026-10-25）。 */
+  onClose?: () => void;
 }
 const _lastTab = new Map<string, string>();
 /** tab 记忆交给宿主（user 2026-10-25「两个汉堡能记住选的是哪个tab吗」「不是应该跟文件吗」）：CatsUp 接 Session = 跟着文件走（WeebPaint desk.menuTab 同款）；
@@ -173,6 +175,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
     window.removeEventListener("resize", position);
     if (_open === handle) { _open = null; _openAnchor = null; }
     opts.anchor.classList.remove("is-open");
+    opts.onClose?.();
   };
   const handle: PopupMenuHandle = { el, close, refresh: render, isOpen: () => open };
   render();

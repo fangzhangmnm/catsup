@@ -7,7 +7,7 @@ import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc } from "./document.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
-import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, menuTabsOf, type DeskDoc, type LayerDoc } from "./document.ts";
+import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, refPanelOf, type DeskDoc, type LayerDoc, type ReferencesDoc } from "./document.ts";
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError } from "./migrate/index.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
@@ -159,7 +159,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const topLevel: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk") extensions[k] = v;
+  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk" && k !== "CATSUP_references") extensions[k] = v;
   // 桌面态 CATSUP_desk（§5.7）：major 比本版新 → **不拒开**（WeebPaint desk 同款）：原字节进 carry.extensions 原样写回、这边用默认、notes 记一笔；
   // 没有这个扩展（老文件）→ 默认 + 老位置的 document.lastView（§7.2 保留读）。
   let desk: DeskDoc = defaultDesk();
@@ -167,16 +167,42 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     const raw = exts.CATSUP_desk as Record<string, unknown>;
     try {
       const dj = migrateExtension("CATSUP_desk", raw, notes);
-      const DESK_KEYS = new Set(["version", "minor", "patch", "menuTabs", "lastView"]);
+      const DESK_KEYS = new Set(["version", "minor", "patch", "menuTabs", "lastView", "refPanel"]);
       const extra: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(dj)) if (!DESK_KEYS.has(k)) extra[k] = v;
-      desk = { menuTabs: menuTabsOf(dj.menuTabs), ...(dj.lastView !== undefined ? { lastView: dj.lastView } : {}), extra };
+      const refPanel = refPanelOf(dj.refPanel);
+      desk = { menuTabs: menuTabsOf(dj.menuTabs), ...(dj.lastView !== undefined ? { lastView: dj.lastView } : {}), ...(refPanel ? { refPanel } : {}), extra };
     } catch (e) {
       if (!(e instanceof FormatTooNewError)) throw e;
       extensions.CATSUP_desk = raw;
       notes.deskTooNew = readStamp(raw);
     }
   } else if (docExt.lastView !== undefined) desk.lastView = docExt.lastView;
+  // 参考窗牌组 CATSUP_references（§5.8）：没有 = 空；major 比本版新 → 不拒开（同 desk）：原字节进 carry.extensions 原样写回、这边空、notes 记一笔。
+  //   本层只搬字节：files[i] = { path, mimeType, bufferView }，清单 manifest.json 对这里不透明；坏条目（路径重复 / 缺 bufferView）整份拒开（与其他字段同口径，不静默丢卡）。
+  let references: ReferencesDoc = emptyReferences();
+  let referencesExtraRaw: Record<string, unknown> = {};
+  if (isObj(exts.CATSUP_references)) {
+    const raw = exts.CATSUP_references as Record<string, unknown>;
+    try {
+      const rj = migrateExtension("CATSUP_references", raw, notes);
+      const seen = new Set<string>();
+      const files = (Array.isArray(rj.files) ? rj.files : []).map((f: unknown, i: number) => {
+        if (!isObj(f)) fail(`CATSUP_references.files[${i}] invalid`);
+        const F = f as Record<string, unknown>;
+        if (typeof F.path !== "string" || !F.path || seen.has(F.path)) fail(`CATSUP_references.files[${i}] path missing or duplicated`);
+        if (typeof F.bufferView !== "number") fail(`CATSUP_references.files[${i}] has no bufferView`);
+        seen.add(F.path as string);
+        return { path: F.path as string, mimeType: typeof F.mimeType === "string" ? F.mimeType : "", bytes: new Uint8Array(view(F.bufferView as number)) };
+      });
+      for (const [k, v] of Object.entries(rj)) if (k !== "version" && k !== "minor" && k !== "patch" && k !== "files") referencesExtraRaw[k] = v;
+      references = { files, extra: {} };
+    } catch (e) {
+      if (!(e instanceof FormatTooNewError)) throw e;
+      extensions.CATSUP_references = raw;
+      notes.referencesTooNew = readStamp(raw);
+    }
+  }
   const DOC_KEYS = new Set(["version", "minor", "patch", "formatVersion", "settings", "bake", "lastView", "axes", "layers", "final", "finalRev"]);
   const documentExtra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(docExt)) if (!DOC_KEYS.has(k)) documentExtra[k] = v;
@@ -185,7 +211,8 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   for (const [k, v] of Object.entries(defsExt)) if (!DEF_KEYS.has(k)) definitionsExtra[k] = v;
 
   const views = new Map<number, Uint8Array>();
-  for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}])) views.set(i, new Uint8Array(view(i)));
+  for (const i of collectBufferViewRefs([topLevel, extensions, documentExtra, definitionsExtra, brepKeep ?? {}, referencesExtraRaw])) views.set(i, new Uint8Array(view(i)));
+  references.extra = referencesExtraRaw;   // 直通的未知键（里面的 bufferView 仍是文件里的旧索引；写入器经 carry.views 重映射）
   const settingsIn = isObj(docExt.settings) ? (docExt.settings as Record<string, unknown>) : {};
   const bake = isObj(docExt.bake) ? (docExt.bake as Record<string, unknown>) : {};
   return {
@@ -195,6 +222,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     ...(isFinalRecord(docExt.final) ? { final: { at: docExt.final.at, rev: docExt.final.rev, app: typeof docExt.final.app === "string" ? docExt.final.app : "", fingerprint: docExt.final.fingerprint } } : {}),
     ...(typeof docExt.finalRev === "number" ? { finalRev: docExt.finalRev } : {}),
     desk,
+    references,
     bakeMode: bake.mode === "engine" ? "engine" : "wysiwyg",
     definitions,
     rootIndex: rootIdx as number,
@@ -202,6 +230,6 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     materials,
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), views },
-    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew ? { readNotes: notes } : {}),
+    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew ? { readNotes: notes } : {}),
   };
 }

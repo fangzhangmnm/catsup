@@ -79,7 +79,14 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const viewMap = new Map<number, number>();
   for (const [oldIdx, bytes] of doc.carry.views) viewMap.set(oldIdx, sink.add(bytes));
   const remap = (old: number): number => { const n = viewMap.get(old); if (n === undefined) throw new Error(`writeCatsup: carried JSON references bufferView ${old} that was not carried`); return n; };
-  const carry = remapBufferViewRefs({ topLevel: doc.carry.topLevel, extensions: doc.carry.extensions, documentExtra: doc.carry.documentExtra, definitionsExtra: doc.carry.definitionsExtra, brepKeep: doc.carry.brepKeep ?? {} }, remap);
+  const carry = remapBufferViewRefs({ topLevel: doc.carry.topLevel, extensions: doc.carry.extensions, documentExtra: doc.carry.documentExtra, definitionsExtra: doc.carry.definitionsExtra, brepKeep: doc.carry.brepKeep ?? {}, referencesExtra: doc.references.extra }, remap);
+  // 参考窗牌组（§5.8）：太新的原字节（读取器放进 carry.extensions）原样写回；否则每个文件一条 bufferView；空牌组不写
+  const refsCarried = isObj(carry.extensions.CATSUP_references);
+  const refsExt: Record<string, unknown> | null = refsCarried ? null : doc.references.files.length ? {
+    ...carry.referencesExtra,
+    ...stampOf("CATSUP_references"),
+    files: doc.references.files.map((f) => ({ path: f.path, mimeType: f.mimeType, bufferView: sink.add(f.bytes) })),
+  } : null;
 
   const v3 = (p: { x: number; y: number; z: number }): number[] => [p.x, p.y, p.z];
   const encGuides = (g: DefinitionDoc["guides"]): Record<string, unknown> => ({ lines: g.lines.map((l) => ({ id: l.id, p: v3(l.p), dir: v3(l.dir) })), points: g.points.map((q) => ({ id: q.id, p: v3(q.p) })) });
@@ -125,7 +132,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const json: Record<string, unknown> = {
     ...carry.topLevel,
     asset: { version: WRITE_GLTF_VERSION, minVersion: MIN_GLTF_VERSION, generator: `CatsUp ${APP_VERSION}`, ...(thumbnail !== undefined ? { thumbnail } : {}) },
-    extensionsUsed: [...CATSUP_EXTENSIONS],
+    extensionsUsed: [...CATSUP_EXTENSIONS, ...(refsCarried || refsExt ? ["CATSUP_references"] : [])],
     extensionsRequired: [],
     buffers: [{ byteLength: 0 }],
     bufferViews,
@@ -161,7 +168,9 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
         ...stampOf("CATSUP_desk"),
         ...(Object.keys(doc.desk.menuTabs).length ? { menuTabs: { ...doc.desk.menuTabs } } : {}),
         ...(doc.desk.lastView !== undefined ? { lastView: doc.desk.lastView } : {}),
+        ...(doc.desk.refPanel ? { refPanel: { ...doc.desk.refPanel } } : {}),
       },
+      ...(refsExt ? { CATSUP_references: refsExt } : {}),
     },
   };
   const binBytes = bin.finish();
