@@ -7,6 +7,7 @@
 
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS } from "../editor/tool-ids.ts";
+import { planeLockLabel } from "../editor/locks.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountContextBar } from "./context-bar.ts";
@@ -513,7 +514,7 @@ function renderCrumbs(): void {
   });
 }
 // 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
-type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}`;
+type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
 /** 格距怎么念：按制式自带的单位（D&D 的 5 ft 不念成 1.524 m），不跟 vcbUnit。 */
 const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(step, gridPreset(preset).unit);
 const gridChip = document.getElementById("gridChip") as HTMLElement;
@@ -529,10 +530,7 @@ function renderGridChip(): void {
 /** 栅格 / 吸附 / 轴锁的菜单（栅格芯片与视图侧吸附挂件共用一份；user 2026-10-24「视图侧有一个按钮可以toggle snap，然后那个也负责x y z……的snap」）。 */
 function gridMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
   return [
-    { id: "lock:none" as GridMenuId, label: "轴锁 无", checked: editor.axisLock === null, sectionBefore: "轴锁（画线 / 移动 / 卷尺）", hint: "↓" },
-    { id: "lock:x" as GridMenuId, label: "轴锁 X", checked: editor.axisLock === "x", hint: "→" },
-    { id: "lock:y" as GridMenuId, label: "轴锁 Y", checked: editor.axisLock === "y", hint: "←" },
-    { id: "lock:z" as GridMenuId, label: "轴锁 Z", checked: editor.axisLock === "z", hint: "↑" },
+    ...lockMenuItems(),
     ...(editor.grid.on ? [] : [{ id: "on" as GridMenuId, label: "打开栅格吸附", sectionBefore: "栅格" }]),
 
     ...GRID_PRESETS.map((p, i) => ({ id: `preset:${p.id}` as GridMenuId, label: `制式 ${p.label}`, checked: editor.grid.preset === p.id, ...(i === 0 && editor.grid.on ? { sectionBefore: "栅格" } : {}), ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })),   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）；下拉深模块化归 Opus（B40）
@@ -543,8 +541,29 @@ function gridMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hi
     { id: "off" as GridMenuId, label: "关闭栅格", separatorBefore: true },
   ];
 }
+/** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 轴锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
+function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
+  const style = editor.lockStyle(), a = editor.axisLock, p = editor.planeLock, none = a === null && p === null;
+  if (style === "plane") return [
+    { id: "lock:none", label: "不锁", checked: none, sectionBefore: "面锁（矩形 / 圆 / 弧 / 旋转）", hint: "↓" },
+    { id: "plock:x", label: "面锁 YZ", checked: p === "x", hint: "→" },
+    { id: "plock:y", label: "面锁 XZ", checked: p === "y", hint: "←" },
+    { id: "plock:z", label: "面锁 XY", checked: p === "z", hint: "↑" },
+  ];
+  if (style === "axis") return [
+    { id: "lock:none", label: "不锁", checked: none, sectionBefore: "轴锁 / 面锁（画线 / 移动 / 卷尺）", hint: "↓" },
+    { id: "lock:x", label: "轴锁 X", checked: a === "x", hint: "→" },
+    { id: "lock:y", label: "轴锁 Y", checked: a === "y", hint: "←" },
+    { id: "lock:z", label: "轴锁 Z", checked: a === "z", hint: "↑" },
+    { id: "plock:x", label: "面锁 YZ", checked: p === "x", hint: "Shift+→", separatorBefore: true },
+    { id: "plock:y", label: "面锁 XZ", checked: p === "y", hint: "Shift+←" },
+    { id: "plock:z", label: "面锁 XY", checked: p === "z", hint: "Shift+↑" },
+  ];
+  return [];
+}
 function onGridPick(id: GridMenuId): "keep" | void {
     if (id.startsWith("lock:")) { const a = id.slice(5); editor.setAxisLock(a === "none" ? null : (a as "x" | "y" | "z")); syncUi(); return "keep"; }
+    if (id.startsWith("plock:")) { editor.setPlaneLock(id.slice(6) as "x" | "y" | "z"); syncUi(); return "keep"; }
     if (id === "on") { editor.setGrid({ on: true }); syncUi(); return "keep"; }
 
     if (id === "off") { editor.setGrid({ on: false }); syncUi(); return; }
@@ -726,7 +745,8 @@ function renderSnapWidget(): void {
   if (!btn) return;
   btn.classList.toggle("on", editor.grid.on);
   const badge = btn.querySelector(".gizmo-badge") as HTMLElement;
-  const a = editor.axisLock; badge.hidden = !a; badge.textContent = a ? a.toUpperCase() : ""; badge.dataset.axis = a ?? "";
+  const a = editor.axisLock, p = editor.planeLock, axis = a ?? (p === "face" ? null : p);
+  badge.hidden = !a && !p; badge.textContent = a ? a.toUpperCase() : p ? planeLockLabel(p) : ""; badge.dataset.axis = axis ?? "";
 }
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
@@ -759,10 +779,11 @@ window.addEventListener("keydown", (ev) => {
     return;
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "y" || ev.key === "Y")) { ev.preventDefault(); editor.redo(); return; }
-  if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && !ev.shiftKey && (ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === "ArrowUp" || ev.key === "ArrowDown") && !locomotion.isWalking()) {
-    // A9 轴锁（SU 同款）：→ X 红、← Y 绿、↑ Z 蓝、↓ 解锁；同一个键再按 = 解锁（Shift+方向键 = 平面锁，没做）
+  if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && (ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === "ArrowUp" || ev.key === "ArrowDown") && !locomotion.isWalking()) {
+    // A9（SU 同款）：→ X 红、← Y 绿、↑ Z 蓝、↓ 解锁；同一个键再按 = 解锁。Shift+方向键 = 面锁（Blender Shift+X 语义：Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下的面）。
+    // 先定平面的工具（矩形 / 圆 / 弧 / 旋转 / 量角器）不分 Shift：方向键就是锁平面。分派在 editor.lockKey。
     ev.preventDefault();
-    if (ev.key === "ArrowDown") editor.setAxisLock(null); else editor.toggleAxisLock(ev.key === "ArrowRight" ? "x" : ev.key === "ArrowLeft" ? "y" : "z");
+    editor.lockKey(ev.key === "ArrowDown" ? null : ev.key === "ArrowRight" ? "x" : ev.key === "ArrowLeft" ? "y" : "z", ev.shiftKey);
     syncUi(); return;
   }
   if (ev.key === "Delete" || ev.key === "Backspace") { if (editor.hasSelection()) { ev.preventDefault(); editor.deleteSelection(); } return; }

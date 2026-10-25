@@ -50,8 +50,10 @@ export interface ToolCtx {
   classify(view: WorldView, hit: HitResult3): Classified;
   /** 吸附求解（世界视图 + 帧 + ε 由底座配好）。 */
   snap(view: WorldView, sx: number, sy: number, q: AlignQuery): Snap3;
-  /** A9 轴锁：没锁 = 原样返回；锁着 = 投到过锚点的那根轴线上（底座的 lockToAxis）。沿一根轴走的工具在自己算完吸附之后调一次。 */
-  lockAxis(sn: Snap3, sx: number, sy: number): Snap3;
+  /** A9 锁的事后约束：没锁 = 原样返回；轴锁 = 投到过锚点的那根轴线上；面锁 = 投到过锚点的那张面上。沿轴走的工具（lock: "axis"）在自己算完吸附之后调一次。 */
+  applyLock(sn: Snap3, sx: number, sy: number): Snap3;
+  /** A9 面锁下过 through 的平面（没锁 = null）。先定平面的工具（lock: "plane"）首点之后用它代替自己解析出的平面。 */
+  lockedPlane(through: Pt3): DrawPlane | null;
   alignSources(): Pt3[];
   /** 「手里」谓词（在手的几何不参与吸附）；extra = 工具自报的移动集（本地 id），opaque = 手中膜是否遮挡。 */
   hand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque?: boolean): AlignHand;
@@ -169,6 +171,8 @@ export interface ToolHandler {
   readonly draws?: boolean;
   /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
   readonly previewOnHover?: boolean;
+  /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */
+  readonly lock?: "axis" | "plane";
   /** 手势进行中？（底座 gestureActive 的一票；为真时 pointerMove 走 track、computeLive 走 live）。 */
   active(): boolean;
   /** 清掉自己的手势状态（底座 cancelGesture 时对所有工具调）。 */

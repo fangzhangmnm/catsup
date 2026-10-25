@@ -36,7 +36,8 @@ import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
-import { liftFromPlane, projectToPlane } from "../kernel/geom.ts";
+import { canonicalPlane, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
+import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey, resolveEdge } from "./ops.ts";
@@ -248,22 +249,87 @@ export class Editor {
   private opCount = 0;
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
   /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
-   *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.lockAxis 的工具生效（画线 / 移动 / 卷尺）。 */
-  private _axisLock: "x" | "y" | "z" | null = null;
-  get axisLock(): "x" | "y" | "z" | null { return this._axisLock; }
-  setAxisLock(a: "x" | "y" | "z" | null): void {
-    if (this._axisLock === a) return;
-    this._axisLock = a;
+   *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
+   *  面锁（user 2026-10-25「Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」；键位 = ledger A9 的 Blender Shift+X 语义）：
+   *  锁到「排除该轴」的平面 = 法向是该轴的面（Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下那张膜的面）。
+   *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃轴锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
+   *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。轴锁与面锁互斥。 */
+  private _axisLock: LockAxis | null = null;
+  private _planeLock: PlaneLock | null = null;
+  private _planeLockN: Pt3 | null = null;   // 面锁法向（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
+  private lastPtr: { x: number; y: number } | null = null;   // 最后一次指针位置（Shift+↓ 取光标下的膜用）
+  get axisLock(): LockAxis | null { return this._axisLock; }
+  get planeLock(): PlaneLock | null { return this._planeLock; }
+  /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
+  lockStyle(): "axis" | "plane" | null { return this.handlers[this._tool]?.lock ?? null; }
+  setAxisLock(a: LockAxis | null): void {
+    if (this._axisLock === a && this._planeLock === null) return;
+    this._axisLock = a; this._planeLock = null; this._planeLockN = null;
     this.host.hint(a ? `轴锁 ${a.toUpperCase()}（再按同一个方向键或 ↓ 解锁）` : null);
     this.host.changed(); this.draw();
   }
-  toggleAxisLock(a: "x" | "y" | "z"): void { this.setAxisLock(this._axisLock === a ? null : a); }
-  /** 把求解器结果投到锁住的轴线（过锚点）上：吸到实几何 → 投影（SU「从点」）；没吸到 → 光标射线离轴线最近的点；栅格开着 → 沿轴落绝对格。
-   *  求解器本身不动（排序规则归 Fable）；这里只是事后约束。 */
+  toggleAxisLock(a: LockAxis): void { this.setAxisLock(this._axisLock === a ? null : a); }
+  /** 面锁："x" / "y" / "z" = 法向是那根上下文轴的面；"face" = 光标下那张膜的面（光标下没膜 → 不锁，给提示）。 */
+  setPlaneLock(p: PlaneLock | null): void {
+    let n: Pt3 | null = null;
+    if (p === "face") {
+      const w = this.liveWorld(), at = this.lastPtr, f = at ? pickFace(w, this.frame(), this.fvp(), at.x, at.y) : undefined, rec = f !== undefined ? w.planeOf(f) : undefined;
+      if (!rec) { this.host.hint("面锁：光标下没有面（把光标放到一张面上再按 Shift+↓）"); return; }
+      n = normalize3(rec.plane.n);
+    } else if (p) { const raw = this.contextFrame()[p]; n = normalize3(raw); }
+    this._planeLock = p; this._planeLockN = n; this._axisLock = null;
+    this.host.hint(p ? `面锁 ${planeLockLabel(p)}（再按同一个键或 ↓ 解锁）` : null);
+    this.host.changed(); this.draw();
+  }
+  togglePlaneLock(p: PlaneLock): void { this.setPlaneLock(this._planeLock === p ? null : p); }
+  /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
+  lockKey(axis: LockAxis | null, plane: boolean): void {
+    const style = this.lockStyle();
+    if (!style) { this.host.hint("这把工具没有轴锁 / 面锁"); return; }
+    if (axis === null) { if (plane) this.togglePlaneLock("face"); else this.setAxisLock(null); return; }
+    if (style === "plane" || plane) this.togglePlaneLock(axis); else this.toggleAxisLock(axis);
+  }
+  /** 面锁下过 through 的平面（先定平面的工具在首点之后用；没锁 = null）。轴面的基 = 另外两根上下文轴。 */
+  private lockedPlaneThrough(through: Pt3): DrawPlane | null {
+    const n = this._planeLockN;
+    if (!this._planeLock || !n) return null;
+    const pl = canonicalPlane(n, dot3(n, through));
+    return { plane: pl, basis: planeBasis(pl) };
+  }
+  /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：轴锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
+  private applyLock(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
+    if (this._axisLock) return this.lockToAxis(sn, anchor, sx, sy);
+    if (this._planeLock) return this.lockToPlane(sn, anchor, sx, sy);
+    return sn;
+  }
+  private static strongSnap(sn: Snap3): boolean { return sn.kind !== null && sn.kind !== "on-face" && sn.kind !== "grid-point" && sn.kind !== "increment" && sn.kind !== "tool" && !sn.kind.startsWith("axis-"); }
+  /** 投到锁住的面（过锚点）上：吸到实几何 → 正投影（「从点」；已在面上就原样）；没吸到 → 光标射线交面（掠射 = 投影兜底）；
+   *  栅格开着且是轴面 → 面内两根轴各自落绝对格。 */
+  private lockToPlane(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
+    const n = this._planeLockN, lock = this._planeLock;
+    if (!lock || !n || !anchor) return sn;
+    const strong = Editor.strongSnap(sn), off = dot3(sub3(sn.p, anchor), n);
+    if (strong && Math.abs(off) < 1e-9) return sn;
+    let p = sub3(sn.p, scale3(n, off));
+    if (!strong) {
+      const ray = this.frame().ray(sx, sy, this.fvp()), den = dot3(ray.dir, n);
+      if (Math.abs(den) > 0.05) { const t = dot3(sub3(anchor, ray.origin), n) / den; if (t > 0) p = { x: ray.origin.x + ray.dir.x * t, y: ray.origin.y + ray.dir.y * t, z: ray.origin.z + ray.dir.z * t }; }
+    }
+    if (this._grid.on && lock !== "face") {
+      const F = this.contextFrame(), s0 = this._grid.step / this._grid.subdiv;
+      if (s0 > 0) for (const ax of (["x", "y", "z"] as const).filter((a) => a !== lock)) {
+        const raw = F[ax], d = normalize3(raw), c = dot3(sub3(p, F.origin), d), q = Math.round(c / s0) * s0 - c;
+        p = { x: p.x + d.x * q, y: p.y + d.y * q, z: p.z + d.z * q };
+      }
+    }
+    const label = `面锁 ${planeLockLabel(lock)}${strong ? " · 从点" : ""}`;
+    return { p, kind: "tool", label, hints: strong ? [{ a: sn.p, b: p, axis: "i" }] : [] };
+  }
+  /** 把求解器结果投到锁住的轴线（过锚点）上：吸到实几何 → 投影（SU「从点」）；没吸到 → 光标射线离轴线最近的点；栅格开着 → 沿轴落绝对格。 */
   private lockToAxis(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
     if (!this._axisLock || !anchor) return sn;
     const F = this.contextFrame(), ax = this._axisLock, raw = F[ax], dl = Math.hypot(raw.x, raw.y, raw.z) || 1, dir = { x: raw.x / dl, y: raw.y / dl, z: raw.z / dl };
-    const strong = sn.kind !== null && sn.kind !== "on-face" && sn.kind !== "grid-point" && sn.kind !== "increment" && !sn.kind.startsWith("axis-");
+    const strong = Editor.strongSnap(sn);
     let t = dot3(sub3(sn.p, anchor), dir);
     if (!strong) {   // 射线 vs 轴线的最近点（俯视锁 Z 也能拉高）
       const ray = this.frame().ray(sx, sy, this.fvp()), r = ray.dir, w0 = sub3(anchor, ray.origin);
@@ -471,7 +537,7 @@ export class Editor {
   }
   private cancelGesture(): void {
     this.anchor3 = null;
-    this._axisLock = null;   // 轴锁随手势解（换工具 / Esc / 取消）
+    this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 轴锁 / 面锁随手势解（换工具 / Esc / 取消）
     for (const h of Object.values(this.handlers)) h.cancel();
     this.samples = [];
     this.lastSnap = null;
@@ -1502,7 +1568,7 @@ export class Editor {
   /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
   private endStepGesture(): void {
     this.anchor3 = null; this.cursor3 = null; this.snapInfo = null;
-    this._axisLock = null;   // 手势落定 = 轴锁解（SU 同款）
+    this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 手势落定 = 锁解（SU 同款）
     this.samples = []; this.armed = false; this.canArm = false; this.downPoint = null; this.justCommitted = false;
     this.live = null; this.liveOverride = null; this.liveEvents = [];
   }
@@ -1511,6 +1577,7 @@ export class Editor {
 
   pointerMove(ev: ToolPointer): void {
     const s = ev;
+    this.lastPtr = { x: s.x, y: s.y };
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     if (!this.gestureActive()) {
       this.snapInfo = null;
@@ -1555,7 +1622,8 @@ export class Editor {
       pick: (sx, sy) => this.pickAt(sx, sy),
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), ...q }),
-      lockAxis: (sn, sx, sy) => this.lockToAxis(sn, this.anchor3, sx, sy),
+      applyLock: (sn, sx, sy) => this.applyLock(sn, this.anchor3, sx, sy),
+      lockedPlane: (through) => this.lockedPlaneThrough(through),
       alignSources: () => this.alignSrcs(),
       hand: (view, extra, opaque) => this.freshHand(view, extra, opaque),
       toLocal: (p) => this.toLocal(p),

@@ -21,10 +21,12 @@ const STEP = (Math.PI / 180) * 15;
 export class ArcTool implements ToolHandler {
   readonly tool = "arc" as const;
   readonly grammar = "steps" as const;
+  readonly lock = "plane" as const;   // A9：方向键锁平面
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.hoverSnap(s); }
   private stage: 0 | 1 | 2 = 0;
   private mode: ArcMode = "two";
   private plane: DrawPlane | null = null;
+  private plane0: DrawPlane | null = null;   // 首点解析出的平面（面锁解开时回到它）
   /** 第一下：two / three 的起点；center / pie 的圆心。 */
   private p1: Pt3 | null = null;
   /** 第二下：two 的终点 / three 的枢轴 / center·pie 的起点。 */
@@ -47,7 +49,10 @@ export class ArcTool implements ToolHandler {
   }
 
   /** 指针在手势平面上的点（吸附过；吸不到就射线落面）。 */
+  /** A9 面锁：第二点落定之前随时可锁 / 解锁——平面过首点；解锁回到首点解析出的平面。 */
+  private relock(ctx: ToolCtx): void { if (this.stage === 1 && this.p1 && this.plane0) this.plane = ctx.lockedPlane(this.p1) ?? this.plane0; }
   private pointOnPlane(ctx: ToolCtx, sx: number, sy: number, anchor: Pt3): Pt3 | null {
+    this.relock(ctx);
     const view = ctx.live();
     const pl = this.plane!;
     const toolTargets = this.mode === "two" && this.stage === 2 && this.p1 && this.p2 ? arcToolTargets(this.p1, this.p2, pl.plane.n) : null;   // 半圆（B22）
@@ -69,7 +74,7 @@ export class ArcTool implements ToolHandler {
     if (this.stage === 0) {
       this.mode = ctx.config.get("arc", "mode");
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
-      this.plane = r.plane; this.p1 = r.snap.p; this.p2 = this.p3 = null; this.sweep = 0;
+      this.plane0 = r.plane; this.plane = ctx.lockedPlane(r.snap.p) ?? r.plane; this.p1 = r.snap.p; this.p2 = this.p3 = null; this.sweep = 0;
       ctx.setAnchor(this.p1); ctx.setSnap(r.snap); ctx.setCursor(this.p1);
       this.stage = 1;
       ctx.hint(this.mode === "two" ? "两点弧 ②/③：点终点" : this.mode === "three" ? "三点弧 ②/③：点弧上一点（枢轴）" : `${this.label()} ②/③：点起点（定半径）`);

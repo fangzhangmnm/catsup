@@ -20,9 +20,11 @@ export class RRectTool implements ToolHandler {
   readonly tool = "rrect" as const;
   readonly grammar = "steps" as const;
   readonly draws = true;
+  readonly lock = "plane" as const;   // A9：方向键锁平面
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.hoverSnap(s); }
   private stage: 0 | 1 | 2 = 0;
   private plane: DrawPlane | null = null;
+  private plane0: DrawPlane | null = null;   // 首点解析出的平面（面锁解开时回到它）
   private a: Pt3 | null = null;
   private b: Pt3 | null = null;
   private c: Pt3 | null = null;
@@ -32,7 +34,10 @@ export class RRectTool implements ToolHandler {
   cancel(): void { this.stage = 0; this.plane = null; this.a = this.b = this.c = null; this.deg = 90; }
   sample(): Record<string, number> { return {}; }
 
+  /** A9 面锁：第二点落定之前随时可锁 / 解锁——平面过首点；解锁回到首点解析出的平面。 */
+  private relock(ctx: ToolCtx): void { if (this.stage === 1 && this.a && this.plane0) this.plane = ctx.lockedPlane(this.a) ?? this.plane0; }
   private pointOnPlane(ctx: ToolCtx, sx: number, sy: number, anchor: Pt3): Pt3 | null {
+    this.relock(ctx);
     const view = ctx.live(), pl = this.plane!;
     let sn = ctx.snap(view, sx, sy, { plane: pl, anchor, alignSources: ctx.alignSources(), hand: ctx.hand(view) });
     if (this.stage === 1 && ctx.mods().shift) sn = shiftAngleSnap(ctx, anchor, sn.p, pl.plane.n);   // 第一边：Shift = 15° 角（画线同款）
@@ -52,7 +57,7 @@ export class RRectTool implements ToolHandler {
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.stage === 0) {
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
-      this.plane = r.plane; this.a = r.snap.p; this.b = this.c = null;
+      this.plane0 = r.plane; this.plane = ctx.lockedPlane(r.snap.p) ?? r.plane; this.a = r.snap.p; this.b = this.c = null;
       ctx.setAnchor(this.a); ctx.setSnap(r.snap); ctx.setCursor(this.a);
       this.stage = 1;
       ctx.hint("旋转矩形 ②/③：拉第一边，点终点（Shift = 15° 角）");

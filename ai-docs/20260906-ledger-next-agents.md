@@ -179,7 +179,7 @@
 - **验收**：`scripts/probe-boot.mjs` 截图肉眼：盒子外轮廓粗、内部棱细；透视旋转后剪影边随之换粗。
 - **journal 09-07 补账（user 手记，2026-09-19 由 Claude Fable 5.1 补入）**：「线宽太宽了。细线细一点，1px？粗线 2px? 然后 3d 的情况处理好 z shift。然后你确定线需要用矩形吗？还是 gl 里面没有 batch friendly 的 drawline? 线宽了像玩具而且影响观察」→ 落地时一并：细 1 / 粗 2 CSS px（DPR 无关）；`LineSegments2` 是矩形条带（WebGL 原生 `gl.LINES` 线宽钉死 1px，粗线只能条带）——保留条带但收窄；polygonOffset 的 z shift 复查。
 
-### A9 Move/Line/Rect 轴锁·面锁（键盘） — `轴锁 done v0.13.36（方向键 + 挂件菜单；Shift 平面锁 / 矩形平面锁 / 触屏常驻虚拟键未做）`（user 2026-09-06「axis align 键盘两套都收。然后 shift arrow 能不能是 blender 的 shift x 语义？」→ 能）（**user 2026-10-24 再点名「记账，键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」**：SU 同款 ↑ = Z / ← = Y / → = X 锁轴、Shift 锁当前推断；触屏 = 工具条上三枚可按住 / 可锁的虚拟轴键（修饰键要能 Shift 式锁，memory `feedback_hold_needs_shift_latch_20261007`））
+### A9 Move/Line/Rect 轴锁·面锁（键盘） — `轴锁 done v0.13.36；面锁 + 矩形类平面锁 done v0.13.50（Claude Opus 5.5：Shift+方向键 = 锁到排除该轴的面、Shift+↓ = 光标下那张面；矩形 / 圆 / 弧 / 旋转矩形 / 旋转 / 量角器 = 方向键直接锁平面（SU 旋转矩形同款），第二点之前可锁可解；吸附钮菜单按工具换锁种、角标显示面锁；工具自报 lock: axis | plane；探针 probe-plane-lock）；触屏三颗常驻键做了又撤（user 后定：轴锁做成右上状态栏一个图标、点开选 / 手指滑，状态栏只放视口里看不出来的状态——待做）`（user 2026-09-06「axis align 键盘两套都收。然后 shift arrow 能不能是 blender 的 shift x 语义？」→ 能）（**user 2026-10-24 再点名「记账，键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」**：SU 同款 ↑ = Z / ← = Y / → = X 锁轴、Shift 锁当前推断；触屏 = 工具条上三枚可按住 / 可锁的虚拟轴键（修饰键要能 Shift 式锁，memory `feedback_hold_needs_shift_latch_20261007`））
 - **键位**：SU 方向键 ←绿(Y) →红(X) ↑蓝(Z) ↓平行/垂直于推断边；Blender 字母 X/Y/Z 同义。**Shift+方向键 / Shift+字母 = Blender Shift+X 语义 = 锁到「排除该轴」的平面**（Shift+← = XZ 面、Shift+→ = YZ 面、Shift+↑ = XY 地面、Shift+↓ = 推断膜的面）。Shift 单独按住 = SU「锁住当前推断」（含悬在膜上=面锁），松开即放。方向键/字母锁是**切换**（再按同键或 Esc 或手势结束解锁）；SU 里 Shift+方向键无绑定，不冲突。
 - **实现形状**：锁 = 求解器查询的附加约束（1-D 轴线 / 2-D 平面，rank 最高，其余目标只在锁的轨迹上参赛=SU 同款「锁后仍可吸到轨迹上的点」）；HUD 状态栏显示当前锁。触屏 HUD 锁片见 B9。
 

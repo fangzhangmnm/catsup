@@ -22,8 +22,10 @@ const projectThrough = (p: Pt3, c: Pt3, n: Pt3): Pt3 => { const d = dot3(sub3(p,
 export class RotateTool implements ToolHandler {
   readonly tool = "rotate" as const;
   readonly grammar = "steps" as const;
+  readonly lock = "plane" as const;   // A9：方向键锁转轴所在的平面（SU 量角器同款：→ 绕 X / ← 绕 Y / ↑ 绕 Z）
   private stage: 0 | 1 | 2 = 0;
   private plane: DrawPlane | null = null;
+  private plane0: DrawPlane | null = null;   // 圆心处解析出的平面（面锁解开时回到它）
   private center: Pt3 | null = null;
   private axis: Pt3 | null = null;
   private ref: Pt3 | null = null;
@@ -34,19 +36,22 @@ export class RotateTool implements ToolHandler {
   sample(): Record<string, number> { return { angle: this.angle }; }
   describe(): Record<string, unknown> { return { rotate: { center: this.center, axis: this.axis, angle: this.angle } }; }
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.hoverSnap(s); }
+  /** A9 面锁：第二点落定之前随时可锁 / 解锁——平面过首点；解锁回到首点解析出的平面。 */
+  private relock(ctx: ToolCtx): void { if (this.stage === 1 && this.center && this.plane0) { this.plane = ctx.lockedPlane(this.center) ?? this.plane0; this.axis = this.plane.plane.n; } }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.stage === 0) {
       if (!ctx.hasSelection()) { ctx.hint("先选中要旋转的东西（选择工具），再用量角器"); return; }
       // 圆心：落在膜上 → 转轴 = 膜法向；否则 → 画线平面（地面 / 面向的轴平面）
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
-      this.center = r.snap.p; this.axis = r.plane.plane.n; this.plane = r.plane;
+      this.center = r.snap.p; this.plane0 = r.plane; this.plane = ctx.lockedPlane(r.snap.p) ?? r.plane; this.axis = this.plane.plane.n;
       ctx.setAnchor(this.center); ctx.setSnap(r.snap);
       this.stage = 1;
       ctx.hint(`旋转 ②/③：圆心已定（转轴 = ${r.fixed ? "这张面的法向" : "当前平面法向"}）；点参考方向`);
       return;
     }
     if (this.stage === 1) {
+      this.relock(ctx);
       const view = ctx.live();
       const sn = ctx.snap(view, ev.x, ev.y, { plane: this.plane!, anchor: this.center!, alignSources: ctx.alignSources(), hand: ctx.hand(view) });
       const q = projectThrough(sn.p, this.center!, this.axis!);
@@ -62,6 +67,7 @@ export class RotateTool implements ToolHandler {
 
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
     if (this.stage === 1 && this.center) {
+      this.relock(ctx);
       const view = ctx.live();
       const sn = ctx.hysteresis(ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.center, alignSources: ctx.alignSources(), hand: ctx.hand(view) }), s.x, s.y);
       ctx.setSnap(sn);

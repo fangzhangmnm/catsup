@@ -26,6 +26,7 @@ abstract class DrawTool implements ToolHandler {
   abstract readonly tool: "line" | "rect" | "circle";
   readonly grammar = "steps" as const;
   readonly draws = true;
+  readonly lock: "axis" | "plane" = "plane";   // A9：矩形 / 圆 = 方向键锁平面（画线覆盖成 axis）
   protected anchor: Pt3 | null = null;        // 首点（世界）；也写进底座 anchor（渲染轴线虚线起点）
   protected plane: DrawPlane = GROUND;        // 当前手势平面
   protected fixed: DrawPlane | null = null;   // 首点落在膜内 → 平面钉死（矩形 / 圆）
@@ -50,8 +51,10 @@ abstract class DrawTool implements ToolHandler {
   /** 第二点在平面上取（矩形 / 圆 / 画线意图门回退）：钉死的平面直接吸，否则 resolveRectPlane 可切面；轻擦保持上一帧。 */
   protected planeSnap(ctx: ToolCtx, sx: number, sy: number): Pt3 {
     const w = ctx.live(), prev = ctx.currentSnap();
+    const locked = this.anchor ? ctx.lockedPlane(this.anchor) : null;   // A9 面锁：平面过首点、钉死
+    if (locked) this.plane = locked;
     const targets = this.tool === "rect" && this.anchor ? rectToolTargets(this.anchor, this.plane.basis) : null;   // 正方形 / 黄金分割（B22；按上一帧平面基）
-    if (this.fixed) {
+    if (locked || this.fixed) {
       const sn = ctx.snap(w, sx, sy, { plane: this.plane, alignSources: ctx.alignSources(), hand: ctx.hand(w), toolTargets: targets });
       ctx.setSnap(sn);
       return sn.p;
@@ -81,6 +84,7 @@ abstract class DrawTool implements ToolHandler {
 
 export class LineTool extends DrawTool {
   readonly tool = "line" as const;
+  readonly lock = "axis" as const;
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
     const a = this.anchor;
     if (!a) return;
@@ -94,7 +98,7 @@ export class LineTool extends DrawTool {
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
     if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), MIN_GESTURE_LEN)) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
     if (ctx.mods().shift) sn = shiftAngleSnap(ctx, a, sn.p, this.plane.plane.n);   // Shift = 15° 角度对齐（B33）
-    sn = ctx.lockAxis(sn, s.x, s.y);   // A9 轴锁（没锁 = 原样）
+    sn = ctx.applyLock(sn, s.x, s.y);   // A9 轴锁 / 面锁（没锁 = 原样）
     const snapped = ctx.hysteresis(sn, s.x, s.y);
     ctx.setSnap(snapped);
     ctx.charge(snapped, 120);

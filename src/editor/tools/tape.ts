@@ -38,6 +38,7 @@ function lineDirAt(view: WorldView, sn: Snap3, pick: { edge?: number }): Pt3 | n
 export class TapeTool implements ToolHandler {
   readonly tool = "tape" as const;
   readonly grammar = "steps" as const;
+  readonly lock = "axis" as const;   // A9：方向键锁轴、Shift+方向键锁面
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.hoverSnap(s); }
   private stage: 0 | 1 = 0;
   private plane: DrawPlane | null = null;
@@ -85,7 +86,7 @@ export class TapeTool implements ToolHandler {
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
     if (this.stage === 0 || !this.start) return;
     const view = ctx.live();
-    const sn = ctx.lockAxis(ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.start.p, alignSources: ctx.alignSources(), hand: ctx.hand(view) }), s.x, s.y);   // A9 轴锁
+    const sn = ctx.applyLock(ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.start.p, alignSources: ctx.alignSources(), hand: ctx.hand(view) }), s.x, s.y);   // A9 轴锁
     this.b = sn.p;
     ctx.setSnap(sn); ctx.setCursor(sn.p);
   }
