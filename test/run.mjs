@@ -7,6 +7,7 @@ import "./subdivide-nearmiss.test.ts";
 import "./xr-pointer-frame.test.ts";
 import "./kernel-fuzz.test.ts";
 import "./tau-flatten.test.ts";   // EGC 期 3b：τ 带投影一致性（2026-10-24）
+import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点（2026-10-24，800 件场景第 379 步）
 import "./kernel-rev.test.ts";
 import "./settle-differential.test.ts";
 import "./curves.test.ts";   // 曲线实体（0.10，2026-10-24）

@@ -20,7 +20,7 @@ const KNOWN_DUP_SEEDS = new Set<number>();
  *           其中多处连带吃掉正经的大面）；现在结算机的守恒断言拒绝这一步（throw，commitOp 整批回滚）。本档只允许这一种 throw，计数见 todo。
  *           根治在格点身份 / τ 带（总账 D 节），不在局部化层。
  */
-const CONSERVATION_RE = /结算机自相矛盾/;
+const CONSERVATION_RE = /结算机自相矛盾|共面容差 τ = .* 下被压扁/;   // 两种合法拒绝：守恒断言（矛盾）/ τ 退化（厚度 < τ 的膜被压扁，2026-10-24）
 
 export function checkInvariants(k: Kernel, ctx: string, allowDup = false): void {
   const vids = new Set(k.graph.vertices().map((v) => v.id));

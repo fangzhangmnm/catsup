@@ -168,6 +168,8 @@ interface Claim { im: Image; }
  * 结算机本体。g / store / reg 原地修改；返回事件叙事。
  * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
  */
+/** 调试钩子（默认 null 零开销）：影响域 / 胞腔 / 认领逐条打出来——守恒断言响了先开它看，别猜。added by Claude Fable 5.1 2026-10-24 */
+export const SETTLE_DEBUG: { log: ((line: string) => void) | null } = { log: null };
 export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable, opts?: { global?: boolean }): FaceEvent[] {
   const GLOBAL = !!opts?.global;
   const events: FaceEvent[] = [];
@@ -398,7 +400,12 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   for (const fid of [...neighFaces].sort((a, b) => a - b)) {   // 按 id 序：两台机（局部 / 全局）入选顺序不同，裁决顺序必须一致
     const f = store.face(fid)!;
     // 合并过的环里相邻两个 id 可能变成同一个（坍缩边）→ 去掉连续重复点
-    identity.push({ rings: [f.outer, ...f.holes].map((r) => r.vids.filter((v, i, a) => v !== a[(i + 1) % a.length]).map((v) => g.pt(v))), algebra: "or", inherit: fid });
+    const rings = [f.outer, ...f.holes].map((r) => r.vids.filter((v, i, a) => v !== a[(i + 1) % a.length]).map((v) => g.pt(v)));
+    // τ 退化（2026-10-24，800 件 mm 格点场景第 591 步）：一张厚度 < τ 的既有膜（1 mm 的细条），邻居推拉出两张 1 mm 之隔的墙 → 同一平面组 →
+    // τ-flatten 把它的两条长边并成一条，环只剩 2 个点。这不是结算机矛盾，是输入在共面容差下退化（τ 说「这么近就是同一张平面」）。
+    // 数据安全词典序：宁拒不删——不静默烧掉用户的面；理由说清楚，τ 多大是 user 的旋钮。
+    if (rings[0].length < 3) throw new Error(`settle: 膜 ${fid} 在共面容差 τ = ${tol} m 下被压扁（厚度 < τ 的几何在 τ 语义里是退化的）——拒绝这次操作`);
+    identity.push({ rings, algebra: "or", inherit: fid });
   }
   mark("identity.rings");
 
@@ -446,6 +453,12 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const identityTouched = identity;
   for (const im of identityTouched) claim(im);
   for (const im of verbImages) claim(im);
+  if (SETTLE_DEBUG.log) {
+    const f3 = (p: Pt3): string => `(${p.x},${p.y},${p.z})`;
+    SETTLE_DEBUG.log(`neighFaces ${[...neighFaces].sort((a, b) => a - b).join(",")} consumed ${consumedIds.join(",")}`);
+    for (const [pid, regions] of byPlane) { SETTLE_DEBUG.log(`plane ${pid} n=${JSON.stringify(reg.rec(pid).plane)} regions ${regions.length} (sub ${subset.get(pid)?.size ?? "?"} edges)`); for (const r of regions) SETTLE_DEBUG.log(`  cell outer[${r.outer.edges.map((d) => d.edge).join(",")}] holes ${r.holes.length} rep ${f3(repOf.get(r)!)} claims ${(claimsOf.get(r) ?? []).map((c) => c.im.inherit ?? "verb").join(",")}`); }
+    for (const im of [...identityTouched, ...verbImages]) SETTLE_DEBUG.log(`image ${im.inherit ?? "verb"} ${im.algebra} rings ${im.rings.map((r) => r.map(f3).join(" ")).join(" | ")} → ${cellsOf.get(im)?.length ?? 0} cells`);
+  }
 
   mark("claims");
   // ⑥ 逐胞腔裁决：填 / 不填

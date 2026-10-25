@@ -41,6 +41,8 @@
 
 ## 2. kind 与身体
 
+> **CardBody sunset 方向（user 2026-10-24 深夜「以及猫娘的本质那篇稿子你看过了应该知道cardbody需要sunset。哈哈哈」；记录 by Claude Fable 5.1）**：卡片这个 kind 的两个由头都没了——「猫娘」的本质是**验证**（`20261024-design-verification-overlay.md`：注释 = 举牌子、断点 = 钉在位置上的谓词），不是一张带动画的贴图卡；「参考小人」= 读全局角色档（胶囊体 / 眼高 / 台阶高）的**人形验证器实体**（`20261024-design-entity-classes-onvalidate.md`），也不是图片。`ImageAsset`（§3）**留**：贴图 / matte 还要它。拆法（等 user 一句话「拆」再动）：删 `CardBody` / `placeCard` / kind=card 登记、definitions 格式 card 载荷退场（dev 里没有任何文件存过 card，Opus 侧也没接 UI，现在拆零成本；拖到有文件存了再拆就是 major）。
+
 ```ts
 type BodyKind = "brep" | "card" | "mesh";            // 开放集，加 kind = 加一个实现（EasyRoads 式「road」以后在这里长）
 interface BrepBody { kind: "brep"; kernel; groups; nextGroup; materialSlots; guides }          // 现状

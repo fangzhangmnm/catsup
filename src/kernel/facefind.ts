@@ -158,16 +158,21 @@ export function findRegions(g: PlanarGraph, scope?: FindScope): Region[] {
   }
 
   // --- 3. 嵌套挂洞：每个组件的 CW 外壳环，挂到「包含它的最小 CCW 面」上（drill L262-264）。
-  //     组件间不共享顶点（sticky 已合并重合点），包含判定用壳环任一顶点严格内外。
   //     最外层组件的壳不被任何面包含 → 弃（无界外部）。
+  //     探针 = 壳环**第一条边的中点**，不是顶点（2026-10-24，Claude Fable 5.1）：壳环会和同组件里别的面环共享顶点（小面被两张面围着、
+  //     它的角正好在组件外壳上），顶点落在候选面环的边界上时 pointInRing 无定义——800 件场景第 379 步就是那样把整张外壳挂成小面的洞，
+  //     代表点落到洞那边、小面的身份像一个胞腔都认领不到。PSLG 里两条不同的边不重叠、顶点不骑边，所以边中点严格在任何别的环的内或外；
+  //     和候选面环共享边的壳由 ringContains 的同组件守卫先排除。
   const regions: Region[] = ccw
     .sort((p, q) => p.area - q.area) // 从小到大，「最小包含面」= 第一个命中
     .map((c) => ({ outer: c.ring, holes: [] as Ring[], area: c.area }));
 
   for (const sh of shells) {
-    const probe = sh.ring.pts[0];
+    const q0 = sh.ring.pts[0], q1 = sh.ring.pts[1 % sh.ring.pts.length];
+    const probe: Pt = { x: (q0.x + q1.x) / 2, y: (q0.y + q1.y) / 2 };
     for (const r of regions) {
       if (r.outer.pts.length && ringContains(r.outer, sh.ring, probe)) {
+        if (FF_DEBUG.log) FF_DEBUG.log(`hole: shell[${sh.ring.edges.map((d) => d.edge).join(",")}] probe (${probe.x},${probe.y}) → region outer[${r.outer.edges.map((d) => d.edge).join(",")}] pts ${r.outer.pts.map((q) => `(${q.x},${q.y})`).join(" ")}`);
         r.holes.push(sh.ring);
         r.area -= sh.areaAbs;
         break;
