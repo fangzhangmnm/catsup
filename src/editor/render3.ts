@@ -359,6 +359,10 @@ export class Renderer3 {
     this.edgeMat.customProgramCacheKey = (): string => "catsup-profile-edges";
     this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
     this.edgeLines.frustumCulled = false; this.edgeLines.visible = false;
+    // 覆盖层（选中蓝 / 刮擦·悬停红）和底下的边同一个材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
+    // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
+    // 定死覆盖层最后画；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。
+    this.edgeLines.renderOrder = 2;
     this.scene.add(this.edgeLines);
     // 边：原生 GL 线（默认线稿；顶点色）
     this.edgePixel = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true }));
