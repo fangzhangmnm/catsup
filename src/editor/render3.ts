@@ -31,6 +31,7 @@
 //     （此前沿用桌面 canvas 尺寸——XR 里线宽/纵横比都是错的）。
 
 import * as THREE from "three";
+import { type WorldLabel, anchorCenter, rasterizeLabel } from "./world-labels.ts";
 import { LineSegments2 } from "../vendor/three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "../vendor/three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "../vendor/three/addons/lines/LineMaterial.js";
@@ -165,6 +166,10 @@ export interface ViewState {
   guideSel?: ReadonlySet<number>;
   /** A33 断口提示：一根直线中间断了一截的接点（世界坐标 + 边向）→ 屏幕定长的小垂线（焊边橡皮刮一下就没）。 */
   ticks?: readonly { p: Pt3; dir: Pt3 }[] | null;
+  /** 世界里的文字（world-labels.ts 深模块；第一个用户 = X 轴 +1 个单位处的「1 m」）。 */
+  labels?: readonly WorldLabel[] | null;
+  /** Z 轴刻度间距（米；1 m 或 1 ft；user「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）；null = 不画。 */
+  axisTickM?: number | null;
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
@@ -282,6 +287,8 @@ export class Renderer3 {
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
   private protractorLines: any;
+  /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
+  private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
   private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any;
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
@@ -569,6 +576,38 @@ export class Renderer3 {
   }
 
   /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
+  /** 世界里的文字：按 id 增删改面片；位图归 world-labels.ts（字 / 样式 / dpr 没变就沿用）；每帧按 worldPerPx 换算成固定屏幕大小。 */
+  private syncLabels(labels: readonly WorldLabel[], cam: OrbitCamera, vp: Viewport): void {
+    const dpr = this.renderer.getPixelRatio?.() || 1, seen = new Set<string>();
+    for (const lb of labels) {
+      seen.add(lb.id);
+      const bm = rasterizeLabel(lb.text, lb.style, dpr);
+      let e = this.labelSprites.get(lb.id);
+      if (!e) {
+        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false }));
+        sprite.renderOrder = 3; sprite.frustumCulled = false;
+        this.scene.add(sprite);
+        e = { sprite, key: "", w: 0, h: 0 };
+        this.labelSprites.set(lb.id, e);
+      }
+      if (e.key !== bm.key) {
+        const tex = new THREE.CanvasTexture(bm.canvas);
+        tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;
+        e.sprite.material.map?.dispose(); e.sprite.material.map = tex; e.sprite.material.needsUpdate = true;
+        e.key = bm.key; e.w = bm.w; e.h = bm.h;
+      }
+      e.sprite.material.depthTest = lb.occlude !== false;
+      const [cx, cy] = anchorCenter(lb.anchor ?? "center", e.w, e.h, lb.gapPx ?? 3);
+      e.sprite.center.set(cx, cy);
+      e.sprite.position.set(lb.at.x, lb.at.y, lb.at.z);
+      const wpp = this.worldPerPx(cam, vp, lb.at);
+      e.sprite.scale.set(e.w * wpp, e.h * wpp, 1);
+      e.sprite.visible = true;
+    }
+    for (const [id, e] of this.labelSprites) if (!seen.has(id)) { e.sprite.material.map?.dispose(); e.sprite.material.dispose(); this.scene.remove(e.sprite); this.labelSprites.delete(id); }
+  }
+  /** 调试 / 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
+  labelKeys(): { id: string; key: string }[] { return [...this.labelSprites].map(([id, e]) => ({ id, key: e.key })); }
   private worldPerPx(cam: OrbitCamera, vp: Viewport, p: Pt3): number {
     const eye = this.xrEye();
     if (eye) return (Math.max(0.2, Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z)) * (Math.PI / 180)) / XR_PX_PER_DEG;
@@ -743,8 +782,20 @@ export class Renderer3 {
     } else { this.chargedLines.visible = false; this.chargedKey = ""; }
 
     // ---- A33 断口小垂线：线上一个小鼓包（半长 = 线宽 × TICK_K，边线色），垂直于边、面向相机 ----
-    const tks = view.ticks;
-    if (tks && tks.length) {
+    // 同一套小短线也画轴的刻度（user 2026-10-25「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）：Z 轴每 axisTickM 一根（屏上挤到 < 6 px 就改成每 10 个一根），
+    // X 轴 +1 个单位处一根（「1 m」字标在它下面）；颜色 = 那根轴的颜色。
+    const tks: { p: Pt3; dir: Pt3; color?: number }[] = [...(view.ticks ?? [])];
+    const atm = view.axisTickM, afr = view.frame;
+    if (atm && atm > 0 && afr) {
+      const o = afr.origin, zd = afr.z, xd = afr.x;
+      let step = atm;
+      const wpp0 = this.worldPerPx(cam, vp, o);
+      while (step / wpp0 < 6 && step < 1e6) step *= 10;
+      const L = GRID_N * GRID_STEP;
+      for (let k = 1; k * step <= L + 1e-9; k++) tks.push({ p: { x: o.x + zd.x * k * step, y: o.y + zd.y * k * step, z: o.z + zd.z * k * step }, dir: zd, color: PALETTE.axisZ });
+      tks.push({ p: { x: o.x + xd.x * atm, y: o.y + xd.y * atm, z: o.z + xd.z * atm }, dir: xd, color: PALETTE.axisX });
+    }
+    if (tks.length) {
       const px = this.worldPerPx(cam, vp, tks[0].p);
       const fwd = cam.forward();
       const halfCss = TICK_K * Math.max(this.lineWeight, 1) / (this.renderer.getPixelRatio?.() || 1);   // 线宽是设备像素，worldPerPx 按 CSS 像素
@@ -752,8 +803,8 @@ export class Renderer3 {
       if (kk !== this.tickKey) {
         this.tickKey = kk;
         const pos: number[] = [], col: number[] = [];
-        const c = this.tmpColor.setHex(PALETTE.edge);
         for (const t of tks) {
+          const c = this.tmpColor.setHex(t.color ?? PALETTE.edge);
           let n = cross3(t.dir, fwd);
           let l = Math.hypot(n.x, n.y, n.z);
           if (l < 1e-6) { n = Math.abs(t.dir.z) < 0.9 ? cross3(t.dir, { x: 0, y: 0, z: 1 }) : cross3(t.dir, { x: 1, y: 0, z: 0 }); l = Math.hypot(n.x, n.y, n.z); }
@@ -765,6 +816,8 @@ export class Renderer3 {
       }
       this.tickLines.visible = true;
     } else { this.tickLines.visible = false; this.tickKey = ""; }
+
+    this.syncLabels(view.labels ?? [], cam, vp);
 
     // ---- 卷尺预演：量线 + 候选参考线 / 参考点 ----
     const tp0 = view.tape;

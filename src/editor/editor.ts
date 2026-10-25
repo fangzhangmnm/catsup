@@ -16,6 +16,7 @@
 // **抬笔结算（A21，2026-10-21）**：抬笔前停留过的地方才是意图，末尾的短抖动不算（user「抬笔的时候总是会抖一下然后歪掉」）。
 
 import { Kernel } from "../kernel/kernel.ts";
+import { type WorldLabel, unitMark } from "./world-labels.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
@@ -1490,6 +1491,7 @@ export class Editor {
       grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.step, sub: this._grid.subdiv, on: this._grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
+      ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
     });
@@ -1498,6 +1500,11 @@ export class Editor {
    * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：
    * 活动池里 Kernel.isBreakJunction 的顶点 → 世界坐标的点 + 边向（渲染器画屏幕定长的小垂线）。按池版本缓存。
    */
+  /** X 轴 +1 个单位处的「1 m / 1 ft」+ Z 轴刻度间距（user 2026-10-25「能不能在x轴+1的地方背景颜色的小字写上1m或者别的单位定义。以及我还是希望z轴有刻度」）。 */
+  private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number } {
+    const m = unitMark(this._vcbUnit);
+    return { axisTickM: m.unitM, labels: [{ id: "unit-x", text: m.label, at: { x: F.origin.x + F.x.x * m.unitM, y: F.origin.y + F.x.y * m.unitM, z: F.origin.z + F.x.z * m.unitM }, style: "scale", anchor: "below" }] };
+  }
   private ticksCache: { kernel: Kernel; rev: number; xform: Xform; ticks: { p: Pt3; dir: Pt3 }[] } | null = null;
   breakTicks(view: WorldView = this.liveWorld()): readonly { p: Pt3; dir: Pt3 }[] {
     const slot = view.activeSlot(), k = slot.kernel;
