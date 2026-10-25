@@ -10,7 +10,7 @@ import { APP_VERSION } from "../version.ts";
 import { mountToolStrip } from "./tool-strip.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
-import { LENGTH_UNITS, fmtVcbLength } from "../editor/vcb.ts";
+import { LENGTH_UNITS, fmtVcbLength } from "../editor/units.ts";
 import { mountSelectionBar, openContextMenuAt } from "./context-menu.ts";
 import { selectionRoute } from "./selection-actions.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";

@@ -135,13 +135,8 @@ export const MIN_GESTURE_LEN = 0.01;
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 
-export function fmtLen(v: number, digits = 1): string {
-  const cm = Math.abs(v) < 1;
-  const val = cm ? v * 100 : v;
-  const shown = Number(val.toFixed(digits));
-  return (Math.abs(val - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits) + (cm ? " cm" : " m");
-}
-export const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(1)}°`;
+import { fmtArea, fmtDeg, fmtLen, setDisplayUnit } from "./units.ts";
+export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）；工具仍从 editor.ts 拿，调用处不动
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; instance: InstId };
@@ -249,7 +244,10 @@ export class Editor {
   private toolTip: string | null = null;   // 工具自己要的跟指针提示（优先于吸附标签）
   private opCount = 0;
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
-  vcbUnit: LengthUnit = "m";
+  private _vcbUnit: LengthUnit = "m";
+  /** 显示 / 输入单位：数值小窗按它读，所有读数（fmtLen / fmtArea）按它念——换单位只走这里（units.ts 窄接口）。 */
+  get vcbUnit(): LengthUnit { return this._vcbUnit; }
+  set vcbUnit(u: LengthUnit) { this._vcbUnit = u; setDisplayUnit(u); this.host.changed(); }
   private viewCache: { key: string; view: WorldView } | null = null;
   private kids = new WeakMap<object, number>();
   private nextKid = 1;
@@ -1447,7 +1445,7 @@ export class Editor {
     if (fs.length) {
       let a = 0;
       for (const f of fs) { const r = k.faceRings3(f); if (!r) continue; a += polygonArea3(r.outer); for (const h of r.holes) a -= polygonArea3(h); }
-      parts.push(`面积 ${a < 1 ? `${(a * 1e4).toFixed(a * 1e4 < 10 ? 2 : 0)} cm²` : `${a.toFixed(a < 10 ? 3 : 2)} m²`}${fs.length > 1 ? `（${fs.length} 面）` : ""}`);
+      parts.push(`面积 ${fmtArea(a)}${fs.length > 1 ? `（${fs.length} 面）` : ""}`);
     }
     if (es.length) {
       let L = 0;

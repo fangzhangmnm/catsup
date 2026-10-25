@@ -10,8 +10,8 @@ import type { Xform } from "../scene/xform.ts";
 import { rotationAbout, translation } from "../scene/xform.ts";
 import { scale3 } from "../kernel/geom.ts";
 
-export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
-export const LENGTH_UNITS: readonly { id: LengthUnit; label: string }[] = [{ id: "m", label: "米" }, { id: "cm", label: "厘米" }, { id: "mm", label: "毫米" }, { id: "ft", label: "英尺英寸" }, { id: "in", label: "英寸" }];
+import { type LengthUnit, UNIT_M, fmtVcbLength } from "./units.ts";
+export { type LengthUnit, LENGTH_UNITS, fmtVcbLength } from "./units.ts";   // 单位归 units.ts（2026-10-24），这里转出给老调用方
 export interface VcbCtx { unit: LengthUnit; }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
 export type VcbKind = "line" | "rect" | "rrect" | "circle" | "arc" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
@@ -26,7 +26,6 @@ export type VcbValue =
   | { kind: "angleWidth"; deg: number; m: number }
   | { kind: "array"; mode: "x" | "/"; n: number };
 
-const UNIT_M: Record<string, number> = { m: 1, cm: 0.01, mm: 0.001, ft: 0.3048, in: 0.0254 };
 
 /** 英制写法：`3'6"`、`3' 6 1/2"`、`42"`、`12'`、`5ft`、`30in`（user 喜欢英制；默认单位 ft 时裸数 = 英尺，in 时 = 英寸）。 */
 function imperial(part: string): number | null {
@@ -50,7 +49,7 @@ function num(part: string, ctx: VcbCtx, as: "length" | "plain"): number | string
   if (as === "plain") return v;
   const u = (m[2] ?? ctx.unit).toLowerCase();
   if (!(u in UNIT_M)) return `长度不能带「${m[2]}」`;
-  return v * UNIT_M[u];
+  return v * UNIT_M[u as LengthUnit];
 }
 
 /** 解析输入。失败 → { error }。 */
@@ -156,17 +155,3 @@ export function vcbPrompt(kind: VcbKind | null): string {
   }
 }
 
-/** 长度显示（小窗回显用）：按 unit；英尺英寸写成 3' 6.5"。 */
-export function fmtVcbLength(m: number, unit: LengthUnit): string {
-  if (unit === "ft") {
-    const sign = m < 0 ? "-" : "", a = Math.abs(m);
-    const totalIn = a / UNIT_M.in;
-    let ft = Math.floor(totalIn / 12), inch = totalIn - ft * 12;
-    inch = Math.round(inch * 16) / 16;
-    if (inch >= 12) { ft += 1; inch -= 12; }
-    return `${sign}${ft}' ${Number(inch.toFixed(2))}"`;
-  }
-  if (unit === "in") return `${Number((m / UNIT_M.in).toFixed(2))}"`;
-  const v = m / UNIT_M[unit];
-  return `${Number(v.toFixed(unit === "m" ? 3 : 1))} ${unit}`;
-}

@@ -10,6 +10,7 @@
 // 秩表注：anchor 轴与充能共轴同秩（距离裁决）；合成秩 = max(参与者)——天然排出
 // 端点>原点>中点>边×轴>轴×轴 的既定优先级。
 
+import { fmtLen } from "./units.ts";
 import type { Edge, EdgeId, Face, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
@@ -713,7 +714,7 @@ export function snapPoint(
     if (d > 1e-9 && kd > 0) {
       const p2 = add3(q.anchor, scale3(v, kd / d));
       const ax = sol.dim === 1 ? (sol.used[0].tag.axis ?? "i") : "i";
-      return { p: p2, kind: "increment", label: `整数长度 ${kd < 1 ? `${+(kd * 100).toFixed(1)} cm` : `${+kd.toFixed(3)} m`}`, hints: [{ a: q.anchor, b: p2, axis: ax }] };
+      return { p: p2, kind: "increment", label: `整数长度 ${fmtLen(kd)}`, hints: [{ a: q.anchor, b: p2, axis: ax }] };
     }
   }
   const hints: SnapHint[] = [];
