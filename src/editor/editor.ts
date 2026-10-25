@@ -38,7 +38,7 @@ import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVc
 import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
-import { DEFAULT_SCALE_REF, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
+import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, edgeKey, faceKey, resolveEdge } from "./ops.ts";
@@ -342,23 +342,25 @@ export class Editor {
     const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t };
     return { p, kind: `axis-${ax}` as SnapKind, label: `轴锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
   }
-  /** B43 尺度参考：当前选的选单项（单选；null = 不显示；跟着文件存 settings.scaleRef）+ 懒加载来的梯子数据（宿主递进来）。 */
-  private _scaleRef: string | null = DEFAULT_SCALE_REF;
+  /** B43 尺度参考：勾了哪几项（多选取并集；[] = 不显示；跟着文件存 settings.scaleRefs）+ 懒加载来的梯子数据（宿主递进来）。 */
+  private _scaleRefs: string[] = [...DEFAULT_SCALE_REFS];
   private scaleLadder: Ladder | null = null;
-  get scaleRef(): string | null { return this._scaleRef; }
-  /** 选参考项（null = 不显示）；算文档改动（同栅格设置）。 */
-  setScaleRef(ref: string | null): void { if (this._scaleRef === ref) return; this._scaleRef = ref; this.host.changed(); }
+  get scaleRefs(): readonly string[] { return this._scaleRefs; }
+  /** 勾 / 取消一项；算文档改动（同栅格设置）。 */
+  toggleScaleRef(id: string): void { this._scaleRefs = this._scaleRefs.includes(id) ? this._scaleRefs.filter((x) => x !== id) : [...this._scaleRefs, id]; this.host.changed(); }
+  /** 全部取消（= 不显示）。 */
+  clearScaleRefs(): void { if (!this._scaleRefs.length) return; this._scaleRefs = []; this.host.changed(); }
   /** 读文件 / 新建时设（不算改动）。 */
-  loadScaleRef(ref: string | null): void { this._scaleRef = ref; }
+  loadScaleRefs(refs: readonly string[]): void { this._scaleRefs = [...refs]; }
   setScaleLadder(L: Ladder): void { this.scaleLadder = L; }
   get scaleLadderLoaded(): boolean { return this.scaleLadder !== null; }
   /** 手势中正在拖的那段配什么参考（没手势 / 工具不报 / 没选 / 数据没到 = null）。 */
   private scaleTip(): ScaleTipView | null {
     const L = this.scaleLadder, H = this.handlers[this._tool];
-    if (!L || !this._scaleRef || !this.gestureActive() || !H?.scaleGeom) return null;
+    if (!L || !this._scaleRefs.length || !this.gestureActive() || !H?.scaleGeom) return null;
     const g = H.scaleGeom(this.toolCtx);
     const q = g && readingOf(g, this.contextFrame().z, L.orientation);
-    return q ? scaleTipView(L, this._scaleRef, q) : null;
+    return q ? scaleTipView(L, this._scaleRefs, q) : null;
   }
   private _vcbUnit: LengthUnit = "m";
   /** 显示 / 输入单位：数值小窗按它读，所有读数（fmtLen / fmtArea）按它念——换单位只走这里（units.ts 窄接口）。 */

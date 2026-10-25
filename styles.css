@@ -312,3 +312,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .menu-chip:hover { background: rgba(0,0,0,.05); }
 .menu-chip.on { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .menu-note { padding: 3px 12px; font-size: 11.5px; line-height: 1.45; color: var(--muted); white-space: normal; max-width: 300px; }
+/* 下拉多选（multi-select.ts）：比普通菜单紧一点、长了自己滚 */
+.popup-menu.multi-select { min-width: 180px; max-height: min(70vh, 520px); overflow-y: auto; }
+.popup-menu.multi-select .menu-item { min-height: 30px; padding: 3px 10px; }
+.popup-menu.multi-select .ms-clear { color: var(--muted); }

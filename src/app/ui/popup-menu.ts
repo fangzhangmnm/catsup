@@ -108,6 +108,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
       const b = document.createElement("button");
       b.type = "button";
       b.className = "menu-item";
+      b.dataset.menuId = it.id;   // 子弹层（下拉多选）要挂在这一行旁边
       b.disabled = !!it.disabled;
       b.innerHTML = `${it.icon ? iconHtml(it.icon) : '<span class="ico-gap"></span>'}<span class="menu-label"></span>${it.hint ? '<span class="menu-hint"></span>' : ""}${it.checked ? iconHtml("check", { cls: "ico menu-check" }) : ""}`;
       (b.querySelector(".menu-label") as HTMLElement).textContent = it.label;
@@ -136,6 +137,8 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   const onDocDown = (ev: Event): void => {
     const path = ev.composedPath();
     if (path.includes(el) || path.includes(opts.anchor)) return;
+    // 子弹层不算外面（同 workbench-elements 0.1.3 / WeebPaint 09-11 规则）：从菜单里开出来的下拉层（multi-select.ts）里点，上层菜单不关
+    if (path.some((n) => n instanceof HTMLElement && n.dataset.popupChild === "1")) return;
     close();
   };
   const onKey = (ev: KeyboardEvent): void => { if (ev.key === "Escape") { ev.stopPropagation(); close(); } };

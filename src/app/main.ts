@@ -10,6 +10,7 @@ import { ERASERS } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
+import { type MultiOption, multiSummary, openMultiSelect } from "./ui/multi-select.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountContextBar } from "./context-bar.ts";
@@ -97,6 +98,7 @@ const PREF = {
 };
 let fingerDraws = PREF.get("fingerDraws") === "1";
 // B43 尺度参考：最多几条（这台设备记住；user「有一个最多条目数」）。样式只剩字的深浅（user「要不不要图像，就字的深淡」）
+let lastTipHtml = "";
 let scaleMax: number = (SCALE_TIP_MAX as readonly number[]).includes(Number(PREF.get("scaleMax"))) ? Number(PREF.get("scaleMax")) : 3;
 let leftHanded = PREF.get("leftHanded") === "1";   // VR：左手持笔（工具手/面板手对调）
 /** 线稿粗细（设备像素）：存过就用存的；没存过 → 高 DPI（iPad / Retina）默认 1.5，否则 1（原生）。user 10-24「ipad上面细线稿是不舒服…有1.5这种选项吗」 */
@@ -125,7 +127,7 @@ const editor = new Editor(canvas, {
   tip: (t, cx, cy, scale) => {
     const html = scaleTipHtml(t, scale ?? null, scaleMax);   // B43：参考画在同一个提示框里（user「不要让用户眼睛还要看别的地方」）
     if (html) {
-      tipEl.innerHTML = html;
+      if (html !== lastTipHtml) { tipEl.innerHTML = html; lastTipHtml = html; }   // 字没变不重写（拖动时每帧都会叫到这里）
       tipEl.hidden = false;
       tipEl.style.left = `${cx + 14}px`;
       tipEl.style.top = `${cy - 28}px`;
@@ -714,41 +716,49 @@ let ladderTimer = 0;
 var viewMenuHandle: { refresh(): void; isOpen(): boolean } | null = null;   // var：加载回来时刷新开着的菜单
 /** 拉梯子数据（279 KB / gzip 58 KB）：选了参考项才拉；开机时等 1.5 s 再拉（启动优先），用户点了参考页 / 选了一项 = 立刻拉。 */
 function ensureScaleLadder(now = false): void {
-  if (ladder || !editor.scaleRef && !now) return;
+  if (ladder || !editor.scaleRefs.length && !now) return;
   if (!now) { if (!ladderTimer) ladderTimer = window.setTimeout(() => ensureScaleLadder(true), 1500); return; }
   loadLadder().then((L) => { ladder = L; editor.setScaleLadder(L); if (viewMenuHandle?.isOpen()) viewMenuHandle.refresh(); })
     .catch((e) => { note("scale", `size ladder load failed: ${(e as Error).message}`); });
 }
 type RefMenuId = `ref:${string}` | `refmax:${number}`;
 const isRefId = (id: string): id is RefMenuId => id.startsWith("ref:") || id.startsWith("refmax:");
-/** 「参考」页（user 定：选单只有一个、单选；题材一行、亚种一排小块；「最多几条」也在这页）。 */
-function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; tab: string; sectionBefore?: string; separatorBefore?: boolean; chips?: { id: RefMenuId; label: string; checked?: boolean }[]; note?: boolean }[] {
-  const tab = "ref", cur = editor.scaleRef;
-  const L = ladder;
-  if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab }]; }
-  const out: ReturnType<typeof refTabItems> = [{ id: "ref:none", label: "不显示", checked: cur === null, tab }];
+/** 选单的选项（下拉多选用）：按题材分组；ALL 那一项就叫题材名（数据 v3 起的名字），只有一项的题材收进「其他」。 */
+function refOptions(L: Ladder): MultiOption[] {
   const themes = new Map<string, Ladder["menu"]>();
   for (const m of L.menu) { const t = themes.get(m.theme) ?? []; t.push(m); themes.set(m.theme, t); }
-  const themeName = (m: Ladder["menu"][number]): string => m.names.zh.split(" · ")[0];
-  const single: { id: RefMenuId; label: string; checked?: boolean }[] = [];
+  const head = (m: Ladder["menu"][number]): string => m.names.zh.split(" · ")[0];
+  const multi: MultiOption[] = [], single: MultiOption[] = [];
   for (const [, ms] of themes) {
-    if (ms.length === 1) { single.push({ id: `ref:${ms[0].id}`, label: themeName(ms[0]), checked: cur === ms[0].id }); continue; }
-    // 「现实」不写（user「现实这两个字tautological了」）：ALL 那一块就叫题材名；仓鼠 v3 起数据里也这么叫
-    out.push({ id: `ref:${ms[0].id}`, label: themeName(ms[0]), tab, chips: ms.map((m) => ({ id: `ref:${m.id}` as RefMenuId, label: m.view === "ALL" ? themeName(m) : m.names.zh.split(" · ").slice(1).join(" · "), checked: cur === m.id })) });
+    if (ms.length === 1) { single.push({ id: ms[0].id, label: head(ms[0]), group: "其他" }); continue; }
+    for (const m of ms) multi.push({ id: m.id, label: m.view === "ALL" ? head(m) : m.names.zh.split(" · ").slice(1).join(" · "), group: head(m) });
   }
-  out.push({ id: "ref:other", label: "其他", tab, chips: single });
+  return [...multi, ...single];
+}
+/** 「参考」页（选单只有一个、多选取并集——user「要不还是不如多重订阅吧，不然不同的室内室外会组合烦死」）：
+ *  一行「看哪些」= 下拉多选（user「所以我们需要一个下拉多选的ux模块哦。而不是几百个选项浪费面板空间」）+「最多几条」+ 新手提醒。 */
+function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?: string; tab: string; sectionBefore?: string; separatorBefore?: boolean; chips?: { id: RefMenuId; label: string; checked?: boolean }[]; note?: boolean }[] {
+  const tab = "ref", cur = editor.scaleRefs;
+  const L = ladder;
+  if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab }]; }
+  const opts = refOptions(L), label = (id: string): string => { const o = opts.find((x) => x.id === id); return o ? (o.group && o.group !== "其他" && o.label !== o.group ? `${o.group} · ${o.label}` : o.label) : id; };
+  const out: ReturnType<typeof refTabItems> = [{ id: "ref:pick", label: "看哪些", hint: `${multiSummary(cur.map(label))} ›`, tab }];
   out.push({ id: "refmax:3", label: "最多", tab, sectionBefore: "试用（这台设备记住）", chips: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
   const notes = remindersFor(L, cur);
-  if (cur?.endsWith("/DND")) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
+  if (cur.some((x) => x.endsWith("/DND"))) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
   notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "新手提醒" } : {}) }));
   return out;
 }
 function onRefPick(id: RefMenuId): "keep" {
   if (id.startsWith("refmax:")) { scaleMax = Number(id.slice(7)); PREF.set("scaleMax", String(scaleMax)); return "keep"; }
-  const ref = id.slice(4);
-  if (ref === "other") return "keep";
-  editor.setScaleRef(ref === "none" ? null : ref);
-  ensureScaleLadder(true);
+  if (id === "ref:pick" && ladder) {
+    const L = ladder, anchor = document.querySelector<HTMLElement>('.popup-menu .menu-item[data-menu-id="ref:pick"]');
+    if (anchor) openMultiSelect({
+      anchor, ariaLabel: "看哪些参考", options: () => refOptions(L), values: () => editor.scaleRefs,
+      onToggle: (x) => { editor.toggleScaleRef(x); ensureScaleLadder(true); viewMenuHandle?.refresh(); },
+      onClear: () => { editor.clearScaleRefs(); viewMenuHandle?.refresh(); }, clearLabel: "全部取消（不显示）",
+    });
+  }
   return "keep";
 }
 /** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：显示 / 栅格 / 相机；以后「参考」（B43）、渲染方案也进来。 */

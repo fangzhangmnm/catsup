@@ -16,7 +16,7 @@ import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
 import { DEFAULT_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
-import { DEFAULT_SCALE_REF, scaleRefFromSettings, scaleRefToSettings } from "../editor/scale-ref.ts";
+import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
 import { unitFromSettings, unitToSettings } from "../editor/units.ts";
 import { contentFingerprint } from "../format/final.ts";
 import { APP_VERSION } from "../version.ts";
@@ -200,7 +200,7 @@ export class Session {
     this.d.editor.loadScene(sc, "恢复");
     this.d.editor.setGrid(gridFromSettings(doc.settings));
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
-    this.d.editor.loadScaleRef(scaleRefFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRef）
+    this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     void this.verifyFinal(doc);
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
@@ -222,7 +222,7 @@ export class Session {
   /** 定稿：rev +1，记内容指纹，锁住，保存。 */
   async finalize(): Promise<boolean> {
     const doc = documentFromScene(this.d.editor.sceneRef, this.displayName(), this.loaded);
-    doc.settings = scaleRefToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRef);
+    doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);
     const rev = (doc.finalRev ?? 0) + 1;
     doc.final = { at: new Date().toISOString(), rev, app: APP_VERSION, fingerprint: await contentFingerprint(doc) };
     doc.finalRev = rev;
@@ -266,7 +266,7 @@ export class Session {
   private encode(): Uint8Array {
     const name = this.displayName();
     const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
-    doc.settings = scaleRefToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRef);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
+    doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
     const thumb = this.d.captureThumbnail();
     if (thumb) doc.thumbnail = thumb; else delete doc.thumbnail;
     this.loaded = doc;
@@ -281,7 +281,7 @@ export class Session {
     this.d.editor.loadScene(sc);
     this.d.editor.setGrid(gridFromSettings(doc.settings));
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
-    this.d.editor.loadScaleRef(scaleRefFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRef）
+    this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     void this.verifyFinal(doc);
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
@@ -321,7 +321,7 @@ export class Session {
     this.lazy = false;   // loadKernel 会同步 changed → noteChange；此刻别当首笔
     this.d.editor.loadKernel(new Kernel(), "新建");
     this.d.editor.setGrid({ ...DEFAULT_GRID });
-    this.d.editor.loadScaleRef(DEFAULT_SCALE_REF);
+    this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();
@@ -350,7 +350,7 @@ export class Session {
     this.lazy = false; this.createPending = false;
     this.d.editor.loadKernel(new Kernel(), "新建");
     this.d.editor.setGrid({ ...DEFAULT_GRID });
-    this.d.editor.loadScaleRef(DEFAULT_SCALE_REF);
+    this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌

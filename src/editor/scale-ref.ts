@@ -3,8 +3,8 @@
 //   ① 方向：读数是竖着 / 横着 / 斜着 / 平面，按上下文帧（绘图轴 / 组轴）的 z 判，阈值读数据里的 orientation（不写死）；
 //   ② 地标：世界级的人人显示，本地知名的按界面语言挑（参考实现把四个地区全收，这里滤掉）；
 //   ③ 懒加载：订阅了才拉那 279 KB。
-// 显示（user 2026-10-25 定）：tooltip 只管「认」= scaleTooltip；小刻度条管「对」和「停」= scaleRuler（点画刻度线、带画色块）；不吸附。
-// 刻度条 / 选单长什么样还没定（先 grill user）。created 2026-10-25 by Claude Opus 5.5
+// 显示（user 2026-10-25 定，试用后收窄）：只有跟指针提示框第二行的字，按离典型值多近定深浅；不吸附；没有刻度条 / 迷你带。
+// 选单 = 多选取并集（user「要不还是不如多重订阅吧，不然不同的室内室外会组合烦死」），默认室内 + 室外。created 2026-10-25 by Claude Opus 5.5
 import type { Pt3 } from "../kernel/kernel.ts";
 import * as Q from "../vendor/size-ladder/ladder-query.mjs";
 
@@ -25,7 +25,6 @@ export interface Ladder {
   [k: string]: unknown;
 }
 export interface ScaleQuery { reading: number; dir: ScaleDir }
-export interface RulerMark { v: { value: number; tip: Record<Lang, string> }; lo: number; hi: number; shape: "point" | "band" }
 
 const deg = (r: number): number => (r * 180) / Math.PI;
 const norm = (v: Pt3): number => Math.hypot(v.x, v.y, v.z);
@@ -68,11 +67,6 @@ export function scaleTooltip(L: Ladder, subs: readonly string[], q: ScaleQuery, 
   if (!subs.length || !(q.reading > 0)) return "";
   return Q.tooltip(forLanguage(L, lang), [...subs], q, lang);
 }
-/** 刻度条（管「对」和「停」）：读数 ÷ factor 到 × factor 里的参考，按值从小到大。 */
-export function scaleRuler(L: Ladder, subs: readonly string[], q: ScaleQuery, lang: Lang = "zh", factor = 2): RulerMark[] {
-  if (!subs.length || !(q.reading > 0)) return [];
-  return Q.ruler(forLanguage(L, lang), [...subs], q, factor) as RulerMark[];
-}
 export const scaleMenu = (L: Ladder): Ladder["menu"] => L.menu;
 
 let loading: Promise<Ladder> | null = null;
@@ -103,10 +97,8 @@ export function readingOf(g: ScaleGeom, up: Pt3, o: Orientation): ScaleQuery | n
 }
 
 /** 提示框里的一个名字：strength = 读数离它典型值多近（1 = 正好在典型值，0 = 在合理范围边上，对数尺）；hit = 规格点进了范围。 */
-export interface ScaleTipItem { name: string; strength: number; hit: boolean; shape: "point" | "band"; value: number; lo: number; hi: number }
-/** 刻度上的一格（航空迷你带用）：窗口 = 读数 ÷ factor 到 × factor。 */
-export interface ScaleTapeMark { name: string; value: number; lo: number; hi: number; shape: "point" | "band" }
-export interface ScaleTipView { reading: number; dir: ScaleDir; items: ScaleTipItem[]; marks: ScaleTapeMark[]; window: [number, number] }
+export interface ScaleTipItem { name: string; strength: number; hit: boolean; shape: "point" | "band"; value: number; lo: number; hi: number }   // hit / shape：v0.13.56 起不再另外强调到没到，留着字段给以后
+export interface ScaleTipView { reading: number; dir: ScaleDir; items: ScaleTipItem[] }
 
 /** 读数在合理范围 [lo, hi] 里离典型值 value 多近（对数尺，0..1）。 */
 export function closeness(reading: number, value: number, lo: number, hi: number): number {
@@ -116,45 +108,87 @@ export function closeness(reading: number, value: number, lo: number, hi: number
   return Math.max(0, Math.min(1, 1 - off / side));
 }
 
-/** 提示框的数据：候选（读数落在合理范围里的全部）按名字去重、浓的排前（同样浓按评级）；marks = 迷你带窗口里的全部参考。宿主按「最多几条」截。 */
-export function scaleTipView(L: Ladder, sub: string | null, q: ScaleQuery, lang: Lang = "zh", factor = 1.5): ScaleTipView | null {
-  if (!sub || !(q.reading > 0)) return null;
-  const LL = forLanguage(L, lang), subs = [sub];
-  const rank = new Map((LL.concepts as { id: string; rank?: number }[]).map((c) => [c.id, c.rank ?? 1]));
+/** 冻住的梯子（user「你选好了不就freeze了吗只有一个梯子」）：订阅一定，可见的值就定了——选单一变就把并集算好、只留这一份，
+ *  拖动时参考实现只在这几百个值里查，不再每次从全部值里筛。只缓存最近一份（换订阅 = 旧的丢掉），不随用过的组合长。
+ *  正确性：把「可见值」再交给参考实现的 visible 跑一遍结果不变（继承、覆盖、删掉父类都是在可见集里自洽的）——test/scale-ref.test.ts 拿全量对拍。 */
+let frozen: { L: Ladder; lang: Lang; key: string; ladder: Ladder } | null = null;
+export function frozenLadder(L: Ladder, subs: readonly string[], lang: Lang = "zh"): Ladder {
+  const key = [...subs].sort().join(",");
+  if (frozen && frozen.L === L && frozen.lang === lang && frozen.key === key) return frozen.ladder;
+  const LL = forLanguage(L, lang);
+  const keep = new Set((Q.visible(LL, [...subs]) as { v: unknown }[]).map((h) => h.v));
+  const ladder: Ladder = { ...LL, values: LL.values.filter((v) => keep.has(v)) };
+  frozen = { L, lang, key, ladder };
+  return ladder;
+}
+
+// ---------- 快路径（user 2026-10-25「这个事几乎每帧都在算……性能和能效敏感区。不应该为了这种小花浪费系统资源。你可以优化一下。或者反应慢一点也没事」） ----------
+// ① 候选池：订阅一定，按方向把「合格的值」提前摊成纯数字表（lo / hi / 典型值 / 名字 / 评级），拖动时只扫这张表，不再每次跑参考实现的 visible（Map + 数组分配）。
+// ② 读数分档：0.5% 一档，同一档直接用上次的结果（拖动时大部分帧落在同一档 = 零计算）。
+// 方向合格判定（fits）照抄参考实现 ladder-query.mjs 的五行；test/scale-ref.test.ts 拿参考实现的 candidates 对拍，仓鼠改了逻辑这里会红。
+interface PoolEntry { lo: number; hi: number; value: number; name: string; rank: number }
+const ACCEPT: Record<ScaleDir, readonly string[]> = { up: ["up", "both"], flat: ["flat", "both"], both: ["both"], plan: ["plan"] };
+let pool: { F: Ladder; lang: Lang; byDir: Record<ScaleDir, PoolEntry[]> } | null = null;
+function poolFor(L: Ladder, subs: readonly string[], lang: Lang): Record<ScaleDir, PoolEntry[]> {
+  const F = frozenLadder(L, subs, lang);
+  if (pool && pool.F === F && pool.lang === lang) return pool.byDir;
+  const rank = new Map((F.concepts as { id: string; rank?: number }[]).map((c) => [c.id, c.rank ?? 1]));
+  const hits = Q.visible(F, [...subs]) as { v: { concept: string; value: number; tip: Record<Lang, string> }; agnostic: boolean }[];
+  const byDir = { up: [], flat: [], both: [], plan: [] } as Record<ScaleDir, PoolEntry[]>;
+  for (const h of hits) {
+    const o = Q.orientOf(F, h.v) as string, [lo, hi] = Q.span(F, h.v) as [number, number];
+    const e: PoolEntry = { lo, hi, value: h.v.value, name: h.v.tip[lang], rank: rank.get(h.v.concept) ?? 1 };
+    for (const dir of ["up", "flat", "both", "plan"] as ScaleDir[]) {
+      const ok = dir === "plan" || o === "plan" ? dir === "plan" && o === "plan" : h.agnostic || ACCEPT[dir].includes(o);
+      if (ok) byDir[dir].push(e);
+    }
+  }
+  pool = { F, lang, byDir };
+  return byDir;
+}
+const LOG_STEP = Math.log(1.005);
+let last: { byDir: Record<ScaleDir, PoolEntry[]>; dir: ScaleDir; bucket: number; view: ScaleTipView | null } | null = null;
+
+/** 提示框的数据：候选（读数落在合理范围里的全部）按名字去重、深的排前（一样深按评级）；宿主按「最多几条」截。没订阅 = null。 */
+export function scaleTipView(L: Ladder, subs: readonly string[], q: ScaleQuery, lang: Lang = "zh"): ScaleTipView | null {
+  if (!subs.length || !(q.reading > 0)) return null;
+  const byDir = poolFor(L, subs, lang), bucket = Math.round(Math.log(q.reading) / LOG_STEP);
+  if (last && last.byDir === byDir && last.dir === q.dir && last.bucket === bucket) return last.view;
   const best = new Map<string, ScaleTipItem & { rank: number }>();
-  for (const h of Q.candidates(LL, subs, q) as { v: { concept: string; value: number; tip: Record<Lang, string> } }[]) {
-    const [lo, hi] = Q.span(LL, h.v) as [number, number], shape = Q.shapeOf(LL, h.v) as "point" | "band";
-    const it = { name: h.v.tip[lang], strength: closeness(q.reading, h.v.value, lo, hi), hit: shape === "point", shape, value: h.v.value, lo, hi, rank: rank.get(h.v.concept) ?? 1 };
-    const prev = best.get(it.name);
-    if (!prev || it.strength > prev.strength) best.set(it.name, it);
+  for (const e of byDir[q.dir]) {
+    if (q.reading < e.lo - 1e-9 || q.reading > e.hi + 1e-9) continue;
+    const strength = closeness(q.reading, e.value, e.lo, e.hi), prev = best.get(e.name);
+    if (!prev || strength > prev.strength) best.set(e.name, { name: e.name, strength, hit: false, shape: "band", value: e.value, lo: e.lo, hi: e.hi, rank: e.rank });
   }
   const items = [...best.values()].sort((a, b) => b.strength - a.strength || b.rank - a.rank).map(({ rank: _r, ...it }) => it);
-  const marks = (Q.ruler(LL, subs, q, factor) as RulerMark[]).map((m) => ({ name: m.v.tip[lang], value: m.v.value, lo: m.lo, hi: m.hi, shape: m.shape }));
-  if (!items.length && !marks.length) return null;
-  return { reading: q.reading, dir: q.dir, items, marks, window: [q.reading / factor, q.reading * factor] };
+  const view = items.length ? { reading: q.reading, dir: q.dir, items } : null;
+  last = { byDir, dir: q.dir, bucket, view };
+  return view;
 }
 
-// ---------- 选单（单选）+ 跟着文件存 ----------
-/** 新文件 / 没存过这项的旧文件默认看哪项（暂定「室内」：user「对新手非常有用」；默认勾哪项还没拍，等 user）。 */
-export const DEFAULT_SCALE_REF = "interior/ALL";
-/** 文件 settings.scaleRef：没写 = 默认；"none" = 不显示；别的 = 选单 id（认不出的原样留着、不显示）。 */
+// ---------- 选单（多选）+ 跟着文件存 ----------
+/** 新文件 / 没存过这项的旧文件默认勾哪几项（user「默认室内加室外」）。 */
+export const DEFAULT_SCALE_REFS: readonly string[] = ["interior/ALL", "exterior/ALL"];
 /** 选单 id 改过名的（仓鼠 v3：人体 · 儿童 body/CHILD → body/KIDS）：读到旧 id 换成新的。 */
 const RENAMED_REFS: Readonly<Record<string, string>> = { "body/CHILD": "body/KIDS" };
-export function scaleRefFromSettings(s: { scaleRef?: unknown }): string | null {
-  const v = s.scaleRef;
-  if (v === undefined) return DEFAULT_SCALE_REF;
-  if (v === "none" || typeof v !== "string") return null;
-  return RENAMED_REFS[v] ?? v;
+const sameSet = (a: readonly string[], b: readonly string[]): boolean => a.length === b.length && a.every((x) => b.includes(x));
+/** 文件 settings：`scaleRefs`（数组；[] = 不显示）；没写 = 默认。v0.13.52–56 单选时写的 `scaleRef`（字符串，"none" = 不显示）照样读。认不出的 id 原样留着（不显示）。 */
+export function scaleRefsFromSettings(s: { scaleRefs?: unknown; scaleRef?: unknown }): string[] {
+  const fix = (v: string): string => RENAMED_REFS[v] ?? v;
+  if (Array.isArray(s.scaleRefs)) return [...new Set(s.scaleRefs.filter((v): v is string => typeof v === "string").map(fix))];
+  if (typeof s.scaleRef === "string") return s.scaleRef === "none" ? [] : [fix(s.scaleRef)];
+  return [...DEFAULT_SCALE_REFS];
 }
-export function scaleRefToSettings<T extends object>(s: T, ref: string | null): T & { scaleRef?: string } {
-  const { scaleRef: _old, ...rest } = s as T & { scaleRef?: string };
-  if (ref === DEFAULT_SCALE_REF) return rest as T;                 // 默认不写键 = 默认文档字节不变（同 gridPreset）
-  return { ...rest, scaleRef: ref ?? "none" } as T & { scaleRef: string };
+/** 写回：默认不写键（默认文档字节不变，同 gridPreset）；旧的单选键 scaleRef 不再写。 */
+export function scaleRefsToSettings<T extends object>(s: T, refs: readonly string[]): T & { scaleRefs?: string[] } {
+  const { scaleRef: _a, scaleRefs: _b, ...rest } = s as T & { scaleRef?: string; scaleRefs?: string[] };
+  return (sameSet(refs, DEFAULT_SCALE_REFS) ? rest : { ...rest, scaleRefs: [...refs] }) as T & { scaleRefs?: string[] };
 }
 
-/** 「新手提醒」（数据里 reminders；界面名 user 2026-10-25 定「新手提醒」）：每个选单项给哪几条写在数据里（menu[].reminders，已并上继承来的父项的），这里只照着取三语原文。
- *  （v0.13.52 时 v2 数据没路由、这里临时按题材配过一张表；v3 到了按退场条件删掉。） */
-export function remindersFor(L: Ladder, sub: string | null, lang: Lang = "zh"): { id: string; text: string }[] {
-  if (!sub) return [];
-  return (Q.remindersOf(L, sub) as ({ id: string } & Record<Lang, string>)[]).filter(Boolean).map((r) => ({ id: r.id, text: r[lang] }));
+/** 「新手提醒」（数据里 reminders；界面名 user 2026-10-25 定）：每个选单项给哪几条写在数据里（menu[].reminders，已并上继承来的），
+ *  勾了几项 = 几项的提醒并起来、同一条只出一次（先勾的在前）。 */
+export function remindersFor(L: Ladder, subs: readonly string[], lang: Lang = "zh"): { id: string; text: string }[] {
+  const out = new Map<string, string>();
+  for (const sub of subs) for (const r of (Q.remindersOf(L, sub) as ({ id: string } & Record<Lang, string>)[]).filter(Boolean)) if (!out.has(r.id)) out.set(r.id, r[lang]);
+  return [...out].map(([id, text]) => ({ id, text }));
 }
