@@ -8,6 +8,8 @@
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
+import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
+import { SCALE_TIP_MAX, SCALE_TIP_STYLES, type ScaleTipStyle, scaleTipHtml } from "./scale-tip.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountContextBar } from "./context-bar.ts";
@@ -94,6 +96,9 @@ const PREF = {
   set(key: string, v: string): void { deviceKvSet(`ui.${key}`, v); },
 };
 let fingerDraws = PREF.get("fingerDraws") === "1";
+// B43 尺度参考的试用开关（这台设备记住；user「多试试吧」「有一个最多条目数」）：样式 + 最多几条
+let scaleStyle: ScaleTipStyle = SCALE_TIP_STYLES.some((s) => s.id === PREF.get("scaleStyle")) ? (PREF.get("scaleStyle") as ScaleTipStyle) : "fade";
+let scaleMax: number = (SCALE_TIP_MAX as readonly number[]).includes(Number(PREF.get("scaleMax"))) ? Number(PREF.get("scaleMax")) : 3;
 let leftHanded = PREF.get("leftHanded") === "1";   // VR：左手持笔（工具手/面板手对调）
 /** 线稿粗细（设备像素）：存过就用存的；没存过 → 高 DPI（iPad / Retina）默认 1.5，否则 1（原生）。user 10-24「ipad上面细线稿是不舒服…有1.5这种选项吗」 */
 const lineWeightInit = (): number => { const v = Number(PREF.get("lineWeight")); return LINE_WEIGHTS.includes(v) ? v : (window.devicePixelRatio >= 2 ? 1.5 : 1); };
@@ -118,9 +123,10 @@ let _session: Session | null = null;   // editor.host.changed 要同步喂 sessi
 const editor = new Editor(canvas, {
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
-  tip: (t, cx, cy) => {
-    if (t) {
-      tipEl.textContent = t;
+  tip: (t, cx, cy, scale) => {
+    const html = scaleTipHtml(t, scale ?? null, scaleStyle, scaleMax);   // B43：参考画在同一个提示框里（user「不要让用户眼睛还要看别的地方」）
+    if (html) {
+      tipEl.innerHTML = html;
       tipEl.hidden = false;
       tipEl.style.left = `${cx + 14}px`;
       tipEl.style.top = `${cy - 28}px`;
@@ -572,6 +578,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 }
 function syncUi(): void {
   renderSnapWidget();
+  ensureScaleLadder();   // B43：选了参考项就（空闲时）拉数据
   renderModeSelect();
   renderSlots();
   renderCrumbs();
@@ -701,10 +708,57 @@ const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => loco
 const viewMenuBtn = document.createElement("button");
 viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("menu");
 ($("viewGizmo").querySelector(".gizmo-btns") as HTMLElement).prepend(viewMenuBtn);
+// ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
+let ladder: Ladder | null = null;
+let ladderTimer = 0;
+// eslint-disable-next-line no-var
+var viewMenuHandle: { refresh(): void; isOpen(): boolean } | null = null;   // var：加载回来时刷新开着的菜单
+/** 拉梯子数据（279 KB / gzip 58 KB）：选了参考项才拉；开机时等 1.5 s 再拉（启动优先），用户点了参考页 / 选了一项 = 立刻拉。 */
+function ensureScaleLadder(now = false): void {
+  if (ladder || !editor.scaleRef && !now) return;
+  if (!now) { if (!ladderTimer) ladderTimer = window.setTimeout(() => ensureScaleLadder(true), 1500); return; }
+  loadLadder().then((L) => { ladder = L; editor.setScaleLadder(L); if (viewMenuHandle?.isOpen()) viewMenuHandle.refresh(); })
+    .catch((e) => { note("scale", `size ladder load failed: ${(e as Error).message}`); });
+}
+type RefMenuId = `ref:${string}` | `refstyle:${ScaleTipStyle}` | `refmax:${number}`;
+const isRefId = (id: string): id is RefMenuId => id.startsWith("ref:") || id.startsWith("refstyle:") || id.startsWith("refmax:");
+/** 「参考」页（user 定：选单只有一个、单选；题材一行、亚种一排小块；试用开关也在这页）。 */
+function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; tab: string; sectionBefore?: string; separatorBefore?: boolean; chips?: { id: RefMenuId; label: string; checked?: boolean }[]; note?: boolean }[] {
+  const tab = "ref", cur = editor.scaleRef;
+  const L = ladder;
+  if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab }]; }
+  const out: ReturnType<typeof refTabItems> = [{ id: "ref:none", label: "不显示", checked: cur === null, tab }];
+  const themes = new Map<string, Ladder["menu"]>();
+  for (const m of L.menu) { const t = themes.get(m.theme) ?? []; t.push(m); themes.set(m.theme, t); }
+  const themeName = (m: Ladder["menu"][number]): string => m.names.zh.split(" · ")[0];
+  const single: { id: RefMenuId; label: string; checked?: boolean }[] = [];
+  for (const [, ms] of themes) {
+    if (ms.length === 1) { single.push({ id: `ref:${ms[0].id}`, label: themeName(ms[0]), checked: cur === ms[0].id }); continue; }
+    // 「现实」不写（user「现实这两个字tautological了」）：ALL 那一块就叫题材名；仓鼠 v3 起数据里也这么叫
+    out.push({ id: `ref:${ms[0].id}`, label: themeName(ms[0]), tab, chips: ms.map((m) => ({ id: `ref:${m.id}` as RefMenuId, label: m.view === "ALL" ? themeName(m) : m.names.zh.split(" · ").slice(1).join(" · "), checked: cur === m.id })) });
+  }
+  out.push({ id: "ref:other", label: "其他", tab, chips: single });
+  out.push({ id: "refstyle:fade", label: "样式", tab, sectionBefore: "试用（这台设备记住）", chips: SCALE_TIP_STYLES.map((s) => ({ id: `refstyle:${s.id}` as RefMenuId, label: s.label, checked: scaleStyle === s.id })) });
+  out.push({ id: "refmax:3", label: "最多", tab, chips: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
+  const notes = remindersFor(L, cur);
+  if (cur?.endsWith("/DND")) notes.push({ id: "srd", text: "DnD 的规则距离出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });
+  notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "参考须知" } : {}) }));
+  return out;
+}
+function onRefPick(id: RefMenuId): "keep" {
+  if (id.startsWith("refstyle:")) { scaleStyle = id.slice(9) as ScaleTipStyle; PREF.set("scaleStyle", scaleStyle); return "keep"; }
+  if (id.startsWith("refmax:")) { scaleMax = Number(id.slice(7)); PREF.set("scaleMax", String(scaleMax)); return "keep"; }
+  const ref = id.slice(4);
+  if (ref === "other") return "keep";
+  editor.setScaleRef(ref === "none" ? null : ref);
+  ensureScaleLadder(true);
+  return "keep";
+}
 /** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：显示 / 栅格 / 相机；以后「参考」（B43）、渲染方案也进来。 */
 const VIEW_MENU_TABS = [
   { id: "display", label: "显示" },
   { id: "grid", label: "栅格" },
+  { id: "ref", label: "参考" },
   { id: "camera", label: "相机" },
 ] as const;
 type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
@@ -716,6 +770,7 @@ function openViewMenu(tab?: ViewTab): void {
       ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", tab: "display", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
       ...LENGTH_UNITS.map((u, i) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id, tab: "display", ...(i === 0 ? { sectionBefore: "单位（显示 / 输入）" } : {}) })),   // 一排可勾选项（B40）
       ...gridTabItems(),
+      ...refTabItems(),
       { id: "walk" as MenuId, label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), tab: "camera" },
       { id: "noclip" as MenuId, label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking(), tab: "camera" },
       ...(vr.isSupported() ? [
@@ -723,9 +778,9 @@ function openViewMenu(tab?: ViewTab): void {
         { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手", tab: "camera" },
       ] : []),
     ],
-    onPick: (id: MenuId | GridMenuId): void | "keep" => { if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
+    onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
   };
-  if (tab) openPopupMenu<MenuId | GridMenuId>(opts); else togglePopupMenu<MenuId | GridMenuId>(opts);
+  viewMenuHandle = tab ? openPopupMenu<MenuId | GridMenuId | RefMenuId>(opts) : togglePopupMenu<MenuId | GridMenuId | RefMenuId>(opts);
 }
 viewMenuBtn.addEventListener("click", () => openViewMenu());
 void viewGizmo;

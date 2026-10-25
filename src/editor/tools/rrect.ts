@@ -11,6 +11,7 @@ import { rrectAngle, rrectSegments, rrectSnapAngle } from "../tools.ts";
 import { fmtLen, MIN_GESTURE_LEN } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 import type { ViewState } from "../render3.ts";
 import { shiftAngleSnap } from "./draw.ts";
 
@@ -33,6 +34,12 @@ export class RRectTool implements ToolHandler {
   active(): boolean { return this.stage > 0; }
   cancel(): void { this.stage = 0; this.plane = null; this.a = this.b = this.c = null; this.deg = 90; }
   sample(): Record<string, number> { return {}; }
+  /** B43：拉第一边 = 这一边的长度；转第二边 = 矩形（两条边 + 法向）。 */
+  scaleGeom(ctx: ToolCtx): ScaleGeom | null {
+    if (this.stage === 1 && this.a) { const q = ctx.cursor(); return q ? { kind: "length", vec: sub3(q, this.a) } : null; }
+    if (this.stage === 2 && this.a && this.b && this.c && this.plane) return { kind: "rect", u: sub3(this.b, this.a), v: sub3(this.c, this.b), normal: this.plane.plane.n };
+    return null;
+  }
 
   /** A9 面锁：第二点落定之前随时可锁 / 解锁——平面过首点；解锁回到首点解析出的平面。 */
   private relock(ctx: ToolCtx): void { if (this.stage === 1 && this.a && this.plane0) this.plane = ctx.lockedPlane(this.a) ?? this.plane0; }

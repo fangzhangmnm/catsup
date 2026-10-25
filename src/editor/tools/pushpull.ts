@@ -14,6 +14,7 @@ import { IDENTITY, applyDir, invert } from "../../scene/xform.ts";
 import { MIN_GESTURE_LEN, SNAP_LABELS, fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 
 export class PushPullTool implements ToolHandler {
   readonly tool = "pp" as const;
@@ -28,6 +29,7 @@ export class PushPullTool implements ToolHandler {
   active(): boolean { return this.face !== null; }
   cancel(): void { this.face = null; this.normal = null; this.plane = null; this.shell = new Set(); this.stops = []; this.h = 0; }
   sample(): Record<string, number> { return { h: this.h }; }
+  scaleGeom(): ScaleGeom | null { return this.face !== null && this.normal ? { kind: "length", vec: scale3(this.normal, this.h) } : null; }
   describe(ctx?: ToolCtx): Record<string, unknown> {
     const k = ctx?.kernel();
     return this.face !== null && k && k.face(this.face) ? { face: faceKey(k, this.face), h: this.localH(ctx!, this.h) } : {};

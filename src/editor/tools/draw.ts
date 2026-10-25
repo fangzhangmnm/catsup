@@ -11,6 +11,7 @@ import { circleCurveSpec, circleSegmentsOnPlane, rectOpposite, rectSegmentsOnPla
 import { MIN_GESTURE_LEN, fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 
 /** Shift = 15° 角度对齐（B33）：以上下文帧的 X（投到手势平面）为 0°，长度不变；比点吸附优先（用户按着 Shift 就是要角度）。画线 / 旋转矩形第一边共用。 */
 export function shiftAngleSnap(ctx: ToolCtx, a: Pt3, p: Pt3, n: Pt3): Snap3 {
@@ -105,6 +106,7 @@ export class LineTool extends DrawTool {
     ctx.setCursor(snapped.p);
   }
   protected segsFor(_ctx: ToolCtx, b: Pt3): [Pt3, Pt3][] { return [[this.anchor!, b]]; }
+  scaleGeom(ctx: ToolCtx): ScaleGeom | null { const a = this.anchor, b = ctx.cursor(); return a && b ? { kind: "length", vec: sub3(b, a) } : null; }
   protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     const a = this.anchor, b = ctx.cursor();
     if (!a || !b) return "";
@@ -131,6 +133,12 @@ export class RectTool extends DrawTool {
   /** 起点语义：选项 rect.from；Ctrl 按着 = 临时从中心（SU Ctrl / Option 同款）。 */
   private from(ctx: ToolCtx): "corner" | "center" { const m = ctx.mods(); return ctx.config.effective("rect", "from", { ctrl: m.copy, shift: m.shift }); }
   protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][] { return rectSegmentsOnPlane(this.plane.plane, this.plane.basis, rectOpposite(this.anchor!, b, this.from(ctx)), b); }
+  scaleGeom(ctx: ToolCtx): ScaleGeom | null {
+    const b = ctx.cursor();
+    if (!this.anchor || !b) return null;
+    const s = this.segsFor(ctx, b);
+    return s.length >= 2 ? { kind: "rect", u: sub3(s[0][1], s[0][0]), v: sub3(s[1][1], s[1][0]), normal: this.plane.plane.n } : null;
+  }
   protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     const a = this.anchor, b = ctx.cursor();
     if (!a || !b) return "";
@@ -153,6 +161,7 @@ export class RectTool extends DrawTool {
 export class CircleTool extends DrawTool {
   readonly tool = "circle" as const;
   protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][] { return circleSegmentsOnPlane(this.plane.plane, this.plane.basis, this.anchor!, b, ctx.config.get("circle", "segments")); }
+  scaleGeom(ctx: ToolCtx): ScaleGeom | null { const b = ctx.cursor(); return this.anchor && b ? { kind: "circle", radius: dist3(this.anchor, b), normal: this.plane.plane.n } : null; }
   protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     const a = this.anchor, b = ctx.cursor();
     if (!a || !b) return "";

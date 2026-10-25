@@ -21,6 +21,7 @@ import type { Scene, EditContext } from "../scene/scene.ts";
 import type { GridSettings } from "./grid-settings.ts";
 import type { ModeId } from "./mode.ts";
 import type { ViewState } from "./render3.ts";
+import type { ScaleGeom } from "./scale-ref.ts";
 
 /** 指针下的东西属于谁：活动池里的实体 / 子池（group 或实例）整体 / 什么都没有。 */
 export type Classified = { kind: "entity"; local: HitResult3 } | { kind: "pool"; pick: PoolPick; key: string } | { kind: "none" };
@@ -173,6 +174,8 @@ export interface ToolHandler {
   readonly previewOnHover?: boolean;
   /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */
   readonly lock?: "axis" | "plane";
+  /** B43 人的尺度参考：手势中正在拖的那段的原始几何（世界系）；方向和挑哪个数归 scale-ref.ts readingOf。没有 = 不配参考。 */
+  scaleGeom?(ctx: ToolCtx): ScaleGeom | null;
   /** 手势进行中？（底座 gestureActive 的一票；为真时 pointerMove 走 track、computeLive 走 live）。 */
   active(): boolean;
   /** 清掉自己的手势状态（底座 cancelGesture 时对所有工具调）。 */

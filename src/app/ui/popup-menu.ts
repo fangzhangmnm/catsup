@@ -17,6 +17,10 @@ export interface PopupMenuItem<Id extends string = string> {
   sectionBefore?: string;
   /** 属于哪个 tab（opts.tabs 给了才看；A30）。 */
   tab?: string;
+  /** 一行小块（B43 参考页：题材一行、亚种一排小块）：label 在左，块在右；点块 = onPick(块的 id)。 */
+  chips?: { id: Id; label: string; checked?: boolean }[];
+  /** 纯文字说明（不可点；label = 正文；B43「参考须知」）。 */
+  note?: boolean;
 }
 /** 弹层顶部的 tab（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）：图标 + 字一排；只显示当前 tab 的项。 */
 export interface PopupMenuTab { id: string; label: string; icon?: string }
@@ -89,6 +93,17 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
         h.className = "menu-section-label";
         h.textContent = it.sectionBefore;
         el.appendChild(h);
+      }
+      if (it.note) { const d = document.createElement("div"); d.className = "menu-note"; d.textContent = it.label; el.appendChild(d); continue; }
+      if (it.chips) {
+        const row = document.createElement("div"); row.className = "menu-chips";
+        const lab = document.createElement("span"); lab.className = "menu-chips-label"; lab.textContent = it.label; row.appendChild(lab);
+        for (const c of it.chips) {
+          const cb = document.createElement("button"); cb.type = "button"; cb.className = "menu-chip" + (c.checked ? " on" : ""); cb.textContent = c.label; cb.setAttribute("aria-pressed", String(!!c.checked)); cb.dataset.chip = c.id;
+          cb.addEventListener("click", () => { const r = opts.onPick(c.id); if (r === "keep") render(); else close(); });
+          row.appendChild(cb);
+        }
+        el.appendChild(row); continue;
       }
       const b = document.createElement("button");
       b.type = "button";

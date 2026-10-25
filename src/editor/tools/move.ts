@@ -13,6 +13,7 @@ import { applyDir, invert, translation } from "../../scene/xform.ts";
 import { MIN_GESTURE_LEN, fmtLen } from "../editor.ts";
 import type { PoolPick, ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 
 export class MoveTool implements ToolHandler {
   readonly tool = "move" as const;
@@ -26,6 +27,7 @@ export class MoveTool implements ToolHandler {
   active(): boolean { return this.vids.length > 0 || this.pools.length > 0; }
   cancel(): void { this.vids = []; this.pools = []; this.copy = false; this.entities = { faces: [], edges: [] }; }
   sample(): Record<string, number> { return {}; }
+  scaleGeom(ctx: ToolCtx): ScaleGeom | null { const a = ctx.anchor(), c = ctx.cursor(); return this.active() && a && c ? { kind: "length", vec: sub3(c, a) } : null; }
   describe(ctx?: ToolCtx): Record<string, unknown> { return { move: { anchor: ctx?.anchor() ?? null, vids: this.vids.length, pools: this.pools.length, copy: this.copy } }; }
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.hoverSnap(s); }
 

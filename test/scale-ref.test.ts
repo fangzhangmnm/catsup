@@ -3,7 +3,7 @@ import { describe, it, eq } from "./runner.mjs";
 type Bytes = Uint8Array & { toString(enc: "utf8"): string };
 const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(u: URL, enc?: "utf8"): Bytes & string };
 const { createHash } = (await import("node:crypto" as string)) as { createHash(a: "sha256"): { update(b: Uint8Array): { digest(e: "hex"): string } } };
-import { LADDER_SHA256, areaDir, forLanguage, lengthDir, scaleRuler, scaleTooltip, type Ladder } from "../src/editor/scale-ref.ts";
+import { DEFAULT_SCALE_REF, LADDER_SHA256, areaDir, closeness, forLanguage, lengthDir, readingOf, remindersFor, scaleRefFromSettings, scaleRefToSettings, scaleRuler, scaleTipView, scaleTooltip, type Ladder } from "../src/editor/scale-ref.ts";
 
 const root = new URL("../", import.meta.url);
 const bytes = readFileSync(new URL("vendor/size-ladder/ladder-v2.json", root));
@@ -58,5 +58,48 @@ describe("scale-ref: 物体尺寸梯子的 CatsUp 适配", () => {
     eq(lm(zh).some((v) => v.regions !== "*" && v.regions.includes("JP")), false);
     eq(zh.values.length - lm(zh).length, L.values.length - lm(L).length);
     eq(forLanguage(L, "zh") === zh, true);   // 缓存
+  });
+});
+
+describe("scale-ref: 提示框的数据（grill 定案）", () => {
+  it("readingOf：线按方向；矩形平放 = 面积、竖着 = 竖边的高、斜的不配；圆 = 直径", () => {
+    eq(JSON.stringify(readingOf({ kind: "length", vec: { x: 0, y: 0, z: 0.9 } }, Z, O)), JSON.stringify({ reading: 0.9, dir: "up" }));
+    const flat = readingOf({ kind: "rect", u: { x: 3, y: 0, z: 0 }, v: { x: 0, y: 4, z: 0 }, normal: Z }, Z, O);
+    eq(flat?.dir, "plan"); eq(flat?.reading, 12);
+    const wall = readingOf({ kind: "rect", u: { x: 0.9, y: 0, z: 0 }, v: { x: 0, y: 0, z: 2.05 }, normal: { x: 0, y: 1, z: 0 } }, Z, O);
+    eq(wall?.dir, "up"); eq(wall?.reading, 2.05);
+    const s = Math.SQRT1_2;
+    eq(readingOf({ kind: "rect", u: { x: 1, y: 0, z: 0 }, v: { x: 0, y: s, z: s }, normal: { x: 0, y: -s, z: s } }, Z, O), null);
+    eq(JSON.stringify(readingOf({ kind: "circle", radius: 0.5, normal: Z }, Z, O)), JSON.stringify({ reading: 1, dir: "flat" }));
+  });
+  it("closeness：典型值上 = 1、范围边上 = 0、对数尺两边各量各的", () => {
+    eq(closeness(1, 1, 0.5, 2), 1);
+    eq(closeness(0.5, 1, 0.5, 2), 0);
+    eq(Math.abs(closeness(Math.SQRT2, 1, 0.5, 2) - 0.5) < 1e-12, true);
+    eq(Math.abs(closeness(1.1, 1, 0.9, 1.21) - 0.5) < 1e-9, true);
+  });
+  it("浓的排前、按名字去重、规格点命中；没选 = null", () => {
+    const v = scaleTipView(L, "interior/ALL", { reading: 0.914, dir: "up" })!;
+    eq(v.items.length >= 3, true);
+    eq(v.items.every((it, i) => i === 0 || v.items[i - 1].strength >= it.strength), true);
+    eq(new Set(v.items.map((it) => it.name)).size, v.items.length);
+    eq(v.items.some((it) => it.name === "栏杆" && it.hit), true);   // 0.914 栏杆是规格点
+    eq(v.marks.every((m) => m.hi >= 0.914 / 1.5 && m.lo <= 0.914 * 1.5), true);
+    eq(scaleTipView(L, null, { reading: 1, dir: "up" }), null);
+  });
+  it("跟着文件存：没写 = 默认（室内）、none = 不显示、默认不写键、认不出的原样留着", () => {
+    eq(scaleRefFromSettings({}), DEFAULT_SCALE_REF);
+    eq(scaleRefFromSettings({ scaleRef: "none" }), null);
+    eq(scaleRefFromSettings({ scaleRef: "garden/JPSTYLE" }), "garden/JPSTYLE");
+    eq("scaleRef" in scaleRefToSettings({ a: 1 }, DEFAULT_SCALE_REF), false);
+    eq(scaleRefToSettings({ a: 1 }, null).scaleRef, "none");
+    eq(scaleRefToSettings({ a: 1, scaleRef: "x" }, "mars/WHAT").scaleRef, "mars/WHAT");
+  });
+  it("参考须知按选单项给（v3 之前的临时表）：人体有风格化、DnD 有 dnd、儿童有 children、都有估算", () => {
+    const ids = (s: string): string => remindersFor(L, s).map((r) => r.id).sort().join(",");
+    eq(ids("body/ALL"), "estimate,stylized");
+    eq(ids("interior/DND"), "code,dnd,estimate");
+    eq(ids("interior/KIDS"), "children,code,estimate");
+    eq(remindersFor(L, null).length, 0);
   });
 });

@@ -81,3 +81,85 @@ export function loadLadder(fetchImpl: typeof fetch = fetch): Promise<Ladder> {
   if (!loading) loading = fetchImpl(LADDER_URL).then((r) => { if (!r.ok) throw new Error(`size ladder HTTP ${r.status}`); return r.json() as Promise<Ladder>; }).catch((e) => { loading = null; throw e; });
   return loading;
 }
+
+// ---------- 2026-10-25 grill 定案后的部分（Claude Opus 5.5） ----------
+// user：都在跟指针的提示框里，不另起一条刻度条（「不要让用户眼睛还要看别的地方」）；带 = 按离典型值多近定浓淡、点（规格）一进范围发亮；
+// 「浓的放前面」「有一个最多条目数」；样式「多试试吧」（浓淡字 / 航空迷你带 / 每项小条，宿主画，这里只出数据）；选单 = 单选（继承归仓鼠 v3）。
+
+/** 工具交来的原始几何（世界系）；方向和挑哪个数由 readingOf 定，工具不管。 */
+export type ScaleGeom =
+  | { kind: "length"; vec: Pt3 }                       // 画线 / 卷尺 / 移动 / 偏移 / 推拉：正在拖的那段
+  | { kind: "rect"; u: Pt3; v: Pt3; normal: Pt3 }      // 矩形 / 旋转矩形：两条边 + 法向
+  | { kind: "circle"; radius: number; normal: Pt3 };   // 圆 / 多边形
+
+const cross = (a: Pt3, b: Pt3): Pt3 => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
+/** 读数 + 方向（user 定：矩形平放 = 面积、竖着 = 竖边的高、斜的不配；圆 = 直径，平放 = 横、别的 = 斜）。null = 不配参考。 */
+export function readingOf(g: ScaleGeom, up: Pt3, o: Orientation): ScaleQuery | null {
+  if (g.kind === "length") { const dir = lengthDir(g.vec, up, o); return dir ? { reading: norm(g.vec), dir } : null; }
+  if (g.kind === "circle") { if (!(g.radius > 0)) return null; return { reading: 2 * g.radius, dir: areaDir(g.normal, up, o) === "plan" ? "flat" : "both" }; }
+  if (areaDir(g.normal, up, o) === "plan") { const a = norm(cross(g.u, g.v)); return a > 0 ? { reading: a, dir: "plan" } : null; }
+  const side = absCosTo(g.u, up) >= absCosTo(g.v, up) ? g.u : g.v;
+  return lengthDir(side, up, o) === "up" ? { reading: norm(side), dir: "up" } : null;
+}
+
+/** 提示框里的一个名字：strength = 读数离它典型值多近（1 = 正好在典型值，0 = 在合理范围边上，对数尺）；hit = 规格点进了范围。 */
+export interface ScaleTipItem { name: string; strength: number; hit: boolean; shape: "point" | "band"; value: number; lo: number; hi: number }
+/** 刻度上的一格（航空迷你带用）：窗口 = 读数 ÷ factor 到 × factor。 */
+export interface ScaleTapeMark { name: string; value: number; lo: number; hi: number; shape: "point" | "band" }
+export interface ScaleTipView { reading: number; dir: ScaleDir; items: ScaleTipItem[]; marks: ScaleTapeMark[]; window: [number, number] }
+
+/** 读数在合理范围 [lo, hi] 里离典型值 value 多近（对数尺，0..1）。 */
+export function closeness(reading: number, value: number, lo: number, hi: number): number {
+  const side = reading <= value ? Math.log(value / lo) : Math.log(hi / value);
+  const off = Math.abs(Math.log(reading / value));
+  if (!(side > 1e-12)) return off < 1e-12 ? 1 : 0;
+  return Math.max(0, Math.min(1, 1 - off / side));
+}
+
+/** 提示框的数据：候选（读数落在合理范围里的全部）按名字去重、浓的排前（同样浓按评级）；marks = 迷你带窗口里的全部参考。宿主按「最多几条」截。 */
+export function scaleTipView(L: Ladder, sub: string | null, q: ScaleQuery, lang: Lang = "zh", factor = 1.5): ScaleTipView | null {
+  if (!sub || !(q.reading > 0)) return null;
+  const LL = forLanguage(L, lang), subs = [sub];
+  const rank = new Map((LL.concepts as { id: string; rank?: number }[]).map((c) => [c.id, c.rank ?? 1]));
+  const best = new Map<string, ScaleTipItem & { rank: number }>();
+  for (const h of Q.candidates(LL, subs, q) as { v: { concept: string; value: number; tip: Record<Lang, string> } }[]) {
+    const [lo, hi] = Q.span(LL, h.v) as [number, number], shape = Q.shapeOf(LL, h.v) as "point" | "band";
+    const it = { name: h.v.tip[lang], strength: closeness(q.reading, h.v.value, lo, hi), hit: shape === "point", shape, value: h.v.value, lo, hi, rank: rank.get(h.v.concept) ?? 1 };
+    const prev = best.get(it.name);
+    if (!prev || it.strength > prev.strength) best.set(it.name, it);
+  }
+  const items = [...best.values()].sort((a, b) => b.strength - a.strength || b.rank - a.rank).map(({ rank: _r, ...it }) => it);
+  const marks = (Q.ruler(LL, subs, q, factor) as RulerMark[]).map((m) => ({ name: m.v.tip[lang], value: m.v.value, lo: m.lo, hi: m.hi, shape: m.shape }));
+  if (!items.length && !marks.length) return null;
+  return { reading: q.reading, dir: q.dir, items, marks, window: [q.reading / factor, q.reading * factor] };
+}
+
+// ---------- 选单（单选）+ 跟着文件存 ----------
+/** 新文件 / 没存过这项的旧文件默认看哪项（暂定「室内」：user「对新手非常有用」；默认勾哪项还没拍，等 user）。 */
+export const DEFAULT_SCALE_REF = "interior/ALL";
+/** 文件 settings.scaleRef：没写 = 默认；"none" = 不显示；别的 = 选单 id（认不出的原样留着、不显示）。 */
+export function scaleRefFromSettings(s: { scaleRef?: unknown }): string | null {
+  const v = s.scaleRef;
+  if (v === undefined) return DEFAULT_SCALE_REF;
+  if (v === "none" || typeof v !== "string") return null;
+  return v;
+}
+export function scaleRefToSettings<T extends object>(s: T, ref: string | null): T & { scaleRef?: string } {
+  const { scaleRef: _old, ...rest } = s as T & { scaleRef?: string };
+  if (ref === DEFAULT_SCALE_REF) return rest as T;                 // 默认不写键 = 默认文档字节不变（同 gridPreset）
+  return { ...rest, scaleRef: ref ?? "none" } as T & { scaleRef: string };
+}
+
+/** 「参考须知」（数据里叫 disclaimers）按选单项给哪几条。
+ *  过渡：v2 数据里没有每项的路由，这里按题材临时配（user：「免责声明按需路由，比如人体和建筑不一样」）。
+ *  退场条件：仓鼠 v3 给每个选单项带上提醒 id 列表后，这个函数改成只读数据、删掉下面这张临时表。 */
+export function remindersFor(L: Ladder, sub: string | null, lang: Lang = "zh"): { id: string; text: string }[] {
+  if (!sub) return [];
+  const [theme, view] = sub.split("/");
+  const ids = new Set<string>(["estimate"]);
+  if (theme === "body") ids.add("stylized");
+  if (theme === "interior" || theme === "exterior") ids.add("code");
+  if (view === "DND") ids.add("dnd");
+  if (view === "KIDS" || view === "CHILD") ids.add("children");
+  return L.disclaimers.filter((d) => ids.has(d.id)).map((d) => ({ id: d.id, text: d[lang] }));
+}

@@ -15,6 +15,7 @@ import { intentAllows1D } from "../intent.ts";
 import { fmtLen, MIN_GESTURE_LEN } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 
 /** 点 p 沿 n 投到过 c 的平面上。 */
 const projectThrough = (p: Pt3, c: Pt3, n: Pt3): Pt3 => { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); };
@@ -30,6 +31,7 @@ export class OffsetTool implements ToolHandler {
   active(): boolean { return this.face !== null; }
   cancel(): void { this.face = null; this.plane = null; this.inward = null; this.dist = 0; }
   sample(): Record<string, number> { return { off: this.dist }; }
+  scaleGeom(): ScaleGeom | null { return this.face !== null && this.inward ? { kind: "length", vec: scale3(this.inward, this.dist) } : null; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.face !== null) { this.commit(ctx); return; }   // 第二次按下（点一下 / 拖到位松手 / armed 再点）= 落定（A29：全工具点几下）

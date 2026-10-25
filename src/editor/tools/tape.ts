@@ -14,6 +14,7 @@ import { type TapeStart, classifyStart, tapeResult } from "../tape-geom.ts";
 export { type TapeResult, type TapeStart, classifyStart, tapeResult } from "../tape-geom.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 import type { ViewState } from "../render3.ts";
 import type { WorldView } from "../../scene/world-view.ts";
 
@@ -48,6 +49,7 @@ export class TapeTool implements ToolHandler {
   active(): boolean { return this.stage > 0; }
   cancel(): void { this.stage = 0; this.plane = null; this.start = this.b = null; }
   sample(): Record<string, number> { return {}; }
+  scaleGeom(): ScaleGeom | null { return this.stage === 1 && this.start && this.b ? { kind: "length", vec: sub3(this.b, this.start.p) } : null; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.stage === 0) {
