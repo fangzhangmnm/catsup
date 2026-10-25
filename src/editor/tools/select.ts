@@ -11,7 +11,7 @@ export class SelectTool implements ToolHandler {
   readonly grammar = "direct" as const;
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
-  private clickTrain: { t: number; x: number; y: number; n: number } | null = null;   // 点击族计数（350 ms · 6 px @800）
+  private clickTrain: { t: number; p: { x: number; y: number; z: number }; n: number } | null = null;   // 点击族计数（350 ms · 1.5 × tap 帧度量）
 
   active(): boolean { return this.start !== null; }
   cancel(): void { this.start = this.cur = null; }
@@ -34,7 +34,7 @@ export class SelectTool implements ToolHandler {
     if (!start || !cur) return;
     const additive = ev.shiftKey;
     const view = ctx.live();
-    if (Math.hypot(cur.x - start.x, cur.y - start.y) > 4) {
+    if (ctx.moved(cur, ev.travel) > ctx.eps().tap) {   // 起拖门槛 = 本帧 tap（桌面 4 px / VR 0.4°）；此前写死 4 px，VR 下 (x, y) 是名义坐标（2026-10-24 Opus）
       const box = { minX: Math.min(start.x, cur.x), maxX: Math.max(start.x, cur.x), minY: Math.min(start.y, cur.y), maxY: Math.max(start.y, cur.y) };
       const picked = ctx.marqueePick(box);
       const sel = { edges: [] as number[], faces: [] as number[], pools: [] as { kind: "group"; group: number }[] | { kind: "instance"; instance: number }[] };
@@ -46,8 +46,10 @@ export class SelectTool implements ToolHandler {
       return;
     }
     const now = performance.now();
-    const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(ev.x - this.clickTrain.x, ev.y - this.clickTrain.y) <= 6 * (ctx.vp().h / 800)
-      ? { t: now, x: ev.x, y: ev.y, n: this.clickTrain.n + 1 } : { t: now, x: ev.x, y: ev.y, n: 1 };
+    // 连击：上一击那条射线上 1 m 处的世界点，本帧 distTo 量（桌面 = 像素，VR = 角度）；门槛 1.5 × tap（桌面 6 px，VR 0.6°）
+    const ray = ctx.frame().ray(ev.x, ev.y, ctx.vp()), here = { x: ray.origin.x + ray.dir.x, y: ray.origin.y + ray.dir.y, z: ray.origin.z + ray.dir.z };
+    const train = this.clickTrain && now - this.clickTrain.t < 350 && ctx.frame().distTo(ev.x, ev.y, this.clickTrain.p, ctx.vp()) <= 1.5 * ctx.eps().tap
+      ? { t: now, p: here, n: this.clickTrain.n + 1 } : { t: now, p: here, n: 1 };
     this.clickTrain = train;
     const hit = ctx.pick(ev.x, ev.y);
     const c = ctx.classify(view, hit);

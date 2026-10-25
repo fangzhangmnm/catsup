@@ -67,7 +67,7 @@ export interface ToolPointer {
   shiftKey: boolean;
   /** 复制修饰（Ctrl / Alt / ⌘）：移动 = 留一份原件再放（SU Move+Ctrl）。 */
   copy?: boolean;
-  /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px）。缺省 = 屏距 downScreen。 */
+  /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
 }
 
@@ -227,7 +227,10 @@ export class Editor {
   private liveEvents: FaceEvent[] = [];
   private armed = false;
   private canArm = false;
-  private downScreen: { x: number; y: number } | null = null;
+  /** 按下那条射线上 1 m 处的世界点：「自按下走了多远」= 本帧 distTo(光标, 它)——桌面 = 离按下点的像素，VR = 角度（(x, y) 在 VR 只是名义坐标）。
+   *  规矩：能用帧度量就不用屏幕 px（user 2026-10-24「能用ray别用screen px」）。2026-10-24 Claude Opus 5.5 替掉原来按屏幕坐标记的按下点。 */
+  private downPoint: Pt3 | null = null;
+  private movedSinceDown(s: { x: number; y: number }, travel?: number): number { return travel ?? (this.downPoint ? this.frame().distTo(s.x, s.y, this.downPoint, this.fvp()) : 0); }
   private justCommitted = false;
   private charged = new Map<string, Pt3>();
   /** 充能边（0.11.6，user「载线交点 充能」）：悬停在边上 ≥ 300 ms 的边，最近 2 条；出延长线与延长线交点。 */
@@ -474,7 +477,7 @@ export class Editor {
     this.lastSnap = null;
     this.armed = false;
     this.canArm = false;
-    this.downScreen = null;
+    this.downPoint = null;
     this.justCommitted = false;
     this.cursor3 = null;
     this.snapInfo = null;
@@ -1454,7 +1457,7 @@ export class Editor {
         H.down(this.toolCtx, ev);
         if (H.active()) this.armed = true; else this.endStepGesture();   // 还有下一子步 → 继续 arm（鼠标已松着）
       } else {
-        this.downScreen = { x: s.x, y: s.y };
+        { const r = this.frame().ray(s.x, s.y, this.fvp()); this.downPoint = add3(r.origin, r.dir); }
         this.samples = [];   // 新手势：样本环从零（抬笔结算只看这一次）
         H.down(this.toolCtx, ev);
         if (H.grammar === "steps") { if (H.active()) { this.armed = false; this.canArm = !!ev.armable; } else this.endStepGesture(); }
@@ -1498,7 +1501,7 @@ export class Editor {
   private endStepGesture(): void {
     this.anchor3 = null; this.cursor3 = null; this.snapInfo = null;
     this._axisLock = null;   // 手势落定 = 轴锁解（SU 同款）
-    this.samples = []; this.armed = false; this.canArm = false; this.downScreen = null; this.justCommitted = false;
+    this.samples = []; this.armed = false; this.canArm = false; this.downPoint = null; this.justCommitted = false;
     this.live = null; this.liveOverride = null; this.liveEvents = [];
   }
   /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
@@ -1573,7 +1576,7 @@ export class Editor {
       hysteresis: (sn, sx, sy) => this.applyHysteresis(sn, sx, sy),
       dropHysteresis: () => { this.lastSnap = null; },
       charge: (sn, dwellMs) => this.trackCharge(sn, null, dwellMs),
-      moved: (s, travel) => travel ?? (this.downScreen ? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) : 0),
+      moved: (s, travel) => this.movedSinceDown(s, travel),
       cursor: () => this.cursor3,
       mods: () => this.mods,
       currentSnap: () => this.snapInfo,
@@ -1657,13 +1660,13 @@ export class Editor {
 
   /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
   private intentOn(s: { x: number; y: number }, travel?: number): boolean {
-    const moved = travel ?? (this.downScreen ? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y) : 0);
+    const moved = this.movedSinceDown(s, travel);
     return hasIntent(moved, this.eps().drag);
   }
 
   pointerUp(ev: ToolPointer): void {
     const s = ev;
-    const isTap = (): boolean => !!this.downScreen && (ev.travel ?? Math.hypot(s.x - this.downScreen.x, s.y - this.downScreen.y)) <= this.eps().tap;
+    const isTap = (): boolean => !!this.downPoint && this.movedSinceDown(s, ev.travel) <= this.eps().tap;
     const settle = (): GestureSample | null => {
       if (this.justCommitted) return null;
       this.trackGesture(s);
