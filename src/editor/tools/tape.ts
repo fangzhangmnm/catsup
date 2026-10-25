@@ -36,6 +36,20 @@ function lineDirAt(view: WorldView, sn: Snap3, pick: { edge?: number }): Pt3 | n
   return null;
 }
 
+/** 点类起手（端点 / 中点）正落在哪几条边上：这些边的方向（平行的只留一条）。D25。 */
+function pointLinesAt(view: WorldView, sn: Snap3, pick: { edge?: number }): Pt3[] {
+  if (sn.kind !== "endpoint" && sn.kind !== "midpoint") return [];
+  const out: Pt3[] = [];
+  const add = (a: Pt3, b: Pt3): void => {
+    const d = normalize3(sub3(b, a)), v = sub3(sn.p, a), t = dot3(v, d), L = Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z), off = sub3(v, scale3(d, t));
+    if (t < -1e-9 || t > L + 1e-9 || Math.hypot(off.x, off.y, off.z) > 1e-6) return;   // 点不在这条边上
+    if (!out.some((o) => Math.abs(Math.abs(dot3(o, d)) - 1) < 1e-9)) out.push(d);
+  };
+  if (pick.edge !== undefined && view.graph.hasEdge(pick.edge)) { const e = view.graph.edge(pick.edge); add(view.graph.pt(e.a), view.graph.pt(e.b)); }
+  if (sn.kind === "endpoint") for (const e of view.edges()) { const a = view.graph.pt(e.a), b = view.graph.pt(e.b); if (Math.hypot(a.x - sn.p.x, a.y - sn.p.y, a.z - sn.p.z) < 1e-9 || Math.hypot(b.x - sn.p.x, b.y - sn.p.y, b.z - sn.p.z) < 1e-9) add(a, b); }
+  return out;
+}
+
 export class TapeTool implements ToolHandler {
   readonly tool = "tape" as const;
   readonly grammar = "steps" as const;
@@ -56,7 +70,8 @@ export class TapeTool implements ToolHandler {
       const view = ctx.live();
       const r = rectFirstPlane(view, ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
       this.plane = r.plane;
-      this.start = classifyStart(r.snap, lineDirAt(view, r.snap, ctx.pick(ev.x, ev.y)));
+      const hit = ctx.pick(ev.x, ev.y);
+      this.start = classifyStart(r.snap, lineDirAt(view, r.snap, hit), pointLinesAt(view, r.snap, hit));
       this.b = null;
       ctx.setAnchor(this.start.p); ctx.setSnap(r.snap); ctx.setCursor(this.start.p);
       this.stage = 1;

@@ -61,3 +61,24 @@ describe("tape: 产物进场景（addGuide op，池本地坐标）", () => {
     eq(new WorldView(s, { chain: [], group: null }).guides().lines.length, 0, "根池看不到");
   });
 });
+
+describe("tape D25：从边的中点 / 端点起手按拖的方向定（user「卷尺当从线和snap开始拉，还是没有出线，出了点。这样不对」）", () => {
+  const X = { x: 1, y: 0, z: 0 }, Y = { x: 0, y: 1, z: 0 };
+  it("中点（只在一条边上）：垂直拖开 = 平行线，顺着边拖 = 点", () => {
+    const s = classifyStart({ p: { x: 1.5, y: 0, z: 0 }, kind: "midpoint" }, null, [X]);
+    const up = tapeResult(s, { x: 1.6, y: 0.8, z: 0 });
+    eq(up.make, "line"); if (up.make === "line") { eq(Math.abs(up.dir.x), 1); eq(+up.p.y.toFixed(9), 0.8); }
+    eq(tapeResult(s, { x: 2.3, y: 0.1, z: 0 }).make, "point");
+  });
+  it("端点（拐角两条边）：垂直某一条边拖 = 那条边的平行线；沿对角线拖 = 点（分不清）", () => {
+    const s = classifyStart({ p: { x: 3, y: 0, z: 0 }, kind: "endpoint" }, null, [X, Y]);
+    const r1 = tapeResult(s, { x: 3.05, y: 0.7, z: 0 });
+    eq(r1.make, "line"); if (r1.make === "line") eq(Math.abs(r1.dir.x), 1);
+    const r2 = tapeResult(s, { x: 2.3, y: 0.04, z: 0 });
+    eq(r2.make, "line"); if (r2.make === "line") eq(Math.abs(r2.dir.y), 1);
+    eq(tapeResult(s, { x: 3.5, y: 0.5, z: 0 }).make, "point");
+  });
+  it("不在边上的点（没给 lines）照旧出点", () => {
+    eq(tapeResult(classifyStart({ p: { x: 0, y: 0, z: 0 }, kind: "origin" }, null), { x: 0, y: 1, z: 0 }).make, "point");
+  });
+});

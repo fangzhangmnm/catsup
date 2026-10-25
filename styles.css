@@ -58,12 +58,11 @@ svg.ico use { color: inherit; }
    方框 = gizmo 本身 96 px、位置不变，钮绝对定位叠在角上（user「不用外探，覆盖了gizmos也没关系」），不占布局 */
 .gizmo-dial { position: relative; width: 96px; height: 96px; }
 .gizmo-nav { position: absolute; inset: 0; padding: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; pointer-events: none; }
-.gizmo-nav .gizmo-btn { position: absolute; pointer-events: auto; width: 26px; height: 26px; border-radius: 7px; background: rgba(255,255,255,.6); }
-.gizmo-nav .gizmo-btn .ico { width: 18px; height: 18px; }
+.gizmo-nav .gizmo-btn { position: absolute; pointer-events: auto; background: rgba(255,255,255,.6); }   /* 和原来一样大（34 px，user「手和放大镜还是要和之前一样大。我说了遮挡了没关系的」） */
 .gizmo-nav .gizmo-menu { top: 0; right: 0; }
 .gizmo-nav .gizmo-pan { bottom: 0; left: 0; }
 .gizmo-nav .gizmo-zoom { bottom: 0; right: 0; }
-.gizmo-widgets { margin-top: 6px; }
+.gizmo-widgets { margin-top: 6px; align-self: flex-end; }   /* 别的钮靠右对齐（user「另外的按钮比如gridlock右对齐」） */
 .gizmo-snap { position: relative; }
 .gizmo-snaplock { position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; pointer-events: none; background: var(--panel); border-radius: 3px; }
 .gizmo-snaplock .ico { width: 12px; height: 12px; }

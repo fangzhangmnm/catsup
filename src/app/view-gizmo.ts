@@ -19,7 +19,7 @@ const AXES: { id: string; v: [number, number, number]; color: string; label: str
 ];
 const SIZE = 96, C = SIZE / 2, LEN = 34, R_POS = 9.5, R_NEG = 7;
 
-export interface ViewGizmoOpts { isWalking(): boolean; /** 透视 / 平行切了（宿主刷新菜单勾选之类）。 */ onProjection?(): void; /** 画布（透视对齐要知道 gizmo 在画布上的哪儿）。 */ canvas?: HTMLElement; }
+export interface ViewGizmoOpts { isWalking(): boolean; /** 透视 / 平行切了（宿主刷新菜单勾选之类）。 */ onProjection?(): void; }
 export interface ViewGizmo { render(): void; dispose(): void; }
 
 export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizmoOpts): ViewGizmo {
@@ -58,26 +58,17 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
   const bZoom = mk("zoom", "缩放：点一下 = 有选区缩放到选区、没有就缩放到全部（Shift+Z）；按住上下拖 = 缩放", () => {}); bZoom.classList.add("gizmo-zoom");   // 图标 zoom = 图标库 PENDING（fable 自画未过目）
   drag(bZoom, (_dx, dy) => editor.cam.zoomBy(Math.pow(1.01, dy)), () => editor.zoomTo());   // 缩放到全部的钮并进来了（user「zoom to selected和zoom to fit可以合租用放大镜……点击是zoom to，拖动是放大」）
 
-  // 轴 → 屏幕 2D。平行投影 = 相机 right / up 直接投；透视 = 按 gizmo 所在那块屏幕的透视投（user 2026-10-25「gizmos能不能按照透视对齐」）：
-  // gizmo 中心沿视线打到和焦点同深度的点 P，三根轴从 P 出发按真透视投到屏幕，方向和长短就和 gizmo 周围的轴向线（网格）平行。
-  const persp = (): { P: { x: number; y: number; z: number }; px: number; sx: number; sy: number } | null => {
-    const cam = editor.cam, canvas = opts.canvas;
-    if (cam.projection !== "persp" || !canvas) return null;
-    const vp = editor.vp(), cr = canvas.getBoundingClientRect(), gr = svg.getBoundingClientRect();
-    const sx = gr.left + gr.width / 2 - cr.left, sy = gr.top + gr.height / 2 - cr.top;
-    const f = cam.forward(), r = cam.right(), u = cam.up(), e = cam.eye(), t = cam.target, th = Math.tan(cam.fovY / 2), asp = vp.w / vp.h;
-    const nx = (2 * sx) / vp.w - 1, ny = 1 - (2 * sy) / vp.h;
-    const d = (t.x - e.x) * f.x + (t.y - e.y) * f.y + (t.z - e.z) * f.z;   // 焦点深度
-    const dir = { x: f.x + r.x * nx * th * asp + u.x * ny * th, y: f.y + r.y * nx * th * asp + u.y * ny * th, z: f.z + r.z * nx * th * asp + u.z * ny * th };
-    return { P: { x: e.x + dir.x * d, y: e.y + dir.y * d, z: e.z + dir.z * d }, px: (2 * d * th) / vp.h, sx, sy };   // px = 焦点深度上 1 屏幕像素多少米
-  };
+  // 轴 → 屏幕 2D。平行投影 = 相机 right / up 直接投；透视 = gizmo 自己一块小屏幕、自己在正中，用相机同一个视场角做透视
+  // （user 2026-10-25「不和场景共用vp。而是自己算透视，相当于自己有一块小屏幕，这样自己是居中的，就不会歪」）：
+  // 近的轴端大、远的轴端小，但不随 gizmo 在大屏幕上的位置歪（v0.13.68 按所在那块屏幕的透视投 = 歪，撤）。
   const project = (): { a: typeof AXES[number]; x: number; y: number; depth: number }[] => {
-    const cam = editor.cam, r = cam.right(), u = cam.up(), f = cam.forward(), pv = persp();
-    if (pv) {
-      const vp = editor.vp(), step = pv.px * 40, base = cam.angularPx(pv.P, vp);
-      const d2 = AXES.map((a) => { const [x, y, z] = a.v, q = cam.angularPx({ x: pv.P.x + x * step, y: pv.P.y + y * step, z: pv.P.z + z * step }, vp); return { a, dx: q.x - base.x, dy: q.y - base.y, depth: x * f.x + y * f.y + z * f.z }; });
-      const s = LEN / Math.max(1e-6, ...d2.filter((v) => v.a.label).map((v) => Math.hypot(v.dx, v.dy)));   // 方向、相对长短照透视；最长那根 = 原来的长度（不让 gizmo 缩小）
-      return d2.map((v) => ({ a: v.a, x: C + s * v.dx, y: C + s * v.dy, depth: v.depth })).sort((p, q) => q.depth - p.depth);
+    const cam = editor.cam, r = cam.right(), u = cam.up(), f = cam.forward();
+    if (cam.projection === "persp") {
+      const D = (C / LEN) / Math.tan(cam.fovY / 2);   // 小屏幕半高 = C px；轴长 1 = LEN px（在中心那个深度）→ 眼到中心的距离（轴长为单位）
+      return AXES.map((a) => {
+        const [x, y, z] = a.v, cx = x * r.x + y * r.y + z * r.z, cy = x * u.x + y * u.y + z * u.z, cz = x * f.x + y * f.y + z * f.z, k = D / Math.max(0.2, D + cz);
+        return { a, x: C + LEN * cx * k, y: C - LEN * cy * k, depth: cz };
+      }).sort((p, q) => q.depth - p.depth);
     }
     return AXES.map((a) => {
       const [x, y, z] = a.v;
@@ -87,8 +78,7 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
   let key = "";
   const render = (): void => {
     const cam = editor.cam;
-    const vpk = editor.vp();
-    const k = `${cam.yaw.toFixed(4)}|${cam.pitch.toFixed(4)}|${cam.projection}|${opts.isWalking()}|${cam.projection === "persp" ? `${cam.target.x.toFixed(3)},${cam.target.y.toFixed(3)},${cam.target.z.toFixed(3)}|${cam.halfH.toFixed(3)}|${vpk.w}x${vpk.h}` : ""}`;   // 透视对齐跟焦点 / 远近 / 视口走
+    const k = `${cam.yaw.toFixed(4)}|${cam.pitch.toFixed(4)}|${cam.projection}|${opts.isWalking()}`;
     if (k === key) return;
     key = k;
     const pts = project();
