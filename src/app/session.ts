@@ -67,6 +67,8 @@ export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off"
 export class Session {
   home: DocHome = { kind: "transient" };
   saving = false;
+  /** 还原出厂（factory-reset.ts）停机旗：之后 dirty() 恒 false、save() / flush 全 no-op、tick 已停——页面随后 reload。 */
+  private halted = false;
   /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
   pushPending = false;
   /** lazyblank（WeebPaint P1.5）：图库家 + 日期名只在内存，文件还没建；首笔有内容 → adoptLazy 翻 false。空白期永不落盘、回执条不写。 */
@@ -106,7 +108,7 @@ export class Session {
   }
 
   // ---------- 只读 ----------
-  dirty(): boolean { return this.d.editor.revision !== this.savedRevision; }
+  dirty(): boolean { return !this.halted && this.d.editor.revision !== this.savedRevision; }
   displayName(): string {
     switch (this.home.kind) {
       case "gallery": return bareName(this.home.path);
@@ -457,6 +459,7 @@ export class Session {
   /** 保存 = 送回家。transient 显式保存 = 安家仪式（FSA 另存 / 下载兜底）；implicit（自动 / 离开）在 transient 上是 noop。
    *  localOnly：崩溃安全 flush 用，只落本地不推（push-pending 留着）。 */
   async save(opts: { implicit?: boolean; localOnly?: boolean } = {}): Promise<boolean> {
+    if (this.halted) return false;
     if (this.adopting) await this.adopting;   // lazyblank 名字还没落定：等它（不含字节落盘，不会自等）
     if (this.saving) return false;
     const home = this.home;
@@ -561,4 +564,12 @@ export class Session {
 
   /** 挂图库的用户手势时刻（首次开图库 / 登录 / 首存）：persist 表态落点。 */
   static persistOnGesture(): void { void requestStoragePersistence(); }
+  /** 还原出厂 wipe 前收口（factory-reset.ts beforeWipe）：停 1 s tick（自动保存 / 盲快照）、放掉行李牌、家置成干净 transient——之后谁都别再写 store / crash-store / device-kv，
+   *  它们马上要被清；beforeunload 看 dirty() 也不再挽留。不走 setHome（它会写回执条，而回执条正要被清）。 */
+  haltForReset(): void {
+    window.clearInterval(this.timer);
+    this.halted = true; this.lazy = false; this.luggage = null;
+    this.home = { kind: "transient" };
+    this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+  }
 }

@@ -24,6 +24,7 @@ import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
 import { initGalleryHost } from "./gallery-host.ts";
+import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet } from "./ui/sheets.ts";
@@ -354,7 +355,7 @@ function renderShop(): void {
 btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -397,6 +398,12 @@ function menuPick(id: MenuId): void | "keep" {
         break;
       case "help": toggleHelp(true); break;
       case "update": note("sw", "force reset requested (menu)"); pwa.forceReset(); break;
+      // 还原出厂设置（家规 2½；factory-reset.ts）：两步护栏在它里面；成功 = 带 ?factory= reload，开机 finishFactoryResetAtBoot 收尾
+      case "factoryReset": note("app", "factory reset requested (menu)"); void runFactoryReset({
+        setStatus: (msg, error) => notify({ text: msg, level: error ? "error" : "info" }),
+        beforeWipe: () => { session.haltForReset(); },
+        clearOwnShell: () => pwa.clearOwnShell(),
+      }); break;
       case "vr": if (vr.isPresenting()) vr.exit(); else vr.enter(); break;
       case "lefthand": leftHanded = !leftHanded; PREF.set("leftHanded", leftHanded ? "1" : "0"); return "keep";
     }
@@ -427,6 +434,8 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
     { id: "material", label: "材质…", icon: "color", tab: "model", hint: "油漆桶蘸什么" },
     { id: "clear", label: "清空模型", icon: "trash-can", tab: "model", separatorBefore: true },
     { id: "finger", label: "手指也能画", checked: fingerDraws, tab: "settings", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
+    // 「开发者」节（家规 2½：还原出厂住开发者菜单；「强制更新（清缓存重启）」是另一个钮，留在帮助页）
+    { id: "factoryReset", label: "还原出厂设置…", icon: "trash-can", tab: "settings", sectionBefore: "开发者", hint: "两步确认" },
     { id: "help", label: "使用手册", icon: "help", tab: "help" },
     { id: "debuglog", label: "调试日志", icon: "wrench", tab: "help", hint: "复制给开发者" },
     { id: "update", label: "强制更新", icon: "refresh", tab: "help", hint: APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "") },   // WeebPaint 同款：版本号 = 行尾小字（user 10-24「字超了……weebpaint用的应该是小字」）
@@ -1086,6 +1095,8 @@ function bootRestore(): Promise<RestoreOutcome> {
   });
 }
 void (async () => {
+  // 还原出厂收尾（factory-reset.ts；家规 2½）：上一页清不掉的库（被本页开着的连接占住：缩略图 / 崩溃影子）在这里、在任何人开它们之前再删一遍。
+  if (hasFactoryResetMarker()) await finishFactoryResetAtBoot((msg, error) => notify({ text: msg, level: error ? "error" : "info" }));
   // 黑匣子前提（2026-09-20 发现）：store 的 reportStoreError 在 createStore() 之前是静默 no-op（0.15.0 error-handling.ts），而 redirect 回程的
   //   handleRedirectPromise 失败（error 级）/ [auth] init 诊断（log 级）都发生在 initAuth 里 → 曾挂过图库（登录点击必挂 → 回程必真）
   //   或 URL 带 OAuth 回程碎片时**先接线再 initAuth**，一条都不许漏。纯无地首开仍不碰 createStore。
@@ -1114,7 +1125,7 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
+(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
 editor.setTool("line");

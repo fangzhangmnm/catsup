@@ -10,7 +10,7 @@ const ROOT = fileURLToPath(new URL("..", import.meta.url));
 const SEAM = new Set(["src/app-store.ts", "src/app/device-kv.ts", "src/config.ts"]);
 const BAD = [
   { re: /\blocalStorage\b/, what: "localStorage" },
-  { re: /\bindexedDB\b/, what: "indexedDB", allow: new Set(["src/app/crash-store.ts"]) },   // T-crash 附加层的独立 IDB（user 2026-09-20 批）
+  { re: /\bindexedDB\b/, what: "indexedDB", allow: new Set(["src/app/crash-store.ts", "src/app/factory-reset.ts"]) },   // T-crash 附加层的独立 IDB（user 2026-09-20 批）；还原出厂只删自家三个 GUID 库（家规 2½，2026-10-25）
   { re: /PublicClientApplication|msal-browser/, what: "MSAL" },
   { re: /graph\.microsoft\.com/, what: "Graph" },
   { re: /\bcaches\b\s*\.\s*open/, what: "caches.open", allow: new Set(["src/app/pwa-shell.ts"]) },

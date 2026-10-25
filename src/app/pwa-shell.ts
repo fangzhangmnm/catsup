@@ -27,6 +27,8 @@ export interface PwaShell {
   /** 清缓存重启（PWA 卡旧版的逃生舱）：注销管着当前页面的那个 SW + 清自己前缀（`catsup-`）的缓存 + reload。IDB（文档缓存）不碰；
    *  同域名的兄弟 app 的离线壳、家族共享的模型缓存 `pwa-models` 不碰。 */
   forceReset: () => Promise<void>;
+  /** 还原出厂用（src/app/factory-reset.ts）：forceReset 的前半——只注销管着当前页面的 SW + 只删 `catsup-` 前缀缓存，**不** reload。 */
+  clearOwnShell: () => Promise<void>;
 }
 
 export function initPwaShell(opts: PwaShellOptions): PwaShell {
@@ -47,16 +49,17 @@ export function initPwaShell(opts: PwaShellOptions): PwaShell {
   // 加固（user 2026-09-04 Quest「点强制刷新没有自动重启」，原因不明且无法远程复现）：这条链不许无声——
   //   前置 flush 加超时（挂住也走）；导航用带时间戳的 replace（绕 HTTP 缓存；reload 被吞也能走）；2.5s 看门狗再踢一脚；
   //   重启后 boot 见 ?reset= 弹「已清缓存重启 · 版本」（app.ts），用户看得到到底有没有重启、到了哪一版。
+  // 只动自己的（家族 CLAUDE.md「共享模型库 · 命名与共享规矩」第 2 条；user 2026-10-01「四个项目清缓存修一下」。edited by Claude Fable 5.1 2026-10-01）：
+  //   家族的 app 几乎都挂在同一个域名下，缓存和 service worker 是按域名算的——「全部注销 / 全部删除」会把兄弟 app 的离线壳、
+  //   家族共享的模型缓存 `pwa-models`（语音识别模型、朗读语音包）一起清掉。自己的 = 管着当前页面的那一个 SW + 名字以 `catsup-` 开头的缓存。
+  async function clearOwnShell(): Promise<void> {
+    if (navigator.serviceWorker) { const r = await navigator.serviceWorker.getRegistration(); if (r) await r.unregister().catch(() => {}); }
+    if (typeof caches !== "undefined") for (const k of await caches.keys()) { if (k.startsWith(SHELL_CACHE_PREFIX)) await caches.delete(k).catch(() => {}); }
+  }
   async function forceReset(): Promise<void> {
     const settle = (p: void | Promise<void>, ms: number) => Promise.race([Promise.resolve(p).catch(() => undefined), new Promise<void>((r) => setTimeout(r, ms))]);
     await settle(opts.onBeforeReload?.(), 4000);
-    try {
-      // 只动自己的（家族 CLAUDE.md「共享模型库 · 命名与共享规矩」第 2 条；user 2026-10-01「四个项目清缓存修一下」。edited by Claude Fable 5.1 2026-10-01）：
-      //   家族的 app 几乎都挂在同一个域名下，缓存和 service worker 是按域名算的——「全部注销 / 全部删除」会把兄弟 app 的离线壳、
-      //   家族共享的模型缓存 `pwa-models`（语音识别模型、朗读语音包）一起清掉。
-      if (navigator.serviceWorker) { const r = await navigator.serviceWorker.getRegistration(); if (r) await r.unregister().catch(() => {}); }
-      if (typeof caches !== "undefined") for (const k of await caches.keys()) { if (k.startsWith(SHELL_CACHE_PREFIX)) await caches.delete(k).catch(() => {}); }
-    } catch { /* best-effort — reload anyway */ }
+    try { await clearOwnShell(); } catch { /* best-effort — reload anyway */ }
     const target = `${location.pathname}?reset=${Date.now()}`;
     setTimeout(() => location.replace(target), 150);
     setTimeout(() => { location.href = target; }, 2500);   // 看门狗：第一脚没走再踢一次
@@ -87,5 +90,5 @@ export function initPwaShell(opts: PwaShellOptions): PwaShell {
     }).catch((err: unknown) => { console.warn("[pwa] SW register failed", err); opts.onLog?.(`SW register failed: ${String((err as { message?: unknown })?.message ?? err)}`); });
   }
 
-  return { isDevRoute, reload, forceReset };
+  return { isDevRoute, reload, forceReset, clearOwnShell };
 }

@@ -82,5 +82,8 @@ export function docFile(identifier: string, mode: "new" | "existing" = "existing
 }
 
 export { requestStoragePersistence, isCached, isDirty };
+export { wipeAppNamespace, scanAppNamespace } from "@internal/store";   // maintenance 面经接缝转口（factory-reset.ts 消费；库内 typed consent）
+/** 还原出厂前置：释放本 store 实例（否则库 wipe 进 blocked 报告）。之后任何面抛 StoreDisposedError——只能 reload。没挂过图库 = no-op。 */
+export async function disposeStore(): Promise<void> { const s = _store; if (!s) return; _store = null; await s.dispose(); }
 export type { Store, RawFile };
 export type { Item, SyncState, SaveResult, TryMoveResult, FolderSnapshot } from "@internal/store";

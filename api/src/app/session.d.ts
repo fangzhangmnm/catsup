@@ -40,6 +40,8 @@ export declare class Session {
     private d;
     home: DocHome;
     saving: boolean;
+    /** 还原出厂（factory-reset.ts）停机旗：之后 dirty() 恒 false、save() / flush 全 no-op、tick 已停——页面随后 reload。 */
+    private halted;
     /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
     pushPending: boolean;
     /** lazyblank（WeebPaint P1.5）：图库家 + 日期名只在内存，文件还没建；首笔有内容 → adoptLazy 翻 false。空白期永不落盘、回执条不写。 */
@@ -169,5 +171,8 @@ export declare class Session {
     flushLocal(): Promise<void>;
     /** 挂图库的用户手势时刻（首次开图库 / 登录 / 首存）：persist 表态落点。 */
     static persistOnGesture(): void;
+    /** 还原出厂 wipe 前收口（factory-reset.ts beforeWipe）：停 1 s tick（自动保存 / 盲快照）、放掉行李牌、家置成干净 transient——之后谁都别再写 store / crash-store / device-kv，
+     *  它们马上要被清；beforeunload 看 dirty() 也不再挽留。不走 setHome（它会写回执条，而回执条正要被清）。 */
+    haltForReset(): void;
 }
 export {};

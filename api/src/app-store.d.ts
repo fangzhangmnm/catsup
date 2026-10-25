@@ -12,5 +12,8 @@ export declare function requireStore(): Store;
 /** 文档句柄工厂（身份 = 全名 `夹/名.glb`；.glb 是裸文件，走 file() 不走 zip()）。 */
 export declare function docFile(identifier: string, mode?: "new" | "existing"): RawFile;
 export { requestStoragePersistence, isCached, isDirty };
+export { wipeAppNamespace, scanAppNamespace } from "@internal/store";
+/** 还原出厂前置：释放本 store 实例（否则库 wipe 进 blocked 报告）。之后任何面抛 StoreDisposedError——只能 reload。没挂过图库 = no-op。 */
+export declare function disposeStore(): Promise<void>;
 export type { Store, RawFile };
 export type { Item, SyncState, SaveResult, TryMoveResult, FolderSnapshot } from "@internal/store";

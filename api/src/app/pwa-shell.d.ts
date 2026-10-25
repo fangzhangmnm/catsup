@@ -12,5 +12,7 @@ export interface PwaShell {
     /** 清缓存重启（PWA 卡旧版的逃生舱）：注销管着当前页面的那个 SW + 清自己前缀（`catsup-`）的缓存 + reload。IDB（文档缓存）不碰；
      *  同域名的兄弟 app 的离线壳、家族共享的模型缓存 `pwa-models` 不碰。 */
     forceReset: () => Promise<void>;
+    /** 还原出厂用（src/app/factory-reset.ts）：forceReset 的前半——只注销管着当前页面的 SW + 只删 `catsup-` 前缀缓存，**不** reload。 */
+    clearOwnShell: () => Promise<void>;
 }
 export declare function initPwaShell(opts: PwaShellOptions): PwaShell;

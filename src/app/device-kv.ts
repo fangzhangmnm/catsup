@@ -57,3 +57,19 @@ export function migrateLegacyUiPrefs(keys: readonly string[]): void {
     } catch { /* 忽略 */ }
   }
 }
+
+/** 还原出厂（factory-reset.ts）：清掉本 app 前缀下的全部键（含内存层），返回删了几个。只动自己前缀——同域名下还有兄弟 app。 */
+export function deviceKvWipeAll(): number {
+  let n = 0;
+  const ls = _ls();
+  if (ls) { try { const keys: string[] = []; for (let i = 0; i < ls.length; i++) { const k = ls.key(i); if (k && k.startsWith(PREFIX)) keys.push(k); } for (const k of keys) { ls.removeItem(k); n++; } } catch { /* best-effort */ } }
+  n += _mem.size; _mem.clear();
+  return n;
+}
+/** 还原出厂后验证归零用：本 app 前缀下还剩几个键（含内存层）。 */
+export function deviceKvCount(): number {
+  let n = _mem.size;
+  const ls = _ls();
+  if (ls) { try { for (let i = 0; i < ls.length; i++) { const k = ls.key(i); if (k && k.startsWith(PREFIX)) n++; } } catch { /* best-effort */ } }
+  return n;
+}
