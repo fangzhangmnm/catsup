@@ -7,6 +7,7 @@
 
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS } from "../editor/tool-ids.ts";
+import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
@@ -230,6 +231,8 @@ const RAIL_GROUPS: RailGroup[] = [
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
 const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
+/** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
+const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "rrect"], t: ["tape", "protractor", "axes"] };
 let shapeCurrent: Tool = "rect";
 /** 本次会话里用过的池工具（按最近使用）；开局为空 = 只显示常驻。 */
 const usedPool = new Map<string, Tool[]>(RAIL_GROUPS.map((g) => [g.id, []]));
@@ -736,7 +739,15 @@ window.addEventListener("keydown", (ev) => {
     const key = ev.key.toLowerCase();
     const t = map[key];
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q" || key === "a" || key === "t");
-    if (t && !takenByWalk) { ev.preventDefault(); editor.setTool(t); return; }
+    if (t && !takenByWalk) {
+      ev.preventDefault();
+      // 同一个键再按一下 = 在这个工具组里换下一把（user 2026-10-25「快捷键在工具组里怎么循环：同一个键再按一下」）：
+      // E 橡皮 → 焊边 → 软边；R 矩形 → 旋转矩形；T 卷尺 → 量角器 → 轴；A 弧的四种画法轮换（画法是工具选项）。不在组里 = 照旧切过去。
+      const cyc = KEY_CYCLES[key];
+      if (cyc && cyc.includes(editor.tool)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next); return; } }
+      if (key === "a" && editor.tool === "arc") { const modes: string[] = ARC_MODES.map((m) => m.id), cur = editor.config.get("arc", "mode") as string; const nx = modes[(modes.indexOf(cur) + 1) % modes.length]; editor.config.set("arc", "mode", nx); hintEl.textContent = `弧：${ARC_MODES.find((m) => m.id === nx)?.label ?? nx}（再按 A 换下一种）`; syncUi(); return; }
+      editor.setTool(t); return;
+    }
     if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件
     if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
   }
