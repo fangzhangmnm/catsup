@@ -22,7 +22,7 @@ import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
-import { Editor, GRID_PLANES, TOOLS, gridStepsFor, nearestGridStep, type Tool, type GridPlane } from "../editor/editor.ts";
+import { Editor, GRID_PLANES, GRID_PRESETS, TOOLS, gridPreset, gridStepsFor, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
 import { README_SECTIONS } from "./readme-docs.ts";
@@ -362,7 +362,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
       case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
-      case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; const st = nearestGridStep(editor.grid.step, editor.vcbUnit); if (st !== editor.grid.step) editor.setGrid({ step: st }); syncUi(); return "keep"; }
+      case "unit": { const i = LENGTH_UNITS.findIndex((u) => u.id === editor.vcbUnit); editor.vcbUnit = LENGTH_UNITS[(i + 1) % LENGTH_UNITS.length].id; syncUi(); return "keep"; }   // 长度单位只管显示 / 输入；栅格制式是另一个旋钮（user 10-24「这两个分开来」）
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
@@ -491,7 +491,9 @@ function renderCrumbs(): void {
   });
 }
 // 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
-type GridMenuId = `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off";
+type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off";
+/** 格距怎么念：按制式自带的单位（D&D 的 5 ft 不念成 1.524 m），不跟 vcbUnit。 */
+const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(step, gridPreset(preset).unit);
 const gridChip = document.getElementById("gridChip") as HTMLElement;
 /** 左上编辑模式下拉框（几何 / 表面）。 */
 function renderModeSelect(): void {
@@ -502,12 +504,13 @@ function renderModeSelect(): void {
 function renderGridChip(): void {
   const g = editor.grid;
   gridChip.hidden = !g.on;
-  gridChip.textContent = `栅格 ${g.plane.toUpperCase()} · ${fmtVcbLength(g.step, editor.vcbUnit)} · 1/${g.subdiv}`;
+  gridChip.textContent = `栅格 ${g.plane.toUpperCase()} · ${fmtGridStep(g.step, g.preset)} · 1/${g.subdiv}`;
 }
 gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
   anchor: gridChip, align: "end",
   items: () => [
-    ...gridStepsFor(editor.vcbUnit).map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtVcbLength(s, editor.vcbUnit)}`, checked: Math.abs(editor.grid.step - s) < 1e-9 })),   // 格距跟单位制（user 10-24：默认 SI，英制 = 5 ft 等）
+    ...GRID_PRESETS.map((p) => ({ id: `preset:${p.id}` as GridMenuId, label: `制式 ${p.label}`, checked: editor.grid.preset === p.id, ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })),   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）；下拉深模块化归 Opus（B40）
+    ...gridStepsFor(editor.grid.preset).map((s) => ({ id: `step:${s}` as GridMenuId, label: `格距 ${fmtGridStep(s, editor.grid.preset)}`, checked: Math.abs(editor.grid.step - s) < 1e-9, ...(s === gridStepsFor(editor.grid.preset)[0] ? { separatorBefore: true } : {}) })),
     ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: `栅格面 ${p.label}`, checked: editor.grid.plane === p.id, ...(p.id === "xy" ? { separatorBefore: true } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
     { id: "sub:5" as GridMenuId, label: "吸附 1/5", checked: editor.grid.subdiv === 5, separatorBefore: true, hint: "仪表盘式" },
     { id: "sub:10" as GridMenuId, label: "吸附 1/10", checked: editor.grid.subdiv === 10, hint: "尺子式" },
@@ -515,7 +518,8 @@ gridChip.addEventListener("click", () => togglePopupMenu<GridMenuId>({
   ],
   onPick: (id) => {
     if (id === "off") { editor.setGrid({ on: false }); return; }
-    if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane });
+    if (id.startsWith("preset:")) { const preset = id.slice(7) as GridPreset; editor.setGrid({ preset, step: nearestGridStep(editor.grid.step, preset) }); }
+    else if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane });
     else if (id === "sub:5" || id === "sub:10") editor.setGrid({ subdiv: id === "sub:5" ? 5 : 10 });
     else editor.setGrid({ step: Number(id.slice(5)) });
     return "keep";
@@ -658,7 +662,7 @@ viewMenuBtn.addEventListener("click", () => togglePopupMenu<MenuId>({
   items: () => [
     { id: "persp", label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), sectionBefore: "视图" },
     ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
-    { id: "grid", label: "栅格吸附", checked: editor.grid.on, hint: `${fmtVcbLength(editor.grid.step, editor.vcbUnit)} · 1/${editor.grid.subdiv}` },
+    { id: "grid", label: "栅格吸附", checked: editor.grid.on, hint: `${gridPreset(editor.grid.preset).label} · ${fmtGridStep(editor.grid.step, editor.grid.preset)} · 1/${editor.grid.subdiv}` },
     { id: "unit", label: `单位：${LENGTH_UNITS.find((u) => u.id === editor.vcbUnit)?.label ?? editor.vcbUnit}`, hint: "点一下换下一个" },
     { id: "walk", label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), sectionBefore: "相机" },
     { id: "noclip", label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking() },

@@ -10,7 +10,7 @@ import { WORLD_FRAME, type Frame } from "../src/scene/xform.ts";
 import { axisAlignAngle } from "../src/editor/protractor-geom.ts";
 import { newDocument, readCatsup, writeCatsup } from "../src/format/index.ts";
 import { DEFAULT_SETTINGS } from "../src/format/document.ts";
-import { gridFromSettings } from "../src/editor/grid-settings.ts";
+import { gridFromSettings, settingsFromGrid, nearestGridStep, gridStepsFor, DEFAULT_GRID } from "../src/editor/grid-settings.ts";
 import { rectToolTargets } from "../src/editor/tools.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -131,6 +131,17 @@ describe("grid: 文档 settings 往返", () => {
     eq(g.on, true); eq(g.step, 0.5); eq(g.subdiv, 10);
     eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: -1, gridSubdiv: 7 }).step, 1); eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridSubdiv: 7 }).subdiv, 5);
   });
+  it("制式 ≠ 长度单位（user 10-24「这两个分开来」）：默认公制不写键；D&D 写 gridPreset 读回；老文档没键按格距猜（英制档 → 建筑英尺英寸）；换制式格距挪到最近一档", () => {
+    eq(DEFAULT_GRID.preset, "si");
+    eq(settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID }).gridPreset, undefined, "公制不写键 = 默认文档字节不变");
+    const s = settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, preset: "dnd", step: 1.524 });
+    eq(s.gridPreset, "dnd"); eq(gridFromSettings(s).preset, "dnd"); eq(gridFromSettings(s).step, 1.524);
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 0.3048 }).preset, "architectural", "老英制文档：1 ft 格距 → 建筑制式");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 0.5 }).preset, "si");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPreset: "mars" as never }).preset, "si", "坏值回公制");
+    assert(gridStepsFor("dnd").includes(1.524) && gridStepsFor("architectural").includes(0.3048) && !gridStepsFor("dnd").includes(0.0254), "D&D 只有 5 / 10 ft；建筑有 1 ft");
+    eq(nearestGridStep(1, "dnd"), 1.524); eq(nearestGridStep(1.524, "si"), 1); eq(nearestGridStep(0.1, "architectural"), 0.1524);
+  });
 });
 
 describe("grid: 网格面 xy / yz / xz（user 2026-10-24「方便我吸附画立面」）", () => {
@@ -143,9 +154,9 @@ describe("grid: 网格面 xy / yz / xz（user 2026-10-24「方便我吸附画立
     }
     assert(near(gridFrame(WORLD_FRAME, "yz").z, P(1, 0, 0)), "yz 的法向 = X");
     assert(near(gridFrame(WORLD_FRAME, "xz").z, P(0, -1, 0)), "xz 的法向 = −Y");
-    const s = settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "yz" });
+    const s = settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "yz", preset: "si" });
     eq(s.gridPlane, "yz"); eq(gridFromSettings(s).plane, "yz");
-    eq(settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "xy" }).gridPlane, undefined, "xy 不写键");
+    eq(settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "xy", preset: "si" }).gridPlane, undefined, "xy 不写键");
     eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPlane: "zz" as never }).plane, "xy", "坏值回 xy");
   });
   it("网格面 yz 开着：空处首点落在 x=0 的立面上，格点也在立面上", async () => {

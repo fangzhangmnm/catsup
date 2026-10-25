@@ -15,6 +15,7 @@ export interface DocumentSettings {
   absoluteGrid: boolean;
   /** 网格面（0.13.14；可选键，缺省 xy）：yz / xz = 立面网格。 */
   gridPlane?: "xy" | "yz" | "xz";
+  gridPreset?: "si" | "architectural" | "dnd";   // 栅格制式（0.13.33；缺 = 公制，或按格距猜英制）——可选键，不升版
   gridSubdiv: number;       // 吸附细分（0.11 ⑤；user 2026-10-24「snap 比显示要细，1/5 还是 1/10 没想好」→ 5 默认、10 可选）
 }
 
