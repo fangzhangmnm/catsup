@@ -9,7 +9,7 @@ import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
-import { SCALE_TIP_MAX, SCALE_TIP_STYLES, type ScaleTipStyle, scaleTipHtml } from "./scale-tip.ts";
+import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountContextBar } from "./context-bar.ts";
@@ -96,8 +96,7 @@ const PREF = {
   set(key: string, v: string): void { deviceKvSet(`ui.${key}`, v); },
 };
 let fingerDraws = PREF.get("fingerDraws") === "1";
-// B43 尺度参考的试用开关（这台设备记住；user「多试试吧」「有一个最多条目数」）：样式 + 最多几条
-let scaleStyle: ScaleTipStyle = SCALE_TIP_STYLES.some((s) => s.id === PREF.get("scaleStyle")) ? (PREF.get("scaleStyle") as ScaleTipStyle) : "fade";
+// B43 尺度参考：最多几条（这台设备记住；user「有一个最多条目数」）。样式只剩字的深浅（user「要不不要图像，就字的深淡」）
 let scaleMax: number = (SCALE_TIP_MAX as readonly number[]).includes(Number(PREF.get("scaleMax"))) ? Number(PREF.get("scaleMax")) : 3;
 let leftHanded = PREF.get("leftHanded") === "1";   // VR：左手持笔（工具手/面板手对调）
 /** 线稿粗细（设备像素）：存过就用存的；没存过 → 高 DPI（iPad / Retina）默认 1.5，否则 1（原生）。user 10-24「ipad上面细线稿是不舒服…有1.5这种选项吗」 */
@@ -124,7 +123,7 @@ const editor = new Editor(canvas, {
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
   tip: (t, cx, cy, scale) => {
-    const html = scaleTipHtml(t, scale ?? null, scaleStyle, scaleMax);   // B43：参考画在同一个提示框里（user「不要让用户眼睛还要看别的地方」）
+    const html = scaleTipHtml(t, scale ?? null, scaleMax);   // B43：参考画在同一个提示框里（user「不要让用户眼睛还要看别的地方」）
     if (html) {
       tipEl.innerHTML = html;
       tipEl.hidden = false;
@@ -720,9 +719,9 @@ function ensureScaleLadder(now = false): void {
   loadLadder().then((L) => { ladder = L; editor.setScaleLadder(L); if (viewMenuHandle?.isOpen()) viewMenuHandle.refresh(); })
     .catch((e) => { note("scale", `size ladder load failed: ${(e as Error).message}`); });
 }
-type RefMenuId = `ref:${string}` | `refstyle:${ScaleTipStyle}` | `refmax:${number}`;
-const isRefId = (id: string): id is RefMenuId => id.startsWith("ref:") || id.startsWith("refstyle:") || id.startsWith("refmax:");
-/** 「参考」页（user 定：选单只有一个、单选；题材一行、亚种一排小块；试用开关也在这页）。 */
+type RefMenuId = `ref:${string}` | `refmax:${number}`;
+const isRefId = (id: string): id is RefMenuId => id.startsWith("ref:") || id.startsWith("refmax:");
+/** 「参考」页（user 定：选单只有一个、单选；题材一行、亚种一排小块；「最多几条」也在这页）。 */
 function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; tab: string; sectionBefore?: string; separatorBefore?: boolean; chips?: { id: RefMenuId; label: string; checked?: boolean }[]; note?: boolean }[] {
   const tab = "ref", cur = editor.scaleRef;
   const L = ladder;
@@ -738,15 +737,13 @@ function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; tab: 
     out.push({ id: `ref:${ms[0].id}`, label: themeName(ms[0]), tab, chips: ms.map((m) => ({ id: `ref:${m.id}` as RefMenuId, label: m.view === "ALL" ? themeName(m) : m.names.zh.split(" · ").slice(1).join(" · "), checked: cur === m.id })) });
   }
   out.push({ id: "ref:other", label: "其他", tab, chips: single });
-  out.push({ id: "refstyle:fade", label: "样式", tab, sectionBefore: "试用（这台设备记住）", chips: SCALE_TIP_STYLES.map((s) => ({ id: `refstyle:${s.id}` as RefMenuId, label: s.label, checked: scaleStyle === s.id })) });
-  out.push({ id: "refmax:3", label: "最多", tab, chips: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
+  out.push({ id: "refmax:3", label: "最多", tab, sectionBefore: "试用（这台设备记住）", chips: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
   const notes = remindersFor(L, cur);
   if (cur?.endsWith("/DND")) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
   notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "新手提醒" } : {}) }));
   return out;
 }
 function onRefPick(id: RefMenuId): "keep" {
-  if (id.startsWith("refstyle:")) { scaleStyle = id.slice(9) as ScaleTipStyle; PREF.set("scaleStyle", scaleStyle); return "keep"; }
   if (id.startsWith("refmax:")) { scaleMax = Number(id.slice(7)); PREF.set("scaleMax", String(scaleMax)); return "keep"; }
   const ref = id.slice(4);
   if (ref === "other") return "keep";
