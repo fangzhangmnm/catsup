@@ -83,8 +83,8 @@ export type EditorTrace =
 
 export interface EditorHost {
   hint(text: string | null): void;
-  /** 跟指针的提示框；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
-  tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null): void;
+  /** 跟指针的提示框；measure = 手势中的读数（user 2026-10-25「优先显示长度，参考只是参考」：第一行、最显眼）；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
+  tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null, measure?: string): void;
   trace?(entry: EditorTrace): void;
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   changed(): void;
@@ -1521,7 +1521,7 @@ export class Editor {
   private updateTip(clientX: number, clientY: number): void {
     // 工具提示 > 吸附自带 label（15° / 整数长度的数值…）> 吸附种类标签（user 2026-10-24「incremental 是不是可以 tooltip 跟着指针走」）
     const sn = this.snapInfo;
-    this.host.tip(this.toolTip ?? (sn?.kind ? sn.label ?? (sn.kind === "tool" ? "工具" : SNAP_LABELS[sn.kind] ?? sn.kind) : null), clientX, clientY, this.scaleTip());
+    this.host.tip(this.toolTip ?? (sn?.kind ? sn.label ?? (sn.kind === "tool" ? "工具" : SNAP_LABELS[sn.kind] ?? sn.kind) : null), clientX, clientY, this.scaleTip(), this.dims);
   }
 
   // ---------- 缩放柄 ----------

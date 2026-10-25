@@ -38,14 +38,27 @@ await page.click(".multi-select .ms-clear"); await page.waitForTimeout(80);
 res.cleared = { refs: await refs(), page: await pageInfo() };
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 await drawUp(); res.off = await tip(); await page.keyboard.press("Escape");
-console.log(JSON.stringify({ ...res, fade: res.fade.slice(0, 300), five: res.five.slice(0, 120), rect: res.rect.slice(0, 200) }));
+// ⑥ 笔 / 手指：提示框摆到光标左上（user「tooltip右手惯用手的话会被笔挡住」）——先让 app 认成笔输入（选择工具在空处点一下），再拉线
+await refPage(); await page.click('.popup-menu [data-menu-id="ref:pick"]'); await page.waitForTimeout(80); await page.click('.multi-select [data-ms-id="interior/ALL"]'); await page.waitForTimeout(60); await page.keyboard.press("Escape"); await page.waitForTimeout(60);
+// 整笔用合成的笔事件：落点 → 抬起（第一下）→ ↑ 锁 Z → 笔悬停挪到 0.914 m（真鼠标一点就会让 app 认回鼠标）
+const a0 = await px({ x: 0, y: 0, z: 0 }), a1 = await px({ x: 0, y: 0, z: 0.914 });
+await page.evaluate(() => globalThis.__catsup.hud.pick("line"));
+await page.evaluate(([x, y]) => { const c = document.elementFromPoint(x, y); const o = { bubbles: true, pointerId: 9, pointerType: "pen", clientX: x, clientY: y, isPrimary: true, button: 0, buttons: 1 }; c.dispatchEvent(new PointerEvent("pointerdown", o)); c.dispatchEvent(new PointerEvent("pointerup", { ...o, buttons: 0 })); }, [box.x + a0.x, box.y + a0.y]);
+await page.waitForTimeout(80); await page.keyboard.press("ArrowUp");
+await page.evaluate(([x0, y0, x1, y1]) => { const c = document.elementFromPoint(x0, y0); for (let i = 1; i <= 6; i++) { const x = x0 + (x1 - x0) * i / 6, y = y0 + (y1 - y0) * i / 6; c.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, pointerId: 9, pointerType: "pen", clientX: x, clientY: y, isPrimary: true, buttons: 0 })); } }, [box.x + a0.x, box.y + a0.y, box.x + a1.x, box.y + a1.y]);
+await page.waitForTimeout(150);
+res.penBox = await page.evaluate(() => { const r = document.getElementById("tip").getBoundingClientRect(); return { right: Math.round(r.right), bottom: Math.round(r.bottom) }; });
+res.cursor = await (async () => { const q = await px({ x: 0, y: 0, z: 0.914 }); return { x: Math.round(box.x + q.x), y: Math.round(box.y + q.y) }; })();
+res.penTip = await tip(); await page.keyboard.press("Escape");
+console.log(JSON.stringify({ ...res, penTip: res.penTip.slice(0, 80), off: res.off.slice(0, 120), fade: res.fade.slice(0, 300), five: res.five.slice(0, 120), rect: res.rect.slice(0, 200) }));
 const ok = res.loaded && res.refs0 === "interior/ALL|exterior/ALL"
-  && /栏杆/.test(res.fade) && names(res.fade) === 3 && !/<svg|hit/.test(res.fade)
+  && /栏杆/.test(res.fade) && names(res.fade) === 3 && !/<svg|hit/.test(res.fade) && /^<div class="tip-main"><span class="tip-measure">长 /.test(res.fade)
   && /室内、室外/.test(res.page0.pick) && res.page0.chips === 3 && /新手提醒/.test(res.page0.sections) && /估算/.test(res.page0.notes)
   && res.msOpen.n >= 20 && res.msOpen.on === "interior/ALL|exterior/ALL"
   && res.afterDnd.refs === "interior/ALL|exterior/ALL|interior/DND" && res.afterDnd.parentOpen && res.afterDnd.msOpen && /等 3 项/.test(res.afterDnd.page.pick) && /SRD 5\.1/.test(res.afterDnd.page.notes)
   && names(res.five) === 5
   && /tip-ref/.test(res.rect) && /间|卧|厨|厅|车/.test(res.rect)
-  && res.cleared.refs === "" && /不显示/.test(res.cleared.page.pick) && !/tip-ref/.test(res.off);
+  && res.cleared.refs === "" && /不显示/.test(res.cleared.page.pick) && !/tip-ref/.test(res.off) && /tip-measure/.test(res.off)
+  && /tip-ref/.test(res.penTip) && res.penBox.right <= res.cursor.x && res.penBox.bottom <= res.cursor.y;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

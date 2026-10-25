@@ -99,6 +99,7 @@ const PREF = {
 let fingerDraws = PREF.get("fingerDraws") === "1";
 // B43 尺度参考：最多几条（这台设备记住；user「有一个最多条目数」）。样式只剩字的深浅（user「要不不要图像，就字的深淡」）
 let lastTipHtml = "";
+let tipSize = { w: 0, h: 0 };
 let scaleMax: number = (SCALE_TIP_MAX as readonly number[]).includes(Number(PREF.get("scaleMax"))) ? Number(PREF.get("scaleMax")) : 3;
 let leftHanded = PREF.get("leftHanded") === "1";   // VR：左手持笔（工具手/面板手对调）
 /** 线稿粗细（设备像素）：存过就用存的；没存过 → 高 DPI（iPad / Retina）默认 1.5，否则 1（原生）。user 10-24「ipad上面细线稿是不舒服…有1.5这种选项吗」 */
@@ -124,14 +125,19 @@ let _session: Session | null = null;   // editor.host.changed 要同步喂 sessi
 const editor = new Editor(canvas, {
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
-  tip: (t, cx, cy, scale) => {
-    const html = scaleTipHtml(t, scale ?? null, scaleMax);   // B43：参考画在同一个提示框里（user「不要让用户眼睛还要看别的地方」）
+  tip: (t, cx, cy, scale, measure) => {
+    const html = scaleTipHtml(t, scale ?? null, scaleMax, measure || undefined);   // 读数第一行；B43 参考第二行（user「优先显示长度，参考只是参考」）
     if (html) {
-      if (html !== lastTipHtml) { tipEl.innerHTML = html; lastTipHtml = html; }   // 字没变不重写（拖动时每帧都会叫到这里）
+      if (html !== lastTipHtml) { tipEl.innerHTML = html; lastTipHtml = html; tipEl.hidden = false; tipSize = { w: tipEl.offsetWidth, h: tipEl.offsetHeight }; }   // 字没变不重写、不重量（拖动时每帧都会叫到这里）
       tipEl.hidden = false;
-      tipEl.style.left = `${cx + 14}px`;
-      tipEl.style.top = `${cy - 28}px`;
-    } else tipEl.hidden = true;
+      // 笔 / 手指时摆到光标左上（user「tooltip右手惯用手的话会被笔挡住」）；左手持笔 = 右上；鼠标照旧右下
+      const handy = lastPointerType === "pen" || lastPointerType === "touch";
+      let x = !handy ? cx + 14 : leftHanded ? cx + 18 : cx - 18 - tipSize.w;
+      let y = !handy ? cy - 28 : cy - 18 - tipSize.h;
+      x = Math.max(4, Math.min(window.innerWidth - tipSize.w - 4, x)); y = Math.max(4, Math.min(window.innerHeight - tipSize.h - 4, y));
+      tipEl.style.left = `${x}px`;
+      tipEl.style.top = `${y}px`;
+    } else { tipEl.hidden = true; lastTipHtml = ""; }
   },
   trace: (e) => {
     note("op", traceLine(e));   // 记账面包屑 → 黑匣子（一 op 一行；失败行带 op JSON）

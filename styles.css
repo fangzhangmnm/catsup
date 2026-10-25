@@ -303,7 +303,9 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .swatch.active { border-color: #2b6cb0; box-shadow: 0 0 0 2px rgba(43,108,176,.35); }
 .swatch-label { position: absolute; left: 0; right: 0; bottom: 0; font-size: 11px; line-height: 1.3; padding: 2px 0; background: rgba(255,255,255,.78); color: #222; border-radius: 0 0 6px 6px; }
 /* B43 尺度参考（2026-10-25 Opus）：跟指针提示框第二行，只有字的深浅（scale-tip.ts） */
-#tip .tip-ref { margin-top: 1px; color: var(--ink); }
+#tip .tip-ref { margin-top: 1px; font-size: 11px; color: var(--muted); }
+#tip .tip-measure { font-weight: 700; font-variant-numeric: tabular-nums; }
+#tip .tip-snap { margin-left: 6px; font-size: 11px; color: var(--muted); }
 #tip .tip-ref .sep { opacity: .35; }
 /* 弹出菜单的「一行小块」和「纯文字说明」（B43 参考页） */
 .menu-chips { display: flex; align-items: center; flex-wrap: wrap; gap: 4px; padding: 3px 10px; }
