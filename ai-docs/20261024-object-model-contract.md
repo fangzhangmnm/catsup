@@ -125,10 +125,10 @@ Instance.layer?: number          // 缺省 = 继承父上下文的有效层
 见 §9 进度表。
 
 ## 8. Opus 交接（UI / 渲染接线）
-- 导入卡片对话框：裁剪、调分辨率、PNG / JPG、**参考高度（必填）**→ 组装 `ImageAsset` + `placeCard`；透视修正、像素化在同一个对话框里（WeebPaint 那边有 Cycletex 调研可借）。
+- ~~导入卡片对话框~~（CardBody v0.13.32 已拆；图片导入深模块 = 总账 B42，产物是 `ImageAsset`，消费方是贴图，以后是 ReferenceImage / Entity。edited by Claude Opus 5.5）
 - 物体面板（「商城 / inventory」位置）：按 kind 分组的定义列表、实例数、重命名、cast（确认面文案 = `loses` + 「N 个实例一起变」）、替换定义、锁、层。
 - 层面板：层表 + 可见开关 + 「选区归到层」；隐藏态在面包屑 / 面板有标记。
-- 渲染：card = 一张带透明贴图的竖直四边形（billboard 绕 Z 朝相机）；mesh = 三角网 + 默认剔背面；两者都走现有 FACE / TEX shader 一族，不另开材质系统。
+- 渲染：mesh = 三角网 + 默认剔背面，走现有 FACE / TEX shader 一族，不另开材质系统。（card 那半随 CardBody 退场，edited by Claude Opus 5.5）
 - 视图挂件条 / 吸附挂件 / 轴锁（见总账「→ Opus 交接」条）。
 
 ## 9. 进度（v0.13.26 全部落地，2026-10-24 夜；勾选补记 by Claude Fable 5.1 同日深夜——落地时漏勾）
