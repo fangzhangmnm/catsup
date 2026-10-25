@@ -104,7 +104,8 @@ const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
 const GUIDE_COLOR = 0x6b7280, GUIDE_SEL_COLOR = 0x2b6cb0, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;   // 选中 = 与选中膜同一个蓝（A31）
 /** A33 断口小垂线：半长 px + 颜色（提醒色，与参考线 / 充能区分）。 */
-const TICK_PX = 5, TICK_COLOR = 0xd9822b;
+/** A33 断口小垂线：半长 = 线宽 × TICK_K、颜色 = 边线色、粗细 = 边线（user 2026-10-24「首先应该黑色，其次应该小一点不显眼……线宽的多少倍……相当于线上面多一个鼓包这样，但是看得出是一个线头」；此前橙色、半长固定 5 px）。 */
+const TICK_K = 2;
 
 const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
 const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
@@ -552,6 +553,7 @@ export class Renderer3 {
     const k = presenting ? scale : 1;
     this.edgeMat.linewidth = Math.max(this.lineWeight, 1) * k;
     this.profileAdd.value = profileAddFor(Math.max(this.lineWeight, 1)) * k;
+    if (this.tickLines) this.tickLines.material.linewidth = Math.max(this.lineWeight, 1) * k;   // 断口小垂线跟边线一样粗（鼓包，不是另一种线）
   }
 
   /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
@@ -728,21 +730,22 @@ export class Renderer3 {
       this.chargedLines.visible = true;
     } else { this.chargedLines.visible = false; this.chargedKey = ""; }
 
-    // ---- A33 断口小垂线：屏幕定长，垂直于边、面向相机 ----
+    // ---- A33 断口小垂线：线上一个小鼓包（半长 = 线宽 × TICK_K，边线色），垂直于边、面向相机 ----
     const tks = view.ticks;
     if (tks && tks.length) {
       const px = this.worldPerPx(cam, vp, tks[0].p);
       const fwd = cam.forward();
-      const kk = `${tks.map((t) => `${t.p.x},${t.p.y},${t.p.z}>${t.dir.x},${t.dir.y},${t.dir.z}`).join("|")}#${px.toExponential(2)}#${fwd.x.toFixed(3)},${fwd.y.toFixed(3)},${fwd.z.toFixed(3)}`;
+      const halfCss = TICK_K * Math.max(this.lineWeight, 1) / (this.renderer.getPixelRatio?.() || 1);   // 线宽是设备像素，worldPerPx 按 CSS 像素
+      const kk = `${tks.map((t) => `${t.p.x},${t.p.y},${t.p.z}>${t.dir.x},${t.dir.y},${t.dir.z}`).join("|")}#${px.toExponential(2)}#${fwd.x.toFixed(3)},${fwd.y.toFixed(3)},${fwd.z.toFixed(3)}#${halfCss}`;
       if (kk !== this.tickKey) {
         this.tickKey = kk;
         const pos: number[] = [], col: number[] = [];
-        const c = this.tmpColor.setHex(TICK_COLOR);
+        const c = this.tmpColor.setHex(PALETTE.edge);
         for (const t of tks) {
           let n = cross3(t.dir, fwd);
           let l = Math.hypot(n.x, n.y, n.z);
           if (l < 1e-6) { n = Math.abs(t.dir.z) < 0.9 ? cross3(t.dir, { x: 0, y: 0, z: 1 }) : cross3(t.dir, { x: 1, y: 0, z: 0 }); l = Math.hypot(n.x, n.y, n.z); }
-          const r = TICK_PX * this.worldPerPx(cam, vp, t.p) / l;
+          const r = halfCss * this.worldPerPx(cam, vp, t.p) / l;
           pos.push(t.p.x - n.x * r, t.p.y - n.y * r, t.p.z - n.z * r, t.p.x + n.x * r, t.p.y + n.y * r, t.p.z + n.z * r);
           col.push(c.r, c.g, c.b, c.r, c.g, c.b);
         }
