@@ -154,7 +154,6 @@ describe("kernel fuzz: 随机操作序列的拓扑不变量", () => {
   let rejected = 0;
   it("nasty 80 个种子 × 12 步（斜置 + 过头 µm 抖动）：不变量照查；只允许守恒断言拒绝（τ 带残余），不许别的 throw；无重复面（1 个已知种子除外）", () => {
     for (let seed = 1; seed <= 80; seed++) rejected += run(seed * 104729, 12, KNOWN_DUP_SEEDS.has(seed), "nasty");
-    assert(rejected <= 40, `nasty 档守恒断言拒绝的种子数 ${rejected} 超过 40——τ 带残余在涨，去看总账 D 节`);
+    assert(rejected === 0, `nasty 档守恒断言拒绝的种子数 ${rejected}——EGC 期 2（2026-10-24）起应为 0：精确谓词 + 身份分辨率 3 µm；涨了去看 ai-docs/20261024-exact-geometry-design.md`);
   });
-  todo(`τ 带残余（nasty 档）：守恒断言拒绝的种子数见运行日志 [fuzz] 行——µm 尖刺的胞腔算不出来；旧内核在同样的步里静默 BURST 膜（含正经的大面），现在拒绝这一步。根治 = 格点身份 / τ 带，总账 D 节`);
 });

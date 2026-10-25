@@ -14,7 +14,9 @@
 //
 // 复杂度：all-pairs 扫 + 不动点迭代（与 subdivide.ts 同款权衡）；Bentley–Ottmann 换入点同在。
 
-import { type Pt3, dist3, pointOnSegment3, ptKey3, segIntersections3 } from "./geom.ts";
+import { type Pt3, Q, dist3, ptKey3, quantize3 } from "./geom.ts";
+import { fromLattice3, toLattice3 } from "./exact/lattice.ts";
+import { pointRidesInterior, segSeg3Exact } from "./exact/predicates3d.ts";
 import { STICKY } from "./subdivide.ts";
 import { type EdgeId, PlanarGraph } from "./topology.ts";
 
@@ -59,8 +61,11 @@ export function planarize(g: PlanarGraph, onSplit?: (parent: EdgeId, children: r
       }
       if (merged) continue;   // 合并改了星形：这一轮重来
     }
-    /** 骑边：离边 ≤ r 且投影落在严格内部（离两端沿线 ≥ r）；贴着端点的归合并（上面）或根本不算。 */
-    const rides = (p: Pt3, a: Pt3, b: Pt3): boolean => { if (!pointOnSegment3(p, a, b, r)) return false; const L = dist3(a, b); if (L <= 2 * r) return false; const t = ((p.x - a.x) * (b.x - a.x) + (p.y - a.y) * (b.y - a.y) + (p.z - a.z) * (b.z - a.z)) / (L * L); return t * L >= r && (1 - t) * L >= r; };
+    /** 骑边（精确，EGC 期 2）：离边 ≤ r 且沿段投影离两端都 ≥ r；贴着端点的归合并（上面）或根本不算。 */
+    const rL = Math.round(r / Q);
+    const rides = (p: Pt3, a: Pt3, b: Pt3): boolean => pointRidesInterior(toLattice3(p), toLattice3(a), toLattice3(b), rL);
+    /** 相交 / 斜交 ≤ r / 共线重叠（精确）→ 落格的点。 */
+    const hits = (ea: Pt3, eb: Pt3, oa: Pt3, ob: Pt3): Pt3[] => segSeg3Exact(toLattice3(ea), toLattice3(eb), toLattice3(oa), toLattice3(ob), rL).points.map((q) => quantize3(fromLattice3(q)));
     const addCut = (eid: EdgeId, p: Pt3): void => {
       let m = cuts.get(eid);
       if (!m) { m = new Map(); cuts.set(eid, m); }
@@ -78,7 +83,7 @@ export function planarize(g: PlanarGraph, onSplit?: (parent: EdgeId, children: r
         for (let j = i + 1; j < edges.length; j++) {
           const o = edges[j];
           const oa = g.pt(o.a), ob = g.pt(o.b);
-          for (let p of segIntersections3(ea, eb, oa, ob, r)) {
+          for (let p of hits(ea, eb, oa, ob)) {
             p = snapV(p);
             if (rides(p, ea, eb)) addCut(e.id, p);
             if (rides(p, oa, ob)) addCut(o.id, p);
@@ -101,7 +106,7 @@ export function planarize(g: PlanarGraph, onSplit?: (parent: EdgeId, children: r
           if (o.id === e.id) continue;
           if (dirty.has(o.id) && o.id < e.id) continue;   // 脏×脏只配一次
           const oa = g.pt(o.a), ob = g.pt(o.b);
-          for (let p of segIntersections3(ea, eb, oa, ob, r)) {
+          for (let p of hits(ea, eb, oa, ob)) {
             p = snapV(p);
             if (rides(p, ea, eb)) addCut(e.id, p);
             if (rides(p, oa, ob)) addCut(o.id, p);

@@ -33,7 +33,8 @@
 ## 4. 分期（每期可独立交付、可回退）
 
 - **期 1（done v0.13.25，2026-10-24）**：`exact/lattice.ts` / `predicates.ts`（orient2d / orient3d 过滤 + BigInt、segSeg2d 四分类、有理交点 / 像素、像素穿过判定）/ `snap-round.ts`（迭代 snap rounding + PSLG 校验）+ `test/exact-geometry.test.ts`（谓词 26k 例与纯 BigInt 逐一一致；随机 150 段 × 12 种子 PSLG 零问题、Hausdorff ≤ P√2、端点落像素、确定性；级联分离性）。基准（随机段、像素 P = 4 格、密度恒定）：200 段 9 ms / 1000 段 21 ms / 5000 段 157 ms，2–3 轮收敛；过滤器后备率 ≈ 1/50000 以下。不接内核。
-- **期 2**：`planarize` / `insertSegment` 的判定换精确谓词（结构不变、ε 退场），fuzz 计数对照。
+- **期 2（done v0.13.27，2026-10-24）**：`exact/predicates3d.ts`——点到闭段距离² ≤ r²、骑边严格内部、两段关系（精确共面相交 / 斜交公垂线 ≤ r → A 上垂足 / 共线重叠），全部格点整数 + BigInt，构造点精确舍入到格点；`insertSegment` 与 `planarize` 的 `segIntersections3` / `pointOnSegment3` / `samePt3` 全部退场，r 是唯一容差。结果：**nasty fuzz 守恒拒绝 29 → 1（期 1 前的 3 µm）→ 0**，clean 全绿，449 条全量快测全绿；fuzz 门槛改成 `rejected === 0`。性能见 §4½。
+- **§4½ 性能（期 2 落地时量的，node 纯内核基准 = 随机矩形 + 推拉 + 过头线，150 件）**：浮点旧版 363 ms；精确版第一刀 463 ms（+28%：BigInt 分配 + GC，CPU profile 里 `B()` 6.8% / `segSeg3Exact` 5.8% / GC 7.8%）；加了整数包围盒预筛（只有包围盒相距 ≤ r 的对才进 BigInt）→ **365 ms = 与浮点版持平**。性能门没碰到。
 - **期 3**：结算机 ④ 的按平面排列：`regionsByPlane` 前先对每个被碰平面做「主轴投影 + snap rounding」（= 立 PSLG 不变量），`findRegions` 只吃整数 PSLG；`collinear2`、`representativePoint`、`pointInRing` 换精确版。守恒断言此后只能由**建模矛盾**触发。
 - **期 4（原「1」）**：op 带引用 / 约束（推拉到某顶点所在平面、端点 = 顶点 id）——只在 2 / 3 之后还剩下的意图丢失上做。
 - 性能门：每期用 `bench-pools.mjs` / 结算耗时对照，过滤器命中率 < 95% 或结算慢 2× 以上就停下来回报。

@@ -8,7 +8,9 @@
 //   retraced = 画线与既有边重合的段        —— 是手势边（retrace 空环生膜的依据）
 //   既有边被交点切开产生的子边           —— **不是**手势边（T 触碰空环不许生膜）
 
-import { type Pt3, Q, dist3, pointOnSegment3, ptKey3, quantize3, samePt3, segIntersections3 } from "./geom.ts";
+import { type Pt3, Q, dist3, ptKey3, quantize3, samePt3 } from "./geom.ts";
+import { fromLattice3, toLattice3 } from "./exact/lattice.ts";
+import { pointNearSegment, segSeg3Exact } from "./exact/predicates3d.ts";
 import { type EdgeId, PlanarGraph } from "./topology.ts";
 
 /**
@@ -64,10 +66,13 @@ export function insertSegment(
   addCut(a); addCut(b);
 
   const pendingSplits = new Map<EdgeId, Pt3[]>(); // 既有边 → 待切点（边内部）
+  // EGC 期 2：相交 / 斜交 / 共线重叠 / 骑边全部精确判（格点整数 + BigInt，exact/predicates3d.ts）；r 是唯一容差（身份分辨率）
+  const rL = Math.round(r / Q), La = toLattice3(a), Lb = toLattice3(b);
   for (const e of g.edgesNear(a, b)) {   // 空间网格：只看新段附近的边（超集，判定照旧）
     const pa = g.pt(e.a), pb = g.pt(e.b);
-    const hits = segIntersections3(a, b, pa, pb, r);
-    for (let p of hits) {
+    const rel = segSeg3Exact(La, Lb, toLattice3(pa), toLattice3(pb), rL);
+    for (const lp of rel.points) {
+      let p = quantize3(fromLattice3(lp));
       // 交点落在某个既有顶点 r 内 = 就是那个顶点（本边端点优先）
       if (dist3(p, pa) <= r) p = pa; else if (dist3(p, pb) <= r) p = pb; else p = nearestVertex(p) ?? p;
       addCut(p);
@@ -81,7 +86,7 @@ export function insertSegment(
   }
   for (const v of g.verticesNear(a, b)) {
     const p = { x: v.x, y: v.y, z: v.z };
-    if (pointOnSegment3(p, a, b, r)) addCut(p);
+    if (pointNearSegment(toLattice3(p), La, Lb, rL)) addCut(p);
   }
 
   // 2. 切开既有边。每条边的切点来自单次 segIntersections（至多 2 个、互异、都在内部）；
