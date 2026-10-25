@@ -12,7 +12,6 @@ export class SelectTool implements ToolHandler {
   readonly grammar = "direct" as const;
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
-  private clickTrain: { t: number; p: { x: number; y: number; z: number }; n: number } | null = null;   // 点击族计数（350 ms · 1.5 × tap 帧度量）
 
   active(): boolean { return this.start !== null; }
   cancel(): void { this.start = this.cur = null; }
@@ -24,6 +23,7 @@ export class SelectTool implements ToolHandler {
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
     if (!this.start) return;
     this.cur = { x: s.x, y: s.y };
+    if (ctx.moved(s) <= ctx.tapSlop()) { ctx.marquee(null); return; }   // 还在点按容差里：不出框（笔跟进的那一下滑一点不闪小框）
     const minX = Math.min(this.start.x, s.x), maxX = Math.max(this.start.x, s.x), minY = Math.min(this.start.y, s.y), maxY = Math.max(this.start.y, s.y);
     ctx.marquee({ x: minX, y: minY, w: maxX - minX, h: maxY - minY });
   }
@@ -35,7 +35,8 @@ export class SelectTool implements ToolHandler {
     if (!start || !cur) return;
     const additive = ev.shiftKey;
     const view = ctx.live();
-    if (ctx.moved(cur, ev.travel) > ctx.eps().tap) {   // 起拖门槛 = 本帧 tap（桌面 4 px / VR 0.4°）；此前写死 4 px，VR 下 (x, y) 是名义坐标（2026-10-24 Opus）
+    const n = ctx.clicks();   // 0 = 拖；n = 连着的第 n 下点击（点按族 tap-train.ts：笔快速点一下之后的下一下偏向点）
+    if (n === 0) {   // 拖 = 框选；门槛 = 这一下的点按容差（桌面 4 / VR 本帧 tap；笔跟进的那一下放宽）
       const box = { minX: Math.min(start.x, cur.x), maxX: Math.max(start.x, cur.x), minY: Math.min(start.y, cur.y), maxY: Math.max(start.y, cur.y) };
       const picked = ctx.marqueePick(box);
       const sel = { edges: [] as number[], faces: [] as number[], pools: [] as { kind: "group"; group: number }[] | { kind: "instance"; instance: number }[] };
@@ -48,12 +49,6 @@ export class SelectTool implements ToolHandler {
       ctx.afterSelect();
       return;
     }
-    const now = performance.now();
-    // 连击：上一击那条射线上 1 m 处的世界点，本帧 distTo 量（桌面 = 像素，VR = 角度）；门槛 1.5 × tap（桌面 6 px，VR 0.6°）
-    const ray = ctx.frame().ray(ev.x, ev.y, ctx.vp()), here = { x: ray.origin.x + ray.dir.x, y: ray.origin.y + ray.dir.y, z: ray.origin.z + ray.dir.z };
-    const train = this.clickTrain && now - this.clickTrain.t < 350 && ctx.frame().distTo(ev.x, ev.y, this.clickTrain.p, ctx.vp()) <= 1.5 * ctx.eps().tap
-      ? { t: now, p: here, n: this.clickTrain.n + 1 } : { t: now, p: here, n: 1 };
-    this.clickTrain = train;
     const hit = ctx.pick(ev.x, ev.y);
     // A31：参考线 / 参考点（光标下不是边或顶点时）——参考点 > 参考线，与实体拾取「点 > 边」同口径；面上的参考线照样点得中
     if (hit.edge === undefined && hit.vertex === undefined) {
@@ -61,8 +56,8 @@ export class SelectTool implements ToolHandler {
       if (g) { ctx.selectGuide(g.id, additive); ctx.afterSelect(); return; }
     }
     const c = ctx.classify(view, hit);
-    if (c.kind === "pool" && train.n >= 2) { ctx.enterPool(c.pick); return; }   // 双击子 group / 组件 = 进入
-    if (c.kind === "none" && !additive && ctx.contextDepth() > 0 && train.n === 1 && !ctx.hasSelection()) { ctx.exitContext(); return; }   // 点空处 = 退出一层（SU 同款）
-    ctx.selectExpand(hit, train.n >= 3 ? 2 : train.n === 2 ? 1 : 0, additive);
+    if (c.kind === "pool" && n >= 2) { ctx.enterPool(c.pick); return; }   // 双击子 group / 组件 = 进入
+    if (c.kind === "none" && !additive && ctx.contextDepth() > 0 && n === 1 && !ctx.hasSelection()) { ctx.exitContext(); return; }   // 点空处 = 退出一层（SU 同款）
+    ctx.selectExpand(hit, n >= 3 ? 2 : n === 2 ? 1 : 0, additive);
   }
 }

@@ -70,7 +70,6 @@ export class SurfaceAssignTool implements ToolHandler {
   private tempEye = false;
   private scrub = new Set<FaceId>();
   private poolHit = false;
-  private clickTrain: { t: number; x: number; y: number; n: number } | null = null;
 
   constructor(opts: SurfaceAssignOpts) { this.opts = opts; this.tool = opts.tool; }
   active(): boolean { return this.pressed; }
@@ -108,7 +107,7 @@ export class SurfaceAssignTool implements ToolHandler {
 
   up(ctx: ToolCtx, ev: ToolPointer, _settle: () => ToolSample | null): void {
     const scrub = [...this.scrub], eye = this.eyedropper || this.tempEye;
-    const dragged = ctx.moved(ev, ev.travel) > ctx.eps().tap;
+    const n = ctx.clicks(), dragged = n === 0;   // 点按族（tap-train.ts）：0 = 拖（刮涂）；n = 第 n 下点击
     this.cancel();
     ctx.setHoverFace(null);
     const f = this.faceAt(ctx, ev);
@@ -119,13 +118,9 @@ export class SurfaceAssignTool implements ToolHandler {
     }
     if (dragged && scrub.length) { this.opts.apply(ctx, scrub); ctx.hint(`${this.opts.verb}了 ${scrub.length} 张面（刮过的）`); return; }
     if (f === null) { if (this.poolHit) ctx.hint("这张面在子 group / 组件里：双击进入后再" + this.opts.verb); return; }
-    const now = performance.now();
-    const train = this.clickTrain && now - this.clickTrain.t < 350 && Math.hypot(ev.x - this.clickTrain.x, ev.y - this.clickTrain.y) <= 6 * (ctx.vp().h / 800)
-      ? { t: now, x: ev.x, y: ev.y, n: this.clickTrain.n + 1 } : { t: now, x: ev.x, y: ev.y, n: 1 };
-    this.clickTrain = train;
     const sel = ctx.selection();
-    if (train.n === 1 && sel.faces.size && sel.faces.has(f)) { const faces = [...sel.faces]; this.opts.apply(ctx, faces); ctx.hint(`${this.opts.verb}了选区 ${faces.length} 张面`); return; }
-    const tier = tierMax(ctx.config.get("surface", "tier") as SurfaceTier, tierOfClicks(train.n));
+    if (n === 1 && sel.faces.size && sel.faces.has(f)) { const faces = [...sel.faces]; this.opts.apply(ctx, faces); ctx.hint(`${this.opts.verb}了选区 ${faces.length} 张面`); return; }
+    const tier = tierMax(ctx.config.get("surface", "tier") as SurfaceTier, tierOfClicks(n));
     const faces = facesForAssign(ctx.kernel(), f, tier, ctx.config.get("surface", "sharpDeg"));
     this.opts.apply(ctx, faces);
     ctx.hint(`${this.opts.verb}了 ${faces.length} 张面（${SURFACE_TIERS.find((t) => t.id === tier)!.label}）`);

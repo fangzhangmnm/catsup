@@ -83,6 +83,10 @@ export interface ToolCtx {
   charge(sn: Snap3 | null, dwellMs?: number): void;
   /** 自落笔以来走了多远（本帧度量；ev.travel 优先，否则按 downScreen 算）。 */
   moved(s: { x: number; y: number }, travel?: number): number;
+  /** 这一下的点按容差（本帧度量）：moved 超过它 = 拖。笔快速点一下之后、连击窗口里的下一下会放宽（tap-train.ts）。 */
+  tapSlop(): number;
+  /** 刚抬起的这一下：0 = 拖；n ≥ 1 = 连着的第 n 下点击（单 / 双 / 三击）。只在 up 里问。 */
+  clicks(): number;
   cursor(): Pt3 | null;
   /** 当前按着的修饰键（最近一次指针事件带来的）：Shift = 角度对齐 / 追加选区，copy = Ctrl / Alt / ⌘。 */
   mods(): { shift: boolean; copy: boolean };

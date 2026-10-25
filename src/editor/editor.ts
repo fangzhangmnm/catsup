@@ -34,6 +34,7 @@ import { type GridSettings, NEW_DOC_GRID, gridFrame } from "./grid-settings.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { surfaceFaces } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
+import { TapTrain, TAP_RULES, frameTapRule } from "./tap-train.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
@@ -234,6 +235,8 @@ export class Editor {
   /** 按下那条射线上 1 m 处的世界点：「自按下走了多远」= 本帧 distTo(光标, 它)——桌面 = 离按下点的像素，VR = 角度（(x, y) 在 VR 只是名义坐标）。
    *  规矩：能用帧度量就不用屏幕 px（user 2026-10-24「能用ray别用screen px」）。2026-10-24 Claude Opus 5.5 替掉原来按屏幕坐标记的按下点。 */
   private downPoint: Pt3 | null = null;
+  /** 点按族（点 / 拖、单 / 双 / 三击）：全编辑器一份，工具经 ctx.clicks() / ctx.tapSlop() 问（tap-train.ts；user 2026-10-25 笔双击三击偏向点）。 */
+  private readonly taps = new TapTrain<Pt3>();
   private movedSinceDown(s: { x: number; y: number }, travel?: number): number { return travel ?? (this.downPoint ? this.frame().distTo(s.x, s.y, this.downPoint, this.fvp()) : 0); }
   private justCommitted = false;
   private charged = new Map<string, Pt3>();
@@ -532,6 +535,7 @@ export class Editor {
   }
 
   cancel(): void {
+    this.taps.cancel();
     this.last = null;
     this.selection = emptySelection();
     this.selectedPools.clear();
@@ -1312,7 +1316,7 @@ export class Editor {
 
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
-  abortGesture(): void { this.cancelGesture(); this.host.marquee(null); this.host.hint(null); this.draw(); }
+  abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.hint(null); this.draw(); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
   gestureInProgress(): boolean { return this.gestureActive(); }
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
@@ -1581,6 +1585,7 @@ export class Editor {
   pointerDown(ev: ToolPointer): void {
     const s = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
+    { const r = this.frame().ray(s.x, s.y, this.fvp()); this.taps.down(performance.now(), add3(r.origin, r.dir), TAP_RULES[ev.pointerType] ?? frameTapRule(this.eps().tap), (prev) => this.frame().distTo(s.x, s.y, prev, this.fvp())); }
     const H = this.handlers[this._tool];
     if (H) {
       if (H.grammar === "steps" && this.armed && H.active()) {
@@ -1721,6 +1726,8 @@ export class Editor {
       dropHysteresis: () => { this.lastSnap = null; },
       charge: (sn, dwellMs) => this.trackCharge(sn, null, dwellMs),
       moved: (s, travel) => this.movedSinceDown(s, travel),
+      tapSlop: () => this.taps.slop(),
+      clicks: () => this.taps.clicks(),
       cursor: () => this.cursor3,
       mods: () => this.mods,
       currentSnap: () => this.snapInfo,
@@ -1816,7 +1823,8 @@ export class Editor {
 
   pointerUp(ev: ToolPointer): void {
     const s = ev;
-    const isTap = (): boolean => !!this.downPoint && this.movedSinceDown(s, ev.travel) <= this.eps().tap;
+    { const at = this.taps.pressAt(); this.taps.up(performance.now(), ev.travel ?? (at ? this.frame().distTo(s.x, s.y, at, this.fvp()) : 0)); }
+    const isTap = (): boolean => !!this.downPoint && this.taps.clicks() > 0;   // 点 / 拖 = 点按族一处判（笔跟进的那一下偏向点）
     const settle = (): GestureSample | null => {
       if (this.justCommitted) return null;
       this.trackGesture(s);
