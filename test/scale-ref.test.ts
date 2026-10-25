@@ -95,7 +95,7 @@ describe("scale-ref: 提示框的数据（grill 定案）", () => {
     eq(scaleRefToSettings({ a: 1 }, null).scaleRef, "none");
     eq(scaleRefToSettings({ a: 1, scaleRef: "x" }, "mars/WHAT").scaleRef, "mars/WHAT");
   });
-  it("参考须知 = 数据里每个选单项自己的提醒（v3 menu[].reminders，含继承来的）：人体有「人体」那条、DnD 只有 dnd、儿童加 children", () => {
+  it("新手提醒 = 数据里每个选单项自己的提醒（v3 menu[].reminders，含继承来的）：人体有「人体」那条、DnD 只有 dnd、儿童加 children", () => {
     const ids = (x: string): string => remindersFor(L, x).map((r) => r.id).join(",");
     eq(ids("body/ALL"), "body,estimate");
     eq(ids("interior/DND"), "dnd");

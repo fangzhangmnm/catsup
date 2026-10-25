@@ -19,7 +19,7 @@ export interface PopupMenuItem<Id extends string = string> {
   tab?: string;
   /** 一行小块（B43 参考页：题材一行、亚种一排小块）：label 在左，块在右；点块 = onPick(块的 id)。 */
   chips?: { id: Id; label: string; checked?: boolean }[];
-  /** 纯文字说明（不可点；label = 正文；B43「参考须知」）。 */
+  /** 纯文字说明（不可点；label = 正文；B43「新手提醒」）。 */
   note?: boolean;
 }
 /** 弹层顶部的 tab（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）：图标 + 字一排；只显示当前 tab 的项。 */

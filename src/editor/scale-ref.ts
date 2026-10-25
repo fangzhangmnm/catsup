@@ -152,7 +152,7 @@ export function scaleRefToSettings<T extends object>(s: T, ref: string | null): 
   return { ...rest, scaleRef: ref ?? "none" } as T & { scaleRef: string };
 }
 
-/** 「参考须知」（数据里叫 reminders「新手提醒」）：每个选单项给哪几条写在数据里（menu[].reminders，已并上继承来的父项的），这里只照着取三语原文。
+/** 「新手提醒」（数据里 reminders；界面名 user 2026-10-25 定「新手提醒」）：每个选单项给哪几条写在数据里（menu[].reminders，已并上继承来的父项的），这里只照着取三语原文。
  *  （v0.13.52 时 v2 数据没路由、这里临时按题材配过一张表；v3 到了按退场条件删掉。） */
 export function remindersFor(L: Ladder, sub: string | null, lang: Lang = "zh"): { id: string; text: string }[] {
   if (!sub) return [];

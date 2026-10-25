@@ -742,7 +742,7 @@ function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; tab: 
   out.push({ id: "refmax:3", label: "最多", tab, chips: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
   const notes = remindersFor(L, cur);
   if (cur?.endsWith("/DND")) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
-  notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "参考须知" } : {}) }));
+  notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "新手提醒" } : {}) }));
   return out;
 }
 function onRefPick(id: RefMenuId): "keep" {
