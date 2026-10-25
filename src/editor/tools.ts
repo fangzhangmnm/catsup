@@ -121,8 +121,9 @@ export function marqueeOf(a: Pt, b: Pt): Marquee {
   return { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
 }
 
-export interface Selection { edges: Set<EdgeId>; faces: Set<FaceId>; }
-export const emptySelection = (): Selection => ({ edges: new Set(), faces: new Set() });
+/** 选区：内核实体（边 / 面）+ 活动池的参考几何 id（A31，2026-10-24 Opus：参考线 / 参考点能被选择工具选中、Delete 删）。 */
+export interface Selection { edges: Set<EdgeId>; faces: Set<FaceId>; guides: Set<number>; }
+export const emptySelection = (): Selection => ({ edges: new Set(), faces: new Set(), guides: new Set() });
 
 /** 移动工具的目标展开：顶点→自己；边→两端点；面→外环+洞环全部顶点。 */
 export function moveTargets(k: Kernel, hit: { vertex?: VertexId; edge?: EdgeId; face?: FaceId }): VertexId[] {

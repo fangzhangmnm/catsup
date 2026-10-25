@@ -123,7 +123,9 @@ export interface ToolCtx {
   /** 屏幕矩形里的边 / 面（全局 id）。 */
   marqueePick(box: { minX: number; minY: number; maxX: number; maxY: number }): { edges: Iterable<number>; faces: Iterable<number> };
   /** 换掉 / 追加选区（本地 id + 子池项）。 */
-  replaceSelection(sel: { edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[] }, additive: boolean): void;
+  replaceSelection(sel: { edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[]; guides?: readonly number[] }, additive: boolean): void;
+  /** A31：单击选中一条参考线 / 一个参考点（additive = Shift：已在选区里就拿掉）。 */
+  selectGuide(id: number, additive: boolean): void;
   /** 选区变了之后的收尾（提示 / 缩放柄 / HUD）。 */
   afterSelect(): void;
   /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体。 */

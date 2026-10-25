@@ -301,7 +301,7 @@ export class Editor {
   get revision(): number { return this._revision; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }
-  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selectedPools.size > 0; }
+  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selection.guides.size > 0 || this.selectedPools.size > 0; }
   hasGeometrySelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
   hasPoolSelection(): boolean { return this.selectedPools.size > 0; }
   selectedPoolPicks(): PoolPick[] { return [...this.selectedPools.values()]; }
@@ -775,6 +775,7 @@ export class Editor {
       if (p.kind === "group") this.commitOp({ op: "eraseGroup", at, group: p.group });
       else this.commitOp({ op: "eraseInstance", def, instance: p.instance });
     }
+    if (this.selection.guides.size) this.commitOp({ op: "eraseGuides", at, ids: [...this.selection.guides] });   // A31：选中的参考线 / 参考点
     this.selection = emptySelection(); this.selectedPools = kept;
     if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没删（选区菜单 → 解锁）`);
     this.host.changed();
@@ -1396,6 +1397,7 @@ export class Editor {
       handles: null,
       protractor: null,
       guides: view.guides(),
+      guideSel: this.selection.guides,
       frame: view.frame(),
       grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.step, sub: this._grid.subdiv, on: this._grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
@@ -1601,6 +1603,12 @@ export class Editor {
         for (const e of sel.edges) this.selection.edges.add(e);
         for (const f of sel.faces) this.selection.faces.add(f);
         for (const p of sel.pools) this.selectedPools.set(this.pickKey(p), p);
+        for (const g of sel.guides ?? []) this.selection.guides.add(g);
+      },
+      selectGuide: (id, additive) => {
+        if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
+        if (additive && this.selection.guides.has(id)) this.selection.guides.delete(id); else this.selection.guides.add(id);
+        this.host.changed(); this.draw();
       },
       afterSelect: () => this.afterSelect(),
       selectExpand: (hit, stage, additive) => this.selectExpand(hit, stage, additive),

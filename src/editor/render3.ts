@@ -102,7 +102,7 @@ const SNAP_COLORS: Record<string, number> = {
 };
 const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
-const GUIDE_COLOR = 0x6b7280, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;
+const GUIDE_COLOR = 0x6b7280, GUIDE_SEL_COLOR = 0x2b6cb0, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;   // 选中 = 与选中膜同一个蓝（A31）
 /** A33 断口小垂线：半长 px + 颜色（提醒色，与参考线 / 充能区分）。 */
 const TICK_PX = 5, TICK_COLOR = 0xd9822b;
 
@@ -160,6 +160,8 @@ export interface ViewState {
   protractor?: { center: Pt3; axis: Pt3; ref: Pt3 | null; angle: number } | null;
   /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
   guides?: GuidesWorld | null;
+  /** 选中的参考线 / 参考点 id（A31）：画成选中色。 */
+  guideSel?: ReadonlySet<number>;
   /** A33 断口提示：一根直线中间断了一截的接点（世界坐标 + 边向）→ 屏幕定长的小垂线（焊边橡皮刮一下就没）。 */
   ticks?: readonly { p: Pt3; dir: Pt3 }[] | null;
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
@@ -677,17 +679,18 @@ export class Renderer3 {
     const gd = view.guides;
     if (gd && (gd.lines.length || gd.points.length)) {
       const px = gd.points.length ? this.worldPerPx(cam, vp, gd.points[0].p) : 0;
-      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${px.toExponential(2)}`;
+      const gsel = view.guideSel, gcol = (id: number): number => (gsel?.has(id) ? GUIDE_SEL_COLOR : GUIDE_COLOR);
+      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${px.toExponential(2)}#${gsel ? [...gsel].join(",") : ""}`;
       if (gk !== this.guideKey) {
         this.guideKey = gk;
         const pos: number[] = [], col: number[] = [];
         const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        for (const l of gd.lines) push({ x: l.p.x - l.dir.x * GUIDE_LEN, y: l.p.y - l.dir.y * GUIDE_LEN, z: l.p.z - l.dir.z * GUIDE_LEN }, { x: l.p.x + l.dir.x * GUIDE_LEN, y: l.p.y + l.dir.y * GUIDE_LEN, z: l.p.z + l.dir.z * GUIDE_LEN }, GUIDE_COLOR);
+        for (const l of gd.lines) push({ x: l.p.x - l.dir.x * GUIDE_LEN, y: l.p.y - l.dir.y * GUIDE_LEN, z: l.p.z - l.dir.z * GUIDE_LEN }, { x: l.p.x + l.dir.x * GUIDE_LEN, y: l.p.y + l.dir.y * GUIDE_LEN, z: l.p.z + l.dir.z * GUIDE_LEN }, gcol(l.id));
         for (const q of gd.points) {
           const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, q.p);
-          push({ x: q.p.x - r, y: q.p.y, z: q.p.z }, { x: q.p.x + r, y: q.p.y, z: q.p.z }, GUIDE_COLOR);
-          push({ x: q.p.x, y: q.p.y - r, z: q.p.z }, { x: q.p.x, y: q.p.y + r, z: q.p.z }, GUIDE_COLOR);
-          push({ x: q.p.x, y: q.p.y, z: q.p.z - r }, { x: q.p.x, y: q.p.y, z: q.p.z + r }, GUIDE_COLOR);
+          push({ x: q.p.x - r, y: q.p.y, z: q.p.z }, { x: q.p.x + r, y: q.p.y, z: q.p.z }, gcol(q.id));
+          push({ x: q.p.x, y: q.p.y - r, z: q.p.z }, { x: q.p.x, y: q.p.y + r, z: q.p.z }, gcol(q.id));
+          push({ x: q.p.x, y: q.p.y, z: q.p.z - r }, { x: q.p.x, y: q.p.y, z: q.p.z + r }, gcol(q.id));
         }
         this.setLineGeometry(this.guideLines, pos, col);
       }
