@@ -66,7 +66,7 @@ svg.ico use { color: inherit; }
 .hud-bl { bottom: calc(10px + var(--safe-bottom)); left: calc(10px + var(--safe-left)); max-width: min(62vw, 720px); }
 .hud-br { bottom: calc(10px + var(--safe-bottom)); right: calc(10px + var(--safe-right)); }
 /* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
-.hud-strip { left: calc(10px + var(--safe-left)); bottom: calc(48px + var(--safe-bottom)); gap: 10px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 240px); flex-wrap: wrap; }
+.hud-strip { gap: 10px; padding: 4px 10px; font-size: 13px; flex-wrap: wrap; }   /* 2026-10-25 挂顶：住进 .hud-topstack 第二排 */
 /* 面包屑（#25）：左上角，进了组 / 组件才出现 */
 /* 编辑模式下拉框（刀 ③；user「切换编辑模式还是左上下拉框」）：嵌纸面、像能按，同左上横排 */
 .mode-select { height: 30px; padding: 0 8px; border: 1px solid rgba(0,0,0,.14); border-radius: 8px; background: rgba(255,255,255,.75); font: inherit; font-size: 13px; color: inherit; }
@@ -78,9 +78,12 @@ svg.ico use { color: inherit; }
 .final-badge { font-size: 12px; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent); border-radius: 999px; background: rgba(255,255,255,.7); align-self: center; }
 body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBar, body.doc-final #vcb { pointer-events: none; opacity: .45; }
 /* 左上横排：没有底板，嵌在纸面里；按下 / 悬停才显出可按（user 10-24） */
-.hud-topleft { position: absolute; z-index: 5; left: calc(10px + var(--safe-left)); top: calc(8px + var(--safe-top)); display: flex; align-items: center; gap: 4px; }
+.hud-topstack { position: absolute; z-index: 5; left: calc(10px + var(--safe-left)); top: calc(8px + var(--safe-top)); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100vw - 150px - var(--safe-left) - var(--safe-right)); pointer-events: none; }   /* 左上一列：右边给视图 gizmo 让位；空白处不挡画布 */
+.hud-topstack > * { pointer-events: auto; }
+.hud-topstack > .hud { position: static; margin-left: 66px; max-width: calc(100% - 66px); }   /* 上下文条 / 面包屑：第二、三排缩到左柱右边（左柱居中、短屏时顶到上面，不缩会压住它；user「再不济也是左柱子右边靠着」） */
+.hud-topleft { display: flex; align-items: center; gap: 4px; }
 .hud-topleft .tb-btn { width: 40px; height: 40px; filter: drop-shadow(0 1px 1px rgba(255,255,255,.9)); }
-.hud-crumbs { left: calc(10px + var(--safe-left)); top: calc(56px + var(--safe-top)); gap: 4px; padding: 4px 10px; font-size: 13px; max-width: calc(100vw - 250px); flex-wrap: wrap; }
+.hud-crumbs { gap: 4px; padding: 4px 10px; font-size: 13px; flex-wrap: wrap; }   /* 住进 .hud-topstack 第三排 */
 .crumb { border: 0; background: transparent; font: inherit; color: var(--accent); cursor: pointer; padding: 4px 4px; border-radius: 6px; }
 .crumb:hover { background: rgba(0,0,0,.06); }
 .crumb.current { color: var(--ink); cursor: default; font-weight: 600; }
