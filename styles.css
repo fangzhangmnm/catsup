@@ -9,6 +9,7 @@
   --accent: #2b6cb0;
   --accent-soft: #e3edf9;
   --danger: #c0392b;
+  --z-window: 200;   /* 参考窗：HUD（5）之上、弹出菜单（300）之下——它自己的 ＋ 菜单要盖在它上面 */
   --z-menu: 300;
   --z-notice: 400;
   --z-help: 500;

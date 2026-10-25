@@ -286,6 +286,22 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 ```
 规矩（照抄 WeebPaint desk，四条）：① **不是内容**：不进定稿指纹（`final.ts`）、不进 undo；② **不标脏**：切页 / 挪面板不触发保存，存盘时顺手捞走（代价 = 只动桌面不画不存就退出 → 下次开 revert，user 2026-07-14 在 WeebPaint 接受过）；③ **新建 / 换文件必 reset**（Session 结构性保证）；④ **major 比本版新 → 不拒开**：原字节放进 `carry.extensions` 原样写回、桌面用默认、提示一次——只有 `CATSUP_document / brep / definitions` 太新才拒开整份文件。以后进来的：面板位置、当前工具、视图侧挂件状态、步行相机的站位。
 
+**desk 1.1（2026-10-25，Claude Opus 5.5）**：加可选键 `refPanel: { open, left, top, width, height }`（CSS px）= 参考窗开着没有 + 在哪（§5.8 的视图态那一半；同 MoonSinger `view.ref`）。这个文件里开过窗才写；坏形状读成「没开过」不拒开。第一次开窗的位置归宿主（CatsUp 放右边 gizmo 那一列下面，不压左柱）。
+
+### 5.8 `CATSUP_references`（顶层；2026-10-25 加，Claude Opus 5.5）
+
+> 起因：user 2026-10-25「咱们是不忘了接reference window. 先看懂我们的文件规范，然后这个算视图，应该放右边汉堡」。参考窗 = 家族共享库 `@internal/reference-window`（0.5.0）：牌组的持久化契约是**容器里的一个目录** `.<app>/references/`（`manifest.json` + 每张卡的字节；清单的形状 / 拍子 / 迁移全在库里，宿主只报 app 名、按路径存取字节——家族根 `ai-docs/20260929-reference-window-tech-plan.md` §4 表里 CatsUp 那行「新的 `CATSUP_*` 子结构，自带版本戳 / bufferView」）。glb 里「zip 的一个成员文件」≡ 这里的一条 `files[i]`（§0 ORA 类比）。
+
+```jsonc
+{ "version": 1,                       // major；minor / patch 可选键（缺 = 0），三级拍子见 §7.11
+  "files": [                          // 库给的目录，原样：路径 + mime + 字节（bufferView）
+    { "path": ".catsup/references/manifest.json", "mimeType": "application/json", "bufferView": 12 },
+    { "path": ".catsup/references/r0.png",        "mimeType": "image/png",        "bufferView": 13 } ] }
+```
+规矩：① **format 层不懂清单**——只搬字节（`src/format/` 零 DOM，不 import 参考窗库；守卫 `test/reference-guard.test.ts`）；卡的种类 / 只放内存（空位）/ 不认识的卡原样带着 = 库的事。② **空牌组不写这个扩展、`extensionsUsed` 也不列**（抠：没用参考窗的文件字节与之前一样）。③ **不是模型内容**：不进定稿指纹、不进 undo；但**加 / 删 / 挪卡标脏**（牌组是正经改动，同 MoonSinger / WXHW），翻页 / 平移缩放 / 播放位置是视图态不标脏（清单里照写，存盘时捞）。④ **major 比本版新 → 不拒开整份文件**（同 desk）：原字节进 `carry.extensions` 原样写回、参考窗先不显示也不让往里加、提示一次；库那层的清单太新（`DeckManifestTooNewError`）同理（目录原样带着写回）。⑤ 坏条目（路径重复 / 缺 bufferView）整份拒开——不静默丢卡（与其他字段同口径）。⑥ 顶层不认识的键直通（含 bufferView 引用的也经 carry 重映射带回）。⑦ 音频 / 视频照库 0.5.0 默认**只放内存**（当次有效：清单只记名字和大小、不存字节；下次打开是空位，把同一个文件拖回来补上）；单张超过 4 MB 先问「存进模型 / 只放内存 / 算了」（家族提醒线；CatsUp 没有转码器，不压）。
+冻结样本 `referenced.glb`（清单字节 = 库 0.5.0 `encodeDeck` 的真实输出：图 / 文字 / 只放内存的视频）；跨库契约测试 = 读出来的目录交给库的 `decodeDeck` 三张卡原样回来（`test/references.test.ts`）。
+以后：「宿主出画面的卡」= 场景相机预览（总账 E16，前置 = Scenes）；VR 里的参考窗视图（技术方案第 7 步另两件）——都没做。
+
 ## 6. 分级 + 无地 = WeebPaint 标准
 
 | 数据 | 归宿 | 数据类（MASTER ADR-0001） |

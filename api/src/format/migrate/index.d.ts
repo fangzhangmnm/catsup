@@ -32,6 +32,11 @@ export declare const FORMAT: {
     };
     readonly CATSUP_desk: {
         readonly major: 1;
+        readonly minor: 1;
+        readonly patch: 0;
+    };
+    readonly CATSUP_references: {
+        readonly major: 1;
         readonly minor: 0;
         readonly patch: 0;
     };
@@ -54,7 +59,8 @@ export declare function readStamp(json: Record<string, unknown>): Stamp;
 export type StampVerdict = "same" | "older" | "newer-minor" | "newer-patch";
 /** 同 major 下文件拍子 vs 本版：minor 大 = newer-minor（提示一次），patch 大 = newer-patch（静默），其余 older / same。 */
 export declare function compareStamp(file: Stamp, mine: Stamp): StampVerdict;
-/** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）。 */
+/** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）；
+ *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）。 */
 export interface FormatReadNotes {
     newerMinor: {
         ext: CatsupExtension;
@@ -67,6 +73,7 @@ export interface FormatReadNotes {
         mine: Stamp;
     }[];
     deskTooNew?: Stamp;
+    referencesTooNew?: Stamp;
 }
 export declare const emptyReadNotes: () => FormatReadNotes;
 export type MigrationStep = (json: Record<string, unknown>) => Record<string, unknown>;

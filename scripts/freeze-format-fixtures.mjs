@@ -4,7 +4,7 @@
 // created 2026-09-20 by Claude Fable 5.1
 import { existsSync } from "node:fs";
 import { join } from "node:path";
-import { SCENES, SCENE_DOCS } from "../test/format-scenes.ts";
+import { SCENES, SCENE_DOCS, DOC_SAMPLES } from "../test/format-scenes.ts";
 import { newDocument, writeCatsup, documentFromScene, formatTag } from "../src/format/index.ts";
 import { fixtureDir, writeFixture } from "../test/fixtures/format/fixtures.mjs";
 
@@ -14,6 +14,7 @@ const v = formatTag();
 const all = [
   ...Object.entries(SCENES).map(([name, make]) => [name, () => newDocument(make().toBrep(), name)]),
   ...Object.entries(SCENE_DOCS).map(([name, make]) => [name, () => documentFromScene(make(), name)]),
+  ...Object.entries(DOC_SAMPLES),
 ];
 for (const [name, mk] of all) {
   const file = `${name}.glb`;

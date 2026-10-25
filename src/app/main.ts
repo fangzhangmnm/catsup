@@ -22,6 +22,7 @@ import { selectionActions, selectionRoute } from "./selection-actions.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
+import { createReferenceHost } from "./reference-host.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
@@ -355,7 +356,7 @@ function renderShop(): void {
 btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -393,6 +394,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
       case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
+      case "refwin": refHost.toggle(); break;   // 参考窗（视图 ☰「参考」页；开 = 给它焦点，开窗 → Ctrl+V 一步到位）
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
@@ -759,9 +761,9 @@ function refOptions(L: Ladder): ChoiceOption[] {
 function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?: string; tab: string; sectionBefore?: string; separatorBefore?: boolean; choices?: { id: RefMenuId; label: string; checked?: boolean }[]; value?: string; note?: boolean }[] {
   const tab = "ref", cur = editor.scaleRefs;
   const L = ladder;
-  if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab }]; }
+  if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab, sectionBefore: "尺度参考" }]; }
   const opts = refOptions(L), label = (id: string): string => { const o = opts.find((x) => x.id === id); return o ? (o.group && o.group !== "其他" && o.label !== o.group ? `${o.group} · ${o.label}` : o.label) : id; };
-  const out: ReturnType<typeof refTabItems> = [{ id: "ref:pick", label: "看哪些", value: multiSummary(cur.map(label)), tab }];
+  const out: ReturnType<typeof refTabItems> = [{ id: "ref:pick", label: "看哪些", value: multiSummary(cur.map(label)), tab, sectionBefore: "尺度参考" }];
   out.push({ id: "refmax:3", label: "最多", tab, sectionBefore: "试用（这台设备记住）", choices: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
   const notes = remindersFor(L, cur);
   if (cur.some((x) => x.endsWith("/DND"))) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
@@ -780,7 +782,8 @@ function onRefPick(id: RefMenuId): "keep" {
   }
   return "keep";
 }
-/** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：显示 / 栅格 / 相机；以后「参考」（B43）、渲染方案也进来。 */
+/** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：显示 / 栅格 / 参考 / 相机；以后渲染方案也进来。
+ *  「参考」页 = 参考窗（屏幕上的参考图 / 文字 / 视频，user 2026-10-25「这个算视图，应该放右边汉堡」）+ B43 尺度参考。 */
 const VIEW_MENU_TABS = [
   { id: "display", label: "显示" },
   { id: "grid", label: "栅格" },
@@ -797,6 +800,7 @@ function openViewMenu(tab?: ViewTab): void {
       { id: "lw:pick" as MenuId, label: "线稿粗细", tab: "display", choices: LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "1 px（原生细线）" : `${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗" })) },   // 设备像素
       { id: "unit:pick" as MenuId, label: "单位", tab: "display", choices: LENGTH_UNITS.map((u) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id })) },
       ...gridTabItems(),
+      { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },
       ...refTabItems(),
       { id: "walk" as MenuId, label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), tab: "camera" },
       { id: "noclip" as MenuId, label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking(), tab: "camera" },
@@ -841,6 +845,7 @@ function renderSnapWidget(): void {
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+  if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
   if (vcb.feedKey(ev)) { ev.preventDefault(); return; }   // 数值小窗：数字开头直接进小窗（SU 同款），字母只在缓冲非空时进
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
@@ -942,8 +947,27 @@ function smartSave(): void {
   ]).then((c) => { if (c === "later") cloudPromptDeclined = true; });
 }
 btnSave.addEventListener("click", () => smartSave());
+// 参考窗（@internal/reference-window；接缝 = reference-host.ts）：牌组跟文件走，Session 管存 / 脏
+const refHost = createReferenceHost({
+  info: (text) => notify({ text, level: "info" }),
+  error: (text) => { note("ref", "✗ " + text); notify({ text, level: "error" }); },
+  topFloor: () => 8,
+  defaultRect: () => {   // 第一次开：右边、gizmo 那一列下面（左边是工具，别压左柱）
+    const g = $("viewGizmo").getBoundingClientRect(), w = Math.min(300, window.innerWidth - 32), h = Math.min(340, Math.max(160, window.innerHeight - g.bottom - 80));
+    return { left: Math.max(8, window.innerWidth - w - 12), top: Math.max(96, Math.round(g.bottom + 8)), width: w, height: h };
+  },
+  askImport: async (q) => {
+    const mb = (q.bytes / 1024 / 1024).toFixed(1);
+    const keep = { label: "存进模型", value: "keep" as const }, ram = { label: "只放内存（不存进模型）", value: "ram" as const };
+    const v = await openChoiceSheet(`「${q.name}」有 ${mb} MB`, q.suggestRam ? "存进模型会让文件变大、同步变慢。只放内存 = 这次用，下次打开是个空位，把同一个文件拖回来就补上。" : "存进模型会让文件变大、同步变慢。", q.suggestRam ? [{ ...ram, primary: true }, keep] : [{ ...keep, primary: true }, ram]);
+    return v ?? "cancel";
+  },
+  onCards: () => session.noteChange(),
+  focusCanvas: () => { (document.activeElement as HTMLElement | null)?.blur?.(); },
+});
 const session = new Session({
   editor,
+  refs: refHost,
   captureThumbnail: () => captureThumbnail(editor),
   onHomeChanged: updateSaveStatus,
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
@@ -1166,7 +1190,7 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
+(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
 editor.setTool("line");

@@ -1,4 +1,5 @@
 import type { Editor } from "../editor/editor.ts";
+import { type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 interface FSHandle {
     readonly name: string;
     createWritable(): Promise<{
@@ -20,8 +21,21 @@ export type DocHome = {
     kind: "transient";
     name?: string;
 };
+/** 参考窗的接缝（src/app/reference-host.ts 满足它）：牌组跟文件走（CATSUP_references + desk.refPanel），加删卡 = rev +1 = 脏；不进撤销。 */
+export interface RefsPort {
+    files(): RefFileDoc[];
+    rev(): number;
+    settled(): Promise<void>;
+    count(): number;
+    panel(): RefPanelDoc | null;
+    apply(refs: ReferencesDoc, panel: RefPanelDoc | null, opts?: {
+        tooNew?: boolean;
+    }): void;
+}
 export interface SessionDeps {
     editor: Editor;
+    /** 参考窗（缺 = 没有参考窗：文件里的牌组原样带着写回）。 */
+    refs?: RefsPort;
     captureThumbnail: () => {
         mimeType: string;
         bytes: Uint8Array;
@@ -53,12 +67,16 @@ export declare class Session {
     private refreshInFlight;
     private savedRevision;
     private lastSeenRevision;
+    /** 参考窗牌组的修订号（加删卡；视图态不算）：存过的 / 看到过的。dirty = 几何改了 ∨ 牌组改了。 */
+    private savedRefRev;
+    private lastSeenRefRev;
     private lastEditAt;
     private loaded;
     private timer;
     /** T-crash 行李牌（file / transient 家才有；gallery 家 = null）+ 上次快照的 revision。 */
     private luggage;
     private snapRevision;
+    private snapRefRev;
     /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
     currentDir: string;
     /** 桌面态（CATSUP_desk；WeebPaint desk 同款）：☰ 停在哪页等跟文件走的编辑器状态。载入时从文件来、新建 reset、存盘时顺手捞走；改它不标脏
@@ -70,6 +88,9 @@ export declare class Session {
     private noteFormat;
     constructor(d: SessionDeps);
     dirty(): boolean;
+    private refRev;
+    /** 参考窗跟着文件换：目录 + 窗交给接缝，牌组修订号对齐成「已存」（载入不是改动）。 */
+    private applyRefs;
     displayName(): string;
     /** file / transient 家 且脏（beforeunload 承重层用）。 */
     dirtyLocalHome(): boolean;
@@ -120,6 +141,8 @@ export declare class Session {
     /** 护栏 ③：定稿着时内容指纹必须和记录一致，否则这一轮不写。 */
     private finalIntact;
     private encode;
+    /** desk 存盘形状：参考窗的窗以接缝为准（开过窗才有；这个文件里没开过 = 文件里原来那份）。 */
+    private deskForSave;
     private adopt;
     /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeIdentifier / **回执条**（@internal/gallery resume-slate）都从这收口。
      *  回执条语义（WeebPaint 同）：图库家（非 lazy）→ {doc}；文件家 → {gallery}（句柄跨刷新不可恢复，下次落图库）；transient / lazyblank 不碰

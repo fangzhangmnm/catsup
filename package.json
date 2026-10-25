@@ -19,6 +19,7 @@
     "@internal/store": "file:./vendor-pkgs/internal-store-2.2.0.tgz",
     "@internal/encryption": "file:./vendor-pkgs/internal-encryption-0.1.0.tgz",
     "@internal/gallery": "file:./vendor-pkgs/internal-gallery-0.8.7.tgz",
-    "@internal/workbench-elements": "file:./vendor-pkgs/internal-workbench-elements-0.1.3.tgz"
+    "@internal/workbench-elements": "file:./vendor-pkgs/internal-workbench-elements-0.1.3.tgz",
+    "@internal/reference-window": "file:./vendor-pkgs/internal-reference-window-0.5.0.tgz"
   }
 }

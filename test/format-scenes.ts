@@ -6,6 +6,7 @@ import { Scene } from "../src/scene/scene.ts";
 import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
 import { GROUND } from "../src/editor/pick.ts";
 import { translation } from "../src/scene/xform.ts";
+import { newDocument, type CatsupDocument } from "../src/format/index.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 function loop(k: Kernel, pts: Pt3[]): void {
@@ -104,6 +105,22 @@ export function sceneGuided(): Scene {
   return s;
 }
 export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided };
+/** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
+ *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
+export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';
+export function docReferenced(): CatsupDocument {
+  const doc = newDocument(sceneBox().toBrep(), "referenced");
+  const enc = (t: string): Uint8Array => new TextEncoder().encode(t);
+  doc.references = { files: [
+    { path: ".catsup/references/manifest.json", mimeType: "application/json", bytes: enc(REF_MANIFEST) },
+    { path: ".catsup/references/r0.png", mimeType: "image/png", bytes: TINY_PNG },
+    { path: ".catsup/references/r1.txt", mimeType: "text/plain", bytes: enc("门高 2.1 m") },
+  ], extra: {} };
+  doc.desk.refPanel = { open: true, left: 400, top: 60, width: 320, height: 240 };
+  return doc;
+}
+/** 整份文档级的样本（场景之外还带文档 / 桌面态内容的）：冻结样本脚本与语料测试共用。 */
+export const DOC_SAMPLES: Record<string, () => CatsupDocument> = { referenced: docReferenced };
 /** 场景指纹：每个池的指纹 + group / instance 结构。 */
 export function sceneFingerprint(s: Scene): string {
   const parts: string[] = [];
