@@ -15,13 +15,21 @@ export interface PopupMenuItem<Id extends string = string> {
   separatorBefore?: boolean;
   /** 分区小标题（票 2，WeebPaint 范式「人话小标题分区」，不是子菜单）：渲染在本项之前。 */
   sectionBefore?: string;
+  /** 属于哪个 tab（opts.tabs 给了才看；A30）。 */
+  tab?: string;
 }
+/** 弹层顶部的 tab（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）：图标 + 字一排；只显示当前 tab 的项。 */
+export interface PopupMenuTab { id: string; label: string; icon?: string }
 export interface PopupMenuOpts<Id extends string = string> {
   anchor: HTMLElement;
   items: () => PopupMenuItem<Id>[];
   onPick: (id: Id) => void | "keep";
   align?: "start" | "end";
+  tabs?: readonly PopupMenuTab[];
+  /** 记住上次停在哪个 tab（本次会话内；同一个 key 共用）。 */
+  tabKey?: string;
 }
+const _lastTab = new Map<string, string>();
 export interface PopupMenuHandle {
   readonly el: HTMLElement;
   close(): void;
@@ -48,15 +56,32 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   document.body.appendChild(el);
   let open = true;
 
+  const tabs = opts.tabs ?? [];
+  let tab = tabs.length ? (opts.tabKey && _lastTab.get(opts.tabKey)) || tabs[0].id : "";
+  if (tabs.length && !tabs.some((t) => t.id === tab)) tab = tabs[0].id;
   const render = (): void => {
     el.textContent = "";
+    el.classList.toggle("has-tabs", tabs.length > 0);
+    if (tabs.length) {
+      const bar = document.createElement("div"); bar.className = "menu-tabs"; bar.setAttribute("role", "tablist");
+      for (const t of tabs) {
+        const b = document.createElement("button"); b.type = "button"; b.className = "menu-tab" + (t.id === tab ? " on" : ""); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(t.id === tab)); b.dataset.menuTab = t.id;
+        b.innerHTML = `${t.icon ? iconHtml(t.icon) : ""}<span></span>`; (b.querySelector("span") as HTMLElement).textContent = t.label;
+        b.addEventListener("click", (ev) => { ev.stopPropagation(); tab = t.id; if (opts.tabKey) _lastTab.set(opts.tabKey, tab); render(); });
+        bar.appendChild(b);
+      }
+      el.appendChild(bar);
+    }
+    let firstInTab = true;
     for (const it of opts.items()) {
-      if (it.separatorBefore) {
+      if (tabs.length && it.tab !== tab) continue;
+      const head = firstInTab; firstInTab = false;
+      if (it.separatorBefore && !head) {
         const hr = document.createElement("div");
         hr.className = "menu-sep";
         el.appendChild(hr);
       }
-      if (it.sectionBefore) {
+      if (it.sectionBefore && !(head && tabs.length)) {   // tab 页的第一项不再画分区小标题（tab 本身就是标题）
         const h = document.createElement("div");
         h.className = "menu-section-label";
         h.textContent = it.sectionBefore;

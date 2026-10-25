@@ -376,28 +376,36 @@ function menuPick(id: MenuId): void | "keep" {
 // ☰（左上）：文件 / 云 / 模型 / 设置 / 帮助——票 2 WeebPaint 范式：人话小标题分区，不是子菜单（user 2026-10-24「汉堡菜单weebpaint化也应该开始做了」）。
 // 视图类（透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR）归右上角「视图」（user「步行飞行粗线稿这些都是视图啊，视图时是归右上角的汉堡管」「单位也归视图管」）；
 // 轴 / 参考线归工具条（user「轴是工具，轴不归汉堡管，归工具管」）。
+// ☰ = WeebPaint 式 tab 制（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页顺序 = 家族统一（F-81）：
+// 图库 → 新建 / 打开（含导入）→ 保存 / 导出 → 定稿；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
+const MAIN_MENU_TABS = [
+  { id: "file", label: "文件", icon: "floppy-disk" },
+  { id: "model", label: "模型", icon: "object" },
+  { id: "settings", label: "设置", icon: "settings" },
+  { id: "help", label: "帮助", icon: "help" },
+] as const;
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
-  anchor: btnMenu,
+  anchor: btnMenu, tabs: MAIN_MENU_TABS, tabKey: "main",
   items: () => [
-    { id: "new", label: "新建模型", icon: "new", sectionBefore: "文件" },   // 版图 = ai-docs/20261024-ui-layout.md
-    { id: "gallery", label: "图库", icon: "gallery", hint: hasStore() ? undefined : "本机 + OneDrive" },
-    { id: "save", label: session.home.kind === "transient" ? (supportsSavePicker() ? "保存到磁盘…" : "保存（下载 .glb）") : "保存", icon: "floppy-disk", hint: "Ctrl+S" },
-    ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as" }] : []),
-    { id: "open", label: "打开本地 .glb…", icon: "folder-open", hint: "Ctrl+O" },
-    { id: "download", label: "导出 .glb（下载一份）", icon: "download" },
-    { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口" },
-    { id: "import", label: "导入 OBJ…", icon: "import" },
+    { id: "gallery", label: "图库", icon: "gallery", tab: "file", hint: hasStore() ? undefined : "本机 + OneDrive" },
+    { id: "new", label: "新建模型", icon: "new", tab: "file", separatorBefore: true },
+    { id: "open", label: "打开本地 .glb…", icon: "folder-open", tab: "file", hint: "Ctrl+O" },
+    { id: "import", label: "导入 OBJ…", icon: "import", tab: "file" },
+    { id: "save", label: session.home.kind === "transient" ? (supportsSavePicker() ? "保存到磁盘…" : "保存（下载 .glb）") : "保存", icon: "floppy-disk", tab: "file", hint: "Ctrl+S", separatorBefore: true },
+    ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as", tab: "file" }] : []),
+    { id: "download", label: "导出 .glb（下载一份）", icon: "download", tab: "file" },
+    { id: "export", label: "导出 OBJ…", icon: "export", tab: "file", hint: "Blender 逃生口" },
     session.finalRecord()
-      ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock" }
-      : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", hint: "锁住几何 / 材质，只能看量导出" },
-    { id: "cloud", label: auth.isSignedIn() ? "退出 OneDrive 登录" : "登录 OneDrive", icon: "cloud", sectionBefore: "云", disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? undefined : "未配置 client id" },
-    { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", sectionBefore: "模型", hint: "平滑组" },
-    { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么" },
-    { id: "clear", label: "清空模型", icon: "trash-can" },
-    { id: "finger", label: "手指也能画", checked: fingerDraws, sectionBefore: "设置", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
-    { id: "help", label: "使用手册", icon: "help", sectionBefore: "帮助" },
-    { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
-    { id: "update", label: `强制更新（清缓存重启）· ${APP_VERSION}`, icon: "refresh" },
+      ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock", tab: "file", separatorBefore: true }
+      : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", tab: "file", separatorBefore: true, hint: "锁住几何 / 材质，只能看量导出" },
+    { id: "cloud", label: auth.isSignedIn() ? "退出 OneDrive 登录" : "登录 OneDrive", icon: "cloud", tab: "file", sectionBefore: "云", disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? undefined : "未配置 client id" },
+    { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", tab: "model", hint: "平滑组" },
+    { id: "material", label: "材质…", icon: "color", tab: "model", hint: "油漆桶蘸什么" },
+    { id: "clear", label: "清空模型", icon: "trash-can", tab: "model", separatorBefore: true },
+    { id: "finger", label: "手指也能画", checked: fingerDraws, tab: "settings", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
+    { id: "help", label: "使用手册", icon: "help", tab: "help" },
+    { id: "debuglog", label: "调试日志", icon: "wrench", tab: "help", hint: "复制给开发者" },
+    { id: "update", label: `强制更新（清缓存重启）· ${APP_VERSION}`, icon: "refresh", tab: "help" },
   ],
   onPick: menuPick,
 }));
