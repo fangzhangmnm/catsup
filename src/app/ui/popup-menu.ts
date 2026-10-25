@@ -34,12 +34,18 @@ export interface PopupMenuOpts<Id extends string = string> {
   onPick: (id: Id) => void | "keep";
   align?: "start" | "end";
   tabs?: readonly PopupMenuTab[];
-  /** 记住上次停在哪个 tab（本次会话内；同一个 key 共用）。 */
+  /** 记住上次停在哪个 tab（同一个 key 共用；宿主接了 configureTabMemory 就跨刷新）。 */
   tabKey?: string;
   /** 这次打开直接停在这个 tab（别处的「XX 设置…」跳进来用；也记进 tabKey）。 */
   tab?: string;
 }
 const _lastTab = new Map<string, string>();
+/** tab 记忆的落盘口（user 2026-10-25「两个汉堡能记住选的是哪个tab吗」：刷新后也停在上次那页）：宿主接 device-kv；没接 = 只记本次会话。 */
+export interface TabMemory { get(key: string): string | null; set(key: string, tab: string): void }
+let _tabStore: TabMemory | null = null;
+export function configureTabMemory(s: TabMemory | null): void { _tabStore = s; }
+const recallTab = (key: string): string | undefined => _lastTab.get(key) ?? _tabStore?.get(key) ?? undefined;
+const rememberTab = (key: string, tab: string): void => { _lastTab.set(key, tab); _tabStore?.set(key, tab); };
 export interface PopupMenuHandle {
   readonly el: HTMLElement;
   close(): void;
@@ -67,8 +73,8 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   let open = true;
 
   const tabs = opts.tabs ?? [];
-  let tab = tabs.length ? opts.tab || (opts.tabKey && _lastTab.get(opts.tabKey)) || tabs[0].id : "";
-  if (opts.tab && opts.tabKey) _lastTab.set(opts.tabKey, opts.tab);
+  let tab = tabs.length ? opts.tab || (opts.tabKey && recallTab(opts.tabKey)) || tabs[0].id : "";
+  if (opts.tab && opts.tabKey) rememberTab(opts.tabKey, opts.tab);
   if (tabs.length && !tabs.some((t) => t.id === tab)) tab = tabs[0].id;
   const render = (): void => {
     el.textContent = "";
@@ -78,7 +84,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
       for (const t of tabs) {
         const b = document.createElement("button"); b.type = "button"; b.className = "menu-tab" + (t.id === tab ? " on" : ""); b.setAttribute("role", "tab"); b.setAttribute("aria-selected", String(t.id === tab)); b.dataset.menuTab = t.id;
         b.innerHTML = `${t.icon ? iconHtml(t.icon) : ""}<span></span>`; (b.querySelector("span") as HTMLElement).textContent = t.label;
-        b.addEventListener("click", (ev) => { ev.stopPropagation(); tab = t.id; if (opts.tabKey) _lastTab.set(opts.tabKey, tab); render(); });
+        b.addEventListener("click", (ev) => { ev.stopPropagation(); tab = t.id; if (opts.tabKey) rememberTab(opts.tabKey, tab); render(); });
         bar.appendChild(b);
       }
       el.appendChild(bar);

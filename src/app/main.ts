@@ -42,7 +42,7 @@ import { VR } from "./vr.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
 import { iconHtml } from "./ui/icon.ts";
-import { openPopupMenu, togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
+import { configureTabMemory, openPopupMenu, togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
 import { showNotice, type NoticeOpts } from "./ui/notice.ts";
 import { initCrashRecovery } from "./crash-recovery.ts";
 import { crashStore } from "./crash-store.ts";
@@ -96,6 +96,7 @@ const PREF = {
   get(key: string): string | null { return deviceKvGet(`ui.${key}`); },
   set(key: string, v: string): void { deviceKvSet(`ui.${key}`, v); },
 };
+configureTabMemory({ get: (k) => PREF.get(`menuTab.${k}`), set: (k, t) => PREF.set(`menuTab.${k}`, t) });   // 两个汉堡记住停在哪个 tab，刷新后也在（user 2026-10-25「两个汉堡能记住选的是哪个tab吗」）
 let fingerDraws = PREF.get("fingerDraws") === "1";
 // B43 尺度参考：最多几条（这台设备记住；user「有一个最多条目数」）。样式只剩字的深浅（user「要不不要图像，就字的深淡」）
 let lastTipHtml = "";
