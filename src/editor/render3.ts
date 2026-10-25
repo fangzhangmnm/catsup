@@ -750,7 +750,8 @@ export class Renderer3 {
       this.guideLines.visible = true;
     } else { this.guideLines.visible = false; this.guideKey = ""; }
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
-    const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = view.grid?.on ? (view.grid?.sub ?? 1) : 1;
+    // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」「sub incremental就是sub刻度的」）：吸附的 1/5、1/10 只管吸，像尺子上的小刻度，不画成网格线
+    const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = 1;
     const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
 

@@ -801,7 +801,7 @@ void viewGizmo;
 // 右键 / 长按 = 菜单（轴锁、制式、栅格面、格距、细分）；钮角标 = 当前轴锁。
 const widgets = document.createElement("div"); widgets.className = "gizmo-btns gizmo-widgets"; $("viewGizmo").appendChild(widgets);
 const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 轴锁 / 面锁、栅格设置）";
-snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span>';
+snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
 snapBtnRef = snapBtn;
 const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("grid"); return; } return onGridPick(id); } }); };
@@ -818,6 +818,8 @@ function renderSnapWidget(): void {
   const btn = snapBtnRef;
   if (!btn) return;
   btn.classList.toggle("on", editor.grid.on);
+  const lk = btn.querySelector(".gizmo-snaplock") as HTMLElement, want = editor.grid.on ? "lock" : "unlock";
+  if (lk.dataset.icon !== want) { lk.dataset.icon = want; lk.innerHTML = iconHtml(want); }
   const badge = btn.querySelector(".gizmo-badge") as HTMLElement;
   const a = editor.axisLock, p = editor.planeLock, axis = a ?? (p === "face" ? null : p);
   badge.hidden = !a && !p; badge.textContent = a ? a.toUpperCase() : p ? planeLockLabel(p) : ""; badge.dataset.axis = axis ?? "";

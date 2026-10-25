@@ -56,6 +56,8 @@ svg.ico use { color: inherit; }
 /* 视图侧挂件条（2026-10-24 Opus）：gizmo 拖柄下面另一组；第一个 = 吸附；角标 = 轴锁（颜色同三色轴） */
 .gizmo-widgets { margin-top: 6px; }
 .gizmo-snap { position: relative; }
+.gizmo-snaplock { position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; pointer-events: none; background: var(--panel); border-radius: 3px; }
+.gizmo-snaplock .ico { width: 12px; height: 12px; }
 .gizmo-badge { position: absolute; right: 1px; top: 1px; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 7px; font: 700 9px/13px system-ui, sans-serif; color: #fff; background: #555; pointer-events: none; }
 .gizmo-badge[data-axis="x"] { background: #d9342b; }
 .gizmo-badge[data-axis="y"] { background: #2e8b57; }
