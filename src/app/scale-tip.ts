@@ -16,7 +16,8 @@ export function scaleTipHtml(text: string | null, view: ScaleTipView | null, max
   const head = measure
     ? `<div class="tip-main"><span class="tip-measure">${esc(measure)}</span>${text ? `<span class="tip-snap">${esc(text)}</span>` : ""}</div>`
     : text ? `<div class="tip-main">${esc(text)}</div>` : "";
-  const items = view?.items.slice(0, max) ?? [];
+  // 先按挑选优先截前 max 条（评级高的先），截下来的再按深浅排、深的在前（user「浓的放前面」）
+  const items = (view?.items.slice(0, max) ?? []).sort((a, b) => b.strength - a.strength);
   if (!items.length) return head;
   return head + `<div class="tip-ref">≈ ${items.map((it) => `<span style="opacity:${alpha(it.strength)}">${esc(it.name)}</span>`).join('<span class="sep"> / </span>')}</div>`;
 }

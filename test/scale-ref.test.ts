@@ -68,13 +68,18 @@ describe("scale-ref: 提示框的数据（grill 定案 + 多选）", () => {
     eq(Math.abs(closeness(Math.SQRT2, 1, 0.5, 2) - 0.5) < 1e-12, true);
     eq(Math.abs(closeness(1.1, 1, 0.9, 1.21) - 0.5) < 1e-9, true);
   });
-  it("深的排前、按名字去重；没勾 = null", () => {
+  it("挑选优先 = 评级高的先、同级离典型值近的先；按名字去重；没勾 = null", () => {
     const v = scaleTipView(L, ["interior/ALL"], { reading: 0.914, dir: "up" })!;
     eq(v.items.length >= 3, true);
-    eq(v.items.every((it, i) => i === 0 || v.items[i - 1].strength >= it.strength), true);
     eq(new Set(v.items.map((it) => it.name)).size, v.items.length);
     eq(v.items.some((it) => it.name === "栏杆"), true);
     eq(scaleTipView(L, [], { reading: 1, dir: "up" }), null);
+  });
+  it("门宽在它整段范围里都进前三（user「我0.1m snap的时候没有看到门宽」：之前按深浅挑，0.8 / 1.0 m 被床宽、淋浴宽挤掉）", () => {
+    for (const r of [0.8, 0.85, 0.9, 0.95, 1.0]) {
+      const top3 = scaleTipView(L, ["interior/ALL", "exterior/ALL"], { reading: r, dir: "flat" })!.items.slice(0, 3).map((it) => it.name);
+      eq(top3.some((n) => /门宽/.test(n)), true, `${r} m: ${top3.join(" / ")}`);
+    }
   });
   it("多选 = 并集：室内 + 室外在 5 m 横着时两边的名字都在", () => {
     const names = (subs: string[]): Set<string> => new Set(scaleTipView(L, subs, { reading: 5, dir: "flat" })?.items.map((it) => it.name) ?? []);

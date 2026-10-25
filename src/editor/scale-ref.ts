@@ -149,7 +149,7 @@ function poolFor(L: Ladder, subs: readonly string[], lang: Lang): Record<ScaleDi
 const LOG_STEP = Math.log(1.005);
 let last: { byDir: Record<ScaleDir, PoolEntry[]>; dir: ScaleDir; bucket: number; view: ScaleTipView | null } | null = null;
 
-/** 提示框的数据：候选（读数落在合理范围里的全部）按名字去重、深的排前（一样深按评级）；宿主按「最多几条」截。没订阅 = null。 */
+/** 提示框的数据：候选（读数落在合理范围里的全部）按名字去重，按挑选优先排好（评级高的先、同级离典型值近的先）；宿主按「最多几条」截、截下来再按深浅排。没订阅 = null。 */
 export function scaleTipView(L: Ladder, subs: readonly string[], q: ScaleQuery, lang: Lang = "zh"): ScaleTipView | null {
   if (!subs.length || !(q.reading > 0)) return null;
   const byDir = poolFor(L, subs, lang), bucket = Math.round(Math.log(q.reading) / LOG_STEP);
@@ -160,7 +160,10 @@ export function scaleTipView(L: Ladder, subs: readonly string[], q: ScaleQuery, 
     const strength = closeness(q.reading, e.value, e.lo, e.hi), prev = best.get(e.name);
     if (!prev || strength > prev.strength) best.set(e.name, { name: e.name, strength, hit: false, shape: "band", value: e.value, lo: e.lo, hi: e.hi, rank: e.rank });
   }
-  const items = [...best.values()].sort((a, b) => b.strength - a.strength || b.rank - a.rank).map(({ rank: _r, ...it }) => it);
+  // 挑哪几条 = 仓鼠的规则（user 当时定的「评级排序」）：评级高的先、同级离典型值近的先——门这种人人都有画面的不会被正好落在典型值上的冷门东西挤掉
+  // （v0.13.52–64 误把「浓的放前面」当成挑选规则 = 0.8 / 1.0 m 门被床宽、淋浴宽挤出前三；user「我0.1m snap的时候没有看到门宽」）。
+  // 挑出来以后怎么排（深的在前）归宿主（scale-tip.ts）。
+  const items = [...best.values()].sort((a, b) => b.rank - a.rank || Math.abs(Math.log(q.reading / a.value)) - Math.abs(Math.log(q.reading / b.value))).map(({ rank: _r, ...it }) => it);
   const view = items.length ? { reading: q.reading, dir: q.dir, items } : null;
   last = { byDir, dir: q.dir, bucket, view };
   return view;
