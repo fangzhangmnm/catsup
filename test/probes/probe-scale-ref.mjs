@@ -52,7 +52,7 @@ res.cursor = await (async () => { const q = await px({ x: 0, y: 0, z: 0.914 }); 
 res.penTip = await tip(); await page.keyboard.press("Escape");
 console.log(JSON.stringify({ ...res, penTip: res.penTip.slice(0, 80), off: res.off.slice(0, 120), fade: res.fade.slice(0, 300), five: res.five.slice(0, 120), rect: res.rect.slice(0, 200) }));
 const ok = res.loaded && res.refs0 === "interior/ALL|exterior/ALL"
-  && /栏杆/.test(res.fade) && names(res.fade) === 3 && !/<svg|hit/.test(res.fade) && /^<div class="tip-main"><span class="tip-measure">长 /.test(res.fade)
+  && /栏杆/.test(res.fade) && names(res.fade) === 3 && /<sup class="tip-sign">[+−]<\/sup>/.test(res.fade + res.five) && !/<svg|hit/.test(res.fade) && /^<div class="tip-main"><span class="tip-measure">长 /.test(res.fade)
   && /室内、室外/.test(res.page0.pick) && res.page0.chips === 3 && /新手提醒/.test(res.page0.sections) && /估算/.test(res.page0.notes)
   && res.msOpen.n >= 20 && res.msOpen.on === "interior/ALL|exterior/ALL"
   && res.afterDnd.refs === "interior/ALL|exterior/ALL|interior/DND" && res.afterDnd.parentOpen && res.afterDnd.msOpen && /等 3 项/.test(res.afterDnd.page.pick) && /SRD 5\.1/.test(res.afterDnd.page.notes)

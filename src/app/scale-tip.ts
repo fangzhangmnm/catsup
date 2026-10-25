@@ -19,5 +19,7 @@ export function scaleTipHtml(text: string | null, view: ScaleTipView | null, max
   // 先按挑选优先截前 max 条（评级高的先），截下来的再按深浅排、深的在前（user「浓的放前面」）
   const items = (view?.items.slice(0, max) ?? []).sort((a, b) => b.strength - a.strength);
   if (!items.length) return head;
-  return head + `<div class="tip-ref">≈ ${items.map((it) => `<span style="opacity:${alpha(it.strength)}">${esc(it.name)}</span>`).join('<span class="sep"> / </span>')}</div>`;
+  // 方向（user「用加减几号来表面是拉多了（加）还是拉少了……深浅没法接住方向」→ 选了「只写正负号」）：右上角小 + = 比典型值长、− = 比典型值短；差 1% 以内不写
+  const sign = (v: number): string => (view!.reading > v * 1.01 ? "+" : view!.reading < v / 1.01 ? "−" : "");
+  return head + `<div class="tip-ref">≈ ${items.map((it) => { const g = sign(it.value); return `<span style="opacity:${alpha(it.strength)}">${esc(it.name)}${g ? `<sup class="tip-sign">${g}</sup>` : ""}</span>`; }).join('<span class="sep"> / </span>')}</div>`;
 }

@@ -307,6 +307,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 /* B43 尺度参考（2026-10-25 Opus）：跟指针提示框第二行，只有字的深浅（scale-tip.ts） */
 #tip .tip-ref { margin-top: 1px; font-size: 11px; color: var(--muted); }
 #tip .tip-measure { font-weight: 700; font-variant-numeric: tabular-nums; }
+#tip .tip-sign { font-size: 9px; margin-left: 1px; vertical-align: super; line-height: 0; }
 #tip .tip-snap { margin-left: 6px; font-size: 11px; color: var(--muted); }
 #tip .tip-ref .sep { opacity: .35; }
 /* 弹出菜单的「一行小块」和「纯文字说明」（B43 参考页） */
