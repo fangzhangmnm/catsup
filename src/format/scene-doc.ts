@@ -3,6 +3,7 @@
 // definition 的 id：文件里是 list 索引，运行时由 Scene 顺序铸造（装载顺序 = 文件顺序 → 索引 i ↔ DefId i+1）。
 // created 2026-10-21 by Claude Fable 5.1
 import { Kernel } from "../kernel/kernel.ts";
+import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc } from "./document.ts";
 import { Scene, type DefId } from "../scene/scene.ts";
 import type { CatsupDocument, DefinitionDoc, GuidesDoc } from "./document.ts";
 import type { Guides } from "../scene/guides.ts";
@@ -16,6 +17,9 @@ const guidesFromDoc = (g: GuidesDoc): Guides => ({
 const guidesToDoc = (g: Guides): GuidesDoc => ({ lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })), points: g.points.map((q) => ({ id: q.id, p: { ...q.p } })) });
 const copyFrame = (f: CatsupDocument["axes"]): CatsupDocument["axes"] => ({ origin: { ...f.origin }, x: { ...f.x }, y: { ...f.y }, z: { ...f.z } });
 
+/** 非 brep 定义在文件里的占位 brep（文件布局不动：definitions[i].brep 永远在）。 */
+const EMPTY_BREP = () => new Kernel().toBrep();
+
 /** 文档 → 场景。 */
 export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep));
@@ -24,9 +28,16 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   const idOf = new Map<number, DefId>();
   idOf.set(doc.rootIndex, scene.root);
   scene.def(scene.root).name = doc.root.name;
+  scene.layers = (doc.layers?.length ? doc.layers : defaultLayers()).map((l) => ({ ...l }));
+  if (!scene.layers.some((l) => l.id === 0)) scene.layers.unshift({ ...DEFAULT_LAYER });
+  scene.nextLayer = Math.max(1, ...scene.layers.map((l) => l.id + 1));
   doc.definitions.forEach((d, i) => { if (i !== doc.rootIndex) idOf.set(i, scene.mintDef(d.name, Kernel.fromBrep(d.brep)).id); });
   doc.definitions.forEach((d, i) => {
-    const def = scene.def(idOf.get(i)!), body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
+    const def = scene.def(idOf.get(i)!);
+    // 0.14 身体种类（契约 §2）：card / mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
+    if (d.kind === "card" && d.card) { def.body = { kind: "card", image: d.card.image, anchor: d.card.anchor, billboard: d.card.billboard }; for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; } return; }
+    if (d.kind === "mesh" && d.mesh) { def.body = { kind: "mesh", positions: d.mesh.positions, indices: d.mesh.indices, ...(d.mesh.normals ? { normals: d.mesh.normals } : {}), ...(d.mesh.uvs ? { uvs: d.mesh.uvs } : {}), ...(d.mesh.triMaterial ? { triMaterial: d.mesh.triMaterial } : {}), materialSlots: d.materialSlots.map((m) => (m in doc.materials ? m : -1)) }; for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; } return; }
+    const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
     body.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
     body.guides = guidesFromDoc(d.guides);
     for (const g of d.groups) {
@@ -36,7 +47,6 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
       body.groups.delete(grp.id === g.id ? -1 : grp.id);
       body.groups.set(g.id, grp);
       if (g.name !== undefined) grp.name = g.name;
-      if (g.locked) grp.locked = true;
     }
     for (const g of d.groups) { const grp = body.groups.get(g.id)!; grp.parent = g.parent !== null && body.groups.has(g.parent) ? g.parent : null; }
     body.nextGroup = Math.max(1, ...[...body.groups.keys()].map((k) => k + 1));
@@ -49,6 +59,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
       def.instances.set(inst.id, ii);
       if (inst.name !== undefined) ii.name = inst.name;
       if (inst.locked) ii.locked = true;
+      if (inst.layer !== undefined) ii.layer = inst.layer;
     }
     def.nextInst = Math.max(1, ...[...def.instances.keys()].map((k) => k + 1));
   });
@@ -63,25 +74,31 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   const rootIndex = ids.indexOf(scene.root);
   const idx = new Map<DefId, number>(ids.map((id, i) => [id, i]));
   const definitions: DefinitionDoc[] = ids.map((id) => {
-    const d = scene.def(id), b = scene.brep(id);   // 现在只有 brep 身体能写文件；card 的载荷随 A26 加（那时 CATSUP_definitions 升 minor）
+    const d = scene.def(id);
+    const instances = [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}) }));
+    if (d.body.kind === "card") return { name: d.name, kind: "card", card: { image: d.body.image, anchor: d.body.anchor, billboard: d.body.billboard }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: [], guides: emptyGuidesDoc() };
+    if (d.body.kind === "mesh") return { name: d.name, kind: "mesh", mesh: { positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: [...d.body.materialSlots], guides: emptyGuidesDoc() };
+    const b = d.body;
     return {
       name: id === scene.root ? name : d.name,
       kind: d.body.kind,
       brep: b.kernel.toBrep(),
-      groups: [...b.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}), ...(g.locked ? { locked: true } : {}) })),
-      instances: [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}) })),
+      groups: [...b.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) })),
+      instances,
       materialSlots: [...b.materialSlots],
       guides: guidesToDoc(b.guides),
     };
   });
   const materials = scene.materials.map((m) => ({ name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));
   const root = definitions[rootIndex];
-  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes) };   // final / finalRev 随 base 带
+  const layers = scene.layers.map((l) => ({ ...l }));
+  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes), layers };   // final / finalRev 随 base 带
   const doc = newDocument(root.brep, name);
   doc.axes = copyFrame(scene.axes);
   doc.definitions = definitions;
   doc.rootIndex = rootIndex;
   doc.root = definitions[rootIndex];
   doc.materials = materials;
+  doc.layers = layers;
   return doc;
 }

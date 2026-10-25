@@ -839,10 +839,12 @@ export class Editor {
   }
   /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
   lockSelection(on: boolean): boolean {
-    const picks = [...this.selectedPools.values()].filter((p) => this.pickIsLocked(p) !== on);
-    if (!picks.length) return false;
+    // 0.14：组不是物体、不能锁（user「组永远不进hierarchy」）——只锁实例；选区里只有组时提示怎么办
+    const all = [...this.selectedPools.values()];
+    const picks = all.filter((p) => p.kind === "instance" && this.pickIsLocked(p) !== on);
+    if (!picks.length) { if (on && all.some((p) => p.kind === "group")) this.host.hint("组不是物体，不能锁；要当参考就先「建组件」（G）再锁"); return false; }
     const at = this.activePool();
-    for (const p of picks) this.commitOp(p.kind === "group" ? { op: "setLocked", at, group: p.group, on } : { op: "setLocked", at, instance: p.instance, on });
+    for (const p of picks) if (p.kind === "instance") this.commitOp({ op: "setLocked", at, instance: p.instance, on });
     this.host.hint(on ? `已锁定 ${picks.length} 个：不能改、不能移、不能进入；仍可当推断参考` : `已解锁 ${picks.length} 个`);
     this.host.changed(); this.draw();
     return true;

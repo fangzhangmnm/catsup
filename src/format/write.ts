@@ -88,12 +88,22 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       id: g.id, parent: g.parent,
       axes: { origin: [g.axes.origin.x, g.axes.origin.y, g.axes.origin.z], x: [g.axes.x.x, g.axes.x.y, g.axes.x.z], y: [g.axes.y.x, g.axes.y.y, g.axes.y.z], z: [g.axes.z.x, g.axes.z.y, g.axes.z.z] },
       ...(g.name !== undefined ? { name: g.name } : {}),
-      ...(g.locked ? { locked: true } : {}),
       guides: encGuides(g.guides),
       brep: encodeBrep(g.brep, sink),
     }));
-    const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}) }));
-    return { name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
+    const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}) }));
+    // 0.14 身体载荷（definitions v5）：card = 图进 glTF images + 尺度；mesh = 几条 bufferView
+    let payload: Record<string, unknown> = {};
+    if (d.kind === "card" && d.card) {
+      const v = sink.add(d.card.image.bytes);
+      images.push({ bufferView: v, mimeType: d.card.image.mimeType, name: d.name });
+      payload = { card: { image: images.length - 1, sizeM: [d.card.image.sizeM[0], d.card.image.sizeM[1]], anchor: d.card.anchor, billboard: d.card.billboard } };
+    } else if (d.kind === "mesh" && d.mesh) {
+      const m = d.mesh;
+      const bv = (arr: Float32Array | Uint32Array | Uint16Array): number => sink.add(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));
+      payload = { mesh: { positions: { bufferView: bv(m.positions), count: m.positions.length / 3 }, indices: { bufferView: bv(m.indices), count: m.indices.length }, ...(m.normals ? { normals: { bufferView: bv(m.normals) } } : {}), ...(m.uvs ? { uvs: { bufferView: bv(m.uvs) } } : {}), ...(m.triMaterial ? { triMaterial: { bufferView: bv(m.triMaterial) } } : {}) } };
+    }
+    return { name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), ...payload, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
   });
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）
@@ -133,7 +143,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     extensions: {
       ...carry.extensions,
       CATSUP_document: {
-        version: EXTENSION_VERSIONS.CATSUP_document,
+        version: EXTENSION_VERSIONS.CATSUP_document, layers: doc.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, ...(l.color ? { color: [l.color[0], l.color[1], l.color[2]] } : {}) })),
         formatVersion: 1,
         settings: doc.settings,
         axes: { origin: v3(doc.axes.origin), x: v3(doc.axes.x), y: v3(doc.axes.y), z: v3(doc.axes.z) },

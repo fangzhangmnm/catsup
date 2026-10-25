@@ -13,6 +13,7 @@ import type { Ring } from "../kernel/facefind.ts";
 import { type PlaneParams, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type EditContext, type InstId, type Material, type PoolRef, Scene, poolKey, samePool } from "./scene.ts";
 import { type Frame, type Xform, applyPlane, applyPt, compose, isIdentity } from "./xform.ts";
+import { chainVisible } from "./layers.ts";
 import { type GuidesWorld, guidesToWorld } from "./guides.ts";
 
 /** 绝对网格（0.11 ⑤）：帧 = 上下文的帧（绘图轴），step = 显示格距（米），sub = 吸附细分（吸附步 = step / sub）。 */
@@ -167,6 +168,7 @@ export class WorldView implements GeomView {
     const used = new Map<Kernel, Set<number>>();
     for (const { pool, xform, chain } of scene.pools()) {
       if (scene.kindOf(pool.def) !== "brep") continue;   // 门 1：只有 brep 池有 kernel 可 bake；card 等别的 kind 以后各自 bake
+      if (chain.length && chain.join("/") !== chainKey && !chainVisible(scene, chain)) continue;   // 层藏掉的（含祖先藏）不进推断世界、不画（契约 §4；上下文自己所在的链永远算可见——你站在里面）
       const isActive = samePool(pool, activePool) && chain.join("/") === chainKey;
       const sameDefChain = chain.join("/") === chainKey;
       const index = this.slots.length;

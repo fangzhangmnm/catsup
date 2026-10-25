@@ -20,7 +20,7 @@ describe("body kind: 对象层 / 内容层", () => {
   it("card 身体：没有内核（kernelOf 抛）、内核 op 拒（OpTargetError）、hasPool 对根成立对 group 不成立、WorldView 跳过它、clone 保留 kind", () => {
     const s = new Scene(sceneBox());
     const card = s.mintDef("猫娘", new Kernel());
-    card.body = { kind: "card" };
+    card.body = { kind: "card", image: { mimeType: "image/png", bytes: new Uint8Array([137, 80, 78, 71]), sizeM: [0.6, 1.2] }, anchor: "bottom-center", billboard: false };
     s.mintInstance(s.root, null, card.id, [1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0, 0]);
     eq(s.kindOf(card.id), "card");
     let threw = false; try { s.kernelOf({ def: card.id, group: null }); } catch { threw = true; } assert(threw, "kernelOf 该抛");
@@ -43,13 +43,15 @@ describe("body kind: 文件", () => {
     eq(back.root.kind, "brep");
     eq(sceneFromDocument(back).kindOf(sceneFromDocument(back).root), "brep");
   });
-  it("文件里 kind 不是 brep（这一版不认）→ 拒开，错误说清是哪个定义", () => {
+  it("文件里 kind 不认识（以后的 road…）→ 拒开说清哪个定义；认识的 card 没载荷也拒开（0.14：card / mesh 已认）", () => {
     const doc = documentFromScene(new Scene(sceneBox()), "t");
     const bytes = writeCatsup(doc);
     const g = decodeGlb(bytes) as { json: { extensions: { CATSUP_definitions: { list: Record<string, unknown>[] } } }; bin: Uint8Array };
+    g.json.extensions.CATSUP_definitions.list[0].kind = "road";
+    let msg = ""; try { readCatsup(encodeGlb(g.json as unknown as Record<string, unknown>, g.bin)); } catch (e) { msg = e instanceof Error ? e.message : String(e); }
+    assert(/definition 0 kind "road" is not supported/.test(msg), `该拒开并说清：${msg}`);
     g.json.extensions.CATSUP_definitions.list[0].kind = "card";
-    const bytes2 = encodeGlb(g.json as unknown as Record<string, unknown>, g.bin);
-    let msg = ""; try { readCatsup(bytes2); } catch (e) { msg = e instanceof Error ? e.message : String(e); }
-    assert(/kind "card" is not supported/.test(msg), `该拒开并说清：${msg}`);
+    msg = ""; try { readCatsup(encodeGlb(g.json as unknown as Record<string, unknown>, g.bin)); } catch (e) { msg = e instanceof Error ? e.message : String(e); }
+    assert(/definition 0 card payload missing/.test(msg), `card 没载荷该拒：${msg}`);
   });
 });

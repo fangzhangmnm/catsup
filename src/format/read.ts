@@ -6,7 +6,8 @@ import { decodeGlb } from "./glb.ts";
 import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc } from "./document.ts";
-import { DEFAULT_SETTINGS } from "./document.ts";
+import type { BodyKind } from "../scene/body-kind.ts";
+import { DEFAULT_SETTINGS, DEFAULT_LAYER, type LayerDoc } from "./document.ts";
 import { migrateExtension } from "./migrate/index.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
@@ -70,6 +71,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   if (typeof rootIdx !== "number" || !(rootIdx in (list as unknown[]))) fail("CATSUP_definitions.root invalid");
 
   let brepKeep: Record<string, unknown> | undefined;
+  const imgListEarly = Array.isArray(json.images) ? (json.images as Record<string, unknown>[]) : [];
   const definitions: DefinitionDoc[] = (list as unknown[]).map((raw, di) => {
     if (!isObj(raw)) fail(`definition ${di} invalid`);
     const d = raw as Record<string, unknown>;
@@ -94,7 +96,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;
       const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>) as unknown as CatsupBrepJson;
-      return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), ...(g.locked === true ? { locked: true } : {}), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
+      return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
     });
     const instances: InstanceDoc[] = (Array.isArray(d.instances) ? d.instances : []).map((iRaw: unknown, ii: number) => {
       if (!isObj(iRaw)) fail(`definition ${di} instance ${ii} invalid`);
@@ -102,12 +104,37 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (typeof inst.definition !== "number" || !(inst.definition in (list as unknown[]))) fail(`definition ${di} instance ${ii} references a missing definition`);
       const m = inst.matrix;
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
-      return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
+      return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
-    // 门 1：definition 的种类。缺省 brep；别的种类（card…）这一版还不认 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
-    if (d.kind !== undefined && d.kind !== "brep") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
-    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind: "brep", brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
+    // 门 1：definition 的种类。缺省 brep；0.14 起认 card / mesh（载荷：definitions v5）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
+    const kindRaw = d.kind === undefined ? "brep" : d.kind;
+    if (kindRaw !== "brep" && kindRaw !== "card" && kindRaw !== "mesh") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
+    const kind = kindRaw as BodyKind;
+    const sliceOf = (bv: number): ArrayBuffer => { const u = view(bv); return u.buffer.slice(u.byteOffset, u.byteOffset + u.byteLength) as ArrayBuffer; };
+    let payload: Partial<DefinitionDoc> = {};
+    if (kind === "card") {
+      if (!isObj(d.card)) fail(`definition ${di} card payload missing`);
+      const c = d.card as Record<string, unknown>;
+      const imgRaw = typeof c.image === "number" ? imgListEarly[c.image] : undefined;
+      if (!isObj(imgRaw)) fail(`definition ${di} card image missing`);
+      const img = imgRaw as Record<string, unknown>;
+      if (typeof img.bufferView !== "number") fail(`definition ${di} card image has no bufferView`);
+      const bvi = img.bufferView as number;
+      const szRaw = c.sizeM;
+      if (!Array.isArray(szRaw) || szRaw.length !== 2 || !szRaw.every((v) => typeof v === "number" && v > 0)) fail(`definition ${di} card sizeM invalid（每张图必须带长度尺度）`);
+      const sz = szRaw as number[];
+      payload = { card: { image: { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(bvi)), sizeM: [sz[0], sz[1]] }, anchor: "bottom-center", billboard: c.billboard === true } };
+    } else if (kind === "mesh") {
+      if (!isObj(d.mesh)) fail(`definition ${di} mesh payload missing`);
+      const mj = d.mesh as Record<string, unknown>;
+      const bvOf = (k: string): number | null => { const o = mj[k]; return isObj(o) && typeof (o as Record<string, unknown>).bufferView === "number" ? ((o as Record<string, unknown>).bufferView as number) : null; };
+      const pb = bvOf("positions"), ib = bvOf("indices");
+      if (pb === null || ib === null) fail(`definition ${di} mesh positions / indices missing`);
+      const nb = bvOf("normals"), ub = bvOf("uvs"), tm = bvOf("triMaterial");
+      payload = { mesh: { positions: new Float32Array(sliceOf(pb as number)), indices: new Uint32Array(sliceOf(ib as number)), ...(nb !== null ? { normals: new Float32Array(sliceOf(nb)) } : {}), ...(ub !== null ? { uvs: new Float32Array(sliceOf(ub)) } : {}), ...(tm !== null ? { triMaterial: new Uint16Array(sliceOf(tm)) } : {}) } };
+    }
+    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
 
   // 材质：glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
@@ -158,6 +185,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   return {
     settings: { ...DEFAULT_SETTINGS, ...settingsIn } as CatsupDocument["settings"],
     axes: frameOf(docExt.axes, "document.axes"),
+    layers: (() => { const raw = Array.isArray(docExt.layers) ? (docExt.layers as unknown[]) : []; const ls: LayerDoc[] = raw.filter(isObj).map((l) => { const o = l as Record<string, unknown>; return { id: typeof o.id === "number" ? o.id : 0, name: typeof o.name === "string" ? o.name : `层 ${String(o.id)}`, visible: o.visible !== false, ...(Array.isArray(o.color) && o.color.length === 3 ? { color: [o.color[0], o.color[1], o.color[2]] as [number, number, number] } : {}) }; }); if (!ls.some((l) => l.id === 0)) ls.unshift({ ...DEFAULT_LAYER }); return ls; })(),
     ...(isFinalRecord(docExt.final) ? { final: { at: docExt.final.at, rev: docExt.final.rev, app: typeof docExt.final.app === "string" ? docExt.final.app : "", fingerprint: docExt.final.fingerprint } } : {}),
     ...(typeof docExt.finalRev === "number" ? { finalRev: docExt.finalRev } : {}),
     ...(docExt.lastView !== undefined ? { lastView: docExt.lastView } : {}),

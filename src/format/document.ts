@@ -18,19 +18,32 @@ export interface DocumentSettings {
   gridSubdiv: number;       // 吸附细分（0.11 ⑤；user 2026-10-24「snap 比显示要细，1/5 还是 1/10 没想好」→ 5 默认、10 可选）
 }
 
+/** 图片资产（贴图与参考卡片共用；契约 ai-docs/20261024-object-model-contract.md §3）：**每张图必须带长度尺度**（user 2026-10-24），sizeM 是真源，像素只是分辨率。 */
+export interface ImageAsset { mimeType: string; bytes: Uint8Array; sizeM: [number, number]; }
+export const assertImageAsset = (img: ImageAsset, what = "image"): void => { if (!(img.sizeM[0] > 0 && img.sizeM[1] > 0) || !Number.isFinite(img.sizeM[0]) || !Number.isFinite(img.sizeM[1])) throw new Error(`${what}: every image must carry a physical size (sizeM > 0)`); if (!(img.bytes instanceof Uint8Array) || !img.bytes.length) throw new Error(`${what}: empty image bytes`); };
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + 可选贴图（原图字节 + 物理尺寸 米）。 */
-export interface MaterialDoc { name: string; color: [number, number, number]; texture?: { mimeType: string; bytes: Uint8Array; sizeM: [number, number] }; }
+export interface MaterialDoc { name: string; color: [number, number, number]; texture?: ImageAsset; }
+/** 层（Unity render layer 的管理用法；契约 §4）：文档级表，id 0 = 默认层永远存在；只管可见性，纯管理。 */
+export interface LayerDoc { id: number; name: string; visible: boolean; color?: [number, number, number]; }
+export const DEFAULT_LAYER: LayerDoc = { id: 0, name: "默认", visible: true };
+export const defaultLayers = (): LayerDoc[] => [{ ...DEFAULT_LAYER }];
+/** 卡片身体载荷（契约 §2）：一张竖直的卡，定义坐标里原点 = 底边中点，卡面在 XZ 面朝 −Y；billboard = 渲染时绕 Z 转向相机。 */
+export interface CardDoc { image: ImageAsset; anchor: "bottom-center"; billboard: boolean; }
+/** 网格身体载荷（契约 §2；Blender 式三角网的最小形）：positions xyz（米，定义坐标）、indices 三角、可选法向 / uv / 每三角材质槽。 */
+export interface MeshDoc { positions: Float32Array; indices: Uint32Array; normals?: Float32Array; uvs?: Float32Array; triMaterial?: Uint16Array; }
 /** 参考几何（0.11 尺规纪元；definitions v4）：池本地坐标，id 线 / 点同一空间。 */
 export interface GuidesDoc { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[] }
 export const emptyGuidesDoc = (): GuidesDoc => ({ lines: [], points: [] });
-export interface GroupDoc { id: number; parent: number | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; }
-export interface InstanceDoc { id: number; definition: number; parent: number | null; xform: Xform; name?: string; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; }
-export interface DefinitionDoc { name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; extras?: Record<string, unknown>; }
+export interface GroupDoc { id: number; parent: number | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; }   // 组不是物体（user 10-24）：无锁、无层；旧文件的 locked 读时丢弃（definitions v5）
+export interface InstanceDoc { id: number; definition: number; parent: number | null; xform: Xform; name?: string; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */ layer?: number; }
+export interface DefinitionDoc { name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = card 时的载荷（definitions v5）。 */ card?: CardDoc; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; extras?: Record<string, unknown>; }
 
 export interface CatsupDocument {
   settings: DocumentSettings;
   /** 绘图轴（0.11；document v2）：根上下文的推断原点与三轴，世界坐标；默认世界帧。 */
   axes: Frame;
+  /** 层表（0.14；document v3）：缺 = 只有默认层。 */
+  layers: LayerDoc[];
   /** 定稿记录（仿 MoonSinger；ai-docs/20261024-finalize.md）：在 = 锁着；读时指纹对不上 = 作废。可选键，不升版本。 */
   final?: { at: string; rev: number; app: string; fingerprint: string };
   /** 定稿过几次（改稿不减）。 */
@@ -55,6 +68,7 @@ export function newDocument(brep: BrepSnapshot, name = "model"): CatsupDocument 
   return {
     settings: { ...DEFAULT_SETTINGS },
     axes: { origin: { ...WORLD_FRAME.origin }, x: { ...WORLD_FRAME.x }, y: { ...WORLD_FRAME.y }, z: { ...WORLD_FRAME.z } },
+    layers: defaultLayers(),
     bakeMode: "wysiwyg",
     definitions: [root],
     rootIndex: 0,

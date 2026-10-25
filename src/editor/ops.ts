@@ -8,6 +8,9 @@
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import type { CurveSpec } from "../kernel/kernel.ts";
+import type { BodyKind } from "../scene/body-kind.ts";
+import { castBody } from "../scene/kinds.ts";
+import { type ImageAsset, assertImageAsset } from "../format/document.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { ptKey3, quantize3 } from "../kernel/geom.ts";
@@ -60,8 +63,20 @@ export type Op =
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
   | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null }
   | { op: "eraseGroup"; at: PoolRef; group: number }
-  /** 锁定 / 解锁一个子 group 或实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。 */
+  /** 锁定 / 解锁一个子实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。0.14 起组不是物体、不能锁：带 group 的 setLocked 被拒。 */
   | { op: "setLocked"; at: PoolRef; group?: number; instance?: number; on: boolean }
+  // ---------- 0.14 物体模型（契约 ai-docs/20261024-object-model-contract.md）----------
+  /** 显式换身体种类（定义级：共享定义的全部实例一起变）；只认 kinds.ts 登记表里的方向，失败不改文档。 */
+  | { op: "castDefinition"; def: number; to: BodyKind }
+  /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
+  | { op: "addLayer"; name: string; color?: [number, number, number] }
+  | { op: "renameLayer"; layer: number; name: string }
+  | { op: "setLayerVisible"; layer: number; visible: boolean }
+  | { op: "removeLayer"; layer: number }
+  /** 归层：at 定义的子实例归到某层；null = 回到继承。（面不打层——user 2026-10-24「facelayer可能太复杂了……不要」：要藏汤里的一部分 = 做成组件再归层。） */
+  | { op: "assignLayer"; at: PoolRef; instances: number[]; layer: number | null }
+  /** naive 导入参考卡片：新建一个 card 定义 + 一个实例（原点 = 底边中点；image 必须带 sizeM）。 */
+  | { op: "placeCard"; at: PoolRef; image: ImageAsset; xform: Xform; name?: string; billboard?: boolean }
   // ---- 参考几何 / 轴（0.11 尺规纪元；池本地坐标）----
   | { op: "addGuide"; at: PoolRef; line?: { p: Pt3; dir: Pt3 }; point?: Pt3 }
   | { op: "eraseGuides"; at: PoolRef; ids: number[] }
@@ -284,13 +299,8 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "setLocked": {
+      if (op.group !== undefined) throw new OpTargetError("group lock: 组不是物体，不能锁（0.14）；要当参考就做成组件再锁");
       const d = s.def(op.at.def);
-      if (op.group !== undefined) {
-        const g = s.brep(op.at.def).groups.get(op.group);
-        if (!g || g.parent !== op.at.group) throw new OpTargetError(`group ${op.group}`);
-        if (op.on) g.locked = true; else delete g.locked;
-        return { scene: s, events: [] };
-      }
       if (op.instance !== undefined) {
         const inst = d.instances.get(op.instance);
         if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
@@ -298,6 +308,34 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
         return { scene: s, events: [] };
       }
       throw new OpTargetError("setLocked: no target");
+    }
+    case "castDefinition": {
+      const d = s.def(op.def);
+      const body = castBody(d.body, op.to);   // 不认的方向在这里抛，文档不动
+      d.body = body;
+      return { scene: s, events: [] };
+    }
+    case "addLayer": { const id = s.nextLayer++; s.layers.push({ id, name: op.name, visible: true, ...(op.color ? { color: op.color } : {}) }); return { scene: s, events: [] }; }
+    case "renameLayer": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.name = op.name; return { scene: s, events: [] }; }
+    case "setLayerVisible": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.visible = op.visible; return { scene: s, events: [] }; }
+    case "removeLayer": {
+      if (op.layer === 0) throw new OpTargetError("layer 0 is the default layer and cannot be removed");
+      const i = s.layers.findIndex((x) => x.id === op.layer); if (i < 0) throw new OpTargetError(`layer ${op.layer}`);
+      s.layers.splice(i, 1);
+      for (const d of s.defs.values()) for (const inst of d.instances.values()) if (inst.layer === op.layer) delete inst.layer;
+      return { scene: s, events: [] };
+    }
+    case "assignLayer": {
+      if (op.layer !== null && !s.layers.some((x) => x.id === op.layer)) throw new OpTargetError(`layer ${op.layer}`);
+      const def = s.def(op.at.def);
+      for (const iid of op.instances) { const inst = def.instances.get(iid); if (!inst) throw new OpTargetError(`instance ${iid}`); if (op.layer === null) delete inst.layer; else inst.layer = op.layer; }
+      return { scene: s, events: [] };
+    }
+    case "placeCard": {
+      assertImageAsset(op.image, "placeCard");
+      const def = s.mintCardDef(op.name ?? "卡片", { kind: "card", image: op.image, anchor: "bottom-center", billboard: op.billboard ?? false });
+      s.mintInstance(op.at.def, op.at.group, def.id, op.xform);
+      return { scene: s, events: [] };
     }
     case "eraseGroup": {
       const d = s.def(op.at.def), db = s.brep(op.at.def);
@@ -329,6 +367,13 @@ export function describeOp(op: Op): string {
     case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? (typeof op.curve === "object" ? ` curve:${op.curve.kind}` : " curve") : ""}${at}`;
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
+    case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
+    case "addLayer": return `addLayer ${op.name}`;
+    case "renameLayer": return `renameLayer ${op.layer}`;
+    case "setLayerVisible": return `setLayerVisible ${op.layer} ${op.visible ? "on" : "off"}`;
+    case "removeLayer": return `removeLayer ${op.layer}`;
+    case "assignLayer": return `assignLayer inst=${op.instances.length} → ${op.layer === null ? "inherit" : op.layer}${at}`;
+    case "placeCard": return `placeCard ${op.image.sizeM[0].toFixed(3)}×${op.image.sizeM[1].toFixed(3)}${at}`;
     case "dissolveVertices": return `dissolveVertices n=${op.points.length}${at}`;
     case "batch": return `batch ${op.label} [${op.ops.map(describeOp).join("; ")}]`;
     case "eraseEdges": return `eraseEdges n=${op.edges.length}${at}`;

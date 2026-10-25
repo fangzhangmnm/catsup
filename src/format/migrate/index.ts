@@ -11,11 +11,14 @@
 //   CATSUP_brep        v3 → v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（有序边链 + 种类 + 闭合 + 圆弧参数，契约 §5）；v3 文件的 curves 一直是空表 = 无曲线。
 //   CATSUP_definitions v3 → v4（2026-10-24 尺规纪元）：list[i].guides 与 groups[j].guides（参考线 / 参考点，池本地坐标）；缺 = 空。
 //   CATSUP_document    v1 → v2（2026-10-24 尺规纪元）：axes（绘图轴，世界坐标 Frame）；缺 = 世界帧。
+//   CATSUP_document    v2 → v3（2026-10-24 0.14 物体模型）：layers（层表；缺 = 只有默认层 {id 0}）。minor：加可选键。
+//   CATSUP_definitions v4 → v5（2026-10-24 0.14 物体模型）：instances[j].layer（缺 = 继承）；list[i].kind = card 时 list[i].card{image 索引, sizeM, anchor, billboard}、= mesh 时 list[i].mesh{positions/indices/… bufferView}；
+//                      groups[j].locked **丢弃**（组不是物体，user 2026-10-24）。minor：老读者只是少看见一个可选键 / 不认的 kind 本来就拒开。
 
 export const EXTENSION_VERSIONS = {
-  CATSUP_document: 2,
+  CATSUP_document: 3,
   CATSUP_brep: 4,
-  CATSUP_definitions: 4,
+  CATSUP_definitions: 5,
   CATSUP_instance: 1,
   CATSUP_material: 1,
 } as const;
@@ -27,6 +30,7 @@ const NO_GUIDES = (): Record<string, unknown> => ({ lines: [], points: [] });
 const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
   CATSUP_document: {
     1: (j) => ({ ...j, version: 2, axes: isPlainObject(j.axes) ? j.axes : { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] } }),
+    2: (j) => ({ ...j, version: 3, layers: Array.isArray(j.layers) ? j.layers : [{ id: 0, name: "默认", visible: true }] }),
   },
   CATSUP_brep: {
     1: (j) => { const { groups: _groups, ...rest } = j; void _groups; return { ...rest, version: 2 }; },
@@ -47,6 +51,14 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
         ...d,
         guides: isPlainObject(d.guides) ? d.guides : NO_GUIDES(),
         groups: Array.isArray(d.groups) ? (d.groups as Record<string, unknown>[]).map((g) => ({ ...g, guides: isPlainObject(g.guides) ? g.guides : NO_GUIDES() })) : d.groups,
+      })) : j.list,
+    }),
+    4: (j) => ({
+      ...j,
+      version: 5,
+      list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => ({
+        ...d,
+        groups: Array.isArray(d.groups) ? (d.groups as Record<string, unknown>[]).map((g) => { const { locked: _l, ...rest } = g; void _l; return rest; }) : d.groups,   // 组不是物体：锁丢弃
       })) : j.list,
     }),
   },

@@ -1,4 +1,4 @@
-// 锁定（A27，v0.13.4）：盒子 → 全选建组 → 锁定 → 整体移 / 删除 / 进入全被拦（revision 不动、上下文不变）→ 解锁 → 能移。created 2026-10-24 by Claude Fable 5.1
+// 锁定（A27，v0.13.4；0.14 起锁只给实例——组不是物体）：盒子 → 全选建组件 → 锁定 → 整体移 / 删除 / 进入全被拦（revision 不动、上下文不变）→ 解锁 → 能移。created 2026-10-24 by Claude Fable 5.1
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const url = process.argv[2] ?? "http://127.0.0.1:8765/";
@@ -14,21 +14,21 @@ const res = await page.evaluate(() => {
   out.boxFaces = e.kernel.faces().length;
   // 全选：用 marquee 太绕，直接把所有面和边塞进选区（私有字段，探针直呼）
   const k = e.kernel; for (const f of k.faces()) e.selection.faces.add(f.id); for (const ed of k.edges()) e.selection.edges.add(ed.id);
-  out.grouped = e.makeGroup();
+  e.makeComponent("盒"); out.grouped = e.sceneRef.def(e.sceneRef.root).instances.size === 1;
   out.poolSel = e.hasPoolSelection();
-  const gid = [...e.sceneRef.brep(e.sceneRef.root).groups.keys()][0];
+  const def = e.sceneRef.root, iid = [...e.sceneRef.def(def).instances.keys()][0];
   out.lockItemBefore = globalThis.__catsup.hud.edits().filter((x) => !x.hidden).map((x) => x.id);
   out.locked = e.lockSelection(true);
   out.hasLocked = e.hasLockedSelection();
   out.lockItemAfter = globalThis.__catsup.hud.edits().filter((x) => !x.hidden).map((x) => x.id);
   const r0 = e.revision;
-  const ev = e.commitOp({ op: "transformPool", at: { def: e.sceneRef.root, group: gid }, xform: [1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0] });
+  const ev = e.commitOp({ op: "transformInstance", def, instance: iid, xform: [1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0] });
   out.moveRefused = ev.length === 0 && e.revision === r0;
-  e.deleteSelection(); out.deleteRefused = e.revision === r0 && e.sceneRef.brep(e.sceneRef.root).groups.size === 1;
+  e.deleteSelection(); out.deleteRefused = e.revision === r0 && e.sceneRef.def(def).instances.size === 1;
   e.enterSelected(); out.enterRefused = e.contextDepth() === 0;
   out.unlocked = e.lockSelection(false);
   const r1 = e.revision;
-  e.commitOp({ op: "transformPool", at: { def: e.sceneRef.root, group: gid }, xform: [1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0] });
+  e.commitOp({ op: "transformInstance", def, instance: iid, xform: [1, 0, 0, 1, 0, 1, 0, 0, 0, 0, 1, 0] });
   out.moveAfterUnlock = e.revision === r1 + 1;
   return out;
 });

@@ -11,6 +11,7 @@ import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
+import { type ImageAsset, type LayerDoc, defaultLayers } from "../format/document.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 
 export type DefId = number;
@@ -23,8 +24,8 @@ export interface Material {
   readonly color: readonly [number, number, number];
   readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly [number, number] };
 }
-export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; /** 锁定（A27，SU Lock）：不能改内部、不能整体移 / 删 / 进入；推断照吃。对象层属性，所有 kind 通用。 */ locked?: boolean; }
-export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; /** 锁定（A27）。 */ locked?: boolean; }
+export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }   // 组 = brep 汤里的分区，不是物体：无身份、无锁、无层（user 2026-10-24「su的group不算物体层级……地位类似选区」）
+export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; /** 锁定（A27）。 */ locked?: boolean; /** 层（契约 §4）：缺 = 继承父上下文的有效层。 */ layer?: number; }
 /** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
 export interface BrepBody {
   readonly kind: "brep";
@@ -36,10 +37,10 @@ export interface BrepBody {
   /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
   guides: Guides;
 }
-/** 卡片身体（A26 参考人卡片）：载荷以后定；现在只是让 kind 联合有第二个真成员。 */
-export interface CardBody { readonly kind: "card"; }
-/** 网格身体（Blender 式有向多边形网，user 2026-10-24 命名 `mesh` / 「网格」）：载荷以后定。 */
-export interface MeshBody { readonly kind: "mesh"; }
+/** 卡片身体（A26 参考人卡片；契约 §2）：一张带尺度的图，定义坐标里原点 = 底边中点、卡面在 XZ 面朝 −Y；billboard = 渲染绕 Z 朝相机（对齐几何不转）。帧集 / 状态机 = 远景。 */
+export interface CardBody { readonly kind: "card"; image: ImageAsset; anchor: "bottom-center"; billboard: boolean; }
+/** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
+export interface MeshBody { readonly kind: "mesh"; positions: Float32Array; indices: Uint32Array; normals?: Float32Array; uvs?: Float32Array; triMaterial?: Uint16Array; materialSlots: number[]; }
 export type Body = BrepBody | CardBody | MeshBody;
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
@@ -66,6 +67,9 @@ export class Scene {
   readonly materials: Material[] = [];
   /** 绘图轴（0.11 尺规纪元）：根上下文的轴，世界坐标；轴工具可搬 / 转，默认 = 世界帧。进 CATSUP_document.axes。 */
   axes: Frame = WORLD_FRAME;
+  /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
+  layers: LayerDoc[] = defaultLayers();
+  nextLayer = 1;
   private nextDef = 1;
 
   constructor(rootKernel?: Kernel) {
@@ -73,6 +77,12 @@ export class Scene {
   }
 
   // ---------- 铸造 ----------
+  /** 非 brep 身体的定义（0.14：卡片 / 网格）。 */
+  mintCardDef(name: string, body: CardBody): Definition {
+    const d: Definition = { id: this.nextDef++, name, body, instances: new Map(), nextInst: 1 };
+    this.defs.set(d.id, d);
+    return d;
+  }
   mintDef(name: string, kernel: Kernel): Definition {
     const d: Definition = { id: this.nextDef++, name, body: { kind: "brep", kernel, groups: new Map(), nextGroup: 1, materialSlots: [], guides: emptyGuides() }, instances: new Map(), nextInst: 1 };
     this.defs.set(d.id, d);
@@ -137,7 +147,7 @@ export class Scene {
     if (p.group === null) return false;
     const b = this.brep(p.def);
     let g: GroupId | null = p.group, guard = 64;
-    while (g !== null && guard-- > 0) { const G = b.groups.get(g); if (!G) return false; if (G.locked) return true; g = G.parent; }
+    while (g !== null && guard-- > 0) { const G = b.groups.get(g); if (!G) return false; g = G.parent; }   // 组不是物体、没有锁（0.14）；池锁只来自实例
     return false;
   }
   /** 子项锁着吗（自己或祖先 group）。 */
@@ -212,15 +222,17 @@ export class Scene {
     (s as unknown as { nextDef: number }).nextDef = this.nextDef;
     (s as { materials: Material[] }).materials = [...this.materials];   // 材质对象不可变，浅拷安全
     s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
+    s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer;
     for (const [id, d] of this.defs) {
       let body: Body;
       if (d.body.kind === "brep") {
         const groups = new Map<GroupId, Group>();
-        for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}), ...(g.locked ? { locked: true } : {}) });
+        for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
-      } else body = d.body.kind === "card" ? { kind: "card" } : { kind: "mesh" };
+      } else if (d.body.kind === "card") body = { kind: "card", image: d.body.image, anchor: d.body.anchor, billboard: d.body.billboard };   // 图片字节不可变，共享
+      else body = { kind: "mesh", positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}), materialSlots: [...d.body.materialSlots] };   // 网格数组按不可变对待（cast 整体换）
       const instances = new Map<InstId, Instance>();
-      for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}) });
+      for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}) });
       s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });
     }
     return s;
