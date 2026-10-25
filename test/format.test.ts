@@ -4,13 +4,13 @@ import { Kernel } from "../src/kernel/kernel.ts";
 import { newDocument, writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from "../src/format/index.ts";
 import { decodeGlb, encodeGlb, isGlb } from "../src/format/glb.ts";
 import { isCatsupGltf } from "../src/format/read.ts";
-import { FormatTooNewError, EXTENSION_VERSIONS } from "../src/format/migrate/index.ts";
+import { FormatTooNewError, EXTENSION_VERSIONS, formatTag } from "../src/format/migrate/index.ts";
 import { canonicalize } from "../src/format/brep-codec.ts";
 import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
 import { SCENES, SCENE_DOCS, fingerprint, sceneFingerprint } from "./format-scenes.ts";
-import { listFixtures, readFixture, hasFixtureDir } from "./fixtures/format/fixtures.mjs";
+import { listFixtures, readFixture, hasFixtureDir, listCorpusDirs } from "./fixtures/format/fixtures.mjs";
 
-const BUDGET_BYTES: Record<string, number> = { box: 2600, holed: 2800, house: 2800, cylinder: 6400 };   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
+const BUDGET_BYTES: Record<string, number> = { box: 2700, holed: 2800, house: 2800, cylinder: 6400 };   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
 function roundTrip(k: Kernel): { bytes: Uint8Array; k2: Kernel } {
   const bytes = writeCatsup(newDocument(k.toBrep(), "t"));
@@ -183,14 +183,12 @@ describe("format: group / component / 软边 往返（v2，2026-10-21）", () =>
 });
 
 describe("format: 冻结样本语料（立宪 §7；老样本永远能开）", () => {
-  const vCur = Math.max(...Object.values(EXTENSION_VERSIONS));
+  const vCur = formatTag();   // 任何一个拍子（major / minor / patch）动了 = 新目录；没冻样本 = 这里红
   const filesCur: string[] = hasFixtureDir(vCur) ? listFixtures(vCur) : [];
   it(`v${vCur} 目录里每个 golden 场景都有样本`, () => {
     for (const name of [...Object.keys(SCENES), ...Object.keys(SCENE_DOCS)]) assert(filesCur.includes(`${name}.glb`), `缺样本 v${vCur}/${name}.glb（node scripts/freeze-format-fixtures.mjs）`);
   });
-  const versions: number[] = [];
-  for (let v = 1; v <= vCur; v++) if (hasFixtureDir(v)) versions.push(v);
-  for (const v of versions) for (const f of listFixtures(v)) {
+  for (const v of listCorpusDirs()) for (const f of listFixtures(v)) {
     it(`v${v}/${f}：读 → 复原 → 指纹 = 当前场景；重写后语义一致`, () => {
       const name = f.replace(/\.glb$/, "");
       const doc = readCatsup(readFixture(v, f));

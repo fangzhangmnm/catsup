@@ -9,12 +9,13 @@ import { encodeGlb } from "./glb.ts";
 import { canonicalize, encodeBrep, type CatsupBrepJson, type ViewSink } from "./brep-codec.ts";
 import { bakeDefinition, mergeBrep } from "./bake.ts";
 import type { CatsupDocument, DefinitionDoc } from "./document.ts";
-import { EXTENSION_VERSIONS } from "./migrate/index.ts";
+import { stampOf } from "./migrate/index.ts";
 import { MIN_GLTF_VERSION, WRITE_GLTF_VERSION } from "./migrate/gltf/index.ts";
 import { remapBufferViewRefs } from "./carry.ts";
 import type { Xform } from "../scene/xform.ts";
 
-export const CATSUP_EXTENSIONS = ["CATSUP_document", "CATSUP_definitions", "CATSUP_brep", "CATSUP_instance", "CATSUP_material"] as const;
+export const CATSUP_EXTENSIONS = ["CATSUP_document", "CATSUP_definitions", "CATSUP_brep", "CATSUP_instance", "CATSUP_material", "CATSUP_desk"] as const;
+const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 
 /** Z-up 3×4 → glTF Y-up 4×4 列主序：C·M·C⁻¹，C = (x,y,z)→(x,z,−y)。 */
 export function xformToGltfMatrix(m: Xform): number[] {
@@ -55,7 +56,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       images.push({ bufferView: v, mimeType: m.texture.mimeType, name: m.name });
       textures.push({ source: images.length - 1 });
       (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: textures.length - 1 };
-      out.extensions = { CATSUP_material: { version: EXTENSION_VERSIONS.CATSUP_material, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } };
+      out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } };
     }
     return out;
   });
@@ -104,7 +105,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）
   const nodes: Record<string, unknown>[] = [];
-  const instExt = (definition: number): Record<string, unknown> => ({ CATSUP_instance: { version: EXTENSION_VERSIONS.CATSUP_instance, definition, overrides: {} } });
+  const instExt = (definition: number): Record<string, unknown> => ({ CATSUP_instance: { ...stampOf("CATSUP_instance"), definition, overrides: {} } });
   const buildNode = (d: DefinitionDoc, defIndex: number, depth: number, extra: Record<string, unknown>): number => {
     const idx = nodes.length;
     const node: Record<string, unknown> = { name: d.name, mesh: defIndex, extensions: instExt(defIndex), ...extra };
@@ -139,21 +140,27 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     extensions: {
       ...carry.extensions,
       CATSUP_document: {
-        version: EXTENSION_VERSIONS.CATSUP_document, layers: doc.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, ...(l.color ? { color: [l.color[0], l.color[1], l.color[2]] } : {}) })),
+        ...carry.documentExtra,   // 直通的未知键先铺、已知键后铺 = 已知键永远赢（家族纪律 §3；之前铺反了：文件里的 layers 会盖掉改过的 layers）
+        ...stampOf("CATSUP_document"), layers: doc.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, ...(l.color ? { color: [l.color[0], l.color[1], l.color[2]] } : {}) })),
         formatVersion: 1,
         settings: doc.settings,
         axes: { origin: v3(doc.axes.origin), x: v3(doc.axes.x), y: v3(doc.axes.y), z: v3(doc.axes.z) },
         ...(doc.final ? { final: { ...doc.final } } : {}),
         ...(doc.finalRev !== undefined ? { finalRev: doc.finalRev } : {}),
         bake: { mode: doc.bakeMode, generator: `CatsUp ${APP_VERSION}` },
-        ...(doc.lastView !== undefined ? { lastView: doc.lastView } : {}),
-        ...carry.documentExtra,
       },
       CATSUP_definitions: {
-        version: EXTENSION_VERSIONS.CATSUP_definitions,
+        ...carry.definitionsExtra,
+        ...stampOf("CATSUP_definitions"),
         root: doc.rootIndex,
         list: defList,
-        ...carry.definitionsExtra,
+      },
+      // 桌面态（§5.7）：太新的原字节（读取器放进 carry.extensions）原样写回；否则 extra 先铺、已知键后铺；menuTabs 空 / lastView 没有就不写键
+      CATSUP_desk: isObj(carry.extensions.CATSUP_desk) ? carry.extensions.CATSUP_desk : {
+        ...doc.desk.extra,
+        ...stampOf("CATSUP_desk"),
+        ...(Object.keys(doc.desk.menuTabs).length ? { menuTabs: { ...doc.desk.menuTabs } } : {}),
+        ...(doc.desk.lastView !== undefined ? { lastView: doc.desk.lastView } : {}),
       },
     },
   };

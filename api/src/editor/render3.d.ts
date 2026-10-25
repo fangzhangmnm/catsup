@@ -1,3 +1,4 @@
+import { type WorldLabel } from "./world-labels.ts";
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { type Frame } from "../scene/xform.ts";
@@ -28,6 +29,9 @@ export declare const PALETTE: {
     readonly edgeSelected: 2845872;
     readonly edgeHot: 13382451;
     readonly grid: 14276303;
+    /** 网格正片叠底的系数色（× 背景 ≈ 原 grid 灰）：主线 / 细线；压在深色材质上只暗 ~10% / ~5%。 */
+    readonly gridMajor: 14934492;
+    readonly gridMinor: 15789802;
     readonly axisX: 13382451;
     readonly axisY: 3050327;
     readonly axisZ: 2845872;
@@ -75,12 +79,27 @@ export interface ViewState {
     } | null;
     /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
     guides?: GuidesWorld | null;
+    /** 选中的参考线 / 参考点 id（A31）：画成选中色。 */
+    guideSel?: ReadonlySet<number>;
+    /** A33 断口提示：一根直线中间断了一截的接点（世界坐标 + 边向）→ 屏幕定长的小垂线（焊边橡皮刮一下就没）。 */
+    ticks?: readonly {
+        p: Pt3;
+        dir: Pt3;
+    }[] | null;
+    /** 世界里的文字（world-labels.ts 深模块；第一个用户 = X 轴 +1 个单位处的「1 m」）。 */
+    labels?: readonly WorldLabel[] | null;
+    /** Z 轴刻度间距（米；1 m 或 1 ft；user「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）；null = 不画。 */
+    axisTickM?: number | null;
+    /** X 轴 +1 个单位处那根小短线（跟「1 m」字一起，只在空场景）。 */
+    axisUnitX?: boolean;
     /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
     frame?: Frame | null;
     /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
     grid?: {
         frame: Frame;
         step: number;
+        sub?: number;
+        on?: boolean;
     } | null;
     /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
     charged?: {
@@ -140,10 +159,15 @@ export declare class Renderer3 {
     private landingRing;
     private handleMarkers;
     private protractorLines;
+    /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
+    private labelSprites;
     private guideLines;
     private tapeLines;
-    private gridObj;
+    private gridMesh;
+    private gridMat;
+    private axesObj;
     private chargedLines;
+    private tickLines;
     private faceKey;
     private edgeKey;
     private hintKey;
@@ -152,6 +176,7 @@ export declare class Renderer3 {
     private tapeKey;
     private gridKey;
     private chargedKey;
+    private tickKey;
     private kernelIds;
     private nextKernelId;
     private scratchV;
@@ -203,6 +228,13 @@ export declare class Renderer3 {
     /** 粗线 resolution / linewidth：桌面 = canvas 设备像素 + DPR；XR = 每眼 viewport（每帧，WebXRManager 在回调前写好）。 */
     private syncLineScale;
     /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
+    /** 世界里的文字：按 id 增删改面片；位图归 world-labels.ts（字 / 样式 / dpr 没变就沿用）；每帧按 worldPerPx 换算成固定屏幕大小。 */
+    private syncLabels;
+    /** 调试 / 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
+    labelKeys(): {
+        id: string;
+        key: string;
+    }[];
     private worldPerPx;
     private syncCamera;
     private kernelId;
@@ -245,8 +277,8 @@ export declare class Renderer3 {
     /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
     private lineMat;
     /**
-     * 地面网格 + 三色轴（SU 约定：X 红 / Y 绿 / Z 蓝向上）= 一份粗线、一个 draw call。0.11 ⑤ 起跟帧与格距走：线画在帧的 XY 面上、
-     * 过帧原点、沿帧的 x / y；格距太密时按 ≤ 100 格 / 侧抽稀显示（吸附仍按真格距）。
+     * 地面网格 = 一张 shader 平面（GRID_FRAG；0.13.23 起不再一条条线）+ 三色轴一份粗线（SU 约定：X 红 / Y 绿 / Z 蓝向上）。
+     * 0.11 ⑤ 起跟帧与格距走：平面贴在帧的 XY 面上、过帧原点；格距 / 细分是 uniform。网格关着时只画 1 m 主线（sub = 1）。
      */
     private rebuildGrid;
 }

@@ -1,7 +1,7 @@
 import type { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
-import type { AlignHand, AlignQuery, HitResult3, Snap3 } from "./pick.ts";
+import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
 import type { WorldView } from "../scene/world-view.ts";
 import type { PoolRef } from "../scene/scene.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
@@ -14,6 +14,7 @@ import type { Scene, EditContext } from "../scene/scene.ts";
 import type { GridSettings } from "./grid-settings.ts";
 import type { ModeId } from "./mode.ts";
 import type { ViewState } from "./render3.ts";
+import type { ScaleGeom } from "./scale-ref.ts";
 /** 指针下的东西属于谁：活动池里的实体 / 子池（group 或实例）整体 / 什么都没有。 */
 export type Classified = {
     kind: "entity";
@@ -53,6 +54,10 @@ export interface ToolCtx {
     classify(view: WorldView, hit: HitResult3): Classified;
     /** 吸附求解（世界视图 + 帧 + ε 由底座配好）。 */
     snap(view: WorldView, sx: number, sy: number, q: AlignQuery): Snap3;
+    /** A9 锁的事后约束：没锁 = 原样返回；轴锁 = 投到过锚点的那根轴线上；面锁 = 投到过锚点的那张面上。沿轴走的工具（lock: "axis"）在自己算完吸附之后调一次。 */
+    applyLock(sn: Snap3, sx: number, sy: number): Snap3;
+    /** A9 面锁下过 through 的平面（没锁 = null）。先定平面的工具（lock: "plane"）首点之后用它代替自己解析出的平面。 */
+    lockedPlane(through: Pt3): DrawPlane | null;
     alignSources(): Pt3[];
     /** 「手里」谓词（在手的几何不参与吸附）；extra = 工具自报的移动集（本地 id），opaque = 手中膜是否遮挡。 */
     hand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque?: boolean): AlignHand;
@@ -67,6 +72,8 @@ export interface ToolCtx {
     commitOp(op: Op): FaceEvent[];
     opCount(): number;
     hint(text: string | null): void;
+    /** 跟指针走的小提示（优先于吸附标签；null = 回到吸附标签）。吸色「吸：赭石」、整数增量的数值都走它。 */
+    tip(text: string | null): void;
     anchor(): Pt3 | null;
     setAnchor(p: Pt3 | null): void;
     setCursor(p: Pt3 | null): void;
@@ -84,7 +91,16 @@ export interface ToolCtx {
         x: number;
         y: number;
     }, travel?: number): number;
+    /** 这一下的点按容差（本帧度量）：moved 超过它 = 拖。笔快速点一下之后、连击窗口里的下一下会放宽（tap-train.ts）。 */
+    tapSlop(): number;
+    /** 刚抬起的这一下：0 = 拖；n ≥ 1 = 连着的第 n 下点击（单 / 双 / 三击）。只在 up 里问。 */
+    clicks(): number;
     cursor(): Pt3 | null;
+    /** 当前按着的修饰键（最近一次指针事件带来的）：Shift = 角度对齐 / 追加选区，copy = Ctrl / Alt / ⌘。 */
+    mods(): {
+        shift: boolean;
+        copy: boolean;
+    };
     /** 上一帧的吸附（轻擦平面时保持用）。 */
     currentSnap(): Snap3 | null;
     grid(): Readonly<GridSettings>;
@@ -154,7 +170,10 @@ export interface ToolCtx {
         edges: readonly number[];
         faces: readonly number[];
         pools: readonly PoolPick[];
+        guides?: readonly number[];
     }, additive: boolean): void;
+    /** A31：单击选中一条参考线 / 一个参考点（additive = Shift：已在选区里就拿掉）。 */
+    selectGuide(id: number, additive: boolean): void;
     /** 选区变了之后的收尾（提示 / 缩放柄 / HUD）。 */
     afterSelect(): void;
     /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体。 */
@@ -201,6 +220,10 @@ export interface ToolHandler {
     readonly draws?: boolean;
     /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
     readonly previewOnHover?: boolean;
+    /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */
+    readonly lock?: "axis" | "plane";
+    /** B43 人的尺度参考：手势中正在拖的那段的原始几何（世界系）；方向和挑哪个数归 scale-ref.ts readingOf。没有 = 不配参考。 */
+    scaleGeom?(ctx: ToolCtx): ScaleGeom | null;
     /** 手势进行中？（底座 gestureActive 的一票；为真时 pointerMove 走 track、computeLive 走 live）。 */
     active(): boolean;
     /** 清掉自己的手势状态（底座 cancelGesture 时对所有工具调）。 */

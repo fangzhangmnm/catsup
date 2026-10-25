@@ -3,10 +3,12 @@ import type { FaceEvent } from "../../kernel/kernel.ts";
 export { type TapeResult, type TapeStart, classifyStart, tapeResult } from "../tape-geom.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 import type { ViewState } from "../render3.ts";
 export declare class TapeTool implements ToolHandler {
     readonly tool: "tape";
     readonly grammar: "steps";
+    readonly lock: "axis";
     hover(ctx: ToolCtx, s: {
         x: number;
         y: number;
@@ -18,6 +20,7 @@ export declare class TapeTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
+    scaleGeom(): ScaleGeom | null;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {
         x: number;

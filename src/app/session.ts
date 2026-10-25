@@ -17,6 +17,8 @@ import { Kernel } from "../kernel/kernel.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
+import { defaultDesk, type DeskDoc } from "../format/document.ts";
+import { fmtStamp } from "../format/migrate/index.ts";
 import { unitFromSettings, unitToSettings } from "../editor/units.ts";
 import { contentFingerprint } from "../format/final.ts";
 import { APP_VERSION } from "../version.ts";
@@ -83,6 +85,18 @@ export class Session {
   /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
   currentDir = "";
 
+  /** 桌面态（CATSUP_desk；WeebPaint desk 同款）：☰ 停在哪页等跟文件走的编辑器状态。载入时从文件来、新建 reset、存盘时顺手捞走；改它不标脏
+   *  （user 2026-07-14 在 WeebPaint 接受的代价：只切页不画不存就退出 → 下次开 revert 到上次保存的）。 */
+  private desk: DeskDoc = defaultDesk();
+  menuTab(key: string): string | null { return this.desk.menuTabs[key] ?? null; }
+  setMenuTab(key: string, tab: string): void { this.desk.menuTabs[key] = tab; }
+  /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
+  private noteFormat(doc: CatsupDocument): void {
+    const n = doc.readNotes;
+    if (!n) return;
+    if (n.newerMinor.length) this.d.setStatus(`这份文件是更新版的 CatsUp 写的（${n.newerMinor.map((x) => `${x.ext.replace("CATSUP_", "")} ${fmtStamp(x.file)}，本版 ${fmtStamp(x.mine)}`).join("；")}）：能开能存，它多出来的内容会原样带回`);
+    if (n.deskTooNew) this.d.setStatus(`这份文件的界面记录（desk ${fmtStamp(n.deskTooNew)}）比本版新：按默认显示，保存时原样带回`);
+  }
   constructor(private d: SessionDeps) {
     this.savedRevision = this.lastSeenRevision = d.editor.revision;
     this.mintLuggage();   // 开机的初始 transient 也要有牌（否则开机就画的模型没影子）
@@ -201,6 +215,8 @@ export class Session {
     this.d.editor.setGrid(gridFromSettings(doc.settings));
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
+    this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
+    this.noteFormat(doc);
     void this.verifyFinal(doc);
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
@@ -223,6 +239,7 @@ export class Session {
   async finalize(): Promise<boolean> {
     const doc = documentFromScene(this.d.editor.sceneRef, this.displayName(), this.loaded);
     doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);
+    doc.desk = this.desk;   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）
     const rev = (doc.finalRev ?? 0) + 1;
     doc.final = { at: new Date().toISOString(), rev, app: APP_VERSION, fingerprint: await contentFingerprint(doc) };
     doc.finalRev = rev;
@@ -267,6 +284,7 @@ export class Session {
     const name = this.displayName();
     const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
     doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
+    doc.desk = this.desk;   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）
     const thumb = this.d.captureThumbnail();
     if (thumb) doc.thumbnail = thumb; else delete doc.thumbnail;
     this.loaded = doc;
@@ -282,6 +300,8 @@ export class Session {
     this.d.editor.setGrid(gridFromSettings(doc.settings));
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
+    this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
+    this.noteFormat(doc);
     void this.verifyFinal(doc);
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
@@ -322,6 +342,7 @@ export class Session {
     this.d.editor.loadKernel(new Kernel(), "新建");
     this.d.editor.setGrid({ ...NEW_DOC_GRID });
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
+    this.desk = defaultDesk();
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();
@@ -351,6 +372,7 @@ export class Session {
     this.d.editor.loadKernel(new Kernel(), "新建");
     this.d.editor.setGrid({ ...NEW_DOC_GRID });
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
+    this.desk = defaultDesk();
     this.d.editor.setLocked(false);
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌

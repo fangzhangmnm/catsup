@@ -96,7 +96,7 @@ const PREF = {
   get(key: string): string | null { return deviceKvGet(`ui.${key}`); },
   set(key: string, v: string): void { deviceKvSet(`ui.${key}`, v); },
 };
-configureTabMemory({ get: (k) => PREF.get(`menuTab.${k}`), set: (k, t) => PREF.set(`menuTab.${k}`, t) });   // 两个汉堡记住停在哪个 tab，刷新后也在（user 2026-10-25「两个汉堡能记住选的是哪个tab吗」）
+deviceKvSet("ui.menuTab.main", null); deviceKvSet("ui.menuTab.view", null);   // v0.13.73 按设备记过停留页，v0.13.74 改跟文件走（user「不是应该跟文件吗」）：旧键清掉
 let fingerDraws = PREF.get("fingerDraws") === "1";
 // B43 尺度参考：最多几条（这台设备记住；user「有一个最多条目数」）。样式只剩字的深浅（user「要不不要图像，就字的深淡」）
 let lastTipHtml = "";
@@ -940,6 +940,7 @@ const session = new Session({
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   online: () => navigator.onLine !== false,
 });
+configureTabMemory({ get: (k) => session.menuTab(k), set: (k, t) => session.setMenuTab(k, t) });   // 两个 ☰ 停在哪页跟着文件走（WeebPaint desk.menuTab 同款）
 _session = session;
 let storeWired = false;
 function wireStore(): void {

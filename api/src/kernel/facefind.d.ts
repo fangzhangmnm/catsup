@@ -29,6 +29,10 @@ export interface Bounds {
     maxX: number;
     maxY: number;
 }
+/** 调试钩子（期 3 角序对照；默认 null 零开销）。 */
+export declare const FF_DEBUG: {
+    log: ((line: string) => void) | null;
+};
 export declare function findRegions(g: PlanarGraph, scope?: FindScope): Region[];
 /** 取 region（或存储态 face——同形状）内部一个代表点（face-lifecycle 的 anchor 匹配用）。
  *  扫描线法：过洞外的中高线取奇偶区间中点；顶点 y 撞线时微调。 */

@@ -7,7 +7,17 @@ import { type EdgeId, PlanarGraph } from "./topology.ts";
  * 就 ensureVertex 到它，splitEdge 撞上既有边 → 「边 4-3 已存在」。斜置矩形角点量化后边不精确沿轴，
  * 再沿理想轴向画过头就是这条带（fuzz 50 次内必中）。容差 ≥ 半对角线 = 洞封死：凡可能量化成同一顶点的都当碰到。
  */
-export declare const INSERT_TOL = 0.000001;
+/**
+ * sticky 半径 = 身份分辨率（D11，user 2026-10-24「3um可以，确实要比最小精度要大一点」）：Q = 1 µm 只是存储格；相距 ≤ STICKY_R 的两个点就是一个点。
+ * 新段端点 / 交点落在既有顶点 r 内 → 就是那个顶点；既有顶点离新段 ≤ r → 切进来；本次切点彼此 ≤ r → 合一（优先既有顶点）；moveVertices 落点 ≤ r → 落到既有顶点上；
+ * planarize 自愈同一把尺。INSERT_TOL（「这条边在这段上」的归属判定：手势边 / 曲线 / 层）跟着它走，不然吸过去的端点会让边掉出自己的曲线。
+ * 研究稿 ai-docs/20261024-d11-tau-band-study.md：nasty fuzz 守恒拒绝 29 → 4，clean / 全量 golden 零变化。STICKY.r 仍可被 scripts/d11-sticky-sweep.mjs 进程内改（仪表）。
+ */
+export declare const STICKY_R: number;
+export declare const STICKY: {
+    r: number;
+};
+export declare const INSERT_TOL: number;
 export interface InsertResult {
     created: EdgeId[];
     retraced: EdgeId[];

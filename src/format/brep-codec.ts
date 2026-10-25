@@ -9,7 +9,8 @@ import type { BrepSnapshot } from "../kernel/kernel.ts";
 import type { PlaneParams, Pt3 } from "../kernel/geom.ts";
 import { type UintType, decodeUints, encodeUints, isUintType, pickUintType } from "./binary.ts";
 
-export const BREP_VERSION = 4;   // v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（契约 §5）
+import { FORMAT, stampOf } from "./migrate/index.ts";
+export const BREP_VERSION = FORMAT.CATSUP_brep.major;   // v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（契约 §5）；major 的 SSoT = migrate/index.ts FORMAT
 const NO_MATERIAL = 0xffff;
 const UM = 1e-6;                       // 内核格点 Q（立宪 §0）；文件坐标单位是它的 10^k 倍
 const N_FIX = 2 ** 30;                 // 平面法向定点比例
@@ -23,6 +24,7 @@ export type ViewSource = (index: number) => Uint8Array;
 export interface BrepStream { readonly bufferView: number; readonly componentType?: UintType; readonly indexType?: UintType; }
 export interface CatsupBrepJson {
   version: number;
+  minor?: number; patch?: number;   // 三级拍子（2026-10-25；缺 = 0）
   coplanarTol: number;
   unit: number;                          // 米 / 整数单位
   origin: readonly [number, number, number];   // 整数微米（包围盒角）
@@ -136,7 +138,7 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<
   }
 
   return {
-    version: BREP_VERSION,
+    ...stampOf("CATSUP_brep"),   // version = major（BREP_VERSION）+ minor / patch
     coplanarTol: snap.coplanarTol,
     unit: unitUm * UM,
     origin,

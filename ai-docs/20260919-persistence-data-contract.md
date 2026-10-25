@@ -269,9 +269,22 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
   "views": [ { "name":"正面", "camera":<node>, "saved":{ "tags":[…], "sections":[…], "style":0, "shadows":{…}, "hidden":[] }, "spawn":true, "transition":1.0 } ],
   "styles":[ { "name":"Workbench", "edges":{ "profiles":2, "width":1 }, "faces":"shaded", "background":[…], "guides":true } ],
   "geo":   { "lat":…, "lon":…, "northAngle":0 }, "shadows": { "on":false, "date":…, "time":…, "light":80, "dark":45 },
-  "lastView": { … } }                                                                   // 软字段
+  "lastView": { … } }                                                                   // 软字段 → 2026-10-25 起搬进 §5.7 CATSUP_desk（这里保留读、停止写）
 ```
-现在只写 `formatVersion / settings / lastView`，其余字段空数组或缺省——形状定死，内容按纪元填。
+现在只写 `formatVersion / settings / axes / layers / final / bake`（`lastView` 2026-10-25 搬去 §5.7），其余字段空数组或缺省——形状定死，内容按纪元填。
+**`settings` = SketchUp 的 Model Info**（单位 / 格距 / 吸附 / 栅格制式 / B43 尺度参考订阅 `scaleRefs`——user 2026-10-25「单位之类的每个doc都不一样的」）：**是内容侧的文档设置，不是桌面态**；桌面态去 §5.7。
+
+### 5.7 `CATSUP_desk`（顶层；2026-10-25 加，Claude Fable 5.1）
+
+> 起因：user 2026-10-25「两个汉堡能记住选的是哪个tab吗」「不是应该跟文件吗，看一下weebpaint，wxhw，moonsinger怎么做的」→ WeebPaint 的答案是 `.weebpaint/editor-state.json`（desk，user 2026-08-27「editor 里的=per doc」）：ora 里**独立的一个成员文件**，自己的拍子、自己的 too-new 政策。
+> glb 里「zip 的一个成员文件」≡ JSON 块 `extensions` 下的一个命名对象（§0「ORA 类比落到哪」），所以 desk = 一个独立扩展，不塞进 `CATSUP_document.settings`。
+
+```jsonc
+{ "version": 1,                       // major；minor / patch 可选键（缺 = 0），三级拍子见 §7.11
+  "menuTabs": { "main": "settings", "view": "camera" },   // 两个 ☰ 停在哪页（tab id；认不出的原样带回、打开时落回第一页）
+  "lastView": { … } }                 // 相机（原 §5.6 的软字段；app 至今没写过它）
+```
+规矩（照抄 WeebPaint desk，四条）：① **不是内容**：不进定稿指纹（`final.ts`）、不进 undo；② **不标脏**：切页 / 挪面板不触发保存，存盘时顺手捞走（代价 = 只动桌面不画不存就退出 → 下次开 revert，user 2026-07-14 在 WeebPaint 接受过）；③ **新建 / 换文件必 reset**（Session 结构性保证）；④ **major 比本版新 → 不拒开**：原字节放进 `carry.extensions` 原样写回、桌面用默认、提示一次——只有 `CATSUP_document / brep / definitions` 太新才拒开整份文件。以后进来的：面板位置、当前工具、视图侧挂件状态、步行相机的站位。
 
 ## 6. 分级 + 无地 = WeebPaint 标准
 
@@ -309,6 +322,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
    - 每个 `CATSUP_*` 扩展在本稿登记它的**标准替代物**（已有或预期）；一旦 glTF core / 已批准的 KHR·EXT 覆盖同一数据，**写入器改写标准形、读取器保留旧扩展的读法**（一条 `CATSUP_x@vN → <标准>` 迁移），不写双份。已知对照：`CATSUP_ref`→2.1 `externalAssets`（已改）；缩略图→2.1 `asset.thumbnail`（已用）；整数顶点→2.1 `SIGNED_INT`/`INT64` accessor（等定稿）；`CATSUP_voxel`→将来的体素扩展；`CATSUP_mesh` 的 polygroup / 掩码→`_GROUP` / `_MASK` 顶点属性（core 已允许）；碰撞代理→2.1 `shapes`；LOD→到时候的 KHR。
    - **跨 glTF 版本**：读取器接受任何 `asset.version` 2.x 与 GLB 容器 v2/v3；迁移键 = (glTF 版本, 扩展, 扩展版本)；2.x 之间的改名 / 废弃（如 2.1 废弃多 scene）由 `src/format/migrate/gltf/` 承接；语料库按 glTF 版本分目录（`test/fixtures/format/gltf-2.0/`、`gltf-2.1/`…），每次我们改写的目标版本变了就冻结一份。
    - 写入目标 = 「当时 three / Blender 已支持的最高版本」（不为了 spec 定稿抢跑：定稿而加载器没跟上时仍写旧形 + `minVersion`）。
+11. **三级拍子（2026-10-25 落地，v0.13.74，Claude Fable 5.1；家族纪律 `../ai-docs/20261021-format-version-discipline.md`，user 10-21「三级语义 同意」）**：每个 `CATSUP_*` 的拍子 = `major.minor.patch`，SSoT = `src/format/migrate/index.ts FORMAT`；物理形状 = 整数键 `version` 原地当 major + 可选整数键 `minor` / `patch`（缺 = 0，为 0 不写）。读取：major 新 = 拒开（desk 例外 §5.7）；minor 新 = 能开能存 + `readNotes.newerMinor` → Session 提示一次；patch 新 = 静默。**加可选键 = 该子结构 minor +1**（10-24/25 的 gridPlane / gridPreset / scaleRefs 追认为 document 3.1）。冻结样本目录名 = 全部拍子的签名 `v<formatTag>`（如 `v3.1.0-4.0.0-6.0.0-1.0.0-1.0.0-1.0.0`）——任何一个拍子动了没冻样本 = 守卫红。直通顺序 = **未知键先铺、已知键永远赢**（同日修：此前 `CATSUP_document` 把 extra 铺在最后，文件里的旧 `layers` 会盖掉改过的）。
 
 ---
 

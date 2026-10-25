@@ -79,6 +79,25 @@ export declare class ToolConfig<T extends OptionTable> {
 /** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
 export declare function optionGroupOf(tool: string): string;
 export declare const TOOL_OPTIONS: {
+    /** 矩形从哪画（user 2026-10-24「中心rect……还是要」；SU 按 Ctrl / Option 从中心）：Ctrl 按着 = 临时从中心。 */
+    readonly rect: {
+        readonly from: {
+            readonly kind: "enum";
+            readonly label: "起点";
+            readonly values: readonly [{
+                readonly id: "corner";
+                readonly label: "从角";
+            }, {
+                readonly id: "center";
+                readonly label: "从中心";
+            }];
+            readonly def: "corner";
+            readonly scope: "session";
+            readonly modifiers: {
+                readonly ctrl: "center";
+            };
+        };
+    };
     readonly circle: {
         readonly segments: {
             readonly kind: "number";
@@ -90,7 +109,19 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
+    /** 弧的四种（SU 对照；user 2026-10-24「几种arc模式也看一下」）：两点弧 / 圆心弧 / 三点弧 / 扇形；定义住 arc-build.ts。 */
     readonly arc: {
+        readonly mode: {
+            readonly kind: "enum";
+            readonly label: "画法";
+            readonly values: readonly {
+                id: import("./arc-build.ts").ArcMode;
+                label: string;
+                hint: string;
+            }[];
+            readonly def: "two";
+            readonly scope: "session";
+        };
         readonly segments: {
             readonly kind: "number";
             readonly label: "段数";
@@ -98,6 +129,32 @@ export declare const TOOL_OPTIONS: {
             readonly min: 2;
             readonly max: 96;
             readonly step: 1;
+            readonly scope: "session";
+        };
+    };
+    /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
+    readonly weldErase: {
+        readonly maxDeg: {
+            readonly kind: "number";
+            readonly label: "最大角度";
+            readonly def: 45;
+            readonly min: 1;
+            readonly max: 90;
+            readonly step: 1;
+            readonly unit: "°";
+            readonly scope: "session";
+        };
+    };
+    /** 软边橡皮（「第三个橡皮……原理一样。共面就删边，不共面就改软边」）：两膜二面角 ≤ 这个角才软化（+ 平滑）；共面直接删边并面；更尖的不碰。默认 20° 对齐 SU Soften。 */
+    readonly softErase: {
+        readonly maxDeg: {
+            readonly kind: "number";
+            readonly label: "最大角度";
+            readonly def: 20;
+            readonly min: 1;
+            readonly max: 90;
+            readonly step: 1;
+            readonly unit: "°";
             readonly scope: "session";
         };
     };

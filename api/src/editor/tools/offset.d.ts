@@ -2,6 +2,7 @@ import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 export declare class OffsetTool implements ToolHandler {
     readonly tool: "offset";
     readonly grammar: "steps";
@@ -12,6 +13,7 @@ export declare class OffsetTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
+    scaleGeom(): ScaleGeom | null;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {
         x: number;

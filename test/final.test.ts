@@ -29,7 +29,7 @@ describe("final: 内容指纹", () => {
       const a = await contentFingerprint(doc);
       eq(a.length, 64, `${name} sha256 hex`);
       eq(await contentFingerprint(doc), a, `${name} 稳定`);
-      doc.lastView = { eye: [1, 2, 3], target: [0, 0, 0] };
+      doc.desk = { ...doc.desk, lastView: { eye: [1, 2, 3], target: [0, 0, 0] }, menuTabs: { main: "settings" } };   // 桌面态（CATSUP_desk）不进指纹
       doc.settings = { ...doc.settings, gridStep: 0.25, absoluteGrid: true };
       doc.thumbnail = { mimeType: "image/png", bytes: TINY_PNG };
       eq(await contentFingerprint(doc), a, `${name} 视图态无关`);

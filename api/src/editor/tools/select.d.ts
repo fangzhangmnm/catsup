@@ -7,7 +7,6 @@ export declare class SelectTool implements ToolHandler {
     readonly grammar: "direct";
     private start;
     private cur;
-    private clickTrain;
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;

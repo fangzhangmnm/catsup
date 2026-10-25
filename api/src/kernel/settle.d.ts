@@ -1,5 +1,5 @@
 import { type Pt, type Pt3 } from "./geom.ts";
-import { type EdgeId, type FaceId, PlanarGraph } from "./topology.ts";
+import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Ring } from "./facefind.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type FaceEvent, FaceStore } from "./face-lifecycle.ts";
@@ -65,10 +65,32 @@ export declare function ringsOf(g: PlanarGraph, f: {
 }): Pt3[][];
 /** 绕数（|w|≥1 = 覆盖；零面积尖刺贡献 0）。 */
 export declare function windingOf(p: Pt, poly: readonly Pt[]): number;
+/** 顶点是否「二度共线」（两条边反向共线）。导出给内核的显式溶解动词（焊边橡皮 / A33 断口判定）复用——同一把尺子。 */
+export declare function collinear2(g: PlanarGraph, vid: VertexId): {
+    a: VertexId;
+    b: VertexId;
+    ea: EdgeId;
+    eb: EdgeId;
+} | null;
+/**
+ * 溶解一个二度共线顶点：ea、eb 并成一条新边 a–b（层 / 曲线按 onMerge 并、所属膜的环就地 splice、旧边删）。
+ * 前提（调用方负责判，不满足返回 false 不动）：两边的面链接相同；a–b 之间还没有边（退化三角不动）。
+ * 结算机 ⑩ 与 Kernel.dissolveVertices（焊边橡皮的「共轴 → 真合并」，user 2026-10-24）共用这一份——合并只有一种写法。
+ */
+export declare function dissolveAt(g: PlanarGraph, store: FaceStore, c: {
+    a: VertexId;
+    b: VertexId;
+    ea: EdgeId;
+    eb: EdgeId;
+}, EL?: EdgeLayers, curves?: CurveRegistry): boolean;
 /**
  * 结算机本体。g / store / reg 原地修改；返回事件叙事。
  * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
  */
+/** 调试钩子（默认 null 零开销）：影响域 / 胞腔 / 认领逐条打出来——守恒断言响了先开它看，别猜。added by Claude Fable 5.1 2026-10-24 */
+export declare const SETTLE_DEBUG: {
+    log: ((line: string) => void) | null;
+};
 export declare function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable, opts?: {
     global?: boolean;
 }): FaceEvent[];

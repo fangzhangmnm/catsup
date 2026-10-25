@@ -1,12 +1,16 @@
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
-import { type DrawPlane } from "../pick.ts";
+import { type DrawPlane, type Snap3 } from "../pick.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
+/** Shift = 15° 角度对齐（B33）：以上下文帧的 X（投到手势平面）为 0°，长度不变；比点吸附优先（用户按着 Shift 就是要角度）。画线 / 旋转矩形第一边共用。 */
+export declare function shiftAngleSnap(ctx: ToolCtx, a: Pt3, p: Pt3, n: Pt3): Snap3;
 declare abstract class DrawTool implements ToolHandler {
     abstract readonly tool: "line" | "rect" | "circle";
     readonly grammar: "steps";
     readonly draws = true;
+    readonly lock: "axis" | "plane";
     protected anchor: Pt3 | null;
     protected plane: DrawPlane;
     protected fixed: DrawPlane | null;
@@ -34,11 +38,13 @@ declare abstract class DrawTool implements ToolHandler {
 }
 export declare class LineTool extends DrawTool {
     readonly tool: "line";
+    readonly lock: "axis";
     track(ctx: ToolCtx, s: {
         x: number;
         y: number;
     }, travel?: number): void;
     protected segsFor(_ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
+    scaleGeom(ctx: ToolCtx): ScaleGeom | null;
     protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     protected commit(ctx: ToolCtx): void;
     /** 数值小窗改完这一笔之后继续连画（底座 applyVcb 调）。 */
@@ -46,13 +52,17 @@ export declare class LineTool extends DrawTool {
 }
 export declare class RectTool extends DrawTool {
     readonly tool: "rect";
-    protected segsFor(_ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
+    /** 起点语义：选项 rect.from；Ctrl 按着 = 临时从中心（SU Ctrl / Option 同款）。 */
+    private from;
+    protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
+    scaleGeom(ctx: ToolCtx): ScaleGeom | null;
     protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     protected commit(ctx: ToolCtx): void;
 }
 export declare class CircleTool extends DrawTool {
     readonly tool: "circle";
     protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
+    scaleGeom(ctx: ToolCtx): ScaleGeom | null;
     protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     protected commit(ctx: ToolCtx): void;
 }

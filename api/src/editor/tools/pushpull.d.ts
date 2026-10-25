@@ -2,6 +2,7 @@ import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ScaleGeom } from "../scale-ref.ts";
 export declare class PushPullTool implements ToolHandler {
     readonly tool: "pp";
     readonly grammar: "steps";
@@ -14,6 +15,7 @@ export declare class PushPullTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
+    scaleGeom(): ScaleGeom | null;
     describe(ctx?: ToolCtx): Record<string, unknown>;
     /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
     private localH;

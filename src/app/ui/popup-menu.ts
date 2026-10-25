@@ -34,18 +34,19 @@ export interface PopupMenuOpts<Id extends string = string> {
   onPick: (id: Id) => void | "keep";
   align?: "start" | "end";
   tabs?: readonly PopupMenuTab[];
-  /** 记住上次停在哪个 tab（同一个 key 共用；宿主接了 configureTabMemory 就跨刷新）。 */
+  /** 记住上次停在哪个 tab（同一个 key 共用；宿主接了 configureTabMemory 就由宿主记，CatsUp = 跟文件）。 */
   tabKey?: string;
   /** 这次打开直接停在这个 tab（别处的「XX 设置…」跳进来用；也记进 tabKey）。 */
   tab?: string;
 }
 const _lastTab = new Map<string, string>();
-/** tab 记忆的落盘口（user 2026-10-25「两个汉堡能记住选的是哪个tab吗」：刷新后也停在上次那页）：宿主接 device-kv；没接 = 只记本次会话。 */
+/** tab 记忆交给宿主（user 2026-10-25「两个汉堡能记住选的是哪个tab吗」「不是应该跟文件吗」）：CatsUp 接 Session = 跟着文件走（WeebPaint desk.menuTab 同款）；
+ *  接了就只问宿主（换文件 = 换一套记忆，本模块不另留缓存）；没接 = 只记本次会话。 */
 export interface TabMemory { get(key: string): string | null; set(key: string, tab: string): void }
 let _tabStore: TabMemory | null = null;
 export function configureTabMemory(s: TabMemory | null): void { _tabStore = s; }
-const recallTab = (key: string): string | undefined => _lastTab.get(key) ?? _tabStore?.get(key) ?? undefined;
-const rememberTab = (key: string, tab: string): void => { _lastTab.set(key, tab); _tabStore?.set(key, tab); };
+const recallTab = (key: string): string | undefined => (_tabStore ? _tabStore.get(key) : _lastTab.get(key)) ?? undefined;
+const rememberTab = (key: string, tab: string): void => { if (_tabStore) _tabStore.set(key, tab); else _lastTab.set(key, tab); };
 export interface PopupMenuHandle {
   readonly el: HTMLElement;
   close(): void;

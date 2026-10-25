@@ -59,6 +59,13 @@ export declare class Session {
     private snapRevision;
     /** 图库当前夹（新建自动安家用；gallery-host 同步）。 */
     currentDir: string;
+    /** 桌面态（CATSUP_desk；WeebPaint desk 同款）：☰ 停在哪页等跟文件走的编辑器状态。载入时从文件来、新建 reset、存盘时顺手捞走；改它不标脏
+     *  （user 2026-07-14 在 WeebPaint 接受的代价：只切页不画不存就退出 → 下次开 revert 到上次保存的）。 */
+    private desk;
+    menuTab(key: string): string | null;
+    setMenuTab(key: string, tab: string): void;
+    /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
+    private noteFormat;
     constructor(d: SessionDeps);
     dirty(): boolean;
     displayName(): string;

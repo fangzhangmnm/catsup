@@ -3,12 +3,15 @@ import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kern
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3 } from "./pick.ts";
+import { type ArcGesture } from "./arc-build.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
 import type { ToolHandler } from "./tool-handler.ts";
 import { type GridSettings } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
 import type { FaceKey } from "./ops.ts";
+import { type LockAxis, type PlaneLock } from "./locks.ts";
+import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
@@ -42,7 +45,7 @@ export interface ToolPointer {
     shiftKey: boolean;
     /** 复制修饰（Ctrl / Alt / ⌘）：移动 = 留一份原件再放（SU Move+Ctrl）。 */
     copy?: boolean;
-    /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px）。缺省 = 屏距 downScreen。 */
+    /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
     travel?: number;
 }
 /** 记账面包屑（调试日志；op 一行一条）。 */
@@ -72,7 +75,8 @@ export type EditorTrace = {
 };
 export interface EditorHost {
     hint(text: string | null): void;
-    tip(text: string | null, clientX: number, clientY: number): void;
+    /** 跟指针的提示框；measure = 手势中的读数（user 2026-10-25「优先显示长度，参考只是参考」：第一行、最显眼）；scale = B43 尺度参考（拖动时才有；样式归宿主画）。 */
+    tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null, measure?: string): void;
     trace?(entry: EditorTrace): void;
     marquee(r: {
         x: number;
@@ -82,19 +86,20 @@ export interface EditorHost {
     } | null): void;
     changed(): void;
     error?(err: unknown, where: string): void;
+    /** 右下角血槽位的尺寸读数（手势中的 dims / 选中面的面积 / 选中边的长度；"" = 空）。A28。 */
+    readout?(text: string): void;
     /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
     optionKv?: OptionKv;
 }
 export declare const SNAP_LABELS: Record<string, string>;
-export { type GridSettings, GRID_STEPS } from "./grid-settings.ts";
+export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 export declare function describeEvent(ev: FaceEvent): string;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 export declare const MIN_GESTURE_LEN = 0.01;
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export declare const CIRCLE_SEGMENTS: 24;
-export declare function fmtLen(v: number, digits?: number): string;
-export declare const fmtDeg: (rad: number) => string;
+export { fmtLen, fmtDeg } from "./units.ts";
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = {
     kind: "group";
@@ -117,7 +122,24 @@ export type LastGesture = {
     plane: DrawPlane;
     anchor: Pt3;
     corner: Pt3;
-} | {
+    from?: "corner" | "center";
+}
+/** 旋转矩形：A 第一角 / B 第一边终点 / C 第二边终点；VCB「角度,宽」或「宽」。 */
+ | {
+    kind: "rrect";
+    ops: number;
+    at: PoolRef;
+    plane: DrawPlane;
+    a: Pt3;
+    b: Pt3;
+    c: Pt3;
+}
+/** 弧（四种画法，arc-build.ts）：VCB 半径 / 角度（圆心弧 · 扇形）/ 段数。 */
+ | ({
+    kind: "arc";
+    ops: number;
+    at: PoolRef;
+} & ArcGesture) | {
     kind: "circle";
     ops: number;
     at: PoolRef;
@@ -239,7 +261,12 @@ export declare class Editor {
     private liveEvents;
     private armed;
     private canArm;
-    private downScreen;
+    /** 按下那条射线上 1 m 处的世界点：「自按下走了多远」= 本帧 distTo(光标, 它)——桌面 = 离按下点的像素，VR = 角度（(x, y) 在 VR 只是名义坐标）。
+     *  规矩：能用帧度量就不用屏幕 px（user 2026-10-24「能用ray别用screen px」）。2026-10-24 Claude Opus 5.5 替掉原来按屏幕坐标记的按下点。 */
+    private downPoint;
+    /** 点按族（点 / 拖、单 / 双 / 三击）：全编辑器一份，工具经 ctx.clicks() / ctx.tapSlop() 问（tap-train.ts；user 2026-10-25 笔双击三击偏向点）。 */
+    private readonly taps;
+    private movedSinceDown;
     private justCommitted;
     private charged;
     /** 充能边（0.11.6，user「载线交点 充能」）：悬停在边上 ≥ 300 ms 的边，最近 2 条；出延长线与延长线交点。 */
@@ -251,9 +278,60 @@ export declare class Editor {
     readonly config: CatsUpToolConfig;
     /** 数值小窗：刚做完的那一步（null = 没有可改的）；opCount 给它数这一步占了几个 op。 */
     private last;
+    private mods;
+    private dims;
+    private toolTip;
     private opCount;
     /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
-    vcbUnit: LengthUnit;
+    /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
+     *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
+     *  面锁（user 2026-10-25「Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」；键位 = ledger A9 的 Blender Shift+X 语义）：
+     *  锁到「排除该轴」的平面 = 法向是该轴的面（Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下那张膜的面）。
+     *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃轴锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
+     *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。轴锁与面锁互斥。 */
+    private _axisLock;
+    private _planeLock;
+    private _planeLockN;
+    private lastPtr;
+    get axisLock(): LockAxis | null;
+    get planeLock(): PlaneLock | null;
+    /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
+    lockStyle(): "axis" | "plane" | null;
+    setAxisLock(a: LockAxis | null): void;
+    toggleAxisLock(a: LockAxis): void;
+    /** 面锁："x" / "y" / "z" = 法向是那根上下文轴的面；"face" = 光标下那张膜的面（光标下没膜 → 不锁，给提示）。 */
+    setPlaneLock(p: PlaneLock | null): void;
+    togglePlaneLock(p: PlaneLock): void;
+    /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
+    lockKey(axis: LockAxis | null, plane: boolean): void;
+    /** 面锁下过 through 的平面（先定平面的工具在首点之后用；没锁 = null）。轴面的基 = 另外两根上下文轴。 */
+    private lockedPlaneThrough;
+    /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：轴锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
+    private applyLock;
+    private static strongSnap;
+    /** 投到锁住的面（过锚点）上：吸到实几何 → 正投影（「从点」；已在面上就原样）；没吸到 → 光标射线交面（掠射 = 投影兜底）；
+     *  栅格开着且是轴面 → 面内两根轴各自落绝对格。 */
+    private lockToPlane;
+    /** 把求解器结果投到锁住的轴线（过锚点）上：吸到实几何 → 投影（SU「从点」）；没吸到 → 光标射线离轴线最近的点；栅格开着 → 沿轴落绝对格。 */
+    private lockToAxis;
+    /** B43 尺度参考：勾了哪几项（多选取并集；[] = 不显示；跟着文件存 settings.scaleRefs）+ 懒加载来的梯子数据（宿主递进来）。 */
+    private _scaleRefs;
+    private scaleLadder;
+    get scaleRefs(): readonly string[];
+    /** 勾 / 取消一项；算文档改动（同栅格设置）。 */
+    toggleScaleRef(id: string): void;
+    /** 全部取消（= 不显示）。 */
+    clearScaleRefs(): void;
+    /** 读文件 / 新建时设（不算改动）。 */
+    loadScaleRefs(refs: readonly string[]): void;
+    setScaleLadder(L: Ladder): void;
+    get scaleLadderLoaded(): boolean;
+    /** 手势中正在拖的那段配什么参考（没手势 / 工具不报 / 没选 / 数据没到 = null）。 */
+    private scaleTip;
+    private _vcbUnit;
+    /** 显示 / 输入单位：数值小窗按它读，所有读数（fmtLen / fmtArea）按它念——换单位只走这里（units.ts 窄接口）。 */
+    get vcbUnit(): LengthUnit;
+    set vcbUnit(u: LengthUnit);
     private viewCache;
     private kids;
     private nextKid;
@@ -413,6 +491,21 @@ export declare class Editor {
     softenSelection(on: boolean): number;
     setView(name: Parameters<OrbitCamera["setView"]>[0]): void;
     zoomExtents(): void;
+    /** 放大镜点一下（user 2026-10-25「放大镜按一下是Zoom to fit, 取决于是否有选区。然后按多下是选区 当前物体 全局 切换。……只有合法的切换才入档」）：
+     *  档 = 选区（有选区才有）→ 当前物体（进组编辑时 = 那一组）→ 全部；和前一档一样大的不入档。
+     *  相机没被动过就接着往下一档（按多下轮换），动过相机再按 = 从第一档起。 */
+    private zoomCycle;
+    zoomTo(): void;
+    /** 放大镜的档（只有合法的才入档）。 */
+    zoomStages(): {
+        key: string;
+        label: string;
+        b: {
+            min: Pt3;
+            max: Pt3;
+        };
+    }[];
+    private camKey;
     /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
     vcbState(): {
         kind: VcbKind | null;
@@ -475,10 +568,28 @@ export declare class Editor {
     private drawSuspended;
     batchDraw(fn: () => void): void;
     draw(): void;
+    /**
+     * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：
+     * 活动池里 Kernel.isBreakJunction 的顶点 → 世界坐标的点 + 边向（渲染器画屏幕定长的小垂线）。按池版本缓存。
+     */
+    /** X 轴 +1 个单位处的「1 m / 1 ft」+ Z 轴刻度间距（user 2026-10-25「能不能在x轴+1的地方背景颜色的小字写上1m或者别的单位定义。以及我还是希望z轴有刻度」）。 */
+    private unitMarks;
+    /** 场景里一个顶点都没有（按场景版本号缓存，不每帧数）。 */
+    private emptyCache;
+    private sceneEmpty;
+    private ticksCache;
+    breakTicks(view?: WorldView): readonly {
+        p: Pt3;
+        dir: Pt3;
+    }[];
     resize(dpr: number): void;
     private updateTip;
     private targetBounds;
     pointerDown(ev: ToolPointer): void;
+    /** 手势中 = 工具的 dims；否则选中面的面积合计 / 选中边的长度合计；都没有 = ""。 */
+    readoutText(): string;
+    /** 全选（Ctrl+A，A7）：当前上下文的全部几何 + 直接子 group / 实例。 */
+    selectAll(): boolean;
     /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
     private endStepGesture;
     /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */

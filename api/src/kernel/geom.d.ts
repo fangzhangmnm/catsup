@@ -3,6 +3,10 @@ export interface Pt {
     readonly y: number;
 }
 export declare const Q = 0.000001;
+/** 共面容差 τ 出厂值 = 10 µm（user 2026-10-24「10um够就10um，这个比较符合我的心理预期」）：此前 1 mm 是浮点时代留下的，和身份分辨率 r = 3 µm 差了两个半数量级，
+ *  中间那条带 (r, 2τ] 就是 D11 整条线的来源；10 µm ≥ 3 倍量化噪声（点吸到面上再落格最多偏 ~2 µm）、比 SketchUp 的 0.001″≈25 µm 还细、fuzz 与 1600 件场景零拒绝（3 µm 则出事）。
+ *  τ 按文档存（brep 快照 coplanarTol），老文档照旧吃自己存的值，不迁。 */
+export declare const COPLANAR_TOL_DEFAULT: number;
 export declare const EPS: number;
 export declare const EPS_AREA = 1e-9;
 export declare function quantize(p: Pt): Pt;
@@ -23,6 +27,7 @@ export declare function segIntersections(a1: Pt, a2: Pt, b1: Pt, b2: Pt): Pt[];
 /** 环的有向面积（shoelace）；CCW 为正。 */
 export declare function signedArea(ring: readonly Pt[]): number;
 /** 射线法点在环内（不含环上；环上结果未定义——调用方自己保证离边界有距离）。 */
+/** 点在环内（奇偶规则；EGC 期 3：跨越判定用精确 orient2dD，不再做浮点除法——边界上仍未定义）。 */
 export declare function pointInRing(p: Pt, ring: readonly Pt[]): boolean;
 /** 点到线段距离（playground hitTest 用）。 */
 export declare function distToSegment(p: Pt, a: Pt, b: Pt): number;
@@ -34,6 +39,8 @@ export interface Pt3 {
 export declare function quantize3(p: Pt3): Pt3;
 export declare function ptKey3(p: Pt3): string;
 export declare function samePt3(a: Pt3, b: Pt3): boolean;
+/** 三维平面多边形的面积（Newell 法向的模 / 2；环的顶点顺序任意）。带洞的面 = 外环减内环。 */
+export declare function polygonArea3(ring: readonly Pt3[]): number;
 export declare function dist3(a: Pt3, b: Pt3): number;
 export declare const sub3: (a: Pt3, b: Pt3) => Pt3;
 export declare const add3: (a: Pt3, b: Pt3) => Pt3;

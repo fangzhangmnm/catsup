@@ -1,6 +1,7 @@
 import type { Editor } from "../editor/editor.ts";
 export interface ViewGizmoOpts {
-    isWalking(): boolean;
+    isWalking(): boolean; /** 透视 / 平行切了（宿主刷新菜单勾选之类）。 */
+    onProjection?(): void;
 }
 export interface ViewGizmo {
     render(): void;

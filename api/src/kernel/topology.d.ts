@@ -46,6 +46,9 @@ export declare class PlanarGraph {
     edge(id: EdgeId): Edge;
     hasEdge(id: EdgeId): boolean;
     hasVertex(id: VertexId): boolean;
+    /** 下一个会分配的 id（单调递增）——结算机用它划「本次操作前就存在」的旧 / 新界线（τ-flatten 的参照物选择）。 */
+    get nextVertexId(): number;
+    get nextEdgeId(): number;
     pt(id: VertexId): Pt3;
     otherEnd(e: Edge, v: VertexId): VertexId;
     /** p 须已量化。 */
@@ -88,6 +91,11 @@ export declare class PlanarGraph {
     }[];
     /** 顶点移动的底层写（sticky 语义在 kernel 层编排；这里只改坐标 + 换 key）。 */
     relocateVertex(id: VertexId, p: Pt3): void;
+    /**
+     * 把顶点 from 并进 to（身份分辨率：两点 ≤ r 就是一个点；planarize 的合并原语，2026-10-24 D11）。
+     * 尽量**保边 id**：from 的边改接到 to（曲线 / 层登记的 id 不变）；坍缩边（另一端就是 to）删；与 to 已有边平行重合的删（faceLinks 并进既有边）。from 随之消亡。
+     */
+    mergeVertex(from: VertexId, to: VertexId): void;
     private removeEdgeKeepVerts;
     /** 深拷贝（含 id 计数器——preview 影子副本的 id 分配与真身逐一致）。 */
     clone(): PlanarGraph;

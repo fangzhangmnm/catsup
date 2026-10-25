@@ -28,6 +28,8 @@ export interface GeomView {
     isSmooth(id: EdgeId): boolean;
     /** 面的材质（null = 默认灰）。 */
     faceMaterial(id: FaceId): Material | null;
+    /** 共面容差 τ（米）：编辑器判「点在哪张面的平面上」与内核同一把尺子（2026-10-24 起不再各写 1e-3）。 */
+    readonly coplanarTol: number;
     /** 上下文的帧（世界坐标；0.11 尺规纪元）：推断的原点与三轴。不给 = 世界帧。 */
     frame?(): Frame;
     /** 活动池的参考几何（世界坐标；0.11）。不给 = 没有。 */
@@ -78,6 +80,8 @@ export declare class WorldView implements GeomView {
     readonly parts: SlotPart[];
     private byKey;
     readonly graph: GeomView["graph"];
+    /** 各池 τ 取最大（同一文档里本来一样；混了老文档的池就按最宽的）。 */
+    readonly coplanarTol: number;
     /**
      * @param scene 场景
      * @param ctx 编辑上下文（活动池 = ctx 的池；链上的池 = inContext）
@@ -99,6 +103,7 @@ export declare class WorldView implements GeomView {
         grid?: {
             step: number;
             sub: number;
+            frame?: Frame;
         } | null;
     });
     private partOf;

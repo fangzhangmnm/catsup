@@ -225,7 +225,10 @@ export declare function snapPoint(k: GeomView, pf: PointerFrame, vp: Viewport, s
  * 最小夹角 ≤ coneDeg（默认 30° = 六个 60° 锥）的轴胜出；点 = 射线到该轴的公垂点。射线与轴近平行（|cos| > 0.985）或轴在角度尺上
  * 投影退化 → 该轴不参赛。edited by Claude Fable 5.1 2026-09-07
  */
-export declare function inferAxisByDirection(pf: PointerFrame, vp: Viewport, anchor: Pt3, sx: number, sy: number, coneDeg?: number): {
+export declare function inferAxisByDirection(pf: PointerFrame, vp: Viewport, anchor: Pt3, sx: number, sy: number, coneDeg?: number, keep?: {
+    axis: AxName;
+    coneDeg: number;
+}): {
     axis: AxName;
     p: Pt3;
 } | null;
@@ -233,6 +236,8 @@ export declare function inferAxisByDirection(pf: PointerFrame, vp: Viewport, anc
 export declare function grazing(plane: DrawPlane, ray: Ray, minDeg?: number): boolean;
 /** 轴系平面本体（d=0）——自由落点兜底。 */
 export declare function axisPlane(pf: PointerFrame): DrawPlane;
+/** 网格开着时的「空处落点平面」= 网格面（user 2026-10-24「grid可以配置成xy yz xz，这样方便我吸附画立面」）；网格关着 = null。 */
+export declare function gridDrawPlane(k: GeomView, through?: Pt3): DrawPlane | null;
 /** 过 through 的轴向平面（锚定在几何上的点用）。 */
 export declare function cameraPlane(pf: PointerFrame, through: Pt3): DrawPlane;
 /** 光标射线命中的第一张膜（最近者）的平面；没命中 → null。零 three、不经 pick.ts（避免环形 import）。 */

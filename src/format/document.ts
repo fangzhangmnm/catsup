@@ -1,10 +1,11 @@
 // document.ts —— CatsUp 文档的内存形状（契约 §5.3/5.4/5.6）：definitions（每个 = 根池 B-rep + 嵌套 group + 实例）+ 根 definition、
-// 文档设置、lastView、bake 模式、缩略图；未知 JSON 原样携带（round-trip 保真）。created 2026-09-20 by Claude Fable 5.1
+// 文档设置、桌面态（desk）、bake 模式、缩略图；未知 JSON 原样携带（round-trip 保真）。created 2026-09-20 by Claude Fable 5.1
 // v2（2026-10-21，group / component 纪元）：group = 自己的 B-rep 池 + 轴框 + 父 group；instance = definition 索引 + 3×4 变换 + 父 group。
 
 import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
+import type { FormatReadNotes } from "./migrate/index.ts";
 
 export type BakeMode = "wysiwyg" | "engine";
 
@@ -51,7 +52,8 @@ export interface CatsupDocument {
   final?: { at: string; rev: number; app: string; fingerprint: string };
   /** 定稿过几次（改稿不减）。 */
   finalRev?: number;
-  lastView?: unknown;                 // 软字段：相机状态，任何一端可覆盖
+  /** 桌面态（`CATSUP_desk`，2026-10-25）= WeebPaint `.weebpaint/editor-state.json` 在 glb 里的镜像：跟文件走、不是内容（定稿指纹不含）、不标脏、新建必 reset。 */
+  desk: DeskDoc;
   bakeMode: BakeMode;
   /** 全部 definition；root = definitions[rootIndex]（同一对象）。 */
   definitions: DefinitionDoc[];
@@ -62,6 +64,19 @@ export interface CatsupDocument {
   thumbnail?: { mimeType: string; bytes: Uint8Array };
   /** round-trip 保真：读到的未知顶层键 / 未知扩展 / extras 原样带回；其中任何 `{ bufferView: N }` 引用的二进制也随 `views` 携带。 */
   carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; brepKeep?: Record<string, unknown>; views: Map<number, Uint8Array> };
+  /** 读取时攒的拍子判决（不持久化；newDocument 没有）：哪些子结构比本版新一个 minor（宿主提示一次）、desk 是否太新。 */
+  readNotes?: FormatReadNotes;
+}
+
+/** 桌面态子结构 `CATSUP_desk`（契约 §5.7；user 2026-10-25「不是应该跟文件吗，看一下weebpaint…」→ WeebPaint desk 同款，user 2026-08-27「editor 里的=per doc」）：
+ *  menuTabs = 两个 ☰ 停在哪页 { main?: tab id, view?: tab id }（认不出的 tab 原样带回、打开时落回第一页）；lastView = 相机（原 CATSUP_document.lastView，
+ *  契约 §7.2「保留读、停止写」搬来；本版 app 仍没写它）；extra = 本版不认识的顶层键（直通）。desk 的 major 比本版新 → 不拒开：原字节带回，这里是默认值。 */
+export interface DeskDoc { menuTabs: Record<string, string>; lastView?: unknown; extra: Record<string, unknown>; }
+export const defaultDesk = (): DeskDoc => ({ menuTabs: {}, extra: {} });
+/** 文件里的 menuTabs → 只收字符串值；坏形状 = 空。 */
+export function menuTabsOf(m: unknown): Record<string, string> {
+  if (!m || typeof m !== "object" || Array.isArray(m)) return {};
+  return Object.fromEntries(Object.entries(m as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === "string"));
 }
 
 export const DEFAULT_SETTINGS: DocumentSettings = { displayUnit: "m", gridStep: 1, snapIncrement: 0.2, absoluteGrid: false, gridSubdiv: 5 };
@@ -72,6 +87,7 @@ export function newDocument(brep: BrepSnapshot, name = "model"): CatsupDocument 
     settings: { ...DEFAULT_SETTINGS },
     axes: { origin: { ...WORLD_FRAME.origin }, x: { ...WORLD_FRAME.x }, y: { ...WORLD_FRAME.y }, z: { ...WORLD_FRAME.z } },
     layers: defaultLayers(),
+    desk: defaultDesk(),
     bakeMode: "wysiwyg",
     definitions: [root],
     rootIndex: 0,

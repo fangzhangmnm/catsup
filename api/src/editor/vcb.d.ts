@@ -1,15 +1,12 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import type { Xform } from "../scene/xform.ts";
-export type LengthUnit = "m" | "cm" | "mm" | "ft" | "in";
-export declare const LENGTH_UNITS: readonly {
-    id: LengthUnit;
-    label: string;
-}[];
+import { type LengthUnit } from "./units.ts";
+export { type LengthUnit, LENGTH_UNITS, fmtVcbLength } from "./units.ts";
 export interface VcbCtx {
     unit: LengthUnit;
 }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
-export type VcbKind = "line" | "rect" | "circle" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
+export type VcbKind = "line" | "rect" | "rrect" | "circle" | "arc" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
 export type VcbValue = {
     kind: "length";
     m: number;
@@ -26,6 +23,12 @@ export type VcbValue = {
 } | {
     kind: "segments";
     n: number;
+}
+/** 旋转矩形：角度,宽。 */
+ | {
+    kind: "angleWidth";
+    deg: number;
+    m: number;
 } | {
     kind: "array";
     mode: "x" | "/";
@@ -41,5 +44,3 @@ export declare function arrayTranslations(delta: Pt3, mode: "x" | "/", n: number
 export declare function arrayRotations(center: Pt3, axis: Pt3, angle: number, mode: "x" | "/", n: number): Xform[];
 /** 小窗旁的提示字：这一步能输什么。 */
 export declare function vcbPrompt(kind: VcbKind | null): string;
-/** 长度显示（小窗回显用）：按 unit；英尺英寸写成 3' 6.5"。 */
-export declare function fmtVcbLength(m: number, unit: LengthUnit): string;

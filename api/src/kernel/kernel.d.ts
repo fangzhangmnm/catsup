@@ -112,6 +112,13 @@ export declare class Kernel {
     /** 炸开曲线（SU Explode Curve）：实体没了，边留着、不再带 curve 层（之后推拉它们的侧棱是硬的）。 */
     /** 焊接（B19）：选中的边（所属曲线整条连坐）焊成一条曲线——同圆参数的弧 → 弧 / 圆，否则折线曲线。不是一条链 → 抛（人话）。 */
     weldEdges(ids: readonly EdgeId[]): FaceEvent[];
+    /**
+     * 溶解（焊边橡皮的「共轴 → 真合并」；user 2026-10-24「共轴就变成一个边」「对焊接只认degree2同意」）：
+     * 每个顶点须是二度共线、两边面链接相同、两端之间尚无边；不满足的跳过。合并逻辑 = 结算机 ⑩ 同一份（settle.dissolveAt）。返回真的合并了几个。
+     */
+    dissolveVertices(ids: readonly VertexId[]): number;
+    /** A33 断口：二度共线、两边面链接相同、两端之间没边、两边不在同一条曲线里的顶点（= 一根直线中间断了一截，溶解得掉）。 */
+    isBreakJunction(vid: VertexId): boolean;
     explodeCurves(ids: readonly CurveId[]): FaceEvent[];
     /** 只删膜不动拓扑（「闭环无面」态；之后 retrace 可复生）。 */
     eraseFaces(ids: readonly FaceId[]): FaceEvent[];

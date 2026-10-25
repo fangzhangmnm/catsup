@@ -31,6 +31,8 @@ export interface SurfaceAssignOpts {
     apply(ctx: ToolCtx, faces: readonly FaceId[]): void;
     /** 吸：从这张面读值回工具的「蘸的」。 */
     sample(ctx: ToolCtx, face: FaceId): void;
+    /** 这张面现在的值叫什么（吸色提示用）；不给就只说「这张面」。 */
+    describe?(ctx: ToolCtx, face: FaceId): string;
 }
 export declare class SurfaceAssignTool implements ToolHandler {
     readonly tool: Tool;
@@ -42,7 +44,6 @@ export declare class SurfaceAssignTool implements ToolHandler {
     private tempEye;
     private scrub;
     private poolHit;
-    private clickTrain;
     constructor(opts: SurfaceAssignOpts);
     active(): boolean;
     cancel(): void;

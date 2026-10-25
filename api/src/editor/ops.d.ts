@@ -1,4 +1,5 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
+import type { BodyKind } from "../scene/body-kind.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, Scene } from "../scene/scene.ts";
@@ -30,6 +31,18 @@ export type Op = {
     op: "weldEdges";
     at: PoolRef;
     edges: EdgeKey[];
+}
+/** 溶解（焊边橡皮「共轴 → 真合并」；user 2026-10-24）：这些顶点（坐标寻址）各并成一条边——须二度共线、两边面链接相同、两端之间没边，不满足的跳过。 */
+ | {
+    op: "dissolveVertices";
+    at: PoolRef;
+    points: Pt3[];
+}
+/** 批：几个 op 当一步（一次撤销；焊边橡皮一刮 = 溶解 + 焊接、软边橡皮一刮 = 删边 + 软化）。顺序执行；中途抛 = 整批回滚（history 装回快照）。 */
+ | {
+    op: "batch";
+    label: string;
+    ops: Op[];
 } | {
     op: "eraseEdges";
     at?: PoolRef;
@@ -147,13 +160,43 @@ export type Op = {
     at: PoolRef;
     group: number;
 }
-/** 锁定 / 解锁一个子 group 或实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。 */
+/** 锁定 / 解锁一个子实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。0.14 起组不是物体、不能锁：带 group 的 setLocked 被拒。 */
  | {
     op: "setLocked";
     at: PoolRef;
     group?: number;
     instance?: number;
     on: boolean;
+}
+/** 显式换身体种类（定义级：共享定义的全部实例一起变）；只认 kinds.ts 登记表里的方向，失败不改文档。 */
+ | {
+    op: "castDefinition";
+    def: number;
+    to: BodyKind;
+}
+/** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
+ | {
+    op: "addLayer";
+    name: string;
+    color?: [number, number, number];
+} | {
+    op: "renameLayer";
+    layer: number;
+    name: string;
+} | {
+    op: "setLayerVisible";
+    layer: number;
+    visible: boolean;
+} | {
+    op: "removeLayer";
+    layer: number;
+}
+/** 归层：at 定义的子实例归到某层；null = 回到继承。（面不打层——user 2026-10-24「facelayer可能太复杂了……不要」：要藏汤里的一部分 = 做成组件再归层。） */
+ | {
+    op: "assignLayer";
+    at: PoolRef;
+    instances: number[];
+    layer: number | null;
 } | {
     op: "addGuide";
     at: PoolRef;

@@ -46,9 +46,11 @@ export interface Marquee {
     maxY: number;
 }
 export declare function marqueeOf(a: Pt, b: Pt): Marquee;
+/** 选区：内核实体（边 / 面）+ 活动池的参考几何 id（A31，2026-10-24 Opus：参考线 / 参考点能被选择工具选中、Delete 删）。 */
 export interface Selection {
     edges: Set<EdgeId>;
     faces: Set<FaceId>;
+    guides: Set<number>;
 }
 export declare const emptySelection: () => Selection;
 /** 移动工具的目标展开：顶点→自己；边→两端点；面→外环+洞环全部顶点。 */
@@ -76,9 +78,61 @@ export declare function moveTargetsSelection(k: Kernel, sel: Selection): VertexI
 export type { Edge, Face };
 import type { ToolTarget } from "./solver.ts";
 /** 矩形第二点：从首点出发的两条对角线 = 正方形（秩同轴线）；四条黄金分割线（稍低）。 */
+/** Shift 角度对齐（B33；user 2026-10-24「画线的时候shift可以15度对齐」）：平面内从锚点出发的方向按 stepDeg 咬合，长度不变；返回咬合后的点与度数。 */
+export declare function snapDirectionInPlane(anchor: Pt3, p: Pt3, basis: {
+    u: Pt3;
+    v: Pt3;
+}, stepDeg?: number): {
+    p: Pt3;
+    deg: number;
+};
 export declare function rectToolTargets(anchor: Pt3, basis: {
     u: Pt3;
     v: Pt3;
 }): ToolTarget[];
 /** 两点弧第三点（凸度）：弦中垂线上离弦 |AB|/2 的两个点 = 半圆。 */
 export declare function arcToolTargets(a: Pt3, b: Pt3, n: Pt3): ToolTarget[];
+/** 带号角度的连续化：raw ∈ (−π, π] 加减 2π 使其离 prev 最近（圆心弧 / 旋转一直转过 180° 不跳）。 */
+export declare function unwrapAngle(prev: number, raw: number): number;
+/** 圆心弧（SU Arc / Pie）：圆心 c、起点 a（定半径与 0°）、扫角 sweep（弧度，带号，可超 180°）→ n 段。退化（半径 0 / 扫角 0）→ null。 */
+export declare function centerArcSegments(plane: PlaneParams, basis: {
+    u: Pt3;
+    v: Pt3;
+}, c3: Pt3, a3: Pt3, sweep: number, n?: number): {
+    segs: [Pt3, Pt3][];
+    center: Pt3;
+    radius: number;
+    end: Pt3;
+} | null;
+/** 平面上从 c→a 转到 c→p 的带号角（绕法向 n，右手；(−π, π]）。 */
+export declare function sweepAngle(c: Pt3, a: Pt3, p: Pt3, n: Pt3): number;
+/** 两点弧：弦 a–b、同侧、给定半径 r（≥ 弦半长）→ 劣弧的凸度点（VCB 改半径用）；r 太小 → 半圆。 */
+export declare function bulgePointForRadius(a: Pt3, b: Pt3, side: Pt3, r: number): Pt3;
+/** 矩形的对角（从角 = 锚点本身；从中心 = 锚点关于 b 的对称点，user 2026-10-24「中心rect……还是要」）。 */
+export declare function rectOpposite(anchor: Pt3, b: Pt3, from: "corner" | "center"): Pt3;
+/**
+ * 旋转矩形（SU Rotated Rectangle）：A 第一角、B 第一边终点、C 第二边终点（都在平面上）→ 四角 A B C D，D = A + (C − B)。
+ * 角度不限 90°（平行四边形合法，SU 同款）；退化（边长 0 / C 落在 AB 直线上）→ null。
+ */
+export declare function rrectCorners(a: Pt3, b: Pt3, c: Pt3): [Pt3, Pt3, Pt3, Pt3] | null;
+export declare function rrectSegments(a: Pt3, b: Pt3, c: Pt3): [Pt3, Pt3][];
+/** 第二边在 B 处相对 BA 的内角（度，0..180）与转向（沿 A→B 走到 B 后向左转 = +1（绕 n 逆时针）、向右 = −1）。 */
+export declare function rrectAngle(a: Pt3, b: Pt3, c: Pt3, n: Pt3): {
+    deg: number;
+    side: 1 | -1;
+};
+/** 角度 + 宽 → C：B + w·(cos·BA + side·sin·(n × AB))——内角 deg、转向 side，与 rrectAngle 互逆。 */
+export declare function rrectCornerFromAngle(a: Pt3, b: Pt3, n: Pt3, deg: number, w: number, side: 1 | -1): Pt3;
+/**
+ * 第二边角度咬合（A34 的量角器手感）：90° 强吸（±strongDeg 内直接 90°）；Shift 按着 → 15° 格；其余照指针。长度 |BC| 不变。
+ * 返回咬合后的 C 与角度（度）；snapped = 是否咬住了格。
+ */
+export declare function rrectSnapAngle(a: Pt3, b: Pt3, c: Pt3, n: Pt3, opts: {
+    shift: boolean;
+    stepDeg?: number;
+    strongDeg?: number;
+}): {
+    c: Pt3;
+    deg: number;
+    snapped: boolean;
+};

@@ -7,8 +7,8 @@ import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc } from "./document.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
-import { DEFAULT_SETTINGS, DEFAULT_LAYER, type LayerDoc } from "./document.ts";
-import { migrateExtension } from "./migrate/index.ts";
+import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, menuTabsOf, type DeskDoc, type LayerDoc } from "./document.ts";
+import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError } from "./migrate/index.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
 import { isFinalRecord } from "./final.ts";
@@ -62,9 +62,10 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     return sliceBin(bin, { byteOffset: typeof bv.byteOffset === "number" ? bv.byteOffset : 0, byteLength: bv.byteLength as number });
   };
   const exts = json.extensions as Record<string, unknown>;
-  const docExt = migrateExtension("CATSUP_document", exts.CATSUP_document as Record<string, unknown>);
+  const notes = emptyReadNotes();   // 三级拍子判决（minor 更新 → 宿主提示一次）
+  const docExt = migrateExtension("CATSUP_document", exts.CATSUP_document as Record<string, unknown>, notes);
   if (!isObj(exts.CATSUP_definitions)) fail("missing CATSUP_definitions");
-  const defsExt = migrateExtension("CATSUP_definitions", exts.CATSUP_definitions as Record<string, unknown>);
+  const defsExt = migrateExtension("CATSUP_definitions", exts.CATSUP_definitions as Record<string, unknown>, notes);
   const list = defsExt.list;
   const rootIdx = defsExt.root;
   if (!Array.isArray(list)) fail("CATSUP_definitions.list missing");
@@ -76,7 +77,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     if (!isObj(raw)) fail(`definition ${di} invalid`);
     const d = raw as Record<string, unknown>;
     if (!isObj(d.brep)) fail(`definition ${di} has no brep`);
-    const brepJson = migrateExtension("CATSUP_brep", d.brep as Record<string, unknown>) as unknown as CatsupBrepJson;
+    const brepJson = migrateExtension("CATSUP_brep", d.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
     const brep = decodeBrep(brepJson, view);
     if (di === rootIdx) {
       // 携带未知属性层；本版已解析的层（边 u8 流 / 面 u16 流）不携带——否则重写时会多一份孤儿 bufferView，字节不幂等
@@ -95,7 +96,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     const groups: GroupDoc[] = (Array.isArray(d.groups) ? d.groups : []).map((gRaw: unknown, gi: number) => {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;
-      const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>) as unknown as CatsupBrepJson;
+      const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
       return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
     });
     const instances: InstanceDoc[] = (Array.isArray(d.instances) ? d.instances : []).map((iRaw: unknown, ii: number) => {
@@ -137,7 +138,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       const src = (texList[bt.index] as Record<string, unknown>).source;
       const img = typeof src === "number" ? imgList[src] : undefined;
       if (isObj(img) && typeof img.bufferView === "number") {
-        const ext = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? migrateExtension("CATSUP_material", (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown>) : {};
+        const ext = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? migrateExtension("CATSUP_material", (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown>, notes) : {};
         const sz = Array.isArray(ext.sizeM) && ext.sizeM.length === 2 ? (ext.sizeM as number[]) : [1, 1];
         out.texture = { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(img.bufferView)), sizeM: [sz[0], sz[1]] };
       }
@@ -158,11 +159,28 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const topLevel: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions") extensions[k] = v;
-  const DOC_KEYS = new Set(["version", "formatVersion", "settings", "bake", "lastView", "axes", "final", "finalRev"]);
+  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk") extensions[k] = v;
+  // 桌面态 CATSUP_desk（§5.7）：major 比本版新 → **不拒开**（WeebPaint desk 同款）：原字节进 carry.extensions 原样写回、这边用默认、notes 记一笔；
+  // 没有这个扩展（老文件）→ 默认 + 老位置的 document.lastView（§7.2 保留读）。
+  let desk: DeskDoc = defaultDesk();
+  if (isObj(exts.CATSUP_desk)) {
+    const raw = exts.CATSUP_desk as Record<string, unknown>;
+    try {
+      const dj = migrateExtension("CATSUP_desk", raw, notes);
+      const DESK_KEYS = new Set(["version", "minor", "patch", "menuTabs", "lastView"]);
+      const extra: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(dj)) if (!DESK_KEYS.has(k)) extra[k] = v;
+      desk = { menuTabs: menuTabsOf(dj.menuTabs), ...(dj.lastView !== undefined ? { lastView: dj.lastView } : {}), extra };
+    } catch (e) {
+      if (!(e instanceof FormatTooNewError)) throw e;
+      extensions.CATSUP_desk = raw;
+      notes.deskTooNew = readStamp(raw);
+    }
+  } else if (docExt.lastView !== undefined) desk.lastView = docExt.lastView;
+  const DOC_KEYS = new Set(["version", "minor", "patch", "formatVersion", "settings", "bake", "lastView", "axes", "layers", "final", "finalRev"]);
   const documentExtra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(docExt)) if (!DOC_KEYS.has(k)) documentExtra[k] = v;
-  const DEF_KEYS = new Set(["version", "root", "list"]);
+  const DEF_KEYS = new Set(["version", "minor", "patch", "root", "list"]);
   const definitionsExtra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(defsExt)) if (!DEF_KEYS.has(k)) definitionsExtra[k] = v;
 
@@ -176,7 +194,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     layers: (() => { const raw = Array.isArray(docExt.layers) ? (docExt.layers as unknown[]) : []; const ls: LayerDoc[] = raw.filter(isObj).map((l) => { const o = l as Record<string, unknown>; return { id: typeof o.id === "number" ? o.id : 0, name: typeof o.name === "string" ? o.name : `层 ${String(o.id)}`, visible: o.visible !== false, ...(Array.isArray(o.color) && o.color.length === 3 ? { color: [o.color[0], o.color[1], o.color[2]] as [number, number, number] } : {}) }; }); if (!ls.some((l) => l.id === 0)) ls.unshift({ ...DEFAULT_LAYER }); return ls; })(),
     ...(isFinalRecord(docExt.final) ? { final: { at: docExt.final.at, rev: docExt.final.rev, app: typeof docExt.final.app === "string" ? docExt.final.app : "", fingerprint: docExt.final.fingerprint } } : {}),
     ...(typeof docExt.finalRev === "number" ? { finalRev: docExt.finalRev } : {}),
-    ...(docExt.lastView !== undefined ? { lastView: docExt.lastView } : {}),
+    desk,
     bakeMode: bake.mode === "engine" ? "engine" : "wysiwyg",
     definitions,
     rootIndex: rootIdx as number,
@@ -184,5 +202,6 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     materials,
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), views },
+    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew ? { readNotes: notes } : {}),
   };
 }

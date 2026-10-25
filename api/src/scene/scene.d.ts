@@ -2,6 +2,7 @@ import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg
 import { type Frame, type Xform, WORLD_FRAME, frameAt, transformFrame } from "./xform.ts";
 import { type Guides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
+import { type LayerDoc } from "../format/document.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 export type DefId = number;
 export type GroupId = number;
@@ -22,8 +23,7 @@ export interface Group {
     axes: Frame;
     kernel: Kernel;
     name?: string; /** 参考几何（0.11；本 definition 坐标）。 */
-    guides: Guides; /** 锁定（A27，SU Lock）：不能改内部、不能整体移 / 删 / 进入；推断照吃。对象层属性，所有 kind 通用。 */
-    locked?: boolean;
+    guides: Guides;
 }
 export interface Instance {
     readonly id: InstId;
@@ -31,7 +31,8 @@ export interface Instance {
     parent: GroupId | null;
     xform: Xform;
     name?: string; /** 锁定（A27）。 */
-    locked?: boolean;
+    locked?: boolean; /** 层（契约 §4）：缺 = 继承父上下文的有效层。 */
+    layer?: number;
 }
 /** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
 export interface BrepBody {
@@ -44,11 +45,17 @@ export interface BrepBody {
     /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
     guides: Guides;
 }
-/** 卡片身体（A26 参考人卡片）：载荷以后定；现在只是让 kind 联合有第二个真成员。 */
-export interface CardBody {
-    readonly kind: "card";
+/** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
+export interface MeshBody {
+    readonly kind: "mesh";
+    positions: Float32Array;
+    indices: Uint32Array;
+    normals?: Float32Array;
+    uvs?: Float32Array;
+    triMaterial?: Uint16Array;
+    materialSlots: number[];
 }
-export type Body = BrepBody | CardBody;
+export type Body = BrepBody | MeshBody;
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
     readonly id: DefId;
@@ -77,6 +84,9 @@ export declare class Scene {
     readonly materials: Material[];
     /** 绘图轴（0.11 尺规纪元）：根上下文的轴，世界坐标；轴工具可搬 / 转，默认 = 世界帧。进 CATSUP_document.axes。 */
     axes: Frame;
+    /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
+    layers: LayerDoc[];
+    nextLayer: number;
     private nextDef;
     constructor(rootKernel?: Kernel);
     mintDef(name: string, kernel: Kernel): Definition;

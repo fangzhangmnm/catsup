@@ -1,6 +1,6 @@
 // final.ts —— 定稿记录 + 内容指纹（仿 MoonSinger src/format/final.ts；设计 = ai-docs/20261024-finalize.md）。created 2026-10-24 by Claude Fable 5.1
 // 指纹盖：definitions（规范序 brep + groups + instances + guides + materialSlots）+ materials（名 / 色 / 贴图字节 sha256 + 尺寸）+ axes；
-// 不含 settings / lastView / thumbnail（视图态不是内容）。sha256 走 WebCrypto（浏览器 / node 都有 globalThis.crypto.subtle）。
+// 不含 settings / desk（含 lastView）/ thumbnail（视图态不是内容）。sha256 走 WebCrypto（浏览器 / node 都有 globalThis.crypto.subtle）。
 import type { CatsupDocument } from "./document.ts";
 import { canonicalize } from "./brep-codec.ts";
 
@@ -11,7 +11,7 @@ async function sha256(bytes: Uint8Array): Promise<string> { return hex(await cry
 const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
 const p3 = (p: { x: number; y: number; z: number }): number[] => [r6(p.x), r6(p.y), r6(p.z)];
 
-/** 内容指纹（sha256 hex）。同一内容任何写法 / 任何顶点顺序都一样（brep 规范序）；视图 / 设置 / 缩略图不进。 */
+/** 内容指纹（sha256 hex）。同一内容任何写法 / 任何顶点顺序都一样（brep 规范序）；视图（desk）/ 设置 / 缩略图不进。 */
 export async function contentFingerprint(doc: CatsupDocument): Promise<string> {
   const mats: unknown[] = [];
   for (const m of doc.materials) mats.push({ n: m.name, c: m.color.map(r6), t: m.texture ? { h: await sha256(m.texture.bytes), s: m.texture.sizeM.map(r6) } : null });

@@ -2,6 +2,10 @@ import { type EdgeId, PlanarGraph } from "./topology.ts";
 export interface PlanarizeResult {
     changed: boolean;
 }
+/** 调试钩子（不收敛时看每轮切了什么；默认 null 零开销）。 */
+export declare const PLANARIZE_DEBUG: {
+    log: ((line: string) => void) | null;
+};
 /** onSplit：既有边被切成链时回调（parent, children）——结算机用它维护手势集 / 随葬集的切割血缘。 */
 /**
  * dirty（局部性接缝，2026-10-21 #14）：只有这些边是本次新来 / 动过的——前置状态已是平面化的，所以新切点必含至少一条脏边：
