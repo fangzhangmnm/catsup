@@ -8,8 +8,8 @@ const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slic
 await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
 const cam = () => page.evaluate(() => { const c = globalThis.__catsup.editor.cam; return { halfH: +c.halfH.toFixed(4), tx: +c.target.x.toFixed(3), ty: +c.target.y.toFixed(3) }; });
 const res = {};
-// 角上：☰ 在右上、手在左下、放大镜在右下（相对 gizmo 圆）
-res.layout = await page.evaluate(() => { const r = (sel) => document.querySelector(sel).getBoundingClientRect(), g = r(".gizmo-svg"), m = r(".gizmo-menu"), p = r(".gizmo-pan"), z = r(".gizmo-zoom"), cx = g.left + g.width / 2, cy = g.top + g.height / 2; return { menuTR: m.left > cx && m.bottom < cy + 10, panBL: p.right < cx && p.top > cy - 10, zoomBR: z.left > cx && z.top > cy - 10 }; });
+// 一列（user 2026-10-25「汉堡，手和放大镜，上下挪一下。给gizmos留出空间」「手和放大镜可以大一些，占满gizmos的行宽」）：☰ 在 gizmo 上方靠右；手 / 放大镜在下方左右各半、合起来占满 gizmo 宽；都不压 gizmo
+res.layout = await page.evaluate(() => { const r = (sel) => document.querySelector(sel).getBoundingClientRect(), g = r(".gizmo-svg"), m = r(".gizmo-menu"), p = r(".gizmo-pan"), z = r(".gizmo-zoom"), cx = g.left + g.width / 2; return { menuTR: m.bottom <= g.top + 0.5 && Math.abs(m.right - g.right) < 1.5, panBL: p.top >= g.bottom - 0.5 && p.right <= cx + 0.5 && Math.abs(p.left - g.left) < 1.5, zoomBR: z.top >= g.bottom - 0.5 && z.left >= cx - 0.5 && Math.abs(z.right - g.right) < 1.5, big: p.width > 40 && p.height > 34 && z.width > 40 }; });
 // 先画个盒子离原点远一点，再把相机挪开
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "addEdges", segs: [[{ x: 6, y: 6, z: 0 }, { x: 8, y: 6, z: 0 }], [{ x: 8, y: 6, z: 0 }, { x: 8, y: 8, z: 0 }], [{ x: 8, y: 8, z: 0 }, { x: 6, y: 8, z: 0 }], [{ x: 6, y: 8, z: 0 }, { x: 6, y: 6, z: 0 }]] }); e.cam.halfH = 40; e.cam.target = { x: -20, y: -20, z: 0 }; e.draw(); });
 const z = await page.locator(".gizmo-zoom").boundingBox(), zc = [z.x + z.width / 2, z.y + z.height / 2];
@@ -38,7 +38,7 @@ await page.mouse.click(ex, ey); await page.waitForTimeout(600); await page.mouse
 res.proj2 = await page.evaluate(() => globalThis.__catsup.editor.cam.projection);
 res.hint = await page.evaluate(() => document.getElementById("hint").textContent);
 console.log(JSON.stringify({ ...res, errs }));
-const ok = res.layout.menuTR && res.layout.panBL && res.layout.zoomBR
+const ok = res.layout.menuTR && res.layout.panBL && res.layout.zoomBR && res.layout.big
   && Math.abs(res.tap.tx - 7) < 1.5 && Math.abs(res.tap.ty - 7) < 1.5 && res.tap.halfH < res.before.halfH
   && Math.abs(res.drag.halfH - res.tap.halfH) > 1e-3 && res.drag.tx === res.tap.tx
   && res.proj0 !== res.proj1 && res.proj2 === res.proj1 && /^(|缩放到.*)$/.test(res.hint)

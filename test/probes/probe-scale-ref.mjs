@@ -13,20 +13,20 @@ const hoverTo = async (p) => { const q = await px(p); await page.mouse.move(box.
 const tip = () => page.evaluate(() => { const t = document.getElementById("tip"); return t.hidden ? "" : t.innerHTML; });
 const refs = () => page.evaluate(() => [...globalThis.__catsup.editor.scaleRefs].join("|"));
 const refPage = async () => { await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(80); await page.click(".menu-tab:has-text('参考')"); await page.waitForTimeout(80); };
-const pageInfo = () => page.evaluate(() => { const m = document.querySelector(".popup-menu:not(.multi-select)"); return m ? { pick: m.querySelector('[data-menu-id="ref:pick"]')?.textContent ?? "", notes: [...m.querySelectorAll(".menu-note")].map((n) => n.textContent).join("|"), sections: [...m.querySelectorAll(".menu-section-label")].map((n) => n.textContent).join("|"), chips: m.querySelectorAll(".menu-chip").length } : null; });
+const pageInfo = () => page.evaluate(() => { const m = document.querySelector(".popup-menu:not(.choice-layer)"); return m ? { pick: m.querySelector('[data-menu-id="ref:pick"]')?.textContent ?? "", notes: [...m.querySelectorAll(".menu-note")].map((n) => n.textContent).join("|"), sections: [...m.querySelectorAll(".menu-section-label")].map((n) => n.textContent).join("|"), max: m.querySelector('[data-menu-id="refmax:3"] .menu-value')?.textContent ?? "" } : null; });
 const drawUp = async () => { await page.evaluate(() => globalThis.__catsup.hud.pick("line")); await clickAt({ x: 0, y: 0, z: 0 }); await page.keyboard.press("ArrowUp"); await hoverTo({ x: 0, y: 0, z: 0.914 }); await hoverTo({ x: 0, y: 0, z: 0.914 }); };
 const names = (h) => (h.match(/<span style="opacity/g) ?? []).length;
 const res = { loaded: await page.evaluate(() => globalThis.__catsup.editor.scaleLadderLoaded), refs0: await refs() };
 // ① 默认室内 + 室外：竖着拉 0.914 m 有「栏杆」，3 条、只有字
 await drawUp(); res.fade = await tip(); await page.keyboard.press("Escape"); await page.waitForTimeout(80);
-// ② 参考页：一行「看哪些：室内、室外」+ 最多几条（只剩这三块小钮）+ 新手提醒
+// ② 参考页：一行「看哪些：室内、室外」+ 最多几条（一行下拉）+ 新手提醒
 await refPage(); res.page0 = await pageInfo();
-await page.click('.popup-menu .menu-chip:text-is("5 条")'); await page.waitForTimeout(60);
+await page.click('.popup-menu [data-menu-id="refmax:3"]'); await page.waitForTimeout(60); await page.click('.choice-layer [data-choice-id="refmax:5"]'); await page.waitForTimeout(60);   // 「最多」= 下拉行（2026-10-25 起）
 // ③ 点「看哪些」= 下拉多选；勾「室内 · DnD」= 加一项（不是换掉），上层菜单不关、摘要跟着变、新手提醒多 DnD
 await page.click('.popup-menu [data-menu-id="ref:pick"]'); await page.waitForTimeout(100);
-res.msOpen = await page.evaluate(() => ({ n: document.querySelectorAll(".multi-select [data-ms-id]").length, on: [...document.querySelectorAll('.multi-select [aria-selected="true"]')].map((b) => b.dataset.msId).join("|") }));
-await page.click('.multi-select [data-ms-id="interior/DND"]'); await page.waitForTimeout(100);
-res.afterDnd = { refs: await refs(), parentOpen: await page.evaluate(() => !!document.querySelector(".popup-menu:not(.multi-select)")), msOpen: await page.evaluate(() => !!document.querySelector(".multi-select")), page: await pageInfo() };
+res.msOpen = await page.evaluate(() => ({ n: document.querySelectorAll(".choice-layer [data-choice-id]").length, on: [...document.querySelectorAll('.choice-layer [aria-selected="true"]')].map((b) => b.dataset.choiceId).join("|") }));
+await page.click('.choice-layer [data-choice-id="interior/DND"]'); await page.waitForTimeout(100);
+res.afterDnd = { refs: await refs(), parentOpen: await page.evaluate(() => !!document.querySelector(".popup-menu:not(.choice-layer)")), msOpen: await page.evaluate(() => !!document.querySelector(".choice-layer")), page: await pageInfo() };
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 await drawUp(); res.five = await tip(); await page.keyboard.press("Escape"); await page.waitForTimeout(60);
 // ④ 地上拉一个矩形 = 面积参考（房间类）
@@ -34,12 +34,12 @@ await page.evaluate(() => globalThis.__catsup.hud.pick("rect")); await clickAt({
 res.rect = await tip(); await page.keyboard.press("Escape"); await page.waitForTimeout(60);
 // ⑤ 全部取消 = 不显示
 await refPage(); await page.click('.popup-menu [data-menu-id="ref:pick"]'); await page.waitForTimeout(100);
-await page.click(".multi-select .ms-clear"); await page.waitForTimeout(80);
+await page.click(".choice-layer .ms-clear"); await page.waitForTimeout(80);
 res.cleared = { refs: await refs(), page: await pageInfo() };
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 await drawUp(); res.off = await tip(); await page.keyboard.press("Escape");
 // ⑥ 笔 / 手指：提示框摆到光标左上（user「tooltip右手惯用手的话会被笔挡住」）——先让 app 认成笔输入（选择工具在空处点一下），再拉线
-await refPage(); await page.click('.popup-menu [data-menu-id="ref:pick"]'); await page.waitForTimeout(80); await page.click('.multi-select [data-ms-id="interior/ALL"]'); await page.waitForTimeout(60); await page.keyboard.press("Escape"); await page.waitForTimeout(60);
+await refPage(); await page.click('.popup-menu [data-menu-id="ref:pick"]'); await page.waitForTimeout(80); await page.click('.choice-layer [data-choice-id="interior/ALL"]'); await page.waitForTimeout(60); await page.keyboard.press("Escape"); await page.keyboard.press("Escape"); await page.waitForTimeout(60);   // 第一下 Esc 收下拉层，第二下收菜单
 // 整笔用合成的笔事件：落点 → 抬起（第一下）→ ↑ 锁 Z → 笔悬停挪到 0.914 m（真鼠标一点就会让 app 认回鼠标）
 const a0 = await px({ x: 0, y: 0, z: 0 }), a1 = await px({ x: 0, y: 0, z: 0.914 });
 await page.evaluate(() => globalThis.__catsup.hud.pick("line"));
@@ -53,7 +53,7 @@ res.penTip = await tip(); await page.keyboard.press("Escape");
 console.log(JSON.stringify({ ...res, penTip: res.penTip.slice(0, 80), off: res.off.slice(0, 120), fade: res.fade.slice(0, 300), five: res.five.slice(0, 120), rect: res.rect.slice(0, 200) }));
 const ok = res.loaded && res.refs0 === "interior/ALL|exterior/ALL"
   && /栏杆/.test(res.fade) && names(res.fade) === 3 && /<sup class="tip-sign">[+−]<\/sup>/.test(res.fade + res.five) && !/<svg|hit/.test(res.fade) && /^<div class="tip-main"><span class="tip-measure">长 /.test(res.fade)
-  && /室内、室外/.test(res.page0.pick) && res.page0.chips === 3 && /新手提醒/.test(res.page0.sections) && /估算/.test(res.page0.notes)
+  && /室内、室外/.test(res.page0.pick) && /3 条/.test(res.page0.max) && /新手提醒/.test(res.page0.sections) && /估算/.test(res.page0.notes)
   && res.msOpen.n >= 20 && res.msOpen.on === "interior/ALL|exterior/ALL"
   && res.afterDnd.refs === "interior/ALL|exterior/ALL|interior/DND" && res.afterDnd.parentOpen && res.afterDnd.msOpen && /等 3 项/.test(res.afterDnd.page.pick) && /SRD 5\.1/.test(res.afterDnd.page.notes)
   && names(res.five) === 5

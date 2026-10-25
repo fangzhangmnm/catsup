@@ -10,7 +10,7 @@ import { ERASERS } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
-import { type MultiOption, multiSummary, openMultiSelect } from "./ui/multi-select.ts";
+import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
 import { mountContextBar } from "./context-bar.ts";
@@ -353,7 +353,7 @@ function renderShop(): void {
 btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "finalize" | "revise" | "noclip" | "persp" | "walk";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -535,15 +535,18 @@ function renderModeSelect(): void {
   modeField?.refresh();
 }
 /** 视图汉堡「栅格」页（user 2026-10-25「先把右下收到右上汉堡里」：右下角栅格芯片撤了，栅格设置只住这一处）：吸附开关 + 制式 / 格距 / 栅格面 / 细分。 */
-function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string; tab: string }[] {
+function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string; tab: string; choices?: { id: GridMenuId; label: string; hint?: string; checked?: boolean }[] }[] {
   const g = editor.grid, steps = gridStepsFor(g.preset);
   return [
     { id: "grid" as MenuId, label: "栅格吸附", checked: g.on, tab: "grid", hint: g.on ? `${gridPreset(g.preset).label} · ${fmtGridStep(g.step, g.preset)} · 1/${g.subdiv}` : "关" },
-    ...GRID_PRESETS.map((p, i) => ({ id: `preset:${p.id}` as GridMenuId, label: p.label, checked: g.preset === p.id, tab: "grid", ...(i === 0 ? { sectionBefore: "制式" } : {}), ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })),   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）
-    ...steps.map((st, i) => ({ id: `step:${st}` as GridMenuId, label: fmtGridStep(st, g.preset), checked: Math.abs(g.step - st) < 1e-9, tab: "grid", ...(i === 0 ? { sectionBefore: "格距" } : {}) })),
-    ...GRID_PLANES.map((p, i) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.plane === p.id, tab: "grid", ...(i === 0 ? { sectionBefore: "栅格面" } : {}), hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
-    { id: "sub:5" as GridMenuId, label: "1/5", checked: g.subdiv === 5, tab: "grid", sectionBefore: "吸附细分", hint: "仪表盘式" },
-    { id: "sub:10" as GridMenuId, label: "1/10", checked: g.subdiv === 10, tab: "grid", hint: "尺子式" },
+    // 单选组一组一行下拉（user 2026-10-25「能下拉框的就做」）：名字 + 当前值 ▾，点开旁边一层
+    { id: "preset:si" as GridMenuId, label: "制式", tab: "grid", choices: GRID_PRESETS.map((p) => ({ id: `preset:${p.id}` as GridMenuId, label: p.label, checked: g.preset === p.id, ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })) },   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）
+    { id: `step:${steps[0]}` as GridMenuId, label: "格距", tab: "grid", choices: steps.map((st) => ({ id: `step:${st}` as GridMenuId, label: fmtGridStep(st, g.preset), checked: Math.abs(g.step - st) < 1e-9 })) },
+    { id: "plane:xy" as GridMenuId, label: "栅格面", tab: "grid", choices: GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.plane === p.id, hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })) },
+    { id: "sub:5" as GridMenuId, label: "吸附细分", tab: "grid", choices: [
+      { id: "sub:5" as GridMenuId, label: "1/5", checked: g.subdiv === 5, hint: "仪表盘式" },
+      { id: "sub:10" as GridMenuId, label: "1/10", checked: g.subdiv === 10, hint: "尺子式" },
+    ] },
   ];
 }
 /** 吸附钮的菜单（右键 / 长按）：锁 + 跳到视图汉堡的「栅格」页。栅格设置不在这里重复一份。 */
@@ -714,7 +717,7 @@ const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => loco
 // 右上角「视图」菜单（user 2026-10-24「视图时是归右上角的汉堡管」）：透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR
 const viewMenuBtn = document.createElement("button");
 viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("menu");
-($("viewGizmo").querySelector(".gizmo-btns") as HTMLElement).prepend(viewMenuBtn);
+($("viewGizmo").querySelector(".gizmo-top") as HTMLElement).appendChild(viewMenuBtn);
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
 let ladderTimer = 0;
@@ -730,11 +733,11 @@ function ensureScaleLadder(now = false): void {
 type RefMenuId = `ref:${string}` | `refmax:${number}`;
 const isRefId = (id: string): id is RefMenuId => id.startsWith("ref:") || id.startsWith("refmax:");
 /** 选单的选项（下拉多选用）：按题材分组；ALL 那一项就叫题材名（数据 v3 起的名字），只有一项的题材收进「其他」。 */
-function refOptions(L: Ladder): MultiOption[] {
+function refOptions(L: Ladder): ChoiceOption[] {
   const themes = new Map<string, Ladder["menu"]>();
   for (const m of L.menu) { const t = themes.get(m.theme) ?? []; t.push(m); themes.set(m.theme, t); }
   const head = (m: Ladder["menu"][number]): string => m.names.zh.split(" · ")[0];
-  const multi: MultiOption[] = [], single: MultiOption[] = [];
+  const multi: ChoiceOption[] = [], single: ChoiceOption[] = [];
   for (const [, ms] of themes) {
     if (ms.length === 1) { single.push({ id: ms[0].id, label: head(ms[0]), group: "其他" }); continue; }
     for (const m of ms) multi.push({ id: m.id, label: m.view === "ALL" ? head(m) : m.names.zh.split(" · ").slice(1).join(" · "), group: head(m) });
@@ -743,13 +746,13 @@ function refOptions(L: Ladder): MultiOption[] {
 }
 /** 「参考」页（选单只有一个、多选取并集——user「要不还是不如多重订阅吧，不然不同的室内室外会组合烦死」）：
  *  一行「看哪些」= 下拉多选（user「所以我们需要一个下拉多选的ux模块哦。而不是几百个选项浪费面板空间」）+「最多几条」+ 新手提醒。 */
-function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?: string; tab: string; sectionBefore?: string; separatorBefore?: boolean; chips?: { id: RefMenuId; label: string; checked?: boolean }[]; note?: boolean }[] {
+function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?: string; tab: string; sectionBefore?: string; separatorBefore?: boolean; choices?: { id: RefMenuId; label: string; checked?: boolean }[]; value?: string; note?: boolean }[] {
   const tab = "ref", cur = editor.scaleRefs;
   const L = ladder;
   if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab }]; }
   const opts = refOptions(L), label = (id: string): string => { const o = opts.find((x) => x.id === id); return o ? (o.group && o.group !== "其他" && o.label !== o.group ? `${o.group} · ${o.label}` : o.label) : id; };
-  const out: ReturnType<typeof refTabItems> = [{ id: "ref:pick", label: "看哪些", hint: `${multiSummary(cur.map(label))} ›`, tab }];
-  out.push({ id: "refmax:3", label: "最多", tab, sectionBefore: "试用（这台设备记住）", chips: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
+  const out: ReturnType<typeof refTabItems> = [{ id: "ref:pick", label: "看哪些", value: multiSummary(cur.map(label)), tab }];
+  out.push({ id: "refmax:3", label: "最多", tab, sectionBefore: "试用（这台设备记住）", choices: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
   const notes = remindersFor(L, cur);
   if (cur.some((x) => x.endsWith("/DND"))) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
   notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "新手提醒" } : {}) }));
@@ -780,8 +783,9 @@ function openViewMenu(tab?: ViewTab): void {
     anchor: viewMenuBtn, align: "end" as const, tabs: VIEW_MENU_TABS, tabKey: "view", tab,
     items: () => [
       { id: "persp" as MenuId, label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), tab: "display" },
-      ...LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "线稿 1 px（原生细线）" : `线稿 ${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗", tab: "display", ...(w === 1 ? { sectionBefore: "线稿粗细（设备像素）" } : {}) })),
-      ...LENGTH_UNITS.map((u, i) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id, tab: "display", ...(i === 0 ? { sectionBefore: "单位（显示 / 输入）" } : {}) })),   // 一排可勾选项（B40）
+      // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
+      { id: "lw:pick" as MenuId, label: "线稿粗细", tab: "display", choices: LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "1 px（原生细线）" : `${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗" })) },   // 设备像素
+      { id: "unit:pick" as MenuId, label: "单位", tab: "display", choices: LENGTH_UNITS.map((u) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id })) },
       ...gridTabItems(),
       ...refTabItems(),
       { id: "walk" as MenuId, label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), tab: "camera" },

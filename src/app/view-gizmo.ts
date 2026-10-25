@@ -26,10 +26,11 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
   const svgNS = "http://www.w3.org/2000/svg";
   const svg = document.createElementNS(svgNS, "svg");
   svg.setAttribute("viewBox", `0 0 ${SIZE} ${SIZE}`); svg.setAttribute("class", "gizmo-svg"); svg.setAttribute("aria-label", "视图方向");
-  // 钮挤在 gizmo 圆圈外的角上（user 2026-10-25 手绘：☰ 右上、手左下、放大镜右下）：外面套一个比圆大一圈的方框，钮摆在方框的角上，不压轴的小球
-  const dial = document.createElement("div"); dial.className = "gizmo-dial"; root.appendChild(dial);
-  dial.appendChild(svg);
-  const btns = document.createElement("div"); btns.className = "gizmo-btns gizmo-nav"; dial.appendChild(btns);   // ☰ 由 main 插进来（.gizmo-menu）
+  // 一列（user 2026-10-25「汉堡，手和放大镜，上下挪一下。给gizmos留出空间」「手和放大镜可以大一些，占满gizmos的行宽」；之前是叠在 gizmo 角上）：
+  // ☰ 一行在上（靠右；main 插进 .gizmo-top）→ gizmo 本体 → 手 + 放大镜一行在下，各占半宽
+  const top = document.createElement("div"); top.className = "gizmo-top"; root.appendChild(top);
+  root.appendChild(svg);
+  const btns = document.createElement("div"); btns.className = "gizmo-btns gizmo-nav"; root.appendChild(btns);
   const mk = (icon: string, title: string, onClick: () => void): HTMLButtonElement => {
     const b = document.createElement("button"); b.type = "button"; b.className = "gizmo-btn"; b.title = title; b.innerHTML = iconHtml(icon);
     b.addEventListener("click", onClick); btns.appendChild(b); return b;

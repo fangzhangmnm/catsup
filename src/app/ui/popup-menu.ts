@@ -4,6 +4,7 @@
 // created 2026-09-06 by Claude Fable 5.1
 
 import { iconHtml } from "./icon.ts";
+import { choiceLayerOn, choiceLayerOpen, closeChoiceLayer, openSingleSelect } from "./choice-layer.ts";
 
 export interface PopupMenuItem<Id extends string = string> {
   id: Id;
@@ -17,8 +18,11 @@ export interface PopupMenuItem<Id extends string = string> {
   sectionBefore?: string;
   /** 属于哪个 tab（opts.tabs 给了才看；A30）。 */
   tab?: string;
-  /** 一行小块（B43 参考页：题材一行、亚种一排小块）：label 在左，块在右；点块 = onPick(块的 id)。 */
-  chips?: { id: Id; label: string; checked?: boolean }[];
+  /** 下拉行（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做，以及也许可以做成那种可以滚动可以点开的下拉框」）：
+   *  一行 = label + 当前值 ▾；点开 = 旁边一层可滚动的单选（choice-layer.ts），选了 = onPick(那一项的 id)，层关、本菜单留着并刷新。 */
+  choices?: { id: Id; label: string; hint?: string; checked?: boolean }[];
+  /** 行尾的当前值 ▾（下拉行）：给了 choices 时缺省 = 勾着那项的 label；只给 value 不给 choices = 点了照常 onPick(id)，层由消费者自己开（下拉多选）。 */
+  value?: string;
   /** 纯文字说明（不可点；label = 正文；B43「新手提醒」）。 */
   note?: boolean;
 }
@@ -95,15 +99,25 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
         el.appendChild(h);
       }
       if (it.note) { const d = document.createElement("div"); d.className = "menu-note"; d.textContent = it.label; el.appendChild(d); continue; }
-      if (it.chips) {
-        const row = document.createElement("div"); row.className = "menu-chips";
-        const lab = document.createElement("span"); lab.className = "menu-chips-label"; lab.textContent = it.label; row.appendChild(lab);
-        for (const c of it.chips) {
-          const cb = document.createElement("button"); cb.type = "button"; cb.className = "menu-chip" + (c.checked ? " on" : ""); cb.textContent = c.label; cb.setAttribute("aria-pressed", String(!!c.checked)); cb.dataset.chip = c.id;
-          cb.addEventListener("click", () => { const r = opts.onPick(c.id); if (r === "keep") render(); else close(); });
-          row.appendChild(cb);
-        }
-        el.appendChild(row); continue;
+      if (it.choices || it.value !== undefined) {
+        const cur = it.choices?.find((c) => c.checked), b = document.createElement("button");
+        b.type = "button"; b.className = "menu-item menu-field"; b.dataset.menuId = it.id; b.disabled = !!it.disabled;
+        b.setAttribute("aria-haspopup", "listbox");
+        b.innerHTML = `${it.icon ? iconHtml(it.icon) : '<span class="ico-gap"></span>'}<span class="menu-label"></span><span class="menu-value"></span>`;
+        (b.querySelector(".menu-label") as HTMLElement).textContent = it.label;
+        (b.querySelector(".menu-value") as HTMLElement).textContent = it.value ?? cur?.label ?? "";
+        const choices = it.choices;
+        b.addEventListener("click", () => {
+          if (!choices) { const r = opts.onPick(it.id); if (r === "keep") render(); else close(); return; }
+          if (choiceLayerOn(b)) { closeChoiceLayer(); return; }   // 再点同一行 = 收起
+          openSingleSelect({
+            anchor: b, ariaLabel: it.label,
+            options: () => choices.map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),
+            value: () => choices.find((c) => c.checked)?.id,
+            onPick: (id) => { opts.onPick(id as Id); if (open) render(); },
+          });
+        });
+        el.appendChild(b); continue;
       }
       const b = document.createElement("button");
       b.type = "button";
@@ -141,10 +155,11 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
     if (path.some((n) => n instanceof HTMLElement && n.dataset.popupChild === "1")) return;
     close();
   };
-  const onKey = (ev: KeyboardEvent): void => { if (ev.key === "Escape") { ev.stopPropagation(); close(); } };
+  const onKey = (ev: KeyboardEvent): void => { if (ev.key === "Escape") { ev.stopPropagation(); if (choiceLayerOpen()) closeChoiceLayer(); else close(); } };   // 下拉层开着：Esc 先收它
   const close = (): void => {
     if (!open) return;
     open = false;
+    closeChoiceLayer();   // 从这里开出来的下拉层跟着关
     el.remove();
     document.removeEventListener("pointerdown", onDocDown, true);
     window.removeEventListener("keydown", onKey, true);

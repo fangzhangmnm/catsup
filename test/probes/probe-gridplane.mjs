@@ -11,7 +11,7 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setGrid({ on
 // v0.13.51：右下芯片收进视图 ☰「栅格」页（user「先把右下收到右上汉堡里」）→ 读那一页勾着的栅格面；吸附钮菜单的「栅格设置…」直接跳到这一页
 await page.locator(".gizmo-snap").click({ button: "right" }); await page.waitForTimeout(150);
 await page.locator(".popup-menu button", { hasText: "栅格设置…" }).click(); await page.waitForTimeout(150);
-const chip = await page.evaluate(() => { const m = document.querySelector(".popup-menu"); const tab = m?.querySelector(".menu-tab.on")?.textContent ?? ""; const on = [...(m?.querySelectorAll("button") ?? [])].filter((b) => b.querySelector(".menu-check")).map((b) => b.querySelector(".menu-label")?.textContent ?? ""); return `${tab}:${on.join("|")}`; });
+const chip = await page.evaluate(() => { const m = document.querySelector(".popup-menu"); const tab = m?.querySelector(".menu-tab.on")?.textContent ?? ""; return `${tab}:${m?.querySelector('[data-menu-id^="plane:"] .menu-value')?.textContent ?? ""}`; });   // 栅格面 = 一行下拉（2026-10-25 起），读行尾的当前值
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 const s = await page.evaluate(() => { const e = globalThis.__catsup.editor; return e.cam.angularPx({ x: 0, y: 2.13, z: 1.02 }, e.vp()); });
 await page.mouse.move(box.x + s.x, box.y + s.y); await page.waitForTimeout(120);
