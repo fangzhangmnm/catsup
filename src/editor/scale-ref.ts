@@ -9,8 +9,8 @@ import type { Pt3 } from "../kernel/kernel.ts";
 import * as Q from "../vendor/size-ladder/ladder-query.mjs";
 
 /** 交货的身份：和 scripts/pull-size-ladder.mjs 钉的同一个（test/scale-ref.test.ts 核三处一致）。 */
-export const LADDER_SHA256 = "fab469371ac49e48865e9eee7f11a1f213fcc1c4514b3a3788847d3bcdfbb527";
-export const LADDER_URL = "vendor/size-ladder/ladder-v2.json";
+export const LADDER_SHA256 = "e161c8835a16024192b6206fe0ca977aa8b472f7f7981039ca15a11e6b5f278f";
+export const LADDER_URL = "vendor/size-ladder/ladder-v3.json";
 
 export type Lang = "zh" | "en" | "ja";
 export type ScaleDir = "up" | "flat" | "both" | "plan";
@@ -18,8 +18,8 @@ export interface Orientation { verticalWithinDeg: number; horizontalWithinDeg: n
 /** 梯子 JSON（schema size-ladder/3）；形状归仓鼠的数据契约，这里只点名用到的几个字段。 */
 export interface Ladder {
   schema: string; version: number; orientation: Orientation; tooltipMax: number;
-  starWorlds: string[]; menu: { id: string; theme: string; view: string; names: Record<Lang, string> }[];
-  disclaimers: ({ id: string } & Record<Lang, string>)[];
+  starWorlds: string[]; menu: { id: string; theme: string; view: string; names: Record<Lang, string>; inherits?: string[]; reminders?: string[] }[];
+  reminders: ({ id: string } & Record<Lang, string>)[];
   concepts: { id: string; themes: string[] }[];
   values: { concept: string; regions: string[] | "*"; value: number }[];
   [k: string]: unknown;
@@ -138,11 +138,13 @@ export function scaleTipView(L: Ladder, sub: string | null, q: ScaleQuery, lang:
 /** 新文件 / 没存过这项的旧文件默认看哪项（暂定「室内」：user「对新手非常有用」；默认勾哪项还没拍，等 user）。 */
 export const DEFAULT_SCALE_REF = "interior/ALL";
 /** 文件 settings.scaleRef：没写 = 默认；"none" = 不显示；别的 = 选单 id（认不出的原样留着、不显示）。 */
+/** 选单 id 改过名的（仓鼠 v3：人体 · 儿童 body/CHILD → body/KIDS）：读到旧 id 换成新的。 */
+const RENAMED_REFS: Readonly<Record<string, string>> = { "body/CHILD": "body/KIDS" };
 export function scaleRefFromSettings(s: { scaleRef?: unknown }): string | null {
   const v = s.scaleRef;
   if (v === undefined) return DEFAULT_SCALE_REF;
   if (v === "none" || typeof v !== "string") return null;
-  return v;
+  return RENAMED_REFS[v] ?? v;
 }
 export function scaleRefToSettings<T extends object>(s: T, ref: string | null): T & { scaleRef?: string } {
   const { scaleRef: _old, ...rest } = s as T & { scaleRef?: string };
@@ -150,16 +152,9 @@ export function scaleRefToSettings<T extends object>(s: T, ref: string | null): 
   return { ...rest, scaleRef: ref ?? "none" } as T & { scaleRef: string };
 }
 
-/** 「参考须知」（数据里叫 disclaimers）按选单项给哪几条。
- *  过渡：v2 数据里没有每项的路由，这里按题材临时配（user：「免责声明按需路由，比如人体和建筑不一样」）。
- *  退场条件：仓鼠 v3 给每个选单项带上提醒 id 列表后，这个函数改成只读数据、删掉下面这张临时表。 */
+/** 「参考须知」（数据里叫 reminders「新手提醒」）：每个选单项给哪几条写在数据里（menu[].reminders，已并上继承来的父项的），这里只照着取三语原文。
+ *  （v0.13.52 时 v2 数据没路由、这里临时按题材配过一张表；v3 到了按退场条件删掉。） */
 export function remindersFor(L: Ladder, sub: string | null, lang: Lang = "zh"): { id: string; text: string }[] {
   if (!sub) return [];
-  const [theme, view] = sub.split("/");
-  const ids = new Set<string>(["estimate"]);
-  if (theme === "body") ids.add("stylized");
-  if (theme === "interior" || theme === "exterior") ids.add("code");
-  if (view === "DND") ids.add("dnd");
-  if (view === "KIDS" || view === "CHILD") ids.add("children");
-  return L.disclaimers.filter((d) => ids.has(d.id)).map((d) => ({ id: d.id, text: d[lang] }));
+  return (Q.remindersOf(L, sub) as ({ id: string } & Record<Lang, string>)[]).filter(Boolean).map((r) => ({ id: r.id, text: r[lang] }));
 }

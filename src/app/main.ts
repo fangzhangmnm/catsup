@@ -741,7 +741,7 @@ function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; tab: 
   out.push({ id: "refstyle:fade", label: "样式", tab, sectionBefore: "试用（这台设备记住）", chips: SCALE_TIP_STYLES.map((s) => ({ id: `refstyle:${s.id}` as RefMenuId, label: s.label, checked: scaleStyle === s.id })) });
   out.push({ id: "refmax:3", label: "最多", tab, chips: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
   const notes = remindersFor(L, cur);
-  if (cur?.endsWith("/DND")) notes.push({ id: "srd", text: "DnD 的规则距离出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });
+  if (cur?.endsWith("/DND")) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
   notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "参考须知" } : {}) }));
   return out;
 }

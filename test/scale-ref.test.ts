@@ -6,7 +6,7 @@ const { createHash } = (await import("node:crypto" as string)) as { createHash(a
 import { DEFAULT_SCALE_REF, LADDER_SHA256, areaDir, closeness, forLanguage, lengthDir, readingOf, remindersFor, scaleRefFromSettings, scaleRefToSettings, scaleRuler, scaleTipView, scaleTooltip, type Ladder } from "../src/editor/scale-ref.ts";
 
 const root = new URL("../", import.meta.url);
-const bytes = readFileSync(new URL("vendor/size-ladder/ladder-v2.json", root));
+const bytes = readFileSync(new URL("vendor/size-ladder/ladder-v3.json", root));
 const L = JSON.parse(bytes.toString("utf8")) as Ladder;
 const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("hex");
 const O = L.orientation;
@@ -19,7 +19,7 @@ describe("scale-ref: 物体尺寸梯子的 CatsUp 适配", () => {
     eq(pull.includes(LADDER_SHA256), true);
     const q = sha(readFileSync(new URL("src/vendor/size-ladder/ladder-query.mjs", root)));
     eq(pull.includes(q), true);
-    eq(L.schema, "size-ladder/3");
+    eq(L.schema, "size-ladder/4");
   });
   it("参考实现在真数据上答对（室内 · 现实，竖着 0.914 m；多选 = 并集，加上人体多出「坐高」）", () => {
     // 仓鼠 ladder-query.mjs 头注释的例子把订阅写成「室内 + 人体」、答案却是只订室内的那个——注释笔误，已记总账告诉 user（不改仓鼠仓）
@@ -95,11 +95,13 @@ describe("scale-ref: 提示框的数据（grill 定案）", () => {
     eq(scaleRefToSettings({ a: 1 }, null).scaleRef, "none");
     eq(scaleRefToSettings({ a: 1, scaleRef: "x" }, "mars/WHAT").scaleRef, "mars/WHAT");
   });
-  it("参考须知按选单项给（v3 之前的临时表）：人体有风格化、DnD 有 dnd、儿童有 children、都有估算", () => {
-    const ids = (s: string): string => remindersFor(L, s).map((r) => r.id).sort().join(",");
-    eq(ids("body/ALL"), "estimate,stylized");
-    eq(ids("interior/DND"), "code,dnd,estimate");
-    eq(ids("interior/KIDS"), "children,code,estimate");
+  it("参考须知 = 数据里每个选单项自己的提醒（v3 menu[].reminders，含继承来的）：人体有「人体」那条、DnD 只有 dnd、儿童加 children", () => {
+    const ids = (x: string): string => remindersFor(L, x).map((r) => r.id).join(",");
+    eq(ids("body/ALL"), "body,estimate");
+    eq(ids("interior/DND"), "dnd");
+    eq(ids("interior/KIDS"), "children,stylized,fit,code,estimate");
+    eq(remindersFor(L, "interior/DND")[0].text.includes("SRD 5.1"), true);
     eq(remindersFor(L, null).length, 0);
   });
+  it("v3 改名的选单 id：body/CHILD 读成 body/KIDS", () => { eq(scaleRefFromSettings({ scaleRef: "body/CHILD" }), "body/KIDS"); });
 });

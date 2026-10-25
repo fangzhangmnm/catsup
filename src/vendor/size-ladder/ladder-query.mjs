@@ -1,25 +1,30 @@
-// ladder-query.mjs —— 物体尺寸梯子（schema size-ladder/3，ladder-v2.json 起）的参考实现：纯函数、无依赖。
+// ladder-query.mjs —— 物体尺寸梯子（schema size-ladder/4，ladder-v3.json 起）的参考实现：纯函数、无依赖。
 // 规则见 ai-docs/20261024-数据契约.md「推荐用法」；和 scripts/build.py 的拖动预览、v1 的 name 字段逐条对过答案（scripts/test_query.mjs）。
 //
 //   import * as Q from "./ladder-query.mjs";
-//   const L = await (await fetch("ladder-v2.json")).json();
-//   Q.menu(L)                                                    // 选单：[{ id: "garden/JPSTYLE", names: { zh: "园林 · 日式" } }, …]
-//   Q.tooltip(L, ["interior/ALL", "body/ALL"], { reading: 0.914, dir: "up" })   // "台面 36 in / 栏杆 / 台面 中日"
+//   const L = await (await fetch("ladder-v3.json")).json();
+//   Q.menu(L)                                                    // 选单：[{ id: "garden/JPSTYLE", names: { zh: "园林 · 日式" }, inherits, reminders }, …]
+//   Q.tooltip(L, ["interior/ALL"], { reading: 0.914, dir: "up" })   // "台面 36 in / 栏杆 / 台面 中日"（只订室内时的答案）
 //   Q.ruler(L, ["interior/ALL"], { reading: 2.4, dir: "up" })   // 刻度条：[{ v, lo, hi, shape }]，点画刻度线、带画色块
+//   Q.remindersOf(L, "body/ALL")                                 // 这一项要给用户看的新手提醒：[{ id, zh, en, ja }, …]
 //
-// 订阅可以多选（user：「订阅多个你做一下」）：候选 = 所选各项的并集，同一个值只算一次；任务之间不做继承。
+// 选单单选（user 1025：有了继承就选一个够了）；订阅参数仍是数组，传一个就行（传几个 = 并集，同一个值只算一次）。
+// 继承（menu[].inherits）：父项的可见值也可见，本项已有的「东西 × 量法」盖掉父项的（同概念覆盖），本项概念的 replaces 删掉父类。
 
 const cache = new WeakMap();
 function ix(L) {
   let x = cache.get(L);
   if (x) return x;
   const map = (a) => Object.fromEntries(a.map((o) => [o.id, o]));
-  x = { concept: map(L.concepts), measure: map(L.defs.measures), grade: map(L.defs.grades), view: map(L.defs.worldViews) };
+  x = { concept: map(L.concepts), measure: map(L.defs.measures), grade: map(L.defs.grades), view: map(L.defs.worldViews),
+        menu: map(L.menu), reminder: map(L.reminders) };
   cache.set(L, x);
   return x;
 }
 
 export const menu = (L) => L.menu;
+/** 选单项 sub 要给用户看的新手提醒（已含继承来的父项的；顺序 = 数据里的顺序，先自己的） */
+export const remindersOf = (L, sub) => (ix(L).menu[sub]?.reminders ?? []).map((id) => ix(L).reminder[id]);
 export const regionsOf = (L, v) => (v.regions === "*" ? L.starWorlds : v.regions);
 export const shapeOf = (L, v) => ix(L).grade[v.grade].shape;
 export function orientOf(L, v) {
@@ -43,30 +48,47 @@ export function nameOf(L, v, lang = "zh") {
   return parts.join(lang === "ja" ? "・" : " · ");
 }
 
-/** 订阅（menu 的 id，可多选）→ 可见的参考值 [{ i, v, agnostic }]：并集，按数组下标去重 */
-export function visible(L, subscriptions) {
-  const X = ix(L), out = new Map();
-  for (const sub of subscriptions) {
-    const [theme, view] = sub.split("/");
-    const members = X.view[view] ? X.view[view].worlds : [view];
-    const override = X.view[view]?.override ?? [];
-    const agnostic = L.orientAgnosticThemes.includes(theme);
-    const inTheme = [];
-    L.values.forEach((v, i) => {
-      if ((v.use ?? "ref") !== "ref" || X.measure[v.measure].anchor === "gap") return;
-      if (X.concept[v.concept].themes.includes(theme) || (v.alsoThemes ?? []).includes(theme)) inTheme.push([i, v]);
-    });
-    // 继承 + 覆盖（儿童）：东西 × 量法只要有覆盖亚种的值，就只用那些值
-    const key = (v) => v.concept + "|" + v.measure;
-    const covered = new Set(inTheme.filter(([, v]) => regionsOf(L, v).some((r) => override.includes(r))).map(([, v]) => key(v)));
-    for (const [i, v] of inTheme) {
-      const rs = regionsOf(L, v);
-      if (rs.some((r) => override.includes(r)) || (rs.some((r) => members.includes(r)) && !covered.has(key(v)))) {
-        out.set(i, { i, v, agnostic: agnostic || (out.get(i)?.agnostic ?? false) });
-      }
-    }
+const key = (v) => v.concept + "|" + v.measure;
+
+/** 一个选单项可见的值 Map(下标 → { i, v, agnostic })：本项 + 继承（seen 防环） */
+function visibleOne(L, sub, seen) {
+  const X = ix(L), item = X.menu[sub];
+  const [theme, view] = item ? [item.theme, item.view] : sub.split("/");
+  const members = X.view[view] ? X.view[view].worlds : [view];
+  const override = X.view[view]?.override ?? [];
+  const agnostic = L.orientAgnosticThemes.includes(theme);
+  const inTheme = [];
+  L.values.forEach((v, i) => {
+    if ((v.use ?? "ref") !== "ref" || X.measure[v.measure].anchor === "gap") return;
+    if (X.concept[v.concept].themes.includes(theme) || (v.alsoThemes ?? []).includes(theme)) inTheme.push([i, v]);
+  });
+  // 亚种覆盖（儿童）：东西 × 量法只要有覆盖世界的值，就只用那些值；覆盖值的概念 replaces 的概念整个不显示（删掉父类）
+  const isOv = (v) => regionsOf(L, v).some((r) => override.includes(r));
+  const ov = inTheme.filter(([, v]) => isOv(v));
+  const covered = new Set(ov.map(([, v]) => key(v)));
+  let gone = new Set(ov.flatMap(([, v]) => X.concept[v.concept].replaces ?? []));
+  const out = new Map();
+  for (const [i, v] of inTheme) {
+    if (isOv(v) || (regionsOf(L, v).some((r) => members.includes(r)) && !covered.has(key(v)) && !gone.has(v.concept))) out.set(i, { i, v, agnostic });
   }
-  return [...out.values()];
+  // 继承：父项的值，本项已有的东西 × 量法、本项概念 replaces 的概念不要
+  const keys = new Set([...out.values()].map((h) => key(h.v)));
+  gone = new Set([...out.values()].flatMap((h) => X.concept[h.v.concept].replaces ?? []));
+  for (const p of item?.inherits ?? []) {
+    if (seen.has(p)) continue;
+    seen.add(p);
+    for (const [i, h] of visibleOne(L, p, seen)) if (!out.has(i) && !keys.has(key(h.v)) && !gone.has(h.v.concept)) out.set(i, h);
+  }
+  return out;
+}
+
+/** 订阅（menu 的 id；CatsUp 单选，传一个）→ 可见的参考值 [{ i, v, agnostic }]，按数组下标排；传几个就取并集 */
+export function visible(L, subscriptions) {
+  const out = new Map();
+  for (const sub of subscriptions) {
+    for (const [i, h] of visibleOne(L, sub, new Set([sub]))) out.set(i, { ...h, agnostic: h.agnostic || (out.get(i)?.agnostic ?? false) });
+  }
+  return [...out.values()].sort((a, b) => a.i - b.i);
 }
 
 const ACCEPT = { up: ["up", "both"], flat: ["flat", "both"], both: ["both"], plan: ["plan"] };
