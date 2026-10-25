@@ -869,7 +869,7 @@ function nearFaceContaining(k: GeomView, pf: PointerFrame, vp: Viewport, sx: num
   let best: { d: number; plane: DrawPlane } | null = null;
   for (const f of k.faces()) {
     const rec = k.planeOf(f.id);
-    if (!rec || distToPlane(p1, rec.plane) > 1e-3) continue;
+    if (!rec || distToPlane(p1, rec.plane) > k.coplanarTol) continue;
     const ring = k.faceRings3(f.id)?.outer;
     if (!ring || ring.length < 3) continue;
     const d = pf.distToRing(sx, sy, ring, vp);   // 环内 = 0；否则到剪影最近边（桌面 px / VR 度）
@@ -901,7 +901,7 @@ export function resolvePlane(
     // 2026-09-06 修（user：「一个 cube，我从侧面的底边开始往上拖 rect，结果没有吸附在侧面上，反而一直显示边上」）——
     // 此前第二点只在过锚点的三个轴平面里挑且先按俯视偏置取地面，光标穿过侧面落到地面底边附近 → 永远「边上」。
     const under = faceUnderCursor(k, pf, vp, sx, sy);
-    if (under && distToPlane(p1, under.plane) <= 1e-3) {
+    if (under && distToPlane(p1, under.plane) <= k.coplanarTol) {
       const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: under, anchor: p1, alignSources, hand, toolTargets });
       return { plane: under, fixed: false, snap };
     }
@@ -915,8 +915,8 @@ export function resolvePlane(
     const candidates = axisPlanesThrough(p1);
     const base = basePlane ?? gridDrawPlane(k, p1) ?? pickByFacing(pf, candidates);   // 网格开着：第二点默认落网格面（画立面）
     const snap = snapPoint(k, pf, vp, sx, sy, tolPx, { plane: base, anchor: p1, alignSources, hand, toolTargets });
-    if (basePlane && distToPlane(snap.p, basePlane.plane) <= 1e-3) return { plane: basePlane, fixed: false, snap };   // 黏在首点平面上
-    const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= 1e-3);
+    if (basePlane && distToPlane(snap.p, basePlane.plane) <= k.coplanarTol) return { plane: basePlane, fixed: false, snap };   // 黏在首点平面上
+    const containing = candidates.filter((c) => distToPlane(snap.p, c.plane) <= k.coplanarTol);
     return { plane: containing.length ? pickByFacing(pf, containing) : base, fixed: false, snap };
   }
   const base = facePlane ?? gridDrawPlane(k) ?? axisPlane(pf);   // 网格开着：空处首点落网格面

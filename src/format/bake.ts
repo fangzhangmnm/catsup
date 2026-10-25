@@ -3,7 +3,7 @@
 // + LINES（全部边）。坐标换轴 Z-up → glTF Y-up：(x,y,z) → (x, z, -y)（与 obj-io 同规则）。created 2026-09-20 by Claude Fable 5.1
 
 import type { BrepSnapshot } from "../kernel/kernel.ts";
-import { dot3, planeBasis } from "../kernel/geom.ts";
+import { COPLANAR_TOL_DEFAULT, dot3, planeBasis } from "../kernel/geom.ts";
 import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
 import { triangulateRings } from "./triangulate.ts";
 import type { ViewSink } from "./brep-codec.ts";
@@ -36,7 +36,7 @@ export function mergeBrep(snaps: readonly BrepSnapshot[]): BrepSnapshot {
     for (const n of edgeNames) for (const i of s.edgeLayers?.[n] ?? []) (edgeLayers[n] ?? (edgeLayers[n] = [])).push(i + eo);
     for (const n of faceNames) { const arr = faceLayers[n] ?? (faceLayers[n] = []); while (arr.length < fo) arr.push(-1); for (let i = 0; i < s.faces.length; i++) arr.push(s.faceLayers?.[n]?.[i] ?? -1); }
   }
-  return { coplanarTol: snaps[0]?.coplanarTol ?? 1e-3, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}) };
+  return { coplanarTol: snaps[0]?.coplanarTol ?? COPLANAR_TOL_DEFAULT, vertices, edges, planes, faces, ...(Object.keys(edgeLayers).length ? { edgeLayers } : {}), ...(Object.keys(faceLayers).length ? { faceLayers } : {}) };
 }
 
 /** 法向按 brep 流的定点精度（2^-30）量化再单位化：现算的平面与文件里复原的平面得到同一组字节（写→读→写幂等）。 */

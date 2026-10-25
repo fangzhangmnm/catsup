@@ -7,6 +7,10 @@
 export interface Pt { readonly x: number; readonly y: number; }
 
 export const Q = 1e-6;          // 量化网格步长
+/** 共面容差 τ 出厂值 = 10 µm（user 2026-10-24「10um够就10um，这个比较符合我的心理预期」）：此前 1 mm 是浮点时代留下的，和身份分辨率 r = 3 µm 差了两个半数量级，
+ *  中间那条带 (r, 2τ] 就是 D11 整条线的来源；10 µm ≥ 3 倍量化噪声（点吸到面上再落格最多偏 ~2 µm）、比 SketchUp 的 0.001″≈25 µm 还细、fuzz 与 1600 件场景零拒绝（3 µm 则出事）。
+ *  τ 按文档存（brep 快照 coplanarTol），老文档照旧吃自己存的值，不迁。 */
+export const COPLANAR_TOL_DEFAULT = 10 * Q;
 export const EPS = Q / 2;       // 距离容差（半格内视为重合）
 export const EPS_AREA = 1e-9;   // 有向面积低于此视为退化环
 

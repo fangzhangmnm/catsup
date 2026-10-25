@@ -3,7 +3,7 @@
 // created 2026-09-07 by Claude Fable 5.1。场景偏向真机画法：斜置矩形、从既有顶点沿近轴方向画过头、随机推拉/擦边/挪点。
 import { describe, it, assert, todo } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
-import type { Pt3 } from "../src/kernel/geom.ts";
+import { Q, type Pt3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 
@@ -128,12 +128,12 @@ export function run(seed: number, steps: number, allowDup = false, tier: "clean"
         op = `line ${v.id}→过头`; k.addEdges([[o, P(o.x + d.x * kk, o.y + d.y * kk, o.z + d.z * kk)]]);
       } else if (r < 0.75 && fs.length) {
         const f = pick(fs);
-        // 期 3b 样本（nasty 档一半概率）：推到离某张**平行膜**只差 0.1–0.9 mm（τ 带内、> r）——「推拉帽离平行膜 < τ 但没重合」那类（总账 D11 第二张脸）
+        // 期 3b 样本（nasty 档一半概率）：推到离某张**平行膜**只差 0.3–0.9 τ（τ 带内、> r；τ 出厂 10 µm → 3–9 µm，落 Q 格）——「推拉帽离平行膜 < τ 但没重合」那类（总账 D11 第二张脸）
         let dist = q((rnd() - 0.3) * 1.5);
         if (tier === "nasty" && FUZZ_OPTS.parallelMembranes && rnd() < 0.5) {
           const pl = k.planeOf(f.id)!.plane;
           const par = fs.filter((g) => g.id !== f.id).map((g) => k.planeOf(g.id)!.plane).filter((q2) => Math.abs(q2.n.x * pl.n.x + q2.n.y * pl.n.y + q2.n.z * pl.n.z) > 0.999);
-          if (par.length) { const g = pick(par); const sgn = (g.n.x * pl.n.x + g.n.y * pl.n.y + g.n.z * pl.n.z) > 0 ? 1 : -1; const gap = sgn * g.d - pl.d; if (Math.abs(gap) > 0.05) dist = gap + (rnd() < 0.5 ? 1 : -1) * (0.0001 + rnd() * 0.0008); }
+          if (par.length) { const g = pick(par); const sgn = (g.n.x * pl.n.x + g.n.y * pl.n.y + g.n.z * pl.n.z) > 0 ? 1 : -1; const gap = sgn * g.d - pl.d; if (Math.abs(gap) > 0.05) dist = gap + (rnd() < 0.5 ? 1 : -1) * Math.max(4 * Q, Math.round((k.coplanarTol * (0.3 + rnd() * 0.6)) / Q) * Q); }
         }
         op = `pp ${f.id} ${dist.toFixed(4)}`; k.pushPull(f.id, dist);
       } else if (r < 0.9) {

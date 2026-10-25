@@ -64,7 +64,8 @@ describe("tau-flatten：平面组内投影 ≤ r 的东西并成一个（EGC 期
     assert(!changed && g.edges().length === 3, "三角形原样");
   });
 
-  // 内核场景：地板 2×2 @ z=0；小矩形 1×2 伸出地板一截，从 z=∓0.5 推到离地板 0.5 mm（τ = 1 mm 带内）
+  // 内核场景：地板 2×2 @ z=0；小矩形 1×2 伸出地板一截，从 z=∓0.5 推到离地板 τ/2（τ 带内；τ 出厂 10 µm → 5 µm）
+  const TAU = new Kernel().coplanarTol, HALF = Math.round((TAU / 2) / 1e-6) * 1e-6;
   const rect = (k: Kernel, x0: number, y0: number, x1: number, y1: number, z: number): void => { k.addEdges([[P(x0, y0, z), P(x1, y0, z)], [P(x1, y0, z), P(x1, y1, z)], [P(x1, y1, z), P(x0, y1, z)], [P(x0, y1, z), P(x0, y0, z)]]); };
   const scenario = (dz: number, dist: number): { faces: number; horiz: number[] } => {
     const k = new Kernel();
@@ -77,10 +78,10 @@ describe("tau-flatten：平面组内投影 ≤ r 的东西并成一个（EGC 期
     const horiz = k.faces().filter((f) => Math.abs(k.planeOf(f.id)!.plane.n.z) > 0.99 && Math.abs(k.planeOf(f.id)!.plane.d) < 0.01).map((f) => f.outer.vids.length).sort((a, b) => a - b);
     return { faces: k.faces().length, horiz };
   };
-  it("推拉帽离平行地板 0.5 mm（差一点 / 过一点 / 从上往下）= 精确落地同形：7 张膜、地板平面 [4v, 8v]（XOR 湮灭重叠区）", () => {
+  it("推拉帽离平行地板 τ/2（差一点 / 过一点 / 从上往下）= 精确落地同形：7 张膜、地板平面 [4v, 8v]（XOR 湮灭重叠区）", () => {
     const exact = scenario(-0.5, 0.5);
     assert(exact.faces === 7 && exact.horiz.join() === "4,8", `精确落地基线 ${JSON.stringify(exact)}`);
-    for (const [dz, dist] of [[-0.5, 0.4995], [-0.5, 0.5005], [0.5, -0.4995], [0.5, -0.5005]] as const) {
+    for (const [dz, dist] of [[-0.5, 0.5 - HALF], [-0.5, 0.5 + HALF], [0.5, -(0.5 - HALF)], [0.5, -(0.5 + HALF)]] as const) {
       const r = scenario(dz, dist);
       assert(r.faces === exact.faces && r.horiz.join() === exact.horiz.join(), `dz=${dz} dist=${dist}: ${JSON.stringify(r)} ≠ ${JSON.stringify(exact)}`);
     }

@@ -25,7 +25,7 @@ import {
   projectToPlane,
   ptKey3,
   quantize3,
-  samePt3 } from "./geom.ts";
+  samePt3, COPLANAR_TOL_DEFAULT } from "./geom.ts";
 import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
@@ -103,7 +103,7 @@ export class Kernel {
   readonly settleMode: "local" | "global";
 
   constructor(opts?: { coplanarTol?: number; settleMode?: "local" | "global" }) {
-    this.coplanarTol = opts?.coplanarTol ?? 1e-3;
+    this.coplanarTol = opts?.coplanarTol ?? COPLANAR_TOL_DEFAULT;   // 10 µm（geom.ts 注释有出处）；按文档存，老文档吃自己的
     this.settleMode = opts?.settleMode ?? "local";
   }
   /**

@@ -11,6 +11,7 @@ import type { Face } from "../kernel/face-lifecycle.ts";
 import type { PlaneRec } from "../kernel/planes.ts";
 import type { Ring } from "../kernel/facefind.ts";
 import { type PlaneParams, planeBasis, projectToPlane } from "../kernel/geom.ts";
+import { COPLANAR_TOL_DEFAULT } from "../kernel/geom.ts";
 import { type EditContext, type InstId, type Material, type PoolRef, Scene, poolKey, samePool } from "./scene.ts";
 import { type Frame, type Xform, applyPlane, applyPt, compose, isIdentity } from "./xform.ts";
 import { chainVisible } from "./layers.ts";
@@ -33,6 +34,8 @@ export interface GeomView {
   isSmooth(id: EdgeId): boolean;
   /** 面的材质（null = 默认灰）。 */
   faceMaterial(id: FaceId): Material | null;
+  /** 共面容差 τ（米）：编辑器判「点在哪张面的平面上」与内核同一把尺子（2026-10-24 起不再各写 1e-3）。 */
+  readonly coplanarTol: number;
   /** 上下文的帧（世界坐标；0.11 尺规纪元）：推断的原点与三轴。不给 = 世界帧。 */
   frame?(): Frame;
   /** 活动池的参考几何（世界坐标；0.11）。不给 = 没有。 */
@@ -143,6 +146,8 @@ export class WorldView implements GeomView {
   readonly parts: SlotPart[] = [];
   private byKey = new Map<string, number>();
   readonly graph: GeomView["graph"];
+  /** 各池 τ 取最大（同一文档里本来一样；混了老文档的池就按最宽的）。 */
+  readonly coplanarTol: number;
 
   /**
    * @param scene 场景
@@ -191,6 +196,7 @@ export class WorldView implements GeomView {
     for (const [k, idxs] of used) { const perK = PART_CACHE.get(k)!; for (const i of [...perK.keys()]) if (!idxs.has(i)) perK.delete(i); }
     const parts = this.parts;
     const partOf = (id: number): SlotPart | undefined => parts[Math.floor(id / ID_STRIDE)];
+    this.coplanarTol = this.slots.reduce((m, sl) => Math.max(m, sl.kernel.coplanarTol), 0) || COPLANAR_TOL_DEFAULT;
     this.graph = {
       pt: (id) => { const v = partOf(id)?.verts.get(id); if (!v) throw new Error(`vertex ${id} 不存在`); return { x: v.x, y: v.y, z: v.z }; },
       edge: (id) => { const e = partOf(id)?.edges.get(id); if (!e) throw new Error(`edge ${id} 不存在`); return e; },
