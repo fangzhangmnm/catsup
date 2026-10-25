@@ -248,13 +248,15 @@
     <!-- 图库（@internal/gallery 0.4.0；编辑器/图库互斥挂载 ADR-0013 的「隐藏」形态） -->
     <div id="galleryFull" class="gallery-full" role="dialog" aria-modal="true" aria-hidden="true" aria-label="图库" hidden>
       <div class="gallery-chrome">
+        <!-- 图库页 ☰（F-81，user 2026-10-25「图库页的 ☰：还没加。 做」）：回收站（从顶栏收进来，WeebPaint 同款）/ 使用手册 / 调试日志 / 强制更新 -->
+        <button class="tb-btn" id="galleryMenuBtn" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
         <button class="tb-btn" id="galleryBack" type="button" title="回到编辑器"><svg class="ico" aria-hidden="true"><use href="#back"/></svg></button>
         <div class="gallery-chrome-title">图库</div>
         <span class="top-spacer" aria-hidden="true"></span>
         <button class="tb-btn" id="galleryNew" type="button" title="新建模型"><svg class="ico" aria-hidden="true"><use href="#new"/></svg></button>
         <button class="tb-btn" id="galleryCloudBtn" type="button" title="云端" data-cloud-state="out"><svg class="ico" aria-hidden="true"><use id="galleryCloudIcon" href="#cloud"/></svg></button>
         <button class="tb-btn" id="galleryRefreshBtn" type="button" title="刷新云端" hidden><svg class="ico" aria-hidden="true"><use href="#refresh"/></svg></button>
-        <button class="tb-btn" id="galleryTrashBtn" type="button" title="回收站"><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
+        <button class="tb-btn" id="galleryTrashBtn" type="button" title="回收站" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
       </div>
       <div class="gallery-trashbar" id="galleryTrashBar" hidden>
         <button class="sheet-choice" id="galleryTrashBack" type="button">回到图库</button>
@@ -289,7 +291,7 @@
         <input id="matImage" type="file" accept="image/png,image/jpeg,image/webp" hidden>
       </div>
     </div>
-    <div id="help" class="sheet-backdrop" hidden>
+    <div id="helpSheet" class="sheet-backdrop" hidden>   <!-- 原来的 id 与图标 sprite 里「help」那个 symbol 重名，getElementById 拿到图标、手册从没打开过（2026-10-25 Opus 改名；守卫 test/page-ids.test.ts） -->
       <div class="sheet">
         <div class="sheet-head"><span>使用手册</span><button class="tb-btn" id="helpClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
         <div id="helpBody" class="md"></div>
@@ -322,6 +324,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-a6cd2eb4dd04.mjs"></script>
+    <script type="module" src="./dist/catsup-3d0da8e67bc6.mjs"></script>
   </body>
 </html>

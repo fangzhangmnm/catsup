@@ -570,7 +570,7 @@ function syncUi(): void {
 }
 
 // ---------- 帮助 ----------
-const helpEl = $("help");
+const helpEl = $("helpSheet");   // 不能叫 help：图标 sprite 里有 <symbol id="help">（守卫 test/page-ids.test.ts）
 let helpRendered = false;
 function toggleHelp(on: boolean): void {
   if (on && !helpRendered) {   // 使用手册 = readme-docs.ts 各节（md-lite 渲染，抄 WeebPaint readme-panel）
@@ -864,6 +864,18 @@ const galleryHost = initGalleryHost({
 $("galleryBack").addEventListener("click", () => galleryHost.close());
 $("galleryNew").addEventListener("click", () => { void session.newDoc().then((ok) => { if (ok) galleryHost.close(); }); });
 $("galleryTrashBtn").addEventListener("click", () => { galleryHost.setView("trash"); $("galleryTrashBar").hidden = false; });
+// 图库页 ☰（F-81；WeebPaint 图库菜单同款，回收站从顶栏收进来）。与文件无关的几项；动作借主菜单的 menuPick
+type GalleryMenuId = "trash" | "help" | "debuglog" | "update";
+$("galleryMenuBtn").addEventListener("click", () => togglePopupMenu<GalleryMenuId>({
+  anchor: $("galleryMenuBtn"),
+  items: () => [
+    { id: "trash", label: "回收站", icon: "restore-trash" },
+    { id: "help", label: "使用手册", icon: "help", separatorBefore: true },
+    { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" },
+    { id: "update", label: "强制更新", icon: "refresh", hint: APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "") },
+  ],
+  onPick: (id) => { if (id === "trash") { galleryHost.setView("trash"); $("galleryTrashBar").hidden = false; return; } return menuPick(id); },
+}));
 $("galleryTrashBack").addEventListener("click", () => { galleryHost.setView("files"); $("galleryTrashBar").hidden = true; });
 $("galleryEmptyTrash").addEventListener("click", () => {
   void openChoiceSheet<"local" | "cloud" | "both">("清空回收站", "清空哪边？（不可恢复）", [{ label: "本机与云端", value: "both", danger: true }, { label: "只清本机", value: "local" }, { label: "只清云端", value: "cloud" }])
