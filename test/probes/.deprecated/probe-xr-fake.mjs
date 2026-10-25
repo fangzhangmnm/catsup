@@ -1,3 +1,4 @@
+// 【退役 2026-10-25】user「vr sunset」：VR 已下线，本探针不再维护、不再跑（长按选择那几项在 v0.13.33 前就红了，不修）。Claude Opus 5.5 移入 .deprecated/。
 // test/probes/probe-xr-fake.mjs —— 假 XR 会话探针：不戴头显验证 VR 接线（出生 reset / 手柄→player / rig 代数 / 扳机画线 / 手腕面板点按 /
 // 选择阶段长按 / 摇杆瞬移）。把 renderer3.xr 门面的 session/frame/refSpace 换成 mock，手动触发 onStart；three 的 WebXRManager 不参与
 // （isPresenting=false → 仍用桌面相机渲染，所以画面不是 VR 视角，但全部逻辑是）。
