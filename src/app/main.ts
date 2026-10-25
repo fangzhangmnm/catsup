@@ -27,7 +27,7 @@ import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet, openConfirmSheet } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet, isBusyActive } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_PLANES, GRID_PRESETS, TOOLS, gridPreset, gridStepsFor, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
 import type { ModeId } from "../editor/mode.ts";
@@ -1024,13 +1024,54 @@ cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else galleryHost.refresh(); },
 }));
 function updateCloudChip(): void { cloudBtn.dataset.cloudState = auth.isSignedIn() ? "in" : "out"; (document.getElementById("galleryCloudIcon") as unknown as SVGUseElement).setAttribute("href", auth.isSignedIn() ? "#cloud-synced" : "#cloud"); }
+// ---- 云可达之后的一串（登录落地 / 回线）：① 开着的模型干净快进 → ② 补离线上传队列 → ③「问一次」把只在本机的模型推上去 ----
+//   ③ = 家族 10-21 标准（JRB 0.2.20 / WeebPaint v0.14.42 / WXHW v2.3.52 / MoonSinger v0.14.6），CatsUp 2026-10-25 user「好，同意……但是必须护栏冲突」。
+//   护栏在库里（store files.dirty.pushAll）：每个文件单独推、带 If-Match；撞上云端新版本 / 撞名 / 网络 → **那个文件留在本机、名字进 failed，不弹面、不覆盖**；
+//   人去图库点它的「处理…」（file.resolve 三选一）或再保存一次走正常冲突面。这里只做三件：问一次、如实报失败名单、绝不替人选边。
+//   ② 以前 CatsUp 从没调过 drainOfflineQueue（offlineUploadReplay:"ask" 的 confirmReplay 永远不会响）——顺手接上，JRB 同序。
+//   顺序串行 + 单飞：refreshOpenDoc 拉字节时会上 busy 遮罩，sheet 在遮罩下打开会 throw（sheets.ts 死锁护栏），所以等它先完。
+let afterCloudReachableInFlight: Promise<void> | null = null;
+let askedPushLocalOnly = false;   // 每次打开 app 最多问一次（不惊扰）；点「传」或「先不」都算问过；被跳过（遮罩 / 别的 sheet 开着）不算
+function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
+  if (afterCloudReachableInFlight) return afterCloudReachableInFlight;
+  afterCloudReachableInFlight = (async () => {
+    try {
+      await session.refreshOpenDoc();
+      if (!hasStore() || !auth.isSignedIn() || navigator.onLine === false) return;
+      await requireStore().files.drainOfflineQueue().catch((e) => funnel(e, "log"));
+      await offerPushLocalOnly(reason);
+    } finally { afterCloudReachableInFlight = null; }
+  })();
+  return afterCloudReachableInFlight;
+}
+/** force = dev 探针用（test/probes/probe-push-ask.mjs）：跳过「已登录」前置，未登录时 pushAll 全失败 = 正好验「失败留本机、如实报」那条护栏。 */
+async function offerPushLocalOnly(reason: string, force = false): Promise<void> {
+  if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || navigator.onLine === false)) return;
+  if (isBusyActive() || !$("sheet").hidden) { note("sync", `local-only ask skipped (busy / sheet open) reason=${reason}`); return; }
+  const files = requireStore().files;
+  const n = await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; });
+  if (n <= 0) return;
+  askedPushLocalOnly = true;
+  note("sync", `local-only models after ${reason}: ${n} → ask`);
+  const go = await openConfirmSheet("有模型还没传上去", `有 ${n} 个模型只在这台设备上（离线或没登录时保存的）。现在传到 OneDrive 吗？云端已经有新版本的那几个不会被覆盖——会留在本机，去图库点它的「处理…」再定。`, { okLabel: "传", cancelLabel: "先不" });
+  if (!go) { note("sync", "local-only models: user said not now"); return; }
+  try {
+    const r = await files.dirty.pushAll();
+    note("sync", `dirty.pushAll: pushed=${r.pushed} failed=${r.failed.length}${r.failed.length ? " [" + r.failed.join(", ") + "]" : ""}`);
+    if (session.home.kind === "gallery" && r.pushed > 0 && !r.failed.includes(session.home.path)) session.pushPending = false;   // 开着的那个也推上去了 → 保存钮别再说「没推上去」
+    if (r.failed.length) notify({ text: `传上去 ${r.pushed} 个；${r.failed.length} 个没传成（云端有新版本、撞名或网络）——留在本机没动，图库里点它的「处理…」`, level: "warning" });
+    else if (r.pushed) notify({ text: `已把 ${r.pushed} 个模型传到 OneDrive`, level: "info" });
+  } catch (e) { funnel(e, "warning"); }
+  updateSaveStatus();
+  if (galleryHost.isOpen()) galleryHost.refresh();
+}
 auth.onAuthChanged((st) => {
   note("auth", `changed signedIn=${st.signedIn} reason=${st.reason ?? "-"} probing=${!!st.probing} account=${acct(st.account)}`);
   updateCloudChip(); updateSaveStatus();
-  if (st.signedIn) void session.refreshOpenDoc();   // 登录落地（boot 静默 / redirect 回程 / 续签）→ 打开中文档显式快进（WeebPaint wp:auth-changed 同形）
+  if (st.signedIn) void afterCloudReachable("signin");   // 登录落地（boot 静默 / redirect 回程 / 续签）→ 快进 → 补队列 → 问一次
   if (galleryHost.isOpen()) galleryHost.refresh();
 });
-window.addEventListener("online", () => { updateSaveStatus(); void session.refreshOpenDoc(); }); window.addEventListener("offline", updateSaveStatus);
+window.addEventListener("online", () => { updateSaveStatus(); void afterCloudReachable("online"); }); window.addEventListener("offline", updateSaveStatus);
 // 打开本地 .glb：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
 const glbInput = $<HTMLInputElement>("glbFile");
 function openLocal(): void { if (supportsOpenPicker()) void session.openLocalPicker(); else glbInput.click(); }
@@ -1125,7 +1166,7 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
+(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
 editor.setTool("line");
