@@ -89,7 +89,8 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .hud-gridchip { right: calc(10px + var(--safe-right)); bottom: calc(34px + var(--safe-bottom)); padding: 4px 10px; font: inherit; font-size: 12px; color: var(--accent); border: 0; cursor: pointer; border-radius: 8px; }
 .hud-gridchip:hover { background: rgba(0,0,0,.06); }
 /* 选区浮条（#19）：顶居中；选中东西且没在手势中才出现；项 = HUD 编辑动作表 */
-.hud-selbar { left: 50%; transform: translateX(-50%); top: calc(10px + var(--safe-top)); gap: 2px; padding: 4px 6px; max-width: calc(100vw - 250px); flex-wrap: wrap; justify-content: center; }   /* 右上角给 gizmo 留 ~115 px */
+/* 上下文条里工具段与选区段之间的竖分隔（A25，2026-10-24 Opus；顶部选区浮条 .hud-selbar 已并入上下文条） */
+.bar-sep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--line); }
 .selbar-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
 .selbar-btn .ico { width: 18px; height: 18px; }
 .selbar-btn:hover { background: rgba(0,0,0,.06); }

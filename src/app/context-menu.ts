@@ -26,23 +26,4 @@ export function openContextMenuAt(editor: Editor, hud: HudModel, x: number, y: n
   });
 }
 
-export interface SelectionBar { render(): void; }
-
-/** 顶部选区浮条（触屏路由）：选中东西且没在手势中且当前输入是笔 / 手指 → 显示可用动作；鼠标走右键菜单，不浮。 */
-export function mountSelectionBar(root: HTMLElement, editor: Editor, hud: HudModel, route: () => SelectionRoute): SelectionBar {
-  const render = (): void => {
-    const items = route() === "bar" && editor.hasSelection() && !editor.isGestureActive() ? selectionActions(hud) : [];
-    root.hidden = items.length === 0;
-    root.replaceChildren();
-    for (const it of items) {
-      const b = document.createElement("button");
-      b.type = "button"; b.className = "selbar-btn" + (it.danger ? " danger" : ""); b.disabled = !!it.disabled; b.title = it.label;
-      b.innerHTML = `${it.icon ? iconHtml(it.icon) : ""}<span></span>`;
-      (b.lastElementChild as HTMLElement).textContent = it.label;
-      b.addEventListener("click", () => hud.pick(it.id));
-      root.appendChild(b);
-    }
-  };
-  render();
-  return { render };
-}
+// （顶部选区浮条 mountSelectionBar 2026-10-24 并进 context-bar.ts 的上下文条，A25）

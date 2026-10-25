@@ -24,7 +24,7 @@ const res = await page.evaluate(async () => {
   e.cam.setView("iso"); e.zoomExtents();
   e.setTool("select");
   const top = px(Pt(1, 1, 2));
-  out.selBarHiddenBefore = document.getElementById("selBar").hidden;
+  out.selBarHiddenBefore = document.querySelectorAll("#toolStrip .selbar-btn").length === 0;   // A25：选区动作并进上下文条
   // ① 右键顶面：先选中再弹菜单（右键 = pointerdown button 2 + pointerup + contextmenu）
   fire("pointerdown", top.x, top.y, { button: 2, buttons: 2 });
   fire("pointerup", top.x, top.y, { button: 2, buttons: 0 });
@@ -41,11 +41,11 @@ const res = await page.evaluate(async () => {
   out.groupMade = e.sceneRef.brep(e.sceneRef.root).groups.size === defsBefore + 1;
   out.menuClosedAfterPick = !menu();
   // ③ 选区浮条：鼠标路由下不浮（右键在手边）；换成笔之后才浮（含「炸开」）
-  out.selBarHiddenForMouse = document.getElementById("selBar").hidden;
+  out.selBarHiddenForMouse = document.querySelectorAll("#toolStrip .selbar-btn").length === 0;
   // 用笔点一下刚建的 group（选择工具里的单击 = 选它）：输入模态变成笔 + 选区还在 → 浮条出现
   fire("pointerdown", top.x, top.y, { pt: "pen", id: 12, button: 0, buttons: 1 }); fire("pointerup", top.x, top.y, { pt: "pen", id: 12, button: 0, buttons: 0 }); await sleep(30);
-  out.selBarShown = !document.getElementById("selBar").hidden;
-  out.selBarLabels = [...document.querySelectorAll("#selBar .selbar-btn")].map((b) => b.title);
+  out.selBarShown = document.querySelectorAll("#toolStrip .selbar-btn").length > 0 && !document.getElementById("toolStrip").hidden;
+  out.selBarLabels = [...document.querySelectorAll("#toolStrip .selbar-btn")].map((b) => b.title);
   // ③b 面包屑（#25）：进 group → 左上角出「根 › 组」；点「根」退出
   e.enterSelected();
   const crumbsEl = document.getElementById("crumbs");

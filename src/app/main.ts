@@ -8,12 +8,12 @@
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS } from "../editor/tool-ids.ts";
 import { APP_VERSION } from "../version.ts";
-import { mountToolStrip } from "./tool-strip.ts";
+import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
 import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts";
-import { mountSelectionBar, openContextMenuAt } from "./context-menu.ts";
-import { selectionRoute } from "./selection-actions.ts";
+import { openContextMenuAt } from "./context-menu.ts";
+import { selectionActions, selectionRoute } from "./selection-actions.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
@@ -461,7 +461,8 @@ function setWalk(on: boolean): void {
 
 // ---------- 状态同步 ----------
 editor.renderer3.setLineWeight(lineWeightInit());   // 线稿粗细：存的 / 高 DPI 默认 1.5（直接打渲染器：此时 HUD 元素还没挂，不能走 host.changed）
-const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLElement, editor, {
+// 上下文条（A25，2026-10-24 Opus）：工具选项 / 工具动作 / 选区动作同一条（user「context bar好像油漆桶和选择没有统一……做一个深模块」）
+const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLElement, editor, {
   // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
   // 表面工具的上下文条开头（user 2026-10-24「先显示选中的材质，然后是eyedropper，然后是范围，然后是阈值」）
   leading: (tool) => {
@@ -479,10 +480,13 @@ const toolStrip = mountToolStrip(document.getElementById("toolStrip") as HTMLEle
     if (tool === "tape" || tool === "protractor") return [{ id: "guidesClear", label: "删除所有参考线", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     return [];
   },
+  // 选区动作：笔 / 手指路由才进条（鼠标走右键菜单，#19 的路由不变）；有选区、不在手势中
+  selection: () => (selectionRoute(lastPointerType) === "bar" && editor.hasSelection() && !editor.isGestureActive() ? selectionActions(hud) : []),
+  pickSelection: (id) => { hud.pick(id as never); },
 });
 const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
-const selBar = mountSelectionBar(document.getElementById("selBar") as HTMLElement, editor, hud, () => selectionRoute(lastPointerType));
-let lastPointerType = "mouse";
+// eslint-disable-next-line no-var
+var lastPointerType = "mouse";   // var：上下文条的 selection provider 在 mount 时就读它（加载期）
 canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; syncUi(); } }, { capture: true });
 const crumbsEl = document.getElementById("crumbs") as HTMLElement;
 function renderCrumbs(): void {
@@ -550,7 +554,6 @@ function syncUi(): void {
   renderCrumbs();
   toolStrip.render();
   vcb.render();
-  selBar.render();
   btnUndo.disabled = !editor.canUndo();
   btnRedo.disabled = !editor.canRedo();
 
