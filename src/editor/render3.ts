@@ -18,9 +18,9 @@
 //     shader 不再过 colorspace 编码——与旧版 shade() 逐像素同值）；选中/悬停换蓝灰色。
 //   - 边（0.9.2 翻案，user 2026-10-21「线稿能不能不要用实体的几何，而是用带像素宽度的线，不然vr很难看，pc也很卡通，伤性能」）：
 //     **默认 = 原生 GL 线（THREE.LineSegments，1 设备像素，2 顶点/段，最省）**；选中 / 刮擦 / 悬停的边仍走粗线（要看得见）；
-//     视图菜单「粗线稿」= 全部边走粗线（旧默认，setLineStyle("thick")）。原生线没有 polygonOffset，靠面 +1/+1 后推让共面线赢面。
+//     视图菜单「粗线稿」= 全部边走粗线（旧默认，setLineStyle("thick")）。原生线没有 polygonOffset，靠面后推（DEPTH.face）让共面线赢面。
 //     旧注：1px LineBasicMaterial 在 iPad DPR2 下细成半 CSS 像素 = 「有些线看不见」的真身之一——所以粗线留作选项，不删。
-//     粗线 = three addons LineSegments2（屏幕像素宽，DPR 无关），是三角形 → polygonOffset 生效：**面 +1/+1 后推、线 −1/−2 前拉**，
+//     粗线 = three addons LineSegments2（屏幕像素宽，DPR 无关），是三角形 → polygonOffset 生效：**面后推（DEPTH 阶梯）、线 −1/−2 前拉**，
 //     共面线永远赢面、被真正挡住的线仍被挡——z-fight 的结构性修法，不再靠 depthOnly 预通道。
 //   - 相机：两制（cam.projection）——正交 OrthographicCamera / 透视 PerspectiveCamera，near/far 随眼距布置（小零件贴近也不裁）。
 //   - 顶点点不再常显（SU 观感）；吸附指示按屏幕像素定尺寸（透视按深度换算；XR 按角尺寸，比桌面小一半——user「vr 里面点球太大了」），
@@ -180,6 +180,13 @@ export interface ViewState {
 const GRID_VERT = /* glsl */`
   varying vec2 vUv;
   void main() { vUv = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+/**
+ * 深度阶梯（polygonOffset units；factor 一律 1 / 0 / −1，见各处）——一处定，别处只引用（2026-10-24 Claude Opus 5.5，
+ * user「边线应该优先于axis和grid，而不是被axes挡住」，10-25「画面」）。从后到前：
+ *   面（别的池 9 → 活动池 6 → 覆盖层 5，factor +1）  <  栅格 / 三色轴（units +4、深度测试严格小于）  <  边（原生细线真实深度、粗线 −1/−2 前拉）。
+ * 每一档至少差 1 个 unit：原生细线严格在轴前（10-25 实测：同深度时细线和轴按采样点各赢一半 → 暗红线）；轴也不比边粗（syncLineScale）。
+ */
+const DEPTH = { face: 6, faceOther: 9, faceOverlay: 5, guide: 4 } as const;   // guide = 栅格 / 三色轴：比原生细线（0）后 4 档（细线与粗线插件的深度插值有噪声）、比覆盖层面（5）前 1 档
 const GRID_FRAG = /* glsl */`
   uniform float uStep, uSub, uPx;
   uniform vec3 uMajor, uMinor;
@@ -308,7 +315,7 @@ export class Renderer3 {
     this.faceMat = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
       uniforms: { uLight: { value: new THREE.Vector3(0, 0, 1) } },
-      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1,
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face,
     });
     this.faceMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMat);
     this.faceMesh.frustumCulled = false; this.faceMesh.visible = false;
@@ -317,7 +324,7 @@ export class Renderer3 {
     this.faceMatOther = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
       uniforms: { uLight: this.faceMat.uniforms.uLight },
-      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 4,
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther,
     });
     this.faceMeshOther = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMatOther);
     this.faceMeshOther.frustumCulled = false; this.faceMeshOther.visible = false;
@@ -326,7 +333,7 @@ export class Renderer3 {
     this.faceMatTop = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
       uniforms: { uLight: this.faceMat.uniforms.uLight },
-      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 0,
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay,
     });
     this.pixelMat = new THREE.LineBasicMaterial({ vertexColors: true });
     this.emptyGeo = new THREE.BufferGeometry();
@@ -554,6 +561,7 @@ export class Renderer3 {
     this.edgeMat.linewidth = Math.max(this.lineWeight, 1) * k;
     this.profileAdd.value = profileAddFor(Math.max(this.lineWeight, 1)) * k;
     if (this.tickLines) this.tickLines.material.linewidth = Math.max(this.lineWeight, 1) * k;   // 断口小垂线跟边线一样粗（鼓包，不是另一种线）
+    if (this.axesObj) this.axesObj.material.linewidth = Math.min(STATIC_PX * scale, this.lineWeight > 1 ? this.lineWeight * k : 0.6 * k);   // 原生细线（1 px）覆盖的采样点和粗线插件不同，轴同宽会从缝里透红 → 细线模式下轴画 0.6 px   // 轴不比边粗：压在轴上的边要整条盖住轴（2× 屏上轴 2.4 px > 边 1.5 px → 边成了「红边夹黑芯」，2026-10-25）
   }
 
   /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
@@ -903,7 +911,7 @@ export class Renderer3 {
       if (!tg) { if (slot) slot.mesh.visible = false; continue; }
       const [matObj, grp] = tg as [object, { pos: number[]; nor: number[]; col: number[]; uv: number[]; mat: object | null }];
       if (!slot) {
-        const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+        const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
         const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
         mesh.frustumCulled = false;
         this.scene.add(mesh);
@@ -1008,7 +1016,7 @@ export class Renderer3 {
       setMatrix(n.root, s.xform);
       const g = this.kernelGeom(s.kernel, kd.scene, s.pool.def, !!dim?.has(s.index));
       used.add(g);
-      // 面：活动池 polygonOffset 1、别的池 4（#25 重叠时活动池 / loose 几何赢）
+      // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
       n.plain.material = s.active ? this.faceMat : this.faceMatOther;
       n.plain.geometry = g.plain ?? this.emptyGeo; n.plain.visible = !!g.plain;
       for (let i = 0; i < Math.max(g.tex.length, n.tex.length); i++) {
@@ -1046,7 +1054,7 @@ export class Renderer3 {
   private texMatFor(mat: Material): any {
     let m = this.texMats.get(mat);
     if (m) return m;
-    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: this.textureFor(mat) } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 1 });
+    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: this.textureFor(mat) } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
     this.texMats.set(mat, m);
     return m;
   }
@@ -1104,7 +1112,7 @@ export class Renderer3 {
       let slot = this.texMeshes[i];
       if (!tg) { if (slot) slot.mesh.visible = false; continue; }
       if (!slot) {
-        const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: 0 });
+        const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay });
         const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
         mesh.frustumCulled = false;
         this.scene.add(mesh);
@@ -1183,12 +1191,14 @@ export class Renderer3 {
         uniforms: { uStep: { value: 1 }, uSub: { value: 1 }, uPx: { value: STATIC_PX }, uMajor: { value: new THREE.Color(PALETTE.gridMajor) }, uMinor: { value: new THREE.Color(PALETTE.gridMinor) } },
         vertexShader: GRID_VERT, fragmentShader: GRID_FRAG,
         transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, premultipliedAlpha: true, side: THREE.DoubleSide,   // three 的 MultiplyBlending 只在 premultipliedAlpha 下生效（否则只报错不混合 = 白格子盖满地面）
-        polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2,   // 前拉：贴地的面不再 z-fight（user「加一个 z-offset 的事情」）
+        depthFunc: THREE.LessDepth, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: DEPTH.guide,   // 深度阶梯（DEPTH 注释）：面后、边前，不 z-fight（user「加一个 z-offset 的事情」）
       });
       this.gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, 2 * L), this.gridMat);
       this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false;
       this.scene.add(this.gridMesh);
-      this.axesObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(STATIC_PX, { vertexColors: true, offset: true }));
+      const axesMat = this.lineMat(STATIC_PX, { vertexColors: true });   // 不前拉：轴在边后面（DEPTH 注释）
+      axesMat.depthFunc = THREE.LessDepth; axesMat.polygonOffset = true; axesMat.polygonOffsetFactor = 0; axesMat.polygonOffsetUnits = DEPTH.guide;
+      this.axesObj = new LineSegments2(new LineSegmentsGeometry(), axesMat);
       this.axesObj.frustumCulled = false;
       this.scene.add(this.axesObj);
     }
@@ -1199,9 +1209,13 @@ export class Renderer3 {
     const at = (u: number, v: number, w: number): Pt3 => ({ x: o.x + X.x * u + Y.x * v + Zd.x * w, y: o.y + X.y * u + Y.y * v + Zd.y * w, z: o.z + X.z * u + Y.z * v + Zd.z * w });
     const apos: number[] = [], acol: number[] = [];
     const pushA = (a: Pt3, b: Pt3, hex: number): void => { apos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); acol.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-    pushA(at(-L, 0, 0), at(L, 0, 0), PALETTE.axisX);
-    pushA(at(0, -L, 0), at(0, L, 0), PALETTE.axisY);
-    pushA(at(0, 0, 0), at(0, 0, L), PALETTE.axisZ);
+    // 轴切成短段（2026-10-25 Opus）：LineMaterial 在屏幕上按两端点插值深度，一根 100 m 的线一端越过近平面被截断后插值误差很大，
+    // 实测（2× 像素比）轴的深度会跑到压在它上面的边前面，多边形偏移也救不回来。短段各自插值，深度准。
+    const AXIS_SEG = 2;   // 米
+    const seg = (a: number, b: number, f: (t: number) => Pt3, hex: number): void => { for (let t = a; t < b - 1e-9; t += AXIS_SEG) pushA(f(t), f(Math.min(b, t + AXIS_SEG)), hex); };
+    seg(-L, L, (t) => at(t, 0, 0), PALETTE.axisX);
+    seg(-L, L, (t) => at(0, t, 0), PALETTE.axisY);
+    seg(0, L, (t) => at(0, 0, t), PALETTE.axisZ);
     this.setLineGeometry(this.axesObj, apos, acol);
   }
 }
