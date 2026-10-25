@@ -1,9 +1,11 @@
 // tools/offset.ts —— 偏移工具（SU Offset）的手势模块：工具模块的**样板**（架构重构 2026-10-21，Claude Fable 5.1）。
 // 从 editor.ts 原样搬出（行为零变更）：按下 = 选面 + 定「内法向」（按下点离外环最近那条边的面内内法向）；
 // 跟随 = 沿内法向量距离（吸附 + 意图门：反号 / 零位不合法）；预演 = 偏移环当手势线段进结算机；松手 = 抬笔结算后落定 + 记给数值小窗。
+// D22（user 2026-10-24「推了面板显示的是5 ft但是没有对齐格子」，Claude Opus 5.5）：距离从**那条边**量（锚点 = 按下点在边上的垂足），不是从按下点量；
+// 栅格开着 = 世界是格子（同 move 轴锁 / 求解器「沿 1-D 走格」）：内法向与栅格轴平行 → 那条边的内环落绝对格线，斜边 → 距离按格距增量；Shift = 整数增量（不管栅格开没开）。
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, FaceId, Pt3 } from "../../kernel/kernel.ts";
-import { add3, cross3, dist3, dot3, liftFromPlane, normalize3, projectToPlane, scale3, sub3 } from "../../kernel/geom.ts";
+import { add3, cross3, dist3, dot3, liftFromPlane, normalize3, projectToPlane, scale3, sub3, type Pt3 as GPt3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { applyPt } from "../../scene/xform.ts";
 import type { DrawPlane } from "../pick.ts";
@@ -53,6 +55,7 @@ export class OffsetTool implements ToolHandler {
     }
     const a = outer[best], b = outer[(best + 1) % outer.length];
     const dir = normalize3(sub3(b, a));
+    const foot = add3(a, scale3(dir, dot3(sub3(hit, a), dir)));   // 按下点在那条边（的直线）上的垂足 = 距离的零点
     let inward = cross3(wrec.plane.n, dir);
     const cen = outer.reduce((acc, p) => add3(acc, scale3(p, 1 / outer.length)), { x: 0, y: 0, z: 0 });
     if (dot3(sub3(cen, a), inward) < 0) inward = scale3(inward, -1);
@@ -60,7 +63,7 @@ export class OffsetTool implements ToolHandler {
     this.plane = { plane: wrec.plane, basis: wrec.basis, face: gf };
     this.inward = normalize3(inward);
     this.dist = 0;
-    ctx.setAnchor(hit);
+    ctx.setAnchor(foot);
     ctx.setCursor(hit);
     ctx.hint("偏移：移动定距离——向里内缩、向外外扩；再点一下 / 松手落定（输距离可精确）");
   }
@@ -77,8 +80,27 @@ export class OffsetTool implements ToolHandler {
     let q = projectThrough(sn.p, anchor, this.plane.plane.n);
     let kind = sn.kind;
     if (kind !== null && freeO && ctx.intentOn(s, travel) && !intentAllows1D(dFree, dot3(sub3(q, anchor), this.inward), MIN_GESTURE_LEN)) { q = freeO; kind = null; }
-    this.dist = dot3(sub3(q, anchor), this.inward);
-    ctx.setSnap(kind ? { ...sn, kind, p: q } : null);
+    let d = dot3(sub3(q, anchor), this.inward);
+    let label: string | undefined;
+    // 落格：只在没吸到几何（裸落 / 格点 / 整数长度 / 面上）时接管；吸到别的端点 / 中点 / 边照旧（偏移到某个点是正经用法）
+    const weak = kind === null || kind === "grid-point" || kind === "increment" || kind === "on-face";
+    const g = ctx.grid(), shift = ctx.mods().shift, s0 = g.step / g.subdiv;
+    if (weak && (g.on || shift) && s0 > 0) {
+      let d2 = Math.round(d / s0) * s0;   // 增量：从边起整数格距
+      if (g.on && !shift) {
+        const F = ctx.contextFrame();
+        for (const ax of [F.x, F.y, F.z] as GPt3[]) {   // 内法向与栅格轴平行 → 绝对格线（外框在格上时与增量相同）
+          const dd = dot3(this.inward, ax);
+          if (Math.abs(Math.abs(dd) - 1) > 1e-6) continue;
+          const c0 = dot3(sub3(anchor, F.origin), ax);
+          d2 = (Math.round((c0 + d * dd) / s0) * s0 - c0) / dd;
+          break;
+        }
+      }
+      if (Math.abs(d2) > 1e-9 && Math.sign(d2) === Math.sign(d || d2)) { d = d2; q = add3(anchor, scale3(this.inward, d)); kind = g.on && !shift ? "grid-point" : "increment"; label = `${g.on && !shift ? "格线" : "整数长度"} · ${fmtLen(Math.abs(d))}`; }
+    }
+    this.dist = d;
+    ctx.setSnap(kind ? { ...sn, kind, p: q, ...(label ? { label, hints: [{ a: anchor, b: q, axis: "i" as const }] } : {}) } : null);
     ctx.setCursor(q);
   }
 
