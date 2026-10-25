@@ -10,6 +10,7 @@ import "./tau-flatten.test.ts";   // EGC 期 3b：τ 带投影一致性（2026-1
 import "./units.test.ts";   // 单位深模块（2026-10-24 Opus）
 import "./no-native-select.test.ts";   // 下拉标准件守卫（2026-10-24 Opus）
 import "./page-ids.test.ts";   // 页面不许重复 id（2026-10-25：手册面板与图标撞名）
+import "./scale-ref.test.ts";   // B43 尺度参考适配层（2026-10-25 Opus）
 import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点（2026-10-24，800 件场景第 379 步）
 import "./kernel-rev.test.ts";
 import "./settle-differential.test.ts";
