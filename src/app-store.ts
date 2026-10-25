@@ -15,8 +15,8 @@
 //   hidden = 写入方半成品（夹里有什么是 store 的事，不是图库的；0.16 起叫这个名）。
 //   openLineageFromDurable 库默认开（0.18.0）：open 时云端核对没跑成（未登录 / 离线）∧ 本地干净 ∧ 磁盘有上次同步的 etag → 记为本 tab 基准。
 //              这正是 10-21 道 2 核出的根因「先开上次模型、后登录 → 第一次保存没 If-Match → 409 → 假『保存撞上云端新版本』面」的修法（配 0.16.2 refresh 重捕基准）。别关。
-//   不传（= 库默认）：streaming（没有流式读）、docKinds[].tier（只有一等作品）、pushRetry（4 次 × 200·n ms）、
-//              uploads.resumable（F-54 上传会话落盘 = 新持久化键，要 user 一句话；WeebPaint 批过，CatsUp 另问——迁库 doc §4）。
+//   uploads.resumable 开（store 2.1.4 F-54；user 10-25「weebpaint开了。那么我们也开吧。以后有了贴图我们也会变得很胖的」）：> 4 MB 的分块上传会话落 kv，刷新 / iOS 杀页后再推同一份字节接着传——见 createStore 里的注释。
+//   不传（= 库默认）：streaming（没有流式读）、docKinds[].tier（只有一等作品）、pushRetry（4 次 × 200·n ms）。
 // 无地模式（WeebPaint 标准）：**不挂图库时 createStore 完全不被调用**（零 IDB/localStorage 副作用，file:// 也能跑）；
 //   store 在首次开图库 / 登录时懒建（ensureStore），之后常驻。
 // 开机顺序契约（v0.5.7，ai-docs/20260922-lifecycle-alignment-with-weebpaint.md §1.3 / §3.3）：**boot 的本地恢复必须在 initAuth 之前发起并等完**。
@@ -62,6 +62,10 @@ export function ensureStore(): Store {
     encryption: appEncryption,
     reconcilePolicy: "app-driven",
     docKinds: DOC_KINDS,
+    // store 2.1.4（F-54）上传会话落盘：> 4 MB 的推（贴图多的模型）开分块上传会话时把会话 URL / 大小 / If-Match / 这份字节的 sha256 / 时间记进本 store 的 kv
+    //   （键 `internal.upload-session:<名>`，没有内容；sha256 只认「是不是同一份字节」，不当身份）；刷新 / iOS 杀页之后再推同一份字节（30 s 自动保存 / 退出推 / 回线补推）
+    //   先问 Graph 传到哪、从那里接着传；续上的会话提交前一律核 eTag（不看 verifyChunkedCommit）。库默认关 = 新持久化键要 app 表态：user 10-25「weebpaint开了。那么我们也开吧。以后有了贴图我们也会变得很胖的」。
+    uploads: { resumable: true },
     validateAdopt: async (plain) => isCatsupDocumentHead(new Uint8Array(await plain.slice(0, 256 * 1024).arrayBuffer())),
     autoCacheOpenedFile: true,
     offlineUploadReplay: "ask",
