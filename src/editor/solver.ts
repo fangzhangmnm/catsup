@@ -283,7 +283,7 @@ function handFaceSkip(k: GeomView, hand?: AlignHand | null): ((fid: FaceId) => b
  * 下一帧又回来 → 反复横跳「很难吸附」）。链的两端任一端在手里 → 该链是手势边（追光标）→ 整链退赛。
  */
 function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean, edgesIn?: readonly Edge[]): { a: Pt3; b: Pt3; id: EdgeId }[] {
-  const edges = edgesIn ?? k.edges();
+  const edges = (edgesIn ?? k.edges()).filter((e) => !k.isFold(e.id));   // 折线（DT87）不是边：不当吸附目标（它的端点照样是顶点目标）
   const dsu = new DisjointSet<EdgeId>();   // kernel/dsu.ts（路径压缩）
   const find = (e: EdgeId): EdgeId => dsu.find(e);
   const union = (x: EdgeId, y: EdgeId): void => dsu.union(x, y);

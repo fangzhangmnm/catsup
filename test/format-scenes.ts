@@ -50,7 +50,16 @@ export function sceneCylinder(): Kernel {
   k.pushPull(k.faces()[0].id, 1.5);
   return k;
 }
-export const SCENES: Record<string, () => Kernel> = { box: sceneBox, holed: sceneHoledOpen, house: sceneHouse, cylinder: sceneCylinder };
+/** DT87 折线（brep 4.2，2026-10-26 Claude Opus 5.5）：一块不平的四边形 = 两张三角形，对角线是折线（两块算一个面）。 */
+export function sceneFolded(): Kernel {
+  const k = new Kernel();
+  const A = { x: 0, y: 0, z: 0 }, B = { x: 1, y: 0, z: 0 }, C = { x: 1, y: 1, z: 0.25 }, D = { x: 0, y: 1, z: 0 };
+  k.addEdges([[A, B], [B, C], [C, D], [D, A], [A, C]]);
+  const diag = k.edges().find((e) => { const p = k.graph.pt(e.a), q = k.graph.pt(e.b); return (p.x + q.x === 1) && (p.y + q.y === 1) && p.x !== q.x; })!;
+  k.setEdgeLayer("fold", [diag.id], true);
+  return k;
+}
+export const SCENES: Record<string, () => Kernel> = { box: sceneBox, holed: sceneHoledOpen, house: sceneHouse, cylinder: sceneCylinder, folded: sceneFolded };
 
 // ---- v2（2026-10-21，group / component 纪元）：场景级 golden ----
 const rootK = (s: Scene): Kernel => s.kernelOf({ def: s.root, group: null });

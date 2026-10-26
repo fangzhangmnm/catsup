@@ -68,6 +68,8 @@ export interface ImageTable {
   edgeLayers?: EdgeLayers;
   /** 名字 → 线段：这些段上落下的边进该层（圆的近似边 → curve；推拉侧棱 → soft+smooth）。 */
   layerSegs?: Readonly<Record<string, readonly Seg3[]>>;
+  /** 自动折面（④）的折缝带哪些边层（DT87 工作流亚种）：缺 = 普通硬边（硬表面 / SketchUp）；["fold"] = 折线（自由建模 / Blender）。 */
+  creaseLayers?: readonly string[];
   /** 面属性层登记处：新像带 face 值时，它独占的胞腔铸出的膜记上。 */
   faceLayers?: FaceLayers;
   /** 本次动过坐标的边（moveVertices：被移 / 被合并顶点的邻边）——局部性：自愈与认领只围绕脏边 + 像 + 被消耗膜的平面（2026-10-21 #14）。 */
@@ -728,6 +730,8 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   // ⑪a 边属性层规则 ③「新段上落下的边入集」提到溶解之前（DT12，v0.14.3，Claude Opus 5.5）：溶解时新段已经带层，规则 ④「两边都有 → 并出的边也有」才成立。
   // 之前排在 ⑩ 之后 → 同向再推拉圆柱顶面：新侧棱溶解那一刻还没层，和下面那段软的旧侧棱并成一条硬边，并出的长边又不完全落在新段上、③ 也贴不上（user「第二次拖动顶面的时候，平滑组变成硬边了」）。
   if (EL && table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
+  // 折缝的层（DT87 亚种）：折缝是作为新边插进来的 → 都在脏边里，不扫全图
+  if (EL && table.creaseLayers?.length && creases.length) { const es = [...dirty].filter((id) => g.hasEdge(id)).map((id) => g.edge(id)); for (const n of table.creaseLayers) EL.mark(n, es, (id) => g.pt(id), creases); }
   // ⑩ 溶解：因本次操作新成为二度共线的顶点——只看本次星形变过的顶点：新边 / 切出来的边的端点（dirty）+ 本次删掉的边的端点（candVerts）
   for (const eid of dirty) if (g.hasEdge(eid)) { const e = g.edge(eid); candVerts.add(e.a); candVerts.add(e.b); }
   for (const vid of candVerts) {

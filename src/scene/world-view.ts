@@ -30,6 +30,8 @@ export interface GeomView {
   faceRings3(id: FaceId): { outer: Pt3[]; holes: Pt3[][] } | undefined;
   /** 软边：渲染不画线。 */
   isSoft(id: EdgeId): boolean;
+  /** 折线（DT87）：面内部的折痕——不画、点不中、不当吸附的边、两侧算一个面、明暗连续。 */
+  isFold(id: EdgeId): boolean;
   /** 平滑边：两侧膜的法向跨边插值（平滑组）。 */
   isSmooth(id: EdgeId): boolean;
   /** 面的材质（null = 默认灰）。 */
@@ -58,7 +60,7 @@ export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId
 export interface SlotPart {
   rev: number; xform: Xform;
   verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>;
-  soft: Set<EdgeId>; smooth: Set<EdgeId>;
+  soft: Set<EdgeId>; smooth: Set<EdgeId>; fold: Set<EdgeId>;
   /** 圆 / 弧的圆心（世界坐标，DT15）。 */
   centers: Pt3[];
   /** 隐藏的边 / 只连着隐藏边的点（DT49）：图里留着（可见面的环还要查它），列举 / 屏幕索引 / 渲染跳过。隐藏的面直接不进 faces。 */
@@ -70,7 +72,7 @@ const PART_CACHE = new WeakMap<Kernel, Map<number, SlotPart>>();
 export const PART_STATS = { ms: 0, n: 0 };
 /** 在手里（整体变换预演）的槽不算世界坐标：它不吸附、不遮挡、渲染只改矩阵——拖最大的 uber 组每帧成本 ≈ 0（user 2026-10-21「如果transform最大的uber组会发生什么」）。 */
 const OVERRIDDEN_PARTS_EMPTY = true;
-const emptyPart = (m: Xform): SlotPart => ({ rev: -1, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), centers: [], hiddenEdges: new Set(), hiddenVerts: new Set() });
+const emptyPart = (m: Xform): SlotPart => ({ rev: -1, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), fold: new Set(), centers: [], hiddenEdges: new Set(), hiddenVerts: new Set() });
 const sameXform = (a: Xform, b: Xform): boolean => { for (let i = 0; i < 12; i++) if (a[i] !== b[i]) return false; return true; };
 
 /** 正多边形（≥ 6 边、各顶点到形心等距、各边等长，相对容差 1e-5）→ 形心；否则 null。 */
@@ -95,7 +97,7 @@ export function regularPolygonCenter(pts: readonly Pt3[]): Pt3 | null {
 function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
   const off = index * ID_STRIDE;
   const ident = isIdentity(m);
-  const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), centers: [], hiddenEdges: new Set(), hiddenVerts: new Set() };
+  const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), fold: new Set(), centers: [], hiddenEdges: new Set(), hiddenVerts: new Set() };
   for (const c of k.curves()) if (c.params && (c.kind === "circle" || c.kind === "arc")) part.centers.push(ident ? { ...c.params.center } : applyPt(m, c.params.center));
   // 正多边形面的中心也算圆心（user 2026-10-25「圆心应该优先于格点」：v0.14.1 之前「做成组件」会把圆丢成一圈普通边——老文件里的轮子没有曲线实体可读，
   // 但盖面还是一个正 N 边形；它的中心就是原来的圆心）。只认 ≥ 6 条边、各顶点到中心等距、各边等长的外环；和曲线圆心重合的去重。
@@ -115,6 +117,7 @@ function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
   if (part.hiddenEdges.size) for (const v of k.vertices()) if (v.edges.size && [...v.edges].every((e) => part.hiddenEdges.has(e + off))) part.hiddenVerts.add(v.id + off);
   for (const e of k.soft) part.soft.add(e + off);
   for (const e of k.edgeLayers.layer("smooth")) part.smooth.add(e + off);
+  for (const e of k.edgeLayers.layer("fold")) part.fold.add(e + off);
   for (const f of k.faces()) {
     if (k.isFaceHidden(f.id)) continue;   // DT49 隐藏的面：不进 faces（不画、不吸、点不中、不挡）
     const rec = k.planeOf(f.id)!;
@@ -286,6 +289,7 @@ export class WorldView implements GeomView {
   centers(): Pt3[] { const out: Pt3[] = []; for (const p of this.parts) for (const c of p.centers) out.push(c); return out; }
   isSoft(id: EdgeId): boolean { return this.partOf(id)?.soft.has(id) ?? false; }
   isSmooth(id: EdgeId): boolean { return this.partOf(id)?.smooth.has(id) ?? false; }
+  isFold(id: EdgeId): boolean { return this.partOf(id)?.fold.has(id) ?? false; }
   faceMaterial(id: FaceId): Material | null {
     const ps = this.faceSlotOf(id);
     if (!ps) return null;

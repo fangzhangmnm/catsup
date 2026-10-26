@@ -10,6 +10,8 @@
 //   CATSUP_material    v1（2026-10-21）：挂在 glTF core material 上的 authoring 补充 { sizeM:[w,h] }（贴图物理尺寸，米）。
 //   CATSUP_brep        v3 → v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（有序边链 + 种类 + 闭合 + 圆弧参数，契约 §5）；v3 文件的 curves 一直是空表 = 无曲线。
 //   CATSUP_brep        4.1（2026-10-26 DT8 两个表面，Claude Opus 5.5，周二 Fable 审）：attributes.face.material 的两槽开始写不同值（[+n 侧, −n 侧]；4.0 及以前两槽同值）。
+//   CATSUP_brep        4.2（2026-10-26 DT87 折线，Claude Opus 5.5）：边层多一个知名名字 fold（attributes.edge.fold，u8；只在有折线时写）——面内部的折痕：
+//                      两侧是同一个多边形的两块平面片。老读者照编码规则原样带着这一层（边层是开放集），但不认它的意思 = 折线画成普通边、两块分开选（minor 语义）。
 //                      minor：老读者只取 +n 侧——能开能存，背面单独涂的颜色会变成正面那份（提示一次）。
 //   CATSUP_definitions v3 → v4（2026-10-24 尺规纪元）：list[i].guides 与 groups[j].guides（参考线 / 参考点，池本地坐标）；缺 = 空。
 //   CATSUP_document    v1 → v2（2026-10-24 尺规纪元）：axes（绘图轴，世界坐标 Frame）；缺 = 世界帧。
@@ -44,7 +46,7 @@ export interface Stamp { readonly major: number; readonly minor: number; readonl
 /** 本版写出的拍子（SSoT）。 */
 export const FORMAT = {
   CATSUP_document: { major: 3, minor: 1, patch: 0 },
-  CATSUP_brep: { major: 4, minor: 1, patch: 0 },
+  CATSUP_brep: { major: 4, minor: 2, patch: 0 },
   CATSUP_definitions: { major: 6, minor: 2, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },
   CATSUP_material: { major: 1, minor: 0, patch: 0 },

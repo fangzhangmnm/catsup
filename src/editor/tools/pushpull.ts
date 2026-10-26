@@ -51,6 +51,7 @@ export class PushPullTool implements ToolHandler {
     const wrec = view.planeOf(gf)!;
     {   // 0.10 护栏（设计稿 §6-①，user「推拉单片没有任何意义」）：曲面的一片不许推拉，先硬化；整张曲面推拉 = wishlist B18
       const f0 = k.face(c.local.face)!;
+      if ([f0.outer, ...f0.holes].some((r) => r.edges.some((d) => k.isFold(d.edge)))) { ctx.hint("这是一个折面的一片：推拉只推得动平面——先把它周围的折线变硬（橡皮 + Shift），再推拉"); return; }   // DT87 护栏
       if ([f0.outer, ...f0.holes].some((r) => r.edges.some((d) => k.isSoft(d.edge)))) { ctx.hint("这是曲面的一片：先用橡皮 + Shift 硬化它周围的软边，再推拉（整张曲面推拉在 wishlist）"); return; }
     }
     this.face = c.local.face;

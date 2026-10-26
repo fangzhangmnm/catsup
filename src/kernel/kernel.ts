@@ -30,7 +30,7 @@ import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, Planar
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type Image, type ImageTable, type Seg3, ringsOf, settle, translateImage, collinear2, dissolveAt } from "./settle.ts";
-import { EdgeLayers, FaceLayers, MAT_BACK, MAT_FRONT, riserLayers } from "./layers.ts";
+import { CAP_EXCLUDE, EdgeLayers, FaceLayers, MAT_BACK, MAT_FRONT, riserLayers } from "./layers.ts";
 import { type Curve, type CurveId, type CurveParams, type CurveSpec, CurveRegistry } from "./curves.ts";
 import { planWeld } from "./weld.ts";
 import { alignClosedPath, dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
@@ -334,7 +334,7 @@ export class Kernel {
    * ③ 像表 = 每张被牵连膜的环按新坐标读出（OR、继承自身）→ 结算机（planarize 自愈 / autofold 折 / 认领设面）。
    * 不注入手势 → 永不生膜（守恒律 by construction）。rotate / scale 同走此路（顶点映射不同）。
    */
-  moveVertices(moves: readonly { id: VertexId; to: PtIn }[]): FaceEvent[] {
+  moveVertices(moves: readonly { id: VertexId; to: PtIn }[], opts?: { /** 自动折面的折缝带哪些边层（DT87 工作流亚种；缺 = 硬边）。 */ creaseLayers?: readonly string[] }): FaceEvent[] {
     this._rev++;
     const targets = new Map<VertexId, Pt3>();
     for (const mv of moves) if (this.graph.hasVertex(mv.id)) targets.set(mv.id, quantize3(toPt3(mv.to)));
@@ -398,7 +398,7 @@ export class Kernel {
     const dirtyEdges = new Set<EdgeId>();
     for (const { id } of batch) if (this.graph.hasVertex(id)) for (const eid of this.graph.vertex(id).edges) dirtyEdges.add(eid);
     for (const sv of new Set(merged.values())) if (this.graph.hasVertex(sv)) for (const eid of this.graph.vertex(sv).edges) dirtyEdges.add(eid);
-    const events = this.emit(this._settle({ consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges }));
+    const events = this.emit(this._settle({ consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges, ...(opts?.creaseLayers?.length ? { creaseLayers: opts.creaseLayers } : {}) }));
     for (const [cid, vs] of curveVerts) {
       const c = this.curveReg.curve(cid);
       if (!c) continue;
@@ -433,6 +433,8 @@ export class Kernel {
       const c = Math.abs(dot3(this.planes.rec(other.planeId).plane.n, n));
       return c <= CREASE_COS_MAX && c * Math.abs(dist) <= this.coplanarTol;   // 拉伸后离面量 ≤ τ 才褶
     };
+    // 折线（DT87）：被推走的这块已经不在原来那个折面里了——它环上的折线退回普通边（工具层另有护栏先拦；这是内核的底线）
+    for (const r of [f.outer, ...f.holes]) for (const d of r.edges) this.edgeLayers.delete("fold", d.edge);
     const consumed = new Set<FaceId>([id]);
     const images: Image[] = [];
     images.push({ rings: translateImage(ringsOf(g, f), delta), algebra: settleLanding ? "xor" : "or", inherit: id });
@@ -453,7 +455,7 @@ export class Kernel {
         const e = g.edge(d.edge);
         const a = g.pt(d.forward ? e.a : e.b), b = g.pt(d.forward ? e.b : e.a);
         const others = e.faceLinks.filter((x) => x !== id);
-        for (const L of this.edgeLayers.of(e.id)) push(L, { a: add3(a, delta), b: add3(b, delta) });
+        for (const L of this.edgeLayers.of(e.id)) if (!CAP_EXCLUDE.has(L)) push(L, { a: add3(a, delta), b: add3(b, delta) });
         // 接着长（自愈）= 旁边顺着推拉方向的侧面直接拉长；keepRing（「加边」，user 2026-10-25「pull可以选择加边（就是不自愈）」，SketchUp 按 Ctrl）= 一律新起侧面，原帽环留着
         if (!opts?.keepRing && others.length > 0 && others.every(parallel)) {
           for (const gid of others) { (rewrite.get(gid) ?? rewrite.set(gid, new Set()).get(gid)!).add(e.id); consumed.add(gid); }
@@ -540,13 +542,13 @@ export class Kernel {
     }
     // 站环的层：关节（闭路径全部站；开路径中间站）平滑 → soft+smooth，否则继承；开路径末帽继承
     const jointStations = opts.closed ? [...Array(nSt).keys()] : [...Array(Math.max(0, nSt - 2)).keys()].map((i) => i + 1);
-    for (const i of jointStations) for (let r = 0; r < st[i].length; r++) { const m = st[i][r].length; for (let j = 0; j < m; j++) { const sg = { a: st[i][r][j], b: st[i][r][(j + 1) % m] }; if (smooth(i)) { push("soft", sg); push("smooth", sg); } else for (const L of ringLayers[r][j]) push(L, sg); } }
+    for (const i of jointStations) for (let r = 0; r < st[i].length; r++) { const m = st[i][r].length; for (let j = 0; j < m; j++) { const sg = { a: st[i][r][j], b: st[i][r][(j + 1) % m] }; if (smooth(i)) { push("soft", sg); push("smooth", sg); } else for (const L of ringLayers[r][j]) if (!CAP_EXCLUDE.has(L)) push(L, sg); } }
     const consumed = new Set<FaceId>();
     if (!opts.closed) {
       images.push({ rings: rings.map((r) => r.map((p) => ({ ...p }))), algebra: "xor", ...(attached ? {} : { inherit: id }) });
       const E = st[nSt - 1];
       images.push({ rings: E.map((r) => r.map((p) => ({ ...p }))), algebra: "xor" });
-      for (let r = 0; r < E.length; r++) { const m = E[r].length; for (let j = 0; j < m; j++) for (const L of ringLayers[r][j]) push(L, { a: E[r][j], b: E[r][(j + 1) % m] }); }
+      for (let r = 0; r < E.length; r++) { const m = E[r].length; for (let j = 0; j < m; j++) for (const L of ringLayers[r][j]) if (!CAP_EXCLUDE.has(L)) push(L, { a: E[r][j], b: E[r][(j + 1) % m] }); }
     }
     if (!attached) consumed.add(id);
     // 曲线：轮廓环上的曲线在每一站的圈上各成一条（斜切投影不保圆 → polyline，只留身份；开路径末帽同）
@@ -610,6 +612,29 @@ export class Kernel {
   vertices(): Vertex[] { return this.graph.vertices(); }
   edges(): Edge[] { return this.graph.edges(); }
   isSoft(id: EdgeId): boolean { return this.soft.has(id); }
+  /** 折线（DT87）：面内部的折痕——不画、点不中、两侧算一个面、明暗连续（layers.ts EDGE_LAYERS 注释）。 */
+  isFold(id: EdgeId): boolean { return this.edgeLayers.has("fold", id); }
+  /**
+   * 擦这些边时，折线亚种（Blender，DT87：user「是否折还是破就是看是哪个版本的工具」「护栏做好」）怎么分：
+   * fold = 恰好两张不共面的膜 → 变折线（两块并成一个面）；erase = 只有一张 / 没有膜，或两张共面 → 照常擦（和 SketchUp 亚种一样）；
+   * refuse = 三张以上膜（非流形）→ 不擦、不折，调用方说清（不悄悄破面）。曲线成员整条一起（同 eraseEdges）。
+   */
+  foldPlan(ids: readonly EdgeId[]): { fold: EdgeId[]; erase: EdgeId[]; refuse: EdgeId[] } {
+    const out = { fold: [] as EdgeId[], erase: [] as EdgeId[], refuse: [] as EdgeId[] };
+    const seen = new Set<EdgeId>();
+    for (const id0 of ids) {
+      const cid = this.graph.hasEdge(id0) ? this.curveReg.curveOf(id0) : undefined;
+      for (const id of cid !== undefined ? this.curveReg.curve(cid)!.edges : [id0]) {
+        if (seen.has(id) || !this.graph.hasEdge(id)) continue;
+        seen.add(id);
+        const fl = [...new Set(this.graph.edge(id).faceLinks)].filter((f) => this.store.face(f));
+        if (fl.length > 2) out.refuse.push(id);
+        else if (fl.length === 2 && this.store.face(fl[0])!.planeId !== this.store.face(fl[1])!.planeId) out.fold.push(id);
+        else out.erase.push(id);
+      }
+    }
+    return out;
+  }
   isCurve(id: EdgeId): boolean { return this.curve.has(id); }
   isSmooth(id: EdgeId): boolean { return this.edgeLayers.has("smooth", id); }
   /**
@@ -726,6 +751,8 @@ export class Kernel {
   private emit(events: FaceEvent[]): FaceEvent[] {
     this.eventLog.push(...events);
     this.faceLayers.applyEvents(events);           // 面层跟着血缘走（layers.ts）
+    // 折线卫生（DT87）：恰好两张膜、两张不共面——不再满足（被拆成边界 / 两侧变共面 / 第三张膜搭上来）= 退回普通边。O(折线数)
+    { const F = this.edgeLayers.layer("fold"); for (const id of [...F]) { if (!this.graph.hasEdge(id)) continue; const fl = [...new Set(this.graph.edge(id).faceLinks)].map((f) => this.store.face(f)); if (fl.length !== 2 || !fl[0] || !fl[1] || fl[0].planeId === fl[1].planeId) F.delete(id); } }
     // 增量清层（2026-10-26 Claude Opus 5.5，纪元账本 DT93）：只看这次删掉的边 / 膜（id 不复用 → 结果 = 全量 prune），不再每步扫全部层
     this.faceLayers.pruneIds(this.store.drainRemovedFaces(), (id) => !!this.store.face(id));
     const gone = this.graph.drainRemovedEdges();

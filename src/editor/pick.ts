@@ -52,6 +52,7 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
 
   let bestE: EdgeId | undefined, bestEd = tolPx;
   for (const e of idx ? idx.edgesNear(sx, sy, tolPx + 1) : k.edges()) {
+    if (k.isFold(e.id)) continue;   // 折线（DT87）不是边：永远点不中，点到的是两侧那个面
     if (k.isSoft(e.id) && !opts?.soft) continue;   // 软边不可拾（0.10：看不见的东西不该被橡皮 / 选择碰到；「显示隐藏几何」视图开关 = wishlist）；硬化的橡皮例外（opts.soft，2026-10-26：不然软边永远硬化不了）
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const { d, t } = pf.distToSeg(sx, sy, a, b, vp);

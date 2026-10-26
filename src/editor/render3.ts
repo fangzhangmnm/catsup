@@ -1248,7 +1248,7 @@ export class Renderer3 {
     for (const e of kd.edges()) {
       const selected = view.selectionEdges.has(e.id);
       const hot = view.scrubEdges.has(e.id) || view.hoverEdge === e.id;
-      if (kd.isSoft(e.id) && !hot) continue;   // 软边不画（圆柱不长竖纹）；选中了也不画（user 2026-10-25「选中的时候软边显示了粗线」），只有刮擦 / 悬停高亮时画
+      if ((kd.isSoft(e.id) || kd.isFold(e.id)) && !hot) continue;   // 软边不画（圆柱不长竖纹）；选中了也不画（user 2026-10-25「选中的时候软边显示了粗线」），只有刮擦 / 悬停高亮时画
       const hex =
         hot ? PALETTE.edgeHot
         : selected ? PALETTE.edgeSelected
@@ -1413,7 +1413,7 @@ export class Renderer3 {
       if (!kd.graph.hasEdge(id)) continue;
       const e = kd.graph.edge(id);
       const hot = view.scrubEdges.has(id) || view.hoverEdge === id;
-      if (kd.isSoft(id) && !hot) continue;   // 选中的软边不画粗线（user 2026-10-25「选中的时候软边显示了粗线」）
+      if ((kd.isSoft(id) || kd.isFold(id)) && !hot) continue;   // 选中的软边不画粗线（user 2026-10-25「选中的时候软边显示了粗线」）
       const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
       const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : PALETTE.edgeSelected);
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
@@ -1594,7 +1594,7 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
   const c = new THREE.Color();
   const n1: number[] = [], n2: number[] = [], flag: number[] = [];   // SU 轮廓线：两张面各自往面里走的方向（本地坐标）+ 面数（着色器按视线判剪影）
   for (const e of k.edges()) {
-    if (k.isSoft(e.id) || k.isEdgeHidden(e.id)) continue;   // 软边 / 隐藏的边（DT49）不画
+    if (k.isSoft(e.id) || k.isFold(e.id) || k.isEdgeHidden(e.id)) continue;   // 软边 / 折线（DT87）/ 隐藏的边（DT49）不画
     const hex = dim ? PALETTE.edgeDim : e.faceLinks.length === 0 ? PALETTE.edgeWire : PALETTE.edge;
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     c.setHex(hex);
@@ -1632,7 +1632,7 @@ function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
   const union = (a: FaceId, b: FaceId): void => dsu.union(a, b);
   let any = false;
   for (const e of kd.edges()) {
-    if (!kd.isSmooth(e.id) || e.faceLinks.length < 2) continue;
+    if (!(kd.isSmooth(e.id) || kd.isFold(e.id)) || e.faceLinks.length < 2) continue;   // 折线：面内部，明暗连续（DT87）
     const fl = [...new Set(e.faceLinks)];
     for (let i = 1; i < fl.length; i++) union(fl[0], fl[i]);
     any = true;
@@ -1649,7 +1649,7 @@ function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
       const a = queue[qi], fa = kd.face(a);
       if (!fa) continue;
       for (const ring of [fa.outer, ...fa.holes]) for (const d of ring.edges) {
-        if (!kd.isSmooth(d.edge)) continue;
+        if (!kd.isSmooth(d.edge) && !kd.isFold(d.edge)) continue;
         const la = faceLeftSign(kd, a, d.edge);
         if (la === null) continue;
         for (const b of kd.graph.edge(d.edge).faceLinks) {

@@ -888,7 +888,9 @@ export class Editor {
     try { return fn(); } finally { this.stepDepth--; }
   }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
-  private commitOp(op: Op): FaceEvent[] {
+  private commitOp(op0: Op): FaceEvent[] {
+    // 工作流亚种（DT87）的唯一口：自由建模那种工作台里挪点自动折出的折缝 = 折线。写进 op（日志重放一致），不靠全局状态
+    const op: Op = op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0;
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
@@ -2654,6 +2656,7 @@ export class Editor {
       recordLast: (L) => { this.last = L; this.offerLastAfterthought(); },
       contextFrame: () => this.contextFrame(),
       axesBase: () => this.axesBase(),
+      workflow: () => ({ eraseNonCoplanar: this.mode.workflow?.eraseNonCoplanar ?? "burst", autofold: this.mode.workflow?.autofold ?? "hard" }),
       orientFrame: () => this.orientFrame(),
       boxIn: (f) => this.boxIn(f),
       setAxes: (f) => this.setContextAxes(f),

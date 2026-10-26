@@ -156,6 +156,8 @@ export interface ToolCtx {
   // ---- 0.11 尺规纪元：轴 ----
   /** 上下文的帧（世界坐标）。 */
   contextFrame(): Frame;
+  /** 当前工作台的工作流亚种（mode.ts Mode.workflow，带缺省）：橡皮擦不共面两膜之间的边 = 破 / 折；自动折面的折缝 = 硬线 / 折线（DT87）。 */
+  workflow(): { eraseNonCoplanar: "burst" | "fold"; autofold: "hard" | "fold" };
   /** 坐标架工具点一下只换位置时沿用的朝向：平时 = 坐标架；改组件原点会话里 = 那个组件现在的原点（DT86）。 */
   axesBase(): Frame;
   /**

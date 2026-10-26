@@ -43,7 +43,17 @@ export class EraseTool extends EdgeScrubTool {
     const k = ctx.kernel(), at = ctx.activePool();
     if (mode === "erase" && gids.length) ctx.commitOp({ op: "eraseGuides", at, ids: gids });   // D18：刮过的参考线 / 参考点一起擦
     if (mode !== "erase") { ctx.softenEdges(ids.filter((id) => k.graph.hasEdge(id) && k.graph.edge(id).faceLinks.length >= 2), mode === "soften"); return; }
-    const edges = ids.filter((id) => k.graph.hasEdge(id)).map((id) => edgeKey(k, id));
+    const live = ids.filter((id) => k.graph.hasEdge(id));
+    if (ctx.workflow().eraseNonCoplanar === "fold") {   // Blender 亚种（DT87）：不共面两膜之间的边变折线，别的照常擦，非流形不碰
+      const plan = k.foldPlan(live);
+      const foldKeys = plan.fold.map((id) => edgeKey(k, id)), eraseKeys = plan.erase.map((id) => edgeKey(k, id));   // 先取键：提交会改图
+      if (foldKeys.length) ctx.commitOp({ op: "setEdgeLayers", at, edges: foldKeys, layers: ["fold"], on: true });
+      if (eraseKeys.length) ctx.commitOp({ op: "eraseEdges", at, edges: eraseKeys });
+      if (plan.refuse.length) ctx.hint(`${plan.refuse.length} 条边连着三张以上的面：这种擦法不擦（擦了会破面）——先拆开再擦`);
+      else if (foldKeys.length) ctx.hint(`${foldKeys.length} 条边变成了折线（两边算一个面）${eraseKeys.length ? `，擦掉 ${eraseKeys.length} 条` : ""}`);
+      return;
+    }
+    const edges = live.map((id) => edgeKey(k, id));
     if (edges.length) ctx.commitOp({ op: "eraseEdges", at, edges });
   }
   /** 刮集高亮 + 刮过的参考几何先从画面消失。 */

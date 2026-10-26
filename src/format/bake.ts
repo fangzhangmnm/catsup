@@ -53,8 +53,8 @@ export function quantNormal(n: { x: number; y: number; z: number }): [number, nu
  *  返回 面下标 → (顶点下标 → 法向)；没平滑组的膜不在表里（用平面法向）。 */
 export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [number, number, number]>> {
   const out = new Map<number, Map<number, [number, number, number]>>();
-  const smooth = snap.edgeLayers?.smooth;
-  if (!smooth?.length) return out;
+  const smooth = [...(snap.edgeLayers?.smooth ?? []), ...(snap.edgeLayers?.fold ?? [])];   // 折线（DT87）：面内部，明暗连续——和平滑边同待遇
+  if (!smooth.length) return out;
   // 边 → 膜：按环边查
   const edgeKey = (a: number, b: number): string => (a < b ? `${a}-${b}` : `${b}-${a}`);
   const facesOfEdge = new Map<string, number[]>();

@@ -14,8 +14,16 @@ import { INSERT_TOL } from "./subdivide.ts";
 
 export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
 
-/** 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。 */
-export const EDGE_LAYERS = ["soft", "curve", "smooth", "hidden"] as const;
+/**
+ * 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。
+ * fold = 折线（纪元账本 DT87，2026-10-26 Claude Opus 5.5；user「折线现在铺好」）：**一张面内部的折痕，不是边**——两侧是同一个多边形被折开的两块平面片。
+ *   不画、点不中、不当吸附的边；被它连着的几块 = 一个面（单击 / 油漆桶「一张面」整块）；明暗跨它连续；导出 OBJ 并回一个多边形。
+ *   不变量（Kernel.emit 每步卫生）：恰好两张膜、两张不共面——不再满足 = 退回普通边。谁产生它：橡皮的 Blender 亚种（擦不共面的两膜之间的边 = 变折线）、
+ *   自动折面的 Blender 亚种（折缝带 fold）；硬表面（SketchUp 亚种）从不产生。
+ */
+export const EDGE_LAYERS = ["soft", "curve", "smooth", "hidden", "fold"] as const;
+/** 推拉 / 跟随的帽边不继承的层：折线只活在一个多边形内部，帽边已经是别的面之间的边了。 */
+export const CAP_EXCLUDE: ReadonlySet<string> = new Set(["fold"]);
 /** 知名面层。 */
 export const FACE_LAYERS = ["material", "materialBack", "hidden"] as const;   // hidden = 1（DT49 隐藏的面：不画、不吸、点不中；2026-10-25）
 /**

@@ -10,8 +10,62 @@
 // 面：无洞 = n-gon（Blender 里保留为一个多边形，好编辑）；带洞 = 三角化（回调注入；OBJ 没有洞的概念）。
 // 裸边（faceLinks==0）= `l` 线元素（Blender 导入为 loose edge）。
 
-import type { FaceId, Pt3 } from "../kernel/kernel.ts";
+import type { EdgeId, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { GeomView } from "../scene/world-view.ts";
+import { DisjointSet } from "../kernel/dsu.ts";
+
+/**
+ * 折面（DT87，2026-10-26 Claude Opus 5.5）：被折线连着的几块平面片 = 一个多边形 → 写成一个 n-gon（Blender 读进来就是一个面，折痕是它的三角化）。
+ * 条件：每块都没洞、外圈连成一个简单环（朝向按「共享边上走向相反 = 一致」统一）；不满足 = 照旧逐块写（不硬拼）。返回合并出的多边形（顶点链）+ 已写掉的面。
+ */
+function foldPolygons(k: GeomView): { polys: VertexId[][]; done: Set<FaceId> } {
+  const out = { polys: [] as VertexId[][], done: new Set<FaceId>() };
+  const folds = k.edges().filter((e) => k.isFold(e.id));
+  if (!folds.length) return out;
+  const dsu = new DisjointSet<FaceId>();
+  for (const e of folds) { const fl = [...new Set(e.faceLinks)]; if (fl.length === 2) dsu.union(fl[0], fl[1]); }
+  const groups = new Map<FaceId, FaceId[]>();
+  for (const f of dsu.keys()) { const r = dsu.find(f); (groups.get(r) ?? groups.set(r, []).get(r)!).push(f); }
+  type DE = { from: VertexId; to: VertexId; edge: EdgeId };
+  const ring = (fid: FaceId): DE[] | null => { const f = k.face(fid); if (!f || f.holes.length) return null; return f.outer.edges.map((d) => { const e = k.graph.edge(d.edge); return d.forward ? { from: e.a, to: e.b, edge: d.edge } : { from: e.b, to: e.a, edge: d.edge }; }); };
+  for (const members of groups.values()) {
+    const rings = new Map<FaceId, DE[]>();
+    if (members.some((f) => { const r = ring(f); if (r) rings.set(f, r); return !r; })) continue;
+    const inGroup = new Set(members);
+    const internal = (eid: EdgeId): boolean => k.isFold(eid) && k.graph.edge(eid).faceLinks.filter((f) => inGroup.has(f)).length === 2;
+    // 朝向统一：从第一块出发，过内部折线 —— 两块在它上面走向相同 = 邻块要反过来
+    const orient = new Map<FaceId, number>([[members[0], 1]]), queue = [members[0]];
+    let ok = true;
+    for (let qi = 0; qi < queue.length && ok; qi++) {
+      const a = queue[qi];
+      for (const d of rings.get(a)!) {
+        if (!internal(d.edge)) continue;
+        const b = k.graph.edge(d.edge).faceLinks.find((f) => f !== a && inGroup.has(f));
+        if (b === undefined) continue;
+        const db = rings.get(b)!.find((x) => x.edge === d.edge)!;
+        const want = orient.get(a)! * (db.from === d.from ? -1 : 1);
+        if (!orient.has(b)) { orient.set(b, want); queue.push(b); } else if (orient.get(b) !== want) ok = false;   // 不可定向（莫比乌斯式）→ 逐块写
+      }
+    }
+    if (!ok || orient.size !== members.length) continue;
+    // 外圈 = 各块（按朝向）的有向边去掉内部折线；连成一个简单环才算
+    const next = new Map<VertexId, VertexId>();
+    let n = 0;
+    for (const f of members) for (const d of rings.get(f)!) {
+      if (internal(d.edge)) continue;
+      const [u, v] = orient.get(f)! > 0 ? [d.from, d.to] : [d.to, d.from];
+      if (next.has(u)) { ok = false; break; }
+      next.set(u, v); n++;
+    }
+    if (!ok || !n) continue;
+    const start = next.keys().next().value as VertexId, loop: VertexId[] = [start];
+    for (let v = next.get(start)!; v !== start; v = next.get(v)!) { if (v === undefined || loop.length > n) { ok = false; break; } loop.push(v); }
+    if (!ok || loop.length !== n) continue;
+    out.polys.push(loop);
+    for (const f of members) out.done.add(f);
+  }
+  return out;
+}
 
 export interface ObjExportOpts {
   /** 带洞面的三角化（世界坐标）。缺省 → 带洞面只导出外环（洞丢失，导出文本里留注释）。 */
@@ -42,7 +96,10 @@ export function exportObj(k: GeomView, opts: ObjExportOpts = {}): string {
   };
   const body: string[] = [];
   let holedDropped = 0;
+  const folded = foldPolygons(k);
+  for (const loop of folded.polys) body.push(`f ${loop.map((v) => vid(k.graph.pt(v))).join(" ")}`);
   for (const f of k.faces()) {
+    if (folded.done.has(f.id)) continue;
     const rings = k.faceRings3(f.id);
     if (!rings) continue;
     if (f.holes.length === 0) {

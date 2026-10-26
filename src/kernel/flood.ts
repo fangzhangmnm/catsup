@@ -15,13 +15,15 @@ export type EdgeGate = (eid: EdgeId) => boolean;
 /** 现成的判定。角度一律用弯折角（Kernel.bendDeg：0 = 平展、180 = 对折；2026-10-26 以前用二面角绝对值，尖屋脊会被当成平的）。 */
 export const gates = {
   /** 只过软边 = 曲面（SketchUp 的 Surface；0.10 设计稿 §4.2：soft 决定成不成一张面来选，smooth 只管着色）。 */
-  soft: (k: Pick<Kernel, "isSoft">): EdgeGate => (e) => k.isSoft(e),
+  soft: (k: Pick<Kernel, "isSoft" | "isFold">): EdgeGate => (e) => k.isSoft(e) || k.isFold(e),   // 折线两侧是同一个面（DT87）：曲面灌法也跨它
+  /** 只跨折线 = 一个多边形（DT87：被折线连着的几块平面片 = 一张面）。 */
+  fold: (k: Pick<Kernel, "isFold">): EdgeGate => (e) => k.isFold(e),
   /** 过软边，或两膜夹角 ≤ deg 的边（油漆桶「到锐角为止」）。 */
-  softOrFlat: (k: Pick<Kernel, "isSoft" | "bendDeg">, deg: number): EdgeGate => (e) => { if (k.isSoft(e)) return true; const d = k.bendDeg(e); return d !== null && d <= deg; },
+  softOrFlat: (k: Pick<Kernel, "isSoft" | "isFold" | "bendDeg">, deg: number): EdgeGate => (e) => { if (k.isSoft(e) || k.isFold(e)) return true; const d = k.bendDeg(e); return d !== null && d <= deg; },
   /** 任何边（连通的面）。 */
   any: (): EdgeGate => () => true,
   /** 夹角小于 deg 的**硬**边（拍平 DT7 的候选：软边从来不是候选，平滑组自动不碰）。 */
-  hardBelow: (k: Pick<Kernel, "isSoft" | "bendDeg">, deg: number): EdgeGate => (e) => { if (k.isSoft(e)) return false; const d = k.bendDeg(e); return d !== null && d < deg; },
+  hardBelow: (k: Pick<Kernel, "isSoft" | "isFold" | "bendDeg">, deg: number): EdgeGate => (e) => { if (k.isSoft(e) || k.isFold(e)) return false; const d = k.bendDeg(e); return d !== null && d < deg; },
 } as const;
 
 /** 从种子面灌：经 gate 放行的边走到邻面。种子不存在 → []。 */
@@ -41,7 +43,9 @@ export function floodFaces(k: FloodView, seed: FaceId, gate: EdgeGate): FaceId[]
 }
 
 /** 曲面：从一张面出发沿软边灌出的面集（派生态，不存）。 */
-export function surfaceFaces(k: Pick<Kernel, "face" | "isSoft" | "graph">, seed: FaceId): FaceId[] { return floodFaces(k, seed, gates.soft(k)); }
+export function surfaceFaces(k: Pick<Kernel, "face" | "isSoft" | "isFold" | "graph">, seed: FaceId): FaceId[] { return floodFaces(k, seed, gates.soft(k)); }
+/** 一张面 = 被折线连着的那几块平面片（DT87）；没有折线 = 就它自己。 */
+export function polygonFaces(k: Pick<Kernel, "face" | "isFold" | "graph">, seed: FaceId): FaceId[] { return floodFaces(k, seed, gates.fold(k)); }
 
 /** 把一批面全部分组：每组 = 经 gate 放行的边连起来、且都在这批面里的连通分量。组内顺序 = 灌到的顺序；组之间按各自最小的面 id 排（确定性）。 */
 export function partitionFaces(k: FloodView, faces: Iterable<FaceId>, gate: EdgeGate): FaceId[][] {

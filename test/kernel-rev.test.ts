@@ -12,7 +12,7 @@ const box = (k: Kernel): void => {
 };
 
 /** 查询 / 构造类方法（不改状态，不要求 bump）。 */
-const QUERIES = new Set(["constructor", "toBrep", "clone", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "dihedralDeg", "bendDeg", "inwardAcross", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3", "curves", "curveById", "curveOf", "curveProblems", "isBreakJunction", "isFaceHidden", "isEdgeHidden"]);
+const QUERIES = new Set(["constructor", "toBrep", "clone", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "isFold", "foldPlan", "dihedralDeg", "bendDeg", "inwardAcross", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3", "curves", "curveById", "curveOf", "curveProblems", "isBreakJunction", "isFaceHidden", "isEdgeHidden"]);
 /** 改写动词：每个在这里被调一次，rev 必须严格递增。 */
 const VERBS: Record<string, (k: Kernel) => void> = {
   addEdges: (k) => { k.addEdges([[P(5, 5), P(6, 5)]]); },
