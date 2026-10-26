@@ -188,6 +188,8 @@ export interface ViewState {
   planeGizmo?: { origin: Pt3; normal: Pt3; u: Pt3; v: Pt3; size: number; hot: string | null } | null;
   /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
   poolAxes?: readonly Frame[] | null;
+  /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
+  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; hot: string | null } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
@@ -298,6 +300,7 @@ export class Renderer3 {
   private snapMarker: any;
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
+  private xgLines: any; private xgKey = "";   // 变换 gizmo（2026-10-26）
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
@@ -439,6 +442,11 @@ export class Renderer3 {
     this.gizmoQuad = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: GIZMO_COLOR, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthTest: false, depthWrite: false }));
     this.gizmoQuad.renderOrder = 10; this.gizmoQuad.frustumCulled = false; this.gizmoQuad.visible = false;
     this.scene.add(this.gizmoQuad);
+    // 变换 gizmo（移动箭头 + 旋转环；透视画，同缩放柄）
+    this.xgLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX * 1.5, { vertexColors: true }));
+    this.xgLines.material.depthTest = false; this.xgLines.material.depthWrite = false;
+    this.xgLines.renderOrder = 11; this.xgLines.frustumCulled = false; this.xgLines.visible = false;
+    this.scene.add(this.xgLines);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -869,6 +877,33 @@ export class Renderer3 {
       }
       this.gizmoLines.visible = true; this.gizmoQuad.visible = true;
     } else { this.gizmoLines.visible = false; this.gizmoQuad.visible = false; this.gizmoKey = ""; }
+
+    // ---- 变换 gizmo：三根箭头（箭杆 + 箭头）+ 三个环，RGB = XYZ，悬停 / 拖着的那个换橙 ----
+    const xg = view.xformGizmo;
+    if (xg) {
+      const r6 = (p: Pt3): string => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`;
+      const k = `${r6(xg.origin)}/${r6(xg.axes.x)}/${r6(xg.axes.y)}/${r6(xg.axes.z)}/${xg.arrow.toExponential(3)}/${xg.hot ?? ""}`;
+      if (k !== this.xgKey) {
+        this.xgKey = k;
+        const pos: number[] = [], col: number[] = [];
+        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+        const at = (d: Pt3, t: number): Pt3 => ({ x: xg.origin.x + d.x * t, y: xg.origin.y + d.y * t, z: xg.origin.z + d.z * t });
+        const hexOf = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const;
+        for (const ax of ["x", "y", "z"] as const) {
+          const d = xg.axes[ax], others = (["x", "y", "z"] as const).filter((o) => o !== ax).map((o) => xg.axes[o]);
+          const hm = xg.hot === `m${ax}` ? GIZMO_HOT : hexOf[ax], hr = xg.hot === `r${ax}` ? GIZMO_HOT : hexOf[ax];
+          push(at(d, xg.start), at(d, xg.arrow), hm);
+          const tip = at(d, xg.arrow), back = xg.arrow * 0.82, w = xg.arrow * 0.07;
+          for (const o of others) for (const sg of [1, -1]) push(tip, { x: xg.origin.x + d.x * back + o.x * w * sg, y: xg.origin.y + d.y * back + o.y * w * sg, z: xg.origin.z + d.z * back + o.z * w * sg }, hm);
+          const ref = ax === "z" ? xg.axes.x : ax === "x" ? xg.axes.y : xg.axes.z, N = 48;
+          const v = { x: d.y * ref.z - d.z * ref.y, y: d.z * ref.x - d.x * ref.z, z: d.x * ref.y - d.y * ref.x };
+          const P = (i: number): Pt3 => { const a = (2 * Math.PI * i) / N, c = Math.cos(a) * xg.ring, sn = Math.sin(a) * xg.ring; return { x: xg.origin.x + ref.x * c + v.x * sn, y: xg.origin.y + ref.y * c + v.y * sn, z: xg.origin.z + ref.z * c + v.z * sn }; };
+          for (let i = 0; i < N; i++) push(P(i), P(i + 1), hr);
+        }
+        this.setLineGeometry(this.xgLines, pos, col);
+      }
+      this.xgLines.visible = true;
+    } else { this.xgLines.visible = false; this.xgKey = ""; }
 
     // ---- DT15 选中的组 / 组件的轴：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
     const pax = view.poolAxes;

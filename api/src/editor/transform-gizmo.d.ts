@@ -1,0 +1,47 @@
+import { type Pt3 } from "../kernel/geom.ts";
+import type { PointerFrame, Viewport } from "./pointer-frame.ts";
+export type AxisName = "x" | "y" | "z";
+export type XformHandle = "mx" | "my" | "mz" | "rx" | "ry" | "rz";
+export declare const AXIS_NAMES: readonly AxisName[];
+/** 箭头长（CSS px）。 */
+export declare const XG_ARROW_PX = 64;
+/** 箭头从原点外多少开始算把手（CSS px；中心让给别的柄）。 */
+export declare const XG_ARROW_START_PX = 14;
+/** 旋转环半径（CSS px）：大过箭头（Blender 同款，环在外圈）——环和箭头不相交，抓的时候不含糊。 */
+export declare const XG_RING_PX = 84;
+/** 环画多少段。 */
+export declare const XG_RING_SEGS = 48;
+/** 一个变换 gizmo：原点 + 三根单位轴（上下文帧）。 */
+export interface XformGizmo {
+    origin: Pt3;
+    axes: Readonly<Record<AxisName, Pt3>>;
+}
+/** 这一帧的几何（世界）：箭头长、环半径。 */
+export interface XformGizmoGeom extends XformGizmo {
+    arrow: number;
+    ring: number;
+    start: number;
+}
+export declare function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport): XformGizmoGeom;
+/** 绕 axis 的环上的点（闭合：首尾相同）。 */
+export declare function ringPoints(G: XformGizmoGeom, ax: AxisName): Pt3[];
+/** 光标下每个把手的屏距（箭头 = 到箭杆、环 = 到环线）+ 离相机的深度（叠在一起时近的赢）。 */
+export declare function hitXformGizmo(g: XformGizmo, pf: PointerFrame, vp: Viewport, sx: number, sy: number): {
+    handle: XformHandle;
+    d: number;
+    z: number;
+}[];
+/** 拖动开始时记下的东西：移动 = 抓点沿轴的参数；转动 = 起始方向。 */
+export interface XformGrab {
+    handle: XformHandle;
+    g0: XformGizmo;
+    axis: Pt3;
+    t0: number;
+    dir0: Pt3 | null;
+}
+export declare const axisOf: (h: XformHandle) => AxisName;
+export declare function grabXform(g: XformGizmo, handle: XformHandle, pf: PointerFrame, vp: Viewport, sx: number, sy: number): XformGrab;
+/** 移动：沿轴从抓点算起走了多远（世界长度）；射线和轴平行 → null。 */
+export declare function dragMove(grab: XformGrab, pf: PointerFrame, vp: Viewport, sx: number, sy: number): number | null;
+/** 转动：从起始方向转到光标方向的有向角（弧度，(−π, π]，右手绕轴）；看不出来 → null。连续化归调用方（unwrapAngle）。 */
+export declare function dragRotate(grab: XformGrab, pf: PointerFrame, vp: Viewport, sx: number, sy: number): number | null;

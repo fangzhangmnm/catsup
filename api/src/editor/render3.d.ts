@@ -120,6 +120,19 @@ export interface ViewState {
     } | null;
     /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
     poolAxes?: readonly Frame[] | null;
+    /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
+    xformGizmo?: {
+        origin: Pt3;
+        axes: {
+            x: Pt3;
+            y: Pt3;
+            z: Pt3;
+        };
+        arrow: number;
+        ring: number;
+        start: number;
+        hot: string | null;
+    } | null;
     /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
     tape?: {
         a: Pt3;
@@ -169,6 +182,8 @@ export declare class Renderer3 {
     private arcLines;
     private landingRing;
     private handleMarkers;
+    private xgLines;
+    private xgKey;
     private protractorLines;
     /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
     private labelSprites;

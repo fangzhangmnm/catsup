@@ -1,6 +1,7 @@
 // 缩放柄埋在几何里也点得中（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」）：柄透视画、透视拾；屏上叠在一起 = 离相机近的赢。
 // ① 小盒做成组、外面再画一个大盒把它包住 → 选组 → 缩放工具拖一个角柄（在大盒里面）→ 组真的放大了。
 // ③ ×−1 吸附：拖面心柄过对面差几个像素 → 正好镜像。
+// ④ 移动箭头：沿 X 拖 1 m 正好 1 m、悬停高亮、数值小窗改距离；⑤ 旋转环：咬到 45°（2026-10-26）。
 // ② 前视图 / 后视图对着一个盒：前后两个面心柄叠在屏上同一处 → 按住的是前面那个（锚点 = 后面的面心）。created 2026-10-25 by Claude Opus 5.5
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -9,6 +10,7 @@ const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 await page.goto(process.argv[2] ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1200);
 if (process.env.SHOT) await page.exposeFunction("__SHOT", () => page.screenshot({ path: `${process.env.SHOT}-scale-xray.png` }));
+if (process.env.SHOT) await page.exposeFunction("__SHOT2", () => page.screenshot({ path: `${process.env.SHOT}-gizmo.png` }));
 const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const c = document.getElementById("board"), r = c.getBoundingClientRect(), px = (p) => e.cam.angularPx(p, e.vp());
@@ -56,11 +58,43 @@ const res = await page.evaluate(async () => {
   const vx = e.kernel.vertices().map((v) => v.x);
   out.negX = [Math.min(...vx), Math.max(...vx)].map((x) => +x.toFixed(6));
   out.faces = e.kernel.faces().length;
+  // ④ 移动箭头（2026-10-26，user「或者其实scale改名就是move rotate scale全家？」）：盒 [0,1]³，格点吸附开 0.2 m；X 箭头中段抓住、沿 X 拖 1 m → 正好 1 m；
+  //    悬停 Y 箭头 = 高亮；落定后数值小窗输「2」= 改成 2 m
+  e.clearAll(); e.setTool("select");
+  box(0, 0, 0, 1, 1, 1);
+  e.cam.setView("iso"); e.zoomExtents(); e.cam.halfH *= 1.4;
+  e.setGrid({ ...e.grid, on: true, step: 1, subdiv: 5 });
+  e.selectAll(); e.setTool("transform");
+  const O = P(0.5, 0.5, 0.5), ppm = (d) => { const a0 = px(O), b0 = px({ x: O.x + d.x, y: O.y + d.y, z: O.z + d.z }); return Math.hypot(a0.x - b0.x, a0.y - b0.y); };
+  const onArrow = (d) => { const L = 50 / ppm(d); return { x: O.x + d.x * L, y: O.y + d.y * L, z: O.z + d.z * L }; };   // 箭杆 50 px 处（箭头 14–64 px，环 84 px）
+  const yGrip = px(onArrow(P(0, 1, 0)));
+  fire("pointermove", yGrip.x, yGrip.y, 0); await sleep(30);
+  out.hotY = e.handlers.transform.hot;
+  const g0 = onArrow(P(1, 0, 0)), g1 = { x: g0.x + 1, y: g0.y, z: g0.z };
+  await drag(px(g0), px(g1), 10);
+  const xs4 = () => { const v = e.kernel.vertices().map((q) => q.x); return [Math.min(...v), Math.max(...v)].map((x) => +x.toFixed(6)); };
+  out.moved = xs4();
+  out.vcbKind = e.vcbState().kind;
+  out.vcb2 = e.applyVcb("2").ok; out.moved2 = xs4();
+  // ⑤ 旋转环：新盒 [0,1]²×[0,1]，Z 环（水平）从 20° 抓到 66° → 格点吸附开 = 咬到 45° → 盒子转成菱形，最大 x = 0.5 + √2/2
+  e.clearAll(); e.setTool("select");
+  box(0, 0, 0, 1, 1, 1);
+  e.selectAll(); e.setTool("transform");
+  const R = 84 / ppm(P(1, 0, 0)), ring = (deg) => ({ x: O.x + R * Math.cos(deg * Math.PI / 180), y: O.y + R * Math.sin(deg * Math.PI / 180), z: O.z });
+  const r0 = px(ring(20));   // 不抓 0°：那里 Y 环和 Z 环相交
+  fire("pointerdown", r0.x, r0.y, 1);
+  for (let d = 24; d <= 66; d += 6) { const q = px(ring(d)); fire("pointermove", q.x, q.y, 1); await sleep(16); }
+  const qe = px(ring(66)); fire("pointermove", qe.x, qe.y, 1); await sleep(80); fire("pointerup", qe.x, qe.y, 0); await sleep(30);
+  out.rotMaxX = +Math.max(...e.kernel.vertices().map((q) => q.x)).toFixed(4);
+  out.rotKind = e.vcbState().kind;
   out.label = [...document.querySelectorAll(".hud-rail-tools .tb-btn")].map((b) => b.textContent.trim()).filter((t) => t === "变换" || t === "缩放");
+  if (globalThis.__SHOT2) await globalThis.__SHOT2();
   return out;
 });
 console.log(JSON.stringify(res));
 const near = res.anchors.front === 1 && res.anchors.back === 0;   // 前视图相机在 −Y：前面 = y=0 的面心柄、锚点 y=1；后视图反过来
-const ok = res.buriedScaled && near && res.negX[0] === 0 && res.negX[1] === 1 && res.faces === 6 && !errs.length;
+const ok = res.buriedScaled && near && res.negX[0] === 0 && res.negX[1] === 1 && res.faces === 6
+  && res.hotY === "my" && res.moved[0] === 1 && res.moved[1] === 2 && res.vcbKind === "move" && res.vcb2 && res.moved2[0] === 2 && res.moved2[1] === 3
+  && Math.abs(res.rotMaxX - (0.5 + Math.SQRT1_2)) < 1e-3 && res.rotKind === "rotate" && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

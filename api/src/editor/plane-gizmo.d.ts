@@ -19,6 +19,8 @@ export declare function gizmoBasis(n0: Pt3): {
     u: Pt3;
     v: Pt3;
 };
+/** 世界长度 / 屏幕 px（在 p 处）：投两点量。投不出来 → null。 */
+export declare function worldPerPx(pf: PointerFrame, vp: Viewport, p: Pt3, u: Pt3): number | null;
 export interface GizmoGeom {
     origin: Pt3;
     normal: Pt3;
