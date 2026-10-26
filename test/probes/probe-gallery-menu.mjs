@@ -20,6 +20,6 @@ await page.click(".popup-menu .menu-item:has-text('使用手册')"); await page.
 res.helpHidden = await page.evaluate(() => document.getElementById("helpSheet").hidden);
 res.helpOnTop = await page.evaluate(() => { const h = document.getElementById("helpClose"); if (!h) return "no helpClose"; const r = h.getBoundingClientRect(); if (!r.width) return "help not shown"; const top = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2); return !!top && (top === h || h.contains(top)); });
 console.log(JSON.stringify(res));
-const ok = res.galleryOpen && res.trashIconHidden && res.items.join() === "回收站,使用手册,调试日志,强制更新" && res.trashBar && res.helpOnTop === true;
+const ok = res.galleryOpen && res.trashIconHidden && res.items.join() === "回收站,备份箱,使用手册,调试日志,强制更新"   /* 备份箱 = 冲突面里换下的那一版（v0.13.76 迁库加的；探针 v0.14.54 跟上，Claude Opus 5.5） */ && res.trashBar && res.helpOnTop === true;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);
