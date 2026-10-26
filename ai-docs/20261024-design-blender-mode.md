@@ -4,6 +4,8 @@
 > 出处：user 2026-10-24 在「建模历史」会话里的讨论（私仓 `~/jupyter/20260520 私仓/20261023 建模历史/ai-docs/20261024-discussions.md` D-1 … D-14；背景 = 同仓 `ai-docs/20261023-vr-scene-postmortem.md`，user 2024 年一个放弃的 VR 场景的 postmortem）。只收和 CatsUp 设计有关的结论与 user 原话；引用一律原样。
 > 同批拆出的几份：见 `20261024-design-from-modeling-history-index.md`。
 
+> **⚠ 方向变了（user 2026-10-25，CatsUp 会话；Claude Opus 5.5 标）**：「好，那么拍板，以后争取不要blender mesh。就用brep。除非性能brep很劣于bmesh」「关键不是不要bmesh，而是只有一种模态哈哈哈。不用切换网格的数据类型」「blender很简单，一个hard surface modeling的workflow，一个organic modeling的workflow就可以了，同一个几何，不同的编辑工具，不同的快捷键手势」——下面「blender是另外一个内核」那条作废：同一份 brep 几何、两个工作流（不同工具 / 快捷键 / 手势）。见纪元账本 `20261025-dog-tank-epoch-ledger.md` DT19 / DT22。
+
 ## 3. Blender 模态（定方向）
 
 - 「1.加blender模态。两种不同的编辑方法，不用出app. 2. 和weebpaint结婚」「对，blender是另外一个内核」。手绘要作者摆的 UV，平面内核不存 UV；SU 式共面合并会和有机编辑打架。
