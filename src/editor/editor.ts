@@ -1190,6 +1190,30 @@ export class Editor {
   // ---------- 隐藏（DT49，user 2026-10-25「然后 hide unhide all也马上需要了，这个gltf规范里有吗？」；存档 = glTF KHR_node_visibility）----------
   // 组件 = 整份藏（藏父连子）；散的面 / 线 = 各自打隐藏标记（user「嗯线和面也可以hidden，这样可以挖洞看里面，blender也支持。合理。」）；
   // 组不是物体、没有自己的隐藏 = 把组里（连同子组、放在里面的实例）的面 / 线 / 实例全藏。
+  /**
+   * 范围里的断口（共线、只连两段、两边挂的面一样 = 画面上的小鼓包）：有散几何选区 = 选区里的点；scope = "context" 或没选 = 当前在编辑的物体里全部。
+   * 纪元排期 T7 / DT5（user「他们语义上就是一个东西，只是作用域……不同」：和焊边橡皮的共轴那支同一个动词）。
+   */
+  breaksInScope(scope: "selection" | "context" = this.hasGeometrySelection() || this.hasPointSelection() ? "selection" : "context"): VertexId[] {
+    const k = this.kernel;
+    let cand: Iterable<VertexId>;
+    if (scope === "selection") cand = new Set(moveTargetsSelection(k, this.selection));
+    else cand = k.vertices().map((v) => v.id);
+    const out: VertexId[] = [];
+    for (const vid of cand) { const v = k.graph.hasVertex(vid) ? k.graph.vertex(vid) : null; if (v && v.edges.size === 2 && k.isBreakJunction(vid)) out.push(vid); }
+    return out;
+  }
+  /** 焊接全部断口（一次 = 一步）。返回焊了几处。 */
+  weldAllBreaks(scope?: "selection" | "context"): number { return this.step(() => {
+    const ids = this.breaksInScope(scope), k = this.kernel;
+    if (!ids.length) { this.host.hint(scope === "selection" ? "选区里没有断口" : "没有断口（共线、只连两段的点）"); return 0; }
+    const n0 = this.opCount;
+    this.commitOp({ op: "dissolveVertices", at: this.activePool(), points: ids.map((v) => k.graph.pt(v)) });
+    if (this.opCount === n0) return 0;
+    this.host.hint(`焊了 ${ids.length} 处断口`);
+    this.host.changed(); this.draw();
+    return ids.length;
+  }); }
   /** 选中的组件里有被缩放过的（应用缩放钮出不出）。 */
   hasScaledInstanceSelection(): boolean { return this.scaledInstancePicks().length > 0; }
   private scaledInstancePicks(): InstId[] {
