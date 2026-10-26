@@ -49,6 +49,19 @@ describe("吸到格点（DT4）", () => {
     for (const v of k2.vertices()) assert(Math.abs(Math.hypot(v.x - 1, v.y - 1) - 0.3) < 1e-5, `点 ${v.id} 到 (1,1) 的距离 ${Math.hypot(v.x - 1, v.y - 1)}`);
     assert(k2.curves().filter((c) => c.kind === "circle").length === 2, "还是两个圆");
   });
+  it("别处有点合并（两个点吸到同一格点）时，整条平移的圆照样是圆（内核挪点：一批里有合并 = 这批的曲线都不算圆了 → 曲线单独一批先挪）", () => {
+    const k = new Kernel();
+    realCircle(k, P(1.013, 0.987, 0), 0.3, 24);
+    loop(k, [P(3.01, 0.01), P(3.03, 0.02), P(3.52, 0.49), P(3.02, 0.51)]);   // 一条短边：两头都吸到 (3, 0) = 合并
+    const nv0 = k.vertices().length;
+    let s = new Scene(k);
+    s = applyOp(s, snapOp(s, 0.1)).scene;
+    const k2 = s.kernelOf(rootAt(s));
+    eq(k2.vertices().length, nv0 - 1, "真的合并了一个点");
+    const circles = k2.curves().filter((c) => c.kind === "circle" && c.params);
+    eq(circles.length, 1, "圆还在（带圆心半径）");
+    assert(Math.abs(circles[0].params!.center.x - 1) < 1e-6 && Math.abs(circles[0].params!.center.y - 1) < 1e-6, "圆心吸到 (1,1)");
+  });
   it("逐点吸：圆上每个点各自落到格点", () => {
     const k = new Kernel();
     loop(k, circle(P(1.013, 0.987, 0), 0.3, 12), true);

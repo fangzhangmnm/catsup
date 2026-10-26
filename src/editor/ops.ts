@@ -417,15 +417,18 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (!plan.moves.length) return { scene: s, events: [] };
       const crease = op.crease === "soft" ? ["soft", "smooth"] : [];
       const opts = crease.length ? { creaseLayers: crease } : undefined;
+      // 两批：整条平移的曲线先挪（这批里没有合并 → 圆 / 弧照样带圆心半径），其余的点后挪（合并只发生在这批）
+      const batches = [plan.moves.filter((m) => plan.rigid.has(m.id)), plan.moves.filter((m) => !plan.rigid.has(m.id))].filter((b) => b.length);
+      const run = (k: Kernel): FaceEvent[] => { const evs: FaceEvent[] = []; for (const b of batches) evs.push(...k.moveVertices(b.filter((m) => k.graph.hasVertex(m.id)), opts)); return evs; };
       // 先在拷贝上试：哪些面会破（autofold 折不平 → BURST）
-      const burst = kernel.clone().moveVertices(plan.moves, opts).filter((e) => e.type === "BURST").map((e) => (e as { face: FaceId }).face);
+      const burst = run(kernel.clone()).filter((e) => e.type === "BURST").map((e) => (e as { face: FaceId }).face);
       const events: FaceEvent[] = [];
       if (burst.length) {
         // 退路（账本 DT4「不破」）：这几张面先在原平面里三角化（三角永远是平的），对角线和折缝同样的层；点的 id 不变（对角线只连现有的点）
         const diag = triangulationDiagonals(kernel, [...new Set(burst)].sort((a, b) => a - b));
         if (diag.length) events.push(...kernel.addEdges(diag, crease.length ? { layers: crease } : undefined));
       }
-      events.push(...kernel.moveVertices(plan.moves.filter((m) => kernel.graph.hasVertex(m.id)), opts));
+      events.push(...run(kernel));
       if (events.some((e) => e.type === "BURST")) throw new PlanarBurst("吸到格点会让面破掉——三角化也救不回的情况，已整步撤回（请导出复现包）");
       return { scene: s, events };
     }

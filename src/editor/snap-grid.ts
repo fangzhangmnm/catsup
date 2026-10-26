@@ -18,6 +18,8 @@ export interface GridSnapPlan {
   curves: number;
   /** 曲线只有一部分在范围里、因此没动的点。 */
   skipped: number;
+  /** 整条平移的曲线上的点：执行时单独一批先挪（内核挪点：一批里有点合并 = 这批挪过的曲线都不再算圆，别处的合并不能连累它们）。 */
+  rigid: ReadonlySet<VertexId>;
 }
 
 const EPS_MOVE = 1e-9;
@@ -30,7 +32,7 @@ export function planGridSnap(k: Kernel, scope: readonly VertexId[] | null, latti
   const g = k.graph, inv = invert(lattice), s = opt.step;
   const snap = (p: Pt3): Pt3 => { const q = applyPt(lattice, p); return applyPt(inv, { x: Math.round(q.x / s) * s, y: Math.round(q.y / s) * s, z: Math.round(q.z / s) * s }); };
   const vs = new Set<VertexId>(scope ? scope.filter((v) => g.hasVertex(v)) : k.vertices().map((v) => v.id));
-  const target = new Map<VertexId, Pt3>(), skip = new Set<VertexId>();
+  const target = new Map<VertexId, Pt3>(), skip = new Set<VertexId>(), rigid = new Set<VertexId>();
   let curves = 0;
   if (opt.curves === "rigid") {
     for (const c of k.curves()) {
@@ -41,7 +43,7 @@ export function planGridSnap(k: Kernel, scope: readonly VertexId[] | null, latti
       if (!inScope.length) continue;
       if (inScope.length < cv.size) { for (const v of inScope) skip.add(v); continue; }
       const c0 = c.params.center, c1 = snap(c0), d = { x: c1.x - c0.x, y: c1.y - c0.y, z: c1.z - c0.z };
-      for (const v of cv) if (!target.has(v)) { const p = g.pt(v); target.set(v, { x: p.x + d.x, y: p.y + d.y, z: p.z + d.z }); }
+      for (const v of cv) if (!target.has(v)) { const p = g.pt(v); target.set(v, { x: p.x + d.x, y: p.y + d.y, z: p.z + d.z }); rigid.add(v); }
       curves++;
     }
   }
@@ -50,7 +52,7 @@ export function planGridSnap(k: Kernel, scope: readonly VertexId[] | null, latti
   for (const [id, to] of [...target].sort((a, b) => a[0] - b[0])) { const p = g.pt(id); if (Math.abs(to.x - p.x) + Math.abs(to.y - p.y) + Math.abs(to.z - p.z) > EPS_MOVE) moves.push({ id, to }); }
   let skipped = 0;
   for (const v of skip) if (!target.has(v)) skipped++;
-  return { moves, curves, skipped };
+  return { moves, curves, skipped, rigid };
 }
 
 /**

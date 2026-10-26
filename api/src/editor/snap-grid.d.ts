@@ -15,6 +15,8 @@ export interface GridSnapPlan {
     curves: number;
     /** 曲线只有一部分在范围里、因此没动的点。 */
     skipped: number;
+    /** 整条平移的曲线上的点：执行时单独一批先挪（内核挪点：一批里有点合并 = 这批挪过的曲线都不再算圆，别处的合并不能连累它们）。 */
+    rigid: ReadonlySet<VertexId>;
 }
 /**
  * 规划：scope = 只看这些点（null = 池里全部）；lattice = 池本地坐标 → 格子坐标的仿射变换（格点 = 三个分量都是 step 的整数倍）。
