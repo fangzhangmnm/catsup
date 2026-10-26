@@ -8,6 +8,7 @@ const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, dev
 const errs = []; page.on("pageerror", (e) => errs.push(e.message));
 page.on("console", (m) => { if (m.type() === "error") errs.push("console: " + m.text()); });
 await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(400); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
+if (process.env.SHOT) await page.exposeFunction("__SHOT", () => page.screenshot({ path: `${process.env.SHOT}-pad-imperial.png` }));   // SHOT=前缀：英制小键盘截图
 const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor; const vp = () => e.vp(); const c = document.getElementById("board"); const r = c.getBoundingClientRect();
   const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
@@ -28,6 +29,17 @@ const res = await page.evaluate(async () => {
   const c0 = px(Pt(1, 1, 0));
   await drag(c0, { x: c0.x, y: c0.y - 70 });
   out.vcbShownAfterPP = !vcbEl.hidden && e.vcbState().kind === "pp";
+  // ①' 小键盘单位键跟单位走（user 2026-10-25「小键盘应该跟着公制英制度变换」）
+  const unitKeys = () => [...vcbEl.querySelectorAll(".vcb-pad-units .vcb-key")].map((b) => b.textContent).join(" ");
+  vcbEl.querySelector(".vcb-field").click(); await sleep(30);
+  const kMetric = unitKeys();
+  e.vcbUnit = "ft"; await sleep(30);
+  const kImperial = unitKeys();
+  if (globalThis.__SHOT) await globalThis.__SHOT();
+  e.vcbUnit = "m"; await sleep(30);
+  out.padUnits = kMetric === "m cm mm" && kImperial === `' " 空格` && unitKeys() === "m cm mm";
+  out.padUnitsSeen = [kMetric, kImperial];
+  vcbEl.querySelector(".vcb-field").click(); await sleep(30);
   await type("2");
   out.ppExact2 = Math.abs(Math.max(...zs()) - 2) < 1e-9 && e.kernel.faces().length === 6;
   await type("150cm");
@@ -87,7 +99,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.vcbHiddenBefore && res.vcbShownAfterPP && res.ppExact2 && res.ppExact15 && res.rectExact && res.circleRadius && res.circleSegments && res.boxSelected && res.copyMade && res.arrayX3 && res.arrayDiv2 && res.plainMoveArray && res.arrayUndoOnce && res.arrayRedoOnce && res.vcbHiddenAfterTool && errs.length === 0;
+const ok = res.vcbHiddenBefore && res.vcbShownAfterPP && res.padUnits && res.ppExact2 && res.ppExact15 && res.rectExact && res.circleRadius && res.circleSegments && res.boxSelected && res.copyMade && res.arrayX3 && res.arrayDiv2 && res.plainMoveArray && res.arrayUndoOnce && res.arrayRedoOnce && res.vcbHiddenAfterTool && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

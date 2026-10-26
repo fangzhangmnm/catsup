@@ -119,6 +119,8 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .vcb-field.typing { border-color: var(--accent); color: var(--accent); }
 .vcb-pad { display: flex; flex-direction: column; gap: 4px; padding-top: 4px; }
 .vcb-row { display: flex; gap: 4px; }
+.vcb-pad-units { display: flex; flex-direction: column; gap: 4px; }
+.vcb-pad-units:empty { display: none; }
 .vcb-key { flex: 1; min-width: 44px; min-height: 40px; border: 0; border-radius: 8px; background: rgba(0,0,0,.05); font: inherit; font-size: 16px; cursor: pointer; }
 .vcb-key:active { background: var(--accent-soft); color: var(--accent); }
 .vcb-key.primary { background: var(--accent); color: #fff; }

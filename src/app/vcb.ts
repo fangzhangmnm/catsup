@@ -3,6 +3,7 @@
 // 规则：刚做完一步（editor.vcbState().kind 非空）时，桌面上按数字 / . / , / - / / / * 直接开始输入（字母只在缓冲非空时进小窗，
 // 所以 X / S / M 还是工具快捷键）；Enter 应用、Esc 清空、Backspace 删一位。触屏：点小窗展开键盘。
 import type { Editor } from "../editor/editor.ts";
+import { padUnitKeys } from "../editor/vcb.ts";
 import { showNotice } from "./ui/notice.ts";
 import { fieldControl } from "./ui/field-control.ts";
 
@@ -13,9 +14,8 @@ const KEYS: readonly (readonly string[])[] = [
   ["4", "5", "6", ","],
   ["1", "2", "3", "-"],
   ["0", ".", "x", "/"],
-  ["s", "m", "cm", "mm"],
-  ["清空", "↵"],
 ];
+const LAST_ROW: readonly string[] = ["清空", "↵"];
 
 export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
   let buf = "";
@@ -29,19 +29,34 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
   const strip = root.querySelector<HTMLElement>("#toolStrip");
   root.append(params, label, field, pad);
   if (strip) root.appendChild(strip);
-  for (const row of KEYS) {
+  const keyRow = (row: readonly string[]): HTMLElement => {
     const r = document.createElement("div"); r.className = "vcb-row";
     for (const k of row) {
       const b = document.createElement("button"); b.type = "button"; b.className = "vcb-key" + (k === "↵" ? " primary" : k === "清空" ? " wide" : ""); b.textContent = k;
       b.addEventListener("click", () => press(k));
       r.appendChild(b);
     }
-    pad.appendChild(r);
-  }
+    return r;
+  };
+  for (const row of KEYS) pad.appendChild(keyRow(row));
+  // 单位键那几行跟着这一步收什么 + 当前单位换（user 2026-10-25「小键盘应该跟着公制英制度变换」）；签名变了才重建
+  const unitRows = document.createElement("div"); unitRows.className = "vcb-pad-units";
+  pad.append(unitRows, keyRow(LAST_ROW));
+  let unitSig = "";
+  const renderUnits = (): void => {
+    const kind = editor.vcbState().kind;
+    const keys = kind ? padUnitKeys(kind, editor.vcbUnit) : [];
+    const sig = keys.join("|");
+    if (sig === unitSig) return;
+    unitSig = sig;
+    unitRows.replaceChildren();
+    for (let i = 0; i < keys.length; i += 4) unitRows.appendChild(keyRow(keys.slice(i, i + 4)));
+  };
   const press = (k: string): void => {
     if (k === "⌫") buf = buf.slice(0, -1);
     else if (k === "清空") buf = "";
     else if (k === "↵") apply();
+    else if (k === "空格") buf += " ";
     else buf += k;
     render();
   };
@@ -83,6 +98,7 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     field.textContent = buf || st.echo || "…";
     field.classList.toggle("typing", !!buf);
     pad.hidden = !padOpen || !st.kind;
+    if (!pad.hidden) renderUnits();
   };
   field.addEventListener("click", () => { padOpen = !padOpen; render(); });
   const feedKey = (ev: KeyboardEvent): boolean => {
@@ -94,7 +110,7 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     if (k === "Escape") { if (!buf) return false; buf = ""; render(); return true; }
     if (k === "Backspace") { if (!buf) return false; buf = buf.slice(0, -1); render(); return true; }
     const starter = /^[0-9.,\-+*/]$/.test(k);
-    const cont = /^[0-9.,\-+*/xsmc°]$/i.test(k);
+    const cont = /^[0-9.,\-+*/xsmc°'"ftindeg ]$/i.test(k);   // 接着打：单位后缀（m / cm / mm / ft / in / ' / " / ° / deg）、段数 s、英制分数里的空格
     if (starter || (buf && cont)) { buf += k; render(); return true; }
     return false;
   };

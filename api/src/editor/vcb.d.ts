@@ -34,6 +34,9 @@ export type VcbValue = {
     mode: "x" | "/";
     n: number;
 };
+/** 小键盘的单位键（user 2026-10-25「小键盘应该跟着公制英制度变换」）：按这一步收什么 + 当前单位。
+ *  长度 = 公制 m / cm / mm、英制 ' / " / 空格（`3' 6 1/2"` 要空格）；角度 = °；圆 / 弧多一个段数 s；缩放只收倍率 = 没有单位键。 */
+export declare function padUnitKeys(kind: VcbKind, unit: LengthUnit): string[];
 /** 解析输入。失败 → { error }。 */
 export declare function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): VcbValue | {
     error: string;

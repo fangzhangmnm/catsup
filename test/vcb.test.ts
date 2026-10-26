@@ -1,6 +1,6 @@
 // 数值小窗（#11，2026-10-21，Claude Fable 5.1）：解析（单位 / 后缀 / 段数 / 阵列 / 错误）+ 阵列变换序列。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { type VcbValue, parseVcb, arrayTranslations, arrayRotations, fmtVcbLength, vcbPrompt } from "../src/editor/vcb.ts";
+import { type VcbValue, parseVcb, arrayTranslations, arrayRotations, fmtVcbLength, vcbPrompt, padUnitKeys } from "../src/editor/vcb.ts";
 import { applyPt } from "../src/scene/xform.ts";
 
 const ctx = { unit: "m" as const };
@@ -64,4 +64,17 @@ describe("vcb: 阵列变换", () => {
     eq(fmtVcbLength(2.5, "cm"), "250 cm"); eq(fmtVcbLength(0.1234, "m"), "0.123 m");
     eq(vcbPrompt("pp"), "高度"); eq(vcbPrompt(null), "");
   });
+  it("小键盘单位键跟这一步 + 单位走（user 2026-10-25「小键盘应该跟着公制英制度变换」）", () => {
+    eq(padUnitKeys("line", "m").join(" "), "m cm mm");
+    eq(padUnitKeys("pp", "ft").join(" "), `' " 空格`);
+    eq(padUnitKeys("move", "in").join(" "), `' " 空格`);
+    eq(padUnitKeys("rotate", "m").join(" "), "°");
+    eq(padUnitKeys("protractor", "ft").join(" "), "°", "角度不跟长度单位");
+    eq(padUnitKeys("scale", "m").length, 0, "缩放只收倍率");
+    eq(padUnitKeys("circle", "cm").join(" "), "m cm mm s");
+    eq(padUnitKeys("arc", "ft").join(" "), `' " 空格 ° s`);
+    // 键盘打出来的英制都解析得了
+    for (const t of [`3'6"`, `3' 6 1/2"`, `42"`]) assert(!("error" in parseVcb(t, "line", { unit: "ft" })), t);
+  });
 });
+

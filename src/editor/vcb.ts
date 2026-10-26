@@ -52,6 +52,17 @@ function num(part: string, ctx: VcbCtx, as: "length" | "plain"): number | string
   return v * UNIT_M[u as LengthUnit];
 }
 
+/** 小键盘的单位键（user 2026-10-25「小键盘应该跟着公制英制度变换」）：按这一步收什么 + 当前单位。
+ *  长度 = 公制 m / cm / mm、英制 ' / " / 空格（`3' 6 1/2"` 要空格）；角度 = °；圆 / 弧多一个段数 s；缩放只收倍率 = 没有单位键。 */
+export function padUnitKeys(kind: VcbKind, unit: LengthUnit): string[] {
+  if (kind === "rotate" || kind === "protractor") return ["°"];
+  if (kind === "scale") return [];
+  const len = unit === "ft" || unit === "in" ? ["'", '"', "空格"] : ["m", "cm", "mm"];
+  if (kind === "circle") return [...len, "s"];
+  if (kind === "arc" || kind === "rrect") return [...len, "°", ...(kind === "arc" ? ["s"] : [])];
+  return len;
+}
+
 /** 解析输入。失败 → { error }。 */
 export function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): VcbValue | { error: string } {
   const text = textIn.trim().toLowerCase().replace(/[，；]/g, ",").replace(/;/g, ",").replace(/×/g, "x");
