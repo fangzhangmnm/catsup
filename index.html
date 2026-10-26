@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=5a25e80abd73" />
-    <link rel="stylesheet" href="./styles.css?v=fe2662e4ee8d" />
+    <link rel="stylesheet" href="./styles.css?v=86b6518eb984" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -324,8 +324,8 @@
 
     <!-- 调试日志（黑匣子；debug-log-sheet.ts）：实验台 sunset 的接班人（user 2026-09-20）。<pre> 可选中；复制 / 分享 .txt / 清空 -->
     <!-- 物品栏（商城）：竖屏从底部抽上来（版图 ai-docs/20261024-ui-layout.md §2） -->
-    <div id="shop" class="sheet-backdrop bottom" hidden>
-      <div class="sheet sheet-bottom" role="dialog" aria-modal="true" aria-label="物品栏">
+    <div id="shop" class="drawer" hidden>
+      <div class="sheet sheet-bottom" role="dialog" aria-modal="false" aria-label="物品栏">
         <div class="sheet-head"><span>物品栏</span><button class="tb-btn" id="shopClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
         <p class="sheet-message" id="shopHint"></p>
         <div id="shopList" class="shop-list"></div>
@@ -348,6 +348,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-0bc1a56e7a84.mjs"></script>
+    <script type="module" src="./dist/catsup-dba293bf7084.mjs"></script>
   </body>
 </html>

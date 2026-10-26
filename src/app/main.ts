@@ -357,9 +357,14 @@ function renderShop(): void {
   }
   shopHint.textContent = defs.length ? `组件 ${defs.length} 种 · 图层 / 场景树以后在这里` : "还没有组件：选中几何 → 建组件（G）。图层 / 场景树以后在这里";
 }
-btnShop.addEventListener("click", () => { renderShop(); shopEl.hidden = false; });
+// 非模态（user 2026-10-25「物品栏不应该是模态的」）：开着照样画，内容跟着模型变；抽屉多高，贴底的 HUD 就往上让多少（「物品栏弹起来时会把小窗顶到上面，然后其他的hud也一样」）
+btnShop.addEventListener("click", () => { if (!shopEl.hidden) { shopEl.hidden = true; return; } renderShop(); shopEl.hidden = false; });
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
-shopEl.addEventListener("click", (ev) => { if (ev.target === shopEl) shopEl.hidden = true; });
+{
+  const sheet = shopEl.querySelector<HTMLElement>(".sheet")!;
+  const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
+  new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
+}
 type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
@@ -621,6 +626,7 @@ function syncUi(): void {
   renderModeSelect();
   renderSlots();
   renderCrumbs();
+  if (!shopEl.hidden) renderShop();
   toolStrip.render();
   vcb.render();
   btnUndo.disabled = !editor.canUndo();

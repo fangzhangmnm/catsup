@@ -9,6 +9,7 @@
   --accent: #2b6cb0;
   --accent-soft: #e3edf9;
   --danger: #c0392b;
+  --z-drawer: 150;   /* 底部抽屉（物品栏）：非模态，HUD 之上、参考窗 / 弹出菜单之下 */
   --z-window: 200;   /* 参考窗：HUD（5）之上、弹出菜单（300）之下——它自己的 ＋ 菜单要盖在它上面 */
   --z-menu: 300;
   --z-notice: 400;
@@ -16,6 +17,7 @@
   --z-err: 900;
   --safe-top: env(safe-area-inset-top, 0px);
   --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --drawer-h: 0px;   /* 底部抽屉现在占多高（main.ts 量出来写）：贴底的 HUD 都让出这么多（user 2026-10-25「物品栏弹起来时会把小窗顶到上面，然后其他的hud也一样」） */
   --safe-left: env(safe-area-inset-left, 0px);
   --safe-right: env(safe-area-inset-right, 0px);
 }
@@ -39,7 +41,7 @@ svg.ico use { color: inherit; }
   backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
 .hud-rail { flex-direction: column; gap: 2px; padding: 4px; }
 /* 左柱：☰ 叠在工具上、撤销/重做叠在工具下，整柱左居中（user 2026-09-07 终形：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」）*/
-.hud-rail-tools { left: calc(10px + var(--safe-left)); top: 50%; transform: translateY(-50%); max-height: calc(100vh - 20px - var(--safe-top) - var(--safe-bottom)); overflow-y: auto; scrollbar-width: none; }   /* 15 个钮 ≈ 720 px：iPad mini 竖屏放得下、横屏（744 px 高）要能滚 */
+.hud-rail-tools { left: calc(10px + var(--safe-left)); top: calc((100% - var(--drawer-h)) / 2); transform: translateY(-50%); max-height: calc(100vh - 20px - var(--safe-top) - var(--safe-bottom) - var(--drawer-h)); overflow-y: auto; scrollbar-width: none; }   /* 15 个钮 ≈ 720 px：iPad mini 竖屏放得下、横屏（744 px 高）要能滚 */
 .hud-rail-tools::-webkit-scrollbar { display: none; }
 .hud-rail-tools > .tb-btn { width: 48px; }
 .rail-tools { display: flex; flex-direction: column; gap: 2px; }
@@ -72,8 +74,8 @@ svg.ico use { color: inherit; }
 /* 文字类 HUD：无背景、白描边（游戏字幕式），指针穿透 */
 .hud-text { position: absolute; z-index: 5; pointer-events: none; font-size: 12px; color: #4a4a4a; line-height: 1.45;
   text-shadow: 0 0 2px #fff, 0 0 2px #fff, 0 0 4px #fff, 0 1px 3px rgba(255,255,255,.9); }
-.hud-bl { bottom: calc(10px + var(--safe-bottom)); left: calc(10px + var(--safe-left)); max-width: min(62vw, 720px); }
-.hud-br { bottom: calc(10px + var(--safe-bottom)); right: calc(10px + var(--safe-right)); display: flex; flex-direction: column; align-items: flex-end; gap: 2px; max-width: min(60vw, 560px); }
+.hud-bl { bottom: calc(10px + var(--safe-bottom) + var(--drawer-h)); left: calc(10px + var(--safe-left)); max-width: min(62vw, 720px); }
+.hud-br { bottom: calc(10px + var(--safe-bottom) + var(--drawer-h)); right: calc(10px + var(--safe-right)); display: flex; flex-direction: column; align-items: flex-end; gap: 2px; max-width: min(60vw, 560px); }
 /* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
 /* 上下文选项那一段（2026-10-25 晚：并进右下参数小窗，user「参数小窗就是上下文选项条，全搬进去」） */
 .vcb-strip { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; justify-content: flex-end; }
@@ -115,7 +117,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .selbar-btn.danger { color: var(--danger); }
 #ctxAnchor { position: fixed; width: 0; height: 0; pointer-events: none; }
 /* 数值小窗（SU Measurements）：右下、版本角标之上；键盘往上展开 */
-.hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(10px + var(--safe-bottom)); max-width: min(560px, calc(100vw - 96px)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
+.hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(10px + var(--safe-bottom) + var(--drawer-h)); max-width: min(560px, calc(100vw - 96px)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
 .vcb-label { color: var(--muted); font-size: 11px; text-align: right; }
 .vcb-field { font: inherit; min-width: 120px; min-height: 32px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; padding: 4px 10px; text-align: right; font-variant-numeric: tabular-nums; cursor: pointer; }
 .vcb-field.typing { border-color: var(--accent); color: var(--accent); }
@@ -204,7 +206,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .menu-tab.on { color: var(--accent); background: var(--accent-soft); }
 
 /* 通知栈（底部居中；一条栈一个样式） */
-#noticeStack { position: fixed; left: 50%; bottom: calc(40px + var(--safe-bottom)); transform: translateX(-50%); z-index: var(--z-notice);
+#noticeStack { position: fixed; left: 50%; bottom: calc(40px + var(--safe-bottom) + var(--drawer-h)); transform: translateX(-50%); z-index: var(--z-notice);
   display: flex; flex-direction: column; gap: 8px; align-items: center; pointer-events: none; width: min(92vw, 560px); }   /* 定宽：fixed 元素 shrink-to-fit 会在长句 + 按钮时坍成 min-content（中文逐字折行，v0.5.2 崩溃通知截图） */
 .toast { pointer-events: auto; display: flex; align-items: center; gap: 10px; padding: 9px 10px 9px 14px; border-radius: 10px; max-width: 100%;
   background: #2f2f2f; color: #fff; box-shadow: 0 6px 20px rgba(0,0,0,.2); font-size: 13px; }
@@ -223,6 +225,9 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .sheet-head { display: flex; align-items: center; justify-content: space-between; font-weight: 600; margin-bottom: 6px; }
 /* 底部抽屉（竖屏：大面板从屏幕底下抽上来，不占左右；user 10-24「我还是习惯ipad竖屏，所以物品栏弹出来应该在屏幕底下」） */
 .sheet-backdrop.bottom { place-items: end center; padding: 0; }
+.drawer { position: fixed; left: 0; right: 0; bottom: 0; z-index: var(--z-drawer); display: flex; justify-content: center; pointer-events: none; }   /* 非模态：抽屉外面照常能画 */
+.drawer[hidden] { display: none; }
+.drawer > .sheet { pointer-events: auto; box-shadow: 0 -4px 24px rgba(0,0,0,.18); }
 .sheet.sheet-bottom { width: min(720px, 100%); border-radius: 14px 14px 0 0; padding-bottom: calc(16px + var(--safe-bottom)); max-height: 60vh; }
 /* 手册（md-lite） */
 .md section + section { margin-top: 10px; }
