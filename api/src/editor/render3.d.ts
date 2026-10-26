@@ -109,6 +109,15 @@ export interface ViewState {
             b: Pt3;
         }[];
     } | null;
+    /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
+    planeGizmo?: {
+        origin: Pt3;
+        normal: Pt3;
+        u: Pt3;
+        v: Pt3;
+        size: number;
+        hot: string | null;
+    } | null;
     /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
     poolAxes?: readonly Frame[] | null;
     /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
@@ -172,6 +181,9 @@ export declare class Renderer3 {
     private tickLines;
     private poolAxesLines;
     private poolAxesKey;
+    private gizmoLines;
+    private gizmoQuad;
+    private gizmoKey;
     private faceKey;
     private edgeKey;
     private hintKey;

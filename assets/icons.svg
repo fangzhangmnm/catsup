@@ -58,6 +58,8 @@
   <!-- transform -->
   <!-- scale-uniform — 等比缩放(正方框+小方虚线) -->
   <symbol id="scale-uniform" data-cat="transform" data-src="own" data-note="等比缩放(正方框+小方虚线)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4.5" y="4.5" width="15" height="15" rx="1.3"/><rect x="4.5" y="12.5" width="6.9" height="7" rx="1.3" stroke-dasharray="2.6 2"/><path d="M11.4 12.5 L16.9 7"/><path d="M13.1 7 H16.9 V10.8"/></symbol>
+  <!-- flip-horizontal — 水平翻转(尖端朝内):左空心 右实心+圆角描边。实心那个按 0.88 缩放 —— 外轮廓一致时实心墨迹 41.4(空心 40.2), 视觉上更重, 故需略缩。此处外宽 6.4(空心 7.03) -->
+  <symbol id="flip-horizontal" data-cat="transform" data-src="own" data-note="水平翻转(尖端朝内):左空心 右实心+圆角描边。实心那个按 0.88 缩放 —— 外轮廓一致时实心墨迹 41.4(空心 40.2), 视觉上更重, 故需略缩。此处外宽 6.4(空心 7.03)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 V20.5" stroke-dasharray="2 2"/><path d="M4.000000000000001 7.0 L9.3 12 L4.000000000000001 17.0 Z"/><path d="M19.36 7.60 L14.70 12.00 L19.36 16.40 Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round"/></symbol>
   <!-- selection -->
   <!-- selection-expand — 编辑选区:虚线外框 + 内部实线小方框 -->
   <symbol id="selection-expand" data-cat="selection" data-src="own" data-note="编辑选区:虚线外框 + 内部实线小方框" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5" stroke-dasharray="3 2"/> <rect x="8" y="8" width="8" height="8" rx="1.5"/></symbol>
@@ -182,7 +184,4 @@
   <symbol id="settings" data-cat="ui" data-src="own" data-note="设置:齿轮=内圆+外圆+8 根短齿(圆帽)；家族里 sliders 是「调整」别撞【WebXiaoHeiWu 抽屉底栏「设置」入口；fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3.1"/><circle cx="12" cy="12" r="7"/><path d="M19.00 12.00 L21.60 12.00"/><path d="M16.95 16.95 L18.79 18.79"/><path d="M12.00 19.00 L12.00 21.60"/><path d="M7.05 16.95 L5.21 18.79"/><path d="M5.00 12.00 L2.40 12.00"/><path d="M7.05 7.05 L5.21 5.21"/><path d="M12.00 5.00 L12.00 2.40"/><path d="M16.95 7.05 L18.79 5.21"/></symbol>
   <!-- wrench — 扳手:斜置组合扳手轮廓(feather:wrench 衍生), 20260724 候选 1 号入库 -->
   <symbol id="wrench" data-cat="ui" data-src="feather:wrench" data-note="扳手:斜置组合扳手轮廓(feather:wrench 衍生), 20260724 候选 1 号入库" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></symbol>
-  <!-- missing -->
-  <!-- protractor — 缺图标占位 — protractor 尚未进 icons.svg -->
-  <symbol data-missing="1" id="protractor" data-cat="missing" data-src="own" data-note="缺图标占位 — protractor 尚未进 icons.svg，重跑 extract-icons.py 可自动换成真图标" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2.5" stroke-dasharray="2.5 2.5" opacity="0.35"/></symbol>
 </svg>

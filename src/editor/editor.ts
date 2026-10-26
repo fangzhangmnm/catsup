@@ -21,7 +21,7 @@ import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } fro
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
-import { SNAP_PX, frameEps } from "./solver.ts";
+import { NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectAngle, rrectCornerFromAngle, rrectSegments, bulgePointForRadius, rectOpposite } from "./tools.ts";
@@ -37,7 +37,9 @@ import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { TapTrain, TAP_RULES, frameTapRule } from "./tap-train.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
-import { type ParamField, type ParamPanelState, type ParamSession, type ParamValue, afterthought } from "./param-panel.ts";
+import { type ParamButton, type ParamField, type ParamPanelState, type ParamSession, type ParamValue, afterthought } from "./param-panel.ts";
+import { type GizmoGrab, type GizmoHandle, type PlaneGizmo, dragGizmo, gizmoGeom, grabGizmo, hitGizmo } from "./plane-gizmo.ts";
+import { type MirrorOptions, type MirrorPlane, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
@@ -558,6 +560,7 @@ export class Editor {
   }
 
   cancel(): void {
+    if (this.gizmo) { this.openParamSession(null); this.host.hint("镜像已取消"); return; }   // 镜像会话里 Esc = 取消镜像（选区留着）
     this.taps.cancel();
     this.last = null;
     this.selection = emptySelection();
@@ -1145,6 +1148,112 @@ export class Editor {
     return out.filter((x, i) => i === 0 || !same(out[i - 1].b, x.b));
   }
   private camKey(): string { const c = this.cam, t = c.target; return `${c.yaw.toFixed(5)}|${c.pitch.toFixed(5)}|${c.halfH.toFixed(5)}|${t.x.toFixed(4)},${t.y.toFixed(4)},${t.z.toFixed(4)}|${c.projection}`; }
+  // ---------- 镜像会话（马前炮；纪元账本 DT23）：选区 → 右下参数小窗设选项 + 场景里镜像面 gizmo + 预演 → 应用 → 马后炮还能改选项 ----------
+  // user 2026-10-25「你选中，右键mirror之后……同时有一个gizmos确定mirror的轴。拖动gizmos可以snap，然后也有把手for rotate and move」「dialogue还可以快速flip」
+  //   「镜像面默认放在 a 不过是当前物体，不过我习惯先画右半？」→ 默认 = 当前上下文的轴原点、红轴当法线、留 +X 那侧。
+  private gizmo: { g: PlaneGizmo; hot: GizmoHandle | null; grab: GizmoGrab | null } | null = null;
+  /** 指令预演（镜像）：跑在活动内核的克隆上；开着时 liveWorld 画影子内核（没有手势也画）。 */
+  private cmdPreview: ((k: Kernel) => FaceEvent[]) | null = null;
+  private cmdGhosts: (() => { picks: PoolPick[]; xform: Xform } | null) | null = null;
+  mirrorActive(): boolean { return this.gizmo !== null; }
+  /** 镜像…：作用在选区（散几何 + 选中的组件实例）上；没有可镜的 → false。 */
+  beginMirror(): boolean {
+    const k = this.kernel;
+    const faces = [...this.selection.faces].filter((f) => k.face(f)), edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e));
+    const instPicks = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance");
+    if (!faces.length && !edges.length && !instPicks.length) { this.host.hint("镜像：先选要镜的几何或组件"); return false; }
+    this.cancelGesture();
+    const f = this.contextFrame();
+    this.gizmo = { g: { origin: { ...f.origin }, normal: normalize3(f.x) }, hot: null, grab: null };
+    const at = this.activePool();
+    const faceKeys = faces.map((id) => faceKey(k, id)), edgeKeys = edges.map((id) => edgeKey(k, id));
+    const vals: Record<string, ParamValue> = { deleteOpposite: true, mergeSeam: true, weld: 0, ...(instPicks.length ? { instances: true } : {}) };
+    const planeLocal = (): MirrorPlane => { const m = invert(this.ctxXform()), g = this.gizmo!.g; return { origin: applyPt(m, g.origin), normal: normalize3(applyDir(m, g.normal)) }; };
+    const opts = (v: Readonly<Record<string, ParamValue>>): MirrorOptions => ({ deleteOpposite: !!v.deleteOpposite, mergeSeam: !!v.mergeSeam, weld: Number(v.weld) || 0 });
+    this.cmdPreview = (c) => (faces.length || edges.length ? mirrorGeometry(c, faces.filter((x) => c.face(x)), edges.filter((x) => c.graph.hasEdge(x)), planeLocal(), opts(vals)) : []);
+    // 组件的预演：原点在留下这侧的那几份，副本槽画镜过去的样子（删对面那半的实例预演不画，应用时照删）
+    this.cmdGhosts = () => {
+      if (!instPicks.length || !vals.instances || !this.gizmo) return null;
+      const g = this.gizmo.g, n = normalize3(g.normal), view = this.worldView();
+      const keep = instPicks.filter((p) => { const sl = view.slots.find((x) => { const tp = this.topChild(x); return tp?.kind === "instance" && tp.instance === p.instance && x.chain.length === this.ctx.chain.length + 1; }); return !!sl && dot3(sub3(applyPt(sl.xform, { x: 0, y: 0, z: 0 }), g.origin), n) > 1e-6; });
+      return keep.length ? { picks: keep, xform: reflectionXform({ origin: g.origin, normal: n }) } : null;
+    };
+    const fields: ParamField[] = [
+      { key: "deleteOpposite", def: { kind: "bool", label: "删掉对面" } },
+      { key: "mergeSeam", def: { kind: "bool", label: "缝上自愈" } },
+      { key: "weld", def: { kind: "number", label: "融合阈值", min: 0, max: 0.1, step: 0.001, unit: " m" } },
+      ...(instPicks.length ? [{ key: "instances", def: { kind: "bool" as const, label: "组件也镜" } }] : []),
+    ];
+    const buttons: ParamButton[] = [{ key: "axX", label: "X" }, { key: "axY", label: "Y" }, { key: "axZ", label: "Z" }, { key: "flip", label: "翻转" }, { key: "cancel", label: "取消" }, { key: "apply", label: "应用", primary: true }];
+    const opOf = (v: Readonly<Record<string, ParamValue>>, pl: MirrorPlane): Op => ({ op: "mirror", at, faces: faceKeys, edges: edgeKeys, instances: v.instances ? instPicks.map((p) => p.instance) : [], plane: pl, ...opts(v) });
+    const apply = (): void => {
+      const pl = planeLocal(), n0 = this.opCount;
+      this.endMirror();
+      this.commitOp(opOf(vals, pl));
+      if (this.opCount === n0) return;   // 被拒（破面 / 锁着）：报错已出，不进马后炮
+      this.selection = emptySelection(); this.selectedPools.clear();
+      this.offerAfterthought("镜像", fields, { ...vals }, this.opCount - n0, (v) => { this.commitOp(opOf(v, pl)); });
+      this.host.hint("镜像好了：右下角还能改选项（撤销重做）");
+    };
+    const session: ParamSession = {
+      phase: "before", title: "镜像", fields, buttons, values: vals,
+      set: (key, v) => { vals[key] = v; this.refreshCmdPreview(); },
+      press: (key) => {
+        const g = this.gizmo?.g, F = this.contextFrame();
+        if (key === "apply") { apply(); return; }
+        if (key === "cancel") { this.openParamSession(null); this.host.hint("镜像已取消"); return; }
+        if (!g) return;
+        if (key === "flip") g.normal = scale3(g.normal, -1);
+        else if (key === "axX") g.normal = normalize3(F.x);
+        else if (key === "axY") g.normal = normalize3(F.y);
+        else if (key === "axZ") g.normal = normalize3(F.z);
+        this.refreshCmdPreview();
+      },
+      dispose: () => { this.endMirror(); },
+    };
+    this.openParamSession(session);
+    this.refreshCmdPreview();
+    this.host.hint("镜像：拖镜像面上的把手（中心 = 移，箭头 = 推，边上的点 = 转）；右下角应用 / 取消（回车 / Esc）");
+    return true;
+  }
+  private endMirror(): void {
+    this.gizmo = null; this.cmdPreview = null; this.cmdGhosts = null;
+    this.live = null; this.liveOverride = null; this.liveEvents = [];
+    this.snapInfo = null;
+    this.draw();
+  }
+  private refreshCmdPreview(): void {
+    this.live = null; this.liveEvents = []; this.liveOverride = null;
+    if (this.cmdPreview) {
+      const c = this.kernel.clone();
+      try { this.liveEvents = this.cmdPreview(c); this.live = c; }
+      catch (err) { this.live = null; this.host.hint(`镜像预演不行：${err instanceof Error ? err.message : String(err)}`); }
+      const gh = this.cmdGhosts?.();
+      if (gh) this.liveOverride = { picks: gh.picks, xform: gh.xform, copy: true };
+    }
+    this.host.changed(); this.draw();
+  }
+  /** 镜像会话里的指针：按在把手上就拖；别处不动作（视角照转，由手势层管）。返回 true = 吃掉了。 */
+  private gizmoPointer(kind: "down" | "move" | "up", ev: ToolPointer): boolean {
+    const G = this.gizmo;
+    if (!G) return false;
+    const pf = this.frame(), vp = this.fvp();
+    if (kind === "down") { const h = hitGizmo(G.g, pf, vp, ev.x, ev.y); if (h) G.grab = grabGizmo(G.g, h, pf, vp, ev.x, ev.y); G.hot = h; this.draw(); return true; }
+    if (kind === "up") { G.grab = null; this.snapInfo = null; this.draw(); return true; }
+    if (!G.grab) { const h = hitGizmo(G.g, pf, vp, ev.x, ev.y); if (h !== G.hot) { G.hot = h; this.draw(); } return true; }
+    // 拖：移 / 推 吸附（用没改过的世界 = 不吸预演出来的镜像副本，免得自己吸自己）
+    let snap: Pt3 | null = null;
+    if (G.grab.handle === "move" || G.grab.handle === "push") {
+      const view = this.worldView();
+      const sn = snapPoint(view, pf, vp, ev.x, ev.y, this.snapPx(), { plane: cameraPlane(pf, G.grab.g0.origin), alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: NO_HAND });
+      this.snapInfo = sn;
+      snap = G.grab.handle === "move" ? sn.p : (sn.kind ? sn.p : null);
+    }
+    G.g = dragGizmo(G.grab, pf, vp, ev.x, ev.y, { snap, frame: this.contextFrame() });
+    this.refreshCmdPreview();
+    return true;
+  }
+
   // ---------- 参数小窗（param-panel.ts；user 2026-10-25「把右下角的数值小窗扩成一个「参数小窗」 同意」）：马前炮 / 马后炮 ----------
   private param: ParamSession | null = null;
   /** 小窗现在要画的参数会话（null = 没有）；马后炮在这一步之后又提交过别的 / 撤销过就自动作废。 */
@@ -1491,7 +1600,7 @@ export class Editor {
     return this.anchor3 !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
-  private liveWorld(): WorldView { return this.gestureActive() ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
+  private liveWorld(): WorldView { return this.gestureActive() || this.cmdPreview ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
   /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
   private freshHand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
     const known = new Set(this.kernel.vertices().map((v) => v.id));
@@ -1569,7 +1678,8 @@ export class Editor {
     const active = view.activeSlot();
     const off = active.index;
     const g = (id: number): number => id + off * (1 << 22);
-    const selE = new Set<number>([...this.selection.edges].map(g)), selF = new Set<number>([...this.selection.faces].map(g));
+    // 镜像会话里画的是预演的影子内核，选区 id 对不上它 → 不画选区高亮（user 看到的只有预演结果 + gizmo）
+    const selE = new Set<number>(this.cmdPreview ? [] : [...this.selection.edges].map(g)), selF = new Set<number>(this.cmdPreview ? [] : [...this.selection.faces].map(g));
     // 子池选区 / 悬停：整池的面与边高亮
     const slotHighlight = (picks: Iterable<PoolPick>): void => {
       for (const p of picks) for (const s of this.slotsOfPick(view, p)) {
@@ -1578,7 +1688,7 @@ export class Editor {
         for (const e of s.kernel.edges()) selE.add(e.id + o);
       }
     };
-    slotHighlight(this.selectedPools.values());
+    if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !s.active).map((s) => s.index)) : null;
     this.r3.render(view, this.cam, this.vp(), {
       ...(this.viewExtras?.() ?? {}),
@@ -1601,6 +1711,7 @@ export class Editor {
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
+      planeGizmo: this.gizmo ? (() => { const G = gizmoGeom(this.gizmo.g, this.frame(), this.fvp()); return { origin: G.origin, normal: G.normal, u: G.u, v: G.v, size: G.size, hot: this.gizmo.grab?.handle ?? this.gizmo.hot }; })() : null,
       ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
@@ -1660,6 +1771,7 @@ export class Editor {
   }
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void {
+    if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     { const r = this.frame().ray(s.x, s.y, this.fvp()); this.taps.down(performance.now(), add3(r.origin, r.dir), TAP_RULES[ev.pointerType] ?? frameTapRule(this.eps().tap), (prev) => this.frame().distTo(s.x, s.y, prev, this.fvp())); }
@@ -1732,6 +1844,7 @@ export class Editor {
   private consumeCharges(): void { this.clearCharged(); }
 
   pointerMove(ev: ToolPointer): void {
+    if (this.gizmoPointer("move", ev)) return;
     const s = ev;
     this.lastPtr = { x: s.x, y: s.y };
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
@@ -1899,6 +2012,7 @@ export class Editor {
   }
 
   pointerUp(ev: ToolPointer): void {
+    if (this.gizmoPointer("up", ev)) return;
     const s = ev;
     { const at = this.taps.pressAt(); this.taps.up(performance.now(), ev.travel ?? (at ? this.frame().distTo(s.x, s.y, at, this.fvp()) : 0)); }
     const isTap = (): boolean => !!this.downPoint && this.taps.clicks() > 0;   // 点 / 拖 = 点按族一处判（笔跟进的那一下偏向点）

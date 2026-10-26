@@ -514,6 +514,17 @@ export declare class Editor {
         };
     }[];
     private camKey;
+    private gizmo;
+    /** 指令预演（镜像）：跑在活动内核的克隆上；开着时 liveWorld 画影子内核（没有手势也画）。 */
+    private cmdPreview;
+    private cmdGhosts;
+    mirrorActive(): boolean;
+    /** 镜像…：作用在选区（散几何 + 选中的组件实例）上；没有可镜的 → false。 */
+    beginMirror(): boolean;
+    private endMirror;
+    private refreshCmdPreview;
+    /** 镜像会话里的指针：按在把手上就拖；别处不动作（视角照转，由手势层管）。返回 true = 吃掉了。 */
+    private gizmoPointer;
     private param;
     /** 小窗现在要画的参数会话（null = 没有）；马后炮在这一步之后又提交过别的 / 撤销过就自动作废。 */
     paramPanel(): ParamPanelState | null;

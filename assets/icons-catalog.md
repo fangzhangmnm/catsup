@@ -12,9 +12,6 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> ⚠ 库里还没有这些图标，当前用 `icon-missing` 占位：`protractor`
-> 等它们进 `icons.svg` 后重跑本脚本即可换成真图标。
-
 > 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
@@ -75,6 +72,7 @@
 | name | 说明 |
 |------|------|
 | `scale-uniform` | 等比缩放(正方框+小方虚线) |
+| `flip-horizontal` | 水平翻转(尖端朝内):左空心 右实心+圆角描边。实心那个按 0.88 缩放 —— 外轮廓一致时实心墨迹 41.4(空心 40.2), 视觉上更重, 故需略缩。此处外宽 6.4(空心 7.03) |
 
 ## selection
 
@@ -178,9 +176,3 @@
 | `more` | 溢出菜单:横向三点(原 ⋯ 字符跨平台字形不一) |
 | `settings` 👁待过目 | 设置:齿轮=内圆+外圆+8 根短齿(圆帽)；家族里 sliders 是「调整」别撞【WebXiaoHeiWu 抽屉底栏「设置」入口；fable 自画未过目】 |
 | `wrench` | 扳手:斜置组合扳手轮廓(feather:wrench 衍生), 20260724 候选 1 号入库 |
-
-## missing
-
-| name | 说明 |
-|------|------|
-| `protractor` ⚠占位 | 缺图标占位 — protractor 尚未进 icons.svg |

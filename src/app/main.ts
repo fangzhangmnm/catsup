@@ -192,6 +192,7 @@ const hud: HudModel = {
     { id: "group", label: "建组", icon: "collection", hidden: !editor.hasGeometrySelection() },
     { id: "component", label: "建组件", icon: "object", hidden: !editor.hasGeometrySelection() },
     { id: "explode", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },
+    { id: "mirror", label: "镜像…", icon: "flip-horizontal", hidden: !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
     { id: "explodeCurve", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
     { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
@@ -220,6 +221,7 @@ const hud: HudModel = {
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
       case "explode": editor.explodeSelection(); break;
+      case "mirror": editor.beginMirror(); break;
       case "weld": editor.weldSelection(); break;
       case "explodeCurve": editor.explodeCurveSelection(); break;
       case "enter": editor.enterSelected(); break;
@@ -852,7 +854,8 @@ window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
   if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
-  if (vcb.feedKey(ev)) { ev.preventDefault(); return; }   // 数值小窗：数字开头直接进小窗（SU 同款），字母只在缓冲非空时进
+  if (vcb.feedKey(ev)) { ev.preventDefault(); return; }
+  if (ev.key === "Enter" && editor.mirrorActive()) { ev.preventDefault(); editor.pressParam("apply"); syncUi(); return; }   // 镜像会话：回车 = 应用（Esc = 取消走 editor.cancel）   // 数值小窗：数字开头直接进小窗（SU 同款），字母只在缓冲非空时进
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X

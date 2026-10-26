@@ -106,6 +106,8 @@ const SNAP_COLORS: Record<string, number> = {
 const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
 const POOL_AXES_PX = 22;
+/** 平面 gizmo 的颜色（常态 / 悬停）。 */
+const GIZMO_COLOR = 0x2b6cb0, GIZMO_HOT = 0xd97706;
 /** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
 const GUIDE_COLOR = 0x6b7280, GUIDE_SEL_COLOR = 0x2b6cb0, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;   // 选中 = 与选中膜同一个蓝（A31）
 /** A33 断口小垂线：半长 px + 颜色（提醒色，与参考线 / 充能区分）。 */
@@ -182,6 +184,8 @@ export interface ViewState {
   grid?: { frame: Frame; step: number; sub?: number; on?: boolean } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
+  /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
+  planeGizmo?: { origin: Pt3; normal: Pt3; u: Pt3; v: Pt3; size: number; hot: string | null } | null;
   /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
   poolAxes?: readonly Frame[] | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
@@ -297,7 +301,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = "";
+  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -427,6 +431,14 @@ export class Renderer3 {
     this.poolAxesLines.material.depthTest = false; this.poolAxesLines.material.depthWrite = false;
     this.poolAxesLines.renderOrder = 10; this.poolAxesLines.frustumCulled = false; this.poolAxesLines.visible = false;
     this.scene.add(this.poolAxesLines);
+    // 平面 gizmo（镜像面）：描边 / 箭头 / 把手 = 透视粗线；面 = 很淡的半透明方块（也透视，被几何挡住也看得见在哪）
+    this.gizmoLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX * 1.5, { vertexColors: true }));
+    this.gizmoLines.material.depthTest = false; this.gizmoLines.material.depthWrite = false;
+    this.gizmoLines.renderOrder = 11; this.gizmoLines.frustumCulled = false; this.gizmoLines.visible = false;
+    this.scene.add(this.gizmoLines);
+    this.gizmoQuad = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: GIZMO_COLOR, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthTest: false, depthWrite: false }));
+    this.gizmoQuad.renderOrder = 10; this.gizmoQuad.frustumCulled = false; this.gizmoQuad.visible = false;
+    this.scene.add(this.gizmoQuad);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -830,6 +842,33 @@ export class Renderer3 {
       }
       this.tickLines.visible = true;
     } else { this.tickLines.visible = false; this.tickKey = ""; }
+
+    // ---- 平面 gizmo（镜像面）----
+    const pg = view.planeGizmo;
+    if (pg) {
+      const k = `${pg.origin.x},${pg.origin.y},${pg.origin.z}/${pg.normal.x},${pg.normal.y},${pg.normal.z}/${pg.size.toExponential(3)}/${pg.hot ?? ""}`;
+      if (k !== this.gizmoKey) {
+        this.gizmoKey = k;
+        const o = pg.origin, S = pg.size, P = (a: number, b: number, c = 0): Pt3 => ({ x: o.x + pg.u.x * a + pg.v.x * b + pg.normal.x * c, y: o.y + pg.u.y * a + pg.v.y * b + pg.normal.y * c, z: o.z + pg.u.z * a + pg.v.z * b + pg.normal.z * c });
+        const pos: number[] = [], col: number[] = [];
+        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+        const colOf = (h: string): number => (pg.hot === h ? GIZMO_HOT : GIZMO_COLOR);
+        const cs = [P(-S, -S), P(S, -S), P(S, S), P(-S, S)];
+        for (let i = 0; i < 4; i++) push(cs[i], cs[(i + 1) % 4], GIZMO_COLOR);
+        push(o, P(0, 0, S * 1.3), colOf("push"));                                      // 法线箭头
+        const tip = S * 1.3, h = S * 0.12;
+        push(P(0, 0, tip), P(h, 0, tip - h * 1.5), colOf("push")); push(P(0, 0, tip), P(-h, 0, tip - h * 1.5), colOf("push"));
+        const ring = (cx: number, cy: number, hx: string): void => { const r = S * 0.12, N = 12; for (let i = 0; i < N; i++) { const a0 = (2 * Math.PI * i) / N, a1 = (2 * Math.PI * (i + 1)) / N; push(P(cx + r * Math.cos(a0), cy + r * Math.sin(a0)), P(cx + r * Math.cos(a1), cy + r * Math.sin(a1)), colOf(hx)); } };
+        ring(0, S, "rotU"); ring(S, 0, "rotV");                                          // 转动把手（边中点）
+        const m = S * 0.07;
+        push(P(-m, -m), P(m, -m), colOf("move")); push(P(m, -m), P(m, m), colOf("move")); push(P(m, m), P(-m, m), colOf("move")); push(P(-m, m), P(-m, -m), colOf("move"));
+        this.setLineGeometry(this.gizmoLines, pos, col);
+        const qg = new THREE.BufferGeometry();
+        qg.setAttribute("position", new THREE.Float32BufferAttribute([cs[0], cs[1], cs[2], cs[0], cs[2], cs[3]].flatMap((p) => [p.x, p.y, p.z]), 3));
+        const oldQ = this.gizmoQuad.geometry; this.gizmoQuad.geometry = qg; oldQ.dispose();
+      }
+      this.gizmoLines.visible = true; this.gizmoQuad.visible = true;
+    } else { this.gizmoLines.visible = false; this.gizmoQuad.visible = false; this.gizmoKey = ""; }
 
     // ---- DT15 选中的组 / 组件的轴：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
     const pax = view.poolAxes;
