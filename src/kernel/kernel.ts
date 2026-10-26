@@ -94,14 +94,9 @@ export class Kernel {
   private curveReg = new CurveRegistry();
   /**
    * 改动日志（DT96，2026-10-26 Claude Opus 5.5）：只记编号（顶点 / 边 / 膜，含层的变化），消费方按「从第几号起改过哪些」只更新变了的。
-   * 副本（clone）的日志从拷贝那一刻的号起记 → 副本的日志 = 「这次预演改了什么」；cloneOf / clonedAt = 族谱（弱引用，不拖住老内核）。
+   * 副本（clone）的日志 fork 自原件、从拷贝那一刻的号起记 → 副本的日志 = 「这次预演改了什么」；族谱 = changes.lineage()（只引用祖先日志的数据，不引用内核）。
    */
   changes = new ChangeLog();
-  private _cloneOf: WeakRef<Kernel> | null = null;
-  /** 从哪个内核拷来的（已经被回收 = null）。 */
-  get cloneOf(): Kernel | null { return this._cloneOf?.deref() ?? null; }
-  /** 拷的时候父内核的日志号。 */
-  clonedAt = 0;
   private attachLog(): void { this._graph.log = this.changes; this.store.log = this.changes; this.edgeLayers.log = this.changes; this.faceLayers.log = this.changes; }
   /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
   private _rev = 0;
@@ -250,7 +245,7 @@ export class Kernel {
     k.faceLayers = this.faceLayers.clone();
     k.curveReg = this.curveReg.clone();
     k._rev = this._rev;
-    k.changes = new ChangeLog(this.changes.seq); k._cloneOf = new WeakRef(this); k.clonedAt = this.changes.seq; k.attachLog();
+    k.changes = this.changes.fork(); k.attachLog();
     return k; // 事件日志不拷：副本的 log 只属于预演
   }
 

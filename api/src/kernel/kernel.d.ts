@@ -65,14 +65,9 @@ export declare class Kernel {
     private curveReg;
     /**
      * 改动日志（DT96，2026-10-26 Claude Opus 5.5）：只记编号（顶点 / 边 / 膜，含层的变化），消费方按「从第几号起改过哪些」只更新变了的。
-     * 副本（clone）的日志从拷贝那一刻的号起记 → 副本的日志 = 「这次预演改了什么」；cloneOf / clonedAt = 族谱（弱引用，不拖住老内核）。
+     * 副本（clone）的日志 fork 自原件、从拷贝那一刻的号起记 → 副本的日志 = 「这次预演改了什么」；族谱 = changes.lineage()（只引用祖先日志的数据，不引用内核）。
      */
     changes: ChangeLog;
-    private _cloneOf;
-    /** 从哪个内核拷来的（已经被回收 = null）。 */
-    get cloneOf(): Kernel | null;
-    /** 拷的时候父内核的日志号。 */
-    clonedAt: number;
     private attachLog;
     /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
     private _rev;

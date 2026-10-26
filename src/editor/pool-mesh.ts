@@ -9,7 +9,7 @@
 //   取代旧的「整组并查集 + 整组朝向统一」（那个在一个平滑组跨过硬接缝绕回来的地方会把接缝抹平）。
 // 纯数据，零 three（three 只在 render3.ts，build lint）；颜色由宿主注入（调色板在 render3）。
 import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
-import type { ChangeSet } from "../kernel/change-log.ts";
+import type { ChangeSet, Lineage } from "../kernel/change-log.ts";
 import type { Material } from "../scene/scene.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
@@ -366,33 +366,28 @@ export class PoolMesh {
   }
 
   /**
-   * 现在反映的状态 → 目标 T 之间可能不同的编号：沿克隆族谱找最近的共同祖先 A，把两边各段的日志并起来
-   * （每个副本从它的拷贝点起改过的 + A 在两个分叉点之间改过的）。找不到 / 有一段说不知道 = null（全量）。
+   * 现在反映的状态 → 目标 T 之间可能不同的编号：沿族谱（ChangeLog.lineage：每格 = 一份日志数据 + 到第几号）找最近的共同祖先，
+   * 把两边各段的日志并起来（每个后代从它分出来那号起改过的 + 共同祖先在两个分叉点之间改过的）。找不到 / 有一段说不知道 = null（全量）。
    */
   private diffTo(T: Kernel): ChangeSet | null {
     const S = this.src;
     if (!S) return null;
-    const chain = (K: Kernel, seq: number): { k: Kernel; seq: number }[] => {
-      const out = [{ k: K, seq }];
-      let c = K;
-      for (let i = 0; i < 16; i++) { const p = c.cloneOf; if (!p) break; out.push({ k: p, seq: c.clonedAt }); c = p; }
-      return out;
-    };
-    const cs = chain(S, this.srcSeq), ct = chain(T, T.changes.seq);
+    const cs = S.changes.lineage(), ct = T.changes.lineage();
+    cs[0] = { data: cs[0].data, seq: this.srcSeq };   // 缓存反映的是 S 到 srcSeq 那一刻
     let i = -1, j = -1;
-    for (let a = 0; a < cs.length && i < 0; a++) { const b = ct.findIndex((x) => x.k === cs[a].k); if (b >= 0) { i = a; j = b; } }
+    for (let a = 0; a < cs.length && i < 0; a++) { const b = ct.findIndex((x) => x.data === cs[a].data); if (b >= 0) { i = a; j = b; } }
     if (i < 0) return null;
     const out: ChangeSet = { verts: new Set(), edges: new Set(), faces: new Set() };
-    const add = (K: Kernel, from: number, to: number): boolean => {
-      const c = K.changes.since(from, to);
+    const add = (L: Lineage, from: number, to: number): boolean => {
+      const c = L.data.since(from, to);
       if (!c) return false;
       for (const x of c.verts) out.verts.add(x); for (const x of c.edges) out.edges.add(x); for (const x of c.faces) out.faces.add(x);
       return true;
     };
-    for (let m = 0; m < i; m++) if (!add(cs[m].k, cs[m].k.clonedAt, cs[m].seq)) return null;
-    for (let m = 0; m < j; m++) if (!add(ct[m].k, ct[m].k.clonedAt, ct[m].seq)) return null;
+    for (let m = 0; m < i; m++) if (!add(cs[m], cs[m].data.start, cs[m].seq)) return null;
+    for (let m = 0; m < j; m++) if (!add(ct[m], ct[m].data.start, ct[m].seq)) return null;
     const lo = Math.min(cs[i].seq, ct[j].seq), hi = Math.max(cs[i].seq, ct[j].seq);
-    if (hi > lo && !add(cs[i].k, lo, hi)) return null;
+    if (hi > lo && !add(cs[i], lo, hi)) return null;
     return out;
   }
 

@@ -3,6 +3,7 @@
 import { describe, it, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
+const fs = (await import("node:fs" as string)) as { readFileSync(u: URL, enc: "utf8"): string; readdirSync(u: URL): string[] };
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 type Snap = { v: Map<number, string>; e: Map<number, string>; f: Map<number, string>; links: Map<number, number[]> };
@@ -64,11 +65,12 @@ describe("内核改动日志（DT96）", () => {
     for (let seed = 1; seed <= 25; seed++) randomOps(seed * 104729 + 3, 10, (k, step, label) => {
       const c = k.clone();
       const origin = snap(k), s0 = k.changes.seq;
-      assert(c.cloneOf === k && c.clonedAt === s0, "族谱记下了");
+      const lin = c.changes.lineage();
+      assert(lin[1]?.data === k.changes.data && lin[1].seq === s0 && c.changes.start === s0, "族谱记下了（祖先日志数据 + 分叉那号）");
       // 在副本上做同一种操作：这里直接拿副本重放 step 不行（step 闭包绑原件），改为在副本上做一次随机推拉 / 擦边
       const fs = c.faces(), es = c.edges();
       try { if (fs.length && seed % 2) c.pushPull(fs[seed % fs.length].id, 0.25); else if (es.length) c.eraseEdges([es[seed % es.length].id]); } catch { /* 拒绝也照核 */ }
-      checkCovered(origin, snap(c), c.changes.since(c.clonedAt), `seed ${seed} 副本 after ${label}`);
+      checkCovered(origin, snap(c), c.changes.since(c.changes.start), `seed ${seed} 副本 after ${label}`);
       assert(k.changes.seq === s0, "原件日志没被副本的操作碰到");
       step();
     });
@@ -88,5 +90,18 @@ describe("内核改动日志（DT96）", () => {
     assert(k2.changes.since(0) === null || k2.changes.seq === 0, "装载之前的号不知道");
     const s = k2.changes.seq; k2.pushPull(k2.faces()[0].id, 1);
     assert(k2.changes.since(s) !== null && k2.changes.since(s)!.faces.size > 0, "装载之后的照记");
+  });
+  it("族谱有上限：连拷 40 代，日志只记 16 代祖先（每代只是一张数字数组，不是内核）", () => {
+    let k = new Kernel();
+    k.addEdges([[P(0, 0, 0), P(1, 0, 0)], [P(1, 0, 0), P(1, 1, 0)], [P(1, 1, 0), P(0, 1, 0)], [P(0, 1, 0), P(0, 0, 0)]]);
+    for (let i = 0; i < 40; i++) { k = k.clone(); k.pushPull(k.faces()[0].id, 0.1); }
+    assert(k.changes.lineage().length <= 17, `族谱 ${k.changes.lineage().length} 格`);
+  });
+  it("内核 / 池网格不用 WeakRef（它的目标至少活到这段同步代码跑完：导入修复一口气拷几百份内核时全放不掉，炮塔零件峰值 770 MB）", () => {
+    const files = [...fs.readdirSync(new URL("../src/kernel/", import.meta.url)).filter((f: string) => f.endsWith(".ts")).map((f: string) => `../src/kernel/${f}`), "../src/editor/pool-mesh.ts"];
+    for (const f of files) {
+      const code = fs.readFileSync(new URL(f, import.meta.url), "utf8").split("\n").filter((l: string) => !l.trim().startsWith("//")).join("\n");
+      assert(!/new WeakRef\(/.test(code), `${f} 里有 new WeakRef(`);
+    }
   });
 });
