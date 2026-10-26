@@ -25,6 +25,7 @@ export class EraseTool extends EdgeScrubTool {
     this.mode = ev.copy ? "soften" : ev.shiftKey ? "harden" : "erase";
     ctx.hint(this.mode === "soften" ? "软化：刮过的边变软 + 平滑（Ctrl）" : this.mode === "harden" ? "硬化：刮过的边变硬（Shift）" : null);
   }
+  protected override pickSoft(): boolean { return this.scrubbing && this.mode === "harden"; }   // Shift 硬化要碰得到软边
   protected override scrubAt(ctx: ToolCtx, view: WorldView, sx: number, sy: number): void {
     super.scrubAt(ctx, view, sx, sy);
     const g = pickGuide(view.guides(), ctx.frame(), ctx.vp(), sx, sy, ctx.eps().hit);

@@ -114,6 +114,8 @@ const canvas = $<HTMLCanvasElement>("board");
 const stage = $("stage");
 const hintEl = $("hint");
 const tipEl = $("tip");
+/** 盖上图库（或别的整屏覆盖层）前收掉画布上的光标提示 / 悬停（user 10-26：回图库之后读数框还挂在左上角——从菜单进图库指针没「离开画布」，画线中途离开也不清）。 */
+function hideCanvasTip(): void { tipEl.hidden = true; lastTipHtml = ""; editor.pointerLeave(); }
 const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
 const readoutEl = $("readout");
@@ -396,7 +398,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "new": void session.newDoc(); break;
       case "finalize": void (async () => { if (await openConfirmSheet(`定稿第 ${session.finalRev() + 1} 版？`, "之后锁住几何与材质，只能看、量、导出；☰「改稿」随时解锁（版本号不减）。", { okLabel: "定稿" })) await session.finalize(); })(); break;
       case "revise": void session.revise(); break;
-      case "gallery": void galleryHost.open(); break;
+      case "gallery": hideCanvasTip(); void galleryHost.open(); break;
       case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
       case "open": openLocal(); break;
@@ -1238,7 +1240,7 @@ function bootRestore(): Promise<RestoreOutcome> {
     restore: (name) => session.restore(name),
     setNameMemoryOnly: () => {},          // CatsUp 的家只在内存（Session.home），落点函数自己重立身份；回执条永不在此清（纪律②）
     updateSaveStatus,
-    openGallery: async () => { session.beginLazyBlank(); await galleryHost.open(); },   // 覆盖层底下要有画布：lazyblank 垫底
+    openGallery: async () => { hideCanvasTip(); session.beginLazyBlank(); await galleryHost.open(); },   // 覆盖层底下要有画布：lazyblank 垫底
     openFreshCanvas: async () => { session.beginLazyBlank(); },
     openBlankCanvas: async () => {},      // 无库：开机就是 transient（Session 初始态），零变更
     onNoGallery: () => {},

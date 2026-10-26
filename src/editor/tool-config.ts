@@ -179,10 +179,14 @@ export const TOOL_OPTIONS = {
   },
   /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
   weldErase: {
+    /** 反向（user 10-26「软边橡皮快捷键和马前炮可以变成相反操作（就是标记硬边），焊边也一样」）：拆开 = 刮过的曲线炸回一段段；按住 Shift = 这里选的反面。 */
+    action: { kind: "enum", label: "动作", values: [{ id: "weld", label: "焊接" }, { id: "split", label: "拆开", hint: "刮过的曲线拆回一段段（按住 Shift 临时反过来）" }], def: "weld", scope: "session" },
     maxDeg: { kind: "number", label: "最大角度", def: 45, min: 1, max: 90, step: 1, unit: "°", scope: "session" },
   },
   /** 软边橡皮（「第三个橡皮……原理一样。共面就删边，不共面就改软边」）：两膜二面角 ≤ 这个角才软化（+ 平滑）；共面直接删边并面；更尖的不碰。默认 20° 对齐 SU Soften。 */
   softErase: {
+    /** 反向（同上）：硬化 = 刮过的边去掉软 + 平滑（Blender 的 mark sharp）；按住 Shift = 这里选的反面。 */
+    action: { kind: "enum", label: "动作", values: [{ id: "soften", label: "软化" }, { id: "harden", label: "硬化", hint: "刮过的边变硬（= 标记硬边；按住 Shift 临时反过来）" }], def: "soften", scope: "session" },
     maxDeg: { kind: "number", label: "最大角度", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "session" },
   },
   /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */

@@ -33,7 +33,7 @@ export const GROUND: DrawPlane = (() => {
 export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
 /** 实体拾取：顶点 > 边（度量距离：桌面 px / VR 度）> 面（射线求交，取沿射线最近者——正确遮挡序）。tolPx = 本帧量纲的容差。 */
-export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number): HitResult3 {
+export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean }): HitResult3 {
   // 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：顶点/边只在**看得见**时参赛——
   // 与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡，所以棱/角本身不会被自己的邻膜挡掉）。
   // 屏幕索引（#22）：候选只从指针附近的格取；遮挡只看盖住候选点那一格的膜（超集，判定照旧）。
@@ -52,7 +52,7 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
 
   let bestE: EdgeId | undefined, bestEd = tolPx;
   for (const e of idx ? idx.edgesNear(sx, sy, tolPx + 1) : k.edges()) {
-    if (k.isSoft(e.id)) continue;   // 软边不可拾（0.10：看不见的东西不该被橡皮 / 选择碰到；「显示隐藏几何」视图开关 = wishlist）
+    if (k.isSoft(e.id) && !opts?.soft) continue;   // 软边不可拾（0.10：看不见的东西不该被橡皮 / 选择碰到；「显示隐藏几何」视图开关 = wishlist）；硬化的橡皮例外（opts.soft，2026-10-26：不然软边永远硬化不了）
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     const { d, t } = pf.distToSeg(sx, sy, a, b, vp);
     if (d > bestEd) continue;

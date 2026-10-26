@@ -992,7 +992,7 @@ export class Editor {
     return q ? Math.hypot(q.x - ray.origin.x, q.y - ray.origin.y, q.z - ray.origin.z) : null;
   }
   /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
-  pickAt(sx: number, sy: number): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx()); }
+  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), opts); }
 
   /**
    * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
@@ -2387,7 +2387,7 @@ export class Editor {
       eps: () => this.eps(),
       snapPx: () => this.snapPx(),
       pickFace: (sx, sy) => pickFace(this.liveWorld(), this.frame(), this.fvp(), sx, sy),
-      pick: (sx, sy) => this.pickAt(sx, sy),
+      pick: (sx, sy, opts) => this.pickAt(sx, sy, opts),
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), ...q }),
       applyLock: (sn, sx, sy) => this.applyLock(sn, this.anchor3, sx, sy),
