@@ -1280,11 +1280,12 @@ export class Editor {
       }
       case "move": {
         if (v.kind === "array") {
-          if (!L.copy) { this.redoXform(translation(L.delta), L.froms, L.pools, at); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: "先 Ctrl 拖复制一份，再输阵列（5x 向外 / /5 内分）" }; }
+          // 没按 Ctrl 的普通移动也认阵列（user 2026-10-25「/5 *5应该是没有ctrl的时候也可以用，这么说的话其实用笔的话也可以复制了」）：
+          // 这一步已先撤销（原件回原位），直接按阵列放副本，之后这一步按复制算（再输距离 = 改复制距离）。
           const Xs = arrayTranslations(L.delta, v.mode, v.n);
           const copies = Xs.map((X) => { const XL = this.xformToLocal(X); return { payload: this.copyPayload(XL, L.entities), XL }; });   // 全部先从撤销后的内核算
           this.commitCopies(copies, L.pools, at);
-          this.last = { ...L, ops: this.opCount - n0 };
+          this.last = { ...L, copy: true, ops: this.opCount - n0 };
           msg = v.mode === "x" ? `阵列 ${v.n} 份（每份 ${fmtLen(len3(L.delta))}）` : `内分 ${v.n} 份`;
           break;
         }

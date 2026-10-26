@@ -1064,7 +1064,7 @@ export class Renderer3 {
     for (const e of kd.edges()) {
       const selected = view.selectionEdges.has(e.id);
       const hot = view.scrubEdges.has(e.id) || view.hoverEdge === e.id;
-      if (kd.isSoft(e.id) && !selected && !hot) continue;   // 软边不画（圆柱不长竖纹）
+      if (kd.isSoft(e.id) && !hot) continue;   // 软边不画（圆柱不长竖纹）；选中了也不画（user 2026-10-25「选中的时候软边显示了粗线」），只有刮擦 / 悬停高亮时画
       const hex =
         hot ? PALETTE.edgeHot
         : selected ? PALETTE.edgeSelected
@@ -1226,6 +1226,7 @@ export class Renderer3 {
       if (!kd.graph.hasEdge(id)) continue;
       const e = kd.graph.edge(id);
       const hot = view.scrubEdges.has(id) || view.hoverEdge === id;
+      if (kd.isSoft(id) && !hot) continue;   // 选中的软边不画粗线（user 2026-10-25「选中的时候软边显示了粗线」）
       const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
       const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : PALETTE.edgeSelected);
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);

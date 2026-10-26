@@ -69,6 +69,14 @@ const res = await page.evaluate(async () => {
   out.arrayX3 = e.kernel.faces().length === facesBeforeCopy + 18;
   await type("/2");
   out.arrayDiv2 = e.kernel.faces().length === facesBeforeCopy + 12;
+  // ④½ 不按 Ctrl 的普通移动也认阵列（user 2026-10-25「/5 *5应该是没有ctrl的时候也可以用，这么说的话其实用笔的话也可以复制了」）：
+  //    撤销到复制前 → 普通拖动 6 m → 「2x」= 原件留在原地 + 2 份
+  for (let i = 0; i < 10 && e.kernel.faces().length !== facesBeforeCopy; i++) e.undo();
+  e.setTool("select"); e.selectExpand(e.pickAt(px(Pt(1, 1, 1.5)).x, px(Pt(1, 1, 1.5)).y), 2); e.setTool("move");
+  await drag(m0, m1, 6, {});
+  const movedOnly = e.kernel.faces().length === facesBeforeCopy;
+  await type("2x");
+  out.plainMoveArray = movedOnly && e.kernel.faces().length === facesBeforeCopy + 12 && e.kernel.vertices().some((v) => Math.abs(v.y - 0) < 1e-6);
   // ⑤ 换工具后小窗熄灭
   e.setTool("line");
   out.vcbHiddenAfterTool = vcbEl.hidden;
@@ -76,7 +84,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.vcbHiddenBefore && res.vcbShownAfterPP && res.ppExact2 && res.ppExact15 && res.rectExact && res.circleRadius && res.circleSegments && res.boxSelected && res.copyMade && res.arrayX3 && res.arrayDiv2 && res.vcbHiddenAfterTool && errs.length === 0;
+const ok = res.vcbHiddenBefore && res.vcbShownAfterPP && res.ppExact2 && res.ppExact15 && res.rectExact && res.circleRadius && res.circleSegments && res.boxSelected && res.copyMade && res.arrayX3 && res.arrayDiv2 && res.plainMoveArray && res.vcbHiddenAfterTool && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

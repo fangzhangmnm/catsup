@@ -149,6 +149,10 @@ export const TOOL_OPTIONS = {
     mode: { kind: "enum", label: "画法", values: ARC_MODES, def: "two", scope: "session" },
     segments: { kind: "number", label: "段数", def: 12, min: 2, max: 96, step: 1, scope: "session" },
   },
+  /** 轴工具两种（user 2026-10-25「轴工具能不能不设置方向，就设置点，有两种模式？」「默认是只设置点」）：只设原点 = 点一下、朝向不变；原点 + 方向 = 原来的三下。 */
+  axes: {
+    mode: { kind: "enum", label: "设什么", values: [{ id: "point", label: "只设原点" }, { id: "full", label: "原点 + 方向" }], def: "point", scope: "session" },
+  },
   /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
   move: {
     copy: { kind: "bool", label: "复制", def: false, scope: "session" },

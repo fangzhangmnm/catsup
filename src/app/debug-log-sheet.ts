@@ -96,7 +96,15 @@ export function initDebugLogSheet(): void {
       if (nav.canShare?.({ files: [f] })) await navigator.share({ title: "CatsUp 调试日志", files: [f] });
       else await navigator.share({ title: "CatsUp 调试日志", text: toText() });
     } catch (e) {
-      if ((e as { name?: string })?.name !== "AbortError") { reportError(new Error("[debug-log] share failed: " + String(e)), "log"); say("分享失败"); }
+      if ((e as { name?: string })?.name !== "AbortError") {
+        reportError(new Error("[debug-log] share failed: " + String(e)), "log");
+        // 分享被系统拒（user 2026-10-25 复现包同款「permission denied」）→ 退回下载，日志不丢
+        const f = logFile(), url = URL.createObjectURL(f);
+        const a = document.createElement("a"); a.href = url; a.download = f.name; a.style.display = "none";
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 10_000);
+        say(`分享不行，改成下载了：${f.name}`);
+      }
     }
   });
 

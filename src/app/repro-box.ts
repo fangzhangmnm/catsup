@@ -35,12 +35,21 @@ export async function exportJson(json: string, stem: string, say: (text: string)
   const f = new File([json], `${stem}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, { type: "application/json" });
   const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
   if (typeof navigator.share === "function" && nav.canShare?.({ files: [f] })) {
-    try { await navigator.share({ title: "CatsUp 复现包", files: [f] }); say(`已分享 ${f.name}`); } catch (e) { if (!(e instanceof Error && e.name === "AbortError")) say(`分享失败：${e instanceof Error ? e.message : String(e)}`); }
-    return;
+    try { await navigator.share({ title: "CatsUp 复现包", files: [f] }); say(`已分享 ${f.name}`); return; }
+    catch (e) {
+      if (e instanceof Error && e.name === "AbortError") return;   // 用户自己取消
+      // user 2026-10-25 真机「复现包分享失败, permission denied」（NotAllowedError：系统不让分享这类文件 / 点按的那一下已过期）→ 退回下载，别把包丢了
+      download(f);
+      say(`分享不行（系统说：${e instanceof Error ? e.message : String(e)}），改成下载了：${f.name}`);
+      return;
+    }
   }
+  download(f);
+  say(`已下载 ${f.name}`);
+}
+function download(f: File): void {
   const url = URL.createObjectURL(f);
   const a = document.createElement("a"); a.href = url; a.download = f.name; a.style.display = "none";
   document.body.appendChild(a); a.click(); a.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  say(`已下载 ${f.name}`);
 }

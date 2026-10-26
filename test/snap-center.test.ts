@@ -34,6 +34,19 @@ describe("DT15 圆心", () => {
     eq(cs.length, 4, `两份 × 两个圆心：${JSON.stringify(cs)}`);
     assert(has(cs, P(1, 1, 1.5)) && has(cs, P(6, 1, 1.5)), `两份顶帽圆心：${JSON.stringify(cs)}`);
   });
+  it("老文件（圆的身份已丢、只剩一圈普通边）：正 24 边形盖面的中心也算圆心——做成组件后照样有", () => {
+    const k = new Kernel(), N = 24, pts: Pt3[] = [];
+    for (let i = 0; i < N; i++) { const t = (2 * Math.PI * i) / N; pts.push(P(3 + Math.cos(t), 2 + Math.sin(t), 0)); }
+    k.addEdges(pts.map((p, i) => [p, pts[(i + 1) % N]] as [Pt3, Pt3]));   // 不带 curve：模拟 v0.14.1 之前做成组件丢掉圆身份的样子
+    k.pushPull(k.faces()[0].id, 0.5);
+    eq(k.curves().length, 0, "确实没有曲线实体");
+    let s = new Scene(k);
+    const rk = s.kernelOf({ def: s.root, group: null });
+    s = applyOp(s, { op: "makeComponent", at: { def: s.root, group: null }, faces: rk.faces().map((f) => faceKey(rk, f.id)), edges: rk.edges().map((e) => edgeKey(rk, e.id)), name: "旧轮子" }).scene;
+    const cs = new WorldView(s, ROOT_CONTEXT).centers();
+    assert(has(cs, P(3, 2, 0)) && has(cs, P(3, 2, 0.5)), `两个盖面的中心：${JSON.stringify(cs)}`);
+    assert(!cs.some((c) => Math.abs(c.z - 0.25) < 1e-6), "侧面的长方形不算");
+  });
   it("吸附约束里有「圆心」（秩同中点）", () => {
     const view = new WorldView(new Scene(sceneCylinder()), ROOT_CONTEXT);
     const C = buildConstraints({ k: view, plane: GROUND.plane });

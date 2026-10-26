@@ -132,6 +132,22 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
+    /** 轴工具两种（user 2026-10-25「轴工具能不能不设置方向，就设置点，有两种模式？」「默认是只设置点」）：只设原点 = 点一下、朝向不变；原点 + 方向 = 原来的三下。 */
+    readonly axes: {
+        readonly mode: {
+            readonly kind: "enum";
+            readonly label: "设什么";
+            readonly values: readonly [{
+                readonly id: "point";
+                readonly label: "只设原点";
+            }, {
+                readonly id: "full";
+                readonly label: "原点 + 方向";
+            }];
+            readonly def: "point";
+            readonly scope: "session";
+        };
+    };
     /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
     readonly move: {
         readonly copy: {

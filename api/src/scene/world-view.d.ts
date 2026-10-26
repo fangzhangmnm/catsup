@@ -79,6 +79,8 @@ export declare const PART_STATS: {
     ms: number;
     n: number;
 };
+/** 正多边形（≥ 6 边、各顶点到形心等距、各边等长，相对容差 1e-5）→ 形心；否则 null。 */
+export declare function regularPolygonCenter(pts: readonly Pt3[]): Pt3 | null;
 export declare class WorldView implements GeomView {
     readonly slots: PoolSlot[];
     /** 每槽一份世界坐标几何（缓存单元；屏幕索引也按它缓存）。在手里的槽 = 空 part（见 OVERRIDDEN_PARTS_EMPTY）。 */

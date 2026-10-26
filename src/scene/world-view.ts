@@ -71,11 +71,39 @@ const OVERRIDDEN_PARTS_EMPTY = true;
 const emptyPart = (m: Xform): SlotPart => ({ rev: -1, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), centers: [] });
 const sameXform = (a: Xform, b: Xform): boolean => { for (let i = 0; i < 12; i++) if (a[i] !== b[i]) return false; return true; };
 
+/** 正多边形（≥ 6 边、各顶点到形心等距、各边等长，相对容差 1e-5）→ 形心；否则 null。 */
+export function regularPolygonCenter(pts: readonly Pt3[]): Pt3 | null {
+  const n = pts.length;
+  if (n < 6) return null;
+  let cx = 0, cy = 0, cz = 0;
+  for (const p of pts) { cx += p.x; cy += p.y; cz += p.z; }
+  const c = { x: cx / n, y: cy / n, z: cz / n };
+  const r0 = Math.hypot(pts[0].x - c.x, pts[0].y - c.y, pts[0].z - c.z);
+  if (!(r0 > 1e-9)) return null;
+  const tol = 1e-5 * r0;
+  const e0 = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y, pts[1].z - pts[0].z);
+  for (let i = 0; i < n; i++) {
+    const p = pts[i], q = pts[(i + 1) % n];
+    if (Math.abs(Math.hypot(p.x - c.x, p.y - c.y, p.z - c.z) - r0) > tol) return null;
+    if (Math.abs(Math.hypot(q.x - p.x, q.y - p.y, q.z - p.z) - e0) > tol) return null;
+  }
+  return c;
+}
+
 function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
   const off = index * ID_STRIDE;
   const ident = isIdentity(m);
   const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), centers: [] };
   for (const c of k.curves()) if (c.params && (c.kind === "circle" || c.kind === "arc")) part.centers.push(ident ? { ...c.params.center } : applyPt(m, c.params.center));
+  // 正多边形面的中心也算圆心（user 2026-10-25「圆心应该优先于格点」：v0.14.1 之前「做成组件」会把圆丢成一圈普通边——老文件里的轮子没有曲线实体可读，
+  // 但盖面还是一个正 N 边形；它的中心就是原来的圆心）。只认 ≥ 6 条边、各顶点到中心等距、各边等长的外环；和曲线圆心重合的去重。
+  const near = (q: Pt3): boolean => part.centers.some((p) => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6 && Math.abs(p.z - q.z) < 1e-6);
+  for (const f of k.faces()) {
+    const c = regularPolygonCenter(f.outer.vids.map((v) => k.graph.pt(v)));
+    if (!c) continue;
+    const w = ident ? c : applyPt(m, c);
+    if (!near(w)) part.centers.push(w);   // 和曲线圆心是同一个点 → 不重复登记
+  }
   for (const v of k.vertices()) {
     const p = ident ? v : applyPt(m, v);
     part.verts.set(v.id + off, { id: v.id + off, x: p.x, y: p.y, z: p.z, edges: new Set([...v.edges].map((e) => e + off)) });

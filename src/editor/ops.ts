@@ -15,7 +15,7 @@ import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/k
 import { ptKey3, quantize3 } from "../kernel/geom.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import { type Frame, type Xform, applyPt, compose, frameAt, transformFrame, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, applyPt, compose, frameAt, frameToXform, invert, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 
 export type Seg = [PtIn, PtIn];
@@ -129,6 +129,21 @@ const poolOf = (s: Scene, at?: PoolRef): { kernel: Kernel; ref: PoolRef } => {
   if (kind !== "brep") throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"} is a ${kind} pool: no brep op applies`);
   return { kernel: s.kernelOf(ref), ref };
 };
+
+/**
+ * 组件换轴（user 2026-10-25「刚才失败的那个是有instanced的object我动轴，可能这里逻辑有点复杂，需要每个instance都移动」；Claude Opus 5.5）：
+ * 新轴 f 用旧定义坐标给出；定义坐标改成「新轴下的坐标」= 定义里的几何 / 组的轴 / 参考几何 / 子实例全乘 M⁻¹（M = 帧 f 的矩阵：新坐标 → 旧坐标），
+ * 每一份实例（场景里任何定义里放的）乘 M——世界里一点不动，只是组件的原点和朝向换了（SU Change Axes 同款）。只换原点时 M 是平移，几何只是平移。
+ */
+function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] {
+  const M = frameToXform(f), Mi = invert(M), body = s.brep(def), events: FaceEvent[] = [];
+  events.push(...body.kernel.transformAll((p) => applyPt(Mi, p)));
+  transformGuides(body.guides, Mi);
+  for (const g of body.groups.values()) { events.push(...g.kernel.transformAll((p) => applyPt(Mi, p))); g.axes = transformFrame(Mi, g.axes); transformGuides(g.guides, Mi); }
+  for (const inst of s.def(def).instances.values()) inst.xform = compose(Mi, inst.xform);
+  for (const d of s.defs.values()) for (const inst of d.instances.values()) if (inst.def === def) inst.xform = compose(inst.xform, M);
+  return events;
+}
 
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
 export function applyOp(s: Scene, op: Op): ApplyResult {
@@ -270,7 +285,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const f: Frame = { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } };
       if (ref.group !== null) s.group({ def: ref.def, group: ref.group }).axes = f;
       else if (ref.def === s.root) s.axes = f;
-      else throw new OpTargetError("component definition axes are not editable yet");
+      else return { scene: s, events: changeDefinitionAxes(s, ref.def, f) };
       return { scene: s, events: [] };
     }
     case "addMaterial": {

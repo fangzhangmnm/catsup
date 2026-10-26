@@ -39,6 +39,13 @@ export class AxesTool implements ToolHandler {
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.stage === 0) {
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
+      if (ctx.config.get("axes", "mode") === "point") {   // 只设原点（默认）：点一下，朝向照旧
+        const cf = ctx.contextFrame();
+        ctx.setAxes({ origin: r.snap.p, x: cf.x, y: cf.y, z: cf.z });
+        ctx.hint(ctx.activePool().group !== null ? "组的原点已换（几何不动）" : ctx.contextDepth() ? "组件的原点已换（几何不动、每份实例跟着补）" : "绘图轴原点已搬");
+        ctx.setSnap(null);
+        return;
+      }
       this.plane = r.plane; this.o = r.snap.p; this.px = this.cur = null;
       ctx.setAnchor(this.o); ctx.setSnap(r.snap); ctx.setCursor(this.o);
       this.stage = 1;
