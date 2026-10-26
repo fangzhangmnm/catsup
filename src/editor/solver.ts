@@ -15,7 +15,7 @@ import type { Edge, EdgeId, Face, FaceId, Pt3, VertexId } from "../kernel/kernel
 import type { GeomView } from "../scene/world-view.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
-import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, planeBasis, pointInRing, projectToPlane, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
+import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, liftFromPlane, planeBasis, pointInRing, projectToPlane, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 import { perf } from "./perf-stats.ts";
@@ -147,8 +147,15 @@ export function solvePoint(
         const R = L.len !== undefined ? 0 : Math.abs(t) + 1e5;
         const lo = L.len !== undefined ? 0 : t - R, hi = L.len !== undefined ? L.len : t + R;
         const occ = opts.spans1D(L.a, L.dir, lo, hi);
+        // 落在被挡段里：段内部，或正好在段的边界上、而那个边界是线段的端点（不是轮廓）。2026-10-26：以前一律严格不等号——
+        // 候选先被钳到线段端点、整段都被挡时端点恰在边界上 → 当成可见 → 隔着炮塔吸到后面车身边的一小段（user「面上面拖的时候…有时候突然弹到下面」）
+        const E9 = 1e-9;
         let inside: [number, number] | null = null;
-        for (const sp of occ) if (t > sp[0] + 1e-9 && t < sp[1] - 1e-9) { inside = sp; break; }
+        for (const sp of occ) {
+          const inLo = t > sp[0] + E9 || (sp[0] <= lo + E9 && t >= sp[0] - E9);
+          const inHi = t < sp[1] - E9 || (sp[1] >= hi - E9 && t <= sp[1] + E9);
+          if (inLo && inHi) { inside = sp; break; }
+        }
         if (inside) {
           const cl = [inside[0], inside[1]].filter((x) => x > lo + 1e-9 && x < hi - 1e-9);
           if (!cl.length) continue;                                   // 整段可达范围全被挡
@@ -340,50 +347,45 @@ export function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: F
 /**
  * 1-D 轨迹的膜遮挡 = **可见区间裁剪**（2026-09-03 抖动破案：逐点二值判会在剪影边界随光标横跳；
  * 0-D 点的可见性不随光标变所以二值判无害——user 直觉「边是一个 range」正解）。
- * 对每张膜求「影柱∩直线」：s(t)=到膜平面的视向距离是 t 的线性函数，q2(t)=命中点在膜基下的 2D 坐标
- * 是 t 的仿射函数 → 遮挡边界 = s(t)=ε 的根 ∪ q2(t) 与多边形边的交 → 子区间中点采样定内外。
+ * **精确分割（2026-10-26 重写，user「面上面拖的时候为什么会有时候突然弹到下面…在炮塔顶面上随便拖一下，有时候会抖动」）**：
+ * 点被一张多边形膜挡住 ⇔ 它在「眼睛 → 多边形」的棱锥里、且在膜平面的另一侧。棱锥侧面 = 过多边形一条边、含该处视线方向的平面
+ * （透视 = 过眼睛；正交 = 平行视向），膜本身也是平面——直线和每个平面只交一次，分割点全是一次方程的精确根；
+ * 每段取中点按**该点自己的视线**判内外（= occludedBy 的单膜判定）。以前整条线段只用中点那一处的视向当常量：透视下长边（车身边几米长）
+ * 误差大，光标附近那截被挡的线被判成可见 → 隔着炮塔吸到后面低半米的车身边。
  * 返回 [tMin,tMax] 内的**被挡**区间（升序、已合并）。
  */
 export function occludedSpansOnLine(
   k: GeomView, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number,
   skip?: (fid: FaceId) => boolean, faces?: readonly Face[],
 ): [number, number][] {
-  // 透视下视向沿线变化，区间代数取线段中点的视向作常向量近似（短线段误差可忽略；正交=精确）
-  const e = pf.viewDir(add3(a, scale3(dir, (tMin + tMax) / 2)));
   const spans: [number, number][] = [];
+  const at = (t: number): Pt3 => add3(a, scale3(dir, t));
   for (const f of faces ?? k.faces()) {
     if (skip?.(f.id)) continue;
     const rec = k.planeOf(f.id);
     const face = k.face(f.id);
     if (!rec || !face) continue;
-    const n = rec.plane.n, d = rec.plane.d;
-    const den = dot3(n, e);
-    if (Math.abs(den) < 1e-9) continue;                 // 膜侧对视线，不遮
-    const s0 = (d - dot3(n, a)) / den, s1 = -dot3(n, dir) / den;   // s(t)=s0+s1·t
-    const { u, v } = rec.basis;
-    const Ax = dot3(a, u) + s0 * dot3(e, u), Bx = dot3(dir, u) + s1 * dot3(e, u);
-    const Ay = dot3(a, v) + s0 * dot3(e, v), By = dot3(dir, v) + s1 * dot3(e, v);
+    const { n, d } = rec.plane, { u, v } = rec.basis;
+    const to3 = (q: Pt): Pt3 => liftFromPlane(q, rec.plane, rec.basis);
     const cuts: number[] = [tMin, tMax];
-    if (Math.abs(s1) > 1e-12) cuts.push((1e-4 - s0) / s1);
+    const cutPlane = (m: Pt3, p0: Pt3): void => { const den = dot3(m, dir); if (Math.abs(den) > 1e-12) cuts.push(dot3(m, sub3(p0, a)) / den); };
+    cutPlane(n, scale3(n, d));                                           // 穿过膜平面（点到了膜前 / 膜后）
     for (const ring of [face.outer.pts, ...face.holes.map((h) => h.pts)]) {
       for (let i = 0; i < ring.length; i++) {
-        const p1 = ring[i], p2 = ring[(i + 1) % ring.length];
-        const ex = p2.x - p1.x, ey = p2.y - p1.y;
-        const det = -Bx * ey + By * ex;                 // [Bx −ex; By −ey]
-        if (Math.abs(det) < 1e-12) continue;
-        const rx = p1.x - Ax, ry = p1.y - Ay;
-        const t = (-rx * ey + ry * ex) / det;
-        const w = (Bx * ry - By * rx) / det;
-        if (w >= -1e-9 && w <= 1 + 1e-9) cuts.push(t);
+        const p1 = to3(ring[i]), p2 = to3(ring[(i + 1) % ring.length]);
+        cutPlane(cross3(sub3(p2, p1), pf.viewDir(p1)), p1);             // 棱锥侧面：过这条边、含这里的视线
       }
     }
     const ts = cuts.filter((t) => t >= tMin - 1e-9 && t <= tMax + 1e-9).sort((x, y) => x - y);
     for (let i = 0; i + 1 < ts.length; i++) {
       const lo = ts[i], hi = ts[i + 1];
       if (hi - lo < 1e-9) continue;
-      const tm = (lo + hi) / 2;
-      if (s0 + s1 * tm <= 1e-4) continue;               // 膜在点前方才算挡
-      const q2 = { x: Ax + Bx * tm, y: Ay + By * tm };
+      const p = at((lo + hi) / 2), e = pf.viewDir(p);                   // 中点按它自己的视线判（透视下视向随点变）
+      const den = dot3(n, e);
+      if (Math.abs(den) < 1e-9) continue;                               // 膜侧对视线，不遮
+      const s = (d - dot3(n, p)) / den;
+      if (s <= 1e-4) continue;                                          // 膜在点前方才算挡
+      const q = add3(p, scale3(e, s)), q2 = { x: dot3(q, u), y: dot3(q, v) };
       if (!pointInRing(q2, face.outer.pts)) continue;
       if (face.holes.some((h) => pointInRing(q2, h.pts))) continue;
       spans.push([lo, hi]);
