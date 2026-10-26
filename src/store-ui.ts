@@ -59,6 +59,17 @@ export const storeUI: StoreUI = {
   text: (key: StoreTextKey, params?: StoreTextParams): string | undefined => STORE_TEXT[key]?.(params),
 
   // 三选一走 openGateChoiceSheet：图库「处理…」把 store.resolve() 包在 busy 里（gallery 0.8.7 verbs.resolve），普通面板会被 busy 护栏拒（user 10-25 真机截图）
+  // store 2.2.2（user 2026-10-26「同意，反正不删就行了」）：改名撞上「不知道云端旧的该不该搬」→ 动字节前先问。搬走 = 进回收站（可恢复），不是删。
+  resolveRenameOld: async ({ oldName, newName, reason }: { oldName: string; newName: string; reason: "diverged" | "unknown-lineage" }): Promise<"trash" | "keep" | "cancel"> => {
+    const from = stripExt(oldName), to = stripExt(newName);
+    note("store", `rename-old ask reason=${reason} ${from} → ${to}`);
+    const why = reason === "diverged" ? `云端的「${from}」被别的设备改过、这台的改动还没传上去。` : `这台不知道自己这份是从云端哪一版改出来的。`;
+    const c = await openGateChoiceSheet<"trash" | "keep" | "cancel">(`「${from}」云端那份和这台的对不上`,
+      `${why}新名字「${to}」会传上去；云端那份旧的要搬进回收站（能恢复），还是留着（两份都在）？取消 = 不改名，什么都不动。`,
+      [{ label: "搬走旧的（进回收站）", value: "trash", primary: true }, { label: "留着旧的", value: "keep" }, { label: "取消", value: "cancel" }]);
+    note("store", `rename-old → ${c ?? "cancel"}`);
+    return c ?? "cancel";
+  },
   resolveConflict: async ({ name, occasion, cloudState }): Promise<ResolveChoice> => {
     const n = stripExt(name);
     note("store", `conflict occasion=${occasion} cloudState=${cloudState ?? "-"} name=${n}`);
