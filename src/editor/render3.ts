@@ -124,6 +124,8 @@ const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
 export type LineStyle = "pixel" | "thick";
+/** X 光下被挡住的边画多淡（不透明度，0–1）。 */
+const XRAY_OPACITY = 0.35;
 const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 刮擦 / 悬停边的基准；0.12.3 起由 lineWeight 覆盖）
 /**
  * 线稿粗细（0.12.3；user 2026-10-24「ipad上面细线稿是不舒服。但是粗线稿又太粗了，有1.5这种选项吗」「sketchup里面粗细线是有区分的啊, dangling edge和轮廓是粗线」）：
@@ -156,7 +158,7 @@ interface GpuFaces { readonly key: string; readonly mat: Material | null; readon
 interface GpuLines { readonly thick: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; }
 interface PoolGpu { readonly mesh: PoolMesh; faces: Map<string, GpuFaces>; lines: GpuLines | null; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; tex: { mesh: any }[]; pixel: any; thick: any; gen: number; }
+interface SlotNodes { root: any; plain: any; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
 
 export interface ViewState {
   selectionEdges: ReadonlySet<EdgeId>;
@@ -323,6 +325,9 @@ export class Renderer3 {
   private edgeLines: any; private edgeMat: any;
   private edgePixel: any;                 // 原生 GL 线（1 设备像素）：默认线稿
   private lineStyle: LineStyle = "pixel";
+  /** X 光（DT17）：开着 = 池的边透过面画淡的、选中的边不被挡。 */
+  private xray = false;
+  private xrayPixelMat: any; private xrayThickMat: any; private xrayOverlayMat: any;
   private lineWeight = 1;                              // 设备像素；1 = 原生线
   private readonly profileAdd = { value: 1 };          // 轮廓线加粗（设备像素）；edgeMat 的 shader uniform
   private hintLines: any;
@@ -411,6 +416,12 @@ export class Renderer3 {
         .replace("offset *= linewidth;", "offset *= lw;");
     };
     this.edgeMat.customProgramCacheKey = (): string => "catsup-profile-edges";
+    // X 光（DT17，2026-10-26）：池的边再画一遍（共用几何、不另占内存）+ 覆盖层不做深度测试；半透明渲染那半留 Tron 纪元
+    this.xrayPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: XRAY_OPACITY, depthTest: false, depthWrite: false });
+    this.xrayThickMat = this.lineMat(EDGE_PX, { vertexColors: true });
+    Object.assign(this.xrayThickMat, { transparent: true, opacity: XRAY_OPACITY, depthTest: false, depthWrite: false });
+    this.xrayOverlayMat = this.lineMat(EDGE_PX + 1, { vertexColors: true });
+    Object.assign(this.xrayOverlayMat, { depthTest: false, depthWrite: false });
     this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
     this.edgeLines.frustumCulled = false; this.edgeLines.visible = false;
     // 覆盖层（选中蓝 / 刮擦·悬停红）和底下的边同一个材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
@@ -1245,6 +1256,7 @@ export class Renderer3 {
   /** 全部边 → 一份粗线（顶点色按类别）。 */
   /** 线稿风格（视图菜单「粗线稿」）。 */
   setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.edgeKey = ""; this.poolKey = ""; } }
+  setXray(on: boolean): void { if (this.xray !== on) { this.xray = on; this.poolKey = ""; this.overlayKey = ""; } }
   getLineStyle(): LineStyle { return this.lineStyle; }
   /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
   setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
@@ -1319,6 +1331,9 @@ export class Renderer3 {
       const L = pg.lines, showL = !!L && pg.mesh.lines.count > 0;
       if (this.lineStyle === "thick") { n.thick.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
       else { n.pixel.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
+      const xr = this.xray && showL;
+      n.xthick.geometry = xr && this.lineStyle === "thick" ? n.thick.geometry : this.emptyLineGeo; n.xthick.visible = xr && this.lineStyle === "thick";
+      n.xpixel.geometry = xr && this.lineStyle !== "thick" ? n.pixel.geometry : this.emptyGeo; n.xpixel.visible = xr && this.lineStyle !== "thick";
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
     for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
@@ -1336,9 +1351,11 @@ export class Renderer3 {
     const plain = new THREE.Mesh(this.emptyGeo, this.faceMat); plain.frustumCulled = false; plain.visible = false;
     const pixel = new THREE.LineSegments(this.emptyGeo, this.pixelMat); pixel.frustumCulled = false; pixel.visible = false;
     const thick = new LineSegments2(this.emptyLineGeo, this.edgeMat); thick.frustumCulled = false; thick.visible = false;
-    root.add(plain); root.add(pixel); root.add(thick);
+    const xpixel = new THREE.LineSegments(this.emptyGeo, this.xrayPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3;
+    const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3;
+    root.add(plain); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
-    return { root, plain, tex: [], pixel, thick, gen: 0 };
+    return { root, plain, tex: [], pixel, thick, xpixel, xthick, gen: 0 };
   }
   private texMatFor(mat: Material, side: TexSide = "double"): any {
     let bySide = this.texMats.get(mat);
@@ -1510,6 +1527,7 @@ export class Renderer3 {
       const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : warn ? PALETTE.edgeWarn : PALETTE.edgeSelected);
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
     }
+    this.edgeLines.material = this.xray ? this.xrayOverlayMat : this.edgeMat;   // X 光：选中 / 悬停 / 检查标的边不被面挡
     if (pos.length) { this.setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;
     this.edgePixel.visible = false;
   }

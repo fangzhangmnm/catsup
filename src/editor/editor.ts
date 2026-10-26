@@ -1121,7 +1121,14 @@ export class Editor {
     return q ? Math.hypot(q.x - ray.origin.x, q.y - ray.origin.y, q.z - ray.origin.z) : null;
   }
   /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
-  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), opts); }
+  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), { ...opts, xray: this._xray && this._tool === "select" }); }
+  // ---------- X 光（纪元账本 DT17 的拾取 + 叠加层两半；半透明渲染留 Tron 纪元）----------
+  // user 10-26「X光模式有一半是tron纪元的渲染器的事情，但是我现在想的是拾取模式和overlay 这个是不是现在就可以做？」
+  // 开着：选择工具点得到被面挡住的点 / 边；画面上池的边透过面画淡的、选中的边不被挡。框选本来就会选到被挡的（SketchUp 同款），不变。
+  // 视图设置：不进文件、不进撤销；快捷键 Alt+Z（Blender 同键）。
+  private _xray = false;
+  get xray(): boolean { return this._xray; }
+  setXray(on: boolean): void { if (this._xray === on) return; this._xray = on; this.r3.setXray(on); this.host.hint(on ? "X 光开：选择工具点得到被挡住的点 / 边，边透过面画出来（Alt+Z 关）" : "X 光关"); this.host.changed(); this.draw(); }
 
   /**
    * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。

@@ -569,6 +569,9 @@ export declare class Editor {
     pickAt(sx: number, sy: number, opts?: {
         soft?: boolean;
     }): HitResult3;
+    private _xray;
+    get xray(): boolean;
+    setXray(on: boolean): void;
     /**
      * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
      * 点（2026-10-26）：单击 = 这个点；双击 = 连着它的线；三击 = 连通体。

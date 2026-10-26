@@ -12,6 +12,7 @@ export interface HitResult3 {
 /** 实体拾取：顶点 > 边（度量距离：桌面 px / VR 度）> 面（射线求交，取沿射线最近者——正确遮挡序）。tolPx = 本帧量纲的容差。 */
 export declare function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: {
     soft?: boolean;
+    xray?: boolean;
 }): HitResult3;
 export declare function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): FaceId | undefined;
 /** 画线平面：光标下的面 → 它的平面；否则地面。 */

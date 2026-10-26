@@ -33,12 +33,14 @@ export const GROUND: DrawPlane = (() => {
 export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
 /** 实体拾取：顶点 > 边（度量距离：桌面 px / VR 度）> 面（射线求交，取沿射线最近者——正确遮挡序）。tolPx = 本帧量纲的容差。 */
-export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean }): HitResult3 {
+export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean }): HitResult3 {
   // 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：顶点/边只在**看得见**时参赛——
   // 与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡，所以棱/角本身不会被自己的邻膜挡掉）。
   // 屏幕索引（#22）：候选只从指针附近的格取；遮挡只看盖住候选点那一格的膜（超集，判定照旧）。
   const idx = ScreenIndex.for(k, pf, vp);
+  // X 光（DT17，选择工具）：被面挡住的点 / 边照样参赛（面仍取射线上最近的那张）
   const hidden = (p: Pt3): boolean => {
+    if (opts?.xray) return false;
     if (idx && pf.project) { const q = pf.project(p, vp); if (q) return occludedBy(k, pf, p, undefined, idx.facesNear(q.x, q.y, 0)); }
     return occludedBy(k, pf, p);
   };

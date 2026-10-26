@@ -194,6 +194,11 @@ export declare class Renderer3 {
     private edgeMat;
     private edgePixel;
     private lineStyle;
+    /** X 光（DT17）：开着 = 池的边透过面画淡的、选中的边不被挡。 */
+    private xray;
+    private xrayPixelMat;
+    private xrayThickMat;
+    private xrayOverlayMat;
     private lineWeight;
     private readonly profileAdd;
     private hintLines;
@@ -327,6 +332,7 @@ export declare class Renderer3 {
     /** 全部边 → 一份粗线（顶点色按类别）。 */
     /** 线稿风格（视图菜单「粗线稿」）。 */
     setLineStyle(style: LineStyle): void;
+    setXray(on: boolean): void;
     getLineStyle(): LineStyle;
     /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
     setLineWeight(w: number): void;

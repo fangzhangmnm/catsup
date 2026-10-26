@@ -388,7 +388,7 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -423,6 +423,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "makePlanarAll": editor.repair("planar", "context"); break;
       case "material": toggleMatSheet(true); break;
       case "persp": editor.toggleProjection(); return "keep";
+      case "xray": editor.setXray(!editor.xray); return "keep";
       case "unhideAll": editor.unhideAll(); break;
       case "walk": setWalk(!locomotion.isWalking()); return "keep";
       case "thick": editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep";
@@ -883,6 +884,7 @@ function openViewMenu(tab?: ViewTab): void {
     anchor: viewMenuBtn, align: "end" as const, tabs: VIEW_MENU_TABS, tabKey: "view", tab,
     items: () => [
       { id: "persp" as MenuId, label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), tab: "display" },
+      { id: "xray" as MenuId, label: "X 光", checked: editor.xray, hint: "Alt+Z：选择工具点得到被挡住的点 / 边，边透过面画出来", tab: "display" },   // DT17 拾取 + 叠加层（半透明留 Tron 纪元）
       ((): { id: MenuId; label: string; icon: string; hint: string; disabled: boolean; tab: string } => { const c = editor.hiddenCount(), n = c.instances + c.faces + c.edges; return { id: "unhideAll", label: n ? `全部显示（${n}）` : "全部显示", icon: "visibility-show", hint: "Alt+H", disabled: !n, tab: "display" }; })(),   // DT49
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
       { id: "lw:pick" as MenuId, label: "线稿粗细", tab: "display", choices: LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "1 px（原生细线）" : `${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗" })) },   // 设备像素
@@ -968,7 +970,8 @@ window.addEventListener("keydown", (ev) => {
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); editor.selectAll(); return; }   // Ctrl+A 全选（A7）
   if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.code === "KeyI") { ev.preventDefault(); editor.invertSelection(); return; }   // Blender：Ctrl+I 反选（2026-10-26）
   if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyA") { ev.preventDefault(); editor.deselectAll(); return; }   // Blender：Alt+A 全不选（用 code：Mac 上 Alt+A 打出的是别的字）
-  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyH") { ev.preventDefault(); editor.unhideAll(); return; }   // Blender：Alt+H = 全部显示（DT49；用 code：Mac 上 Alt+H 打出的是别的字）
+  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyH") { ev.preventDefault(); editor.unhideAll(); return; }
+  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyZ") { ev.preventDefault(); editor.setXray(!editor.xray); return; }   // Blender：Alt+Z = X 光（DT17）   // Blender：Alt+H = 全部显示（DT49；用 code：Mac 上 Alt+H 打出的是别的字）
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "g" || ev.key === "G")) { ev.preventDefault(); if (ev.shiftKey) editor.explodeSelection(); else editor.makeGroup(); return; }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
     ev.preventDefault();
