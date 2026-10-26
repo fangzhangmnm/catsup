@@ -107,15 +107,42 @@ export class OrbitCamera implements PointerFrame {
     const s = this.angularPx(p, vp);
     return Math.hypot(s.x - x, s.y - y);
   }
-  distToSeg(x: number, y: number, a: Pt3, b: Pt3, vp: Viewport, infinite = false): { d: number; t: number } {
+  /**
+   * 光标到线段 [a,b]（infinite = 过 a、b 的无限直线）的屏距 + 最近点在**原线段上的参数** t（0 = a、1 = b）。
+   * 透视下精确（2026-10-26，user「还有哪些不精确的算法也一起查一下」「不应该写死特征长度」）：
+   *   ① 线段先按近平面裁掉相机背后的那截（以前背后的点按近平面深度硬投，屏上方向是错的）；整段在背后 = 无穷远；
+   *   ② 无限直线任取它在眼前的两点（深度 = 眼距、两倍眼距——随相机走，不写死长度）：屏上那条线和取哪两点无关，精确；
+   *   ③ 屏上参数 → 线段参数做透视校正（屏上线性变化的是 1/深度）——以前直接把屏上参数当线段参数，拾取的遮挡判在偏了的点上。
+   */
+  distToSeg(x: number, y: number, a0: Pt3, b0: Pt3, vp: Viewport, infinite = false): { d: number; t: number } {
+    let a = a0, b = b0, tA = 0, tB = 1;   // 裁剪 / 取点之后两端在原线段上的参数
+    const persp = this.projection === "persp";
+    const lerp = (t: number): Pt3 => add3(a0, scale3(sub3(b0, a0), t));
+    if (persp) {
+      const e = this.eye(), f = this.forward(), n = this.nearClamp();
+      const za = dot3(sub3(a0, e), f), zb = dot3(sub3(b0, e), f), dz = zb - za;
+      if (infinite) {
+        if (Math.abs(dz) <= 1e-12 * (Math.abs(za) + Math.abs(zb))) { if (za <= n) return { d: Infinity, t: 0 }; }   // 平行于成像面：整条同一深度
+        else { const D = Math.max(this.eyeDist(), 2 * n); tA = (D - za) / dz; tB = (2 * D - za) / dz; a = lerp(tA); b = lerp(tB); }
+      } else {
+        if (za <= n && zb <= n) return { d: Infinity, t: 0 };
+        if (za < n) tA = (n - za) / dz; else if (zb < n) tB = (n - za) / dz;
+        if (tA !== 0) a = lerp(tA);
+        if (tB !== 1) b = lerp(tB);
+      }
+    }
     const p1 = this.angularPx(a, vp), p2 = this.angularPx(b, vp);
     const dx = p2.x - p1.x, dy = p2.y - p1.y;
     const l2 = dx * dx + dy * dy;
-    if (l2 === 0) return { d: Math.hypot(x - p1.x, y - p1.y), t: 0 };
-    let t = ((x - p1.x) * dx + (y - p1.y) * dy) / l2;
-    if (infinite) return { d: Math.abs((x - p1.x) * dy - (y - p1.y) * dx) / Math.sqrt(l2), t };
-    t = Math.max(0, Math.min(1, t));
-    return { d: Math.hypot(x - (p1.x + t * dx), y - (p1.y + t * dy)), t };
+    if (l2 === 0) return { d: Math.hypot(x - p1.x, y - p1.y), t: tA };
+    let s = ((x - p1.x) * dx + (y - p1.y) * dy) / l2;
+    const d = infinite ? Math.abs((x - p1.x) * dy - (y - p1.y) * dx) / Math.sqrt(l2) : Math.hypot(x - (p1.x + (s = Math.max(0, Math.min(1, s))) * dx), y - (p1.y + s * dy));
+    let u = s;
+    if (persp) {   // 屏上参数 s → 3D 参数：1/z 在屏上线性 ⇒ u = s·zA / ((1−s)·zB + s·zA)
+      const e = this.eye(), f = this.forward(), zA = dot3(sub3(a, e), f), zB = dot3(sub3(b, e), f), den = (1 - s) * zB + s * zA;
+      if (Math.abs(den) > 1e-300) u = (s * zA) / den;
+    }
+    return { d, t: tA + u * (tB - tA) };
   }
   distBetween(p: Pt3, q: Pt3, vp: Viewport): number {
     const a = this.angularPx(p, vp), b = this.angularPx(q, vp);

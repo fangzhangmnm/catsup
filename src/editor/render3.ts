@@ -110,8 +110,8 @@ const SEL_VERT_DOT_PX = 9;
 const POOL_AXES_PX = 22;
 /** 平面 gizmo 的颜色（常态 / 悬停）。 */
 const GIZMO_COLOR = 0x2b6cb0, GIZMO_HOT = 0xd97706;
-/** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
-const GUIDE_COLOR = 0x6b7280, GUIDE_SEL_COLOR = 0x2b6cb0, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;   // 选中 = 与选中膜同一个蓝（A31）
+/** 参考几何（0.11 尺规纪元）：参考线画到视野最远处（视觉上 = 无限；2026-10-26 以前写死 ±200 m），参考点画三轴小叉（像素尺寸）。 */
+const GUIDE_COLOR = 0x6b7280, GUIDE_SEL_COLOR = 0x2b6cb0, GUIDE_POINT_PX = 6;   // 选中 = 与选中膜同一个蓝（A31）
 /** A33 断口小垂线：半长 px + 颜色（提醒色，与参考线 / 充能区分）。 */
 /** A33 断口小垂线：半长 = 线宽 × TICK_K、颜色 = 边线色、粗细 = 边线（user 2026-10-24「首先应该黑色，其次应该小一点不显眼……线宽的多少倍……相当于线上面多一个鼓包这样，但是看得出是一个线头」；此前橙色、半长固定 5 px）。 */
 const TICK_K = 2;
@@ -674,7 +674,32 @@ export class Renderer3 {
     return (2 * cam.halfH) / vp.h;
   }
 
-  private syncCamera(cam: OrbitCamera, vp: Viewport): any {
+  /**
+   * 远处能看到多远（世界长度，从视野中心 target 量）：透视 = 远平面，正交 = 深度窗口半宽。无限长的线（参考线 / 充能延长线）画到这么远；
+   * 和远平面一起按**场景包围球**定（2026-10-26，user「不应该写死特征长度。我们的普朗克长度到哈勃半径也跨了蛮多数量级了」：
+   * 以前远平面 = 眼距×40 + 100 m、正交窗口下限 500 m、参考线 ±200 m——100 m / 500 m / 200 m 在毫米零件和公里场景两头都不对）。
+   */
+  private viewReach = 1;
+  /** 无限长直线（过 p、方向 dir 单位）的可画两端：从离视野中心最近的那点往两边各 viewReach + 那点到中心的距离。 */
+  private infLine(p: Pt3, dir: Pt3, target: Pt3): [Pt3, Pt3] {
+    const t = (target.x - p.x) * dir.x + (target.y - p.y) * dir.y + (target.z - p.z) * dir.z;
+    const c = { x: p.x + dir.x * t, y: p.y + dir.y * t, z: p.z + dir.z * t }, L = this.viewReach + Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z);
+    return [{ x: c.x - dir.x * L, y: c.y - dir.y * L, z: c.z - dir.z * L }, { x: c.x + dir.x * L, y: c.y + dir.y * L, z: c.z + dir.z * L }];
+  }
+  /** 画无限长线的缓存键：视野范围按对数分档、中心按范围量化（相机大挪才重建）。 */
+  private reachKey(target: Pt3): string { const q = this.viewReach / 8; return `${Math.round(Math.log2(this.viewReach) * 2)}@${Math.round(target.x / q)},${Math.round(target.y / q)},${Math.round(target.z / q)}`; }
+  private boundsKey = ""; private sceneSphere: { c: Pt3; r: number } | null = null;
+  private sceneBounds(k: GeomView, rev: number): { c: Pt3; r: number } | null {
+    const key = `${this.kernelId(k)}:${rev}`;
+    if (key !== this.boundsKey) {
+      this.boundsKey = key;
+      let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+      for (const v of k.vertices()) { if (v.x < min.x) min.x = v.x; if (v.y < min.y) min.y = v.y; if (v.z < min.z) min.z = v.z; if (v.x > max.x) max.x = v.x; if (v.y > max.y) max.y = v.y; if (v.z > max.z) max.z = v.z; }
+      this.sceneSphere = Number.isFinite(min.x) ? { c: { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 }, r: Math.hypot(max.x - min.x, max.y - min.y, max.z - min.z) / 2 } : null;
+    }
+    return this.sceneSphere;
+  }
+  private syncCamera(cam: OrbitCamera, vp: Viewport, sphere: { c: Pt3; r: number } | null): any {
     const eye = cam.eye(), up = cam.up();
     let c: any;
     if (cam.projection === "persp") {
@@ -683,15 +708,19 @@ export class Renderer3 {
       c.fov = (cam.fovY * 180) / Math.PI;
       c.aspect = vp.w / vp.h;
       c.near = Math.max(cam.nearClamp(), d * 0.02);
-      c.far = d * 40 + 100;
+      const toScene = sphere ? Math.hypot(sphere.c.x - eye.x, sphere.c.y - eye.y, sphere.c.z - eye.z) + sphere.r : 0;
+      c.far = Math.max(d * 40, toScene * 1.05, c.near * 100);   // 拉近看小零件时场景的其余部分也不被裁（以前 +100 m 补）
+      this.viewReach = c.far;
     } else {
       c = this.camOrtho;
       const halfW = cam.halfW(vp);
       c.left = -halfW; c.right = halfW;
       c.top = cam.halfH; c.bottom = -cam.halfH;
-      // 深度窗口围着 target（眼在 5000 m 外）：R 随 zoom 走，小零件也有毫米级深度分辨率
-      const D = cam.eyeDist(), R = Math.max(500, cam.halfH * 100);
-      c.near = Math.max(0.1, D - R); c.far = D + R;
+      // 深度窗口围着 target（眼在 5000 m 外）：R 随 zoom 走、并且盖住整个场景（以前下限写死 500 m）；小零件也有细的深度分辨率
+      const D = cam.eyeDist(), toScene = sphere ? Math.hypot(sphere.c.x - cam.target.x, sphere.c.y - cam.target.y, sphere.c.z - cam.target.z) + sphere.r : 0;
+      const R = Math.max(cam.halfH * 100, toScene * 1.05);
+      c.near = Math.max(D * 1e-6, D - R); c.far = D + R;
+      this.viewReach = R;
     }
     c.position.set(eye.x, eye.y, eye.z);
     c.up.set(up.x, up.y, up.z);
@@ -715,7 +744,7 @@ export class Renderer3 {
       cam3.near = view.near ?? 0.05; cam3.far = 2000;
     } else {
       this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
-      cam3 = this.syncCamera(cam, vp);
+      cam3 = this.syncCamera(cam, vp, this.sceneBounds(k, view.revision ?? 0));
     }
     this.syncLineScale(presenting);
 
@@ -789,12 +818,12 @@ export class Renderer3 {
     if (gd && (gd.lines.length || gd.points.length)) {
       const px = gd.points.length ? this.worldPerPx(cam, vp, gd.points[0].p) : 0;
       const gsel = view.guideSel, gcol = (id: number): number => (gsel?.has(id) ? GUIDE_SEL_COLOR : GUIDE_COLOR);
-      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${px.toExponential(2)}#${gsel ? [...gsel].join(",") : ""}`;
+      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${px.toExponential(2)}#${gsel ? [...gsel].join(",") : ""}#${this.reachKey(cam.target)}`;
       if (gk !== this.guideKey) {
         this.guideKey = gk;
         const pos: number[] = [], col: number[] = [];
         const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        for (const l of gd.lines) push({ x: l.p.x - l.dir.x * GUIDE_LEN, y: l.p.y - l.dir.y * GUIDE_LEN, z: l.p.z - l.dir.z * GUIDE_LEN }, { x: l.p.x + l.dir.x * GUIDE_LEN, y: l.p.y + l.dir.y * GUIDE_LEN, z: l.p.z + l.dir.z * GUIDE_LEN }, gcol(l.id));
+        for (const l of gd.lines) { const [a, b] = this.infLine(l.p, l.dir, cam.target); push(a, b, gcol(l.id)); }
         for (const q of gd.points) {
           const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, q.p);
           push({ x: q.p.x - r, y: q.p.y, z: q.p.z }, { x: q.p.x + r, y: q.p.y, z: q.p.z }, gcol(q.id));
@@ -829,15 +858,16 @@ export class Renderer3 {
     const ch = view.charged;
     if (ch && (ch.points.length || ch.edges.length)) {
       const px0 = ch.points.length ? this.worldPerPx(cam, vp, ch.points[0]) : 0;
-      const ck = `${ch.points.map((p) => `${p.x},${p.y},${p.z}`).join("|")}#${ch.edges.map((e) => `${e.a.x},${e.a.y},${e.a.z}>${e.b.x},${e.b.y},${e.b.z}`).join("|")}#${px0.toExponential(2)}`;
+      const ck = `${ch.points.map((p) => `${p.x},${p.y},${p.z}`).join("|")}#${ch.edges.map((e) => `${e.a.x},${e.a.y},${e.a.z}>${e.b.x},${e.b.y},${e.b.z}`).join("|")}#${px0.toExponential(2)}#${this.reachKey(cam.target)}`;
       if (ck !== this.chargedKey) {
         this.chargedKey = ck;
         const pos: number[] = [], col: number[] = [];
         const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
         for (const e of ch.edges) {
           const d = sub3(e.b, e.a), l = Math.hypot(d.x, d.y, d.z) || 1, u = { x: d.x / l, y: d.y / l, z: d.z / l };
-          push({ x: e.a.x - u.x * GUIDE_LEN, y: e.a.y - u.y * GUIDE_LEN, z: e.a.z - u.z * GUIDE_LEN }, e.a, CHARGED_EXT_COLOR);
-          push(e.b, { x: e.b.x + u.x * GUIDE_LEN, y: e.b.y + u.y * GUIDE_LEN, z: e.b.z + u.z * GUIDE_LEN }, CHARGED_EXT_COLOR);
+          const [far0, far1] = this.infLine(e.a, u, cam.target);   // 延长线画到视野最远处（以前写死 ±200 m）
+          push(far0, e.a, CHARGED_EXT_COLOR);
+          push(e.b, far1, CHARGED_EXT_COLOR);
         }
         const right = { x: cam3.matrixWorld.elements[0], y: cam3.matrixWorld.elements[1], z: cam3.matrixWorld.elements[2] };
         const up = { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] };
@@ -998,13 +1028,13 @@ export class Renderer3 {
     const tp0 = view.tape;
     if (tp0) {
       const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, tp0.b);
-      const tk = `${tp0.a.x},${tp0.a.y},${tp0.a.z}>${tp0.b.x},${tp0.b.y},${tp0.b.z}|${tp0.guide ? `${tp0.guide.p.x},${tp0.guide.p.y},${tp0.guide.p.z}/${tp0.guide.dir.x},${tp0.guide.dir.y},${tp0.guide.dir.z}` : ""}|${tp0.point ? "P" : ""}|${r.toExponential(2)}`;
+      const tk = `${tp0.a.x},${tp0.a.y},${tp0.a.z}>${tp0.b.x},${tp0.b.y},${tp0.b.z}|${tp0.guide ? `${tp0.guide.p.x},${tp0.guide.p.y},${tp0.guide.p.z}/${tp0.guide.dir.x},${tp0.guide.dir.y},${tp0.guide.dir.z}` : ""}|${tp0.point ? "P" : ""}|${r.toExponential(2)}|${this.reachKey(cam.target)}`;
       if (tk !== this.tapeKey) {
         this.tapeKey = tk;
         const pos: number[] = [], col: number[] = [];
         const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
         push(tp0.a, tp0.b, 0x111111);
-        if (tp0.guide) { const g = tp0.guide; push({ x: g.p.x - g.dir.x * GUIDE_LEN, y: g.p.y - g.dir.y * GUIDE_LEN, z: g.p.z - g.dir.z * GUIDE_LEN }, { x: g.p.x + g.dir.x * GUIDE_LEN, y: g.p.y + g.dir.y * GUIDE_LEN, z: g.p.z + g.dir.z * GUIDE_LEN }, GUIDE_COLOR); }
+        if (tp0.guide) { const g = tp0.guide, [a, b] = this.infLine(g.p, g.dir, cam.target); push(a, b, GUIDE_COLOR); }
         if (tp0.point) { const q = tp0.point; push({ x: q.x - r, y: q.y, z: q.z }, { x: q.x + r, y: q.y, z: q.z }, GUIDE_COLOR); push({ x: q.x, y: q.y - r, z: q.z }, { x: q.x, y: q.y + r, z: q.z }, GUIDE_COLOR); push({ x: q.x, y: q.y, z: q.z - r }, { x: q.x, y: q.y, z: q.z + r }, GUIDE_COLOR); }
         this.setLineGeometry(this.tapeLines, pos, col);
       }

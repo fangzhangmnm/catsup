@@ -20,7 +20,8 @@ await page.waitForTimeout(250); await page.mouse.up(); await page.waitForTimeout
 const res = await page.evaluate(() => { const g = globalThis.__catsup.editor.worldGeom().guides(); return { lines: g.lines.map((l) => ({ p: [+l.p.x.toFixed(4), +l.p.y.toFixed(4)], dir: [+l.dir.x.toFixed(3), +l.dir.y.toFixed(3)] })), points: g.points.length }; });
 // ② 斜边上的线模式整格（DT51，user 2026-10-25「卷尺的线模式和点模式应该都同时可以接incremental snap」）：边 (5,0)→(8,1)，从边上 (6.2,0.4) 垂直拖 0.83 m
 //    → 平行参考线离边正好 0.8 m（从边起整格；斜边上绝对格点和整格不重合，测的是增量）
-await page.evaluate(() => { const e = globalThis.__catsup.editor, P = (x, y) => ({ x, y, z: 0 }); e.commitOp({ op: "addEdges", segs: [[P(5, 0), P(8, 1)]] }); e.zoomExtents(); });
+//    正交俯视：竖直轴（Z）在屏上退化成一点，不会和拖动方向重合（2026-10-26：屏距精确化之后，透视斜视角里过起点的竖线投影是真实的、正好和这次拖动方向重合 → 吸到竖线上，量的是正上方的点）
+await page.evaluate(() => { const e = globalThis.__catsup.editor, P = (x, y) => ({ x, y, z: 0 }); e.commitOp({ op: "addEdges", segs: [[P(5, 0), P(8, 1)]] }); e.cam.projection = "ortho"; e.cam.setView("top"); e.zoomExtents(); });
 const nrm = { x: -1 / Math.sqrt(10), y: 3 / Math.sqrt(10) };
 const a2 = await px({ x: 6.2, y: 0.4, z: 0 }), c2 = await px({ x: 6.2 + nrm.x * 0.83, y: 0.4 + nrm.y * 0.83, z: 0 });
 await page.mouse.move(box.x + a2.x, box.y + a2.y); await page.waitForTimeout(80); await page.mouse.down();

@@ -15,7 +15,7 @@ import type { Edge, EdgeId, Face, FaceId, Pt3, VertexId } from "../kernel/kernel
 import type { GeomView } from "../scene/world-view.ts";
 import { ringVidsTolerant } from "../kernel/face-lifecycle.ts";
 import type { Ring } from "../kernel/facefind.ts";
-import { type Pt, type PlaneParams, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, liftFromPlane, planeBasis, pointInRing, projectToPlane, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
+import { type Pt, type PlaneParams, COPLANAR_TOL_DEFAULT, add3, canonicalPlane, cross3, dist3, distToPlane, dot3, liftFromPlane, planeBasis, pointInRing, projectToPlane, ptKey3, scale3, sub3 } from "../kernel/geom.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 import { perf } from "./perf-stats.ts";
@@ -120,7 +120,7 @@ export function solvePoint(
   // 度量（A17）：桌面 = px、VR = 度；求解器不再看坐标
   const sd = (p: Pt3): number => pf.distTo(s.x, s.y, p, vp);
   const lineScreenDist = (a: Pt3, dir: Pt3, len?: number): number => {
-    const b = len !== undefined ? add3(a, scale3(dir, len)) : add3(a, scale3(dir, 100));
+    const b = len !== undefined ? add3(a, scale3(dir, len)) : add3(a, dir);   // 无限直线：相机那边精确处理（不再截成写死的 100 m；2026-10-26 user「不应该写死特征长度」）
     return pf.distToSeg(s.x, s.y, a, b, vp, len === undefined).d;
   };
 
@@ -144,8 +144,7 @@ export function solvePoint(
       let dEff = d;
       if (opts?.spans1D) {
         // 遮挡=裁可见区间：候选 t 落在被挡段 → 钳到最近可见边界（不否决——否决会在剪影边界横跳）
-        const R = L.len !== undefined ? 0 : Math.abs(t) + 1e5;
-        const lo = L.len !== undefined ? 0 : t - R, hi = L.len !== undefined ? L.len : t + R;
+        const lo = L.len !== undefined ? 0 : -Infinity, hi = L.len !== undefined ? L.len : Infinity;   // 无限直线 = 真的无界（以前 t ± 1e5 m）
         const occ = opts.spans1D(L.a, L.dir, lo, hi);
         // 落在被挡段里：段内部，或正好在段的边界上、而那个边界是线段的端点（不是轮廓）。2026-10-26：以前一律严格不等号——
         // 候选先被钳到线段端点、整段都被挡时端点恰在边界上 → 当成可见 → 隔着炮塔吸到后面车身边的一小段（user「面上面拖的时候…有时候突然弹到下面」）
@@ -334,7 +333,7 @@ export function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?: (fid: F
     const denom = dot3(rec.plane.n, dir);
     if (Math.abs(denom) < 1e-9) continue;
     const t = (rec.plane.d - dot3(rec.plane.n, p)) / denom;
-    if (t <= 1e-4) continue;
+    if (t <= COPLANAR_TOL_DEFAULT) continue;   // 贴在膜上（同一平面容差内）不算被它挡——以前写死 0.1 mm，对毫米级小零件不准（2026-10-26）
     const q = add3(p, scale3(dir, t));
     const q2 = { x: dot3(q, rec.basis.u), y: dot3(q, rec.basis.v) };
     if (!pointInRing(q2, face.outer.pts)) continue;
@@ -367,7 +366,7 @@ export function occludedSpansOnLine(
     if (!rec || !face) continue;
     const { n, d } = rec.plane, { u, v } = rec.basis;
     const to3 = (q: Pt): Pt3 => liftFromPlane(q, rec.plane, rec.basis);
-    const cuts: number[] = [tMin, tMax];
+    const cuts: number[] = [];
     const cutPlane = (m: Pt3, p0: Pt3): void => { const den = dot3(m, dir); if (Math.abs(den) > 1e-12) cuts.push(dot3(m, sub3(p0, a)) / den); };
     cutPlane(n, scale3(n, d));                                           // 穿过膜平面（点到了膜前 / 膜后）
     for (const ring of [face.outer.pts, ...face.holes.map((h) => h.pts)]) {
@@ -376,15 +375,18 @@ export function occludedSpansOnLine(
         cutPlane(cross3(sub3(p2, p1), pf.viewDir(p1)), p1);             // 棱锥侧面：过这条边、含这里的视线
       }
     }
-    const ts = cuts.filter((t) => t >= tMin - 1e-9 && t <= tMax + 1e-9).sort((x, y) => x - y);
-    for (let i = 0; i + 1 < ts.length; i++) {
-      const lo = ts[i], hi = ts[i + 1];
+    // 区间端点：有限的 tMin / tMax + 落在范围里的分割点；两头无界（无限直线）也行——每段里「挡不挡」不变，段里任取一点判就精确
+    const ts = [...new Set(cuts.filter((t) => Number.isFinite(t) && t > tMin + 1e-9 && t < tMax - 1e-9))].sort((x, y) => x - y);
+    const ends = [tMin, ...ts, tMax];
+    for (let i = 0; i + 1 < ends.length; i++) {
+      const lo = ends[i], hi = ends[i + 1];
       if (hi - lo < 1e-9) continue;
-      const p = at((lo + hi) / 2), e = pf.viewDir(p);                   // 中点按它自己的视线判（透视下视向随点变）
+      const tm = Number.isFinite(lo) && Number.isFinite(hi) ? (lo + hi) / 2 : Number.isFinite(lo) ? lo + Math.max(1, Math.abs(lo)) : Number.isFinite(hi) ? hi - Math.max(1, Math.abs(hi)) : 0;
+      const p = at(tm), e = pf.viewDir(p);                               // 段里那一点按它自己的视线判（透视下视向随点变）
       const den = dot3(n, e);
       if (Math.abs(den) < 1e-9) continue;                               // 膜侧对视线，不遮
       const s = (d - dot3(n, p)) / den;
-      if (s <= 1e-4) continue;                                          // 膜在点前方才算挡
+      if (s <= COPLANAR_TOL_DEFAULT) continue;                          // 膜在点前方才算挡（同 occludedBy：同一平面容差，不写死 0.1 mm）
       const q = add3(p, scale3(e, s)), q2 = { x: dot3(q, u), y: dot3(q, v) };
       if (!pointInRing(q2, face.outer.pts)) continue;
       if (face.holes.some((h) => pointInRing(q2, h.pts))) continue;

@@ -93,3 +93,36 @@ describe("camera persp", () => {
     eq(c.halfH, DEFAULT_HALF_H);
   });
 });
+
+// 屏距精确化（2026-10-26，user「还有哪些不精确的算法也一起查一下」「不应该写死特征长度。我们的普朗克长度到哈勃半径也跨了蛮多数量级了」）
+describe("camera: 线段 / 无限直线的屏距（透视精确、不写死长度）", () => {
+  const VP = { w: 800, h: 600 };
+  const cam = (): OrbitCamera => { const c = new OrbitCamera(); c.projection = "persp"; c.setView("iso"); c.target = { x: 0, y: 0, z: 0 }; c.halfH = 3; return c; };
+  it("无限直线：用 a→a+方向 还是 a→a+1000·方向 给，屏距一样（和取的长度无关）", () => {
+    const c = cam(), a = { x: 1, y: -2, z: 0.5 }, d = { x: 0.6, y: 0.8, z: 0 };
+    const p = c.angularPx({ x: 0.3, y: 0.2, z: 0.1 }, VP);
+    const d1 = c.distToSeg(p.x, p.y, a, { x: a.x + d.x, y: a.y + d.y, z: a.z + d.z }, VP, true).d;
+    const d2 = c.distToSeg(p.x, p.y, a, { x: a.x + d.x * 1000, y: a.y + d.y * 1000, z: a.z + d.z * 1000 }, VP, true).d;
+    assert(Math.abs(d1 - d2) < 1e-6, `${d1} vs ${d2}`);
+  });
+  it("线段上任取一点投到屏上再反查：参数 = 那一点的真实参数（透视校正），屏距 ≈ 0", () => {
+    const c = cam(), a = { x: -3, y: 4, z: 0 }, b = { x: 3, y: -6, z: 2 };
+    for (const t of [0.1, 0.37, 0.8]) {
+      const q = { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t, z: a.z + (b.z - a.z) * t }, p = c.angularPx(q, VP);
+      const r = c.distToSeg(p.x, p.y, a, b, VP);
+      assert(r.d < 1e-6, `屏距 ${r.d}`);
+      assert(Math.abs(r.t - t) < 1e-6, `t=${t} 反查得 ${r.t}`);
+    }
+  });
+  it("一头在相机背后的线段：按近平面裁掉背后那截再算——可见部分上的点屏距 ≈ 0；整段在背后 = 无穷远", () => {
+    const c = cam(), e = c.eye(), f = c.forward();
+    const front = { x: e.x + f.x * 5, y: e.y + f.y * 5, z: e.z + f.z * 5 }, behind = { x: e.x - f.x * 5 + 0.7, y: e.y - f.y * 5, z: e.z - f.z * 5 + 0.3 };
+    const mid = { x: front.x + (behind.x - front.x) * 0.2, y: front.y + (behind.y - front.y) * 0.2, z: front.z + (behind.z - front.z) * 0.2 };   // 还在眼前的一点
+    const p = c.angularPx(mid, VP);
+    const r = c.distToSeg(p.x, p.y, front, behind, VP);
+    assert(r.d < 1e-6, `可见部分的点屏距 ${r.d}`);
+    assert(Math.abs(r.t - 0.2) < 1e-6, `参数 ${r.t}`);
+    const b2 = { x: behind.x + 1, y: behind.y, z: behind.z };
+    eq(c.distToSeg(400, 300, behind, b2, VP).d, Infinity, "整段在背后");
+  });
+});
