@@ -185,7 +185,11 @@ export class WorldView implements GeomView {
       const key = `${chain.join("/")}#${poolKey(pool)}`;
       let m = xform, overridden = false;
       if (overrides) for (const ov of overrides) if (ov.match(pool, chain)) { m = compose(ov.xform, m); overridden = true; }
-      const kernel = isActive && live ? live : scene.kernelOf(pool);
+      // DT13（user 2026-10-25「编辑组件的时候能不能其他组件一起实时更新？」）：同一个池在别的链里的那几份（同一组件的其他实例）手势中也画预演内核，
+      // 但当「在手里」（空 part：不吸附、不遮挡、点不中）——它们跟着光标动，再当吸附目标就是自己吸自己（user「会不会自己卡住自己」；周账 F-89 Fable 审）。
+      const twin = !isActive && !!live && samePool(pool, activePool);
+      if (twin) overridden = true;
+      const kernel = (isActive || twin) && live ? live : scene.kernelOf(pool);
       this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain, overridden, tier: isActive ? 0 : tierOfSlot(scene, ctx, pool, chain) });
       this.byKey.set(key, index);
       // part：命中缓存（同 kernel 对象 + 同槽序号 + 池版本没变 + 变换没变）就复用，否则重算这一个槽

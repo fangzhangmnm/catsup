@@ -29,3 +29,26 @@ describe("DT14 复制预演：副本槽", () => {
     assert(!orig.overridden, "原件照常（可吸、可遮）");
   });
 });
+
+describe("DT13 编辑组件时其他实例实时跟：孪生槽", () => {
+  it("在第一份里编辑（有预演内核）：第二份也用预演内核画、在手里（不进推断世界）；没手势时一切照旧", () => {
+    let s = new Scene(sceneBox(2, 1.5));
+    const k = s.kernelOf({ def: s.root, group: null });
+    s = applyOp(s, { op: "makeComponent", at: { def: s.root, group: null }, faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), name: "盒" }).scene;
+    const defId = [...s.defs.keys()].find((id) => id !== s.root)!;
+    s = applyOp(s, { op: "placeInstance", at: { def: s.root, group: null }, definition: defId, xform: translation(P(5, 0, 0)) }).scene;
+    const [i1, i2] = [...s.def(s.root).instances.values()].map((i) => i.id);
+    const ctx = { chain: [i1], group: null };
+    const live = s.kernelOf({ def: defId, group: null }).clone();
+    const still = new WorldView(s, ctx);
+    const twin0 = still.slots.find((sl) => sl.chain.length === 1 && sl.chain[0] === i2)!;
+    assert(!twin0.overridden && twin0.kernel !== live, "没手势：第二份照旧");
+    const view = new WorldView(s, ctx, live);
+    const act = view.activeSlot(), twin = view.slots.find((sl) => sl.chain.length === 1 && sl.chain[0] === i2)!;
+    assert(act.kernel === live, "当前那份用预演内核");
+    assert(twin.kernel === live, "第二份也用预演内核画");
+    assert(twin.overridden && !twin.active, "第二份在手里（不吸、不遮）");
+    eq([...view.slotFaces(twin.index)].length, 0, "第二份不进推断世界");
+  });
+});
+
