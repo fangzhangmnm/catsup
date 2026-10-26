@@ -31,7 +31,7 @@ export interface View { pf: PointerFrame; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
-  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool" | "center" | "poolOrigin";
+  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool" | "center" | "poolOrigin" | "axisCross";
   src?: Pt3;
   axis?: AxName;
   /** 工具目标的人话标签（「正方形」「黄金分割」「半圆」…），直接进光标提示。 */
@@ -480,6 +480,32 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     if (ctx.anchor) addLines(ctx.anchor, "axis");
     addLines(O, "align");
     for (const src of ctx.alignSources ?? []) addLines(src, "align");
+    // 坐标轴穿过面 / 和边相交的点（2026-10-26，user「轴和面的交点能加入吸附判定吗」「轴和线也一样」）：显式 0-D、交点同秩。
+    // 以前只有「轴线 × 边」靠 1-D×1-D 合成器涌现——光标得同时落进两条线各自的窄圈（轴 5 px、边 7 px）才有，几乎吸不到；轴 × 面则根本没有。
+    const AX: { axis: "x" | "y" | "z"; dir: Pt3 }[] = [{ axis: "x", dir: F.x }, { axis: "y", dir: F.y }, { axis: "z", dir: F.z }];
+    for (const f of idx && cur ? idx.facesNear(cur.x, cur.y, cur.radiusPx) : k.faces()) {
+      if (skip?.(f.id)) continue;
+      const rec = k.planeOf(f.id), face = k.face(f.id);
+      if (!rec || !face) continue;
+      for (const { axis, dir } of AX) {
+        const den = dot3(rec.plane.n, dir);
+        if (Math.abs(den) < 1e-9) continue;   // 轴躺在面里 / 平行：没有穿透点
+        const q = add3(O, scale3(dir, (rec.plane.d - dot3(rec.plane.n, O)) / den));
+        if (!nearPt(q)) continue;
+        const q2 = projectToPlane(q, rec.basis);
+        if (!pointInRing(q2, face.outer.pts) || face.holes.some((h) => pointInRing(q2, h.pts))) continue;
+        out.push({ locus: { dim: 0, p: q }, rank: RANK.intersection, eps: E.point, tag: { kind: "axisCross", axis, label: `${axis.toUpperCase()} 轴 × 面` }, tier: tierOf(f.id) });
+      }
+    }
+    for (const { a, b, id } of segs) {
+      const len = dist3(a, b);
+      if (len <= 0) continue;
+      for (const { axis, dir } of AX) {
+        const q = intersect1D({ a: O, dir }, { a, dir: scale3(sub3(b, a), 1 / len), len });
+        if (!q || !nearPt(q)) continue;
+        out.push({ locus: { dim: 0, p: q }, rank: RANK.intersection, eps: E.point, tag: { kind: "axisCross", axis, label: `${axis.toUpperCase()} 轴 × 边` }, tier: tierOf(id) });
+      }
+    }
   }
   lap("edges");
   // 参考几何（0.11 尺规纪元 ②）：参考点 = 0-D；参考线 = 无限 1-D（屏距局部性同边）。线 × 线 / 线 × 边 / 线 × 轴的交点由 1-D×1-D 合成器涌现。
@@ -772,7 +798,7 @@ export function snapPoint(
       : t.kind === "midpoint" ? "midpoint"
       : t.kind === "center" ? "center"
       : t.kind === "poolOrigin" ? "pool-origin"
-      : t.kind === "intersection" ? "intersection"
+      : t.kind === "intersection" || t.kind === "axisCross" ? "intersection"
       : t.kind === "cross" ? "cross-line"
       : t.kind === "edge" ? "on-edge"
       : t.kind === "axis" ? ((t.axis === "u" || t.axis === "v") ? "align" : (("axis-" + t.axis) as SnapKind))
@@ -784,7 +810,7 @@ export function snapPoint(
       : (t.kind === "plane" && insideFace(k, q.plane, sol.p)) ? "on-face"
       : null;
   }
-  const label = toolUsed ? `${toolUsed.tag.label ?? "工具"}${sol.used.length === 2 ? "·交点" : ""}` : undefined;
+  const label = toolUsed ? `${toolUsed.tag.label ?? "工具"}${sol.used.length === 2 ? "·交点" : ""}` : sol.used.length === 1 && sol.used[0].tag.kind === "axisCross" ? sol.used[0].tag.label : undefined;
   return { p: sol.p, kind, ...(hints.length ? { hints } : {}), ...(label ? { label } : {}) };
 }
 
