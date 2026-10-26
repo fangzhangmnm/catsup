@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectAngle, rrectCornerFromAngle, rrectSegments, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
@@ -1541,15 +1541,16 @@ export class Editor {
         break;
       }
       case "rrect": {
-        const n = L.plane.plane.n, cur = rrectAngle(L.a, L.b, L.c, n);
+        // 2026-10-26 旋转矩形三下对齐：角度 = 绕第一边转的角（0 = 平躺、90° = 立起来），宽 = 第二边长（user「第二下设置角度…第三下设置长度」）
+        const n = L.plane.plane.n, th = rrectThetaOf(L.a, L.b, n, L.c);
         let c: Pt3;
-        if (v.kind === "angleWidth") c = rrectCornerFromAngle(L.a, L.b, n, v.deg, v.m, cur.side);
-        else if (v.kind === "length") c = rrectCornerFromAngle(L.a, L.b, n, cur.deg, v.m, cur.side);
+        if (v.kind === "angleWidth") c = add3(L.b, scale3(rrectDirAt(L.a, L.b, n, (v.deg * Math.PI) / 180), v.m));
+        else if (v.kind === "length") c = add3(L.b, scale3(rrectDirAt(L.a, L.b, n, th), v.m));
         else break;
         const segs = rrectSegments(L.a, L.b, c);
         if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
         this.last = { ...L, ops: this.opCount - n0, c };
-        msg = `旋转矩形 ${fmtLen(dist(L.a, L.b))} × ${fmtLen(dist(L.b, c))} · ${Math.round(rrectAngle(L.a, L.b, c, n).deg)}°`;
+        msg = `旋转矩形 ${fmtLen(dist(L.a, L.b))} × ${fmtLen(dist(L.b, c))} · ${fmtDeg(rrectThetaOf(L.a, L.b, n, c))}`;
         break;
       }
       case "arc": {

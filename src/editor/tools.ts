@@ -281,6 +281,20 @@ export function rrectAngle(a: Pt3, b: Pt3, c: Pt3, n: Pt3): { deg: number; side:
   const s = cross3(scale3(ba, -1), bc);   // ab × bc
   return { deg: (Math.acos(d) * 180) / Math.PI, side: (s.x * n.x + s.y * n.y + s.z * n.z) >= 0 ? 1 : -1 };
 }
+/**
+ * 旋转矩形（2026-10-26 改，user「应该第一下设置边，第二下设置角度，然后这个量角器应该和边垂直的。第三下设置长度」）：
+ * 第一边 a→b 躺在平面（法向 n）上；θ = 绕第一边转的角——0 = 平躺在这个平面里（朝 n × e 那边），90° = 立起来（朝 n）。返回第二边的单位方向。
+ */
+export function rrectDirAt(a: Pt3, b: Pt3, n: Pt3, theta: number): Pt3 {
+  const e = normalize3(sub3(b, a)), u0 = normalize3(cross3(n, e)), up = cross3(e, u0);
+  return add3(scale3(u0, Math.cos(theta)), scale3(up, Math.sin(theta)));
+}
+/** rrectDirAt 的反函数：已有的第三角 c → 绕第一边的角 θ（弧度，(−π, π]）。 */
+export function rrectThetaOf(a: Pt3, b: Pt3, n: Pt3, c: Pt3): number {
+  const e = normalize3(sub3(b, a)), u0 = normalize3(cross3(n, e)), d = sub3(c, b), w = sub3(d, scale3(e, d.x * e.x + d.y * e.y + d.z * e.z));
+  const cr = cross3(u0, w);
+  return Math.atan2(cr.x * e.x + cr.y * e.y + cr.z * e.z, u0.x * w.x + u0.y * w.y + u0.z * w.z);
+}
 /** 角度 + 宽 → C：B + w·(cos·BA + side·sin·(n × AB))——内角 deg、转向 side，与 rrectAngle 互逆。 */
 export function rrectCornerFromAngle(a: Pt3, b: Pt3, n: Pt3, deg: number, w: number, side: 1 | -1): Pt3 {
   const ba = normalize3(sub3(a, b)), v = cross3(normalize3(n), scale3(ba, -1));

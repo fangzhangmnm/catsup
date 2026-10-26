@@ -14,12 +14,18 @@ const kstate = async () => page.evaluate(() => { const e = globalThis.__catsup.e
 // 1. 形状格 flyout 含旋转矩形
 await page.evaluate(() => globalThis.__catsup.hud.pick("rrect"));
 const rail = await page.evaluate(() => [...document.querySelectorAll(".tool .tool-label")].map((x) => x.textContent));
-// 2. 旋转矩形：A(0,0) → B(2,0) → C 在 (2.03, 1)（内角 ≈ 88.3° → 强吸 90）
-const [A, B, C] = await px([{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 2.03, y: 1, z: 0 }]);
+// 2. 旋转矩形（2026-10-26 改三下对齐：边 → 绕边的角度 → 长度）：A(0,0) → B(2,0) → 角度点在 (2.03, 1)（≈ 平躺，吸 Y 轴 = 0°）→ 长度点同处 = 1
+const [A, B, C, CL] = await px([{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 2.03, y: 1, z: 0 }, { x: 2, y: 1, z: 0 }]);
 await click(A); await click(B);
 const mid = await page.evaluate(() => globalThis.__catsup.editor.liveLabel?.() ?? "");
-await click(C);
+await click(C); await click(CL);   // 长度点正落在第二边那条线上（斜着看时偏一点 = 投到线上会差一点，那是对的）
 const r1 = await kstate();
+// 2½. 立起来：A(0,0) → B(2,0) → 角度点在 B 正上方（吸 Z 轴 = 90°）→ 长度点 (2,0,1.5) → 竖直矩形 x 0..2、z 0..1.5、y 全是 0
+await page.evaluate(() => { globalThis.__catsup.editor.commitOp({ op: "clear" }); globalThis.__catsup.hud.pick("rrect"); });
+const [SA, SB, SU, SL] = await px([{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 2, y: 0.02, z: 1 }, { x: 2, y: 0, z: 1.5 }]);
+await click(SA); await click(SB); await click(SU); await click(SL);
+const rUp = await kstate();
+await page.evaluate(() => globalThis.__catsup.editor.commitOp({ op: "clear" }));
 // 3. 矩形从中心：选项 → 首点 (5,5) 第二点 (6,5.5) → x 4..6, y 4.5..5.5
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "clear" }); e.config.set("rect", "from", "center"); globalThis.__catsup.hud.pick("rect"); });
 const [R0, R1] = await px([{ x: 0, y: 0, z: 0 }, { x: 1, y: 0.5, z: 0 }]);
@@ -37,11 +43,12 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ o
 const [T0, T1, T2] = await px([{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }, { x: 1, y: 0.6, z: 0 }]);
 await click(T0); await click(T1); await click(T2);
 const r4 = await kstate();
-const res = { rail, mid, r1, r2, r3, undo, r4 };
+const res = { rail, mid, r1, rUp, r2, r3, undo, r4 };
 console.log(JSON.stringify(res));
 const has = (pts, p) => pts.some(([x, y, z]) => Math.abs(x - p[0]) < 0.02 && Math.abs(y - p[1]) < 0.02 && Math.abs(z - p[2]) < 0.02);
 const ok = rail.includes("旋转矩形")
-  && r1.edges === 4 && r1.faces === 1 && has(r1.pts, [2, 1, 0]) && has(r1.pts, [0, 1, 0]) && r1.hint.includes("90°")
+  && r1.edges === 4 && r1.faces === 1 && has(r1.pts, [2, 1, 0]) && has(r1.pts, [0, 1, 0])
+  && rUp.edges === 4 && rUp.faces === 1 && has(rUp.pts, [0, 0, 1.5]) && has(rUp.pts, [2, 0, 1.5]) && rUp.pts.every((q) => q[1] === 0)
   && r2.edges === 4 && r2.faces === 1 && has(r2.pts, [-1, -0.5, 0]) && has(r2.pts, [1, 0.5, 0])
   && r3.faces === 1 && r3.curves === 1 && r3.edges === 8 && has(r3.pts, [0, 1, 0]) && r3.hint.includes("90.0°") && undo === 0
   && r4.edges === 12 && r4.curves === 1 && r4.faces === 0;

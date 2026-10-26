@@ -119,6 +119,13 @@ export declare function rrectAngle(a: Pt3, b: Pt3, c: Pt3, n: Pt3): {
     deg: number;
     side: 1 | -1;
 };
+/**
+ * 旋转矩形（2026-10-26 改，user「应该第一下设置边，第二下设置角度，然后这个量角器应该和边垂直的。第三下设置长度」）：
+ * 第一边 a→b 躺在平面（法向 n）上；θ = 绕第一边转的角——0 = 平躺在这个平面里（朝 n × e 那边），90° = 立起来（朝 n）。返回第二边的单位方向。
+ */
+export declare function rrectDirAt(a: Pt3, b: Pt3, n: Pt3, theta: number): Pt3;
+/** rrectDirAt 的反函数：已有的第三角 c → 绕第一边的角 θ（弧度，(−π, π]）。 */
+export declare function rrectThetaOf(a: Pt3, b: Pt3, n: Pt3, c: Pt3): number;
 /** 角度 + 宽 → C：B + w·(cos·BA + side·sin·(n × AB))——内角 deg、转向 side，与 rrectAngle 互逆。 */
 export declare function rrectCornerFromAngle(a: Pt3, b: Pt3, n: Pt3, deg: number, w: number, side: 1 | -1): Pt3;
 /**
