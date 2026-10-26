@@ -34,7 +34,7 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
       s = h.commit(s, c.verb(rootK(s))).scene;
       const after = fingerprint(rootK(s));
       assert(before !== after, `${c.name}: 动词改变了状态`);
-      s = h.undo()!;
+      s = h.undo()!.scene;
       eq(fingerprint(rootK(s)), before, `${c.name}: undo 回 before`);
       const r = h.redo(s)!; s = r.scene;
       eq(fingerprint(rootK(s)), after, `${c.name}: redo 回 after`);
@@ -50,7 +50,7 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     eq(h.snapshotIndices().join(","), "8", "只留最新一个快照");
     eq(rootK(s).faces().length, 9, "九格");
     for (let i = ops.length - 1; i >= 0; i--) {
-      s = h.undo()!;
+      s = h.undo()!.scene;
       eq(fingerprint(rootK(s)), fingerprint(replayFresh(ops, i)), `undo 到 ${i} = 全量重放`);
     }
     assert(!h.canUndo(), "撤到底");
@@ -106,13 +106,13 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     const ops: Op[] = [rect(0, 0, 10, 10), chord(2), chord(4), chord(6)];
     for (const op of ops) s = h.commit(s, op).scene;
     eq(h.snapshotIndices().join(","), "2,4");
-    s = h.undo()!; s = h.undo()!; s = h.undo()!;
+    s = h.undo()!.scene; s = h.undo()!.scene; s = h.undo()!.scene;
     eq(h.position(), 1);
     s = h.commit(s, chord(9)).scene;
     eq(h.depth(), 2, "尾巴清掉");
     assert(!h.canRedo());
     eq(h.snapshotIndices().join(","), "2", "旧的 index 4 快照丢弃、新的 index 2 快照重建");
-    eq(fingerprint(rootK(h.undo()!)), fingerprint(replayFresh(ops, 1)), "undo 回到 rect 态");
+    eq(fingerprint(rootK(h.undo()!.scene)), fingerprint(replayFresh(ops, 1)), "undo 回到 rect 态");
   });
   it("一步 = 好几条 op（join）：撤销 / 重做一次走完整步；undoOp 只退一条（user 2026-10-25「*6 /6的时候undo不对」）", () => {
     const h = new History(undefined, { snapEvery: 2, keepSnaps: 8 }); let s = new Scene();
@@ -120,21 +120,45 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     const one = fingerprint(rootK(s));
     for (let i = 1; i <= 6; i++) s = h.commit(s, chord(i), i > 1).scene;   // 阵列 ×6 = 一步六条
     const all = fingerprint(rootK(s));
-    s = h.undo()!;
+    s = h.undo()!.scene;
     eq(h.position(), 1, "一次撤完六条");
     eq(fingerprint(rootK(s)), one);
     s = h.redo(s)!.scene;
     eq(h.position(), 7, "一次重做六条");
     eq(fingerprint(rootK(s)), all);
-    s = h.undoOp()!;
+    s = h.undoOp()!.scene;
     eq(h.position(), 6, "undoOp 只退一条");
     s = h.commit(s, chord(8)).scene;   // 不 join = 新的一步
-    s = h.undo()!;
+    s = h.undo()!.scene;
     eq(h.position(), 6, "新的一步单独撤");
-    s = h.undo()!;
+    s = h.undo()!.scene;
     eq(h.position(), 1, "剩下五条仍是一步");
     eq(h.undo() !== null, true); eq(h.position(), 0);
     eq(h.commit(new Scene(), rect(0, 0, 1, 1), true).scene !== null, true, "第一条 join 无效（前面没有）");
     eq(h.undo() !== null, true); eq(h.position(), 0);
+  });
+  it("会话记录（2026-10-26 重设计）：撤销带回「之前」并记下「之后」，重做带回「之后」；同一步中间不另记；新分支截掉旧记录", () => {
+    const h = new History<string>(); let s = new Scene();
+    s = h.commit(s, rect(0, 0, 10, 10), false, "A前").scene;
+    s = h.commit(s, chord(2), false, "B前").scene;
+    s = h.commit(s, chord(4), true, "不该记").scene;   // 和 B 同一步
+    let u = h.undo("B后")!;
+    eq(u.before, "B前", "撤一步带回这一步之前的会话"); eq(h.position(), 1);
+    s = u.scene;
+    const r = h.redo(s)!;
+    eq(r.after, "B后", "重做带回撤销那一刻记下的会话"); eq(h.position(), 3);
+    s = r.scene;
+    u = h.undo("B后2")!; s = u.scene;
+    u = h.undo("A后")!; s = u.scene;
+    eq(u.before, "A前"); eq(h.position(), 0);
+    s = h.redo(s)!.scene;   // 回到 A 之后
+    s = h.commit(s, chord(6), false, "C前").scene;   // 新分支：B 那一步的记录作废
+    u = h.undo("C后")!;
+    eq(u.before, "C前"); eq(h.position(), 1);
+    s = u.scene;
+    const r2 = h.redo(s)!;
+    eq(r2.after, "C后", "重做的是新分支 C，不是旧的 B");
+    const op = h.undoOp()!;
+    eq(op.before, "C前", "undoOp 退到一步的开头 = 带回那一步之前的会话");
   });
 });

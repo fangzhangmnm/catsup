@@ -82,6 +82,8 @@ export interface ToolPointer {
 
 /** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
 interface SelSnap { ctx: string; faces: FaceId[]; edges: EdgeId[]; verts: VertexId[]; guides: number[]; pools: [string, PoolPick][]; }
+/** 会话状态（撤销 / 重做跟着场景一起还原；History 每步存 before / after）：在哪个组件里编辑 + 选区。 */
+interface Session { ctx: EditContext; sel: SelSnap }
 
 /** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace =
@@ -195,7 +197,7 @@ export class Editor {
     this.host.changed();
     this.draw();
   }
-  private history = new History();
+  private history = new History<Session>();
   private _tool: Tool = "line";
   private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建
 
@@ -659,11 +661,29 @@ export class Editor {
   }
   // ---------- 记账 ----------
   /**
-   * 选区跟着撤销走（user 2026-10-26「变换的时候按ctrl z不应该选区也没了，系统的修一下……我们是不是没有把选区做持久化undo化？」）：
-   * 每一步记下它之前的选区（第一条 op 提交时）；撤销 = 还原「之前」并顺手记下「之后」，重做 = 还原「之后」。id 在同一份历史里是确定的（重放同一串 op），
-   * 所以还原回去的 id 指的就是同一批东西；不存在的 id 剪掉；上下文变了（撤到组被删之前 / 换了层）= 选区清空——有定义的结果，不会挂到错的池上。
+   * 会话跟着撤销走（user 2026-10-26「变换的时候按ctrl z不应该选区也没了」→ 同日「undo似乎全坏了…涉及组件的修改进出之类的」「不要ad hoc，而是思考系统重新设计」）：
+   * 每一步记下它之前的会话 = 在哪个组件里 + 选区（第一条 op 提交时，交给 History 存）；撤销 = 场景和会话一起回到「之前」并顺手记下「之后」，重做 = 一起回到「之后」。
+   * 所以撤销组件里的改动时人会回到那个组件里（看得见撤了什么），选区也回来。id 在同一份历史里是确定的（重放同一串 op），还原回去的 id 指的就是同一批东西；
+   * 不存在的 id 剪掉；那一层组件已经没了（撤到建组件之前）= 退到还在的最深一层。设计稿 ai-docs/20261026-undo-session-redesign.md。
    */
-  private stepSel = new Map<number, { before: SelSnap; after?: SelSnap }>();
+  private sessionSnap(): Session { return { ctx: { chain: [...this.ctx.chain], group: this.ctx.group }, sel: this.selSnap() }; }
+  private sessionRestore(s: Session | undefined): void {
+    if (s) { const c = this.validCtx(s.ctx); if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; this._revision++; } }
+    this.selRestore(s?.sel);
+  }
+  /** 场景里还在的最深一层上下文（实例链从尾往前剪；组不在了 = 那个实例的根）。 */
+  private validCtx(c: EditContext): EditContext {
+    const ok = (cand: EditContext): boolean => {
+      try {
+        this.scene.poolOfContext(cand); this.scene.xformOfContext(cand);
+        return cand.group === null || this.scene.brep(this.scene.defOfContext(cand)).groups.has(cand.group);
+      } catch { return false; }
+    };
+    if (ok(c)) return c;
+    for (let n = c.chain.length; n >= 0; n--) { const cand: EditContext = { chain: c.chain.slice(0, n), group: null }; if (ok(cand)) return cand; }   // 组没了 → 那个实例的根；实例没了 → 往上退
+    return ROOT_CONTEXT;
+  }
+  private ctxKeyOf(c: EditContext): string { return `${c.chain.join("/")}#${c.group ?? "root"}`; }
   private selSnap(): SelSnap { return { ctx: this.ctxKey(), faces: [...this.selection.faces], edges: [...this.selection.edges], verts: [...this.selection.verts], guides: [...this.selection.guides], pools: [...this.selectedPools.entries()] }; }
   private selRestore(s: SelSnap | undefined): void {
     this.selection = emptySelection(); this.selectedPools.clear();
@@ -685,35 +705,42 @@ export class Editor {
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     const t0 = performance.now();
-    const first = !(this.stepDepth > 0 && this.stepHasOp), pos0 = this.history.position(), before = first ? this.selSnap() : null;
+    const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : this.sessionSnap();   // 新的一步：记下它之前的会话（History 存，redo 尾巴一起作废）
     let r: ReturnType<History["commit"]>;
-    try { r = perf.time("commit", () => this.history.commit(this.scene, op, this.stepDepth > 0 && this.stepHasOp)); }
+    try { r = perf.time("commit", () => this.history.commit(this.scene, op, join, before)); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
-      if (err instanceof OpApplyError) { this.scene = err.restored; this.bump(); }
+      if (err instanceof OpApplyError) this.installScene(err.restored);
       const pool = ("at" in op && op.at) ? op.at : this.activePool();
       const pre = this.scene.kernelOf(pool);   // err.restored 已装回 = 那一步之前
       this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause), brep: pre.toBrep(), pool });
       this.fail("commit", cause);
       return [];
     }
-    this.scene = r.scene;
     this.opCount++;
     if (this.stepDepth > 0) this.stepHasOp = true;
-    if (first && before) { for (const k of [...this.stepSel.keys()]) if (k >= pos0) this.stepSel.delete(k); this.stepSel.set(pos0, { before }); }   // 新的一步：记下它之前的选区（redo 尾巴作废）
-    this.bump();
-    this.revalidateCharged();
+    this.installScene(r.scene);
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
     this.host.changed();   // HUD（撤销钮 / 选项条 / 数值小窗）随每个 op 刷新
-    this.host.changed();
     return r.events;
   }
   private bump(): void {
     this._revision++;
-    // 上下文可能已不存在（undo 掉了建组）→ 回根
-    try { this.scene.poolOfContext(this.ctx); this.scene.xformOfContext(this.ctx); } catch { this.ctx = ROOT_CONTEXT; }
-    if (this.ctx.group !== null && !this.scene.brep(this.scene.defOfContext(this.ctx)).groups.has(this.ctx.group)) this.ctx = { chain: this.ctx.chain, group: null };
+    // 上下文可能已不存在（撤掉了建组 / 建组件 / 复制）→ 退到还在的最深一层
+    const c = this.validCtx(this.ctx);
+    if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; }
     this.pruneSelection();
+  }
+  /**
+   * 换场景的唯一入口（2026-10-26 撤销重设计）：换场景 → 校正所在的组件（退到还在的最深一层）→ 剪 / 还原选区 → 充能点重核。
+   * **这里不通知界面**——调用方在这之后才关参数小窗、刷新 HUD。以前撤销先关小窗（会刷新界面、读「当前在哪个组件」）后校正：
+   * 在组件里一路撤、撤过「建出 / 复制出这个组件」那一步就抛错，撤到一半停住（历史已退、场景已换、人卡在不存在的组件里）。
+   */
+  private installScene(s: Scene, session?: Session): void {
+    this.scene = s;
+    this.bump();
+    if (session) this.sessionRestore(session);
+    this.revalidateCharged();
   }
   private pruneSelection(): void {
     const k = this.kernel;
@@ -749,17 +776,11 @@ export class Editor {
     this.last = null;
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
     if (this._locked) { this.lockedSay(); return; }
-    const after = this.selSnap();   // 撤之前的选区 = 这一步「之后」的样子（重做时还原）
-    const s2 = this.history.undo();
-    if (!s2) return;
-    this.scene = s2;
+    const r = this.history.undo(this.sessionSnap());   // 撤之前的会话 = 这一步「之后」的样子（重做时还原）
+    if (!r) return;
+    this.installScene(r.scene, r.before);   // 撤销 = 回到这一步之前：场景 + 在哪个组件里 + 选区一起（先装好，再碰界面）
     this.openParamSession(null);   // 马后炮 / 马前炮跟着那一步走：撤了就关（不然再改值会撤错一步）
-    this.bump();
-    this.revalidateCharged();
     this.cancelGesture();
-    const entry = this.stepSel.get(this.history.position());
-    if (entry) entry.after = after;
-    this.selRestore(entry?.before);   // 撤销 = 回到这一步之前，连选区一起（user 2026-10-26「变换的时候按ctrl z不应该选区也没了」）
     this.host.trace?.({ kind: "undo", position: this.history.position(), depth: this.history.depth() });
     this.host.changed();
     this.draw();
@@ -767,23 +788,19 @@ export class Editor {
   redo(): void {
     this.last = null;
     if (this._locked) { this.lockedSay(); return; }
-    let r: ReturnType<History["redo"]>;
-    const pos0 = this.history.position();
+    let r: ReturnType<History<Session>["redo"]>;
     try { r = this.history.redo(this.scene); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
-      if (err instanceof OpApplyError) { this.scene = err.restored; this.bump(); }
+      if (err instanceof OpApplyError) this.installScene(err.restored);
       this.host.trace?.({ kind: "fail", where: "redo", op: null, message: cause instanceof Error ? cause.message : String(cause) });
       this.fail("commit", cause);
       return;
     }
     if (!r) return;
-    this.scene = r.scene;
+    this.installScene(r.scene, r.after);   // 重做 = 回到这一步之后（撤销那一刻的样子）：场景 + 在哪个组件里 + 选区一起
     this.openParamSession(null);
-    this.bump();
-    this.revalidateCharged();
     this.cancelGesture();
-    this.selRestore(this.stepSel.get(pos0)?.after);   // 重做 = 回到这一步之后，连选区一起
     this.host.trace?.({ kind: "redo", position: this.history.position(), depth: this.history.depth() });
     this.host.changed();
     this.draw();
@@ -794,8 +811,7 @@ export class Editor {
     this.cancelGesture();
     this.scene = s;
     this.ctx = ROOT_CONTEXT;
-    this.history = new History(s);
-    this.stepSel.clear();
+    this.history = new History<Session>(s);
     this._revision++;
     this.selection = emptySelection(); this.selectedPools.clear();
     this.clearCharged();
@@ -1716,11 +1732,10 @@ export class Editor {
   }
   /** 撤销 n 个 op（数值小窗重做用；不清 last、不清选区之外的状态）。 */
   private undoN(n: number): void {
-    for (let i = 0; i < n; i++) { const s2 = this.history.undoOp(); if (!s2) break; this.scene = s2; this.opCount--; }
+    let before: Session | undefined, sc: Scene | null = null;
+    for (let i = 0; i < n; i++) { const r = this.history.undoOp(); if (!r) break; sc = r.scene; before = r.before; this.opCount--; }
     this.stepHasOp = false;   // 重做的第一条另起一步（撤掉的正是这一步）
-    this.bump();
-    this.revalidateCharged();
-    this.selRestore(this.stepSel.get(this.history.position())?.before);   // 回到这一步之前的选区（数值小窗 / 马后炮按新值重做时选区不丢）
+    if (sc) this.installScene(sc, before);   // 回到这一步之前的会话（数值小窗 / 马后炮按新值重做时选区不丢、组件位置不变）
   }
   /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
   private redoXform(X: Xform, froms: readonly Pt3[], pools: readonly PoolPick[], at: PoolRef): void {

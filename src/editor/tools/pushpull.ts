@@ -10,7 +10,7 @@ import { hasIntent, intentAllows1D } from "../intent.ts";
 import { pickEntity, type AlignHand, type DrawPlane } from "../pick.ts";
 import { ppStopsOf } from "../pp-stops.ts";
 import { faceKey } from "../ops.ts";
-import { IDENTITY, applyDir, invert } from "../../scene/xform.ts";
+import { IDENTITY, applyNormal } from "../../scene/xform.ts";
 import { MIN_GESTURE_LEN, SNAP_LABELS, fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
@@ -20,7 +20,8 @@ export class PushPullTool implements ToolHandler {
   readonly tool = "pp" as const;
   readonly grammar = "steps" as const;
   private face: FaceId | null = null;        // 活动池本地 id
-  private normal: Pt3 | null = null;         // 世界系法向
+  private normal: Pt3 | null = null;         // 世界系法向 = 本地平面法向（内核推拉的正方向）按法向变换送到世界，朝向保留
+  private nScale = 1;                         // 世界推拉高度 × 它 = 本地推拉距离（|(M⁻¹)ᵀ n|；纯旋转 = 1）
   private plane: DrawPlane | null = null;    // 源面平面（世界系）
   private shell: ReadonlySet<VertexId> = new Set();
   private stops: number[] = [];
@@ -35,12 +36,8 @@ export class PushPullTool implements ToolHandler {
     return this.face !== null && k && k.face(this.face) ? { face: faceKey(k, this.face), h: this.localH(ctx!, this.h) } : {};
   }
 
-  /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
-  private localH(ctx: ToolCtx, h: number): number {
-    const m = ctx.ctxXform();
-    if (m === IDENTITY || !this.normal) return h;
-    return h * len3(applyDir(invert(m), this.normal));
-  }
+  /** 世界系推拉高度 → 活动池本地推拉距离（内核按本地平面法向走；down 里已把那根法向送到世界当 this.normal）。 */
+  private localH(_ctx: ToolCtx, h: number): number { return h * this.nScale; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.face !== null) { this.commit(ctx); return; }
@@ -59,14 +56,19 @@ export class PushPullTool implements ToolHandler {
     this.face = c.local.face;
     const fRec = k.face(c.local.face)!;
     this.shell = new Set([...ringVidsTolerant(k.graph, fRec.outer), ...fRec.holes.flatMap((hh) => ringVidsTolerant(k.graph, hh))]);
-    this.normal = wrec.plane.n;
+    {   // 拖动方向 = 内核推拉的正方向送到世界（不用 wrec.plane.n：那是规范化过的世界平面，转过的组件里会和本地法向差一个正负号）
+      const nL = k.planeOf(c.local.face)!.plane.n, m = ctx.ctxXform();
+      const w = m === IDENTITY ? nL : applyNormal(m, nL), L = len3(w);
+      this.normal = L > 1e-12 ? scale3(w, 1 / L) : wrec.plane.n;
+      this.nScale = L > 1e-12 ? L : 1;
+    }
     this.plane = { plane: wrec.plane, basis: wrec.basis };
     const ray0 = ctx.frame().ray(ev.x, ev.y, ctx.vp());
     const grab = rayPlane(ray0.origin, ray0.dir, wrec.plane.n, wrec.plane.d);
     const anchor = grab ?? view.faceRings3(gf)!.outer[0];
     ctx.setAnchor(anchor);
     // 高度通道停靠集（2026-10-24 退役「全场顶点高度」）：0 + 同柱子里的平行面（穿透 / 挖通）+ 参考点 / 平行参考线的高度（pp-stops.ts）
-    this.stops = ppStopsOf(view, gf, anchor, wrec.plane.n);
+    this.stops = ppStopsOf(view, gf, anchor, this.normal!);
     ctx.setCursor(anchor);
     this.h = 0;
     ctx.hint("推拉中：沿法向拖或点两下落定（所见即所得；吸点线=取其高度）");

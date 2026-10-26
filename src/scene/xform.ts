@@ -70,14 +70,23 @@ export function scalingAlong(center: Pt3, axis: Pt3, f: number): Xform {
   const t = (r: number): number => (r === 0 ? center.x : r === 1 ? center.y : center.z) - (L[r * 3] * center.x + L[r * 3 + 1] * center.y + L[r * 3 + 2] * center.z);
   return [L[0], L[1], L[2], t(0), L[3], L[4], L[5], t(1), L[6], L[7], L[8], t(2)];
 }
-export function applyPlane(m: Xform, pl: PlaneParams): PlaneParams {
+/**
+ * 法向的变换：逆转置作用在法向 n' = (M⁻¹)ᵀ n，**不归一、不规范化**（朝向保留）。长度 = 本地沿法向 1 个单位在世界里是多少分之一：
+ * 本地平面沿法向挪 d ⇔ 世界平面沿 normalize(n') 挪 d / |n'|。推拉这类「本地按法向走多远」的动词换到世界一律走它（2026-10-26：
+ * 转 180° 的负重轮推拉方向反了——工具拿了 applyPlane 规范化过的世界法向，组件里的 +x 到世界是 −x、被规范化翻回 +x，只换了长度没换正负）。
+ */
+export function applyNormal(m: Xform, n0: Pt3): Pt3 {
   const inv = invert(m);
-  // 逆转置作用在法向：n' = (M⁻¹)ᵀ n
-  const n: Pt3 = {
-    x: inv[0] * pl.n.x + inv[4] * pl.n.y + inv[8] * pl.n.z,
-    y: inv[1] * pl.n.x + inv[5] * pl.n.y + inv[9] * pl.n.z,
-    z: inv[2] * pl.n.x + inv[6] * pl.n.y + inv[10] * pl.n.z,
+  return {
+    x: inv[0] * n0.x + inv[4] * n0.y + inv[8] * n0.z,
+    y: inv[1] * n0.x + inv[5] * n0.y + inv[9] * n0.z,
+    z: inv[2] * n0.x + inv[6] * n0.y + inv[10] * n0.z,
   };
+}
+
+/** 平面的变换（结果规范化：共面的面共用一个平面记录，朝向丢了——要朝向用 applyNormal）。 */
+export function applyPlane(m: Xform, pl: PlaneParams): PlaneParams {
+  const n = applyNormal(m, pl.n);
   const p0 = applyPt(m, scale3(pl.n, pl.d));
   const nn = normalize3(n);
   return canonicalPlane(nn, dot3(nn, p0));

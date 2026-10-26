@@ -56,7 +56,7 @@ describe("scene: group", () => {
     const g2 = [...s.brep(s.root).groups.values()][0];
     assert(g2.kernel.vertices().every((v) => Math.abs(v.z - 3.5) < 1e-9), "顶点到 z=3.5");
     eq(g2.axes.origin.z, 3.5, "轴框同移");
-    s = h.undo()!;
+    s = h.undo()!.scene;
     eq(fingerprint([...s.brep(s.root).groups.values()][0].kernel), before, "撤销回原位");
   });
 });

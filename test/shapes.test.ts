@@ -68,7 +68,7 @@ describe("shapes: 圆心弧 + 扇形 + 两点弧半径", () => {
     const s = h.commit(new Scene(), arcOp((p) => p, { def: new Scene().root, group: null }, pie)).scene;
     const k = s.kernelOf({ def: s.root, group: null });
     eq(k.faces().length, 1); eq(k.curves().length, 1); eq(k.curves()[0].edges.length, 4); eq(k.edges().length, 6);
-    assert(!h.undo()!.kernelOf({ def: s.root, group: null }).edges().length, "一次撤销全没");
+    assert(!h.undo()!.scene.kernelOf({ def: s.root, group: null }).edges().length, "一次撤销全没");
     const bp = bulgePointForRadius(P(0, 0), P(2, 0), P(1, 1), 2);
     assert(bp.y > 0 && near(bp.y, 2 - Math.sqrt(3)), `凸度 ${JSON.stringify(bp)}`);
     const bp2 = bulgePointForRadius(P(0, 0), P(2, 0), P(1, -1), 0.1);

@@ -101,7 +101,7 @@ describe("erasers: 焊边规划（planWeldErase）", () => {
     invariants(k2);
     const back = h.undo();
     assert(back, "能撤销");
-    const k3 = back!.kernelOf(ROOT);
+    const k3 = back!.scene.kernelOf(ROOT);
     eq(k3.edges().length, 3, "一次撤销回到三条散边"); eq(k3.curves().length, 0);
   });
   it("刮到弧的一段 = 整条弧参与：两段不同圆的弧在接点 15° 相接 → 焊成一条折线曲线；同圆两弧 → 焊回弧", () => {
@@ -162,7 +162,7 @@ describe("erasers: 软边规划（planSoftErase）", () => {
     const r = hist.commit(s, { op: "batch", label: "softErase", ops: [{ op: "setEdgeLayers", at: ROOT, edges: plan.soften, layers: ["soft", "smooth"], on: true }] });
     const k2 = r.scene.kernelOf(ROOT);
     assert(k2.isSoft(edgeBetween(k2, P(1, 0, h), P(1, 1, h))), "软了");
-    const back = hist.undo()!;
+    const back = hist.undo()!.scene;
     assert(!back.kernelOf(ROOT).isSoft(edgeBetween(back.kernelOf(ROOT), P(1, 0, h), P(1, 1, h))), "撤销回硬");
   });
 });
