@@ -7,6 +7,7 @@ import { COPLANAR_TOL_DEFAULT, dot3, planeBasis } from "../kernel/geom.ts";
 import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
 import { triangulateRings } from "./triangulate.ts";
 import type { ViewSink } from "./brep-codec.ts";
+import { DisjointSet } from "../kernel/dsu.ts";
 
 const GL_UNSIGNED_BYTE = 5121, GL_UNSIGNED_SHORT = 5123, GL_UNSIGNED_INT = 5125, GL_FLOAT = 5126;
 const GL_ARRAY_BUFFER = 34962, GL_ELEMENT_ARRAY_BUFFER = 34963;
@@ -58,16 +59,16 @@ export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [nu
   const edgeKey = (a: number, b: number): string => (a < b ? `${a}-${b}` : `${b}-${a}`);
   const facesOfEdge = new Map<string, number[]>();
   snap.faces.forEach((f, fi) => { for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const k = edgeKey(r[i], r[(i + 1) % r.length]); (facesOfEdge.get(k) ?? facesOfEdge.set(k, []).get(k)!).push(fi); } });
-  const parent = new Map<number, number>();
-  const find = (x: number): number => { let r = x; while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!; return r; };
-  const union = (a: number, b: number): void => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  const dsu = new DisjointSet<number>();   // 路径压缩（kernel/dsu.ts；旧抄写平方级）
+  const find = (x: number): number => dsu.find(x);
+  const union = (a: number, b: number): void => dsu.union(a, b);
   for (const ei of smooth) { const [a, b] = snap.edges[ei]; const fl = facesOfEdge.get(edgeKey(a, b)) ?? []; for (let i = 1; i < fl.length; i++) union(fl[0], fl[i]); }
-  if (!parent.size) return out;
+  if (!dsu.size) return out;
   // 组内朝向统一（DT11，2026-10-26；同 render3.smoothNormals）：快照的环绕规范法向逆时针 = 面在环走向的左手边；两张膜在共享边上走向相反 = 朝向一致
   const smoothSet = new Set(smooth.map((ei) => edgeKey(snap.edges[ei][0], snap.edges[ei][1])));
   const dirOf = (fi: number, a: number, b: number): number => { for (const r of [snap.faces[fi].outer, ...snap.faces[fi].holes]) for (let i = 0; i < r.length; i++) { const x = r[i], y = r[(i + 1) % r.length]; if (x === a && y === b) return 1; if (x === b && y === a) return -1; } return 0; };
   const orient = new Map<number, number>();
-  for (const f0 of parent.keys()) {
+  for (const f0 of dsu.keys()) {
     if (orient.has(f0)) continue;
     orient.set(f0, 1);
     const queue = [f0];
@@ -90,7 +91,7 @@ export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [nu
   const V = snap.vertices;
   const sub = (p: { x: number; y: number; z: number }, q: { x: number; y: number; z: number }) => ({ x: p.x - q.x, y: p.y - q.y, z: p.z - q.z });
   snap.faces.forEach((f, fi) => {
-    if (!parent.has(fi)) return;
+    if (!dsu.has(fi)) return;
     const g = find(fi), qn = quantNormal(snap.planes[f.plane].n), n = { x: qn[0], y: qn[1], z: qn[2] }, r = f.outer;
     for (let i = 0; i < r.length; i++) {
       const p = V[r[i]], a = V[r[(i + r.length - 1) % r.length]], b = V[r[(i + 1) % r.length]];
@@ -103,7 +104,7 @@ export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [nu
     }
   });
   snap.faces.forEach((f, fi) => {
-    if (!parent.has(fi)) return;
+    if (!dsu.has(fi)) return;
     const g = find(fi), qn0 = quantNormal(snap.planes[f.plane].n), n = { x: qn0[0], y: qn0[1], z: qn0[2] };
     const m = new Map<number, [number, number, number]>();
     for (const vi of f.outer) {

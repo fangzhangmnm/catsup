@@ -18,6 +18,7 @@ import { perf } from "../editor/perf-stats.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type DirEdge, type Region, type Ring, findRegions, regionContains, representativePoint } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, type CoplanarScope, groupCoplanar } from "./planes.ts";
+import { DisjointSet } from "./dsu.ts";
 
 export type FaceEvent =
   | { type: "BIRTH"; face: FaceId }
@@ -168,20 +169,11 @@ export class FaceStore {
   reconcileErase(g: PlanarGraph, reg: PlaneRegistry, tol: number, v: EraseVerdicts): FaceEvent[] {
     const events: FaceEvent[] = [];
 
-    const parent = new Map<FaceId, FaceId>();
-    const find = (x: FaceId): FaceId => {
-      let r = x;
-      while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!;
-      return r;
-    };
-    for (const [a, b] of v.mergePairs) {
-      if (!parent.has(a)) parent.set(a, a);
-      if (!parent.has(b)) parent.set(b, b);
-      parent.set(find(a), find(b));
-    }
+    const dsu = new DisjointSet<FaceId>();   // kernel/dsu.ts：同一套合并约定（a 的根挂到 b 的根下），加了路径压缩
+    for (const [a, b] of v.mergePairs) dsu.union(a, b);
     const groups = new Map<FaceId, FaceId[]>();
-    for (const id of parent.keys()) {
-      const r = find(id);
+    for (const id of dsu.keys()) {
+      const r = dsu.find(id);
       (groups.get(r) ?? groups.set(r, []).get(r)!).push(id);
     }
 

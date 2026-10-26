@@ -50,6 +50,7 @@ import { faceLeftSign } from "../kernel/flood.ts";
 import { inwardAcrossEdge } from "./profile-edges.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
+import { DisjointSet } from "../kernel/dsu.ts";
 
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
@@ -1634,9 +1635,9 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
 function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
   const out = new Map<FaceId, Map<string, Pt3>>();
   // 软边 → 其两侧膜连通（并查集）
-  const parent = new Map<FaceId, FaceId>();
-  const find = (x: FaceId): FaceId => { let r = x; while (parent.get(r) !== undefined && parent.get(r) !== r) r = parent.get(r)!; return r; };
-  const union = (a: FaceId, b: FaceId): void => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
+  const dsu = new DisjointSet<FaceId>();   // 路径压缩（旧抄写没有 → 一个平滑组的光滑球平方级）
+  const find = (x: FaceId): FaceId => dsu.find(x);
+  const union = (a: FaceId, b: FaceId): void => dsu.union(a, b);
   let any = false;
   for (const e of kd.edges()) {
     if (!kd.isSmooth(e.id) || e.faceLinks.length < 2) continue;
@@ -1648,7 +1649,7 @@ function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
   // 组内朝向统一（DT11，2026-10-26）：膜存的是平面的规范法向，绕一圈圆柱有一半朝里——不校正直接加，相邻两张在交界处互相抵消。
   // 沿 smooth 边从一张膜出发 BFS：两张膜在共享边上「面在左」的符号相反 = 朝向一致（kernel/flood.ts faceLeftSign，按侧灌同一条规则）。
   const orient = new Map<FaceId, number>();
-  for (const f0 of parent.keys()) {
+  for (const f0 of dsu.keys()) {
     if (orient.has(f0)) continue;
     orient.set(f0, 1);
     const queue = [f0];
@@ -1670,7 +1671,7 @@ function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
     }
   }
   // 组内：顶点 → [朝向统一后的膜法向 × 该膜在此顶点的内角]
-  const groupOf = (f: FaceId): FaceId | null => (parent.has(f) ? find(f) : null);
+  const groupOf = (f: FaceId): FaceId | null => (dsu.has(f) ? find(f) : null);
   const acc = new Map<string, Pt3>();   // `${group}|${vertexKey}` → 加权法向和
   const faceInfo = new Map<FaceId, { n: Pt3; ring: Pt3[]; g: FaceId; s: number }>();
   for (const f of kd.faces()) {

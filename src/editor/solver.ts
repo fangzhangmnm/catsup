@@ -22,6 +22,7 @@ import { perf } from "./perf-stats.ts";
 import { ScreenIndex } from "./screen-index.ts";
 import { INCREMENT_DEG, nearestStep, snapDirectionInPlane } from "./increments.ts";
 import { type Frame, WORLD_FRAME } from "../scene/xform.ts";
+import { DisjointSet } from "../kernel/dsu.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
 export interface DrawPlane { plane: PlaneParams; basis: { u: Pt3; v: Pt3 }; face?: FaceId; }
@@ -283,13 +284,9 @@ function handFaceSkip(k: GeomView, hand?: AlignHand | null): ((fid: FaceId) => b
  */
 function edgeTargets(k: GeomView, ex: (vid: VertexId) => boolean, edgesIn?: readonly Edge[]): { a: Pt3; b: Pt3; id: EdgeId }[] {
   const edges = edgesIn ?? k.edges();
-  const parent = new Map<EdgeId, EdgeId>();
-  const find = (e: EdgeId): EdgeId => {
-    let r = e;
-    while (parent.has(r) && parent.get(r) !== r) r = parent.get(r)!;
-    return r;
-  };
-  const union = (x: EdgeId, y: EdgeId): void => { const rx = find(x), ry = find(y); if (rx !== ry) parent.set(rx, ry); };
+  const dsu = new DisjointSet<EdgeId>();   // kernel/dsu.ts（路径压缩）
+  const find = (e: EdgeId): EdgeId => dsu.find(e);
+  const union = (x: EdgeId, y: EdgeId): void => dsu.union(x, y);
   const inc = new Map<VertexId, Edge[]>();
   for (const e of edges) for (const v of [e.a, e.b]) {
     if (!ex(v)) continue;
