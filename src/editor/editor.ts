@@ -1040,8 +1040,9 @@ export class Editor {
     const at = this.activePool(), k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
     const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
-    if (!faces.length && !edges.length) return false;
-    this.commitOp({ op: "makeGroup", at, faces, edges });
+    const nest = this.nestPicks();
+    if (!faces.length && !edges.length && !nest.groups.length && !nest.instances.length) return false;
+    this.commitOp({ op: "makeGroup", at, faces, edges, ...nest.fields });
     this.selection = emptySelection(); this.selectedPools.clear();
     const def = this.scene.brep(this.scene.defOfContext(this.ctx));
     const newest = [...def.groups.values()].filter((g) => g.parent === this.ctx.group).pop();
@@ -1055,18 +1056,28 @@ export class Editor {
    * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
    */
   makeComponent(name: string): boolean { return this.step(() => this.makeComponentStep(name)); }
+  /** 选区里一起装进新组 / 新组件的子组和组件（SketchUp 同款嵌套，user 2026-10-26「当然要」）：锁定的不动（提示一句）。 */
+  private nestPicks(): { groups: GroupId[]; instances: InstId[]; fields: { groups?: GroupId[]; instances?: InstId[] } } {
+    const picks = [...this.selectedPools.values()], locked = picks.filter((p) => this.pickIsLocked(p)).length;
+    if (locked) this.host.hint(`${locked} 个已锁定的组 / 组件没装进去（解锁后再装）`);
+    const free = picks.filter((p) => !this.pickIsLocked(p));
+    const groups = free.filter((p): p is { kind: "group"; group: GroupId } => p.kind === "group").map((p) => p.group);
+    const instances = free.filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance").map((p) => p.instance);
+    return { groups, instances, fields: { ...(groups.length ? { groups } : {}), ...(instances.length ? { instances } : {}) } };
+  }
   private makeComponentStep(name: string): boolean {
     if (!this.hasSelection()) return false;
     const at = this.activePool(), k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
     const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
-    if (!faces.length && !edges.length) return false;
+    const nest = this.nestPicks();
+    if (!faces.length && !edges.length && !nest.groups.length && !nest.instances.length) return false;
     const go = (mode: string): void => {
       const before = new Set(this.scene.defs.keys());
-      this.commitOp({ op: "makeComponent", at, faces, edges, name });
+      this.commitOp({ op: "makeComponent", at, faces, edges, name, ...nest.fields });
       const defId = [...this.scene.defs.keys()].find((id) => !before.has(id));
       if (defId === undefined || mode === "corner") return;
-      const vs = this.scene.kernelOf({ def: defId, group: null }).vertices();
+      const vs = this.scene.pointsOfDef(defId);   // 全部内容（散几何 + 装进来的组 / 组件）
       if (!vs.length) return;
       let lo = { x: Infinity, y: Infinity, z: Infinity }, hi = { x: -Infinity, y: -Infinity, z: -Infinity }, sum = { x: 0, y: 0, z: 0 };
       for (const v of vs) { lo = { x: Math.min(lo.x, v.x), y: Math.min(lo.y, v.y), z: Math.min(lo.z, v.z) }; hi = { x: Math.max(hi.x, v.x), y: Math.max(hi.y, v.y), z: Math.max(hi.z, v.z) }; sum = add3(sum, v); }

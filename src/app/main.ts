@@ -190,8 +190,8 @@ const hud: HudModel = {
     { id: "undo", label: "撤销", icon: "arrow-undo", disabled: !editor.canUndo() },
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
     { id: "delete", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },
-    { id: "group", label: "建组", icon: "collection", hidden: !editor.hasGeometrySelection() },
-    { id: "component", label: "建组件", icon: "object", hidden: !editor.hasGeometrySelection() },
+    { id: "group", label: "建组", icon: "collection", hidden: !editor.hasGeometrySelection() && !editor.hasPoolSelection() },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
+    { id: "component", label: "建组件", icon: "object", hidden: !editor.hasGeometrySelection() && !editor.hasPoolSelection() },
     { id: "explode", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },
     { id: "mirror", label: "镜像…", icon: "flip-horizontal", hidden: !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
@@ -911,7 +911,7 @@ window.addEventListener("keydown", (ev) => {
       if (key === "a" && editor.tool === "arc") { const modes: string[] = ARC_MODES.map((m) => m.id), cur = editor.config.get("arc", "mode") as string; const nx = modes[(modes.indexOf(cur) + 1) % modes.length]; editor.config.set("arc", "mode", nx); hintEl.textContent = `弧：${ARC_MODES.find((m) => m.id === nx)?.label ?? nx}（再按 A 换下一种）`; syncUi(); return; }
       editor.setTool(t); return;
     }
-    if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件
+    if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件（选中的组 / 组件一起装进去）
     if (key === "h" && !locomotion.isWalking()) { ev.preventDefault(); if (editor.hasHideableSelection()) editor.hideSelection(); return; }   // Blender：H = 隐藏选中（DT49）
     if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
   }

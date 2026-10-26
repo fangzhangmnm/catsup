@@ -45,9 +45,10 @@ export type Op =
   | { op: "followme"; at?: PoolRef; face: FaceKey; path: Pt3[]; closed: boolean; smoothJoints: boolean[] }
   | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs?: Record<string, [Pt3, Pt3][]>; faceLayers?: (Record<string, number> | undefined)[] }
   /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
-  | { op: "makeGroup"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
+  /** groups / instances = 一起装进去的、这一层的子组 / 组件（2026-10-26，SketchUp 同款嵌套；user「当然要」）。 */
+  | { op: "makeGroup"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; groups?: number[]; instances?: number[] }
   /** 选区 → 新 definition + 一个实例（轴 = 包围盒最小角）。 */
-  | { op: "makeComponent"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; name: string }
+  | { op: "makeComponent"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; name: string; groups?: number[]; instances?: number[] }
   /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
   | { op: "explode"; at: PoolRef; group?: number; instance?: number }
   | { op: "transformPool"; at: PoolRef; xform: Xform }
@@ -189,21 +190,52 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const fids = op.faces.map((f) => resolveFace(kernel, f));
       const eids = op.edges.map((e) => resolveEdge(kernel, e));
       const snap = extractSnapshot(kernel, fids, eids);
-      if (!snap.vertices.length) throw new OpTargetError("empty selection");
+      // 一起装进去的子组（连同它下面的子组 / 子实例）和组件实例：必须是这一层（父 = 活动池）的直接孩子（2026-10-26 嵌套）
+      const d0 = s.def(ref.def), b0 = s.brep(ref.def);
+      const gsel = (op.groups ?? []).map((id) => { const g = b0.groups.get(id); if (!g || g.parent !== ref.group) throw new OpTargetError(`group ${id}`); return g; });
+      const isel = (op.instances ?? []).map((id) => { const i = d0.instances.get(id); if (!i || i.parent !== ref.group) throw new OpTargetError(`instance ${id}`); return i; });
+      if (!snap.vertices.length && !gsel.length && !isel.length) throw new OpTargetError("empty selection");
+      const sub = new Set<number>(gsel.map((g) => g.id));
+      for (let grew = true; grew;) { grew = false; for (const g of b0.groups.values()) if (g.parent !== null && sub.has(g.parent) && !sub.has(g.id)) { sub.add(g.id); grew = true; } }
+      const subInst = [...d0.instances.values()].filter((i) => i.parent !== null && sub.has(i.parent));
+      // 新容器的原点 = 全部内容（散几何 + 组 + 实例里的一切）的包围盒最小角
+      const pts: Pt3[] = [...snap.vertices];
+      for (const gid of sub) for (const v of b0.groups.get(gid)!.kernel.vertices()) pts.push(v);
+      for (const i of [...isel, ...subInst]) pts.push(...s.pointsOfDef(i.def, i.xform));
+      const origin = bboxMin(pts);
       // 源池：删膜；搬走的边（选中的 + 搬走膜的环边）若已无膜引用才删——与别的膜共享的边留下（SU 同款：边在两边各有一份）
       const events = kernel.eraseFaces(fids);
       const has = snapEdgeSet(snap);
       const orphans = kernel.edges().filter((e) => e.faceLinks.length === 0 && has(kernel.graph.pt(e.a), kernel.graph.pt(e.b))).map((e) => e.id);
       if (orphans.length) events.push(...kernel.eraseEdges(orphans));
-      if (op.op === "makeGroup") {
-        const gk = Kernel.fromBrep(snap);
-        s.mintGroup(ref.def, ref.group, gk, frameAt(bboxMin(snap.vertices)));
+      if (op.op === "makeGroup") {   // 同一个定义里：子组 / 实例只改挂到新组下面（坐标本来就是定义坐标）
+        const ng = s.mintGroup(ref.def, ref.group, snap.vertices.length ? Kernel.fromBrep(snap) : new Kernel(), frameAt(origin));
+        for (const g of gsel) g.parent = ng.id;
+        for (const i of isel) i.parent = ng.id;
         return { scene: s, events };
       }
-      const origin = bboxMin(snap.vertices);
-      const local = transformSnapshot(snap, translation({ x: -origin.x, y: -origin.y, z: -origin.z }));
-      const def = s.mintDef(op.name, Kernel.fromBrep(local));
-      s.brep(def.id).materialSlots = [...s.brep(ref.def).materialSlots];   // 槽号沿用（同一张槽表拷一份；面上的槽号不用改）
+      const T = translation({ x: -origin.x, y: -origin.y, z: -origin.z });
+      const def = s.mintDef(op.name, snap.vertices.length ? Kernel.fromBrep(transformSnapshot(snap, T)) : new Kernel());
+      s.brep(def.id).materialSlots = [...b0.materialSlots];   // 槽号沿用（同一张槽表拷一份；面上的槽号不用改）
+      // 搬子组（子树、父子关系照旧，选中的那几个挂到新定义的根）+ 搬实例；坐标平移到新定义（原点 = 0）
+      const gmap = new Map<number, number>();
+      for (const gid of [...sub].sort((a, b) => a - b)) {
+        const g = b0.groups.get(gid)!, guides = cloneGuides(g.guides);
+        transformGuides(guides, T);
+        const ng = s.mintGroup(def.id, null, Kernel.fromBrep(transformSnapshot(g.kernel.toBrep(), T)), transformFrame(T, g.axes));
+        ng.guides = guides; if (g.name !== undefined) ng.name = g.name;
+        gmap.set(gid, ng.id);
+      }
+      for (const gid of sub) { const g = b0.groups.get(gid)!; if (g.parent !== null && sub.has(g.parent)) s.group({ def: def.id, group: gmap.get(gid)! }).parent = gmap.get(g.parent)!; }
+      for (const i of [...isel, ...subInst]) {
+        const ni = s.mintInstance(def.id, i.parent !== null && sub.has(i.parent) ? gmap.get(i.parent)! : null, i.def, compose(T, i.xform));
+        if (i.name !== undefined) ni.name = i.name;
+        if (i.locked) ni.locked = true;
+        if (i.layer !== undefined) ni.layer = i.layer;
+        if (i.hidden) ni.hidden = true;
+        d0.instances.delete(i.id);
+      }
+      for (const gid of sub) b0.groups.delete(gid);
       s.mintInstance(ref.def, ref.group, def.id, translation(origin));
       return { scene: s, events };
     }
@@ -438,8 +470,8 @@ export function describeOp(op: Op): string {
     case "pushpull": return `pushpull ring=${op.face.length} dist=${Number(op.dist.toFixed(4))}${op.keepRing ? " keepRing" : ""}${at}`;
     case "followme": return `followme ring=${op.face.length} path=${op.path.length}${op.closed ? " closed" : ""}${at}`;
     case "absorb": return `absorb faces=${op.faces.length} wires=${op.wires.length}${at}`;
-    case "makeGroup": return `makeGroup faces=${op.faces.length} edges=${op.edges.length}${at}`;
-    case "makeComponent": return `makeComponent "${op.name}" faces=${op.faces.length} edges=${op.edges.length}${at}`;
+    case "makeGroup": return `makeGroup faces=${op.faces.length} edges=${op.edges.length}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${at}`;
+    case "makeComponent": return `makeComponent "${op.name}" faces=${op.faces.length} edges=${op.edges.length}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${at}`;
     case "explode": return `explode ${op.group !== undefined ? `group ${op.group}` : `instance ${op.instance}`}${at}`;
     case "transformPool": return `transformPool${at}`;
     case "transformInstance": return `transformInstance ${op.def}/${op.instance}`;

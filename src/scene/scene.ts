@@ -87,6 +87,15 @@ export class Scene {
     d.groups.set(g.id, g);
     return g;
   }
+  /** 定义里全部顶点（本定义坐标 → 再经 m）：根池 + 各组 + 各实例（递归、经实例变换）。建组件 / 建组时算包围盒和原点用（2026-10-26 嵌套）。 */
+  pointsOfDef(defId: DefId, m: Xform = IDENTITY, depth = 0): Pt3[] {
+    if (depth > 32) return [];
+    const d = this.def(defId), out: Pt3[] = [];
+    if (d.body.kind === "brep") { for (const k of [d.body.kernel, ...[...d.body.groups.values()].map((g) => g.kernel)]) for (const v of k.vertices()) out.push(applyPt(m, v)); }
+    else { const P = d.body.positions; for (let i = 0; i + 2 < P.length; i += 3) out.push(applyPt(m, { x: P[i], y: P[i + 1], z: P[i + 2] })); }
+    for (const i of d.instances.values()) out.push(...this.pointsOfDef(i.def, compose(m, i.xform), depth + 1));
+    return out;
+  }
   mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform): Instance {
     const d = this.def(defId);
     const inst: Instance = { id: d.nextInst++, def: target, parent, xform };

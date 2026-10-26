@@ -280,3 +280,55 @@ describe("平滑组（0.8）：soft / smooth 两层、推拉策略、软化工�
     eq(back.edgeLayers.layer("smooth").size, 12); eq(back.soft.size, 12); eq(back.curve.size, 24);
   });
 });
+
+// 建组件 / 建组时选中的组件 / 组一起装进去（2026-10-26，SketchUp 同款嵌套；user 回「建组件时选区里的组件不嵌套（SU 会嵌套）要不要改」：「当然要」）
+describe("scene: 建组件 / 建组嵌套", () => {
+  const worldPts = (s: Scene): string[] => s.pointsOfDef(s.root).map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`).sort();
+  /** 根上：散盒（0..2 × 0..1.5 × 0..1.5）+ 一个组件 A（盒子挪到 x=5）。 */
+  const setup = (): { s: Scene; aInst: number } => {
+    let s = new Scene(sceneBox(2, 1.5));
+    const k = rootK(s);
+    s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), name: "A" }).scene;
+    const aInst = [...s.def(s.root).instances.values()][0].id;
+    s = applyOp(s, { op: "transformInstance", def: s.root, instance: aInst, xform: translation(P(5, 0, 0)) } as Op).scene;
+    const box2 = new Scene(sceneBox(2, 1.5)), k2 = box2.kernelOf({ def: box2.root, group: null });
+    s = applyOp(s, { op: "addEdges", at: rootAt(s), segs: k2.edges().map((e) => [k2.graph.pt(e.a), k2.graph.pt(e.b)]) } as Op).scene;
+    return { s, aInst };
+  };
+  it("建组件：散盒 + 组件 A 一起 → 新组件里有散几何和一份 A；根上只剩一份新组件；世界里每个点不动", () => {
+    let { s, aInst } = setup();
+    const before = worldPts(s), k = rootK(s);
+    s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), name: "B", instances: [aInst] }).scene;
+    const root = s.def(s.root);
+    eq(root.instances.size, 1, "根上只剩新组件");
+    const b = s.def([...root.instances.values()][0].def);
+    eq(b.name, "B");
+    eq(s.brep(b.id).kernel.faces().length, 6, "散盒进了新组件");
+    eq(b.instances.size, 1, "A 装进去了");
+    eq(rootK(s).faces().length, 0, "根上没有散几何了");
+    eq(worldPts(s).join("|"), before.join("|"), "世界里每个点都没动");
+  });
+  it("只选组和组件也能建组件（没有散几何）：组整个搬进去", () => {
+    let { s, aInst } = setup();
+    // 把散盒的顶面先做成组，再只选这个组 + 组件 A 建组件
+    const k = rootK(s);
+    s = applyOp(s, { op: "makeGroup", at: rootAt(s), faces: [faceKey(k, topFace(k, 1.5))], edges: [] }).scene;
+    const g1 = [...s.brep(s.root).groups.values()][0].id;
+    const before = worldPts(s);
+    s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: [], edges: [], name: "C", groups: [g1], instances: [aInst] }).scene;
+    const root = s.def(s.root), c = s.def([...root.instances.values()].find((i) => s.def(i.def).name === "C")!.def);
+    eq(s.brep(s.root).groups.size, 0, "组从根上搬走了");
+    eq(s.brep(c.id).groups.size, 1, "组进了新组件");
+    eq(c.instances.size, 1, "A 也进了新组件");
+    eq(worldPts(s).join("|"), before.join("|"), "世界里每个点都没动");
+  });
+  it("建组：组件 A 改挂到新组下面（同一个定义，坐标不动）；撤销回原样", () => {
+    let { s, aInst } = setup();
+    const h = new History(s), k = rootK(s);
+    s = h.commit(s, { op: "makeGroup", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), instances: [aInst] }).scene;
+    const g = [...s.brep(s.root).groups.values()][0];
+    eq(s.def(s.root).instances.get(aInst)!.parent, g.id, "A 挂到新组下");
+    s = h.undo()!.scene;
+    eq(s.brep(s.root).groups.size, 0, "撤销：没有组"); eq(s.def(s.root).instances.get(aInst)!.parent, null, "撤销：A 回到根");
+  });
+});
