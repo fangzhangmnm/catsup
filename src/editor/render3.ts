@@ -46,6 +46,7 @@ import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { cross3, dot3, sub3 } from "../kernel/geom.ts";
+import { faceLeftSign } from "../kernel/flood.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
 
@@ -1179,7 +1180,7 @@ export class Renderer3 {
       for (const tri of faceTriangles(kd, f.id)) {
         for (const p of tri) {
           grp.pos.push(p.x, p.y, p.z);
-          const nn = sm?.get(`${p.x},${p.y},${p.z}`) ?? n;
+          const nn = sm?.get(vkey(p)) ?? n;
           grp.nor.push(nn.x, nn.y, nn.z);
           grp.col.push(r, g, b);
           if (key) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
@@ -1560,7 +1561,7 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
       const texW = tex?.texture?.sizeM[0] ?? 1, texH = tex?.texture?.sizeM[1] ?? 1;
       for (const tri of tris) for (const p of tri) {
         grp.pos.push(p.x, p.y, p.z);
-        const nn = sm?.get(`${p.x},${p.y},${p.z}`) ?? n;
+        const nn = sm?.get(vkey(p)) ?? n;
         grp.nor.push(nn.x, nn.y, nn.z);
         grp.col.push(cf[0], cf[1], cf[2]); grp.colB.push(cb[0], cb[1], cb[2]);
         if (tex) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
@@ -1640,45 +1641,73 @@ function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
     any = true;
   }
   if (!any) return out;
-  // 组内：顶点 → [膜法向 × 该膜在此顶点的内角]
+  // 组内朝向统一（DT11，2026-10-26）：膜存的是平面的规范法向，绕一圈圆柱有一半朝里——不校正直接加，相邻两张在交界处互相抵消。
+  // 沿 smooth 边从一张膜出发 BFS：两张膜在共享边上「面在左」的符号相反 = 朝向一致（kernel/flood.ts faceLeftSign，按侧灌同一条规则）。
+  const orient = new Map<FaceId, number>();
+  for (const f0 of parent.keys()) {
+    if (orient.has(f0)) continue;
+    orient.set(f0, 1);
+    const queue = [f0];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const a = queue[qi], fa = kd.face(a);
+      if (!fa) continue;
+      for (const ring of [fa.outer, ...fa.holes]) for (const d of ring.edges) {
+        if (!kd.isSmooth(d.edge)) continue;
+        const la = faceLeftSign(kd, a, d.edge);
+        if (la === null) continue;
+        for (const b of kd.graph.edge(d.edge).faceLinks) {
+          if (b === a || orient.has(b)) continue;
+          const lb = faceLeftSign(kd, b, d.edge);
+          if (lb === null) continue;
+          orient.set(b, orient.get(a)! * (la * lb < 0 ? 1 : -1));
+          queue.push(b);
+        }
+      }
+    }
+  }
+  // 组内：顶点 → [朝向统一后的膜法向 × 该膜在此顶点的内角]
   const groupOf = (f: FaceId): FaceId | null => (parent.has(f) ? find(f) : null);
   const acc = new Map<string, Pt3>();   // `${group}|${vertexKey}` → 加权法向和
-  const faceInfo = new Map<FaceId, { n: Pt3; ring: Pt3[]; g: FaceId }>();
+  const faceInfo = new Map<FaceId, { n: Pt3; ring: Pt3[]; g: FaceId; s: number }>();
   for (const f of kd.faces()) {
     const g = groupOf(f.id);
     if (g === null) continue;
     const rec = kd.planeOf(f.id);
     const rings = kd.faceRings3(f.id);
     if (!rec || !rings) continue;
-    const n = rec.plane.n;
-    faceInfo.set(f.id, { n, ring: rings.outer, g });
+    const s = orient.get(f.id) ?? 1, n = rec.plane.n;
+    faceInfo.set(f.id, { n, ring: rings.outer, g, s });
     const ring = rings.outer;
     for (let i = 0; i < ring.length; i++) {
       const p = ring[i], a = ring[(i + ring.length - 1) % ring.length], b = ring[(i + 1) % ring.length];
       const u = sub3(a, p), v = sub3(b, p);
       const lu = Math.hypot(u.x, u.y, u.z), lv = Math.hypot(v.x, v.y, v.z);
-      const w = lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, dot3(u, v) / (lu * lv)))) : 0;
-      const key = `${g}|${p.x},${p.y},${p.z}`;
+      const w = (lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, dot3(u, v) / (lu * lv)))) : 0) * s;
+      const key = `${g}|${vkey(p)}`;
       const cur = acc.get(key) ?? { x: 0, y: 0, z: 0 };
-      // 法向取与「组里第一张膜」同侧（膜无朝向：n 可能翻；按 dot 校正）
       acc.set(key, { x: cur.x + n.x * w, y: cur.y + n.y * w, z: cur.z + n.z * w });
     }
   }
   for (const [fid, info] of faceInfo) {
     const m = new Map<string, Pt3>();
     for (const p of info.ring) {
-      const v = acc.get(`${info.g}|${p.x},${p.y},${p.z}`);
+      const v = acc.get(`${info.g}|${vkey(p)}`);
       if (!v) continue;
       const l = Math.hypot(v.x, v.y, v.z);
       if (l < 1e-9) continue;
       let nn = { x: v.x / l, y: v.y / l, z: v.z / l };
       if (dot3(nn, info.n) < 0) nn = { x: -nn.x, y: -nn.y, z: -nn.z };   // 与本膜同侧（双面光照取 |n·L|，侧向一致即可）
-      m.set(`${p.x},${p.y},${p.z}`, nn);
+      m.set(vkey(p), nn);
     }
     out.set(fid, m);
   }
   return out;
 }
+/**
+ * 平滑法向表的顶点键：坐标按 1 µm 取整（内核的格点）。三角化出来的点是从平面基二维坐标抬回来的，和环上的点差浮点尾数——
+ * 以前按原样字符串查，三分之二对不上、退回面法向 = 圆柱侧面一条条（DT11，2026-10-26 核过：24 边圆柱 96 个角 64 个没查到）。
+ */
+const vkey = (p: Pt3): string => `${Math.round(p.x * 1e6)},${Math.round(p.y * 1e6)},${Math.round(p.z * 1e6)}`;
 
 /** 相机系 key light：眼方向 + 上 0.55 + 右 0.35（Blender studio 光的最小近似）。 */
 function keyLight(cam: OrbitCamera): Pt3 {

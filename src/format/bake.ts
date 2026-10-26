@@ -63,6 +63,29 @@ export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [nu
   const union = (a: number, b: number): void => { if (!parent.has(a)) parent.set(a, a); if (!parent.has(b)) parent.set(b, b); const ra = find(a), rb = find(b); if (ra !== rb) parent.set(ra, rb); };
   for (const ei of smooth) { const [a, b] = snap.edges[ei]; const fl = facesOfEdge.get(edgeKey(a, b)) ?? []; for (let i = 1; i < fl.length; i++) union(fl[0], fl[i]); }
   if (!parent.size) return out;
+  // 组内朝向统一（DT11，2026-10-26；同 render3.smoothNormals）：快照的环绕规范法向逆时针 = 面在环走向的左手边；两张膜在共享边上走向相反 = 朝向一致
+  const smoothSet = new Set(smooth.map((ei) => edgeKey(snap.edges[ei][0], snap.edges[ei][1])));
+  const dirOf = (fi: number, a: number, b: number): number => { for (const r of [snap.faces[fi].outer, ...snap.faces[fi].holes]) for (let i = 0; i < r.length; i++) { const x = r[i], y = r[(i + 1) % r.length]; if (x === a && y === b) return 1; if (x === b && y === a) return -1; } return 0; };
+  const orient = new Map<number, number>();
+  for (const f0 of parent.keys()) {
+    if (orient.has(f0)) continue;
+    orient.set(f0, 1);
+    const queue = [f0];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const a = queue[qi];
+      for (const r of [snap.faces[a].outer, ...snap.faces[a].holes]) for (let i = 0; i < r.length; i++) {
+        const x = r[i], y = r[(i + 1) % r.length], k = edgeKey(x, y);
+        if (!smoothSet.has(k)) continue;
+        for (const b of facesOfEdge.get(k) ?? []) {
+          if (b === a || orient.has(b)) continue;
+          const db = dirOf(b, x, y);
+          if (!db) continue;
+          orient.set(b, orient.get(a)! * (db < 0 ? 1 : -1));   // a 沿 x→y；b 沿 y→x = 一致
+          queue.push(b);
+        }
+      }
+    }
+  }
   const acc = new Map<string, [number, number, number]>();
   const V = snap.vertices;
   const sub = (p: { x: number; y: number; z: number }, q: { x: number; y: number; z: number }) => ({ x: p.x - q.x, y: p.y - q.y, z: p.z - q.z });
@@ -73,7 +96,7 @@ export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [nu
       const p = V[r[i]], a = V[r[(i + r.length - 1) % r.length]], b = V[r[(i + 1) % r.length]];
       const u = sub(a, p), v = sub(b, p);
       const lu = Math.hypot(u.x, u.y, u.z), lv = Math.hypot(v.x, v.y, v.z);
-      const w = lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, (u.x * v.x + u.y * v.y + u.z * v.z) / (lu * lv)))) : 0;
+      const w = (lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, (u.x * v.x + u.y * v.y + u.z * v.z) / (lu * lv)))) : 0) * (orient.get(fi) ?? 1);
       const key = `${g}|${r[i]}`;
       const cur = acc.get(key) ?? [0, 0, 0];
       acc.set(key, [cur[0] + n.x * w, cur[1] + n.y * w, cur[2] + n.z * w]);

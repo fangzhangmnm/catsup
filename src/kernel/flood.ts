@@ -90,7 +90,8 @@ export type Side = 0 | 1;
  * 面 f 在它的哪条环边上「面在左手边」（从 +n 看）：+1 = 沿 a→b 走面在左、−1 = 在右。内核约定外环逆时针、洞环顺时针（都是面在左），
  * 这里照环的实际绕向算（signedArea），不靠约定。
  */
-function leftSign(k: FloodView, fid: FaceId, eid: EdgeId): number | null {
+type RingView = { readonly edges: readonly { readonly edge: EdgeId; readonly forward: boolean }[]; readonly pts: readonly { readonly x: number; readonly y: number }[] };
+export function faceLeftSign(k: { face(id: FaceId): { readonly outer: RingView; readonly holes: readonly RingView[] } | undefined }, fid: FaceId, eid: EdgeId): number | null {
   const f = k.face(fid);
   if (!f) return null;
   const rings = [f.outer, ...f.holes];
@@ -117,11 +118,11 @@ export function floodSides(k: FloodView, seed: FaceId, side: Side, gate: EdgeGat
     if (!f) continue;
     for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) {
       if (!gate(d.edge)) continue;
-      const la = leftSign(k, a, d.edge);
+      const la = faceLeftSign(k, a, d.edge);
       if (la === null) continue;
       for (const b of k.graph.edge(d.edge).faceLinks) {
         if (b === a || !k.face(b)) continue;
-        const lb = leftSign(k, b, d.edge);
+        const lb = faceLeftSign(k, b, d.edge);
         if (lb === null) continue;
         const sb: Side = la * lb < 0 ? sa : ((1 - sa) as Side);
         if (seen.has(key(b, sb))) continue;
