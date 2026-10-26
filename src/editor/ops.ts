@@ -41,7 +41,7 @@ export type Op =
   | { op: "eraseFaces"; at?: PoolRef; faces: FaceKey[] }
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[] }
-  | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number }
+  | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */ keepRing?: boolean }
   | { op: "followme"; at?: PoolRef; face: FaceKey; path: Pt3[]; closed: boolean; smoothJoints: boolean[] }
   | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs?: Record<string, [Pt3, Pt3][]>; faceLayers?: (Record<string, number> | undefined)[] }
   /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
@@ -171,7 +171,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [...kernel.eraseFaces(fids), ...kernel.eraseEdges(eids)] };
     }
     case "move": { const { kernel } = poolOf(s, op.at); const moves = op.moves.map((m) => ({ id: resolveVertex(kernel, m.from), to: m.to })); return { scene: s, events: kernel.moveVertices(moves) }; }
-    case "pushpull": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.pushPull(fid, op.dist) }; }
+    case "pushpull": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.pushPull(fid, op.dist, op.keepRing ? { keepRing: true } : undefined) }; }
     case "followme": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.followMe(fid, op.path, { closed: op.closed, smoothJoints: op.smoothJoints }) }; }
     case "absorb": {
       const { kernel } = poolOf(s, op.at);
@@ -406,7 +406,7 @@ export function describeOp(op: Op): string {
     case "eraseFaces": return `eraseFaces n=${op.faces.length}${at}`;
     case "eraseSelection": return `eraseSelection faces=${op.faces.length} edges=${op.edges.length}${at}`;
     case "move": { const m = op.moves[0]; const d = m ? ` Δ=${(m.to.x - m.from.x).toFixed(3)},${(m.to.y - m.from.y).toFixed(3)},${(m.to.z - m.from.z).toFixed(3)}` : ""; return `move verts=${op.moves.length}${d}${at}`; }   // 位移不是坐标：D17 要靠它判断落定帧纯不纯
-    case "pushpull": return `pushpull ring=${op.face.length} dist=${Number(op.dist.toFixed(4))}${at}`;
+    case "pushpull": return `pushpull ring=${op.face.length} dist=${Number(op.dist.toFixed(4))}${op.keepRing ? " keepRing" : ""}${at}`;
     case "followme": return `followme ring=${op.face.length} path=${op.path.length}${op.closed ? " closed" : ""}${at}`;
     case "absorb": return `absorb faces=${op.faces.length} wires=${op.wires.length}${at}`;
     case "makeGroup": return `makeGroup faces=${op.faces.length} edges=${op.edges.length}${at}`;

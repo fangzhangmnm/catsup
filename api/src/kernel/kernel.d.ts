@@ -142,6 +142,7 @@ export declare class Kernel {
      */
     pushPull(id: FaceId, dist: number, opts?: {
         settleLanding?: boolean;
+        keepRing?: boolean;
     }): FaceEvent[];
     /**
      * 跟随（SU Follow Me）—— 轮廓面 id 沿折线 path 扫掠（几何 = sweep.ts 斜切投影），像表提交规则（2026-10-21，Claude Fable 5.1）：

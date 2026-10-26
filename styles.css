@@ -166,7 +166,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 /* 状态行=RPG 对话框：最多两行，超出省略（user 2026-09-07「左下角的状态显示…相当于 rpg 游戏的对话，超出了怎么办」）*/
 #hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
 .build { color: var(--muted); font-variant-numeric: tabular-nums; }
-.rail-build { font-size: 9px; line-height: 1.1; text-align: center; padding: 2px 0 1px; white-space: normal; word-break: break-all; max-width: 48px; opacity: .8; }   /* 左柱最底下的版本号（10-25） */
+.rail-build { font-size: 9px; line-height: 1.1; text-align: center; padding: 2px 0 1px; white-space: normal; word-break: normal; overflow-wrap: normal; max-width: 48px; opacity: .8; }   /* 只在空格处换行：「v0.14.x」一行、「dev」一行 */   /* 左柱最底下的版本号（10-25） */
 /* 血槽位读数（A28）：手势 dims / 选中面积 / 边长，大一号、tabular */
 .readout { display: block; font-size: 15px; font-weight: 600; color: #2b2b2b; font-variant-numeric: tabular-nums; text-align: right; margin-bottom: 2px; }
 .hud-br { text-align: right; }

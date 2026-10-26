@@ -418,7 +418,7 @@ export class Kernel {
    *   · 有裸边 → 原位留一张源像 F₀（拉孤面成闭盒）
    * 顶点守卫 / 频谱整段退役：第三张只共享顶点的膜的像没动 → 它不动（邻居形状不可侵犯 by construction）。
    */
-  pushPull(id: FaceId, dist: number, opts?: { settleLanding?: boolean }): FaceEvent[] {
+  pushPull(id: FaceId, dist: number, opts?: { settleLanding?: boolean; keepRing?: boolean }): FaceEvent[] {
     this._rev++;
     const settleLanding = opts?.settleLanding !== false;
     const f = this.store.face(id);
@@ -454,7 +454,8 @@ export class Kernel {
         const a = g.pt(d.forward ? e.a : e.b), b = g.pt(d.forward ? e.b : e.a);
         const others = e.faceLinks.filter((x) => x !== id);
         for (const L of this.edgeLayers.of(e.id)) push(L, { a: add3(a, delta), b: add3(b, delta) });
-        if (others.length > 0 && others.every(parallel)) {
+        // 接着长（自愈）= 旁边顺着推拉方向的侧面直接拉长；keepRing（「加边」，user 2026-10-25「pull可以选择加边（就是不自愈）」，SketchUp 按 Ctrl）= 一律新起侧面，原帽环留着
+        if (!opts?.keepRing && others.length > 0 && others.every(parallel)) {
           for (const gid of others) { (rewrite.get(gid) ?? rewrite.set(gid, new Set()).get(gid)!).add(e.id); consumed.add(gid); }
           continue;
         }

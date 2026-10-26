@@ -108,6 +108,11 @@ export declare function centerArcSegments(plane: PlaneParams, basis: {
 export declare function sweepAngle(c: Pt3, a: Pt3, p: Pt3, n: Pt3): number;
 /** 两点弧：弦 a–b、同侧、给定半径 r（≥ 弦半长）→ 劣弧的凸度点（VCB 改半径用）；r 太小 → 半圆。 */
 export declare function bulgePointForRadius(a: Pt3, b: Pt3, side: Pt3, r: number): Pt3;
+/** 矩形「宽,高」的两根轴：面基 (u, v) 里更贴近世界 X 的那根算「宽」（平手看 Y）——地面矩形 = (x, y)，立面 = (水平, 竖直)。光标旁提示和数值小窗共用（2026-10-25：此前两处各算、宽高顺序对不上）。 */
+export declare function rectAxesOf(basis: {
+    u: Pt3;
+    v: Pt3;
+}): [Pt3, Pt3];
 /** 矩形的对角（从角 = 锚点本身；从中心 = 锚点关于 b 的对称点，user 2026-10-24「中心rect……还是要」）。 */
 export declare function rectOpposite(anchor: Pt3, b: Pt3, from: "corner" | "center"): Pt3;
 /**

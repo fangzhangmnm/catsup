@@ -26,5 +26,7 @@ export declare class PushPullTool implements ToolHandler {
         y: number;
     }, travel?: number): void;
     live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    /** 加边（不自愈）：工具选项「加边」或按住 Ctrl（SketchUp Push/Pull + Ctrl）。 */
+    private keepRing;
     private commit;
 }

@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectAngle, rrectCornerFromAngle, rrectSegments, bulgePointForRadius, rectOpposite } from "./tools.ts";
+import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectAngle, rrectCornerFromAngle, rrectSegments, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
@@ -159,7 +159,7 @@ export type LastGesture =
   /** 弧（四种画法，arc-build.ts）：VCB 半径 / 角度（圆心弧 · 扇形）/ 段数。 */
   | ({ kind: "arc"; ops: number; at: PoolRef } & ArcGesture)
   | { kind: "circle"; ops: number; at: PoolRef; plane: DrawPlane; center: Pt3; rim: Pt3; segments: number }
-  | { kind: "pp"; ops: number; at: PoolRef; face: FaceKey; h: number; hl: number }
+  | { kind: "pp"; ops: number; at: PoolRef; face: FaceKey; h: number; hl: number; keepRing?: boolean }
   | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number; circle?: CurveParams }
   | { kind: "move"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; delta: Pt3; copy: boolean; entities: { faces: FaceId[]; edges: EdgeId[] } }
   | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number }
@@ -1314,15 +1314,12 @@ export class Editor {
     const u = this.vcbUnit, fl = (m: number): string => fmtVcbLength(m, u);
     const echo = L.kind === "line" ? fl(dist(L.a, L.b)) : L.kind === "pp" ? fl(L.h) : L.kind === "offset" ? fl(L.d) : L.kind === "move" ? fl(len3(L.delta))
       : L.kind === "circle" ? `${fl(dist(L.center, L.rim))} · ${L.segments}s` : L.kind === "rotate" ? fmtDeg(L.angle) : L.kind === "scale" ? (L.axis ? `${(L.axis.x ? L.f.x : L.axis.y ? L.f.y : L.f.z).toFixed(3)}` : `${L.f.x.toFixed(3)}`)
-      : L.kind === "rect" ? (() => { const d = sub3(L.corner, L.anchor), [bu, bv] = Editor.rectAxes(L.plane.basis); return `${fl(Math.abs(dot3(d, bu)))} , ${fl(Math.abs(dot3(d, bv)))}`; })()
+      : L.kind === "rect" ? (() => { const d = sub3(L.corner, L.anchor), [bu, bv] = Editor.rectAxes(L.plane.basis), k2 = L.from === "center" ? 2 : 1; return `${fl(Math.abs(dot3(d, bu)) * k2)} , ${fl(Math.abs(dot3(d, bv)) * k2)}`; })()   // 从中心画：回显整宽整高（和输入的意思一致）
       : L.kind === "tape" ? fl(L.d) : L.kind === "protractor" ? fmtDeg(L.angle) : "";
     return { kind: L.kind, prompt: vcbPrompt(L.kind), echo };
   }
   /** 矩形「宽,高」的两根轴：面基 (u, v) 里更贴近世界 X 的那根算「宽」（平手看 Y）——地面矩形 = (x, y)，立面 = (水平, 竖直)。 */
-  private static rectAxes(basis: { u: Pt3; v: Pt3 }): [Pt3, Pt3] {
-    const score = (a: Pt3): number => Math.abs(a.x) * 4 + Math.abs(a.y) * 2 + Math.abs(a.z);
-    return score(basis.u) >= score(basis.v) ? [basis.u, basis.v] : [basis.v, basis.u];
-  }
+  private static rectAxes(basis: { u: Pt3; v: Pt3 }): [Pt3, Pt3] { return rectAxesOf(basis); }
   /** 手势进行中不能输（例外：画线的连画态只是下一笔的锚点）。 */
   private vcbBlocked(): boolean { return this.gestureActive() && !(this._tool === "line" && this.armed && this.anchor3 !== null); }
   /** 应用一条输入：解析 → 撤销那一步的 op → 按精确值重做 → 更新 last（可以连着改）。 */
@@ -1400,7 +1397,7 @@ export class Editor {
       case "pp": {
         if (v.kind !== "length") break;
         const h = sign(L.h) * v.m, hl = L.h !== 0 ? h * (L.hl / L.h) : h;
-        this.commitOp({ op: "pushpull", at, face: L.face, dist: hl });
+        this.commitOp({ op: "pushpull", at, face: L.face, dist: hl, ...(L.keepRing ? { keepRing: true } : {}) });
         this.last = { ...L, ops: this.opCount - n0, h, hl };
         msg = `推拉 ${fmtLen(h)}`;
         break;

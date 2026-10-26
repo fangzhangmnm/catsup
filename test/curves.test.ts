@@ -50,6 +50,19 @@ describe("curves: 曲线实体", () => {
     assert(risers.every((e) => k.isSoft(e.id) && k.isSmooth(e.id)), "并出来的侧棱仍是软 + 平滑");
     invariants(k);
   });
+  it("推拉「加边」（不自愈，SketchUp 按 Ctrl）：原帽环留着、侧面分上下两段、竖棱仍软 + 平滑（user 2026-10-25「pull可以选择加边（就是不自愈）」）", () => {
+    const k = new Kernel(); circle(k, 0, 0, 1);
+    k.pushPull(k.faces()[0].id, 1);
+    const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 1) < 1e-9))!;
+    k.pushPull(top.id, 0.5, { keepRing: true });
+    const ringMid = k.edges().filter((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return Math.abs(a.z - 1) < 1e-9 && Math.abs(b.z - 1) < 1e-9; });
+    eq(ringMid.length, 24, "z = 1 那圈边留着");
+    const risers = k.edges().filter((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return Math.abs(a.z - b.z) > 1e-9; });
+    eq(risers.length, 48, "竖棱上下两段");
+    assert(risers.every((e) => k.isSoft(e.id) && k.isSmooth(e.id)), "竖棱仍是软 + 平滑");
+    eq(k.faces().length, 2 + 48, "上下盖 + 两段侧面");
+    invariants(k);
+  });
   it("橡皮擦顶圈的一段 = 整个顶圈没了（SU：顶面与靠它围住的 24 张侧面一起消失）；底圈与底面不动", () => {
     const k = new Kernel(); circle(k, 0, 0, 1); k.pushPull(k.faces()[0].id, 2);
     const top = k.curves().find((c) => Math.abs(c.params!.center.z - 2) < 1e-9)!;

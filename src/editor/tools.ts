@@ -262,6 +262,11 @@ export function bulgePointForRadius(a: Pt3, b: Pt3, side: Pt3, r: number): Pt3 {
   return add3(mid, scale3(dir, h));
 }
 
+/** 矩形「宽,高」的两根轴：面基 (u, v) 里更贴近世界 X 的那根算「宽」（平手看 Y）——地面矩形 = (x, y)，立面 = (水平, 竖直)。光标旁提示和数值小窗共用（2026-10-25：此前两处各算、宽高顺序对不上）。 */
+export function rectAxesOf(basis: { u: Pt3; v: Pt3 }): [Pt3, Pt3] {
+  const score = (a: Pt3): number => Math.abs(a.x) * 4 + Math.abs(a.y) * 2 + Math.abs(a.z);
+  return score(basis.u) >= score(basis.v) ? [basis.u, basis.v] : [basis.v, basis.u];
+}
 /** 矩形的对角（从角 = 锚点本身；从中心 = 锚点关于 b 的对称点，user 2026-10-24「中心rect……还是要」）。 */
 export function rectOpposite(anchor: Pt3, b: Pt3, from: "corner" | "center"): Pt3 { return from === "center" ? sub3(scale3(anchor, 2), b) : anchor; }
 

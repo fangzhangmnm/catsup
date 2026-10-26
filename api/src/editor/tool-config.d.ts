@@ -132,6 +132,27 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
+    /** 推拉两种（user 2026-10-25「pull可以选择加边（就是不自愈），然后看一下对应的快捷键是什么」）：接着长（默认，顺着推拉方向的侧面直接拉长）/ 加边（原来那圈边留着、侧面分两段）；按住 Ctrl = 临时加边（SketchUp Push/Pull + Ctrl 同款键位）。 */
+    readonly pp: {
+        readonly mode: {
+            readonly kind: "enum";
+            readonly label: "推拉";
+            readonly values: readonly [{
+                readonly id: "heal";
+                readonly label: "接着长";
+                readonly hint: "顺着推拉方向的侧面直接拉长（不多一圈线）";
+            }, {
+                readonly id: "ring";
+                readonly label: "加边";
+                readonly hint: "原来那圈边留着、侧面分两段（按住 Ctrl 临时切）";
+            }];
+            readonly def: "heal";
+            readonly scope: "session";
+            readonly modifiers: {
+                readonly ctrl: "ring";
+            };
+        };
+    };
     /** 轴工具两种（user 2026-10-25「轴工具能不能不设置方向，就设置点，有两种模式？」「默认是只设置点」）：只设原点 = 点一下、朝向不变；原点 + 方向 = 原来的三下。 */
     readonly axes: {
         readonly mode: {

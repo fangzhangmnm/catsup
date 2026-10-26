@@ -144,10 +144,13 @@ export class PushPullTool implements ToolHandler {
 
   live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     if (this.face === null || Math.abs(this.h) < MIN_GESTURE_LEN) return "";
-    const fid = this.face, h = this.localH(ctx, this.h);
-    run((c) => c.pushPull(fid, h, { settleLanding: false }));
+    const fid = this.face, h = this.localH(ctx, this.h), keepRing = this.keepRing(ctx);
+    run((c) => c.pushPull(fid, h, { settleLanding: false, keepRing }));
     return "";
   }
+
+  /** 加边（不自愈）：工具选项「加边」或按住 Ctrl（SketchUp Push/Pull + Ctrl）。 */
+  private keepRing(ctx: ToolCtx): boolean { const m = ctx.mods(); return ctx.config.effective("pp", "mode", { ctrl: m.copy, shift: m.shift }) === "ring"; }
 
   private commit(ctx: ToolCtx): void {
     const h = this.h, fid = this.face!, hl = this.localH(ctx, h);
@@ -156,8 +159,9 @@ export class PushPullTool implements ToolHandler {
     const k = ctx.kernel();
     if (Math.abs(h) >= MIN_GESTURE_LEN && k.face(fid)) {
       const n0 = ctx.opCount(), at0 = ctx.activePool(), face = faceKey(k, fid);
-      ctx.commitOp({ op: "pushpull", at: at0, face, dist: hl });
-      ctx.recordLast({ kind: "pp", ops: ctx.opCount() - n0, at: at0, face, h, hl });
+      const keepRing = this.keepRing(ctx);
+      ctx.commitOp({ op: "pushpull", at: at0, face, dist: hl, ...(keepRing ? { keepRing } : {}) });
+      ctx.recordLast({ kind: "pp", ops: ctx.opCount() - n0, at: at0, face, h, hl, ...(keepRing ? { keepRing } : {}) });
     }
   }
 }

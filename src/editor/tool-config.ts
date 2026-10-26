@@ -149,6 +149,10 @@ export const TOOL_OPTIONS = {
     mode: { kind: "enum", label: "画法", values: ARC_MODES, def: "two", scope: "session" },
     segments: { kind: "number", label: "段数", def: 12, min: 2, max: 96, step: 1, scope: "session" },
   },
+  /** 推拉两种（user 2026-10-25「pull可以选择加边（就是不自愈），然后看一下对应的快捷键是什么」）：接着长（默认，顺着推拉方向的侧面直接拉长）/ 加边（原来那圈边留着、侧面分两段）；按住 Ctrl = 临时加边（SketchUp Push/Pull + Ctrl 同款键位）。 */
+  pp: {
+    mode: { kind: "enum", label: "推拉", values: [{ id: "heal", label: "接着长", hint: "顺着推拉方向的侧面直接拉长（不多一圈线）" }, { id: "ring", label: "加边", hint: "原来那圈边留着、侧面分两段（按住 Ctrl 临时切）" }], def: "heal", scope: "session", modifiers: { ctrl: "ring" } },
+  },
   /** 轴工具两种（user 2026-10-25「轴工具能不能不设置方向，就设置点，有两种模式？」「默认是只设置点」）：只设原点 = 点一下、朝向不变；原点 + 方向 = 原来的三下。 */
   axes: {
     mode: { kind: "enum", label: "设什么", values: [{ id: "point", label: "只设原点" }, { id: "full", label: "原点 + 方向" }], def: "point", scope: "session" },

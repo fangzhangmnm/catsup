@@ -67,7 +67,8 @@ export type Op = {
     op: "pushpull";
     at?: PoolRef;
     face: FaceKey;
-    dist: number;
+    dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */
+    keepRing?: boolean;
 } | {
     op: "followme";
     at?: PoolRef;

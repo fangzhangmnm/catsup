@@ -155,6 +155,7 @@ export type LastGesture = {
     face: FaceKey;
     h: number;
     hl: number;
+    keepRing?: boolean;
 } | {
     kind: "offset";
     ops: number;

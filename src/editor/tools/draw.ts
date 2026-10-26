@@ -7,7 +7,7 @@ import { cross3, dist3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom
 import { rayPlane } from "../camera.ts";
 import { intentAllows3D } from "../intent.ts";
 import { GROUND, cameraPlane, grazing, rectFirstPlane, resolveRectPlane, type DrawPlane, type Snap3 } from "../pick.ts";
-import { circleCurveSpec, circleSegmentsOnPlane, rectOpposite, rectSegmentsOnPlane, rectToolTargets, snapDirectionInPlane } from "../tools.ts";
+import { circleCurveSpec, circleSegmentsOnPlane, rectOpposite, rectSegmentsOnPlane, rectToolTargets, snapDirectionInPlane, rectAxesOf } from "../tools.ts";
 import { MIN_GESTURE_LEN, fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
@@ -145,7 +145,8 @@ export class RectTool extends DrawTool {
     const { basis } = this.plane, from = this.from(ctx);
     const segs = rectSegmentsOnPlane(this.plane.plane, basis, rectOpposite(a, b, from), b);
     const d = sub3(b, a), k = from === "center" ? 2 : 1;
-    const du = d.x * basis.u.x + d.y * basis.u.y + d.z * basis.u.z, dv = d.x * basis.v.x + d.y * basis.v.y + d.z * basis.v.z;
+    const [aw, ah] = rectAxesOf(basis);   // 宽 = 贴近世界 X 的那根（和数值小窗同一条规则）
+    const du = d.x * aw.x + d.y * aw.y + d.z * aw.z, dv = d.x * ah.x + d.y * ah.y + d.z * ah.z;
     if (segs.length) run((c) => c.addEdges(segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)])));
     return `矩形 ${fmtLen(Math.abs(du) * k)} × ${fmtLen(Math.abs(dv) * k)}${from === "center" ? "（从中心）" : ""}`;
   }
