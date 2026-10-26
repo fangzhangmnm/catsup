@@ -55,6 +55,11 @@ export class PlanarGraph {
   private nextE = 1;
   private levels = new Map<number, GridLevel>();
   private edgeCells = new Map<EdgeId, { level: number; keys: number[] }>();
+  /** 删过的边（id 从不复用）：Kernel.emit 只拿它们去清边层 / 曲线，不再全量扫（2026-10-26 Claude Opus 5.5，纪元账本 DT93）。 */
+  private removedE: EdgeId[] = [];
+  drainRemovedEdges(): EdgeId[] { const r = this.removedE; this.removedE = []; return r; }
+  /** 上次 drain 以来删过的边（只看不清：结算机尾声用，emit 再 drain）。 */
+  removedSinceDrain(): readonly EdgeId[] { return this.removedE; }
 
   private indexEdge(id: EdgeId): void {
     const e = this.edge(id);
@@ -203,6 +208,7 @@ export class PlanarGraph {
     const e = this.edge(id);
     this.unindexEdge(id);
     this.edgesById.delete(id);
+    this.removedE.push(id);
     for (const vid of [e.a, e.b]) {
       const v = this.vertex(vid);
       v.edges.delete(id);
@@ -335,6 +341,7 @@ export class PlanarGraph {
     const e = this.edge(id);
     this.unindexEdge(id);
     this.edgesById.delete(id);
+    this.removedE.push(id);
     this.vertex(e.a).edges.delete(id);
     this.vertex(e.b).edges.delete(id);
   }
@@ -349,6 +356,7 @@ export class PlanarGraph {
     for (const [k, vid] of this.vertByKey) g.vertByKey.set(k, vid);
     for (const [L, lv] of this.levels) { const cells = new Map<number, Set<EdgeId>>(); for (const [k, set] of lv.cells) cells.set(k, new Set(set)); g.levels.set(L, { size: lv.size, cells, edges: new Set(lv.edges) }); }
     for (const [id, rec] of this.edgeCells) g.edgeCells.set(id, { level: rec.level, keys: [...rec.keys] });
+    g.removedE = [...this.removedE];
     return g;
   }
 }

@@ -296,7 +296,7 @@ export class Kernel {
       if (!c) continue;
       if (dissolveAt(this.graph, this.store, c, this.edgeLayers, this.curveReg)) n++;
     }
-    if (n) { this.edgeLayers.prune((id) => this.graph.hasEdge(id)); this.curveReg.prune(this.graph); }
+    if (n) { const gone = this.graph.drainRemovedEdges(); this.edgeLayers.pruneIds(gone); this.curveReg.pruneEdges(this.graph, gone); }
     return n;
   }
   /** A33 断口：二度共线、两边面链接相同、两端之间没边、两边不在同一条曲线里的顶点（= 一根直线中间断了一截，溶解得掉）。 */
@@ -726,9 +726,11 @@ export class Kernel {
   private emit(events: FaceEvent[]): FaceEvent[] {
     this.eventLog.push(...events);
     this.faceLayers.applyEvents(events);           // 面层跟着血缘走（layers.ts）
-    this.faceLayers.prune((id) => !!this.store.face(id));
-    this.edgeLayers.prune((id) => this.graph.hasEdge(id));
-    this.curveReg.prune(this.graph);
+    // 增量清层（2026-10-26 Claude Opus 5.5，纪元账本 DT93）：只看这次删掉的边 / 膜（id 不复用 → 结果 = 全量 prune），不再每步扫全部层
+    this.faceLayers.pruneIds(this.store.drainRemovedFaces(), (id) => !!this.store.face(id));
+    const gone = this.graph.drainRemovedEdges();
+    this.edgeLayers.pruneIds(gone);
+    this.curveReg.pruneEdges(this.graph, gone);
     return events;
   }
 

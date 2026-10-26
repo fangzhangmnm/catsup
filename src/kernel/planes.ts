@@ -29,25 +29,90 @@ export interface PlaneRec {
  *  face-lifecycle.regionsByPlane（2026-09-07 fuzz 案，edited by Claude Fable 5.1）。 */
 const ANGLE_DOT = 1 - 1e-10;
 
+/**
+ * 平面索引的桶（2026-10-26 Claude Opus 5.5；纪元账本 DT93：ensure 原来逐条比全部平面，4.9 万面的球挪一个点光「发现平面」就 50 ms）。
+ * 键 = 规范化法向（最大分量取正）各分量 / D_N + d / D_D 取整；查询时离桶边不到容差的那一维再看隔壁桶，法向两个符号都查
+ * （规范化在两个最大分量差不多大时会翻号）。桶宽只影响一桶装几条，不影响匹配结果——匹配仍是下面那条精确谓词。
+ */
+const D_N = 1e-3;               // 法向分量桶宽（ANGLE_DOT 对应的分量差 ≤ √(2·1e-10) ≈ 1.5e-5，远小于桶宽）
+const N_EPS = 2e-5;
+const keyN = (x: number): number => Math.floor(x / D_N);
+
 export class PlaneRegistry {
   private recs = new Map<PlaneId, PlaneRec>();
   private nextId = 1;
+  /** 桶 → 平面 id（升序）。clone 共享数组，写时复制。 */
+  private buckets = new Map<string, PlaneId[]>();
+  private shared = new WeakSet<PlaneId[]>();
 
   all(): PlaneRec[] { return [...this.recs.values()]; }
+  /** 不拷数组的遍历（热路径用）。 */
+  values(): IterableIterator<PlaneRec> { return this.recs.values(); }
   rec(id: PlaneId): PlaneRec {
     const r = this.recs.get(id);
     if (!r) throw new Error(`plane ${id} 不存在`);
     return r;
   }
 
-  /** 容差匹配既有平面（法向同或反 + |Δd|≤τ，同一张几何平面只准一条记录）；没有则注册。 */
+  private static canon(pl: PlaneParams): { n: Pt3; d: number } {
+    const { n, d } = pl, ax = Math.abs(n.x), ay = Math.abs(n.y), az = Math.abs(n.z);
+    const m = ax >= ay && ax >= az ? n.x : ay >= az ? n.y : n.z;
+    return m < 0 ? { n: { x: -n.x, y: -n.y, z: -n.z }, d: -d } : { n, d };
+  }
+  private dBucket(tol: number): number { return Math.max(4 * tol, 1e-6); }
+  private keyOf(pl: PlaneParams): string {
+    const c = PlaneRegistry.canon(pl);
+    return `${keyN(c.n.x)},${keyN(c.n.y)},${keyN(c.n.z)},${Math.floor(c.d / this.dW)}`;
+  }
+  /** d 的桶宽：第一次登记时按当次容差定（整个 registry 的容差是同一个 τ），之后不变。 */
+  private dW = 0;
+  private index(rec: PlaneRec): void {
+    const k = this.keyOf(rec.plane);
+    let arr = this.buckets.get(k);
+    if (!arr) { this.buckets.set(k, [rec.id]); return; }
+    if (this.shared.has(arr)) { arr = [...arr]; this.buckets.set(k, arr); }
+    arr.push(rec.id);   // id 单调增 → 数组保持升序
+  }
+  private unindex(rec: PlaneRec): void {
+    const k = this.keyOf(rec.plane);
+    const arr = this.buckets.get(k);
+    if (!arr) return;
+    const next = arr.filter((id) => id !== rec.id);
+    if (next.length) this.buckets.set(k, next); else this.buckets.delete(k);
+  }
+  /** 可能匹配 pl 的平面 id（两个法向符号 × 离桶边近的维度再看隔壁），升序去重。 */
+  private candidates(pl: PlaneParams, tol: number): PlaneId[] {
+    const out = new Set<PlaneId>();
+    for (const sgn of [1, -1]) {
+      const n = { x: sgn * pl.n.x, y: sgn * pl.n.y, z: sgn * pl.n.z }, d = sgn * pl.d;
+      const span = (x: number, w: number, eps: number): number[] => { const q = Math.floor(x / w), r = x - q * w; return r < eps ? [q - 1, q] : w - r < eps ? [q, q + 1] : [q]; };
+      for (const ix of span(n.x, D_N, N_EPS)) for (const iy of span(n.y, D_N, N_EPS)) for (const iz of span(n.z, D_N, N_EPS)) for (const id of span(d, this.dW, tol * 1.01)) {
+        const arr = this.buckets.get(`${ix},${iy},${iz},${id}`);
+        if (arr) for (const pid of arr) out.add(pid);
+      }
+    }
+    return [...out].sort((a, b) => a - b);
+  }
+
+  /** 容差匹配既有平面（法向同或反 + |Δd|≤τ，同一张几何平面只准一条记录）；没有则注册。多条都匹配时取最早登记的（= 原来逐条扫的结果）。 */
   ensure(pl: PlaneParams, tol: number): PlaneRec {
-    for (const r of this.recs.values()) {
-      const c = dot3(r.plane.n, pl.n);
-      if (Math.abs(c) >= ANGLE_DOT && Math.abs(r.plane.d - (c < 0 ? -pl.d : pl.d)) <= tol) return r;
+    if (!this.dW) this.dW = this.dBucket(tol);
+    this.flushPending();
+    if (tol * 2.02 < this.dW) {   // d 那一维最多看一个隔壁桶 ⇔ 容差 < 桶宽的一半
+      for (const id of this.candidates(pl, tol)) {
+        const r = this.recs.get(id)!;
+        const c = dot3(r.plane.n, pl.n);
+        if (Math.abs(c) >= ANGLE_DOT && Math.abs(r.plane.d - (c < 0 ? -pl.d : pl.d)) <= tol) return r;
+      }
+    } else {   // 容差比建索引时的桶还宽（别的调用方给了更大的 τ）：退回逐条扫，结果不变
+      for (const r of this.recs.values()) {
+        const c = dot3(r.plane.n, pl.n);
+        if (Math.abs(c) >= ANGLE_DOT && Math.abs(r.plane.d - (c < 0 ? -pl.d : pl.d)) <= tol) return r;
+      }
     }
     const rec: PlaneRec = { id: this.nextId++, plane: pl, basis: planeBasis(pl) };
     this.recs.set(rec.id, rec);
+    this.index(rec);
     return rec;
   }
 
@@ -58,20 +123,28 @@ export class PlaneRegistry {
   restore(pl: PlaneParams): PlaneRec {
     const rec: PlaneRec = { id: this.nextId++, plane: pl, basis: planeBasis(pl) };
     this.recs.set(rec.id, rec);
+    if (this.dW) this.index(rec); else this.pending.push(rec);
     return rec;
   }
+  /** restore 在第一次 ensure（定下 d 桶宽）之前进来的记录，等桶宽定了再入索引。 */
+  private pending: PlaneRec[] = [];
+  private flushPending(): void { if (this.pending.length && this.dW) { for (const r of this.pending) if (this.recs.has(r.id)) this.index(r); this.pending = []; } }
 
   /** 清理无人引用的平面（keep = 当前有边组或有存储 face 的平面）。 */
-  prune(keep: ReadonlySet<PlaneId>): void {
-    for (const id of [...this.recs.keys()]) {
-      if (!keep.has(id)) this.recs.delete(id);
-    }
+  prune(keep: { has(id: PlaneId): boolean }): void {
+    for (const id of [...this.recs.keys()]) if (!keep.has(id)) this.drop(id);
   }
+  /** 只删这几张（局部结算：被碰到、又没边组没膜的平面），不扫全表。 */
+  dropIds(ids: Iterable<PlaneId>): void { for (const id of ids) this.drop(id); }
+  private drop(id: PlaneId): void { const r = this.recs.get(id); if (!r) return; this.recs.delete(id); if (this.dW) this.unindex(r); }
 
   clone(): PlaneRegistry {
     const c = new PlaneRegistry();
     c.nextId = this.nextId;
+    c.dW = this.dW;
     for (const [id, r] of this.recs) c.recs.set(id, r); // PlaneRec 不可变，浅拷安全
+    for (const [k, arr] of this.buckets) { c.buckets.set(k, arr); this.shared.add(arr); c.shared.add(arr); }
+    c.pending = [...this.pending];
     return c;
   }
 }
@@ -120,7 +193,7 @@ export function groupCoplanar(
   g: PlanarGraph,
   reg: PlaneRegistry,
   tol: number,
-  keepPlanes: ReadonlySet<PlaneId>,
+  keepPlanes: { has(id: PlaneId): boolean },
   scope?: CoplanarScope,
 ): Map<PlaneId, EdgeId[]> {
   const out = new Map<PlaneId, EdgeId[]>();
@@ -133,15 +206,14 @@ export function groupCoplanar(
       for (const e of edges) if (onPlane(e, rec.plane)) members.push(e.id);
       if (members.length >= 3) out.set(rec.id, members);
     }
-    reg.prune(new Set<PlaneId>([...out.keys(), ...keepPlanes]));
+    reg.prune({ has: (id) => out.has(id) || keepPlanes.has(id) });
     return out;
   }
   for (const pid of scope.only) {
     const members = [...(scope.edges.get(pid) ?? [])].filter((id) => g.hasEdge(id)).sort((a, b) => a - b);   // 与全局的 id 序一致：环起点 / 事件逐字可比（差分 oracle）
     if (members.length >= 3) out.set(pid, members);
   }
-  const keep = new Set<PlaneId>([...out.keys(), ...keepPlanes]);
-  for (const rec of reg.all()) if (!scope.only.has(rec.id)) keep.add(rec.id);
-  reg.prune(keep);
+  // 只可能删「这次碰到、又没边组没膜」的平面（没碰的一律留着）——直接删这几张，不拼全表保留集（2026-10-26 Claude Opus 5.5，纪元账本 DT93）
+  reg.dropIds([...scope.only].filter((pid) => !out.has(pid) && !keepPlanes.has(pid)));
   return out;
 }

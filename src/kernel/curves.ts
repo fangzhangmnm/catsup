@@ -199,11 +199,22 @@ export class CurveRegistry {
     if (i >= 0) { c.edges[i] = to; this.ofEdge.delete(from); this.ofEdge.set(to, cid); }
   }
   /** 结算后清理：死边出链；链不连通 → 拆成连通段；空的删。 */
-  prune(g: G): void {
-    for (const c of [...this.byId.values()]) {
+  prune(g: G): void { for (const c of [...this.byId.values()]) this.pruneCurve(g, c); }
+  /**
+   * 增量版（2026-10-26 Claude Opus 5.5，纪元账本 DT93）：只看含被删边的曲线（清理前 ofEdge 还指着它们），按 id 序 = 全量版的访问序，
+   * 拆出来的新曲线编号与全量版相同。没被删边的曲线全量版也不会改它（全边活、相邻共顶点）。
+   */
+  pruneEdges(g: G, removed: readonly EdgeId[]): void {
+    if (!removed.length) return;
+    const ids = new Set<CurveId>();
+    for (const e of removed) { const c = this.ofEdge.get(e); if (c !== undefined) ids.add(c); }
+    for (const id of [...ids].sort((a, b) => a - b)) { const c = this.byId.get(id); if (c) this.pruneCurve(g, c); }
+  }
+  private pruneCurve(g: G, c: Curve): void {
+    {
       const alive = c.edges.filter((e) => g.hasEdge(e));
       for (const e of c.edges) if (!g.hasEdge(e) && this.ofEdge.get(e) === c.id) this.ofEdge.delete(e);
-      if (!alive.length) { this.byId.delete(c.id); continue; }
+      if (!alive.length) { this.byId.delete(c.id); return; }
       // 切成连通段
       const runs: EdgeId[][] = [[alive[0]]];
       for (let i = 1; i < alive.length; i++) { if (shares(g, alive[i - 1], alive[i])) runs[runs.length - 1].push(alive[i]); else runs.push([alive[i]]); }

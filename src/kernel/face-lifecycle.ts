@@ -65,10 +65,14 @@ export class FaceStore {
     (this.byPlane.get(f.planeId) ?? this.byPlane.set(f.planeId, new Set()).get(f.planeId)!).add(f.id);
     return f;
   }
+  /** 删过的膜（id 从不复用）：Kernel.emit 只拿它们去清面层（2026-10-26 Claude Opus 5.5，纪元账本 DT93）。 */
+  private removedF: FaceId[] = [];
+  drainRemovedFaces(): FaceId[] { const r = this.removedF; this.removedF = []; return r; }
   private drop(id: FaceId): boolean {
     const f = this.byId.get(id);
     if (!f) return false;
     this.byId.delete(id);
+    this.removedF.push(id);
     const set = this.byPlane.get(f.planeId);
     if (set) { set.delete(id); if (!set.size) this.byPlane.delete(f.planeId); }
     return true;
@@ -98,7 +102,7 @@ export class FaceStore {
   /** coplanarity 分组 + 每平面跑 findRegions（canonical 基投影）。scope = 局部结算的影响域（planes.ts CoplanarScope）；不给 = 全局。 */
   regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number, scope?: CoplanarScope): RegionsByPlane {
     const t0 = performance.now();
-    const groups = groupCoplanar(g, reg, tol, this.planeIds(), scope);
+    const groups = groupCoplanar(g, reg, tol, { has: (pid) => this.byPlane.has(pid) }, scope);
     perf.last["regions.group"] = performance.now() - t0; const t1 = performance.now();
     const out: RegionsByPlane = new Map();
     // 同一个边环只准属于一张平面（2026-09-07 fuzz 案）：候选平面来自每顶点任意两邻边，归属是 cover 语义（τ=1 mm），
@@ -298,6 +302,7 @@ export class FaceStore {
     s.nextId = this.nextId;
     const cloneRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ ...d })), pts: r.pts.map((p) => ({ ...p })), vids: [...r.vids] });
     for (const [id, f] of this.byId) s.put({ id: f.id, planeId: f.planeId, outer: cloneRing(f.outer), holes: f.holes.map(cloneRing), bbox: { ...f.bbox } });
+    s.removedF = [...this.removedF];
     return s;
   }
 

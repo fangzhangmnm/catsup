@@ -37,6 +37,9 @@ export function checkInvariants(k: Kernel, ctx: string, allowDup = false): void 
   // 曲线（0.10）：链连通有序、每边至多一条、闭合首尾相接、边都存在
   const cp = k.curveProblems();
   assert(!cp.length, `${ctx}: 曲线不自洽——${cp.join("; ")}`);
+  // 层不漏（2026-10-26 Claude Opus 5.5：emit 改成按删除记录增量清层，这条守它 = 全量 prune 的结果）
+  for (const n of k.edgeLayers.names()) for (const id of k.edgeLayers.layer(n)) assert(k.graph.hasEdge(id), `${ctx}: 边层 ${n} 留着已删的边 ${id}`);
+  for (const n of k.faceLayers.names()) for (const id of k.faceLayers.layer(n).keys()) assert(fids.has(id), `${ctx}: 面层 ${n} 留着已删的面 ${id}`);
   // 无重复面：同一组环边（外环+洞）只准有一张面记录（2026-09-07 fuzz 抓到 54/90 同环 → 擦边裁决漏掉第三张）
   if (allowDup) return;
   const ringKeys = new Map<string, number>();

@@ -82,6 +82,8 @@ export class EdgeLayers {
   }
   /** 清掉不在图里的 id。 */
   prune(hasEdge: (id: EdgeId) => boolean): void { for (const s of this.sets.values()) for (const id of [...s]) if (!hasEdge(id)) s.delete(id); }
+  /** 增量版：只清这批删掉的 id（结果 = prune，因为 id 不复用）。 */
+  pruneIds(ids: readonly EdgeId[]): void { if (ids.length) for (const s of this.sets.values()) for (const id of ids) s.delete(id); }
 
   clone(): EdgeLayers { const c = new EdgeLayers(); for (const [n, s] of this.sets) if (s.size) c.sets.set(n, new Set(s)); return c; }
   /** 快照：名字 → 有标记的边下标（按给定边序）。 */
@@ -129,6 +131,8 @@ export class FaceLayers {
     }
   }
   prune(hasFace: (id: FaceId) => boolean): void { for (const m of this.maps.values()) for (const id of [...m.keys()]) if (!hasFace(id)) m.delete(id); }
+  /** 增量版：只清这批删掉的 id；alive = 现在还在的（DIVIDE 之类保 id 的事件可能删了又铸回同一个 id）。 */
+  pruneIds(ids: readonly FaceId[], alive: (id: FaceId) => boolean): void { if (ids.length) for (const m of this.maps.values()) for (const id of ids) if (!alive(id)) m.delete(id); }
   clone(): FaceLayers { const c = new FaceLayers(); for (const [n, m] of this.maps) if (m.size) c.maps.set(n, new Map(m)); return c; }
   /** 快照：名字 → 每面一个值（−1 = 无），按给定面序。 */
   toIndex(faceIds: readonly FaceId[]): Record<string, number[]> | undefined {
