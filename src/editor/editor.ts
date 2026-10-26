@@ -483,30 +483,45 @@ export class Editor {
     this.viewCache = { key, view };
     return view;
   }
+  /**
+   * 整体变换预演的命中规则：选中的子组 / 子实例（连同组里的实例子树）在世界侧再乘 o.xform。
+   * 2026-10-26（user「如果一个component里面的subcomponent被进行移动 增删复制操作，preview会不会坏」；账本「组件里整体移动一个组时，其他实例也实时跟」）：
+   * 同一 definition 的**每一份**都跟（当前这份 + 孪生）——每份把「上下文本地的变换」换回自己的世界系；都当「在手里」（不吸、不挡、点不中）。复制影子同理。
+   */
   private overrideList(o: { picks: PoolPick[]; xform: Xform }): { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[] {
-    const def = this.scene.defOfContext(this.ctx), chainKey = this.ctx.chain.join("/");
+    const def = this.scene.defOfContext(this.ctx), here = this.ctx.chain, hereKey = here.join("/");
     const groupDesc = (gid: number): Set<number> => {
       const out = new Set<number>([gid]);
       let grew = true;
       while (grew) { grew = false; for (const g of this.scene.brep(def).groups.values()) if (g.parent !== null && out.has(g.parent) && !out.has(g.id)) { out.add(g.id); grew = true; } }
       return out;
     };
-    return o.picks.map((p) => {
-      if (p.kind === "group") {
-        const desc = groupDesc(p.group);
-        return { match: (pool: PoolRef, chain: readonly InstId[]) => {
-          if (pool.def === def && chain.join("/") === chainKey && pool.group !== null && desc.has(pool.group)) return true;
-          // 组里的实例（及其子树）也跟着走
-          if (chain.length > this.ctx.chain.length && chain.slice(0, this.ctx.chain.length).join("/") === chainKey) {
-            const inst = this.scene.def(def).instances.get(chain[this.ctx.chain.length]);
-            return !!inst && inst.parent !== null && desc.has(inst.parent);
-          }
-          return false;
-        }, xform: o.xform };
+    // 这个 definition 的每一份：链前缀 + 那份的世界变换（当前这份 = o.xform 原样；孪生 = 本地变换换到它的世界系）
+    const XL = this.xformToLocal(o.xform);
+    const copies: { chain: readonly InstId[]; key: string; X: Xform }[] = [{ chain: here, key: hereKey, X: o.xform }];
+    for (const { pool, xform, chain } of this.scene.pools()) {
+      if (pool.def !== def || pool.group !== null) continue;
+      const key = chain.join("/");
+      if (key !== hereKey) copies.push({ chain, key, X: compose(xform, compose(XL, invert(xform))) });
+    }
+    const out: { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[] = [];
+    for (const cp of copies) {
+      const n = cp.chain.length;
+      const under = (chain: readonly InstId[]): boolean => chain.length > n && chain.slice(0, n).join("/") === cp.key;
+      for (const p of o.picks) {
+        if (p.kind === "group") {
+          const desc = groupDesc(p.group);
+          out.push({ match: (pool: PoolRef, chain: readonly InstId[]) => {
+            if (pool.def === def && chain.join("/") === cp.key && pool.group !== null && desc.has(pool.group)) return true;
+            if (under(chain)) { const inst = this.scene.def(def).instances.get(chain[n]); return !!inst && inst.parent !== null && desc.has(inst.parent); }   // 组里的实例（及其子树）也跟着走
+            return false;
+          }, xform: cp.X });
+        } else {
+          out.push({ match: (_pool: PoolRef, chain: readonly InstId[]) => under(chain) && chain[n] === p.instance, xform: cp.X });
+        }
       }
-      const prefix = [...this.ctx.chain, p.instance].join("/");
-      return { match: (_pool: PoolRef, chain: readonly InstId[]) => chain.length > this.ctx.chain.length && chain.slice(0, this.ctx.chain.length + 1).join("/") === prefix, xform: o.xform };
-    });
+    }
+    return out;
   }
   /** 命中的全局实体 → 本地实体（活动池）或子池（直接子项）或空。 */
   private classify(view: WorldView, hit: HitResult3): { kind: "entity"; local: HitResult3 } | { kind: "pool"; pick: PoolPick; key: string } | { kind: "none" } {

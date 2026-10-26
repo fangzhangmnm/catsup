@@ -395,6 +395,11 @@ export declare class Editor {
     private ctxKey;
     /** 世界视图（缓存：场景代数 + 影子副本身份 + 上下文 + 整体变换预演）。 */
     private worldView;
+    /**
+     * 整体变换预演的命中规则：选中的子组 / 子实例（连同组里的实例子树）在世界侧再乘 o.xform。
+     * 2026-10-26（user「如果一个component里面的subcomponent被进行移动 增删复制操作，preview会不会坏」；账本「组件里整体移动一个组时，其他实例也实时跟」）：
+     * 同一 definition 的**每一份**都跟（当前这份 + 孪生）——每份把「上下文本地的变换」换回自己的世界系；都当「在手里」（不吸、不挡、点不中）。复制影子同理。
+     */
     private overrideList;
     /** 命中的全局实体 → 本地实体（活动池）或子池（直接子项）或空。 */
     private classify;
