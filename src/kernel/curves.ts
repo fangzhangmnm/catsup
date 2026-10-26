@@ -8,7 +8,7 @@
 //   · 维护 = 边层的四条规则 + 顺序：① 切割 → 子边按父边方向**按序**顶替 ② 删边 → 出链，链断成两截 → 两条曲线（设计稿 §6-④）
 //     ③ 溶解 → 并出的边顶替两条 ④ 新建只经 create（登记时就给有序链）。absorbVertex 搬边 → copy。
 //   · 结算后 prune：死边出链、断链拆开、空曲线删。
-//   · 曲面不在这里：曲面 = 沿软边泛洪的面集，派生态（editor/paint-flood.ts surfaceFaces）。
+//   · 曲面不在这里：曲面 = 沿软边泛洪的面集，派生态（kernel/flood.ts surfaceFaces）。
 import type { EdgeId, VertexId, PlanarGraph } from "./topology.ts";
 import { type PlaneParams, type Pt3, distToPlane, planeOfRing } from "./geom.ts";
 

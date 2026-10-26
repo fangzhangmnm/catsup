@@ -7,7 +7,7 @@
 // created 2026-10-24 by Claude Fable 5.1
 import type { Kernel } from "../kernel/kernel.ts";
 import type { FaceEvent, FaceId } from "../kernel/kernel.ts";
-import { surfaceFaces } from "./paint-flood.ts";
+import { floodFaces, gates } from "../kernel/flood.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ToolPointer } from "./editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "./tool-handler.ts";
@@ -26,26 +26,8 @@ export function tierOfClicks(n: number): SurfaceTier { return n >= 3 ? "connecte
 
 /** 从种子面出发按档泛洪（纯函数）。sharp：过一条边 = 软边 ∨ 二面角 ≤ sharpDeg（A–B 软边、A–C / B–D 共面 → ABCD 连坐）。 */
 export function facesForAssign(k: Kernel, seed: FaceId, tier: SurfaceTier, sharpDeg: number): FaceId[] {
-  if (!k.face(seed)) return [];
-  if (tier === "smooth") return surfaceFaces(k, seed);
-  const crosses = (eid: number): boolean => {
-    if (tier === "connected") return true;
-    if (k.isSoft(eid)) return true;
-    const d = k.dihedralDeg(eid);
-    return d !== null && d <= sharpDeg;
-  };
-  const seen = new Set<FaceId>([seed]);
-  const stack: FaceId[] = [seed];
-  while (stack.length) {
-    const fid = stack.pop()!;
-    const f = k.face(fid);
-    if (!f) continue;
-    for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) {
-      if (!crosses(d.edge)) continue;
-      for (const g of k.graph.edge(d.edge).faceLinks) if (!seen.has(g) && k.face(g)) { seen.add(g); stack.push(g); }
-    }
-  }
-  return [...seen];
+  // 三档 = 三种跨边判定（kernel/flood.ts，T5 收拢：以前这里自己抄了一份灌的循环）
+  return floodFaces(k, seed, tier === "smooth" ? gates.soft(k) : tier === "connected" ? gates.any() : gates.softOrFlat(k, sharpDeg));
 }
 
 export interface SurfaceAssignOpts {

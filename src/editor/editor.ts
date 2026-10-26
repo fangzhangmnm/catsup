@@ -32,7 +32,7 @@ import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, NEW_DOC_GRID, gridFrame } from "./grid-settings.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
-import { surfaceFaces } from "./paint-flood.ts";
+import { connectedFrom, surfaceFaces } from "../kernel/flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { TapTrain, TAP_RULES, frameTapRule } from "./tap-train.ts";
 import { perf } from "./perf-stats.ts";
@@ -939,21 +939,9 @@ export class Editor {
       if (stage === 0) picked.verts.add(h.vertex);
       else for (const eid of k.graph.vertex(h.vertex).edges) picked.edges.add(eid);
     }
-    if (stage >= 2) {
-      const qE = [...picked.edges], qF = [...picked.faces];
-      while (qE.length || qF.length) {
-        const fid = qF.pop();
-        if (fid !== undefined) {
-          const f = k.face(fid);
-          if (f) for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) if (!picked.edges.has(d.edge)) { picked.edges.add(d.edge); qE.push(d.edge); }
-          continue;
-        }
-        const eid = qE.pop()!;
-        if (!k.graph.hasEdge(eid)) continue;
-        const e = k.graph.edge(eid);
-        for (const f2 of e.faceLinks) if (!picked.faces.has(f2)) { picked.faces.add(f2); qF.push(f2); }
-        for (const vid of [e.a, e.b]) for (const e2 of k.graph.vertex(vid).edges) if (!picked.edges.has(e2)) { picked.edges.add(e2); qE.push(e2); }
-      }
+    if (stage >= 2) {   // 三击 = 连通体（kernel/flood.ts connectedFrom，T5 收拢）
+      const all = connectedFrom(k, picked.edges, picked.faces);
+      picked.edges = all.edges; picked.faces = all.faces;
     }
     // 隐藏的（DT49）连通着走、但不选进来；切换按整次点击算（点中的全已选中 = 全去掉）
     const pe = [...picked.edges].filter((e) => !k.isEdgeHidden(e)), pf = [...picked.faces].filter((f) => !k.isFaceHidden(f)), pv = [...picked.verts];

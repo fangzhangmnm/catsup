@@ -62,6 +62,7 @@ import "./offset.test.ts";   // offset 几何（0.8，2026-10-21）
 import "./followme.test.ts";   // follow-me 扫掠 + 像表 XOR（0.8，2026-10-21）
 import "./tool-config.test.ts";   // 工具配置深模块（0.9，2026-10-21）
 import "./paint-modes.test.ts";   // 油漆桶模式面集（0.9，2026-10-21）
+import "./flood.test.ts";   // 灌的纯函数模块（T5，2026-10-26）
 import "./intent.test.ts";   // 意图门：反方向的吸附不合法（0.9，2026-10-21）
 import "./vcb.test.ts";   // 数值小窗解析 + 阵列（0.9 #11，2026-10-21）
 import "./snap-align.test.ts";
