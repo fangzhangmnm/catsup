@@ -96,6 +96,12 @@ export class Scene {
     for (const i of d.instances.values()) out.push(...this.pointsOfDef(i.def, compose(m, i.xform), depth + 1));
     return out;
   }
+  /** 空定义（导入的空节点，T11）：brep、没顶点、没组、没实例——编辑器画小三轴代替几何（看得见、点得中）。 */
+  isBare(defId: DefId): boolean {
+    const d = this.defs.get(defId);
+    if (!d || d.body.kind !== "brep") return false;
+    return d.body.kernel.graph.vertexCount() === 0 && d.body.groups.size === 0 && d.instances.size === 0;
+  }
   mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform): Instance {
     const d = this.def(defId);
     const inst: Instance = { id: d.nextInst++, def: target, parent, xform };

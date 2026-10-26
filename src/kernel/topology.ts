@@ -14,13 +14,38 @@ export interface Vertex { readonly id: VertexId; x: number; y: number; z: number
 export interface Edge { readonly id: EdgeId; a: VertexId; b: VertexId; faceLinks: FaceId[]; }
 
 /**
- * 边的空间网格（#14 性能第二轮，2026-10-21，Claude Fable 5.1）：均匀格（CELL 米），每条边登记在它穿过的格里（沿线每 CELL/2 采一点）；
- * 查询「离线段 ab 不远的边」= 沿 ab 采样格 ∪ 各自 26 邻格里的边（邻格扩一圈 = 容差 + 采样漏格的保险）。返回的是**超集**，调用方照旧做几何判定。
- * 场景很小（全在一格里）就退化成全扫（= 旧行为，不会更差）。
+ * 边的空间网格（#14 性能第二轮，2026-10-21，Claude Fable 5.1）：查询「离线段 ab 不远的边」返回**超集**，调用方照旧做几何判定。
+ * **多级、不写死特征长度**（2026-10-26，Claude Opus 5.5；user 10-26「不应该写死特征长度」）：原来格子固定 1 m、查询扩 26 邻格——1 m 量级的物件
+ * （轮子、导入的网格）全挤在几格里，每次查询 ≈ 全扫，结算一步随模型变大线性变慢、导入三角面成平方。现在：
+ *   · 每条边按自己的长度住一级（格边 2^L 米、2^L ≥ 边长，下限 2^MIN_LEVEL）；登记在它的包围盒外扩 MARGIN 碰到的格里（≤ 2×2×2 格为常）；
+ *   · 查询逐级：只看查询线段真正穿过的格（三维 DDA）/ 包围盒盖住的格，不再扩邻格；某级要看的格比这级的边还多 → 这级全扫 + 包围盒（旧的退化行为）。
+ * 超集保证：离查询线段 < MARGIN / 2（≈ 0.24 mm）的边一定在结果里——远大于内核用到的容差（µm 级）；DDA 在格角的浮点抖动由余下那半个 MARGIN 吃掉。
+ * 结果按 id 排序：索引怎么摆不影响调用方看到的顺序。
  */
-const CELL = 1;
-const cellOf = (v: number): number => Math.floor(v / CELL);
+const MIN_LEVEL = -10;   // 2^-10 m ≈ 0.98 mm
+const MAX_LEVEL = 60;
+const MARGIN = 2 ** (MIN_LEVEL - 1);   // ≈ 0.49 mm
+const levelOf = (len: number): number => {
+  if (!(len > 0) || !Number.isFinite(len)) return MIN_LEVEL;
+  return Math.min(MAX_LEVEL, Math.max(MIN_LEVEL, Math.ceil(Math.log2(len))));
+};
 const cellKey = (ix: number, iy: number, iz: number): number => ((ix * 73856093) ^ (iy * 19349663) ^ (iz * 83492791)) | 0;
+interface GridLevel { readonly size: number; readonly cells: Map<number, Set<EdgeId>>; readonly edges: Set<EdgeId>; }
+
+/** 线段 ab 在格边 s 的格里穿过的格（三维 DDA，Amanatides–Woo）。 */
+function cellsOnSegment(a: Pt3, b: Pt3, s: number, visit: (ix: number, iy: number, iz: number) => void): void {
+  let ix = Math.floor(a.x / s), iy = Math.floor(a.y / s), iz = Math.floor(a.z / s);
+  const ex = Math.floor(b.x / s), ey = Math.floor(b.y / s), ez = Math.floor(b.z / s);
+  const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
+  const sx = Math.sign(dx), sy = Math.sign(dy), sz = Math.sign(dz);
+  let tx = dx ? ((ix + (sx > 0 ? 1 : 0)) * s - a.x) / dx : Infinity, ty = dy ? ((iy + (sy > 0 ? 1 : 0)) * s - a.y) / dy : Infinity, tz = dz ? ((iz + (sz > 0 ? 1 : 0)) * s - a.z) / dz : Infinity;
+  const tdx = dx ? s / Math.abs(dx) : Infinity, tdy = dy ? s / Math.abs(dy) : Infinity, tdz = dz ? s / Math.abs(dz) : Infinity;
+  visit(ix, iy, iz);
+  for (let n = Math.abs(ex - ix) + Math.abs(ey - iy) + Math.abs(ez - iz); n > 0; n--) {
+    if (tx <= ty && tx <= tz) { ix += sx; tx += tdx; } else if (ty <= tz) { iy += sy; ty += tdy; } else { iz += sz; tz += tdz; }
+    visit(ix, iy, iz);
+  }
+}
 
 export class PlanarGraph {
   private vertsById = new Map<VertexId, Vertex>();
@@ -28,85 +53,89 @@ export class PlanarGraph {
   private vertByKey = new Map<string, VertexId>();
   private nextV = 1;
   private nextE = 1;
-  private grid = new Map<number, Set<EdgeId>>();
-  private edgeCells = new Map<EdgeId, number[]>();
+  private levels = new Map<number, GridLevel>();
+  private edgeCells = new Map<EdgeId, { level: number; keys: number[] }>();
 
-  /** 线段 ab 穿过的格（去重）。 */
-  private cellsAlong(a: Pt3, b: Pt3): { ix: number; iy: number; iz: number }[] {
-    const out: { ix: number; iy: number; iz: number }[] = [];
-    const seen = new Set<number>();
-    const dx = b.x - a.x, dy = b.y - a.y, dz = b.z - a.z;
-    const len = Math.hypot(dx, dy, dz);
-    const n = Math.max(1, Math.ceil(len / (CELL / 2)));
-    for (let i = 0; i <= n; i++) {
-      const t = i / n;
-      const ix = cellOf(a.x + dx * t), iy = cellOf(a.y + dy * t), iz = cellOf(a.z + dz * t);
-      const k = cellKey(ix, iy, iz);
-      if (seen.has(k)) continue;
-      seen.add(k); out.push({ ix, iy, iz });
-    }
-    return out;
-  }
   private indexEdge(id: EdgeId): void {
     const e = this.edge(id);
-    const keys: number[] = [];
-    for (const c of this.cellsAlong(this.pt(e.a), this.pt(e.b))) {
-      const k = cellKey(c.ix, c.iy, c.iz);
-      (this.grid.get(k) ?? this.grid.set(k, new Set()).get(k)!).add(id);
-      keys.push(k);
+    const a = this.pt(e.a), b = this.pt(e.b);
+    const L = levelOf(Math.hypot(b.x - a.x, b.y - a.y, b.z - a.z));
+    let lv = this.levels.get(L);
+    if (!lv) { lv = { size: 2 ** L, cells: new Map(), edges: new Set() }; this.levels.set(L, lv); }
+    const s = lv.size, keys: number[] = [];
+    const x0 = Math.floor((Math.min(a.x, b.x) - MARGIN) / s), x1 = Math.floor((Math.max(a.x, b.x) + MARGIN) / s);
+    const y0 = Math.floor((Math.min(a.y, b.y) - MARGIN) / s), y1 = Math.floor((Math.max(a.y, b.y) + MARGIN) / s);
+    const z0 = Math.floor((Math.min(a.z, b.z) - MARGIN) / s), z1 = Math.floor((Math.max(a.z, b.z) + MARGIN) / s);
+    for (let ix = x0; ix <= x1; ix++) for (let iy = y0; iy <= y1; iy++) for (let iz = z0; iz <= z1; iz++) {
+      const k = cellKey(ix, iy, iz);
+      const set = lv.cells.get(k) ?? lv.cells.set(k, new Set()).get(k)!;
+      if (set.has(id)) continue;   // 哈希撞格
+      set.add(id); keys.push(k);
     }
-    this.edgeCells.set(id, keys);
+    lv.edges.add(id);
+    this.edgeCells.set(id, { level: L, keys });
   }
   private unindexEdge(id: EdgeId): void {
-    for (const k of this.edgeCells.get(id) ?? []) { const set = this.grid.get(k); if (set) { set.delete(id); if (!set.size) this.grid.delete(k); } }
+    const rec = this.edgeCells.get(id);
+    if (!rec) return;
+    const lv = this.levels.get(rec.level);
+    if (lv) {
+      for (const k of rec.keys) { const set = lv.cells.get(k); if (set) { set.delete(id); if (!set.size) lv.cells.delete(k); } }
+      lv.edges.delete(id);
+      if (!lv.edges.size) this.levels.delete(rec.level);
+    }
     this.edgeCells.delete(id);
   }
-  /** 离线段 ab 不远的边（超集；含 a / b 落在一格里 = 点查）。 */
-  edgesNear(a: Pt3, b: Pt3): Edge[] {
-    const ids = new Set<EdgeId>();
-    for (const c of this.cellsAlong(a, b)) {
-      for (let dx = -1; dx <= 1; dx++) for (let dy = -1; dy <= 1; dy++) for (let dz = -1; dz <= 1; dz++) {
-        const set = this.grid.get(cellKey(c.ix + dx, c.iy + dy, c.iz + dz));
-        if (set) for (const id of set) ids.add(id);
-      }
-    }
+  /** 边 id 的包围盒与 [lo, hi] 外扩 m 相交？ */
+  private boxHit(id: EdgeId, lo: Pt3, hi: Pt3, m: number): boolean {
+    const e = this.edgesById.get(id);
+    if (!e) return false;
+    const a = this.vertsById.get(e.a)!, b = this.vertsById.get(e.b)!;
+    return !(Math.max(a.x, b.x) < lo.x - m || Math.min(a.x, b.x) > hi.x + m || Math.max(a.y, b.y) < lo.y - m || Math.min(a.y, b.y) > hi.y + m || Math.max(a.z, b.z) < lo.z - m || Math.min(a.z, b.z) > hi.z + m);
+  }
+  private collect(ids: Set<EdgeId>): Edge[] {
     const out: Edge[] = [];
-    for (const id of ids) { const e = this.edgesById.get(id); if (e) out.push(e); }
+    for (const id of [...ids].sort((p, q) => p - q)) { const e = this.edgesById.get(id); if (e) out.push(e); }
     return out;
   }
+  /** 离线段 ab 不远的边（超集；a = b = 点查）。 */
+  edgesNear(a: Pt3, b: Pt3): Edge[] {
+    const ids = new Set<EdgeId>();
+    const lo = { x: Math.min(a.x, b.x), y: Math.min(a.y, b.y), z: Math.min(a.z, b.z) }, hi = { x: Math.max(a.x, b.x), y: Math.max(a.y, b.y), z: Math.max(a.z, b.z) };
+    for (const lv of this.levels.values()) {
+      const s = lv.size;
+      const steps = Math.abs(Math.floor(b.x / s) - Math.floor(a.x / s)) + Math.abs(Math.floor(b.y / s) - Math.floor(a.y / s)) + Math.abs(Math.floor(b.z / s) - Math.floor(a.z / s)) + 1;
+      if (!(steps <= lv.edges.size)) { for (const id of lv.edges) if (this.boxHit(id, lo, hi, MARGIN)) ids.add(id); continue; }
+      cellsOnSegment(a, b, s, (ix, iy, iz) => { const set = lv.cells.get(cellKey(ix, iy, iz)); if (set) for (const id of set) ids.add(id); });
+    }
+    return this.collect(ids);
+  }
   /**
-   * 落在包围盒 [min, max]（外扩一格）附近的边（超集；调用方照旧做几何判定）。影响域定理的第四项用它：
-   * 新膜包围盒里不连通的旧闭环 = 它的洞，不走顶点传递也得进边集。格太多（盒比边还多）就退化成全扫 + 包围盒相交测试。
+   * 包围盒 [min, max] 里（碰到即算）的边（超集；调用方照旧做几何判定）。影响域定理的第四项用它：
+   * 新膜包围盒里不连通的旧闭环 = 它的洞，不走顶点传递也得进边集。某级格太多（盒比这级的边还多）就这级全扫 + 包围盒相交测试。
    * added 2026-10-23 by Claude Fable 5.1
    */
   edgesInBox(min: Pt3, max: Pt3): Edge[] {
-    const ix0 = cellOf(min.x) - 1, iy0 = cellOf(min.y) - 1, iz0 = cellOf(min.z) - 1;
-    const ix1 = cellOf(max.x) + 1, iy1 = cellOf(max.y) + 1, iz1 = cellOf(max.z) + 1;
-    const cells = (ix1 - ix0 + 1) * (iy1 - iy0 + 1) * (iz1 - iz0 + 1);
-    const out: Edge[] = [];
-    if (cells > this.edgesById.size) {
-      const lo = { x: (ix0) * CELL, y: (iy0) * CELL, z: (iz0) * CELL }, hi = { x: (ix1 + 1) * CELL, y: (iy1 + 1) * CELL, z: (iz1 + 1) * CELL };
-      for (const e of this.edgesById.values()) {
-        const a = this.pt(e.a), b = this.pt(e.b);
-        if (Math.max(a.x, b.x) < lo.x || Math.min(a.x, b.x) > hi.x || Math.max(a.y, b.y) < lo.y || Math.min(a.y, b.y) > hi.y || Math.max(a.z, b.z) < lo.z || Math.min(a.z, b.z) > hi.z) continue;
-        out.push(e);
-      }
-      return out;
-    }
     const ids = new Set<EdgeId>();
-    for (let ix = ix0; ix <= ix1; ix++) for (let iy = iy0; iy <= iy1; iy++) for (let iz = iz0; iz <= iz1; iz++) {
-      const set = this.grid.get(cellKey(ix, iy, iz));
-      if (set) for (const id of set) ids.add(id);
+    for (const lv of this.levels.values()) {
+      const s = lv.size;
+      const ix0 = Math.floor(min.x / s), iy0 = Math.floor(min.y / s), iz0 = Math.floor(min.z / s);
+      const ix1 = Math.floor(max.x / s), iy1 = Math.floor(max.y / s), iz1 = Math.floor(max.z / s);
+      const cells = (ix1 - ix0 + 1) * (iy1 - iy0 + 1) * (iz1 - iz0 + 1);
+      if (!(cells <= lv.edges.size)) { for (const id of lv.edges) if (this.boxHit(id, min, max, MARGIN)) ids.add(id); continue; }
+      for (let ix = ix0; ix <= ix1; ix++) for (let iy = iy0; iy <= iy1; iy++) for (let iz = iz0; iz <= iz1; iz++) {
+        const set = lv.cells.get(cellKey(ix, iy, iz));
+        if (set) for (const id of set) ids.add(id);
+      }
     }
-    for (const id of ids) { const e = this.edgesById.get(id); if (e) out.push(e); }
-    return out;
+    return this.collect(ids);
   }
   /** 离线段 ab 不远的顶点（= 近边的端点；孤立顶点不存在，所以这就是全集的超集）。 */
   verticesNear(a: Pt3, b: Pt3): Vertex[] {
     const ids = new Set<VertexId>();
     for (const e of this.edgesNear(a, b)) { ids.add(e.a); ids.add(e.b); }
     const out: Vertex[] = [];
-    for (const id of ids) { const v = this.vertsById.get(id); if (v) out.push(v); }
+    for (const id of [...ids].sort((p, q) => p - q)) { const v = this.vertsById.get(id); if (v) out.push(v); }
     return out;
   }
 
@@ -318,8 +347,8 @@ export class PlanarGraph {
     for (const [id, v] of this.vertsById) g.vertsById.set(id, { id: v.id, x: v.x, y: v.y, z: v.z, edges: new Set(v.edges) });
     for (const [id, e] of this.edgesById) g.edgesById.set(id, { id: e.id, a: e.a, b: e.b, faceLinks: [...e.faceLinks] });
     for (const [k, vid] of this.vertByKey) g.vertByKey.set(k, vid);
-    for (const [k, set] of this.grid) g.grid.set(k, new Set(set));
-    for (const [id, keys] of this.edgeCells) g.edgeCells.set(id, [...keys]);
+    for (const [L, lv] of this.levels) { const cells = new Map<number, Set<EdgeId>>(); for (const [k, set] of lv.cells) cells.set(k, new Set(set)); g.levels.set(L, { size: lv.size, cells, edges: new Set(lv.edges) }); }
+    for (const [id, rec] of this.edgeCells) g.edgeCells.set(id, { level: rec.level, keys: [...rec.keys] });
     return g;
   }
 }

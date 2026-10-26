@@ -1,0 +1,25 @@
+import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
+export type PlanarTarget = "mode" | "median" | "mean";
+export interface PlanarOptions {
+    deg: number;
+    target: PlanarTarget; /** 拍完擦掉组里的候选边（两边并成一张面）。 */
+    eraseInner: boolean;
+}
+export declare const PLANAR_DEFAULTS: PlanarOptions;
+export interface PlanarPlan {
+    /** 要拍平的组（每组 ≥ 2 张面）。 */
+    groups: FaceId[][];
+    /** 挪点（id → 新位置）；本来就在平面上的点不在里面。 */
+    moves: {
+        id: VertexId;
+        to: Pt3;
+    }[];
+    /** 擦内线时要擦的边（拍平之前的 id + 两端点拍平之后的位置，执行时按位置找回）。 */
+    erase: {
+        id: EdgeId;
+        a: Pt3;
+        b: Pt3;
+    }[];
+}
+/** 规划：scope = 只看这些面（null = 池里全部）。 */
+export declare function planPlanar(k: Kernel, scope: readonly FaceId[] | null, opt: PlanarOptions): PlanarPlan;

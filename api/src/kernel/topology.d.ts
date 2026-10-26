@@ -22,17 +22,18 @@ export declare class PlanarGraph {
     private vertByKey;
     private nextV;
     private nextE;
-    private grid;
+    private levels;
     private edgeCells;
-    /** 线段 ab 穿过的格（去重）。 */
-    private cellsAlong;
     private indexEdge;
     private unindexEdge;
-    /** 离线段 ab 不远的边（超集；含 a / b 落在一格里 = 点查）。 */
+    /** 边 id 的包围盒与 [lo, hi] 外扩 m 相交？ */
+    private boxHit;
+    private collect;
+    /** 离线段 ab 不远的边（超集；a = b = 点查）。 */
     edgesNear(a: Pt3, b: Pt3): Edge[];
     /**
-     * 落在包围盒 [min, max]（外扩一格）附近的边（超集；调用方照旧做几何判定）。影响域定理的第四项用它：
-     * 新膜包围盒里不连通的旧闭环 = 它的洞，不走顶点传递也得进边集。格太多（盒比边还多）就退化成全扫 + 包围盒相交测试。
+     * 包围盒 [min, max] 里（碰到即算）的边（超集；调用方照旧做几何判定）。影响域定理的第四项用它：
+     * 新膜包围盒里不连通的旧闭环 = 它的洞，不走顶点传递也得进边集。某级格太多（盒比这级的边还多）就这级全扫 + 包围盒相交测试。
      * added 2026-10-23 by Claude Fable 5.1
      */
     edgesInBox(min: Pt3, max: Pt3): Edge[];

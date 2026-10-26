@@ -2,8 +2,10 @@ import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
+import { type PlanarTarget } from "./planar.ts";
 import { type PoolRef, Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
+import { type ImportedScene } from "../scene/import-build.ts";
 export type Seg = [PtIn, PtIn];
 /** 边的寻址 = 两端点坐标。 */
 export type EdgeKey = [Pt3, Pt3];
@@ -104,6 +106,15 @@ export type Op = {
     groups?: number[];
     instances?: number[];
 }
+/** 拍平（纪元排期 T9 / DT7）：faces = 作用域（空 = 池里全部）；规划在 planar.ts（纯函数，预演同一份）；执行时结算出 BURST = 整步拒绝（零破面不变量）。 */
+ | {
+    op: "makePlanar";
+    at: PoolRef;
+    faces: FaceKey[];
+    deg: number;
+    target: PlanarTarget;
+    eraseInner: boolean;
+}
 /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
  | {
     op: "applyScale";
@@ -130,6 +141,13 @@ export type Op = {
     at: PoolRef;
     definition: number;
     xform: Xform;
+}
+/** 导入外来 glb（T11 / DT2，2026-10-26）：节点树原样变成组件挂在 at 下面；scene 里的网格是提交前装好的膜（scene/import-build.ts castImport）。place = 文件坐标 → at 的定义坐标。 */
+ | {
+    op: "importScene";
+    at: PoolRef;
+    scene: ImportedScene;
+    place: Xform;
 } | {
     op: "eraseInstance";
     def: number;
@@ -281,6 +299,9 @@ export declare function moveOp(k: Kernel, moves: readonly {
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
 /** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
 export declare class ShearRejected extends Error {
+}
+/** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
+export declare class PlanarBurst extends Error {
 }
 /**
  * 执行一条指令。斜切护栏（2026-10-26，user「斜切：和gltf对齐……在发生的时候护栏住，然后提示报错」）：执行后出现了**新的**斜切实例 → 抛 ShearRejected

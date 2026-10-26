@@ -209,15 +209,17 @@ export class OrbitCamera implements PointerFrame {
     let cx = 0, cy = 0, cz = 0;
     for (const p of pts) { cx += p.x; cy += p.y; cz += p.z; }
     this.target = { x: cx / pts.length, y: cy / pts.length, z: cz / pts.length };
-    const r = this.right(), u = this.up();
-    let ex = 0, ey = 0;
+    const r = this.right(), u = this.up(), toEye = this.eyeDir();
+    const aspect = vp.w / vp.h, margin = 1.25;
+    // 透视：离相机近的点投影更大——点 p 落在画面里要 halfH ≥ margin·横向 + tan(fov/2)·(p 朝相机那边的深度)（2026-10-26：以前按正交算，
+    // 近处的角会跑出画面；导入的空节点标记离模型远时正好撞上）。正交没有第二项。
+    const t = this.projection === "persp" ? Math.tan(this.fovY / 2) : 0;
+    let need = 0;
     for (const p of pts) {
       const rel = sub3(p, this.target);
-      ex = Math.max(ex, Math.abs(dot3(rel, r)));
-      ey = Math.max(ey, Math.abs(dot3(rel, u)));
+      need = Math.max(need, Math.max(Math.abs(dot3(rel, u)), Math.abs(dot3(rel, r)) / aspect) * margin + t * dot3(rel, toEye));
     }
-    const aspect = vp.w / vp.h;
-    this.halfH = Math.max(HALF_H_MIN, Math.min(HALF_H_MAX, Math.max(ey, ex / aspect) * 1.25));
+    this.halfH = Math.max(HALF_H_MIN, Math.min(HALF_H_MAX, need));
   }
 }
 

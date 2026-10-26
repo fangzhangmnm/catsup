@@ -83,11 +83,6 @@ export declare function dissolveAt(g: PlanarGraph, store: FaceStore, c: {
     ea: EdgeId;
     eb: EdgeId;
 }, EL?: EdgeLayers, curves?: CurveRegistry): boolean;
-/**
- * 结算机本体。g / store / reg 原地修改；返回事件叙事。
- * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
- */
-/** 调试钩子（默认 null 零开销）：影响域 / 胞腔 / 认领逐条打出来——守恒断言响了先开它看，别猜。added by Claude Fable 5.1 2026-10-24 */
 export declare const SETTLE_DEBUG: {
     log: ((line: string) => void) | null;
 };

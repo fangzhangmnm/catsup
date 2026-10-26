@@ -173,6 +173,21 @@ export interface ToolCtx {
         edges: Iterable<number>;
         faces: Iterable<number>;
     };
+    /** 光标下的空组件标记（导入的空节点画的小三轴，T11）：没几何，点它的标记 = 点它。 */
+    emptyAt(sx: number, sy: number): {
+        pick: PoolPick;
+        key: string;
+    } | null;
+    /** 屏幕框里的空组件标记。 */
+    emptiesIn(box: {
+        minX: number;
+        minY: number;
+        maxX: number;
+        maxY: number;
+    }): {
+        pick: PoolPick;
+        key: string;
+    }[];
     /** 框选结果按 mode 合进选区（本地 id + 子池项；切换 = 逐个反转）。 */
     replaceSelection(sel: {
         edges: readonly number[];

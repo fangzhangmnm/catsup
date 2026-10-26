@@ -94,6 +94,8 @@ export declare class Scene {
     mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame): Group;
     /** 定义里全部顶点（本定义坐标 → 再经 m）：根池 + 各组 + 各实例（递归、经实例变换）。建组件 / 建组时算包围盒和原点用（2026-10-26 嵌套）。 */
     pointsOfDef(defId: DefId, m?: Xform, depth?: number): Pt3[];
+    /** 空定义（导入的空节点，T11）：brep、没顶点、没组、没实例——编辑器画小三轴代替几何（看得见、点得中）。 */
+    isBare(defId: DefId): boolean;
     mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform): Instance;
     /** 材质在某 definition 里的槽号（没有就开一个）。 */
     slotFor(defId: DefId, material: number): number;

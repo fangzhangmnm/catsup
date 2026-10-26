@@ -38,15 +38,18 @@ import { TapTrain, TAP_RULES, frameTapRule } from "./tap-train.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayScalings, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import { type ParamButton, type ParamField, type ParamPanelState, type ParamSession, type ParamValue, afterthought } from "./param-panel.ts";
-import { type GizmoGrab, type GizmoHandle, type PlaneGizmo, dragGizmo, gizmoGeom, grabGizmo, hitGizmo } from "./plane-gizmo.ts";
+import { type GizmoGrab, type GizmoHandle, type PlaneGizmo, dragGizmo, gizmoGeom, grabGizmo, hitGizmo, worldPerPx } from "./plane-gizmo.ts";
 import { CUT_SNAP, type MirrorOptions, type MirrorPlane, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import type { FaceKey } from "./ops.ts";
-import { canonicalPlane, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
+import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
-import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
+import { POOL_AXES_PX, Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace } from "./ops.ts";
+import type { ImportScene } from "../format/gltf-import.ts";
+import type { TriangleCastReport } from "../kernel/from-triangles.ts";
+import { castImport } from "../scene/import-build.ts";
 import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } from "./planar.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
@@ -565,6 +568,47 @@ export class Editor {
     return out;
   }
   private poolOrigins(view: WorldView): Pt3[] { return this.selectedPoolFrames(view).map((f) => f.origin); }
+  /**
+   * 空组件的小三轴（T11 / DT2，user 10-25「1 同意，以后我们开始做entity了再换」）：导入的空节点（位置标记 / 转轴 / 挂点）没几何，也要看得见、点得中——
+   * 透视画（埋在别的几何里也看得见），每根短轴的屏幕长度同选中组件的轴。pick = 它在当前上下文里对应的直接子项（不在上下文子树里 = 只画不点）；自己就是当前上下文的不画（上下文轴已经画了）。
+   */
+  private emptyMarkers(view: WorldView): { frame: Frame; pick: PoolPick | null }[] {
+    const out: { frame: Frame; pick: PoolPick | null }[] = [], here = this.ctx.chain.join("/");
+    for (const sl of view.slots) {
+      if (sl.pool.group !== null || sl.ghost || !sl.chain.length || sl.chain.join("/") === here || !this.scene.isBare(sl.pool.def)) continue;
+      const m = sl.xform, ax = (x: number, y: number, z: number): Pt3 => normalize3(applyDir(m, { x, y, z }));
+      out.push({ frame: { origin: applyPt(m, { x: 0, y: 0, z: 0 }), x: ax(1, 0, 0), y: ax(0, 1, 0), z: ax(0, 0, 1) }, pick: this.topChild(sl) });
+    }
+    return out;
+  }
+  /** 屏上 (sx, sy) 拾取半径里最近的空组件标记（原点或三根短轴的屏幕线段）。 */
+  private emptyAt(sx: number, sy: number): { pick: PoolPick; key: string } | null {
+    const pf = this.frame(), vp = this.fvp(), r = this.hitPx(), q = { x: sx, y: sy };
+    let best: PoolPick | null = null, bd = Infinity;
+    for (const em of this.emptyMarkers(this.liveWorld())) {
+      if (!em.pick) continue;
+      const o = em.frame.origin, s0 = pf.project?.(o, vp);
+      if (!s0) continue;
+      let d = Math.hypot(s0.x - sx, s0.y - sy);
+      for (const u of [em.frame.x, em.frame.y, em.frame.z]) {
+        const wpp = worldPerPx(pf, vp, o, u);
+        const s1 = wpp ? pf.project?.(add3(o, scale3(u, POOL_AXES_PX * wpp)), vp) : null;
+        if (s1) d = Math.min(d, distToSegment(q, s0, s1));
+      }
+      if (d <= r && d < bd) { bd = d; best = em.pick; }
+    }
+    return best ? { pick: best, key: this.pickKey(best) } : null;
+  }
+  /** 屏幕框里的空组件标记（原点投影在框里）。 */
+  private emptiesIn(box: { minX: number; minY: number; maxX: number; maxY: number }): { pick: PoolPick; key: string }[] {
+    const pf = this.frame(), vp = this.fvp(), out: { pick: PoolPick; key: string }[] = [];
+    for (const em of this.emptyMarkers(this.liveWorld())) {
+      if (!em.pick) continue;
+      const s0 = pf.project?.(em.frame.origin, vp);
+      if (s0 && s0.x >= box.minX && s0.x <= box.maxX && s0.y >= box.minY && s0.y <= box.maxY) out.push({ pick: em.pick, key: this.pickKey(em.pick) });
+    }
+    return out;
+  }
   private pickKey(p: PoolPick): string { return p.kind === "group" ? `g${p.group}` : `i${p.instance}`; }
   /** 槽 → 它所属的、活动上下文的直接子项（组 / 实例）；不在上下文子树里 → null。 */
   private topChild(slot: PoolSlot): PoolPick | null {
@@ -896,6 +940,28 @@ export class Editor {
     const evs = this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([a, b]) => [this.toLocal({ x: a.x, y: a.y, z: a.z ?? 0 }), this.toLocal({ x: b.x, y: b.y, z: b.z ?? 0 })]) });
     this.draw();
     return evs;
+  }
+  /**
+   * 导入外来 glb（T11 / DT2）：节点树原样变成组件，挂在当前上下文下面（文件坐标 = 世界坐标，同 OBJ）；三角 → 膜在这里跑一次（锐角阈值 = 油漆桶 / 拍平同一个量），
+   * 装好的膜随 op 走（撤销重放只做装载）。成功 → 选中导进来的那一份。失败 → 人话原因（不提交）。
+   */
+  importForeign(data: ImportScene): { ok: true; cast: TriangleCastReport; empties: number; instances: number } | { ok: false; reason: string } {
+    this.cancelGesture();
+    if (data.nodes.some((n) => hasShear(n.xform))) return { ok: false, reason: "文件里有斜切的节点（glTF 不允许），导不进来" };
+    if (!data.roots.length) return { ok: false, reason: "文件里没有节点" };
+    const { scene, report } = castImport(data, this.config.get("surface", "sharpDeg"));
+    const at = this.activePool(), defId = at.def, before = new Set(this.scene.def(defId).instances.keys());
+    this.selection = emptySelection(); this.selectedPools.clear();
+    this.host.trace?.({ kind: "load", label: `import ${data.name}` });
+    this.commitOp({ op: "importScene", at, scene, place: invert(this.ctxXform()) });
+    const added = [...this.scene.def(defId).instances.keys()].filter((id) => !before.has(id));
+    if (!added.length) return { ok: false, reason: "没导进来（详情见调试日志）" };
+    for (const id of added) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
+    this.bump(); this.host.changed(); this.draw();
+    let instances = 0;
+    const count = (d: number, depth: number): void => { if (depth > 64) return; for (const i of this.scene.def(d).instances.values()) { instances++; count(i.def, depth + 1); } };
+    for (const id of added) { instances++; count(this.scene.def(defId).instances.get(id)!.def, 0); }
+    return { ok: true, cast: report, empties: data.nodes.filter((n) => n.mesh === null && !n.children.length).length, instances };
   }
   pointerHitDistance(sx: number, sy: number): number | null {
     const k = this.liveWorld();
@@ -1445,7 +1511,8 @@ export class Editor {
   // ---------- 相机 ----------
   setView(name: Parameters<OrbitCamera["setView"]>[0]): void { this.cam.setView(name); this.draw(); }
   zoomExtents(): void {
-    this.cam.fitPoints(this.worldView().vertices(), this.vp());
+    const view = this.worldView();
+    this.cam.fitPoints([...view.vertices(), ...this.emptyMarkers(view).map((e) => e.frame.origin)], this.vp());   // 空组件（导入的空节点）也算「全部」
     this.draw();
   }
   /** 放大镜点一下（user 2026-10-25「放大镜按一下是Zoom to fit, 取决于是否有选区。然后按多下是选区 当前物体 全局 切换。……只有合法的切换才入档」）：
@@ -2116,6 +2183,7 @@ export class Editor {
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
+      emptyAxes: this.emptyMarkers(view).map((e) => e.frame),
       planeGizmo: this.gizmo ? (() => { const G = gizmoGeom(this.gizmo.g, this.frame(), this.fvp()); return { origin: G.origin, normal: G.normal, u: G.u, v: G.v, size: G.size, hot: this.gizmo.grab?.handle ?? this.gizmo.hot }; })() : null,
       ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
@@ -2351,6 +2419,8 @@ export class Editor {
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
       marqueePick: (box) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), box),
+      emptyAt: (sx, sy) => this.emptyAt(sx, sy),
+      emptiesIn: (box) => this.emptiesIn(box),
       replaceSelection: (sel, mode) => {
         if (mode === "replace") { this.selection = emptySelection(); this.selectedPools.clear(); }
         mergeSel(this.selection.edges, sel.edges, mode, true);

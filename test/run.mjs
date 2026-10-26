@@ -28,6 +28,7 @@ import "./reference-guard.test.ts";   // 参考窗单一接缝 + 图标（2026-1
 import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点（2026-10-24，800 件场景第 379 步）
 import "./kernel-rev.test.ts";
 import "./settle-differential.test.ts";
+import "./import-glb.test.ts";   // T11 导入外来 glb + 三角 → 膜 + 多级空间网格（2026-10-26 Opus）
 import "./curves.test.ts";   // 曲线实体（0.10，2026-10-24）
 import "./guides.test.ts";   // 参考几何 + 上下文帧（0.11 尺规纪元，2026-10-24）
 import "./tape.test.ts";     // 卷尺（0.11 尺规纪元 ③）

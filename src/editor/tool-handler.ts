@@ -134,6 +134,10 @@ export interface ToolCtx {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   /** 屏幕矩形里的边 / 面（全局 id）。 */
   marqueePick(box: { minX: number; minY: number; maxX: number; maxY: number }): { edges: Iterable<number>; faces: Iterable<number> };
+  /** 光标下的空组件标记（导入的空节点画的小三轴，T11）：没几何，点它的标记 = 点它。 */
+  emptyAt(sx: number, sy: number): { pick: PoolPick; key: string } | null;
+  /** 屏幕框里的空组件标记。 */
+  emptiesIn(box: { minX: number; minY: number; maxX: number; maxY: number }): { pick: PoolPick; key: string }[];
   /** 框选结果按 mode 合进选区（本地 id + 子池项；切换 = 逐个反转）。 */
   replaceSelection(sel: { edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[]; guides?: readonly number[] }, mode: SelMode): void;
   /** A31：单击选中一条参考线 / 一个参考点（按 mode 合进选区）。 */

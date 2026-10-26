@@ -36,6 +36,8 @@ export declare const PALETTE: {
     readonly axisY: 3050327;
     readonly axisZ: 2845872;
 };
+/** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
+export declare const POOL_AXES_PX = 22;
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
 export type LineStyle = "pixel" | "thick";
 /**
@@ -122,6 +124,8 @@ export interface ViewState {
     } | null;
     /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
     poolAxes?: readonly Frame[] | null;
+    /** 空组件（导入的空节点，T11）的小三轴：常驻、透视画，长度同 poolAxes；点它的标记 = 点它（编辑器 emptyAt）。 */
+    emptyAxes?: readonly Frame[] | null;
     /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
     xformGizmo?: {
         origin: Pt3;
@@ -206,6 +210,8 @@ export declare class Renderer3 {
     private tickLines;
     private poolAxesLines;
     private poolAxesKey;
+    private emptyAxesLines;
+    private emptyAxesKey;
     private gizmoLines;
     private gizmoQuad;
     private gizmoKey;

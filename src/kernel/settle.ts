@@ -169,6 +169,8 @@ interface Claim { im: Image; }
  * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
  */
 /** 调试钩子（默认 null 零开销）：影响域 / 胞腔 / 认领逐条打出来——守恒断言响了先开它看，别猜。added by Claude Fable 5.1 2026-10-24 */
+/** 影响域 ③ 包围盒的余量（米）——见 scope() 里的 ⚠ 注释；临时、等定理补洞。 */
+const BOX_SLACK = 1;
 export const SETTLE_DEBUG: { log: ((line: string) => void) | null } = { log: null };
 export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable, opts?: { global?: boolean }): FaceEvent[] {
   const GLOBAL = !!opts?.global;
@@ -330,7 +332,10 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
       else if (sub.size) {
         const mn = { x: Infinity, y: Infinity, z: Infinity }, mx = { x: -Infinity, y: -Infinity, z: -Infinity };
         for (const eid of sub) { const e = g.edge(eid); for (const p of [g.pt(e.a), g.pt(e.b)]) { if (p.x < mn.x) mn.x = p.x; if (p.y < mn.y) mn.y = p.y; if (p.z < mn.z) mn.z = p.z; if (p.x > mx.x) mx.x = p.x; if (p.y > mx.y) mx.y = p.y; if (p.z > mx.z) mx.z = p.z; } }
-        for (const e of g.edgesInBox(mn, mx)) if (onPlaneE(e, rec.plane)) sub.add(e.id);
+        // ⚠ BOX_SLACK = 旧空间网格（固定 1 m 格、查询外扩一格）白给的余量，原样保留（2026-10-26 Claude Opus 5.5）：网格改成不写死尺度之后，
+        //   差分 oracle tilted 种子 340517 第 11 步局部少生一张面——新线闭合的空洞有一条边属于未受影响的膜、又在 S 的包围盒外，①–④ 都够不着。
+        //   这是定理的缺口（大于 1 m 的同形场景旧代码也会漏），不是网格的；根治归 Fable（纪元账本 DT83 / 家族周账 F-96），在那之前别删这个余量。
+        for (const e of g.edgesInBox({ x: mn.x - BOX_SLACK, y: mn.y - BOX_SLACK, z: mn.z - BOX_SLACK }, { x: mx.x + BOX_SLACK, y: mx.y + BOX_SLACK, z: mx.z + BOX_SLACK })) if (onPlaneE(e, rec.plane)) sub.add(e.id);
       }
       // ④ 膜入选 = 环上有可达顶点 或 环里有死边 或 内部含可达顶点（膜的顶点**不**再往外传递——否则整张平面连成片）
       //    前两种从边找膜（faceLinks：切出来的子边继承了父边的链接，所以「环里有死边」的膜挂在 sub 里的子边上；可达顶点的膜挂在它的邻边上），

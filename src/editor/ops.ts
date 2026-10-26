@@ -19,6 +19,7 @@ import { type PlanarTarget, planPlanar } from "./planar.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Frame, type Xform, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
+import { type ImportedScene, buildImport } from "../scene/import-build.ts";
 
 export type Seg = [PtIn, PtIn];
 /** 边的寻址 = 两端点坐标。 */
@@ -59,6 +60,8 @@ export type Op =
   | { op: "transformPool"; at: PoolRef; xform: Xform }
   | { op: "transformInstance"; def: number; instance: number; xform: Xform }
   | { op: "placeInstance"; at: PoolRef; definition: number; xform: Xform }
+  /** 导入外来 glb（T11 / DT2，2026-10-26）：节点树原样变成组件挂在 at 下面；scene 里的网格是提交前装好的膜（scene/import-build.ts castImport）。place = 文件坐标 → at 的定义坐标。 */
+  | { op: "importScene"; at: PoolRef; scene: ImportedScene; place: Xform }
   | { op: "eraseInstance"; def: number; instance: number }
   /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
   | { op: "copyGroup"; at: PoolRef; group: number; xform: Xform }
@@ -174,7 +177,7 @@ export class ShearRejected extends Error {}
 /** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
 export class PlanarBurst extends Error {}
 /** 会改组件实例矩阵、可能乘出斜切的指令（移动 / 旋转 / 等比缩放 / 镜像永远不会；非等比缩放转过的组件、炸开被非等比缩放过的组件会）。 */
-const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
+const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale", "importScene"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
 const shearedInstances = (s: Scene): Map<string, string> => {
   const out = new Map<string, string>();
   for (const d of s.defs.values()) for (const i of d.instances.values()) if (hasShear(i.xform)) out.set(`${d.id}/${i.id}`, s.def(i.def).name);
@@ -326,6 +329,11 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (!s.defs.has(op.definition)) throw new OpTargetError(`definition ${op.definition}`);
       if (s.references(op.definition, ref.def)) throw new OpTargetError("placeInstance: would create a cycle");
       s.mintInstance(ref.def, ref.group, op.definition, op.xform);
+      return { scene: s, events: [] };
+    }
+    case "importScene": {
+      const { ref } = poolOf(s, op.at);
+      buildImport(s, ref, op.scene, op.place);
       return { scene: s, events: [] };
     }
     case "copyGroup": {
@@ -537,6 +545,7 @@ export function describeOp(op: Op): string {
     case "transformPool": return `transformPool${at}`;
     case "transformInstance": return `transformInstance ${op.def}/${op.instance}`;
     case "placeInstance": return `placeInstance def=${op.definition}${at}`;
+    case "importScene": return `importScene "${op.scene.name}" nodes=${op.scene.nodes.length} meshes=${op.scene.meshes.length}${at}`;
     case "eraseInstance": return `eraseInstance ${op.def}/${op.instance}`;
     case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;

@@ -178,7 +178,15 @@ export declare class Kernel {
     isSoft(id: EdgeId): boolean;
     isCurve(id: EdgeId): boolean;
     isSmooth(id: EdgeId): boolean;
-    /** 两膜之间的边的二面角（度）；不是恰好两膜 → null。软化工具按角度阈值用。 */
+    /**
+     * 弯折角（度）：0 = 两张面平展连续，180 = 对折回去；不是恰好两膜 → null。「表面在这条边上弯了多少」一律用它（软化、到锐角为止、拍平候选、共面判定）。
+     * 算法：两张面各自从这条边往面里面走的方向（面在有向边的左 / 右，由所在环相对平面法向的绕向定）的夹角 θ，弯折 = 180° − θ。
+     * 2026-10-26：dihedralDeg 取法向点积的绝对值，分不清平展和刀刃——弯 160° 的尖屋脊被当成 20°（「软化所有 ≤ 20°」会软化它，拍平会把它压平）。
+     */
+    bendDeg(id: EdgeId): number | null;
+    /** 面 fid 在边 eid（方向 d = a→b）处往面里面走的单位方向（在面所在平面里、垂直于边）。 */
+    private inwardAcross;
+    /** 两膜之间的边的二面角（度，法向夹角取 0–90°，不分平展 / 对折——要「弯了多少」用 bendDeg）；不是恰好两膜 → null。 */
     dihedralDeg(id: EdgeId): number | null;
     /** GeomView 契约：裸内核不知道材质表（槽号在 faceMat），渲染单内核时一律默认。 */
     faceMaterial(_id: FaceId): null;

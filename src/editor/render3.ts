@@ -107,7 +107,7 @@ const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** 选中的点：圆点直径（CSS px）。 */
 const SEL_VERT_DOT_PX = 9;
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
-const POOL_AXES_PX = 22;
+export const POOL_AXES_PX = 22;
 /** 平面 gizmo 的颜色（常态 / 悬停）。 */
 const GIZMO_COLOR = 0x2b6cb0, GIZMO_HOT = 0xd97706;
 /** 参考几何（0.11 尺规纪元）：参考线画到视野最远处（视觉上 = 无限；2026-10-26 以前写死 ±200 m），参考点画三轴小叉（像素尺寸）。 */
@@ -192,6 +192,8 @@ export interface ViewState {
   planeGizmo?: { origin: Pt3; normal: Pt3; u: Pt3; v: Pt3; size: number; hot: string | null } | null;
   /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
   poolAxes?: readonly Frame[] | null;
+  /** 空组件（导入的空节点，T11）的小三轴：常驻、透视画，长度同 poolAxes；点它的标记 = 点它（编辑器 emptyAt）。 */
+  emptyAxes?: readonly Frame[] | null;
   /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
   xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
@@ -308,7 +310,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -446,6 +448,10 @@ export class Renderer3 {
     this.poolAxesLines.material.depthTest = false; this.poolAxesLines.material.depthWrite = false;
     this.poolAxesLines.renderOrder = 10; this.poolAxesLines.frustumCulled = false; this.poolAxesLines.visible = false;
     this.scene.add(this.poolAxesLines);
+    this.emptyAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
+    this.emptyAxesLines.material.depthTest = false; this.emptyAxesLines.material.depthWrite = false;
+    this.emptyAxesLines.renderOrder = 10; this.emptyAxesLines.frustumCulled = false; this.emptyAxesLines.visible = false;
+    this.scene.add(this.emptyAxesLines);
     // 平面 gizmo（镜像面）：描边 / 箭头 / 把手 = 透视粗线；面 = 很淡的半透明方块（也透视，被几何挡住也看得见在哪）
     this.gizmoLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX * 1.5, { vertexColors: true }));
     this.gizmoLines.material.depthTest = false; this.gizmoLines.material.depthWrite = false;
@@ -1021,6 +1027,25 @@ export class Renderer3 {
       }
       this.poolAxesLines.visible = true;
     } else { this.poolAxesLines.visible = false; this.poolAxesKey = ""; }
+    // ---- T11 空组件（导入的空节点）：常驻小三轴，同上画法 ----
+    const eax = view.emptyAxes;
+    if (eax && eax.length) {
+      const wpp = eax.map((f) => this.worldPerPx(cam, vp, f.origin));
+      const ek = eax.map((f, i) => `${f.origin.x},${f.origin.y},${f.origin.z}/${f.x.x},${f.x.y},${f.x.z}/${f.y.x},${f.y.y},${f.y.z}@${wpp[i].toExponential(2)}`).join("|");
+      if (ek !== this.emptyAxesKey) {
+        this.emptyAxesKey = ek;
+        const pos: number[] = [], col: number[] = [];
+        eax.forEach((f, i) => {
+          const L = POOL_AXES_PX * wpp[i], o = f.origin;
+          for (const [d, hex] of [[f.x, PALETTE.axisX], [f.y, PALETTE.axisY], [f.z, PALETTE.axisZ]] as const) {
+            pos.push(o.x, o.y, o.z, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
+            const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+          }
+        });
+        this.setLineGeometry(this.emptyAxesLines, pos, col);
+      }
+      this.emptyAxesLines.visible = true;
+    } else { this.emptyAxesLines.visible = false; this.emptyAxesKey = ""; }
 
     this.syncLabels(view.labels ?? [], cam, vp);
 

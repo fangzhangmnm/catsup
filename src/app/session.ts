@@ -17,6 +17,7 @@
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
+import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
 import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
@@ -471,6 +472,8 @@ export class Session {
   }
   /** 打开本地文件字节（拖入 / 文件输入 / FSA 句柄）。 */
   async openLocalBytes(bytes: Uint8Array, fileName: string, handle: FSHandle | null): Promise<boolean> {
+    // 别的软件导出的 glb：打开照旧拒（T11 / DT2 user「拒开glb，但是可以导入」），说清去哪导入；先于「要不要先保存」那一问
+    if (isForeignGlb(bytes)) { this.d.setStatus(`「${fileName}」是别的软件做的 glb，不能当 CatsUp 模型打开；要放进当前模型请用 ☰ → 导入 glb…`, true); return false; }
     if (!(await this.leaveGate())) return false;
     try {
       this.adopt(bytes);

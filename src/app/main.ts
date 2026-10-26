@@ -38,6 +38,7 @@ import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
 import { PALETTE_ZH } from "./palette.ts";
 import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
+import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
 import { VR } from "./vr.ts";
@@ -376,7 +377,7 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -384,6 +385,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "newOpen": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
         { id: "new", label: "新建模型", icon: "new" },
         { id: "open", label: "打开本地 .glb…", icon: "folder-open", hint: "Ctrl+O" },
+        { id: "importGlb", label: "导入 glb…", icon: "import", hint: "别的软件导出的；层级变成组件，放进当前位置" },
         { id: "import", label: "导入 OBJ…", icon: "import" },
       ], onPick: menuPick }); break;
       case "exportHub": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
@@ -402,6 +404,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "cloud": if (auth.isSignedIn()) { void cloudSignOut(); } else { cloudSignIn(); } break;
       case "export": doExport(); break;
       case "import": objInput.click(); break;
+      case "importGlb": glbImportInput.click(); break;
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
       case "debuglog": openDebugLogSheet(); break;
       case "softenAll": { const n = editor.softenByAngle(20); notify({ text: n ? `软化了 ${n} 条边（夹角 ≤ 20°）` : "没有夹角 ≤ 20° 的边", level: "info" }); break; }
@@ -751,6 +754,32 @@ objInput.addEventListener("change", async () => {
     const evs = editor.addSegments(r.segs, `导入 ${file.name}`);
     editor.zoomExtents();
     notify({ text: `导入 ${file.name}：${r.segs.length} 条边 → ${evs.length} 个膜事件`, level: "info" });
+  } catch (err) {
+    notify({ text: `导入失败：${(err as Error).message}`, level: "error" });
+  }
+});
+
+// ---------- 导入外来 glb（T11 / DT2）：节点树原样变成组件；打开照旧拒 ----------
+const glbImportInput = $<HTMLInputElement>("glbImportFile");
+glbImportInput.addEventListener("change", async () => {
+  const file = glbImportInput.files?.[0];
+  glbImportInput.value = "";
+  if (!file) return;
+  try {
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (!isForeignGlb(bytes)) { notify({ text: `「${file.name}」是 CatsUp 自己的模型，请用「打开」`, level: "warning" }); return; }
+    const data = readForeignGlb(bytes, file.name.replace(/\.glb$/i, ""));
+    const t0 = performance.now();
+    const r = editor.importForeign(data);
+    note("import", `${file.name}: ${data.nodes.length} nodes, ${data.meshes.length} meshes, ${Math.round(performance.now() - t0)} ms`);
+    if (!r.ok) { notify({ text: `导入失败：${r.reason}`, level: "error" }); return; }
+    editor.zoomExtents();
+    const c = r.cast, parts = [`${r.instances} 个组件`, `${c.triangles - c.degenerate - c.duplicate - c.rejected} 个三角面`];
+    if (c.repaired) parts.push(`${c.repaired} 个有毛病的三角面已切好`);
+    if (c.rejected) parts.push(`${c.rejected} 个坏三角面没导进来`);
+    if (c.degenerate || c.duplicate) parts.push(`丢掉 ${c.degenerate + c.duplicate} 个退化 / 重复的`);
+    if (r.empties) parts.push(`${r.empties} 个空节点（画成小三轴）`);
+    notify({ text: `导入 ${file.name}：${parts.join("，")}${data.losses.length ? `。没带进来：${data.losses.join("、")}` : ""}`, level: c.rejected ? "warning" : "info" });
   } catch (err) {
     notify({ text: `导入失败：${(err as Error).message}`, level: "error" });
   }

@@ -63,6 +63,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   // 每个 definition：规范序一次（bake 与 B-rep 流共用同一份顶点顺序）→ mesh（按材质拆 primitive）
   const accessors: Record<string, unknown>[] = [];
   const meshes: Record<string, unknown>[] = [];
+  const meshOf: number[] = doc.definitions.map(() => -1);   // 定义下标 → glTF mesh 下标（没几何 = −1）
   const canon = doc.definitions.map((d) => ({ root: canonicalize(d.brep), groups: d.groups.map((g) => ({ ...g, brep: canonicalize(g.brep) })) }));
   for (let i = 0; i < doc.definitions.length; i++) {
     const merged = mergeBrep([canon[i].root, ...canon[i].groups.map((g) => g.brep)]);
@@ -73,7 +74,8 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     });
     for (const [bi, t] of baked.bufferViewTargets) bufferViews[bi] = { ...bufferViews[bi], target: t };
     accessors.push(...baked.accessors);
-    meshes.push({ name: doc.definitions[i].name, ...baked.mesh });
+    // glTF 不许零个 primitive 的 mesh（spec：primitives minItems 1）：没几何的定义（空节点 / 只装孩子的容器组件）不出 mesh，节点也不挂（2026-10-26 Opus）
+    if ((baked.mesh.primitives as unknown[]).length) { meshOf[i] = meshes.length; meshes.push({ name: doc.definitions[i].name, ...baked.mesh }); }
   }
   // 携带的未知二进制先落 BIN，再把未知 JSON 里的旧索引改成新索引
   const viewMap = new Map<number, number>();
@@ -118,7 +120,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const buildNode = (d: DefinitionDoc, defIndex: number, depth: number, extra: Record<string, unknown>, hidden = false): number => {
     const idx = nodes.length;
     if (hidden) anyHidden = true;
-    const node: Record<string, unknown> = { name: d.name, mesh: defIndex, extensions: instExt(defIndex, hidden), ...extra };
+    const node: Record<string, unknown> = { name: d.name, ...(meshOf[defIndex] >= 0 ? { mesh: meshOf[defIndex] } : {}), extensions: instExt(defIndex, hidden), ...extra };
     nodes.push(node);
     if (depth > 32) return idx;
     const children: number[] = [];

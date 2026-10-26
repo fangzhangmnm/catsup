@@ -51,6 +51,7 @@ export class SelectTool implements ToolHandler {
       const pools = new Map<string, { kind: "group"; group: number } | { kind: "instance"; instance: number }>();
       for (const gid of picked.edges) { const c = ctx.classify(view, { edge: gid }); if (c.kind === "entity" && c.local.edge !== undefined) sel.edges.push(c.local.edge); else if (c.kind === "pool") pools.set(c.key, c.pick); }
       for (const gid of picked.faces) { const c = ctx.classify(view, { face: gid }); if (c.kind === "entity" && c.local.face !== undefined) sel.faces.push(c.local.face); else if (c.kind === "pool") pools.set(c.key, c.pick); }
+      for (const em of ctx.emptiesIn(box)) pools.set(em.key, em.pick);   // 空组件（导入的空节点）：标记的原点在框里
       // 框选也收参考点（投影在框里的）；参考线无限长、框选会全中，不收（单击选）
       const vp = ctx.vp(), guides = view.guides().points.filter((q) => { const s2 = ctx.frame().project?.(q.p, vp); return !!s2 && s2.x >= box.minX && s2.x <= box.maxX && s2.y >= box.minY && s2.y <= box.maxY; }).map((q) => q.id);
       ctx.replaceSelection({ edges: sel.edges, faces: sel.faces, pools: [...pools.values()], guides }, mode);
@@ -62,6 +63,14 @@ export class SelectTool implements ToolHandler {
     if (hit.edge === undefined && hit.vertex === undefined) {
       const g = pickGuide(view.guides(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.eps().hit);
       if (g) { ctx.selectGuide(g.id, mode); ctx.afterSelect(); return; }
+    }
+    // 空组件（导入的空节点，T11）：没几何，点它的小三轴 = 点它；点 / 边优先（标记压在边上时边赢），面让给标记（埋在几何里的空节点也点得中）
+    const em = hit.edge === undefined && hit.vertex === undefined ? ctx.emptyAt(ev.x, ev.y) : null;
+    if (em) {
+      if (n >= 2) { ctx.enterPool(em.pick); return; }
+      ctx.replaceSelection({ edges: [], faces: [], pools: [em.pick] }, mode);
+      ctx.afterSelect();
+      return;
     }
     const c = ctx.classify(view, hit);
     if (c.kind === "pool" && n >= 2) { ctx.enterPool(c.pick); return; }   // 双击子 group / 组件 = 进入
