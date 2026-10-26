@@ -11,6 +11,7 @@ import { MIN_GESTURE_LEN } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../render3.ts";
+import { pickHandle } from "../handle-pick.ts";
 
 interface Handle { kind: "corner" | "face"; p: Pt3; anchor: Pt3; axis: Pt3 | null }
 const SNAP_FACTORS = [0.5, 1, 1.5, 2, 3, 4];
@@ -48,9 +49,9 @@ export class ScaleTool implements ToolHandler {
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (!ctx.hasSelection()) { ctx.hint("先选中要缩放的东西（选择工具），再拖包围盒上的柄"); return; }
-    const hs = this.handles(ctx);
-    let best = -1, bd = ctx.eps().hit * 1.5;
-    hs.forEach((h, i) => { const d = ctx.frame().distTo(ev.x, ev.y, h.p, ctx.vp()); if (d <= bd) { bd = d; best = i; } });
+    // 柄透视画、透视拾（埋在几何里也点得中；user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」）
+    const hs = this.handles(ctx), ray0 = ctx.frame().ray(ev.x, ev.y, ctx.vp());
+    const best = pickHandle(hs.map((h) => ({ d: ctx.frame().distTo(ev.x, ev.y, h.p, ctx.vp()), z: dot3(sub3(h.p, ray0.origin), ray0.dir) })), ctx.eps().hit);
     if (best < 0) { ctx.hint("按住包围盒上的柄拖：角 = 等比，面心 = 单轴"); return; }
     const h = hs[best];
     this.h = h; this.hIdx = best;

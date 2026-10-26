@@ -402,10 +402,10 @@ export class Renderer3 {
     this.landingRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: TP_OK, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
     this.landingRing.renderOrder = 9; this.landingRing.visible = false;
     this.scene.add(this.landingRing);
-    // 缩放柄（14 个小方块，按屏幕像素定尺寸；走深度测试）
+    // 缩放柄（14 个小方块，按屏幕像素定尺寸）：透视画、永远在最上面（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」——看不见就点不中）
     for (let i = 0; i < 14; i++) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x2e8b57 }));
-      m.visible = false;
+      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x2e8b57, depthTest: false, depthWrite: false }));
+      m.renderOrder = 10; m.visible = false;
       this.scene.add(m);
       this.handleMarkers.push(m);
     }
