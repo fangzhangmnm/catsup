@@ -48,6 +48,7 @@ import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { cross3, dot3, sub3 } from "../kernel/geom.ts";
 import { PoolMesh, type PoolMeshEnv, type TexSide, fanNormal } from "./pool-mesh.ts";
+import { SPHERE_RINGS, circlePoints } from "./guide-pick.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
 
@@ -863,15 +864,19 @@ export class Renderer3 {
 
     // ---- 参考几何（0.11 尺规纪元）：参考线 = 长线；参考点 = 像素尺寸的小叉 ----
     const gd = view.guides;
-    if (gd && (gd.lines.length || gd.points.length)) {
+    if (gd && (gd.lines.length || gd.points.length || gd.circles.length || gd.spheres.length)) {
       const px = gd.points.length ? this.worldPerPx(cam, vp, gd.points[0].p) : 0;
       const gsel = view.guideSel, gcol = (id: number): number => (gsel?.has(id) ? GUIDE_SEL_COLOR : GUIDE_COLOR);
-      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${px.toExponential(2)}#${gsel ? [...gsel].join(",") : ""}#${this.reachKey(cam.target)}`;
+      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${gd.circles.map((c) => `${c.id}:${c.c.x},${c.c.y},${c.c.z}^${c.n.x},${c.n.y},${c.n.z}r${c.r}`).join("|")}#${gd.spheres.map((x) => `${x.id}:${x.c.x},${x.c.y},${x.c.z}r${x.r}`).join("|")}#${px.toExponential(2)}#${gsel ? [...gsel].join(",") : ""}#${this.reachKey(cam.target)}`;
       if (gk !== this.guideKey) {
         this.guideKey = gk;
         const pos: number[] = [], col: number[] = [];
         const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
         for (const l of gd.lines) { const [a, b] = this.infLine(l.p, l.dir, cam.target); push(a, b, gcol(l.id)); }
+        // 参考圆 = 一圈折线；参考球 = 过球心、垂直于 x / y / z 的三圈（圆规 / 球规，DT50）
+        const ring = (pts: Pt3[], hex: number): void => { for (let i = 0; i < pts.length; i++) push(pts[i], pts[(i + 1) % pts.length], hex); };
+        for (const c of gd.circles) ring(circlePoints(c.c, c.n, c.r), gcol(c.id));
+        for (const x of gd.spheres) for (const n of SPHERE_RINGS) ring(circlePoints(x.c, n, x.r), gcol(x.id));
         for (const q of gd.points) {
           const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, q.p);
           push({ x: q.p.x - r, y: q.p.y, z: q.p.z }, { x: q.p.x + r, y: q.p.y, z: q.p.z }, gcol(q.id));

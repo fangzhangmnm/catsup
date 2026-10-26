@@ -270,7 +270,16 @@ export type Op = {
         p: Pt3;
         dir: Pt3;
     };
-    point?: Pt3;
+    point?: Pt3; /** 参考圆（圆规，DT50）：池本地坐标。 */
+    circle?: {
+        c: Pt3;
+        n: Pt3;
+        r: number;
+    }; /** 参考球（球规，DT50）。 */
+    sphere?: {
+        c: Pt3;
+        r: number;
+    };
 } | {
     op: "eraseGuides";
     at: PoolRef;

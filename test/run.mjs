@@ -41,6 +41,7 @@ import "./profile-edges.test.ts";   // F-87 轮廓线判定（2026-10-26 Opus）
 import "./retrace-harden.test.ts";   // 画线描过软边 = 变硬（2026-10-26 Opus）
 import "./curves.test.ts";   // 曲线实体（0.10，2026-10-24）
 import "./guides.test.ts";   // 参考几何 + 上下文帧（0.11 尺规纪元，2026-10-24）
+import "./guide-curves.test.ts";   // 参考圆 / 参考球（圆规 / 球规 DT50，2026-10-26）
 import "./tape.test.ts";     // 卷尺（0.11 尺规纪元 ③）
 import "./axes.test.ts";     // 轴工具（0.11 尺规纪元 ④）
 import "./protractor.test.ts";   // 量角器（0.11 尺规纪元 ⑥）

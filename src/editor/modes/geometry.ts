@@ -9,6 +9,7 @@ import { ArcTool } from "../tools/arc.ts";
 import { TapeTool } from "../tools/tape.ts";
 import { AxesTool } from "../tools/axes.ts";
 import { ProtractorTool } from "../tools/protractor.ts";
+import { CompassTool } from "../tools/compass.ts";
 import { FollowMeTool } from "../tools/followme.ts";
 import { EraseTool } from "../tools/erase.ts";
 import { WeldEraseTool } from "../tools/weld-erase.ts";
@@ -30,7 +31,7 @@ export class GeometryMode implements Mode {
   readonly tools: readonly Tool[] = TOOLS.filter((t) => t !== "paint");   // 油漆桶归表面模式（刀 ③）
   readonly defaultTool: Tool = "line";
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
-    offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(),
+    offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(), compass: new CompassTool(),
     erase: new EraseTool(), weldErase: new WeldEraseTool(), softErase: new SoftEraseTool(), select: new SelectTool(), scale: new ScaleTool(), transform: new TransformTool(), rotate: new RotateTool(), pp: new PushPullTool(), move: new MoveTool(),
     line: new LineTool(), rect: new RectTool(), rrect: new RRectTool(), circle: new CircleTool(), eraseFace: new EraseFaceTool(),
   };

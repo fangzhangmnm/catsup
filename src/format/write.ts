@@ -91,7 +91,9 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   } : null;
 
   const v3 = (p: { x: number; y: number; z: number }): number[] => [p.x, p.y, p.z];
-  const encGuides = (g: DefinitionDoc["guides"]): Record<string, unknown> => ({ lines: g.lines.map((l) => ({ id: l.id, p: v3(l.p), dir: v3(l.dir) })), points: g.points.map((q) => ({ id: q.id, p: v3(q.p) })) });
+  // 参考圆 / 球（definitions 6.3）只在有时才写：老文件写出来的字节不变
+  const encGuides = (g: DefinitionDoc["guides"]): Record<string, unknown> => ({ lines: g.lines.map((l) => ({ id: l.id, p: v3(l.p), dir: v3(l.dir) })), points: g.points.map((q) => ({ id: q.id, p: v3(q.p) })),
+    ...(g.circles?.length ? { circles: g.circles.map((c) => ({ id: c.id, c: v3(c.c), n: v3(c.n), r: c.r })) } : {}), ...(g.spheres?.length ? { spheres: g.spheres.map((s) => ({ id: s.id, c: v3(s.c), r: s.r })) } : {}) });
   const defList = doc.definitions.map((d, i) => {
     const brepJson: CatsupBrepJson = encodeBrep(canon[i].root, sink, i === doc.rootIndex ? (carry.brepKeep as never) : undefined);
     const groups = canon[i].groups.map((g) => ({

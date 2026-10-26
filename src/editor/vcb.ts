@@ -14,7 +14,7 @@ import { type LengthUnit, UNIT_M, fmtVcbLength } from "./units.ts";
 export { type LengthUnit, LENGTH_UNITS, fmtVcbLength } from "./units.ts";   // 单位归 units.ts（2026-10-24），这里转出给老调用方
 export interface VcbCtx { unit: LengthUnit; }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
-export type VcbKind = "line" | "rect" | "rrect" | "circle" | "arc" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
+export type VcbKind = "line" | "rect" | "rrect" | "circle" | "arc" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor" | "compass";
 
 export type VcbValue =
   | { kind: "length"; m: number }
@@ -76,12 +76,12 @@ export function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): VcbValue |
   }
   if ((m = /^(?:\*|x)\s*(\d+)$/.exec(text)) || (m = /^(\d+)\s*x$/.exec(text))) {
     const n = Number(m[1]);
-    if (kind !== "move" && kind !== "rotate" && kind !== "scale") return { error: "阵列只对移动 / 缩放有效" };
+    if (kind !== "move" && kind !== "rotate" && kind !== "scale" && kind !== "compass") return { error: "阵列只对移动 / 缩放 / 圆规有效" };
     return n >= 1 && n <= 500 ? { kind: "array", mode: "x", n } : { error: "阵列份数 1–500" };
   }
   if ((m = /^\/\s*(\d+)$/.exec(text))) {
     const n = Number(m[1]);
-    if (kind !== "move" && kind !== "rotate" && kind !== "scale") return { error: "阵列只对移动 / 缩放有效" };
+    if (kind !== "move" && kind !== "rotate" && kind !== "scale" && kind !== "compass") return { error: "阵列只对移动 / 缩放 / 圆规有效" };
     return n >= 1 && n <= 500 ? { kind: "array", mode: "/", n } : { error: "阵列份数 1–500" };
   }
   const parts = text.split(",").map((p) => p.trim()).filter(Boolean);

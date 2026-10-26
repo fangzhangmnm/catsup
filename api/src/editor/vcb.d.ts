@@ -6,7 +6,7 @@ export interface VcbCtx {
     unit: LengthUnit;
 }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
-export type VcbKind = "line" | "rect" | "rrect" | "circle" | "arc" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor";
+export type VcbKind = "line" | "rect" | "rrect" | "circle" | "arc" | "pp" | "offset" | "move" | "rotate" | "scale" | "tape" | "protractor" | "compass";
 export type VcbValue = {
     kind: "length";
     m: number;

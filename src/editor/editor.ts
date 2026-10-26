@@ -31,6 +31,8 @@ import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.t
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, NEW_DOC_GRID, gridFrame, gridPreset } from "./grid-settings.ts";
+import { guideCount } from "../scene/guides.ts";
+import { compassOp } from "./tools/compass.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { connectedFrom, surfaceFaces } from "../kernel/flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
@@ -183,7 +185,9 @@ export type LastGesture =
   /** 卷尺（0.11）：起点 a、产物方向 dir（线 = 垂直偏移方向；点 = 起点→终点）、距离 d；line 另带参考线方向。 */
   | { kind: "tape"; ops: number; at: PoolRef; a: Pt3; dir: Pt3; d: number; make: "line" | "point"; lineDir?: Pt3 }
   /** 量角器（0.11）：圆心 / 转轴 / 参考点 / 角度 → 角度参考线；VCB 改度数。 */
-  | { kind: "protractor"; ops: number; at: PoolRef; center: Pt3; axis: Pt3; ref: Pt3; angle: number };
+  | { kind: "protractor"; ops: number; at: PoolRef; center: Pt3; axis: Pt3; ref: Pt3; angle: number }
+  /** 圆规 / 球规（DT50）：圆心 / 法向（世界）/ 半径 → 参考圆或参考球；VCB 改半径、x5 / 5 = 同心圆。 */
+  | { kind: "compass"; ops: number; at: PoolRef; center: Pt3; n: Pt3; r: number; sphere: boolean; copies?: number };
 
 /** 样本环的一帧（抬笔结算 A21）：屏幕位置 + 当时的手势量。 */
 interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
@@ -702,7 +706,7 @@ export class Editor {
   eraseGuides(ids: readonly number[]): void { if (ids.length) this.commitOp({ op: "eraseGuides", at: this.activePool(), ids: [...ids] }); }
   /** 清空活动池的参考几何（SU「删除参考线」同款）。 */
   clearGuides(): void { this.commitOp({ op: "clearGuides", at: this.activePool() }); }
-  hasGuides(): boolean { const g = this.scene.guidesOf(this.activePool()); return g.lines.length + g.points.length > 0; }
+  hasGuides(): boolean { return guideCount(this.scene.guidesOf(this.activePool())) > 0; }
   /**
    * 搬坐标架（世界坐标帧进来；DT86，user「坐标架同意 组件原点同意」）：最外层 = 绘图轴；组里 = 组的坐标架；组件里 = 组件的坐标架——都不碰几何。
    * 「改组件原点」会话里（beginComponentOrigin）= 改那个组件的原点（挪几何、每份实例补，世界不动）。提示行说清这次动的是哪一个（默认 + 披露）。
@@ -2172,7 +2176,7 @@ export class Editor {
     const echo = L.kind === "line" ? fl(dist(L.a, L.b)) : L.kind === "pp" ? fl(L.h) : L.kind === "offset" ? fl(L.d) : L.kind === "move" ? fl(len3(L.delta))
       : L.kind === "circle" ? `${fl(dist(L.center, L.rim))} · ${L.segments}s` : L.kind === "rotate" ? fmtDeg(L.angle) : L.kind === "scale" ? (L.axis ? `${(L.axis.x ? L.f.x : L.axis.y ? L.f.y : L.f.z).toFixed(3)}` : `${L.f.x.toFixed(3)}`)
       : L.kind === "rect" ? (() => { const d = sub3(L.corner, L.anchor), [bu, bv] = Editor.rectAxes(L.plane.basis), k2 = L.from === "center" ? 2 : 1; return `${fl(Math.abs(dot3(d, bu)) * k2)} , ${fl(Math.abs(dot3(d, bv)) * k2)}`; })()   // 从中心画：回显整宽整高（和输入的意思一致）
-      : L.kind === "tape" ? fl(L.d) : L.kind === "protractor" ? fmtDeg(L.angle) : "";
+      : L.kind === "tape" ? fl(L.d) : L.kind === "protractor" ? fmtDeg(L.angle) : L.kind === "compass" ? fl(L.r) : "";
     return { kind: L.kind, prompt: vcbPrompt(L.kind), echo };
   }
   /** 矩形「宽,高」的两根轴：面基 (u, v) 里更贴近世界 X 的那根算「宽」（平手看 Y）——地面矩形 = (x, y)，立面 = (水平, 竖直)。 */
@@ -2279,6 +2283,16 @@ export class Editor {
         this.commitOp({ op: "addGuide", at, line: { p: this.toLocal(L.center), dir: normalize3(applyDir(mInv, dir)) } });
         this.last = { ...L, ops: this.opCount - n0, angle };
         msg = `角度参考线 ${fmtDeg(angle)}`;
+        break;
+      }
+      case "compass": {
+        // 打长度 = 精确半径；x5 = 5 个同心（r、2r…5r）；/5 = 把半径五等分（r/5、2r/5…r）
+        const radii = v.kind === "length" ? [Math.abs(v.m)] : v.kind === "array" ? Array.from({ length: v.n }, (_, i) => (v.mode === "x" ? L.r * (i + 1) : (L.r * (i + 1)) / v.n)) : null;
+        if (!radii) break;
+        for (const r of radii) this.commitOp(compassOp(this.toolCtx, at, L.center, L.n, r, L.sphere));
+        const r0 = v.kind === "length" ? radii[0] : L.r;
+        this.last = { ...L, ops: this.opCount - n0, r: r0, copies: radii.length };
+        msg = radii.length > 1 ? `${radii.length} 个同心${L.sphere ? "球" : "圆"}（半径 ${radii.map((r) => fmtLen(r)).join("、")}）` : `${L.sphere ? "参考球" : "参考圆"} 半径 ${fmtLen(r0)}`;
         break;
       }
       case "tape": {

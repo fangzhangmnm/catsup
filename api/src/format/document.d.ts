@@ -57,6 +57,17 @@ export interface GuidesDoc {
     points: {
         id: number;
         p: Pt3;
+    }[]; /** 参考圆（definitions 6.3，圆规；缺 = 没有）。 */
+    circles?: {
+        id: number;
+        c: Pt3;
+        n: Pt3;
+        r: number;
+    }[]; /** 参考球（definitions 6.3，球规；缺 = 没有）。 */
+    spheres?: {
+        id: number;
+        c: Pt3;
+        r: number;
     }[];
 }
 export declare const emptyGuidesDoc: () => GuidesDoc;

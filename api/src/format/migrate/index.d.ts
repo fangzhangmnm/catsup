@@ -17,7 +17,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_definitions: {
         readonly major: 6;
-        readonly minor: 2;
+        readonly minor: 3;
         readonly patch: 0;
     };
     readonly CATSUP_instance: {

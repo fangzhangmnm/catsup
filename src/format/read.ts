@@ -40,7 +40,18 @@ const guidesOf = (j: unknown, what: string): GuidesDoc => {
     const Q = q as Record<string, unknown>;
     return { id: typeof Q.id === "number" ? Q.id : i + 1, p: num3(Q.p, `${what}.points[${i}].p`) };
   });
-  return { lines, points };
+  const radius = (x: unknown, at: string): number => { if (typeof x !== "number" || !Number.isFinite(x) || x < 0) fail(`${at} invalid`); return x as number; };
+  const circles = (Array.isArray(j.circles) ? j.circles : []).map((c: unknown, i: number) => {
+    if (!isObj(c)) fail(`${what}.circles[${i}] invalid`);
+    const C = c as Record<string, unknown>;
+    return { id: typeof C.id === "number" ? C.id : 1000000 + i, c: num3(C.c, `${what}.circles[${i}].c`), n: num3(C.n, `${what}.circles[${i}].n`), r: radius(C.r, `${what}.circles[${i}].r`) };
+  });
+  const spheres = (Array.isArray(j.spheres) ? j.spheres : []).map((s: unknown, i: number) => {
+    if (!isObj(s)) fail(`${what}.spheres[${i}] invalid`);
+    const S = s as Record<string, unknown>;
+    return { id: typeof S.id === "number" ? S.id : 2000000 + i, c: num3(S.c, `${what}.spheres[${i}].c`), r: radius(S.r, `${what}.spheres[${i}].r`) };
+  });
+  return { lines, points, ...(circles.length ? { circles } : {}), ...(spheres.length ? { spheres } : {}) };
 };
 
 /** 只看 JSON：是不是 CatsUp 文档（validateAdopt 用；外来 glb 不 adopt）。 */

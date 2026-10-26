@@ -152,7 +152,15 @@ export function sceneTwoSided(): Scene {
   s = applyOp(s, { op: "placeInstance", at, definition: defId, xform: translation({ x: 0, y: 0, z: 1 }) }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed };
+/** 圆规 / 球规（definitions 6.3，DT50，2026-10-26 Claude Opus 5.5）：根上一个参考圆（斜的）+ 组里一个参考球。 */
+export function sceneCompassed(): Scene {
+  let s = sceneGrouped();
+  s = applyOp(s, { op: "addGuide", at: { def: s.root, group: null }, circle: { c: { x: 1, y: 1, z: 0.5 }, n: { x: 0, y: 0.6, z: 0.8 }, r: 0.75 } }).scene;
+  const gid = [...s.brep(s.root).groups.keys()][0];
+  if (gid !== undefined) s = applyOp(s, { op: "addGuide", at: { def: s.root, group: gid }, sphere: { c: { x: 0.5, y: 0.5, z: 1 }, r: 1.25 } }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';
@@ -176,7 +184,8 @@ export function sceneFingerprint(s: Scene): string {
   for (const [i, m] of s.materials.entries()) parts.push(`mat ${i} ${m.name} ${m.color.map((c) => c.toFixed(4)).join(",")}${m.texture ? ` tex ${m.texture.mimeType} ${m.texture.bytes.length}B ${m.texture.sizeM.join("x")}` : ""}`);
   const r6 = (v: number): number => Math.round(v * 1e6) / 1e6;
   const f3 = (p: Pt3): string => `${r6(p.x)},${r6(p.y)},${r6(p.z)}`;
-  const guidesFp = (g: { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[] }): string => (g.lines.length || g.points.length) ? ` guides=[${g.lines.map((l) => `L${l.id}:${f3(l.p)}>${f3(l.dir)}`).join(" ")} ${g.points.map((q) => `P${q.id}:${f3(q.p)}`).join(" ")}]` : "";
+  const guidesFp = (g: { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[]; circles?: { id: number; c: Pt3; n: Pt3; r: number }[]; spheres?: { id: number; c: Pt3; r: number }[] }): string =>
+    (g.lines.length || g.points.length || g.circles?.length || g.spheres?.length) ? ` guides=[${g.lines.map((l) => `L${l.id}:${f3(l.p)}>${f3(l.dir)}`).join(" ")} ${g.points.map((q) => `P${q.id}:${f3(q.p)}`).join(" ")}${(g.circles ?? []).map((c) => ` C${c.id}:${f3(c.c)}^${f3(c.n)}r${c.r.toFixed(6)}`).join("")}${(g.spheres ?? []).map((x) => ` S${x.id}:${f3(x.c)}r${x.r.toFixed(6)}`).join("")}]` : "";
   parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
     const b = s.brep(d.id);

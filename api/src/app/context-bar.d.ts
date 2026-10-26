@@ -1,6 +1,6 @@
 import type { Editor } from "../editor/editor.ts";
 import type { HudItem } from "./ui/hud-model.ts";
-/** 工具自己的动作 / chip（轴 → 重置轴；卷尺 / 量角器 → 删除所有参考线；油漆桶 → 当前材质 / 吸色）。 */
+/** 工具自己的动作 / chip（轴 → 重置轴；卷尺 / 量角器 / 圆规 → 删除所有参考几何；油漆桶 → 当前材质 / 吸色）。 */
 export interface BarAction {
     id: string;
     label: string;

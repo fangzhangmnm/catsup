@@ -109,6 +109,24 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
+    /** 圆规 / 球规（DT50，2026-10-26）：画参考圆还是参考球。 */
+    readonly compass: {
+        readonly shape: {
+            readonly kind: "enum";
+            readonly label: "画";
+            readonly values: readonly [{
+                readonly id: "circle";
+                readonly label: "圆";
+                readonly hint: "参考圆：画在圆心所在的平面上";
+            }, {
+                readonly id: "sphere";
+                readonly label: "球";
+                readonly hint: "参考球：离球心固定距离的点都吸得到（关卡里「绳子够得到哪」）";
+            }];
+            readonly def: "circle";
+            readonly scope: "session";
+        };
+    };
     /** 弧的四种（SU 对照；user 2026-10-24「几种arc模式也看一下」）：两点弧 / 圆心弧 / 三点弧 / 扇形；定义住 arc-build.ts。 */
     readonly arc: {
         readonly mode: {

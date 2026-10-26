@@ -12,9 +12,12 @@ import { newDocument } from "./document.ts";
 const guidesFromDoc = (g: GuidesDoc): Guides => ({
   lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })),
   points: g.points.map((q) => ({ id: q.id, p: { ...q.p } })),
-  next: Math.max(1, ...g.lines.map((l) => l.id + 1), ...g.points.map((q) => q.id + 1)),
+  circles: (g.circles ?? []).map((c) => ({ id: c.id, c: { ...c.c }, n: { ...c.n }, r: c.r })),
+  spheres: (g.spheres ?? []).map((s) => ({ id: s.id, c: { ...s.c }, r: s.r })),
+  next: Math.max(1, ...g.lines.map((l) => l.id + 1), ...g.points.map((q) => q.id + 1), ...(g.circles ?? []).map((c) => c.id + 1), ...(g.spheres ?? []).map((s) => s.id + 1)),
 });
-const guidesToDoc = (g: Guides): GuidesDoc => ({ lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })), points: g.points.map((q) => ({ id: q.id, p: { ...q.p } })) });
+const guidesToDoc = (g: Guides): GuidesDoc => ({ lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })), points: g.points.map((q) => ({ id: q.id, p: { ...q.p } })),
+  ...(g.circles.length ? { circles: g.circles.map((c) => ({ id: c.id, c: { ...c.c }, n: { ...c.n }, r: c.r })) } : {}), ...(g.spheres.length ? { spheres: g.spheres.map((s) => ({ id: s.id, c: { ...s.c }, r: s.r })) } : {}) });
 const copyFrame = (f: CatsupDocument["axes"]): CatsupDocument["axes"] => ({ origin: { ...f.origin }, x: { ...f.x }, y: { ...f.y }, z: { ...f.z } });
 
 /** 非 brep 定义在文件里的占位 brep（文件布局不动：definitions[i].brep 永远在）。 */

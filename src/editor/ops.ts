@@ -21,7 +21,7 @@ import { type PlanarTarget, planPlanar } from "./planar.ts";
 import { type SnapCurves, planGridSnap, triangulationDiagonals } from "./snap-grid.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Frame, type Xform, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
-import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
+import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
 
 export type Seg = [PtIn, PtIn];
@@ -100,7 +100,7 @@ export type Op =
   /** 归层：at 定义的子实例归到某层；null = 回到继承。（面不打层——user 2026-10-24「facelayer可能太复杂了……不要」：要藏汤里的一部分 = 做成组件再归层。） */
   | { op: "assignLayer"; at: PoolRef; instances: number[]; layer: number | null }
   // ---- 参考几何 / 轴（0.11 尺规纪元；池本地坐标）----
-  | { op: "addGuide"; at: PoolRef; line?: { p: Pt3; dir: Pt3 }; point?: Pt3 }
+  | { op: "addGuide"; at: PoolRef; line?: { p: Pt3; dir: Pt3 }; point?: Pt3; /** 参考圆（圆规，DT50）：池本地坐标。 */ circle?: { c: Pt3; n: Pt3; r: number }; /** 参考球（球规，DT50）。 */ sphere?: { c: Pt3; r: number } }
   | { op: "eraseGuides"; at: PoolRef; ids: number[] }
   | { op: "clearGuides"; at: PoolRef }
   /** 改轴：group = 换 group 的帧（definition 坐标，几何不动）；根 = 绘图轴（世界坐标）；组件定义暂不支持。 */
@@ -391,10 +391,12 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const G = s.guidesOf(ref);
       if (op.line) addGuideLine(G, op.line.p, op.line.dir);
       if (op.point) addGuidePoint(G, op.point);
+      if (op.circle) addGuideCircle(G, op.circle.c, op.circle.n, op.circle.r);
+      if (op.sphere) addGuideSphere(G, op.sphere.c, op.sphere.r);
       return { scene: s, events: [] };
     }
     case "eraseGuides": { const { ref } = poolOf(s, op.at); eraseGuides(s.guidesOf(ref), new Set(op.ids)); return { scene: s, events: [] }; }
-    case "clearGuides": { const { ref } = poolOf(s, op.at); const G = s.guidesOf(ref); G.lines = []; G.points = []; return { scene: s, events: [] }; }
+    case "clearGuides": { const { ref } = poolOf(s, op.at); const G = s.guidesOf(ref); G.lines = []; G.points = []; G.circles = []; G.spheres = []; return { scene: s, events: [] }; }
     case "makePlanar": {
       const { kernel } = poolOf(s, op.at);
       const scope = op.faces.length ? op.faces.map((f) => resolveFace(kernel, f)) : null;
@@ -621,7 +623,7 @@ export function describeOp(op: Op): string {
     case "setHidden": return `setHidden ${op.on ? "on" : "off"}${op.instance !== undefined ? ` instance ${op.instance}` : ""}${op.faces?.length ? ` faces=${op.faces.length}` : ""}${op.edges?.length ? ` edges=${op.edges.length}` : ""}${at}`;
     case "unhideAll": return "unhideAll";
     case "setLocked": return `setLocked ${op.on ? "on" : "off"} ${op.group !== undefined ? `group ${op.group}` : `instance ${op.instance}`}${at}`;
-    case "addGuide": return `addGuide ${op.line ? "line" : "point"}${at}`;
+    case "addGuide": return `addGuide ${op.line ? "line" : op.circle ? "circle" : op.sphere ? "sphere" : "point"}${at}`;
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;
     case "clearGuides": return `clearGuides${at}`;
     case "setAxes": return `setAxes${at}`;

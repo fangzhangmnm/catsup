@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-85 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+86 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -12,7 +12,7 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -25,6 +25,7 @@
 | `paint-bucket` | 线描桶+实心水滴 (定稿:把手弧高≈4.9=原 -3) |
 | `pencil` | 铅笔 Bootstrap Icons MIT |
 | `sharpen` 👁待过目 | 锐化:硬边菱形 + 十字棱线(淡)=切面/刃口；与 blur 成对(一软一硬)【WeebPaint 手指位长按菜单「锐化（笔刷）」+ 钮面；fable 自画未过目】 |
+| `compass` 👁待过目 | 圆规:顶上一截握柄 + 转轴小圆 + 两条腿张成 Λ(左腿 = 针尖,右腿末端一截粗笔头) = 以一点为心、按半径作圆；与 circle(圆图元)/ protractor(量角器)分工【CatsUp 左柱「⋯」里的「圆规」工具（圆 / 球两态：参考圆 / 参考球）；2026-10-26 Claude Opus 5.5 自画未过目】 |
 
 ## tool
 

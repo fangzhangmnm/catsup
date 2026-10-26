@@ -22,6 +22,7 @@ import { perf } from "./perf-stats.ts";
 import { ScreenIndex } from "./screen-index.ts";
 import { INCREMENT_DEG, nearestStep, snapDirectionInPlane } from "./increments.ts";
 import { type Frame, WORLD_FRAME } from "../scene/xform.ts";
+import { circleCircle, lineCircle, lineSphere, nearestOnCircle, raySphereFront, spherePlane } from "./guide-curves.ts";
 import { DisjointSet } from "../kernel/dsu.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
@@ -560,6 +561,33 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     }
   }
   lap("carriers");
+  // 参考圆 / 参考球（圆规 / 球规，DT50，2026-10-26 Claude Opus 5.5）：弯的轨迹不进 1-D 合成器，每帧只在光标附近产 0-D 目标（guide-curves.ts）——
+  //   圆：圆上离光标最近的点（秩 = 参考线「线上」）；圆 × 参考线 / 附近的边 / 别的共面圆（秩 = 交点）。
+  //   球：球 ∩ 画图平面那一圈上离光标最近的点（秩 = 参考线；= 地上「绳子够得到的那一圈」）；球 × 参考线 / 附近的边（秩 = 交点）；
+  //       光标在球的轮廓里、且球面在画图平面前面时，射线先碰到的球面点（秩只比画图平面高一点，不老把人拽到球上）。
+  const GC = G?.circles ?? [], GS = G?.spheres ?? [];
+  if (cur && (GC.length || GS.length)) {
+    const ray = cur.pf.ray(cur.x, cur.y, cur.vp);
+    const pt0 = (p: Pt3, rank: number, eps: number, kind: "guide" | "intersection", label: string): void => { if (!nearPt(p) || hidden(p)) return; out.push({ locus: { dim: 0, p }, rank, eps, tag: { kind, label } }); };
+    const lines = (G?.lines ?? []).filter((l) => nearSeg(l.p, add3(l.p, l.dir), true));
+    for (const c of GC) {
+      const q = nearestOnCircle(c.c, c.n, c.r, ray.origin, ray.dir);
+      if (q) pt0(q, RANK.guide, E.line, "guide", "参考圆上");
+      for (const l of lines) for (const x of lineCircle(l.p, l.dir, c.c, c.n, c.r)) pt0(x, RANK.intersection, E.point, "intersection", "参考圆 × 参考线");
+      for (const { a, b } of segs) { const L = dist3(a, b); if (L > 0) for (const x of lineCircle(a, scale3(sub3(b, a), 1 / L), c.c, c.n, c.r, L)) pt0(x, RANK.intersection, E.point, "intersection", "参考圆 × 边"); }
+      for (const c2 of GC) if (c2.id > c.id) for (const x of circleCircle(c.c, c.n, c.r, c2.c, c2.n, c2.r)) pt0(x, RANK.intersection, E.point, "intersection", "参考圆 × 参考圆");
+    }
+    const planeHit = rayPlane(ray.origin, ray.dir, ctx.plane.n, ctx.plane.d);
+    for (const sp of GS) {
+      const ring = spherePlane(sp.c, sp.r, ctx.plane.n, ctx.plane.d);
+      if (ring) { const q = nearestOnCircle(ring.c, ctx.plane.n, ring.r, ray.origin, ray.dir); if (q) pt0(q, RANK.guide, E.line, "guide", "参考球 × 画面"); }
+      for (const l of lines) for (const x of lineSphere(l.p, l.dir, sp.c, sp.r)) pt0(x, RANK.intersection, E.point, "intersection", "参考球 × 参考线");
+      for (const { a, b } of segs) { const L = dist3(a, b); if (L > 0) for (const x of lineSphere(a, scale3(sub3(b, a), 1 / L), sp.c, sp.r, L)) pt0(x, RANK.intersection, E.point, "intersection", "参考球 × 边"); }
+      const front = raySphereFront(sp.c, sp.r, ray.origin, ray.dir);
+      if (front && (!planeHit || front.t < dot3(sub3(planeHit, ray.origin), ray.dir))) pt0(front.p, RANK.plane + 2, E.point, "guide", "参考球上");
+    }
+  }
+  lap("guideCurves");
   // 派生 1-D：面×面交线（平面∩平面裁到两张膜区域；SU 摆烂处的 snap 升级——可描不改图）
   {
     const faces = (idx && cur ? idx.facesNear(cur.x, cur.y, cur.radiusPx + 1) : k.faces()).filter((f) => !faceInHand(k, f, ctx.hand) && nearFace(f.id));   // 手中膜不产面交线；交线裁在两膜区域里，所以两膜都得在指针附近
@@ -809,7 +837,8 @@ export function snapPoint(
       : (t.kind === "plane" && insideFace(k, q.plane, sol.p)) ? "on-face"
       : null;
   }
-  const label = toolUsed ? `${toolUsed.tag.label ?? "工具"}${sol.used.length === 2 ? "·交点" : ""}` : sol.used.length === 1 && sol.used[0].tag.kind === "axisCross" ? sol.used[0].tag.label : undefined;
+  // 单个目标带了说法（轴 × 面、参考圆上、参考球 × 边…）就显示它
+  const label = toolUsed ? `${toolUsed.tag.label ?? "工具"}${sol.used.length === 2 ? "·交点" : ""}` : sol.used.length === 1 && sol.used[0].tag.label ? sol.used[0].tag.label : undefined;
   return { p: sol.p, kind, ...(hints.length ? { hints } : {}), ...(label ? { label } : {}) };
 }
 

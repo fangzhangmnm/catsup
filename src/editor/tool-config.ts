@@ -144,6 +144,10 @@ export const TOOL_OPTIONS = {
   circle: {
     segments: { kind: "number", label: "段数", def: 24, min: 3, max: 96, step: 1, scope: "session" },
   },
+  /** 圆规 / 球规（DT50，2026-10-26）：画参考圆还是参考球。 */
+  compass: {
+    shape: { kind: "enum", label: "画", values: [{ id: "circle", label: "圆", hint: "参考圆：画在圆心所在的平面上" }, { id: "sphere", label: "球", hint: "参考球：离球心固定距离的点都吸得到（关卡里「绳子够得到哪」）" }], def: "circle", scope: "session" },
+  },
   /** 弧的四种（SU 对照；user 2026-10-24「几种arc模式也看一下」）：两点弧 / 圆心弧 / 三点弧 / 扇形；定义住 arc-build.ts。 */
   arc: {
     mode: { kind: "enum", label: "画法", values: ARC_MODES, def: "two", scope: "session" },

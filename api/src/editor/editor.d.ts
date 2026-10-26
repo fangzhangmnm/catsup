@@ -233,6 +233,17 @@ export type LastGesture = {
     axis: Pt3;
     ref: Pt3;
     angle: number;
+}
+/** 圆规 / 球规（DT50）：圆心 / 法向（世界）/ 半径 → 参考圆或参考球；VCB 改半径、x5 / 5 = 同心圆。 */
+ | {
+    kind: "compass";
+    ops: number;
+    at: PoolRef;
+    center: Pt3;
+    n: Pt3;
+    r: number;
+    sphere: boolean;
+    copies?: number;
 };
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
 type RepairKind = "weld" | "planar" | "harden" | "snap";

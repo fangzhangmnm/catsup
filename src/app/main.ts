@@ -183,7 +183,8 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "softErase", icon: "eraser-soft", label: "软边橡皮", key: "" },   // 同上
   { tool: "tape", icon: "dimensions", label: "卷尺", key: "T" },   // 0.11 尺规；图标 = stopgap（图标库 TODO 已登记 tape-measure）
   { tool: "axes", icon: "axes", label: "坐标架", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
-  { tool: "protractor", icon: "protractor", label: "量角器", key: "" },   // 0.11 尺规；图标库没有 → 占位（TODO 已登记 protractor）
+  { tool: "protractor", icon: "protractor", label: "量角器", key: "" },
+  { tool: "compass", icon: "compass", label: "圆规", key: "" },   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
 const hud: HudModel = {
@@ -271,7 +272,7 @@ const SHAPES: Tool[] = ["rect", "rrect", "circle", "arc"];
 let eraserCurrent: Tool = "erase";
 const RAIL_GROUPS: RailGroup[] = [
   { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale", "transform"], budget: 4 },
-  { id: "measure", pinned: ["tape", "axes"], pool: ["protractor"], budget: 3 },
+  { id: "measure", pinned: ["tape", "axes"], pool: ["protractor", "compass"], budget: 3 },
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
 const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
@@ -552,7 +553,7 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
   },
   actions: (tool) => {
     if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（几何反挪、每份实例补，世界里不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
-    if (tool === "tape" || tool === "protractor") return [{ id: "guidesClear", label: "删除所有参考线", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
+    if (tool === "tape" || tool === "protractor" || tool === "compass") return [{ id: "guidesClear", label: "删除所有参考几何", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     if (tool === "transform") {   // 临时变换中心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
       const H = editor.toolHandler("transform") as { picking?: boolean; hasTempPivot?: boolean; startPickPivot?(): void; clearPivot?(): void } | undefined;
       if (!H || !editor.hasSelection()) return [];

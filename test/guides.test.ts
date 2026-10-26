@@ -134,7 +134,7 @@ describe("guides: 橡皮拾取参考几何（D18）", () => {
     const { OrbitCamera } = await import("../src/editor/camera.ts");
     const cam = new OrbitCamera(); cam.yaw = -Math.PI / 2; cam.pitch = 1.5707; cam.halfH = 50;
     const VP = { w: 1000, h: 800 };
-    const G = { lines: [{ id: 1, p: { x: 0, y: 2, z: 0 }, dir: { x: 1, y: 0, z: 0 } }], points: [{ id: 2, p: { x: 3, y: 2, z: 0 } }] };
+    const G = { lines: [{ id: 1, p: { x: 0, y: 2, z: 0 }, dir: { x: 1, y: 0, z: 0 } }], points: [{ id: 2, p: { x: 3, y: 2, z: 0 } }], circles: [], spheres: [] };
     const at = (p: { x: number; y: number; z: number }) => cam.angularPx(p, VP);
     const s1 = at({ x: 3.05, y: 2.05, z: 0 });
     eq(pickGuide(G, cam, VP, s1.x, s1.y, 6)?.kind, "point", "点上：点先于线");

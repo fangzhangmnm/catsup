@@ -28,6 +28,9 @@
 //                      （契约 §5 早定的「hide = KHR_node_visibility」；extensionsUsed 只在有隐藏时列）。老读者少看见一个键 = 藏起来的会显示出来、存回去会丢掉隐藏（minor 语义）。
 //   CATSUP_definitions 6.2（2026-10-26，Claude Opus 5.5；DT86 坐标架 / 组件原点拆开）：可选键 list[i].drawFrame { origin, x, y, z }（进这个组件画图用的坐标架，定义坐标；
 //                      只在摆过时写，根定义不写——根的在 document.axes）。老读者少看见它 = 进组件时坐标架回到组件原点（minor 语义：能开能存，丢的是画图辅助）。
+//   CATSUP_definitions 6.3（2026-10-26，Claude Opus 5.5；DT50 圆规 / 球规）：可选键 guides.circles[{ id, c, n, r }]（参考圆：圆心 / 法向 / 半径，池本地坐标）、
+//                      guides.spheres[{ id, c, r }]（参考球）；只在有时写（老文件字节 / 定稿指纹不变）。老读者看不见它们 = 参考圆 / 球不显示也不参与吸附（minor 语义：能开能存，
+//                      存回去时丢的是画图辅助——参考几何本来就是辅助线）。
 //   CATSUP_desk        1.1（2026-10-25，Claude Opus 5.5）：可选键 refPanel { open, left, top, width, height }（参考窗开着没有 + 在哪；视图态，同 MoonSinger view.ref）。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：
 //                      files[] = { path, mimeType, bufferView }；**本层不懂清单**（清单的拍子 / 迁移归库）。空牌组不写这个扩展（抠）。不进定稿指纹、不进撤销；
@@ -47,7 +50,7 @@ export interface Stamp { readonly major: number; readonly minor: number; readonl
 export const FORMAT = {
   CATSUP_document: { major: 3, minor: 1, patch: 0 },
   CATSUP_brep: { major: 4, minor: 2, patch: 0 },
-  CATSUP_definitions: { major: 6, minor: 2, patch: 0 },
+  CATSUP_definitions: { major: 6, minor: 3, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },
   CATSUP_material: { major: 1, minor: 0, patch: 0 },
   CATSUP_desk: { major: 1, minor: 1, patch: 0 },
