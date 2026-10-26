@@ -44,6 +44,8 @@ export interface GeomView {
   grid?(): GridSpec | null;
   /** 候选所在池离活动上下文的层级距离（#30，user 2026-10-24「4听你的」）：0 = 自己；1 = 父母 / 孩子 / 父母的孩子；2 = 其他。不给 = 全 0。 */
   tierOf?(id: number): 0 | 1 | 2;
+  /** 圆 / 弧曲线实体的圆心（世界坐标；DT15 吸附「圆心」）。不给 = 没有。 */
+  centers?(): readonly Pt3[];
   graph: { pt(id: VertexId): Pt3; edge(id: EdgeId): Edge; vertex(id: VertexId): Vertex; hasEdge(id: EdgeId): boolean; hasVertex(id: VertexId): boolean };
 }
 
@@ -57,6 +59,8 @@ export interface SlotPart {
   rev: number; xform: Xform;
   verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>;
   soft: Set<EdgeId>; smooth: Set<EdgeId>;
+  /** 圆 / 弧的圆心（世界坐标，DT15）。 */
+  centers: Pt3[];
 }
 /** kernel 对象 → 槽序号 → part（同一 definition 的多个实例 = 同一 kernel、不同槽 / 变换）。 */
 const PART_CACHE = new WeakMap<Kernel, Map<number, SlotPart>>();
@@ -64,13 +68,14 @@ const PART_CACHE = new WeakMap<Kernel, Map<number, SlotPart>>();
 export const PART_STATS = { ms: 0, n: 0 };
 /** 在手里（整体变换预演）的槽不算世界坐标：它不吸附、不遮挡、渲染只改矩阵——拖最大的 uber 组每帧成本 ≈ 0（user 2026-10-21「如果transform最大的uber组会发生什么」）。 */
 const OVERRIDDEN_PARTS_EMPTY = true;
-const emptyPart = (m: Xform): SlotPart => ({ rev: -1, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set() });
+const emptyPart = (m: Xform): SlotPart => ({ rev: -1, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), centers: [] });
 const sameXform = (a: Xform, b: Xform): boolean => { for (let i = 0; i < 12; i++) if (a[i] !== b[i]) return false; return true; };
 
 function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
   const off = index * ID_STRIDE;
   const ident = isIdentity(m);
-  const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set() };
+  const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), centers: [] };
+  for (const c of k.curves()) if (c.params && (c.kind === "circle" || c.kind === "arc")) part.centers.push(ident ? { ...c.params.center } : applyPt(m, c.params.center));
   for (const v of k.vertices()) {
     const p = ident ? v : applyPt(m, v);
     part.verts.set(v.id + off, { id: v.id + off, x: p.x, y: p.y, z: p.z, edges: new Set([...v.edges].map((e) => e + off)) });
@@ -209,6 +214,7 @@ export class WorldView implements GeomView {
 
   vertices(): Vertex[] { const out: Vertex[] = []; for (const p of this.parts) for (const v of p.verts.values()) out.push(v); return out; }
   edges(): Edge[] { const out: Edge[] = []; for (const p of this.parts) for (const e of p.edges.values()) out.push(e); return out; }
+  centers(): Pt3[] { const out: Pt3[] = []; for (const p of this.parts) for (const c of p.centers) out.push(c); return out; }
   isSoft(id: EdgeId): boolean { return this.partOf(id)?.soft.has(id) ?? false; }
   isSmooth(id: EdgeId): boolean { return this.partOf(id)?.smooth.has(id) ?? false; }
   faceMaterial(id: FaceId): Material | null {

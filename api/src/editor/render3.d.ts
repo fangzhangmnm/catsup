@@ -109,6 +109,8 @@ export interface ViewState {
             b: Pt3;
         }[];
     } | null;
+    /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
+    poolAxes?: readonly Frame[] | null;
     /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
     tape?: {
         a: Pt3;
@@ -168,6 +170,8 @@ export declare class Renderer3 {
     private axesObj;
     private chargedLines;
     private tickLines;
+    private poolAxesLines;
+    private poolAxesKey;
     private faceKey;
     private edgeKey;
     private hintKey;

@@ -17,7 +17,7 @@ export interface View {
 }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 export interface ConTag {
-    kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool";
+    kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool" | "center" | "poolOrigin";
     src?: Pt3;
     axis?: AxName;
     /** 工具目标的人话标签（「正方形」「黄金分割」「半圆」…），直接进光标提示。 */
@@ -52,7 +52,8 @@ export interface Constraint {
     locus: Locus;
     rank: number;
     eps: number;
-    tag: ConTag; /** 层级档（#30）：0 自己 / 1 近亲 / 2 其他；缺省 0。ε 按 TIER_EPS 缩、排序距离按 TIER_DIST 放大 = 近亲优先、远亲照样能吸。 */
+    tag: ConTag; /** 透视（DT15）：被膜挡住也算（选中的组 / 组件的轴原点埋在几何里也吸得到）。 */
+    xray?: boolean; /** 层级档（#30）：0 自己 / 1 近亲 / 2 其他；缺省 0。ε 按 TIER_EPS 缩、排序距离按 TIER_DIST 放大 = 近亲优先、远亲照样能吸。 */
     tier?: 0 | 1 | 2;
 }
 /** #30 捕获半径按层级加权（user 2026-10-24「4听你的」「同组优先就是捕获半径之类的？」）：不是排除——远亲的圈小一点、排序里远一点。 */
@@ -61,8 +62,10 @@ export declare const TIER_EPS: readonly [1, 0.85, 0.7], TIER_DIST: readonly [1, 
 export declare const RANK: {
     readonly endpoint: 90;
     readonly origin: 80;
+    readonly poolOrigin: 80;
     readonly guidePoint: 75;
     readonly midpoint: 70;
+    readonly center: 70;
     readonly intersection: 65;
     readonly edge: 60;
     readonly guide: 60;
@@ -136,6 +139,7 @@ export interface AlignQuery {
         b: Pt3;
     }[] | null;
     toolTargets?: readonly ToolTarget[] | null;
+    xrayPoints?: readonly Pt3[] | null;
     lines?: boolean;
     hand: AlignHand;
 }
@@ -154,6 +158,7 @@ export interface SnapContext {
         b: Pt3;
     }[] | null;
     toolTargets?: readonly ToolTarget[] | null;
+    xrayPoints?: readonly Pt3[] | null;
     lines?: boolean;
     hand?: AlignHand | null;
     /** 候选 ε（本帧量纲）；缺省 = solver.EPS（桌面 px @800）。 */
@@ -194,7 +199,7 @@ export declare function faceCrossSegments(k: GeomView, f1: import("../kernel/ker
     dir: Pt3;
     len: number;
 }[];
-export type SnapKind = "endpoint" | "midpoint" | "on-edge" | "origin" | "axis-x" | "axis-y" | "axis-z" | "align" | "align-combo" | "edge-align" | "on-extension" | "intersection" | "cross-line" | "on-guide" | "guide-point" | "guide-cross" | "grid-point" | "increment" | "tool" | "on-face" | "h-stop";
+export type SnapKind = "endpoint" | "midpoint" | "on-edge" | "origin" | "center" | "pool-origin" | "axis-x" | "axis-y" | "axis-z" | "align" | "align-combo" | "edge-align" | "on-extension" | "intersection" | "cross-line" | "on-guide" | "guide-point" | "guide-cross" | "grid-point" | "increment" | "tool" | "on-face" | "h-stop";
 /** 1-DOF 约束的视觉提示：从源点到吸附点的虚线（SU from-point 同款）。 */
 export interface SnapHint {
     a: Pt3;

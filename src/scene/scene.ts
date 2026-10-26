@@ -11,6 +11,7 @@ import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
+import type { CurveParams } from "../kernel/curves.ts";
 import { type ImageAsset, type LayerDoc, defaultLayers } from "../format/document.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 
@@ -265,12 +266,28 @@ export function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: read
     outEdges.push([vid(e.a), vid(e.b)]);
   }
   const edgeLayers = k.edgeLayers.toIndex(edgeIds), faceLayers = k.faceLayers.toIndex(faceIds);
-  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(edgeLayers ? { edgeLayers } : {}), ...(faceLayers ? { faceLayers } : {}) };
+  // 曲线随行（DT15，2026-10-25 Opus：此前漏了 → 圆柱做成组 / 组件后圆退化成一串普通边、圆心丢了，user「选不到轮子的圆心」）：
+  // 只带**整条**都在快照里的曲线；只抽到一部分的照旧退成普通边（半条「闭合圆」读回会被 fromBrep 校验拒绝）。
+  const eIdx = new Map<EdgeId, number>(edgeIds.map((e, i) => [e, i]));
+  const curves = [...k.curves()].sort((a, b) => a.id - b.id).filter((c) => c.edges.length && c.edges.every((e) => eIdx.has(e)))
+    .map((c) => ({ edges: c.edges.map((e) => eIdx.get(e)!), kind: c.kind, closed: c.closed, ...(c.params ? { params: { ...c.params } } : {}) }));
+  return { coplanarTol: k.coplanarTol, vertices, edges: outEdges, planes, faces: outFaces, ...(edgeLayers ? { edgeLayers } : {}), ...(faceLayers ? { faceLayers } : {}), ...(curves.length ? { curves } : {}) };
+}
+
+/** 曲线参数随变换（圆心 / 方向 / 半径）；非相似变换（两个方向缩放不同）→ undefined = 作废成 polyline。 */
+function transformCurveParams(params: CurveParams, m: Xform): CurveParams | undefined {
+  const c0 = applyPt(m, params.center);
+  const dir = (d: Pt3): Pt3 => normalize3(sub3(applyPt(m, add3(params.center, d)), c0));
+  const yax = normalize3(cross3(params.normal, params.xaxis));
+  const rx = dist3(applyPt(m, add3(params.center, scale3(normalize3(params.xaxis), params.radius))), c0), ry = dist3(applyPt(m, add3(params.center, scale3(yax, params.radius))), c0);
+  if (Math.abs(rx - ry) > 1e-6 * Math.max(rx, ry, 1e-9) || rx < 1e-9) return undefined;
+  return { center: c0, radius: rx, normal: dir(params.normal), xaxis: dir(params.xaxis), segments: params.segments };
 }
 
 /** 快照整体变换（坐标 + 平面）。 */
 export function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot {
-  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.edgeLayers ? { edgeLayers: snap.edgeLayers } : {}), ...(snap.faceLayers ? { faceLayers: snap.faceLayers } : {}) };
+  const curves = snap.curves?.map((c) => { const p = c.params ? transformCurveParams(c.params, m) : undefined; return { edges: c.edges, kind: c.params && !p ? "polyline" as const : c.kind, closed: c.closed, ...(p ? { params: p } : {}) }; });
+  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.edgeLayers ? { edgeLayers: snap.edgeLayers } : {}), ...(snap.faceLayers ? { faceLayers: snap.faceLayers } : {}), ...(curves ? { curves } : {}) };
 }
 
 /** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
@@ -284,16 +301,8 @@ export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTIT
   // 曲线随行（0.10）：边链按变换后的点给线段；参数用两点之差换方向、半径按变换后距离（非相似 → 作废成 polyline）
   const curves = (snap.curves ?? []).map((c) => {
     const segs = c.edges.map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
-    let params = c.params ? { ...c.params } : undefined;
-    let kind = c.kind;
-    if (params) {
-      const c0 = applyPt(m, params.center);
-      const dir = (d: Pt3): Pt3 => normalize3(sub3(applyPt(m, add3(params!.center, d)), c0));
-      const yax = normalize3(cross3(params.normal, params.xaxis));
-      const rx = dist3(applyPt(m, add3(params.center, scale3(normalize3(params.xaxis), params.radius))), c0), ry = dist3(applyPt(m, add3(params.center, scale3(yax, params.radius))), c0);
-      if (Math.abs(rx - ry) > 1e-6 * Math.max(rx, ry, 1e-9) || rx < 1e-9) { params = undefined; kind = "polyline"; }
-      else params = { center: c0, radius: rx, normal: dir(params.normal), xaxis: dir(params.xaxis), segments: params.segments };
-    }
+    const params = c.params ? transformCurveParams(c.params, m) : undefined;
+    const kind = c.params && !params ? "polyline" : c.kind;
     return { segs, spec: { kind, closed: c.closed, ...(params ? { params } : {}) } };
   });
   k.absorb(faces, wires, { ...snapshotLayerPayload(snap, P, materialMap), curves });

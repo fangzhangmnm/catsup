@@ -38,6 +38,8 @@ export interface GeomView {
     grid?(): GridSpec | null;
     /** 候选所在池离活动上下文的层级距离（#30，user 2026-10-24「4听你的」）：0 = 自己；1 = 父母 / 孩子 / 父母的孩子；2 = 其他。不给 = 全 0。 */
     tierOf?(id: number): 0 | 1 | 2;
+    /** 圆 / 弧曲线实体的圆心（世界坐标；DT15 吸附「圆心」）。不给 = 没有。 */
+    centers?(): readonly Pt3[];
     graph: {
         pt(id: VertexId): Pt3;
         edge(id: EdgeId): Edge;
@@ -68,6 +70,8 @@ export interface SlotPart {
     planes: Map<FaceId, PlaneRec>;
     soft: Set<EdgeId>;
     smooth: Set<EdgeId>;
+    /** 圆 / 弧的圆心（世界坐标，DT15）。 */
+    centers: Pt3[];
 }
 /** 本进程累计的 part 重算统计（编辑器把它抄进 perf；scene 层不 import editor）。 */
 export declare const PART_STATS: {
@@ -109,6 +113,7 @@ export declare class WorldView implements GeomView {
     private partOf;
     vertices(): Vertex[];
     edges(): Edge[];
+    centers(): Pt3[];
     isSoft(id: EdgeId): boolean;
     isSmooth(id: EdgeId): boolean;
     faceMaterial(id: FaceId): Material | null;

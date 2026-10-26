@@ -385,6 +385,13 @@ export declare class Editor {
     private overrideList;
     /** 命中的全局实体 → 本地实体（活动池）或子池（直接子项）或空。 */
     private classify;
+    /**
+     * 选中的组 / 组件的轴（世界帧；DT15，user 2026-10-25「如果component在轴被埋在几何里面，如何拾取。不然装配炮塔的时候即使轴都打好了，还是装不进去」）：
+     * 原点进吸附当透视点（被几何挡住也能吸）、渲染画一个透视的小三轴。**在手里的不算**（整体变换预演中的那份 = 视图里 overridden 的槽）——
+     * 拖着它走时它自己的原点跟着光标跑，再当目标就是自己吸自己（user「会不会自己卡住自己」）。
+     */
+    private selectedPoolFrames;
+    private poolOrigins;
     private pickKey;
     /** 槽 → 它所属的、活动上下文的直接子项（组 / 实例）；不在上下文子树里 → null。 */
     private topChild;

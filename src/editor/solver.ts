@@ -30,7 +30,7 @@ export interface View { pf: PointerFrame; vp: Viewport; }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 
 export interface ConTag {
-  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool";
+  kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool" | "center" | "poolOrigin";
   src?: Pt3;
   axis?: AxName;
   /** 工具目标的人话标签（「正方形」「黄金分割」「半圆」…），直接进光标提示。 */
@@ -47,12 +47,12 @@ export type Locus =
   | { dim: 0; p: Pt3 }
   | { dim: 1; a: Pt3; dir: Pt3; len?: number }   // len 有=线段 [a, a+dir·len]；无=无限直线
   | { dim: 2; plane: PlaneParams };
-export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; /** 层级档（#30）：0 自己 / 1 近亲 / 2 其他；缺省 0。ε 按 TIER_EPS 缩、排序距离按 TIER_DIST 放大 = 近亲优先、远亲照样能吸。 */ tier?: 0 | 1 | 2; }
+export interface Constraint { locus: Locus; rank: number; eps: number; tag: ConTag; /** 透视（DT15）：被膜挡住也算（选中的组 / 组件的轴原点埋在几何里也吸得到）。 */ xray?: boolean; /** 层级档（#30）：0 自己 / 1 近亲 / 2 其他；缺省 0。ε 按 TIER_EPS 缩、排序距离按 TIER_DIST 放大 = 近亲优先、远亲照样能吸。 */ tier?: 0 | 1 | 2; }
 /** #30 捕获半径按层级加权（user 2026-10-24「4听你的」「同组优先就是捕获半径之类的？」）：不是排除——远亲的圈小一点、排序里远一点。 */
 export const TIER_EPS = [1, 0.85, 0.7] as const, TIER_DIST = [1, 1.25, 1.6] as const;
 
 /** 秩（0.11 尺规纪元加参考几何：参考点在端点与中点之间，参考线与边同秩「线上」；线 × 线交点由合成器涌现、0-D 先于 1-D 胜出）。 */
-export const RANK = { endpoint: 90, origin: 80, guidePoint: 75, midpoint: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, grid: 20, plane: 10 } as const;
+export const RANK = { endpoint: 90, origin: 80, poolOrigin: 80, guidePoint: 75, midpoint: 70, center: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, grid: 20, plane: 10 } as const;
 export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;
 /** 取点基准容差 / 实体拾取容差（单位同 EPS：fovY 的 1/800；编辑器与 frameEps 共用这一份）。 */
 export const SNAP_PX = 8, HIT_PX = 6;
@@ -131,7 +131,7 @@ export function solvePoint(
     const tw = TIER_EPS[c.tier ?? 0], td = TIER_DIST[c.tier ?? 0];   // #30：远亲圈小、排序靠后
     if (L.dim === 0) {
       const d = sd(L.p);
-      if (d <= c.eps * tw && !(hid && hid(L.p))) cands.push({ p: L.p, dim: 0, rank: c.rank, d: d * td, used: [c] });
+      if (d <= c.eps * tw && !(hid && !c.xray && hid(L.p))) cands.push({ p: L.p, dim: 0, rank: c.rank, d: d * td, used: [c] });
     } else if (L.dim === 1) {
       const d = lineScreenDist(L.a, L.dir, L.len);
       if (d > c.eps * tw) continue;
@@ -185,7 +185,7 @@ export function solvePoint(
   // ③ 字典序选择
   // 重叠轨迹稳定裁决（user 2026-09-03：两条一直重叠的轴不许来回翻）：
   // dist 量化 0.5px 桶——同线候选精确同距，浮点噪声不换桶；同桶再按 tag 确定性排序
-  const KIND_PRI: Record<string, number> = { endpoint: 0, origin: 0, midpoint: 0, axis: 1, align: 2, "edge-align": 3, edge: 4 };
+  const KIND_PRI: Record<string, number> = { endpoint: 0, origin: 0, poolOrigin: 0, midpoint: 0, center: 0, axis: 1, align: 2, "edge-align": 3, edge: 4 };
   const tagKey = (x: Solution): string => {
     const t = x.used[0]?.tag as { kind?: string; axis?: string; src?: Pt3 } | undefined;
     return `${KIND_PRI[t?.kind ?? ""] ?? 9}|${t?.kind ?? ""}|${t?.axis ?? ""}|${t?.src ? ptKey3(t.src) : ""}`;
@@ -222,6 +222,7 @@ export interface AlignQuery {
   alignSources?: readonly Pt3[] | null;    // 充能源
   chargedEdges?: readonly { a: Pt3; b: Pt3 }[] | null;   // 充能边（0.11.6）：出延长线 + 延长线与附近边 / 另一条充能延长线的交点
   toolTargets?: readonly ToolTarget[] | null;             // 工具自带目标（B22）：正方形 / 黄金分割 / 半圆…
+  xrayPoints?: readonly Pt3[] | null;                     // 透视点（DT15）：选中的组 / 组件的轴原点——被几何挡住也能吸；调用方负责不给「在手里」的（免得自己吸自己）
   lines?: boolean;                         // false = 不注册轴/共轴 1-D 线（pp：不吸 xyz 轴）
   hand: AlignHand;                         // 手中集，**必填**（表态制：空手写 NO_HAND）——对齐引擎永远不吸手里的东西
 }
@@ -234,6 +235,7 @@ export interface SnapContext {
   alignSources?: readonly Pt3[] | null;
   chargedEdges?: readonly { a: Pt3; b: Pt3 }[] | null;
   toolTargets?: readonly ToolTarget[] | null;
+  xrayPoints?: readonly Pt3[] | null;
   lines?: boolean;
   hand?: AlignHand | null;
   /** 候选 ε（本帧量纲）；缺省 = solver.EPS（桌面 px @800）。 */
@@ -484,6 +486,10 @@ export function buildConstraints(ctx: SnapContext): Constraint[] {
     for (const l of G.lines) { if (!nearSeg(l.p, add3(l.p, l.dir), true)) continue; out.push({ locus: { dim: 1, a: l.p, dir: l.dir }, rank: RANK.guide, eps: E.line, tag: { kind: "guide" } }); }
   }
   lap("guides");
+  // 圆心（DT15，user 2026-10-25「选不到轮子的圆心。这个最要命」）：圆 / 弧曲线实体记着的圆心 = 0-D 目标（SU Center），秩同中点；被挡照常判遮挡。
+  for (const p of ctx.k.centers?.() ?? []) { if (!nearPt(p) || hidden(p)) continue; out.push({ locus: { dim: 0, p }, rank: RANK.center, eps: E.point, tag: { kind: "center" } }); }
+  // 透视点（DT15）：选中的组 / 组件的轴原点——轴埋在几何里也要装得上（「装配炮塔的时候即使轴都打好了，还是装不进去」），所以不判遮挡。
+  for (const p of ctx.xrayPoints ?? []) { if (!nearPt(p)) continue; out.push({ locus: { dim: 0, p }, rank: RANK.poolOrigin, eps: E.point, tag: { kind: "poolOrigin" }, xray: true }); }
   // 工具自带目标（B22）：按工具给的秩 / 轨迹原样登记；0-D 用点 ε，1-D 用线 ε
   for (const t of ctx.toolTargets ?? []) {
     if (t.locus.dim === 0 && (!nearPt(t.locus.p) || hidden(t.locus.p))) continue;
@@ -617,6 +623,7 @@ export function faceCrossSegments(k: GeomView, f1: import("../kernel/kernel.ts")
 
 export type SnapKind =
   | "endpoint" | "midpoint" | "on-edge" | "origin"
+  | "center" | "pool-origin"   // 圆心 / 选中的组·组件的轴原点（DT15）
   | "axis-x" | "axis-y" | "axis-z"
   | "align" | "align-combo" | "edge-align"
   | "on-extension"   // 充能边的延长线上（0.11.6）
@@ -670,7 +677,7 @@ export function snapPoint(
     return occludedBy(k, pf, p, skip, occluders);
   };
   const C = buildConstraints({ k, plane: q.plane.plane, basis: q.plane.basis, anchor: q.anchor,
-    alignSources: q.alignSources, chargedEdges: q.chargedEdges, toolTargets: q.toolTargets, pf, lines: q.lines, hand: q.hand, eps: E,
+    alignSources: q.alignSources, chargedEdges: q.chargedEdges, toolTargets: q.toolTargets, xrayPoints: q.xrayPoints, pf, lines: q.lines, hand: q.hand, eps: E,
     cursor: { x: sx, y: sy, vp, radiusPx } });
   const sol = perf.time("snap.solve", () => solvePoint({ pf, vp }, { x: sx, y: sy }, C, {
     comboEps: E.combo,
@@ -742,6 +749,8 @@ export function snapPoint(
     kind = t.kind === "endpoint" ? "endpoint"
       : t.kind === "origin" ? "origin"
       : t.kind === "midpoint" ? "midpoint"
+      : t.kind === "center" ? "center"
+      : t.kind === "poolOrigin" ? "pool-origin"
       : t.kind === "intersection" ? "intersection"
       : t.kind === "cross" ? "cross-line"
       : t.kind === "edge" ? "on-edge"

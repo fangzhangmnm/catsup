@@ -40,7 +40,7 @@ export function tapeResult(start: TapeStart, b: Pt3): TapeResult {
 
 /** 从点起手、点在边上时：拖动的垂直成分占多少才算「要平行线」（0.8 ≈ 离边 53°；拐角沿对角线拖 = 0.71 = 分不清 → 点）。 */
 export const PERP_FRACTION = 0.8;
-const POINT_KINDS = new Set<SnapKind>(["endpoint", "midpoint", "intersection", "origin", "guide-point", "guide-cross", "align-combo"]);
+const POINT_KINDS = new Set<SnapKind>(["endpoint", "midpoint", "intersection", "origin", "guide-point", "guide-cross", "align-combo", "center", "pool-origin"]);
 const LINE_KINDS = new Set<SnapKind>(["on-edge", "edge-align", "on-guide"]);
 /** 栅格开着时，求解器把「边上 / 参考线上」改写成落格的点（「格点 · 边上」）；调用方确认这点正落在那条边 / 参考线上才给 lineDir（D23，2026-10-25 Opus）。 */
 const ON_LATTICE = new Set<SnapKind>(["grid-point", "increment"]);

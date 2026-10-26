@@ -114,6 +114,7 @@ export const SNAP_LABELS: Record<string, string> = {
   "h-stop": "高度咬合", "on-face": "面上",
   "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",
   "grid-point": "格点", increment: "整数长度", "on-extension": "延长线上",
+  center: "圆心", "pool-origin": "轴原点",
 };
 export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 
@@ -494,6 +495,23 @@ export class Editor {
     const pick = this.topChild(slot);
     return pick ? { kind: "pool", pick, key: this.pickKey(pick) } : { kind: "none" };
   }
+  /**
+   * 选中的组 / 组件的轴（世界帧；DT15，user 2026-10-25「如果component在轴被埋在几何里面，如何拾取。不然装配炮塔的时候即使轴都打好了，还是装不进去」）：
+   * 原点进吸附当透视点（被几何挡住也能吸）、渲染画一个透视的小三轴。**在手里的不算**（整体变换预演中的那份 = 视图里 overridden 的槽）——
+   * 拖着它走时它自己的原点跟着光标跑，再当目标就是自己吸自己（user「会不会自己卡住自己」）。
+   */
+  private selectedPoolFrames(view: WorldView): Frame[] {
+    if (!this.selectedPools.size) return [];
+    const inHand = new Set<string>();
+    for (const sl of view.slots) if (sl.overridden) { const p = this.topChild(sl); if (p) inHand.add(this.pickKey(p)); }
+    const out: Frame[] = [];
+    for (const [key, p] of this.selectedPools) {
+      if (inHand.has(key)) continue;
+      out.push(p.kind === "group" ? this.scene.frameOfContext({ chain: this.ctx.chain, group: p.group }) : this.scene.frameOfContext({ chain: [...this.ctx.chain, p.instance], group: null }));
+    }
+    return out;
+  }
+  private poolOrigins(view: WorldView): Pt3[] { return this.selectedPoolFrames(view).map((f) => f.origin); }
   private pickKey(p: PoolPick): string { return p.kind === "group" ? `g${p.group}` : `i${p.instance}`; }
   /** 槽 → 它所属的、活动上下文的直接子项（组 / 实例）；不在上下文子树里 → null。 */
   private topChild(slot: PoolSlot): PoolPick | null {
@@ -1524,6 +1542,7 @@ export class Editor {
       grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.step, sub: this._grid.subdiv, on: this._grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
+      poolAxes: this.selectedPoolFrames(view),
       ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
@@ -1700,7 +1719,7 @@ export class Editor {
       pickFace: (sx, sy) => pickFace(this.liveWorld(), this.frame(), this.fvp(), sx, sy),
       pick: (sx, sy) => this.pickAt(sx, sy),
       classify: (view, hit) => this.classify(view, hit),
-      snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), ...q }),
+      snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), ...q }),
       applyLock: (sn, sx, sy) => this.applyLock(sn, this.anchor3, sx, sy),
       lockedPlane: (through) => this.lockedPlaneThrough(through),
       alignSources: () => this.alignSrcs(),
@@ -1772,7 +1791,7 @@ export class Editor {
   private hoverSnap(s: { x: number; y: number }): void {
     const view = this.liveWorld();
     const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
-    this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), hand: this.freshHand(view) }), s.x, s.y));
+    this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), hand: this.freshHand(view) }), s.x, s.y));
     this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
   }
   private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }

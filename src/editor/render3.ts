@@ -100,8 +100,12 @@ const SNAP_COLORS: Record<string, number> = {
   "grid-point": 0x9ca3af,
   increment: 0xd97706,
   "on-extension": 0x8b5cf6,
+  center: 0x2b6cb0,
+  "pool-origin": 0x111111,
 };
 const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
+/** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
+const POOL_AXES_PX = 22;
 /** 参考几何（0.11 尺规纪元）：参考线画 ±GUIDE_LEN 的长线（视觉上 = 无限），参考点画三轴小叉（像素尺寸）。 */
 const GUIDE_COLOR = 0x6b7280, GUIDE_SEL_COLOR = 0x2b6cb0, GUIDE_LEN = 200, GUIDE_POINT_PX = 6;   // 选中 = 与选中膜同一个蓝（A31）
 /** A33 断口小垂线：半长 px + 颜色（提醒色，与参考线 / 充能区分）。 */
@@ -178,6 +182,8 @@ export interface ViewState {
   grid?: { frame: Frame; step: number; sub?: number; on?: boolean } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
+  /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
+  poolAxes?: readonly Frame[] | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
@@ -291,7 +297,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any;
+  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -416,6 +422,11 @@ export class Renderer3 {
     this.tickLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tickLines.frustumCulled = false; this.tickLines.visible = false;
     this.scene.add(this.tickLines);
+    // DT15 选中的组 / 组件的轴：透视（不做深度测试、最后画）——轴埋在几何里也看得见
+    this.poolAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
+    this.poolAxesLines.material.depthTest = false; this.poolAxesLines.material.depthWrite = false;
+    this.poolAxesLines.renderOrder = 10; this.poolAxesLines.frustumCulled = false; this.poolAxesLines.visible = false;
+    this.scene.add(this.poolAxesLines);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -819,6 +830,26 @@ export class Renderer3 {
       }
       this.tickLines.visible = true;
     } else { this.tickLines.visible = false; this.tickKey = ""; }
+
+    // ---- DT15 选中的组 / 组件的轴：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
+    const pax = view.poolAxes;
+    if (pax && pax.length) {
+      const wpp = pax.map((f) => this.worldPerPx(cam, vp, f.origin));
+      const pk = `${pax.map((f, i) => `${f.origin.x},${f.origin.y},${f.origin.z}/${f.x.x},${f.x.y},${f.x.z}/${f.y.x},${f.y.y},${f.y.z}/${f.z.x},${f.z.y},${f.z.z}@${wpp[i].toExponential(2)}`).join("|")}`;
+      if (pk !== this.poolAxesKey) {
+        this.poolAxesKey = pk;
+        const pos: number[] = [], col: number[] = [];
+        pax.forEach((f, i) => {
+          const L = POOL_AXES_PX * wpp[i], o = f.origin;
+          for (const [d, hex] of [[f.x, PALETTE.axisX], [f.y, PALETTE.axisY], [f.z, PALETTE.axisZ]] as const) {
+            pos.push(o.x, o.y, o.z, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
+            const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+          }
+        });
+        this.setLineGeometry(this.poolAxesLines, pos, col);
+      }
+      this.poolAxesLines.visible = true;
+    } else { this.poolAxesLines.visible = false; this.poolAxesKey = ""; }
 
     this.syncLabels(view.labels ?? [], cam, vp);
 
