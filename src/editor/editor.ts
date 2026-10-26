@@ -1432,14 +1432,16 @@ export class Editor {
     const values: Record<string, ParamValue> = { copy: !!L.copy };
     const pivots = L.kind !== "move" ? L.pivots : undefined;
     if (pivots && L.kind !== "move" && L.pivotUsed) {
-      const labels: Record<string, string> = { bbox: "包围盒中心", mean: "顶点平均", active: "最后选的物体原点", picked: "拾取的点" };
+      const labels: Record<string, string> = { auto: "自动", bbox: "包围盒中心", mean: "顶点平均", active: "最后选的物体原点", picked: "拾取的点" };
+      const same = (a?: Pt3, b?: Pt3): boolean => !!a && !!b && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-9;
+      if (pivots.auto) labels.auto = same(pivots.auto, pivots.bbox) ? "自动（包围盒中心）" : "自动（物体轴原点）";   // 说清这次自动落在了哪
       fields.push({ key: "pivot", def: { kind: "enum", label: "轴心", values: Object.keys(pivots).map((id) => ({ id, label: labels[id] ?? id })) } });
       values.pivot = L.pivotUsed;
     }
     const title = L.kind === "move" ? "移动" : L.kind === "rotate" ? "旋转" : "缩放";
     this.offerAfterthought(title, fields, values, L.ops, (v) => {
       const copy = !!v.copy, pid = typeof v.pivot === "string" ? v.pivot : undefined, piv = pid && pivots ? pivots[pid] : undefined;
-      if (pid && pid !== "picked" && pid !== (L.kind !== "move" ? L.pivotUsed : undefined)) this.config.set("transform", "pivot", pid as "bbox" | "mean" | "active");   // 工具自己记住
+      if (pid && pid !== "picked" && pid !== (L.kind !== "move" ? L.pivotUsed : undefined)) this.config.set("transform", "pivot", pid as "auto" | "bbox" | "mean" | "active");   // 工具自己记住
       const at = L.at, n0 = this.opCount;
       const X = L.kind === "move" ? translation(L.delta) : L.kind === "rotate" ? rotationAbout(piv ?? L.center, L.axis, L.angle) : L.dir ? scalingAlong(piv ?? L.anchor, L.dir, L.f.x) : scalingAbout(piv ?? L.anchor, L.f);
       if (copy) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, ents), XL }], L.pools, at); }
@@ -1863,8 +1865,12 @@ export class Editor {
     const picks = this.movablePoolPicks(false);
     if (picks.length) this.liveOverride = { picks, xform: X, ...(copy ? { copy: true } : {}) };
   }
-  /** 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。 */
-  private pivotOf(mode: "bbox" | "mean" | "active"): Pt3 | null {
+  /**
+   * 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
+   * 自动 = 只选了一个组 / 组件（没有散的面 / 边）→ 它的轴原点；别的 → 包围盒中心。
+   */
+  private pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null {
+    if (mode === "auto" && this.selectedPools.size === 1 && !this.selection.faces.size && !this.selection.edges.size) { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[0].origin; }
     if (mode === "active") { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[fr.length - 1].origin; }
     return this.selectionCenter(mode === "mean" ? "mean" : "bbox");
   }

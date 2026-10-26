@@ -11,17 +11,19 @@ export type AxisName = "x" | "y" | "z";
 export type XformHandle = "mx" | "my" | "mz" | "rx" | "ry" | "rz" | "sx" | "sy" | "sz" | "su";
 /** 等比缩放块：轴心在屏上的位置往右、往上各这么多（CSS px）。 */
 export const XG_UNIFORM_OFFSET_PX = 34;
+// 比例（2026-10-26 改，user「然后比例也不对，看的好难受」+ 坦克截图：环套住整辆车、箭头细短、方块过大）：照 Blender 合在一起的样子——
+// 环小（56）、箭头在环外（64 → 100，实心锥头）、轴上缩放块在环里（32，半边 3.5）；环和箭头不相交，抓的时候不含糊。
 export const AXIS_NAMES: readonly AxisName[] = ["x", "y", "z"];
-/** 箭头长（CSS px）。 */
-export const XG_ARROW_PX = 72;
-/** 箭头从原点外多少开始算把手（CSS px；里面那段让给缩放块）。 */
-export const XG_ARROW_START_PX = 44;
+/** 箭头尖离原点多远（CSS px）。 */
+export const XG_ARROW_PX = 100;
+/** 箭头从原点外多少开始（CSS px；在环外面）。 */
+export const XG_ARROW_START_PX = 64;
 /** 单轴缩放块在轴上离原点多远（CSS px）（2026-10-26，user「我们也需要scale的手柄」）。中心点 = 移动、等比缩放块在中心右上方（屏幕把手，工具自己拾）。 */
-export const XG_SCALE_PX = 28;
+export const XG_SCALE_PX = 32;
 /** 缩放块半边长（CSS px，画用；拾取按点）。 */
-export const XG_CUBE_PX = 5;
-/** 旋转环半径（CSS px）：大过箭头（Blender 同款，环在外圈）——环和箭头不相交，抓的时候不含糊。 */
-export const XG_RING_PX = 92;
+export const XG_CUBE_PX = 3.5;
+/** 旋转环半径（CSS px）：箭头在环外、缩放块在环里（Blender 合在一起时的布局）——环和箭头不相交，抓的时候不含糊。 */
+export const XG_RING_PX = 56;
 /** 环画多少段。 */
 export const XG_RING_SEGS = 48;
 
@@ -31,7 +33,9 @@ export interface XformGizmo { origin: Pt3; axes: Readonly<Record<AxisName, Pt3>>
 export interface XformGizmoGeom extends XformGizmo { arrow: number; ring: number; start: number; cube: number; cubeHalf: number; }
 
 export function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport): XformGizmoGeom {
-  const wpp = worldPerPx(pf, vp, g.origin, g.axes.x) ?? worldPerPx(pf, vp, g.origin, g.axes.y) ?? 0.01;
+  // 量尺的方向要垂直于视线（2026-10-26）：沿红轴量的话，红轴斜着时别的轴箭头在屏上短一截，红轴正对镜头时整个手柄被算得巨大
+  const w = pf.viewDir(g.origin), side = normalize3(cross3(w, Math.abs(w.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 }));
+  const wpp = worldPerPx(pf, vp, g.origin, side) ?? 0.01;
   return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp, cube: XG_SCALE_PX * wpp, cubeHalf: XG_CUBE_PX * wpp };
 }
 /** 绕 axis 的环上的点（闭合：首尾相同）。 */

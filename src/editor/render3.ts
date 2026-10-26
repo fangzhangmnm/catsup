@@ -300,7 +300,7 @@ export class Renderer3 {
   private snapMarker: any;
   private arcLines: any; private landingRing: any;
   private handleMarkers: any[] = [];
-  private xgLines: any; private xgKey = "";   // 变换 gizmo（2026-10-26）
+  private xgLines: any; private xgKey = ""; private xgSolids: any[] = [];   // 变换 gizmo（2026-10-26）
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
@@ -447,6 +447,12 @@ export class Renderer3 {
     this.xgLines.material.depthTest = false; this.xgLines.material.depthWrite = false;
     this.xgLines.renderOrder = 11; this.xgLines.frustumCulled = false; this.xgLines.visible = false;
     this.scene.add(this.xgLines);
+    // 变换 gizmo 的实心小件：三个轴上缩放块 + 等比块（方块）+ 中心点（圆）+ 三个箭头锥；透视画、在线条上面
+    for (let i = 0; i < 8; i++) {   // 0–3 方块（三轴缩放 + 等比）· 4 中心点（圆）· 5–7 箭头锥
+      const m = new THREE.Mesh(i < 4 ? new THREE.BoxGeometry(1, 1, 1) : i === 4 ? new THREE.SphereGeometry(0.5, 16, 10) : new THREE.ConeGeometry(1, 1, 16), new THREE.MeshBasicMaterial({ color: 0x777777, depthTest: false, depthWrite: false }));
+      m.renderOrder = 12; m.visible = false; m.frustumCulled = false;
+      this.scene.add(m); this.xgSolids.push(m);
+    }
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -892,28 +898,37 @@ export class Renderer3 {
         for (const ax of ["x", "y", "z"] as const) {
           const d = xg.axes[ax], others = (["x", "y", "z"] as const).filter((o) => o !== ax).map((o) => xg.axes[o]);
           const hm = xg.hot === `m${ax}` ? GIZMO_HOT : hexOf[ax], hr = xg.hot === `r${ax}` ? GIZMO_HOT : hexOf[ax];
-          push(at(d, xg.start), at(d, xg.arrow), hm);
-          const tip = at(d, xg.arrow), back = xg.arrow * 0.82, w = xg.arrow * 0.07;
-          for (const o of others) for (const sg of [1, -1]) push(tip, { x: xg.origin.x + d.x * back + o.x * w * sg, y: xg.origin.y + d.y * back + o.y * w * sg, z: xg.origin.z + d.z * back + o.z * w * sg }, hm);
+          push(at(d, xg.start), at(d, xg.arrow - (xg.arrow - xg.start) * 0.32), hm);   // 箭杆；箭头 = 实心锥（下面 xgSolids）
+          void others;
           const ref = ax === "z" ? xg.axes.x : ax === "x" ? xg.axes.y : xg.axes.z, N = 48;
           const v = { x: d.y * ref.z - d.z * ref.y, y: d.z * ref.x - d.x * ref.z, z: d.x * ref.y - d.y * ref.x };
           const P = (i: number): Pt3 => { const a = (2 * Math.PI * i) / N, c = Math.cos(a) * xg.ring, sn = Math.sin(a) * xg.ring; return { x: xg.origin.x + ref.x * c + v.x * sn, y: xg.origin.y + ref.y * c + v.y * sn, z: xg.origin.z + ref.z * c + v.z * sn }; };
           for (let i = 0; i < N; i++) push(P(i), P(i + 1), hr);
         }
-        // 缩放块（轴上的 = 沿那根轴，右上方的 = 等比）+ 中心点（= 移动）：沿 gizmo 三轴的小线框方块
-        const cube = (c: Pt3, h: number, hex: number): void => {
-          const X = xg.axes.x, Y = xg.axes.y, Z = xg.axes.z, at3 = (a: number, b: number, cc: number): Pt3 => ({ x: c.x + (X.x * a + Y.x * b + Z.x * cc) * h, y: c.y + (X.y * a + Y.y * b + Z.y * cc) * h, z: c.z + (X.z * a + Y.z * b + Z.z * cc) * h });
-          for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) { push(at3(a, b, -1), at3(a, b, 1), hex); push(at3(-1, a, b), at3(1, a, b), hex); push(at3(a, -1, b), at3(a, 1, b), hex); }
-        };
-        if (xg.cube !== undefined && xg.cubeHalf !== undefined) {
-          for (const ax of ["x", "y", "z"] as const) cube(at(xg.axes[ax], xg.cube), xg.cubeHalf, xg.hot === `s${ax}` ? GIZMO_HOT : hexOf[ax]);
-          if (xg.uniform) cube(xg.uniform, xg.cubeHalf * 1.2, xg.hot === "su" ? GIZMO_HOT : 0x666666);
-          cube(xg.origin, xg.cubeHalf * 0.7, xg.hot === "mc" ? GIZMO_HOT : 0x333333);
-        }
         this.setLineGeometry(this.xgLines, pos, col);
       }
       this.xgLines.visible = true;
-    } else { this.xgLines.visible = false; this.xgKey = ""; }
+      // 缩放块（轴上的 = 沿那根轴、右上方的 = 等比）+ 中心点（= 移动）：实心小件（user 2026-10-26「变换的resize handle为什么是线框方块，好难看哈哈」），方块顺着 gizmo 三轴摆
+      const [sx, sy, sz, su, mc, cx, cy, cz] = this.xgSolids;
+      {   // 箭头锥：尖在 arrow，长 = 箭头段的 32%，粗 = 长的 0.36
+        const hl = (xg.arrow - xg.start) * 0.32, up = new THREE.Vector3(0, 1, 0);
+        (["x", "y", "z"] as const).forEach((ax, i) => {
+          const d = xg.axes[ax], m = [cx, cy, cz][i], mid = xg.arrow - hl / 2;
+          m.visible = true; m.position.set(xg.origin.x + d.x * mid, xg.origin.y + d.y * mid, xg.origin.z + d.z * mid);
+          m.quaternion.setFromUnitVectors(up, new THREE.Vector3(d.x, d.y, d.z).normalize());
+          m.scale.set(hl * 0.36, hl, hl * 0.36);
+          m.material.color.setHex(xg.hot === `m${ax}` ? GIZMO_HOT : ({ x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const)[ax]);
+        });
+      }
+      if (xg.cube !== undefined && xg.cubeHalf !== undefined) {
+        const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(xg.axes.x.x, xg.axes.x.y, xg.axes.x.z), new THREE.Vector3(xg.axes.y.x, xg.axes.y.y, xg.axes.y.z), new THREE.Vector3(xg.axes.z.x, xg.axes.z.y, xg.axes.z.z));
+        const place = (m: any, c: Pt3, size: number, hex: number): void => { m.visible = true; m.position.set(c.x, c.y, c.z); m.quaternion.setFromRotationMatrix(basis); m.scale.setScalar(size); m.material.color.setHex(hex); };
+        const hexOf2 = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const;
+        (["x", "y", "z"] as const).forEach((ax, i) => { const d = xg.axes[ax]; place([sx, sy, sz][i], { x: xg.origin.x + d.x * xg.cube!, y: xg.origin.y + d.y * xg.cube!, z: xg.origin.z + d.z * xg.cube! }, xg.cubeHalf! * 2, xg.hot === `s${ax}` ? GIZMO_HOT : hexOf2[ax]); });
+        if (xg.uniform) place(su, xg.uniform, xg.cubeHalf * 2.4, xg.hot === "su" ? GIZMO_HOT : 0x777777); else su.visible = false;
+        place(mc, xg.origin, xg.cubeHalf * 2.2, xg.hot === "mc" ? GIZMO_HOT : 0x333333);
+      } else for (const m of [sx, sy, sz, su, mc]) m.visible = false;
+    } else { this.xgLines.visible = false; this.xgKey = ""; for (const m of this.xgSolids) m.visible = false; }
 
     // ---- DT15 选中的组 / 组件的轴：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
     const pax = view.poolAxes;

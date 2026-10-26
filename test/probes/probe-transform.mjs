@@ -66,7 +66,10 @@ const res = await page.evaluate(async () => {
   e.setGrid({ ...e.grid, on: true, step: 1, subdiv: 5 });
   e.selectAll(); e.setTool("transform");
   const O = P(0.5, 0.5, 0.5), ppm = (d) => { const a0 = px(O), b0 = px({ x: O.x + d.x, y: O.y + d.y, z: O.z + d.z }); return Math.hypot(a0.x - b0.x, a0.y - b0.y); };
-  const onArrow = (d) => { const L = 50 / ppm(d); return { x: O.x + d.x * L, y: O.y + d.y * L, z: O.z + d.z * L }; };   // 箭杆 50 px 处（箭头 44–72 px，环 92 px）
+  // 手柄尺寸 = 垂直于视线方向上的屏幕 px（斜着的轴在屏上会短一点）：箭杆 82 px 处（箭头 64–100 px，环 56 px）
+  const w = e.toolCtx.frame().viewDir(O), sd = (() => { const r = Math.abs(w.z) < 0.9 ? P(0, 0, 1) : P(1, 0, 0), c = { x: w.y * r.z - w.z * r.y, y: w.z * r.x - w.x * r.z, z: w.x * r.y - w.y * r.x }, l = Math.hypot(c.x, c.y, c.z); return { x: c.x / l, y: c.y / l, z: c.z / l }; })();
+  const wpp = 1 / ppm(sd);
+  const onArrow = (d) => { const L = 82 * wpp; return { x: O.x + d.x * L, y: O.y + d.y * L, z: O.z + d.z * L }; };
   const yGrip = px(onArrow(P(0, 1, 0)));
   fire("pointermove", yGrip.x, yGrip.y, 0); await sleep(30);
   out.hotY = e.handlers.transform.hot;
@@ -80,7 +83,7 @@ const res = await page.evaluate(async () => {
   e.clearAll(); e.setTool("select");
   box(0, 0, 0, 1, 1, 1);
   e.selectAll(); e.setTool("transform");
-  const R = 92 / ppm(P(1, 0, 0)), ring = (deg) => ({ x: O.x + R * Math.cos(deg * Math.PI / 180), y: O.y + R * Math.sin(deg * Math.PI / 180), z: O.z });
+  const R = 56 * wpp, ring = (deg) => ({ x: O.x + R * Math.cos(deg * Math.PI / 180), y: O.y + R * Math.sin(deg * Math.PI / 180), z: O.z });
   const r0 = px(ring(20));   // 不抓 0°：那里 Y 环和 Z 环相交
   fire("pointerdown", r0.x, r0.y, 1);
   for (let d = 24; d <= 66; d += 6) { const q = px(ring(d)); fire("pointermove", q.x, q.y, 1); await sleep(16); }

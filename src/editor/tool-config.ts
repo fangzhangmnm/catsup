@@ -162,9 +162,10 @@ export const TOOL_OPTIONS = {
     copy: { kind: "bool", label: "复制", def: false, scope: "session" },
   },
   /** 变换（2026-10-26，user「transform的时候ctrl应该是复制吧」「transform能不能马后炮可以切换 pivot…是工具自己记住的选项。而且每个工具单独记」）：
-   *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；轴心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」））。 */
+   *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；轴心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」）；
+   *  默认「自动」= 只选一个组 / 组件就绕它的轴原点、别的情况包围盒中心（user 2026-10-26「选的是组件的时候应该默认是pivot…选loose geom的时候默认是bb，或者多组件的时候默认是bb」））。 */
   transform: {
-    pivot: { kind: "enum", label: "轴心", values: [{ id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均", hint: "全部选中顶点的平均位置（Blender 叫 Median Point）" }, { id: "active", label: "最后选的物体原点", hint: "最后选中的那个组 / 组件的轴原点（Blender 叫 Active Element）；没选组 / 组件 = 包围盒中心" }], def: "bbox", scope: "session" },
+    pivot: { kind: "enum", label: "轴心", values: [{ id: "auto", label: "自动", hint: "只选了一个组 / 组件 = 它的轴原点；散几何或几个物体 = 包围盒中心" }, { id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均", hint: "全部选中顶点的平均位置（Blender 叫 Median Point）" }, { id: "active", label: "最后选的物体原点", hint: "最后选中的那个组 / 组件的轴原点（Blender 叫 Active Element）；没选组 / 组件 = 包围盒中心" }], def: "auto", scope: "session" },
     copy: { kind: "bool", label: "复制", def: false, scope: "session" },
   },
   /** 旋转的「复制」开关（同移动；按住 Ctrl 临时复制；user 2026-10-26「移动旋转也是ctrl复制开关吧」）。 */

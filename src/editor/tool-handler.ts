@@ -118,7 +118,7 @@ export interface ToolCtx {
   /** 整体变换预演：选区顶点走影子副本、子池走叠加变换。copy = 复制模式（原件不动：副本几何吸进影子副本、子池画副本影子）。 */
   previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void, copy?: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): void;
   /** 选区的轴心（变换工具）：包围盒中心 / 顶点平均 / 最后选的物体原点（最后选中的组 / 组件的轴原点，没选组 / 组件 = 包围盒中心）。没选区 → null。 */
-  pivotOf(mode: "bbox" | "mean" | "active"): Pt3 | null;
+  pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null;
   /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做（右下「刚才：」）。 */
   offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void): void;
   /** 选中的子 group / 实例里能整体动的（锁住的不动；say = 提示一次）。 */

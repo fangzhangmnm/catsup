@@ -2,6 +2,8 @@
 // 「变换的时候右下角有一个pick pivot选项」「我们也需要scale的手柄」「变换的时候按ctrl z不应该选区也没了」「移动旋转也是ctrl复制开关吧。以及马后炮都能override」「变换能不能也支持移动的/5 *5」。
 // 盒 [0,1]³：① 中心点拖 1 m（= 移动工具）② 马后炮「复制」打开 = 原件回原位 + 一份副本 ③ Ctrl+Z / Ctrl+Y 选区还在 ④ X 缩放块 ×2（绕包围盒中心）→ 数值小窗 3x = 缩放阵列
 // ⑤ 选轴心拾角点 (1,1,0) → Z 环转 90° = 绕那角 ⑥ 点空处清选区、点面 = 选上、框选 ⑦ 旋转工具按住 Ctrl = 复制。created 2026-10-26 by Claude Opus 5.5
+// ⑧ 轴心「自动」（默认；user 2026-10-26「选的是组件的时候应该默认是pivot…选loose geom的时候默认是bb，或者多组件的时候默认是bb」）：只选一个组件 = 手柄在它的轴原点、
+//    拖中心点途中手柄跟着走（不跳回包围盒中心）；组件 + 散几何 = 包围盒中心。
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -40,8 +42,9 @@ const res = await page.evaluate(async () => {
   key("z", { ctrl: true }); await sleep(30);
   out.afterUndo = { faces: nf(), xs: xs(), sel: nsel() };
   // ④ X 缩放块 ×2（绕包围盒中心 0.5）→ 3x 缩放阵列
-  const ppm = () => { const a0 = px(O), b0 = px(P(1.5, 0.5, 0.5)); return Math.hypot(a0.x - b0.x, a0.y - b0.y); };
-  const cubeAt = (k) => px(P(0.5 + k * 28 / ppm(), 0.5, 0.5));
+  // 手柄尺寸 = 垂直于视线方向上的屏幕 px（和 transform-gizmo.ts 同一把尺）
+  const wppAt = (Q) => { const w = e.toolCtx.frame().viewDir(Q), r = Math.abs(w.z) < 0.9 ? P(0, 0, 1) : P(1, 0, 0), c = { x: w.y * r.z - w.z * r.y, y: w.z * r.x - w.x * r.z, z: w.x * r.y - w.y * r.x }, l = Math.hypot(c.x, c.y, c.z), a0 = px(Q), b0 = px({ x: Q.x + c.x / l, y: Q.y + c.y / l, z: Q.z + c.z / l }); return 1 / Math.hypot(a0.x - b0.x, a0.y - b0.y); };
+  const cubeAt = (k) => px(P(0.5 + k * 32 * wppAt(O), 0.5, 0.5));
   await drag(cubeAt(1), cubeAt(2.03));
   out.scaled = xs();
   out.vcb3 = e.applyVcb("3x").ok; out.arrayXs = xs();
@@ -51,7 +54,7 @@ const res = await page.evaluate(async () => {
   const H = e.handlers.transform;
   H.startPickPivot(); await tap(px(P(1, 1, 0)));
   out.pivot = H.hasTempPivot;
-  const R = 92 / ppm(), C = P(1, 1, 0), ring = (deg) => px({ x: C.x + R * Math.cos(deg * Math.PI / 180), y: C.y + R * Math.sin(deg * Math.PI / 180), z: 0 });
+  const C = P(1, 1, 0), R = 56 * wppAt(C), ring = (deg) => px({ x: C.x + R * Math.cos(deg * Math.PI / 180), y: C.y + R * Math.sin(deg * Math.PI / 180), z: 0 });
   fire("pointerdown", ring(200).x, ring(200).y, 1);
   for (let d = 206; d <= 290; d += 6) { const q = ring(d); fire("pointermove", q.x, q.y, 1); await sleep(16); }
   fire("pointermove", ring(290).x, ring(290).y, 1); await sleep(60); fire("pointerup", ring(290).x, ring(290).y, 0); await sleep(40);
@@ -72,6 +75,21 @@ const res = await page.evaluate(async () => {
   await tap(px(Rc)); await tap(px(P(1, 0, 0)));
   const q90 = px(P(0, 1, 0)); fire("pointermove", q90.x, q90.y, 0, { ctrl: true }); await sleep(40); fire("pointerdown", q90.x, q90.y, 1, { ctrl: true }); await sleep(20); fire("pointerup", q90.x, q90.y, 0, { ctrl: true }); await sleep(60);
   out.rotCopy = { faces: nf(), xs: xs(), last: e.vcbState().kind };
+  // ⑧ 轴心「自动」
+  e.cancel(); e.clearAll(); e.setTool("select");
+  box(0, 0, 0, 1, 1, 1);
+  e.selectAll(); e.makeComponent("A");   // 原点默认 = 包围盒角 (0,0,0)，选区 = 新实例
+  e.setTool("transform"); await sleep(30);
+  const T = e.handlers.transform, gzo = () => { const g = T.viewExtras(e.toolCtx).xformGizmo; return g ? [g.origin.x, g.origin.y, g.origin.z].map((v) => +v.toFixed(4)) : null; };
+  out.autoMode = e.config.get("transform", "pivot");
+  out.autoOne = gzo();
+  const s0 = px(P(0, 0, 0)), s1 = px(P(1, 0, 0));
+  fire("pointerdown", s0.x, s0.y, 1); for (let i = 1; i <= 10; i++) { fire("pointermove", s0.x + (s1.x - s0.x) * i / 10, s0.y + (s1.y - s0.y) * i / 10, 1); await sleep(16); }
+  await sleep(60); out.autoMid = gzo(); fire("pointerup", s1.x, s1.y, 0); await sleep(40);
+  out.autoAfter = gzo();
+  box(3, 0, 0, 4, 1, 1);
+  e.selectAll(); await sleep(20);
+  out.autoMixed = gzo();
   return out;
 });
 console.log(JSON.stringify(res));
@@ -82,6 +100,7 @@ const ok = res.centerMove[0] === 1 && res.centerMove[1] === 2 && res.selAfterMov
   && res.scaled[0] === -0.5 && res.scaled[1] === 1.5 && res.vcb3 && res.arrayXs[1] === 4.5 && res.backXs[0] === 0 && res.backXs[1] === 1 && res.backSel === 6
   && res.pivot && res.rotXs[0] === 1 && res.rotXs[1] === 2
   && res.emptyTapSel === false && res.faceTapSel === 1 && res.boxSel === 6
-  && res.rotCopy.faces === 11 && res.rotCopy.xs[0] === -1 && res.rotCopy.xs[1] === 1 && !errs.length;
+  && res.rotCopy.faces === 11 && res.rotCopy.xs[0] === -1 && res.rotCopy.xs[1] === 1
+  && res.autoMode === "auto" && String(res.autoOne) === "0,0,0" && String(res.autoMid) === "1,0,0" && String(res.autoAfter) === "1,0,0" && String(res.autoMixed) === "2.5,0.5,0.5" && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

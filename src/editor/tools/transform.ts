@@ -26,8 +26,9 @@ import { SelectTool } from "./select.ts";
 /** 缩放咬合的倍率（−1 = 过了轴心 = 镜像）。 */
 const SCALE_SNAPS = [-1, 0.5, 1, 1.5, 2, 3, 4];
 /** 移动箭头「从点」：吸到这些点类 = 那点投到轴上（SU 轴向移动同款）。 */
-const POINT_KINDS: ReadonlySet<string> = new Set(["endpoint", "midpoint", "center", "intersection", "guide-point", "pool-origin", "origin", "grid-point"]);
-type PivotMode = "bbox" | "mean" | "active";
+// 不收格点：格点是光标所在斜平面上的点，投回轴上是个怪数；箭头拖动的格子 = 从抓点量整格（下面 trackMove）
+const POINT_KINDS: ReadonlySet<string> = new Set(["endpoint", "midpoint", "center", "intersection", "guide-point", "pool-origin", "origin"]);
+type PivotMode = "auto" | "bbox" | "mean" | "active";
 type Pick = { kind: "gizmo"; handle: XformHandle } | { kind: "center" };
 
 export class TransformTool implements ToolHandler {
@@ -35,6 +36,8 @@ export class TransformTool implements ToolHandler {
   readonly grammar = "direct" as const;
   private mode: "move" | "rotate" | "scale" | "center" | "select" | null = null;
   private grab: XformGrab | null = null;
+  /** 拖中心点 / 拖选区（移动代驾）开始时的手柄：拖动中跟着走，不重算（重算时在手里的组件不算数，「自动」会跳回包围盒中心）。 */
+  private centerG: XformGizmo | null = null;
   private dist = 0;
   private angle = 0;
   private factor = 1;
@@ -59,7 +62,7 @@ export class TransformTool implements ToolHandler {
   cancel(): void {
     if (this.mode === "center") this.mover.cancel();
     if (this.mode === "select") this.selector.cancel();
-    this.mode = null; this.grab = null; this.dist = 0; this.angle = 0; this.factor = 1; this.copy = false; this.mv = new Set(); this.fromHit = null; this.picking = false;
+    this.mode = null; this.grab = null; this.centerG = null; this.dist = 0; this.angle = 0; this.factor = 1; this.copy = false; this.mv = new Set(); this.fromHit = null; this.picking = false;
   }
   sample(): Record<string, number> { return { mt: this.dist, ra: this.angle, sf: this.factor }; }
   describe(ctx?: ToolCtx): Record<string, unknown> { return { transform: { mode: this.mode, handle: this.grab?.handle ?? null, dist: this.dist, angle: this.angle, factor: this.factor, copy: this.copy, picking: this.picking, tempPivot: this.tempPivot, ...(this.mode === "center" && ctx ? { move: this.mover.describe(ctx) } : {}) } }; }
@@ -136,14 +139,14 @@ export class TransformTool implements ToolHandler {
     if (p && g) {
       this.hot = TransformTool.hotOf(p);
       if (p.kind === "center") {   // 中心点 = 移动工具代驾，锚点 = 轴心
-        if (this.mover.startAt(ctx, g.origin, this.copy)) { this.mode = "center"; ctx.hint(`${this.copy ? "复制" : "移动"}：和移动工具一样吸附；松手落定，之后能输距离 / 5x / /5`); }
+        if (this.mover.startAt(ctx, g.origin, this.copy)) { this.mode = "center"; this.centerG = g; ctx.hint(`${this.copy ? "复制" : "移动"}：和移动工具一样吸附；松手落定，之后能输距离 / 5x / /5`); }
         return;
       }
       this.grab = grabXform(g, p.handle, ctx.frame(), ctx.vp(), ev.x, ev.y);
       this.mode = p.handle[0] === "m" ? "move" : p.handle[0] === "r" ? "rotate" : "scale";
       this.dist = 0; this.angle = 0; this.factor = 1;
       this.mv = new Set(moveTargetsSelection(ctx.kernel(), ctx.selection()));
-      const modes: PivotMode[] = ["bbox", "mean", "active"];
+      const modes: PivotMode[] = ["auto", "bbox", "mean", "active"];
       this.pivotsAtGrab = {};
       for (const m of modes) { const q = ctx.pivotOf(m); if (q) this.pivotsAtGrab[m] = q; }
       if (this.tempPivot) this.pivotsAtGrab.picked = this.tempPivot;
@@ -158,7 +161,8 @@ export class TransformTool implements ToolHandler {
     const view = ctx.live(), hit = ctx.pick(ev.x, ev.y), c = ctx.classify(view, hit);
     if (ctx.hasSelection() && this.inSelection(ctx, c)) {
       const anchor = hit.vertex !== undefined ? view.graph.pt(hit.vertex) : ctx.snap(view, ev.x, ev.y, { plane: drawPlaneAt(view, ctx.frame(), ctx.vp(), ev.x, ev.y), alignSources: ctx.alignSources(), hand: ctx.hand(view) }).p;
-      if (this.mover.startAt(ctx, anchor, this.copy)) { this.mode = "center"; this.fromHit = ev; return; }
+      const g0 = this.gizmo(ctx);
+      if (this.mover.startAt(ctx, anchor, this.copy)) { this.mode = "center"; this.centerG = g0; this.fromHit = ev; return; }
     }
     this.mode = "select";
     this.selector.down(ctx, ev);
@@ -270,13 +274,13 @@ export class TransformTool implements ToolHandler {
       const smp = settle();
       if (smp?.cursor3) ctx.setCursor(smp.cursor3);
       this.mover.finish(ctx);
-      this.mode = null; this.fromHit = null;
+      this.mode = null; this.fromHit = null; this.centerG = null;
       return;
     }
     const smp = settle(), G = this.grab!;
     const v = { dist: smp?.extra.mt ?? this.dist, angle: smp?.extra.ra ?? this.angle, factor: smp?.extra.sf ?? this.factor };
     const copy = this.copy, pivots = { ...this.pivotsAtGrab }, pivotUsed: PivotMode | "picked" = this.tempPivot ? "picked" : this.pivotMode(ctx);
-    this.mode = null; this.grab = null; this.dist = 0; this.angle = 0; this.factor = 1; this.copy = false; this.mv = new Set();
+    this.mode = null; this.grab = null; this.centerG = null; this.dist = 0; this.angle = 0; this.factor = 1; this.copy = false; this.mv = new Set();
     ctx.setCursor(null); ctx.setSnap(null);
     const idle = mode === "move" ? Math.abs(v.dist) < MIN_GESTURE_LEN : mode === "rotate" ? Math.abs(v.angle) < 1e-6 : Math.abs(v.factor - 1) < 1e-9;
     if (idle) return;
@@ -302,7 +306,7 @@ export class TransformTool implements ToolHandler {
   /** 箭头 / 环 / 方块 / 中心点，跟着预演实时动（拖着的时候在抓的那一刻的位置上叠当前变换）。 */
   viewExtras(ctx: ToolCtx): Partial<ViewState> {
     let g: XformGizmo | null;
-    if (this.mode === "center") { const a = ctx.anchor(), c = ctx.cursor(), g0 = this.gizmo(ctx); g = g0 && a && c ? { ...g0, origin: add3(g0.origin, sub3(c, a)) } : g0; }
+    if (this.mode === "center") { const a = ctx.anchor(), c = ctx.cursor(), g0 = this.centerG ?? this.gizmo(ctx); g = g0 && a && c ? { ...g0, origin: add3(g0.origin, sub3(c, a)) } : g0; }
     else if (this.grab && (this.mode === "move" || this.mode === "rotate" || this.mode === "scale")) {
       const X = this.currentXform()!, g0 = this.grab.g0;
       g = { origin: applyPt(X, g0.origin), axes: this.mode === "rotate" ? { x: applyDir(X, g0.axes.x), y: applyDir(X, g0.axes.y), z: applyDir(X, g0.axes.z) } : g0.axes };

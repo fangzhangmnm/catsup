@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=5a25e80abd73" />
-    <link rel="stylesheet" href="./styles.css?v=86b6518eb984" />
+    <link rel="stylesheet" href="./styles.css?v=d4fcaa2d9ecc" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -257,8 +257,6 @@
           <!-- user 10-21「undo redo是不是放下面好一点」：撤销 / 重做回到最下面 -->
           <button class="tb-btn" id="btnUndo" type="button" title="撤销（Ctrl+Z / 双指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-undo"/></svg></button>
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
-          <!-- 版本号（user 2026-10-25「版本号放哪里比较好。右边把小窗位置都让出来」）：左柱最底下的小灰字，截图报 bug 时看得见；完整版在 title / ☰「强制更新」行尾 -->
-          <span id="build" class="build rail-build"></span>
         </nav>
         <div class="hud-gizmo" id="viewGizmo" aria-label="视图"></div>
         <!-- 右下 = 参数小窗 = 上下文选项（user 2026-10-25「右下的语义就是上下文选项」「参数小窗就是上下文选项条，全搬进去」「所以右侧的角色位不要了，专门留给小窗长」）：
@@ -267,6 +265,8 @@
           <div class="vcb-strip" id="toolStrip" aria-label="工具选项 / 选区动作" hidden></div>
         </div>
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
+        <!-- 版本号：页面最左下角一行小灰字（user 2026-10-26「现在版本号显示在哪里。要不还是页面左下角」），提示行在它正上方；物品栏弹起来一起往上让；截图报 bug 时看得见，完整版在 title -->
+        <div class="hud-text hud-build"><span id="build" class="build"></span></div>
         <!-- 右下读数（面积 / 长）先不显示（user 2026-10-25「面积和长可以先不显示……右边把小窗位置都让出来」）：节点留着，main.ts READOUT_ON = false；版本号搬去左柱最底下 -->
         <div class="hud-text hud-br"><span id="readout" class="readout" hidden></span></div>
         <div id="marquee" hidden></div>
@@ -354,6 +354,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-8db0382740b1.mjs"></script>
+    <script type="module" src="./dist/catsup-f9c7158e0d21.mjs"></script>
   </body>
 </html>
