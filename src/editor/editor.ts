@@ -39,7 +39,7 @@ import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayScalings, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import { type ParamButton, type ParamField, type ParamPanelState, type ParamSession, type ParamValue, afterthought } from "./param-panel.ts";
 import { type GizmoGrab, type GizmoHandle, type PlaneGizmo, dragGizmo, gizmoGeom, grabGizmo, hitGizmo } from "./plane-gizmo.ts";
-import { type MirrorOptions, type MirrorPlane, mirrorGeometry, reflectionXform } from "./mirror.ts";
+import { CUT_SNAP, type MirrorOptions, type MirrorPlane, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
@@ -1387,9 +1387,9 @@ export class Editor {
     this.gizmo = { g: { origin: { ...f.origin }, normal: normalize3(f.x) }, hot: null, grab: null };
     const at = this.activePool();
     const faceKeys = faces.map((id) => faceKey(k, id)), edgeKeys = edges.map((id) => edgeKey(k, id));
-    const vals: Record<string, ParamValue> = { deleteOpposite: true, mergeSeam: true, weld: 0, ...(instPicks.length ? { instances: true } : {}) };
+    const vals: Record<string, ParamValue> = { deleteOpposite: true, mergeSeam: true, weld: 0, guardMm: CUT_SNAP * 1000, ...(instPicks.length ? { instances: true } : {}) };
     const planeLocal = (): MirrorPlane => { const m = invert(this.ctxXform()), g = this.gizmo!.g; return { origin: applyPt(m, g.origin), normal: normalize3(applyDir(m, g.normal)) }; };
-    const opts = (v: Readonly<Record<string, ParamValue>>): MirrorOptions => ({ deleteOpposite: !!v.deleteOpposite, mergeSeam: !!v.mergeSeam, weld: Number(v.weld) || 0 });
+    const opts = (v: Readonly<Record<string, ParamValue>>): MirrorOptions => ({ deleteOpposite: !!v.deleteOpposite, mergeSeam: !!v.mergeSeam, weld: Number(v.weld) || 0, guard: Math.max(0, Number(v.guardMm) || 0) / 1000 });
     this.cmdPreview = (c) => (faces.length || edges.length ? mirrorGeometry(c, faces.filter((x) => c.face(x)), edges.filter((x) => c.graph.hasEdge(x)), planeLocal(), opts(vals)) : []);
     // 组件的预演：原点在留下这侧的那几份，副本槽画镜过去的样子（删对面那半的实例预演不画，应用时照删）
     this.cmdGhosts = () => {
@@ -1402,6 +1402,7 @@ export class Editor {
       { key: "deleteOpposite", def: { kind: "bool", label: "删掉对面" } },
       { key: "mergeSeam", def: { kind: "bool", label: "缝上自愈" } },
       { key: "weld", def: { kind: "number", label: "融合阈值", min: 0, max: 0.1, step: 0.001, unit: " m" } },
+      { key: "guardMm", def: { kind: "number", label: "防碎距离", min: 0, max: 2, step: 0.01, unit: " mm" } },   // 2026-10-26 user「加防碎距离」：离镜像面这么近的点吸上去、太短的切段不要；0 = 关（小零件调小）
       ...(instPicks.length ? [{ key: "instances", def: { kind: "bool" as const, label: "组件也镜" } }] : []),
     ];
     const buttons: ParamButton[] = [{ key: "axX", label: "X" }, { key: "axY", label: "Y" }, { key: "axZ", label: "Z" }, { key: "flip", label: "翻转" }, { key: "cancel", label: "取消" }, { key: "apply", label: "应用", primary: true }];

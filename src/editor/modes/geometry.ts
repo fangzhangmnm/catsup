@@ -25,7 +25,7 @@ import { RRectTool } from "../tools/rrect.ts";
 
 export class GeometryMode implements Mode {
   readonly id = "geometry" as const;
-  readonly label = "几何";
+  readonly label = "硬表面建模";   // 2026-10-26 user「我的思路很简单，一个硬表面建模一个有机体建模啊，虽然就是工具栏和一些手势规则不一样」（原「几何」；有机体建模以后另立一个模式）
   readonly kinds = ["brep"] as const;
   readonly tools: readonly Tool[] = TOOLS.filter((t) => t !== "paint");   // 油漆桶归表面模式（刀 ③）
   readonly defaultTool: Tool = "line";

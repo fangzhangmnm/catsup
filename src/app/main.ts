@@ -578,7 +578,7 @@ function renderCrumbs(): void {
 type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
 /** 格距怎么念：按制式自带的单位（D&D 的 5 ft 不念成 1.524 m），不跟 vcbUnit。 */
 const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(step, gridPreset(preset).unit);
-/** 左上编辑模式下拉框（几何 / 表面）。 */
+/** 左上编辑模式下拉框（硬表面建模 / 表面；以后 + 有机体建模）。 */
 function renderModeSelect(): void {
   modeField?.refresh();
 }

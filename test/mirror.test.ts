@@ -117,3 +117,30 @@ describe("镜像（DT23）", () => {
     eq(kk.edges().length, 1, "一条边");
   });
 });
+
+// 防碎距离可调（2026-10-26，user「关键是很小的物件建模。关键是这个和吸附距离是不是同一个东西」「加防碎距离」）
+describe("mirror: 防碎距离", () => {
+  /** 1 mm 见方的小盒子 x ∈ [x0, x0 + 1 mm]。 */
+  const tiny = (x0: number): Kernel => {
+    const k = new Kernel(), s = 0.001;
+    const B = [[x0, 0], [x0 + s, 0], [x0 + s, s], [x0, s]];
+    const loop = (pts: Pt3[]): void => { k.addEdges(pts.map((p, i) => [p, pts[(i + 1) % pts.length]] as [Pt3, Pt3])); };
+    loop(B.map(([x, y]) => P(x, y, 0)));
+    for (let i = 0; i < 4; i++) { const [ax, ay] = B[i], [bx, by] = B[(i + 1) % 4]; loop([P(ax, ay, 0), P(bx, by, 0), P(bx, by, s), P(ax, ay, s)]); }
+    return k;
+  };
+  const run = (guard: number | undefined): { faces: number; minX: number } => {
+    let s = new Scene(tiny(0.00005));   // 左面离镜像面 x = 0 只有 0.05 mm
+    const k = s.kernelOf(rootAt(s));
+    const op: Op = { op: "mirror", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: [], plane: { origin: P(0, 0, 0), normal: X }, deleteOpposite: false, mergeSeam: true, weld: 0, ...(guard !== undefined ? { guard } : {}) };
+    s = applyOp(s, op).scene;
+    const k2 = s.kernelOf(rootAt(s));
+    return { faces: k2.faces().length, minX: Math.min(...k2.vertices().map((v) => v.x)) };
+  };
+  it("默认 0.1 mm：离镜像面 0.05 mm 的面被吸到镜像面上，两半贴成一个盒子；调到 0.01 mm：不吸，两个盒子之间留 0.1 mm 的缝", () => {
+    const def = run(undefined), small = run(0.00001);
+    eq(def.faces, 6, "默认：贴成一个盒子（缝上自愈）");
+    eq(small.faces, 12, "0.01 mm：两个分开的盒子");
+    assert(Math.abs(small.minX + 0.00105) < 1e-9, `镜过去的那半在 x = −1.05 mm（实际 ${small.minX}）`);
+  });
+});

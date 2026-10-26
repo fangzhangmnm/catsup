@@ -23,6 +23,8 @@ export interface MirrorOptions {
   mergeSeam: boolean;
   /** 融合阈值（米，默认 0）：留下这侧离镜像面这么近的点先吸到面上。 */
   weld: number;
+  /** 防碎距离（米，缺 = CUT_SNAP = 0.1 mm；0 = 关）：做很小的零件时调小（2026-10-26，user「关键是很小的物件建模」「加防碎距离」）。 */
+  guard?: number;
 }
 export const MIRROR_DEFAULTS: MirrorOptions = { deleteOpposite: true, mergeSeam: true, weld: 0 };
 
@@ -40,8 +42,9 @@ export class MirrorRejected extends Error {}
 /**
  * 防碎护栏（米；user 2026-10-25「切到点不要出零长度的线，然后非常近的点也有护栏」）：
  *   切点离边的端点这么近 = 就用端点；短于它的切段不要；选区里离镜像面这么近（但又不在面上）的点先吸到镜像面上（报数，不悄悄改）。
- * 尺子分工（2026-10-25 AI 建议、待 user 定）：3 µm = 同一个点（内核铁律）；10 µm = 在同一张面上（内核共面容差，判「点在不在镜像面上」用它）；
- * 本常量 = 防碎；融合阈值（user 选项，默认 0）= 额外的主动合并。
+ * 尺子分工（2026-10-25 AI 建议、user 10-26 批「数学approved」）：3 µm = 同一个点（内核铁律）；10 µm = 在同一张面上（内核共面容差，判「点在不在镜像面上」用它）；
+ * 本常量 = 防碎的默认值（10-26 起镜像小窗能调：MirrorOptions.guard）；融合阈值（user 选项，默认 0）= 额外的主动合并。
+ * 它和吸附距离不是一个东西：吸附按屏幕像素算（放大就能吸小零件），防碎按真实长度算（0.1 mm 对 1 mm 的零件就太大）。
  */
 export const CUT_SNAP = 1e-4;
 /** 镜像这一步的回执（给提示行 / 参数小窗报数）。 */
@@ -70,6 +73,7 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
   const n = normalize3(plane.normal);
   const o = plane.origin;
   const tol = Math.max(k.coplanarTol, 1e-6);
+  const G = Math.max(0, opts.guard ?? CUT_SNAP);   // 防碎距离（下面原来写死 CUT_SNAP 的地方都用它）
   const sd = (p: Pt3): number => dot3(sub3(p, o), n);
   const events: FaceEvent[] = [];
   const guard = (evs: FaceEvent[]): void => { for (const e of evs) if (e.type === "BURST") throw new MirrorRejected("镜像会让面破掉（算法没想到的情况，已整步撤回；请导出复现包）"); events.push(...evs); };
@@ -79,12 +83,12 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
   const ringEdges = new Set<EdgeId>();
   for (const f of faceSet) { const F = k.face(f)!; for (const r of [F.outer, ...F.holes]) for (const d of r.edges) ringEdges.add(d.edge); }
 
-  // ⓪ 防碎护栏：选区里离镜像面 (τ, CUT_SNAP] 的点先吸到面上（否则镜过去和原件在缝上叠出几十微米的细缝，一合并就碎）
+  // ⓪ 防碎护栏：选区里离镜像面 (τ, G] 的点先吸到面上（否则镜过去和原件在缝上叠出几十微米的细缝，一合并就碎）
   {
     const vids = new Set<VertexId>();
     for (const f of faceSet) { const F = k.face(f)!; for (const r of [F.outer, ...F.holes]) for (const v of r.vids) vids.add(v); }
     for (const e of edges) if (k.graph.hasEdge(e) && !ringEdges.has(e)) { const E = k.graph.edge(e); vids.add(E.a); vids.add(E.b); }
-    const moves = [...vids].map((id) => ({ id, p: k.graph.pt(id) })).filter(({ p }) => { const d = Math.abs(sd(p)); return d > tol && d <= CUT_SNAP; }).map(({ id, p }) => ({ id, to: sub3(p, scale3(n, sd(p))) }));
+    const moves = [...vids].map((id) => ({ id, p: k.graph.pt(id) })).filter(({ p }) => { const d = Math.abs(sd(p)); return d > tol && d <= G; }).map(({ id, p }) => ({ id, to: sub3(p, scale3(n, sd(p))) }));
     if (moves.length) { guard(k.moveVertices(moves)); if (report) report.snappedToPlane += moves.length; }
   }
 
@@ -117,13 +121,13 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
         if ((sa > 0) === (sb > 0)) continue;
         const t = sa === 0 ? 0 : sa / (sa - sb);
         let p = add3(a, scale3(sub3(b, a), t));
-        if (Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z) <= CUT_SNAP) p = a;          // 切点护栏：贴近端点 = 就是端点
-        else if (Math.hypot(p.x - b.x, p.y - b.y, p.z - b.z) <= CUT_SNAP) p = b;
+        if (Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z) <= G) p = a;          // 切点护栏：贴近端点 = 就是端点
+        else if (Math.hypot(p.x - b.x, p.y - b.y, p.z - b.z) <= G) p = b;
         hits.push({ t: dot3(p, u), p });
       }
     }
     hits.sort((x, y) => x.t - y.t);
-    for (let i = 0; i + 1 < hits.length; i += 2) if (hits[i + 1].t - hits[i].t > CUT_SNAP) cuts.push([hits[i].p, hits[i + 1].p]);   // 零长度 / 太短的切段不要
+    for (let i = 0; i + 1 < hits.length; i += 2) if (hits[i + 1].t - hits[i].t > G) cuts.push([hits[i].p, hits[i + 1].p]);   // 零长度 / 太短的切段不要
   }
   // 裸线过镜像面：在交点处切开（共线插段 = 粘性几何把原边切成两段）
   const wireCuts: [Pt3, Pt3][] = [];
@@ -133,7 +137,7 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
     if (Math.abs(sb) <= tol) sb = 0;
     if (sa === 0 || sb === 0 || (sa > 0) === (sb > 0)) continue;
     const x = add3(w.a, scale3(sub3(w.b, w.a), sa / (sa - sb)));
-    if (Math.hypot(x.x - w.a.x, x.y - w.a.y, x.z - w.a.z) <= CUT_SNAP || Math.hypot(x.x - w.b.x, x.y - w.b.y, x.z - w.b.z) <= CUT_SNAP) continue;   // 切点护栏：贴着端点就不切
+    if (Math.hypot(x.x - w.a.x, x.y - w.a.y, x.z - w.a.z) <= G || Math.hypot(x.x - w.b.x, x.y - w.b.y, x.z - w.b.z) <= G) continue;   // 切点护栏：贴着端点就不切
     wireCuts.push([w.a, x], [x, w.b]);
   }
   if (cuts.length || wireCuts.length) guard(k.addEdges([...cuts, ...wireCuts]));

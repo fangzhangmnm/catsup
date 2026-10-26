@@ -87,7 +87,7 @@ export type Op =
   /** 改轴：group = 换 group 的帧（definition 坐标，几何不动）；根 = 绘图轴（世界坐标）；组件定义暂不支持。 */
   | { op: "setAxes"; at: PoolRef; frame: Frame }
   /** 镜像（DT23）：选中的面 / 线 + 组件实例（池本地坐标的镜像面）；默认删对面、消中缝、融合阈值 0。几何在 mirror.ts。 */
-  | { op: "mirror"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; instances?: number[]; plane: { origin: Pt3; normal: Pt3 }; deleteOpposite: boolean; mergeSeam: boolean; weld: number };
+  | { op: "mirror"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; instances?: number[]; plane: { origin: Pt3; normal: Pt3 }; deleteOpposite: boolean; mergeSeam: boolean; weld: number; /** 防碎距离（米）；缺 = 默认 0.1 mm（老复现包照旧）。 */ guard?: number };
 
 export interface ApplyResult { scene: Scene; events: FaceEvent[]; }
 
@@ -334,7 +334,7 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       const d = s.def(ref.def);
       const insts = (op.instances ?? []).map((id) => { const inst = d.instances.get(id); if (!inst || inst.parent !== ref.group) throw new OpTargetError(`instance ${id}`); return inst; });
       let events: FaceEvent[] = [];
-      try { if (fids.length || eids.length) events = mirrorGeometry(kernel, fids, eids, op.plane, { deleteOpposite: op.deleteOpposite, mergeSeam: op.mergeSeam, weld: op.weld }); }
+      try { if (fids.length || eids.length) events = mirrorGeometry(kernel, fids, eids, op.plane, { deleteOpposite: op.deleteOpposite, mergeSeam: op.mergeSeam, weld: op.weld, ...(op.guard !== undefined ? { guard: op.guard } : {}) }); }
       catch (e) { if (e instanceof MirrorRejected) throw new OpTargetError(e.message); throw e; }
       // 组件 = 负变换（user「组件也是选单里面选。就是负transform嘛」）：原点在留下这侧 → 镜一份过去；在对面且删对面 → 删；正好在镜像面上 → 不动
       const R = reflectionXform(op.plane), n = normalize3(op.plane.normal);
@@ -489,6 +489,6 @@ export function describeOp(op: Op): string {
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;
     case "clearGuides": return `clearGuides${at}`;
     case "setAxes": return `setAxes${at}`;
-    case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${at}`;
+    case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;
   }
 }
