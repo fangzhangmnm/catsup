@@ -325,6 +325,9 @@ export class FaceStore {
         }
       }
     }
+    // 按 id 升（同 relinkFaces）：膜表的插入序带历史（同 id 删了再落 = 挪到表尾），不排就让链接顺序随擦边前的历史变
+    // （2026-10-26 池网格对拍抓到：擦一条边后不相干的边 [1,4] → [4,1]，日志里没有它们）
+    for (const e of g.edges()) if (e.faceLinks.length > 1) e.faceLinks.sort((x, y) => x - y);
   }
 
   /**
