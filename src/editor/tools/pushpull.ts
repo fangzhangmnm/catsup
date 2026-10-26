@@ -119,7 +119,7 @@ export class PushPullTool implements ToolHandler {
           this.h = best;
           ref = `｜高度咬合 ${fmtLen(best)}`;
           ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "h-stop" });
-        } else if (grid.on) {   // 整数长度（0.11 ⑤；与格点同一开关）：没停靠点时高度取整到吸附步
+        } else if (grid.on) {   // 整数长度（0.11 ⑤；与格点同一开关，按住 Shift 反过来 = ctx.grid() 已是有效值）：没停靠点时高度离整格近才咬
           const step = grid.step / grid.subdiv, r = Math.round(this.h / step) * step;
           if (Math.abs(r) >= MIN_GESTURE_LEN && allowed(r) && Math.abs(r - this.h) <= epsH) {
             this.h = r;
@@ -128,10 +128,6 @@ export class PushPullTool implements ToolHandler {
           }
         }
       }
-    }
-    if (ctx.mods().shift && Math.abs(this.h) >= MIN_GESTURE_LEN) {   // Shift = 整数增量（高度取整到网格步长）
-      const g = ctx.grid(), step = g.step / g.subdiv, r = Math.round(this.h / step) * step;
-      if (Math.abs(r) >= MIN_GESTURE_LEN) { this.h = r; ref = `｜整数长度 ${fmtLen(r)}`; ctx.setSnap({ p: add3(anc, scale3(n, this.h)), kind: "increment", label: `整数长度 ${fmtLen(r)}` }); }
     }
     ctx.setCursor(add3(anc, scale3(n, this.h)));
     const facing = Math.abs(dot3(n, ctx.frame().viewDir(anc)));

@@ -28,7 +28,7 @@ export declare class RRectTool implements ToolHandler {
     /** A9 面锁：第二点落定之前随时可锁 / 解锁——平面过首点；解锁回到首点解析出的平面。 */
     private relock;
     private pointOnPlane;
-    /** 第二边：角度咬合（90° 强吸；Shift 15° 格），顺手记角度给提示。 */
+    /** 第二边：角度咬合（90° 强吸；格点吸附开着 = 15° 一档、离得近才咬），顺手记角度给提示。 */
     private secondCorner;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {

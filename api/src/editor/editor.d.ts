@@ -284,6 +284,9 @@ export declare class Editor {
     private dims;
     private toolTip;
     private opCount;
+    /** 格点吸附的有效开关（DT51，user 2026-10-25「shift应该是flip snap rule」「还是其实右上应该只管grid snap」）：右上锁钮，按住 Shift 反过来。
+     *  管：格点 + 整格长度 + 15° 整角（「15是grid合理」）——都有捕捉阈；几何推断不归它管。 */
+    private get gridEff();
     /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
     private stepDepth;
     private stepHasOp;
@@ -298,6 +301,7 @@ export declare class Editor {
     private _planeLock;
     private _planeLockN;
     private lastPtr;
+    private lastMoveEv;
     get axisLock(): LockAxis | null;
     get planeLock(): PlaneLock | null;
     /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
@@ -419,6 +423,8 @@ export declare class Editor {
     /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴（几何不动）。 */
     setContextAxes(frame: Frame): void;
     private cancelGesture;
+    /** Shift 按下 / 松开（DT51：Shift = 把格点吸附反过来）：指针没动也按新规则重算悬停 / 手势预览。 */
+    setShiftHeld(on: boolean): void;
     /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
     private step;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */

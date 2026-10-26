@@ -12,6 +12,7 @@ import type { DrawPlane } from "../pick.ts";
 import { offsetRing } from "../offset.ts";
 import { circleOfFace, curveSpecToLocal, offsetCircleSpec } from "../tools.ts";
 import { intentAllows1D } from "../intent.ts";
+import { nearestStep } from "../increments.ts";
 import { fmtLen, MIN_GESTURE_LEN } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
@@ -86,20 +87,25 @@ export class OffsetTool implements ToolHandler {
     let label: string | undefined;
     // 落格：只在没吸到几何（裸落 / 格点 / 整数长度 / 面上）时接管；吸到别的端点 / 中点 / 边照旧（偏移到某个点是正经用法）
     const weak = kind === null || kind === "grid-point" || kind === "increment" || kind === "on-face";
-    const g = ctx.grid(), shift = ctx.mods().shift, s0 = g.step / g.subdiv;
-    if (weak && (g.on || shift) && s0 > 0) {
-      let d2 = Math.round(d / s0) * s0;   // 增量：从边起整数格距
-      if (g.on && !shift) {
-        const F = ctx.contextFrame();
-        for (const ax of [F.x, F.y, F.z] as GPt3[]) {   // 内法向与栅格轴平行 → 绝对格线（外框在格上时与增量相同）
-          const dd = dot3(this.inward, ax);
-          if (Math.abs(Math.abs(dd) - 1) > 1e-6) continue;
-          const c0 = dot3(sub3(anchor, F.origin), ax);
-          d2 = (Math.round((c0 + d * dd) / s0) * s0 - c0) / dd;
-          break;
-        }
+    // 格点吸附（有效开关 = ctx.grid().on，按住 Shift 反过来）：绝对格线（内法向与栅格轴平行时）+ 从边起的整格，屏距最近、在吸附圈内才咬（2026-10-25：以前是硬取整）
+    const g = ctx.grid(), s0 = g.step / g.subdiv;
+    if (weak && g.on && s0 > 0) {
+      const cands: { d: number; abs: boolean }[] = [{ d: nearestStep(d, s0), abs: false }];
+      const F = ctx.contextFrame();
+      for (const ax of [F.x, F.y, F.z] as GPt3[]) {
+        const dd = dot3(this.inward, ax);
+        if (Math.abs(Math.abs(dd) - 1) > 1e-6) continue;
+        const c0 = dot3(sub3(anchor, F.origin), ax);
+        cands.push({ d: (nearestStep(c0 + d * dd, s0) - c0) / dd, abs: true });
+        break;
       }
-      if (Math.abs(d2) > 1e-9 && Math.sign(d2) === Math.sign(d || d2)) { d = d2; q = add3(anchor, scale3(this.inward, d)); kind = g.on && !shift ? "grid-point" : "increment"; label = `${g.on && !shift ? "格线" : "整数长度"} · ${fmtLen(Math.abs(d))}`; }
+      let best: { d: number; abs: boolean; q: Pt3; px: number } | null = null;
+      for (const c of cands) {
+        if (Math.abs(c.d) <= 1e-9 || Math.sign(c.d) !== Math.sign(d || c.d)) continue;
+        const q2 = add3(anchor, scale3(this.inward, c.d)), px = ctx.frame().distTo(s.x, s.y, q2, ctx.vp());
+        if (px <= ctx.snapPx() && (!best || px < best.px)) best = { ...c, q: q2, px };
+      }
+      if (best) { d = best.d; q = best.q; kind = best.abs ? "grid-point" : "increment"; label = `${best.abs ? "格线" : "整格"} · ${fmtLen(Math.abs(d))}`; }
     }
     this.dist = d;
     ctx.setSnap(kind ? { ...sn, kind, p: q, ...(label ? { label, hints: [{ a: anchor, b: q, axis: "i" as const }] } : {}) } : null);

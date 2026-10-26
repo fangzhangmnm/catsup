@@ -869,12 +869,21 @@ function renderSnapWidget(): void {
   const a = editor.axisLock, p = editor.planeLock, axis = a ?? (p === "face" ? null : p);
   badge.hidden = !a && !p; badge.textContent = a ? a.toUpperCase() : p ? planeLockLabel(p) : ""; badge.dataset.axis = axis ?? "";
 }
+window.addEventListener("keyup", (ev) => { if (ev.key === "Shift") editor.setShiftHeld(false); });   // DT51：松开 Shift = 格点吸附回到右上锁钮的状态
+window.addEventListener("blur", () => editor.setShiftHeld(false));
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
   if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
   if (vcb.feedKey(ev)) { ev.preventDefault(); return; }
   if (ev.key === "Enter" && editor.mirrorActive()) { ev.preventDefault(); editor.pressParam("apply"); syncUi(); return; }   // 镜像会话：回车 = 应用（Esc = 取消走 editor.cancel）   // 数值小窗：数字开头直接进小窗（SU 同款），字母只在缓冲非空时进
+  if (ev.key === "Shift") editor.setShiftHeld(true);   // DT51：按住 Shift = 格点吸附反过来，指针不动也立刻换规则
+  if (ev.key === "Tab" && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
+    ev.preventDefault();
+    editor.setGrid({ on: !editor.grid.on });
+    hintEl.textContent = editor.grid.on ? "格点吸附：开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "格点吸附：关（按住 Shift 临时开）";
+    syncUi(); return;
+  }
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X

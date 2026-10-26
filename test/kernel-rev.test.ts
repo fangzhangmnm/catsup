@@ -12,7 +12,7 @@ const box = (k: Kernel): void => {
 };
 
 /** 查询 / 构造类方法（不改状态，不要求 bump）。 */
-const QUERIES = new Set(["constructor", "toBrep", "clone", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "dihedralDeg", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3", "curves", "curveById", "curveOf", "curveProblems", "isBreakJunction"]);
+const QUERIES = new Set(["constructor", "toBrep", "clone", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "dihedralDeg", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3", "curves", "curveById", "curveOf", "curveProblems", "isBreakJunction", "isFaceHidden", "isEdgeHidden"]);
 /** 改写动词：每个在这里被调一次，rev 必须严格递增。 */
 const VERBS: Record<string, (k: Kernel) => void> = {
   addEdges: (k) => { k.addEdges([[P(5, 5), P(6, 5)]]); },
@@ -25,6 +25,7 @@ const VERBS: Record<string, (k: Kernel) => void> = {
   transformAll: (k) => { k.transformAll((p) => P(p.x + 1, p.y, p.z)); },
   setFaceMaterial: (k) => { k.setFaceMaterial([k.faces()[0].id], 1); },
   setEdgeLayer: (k) => { k.setEdgeLayer("soft", [k.edges()[0].id], true); },
+  setFaceHidden: (k) => { k.setFaceHidden([k.faces()[0].id], true); },   // DT49 隐藏的面（2026-10-25 Opus）
   weldEdges: (k) => { const before = new Set(k.edges().map((e) => e.id)); k.addEdges([[P(5, 5), P(6, 5)], [P(6, 5), P(6, 6)]]); k.weldEdges(k.edges().map((e) => e.id).filter((id) => !before.has(id))); },
   dissolveVertices: (k) => { k.addEdges([[P(5, 5), P(6, 5)], [P(6, 5), P(7, 5)]]); k.dissolveVertices(k.vertices().filter((v) => v.x === 6 && v.y === 5).map((v) => v.id)); },
   explodeCurves: (k) => { k.addEdges([[P(5, 5), P(6, 5)], [P(6, 5), P(6, 6)], [P(6, 6), P(5, 5)]], { curve: { kind: "polyline", closed: true } }); k.explodeCurves(k.curves().map((c) => c.id)); },

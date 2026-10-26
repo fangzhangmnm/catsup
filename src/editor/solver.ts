@@ -20,6 +20,7 @@ import { closestOnAxis, rayPlane } from "./camera.ts";
 import type { EpsSet, PointerFrame, Ray, Viewport } from "./pointer-frame.ts";
 import { perf } from "./perf-stats.ts";
 import { ScreenIndex } from "./screen-index.ts";
+import { INCREMENT_DEG, nearestStep, snapDirectionInPlane } from "./increments.ts";
 import { type Frame, WORLD_FRAME } from "../scene/xform.ts";
 
 /** 绘图平面；face 有值 = 这张平面来自一张膜（首点面锁 / 含点膜），裸落其内报「面上」（SU On Face，2026-09-06 user：「还没有落笔的时候也应该显示面上的吸附」）。 */
@@ -688,41 +689,59 @@ export function snapPoint(
   if (!sol) return { p: q.anchor ?? { x: 0, y: 0, z: 0 }, kind: null };
   const GR = k.grid?.();
   // 网格开着 = 世界是格子（user 2026-10-24「当我想在边上找点的时候，grid snap也没了」「你想想游戏里面我们需要画格子，比如dnd那种格子地图」）：
-  // 几何推断管方向（赢的 1-D 轨迹：边上 / 轴线 / 参考线 / 延长线 / 工具线），格子管落在哪——沿线找最近的格线交点（线 ∩ 帧的 x / y / z = m·s），
-  // 在吸附圈内就落格；强 0-D（端点 / 中点 / 交点）照旧赢；没有格线交点才退到下面的整数长度。
+  // 几何推断管方向（赢的 1-D 轨迹：边上 / 轴线 / 参考线 / 延长线 / 工具线），格子管落在哪。GR 是**有效**开关（右上锁钮；按住 Shift 反过来——编辑器递进来时已算好）。
+  // 2026-10-25（user「同时snap absolute和incremental没关系吧」「以及沿着一根线走一个grid，这个怎么得到？」「snap to incremental应该还要有一个捕捉阈」）：
+  //   沿线的候选 = ① 绝对格点（线 ∩ 帧的 x / y / z = m·s）+ ② 整格增量（从线上的起点量 k·s：锚点在这条线上 = 从锚点量；线是一条边 = 从两头量）；
+  //   屏距最近的那个、在吸附圈内才咬（不是硬取整）；强 0-D（端点 / 中点 / 交点）照旧赢。
   if (GR && sol.dim === 1 && sol.used.length === 1 && sol.used[0].locus.dim === 1) {
     const L = sol.used[0].locus, s0 = GR.step / GR.sub, F = GR.frame;
+    const tk = sol.used[0].tag as { kind: string; src?: Pt3; axis?: string; label?: string };
     const dl = Math.hypot(L.dir.x, L.dir.y, L.dir.z) || 1, dir = scale3(L.dir, 1 / dl);
     const t0 = dot3(sub3(sol.p, L.a), dir), lenW = L.len !== undefined ? L.len * dl : undefined;
-    let best: { t: number; d: number } | null = null;
+    const onLine = (t: number): boolean => lenW === undefined || (t >= -1e-9 && t <= lenW + 1e-9);
+    const cands: { t: number; step?: number }[] = [];
     for (const ax of [F.x, F.y, F.z]) {
       const dd = dot3(dir, ax);
       if (Math.abs(dd) < 1e-6) continue;
       const c0 = dot3(sub3(L.a, F.origin), ax);
-      const t = (Math.round((c0 + t0 * dd) / s0) * s0 - c0) / dd;
-      if (lenW !== undefined && (t < -1e-9 || t > lenW + 1e-9)) continue;
-      const d = Math.abs(t - t0);
-      if (!best || d < best.d) best = { t, d };
+      const t = (nearestStep(c0 + t0 * dd, s0) - c0) / dd;
+      if (onLine(t)) cands.push({ t });
     }
+    const origins: number[] = [];
+    if (q.anchor) { const w = sub3(q.anchor, L.a), ta = dot3(w, dir); if (dist3(q.anchor, add3(L.a, scale3(dir, ta))) < 1e-6) origins.push(ta); }
+    if (tk.kind === "edge" && lenW !== undefined) origins.push(0, lenW);
+    for (const o of origins) { const t = o + nearestStep(t0 - o, s0); if (Math.abs(t - o) > 1e-9 && onLine(t)) cands.push({ t, step: Math.abs(t - o) }); }
+    // 裁决：线和帧的某根轴平行 → 绝对格点先（2026-10-24 定稿「方向归轴线、位置归格子」；锚点在格上时两者重合），没有才整格；
+    //       斜线（斜边 / 对角线 / 斜参考线）→ 两种里屏距最近的（斜边上找格线交点 和 沿斜边走整格 都要）
+    const axial = [F.x, F.y, F.z].some((ax) => Math.abs(Math.abs(dot3(dir, ax)) - 1) < 1e-9);
+    const pickBest = (cs: readonly { t: number; step?: number }[]): { p: Pt3; d: number; step?: number } | null => {
+      let b: { p: Pt3; d: number; step?: number } | null = null;
+      for (const c of cs) { const p2 = add3(L.a, scale3(dir, c.t)), d = pf.distTo(sx, sy, p2, vp); if (d <= E.point && (!b || d < b.d - 1e-9)) b = { p: p2, d, ...(c.step !== undefined ? { step: c.step } : {}) }; }
+      return b;
+    };
+    const best = axial ? (pickBest(cands.filter((c) => c.step === undefined)) ?? pickBest(cands.filter((c) => c.step !== undefined))) : pickBest(cands);
     if (best) {
-      const p2 = add3(L.a, scale3(dir, best.t));
-      if (pf.distTo(sx, sy, p2, vp) <= E.point) {
-        const tk = sol.used[0].tag as { kind: string; src?: Pt3; axis?: string; label?: string };
-        const under = tk.kind === "edge" ? "边上" : tk.kind === "axis" ? (tk.axis === "u" || tk.axis === "v" ? "共轴" : `${String(tk.axis ?? "").toUpperCase()} 轴`) : tk.kind === "guide" ? "参考线" : tk.kind === "edgeExt" ? "延长线" : tk.kind === "tool" ? (tk.label ?? "工具") : tk.kind === "align" ? "共轴" : "线上";
-        const hs: SnapHint[] = tk.src ? [{ a: tk.src, b: p2, axis: ((tk.axis as SnapHint["axis"] | undefined) ?? "i") }] : [];
-        return { p: p2, kind: "grid-point", label: `格点 · ${under}`, ...(hs.length ? { hints: hs } : {}) };
-      }
+      const under = tk.kind === "edge" ? "边上" : tk.kind === "axis" ? (tk.axis === "u" || tk.axis === "v" ? "共轴" : `${String(tk.axis ?? "").toUpperCase()} 轴`) : tk.kind === "guide" ? "参考线" : tk.kind === "edgeExt" ? "延长线" : tk.kind === "tool" ? (tk.label ?? "工具") : tk.kind === "align" ? "共轴" : "线上";
+      const hs: SnapHint[] = tk.src ? [{ a: tk.src, b: best.p, axis: ((tk.axis as SnapHint["axis"] | undefined) ?? "i") }] : [];
+      return best.step !== undefined
+        ? { p: best.p, kind: "increment", label: `整格 ${fmtLen(best.step)} · ${under}`, ...(hs.length ? { hints: hs } : {}) }
+        : { p: best.p, kind: "grid-point", label: `格点 · ${under}`, ...(hs.length ? { hints: hs } : {}) };
     }
   }
-  // 整数长度（0.11 ⑤，与格点同一开关）：没吸到几何（兜底平面 / 从锚点出发的轴线）时，离锚点的距离取整到吸附步
-  if (GR && q.anchor && sol.dim >= 1 && (sol.dim === 2 || (sol.used.length === 1 && sol.used[0].tag.kind === "axis"))) {
-    const s = GR.step / GR.sub, v = sub3(sol.p, q.anchor), d = dist3(sol.p, q.anchor);
-    const kd = Math.round(d / s) * s;
-    if (d > 1e-9 && kd > 0) {
-      const p2 = add3(q.anchor, scale3(v, kd / d));
-      const ax = sol.dim === 1 ? (sol.used[0].tag.axis ?? "i") : "i";
-      return { p: p2, kind: "increment", label: `整数长度 ${fmtLen(kd)}`, hints: [{ a: q.anchor, b: p2, axis: ax }] };
+  // 自由（只落在画面平面上）：先咬整角（15° 一档，user「15是grid合理」），再咬整格长度——都在吸附圈内才咬
+  if (GR && q.anchor && sol.dim === 2) {
+    const n = q.plane.plane.n, F = GR.frame, s0 = GR.step / GR.sub;
+    let u = sub3(F.x, scale3(n, dot3(F.x, n)));
+    if (dot3(u, u) < 1e-9) u = sub3(F.y, scale3(n, dot3(F.y, n)));
+    const ul = Math.hypot(u.x, u.y, u.z);
+    let p = sol.p, deg: number | null = null, len: number | null = null;
+    if (ul > 1e-9) {
+      const uu = scale3(u, 1 / ul), a = snapDirectionInPlane(q.anchor, sol.p, { u: uu, v: cross3(n, uu) }, INCREMENT_DEG);
+      if (pf.distTo(sx, sy, a.p, vp) <= E.point) { p = a.p; deg = a.deg; }
     }
+    const v = sub3(p, q.anchor), d = dist3(p, q.anchor), kd = nearestStep(d, s0);
+    if (d > 1e-9 && kd > 0) { const p2 = add3(q.anchor, scale3(v, kd / d)); if (pf.distTo(sx, sy, p2, vp) <= E.point) { p = p2; len = kd; } }
+    if (deg !== null || len !== null) return { p, kind: "increment", label: [deg !== null ? `${deg}°` : "", len !== null ? `整格 ${fmtLen(len)}` : ""].filter(Boolean).join(" · "), hints: [{ a: q.anchor, b: p, axis: "i" }] };
   }
   const hints: SnapHint[] = [];
   for (const c of sol.used) {

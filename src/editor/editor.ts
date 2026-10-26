@@ -53,6 +53,7 @@ import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from
 import { type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
+import { gridEffective } from "./increments.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
@@ -258,6 +259,9 @@ export class Editor {
   private dims = "";   // 手势中的尺寸读数（血槽位）
   private toolTip: string | null = null;   // 工具自己要的跟指针提示（优先于吸附标签）
   private opCount = 0;
+  /** 格点吸附的有效开关（DT51，user 2026-10-25「shift应该是flip snap rule」「还是其实右上应该只管grid snap」）：右上锁钮，按住 Shift 反过来。
+   *  管：格点 + 整格长度 + 15° 整角（「15是grid合理」）——都有捕捉阈；几何推断不归它管。 */
+  private get gridEff(): boolean { return gridEffective(this._grid.on, this.mods.shift); }
   /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
   private stepDepth = 0;
   private stepHasOp = false;
@@ -271,7 +275,8 @@ export class Editor {
   private _axisLock: LockAxis | null = null;
   private _planeLock: PlaneLock | null = null;
   private _planeLockN: Pt3 | null = null;   // 面锁法向（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
-  private lastPtr: { x: number; y: number } | null = null;   // 最后一次指针位置（Shift+↓ 取光标下的膜用）
+  private lastPtr: { x: number; y: number } | null = null;
+  private lastMoveEv: ToolPointer | null = null;   // Shift 按下 / 松开时按它重算（setShiftHeld）   // 最后一次指针位置（Shift+↓ 取光标下的膜用）
   get axisLock(): LockAxis | null { return this._axisLock; }
   get planeLock(): PlaneLock | null { return this._planeLock; }
   /** 当前工具吃哪种锁（null = 不吃锁：方向键 / 虚拟轴键无效）。 */
@@ -329,7 +334,7 @@ export class Editor {
       const ray = this.frame().ray(sx, sy, this.fvp()), den = dot3(ray.dir, n);
       if (Math.abs(den) > 0.05) { const t = dot3(sub3(anchor, ray.origin), n) / den; if (t > 0) p = { x: ray.origin.x + ray.dir.x * t, y: ray.origin.y + ray.dir.y * t, z: ray.origin.z + ray.dir.z * t }; }
     }
-    if (this._grid.on && lock !== "face") {
+    if (this.gridEff && lock !== "face") {
       const F = this.contextFrame(), s0 = this._grid.step / this._grid.subdiv;
       if (s0 > 0) for (const ax of (["x", "y", "z"] as const).filter((a) => a !== lock)) {
         const raw = F[ax], d = normalize3(raw), c = dot3(sub3(p, F.origin), d), q = Math.round(c / s0) * s0 - c;
@@ -350,7 +355,7 @@ export class Editor {
       const b = dot3(dir, r), c = dot3(r, r), d = dot3(dir, w0), e = dot3(r, w0), den = c - b * b;
       if (den > 1e-9) t = (b * e - c * d) / den;
     }
-    if (this._grid.on) { const s0 = this._grid.step / this._grid.subdiv, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
+    if (this.gridEff) { const s0 = this._grid.step / this._grid.subdiv, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
     const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t };
     return { p, kind: `axis-${ax}` as SnapKind, label: `轴锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
   }
@@ -467,7 +472,7 @@ export class Editor {
     if (copy) override = null;
     const keyOf = (o: { picks: PoolPick[]; xform: Xform }): string => `${o.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${o.xform.map((v) => v.toFixed(9)).join(",")}`;
     const ovKey = override ? keyOf(override) : copy ? `copy:${keyOf(copy)}` : "";
-    const grid = this._grid.on ? { step: this._grid.step, sub: this._grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this._grid.plane) } : null;
+    const grid = this.gridEff ? { step: this._grid.step, sub: this._grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this._grid.plane) } : null;
     const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}|${this._isolate ? "iso" : ""}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
@@ -625,6 +630,13 @@ export class Editor {
     if (this.dims) { this.dims = ""; this.host.readout?.(this.readoutText()); }
   }
 
+  /** Shift 按下 / 松开（DT51：Shift = 把格点吸附反过来）：指针没动也按新规则重算悬停 / 手势预览。 */
+  setShiftHeld(on: boolean): void {
+    if (this.mods.shift === on) return;
+    this.lastSnap = null;   // 规则换了：上一个吸附目标的「粘性」作废，按新规则重新选
+    if (this.lastMoveEv) this.pointerMove({ ...this.lastMoveEv, shiftKey: on });
+    else this.mods = { ...this.mods, shift: on };
+  }
   // ---------- 记账 ----------
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: () => T): T {
@@ -1949,6 +1961,7 @@ export class Editor {
     if (this.gizmoPointer("move", ev)) return;
     const s = ev;
     this.lastPtr = { x: s.x, y: s.y };
+    this.lastMoveEv = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     if (!this.gestureActive()) {
       this.snapInfo = null;
@@ -2027,7 +2040,7 @@ export class Editor {
       paintMaterialIndex: () => this.materialIndexForPick(),
       paintFaces: (faces) => this.paintFaces(faces),
       pickMaterialOf: (f) => this.pickMaterialOf(f),
-      grid: () => this._grid,
+      grid: () => (this.gridEff === this._grid.on ? this._grid : { ...this._grid, on: this.gridEff }),   // 工具看到的是有效开关（按住 Shift 反过来）
       pickLocked: (p) => this.pickIsLocked(p),
       setLiveOverride: (o) => { this.liveOverride = o; },
       xformToLocal: (X) => this.xformToLocal(X),

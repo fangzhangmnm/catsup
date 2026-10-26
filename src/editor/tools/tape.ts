@@ -6,8 +6,10 @@
 // 预演 = 量线 + 候选参考线（viewExtras → render3 tape 层）；VCB：距离（撤销刚才那条、按精确值重做）。落定后回到第一下（SU：卷尺一直在手上）。
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
-import { dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
+import { add3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
+import { nearestStep } from "../increments.ts";
 import { applyDir, invert } from "../../scene/xform.ts";
+import { rayPlane } from "../camera.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import { fmtLen } from "../editor.ts";
 import { type TapeStart, classifyStart, tapeResult } from "../tape-geom.ts";
@@ -103,7 +105,22 @@ export class TapeTool implements ToolHandler {
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
     if (this.stage === 0 || !this.start) return;
     const view = ctx.live();
-    const sn = ctx.applyLock(ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.start.p, alignSources: ctx.alignSources(), hand: ctx.hand(view) }), s.x, s.y);   // A9 轴锁
+    let sn = ctx.applyLock(ctx.snap(view, s.x, s.y, { plane: this.plane!, anchor: this.start.p, alignSources: ctx.alignSources(), hand: ctx.hand(view) }), s.x, s.y);   // A9 轴锁
+    // 整格（user 2026-10-25「卷尺的线模式和点模式应该都同时可以接incremental snap」）：点模式 = 求解器从起点量（沿线 / 自由都有）；
+    // 线模式（平行参考线）量的是垂直偏移 → 这里把偏移咬到整格，离得近才咬
+    //   偏移从光标真实落点量（不从格点量：斜边上绝对格点给的偏移没意义），离整格近就咬；吸到端点 / 边这些几何照旧
+    const g = ctx.grid(), pl = this.plane!.plane;
+    if (g.on && (sn.kind === null || sn.kind === "increment" || sn.kind === "grid-point" || sn.kind === "on-face")) {
+      const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), raw = rayPlane(ray.origin, ray.dir, pl.n, pl.d) ?? sn.p;
+      const r = tapeResult(this.start, raw), step = g.step / g.subdiv;
+      if (r.make === "line" && r.d > 0 && step > 0) {
+        const k = nearestStep(r.d, step);
+        if (k > 0) {
+          const wdir = normalize3(sub3(r.p, this.start.p)), b2 = add3(add3(this.start.p, scale3(wdir, k)), sub3(raw, r.p));
+          if (ctx.frame().distTo(s.x, s.y, b2, ctx.vp()) <= ctx.snapPx()) sn = { p: b2, kind: "increment", label: `整格偏移 ${fmtLen(k)}`, hints: [{ a: this.start.p, b: add3(this.start.p, scale3(wdir, k)), axis: "i" }] };
+        }
+      }
+    }
     this.b = sn.p;
     ctx.setSnap(sn); ctx.setCursor(sn.p);
   }

@@ -31,7 +31,7 @@ export declare class ArcTool implements ToolHandler {
     /** A9 面锁：第二点落定之前随时可锁 / 解锁——平面过首点；解锁回到首点解析出的平面。 */
     private relock;
     private pointOnPlane;
-    /** 圆心弧：指针 → 扫角（连续化；Shift = 15° 咬合）。 */
+    /** 圆心弧：指针 → 扫角（连续化；格点吸附开着 = 15° 一档、离得近才咬，按住 Shift 反过来）。 */
     private sweepFrom;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {

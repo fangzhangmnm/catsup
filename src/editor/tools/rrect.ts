@@ -13,7 +13,6 @@ import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 import type { ViewState } from "../render3.ts";
-import { shiftAngleSnap } from "./draw.ts";
 
 const projectThrough = (p: Pt3, c: Pt3, n: Pt3): Pt3 => { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); };
 
@@ -47,15 +46,16 @@ export class RRectTool implements ToolHandler {
     this.relock(ctx);
     const view = ctx.live(), pl = this.plane!;
     let sn = ctx.snap(view, sx, sy, { plane: pl, anchor, alignSources: ctx.alignSources(), hand: ctx.hand(view) });
-    if (this.stage === 1 && ctx.mods().shift) sn = shiftAngleSnap(ctx, anchor, sn.p, pl.plane.n);   // 第一边：Shift = 15° 角（画线同款）
+    // 第一边的 15° 整角 = 格点吸附（求解器自由落点时咬，有捕捉阈；画线同款）
     ctx.setSnap(sn);
     if (sn.p) return projectThrough(sn.p, anchor, pl.plane.n);
     const ray = ctx.frame().ray(sx, sy, ctx.vp());
     return rayPlane(ray.origin, ray.dir, pl.plane.n, pl.plane.d);
   }
-  /** 第二边：角度咬合（90° 强吸；Shift 15° 格），顺手记角度给提示。 */
+  /** 第二边：角度咬合（90° 强吸；格点吸附开着 = 15° 一档、离得近才咬），顺手记角度给提示。 */
   private secondCorner(ctx: ToolCtx, q: Pt3): Pt3 {
-    const r = rrectSnapAngle(this.a!, this.b!, q, this.plane!.plane.n, { shift: ctx.mods().shift });
+    let r = rrectSnapAngle(this.a!, this.b!, q, this.plane!.plane.n, { shift: ctx.grid().on });
+    if (r.snapped && ctx.frame().distBetween(q, r.c, ctx.vp()) > ctx.snapPx()) r = rrectSnapAngle(this.a!, this.b!, q, this.plane!.plane.n, { shift: false });   // 15° 档太远 = 不咬（90° 强吸照旧）
     this.deg = r.deg;
     ctx.tip(r.snapped ? `${Math.round(r.deg)}°` : null);
     return r.c;

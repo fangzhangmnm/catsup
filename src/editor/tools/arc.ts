@@ -6,6 +6,7 @@
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
 import { dist3, dot3, scale3, sub3 } from "../../kernel/geom.ts";
+import { applyPt, rotationAbout } from "../../scene/xform.ts";
 import { rayPlane } from "../camera.ts";
 import { rectFirstPlane, type DrawPlane } from "../pick.ts";
 import { arcToolTargets, sweepAngle, unwrapAngle } from "../tools.ts";
@@ -62,11 +63,11 @@ export class ArcTool implements ToolHandler {
     const ray = ctx.frame().ray(sx, sy, ctx.vp());
     return rayPlane(ray.origin, ray.dir, pl.plane.n, pl.plane.d);
   }
-  /** 圆心弧：指针 → 扫角（连续化；Shift = 15° 咬合）。 */
+  /** 圆心弧：指针 → 扫角（连续化；格点吸附开着 = 15° 一档、离得近才咬，按住 Shift 反过来）。 */
   private sweepFrom(ctx: ToolCtx, q: Pt3): number {
     const raw = sweepAngle(this.p1!, this.p2!, q, this.plane!.plane.n);
     let s = unwrapAngle(this.sweep, raw);
-    if (ctx.mods().shift) s = Math.round(s / STEP) * STEP;
+    if (ctx.grid().on) { const k = Math.round(s / STEP) * STEP; if (ctx.frame().distBetween(q, applyPt(rotationAbout(this.p1!, this.plane!.plane.n, k - s), q), ctx.vp()) <= ctx.snapPx()) s = k; }
     return s;
   }
 

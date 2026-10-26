@@ -13,15 +13,6 @@ import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 
-/** Shift = 15° 角度对齐（B33）：以上下文帧的 X（投到手势平面）为 0°，长度不变；比点吸附优先（用户按着 Shift 就是要角度）。画线 / 旋转矩形第一边共用。 */
-export function shiftAngleSnap(ctx: ToolCtx, a: Pt3, p: Pt3, n: Pt3): Snap3 {
-  const F = ctx.contextFrame();
-  let u = sub3(F.x, scale3(n, dot3(F.x, n)));
-  if (dot3(u, u) < 1e-9) u = sub3(F.y, scale3(n, dot3(F.y, n)));
-  u = normalize3(u);
-  const q = snapDirectionInPlane(a, p, { u, v: cross3(n, u) }, 15);
-  return { p: q.p, kind: "tool", label: `${q.deg}°` };
-}
 
 abstract class DrawTool implements ToolHandler {
   abstract readonly tool: "line" | "rect" | "circle";
@@ -98,7 +89,7 @@ export class LineTool extends DrawTool {
     const camL = cameraPlane(ctx.frame(), a), rayL = ctx.frame().ray(s.x, s.y, ctx.vp());
     const freeL = rayPlane(rayL.origin, rayL.dir, camL.plane.n, camL.plane.d);
     if (sn.kind !== null && freeL && ctx.intentOn(s, travel) && !intentAllows3D(sub3(freeL, a), sub3(sn.p, a), MIN_GESTURE_LEN)) { sn = { p: this.planeSnap(ctx, s.x, s.y), kind: null }; ctx.dropHysteresis(); }
-    if (ctx.mods().shift) sn = shiftAngleSnap(ctx, a, sn.p, this.plane.plane.n);   // Shift = 15° 角度对齐（B33）
+    // 15° 整角归格点吸附（user 2026-10-25「15是grid合理」）：求解器在自由落点时咬（有捕捉阈）；Shift = 把格点吸附反过来（DT51），不再单独 = 15°
     sn = ctx.applyLock(sn, s.x, s.y);   // A9 轴锁 / 面锁（没锁 = 原样）
     const snapped = ctx.hysteresis(sn, s.x, s.y);
     ctx.setSnap(snapped);

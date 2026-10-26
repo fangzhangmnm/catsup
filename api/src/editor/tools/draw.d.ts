@@ -1,11 +1,9 @@
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
-import { type DrawPlane, type Snap3 } from "../pick.ts";
+import { type DrawPlane } from "../pick.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
-/** Shift = 15° 角度对齐（B33）：以上下文帧的 X（投到手势平面）为 0°，长度不变；比点吸附优先（用户按着 Shift 就是要角度）。画线 / 旋转矩形第一边共用。 */
-export declare function shiftAngleSnap(ctx: ToolCtx, a: Pt3, p: Pt3, n: Pt3): Snap3;
 declare abstract class DrawTool implements ToolHandler {
     abstract readonly tool: "line" | "rect" | "circle";
     readonly grammar: "steps";

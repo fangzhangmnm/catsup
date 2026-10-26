@@ -84,7 +84,7 @@ export class ProtractorTool implements ToolHandler {
     if (sn.kind === null) {
       const ax = axisAlignAngle(this.center, this.axis(), this.ref!, ctx.contextFrame(), ang);   // 轴向先于 15° 档
       if (ax) { ang = ax.ang; axisKind = `axis-${ax.axis}`; }
-      else { const d = detent(ang); ang = d.ang; this.snappedDetent = d.snapped; }
+      else if (ctx.grid().on) { const d = detent(ang); ang = d.ang; this.snappedDetent = d.snapped; }   // 15° 档 = 格点吸附（user「15是grid合理」；按住 Shift 反过来）
     }
     this.angle = ang;
     ctx.setSnap(axisKind ? { p: q, kind: axisKind } : this.snappedDetent ? { p: q, kind: "h-stop" } : sn);

@@ -80,7 +80,7 @@ export class MoveTool implements ToolHandler {
     }
     let snapped = ctx.hysteresis(sn, s.x, s.y);
     const g = ctx.grid(), step = g.step / g.subdiv;
-    if (g.on && !ctx.mods().shift) {   // 网格开着 = 世界是格子（user 2026-10-24「move怎么没做incremental or grid snap」「dnd那种格子地图」）：几何推断管方向，格子管落在哪
+    if (g.on) {   // 网格开着（有效开关：按住 Shift 反过来）= 世界是格子（user 2026-10-24「move怎么没做incremental or grid snap」「dnd那种格子地图」）：几何推断管方向，格子管落在哪
       const F = ctx.contextFrame();
       const lat = (p: Pt3): Pt3 => { const d = sub3(p, F.origin); const c = (ax: Pt3): Pt3 => scale3(ax, Math.round(dot3(d, ax) / step) * step); return add3(F.origin, add3(add3(c(F.x), c(F.y)), c(F.z))); };
       if (snapped.kind && snapped.kind.startsWith("axis-")) {   // 轴锁：沿轴落到绝对格（锚点在格上时 = 整数增量）
@@ -95,10 +95,7 @@ export class MoveTool implements ToolHandler {
         if (ctx.frame().distTo(s.x, s.y, q, ctx.vp()) <= ctx.snapPx()) snapped = { p: q, kind: "grid-point" };
       }
     }
-    if (ctx.mods().shift) {   // Shift = 整数增量（user 2026-10-24「move之类的的shift就是snap to incremental」）：沿当前方向把距离取整到网格步长，不管网格开没开
-      const d = sub3(snapped.p, anchor), L = len3(d);
-      if (L >= MIN_GESTURE_LEN) { const r = Math.max(step, Math.round(L / step) * step); snapped = { p: add3(anchor, scale3(d, r / L)), kind: "increment", label: `整数长度 ${fmtLen(r)}` }; }
-    }
+    // Shift 不再单独 = 整数增量（2026-10-25 DT51：Shift = 把格点吸附反过来；整格增量归求解器，带捕捉阈）
     ctx.setSnap(snapped);
     ctx.charge(snapped, 120);
     ctx.setCursor(snapped.p);

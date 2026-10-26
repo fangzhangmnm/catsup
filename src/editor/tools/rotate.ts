@@ -91,7 +91,7 @@ export class RotateTool implements ToolHandler {
     // 轴向咬合先于 15° 档（user 2026-10-24「旋转的时候坐标轴方向也有snap」）：参考方向转到与上下文某轴平行时吸住
     const axHit = kind === null ? axisAlignAngle(c, ax, this.ref, ctx.contextFrame(), ang, ANGLE_SNAP_DEG) : null;
     if (axHit) { ang = axHit.ang; ctx.setSnap({ p: q, kind: `axis-${axHit.axis}` as SnapKind }); }
-    else if ((kind === null && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) || ctx.mods().shift) { ang = near; ctx.setSnap({ p: q, kind: "h-stop" }); }   // Shift = 强制 15° 档（整数增量）
+    else if (kind === null && ctx.grid().on && Math.abs(ang - near) <= ANGLE_SNAP_DEG * Math.PI / 180) { ang = near; ctx.setSnap({ p: q, kind: "h-stop" }); }   // 15° 档 = 格点吸附（user「15是grid合理」；按住 Shift 反过来）
     else ctx.setSnap(kind ? { ...sn, kind, p: q } : null);
     this.angle = ang;
     ctx.setCursor(q);

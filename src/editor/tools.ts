@@ -181,18 +181,8 @@ export type { Edge, Face };
 import type { ToolTarget } from "./solver.ts";
 import { RANK as _RANK } from "./solver.ts";
 const PHI = (1 + Math.sqrt(5)) / 2;
+export { snapDirectionInPlane } from "./increments.ts";   // 搬到 increments.ts（2026-10-25：整格 / 整角吸附一处）
 /** 矩形第二点：从首点出发的两条对角线 = 正方形（秩同轴线）；四条黄金分割线（稍低）。 */
-/** Shift 角度对齐（B33；user 2026-10-24「画线的时候shift可以15度对齐」）：平面内从锚点出发的方向按 stepDeg 咬合，长度不变；返回咬合后的点与度数。 */
-export function snapDirectionInPlane(anchor: Pt3, p: Pt3, basis: { u: Pt3; v: Pt3 }, stepDeg = 15): { p: Pt3; deg: number } {
-  const d = { x: p.x - anchor.x, y: p.y - anchor.y, z: p.z - anchor.z };
-  const du = d.x * basis.u.x + d.y * basis.u.y + d.z * basis.u.z, dv = d.x * basis.v.x + d.y * basis.v.y + d.z * basis.v.z;
-  const r = Math.hypot(du, dv);
-  if (r < 1e-12) return { p, deg: 0 };
-  const step = (stepDeg * Math.PI) / 180;
-  const ang = Math.round(Math.atan2(dv, du) / step) * step;
-  const c = Math.cos(ang) * r, s = Math.sin(ang) * r;
-  return { p: { x: anchor.x + basis.u.x * c + basis.v.x * s, y: anchor.y + basis.u.y * c + basis.v.y * s, z: anchor.z + basis.u.z * c + basis.v.z * s }, deg: Math.round((ang * 180) / Math.PI) };
-}
 export function rectToolTargets(anchor: Pt3, basis: { u: Pt3; v: Pt3 }): ToolTarget[] {
   const { u, v } = basis;
   const line = (dir: Pt3, label: string, rank: number): ToolTarget => ({ locus: { dim: 1, a: anchor, dir: normalize3(dir) }, rank, label, src: anchor });

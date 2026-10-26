@@ -146,3 +146,15 @@ SU 拖拽中 XOR 边不湮灭所以不闪。CatsUp 同款：pp 拖拽预演 `set
 最后一类反例清零）。sticky 协议本形=快照→扰动→结算——之前每帧全结算是把结算塞进了扰动相。
 
 edited by Claude Fable 5 2026-09-03
+
+## 格点吸附 = 一个有效开关（v0.14.19，2026-10-25，Claude Opus 5.5；账本 DT51）
+
+> as-of v0.14.19 / 2026-10-25。user 原话：「snap是走右上那个全局开关的对吧。开关snap用什么键。shift应该是暂时override吧」「shift应该是flip snap rule」「还是其实右上应该只管grid snap」「15是grid合理」「snap to incremental应该还要有一个捕捉阈。然后设置还是能被记得」「卷尺的线模式和点模式应该都同时可以接incremental snap」「同时snap absolute和incremental没关系吧」「以及沿着一根线走一个grid，这个怎么得到？」。
+
+- **有效开关** = 右上锁钮（文档设置，跟文件存）XOR 按住 Shift（`increments.ts gridEffective`；编辑器 `gridEff` 一处算，递给合成视图的 grid、轴锁 / 面锁、`ToolCtx.grid()`）。Shift 按下 / 松开指针不动也立刻重算、并作废吸附粘性（`setShiftHeld`）。快捷键 Shift+Tab 开关（Blender 同键；user 未定，备选 N）。
+- **它管三样，全部有捕捉阈（离得近才咬，不是硬取整）**：绝对格点；整格长度 / 偏移（从起点量）；15° 整角（画线 / 旋转矩形 / 弧 / 旋转 / 量角器）。几何推断（端点 / 中点 / 边 / 轴线 / 参考线 / 圆心…）不归它管、一直在、优先。
+- **沿线（赢的是一条 1-D 轨迹）**：候选 = 绝对格线交点 + 整格（锚点在线上 = 从锚点量；线是边 = 从两头量）。线和帧轴平行 → 绝对格点先（10-24 定稿「方向归轴线、位置归格子」），没有才整格；斜线 → 两种里屏距最近的。
+- **自由（只落在画面平面上）**：先咬 15° 方向，再咬整格长度。0-D 格点仍是最低秩点目标，近处有格点就先落格点。
+- **各工具自己的标量**（推拉高度、偏移距离、卷尺线模式的垂直偏移、弧扫角、旋转角）：同一个开关、同样「近才咬」。Shift 不再在各工具里单独 = 15° / 整数增量（v0.13.13 那套退役）。选择（加选）/ 橡皮（硬化）/ 方向键（面锁）的 Shift 不变。
+- 纯数学 SSoT：`src/editor/increments.ts`；求解器：`solver.ts snapPoint` 的格点段；测试 `test/grid.test.ts`「整格 / 整角吸附」；探针 `probe-smallbatch`（Shift 反转）、`probe-tape-grid`（斜边线模式整格）。
+

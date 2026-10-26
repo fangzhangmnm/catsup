@@ -170,3 +170,31 @@ describe("grid: 网格面 xy / yz / xz（user 2026-10-24「方便我吸附画立
     eq(r.snap.kind, "grid-point"); assert(near(r.snap.p, P(0, 2.2, 1.0), 1e-9), `格点 (0,2.2,1)，实得 ${r.snap.p.x},${r.snap.p.y},${r.snap.p.z}`);
   });
 });
+
+describe("整格 / 整角吸附（DT51，user 2026-10-25「同时snap absolute和incremental没关系吧」「以及沿着一根线走一个grid」「snap to incremental应该还要有一个捕捉阈」「15是grid合理」）", () => {
+  const nearCam = (): OrbitCamera => { const c = topCam(); c.halfH = 4; return c; };   // 100 px / m：吸附圈 ≈ 10 cm
+  it("斜边上从端点走整格：t = 3 m 处落「整格」（最近的格线交点 0.16 m 外 = 圈外）", () => {
+    const cam = nearCam();
+    const k = new Kernel(); k.addEdges([[P(0, 0), P(9, 3)], [P(-30, -30), P(-29, -30)]]);
+    const v = viewOf(k, WORLD_FRAME, { step: 1, sub: 1 });
+    const u = 1 / Math.sqrt(10), at = P(9 * u, 3 * u, 0);   // 沿边 3 m
+    const sp = cam.angularPx(P(at.x + 0.02, at.y - 0.03, 0), VP);
+    const a = snapPoint(v, cam, VP, sp.x, sp.y, 8, { plane: GROUND, hand: NO_HAND });
+    eq(a.kind, "increment"); assert(near(a.p, at, 1e-9), `沿边 3 m，实得 ${a.p.x},${a.p.y}`);
+    assert(String(a.label).includes("边上"), String(a.label));
+  });
+  it("自由画：离 30° · 2 m 近 → 咬上；离得远 → 不咬（有捕捉阈，不是硬取整）；网格关着 → 都不咬", () => {
+    const cam = nearCam(), anchor = P(0, 0, 0), deg = Math.PI / 180;
+    const v = viewOf(far(), WORLD_FRAME, { step: 1, sub: 1 });
+    const pol = (r: number, a: number): Pt3 => P(r * Math.cos(a * deg), r * Math.sin(a * deg), 0);
+    const s1 = cam.angularPx(pol(2.02, 30.3), VP);
+    const a = snapPoint(v, cam, VP, s1.x, s1.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
+    eq(a.kind, "increment"); assert(near(a.p, pol(2, 30), 1e-9), `30° · 2 m，实得 ${a.p.x},${a.p.y}`); eq(a.label, "30° · 整格 2.0 m");
+    const s2 = cam.angularPx(pol(2.47, 37), VP);
+    const b = snapPoint(v, cam, VP, s2.x, s2.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
+    assert(b.kind !== "increment" && b.kind !== "grid-point", `离整角 / 整格都远 → 不咬，实得 ${b.kind}`);
+    const c = snapPoint(viewOf(far(), WORLD_FRAME, null), cam, VP, s1.x, s1.y, 8, { plane: GROUND, hand: NO_HAND, anchor });
+    assert(c.kind !== "increment", "网格关着不咬");
+  });
+});
+

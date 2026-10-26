@@ -11,7 +11,7 @@ import { canCast, KINDS, brepToMesh } from "../src/scene/kinds.ts";
 import { chainVisible, effectiveLayersOfChain } from "../src/scene/layers.ts";
 import { assertImageAsset } from "../src/format/document.ts";
 import { documentFromScene, sceneFromDocument, readCatsup, writeCatsup, newDocument } from "../src/format/index.ts";
-import { readFixture } from "./fixtures/format/fixtures.mjs";
+import { listFixtures, readFixture } from "./fixtures/format/fixtures.mjs";
 import { SCENES, SCENE_DOCS } from "./format-scenes.ts";
 
 const P = (x: number, y: number, z = 0) => ({ x, y, z });
@@ -109,7 +109,8 @@ describe("object model: 格式往返（document v3 / definitions v6）", () => {
     eq(bytes2.length, bytes.length, "二次写长度一致");
   });
   it("v4 老样本读进来 = 默认层 + 全继承；旧 group.locked 丢弃", () => {
-    const files = [...Object.keys(SCENES), ...Object.keys(SCENE_DOCS)].map((n) => `${n}.glb`);
+    const v4 = new Set(listFixtures(4));   // 后来才加的样本（如 6.1 的 hidden）v4 里没有
+    const files = [...Object.keys(SCENES), ...Object.keys(SCENE_DOCS)].map((n) => `${n}.glb`).filter((f) => v4.has(f));
     assert(files.length > 0);
     for (const f of files) {
       const doc = readCatsup(readFixture(4, f));

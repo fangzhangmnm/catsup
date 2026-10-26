@@ -77,15 +77,8 @@ export declare function moveTargetsSelection(k: Kernel, sel: Selection): VertexI
 /** 类型 re-export 便利（main.ts 少一层 import）。 */
 export type { Edge, Face };
 import type { ToolTarget } from "./solver.ts";
+export { snapDirectionInPlane } from "./increments.ts";
 /** 矩形第二点：从首点出发的两条对角线 = 正方形（秩同轴线）；四条黄金分割线（稍低）。 */
-/** Shift 角度对齐（B33；user 2026-10-24「画线的时候shift可以15度对齐」）：平面内从锚点出发的方向按 stepDeg 咬合，长度不变；返回咬合后的点与度数。 */
-export declare function snapDirectionInPlane(anchor: Pt3, p: Pt3, basis: {
-    u: Pt3;
-    v: Pt3;
-}, stepDeg?: number): {
-    p: Pt3;
-    deg: number;
-};
 export declare function rectToolTargets(anchor: Pt3, basis: {
     u: Pt3;
     v: Pt3;
