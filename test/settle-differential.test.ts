@@ -100,7 +100,7 @@ const sameSolidFaces = (a: Kernel, b: Kernel): boolean => sameShapes(shapesOf(a,
  *   两边都成功 → 几何相同；两边都拒绝 → 同一条残余；**局部拒绝而全局没拒绝 → 失败**（局部丢了全局没丢的东西）；全局拒绝而局部没拒绝 → 允许（局部更保守：没碰的膜不动）。
  */
 type Tier = "clean" | "tilted" | "nasty";
-function runSeed(seed: number, steps: number, tier: Tier): { globalOnlyThrows: number; localOnlyThrows: number } {
+export function runSeed(seed: number, steps: number, tier: Tier, scale = 1): { globalOnlyThrows: number; localOnlyThrows: number } {
   let s = seed; const rnd = (): number => { s = (s * 1103515245 + 12345) & 0x7fffffff; return s / 0x7fffffff; };
   const snap = tier !== "nasty", axis = tier === "clean";
   const q = (v: number): number => (snap ? Math.round(v * 1000) / 1000 : v);
@@ -114,16 +114,16 @@ function runSeed(seed: number, steps: number, tier: Tier): { globalOnlyThrows: n
       const th = axis ? 0 : rnd() * 0.4, ph = axis ? 0 : rnd() < 0.5 ? 0 : rnd() * 0.4;
       const u = P(Math.cos(th), Math.sin(th), 0), v = P(-Math.sin(th) * Math.cos(ph), Math.cos(th) * Math.cos(ph), Math.sin(ph));
       const vs = local.graph.vertices();
-      const o = vs.length && rnd() < 0.5 ? (() => { const a = vs[Math.floor(rnd() * vs.length)]; return P(a.x, a.y, a.z); })() : P(q(rnd() * 3), q(rnd() * 3), rnd() < 0.3 ? q(rnd() * 2) : 0);
-      const W = q(0.3 + rnd() * 2), H = q(0.3 + rnd() * 2);
+      const o = vs.length && rnd() < 0.5 ? (() => { const a = vs[Math.floor(rnd() * vs.length)]; return P(a.x, a.y, a.z); })() : P(q(rnd() * 3) * scale, q(rnd() * 3) * scale, rnd() < 0.3 ? q(rnd() * 2) * scale : 0);
+      const W = q(0.3 + rnd() * 2) * scale, H = q(0.3 + rnd() * 2) * scale;
       const c = (a: number, b: number): Pt3 => P(q(o.x + u.x * a + v.x * b), q(o.y + u.y * a + v.y * b), q(o.z + u.z * a + v.z * b));
       const c1 = c(0, 0), c2 = c(W, 0), c3 = c(W, H), c4 = c(0, H);
       st = { kind: "rect", segs: [[c1, c2], [c2, c3], [c3, c4], [c4, c1]] };
     } else if (r < 0.6) { const jx = (rnd() - 0.5) * 4e-6, jy = (rnd() - 0.5) * 4e-6, jz = (rnd() - 0.5) * 4e-6; st = { kind: "line", vi: Math.floor(rnd() * 1e6), ei: Math.floor(rnd() * 1e6), kk: snap ? 2 : 1 + rnd() * 2, j: snap ? P(0, 0, 0) : P(jx, jy, jz) }; }
-    else if (r < 0.75) st = { kind: "pp", fi: Math.floor(rnd() * 1e6), dist: q((rnd() - 0.3) * 1.5) };
+    else if (r < 0.75) st = { kind: "pp", fi: Math.floor(rnd() * 1e6), dist: q((rnd() - 0.3) * 1.5) * scale };
     else if (r < 0.9) st = { kind: "erase", ei: Math.floor(rnd() * 1e6) };
-    else if (axis) st = { kind: "pp", fi: Math.floor(rnd() * 1e6), dist: q((rnd() - 0.3) * 1.5) };   // clean 档不挪点（挪斜 = 无理数法向 → µm 尖刺），挪点归 tilted / nasty
-    else st = { kind: "move", vi: Math.floor(rnd() * 1e6), d: P(q((rnd() - 0.5) * 0.5), q((rnd() - 0.5) * 0.5), q((rnd() - 0.5) * 0.5)) };
+    else if (axis) st = { kind: "pp", fi: Math.floor(rnd() * 1e6), dist: q((rnd() - 0.3) * 1.5) * scale };   // clean 档不挪点（挪斜 = 无理数法向 → µm 尖刺），挪点归 tilted / nasty
+    else st = { kind: "move", vi: Math.floor(rnd() * 1e6), d: P(q((rnd() - 0.5) * 0.5) * scale, q((rnd() - 0.5) * 0.5) * scale, q((rnd() - 0.5) * 0.5) * scale) };
     const evL = apply(local, st), evG = apply(global, st);
     log.push(st.kind);
     const tL = evL.startsWith("THROW"), tG = evG.startsWith("THROW");
@@ -160,6 +160,34 @@ describe("局部性定理差分 oracle：局部结算 = 全局结算", () => {
     let g = 0, l = 0;
     for (let seed = 1; seed <= 60; seed++) { const r = runSeed(seed * 7919, 12, "nasty"); g += r.globalOnlyThrows; l += r.localOnlyThrows; }
     assert(g + l <= 30, `nasty 单边拒绝的种子太多（局部 ${l} / 全局 ${g}）——残余在涨，去看总账 D 节`);
+  });
+  // 不写死尺度（2026-10-26 Claude Opus 5.5；纪元账本 DT83 / DT93）：同一套生成器整体放大——影响域里不许有「米」这种尺度常数。
+  //   旧的 1 m 包围盒余量在 0–3 m 的场景里恰好盖住「画线闭合的新面外环绕过没受影响的膜」，放大以后就漏（局部少生一张面）。
+  it("不写死尺度：clean / tilted 场景整体放大 10 倍、100 倍，局部 = 全局", () => {
+    for (const scale of [10, 100]) {
+      for (let seed = 1; seed <= 30; seed++) runSeed(seed * 7919, 12, "clean", scale);
+      let g = 0, l = 0;
+      for (let seed = 1; seed <= 30; seed++) { const r = runSeed(seed * 7919, 12, "tilted", scale); g += r.globalOnlyThrows; l += r.localOnlyThrows; }
+      assert(g + l <= 15, `×${scale} tilted 单边拒绝的种子太多（局部 ${l} / 全局 ${g}）`);
+    }
+  });
+  // DT83 必现形状：三条长条面围成「冂」、底边开口，画一条线封口 → 中间那块无主、外环含手势边 = 出生。
+  //   它的外环要经过顶上那条面的下沿——那条面不碰新线（不受影响）、离新线的距离 = 冂的高度。旧 1 m 余量：高过 1 m 就局部少生这张面。
+  it("冂 封口：画线闭合的新面外环绕过远处没受影响的膜，0.5 m / 10 m / 100 m / 1 km 都和全局一样", () => {
+    for (const H of [0.5, 10, 100, 1000]) {
+      const w = H / 10;
+      const build = (k: Kernel): void => {
+        const loop = (pts: Pt3[]) => { const segs: [Pt3, Pt3][] = []; for (let i = 0; i < pts.length; i++) segs.push([pts[i], pts[(i + 1) % pts.length]]); k.addEdges(segs); };
+        loop([P(-w, 0, 0), P(0, 0, 0), P(0, H, 0), P(-w, H, 0)]);        // 左
+        loop([P(0, H, 0), P(H, H, 0), P(H, H + w, 0), P(0, H + w, 0)]);  // 顶
+        loop([P(H, 0, 0), P(H + w, 0, 0), P(H + w, H, 0), P(H, H, 0)]);  // 右
+        k.addEdges([[P(0, 0, 0), P(H, 0, 0)]]);                          // 封口
+      };
+      const local = new Kernel(), global = new Kernel({ settleMode: "global" });
+      build(local); build(global);
+      assert(global.faces().length === 4, `H=${H}：全局应该 4 张面（三条 + 封出来的一张），实得 ${global.faces().length}`);
+      assert(sameFingerprint(local, global, false), `H=${H}：局部 ≠ 全局\n  local : ${describeShapes(local)}\n  global: ${describeShapes(global)}`);
+    }
   });
   it("盒子序列：两次拉 + 贴棱描线 / 贴棱矩形 / 墙里矩形 / 推穿，局部 = 全局", () => {
     const build = (k: Kernel): string[] => {

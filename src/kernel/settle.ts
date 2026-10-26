@@ -169,8 +169,6 @@ interface Claim { im: Image; }
  * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
  */
 /** 调试钩子（默认 null 零开销）：影响域 / 胞腔 / 认领逐条打出来——守恒断言响了先开它看，别猜。added by Claude Fable 5.1 2026-10-24 */
-/** 影响域 ③ 包围盒的余量（米）——见 scope() 里的 ⚠ 注释；临时、等定理补洞。 */
-const BOX_SLACK = 1;
 export const SETTLE_DEBUG: { log: ((line: string) => void) | null } = { log: null };
 export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol: number, table: ImageTable, opts?: { global?: boolean }): FaceEvent[] {
   const GLOBAL = !!opts?.global;
@@ -300,8 +298,9 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   // 影响域（立宪页 §3「局部性定理」，2026-10-23）：每张被碰平面 P 上这次要用的边集 S =
   //   ① 脏边 + 被消耗膜旧环边的后代（在 P 上的）
   //   ② 从 ① 的端点出发、沿「在 P 上且不属于 P 上活膜」的边可达的裸线（闭合一个大环只差最后一笔）
-  //   ③ 影响域包围盒内落在 P 上的边（空间网格现查；不连通的旧闭环 = 新膜的洞）
+  //   ③ 包围盒内落在 P 上的边（空间网格现查；不连通的旧闭环 = 新膜的洞）：③a ①② 的盒 ± 2τ；③b 手势出生胞腔的整个外环 + 它的盒 ± 2τ（不写死尺度）
   //   ④ 受影响膜（环上有可达顶点 / 环里有死边 / 内部含可达顶点）的全部环边
+  //   ⑤ 双胞平面：像跨平面认领 → 像的盒 ± 3τ 里别的平行近平面上的边 + 那里和像相交的膜（迭代到不动点）
   // 定理：在 S 上切出的胞腔去掉「与未受影响膜同环」的，= 在 P 全部边上切出的胞腔去掉未受影响膜的胞腔。其余膜原地不动（环都不碰）。
   // 「边属于哪张平面」是谓词现算，不是状态——10-21 的 PlaneMembership 缓存在溶解步后过期且永不自愈（总账 #26），已删。
   {
@@ -327,15 +326,71 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
           if (!reach.has(o)) { reach.add(o); stack.push(o); }
         }
       }
-      // ③ 影响域包围盒内落在这张平面上的边（全局模式 = 整张平面）
+      // ③ 包围盒里落在这张平面上的边（全局模式 = 整张平面）。不写死尺度（2026-10-26 Claude Opus 5.5；纪元账本 DT83 / DT93，取代 1 m 余量）：
+      //   ③a ①② 的包围盒外扩 2τ——被像认领的胞腔都在像的环里，像环插进来就是脏边（①），所以像里面的旧边 / 新膜的洞都在这个盒里。
+      //       2τ = 在平面上的边离平面最多 τ，盒子在法向上可能是零厚度（轴对齐平面）。
+      //   ③b 手势出生（无主胞腔、外环含手势边，⑧）的外环可以绕到任意远（经过不受影响的膜的环边：冂 封口）：从每条手势边的两侧沿胞腔边界走一圈，
+      //       逆时针 = 一个有界胞腔的外环 → 环边 + 环的包围盒（外扩 2τ）里的边（它的洞）。顺时针 / 零面积 = 这侧是别人的洞或无界区，不会出生。
       if (GLOBAL) { for (const e of g.edges()) if (onPlaneE(e, rec.plane)) sub.add(e.id); }
       else if (sub.size) {
-        const mn = { x: Infinity, y: Infinity, z: Infinity }, mx = { x: -Infinity, y: -Infinity, z: -Infinity };
-        for (const eid of sub) { const e = g.edge(eid); for (const p of [g.pt(e.a), g.pt(e.b)]) { if (p.x < mn.x) mn.x = p.x; if (p.y < mn.y) mn.y = p.y; if (p.z < mn.z) mn.z = p.z; if (p.x > mx.x) mx.x = p.x; if (p.y > mx.y) mx.y = p.y; if (p.z > mx.z) mx.z = p.z; } }
-        // ⚠ BOX_SLACK = 旧空间网格（固定 1 m 格、查询外扩一格）白给的余量，原样保留（2026-10-26 Claude Opus 5.5）：网格改成不写死尺度之后，
-        //   差分 oracle tilted 种子 340517 第 11 步局部少生一张面——新线闭合的空洞有一条边属于未受影响的膜、又在 S 的包围盒外，①–④ 都够不着。
-        //   这是定理的缺口（大于 1 m 的同形场景旧代码也会漏），不是网格的；根治归 Fable（纪元账本 DT83 / 家族周账 F-96），在那之前别删这个余量。
-        for (const e of g.edgesInBox({ x: mn.x - BOX_SLACK, y: mn.y - BOX_SLACK, z: mn.z - BOX_SLACK }, { x: mx.x + BOX_SLACK, y: mx.y + BOX_SLACK, z: mx.z + BOX_SLACK })) if (onPlaneE(e, rec.plane)) sub.add(e.id);
+        const pad = 2 * tol;
+        const boxOf = (eids: Iterable<EdgeId>): { mn: Pt3; mx: Pt3 } => {
+          const mn = { x: Infinity, y: Infinity, z: Infinity }, mx = { x: -Infinity, y: -Infinity, z: -Infinity };
+          for (const eid of eids) { const e = g.edge(eid); for (const p of [g.pt(e.a), g.pt(e.b)]) { if (p.x < mn.x) mn.x = p.x; if (p.y < mn.y) mn.y = p.y; if (p.z < mn.z) mn.z = p.z; if (p.x > mx.x) mx.x = p.x; if (p.y > mx.y) mx.y = p.y; if (p.z > mx.z) mx.z = p.z; } }
+          return { mn, mx };
+        };
+        const addBox = ({ mn, mx }: { mn: Pt3; mx: Pt3 }): void => {
+          for (const e of g.edgesInBox({ x: mn.x - pad, y: mn.y - pad, z: mn.z - pad }, { x: mx.x + pad, y: mx.y + pad, z: mx.z + pad })) if (onPlaneE(e, rec.plane)) sub.add(e.id);
+        };
+        addBox(boxOf(sub));
+        const seeds = [...gesture].filter((eid) => g.hasEdge(eid) && onPlaneE(g.edge(eid), rec.plane));
+        if (seeds.length) {
+          const fan = new Map<VertexId, { eid: EdgeId; to: VertexId; a: number }[]>();   // 每个顶点在这张平面上的边，按投影角度逆时针排
+          const around = (v: VertexId): { eid: EdgeId; to: VertexId; a: number }[] => {
+            let l = fan.get(v);
+            if (l) return l;
+            const p0 = projectToPlane(g.pt(v), rec.basis);
+            l = [];
+            for (const eid of g.vertex(v).edges) {
+              const e = g.edge(eid);
+              if (!onPlaneE(e, rec.plane)) continue;
+              const to = g.otherEnd(e, v), p = projectToPlane(g.pt(to), rec.basis);
+              l.push({ eid, to, a: Math.atan2(p.y - p0.y, p.x - p0.x) });
+            }
+            l.sort((x, y) => x.a - y.a || x.eid - y.eid);
+            fan.set(v, l);
+            return l;
+          };
+          const limit = 2 * g.nextEdgeId + 4;
+          /** 走「有向边 u→v 左手边那块胞腔」的边界：到 v 后取反向边顺时针的下一条（摸着左墙走）。返回环边与有向面积。 */
+          const walk = (eid0: EdgeId, u0: VertexId, v0: VertexId): { ring: EdgeId[]; area: number } => {
+            const ring: EdgeId[] = [], pts: Pt[] = [];
+            let u = u0, v = v0, eid = eid0;
+            for (let step = 0; ; step++) {
+              if (step > limit) throw new Error("settle scope: cell walk did not close — inconsistent angular order");
+              ring.push(eid); pts.push(projectToPlane(g.pt(u), rec.basis));
+              const l = around(v), i = l.findIndex((x) => x.eid === eid);
+              const nx = l[(i - 1 + l.length) % l.length];
+              u = v; v = nx.to; eid = nx.eid;
+              if (eid === eid0 && u === u0) break;
+            }
+            return { ring, area: signedArea(pts) };
+          };
+          const walked = new Set<string>();
+          for (const eid of seeds) {
+            const e = g.edge(eid);
+            for (const [u, v] of [[e.a, e.b], [e.b, e.a]] as const) {
+              if (walked.has(`${eid}:${u}`)) continue;
+              const { ring, area } = walk(eid, u, v);
+              // 同一圈从别的手势边出发再走一遍是白干：记下这圈每条有向边（按出发点）
+              let cu = u;
+              for (const r of ring) { walked.add(`${r}:${cu}`); cu = g.otherEnd(g.edge(r), cu); }
+              if (!(area > 0)) continue;
+              for (const r of ring) sub.add(r);
+              addBox(boxOf(ring));
+            }
+          }
+        }
       }
       // ④ 膜入选 = 环上有可达顶点 或 环里有死边 或 内部含可达顶点（膜的顶点**不**再往外传递——否则整张平面连成片）
       //    前两种从边找膜（faceLinks：切出来的子边继承了父边的链接，所以「环里有死边」的膜挂在 sub 里的子边上；可达顶点的膜挂在它的邻边上），
@@ -360,6 +415,54 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
         }
       }
       subset.set(pid, sub);
+    }
+    // ⑤ 双胞平面（2026-10-26 Claude Opus 5.5；纪元账本 DT83）：认领是跨平面的——一张像会去「平行 2.6° 内、胞腔代表点离像 ≤ 3τ」的每张被碰平面上认领
+    //   （下面 ⑤ 认领的 gather）。「像里面的边都在 S 里」在像自己那张平面上由 ①–④ 保证；τ 带里几乎重合的另一张平面 Q 上要补：
+    //   像的包围盒（外扩 3τ）里落在 Q 上的边 + Q 上包围盒和像相交的膜（入选 → 它的身份像也会认领 → 迭代到不动点）。
+    //   没有双胞平面时什么都不加（旧的 1 m 余量顺带盖住过 1 m 以内的这种情形：差分 oracle nasty 种子 92·104729+17 第 12 步）。
+    if (!GLOBAL) {
+      const gate = 3 * tol;
+      const done = new Set<string>();
+      const takeOn = (pid: PlaneId, f: Face | undefined): boolean => {
+        if (!f || f.planeId !== pid || neighFaces.has(f.id)) return false;
+        neighFaces.add(f.id);
+        const sub = subset.get(pid)!;
+        for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) if (g.hasEdge(d.edge)) sub.add(d.edge);
+        return true;
+      };
+      for (let grew = true; grew; ) {
+        grew = false;
+        const imgs: { key: string; pts: Pt3[]; n: Pt3; home: PlaneId | null }[] = [];
+        verbImages.forEach((im, i) => { const pl = planeOfRing(im.rings[0]); if (pl) imgs.push({ key: `v${i}`, pts: im.rings.flat(), n: pl.n, home: null }); });
+        for (const fid of neighFaces) { const f = store.face(fid); if (f) imgs.push({ key: `f${fid}`, pts: [f.outer, ...f.holes].flatMap((r) => r.vids.map((v) => g.pt(v))), n: reg.rec(f.planeId).plane.n, home: f.planeId }); }
+        for (const im of imgs) for (const pid of touchedPlanes) {
+          if (pid === im.home || done.has(`${im.key}|${pid}`)) continue;
+          done.add(`${im.key}|${pid}`);
+          const rec = reg.rec(pid), pl = rec.plane;
+          if (Math.abs(dot3(pl.n, im.n)) < 0.999) continue;
+          let lo = Infinity, hi = -Infinity;
+          for (const p of im.pts) { const s = dot3(pl.n, p) - pl.d; if (s < lo) lo = s; if (s > hi) hi = s; }
+          if (lo > gate || hi < -gate) continue;                              // 离这张平面太远，认领门进不来
+          if (im.home === null && lo >= -tol && hi <= tol) continue;          // 动词像就躺在这张平面上：环边是脏边（①），里面的由 ③a / ④ 管
+          const sub = subset.get(pid)!;
+          const mn = { x: Infinity, y: Infinity, z: Infinity }, mx = { x: -Infinity, y: -Infinity, z: -Infinity };
+          let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
+          for (const p of im.pts) {
+            if (p.x < mn.x) mn.x = p.x; if (p.y < mn.y) mn.y = p.y; if (p.z < mn.z) mn.z = p.z; if (p.x > mx.x) mx.x = p.x; if (p.y > mx.y) mx.y = p.y; if (p.z > mx.z) mx.z = p.z;
+            const q = projectToPlane(p, rec.basis); if (q.x < bx0) bx0 = q.x; if (q.y < by0) by0 = q.y; if (q.x > bx1) bx1 = q.x; if (q.y > by1) by1 = q.y;
+          }
+          for (const e of g.edgesInBox({ x: mn.x - gate, y: mn.y - gate, z: mn.z - gate }, { x: mx.x + gate, y: mx.y + gate, z: mx.z + gate })) {
+            if (!onPlaneE(e, pl) || sub.has(e.id)) continue;
+            sub.add(e.id); grew = true;
+            for (const fid of e.faceLinks) if (takeOn(pid, store.face(fid))) grew = true;
+          }
+          for (const f of store.facesOnPlane(pid)) {
+            const b = f.bbox;
+            if (b.x1 < bx0 - gate || b.x0 > bx1 + gate || b.y1 < by0 - gate || b.y0 > by1 + gate) continue;
+            if (takeOn(pid, f)) grew = true;
+          }
+        }
+      }
     }
   }
   };
