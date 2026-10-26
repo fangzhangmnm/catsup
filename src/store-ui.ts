@@ -45,6 +45,15 @@ async function quietBusy<T>(label: string, fn: () => Promise<T>): Promise<T> {
 
 const KEPT_SAFE = "被替换的版本会自动留底，不会丢失。";
 
+/** 2026-10-26（user「不弹模态，横幅 + 钮」；家族根 ai-docs/20261026-cloud-conflict-ux-postmortem.md §5 C2）：
+ *  **自动保存（implicit）撞上云端时不弹模态面**——返回库自己的默认值 `cancel`（= 留脏、两边一个字节不动；库 JSDoc「默认 cancel=留 dirty」允许的唯一默认），
+ *  同时把这次「要你处理」交给 app 点亮编辑器横幅（session.markAttention → 横幅上的「处理…」= 人主动叫面）。
+ *  显式保存 / 图库「处理…」/ 打开时的面照旧弹。这不是替人回答方向（10-16「禁止越狱」）：cancel 不换任何字节、不传任何字节。 */
+export const conflictGate = {
+  implicit: false,
+  onDeferred: null as ((ctx: { name: string; cloudState: string | null }) => void) | null,
+};
+
 export const storeUI: StoreUI = {
   busy: (label, fn, key) => (key && QUIET_KEYS.has(key) ? quietBusy(label, fn) : withBusy(label, fn)),
   text: (key: StoreTextKey, params?: StoreTextParams): string | undefined => STORE_TEXT[key]?.(params),
@@ -53,6 +62,11 @@ export const storeUI: StoreUI = {
   resolveConflict: async ({ name, occasion, cloudState }): Promise<ResolveChoice> => {
     const n = stripExt(name);
     note("store", `conflict occasion=${occasion} cloudState=${cloudState ?? "-"} name=${n}`);
+    if (occasion === "push" && conflictGate.implicit) {   // 自动保存：不打断，横幅接手（见 conflictGate）
+      note("store", "conflict deferred (implicit save) → attention banner");
+      conflictGate.onDeferred?.({ name, cloudState: cloudState ?? null });
+      return "cancel";
+    }
     let choice: ResolveChoice | null;
     if (occasion === "open") {
       // 打开时：两个按钮都不丢字节——打开本地 = 先开本机这份、保存时再裁；云端覆盖本地 = 本机这份进备份箱、拉云端的。

@@ -27,6 +27,7 @@ import { contentFingerprint } from "../format/final.ts";
 import { APP_VERSION } from "../version.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, defaultDocName } from "../config.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
+import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
 import { setOpened } from "@internal/gallery";
 import { openChoiceSheet, openInputSheet, showBusy, hideBusy } from "./ui/sheets.ts";
 import { reportError } from "./error-funnel.ts";
@@ -84,6 +85,10 @@ export class Session {
   private halted = false;
   /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
   pushPending = false;
+  /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
+   *  清的时机：推上去了（save / resolveActive 成功）、换了文档。横幅本身在 main（onAttentionChanged）。 */
+  attention: { cloudState: string | null } | null = null;
+  markAttention(cloudState: string | null): void { this.attention = { cloudState }; this.d.onHomeChanged(); }
   /** lazyblank（WeebPaint P1.5）：图库家 + 日期名只在内存，文件还没建；首笔有内容 → adoptLazy 翻 false。空白期永不落盘、回执条不写。 */
   lazy = false;
   /** 首存必须 mode:"new"（撞名不静默覆盖）直到第一次真落盘成功；失败后 30 s 自动保存重试仍带 new。 */
@@ -170,7 +175,9 @@ export class Session {
       case "local-only": return this.home.kind === "file" ? `「${name}」已保存到文件` : `「${name}」已保存到本机；云端不可达（登录 OneDrive 后同步）`;
       case "saving": return `正在保存「${name}」…`;
       case "cloud-off": return `「${name}」已保存到本机（云端未配置）`;
-      case "unpushed": return `「${name}」已保存到本机，云端那份还没推上去——再点一次保存重推`;
+      case "unpushed": return this.attention
+        ? `「${name}」已保存到本机，但和云端没对上——点横幅上的「处理…」选用哪边（再点保存也会问你）`
+        : `「${name}」已保存到本机，云端那份还没推上去——再点一次保存重推`;
       case "synced": return `「${name}」已同步到 OneDrive；再点 = 重新保存并推送`;
     }
   }
@@ -325,10 +332,30 @@ export class Session {
     const p = this.d.refs?.panel() ?? null;
     return p ? { ...this.desk, refPanel: p } : this.desk;
   }
+  /** 2026-10-26：编辑器横幅 / 保存钮上的「处理…」= 对正在编辑的这份主动叫库的面（store `file.resolve()` 三选一；app 不传答案）。
+   *  took-cloud → 本地已换成云端那份 → 整份重载（否则下次保存又把旧画布盖回去）；pushed → 对上了；cancelled → 横幅留着。 */
+  async resolveActive(): Promise<"pushed" | "took-cloud" | "cancelled" | "other"> {
+    if (this.home.kind !== "gallery" || this.lazy || this.saving) return "other";
+    const path = this.home.path;
+    const r = await docFile(path).resolve();
+    const why = "reason" in r && r.reason ? String(r.reason) : "";
+    note("doc", `resolveActive ${bareName(path)}: ${r.status}${why ? " " + why : ""}`);
+    if (r.status === "took-cloud") {
+      const blob = await docFile(path).open();
+      if (blob && this.home.kind === "gallery" && this.home.path === path) { this.adopt(new Uint8Array(await blob.arrayBuffer())); this.attention = null; this.d.setStatus(`已改用云端版本「${bareName(path)}」（这台的那份进了备份箱）`); }
+      this.d.onHomeChanged();
+      return "took-cloud";
+    }
+    if (r.status === "pushed") { this.pushPending = false; this.attention = null; this.d.setStatus(`本地覆盖了云端「${bareName(path)}」`); this.d.onHomeChanged(); return "pushed"; }
+    if (r.status === "cancelled") { this.d.setStatus("这次没动"); return "cancelled"; }
+    if (r.status === "clean") { this.attention = null; this.pushPending = false; this.d.onHomeChanged(); return "other"; }
+    this.d.setStatus(`没处理成：${r.status}${why ? "（" + why + "）" : ""}`, true);
+    return "other";
+  }
   private adopt(bytes: Uint8Array): void {
     const doc = readCatsup(bytes);
     const sc = sceneFromDocument(doc);
-    this.pushPending = false;
+    this.pushPending = false; this.attention = null;
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
     this.d.editor.loadScene(sc);
@@ -521,8 +548,11 @@ export class Session {
         this.d.setStatus(`已下载 ${home.fileName}（浏览器不支持原地写回，dirty 保留）`);
         return false;
       }
-      // 图库家
-      const r = await docFile(home.path, this.createPending ? "new" : "existing").save(bytes, { tryPush: !opts.localOnly && auth.isSignedIn() && online() });
+      // 图库家。implicit（自动保存 / 离开）撞上云端 → 不弹模态面，横幅接手（store-ui conflictGate；user 2026-10-26「不弹模态，横幅 + 钮」）
+      conflictGate.implicit = !!opts.implicit;
+      let r;
+      try { r = await docFile(home.path, this.createPending ? "new" : "existing").save(bytes, { tryPush: !opts.localOnly && auth.isSignedIn() && online() }); }
+      finally { conflictGate.implicit = false; }
       if (r.resolution === "takeCloud") {   // 用户选了云端版本：整份重载（否则下次保存又覆盖云端）
         this.d.setStatus("已改用云端版本");
         const blob = await docFile(home.path).open();
@@ -532,6 +562,7 @@ export class Session {
       this.createPending = false;
       this.savedRevision = revAtStart; this.savedRefRev = refRevAtStart;
       this.pushPending = !r.pushed;
+      if (r.pushed) this.attention = null;   // 推上去了 = 和云端对上了（2.2.1 起谱系丢了也会先问云端再推，没人动过就直接成）
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;
     } catch (e) { reportError(e); return false; }

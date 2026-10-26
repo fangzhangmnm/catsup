@@ -1,8 +1,9 @@
 #!/usr/bin/env node
-// test/probes/probe-push-ask.mjs —— 「登录后问一次」headless 探针（user 2026-10-25「好，同意……但是必须护栏冲突」）：
-//   没登录时存一个模型（= 只在本机、dirty 1）→ 走问话（dev 钩子跳过「已登录」前置）→ 「先不」什么都不动 → 再问 → 「传」→ pushAll 推不上去（没登录 = 云不可达）
-//   → 如实报「1 个没传成」、文件仍 dirty、几何没动。验的是护栏那半：失败的留在本机、不覆盖、不撒谎。真登录态的「传上去」只能真机。
-// 用法：python3 -m http.server 8765 后 `node test/probes/probe-push-ask.mjs [url]`（≈ 5 s）。created 2026-10-25 by Claude Fable 5.1
+// test/probes/probe-push-ask.mjs —— 「登录后有没同步好的 → 通知 → 去处理 → 图库『要处理的』视图」headless 探针。
+//   2026-10-25 版验的是「问一次 → pushAll」是 / 否框；2026-10-26 user「列表面」后改成：没登录时存一个模型（= 只在本机、dirty 1）→ 走提示（dev 钩子跳过「已登录」前置）
+//   → 不弹 sheet、出一条带「去处理」钮的常驻通知 → 点它 → 图库开着、顶部横幅「有 1 份没同步好」、那张卡右下角一粒可见的「处理…」钮 → 点它（没登录 = 云不可达）
+//   → 库如实说离线、不撒谎、文件仍 dirty、几何没动。真登录态的三选一只能真机。
+// 用法：python3 -m http.server 8765 后 `node test/probes/probe-push-ask.mjs [url]`（≈ 5 s）。created 2026-10-25 by Claude Fable 5.1 · rewritten 2026-10-26 by Claude Fable 5.1
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -35,34 +36,34 @@ await page.mouse.move(cx - 100, cy - 60); await page.mouse.down(); await page.mo
 await page.waitForFunction(() => !globalThis.__catsup.session.lazy && !globalThis.__catsup.session.saving && !globalThis.__catsup.session.dirty(), null, { timeout: 10000 });
 eq(await dirtyCount(), 1, "one model is local-only (dirty) after saving signed-out");
 eq(await page.evaluate(() => globalThis.__catsup.session.pushPending), true, "session knows the push is pending");
-// 没登录 / 没 force：问话不该出现（前置挡住）
+// 没登录 / 没 force：提示不该出现（前置挡住）
 await page.evaluate(() => window.dispatchEvent(new Event("online")));
 await page.waitForTimeout(400);
-eq(await page.evaluate(() => document.getElementById("sheet").hidden), true, "signed-out: no ask sheet on 'online'");
+eq(await page.evaluate(() => document.getElementById("sheet").hidden), true, "signed-out: no sheet on 'online'");
+eq(/没同步好/.test(await notices()), false, "signed-out: no unsynced notice on 'online'");
 
-// ① 「先不」
-let done = page.evaluate(() => globalThis.__catsup.devPushAsk());
-await page.waitForSelector("#sheet:not([hidden])");
-eq(await page.evaluate(() => document.getElementById("sheetTitle").textContent), "有模型还没传上去", "ask sheet title");
-const msg = await page.evaluate(() => document.getElementById("sheetMessage").textContent);
-eq(/有 1 个模型只在这台设备上/.test(msg), true, "ask says 1 local-only model");
-eq(/不会被覆盖/.test(msg), true, "ask states the conflict guard (cloud-newer files are not overwritten)");
-eq(await page.evaluate(() => document.getElementById("sheetConfirm").textContent), "传", "ok label = 传");
-eq(await page.evaluate(() => document.getElementById("sheetCancel").textContent), "先不", "cancel label = 先不");
-await page.click("#sheetCancel"); await done;
-eq(await dirtyCount(), 1, "「先不」→ still dirty, nothing pushed");
+// ① 提示：一条常驻通知 + 「去处理」钮，不是是 / 否框，不批量推
+await page.evaluate(() => globalThis.__catsup.devPushAsk());
+await page.waitForFunction(() => /没同步好/.test(document.getElementById("noticeStack")?.textContent ?? ""), null, { timeout: 5000 });
+eq(await page.evaluate(() => document.getElementById("sheet").hidden), true, "no modal sheet (notice instead)");
+const n1 = await notices();
+eq(/有 1 个模型没同步好/.test(n1), true, `notice says 1 unsynced (${n1.slice(0, 60)})`);
+eq(/每一个都会问你/.test(n1), true, "notice says each one will ask you which side");
+eq(await page.evaluate(() => !!document.querySelector("#noticeStack button")), true, "notice has a button");
+eq(await dirtyCount(), 1, "nothing pushed by the notice itself");
 
-// ② 「传」——没登录 = 云不可达 → 库每个文件 If-Match 推失败 → 留 dirty、进 failed、如实报
-done = page.evaluate(() => globalThis.__catsup.devPushAsk());
-await page.waitForSelector("#sheet:not([hidden])");
-await page.click("#sheetConfirm"); await done;
-await page.waitForFunction(() => /没传成/.test(document.getElementById("noticeStack")?.textContent ?? ""), null, { timeout: 10000 }).catch(() => {});
-const n = await notices();
-eq(/传上去 0 个；1 个没传成/.test(n), true, `honest report: 0 pushed, 1 failed (${n.slice(0, 80)})`);
-eq(/留在本机没动/.test(n), true, "report says the failed one stays untouched on this device");
-eq(await dirtyCount(), 1, "failed push leaves the file dirty (not dropped, not overwritten)");
-eq(await page.evaluate(() => globalThis.__catsup.session.pushPending), true, "session still shows push pending");
+// ② 「去处理」→ 图库打开。**没登录时图库库不把任何卡算成「要处理」**（gallery 0.8.8：attention = 登录态 ∧ float / dirtyBoth / conflictBoth / ghost / pendingGone；
+//   没有云端就没有「没同步好」），所以顶部横幅 / 卡片上的「处理…」钮在这条无头探针里看不到——那半由图库库自己的单测钉着（tileFor.attention），
+//   端到端只能真机（登录态）。这里只验：通知的钮真把人带进图库、不弹 sheet、不动字节、没有 busy 死锁。
+await page.click("#noticeStack button");
+await page.waitForFunction(() => !document.getElementById("galleryFull").hidden, null, { timeout: 5000 });
+console.log("  ✓ 去处理 opens the gallery");
+await page.waitForFunction(() => document.querySelectorAll(".gallery-tile").length >= 1, null, { timeout: 5000 });
+eq(await page.evaluate(() => document.getElementById("sheet").hidden), true, "no modal sheet after opening the gallery");
+eq(/没同步好/.test(await notices()), false, "the unsynced notice closed itself once acted on");
+eq(await dirtyCount(), 1, "still dirty (not dropped, not overwritten)");
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "geometry untouched");
+eq(errors.some((e) => /deadlock/.test(e)), false, "no busy-overlay deadlock");
 
 await browser.close();
 if (errors.length) { console.error("✗ page errors / console noise:\n  " + errors.join("\n  ")); process.exitCode = 1; }

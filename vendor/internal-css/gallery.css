@@ -265,6 +265,16 @@
 .gallery-tile-action.unknown { opacity: .45; }
 @media (hover: hover) { .gallery-tile-action:hover { filter: brightness(1.08); } }
 .gallery-grid.list .gallery-tile-action-slot { display: none; }
+/* 0.8.8：库自己放的「处理…」钮（要处理的卡片）：琥珀（和 conflict 徽章同一「云侧待你处理」语义族），带字——这是 user 2026-10-26 点名的可见入口，不是一粒哑谜图标。
+   宿主可改颜色；列表布局照旧不画槽（⋯ 菜单里仍有「处理…」）。 */
+.gallery-tile-action.verb-resolve { width: auto; height: 32px; border-radius: 16px; padding: 0 12px 0 8px; gap: 6px; background: var(--warn, #c98a00); font-size: 12px; font-weight: 600; white-space: nowrap; }
+.gallery-tile-action-ico { display: inline-flex; }
+.gallery-tile-action-ico svg { width: 18px; height: 18px; }
+.gallery-tile.attention .gallery-tile-state-icon { color: var(--warn, #c98a00); }
+/* 0.8.8：顶部「有 N 份要处理 → 看列表」横幅：复用面包屑容器，文字琥珀、钮描边 */
+.gallery-attention-bar { justify-content: space-between; color: var(--warn, #c98a00); }
+.gallery-attention-text { font-weight: 600; }
+.gallery-breadcrumb.gallery-attention-bar .gallery-attention-toggle { border: 1px solid var(--warn, #c98a00); border-radius: 14px; padding: 2px 12px; color: var(--warn, #c98a00); }
 .gallery-tile-active-tag {
   position: absolute; right: 6px; top: 8px;
   pointer-events: none;

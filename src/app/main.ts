@@ -46,7 +46,8 @@ import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { configureTabMemory, openPopupMenu, togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
-import { showNotice, type NoticeOpts } from "./ui/notice.ts";
+import { showNotice, closeNotice, type NoticeOpts } from "./ui/notice.ts";
+import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 横幅接手
 import { initCrashRecovery } from "./crash-recovery.ts";
 import { crashStore } from "./crash-store.ts";
 import { initDebugLog, note, record, toText as debugLogText, entries as debugLogEntries } from "./debug-log.ts";
@@ -1023,6 +1024,7 @@ const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseE
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {
   { const f = session.finalRecord(); finalBadge.hidden = !f; if (f) finalBadge.textContent = `定稿 ${f.rev}`; document.body.classList.toggle("doc-final", editor.locked); }   // 护栏 ①：定稿着 → 工具区灰掉
+  syncAttentionBanner();   // 2026-10-26：和云端没对上 → 横幅在 / 对上了 → 横幅走
   const st = session.saveState();
   btnSave.dataset.state = st;
   btnSaveIcon.setAttribute("href", `#${st === "local-only" && session.home.kind === "gallery" ? "cloud-unavailable" : SAVE_ICON[st]}`);   // 图库家未登录 = 斜杠云（云不可用，登录可修）
@@ -1166,27 +1168,42 @@ function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
   })();
   return afterCloudReachableInFlight;
 }
-/** force = dev 探针用（test/probes/probe-push-ask.mjs）：跳过「已登录」前置，未登录时 pushAll 全失败 = 正好验「失败留本机、如实报」那条护栏。 */
+/** 2026-10-26 改（user「列表面」；家族根 ai-docs/20261026-cloud-conflict-ux-postmortem.md §5 C1）：10-21 的「问一次 → pushAll」是 / 否框撤了——
+ *  它说「只在这台设备上」对「传过、后来改了没传」是假话，批量传完失败只剩一条没有按钮的 toast（user「弹了一个需要处理然后就什么交互都没了」）。
+ *  现在：有没同步好的 → 一条带「去处理」钮的常驻通知 → 开图库进「要处理的」视图（gallery 0.8.8：顶部横幅 + 每张卡一粒可见的「处理…」，点了当场弹库的三选一面）。
+ *  不自动盖住正在画的东西（家族 zen：别把人踢出去）；图库已经开着就直接切过去。每次打开 app 最多提一次。
+ *  不再自己批量推：没同步好的每一份都由人在面里选用哪边。force = dev 探针（test/probes/probe-push-ask.mjs）跳过「已登录」前置。 */
 async function offerPushLocalOnly(reason: string, force = false): Promise<void> {
   if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || navigator.onLine === false)) return;
-  if (isBusyActive() || !$("sheet").hidden) { note("sync", `local-only ask skipped (busy / sheet open) reason=${reason}`); return; }
   const files = requireStore().files;
   const n = await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; });
   if (n <= 0) return;
   askedPushLocalOnly = true;
-  note("sync", `local-only models after ${reason}: ${n} → ask`);
-  const go = await openConfirmSheet("有模型还没传上去", `有 ${n} 个模型只在这台设备上（离线或没登录时保存的）。现在传到 OneDrive 吗？云端已经有新版本的那几个不会被覆盖——会留在本机，去图库点它的「处理…」再定。`, { okLabel: "传", cancelLabel: "先不" });
-  if (!go) { note("sync", "local-only models: user said not now"); return; }
-  try {
-    const r = await files.dirty.pushAll();
-    note("sync", `dirty.pushAll: pushed=${r.pushed} failed=${r.failed.length}${r.failed.length ? " [" + r.failed.join(", ") + "]" : ""}`);
-    if (session.home.kind === "gallery" && r.pushed > 0 && !r.failed.includes(session.home.path)) session.pushPending = false;   // 开着的那个也推上去了 → 保存钮别再说「没推上去」
-    if (r.failed.length) notify({ text: `传上去 ${r.pushed} 个；${r.failed.length} 个没传成（云端有新版本、撞名或网络）——留在本机没动，图库里点它的「处理…」`, level: "warning" });
-    else if (r.pushed) notify({ text: `已把 ${r.pushed} 个模型传到 OneDrive`, level: "info" });
-  } catch (e) { funnel(e, "warning"); }
+  note("sync", `unsynced models after ${reason}: ${n} → notice`);
+  if (galleryHost.isOpen()) galleryHost.setAttentionOnly(true);
+  notify({
+    id: "unsynced", level: "warning", timeoutMs: null,
+    text: `有 ${n} 个模型没同步好（只在这台设备上，或改了还没传上去）。到图库里逐个「处理…」，每一个都会问你用云端的还是这台的。`,
+    actions: [{ label: "去处理", primary: true, onClick: () => { closeNotice("unsynced"); void galleryHost.openAttention(); } }],
+  });
   updateSaveStatus();
-  if (galleryHost.isOpen()) galleryHost.refresh();
 }
+// ---- 编辑器横幅：正在编辑的这份和云端没对上（自动保存撞上，库想弹面，被 store-ui conflictGate 挡成横幅）→ 一条常驻通知 + 「处理…」钮 = 人主动叫面 ----
+//   user 2026-10-26「不弹模态，横幅 + 钮」。冲突照样 surface（MASTER §A），只是不在画画半路打断；显式保存仍会弹面。
+const ATTENTION_ID = "sync-attention";
+function attentionText(cloudState: string | null): string {
+  const n = session.displayName();
+  if (cloudState === "absent" || cloudState === "never") return `「${n}」云端那份没了，这台的改动还没传上去——要你选：传回去，还是跟云端把这份收进回收站`;
+  if (cloudState === "unchanged") return `「${n}」的改动还没传上去（云端没变）——点「处理…」`;
+  return `「${n}」在云端有另一版新改动，这台的改动也没传上去——要你选用哪边（输的那版会留底）`;
+}
+function syncAttentionBanner(): void {
+  const a = session.attention;
+  if (!a || session.home.kind !== "gallery") { closeNotice(ATTENTION_ID); return; }
+  notify({ id: ATTENTION_ID, level: "warning", timeoutMs: null, text: attentionText(a.cloudState),
+    actions: [{ label: "处理…", primary: true, onClick: () => { void session.resolveActive().then(() => syncAttentionBanner()).catch((e) => funnel(e, "warning")); } }] });
+}
+conflictGate.onDeferred = ({ cloudState }) => { session.markAttention(cloudState); };
 auth.onAuthChanged((st) => {
   note("auth", `changed signedIn=${st.signedIn} reason=${st.reason ?? "-"} probing=${!!st.probing} account=${acct(st.account)}`);
   updateCloudChip(); updateSaveStatus();
