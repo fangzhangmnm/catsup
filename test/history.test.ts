@@ -114,4 +114,27 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     eq(h.snapshotIndices().join(","), "2", "旧的 index 4 快照丢弃、新的 index 2 快照重建");
     eq(fingerprint(rootK(h.undo()!)), fingerprint(replayFresh(ops, 1)), "undo 回到 rect 态");
   });
+  it("一步 = 好几条 op（join）：撤销 / 重做一次走完整步；undoOp 只退一条（user 2026-10-25「*6 /6的时候undo不对」）", () => {
+    const h = new History(undefined, { snapEvery: 2, keepSnaps: 8 }); let s = new Scene();
+    s = h.commit(s, rect(0, 0, 10, 10)).scene;
+    const one = fingerprint(rootK(s));
+    for (let i = 1; i <= 6; i++) s = h.commit(s, chord(i), i > 1).scene;   // 阵列 ×6 = 一步六条
+    const all = fingerprint(rootK(s));
+    s = h.undo()!;
+    eq(h.position(), 1, "一次撤完六条");
+    eq(fingerprint(rootK(s)), one);
+    s = h.redo(s)!.scene;
+    eq(h.position(), 7, "一次重做六条");
+    eq(fingerprint(rootK(s)), all);
+    s = h.undoOp()!;
+    eq(h.position(), 6, "undoOp 只退一条");
+    s = h.commit(s, chord(8)).scene;   // 不 join = 新的一步
+    s = h.undo()!;
+    eq(h.position(), 6, "新的一步单独撤");
+    s = h.undo()!;
+    eq(h.position(), 1, "剩下五条仍是一步");
+    eq(h.undo() !== null, true); eq(h.position(), 0);
+    eq(h.commit(new Scene(), rect(0, 0, 1, 1), true).scene !== null, true, "第一条 join 无效（前面没有）");
+    eq(h.undo() !== null, true); eq(h.position(), 0);
+  });
 });

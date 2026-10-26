@@ -19,4 +19,15 @@ describe("参数小窗：马后炮", () => {
     s.set("algo", "mean");
     eq(log.length, 4, "作废后改值不动");
   });
+  it("重做途中宿主来问「作废了吗」= 没作废（每提交一条宿主都重画小窗；2026-10-25 修：第二次改值前小窗已被自己关掉）", () => {
+    let ops = 1; const seen: boolean[] = [];
+    const s = afterthought({ title: "t", fields: [], values: { origin: "corner" }, nOps: 1, opCount: () => ops,
+      undoN: (n) => { ops -= n; seen.push(s.stale!()); }, redo: () => { ops++; seen.push(s.stale!()); ops++; seen.push(s.stale!()); } });
+    s.set("origin", "center");
+    eq(seen.join(","), "false,false,false");
+    assert(!s.stale!(), "改完仍算数");
+    s.set("origin", "bottom");
+    eq(seen.length, 6, "第二次改值照样生效");
+  });
 });
+

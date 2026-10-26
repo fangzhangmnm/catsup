@@ -13,6 +13,7 @@ export declare class OpApplyError extends Error {
 export declare class History {
     private readonly base;
     private ops;
+    private joins;
     private cursor;
     private snaps;
     private readonly snapEvery;
@@ -27,11 +28,13 @@ export declare class History {
     position(): number;
     log(): readonly Op[];
     snapshotIndices(): number[];
-    /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。失败抛 OpApplyError（不记账，带回滚场景）。 */
-    commit(s: Scene, op: Op): ApplyResult;
-    /** 撤销 = 回到最近检查点重放到 cursor−1。返回新场景（调用方换用）；没得撤 → null。 */
+    /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。join = 和上一条同一步。失败抛 OpApplyError（不记账，带回滚场景）。 */
+    commit(s: Scene, op: Op, join?: boolean): ApplyResult;
+    /** 撤销一步（这一步的全部 op）= 回到最近检查点重放到这一步之前。返回新场景（调用方换用）；没得撤 → null。 */
     undo(): Scene | null;
-    /** 重做 = 把下一条 op 原地应用到当前场景。失败抛 OpApplyError（cursor 不动）。 */
+    /** 只撤一条 op（编辑器内部按新值重做那一步用；用户的撤销走 undo）。 */
+    undoOp(): Scene | null;
+    /** 重做一步 = 把下一步的 op 依次原地应用到当前场景。中途失败抛 OpApplyError（cursor 不动、带回这一步之前的场景）。 */
     redo(s: Scene): ApplyResult | null;
     /** 应用 ops[0..i) 后的状态（新实例）：取 ≤ i 的最近快照 clone 再重放剩余。 */
     stateAt(i: number): Scene;

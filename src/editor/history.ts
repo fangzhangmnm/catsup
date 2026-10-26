@@ -7,6 +7,9 @@
 // · 事务性：应用抛错（目标缺席 / 内核拒绝）→ 这批**不记账**，并交回一份「提交前状态」（OpApplyError.restored）。
 // · 联机形状：log() = 线协议本体；联机 undo = 抽 op 重放（OT 政策在上层），本类不做。
 // · 指令流生命周期 = runtime（user 2026-09-07）：不持久化；打开文件 = 新 base，历史从零开始。
+// · 一步 = 用户的一个动作，可以是好几条 op（阵列 ×6 = 6 份副本、移动两个组 = 两条变换、建组件再挪原点）：commit 带 join = 和前一条同一步；
+//   undo / redo 按步走（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）。undoOp 只退一条 = 编辑器内部「撤销刚才那步按新值重做」用。
+//   edited 2026-10-25 by Claude Opus 5.5
 import { Scene } from "../scene/scene.ts";
 import { applyOp, type ApplyResult, type Op } from "./ops.ts";
 
@@ -28,6 +31,7 @@ export class OpApplyError extends Error {
 export class History {
   private readonly base: Scene;                  // 装载态（clone 持有，永不改）；undo 到底 = 回到刚打开时
   private ops: Op[] = [];
+  private joins: boolean[] = [];                 // joins[i] = ops[i] 和 ops[i−1] 是同一步（第 0 条永远 false）
   private cursor = 0;                            // 已应用 op 数：ops[0..cursor) 生效
   private snaps = new Map<number, Scene>();      // index → 应用 ops[0..index) 后的快照（clone，只读）；base 视为 index 0
   private readonly snapEvery: number;
@@ -46,36 +50,45 @@ export class History {
   log(): readonly Op[] { return this.ops; }
   snapshotIndices(): number[] { return [...this.snaps.keys()].sort((a, b) => a - b); }
 
-  /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。失败抛 OpApplyError（不记账，带回滚场景）。 */
-  commit(s: Scene, op: Op): ApplyResult {
+  /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。join = 和上一条同一步。失败抛 OpApplyError（不记账，带回滚场景）。 */
+  commit(s: Scene, op: Op, join = false): ApplyResult {
     let r: ApplyResult;
     try { r = applyOp(s, op); }
     catch (e) { throw new OpApplyError(e, this.stateAt(this.cursor)); }
     if (this.cursor < this.ops.length) {
-      this.ops.length = this.cursor;
+      this.ops.length = this.cursor; this.joins.length = this.cursor;
       for (const i of [...this.snaps.keys()]) if (i > this.cursor) this.snaps.delete(i);
     }
-    this.ops.push(op);
+    this.ops.push(op); this.joins.push(join && this.cursor > 0);
     this.cursor++;
     if (this.cursor % this.snapEvery === 0) { this.snaps.set(this.cursor, r.scene.clone()); this.prune(); }
     return r;
   }
 
-  /** 撤销 = 回到最近检查点重放到 cursor−1。返回新场景（调用方换用）；没得撤 → null。 */
+  /** 撤销一步（这一步的全部 op）= 回到最近检查点重放到这一步之前。返回新场景（调用方换用）；没得撤 → null。 */
   undo(): Scene | null {
+    if (this.cursor === 0) return null;
+    do this.cursor--; while (this.cursor > 0 && this.joins[this.cursor]);
+    return this.stateAt(this.cursor);
+  }
+  /** 只撤一条 op（编辑器内部按新值重做那一步用；用户的撤销走 undo）。 */
+  undoOp(): Scene | null {
     if (this.cursor === 0) return null;
     this.cursor--;
     return this.stateAt(this.cursor);
   }
 
-  /** 重做 = 把下一条 op 原地应用到当前场景。失败抛 OpApplyError（cursor 不动）。 */
+  /** 重做一步 = 把下一步的 op 依次原地应用到当前场景。中途失败抛 OpApplyError（cursor 不动、带回这一步之前的场景）。 */
   redo(s: Scene): ApplyResult | null {
     if (this.cursor >= this.ops.length) return null;
-    let r: ApplyResult;
-    try { r = applyOp(s, this.ops[this.cursor]); }
-    catch (e) { throw new OpApplyError(e, this.stateAt(this.cursor)); }
-    this.cursor++;
-    return r;
+    const c0 = this.cursor;
+    let r: ApplyResult | null = null;
+    const events: ApplyResult["events"] = [];
+    try {
+      do { r = applyOp(r ? r.scene : s, this.ops[this.cursor]); events.push(...r.events); this.cursor++; }
+      while (this.cursor < this.ops.length && this.joins[this.cursor]);
+    } catch (e) { this.cursor = c0; throw new OpApplyError(e, this.stateAt(c0)); }
+    return { ...r!, events };
   }
 
   /** 应用 ops[0..i) 后的状态（新实例）：取 ≤ i 的最近快照 clone 再重放剩余。 */

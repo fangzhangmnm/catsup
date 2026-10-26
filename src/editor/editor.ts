@@ -257,6 +257,9 @@ export class Editor {
   private dims = "";   // 手势中的尺寸读数（血槽位）
   private toolTip: string | null = null;   // 工具自己要的跟指针提示（优先于吸附标签）
   private opCount = 0;
+  /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
+  private stepDepth = 0;
+  private stepHasOp = false;
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
   /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
    *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
@@ -613,13 +616,18 @@ export class Editor {
   }
 
   // ---------- 记账 ----------
+  /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
+  private step<T>(fn: () => T): T {
+    if (this.stepDepth++ === 0) this.stepHasOp = false;
+    try { return fn(); } finally { this.stepDepth--; }
+  }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitOp(op: Op): FaceEvent[] {
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     const t0 = performance.now();
     let r: ReturnType<History["commit"]>;
-    try { r = perf.time("commit", () => this.history.commit(this.scene, op)); }
+    try { r = perf.time("commit", () => this.history.commit(this.scene, op, this.stepDepth > 0 && this.stepHasOp)); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
       if (err instanceof OpApplyError) { this.scene = err.restored; this.bump(); }
@@ -631,6 +639,7 @@ export class Editor {
     }
     this.scene = r.scene;
     this.opCount++;
+    if (this.stepDepth > 0) this.stepHasOp = true;
     this.bump();
     this.revalidateCharged();
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
@@ -681,6 +690,7 @@ export class Editor {
     const s2 = this.history.undo();
     if (!s2) return;
     this.scene = s2;
+    this.openParamSession(null);   // 马后炮 / 马前炮跟着那一步走：撤了就关（不然再改值会撤错一步）
     this.bump();
     this.revalidateCharged();
     this.cancelGesture();
@@ -703,6 +713,7 @@ export class Editor {
     }
     if (!r) return;
     this.scene = r.scene;
+    this.openParamSession(null);
     this.bump();
     this.revalidateCharged();
     this.cancelGesture();
@@ -881,7 +892,8 @@ export class Editor {
     this.host.changed(); this.draw();
   }
 
-  deleteSelection(): void {
+  deleteSelection(): void { return this.step(() => this.deleteSelectionStep()); }
+  private deleteSelectionStep(): void {
     if (!this.hasSelection()) return;
     const k = this.kernel, at = this.activePool();
     if (this.selection.faces.size || this.selection.edges.size) {
@@ -917,23 +929,49 @@ export class Editor {
     this.host.changed(); this.draw();
     return true;
   }
-  /** 选区 → component（新 definition + 一个实例；轴 = 包围盒最小角）。 */
-  makeComponent(name: string): boolean {
+  /**
+   * 选区 → component（新 definition + 一个实例；轴默认 = 包围盒最小角，SketchUp 同款）。
+   * 之后右下角马后炮可换原点（user 2026-10-25「建立组件的时候能不能马后炮选择一下轴的居中模式」）：包围盒角 / 包围盒中心 / 底面中心 / 顶点平均——
+   * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
+   */
+  makeComponent(name: string): boolean { return this.step(() => this.makeComponentStep(name)); }
+  private makeComponentStep(name: string): boolean {
     if (!this.hasSelection()) return false;
     const at = this.activePool(), k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
     const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
     if (!faces.length && !edges.length) return false;
-    this.commitOp({ op: "makeComponent", at, faces, edges, name });
-    this.selection = emptySelection(); this.selectedPools.clear();
-    const def = this.scene.def(this.scene.defOfContext(this.ctx));
-    const newest = [...def.instances.values()].filter((i) => i.parent === this.ctx.group).pop();
-    if (newest) this.selectedPools.set(`i${newest.id}`, { kind: "instance", instance: newest.id });
+    const go = (mode: string): void => {
+      const before = new Set(this.scene.defs.keys());
+      this.commitOp({ op: "makeComponent", at, faces, edges, name });
+      const defId = [...this.scene.defs.keys()].find((id) => !before.has(id));
+      if (defId === undefined || mode === "corner") return;
+      const vs = this.scene.kernelOf({ def: defId, group: null }).vertices();
+      if (!vs.length) return;
+      let lo = { x: Infinity, y: Infinity, z: Infinity }, hi = { x: -Infinity, y: -Infinity, z: -Infinity }, sum = { x: 0, y: 0, z: 0 };
+      for (const v of vs) { lo = { x: Math.min(lo.x, v.x), y: Math.min(lo.y, v.y), z: Math.min(lo.z, v.z) }; hi = { x: Math.max(hi.x, v.x), y: Math.max(hi.y, v.y), z: Math.max(hi.z, v.z) }; sum = add3(sum, v); }
+      const c = { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 };
+      const origin = mode === "center" ? c : mode === "bottom" ? { x: c.x, y: c.y, z: lo.z } : scale3(sum, 1 / vs.length);
+      this.commitOp({ op: "setAxes", at: { def: defId, group: null }, frame: { origin, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } });
+    };
+    const selectNewest = (): void => {
+      this.selection = emptySelection(); this.selectedPools.clear();
+      const def = this.scene.def(this.scene.defOfContext(this.ctx));
+      const newest = [...def.instances.values()].filter((i) => i.parent === this.ctx.group).pop();
+      if (newest) this.selectedPools.set(`i${newest.id}`, { kind: "instance", instance: newest.id });
+    };
+    const n0 = this.opCount;
+    go("corner");
+    if (this.opCount === n0) return false;
+    selectNewest();
+    this.offerAfterthought("建组件", [{ key: "origin", def: { kind: "enum", label: "原点", values: [{ id: "corner", label: "包围盒角" }, { id: "center", label: "包围盒中心" }, { id: "bottom", label: "底面中心" }, { id: "mean", label: "顶点平均" }] } }],
+      { origin: "corner" }, this.opCount - n0, (v) => { go(String(v.origin)); selectNewest(); });
     this.host.changed(); this.draw();
     return true;
   }
   /** 炸开选中的子 group / 实例。 */
-  explodeSelection(): boolean {
+  explodeSelection(): boolean { return this.step(() => this.explodeSelectionStep()); }
+  private explodeSelectionStep(): boolean {
     if (!this.selectedPools.size) return false;
     const at = this.activePool();
     const kept = new Map<string, PoolPick>();
@@ -947,7 +985,8 @@ export class Editor {
     return true;
   }
   /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
-  copyInstance(delta: Pt3): boolean {
+  copyInstance(delta: Pt3): boolean { return this.step(() => this.copyInstanceStep(delta)); }
+  private copyInstanceStep(delta: Pt3): boolean {
     const picks = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance");
     if (!picks.length) return false;
     const def = this.scene.defOfContext(this.ctx), at = this.activePool();
@@ -987,7 +1026,8 @@ export class Editor {
     return ok;
   }
   /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
-  lockSelection(on: boolean): boolean {
+  lockSelection(on: boolean): boolean { return this.step(() => this.lockSelectionStep(on)); }
+  private lockSelectionStep(on: boolean): boolean {
     // 0.14：组不是物体、不能锁（user「组永远不进hierarchy」）——只锁实例；选区里只有组时提示怎么办
     const all = [...this.selectedPools.values()];
     const picks = all.filter((p) => p.kind === "instance" && this.pickIsLocked(p) !== on);
@@ -1263,8 +1303,8 @@ export class Editor {
     if (p.stale?.()) { p.dispose?.(); this.param = null; return null; }
     return p;
   }
-  setParam(key: string, value: ParamValue): void { this.param?.set(key, value); this.host.changed(); this.draw(); }
-  pressParam(key: string): void { this.param?.press(key); this.host.changed(); this.draw(); }
+  setParam(key: string, value: ParamValue): void { this.step(() => this.param?.set(key, value)); this.host.changed(); this.draw(); }
+  pressParam(key: string): void { this.step(() => this.param?.press(key)); this.host.changed(); this.draw(); }
   /** 换一个会话（旧的收尾）；null = 关掉。 */
   openParamSession(s: ParamSession | null): void { if (this.param && this.param !== s) this.param.dispose?.(); this.param = s; this.host.changed(); }
   /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。 */
@@ -1296,7 +1336,8 @@ export class Editor {
     return { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 };
   }
   /** 把当前上下文的轴原点挪到选择中心（朝向不变）；之后右下角马后炮可换算法。没选区 → false。 */
-  axesToSelectionCenter(algo: "bbox" | "mean" = "bbox"): boolean {
+  axesToSelectionCenter(algo: "bbox" | "mean" = "bbox"): boolean { return this.step(() => this.axesToSelectionCenterStep(algo)); }
+  private axesToSelectionCenterStep(algo: "bbox" | "mean"): boolean {
     const pts = this.selectionWorldPoints();   // 先记下：马后炮撤销那一步时选区会被清掉，重做按记下的点算
     const go = (a: "bbox" | "mean"): boolean => { const c = Editor.centerOf(pts, a); if (!c) return false; const f = this.contextFrame(); this.setContextAxes({ origin: c, x: f.x, y: f.y, z: f.z }); return true; };
     const n0 = this.opCount;
@@ -1323,7 +1364,8 @@ export class Editor {
   /** 手势进行中不能输（例外：画线的连画态只是下一笔的锚点）。 */
   private vcbBlocked(): boolean { return this.gestureActive() && !(this._tool === "line" && this.armed && this.anchor3 !== null); }
   /** 应用一条输入：解析 → 撤销那一步的 op → 按精确值重做 → 更新 last（可以连着改）。 */
-  applyVcb(text: string): { ok: true; message: string } | { ok: false; error: string } {
+  applyVcb(text: string): { ok: true; message: string } | { ok: false; error: string } { return this.step(() => this.applyVcbStep(text)); }
+  private applyVcbStep(text: string): { ok: true; message: string } | { ok: false; error: string } {
     const L = this.last;
     if (!L) return { ok: false, error: "先做一步（画 / 推拉 / 移动…），再输精确值" };
     if (this.vcbBlocked()) return { ok: false, error: "先松手落定，再输精确值" };
@@ -1480,7 +1522,8 @@ export class Editor {
   }
   /** 撤销 n 个 op（数值小窗重做用；不清 last、不清选区之外的状态）。 */
   private undoN(n: number): void {
-    for (let i = 0; i < n; i++) { const s2 = this.history.undo(); if (!s2) break; this.scene = s2; this.opCount--; }
+    for (let i = 0; i < n; i++) { const s2 = this.history.undoOp(); if (!s2) break; this.scene = s2; this.opCount--; }
+    this.stepHasOp = false;   // 重做的第一条另起一步（撤掉的正是这一步）
     this.bump();
     this.revalidateCharged();
     this.selection = emptySelection(); this.selectedPools.clear();
@@ -1767,7 +1810,8 @@ export class Editor {
     return Number.isFinite(min.x) ? { min, max } : null;
   }
   // ---------- 输入：工具指针 ----------
-  pointerDown(ev: ToolPointer): void {
+  pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
+  private pointerDownStep(ev: ToolPointer): void {
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
@@ -1840,7 +1884,8 @@ export class Editor {
   /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
   private consumeCharges(): void { this.clearCharged(); }
 
-  pointerMove(ev: ToolPointer): void {
+  pointerMove(ev: ToolPointer): void { this.step(() => this.pointerMoveStep(ev)); }
+  private pointerMoveStep(ev: ToolPointer): void {
     if (this.gizmoPointer("move", ev)) return;
     const s = ev;
     this.lastPtr = { x: s.x, y: s.y };
@@ -2008,7 +2053,8 @@ export class Editor {
     return hasIntent(moved, this.eps().drag);
   }
 
-  pointerUp(ev: ToolPointer): void {
+  pointerUp(ev: ToolPointer): void { this.step(() => this.pointerUpStep(ev)); }
+  private pointerUpStep(ev: ToolPointer): void {
     if (this.gizmoPointer("up", ev)) return;
     const s = ev;
     { const at = this.taps.pressAt(); this.taps.up(performance.now(), ev.travel ?? (at ? this.frame().distTo(s.x, s.y, at, this.fvp()) : 0)); }

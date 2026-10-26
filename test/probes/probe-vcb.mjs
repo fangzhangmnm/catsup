@@ -77,6 +77,9 @@ const res = await page.evaluate(async () => {
   const movedOnly = e.kernel.faces().length === facesBeforeCopy;
   await type("2x");
   out.plainMoveArray = movedOnly && e.kernel.faces().length === facesBeforeCopy + 12 && e.kernel.vertices().some((v) => Math.abs(v.y - 0) < 1e-6);
+  // ④¾ 阵列一次撤完、一次重做（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）
+  e.undo(); out.arrayUndoOnce = e.kernel.faces().length === facesBeforeCopy;
+  e.redo(); out.arrayRedoOnce = e.kernel.faces().length === facesBeforeCopy + 12;
   // ⑤ 换工具后小窗熄灭
   e.setTool("line");
   out.vcbHiddenAfterTool = vcbEl.hidden;
@@ -84,7 +87,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.vcbHiddenBefore && res.vcbShownAfterPP && res.ppExact2 && res.ppExact15 && res.rectExact && res.circleRadius && res.circleSegments && res.boxSelected && res.copyMade && res.arrayX3 && res.arrayDiv2 && res.plainMoveArray && res.vcbHiddenAfterTool && errs.length === 0;
+const ok = res.vcbHiddenBefore && res.vcbShownAfterPP && res.ppExact2 && res.ppExact15 && res.rectExact && res.circleRadius && res.circleSegments && res.boxSelected && res.copyMade && res.arrayX3 && res.arrayDiv2 && res.plainMoveArray && res.arrayUndoOnce && res.arrayRedoOnce && res.vcbHiddenAfterTool && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);

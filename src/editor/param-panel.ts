@@ -34,18 +34,22 @@ export function afterthought(o: {
   title: string; fields: readonly ParamField[]; values: Record<string, ParamValue>; nOps: number;
   opCount: () => number; undoN: (n: number) => void; redo: (values: Readonly<Record<string, ParamValue>>) => void;
 }): ParamSession {
-  let n = o.nOps, mark = o.opCount();
+  let n = o.nOps, mark = o.opCount(), replaying = false;
   const values = { ...o.values };
   return {
     phase: "after", title: o.title, fields: o.fields, buttons: [], values,
-    stale: () => o.opCount() !== mark,
+    // 自己重做的途中不算作废：重做里每提交一条宿主都会重画小窗、来问这里（2026-10-25 修：第二次改值时小窗已经被自己关掉）
+    stale: () => !replaying && o.opCount() !== mark,
     set(key, v) {
       if (o.opCount() !== mark || values[key] === v) return;
-      o.undoN(n);
-      const n0 = o.opCount();
-      values[key] = v;
-      o.redo(values);
-      n = o.opCount() - n0; mark = o.opCount();
+      replaying = true;
+      try {
+        o.undoN(n);
+        const n0 = o.opCount();
+        values[key] = v;
+        o.redo(values);
+        n = o.opCount() - n0;
+      } finally { mark = o.opCount(); replaying = false; }
     },
     press() {},
   };

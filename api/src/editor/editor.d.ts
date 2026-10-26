@@ -284,6 +284,9 @@ export declare class Editor {
     private dims;
     private toolTip;
     private opCount;
+    /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
+    private stepDepth;
+    private stepHasOp;
     /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
     /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
      *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
@@ -412,6 +415,8 @@ export declare class Editor {
     /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴（几何不动）。 */
     setContextAxes(frame: Frame): void;
     private cancelGesture;
+    /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
+    private step;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
     private commitOp;
     private bump;
@@ -456,14 +461,22 @@ export declare class Editor {
     weldSelection(): boolean;
     explodeCurveSelection(): void;
     deleteSelection(): void;
+    private deleteSelectionStep;
     /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
     makeGroup(): boolean;
-    /** 选区 → component（新 definition + 一个实例；轴 = 包围盒最小角）。 */
+    /**
+     * 选区 → component（新 definition + 一个实例；轴默认 = 包围盒最小角，SketchUp 同款）。
+     * 之后右下角马后炮可换原点（user 2026-10-25「建立组件的时候能不能马后炮选择一下轴的居中模式」）：包围盒角 / 包围盒中心 / 底面中心 / 顶点平均——
+     * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
+     */
     makeComponent(name: string): boolean;
+    private makeComponentStep;
     /** 炸开选中的子 group / 实例。 */
     explodeSelection(): boolean;
+    private explodeSelectionStep;
     /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
     copyInstance(delta: Pt3): boolean;
+    private copyInstanceStep;
     /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
     private opTouchesLocked;
     /** 当前上下文链上有锁住的实例（进不去的地方本来也到不了；双保险）。 */
@@ -475,6 +488,7 @@ export declare class Editor {
     private movablePoolPicks;
     /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
     lockSelection(on: boolean): boolean;
+    private lockSelectionStep;
     /** 进入选中（或命中）的子 group / 实例编辑。 */
     enterPool(p: PoolPick): void;
     enterSelected(): boolean;
@@ -542,6 +556,7 @@ export declare class Editor {
     private static centerOf;
     /** 把当前上下文的轴原点挪到选择中心（朝向不变）；之后右下角马后炮可换算法。没选区 → false。 */
     axesToSelectionCenter(algo?: "bbox" | "mean"): boolean;
+    private axesToSelectionCenterStep;
     /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
     vcbState(): {
         kind: VcbKind | null;
@@ -560,6 +575,7 @@ export declare class Editor {
         ok: false;
         error: string;
     };
+    private applyVcbStep;
     /** 撤销 n 个 op（数值小窗重做用；不清 last、不清选区之外的状态）。 */
     private undoN;
     /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
@@ -622,6 +638,7 @@ export declare class Editor {
     private updateTip;
     private targetBounds;
     pointerDown(ev: ToolPointer): void;
+    private pointerDownStep;
     /** 手势中 = 工具的 dims；否则选中面的面积合计 / 选中边的长度合计；都没有 = ""。 */
     readoutText(): string;
     /** 全选（Ctrl+A，A7）：当前上下文的全部几何 + 直接子 group / 实例。 */
@@ -631,6 +648,7 @@ export declare class Editor {
     /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
     private consumeCharges;
     pointerMove(ev: ToolPointer): void;
+    private pointerMoveStep;
     /** 手势中的取点（pointerMove 与松开帧共用）：交给当前工具模块。 */
     private trackGesture;
     /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
@@ -648,6 +666,7 @@ export declare class Editor {
     /** 意图门开关：屏上拖够 eps.drag 才有意图（intent.ts hasIntent）。 */
     private intentOn;
     pointerUp(ev: ToolPointer): void;
+    private pointerUpStep;
     pointerLeave(): void;
     /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
     private commitCopies;
