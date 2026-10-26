@@ -25,6 +25,7 @@ await page.keyboard.up("Shift"); await page.evaluate(() => globalThis.__catsup.e
 const ang = out.cursor ? Math.atan2(out.cursor.y, out.cursor.x - 4) * 180 / Math.PI : NaN;
 out.deg = Math.round(ang * 100) / 100;
 console.log(JSON.stringify(out));
-const ok = out.sel.faces === 6 && out.sel.edges === 12 && !out.sel.hidden && /面积/.test(out.sel.readout) && /长/.test(out.sel.readout) && out.shift.tip === "30°" && Math.abs(out.deg - 30) < 0.5;
+// 右下读数 2026-10-25 起先不显示（user「面积和长可以先不显示……右边把小窗位置都让出来」）：文字照算、节点藏着
+const ok = out.sel.faces === 6 && out.sel.edges === 12 && out.sel.hidden && /面积/.test(out.sel.readout) && /长/.test(out.sel.readout) && out.shift.tip === "30°" && Math.abs(out.deg - 30) < 0.5;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

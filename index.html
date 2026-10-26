@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=5a25e80abd73" />
-    <link rel="stylesheet" href="./styles.css?v=b8458920aab4" />
+    <link rel="stylesheet" href="./styles.css?v=11b9684179d9" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -252,6 +252,8 @@
           <!-- user 10-21「undo redo是不是放下面好一点」：撤销 / 重做回到最下面 -->
           <button class="tb-btn" id="btnUndo" type="button" title="撤销（Ctrl+Z / 双指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-undo"/></svg></button>
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
+          <!-- 版本号（user 2026-10-25「版本号放哪里比较好。右边把小窗位置都让出来」）：左柱最底下的小灰字，截图报 bug 时看得见；完整版在 title / ☰「强制更新」行尾 -->
+          <span id="build" class="build rail-build"></span>
         </nav>
         <div class="hud-gizmo" id="viewGizmo" aria-label="视图"></div>
         <!-- 右下 = 参数小窗 = 上下文选项（user 2026-10-25「右下的语义就是上下文选项」「参数小窗就是上下文选项条，全搬进去」「所以右侧的角色位不要了，专门留给小窗长」）：
@@ -260,8 +262,8 @@
           <div class="vcb-strip" id="toolStrip" aria-label="工具选项 / 选区动作" hidden></div>
         </div>
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
-        <!-- 右下一列：读数 → 版本号（栅格芯片 v0.13.51 收进右上视图 ☰ 的「栅格」页，user「先把右下收到右上汉堡里」） -->
-        <div class="hud-text hud-br"><span id="readout" class="readout" hidden></span><span id="build" class="build"></span></div>
+        <!-- 右下读数（面积 / 长）先不显示（user 2026-10-25「面积和长可以先不显示……右边把小窗位置都让出来」）：节点留着，main.ts READOUT_ON = false；版本号搬去左柱最底下 -->
+        <div class="hud-text hud-br"><span id="readout" class="readout" hidden></span></div>
         <div id="marquee" hidden></div>
       </div>
     </div>
@@ -347,6 +349,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-d59a8376928c.mjs"></script>
+    <script type="module" src="./dist/catsup-8b4eb79d5708.mjs"></script>
   </body>
 </html>

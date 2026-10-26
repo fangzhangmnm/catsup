@@ -116,6 +116,8 @@ const tipEl = $("tip");
 const marqueeEl = $("marquee");
 const toolbarEl = $("toolbar");
 const readoutEl = $("readout");
+/** 右下读数（面积 / 长 / 手势尺寸）先关（user 2026-10-25「面积和长可以先不显示……右边把小窗位置都让出来」）；尺寸仍在光标旁的小提示和参数小窗的数值里。 */
+const READOUT_ON = false;
 const buildEl = $("build");
 
 const HINT_DEFAULT = "";   // 左下角默认不再列快捷键（user 2026-10-25「左下角的那行快捷键早应该删掉了」）；只在真有提示时显示，快捷键在使用手册里
@@ -154,7 +156,7 @@ const editor = new Editor(canvas, {
   },
   changed: () => { syncUi(); _session?.noteChange(); },   // 同步：首笔安家在 commit 的同一调用栈里翻旗（WeebPaint wp:histchange 同形）
   error: (err, where) => reportError(where === "commit" ? "提交" : "预演", err),
-  readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !text; },   // 右下血槽位（A28）
+  readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !READOUT_ON || !text; },   // 右下血槽位（A28）；10-25 先不显示（READOUT_ON）
 });
 
 // ---------- 工具条 ----------
@@ -910,7 +912,8 @@ const pwa = initPwaShell({
   // 回前台：打开中文档显式快进 + 图库开着就刷列表（WeebPaint onForeground 同形；判据 = 登录态）
   onForeground: () => { void _session?.refreshOpenDoc(); if (galleryHost.isOpen()) galleryHost.refresh(); },
 });
-buildEl.textContent = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
+buildEl.textContent = `${APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "")}${pwa.isDevRoute ? " dev" : ""}`;   // 左柱窄：只写 v0.14.x（+ dev），完整的在 title
+buildEl.title = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
 if (new URLSearchParams(location.search).has("reset")) notify({ text: `已清缓存重启 · ${APP_VERSION}`, level: "info" });
 
 // ---------- 探针钩子（scripts/probe-boot.mjs 用；不是 API） ----------

@@ -6,7 +6,7 @@
 //     措辞按 store 0.18.2 的 cloudState 分四条，文案逐字 = gallery 包自带的 zh（cf.body.* / cf.cloudGoneTitle / cf.note.keptSafe），全家一个口径。
 //     absent / never 时「云端覆盖本地」= 本机这份进回收站、不是备份箱——「会留底」那句只在 changed / unchanged 显示（否则是撒谎；JRB 迁库 doc §1）。
 import type { StoreUI, StoreTextKey, StoreTextParams, ResolveChoice } from "@internal/store";
-import { withBusy, openChoiceSheet, openConfirmSheet } from "./app/ui/sheets.ts";
+import { withBusy, openChoiceSheet, openConfirmSheet, openGateChoiceSheet } from "./app/ui/sheets.ts";   // 冲突三选一走同步闸门（可开在 busy 之上，2026-10-25）
 import { showNotice, type NoticeHandle } from "./app/ui/notice.ts";
 import { reportError } from "./app/error-funnel.ts";
 import { note } from "./app/debug-log.ts";
@@ -49,13 +49,14 @@ export const storeUI: StoreUI = {
   busy: (label, fn, key) => (key && QUIET_KEYS.has(key) ? quietBusy(label, fn) : withBusy(label, fn)),
   text: (key: StoreTextKey, params?: StoreTextParams): string | undefined => STORE_TEXT[key]?.(params),
 
+  // 三选一走 openGateChoiceSheet：图库「处理…」把 store.resolve() 包在 busy 里（gallery 0.8.7 verbs.resolve），普通面板会被 busy 护栏拒（user 10-25 真机截图）
   resolveConflict: async ({ name, occasion, cloudState }): Promise<ResolveChoice> => {
     const n = stripExt(name);
     note("store", `conflict occasion=${occasion} cloudState=${cloudState ?? "-"} name=${n}`);
     let choice: ResolveChoice | null;
     if (occasion === "open") {
       // 打开时：两个按钮都不丢字节——打开本地 = 先开本机这份、保存时再裁；云端覆盖本地 = 本机这份进备份箱、拉云端的。
-      choice = await openChoiceSheet<"cancel" | "takeCloud">("云端有新版本", `「${n}」本机还有未上传的改动。${KEPT_SAFE}`,
+      choice = await openGateChoiceSheet<"cancel" | "takeCloud">("云端有新版本", `「${n}」本机还有未上传的改动。${KEPT_SAFE}`,
         [{ label: "打开本地", value: "cancel", primary: true }, { label: "云端覆盖本地", value: "takeCloud" }]);
     } else {
       const gone = cloudState === "absent" || cloudState === "never";
@@ -66,7 +67,7 @@ export const storeUI: StoreUI = {
           : cloudState === "unchanged"
             ? `「${n}」云端还是上次同步的那一版，本机有新改动没上传。${KEPT_SAFE}`
             : `「${n}」在云端和本机各有一版新改动。${KEPT_SAFE}`;
-      choice = await openChoiceSheet<ResolveChoice>(gone ? "云端没有这份" : "云端有新版本", body,
+      choice = await openGateChoiceSheet<ResolveChoice>(gone ? "云端没有这份" : "云端有新版本", body,
         [{ label: "云端覆盖本地", value: "takeCloud", primary: true }, { label: "本地覆盖云端", value: "keepMine" }, { label: "取消", value: "cancel" }]);
     }
     note("store", `conflict resolved → ${choice ?? "cancel"}`);

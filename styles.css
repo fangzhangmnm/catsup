@@ -113,7 +113,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .selbar-btn.danger { color: var(--danger); }
 #ctxAnchor { position: fixed; width: 0; height: 0; pointer-events: none; }
 /* 数值小窗（SU Measurements）：右下、版本角标之上；键盘往上展开 */
-.hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(52px + var(--safe-bottom)); max-width: min(560px, calc(100vw - 96px)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
+.hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(10px + var(--safe-bottom)); max-width: min(560px, calc(100vw - 96px)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
 .vcb-label { color: var(--muted); font-size: 11px; text-align: right; }
 .vcb-field { font: inherit; min-width: 120px; min-height: 32px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; padding: 4px 10px; text-align: right; font-variant-numeric: tabular-nums; cursor: pointer; }
 .vcb-field.typing { border-color: var(--accent); color: var(--accent); }
@@ -166,6 +166,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 /* 状态行=RPG 对话框：最多两行，超出省略（user 2026-09-07「左下角的状态显示…相当于 rpg 游戏的对话，超出了怎么办」）*/
 #hint { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; overflow: hidden; white-space: normal; overflow-wrap: anywhere; }
 .build { color: var(--muted); font-variant-numeric: tabular-nums; }
+.rail-build { font-size: 9px; line-height: 1.1; text-align: center; padding: 2px 0 1px; white-space: normal; word-break: break-all; max-width: 48px; opacity: .8; }   /* 左柱最底下的版本号（10-25） */
 /* 血槽位读数（A28）：手势 dims / 选中面积 / 边长，大一号、tabular */
 .readout { display: block; font-size: 15px; font-weight: 600; color: #2b2b2b; font-variant-numeric: tabular-nums; text-align: right; margin-bottom: 2px; }
 .hud-br { text-align: right; }

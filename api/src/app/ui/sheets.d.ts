@@ -2,6 +2,12 @@ export declare function showBusy(label: string, hint?: string): void;
 export declare function hideBusy(): void;
 export declare function isBusyActive(): boolean;
 export declare function withBusy<T>(label: string, fn: () => Promise<T> | T, hint?: string): Promise<T>;
+/**
+ * 同步闸门（WeebPaint lockSyncGate 同款思路；2026-10-25 Opus）：库在忙碌中途要问人（「处理…」= store file.resolve() 的三选一，图库库把它包在 busy 里）
+ * → 这一个面板允许开在忙碌遮罩之上：开的时候先把遮罩收起、选完还在忙就放回去。别的面板仍守「busy 中不许开」的护栏。
+ * user 2026-10-25 真机截图「没处理成：…sheet "choice" opened while busy overlay is active (would deadlock)…」。冲突必须摆出来问人（MASTER §A），这里只管让它摆得出来。
+ */
+export declare function openGateChoiceSheet<T>(title: string, message: string, choices: Choice<T>[]): Promise<T | null>;
 export declare function initSheets(): void;
 export interface ConfirmOpts {
     danger?: boolean;
