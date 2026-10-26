@@ -208,7 +208,7 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
     for (const w of walls) for (const d of k.face(w)!.outer.edges) wallRing.add(d.edge);
     if (walls.length) guard(k.eraseFaces(walls));
     // b. 缝上两边共面的边：擦掉 = 两张面并成一张
-    const seam = k.edges().filter((e) => onPlane(k.graph.pt(e.a)) && onPlane(k.graph.pt(e.b)) && e.faceLinks.length === 2 && (k.dihedralDeg(e.id) ?? 99) < 1e-6).map((e) => e.id);
+    const seam = k.edges().filter((e) => onPlane(k.graph.pt(e.a)) && onPlane(k.graph.pt(e.b)) && e.faceLinks.length === 2 && (k.bendDeg(e.id) ?? 99) < 1e-6).map((e) => e.id);
     if (seam.length) guard(k.eraseEdges(seam));
     // 删隔墙后它们环上没了面引用的边清掉（只清隔墙自己的边，不碰别处画在镜像面上的线）
     const lone = [...wallRing].filter((e) => k.graph.hasEdge(e) && k.graph.edge(e).faceLinks.length === 0);

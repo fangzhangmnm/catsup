@@ -201,7 +201,8 @@ const hud: HudModel = {
     { id: "unlock", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
     { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: !editor.hasHideableSelection() },
     { id: "applyScale", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },
-    ...((): HudItem[] => { const n = editor.hasGeometrySelection() || editor.hasPointSelection() ? editor.breaksInScope("selection").length : 0; return n ? [{ id: "weldBreaks", label: `焊接断口（${n}）`, icon: "arc" }] : []; })(),   // T7：选区里的断口（图标 stopgap 同焊接）   // 2026-10-26 user「这样的话我们需要一个apply scale」   // DT49（user「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden」）：H；视图菜单「全部显示」/ Alt+H 放回
+    ...((): HudItem[] => { const n = editor.hasGeometrySelection() || editor.hasPointSelection() ? editor.breaksInScope("selection").length : 0; return n ? [{ id: "weldBreaks", label: `焊接断口（${n}）`, icon: "arc" }] : []; })(),
+    ...((): HudItem[] => { const n = editor.hasFaceSelection() ? editor.planarGroupsInScope("selection") : 0; return n ? [{ id: "makePlanar", label: `拍平（${n} 组）`, icon: "sharpen" }] : []; })(),   // T9（图标 stopgap）   // T7：选区里的断口（图标 stopgap 同焊接）   // 2026-10-26 user「这样的话我们需要一个apply scale」   // DT49（user「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden」）：H；视图菜单「全部显示」/ Alt+H 放回
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
@@ -235,6 +236,7 @@ const hud: HudModel = {
       case "hide": editor.hideSelection(); break;
       case "applyScale": editor.applyScaleSelection(); break;
       case "weldBreaks": editor.weldAllBreaks("selection"); break;
+      case "makePlanar": editor.makePlanar("selection"); break;
       case "exit": editor.exitContext(); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
@@ -374,7 +376,7 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -404,6 +406,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "debuglog": openDebugLogSheet(); break;
       case "softenAll": { const n = editor.softenByAngle(20); notify({ text: n ? `软化了 ${n} 条边（夹角 ≤ 20°）` : "没有夹角 ≤ 20° 的边", level: "info" }); break; }
       case "weldAllBreaks": { const n = editor.weldAllBreaks("context"); notify({ text: n ? `焊了 ${n} 处断口` : "没有断口（共线、只连两段的点）", level: "info" }); break; }
+      case "makePlanarAll": editor.makePlanar("context"); break;
       case "material": toggleMatSheet(true); break;
       case "persp": editor.toggleProjection(); return "keep";
       case "unhideAll": editor.unhideAll(); break;
@@ -454,6 +457,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", tab: "file", hint: "锁住几何 / 材质" },
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", tab: "model", hint: "平滑组" },
     ((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.breaksInScope("context").length; return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", tab: "model", hint: "当前在编辑的物体里", disabled: !n }; })(),   // T7 / DT5
+    ((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.planarGroupsInScope("context"); return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", tab: "model", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n }; })(),   // T9 / DT7
     { id: "material", label: "材质…", icon: "color", tab: "model", hint: "油漆桶蘸什么" },
     { id: "clear", label: "清空模型", icon: "trash-can", tab: "model", separatorBefore: true },
     { id: "finger", label: "手指也能画", checked: fingerDraws, tab: "settings", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },

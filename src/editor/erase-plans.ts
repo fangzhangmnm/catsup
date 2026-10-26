@@ -117,7 +117,7 @@ export function planSoftErase(k: Kernel, scrubbed: readonly EdgeId[], maxDeg: nu
   for (const id of scrubbed) {
     if (!g.hasEdge(id) || seen.has(id)) continue;
     seen.add(id);
-    const a = k.dihedralDeg(id);
+    const a = k.bendDeg(id);   // 弯折角：对折回去的薄片不会被当成「共面」删掉（2026-10-26）
     if (a === null) continue;
     if (a <= COPLANAR_DEG) erase.push(edgeKey(k, id));
     else if (a <= maxDeg + 1e-9) soften.push(edgeKey(k, id));

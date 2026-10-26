@@ -15,6 +15,7 @@ import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/k
 import { dot3, normalize3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
+import { type PlanarTarget, planPlanar } from "./planar.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Frame, type Xform, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
@@ -49,6 +50,8 @@ export type Op =
   | { op: "makeGroup"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; groups?: number[]; instances?: number[] }
   /** 选区 → 新 definition + 一个实例（轴 = 包围盒最小角）。 */
   | { op: "makeComponent"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; name: string; groups?: number[]; instances?: number[] }
+  /** 拍平（纪元排期 T9 / DT7）：faces = 作用域（空 = 池里全部）；规划在 planar.ts（纯函数，预演同一份）；执行时结算出 BURST = 整步拒绝（零破面不变量）。 */
+  | { op: "makePlanar"; at: PoolRef; faces: FaceKey[]; deg: number; target: PlanarTarget; eraseInner: boolean }
   /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
   | { op: "applyScale"; def: number; instance: number }
   /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
@@ -168,6 +171,8 @@ function orthonormalFrame(f: Frame): Frame {
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
 /** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
 export class ShearRejected extends Error {}
+/** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
+export class PlanarBurst extends Error {}
 /** 会改组件实例矩阵、可能乘出斜切的指令（移动 / 旋转 / 等比缩放 / 镜像永远不会；非等比缩放转过的组件、炸开被非等比缩放过的组件会）。 */
 const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
 const shearedInstances = (s: Scene): Map<string, string> => {
@@ -351,6 +356,20 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     }
     case "eraseGuides": { const { ref } = poolOf(s, op.at); eraseGuides(s.guidesOf(ref), new Set(op.ids)); return { scene: s, events: [] }; }
     case "clearGuides": { const { ref } = poolOf(s, op.at); const G = s.guidesOf(ref); G.lines = []; G.points = []; return { scene: s, events: [] }; }
+    case "makePlanar": {
+      const { kernel } = poolOf(s, op.at);
+      const scope = op.faces.length ? op.faces.map((f) => resolveFace(kernel, f)) : null;
+      const plan = planPlanar(kernel, scope, { deg: op.deg, target: op.target, eraseInner: op.eraseInner });
+      const events: FaceEvent[] = [];
+      if (plan.moves.length) events.push(...kernel.moveVertices(plan.moves));
+      if (plan.erase.length) {
+        const ids: EdgeId[] = [];
+        for (const e of plan.erase) { try { ids.push(resolveEdge(kernel, [e.a, e.b])); } catch { /* 挪点时已经被结算并掉了 */ } }
+        if (ids.length) events.push(...kernel.eraseEdges([...new Set(ids)]));
+      }
+      if (events.some((e) => e.type === "BURST")) throw new PlanarBurst("拍平会让面破掉——算法没想到的情况，已整步撤回（请导出复现包）");
+      return { scene: s, events };
+    }
     case "applyScale": {
       const inst = s.def(op.def).instances.get(op.instance);
       if (!inst) throw new OpTargetError(`instance ${op.instance}`);
@@ -532,6 +551,7 @@ export function describeOp(op: Op): string {
     case "clearGuides": return `clearGuides${at}`;
     case "setAxes": return `setAxes${at}`;
     case "applyScale": return `applyScale ${op.def}/${op.instance}`;
+    case "makePlanar": return `makePlanar faces=${op.faces.length || "all"} deg=${op.deg} ${op.target}${op.eraseInner ? " +erase" : ""}${at}`;
     case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;
   }
 }

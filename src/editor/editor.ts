@@ -46,7 +46,8 @@ import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
-import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge } from "./ops.ts";
+import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace } from "./ops.ts";
+import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } from "./planar.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -425,6 +426,8 @@ export class Editor {
   canRedo(): boolean { return this.history.canRedo(); }
   hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selection.verts.size > 0 || this.selection.guides.size > 0 || this.selectedPools.size > 0; }
   hasGeometrySelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
+  /** 选了面。 */
+  hasFaceSelection(): boolean { return this.selection.faces.size > 0; }
   /** 选了点（2026-10-26）。 */
   hasPointSelection(): boolean { return this.selection.verts.size > 0; }
   hasPoolSelection(): boolean { return this.selectedPools.size > 0; }
@@ -1214,6 +1217,46 @@ export class Editor {
     this.host.changed(); this.draw();
     return ids.length;
   }); }
+  /** 拍平的作用域：选了面 = 选中的面，否则 = 当前在编辑的物体里全部。 */
+  private planarScope(scope?: "selection" | "context"): FaceId[] | null {
+    const k = this.kernel, useSel = scope === "selection" || (scope === undefined && this.selection.faces.size > 0);
+    return useSel ? [...this.selection.faces].filter((f) => k.face(f)) : null;
+  }
+  /** 范围里有几组要拍平（菜单数字用；O(范围)）。 */
+  planarGroupsInScope(scope?: "selection" | "context"): number {
+    return planPlanar(this.kernel, this.planarScope(scope), { ...PLANAR_DEFAULTS, deg: this.config.get("surface", "sharpDeg"), eraseInner: false }).groups.length;
+  }
+  /**
+   * 拍平（纪元排期 T9 / DT7）：弯折小于阈值的硬边分开的那些面，每组拍到同一张平面上（默认众数平面）、擦掉组里的内线；一次 = 一步。
+   * 马后炮能改阈值 / 拍到哪 / 擦不擦内线。零破面：结算出破面整步拒绝（ops.ts PlanarBurst）。返回拍了几组。
+   */
+  makePlanar(scope?: "selection" | "context"): number { return this.step(() => {
+    const k = this.kernel, at = this.activePool(), faces = this.planarScope(scope);
+    const keys = faces ? faces.map((f) => faceKey(k, f)) : [];
+    const o0: PlanarOptions = { ...PLANAR_DEFAULTS, deg: this.config.get("surface", "sharpDeg") };
+    let groups = 0;
+    const go = (o: PlanarOptions): number => {
+      const kk = this.kernel, sc = keys.length ? keys.map((fk) => { try { return resolveFace(kk, fk); } catch { return -1; } }).filter((f) => f >= 0) : null;
+      const plan = planPlanar(kk, sc, o);
+      if (!plan.groups.length) { this.host.hint(`没有要拍平的面（弯折小于 ${o.deg}° 的硬边分开的面）`); return 0; }
+      const n0 = this.opCount;
+      this.commitOp({ op: "makePlanar", at, faces: keys, deg: o.deg, target: o.target, eraseInner: o.eraseInner });
+      if (this.opCount === n0) return 0;
+      const nf = plan.groups.reduce((a, g) => a + g.length, 0);
+      this.host.hint(`拍平了 ${plan.groups.length} 组（${nf} 张面）${o.eraseInner ? `，擦掉 ${plan.erase.length} 条内线` : ""}`);
+      return plan.groups.length;
+    };
+    const n0 = this.opCount;
+    groups = go(o0);
+    if (!groups) return 0;
+    this.offerAfterthought("拍平", [
+      { key: "deg", def: { kind: "number", label: "弯折小于", min: 0.5, max: 45, step: 0.5, unit: "°" } },
+      { key: "target", def: { kind: "enum", label: "拍到", values: [{ id: "mode", label: "众数平面", hint: "组里已经落在同一平面上的点最多的那张" }, { id: "median", label: "中位数", hint: "每个点到平面距离的中位数" }, { id: "mean", label: "平均数", hint: "最小二乘" }] } },
+      { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
+    ], { deg: o0.deg, target: o0.target, eraseInner: o0.eraseInner }, this.opCount - n0, (v) => { go({ deg: Number(v.deg) || o0.deg, target: (String(v.target) as PlanarTarget), eraseInner: !!v.eraseInner }); });
+    this.host.changed(); this.draw();
+    return groups;
+  }); }
   /** 选中的组件里有被缩放过的（应用缩放钮出不出）。 */
   hasScaledInstanceSelection(): boolean { return this.scaledInstancePicks().length > 0; }
   private scaledInstancePicks(): InstId[] {
@@ -1385,7 +1428,7 @@ export class Editor {
       for (const fid of this.selection.faces) { const f = k.face(fid); if (f) for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) set.add(d.edge); }
       pool = [...set];
     } else pool = k.edges().map((e) => e.id);
-    const hit = pool.filter((e) => { const a = k.dihedralDeg(e); return a !== null && a <= maxDeg + 1e-9 && a > 1e-9; });
+    const hit = pool.filter((e) => { const a = k.bendDeg(e); return a !== null && a <= maxDeg + 1e-9 && a > 1e-9; });   // 弯折角（尖屋脊不再被当成小角度）
     if (hit.length) this.softenEdges(hit, on);
     return hit.length;
   }

@@ -49,3 +49,30 @@ describe("flood: 灌 / 分组 / 连通体", () => {
     eq(floodFaces(k, 999999, gates.any()).length, 0, "种子不存在 → []");
   });
 });
+
+// 弯折角（2026-10-26）：坐标按 1 µm 存储格量化，角度断言容差 1e−3°。0 = 平展连续，180 = 对折回去；旧的二面角取法向点积绝对值，尖屋脊（弯 160°）会被当成 20°
+describe("kernel: 弯折角 bendDeg", () => {
+  /** 屋脊：两张矩形面沿 y 轴的脊线相接，各自从脊往下斜 slopeDeg（0 = 平展）。 */
+  const roof = (slopeDeg: number): { k: Kernel; ridge: number } => {
+    const k = new Kernel(), s = (slopeDeg * Math.PI) / 180, w = 1, dz = -Math.tan(s) * w;
+    const L = P(-w, 0, dz), R = P(w, 0, dz), L2 = P(-w, 2, dz), R2 = P(w, 2, dz), A = P(0, 0, 0), B = P(0, 2, 0);
+    k.addEdges([[A, B], [B, L2], [L2, L], [L, A], [B, R2], [R2, R], [R, A]] as [Pt3, Pt3][]);
+    const ridge = k.graph.edgeBetween(k.vertices().find((v) => v.x === 0 && v.y === 0 && v.z === 0)!.id, k.vertices().find((v) => v.x === 0 && v.y === 2 && v.z === 0)!.id)!;
+    return { k, ridge };
+  };
+  it("平展 = 0；两面各斜 5° = 10；各陡 80°（尖屋脊）= 160——旧二面角会说 20", () => {
+    { const { k, ridge } = roof(0); assert(Math.abs(k.bendDeg(ridge)!) < 1e-3, `平展 ${k.bendDeg(ridge)}`); }
+    { const { k, ridge } = roof(5); eq(k.faces().length, 2); assert(Math.abs(k.bendDeg(ridge)! - 10) < 1e-3, `${k.bendDeg(ridge)}`); }
+    { const { k, ridge } = roof(80); assert(Math.abs(k.bendDeg(ridge)! - 160) < 1e-3, `${k.bendDeg(ridge)}`); assert(Math.abs(k.dihedralDeg(ridge)! - 20) < 1e-3, "旧二面角 = 20（分不清）"); }
+  });
+  it("盒子的棱 = 90；拍平候选（硬边、弯折 < 20°）不含尖屋脊", () => {
+    const { k, ridge } = roof(80);
+    assert(!gates.hardBelow(k, 20)(ridge), "尖屋脊不是拍平候选");
+    const { k: k2, ridge: r2 } = roof(5);
+    assert(gates.hardBelow(k2, 20)(r2), "平缓屋脊（弯 10°）是候选");
+    const kb = new Kernel(), B = [[0, 0], [1, 0], [1, 1], [0, 1]], loop = (pts: Pt3[]): void => { kb.addEdges(pts.map((p, i) => [p, pts[(i + 1) % pts.length]] as [Pt3, Pt3])); };
+    loop(B.map(([x, y]) => P(x, y, 0))); loop(B.map(([x, y]) => P(x, y, 1)));
+    for (let i = 0; i < 4; i++) { const [ax, ay] = B[i], [bx, by] = B[(i + 1) % 4]; loop([P(ax, ay, 0), P(bx, by, 0), P(bx, by, 1), P(ax, ay, 1)]); }
+    for (const e of kb.edges()) assert(Math.abs(kb.bendDeg(e.id)! - 90) < 1e-3, `盒棱 ${kb.bendDeg(e.id)}`);
+  });
+});

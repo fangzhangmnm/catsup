@@ -1,0 +1,62 @@
+// 拍平（纪元排期 T9 / 账本 DT7，2026-10-26，Claude Opus 5.5）。user：「也许比我想的简单……只是把所有小于角度的硬边干掉就行」；
+// 例子「大家在 0.5、一个在 0.51」→ 0.5（众数平面）；「确保不要有任何面破」（零破面）；软边从来不是候选（平滑组不碰）。
+import { describe, it, eq, assert } from "./runner.mjs";
+import { Kernel } from "../src/kernel/kernel.ts";
+import type { Pt3 } from "../src/kernel/kernel.ts";
+import { Scene } from "../src/scene/scene.ts";
+import { applyOp, type Op } from "../src/editor/ops.ts";
+import { History } from "../src/editor/history.ts";
+import { PLANAR_DEFAULTS, planPlanar } from "../src/editor/planar.ts";
+import { circleSegmentsOnPlane } from "../src/editor/tools.ts";
+import { GROUND } from "../src/editor/pick.ts";
+
+const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
+const loop = (k: Kernel, pts: Pt3[]): void => { k.addEdges(pts.map((p, i) => [p, pts[(i + 1) % pts.length]] as [Pt3, Pt3])); };
+/** 2×1 平面在 0.5 高 + 旁边 1×1 微翘面（远端两点 0.51）——共用一条硬边，弯折 ≈ 0.57°。 */
+const tilted = (): Kernel => {
+  const k = new Kernel();
+  loop(k, [P(0, 0, 0.5), P(2, 0, 0.5), P(2, 1, 0.5), P(0, 1, 0.5)]);
+  loop(k, [P(2, 0, 0.5), P(3, 0, 0.51), P(3, 1, 0.51), P(2, 1, 0.5)]);
+  return k;
+};
+const rootAt = (s: Scene) => ({ def: s.root, group: null });
+const op = (s: Scene, extra: Partial<Op & { op: "makePlanar" }> = {}): Op => ({ op: "makePlanar", at: rootAt(s), faces: [], deg: 20, target: "mode", eraseInner: true, ...extra } as Op);
+
+describe("planar: 拍平", () => {
+  it("user 的例子：大多数点在 0.5、翘起的两点在 0.51 → 全部到 0.5；擦内线 = 并成一张面；没有破面", () => {
+    const k = tilted();
+    eq(k.faces().length, 2);
+    const plan = planPlanar(k, null, PLANAR_DEFAULTS);
+    eq(plan.groups.length, 1); eq(plan.groups[0].length, 2);
+    let s = new Scene(k);
+    const r = applyOp(s, op(s)); s = r.scene;
+    const k2 = s.kernelOf(rootAt(s));
+    assert(k2.vertices().every((v) => Math.abs(v.z - 0.5) < 1e-9), "全部点在 0.5");
+    eq(k2.faces().length, 1, "内线擦掉 → 一张面");
+    assert(!r.events.some((e) => e.type === "BURST"), "零破面");
+  });
+  it("不擦内线：拍平了、边留着（两张共面的面）", () => {
+    let s = new Scene(tilted());
+    s = applyOp(s, op(s, { eraseInner: false })).scene;
+    const k2 = s.kernelOf(rootAt(s));
+    assert(k2.vertices().every((v) => Math.abs(v.z - 0.5) < 1e-9));
+    eq(k2.faces().length, 2);
+  });
+  it("尖屋脊（弯 160°）、圆柱（平滑组）都不是候选：没有要拍的组", () => {
+    const k = new Kernel(), s80 = (80 * Math.PI) / 180, dz = -Math.tan(s80);
+    k.addEdges([[P(0, 0, 0), P(0, 2, 0)], [P(0, 2, 0), P(-1, 2, dz)], [P(-1, 2, dz), P(-1, 0, dz)], [P(-1, 0, dz), P(0, 0, 0)], [P(0, 2, 0), P(1, 2, dz)], [P(1, 2, dz), P(1, 0, dz)], [P(1, 0, dz), P(0, 0, 0)]] as [Pt3, Pt3][]);
+    eq(planPlanar(k, null, PLANAR_DEFAULTS).groups.length, 0, "尖屋脊");
+    const c = new Kernel();
+    c.addEdges(circleSegmentsOnPlane(GROUND.plane, GROUND.basis, P(0, 0, 0), P(1, 0, 0), 24), { curve: true });
+    c.pushPull(c.faces()[0].id, 2);
+    eq(planPlanar(c, null, PLANAR_DEFAULTS).groups.length, 0, "圆柱：侧面软边不是候选、顶底 90°");
+  });
+  it("撤销回原样（一步）", () => {
+    const s0 = new Scene(tilted()), h = new History(s0);
+    let s = s0.clone();
+    s = h.commit(s, op(s)).scene;
+    s = h.undo()!.scene;
+    const k = s.kernelOf(rootAt(s));
+    eq(k.faces().length, 2); assert(k.vertices().some((v) => Math.abs(v.z - 0.51) < 1e-9), "翘起的点回来了");
+  });
+});

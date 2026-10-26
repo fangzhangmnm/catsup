@@ -609,7 +609,38 @@ export class Kernel {
   isSoft(id: EdgeId): boolean { return this.soft.has(id); }
   isCurve(id: EdgeId): boolean { return this.curve.has(id); }
   isSmooth(id: EdgeId): boolean { return this.edgeLayers.has("smooth", id); }
-  /** 两膜之间的边的二面角（度）；不是恰好两膜 → null。软化工具按角度阈值用。 */
+  /**
+   * 弯折角（度）：0 = 两张面平展连续，180 = 对折回去；不是恰好两膜 → null。「表面在这条边上弯了多少」一律用它（软化、到锐角为止、拍平候选、共面判定）。
+   * 算法：两张面各自从这条边往面里面走的方向（面在有向边的左 / 右，由所在环相对平面法向的绕向定）的夹角 θ，弯折 = 180° − θ。
+   * 2026-10-26：dihedralDeg 取法向点积的绝对值，分不清平展和刀刃——弯 160° 的尖屋脊被当成 20°（「软化所有 ≤ 20°」会软化它，拍平会把它压平）。
+   */
+  bendDeg(id: EdgeId): number | null {
+    const e = this.graph.edge(id);
+    const fl = [...new Set(e.faceLinks)];
+    if (fl.length !== 2) return null;
+    const d = normalize3(sub3(this.graph.pt(e.b), this.graph.pt(e.a)));
+    const ia = this.inwardAcross(fl[0], id, d), ib = this.inwardAcross(fl[1], id, d);
+    if (!ia || !ib) return null;
+    const c = Math.max(-1, Math.min(1, dot3(ia, ib)));
+    return 180 - (Math.acos(c) * 180) / Math.PI;
+  }
+  /** 面 fid 在边 eid（方向 d = a→b）处往面里面走的单位方向（在面所在平面里、垂直于边）。 */
+  private inwardAcross(fid: FaceId, eid: EdgeId, d: Pt3): Pt3 | null {
+    const f = this.face(fid), rec = this.planeOf(fid);
+    if (!f || !rec) return null;
+    const n = rec.plane.n, rings = [f.outer, ...f.holes];
+    for (let ri = 0; ri < rings.length; ri++) {
+      const ring = rings[ri], at = ring.edges.findIndex((x) => x.edge === eid);
+      if (at < 0) continue;
+      const along = ring.edges[at].forward ? d : scale3(d, -1);        // 环走过这条边的方向
+      const ccw = signedArea(ring.pts) > 0;                              // 环在平面基 (u, v) 里逆时针 = 绕法向 n 逆时针（u × v = n）
+      const left = normalize3(cross3(n, along));                         // 从 +n 看，有向边的左手边
+      const interiorLeft = ri === 0 ? ccw : !ccw;                        // 外环逆时针 → 面在左；洞环逆时针 → 洞在左、面在右
+      return interiorLeft ? left : scale3(left, -1);
+    }
+    return null;
+  }
+  /** 两膜之间的边的二面角（度，法向夹角取 0–90°，不分平展 / 对折——要「弯了多少」用 bendDeg）；不是恰好两膜 → null。 */
   dihedralDeg(id: EdgeId): number | null {
     const e = this.graph.edge(id);
     const fl = [...new Set(e.faceLinks)];
