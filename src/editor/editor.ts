@@ -30,7 +30,7 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
-import { type GridSettings, NEW_DOC_GRID, gridFrame } from "./grid-settings.ts";
+import { type GridSettings, NEW_DOC_GRID, gridFrame, gridPreset } from "./grid-settings.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { connectedFrom, surfaceFaces } from "../kernel/flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
@@ -51,6 +51,7 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } from "./planar.ts";
+import { type SnapCurves, planGridSnap } from "./snap-grid.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -58,7 +59,7 @@ import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, 
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
-import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation, WORLD_FRAME, transformFrame } from "../scene/xform.ts";
+import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, frameToXform, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation, WORLD_FRAME, transformFrame } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -188,8 +189,9 @@ export type LastGesture =
 interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
 
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-type RepairKind = "weld" | "planar" | "harden";
-interface RepairScope { pools: { at: PoolRef; sel: Selection | null }[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
+type RepairKind = "weld" | "planar" | "harden" | "snap";
+/** pools[].xf = 这个池的定义坐标 → 当前上下文定义坐标（组 = 不带变换；组件 = 一路实例变换的乘积，几条路径到同一定义取先到的那条）。 */
+interface RepairScope { pools: { at: PoolRef; sel: Selection | null; xf: Xform }[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -1420,7 +1422,7 @@ export class Editor {
     const mode: "selection" | "context" = scope === "auto" && (geoSel || this.selectedPools.size > 0) ? "selection" : "context";
     const out: RepairScope = { pools: [], mode, components: 0, copies: 0, locked: 0 };
     const seenPool = new Set<string>(), seenDef = new Set<DefId>([ctxDef]);
-    const addPool = (at: PoolRef, sel: Selection | null): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ at, sel }); };
+    const addPool = (at: PoolRef, sel: Selection | null, xf: Xform = IDENTITY): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ at, sel, xf }); };
     const groupsUnder = (def: DefId, gid: GroupId | null): GroupId[] => {
       const body = s.def(def).body;
       if (body.kind !== "brep") return [];
@@ -1428,13 +1430,14 @@ export class Editor {
       for (const g of body.groups.values()) { let p: GroupId | null = g.parent; for (let i = 0; i < 64 && p !== gid && p !== null; i++) p = body.groups.get(p)?.parent ?? null; if (gid === null || p === gid) res.push(g.id); }
       return res;
     };
-    const addInst = (inst: { def: DefId; locked?: boolean }): void => {
+    const addInst = (inst: { def: DefId; locked?: boolean; xform: Xform }, parentXf: Xform = IDENTITY): void => {
       if (inst.locked) { out.locked++; return; }
       if (seenDef.has(inst.def)) return;
+      const xf = compose(parentXf, inst.xform);
       seenDef.add(inst.def); out.components++; out.copies += s.instanceCount(inst.def);
-      addPool({ def: inst.def, group: null }, null);
-      for (const g of groupsUnder(inst.def, null)) addPool({ def: inst.def, group: g }, null);
-      if (children) for (const i of s.def(inst.def).instances.values()) addInst(i);
+      addPool({ def: inst.def, group: null }, null, xf);
+      for (const g of groupsUnder(inst.def, null)) addPool({ def: inst.def, group: g }, null, xf);
+      if (children) for (const i of s.def(inst.def).instances.values()) addInst(i, xf);
     };
     const instsIn = (def: DefId, groups: ReadonlySet<GroupId | null>): void => { for (const i of s.def(def).instances.values()) if (groups.has(i.parent)) addInst(i); };
     if (mode === "context") {
@@ -1463,7 +1466,7 @@ export class Editor {
     return `作用于：${where}${parts.length ? `；${parts.join("；")}` : ""}`;
   }
   /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
-  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>): { ops: Op[]; count: number; extra?: number } {
+  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): { ops: Op[]; count: number; extra?: number; skipped?: number } {
     const k = this.scene.kernelOf(at);
     if (kind === "weld") {
       const cand = sel ? new Set(moveTargetsSelection(k, sel)) : k.vertices().map((x) => x.id);
@@ -1478,6 +1481,16 @@ export class Editor {
       const plan = planPlanar(k, faces, o);
       return plan.groups.length ? { ops: [{ op: "makePlanar", at, faces: faces ? faces.map((f) => faceKey(k, f)) : [], deg: o.deg, target: o.target, eraseInner: o.eraseInner }], count: plan.groups.length, extra: o.eraseInner ? plan.erase.length : 0 } : { ops: [], count: 0 };
     }
+    if (kind === "snap") {
+      const vids = sel ? moveTargetsSelection(k, sel) : null;
+      if (sel && !vids!.length) return { ops: [], count: 0 };
+      const step = Number(v.step) > 0 ? Number(v.step) : this.gridFineStep();
+      const lattice = this.snapLattice(at, xf, v.frame === "world" ? "world" : "own");
+      const curves = (v.curves === "points" ? "points" : "rigid") as SnapCurves;
+      const plan = planGridSnap(k, vids, lattice, { step, curves });
+      if (!plan.moves.length) return { ops: [], count: 0, skipped: plan.skipped };
+      return { ops: [{ op: "snapToGrid", at, verts: vids ? vids.map((x) => k.graph.pt(x)) : [], step, lattice: [...lattice], curves, crease: v.crease === "hard" ? "hard" : "soft" }], count: plan.moves.length, extra: plan.curves, skipped: plan.skipped };
+    }
     // harden：折得很厉害（弯折 > deg）却还标着软 / 平滑的边 → 变硬（user 10-26 旧文件案：折 90° 的软边 = 墙上渐变 + 画线描不上）
     const deg = Number(v.deg) || 60;
     const pool = new Set<EdgeId>();
@@ -1490,7 +1503,29 @@ export class Editor {
     weld: {},
     planar: { deg: PLANAR_DEFAULTS.deg, target: PLANAR_DEFAULTS.target, eraseInner: PLANAR_DEFAULTS.eraseInner },
     harden: { deg: 60 },
+    snap: { step: "grid", frame: "own", crease: "soft", curves: "rigid" },
   };
+  /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
+  private snapStepChoices(): { id: string; label: string; hint?: string }[] {
+    const fine = this.gridFineStep();
+    const fixed: [number, string][] = gridPreset(this._grid.preset).unit === "ft"
+      ? [[0.3048, "1 ft"], [0.1524, "6 in"], [0.0254, "1 in"], [0.00635, "1/4 in"], [0.0015875, "1/16 in"]]
+      : [[1, "1 m"], [0.1, "10 cm"], [0.05, "5 cm"], [0.01, "1 cm"], [0.005, "5 mm"], [0.001, "1 mm"]];
+    return [{ id: "grid", label: `画图的格子（${fmtLen(fine)}）`, hint: "格距 ÷ 细分，和画图时吸附的格点同一套" }, ...fixed.filter(([m]) => Math.abs(m - fine) > 1e-9).map(([m, label]) => ({ id: String(m), label }))];
+  }
+  /** 画图吸附用的那个格子边长（格距 ÷ 细分；「吸到格点」的默认）。 */
+  private gridFineStep(): number { return this._grid.step / this._grid.subdiv; }
+  /**
+   * 「吸到格点」的格子（池本地坐标 → 格子坐标）。own = 这个池自己的坐标架（根 = 绘图轴、组 = 组的坐标架、组件 = 定义的坐标架，没摆过 = 组件原点）；
+   * world = 根上的绘图轴（= 在根上看到的格子），经当前上下文 + xf 换到这个池里。
+   */
+  private snapLattice(at: PoolRef, xf: Xform, frame: "own" | "world"): Xform {
+    const s = this.scene;
+    if (frame === "world") return compose(invert(frameToXform(s.axes)), compose(s.xformOfContext(this.ctx), xf));
+    const body = s.brep(at.def);
+    const f = at.group !== null ? s.group({ def: at.def, group: at.group }).axes : at.def === s.root ? s.axes : body.drawFrame ?? WORLD_FRAME;
+    return invert(frameToXform(f));
+  }
   private repairDefaults(kind: RepairKind): Record<string, ParamValue> { return kind === "planar" ? { ...Editor.REPAIR_DEFAULTS.planar, deg: this.config.get("surface", "sharpDeg") } : { ...Editor.REPAIR_DEFAULTS[kind] }; }
   private repairCountCache: { key: string; n: number } | null = null;
   /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */
@@ -1499,7 +1534,7 @@ export class Editor {
     if (this.repairCountCache?.key === key) return this.repairCountCache.n;
     const sc = this.repairScope(scope, this.repairChildren), v = this.repairDefaults(kind);
     let n = 0;
-    for (const p of sc.pools) n += this.repairPlan(kind, p.at, p.sel, v).count;
+    for (const p of sc.pools) n += this.repairPlan(kind, p.at, p.sel, v, p.xf).count;
     this.repairCountCache = { key, n };
     return n;
   }
@@ -1509,17 +1544,24 @@ export class Editor {
       weld: { title: "焊接断口", done: (n) => `焊了 ${n} 处断口`, none: "没有断口（共线、只连两段的点）" },
       planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（弯折小于阈值的硬边分开的面）" },
       harden: { title: "折得很厉害的软边变硬", done: (n) => `把 ${n} 条折得很厉害的软边变硬了`, none: "没有折得很厉害的软边" },
+      snap: { title: "吸到格点", done: (n, e) => `吸了 ${n} 个点到格点${e ? `（${e} 条圆 / 弧整条平移，保持是圆）` : ""}`, none: "都已经在格点上了" },
     };
     const go = (v: Readonly<Record<string, ParamValue>>): number => {
       const sc = this.repairScope(scope, v.children !== false);
-      let count = 0, extra = 0;
+      let count = 0, extra = 0, skipped = 0;
       const ops: Op[] = [];
-      for (const p of sc.pools) { const r = this.repairPlan(kind, p.at, p.sel, v); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; }
-      if (!ops.length) { this.host.hint(`${names[kind].none}（${this.scopeText(sc)}）`); return 0; }
+      for (const p of sc.pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
+      const skipText = skipped ? `；${skipped} 个点在只选了一部分的圆 / 弧上，没动` : "";
+      if (!ops.length) { this.host.hint(`${names[kind].none}（${this.scopeText(sc)}${skipText}）`); return 0; }
+      // 吸到格点的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」
+      const tally = (): { v: number; f: number } => { let nv = 0, nf = 0; for (const p of sc.pools) { const k = this.scene.kernelOf(p.at); nv += k.vertices().length; nf += k.faces().length; } return { v: nv, f: nf }; };
+      const before = kind === "snap" ? tally() : null;
       const n0 = this.opCount;
       for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
       if (this.opCount === n0) return 0;
-      this.host.hint(`${names[kind].done(count, extra)}（${this.scopeText(sc)}）`);
+      let more = "";
+      if (before) { const after = tally(), merged = before.v - after.v, folded = after.f - before.f; more = [merged > 0 ? `合并了 ${merged} 个点` : "", folded > 0 ? `面多了 ${folded} 张（被吸歪的面折开 / 三角化，折缝 = ${v.crease === "hard" ? "硬边" : "软边"}）` : ""].filter(Boolean).join("，"); if (more) more = `；${more}`; }
+      this.host.hint(`${names[kind].done(count, extra)}${more}（${this.scopeText(sc)}${skipText}）`);
       return count;
     };
     const v0: Record<string, ParamValue> = { children: this.repairChildren, ...this.repairDefaults(kind) };
@@ -1530,7 +1572,13 @@ export class Editor {
       { key: "deg", def: { kind: "number", label: "弯折小于", min: 0.5, max: 45, step: 0.5, unit: "°" } },
       { key: "target", def: { kind: "enum", label: "拍到", values: [{ id: "mode", label: "众数平面", hint: "组里已经落在同一平面上的点最多的那张" }, { id: "median", label: "中位数", hint: "每个点到平面距离的中位数" }, { id: "mean", label: "平均数", hint: "最小二乘" }] } },
       { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
-    ] : kind === "harden" ? [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }] : [];
+    ] : kind === "harden" ? [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }]
+      : kind === "snap" ? [
+        { key: "step", def: { kind: "enum", label: "格子", values: this.snapStepChoices() } },
+        { key: "frame", def: { kind: "enum", label: "按", values: [{ id: "own", label: "物体自己的坐标架", hint: "组件转过、缩放过也照它自己的轴吸（同一组件的别的份不会离格）" }, { id: "world", label: "世界格点", hint: "在根上看到的那张格子" }] } },
+        { key: "crease", def: { kind: "enum", label: "折缝", values: [{ id: "soft", label: "软边", hint: "吸歪的面折开处不画线、明暗连续" }, { id: "hard", label: "硬边" }] } },
+        { key: "curves", def: { kind: "enum", label: "圆 / 弧", values: [{ id: "rigid", label: "整条平移", hint: "圆心吸上格点，保持是圆" }, { id: "points", label: "逐点吸", hint: "每个点各自吸（小圆会吸歪）" }] } },
+      ] : [];
     this.offerAfterthought(names[kind].title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...extraFields], v0, this.opCount - n0,
       (v) => { this.repairChildren = v.children !== false; go(v); });
     this.host.changed(); this.draw();

@@ -235,7 +235,7 @@ export type LastGesture = {
     angle: number;
 };
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-type RepairKind = "weld" | "planar" | "harden";
+type RepairKind = "weld" | "planar" | "harden" | "snap";
 export declare class Editor {
     private canvas;
     private host;
@@ -640,6 +640,15 @@ export declare class Editor {
     /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
     private repairPlan;
     private static readonly REPAIR_DEFAULTS;
+    /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
+    private snapStepChoices;
+    /** 画图吸附用的那个格子边长（格距 ÷ 细分；「吸到格点」的默认）。 */
+    private gridFineStep;
+    /**
+     * 「吸到格点」的格子（池本地坐标 → 格子坐标）。own = 这个池自己的坐标架（根 = 绘图轴、组 = 组的坐标架、组件 = 定义的坐标架，没摆过 = 组件原点）；
+     * world = 根上的绘图轴（= 在根上看到的格子），经当前上下文 + xf 换到这个池里。
+     */
+    private snapLattice;
     private repairDefaults;
     private repairCountCache;
     /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */

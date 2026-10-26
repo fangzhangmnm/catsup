@@ -3,6 +3,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PlanarTarget } from "./planar.ts";
+import { type SnapCurves } from "./snap-grid.ts";
 import { type PoolRef, Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import { type ImportedScene } from "../scene/import-build.ts";
@@ -121,6 +122,19 @@ export type Op = {
     deg: number;
     target: PlanarTarget;
     eraseInner: boolean;
+}
+/**
+ * 吸到格点（纪元排期 T8 / DT4）：verts = 作用域（坐标；空 = 池里全部）；lattice = 池本地坐标 → 格子坐标（12 个数的仿射变换），格点 = 分量是 step 的整数倍；
+ * 规划在 snap-grid.ts（纯函数）。不破面：先在拷贝上试，会破的面先在原平面里三角化（对角线带折缝的层），再真吸；还破 = 整步拒绝。
+ */
+ | {
+    op: "snapToGrid";
+    at: PoolRef;
+    verts: Pt3[];
+    step: number;
+    lattice: number[];
+    curves: SnapCurves;
+    crease: "soft" | "hard";
 }
 /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
  | {

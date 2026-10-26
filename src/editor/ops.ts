@@ -18,6 +18,7 @@ import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PlanarTarget, planPlanar } from "./planar.ts";
+import { type SnapCurves, planGridSnap, triangulationDiagonals } from "./snap-grid.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Frame, type Xform, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
@@ -57,6 +58,11 @@ export type Op =
   | { op: "makeComponent"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; name: string; groups?: number[]; instances?: number[] }
   /** 拍平（纪元排期 T9 / DT7）：faces = 作用域（空 = 池里全部）；规划在 planar.ts（纯函数，预演同一份）；执行时结算出 BURST = 整步拒绝（零破面不变量）。 */
   | { op: "makePlanar"; at: PoolRef; faces: FaceKey[]; deg: number; target: PlanarTarget; eraseInner: boolean }
+  /**
+   * 吸到格点（纪元排期 T8 / DT4）：verts = 作用域（坐标；空 = 池里全部）；lattice = 池本地坐标 → 格子坐标（12 个数的仿射变换），格点 = 分量是 step 的整数倍；
+   * 规划在 snap-grid.ts（纯函数）。不破面：先在拷贝上试，会破的面先在原平面里三角化（对角线带折缝的层），再真吸；还破 = 整步拒绝。
+   */
+  | { op: "snapToGrid"; at: PoolRef; verts: Pt3[]; step: number; lattice: number[]; curves: SnapCurves; crease: "soft" | "hard" }
   /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
   | { op: "applyScale"; def: number; instance: number }
   /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
@@ -403,6 +409,26 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (events.some((e) => e.type === "BURST")) throw new PlanarBurst("拍平会让面破掉——算法没想到的情况，已整步撤回（请导出复现包）");
       return { scene: s, events };
     }
+    case "snapToGrid": {
+      const { kernel } = poolOf(s, op.at);
+      if (!(op.step > 0) || op.lattice.length !== 12) throw new OpTargetError(`snapToGrid step=${op.step}`);
+      const scope = op.verts.length ? op.verts.map((p) => resolveVertex(kernel, p)) : null;
+      const plan = planGridSnap(kernel, scope, op.lattice as unknown as Xform, { step: op.step, curves: op.curves });
+      if (!plan.moves.length) return { scene: s, events: [] };
+      const crease = op.crease === "soft" ? ["soft", "smooth"] : [];
+      const opts = crease.length ? { creaseLayers: crease } : undefined;
+      // 先在拷贝上试：哪些面会破（autofold 折不平 → BURST）
+      const burst = kernel.clone().moveVertices(plan.moves, opts).filter((e) => e.type === "BURST").map((e) => (e as { face: FaceId }).face);
+      const events: FaceEvent[] = [];
+      if (burst.length) {
+        // 退路（账本 DT4「不破」）：这几张面先在原平面里三角化（三角永远是平的），对角线和折缝同样的层；点的 id 不变（对角线只连现有的点）
+        const diag = triangulationDiagonals(kernel, [...new Set(burst)].sort((a, b) => a - b));
+        if (diag.length) events.push(...kernel.addEdges(diag, crease.length ? { layers: crease } : undefined));
+      }
+      events.push(...kernel.moveVertices(plan.moves.filter((m) => kernel.graph.hasVertex(m.id)), opts));
+      if (events.some((e) => e.type === "BURST")) throw new PlanarBurst("吸到格点会让面破掉——三角化也救不回的情况，已整步撤回（请导出复现包）");
+      return { scene: s, events };
+    }
     case "applyScale": {
       const inst = s.def(op.def).instances.get(op.instance);
       if (!inst) throw new OpTargetError(`instance ${op.instance}`);
@@ -599,6 +625,7 @@ export function describeOp(op: Op): string {
     case "setDrawFrame": return `setDrawFrame${at}${op.frame ? "" : " reset"}`;
     case "applyScale": return `applyScale ${op.def}/${op.instance}`;
     case "makePlanar": return `makePlanar faces=${op.faces.length || "all"} deg=${op.deg} ${op.target}${op.eraseInner ? " +erase" : ""}${at}`;
+    case "snapToGrid": return `snapToGrid verts=${op.verts.length || "all"} step=${op.step} ${op.curves} ${op.crease}${at}`;
     case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;
   }
 }
