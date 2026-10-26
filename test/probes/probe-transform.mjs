@@ -1,5 +1,6 @@
 // 缩放柄埋在几何里也点得中（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」）：柄透视画、透视拾；屏上叠在一起 = 离相机近的赢。
 // ① 小盒做成组、外面再画一个大盒把它包住 → 选组 → 缩放工具拖一个角柄（在大盒里面）→ 组真的放大了。
+// ③ ×−1 吸附：拖面心柄过对面差几个像素 → 正好镜像。
 // ② 前视图 / 后视图对着一个盒：前后两个面心柄叠在屏上同一处 → 按住的是前面那个（锚点 = 后面的面心）。created 2026-10-25 by Claude Opus 5.5
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -24,7 +25,7 @@ const res = await page.evaluate(async () => {
   e.setTool("select");
   const gk = [...e.scene.brep(e.scene.root).groups.keys()][0];
   e.selectedPools.clear(); e.selectedPools.set(`g${gk}`, { kind: "group", group: gk });
-  e.setTool("scale");
+  e.setTool("transform");
   const corner = P(0.5, 0.5, 1.5), out1 = P(1, 1, 2.5);
   const a = px(corner), z = px({ x: corner.x + 0.5, y: corner.y + 0.5, z: corner.z + 0.5 });
   if (globalThis.__SHOT) await globalThis.__SHOT();
@@ -38,18 +39,28 @@ const res = await page.evaluate(async () => {
   out.anchors = {};
   for (const [view, y] of [["front", 0], ["back", 1]]) {
     e.cam.setView(view); e.zoomExtents();
-    e.selectAll(); e.setTool("scale");
+    e.selectAll(); e.setTool("transform");
     const fc = px(P(0.5, y, 0.5));
     fire("pointerdown", fc.x, fc.y, 1); await sleep(30);
-    const h = e.handlers.scale.h;
+    const h = e.handlers.transform.h;
     out.anchors[view] = h ? h.anchor.y : null;
     fire("pointerup", fc.x, fc.y, 0); await sleep(30);
     e.cancel();
   }
+  // ③ ×−1 吸附（user 2026-10-25「scale有snapping吗。最常用的就是用来x -1」）：盒 x∈[1,2]，拖右面心柄到 x≈0.03（差几个像素）→ 咬到 −1 = x∈[0,1]
+  e.clearAll(); e.setTool("select");
+  box(1, 0, 0, 2, 1, 1);
+  e.cam.setView("iso"); e.zoomExtents();
+  e.selectAll(); e.setTool("transform");
+  await drag(px(P(2, 0.5, 0.5)), px(P(0.03, 0.5, 0.5)), 12);
+  const vx = e.kernel.vertices().map((v) => v.x);
+  out.negX = [Math.min(...vx), Math.max(...vx)].map((x) => +x.toFixed(6));
+  out.faces = e.kernel.faces().length;
+  out.label = [...document.querySelectorAll(".hud-rail-tools .tb-btn")].map((b) => b.textContent.trim()).filter((t) => t === "变换" || t === "缩放");
   return out;
 });
 console.log(JSON.stringify(res));
 const near = res.anchors.front === 1 && res.anchors.back === 0;   // 前视图相机在 −Y：前面 = y=0 的面心柄、锚点 y=1；后视图反过来
-const ok = res.buriedScaled && near && !errs.length;
+const ok = res.buriedScaled && near && res.negX[0] === 0 && res.negX[1] === 1 && res.faces === 6 && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

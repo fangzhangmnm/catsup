@@ -169,7 +169,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "arc", icon: "arc", label: "弧", key: "A" },
   { tool: "move", icon: "move", label: "移动", key: "M" },
   { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
-  { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },
+  { tool: "transform", icon: "free-transform", label: "变换", key: "S" },   // 2026-10-25 缩放 → 变换（user「就叫transform」「icon也变成moverotatescale」：专用图标进图标库待办，先用 free-transform）
   { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
   { tool: "offset", icon: "selection-expand", label: "偏移", key: "F" },   // 图标 = stopgap（图标库 TODO 已登记 offset）
   { tool: "followme", icon: "move-to-folder", label: "跟随", key: "W" },   // 图标 = stopgap（图标库 TODO 已登记 follow-me）
@@ -247,7 +247,7 @@ const SHAPES: Tool[] = ["rect", "rrect", "circle", "arc"];
 /** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
 let eraserCurrent: Tool = "erase";
 const RAIL_GROUPS: RailGroup[] = [
-  { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale"], budget: 4 },
+  { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "transform"], budget: 4 },
   { id: "measure", pinned: ["tape", "axes"], pool: ["protractor"], budget: 3 },
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
@@ -874,7 +874,7 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", t: "tape", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "transform", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", t: "tape", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q" || key === "a" || key === "t");

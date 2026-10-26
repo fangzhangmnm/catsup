@@ -80,7 +80,7 @@ const res = await page.evaluate(async () => {
   const topCyl = e.kernel.faces().find((f) => f.outer.edges.length === 24 && e.kernel.faceRings3(f.id).outer.every((p) => p.z > 0.1));
   out.hasCylTop = !!topCyl;
   await browserSelectFace(e, topCyl);
-  e.setTool("scale");
+  e.setTool("transform");
   out.scaleHandles = (e.scaleHandles ?? []).length;
   // ⑥b 油漆桶：蘸「赭石」涂圆柱顶面 → 材质表 1 条、面有槽；再蘸贴图（2×2 PNG）涂另一面 → 两条材质、渲染不报错
   e.setPaint({ kind: "color", name: "赭石", color: [0.525, 0.149, 0.09] });

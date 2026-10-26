@@ -3,8 +3,8 @@ import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../render3.ts";
-export declare class ScaleTool implements ToolHandler {
-    readonly tool: "scale";
+export declare class TransformTool implements ToolHandler {
+    readonly tool: "transform";
     readonly grammar: "direct";
     private h;
     private hIdx;

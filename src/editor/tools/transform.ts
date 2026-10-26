@@ -1,4 +1,5 @@
-// tools/scale.ts —— 缩放工具的手势模块：direct 语法（按住包围盒上的柄拖；角柄 = 等比、面心柄 = 单轴；柄跟着预演实时动）。
+// tools/transform.ts —— 变换工具（Transform）的手势模块：direct 语法（按住包围盒上的柄拖；角柄 = 等比、面心柄 = 单轴；柄跟着预演实时动）。
+// 2026-10-25 缩放 → 变换（user「或者其实scale改名就是move rotate scale全家？我们没必要学sketchup的麻烦的地方」「就叫transform」）：先改名 + ×−1 吸附，移动箭头 / 旋转环随后加。edited by Claude Opus 5.5
 // 从 editor.ts 原样搬出（刀 ② B，行为零变更）。柄每帧从选区包围盒重算（不再靠 rebuildScaleHandles 的触发点）。created 2026-10-24 by Claude Fable 5.1
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
@@ -14,10 +15,11 @@ import type { ViewState } from "../render3.ts";
 import { pickHandle } from "../handle-pick.ts";
 
 interface Handle { kind: "corner" | "face"; p: Pt3; anchor: Pt3; axis: Pt3 | null }
-const SNAP_FACTORS = [0.5, 1, 1.5, 2, 3, 4];
+/** 咬合的倍率。−1 = 面心柄拖过对面 = 沿那根轴镜像（user 2026-10-25「scale有snapping吗。最常用的就是用来x -1」）。 */
+const SNAP_FACTORS = [-1, 0.5, 1, 1.5, 2, 3, 4];
 
-export class ScaleTool implements ToolHandler {
-  readonly tool = "scale" as const;
+export class TransformTool implements ToolHandler {
+  readonly tool = "transform" as const;
   readonly grammar = "direct" as const;
   private h: Handle | null = null;   // 正在拖的柄
   private hIdx = -1;
@@ -48,7 +50,7 @@ export class ScaleTool implements ToolHandler {
   }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
-    if (!ctx.hasSelection()) { ctx.hint("先选中要缩放的东西（选择工具），再拖包围盒上的柄"); return; }
+    if (!ctx.hasSelection()) { ctx.hint("先选中要变换的东西（选择工具），再拖包围盒上的柄"); return; }
     // 柄透视画、透视拾（埋在几何里也点得中；user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」）
     const hs = this.handles(ctx), ray0 = ctx.frame().ray(ev.x, ev.y, ctx.vp());
     const best = pickHandle(hs.map((h) => ({ d: ctx.frame().distTo(ev.x, ev.y, h.p, ctx.vp()), z: dot3(sub3(h.p, ray0.origin), ray0.dir) })), ctx.eps().hit);
@@ -61,7 +63,7 @@ export class ScaleTool implements ToolHandler {
     const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
     this.t0 = q ? Math.max(dot3(sub3(q, h.anchor), dir), MIN_GESTURE_LEN) : dist3(h.p, h.anchor);
     ctx.setCursor(h.p);
-    ctx.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖");
+    ctx.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖（拖过对面到 −1 = 沿这根轴镜像）");
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
@@ -74,8 +76,14 @@ export class ScaleTool implements ToolHandler {
     const t = dot3(sub3(q, h.anchor), dir);
     let f = t / this.t0;
     if (Math.abs(f) < 1e-3) f = 1e-3;   // 不许缩到零（退化）
+    // 咬合按屏距（和别的吸附一样）：光标离「倍率 v 的落点」在吸附半径内就咬住、最近的赢（2026-10-25 改：以前是倍率差 < 0.02，屏上只有几个像素、很难咬到）。
     // 意图门：倍率相对 1 的符号 = 放大 / 缩小；反向的咬合不合法（1 本身保留）
-    const snapped = SNAP_FACTORS.find((v) => Math.abs(f - v) < 0.02 && (!ctx.intentOn(s, travel) || intentAllows1D(f - 1, v - 1, 0.01)));
+    let snapped: number | undefined, bestD = ctx.eps().snap;
+    for (const v of SNAP_FACTORS) {
+      if (ctx.intentOn(s, travel) && !intentAllows1D(f - 1, v - 1, 0.01)) continue;
+      const d = ctx.frame().distTo(s.x, s.y, add3(h.anchor, scale3(dir, v * this.t0)), ctx.vp());
+      if (d <= bestD) { bestD = d; snapped = v; }
+    }
     if (snapped !== undefined) f = snapped;
     this.f = h.kind === "corner" ? { x: f, y: f, z: f } : { x: h.axis!.x ? f : 1, y: h.axis!.y ? f : 1, z: h.axis!.z ? f : 1 };
     const cur = add3(h.anchor, scale3(dir, t));

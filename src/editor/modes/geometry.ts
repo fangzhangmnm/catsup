@@ -14,7 +14,7 @@ import { EraseTool } from "../tools/erase.ts";
 import { WeldEraseTool } from "../tools/weld-erase.ts";
 import { SoftEraseTool } from "../tools/soft-erase.ts";
 import { SelectTool } from "../tools/select.ts";
-import { ScaleTool } from "../tools/scale.ts";
+import { TransformTool } from "../tools/transform.ts";
 import { RotateTool } from "../tools/rotate.ts";
 import { PushPullTool } from "../tools/pushpull.ts";
 import { MoveTool } from "../tools/move.ts";
@@ -30,7 +30,7 @@ export class GeometryMode implements Mode {
   readonly defaultTool: Tool = "line";
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
     offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(),
-    erase: new EraseTool(), weldErase: new WeldEraseTool(), softErase: new SoftEraseTool(), select: new SelectTool(), scale: new ScaleTool(), rotate: new RotateTool(), pp: new PushPullTool(), move: new MoveTool(),
+    erase: new EraseTool(), weldErase: new WeldEraseTool(), softErase: new SoftEraseTool(), select: new SelectTool(), transform: new TransformTool(), rotate: new RotateTool(), pp: new PushPullTool(), move: new MoveTool(),
     line: new LineTool(), rect: new RectTool(), rrect: new RRectTool(), circle: new CircleTool(), eraseFace: new EraseFaceTool(),
   };
 }
