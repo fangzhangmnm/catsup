@@ -102,6 +102,8 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .crumb:hover { background: rgba(0,0,0,.06); }
 .crumb.current { color: var(--ink); cursor: default; font-weight: 600; }
 .crumb-sep { color: var(--muted); }
+.crumb-toggle { margin-left: 6px; border: 1px solid var(--line); background: transparent; font: inherit; font-size: 13px; color: var(--muted); cursor: pointer; padding: 3px 8px; border-radius: 999px; }
+.crumb-toggle.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 /* 网格芯片（0.11 ⑤）：网格开着才露出，右下角、版本号上方；点开 = 格距 / 细分 / 关 */
 /* 选区浮条（#19）：顶居中；选中东西且没在手势中才出现；项 = HUD 编辑动作表 */
 /* 上下文条里工具段与选区段之间的竖分隔（A25，2026-10-24 Opus；顶部选区浮条 .hud-selbar 已并入上下文条） */

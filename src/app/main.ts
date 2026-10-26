@@ -545,6 +545,15 @@ function renderCrumbs(): void {
     if (!last) { (b as HTMLButtonElement).type = "button"; b.title = `退到这里`; b.addEventListener("click", () => editor.exitTo(c.depth)); }
     crumbsEl.appendChild(b);
   });
+  // 只看这个（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）：外面的藏起来（不画、不吸、点不中），再点放回来
+  if (crumbs.length > 1) {
+    const t = document.createElement("button"); t.type = "button";
+    t.className = "crumb-toggle" + (editor.isolate ? " on" : "");
+    t.textContent = "只看这个"; t.setAttribute("aria-pressed", String(editor.isolate));
+    t.title = editor.isolate ? "外面的藏起来了：点一下放回来" : "把这个组 / 组件外面的都藏起来（不画、不吸附、点不中）";
+    t.addEventListener("click", () => { editor.setIsolate(!editor.isolate); renderCrumbs(); });
+    crumbsEl.appendChild(t);
+  }
 }
 // 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
 type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;

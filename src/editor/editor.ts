@@ -378,6 +378,15 @@ export class Editor {
   get vcbUnit(): LengthUnit { return this._vcbUnit; }
   set vcbUnit(u: LengthUnit) { this._vcbUnit = u; setDisplayUnit(u); this.host.changed(); }
   private viewCache: { key: string; view: WorldView } | null = null;
+  /** 只看这个（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）：进了组 / 组件时，外面的不画、不吸、点不中。本次打开有效；根上无效果。 */
+  private _isolate = false;
+  get isolate(): boolean { return this._isolate; }
+  setIsolate(on: boolean): void {
+    if (this._isolate === on) return;
+    this._isolate = on;
+    this.hoverEdge = null; this.hoverFace = null; this.snapInfo = null;
+    this.host.changed(); this.draw();
+  }
   private kids = new WeakMap<object, number>();
   private nextKid = 1;
 
@@ -458,12 +467,12 @@ export class Editor {
     const keyOf = (o: { picks: PoolPick[]; xform: Xform }): string => `${o.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${o.xform.map((v) => v.toFixed(9)).join(",")}`;
     const ovKey = override ? keyOf(override) : copy ? `copy:${keyOf(copy)}` : "";
     const grid = this._grid.on ? { step: this._grid.step, sub: this._grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this._grid.plane) } : null;
-    const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}`;
+    const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}|${this._isolate ? "iso" : ""}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
     const copies = copy ? this.overrideList(copy) : undefined;
     PART_STATS.ms = 0; PART_STATS.n = 0;
-    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides, { grid, copies }));
+    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides, { grid, copies, isolate: this._isolate }));
     perf.last["worldView.parts"] = PART_STATS.ms; perf.last["worldView.partsN"] = PART_STATS.n;
     this.viewCache = { key, view };
     return view;

@@ -81,6 +81,9 @@ export declare const PART_STATS: {
 };
 /** 正多边形（≥ 6 边、各顶点到形心等距、各边等长，相对容差 1e-5）→ 形心；否则 null。 */
 export declare function regularPolygonCenter(pts: readonly Pt3[]): Pt3 | null;
+/** 这个槽在当前上下文里面吗：活动池本身 + 它的子孙（group 子树、放在里面的实例整棵）。根上下文 = 全都在里面。
+ *  「只看这个」用（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）。 */
+export declare function insideContext(scene: Scene, ctx: EditContext, pool: PoolRef, chain: readonly InstId[]): boolean;
 export declare class WorldView implements GeomView {
     readonly slots: PoolSlot[];
     /** 每槽一份世界坐标几何（缓存单元；屏幕索引也按它缓存）。在手里的槽 = 空 part（见 OVERRIDDEN_PARTS_EMPTY）。 */
@@ -94,6 +97,7 @@ export declare class WorldView implements GeomView {
      * @param ctx 编辑上下文（活动池 = ctx 的池；链上的池 = inContext）
      * @param live 活动池的影子副本（手势预演）；null = 用 checkpoint
      * @param overrides 叠加变换（整体变换预演，渲染 / 吸附同见）：谓词匹配到的池在世界侧再乘一个变换
+     * @param extras.isolate 只看这个：上下文外面的槽整个不进来（insideContext）
      */
     readonly scene: Scene;
     readonly ctx: EditContext;
@@ -116,6 +120,7 @@ export declare class WorldView implements GeomView {
             match(pool: PoolRef, chain: readonly InstId[]): boolean;
             xform: Xform;
         }[];
+        isolate?: boolean;
     });
     private partOf;
     vertices(): Vertex[];

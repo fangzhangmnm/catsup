@@ -338,6 +338,10 @@ export declare class Editor {
     get vcbUnit(): LengthUnit;
     set vcbUnit(u: LengthUnit);
     private viewCache;
+    /** 只看这个（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）：进了组 / 组件时，外面的不画、不吸、点不中。本次打开有效；根上无效果。 */
+    private _isolate;
+    get isolate(): boolean;
+    setIsolate(on: boolean): void;
     private kids;
     private nextKid;
     constructor(canvas: HTMLCanvasElement, host: EditorHost);

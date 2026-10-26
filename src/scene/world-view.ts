@@ -130,6 +130,22 @@ function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
   return part;
 }
 
+/** 这个槽在当前上下文里面吗：活动池本身 + 它的子孙（group 子树、放在里面的实例整棵）。根上下文 = 全都在里面。
+ *  「只看这个」用（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）。 */
+export function insideContext(scene: Scene, ctx: EditContext, pool: PoolRef, chain: readonly InstId[]): boolean {
+  const chainA = ctx.chain, groupA = ctx.group, defA = scene.defOfContext(ctx);
+  const sameChain = chain.length === chainA.length && chain.every((c, i) => c === chainA[i]);
+  const prefix = chain.length > chainA.length && chainA.every((c, i) => c === chain[i]);
+  const under = (gid: number | null): boolean => {   // gid 就是 groupA 或在它下面
+    if (groupA === null) return true;
+    let g = gid, guard = 64;
+    while (g !== null && guard-- > 0) { if (g === groupA) return true; g = scene.group({ def: defA, group: g }).parent; }
+    return false;
+  };
+  if (sameChain) return pool.def === defA && under(pool.group);
+  if (prefix) return under(scene.instance(defA, chain[chainA.length]).parent);
+  return false;
+}
 /**
  * 层级距离（#30）：相对活动上下文 (chainA, groupA)，近亲 = 自己的孩子（同 definition 里 parent 链上有 groupA 的 group、parent === groupA 的实例及其整棵）、
  * 父母（groupA 的 parent 池；进了实例则是放它的那个池）、父母的孩子（兄弟 group / 兄弟实例）。其余 = 2。
@@ -187,6 +203,7 @@ export class WorldView implements GeomView {
    * @param ctx 编辑上下文（活动池 = ctx 的池；链上的池 = inContext）
    * @param live 活动池的影子副本（手势预演）；null = 用 checkpoint
    * @param overrides 叠加变换（整体变换预演，渲染 / 吸附同见）：谓词匹配到的池在世界侧再乘一个变换
+   * @param extras.isolate 只看这个：上下文外面的槽整个不进来（insideContext）
    */
   readonly scene: Scene;
   readonly ctx: EditContext;
@@ -196,7 +213,7 @@ export class WorldView implements GeomView {
   frame(): Frame { return this.ctxFrame; }
   guides(): GuidesWorld { return this.ctxGuides; }
   grid(): GridSpec | null { return this.ctxGrid; }
-  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number; frame?: Frame } | null; copies?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[] }) {
+  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number; frame?: Frame } | null; copies?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[]; isolate?: boolean }) {
     this.scene = scene; this.ctx = ctx;   // 不用参数属性：node strip-types 不支持
     const activePool = scene.poolOfContext(ctx);
     this.ctxFrame = scene.frameOfContext(ctx);
@@ -207,6 +224,7 @@ export class WorldView implements GeomView {
     for (const { pool, xform, chain } of scene.pools()) {
       if (scene.kindOf(pool.def) !== "brep") continue;   // 门 1：只有 brep 池有 kernel 可 bake；card 等别的 kind 以后各自 bake
       if (chain.length && chain.join("/") !== chainKey && !chainVisible(scene, chain)) continue;   // 层藏掉的（含祖先藏）不进推断世界、不画（契约 §4；上下文自己所在的链永远算可见——你站在里面）
+      if (extras?.isolate && !insideContext(scene, ctx, pool, chain)) continue;   // 「只看这个」：上下文外面的不画、不吸、点不中（SU「隐藏模型其余部分」）
       const isActive = samePool(pool, activePool) && chain.join("/") === chainKey;
       const sameDefChain = chain.join("/") === chainKey;
       const index = this.slots.length;
