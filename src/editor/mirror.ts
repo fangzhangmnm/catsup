@@ -5,7 +5,7 @@
 //   ② 融合阈值 > 0：留下这侧离镜像面 ≤ 阈值的点吸到面上（默认 0 = 精确硬表面；有机建模共用这一项）
 //   ③ 删掉对面（默认开）：选区里在对面那侧的面 / 线删掉；关掉 = 原件留着、对面多一份（= 复制）
 //   ④ 这一侧抽成快照、按镜像变换（行列式 < 0）吸回同一个池（粘性几何把缝上的点并上；曲线参数跟着镜）
-//   ⑤ 消中缝（默认开）：先删夹在两半中间、贴在镜像面上的面；再擦缝上两边共面的边（并面）；再焊掉缝上的共线断口
+//   ⑤ 缝上自愈（默认开，user「语义就是自愈」）：先删夹在两半中间、贴在镜像面上的面；再擦缝上两边共面的边（并面）；再焊掉缝上的共线断口；正中切开的同一个圆焊回圆
 //   不变量：零破面——任何一步出现 BURST = 整步拒绝（OpTargetError → History 回滚），算法没想到的情况要暴露，不靠兜底盖住（user「确保不要有任何面破」）。
 // 坐标一律 = 这个池的本地坐标（definition 坐标）。created 2026-10-25 by Claude Opus 5.5
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
@@ -19,7 +19,7 @@ export interface MirrorPlane { origin: Pt3; normal: Pt3; }
 export interface MirrorOptions {
   /** 删掉对面（默认 true）；false = 原件留着、对面多一份。 */
   deleteOpposite: boolean;
-  /** 消中缝（默认 true）：缝上共面的边擦掉、夹在中间的面删掉、共线断口焊掉。 */
+  /** 缝上自愈（默认 true）：缝上共面的边擦掉、夹在中间的面删掉、共线断口焊掉、正中切开的同一个圆焊回圆。 */
   mergeSeam: boolean;
   /** 融合阈值（米，默认 0）：留下这侧离镜像面这么近的点先吸到面上。 */
   weld: number;
@@ -37,6 +37,15 @@ export function reflectionXform(pl: MirrorPlane): Xform {
 }
 
 export class MirrorRejected extends Error {}
+/**
+ * 防碎护栏（米；user 2026-10-25「切到点不要出零长度的线，然后非常近的点也有护栏」）：
+ *   切点离边的端点这么近 = 就用端点；短于它的切段不要；选区里离镜像面这么近（但又不在面上）的点先吸到镜像面上（报数，不悄悄改）。
+ * 尺子分工（2026-10-25 AI 建议、待 user 定）：3 µm = 同一个点（内核铁律）；10 µm = 在同一张面上（内核共面容差，判「点在不在镜像面上」用它）；
+ * 本常量 = 防碎；融合阈值（user 选项，默认 0）= 额外的主动合并。
+ */
+export const CUT_SNAP = 1e-4;
+/** 镜像这一步的回执（给提示行 / 参数小窗报数）。 */
+export interface MirrorReport { snappedToPlane: number; }
 
 interface Parent { n: Pt3; d: number; basis: { u: Pt3; v: Pt3 }; rings: Pt[][] }
 
@@ -57,7 +66,7 @@ function interiorPoint(k: Kernel, fid: FaceId): Pt3 | null {
 /**
  * 对池内核 k 上选中的面 / 线（本地 id）做镜像。返回全部面事件。有 BURST → 抛 MirrorRejected（调用方转 OpTargetError，History 回滚）。
  */
-export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: readonly EdgeId[], plane: MirrorPlane, opts: MirrorOptions = MIRROR_DEFAULTS): FaceEvent[] {
+export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: readonly EdgeId[], plane: MirrorPlane, opts: MirrorOptions = MIRROR_DEFAULTS, report?: MirrorReport): FaceEvent[] {
   const n = normalize3(plane.normal);
   const o = plane.origin;
   const tol = Math.max(k.coplanarTol, 1e-6);
@@ -69,6 +78,17 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
   const faceSet = new Set(faces.filter((f) => k.face(f)));
   const ringEdges = new Set<EdgeId>();
   for (const f of faceSet) { const F = k.face(f)!; for (const r of [F.outer, ...F.holes]) for (const d of r.edges) ringEdges.add(d.edge); }
+
+  // ⓪ 防碎护栏：选区里离镜像面 (τ, CUT_SNAP] 的点先吸到面上（否则镜过去和原件在缝上叠出几十微米的细缝，一合并就碎）
+  {
+    const vids = new Set<VertexId>();
+    for (const f of faceSet) { const F = k.face(f)!; for (const r of [F.outer, ...F.holes]) for (const v of r.vids) vids.add(v); }
+    for (const e of edges) if (k.graph.hasEdge(e) && !ringEdges.has(e)) { const E = k.graph.edge(e); vids.add(E.a); vids.add(E.b); }
+    const moves = [...vids].map((id) => ({ id, p: k.graph.pt(id) })).filter(({ p }) => { const d = Math.abs(sd(p)); return d > tol && d <= CUT_SNAP; }).map(({ id, p }) => ({ id, to: sub3(p, scale3(n, sd(p))) }));
+    if (moves.length) { guard(k.moveVertices(moves)); if (report) report.snappedToPlane += moves.length; }
+  }
+
+  // 裸线（在护栏吸点之后记位置）
   const wires = edges.filter((e) => k.graph.hasEdge(e) && !ringEdges.has(e)).map((e) => { const E = k.graph.edge(e); return { a: k.graph.pt(E.a), b: k.graph.pt(E.b) }; });
 
   // 记下原来每张选中面的平面 + 2D 环（切开后按内部点认回）
@@ -96,12 +116,14 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
         if (Math.abs(sb) <= tol) sb = 0;
         if ((sa > 0) === (sb > 0)) continue;
         const t = sa === 0 ? 0 : sa / (sa - sb);
-        const p = add3(a, scale3(sub3(b, a), t));
+        let p = add3(a, scale3(sub3(b, a), t));
+        if (Math.hypot(p.x - a.x, p.y - a.y, p.z - a.z) <= CUT_SNAP) p = a;          // 切点护栏：贴近端点 = 就是端点
+        else if (Math.hypot(p.x - b.x, p.y - b.y, p.z - b.z) <= CUT_SNAP) p = b;
         hits.push({ t: dot3(p, u), p });
       }
     }
     hits.sort((x, y) => x.t - y.t);
-    for (let i = 0; i + 1 < hits.length; i += 2) if (hits[i + 1].t - hits[i].t > tol) cuts.push([hits[i].p, hits[i + 1].p]);
+    for (let i = 0; i + 1 < hits.length; i += 2) if (hits[i + 1].t - hits[i].t > CUT_SNAP) cuts.push([hits[i].p, hits[i + 1].p]);   // 零长度 / 太短的切段不要
   }
   // 裸线过镜像面：在交点处切开（共线插段 = 粘性几何把原边切成两段）
   const wireCuts: [Pt3, Pt3][] = [];
@@ -111,6 +133,7 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
     if (Math.abs(sb) <= tol) sb = 0;
     if (sa === 0 || sb === 0 || (sa > 0) === (sb > 0)) continue;
     const x = add3(w.a, scale3(sub3(w.b, w.a), sa / (sa - sb)));
+    if (Math.hypot(x.x - w.a.x, x.y - w.a.y, x.z - w.a.z) <= CUT_SNAP || Math.hypot(x.x - w.b.x, x.y - w.b.y, x.z - w.b.z) <= CUT_SNAP) continue;   // 切点护栏：贴着端点就不切
     wireCuts.push([w.a, x], [x, w.b]);
   }
   if (cuts.length || wireCuts.length) guard(k.addEdges([...cuts, ...wireCuts]));
@@ -189,6 +212,26 @@ export function mirrorGeometry(k: Kernel, faces: readonly FaceId[], edges: reado
     // c. 缝上的共线断口焊掉
     const breaks = k.vertices().filter((v) => onPlane(v) && v.edges.size === 2 && k.isBreakJunction(v.id)).map((v) => v.id);
     if (breaks.length) k.dissolveVertices(breaks);
+    // d. 正中切开的同一个圆：缝上相接、圆参数相同（圆心 / 半径 / 法线）的两段弧焊回一条（两段拼成整圈 = 回到圆）。不在正中切 = 两个圆心不同的弧，不碰。
+    //    user 2026-10-25「正中切开同圆心，和是否删中线一样共享一个选项」「因为它们语义就是自愈」——同一个开关（缝上自愈）。
+    const sameCircle = (a: NonNullable<ReturnType<Kernel["curveById"]>>, b: NonNullable<ReturnType<Kernel["curveById"]>>): boolean => {
+      const p = a.params, q = b.params;
+      if (!p || !q) return false;
+      const dc = Math.hypot(p.center.x - q.center.x, p.center.y - q.center.y, p.center.z - q.center.z);
+      return dc <= tol && Math.abs(p.radius - q.radius) <= tol && Math.abs(dot3(normalize3(p.normal), normalize3(q.normal))) >= 1 - 1e-9;
+    };
+    for (let guardN = 0; guardN < 64; guardN++) {
+      let welded = false;
+      for (const v of k.vertices()) {
+        if (!onPlane(v)) continue;
+        const cids = [...new Set([...v.edges].map((e) => k.curveOf(e)).filter((c): c is number => c !== undefined))];
+        if (cids.length !== 2) continue;
+        const A = k.curveById(cids[0]), B = k.curveById(cids[1]);
+        if (!A || !B || !sameCircle(A, B)) continue;
+        try { k.weldEdges([...A.edges, ...B.edges]); welded = true; break; } catch { /* 不是一条链之类：不焊，照旧两段弧 */ }
+      }
+      if (!welded) break;
+    }
   }
   return events;
 }

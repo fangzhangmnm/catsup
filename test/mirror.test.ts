@@ -59,6 +59,30 @@ describe("镜像（DT23）", () => {
     assert(cs.some((c) => Math.abs(c.x + 3) < 1e-6 && Math.abs(c.y - 1) < 1e-6), `镜像圆心 (−3,1)：${JSON.stringify(cs)}`);
     eq(s.kernelOf(rootAt(s)).curves().length, 4, "四条曲线（两份 × 上下圈）");
   });
+  it("正中切开同一个圆：缝上自愈开 = 两段弧焊回圆；关 = 留四段弧（user「正中切开同圆心，和是否删中线一样共享一个选项」「因为它们语义就是自愈」）", () => {
+    const on = mirrorAll(new Scene(sceneCylinder()), P(1, 0, 0));   // 圆柱圆心 (1,1)：镜像面过圆心
+    const kc = on.kernelOf(rootAt(on)).curves();
+    eq(kc.length, 2, `上下两个圆：${JSON.stringify(kc.map((c) => c.kind))}`);
+    assert(kc.every((c) => c.kind === "circle"), "都是整圆");
+    const off = mirrorAll(new Scene(sceneCylinder()), P(1, 0, 0), { mergeSeam: false });
+    const ko = off.kernelOf(rootAt(off)).curves();
+    assert(ko.length === 4 && ko.every((c) => c.kind === "arc"), `关掉 = 四段弧：${JSON.stringify(ko.map((c) => c.kind))}`);
+  });
+  it("不在正中切：两段弧圆心不同、不焊", () => {
+    const s = mirrorAll(new Scene(sceneCylinder()), P(1.4, 0, 0));
+    const kc = s.kernelOf(rootAt(s)).curves();
+    assert(kc.length >= 2 && kc.every((c) => c.kind === "arc"), `都还是弧：${JSON.stringify(kc.map((c) => c.kind))}`);
+  });
+  it("切点护栏：镜像面正好过顶点 / 离顶点 50 µm 时不切出零长度或几微米的碎边（user「切到点不要出零长度的线，然后非常近的点也有护栏」）", () => {
+    for (const x0 of [0, 5e-5]) {
+      const k = new Kernel(); k.addEdges([[P(0, 0), P(2, 1)], [P(2, 1), P(2, -1)], [P(2, -1), P(0, 0)]]);   // 三角形，尖在 x = 0
+      const s = mirrorAll(new Scene(k), P(x0, 0, 0), { deleteOpposite: false });
+      const kk = s.kernelOf(rootAt(s));
+      const shortest = Math.min(...kk.edges().map((e) => { const a = kk.graph.pt(e.a), b = kk.graph.pt(e.b); return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); }));
+      assert(shortest > 1e-4, `面过 x=${x0}：最短的边 ${shortest}`);
+      eq(kk.faces().length, 2, "原三角 + 镜过去的一个");
+    }
+  });
   it("组件 = 负变换：右边的那份镜一份到左边（行列式 < 0）；左边的那份（删对面开着）删掉", () => {
     let s = new Scene(sceneBox(1, 1));
     const k = s.kernelOf(rootAt(s));
