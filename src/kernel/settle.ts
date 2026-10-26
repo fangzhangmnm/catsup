@@ -583,6 +583,9 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   }
 
   mark("bury");
+  // ⑪a 边属性层规则 ③「新段上落下的边入集」提到溶解之前（DT12，v0.14.3，Claude Opus 5.5）：溶解时新段已经带层，规则 ④「两边都有 → 并出的边也有」才成立。
+  // 之前排在 ⑩ 之后 → 同向再推拉圆柱顶面：新侧棱溶解那一刻还没层，和下面那段软的旧侧棱并成一条硬边，并出的长边又不完全落在新段上、③ 也贴不上（user「第二次拖动顶面的时候，平滑组变成硬边了」）。
+  if (EL && table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
   // ⑩ 溶解：因本次操作新成为二度共线的顶点——只看本次星形变过的顶点：新边 / 切出来的边的端点（dirty）+ 本次删掉的边的端点（candVerts）
   for (const eid of dirty) if (g.hasEdge(eid)) { const e = g.edge(eid); candVerts.add(e.a); candVerts.add(e.b); }
   for (const vid of candVerts) {
@@ -595,11 +598,8 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     dissolveAt(g, store, c, EL, table.curves);
   }
   mark("dissolve");
-  // ⑪ 边属性层：删掉的边出集；新段上落下的边入集（规则在 layers.ts）
-  if (EL) {
-    EL.prune((id) => g.hasEdge(id));
-    if (table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
-  }
+  // ⑪ 边属性层：删掉的边出集（新段入集已在 ⑪a 提前做；规则在 layers.ts）
+  if (EL) EL.prune((id) => g.hasEdge(id));
   table.curves?.prune(g);
   // ⑫ 曲线：登记本次新曲线（两端都在段上的边，INSERT_TOL），再对本次星形变过的顶点（candVerts = 删 / 加 / 切的端点，含 dirtyEdges）跑断点规则——唯一判断点
   if (table.curves) {

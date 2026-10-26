@@ -39,6 +39,17 @@ describe("curves: 曲线实体", () => {
     eq(risers.length, 24); assert(risers.every((e) => k.isSoft(e.id)), "侧棱软");
     invariants(k);
   });
+  it("DT12 同向再推拉顶面：侧面接着长，上下两段侧棱并成一条后仍是软 + 平滑（user 2026-10-25「第二次拖动顶面的时候，平滑组变成硬边了」）", () => {
+    const k = new Kernel(); circle(k, 0, 0, 1);
+    k.pushPull(k.faces()[0].id, 1);
+    const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 1) < 1e-9))!;
+    k.pushPull(top.id, 0.5);
+    const risers = k.edges().filter((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return Math.abs(a.z - b.z) > 1e-9; });
+    eq(risers.length, 24, "一圈 24 条竖棱（旧顶圈溶掉了）");
+    assert(risers.every((e) => Math.abs(Math.abs(k.graph.pt(e.a).z - k.graph.pt(e.b).z) - 1.5) < 1e-9), "每条都并成了 0→1.5");
+    assert(risers.every((e) => k.isSoft(e.id) && k.isSmooth(e.id)), "并出来的侧棱仍是软 + 平滑");
+    invariants(k);
+  });
   it("橡皮擦顶圈的一段 = 整个顶圈没了（SU：顶面与靠它围住的 24 张侧面一起消失）；底圈与底面不动", () => {
     const k = new Kernel(); circle(k, 0, 0, 1); k.pushPull(k.faces()[0].id, 2);
     const top = k.curves().find((c) => Math.abs(c.params!.center.z - 2) < 1e-9)!;
