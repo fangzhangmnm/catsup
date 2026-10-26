@@ -74,6 +74,7 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     params.replaceChildren();
     if (!pp) return false;
     const head = document.createElement("div"); head.className = "vcb-params-title"; head.textContent = (pp.phase === "after" ? "刚才：" : "") + pp.title; params.appendChild(head);
+    if (pp.note) { const note = document.createElement("div"); note.className = "vcb-params-note"; note.textContent = pp.note; params.appendChild(note); }
     const row = document.createElement("div"); row.className = "vcb-params-fields";
     for (const f of pp.fields) row.appendChild(fieldControl(f.def, pp.values[f.key], (v) => { editor.setParam(f.key, v); render(); }));
     params.appendChild(row);

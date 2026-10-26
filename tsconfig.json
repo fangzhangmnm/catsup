@@ -10,6 +10,8 @@
     "module": "preserve",
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    // 小数据文件（src/editor/segment-tiers.json，2026-10-26）：import … with { type: "json" }——node / esbuild 都认
+    "resolveJsonModule": true,
     "target": "es2022",
     "lib": ["es2022", "dom", "dom.iterable"],
 

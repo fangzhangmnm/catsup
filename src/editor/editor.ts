@@ -156,6 +156,7 @@ export const MIN_GESTURE_LEN = 0.01;
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 
 import { fmtArea, fmtDeg, fmtLen, setDisplayUnit } from "./units.ts";
+import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）；工具仍从 editor.ts 拿，调用处不动
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
@@ -1794,9 +1795,60 @@ export class Editor {
       this.last = L.kind === "move" ? { ...L, copy, ops } : L.kind === "rotate" ? { ...L, copy, ops, center: piv ?? L.center, ...(pid ? { pivotUsed: pid } : {}) } : { ...L, copy, ops, anchor: piv ?? L.anchor, ...(pid ? { pivotUsed: pid } : {}) };
     });
   }
-  /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。 */
-  private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void): void {
-    this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, undoN: (n) => this.undoN(n), redo }));
+  /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。note = 说明行（按当前值现算）。 */
+  private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void, note?: (v: Readonly<Record<string, ParamValue>>) => string): void {
+    this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, undoN: (n) => this.undoN(n), redo, ...(note ? { note } : {}) }));
+  }
+  /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 轴心）、圆 / 弧（段数）。 */
+  private offerLastAfterthought(): void {
+    const k = this.last?.kind;
+    if (k === "circle" || k === "arc") this.offerSegmentsAfterthought();
+    else this.offerXformAfterthought();
+  }
+  /** 圆：按新的边缘点 / 段数重画（数值小窗和段数马后炮共用；调用方已撤掉上一步）。 */
+  private redrawCircle(L: Extract<LastGesture, { kind: "circle" }>, rim: Pt3, segments: number): void {
+    const n0 = this.opCount;
+    const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
+    if (segs.length) this.commitOp({ op: "addEdges", at: L.at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
+    this.last = { ...L, ops: this.opCount - n0, rim, segments };
+  }
+  /** 弧：按新的手势量重画（同上）；构不出来 = null，什么都不提交。 */
+  private redrawArc(L: Extract<LastGesture, { kind: "arc" }>, g: ArcGesture): ReturnType<typeof buildArc> {
+    const built = buildArc(g);
+    if (!built) return null;
+    const n0 = this.opCount;
+    this.commitOp(arcOp((p) => this.toLocal(p), L.at, built));
+    this.last = { ...L, ...g, ops: this.opCount - n0 };
+    return built;
+  }
+  /**
+   * 圆 / 弧画完的马后炮（纪元账本 DT95，user 2026-10-26「马后炮选择段数的时候给一下公差和试用对象参考。加上次世代和lowpoly的推荐值」）：
+   * 档位（数据 = segment-tiers.json）+ 段数；说明行 = 这个段数的弦高公差 + 对上的那一档适用什么。改了 = 撤这一步、按新段数重画，并记进工具选项（同数值小窗 24s）。
+   */
+  private offerSegmentsAfterthought(): void {
+    const L0 = this.last;
+    if (!L0 || (L0.kind !== "circle" && L0.kind !== "arc")) return;
+    const arc = L0.kind === "arc";
+    const built = L0.kind === "arc" ? buildArc(L0) : null;
+    if (L0.kind === "arc" && !built) return;
+    const r = L0.kind === "circle" ? dist(L0.center, L0.rim) : built!.radius, sweep = L0.kind === "circle" ? 2 * Math.PI : built!.sweep;
+    const tierId = (n: number): string => tierOf(n, r, sweep, arc)?.id ?? "custom";
+    const fields: ParamField[] = [
+      { key: "tier", def: { kind: "enum", label: "档位", values: [...SEGMENT_TIERS.map((t) => ({ id: t.id, label: `${t.name} · ${t.segments !== undefined ? `${t.segments} 段` : t.typical}` })), { id: "custom", label: "自定" }] } },
+      { key: "segments", def: { kind: "number", label: "段数", min: segMin(arc), max: SEG_MAX, step: 1 } },
+    ];
+    let cur: LastGesture = L0, prevTier = tierId(L0.segments);
+    this.offerAfterthought(arc ? "弧" : "圆", fields, { tier: prevTier, segments: L0.segments }, L0.ops, (v) => {
+      let n = Number(v.segments);
+      const t = v.tier !== prevTier ? SEGMENT_TIERS.find((x) => x.id === v.tier) : undefined;
+      if (t) n = tierSegments(t, r, sweep);
+      n = clampSegments(n, arc);
+      if (cur.kind === "circle") { this.redrawCircle(cur, cur.rim, n); this.config.set("circle", "segments", n); }
+      else if (cur.kind === "arc") { this.redrawArc(cur, { ...cur, segments: n }); this.config.set("arc", "segments", n); }
+      if (this.last) cur = this.last;
+      const w = v as Record<string, ParamValue>;
+      w.segments = n; w.tier = prevTier = tierId(n);
+    }, (v) => segmentNote(r, sweep, Number(v.segments), arc, (m) => fmtLen(m)));
   }
 
   // ---------- 轴移到选择中心（user 2026-10-25「加一个把轴移动到选择中心的命令……现在先用blender的bounding box center」「选中轴工具之后如果有选择就出现这个，然后点了之后右下角的马后炮可以选择是哪种居中算法」）----------
@@ -1907,10 +1959,8 @@ export class Editor {
         else if (v.kind === "length" && (g.mode === "center" || g.mode === "pie") && g.center) g.a = add3(g.center, scale3(normalize3(sub3(g.a, g.center)), v.m));
         else if (v.kind === "length" && g.b && g.p) g.p = bulgePointForRadius(g.a, g.b, g.p, v.m);
         else { msg = ""; this.last = L; break; }
-        const built = buildArc(g);
+        const built = this.redrawArc(L, g);
         if (!built) { this.last = L; break; }
-        this.commitOp(arcOp((p) => this.toLocal(p), at, built));
-        this.last = { ...L, ...g, ops: this.opCount - n0 };
         msg = `弧 r=${fmtLen(built.radius)} · ${fmtDeg(Math.abs(built.sweep))} · ${built.segs.length} 段`;
         break;
       }
@@ -1919,9 +1969,7 @@ export class Editor {
         if (v.kind === "length") rim = add3(L.center, scale3(normalize3(sub3(L.rim, L.center)), Math.abs(v.m)));
         else if (v.kind === "segments") { segments = v.n; this.config.set("circle", "segments", v.n); }
         else break;
-        const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
-        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
-        this.last = { ...L, ops: this.opCount - n0, rim, segments };
+        this.redrawCircle(L, rim, segments);
         msg = `圆 半径 ${fmtLen(dist(L.center, rim))} · ${segments} 段`;
         break;
       }
@@ -2020,7 +2068,7 @@ export class Editor {
       }
     }
     if (!msg) { this.last = null; this.host.changed(); this.draw(); return { ok: false, error: "这一步不收这种输入" }; }
-    this.offerXformAfterthought();   // 改完数，马后炮按最新的那一步再挂上（复制 / 轴心接着能改）
+    this.offerLastAfterthought();   // 改完数，马后炮按最新的那一步再挂上（复制 / 轴心 / 段数接着能改）
     this.host.changed(); this.draw();
     return { ok: true, message: msg };
   }
@@ -2486,7 +2534,7 @@ export class Editor {
       setAnchor: (p) => { this.anchor3 = p; },
       setCursor: (p) => { this.cursor3 = p; },
       setSnap: (sn) => { this.snapInfo = sn; },
-      recordLast: (L) => { this.last = L; this.offerXformAfterthought(); },
+      recordLast: (L) => { this.last = L; this.offerLastAfterthought(); },
       contextFrame: () => this.contextFrame(),
       orientFrame: () => this.orientFrame(),
       boxIn: (f) => this.boxIn(f),

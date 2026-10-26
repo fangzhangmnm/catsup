@@ -16,6 +16,8 @@ export interface ParamPanelState {
   readonly fields: readonly ParamField[];
   readonly buttons: readonly ParamButton[];
   readonly values: Readonly<Record<string, ParamValue>>;
+  /** 说明行（按当前值现算；段数的公差 / 适用对象，DT95）。 */
+  readonly note?: string;
 }
 export interface ParamSession extends ParamPanelState {
   set(key: string, value: ParamValue): void;
@@ -33,11 +35,14 @@ export interface ParamSession extends ParamPanelState {
 export function afterthought(o: {
   title: string; fields: readonly ParamField[]; values: Record<string, ParamValue>; nOps: number;
   opCount: () => number; undoN: (n: number) => void; redo: (values: Readonly<Record<string, ParamValue>>) => void;
+  /** 说明行（每次画小窗时按当前值现算）。 */
+  note?: (values: Readonly<Record<string, ParamValue>>) => string;
 }): ParamSession {
   let n = o.nOps, mark = o.opCount(), replaying = false;
   const values = { ...o.values };
   return {
     phase: "after", title: o.title, fields: o.fields, buttons: [], values,
+    get note() { return o.note?.(values); },
     // 自己重做的途中不算作废：重做里每提交一条宿主都会重画小窗、来问这里（2026-10-25 修：第二次改值时小窗已经被自己关掉）
     stale: () => !replaying && o.opCount() !== mark,
     set(key, v) {
