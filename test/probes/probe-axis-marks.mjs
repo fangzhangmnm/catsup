@@ -8,9 +8,16 @@ const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slic
 await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const keys = () => page.evaluate(() => { const e = globalThis.__catsup.editor; e.draw(); return e.renderer3.labelKeys().map((k) => `${k.id}=${k.key.split("|").slice(2).join("|")}`).join(","); });
 const res = { metric: await keys() };
-await page.evaluate(() => { globalThis.__catsup.editor.vcbUnit = "ft"; });
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.vcbUnit = "ft"; e.setGrid({ step: 0.3048 }); });   // 英制配英制格（1 ft）
 res.ft = await keys();
-await page.evaluate(() => { globalThis.__catsup.editor.vcbUnit = "m"; });
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setGrid({ step: 1 }); });
+res.ftMetricGrid = await keys();   // 单位英尺、格子 1 m：照实写 3' 3.38"
+// DT16（user 10-25「1m的标记没有跟着格子的大小更新」）：标记跟着格子走
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.vcbUnit = "m"; e.setGrid({ step: 0.1 }); });
+res.cm = await keys();
+await page.evaluate(() => globalThis.__catsup.editor.setGrid({ step: 5 }));
+res.five = await keys();
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.vcbUnit = "m"; e.setGrid({ step: 1 }); });
 // 表面模式不挂（只在几何模式）——这里只核换回来还在
 res.back = await keys();
 // 有东西了「1 m」就不要了（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）
@@ -19,6 +26,6 @@ res.withGeom = await keys();
 await page.evaluate(() => globalThis.__catsup.editor.undo());
 res.emptyAgain = await keys();
 console.log(JSON.stringify(res));
-const ok = res.metric === "unit-x=1 m" && res.ft === "unit-x=1 ft" && res.back === "unit-x=1 m" && res.withGeom === "" && res.emptyAgain === "unit-x=1 m";
+const ok = res.metric === "unit-x=1 m" && res.ft === "unit-x=1 ft" && res.ftMetricGrid === `unit-x=3' 3.37"` && res.cm === "unit-x=10 cm" && res.five === "unit-x=5 m" && res.back === "unit-x=1 m" && res.withGeom === "" && res.emptyAgain === "unit-x=1 m";
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

@@ -16,7 +16,7 @@
 // **抬笔结算（A21，2026-10-21）**：抬笔前停留过的地方才是意图，末尾的短抖动不算（user「抬笔的时候总是会抖一下然后歪掉」）。
 
 import { Kernel } from "../kernel/kernel.ts";
-import { type WorldLabel, unitMark } from "./world-labels.ts";
+import { type WorldLabel, gridStepLabel, unitMark } from "./world-labels.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
@@ -2195,11 +2195,13 @@ export class Editor {
    * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：
    * 活动池里 Kernel.isBreakJunction 的顶点 → 世界坐标的点 + 边向（渲染器画屏幕定长的小垂线）。按池版本缓存。
    */
-  /** X 轴 +1 个单位处的「1 m / 1 ft」+ Z 轴刻度间距（user 2026-10-25「能不能在x轴+1的地方背景颜色的小字写上1m或者别的单位定义。以及我还是希望z轴有刻度」）。 */
-  private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number; axisUnitX: boolean } {
+  /** X 轴上一格处的「一格多长」（原「1 m / 1 ft」）+ Z 轴刻度间距（user 2026-10-25「能不能在x轴+1的地方背景颜色的小字写上1m或者别的单位定义。以及我还是希望z轴有刻度」）。 */
+  private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number; axisUnitX: number | null } {
     const m = unitMark(this._vcbUnit), empty = this.sceneEmpty();
-    // 「1 m」只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在
-    return { axisTickM: m.unitM, axisUnitX: empty, labels: empty ? [{ id: "unit-x", text: m.label, at: { x: F.origin.x + F.x.x * m.unitM, y: F.origin.y + F.x.y * m.unitM, z: F.origin.z + F.x.z * m.unitM }, style: "scale", anchor: "below" }] : [] };
+    // 标记跟着格子走（DT16，user 10-25「1m的标记没有跟着格子的大小更新」）：放在一格处、写一格的长度；Z 轴刻度仍按单位（1 m / 1 ft）
+    const step = this._grid.step > 0 ? this._grid.step : m.unitM;
+    // 只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在
+    return { axisTickM: m.unitM, axisUnitX: empty ? step : null, labels: empty ? [{ id: "unit-x", text: gridStepLabel(step, this._vcbUnit), at: { x: F.origin.x + F.x.x * step, y: F.origin.y + F.x.y * step, z: F.origin.z + F.x.z * step }, style: "scale", anchor: "below" }] : [] };
   }
   /** 场景里一个顶点都没有（按场景版本号缓存，不每帧数）。 */
   private emptyCache: { rev: number; empty: boolean } | null = null;

@@ -81,3 +81,18 @@ export function anchorCenter(anchor: LabelAnchor, w: number, h: number, gapPx: n
 export function unitMark(unit: string): { unitM: number; label: string } {
   return unit === "ft" || unit === "in" ? { unitM: 0.3048, label: "1 ft" } : { unitM: 1, label: "1 m" };
 }
+/**
+ * 一格有多大的字（DT16，user 10-25「1m的标记没有跟着格子的大小更新」）：X 轴上那个小标记放在一格处、写一格的长度。
+ * 米制按大小挑 m / cm / mm；英制整英尺写「n ft」、不到一英尺写英寸、其余写英尺英寸（格子按米设、单位却是英尺时照实写，比如 1 m = 3' 3.38"）。
+ */
+export function gridStepLabel(stepM: number, unit: string): string {
+  const trim = (v: number): string => String(Number(v.toFixed(3)));
+  if (unit === "ft" || unit === "in") {
+    const inch = stepM / 0.0254, ft = Math.round(inch / 12);
+    if (ft >= 1 && Math.abs(inch - ft * 12) < 1e-6) return `${ft} ft`;
+    if (inch < 12) return `${trim(inch)} in`;
+    const f = Math.floor(inch / 12 + 1e-9), rest = inch - f * 12;
+    return `${f}' ${Number(rest.toFixed(2))}"`;
+  }
+  return stepM >= 1 ? `${trim(stepM)} m` : stepM >= 0.01 ? `${trim(stepM * 100)} cm` : `${trim(stepM * 1000)} mm`;
+}

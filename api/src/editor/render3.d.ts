@@ -93,7 +93,7 @@ export interface ViewState {
     /** Z 轴刻度间距（米；1 m 或 1 ft；user「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）；null = 不画。 */
     axisTickM?: number | null;
     /** X 轴 +1 个单位处那根小短线（跟「1 m」字一起，只在空场景）。 */
-    axisUnitX?: boolean;
+    axisUnitX?: number | null;
     /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
     frame?: Frame | null;
     /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */

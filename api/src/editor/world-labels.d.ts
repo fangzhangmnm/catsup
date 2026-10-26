@@ -44,3 +44,8 @@ export declare function unitMark(unit: string): {
     unitM: number;
     label: string;
 };
+/**
+ * 一格有多大的字（DT16，user 10-25「1m的标记没有跟着格子的大小更新」）：X 轴上那个小标记放在一格处、写一格的长度。
+ * 米制按大小挑 m / cm / mm；英制整英尺写「n ft」、不到一英尺写英寸、其余写英尺英寸（格子按米设、单位却是英尺时照实写，比如 1 m = 3' 3.38"）。
+ */
+export declare function gridStepLabel(stepM: number, unit: string): string;

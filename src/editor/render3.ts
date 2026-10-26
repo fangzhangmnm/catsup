@@ -47,6 +47,7 @@ import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { cross3, dot3, sub3 } from "../kernel/geom.ts";
 import { faceLeftSign } from "../kernel/flood.ts";
+import { inwardAcrossEdge } from "./profile-edges.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
 
@@ -182,7 +183,7 @@ export interface ViewState {
   /** Z 轴刻度间距（米；1 m 或 1 ft；user「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）；null = 不画。 */
   axisTickM?: number | null;
   /** X 轴 +1 个单位处那根小短线（跟「1 m」字一起，只在空场景）。 */
-  axisUnitX?: boolean;
+  axisUnitX?: number | null;   // X 轴上「一格多长」标记的位置（米；DT16 跟格子走）；null = 不画
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
@@ -381,14 +382,17 @@ export class Renderer3 {
     this.edgeMat.onBeforeCompile = (shader: { uniforms: Record<string, unknown>; vertexShader: string }): void => {
       shader.uniforms.profileAdd = profileAdd;
       shader.vertexShader = shader.vertexShader
-        .replace("uniform float linewidth;", "uniform float linewidth;\nuniform float profileAdd;\nattribute vec3 instanceN1;\nattribute vec3 instanceN2;\nattribute float instanceFlag;")
+        .replace("uniform float linewidth;", "uniform float linewidth;\nuniform float profileAdd;\nattribute vec3 instanceW1;\nattribute vec3 instanceW2;\nattribute float instanceFlag;")
         .replace("float aspect = resolution.x / resolution.y;", `float aspect = resolution.x / resolution.y;
-			// SU 轮廓线：flag = 这条边的面数（0 悬空 / 1 边界 / 2 内边或剪影 / 3+ 非流形）；两面朝向相反 = 剪影
+			// SU 轮廓线：flag = 这条边的面数（0 悬空 / 1 边界 / 2 内边或剪影 / 3+ 非流形）。剪影 = 两张面伸向「过这条边和视线的平面」的同一侧
+			// （W1 / W2 = 两张面各自从这条边往面里走的方向；= profile-edges.ts isSilhouette 的 GLSL 镜像，改一边改另一边；F-87 / 2026-10-26）
 			vec4 csA = modelViewMatrix * vec4( instanceStart, 1.0 );
-			vec3 vdir = ( projectionMatrix[ 2 ][ 3 ] == - 1.0 ) ? normalize( csA.xyz ) : vec3( 0.0, 0.0, - 1.0 );
-			bool fa = dot( normalMatrix * instanceN1, vdir ) < 0.0;
-			bool fb = dot( normalMatrix * instanceN2, vdir ) < 0.0;
-			bool isProfile = instanceFlag < 1.5 || instanceFlag > 2.5 || ( fa != fb );
+			vec4 csB = modelViewMatrix * vec4( instanceEnd, 1.0 );
+			vec3 vdir = ( projectionMatrix[ 2 ][ 3 ] == - 1.0 ) ? csA.xyz : vec3( 0.0, 0.0, - 1.0 );
+			vec3 sm = cross( csB.xyz - csA.xyz, vdir );
+			float sa = dot( mat3( modelViewMatrix ) * instanceW1, sm );
+			float sb = dot( mat3( modelViewMatrix ) * instanceW2, sm );
+			bool isProfile = instanceFlag < 1.5 || instanceFlag > 2.5 || ( sa * sb > 0.0 );
 			float lw = linewidth + ( isProfile ? profileAdd : 0.0 );`)
         .replace("float hw = linewidth * 0.5;", "float hw = lw * 0.5;")
         .replace("offset *= linewidth;", "offset *= lw;");
@@ -909,7 +913,7 @@ export class Renderer3 {
       while (step / wpp0 < 6 && step < 1e6) step *= 10;
       const L = GRID_N * GRID_STEP;
       for (let k = 1; k * step <= L + 1e-9; k++) tks.push({ p: { x: o.x + zd.x * k * step, y: o.y + zd.y * k * step, z: o.z + zd.z * k * step }, dir: zd, color: PALETTE.axisZ });
-      if (view.axisUnitX) tks.push({ p: { x: o.x + xd.x * atm, y: o.y + xd.y * atm, z: o.z + xd.z * atm }, dir: xd, color: PALETTE.axisX });
+      if (view.axisUnitX) { const ux = view.axisUnitX; tks.push({ p: { x: o.x + xd.x * ux, y: o.y + xd.y * ux, z: o.z + xd.z * ux }, dir: xd, color: PALETTE.axisX }); }
     }
     if (tks.length) {
       const px = this.worldPerPx(cam, vp, tks[0].p);
@@ -1595,7 +1599,7 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
   // 边：软边不画；裸线 / 膜边两色；淡出一色
   const pos: number[] = [], col: number[] = [];
   const c = new THREE.Color();
-  const n1: number[] = [], n2: number[] = [], flag: number[] = [];   // SU 轮廓线：两侧面法向（本地坐标）+ 面数（着色器按视向判剪影）
+  const n1: number[] = [], n2: number[] = [], flag: number[] = [];   // SU 轮廓线：两张面各自往面里走的方向（本地坐标）+ 面数（着色器按视线判剪影）
   for (const e of k.edges()) {
     if (k.isSoft(e.id) || k.isEdgeHidden(e.id)) continue;   // 软边 / 隐藏的边（DT49）不画
     const hex = dim ? PALETTE.edgeDim : e.faceLinks.length === 0 ? PALETTE.edgeWire : PALETTE.edge;
@@ -1604,9 +1608,9 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
     col.push(c.r, c.g, c.b, c.r, c.g, c.b);
     if (style === "thick") {
-      const fa = e.faceLinks[0] !== undefined ? k.planeOf(e.faceLinks[0])?.plane.n : undefined;
-      const fb = e.faceLinks[1] !== undefined ? k.planeOf(e.faceLinks[1])?.plane.n : undefined;
-      const A = fa ?? { x: 0, y: 0, z: 0 }, B = fb ?? A;
+      // 两张面各自往面里走的方向（profile-edges.ts；着色器按它判剪影，和法向正负无关——F-87）
+      const inward = (fid: number | undefined): Pt3 => (fid === undefined ? { x: 0, y: 0, z: 0 } : inwardAcrossEdge(k, fid, e.id, a, b));
+      const A = inward(e.faceLinks[0]), B = e.faceLinks[1] !== undefined ? inward(e.faceLinks[1]) : A;
       n1.push(A.x, A.y, A.z); n2.push(B.x, B.y, B.z); flag.push(Math.min(e.faceLinks.length, 3));
     }
   }
@@ -1614,8 +1618,8 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
   if (pos.length) {
     if (style === "thick") {
       thick = new LineSegmentsGeometry(); thick.setPositions(pos); thick.setColors(col);
-      thick.setAttribute("instanceN1", new THREE.InstancedBufferAttribute(new Float32Array(n1), 3));
-      thick.setAttribute("instanceN2", new THREE.InstancedBufferAttribute(new Float32Array(n2), 3));
+      thick.setAttribute("instanceW1", new THREE.InstancedBufferAttribute(new Float32Array(n1), 3));
+      thick.setAttribute("instanceW2", new THREE.InstancedBufferAttribute(new Float32Array(n2), 3));
       thick.setAttribute("instanceFlag", new THREE.InstancedBufferAttribute(new Float32Array(flag), 1));
     }
     else { pixel = new THREE.BufferGeometry(); pixel.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); pixel.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); }

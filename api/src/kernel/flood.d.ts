@@ -27,6 +27,26 @@ export declare function connectedFrom(k: FloodView, seedEdges: Iterable<EdgeId>,
 /** 面的一侧：0 = 平面法向 +n 那侧，1 = −n 那侧（= 面层 material / materialBack）。 */
 export type Side = 0 | 1;
 /**
+ * 面 f 在它的哪条环边上「面在左手边」（从 +n 看）：+1 = 沿 a→b 走面在左、−1 = 在右。内核约定外环逆时针、洞环顺时针（都是面在左），
+ * 这里照环的实际绕向算（signedArea），不靠约定。
+ */
+type RingView = {
+    readonly edges: readonly {
+        readonly edge: EdgeId;
+        readonly forward: boolean;
+    }[];
+    readonly pts: readonly {
+        readonly x: number;
+        readonly y: number;
+    }[];
+};
+export declare function faceLeftSign(k: {
+    face(id: FaceId): {
+        readonly outer: RingView;
+        readonly holes: readonly RingView[];
+    } | undefined;
+}, fid: FaceId, eid: EdgeId): number | null;
+/**
  * 按侧灌：从 (seed, side) 出发，经 gate 放行的边走到邻面的**对应那一侧**。跨边 e 从 A 到 B：两张面「面在左」的符号相反 = 两张面的 +n 朝同一边
  * （朝向一致）→ 侧不变；相同 = 朝向相反 → 侧翻转。同一张面两侧都灌到（莫比乌斯环）就两侧都在结果里。顺序 = 灌到的顺序。
  */
