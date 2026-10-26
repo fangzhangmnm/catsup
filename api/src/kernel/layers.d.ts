@@ -8,7 +8,15 @@ export interface Seg3 {
 /** 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。 */
 export declare const EDGE_LAYERS: readonly ["soft", "curve", "smooth", "hidden"];
 /** 知名面层。 */
-export declare const FACE_LAYERS: readonly ["material", "hidden"];
+export declare const FACE_LAYERS: readonly ["material", "materialBack", "hidden"];
+/**
+ * 面的两个表面（DT8，契约 §5.2「面无朝向：material = [+n 侧, −n 侧]」；2026-10-26 Claude Opus 5.5，周二 Fable 审）：
+ * material = 平面法向 +n 那一侧的槽，materialBack = −n 那一侧。n = 面所在平面记录的规范法向（不是面自己的朝向——面没有朝向）。
+ * 面换到法向相反的平面上、或被转 / 镜像到背面朝 +n（结算机看身份像的绕向判出来）→ 两槽互换（swapSides），颜色跟着实物走。
+ */
+export declare const MAT_FRONT = "material", MAT_BACK = "materialBack";
+/** 一组面层值（像带的 / 快照里的）两侧互换。 */
+export declare function swapSideVals(vals: Readonly<Record<string, number>>): Record<string, number>;
 /** 推拉 / 跟随：原边带哪层 → 它扫出的侧棱带哪些层（帽边 = 原边的全部层）。 */
 export declare const EDGE_LAYER_POLICY: Readonly<Record<string, readonly string[]>>;
 /**
@@ -54,6 +62,8 @@ export declare class FaceLayers {
     /** 一张面的全部层值。 */
     of(id: FaceId): Record<string, number>;
     setAll(id: FaceId, vals: Readonly<Record<string, number>> | undefined): void;
+    /** 两个表面互换（DT8：面翻到另一面朝 +n 了）。 */
+    swapSides(id: FaceId): void;
     /** 按事件血缘：DIVIDE 子膜继承、MERGE / ABSORB 取首个有值的、死膜清。 */
     applyEvents(events: readonly FaceEvent[]): void;
     prune(hasFace: (id: FaceId) => boolean): void;

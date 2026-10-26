@@ -4,8 +4,9 @@
 //   floodFaces       从种子面灌（油漆桶 / 表面模式三档、单击曲面 = 整张）
 //   partitionFaces   把一批面全部分组（user「flood fill divide」：修复用——拍平 DT7 每组一张平面）
 //   connectedFrom    连通体（三击）：经边和顶点走，含没面的线
-// 以后「按侧灌」（DT8 正反面之后，灌的单位是「某张面的某一侧」）在这里加第四个动词。
+//   floodSides       按侧灌（DT8 两个表面之后；2026-10-26）：灌的单位是「某张面的某一侧」——圆柱只灌满一侧、莫比乌斯环两侧都灌满（user 10-25 的例子）
 import type { EdgeId, FaceId, Kernel } from "./kernel.ts";
+import { signedArea } from "./geom.ts";
 
 type FloodView = Pick<Kernel, "face" | "graph">;
 /** 跨边判定：这条边能不能灌过去。 */
@@ -81,4 +82,52 @@ export function connectedFrom(k: FloodView, seedEdges: Iterable<EdgeId>, seedFac
     for (const vid of [e.a, e.b]) for (const e2 of k.graph.vertex(vid).edges) if (!edges.has(e2)) { edges.add(e2); qE.push(e2); }
   }
   return { edges, faces };
+}
+
+/** 面的一侧：0 = 平面法向 +n 那侧，1 = −n 那侧（= 面层 material / materialBack）。 */
+export type Side = 0 | 1;
+/**
+ * 面 f 在它的哪条环边上「面在左手边」（从 +n 看）：+1 = 沿 a→b 走面在左、−1 = 在右。内核约定外环逆时针、洞环顺时针（都是面在左），
+ * 这里照环的实际绕向算（signedArea），不靠约定。
+ */
+function leftSign(k: FloodView, fid: FaceId, eid: EdgeId): number | null {
+  const f = k.face(fid);
+  if (!f) return null;
+  const rings = [f.outer, ...f.holes];
+  for (let ri = 0; ri < rings.length; ri++) {
+    const d = rings[ri].edges.find((x) => x.edge === eid);
+    if (!d) continue;
+    const interiorLeft = (signedArea(rings[ri].pts) > 0) === (ri === 0);
+    return (d.forward ? 1 : -1) * (interiorLeft ? 1 : -1);
+  }
+  return null;
+}
+/**
+ * 按侧灌：从 (seed, side) 出发，经 gate 放行的边走到邻面的**对应那一侧**。跨边 e 从 A 到 B：两张面「面在左」的符号相反 = 两张面的 +n 朝同一边
+ * （朝向一致）→ 侧不变；相同 = 朝向相反 → 侧翻转。同一张面两侧都灌到（莫比乌斯环）就两侧都在结果里。顺序 = 灌到的顺序。
+ */
+export function floodSides(k: FloodView, seed: FaceId, side: Side, gate: EdgeGate): { face: FaceId; side: Side }[] {
+  if (!k.face(seed)) return [];
+  const key = (f: FaceId, s: Side): number => f * 2 + s;
+  const seen = new Set<number>([key(seed, side)]);
+  const out: { face: FaceId; side: Side }[] = [{ face: seed, side }];
+  for (let i = 0; i < out.length; i++) {
+    const { face: a, side: sa } = out[i];
+    const f = k.face(a);
+    if (!f) continue;
+    for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) {
+      if (!gate(d.edge)) continue;
+      const la = leftSign(k, a, d.edge);
+      if (la === null) continue;
+      for (const b of k.graph.edge(d.edge).faceLinks) {
+        if (b === a || !k.face(b)) continue;
+        const lb = leftSign(k, b, d.edge);
+        if (lb === null) continue;
+        const sb: Side = la * lb < 0 ? sa : ((1 - sa) as Side);
+        if (seen.has(key(b, sb))) continue;
+        seen.add(key(b, sb)); out.push({ face: b, side: sb });
+      }
+    }
+  }
+  return out;
 }

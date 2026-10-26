@@ -58,13 +58,16 @@ export type Op = {
     at?: PoolRef;
     faces: FaceKey[];
     edges: EdgeKey[];
-} | {
+}
+/** mirror（DT8，2026-10-26）：这次挪点是镜像（变换的行列式 < 0）——整张面都在挪的点里的面先两侧互换（结算机按绕向再判一次 = 侧跟着法向走）。 */
+ | {
     op: "move";
     at?: PoolRef;
     moves: {
         from: Pt3;
         to: Pt3;
     }[];
+    mirror?: boolean;
 } | {
     op: "pushpull";
     at?: PoolRef;
@@ -180,11 +183,13 @@ export type Op = {
     on: boolean;
 }
 /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
+/** sides（DT8，2026-10-26）：每张面涂哪一侧，与 faces 对齐（0 = 平面法向 +n 那侧、1 = −n 那侧）；缺 = 两侧都涂（老复现包 / 老行为）。 */
  | {
     op: "paintFaces";
     at: PoolRef;
     faces: FaceKey[];
     material: number | null;
+    sides?: (0 | 1)[];
 } | {
     op: "eraseGroup";
     at: PoolRef;

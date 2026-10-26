@@ -42,7 +42,8 @@ export type Op =
   | { op: "eraseEdges"; at?: PoolRef; edges: EdgeKey[] }
   | { op: "eraseFaces"; at?: PoolRef; faces: FaceKey[] }
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
-  | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[] }
+  /** mirror（DT8，2026-10-26）：这次挪点是镜像（变换的行列式 < 0）——整张面都在挪的点里的面先两侧互换（结算机按绕向再判一次 = 侧跟着法向走）。 */
+  | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[]; mirror?: boolean }
   | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */ keepRing?: boolean }
   | { op: "followme"; at?: PoolRef; face: FaceKey; path: Pt3[]; closed: boolean; smoothJoints: boolean[] }
   | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs?: Record<string, [Pt3, Pt3][]>; faceLayers?: (Record<string, number> | undefined)[] }
@@ -70,7 +71,8 @@ export type Op =
   /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
   | { op: "setEdgeLayers"; at: PoolRef; edges: EdgeKey[]; layers: string[]; on: boolean }
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
-  | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null }
+  /** sides（DT8，2026-10-26）：每张面涂哪一侧，与 faces 对齐（0 = 平面法向 +n 那侧、1 = −n 那侧）；缺 = 两侧都涂（老复现包 / 老行为）。 */
+  | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null; sides?: (0 | 1)[] }
   | { op: "eraseGroup"; at: PoolRef; group: number }
   /** 锁定 / 解锁一个子实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。0.14 起组不是物体、不能锁：带 group 的 setLocked 被拒。 */
   | { op: "setLocked"; at: PoolRef; group?: number; instance?: number; on: boolean }
@@ -215,7 +217,15 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const eids = op.edges.map((e) => resolveEdge(kernel, e));
       return { scene: s, events: [...kernel.eraseFaces(fids), ...kernel.eraseEdges(eids)] };
     }
-    case "move": { const { kernel } = poolOf(s, op.at); const moves = op.moves.map((m) => ({ id: resolveVertex(kernel, m.from), to: m.to })); return { scene: s, events: kernel.moveVertices(moves) }; }
+    case "move": {
+      const { kernel } = poolOf(s, op.at);
+      const moves = op.moves.map((m) => ({ id: resolveVertex(kernel, m.from), to: m.to }));
+      if (op.mirror) {
+        const moved = new Set(moves.map((m) => m.id));
+        for (const f of kernel.faces()) if ([f.outer, ...f.holes].every((r) => r.vids.every((v) => moved.has(v)))) kernel.faceLayers.swapSides(f.id);
+      }
+      return { scene: s, events: kernel.moveVertices(moves) };
+    }
     case "pushpull": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.pushPull(fid, op.dist, op.keepRing ? { keepRing: true } : undefined) }; }
     case "followme": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.followMe(fid, op.path, { closed: op.closed, smoothJoints: op.smoothJoints }) }; }
     case "absorb": {
@@ -428,7 +438,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const { kernel, ref } = poolOf(s, op.at);
       const fids = op.faces.map((f) => resolveFace(kernel, f));
       if (op.material !== null && !(op.material in s.materials)) throw new OpTargetError(`material ${op.material}`);
-      kernel.setFaceMaterial(fids, op.material === null ? null : s.slotFor(ref.def, op.material));
+      kernel.setFaceMaterial(fids, op.material === null ? null : s.slotFor(ref.def, op.material), op.sides);
       return { scene: s, events: [] };
     }
     case "eraseInstance": {
@@ -549,7 +559,7 @@ export function describeOp(op: Op): string {
     case "eraseInstance": return `eraseInstance ${op.def}/${op.instance}`;
     case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;
-    case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${at}`;
+    case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
     case "setHidden": return `setHidden ${op.on ? "on" : "off"}${op.instance !== undefined ? ` instance ${op.instance}` : ""}${op.faces?.length ? ` faces=${op.faces.length}` : ""}${op.edges?.length ? ` edges=${op.edges.length}` : ""}${at}`;

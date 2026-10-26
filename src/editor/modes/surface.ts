@@ -18,9 +18,9 @@ export class SurfaceMode implements Mode {
     paint: new SurfaceAssignTool({
       tool: "paint",
       verb: "涂",
-      apply: (ctx, faces) => ctx.paintFaces(faces),
-      sample: (ctx, face) => ctx.pickMaterialOf(face),
-      describe: (ctx, face) => ctx.scene().materialOfSlot(ctx.scene().defOfContext(ctx.context()), ctx.kernel().faceMaterialOf(face))?.name ?? "默认灰",
+      apply: (ctx, faces, sides) => ctx.paintFaces(faces, sides),   // DT8：涂点到的那一侧
+      sample: (ctx, face, side) => ctx.pickMaterialOf(face, side),
+      describe: (ctx, face, side) => ctx.scene().materialOfSlot(ctx.scene().defOfContext(ctx.context()), ctx.kernel().faceMaterialOf(face, side))?.name ?? "默认灰",
     }),
   };
 }

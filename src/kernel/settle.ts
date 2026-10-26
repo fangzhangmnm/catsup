@@ -13,7 +13,7 @@
 //   按边 id 的 parity toggle、洞环三律、movedOuter 补手势、预演开区间样本；结算机的 zeroClaimKeep + repairRings、ringKey 去重。
 // 不在本机的：擦边（loop 身份即意图：外环=BURST / 洞=ABSORB / 同平面共享=MERGE，face-lifecycle.ts）、删膜（纯出库）。
 
-import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeOfRing, pointInRing, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, sub3, Q } from "./geom.ts";
+import { type Pt, type Pt3, add3, cross, dist3, distToPlane, dot3, planeOfRing, pointInRing, pointOnSegment3, projectToPlane, ptKey3, quantize3, samePt3, signedArea, sub3, Q } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type DirEdge, type Region, type Ring, representativePoint } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, discoverPlanes } from "./planes.ts";
@@ -25,7 +25,7 @@ import { planarize } from "./planarize.ts";
 import { flattenPlanes } from "./tau-flatten.ts";
 import { foldDecompose } from "./autofold.ts";
 import { type Face, type FaceEvent, FaceStore, ringEdgeIds } from "./face-lifecycle.ts";
-import type { EdgeLayers, FaceLayers } from "./layers.ts";
+import { type EdgeLayers, type FaceLayers, swapSideVals } from "./layers.ts";
 import { type CurveRegistry, type CurveSpec, edgesAlongSegs } from "./curves.ts";
 import { perf } from "../editor/perf-stats.ts";
 
@@ -418,7 +418,8 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   //   每个胞腔的代表点只算一次（像 × 胞腔是本机最贵的一步：#14 基线 600 面时 13 ms 全花在逐对重算代表点上）；
   //   像的 2D 包围盒先粗筛，再做绕数。
   const claimsOf = new Map<Region, Claim[]>();
-  const cellsOf = new Map<Image, { r: Region; planeId: PlaneId }[]>();
+  // flip（DT8 两个表面）：像的外环在这个胞腔所在平面上是反着绕的 = 这张膜翻到了背面朝 +n（被转 / 镜像了，或换到了法向相反的平面记录上）→ 两侧材质互换
+  const cellsOf = new Map<Image, { r: Region; planeId: PlaneId; flip: boolean }[]>();
   const repOf = new Map<Region, Pt3>();
   for (const [pid, regions] of byPlane) {
     const prec = reg.rec(pid);
@@ -426,7 +427,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     for (const r of regions) { const rp = representativePoint(r); repOf.set(r, { x: u.x * rp.x + v.x * rp.y + n.x * d, y: u.y * rp.x + v.y * rp.y + n.y * d, z: u.z * rp.x + v.z * rp.y + n.z * d }); }
   }
   const claim = (im: Image): void => {
-    const cells: { r: Region; planeId: PlaneId }[] = [];
+    const cells: { r: Region; planeId: PlaneId; flip: boolean }[] = [];
     cellsOf.set(im, cells);
     const plane = planeOfRing(im.rings[0]);   // Newell 整环：µm 尖刺 / 近共线三点不给垃圾法向
     if (!plane) return;   // 零面积 → 零认领
@@ -435,6 +436,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     let bx0 = Infinity, by0 = Infinity, bx1 = -Infinity, by1 = -Infinity;
     for (const r of rings2) for (const q of r) { if (q.x < bx0) bx0 = q.x; if (q.y < by0) by0 = q.y; if (q.x > bx1) bx1 = q.x; if (q.y > by1) by1 = q.y; }
     const wind = (p: Pt): number => rings2.reduce((acc, r) => acc + (r.length >= 3 ? windingOf(p, r) : 0), 0);
+    const sgn = Math.sign(signedArea(rings2[0]));   // 外环在 rec 的平面基里的绕向（rec.n = u × v）
     // 共面门先 τ、认领不到再放宽到 3τ（2026-10-23）：固定 3τ 会让 2 mm 之隔的两张平行膜互相认领对方的胞腔（差分 oracle clean 种子 300922：
     // 全局机把 x=2.437 / 2.439 两面墙互相 DIVIDE / MERGE，几何没变、id 乱换）；3τ 的兜底仍留着给 09-07 那种「小面落在斜了 0.6° 的记录上」的情形。
     const gather = (gate: number): void => {
@@ -447,7 +449,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
           const q = projectToPlane(rep3, rec.basis);
           if (q.x < bx0 || q.x > bx1 || q.y < by0 || q.y > by1) continue;   // 包围盒外，绕数必为 0
           if (Math.abs(wind(q)) < 1) continue;
-          cells.push({ r, planeId: pid });
+          cells.push({ r, planeId: pid, flip: sgn * dot3(prec.plane.n, rec.plane.n) < 0 });
         }
       }
     };
@@ -474,9 +476,9 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     if (hasXor ? n % 2 === 1 : n >= 1) filled.add(r);
   }
   // 身份 → 它的像们认领到的**填充**胞腔；另记几何认领数（不管填不填）给守恒断言用
-  const cellsById = new Map<FaceId, { r: Region; planeId: PlaneId }[]>();
+  const cellsById = new Map<FaceId, { r: Region; planeId: PlaneId; flip: boolean }[]>();
   const geomClaims = new Map<FaceId, number>();
-  const newImageCells: { r: Region; planeId: PlaneId }[] = [];
+  const newImageCells: { r: Region; planeId: PlaneId; flip: boolean }[] = [];
   for (const [im, cells] of cellsOf) {
     if (im.inherit !== undefined) geomClaims.set(im.inherit, (geomClaims.get(im.inherit) ?? 0) + cells.length);
     for (const c of cells) {
@@ -521,7 +523,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   const newClaimed = new Map<Region, number>();
   const newFaceVals = new Map<Region, Readonly<Record<string, number>>>();
   for (const c of newImageCells) newClaimed.set(c.r, (newClaimed.get(c.r) ?? 0) + 1);
-  for (const [im, cells] of cellsOf) if (im.inherit === undefined && im.face) for (const c of cells) if (filled.has(c.r) && !newFaceVals.has(c.r)) newFaceVals.set(c.r, im.face);
+  for (const [im, cells] of cellsOf) if (im.inherit === undefined && im.face) for (const c of cells) if (filled.has(c.r) && !newFaceVals.has(c.r)) newFaceVals.set(c.r, c.flip ? swapSideVals(im.face) : im.face);
 
   // ⑧ 逐填充胞腔定膜
   const stretched: FaceId[] = [];
@@ -614,6 +616,13 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   }
   mark("layers");
   if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
+  // DT8 两个表面：翻面的膜（身份像在它认领的填充胞腔上多数反绕）两侧材质互换——在旧 id 上换，事件随后按血缘把值带给新 id（Kernel.emit → applyEvents）。
+  // 放在最后：前面任何一步 throw 都不会留下换了一半的层。
+  if (table.faceLayers) {
+    const vote = new Map<FaceId, number>();
+    for (const [id, cells] of cellsById) for (const c of cells) vote.set(id, (vote.get(id) ?? 0) + (c.flip ? 1 : -1));
+    for (const [id, v] of vote) if (v > 0) table.faceLayers.swapSides(id);
+  }
   return events;
 }
 

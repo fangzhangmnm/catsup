@@ -143,7 +143,9 @@ const XR_LINE_REF_H = 900;
 const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 
 /** 一个 kernel（池）的一份 GPU 几何（本地坐标；同 definition 的所有实例共用，各自一个矩阵）。变体键 = 池版本 | definition | 材质表长 | 淡出 | 线稿风格。 */
-interface KernelGeom { key: string; kernel: Kernel; plain: any; tex: { mat: Material; geo: any }[]; pixel: any; thick: any; gen: number; }
+/** 贴图网格画哪一侧（DT8 两个表面）：double = 两侧同一张贴图；front / back = 只画 +n / −n 那侧。 */
+type TexSide = "double" | "front" | "back";
+interface KernelGeom { key: string; kernel: Kernel; plain: any; tex: { mat: Material; side: TexSide; geo: any }[]; pixel: any; thick: any; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
 interface SlotNodes { root: any; plain: any; tex: { mesh: any }[]; pixel: any; thick: any; gen: number; }
 
@@ -235,20 +237,26 @@ const GRID_FRAG = /* glsl */`
   }`;
 const FACE_VERT = /* glsl */`
   attribute vec3 aColor;
+  attribute vec3 aColorB;
   varying vec3 vColor;
+  varying vec3 vColorB;
   varying vec3 vNormal;
   void main() {
-    vColor = aColor;
+    vColor = aColor; vColorB = aColorB;
     vNormal = normalMatrix * normal;   // 视空间（每槽自己的矩阵、非均匀缩放 / 镜像都对）；uLight 也按视空间喂
     gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
   }`;
 const FACE_FRAG = /* glsl */`
   uniform vec3 uLight;
   varying vec3 vColor;
+  varying vec3 vColorB;
   varying vec3 vNormal;
   void main() {
+    // 两个表面（DT8）：三角绕 +n 逆时针 → 正面朝着看 = 看到 +n 那侧（aColor），背面 = −n 那侧（aColorB）；负值 = 那侧归贴图网格画，这里不画
+    vec3 c = gl_FrontFacing ? vColor : vColorB;
+    if (c.r < 0.0) discard;
     float k = 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
-    gl_FragColor = vec4(vColor * k, 1.0);   // vColor 已是 sRGB，直接出（与旧 shade() 同值）
+    gl_FragColor = vec4(c * k, 1.0);   // 颜色已是 sRGB，直接出（与旧 shade() 同值）
   }`;
 const TEX_VERT = /* glsl */`
   attribute vec2 aUv;
@@ -1186,6 +1194,7 @@ export class Renderer3 {
       geo.setAttribute("position", new THREE.Float32BufferAttribute(grp.pos, 3));
       geo.setAttribute("normal", new THREE.Float32BufferAttribute(grp.nor, 3));
       geo.setAttribute("aColor", new THREE.Float32BufferAttribute(grp.col, 3));
+      geo.setAttribute("aColorB", new THREE.Float32BufferAttribute(grp.col, 3));   // 平铺路径不分两侧（DT8 两个表面只在池级路径上画）
       mesh.geometry = geo; mesh.visible = true; old.dispose();
     };
     setPlain(this.faceMesh, groups.get(null));
@@ -1310,8 +1319,8 @@ export class Renderer3 {
         const t = g.tex[i];
         let slot = n.tex[i];
         if (!t) { if (slot) slot.mesh.visible = false; continue; }
-        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(t.mat)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = this.texMatFor(t.mat);
+        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(t.mat, t.side)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
+        slot.mesh.material = this.texMatFor(t.mat, t.side);
         slot.mesh.geometry = t.geo; slot.mesh.visible = true;
       }
       // 边
@@ -1338,11 +1347,13 @@ export class Renderer3 {
     this.scene.add(root);
     return { root, plain, tex: [], pixel, thick, gen: 0 };
   }
-  private texMatFor(mat: Material): any {
-    let m = this.texMats.get(mat);
+  private texMatFor(mat: Material, side: TexSide = "double"): any {
+    let bySide = this.texMats.get(mat);
+    if (!bySide) { bySide = new Map(); this.texMats.set(mat, bySide); }
+    let m = bySide.get(side);
     if (m) return m;
-    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: this.textureFor(mat) } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
-    this.texMats.set(mat, m);
+    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: this.textureFor(mat) } }, side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
+    bySide.set(side, m);
     return m;
   }
   private kernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean): KernelGeom {
@@ -1391,6 +1402,7 @@ export class Renderer3 {
       geo.setAttribute("position", new THREE.Float32BufferAttribute(plain.pos, 3));
       geo.setAttribute("normal", new THREE.Float32BufferAttribute(plain.nor, 3));
       geo.setAttribute("aColor", new THREE.Float32BufferAttribute(plain.col, 3));
+      geo.setAttribute("aColorB", new THREE.Float32BufferAttribute(plain.col, 3));   // 覆盖层（选中 / 悬停）两侧同色
       this.faceMesh.geometry = geo; this.faceMesh.visible = true; if (old !== this.emptyGeo) old.dispose();
     } else this.faceMesh.visible = false;
     const texGroups = [...groups.entries()].filter(([k]) => k !== null) as [Material, { pos: number[]; nor: number[]; col: number[]; uv: number[] }][];
@@ -1521,43 +1533,64 @@ function setMatrix(obj: any, m: Xform): void {
 function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, style: LineStyle): KernelGeom {
   const kv = k as unknown as GeomView;
   const smooth = smoothNormals(kv);
-  const groups = new Map<Material | null, { pos: number[]; nor: number[]; col: number[]; uv: number[] }>();
+  // 两个表面（DT8）：纯色网格每个顶点带两个颜色（+n 侧 aColor、−n 侧 aColorB；贴图那侧 = −1 → 纯色网格不画）；贴图按（材质, 哪一侧）各一份网格
+  type Grp = { pos: number[]; nor: number[]; col: number[]; colB: number[]; uv: number[] };
+  const plainG: Grp = { pos: [], nor: [], col: [], colB: [], uv: [] };
+  const texG = new Map<string, { mat: Material; side: TexSide; grp: Grp }>();
+  const texIds = new Map<Material, number>();
+  const colorOf = (mat: Material | null): [number, number, number] => {
+    let r: number, g: number, b: number;
+    if (dim) { [r, g, b] = srgb(PALETTE.faceDim); if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; } }
+    else if (mat && !mat.texture) [r, g, b] = mat.color;
+    else if (mat?.texture) [r, g, b] = dim ? srgb(PALETTE.faceDim) : [1, 1, 1];
+    else [r, g, b] = srgb(PALETTE.face);
+    return [r, g, b];
+  };
+  const NONE: [number, number, number] = [-1, -1, -1];
   for (const f of k.faces()) {
     if (k.isFaceHidden(f.id)) continue;   // DT49 隐藏的面不画
     const rec = k.planeOf(f.id);
     if (!rec) continue;
-    const mat = scene.materialOfSlot(defId, k.faceMaterialOf(f.id));
-    let r: number, g: number, b: number;
-    if (dim) { [r, g, b] = srgb(PALETTE.faceDim); if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; } }
-    else if (mat && !mat.texture) [r, g, b] = mat.color;
-    else if (mat?.texture) [r, g, b] = [1, 1, 1];
-    else [r, g, b] = srgb(PALETTE.face);
-    const key = mat?.texture ? mat : null;
-    let grp = groups.get(key);
-    if (!grp) { grp = { pos: [], nor: [], col: [], uv: [] }; groups.set(key, grp); }
+    const mF = scene.materialOfSlot(defId, k.faceMaterialOf(f.id, 0)), mB = scene.materialOfSlot(defId, k.faceMaterialOf(f.id, 1));
+    const tF = mF?.texture ? mF : null, tB = mB?.texture ? mB : null;
     const n = rec.plane.n;
     const sm = smooth.get(f.id);
-    const texW = mat?.texture?.sizeM[0] ?? 1, texH = mat?.texture?.sizeM[1] ?? 1;
-    for (const tri of faceTriangles(kv, f.id)) for (const p of tri) {
-      grp.pos.push(p.x, p.y, p.z);
-      const nn = sm?.get(`${p.x},${p.y},${p.z}`) ?? n;
-      grp.nor.push(nn.x, nn.y, nn.z);
-      grp.col.push(r, g, b);
-      if (key) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
-    }
+    const tris = faceTriangles(kv, f.id);
+    const push = (grp: Grp, cf: [number, number, number], cb: [number, number, number], tex: Material | null): void => {
+      const texW = tex?.texture?.sizeM[0] ?? 1, texH = tex?.texture?.sizeM[1] ?? 1;
+      for (const tri of tris) for (const p of tri) {
+        grp.pos.push(p.x, p.y, p.z);
+        const nn = sm?.get(`${p.x},${p.y},${p.z}`) ?? n;
+        grp.nor.push(nn.x, nn.y, nn.z);
+        grp.col.push(cf[0], cf[1], cf[2]); grp.colB.push(cb[0], cb[1], cb[2]);
+        if (tex) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
+      }
+    };
+    const texGrp = (mat: Material, side: TexSide): Grp => {
+      let id = texIds.get(mat);
+      if (id === undefined) { id = texIds.size; texIds.set(mat, id); }
+      const key = `${id}:${side}`;
+      let t = texG.get(key);
+      if (!t) { t = { mat, side, grp: { pos: [], nor: [], col: [], colB: [], uv: [] } }; texG.set(key, t); }
+      return t.grp;
+    };
+    if (tF && tF === tB) { const c = colorOf(tF); push(texGrp(tF, "double"), c, c, tF); continue; }
+    if (tF) { const c = colorOf(tF); push(texGrp(tF, "front"), c, c, tF); }
+    if (tB) { const c = colorOf(tB); push(texGrp(tB, "back"), c, c, tB); }
+    if (!tF || !tB) push(plainG, tF ? NONE : colorOf(mF), tB ? NONE : colorOf(mB), null);
   }
-  const mk = (grp: { pos: number[]; nor: number[]; col: number[]; uv: number[] }, uv: boolean): any => {
+  const mk = (grp: Grp, uv: boolean): any => {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute("position", new THREE.Float32BufferAttribute(grp.pos, 3));
     geo.setAttribute("normal", new THREE.Float32BufferAttribute(grp.nor, 3));
     geo.setAttribute("aColor", new THREE.Float32BufferAttribute(grp.col, 3));
+    if (!uv) geo.setAttribute("aColorB", new THREE.Float32BufferAttribute(grp.colB, 3));
     if (uv) geo.setAttribute("aUv", new THREE.Float32BufferAttribute(grp.uv, 2));
     return geo;
   };
-  const plainG = groups.get(null);
-  const plain = plainG && plainG.pos.length ? mk(plainG, false) : null;
-  const tex: { mat: Material; geo: any }[] = [];
-  for (const [key, grp] of groups) if (key !== null && grp.pos.length) tex.push({ mat: key, geo: mk(grp, true) });
+  const plain = plainG.pos.length ? mk(plainG, false) : null;
+  const tex: { mat: Material; side: TexSide; geo: any }[] = [];
+  for (const t of texG.values()) if (t.grp.pos.length) tex.push({ mat: t.mat, side: t.side, geo: mk(t.grp, true) });
   // 边：软边不画；裸线 / 膜边两色；淡出一色
   const pos: number[] = [], col: number[] = [];
   const c = new THREE.Color();
@@ -1673,5 +1706,10 @@ export function faceTriangles(k: GeomView, id: FaceId): [Pt3, Pt3, Pt3][] {
     y: u.y * q.x + v.y * q.y + n.y * d,
     z: u.z * q.x + v.z * q.y + n.z * d,
   });
-  return tris.map(([a, b, c]) => [lift(all[a]), lift(all[b]), lift(all[c])]);
+  // 绕向统一成「绕 +n 逆时针」（平面基里逆时针；u × v = n）：两个表面（DT8）靠 gl_FrontFacing 分正反，三角的绕向必须一致
+  return tris.map(([a, b, c]) => {
+    const A = all[a], B = all[b], C = all[c];
+    const ccw = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x) >= 0;
+    return ccw ? [lift(A), lift(B), lift(C)] : [lift(A), lift(C), lift(B)];
+  });
 }

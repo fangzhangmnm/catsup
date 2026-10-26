@@ -10,7 +10,7 @@ await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForT
 const box = await page.locator("#board").boundingBox();
 const at = async (p) => { const s = await page.evaluate((q) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(q, e.vp()); }, p); return { x: box.x + s.x, y: box.y + s.y }; };
 const clicks = async (p, n) => { const q = await at(p); await page.mouse.move(q.x, q.y); await page.waitForTimeout(40); for (let i = 0; i < n; i++) { await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(60); } await page.waitForTimeout(400); };
-const painted = () => page.evaluate(() => { const k = globalThis.__catsup.editor.kernel; return k.faces().filter((f) => k.faceMaterialOf(f.id) !== undefined).length; });
+const painted = () => page.evaluate(() => { const k = globalThis.__catsup.editor.kernel; return k.faces().filter((f) => k.faceMaterialOf(f.id, 0) !== undefined || k.faceMaterialOf(f.id, 1) !== undefined).length; });   // DT8 两个表面：哪一侧涂了都算
 const out = {};
 await page.evaluate(() => { const e = globalThis.__catsup.editor; const P = (x, y, z = 0) => ({ x, y, z }); const S = 2, H = 1.5; const loops = [[P(0, 0), P(S, 0), P(S, S), P(0, S)], [P(0, 0), P(S, 0), P(S, 0, H), P(0, 0, H)], [P(S, 0), P(S, S), P(S, S, H), P(S, 0, H)], [P(S, S), P(0, S), P(0, S, H), P(S, S, H)], [P(0, S), P(0, 0), P(0, 0, H), P(0, S, H)]]; for (const l of loops) e.commitOp({ op: "addEdges", segs: l.map((p, i) => [p, l[(i + 1) % l.length]]) }); });
 out.railGeom = await page.evaluate(() => document.querySelectorAll("#toolbar button").length);
@@ -26,7 +26,7 @@ await clicks({ x: 1, y: 1, z: 1.5 }, 1);
 out.sampled = await page.evaluate(() => globalThis.__catsup.editor.paint?.name ?? null);
 await page.evaluate(() => { globalThis.__catsup.editor.toolHandler("paint").eyedropper = false; globalThis.__catsup.editor.setPaint({ kind: "color", name: "青", color: [0.1, 0.5, 0.6] }); });
 { const a = await at({ x: 0.5, y: 0, z: 0.75 }), c = await at({ x: 2, y: 0.5, z: 0.75 }); await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.move(c.x, c.y, { steps: 10 }); await page.mouse.up(); await page.waitForTimeout(150); }
-out.scrubbed = await page.evaluate(() => { const e = globalThis.__catsup.editor, k = e.kernel, mats = e.materials(); return k.faces().filter((f) => { const s = k.faceMaterialOf(f.id); return s !== undefined && mats[e.sceneRef.brep(e.sceneRef.root).materialSlots[s]]?.name === "青"; }).length; });
+out.scrubbed = await page.evaluate(() => { const e = globalThis.__catsup.editor, k = e.kernel, mats = e.materials(); return k.faces().filter((f) => [0, 1].some((side) => { const s = k.faceMaterialOf(f.id, side); return s !== undefined && mats[e.sceneRef.brep(e.sceneRef.root).materialSlots[s]]?.name === "青"; })).length; });   // DT8：哪一侧都算
 await page.evaluate(() => globalThis.__catsup.editor.setMode("geometry"));
 out.back = await page.evaluate(() => ({ mode: globalThis.__catsup.editor.modeId, tool: globalThis.__catsup.editor.tool, rail: document.querySelectorAll("#toolbar button").length }));
 console.log(JSON.stringify(out));

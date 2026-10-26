@@ -43,6 +43,7 @@ const res = await page.evaluate(async () => {
   e.undo();
   out.facesAfterUndo = e.kernel.faces().length;
   // ⑤ 油漆桶模式（0.9 工具配置）：选项条随工具出现；模式「连通体」点一张面 → 整个盒子 7 张面都有材质；再「一张面」只涂 1 张
+  e.deselectAll();   // v0.14.27 起撤销会还原那一步之前的选区（顶面 + 外环）；油漆桶点在选区里 = 只涂选区——本段测的是档位，先清掉（2026-10-26 Opus）
   e.setPaint({ kind: "color", name: "探针红", color: [0.8, 0.2, 0.2] });
   e.setTool("paint");
   const strip = document.getElementById("toolStrip");
@@ -50,11 +51,11 @@ const res = await page.evaluate(async () => {
   e.config.set("surface", "tier", "connected");   // 表面模式之后油漆桶的选项组叫 surface、键叫 tier（原 paint.mode，过期探针 2026-10-24 改）
   out.stripSelectValue = strip.querySelector(".select-field")?.dataset.value;
   await tap(px(Pt(1, 1, 2)));
-  out.paintedConnected = e.kernel.faces().filter((f) => e.kernel.faceMaterialOf(f.id) !== undefined).length;
+  out.paintedConnected = e.kernel.faces().filter((f) => e.kernel.faceMaterialOf(f.id, 0) !== undefined || e.kernel.faceMaterialOf(f.id, 1) !== undefined).length   /* DT8 两个表面：哪一侧涂了都算 */;
   e.undo();
   e.config.set("surface", "tier", "smooth");   // 盒子的边都硬：平滑组 = 一张面
   await tap(px(Pt(1, 1, 2)));
-  out.paintedSingle = e.kernel.faces().filter((f) => e.kernel.faceMaterialOf(f.id) !== undefined).length;
+  out.paintedSingle = e.kernel.faces().filter((f) => e.kernel.faceMaterialOf(f.id, 0) !== undefined || e.kernel.faceMaterialOf(f.id, 1) !== undefined).length   /* DT8 两个表面：哪一侧涂了都算 */;
   e.setTool("line");
   out.stripHiddenForLine = strip.hidden;
   // ⑥ 线稿风格：切 thick 再切回 pixel，渲染不报错（默认档 v0.12.3 起按 DPR / 偏好定）

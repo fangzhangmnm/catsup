@@ -9,6 +9,8 @@
 //   CATSUP_definitions v2 → v3（2026-10-21 贴图纪元）：list[i].materialSlots 生效（槽号 → glTF core materials 索引；v2 一直写空表）。
 //   CATSUP_material    v1（2026-10-21）：挂在 glTF core material 上的 authoring 补充 { sizeM:[w,h] }（贴图物理尺寸，米）。
 //   CATSUP_brep        v3 → v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（有序边链 + 种类 + 闭合 + 圆弧参数，契约 §5）；v3 文件的 curves 一直是空表 = 无曲线。
+//   CATSUP_brep        4.1（2026-10-26 DT8 两个表面，Claude Opus 5.5，周二 Fable 审）：attributes.face.material 的两槽开始写不同值（[+n 侧, −n 侧]；4.0 及以前两槽同值）。
+//                      minor：老读者只取 +n 侧——能开能存，背面单独涂的颜色会变成正面那份（提示一次）。
 //   CATSUP_definitions v3 → v4（2026-10-24 尺规纪元）：list[i].guides 与 groups[j].guides（参考线 / 参考点，池本地坐标）；缺 = 空。
 //   CATSUP_document    v1 → v2（2026-10-24 尺规纪元）：axes（绘图轴，世界坐标 Frame）；缺 = 世界帧。
 //   CATSUP_document    v2 → v3（2026-10-24 0.14 物体模型）：layers（层表；缺 = 只有默认层 {id 0}）。minor：加可选键。
@@ -40,7 +42,7 @@ export interface Stamp { readonly major: number; readonly minor: number; readonl
 /** 本版写出的拍子（SSoT）。 */
 export const FORMAT = {
   CATSUP_document: { major: 3, minor: 1, patch: 0 },
-  CATSUP_brep: { major: 4, minor: 0, patch: 0 },
+  CATSUP_brep: { major: 4, minor: 1, patch: 0 },
   CATSUP_definitions: { major: 6, minor: 1, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },
   CATSUP_material: { major: 1, minor: 0, patch: 0 },

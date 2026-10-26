@@ -58,7 +58,7 @@ import { type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
-import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -1454,17 +1454,18 @@ export class Editor {
     return this.scene.materials.length - 1;
   }
   /** 给活动池里的这些面涂当前材质（op）。 */
-  paintFaces(faces: readonly FaceId[]): void {
+  paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): void {
     const k = this.kernel;
-    const keys = faces.filter((f) => k.face(f)).map((f) => faceKey(k, f));
-    if (!keys.length) return;
+    const idx = faces.map((f, i) => i).filter((i) => k.face(faces[i]));
+    if (!idx.length) return;
+    const keys = idx.map((i) => faceKey(k, faces[i]));
     const material = this.materialIndexForPick();
-    this.commitOp({ op: "paintFaces", at: this.activePool(), faces: keys, material });
+    this.commitOp({ op: "paintFaces", at: this.activePool(), faces: keys, material, ...(sides ? { sides: idx.map((i) => sides[i] ?? 0) } : {}) });   // DT8：sides = 每张面涂哪一侧；不给 = 两侧
   }
-  /** 吸色：把这张面的材质设成油漆桶当前「蘸的」（没材质 = 默认灰）。 */
-  pickMaterialOf(face: FaceId): void {
+  /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认灰）。 */
+  pickMaterialOf(face: FaceId, side: 0 | 1 = 0): void {
     const k = this.kernel;
-    const m = this.scene.materialOfSlot(this.scene.defOfContext(this.ctx), k.faceMaterialOf(face));
+    const m = this.scene.materialOfSlot(this.scene.defOfContext(this.ctx), k.faceMaterialOf(face, side));
     if (!m) { this.setPaint(null); return; }
     this.setPaint(m.texture ? { kind: "texture", name: m.name, mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : { kind: "color", name: m.name, color: [m.color[0], m.color[1], m.color[2]] });
   }
@@ -2403,8 +2404,8 @@ export class Editor {
       currentSnap: () => this.snapInfo,
       setHoverFace: (f) => { this.hoverFace = f; },
       paintMaterialIndex: () => this.materialIndexForPick(),
-      paintFaces: (faces) => this.paintFaces(faces),
-      pickMaterialOf: (f) => this.pickMaterialOf(f),
+      paintFaces: (faces, sides) => this.paintFaces(faces, sides),
+      pickMaterialOf: (f, side) => this.pickMaterialOf(f, side),
       grid: () => (this.gridEff === this._grid.on ? this._grid : { ...this._grid, on: this.gridEff }),   // 工具看到的是有效开关（按住 Shift 反过来）
       pickLocked: (p) => this.pickIsLocked(p),
       setLiveOverride: (o) => { this.liveOverride = o; },
@@ -2574,7 +2575,7 @@ export class Editor {
     const at = this.activePool(), k = this.kernel, XL = this.xformToLocal(X);
     if (vids.length) {
       const moves = vids.filter((id) => k.graph.hasVertex(id)).map((id) => ({ from: k.graph.pt(id), to: applyPt(XL, k.graph.pt(id)) }));
-      this.commitOp({ op: "move", at, moves });
+      this.commitOp({ op: "move", at, moves, ...(det3(XL) < 0 ? { mirror: true } : {}) });   // 镜像挪点：两个表面跟着法向走（DT8）
     }
     const def = this.scene.defOfContext(this.ctx);
     for (const p of pools) {

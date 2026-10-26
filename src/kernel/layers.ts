@@ -17,7 +17,21 @@ export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
 /** 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。 */
 export const EDGE_LAYERS = ["soft", "curve", "smooth", "hidden"] as const;
 /** 知名面层。 */
-export const FACE_LAYERS = ["material", "hidden"] as const;   // hidden = 1（DT49 隐藏的面：不画、不吸、点不中；2026-10-25）
+export const FACE_LAYERS = ["material", "materialBack", "hidden"] as const;   // hidden = 1（DT49 隐藏的面：不画、不吸、点不中；2026-10-25）
+/**
+ * 面的两个表面（DT8，契约 §5.2「面无朝向：material = [+n 侧, −n 侧]」；2026-10-26 Claude Opus 5.5，周二 Fable 审）：
+ * material = 平面法向 +n 那一侧的槽，materialBack = −n 那一侧。n = 面所在平面记录的规范法向（不是面自己的朝向——面没有朝向）。
+ * 面换到法向相反的平面上、或被转 / 镜像到背面朝 +n（结算机看身份像的绕向判出来）→ 两槽互换（swapSides），颜色跟着实物走。
+ */
+export const MAT_FRONT = "material", MAT_BACK = "materialBack";
+/** 一组面层值（像带的 / 快照里的）两侧互换。 */
+export function swapSideVals(vals: Readonly<Record<string, number>>): Record<string, number> {
+  const out: Record<string, number> = { ...vals };
+  delete out[MAT_FRONT]; delete out[MAT_BACK];
+  if (vals[MAT_BACK] !== undefined) out[MAT_FRONT] = vals[MAT_BACK];
+  if (vals[MAT_FRONT] !== undefined) out[MAT_BACK] = vals[MAT_FRONT];
+  return out;
+}
 /** 推拉 / 跟随：原边带哪层 → 它扫出的侧棱带哪些层（帽边 = 原边的全部层）。 */
 export const EDGE_LAYER_POLICY: Readonly<Record<string, readonly string[]>> = { soft: ["soft", "smooth"], curve: ["soft", "smooth"], smooth: ["soft", "smooth"] };
 /**
@@ -96,6 +110,12 @@ export class FaceLayers {
   /** 一张面的全部层值。 */
   of(id: FaceId): Record<string, number> { const out: Record<string, number> = {}; for (const [n, m] of this.maps) { const v = m.get(id); if (v !== undefined) out[n] = v; } return out; }
   setAll(id: FaceId, vals: Readonly<Record<string, number>> | undefined): void { if (vals) for (const [n, v] of Object.entries(vals)) if (v >= 0) this.set(n, id, v); }
+  /** 两个表面互换（DT8：面翻到另一面朝 +n 了）。 */
+  swapSides(id: FaceId): void {
+    const f = this.get(MAT_FRONT, id), b = this.get(MAT_BACK, id);
+    if (b === undefined) this.delete(MAT_FRONT, id); else this.set(MAT_FRONT, id, b);
+    if (f === undefined) this.delete(MAT_BACK, id); else this.set(MAT_BACK, id, f);
+  }
 
   /** 按事件血缘：DIVIDE 子膜继承、MERGE / ABSORB 取首个有值的、死膜清。 */
   applyEvents(events: readonly FaceEvent[]): void {

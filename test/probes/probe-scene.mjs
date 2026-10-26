@@ -88,7 +88,7 @@ const res = await page.evaluate(async () => {
   e.setTool("paint");
   if (topCyl) { const rr = e.kernel.faceRings3(topCyl.id).outer; const cx3 = rr.reduce((a, p) => a + p.x, 0) / rr.length, cy3 = rr.reduce((a, p) => a + p.y, 0) / rr.length; const sp = px({ x: cx3, y: cy3, z: rr[0].z }); fire("pointerdown", sp.x, sp.y, { button: 0, buttons: 1 }); fire("pointerup", sp.x, sp.y, { button: 0 }); await sleep(30); }
   out.paintedMaterials = e.materials().length;
-  out.topPainted = topCyl ? e.kernel.faceMaterialOf(topCyl.id) !== undefined : false;
+  out.topPainted = topCyl ? (e.kernel.faceMaterialOf(topCyl.id, 0) ?? e.kernel.faceMaterialOf(topCyl.id, 1)) !== undefined : false;   // DT8：哪一侧都算
   const png = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 73, 72, 68, 82, 0, 0, 0, 2, 0, 0, 0, 2, 8, 2, 0, 0, 0, 253, 212, 154, 115, 0, 0, 0, 25, 73, 68, 65, 84, 120, 1, 1, 14, 0, 241, 255, 0, 255, 0, 0, 0, 255, 0, 0, 0, 0, 255, 255, 255, 255, 36, 151, 5, 253, 45, 31, 36, 196, 0, 0, 0, 0, 73, 69, 78, 68, 174, 66, 96, 130]);
   e.setPaint({ kind: "texture", name: "格子", mimeType: "image/png", bytes: png, sizeM: [0.5, 0.5] });
   const sideCyl = e.kernel.faces().find((f) => f.outer.edges.length === 4 && e.kernel.faceRings3(f.id).outer.some((p) => p.z > 0.1) && e.kernel.faceRings3(f.id).outer.some((p) => p.z < 0.01));

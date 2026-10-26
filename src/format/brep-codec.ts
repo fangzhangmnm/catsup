@@ -10,6 +10,8 @@ import type { PlaneParams, Pt3 } from "../kernel/geom.ts";
 import { type UintType, decodeUints, encodeUints, isUintType, pickUintType } from "./binary.ts";
 
 import { FORMAT, stampOf } from "./migrate/index.ts";
+/** 面两侧的层名（= kernel/layers.ts MAT_FRONT / MAT_BACK；层名进文件，是契约的一部分）。 */
+const MAT_FRONT = "material", MAT_BACK = "materialBack";
 export const BREP_VERSION = FORMAT.CATSUP_brep.major;   // v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（契约 §5）；major 的 SSoT = migrate/index.ts FORMAT
 const NO_MATERIAL = 0xffff;
 const UM = 1e-6;                       // 内核格点 Q（立宪 §0）；文件坐标单位是它的 10^k 倍
@@ -128,13 +130,25 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<
     for (const i of idx) bytes[i] = 1;
     attributes.edge[n] = { bufferView: sink.add(bytes), componentType: "uint8", type: "u8" };
   }
-  // 面层：material = 契约 §5.2 的 u16x2（[+n 侧槽, −n 侧槽]，0xFFFF = 无；本版两侧同值——哪一侧 = 总账 B17）；其余层 u16（0xFFFF = 无）
+  // 面层：material = 契约 §5.2 的 u16x2（[+n 侧槽, −n 侧槽]，0xFFFF = 无）——内核的两层 material / materialBack 并进这一个流（DT8，brep 4.1，2026-10-26；
+  // 4.0 及以前两侧写同值）；其余层 u16（0xFFFF = 无）
   attributes.face = { ...(attributes.face ?? {}) };
-  for (const [n, vals] of Object.entries(snap.faceLayers ?? {})) {
-    const two = n === "material";
+  const FL = snap.faceLayers ?? {};
+  for (const [n, vals] of Object.entries(FL)) {
+    if (n === MAT_BACK) continue;   // 并进 material 的第二槽
+    const two = n === MAT_FRONT;
+    const back = two ? FL[MAT_BACK] : undefined;
     const u = new Uint16Array(snap.faces.length * (two ? 2 : 1));
-    vals.forEach((m, i) => { const v = m >= 0 ? m : NO_MATERIAL; if (two) { u[i * 2] = v; u[i * 2 + 1] = v; } else u[i] = v; });
+    for (let i = 0; i < snap.faces.length; i++) {
+      const v = (vals[i] ?? -1) >= 0 ? vals[i] : NO_MATERIAL;
+      if (two) { u[i * 2] = v; const b = back?.[i] ?? -1; u[i * 2 + 1] = b >= 0 ? b : NO_MATERIAL; } else u[i] = v;
+    }
     attributes.face[n] = { bufferView: sink.add(new Uint8Array(u.buffer)), componentType: "uint16", type: two ? "u16x2" : "u16" };
+  }
+  if (FL[MAT_BACK] && !FL[MAT_FRONT]) {   // 只涂了背面的面
+    const u = new Uint16Array(snap.faces.length * 2);
+    for (let i = 0; i < snap.faces.length; i++) { u[i * 2] = NO_MATERIAL; const b = FL[MAT_BACK][i] ?? -1; u[i * 2 + 1] = b >= 0 ? b : NO_MATERIAL; }
+    attributes.face[MAT_FRONT] = { bufferView: sink.add(new Uint8Array(u.buffer)), componentType: "uint16", type: "u16x2" };
   }
 
   return {
@@ -229,7 +243,7 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     if (facePlane[i] >= json.planeCount) fail(`face ${i} plane index out of range`);
     faces.push({ plane: facePlane[i], outer: rings[0], holes: rings.slice(1) });
   }
-  // 属性层：边层 = u8 每边一字节（u8 流）；面层 = u16 / u16x2（取 +n 侧），0xFFFF = 无。其它编码的层留在 attributes 原样携带
+  // 属性层：边层 = u8 每边一字节（u8 流）；面层 = u16 / u16x2（material 两槽 → material / materialBack 两层），0xFFFF = 无。其它编码的层留在 attributes 原样携带
   const edgeLayers: Record<string, number[]> = {};
   for (const [n, j] of Object.entries(json.attributes?.edge ?? {})) {
     const st = j as { bufferView?: number; componentType?: string; type?: string } | undefined;
@@ -251,6 +265,11 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     const vals: number[] = [];
     for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * (two ? 4 : 2), true); vals.push(v === NO_MATERIAL ? -1 : v); }
     if (vals.some((v) => v >= 0)) faceLayers[n] = vals;
+    if (two && n === MAT_FRONT) {   // 第二槽 = −n 侧（DT8；4.0 及以前两槽同值，读出来两层一样 = 语义不变）
+      const back: number[] = [];
+      for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * 4 + 2, true); back.push(v === NO_MATERIAL ? -1 : v); }
+      if (back.some((v) => v >= 0)) faceLayers[MAT_BACK] = back;
+    }
   }
   // 曲线（v4）：形状校验在这里（下标范围 / 字段类型），链连通性归 Kernel.fromBrep（CurveRegistry.fromIndex）。未知 kind → polyline（身份留着，参数丢）
   const curves: NonNullable<BrepSnapshot["curves"]>[number][] = [];

@@ -41,7 +41,7 @@ const sel = await page.evaluate(async () => {
   const top = [...s.def(s.root).instances.values()][0];
   globalThis.__catsup.hud.pick("select");
   e.enterPool({ kind: "instance", instance: top.id }); await sleep(30);
-  e.clearSelection?.(); await sleep(10);
+  e.deselectAll(); await sleep(10);
   const marker = [...s.def(top.def).instances.values()].find((i) => i.name === "marker");
   const o = { x: 2, y: 0, z: 0 };   // 文件 (2,0,0) → Z-up 世界 (2, 0, 0)
   const sp = e.cam.angularPx(o, e.vp());   // CSS px（frame().project 是指针度量单位，不是 CSS px）

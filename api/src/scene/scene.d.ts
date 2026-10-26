@@ -156,11 +156,16 @@ export declare class Scene {
 }
 /** 从池里抠出一份子快照：选中的膜（含其环边）+ 选中的边（含端点）。索引 = 本地顺序。 */
 export declare function extractSnapshot(k: Kernel, faces: readonly FaceId[], edges: readonly EdgeId[]): BrepSnapshot;
-/** 快照整体变换（坐标 + 平面）。 */
+/**
+ * 快照整体变换（坐标 + 平面），输出仍是合法快照（Kernel.fromBrep 能装）：平面重新规范化；规范法向和变换后的法向（逆转置）反了 → 这张平面上的面
+ * 两个表面互换（面的「侧」跟着法向走：p 在 n 那侧 ⇔ M p 在 M⁻ᵀn 那侧）；外环按规范法向重新排成逆时针（镜像 / 规范法向翻了都会把绕向弄反）。
+ * 2026-10-26 Claude Opus 5.5（DT8 两个表面）：以前只换坐标和平面、环不动——转过的组复制一份就「outer ring is not CCW」装不进去（旋转复制组、转着阵列组都会炸）。
+ */
 export declare function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot;
 /** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
- *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。 */
-export declare function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m?: Xform, materialMap?: (slot: number) => number): FaceEvent[];
+ *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。
+ *  有变换时先过 transformSnapshot（环的绕向、两个表面跟着法向走，DT8）——镜像炸开 / 镜像指令的那一份颜色在对的一侧。 */
+export declare function absorbSnapshot(k: Kernel, snap0: BrepSnapshot, m?: Xform, materialMap?: (slot: number) => number): FaceEvent[];
 /** 快照的属性层 → absorb 载荷（边层按线段、面层按每面值；material 可重映射）。 */
 export declare function snapshotLayerPayload(snap: BrepSnapshot, P: readonly Pt3[], materialMap?: (slot: number) => number): {
     edgeSegs: Record<string, Seg3[]>;

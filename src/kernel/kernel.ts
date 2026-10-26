@@ -30,7 +30,7 @@ import { type Edge, type EdgeId, type FaceId, type Vertex, type VertexId, Planar
 import { type Face, type FaceEvent, FaceStore } from "./face-lifecycle.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type Image, type ImageTable, type Seg3, ringsOf, settle, translateImage, collinear2, dissolveAt } from "./settle.ts";
-import { EdgeLayers, FaceLayers, riserLayers } from "./layers.ts";
+import { EdgeLayers, FaceLayers, MAT_BACK, MAT_FRONT, riserLayers } from "./layers.ts";
 import { type Curve, type CurveId, type CurveParams, type CurveSpec, CurveRegistry } from "./curves.ts";
 import { planWeld } from "./weld.ts";
 import { alignClosedPath, dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
@@ -588,6 +588,9 @@ export class Kernel {
   /** 全池变换（group 整体 move / rotate / scale）：全部顶点按 fn 映射，走 moveVertices（仿射保平面，planarize 无事）。曲线参数按 fn 重算：相似变换保圆，非均匀缩放 → polyline。 */
   transformAll(fn: (p: Pt3) => Pt3): FaceEvent[] {
     this._rev++;
+    // DT8 两个表面：结算机按身份像的绕向判「翻面」，这只对保持手性的变换成立；镜像（行列式 < 0）先把全部面两侧互换，结算机再按绕向换一次 = 面的侧跟着法向走
+    const o = fn({ x: 0, y: 0, z: 0 }), ax = sub3(fn({ x: 1, y: 0, z: 0 }), o), ay = sub3(fn({ x: 0, y: 1, z: 0 }), o), az = sub3(fn({ x: 0, y: 0, z: 1 }), o);
+    if (dot3(cross3(ax, ay), az) < 0) for (const f of this.store.faces()) this.faceLayers.swapSides(f.id);
     const before = this.curveReg.curves().filter((c) => c.params).map((c) => ({ id: c.id, kind: c.kind, params: { ...c.params! } }));
     const events = this.moveVertices(this.graph.vertices().map((v) => ({ id: v.id, to: fn({ x: v.x, y: v.y, z: v.z }) })));
     for (const b of before) {
@@ -697,12 +700,16 @@ export class Kernel {
 
   // ---------------- 内部 ----------------
 
-  /** 涂材质（槽号；null = 回默认）。 */
-  setFaceMaterial(ids: readonly FaceId[], slot: number | null): void {
+  /** 涂材质（槽号；null = 回默认）。sides = 每张面涂哪一侧（0 = 平面法向 +n 那侧、1 = −n 那侧，与 ids 对齐）；不给 = 两侧都涂（DT8 之前的语义）。 */
+  setFaceMaterial(ids: readonly FaceId[], slot: number | null, sides?: readonly (0 | 1)[]): void {
     this._rev++;
-    for (const id of ids) { if (!this.store.face(id)) continue; if (slot === null) this.faceLayers.delete("material", id); else this.faceLayers.set("material", id, slot); }
+    ids.forEach((id, i) => {
+      if (!this.store.face(id)) return;
+      for (const name of sides ? [sides[i] === 1 ? MAT_BACK : MAT_FRONT] : [MAT_FRONT, MAT_BACK]) { if (slot === null) this.faceLayers.delete(name, id); else this.faceLayers.set(name, id, slot); }
+    });
   }
-  faceMaterialOf(id: FaceId): number | undefined { return this.faceLayers.get("material", id); }
+  /** 面某一侧的材质槽（DT8；side 0 = +n 侧（缺省）、1 = −n 侧）。 */
+  faceMaterialOf(id: FaceId, side: 0 | 1 = 0): number | undefined { return this.faceLayers.get(side === 1 ? MAT_BACK : MAT_FRONT, id); }
   /** 隐藏 / 显示一批面（DT49：面层 hidden = 1；子膜按血缘继承）。 */
   setFaceHidden(ids: readonly FaceId[], on: boolean): void {
     this._rev++;

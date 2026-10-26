@@ -3,7 +3,7 @@ import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology
 import { type Ring } from "./facefind.ts";
 import { PlaneRegistry } from "./planes.ts";
 import { type FaceEvent, FaceStore } from "./face-lifecycle.ts";
-import type { EdgeLayers, FaceLayers } from "./layers.ts";
+import { type EdgeLayers, type FaceLayers } from "./layers.ts";
 import { type CurveRegistry, type CurveSpec } from "./curves.ts";
 export type Algebra = "or" | "xor";
 export interface Seg3 {

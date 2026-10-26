@@ -8,7 +8,7 @@
 
 import { add3, sub3, scale3, dist3, normalize3, cross3 } from "../kernel/geom.ts";
 import { Kernel, type BrepSnapshot, type EdgeId, type FaceEvent, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
-import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
+import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyNormal, applyPlane, applyPt, compose, det3, frameAt, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
 import type { CurveParams } from "../kernel/curves.ts";
@@ -299,26 +299,45 @@ function transformCurveParams(params: CurveParams, m: Xform): CurveParams | unde
   return { center: c0, radius: rx, normal: dir(params.normal), xaxis: dir(params.xaxis), segments: params.segments };
 }
 
-/** 快照整体变换（坐标 + 平面）。 */
+/**
+ * 快照整体变换（坐标 + 平面），输出仍是合法快照（Kernel.fromBrep 能装）：平面重新规范化；规范法向和变换后的法向（逆转置）反了 → 这张平面上的面
+ * 两个表面互换（面的「侧」跟着法向走：p 在 n 那侧 ⇔ M p 在 M⁻ᵀn 那侧）；外环按规范法向重新排成逆时针（镜像 / 规范法向翻了都会把绕向弄反）。
+ * 2026-10-26 Claude Opus 5.5（DT8 两个表面）：以前只换坐标和平面、环不动——转过的组复制一份就「outer ring is not CCW」装不进去（旋转复制组、转着阵列组都会炸）。
+ */
 export function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot {
   const curves = snap.curves?.map((c) => { const p = c.params ? transformCurveParams(c.params, m) : undefined; return { edges: c.edges, kind: c.params && !p ? "polyline" as const : c.kind, closed: c.closed, ...(p ? { params: p } : {}) }; });
-  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes: snap.planes.map((pl) => applyPlane(m, pl)), faces: snap.faces, ...(snap.edgeLayers ? { edgeLayers: snap.edgeLayers } : {}), ...(snap.faceLayers ? { faceLayers: snap.faceLayers } : {}), ...(curves ? { curves } : {}) };
+  const flipped: boolean[] = [];
+  const planes = snap.planes.map((pl) => {
+    const n = normalize3(applyNormal(m, pl.n)), c = applyPlane(m, pl);
+    flipped.push(n.x * c.n.x + n.y * c.n.y + n.z * c.n.z < 0);
+    return c;
+  });
+  const mirror = det3(m) < 0;
+  const faces = snap.faces.map((f) => ((mirror !== flipped[f.plane]) ? { plane: f.plane, outer: [...f.outer].reverse(), holes: f.holes.map((h) => [...h].reverse()) } : f));
+  let faceLayers = snap.faceLayers;
+  if (faceLayers && (faceLayers.material || faceLayers.materialBack) && flipped.some(Boolean)) {
+    const fr = faceLayers.material, bk = faceLayers.materialBack, F = snap.faces.length;
+    const nf: number[] = [], nb: number[] = [];
+    for (let i = 0; i < F; i++) { const sw = flipped[snap.faces[i].plane]; const a = fr?.[i] ?? -1, b = bk?.[i] ?? -1; nf.push(sw ? b : a); nb.push(sw ? a : b); }
+    faceLayers = { ...faceLayers, material: nf, materialBack: nb };
+  }
+  return { coplanarTol: snap.coplanarTol, vertices: snap.vertices.map((p) => applyPt(m, p)), edges: snap.edges, planes, faces, ...(snap.edgeLayers ? { edgeLayers: snap.edgeLayers } : {}), ...(faceLayers ? { faceLayers } : {}), ...(curves ? { curves } : {}) };
 }
 
 /** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
- *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。 */
-export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTITY, materialMap?: (slot: number) => number): FaceEvent[] {
-  const P = snap.vertices.map((p) => applyPt(m, p));
+ *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。
+ *  有变换时先过 transformSnapshot（环的绕向、两个表面跟着法向走，DT8）——镜像炸开 / 镜像指令的那一份颜色在对的一侧。 */
+export function absorbSnapshot(k: Kernel, snap0: BrepSnapshot, m: Xform = IDENTITY, materialMap?: (slot: number) => number): FaceEvent[] {
+  const snap = m === IDENTITY ? snap0 : transformSnapshot(snap0, m);
+  const P = snap.vertices;
   const faces = snap.faces.map((f) => [f.outer.map((i) => P[i]), ...f.holes.map((h) => h.map((i) => P[i]))]);
   const inFace = new Set<string>();
   for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
   const wires = snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => ({ a: P[a], b: P[b] }));
-  // 曲线随行（0.10）：边链按变换后的点给线段；参数用两点之差换方向、半径按变换后距离（非相似 → 作废成 polyline）
+  // 曲线随行（0.10）：边链按变换后的点给线段；参数在 transformSnapshot 里已换（非相似 → 作废成 polyline）
   const curves = (snap.curves ?? []).map((c) => {
     const segs = c.edges.map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
-    const params = c.params ? transformCurveParams(c.params, m) : undefined;
-    const kind = c.params && !params ? "polyline" : c.kind;
-    return { segs, spec: { kind, closed: c.closed, ...(params ? { params } : {}) } };
+    return { segs, spec: { kind: c.kind, closed: c.closed, ...(c.params ? { params: c.params } : {}) } };
   });
   return k.absorb(faces, wires, { ...snapshotLayerPayload(snap, P, materialMap), curves });
 }
@@ -329,16 +348,18 @@ export function snapshotLayerPayload(snap: BrepSnapshot, P: readonly Pt3[], mate
   for (const [n, idx] of Object.entries(snap.edgeLayers ?? {})) edgeSegs[n] = idx.map((i) => ({ a: P[snap.edges[i][0]], b: P[snap.edges[i][1]] }));
   const faceLayers = snap.faces.map((_, i) => {
     const vals: Record<string, number> = {};
-    for (const [n, arr] of Object.entries(snap.faceLayers ?? {})) { let v = arr[i] ?? -1; if (v >= 0 && n === "material" && materialMap) v = materialMap(v); if (v >= 0) vals[n] = v; }
+    for (const [n, arr] of Object.entries(snap.faceLayers ?? {})) { let v = arr[i] ?? -1; if (v >= 0 && (n === "material" || n === "materialBack") && materialMap) v = materialMap(v); if (v >= 0) vals[n] = v; }
     return Object.keys(vals).length ? vals : undefined;
   });
   return { edgeSegs, faceLayers };
 }
 /** 快照里 material 面层按映射改写（跨 definition 搬家）。 */
 export function remapSnapshotMaterial(snap: BrepSnapshot, remap: (slot: number) => number): BrepSnapshot {
-  const mat = snap.faceLayers?.material;
-  if (!mat) return snap;
-  return { ...snap, faceLayers: { ...snap.faceLayers, material: mat.map((v) => (v >= 0 ? remap(v) : -1)) } };
+  const fl = snap.faceLayers;
+  if (!fl?.material && !fl?.materialBack) return snap;
+  const out: Record<string, readonly number[]> = { ...fl };
+  for (const n of ["material", "materialBack"] as const) { const arr = fl[n]; if (arr) out[n] = arr.map((v) => (v >= 0 ? remap(v) : -1)); }   // 两个表面都搬（DT8）
+  return { ...snap, faceLayers: out };
 }
 
 /** 轴框默认：选区包围盒的最小角（SU 把组件轴放在包围盒角）。 */

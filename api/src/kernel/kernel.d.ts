@@ -207,9 +207,10 @@ export declare class Kernel {
         holes: Pt3[][];
     } | undefined;
     planeOf(id: FaceId): import("./planes.ts").PlaneRec | undefined;
-    /** 涂材质（槽号；null = 回默认）。 */
-    setFaceMaterial(ids: readonly FaceId[], slot: number | null): void;
-    faceMaterialOf(id: FaceId): number | undefined;
+    /** 涂材质（槽号；null = 回默认）。sides = 每张面涂哪一侧（0 = 平面法向 +n 那侧、1 = −n 那侧，与 ids 对齐）；不给 = 两侧都涂（DT8 之前的语义）。 */
+    setFaceMaterial(ids: readonly FaceId[], slot: number | null, sides?: readonly (0 | 1)[]): void;
+    /** 面某一侧的材质槽（DT8；side 0 = +n 侧（缺省）、1 = −n 侧）。 */
+    faceMaterialOf(id: FaceId, side?: 0 | 1): number | undefined;
     /** 隐藏 / 显示一批面（DT49：面层 hidden = 1；子膜按血缘继承）。 */
     setFaceHidden(ids: readonly FaceId[], on: boolean): void;
     isFaceHidden(id: FaceId): boolean;

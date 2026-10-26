@@ -115,7 +115,27 @@ export function sceneHidden(): Scene {
   s = applyOp(s, { op: "setHidden", at: R, instance: second.id, on: true }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden };
+/** DT8 两个表面（brep 4.1，2026-10-26）：顶面正面赭石、背面蓝；墙只涂了背面。 */
+export function sceneTwoSided(): Scene {
+  let s = new Scene(sceneBox(2, 1.5));
+  s = applyOp(s, { op: "addMaterial", name: "赭石", color: [0x86 / 255, 0x26 / 255, 0x17 / 255] }).scene;
+  s = applyOp(s, { op: "addMaterial", name: "蓝", color: [0.2, 0.3, 0.8] }).scene;
+  const k = rootK(s);
+  const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 1.5))!;
+  const wall = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.y === 0))!;
+  const at = { def: s.root, group: null };
+  s = applyOp(s, { op: "paintFaces", at, faces: [faceKey(k, top.id)], material: 0, sides: [0] }).scene;
+  s = applyOp(s, { op: "paintFaces", at, faces: [faceKey(k, top.id)], material: 1, sides: [1] }).scene;
+  s = applyOp(s, { op: "paintFaces", at, faces: [faceKey(k, wall.id)], material: 1, sides: [1] }).scene;
+  // 顶面做成组件、再放一份（组件里两个表面跟着走）
+  const k2 = rootK(s);
+  const top2 = k2.faces().find((f) => k2.faceRings3(f.id)!.outer.every((p) => p.z === 1.5))!;
+  s = applyOp(s, { op: "makeComponent", at, faces: [faceKey(k2, top2.id)], edges: [], name: "lid" }).scene;
+  const defId = [...s.defs.keys()].find((id) => id !== s.root)!;
+  s = applyOp(s, { op: "placeInstance", at, definition: defId, xform: translation({ x: 0, y: 0, z: 1 }) }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';
@@ -143,7 +163,7 @@ export function sceneFingerprint(s: Scene): string {
   parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
     const b = s.brep(d.id);
-    parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => b.kernel.faceMaterialOf(f.id) ?? -1).sort().join(",")}${guidesFp(b.guides)}`);
+    parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => `${b.kernel.faceMaterialOf(f.id) ?? -1}/${b.kernel.faceMaterialOf(f.id, 1) ?? -1}`).sort().join(",")}${guidesFp(b.guides)}`);
     for (const g of b.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);
     for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`);
   }
