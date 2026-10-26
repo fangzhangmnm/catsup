@@ -185,6 +185,13 @@ export type LastGesture = {
     center: Pt3;
     axis: Pt3;
     angle: number;
+    copy?: boolean;
+    entities?: {
+        faces: FaceId[];
+        edges: EdgeId[];
+    }; /** 变换工具：抓的时候几种轴心（马后炮换轴心重做）+ 用的是哪种。 */
+    pivots?: Record<string, Pt3>;
+    pivotUsed?: string;
 } | {
     kind: "scale";
     ops: number;
@@ -194,6 +201,14 @@ export type LastGesture = {
     anchor: Pt3;
     axis: Pt3 | null;
     f: Pt3;
+    copy?: boolean;
+    entities?: {
+        faces: FaceId[];
+        edges: EdgeId[];
+    }; /** 沿任意方向的单轴缩放（变换工具的缩放块，帧可能是斜的）：有就按 scalingAlong、f 用 x 分量。 */
+    dir?: Pt3;
+    pivots?: Record<string, Pt3>;
+    pivotUsed?: string;
 }
 /** 卷尺（0.11）：起点 a、产物方向 dir（线 = 垂直偏移方向；点 = 起点→终点）、距离 d；line 另带参考线方向。 */
  | {
@@ -430,6 +445,14 @@ export declare class Editor {
     private cancelGesture;
     /** Shift 按下 / 松开（DT51：Shift = 把格点吸附反过来）：指针没动也按新规则重算悬停 / 手势预览。 */
     setShiftHeld(on: boolean): void;
+    /**
+     * 选区跟着撤销走（user 2026-10-26「变换的时候按ctrl z不应该选区也没了，系统的修一下……我们是不是没有把选区做持久化undo化？」）：
+     * 每一步记下它之前的选区（第一条 op 提交时）；撤销 = 还原「之前」并顺手记下「之后」，重做 = 还原「之后」。id 在同一份历史里是确定的（重放同一串 op），
+     * 所以还原回去的 id 指的就是同一批东西；不存在的 id 剪掉；上下文变了（撤到组被删之前 / 换了层）= 选区清空——有定义的结果，不会挂到错的池上。
+     */
+    private stepSel;
+    private selSnap;
+    private selRestore;
     /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
     private step;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
@@ -574,6 +597,12 @@ export declare class Editor {
     pressParam(key: string): void;
     /** 换一个会话（旧的收尾）；null = 关掉。 */
     openParamSession(s: ParamSession | null): void;
+    /**
+     * 移动 / 旋转 / 缩放 / 变换落定之后的马后炮（user 2026-10-26「移动旋转也是ctrl复制开关吧。以及马后炮都能override」）：
+     * 「复制」开关（事后改成复制 / 不复制）+ 变换工具的「轴心」；改了 = 撤这一步、按新选项重做（和数值小窗的重做同一套：按坐标、复制走 commitCopies）。
+     * 数值小窗改完数之后会再挂一次（读最新的 last），所以两边能接着改。
+     */
+    private offerXformAfterthought;
     /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。 */
     private offerAfterthought;
     /** 选区（散几何 + 选中的组 / 组件）的全部顶点（世界坐标）。 */
@@ -642,6 +671,8 @@ export declare class Editor {
     private computeLive;
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
+    /** 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。 */
+    private pivotOf;
     viewExtras: (() => Partial<ViewState>) | null;
     setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void;
     private drawSuspended;

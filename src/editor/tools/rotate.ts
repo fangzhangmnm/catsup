@@ -97,10 +97,13 @@ export class RotateTool implements ToolHandler {
     ctx.setCursor(q);
   }
 
+  /** 复制（user 2026-10-26「移动旋转也是ctrl复制开关吧」）：底部条「复制」开着，或者此刻按着 Ctrl / Alt。 */
+  private copying(ctx: ToolCtx): boolean { return ctx.config.get("rotate", "copy") || ctx.mods().copy; }
   live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     if (this.stage !== 2 || !this.center || !this.axis) return "";
-    if (Math.abs(this.angle) > 1e-6) ctx.previewXform(rotationAbout(this.center, this.axis, this.angle), run);
-    return `旋转 ${fmtDeg(this.angle)}`;
+    const copy = this.copying(ctx), sel = ctx.selection();
+    if (Math.abs(this.angle) > 1e-6) ctx.previewXform(rotationAbout(this.center, this.axis, this.angle), run, copy ? { faces: [...sel.faces], edges: [...sel.edges] } : undefined);
+    return `${copy ? "复制 · " : ""}旋转 ${fmtDeg(this.angle)}`;
   }
 
   /** 量角器圆环 + 当前角。 */
@@ -109,14 +112,17 @@ export class RotateTool implements ToolHandler {
   }
 
   private commit(ctx: ToolCtx): void {
-    const ang = this.angle, c = this.center!, ax = this.axis!;
-    const k0 = ctx.kernel(), vids = moveTargetsSelection(k0, ctx.selection()), pools = ctx.movablePoolPicks(false);
+    const ang = this.angle, c = this.center!, ax = this.axis!, copy = this.copying(ctx);
+    const sel = ctx.selection(), entities = { faces: [...sel.faces], edges: [...sel.edges] };
+    const k0 = ctx.kernel(), vids = moveTargetsSelection(k0, sel), pools = ctx.movablePoolPicks(false);
     const froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
     const n0 = ctx.opCount(), at0 = ctx.activePool();
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (Math.abs(ang) < 1e-6) return;
-    ctx.commitXform(rotationAbout(c, ax, ang), vids, pools);
-    ctx.recordLast({ kind: "rotate", ops: ctx.opCount() - n0, at: at0, froms, pools, center: c, axis: ax, angle: ang });
+    const X = rotationAbout(c, ax, ang);
+    if (copy) { const XL = ctx.xformToLocal(X); ctx.commitCopies([{ payload: ctx.copyPayload(XL, entities), XL }], pools, at0); }
+    else ctx.commitXform(X, vids, pools);
+    ctx.recordLast({ kind: "rotate", ops: ctx.opCount() - n0, at: at0, froms, pools, center: c, axis: ax, angle: ang, copy, entities });
   }
 }

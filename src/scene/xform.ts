@@ -63,6 +63,13 @@ export function scalingAbout(center: Pt3, s: Pt3): Xform {
 }
 
 /** 平面变换：法向走逆转置，d 由变换后的一个面上点重算；输出 canonical。 */
+/** 沿一根方向缩放（绕 center）：线性部分 = I + (f − 1)·a aᵀ（a = 单位方向）；轴不和世界轴对齐时用（变换工具的单轴缩放块，2026-10-26）。 */
+export function scalingAlong(center: Pt3, axis: Pt3, f: number): Xform {
+  const l = Math.hypot(axis.x, axis.y, axis.z) || 1, a = { x: axis.x / l, y: axis.y / l, z: axis.z / l }, k = f - 1;
+  const L = [1 + k * a.x * a.x, k * a.x * a.y, k * a.x * a.z, k * a.y * a.x, 1 + k * a.y * a.y, k * a.y * a.z, k * a.z * a.x, k * a.z * a.y, 1 + k * a.z * a.z];
+  const t = (r: number): number => (r === 0 ? center.x : r === 1 ? center.y : center.z) - (L[r * 3] * center.x + L[r * 3 + 1] * center.y + L[r * 3 + 2] * center.z);
+  return [L[0], L[1], L[2], t(0), L[3], L[4], L[5], t(1), L[6], L[7], L[8], t(2)];
+}
 export function applyPlane(m: Xform, pl: PlaneParams): PlaneParams {
   const inv = invert(m);
   // 逆转置作用在法向：n' = (M⁻¹)ᵀ n

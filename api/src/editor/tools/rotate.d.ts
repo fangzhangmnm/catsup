@@ -29,6 +29,8 @@ export declare class RotateTool implements ToolHandler {
         x: number;
         y: number;
     }, travel?: number): void;
+    /** 复制（user 2026-10-26「移动旋转也是ctrl复制开关吧」）：底部条「复制」开着，或者此刻按着 Ctrl / Alt。 */
+    private copying;
     live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     /** 量角器圆环 + 当前角。 */
     viewExtras(): Partial<ViewState>;

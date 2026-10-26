@@ -8,25 +8,31 @@ import { closestOnAxis, rayPlane } from "./camera.ts";
 import { worldPerPx } from "./plane-gizmo.ts";
 
 export type AxisName = "x" | "y" | "z";
-export type XformHandle = "mx" | "my" | "mz" | "rx" | "ry" | "rz";
+export type XformHandle = "mx" | "my" | "mz" | "rx" | "ry" | "rz" | "sx" | "sy" | "sz" | "su";
+/** 等比缩放块：轴心在屏上的位置往右、往上各这么多（CSS px）。 */
+export const XG_UNIFORM_OFFSET_PX = 34;
 export const AXIS_NAMES: readonly AxisName[] = ["x", "y", "z"];
 /** 箭头长（CSS px）。 */
-export const XG_ARROW_PX = 64;
-/** 箭头从原点外多少开始算把手（CSS px；中心让给别的柄）。 */
-export const XG_ARROW_START_PX = 14;
+export const XG_ARROW_PX = 72;
+/** 箭头从原点外多少开始算把手（CSS px；里面那段让给缩放块）。 */
+export const XG_ARROW_START_PX = 44;
+/** 单轴缩放块在轴上离原点多远（CSS px）（2026-10-26，user「我们也需要scale的手柄」）。中心点 = 移动、等比缩放块在中心右上方（屏幕把手，工具自己拾）。 */
+export const XG_SCALE_PX = 28;
+/** 缩放块半边长（CSS px，画用；拾取按点）。 */
+export const XG_CUBE_PX = 5;
 /** 旋转环半径（CSS px）：大过箭头（Blender 同款，环在外圈）——环和箭头不相交，抓的时候不含糊。 */
-export const XG_RING_PX = 84;
+export const XG_RING_PX = 92;
 /** 环画多少段。 */
 export const XG_RING_SEGS = 48;
 
 /** 一个变换 gizmo：原点 + 三根单位轴（上下文帧）。 */
 export interface XformGizmo { origin: Pt3; axes: Readonly<Record<AxisName, Pt3>>; }
-/** 这一帧的几何（世界）：箭头长、环半径。 */
-export interface XformGizmoGeom extends XformGizmo { arrow: number; ring: number; start: number; }
+/** 这一帧的几何（世界）：箭头长、环半径、箭头起点、缩放块位置 / 半边长。 */
+export interface XformGizmoGeom extends XformGizmo { arrow: number; ring: number; start: number; cube: number; cubeHalf: number; }
 
 export function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport): XformGizmoGeom {
   const wpp = worldPerPx(pf, vp, g.origin, g.axes.x) ?? worldPerPx(pf, vp, g.origin, g.axes.y) ?? 0.01;
-  return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp };
+  return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp, cube: XG_SCALE_PX * wpp, cubeHalf: XG_CUBE_PX * wpp };
 }
 /** 绕 axis 的环上的点（闭合：首尾相同）。 */
 export function ringPoints(G: XformGizmoGeom, ax: AxisName): Pt3[] {
@@ -58,16 +64,20 @@ export function hitXformGizmo(g: XformGizmo, pf: PointerFrame, vp: Viewport, sx:
     let best: { d: number; z: number } | null = null;
     for (let i = 0; i < pts.length - 1; i++) { const r = screenSeg(pf, vp, sx, sy, pts[i], pts[i + 1]); if (r && (!best || r.d < best.d)) best = { d: r.d, z: depth(add3(pts[i], scale3(sub3(pts[i + 1], pts[i]), r.t))) }; }
     if (best) out.push({ handle: `r${ax}` as XformHandle, d: best.d, z: best.z });
+    const cp = add3(G.origin, scale3(G.axes[ax], G.cube));
+    if (pf.project) { const q = pf.project(cp, vp); if (q) out.push({ handle: `s${ax}` as XformHandle, d: Math.hypot(q.x - sx, q.y - sy), z: depth(cp) }); }
   }
-  return out;
+  return out;   // 中心点（= 移动，按移动工具的吸附）和等比缩放块（屏幕上中心右上方）是屏幕把手，归工具自己拾
 }
 
-/** 拖动开始时记下的东西：移动 = 抓点沿轴的参数；转动 = 起始方向。 */
+/** 拖动开始时记下的东西：移动 / 单轴缩放 = 抓点沿轴的参数；转动 = 起始方向；等比缩放 = 抓点离原点的屏距。 */
 export interface XformGrab { handle: XformHandle; g0: XformGizmo; axis: Pt3; t0: number; dir0: Pt3 | null; }
-export const axisOf = (h: XformHandle): AxisName => h[1] as AxisName;
+/** 把手的那根轴（等比缩放块 su 没有轴，给 x 占位）。 */
+export const axisOf = (h: XformHandle): AxisName => (h === "su" ? "x" : (h[1] as AxisName));
 export function grabXform(g: XformGizmo, handle: XformHandle, pf: PointerFrame, vp: Viewport, sx: number, sy: number): XformGrab {
   const axis = g.axes[axisOf(handle)], ray = pf.ray(sx, sy, vp);
-  if (handle[0] === "m") { const q = closestOnAxis(g.origin, axis, ray.origin, ray.dir); return { handle, g0: g, axis, t0: q ? dot3(sub3(q, g.origin), axis) : 0, dir0: null }; }
+  if (handle === "su") { const q = pf.project?.(g.origin, vp); return { handle, g0: g, axis, t0: q ? Math.max(Math.hypot(q.x - sx, q.y - sy), 6) : 6, dir0: null }; }
+  if (handle[0] === "m" || handle[0] === "s") { const q = closestOnAxis(g.origin, axis, ray.origin, ray.dir); const t = q ? dot3(sub3(q, g.origin), axis) : 0; return { handle, g0: g, axis, t0: handle[0] === "s" && Math.abs(t) < 1e-9 ? 1e-9 : t, dir0: null }; }
   const q = rayPlane(ray.origin, ray.dir, axis, dot3(axis, g.origin));
   return { handle, g0: g, axis, t0: 0, dir0: q ? normalize3(sub3(q, g.origin)) : null };
 }
@@ -86,3 +96,10 @@ export function dragRotate(grab: XformGrab, pf: PointerFrame, vp: Viewport, sx: 
   const n1 = normalize3(d1);
   return Math.atan2(dot3(cross3(grab.dir0, n1), grab.axis), dot3(grab.dir0, n1));
 }
+/** 缩放：单轴块 = 抓点沿轴到原点的距离比（过了原点 = 负数，镜像）；等比块 = 光标离原点的屏距比（≥ 0）。看不出来 → null。 */
+export function dragScale(grab: XformGrab, pf: PointerFrame, vp: Viewport, sx: number, sy: number): number | null {
+  if (grab.handle === "su") { const q = pf.project?.(grab.g0.origin, vp); return q ? Math.hypot(q.x - sx, q.y - sy) / grab.t0 : null; }
+  const ray = pf.ray(sx, sy, vp), q = closestOnAxis(grab.g0.origin, grab.axis, ray.origin, ray.dir);
+  return q ? dot3(sub3(q, grab.g0.origin), grab.axis) / grab.t0 : null;
+}
+

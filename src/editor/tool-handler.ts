@@ -22,6 +22,7 @@ import type { GridSettings } from "./grid-settings.ts";
 import type { ModeId } from "./mode.ts";
 import type { ViewState } from "./render3.ts";
 import type { ScaleGeom } from "./scale-ref.ts";
+import type { ParamField, ParamValue } from "./param-panel.ts";
 
 /** 指针下的东西属于谁：活动池里的实体 / 子池（group 或实例）整体 / 什么都没有。 */
 export type Classified = { kind: "entity"; local: HitResult3 } | { kind: "pool"; pick: PoolPick; key: string } | { kind: "none" };
@@ -114,8 +115,12 @@ export interface ToolCtx {
   commitCopies(copies: { payload: CopyPayload | null; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void;
   /** 整体变换提交：世界系 X 作用于活动池顶点集（move op）+ 子池（transformPool / transformInstance）。 */
   commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void;
-  /** 整体变换预演：选区顶点走影子副本、子池走叠加变换。 */
-  previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void): void;
+  /** 整体变换预演：选区顶点走影子副本、子池走叠加变换。copy = 复制模式（原件不动：副本几何吸进影子副本、子池画副本影子）。 */
+  previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void, copy?: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): void;
+  /** 选区的轴心（变换工具）：包围盒中心 / 顶点平均 / 最后选的物体原点（最后选中的组 / 组件的轴原点，没选组 / 组件 = 包围盒中心）。没选区 → null。 */
+  pivotOf(mode: "bbox" | "mean" | "active"): Pt3 | null;
+  /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做（右下「刚才：」）。 */
+  offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void): void;
   /** 选中的子 group / 实例里能整体动的（锁住的不动；say = 提示一次）。 */
   movablePoolPicks(say?: boolean): PoolPick[];
   /** 选区的世界包围盒（缩放柄）。 */

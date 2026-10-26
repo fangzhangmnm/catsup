@@ -1,4 +1,4 @@
-// 缩放柄埋在几何里也点得中（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」）：柄透视画、透视拾；屏上叠在一起 = 离相机近的赢。
+// 缩放工具（①②③，包围盒柄）+ 变换工具（④⑤，箭头 / 环）。缩放柄埋在几何里也点得中（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」）：柄透视画、透视拾；屏上叠在一起 = 离相机近的赢。
 // ① 小盒做成组、外面再画一个大盒把它包住 → 选组 → 缩放工具拖一个角柄（在大盒里面）→ 组真的放大了。
 // ③ ×−1 吸附：拖面心柄过对面差几个像素 → 正好镜像。
 // ④ 移动箭头：沿 X 拖 1 m 正好 1 m、悬停高亮、数值小窗改距离；⑤ 旋转环：咬到 45°（2026-10-26）。
@@ -27,7 +27,7 @@ const res = await page.evaluate(async () => {
   e.setTool("select");
   const gk = [...e.scene.brep(e.scene.root).groups.keys()][0];
   e.selectedPools.clear(); e.selectedPools.set(`g${gk}`, { kind: "group", group: gk });
-  e.setTool("transform");
+  e.setTool("scale");
   const corner = P(0.5, 0.5, 1.5), out1 = P(1, 1, 2.5);
   const a = px(corner), z = px({ x: corner.x + 0.5, y: corner.y + 0.5, z: corner.z + 0.5 });
   if (globalThis.__SHOT) await globalThis.__SHOT();
@@ -41,10 +41,10 @@ const res = await page.evaluate(async () => {
   out.anchors = {};
   for (const [view, y] of [["front", 0], ["back", 1]]) {
     e.cam.setView(view); e.zoomExtents();
-    e.selectAll(); e.setTool("transform");
+    e.selectAll(); e.setTool("scale");
     const fc = px(P(0.5, y, 0.5));
     fire("pointerdown", fc.x, fc.y, 1); await sleep(30);
-    const h = e.handlers.transform.h;
+    const h = e.handlers.scale.h;
     out.anchors[view] = h ? h.anchor.y : null;
     fire("pointerup", fc.x, fc.y, 0); await sleep(30);
     e.cancel();
@@ -53,7 +53,7 @@ const res = await page.evaluate(async () => {
   e.clearAll(); e.setTool("select");
   box(1, 0, 0, 2, 1, 1);
   e.cam.setView("iso"); e.zoomExtents();
-  e.selectAll(); e.setTool("transform");
+  e.selectAll(); e.setTool("scale");
   await drag(px(P(2, 0.5, 0.5)), px(P(0.03, 0.5, 0.5)), 12);
   const vx = e.kernel.vertices().map((v) => v.x);
   out.negX = [Math.min(...vx), Math.max(...vx)].map((x) => +x.toFixed(6));
@@ -66,7 +66,7 @@ const res = await page.evaluate(async () => {
   e.setGrid({ ...e.grid, on: true, step: 1, subdiv: 5 });
   e.selectAll(); e.setTool("transform");
   const O = P(0.5, 0.5, 0.5), ppm = (d) => { const a0 = px(O), b0 = px({ x: O.x + d.x, y: O.y + d.y, z: O.z + d.z }); return Math.hypot(a0.x - b0.x, a0.y - b0.y); };
-  const onArrow = (d) => { const L = 50 / ppm(d); return { x: O.x + d.x * L, y: O.y + d.y * L, z: O.z + d.z * L }; };   // 箭杆 50 px 处（箭头 14–64 px，环 84 px）
+  const onArrow = (d) => { const L = 50 / ppm(d); return { x: O.x + d.x * L, y: O.y + d.y * L, z: O.z + d.z * L }; };   // 箭杆 50 px 处（箭头 44–72 px，环 92 px）
   const yGrip = px(onArrow(P(0, 1, 0)));
   fire("pointermove", yGrip.x, yGrip.y, 0); await sleep(30);
   out.hotY = e.handlers.transform.hot;
@@ -80,7 +80,7 @@ const res = await page.evaluate(async () => {
   e.clearAll(); e.setTool("select");
   box(0, 0, 0, 1, 1, 1);
   e.selectAll(); e.setTool("transform");
-  const R = 84 / ppm(P(1, 0, 0)), ring = (deg) => ({ x: O.x + R * Math.cos(deg * Math.PI / 180), y: O.y + R * Math.sin(deg * Math.PI / 180), z: O.z });
+  const R = 92 / ppm(P(1, 0, 0)), ring = (deg) => ({ x: O.x + R * Math.cos(deg * Math.PI / 180), y: O.y + R * Math.sin(deg * Math.PI / 180), z: O.z });
   const r0 = px(ring(20));   // 不抓 0°：那里 Y 环和 Z 环相交
   fire("pointerdown", r0.x, r0.y, 1);
   for (let d = 24; d <= 66; d += 6) { const q = px(ring(d)); fire("pointermove", q.x, q.y, 1); await sleep(16); }

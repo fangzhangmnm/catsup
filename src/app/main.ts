@@ -169,7 +169,8 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "arc", icon: "arc", label: "弧", key: "A" },
   { tool: "move", icon: "move", label: "移动", key: "M" },
   { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
-  { tool: "transform", icon: "free-transform", label: "变换", key: "S" },   // 2026-10-25 缩放 → 变换（user「就叫transform」「icon也变成moverotatescale」：专用图标进图标库待办，先用 free-transform）
+  { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },   // 2026-10-26 恢复（user「box也需要……先留着move rotate scale，transform做单独的，就是恢复之前的scale」）
+  { tool: "transform", icon: "free-transform", label: "变换", key: "" },   // 箭头 + 环 + 缩放块 + 轴心（2026-10-26；专用图标在图标库待办，先用 free-transform；快捷键暂不占）
   { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
   { tool: "offset", icon: "selection-expand", label: "偏移", key: "F" },   // 图标 = stopgap（图标库 TODO 已登记 offset）
   { tool: "followme", icon: "move-to-folder", label: "跟随", key: "W" },   // 图标 = stopgap（图标库 TODO 已登记 follow-me）
@@ -249,7 +250,7 @@ const SHAPES: Tool[] = ["rect", "rrect", "circle", "arc"];
 /** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
 let eraserCurrent: Tool = "erase";
 const RAIL_GROUPS: RailGroup[] = [
-  { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "transform"], budget: 4 },
+  { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale", "transform"], budget: 4 },
   { id: "measure", pinned: ["tape", "axes"], pool: ["protractor"], budget: 3 },
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
@@ -525,6 +526,14 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
   actions: (tool) => {
     if (tool === "axes") return [{ id: "axesReset", label: "重置轴", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "轴原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : [])];   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor") return [{ id: "guidesClear", label: "删除所有参考线", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
+    if (tool === "transform") {   // 临时轴心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
+      const H = editor.toolHandler("transform") as { picking?: boolean; hasTempPivot?: boolean; startPickPivot?(): void; clearPivot?(): void } | undefined;
+      if (!H || !editor.hasSelection()) return [];
+      return [
+        { id: "pickPivot", label: H.picking ? "点一下定轴心…" : H.hasTempPivot ? "重选轴心" : "选轴心", active: !!H.picking, title: "拾一个临时轴心（吸附照常、网格开着也吸格点）；转 / 缩都绕它，换选区就作废", onClick: () => { H.startPickPivot?.(); syncUi(); editor.draw(); } },
+        ...(H.hasTempPivot ? [{ id: "clearPivot", label: "清除临时轴心", onClick: () => { H.clearPivot?.(); syncUi(); editor.draw(); } }] : []),
+      ];
+    }
     return [];
   },
   // 选区动作：笔 / 手指路由才进条（鼠标走右键菜单，#19 的路由不变）；有选区、不在手势中
@@ -887,7 +896,7 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "transform", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", t: "tape", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", t: "tape", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q" || key === "a" || key === "t");

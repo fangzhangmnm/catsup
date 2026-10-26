@@ -189,7 +189,7 @@ export interface ViewState {
   /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
   poolAxes?: readonly Frame[] | null;
   /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
-  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; hot: string | null } | null;
+  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
@@ -882,7 +882,7 @@ export class Renderer3 {
     const xg = view.xformGizmo;
     if (xg) {
       const r6 = (p: Pt3): string => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`;
-      const k = `${r6(xg.origin)}/${r6(xg.axes.x)}/${r6(xg.axes.y)}/${r6(xg.axes.z)}/${xg.arrow.toExponential(3)}/${xg.hot ?? ""}`;
+      const k = `${r6(xg.origin)}/${r6(xg.axes.x)}/${r6(xg.axes.y)}/${r6(xg.axes.z)}/${xg.arrow.toExponential(3)}/${xg.hot ?? ""}/${xg.uniform ? r6(xg.uniform) : "-"}`;
       if (k !== this.xgKey) {
         this.xgKey = k;
         const pos: number[] = [], col: number[] = [];
@@ -899,6 +899,16 @@ export class Renderer3 {
           const v = { x: d.y * ref.z - d.z * ref.y, y: d.z * ref.x - d.x * ref.z, z: d.x * ref.y - d.y * ref.x };
           const P = (i: number): Pt3 => { const a = (2 * Math.PI * i) / N, c = Math.cos(a) * xg.ring, sn = Math.sin(a) * xg.ring; return { x: xg.origin.x + ref.x * c + v.x * sn, y: xg.origin.y + ref.y * c + v.y * sn, z: xg.origin.z + ref.z * c + v.z * sn }; };
           for (let i = 0; i < N; i++) push(P(i), P(i + 1), hr);
+        }
+        // 缩放块（轴上的 = 沿那根轴，右上方的 = 等比）+ 中心点（= 移动）：沿 gizmo 三轴的小线框方块
+        const cube = (c: Pt3, h: number, hex: number): void => {
+          const X = xg.axes.x, Y = xg.axes.y, Z = xg.axes.z, at3 = (a: number, b: number, cc: number): Pt3 => ({ x: c.x + (X.x * a + Y.x * b + Z.x * cc) * h, y: c.y + (X.y * a + Y.y * b + Z.y * cc) * h, z: c.z + (X.z * a + Y.z * b + Z.z * cc) * h });
+          for (const [a, b] of [[-1, -1], [1, -1], [1, 1], [-1, 1]] as const) { push(at3(a, b, -1), at3(a, b, 1), hex); push(at3(-1, a, b), at3(1, a, b), hex); push(at3(a, -1, b), at3(a, 1, b), hex); }
+        };
+        if (xg.cube !== undefined && xg.cubeHalf !== undefined) {
+          for (const ax of ["x", "y", "z"] as const) cube(at(xg.axes[ax], xg.cube), xg.cubeHalf, xg.hot === `s${ax}` ? GIZMO_HOT : hexOf[ax]);
+          if (xg.uniform) cube(xg.uniform, xg.cubeHalf * 1.2, xg.hot === "su" ? GIZMO_HOT : 0x666666);
+          cube(xg.origin, xg.cubeHalf * 0.7, xg.hot === "mc" ? GIZMO_HOT : 0x333333);
         }
         this.setLineGeometry(this.xgLines, pos, col);
       }

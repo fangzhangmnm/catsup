@@ -7,7 +7,7 @@
 // 语义（SU 同款）：输入作用于**刚做完的那一步**（撤销它、按精确值重做），直到下一步开始；一步做完后可以连续改几次。
 import type { Pt3 } from "../kernel/geom.ts";
 import type { Xform } from "../scene/xform.ts";
-import { rotationAbout, translation } from "../scene/xform.ts";
+import { rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 import { scale3 } from "../kernel/geom.ts";
 
 import { type LengthUnit, UNIT_M, fmtVcbLength } from "./units.ts";
@@ -76,12 +76,12 @@ export function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): VcbValue |
   }
   if ((m = /^(?:\*|x)\s*(\d+)$/.exec(text)) || (m = /^(\d+)\s*x$/.exec(text))) {
     const n = Number(m[1]);
-    if (kind !== "move" && kind !== "rotate") return { error: "阵列只对移动 / 旋转有效" };
+    if (kind !== "move" && kind !== "rotate" && kind !== "scale") return { error: "阵列只对移动 / 缩放有效" };
     return n >= 1 && n <= 500 ? { kind: "array", mode: "x", n } : { error: "阵列份数 1–500" };
   }
   if ((m = /^\/\s*(\d+)$/.exec(text))) {
     const n = Number(m[1]);
-    if (kind !== "move" && kind !== "rotate") return { error: "阵列只对移动 / 旋转有效" };
+    if (kind !== "move" && kind !== "rotate" && kind !== "scale") return { error: "阵列只对移动 / 缩放有效" };
     return n >= 1 && n <= 500 ? { kind: "array", mode: "/", n } : { error: "阵列份数 1–500" };
   }
   const parts = text.split(",").map((p) => p.trim()).filter(Boolean);
@@ -140,6 +140,16 @@ export function arrayTranslations(delta: Pt3, mode: "x" | "/", n: number): Xform
   for (let k = 1; k <= n; k++) out.push(translation(mode === "x" ? scale3(delta, k) : scale3(delta, k / n)));
   return out;
 }
+/**
+ * 缩放阵列（2026-10-26，user「变换能不能也支持移动的/5 *5，不过只对move和scale」）：移动的乘法版——x = 第 k 份按 f^k 缩（越缩越小 / 越放越大）；
+ * / = 内分，第 k 份按 f^(k/n)（n 份匀布在 1..f 之间，按比例匀）。负倍率（镜像）只能 x（−1 的分数次方没定义）→ / 时返回 null。
+ */
+export function arrayScalings(anchor: Pt3, f: Pt3, mode: "x" | "/", n: number): Xform[] | null {
+  if (mode === "/" && (f.x < 0 || f.y < 0 || f.z < 0)) return null;
+  const out: Xform[] = [];
+  for (let k = 1; k <= n; k++) { const e = mode === "x" ? k : k / n; out.push(scalingAbout(anchor, { x: Math.sign(f.x) ** k * Math.abs(f.x) ** e, y: Math.sign(f.y) ** k * Math.abs(f.y) ** e, z: Math.sign(f.z) ** k * Math.abs(f.z) ** e })); }
+  return out;
+}
 /** 旋转阵列（同上，角度版）。 */
 export function arrayRotations(center: Pt3, axis: Pt3, angle: number, mode: "x" | "/", n: number): Xform[] {
   const out: Xform[] = [];
@@ -161,7 +171,7 @@ export function vcbPrompt(kind: VcbKind | null): string {
     case "protractor": return "角度";
     case "move": return "距离 · 阵列 5x /5";
     case "rotate": return "角度";
-    case "scale": return "倍率 · x,y,z";
+    case "scale": return "倍率 · x,y,z · 阵列 5x /5";
     default: return "";
   }
 }

@@ -131,6 +131,9 @@ export interface ViewState {
         arrow: number;
         ring: number;
         start: number;
+        cube?: number;
+        cubeHalf?: number;
+        uniform?: Pt3 | null;
         hot: string | null;
     } | null;
     /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */

@@ -30,6 +30,21 @@ export class MoveTool implements ToolHandler {
   scaleGeom(ctx: ToolCtx): ScaleGeom | null { const a = ctx.anchor(), c = ctx.cursor(); return this.active() && a && c ? { kind: "length", vec: sub3(c, a) } : null; }
   describe(ctx?: ToolCtx): Record<string, unknown> { return { move: { anchor: ctx?.anchor() ?? null, vids: this.vids.length, pools: this.pools.length, copy: this.copy } }; }
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.hoverSnap(s); }
+  /** 从给定锚点开始一次移动（变换工具的中心点 / 拖已选中的东西代驾用，2026-10-26 user「变换的中间应该有一个可以拖动的点…按move的逻辑snap」）：
+   *  目标 = 当前选区，锚点就是这一点（不再拾取）；之后 track / live / finish 和移动工具自己一模一样。选区为空 → false。 */
+  startAt(ctx: ToolCtx, anchor: Pt3, copy: boolean): boolean {
+    if (!ctx.hasSelection()) return false;
+    const sel = ctx.selection();
+    this.vids = moveTargetsSelection(ctx.kernel(), sel);
+    this.pools = ctx.movablePoolPicks();
+    this.entities = { faces: [...sel.faces], edges: [...sel.edges] };
+    this.copy = copy;
+    if (!this.active()) return false;
+    ctx.setAnchor(anchor); ctx.setCursor(anchor);
+    return true;
+  }
+  /** 落定（代驾用；和点第二下 / 松手一样）。 */
+  finish(ctx: ToolCtx): void { if (this.active()) this.commit(ctx); }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.active()) { this.commit(ctx); return; }

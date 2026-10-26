@@ -43,6 +43,11 @@ export declare function parseVcb(textIn: string, kind: VcbKind, ctx: VcbCtx): Vc
 };
 /** 阵列：x = 外部阵列（共 n 份，第 k 份在 k·delta）；/ = 内分（n 份匀布在 0..delta 之间，第 k 份在 k·delta/n）。 */
 export declare function arrayTranslations(delta: Pt3, mode: "x" | "/", n: number): Xform[];
+/**
+ * 缩放阵列（2026-10-26，user「变换能不能也支持移动的/5 *5，不过只对move和scale」）：移动的乘法版——x = 第 k 份按 f^k 缩（越缩越小 / 越放越大）；
+ * / = 内分，第 k 份按 f^(k/n)（n 份匀布在 1..f 之间，按比例匀）。负倍率（镜像）只能 x（−1 的分数次方没定义）→ / 时返回 null。
+ */
+export declare function arrayScalings(anchor: Pt3, f: Pt3, mode: "x" | "/", n: number): Xform[] | null;
 /** 旋转阵列（同上，角度版）。 */
 export declare function arrayRotations(center: Pt3, axis: Pt3, angle: number, mode: "x" | "/", n: number): Xform[];
 /** 小窗旁的提示字：这一步能输什么。 */

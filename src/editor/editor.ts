@@ -36,7 +36,7 @@ import { surfaceFaces } from "./paint-flood.ts";
 import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { TapTrain, TAP_RULES, frameTapRule } from "./tap-train.ts";
 import { perf } from "./perf-stats.ts";
-import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
+import { type LengthUnit, type VcbKind, arrayScalings, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import { type ParamButton, type ParamField, type ParamPanelState, type ParamSession, type ParamValue, afterthought } from "./param-panel.ts";
 import { type GizmoGrab, type GizmoHandle, type PlaneGizmo, dragGizmo, gizmoGeom, grabGizmo, hitGizmo } from "./plane-gizmo.ts";
 import { type MirrorOptions, type MirrorPlane, mirrorGeometry, reflectionXform } from "./mirror.ts";
@@ -54,7 +54,7 @@ import { type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
-import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, scalingAlong, translation } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -79,6 +79,9 @@ export interface ToolPointer {
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
 }
+
+/** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
+interface SelSnap { ctx: string; faces: FaceId[]; edges: EdgeId[]; guides: number[]; pools: [string, PoolPick][]; }
 
 /** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace =
@@ -164,8 +167,8 @@ export type LastGesture =
   | { kind: "pp"; ops: number; at: PoolRef; face: FaceKey; h: number; hl: number; keepRing?: boolean }
   | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number; circle?: CurveParams }
   | { kind: "move"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; delta: Pt3; copy: boolean; entities: { faces: FaceId[]; edges: EdgeId[] } }
-  | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number }
-  | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3 }
+  | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 变换工具：抓的时候几种轴心（马后炮换轴心重做）+ 用的是哪种。 */ pivots?: Record<string, Pt3>; pivotUsed?: string }
+  | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 沿任意方向的单轴缩放（变换工具的缩放块，帧可能是斜的）：有就按 scalingAlong、f 用 x 分量。 */ dir?: Pt3; pivots?: Record<string, Pt3>; pivotUsed?: string }
   /** 卷尺（0.11）：起点 a、产物方向 dir（线 = 垂直偏移方向；点 = 起点→终点）、距离 d；line 另带参考线方向。 */
   | { kind: "tape"; ops: number; at: PoolRef; a: Pt3; dir: Pt3; d: number; make: "line" | "point"; lineDir?: Pt3 }
   /** 量角器（0.11）：圆心 / 转轴 / 参考点 / 角度 → 角度参考线；VCB 改度数。 */
@@ -653,6 +656,22 @@ export class Editor {
     else this.mods = { ...this.mods, shift: on };
   }
   // ---------- 记账 ----------
+  /**
+   * 选区跟着撤销走（user 2026-10-26「变换的时候按ctrl z不应该选区也没了，系统的修一下……我们是不是没有把选区做持久化undo化？」）：
+   * 每一步记下它之前的选区（第一条 op 提交时）；撤销 = 还原「之前」并顺手记下「之后」，重做 = 还原「之后」。id 在同一份历史里是确定的（重放同一串 op），
+   * 所以还原回去的 id 指的就是同一批东西；不存在的 id 剪掉；上下文变了（撤到组被删之前 / 换了层）= 选区清空——有定义的结果，不会挂到错的池上。
+   */
+  private stepSel = new Map<number, { before: SelSnap; after?: SelSnap }>();
+  private selSnap(): SelSnap { return { ctx: this.ctxKey(), faces: [...this.selection.faces], edges: [...this.selection.edges], guides: [...this.selection.guides], pools: [...this.selectedPools.entries()] }; }
+  private selRestore(s: SelSnap | undefined): void {
+    this.selection = emptySelection(); this.selectedPools.clear();
+    if (!s || s.ctx !== this.ctxKey()) return;
+    for (const f of s.faces) this.selection.faces.add(f);
+    for (const e of s.edges) this.selection.edges.add(e);
+    for (const g of s.guides) this.selection.guides.add(g);
+    for (const [k, p] of s.pools) this.selectedPools.set(k, p);
+    this.pruneSelection();
+  }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: () => T): T {
     if (this.stepDepth++ === 0) this.stepHasOp = false;
@@ -663,6 +682,7 @@ export class Editor {
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     const t0 = performance.now();
+    const first = !(this.stepDepth > 0 && this.stepHasOp), pos0 = this.history.position(), before = first ? this.selSnap() : null;
     let r: ReturnType<History["commit"]>;
     try { r = perf.time("commit", () => this.history.commit(this.scene, op, this.stepDepth > 0 && this.stepHasOp)); }
     catch (err) {
@@ -677,6 +697,7 @@ export class Editor {
     this.scene = r.scene;
     this.opCount++;
     if (this.stepDepth > 0) this.stepHasOp = true;
+    if (first && before) { for (const k of [...this.stepSel.keys()]) if (k >= pos0) this.stepSel.delete(k); this.stepSel.set(pos0, { before }); }   // 新的一步：记下它之前的选区（redo 尾巴作废）
     this.bump();
     this.revalidateCharged();
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
@@ -724,6 +745,7 @@ export class Editor {
     this.last = null;
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
     if (this._locked) { this.lockedSay(); return; }
+    const after = this.selSnap();   // 撤之前的选区 = 这一步「之后」的样子（重做时还原）
     const s2 = this.history.undo();
     if (!s2) return;
     this.scene = s2;
@@ -731,7 +753,9 @@ export class Editor {
     this.bump();
     this.revalidateCharged();
     this.cancelGesture();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    const entry = this.stepSel.get(this.history.position());
+    if (entry) entry.after = after;
+    this.selRestore(entry?.before);   // 撤销 = 回到这一步之前，连选区一起（user 2026-10-26「变换的时候按ctrl z不应该选区也没了」）
     this.host.trace?.({ kind: "undo", position: this.history.position(), depth: this.history.depth() });
     this.host.changed();
     this.draw();
@@ -740,6 +764,7 @@ export class Editor {
     this.last = null;
     if (this._locked) { this.lockedSay(); return; }
     let r: ReturnType<History["redo"]>;
+    const pos0 = this.history.position();
     try { r = this.history.redo(this.scene); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
@@ -754,7 +779,7 @@ export class Editor {
     this.bump();
     this.revalidateCharged();
     this.cancelGesture();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selRestore(this.stepSel.get(pos0)?.after);   // 重做 = 回到这一步之后，连选区一起
     this.host.trace?.({ kind: "redo", position: this.history.position(), depth: this.history.depth() });
     this.host.changed();
     this.draw();
@@ -766,6 +791,7 @@ export class Editor {
     this.scene = s;
     this.ctx = ROOT_CONTEXT;
     this.history = new History(s);
+    this.stepSel.clear();
     this._revision++;
     this.selection = emptySelection(); this.selectedPools.clear();
     this.clearCharged();
@@ -1393,6 +1419,35 @@ export class Editor {
   pressParam(key: string): void { this.step(() => this.param?.press(key)); this.host.changed(); this.draw(); }
   /** 换一个会话（旧的收尾）；null = 关掉。 */
   openParamSession(s: ParamSession | null): void { if (this.param && this.param !== s) this.param.dispose?.(); this.param = s; this.host.changed(); }
+  /**
+   * 移动 / 旋转 / 缩放 / 变换落定之后的马后炮（user 2026-10-26「移动旋转也是ctrl复制开关吧。以及马后炮都能override」）：
+   * 「复制」开关（事后改成复制 / 不复制）+ 变换工具的「轴心」；改了 = 撤这一步、按新选项重做（和数值小窗的重做同一套：按坐标、复制走 commitCopies）。
+   * 数值小窗改完数之后会再挂一次（读最新的 last），所以两边能接着改。
+   */
+  private offerXformAfterthought(): void {
+    const L0 = this.last;
+    if (!L0 || (L0.kind !== "move" && L0.kind !== "rotate" && L0.kind !== "scale") || !L0.entities) return;
+    const L = L0, ents = L0.entities;
+    const fields: ParamField[] = [{ key: "copy", def: { kind: "bool", label: "复制" } }];
+    const values: Record<string, ParamValue> = { copy: !!L.copy };
+    const pivots = L.kind !== "move" ? L.pivots : undefined;
+    if (pivots && L.kind !== "move" && L.pivotUsed) {
+      const labels: Record<string, string> = { bbox: "包围盒中心", mean: "顶点平均", active: "最后选的物体原点", picked: "拾取的点" };
+      fields.push({ key: "pivot", def: { kind: "enum", label: "轴心", values: Object.keys(pivots).map((id) => ({ id, label: labels[id] ?? id })) } });
+      values.pivot = L.pivotUsed;
+    }
+    const title = L.kind === "move" ? "移动" : L.kind === "rotate" ? "旋转" : "缩放";
+    this.offerAfterthought(title, fields, values, L.ops, (v) => {
+      const copy = !!v.copy, pid = typeof v.pivot === "string" ? v.pivot : undefined, piv = pid && pivots ? pivots[pid] : undefined;
+      if (pid && pid !== "picked" && pid !== (L.kind !== "move" ? L.pivotUsed : undefined)) this.config.set("transform", "pivot", pid as "bbox" | "mean" | "active");   // 工具自己记住
+      const at = L.at, n0 = this.opCount;
+      const X = L.kind === "move" ? translation(L.delta) : L.kind === "rotate" ? rotationAbout(piv ?? L.center, L.axis, L.angle) : L.dir ? scalingAlong(piv ?? L.anchor, L.dir, L.f.x) : scalingAbout(piv ?? L.anchor, L.f);
+      if (copy) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, ents), XL }], L.pools, at); }
+      else this.redoXform(X, L.froms, L.pools, at);
+      const ops = this.opCount - n0;
+      this.last = L.kind === "move" ? { ...L, copy, ops } : L.kind === "rotate" ? { ...L, copy, ops, center: piv ?? L.center, ...(pid ? { pivotUsed: pid } : {}) } : { ...L, copy, ops, anchor: piv ?? L.anchor, ...(pid ? { pivotUsed: pid } : {}) };
+    });
+  }
   /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。 */
   private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void): void {
     this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, undoN: (n) => this.undoN(n), redo }));
@@ -1585,24 +1640,39 @@ export class Editor {
         break;
       }
       case "rotate": {
-        if (v.kind === "array") { this.redoXform(rotationAbout(L.center, L.axis, L.angle), L.froms, L.pools, at); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: "旋转阵列要先有复制模式（还没做）" }; }
+        // 复制那一步（变换工具 Ctrl / 「复制」开着）重做 = 重新放副本，不是转原件（2026-10-26）
+        const redoRot = (ang: number): void => { const X = rotationAbout(L.center, L.axis, ang); if (L.copy && L.entities) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); } else this.redoXform(X, L.froms, L.pools, at); };
+        if (v.kind === "array") { redoRot(L.angle); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: "旋转不做 *n /n 阵列（只有移动 / 缩放有）" }; }
         if (v.kind !== "angle") break;
         const angle = (v.deg * Math.PI) / 180;
-        this.redoXform(rotationAbout(L.center, L.axis, angle), L.froms, L.pools, at);
+        redoRot(angle);
         this.last = { ...L, ops: this.opCount - n0, angle };
-        msg = `旋转 ${fmtDeg(angle)}`;
+        msg = `${L.copy ? "复制 · " : ""}旋转 ${fmtDeg(angle)}`;
         break;
       }
       case "scale": {
+        const scaleX = (f: Pt3): Xform => (L.dir ? scalingAlong(L.anchor, L.dir, f.x) : scalingAbout(L.anchor, f));
+        const redoScale = (f: Pt3): void => { const X = scaleX(f); if (L.copy && L.entities) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); } else this.redoXform(X, L.froms, L.pools, at); };
+        if (v.kind === "array") {
+          // 缩放阵列（user 2026-10-26「变换能不能也支持移动的/5 *5，不过只对move和scale」）：原件回原位（这一步已撤），放 n 份——x = 第 k 份 f^k，/ = 第 k 份 f^(k/n)
+          const Xs = L.dir ? (v.mode === "/" && L.f.x < 0 ? null : Array.from({ length: v.n }, (_, i) => scalingAlong(L.anchor, L.dir!, Math.sign(L.f.x) ** (i + 1) * Math.abs(L.f.x) ** (v.mode === "x" ? i + 1 : (i + 1) / v.n)))) : arrayScalings(L.anchor, L.f, v.mode, v.n);
+          if (!Xs || !L.entities) { redoScale(L.f); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: !Xs ? "带镜像（负倍率）的缩放不能内分：用 3x 这种" : "这一步做不了阵列" }; }
+          const ents = L.entities;
+          this.commitCopies(Xs.map((X) => { const XL = this.xformToLocal(X); return { payload: this.copyPayload(XL, ents), XL }; }), L.pools, at);
+          this.last = { ...L, copy: true, ops: this.opCount - n0 };
+          msg = v.mode === "x" ? `缩放阵列 ${v.n} 份（一份比一份 ×${L.f.x === L.f.y && L.f.y === L.f.z ? L.f.x.toFixed(3) : "倍率"}）` : `缩放内分 ${v.n} 份`;
+          break;
+        }
         if (v.kind !== "factor") break;
-        const f: Pt3 = v.f.length === 3 ? { x: v.f[0], y: v.f[1], z: v.f[2] } : L.axis ? { x: L.axis.x ? v.f[0] : 1, y: L.axis.y ? v.f[0] : 1, z: L.axis.z ? v.f[0] : 1 } : { x: v.f[0], y: v.f[0], z: v.f[0] };
-        this.redoXform(scalingAbout(L.anchor, f), L.froms, L.pools, at);
+        const f: Pt3 = L.dir ? { x: v.f[0], y: v.f[0], z: v.f[0] } : v.f.length === 3 ? { x: v.f[0], y: v.f[1], z: v.f[2] } : L.axis ? { x: L.axis.x ? v.f[0] : 1, y: L.axis.y ? v.f[0] : 1, z: L.axis.z ? v.f[0] : 1 } : { x: v.f[0], y: v.f[0], z: v.f[0] };
+        redoScale(f);
         this.last = { ...L, ops: this.opCount - n0, f };
-        msg = `缩放 ${f.x.toFixed(3)} × ${f.y.toFixed(3)} × ${f.z.toFixed(3)}`;
+        msg = `${L.copy ? "复制 · " : ""}缩放 ${f.x.toFixed(3)} × ${f.y.toFixed(3)} × ${f.z.toFixed(3)}`;
         break;
       }
     }
     if (!msg) { this.last = null; this.host.changed(); this.draw(); return { ok: false, error: "这一步不收这种输入" }; }
+    this.offerXformAfterthought();   // 改完数，马后炮按最新的那一步再挂上（复制 / 轴心接着能改）
     this.host.changed(); this.draw();
     return { ok: true, message: msg };
   }
@@ -1612,7 +1682,7 @@ export class Editor {
     this.stepHasOp = false;   // 重做的第一条另起一步（撤掉的正是这一步）
     this.bump();
     this.revalidateCharged();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selRestore(this.stepSel.get(this.history.position())?.before);   // 回到这一步之前的选区（数值小窗 / 马后炮按新值重做时选区不丢）
   }
   /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
   private redoXform(X: Xform, froms: readonly Pt3[], pools: readonly PoolPick[], at: PoolRef): void {
@@ -1783,11 +1853,19 @@ export class Editor {
     }
   }
   /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
-  private previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void): void {
-    const vids = moveTargetsSelection(this.kernel, this.selection);
-    if (vids.length) { const XL = this.xformToLocal(X); run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) })))); }
+  private previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void, copy?: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): void {
+    const vids = moveTargetsSelection(this.kernel, this.selection), XL = this.xformToLocal(X);
+    if (copy) {   // 复制（变换工具按住 Ctrl / 开着「复制」）：原件不动，副本吸进影子副本
+      const payload = this.copyPayload(XL, copy);
+      if (payload) run((c) => { const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {}; for (const [n, segs] of Object.entries(payload.edgeSegs)) edgeSegs[n] = segs.map(([a, b]) => ({ a, b })); return c.absorb(payload.faces, payload.wires.map(([a, b]) => ({ a, b })), { edgeSegs, faceLayers: payload.faceLayers }); });
+    } else if (vids.length) run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) }))));
     const picks = this.movablePoolPicks(false);
-    if (picks.length) this.liveOverride = { picks, xform: X };
+    if (picks.length) this.liveOverride = { picks, xform: X, ...(copy ? { copy: true } : {}) };
+  }
+  /** 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。 */
+  private pivotOf(mode: "bbox" | "mean" | "active"): Pt3 | null {
+    if (mode === "active") { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[fr.length - 1].origin; }
+    return this.selectionCenter(mode === "mean" ? "mean" : "bbox");
   }
   // ---------- 渲染 ----------
   viewExtras: (() => Partial<ViewState>) | null = null;
@@ -2037,7 +2115,7 @@ export class Editor {
       setAnchor: (p) => { this.anchor3 = p; },
       setCursor: (p) => { this.cursor3 = p; },
       setSnap: (sn) => { this.snapInfo = sn; },
-      recordLast: (L) => { this.last = L; },
+      recordLast: (L) => { this.last = L; this.offerXformAfterthought(); },
       contextFrame: () => this.contextFrame(),
       setAxes: (f) => this.setContextAxes(f),
       hoverSnap: (s) => this.hoverSnap(s),
@@ -2062,7 +2140,9 @@ export class Editor {
       copyPayload: (XL, entities) => this.copyPayload(XL, entities),
       commitCopies: (copies, pools, at) => this.commitCopies(copies, pools, at),
       commitXform: (X, vids, pools) => this.commitXform(X, vids, pools),
-      previewXform: (X, run) => this.previewXform(X, run),
+      previewXform: (X, run, copy) => this.previewXform(X, run, copy),
+      pivotOf: (m) => this.pivotOf(m),
+      offerAfterthought: (title, fields, values, nOps, redo) => this.offerAfterthought(title, fields, values, nOps, redo),
       movablePoolPicks: (say) => this.movablePoolPicks(say),
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),

@@ -13,6 +13,8 @@ export declare function rotationAbout(center: Pt3, axis: Pt3, angle: number): Xf
 /** 以 center 为不动点、按三轴各自系数缩放（世界轴）。 */
 export declare function scalingAbout(center: Pt3, s: Pt3): Xform;
 /** 平面变换：法向走逆转置，d 由变换后的一个面上点重算；输出 canonical。 */
+/** 沿一根方向缩放（绕 center）：线性部分 = I + (f − 1)·a aᵀ（a = 单位方向）；轴不和世界轴对齐时用（变换工具的单轴缩放块，2026-10-26）。 */
+export declare function scalingAlong(center: Pt3, axis: Pt3, f: number): Xform;
 export declare function applyPlane(m: Xform, pl: PlaneParams): PlaneParams;
 /** 行列式（镜像 < 0；均匀缩放 = cbrt(|det|)）。 */
 export declare const det3: (m: Xform) => number;
