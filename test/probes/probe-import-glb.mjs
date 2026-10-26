@@ -35,6 +35,18 @@ Object.assign(out, await page.evaluate(() => {
   const rig = top[0] ? s.def(top[0].def) : null;
   return { top: top.map((i) => i.name), kids: rig ? [...rig.instances.values()].map((i) => i.name) : [], selected: e.hud?.().selection ?? null, selPools: e.selectedPools?.size ?? null };
 }));
+// ①½ 参数小窗（DT84）：导完就有「上方向 / 文件单位」；改单位 = 撤掉按新值重做（立方体 1 m → 1 cm），改回来复原
+Object.assign(out, await page.evaluate(async () => {
+  const e = globalThis.__catsup.editor, sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  const pp = e.paramPanel();
+  const size = () => { const s = e.scene, top = [...s.def(s.root).instances.values()][0]; const box = [...s.def(top.def).instances.values()].find((i) => i.name === "box"); const pts = s.pointsOfDef(box.def); const xs = pts.map((p) => p.x); return Math.max(...xs) - Math.min(...xs); };
+  const o = { panel: pp ? { title: pp.title, fields: pp.fields.map((f) => f.key) } : null, size0: size() };
+  e.setParam("unit", "cm"); await sleep(50);
+  o.sizeCm = size(); o.topsCm = e.scene.def(e.scene.root).instances.size;
+  e.setParam("unit", "m"); await sleep(50);
+  o.sizeBack = size();
+  return o;
+}));
 // ② 点空节点的小三轴 = 选中它（先进 rig 这一层，marker 才是直接子项）
 const sel = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, s = e.scene, sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -68,7 +80,8 @@ await page.setInputFiles("#glbFile", { name: "toy.glb", mimeType: "model/gltf-bi
 await page.waitForFunction(() => (document.getElementById("noticeStack")?.textContent ?? "").includes("别的软件做的 glb"), null, { timeout: 10000 }).catch(() => {});
 out.openNotice = /别的软件做的 glb.*导入 glb/.test(await notices());
 console.log(JSON.stringify(out));
-const ok = out.top?.[0] === "rig" && out.kids?.join() === "box,marker" && /导入 toy\.glb：/.test(out.notice) && /顶点法线/.test(out.notice) && /1 个空节点/.test(out.notice)
+const ok = out.panel?.title === "导入 toy" && out.panel.fields.join() === "up,unit" && Math.abs(out.size0 - 1) < 1e-6 && Math.abs(out.sizeCm - 0.01) < 1e-6 && out.topsCm === 1 && Math.abs(out.sizeBack - 1) < 1e-6
+  && out.top?.[0] === "rig" && out.kids?.join() === "box,marker" && /导入 toy\.glb：/.test(out.notice) && /顶点法线/.test(out.notice) && /1 个空节点/.test(out.notice)
   && out.markerPicked && out.afterUndo === 0 && out.openNotice && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

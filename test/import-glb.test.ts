@@ -3,7 +3,7 @@
 // 和几个三角网（盒子、T 字缝、同平面盖住）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { encodeGlb } from "../src/format/glb.ts";
-import { isForeignGlb, readForeignGlb } from "../src/format/gltf-import.ts";
+import { IMPORT_UNITS, isForeignGlb, readForeignGlb, reorientImport } from "../src/format/gltf-import.ts";
 import { kernelFromTriangles } from "../src/kernel/from-triangles.ts";
 import { Kernel, type Pt3 } from "../src/kernel/kernel.ts";
 import { PlanarGraph } from "../src/kernel/topology.ts";
@@ -78,6 +78,17 @@ describe("导入外来 glb（T11）：glb → 中间数据", () => {
     assert(near(world, C(P(11, 3, -4))), `世界位置 ${JSON.stringify(world)}`);
     // 空节点的位置：rig ∘ (0,5,0) = (10, 7, 0) → Z-up (10, 0, 7)
     assert(near(applyPt(compose(s.nodes[0].xform, s.nodes[3].xform), P(0, 0, 0)), C(P(10, 7, 0))), "空节点位置");
+  });
+  it("参数小窗的两项（DT84）：文件其实 Z 朝上 → 文件里的 (x, y, z) 原样就是世界坐标；文件单位厘米 → 点和节点平移 × 0.01；转换不碰原数据", () => {
+    const s = readForeignGlb(makeGlb(), "toy");
+    const z = reorientImport(s, "z", 1);
+    // 空节点：文件 rig ∘ (0,5,0)。按 Z 朝上读 = 不换轴：rig 是绕（文件的）Y 转 90° + 平移 (10,2,0) → (10, 7, 0) 直接就是世界
+    assert(near(applyPt(compose(z.nodes[0].xform, z.nodes[3].xform), P(0, 0, 0)), P(10, 7, 0)), "Z 朝上：空节点在 (10,7,0)");
+    assert(near(z.meshes[0].positions[6], P(1, 1, 1)), "顶点不换轴");
+    const cm = reorientImport(s, "y", IMPORT_UNITS.cm);
+    assert(near(applyPt(compose(cm.nodes[0].xform, cm.nodes[3].xform), P(0, 0, 0)), P(0.1, 0, 0.07)), "厘米：空节点 (10,0,7) cm = (0.1,0,0.07) m");
+    assert(near(cm.meshes[0].positions[6], P(0.01, -0.01, 0.01)), "厘米：顶点 × 0.01");
+    assert(near(s.meshes[0].positions[6], P(1, -1, 1)), "原数据没被改");
   });
   it("CatsUp 自己的文件不算外来（打开走老路）", () => {
     const bytes = writeCatsup(documentFromScene(new Scene(), "t"));

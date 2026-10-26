@@ -47,7 +47,7 @@ import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTip
 import { POOL_AXES_PX, Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace } from "./ops.ts";
-import type { ImportScene } from "../format/gltf-import.ts";
+import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } from "./planar.ts";
@@ -942,26 +942,44 @@ export class Editor {
     return evs;
   }
   /**
-   * 导入外来 glb（T11 / DT2）：节点树原样变成组件，挂在当前上下文下面（文件坐标 = 世界坐标，同 OBJ）；三角 → 膜在这里跑一次（锐角阈值 = 油漆桶 / 拍平同一个量），
-   * 装好的膜随 op 走（撤销重放只做装载）。成功 → 选中导进来的那一份。失败 → 人话原因（不提交）。
+   * 导入外来 glb（T11 / DT2）：节点树原样变成组件，挂在当前上下文下面（文件坐标 = 世界坐标，同 OBJ）；三角 → 膜在这里跑（锐角阈值 = 油漆桶 / 拍平同一个量），
+   * 装好的膜随 op 走（撤销重放只做装载）。成功 → 选中导进来的那一份 + 右下角参数小窗（DT84：上方向 / 文件单位，改了 = 撤掉按新值重做 = 预览）。
+   * 失败 → 人话原因（不提交）。
    */
   importForeign(data: ImportScene): { ok: true; cast: TriangleCastReport; empties: number; instances: number } | { ok: false; reason: string } {
     this.cancelGesture();
     if (data.nodes.some((n) => hasShear(n.xform))) return { ok: false, reason: "文件里有斜切的节点（glTF 不允许），导不进来" };
     if (!data.roots.length) return { ok: false, reason: "文件里没有节点" };
-    const { scene, report } = castImport(data, this.config.get("surface", "sharpDeg"));
-    const at = this.activePool(), defId = at.def, before = new Set(this.scene.def(defId).instances.keys());
-    this.selection = emptySelection(); this.selectedPools.clear();
+    const at = this.activePool(), defId = at.def, place = invert(this.ctxXform()), deg = this.config.get("surface", "sharpDeg");
+    const casts = new Map<string, ReturnType<typeof castImport>>();   // 每种「上方向 + 单位」只转一次（来回切 = 瞬间）
+    const castOf = (up: ImportUp, unit: string): ReturnType<typeof castImport> => {
+      const key = `${up}|${unit}`;
+      let c = casts.get(key);
+      if (!c) { c = castImport(reorientImport(data, up, IMPORT_UNITS[unit] ?? 1), deg); casts.set(key, c); }
+      return c;
+    };
+    let added: number[] = [];
+    const go = (up: ImportUp, unit: string): void => {
+      const before = new Set(this.scene.def(defId).instances.keys());
+      this.selection = emptySelection(); this.selectedPools.clear();
+      this.commitOp({ op: "importScene", at, scene: castOf(up, unit).scene, place });
+      added = [...this.scene.def(defId).instances.keys()].filter((id) => !before.has(id));
+      for (const id of added) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
+      this.bump();
+    };
     this.host.trace?.({ kind: "load", label: `import ${data.name}` });
-    this.commitOp({ op: "importScene", at, scene, place: invert(this.ctxXform()) });
-    const added = [...this.scene.def(defId).instances.keys()].filter((id) => !before.has(id));
-    if (!added.length) return { ok: false, reason: "没导进来（详情见调试日志）" };
-    for (const id of added) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
-    this.bump(); this.host.changed(); this.draw();
+    const n0 = this.opCount;
+    go("y", "m");
+    if (!added.length || this.opCount === n0) return { ok: false, reason: "没导进来（详情见调试日志）" };
+    this.offerAfterthought(`导入 ${data.name}`, [
+      { key: "up", def: { kind: "enum", label: "上方向", values: [{ id: "y", label: "Y 朝上", hint: "glTF 标准；大多数软件导出的" }, { id: "z", label: "Z 朝上", hint: "按 Z 朝上写的文件（躺倒了就换这个）" }] } },
+      { key: "unit", def: { kind: "enum", label: "文件单位", values: [{ id: "m", label: "米", hint: "glTF 标准" }, { id: "cm", label: "厘米" }, { id: "mm", label: "毫米" }, { id: "in", label: "英寸" }, { id: "ft", label: "英尺" }] } },
+    ], { up: "y", unit: "m" }, this.opCount - n0, (v) => { go(v.up === "z" ? "z" : "y", String(v.unit ?? "m")); this.zoomExtents(); });
+    this.host.changed(); this.draw();
     let instances = 0;
     const count = (d: number, depth: number): void => { if (depth > 64) return; for (const i of this.scene.def(d).instances.values()) { instances++; count(i.def, depth + 1); } };
     for (const id of added) { instances++; count(this.scene.def(defId).instances.get(id)!.def, 0); }
-    return { ok: true, cast: report, empties: data.nodes.filter((n) => n.mesh === null && !n.children.length).length, instances };
+    return { ok: true, cast: castOf("y", "m").report, empties: data.nodes.filter((n) => n.mesh === null && !n.children.length).length, instances };
   }
   pointerHitDistance(sx: number, sy: number): number | null {
     const k = this.liveWorld();

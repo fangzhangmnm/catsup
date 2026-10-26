@@ -95,6 +95,30 @@ export function readForeignGlb(bytes: Uint8Array, name: string): ImportScene {
   return { name, nodes, meshes, roots, losses: [...losses] };
 }
 
+/** 文件的上方向（glTF 标准 = Y 朝上；有些导出器按 Z 朝上写）。 */
+export type ImportUp = "y" | "z";
+/** 文件单位 → 米（glTF 标准 = 米）。 */
+export const IMPORT_UNITS: Readonly<Record<string, number>> = { m: 1, cm: 0.01, mm: 0.001, in: 0.0254, ft: 0.3048 };
+/**
+ * 按「上方向 + 文件单位」重新摆中间数据（DT84 导入后的参数小窗，user 10-26「import coordinate 方向可以设置吗，以及scaling。能预览吗」→「同意」）：
+ * readForeignGlb 已按 Y 朝上换成 Z 朝上；文件其实是 Z 朝上 → 再乘回 C⁻¹（点 p → C⁻¹p、节点 M → C⁻¹MC）；单位 = 均匀缩放（点 × s、节点平移 × s）。
+ * 纯函数、不改原数据。
+ */
+export function reorientImport(data: ImportScene, up: ImportUp, unitM: number): ImportScene {
+  if (up === "y" && unitM === 1) return data;
+  const s = unitM;
+  // 线性部分 A = s · (up === "z" ? C⁻¹ : I)；C⁻¹ = (x, y, z) → (x, z, −y)
+  const A = (p: Pt3): Pt3 => (up === "z" ? { x: p.x * s, y: p.z * s, z: -p.y * s } : { x: p.x * s, y: p.y * s, z: p.z * s });
+  const Am: number[][] = up === "z" ? [[s, 0, 0], [0, 0, s], [0, -s, 0]] : [[s, 0, 0], [0, s, 0], [0, 0, s]];
+  const Ai: number[][] = up === "z" ? [[1 / s, 0, 0], [0, 0, -1 / s], [0, 1 / s, 0]] : [[1 / s, 0, 0], [0, 1 / s, 0], [0, 0, 1 / s]];
+  const mul = (P: number[][], Q: number[][]): number[][] => P.map((r) => [0, 1, 2].map((j) => r[0] * Q[0][j] + r[1] * Q[1][j] + r[2] * Q[2][j]));
+  const conj = (M: Xform): Xform => {
+    const L = mul(mul(Am, [[M[0], M[1], M[2]], [M[4], M[5], M[6]], [M[8], M[9], M[10]]]), Ai), t = A({ x: M[3], y: M[7], z: M[11] });
+    return [L[0][0], L[0][1], L[0][2], t.x, L[1][0], L[1][1], L[1][2], t.y, L[2][0], L[2][1], L[2][2], t.z];
+  };
+  return { ...data, meshes: data.meshes.map((m) => ({ ...m, positions: m.positions.map(A) })), nodes: data.nodes.map((n) => ({ ...n, xform: conj(n.xform) })) };
+}
+
 /** Y-up 的局部变换换到 Z-up：M' = C·M·C⁻¹，C = (x, y, z) → (x, −z, y)。 */
 function conjZup(M: Xform): Xform {
   // C = [[1,0,0],[0,0,-1],[0,1,0]]，C⁻¹ = Cᵀ = [[1,0,0],[0,0,1],[0,-1,0]]
