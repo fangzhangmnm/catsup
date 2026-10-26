@@ -621,6 +621,14 @@ export class Session {
     const r = await docFile(cur).tryMove(target);
     if (!r.ok) { this.d.setStatus(`改名失败：${(r as { where?: string }).where === "cloud" ? "云端" : "本机"}已有同名`, true); return null; }
     this.setHome({ kind: "gallery", path: target });
+    // 2026-10-26（周账 F-92「重命名会多出一份」已复现）：库在谱系不明 / 云端被别的设备改过时把改名**降级成另存**——新名推上去、云端旧名原地不动（07-18 逃生通道语义，
+    //   怕把用户没见过的工作挪进回收站）。库把 oldKept / oldCloudOrphan / oldUnknown / cloudDeferred 旗都给了，以前这里只看 ok → 报「已重命名」= 谎报。现在如实说。
+    const f = r as { oldKept?: boolean; oldCloudOrphan?: boolean; oldUnknown?: boolean; cloudDeferred?: boolean };
+    const oldBare = bareName(cur), newBare = bareName(target);
+    if (f.oldKept) this.d.setStatus(`已另存为「${newBare}」；云端那份「${oldBare}」没动（它和这台的改动对不上，或不知道这台派生自哪一版）——图库里还看得见，不要了自己送回收站`, true);
+    else if (f.oldCloudOrphan) this.d.setStatus(`已改名为「${newBare}」，但云端旧名「${oldBare}」没能进回收站——图库里还看得见，自己处理`, true);
+    else if (f.oldUnknown) this.d.setStatus(`已改名为「${newBare}」；云端状态没问到，旧名「${oldBare}」可能还在云端`, true);
+    else if (f.cloudDeferred) this.d.setStatus(`已改名为「${newBare}」（本机）；云端那份还没推上去，下次保存补推`);
     return target;
   }
   /** 图库把活动文档改名/移动了（onRenamed / 图库动词）→ 换身份。 */
