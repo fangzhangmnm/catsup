@@ -730,7 +730,13 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
   mark("bury");
   // ⑪a 边属性层规则 ③「新段上落下的边入集」提到溶解之前（DT12，v0.14.3，Claude Opus 5.5）：溶解时新段已经带层，规则 ④「两边都有 → 并出的边也有」才成立。
   // 之前排在 ⑩ 之后 → 同向再推拉圆柱顶面：新侧棱溶解那一刻还没层，和下面那段软的旧侧棱并成一条硬边，并出的长边又不完全落在新段上、③ 也贴不上（user「第二次拖动顶面的时候，平滑组变成硬边了」）。
-  if (EL && table.layerSegs) { const es = g.edges(); for (const [n, segs] of Object.entries(table.layerSegs)) EL.mark(n, es, (id) => g.pt(id), segs); }
+  //     只看新段附近的边（空间网格超集：余量 ≈ 0.49 mm ≫ 落在段上的容差 3 µm），按 id 排 = 和以前扫全部边同序（2026-10-26，user「结算里还有两处每次扫全图，要优化 做」）
+  if (EL && table.layerSegs) for (const [n, segs] of Object.entries(table.layerSegs)) {
+    if (!segs.length) continue;
+    const near = new Map<EdgeId, Edge>();
+    for (const sg of segs) for (const e of g.edgesNear(sg.a, sg.b)) near.set(e.id, e);
+    EL.mark(n, [...near.values()].sort((x, y) => x.id - y.id), (id) => g.pt(id), segs);
+  }
   // 折缝的层（DT87 亚种）：折缝是作为新边插进来的 → 都在脏边里，不扫全图
   if (EL && table.creaseLayers?.length && creases.length) { const es = [...dirty].filter((id) => g.hasEdge(id)).map((id) => g.edge(id)); for (const n of table.creaseLayers) EL.mark(n, es, (id) => g.pt(id), creases); }
   // ⑩ 溶解：因本次操作新成为二度共线的顶点——只看本次星形变过的顶点：新边 / 切出来的边的端点（dirty）+ 本次删掉的边的端点（candVerts）
