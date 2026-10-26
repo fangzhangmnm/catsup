@@ -653,8 +653,32 @@ export declare class Editor {
     private repairCountCache;
     /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */
     repairCount(kind: RepairKind, scope?: "auto" | "context"): number;
+    private static readonly REPAIR_NAMES;
+    /** 一条修复指令这一次做了什么（提交 op，不出提示）。failed = 被拒（报错已出）。 */
+    private runRepair;
+    /** 各修复指令自己的参数（马后炮里改）。 */
+    private repairFields;
     /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
     repair(kind: RepairKind, scope?: "auto" | "context"): number;
+    /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
+    private static readonly SUBTLE_FOLD_DEG;
+    /** 固定顺序：先吸格点（吸完会冒出新的共线断口、新的微折），再焊断口，再拍平，最后折得很厉害的软边变硬。 */
+    private static readonly REPAIR_ORDER;
+    /** 当前的修复面板会话（马前炮或应用后的马后炮）；它在右下角开着时才画「检查」高亮。 */
+    private repairSession;
+    private repairInspect;
+    repairPanelOpen(): boolean;
+    /** 选区 / 场景版本签名（修复计数的缓存键）。 */
+    private repairKey;
+    private subtleCache;
+    /** 「检查」：范围里看起来平、其实折过的软边（弯折 ≤ SUBTLE_FOLD_DEG，两侧都是面；折线不算）。按池给（键 = poolKey）。 */
+    private subtleFolds;
+    /** 菜单上露不露「修复…」：有任何一步会碰东西，或者有要检查的小伤。 */
+    repairWorth(): boolean;
+    /** 「检查」高亮：画面上的边 id（每个画到这些池的槽都算）。修复面板没开 / 检查关着 = null。 */
+    private inspectHighlights;
+    /** 打开修复面板（马前炮）。 */
+    beginRepairPanel(): void;
     /** 兼容老入口（☰「焊接全部断口」/ 选区「焊接断口」）。 */
     weldAllBreaks(scope?: "auto" | "context"): number;
     /** 兼容老入口（☰「拍平几乎共面的面」/ 选区「拍平」）。 */

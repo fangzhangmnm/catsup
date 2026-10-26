@@ -73,6 +73,7 @@ export const PALETTE = {
   edgeWire: 0x111111,
   edgeSelected: 0x2b6cb0,
   edgeHot: 0xcc3333,      // 刮擦/悬停将删
+  edgeWarn: 0xd97706,     // 修复面板「检查」：微折软边
   grid: 0xd9d6cf,
   /** 网格正片叠底的系数色（× 背景 ≈ 原 grid 灰）：主线 / 细线；压在深色材质上只暗 ~10% / ~5%。 */
   gridMajor: 0xe3e1dc, gridMinor: 0xf0eeea,
@@ -161,6 +162,8 @@ export interface ViewState {
   selectionEdges: ReadonlySet<EdgeId>;
   selectionFaces: ReadonlySet<FaceId>;
   scrubEdges: ReadonlySet<EdgeId>;
+  /** 修复面板「检查」要标出来的边（橙色；软边也画——标的就是看起来平、其实折过的软边，DT9）。null / 缺 = 没有。 */
+  warnEdges?: ReadonlySet<EdgeId> | null;
   hoverEdge: EdgeId | null;
   hoverFace: FaceId | null;
   preview: GeomView | null;    // 影子副本（预演即提交；WYSIWYG 期间整场景画它）；2026-10-21 起编辑器直接递合成好的世界视图，此字段多为 null
@@ -798,7 +801,7 @@ export class Renderer3 {
       // 池级路径：每槽一组节点 + 每 kernel 一份几何（只重建变了的池）；选中 / 悬停 = 覆盖层
       const pk = `${kid}:${rev}:${dimK}:${this.lineStyle}`;
       if (pk !== this.poolKey) { this.poolKey = pk; perf.time("syncPools", () => this.syncPools(kd as WorldView, view)); }
-      const ok = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}`;
+      const ok = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}:${view.warnEdges ? `${view.warnEdges.size}|${[...view.warnEdges].slice(0, 16).join(",")}` : ""}`;
       if (ok !== this.overlayKey) { this.overlayKey = ok; perf.time("rebuildOverlay", () => this.rebuildOverlay(kd, view)); }
       this.faceKey = ""; this.edgeKey = "";
     } else {
@@ -1496,15 +1499,15 @@ export class Renderer3 {
     }
     // 边覆盖层：选中 / 刮擦 / 悬停 → 粗线
     const pos: number[] = [], col: number[] = [];
-    const eids = new Set<EdgeId>([...view.selectionEdges, ...view.scrubEdges]);
+    const eids = new Set<EdgeId>([...view.selectionEdges, ...view.scrubEdges, ...(view.warnEdges ?? [])]);
     if (view.hoverEdge !== null) eids.add(view.hoverEdge);
     for (const id of eids) {
       if (!kd.graph.hasEdge(id)) continue;
       const e = kd.graph.edge(id);
-      const hot = view.scrubEdges.has(id) || view.hoverEdge === id;
-      if ((kd.isSoft(id) || kd.isFold(id)) && !hot) continue;   // 选中的软边不画粗线（user 2026-10-25「选中的时候软边显示了粗线」）
+      const hot = view.scrubEdges.has(id) || view.hoverEdge === id, warn = !hot && !!view.warnEdges?.has(id);
+      if ((kd.isSoft(id) || kd.isFold(id)) && !hot && !warn) continue;   // 选中的软边不画粗线（user 2026-10-25「选中的时候软边显示了粗线」）；「检查」标的软边照画
       const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
-      const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : PALETTE.edgeSelected);
+      const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : warn ? PALETTE.edgeWarn : PALETTE.edgeSelected);
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
     }
     if (pos.length) { this.setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;

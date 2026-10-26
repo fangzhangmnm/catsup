@@ -55,7 +55,7 @@ import { type SnapCurves, planGridSnap } from "./snap-grid.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
-import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
+import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
@@ -1530,7 +1530,7 @@ export class Editor {
   private repairCountCache: { key: string; n: number } | null = null;
   /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */
   repairCount(kind: RepairKind, scope: "auto" | "context" = "auto"): number {
-    const sel = this.selection, key = `${kind}|${scope}|${this._revision}|${this.repairChildren}|${sel.faces.size},${sel.edges.size},${sel.verts.size}|${[...sel.faces].slice(0, 8).join(",")}|${[...sel.edges].slice(0, 8).join(",")}|${[...this.selectedPools.keys()].join(",")}|${this.ctxKey()}`;
+    const key = `${kind}|${this.repairKey(scope, this.repairChildren)}`;
     if (this.repairCountCache?.key === key) return this.repairCountCache.n;
     const sc = this.repairScope(scope, this.repairChildren), v = this.repairDefaults(kind);
     let n = 0;
@@ -1538,52 +1538,155 @@ export class Editor {
     this.repairCountCache = { key, n };
     return n;
   }
+  private static readonly REPAIR_NAMES: Record<RepairKind, { title: string; done: (n: number, extra: number) => string; none: string }> = {
+    weld: { title: "焊接断口", done: (n) => `焊了 ${n} 处断口`, none: "没有断口（共线、只连两段的点）" },
+    planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（弯折小于阈值的硬边分开的面）" },
+    harden: { title: "折得很厉害的软边变硬", done: (n) => `把 ${n} 条折得很厉害的软边变硬了`, none: "没有折得很厉害的软边" },
+    snap: { title: "吸到格点", done: (n, e) => `吸了 ${n} 个点到格点${e ? `（${e} 条圆 / 弧整条平移，保持是圆）` : ""}`, none: "都已经在格点上了" },
+  };
+  /** 一条修复指令这一次做了什么（提交 op，不出提示）。failed = 被拒（报错已出）。 */
+  private runRepair(kind: RepairKind, scope: "auto" | "context", v: Readonly<Record<string, ParamValue>>): { count: number; text: string; scope: string; failed: boolean } {
+    const sc = this.repairScope(scope, v.children !== false), names = Editor.REPAIR_NAMES[kind];
+    let count = 0, extra = 0, skipped = 0;
+    const ops: Op[] = [];
+    for (const p of sc.pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
+    const skipText = skipped ? `；${skipped} 个点在只选了一部分的圆 / 弧上，没动` : "";
+    const scopeText = `${this.scopeText(sc)}${skipText}`;
+    if (!ops.length) return { count: 0, text: names.none, scope: scopeText, failed: false };
+    // 吸到格点的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」
+    const tally = (): { v: number; f: number } => { let nv = 0, nf = 0; for (const p of sc.pools) { const k = this.scene.kernelOf(p.at); nv += k.vertices().length; nf += k.faces().length; } return { v: nv, f: nf }; };
+    const before = kind === "snap" ? tally() : null;
+    const n0 = this.opCount;
+    for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return { count: 0, text: "", scope: scopeText, failed: true }; }
+    if (this.opCount === n0) return { count: 0, text: "", scope: scopeText, failed: true };
+    let more = "";
+    if (before) { const after = tally(), merged = before.v - after.v, folded = after.f - before.f; more = [merged > 0 ? `合并了 ${merged} 个点` : "", folded > 0 ? `面多了 ${folded} 张（被吸歪的面折开 / 三角化，折缝 = ${v.crease === "hard" ? "硬边" : "软边"}）` : ""].filter(Boolean).join("，"); if (more) more = `；${more}`; }
+    return { count, text: `${names.done(count, extra)}${more}`, scope: scopeText, failed: false };
+  }
+  /** 各修复指令自己的参数（马后炮里改）。 */
+  private repairFields(kind: RepairKind): ParamField[] {
+    if (kind === "planar") return [
+      { key: "deg", def: { kind: "number", label: "弯折小于", min: 0.5, max: 45, step: 0.5, unit: "°" } },
+      { key: "target", def: { kind: "enum", label: "拍到", values: [{ id: "mode", label: "众数平面", hint: "组里已经落在同一平面上的点最多的那张" }, { id: "median", label: "中位数", hint: "每个点到平面距离的中位数" }, { id: "mean", label: "平均数", hint: "最小二乘" }] } },
+      { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
+    ];
+    if (kind === "harden") return [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }];
+    if (kind === "snap") return [
+      { key: "step", def: { kind: "enum", label: "格子", values: this.snapStepChoices() } },
+      { key: "frame", def: { kind: "enum", label: "按", values: [{ id: "own", label: "物体自己的坐标架", hint: "组件转过、缩放过也照它自己的轴吸（同一组件的别的份不会离格）" }, { id: "world", label: "世界格点", hint: "在根上看到的那张格子" }] } },
+      { key: "crease", def: { kind: "enum", label: "折缝", values: [{ id: "soft", label: "软边", hint: "吸歪的面折开处不画线、明暗连续" }, { id: "hard", label: "硬边" }] } },
+      { key: "curves", def: { kind: "enum", label: "圆 / 弧", values: [{ id: "rigid", label: "整条平移", hint: "圆心吸上格点，保持是圆" }, { id: "points", label: "逐点吸", hint: "每个点各自吸（小圆会吸歪）" }] } },
+    ];
+    return [];
+  }
   /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
   repair(kind: RepairKind, scope: "auto" | "context" = "auto"): number { return this.step(() => {
-    const names: Record<RepairKind, { title: string; done: (n: number, extra: number) => string; none: string }> = {
-      weld: { title: "焊接断口", done: (n) => `焊了 ${n} 处断口`, none: "没有断口（共线、只连两段的点）" },
-      planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（弯折小于阈值的硬边分开的面）" },
-      harden: { title: "折得很厉害的软边变硬", done: (n) => `把 ${n} 条折得很厉害的软边变硬了`, none: "没有折得很厉害的软边" },
-      snap: { title: "吸到格点", done: (n, e) => `吸了 ${n} 个点到格点${e ? `（${e} 条圆 / 弧整条平移，保持是圆）` : ""}`, none: "都已经在格点上了" },
-    };
     const go = (v: Readonly<Record<string, ParamValue>>): number => {
-      const sc = this.repairScope(scope, v.children !== false);
-      let count = 0, extra = 0, skipped = 0;
-      const ops: Op[] = [];
-      for (const p of sc.pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
-      const skipText = skipped ? `；${skipped} 个点在只选了一部分的圆 / 弧上，没动` : "";
-      if (!ops.length) { this.host.hint(`${names[kind].none}（${this.scopeText(sc)}${skipText}）`); return 0; }
-      // 吸到格点的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」
-      const tally = (): { v: number; f: number } => { let nv = 0, nf = 0; for (const p of sc.pools) { const k = this.scene.kernelOf(p.at); nv += k.vertices().length; nf += k.faces().length; } return { v: nv, f: nf }; };
-      const before = kind === "snap" ? tally() : null;
-      const n0 = this.opCount;
-      for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
-      if (this.opCount === n0) return 0;
-      let more = "";
-      if (before) { const after = tally(), merged = before.v - after.v, folded = after.f - before.f; more = [merged > 0 ? `合并了 ${merged} 个点` : "", folded > 0 ? `面多了 ${folded} 张（被吸歪的面折开 / 三角化，折缝 = ${v.crease === "hard" ? "硬边" : "软边"}）` : ""].filter(Boolean).join("，"); if (more) more = `；${more}`; }
-      this.host.hint(`${names[kind].done(count, extra)}${more}（${this.scopeText(sc)}${skipText}）`);
-      return count;
+      const r = this.runRepair(kind, scope, v);
+      if (!r.failed) this.host.hint(`${r.text}（${r.scope}）`);
+      return r.count;
     };
     const v0: Record<string, ParamValue> = { children: this.repairChildren, ...this.repairDefaults(kind) };
     const n0 = this.opCount;
     const count = go(v0);
     if (!count) return 0;
-    const extraFields: ParamField[] = kind === "planar" ? [
-      { key: "deg", def: { kind: "number", label: "弯折小于", min: 0.5, max: 45, step: 0.5, unit: "°" } },
-      { key: "target", def: { kind: "enum", label: "拍到", values: [{ id: "mode", label: "众数平面", hint: "组里已经落在同一平面上的点最多的那张" }, { id: "median", label: "中位数", hint: "每个点到平面距离的中位数" }, { id: "mean", label: "平均数", hint: "最小二乘" }] } },
-      { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
-    ] : kind === "harden" ? [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }]
-      : kind === "snap" ? [
-        { key: "step", def: { kind: "enum", label: "格子", values: this.snapStepChoices() } },
-        { key: "frame", def: { kind: "enum", label: "按", values: [{ id: "own", label: "物体自己的坐标架", hint: "组件转过、缩放过也照它自己的轴吸（同一组件的别的份不会离格）" }, { id: "world", label: "世界格点", hint: "在根上看到的那张格子" }] } },
-        { key: "crease", def: { kind: "enum", label: "折缝", values: [{ id: "soft", label: "软边", hint: "吸歪的面折开处不画线、明暗连续" }, { id: "hard", label: "硬边" }] } },
-        { key: "curves", def: { kind: "enum", label: "圆 / 弧", values: [{ id: "rigid", label: "整条平移", hint: "圆心吸上格点，保持是圆" }, { id: "points", label: "逐点吸", hint: "每个点各自吸（小圆会吸歪）" }] } },
-      ] : [];
-    this.offerAfterthought(names[kind].title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...extraFields], v0, this.opCount - n0,
+    this.offerAfterthought(Editor.REPAIR_NAMES[kind].title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...this.repairFields(kind)], v0, this.opCount - n0,
       (v) => { this.repairChildren = v.children !== false; go(v); });
     this.host.changed(); this.draw();
     return count;
   }); }
+
+  // ---------- 修复面板（纪元账本 DT6 + DT9「检查」，排期 T6）----------
+  // user 10-25「要不所有的东西整合到一个修复面板里面？」→「面板同意」；「修复窗口里面可以加一个检查的模式，可以高亮这种小伤」（看起来平、其实折过的软边：推拉推不动、用户不知道为什么）。
+  // 住右下角参数小窗（DT28：不另做对话框），马前炮：勾几步 → 说明行按现在的样子数每步会碰几处 → 应用 = 按固定顺序跑完 = 一步撤销 → 马后炮改勾选重做。
+  // AI 定的默认（默认 + 披露，user 没拍）：焊断口 / 拍平 / 软边变硬默认勾（只动小毛病），吸到格点默认不勾（会挪点、合并点，看格子大小）；每步的细参数用各自默认值，要细调从菜单单独跑那条。
+  /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
+  private static readonly SUBTLE_FOLD_DEG = 1;
+  /** 固定顺序：先吸格点（吸完会冒出新的共线断口、新的微折），再焊断口，再拍平，最后折得很厉害的软边变硬。 */
+  private static readonly REPAIR_ORDER: readonly RepairKind[] = ["snap", "weld", "planar", "harden"];
+  /** 当前的修复面板会话（马前炮或应用后的马后炮）；它在右下角开着时才画「检查」高亮。 */
+  private repairSession: ParamSession | null = null;
+  private repairInspect = true;
+  repairPanelOpen(): boolean { return !!this.repairSession && this.param === this.repairSession && !this.repairSession.stale?.(); }
+  /** 选区 / 场景版本签名（修复计数的缓存键）。 */
+  private repairKey(scope: string, children: boolean): string {
+    const sel = this.selection;
+    return `${scope}|${this._revision}|${children}|${sel.faces.size},${sel.edges.size},${sel.verts.size}|${[...sel.faces].slice(0, 8).join(",")}|${[...sel.edges].slice(0, 8).join(",")}|${[...this.selectedPools.keys()].join(",")}|${this.ctxKey()}`;
+  }
+  private subtleCache: { key: string; byPool: Map<string, EdgeId[]>; n: number } | null = null;
+  /** 「检查」：范围里看起来平、其实折过的软边（弯折 ≤ SUBTLE_FOLD_DEG，两侧都是面；折线不算）。按池给（键 = poolKey）。 */
+  private subtleFolds(children: boolean): { byPool: Map<string, EdgeId[]>; n: number } {
+    const key = this.repairKey("auto", children);
+    if (this.subtleCache?.key === key) return this.subtleCache;
+    const byPool = new Map<string, EdgeId[]>();
+    let n = 0;
+    for (const p of this.repairScope("auto", children).pools) {
+      const k = this.scene.kernelOf(p.at), cand = new Set<EdgeId>();
+      if (p.sel) { for (const e of p.sel.edges) cand.add(e); for (const f of p.sel.faces) { const F = k.face(f); if (F) for (const r of [F.outer, ...F.holes]) for (const d of r.edges) cand.add(d.edge); } }
+      else for (const e of k.edges()) cand.add(e.id);
+      const hit = [...cand].filter((e) => { if (!k.graph.hasEdge(e) || !k.isSoft(e) || k.isFold(e) || k.graph.edge(e).faceLinks.length !== 2) return false; const b = k.bendDeg(e); return b !== null && b <= Editor.SUBTLE_FOLD_DEG; });
+      if (hit.length) { byPool.set(poolKey(p.at), hit); n += hit.length; }
+    }
+    this.subtleCache = { key, byPool, n };
+    return this.subtleCache;
+  }
+  /** 菜单上露不露「修复…」：有任何一步会碰东西，或者有要检查的小伤。 */
+  repairWorth(): boolean { return Editor.REPAIR_ORDER.some((k) => this.repairCount(k) > 0) || this.subtleFolds(this.repairChildren).n > 0; }
+  /** 「检查」高亮：画面上的边 id（每个画到这些池的槽都算）。修复面板没开 / 检查关着 = null。 */
+  private inspectHighlights(view: WorldView): Set<number> | null {
+    if (!this.repairInspect || !this.repairPanelOpen()) return null;
+    const { byPool } = this.subtleFolds(this.repairChildren);
+    if (!byPool.size) return null;
+    const out = new Set<number>();
+    for (const sl of view.slots) { const ids = byPool.get(poolKey(sl.pool)); if (ids) for (const id of ids) out.add(id + sl.index * (1 << 22)); }
+    return out;
+  }
+  /** 打开修复面板（马前炮）。 */
+  beginRepairPanel(): void {
+    this.cancelGesture();
+    const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect, snap: false, weld: true, planar: true, harden: true };
+    const stepFields = (): ParamField[] => Editor.REPAIR_ORDER.map((k) => ({ key: k, def: { kind: "bool" as const, label: k === "snap" ? `吸到格点（${fmtLen(this.gridFineStep())} 的格子）` : k === "planar" ? `拍平（弯折 < ${this.config.get("surface", "sharpDeg")}° 的硬边）` : Editor.REPAIR_NAMES[k].title } }));
+    const fields: ParamField[] = [{ key: "children", def: { kind: "bool", label: "含子物体" } }, { key: "inspect", def: { kind: "bool", label: "检查：高亮看起来平、其实折过的软边" } }, ...stepFields()];
+    const note = (v: Readonly<Record<string, ParamValue>>): string => {
+      const ch = v.children !== false, counts = Editor.REPAIR_ORDER.filter((k) => v[k]).map((k) => {
+        const sc = this.repairScope("auto", ch), dv = { ...this.repairDefaults(k), children: ch };
+        let n = 0; for (const p of sc.pools) n += this.repairPlan(k, p.at, p.sel, dv, p.xf).count;
+        return `${Editor.REPAIR_NAMES[k].title} ${n}`;
+      });
+      const sub = this.subtleFolds(ch).n;
+      return `会碰（按现在的样子数，前一步做完后一步可能变）：${counts.length ? counts.join(" · ") : "没勾"}；检查：${sub ? `${sub} 条微折软边${v.inspect ? "（橙色高亮）" : ""}` : "没有微折软边"}`;
+    };
+    const runAll = (v: Readonly<Record<string, ParamValue>>): string[] => {
+      const parts: string[] = [];
+      for (const k of Editor.REPAIR_ORDER) {
+        if (!v[k]) continue;
+        const r = this.runRepair(k, "auto", { ...this.repairDefaults(k), children: v.children !== false });
+        if (r.failed) { parts.push(`${Editor.REPAIR_NAMES[k].title}：被拒，后面的没做`); break; }
+        if (r.count) parts.push(r.text);
+      }
+      return parts;
+    };
+    const apply = (): void => { this.step(() => {
+      this.repairChildren = vals.children !== false; this.repairInspect = !!vals.inspect;
+      const n0 = this.opCount, parts = runAll(vals), sc = this.scopeText(this.repairScope("auto", vals.children !== false));
+      if (this.opCount === n0) { this.host.hint(`修复：没有要改的（${sc}）`); this.openParamSession(null); return; }
+      const after = afterthought({ title: "修复", fields: [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...stepFields()], values: { ...vals }, nOps: this.opCount - n0, opCount: () => this.opCount, undoN: (n) => this.undoN(n),
+        redo: (v) => { this.repairChildren = v.children !== false; const ps = runAll(v); this.host.hint(`修复：${ps.length ? ps.join("；") : "没有要改的"}（${this.scopeText(this.repairScope("auto", v.children !== false))}）`); },
+        note: (v) => { const sub = this.subtleFolds(v.children !== false).n; return sub ? `还剩 ${sub} 条微折软边（橙色高亮）` : "没有剩下的微折软边"; } });
+      this.repairSession = after; this.openParamSession(after);
+      this.host.hint(`修复：${parts.join("；")}（${sc}）；右下角还能改勾选重做`);
+      this.host.changed(); this.draw();
+    }); };
+    const session: ParamSession = {
+      phase: "before", title: "修复", fields, buttons: [{ key: "cancel", label: "取消" }, { key: "apply", label: "应用", primary: true }], values: vals,
+      get note() { return note(vals); },
+      set: (key, v) => { vals[key] = v; if (key === "children") this.repairChildren = v !== false; if (key === "inspect") this.repairInspect = !!v; this.host.changed(); this.draw(); },
+      press: (key) => { if (key === "apply") apply(); else if (key === "cancel") { this.openParamSession(null); this.host.hint("修复已取消"); this.draw(); } },
+    };
+    this.repairSession = session; this.openParamSession(session);
+    this.host.hint("修复：右下角勾要做的几步，说明行数着每步会碰几处；「检查」把看起来平、其实折过的软边标成橙色");
+    this.draw();
+  }
   /** 兼容老入口（☰「焊接全部断口」/ 选区「焊接断口」）。 */
   weldAllBreaks(scope: "auto" | "context" = "auto"): number { return this.repair("weld", scope); }
   /** 兼容老入口（☰「拍平几乎共面的面」/ 选区「拍平」）。 */
@@ -2479,6 +2582,7 @@ export class Editor {
       selectionEdges: selE,
       selectionFaces: selF,
       scrubEdges: new Set<number>(),   // 橡皮模块经 viewExtras 覆盖（擦一段 = 整条，高亮也整条）
+      warnEdges: this.inspectHighlights(view),   // 修复面板「检查」：微折软边（DT9）
       hoverEdge: this.hoverEdge !== null ? g(this.hoverEdge) : null,
       hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
       preview: null,

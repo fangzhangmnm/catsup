@@ -28,6 +28,7 @@ export declare const PALETTE: {
     readonly edgeWire: 1118481;
     readonly edgeSelected: 2845872;
     readonly edgeHot: 13382451;
+    readonly edgeWarn: 14251782;
     readonly grid: 14276303;
     /** 网格正片叠底的系数色（× 背景 ≈ 原 grid 灰）：主线 / 细线；压在深色材质上只暗 ~10% / ~5%。 */
     readonly gridMajor: 14934492;
@@ -50,6 +51,8 @@ export interface ViewState {
     selectionEdges: ReadonlySet<EdgeId>;
     selectionFaces: ReadonlySet<FaceId>;
     scrubEdges: ReadonlySet<EdgeId>;
+    /** 修复面板「检查」要标出来的边（橙色；软边也画——标的就是看起来平、其实折过的软边，DT9）。null / 缺 = 没有。 */
+    warnEdges?: ReadonlySet<EdgeId> | null;
     hoverEdge: EdgeId | null;
     hoverFace: FaceId | null;
     preview: GeomView | null;
