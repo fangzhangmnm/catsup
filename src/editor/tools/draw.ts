@@ -108,7 +108,7 @@ export class LineTool extends DrawTool {
     const a = this.anchor!, b = ctx.cursor() ?? a;
     if (dist3(a, b) < MIN_GESTURE_LEN) { this.finish(ctx); return; }
     const n0 = ctx.opCount(), at0 = ctx.activePool();
-    const evs = ctx.commitOp({ op: "addEdges", at: at0, segs: [[ctx.toLocal(a), ctx.toLocal(b)]] });
+    const evs = ctx.commitOp({ op: "addEdges", at: at0, segs: [[ctx.toLocal(a), ctx.toLocal(b)]], harden: true });   // 描过软边 = 变硬
     this.finish(ctx);   // 落定不再自动充能两端（充能只活到下一次按下；锚点的轴线本来就在）
     ctx.recordLast({ kind: "line", ops: ctx.opCount() - n0, at: at0, a, b });
     if (evs.length > 0) return;
@@ -146,7 +146,7 @@ export class RectTool extends DrawTool {
     const segs = rectSegmentsOnPlane(plane.plane, plane.basis, rectOpposite(anchor, b, from), b);
     const n0 = ctx.opCount(), at0 = ctx.activePool();
     this.finish(ctx);
-    if (segs.length) { ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]) }); ctx.recordLast({ kind: "rect", ops: ctx.opCount() - n0, at: at0, plane, anchor, corner: b, from }); }
+    if (segs.length) { ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]), harden: true }); ctx.recordLast({ kind: "rect", ops: ctx.opCount() - n0, at: at0, plane, anchor, corner: b, from }); }
   }
 }
 

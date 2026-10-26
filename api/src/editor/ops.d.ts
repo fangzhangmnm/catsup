@@ -16,11 +16,14 @@ export type Op = {
 } | {
     op: "preset";
     name: string;
-} | {
+}
+/** harden（2026-10-26，user「画线描过一条软边，就把它变硬……这个确实是应该有的行为」）：落在这些线段上的边去掉软 + 平滑（画线 / 矩形描过看不见的软边 = 想要一条看得见的边）。 */
+ | {
     op: "addEdges";
     at?: PoolRef;
     segs: Seg[];
     curve?: boolean | CurveSpec;
+    harden?: boolean;
 }
 /** 炸开曲线（SU Explode Curve）：edges 里每条边所在的曲线散成普通边。 */
  | {

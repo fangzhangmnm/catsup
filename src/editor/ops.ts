@@ -12,7 +12,9 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { dot3, normalize3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
+import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
+import { edgesAlongSegs } from "../kernel/curves.ts";
+import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PlanarTarget, planPlanar } from "./planar.ts";
@@ -30,7 +32,8 @@ export type FaceKey = Pt3[];
 export type Op =
   | { op: "clear" }
   | { op: "preset"; name: string }
-  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean | CurveSpec }
+  /** harden（2026-10-26，user「画线描过一条软边，就把它变硬……这个确实是应该有的行为」）：落在这些线段上的边去掉软 + 平滑（画线 / 矩形描过看不见的软边 = 想要一条看得见的边）。 */
+  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean | CurveSpec; harden?: boolean }
   /** 炸开曲线（SU Explode Curve）：edges 里每条边所在的曲线散成普通边。 */
   | { op: "explodeCurves"; at: PoolRef; edges: EdgeKey[] }
   /** 焊接（B19）：edges = 有序链的各边（坐标寻址）→ 一条曲线。 */
@@ -204,7 +207,16 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const preset = PRESETS.find((p) => p.name === op.name);
       return { scene: new Scene(k2), events: preset ? applyPreset(k2, preset).flat() : [] };
     }
-    case "addEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.addEdges(op.segs, op.curve ? { curve: op.curve } : undefined) }; }
+    case "addEdges": {
+      const { kernel } = poolOf(s, op.at);
+      const events = kernel.addEdges(op.segs, op.curve ? { curve: op.curve } : undefined);
+      if (op.harden) {
+        const segs = op.segs.map(([a, b]) => ({ a: { x: a.x, y: a.y, z: a.z ?? 0 }, b: { x: b.x, y: b.y, z: b.z ?? 0 } }));
+        const ids = edgesAlongSegs(kernel.graph, segs, (pa, pb, a, b) => pointOnSegment3(pa, a, b, INSERT_TOL) && pointOnSegment3(pb, a, b, INSERT_TOL)).filter((e) => kernel.isSoft(e) || kernel.isSmooth(e));
+        if (ids.length) { kernel.setEdgeLayer("soft", ids, false); kernel.setEdgeLayer("smooth", ids, false); }
+      }
+      return { scene: s, events };
+    }
     case "weldEdges": { const { kernel } = poolOf(s, op.at); return { scene: s, events: kernel.weldEdges(op.edges.map((e) => resolveEdge(kernel, e))) }; }
     case "dissolveVertices": { const { kernel } = poolOf(s, op.at); kernel.dissolveVertices(op.points.map((q) => resolveVertex(kernel, q))); return { scene: s, events: [] }; }
     case "batch": { let sc = s; const events: FaceEvent[] = []; for (const o of op.ops) { const r = applyOp(sc, o); sc = r.scene; events.push(...r.events); } return { scene: sc, events }; }
@@ -531,7 +543,7 @@ export function describeOp(op: Op): string {
   switch (op.op) {
     case "clear": return "clear";
     case "preset": return `preset ${op.name}`;
-    case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? (typeof op.curve === "object" ? ` curve:${op.curve.kind}` : " curve") : ""}${at}`;
+    case "addEdges": return `addEdges segs=${op.segs.length}${op.curve ? (typeof op.curve === "object" ? ` curve:${op.curve.kind}` : " curve") : ""}${op.harden ? " harden" : ""}${at}`;
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;

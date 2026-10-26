@@ -56,4 +56,29 @@ describe("weld: 焊接", () => {
     const back = Kernel.fromBrep(readCatsup(writeCatsup(newDocument(k.toBrep(), "t"))).root.brep);
     eq(back.curves().length, 1); eq(back.curves()[0].kind, "circle"); eq(back.curves()[0].edges.length, 24);
   });
+  it("认回圆（2026-10-26，user「自动认回圆和弧同意」）：等分圆弧焊 = 圆弧带圆心半径；闭合正十二边形 = 圆；段长不一 / 不在圆上 = 折线", () => {
+    const ring = (n: number, from: number, to: number, r = 2, c = { x: 1, y: -1, z: 0.5 }): PtIn[] => Array.from({ length: n + 1 }, (_, i) => { const a = from + ((to - from) * i) / n; return { x: c.x + r * Math.cos(a), y: c.y + r * Math.sin(a), z: c.z }; });
+    const chain = (pts: PtIn[], closed: boolean): Kernel => { const k = new Kernel(); const segs: [PtIn, PtIn][] = []; for (let i = 0; i + 1 < pts.length; i++) segs.push([pts[i], pts[i + 1]]); if (closed) segs.push([pts[pts.length - 1], pts[0]]); k.addEdges(segs); return k; };
+    // 开：6 段 90° 圆弧
+    const k1 = chain(ring(6, 0, Math.PI / 2), false);
+    const p1 = planWeld(k1, k1.edges().map((e) => e.id));
+    assert(typeof p1 !== "string", String(p1));
+    const s1 = (p1 as { spec: CurveSpec }).spec;
+    eq(s1.kind, "arc"); assert(!!s1.params && Math.abs(s1.params.radius - 2) < 1e-5 && Math.hypot(s1.params.center.x - 1, s1.params.center.y + 1, s1.params.center.z - 0.5) < 1e-5, JSON.stringify(s1.params));
+    eq(s1.params!.segments, 6);
+    k1.weldEdges(k1.edges().map((e) => e.id));
+    const c1 = k1.curveById(k1.curveOf(k1.edges()[0].id)!)!;
+    eq(c1.kind, "arc"); assert(!!c1.params, "登记上了圆弧参数（圆心吸附 / 偏移都认）");
+    // 闭：正十二边形
+    const pts12 = ring(12, 0, 2 * Math.PI).slice(0, 12);
+    const k2 = chain(pts12, true);
+    const p2 = planWeld(k2, k2.edges().map((e) => e.id)) as { spec: CurveSpec };
+    eq(p2.spec.kind, "circle"); eq(p2.spec.params!.segments, 12);
+    // 段长不一（同一个圆上，角度不等分）
+    const k3 = chain([0, 0.3, 0.9, 1.0, 1.6].map((a) => ({ x: 2 * Math.cos(a), y: 2 * Math.sin(a), z: 0 })), false);
+    eq((planWeld(k3, k3.edges().map((e) => e.id)) as { spec: CurveSpec }).spec.kind, "polyline");
+    // 不在圆上（等长折线 zigzag）
+    const k4 = chain([{ x: 0, y: 0 }, { x: 1, y: 0.5 }, { x: 2, y: 0 }, { x: 3, y: 0.5 }, { x: 4, y: 0 }], false);
+    eq((planWeld(k4, k4.edges().map((e) => e.id)) as { spec: CurveSpec }).spec.kind, "polyline");
+  });
 });

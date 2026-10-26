@@ -54,7 +54,7 @@ import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } fr
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
-import { type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
+import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
@@ -182,6 +182,10 @@ export type LastGesture =
 
 /** 样本环的一帧（抬笔结算 A21）：屏幕位置 + 当时的手势量。 */
 interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
+
+/** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
+type RepairKind = "weld" | "planar" | "harden";
+interface RepairScope { pools: { at: PoolRef; sel: Selection | null }[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -1281,66 +1285,142 @@ export class Editor {
    * 范围里的断口（共线、只连两段、两边挂的面一样 = 画面上的小鼓包）：有散几何选区 = 选区里的点；scope = "context" 或没选 = 当前在编辑的物体里全部。
    * 纪元排期 T7 / DT5（user「他们语义上就是一个东西，只是作用域……不同」：和焊边橡皮的共轴那支同一个动词）。
    */
-  breaksInScope(scope: "selection" | "context" = this.hasGeometrySelection() || this.hasPointSelection() ? "selection" : "context"): VertexId[] {
-    const k = this.kernel;
-    let cand: Iterable<VertexId>;
-    if (scope === "selection") cand = new Set(moveTargetsSelection(k, this.selection));
-    else cand = k.vertices().map((v) => v.id);
-    const out: VertexId[] = [];
-    for (const vid of cand) { const v = k.graph.hasVertex(vid) ? k.graph.vertex(vid) : null; if (v && v.edges.size === 2 && k.isBreakJunction(vid)) out.push(vid); }
+  // ---------- 修复指令：作用范围 + 传播到子物体（DT85）----------
+  // user 10-26：有选区 = 只对选中的、没选 = 当前在编辑的整个物体（「可以」）；「默认传播，同一个组件只修一次，锁着的跳过，面板里放『含子物体』开关。同意，
+  // 现在你差不多知道我的默认+披露原则是怎么样的了」——默认做最有用的、提示行说清碰了什么、小窗给开关。
+  /** 含子物体（会话记住；参数小窗里改它）。 */
+  private repairChildren = true;
+  /**
+   * 修复指令修哪些池。有选区 = 活动池里选中的面 / 边 / 点 + 选中的组 / 组件；没选 = 当前在编辑的整个物体（活动池；含子物体时 + 它下面的组、组件，一层层往里）。
+   * 组件按定义去重：几条路径到同一个定义只修一次（没有环——放实例时就拒了）。锁着的那份不往里走；别的没锁的路能到照修。
+   * 组不是物体，选中的组连同它下面的组一起算；组里放的组件看「含子物体」。
+   */
+  private repairScope(scope: "auto" | "context", children: boolean): RepairScope {
+    const s = this.scene, ctxDef = s.defOfContext(this.ctx), active = this.activePool();
+    const geoSel = this.selection.faces.size > 0 || this.selection.edges.size > 0 || this.selection.verts.size > 0;
+    const mode: "selection" | "context" = scope === "auto" && (geoSel || this.selectedPools.size > 0) ? "selection" : "context";
+    const out: RepairScope = { pools: [], mode, components: 0, copies: 0, locked: 0 };
+    const seenPool = new Set<string>(), seenDef = new Set<DefId>([ctxDef]);
+    const addPool = (at: PoolRef, sel: Selection | null): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ at, sel }); };
+    const groupsUnder = (def: DefId, gid: GroupId | null): GroupId[] => {
+      const body = s.def(def).body;
+      if (body.kind !== "brep") return [];
+      const res: GroupId[] = [];
+      for (const g of body.groups.values()) { let p: GroupId | null = g.parent; for (let i = 0; i < 64 && p !== gid && p !== null; i++) p = body.groups.get(p)?.parent ?? null; if (gid === null || p === gid) res.push(g.id); }
+      return res;
+    };
+    const addInst = (inst: { def: DefId; locked?: boolean }): void => {
+      if (inst.locked) { out.locked++; return; }
+      if (seenDef.has(inst.def)) return;
+      seenDef.add(inst.def); out.components++; out.copies += s.instanceCount(inst.def);
+      addPool({ def: inst.def, group: null }, null);
+      for (const g of groupsUnder(inst.def, null)) addPool({ def: inst.def, group: g }, null);
+      if (children) for (const i of s.def(inst.def).instances.values()) addInst(i);
+    };
+    const instsIn = (def: DefId, groups: ReadonlySet<GroupId | null>): void => { for (const i of s.def(def).instances.values()) if (groups.has(i.parent)) addInst(i); };
+    if (mode === "context") {
+      addPool(active, null);
+      if (children) {
+        const gs = groupsUnder(ctxDef, active.group);
+        for (const g of gs) addPool({ def: ctxDef, group: g }, null);
+        instsIn(ctxDef, new Set<GroupId | null>([active.group, ...gs]));
+      }
+      return out;
+    }
+    if (geoSel) addPool(active, this.selection);
+    for (const p of this.selectedPools.values()) {
+      if (p.kind === "group") {
+        const gs = [p.group, ...groupsUnder(ctxDef, p.group)];
+        for (const g of gs) addPool({ def: ctxDef, group: g }, null);
+        if (children) instsIn(ctxDef, new Set<GroupId | null>(gs));
+      } else { const inst = s.def(ctxDef).instances.get(p.instance); if (inst) addInst(inst); }
+    }
     return out;
   }
-  /** 焊接全部断口（一次 = 一步）。返回焊了几处。 */
-  weldAllBreaks(scope?: "selection" | "context"): number { return this.step(() => {
-    const ids = this.breaksInScope(scope), k = this.kernel;
-    if (!ids.length) { this.host.hint(scope === "selection" ? "选区里没有断口" : "没有断口（共线、只连两段的点）"); return 0; }
-    const n0 = this.opCount;
-    this.commitOp({ op: "dissolveVertices", at: this.activePool(), points: ids.map((v) => k.graph.pt(v)) });
-    if (this.opCount === n0) return 0;
-    this.host.hint(`焊了 ${ids.length} 处断口`);
-    this.host.changed(); this.draw();
-    return ids.length;
-  }); }
-  /** 拍平的作用域：选了面 = 选中的面，否则 = 当前在编辑的物体里全部。 */
-  private planarScope(scope?: "selection" | "context"): FaceId[] | null {
-    const k = this.kernel, useSel = scope === "selection" || (scope === undefined && this.selection.faces.size > 0);
-    return useSel ? [...this.selection.faces].filter((f) => k.face(f)) : null;
+  /** 提示行的「作用于」那半句（披露）。 */
+  private scopeText(sc: RepairScope): string {
+    const where = sc.mode === "selection" ? "选中的" : "整个物体";
+    const parts = [sc.components ? `含 ${sc.components} 个组件、共 ${sc.copies} 份` : "", sc.locked ? `锁着的 ${sc.locked} 个跳过` : ""].filter(Boolean);
+    return `作用于：${where}${parts.length ? `；${parts.join("；")}` : ""}`;
   }
-  /** 范围里有几组要拍平（菜单数字用；O(范围)）。 */
-  planarGroupsInScope(scope?: "selection" | "context"): number {
-    return planPlanar(this.kernel, this.planarScope(scope), { ...PLANAR_DEFAULTS, deg: this.config.get("surface", "sharpDeg"), eraseInner: false }).groups.length;
+  /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
+  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>): { ops: Op[]; count: number; extra?: number } {
+    const k = this.scene.kernelOf(at);
+    if (kind === "weld") {
+      const cand = sel ? new Set(moveTargetsSelection(k, sel)) : k.vertices().map((x) => x.id);
+      const ids: VertexId[] = [];
+      for (const vid of cand) { const x = k.graph.hasVertex(vid) ? k.graph.vertex(vid) : null; if (x && x.edges.size === 2 && k.isBreakJunction(vid)) ids.push(vid); }
+      return ids.length ? { ops: [{ op: "dissolveVertices", at, points: ids.map((x) => k.graph.pt(x)) }], count: ids.length } : { ops: [], count: 0 };
+    }
+    if (kind === "planar") {
+      const faces = sel ? [...sel.faces].filter((f) => k.face(f)) : null;
+      if (sel && !faces!.length) return { ops: [], count: 0 };
+      const o: PlanarOptions = { deg: Number(v.deg) || PLANAR_DEFAULTS.deg, target: (String(v.target ?? PLANAR_DEFAULTS.target) as PlanarTarget), eraseInner: v.eraseInner === undefined ? PLANAR_DEFAULTS.eraseInner : !!v.eraseInner };
+      const plan = planPlanar(k, faces, o);
+      return plan.groups.length ? { ops: [{ op: "makePlanar", at, faces: faces ? faces.map((f) => faceKey(k, f)) : [], deg: o.deg, target: o.target, eraseInner: o.eraseInner }], count: plan.groups.length, extra: o.eraseInner ? plan.erase.length : 0 } : { ops: [], count: 0 };
+    }
+    // harden：折得很厉害（弯折 > deg）却还标着软 / 平滑的边 → 变硬（user 10-26 旧文件案：折 90° 的软边 = 墙上渐变 + 画线描不上）
+    const deg = Number(v.deg) || 60;
+    const pool = new Set<EdgeId>();
+    if (sel) { for (const e of sel.edges) pool.add(e); for (const f of sel.faces) { const F = k.face(f); if (F) for (const r of [F.outer, ...F.holes]) for (const d of r.edges) pool.add(d.edge); } }
+    else for (const e of k.edges()) pool.add(e.id);
+    const hit = [...pool].filter((e) => { if (!k.graph.hasEdge(e) || !(k.isSoft(e) || k.isSmooth(e))) return false; const b = k.bendDeg(e); return b !== null && b > deg; });
+    return hit.length ? { ops: [{ op: "setEdgeLayers", at, edges: hit.map((e) => edgeKey(k, e)), layers: ["soft", "smooth"], on: false }], count: hit.length } : { ops: [], count: 0 };
   }
-  /**
-   * 拍平（纪元排期 T9 / DT7）：弯折小于阈值的硬边分开的那些面，每组拍到同一张平面上（默认众数平面）、擦掉组里的内线；一次 = 一步。
-   * 马后炮能改阈值 / 拍到哪 / 擦不擦内线。零破面：结算出破面整步拒绝（ops.ts PlanarBurst）。返回拍了几组。
-   */
-  makePlanar(scope?: "selection" | "context"): number { return this.step(() => {
-    const k = this.kernel, at = this.activePool(), faces = this.planarScope(scope);
-    const keys = faces ? faces.map((f) => faceKey(k, f)) : [];
-    const o0: PlanarOptions = { ...PLANAR_DEFAULTS, deg: this.config.get("surface", "sharpDeg") };
-    let groups = 0;
-    const go = (o: PlanarOptions): number => {
-      const kk = this.kernel, sc = keys.length ? keys.map((fk) => { try { return resolveFace(kk, fk); } catch { return -1; } }).filter((f) => f >= 0) : null;
-      const plan = planPlanar(kk, sc, o);
-      if (!plan.groups.length) { this.host.hint(`没有要拍平的面（弯折小于 ${o.deg}° 的硬边分开的面）`); return 0; }
-      const n0 = this.opCount;
-      this.commitOp({ op: "makePlanar", at, faces: keys, deg: o.deg, target: o.target, eraseInner: o.eraseInner });
-      if (this.opCount === n0) return 0;
-      const nf = plan.groups.reduce((a, g) => a + g.length, 0);
-      this.host.hint(`拍平了 ${plan.groups.length} 组（${nf} 张面）${o.eraseInner ? `，擦掉 ${plan.erase.length} 条内线` : ""}`);
-      return plan.groups.length;
+  private static readonly REPAIR_DEFAULTS: Record<RepairKind, Record<string, ParamValue>> = {
+    weld: {},
+    planar: { deg: PLANAR_DEFAULTS.deg, target: PLANAR_DEFAULTS.target, eraseInner: PLANAR_DEFAULTS.eraseInner },
+    harden: { deg: 60 },
+  };
+  private repairDefaults(kind: RepairKind): Record<string, ParamValue> { return kind === "planar" ? { ...Editor.REPAIR_DEFAULTS.planar, deg: this.config.get("surface", "sharpDeg") } : { ...Editor.REPAIR_DEFAULTS[kind] }; }
+  private repairCountCache: { key: string; n: number } | null = null;
+  /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */
+  repairCount(kind: RepairKind, scope: "auto" | "context" = "auto"): number {
+    const sel = this.selection, key = `${kind}|${scope}|${this._revision}|${this.repairChildren}|${sel.faces.size},${sel.edges.size},${sel.verts.size}|${[...sel.faces].slice(0, 8).join(",")}|${[...sel.edges].slice(0, 8).join(",")}|${[...this.selectedPools.keys()].join(",")}|${this.ctxKey()}`;
+    if (this.repairCountCache?.key === key) return this.repairCountCache.n;
+    const sc = this.repairScope(scope, this.repairChildren), v = this.repairDefaults(kind);
+    let n = 0;
+    for (const p of sc.pools) n += this.repairPlan(kind, p.at, p.sel, v).count;
+    this.repairCountCache = { key, n };
+    return n;
+  }
+  /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
+  repair(kind: RepairKind, scope: "auto" | "context" = "auto"): number { return this.step(() => {
+    const names: Record<RepairKind, { title: string; done: (n: number, extra: number) => string; none: string }> = {
+      weld: { title: "焊接断口", done: (n) => `焊了 ${n} 处断口`, none: "没有断口（共线、只连两段的点）" },
+      planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（弯折小于阈值的硬边分开的面）" },
+      harden: { title: "折得很厉害的软边变硬", done: (n) => `把 ${n} 条折得很厉害的软边变硬了`, none: "没有折得很厉害的软边" },
     };
+    const go = (v: Readonly<Record<string, ParamValue>>): number => {
+      const sc = this.repairScope(scope, v.children !== false);
+      let count = 0, extra = 0;
+      const ops: Op[] = [];
+      for (const p of sc.pools) { const r = this.repairPlan(kind, p.at, p.sel, v); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; }
+      if (!ops.length) { this.host.hint(`${names[kind].none}（${this.scopeText(sc)}）`); return 0; }
+      const n0 = this.opCount;
+      for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
+      if (this.opCount === n0) return 0;
+      this.host.hint(`${names[kind].done(count, extra)}（${this.scopeText(sc)}）`);
+      return count;
+    };
+    const v0: Record<string, ParamValue> = { children: this.repairChildren, ...this.repairDefaults(kind) };
     const n0 = this.opCount;
-    groups = go(o0);
-    if (!groups) return 0;
-    this.offerAfterthought("拍平", [
+    const count = go(v0);
+    if (!count) return 0;
+    const extraFields: ParamField[] = kind === "planar" ? [
       { key: "deg", def: { kind: "number", label: "弯折小于", min: 0.5, max: 45, step: 0.5, unit: "°" } },
       { key: "target", def: { kind: "enum", label: "拍到", values: [{ id: "mode", label: "众数平面", hint: "组里已经落在同一平面上的点最多的那张" }, { id: "median", label: "中位数", hint: "每个点到平面距离的中位数" }, { id: "mean", label: "平均数", hint: "最小二乘" }] } },
       { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
-    ], { deg: o0.deg, target: o0.target, eraseInner: o0.eraseInner }, this.opCount - n0, (v) => { go({ deg: Number(v.deg) || o0.deg, target: (String(v.target) as PlanarTarget), eraseInner: !!v.eraseInner }); });
+    ] : kind === "harden" ? [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }] : [];
+    this.offerAfterthought(names[kind].title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...extraFields], v0, this.opCount - n0,
+      (v) => { this.repairChildren = v.children !== false; go(v); });
     this.host.changed(); this.draw();
-    return groups;
+    return count;
   }); }
+  /** 兼容老入口（☰「焊接全部断口」/ 选区「焊接断口」）。 */
+  weldAllBreaks(scope: "auto" | "context" = "auto"): number { return this.repair("weld", scope); }
+  /** 兼容老入口（☰「拍平几乎共面的面」/ 选区「拍平」）。 */
+  makePlanar(scope: "auto" | "context" = "auto"): number { return this.repair("planar", scope); }
   /** 选中的组件里有被缩放过的（应用缩放钮出不出）。 */
   hasScaledInstanceSelection(): boolean { return this.scaledInstancePicks().length > 0; }
   private scaledInstancePicks(): InstId[] {
@@ -1791,7 +1871,7 @@ export class Editor {
       case "line": {
         if (v.kind !== "length") break;
         const b = add3(L.a, scale3(normalize3(sub3(L.b, L.a)), v.m));
-        this.commitOp({ op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]] });
+        this.commitOp({ op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]], harden: true });
         this.last = { ...L, ops: this.opCount - n0, b };
         { const HL = this.handlers.line; if (this._tool === "line" && HL) { HL.vcbContinue?.(this.toolCtx, b); this.armed = HL.active(); } }
         msg = `线长 ${fmtLen(Math.abs(v.m))}`;
@@ -1802,7 +1882,7 @@ export class Editor {
         const d = sub3(L.corner, L.anchor), [u, w] = Editor.rectAxes(L.plane.basis), from = L.from ?? "corner", k = from === "center" ? 0.5 : 1;
         const corner = add3(L.anchor, add3(scale3(u, sign(dot3(d, u)) * Math.abs(v.a) * k), scale3(w, sign(dot3(d, w)) * Math.abs(v.b) * k)));
         const segs = rectSegmentsOnPlane(L.plane.plane, L.plane.basis, rectOpposite(L.anchor, corner, from), corner);
-        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
         this.last = { ...L, ops: this.opCount - n0, corner };
         msg = `矩形 ${fmtLen(Math.abs(v.a))} × ${fmtLen(Math.abs(v.b))}`;
         break;
@@ -1815,7 +1895,7 @@ export class Editor {
         else if (v.kind === "length") c = add3(L.b, scale3(rrectDirAt(L.a, L.b, n, th), v.m));
         else break;
         const segs = rrectSegments(L.a, L.b, c);
-        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]) });
+        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
         this.last = { ...L, ops: this.opCount - n0, c };
         msg = `旋转矩形 ${fmtLen(dist(L.a, L.b))} × ${fmtLen(dist(L.b, c))} · ${fmtDeg(rrectThetaOf(L.a, L.b, n, c))}`;
         break;

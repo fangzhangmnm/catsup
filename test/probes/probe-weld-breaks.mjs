@@ -12,8 +12,8 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "addEdges", segs: [[P(0, 0), P(1, 0)], [P(1, 0), P(2, 0)], [P(2, 0), P(2, 1)], [P(2, 1), P(0, 1)], [P(0, 1), P(0, 0)]] });
   e.commitOp({ op: "addEdges", segs: [[P(4, 0), P(5, 0)], [P(5, 0), P(6, 0)]] });
   const count = () => ({ edges: e.kernel.edges().length, faces: e.kernel.faces().length, ticks: e.breakTicks().length });
-  const out = { before: count(), scopeAll: e.breaksInScope("context").length };
-  out.welded = e.weldAllBreaks("context"); out.after = count();
+  const out = { before: count(), scopeAll: e.repairCount("weld", "context") };
+  out.welded = e.repair("weld", "context"); out.after = count();
   e.undo(); await sleep(20); out.undone = count();
   // 只选散线
   e.cancel();

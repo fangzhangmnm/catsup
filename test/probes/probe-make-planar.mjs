@@ -11,8 +11,8 @@ const res = await page.evaluate(async () => {
   const loop = (pts) => e.commitOp({ op: "addEdges", segs: pts.map((p, i) => [p, pts[(i + 1) % pts.length]]) });
   loop([P(0, 0, 0.5), P(2, 0, 0.5), P(2, 1, 0.5), P(0, 1, 0.5)]);
   loop([P(2, 0, 0.5), P(3, 0, 0.51), P(3, 1, 0.51), P(2, 1, 0.5)]);
-  const out = { groups: e.planarGroupsInScope("context"), faces0: e.kernel.faces().length };
-  e.makePlanar("context"); await sleep(30);
+  const out = { groups: e.repairCount("planar", "context"), faces0: e.kernel.faces().length };
+  e.repair("planar", "context"); await sleep(30);
   out.faces1 = e.kernel.faces().length; out.flat = e.kernel.vertices().every((v) => Math.abs(v.z - 0.5) < 1e-9);
   out.hint = document.querySelector("#hint")?.textContent ?? "";
   const pp = e.paramPanel(); out.panel = pp ? { title: pp.title, fields: pp.fields.map((f) => f.key) } : null;

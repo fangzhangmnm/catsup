@@ -31,6 +31,8 @@ export declare abstract class EdgeScrubTool implements ToolHandler {
     viewExtras(ctx: ToolCtx): Partial<ViewState>;
     /** 按下那一刻（子类读修饰键 / 出提示）。 */
     protected begin(_ctx: ToolCtx, _ev: ToolPointer): void;
+    /** 这一刮要不要也拾软边（硬化的时候要：软边平时点不中，不然永远硬化不了）。 */
+    protected pickSoft(_ctx: ToolCtx): boolean;
     protected scrubAt(ctx: ToolCtx, view: WorldView, sx: number, sy: number): void;
     /** 抬笔：拿着刮集做事（提交 op、出提示）。 */
     protected abstract commit(ctx: ToolCtx, ids: EdgeId[]): void;

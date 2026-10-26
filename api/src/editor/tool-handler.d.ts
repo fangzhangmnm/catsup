@@ -51,7 +51,10 @@ export interface ToolCtx {
     /** 屏幕点下的面（全局 id）。 */
     pickFace(sx: number, sy: number): FaceId | undefined;
     /** 屏幕点下的实体（顶点 > 边 > 面，全局 id；0.11 卷尺要知道起点落在哪条边上）。 */
-    pick(sx: number, sy: number): HitResult3;
+    /** opts.soft = 软边也拾（平时软边点不中；硬化的橡皮要碰得到它）。 */
+    pick(sx: number, sy: number, opts?: {
+        soft?: boolean;
+    }): HitResult3;
     classify(view: WorldView, hit: HitResult3): Classified;
     /** 吸附求解（世界视图 + 帧 + ε 由底座配好）。 */
     snap(view: WorldView, sx: number, sy: number, q: AlignQuery): Snap3;

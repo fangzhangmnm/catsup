@@ -32,6 +32,7 @@ import "./import-glb.test.ts";   // T11 导入外来 glb + 三角 → 膜 + 多�
 import "./two-sides.test.ts";   // DT8 两个表面 + 按侧灌（2026-10-26 Opus，周二 Fable 审）
 import "./smooth-normals.test.ts";   // DT11 平滑边法向（2026-10-26 Opus）
 import "./profile-edges.test.ts";   // F-87 轮廓线判定（2026-10-26 Opus）
+import "./retrace-harden.test.ts";   // 画线描过软边 = 变硬（2026-10-26 Opus）
 import "./curves.test.ts";   // 曲线实体（0.10，2026-10-24）
 import "./guides.test.ts";   // 参考几何 + 上下文帧（0.11 尺规纪元，2026-10-24）
 import "./tape.test.ts";     // 卷尺（0.11 尺规纪元 ③）

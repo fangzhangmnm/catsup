@@ -1,5 +1,5 @@
 import { Kernel } from "../kernel/kernel.ts";
-import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
+import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3 } from "./pick.ts";
@@ -16,7 +16,7 @@ import { type LockAxis, type PlaneLock } from "./locks.ts";
 import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
-import type { ImportScene } from "../format/gltf-import.ts";
+import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
@@ -234,6 +234,8 @@ export type LastGesture = {
     ref: Pt3;
     angle: number;
 };
+/** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
+type RepairKind = "weld" | "planar" | "harden";
 export declare class Editor {
     private canvas;
     private host;
@@ -517,8 +519,9 @@ export declare class Editor {
     /** 外部喂线段（OBJ 导入等）：一次 addEdges = 一个手势（进活动池，世界坐标 → 本地）。 */
     addSegments(segs: [PtIn, PtIn][], label: string): FaceEvent[];
     /**
-     * 导入外来 glb（T11 / DT2）：节点树原样变成组件，挂在当前上下文下面（文件坐标 = 世界坐标，同 OBJ）；三角 → 膜在这里跑一次（锐角阈值 = 油漆桶 / 拍平同一个量），
-     * 装好的膜随 op 走（撤销重放只做装载）。成功 → 选中导进来的那一份。失败 → 人话原因（不提交）。
+     * 导入外来 glb（T11 / DT2）：节点树原样变成组件，挂在当前上下文下面（文件坐标 = 世界坐标，同 OBJ）；三角 → 膜在这里跑（锐角阈值 = 油漆桶 / 拍平同一个量），
+     * 装好的膜随 op 走（撤销重放只做装载）。成功 → 选中导进来的那一份 + 右下角参数小窗（DT84：上方向 / 文件单位，改了 = 撤掉按新值重做 = 预览）。
+     * 失败 → 人话原因（不提交）。
      */
     importForeign(data: ImportScene): {
         ok: true;
@@ -531,7 +534,9 @@ export declare class Editor {
     };
     pointerHitDistance(sx: number, sy: number): number | null;
     /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
-    pickAt(sx: number, sy: number): HitResult3;
+    pickAt(sx: number, sy: number, opts?: {
+        soft?: boolean;
+    }): HitResult3;
     /**
      * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
      * 点（2026-10-26）：单击 = 这个点；双击 = 连着它的线；三击 = 连通体。
@@ -590,18 +595,29 @@ export declare class Editor {
      * 范围里的断口（共线、只连两段、两边挂的面一样 = 画面上的小鼓包）：有散几何选区 = 选区里的点；scope = "context" 或没选 = 当前在编辑的物体里全部。
      * 纪元排期 T7 / DT5（user「他们语义上就是一个东西，只是作用域……不同」：和焊边橡皮的共轴那支同一个动词）。
      */
-    breaksInScope(scope?: "selection" | "context"): VertexId[];
-    /** 焊接全部断口（一次 = 一步）。返回焊了几处。 */
-    weldAllBreaks(scope?: "selection" | "context"): number;
-    /** 拍平的作用域：选了面 = 选中的面，否则 = 当前在编辑的物体里全部。 */
-    private planarScope;
-    /** 范围里有几组要拍平（菜单数字用；O(范围)）。 */
-    planarGroupsInScope(scope?: "selection" | "context"): number;
+    /** 含子物体（会话记住；参数小窗里改它）。 */
+    private repairChildren;
     /**
-     * 拍平（纪元排期 T9 / DT7）：弯折小于阈值的硬边分开的那些面，每组拍到同一张平面上（默认众数平面）、擦掉组里的内线；一次 = 一步。
-     * 马后炮能改阈值 / 拍到哪 / 擦不擦内线。零破面：结算出破面整步拒绝（ops.ts PlanarBurst）。返回拍了几组。
+     * 修复指令修哪些池。有选区 = 活动池里选中的面 / 边 / 点 + 选中的组 / 组件；没选 = 当前在编辑的整个物体（活动池；含子物体时 + 它下面的组、组件，一层层往里）。
+     * 组件按定义去重：几条路径到同一个定义只修一次（没有环——放实例时就拒了）。锁着的那份不往里走；别的没锁的路能到照修。
+     * 组不是物体，选中的组连同它下面的组一起算；组里放的组件看「含子物体」。
      */
-    makePlanar(scope?: "selection" | "context"): number;
+    private repairScope;
+    /** 提示行的「作用于」那半句（披露）。 */
+    private scopeText;
+    /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
+    private repairPlan;
+    private static readonly REPAIR_DEFAULTS;
+    private repairDefaults;
+    private repairCountCache;
+    /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */
+    repairCount(kind: RepairKind, scope?: "auto" | "context"): number;
+    /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
+    repair(kind: RepairKind, scope?: "auto" | "context"): number;
+    /** 兼容老入口（☰「焊接全部断口」/ 选区「焊接断口」）。 */
+    weldAllBreaks(scope?: "auto" | "context"): number;
+    /** 兼容老入口（☰「拍平几乎共面的面」/ 选区「拍平」）。 */
+    makePlanar(scope?: "auto" | "context"): number;
     /** 选中的组件里有被缩放过的（应用缩放钮出不出）。 */
     hasScaledInstanceSelection(): boolean;
     private scaledInstancePicks;

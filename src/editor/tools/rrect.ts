@@ -139,7 +139,7 @@ export class RRectTool implements ToolHandler {
     const segs = this.c ? rrectSegments(this.a!, this.b!, this.c) : [];
     if (!segs.length || Math.abs(this.len) < MIN_GESTURE_LEN) { ctx.hint("旋转矩形：第二边太短，换个点"); return; }
     const n0 = ctx.opCount(), at0 = ctx.activePool(), { a, b, c } = this, plane = this.plane0 ?? this.plane;
-    ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)]) });
+    ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)]), harden: true });   // 描过软边 = 变硬
     ctx.recordLast({ kind: "rrect", ops: ctx.opCount() - n0, at: at0, plane: plane!, a: a!, b: b!, c: c! });
     ctx.hint(`旋转矩形 ${fmtLen(dist3(a!, b!))} × ${fmtLen(dist3(b!, c!))} · ${fmtDeg(this.theta)}`);
     this.cancel();

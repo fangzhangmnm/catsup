@@ -249,6 +249,21 @@ export declare const TOOL_OPTIONS: {
     };
     /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
     readonly weldErase: {
+        /** 反向（user 10-26「软边橡皮快捷键和马前炮可以变成相反操作（就是标记硬边），焊边也一样」）：拆开 = 刮过的曲线炸回一段段；按住 Shift = 这里选的反面。 */
+        readonly action: {
+            readonly kind: "enum";
+            readonly label: "动作";
+            readonly values: readonly [{
+                readonly id: "weld";
+                readonly label: "焊接";
+            }, {
+                readonly id: "split";
+                readonly label: "拆开";
+                readonly hint: "刮过的曲线拆回一段段（按住 Shift 临时反过来）";
+            }];
+            readonly def: "weld";
+            readonly scope: "session";
+        };
         readonly maxDeg: {
             readonly kind: "number";
             readonly label: "最大角度";
@@ -262,6 +277,21 @@ export declare const TOOL_OPTIONS: {
     };
     /** 软边橡皮（「第三个橡皮……原理一样。共面就删边，不共面就改软边」）：两膜二面角 ≤ 这个角才软化（+ 平滑）；共面直接删边并面；更尖的不碰。默认 20° 对齐 SU Soften。 */
     readonly softErase: {
+        /** 反向（同上）：硬化 = 刮过的边去掉软 + 平滑（Blender 的 mark sharp）；按住 Shift = 这里选的反面。 */
+        readonly action: {
+            readonly kind: "enum";
+            readonly label: "动作";
+            readonly values: readonly [{
+                readonly id: "soften";
+                readonly label: "软化";
+            }, {
+                readonly id: "harden";
+                readonly label: "硬化";
+                readonly hint: "刮过的边变硬（= 标记硬边；按住 Shift 临时反过来）";
+            }];
+            readonly def: "soften";
+            readonly scope: "session";
+        };
         readonly maxDeg: {
             readonly kind: "number";
             readonly label: "最大角度";
