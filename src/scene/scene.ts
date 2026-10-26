@@ -7,7 +7,7 @@
 // created 2026-10-21 by Claude Fable 5.1（group / component 纪元；user「supersprint where at least i have groups and components」）
 
 import { add3, sub3, scale3, dist3, normalize3, cross3 } from "../kernel/geom.ts";
-import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
+import { Kernel, type BrepSnapshot, type EdgeId, type FaceEvent, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPlane, applyPt, compose, frameAt, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
@@ -292,7 +292,7 @@ export function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot {
 
 /** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
  *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。 */
-export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTITY, materialMap?: (slot: number) => number): void {
+export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTITY, materialMap?: (slot: number) => number): FaceEvent[] {
   const P = snap.vertices.map((p) => applyPt(m, p));
   const faces = snap.faces.map((f) => [f.outer.map((i) => P[i]), ...f.holes.map((h) => h.map((i) => P[i]))]);
   const inFace = new Set<string>();
@@ -305,7 +305,7 @@ export function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m: Xform = IDENTIT
     const kind = c.params && !params ? "polyline" : c.kind;
     return { segs, spec: { kind, closed: c.closed, ...(params ? { params } : {}) } };
   });
-  k.absorb(faces, wires, { ...snapshotLayerPayload(snap, P, materialMap), curves });
+  return k.absorb(faces, wires, { ...snapshotLayerPayload(snap, P, materialMap), curves });
 }
 
 /** 快照的属性层 → absorb 载荷（边层按线段、面层按每面值；material 可重映射）。 */

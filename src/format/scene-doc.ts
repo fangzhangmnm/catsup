@@ -49,12 +49,16 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
     }
     for (const g of d.groups) { const grp = body.groups.get(g.id)!; grp.parent = g.parent !== null && body.groups.has(g.parent) ? g.parent : null; }
     body.nextGroup = Math.max(1, ...[...body.groups.keys()].map((k) => k + 1));
+    // 实例按文件里的 id 放（2026-10-25 Opus 修：此前先改 id 再判「临时 id 要不要删」，判断永远为「不删」→ id 有空缺（删过实例）的文件读回来，
+    // 临时 id 下面多一份同一个实例 = 存一次读一次就重复。现在：临时 id 从文件最大 id 之后起（不会撞上文件 id）、先删临时再按文件 id 放；
+    // 已经重复过的文件（同一个 id 写了两次）读进来后写的覆盖先写的 = 自动合回一份（两份本来就是同一个实例、同一个位置）。
+    def.nextInst = Math.max(def.nextInst, 1 + Math.max(0, ...d.instances.map((i) => i.id)));
     for (const inst of d.instances) {
       const target = idOf.get(inst.definition);
       if (target === undefined) continue;
       const ii = scene.mintInstance(def.id, inst.parent !== null && body.groups.has(inst.parent) ? inst.parent : null, target, inst.xform);
+      def.instances.delete(ii.id);
       (ii as { id: number }).id = inst.id;
-      def.instances.delete(ii.id === inst.id ? -1 : ii.id);
       def.instances.set(inst.id, ii);
       if (inst.name !== undefined) ii.name = inst.name;
       if (inst.locked) ii.locked = true;

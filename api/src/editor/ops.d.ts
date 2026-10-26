@@ -218,6 +218,21 @@ export type Op = {
     op: "setAxes";
     at: PoolRef;
     frame: Frame;
+}
+/** 镜像（DT23）：选中的面 / 线 + 组件实例（池本地坐标的镜像面）；默认删对面、消中缝、融合阈值 0。几何在 mirror.ts。 */
+ | {
+    op: "mirror";
+    at: PoolRef;
+    faces: FaceKey[];
+    edges: EdgeKey[];
+    instances?: number[];
+    plane: {
+        origin: Pt3;
+        normal: Pt3;
+    };
+    deleteOpposite: boolean;
+    mergeSeam: boolean;
+    weld: number;
 };
 export interface ApplyResult {
     scene: Scene;

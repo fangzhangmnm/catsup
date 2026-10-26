@@ -1,4 +1,4 @@
-import { Kernel, type BrepSnapshot, type EdgeId, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
+import { Kernel, type BrepSnapshot, type EdgeId, type FaceEvent, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, WORLD_FRAME, frameAt, transformFrame } from "./xform.ts";
 import { type Guides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
@@ -155,7 +155,7 @@ export declare function extractSnapshot(k: Kernel, faces: readonly FaceId[], edg
 export declare function transformSnapshot(snap: BrepSnapshot, m: Xform): BrepSnapshot;
 /** 把一份快照（经变换）并进池：膜当像（OR、新 id）、裸边当线段，走结算机（sticky）。炸开 / 粘贴用。
  *  materialMap：快照的槽号 → 目标池 definition 的槽号（跨 definition 搬家时重映射；缺省恒等）。 */
-export declare function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m?: Xform, materialMap?: (slot: number) => number): void;
+export declare function absorbSnapshot(k: Kernel, snap: BrepSnapshot, m?: Xform, materialMap?: (slot: number) => number): FaceEvent[];
 /** 快照的属性层 → absorb 载荷（边层按线段、面层按每面值；material 可重映射）。 */
 export declare function snapshotLayerPayload(snap: BrepSnapshot, P: readonly Pt3[], materialMap?: (slot: number) => number): {
     edgeSegs: Record<string, Seg3[]>;

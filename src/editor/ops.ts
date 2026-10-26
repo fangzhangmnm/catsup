@@ -12,7 +12,8 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { ptKey3, quantize3 } from "../kernel/geom.ts";
+import { dot3, normalize3, ptKey3, quantize3, sub3 } from "../kernel/geom.ts";
+import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Frame, type Xform, applyPt, compose, frameAt, frameToXform, invert, transformFrame, translation } from "../scene/xform.ts";
@@ -79,7 +80,9 @@ export type Op =
   | { op: "eraseGuides"; at: PoolRef; ids: number[] }
   | { op: "clearGuides"; at: PoolRef }
   /** 改轴：group = 换 group 的帧（definition 坐标，几何不动）；根 = 绘图轴（世界坐标）；组件定义暂不支持。 */
-  | { op: "setAxes"; at: PoolRef; frame: Frame };
+  | { op: "setAxes"; at: PoolRef; frame: Frame }
+  /** 镜像（DT23）：选中的面 / 线 + 组件实例（池本地坐标的镜像面）；默认删对面、消中缝、融合阈值 0。几何在 mirror.ts。 */
+  | { op: "mirror"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; instances?: number[]; plane: { origin: Pt3; normal: Pt3 }; deleteOpposite: boolean; mergeSeam: boolean; weld: number };
 
 export interface ApplyResult { scene: Scene; events: FaceEvent[]; }
 
@@ -288,6 +291,24 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       else return { scene: s, events: changeDefinitionAxes(s, ref.def, f) };
       return { scene: s, events: [] };
     }
+    case "mirror": {
+      const { kernel, ref } = poolOf(s, op.at);
+      const fids = op.faces.map((f) => resolveFace(kernel, f));
+      const eids = op.edges.map((e) => resolveEdge(kernel, e));
+      const d = s.def(ref.def);
+      const insts = (op.instances ?? []).map((id) => { const inst = d.instances.get(id); if (!inst || inst.parent !== ref.group) throw new OpTargetError(`instance ${id}`); return inst; });
+      let events: FaceEvent[] = [];
+      try { if (fids.length || eids.length) events = mirrorGeometry(kernel, fids, eids, op.plane, { deleteOpposite: op.deleteOpposite, mergeSeam: op.mergeSeam, weld: op.weld }); }
+      catch (e) { if (e instanceof MirrorRejected) throw new OpTargetError(e.message); throw e; }
+      // 组件 = 负变换（user「组件也是选单里面选。就是负transform嘛」）：原点在留下这侧 → 镜一份过去；在对面且删对面 → 删；正好在镜像面上 → 不动
+      const R = reflectionXform(op.plane), n = normalize3(op.plane.normal);
+      for (const inst of insts) {
+        const sgn = dot3(sub3(applyPt(inst.xform, { x: 0, y: 0, z: 0 }), op.plane.origin), n);
+        if (sgn > 1e-6) s.mintInstance(ref.def, ref.group, inst.def, compose(R, inst.xform));
+        else if (sgn < -1e-6 && op.deleteOpposite) d.instances.delete(inst.id);
+      }
+      return { scene: s, events };
+    }
     case "addMaterial": {
       s.addMaterial({ name: op.name, color: [op.color[0], op.color[1], op.color[2]], ...(op.texture ? { texture: { mimeType: op.texture.mimeType, bytes: op.texture.bytes, sizeM: [op.texture.sizeM[0], op.texture.sizeM[1]] } } : {}) });
       return { scene: s, events: [] };
@@ -405,5 +426,6 @@ export function describeOp(op: Op): string {
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;
     case "clearGuides": return `clearGuides${at}`;
     case "setAxes": return `setAxes${at}`;
+    case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${at}`;
   }
 }

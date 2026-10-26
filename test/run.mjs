@@ -17,6 +17,8 @@ import "./desk.test.ts";   // CATSUP_desk 桌面态：☰ 停在哪页跟文件�
 import "./snap-default.test.ts";   // 新文件默认开吸附（user 2026-10-25「新文件一定要默认开吸附」）
 import "./snap-center.test.ts";   // DT15 圆心 + 选中组件轴原点透视吸附（2026-10-25 Opus）
 import "./copy-preview.test.ts";   // DT14 移动复制预演：副本槽（2026-10-25 Opus）
+import "./mirror.test.ts";   // DT23 镜像指令（2026-10-25 Opus）
+import "./instance-ids.test.ts";   // 读文件实例 id 有空缺不再重复（2026-10-25 Opus）
 import "./references.test.ts";
 import "./reference-guard.test.ts";   // 参考窗单一接缝 + 图标（2026-10-25 Opus）   // CATSUP_references 参考窗牌组 + desk refPanel（2026-10-25 Opus）
 import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点（2026-10-24，800 件场景第 379 步）
