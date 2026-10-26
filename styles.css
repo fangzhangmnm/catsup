@@ -75,7 +75,12 @@ svg.ico use { color: inherit; }
 .hud-bl { bottom: calc(10px + var(--safe-bottom)); left: calc(10px + var(--safe-left)); max-width: min(62vw, 720px); }
 .hud-br { bottom: calc(10px + var(--safe-bottom)); right: calc(10px + var(--safe-right)); display: flex; flex-direction: column; align-items: flex-end; gap: 2px; max-width: min(60vw, 560px); }
 /* 底部工具选项条（tool-config 表生成；当前工具没选项就整条隐藏）：左下、提示行之上；右下留给数值小窗 */
-.hud-strip { gap: 10px; padding: 4px 10px; font-size: 13px; flex-wrap: wrap; }   /* 2026-10-25 挂顶：住进 .hud-topstack 第二排 */
+/* 上下文选项那一段（2026-10-25 晚：并进右下参数小窗，user「参数小窗就是上下文选项条，全搬进去」） */
+.vcb-strip { display: flex; align-items: center; gap: 10px; font-size: 13px; flex-wrap: wrap; justify-content: flex-end; }
+.vcb-params { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+.vcb-params-title { font-size: 12px; color: var(--muted); }
+.vcb-params-fields, .vcb-params-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+.strip-action.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
 /* 面包屑（#25）：左上角，进了组 / 组件才出现 */
 /* 编辑模式下拉框（刀 ③；user「切换编辑模式还是左上下拉框」）：嵌纸面、像能按，同左上横排 */
 .mode-select { height: 30px; padding: 0 8px; border: 1px solid rgba(0,0,0,.14); border-radius: 8px; background: rgba(255,255,255,.75); font: inherit; font-size: 13px; color: inherit; }
@@ -108,7 +113,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .selbar-btn.danger { color: var(--danger); }
 #ctxAnchor { position: fixed; width: 0; height: 0; pointer-events: none; }
 /* 数值小窗（SU Measurements）：右下、版本角标之上；键盘往上展开 */
-.hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(48px + var(--safe-bottom)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
+.hud-vcb { right: calc(10px + var(--safe-right)); bottom: calc(52px + var(--safe-bottom)); max-width: min(560px, calc(100vw - 96px)); flex-direction: column; align-items: stretch; gap: 4px; padding: 4px 8px; font-size: 13px; }
 .vcb-label { color: var(--muted); font-size: 11px; text-align: right; }
 .vcb-field { font: inherit; min-width: 120px; min-height: 32px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; padding: 4px 10px; text-align: right; font-variant-numeric: tabular-nums; cursor: pointer; }
 .vcb-field.typing { border-color: var(--accent); color: var(--accent); }

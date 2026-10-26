@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=5a25e80abd73" />
-    <link rel="stylesheet" href="./styles.css?v=d834d9301270" />
+    <link rel="stylesheet" href="./styles.css?v=b8458920aab4" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -232,7 +232,7 @@
         <!-- HUD（user 2026-09-06：「顶栏透明…类似游戏的那种 immersive hud…以后转 VR 会无疼」；
              2026-09-07 二稿：顶上清空、视图进右栏弹出、标题字撤、背景弱、版本角标留、左下状态=RPG 对话框；三稿终形（user：「工具居中，三条杠 stack 在工具上面不分离，undo redo stack 在工具下面」）：一根左柱整体居中 = ☰ / 工具 / 撤销 / 重做）-->
         <!-- 左上横排（2026-10-24 user：「汉堡和必须常驻屏幕的云状态放左上顶端横着放，做成那张嵌入纸面但是让人觉得可以按的东西，也许不需要background」；版图 = ai-docs/20261024-ui-layout.md） -->
-        <!-- 左上一列（2026-10-25 Opus，user「我倾向于统一挂顶上」）：第一排 ☰ / 保存 / 物品栏 / 模式；第二排 = 上下文条；第三排 = 进组时的面包屑 -->
+        <!-- 左上一列（2026-10-25 Opus，user「我倾向于统一挂顶上」）：第一排 ☰ / 保存 / 物品栏 / 模式；第二排 = 进组时的面包屑（上下文选项条 10-25 晚搬去右下：user「右下的语义就是上下文选项」） -->
         <div class="hud-topstack">
           <div class="hud-topleft" aria-label="菜单与云">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
@@ -242,7 +242,6 @@
           <button type="button" class="mode-select" id="modeSelect" aria-label="编辑模式（几何 / 表面）"></button>
           <span class="final-badge" id="finalBadge" hidden title="定稿着：锁住几何与材质；☰「改稿」解锁"></span>
         </div>
-          <div class="hud hud-strip" id="toolStrip" aria-label="上下文条（工具选项 / 选区动作）" hidden></div>
           <nav class="hud hud-crumbs" id="crumbs" aria-label="所在的组 / 组件" hidden></nav>
         </div>
         <nav class="hud hud-rail hud-rail-tools" aria-label="工具">
@@ -255,7 +254,11 @@
           <button class="tb-btn" id="btnRedo" type="button" title="重做（Ctrl+Y / 三指轻点）"><svg class="ico" aria-hidden="true"><use href="#arrow-redo"/></svg></button>
         </nav>
         <div class="hud-gizmo" id="viewGizmo" aria-label="视图"></div>
-        <div class="hud hud-vcb" id="vcb" aria-label="数值小窗" hidden></div>
+        <!-- 右下 = 参数小窗 = 上下文选项（user 2026-10-25「右下的语义就是上下文选项」「参数小窗就是上下文选项条，全搬进去」「所以右侧的角色位不要了，专门留给小窗长」）：
+             一个面板，从上到下 = 参数会话（马前炮 / 马后炮）→ 数值输入 → 工具选项 / 工具动作 / 选区动作；哪段空哪段不出，往上长 -->
+        <div class="hud hud-vcb" id="vcb" aria-label="参数小窗（上下文选项）" hidden>
+          <div class="vcb-strip" id="toolStrip" aria-label="工具选项 / 选区动作" hidden></div>
+        </div>
         <div class="hud-text hud-bl" id="hintWrap"><span id="hint"></span></div>
         <!-- 右下一列：读数 → 版本号（栅格芯片 v0.13.51 收进右上视图 ☰ 的「栅格」页，user「先把右下收到右上汉堡里」） -->
         <div class="hud-text hud-br"><span id="readout" class="readout" hidden></span><span id="build" class="build"></span></div>
@@ -344,6 +347,6 @@
 
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-c69df2116d85.mjs"></script>
+    <script type="module" src="./dist/catsup-d59a8376928c.mjs"></script>
   </body>
 </html>

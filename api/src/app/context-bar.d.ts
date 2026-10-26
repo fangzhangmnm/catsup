@@ -19,6 +19,8 @@ export interface ContextBarProviders {
     selection?(): HudItem[];
     /** 选区动作被点（宿主路由到 hud.pick）。 */
     pickSelection?(id: string): void;
+    /** 每次重画完（这一段住在右下参数小窗里：宿主据此重算整个面板藏不藏，2026-10-25）。 */
+    afterRender?(): void;
 }
 export interface ContextBar {
     render(): void;

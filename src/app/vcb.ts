@@ -4,6 +4,7 @@
 // 所以 X / S / M 还是工具快捷键）；Enter 应用、Esc 清空、Backspace 删一位。触屏：点小窗展开键盘。
 import type { Editor } from "../editor/editor.ts";
 import { showNotice } from "./ui/notice.ts";
+import { fieldControl } from "./ui/field-control.ts";
 
 export interface VcbUi { render(): void; feedKey(ev: KeyboardEvent): boolean; }
 
@@ -19,10 +20,15 @@ const KEYS: readonly (readonly string[])[] = [
 export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
   let buf = "";
   let padOpen = false;
+  // 参数区（参数小窗，user 2026-10-25「把右下角的数值小窗扩成一个「参数小窗」 同意」）：马前炮 = 指令执行前的选项 + 应用 / 取消；马后炮 = 刚做完那一步还能改的选项
+  const params = document.createElement("div"); params.className = "vcb-params"; params.hidden = true;
   const label = document.createElement("span"); label.className = "vcb-label";
   const field = document.createElement("button"); field.type = "button"; field.className = "vcb-field"; field.title = "数值小窗：输入精确值（点开键盘）";
   const pad = document.createElement("div"); pad.className = "vcb-pad"; pad.hidden = true;
-  root.append(label, field, pad);
+  // 上下文选项那段（#toolStrip，context-bar.ts 往里画）是 root 里原有的子节点：挪到最下面（贴角、位置稳）
+  const strip = root.querySelector<HTMLElement>("#toolStrip");
+  root.append(params, label, field, pad);
+  if (strip) root.appendChild(strip);
   for (const row of KEYS) {
     const r = document.createElement("div"); r.className = "vcb-row";
     for (const k of row) {
@@ -47,9 +53,32 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     else showNotice({ id: "vcb", text: r.error, level: "warning" });
     render();
   };
+  const renderParams = (): boolean => {
+    const pp = editor.paramPanel();
+    params.hidden = !pp;
+    params.replaceChildren();
+    if (!pp) return false;
+    const head = document.createElement("div"); head.className = "vcb-params-title"; head.textContent = (pp.phase === "after" ? "刚才：" : "") + pp.title; params.appendChild(head);
+    const row = document.createElement("div"); row.className = "vcb-params-fields";
+    for (const f of pp.fields) row.appendChild(fieldControl(f.def, pp.values[f.key], (v) => { editor.setParam(f.key, v); render(); }));
+    params.appendChild(row);
+    if (pp.buttons.length) {
+      const br = document.createElement("div"); br.className = "vcb-params-buttons";
+      for (const bt of pp.buttons) {
+        const b = document.createElement("button"); b.type = "button"; b.className = "strip-action" + (bt.primary ? " primary" : "") + (bt.on ? " on" : ""); b.textContent = bt.label;
+        b.addEventListener("click", () => { editor.pressParam(bt.key); render(); });
+        br.appendChild(b);
+      }
+      params.appendChild(br);
+    }
+    return true;
+  };
   const render = (): void => {
     const st = editor.vcbState();
-    root.hidden = !st.kind && !buf;
+    const hasParams = renderParams();
+    root.hidden = !st.kind && !buf && !hasParams && (!strip || strip.hidden);
+    const showNum = !!st.kind || !!buf;
+    label.hidden = field.hidden = !showNum;
     label.textContent = st.prompt;
     field.textContent = buf || st.echo || "…";
     field.classList.toggle("typing", !!buf);

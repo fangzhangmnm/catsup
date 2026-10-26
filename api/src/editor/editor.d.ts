@@ -9,6 +9,7 @@ import type { ToolHandler } from "./tool-handler.ts";
 import { type GridSettings } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
+import { type ParamPanelState, type ParamSession, type ParamValue } from "./param-panel.ts";
 import type { FaceKey } from "./ops.ts";
 import { type LockAxis, type PlaneLock } from "./locks.ts";
 import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
@@ -513,6 +514,22 @@ export declare class Editor {
         };
     }[];
     private camKey;
+    private param;
+    /** 小窗现在要画的参数会话（null = 没有）；马后炮在这一步之后又提交过别的 / 撤销过就自动作废。 */
+    paramPanel(): ParamPanelState | null;
+    setParam(key: string, value: ParamValue): void;
+    pressParam(key: string): void;
+    /** 换一个会话（旧的收尾）；null = 关掉。 */
+    openParamSession(s: ParamSession | null): void;
+    /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。 */
+    private offerAfterthought;
+    /** 选区（散几何 + 选中的组 / 组件）的全部顶点（世界坐标）。 */
+    private selectionWorldPoints;
+    /** 选择中心：bbox = 包围盒中心（Blender 默认）；mean = 顶点平均（Blender 的 median point）。 */
+    selectionCenter(algo?: "bbox" | "mean"): Pt3 | null;
+    private static centerOf;
+    /** 把当前上下文的轴原点挪到选择中心（朝向不变）；之后右下角马后炮可换算法。没选区 → false。 */
+    axesToSelectionCenter(algo?: "bbox" | "mean"): boolean;
     /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
     vcbState(): {
         kind: VcbKind | null;

@@ -19,6 +19,7 @@ import "./snap-center.test.ts";   // DT15 圆心 + 选中组件轴原点透视�
 import "./copy-preview.test.ts";   // DT14 移动复制预演：副本槽（2026-10-25 Opus）
 import "./mirror.test.ts";   // DT23 镜像指令（2026-10-25 Opus）
 import "./instance-ids.test.ts";   // 读文件实例 id 有空缺不再重复（2026-10-25 Opus）
+import "./param-panel.test.ts";   // 参数小窗马后炮会话（2026-10-25 Opus）
 import "./references.test.ts";
 import "./reference-guard.test.ts";   // 参考窗单一接缝 + 图标（2026-10-25 Opus）   // CATSUP_references 参考窗牌组 + desk refPanel（2026-10-25 Opus）
 import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点（2026-10-24，800 件场景第 379 步）

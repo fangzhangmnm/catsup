@@ -37,6 +37,7 @@ import { hasIntent, intentAllows1D, intentAllows3D } from "./intent.ts";
 import { TapTrain, TAP_RULES, frameTapRule } from "./tap-train.ts";
 import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
+import { type ParamField, type ParamPanelState, type ParamSession, type ParamValue, afterthought } from "./param-panel.ts";
 import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
@@ -1144,6 +1145,58 @@ export class Editor {
     return out.filter((x, i) => i === 0 || !same(out[i - 1].b, x.b));
   }
   private camKey(): string { const c = this.cam, t = c.target; return `${c.yaw.toFixed(5)}|${c.pitch.toFixed(5)}|${c.halfH.toFixed(5)}|${t.x.toFixed(4)},${t.y.toFixed(4)},${t.z.toFixed(4)}|${c.projection}`; }
+  // ---------- 参数小窗（param-panel.ts；user 2026-10-25「把右下角的数值小窗扩成一个「参数小窗」 同意」）：马前炮 / 马后炮 ----------
+  private param: ParamSession | null = null;
+  /** 小窗现在要画的参数会话（null = 没有）；马后炮在这一步之后又提交过别的 / 撤销过就自动作废。 */
+  paramPanel(): ParamPanelState | null {
+    const p = this.param;
+    if (!p) return null;
+    if (p.stale?.()) { p.dispose?.(); this.param = null; return null; }
+    return p;
+  }
+  setParam(key: string, value: ParamValue): void { this.param?.set(key, value); this.host.changed(); this.draw(); }
+  pressParam(key: string): void { this.param?.press(key); this.host.changed(); this.draw(); }
+  /** 换一个会话（旧的收尾）；null = 关掉。 */
+  openParamSession(s: ParamSession | null): void { if (this.param && this.param !== s) this.param.dispose?.(); this.param = s; this.host.changed(); }
+  /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。 */
+  private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void): void {
+    this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, undoN: (n) => this.undoN(n), redo }));
+  }
+
+  // ---------- 轴移到选择中心（user 2026-10-25「加一个把轴移动到选择中心的命令……现在先用blender的bounding box center」「选中轴工具之后如果有选择就出现这个，然后点了之后右下角的马后炮可以选择是哪种居中算法」）----------
+  /** 选区（散几何 + 选中的组 / 组件）的全部顶点（世界坐标）。 */
+  private selectionWorldPoints(): Pt3[] {
+    const out: Pt3[] = [], k = this.kernel, X = this.ctxXform();
+    const vids = new Set<VertexId>();
+    for (const f of this.selection.faces) { const F = k.face(f); if (F) for (const r of [F.outer, ...F.holes]) for (const v of r.vids) vids.add(v); }
+    for (const e of this.selection.edges) if (k.graph.hasEdge(e)) { const E = k.graph.edge(e); vids.add(E.a); vids.add(E.b); }
+    for (const v of vids) out.push(applyPt(X, k.graph.pt(v)));
+    if (this.selectedPools.size) {
+      const view = this.liveWorld();
+      for (const sl of view.slots) { const p = this.topChild(sl); if (!p || !this.selectedPools.has(this.pickKey(p))) continue; for (const v of view.parts[sl.index].verts.values()) out.push({ x: v.x, y: v.y, z: v.z }); }
+    }
+    return out;
+  }
+  /** 选择中心：bbox = 包围盒中心（Blender 默认）；mean = 顶点平均（Blender 的 median point）。 */
+  selectionCenter(algo: "bbox" | "mean" = "bbox"): Pt3 | null { return Editor.centerOf(this.selectionWorldPoints(), algo); }
+  private static centerOf(pts: readonly Pt3[], algo: "bbox" | "mean"): Pt3 | null {
+    if (!pts.length) return null;
+    if (algo === "mean") { let x = 0, y = 0, z = 0; for (const p of pts) { x += p.x; y += p.y; z += p.z; } return { x: x / pts.length, y: y / pts.length, z: z / pts.length }; }
+    let lo = { ...pts[0] }, hi = { ...pts[0] };
+    for (const p of pts) { lo = { x: Math.min(lo.x, p.x), y: Math.min(lo.y, p.y), z: Math.min(lo.z, p.z) }; hi = { x: Math.max(hi.x, p.x), y: Math.max(hi.y, p.y), z: Math.max(hi.z, p.z) }; }
+    return { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 };
+  }
+  /** 把当前上下文的轴原点挪到选择中心（朝向不变）；之后右下角马后炮可换算法。没选区 → false。 */
+  axesToSelectionCenter(algo: "bbox" | "mean" = "bbox"): boolean {
+    const pts = this.selectionWorldPoints();   // 先记下：马后炮撤销那一步时选区会被清掉，重做按记下的点算
+    const go = (a: "bbox" | "mean"): boolean => { const c = Editor.centerOf(pts, a); if (!c) return false; const f = this.contextFrame(); this.setContextAxes({ origin: c, x: f.x, y: f.y, z: f.z }); return true; };
+    const n0 = this.opCount;
+    if (!go(algo)) return false;
+    this.offerAfterthought("轴移到选择中心", [{ key: "algo", def: { kind: "enum", label: "中心", values: [{ id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }] } }], { algo }, this.opCount - n0, (v) => { go(v.algo as "bbox" | "mean"); });
+    this.host.hint(this.activePool().group !== null ? "组的轴原点移到了选择中心" : this.contextDepth() ? "组件的轴原点移到了选择中心（每份实例跟着补）" : "绘图轴原点移到了选择中心");
+    return true;
+  }
+
   // ---------- 数值小窗（vcb.ts；SU Measurements）：刚做完的那一步，撤销后按精确值重做 ----------
   /** 小窗当前状态：kind = 能改哪类（null = 没有）；prompt = 提示字；echo = 现值回显。 */
   vcbState(): { kind: VcbKind | null; prompt: string; echo: string } {

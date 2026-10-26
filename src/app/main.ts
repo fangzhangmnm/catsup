@@ -511,17 +511,21 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
     ];
   },
   actions: (tool) => {
-    if (tool === "axes") return [{ id: "axesReset", label: "重置轴", onClick: () => { menuPick("axesReset"); } }];
+    if (tool === "axes") return [{ id: "axesReset", label: "重置轴", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "轴原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : [])];   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor") return [{ id: "guidesClear", label: "删除所有参考线", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     return [];
   },
   // 选区动作：笔 / 手指路由才进条（鼠标走右键菜单，#19 的路由不变）；有选区、不在手势中
   selection: () => (selectionRoute(lastPointerType) === "bar" && editor.hasSelection() && !editor.isGestureActive() ? selectionActions(hud) : []),
   pickSelection: (id) => { hud.pick(id as never); },
+  afterRender: () => { vcbRef?.render(); },   // 上下文选项住在参数小窗里（user 2026-10-25「参数小窗就是上下文选项条，全搬进去」）
 });
 const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
+vcbRef = vcb;
 // eslint-disable-next-line no-var
-var lastPointerType = "mouse";   // var：上下文条的 selection provider 在 mount 时就读它（加载期）
+var lastPointerType = "mouse";
+// eslint-disable-next-line no-var
+var vcbRef: { render(): void } | null = null;   // var：上下文条 mount 时就回调 afterRender（参数小窗那时还没挂）   // var：上下文条的 selection provider 在 mount 时就读它（加载期）
 canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; syncUi(); } }, { capture: true });
 const crumbsEl = document.getElementById("crumbs") as HTMLElement;
 function renderCrumbs(): void {
