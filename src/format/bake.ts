@@ -117,14 +117,16 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
   const smooth = smoothNormalsOf(snap);
   const byMat = new Map<number, number[]>();   // core material → face indices；-1 = 默认材质
   const tris: number[] = [];                   // 省流档：没平滑组的默认材质面走共享顶点（无 NORMAL，加载器自算平面法向）
+  const hiddenF = snap.faceLayers?.hidden;   // DT49 隐藏的面 / 边不出（契约 §4「hidden 不出」）
   snap.faces.forEach((f, i) => {
+    if (hiddenF && (hiddenF[i] ?? -1) >= 0) return;
     const slot = snap.faceLayers?.material?.[i] ?? -1;
     const core = slot >= 0 ? mats?.slotToCore(slot) : undefined;
     if (core === undefined && !smooth.has(i)) { for (const t of triangulateRings(snap.vertices, snap.planes[f.plane], f.outer, f.holes)) tris.push(...t); return; }
     const key = core === undefined ? -1 : core;
     (byMat.get(key) ?? byMat.set(key, []).get(key)!).push(i);
   });
-  const soft = new Set(snap.edgeLayers?.soft ?? []);
+  const soft = new Set([...(snap.edgeLayers?.soft ?? []), ...(snap.edgeLayers?.hidden ?? [])]);   // 软边 / 隐藏的边不出线
   const lines: number[] = snap.edges.flatMap((e, i) => (soft.has(i) ? [] : [e[0], e[1]]));
   const idxType = pickUintType(Math.max(0, snap.vertices.length - 1));
   const idxGl = idxType === "uint8" ? GL_UNSIGNED_BYTE : idxType === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;

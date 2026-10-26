@@ -103,7 +103,10 @@ export class ScreenIndex {
           for (const d of face.outer.edges) { const e = part.edges.get(d.edge); const v = e && part.verts.get(d.forward ? e.a : e.b); if (!v) return undefined; out.push(v); }
           return out;
         };
-        const sub = new SubIndex(part.verts.values(), part.edges.values(), part.faces.values(), ringPts, proj);
+        // 隐藏的边 / 点（DT49）不进索引 = 吸不到、点不中（图里还在，可见面的环要查它）
+        const verts = part.hiddenVerts.size ? [...part.verts.values()].filter((v) => !part.hiddenVerts.has(v.id)) : part.verts.values();
+        const edges = part.hiddenEdges.size ? [...part.edges.values()].filter((e) => !part.hiddenEdges.has(e.id)) : part.edges.values();
+        const sub = new SubIndex(verts, edges, part.faces.values(), ringPts, proj);
         SUB_CACHE.set(part, { stamp, sub });
         return sub;
       });

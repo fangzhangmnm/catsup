@@ -169,6 +169,19 @@ export type Op = {
     instance?: number;
     on: boolean;
 }
+/** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。 */
+ | {
+    op: "setHidden";
+    at: PoolRef;
+    instance?: number;
+    faces?: FaceKey[];
+    edges?: EdgeKey[];
+    on: boolean;
+}
+/** 全部显示：整个场景里所有被隐藏的实例、面、边都放回来（DT49）。 */
+ | {
+    op: "unhideAll";
+}
 /** 显式换身体种类（定义级：共享定义的全部实例一起变）；只认 kinds.ts 登记表里的方向，失败不改文档。 */
  | {
     op: "castDefinition";

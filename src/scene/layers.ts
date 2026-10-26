@@ -18,8 +18,11 @@ export function effectiveLayersOfChain(scene: Scene, chain: readonly InstId[]): 
   return out;
 }
 export const layerVisible = (layers: readonly LayerDoc[], id: number): boolean => layers.find((l) => l.id === id)?.visible ?? true;
-/** 这条链末端的东西可见吗（链上每一级的有效层都要可见；空链 = 根 = 永远可见）。 */
+/** 这条链末端的东西可见吗（链上每一级的有效层都要可见、每一级实例都没被隐藏；空链 = 根 = 永远可见）。
+ *  隐藏（DT49，user 2026-10-25「然后 hide unhide all也马上需要了」）和藏层同一条路：藏父连子、不进推断世界、不画。 */
 export function chainVisible(scene: Scene, chain: readonly InstId[]): boolean {
+  let def: DefId = scene.root;
+  for (const iid of chain) { const inst = scene.def(def).instances.get(iid); if (!inst) break; if (inst.hidden) return false; def = inst.def; }
   return effectiveLayersOfChain(scene, chain).every((id) => layerVisible(scene.layers, id));
 }
 /** 链末端的有效层（给面的继承用：面没打层就归所在定义被实例化时的有效层）。 */

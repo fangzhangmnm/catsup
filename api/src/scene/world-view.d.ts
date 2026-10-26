@@ -73,6 +73,9 @@ export interface SlotPart {
     smooth: Set<EdgeId>;
     /** 圆 / 弧的圆心（世界坐标，DT15）。 */
     centers: Pt3[];
+    /** 隐藏的边 / 只连着隐藏边的点（DT49）：图里留着（可见面的环还要查它），列举 / 屏幕索引 / 渲染跳过。隐藏的面直接不进 faces。 */
+    hiddenEdges: Set<EdgeId>;
+    hiddenVerts: Set<VertexId>;
 }
 /** 本进程累计的 part 重算统计（编辑器把它抄进 perf；scene 层不 import editor）。 */
 export declare const PART_STATS: {

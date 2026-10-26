@@ -63,6 +63,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
       if (inst.name !== undefined) ii.name = inst.name;
       if (inst.locked) ii.locked = true;
       if (inst.layer !== undefined) ii.layer = inst.layer;
+      if (inst.hidden) ii.hidden = true;
     }
     def.nextInst = Math.max(1, ...[...def.instances.keys()].map((k) => k + 1));
   });
@@ -78,7 +79,7 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   const idx = new Map<DefId, number>(ids.map((id, i) => [id, i]));
   const definitions: DefinitionDoc[] = ids.map((id) => {
     const d = scene.def(id);
-    const instances = [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}) }));
+    const instances = [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
     if (d.body.kind === "mesh") return { name: d.name, kind: "mesh", mesh: { positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: [...d.body.materialSlots], guides: emptyGuidesDoc() };
     const b = d.body;
     return {

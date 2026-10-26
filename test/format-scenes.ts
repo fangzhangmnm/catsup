@@ -104,7 +104,18 @@ export function sceneGuided(): Scene {
   s = applyOp(s, { op: "setAxes", at: { def: s.root, group: null }, frame: { origin: { x: 1, y: 2, z: 0 }, x: { x: c, y: c, z: 0 }, y: { x: -c, y: c, z: 0 }, z: { x: 0, y: 0, z: 1 } } }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided };
+/** 隐藏（DT49，definitions 6.1）：grouped + 藏一面墙、一条边、第二份圆柱（实例 hidden + 面层 / 边层 hidden）。 */
+export function sceneHidden(): Scene {
+  let s = sceneGrouped();
+  const R = { def: s.root, group: null }, k = rootK(s);
+  const wall = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.y === 0))!;
+  const edge = k.edges().find((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return a.z === 0 && b.z === 0 && a.y > 0 && b.y > 0 && a.x < 3 && b.x < 3; })!;   // 盒子底面后沿
+  s = applyOp(s, { op: "setHidden", at: R, faces: [faceKey(k, wall.id)], edges: [edgeKey(k, edge.id)], on: true }).scene;
+  const second = [...s.def(s.root).instances.values()][1];
+  s = applyOp(s, { op: "setHidden", at: R, instance: second.id, on: true }).scene;
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';

@@ -493,6 +493,18 @@ export declare class Editor {
     /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
     lockSelection(on: boolean): boolean;
     private lockSelectionStep;
+    hasHideableSelection(): boolean;
+    /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
+    hideSelection(): number;
+    private hideSelectionStep;
+    /** 整个场景里被隐藏的东西：组件份数 + 面 + 线（视图菜单「全部显示（N）」用）。 */
+    hiddenCount(): {
+        instances: number;
+        faces: number;
+        edges: number;
+    };
+    /** 全部显示（一条 op，可撤销）。返回放回了几样。 */
+    unhideAll(): number;
     /** 进入选中（或命中）的子 group / 实例编辑。 */
     enterPool(p: PoolPick): void;
     enterSelected(): boolean;

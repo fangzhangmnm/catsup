@@ -1366,6 +1366,7 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
   const smooth = smoothNormals(kv);
   const groups = new Map<Material | null, { pos: number[]; nor: number[]; col: number[]; uv: number[] }>();
   for (const f of k.faces()) {
+    if (k.isFaceHidden(f.id)) continue;   // DT49 隐藏的面不画
     const rec = k.planeOf(f.id);
     if (!rec) continue;
     const mat = scene.materialOfSlot(defId, k.faceMaterialOf(f.id));
@@ -1405,7 +1406,7 @@ function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, s
   const c = new THREE.Color();
   const n1: number[] = [], n2: number[] = [], flag: number[] = [];   // SU 轮廓线：两侧面法向（本地坐标）+ 面数（着色器按视向判剪影）
   for (const e of k.edges()) {
-    if (k.isSoft(e.id)) continue;
+    if (k.isSoft(e.id) || k.isEdgeHidden(e.id)) continue;   // 软边 / 隐藏的边（DT49）不画
     const hex = dim ? PALETTE.edgeDim : e.faceLinks.length === 0 ? PALETTE.edgeWire : PALETTE.edge;
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
     c.setHex(hex);

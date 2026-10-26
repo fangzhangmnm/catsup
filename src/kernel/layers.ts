@@ -3,7 +3,7 @@
 // 边层（EdgeLayers）：名字 → EdgeId 集。知名名字：soft（不画线、平滑组候选）、curve（圆 / 弧近似边：画线）、smooth（跨边插值法向）、hidden。
 //   规则只有四条，对每一层一样：① 切割按父传子 ② 删边出集 ③ 新段上落下的边入集 ④ 溶解时两边都有 → 并出的边也有。
 //   推拉策略（EDGE_LAYER_POLICY）：帽边继承原边的全部层；侧棱按表——soft/curve/smooth 边的侧棱 = soft+smooth（圆柱侧面不画线、平滑着色）。
-// 面层（FaceLayers）：名字 → (FaceId → 整数)。知名名字：material（definition 槽号）。
+// 面层（FaceLayers）：名字 → (FaceId → 整数)。知名名字：material（definition 槽号）、hidden（1 = 隐藏，DT49；边那边是边层 hidden）。
 //   规则：按事件血缘——DIVIDE 子膜继承、MERGE / ABSORB 取首个有值的、BURST / FACE_ERASED 清；一对一承继保 id 天然保留。
 // 快照形状：edgeLayers = { name: [边下标…] }（有标记的边）；faceLayers = { name: [每面一个值…] }（−1 = 无）。
 // 加一个新层 = 在知名名字表加一个字符串（codec 按同一套 u8 / u16 流编码）。
@@ -17,7 +17,7 @@ export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
 /** 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。 */
 export const EDGE_LAYERS = ["soft", "curve", "smooth", "hidden"] as const;
 /** 知名面层。 */
-export const FACE_LAYERS = ["material"] as const;
+export const FACE_LAYERS = ["material", "hidden"] as const;   // hidden = 1（DT49 隐藏的面：不画、不吸、点不中；2026-10-25）
 /** 推拉 / 跟随：原边带哪层 → 它扫出的侧棱带哪些层（帽边 = 原边的全部层）。 */
 export const EDGE_LAYER_POLICY: Readonly<Record<string, readonly string[]>> = { soft: ["soft", "smooth"], curve: ["soft", "smooth"], smooth: ["soft", "smooth"] };
 /**

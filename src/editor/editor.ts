@@ -50,8 +50,9 @@ import { type Op, edgeKey, faceKey, resolveEdge } from "./ops.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
-import { type EditContext, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
+import { type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
+import { chainVisible } from "../scene/layers.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
@@ -842,8 +843,8 @@ export class Editor {
         for (const vid of [e.a, e.b]) for (const e2 of k.graph.vertex(vid).edges) if (!picked.edges.has(e2)) { picked.edges.add(e2); qE.push(e2); }
       }
     }
-    for (const e of picked.edges) this.selection.edges.add(e);
-    for (const f of picked.faces) this.selection.faces.add(f);
+    for (const e of picked.edges) if (!k.isEdgeHidden(e)) this.selection.edges.add(e);   // 隐藏的（DT49）连通着走、但不选进来
+    for (const f of picked.faces) if (!k.isFaceHidden(f)) this.selection.faces.add(f);
     this.afterSelect();
     return true;
   }
@@ -1009,7 +1010,7 @@ export class Editor {
   // ---------- 锁定（A27，SU Lock；user 2026-10-24 立面图思考题）：对象层属性，所有 kind 通用；推断照吃（WorldView 不看锁）----------
   /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
   private opTouchesLocked(op: Op): boolean {
-    if (op.op === "setLocked") return false;
+    if (op.op === "setLocked" || op.op === "setHidden" || op.op === "unhideAll") return false;   // 解锁要能做；藏 / 显示不改东西（锁着的也能藏）
     if (op.op === "batch") return op.ops.some((o) => this.opTouchesLocked(o));
     const s = this.scene;
     if ("at" in op && op.at && s.hasPool(op.at) && s.poolLocked(op.at)) return true;
@@ -1046,6 +1047,55 @@ export class Editor {
     this.host.hint(on ? `已锁定 ${picks.length} 个：不能改、不能移、不能进入；仍可当推断参考` : `已解锁 ${picks.length} 个`);
     this.host.changed(); this.draw();
     return true;
+  }
+  // ---------- 隐藏（DT49，user 2026-10-25「然后 hide unhide all也马上需要了，这个gltf规范里有吗？」；存档 = glTF KHR_node_visibility）----------
+  // 组件 = 整份藏（藏父连子）；散的面 / 线 = 各自打隐藏标记（user「嗯线和面也可以hidden，这样可以挖洞看里面，blender也支持。合理。」）；
+  // 组不是物体、没有自己的隐藏 = 把组里（连同子组、放在里面的实例）的面 / 线 / 实例全藏。
+  hasHideableSelection(): boolean { return this.hasSelection(); }
+  /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
+  hideSelection(): number { return this.step(() => this.hideSelectionStep()); }
+  private hideSelectionStep(): number {
+    const at = this.activePool(), k = this.kernel, def = at.def, body = this.scene.brep(def);
+    let n = 0;
+    const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
+    const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
+    if (faces.length || edges.length) { this.commitOp({ op: "setHidden", at, faces, edges, on: true }); n += faces.length + edges.length; }
+    // 组：整棵子树（子组的面 / 线 + 放在这棵树里的实例）
+    const groupIds = [...this.selectedPools.values()].filter((p) => p.kind === "group").map((p) => (p as { group: GroupId }).group);
+    const tree = new Set<GroupId>(groupIds);
+    for (let grew = true; grew;) { grew = false; for (const g of body.groups.values()) if (g.parent !== null && tree.has(g.parent) && !tree.has(g.id)) { tree.add(g.id); grew = true; } }
+    for (const gid of tree) {
+      const gk = body.groups.get(gid)!.kernel;
+      const gf = gk.faces().filter((f) => !gk.isFaceHidden(f.id)).map((f) => faceKey(gk, f.id)), ge = gk.edges().filter((e) => !gk.isEdgeHidden(e.id)).map((e) => edgeKey(gk, e.id));
+      if (gf.length || ge.length) { this.commitOp({ op: "setHidden", at: { def, group: gid }, faces: gf, edges: ge, on: true }); n += gf.length + ge.length; }
+    }
+    const insts = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance").map((p) => p.instance);
+    for (const i of this.scene.def(def).instances.values()) if (i.parent !== null && tree.has(i.parent) && !i.hidden) insts.push(i.id);
+    for (const iid of insts) { const inst = this.scene.def(def).instances.get(iid)!; this.commitOp({ op: "setHidden", at: { def, group: inst.parent }, instance: iid, on: true }); n++; }
+    if (!n) return 0;
+    this.selection = emptySelection(); this.selectedPools.clear();
+    this.host.hint(`藏起来了；视图菜单「全部显示」放回来（Alt+H）`);
+    this.host.changed(); this.draw();
+    return n;
+  }
+  /** 整个场景里被隐藏的东西：组件份数 + 面 + 线（视图菜单「全部显示（N）」用）。 */
+  hiddenCount(): { instances: number; faces: number; edges: number } {
+    const c = { instances: 0, faces: 0, edges: 0 };
+    for (const d of this.scene.defs.values()) {
+      for (const i of d.instances.values()) if (i.hidden) c.instances++;
+      if (d.body.kind !== "brep") continue;
+      for (const k of [d.body.kernel, ...[...d.body.groups.values()].map((g) => g.kernel)]) { for (const f of k.faces()) if (k.isFaceHidden(f.id)) c.faces++; for (const e of k.edges()) if (k.isEdgeHidden(e.id)) c.edges++; }
+    }
+    return c;
+  }
+  /** 全部显示（一条 op，可撤销）。返回放回了几样。 */
+  unhideAll(): number {
+    const c = this.hiddenCount(), n = c.instances + c.faces + c.edges;
+    if (!n) { this.host.hint("没有隐藏的东西"); return 0; }
+    this.commitOp({ op: "unhideAll" });
+    this.host.hint(`全部放回来了（${[c.instances ? `组件 ${c.instances} 份` : "", c.faces ? `面 ${c.faces}` : "", c.edges ? `线 ${c.edges}` : ""].filter(Boolean).join("、")}）`);
+    this.host.changed(); this.draw();
+    return n;
   }
   /** 进入选中（或命中）的子 group / 实例编辑。 */
   enterPool(p: PoolPick): void {
@@ -1875,11 +1925,12 @@ export class Editor {
   selectAll(): boolean {
     const k = this.kernel;
     this.selection = emptySelection(); this.selectedPools.clear();
-    for (const f of k.faces()) this.selection.faces.add(f.id);
-    for (const e of k.edges()) this.selection.edges.add(e.id);
+    for (const f of k.faces()) if (!k.isFaceHidden(f.id)) this.selection.faces.add(f.id);   // 隐藏的（DT49）不选
+    for (const e of k.edges()) if (!k.isEdgeHidden(e.id)) this.selection.edges.add(e.id);
     const def = this.scene.def(this.scene.defOfContext(this.ctx));
-    if (def.body.kind === "brep") for (const g of def.body.groups.values()) if (g.parent === this.ctx.group) this.selectedPools.set(`g${g.id}`, { kind: "group", group: g.id });
-    for (const i of def.instances.values()) if (i.parent === this.ctx.group) this.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id });
+    const shown = (gk: Kernel): boolean => gk.faces().some((f) => !gk.isFaceHidden(f.id)) || gk.edges().some((e) => !gk.isEdgeHidden(e.id));
+    if (def.body.kind === "brep") for (const g of def.body.groups.values()) if (g.parent === this.ctx.group && (shown(g.kernel) || [...def.body.groups.values()].some((c) => c.parent === g.id))) this.selectedPools.set(`g${g.id}`, { kind: "group", group: g.id });
+    for (const i of def.instances.values()) if (i.parent === this.ctx.group && chainVisible(this.scene, [...this.ctx.chain, i.id])) this.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id });   // 藏起来的（隐藏 / 藏层）不选
     this.afterSelect();
     return this.hasSelection();
   }

@@ -65,6 +65,10 @@ export type Op =
   | { op: "eraseGroup"; at: PoolRef; group: number }
   /** 锁定 / 解锁一个子实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。0.14 起组不是物体、不能锁：带 group 的 setLocked 被拒。 */
   | { op: "setLocked"; at: PoolRef; group?: number; instance?: number; on: boolean }
+  /** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。 */
+  | { op: "setHidden"; at: PoolRef; instance?: number; faces?: FaceKey[]; edges?: EdgeKey[]; on: boolean }
+  /** 全部显示：整个场景里所有被隐藏的实例、面、边都放回来（DT49）。 */
+  | { op: "unhideAll" }
   // ---------- 0.14 物体模型（契约 ai-docs/20261024-object-model-contract.md）----------
   /** 显式换身体种类（定义级：共享定义的全部实例一起变）；只认 kinds.ts 登记表里的方向，失败不改文档。 */
   | { op: "castDefinition"; def: number; to: BodyKind }
@@ -342,6 +346,31 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
       }
       throw new OpTargetError("setLocked: no target");
     }
+    case "setHidden": {
+      if (op.instance !== undefined) {
+        const inst = s.def(op.at.def).instances.get(op.instance);
+        if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
+        if (op.on) inst.hidden = true; else delete inst.hidden;
+      }
+      if (op.faces?.length || op.edges?.length) {
+        const { kernel } = poolOf(s, op.at);
+        if (op.faces?.length) kernel.setFaceHidden(op.faces.map((f) => resolveFace(kernel, f)), op.on);
+        if (op.edges?.length) kernel.setEdgeLayer("hidden", op.edges.map((e) => resolveEdge(kernel, e)), op.on);
+      }
+      return { scene: s, events: [] };
+    }
+    case "unhideAll": {
+      for (const d of s.defs.values()) {
+        for (const inst of d.instances.values()) delete inst.hidden;
+        if (d.body.kind !== "brep") continue;
+        for (const k of [d.body.kernel, ...[...d.body.groups.values()].map((g) => g.kernel)]) {
+          const fs = k.faces().filter((f) => k.isFaceHidden(f.id)).map((f) => f.id), es = k.edges().filter((e) => k.isEdgeHidden(e.id)).map((e) => e.id);
+          if (fs.length) k.setFaceHidden(fs, false);
+          if (es.length) k.setEdgeLayer("hidden", es, false);
+        }
+      }
+      return { scene: s, events: [] };
+    }
     case "castDefinition": {
       const d = s.def(op.def);
       const body = castBody(d.body, op.to);   // 不认的方向在这里抛，文档不动
@@ -421,6 +450,8 @@ export function describeOp(op: Op): string {
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
+    case "setHidden": return `setHidden ${op.on ? "on" : "off"}${op.instance !== undefined ? ` instance ${op.instance}` : ""}${op.faces?.length ? ` faces=${op.faces.length}` : ""}${op.edges?.length ? ` edges=${op.edges.length}` : ""}${at}`;
+    case "unhideAll": return "unhideAll";
     case "setLocked": return `setLocked ${op.on ? "on" : "off"} ${op.group !== undefined ? `group ${op.group}` : `instance ${op.instance}`}${at}`;
     case "addGuide": return `addGuide ${op.line ? "line" : "point"}${at}`;
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;

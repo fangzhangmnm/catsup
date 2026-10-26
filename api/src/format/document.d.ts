@@ -75,7 +75,8 @@ export interface InstanceDoc {
     xform: Xform;
     name?: string; /** 锁定（A27）；只在 true 时写。 */
     locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */
-    layer?: number;
+    layer?: number; /** 隐藏（DT49；definitions 6.1 起；只在 true 时写；glTF 节点同时带 KHR_node_visibility）。 */
+    hidden?: boolean;
 }
 export interface DefinitionDoc {
     name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */

@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  81 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  83 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -119,6 +119,10 @@
   <symbol id="object" data-cat="hierarchy" data-src="own" data-note="对象:等距 cube(Unity GameObject 式)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L20 7.6 L20 16.4 L12 21 L4 16.4 L4 7.6 Z"/><path d="M12 12 L20 7.6"/><path d="M12 12 L4 7.6"/><path d="M12 12 L12 21"/></symbol>
   <!-- unlock — 开锁:同 lock 体型+锁梁弹开 -->
   <symbol id="unlock" data-cat="hierarchy" data-src="own" data-note="开锁:同 lock 体型+锁梁弹开" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="5.5" y="10" width="13" height="11"/><path d="M8.8 10 V6.5 a3.2 3.2 0 0 1 6.3 -1.1"/></symbol>
+  <!-- visibility-hide — 隐藏:同 show 撑高版+斜杠(mask 留 gap) -->
+  <symbol id="visibility-hide" data-cat="hierarchy" data-src="own" data-note="隐藏:同 show 撑高版+斜杠(mask 留 gap)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="wbEyeHideBig"><rect width="24" height="24" fill="#fff"/><path d="M4.2 19.8 L19.8 4.2" stroke="#000" stroke-width="4"/></mask><g mask="url(#wbEyeHideBig)"><path d="M3.2 12 Q12 1.8 20.8 12" stroke-width="2.2"/><path d="M3.2 12 Q12 22.2 20.8 12"/><circle cx="12" cy="12" r="4.3" fill="currentColor" stroke="none"/></g><path d="M4.2 19.8 L19.8 4.2"/></symbol>
+  <!-- visibility-show — 可见:撑高眼裂+瞳孔 r4.3(甲方实测原版太小) -->
+  <symbol id="visibility-show" data-cat="hierarchy" data-src="own" data-note="可见:撑高眼裂+瞳孔 r4.3(甲方实测原版太小)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 12 Q12 1.8 20.8 12" stroke-width="2.2"/><path d="M3.2 12 Q12 22.2 20.8 12"/><circle cx="12" cy="12" r="4.3" fill="currentColor" stroke="none"/></symbol>
   <!-- common -->
   <!-- back — 返回:左向整箭头(带杆;裸 chevron-left 曾因小尺寸渲染差被 sunset) -->
   <symbol id="back" data-cat="common" data-src="own" data-note="返回:左向整箭头(带杆;裸 chevron-left 曾因小尺寸渲染差被 sunset)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H5"/><polyline points="11 6 5 12 11 18"/></symbol>

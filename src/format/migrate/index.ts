@@ -20,6 +20,8 @@
 //   CATSUP_desk        1.0（2026-10-25，Claude Fable 5.1）：桌面态子结构 = WeebPaint `.weebpaint/editor-state.json` 在 glb 里的镜像（user「不是应该跟文件吗，看一下weebpaint…」）：
 //                      menuTabs（两个 ☰ 停在哪页）、lastView（相机；从 CATSUP_document 搬来 = 契约 §7.2「保留读、停止写」）。不进定稿指纹、不标脏、新建必 reset；
 //                      **major 比本版新 → 不拒开**：原字节带回、桌面用默认（只有 document / brep / definitions 太新才拒开）。
+//   CATSUP_definitions 6.1（2026-10-25，Claude Opus 5.5；DT49 隐藏）：可选键 instances[j].hidden（只写 true）；同时 glTF 节点带 Khronos KHR_node_visibility { visible: false }
+//                      （契约 §5 早定的「hide = KHR_node_visibility」；extensionsUsed 只在有隐藏时列）。老读者少看见一个键 = 藏起来的会显示出来、存回去会丢掉隐藏（minor 语义）。
 //   CATSUP_desk        1.1（2026-10-25，Claude Opus 5.5）：可选键 refPanel { open, left, top, width, height }（参考窗开着没有 + 在哪；视图态，同 MoonSinger view.ref）。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：
 //                      files[] = { path, mimeType, bufferView }；**本层不懂清单**（清单的拍子 / 迁移归库）。空牌组不写这个扩展（抠）。不进定稿指纹、不进撤销；
@@ -39,7 +41,7 @@ export interface Stamp { readonly major: number; readonly minor: number; readonl
 export const FORMAT = {
   CATSUP_document: { major: 3, minor: 1, patch: 0 },
   CATSUP_brep: { major: 4, minor: 0, patch: 0 },
-  CATSUP_definitions: { major: 6, minor: 0, patch: 0 },
+  CATSUP_definitions: { major: 6, minor: 1, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },
   CATSUP_material: { major: 1, minor: 0, patch: 0 },
   CATSUP_desk: { major: 1, minor: 1, patch: 0 },

@@ -105,7 +105,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (typeof inst.definition !== "number" || !(inst.definition in (list as unknown[]))) fail(`definition ${di} instance ${ii} references a missing definition`);
       const m = inst.matrix;
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
-      return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
+      return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
     // 门 1：definition 的种类。缺省 brep；0.14 起认 mesh（载荷：definitions v5；card 在 v6 退场 = 迁成空 brep）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。

@@ -26,7 +26,7 @@ export interface Material {
   readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly [number, number] };
 }
 export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }   // 组 = brep 汤里的分区，不是物体：无身份、无锁、无层（user 2026-10-24「su的group不算物体层级……地位类似选区」）
-export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; /** 锁定（A27）。 */ locked?: boolean; /** 层（契约 §4）：缺 = 继承父上下文的有效层。 */ layer?: number; }
+export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; /** 锁定（A27）。 */ locked?: boolean; /** 层（契约 §4）：缺 = 继承父上下文的有效层。 */ layer?: number; /** 隐藏（DT49；glTF KHR_node_visibility）：藏这一份连同里面的一切；不画、不吸、点不中。 */ hidden?: boolean; }
 /** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
 export interface BrepBody {
   readonly kind: "brep";
@@ -224,7 +224,7 @@ export class Scene {
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
       } else body = { kind: "mesh", positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}), materialSlots: [...d.body.materialSlots] };   // 网格数组按不可变对待（cast 整体换）
       const instances = new Map<InstId, Instance>();
-      for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}) });
+      for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
       s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });
     }
     return s;

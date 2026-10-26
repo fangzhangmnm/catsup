@@ -8,7 +8,7 @@ export interface Seg3 {
 /** 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。 */
 export declare const EDGE_LAYERS: readonly ["soft", "curve", "smooth", "hidden"];
 /** 知名面层。 */
-export declare const FACE_LAYERS: readonly ["material"];
+export declare const FACE_LAYERS: readonly ["material", "hidden"];
 /** 推拉 / 跟随：原边带哪层 → 它扫出的侧棱带哪些层（帽边 = 原边的全部层）。 */
 export declare const EDGE_LAYER_POLICY: Readonly<Record<string, readonly string[]>>;
 /**

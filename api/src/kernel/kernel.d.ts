@@ -202,6 +202,10 @@ export declare class Kernel {
     /** 涂材质（槽号；null = 回默认）。 */
     setFaceMaterial(ids: readonly FaceId[], slot: number | null): void;
     faceMaterialOf(id: FaceId): number | undefined;
+    /** 隐藏 / 显示一批面（DT49：面层 hidden = 1；子膜按血缘继承）。 */
+    setFaceHidden(ids: readonly FaceId[], on: boolean): void;
+    isFaceHidden(id: FaceId): boolean;
+    isEdgeHidden(id: EdgeId): boolean;
     /** 给一批边打 / 去一个边层（软化 / 硬化工具）。 */
     setEdgeLayer(name: string, ids: readonly EdgeId[], on: boolean): void;
     private emit;

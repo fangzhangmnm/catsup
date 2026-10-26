@@ -99,7 +99,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       guides: encGuides(g.guides),
       brep: encodeBrep(g.brep, sink),
     }));
-    const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}) }));
+    const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) }));
     // 0.14 身体载荷（definitions v5）：mesh = 几条 bufferView（card 载荷 v6 退场）
     let payload: Record<string, unknown> = {};
     if (d.kind === "mesh" && d.mesh) {
@@ -112,17 +112,20 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）
   const nodes: Record<string, unknown>[] = [];
-  const instExt = (definition: number): Record<string, unknown> => ({ CATSUP_instance: { ...stampOf("CATSUP_instance"), definition, overrides: {} } });
-  const buildNode = (d: DefinitionDoc, defIndex: number, depth: number, extra: Record<string, unknown>): number => {
+  let anyHidden = false;
+  // 隐藏的实例（DT49）：节点带 Khronos KHR_node_visibility { visible: false }（藏父连子，别的 glTF 查看器也认）；我们自己读的是 CATSUP_definitions 里的 hidden
+  const instExt = (definition: number, hidden: boolean): Record<string, unknown> => ({ CATSUP_instance: { ...stampOf("CATSUP_instance"), definition, overrides: {} }, ...(hidden ? { KHR_node_visibility: { visible: false } } : {}) });
+  const buildNode = (d: DefinitionDoc, defIndex: number, depth: number, extra: Record<string, unknown>, hidden = false): number => {
     const idx = nodes.length;
-    const node: Record<string, unknown> = { name: d.name, mesh: defIndex, extensions: instExt(defIndex), ...extra };
+    if (hidden) anyHidden = true;
+    const node: Record<string, unknown> = { name: d.name, mesh: defIndex, extensions: instExt(defIndex, hidden), ...extra };
     nodes.push(node);
     if (depth > 32) return idx;
     const children: number[] = [];
     for (const inst of d.instances) {
       const target = doc.definitions[inst.definition];
       if (!target) continue;
-      children.push(buildNode(target, inst.definition, depth + 1, { matrix: xformToGltfMatrix(inst.xform), ...(inst.name !== undefined ? { name: inst.name } : {}) }));
+      children.push(buildNode(target, inst.definition, depth + 1, { matrix: xformToGltfMatrix(inst.xform), ...(inst.name !== undefined ? { name: inst.name } : {}) }, !!inst.hidden));
     }
     if (children.length) node.children = children;
     return idx;
@@ -132,7 +135,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const json: Record<string, unknown> = {
     ...carry.topLevel,
     asset: { version: WRITE_GLTF_VERSION, minVersion: MIN_GLTF_VERSION, generator: `CatsUp ${APP_VERSION}`, ...(thumbnail !== undefined ? { thumbnail } : {}) },
-    extensionsUsed: [...CATSUP_EXTENSIONS, ...(refsCarried || refsExt ? ["CATSUP_references"] : [])],
+    extensionsUsed: [...CATSUP_EXTENSIONS, ...(refsCarried || refsExt ? ["CATSUP_references"] : []), ...(anyHidden ? ["KHR_node_visibility"] : [])],
     extensionsRequired: [],
     buffers: [{ byteLength: 0 }],
     bufferViews,

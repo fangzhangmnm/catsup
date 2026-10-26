@@ -175,7 +175,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 | **Model Info**（单位 / 精度 / 长度吸附 + 增量 / 角度吸附；文件信息 作者 描述） | `document.settings` + `asset.copyright` / `extras.catsup.description` | `asset` | 现在 |
 | **模型轴**（Axes 工具移过的原点/朝向） | `document.axes{origin, x, y, z}`（只影响推断与显示，顶点不动） | — | 轴工具纪元 |
 | **AttributeDictionary**（每实体任意键值：动态组件、IFC 分类、插件数据） | 节点 / definition = glTF `extras`；brep 元素 = 元素上的 `extras` 键（同名，同规则：未知保留） | `extras` | 现在（空） |
-| Hidden / Locked（每实体） | 边 / 面 `hidden` 位；实例节点 `hidden` / `locked`（group 不带） | `KHR_node_visibility` | 现在 |
+| Hidden / Locked（每实体） | 边 / 面 `hidden` 位；实例节点 `hidden` / `locked`（group 不带） | `KHR_node_visibility` | 现在（**hidden 落地 v0.14.18，2026-10-25 Claude Opus 5.5**：实例 = `CATSUP_definitions` 6.1 `instances[j].hidden`（只写 true）+ glTF 节点 `extensions.KHR_node_visibility {visible:false}`、有才列进 extensionsUsed；面 = `CATSUP_brep.attributes.face.hidden`（u16，1 = 藏）；边 = `attributes.edge.hidden`（u8）；bake 的 TRIANGLES / LINES 不出藏起来的面 / 边） |
 | Camera（透视 / 平行、fov、eye/target/up） | core `cameras` + `document.lastView` | `cameras` | 现在 |
 | Outliner / Entity Info / 统计 | 派生，不存 | — | — |
 | Follow Me / Sandbox / Solid Tools / Intersect / Offset | 工具，产物是几何 | — | — |

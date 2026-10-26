@@ -32,7 +32,8 @@ export interface Instance {
     xform: Xform;
     name?: string; /** 锁定（A27）。 */
     locked?: boolean; /** 层（契约 §4）：缺 = 继承父上下文的有效层。 */
-    layer?: number;
+    layer?: number; /** 隐藏（DT49；glTF KHR_node_visibility）：藏这一份连同里面的一切；不画、不吸、点不中。 */
+    hidden?: boolean;
 }
 /** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
 export interface BrepBody {

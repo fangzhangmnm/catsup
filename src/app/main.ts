@@ -198,6 +198,7 @@ const hud: HudModel = {
     { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "lock", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
     { id: "unlock", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
+    { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: !editor.hasHideableSelection() },   // DT49（user「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden」）：H；视图菜单「全部显示」/ Alt+H 放回
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
@@ -227,6 +228,7 @@ const hud: HudModel = {
       case "enter": editor.enterSelected(); break;
       case "lock": editor.lockSelection(true); break;
       case "unlock": editor.lockSelection(false); break;
+      case "hide": editor.hideSelection(); break;
       case "exit": editor.exitContext(); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
@@ -365,7 +367,7 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -396,6 +398,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "softenAll": { const n = editor.softenByAngle(20); notify({ text: n ? `软化了 ${n} 条边（夹角 ≤ 20°）` : "没有夹角 ≤ 20° 的边", level: "info" }); break; }
       case "material": toggleMatSheet(true); break;
       case "persp": editor.toggleProjection(); return "keep";
+      case "unhideAll": editor.unhideAll(); break;
       case "walk": setWalk(!locomotion.isWalking()); return "keep";
       case "thick": editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep";
       case "lw:1": case "lw:1.5": case "lw:2": case "lw:3": { const w = Number(id.slice(3)); editor.setLineWeight(w); PREF.set("lineWeight", String(w)); return "keep"; }
@@ -819,6 +822,7 @@ function openViewMenu(tab?: ViewTab): void {
     anchor: viewMenuBtn, align: "end" as const, tabs: VIEW_MENU_TABS, tabKey: "view", tab,
     items: () => [
       { id: "persp" as MenuId, label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), tab: "display" },
+      ((): { id: MenuId; label: string; icon: string; hint: string; disabled: boolean; tab: string } => { const c = editor.hiddenCount(), n = c.instances + c.faces + c.edges; return { id: "unhideAll", label: n ? `全部显示（${n}）` : "全部显示", icon: "visibility-show", hint: "Alt+H", disabled: !n, tab: "display" }; })(),   // DT49
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
       { id: "lw:pick" as MenuId, label: "线稿粗细", tab: "display", choices: LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "1 px（原生细线）" : `${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗" })) },   // 设备像素
       { id: "unit:pick" as MenuId, label: "单位", tab: "display", choices: LENGTH_UNITS.map((u) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id })) },
@@ -888,9 +892,11 @@ window.addEventListener("keydown", (ev) => {
       editor.setTool(t); return;
     }
     if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件
+    if (key === "h" && !locomotion.isWalking()) { ev.preventDefault(); if (editor.hasHideableSelection()) editor.hideSelection(); return; }   // Blender：H = 隐藏选中（DT49）
     if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); editor.selectAll(); return; }   // Ctrl+A 全选（A7）
+  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyH") { ev.preventDefault(); editor.unhideAll(); return; }   // Blender：Alt+H = 全部显示（DT49；用 code：Mac 上 Alt+H 打出的是别的字）
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "g" || ev.key === "G")) { ev.preventDefault(); if (ev.shiftKey) editor.explodeSelection(); else editor.makeGroup(); return; }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
     ev.preventDefault();

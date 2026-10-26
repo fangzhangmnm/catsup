@@ -672,6 +672,13 @@ export class Kernel {
     for (const id of ids) { if (!this.store.face(id)) continue; if (slot === null) this.faceLayers.delete("material", id); else this.faceLayers.set("material", id, slot); }
   }
   faceMaterialOf(id: FaceId): number | undefined { return this.faceLayers.get("material", id); }
+  /** 隐藏 / 显示一批面（DT49：面层 hidden = 1；子膜按血缘继承）。 */
+  setFaceHidden(ids: readonly FaceId[], on: boolean): void {
+    this._rev++;
+    for (const id of ids) { if (!this.store.face(id)) continue; if (on) this.faceLayers.set("hidden", id, 1); else this.faceLayers.delete("hidden", id); }
+  }
+  isFaceHidden(id: FaceId): boolean { return this.faceLayers.get("hidden", id) !== undefined; }
+  isEdgeHidden(id: EdgeId): boolean { return this.edgeLayers.has("hidden", id); }
   /** 给一批边打 / 去一个边层（软化 / 硬化工具）。 */
   setEdgeLayer(name: string, ids: readonly EdgeId[], on: boolean): void {
     this._rev++;
