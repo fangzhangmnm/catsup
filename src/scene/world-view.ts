@@ -51,7 +51,7 @@ export interface GeomView {
 
 export const ID_STRIDE = 1 << 22;
 
-export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */ tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; }
+export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */ tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; /** 复制预演的副本槽（DT14）：同一个池多画一份、在手里待遇（空 part），key 带 +copy；原槽照常。 */ ghost?: boolean; }
 
 
 /** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
@@ -168,7 +168,7 @@ export class WorldView implements GeomView {
   frame(): Frame { return this.ctxFrame; }
   guides(): GuidesWorld { return this.ctxGuides; }
   grid(): GridSpec | null { return this.ctxGrid; }
-  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number; frame?: Frame } | null }) {
+  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number; frame?: Frame } | null; copies?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[] }) {
     this.scene = scene; this.ctx = ctx;   // 不用参数属性：node strip-types 不支持
     const activePool = scene.poolOfContext(ctx);
     this.ctxFrame = scene.frameOfContext(ctx);
@@ -198,6 +198,20 @@ export class WorldView implements GeomView {
       (used.get(kernel) ?? used.set(kernel, new Set()).get(kernel)!).add(index);
     }
     // 修剪：一个 kernel 在本次没用到的槽序号（池增删后序号挪了）丢掉，缓存体积 = 槽数
+    // 复制预演（DT14，user 2026-10-25「move 复制的时候没有预览」）：原件不动、照常可吸；命中的池另加一个副本槽，在手里待遇（空 part = 不吸附、不遮挡、点不中），只按矩阵渲染——
+    // 副本不进推断世界，就不会自己吸自己（user「会不会自己卡住自己」）。排在全部正常槽之后：正常槽的序号（全局 id 前缀）和缓存不受影响。
+    if (extras?.copies?.length) {
+      const n0 = this.slots.length;
+      for (let i = 0; i < n0; i++) {
+        const sl = this.slots[i];
+        let m = sl.xform, hit = false;
+        for (const cp of extras.copies) if (cp.match(sl.pool, sl.chain)) { m = compose(cp.xform, m); hit = true; }
+        if (!hit) continue;
+        const index = this.slots.length;
+        this.slots.push({ ...sl, index, xform: m, active: false, overridden: true, ghost: true, tier: 2 });
+        this.parts.push(emptyPart(m));
+      }
+    }
     for (const [k, idxs] of used) { const perK = PART_CACHE.get(k)!; for (const i of [...perK.keys()]) if (!idxs.has(i)) perK.delete(i); }
     const parts = this.parts;
     const partOf = (id: number): SlotPart | undefined => parts[Math.floor(id / ID_STRIDE)];
@@ -249,4 +263,4 @@ export class WorldView implements GeomView {
   faceSlotOf(gid: FaceId): PoolSlot | undefined { const i = Math.floor(gid / ID_STRIDE); return this.parts[i]?.faces.has(gid) ? this.slots[i] : undefined; }
 }
 
-export const slotKey = (s: { chain: readonly InstId[]; pool: PoolRef }): string => `${s.chain.join("/")}#${poolKey(s.pool)}`;
+export const slotKey = (s: { chain: readonly InstId[]; pool: PoolRef; ghost?: boolean }): string => `${s.chain.join("/")}#${poolKey(s.pool)}${s.ghost ? "+copy" : ""}`;

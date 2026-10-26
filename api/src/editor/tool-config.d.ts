@@ -132,6 +132,15 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
+    /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
+    readonly move: {
+        readonly copy: {
+            readonly kind: "bool";
+            readonly label: "复制";
+            readonly def: false;
+            readonly scope: "session";
+        };
+    };
     /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
     readonly weldErase: {
         readonly maxDeg: {

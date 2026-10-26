@@ -58,7 +58,8 @@ export interface PoolSlot {
     active: boolean;
     inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */
     tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */
-    overridden: boolean;
+    overridden: boolean; /** 复制预演的副本槽（DT14）：同一个池多画一份、在手里待遇（空 part），key 带 +copy；原槽照常。 */
+    ghost?: boolean;
 }
 /** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
 export interface SlotPart {
@@ -109,6 +110,10 @@ export declare class WorldView implements GeomView {
             sub: number;
             frame?: Frame;
         } | null;
+        copies?: readonly {
+            match(pool: PoolRef, chain: readonly InstId[]): boolean;
+            xform: Xform;
+        }[];
     });
     private partOf;
     vertices(): Vertex[];
@@ -144,4 +149,5 @@ export declare class WorldView implements GeomView {
 export declare const slotKey: (s: {
     chain: readonly InstId[];
     pool: PoolRef;
+    ghost?: boolean;
 }) => string;

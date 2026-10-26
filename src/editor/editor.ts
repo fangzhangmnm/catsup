@@ -446,14 +446,18 @@ export class Editor {
   private ctxKey(): string { return `${this.ctx.chain.join("/")}#${this.ctx.group ?? "root"}`; }
   /** 世界视图（缓存：场景代数 + 影子副本身份 + 上下文 + 整体变换预演）。 */
   private worldView(live: Kernel | null = null, override: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null): WorldView {
-    if (override?.copy) override = null;   // 复制模式：原件不动（副本在 commit 时出现）
-    const ovKey = override ? `${override.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${override.xform.map((v) => v.toFixed(9)).join(",")}` : "";
+    // 复制模式：原件不动；副本当「副本槽」画出来（DT14，此前副本要到 commit 才出现 = 没预演）
+    const copy = override?.copy ? override : null;
+    if (copy) override = null;
+    const keyOf = (o: { picks: PoolPick[]; xform: Xform }): string => `${o.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${o.xform.map((v) => v.toFixed(9)).join(",")}`;
+    const ovKey = override ? keyOf(override) : copy ? `copy:${keyOf(copy)}` : "";
     const grid = this._grid.on ? { step: this._grid.step, sub: this._grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this._grid.plane) } : null;
     const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
+    const copies = copy ? this.overrideList(copy) : undefined;
     PART_STATS.ms = 0; PART_STATS.n = 0;
-    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides, { grid }));
+    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides, { grid, copies }));
     perf.last["worldView.parts"] = PART_STATS.ms; perf.last["worldView.partsN"] = PART_STATS.n;
     this.viewCache = { key, view };
     return view;

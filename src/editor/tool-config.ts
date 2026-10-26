@@ -149,6 +149,10 @@ export const TOOL_OPTIONS = {
     mode: { kind: "enum", label: "画法", values: ARC_MODES, def: "two", scope: "session" },
     segments: { kind: "number", label: "段数", def: 12, min: 2, max: 96, step: 1, scope: "session" },
   },
+  /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
+  move: {
+    copy: { kind: "bool", label: "复制", def: false, scope: "session" },
+  },
   /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
   weldErase: {
     maxDeg: { kind: "number", label: "最大角度", def: 45, min: 1, max: 90, step: 1, unit: "°", scope: "session" },
