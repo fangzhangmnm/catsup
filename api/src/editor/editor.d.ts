@@ -246,7 +246,7 @@ export type LastGesture = {
     copies?: number;
 };
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-type RepairKind = "weld" | "planar" | "harden" | "snap";
+type RepairKind = "weld" | "planar" | "harden" | "snap" | "hierarchy";
 export declare class Editor {
     private canvas;
     private host;
@@ -689,6 +689,12 @@ export declare class Editor {
     private subtleFolds;
     /** 菜单上露不露「修复…」：有任何一步会碰东西，或者有要检查的小伤。 */
     repairWorth(): boolean;
+    private hierCache;
+    /**
+     * 菜单用的便宜数法（恢复层级）：范围里每个池「含面的连通块 ≥ 2 → 块数」+「素组 ≥ 2 → 组数」。不做形状比对（大模型上每步都比太贵）；
+     * 真跑和修复面板的说明行用完整规划（repairPlan）。
+     */
+    hierarchyCandidates(scope?: "auto" | "context"): number;
     /** 「检查」高亮：画面上的边 id（每个画到这些池的槽都算）。修复面板没开 / 检查关着 = null。 */
     private inspectHighlights;
     /** 打开修复面板（马前炮）。 */

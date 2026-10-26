@@ -211,6 +211,7 @@ const hud: HudModel = {
     ...((): HudItem[] => { const n = editor.repairCount("planar"); return n ? [{ id: "makePlanar", label: `拍平（${n} 组）`, icon: "sharpen" }] : []; })(),
     { id: "repairPanel", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
     ...((): HudItem[] => { const n = editor.repairCount("snap"); return n ? [{ id: "snapToGrid", label: `吸到格点…（${n} 个点）`, icon: "snap-grid" }] : []; })(),   // T8 / DT4（user「吸到格点同意」；右下角马后炮改格子 / 坐标架 / 折缝 / 圆弧）
+    ...((): HudItem[] => { const n = editor.hierarchyCandidates(); return n ? [{ id: "restoreHierarchy", label: `恢复层级…（${n} 块）`, icon: "collection" }] : []; })(),   // DT99（user「自动恢复层级做着吧」）：连在一起的块各成一组、形状一样的合成组件；右下角马后炮可关合并
     ...((): HudItem[] => { const n = editor.repairCount("harden"); return n ? [{ id: "hardenBent", label: `折得很厉害的软边变硬（${n}）`, icon: "sharpen" }] : []; })(),   // T9（图标 stopgap）   // T7：选区里的断口（图标 stopgap 同焊接）   // 2026-10-26 user「这样的话我们需要一个apply scale」   // DT49（user「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden」）：H；视图菜单「全部显示」/ Alt+H 放回
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
@@ -249,6 +250,7 @@ const hud: HudModel = {
       case "makePlanar": editor.repair("planar"); break;
       case "hardenBent": editor.repair("harden"); break;
       case "snapToGrid": editor.repair("snap"); break;
+      case "restoreHierarchy": editor.repair("hierarchy"); break;
       case "repairPanel": editor.beginRepairPanel(); break;
       case "exit": editor.exitContext(); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }

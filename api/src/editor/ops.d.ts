@@ -136,6 +136,14 @@ export type Op = {
     curves: SnapCurves;
     crease: "soft" | "hard";
 }
+/** 恢复层级（DT99）：这个池里含面的连通块各成一组；形状一样的（含这一层的素组）合成同一个组件的几份。faces / edges 空 = 整个池，有 = 只要碰到它们的块。 */
+ | {
+    op: "restoreHierarchy";
+    at: PoolRef;
+    faces: FaceKey[];
+    edges: EdgeKey[];
+    dedupe: boolean;
+}
 /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
  | {
     op: "applyScale";

@@ -53,6 +53,7 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } from "./planar.ts";
+import { classifyShapes, piecesOf } from "./hierarchy.ts";
 import { type SnapCurves, planGridSnap } from "./snap-grid.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
@@ -193,7 +194,7 @@ export type LastGesture =
 interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
 
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-type RepairKind = "weld" | "planar" | "harden" | "snap";
+type RepairKind = "weld" | "planar" | "harden" | "snap" | "hierarchy";
 /** pools[].xf = 这个池的定义坐标 → 当前上下文定义坐标（组 = 不带变换；组件 = 一路实例变换的乘积，几条路径到同一定义取先到的那条）。 */
 interface RepairScope { pools: { at: PoolRef; sel: Selection | null; xf: Xform }[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
 
@@ -1503,6 +1504,22 @@ export class Editor {
       if (!plan.moves.length) return { ops: [], count: 0, skipped: plan.skipped };
       return { ops: [{ op: "snapToGrid", at, verts: vids ? vids.map((x) => k.graph.pt(x)) : [], step, lattice: [...lattice], curves, crease: v.crease === "hard" ? "hard" : "soft" }], count: plan.moves.length, extra: plan.curves, skipped: plan.skipped };
     }
+    if (kind === "hierarchy") {
+      // 恢复层级（DT99）：按现在的样子数——会搬家的块（成组 / 成实例）+ 合进组件的素组；extra = 合成几个组件。执行时 op 自己再规划一遍。
+      const dedupe = v.dedupe !== false;
+      const pieces = piecesOf(k, sel ? { faces: [...sel.faces].filter((f) => k.face(f)), edges: [...sel.edges].filter((e) => k.graph.hasEdge(e)) } : null);
+      if (sel && !sel.faces.size && !sel.edges.size) return { ops: [], count: 0 };
+      const d0 = this.scene.def(at.def), b0 = this.scene.brep(at.def);
+      const plain = !dedupe ? [] : [...b0.groups.values()].filter((g) => g.parent === at.group && g.kernel.faces().length > 0 && guideCount(g.guides) === 0
+        && ![...b0.groups.values()].some((c) => c.parent === g.id) && ![...d0.instances.values()].some((i) => i.parent === g.id));
+      const snaps = [...pieces.map((p) => extractSnapshot(k, p.faces, p.edges)), ...plain.map((g) => g.kernel.toBrep())];
+      const classes = dedupe ? classifyShapes(snaps).classes : snaps.map((_, i) => [i]);
+      const split = pieces.length >= 2;
+      let count = 0, comps = 0;
+      for (const c of classes) { if (c.length >= 2) { count += c.length; comps++; } else if (split && c[0] < pieces.length) count++; }
+      if (!count) return { ops: [], count: 0 };
+      return { ops: [{ op: "restoreHierarchy", at, faces: sel ? [...sel.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)) : [], edges: sel ? [...sel.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) : [], dedupe }], count, extra: comps };
+    }
     // harden：折得很厉害（弯折 > deg）却还标着软 / 平滑的边 → 变硬（user 10-26 旧文件案：折 90° 的软边 = 墙上渐变 + 画线描不上）
     const deg = Number(v.deg) || 60;
     const pool = new Set<EdgeId>();
@@ -1516,6 +1533,7 @@ export class Editor {
     planar: { deg: PLANAR_DEFAULTS.deg, target: PLANAR_DEFAULTS.target, eraseInner: PLANAR_DEFAULTS.eraseInner },
     harden: { deg: 60 },
     snap: { step: "grid", frame: "own", crease: "soft", curves: "rigid" },
+    hierarchy: { dedupe: true },
   };
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
   private snapStepChoices(): { id: string; label: string; hint?: string }[] {
@@ -1555,13 +1573,17 @@ export class Editor {
     planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（被弯折小于阈值的边分开、整片差不多平的面）" },
     harden: { title: "折得很厉害的软边变硬", done: (n) => `把 ${n} 条折得很厉害的软边变硬了`, none: "没有折得很厉害的软边" },
     snap: { title: "吸到格点", done: (n, e) => `吸了 ${n} 个点到格点${e ? `（${e} 条圆 / 弧整条平移，保持是圆）` : ""}`, none: "都已经在格点上了" },
+    hierarchy: { title: "恢复层级", done: (n, e) => `整理了 ${n} 块：各自成组${e ? `，形状一样的合成 ${e} 个组件` : ""}`, none: "没有要整理的（每层只有一块、也没有形状一样的）" },
   };
   /** 一条修复指令这一次做了什么（提交 op，不出提示）。failed = 被拒（报错已出）。 */
   private runRepair(kind: RepairKind, scope: "auto" | "context", v: Readonly<Record<string, ParamValue>>): { count: number; text: string; scope: string; failed: boolean } {
     const sc = this.repairScope(scope, v.children !== false), names = Editor.REPAIR_NAMES[kind];
     let count = 0, extra = 0, skipped = 0;
     const ops: Op[] = [];
-    for (const p of sc.pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
+    // 恢复层级：深的池先跑（父层会把素组合进组件；先合了父层，轮到那个组自己时它已经不在了）
+    const depth = (at: PoolRef): number => { if (at.group === null) return 0; let d = 1; for (let g = this.scene.group({ def: at.def, group: at.group }).parent; g !== null && d < 64; d++) g = this.scene.group({ def: at.def, group: g }).parent; return d; };
+    const pools = kind === "hierarchy" ? [...sc.pools].sort((a, b) => depth(b.at) - depth(a.at)) : sc.pools;
+    for (const p of pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
     const skipText = !skipped ? "" : kind === "planar" ? `；${skipped} 片是曲面（整片弯得超过 ${Number(v.deg) || PLANAR_DEFAULTS.deg}°，比如圆柱侧面），没拍` : `；${skipped} 个点在只选了一部分的圆 / 弧上，没动`;
     const scopeText = `${this.scopeText(sc)}${skipText}`;
     if (!ops.length) return { count: 0, text: names.none, scope: scopeText, failed: false };
@@ -1583,6 +1605,7 @@ export class Editor {
       { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
     ];
     if (kind === "harden") return [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }];
+    if (kind === "hierarchy") return [{ key: "dedupe", def: { kind: "bool", label: "形状一样的合成组件" } }];
     if (kind === "snap") return [
       { key: "step", def: { kind: "enum", label: "格子", values: this.snapStepChoices() } },
       { key: "frame", def: { kind: "enum", label: "按", values: [{ id: "own", label: "物体自己的坐标架", hint: "组件转过、缩放过也照它自己的轴吸（同一组件的别的份不会离格）" }, { id: "world", label: "世界格点", hint: "在根上看到的那张格子" }] } },
@@ -1615,7 +1638,7 @@ export class Editor {
   /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
   private static readonly SUBTLE_FOLD_DEG = 1;
   /** 固定顺序：先吸格点（吸完会冒出新的共线断口、新的微折），再焊断口，再拍平，最后折得很厉害的软边变硬。 */
-  private static readonly REPAIR_ORDER: readonly RepairKind[] = ["snap", "weld", "planar", "harden"];
+  private static readonly REPAIR_ORDER: readonly RepairKind[] = ["snap", "weld", "planar", "harden", "hierarchy"];   // 恢复层级最后：它把几何搬进新组，前面几步按池跑，先搬了它们就看不到
   /** 当前的修复面板会话（马前炮或应用后的马后炮）；它在右下角开着时才画「检查」高亮。 */
   private repairSession: ParamSession | null = null;
   private repairInspect = true;
@@ -1643,7 +1666,26 @@ export class Editor {
     return this.subtleCache;
   }
   /** 菜单上露不露「修复…」：有任何一步会碰东西，或者有要检查的小伤。 */
-  repairWorth(): boolean { return Editor.REPAIR_ORDER.some((k) => this.repairCount(k) > 0) || this.subtleFolds(this.repairChildren).n > 0; }
+  repairWorth(): boolean { return Editor.REPAIR_ORDER.some((k) => (k === "hierarchy" ? this.hierarchyCandidates() : this.repairCount(k)) > 0) || this.subtleFolds(this.repairChildren).n > 0; }
+  private hierCache: { key: string; n: number } | null = null;
+  /**
+   * 菜单用的便宜数法（恢复层级）：范围里每个池「含面的连通块 ≥ 2 → 块数」+「素组 ≥ 2 → 组数」。不做形状比对（大模型上每步都比太贵）；
+   * 真跑和修复面板的说明行用完整规划（repairPlan）。
+   */
+  hierarchyCandidates(scope: "auto" | "context" = "auto"): number {
+    const key = this.repairKey(scope, this.repairChildren);
+    if (this.hierCache?.key === key) return this.hierCache.n;
+    let n = 0;
+    for (const p of this.repairScope(scope, this.repairChildren).pools) {
+      const k = this.scene.kernelOf(p.at), d0 = this.scene.def(p.at.def), b0 = this.scene.brep(p.at.def);
+      const pieces = p.sel && !p.sel.faces.size && !p.sel.edges.size ? [] : piecesOf(k, p.sel ? { faces: [...p.sel.faces].filter((f) => k.face(f)), edges: [...p.sel.edges].filter((e) => k.graph.hasEdge(e)) } : null);
+      const plain = [...b0.groups.values()].filter((g) => g.parent === p.at.group && g.kernel.faces().length > 0 && guideCount(g.guides) === 0
+        && ![...b0.groups.values()].some((c) => c.parent === g.id) && ![...d0.instances.values()].some((i) => i.parent === g.id)).length;
+      n += (pieces.length >= 2 ? pieces.length : 0) + (plain >= 2 ? plain : 0);
+    }
+    this.hierCache = { key, n };
+    return n;
+  }
   /** 「检查」高亮：画面上的边 id（每个画到这些池的槽都算）。修复面板没开 / 检查关着 = null。 */
   private inspectHighlights(view: WorldView): Set<number> | null {
     if (!this.repairInspect || !this.repairPanelOpen()) return null;
@@ -1656,8 +1698,8 @@ export class Editor {
   /** 打开修复面板（马前炮）。 */
   beginRepairPanel(): void {
     this.cancelGesture();
-    const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect, snap: false, weld: true, planar: true, harden: true };
-    const stepFields = (): ParamField[] => Editor.REPAIR_ORDER.map((k) => ({ key: k, def: { kind: "bool" as const, label: k === "snap" ? `吸到格点（${fmtLen(this.gridFineStep())} 的格子）` : k === "planar" ? `拍平（弯折 < ${this.config.get("surface", "sharpDeg")}° 的硬边）` : Editor.REPAIR_NAMES[k].title } }));
+    const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect, snap: false, weld: true, planar: true, harden: true, hierarchy: false };   // 恢复层级默认不勾：它改结构（成组 / 成组件），不是修小伤
+    const stepFields = (): ParamField[] => Editor.REPAIR_ORDER.map((k) => ({ key: k, def: { kind: "bool" as const, label: k === "snap" ? `吸到格点（${fmtLen(this.gridFineStep())} 的格子）` : k === "planar" ? `拍平（弯折 < ${this.config.get("surface", "sharpDeg")}° 的边，整片差不多平才拍）` : k === "hierarchy" ? "恢复层级（连在一起的块各成一组，形状一样的合成组件）" : Editor.REPAIR_NAMES[k].title } }));
     const fields: ParamField[] = [{ key: "children", def: { kind: "bool", label: "含子物体" } }, { key: "inspect", def: { kind: "bool", label: "检查：高亮看起来平、其实折过的软边" } }, ...stepFields()];
     const note = (v: Readonly<Record<string, ParamValue>>): string => {
       const ch = v.children !== false, counts = Editor.REPAIR_ORDER.filter((k) => v[k]).map((k) => {

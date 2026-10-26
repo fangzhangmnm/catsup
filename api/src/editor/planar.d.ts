@@ -20,6 +20,8 @@ export interface PlanarPlan {
         a: Pt3;
         b: Pt3;
     }[];
+    /** 整片弯得超过阈值、当曲面没拍的片数（按边连起来的那一层数）。 */
+    curved: number;
 }
 /** 规划：scope = 只看这些面（null = 池里全部）。 */
 export declare function planPlanar(k: Kernel, scope: readonly FaceId[] | null, opt: PlanarOptions): PlanarPlan;

@@ -12,7 +12,9 @@ export declare const gates: {
     readonly softOrFlat: (k: Pick<Kernel, "isSoft" | "isFold" | "bendDeg">, deg: number) => EdgeGate;
     /** 任何边（连通的面）。 */
     readonly any: () => EdgeGate;
-    /** 夹角小于 deg 的**硬**边（拍平 DT7 的候选：软边从来不是候选，平滑组自动不碰）。 */
+    /** 弯折小于 deg 的边，硬 / 软 / 折线都算（拍平的候选，DT104：user 10-26「拍平当然管软边和折边！」）。 */
+    readonly below: (k: Pick<Kernel, "bendDeg">, deg: number) => EdgeGate;
+    /** 弯折小于 deg 的**硬**边（拍平碰上曲面时的退路：整片弯得超过阈值 → 只按硬边分片）。 */
     readonly hardBelow: (k: Pick<Kernel, "isSoft" | "isFold" | "bendDeg">, deg: number) => EdgeGate;
 };
 /** 从种子面灌：经 gate 放行的边走到邻面。种子不存在 → []。 */

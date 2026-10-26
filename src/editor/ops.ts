@@ -19,9 +19,10 @@ import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PlanarTarget, planPlanar } from "./planar.ts";
 import { type SnapCurves, planGridSnap, triangulationDiagonals } from "./snap-grid.ts";
+import { classifyShapes, piecesOf } from "./hierarchy.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import { type Frame, type Xform, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
-import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
+import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
+import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, guideCount, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
 
 export type Seg = [PtIn, PtIn];
@@ -63,6 +64,8 @@ export type Op =
    * 规划在 snap-grid.ts（纯函数）。不破面：先在拷贝上试，会破的面先在原平面里三角化（对角线带折缝的层），再真吸；还破 = 整步拒绝。
    */
   | { op: "snapToGrid"; at: PoolRef; verts: Pt3[]; step: number; lattice: number[]; curves: SnapCurves; crease: "soft" | "hard" }
+  /** 恢复层级（DT99）：这个池里含面的连通块各成一组；形状一样的（含这一层的素组）合成同一个组件的几份。faces / edges 空 = 整个池，有 = 只要碰到它们的块。 */
+  | { op: "restoreHierarchy"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; dedupe: boolean }
   /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
   | { op: "applyScale"; def: number; instance: number }
   /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
@@ -411,6 +414,42 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (events.some((e) => e.type === "BURST")) throw new PlanarBurst("拍平会让面破掉——算法没想到的情况，已整步撤回（请导出复现包）");
       return { scene: s, events };
     }
+    case "restoreHierarchy": {
+      const { kernel, ref } = poolOf(s, op.at);
+      const scope = op.faces.length || op.edges.length ? { faces: op.faces.map((f) => resolveFace(kernel, f)), edges: op.edges.map((e) => resolveEdge(kernel, e)) } : null;
+      const pieces = piecesOf(kernel, scope);
+      const d0 = s.def(ref.def), b0 = s.brep(ref.def);
+      // 素组 = 这一层的组、里面只有散几何（没有子组 / 实例 / 参考几何）：参加形状比对，合进组件时整组换成一份实例
+      const plain = !op.dedupe ? [] : [...b0.groups.values()].filter((g) => g.parent === ref.group && g.kernel.faces().length > 0 && guideCount(g.guides) === 0
+        && ![...b0.groups.values()].some((c) => c.parent === g.id) && ![...d0.instances.values()].some((i) => i.parent === g.id)).sort((a, b) => a.id - b.id);
+      const items = [...pieces.map((p) => ({ piece: p, group: null as null | (typeof plain)[number], snap: extractSnapshot(kernel, p.faces, p.edges) })),
+        ...plain.map((g) => ({ piece: null as null | (typeof pieces)[number], group: g, snap: g.kernel.toBrep() }))];
+      const { classes, xf } = op.dedupe ? classifyShapes(items.map((x) => x.snap)) : { classes: items.map((_, i) => [i]), xf: items.map(() => IDENTITY) };
+      const split = pieces.length >= 2, moved: typeof pieces = [];
+      let nComp = [...s.defs.values()].filter((d) => /^零件 \d+$/.test(d.name)).length;
+      for (const cls of classes) {
+        if (cls.length >= 2) {
+          const tpl = items[cls[0]].snap, origin = bboxMin([...tpl.vertices]);
+          const named = cls.map((i) => items[i].group?.name).find((n) => n !== undefined);
+          const def = s.mintDef(named ?? `零件 ${++nComp}`, Kernel.fromBrep(transformSnapshot(tpl, translation({ x: -origin.x, y: -origin.y, z: -origin.z }))));
+          s.brep(def.id).materialSlots = [...b0.materialSlots];
+          for (const i of cls) {
+            s.mintInstance(ref.def, ref.group, def.id, compose(xf[i], translation(origin)));
+            const it = items[i];
+            if (it.piece) moved.push(it.piece); else if (it.group) b0.groups.delete(it.group.id);
+          }
+        } else if (split && items[cls[0]].piece) {
+          const it = items[cls[0]];
+          s.mintGroup(ref.def, ref.group, Kernel.fromBrep(it.snap), frameAt(bboxMin([...it.snap.vertices])));
+          moved.push(it.piece!);
+        }
+      }
+      // 源池：搬走的块整块删（块是连通分量，删它碰不到别人）
+      const events = kernel.eraseFaces(moved.flatMap((p) => p.faces));
+      const left = moved.flatMap((p) => p.edges).filter((e) => kernel.graph.hasEdge(e));
+      if (left.length) events.push(...kernel.eraseEdges(left));
+      return { scene: s, events };
+    }
     case "snapToGrid": {
       const { kernel } = poolOf(s, op.at);
       if (!(op.step > 0) || op.lattice.length !== 12) throw new OpTargetError(`snapToGrid step=${op.step}`);
@@ -630,6 +669,7 @@ export function describeOp(op: Op): string {
     case "setDrawFrame": return `setDrawFrame${at}${op.frame ? "" : " reset"}`;
     case "applyScale": return `applyScale ${op.def}/${op.instance}`;
     case "makePlanar": return `makePlanar faces=${op.faces.length || "all"} deg=${op.deg} ${op.target}${op.eraseInner ? " +erase" : ""}${at}`;
+    case "restoreHierarchy": return `restoreHierarchy ${op.faces.length || op.edges.length ? `sel=${op.faces.length}+${op.edges.length}` : "all"}${op.dedupe ? " dedupe" : ""}${at}`;
     case "snapToGrid": return `snapToGrid verts=${op.verts.length || "all"} step=${op.step} ${op.curves} ${op.crease}${at}`;
     case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;
   }
