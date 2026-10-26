@@ -1,5 +1,6 @@
 // 拍平（纪元排期 T9 / 账本 DT7，2026-10-26，Claude Opus 5.5）。user：「也许比我想的简单……只是把所有小于角度的硬边干掉就行」；
-// 例子「大家在 0.5、一个在 0.51」→ 0.5（众数平面）；「确保不要有任何面破」（零破面）；软边从来不是候选（平滑组不碰）。
+// 例子「大家在 0.5、一个在 0.51」→ 0.5（众数平面）；「确保不要有任何面破」（零破面）。
+// 10-26 夜 DT104：软边 / 折线也是候选（user「然后拍平当然管软边和折边！」）；整片弯得超过阈值 = 曲面，不拍（圆柱侧面每条软边只弯 15°）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
@@ -42,14 +43,49 @@ describe("planar: 拍平", () => {
     assert(k2.vertices().every((v) => Math.abs(v.z - 0.5) < 1e-9));
     eq(k2.faces().length, 2);
   });
-  it("尖屋脊（弯 160°）、圆柱（平滑组）都不是候选：没有要拍的组", () => {
+  it("尖屋脊（弯 160°）不是候选；圆柱（平滑组）整片弯得超过阈值 = 曲面：没有要拍的组、报 1 片曲面", () => {
     const k = new Kernel(), s80 = (80 * Math.PI) / 180, dz = -Math.tan(s80);
     k.addEdges([[P(0, 0, 0), P(0, 2, 0)], [P(0, 2, 0), P(-1, 2, dz)], [P(-1, 2, dz), P(-1, 0, dz)], [P(-1, 0, dz), P(0, 0, 0)], [P(0, 2, 0), P(1, 2, dz)], [P(1, 2, dz), P(1, 0, dz)], [P(1, 0, dz), P(0, 0, 0)]] as [Pt3, Pt3][]);
     eq(planPlanar(k, null, PLANAR_DEFAULTS).groups.length, 0, "尖屋脊");
     const c = new Kernel();
     c.addEdges(circleSegmentsOnPlane(GROUND.plane, GROUND.basis, P(0, 0, 0), P(1, 0, 0), 24), { curve: true });
     c.pushPull(c.faces()[0].id, 2);
-    eq(planPlanar(c, null, PLANAR_DEFAULTS).groups.length, 0, "圆柱：侧面软边不是候选、顶底 90°");
+    const pc = planPlanar(c, null, PLANAR_DEFAULTS);
+    eq(pc.groups.length, 0, "圆柱：侧面每条软边弯 15° < 20°，但整片弯一圈 → 不拍"); eq(pc.curved, 1);
+  });
+  it("几乎平的软边 / 折线（DT104）：照样拍平、擦掉 → 一张面", () => {
+    for (const layer of ["soft", "fold"]) {
+      const k = tilted();
+      const mid = k.edges().find((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return Math.abs(a.x - 2) < 1e-9 && Math.abs(b.x - 2) < 1e-9; })!;
+      k.setEdgeLayer(layer, [mid.id], true);
+      if (layer === "soft") k.setEdgeLayer("smooth", [mid.id], true);
+      assert(layer === "soft" ? k.isSoft(mid.id) : k.isFold(mid.id), `${layer} 打上了`);
+      eq(planPlanar(k, null, PLANAR_DEFAULTS).groups.length, 1, `${layer}：是候选`);
+      let s = new Scene(k);
+      const r = applyOp(s, op(s)); s = r.scene;
+      const k2 = s.kernelOf(rootAt(s));
+      assert(k2.vertices().every((v) => Math.abs(v.z - 0.5) < 1e-9), `${layer}：全部点在 0.5`);
+      eq(k2.faces().length, 1, `${layer}：并成一张面`);
+      assert(!r.events.some((e) => e.type === "BURST"), `${layer}：零破面`);
+    }
+  });
+  it("硬边 24 棱柱（每条棱弯 15°）：整片弯一圈 = 曲面，不拍（以前整组被拍扁 → 破面 → 整步被拒）", () => {
+    const c = new Kernel();
+    c.addEdges(circleSegmentsOnPlane(GROUND.plane, GROUND.basis, P(0, 0, 0), P(1, 0, 0), 24));
+    c.pushPull(c.faces()[0].id, 2);
+    const side = c.edges().find((e) => Math.abs(c.graph.pt(e.a).z - c.graph.pt(e.b).z) > 1)!;
+    assert(!c.isSoft(side.id), "侧棱是硬边");
+    const pc = planPlanar(c, null, PLANAR_DEFAULTS);
+    eq(pc.groups.length, 0); eq(pc.curved, 1);
+  });
+  it("同一个模型里：微翘的板照样拍、旁边的圆柱不碰", () => {
+    const k = tilted();
+    k.addEdges(circleSegmentsOnPlane(GROUND.plane, GROUND.basis, P(10, 0, 0), P(11, 0, 0), 24), { curve: true });
+    const disk = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.x > 8))!;
+    k.pushPull(disk.id, 2);
+    const plan = planPlanar(k, null, PLANAR_DEFAULTS);
+    eq(plan.groups.length, 1); eq(plan.curved, 1);
+    assert(plan.moves.every((m) => m.to.x < 5), "只挪板上的点");
   });
   it("撤销回原样（一步）", () => {
     const s0 = new Scene(tilted()), h = new History(s0);

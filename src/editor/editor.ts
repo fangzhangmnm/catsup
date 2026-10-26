@@ -1490,7 +1490,8 @@ export class Editor {
       if (sel && !faces!.length) return { ops: [], count: 0 };
       const o: PlanarOptions = { deg: Number(v.deg) || PLANAR_DEFAULTS.deg, target: (String(v.target ?? PLANAR_DEFAULTS.target) as PlanarTarget), eraseInner: v.eraseInner === undefined ? PLANAR_DEFAULTS.eraseInner : !!v.eraseInner };
       const plan = planPlanar(k, faces, o);
-      return plan.groups.length ? { ops: [{ op: "makePlanar", at, faces: faces ? faces.map((f) => faceKey(k, f)) : [], deg: o.deg, target: o.target, eraseInner: o.eraseInner }], count: plan.groups.length, extra: o.eraseInner ? plan.erase.length : 0 } : { ops: [], count: 0 };
+      if (!plan.groups.length) return { ops: [], count: 0, skipped: plan.curved };
+      return plan.groups.length ? { ops: [{ op: "makePlanar", at, faces: faces ? faces.map((f) => faceKey(k, f)) : [], deg: o.deg, target: o.target, eraseInner: o.eraseInner }], count: plan.groups.length, extra: o.eraseInner ? plan.erase.length : 0, skipped: plan.curved } : { ops: [], count: 0 };
     }
     if (kind === "snap") {
       const vids = sel ? moveTargetsSelection(k, sel) : null;
@@ -1551,7 +1552,7 @@ export class Editor {
   }
   private static readonly REPAIR_NAMES: Record<RepairKind, { title: string; done: (n: number, extra: number) => string; none: string }> = {
     weld: { title: "焊接断口", done: (n) => `焊了 ${n} 处断口`, none: "没有断口（共线、只连两段的点）" },
-    planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（弯折小于阈值的硬边分开的面）" },
+    planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（被弯折小于阈值的边分开、整片差不多平的面）" },
     harden: { title: "折得很厉害的软边变硬", done: (n) => `把 ${n} 条折得很厉害的软边变硬了`, none: "没有折得很厉害的软边" },
     snap: { title: "吸到格点", done: (n, e) => `吸了 ${n} 个点到格点${e ? `（${e} 条圆 / 弧整条平移，保持是圆）` : ""}`, none: "都已经在格点上了" },
   };
@@ -1561,7 +1562,7 @@ export class Editor {
     let count = 0, extra = 0, skipped = 0;
     const ops: Op[] = [];
     for (const p of sc.pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
-    const skipText = skipped ? `；${skipped} 个点在只选了一部分的圆 / 弧上，没动` : "";
+    const skipText = !skipped ? "" : kind === "planar" ? `；${skipped} 片是曲面（整片弯得超过 ${Number(v.deg) || PLANAR_DEFAULTS.deg}°，比如圆柱侧面），没拍` : `；${skipped} 个点在只选了一部分的圆 / 弧上，没动`;
     const scopeText = `${this.scopeText(sc)}${skipText}`;
     if (!ops.length) return { count: 0, text: names.none, scope: scopeText, failed: false };
     // 吸到格点的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」
