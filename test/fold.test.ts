@@ -5,6 +5,7 @@ import type { Pt3 } from "../src/kernel/kernel.ts";
 import { polygonFaces, surfaceFaces } from "../src/kernel/flood.ts";
 import { exportObj } from "../src/editor/obj-io.ts";
 import { sceneFolded } from "./format-scenes.ts";
+import { bakeDefinition } from "../src/format/bake.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const edgeAt = (k: Kernel, a: Pt3, b: Pt3) => k.edges().find((e) => { const p = k.graph.pt(e.a), q = k.graph.pt(e.b); const same = (u: Pt3, v: Pt3) => Math.abs(u.x - v.x) < 1e-9 && Math.abs(u.y - v.y) < 1e-9 && Math.abs(u.z - v.z) < 1e-9; return (same(p, a) && same(q, b)) || (same(p, b) && same(q, a)); })!;
@@ -47,6 +48,13 @@ describe("折线（DT87）", () => {
     const faces = obj.split("\n").filter((l) => l.startsWith("f "));
     eq(faces.length, 1, "一个面");
     eq(faces[0].split(" ").length - 1, 4, "四个顶点");
+  });
+  it("glb 里给别的软件看的线（LINES）：折线不出——导出的 = 屏幕上的（2026-10-26 补）", () => {
+    const snap = sceneFolded().toBrep(), n = { v: 0 };
+    const r = bakeDefinition(snap, { add: () => n.v++ }, 0);
+    const lines = (r.accessors[2] as { count: number }).count / 2, folds = snap.edgeLayers?.fold?.length ?? 0;
+    assert(folds === 1, `样本里一条折线：${folds}`);
+    eq(lines, snap.edges.length - folds, "线 = 全部边 − 折线");
   });
   it("推拉一块：它环上的折线退回普通边，帽边也不带折线", () => {
     const k = sceneFolded();

@@ -158,7 +158,7 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
     const key = core === undefined ? -1 : core;
     (byMat.get(key) ?? byMat.set(key, []).get(key)!).push(i);
   });
-  const soft = new Set([...(snap.edgeLayers?.soft ?? []), ...(snap.edgeLayers?.hidden ?? [])]);   // 软边 / 隐藏的边不出线
+  const soft = new Set([...(snap.edgeLayers?.soft ?? []), ...(snap.edgeLayers?.hidden ?? []), ...(snap.edgeLayers?.fold ?? [])]);   // 软边 / 隐藏的边 / 折线（DT87：面内部的折痕，屏幕上不画）不出线——导出的 = 屏幕上的（2026-10-26 补折线）
   const lines: number[] = snap.edges.flatMap((e, i) => (soft.has(i) ? [] : [e[0], e[1]]));
   const idxType = pickUintType(Math.max(0, snap.vertices.length - 1));
   const idxGl = idxType === "uint8" ? GL_UNSIGNED_BYTE : idxType === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
