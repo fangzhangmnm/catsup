@@ -1,4 +1,5 @@
-// thumbnail.ts —— 保存时的缩略图：编辑器离屏渲 → 区域平均缩到长边 THUMB_LONG_EDGE → vendored JPEG。不走 canvas.toBlob。
+// thumbnail.ts —— 保存时的缩略图：编辑器离屏渲 → 区域平均缩到 THUMB_LONG_EDGE 见方 → vendored JPEG。不走 canvas.toBlob。
+// 永远正方形（2026-10-26，user「thumb应该永远是1:1的而不是依照设备」）：取屏幕正中间最大的那块（Editor.captureRgba 收窄视野）。
 // created 2026-09-20 by Claude Fable 5.1
 import type { Editor } from "../editor/editor.ts";
 import { encodeJpeg, THUMBNAIL_MIME } from "../format/jpeg.ts";
@@ -9,7 +10,7 @@ export function captureThumbnail(editor: Editor): { mimeType: string; bytes: Uin
   const vp = editor.vp();
   if (vp.w < 2 || vp.h < 2) return null;
   const long = THUMB_LONG_EDGE;
-  const [tw, th] = vp.w >= vp.h ? [long, Math.max(1, Math.round(long * vp.h / vp.w))] : [Math.max(1, Math.round(long * vp.w / vp.h)), long];
+  const tw = long, th = long;
   const rw = tw * 2, rh = th * 2;
   let rgba: Uint8Array;
   try { rgba = editor.captureRgba(rw, rh); } catch { return null; }

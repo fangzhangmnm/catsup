@@ -823,7 +823,14 @@ export class Editor {
   loadKernel(k: Kernel, label = "打开"): void { this.loadScene(new Scene(k), label); }
   /** 干净视角截图（无选区/悬停/吸附/预演）→ RGBA 自上而下；保存时的缩略图源。 */
   captureRgba(w: number, h: number): Uint8Array {
-    return this.r3.captureRgba(this.worldView(), this.cam, { w, h }, this.cleanState());
+    // 宽高比和屏幕不一样（缩略图永远正方形，user 2026-10-26「thumb应该永远是1:1的而不是依照设备」）→ 取屏幕正中间最大的那块：
+    // 眼睛不动，只收窄视野（半高和视场角的正切乘同一个系数，眼距不变）；目标比屏幕窄 = 竖直视野不变、两边裁掉
+    const vp = this.vp(), as = vp.w / Math.max(1, vp.h), at = w / Math.max(1, h), k = at >= as ? as / at : 1;
+    const cam = this.cam, h0 = cam.halfH, f0 = cam.fovY;
+    try {
+      if (k !== 1) { cam.halfH = h0 * k; cam.fovY = 2 * Math.atan(Math.tan(f0 / 2) * k); }
+      return this.r3.captureRgba(this.worldView(), cam, { w, h }, this.cleanState());
+    } finally { cam.halfH = h0; cam.fovY = f0; }
   }
   private cleanState(): ViewState {
     return { selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(), hoverEdge: null, hoverFace: null, preview: null, snap: null, snapAnchor: null, revision: this._revision, dimSlots: null, handles: null };
