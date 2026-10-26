@@ -70,7 +70,8 @@ export type Op = {
         from: Pt3;
         to: Pt3;
     }[];
-    mirror?: boolean;
+    mirror?: boolean; /** 自动折面的折缝带哪些边层（DT87 工作流亚种；缺 = 硬线）。 */
+    creaseLayers?: string[];
 } | {
     op: "pushpull";
     at?: PoolRef;
@@ -269,6 +270,12 @@ export type Op = {
     op: "setAxes";
     at: PoolRef;
     frame: Frame;
+}
+/** 画图用的坐标架（DT86）：根 = 绘图轴；组 = 组的坐标架；组件 = definition 的 drawFrame。frame = null = 重置（根 → 世界；组 → 它所在那层的坐标架；组件 → 跟组件原点）。不碰几何。 */
+ | {
+    op: "setDrawFrame";
+    at: PoolRef;
+    frame: Frame | null;
 }
 /** 镜像（DT23）：选中的面 / 线 + 组件实例（池本地坐标的镜像面）；默认删对面、消中缝、融合阈值 0。几何在 mirror.ts。 */
  | {

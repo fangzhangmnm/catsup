@@ -12,12 +12,12 @@ export declare const FORMAT: {
     };
     readonly CATSUP_brep: {
         readonly major: 4;
-        readonly minor: 1;
+        readonly minor: 2;
         readonly patch: 0;
     };
     readonly CATSUP_definitions: {
         readonly major: 6;
-        readonly minor: 1;
+        readonly minor: 2;
         readonly patch: 0;
     };
     readonly CATSUP_instance: {

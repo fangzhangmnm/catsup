@@ -126,6 +126,8 @@ export interface ViewState {
     poolAxes?: readonly Frame[] | null;
     /** 空组件（导入的空节点，T11）的小三轴：常驻、透视画，长度同 poolAxes；点它的标记 = 点它（编辑器 emptyAt）。 */
     emptyAxes?: readonly Frame[] | null;
+    /** 组件原点（DT86）：组件里另摆了坐标架、和原点不在一处时，原点处画一个淡小三轴（披露「现在是两个」）；同上画法、半透明。 */
+    originAxes?: readonly Frame[] | null;
     /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
     xformGizmo?: {
         origin: Pt3;
@@ -171,8 +173,11 @@ export declare class Renderer3 {
     private pixelMat;
     private texMats;
     private slotNodes;
-    private geomCache;
-    private geomsAlive;
+    /** 池（poolKey）→ 池网格：通常一个；同一帧一个池要画两个不同的内核（少见）就多开一个。两代没人用的释放。 */
+    private poolGpus;
+    /** 材质对象 → 小整数（材质槽签名用：槽表只追加 = 池网格增量；别的变化 = 全量）。 */
+    private matUids;
+    private nextMatUid;
     private syncGen;
     private poolKey;
     private overlayKey;
@@ -212,6 +217,8 @@ export declare class Renderer3 {
     private poolAxesKey;
     private emptyAxesLines;
     private emptyAxesKey;
+    private originAxesLines;
+    private originAxesKey;
     private gizmoLines;
     private gizmoQuad;
     private gizmoKey;
@@ -326,8 +333,12 @@ export declare class Renderer3 {
     private hidePools;
     private makeSlotNodes;
     private texMatFor;
-    private kernelGeom;
-    private disposeGeom;
+    /** 槽 s 用哪份池网格（同步到 s 的内核、传上显卡）。同一帧同一个内核只同步一次。 */
+    private poolGpu;
+    private poolEnv;
+    /** 池网格改过的段 → 显卡。数组换过（长大了 / 全量重建换了线仓库）= 那份几何重建。 */
+    private uploadPool;
+    private disposePoolGpu;
     /** 覆盖层：选中 / 悬停的面（世界坐标，只这几张）+ 选中 / 刮擦 / 悬停的边（粗线）。 */
     private rebuildOverlay;
     /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */
@@ -335,6 +346,8 @@ export declare class Renderer3 {
     /** XR：key light 钉在 HMD 相机系（同 keyLight 公式）。 */
     private xrKeyLight;
     /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
+    /** 一组小三轴（每个帧：原点出三根屏幕定长 POOL_AXES_PX 的短轴，RGB = XYZ）；key 没变就不重建。返回新 key。 */
+    private drawTriads;
     private lineMat;
     /**
      * 地面网格 = 一张 shader 平面（GRID_FRAG；0.13.23 起不再一条条线）+ 三色轴一份粗线（SU 约定：X 红 / Y 绿 / Z 蓝向上）。

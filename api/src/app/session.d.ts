@@ -58,6 +58,12 @@ export declare class Session {
     private halted;
     /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
     pushPending: boolean;
+    /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
+     *  清的时机：推上去了（save / resolveActive 成功）、换了文档。横幅本身在 main（onAttentionChanged）。 */
+    attention: {
+        cloudState: string | null;
+    } | null;
+    markAttention(cloudState: string | null): void;
     /** lazyblank（WeebPaint P1.5）：图库家 + 日期名只在内存，文件还没建；首笔有内容 → adoptLazy 翻 false。空白期永不落盘、回执条不写。 */
     lazy: boolean;
     /** 首存必须 mode:"new"（撞名不静默覆盖）直到第一次真落盘成功；失败后 30 s 自动保存重试仍带 new。 */
@@ -143,6 +149,9 @@ export declare class Session {
     private encode;
     /** desk 存盘形状：参考窗的窗以接缝为准（开过窗才有；这个文件里没开过 = 文件里原来那份）。 */
     private deskForSave;
+    /** 2026-10-26：编辑器横幅 / 保存钮上的「处理…」= 对正在编辑的这份主动叫库的面（store `file.resolve()` 三选一；app 不传答案）。
+     *  took-cloud → 本地已换成云端那份 → 整份重载（否则下次保存又把旧画布盖回去）；pushed → 对上了；cancelled → 横幅留着。 */
+    resolveActive(): Promise<"pushed" | "took-cloud" | "cancelled" | "other">;
     private adopt;
     /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeIdentifier / **回执条**（@internal/gallery resume-slate）都从这收口。
      *  回执条语义（WeebPaint 同）：图库家（非 lazy）→ {doc}；文件家 → {gallery}（句柄跨刷新不可恢复，下次落图库）；transient / lazyblank 不碰

@@ -49,6 +49,8 @@ export interface ImageTable {
     edgeLayers?: EdgeLayers;
     /** 名字 → 线段：这些段上落下的边进该层（圆的近似边 → curve；推拉侧棱 → soft+smooth）。 */
     layerSegs?: Readonly<Record<string, readonly Seg3[]>>;
+    /** 自动折面（④）的折缝带哪些边层（DT87 工作流亚种）：缺 = 普通硬边（硬表面 / SketchUp）；["fold"] = 折线（自由建模 / Blender）。 */
+    creaseLayers?: readonly string[];
     /** 面属性层登记处：新像带 face 值时，它独占的胞腔铸出的膜记上。 */
     faceLayers?: FaceLayers;
     /** 本次动过坐标的边（moveVertices：被移 / 被合并顶点的邻边）——局部性：自愈与认领只围绕脏边 + 像 + 被消耗膜的平面（2026-10-21 #14）。 */
@@ -83,6 +85,11 @@ export declare function dissolveAt(g: PlanarGraph, store: FaceStore, c: {
     ea: EdgeId;
     eb: EdgeId;
 }, EL?: EdgeLayers, curves?: CurveRegistry): boolean;
+/**
+ * 结算机本体。g / store / reg 原地修改；返回事件叙事。
+ * opts.global = 全平面全膜结算（差分 oracle：局部结算的结果必须与它逐字相同——立宪页 §3「局部性定理」，test/settle-differential.test.ts）。
+ */
+/** 调试钩子（默认 null 零开销）：影响域 / 胞腔 / 认领逐条打出来——守恒断言响了先开它看，别猜。added by Claude Fable 5.1 2026-10-24 */
 export declare const SETTLE_DEBUG: {
     log: ((line: string) => void) | null;
 };

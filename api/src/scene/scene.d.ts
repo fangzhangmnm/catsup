@@ -19,7 +19,7 @@ export interface Material {
 }
 export interface Group {
     readonly id: GroupId;
-    parent: GroupId | null;
+    parent: GroupId | null; /** 进这个组画图用的坐标架（本 definition 坐标）；组没有原点（DT86）。 */
     axes: Frame;
     kernel: Kernel;
     name?: string; /** 参考几何（0.11；本 definition 坐标）。 */
@@ -45,6 +45,12 @@ export interface BrepBody {
     materialSlots: number[];
     /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
     guides: Guides;
+    /**
+     * 进了这个组件画图用的坐标架（DT86，2026-10-26 Claude Opus 5.5；user「坐标架同意 组件原点同意」）：definition 坐标；缺 = 跟组件原点（= 定义自己的坐标系）。
+     * 只管推断 / 网格 / 画的平面，不碰几何、不是组件原点（组件原点 = 定义坐标系，改它挪几何：user「原点挪几何，因为是低频commitment，改画画坐标架不挪」）。
+     * 根定义不用它：根的坐标架 = Scene.axes。组的坐标架 = Group.axes（组不配有原点：user「组不是物体只是管理sticky geometry用的。所以有坐标架，但是不配有原点」）。
+     */
+    drawFrame?: Frame;
 }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
 export interface MeshBody {
@@ -130,10 +136,12 @@ export declare class Scene {
     /** 池的参考几何（可变引用；池本地坐标）。 */
     guidesOf(ref: PoolRef): Guides;
     /**
-     * 上下文的帧（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①）：根 = 绘图轴；进了 group = 那个 group 的轴；
-     * 进了组件实例 = 那个 definition 的轴（= 单位帧，组件的轴工具未做）——都乘上链上的实例变换。
+     * 上下文的坐标架（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①；DT86 叫「坐标架」）：根 = 绘图轴；进了 group = 那个 group 的坐标架；
+     * 进了组件实例 = 那个 definition 的坐标架（没摆过 = 组件原点）——都乘上链上的实例变换。
      */
     frameOfContext(ctx: EditContext): Frame;
+    /** 一串实例链最里面那个组件的原点（世界坐标；= 它的定义坐标系经链上变换）。根 = 世界帧。 */
+    originOfChain(chain: readonly InstId[]): Frame;
     /** 上下文的世界变换（链上实例变换的乘积；group 不带变换）。 */
     xformOfContext(ctx: EditContext): Xform;
     /** group 的子 group / 子实例（同一 definition 内，按 parent 链）。 */

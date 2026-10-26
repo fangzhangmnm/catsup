@@ -2,6 +2,7 @@ import { type Pt } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Region, type Ring } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, type CoplanarScope } from "./planes.ts";
+import { type ChangeLog } from "./change-log.ts";
 export type FaceEvent = {
     type: "BIRTH";
     face: FaceId;
@@ -55,11 +56,18 @@ export interface EraseVerdicts {
 /** 每平面的 region 提取结果。 */
 export type RegionsByPlane = Map<PlaneId, Region[]>;
 export declare class FaceStore {
+    /** 改动日志（Kernel 接上；DT96）：膜表是带记账的 Map（put / drop 都记）；原地改环的地方调 touch。 */
+    log: ChangeLog | null;
     private byId;
+    /** 原地改了这张膜的环（溶解 splice / 顶点并掉后改写环上的编号）：记一笔。 */
+    touch(id: FaceId): void;
     /** 平面 → 膜 id（单主人：只在 put / drop 里维护；结算机按被碰平面取膜，不扫全表。2026-10-23） */
     private byPlane;
     private nextId;
     private put;
+    /** 删过的膜（id 从不复用）：Kernel.emit 只拿它们去清面层（2026-10-26 Claude Opus 5.5，纪元账本 DT93）。 */
+    private removedF;
+    drainRemovedFaces(): FaceId[];
     private drop;
     faces(): Face[];
     face(id: FaceId): Face | undefined;

@@ -192,7 +192,7 @@ export type LastGesture = {
     entities?: {
         faces: FaceId[];
         edges: EdgeId[];
-    }; /** 变换工具：抓的时候几种轴心（马后炮换轴心重做）+ 用的是哪种。 */
+    }; /** 变换工具：抓的时候几种变换中心（马后炮换变换中心重做）+ 用的是哪种。 */
     pivots?: Record<string, Pt3>;
     pivotUsed?: string;
 } | {
@@ -314,12 +314,12 @@ export declare class Editor {
     private stepOps;
     private stepFailed;
     /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
-    /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
+    /** A9 方向锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
      *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
      *  面锁（user 2026-10-25「Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」；键位 = ledger A9 的 Blender Shift+X 语义）：
      *  锁到「排除该轴」的平面 = 法向是该轴的面（Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下那张膜的面）。
-     *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃轴锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
-     *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。轴锁与面锁互斥。 */
+     *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃方向锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
+     *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。方向锁与面锁互斥。 */
     private _axisLock;
     private _planeLock;
     private _planeLockN;
@@ -338,7 +338,7 @@ export declare class Editor {
     lockKey(axis: LockAxis | null, plane: boolean): void;
     /** 面锁下过 through 的平面（先定平面的工具在首点之后用；没锁 = null）。轴面的基 = 另外两根上下文轴。 */
     private lockedPlaneThrough;
-    /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：轴锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
+    /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：方向锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
     private applyLock;
     private static strongSnap;
     /** 投到锁住的面（过锚点）上：吸到实几何 → 正投影（「从点」；已在面上就原样）；没吸到 → 光标射线交面（掠射 = 投影兜底）；
@@ -437,6 +437,8 @@ export declare class Editor {
      */
     private selectedPoolFrames;
     private poolOrigins;
+    /** 组件里坐标架另摆了（和组件原点不在一处 / 朝向不同）→ 原点处画淡小三轴（DT86 披露「现在是两个」）；进组时比的是组的坐标架。 */
+    private originMarker;
     /**
      * 空组件的小三轴（T11 / DT2，user 10-25「1 同意，以后我们开始做entity了再换」）：导入的空节点（位置标记 / 转轴 / 挂点）没几何，也要看得见、点得中——
      * 透视画（埋在别的几何里也看得见），每根短轴的屏幕长度同选中组件的轴。pick = 它在当前上下文里对应的直接子项（不在上下文子树里 = 只画不点）；自己就是当前上下文的不画（上下文轴已经画了）。
@@ -466,8 +468,38 @@ export declare class Editor {
     /** 清空活动池的参考几何（SU「删除参考线」同款）。 */
     clearGuides(): void;
     hasGuides(): boolean;
-    /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴（几何不动）。 */
+    /**
+     * 搬坐标架（世界坐标帧进来；DT86，user「坐标架同意 组件原点同意」）：最外层 = 绘图轴；组里 = 组的坐标架；组件里 = 组件的坐标架——都不碰几何。
+     * 「改组件原点」会话里（beginComponentOrigin）= 改那个组件的原点（挪几何、每份实例补，世界不动）。提示行说清这次动的是哪一个（默认 + 披露）。
+     */
     setContextAxes(frame: Frame): void;
+    /** 坐标架工具点一下只换位置时沿用的朝向：平时 = 当前坐标架；改组件原点时 = 那个组件现在的原点。 */
+    axesBase(): Frame;
+    /** 重置坐标架（工具条「重置坐标架」）：最外层 → 世界；组里 → 它所在那层的坐标架；组件里 → 跟组件原点。 */
+    resetContextFrame(): void;
+    /** 现在在组件里（不在组里）——「设为组件原点」按钮出不出。 */
+    inComponentRoot(): boolean;
+    /** 一个组件在整个场景里放了几份（改原点 = 这么多份一起换，提示行披露）。 */
+    private copiesOf;
+    /**
+     * 「设为组件原点」（DT86；user「比起被记住的开关我建议是一个可以随手按一下的按钮」）：把组件原点对到当前坐标架——
+     * 挪几何、每份实例补（世界不动；user「原点挪几何，因为是低频commitment」），坐标架回到「跟原点」。一步撤销。
+     */
+    setComponentOriginToFrame(): boolean;
+    /** 改组件原点会话（右键 / 顶部浮条「改组件原点…」）：坐标架工具的同一套点击，落定改的是这个组件。 */
+    private originEdit;
+    /** 会话还算数吗：换了一层（进 / 出组件、撤销回到别的上下文、新文档）= 作废。 */
+    private liveOriginEdit;
+    /** 「改组件原点…」的对象：只选了一个 brep 组件（没有散几何）；没有 = null。 */
+    private originEditTarget;
+    /** 右键 / 顶部浮条出不出「改组件原点…」。 */
+    canEditComponentOrigin(): boolean;
+    /** 只选了一个组件（没有散几何）→ 开会话；否则 false。 */
+    beginComponentOrigin(): boolean;
+    /** 会话落定：世界帧 → 那个组件的定义坐标 → setAxes（挪几何、每份实例补）；马后炮给现成位置（同建组件那套）；回到原来的工具。 */
+    private commitComponentOrigin;
+    /** 组件原点的现成位置（定义坐标；建组件马后炮和改组件原点共用）：包围盒角 / 中心 / 底面中心 / 顶点平均。没内容 = null。 */
+    private originPresetPoint;
     private cancelGesture;
     /** Shift 按下 / 松开（DT51：Shift = 把格点吸附反过来）：指针没动也按新规则重算悬停 / 手势预览。 */
     setShiftHeld(on: boolean): void;
@@ -698,12 +730,23 @@ export declare class Editor {
     openParamSession(s: ParamSession | null): void;
     /**
      * 移动 / 旋转 / 缩放 / 变换落定之后的马后炮（user 2026-10-26「移动旋转也是ctrl复制开关吧。以及马后炮都能override」）：
-     * 「复制」开关（事后改成复制 / 不复制）+ 变换工具的「轴心」；改了 = 撤这一步、按新选项重做（和数值小窗的重做同一套：按坐标、复制走 commitCopies）。
+     * 「复制」开关（事后改成复制 / 不复制）+ 变换工具的「变换中心」；改了 = 撤这一步、按新选项重做（和数值小窗的重做同一套：按坐标、复制走 commitCopies）。
      * 数值小窗改完数之后会再挂一次（读最新的 last），所以两边能接着改。
      */
     private offerXformAfterthought;
-    /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。 */
+    /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。note = 说明行（按当前值现算）。 */
     private offerAfterthought;
+    /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 变换中心）、圆 / 弧（段数）。 */
+    private offerLastAfterthought;
+    /** 圆：按新的边缘点 / 段数重画（数值小窗和段数马后炮共用；调用方已撤掉上一步）。 */
+    private redrawCircle;
+    /** 弧：按新的手势量重画（同上）；构不出来 = null，什么都不提交。 */
+    private redrawArc;
+    /**
+     * 圆 / 弧画完的马后炮（纪元账本 DT95，user 2026-10-26「马后炮选择段数的时候给一下公差和试用对象参考。加上次世代和lowpoly的推荐值」）：
+     * 档位（数据 = segment-tiers.json）+ 段数；说明行 = 这个段数的弦高公差 + 对上的那一档适用什么。改了 = 撤这一步、按新段数重画，并记进工具选项（同数值小窗 24s）。
+     */
+    private offerSegmentsAfterthought;
     /** 选区（散几何 + 选中的组 / 组件）的全部顶点（世界坐标）。 */
     private selectionWorldPoints;
     /** 选择中心：bbox = 包围盒中心（Blender 默认）；mean = 顶点平均（Blender 的 median point）。 */
@@ -773,7 +816,7 @@ export declare class Editor {
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
     /**
-     * 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
+     * 选区的变换中心（变换工具的「变换中心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
      * 自动 = 只选了一个组 / 组件（没有散的面 / 边）→ 它的轴原点；别的 → 包围盒中心。
      */
     private pivotOf;

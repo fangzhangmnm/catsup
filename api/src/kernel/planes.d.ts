@@ -12,17 +12,39 @@ export interface PlaneRec {
 export declare class PlaneRegistry {
     private recs;
     private nextId;
+    /** 桶 → 平面 id（升序）。clone 共享数组，写时复制。 */
+    private buckets;
+    private shared;
     all(): PlaneRec[];
+    /** 不拷数组的遍历（热路径用）。 */
+    values(): IterableIterator<PlaneRec>;
     rec(id: PlaneId): PlaneRec;
-    /** 容差匹配既有平面（法向同或反 + |Δd|≤τ，同一张几何平面只准一条记录）；没有则注册。 */
+    private static canon;
+    private dBucket;
+    private keyOf;
+    /** d 的桶宽：第一次登记时按当次容差定（整个 registry 的容差是同一个 τ），之后不变。 */
+    private dW;
+    private index;
+    private unindex;
+    /** 可能匹配 pl 的平面 id（两个法向符号 × 离桶边近的维度再看隔壁），升序去重。 */
+    private candidates;
+    /** 容差匹配既有平面（法向同或反 + |Δd|≤τ，同一张几何平面只准一条记录）；没有则注册。多条都匹配时取最早登记的（= 原来逐条扫的结果）。 */
     ensure(pl: PlaneParams, tol: number): PlaneRec;
     /**
      * 持久化装载：按存储参数**精确**注册（不做容差匹配——文件里的记录本来就是 τ 合并后的产物；
      * 装载顺序 = 文件顺序，id 从当前计数器起）。只给 Kernel.fromBrep 用。created 2026-09-20 by Claude Fable 5.1
      */
     restore(pl: PlaneParams): PlaneRec;
+    /** restore 在第一次 ensure（定下 d 桶宽）之前进来的记录，等桶宽定了再入索引。 */
+    private pending;
+    private flushPending;
     /** 清理无人引用的平面（keep = 当前有边组或有存储 face 的平面）。 */
-    prune(keep: ReadonlySet<PlaneId>): void;
+    prune(keep: {
+        has(id: PlaneId): boolean;
+    }): void;
+    /** 只删这几张（局部结算：被碰到、又没边组没膜的平面），不扫全表。 */
+    dropIds(ids: Iterable<PlaneId>): void;
+    private drop;
     clone(): PlaneRegistry;
 }
 /**
@@ -46,4 +68,6 @@ export interface CoplanarScope {
  * 全局：候选平面从全部顶点长，归属 = 两端点都在 τ 内的边，全扫（cover：一条边可进多组）。
  * 局部：只按 scope.edges 分发（成员边由调用方按影响域给出，已在平面上），没检查过的平面一律留着。
  */
-export declare function groupCoplanar(g: PlanarGraph, reg: PlaneRegistry, tol: number, keepPlanes: ReadonlySet<PlaneId>, scope?: CoplanarScope): Map<PlaneId, EdgeId[]>;
+export declare function groupCoplanar(g: PlanarGraph, reg: PlaneRegistry, tol: number, keepPlanes: {
+    has(id: PlaneId): boolean;
+}, scope?: CoplanarScope): Map<PlaneId, EdgeId[]>;

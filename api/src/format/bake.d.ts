@@ -12,8 +12,12 @@ export declare function quantNormal(n: {
     y: number;
     z: number;
 }): [number, number, number];
-/** 平滑组法向（快照版，与 render3.smoothNormals 同算法）：smooth 边连通的膜 = 一组；组内每个 (膜, 顶点) 的法向 = 组里含该顶点的膜法向按内角加权。
- *  返回 面下标 → (顶点下标 → 法向)；没平滑组的膜不在表里（用平面法向）。 */
+/**
+ * 平滑法向（快照版，与 editor/pool-mesh.ts fanNormal 同算法——屏幕上看到的 = 导出的；2026-10-26 DT96 起取代整组并查集版，Claude Opus 5.5）：
+ * 每个 (膜, 外环角) 从这张膜出发，在这个顶点处向两边跨平滑边 / 折线（硬边、边界、非流形就停），扇里每张膜的法向按内角加权；
+ * 跨边时「两张膜在共享边上走向相反 = 朝向一致」统一朝向；结果翻到本膜法向那一侧。硬边因此在平滑组里也断开明暗（旧版整组平均会把绕回来的硬接缝抹平）。
+ * 返回 面下标 → (顶点下标 → 法向)；有平滑边连着别的膜的膜才在表里（其余用平面法向、走省流档）。
+ */
 export declare function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [number, number, number]>>;
 /** 材质槽 → glTF core 材质索引 + 贴图物理尺寸（bake 按材质拆 primitive、算 TEXCOORD_0 用）。 */
 export interface BakeMaterials {

@@ -66,6 +66,12 @@ export declare class CurveRegistry {
     copy(from: EdgeId, to: EdgeId): void;
     /** 结算后清理：死边出链；链不连通 → 拆成连通段；空的删。 */
     prune(g: G): void;
+    /**
+     * 增量版（2026-10-26 Claude Opus 5.5，纪元账本 DT93）：只看含被删边的曲线（清理前 ofEdge 还指着它们），按 id 序 = 全量版的访问序，
+     * 拆出来的新曲线编号与全量版相同。没被删边的曲线全量版也不会改它（全边活、相邻共顶点）。
+     */
+    pruneEdges(g: G, removed: readonly EdgeId[]): void;
+    private pruneCurve;
     /** 校验（fuzz / 装载）：边存在、相邻共顶点、每边至多一条曲线、闭合首尾相接。返回问题列表（空 = 好）。 */
     validate(g: G): string[];
     clone(): CurveRegistry;

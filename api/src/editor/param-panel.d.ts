@@ -17,6 +17,8 @@ export interface ParamPanelState {
     readonly fields: readonly ParamField[];
     readonly buttons: readonly ParamButton[];
     readonly values: Readonly<Record<string, ParamValue>>;
+    /** 说明行（按当前值现算；段数的公差 / 适用对象，DT95）。 */
+    readonly note?: string;
 }
 export interface ParamSession extends ParamPanelState {
     set(key: string, value: ParamValue): void;
@@ -38,4 +40,6 @@ export declare function afterthought(o: {
     opCount: () => number;
     undoN: (n: number) => void;
     redo: (values: Readonly<Record<string, ParamValue>>) => void;
+    /** 说明行（每次画小窗时按当前值现算）。 */
+    note?: (values: Readonly<Record<string, ParamValue>>) => string;
 }): ParamSession;

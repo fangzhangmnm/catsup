@@ -4,6 +4,7 @@ import { type Face, type FaceEvent } from "./face-lifecycle.ts";
 import { type Seg3 } from "./settle.ts";
 import { EdgeLayers, FaceLayers } from "./layers.ts";
 import { type Curve, type CurveId, type CurveParams, type CurveSpec } from "./curves.ts";
+import { ChangeLog } from "./change-log.ts";
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
 export type { Edge, EdgeId, FaceId, Vertex, VertexId } from "./topology.ts";
 export type { Pt, Pt3 } from "./geom.ts";
@@ -62,6 +63,17 @@ export declare class Kernel {
     faceLayers: FaceLayers;
     /** 曲线登记处（0.10）：一串有序边 = 一个实体，可带圆弧参数；结算机经像表钩子维护。 */
     private curveReg;
+    /**
+     * 改动日志（DT96，2026-10-26 Claude Opus 5.5）：只记编号（顶点 / 边 / 膜，含层的变化），消费方按「从第几号起改过哪些」只更新变了的。
+     * 副本（clone）的日志从拷贝那一刻的号起记 → 副本的日志 = 「这次预演改了什么」；cloneOf / clonedAt = 族谱（弱引用，不拖住老内核）。
+     */
+    changes: ChangeLog;
+    private _cloneOf;
+    /** 从哪个内核拷来的（已经被回收 = null）。 */
+    get cloneOf(): Kernel | null;
+    /** 拷的时候父内核的日志号。 */
+    clonedAt: number;
+    private attachLog;
     /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
     private _rev;
     get rev(): number;
@@ -131,7 +143,9 @@ export declare class Kernel {
     moveVertices(moves: readonly {
         id: VertexId;
         to: PtIn;
-    }[]): FaceEvent[];
+    }[], opts?: {
+        creaseLayers?: readonly string[];
+    }): FaceEvent[];
     /**
      * push/pull —— 像表（2026-10-21；取代 v3 的边分类 / frontier / riser / 蒸发 + rename / toggle）：
      *   · 帽 = 膜整体平移 δ = h·n̂，**XOR**（落地与既有膜成对湮灭 = SU 推穿；预演 settleLanding:false 用 OR 不湮灭）、继承原 id（身份跟随）
@@ -176,6 +190,18 @@ export declare class Kernel {
     vertices(): Vertex[];
     edges(): Edge[];
     isSoft(id: EdgeId): boolean;
+    /** 折线（DT87）：面内部的折痕——不画、点不中、两侧算一个面、明暗连续（layers.ts EDGE_LAYERS 注释）。 */
+    isFold(id: EdgeId): boolean;
+    /**
+     * 擦这些边时，折线亚种（Blender，DT87：user「是否折还是破就是看是哪个版本的工具」「护栏做好」）怎么分：
+     * fold = 恰好两张不共面的膜 → 变折线（两块并成一个面）；erase = 只有一张 / 没有膜，或两张共面 → 照常擦（和 SketchUp 亚种一样）；
+     * refuse = 三张以上膜（非流形）→ 不擦、不折，调用方说清（不悄悄破面）。曲线成员整条一起（同 eraseEdges）。
+     */
+    foldPlan(ids: readonly EdgeId[]): {
+        fold: EdgeId[];
+        erase: EdgeId[];
+        refuse: EdgeId[];
+    };
     isCurve(id: EdgeId): boolean;
     isSmooth(id: EdgeId): boolean;
     /**

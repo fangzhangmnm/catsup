@@ -21,6 +21,8 @@ export declare function initGalleryHost(d: GalleryHostDeps): {
     open: () => Promise<void>;
     close: () => void;
     isOpen: () => boolean;
+    openAttention: () => Promise<void>;
+    setAttentionOnly: (on: boolean) => void | undefined;
     refresh: () => void | undefined;
     /** files / trash / backup（搁置区两箱；清空钮在包的视图里）。 */
     setView: (v: GalleryView) => void;

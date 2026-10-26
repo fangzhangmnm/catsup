@@ -17,6 +17,15 @@ export interface Mode {
     /** 切进来 / 切出去（清模式专属状态；选区能保留就保留）。 */
     enter?(core: EditorCore): void;
     leave?(core: EditorCore): void;
+    /**
+     * 工作流亚种（DT87，2026-10-26 Claude Opus 5.5；user「是否折还是破就是看是哪个版本的工具。如果复用代码也得看是哪个工作流的亚种。护栏做好」）：
+     * 同一套橡皮 / 自动折面代码按它分叉。eraseNonCoplanar：擦掉两张不共面的膜之间的边 = burst（SketchUp：两张面破掉）/ fold（Blender：变折线，两块算一个面）；
+     * autofold：挪点把面拉不平时自动折出的折缝 = hard（硬线）/ fold（折线）。缺 = burst / hard（现有三个工作台都是）；自由建模工作台（以后）用 fold。
+     */
+    readonly workflow?: {
+        readonly eraseNonCoplanar?: "burst" | "fold";
+        readonly autofold?: "hard" | "fold";
+    };
     /** 模式自己的叠加层（表面模式：贴图投影预览；物体模式：锁定框…）；底座每帧并进 ViewState。 */
     viewExtras?(): Partial<ViewState>;
 }

@@ -7,7 +7,6 @@ import { COPLANAR_TOL_DEFAULT, dot3, planeBasis } from "../kernel/geom.ts";
 import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
 import { triangulateRings } from "./triangulate.ts";
 import type { ViewSink } from "./brep-codec.ts";
-import { DisjointSet } from "../kernel/dsu.ts";
 
 const GL_UNSIGNED_BYTE = 5121, GL_UNSIGNED_SHORT = 5123, GL_UNSIGNED_INT = 5125, GL_FLOAT = 5126;
 const GL_ARRAY_BUFFER = 34962, GL_ELEMENT_ARRAY_BUFFER = 34963;
@@ -49,75 +48,84 @@ export function quantNormal(n: { x: number; y: number; z: number }): [number, nu
   return [x / l + 0, y / l + 0, z / l + 0];
 }
 
-/** 平滑组法向（快照版，与 render3.smoothNormals 同算法）：smooth 边连通的膜 = 一组；组内每个 (膜, 顶点) 的法向 = 组里含该顶点的膜法向按内角加权。
- *  返回 面下标 → (顶点下标 → 法向)；没平滑组的膜不在表里（用平面法向）。 */
+/**
+ * 平滑法向（快照版，与 editor/pool-mesh.ts fanNormal 同算法——屏幕上看到的 = 导出的；2026-10-26 DT96 起取代整组并查集版，Claude Opus 5.5）：
+ * 每个 (膜, 外环角) 从这张膜出发，在这个顶点处向两边跨平滑边 / 折线（硬边、边界、非流形就停），扇里每张膜的法向按内角加权；
+ * 跨边时「两张膜在共享边上走向相反 = 朝向一致」统一朝向；结果翻到本膜法向那一侧。硬边因此在平滑组里也断开明暗（旧版整组平均会把绕回来的硬接缝抹平）。
+ * 返回 面下标 → (顶点下标 → 法向)；有平滑边连着别的膜的膜才在表里（其余用平面法向、走省流档）。
+ */
 export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [number, number, number]>> {
   const out = new Map<number, Map<number, [number, number, number]>>();
   const smooth = [...(snap.edgeLayers?.smooth ?? []), ...(snap.edgeLayers?.fold ?? [])];   // 折线（DT87）：面内部，明暗连续——和平滑边同待遇
   if (!smooth.length) return out;
-  // 边 → 膜：按环边查
   const edgeKey = (a: number, b: number): string => (a < b ? `${a}-${b}` : `${b}-${a}`);
   const facesOfEdge = new Map<string, number[]>();
   snap.faces.forEach((f, fi) => { for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const k = edgeKey(r[i], r[(i + 1) % r.length]); (facesOfEdge.get(k) ?? facesOfEdge.set(k, []).get(k)!).push(fi); } });
-  const dsu = new DisjointSet<number>();   // 路径压缩（kernel/dsu.ts；旧抄写平方级）
-  const find = (x: number): number => dsu.find(x);
-  const union = (a: number, b: number): void => dsu.union(a, b);
-  for (const ei of smooth) { const [a, b] = snap.edges[ei]; const fl = facesOfEdge.get(edgeKey(a, b)) ?? []; for (let i = 1; i < fl.length; i++) union(fl[0], fl[i]); }
-  if (!dsu.size) return out;
-  // 组内朝向统一（DT11，2026-10-26；同 render3.smoothNormals）：快照的环绕规范法向逆时针 = 面在环走向的左手边；两张膜在共享边上走向相反 = 朝向一致
-  const smoothSet = new Set(smooth.map((ei) => edgeKey(snap.edges[ei][0], snap.edges[ei][1])));
+  const smoothSet = new Set<string>();
+  const members = new Set<number>();
+  for (const ei of smooth) {
+    const [a, b] = snap.edges[ei], k = edgeKey(a, b), fl = [...new Set(facesOfEdge.get(k) ?? [])];
+    smoothSet.add(k);
+    if (fl.length >= 2) for (const fi of fl) members.add(fi);
+  }
+  if (!members.size) return out;
+  // 快照的环绕规范法向逆时针 = 面在环走向的左手边：+1 = 环里 a→b，−1 = b→a
   const dirOf = (fi: number, a: number, b: number): number => { for (const r of [snap.faces[fi].outer, ...snap.faces[fi].holes]) for (let i = 0; i < r.length; i++) { const x = r[i], y = r[(i + 1) % r.length]; if (x === a && y === b) return 1; if (x === b && y === a) return -1; } return 0; };
-  const orient = new Map<number, number>();
-  for (const f0 of dsu.keys()) {
-    if (orient.has(f0)) continue;
-    orient.set(f0, 1);
-    const queue = [f0];
-    for (let qi = 0; qi < queue.length; qi++) {
-      const a = queue[qi];
-      for (const r of [snap.faces[a].outer, ...snap.faces[a].holes]) for (let i = 0; i < r.length; i++) {
-        const x = r[i], y = r[(i + 1) % r.length], k = edgeKey(x, y);
-        if (!smoothSet.has(k)) continue;
-        for (const b of facesOfEdge.get(k) ?? []) {
-          if (b === a || orient.has(b)) continue;
-          const db = dirOf(b, x, y);
-          if (!db) continue;
-          orient.set(b, orient.get(a)! * (db < 0 ? 1 : -1));   // a 沿 x→y；b 沿 y→x = 一致
-          queue.push(b);
+  /** 膜 fi 在顶点 v 处、边 (a, b) 之外的另一条环边。 */
+  const otherEdgeAt = (fi: number, a: number, b: number, v: number): [number, number] | null => {
+    for (const r of [snap.faces[fi].outer, ...snap.faces[fi].holes]) for (let i = 0; i < r.length; i++) {
+      const x = r[i], y = r[(i + 1) % r.length];
+      if (!((x === a && y === b) || (x === b && y === a))) continue;
+      const m = r.length, j = r.indexOf(v);
+      if (j < 0) return null;
+      const prev = r[(j - 1 + m) % m], next = r[(j + 1) % m];
+      const o = a === v ? b : a;
+      return next === o ? [prev, v] : [v, next];
+    }
+    return null;
+  };
+  const V = snap.vertices;
+  const nOf = (fi: number): { x: number; y: number; z: number } => { const q = quantNormal(snap.planes[snap.faces[fi].plane].n); return { x: q[0], y: q[1], z: q[2] }; };
+  const angleAt = (fi: number, j: number): number => {
+    const r = snap.faces[fi].outer, p = V[r[j]], a = V[r[(j + r.length - 1) % r.length]], b = V[r[(j + 1) % r.length]];
+    const ux = a.x - p.x, uy = a.y - p.y, uz = a.z - p.z, vx = b.x - p.x, vy = b.y - p.y, vz = b.z - p.z;
+    const lu = Math.hypot(ux, uy, uz), lv = Math.hypot(vx, vy, vz);
+    return lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, (ux * vx + uy * vy + uz * vz) / (lu * lv)))) : 0;
+  };
+  for (const fi of [...members].sort((a, b) => a - b)) {
+    const r = snap.faces[fi].outer, n = nOf(fi), m = new Map<number, [number, number, number]>();
+    for (let j = 0; j < r.length; j++) {
+      const v = r[j], w0 = angleAt(fi, j);
+      let ax = n.x * w0, ay = n.y * w0, az = n.z * w0;
+      const seen = new Set<number>([fi]);
+      for (const start of [[v, r[(j + 1) % r.length]], [r[(j - 1 + r.length) % r.length], v]] as [number, number][]) {
+        let cur = fi, sign = 1, [x, y] = start;
+        for (let step = 0; step < 256; step++) {
+          const k = edgeKey(x, y);
+          if (!smoothSet.has(k)) break;
+          const others = [...new Set(facesOfEdge.get(k) ?? [])].filter((g) => g !== cur);
+          if (others.length !== 1) break;
+          const nx = others[0];
+          if (seen.has(nx)) break;
+          const da = dirOf(cur, x, y), db = dirOf(nx, x, y);
+          if (!da || !db) break;
+          sign *= da * db < 0 ? 1 : -1;
+          seen.add(nx);
+          const jj = snap.faces[nx].outer.indexOf(v);
+          if (jj >= 0) { const rn = nOf(nx), w = angleAt(nx, jj) * sign; ax += rn.x * w; ay += rn.y * w; az += rn.z * w; }
+          const ne = otherEdgeAt(nx, x, y, v);
+          if (!ne) break;
+          [x, y] = ne; cur = nx;
         }
       }
-    }
-  }
-  const acc = new Map<string, [number, number, number]>();
-  const V = snap.vertices;
-  const sub = (p: { x: number; y: number; z: number }, q: { x: number; y: number; z: number }) => ({ x: p.x - q.x, y: p.y - q.y, z: p.z - q.z });
-  snap.faces.forEach((f, fi) => {
-    if (!dsu.has(fi)) return;
-    const g = find(fi), qn = quantNormal(snap.planes[f.plane].n), n = { x: qn[0], y: qn[1], z: qn[2] }, r = f.outer;
-    for (let i = 0; i < r.length; i++) {
-      const p = V[r[i]], a = V[r[(i + r.length - 1) % r.length]], b = V[r[(i + 1) % r.length]];
-      const u = sub(a, p), v = sub(b, p);
-      const lu = Math.hypot(u.x, u.y, u.z), lv = Math.hypot(v.x, v.y, v.z);
-      const w = (lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, (u.x * v.x + u.y * v.y + u.z * v.z) / (lu * lv)))) : 0) * (orient.get(fi) ?? 1);
-      const key = `${g}|${r[i]}`;
-      const cur = acc.get(key) ?? [0, 0, 0];
-      acc.set(key, [cur[0] + n.x * w, cur[1] + n.y * w, cur[2] + n.z * w]);
-    }
-  });
-  snap.faces.forEach((f, fi) => {
-    if (!dsu.has(fi)) return;
-    const g = find(fi), qn0 = quantNormal(snap.planes[f.plane].n), n = { x: qn0[0], y: qn0[1], z: qn0[2] };
-    const m = new Map<number, [number, number, number]>();
-    for (const vi of f.outer) {
-      const v = acc.get(`${g}|${vi}`);
-      if (!v) continue;
-      const l = Math.hypot(v[0], v[1], v[2]);
+      const l = Math.hypot(ax, ay, az);
       if (l < 1e-9) continue;
-      let nn: [number, number, number] = [v[0] / l, v[1] / l, v[2] / l];
+      let nn: [number, number, number] = [ax / l, ay / l, az / l];
       if (nn[0] * n.x + nn[1] * n.y + nn[2] * n.z < 0) nn = [-nn[0], -nn[1], -nn[2]];
-      m.set(vi, nn);
+      m.set(v, nn);
     }
     out.set(fi, m);
-  });
+  }
   return out;
 }
 

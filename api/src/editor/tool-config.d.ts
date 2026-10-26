@@ -206,16 +206,16 @@ export declare const TOOL_OPTIONS: {
         };
     };
     /** 变换（2026-10-26，user「transform的时候ctrl应该是复制吧」「transform能不能马后炮可以切换 pivot…是工具自己记住的选项。而且每个工具单独记」）：
-     *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；轴心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」）；
+     *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；变换中心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」）；
      *  默认「自动」= 只选一个组 / 组件就绕它的轴原点、别的情况包围盒中心（user 2026-10-26「选的是组件的时候应该默认是pivot…选loose geom的时候默认是bb，或者多组件的时候默认是bb」））。 */
     readonly transform: {
         readonly pivot: {
             readonly kind: "enum";
-            readonly label: "轴心";
+            readonly label: "变换中心";
             readonly values: readonly [{
                 readonly id: "auto";
                 readonly label: "自动";
-                readonly hint: "只选了一个组 / 组件 = 它的轴原点；散几何或几个物体 = 包围盒中心";
+                readonly hint: "只选了一个组件 = 组件原点；组 / 散几何 / 几个物体 = 包围盒中心";
             }, {
                 readonly id: "bbox";
                 readonly label: "包围盒中心";

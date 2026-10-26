@@ -1,4 +1,5 @@
 import { type Pt3 } from "./geom.ts";
+import { type ChangeLog } from "./change-log.ts";
 export type VertexId = number;
 export type EdgeId = number;
 /** face 实体住在 face-lifecycle.ts；本层只把 FaceId 当不透明号码挂在 faceLinks 上。 */
@@ -17,6 +18,8 @@ export interface Edge {
     faceLinks: FaceId[];
 }
 export declare class PlanarGraph {
+    /** 改动日志（Kernel 接上；DT96）：顶点表 / 边表是带记账的 Map；原地改坐标 / 改端点的几处另外显式记。 */
+    log: ChangeLog | null;
     private vertsById;
     private edgesById;
     private vertByKey;
@@ -24,6 +27,11 @@ export declare class PlanarGraph {
     private nextE;
     private levels;
     private edgeCells;
+    /** 删过的边（id 从不复用）：Kernel.emit 只拿它们去清边层 / 曲线，不再全量扫（2026-10-26 Claude Opus 5.5，纪元账本 DT93）。 */
+    private removedE;
+    drainRemovedEdges(): EdgeId[];
+    /** 上次 drain 以来删过的边（只看不清：结算机尾声用，emit 再 drain）。 */
+    removedSinceDrain(): readonly EdgeId[];
     private indexEdge;
     private unindexEdge;
     /** 边 id 的包围盒与 [lo, hi] 外扩 m 相交？ */

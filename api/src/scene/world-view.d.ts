@@ -24,6 +24,8 @@ export interface GeomView {
     } | undefined;
     /** 软边：渲染不画线。 */
     isSoft(id: EdgeId): boolean;
+    /** 折线（DT87）：面内部的折痕——不画、点不中、不当吸附的边、两侧算一个面、明暗连续。 */
+    isFold(id: EdgeId): boolean;
     /** 平滑边：两侧膜的法向跨边插值（平滑组）。 */
     isSmooth(id: EdgeId): boolean;
     /** 面的材质（null = 默认灰）。 */
@@ -71,6 +73,7 @@ export interface SlotPart {
     planes: Map<FaceId, PlaneRec>;
     soft: Set<EdgeId>;
     smooth: Set<EdgeId>;
+    fold: Set<EdgeId>;
     /** 圆 / 弧的圆心（世界坐标，DT15）。 */
     centers: Pt3[];
     /** 隐藏的边 / 只连着隐藏边的点（DT49）：图里留着（可见面的环还要查它），列举 / 屏幕索引 / 渲染跳过。隐藏的面直接不进 faces。 */
@@ -131,6 +134,7 @@ export declare class WorldView implements GeomView {
     centers(): Pt3[];
     isSoft(id: EdgeId): boolean;
     isSmooth(id: EdgeId): boolean;
+    isFold(id: EdgeId): boolean;
     faceMaterial(id: FaceId): Material | null;
     faces(): Face[];
     face(id: FaceId): Face | undefined;

@@ -86,7 +86,8 @@ export interface DefinitionDoc {
     groups: GroupDoc[];
     instances: InstanceDoc[]; /** 槽号 → materials 索引。 */
     materialSlots: number[];
-    guides: GuidesDoc;
+    guides: GuidesDoc; /** 进这个组件画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟组件原点）。 */
+    drawFrame?: Frame;
     extras?: Record<string, unknown>;
 }
 export interface CatsupDocument {

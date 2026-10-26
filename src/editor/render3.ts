@@ -39,6 +39,7 @@ import { perf } from "./perf-stats.ts";
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { GeomView, PoolSlot, WorldView } from "../scene/world-view.ts";
 import { ID_STRIDE, slotKey } from "../scene/world-view.ts";
+import { poolKey } from "../scene/scene.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { Material, Scene } from "../scene/scene.ts";
 import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
@@ -46,11 +47,9 @@ import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { cross3, dot3, sub3 } from "../kernel/geom.ts";
-import { faceLeftSign } from "../kernel/flood.ts";
-import { inwardAcrossEdge } from "./profile-edges.ts";
+import { PoolMesh, type PoolMeshEnv, type TexSide, fanNormal } from "./pool-mesh.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
-import { DisjointSet } from "../kernel/dsu.ts";
 
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
@@ -147,8 +146,14 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 
 /** 一个 kernel（池）的一份 GPU 几何（本地坐标；同 definition 的所有实例共用，各自一个矩阵）。变体键 = 池版本 | definition | 材质表长 | 淡出 | 线稿风格。 */
 /** 贴图网格画哪一侧（DT8 两个表面）：double = 两侧同一张贴图；front / back = 只画 +n / −n 那侧。 */
-type TexSide = "double" | "front" | "back";
-interface KernelGeom { key: string; kernel: Kernel; plain: any; tex: { mat: Material; side: TexSide; geo: any }[]; pixel: any; thick: any; gen: number; }
+/**
+ * 一个池网格（pool-mesh.ts）在显卡上的样子（DT96，2026-10-26）：每组面一对几何（正常 / 淡出），共用位置、法线缓冲，只是 aColor 绑的颜色缓冲不同；
+ * 线同理。每份几何都把「另一套颜色」也挂在一个着色器不用的名字下——three 画一份几何时把它挂着的缓冲全传上去，
+ * 这样没被画的那套颜色的局部上传也不会一直攒着。缓冲直接包池网格的大数组（不拷），改过哪段只传哪段（addUpdateRange）。
+ */
+interface GpuFaces { readonly key: string; readonly mat: Material | null; readonly side: TexSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; }
+interface GpuLines { readonly thick: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; }
+interface PoolGpu { readonly mesh: PoolMesh; faces: Map<string, GpuFaces>; lines: GpuLines | null; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
 interface SlotNodes { root: any; plain: any; tex: { mesh: any }[]; pixel: any; thick: any; gen: number; }
 
@@ -302,8 +307,10 @@ export class Renderer3 {
   private pixelMat: any;                            // 原生线材质（顶点色，共享）
   private texMats = new Map<object, any>();         // 贴图材质对象 → 共享 ShaderMaterial（uMap）
   private slotNodes = new Map<string, SlotNodes>();
-  private geomCache = new WeakMap<Kernel, KernelGeom[]>();
-  private geomsAlive = new Set<KernelGeom>();
+  /** 池（poolKey）→ 池网格：通常一个；同一帧一个池要画两个不同的内核（少见）就多开一个。两代没人用的释放。 */
+  private poolGpus = new Map<string, PoolGpu[]>();
+  /** 材质对象 → 小整数（材质槽签名用：槽表只追加 = 池网格增量；别的变化 = 全量）。 */
+  private matUids = new WeakMap<Material, number>(); private nextMatUid = 1;
   private syncGen = 0;
   private poolKey = ""; private overlayKey = "";
   private emptyGeo: any; private emptyLineGeo: any;
@@ -1137,7 +1144,7 @@ export class Renderer3 {
   private rebuildFaces(kd: GeomView, view: ViewState): void {
     const dim = view.dimSlots;
     const activeIndex = (kd as unknown as { activeSlot?: () => { index: number } }).activeSlot?.().index ?? null;
-    const smooth = perf.time("smoothNormals", () => smoothNormals(kd));
+    const smooth = perf.time("smoothNormals", () => flatSmoothNormals(kd));
     const groups = new Map<object | null, { pos: number[]; nor: number[]; col: number[]; uv: number[]; mat: { texture?: { mimeType: string; bytes: Uint8Array; sizeM: readonly [number, number] } } | null }>();
     for (const f of kd.faces()) {
       const rec = kd.planeOf(f.id);
@@ -1274,14 +1281,15 @@ export class Renderer3 {
   }
 
 
-  // ================= 池级几何（#22 池级局部性，2026-10-21，Claude Fable 5.1）=================
-  // 每个槽一个 Group（矩阵 = 槽的世界变换）→ 下面的网格引用「这个 kernel 的共享几何」（本地坐标）。
-  // 同 definition 的 N 个实例 = 一份几何 N 个矩阵；编辑某个池 = 只重建它那份；拖整棵子树 = 只改矩阵。
-  // 几何变体按 (池版本 rev, definition, 材质表长, 淡出, 线稿风格) 缓存；两代没人用的变体释放 GPU 缓冲。
+  // ================= 池级几何（#22 池级局部性，2026-10-21，Claude Fable 5.1；DT96 池网格，2026-10-26，Claude Opus 5.5）=================
+  // 每个槽一个 Group（矩阵 = 槽的世界变换）→ 下面的网格引用「这个池的共享几何」（本地坐标）。
+  // 同 definition 的 N 个实例 = 一份几何 N 个矩阵；拖整棵子树 = 只改矩阵。
+  // 几何 = 池网格（pool-mesh.ts）：跟着池现在显示的内核走（原件 / 预演副本 / 撤销快照之间按克隆族谱 + 改动日志算差），
+  // 只重建改过的面 / 边、只上传改过的那几段。淡出 / 线稿风格不再是几何变体：淡出 = 同一份几何换一套颜色缓冲，线稿风格变了 = 池网格全量重建。
   private syncPools(kd: WorldView, view: ViewState): void {
     this.syncGen++;
     const dim = view.dimSlots;
-    const used = new Set<KernelGeom>();
+    const taken = new Map<PoolGpu, Kernel>();   // 这一帧哪份池网格画的是哪个内核
     for (const s of kd.slots) {
       const key = slotKey(s);
       let n = this.slotNodes.get(key);
@@ -1289,29 +1297,32 @@ export class Renderer3 {
       n.gen = this.syncGen;
       n.root.visible = true;
       setMatrix(n.root, s.xform);
-      const g = this.kernelGeom(s.kernel, kd.scene, s.pool.def, !!dim?.has(s.index));
-      used.add(g);
+      const pg = this.poolGpu(s, kd.scene, taken), dimmed = !!dim?.has(s.index);
       // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
       n.plain.material = s.active ? this.faceMat : this.faceMatOther;
-      n.plain.geometry = g.plain ?? this.emptyGeo; n.plain.visible = !!g.plain;
-      for (let i = 0; i < Math.max(g.tex.length, n.tex.length); i++) {
-        const t = g.tex[i];
-        let slot = n.tex[i];
-        if (!t) { if (slot) slot.mesh.visible = false; continue; }
-        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(t.mat, t.side)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = this.texMatFor(t.mat, t.side);
-        slot.mesh.geometry = t.geo; slot.mesh.visible = true;
+      const plain = pg.faces.get("plain"), showPlain = !!plain && (pg.mesh.groups.get("plain")?.store.count ?? 0) > 0;
+      n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
+      let ti = 0;
+      for (const gf of pg.faces.values()) {
+        if (!gf.side || !gf.mat || !(pg.mesh.groups.get(gf.key)?.store.count)) continue;
+        let slot = n.tex[ti];
+        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat, gf.side)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
+        slot.mesh.material = this.texMatFor(gf.mat, gf.side);
+        slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
+        ti++;
       }
+      for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
       // 边
-      if (this.lineStyle === "thick") { n.thick.geometry = g.thick ?? this.emptyLineGeo; n.thick.visible = !!g.thick; n.pixel.visible = false; }
-      else { n.pixel.geometry = g.pixel ?? this.emptyGeo; n.pixel.visible = !!g.pixel; n.thick.visible = false; }
+      const L = pg.lines, showL = !!L && pg.mesh.lines.count > 0;
+      if (this.lineStyle === "thick") { n.thick.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
+      else { n.pixel.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
     for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
-    // 几何变体：本代用到的续命；两代没人用的释放（预演影子副本每帧一个新 kernel → 上一帧的那份下下帧释放；checkpoint 的那份手势结束回来还在）
-    for (const g of this.geomsAlive) {
-      if (used.has(g)) { g.gen = this.syncGen; continue; }
-      if (g.gen < this.syncGen - 1) this.disposeGeom(g);
+    // 池网格：两代没人用的释放（隔离看一个组件再出来 = 别的池全量重建一次，和以前一样）
+    for (const [key, list] of this.poolGpus) {
+      for (let i = list.length - 1; i >= 0; i--) if (list[i].gen < this.syncGen - 1) { this.disposePoolGpu(list[i]); list.splice(i, 1); }
+      if (!list.length) this.poolGpus.delete(key);
     }
     this.faceMeshOther.visible = false;   // 平铺路径的节点
   }
@@ -1335,22 +1346,100 @@ export class Renderer3 {
     bySide.set(side, m);
     return m;
   }
-  private kernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean): KernelGeom {
-    const key = `${k.rev}|${defId}|${scene.materials.length}|${dim ? 1 : 0}|${this.lineStyle}`;
-    let arr = this.geomCache.get(k);
-    if (!arr) { arr = []; this.geomCache.set(k, arr); }
-    let g = arr.find((x) => x.key === key);
-    if (g) return g;
-    g = perf.time("buildKernelGeom", () => buildKernelGeom(k, scene, defId, dim, this.lineStyle));
-    g.key = key; g.gen = this.syncGen;
-    arr.push(g); this.geomsAlive.add(g);
-    return g;
+  /** 槽 s 用哪份池网格（同步到 s 的内核、传上显卡）。同一帧同一个内核只同步一次。 */
+  private poolGpu(s: PoolSlot, scene: Scene, taken: Map<PoolGpu, Kernel>): PoolGpu {
+    const key = poolKey(s.pool), k = s.kernel;
+    let list = this.poolGpus.get(key);
+    if (!list) { list = []; this.poolGpus.set(key, list); }
+    let pg = list.find((p) => taken.get(p) === k);
+    if (pg) return pg;
+    pg = list.find((p) => !taken.has(p) && p.mesh.source === k) ?? list.find((p) => !taken.has(p));
+    if (!pg) { pg = { mesh: new PoolMesh(), faces: new Map(), lines: null, gen: 0 }; list.push(pg); }
+    taken.set(pg, k); pg.gen = this.syncGen;
+    const P = pg, env = this.poolEnv(scene, s.pool.def);
+    const r = perf.time("poolMesh.sync", () => P.mesh.sync(k, env));
+    if (r.full) perf.count["poolMesh.full"] = (perf.count["poolMesh.full"] ?? 0) + 1;   // 全量重建了几次（探针 / 黑匣子：拖动预演里不该涨）
+    perf.time("poolMesh.upload", () => this.uploadPool(P));
+    return pg;
   }
-  private disposeGeom(g: KernelGeom): void {
-    g.plain?.dispose(); for (const t of g.tex) t.geo.dispose(); g.pixel?.dispose(); g.thick?.dispose();
-    this.geomsAlive.delete(g);
-    const arr = this.geomCache.get(g.kernel);
-    if (arr) { const i = arr.indexOf(g); if (i >= 0) arr.splice(i, 1); }
+  private poolEnv(scene: Scene, defId: number): PoolMeshEnv {
+    const uid = (m: Material | undefined): number => { if (!m) return 0; let u = this.matUids.get(m); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(m, u); } return u; };
+    const c = new THREE.Color(), hex = (h: number): readonly [number, number, number] => { c.setHex(h); return [c.r, c.g, c.b]; };
+    const eDim = hex(PALETTE.edgeDim), eWire = hex(PALETTE.edgeWire), eFace = hex(PALETTE.edge);
+    return {
+      matOf: (slot) => scene.materialOfSlot(defId, slot),
+      slotsSig: scene.brep(defId).materialSlots.map((i) => uid(scene.materials[i])).join(","),
+      // 淡出（上下文之外）：底色换成 faceDim、纯色材质和它对半混；贴图材质 = faceDim 乘贴图（和以前的变体同一套规则）
+      faceColor: (mat, dim) => {
+        if (dim) { const d = srgb(PALETTE.faceDim); return mat && !mat.texture ? [(d[0] + mat.color[0]) / 2, (d[1] + mat.color[1]) / 2, (d[2] + mat.color[2]) / 2] : d; }
+        if (mat && !mat.texture) return [mat.color[0], mat.color[1], mat.color[2]];
+        return mat?.texture ? [1, 1, 1] : srgb(PALETTE.face);
+      },
+      edgeColor: (loose, dim) => (dim ? eDim : loose ? eWire : eFace),
+      thick: this.lineStyle === "thick",
+    };
+  }
+  /** 池网格改过的段 → 显卡。数组换过（长大了 / 全量重建换了线仓库）= 那份几何重建。 */
+  private uploadPool(pg: PoolGpu): void {
+    for (const [key, gf] of pg.faces) if (!pg.mesh.groups.has(key)) { gf.geo.dispose(); gf.geoDim.dispose(); pg.faces.delete(key); }   // 全量重建后不再有的组
+    for (const g of pg.mesh.groups.values()) {
+      const d = g.store.takeDirty();
+      let gf = pg.faces.get(g.key);
+      if (!gf || d.grown || gf.attrs.position.array !== g.store.arrays.position) {
+        if (gf) { gf.geo.dispose(); gf.geoDim.dispose(); }
+        // 法线 / 面颜色是归一化整数（pool-mesh 的 i16n / i8n）：显卡读成 −1…1 的浮点
+        const A = g.store.arrays, attr = (name: string, size: number): any => { const x = new THREE.BufferAttribute(A[name], size, !(A[name] instanceof Float32Array)); x.setUsage(THREE.DynamicDrawUsage); return x; };
+        const at: Record<string, any> = { position: attr("position", 3), normal: attr("normal", 3), aColor: attr("aColor", 3), aColorDim: attr("aColorDim", 3) };
+        if (g.side) at.aUv = attr("aUv", 2); else { at.aColorB = attr("aColorB", 3); at.aColorBDim = attr("aColorBDim", 3); }
+        const mk = (dim: boolean): any => {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", at.position); geo.setAttribute("normal", at.normal);
+          geo.setAttribute("aColor", dim ? at.aColorDim : at.aColor); geo.setAttribute("_aColorOther", dim ? at.aColor : at.aColorDim);
+          if (g.side) geo.setAttribute("aUv", at.aUv);
+          else { geo.setAttribute("aColorB", dim ? at.aColorBDim : at.aColorB); geo.setAttribute("_aColorBOther", dim ? at.aColorB : at.aColorBDim); }
+          return geo;
+        };
+        gf = { key: g.key, mat: g.mat, side: g.side, attrs: at, geo: mk(false), geoDim: mk(true) };
+        pg.faces.set(g.key, gf);
+      } else for (const a of Object.values(gf.attrs)) pushRanges(a, a.itemSize, d.ranges);
+      gf.geo.setDrawRange(0, g.store.end); gf.geoDim.setDrawRange(0, g.store.end);
+    }
+    const L = pg.mesh.lines, d = L.takeDirty(), thick = this.lineStyle === "thick";
+    let gl = pg.lines;
+    const A = L.arrays;
+    if (!gl || d.grown || gl.thick !== thick || gl.bufs.first.array !== A[thick ? "seg" : "position"]) {
+      if (gl) { gl.geo.dispose(); gl.geoDim.dispose(); }
+      if (thick) {
+        const ib = (name: string, stride: number): any => { const b = new THREE.InstancedInterleavedBuffer(A[name], stride, 1); b.setUsage(THREE.DynamicDrawUsage); return b; };
+        const ia = (name: string, size: number): any => { const b = new THREE.InstancedBufferAttribute(A[name], size); b.setUsage(THREE.DynamicDrawUsage); return b; };
+        const bufs: Record<string, any> = { first: ib("seg", 6), col: ib("col", 6), colDim: ib("colDim", 6), w1: ia("w1", 3), w2: ia("w2", 3), flag: ia("flag", 1) };
+        const mk = (dim: boolean): any => {
+          const geo = new LineSegmentsGeometry(), c = dim ? bufs.colDim : bufs.col, o = dim ? bufs.col : bufs.colDim;
+          geo.setAttribute("instanceStart", new THREE.InterleavedBufferAttribute(bufs.first, 3, 0)); geo.setAttribute("instanceEnd", new THREE.InterleavedBufferAttribute(bufs.first, 3, 3));
+          geo.setAttribute("instanceColorStart", new THREE.InterleavedBufferAttribute(c, 3, 0)); geo.setAttribute("instanceColorEnd", new THREE.InterleavedBufferAttribute(c, 3, 3));
+          geo.setAttribute("_colorOther", new THREE.InterleavedBufferAttribute(o, 3, 0));
+          geo.setAttribute("instanceW1", bufs.w1); geo.setAttribute("instanceW2", bufs.w2); geo.setAttribute("instanceFlag", bufs.flag);
+          return geo;
+        };
+        gl = { thick, bufs, geo: mk(false), geoDim: mk(true) };
+      } else {
+        const attr = (name: string): any => { const x = new THREE.BufferAttribute(A[name], 3); x.setUsage(THREE.DynamicDrawUsage); return x; };
+        const bufs: Record<string, any> = { first: attr("position"), color: attr("color"), colorDim: attr("colorDim") };
+        const mk = (dim: boolean): any => {
+          const geo = new THREE.BufferGeometry();
+          geo.setAttribute("position", bufs.first); geo.setAttribute("color", dim ? bufs.colorDim : bufs.color); geo.setAttribute("_colorOther", dim ? bufs.color : bufs.colorDim);
+          return geo;
+        };
+        gl = { thick, bufs, geo: mk(false), geoDim: mk(true) };
+      }
+      pg.lines = gl;
+    } else for (const b of Object.values(gl.bufs)) pushRanges(b, b.stride ?? b.itemSize, d.ranges);
+    if (thick) { gl.geo.instanceCount = L.count; gl.geoDim.instanceCount = L.count; }
+    else { gl.geo.setDrawRange(0, L.end); gl.geoDim.setDrawRange(0, L.end); }
+  }
+  private disposePoolGpu(pg: PoolGpu): void {
+    for (const gf of pg.faces.values()) { gf.geo.dispose(); gf.geoDim.dispose(); }
+    if (pg.lines) { pg.lines.geo.dispose(); pg.lines.geoDim.dispose(); }
   }
   /** 覆盖层：选中 / 悬停的面（世界坐标，只这几张）+ 选中 / 刮擦 / 悬停的边（粗线）。 */
   private rebuildOverlay(kd: GeomView, view: ViewState): void {
@@ -1525,181 +1614,35 @@ function setMatrix(obj: any, m: Xform): void {
 }
 
 /**
- * 一个 kernel（池）的全部膜 / 边 → 本地坐标几何：纯色一份、每种贴图材质一份（+UV，用本地平面基 → 贴图跟着实例走）、原生线 / 粗线各一份。
- * 淡出（上下文之外）烤进顶点色（dim 是变体键的一部分）。选中 / 悬停不在这里（覆盖层）。
+ * 平铺路径的平滑法线（DT96 起和池网格、导出同一个算法：扇内法线，pool-mesh.ts fanNormal——硬边在平滑组里也断开明暗）。
+ * 返回 面 id → (顶点坐标键 → 法向)；外环上没有平滑边 / 折线的面不在表里（用平面法向）。
  */
-function buildKernelGeom(k: Kernel, scene: Scene, defId: number, dim: boolean, style: LineStyle): KernelGeom {
-  const kv = k as unknown as GeomView;
-  const smooth = smoothNormals(kv);
-  // 两个表面（DT8）：纯色网格每个顶点带两个颜色（+n 侧 aColor、−n 侧 aColorB；贴图那侧 = −1 → 纯色网格不画）；贴图按（材质, 哪一侧）各一份网格
-  type Grp = { pos: number[]; nor: number[]; col: number[]; colB: number[]; uv: number[] };
-  const plainG: Grp = { pos: [], nor: [], col: [], colB: [], uv: [] };
-  const texG = new Map<string, { mat: Material; side: TexSide; grp: Grp }>();
-  const texIds = new Map<Material, number>();
-  const colorOf = (mat: Material | null): [number, number, number] => {
-    let r: number, g: number, b: number;
-    if (dim) { [r, g, b] = srgb(PALETTE.faceDim); if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; } }
-    else if (mat && !mat.texture) [r, g, b] = mat.color;
-    else if (mat?.texture) [r, g, b] = dim ? srgb(PALETTE.faceDim) : [1, 1, 1];
-    else [r, g, b] = srgb(PALETTE.face);
-    return [r, g, b];
-  };
-  const NONE: [number, number, number] = [-1, -1, -1];
-  for (const f of k.faces()) {
-    if (k.isFaceHidden(f.id)) continue;   // DT49 隐藏的面不画
-    const rec = k.planeOf(f.id);
-    if (!rec) continue;
-    const mF = scene.materialOfSlot(defId, k.faceMaterialOf(f.id, 0)), mB = scene.materialOfSlot(defId, k.faceMaterialOf(f.id, 1));
-    const tF = mF?.texture ? mF : null, tB = mB?.texture ? mB : null;
-    const n = rec.plane.n;
-    const sm = smooth.get(f.id);
-    const tris = faceTriangles(kv, f.id);
-    const push = (grp: Grp, cf: [number, number, number], cb: [number, number, number], tex: Material | null): void => {
-      const texW = tex?.texture?.sizeM[0] ?? 1, texH = tex?.texture?.sizeM[1] ?? 1;
-      for (const tri of tris) for (const p of tri) {
-        grp.pos.push(p.x, p.y, p.z);
-        const nn = sm?.get(vkey(p)) ?? n;
-        grp.nor.push(nn.x, nn.y, nn.z);
-        grp.col.push(cf[0], cf[1], cf[2]); grp.colB.push(cb[0], cb[1], cb[2]);
-        if (tex) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
-      }
-    };
-    const texGrp = (mat: Material, side: TexSide): Grp => {
-      let id = texIds.get(mat);
-      if (id === undefined) { id = texIds.size; texIds.set(mat, id); }
-      const key = `${id}:${side}`;
-      let t = texG.get(key);
-      if (!t) { t = { mat, side, grp: { pos: [], nor: [], col: [], colB: [], uv: [] } }; texG.set(key, t); }
-      return t.grp;
-    };
-    if (tF && tF === tB) { const c = colorOf(tF); push(texGrp(tF, "double"), c, c, tF); continue; }
-    if (tF) { const c = colorOf(tF); push(texGrp(tF, "front"), c, c, tF); }
-    if (tB) { const c = colorOf(tB); push(texGrp(tB, "back"), c, c, tB); }
-    if (!tF || !tB) push(plainG, tF ? NONE : colorOf(mF), tB ? NONE : colorOf(mB), null);
-  }
-  const mk = (grp: Grp, uv: boolean): any => {
-    const geo = new THREE.BufferGeometry();
-    geo.setAttribute("position", new THREE.Float32BufferAttribute(grp.pos, 3));
-    geo.setAttribute("normal", new THREE.Float32BufferAttribute(grp.nor, 3));
-    geo.setAttribute("aColor", new THREE.Float32BufferAttribute(grp.col, 3));
-    if (!uv) geo.setAttribute("aColorB", new THREE.Float32BufferAttribute(grp.colB, 3));
-    if (uv) geo.setAttribute("aUv", new THREE.Float32BufferAttribute(grp.uv, 2));
-    return geo;
-  };
-  const plain = plainG.pos.length ? mk(plainG, false) : null;
-  const tex: { mat: Material; side: TexSide; geo: any }[] = [];
-  for (const t of texG.values()) if (t.grp.pos.length) tex.push({ mat: t.mat, side: t.side, geo: mk(t.grp, true) });
-  // 边：软边不画；裸线 / 膜边两色；淡出一色
-  const pos: number[] = [], col: number[] = [];
-  const c = new THREE.Color();
-  const n1: number[] = [], n2: number[] = [], flag: number[] = [];   // SU 轮廓线：两张面各自往面里走的方向（本地坐标）+ 面数（着色器按视线判剪影）
-  for (const e of k.edges()) {
-    if (k.isSoft(e.id) || k.isFold(e.id) || k.isEdgeHidden(e.id)) continue;   // 软边 / 折线（DT87）/ 隐藏的边（DT49）不画
-    const hex = dim ? PALETTE.edgeDim : e.faceLinks.length === 0 ? PALETTE.edgeWire : PALETTE.edge;
-    const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
-    c.setHex(hex);
-    pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-    col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-    if (style === "thick") {
-      // 两张面各自往面里走的方向（profile-edges.ts；着色器按它判剪影，和法向正负无关——F-87）
-      const inward = (fid: number | undefined): Pt3 => (fid === undefined ? { x: 0, y: 0, z: 0 } : inwardAcrossEdge(k, fid, e.id, a, b));
-      const A = inward(e.faceLinks[0]), B = e.faceLinks[1] !== undefined ? inward(e.faceLinks[1]) : A;
-      n1.push(A.x, A.y, A.z); n2.push(B.x, B.y, B.z); flag.push(Math.min(e.faceLinks.length, 3));
-    }
-  }
-  let pixel: any = null, thick: any = null;
-  if (pos.length) {
-    if (style === "thick") {
-      thick = new LineSegmentsGeometry(); thick.setPositions(pos); thick.setColors(col);
-      thick.setAttribute("instanceW1", new THREE.InstancedBufferAttribute(new Float32Array(n1), 3));
-      thick.setAttribute("instanceW2", new THREE.InstancedBufferAttribute(new Float32Array(n2), 3));
-      thick.setAttribute("instanceFlag", new THREE.InstancedBufferAttribute(new Float32Array(flag), 1));
-    }
-    else { pixel = new THREE.BufferGeometry(); pixel.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); pixel.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); }
-  }
-  return { key: "", kernel: k, plain, tex, pixel, thick, gen: 0 };
-}
-
-/**
- * 平滑组法向：smooth 边两侧的膜视为同一曲面——对每张膜的每个角点，取「经 smooth 边连通、且含该顶点」的膜的法向按内角加权平均。
- * 返回 面 id → (顶点坐标键 → 法向)；没有软边邻接的膜不出现在表里（用平面法向）。
- */
-function smoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
+function flatSmoothNormals(kd: GeomView): Map<FaceId, Map<string, Pt3>> {
   const out = new Map<FaceId, Map<string, Pt3>>();
-  // 软边 → 其两侧膜连通（并查集）
-  const dsu = new DisjointSet<FaceId>();   // 路径压缩（旧抄写没有 → 一个平滑组的光滑球平方级）
-  const find = (x: FaceId): FaceId => dsu.find(x);
-  const union = (a: FaceId, b: FaceId): void => dsu.union(a, b);
-  let any = false;
-  for (const e of kd.edges()) {
-    if (!(kd.isSmooth(e.id) || kd.isFold(e.id)) || e.faceLinks.length < 2) continue;   // 折线：面内部，明暗连续（DT87）
-    const fl = [...new Set(e.faceLinks)];
-    for (let i = 1; i < fl.length; i++) union(fl[0], fl[i]);
-    any = true;
-  }
-  if (!any) return out;
-  // 组内朝向统一（DT11，2026-10-26）：膜存的是平面的规范法向，绕一圈圆柱有一半朝里——不校正直接加，相邻两张在交界处互相抵消。
-  // 沿 smooth 边从一张膜出发 BFS：两张膜在共享边上「面在左」的符号相反 = 朝向一致（kernel/flood.ts faceLeftSign，按侧灌同一条规则）。
-  const orient = new Map<FaceId, number>();
-  for (const f0 of dsu.keys()) {
-    if (orient.has(f0)) continue;
-    orient.set(f0, 1);
-    const queue = [f0];
-    for (let qi = 0; qi < queue.length; qi++) {
-      const a = queue[qi], fa = kd.face(a);
-      if (!fa) continue;
-      for (const ring of [fa.outer, ...fa.holes]) for (const d of ring.edges) {
-        if (!kd.isSmooth(d.edge) && !kd.isFold(d.edge)) continue;
-        const la = faceLeftSign(kd, a, d.edge);
-        if (la === null) continue;
-        for (const b of kd.graph.edge(d.edge).faceLinks) {
-          if (b === a || orient.has(b)) continue;
-          const lb = faceLeftSign(kd, b, d.edge);
-          if (lb === null) continue;
-          orient.set(b, orient.get(a)! * (la * lb < 0 ? 1 : -1));
-          queue.push(b);
-        }
-      }
-    }
-  }
-  // 组内：顶点 → [朝向统一后的膜法向 × 该膜在此顶点的内角]
-  const groupOf = (f: FaceId): FaceId | null => (dsu.has(f) ? find(f) : null);
-  const acc = new Map<string, Pt3>();   // `${group}|${vertexKey}` → 加权法向和
-  const faceInfo = new Map<FaceId, { n: Pt3; ring: Pt3[]; g: FaceId; s: number }>();
   for (const f of kd.faces()) {
-    const g = groupOf(f.id);
-    if (g === null) continue;
-    const rec = kd.planeOf(f.id);
-    const rings = kd.faceRings3(f.id);
-    if (!rec || !rings) continue;
-    const s = orient.get(f.id) ?? 1, n = rec.plane.n;
-    faceInfo.set(f.id, { n, ring: rings.outer, g, s });
-    const ring = rings.outer;
-    for (let i = 0; i < ring.length; i++) {
-      const p = ring[i], a = ring[(i + ring.length - 1) % ring.length], b = ring[(i + 1) % ring.length];
-      const u = sub3(a, p), v = sub3(b, p);
-      const lu = Math.hypot(u.x, u.y, u.z), lv = Math.hypot(v.x, v.y, v.z);
-      const w = (lu > 0 && lv > 0 ? Math.acos(Math.max(-1, Math.min(1, dot3(u, v) / (lu * lv)))) : 0) * s;
-      const key = `${g}|${vkey(p)}`;
-      const cur = acc.get(key) ?? { x: 0, y: 0, z: 0 };
-      acc.set(key, { x: cur.x + n.x * w, y: cur.y + n.y * w, z: cur.z + n.z * w });
-    }
-  }
-  for (const [fid, info] of faceInfo) {
+    if (!kd.planeOf(f.id) || !f.outer.edges.some((d) => kd.isSmooth(d.edge) || kd.isFold(d.edge))) continue;
     const m = new Map<string, Pt3>();
-    for (const p of info.ring) {
-      const v = acc.get(`${info.g}|${vkey(p)}`);
-      if (!v) continue;
-      const l = Math.hypot(v.x, v.y, v.z);
-      if (l < 1e-9) continue;
-      let nn = { x: v.x / l, y: v.y / l, z: v.z / l };
-      if (dot3(nn, info.n) < 0) nn = { x: -nn.x, y: -nn.y, z: -nn.z };   // 与本膜同侧（双面光照取 |n·L|，侧向一致即可）
-      m.set(vkey(p), nn);
-    }
-    out.set(fid, m);
+    f.outer.vids.forEach((v, j) => m.set(vkey(kd.graph.pt(v)), fanNormal(kd, f.id, j)));
+    out.set(f.id, m);
   }
   return out;
 }
+
+/** 把改过的单位区间登记成局部上传（元素数 = 单位 × 每单位几个数；相隔不远的并成一段，攒多了并成一整段）。 */
+function pushRanges(a: any, per: number, ranges: readonly (readonly [number, number])[]): void {
+  if (!ranges.length) return;
+  let cs = ranges[0][0], ce = ranges[0][1];
+  const flush = (): void => a.addUpdateRange(cs * per, (ce - cs) * per);
+  for (let i = 1; i < ranges.length; i++) { const [rs, re] = ranges[i]; if (rs - ce <= 256) ce = Math.max(ce, re); else { flush(); cs = rs; ce = re; } }
+  flush();
+  if (a.updateRanges.length > 64) {
+    let lo = Infinity, hi = 0;
+    for (const r of a.updateRanges) { lo = Math.min(lo, r.start); hi = Math.max(hi, r.start + r.count); }
+    a.clearUpdateRanges(); a.addUpdateRange(lo, hi - lo);
+  }
+  a.needsUpdate = true;
+}
+
 /**
  * 平滑法向表的顶点键：坐标按 1 µm 取整（内核的格点）。三角化出来的点是从平面基二维坐标抬回来的，和环上的点差浮点尾数——
  * 以前按原样字符串查，三分之二对不上、退回面法向 = 圆柱侧面一条条（DT11，2026-10-26 核过：24 边圆柱 96 个角 64 个没查到）。

@@ -1,12 +1,21 @@
 import type { Edge, EdgeId, FaceId } from "./topology.ts";
 import type { FaceEvent } from "./face-lifecycle.ts";
 import { type Pt3 } from "./geom.ts";
+import { type ChangeLog } from "./change-log.ts";
 export interface Seg3 {
     readonly a: Pt3;
     readonly b: Pt3;
 }
-/** 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。 */
-export declare const EDGE_LAYERS: readonly ["soft", "curve", "smooth", "hidden"];
+/**
+ * 知名边层（开放集：插件 / 用户前缀名也行，codec 原样编码）。
+ * fold = 折线（纪元账本 DT87，2026-10-26 Claude Opus 5.5；user「折线现在铺好」）：**一张面内部的折痕，不是边**——两侧是同一个多边形被折开的两块平面片。
+ *   不画、点不中、不当吸附的边；被它连着的几块 = 一个面（单击 / 油漆桶「一张面」整块）；明暗跨它连续；导出 OBJ 并回一个多边形。
+ *   不变量（Kernel.emit 每步卫生）：恰好两张膜、两张不共面——不再满足 = 退回普通边。谁产生它：橡皮的 Blender 亚种（擦不共面的两膜之间的边 = 变折线）、
+ *   自动折面的 Blender 亚种（折缝带 fold）；硬表面（SketchUp 亚种）从不产生。
+ */
+export declare const EDGE_LAYERS: readonly ["soft", "curve", "smooth", "hidden", "fold"];
+/** 推拉 / 跟随的帽边不继承的层：折线只活在一个多边形内部，帽边已经是别的面之间的边了。 */
+export declare const CAP_EXCLUDE: ReadonlySet<string>;
 /** 知名面层。 */
 export declare const FACE_LAYERS: readonly ["material", "materialBack", "hidden"];
 /**
@@ -26,6 +35,9 @@ export declare const EDGE_LAYER_POLICY: Readonly<Record<string, readonly string[
 export declare function riserLayers(prev: readonly string[], next: readonly string[]): string[];
 export declare class EdgeLayers {
     private sets;
+    /** 改动日志（Kernel 接上；DT96）：层集合是带记账的 Set，谁从哪里增删都记一笔。 */
+    log: ChangeLog | null;
+    private newSet;
     names(): string[];
     /** 取（无则建）。 */
     layer(name: string): Set<EdgeId>;
@@ -46,6 +58,8 @@ export declare class EdgeLayers {
     mark(name: string, edges: readonly Edge[], pt: (id: number) => Pt3, segs: readonly Seg3[]): void;
     /** 清掉不在图里的 id。 */
     prune(hasEdge: (id: EdgeId) => boolean): void;
+    /** 增量版：只清这批删掉的 id（结果 = prune，因为 id 不复用）。 */
+    pruneIds(ids: readonly EdgeId[]): void;
     clone(): EdgeLayers;
     /** 快照：名字 → 有标记的边下标（按给定边序）。 */
     toIndex(edgeIds: readonly EdgeId[]): Record<string, number[]> | undefined;
@@ -54,6 +68,9 @@ export declare class EdgeLayers {
 }
 export declare class FaceLayers {
     private maps;
+    /** 改动日志（同 EdgeLayers）。 */
+    log: ChangeLog | null;
+    private newMap;
     names(): string[];
     layer(name: string): Map<FaceId, number>;
     get(name: string, id: FaceId): number | undefined;
@@ -67,6 +84,8 @@ export declare class FaceLayers {
     /** 按事件血缘：DIVIDE 子膜继承、MERGE / ABSORB 取首个有值的、死膜清。 */
     applyEvents(events: readonly FaceEvent[]): void;
     prune(hasFace: (id: FaceId) => boolean): void;
+    /** 增量版：只清这批删掉的 id；alive = 现在还在的（DIVIDE 之类保 id 的事件可能删了又铸回同一个 id）。 */
+    pruneIds(ids: readonly FaceId[], alive: (id: FaceId) => boolean): void;
     clone(): FaceLayers;
     /** 快照：名字 → 每面一个值（−1 = 无），按给定面序。 */
     toIndex(faceIds: readonly FaceId[]): Record<string, number[]> | undefined;
