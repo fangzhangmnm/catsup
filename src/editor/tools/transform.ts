@@ -11,10 +11,10 @@ import type { FaceEvent, Pt3, VertexId } from "../../kernel/kernel.ts";
 import { add3, dot3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { cameraPlane, drawPlaneAt, rectFirstPlane, type SnapKind } from "../pick.ts";
-import { applyDir, applyPt, rotationAbout, scalingAbout, scalingAlong, translation, type Xform } from "../../scene/xform.ts";
+import { applyDir, applyPt, rotationAbout, scalingAbout, scalingAlong, scalingAlongAxes, translation, type Xform } from "../../scene/xform.ts";
 import { moveTargetsSelection, unwrapAngle } from "../tools.ts";
 import { INCREMENT_DEG, nearestStep } from "../increments.ts";
-import { type XformGizmo, type XformGrab, type XformHandle, XG_UNIFORM_OFFSET_PX, axisOf, dragMove, dragRotate, dragScale, grabXform, hitXformGizmo, xformGizmoGeom } from "../transform-gizmo.ts";
+import { type XformGizmo, type XformGrab, type XformHandle, XG_UNIFORM_OFFSET_PX, axisOf, dragMove, dragRotate, dragScale, grabXform, hitXformGizmo, isPlaneHandle, planeAxes, xformGizmoGeom } from "../transform-gizmo.ts";
 import { MIN_GESTURE_LEN, SNAP_LABELS, fmtDeg, fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
@@ -155,7 +155,7 @@ export class TransformTool implements ToolHandler {
       const ax = axisOf(p.handle).toUpperCase(), cp = this.copy ? "复制 · " : "";
       ctx.setCursor(this.mode === "move" ? add3(g.origin, scale3(this.grab.axis, this.grab.t0)) : g.origin);
       ctx.hint(this.mode === "move" ? `${cp}沿 ${ax} 轴移动：吸到点 = 对齐那点；输数字 = 精确距离` : this.mode === "rotate" ? `${cp}绕 ${ax} 轴转：格点吸附开着 = 15° 一档；输数字 = 精确角度`
-        : `${cp}${p.handle === "su" ? "等比" : `沿 ${ax} 轴`}缩放（绕轴心）：咬 −1 / 0.5 / 1 / 2…；输数字 = 精确倍率`);
+        : `${cp}${p.handle === "su" ? "等比" : isPlaneHandle(p.handle) ? `在 ${planeAxes(p.handle).a.toUpperCase()}${planeAxes(p.handle).b.toUpperCase()} 面内（两轴一起）` : `沿 ${ax} 轴`}缩放（绕轴心）：咬 −1 / 0.5 / 1 / 2…；输数字 = 精确倍率`);
       return;
     }
     // 没点在把手上：按在已选中的东西上 = 移动（同移动工具，锚点 = 按下的那点）；别处 = 选择（点 / 框）
@@ -246,7 +246,14 @@ export class TransformTool implements ToolHandler {
   private xformOf(mode: "move" | "rotate" | "scale", G: XformGrab, v: { dist: number; angle: number; factor: number }, pivot: Pt3 = G.g0.origin): Xform {
     if (mode === "move") return translation(scale3(G.axis, v.dist));
     if (mode === "rotate") return rotationAbout(pivot, G.axis, v.angle);
-    return G.handle === "su" ? scalingAbout(pivot, { x: v.factor, y: v.factor, z: v.factor }) : scalingAlong(pivot, G.axis, v.factor);
+    if (G.handle === "su") return scalingAbout(pivot, { x: v.factor, y: v.factor, z: v.factor });
+    return isPlaneHandle(G.handle) ? scalingAlongAxes(pivot, this.scaleDirs(G), v.factor) : scalingAlong(pivot, G.axis, v.factor);
+  }
+  /** 缩放沿哪几根轴：单轴块 = 那一根；平面块 = 两根；等比块 = 空（三轴等比）。 */
+  private scaleDirs(G: XformGrab): Pt3[] {
+    if (G.handle === "su") return [];
+    if (isPlaneHandle(G.handle)) { const { a, b } = planeAxes(G.handle); return [G.g0.axes[a], G.g0.axes[b]]; }
+    return [G.axis];
   }
   private currentXform(): Xform | null {
     if (!this.grab || (this.mode !== "move" && this.mode !== "rotate" && this.mode !== "scale")) return null;
@@ -299,7 +306,7 @@ export class TransformTool implements ToolHandler {
       const ops = ctx.opCount() - n0;
       if (mode === "move") ctx.recordLast({ kind: "move", ops, at: at0, froms, pools, delta: scale3(G.axis, v.dist), copy, entities });
       else if (mode === "rotate") ctx.recordLast({ kind: "rotate", ops, at: at0, froms, pools, center: pivot, axis: G.axis, angle: v.angle, copy, entities, pivots: pv, pivotUsed });
-      else ctx.recordLast({ kind: "scale", ops, at: at0, froms, pools, anchor: pivot, axis: null, f: { x: v.factor, y: v.factor, z: v.factor }, copy, entities, ...(G.handle === "su" ? {} : { dir: G.axis }), pivots: pv, pivotUsed });
+      else ctx.recordLast({ kind: "scale", ops, at: at0, froms, pools, anchor: pivot, axis: null, f: { x: v.factor, y: v.factor, z: v.factor }, copy, entities, ...(G.handle === "su" ? {} : { dirs: this.scaleDirs(G) }), pivots: pv, pivotUsed });
     };
     // 转 / 缩之后右下「刚才：」能换轴心 / 改复制重做（编辑器的移动类马后炮读 last 里的 pivots；user「transform能不能马后炮可以切换 pivot」「马后炮都能override」）
     const pv: Record<string, Pt3> = {};

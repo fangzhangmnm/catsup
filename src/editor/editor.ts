@@ -54,7 +54,7 @@ import { type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
-import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, scalingAlong, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -170,7 +170,7 @@ export type LastGesture =
   | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number; circle?: CurveParams }
   | { kind: "move"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; delta: Pt3; copy: boolean; entities: { faces: FaceId[]; edges: EdgeId[] } }
   | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 变换工具：抓的时候几种轴心（马后炮换轴心重做）+ 用的是哪种。 */ pivots?: Record<string, Pt3>; pivotUsed?: string }
-  | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 沿任意方向的单轴缩放（变换工具的缩放块，帧可能是斜的）：有就按 scalingAlong、f 用 x 分量。 */ dir?: Pt3; pivots?: Record<string, Pt3>; pivotUsed?: string }
+  | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 沿任意方向缩放（变换工具的缩放块，帧可能是斜的）：1 根 = 单轴块、2 根 = 平面块（2026-10-26）；有就按 scalingAlongAxes、f 用 x 分量。 */ dirs?: readonly Pt3[]; pivots?: Record<string, Pt3>; pivotUsed?: string }
   /** 卷尺（0.11）：起点 a、产物方向 dir（线 = 垂直偏移方向；点 = 起点→终点）、距离 d；line 另带参考线方向。 */
   | { kind: "tape"; ops: number; at: PoolRef; a: Pt3; dir: Pt3; d: number; make: "line" | "point"; lineDir?: Pt3 }
   /** 量角器（0.11）：圆心 / 转轴 / 参考点 / 角度 → 角度参考线；VCB 改度数。 */
@@ -1493,7 +1493,7 @@ export class Editor {
       const copy = !!v.copy, pid = typeof v.pivot === "string" ? v.pivot : undefined, piv = pid && pivots ? pivots[pid] : undefined;
       if (pid && pid !== "picked" && pid !== (L.kind !== "move" ? L.pivotUsed : undefined)) this.config.set("transform", "pivot", pid as "auto" | "bbox" | "mean" | "active");   // 工具自己记住
       const at = L.at, n0 = this.opCount;
-      const X = L.kind === "move" ? translation(L.delta) : L.kind === "rotate" ? rotationAbout(piv ?? L.center, L.axis, L.angle) : L.dir ? scalingAlong(piv ?? L.anchor, L.dir, L.f.x) : scalingAbout(piv ?? L.anchor, L.f);
+      const X = L.kind === "move" ? translation(L.delta) : L.kind === "rotate" ? rotationAbout(piv ?? L.center, L.axis, L.angle) : L.dirs ? scalingAlongAxes(piv ?? L.anchor, L.dirs, L.f.x) : scalingAbout(piv ?? L.anchor, L.f);
       if (copy) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, ents), XL }], L.pools, at); }
       else this.redoXform(X, L.froms, L.pools, at);
       const ops = this.opCount - n0;
@@ -1705,11 +1705,11 @@ export class Editor {
         break;
       }
       case "scale": {
-        const scaleX = (f: Pt3): Xform => (L.dir ? scalingAlong(L.anchor, L.dir, f.x) : scalingAbout(L.anchor, f));
+        const scaleX = (f: Pt3): Xform => (L.dirs ? scalingAlongAxes(L.anchor, L.dirs, f.x) : scalingAbout(L.anchor, f));
         const redoScale = (f: Pt3): void => { const X = scaleX(f); if (L.copy && L.entities) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); } else this.redoXform(X, L.froms, L.pools, at); };
         if (v.kind === "array") {
           // 缩放阵列（user 2026-10-26「变换能不能也支持移动的/5 *5，不过只对move和scale」）：原件回原位（这一步已撤），放 n 份——x = 第 k 份 f^k，/ = 第 k 份 f^(k/n)
-          const Xs = L.dir ? (v.mode === "/" && L.f.x < 0 ? null : Array.from({ length: v.n }, (_, i) => scalingAlong(L.anchor, L.dir!, Math.sign(L.f.x) ** (i + 1) * Math.abs(L.f.x) ** (v.mode === "x" ? i + 1 : (i + 1) / v.n)))) : arrayScalings(L.anchor, L.f, v.mode, v.n);
+          const Xs = L.dirs ? (v.mode === "/" && L.f.x < 0 ? null : Array.from({ length: v.n }, (_, i) => scalingAlongAxes(L.anchor, L.dirs!, Math.sign(L.f.x) ** (i + 1) * Math.abs(L.f.x) ** (v.mode === "x" ? i + 1 : (i + 1) / v.n)))) : arrayScalings(L.anchor, L.f, v.mode, v.n);
           if (!Xs || !L.entities) { redoScale(L.f); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: !Xs ? "带镜像（负倍率）的缩放不能内分：用 3x 这种" : "这一步做不了阵列" }; }
           const ents = L.entities;
           this.commitCopies(Xs.map((X) => { const XL = this.xformToLocal(X); return { payload: this.copyPayload(XL, ents), XL }; }), L.pools, at);
@@ -1718,7 +1718,7 @@ export class Editor {
           break;
         }
         if (v.kind !== "factor") break;
-        const f: Pt3 = L.dir ? { x: v.f[0], y: v.f[0], z: v.f[0] } : v.f.length === 3 ? { x: v.f[0], y: v.f[1], z: v.f[2] } : L.axis ? { x: L.axis.x ? v.f[0] : 1, y: L.axis.y ? v.f[0] : 1, z: L.axis.z ? v.f[0] : 1 } : { x: v.f[0], y: v.f[0], z: v.f[0] };
+        const f: Pt3 = L.dirs ? { x: v.f[0], y: v.f[0], z: v.f[0] } : v.f.length === 3 ? { x: v.f[0], y: v.f[1], z: v.f[2] } : L.axis ? { x: L.axis.x ? v.f[0] : 1, y: L.axis.y ? v.f[0] : 1, z: L.axis.z ? v.f[0] : 1 } : { x: v.f[0], y: v.f[0], z: v.f[0] };
         redoScale(f);
         this.last = { ...L, ops: this.opCount - n0, f };
         msg = `${L.copy ? "复制 · " : ""}缩放 ${f.x.toFixed(3)} × ${f.y.toFixed(3)} × ${f.z.toFixed(3)}`;

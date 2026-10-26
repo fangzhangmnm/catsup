@@ -70,6 +70,12 @@ export function scalingAlong(center: Pt3, axis: Pt3, f: number): Xform {
   const t = (r: number): number => (r === 0 ? center.x : r === 1 ? center.y : center.z) - (L[r * 3] * center.x + L[r * 3 + 1] * center.y + L[r * 3 + 2] * center.z);
   return [L[0], L[1], L[2], t(0), L[3], L[4], L[5], t(1), L[6], L[7], L[8], t(2)];
 }
+/** 沿几根互相垂直的方向一起缩放 f（变换工具的平面缩放块 = 两根；单轴块 = 一根）。 */
+export function scalingAlongAxes(center: Pt3, axes: readonly Pt3[], f: number): Xform {
+  let X: Xform = IDENTITY;
+  for (const a of axes) X = compose(scalingAlong(center, a, f), X);
+  return X;
+}
 /**
  * 法向的变换：逆转置作用在法向 n' = (M⁻¹)ᵀ n，**不归一、不规范化**（朝向保留）。长度 = 本地沿法向 1 个单位在世界里是多少分之一：
  * 本地平面沿法向挪 d ⇔ 世界平面沿 normalize(n') 挪 d / |n'|。推拉这类「本地按法向走多远」的动词换到世界一律走它（2026-10-26：

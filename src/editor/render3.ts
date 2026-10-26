@@ -193,7 +193,7 @@ export interface ViewState {
   /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
   poolAxes?: readonly Frame[] | null;
   /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
-  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
+  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
 }
@@ -462,6 +462,11 @@ export class Renderer3 {
     // 变换 gizmo 的实心小件：三个轴上缩放块 + 等比块（方块）+ 中心点（圆）+ 三个箭头锥；透视画、在线条上面
     for (let i = 0; i < 8; i++) {   // 0–3 方块（三轴缩放 + 等比）· 4 中心点（圆）· 5–7 箭头锥
       const m = new THREE.Mesh(i < 4 ? new THREE.BoxGeometry(1, 1, 1) : i === 4 ? new THREE.SphereGeometry(0.5, 16, 10) : new THREE.ConeGeometry(1, 1, 16), new THREE.MeshBasicMaterial({ color: 0x777777, depthTest: false, depthWrite: false }));
+      m.renderOrder = 12; m.visible = false; m.frustumCulled = false;
+      this.scene.add(m); this.xgSolids.push(m);
+    }
+    for (let i = 0; i < 3; i++) {   // 8–10 平面（双轴）缩放块：xy / yz / xz 小方片（2026-10-26）
+      const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x777777, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }));
       m.renderOrder = 12; m.visible = false; m.frustumCulled = false;
       this.scene.add(m); this.xgSolids.push(m);
     }
@@ -935,7 +940,7 @@ export class Renderer3 {
       }
       this.xgLines.visible = true;
       // 缩放块（轴上的 = 沿那根轴、右上方的 = 等比）+ 中心点（= 移动）：实心小件（user 2026-10-26「变换的resize handle为什么是线框方块，好难看哈哈」），方块顺着 gizmo 三轴摆
-      const [sx, sy, sz, su, mc, cx, cy, cz] = this.xgSolids;
+      const [sx, sy, sz, su, mc, cx, cy, cz, pxy, pyz, pxz] = this.xgSolids;
       {   // 箭头锥：尖在 arrow，长 = 箭头段的 32%，粗 = 长的 0.36
         const hl = (xg.arrow - xg.start) * 0.32, up = new THREE.Vector3(0, 1, 0);
         (["x", "y", "z"] as const).forEach((ax, i) => {
@@ -954,6 +959,17 @@ export class Renderer3 {
         if (xg.uniform) place(su, xg.uniform, xg.cubeHalf * 2.4, xg.hot === "su" ? GIZMO_HOT : 0x777777); else su.visible = false;
         place(mc, xg.origin, xg.cubeHalf * 2.2, xg.hot === "mc" ? GIZMO_HOT : 0x333333);
       } else for (const m of [sx, sy, sz, su, mc]) m.visible = false;
+      if (xg.plane !== undefined && xg.planeHalf !== undefined) {   // 平面块：方片铺在两根轴张成的面里，颜色 = 垂直于它的那根轴（Blender 同款）
+        const V = (p: Pt3): any => new THREE.Vector3(p.x, p.y, p.z);
+        ([["pxy", "x", "y", "z"], ["pyz", "y", "z", "x"], ["pxz", "x", "z", "y"]] as const).forEach(([h, a, b, n], i) => {
+          const m = [pxy, pyz, pxz][i], A = xg.axes[a], B = xg.axes[b];
+          m.visible = true;
+          m.position.set(xg.origin.x + (A.x + B.x) * xg.plane!, xg.origin.y + (A.y + B.y) * xg.plane!, xg.origin.z + (A.z + B.z) * xg.plane!);
+          m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(V(A), V(B), V(A).cross(V(B))));
+          m.scale.set(xg.planeHalf! * 2, xg.planeHalf! * 2, 1);
+          m.material.color.setHex(xg.hot === h ? GIZMO_HOT : ({ x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const)[n]);
+        });
+      } else for (const m of [pxy, pyz, pxz]) m.visible = false;
     } else { this.xgLines.visible = false; this.xgKey = ""; for (const m of this.xgSolids) m.visible = false; }
 
     // ---- DT15 选中的组 / 组件的轴：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----

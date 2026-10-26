@@ -8,7 +8,8 @@ import { closestOnAxis, rayPlane } from "./camera.ts";
 import { worldPerPx } from "./plane-gizmo.ts";
 
 export type AxisName = "x" | "y" | "z";
-export type XformHandle = "mx" | "my" | "mz" | "rx" | "ry" | "rz" | "sx" | "sy" | "sz" | "su";
+/** 把手：m 移动箭头 / r 旋转环 / s 单轴缩放块 / su 等比缩放块 / p 平面（双轴）缩放块（2026-10-26，user「以及变换你还是没给我xy yz xz的手柄」）。 */
+export type XformHandle = "mx" | "my" | "mz" | "rx" | "ry" | "rz" | "sx" | "sy" | "sz" | "su" | "pxy" | "pyz" | "pxz";
 /** 等比缩放块：轴心在屏上的位置往右、往上各这么多（CSS px）。 */
 export const XG_UNIFORM_OFFSET_PX = 34;
 // 比例（2026-10-26 改，user「然后比例也不对，看的好难受」+ 坦克截图：环套住整辆车、箭头细短、方块过大）：照 Blender 合在一起的样子——
@@ -24,19 +25,28 @@ export const XG_SCALE_PX = 32;
 export const XG_CUBE_PX = 3.5;
 /** 旋转环半径（CSS px）：箭头在环外、缩放块在环里（Blender 合在一起时的布局）——环和箭头不相交，抓的时候不含糊。 */
 export const XG_RING_PX = 56;
+/** 平面缩放块：中心离轴心沿两根轴各这么远（CSS px）/ 方块半边长（CSS px）。在缩放块和环之间。 */
+export const XG_PLANE_PX = 20;
+export const XG_PLANE_HALF_PX = 4.5;
+export const PLANE_HANDLES = ["pxy", "pyz", "pxz"] as const;
+/** 平面块的两根轴 + 垂直于它的那根（上色用，Blender 同款：xy 块 = 蓝）。 */
+export const planeAxes = (h: XformHandle): { a: AxisName; b: AxisName; n: AxisName } => (h === "pxy" ? { a: "x", b: "y", n: "z" } : h === "pyz" ? { a: "y", b: "z", n: "x" } : { a: "x", b: "z", n: "y" });
+export const isPlaneHandle = (h: XformHandle): boolean => h[0] === "p";
 /** 环画多少段。 */
 export const XG_RING_SEGS = 48;
 
 /** 一个变换 gizmo：原点 + 三根单位轴（上下文帧）。 */
 export interface XformGizmo { origin: Pt3; axes: Readonly<Record<AxisName, Pt3>>; }
 /** 这一帧的几何（世界）：箭头长、环半径、箭头起点、缩放块位置 / 半边长。 */
-export interface XformGizmoGeom extends XformGizmo { arrow: number; ring: number; start: number; cube: number; cubeHalf: number; }
+export interface XformGizmoGeom extends XformGizmo { arrow: number; ring: number; start: number; cube: number; cubeHalf: number; plane: number; planeHalf: number; }
+/** 平面块中心（世界）。 */
+export function planeHandleCenter(G: XformGizmoGeom, h: XformHandle): Pt3 { const { a, b } = planeAxes(h); return add3(G.origin, scale3(add3(G.axes[a], G.axes[b]), G.plane)); }
 
 export function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport): XformGizmoGeom {
   // 量尺的方向要垂直于视线（2026-10-26）：沿红轴量的话，红轴斜着时别的轴箭头在屏上短一截，红轴正对镜头时整个手柄被算得巨大
   const w = pf.viewDir(g.origin), side = normalize3(cross3(w, Math.abs(w.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 }));
   const wpp = worldPerPx(pf, vp, g.origin, side) ?? 0.01;
-  return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp, cube: XG_SCALE_PX * wpp, cubeHalf: XG_CUBE_PX * wpp };
+  return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp, cube: XG_SCALE_PX * wpp, cubeHalf: XG_CUBE_PX * wpp, plane: XG_PLANE_PX * wpp, planeHalf: XG_PLANE_HALF_PX * wpp };
 }
 /** 绕 axis 的环上的点（闭合：首尾相同）。 */
 export function ringPoints(G: XformGizmoGeom, ax: AxisName): Pt3[] {
@@ -71,6 +81,7 @@ export function hitXformGizmo(g: XformGizmo, pf: PointerFrame, vp: Viewport, sx:
     const cp = add3(G.origin, scale3(G.axes[ax], G.cube));
     if (pf.project) { const q = pf.project(cp, vp); if (q) out.push({ handle: `s${ax}` as XformHandle, d: Math.hypot(q.x - sx, q.y - sy), z: depth(cp) }); }
   }
+  for (const h of PLANE_HANDLES) { const pc = planeHandleCenter(G, h), q = pf.project?.(pc, vp); if (q) out.push({ handle: h, d: Math.hypot(q.x - sx, q.y - sy), z: depth(pc) }); }
   return out;   // 中心点（= 移动，按移动工具的吸附）和等比缩放块（屏幕上中心右上方）是屏幕把手，归工具自己拾
 }
 
@@ -81,6 +92,11 @@ export const axisOf = (h: XformHandle): AxisName => (h === "su" ? "x" : (h[1] as
 export function grabXform(g: XformGizmo, handle: XformHandle, pf: PointerFrame, vp: Viewport, sx: number, sy: number): XformGrab {
   const axis = g.axes[axisOf(handle)], ray = pf.ray(sx, sy, vp);
   if (handle === "su") { const q = pf.project?.(g.origin, vp); return { handle, g0: g, axis, t0: q ? Math.max(Math.hypot(q.x - sx, q.y - sy), 6) : 6, dir0: null }; }
+  if (isPlaneHandle(handle)) {   // 平面块：抓点落在那个平面上，倍率按沿两轴对角线的距离比量（axis = 对角线方向）
+    const { a, b, n } = planeAxes(handle), diag = normalize3(add3(g.axes[a], g.axes[b])), nn = g.axes[n];
+    const q = rayPlane(ray.origin, ray.dir, nn, dot3(nn, g.origin)), t = q ? dot3(sub3(q, g.origin), diag) : 0;
+    return { handle, g0: g, axis: diag, t0: Math.abs(t) < 1e-9 ? 1e-9 : t, dir0: null };
+  }
   if (handle[0] === "m" || handle[0] === "s") { const q = closestOnAxis(g.origin, axis, ray.origin, ray.dir); const t = q ? dot3(sub3(q, g.origin), axis) : 0; return { handle, g0: g, axis, t0: handle[0] === "s" && Math.abs(t) < 1e-9 ? 1e-9 : t, dir0: null }; }
   const q = rayPlane(ray.origin, ray.dir, axis, dot3(axis, g.origin));
   return { handle, g0: g, axis, t0: 0, dir0: q ? normalize3(sub3(q, g.origin)) : null };
@@ -103,7 +119,9 @@ export function dragRotate(grab: XformGrab, pf: PointerFrame, vp: Viewport, sx: 
 /** 缩放：单轴块 = 抓点沿轴到原点的距离比（过了原点 = 负数，镜像）；等比块 = 光标离原点的屏距比（≥ 0）。看不出来 → null。 */
 export function dragScale(grab: XformGrab, pf: PointerFrame, vp: Viewport, sx: number, sy: number): number | null {
   if (grab.handle === "su") { const q = pf.project?.(grab.g0.origin, vp); return q ? Math.hypot(q.x - sx, q.y - sy) / grab.t0 : null; }
-  const ray = pf.ray(sx, sy, vp), q = closestOnAxis(grab.g0.origin, grab.axis, ray.origin, ray.dir);
+  const ray = pf.ray(sx, sy, vp);
+  if (isPlaneHandle(grab.handle)) { const nn = grab.g0.axes[planeAxes(grab.handle).n], q = rayPlane(ray.origin, ray.dir, nn, dot3(nn, grab.g0.origin)); return q ? dot3(sub3(q, grab.g0.origin), grab.axis) / grab.t0 : null; }
+  const q = closestOnAxis(grab.g0.origin, grab.axis, ray.origin, ray.dir);
   return q ? dot3(sub3(q, grab.g0.origin), grab.axis) / grab.t0 : null;
 }
 
