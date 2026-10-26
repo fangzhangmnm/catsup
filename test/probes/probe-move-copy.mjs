@@ -36,6 +36,6 @@ await page.mouse.up(); await page.waitForTimeout(200);
 const after = await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef; const def = [...s.defs.keys()].find((id) => id !== s.root); const xs = [...s.def(s.root).instances.values()].map((i) => +i.xform[3].toFixed(3)); return { count: s.instanceCount(def), xs }; });
 const res = { setup, picked, mid, after };
 console.log(JSON.stringify(res));
-const ok = setup.made && picked && mid.ghosts >= 1 && !mid.origHand && mid.hint.includes("复制") && after.count === 2 && after.xs.includes(4) && !errs.length;
+const ok = setup.made && picked && mid.ghosts >= 1 && !mid.origHand && mid.hint.includes("复制") && after.count === 2 && after.xs.includes(5) && after.xs.includes(8) && !errs.length;   // 组件轴默认底面中心 (5,5,0)：原件 x = 5，复制往 +x 3 m = 8
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

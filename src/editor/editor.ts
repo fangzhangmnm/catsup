@@ -1027,7 +1027,7 @@ export class Editor {
     return true;
   }
   /**
-   * 选区 → component（新 definition + 一个实例；轴默认 = 包围盒最小角，SketchUp 同款）。
+   * 选区 → component（新 definition + 一个实例）。轴默认 = 底面中心（2026-10-26 user「忍不了了哈哈，组件默认是底部中心轴可以吗」；以前 = 包围盒最小角，SketchUp 同款）。
    * 之后右下角马后炮可换原点（user 2026-10-25「建立组件的时候能不能马后炮选择一下轴的居中模式」）：包围盒角 / 包围盒中心 / 底面中心 / 顶点平均——
    * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
    */
@@ -1058,11 +1058,11 @@ export class Editor {
       if (newest) this.selectedPools.set(`i${newest.id}`, { kind: "instance", instance: newest.id });
     };
     const n0 = this.opCount;
-    go("corner");
+    go("bottom");
     if (this.opCount === n0) return false;
     selectNewest();
-    this.offerAfterthought("建组件", [{ key: "origin", def: { kind: "enum", label: "原点", values: [{ id: "corner", label: "包围盒角" }, { id: "center", label: "包围盒中心" }, { id: "bottom", label: "底面中心" }, { id: "mean", label: "顶点平均" }] } }],
-      { origin: "corner" }, this.opCount - n0, (v) => { go(String(v.origin)); selectNewest(); });
+    this.offerAfterthought("建组件", [{ key: "origin", def: { kind: "enum", label: "原点", values: [{ id: "bottom", label: "底面中心" }, { id: "corner", label: "包围盒角" }, { id: "center", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }] } }],
+      { origin: "bottom" }, this.opCount - n0, (v) => { go(String(v.origin)); selectNewest(); });
     this.host.changed(); this.draw();
     return true;
   }
@@ -1909,22 +1909,12 @@ export class Editor {
     if (mode === "active") { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[fr.length - 1].origin; }
     return this.selectionCenter(mode === "mean" ? "mean" : "bbox");
   }
-  /** 选中的点怎么画（世界坐标）：点本身 + 连着它的每条线从点起的半截。 */
-  private selVertsView(view: WorldView, g: (id: number) => number): { points: Pt3[]; halves: { a: Pt3; b: Pt3 }[] } | null {
+  /** 选中的点（世界坐标；只画点本身）。 */
+  private selVertsView(view: WorldView, g: (id: number) => number): Pt3[] | null {
     if (!this.selection.verts.size) return null;
-    const points: Pt3[] = [], halves: { a: Pt3; b: Pt3 }[] = [];
-    for (const v of this.selection.verts) {
-      const gv = g(v);
-      if (!view.graph.hasVertex(gv)) continue;
-      const p = view.graph.pt(gv);
-      points.push(p);
-      for (const e of view.graph.vertex(gv).edges) {
-        if (!view.graph.hasEdge(e)) continue;
-        const E = view.graph.edge(e), q = view.graph.pt(E.a === gv ? E.b : E.a);
-        halves.push({ a: p, b: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2 } });
-      }
-    }
-    return points.length ? { points, halves } : null;
+    const out: Pt3[] = [];
+    for (const v of this.selection.verts) { const gv = g(v); if (view.graph.hasVertex(gv)) out.push(view.graph.pt(gv)); }
+    return out.length ? out : null;
   }
   // ---------- 渲染 ----------
   viewExtras: (() => Partial<ViewState>) | null = null;

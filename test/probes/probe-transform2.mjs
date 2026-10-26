@@ -78,7 +78,7 @@ const res = await page.evaluate(async () => {
   // ⑧ 轴心「自动」
   e.cancel(); e.clearAll(); e.setTool("select");
   box(0, 0, 0, 1, 1, 1);
-  e.selectAll(); e.makeComponent("A");   // 原点默认 = 包围盒角 (0,0,0)，选区 = 新实例
+  e.selectAll(); e.makeComponent("A");   // 原点默认 = 底面中心 (0.5,0.5,0)，选区 = 新实例
   e.setTool("transform"); await sleep(30);
   const T = e.handlers.transform, gzo = () => { const g = T.viewExtras(e.toolCtx).xformGizmo; return g ? [g.origin.x, g.origin.y, g.origin.z].map((v) => +v.toFixed(4)) : null; };
   out.autoMode = e.config.get("transform", "pivot");
@@ -101,6 +101,6 @@ const ok = res.centerMove[0] === 1 && res.centerMove[1] === 2 && res.selAfterMov
   && res.pivot && res.rotXs[0] === 1 && res.rotXs[1] === 2
   && res.emptyTapSel === false && res.faceTapSel === 1 && res.boxSel === 6
   && res.rotCopy.faces === 11 && res.rotCopy.xs[0] === -1 && res.rotCopy.xs[1] === 1
-  && res.autoMode === "auto" && String(res.autoOne) === "0,0,0" && String(res.autoMid) === "1,0,0" && String(res.autoAfter) === "1,0,0" && String(res.autoMixed) === "2.5,0.5,0.5" && !errs.length;
+  && res.autoMode === "auto" && String(res.autoOne) === "0.5,0.5,0" && String(res.autoMid) === "1.5,0.5,0" && String(res.autoAfter) === "1.5,0.5,0" && String(res.autoMixed) === "2.5,0.5,0.5" && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

@@ -41,10 +41,11 @@ const res = await page.evaluate(async () => {
   const topF = e.kernel.faces().find((f) => e.kernel.faceRings3(f.id).outer.every((p) => Math.abs(p.z - topZ) < 1e-9));
   const tf = e.kernel.faceRings3(topF.id).outer; const cx = tf.reduce((a, p) => a + p.x, 0) / 4, cy = tf.reduce((a, p) => a + p.y, 0) / 4;
   e.setTool("pp");
-  const tp = px({ x: cx, y: cy, z: topZ });
+  const T = inst1.xform;   // 组件内部坐标 → 世界（2026-10-26 组件轴默认底面中心起，内部坐标不再等于世界坐标）
+  const tp = px({ x: cx + T[3], y: cy + T[7], z: topZ + T[11] });
   await drag(tp, { x: tp.x, y: tp.y - 60 });
   const zs = world().vertices().map((v) => v.z);
-  out.bothGrew = zs.filter((z) => z > topZ + 1e-6).length === 8;
+  out.bothGrew = zs.filter((z) => z > topZ + T[11] + 1e-6).length === 8;
   e.exitContext();
   out.backAtRoot = e.contextDepth() === 0;
   // ④ 旋转第二份实例 90°（量角器两笔：圆心 → 参考点拖）

@@ -18,7 +18,8 @@ const res = await page.evaluate(async () => {
   e.setGrid({ ...e.grid, on: false });
   // A = 一块盒 (0..2)²×(0..1)，放两份；进 A1，在里面画小盒 (0.2..0.6)²×(1..1.4) 做成子组件 B（= A 的定义里放了一份 B）
   box(0, 0, 0, 2, 2, 1);
-  e.selectAll(); e.makeComponent("A"); e.copyInstance(P(4, 0, 0)); e.cancel();
+  // 轴放回包围盒角（2026-10-26 起默认底面中心）：本探针按「组件内部坐标 = 世界坐标」写的
+  e.selectAll(); e.makeComponent("A"); e.setParam("origin", "corner"); e.copyInstance(P(4, 0, 0)); e.cancel();
   { const Ad = [...e.scene.def(e.scene.root).instances.values()][0].def;   // 第三份 A3：转 90°（测「本地变换换到孪生的世界系」，光平移测不出来）
     e.commitOp({ op: "placeInstance", at: { def: e.scene.root, group: null }, definition: Ad, xform: [0, -1, 0, 9, 1, 0, 0, 0, 0, 0, 1, 0] }); }
   e.cam.setView("iso"); e.zoomExtents();
@@ -38,7 +39,7 @@ const res = await page.evaluate(async () => {
   e.cancel();
   for (const f of k.faces()) { const ring = k.faceRings3(f.id).outer; if (ring.every((q) => q.z >= 1 - 1e-9) && ring.some((q) => q.z > 1 + 1e-9 || (q.x > 0.15 && q.x < 0.65 && q.y > 0.15 && q.y < 0.65)) && ring.every((q) => q.x > 0.15 && q.x < 0.65 && q.y > 0.15 && q.y < 0.65)) e.selection.faces.add(f.id); }
   for (const ed of k.edges()) { const a = k.graph.pt(ed.a), d = k.graph.pt(ed.b); if ([a, d].every((q) => q.z >= 1 - 1e-9 && q.x > 0.15 && q.x < 0.65 && q.y > 0.15 && q.y < 0.65)) e.selection.edges.add(ed.id); }
-  e.makeComponent("B"); e.cancel();
+  e.makeComponent("B"); e.setParam("origin", "corner"); e.cancel();
   out.bInA = [...S().def(Adef).instances.values()].length;
   out.bSlots0 = bSlots(e.worldGeom());
   void before;

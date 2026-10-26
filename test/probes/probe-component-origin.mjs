@@ -36,6 +36,6 @@ const res = await page.evaluate(() => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.title === "建组件" && res.phase === "after" && res.origin0 === "corner" && res.defCentered && res.worldSame && res.looseAfter === 0 && res.bottomZ0 && res.worldSame2 && res.undoOnceLoose && res.panelClosed && !errs.length;
+const ok = res.title === "建组件" && res.phase === "after" && res.origin0 === "bottom" && res.defCentered && res.worldSame && res.looseAfter === 0 && res.bottomZ0 && res.worldSame2 && res.undoOnceLoose && res.panelClosed && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

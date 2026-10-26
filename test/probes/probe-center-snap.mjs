@@ -22,6 +22,7 @@ const setup = await page.evaluate(() => {
   e.commitOp({ op: "pushpull", at: e.activePool(), face: e.kernel.faceRings3(fid).outer, dist: 0.5 });
   e.selectAll();
   const made = e.makeComponent("轮子");
+  e.setParam("origin", "corner");   // 轴放到包围盒角 (4,4,0)：和圆心错开，验的是「选中了组件，它的轴原点才能吸」（默认底面中心会和底圆圆心重合）
   e.cancel();
   e.zoomExtents(); e.cam.halfH *= 2.5;
   globalThis.__catsup.hud.pick("line");
