@@ -77,10 +77,11 @@ export class TransformTool implements ToolHandler {
   /** 选区签名（便宜的那种：数量 + id 和 + 组 / 组件键）：临时轴心跟着选区走，选区一变就作废。 */
   private static selSig(ctx: ToolCtx): string {
     const sel = ctx.selection();
-    let fs = 0, es = 0;
+    let fs = 0, es = 0, vs = 0;
     for (const f of sel.faces) fs += f;
     for (const e of sel.edges) es += e;
-    return `${sel.faces.size}:${fs}|${sel.edges.size}:${es}|${ctx.movablePoolPicks(false).map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}`;
+    for (const v of sel.verts) vs += v;
+    return `${sel.faces.size}:${fs}|${sel.edges.size}:${es}|${sel.verts.size}:${vs}|${ctx.movablePoolPicks(false).map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}`;
   }
   private pivotMode(ctx: ToolCtx): PivotMode { return ctx.config.get("transform", "pivot") as PivotMode; }
   /** 现在的轴心：临时轴心（选区没变）> 轴心选项。 */
@@ -170,7 +171,10 @@ export class TransformTool implements ToolHandler {
   /** 命中的东西在选区里吗（散的面 / 边；组 / 组件按整体）。 */
   private inSelection(ctx: ToolCtx, c: ReturnType<ToolCtx["classify"]>): boolean {
     const sel = ctx.selection();
-    if (c.kind === "entity") return (c.local.face !== undefined && sel.faces.has(c.local.face)) || (c.local.edge !== undefined && sel.edges.has(c.local.edge));
+    if (c.kind === "entity") {
+      if (c.local.vertex !== undefined) return moveTargetsSelection(ctx.kernel(), sel).includes(c.local.vertex);   // 选中的点，或选中的边 / 面上的点
+      return (c.local.face !== undefined && sel.faces.has(c.local.face)) || (c.local.edge !== undefined && sel.edges.has(c.local.edge));
+    }
     if (c.kind === "pool") { const p = c.pick; return ctx.movablePoolPicks(false).some((q) => (q.kind === "group" && p.kind === "group" && q.group === p.group) || (q.kind === "instance" && p.kind === "instance" && q.instance === p.instance)); }
     return false;
   }

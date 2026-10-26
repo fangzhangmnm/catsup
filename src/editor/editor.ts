@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, circleSegmentsOnPlane, emptySelection, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
+import { type Selection, type SelMode, circleSegmentsOnPlane, emptySelection, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
@@ -81,7 +81,7 @@ export interface ToolPointer {
 }
 
 /** 选区快照（撤销 / 重做还原用；ctx = 当时的上下文键）。 */
-interface SelSnap { ctx: string; faces: FaceId[]; edges: EdgeId[]; guides: number[]; pools: [string, PoolPick][]; }
+interface SelSnap { ctx: string; faces: FaceId[]; edges: EdgeId[]; verts: VertexId[]; guides: number[]; pools: [string, PoolPick][]; }
 
 /** 记账面包屑（调试日志；op 一行一条）。 */
 export type EditorTrace =
@@ -418,8 +418,10 @@ export class Editor {
   get revision(): number { return this._revision; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }
-  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selection.guides.size > 0 || this.selectedPools.size > 0; }
+  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selection.verts.size > 0 || this.selection.guides.size > 0 || this.selectedPools.size > 0; }
   hasGeometrySelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
+  /** 选了点（2026-10-26）。 */
+  hasPointSelection(): boolean { return this.selection.verts.size > 0; }
   hasPoolSelection(): boolean { return this.selectedPools.size > 0; }
   selectedPoolPicks(): PoolPick[] { return [...this.selectedPools.values()]; }
   isGestureActive(): boolean { return this.gestureActive(); }
@@ -662,12 +664,13 @@ export class Editor {
    * 所以还原回去的 id 指的就是同一批东西；不存在的 id 剪掉；上下文变了（撤到组被删之前 / 换了层）= 选区清空——有定义的结果，不会挂到错的池上。
    */
   private stepSel = new Map<number, { before: SelSnap; after?: SelSnap }>();
-  private selSnap(): SelSnap { return { ctx: this.ctxKey(), faces: [...this.selection.faces], edges: [...this.selection.edges], guides: [...this.selection.guides], pools: [...this.selectedPools.entries()] }; }
+  private selSnap(): SelSnap { return { ctx: this.ctxKey(), faces: [...this.selection.faces], edges: [...this.selection.edges], verts: [...this.selection.verts], guides: [...this.selection.guides], pools: [...this.selectedPools.entries()] }; }
   private selRestore(s: SelSnap | undefined): void {
     this.selection = emptySelection(); this.selectedPools.clear();
     if (!s || s.ctx !== this.ctxKey()) return;
     for (const f of s.faces) this.selection.faces.add(f);
     for (const e of s.edges) this.selection.edges.add(e);
+    for (const v of s.verts) this.selection.verts.add(v);
     for (const g of s.guides) this.selection.guides.add(g);
     for (const [k, p] of s.pools) this.selectedPools.set(k, p);
     this.pruneSelection();
@@ -716,6 +719,7 @@ export class Editor {
     const k = this.kernel;
     for (const e of [...this.selection.edges]) if (!k.graph.hasEdge(e)) this.selection.edges.delete(e);
     for (const f of [...this.selection.faces]) if (!k.face(f)) this.selection.faces.delete(f);
+    for (const v of [...this.selection.verts]) if (!k.graph.hasVertex(v)) this.selection.verts.delete(v);
     const def = this.scene.defOfContext(this.ctx);
     for (const [key, p] of [...this.selectedPools]) {
       const ok = p.kind === "group" ? this.scene.brep(def).groups.get(p.group)?.parent === this.ctx.group : this.scene.def(def).instances.get(p.instance)?.parent === this.ctx.group;
@@ -852,13 +856,14 @@ export class Editor {
 
   /**
    * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
-   * 空命中 = 清选区（非加选）。hit 是 WorldView 的全局 id。
+   * 点（2026-10-26）：单击 = 这个点；双击 = 连着它的线；三击 = 连通体。
+   * mode = 怎么合进已有选区（替换 / 加选 / 减选 / 切换，对齐 Blender）；空命中 + 替换 = 清选区。hit 是 WorldView 的全局 id。
    */
-  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive = false): boolean {
+  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode = "replace"): boolean {
     const view = this.liveWorld();
     const c = this.classify(view, hit);
-    if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
-    if (c.kind === "pool") { this.selectedPools.set(c.key, c.pick); this.afterSelect(); return true; }
+    if (mode === "replace") { this.selection = emptySelection(); this.selectedPools.clear(); }
+    if (c.kind === "pool") { this.mergePools([c.pick], mode); this.afterSelect(); return true; }
     if (c.kind === "none") { this.afterSelect(); return true; }
     const k = this.kernel;
     const picked = emptySelection();
@@ -878,9 +883,10 @@ export class Editor {
       const surf = surfaceFaces(k, h.face);                                        // 0.10：单击曲面的一片 = 整张（沿软边泛洪；SU）
       if (stage >= 1) for (const f of surf) addFaceRing(f); else for (const f of surf) picked.faces.add(f);
     } else if (h.vertex !== undefined && k.graph.hasVertex(h.vertex)) {
-      for (const eid of k.graph.vertex(h.vertex).edges) picked.edges.add(eid);
+      if (stage === 0) picked.verts.add(h.vertex);
+      else for (const eid of k.graph.vertex(h.vertex).edges) picked.edges.add(eid);
     }
-    if (stage >= 2 && (h.edge !== undefined || h.face !== undefined)) {
+    if (stage >= 2) {
       const qE = [...picked.edges], qF = [...picked.faces];
       while (qE.length || qF.length) {
         const fid = qF.pop();
@@ -896,11 +902,36 @@ export class Editor {
         for (const vid of [e.a, e.b]) for (const e2 of k.graph.vertex(vid).edges) if (!picked.edges.has(e2)) { picked.edges.add(e2); qE.push(e2); }
       }
     }
-    for (const e of picked.edges) if (!k.isEdgeHidden(e)) this.selection.edges.add(e);   // 隐藏的（DT49）连通着走、但不选进来
-    for (const f of picked.faces) if (!k.isFaceHidden(f)) this.selection.faces.add(f);
+    // 隐藏的（DT49）连通着走、但不选进来；切换按整次点击算（点中的全已选中 = 全去掉）
+    const pe = [...picked.edges].filter((e) => !k.isEdgeHidden(e)), pf = [...picked.faces].filter((f) => !k.isFaceHidden(f)), pv = [...picked.verts];
+    const all = mode === "toggle" && pe.every((e) => this.selection.edges.has(e)) && pf.every((f) => this.selection.faces.has(f)) && pv.every((v) => this.selection.verts.has(v));
+    const m: SelMode = mode === "toggle" ? (all ? "remove" : "add") : mode;
+    mergeSel(this.selection.edges, pe, m); mergeSel(this.selection.faces, pf, m); mergeSel(this.selection.verts, pv, m);
     this.afterSelect();
     return true;
   }
+  /** 组 / 组件按 mode 合进选区（切换 = 逐个）。 */
+  private mergePools(picks: readonly PoolPick[], mode: SelMode, perItem = true): void {
+    const keys = picks.map((p) => this.pickKey(p));
+    const all = keys.length > 0 && keys.every((k) => this.selectedPools.has(k));
+    picks.forEach((p, i) => {
+      const k = keys[i], has = this.selectedPools.has(k);
+      const del = mode === "remove" || (mode === "toggle" && (perItem ? has : all));
+      if (del) this.selectedPools.delete(k); else this.selectedPools.set(k, p);
+    });
+  }
+  /** 反选（Blender Ctrl+I）：当前上下文里没选的面 / 边 / 子组 / 组件；点和参考几何清掉。隐藏的不选。 */
+  invertSelection(): boolean {
+    const before = this.selection, pools = new Set(this.selectedPools.keys());
+    this.selectAllInner();
+    for (const f of before.faces) this.selection.faces.delete(f);
+    for (const e of before.edges) this.selection.edges.delete(e);
+    for (const key of pools) this.selectedPools.delete(key);
+    this.afterSelect();
+    return true;
+  }
+  /** 全不选（Blender Alt+A；Esc 也行）。 */
+  deselectAll(): void { this.selection = emptySelection(); this.selectedPools.clear(); this.afterSelect(); }
   private afterSelect(): void {
     this.host.readout?.(this.readoutText());
     const info = this.selectionInfo();
@@ -959,8 +990,11 @@ export class Editor {
   private deleteSelectionStep(): void {
     if (!this.hasSelection()) return;
     const k = this.kernel, at = this.activePool();
-    if (this.selection.faces.size || this.selection.edges.size) {
-      this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) });
+    // 删点 = 删连着它的线（Blender「删除顶点」；面跟着线没了就没了）
+    const delE = new Set<EdgeId>([...this.selection.edges].filter((e) => k.graph.hasEdge(e)));
+    for (const v of this.selection.verts) if (k.graph.hasVertex(v)) for (const e of k.graph.vertex(v).edges) delE.add(e);
+    if (this.selection.faces.size || delE.size) {
+      this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...delE].map((e) => edgeKey(k, e)) });
     }
     const def = this.scene.defOfContext(this.ctx);
     const kept = new Map<string, PoolPick>();   // 锁住的不删、留在选区里（要解锁得先选中它）
@@ -1104,7 +1138,7 @@ export class Editor {
   // ---------- 隐藏（DT49，user 2026-10-25「然后 hide unhide all也马上需要了，这个gltf规范里有吗？」；存档 = glTF KHR_node_visibility）----------
   // 组件 = 整份藏（藏父连子）；散的面 / 线 = 各自打隐藏标记（user「嗯线和面也可以hidden，这样可以挖洞看里面，blender也支持。合理。」）；
   // 组不是物体、没有自己的隐藏 = 把组里（连同子组、放在里面的实例）的面 / 线 / 实例全藏。
-  hasHideableSelection(): boolean { return this.hasSelection(); }
+  hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.selectedPools.size > 0 || this.selection.guides.size > 0; }   // 点不单独藏
   /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
   hideSelection(): number { return this.step(() => this.hideSelectionStep()); }
   private hideSelectionStep(): number {
@@ -1462,6 +1496,7 @@ export class Editor {
     const vids = new Set<VertexId>();
     for (const f of this.selection.faces) { const F = k.face(f); if (F) for (const r of [F.outer, ...F.holes]) for (const v of r.vids) vids.add(v); }
     for (const e of this.selection.edges) if (k.graph.hasEdge(e)) { const E = k.graph.edge(e); vids.add(E.a); vids.add(E.b); }
+    for (const v of this.selection.verts) if (k.graph.hasVertex(v)) vids.add(v);
     for (const v of vids) out.push(applyPt(X, k.graph.pt(v)));
     if (this.selectedPools.size) {
       const view = this.liveWorld();
@@ -1709,14 +1744,14 @@ export class Editor {
     if (c.kind === "pool") return this.selectedPools.has(c.key);
     if (c.kind !== "entity") return false;
     const h = c.local;
-    return (h.face !== undefined && this.selection.faces.has(h.face)) || (h.edge !== undefined && this.selection.edges.has(h.edge)) || (h.vertex !== undefined && [...this.selection.edges].some((e) => { const ed = this.kernel.graph.edge(e); return ed.a === h.vertex || ed.b === h.vertex; }));
+    return (h.face !== undefined && this.selection.faces.has(h.face)) || (h.edge !== undefined && this.selection.edges.has(h.edge)) || (h.vertex !== undefined && this.selection.verts.has(h.vertex)) || (h.vertex !== undefined && [...this.selection.edges].some((e) => { const ed = this.kernel.graph.edge(e); return ed.a === h.vertex || ed.b === h.vertex; }));
   }
   /** 把选区扩成连通体（SU「选择 → 所有相连」）。 */
   selectConnected(): boolean {
     const view = this.worldView();
-    const seeds: HitResult3[] = [...[...this.selection.faces].map((f) => ({ face: view.global(f) })), ...[...this.selection.edges].map((e) => ({ edge: view.global(e) }))];
+    const seeds: HitResult3[] = [...[...this.selection.faces].map((f) => ({ face: view.global(f) })), ...[...this.selection.edges].map((e) => ({ edge: view.global(e) })), ...[...this.selection.verts].map((v) => ({ vertex: view.global(v) }))];
     if (!seeds.length) return false;
-    for (const h of seeds) this.selectExpand(h, 2, true);
+    for (const h of seeds) this.selectExpand(h, 2, "add");
     return true;
   }
 
@@ -1870,9 +1905,26 @@ export class Editor {
    * 自动 = 只选了一个组 / 组件（没有散的面 / 边）→ 它的轴原点；别的 → 包围盒中心。
    */
   private pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null {
-    if (mode === "auto" && this.selectedPools.size === 1 && !this.selection.faces.size && !this.selection.edges.size) { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[0].origin; }
+    if (mode === "auto" && this.selectedPools.size === 1 && !this.selection.faces.size && !this.selection.edges.size && !this.selection.verts.size) { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[0].origin; }
     if (mode === "active") { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[fr.length - 1].origin; }
     return this.selectionCenter(mode === "mean" ? "mean" : "bbox");
+  }
+  /** 选中的点怎么画（世界坐标）：点本身 + 连着它的每条线从点起的半截。 */
+  private selVertsView(view: WorldView, g: (id: number) => number): { points: Pt3[]; halves: { a: Pt3; b: Pt3 }[] } | null {
+    if (!this.selection.verts.size) return null;
+    const points: Pt3[] = [], halves: { a: Pt3; b: Pt3 }[] = [];
+    for (const v of this.selection.verts) {
+      const gv = g(v);
+      if (!view.graph.hasVertex(gv)) continue;
+      const p = view.graph.pt(gv);
+      points.push(p);
+      for (const e of view.graph.vertex(gv).edges) {
+        if (!view.graph.hasEdge(e)) continue;
+        const E = view.graph.edge(e), q = view.graph.pt(E.a === gv ? E.b : E.a);
+        halves.push({ a: p, b: { x: (p.x + q.x) / 2, y: (p.y + q.y) / 2, z: (p.z + q.z) / 2 } });
+      }
+    }
+    return points.length ? { points, halves } : null;
   }
   // ---------- 渲染 ----------
   viewExtras: (() => Partial<ViewState>) | null = null;
@@ -1920,6 +1972,7 @@ export class Editor {
       frame: view.frame(),
       grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.step, sub: this._grid.subdiv, on: this._grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
+      selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
       planeGizmo: this.gizmo ? (() => { const G = gizmoGeom(this.gizmo.g, this.frame(), this.fvp()); return { origin: G.origin, normal: G.normal, u: G.u, v: G.v, size: G.size, hot: this.gizmo.grab?.handle ?? this.gizmo.hot }; })() : null,
@@ -2026,6 +2079,8 @@ export class Editor {
       for (const f of fs) { const r = k.faceRings3(f); if (!r) continue; a += polygonArea3(r.outer); for (const h of r.holes) a -= polygonArea3(h); }
       parts.push(`面积 ${fmtArea(a)}${fs.length > 1 ? `（${fs.length} 面）` : ""}`);
     }
+    const vn = [...this.selection.verts].filter((v) => k.graph.hasVertex(v)).length;
+    if (vn) parts.push(`${vn} 个点`);
     if (es.length) {
       let L = 0;
       for (const e of es) { const E = k.graph.edge(e); L += len3(sub3(k.graph.pt(E.b), k.graph.pt(E.a))); }
@@ -2034,7 +2089,8 @@ export class Editor {
     return parts.join(" · ");
   }
   /** 全选（Ctrl+A，A7）：当前上下文的全部几何 + 直接子 group / 实例。 */
-  selectAll(): boolean {
+  selectAll(): boolean { this.selectAllInner(); this.afterSelect(); return this.hasSelection(); }
+  private selectAllInner(): void {
     const k = this.kernel;
     this.selection = emptySelection(); this.selectedPools.clear();
     for (const f of k.faces()) if (!k.isFaceHidden(f.id)) this.selection.faces.add(f.id);   // 隐藏的（DT49）不选
@@ -2043,8 +2099,6 @@ export class Editor {
     const shown = (gk: Kernel): boolean => gk.faces().some((f) => !gk.isFaceHidden(f.id)) || gk.edges().some((e) => !gk.isEdgeHidden(e.id));
     if (def.body.kind === "brep") for (const g of def.body.groups.values()) if (g.parent === this.ctx.group && (shown(g.kernel) || [...def.body.groups.values()].some((c) => c.parent === g.id))) this.selectedPools.set(`g${g.id}`, { kind: "group", group: g.id });
     for (const i of def.instances.values()) if (i.parent === this.ctx.group && chainVisible(this.scene, [...this.ctx.chain, i.id])) this.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id });   // 藏起来的（隐藏 / 藏层）不选
-    this.afterSelect();
-    return this.hasSelection();
   }
   /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
   private endStepGesture(): void {
@@ -2154,20 +2208,20 @@ export class Editor {
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
       marqueePick: (box) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), box),
-      replaceSelection: (sel, additive) => {
-        if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
-        for (const e of sel.edges) this.selection.edges.add(e);
-        for (const f of sel.faces) this.selection.faces.add(f);
-        for (const p of sel.pools) this.selectedPools.set(this.pickKey(p), p);
-        for (const g of sel.guides ?? []) this.selection.guides.add(g);
+      replaceSelection: (sel, mode) => {
+        if (mode === "replace") { this.selection = emptySelection(); this.selectedPools.clear(); }
+        mergeSel(this.selection.edges, sel.edges, mode, true);
+        mergeSel(this.selection.faces, sel.faces, mode, true);
+        mergeSel(this.selection.guides, sel.guides ?? [], mode, true);
+        this.mergePools(sel.pools, mode);
       },
-      selectGuide: (id, additive) => {
-        if (!additive) { this.selection = emptySelection(); this.selectedPools.clear(); }
-        if (additive && this.selection.guides.has(id)) this.selection.guides.delete(id); else this.selection.guides.add(id);
+      selectGuide: (id, mode) => {
+        if (mode === "replace") { this.selection = emptySelection(); this.selectedPools.clear(); }
+        mergeSel(this.selection.guides, [id], mode);
         this.host.changed(); this.draw();
       },
       afterSelect: () => this.afterSelect(),
-      selectExpand: (hit, stage, additive) => this.selectExpand(hit, stage, additive),
+      selectExpand: (hit, stage, mode) => this.selectExpand(hit, stage, mode),
       enterPool: (p) => this.enterPool(p),
       exitContext: () => this.exitContext(),
       contextDepth: () => this.contextDepth(),

@@ -121,9 +121,31 @@ export function marqueeOf(a: Pt, b: Pt): Marquee {
   return { minX: Math.min(a.x, b.x), minY: Math.min(a.y, b.y), maxX: Math.max(a.x, b.x), maxY: Math.max(a.y, b.y) };
 }
 
-/** 选区：内核实体（边 / 面）+ 活动池的参考几何 id（A31，2026-10-24 Opus：参考线 / 参考点能被选择工具选中、Delete 删）。 */
-export interface Selection { edges: Set<EdgeId>; faces: Set<FaceId>; guides: Set<number>; }
-export const emptySelection = (): Selection => ({ edges: new Set(), faces: new Set(), guides: new Set() });
+/**
+ * 选区：内核实体（边 / 面 / 点）+ 活动池的参考几何 id（A31，2026-10-24 Opus：参考线 / 参考点能被选择工具选中、Delete 删）。
+ * 点（2026-10-26，user「变换点中一个点的时候应该就是变换这个点啊」「以及我们还是希望我们能选点」）：选区里真的存点（Blender 式），移动 / 变换只动这些点；
+ * 以前单击点 = 选连着它的线（现在是双击）。
+ */
+export interface Selection { edges: Set<EdgeId>; faces: Set<FaceId>; guides: Set<number>; verts: Set<VertexId>; }
+export const emptySelection = (): Selection => ({ edges: new Set(), faces: new Set(), guides: new Set(), verts: new Set() });
+/**
+ * 选择怎么合进已有选区（2026-10-26，对齐 Blender；user「ipad同意，但是我想和blender对齐？」）：替换 / 加选 / 减选 / 切换。
+ * 键鼠：单击 = 替换、Shift 点 = 切换、Ctrl 点 = 减选；框选 Shift = 加、Ctrl = 减。iPad：选择工具右下角选项定（修饰键按着时修饰键说了算）。
+ */
+export type SelMode = "replace" | "add" | "remove" | "toggle";
+/**
+ * 把 picked 按 mode 合进 into（原地改）。切换有两种读法：点击（整组：picked 全已选中 = 全去掉，否则全加上——Shift 点一个已选的 = 取消它）/
+ * 框选（逐个：选中的去掉、没选的加上 = Blender 框选的「反转」）。替换由调用方先清空再当加选。
+ */
+export function mergeSel<T>(into: Set<T>, picked: Iterable<T>, mode: SelMode, perItem = false): void {
+  const list = [...picked];
+  if (mode === "remove") { for (const x of list) into.delete(x); return; }
+  if (mode === "toggle") {
+    if (perItem) { for (const x of list) { if (into.has(x)) into.delete(x); else into.add(x); } return; }
+    if (list.length && list.every((x) => into.has(x))) { for (const x of list) into.delete(x); return; }
+  }
+  for (const x of list) into.add(x);
+}
 
 /** 移动工具的目标展开：顶点→自己；边→两端点；面→外环+洞环全部顶点。 */
 export function moveTargets(k: Kernel, hit: { vertex?: VertexId; edge?: EdgeId; face?: FaceId }): VertexId[] {
@@ -170,6 +192,7 @@ export function moveTargetsSelection(k: Kernel, sel: Selection): VertexId[] {
     ids.add(e.a); ids.add(e.b);
   }
   for (const fid of sel.faces) for (const vid of moveTargets(k, { face: fid })) ids.add(vid);
+  for (const vid of sel.verts) if (k.graph.hasVertex(vid)) ids.add(vid);
   return [...ids];
 }
 

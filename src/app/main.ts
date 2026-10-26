@@ -203,7 +203,8 @@ const hud: HudModel = {
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
-    { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() },
+    { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
+    { id: "invert", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
     { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
   ],
   vr: (): HudItem[] => [
@@ -234,6 +235,7 @@ const hud: HudModel = {
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "connected": editor.selectConnected(); break;
+      case "invert": editor.invertSelection(); break;
       case "noclip": locomotion.setNoclip(!locomotion.noclip); vr.invalidatePanel(); break;
       case "respawn": { const sp = locomotion.defaultSpawn(); locomotion.sim.reset(sp.pos, sp.heading, { x: 0, y: 0, z: 1.6 }); break; }
       case "exitvr": vr.exit(); break;
@@ -914,6 +916,8 @@ window.addEventListener("keydown", (ev) => {
     if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); editor.selectAll(); return; }   // Ctrl+A 全选（A7）
+  if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.code === "KeyI") { ev.preventDefault(); editor.invertSelection(); return; }   // Blender：Ctrl+I 反选（2026-10-26）
+  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyA") { ev.preventDefault(); editor.deselectAll(); return; }   // Blender：Alt+A 全不选（用 code：Mac 上 Alt+A 打出的是别的字）
   if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyH") { ev.preventDefault(); editor.unhideAll(); return; }   // Blender：Alt+H = 全部显示（DT49；用 code：Mac 上 Alt+H 打出的是别的字）
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "g" || ev.key === "G")) { ev.preventDefault(); if (ev.shiftKey) editor.explodeSelection(); else editor.makeGroup(); return; }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {

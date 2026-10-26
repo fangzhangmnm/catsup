@@ -37,7 +37,7 @@ const res = await page.evaluate(async ({ MODE, N }) => {
       e.addSegments(boxSegs(x, y), "bench");
       if (MODE === "groups") { e.zoomExtents(); const h = e.pickAt(px(Pt(x + 0.5, y + 0.5, 1)).x, px(Pt(x + 0.5, y + 0.5, 1)).y); e.selectExpand(h, 2); e.makeGroup(); }
     }
-    if (MODE === "uber") { e.zoomExtents(); for (let i = 0; i < N; i++) { const [x, y] = at(i); const h = e.pickAt(px(Pt(x + 0.5, y + 0.5, 1)).x, px(Pt(x + 0.5, y + 0.5, 1)).y); e.selectExpand(h, 2, true); } e.makeGroup(); }
+    if (MODE === "uber") { e.zoomExtents(); for (let i = 0; i < N; i++) { const [x, y] = at(i); const h = e.pickAt(px(Pt(x + 0.5, y + 0.5, 1)).x, px(Pt(x + 0.5, y + 0.5, 1)).y); e.selectExpand(h, 2, "add"); } e.makeGroup(); }
   }
   out.buildMs = +(performance.now() - t0).toFixed(0);
   e.cam.setView("iso"); e.zoomExtents();

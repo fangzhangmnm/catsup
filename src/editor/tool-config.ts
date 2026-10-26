@@ -157,6 +157,11 @@ export const TOOL_OPTIONS = {
   axes: {
     mode: { kind: "enum", label: "设什么", values: [{ id: "point", label: "只设原点" }, { id: "full", label: "原点 + 方向" }], def: "point", scope: "session" },
   },
+  /** 选择怎么合进已有选区（2026-10-26，对齐 Blender 工具栏框选的几种模式；user「ipad同意，但是我想和blender对齐？」）：iPad 没有修饰键，在这里切；
+   *  键鼠按着修饰键时修饰键说了算（点击 Shift = 切换、Ctrl = 减选；框选 Shift = 加选、Ctrl = 减选）。 */
+  select: {
+    mode: { kind: "enum", label: "选区", values: [{ id: "replace", label: "替换", hint: "新选的换掉原来的" }, { id: "add", label: "加选", hint: "加进原来的选区（键鼠：框选按住 Shift）" }, { id: "remove", label: "减选", hint: "从选区里拿掉（键鼠：按住 Ctrl）" }, { id: "toggle", label: "切换", hint: "没选的加上、已选的拿掉（键鼠：点击按住 Shift）" }], def: "replace", scope: "session" },
+  },
   /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
   move: {
     copy: { kind: "bool", label: "复制", def: false, scope: "session" },

@@ -14,7 +14,7 @@ import type { PoolRef } from "../scene/scene.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
-import type { Selection } from "./tools.ts";
+import type { Selection, SelMode } from "./tools.ts";
 import type { LastGesture, PoolPick, ToolPointer } from "./editor.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { Scene, EditContext } from "../scene/scene.ts";
@@ -134,14 +134,14 @@ export interface ToolCtx {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   /** 屏幕矩形里的边 / 面（全局 id）。 */
   marqueePick(box: { minX: number; minY: number; maxX: number; maxY: number }): { edges: Iterable<number>; faces: Iterable<number> };
-  /** 换掉 / 追加选区（本地 id + 子池项）。 */
-  replaceSelection(sel: { edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[]; guides?: readonly number[] }, additive: boolean): void;
-  /** A31：单击选中一条参考线 / 一个参考点（additive = Shift：已在选区里就拿掉）。 */
-  selectGuide(id: number, additive: boolean): void;
+  /** 框选结果按 mode 合进选区（本地 id + 子池项；切换 = 逐个反转）。 */
+  replaceSelection(sel: { edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[]; guides?: readonly number[] }, mode: SelMode): void;
+  /** A31：单击选中一条参考线 / 一个参考点（按 mode 合进选区）。 */
+  selectGuide(id: number, mode: SelMode): void;
   /** 选区变了之后的收尾（提示 / 缩放柄 / HUD）。 */
   afterSelect(): void;
-  /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体。 */
-  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive: boolean): boolean;
+  /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体；按 mode 合进选区。 */
+  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean;
   enterPool(p: PoolPick): void;
   exitContext(): boolean;
   contextDepth(): number;

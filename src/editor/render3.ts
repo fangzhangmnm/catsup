@@ -104,6 +104,8 @@ const SNAP_COLORS: Record<string, number> = {
   "pool-origin": 0x111111,
 };
 const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
+/** 选中的点：圆点直径（CSS px）/ 半截线宽（CSS px）。 */
+const SEL_VERT_DOT_PX = 9, SEL_VERT_LINE_PX = 3;
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
 const POOL_AXES_PX = 22;
 /** 平面 gizmo 的颜色（常态 / 悬停）。 */
@@ -182,6 +184,8 @@ export interface ViewState {
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
   grid?: { frame: Frame; step: number; sub?: number; on?: boolean } | null;
+  /** 选中的点（2026-10-26，user「以及我们还是希望我们能选点」）：点画实心圆点；连着它的每条线从点起高亮半截（Blender 是渐变淡出）——看得出拖它会扯动哪几条线，又不和整条线选中混。世界坐标。 */
+  selVerts?: { points: readonly Pt3[]; halves: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
@@ -304,7 +308,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertLines: any; private selVertDots: any; private selVertKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -426,6 +430,18 @@ export class Renderer3 {
     this.chargedLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.chargedLines.frustumCulled = false; this.chargedLines.visible = false;
     this.scene.add(this.chargedLines);
+    // 选中的点：半截线（选中蓝、粗）+ 实心圆点（屏幕像素大小、往相机拉一点不被自己的面吃掉）
+    this.selVertLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(SEL_VERT_LINE_PX, { offset: true }));
+    this.selVertLines.material.color.setHex(PALETTE.edgeSelected);
+    this.selVertLines.frustumCulled = false; this.selVertLines.visible = false; this.selVertLines.renderOrder = 3;
+    this.scene.add(this.selVertLines);
+    this.selVertDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Color(PALETTE.edgeSelected) }, uSize: { value: SEL_VERT_DOT_PX } },
+      vertexShader: "uniform float uSize; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z -= 0.002 * gl_Position.w; gl_PointSize = uSize; }",
+      fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
+    }));
+    this.selVertDots.frustumCulled = false; this.selVertDots.visible = false; this.selVertDots.renderOrder = 4;
+    this.scene.add(this.selVertDots);
     this.tickLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tickLines.frustumCulled = false; this.tickLines.visible = false;
     this.scene.add(this.tickLines);
@@ -793,6 +809,24 @@ export class Renderer3 {
     const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = 1;
     const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
+
+    // ---- 选中的点 ----
+    const sv = view.selVerts;
+    if (sv && sv.points.length) {
+      const k2 = `${sv.points.map((p) => `${p.x},${p.y},${p.z}`).join("|")}#${sv.halves.length}`;
+      if (k2 !== this.selVertKey) {
+        this.selVertKey = k2;
+        const pos: number[] = [];
+        for (const h of sv.halves) pos.push(h.a.x, h.a.y, h.a.z, h.b.x, h.b.y, h.b.z);
+        if (pos.length) this.setLineGeometry(this.selVertLines, pos, null);
+        this.selVertLines.visible = pos.length > 0;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(sv.points.flatMap((p) => [p.x, p.y, p.z]), 3));
+        this.selVertDots.geometry.dispose(); this.selVertDots.geometry = g;
+      }
+      this.selVertDots.material.uniforms.uSize.value = SEL_VERT_DOT_PX * this.dpr;
+      this.selVertDots.visible = true;
+    } else { this.selVertLines.visible = false; this.selVertDots.visible = false; this.selVertKey = ""; }
 
     // ---- 充能标记：点 = 小菱形（像素尺寸），边 = 淡淡的延长线 ----
     const ch = view.charged;

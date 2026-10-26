@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  84 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  85 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -65,6 +65,8 @@
   <!-- selection -->
   <!-- selection-expand — 编辑选区:虚线外框 + 内部实线小方框 -->
   <symbol id="selection-expand" data-cat="selection" data-src="own" data-note="编辑选区:虚线外框 + 内部实线小方框" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2.5" stroke-dasharray="3 2"/> <rect x="8" y="8" width="8" height="8" rx="1.5"/></symbol>
+  <!-- selection-invert — 反选:圆角方框沿对角线切开, 一半填实一半留空 —— 选区与非选区对调 -->
+  <symbol id="selection-invert" data-cat="selection" data-src="own" data-note="反选:圆角方框沿对角线切开, 一半填实一半留空 —— 选区与非选区对调" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><defs><clipPath id="invClip"><rect x="3" y="3" width="18" height="18" rx="2.5"/></clipPath></defs> <g clip-path="url(#invClip)"><path d="M3 3 L3 21 L21 21 Z" fill="currentColor" fill-opacity="0.18" stroke="none"/></g> <rect x="3" y="3" width="18" height="18" rx="2.5" stroke-dasharray="3 2" stroke-width="1.6"/> <path d="M4.2 4.2 L19.8 19.8" stroke-width="1.5"/></symbol>
   <!-- edit -->
   <!-- arrow-redo — 重做:arrow-undo 的水平镜像 -->
   <symbol id="arrow-redo" data-cat="edit" data-src="feather:corner-up-right" data-note="重做:arrow-undo 的水平镜像" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 14 20 9 15 4"></polyline> <path d="M4 20v-7a4 4 0 0 1 4-4h12"></path></symbol>

@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-84 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+85 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -80,6 +80,7 @@
 | name | 说明 |
 |------|------|
 | `selection-expand` | 编辑选区:虚线外框 + 内部实线小方框 |
+| `selection-invert` | 反选:圆角方框沿对角线切开, 一半填实一半留空 —— 选区与非选区对调 |
 
 ## edit
 
