@@ -7,7 +7,7 @@ import { Scene, absorbSnapshot, extractSnapshot } from "../src/scene/scene.ts";
 import { applyOp, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
 import { classifyShapes, congruentXform, piecesOf } from "../src/editor/hierarchy.ts";
-import { compose, rotationAbout, scalingAbout, translation, applyPt } from "../src/scene/xform.ts";
+import { compose, det3, rotationAbout, scalingAbout, translation, applyPt } from "../src/scene/xform.ts";
 import { circleCurveSpec, circleSegmentsOnPlane } from "../src/editor/tools.ts";
 import { GROUND } from "../src/editor/pick.ts";
 
@@ -24,7 +24,7 @@ const lKernel = (): Kernel => {
 };
 const wheelKernel = (): Kernel => { const k = new Kernel(), c = P(0, 0, 0), rim = P(0.4, 0, 0); k.addEdges(circleSegmentsOnPlane(GROUND.plane, GROUND.basis, c, rim, 24), { curve: circleCurveSpec((p) => p, c, rim, GROUND, 24) }); k.pushPull(k.faces()[0].id, 0.2); return k; };
 const ROOT = (s: Scene) => ({ def: s.root, group: null });
-const op = (s: Scene, dedupe = true): Op => ({ op: "restoreHierarchy", at: ROOT(s), faces: [], edges: [], dedupe });
+const op = (s: Scene, dedupe = true, mirror = false): Op => ({ op: "restoreHierarchy", at: ROOT(s), faces: [], edges: [], dedupe, mirror });
 /** 两组点按 1 µm 容差一一配上（整理前后世界里的点应完全一样）。 */
 const samePts = (a: Pt3[], b: Pt3[], tol = 1e-6): boolean => {
   if (a.length !== b.length) return false;
@@ -48,7 +48,9 @@ describe("hierarchy: 形状比对", () => {
     eq(congruentXform(a, boxKernel(1, 2.01, 0.5).toBrep()), null, "差 1 cm");
     const l = lKernel().toBrep(), km = new Kernel();
     absorbSnapshot(km, l, scalingAbout(P(0, 0, 0), P(-1, 1, 1)));
-    eq(congruentXform(l, km.toBrep()), null, "手性件的镜像不算一样（要负变换实例，第二期）");
+    eq(congruentXform(l, km.toBrep()), null, "不开镜像：手性件的镜像不算一样");
+    const mm = congruentXform(l, km.toBrep(), { mirror: true });
+    assert(mm !== null && det3(mm) < 0, "开镜像：对得上，变换带镜像（行列式 −1）");
     const kr = new Kernel(); absorbSnapshot(kr, l, R30);
     assert(congruentXform(l, kr.toBrep()) !== null, "转过的 L 形算一样");
     const ks = new Kernel(); absorbSnapshot(ks, a, scalingAbout(P(0, 0, 0), P(2, 2, 2)));
@@ -131,6 +133,21 @@ describe("hierarchy: 恢复层级 op", () => {
     s = applyOp(s, { op: "restoreHierarchy", at: { def: def.id, group: null }, faces: [], edges: [], dedupe: true }).scene;
     eq(s.def(def.id).instances.size, 2, "定义里的两个盒子 → 两份实例");
     assert(samePts(worldPts(s), before), "世界里的几何不变");
+  });
+  it("左右镜像的手性件：开镜像 → 一个组件两份（一份负变换）；不开 → 两个组；世界里的点都不变", () => {
+    for (const mirror of [true, false]) {
+      const k = new Kernel(), l = lKernel().toBrep();
+      absorbSnapshot(k, l, translation(P(2, 0, 0)));
+      absorbSnapshot(k, l, scalingAbout(P(0, 0, 0), P(-1, 1, 1)));
+      let s = new Scene(k);
+      const before = worldPts(s);
+      s = applyOp(s, op(s, true, mirror)).scene;
+      if (mirror) {
+        eq(s.def(s.root).instances.size, 2); eq(s.brep(s.root).groups.size, 0);
+        assert([...s.def(s.root).instances.values()].some((i) => det3(i.xform) < 0), "有一份是镜像的");
+      } else { eq(s.def(s.root).instances.size, 0); eq(s.brep(s.root).groups.size, 2); }
+      assert(samePts(worldPts(s), before), `世界里的几何不变（mirror=${mirror}）`);
+    }
   });
   it("撤销 = 一步回原样", () => {
     const s0 = messy(), h = new History(s0);

@@ -1506,19 +1506,19 @@ export class Editor {
     }
     if (kind === "hierarchy") {
       // 恢复层级（DT99）：按现在的样子数——会搬家的块（成组 / 成实例）+ 合进组件的素组；extra = 合成几个组件。执行时 op 自己再规划一遍。
-      const dedupe = v.dedupe !== false;
+      const dedupe = v.dedupe !== false, mirror = dedupe && v.mirror !== false;
       const pieces = piecesOf(k, sel ? { faces: [...sel.faces].filter((f) => k.face(f)), edges: [...sel.edges].filter((e) => k.graph.hasEdge(e)) } : null);
       if (sel && !sel.faces.size && !sel.edges.size) return { ops: [], count: 0 };
       const d0 = this.scene.def(at.def), b0 = this.scene.brep(at.def);
       const plain = !dedupe ? [] : [...b0.groups.values()].filter((g) => g.parent === at.group && g.kernel.faces().length > 0 && guideCount(g.guides) === 0
         && ![...b0.groups.values()].some((c) => c.parent === g.id) && ![...d0.instances.values()].some((i) => i.parent === g.id));
       const snaps = [...pieces.map((p) => extractSnapshot(k, p.faces, p.edges)), ...plain.map((g) => g.kernel.toBrep())];
-      const classes = dedupe ? classifyShapes(snaps).classes : snaps.map((_, i) => [i]);
+      const classes = dedupe ? classifyShapes(snaps, { mirror }).classes : snaps.map((_, i) => [i]);
       const split = pieces.length >= 2;
       let count = 0, comps = 0;
       for (const c of classes) { if (c.length >= 2) { count += c.length; comps++; } else if (split && c[0] < pieces.length) count++; }
       if (!count) return { ops: [], count: 0 };
-      return { ops: [{ op: "restoreHierarchy", at, faces: sel ? [...sel.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)) : [], edges: sel ? [...sel.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) : [], dedupe }], count, extra: comps };
+      return { ops: [{ op: "restoreHierarchy", at, faces: sel ? [...sel.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)) : [], edges: sel ? [...sel.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) : [], dedupe, mirror }], count, extra: comps };
     }
     // harden：折得很厉害（弯折 > deg）却还标着软 / 平滑的边 → 变硬（user 10-26 旧文件案：折 90° 的软边 = 墙上渐变 + 画线描不上）
     const deg = Number(v.deg) || 60;
@@ -1533,7 +1533,7 @@ export class Editor {
     planar: { deg: PLANAR_DEFAULTS.deg, target: PLANAR_DEFAULTS.target, eraseInner: PLANAR_DEFAULTS.eraseInner },
     harden: { deg: 60 },
     snap: { step: "grid", frame: "own", crease: "soft", curves: "rigid" },
-    hierarchy: { dedupe: true },
+    hierarchy: { dedupe: true, mirror: true },
   };
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
   private snapStepChoices(): { id: string; label: string; hint?: string }[] {
@@ -1605,7 +1605,7 @@ export class Editor {
       { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
     ];
     if (kind === "harden") return [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }];
-    if (kind === "hierarchy") return [{ key: "dedupe", def: { kind: "bool", label: "形状一样的合成组件" } }];
+    if (kind === "hierarchy") return [{ key: "dedupe", def: { kind: "bool", label: "形状一样的合成组件" } }, { key: "mirror", def: { kind: "bool", label: "镜像对上的也算一样（左右对称件 = 镜像的一份）" } }];
     if (kind === "snap") return [
       { key: "step", def: { kind: "enum", label: "格子", values: this.snapStepChoices() } },
       { key: "frame", def: { kind: "enum", label: "按", values: [{ id: "own", label: "物体自己的坐标架", hint: "组件转过、缩放过也照它自己的轴吸（同一组件的别的份不会离格）" }, { id: "world", label: "世界格点", hint: "在根上看到的那张格子" }] } },

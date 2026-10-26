@@ -3,7 +3,8 @@
 // 一个池里：①含面的每个连通块（经边和点连着）各成一个组；②形状一样的块（旋转 + 平移能完全对上：点、边、面、材质、软 / 平滑 / 隐藏 / 折线层都一样）
 //   合成同一个组件的几份；这一层已有的「素」组（里面只有散几何）也参加比对——一排各自成组的轮子同样合成组件。
 // 子子孙孙 = 修复的「含子物体」：每个组 / 组件定义各跑一遍（editor.ts 深的先跑）。
-// AI 定的（默认 + 披露，user 没拍）：只有线没有面的块不动（那是清理碎渣的事）；只有一块就不包组（多一层没用）；镜像对上的不算一样（要负变换实例，第二期）。
+// AI 定的（默认 + 披露，user 没拍）：只有线没有面的块不动（那是清理碎渣的事）；只有一块就不包组（多一层没用）；
+//   镜像对上的也算一样（负变换实例，SketchUp 做左右对称件的老办法；真坦克上 6 对左右件靠它才合上），开关在马后炮。
 import type { BrepSnapshot, EdgeId, FaceId, Kernel, Pt3 } from "../kernel/kernel.ts";
 import { connectedFrom } from "../kernel/flood.ts";
 import { type Xform, IDENTITY } from "../scene/xform.ts";
@@ -98,11 +99,12 @@ function sameAfter(a: BrepSnapshot, b: BrepSnapshot, m: Xform, tol: number): boo
 const MAX_TRIES = 20000;
 
 /**
- * 把 a 摆成 b 的刚体变换（旋转 + 平移；镜像不算）；对不上 = null。
+ * 把 a 摆成 b 的刚体变换（旋转 + 平移；mirror = 也试带镜像的，先试不带的）；对不上 = null。
  * 做法：点的重心对重心；a 里挑两个「离重心的距离最少撞车」的点 p、q（不和重心共线），b 里找离重心一样远、彼此一样远的 p′、q′，
  * 两组点各张一个右手架 → 旋转；每个候选都整件验一遍（sameAfter）。
  */
-export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, tol = Math.max(congruenceTol(a), congruenceTol(b))): Xform | null {
+export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, opt: { mirror?: boolean; tol?: number } = {}): Xform | null {
+  const tol = opt.tol ?? Math.max(congruenceTol(a), congruenceTol(b));
   if (shapeKey(a) !== shapeKey(b)) return null;
   const ca = mean(a.vertices), cb = mean(b.vertices);
   const ra = a.vertices.map((p) => len(sub(p, ca))), rb = b.vertices.map((p) => len(sub(p, cb)));
@@ -118,11 +120,12 @@ export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, tol = Math.max(
   const Fa = frame(ca, a.vertices[p], a.vertices[q])!, dpq = len(sub(a.vertices[p], a.vertices[q]));
   const P = rb.map((r, j) => j).filter((j) => Math.abs(rb[j] - ra[p]) <= 4 * tol), Q = rb.map((r, j) => j).filter((j) => Math.abs(rb[j] - ra[q]) <= 4 * tol);
   let tries = 0;
-  for (const pj of P) for (const qj of Q) {
+  for (const flip of opt.mirror ? [false, true] : [false]) for (const pj of P) for (const qj of Q) {
     if (pj === qj || Math.abs(len(sub(b.vertices[pj], b.vertices[qj])) - dpq) > 4 * tol) continue;
     if (++tries > MAX_TRIES) return null;
-    const Fb = frame(cb, b.vertices[pj], b.vertices[qj]);
-    if (!Fb) continue;
+    const Fb0 = frame(cb, b.vertices[pj], b.vertices[qj]);
+    if (!Fb0) continue;
+    const Fb: [Pt3, Pt3, Pt3] = flip ? [Fb0[0], Fb0[1], { x: -Fb0[2].x, y: -Fb0[2].y, z: -Fb0[2].z }] : Fb0;   // 左手架 → 带镜像的变换（行列式 −1）
     // R = Fb · Faᵀ（列向量架）；t = cb − R·ca
     const R = (r: number, c: number): number => { let v = 0; for (let k = 0; k < 3; k++) v += (r === 0 ? Fb[k].x : r === 1 ? Fb[k].y : Fb[k].z) * (c === 0 ? Fa[k].x : c === 1 ? Fa[k].y : Fa[k].z); return v; };
     const m0 = [R(0, 0), R(0, 1), R(0, 2), R(1, 0), R(1, 1), R(1, 2), R(2, 0), R(2, 1), R(2, 2)];
@@ -137,11 +140,11 @@ export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, tol = Math.max(
  * 分门别类：形状一样的归一类。classes[c] = 这一类的成员下标（第一个 = 模板）；xf[i] = 模板 → 第 i 个的刚体变换（模板自己 = 单位）。
  * 贪心：按顺序，每个先和同指纹的各类模板比，对上就进那类，都对不上就自己开一类。
  */
-export function classifyShapes(snaps: readonly BrepSnapshot[]): { classes: number[][]; xf: Xform[] } {
+export function classifyShapes(snaps: readonly BrepSnapshot[], opt: { mirror?: boolean } = {}): { classes: number[][]; xf: Xform[] } {
   const classes: number[][] = [], xf: Xform[] = snaps.map(() => IDENTITY), byKey = new Map<string, number[]>();
   snaps.forEach((s, i) => {
     const key = shapeKey(s), cands = byKey.get(key) ?? [];
-    for (const c of cands) { const m = congruentXform(snaps[classes[c][0]], s); if (m) { classes[c].push(i); xf[i] = m; return; } }
+    for (const c of cands) { const m = congruentXform(snaps[classes[c][0]], s, opt); if (m) { classes[c].push(i); xf[i] = m; return; } }
     classes.push([i]); cands.push(classes.length - 1); byKey.set(key, cands);
   });
   return { classes, xf };

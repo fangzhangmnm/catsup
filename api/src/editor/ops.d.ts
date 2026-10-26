@@ -142,7 +142,8 @@ export type Op = {
     at: PoolRef;
     faces: FaceKey[];
     edges: EdgeKey[];
-    dedupe: boolean;
+    dedupe: boolean; /** 镜像对上的也算一样（负变换实例）。缺 = 否（老 op）。 */
+    mirror?: boolean;
 }
 /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
  | {

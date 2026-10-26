@@ -65,7 +65,7 @@ export type Op =
    */
   | { op: "snapToGrid"; at: PoolRef; verts: Pt3[]; step: number; lattice: number[]; curves: SnapCurves; crease: "soft" | "hard" }
   /** 恢复层级（DT99）：这个池里含面的连通块各成一组；形状一样的（含这一层的素组）合成同一个组件的几份。faces / edges 空 = 整个池，有 = 只要碰到它们的块。 */
-  | { op: "restoreHierarchy"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; dedupe: boolean }
+  | { op: "restoreHierarchy"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; dedupe: boolean; /** 镜像对上的也算一样（负变换实例）。缺 = 否（老 op）。 */ mirror?: boolean }
   /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
   | { op: "applyScale"; def: number; instance: number }
   /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
@@ -424,7 +424,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         && ![...b0.groups.values()].some((c) => c.parent === g.id) && ![...d0.instances.values()].some((i) => i.parent === g.id)).sort((a, b) => a.id - b.id);
       const items = [...pieces.map((p) => ({ piece: p, group: null as null | (typeof plain)[number], snap: extractSnapshot(kernel, p.faces, p.edges) })),
         ...plain.map((g) => ({ piece: null as null | (typeof pieces)[number], group: g, snap: g.kernel.toBrep() }))];
-      const { classes, xf } = op.dedupe ? classifyShapes(items.map((x) => x.snap)) : { classes: items.map((_, i) => [i]), xf: items.map(() => IDENTITY) };
+      const { classes, xf } = op.dedupe ? classifyShapes(items.map((x) => x.snap), { mirror: !!op.mirror }) : { classes: items.map((_, i) => [i]), xf: items.map(() => IDENTITY) };
       const split = pieces.length >= 2, moved: typeof pieces = [];
       let nComp = [...s.defs.values()].filter((d) => /^零件 \d+$/.test(d.name)).length;
       for (const cls of classes) {
@@ -669,7 +669,7 @@ export function describeOp(op: Op): string {
     case "setDrawFrame": return `setDrawFrame${at}${op.frame ? "" : " reset"}`;
     case "applyScale": return `applyScale ${op.def}/${op.instance}`;
     case "makePlanar": return `makePlanar faces=${op.faces.length || "all"} deg=${op.deg} ${op.target}${op.eraseInner ? " +erase" : ""}${at}`;
-    case "restoreHierarchy": return `restoreHierarchy ${op.faces.length || op.edges.length ? `sel=${op.faces.length}+${op.edges.length}` : "all"}${op.dedupe ? " dedupe" : ""}${at}`;
+    case "restoreHierarchy": return `restoreHierarchy ${op.faces.length || op.edges.length ? `sel=${op.faces.length}+${op.edges.length}` : "all"}${op.dedupe ? " dedupe" : ""}${op.mirror ? " mirror" : ""}${at}`;
     case "snapToGrid": return `snapToGrid verts=${op.verts.length || "all"} step=${op.step} ${op.curves} ${op.crease}${at}`;
     case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;
   }
