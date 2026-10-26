@@ -54,11 +54,11 @@ import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } fr
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
-import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot } from "../scene/scene.ts";
+import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
-import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation, WORLD_FRAME, transformFrame } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -162,6 +162,9 @@ export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（202
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; instance: InstId };
 
+/** 组件原点的现成位置（建组件马后炮 / 改组件原点马后炮共用；DT86）。 */
+type OriginPreset = "bottom" | "corner" | "center" | "mean";
+const ORIGIN_PRESETS: readonly { id: OriginPreset; label: string }[] = [{ id: "bottom", label: "底面中心" }, { id: "corner", label: "包围盒角" }, { id: "center", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }];
 /** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
 export type LastGesture =
   | { kind: "line"; ops: number; at: PoolRef; a: Pt3; b: Pt3 }
@@ -174,7 +177,7 @@ export type LastGesture =
   | { kind: "pp"; ops: number; at: PoolRef; face: FaceKey; h: number; hl: number; keepRing?: boolean }
   | { kind: "offset"; ops: number; at: PoolRef; ring: Pt3[]; plane: DrawPlane; d: number; circle?: CurveParams }
   | { kind: "move"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; delta: Pt3; copy: boolean; entities: { faces: FaceId[]; edges: EdgeId[] } }
-  | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 变换工具：抓的时候几种轴心（马后炮换轴心重做）+ 用的是哪种。 */ pivots?: Record<string, Pt3>; pivotUsed?: string }
+  | { kind: "rotate"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; center: Pt3; axis: Pt3; angle: number; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 变换工具：抓的时候几种变换中心（马后炮换变换中心重做）+ 用的是哪种。 */ pivots?: Record<string, Pt3>; pivotUsed?: string }
   | { kind: "scale"; ops: number; at: PoolRef; froms: Pt3[]; pools: PoolPick[]; anchor: Pt3; axis: Pt3 | null; f: Pt3; copy?: boolean; entities?: { faces: FaceId[]; edges: EdgeId[] }; /** 沿任意方向缩放（变换工具的缩放块，帧可能是斜的）：1 根 = 单轴块、2 根 = 平面块（2026-10-26）；有就按 scalingAlongAxes、f 用 x 分量。 */ dirs?: readonly Pt3[]; pivots?: Record<string, Pt3>; pivotUsed?: string }
   /** 卷尺（0.11）：起点 a、产物方向 dir（线 = 垂直偏移方向；点 = 起点→终点）、距离 d；line 另带参考线方向。 */
   | { kind: "tape"; ops: number; at: PoolRef; a: Pt3; dir: Pt3; d: number; make: "line" | "point"; lineDir?: Pt3 }
@@ -283,12 +286,12 @@ export class Editor {
   private stepOps = 0;
   private stepFailed = false;
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
-  /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
+  /** A9 方向锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
    *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
    *  面锁（user 2026-10-25「Shift + 方向键锁平面、矩形工具的平面锁、触屏常驻三颗轴键。 要！」；键位 = ledger A9 的 Blender Shift+X 语义）：
    *  锁到「排除该轴」的平面 = 法向是该轴的面（Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下那张膜的面）。
-   *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃轴锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
-   *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。轴锁与面锁互斥。 */
+   *  先定平面的工具（矩形 / 圆 / 旋转矩形 / 弧 / 旋转 / 量角器，`lock: "plane"`）不吃方向锁：方向键直接锁平面（SU 旋转矩形「按方向键定平面」同款），
+   *  平面过首点（ctx.lockedPlane）；沿轴走的工具（`lock: "axis"`）Shift+方向键 = 点投到过锚点的那张面上（ctx.applyLock）。方向锁与面锁互斥。 */
   private _axisLock: LockAxis | null = null;
   private _planeLock: PlaneLock | null = null;
   private _planeLockN: Pt3 | null = null;   // 面锁法向（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
@@ -301,7 +304,7 @@ export class Editor {
   setAxisLock(a: LockAxis | null): void {
     if (this._axisLock === a && this._planeLock === null) return;
     this._axisLock = a; this._planeLock = null; this._planeLockN = null;
-    this.host.hint(a ? `轴锁 ${a.toUpperCase()}（再按同一个方向键或 ↓ 解锁）` : null);
+    this.host.hint(a ? `方向锁 ${a.toUpperCase()}（再按同一个方向键或 ↓ 解锁）` : null);
     this.host.changed(); this.draw();
   }
   toggleAxisLock(a: LockAxis): void { this.setAxisLock(this._axisLock === a ? null : a); }
@@ -321,7 +324,7 @@ export class Editor {
   /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
   lockKey(axis: LockAxis | null, plane: boolean): void {
     const style = this.lockStyle();
-    if (!style) { this.host.hint("这把工具没有轴锁 / 面锁"); return; }
+    if (!style) { this.host.hint("这把工具没有方向锁 / 面锁"); return; }
     if (axis === null) { if (plane) this.togglePlaneLock("face"); else this.setAxisLock(null); return; }
     if (style === "plane" || plane) this.togglePlaneLock(axis); else this.toggleAxisLock(axis);
   }
@@ -332,7 +335,7 @@ export class Editor {
     const pl = canonicalPlane(n, dot3(n, through));
     return { plane: pl, basis: planeBasis(pl) };
   }
-  /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：轴锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
+  /** 锁的事后约束（求解器本身不动，排序规则归 Fable）：方向锁 → lockToAxis；面锁 → lockToPlane；没锁 = 原样。 */
   private applyLock(sn: Snap3, anchor: Pt3 | null | undefined, sx: number, sy: number): Snap3 {
     if (this._axisLock) return this.lockToAxis(sn, anchor, sx, sy);
     if (this._planeLock) return this.lockToPlane(sn, anchor, sx, sy);
@@ -374,7 +377,7 @@ export class Editor {
     }
     if (this.gridEff) { const s0 = this._grid.step / this._grid.subdiv, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
     const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t };
-    return { p, kind: `axis-${ax}` as SnapKind, label: `轴锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
+    return { p, kind: `axis-${ax}` as SnapKind, label: `方向锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
   }
   /** B43 尺度参考：勾了哪几项（多选取并集；[] = 不显示；跟着文件存 settings.scaleRefs）+ 懒加载来的梯子数据（宿主递进来）。 */
   private _scaleRefs: string[] = [...DEFAULT_SCALE_REFS];
@@ -567,12 +570,19 @@ export class Editor {
     for (const sl of view.slots) if (sl.overridden) { const p = this.topChild(sl); if (p) inHand.add(this.pickKey(p)); }
     const out: Frame[] = [];
     for (const [key, p] of this.selectedPools) {
-      if (inHand.has(key)) continue;
-      out.push(p.kind === "group" ? this.scene.frameOfContext({ chain: this.ctx.chain, group: p.group }) : this.scene.frameOfContext({ chain: [...this.ctx.chain, p.instance], group: null }));
+      if (inHand.has(key) || p.kind !== "instance") continue;   // 组不配有原点（DT86，user「组不是物体只是管理sticky geometry用的」）：没有小三轴、不当原点吸、变换中心按包围盒
+      out.push(this.scene.originOfChain([...this.ctx.chain, p.instance]));
     }
     return out;
   }
   private poolOrigins(view: WorldView): Pt3[] { return this.selectedPoolFrames(view).map((f) => f.origin); }
+  /** 组件里坐标架另摆了（和组件原点不在一处 / 朝向不同）→ 原点处画淡小三轴（DT86 披露「现在是两个」）；进组时比的是组的坐标架。 */
+  private originMarker(): Frame[] | null {
+    if (!this.contextDepth()) return null;
+    const o = this.scene.originOfChain(this.ctx.chain), f = this.contextFrame();
+    const near = (a: Pt3, b: Pt3): boolean => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-9;
+    return near(o.origin, f.origin) && near(o.x, f.x) && near(o.y, f.y) && near(o.z, f.z) ? null : [o];
+  }
   /**
    * 空组件的小三轴（T11 / DT2，user 10-25「1 同意，以后我们开始做entity了再换」）：导入的空节点（位置标记 / 转轴 / 挂点）没几何，也要看得见、点得中——
    * 透视画（埋在别的几何里也看得见），每根短轴的屏幕长度同选中组件的轴。pick = 它在当前上下文里对应的直接子项（不在上下文子树里 = 只画不点）；自己就是当前上下文的不画（上下文轴已经画了）。
@@ -648,6 +658,7 @@ export class Editor {
     }
     this.last = null;
     this._tool = t;
+    this.originEdit = null;   // 改组件原点会话随换工具结束（beginComponentOrigin 在换完之后才开）
     this.cancelGesture();
     this.clearCharged();   // 充能生命周期 = 工具子步（user 2026-10-24）：换工具就清
     this.host.changed();
@@ -656,6 +667,7 @@ export class Editor {
 
   cancel(): void {
     if (this.gizmo) { this.openParamSession(null); this.host.hint("镜像已取消"); return; }   // 镜像会话里 Esc = 取消镜像（选区留着）
+    if (this.liveOriginEdit()) { const t = this.originEdit!.prevTool; this.setTool(t); this.host.hint("改组件原点：取消了"); return; }   // 选区留着
     this.taps.cancel();
     this.last = null;
     this.selection = emptySelection();
@@ -689,15 +701,123 @@ export class Editor {
   /** 清空活动池的参考几何（SU「删除参考线」同款）。 */
   clearGuides(): void { this.commitOp({ op: "clearGuides", at: this.activePool() }); }
   hasGuides(): boolean { const g = this.scene.guidesOf(this.activePool()); return g.lines.length + g.points.length > 0; }
-  /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴（几何不动）。 */
+  /**
+   * 搬坐标架（世界坐标帧进来；DT86，user「坐标架同意 组件原点同意」）：最外层 = 绘图轴；组里 = 组的坐标架；组件里 = 组件的坐标架——都不碰几何。
+   * 「改组件原点」会话里（beginComponentOrigin）= 改那个组件的原点（挪几何、每份实例补，世界不动）。提示行说清这次动的是哪一个（默认 + 披露）。
+   */
   setContextAxes(frame: Frame): void {
+    if (this.liveOriginEdit()) { this.commitComponentOrigin(frame); return; }
     const m = invert(this.ctxXform());
     const local: Frame = { origin: this.toLocal(frame.origin), x: normalize3(applyDir(m, frame.x)), y: normalize3(applyDir(m, frame.y)), z: normalize3(applyDir(m, frame.z)) };
-    this.commitOp({ op: "setAxes", at: this.activePool(), frame: local });
+    const at = this.activePool(), n0 = this.opCount;
+    this.commitOp({ op: "setDrawFrame", at, frame: local });
+    if (this.opCount === n0) return;   // 没提交（定稿锁着 / 锁定）：commitOp 已经说了原因
+    this.host.hint(at.group !== null ? "组里的坐标架已搬（几何没动）" : this.contextDepth() ? "组件里的坐标架已搬——组件原点没动；工具条「设为组件原点」可以把原点对过来" : "坐标架已搬（画图 / 网格 / 推断跟着它；几何没动）");
+  }
+  /** 坐标架工具点一下只换位置时沿用的朝向：平时 = 当前坐标架；改组件原点时 = 那个组件现在的原点。 */
+  axesBase(): Frame {
+    const E = this.liveOriginEdit();
+    if (E) { const inst = this.scene.def(this.scene.defOfContext(this.ctx)).instances.get(E.instance); if (inst) return transformFrame(compose(this.ctxXform(), inst.xform), WORLD_FRAME); }
+    return this.contextFrame();
+  }
+  /** 重置坐标架（工具条「重置坐标架」）：最外层 → 世界；组里 → 它所在那层的坐标架；组件里 → 跟组件原点。 */
+  resetContextFrame(): void {
+    const at = this.activePool(), n0 = this.opCount;
+    this.commitOp({ op: "setDrawFrame", at, frame: null });
+    if (this.opCount === n0) return;
+    this.host.hint(at.group !== null ? "组里的坐标架回到外面那层的" : this.contextDepth() ? "坐标架回到组件原点" : "坐标架回到世界");
+  }
+  /** 现在在组件里（不在组里）——「设为组件原点」按钮出不出。 */
+  inComponentRoot(): boolean { return this.contextDepth() > 0 && this.ctx.group === null; }
+  /** 一个组件在整个场景里放了几份（改原点 = 这么多份一起换，提示行披露）。 */
+  private copiesOf(def: DefId): number { let n = 0; for (const d of this.scene.defs.values()) for (const i of d.instances.values()) if (i.def === def) n++; return n; }
+  /**
+   * 「设为组件原点」（DT86；user「比起被记住的开关我建议是一个可以随手按一下的按钮」）：把组件原点对到当前坐标架——
+   * 挪几何、每份实例补（世界不动；user「原点挪几何，因为是低频commitment」），坐标架回到「跟原点」。一步撤销。
+   */
+  setComponentOriginToFrame(): boolean {
+    if (!this.inComponentRoot()) return false;
+    const at = this.activePool(), body = this.scene.brep(at.def);
+    if (!body.drawFrame) { this.host.hint("坐标架就在组件原点上"); return false; }
+    const f = body.drawFrame, n = this.copiesOf(at.def);
+    return this.step(() => {
+      const n0 = this.opCount;
+      this.commitOp({ op: "setAxes", at, frame: f });
+      if (this.opCount === n0 || this.stepFailed) return false;
+      this.commitOp({ op: "setDrawFrame", at, frame: null });
+      this.host.hint(`组件原点换到了坐标架（世界里没动；${n} 份一起换）`);
+      this.host.changed(); this.draw();
+      return true;
+    });
+  }
+  /** 改组件原点会话（右键 / 顶部浮条「改组件原点…」）：坐标架工具的同一套点击，落定改的是这个组件。 */
+  private originEdit: { instance: InstId; def: DefId; prevTool: Tool; ctx: string } | null = null;
+  /** 会话还算数吗：换了一层（进 / 出组件、撤销回到别的上下文、新文档）= 作废。 */
+  private liveOriginEdit(): { instance: InstId; def: DefId; prevTool: Tool; ctx: string } | null {
+    if (this.originEdit && this.originEdit.ctx !== this.ctxKey()) this.originEdit = null;
+    return this.originEdit;
+  }
+  /** 「改组件原点…」的对象：只选了一个 brep 组件（没有散几何）；没有 = null。 */
+  private originEditTarget(): { p: PoolPick; inst: Instance } | null {
+    if (this.selectedPools.size !== 1 || this.selection.faces.size || this.selection.edges.size || this.selection.verts.size) return null;
+    const p = [...this.selectedPools.values()][0];
+    if (p.kind !== "instance") return null;
+    const inst = this.scene.def(this.scene.defOfContext(this.ctx)).instances.get(p.instance);
+    return inst && this.scene.kindOf(inst.def) === "brep" ? { p, inst } : null;
+  }
+  /** 右键 / 顶部浮条出不出「改组件原点…」。 */
+  canEditComponentOrigin(): boolean { const t = this.originEditTarget(); return !!t && !t.inst.locked; }
+  /** 只选了一个组件（没有散几何）→ 开会话；否则 false。 */
+  beginComponentOrigin(): boolean {
+    const t = this.originEditTarget();
+    if (!t) return false;
+    const { p, inst } = t;
+    if (inst.locked) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); return false; }
+    const prevTool = this._tool;
+    this.setTool("axes");
+    this.originEdit = { instance: inst.id, def: inst.def, prevTool, ctx: this.ctxKey() };
+    this.selectedPools.set(this.pickKey(p), p);   // 换工具不清选区；这里再确认一次：小三轴看得见
+    this.host.hint(`改组件原点「${this.scene.def(inst.def).name}」：点新原点（${this.copiesOf(inst.def)} 份一起换；Esc 取消）`);
+    this.host.changed(); this.draw();
+    return true;
+  }
+  /** 会话落定：世界帧 → 那个组件的定义坐标 → setAxes（挪几何、每份实例补）；马后炮给现成位置（同建组件那套）；回到原来的工具。 */
+  private commitComponentOrigin(frameWorld: Frame): void {
+    const E = this.originEdit!;
+    this.originEdit = null;
+    const inst = this.scene.def(this.scene.defOfContext(this.ctx)).instances.get(E.instance);
+    if (!inst) return;
+    const Wi = invert(compose(this.ctxXform(), inst.xform));
+    const picked: Frame = { origin: applyPt(Wi, frameWorld.origin), x: normalize3(applyDir(Wi, frameWorld.x)), y: normalize3(applyDir(Wi, frameWorld.y)), z: normalize3(applyDir(Wi, frameWorld.z)) };
+    const at: PoolRef = { def: E.def, group: null }, n = this.copiesOf(E.def), name = this.scene.def(E.def).name;
+    const go = (mode: string): boolean => {
+      const o = mode === "picked" ? picked.origin : this.originPresetPoint(E.def, mode as OriginPreset);
+      if (!o) return false;
+      const k0 = this.opCount;
+      this.commitOp({ op: "setAxes", at, frame: { ...picked, origin: o } });
+      return this.opCount !== k0;
+    };
+    const n0 = this.opCount;
+    if (!go("picked")) { this.setTool(E.prevTool); return; }
+    this.offerAfterthought(`改组件原点「${name}」`, [{ key: "where", def: { kind: "enum", label: "原点", values: [{ id: "picked", label: "刚才点的" }, ...ORIGIN_PRESETS] } }], { where: "picked" }, this.opCount - n0, (v) => { go(String(v.where)); });
+    this.setTool(E.prevTool);
+    const pick: PoolPick = { kind: "instance", instance: inst.id };
+    this.selectedPools.set(this.pickKey(pick), pick);
+    this.host.hint(`组件原点已换（世界里没动；${n} 份一起换）`);
+    this.host.changed(); this.draw();
+  }
+  /** 组件原点的现成位置（定义坐标；建组件马后炮和改组件原点共用）：包围盒角 / 中心 / 底面中心 / 顶点平均。没内容 = null。 */
+  private originPresetPoint(defId: DefId, mode: OriginPreset): Pt3 | null {
+    const vs = this.scene.pointsOfDef(defId);   // 全部内容（散几何 + 装进来的组 / 组件）
+    if (!vs.length) return null;
+    let lo = { x: Infinity, y: Infinity, z: Infinity }, hi = { x: -Infinity, y: -Infinity, z: -Infinity }, sum = { x: 0, y: 0, z: 0 };
+    for (const v of vs) { lo = { x: Math.min(lo.x, v.x), y: Math.min(lo.y, v.y), z: Math.min(lo.z, v.z) }; hi = { x: Math.max(hi.x, v.x), y: Math.max(hi.y, v.y), z: Math.max(hi.z, v.z) }; sum = add3(sum, v); }
+    const c = { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 };
+    return mode === "corner" ? lo : mode === "center" ? c : mode === "bottom" ? { x: c.x, y: c.y, z: lo.z } : scale3(sum, 1 / vs.length);
   }
   private cancelGesture(): void {
     this.anchor3 = null;
-    this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 轴锁 / 面锁随手势解（换工具 / Esc / 取消）
+    this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 方向锁 / 面锁随手势解（换工具 / Esc / 取消）
     for (const h of Object.values(this.handlers)) h.cancel();
     this.samples = [];
     this.lastSnap = null;
@@ -1187,12 +1307,8 @@ export class Editor {
       this.commitOp({ op: "makeComponent", at, faces, edges, name, ...nest.fields });
       const defId = [...this.scene.defs.keys()].find((id) => !before.has(id));
       if (defId === undefined || mode === "corner") return;
-      const vs = this.scene.pointsOfDef(defId);   // 全部内容（散几何 + 装进来的组 / 组件）
-      if (!vs.length) return;
-      let lo = { x: Infinity, y: Infinity, z: Infinity }, hi = { x: -Infinity, y: -Infinity, z: -Infinity }, sum = { x: 0, y: 0, z: 0 };
-      for (const v of vs) { lo = { x: Math.min(lo.x, v.x), y: Math.min(lo.y, v.y), z: Math.min(lo.z, v.z) }; hi = { x: Math.max(hi.x, v.x), y: Math.max(hi.y, v.y), z: Math.max(hi.z, v.z) }; sum = add3(sum, v); }
-      const c = { x: (lo.x + hi.x) / 2, y: (lo.y + hi.y) / 2, z: (lo.z + hi.z) / 2 };
-      const origin = mode === "center" ? c : mode === "bottom" ? { x: c.x, y: c.y, z: lo.z } : scale3(sum, 1 / vs.length);
+      const origin = this.originPresetPoint(defId, mode as OriginPreset);
+      if (!origin) return;
       this.commitOp({ op: "setAxes", at: { def: defId, group: null }, frame: { origin, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } });
     };
     const selectNewest = (): void => {
@@ -1205,7 +1321,7 @@ export class Editor {
     go("bottom");
     if (this.opCount === n0) return false;
     selectNewest();
-    this.offerAfterthought("建组件", [{ key: "origin", def: { kind: "enum", label: "原点", values: [{ id: "bottom", label: "底面中心" }, { id: "corner", label: "包围盒角" }, { id: "center", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }] } }],
+    this.offerAfterthought("建组件", [{ key: "origin", def: { kind: "enum", label: "原点", values: [...ORIGIN_PRESETS] } }],
       { origin: "bottom" }, this.opCount - n0, (v) => { go(String(v.origin)); selectNewest(); });
     this.host.changed(); this.draw();
     return true;
@@ -1766,7 +1882,7 @@ export class Editor {
   openParamSession(s: ParamSession | null): void { if (this.param && this.param !== s) this.param.dispose?.(); this.param = s; this.host.changed(); }
   /**
    * 移动 / 旋转 / 缩放 / 变换落定之后的马后炮（user 2026-10-26「移动旋转也是ctrl复制开关吧。以及马后炮都能override」）：
-   * 「复制」开关（事后改成复制 / 不复制）+ 变换工具的「轴心」；改了 = 撤这一步、按新选项重做（和数值小窗的重做同一套：按坐标、复制走 commitCopies）。
+   * 「复制」开关（事后改成复制 / 不复制）+ 变换工具的「变换中心」；改了 = 撤这一步、按新选项重做（和数值小窗的重做同一套：按坐标、复制走 commitCopies）。
    * 数值小窗改完数之后会再挂一次（读最新的 last），所以两边能接着改。
    */
   private offerXformAfterthought(): void {
@@ -1779,8 +1895,8 @@ export class Editor {
     if (pivots && L.kind !== "move" && L.pivotUsed) {
       const labels: Record<string, string> = { auto: "自动", bbox: "包围盒中心", mean: "顶点平均", active: "最后选的物体原点", picked: "拾取的点" };
       const same = (a?: Pt3, b?: Pt3): boolean => !!a && !!b && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-9;
-      if (pivots.auto) labels.auto = same(pivots.auto, pivots.bbox) ? "自动（包围盒中心）" : "自动（物体轴原点）";   // 说清这次自动落在了哪
-      fields.push({ key: "pivot", def: { kind: "enum", label: "轴心", values: Object.keys(pivots).map((id) => ({ id, label: labels[id] ?? id })) } });
+      if (pivots.auto) labels.auto = same(pivots.auto, pivots.bbox) ? "自动（包围盒中心）" : "自动（组件原点）";   // 说清这次自动落在了哪
+      fields.push({ key: "pivot", def: { kind: "enum", label: "变换中心", values: Object.keys(pivots).map((id) => ({ id, label: labels[id] ?? id })) } });
       values.pivot = L.pivotUsed;
     }
     const title = L.kind === "move" ? "移动" : L.kind === "rotate" ? "旋转" : "缩放";
@@ -1799,7 +1915,7 @@ export class Editor {
   private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void, note?: (v: Readonly<Record<string, ParamValue>>) => string): void {
     this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, undoN: (n) => this.undoN(n), redo, ...(note ? { note } : {}) }));
   }
-  /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 轴心）、圆 / 弧（段数）。 */
+  /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 变换中心）、圆 / 弧（段数）。 */
   private offerLastAfterthought(): void {
     const k = this.last?.kind;
     if (k === "circle" || k === "arc") this.offerSegmentsAfterthought();
@@ -1882,8 +1998,8 @@ export class Editor {
     const go = (a: "bbox" | "mean"): boolean => { const c = Editor.centerOf(pts, a); if (!c) return false; const f = this.contextFrame(); this.setContextAxes({ origin: c, x: f.x, y: f.y, z: f.z }); return true; };
     const n0 = this.opCount;
     if (!go(algo)) return false;
-    this.offerAfterthought("轴移到选择中心", [{ key: "algo", def: { kind: "enum", label: "中心", values: [{ id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }] } }], { algo }, this.opCount - n0, (v) => { go(v.algo as "bbox" | "mean"); });
-    this.host.hint(this.activePool().group !== null ? "组的轴原点移到了选择中心" : this.contextDepth() ? "组件的轴原点移到了选择中心（每份实例跟着补）" : "绘图轴原点移到了选择中心");
+    this.offerAfterthought("坐标架移到选择中心", [{ key: "algo", def: { kind: "enum", label: "中心", values: [{ id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }] } }], { algo }, this.opCount - n0, (v) => { go(v.algo as "bbox" | "mean"); });
+    this.host.hint(this.activePool().group !== null ? "组里的坐标架移到了选择中心（几何没动）" : this.contextDepth() ? "组件里的坐标架移到了选择中心——组件原点没动；工具条「设为组件原点」可以把原点对过来" : "坐标架移到了选择中心（几何没动）");
     return true;
   }
 
@@ -2068,7 +2184,7 @@ export class Editor {
       }
     }
     if (!msg) { this.last = null; this.host.changed(); this.draw(); return { ok: false, error: "这一步不收这种输入" }; }
-    this.offerLastAfterthought();   // 改完数，马后炮按最新的那一步再挂上（复制 / 轴心 / 段数接着能改）
+    this.offerLastAfterthought();   // 改完数，马后炮按最新的那一步再挂上（复制 / 变换中心 / 段数接着能改）
     this.host.changed(); this.draw();
     return { ok: true, message: msg };
   }
@@ -2266,7 +2382,7 @@ export class Editor {
     }
   }
   /**
-   * 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
+   * 选区的变换中心（变换工具的「变换中心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
    * 自动 = 只选了一个组 / 组件（没有散的面 / 边）→ 它的轴原点；别的 → 包围盒中心。
    */
   private pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null {
@@ -2330,6 +2446,7 @@ export class Editor {
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
+      originAxes: this.originMarker(),
       emptyAxes: this.emptyMarkers(view).map((e) => e.frame),
       planeGizmo: this.gizmo ? (() => { const G = gizmoGeom(this.gizmo.g, this.frame(), this.fvp()); return { origin: G.origin, normal: G.normal, u: G.u, v: G.v, size: G.size, hot: this.gizmo.grab?.handle ?? this.gizmo.hot }; })() : null,
       ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
@@ -2536,6 +2653,7 @@ export class Editor {
       setSnap: (sn) => { this.snapInfo = sn; },
       recordLast: (L) => { this.last = L; this.offerLastAfterthought(); },
       contextFrame: () => this.contextFrame(),
+      axesBase: () => this.axesBase(),
       orientFrame: () => this.orientFrame(),
       boxIn: (f) => this.boxIn(f),
       setAxes: (f) => this.setContextAxes(f),

@@ -109,7 +109,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       const bv = (arr: Float32Array | Uint32Array | Uint16Array): number => sink.add(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));
       payload = { mesh: { positions: { bufferView: bv(m.positions), count: m.positions.length / 3 }, indices: { bufferView: bv(m.indices), count: m.indices.length }, ...(m.normals ? { normals: { bufferView: bv(m.normals) } } : {}), ...(m.uvs ? { uvs: { bufferView: bv(m.uvs) } } : {}), ...(m.triMaterial ? { triMaterial: { bufferView: bv(m.triMaterial) } } : {}) } };
     }
-    return { name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), ...payload, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
+    return { name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), ...payload, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), ...(d.drawFrame ? { drawFrame: { origin: v3(d.drawFrame.origin), x: v3(d.drawFrame.x), y: v3(d.drawFrame.y), z: v3(d.drawFrame.z) } } : {}), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
   });
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）

@@ -39,6 +39,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
     const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
     body.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
     body.guides = guidesFromDoc(d.guides);
+    if (d.drawFrame && def.id !== scene.root) body.drawFrame = copyFrame(d.drawFrame);   // 根的坐标架 = document.axes
     for (const g of d.groups) {
       const grp = scene.mintGroup(def.id, null, Kernel.fromBrep(g.brep), g.axes);
       grp.guides = guidesFromDoc(g.guides);
@@ -90,6 +91,7 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
       instances,
       materialSlots: [...b.materialSlots],
       guides: guidesToDoc(b.guides),
+      ...(b.drawFrame ? { drawFrame: copyFrame(b.drawFrame) } : {}),
     };
   });
   const materials = scene.materials.map((m) => ({ name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));

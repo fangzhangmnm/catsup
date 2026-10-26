@@ -40,7 +40,7 @@ export interface GuidesDoc { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: 
 export const emptyGuidesDoc = (): GuidesDoc => ({ lines: [], points: [] });
 export interface GroupDoc { id: number; parent: number | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; }   // 组不是物体（user 10-24）：无锁、无层；旧文件的 locked 读时丢弃（definitions v5）
 export interface InstanceDoc { id: number; definition: number; parent: number | null; xform: Xform; name?: string; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */ layer?: number; /** 隐藏（DT49；definitions 6.1 起；只在 true 时写；glTF 节点同时带 KHR_node_visibility）。 */ hidden?: boolean; }
-export interface DefinitionDoc { name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; extras?: Record<string, unknown>; }
+export interface DefinitionDoc { name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; /** 进这个组件画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟组件原点）。 */ drawFrame?: Frame; extras?: Record<string, unknown>; }
 
 export interface CatsupDocument {
   settings: DocumentSettings;

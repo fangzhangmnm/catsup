@@ -53,7 +53,6 @@ import { initDebugLog, note, record, toText as debugLogText, entries as debugLog
 import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet, setLastStepProvider } from "./debug-log-sheet.ts";
 import { capture as reproCapture, count as reproCount, toJson as reproJson, exportJson as reproExport, lastStepEntry } from "./repro-box.ts";
 import { traceLine } from "./debug-lines.ts";
-import { WORLD_FRAME } from "../scene/xform.ts";
 
 // 黑匣子最早起（实验台 sunset → 调试日志，user 2026-09-20）：开机 URL 行必须在 initAuth 之前抓——MSAL 处理完 redirect 会抹掉 hash。
 initDebugLog();
@@ -173,7 +172,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "move", icon: "move", label: "移动", key: "M" },
   { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
   { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },   // 2026-10-26 恢复（user「box也需要……先留着move rotate scale，transform做单独的，就是恢复之前的scale」）
-  { tool: "transform", icon: "free-transform", label: "变换", key: "" },   // 箭头 + 环 + 缩放块 + 轴心（2026-10-26；专用图标在图标库待办，先用 free-transform；快捷键暂不占）
+  { tool: "transform", icon: "free-transform", label: "变换", key: "" },   // 箭头 + 环 + 缩放块 + 变换中心（2026-10-26；专用图标在图标库待办，先用 free-transform；快捷键暂不占）
   { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
   { tool: "offset", icon: "selection-expand", label: "偏移", key: "F" },   // 图标 = stopgap（图标库 TODO 已登记 offset）
   { tool: "followme", icon: "move-to-folder", label: "跟随", key: "W" },   // 图标 = stopgap（图标库 TODO 已登记 follow-me）
@@ -182,7 +181,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "weldErase", icon: "eraser-weld", label: "焊边橡皮", key: "" },   // 橡皮家族（user 10-24）；图标 = 图标库 PENDING 层自画未过目
   { tool: "softErase", icon: "eraser-soft", label: "软边橡皮", key: "" },   // 同上
   { tool: "tape", icon: "dimensions", label: "卷尺", key: "T" },   // 0.11 尺规；图标 = stopgap（图标库 TODO 已登记 tape-measure）
-  { tool: "axes", icon: "axes", label: "轴", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
+  { tool: "axes", icon: "axes", label: "坐标架", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
   { tool: "protractor", icon: "protractor", label: "量角器", key: "" },   // 0.11 尺规；图标库没有 → 占位（TODO 已登记 protractor）
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
@@ -204,6 +203,7 @@ const hud: HudModel = {
     { id: "unlock", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
     { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: !editor.hasHideableSelection() },
     { id: "applyScale", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },
+    { id: "componentOrigin", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
     ...((): HudItem[] => { const n = editor.repairCount("weld"); return n ? [{ id: "weldBreaks", label: `焊接断口（${n}）`, icon: "arc" }] : []; })(),
     ...((): HudItem[] => { const n = editor.repairCount("planar"); return n ? [{ id: "makePlanar", label: `拍平（${n} 组）`, icon: "sharpen" }] : []; })(),
@@ -240,6 +240,7 @@ const hud: HudModel = {
       case "unlock": editor.lockSelection(false); break;
       case "hide": editor.hideSelection(); break;
       case "applyScale": editor.applyScaleSelection(); break;
+      case "componentOrigin": editor.beginComponentOrigin(); syncUi(); break;
       case "weldBreaks": editor.repair("weld"); break;
       case "makePlanar": editor.repair("planar"); break;
       case "hardenBent": editor.repair("harden"); break;
@@ -423,7 +424,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "lw:1": case "lw:1.5": case "lw:2": case "lw:3": { const w = Number(id.slice(3)); editor.setLineWeight(w); PREF.set("lineWeight", String(w)); return "keep"; }
       case "guidesClear": editor.clearGuides(); return "keep";
       case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
-      case "axesReset": { const f = editor.contextFrame(); editor.setContextAxes(editor.contextDepth() > 0 ? { ...WORLD_FRAME, origin: f.origin } : WORLD_FRAME); return "keep"; }
+      case "axesReset": editor.resetContextFrame(); return "keep";
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
       case "refwin": refHost.toggle(); break;   // 参考窗（视图 ☰「参考」页；开 = 给它焦点，开窗 → Ctrl+V 一步到位）
       case "clear":
@@ -544,14 +545,14 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
     ];
   },
   actions: (tool) => {
-    if (tool === "axes") return [{ id: "axesReset", label: "重置轴", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "轴原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : [])];   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
+    if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（几何反挪、每份实例补，世界里不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor") return [{ id: "guidesClear", label: "删除所有参考线", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
-    if (tool === "transform") {   // 临时轴心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
+    if (tool === "transform") {   // 临时变换中心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
       const H = editor.toolHandler("transform") as { picking?: boolean; hasTempPivot?: boolean; startPickPivot?(): void; clearPivot?(): void } | undefined;
       if (!H || !editor.hasSelection()) return [];
       return [
-        { id: "pickPivot", label: H.picking ? "点一下定轴心…" : H.hasTempPivot ? "重选轴心" : "选轴心", active: !!H.picking, title: "拾一个临时轴心（吸附照常、网格开着也吸格点）；转 / 缩都绕它，换选区就作废", onClick: () => { H.startPickPivot?.(); syncUi(); editor.draw(); } },
-        ...(H.hasTempPivot ? [{ id: "clearPivot", label: "清除临时轴心", onClick: () => { H.clearPivot?.(); syncUi(); editor.draw(); } }] : []),
+        { id: "pickPivot", label: H.picking ? "点一下定变换中心…" : H.hasTempPivot ? "重选变换中心" : "选变换中心", active: !!H.picking, title: "拾一个临时变换中心（吸附照常、网格开着也吸格点）；转 / 缩都绕它，换选区就作废", onClick: () => { H.startPickPivot?.(); syncUi(); editor.draw(); } },
+        ...(H.hasTempPivot ? [{ id: "clearPivot", label: "清除临时变换中心", onClick: () => { H.clearPivot?.(); syncUi(); editor.draw(); } }] : []),
       ];
     }
     return [];
@@ -619,7 +620,7 @@ function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boo
 function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
   return [...lockMenuItems(), { id: "gridSettings", label: "栅格设置…", separatorBefore: true, hint: "视图 ☰ · 栅格" }];
 }
-/** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 轴锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
+/** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 方向锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
 function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
   const style = editor.lockStyle(), a = editor.axisLock, p = editor.planeLock, none = a === null && p === null;
   if (style === "plane") return [
@@ -629,10 +630,10 @@ function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hi
     { id: "plock:z", label: "面锁 XY", checked: p === "z", hint: "↑" },
   ];
   if (style === "axis") return [
-    { id: "lock:none", label: "不锁", checked: none, sectionBefore: "轴锁 / 面锁（画线 / 移动 / 卷尺）", hint: "↓" },
-    { id: "lock:x", label: "轴锁 X", checked: a === "x", hint: "→" },
-    { id: "lock:y", label: "轴锁 Y", checked: a === "y", hint: "←" },
-    { id: "lock:z", label: "轴锁 Z", checked: a === "z", hint: "↑" },
+    { id: "lock:none", label: "不锁", checked: none, sectionBefore: "方向锁 / 面锁（画线 / 移动 / 卷尺）", hint: "↓" },
+    { id: "lock:x", label: "方向锁 X", checked: a === "x", hint: "→" },
+    { id: "lock:y", label: "方向锁 Y", checked: a === "y", hint: "←" },
+    { id: "lock:z", label: "方向锁 Z", checked: a === "z", hint: "↑" },
     { id: "plock:x", label: "面锁 YZ", checked: p === "x", hint: "Shift+→", separatorBefore: true },
     { id: "plock:y", label: "面锁 XZ", checked: p === "y", hint: "Shift+←" },
     { id: "plock:z", label: "面锁 XY", checked: p === "z", hint: "Shift+↑" },
@@ -898,9 +899,9 @@ function openViewMenu(tab?: ViewTab): void {
 viewMenuBtn.addEventListener("click", () => openViewMenu());
 void viewGizmo;
 // 视图侧挂件条（user 2026-10-24「以后视图侧会有很多挂件。snap只是其中第一个」）：gizmo 下面一列；第一个 = 吸附——点一下开 / 关栅格吸附，
-// 右键 / 长按 = 菜单（轴锁、制式、栅格面、格距、细分）；钮角标 = 当前轴锁。
+// 右键 / 长按 = 菜单（方向锁、制式、栅格面、格距、细分）；钮角标 = 当前方向锁。
 const widgets = document.createElement("div"); widgets.className = "gizmo-btns gizmo-widgets"; $("viewGizmo").appendChild(widgets);
-const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 轴锁 / 面锁、栅格设置）";
+const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 方向锁 / 面锁、栅格设置）";
 snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
 snapBtnRef = snapBtn;

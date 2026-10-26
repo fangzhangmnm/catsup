@@ -2,7 +2,7 @@
   "schema": "catsup-segment-tiers/1",
   "about": "圆 / 弧段数的参考档（纪元账本 DT95，user 2026-10-26「马后炮选择段数的时候给一下公差和试用对象参考。加上次世代和lowpoly的推荐值。就像尺寸参考一样」）。各行常见做法的参考值，不是标准；Claude Opus 5.5 2026-10-26 整理，user 可改。segments = 整圆段数（弧按扫角比例取）；chordMm = 按弦高公差算段数（随半径变）。",
   "tiers": [
-    { "id": "lowpoly", "name": "lowpoly", "segments": 8, "typical": "6–12", "for": "低多边形风格、远景道具、小零件" },
+    { "id": "lowpoly", "name": "lowpoly", "segments": 8, "typical": "6–12", "for": "低多边形道具、远景、小零件（角色肢体常见 6 段、更少的 3–5 段靠手调——归自由建模，不在硬表面这张表）" },
     { "id": "sketchup", "name": "SketchUp 默认", "segments": 24, "typical": "24", "for": "建筑草模、家具、室内" },
     { "id": "nextgen", "name": "次世代", "segments": 32, "typical": "24–48", "for": "游戏里的近景道具、主角武器（游戏内模型）" },
     { "id": "print", "name": "3D 打印", "chordMm": 0.01, "typical": "弦高 ≤ 10 µm", "for": "家用 FDM / 光固化打印件" }

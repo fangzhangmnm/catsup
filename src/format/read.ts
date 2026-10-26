@@ -123,7 +123,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       const nb = bvOf("normals"), ub = bvOf("uvs"), tm = bvOf("triMaterial");
       payload = { mesh: { positions: new Float32Array(sliceOf(pb as number)), indices: new Uint32Array(sliceOf(ib as number)), ...(nb !== null ? { normals: new Float32Array(sliceOf(nb)) } : {}), ...(ub !== null ? { uvs: new Float32Array(sliceOf(ub)) } : {}), ...(tm !== null ? { triMaterial: new Uint16Array(sliceOf(tm)) } : {}) } };
     }
-    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
+    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
 
   // 材质：glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}

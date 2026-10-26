@@ -25,7 +25,7 @@ export interface Material {
   readonly color: readonly [number, number, number];
   readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly [number, number] };
 }
-export interface Group { readonly id: GroupId; parent: GroupId | null; axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }   // 组 = brep 汤里的分区，不是物体：无身份、无锁、无层（user 2026-10-24「su的group不算物体层级……地位类似选区」）
+export interface Group { readonly id: GroupId; parent: GroupId | null; /** 进这个组画图用的坐标架（本 definition 坐标）；组没有原点（DT86）。 */ axes: Frame; kernel: Kernel; name?: string; /** 参考几何（0.11；本 definition 坐标）。 */ guides: Guides; }   // 组 = brep 汤里的分区，不是物体：无身份、无锁、无层（user 2026-10-24「su的group不算物体层级……地位类似选区」）
 export interface Instance { readonly id: InstId; def: DefId; parent: GroupId | null; xform: Xform; name?: string; /** 锁定（A27）。 */ locked?: boolean; /** 层（契约 §4）：缺 = 继承父上下文的有效层。 */ layer?: number; /** 隐藏（DT49；glTF KHR_node_visibility）：藏这一份连同里面的一切；不画、不吸、点不中。 */ hidden?: boolean; }
 /** brep 身体 = 肥皂膜内核：根上的散几何汤（kernel）+ group 分区（「组不是物体层级，只是 brep 模式下面方便编辑的分组拆组」，user）+ 参考几何 + 材质槽。 */
 export interface BrepBody {
@@ -37,6 +37,12 @@ export interface BrepBody {
   materialSlots: number[];
   /** 根池的参考几何（0.11；definition 坐标）。group 的在 Group.guides。 */
   guides: Guides;
+  /**
+   * 进了这个组件画图用的坐标架（DT86，2026-10-26 Claude Opus 5.5；user「坐标架同意 组件原点同意」）：definition 坐标；缺 = 跟组件原点（= 定义自己的坐标系）。
+   * 只管推断 / 网格 / 画的平面，不碰几何、不是组件原点（组件原点 = 定义坐标系，改它挪几何：user「原点挪几何，因为是低频commitment，改画画坐标架不挪」）。
+   * 根定义不用它：根的坐标架 = Scene.axes。组的坐标架 = Group.axes（组不配有原点：user「组不是物体只是管理sticky geometry用的。所以有坐标架，但是不配有原点」）。
+   */
+  drawFrame?: Frame;
 }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
 export interface MeshBody { readonly kind: "mesh"; positions: Float32Array; indices: Uint32Array; normals?: Float32Array; uvs?: Float32Array; triMaterial?: Uint16Array; materialSlots: number[]; }
@@ -176,15 +182,18 @@ export class Scene {
   /** 池的参考几何（可变引用；池本地坐标）。 */
   guidesOf(ref: PoolRef): Guides { return ref.group !== null ? this.group({ def: ref.def, group: ref.group }).guides : this.brep(ref.def).guides; }
   /**
-   * 上下文的帧（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①）：根 = 绘图轴；进了 group = 那个 group 的轴；
-   * 进了组件实例 = 那个 definition 的轴（= 单位帧，组件的轴工具未做）——都乘上链上的实例变换。
+   * 上下文的坐标架（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①；DT86 叫「坐标架」）：根 = 绘图轴；进了 group = 那个 group 的坐标架；
+   * 进了组件实例 = 那个 definition 的坐标架（没摆过 = 组件原点）——都乘上链上的实例变换。
    */
   frameOfContext(ctx: EditContext): Frame {
     const m = this.xformOfContext(ctx);
     if (ctx.group !== null) return transformFrame(m, this.group({ def: this.defOfContext(ctx), group: ctx.group }).axes);
     if (!ctx.chain.length) return this.axes;
-    return transformFrame(m, WORLD_FRAME);
+    const body = this.def(this.defOfContext(ctx)).body;
+    return transformFrame(m, (body.kind === "brep" ? body.drawFrame : undefined) ?? WORLD_FRAME);
   }
+  /** 一串实例链最里面那个组件的原点（世界坐标；= 它的定义坐标系经链上变换）。根 = 世界帧。 */
+  originOfChain(chain: readonly InstId[]): Frame { return transformFrame(this.xformOfContext({ chain, group: null }), WORLD_FRAME); }
   /** 上下文的世界变换（链上实例变换的乘积；group 不带变换）。 */
   xformOfContext(ctx: EditContext): Xform {
     let def = this.root, m: Xform = IDENTITY;
@@ -236,7 +245,7 @@ export class Scene {
       if (d.body.kind === "brep") {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
-        body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides) };
+        body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };   // Frame 按不可变对待
       } else body = { kind: "mesh", positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}), materialSlots: [...d.body.materialSlots] };   // 网格数组按不可变对待（cast 整体换）
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });

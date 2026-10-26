@@ -3,8 +3,8 @@
 //   · 中心点 = 移动，按移动工具的逻辑吸附（就是移动工具在代驾，user「变换的中间应该有一个可以拖动的点，就类似move的snapping」）；按住已选中的东西拖 = 同样是移动（「所以变换按住拖动就几乎等于move吧」）；
 //   · 三根箭头 = 沿轴移动（吸到点 = 那点投到轴上；格点吸附开着 = 整格）；三个环 = 绕轴转（格点吸附开着 = 15°）；
 //   · 轴上的小方块 = 沿那根轴缩放，中心右上方的方块 = 等比缩放（咬 −1 / 0.5 / 1 / 1.5 / 2 / 3 / 4）；
-//   · 点空处 / 框选 = 换选区（同选择工具）；右下「选轴心」= 拾一个临时轴心（吸附照常，选区一变就作废）；轴心选项 = 包围盒中心 / 顶点平均 / 最后选的物体原点；
-//   · 按住 Ctrl 或开着「复制」= 复制；数值小窗：移动 / 缩放能 *n /n 阵列；转 / 缩之后右下「刚才：」能换轴心重做。
+//   · 点空处 / 框选 = 换选区（同选择工具）；右下「选变换中心」= 拾一个临时变换中心（吸附照常，选区一变就作废）；变换中心选项 = 包围盒中心 / 顶点平均 / 最后选的物体原点；
+//   · 按住 Ctrl 或开着「复制」= 复制；数值小窗：移动 / 缩放能 *n /n 阵列；转 / 缩之后右下「刚才：」能换变换中心重做。
 // 全部透视画、透视拾；箭头 / 环 / 方块的纯数学在 transform-gizmo.ts。created 2026-10-24 by Claude Fable 5.1（原缩放工具）；2026-10-26 重写成单独的变换工具 by Claude Opus 5.5
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3, VertexId } from "../../kernel/kernel.ts";
@@ -23,7 +23,7 @@ import { pickHandle } from "../handle-pick.ts";
 import { MoveTool } from "./move.ts";
 import { SelectTool } from "./select.ts";
 
-/** 缩放咬合的倍率（−1 = 过了轴心 = 镜像）。 */
+/** 缩放咬合的倍率（−1 = 过了变换中心 = 镜像）。 */
 const SCALE_SNAPS = [-1, 0.5, 1, 1.5, 2, 3, 4];
 /** 移动箭头「从点」：吸到这些点类 = 那点投到轴上（SU 轴向移动同款）。 */
 // 不收格点：格点是光标所在斜平面上的点，投回轴上是个怪数；箭头拖动的格子 = 从抓点量整格（下面 trackMove）
@@ -50,12 +50,12 @@ export class TransformTool implements ToolHandler {
   private readonly selector = new SelectTool();
   /** 按在已选中的东西上开的移动：松手前没动 = 其实是点一下 → 退回选择（点击族照常）。 */
   private fromHit: ToolPointer | null = null;
-  /** 临时轴心（右下「选轴心」拾的点）与当时的选区签名：选区一变就作废。 */
+  /** 临时变换中心（右下「选变换中心」拾的点）与当时的选区签名：选区一变就作废。 */
   private tempPivot: Pt3 | null = null;
   private tempSig = "";
-  /** 正在等用户点一下定轴心。 */
+  /** 正在等用户点一下定变换中心。 */
   picking = false;
-  /** 抓的时候四种轴心（马后炮换轴心重做用）。 */
+  /** 抓的时候四种变换中心（马后炮换变换中心重做用）。 */
   private pivotsAtGrab: Partial<Record<PivotMode | "picked", Pt3>> = {};
 
   active(): boolean { return this.mode !== null; }
@@ -68,13 +68,13 @@ export class TransformTool implements ToolHandler {
   describe(ctx?: ToolCtx): Record<string, unknown> { return { transform: { mode: this.mode, handle: this.grab?.handle ?? null, dist: this.dist, angle: this.angle, factor: this.factor, copy: this.copy, picking: this.picking, tempPivot: this.tempPivot, ...(this.mode === "center" && ctx ? { move: this.mover.describe(ctx) } : {}) } }; }
 
   // ---------- 右下面板的两个钮（main.ts 经 editor.toolHandler 调） ----------
-  /** 「选轴心」：下一下点 = 临时轴心（再按一次 = 不选了）。 */
+  /** 「选变换中心」：下一下点 = 临时变换中心（再按一次 = 不选了）。 */
   startPickPivot(): void { this.picking = !this.picking; }
   clearPivot(): void { this.tempPivot = null; this.picking = false; }
   get hasTempPivot(): boolean { return this.tempPivot !== null; }
 
-  // ---------- 轴心 / gizmo ----------
-  /** 选区签名（便宜的那种：数量 + id 和 + 组 / 组件键）：临时轴心跟着选区走，选区一变就作废。 */
+  // ---------- 变换中心 / gizmo ----------
+  /** 选区签名（便宜的那种：数量 + id 和 + 组 / 组件键）：临时变换中心跟着选区走，选区一变就作废。 */
   private static selSig(ctx: ToolCtx): string {
     const sel = ctx.selection();
     let fs = 0, es = 0, vs = 0;
@@ -84,7 +84,7 @@ export class TransformTool implements ToolHandler {
     return `${sel.faces.size}:${fs}|${sel.edges.size}:${es}|${sel.verts.size}:${vs}|${ctx.movablePoolPicks(false).map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}`;
   }
   private pivotMode(ctx: ToolCtx): PivotMode { return ctx.config.get("transform", "pivot") as PivotMode; }
-  /** 现在的轴心：临时轴心（选区没变）> 轴心选项。 */
+  /** 现在的变换中心：临时变换中心（选区没变）> 变换中心选项。 */
   private pivotNow(ctx: ToolCtx): Pt3 | null {
     if (this.tempPivot && TransformTool.selSig(ctx) !== this.tempSig) this.tempPivot = null;
     return this.tempPivot ?? ctx.pivotOf(this.pivotMode(ctx));
@@ -96,7 +96,7 @@ export class TransformTool implements ToolHandler {
     const F = ctx.orientFrame();   // 只选一个组 / 组件 = 它自己的轴（沿它缩放不会斜切），否则上下文的轴（2026-10-26）
     return { origin: o, axes: { x: F.x, y: F.y, z: F.z } };
   }
-  /** 屏幕把手：中心点（轴心的投影）和等比缩放块（中心右上方）。 */
+  /** 屏幕把手：中心点（变换中心的投影）和等比缩放块（中心右上方）。 */
   private screenHandles(ctx: ToolCtx, g: XformGizmo): { center: { x: number; y: number }; uniform: { x: number; y: number } } | null {
     const q = ctx.frame().project?.(g.origin, ctx.vp());
     return q ? { center: q, uniform: { x: q.x + XG_UNIFORM_OFFSET_PX, y: q.y - XG_UNIFORM_OFFSET_PX } } : null;
@@ -120,7 +120,7 @@ export class TransformTool implements ToolHandler {
   private static hotOf(p: Pick | null): string | null { return p ? (p.kind === "center" ? "mc" : p.handle) : null; }
 
   hover(ctx: ToolCtx, s: { x: number; y: number }): void {
-    if (this.picking) { ctx.hoverSnap(s); ctx.hint("点一下定临时轴心（吸附照常，网格开着也吸格点；再按「选轴心」= 不选了）"); return; }
+    if (this.picking) { ctx.hoverSnap(s); ctx.hint("点一下定临时变换中心（吸附照常，网格开着也吸格点；再按「选变换中心」= 不选了）"); return; }
     if (this.mode) return;
     this.hot = ctx.hasSelection() ? TransformTool.hotOf(this.pickAt(ctx, s.x, s.y)) : null;
   }
@@ -131,7 +131,7 @@ export class TransformTool implements ToolHandler {
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
       this.tempPivot = r.snap.p; this.tempSig = TransformTool.selSig(ctx); this.picking = false;
       ctx.setSnap(null);
-      ctx.hint(`临时轴心定了${r.snap.kind ? `（${SNAP_LABELS[r.snap.kind] ?? r.snap.kind}）` : ""}：转 / 缩都绕它；换选区就作废`);
+      ctx.hint(`临时变换中心定了${r.snap.kind ? `（${SNAP_LABELS[r.snap.kind] ?? r.snap.kind}）` : ""}：转 / 缩都绕它；换选区就作废`);
       return;
     }
     this.copy = !!ev.copy || ctx.config.get("transform", "copy");
@@ -139,7 +139,7 @@ export class TransformTool implements ToolHandler {
     const g = this.gizmo(ctx);
     if (p && g) {
       this.hot = TransformTool.hotOf(p);
-      if (p.kind === "center") {   // 中心点 = 移动工具代驾，锚点 = 轴心
+      if (p.kind === "center") {   // 中心点 = 移动工具代驾，锚点 = 变换中心
         if (this.mover.startAt(ctx, g.origin, this.copy)) { this.mode = "center"; this.centerG = g; ctx.hint(`${this.copy ? "复制" : "移动"}：和移动工具一样吸附；松手落定，之后能输距离 / 5x / /5`); }
         return;
       }
@@ -155,7 +155,7 @@ export class TransformTool implements ToolHandler {
       const ax = axisOf(p.handle).toUpperCase(), cp = this.copy ? "复制 · " : "";
       ctx.setCursor(this.mode === "move" ? add3(g.origin, scale3(this.grab.axis, this.grab.t0)) : g.origin);
       ctx.hint(this.mode === "move" ? `${cp}沿 ${ax} 轴移动：吸到点 = 对齐那点；输数字 = 精确距离` : this.mode === "rotate" ? `${cp}绕 ${ax} 轴转：格点吸附开着 = 15° 一档；输数字 = 精确角度`
-        : `${cp}${p.handle === "su" ? "等比" : isPlaneHandle(p.handle) ? `在 ${planeAxes(p.handle).a.toUpperCase()}${planeAxes(p.handle).b.toUpperCase()} 面内（两轴一起）` : `沿 ${ax} 轴`}缩放（绕轴心）：咬 −1 / 0.5 / 1 / 2…；输数字 = 精确倍率`);
+        : `${cp}${p.handle === "su" ? "等比" : isPlaneHandle(p.handle) ? `在 ${planeAxes(p.handle).a.toUpperCase()}${planeAxes(p.handle).b.toUpperCase()} 面内（两轴一起）` : `沿 ${ax} 轴`}缩放（绕变换中心）：咬 −1 / 0.5 / 1 / 2…；输数字 = 精确倍率`);
       return;
     }
     // 没点在把手上：按在已选中的东西上 = 移动（同移动工具，锚点 = 按下的那点）；别处 = 选择（点 / 框）
@@ -222,7 +222,7 @@ export class TransformTool implements ToolHandler {
     if (q) ctx.setCursor(q);
     ctx.setSnap(snapped && q ? { p: q, kind: "h-stop", label: fmtDeg(ang) } : null);
   }
-  /** 缩放（绕轴心）：单轴块 = 抓点沿轴的距离比（过了轴心 = 负 = 镜像），等比块 = 屏距比；咬 −1 / 0.5 / 1 / 1.5 / 2 / 3 / 4（屏距近才咬）。 */
+  /** 缩放（绕变换中心）：单轴块 = 抓点沿轴的距离比（过了变换中心 = 负 = 镜像），等比块 = 屏距比；咬 −1 / 0.5 / 1 / 1.5 / 2 / 3 / 4（屏距近才咬）。 */
   private trackScale(ctx: ToolCtx, s: { x: number; y: number }): void {
     const G = this.grab!;
     let f = dragScale(G, ctx.frame(), ctx.vp(), s.x, s.y);
@@ -242,7 +242,7 @@ export class TransformTool implements ToolHandler {
     ctx.setSnap(snapped ? { p: cur, kind: "h-stop", label: `×${f}` } : null);
   }
 
-  /** 当前预演的变换（世界系，绕抓的时候的轴心）；中心点 / 选择 / 没在拖 → null。 */
+  /** 当前预演的变换（世界系，绕抓的时候的变换中心）；中心点 / 选择 / 没在拖 → null。 */
   private xformOf(mode: "move" | "rotate" | "scale", G: XformGrab, v: { dist: number; angle: number; factor: number }, pivot: Pt3 = G.g0.origin): Xform {
     if (mode === "move") return translation(scale3(G.axis, v.dist));
     if (mode === "rotate") return rotationAbout(pivot, G.axis, v.angle);
@@ -298,7 +298,7 @@ export class TransformTool implements ToolHandler {
     const sel = ctx.selection(), entities = { faces: [...sel.faces], edges: [...sel.edges] };
     const k0 = ctx.kernel(), vids = moveTargetsSelection(k0, sel), pools = ctx.movablePoolPicks(false);
     const froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
-    /** 落一次（马后炮换轴心重做也走这里）：普通 = 整体变换，复制 = 放一份副本；记成普通的移动 / 旋转 / 缩放一步（数值小窗能接着改）。 */
+    /** 落一次（马后炮换变换中心重做也走这里）：普通 = 整体变换，复制 = 放一份副本；记成普通的移动 / 旋转 / 缩放一步（数值小窗能接着改）。 */
     const commitAt = (pivot: Pt3): void => {
       const n0 = ctx.opCount(), at0 = ctx.activePool(), X = this.xformOf(mode, G, v, pivot);
       if (copy) { const XL = ctx.xformToLocal(X); ctx.commitCopies([{ payload: ctx.copyPayload(XL, entities), XL }], pools, at0); }
@@ -308,7 +308,7 @@ export class TransformTool implements ToolHandler {
       else if (mode === "rotate") ctx.recordLast({ kind: "rotate", ops, at: at0, froms, pools, center: pivot, axis: G.axis, angle: v.angle, copy, entities, pivots: pv, pivotUsed });
       else ctx.recordLast({ kind: "scale", ops, at: at0, froms, pools, anchor: pivot, axis: null, f: { x: v.factor, y: v.factor, z: v.factor }, copy, entities, ...(G.handle === "su" ? {} : { dirs: this.scaleDirs(G) }), pivots: pv, pivotUsed });
     };
-    // 转 / 缩之后右下「刚才：」能换轴心 / 改复制重做（编辑器的移动类马后炮读 last 里的 pivots；user「transform能不能马后炮可以切换 pivot」「马后炮都能override」）
+    // 转 / 缩之后右下「刚才：」能换变换中心 / 改复制重做（编辑器的移动类马后炮读 last 里的 pivots；user「transform能不能马后炮可以切换 pivot」「马后炮都能override」）
     const pv: Record<string, Pt3> = {};
     for (const [k, q] of Object.entries(pivots)) if (q) pv[k] = q;
     commitAt(G.g0.origin);
@@ -324,7 +324,7 @@ export class TransformTool implements ToolHandler {
     } else g = this.gizmo(ctx);
     if (!g) return { xformGizmo: null };
     const G = xformGizmoGeom(g, ctx.frame(), ctx.vp());
-    // 等比块的世界位置：屏上中心右上方那一点，落在过轴心、正对相机的平面上
+    // 等比块的世界位置：屏上中心右上方那一点，落在过变换中心、正对相机的平面上
     let uniform: Pt3 | null = null;
     const sh = this.screenHandles(ctx, g);
     if (sh) { const r = ctx.frame().ray(sh.uniform.x, sh.uniform.y, ctx.vp()), n = ctx.frame().viewDir(g.origin), q = rayPlane(r.origin, r.dir, n, dot3(n, g.origin)); uniform = q; }

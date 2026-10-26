@@ -199,6 +199,8 @@ export interface ViewState {
   poolAxes?: readonly Frame[] | null;
   /** 空组件（导入的空节点，T11）的小三轴：常驻、透视画，长度同 poolAxes；点它的标记 = 点它（编辑器 emptyAt）。 */
   emptyAxes?: readonly Frame[] | null;
+  /** 组件原点（DT86）：组件里另摆了坐标架、和原点不在一处时，原点处画一个淡小三轴（披露「现在是两个」）；同上画法、半透明。 */
+  originAxes?: readonly Frame[] | null;
   /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
   xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
@@ -321,7 +323,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -466,6 +468,11 @@ export class Renderer3 {
     this.emptyAxesLines.material.depthTest = false; this.emptyAxesLines.material.depthWrite = false;
     this.emptyAxesLines.renderOrder = 10; this.emptyAxesLines.frustumCulled = false; this.emptyAxesLines.visible = false;
     this.scene.add(this.emptyAxesLines);
+    this.originAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
+    this.originAxesLines.material.depthTest = false; this.originAxesLines.material.depthWrite = false;
+    this.originAxesLines.material.transparent = true; this.originAxesLines.material.opacity = 0.4;
+    this.originAxesLines.renderOrder = 10; this.originAxesLines.frustumCulled = false; this.originAxesLines.visible = false;
+    this.scene.add(this.originAxesLines);
     // 平面 gizmo（镜像面）：描边 / 箭头 / 把手 = 透视粗线；面 = 很淡的半透明方块（也透视，被几何挡住也看得见在哪）
     this.gizmoLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX * 1.5, { vertexColors: true }));
     this.gizmoLines.material.depthTest = false; this.gizmoLines.material.depthWrite = false;
@@ -1022,44 +1029,10 @@ export class Renderer3 {
       } else for (const m of [pxy, pyz, pxz]) m.visible = false;
     } else { this.xgLines.visible = false; this.xgKey = ""; for (const m of this.xgSolids) m.visible = false; }
 
-    // ---- DT15 选中的组 / 组件的轴：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
-    const pax = view.poolAxes;
-    if (pax && pax.length) {
-      const wpp = pax.map((f) => this.worldPerPx(cam, vp, f.origin));
-      const pk = `${pax.map((f, i) => `${f.origin.x},${f.origin.y},${f.origin.z}/${f.x.x},${f.x.y},${f.x.z}/${f.y.x},${f.y.y},${f.y.z}/${f.z.x},${f.z.y},${f.z.z}@${wpp[i].toExponential(2)}`).join("|")}`;
-      if (pk !== this.poolAxesKey) {
-        this.poolAxesKey = pk;
-        const pos: number[] = [], col: number[] = [];
-        pax.forEach((f, i) => {
-          const L = POOL_AXES_PX * wpp[i], o = f.origin;
-          for (const [d, hex] of [[f.x, PALETTE.axisX], [f.y, PALETTE.axisY], [f.z, PALETTE.axisZ]] as const) {
-            pos.push(o.x, o.y, o.z, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
-            const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-          }
-        });
-        this.setLineGeometry(this.poolAxesLines, pos, col);
-      }
-      this.poolAxesLines.visible = true;
-    } else { this.poolAxesLines.visible = false; this.poolAxesKey = ""; }
-    // ---- T11 空组件（导入的空节点）：常驻小三轴，同上画法 ----
-    const eax = view.emptyAxes;
-    if (eax && eax.length) {
-      const wpp = eax.map((f) => this.worldPerPx(cam, vp, f.origin));
-      const ek = eax.map((f, i) => `${f.origin.x},${f.origin.y},${f.origin.z}/${f.x.x},${f.x.y},${f.x.z}/${f.y.x},${f.y.y},${f.y.z}@${wpp[i].toExponential(2)}`).join("|");
-      if (ek !== this.emptyAxesKey) {
-        this.emptyAxesKey = ek;
-        const pos: number[] = [], col: number[] = [];
-        eax.forEach((f, i) => {
-          const L = POOL_AXES_PX * wpp[i], o = f.origin;
-          for (const [d, hex] of [[f.x, PALETTE.axisX], [f.y, PALETTE.axisY], [f.z, PALETTE.axisZ]] as const) {
-            pos.push(o.x, o.y, o.z, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
-            const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-          }
-        });
-        this.setLineGeometry(this.emptyAxesLines, pos, col);
-      }
-      this.emptyAxesLines.visible = true;
-    } else { this.emptyAxesLines.visible = false; this.emptyAxesKey = ""; }
+    // ---- DT15 选中组件的原点 / T11 空组件的常驻标记 / DT86 组件原点（淡）：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
+    this.poolAxesKey = this.drawTriads(this.poolAxesLines, view.poolAxes, this.poolAxesKey, cam, vp);
+    this.emptyAxesKey = this.drawTriads(this.emptyAxesLines, view.emptyAxes, this.emptyAxesKey, cam, vp);
+    this.originAxesKey = this.drawTriads(this.originAxesLines, view.originAxes, this.originAxesKey, cam, vp);
 
     this.syncLabels(view.labels ?? [], cam, vp);
 
@@ -1470,6 +1443,25 @@ export class Renderer3 {
   }
 
   /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
+  /** 一组小三轴（每个帧：原点出三根屏幕定长 POOL_AXES_PX 的短轴，RGB = XYZ）；key 没变就不重建。返回新 key。 */
+  private drawTriads(lines: any, frames: readonly Frame[] | null | undefined, key: string, cam: any, vp: any): string {
+    if (!frames || !frames.length) { lines.visible = false; return ""; }
+    const wpp = frames.map((f) => this.worldPerPx(cam, vp, f.origin));
+    const k = frames.map((f, i) => `${f.origin.x},${f.origin.y},${f.origin.z}/${f.x.x},${f.x.y},${f.x.z}/${f.y.x},${f.y.y},${f.y.z}/${f.z.x},${f.z.y},${f.z.z}@${wpp[i].toExponential(2)}`).join("|");
+    if (k !== key) {
+      const pos: number[] = [], col: number[] = [];
+      frames.forEach((f, i) => {
+        const L = POOL_AXES_PX * wpp[i], o = f.origin;
+        for (const [d, hex] of [[f.x, PALETTE.axisX], [f.y, PALETTE.axisY], [f.z, PALETTE.axisZ]] as const) {
+          pos.push(o.x, o.y, o.z, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
+          const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+        }
+      });
+      this.setLineGeometry(lines, pos, col);
+    }
+    lines.visible = true;
+    return k;
+  }
   private lineMat(px: number, opts: { offset?: boolean; vertexColors?: boolean; blend?: "multiply" } = {}): any {
     const mat = new LineMaterial({
       color: 0xffffff,

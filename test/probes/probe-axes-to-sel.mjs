@@ -29,6 +29,6 @@ const r3 = await page.evaluate(() => globalThis.__catsup.editor.paramPanel());
 const res = { inPanel, r1, r2, staleAfterOtherOp: r3 === null };
 console.log(JSON.stringify(res));
 // 包围盒 [0,4]×[0,3] → (2,1.5)；顶点平均 = (0+4+4+1+1+0)/6, (0+0+1+1+3+3)/6 = (1.6667, 1.3333)
-const ok = inPanel === 1 && JSON.stringify(r1.o) === "[2,1.5]" && r1.title === "轴移到选择中心" && r1.phase === "after" && r1.shown && r1.head.includes("刚才") && JSON.stringify(r2) === "[1.6667,1.3333]" && res.staleAfterOtherOp && !errs.length;
+const ok = inPanel === 1 && JSON.stringify(r1.o) === "[2,1.5]" && r1.title === "坐标架移到选择中心" && r1.phase === "after" && r1.shown && r1.head.includes("刚才") && JSON.stringify(r2) === "[1.6667,1.3333]" && res.staleAfterOtherOp && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

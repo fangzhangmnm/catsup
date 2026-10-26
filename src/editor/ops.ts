@@ -19,7 +19,7 @@ import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PlanarTarget, planPlanar } from "./planar.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import { type Frame, type Xform, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
 
@@ -99,6 +99,8 @@ export type Op =
   | { op: "clearGuides"; at: PoolRef }
   /** 改轴：group = 换 group 的帧（definition 坐标，几何不动）；根 = 绘图轴（世界坐标）；组件定义暂不支持。 */
   | { op: "setAxes"; at: PoolRef; frame: Frame }
+  /** 画图用的坐标架（DT86）：根 = 绘图轴；组 = 组的坐标架；组件 = definition 的 drawFrame。frame = null = 重置（根 → 世界；组 → 它所在那层的坐标架；组件 → 跟组件原点）。不碰几何。 */
+  | { op: "setDrawFrame"; at: PoolRef; frame: Frame | null }
   /** 镜像（DT23）：选中的面 / 线 + 组件实例（池本地坐标的镜像面）；默认删对面、消中缝、融合阈值 0。几何在 mirror.ts。 */
   | { op: "mirror"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; instances?: number[]; plane: { origin: Pt3; normal: Pt3 }; deleteOpposite: boolean; mergeSeam: boolean; weld: number; /** 防碎距离（米）；缺 = 默认 0.1 mm（老复现包照旧）。 */ guard?: number };
 
@@ -165,6 +167,7 @@ function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   const Mi = invert(M), body = s.brep(def), events: FaceEvent[] = [], rigid = isRigid(M);
   events.push(...body.kernel.transformAll((p) => applyPt(Mi, p)));
   transformGuides(body.guides, Mi);
+  if (body.drawFrame) body.drawFrame = rigid ? transformFrame(Mi, body.drawFrame) : orthonormalFrame(transformFrame(Mi, body.drawFrame));   // 组件里另摆的坐标架在世界里原地不动（DT86）
   for (const g of body.groups.values()) { events.push(...g.kernel.transformAll((p) => applyPt(Mi, p))); g.axes = rigid ? transformFrame(Mi, g.axes) : orthonormalFrame(transformFrame(Mi, g.axes)); transformGuides(g.guides, Mi); }
   for (const inst of s.def(def).instances.values()) inst.xform = compose(Mi, inst.xform);
   for (const d of s.defs.values()) for (const inst of d.instances.values()) if (inst.def === def) inst.xform = compose(inst.xform, M);
@@ -410,6 +413,18 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (sc.every((v) => Math.abs(v - 1) < 1e-12)) return { scene: s, events: [] };
       return { scene: s, events: retransformDefinition(s, inst.def, invert(scalingAbout({ x: 0, y: 0, z: 0 }, { x: sc[0], y: sc[1], z: sc[2] }))) };
     }
+    case "setDrawFrame": {
+      const { ref } = poolOf(s, op.at);
+      const f: Frame | null = op.frame ? { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } } : null;
+      const body = s.brep(ref.def);
+      if (ref.group !== null) {
+        const g = s.group({ def: ref.def, group: ref.group });
+        g.axes = f ?? (g.parent !== null ? s.group({ def: ref.def, group: g.parent }).axes : ref.def === s.root ? s.axes : body.drawFrame ?? WORLD_FRAME);
+      } else if (ref.def === s.root) s.axes = f ?? WORLD_FRAME;
+      else if (f) body.drawFrame = f;
+      else delete body.drawFrame;
+      return { scene: s, events: [] };
+    }
     case "setAxes": {
       const { ref } = poolOf(s, op.at);
       const f: Frame = { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } };
@@ -581,6 +596,7 @@ export function describeOp(op: Op): string {
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;
     case "clearGuides": return `clearGuides${at}`;
     case "setAxes": return `setAxes${at}`;
+    case "setDrawFrame": return `setDrawFrame${at}${op.frame ? "" : " reset"}`;
     case "applyScale": return `applyScale ${op.def}/${op.instance}`;
     case "makePlanar": return `makePlanar faces=${op.faces.length || "all"} deg=${op.deg} ${op.target}${op.eraseInner ? " +erase" : ""}${at}`;
     case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;

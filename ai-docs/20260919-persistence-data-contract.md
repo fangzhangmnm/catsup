@@ -248,6 +248,8 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 ```
 模型空间 = `list[root]`（SU 的 model 也是一个 definition；文件当组件 = 别人的 root）。
 
+> **6.2 落地注（2026-10-26 Claude Opus 5.5，纪元账本 DT86）**：`axes` 一直写单位阵 = **组件原点就是定义自己的坐标系**（改组件原点 = 定义坐标换系：几何反挪、每份实例补，世界不动；user「原点挪几何，因为是低频commitment」）。新增可选键 `drawFrame {origin, x, y, z}` = **进这个组件画图用的坐标架**（定义坐标；只在摆过时写；缺 = 跟组件原点；根定义不写——根的在 `CATSUP_document.axes`）。组的 `groups[j].axes` = 组的坐标架（组没有原点：user「组不是物体只是管理sticky geometry用的。所以有坐标架，但是不配有原点」）。坐标架进定稿指纹（同参考线），改它不碰几何。
+
 ### 5.4 `CATSUP_instance`（节点）
 
 `{ "definition": i, "translationUm": [x,y,z], "overrides": { "slots": { <slot idx>: <core material idx> }, "hidden": false, "locked": false } }` = drill ④「transform + reference + override」= ECS entity 形状。**材质槽重映射（user 09-20「材质同意。这样更类似游戏引擎」）**：同一组件的不同实例换色 = 重映射槽，不用 Make Unique，且能覆盖任意槽（比 SU 只继承「默认材质」强、无魔法态）；油漆桶：对象模式点实例 = 重映射光标下那个槽，编辑模式点面 = 改 definition（全体实例变）。`translationUm` = 精确整数微米（§3.3 世界半径 2⁵³ µm 的承重字段）；core `node.translation` 是它的 float 影子，旋转 / 缩放只在 core。override 只允许**不改几何**的项，改几何 = Make Unique（新 definition，SU 同款）。嵌套 = definition 的 nodes 里再放 instance 节点（有限深 DAG）。core 里同一 definition 的实例共享一个 `mesh`；展平出的子树节点 `extras.catsup.flattened = true`。

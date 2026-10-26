@@ -1,6 +1,7 @@
-// tools/axes.ts —— 轴工具（SU Axes）：0.11 尺规纪元 ④（2026-10-24，Claude Fable 5.1；设计稿 §4）。
-// 三下：原点 → X 方向（红）→ Y 方向（绿）；Z = X × Y 右手系。根上下文 = 搬绘图轴（推断的原点与三轴、上下文轴线跟着走）；
-// 进了 group = 改那个 group 的轴（Change Axes：几何不动、帧换掉）。预演：候选帧直接当 ViewState.frame 画出来。
+// tools/axes.ts —— 坐标架工具（SU Axes）：0.11 尺规纪元 ④（2026-10-24，Claude Fable 5.1；设计稿 §4）。
+// 三下：原点 → X 方向（红）→ Y 方向（绿）；Z = X × Y 右手系。预演：候选帧直接当 ViewState.frame 画出来。
+// DT86（2026-10-26 Claude Opus 5.5；user「坐标架同意」）：只搬画图用的坐标架——最外层 / 组里 / 组件里都一样，从不碰几何；
+// 改组件原点 = 选中组件「改组件原点…」开的会话，同一套点击由编辑器改投到组件原点（ctx.setAxes 一个口；提示行由编辑器写）。
 import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
@@ -40,31 +41,29 @@ export class AxesTool implements ToolHandler {
     if (this.stage === 0) {
       const r = rectFirstPlane(ctx.live(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.snapPx(), ctx.alignSources());
       if (ctx.config.get("axes", "mode") === "point") {   // 只设原点（默认）：点一下，朝向照旧
-        const cf = ctx.contextFrame();
+        const cf = ctx.axesBase();
         ctx.setAxes({ origin: r.snap.p, x: cf.x, y: cf.y, z: cf.z });
-        ctx.hint(ctx.activePool().group !== null ? "组的原点已换（几何不动）" : ctx.contextDepth() ? "组件的原点已换（几何不动、每份实例跟着补）" : "绘图轴原点已搬");
         ctx.setSnap(null);
         return;
       }
       this.plane = r.plane; this.o = r.snap.p; this.px = this.cur = null;
       ctx.setAnchor(this.o); ctx.setSnap(r.snap); ctx.setCursor(this.o);
       this.stage = 1;
-      ctx.hint("轴 ②/③：点 X 方向（红）——三色轴跟着预览");
+      ctx.hint("坐标架 ②/③：点 X 方向（红）——三色轴跟着预览");
       return;
     }
     const sn = this.snapAt(ctx, ev.x, ev.y, this.stage === 1 ? this.o! : this.o!);
     if (this.stage === 1) {
-      if (!frameFrom3(this.o!, sn.p, null, this.plane!.plane.n)) { ctx.hint("轴：X 方向点离原点太近"); return; }
+      if (!frameFrom3(this.o!, sn.p, null, this.plane!.plane.n)) { ctx.hint("坐标架：X 方向点离原点太近"); return; }
       this.px = sn.p; this.cur = null;
       this.stage = 2;
-      ctx.hint("轴 ③/③：点 Y 方向（绿）；Z 随右手系");
+      ctx.hint("坐标架 ③/③：点 Y 方向（绿）；Z 随右手系");
       return;
     }
     const f = frameFrom3(this.o!, this.px!, sn.p, this.plane!.plane.n);
-    if (!f) { ctx.hint("轴：Y 方向与 X 共线，换个点"); return; }
-    ctx.setAxes(f);
-    ctx.hint(ctx.activePool().group !== null ? "组的轴已换（几何不动）" : "绘图轴已搬");
+    if (!f) { ctx.hint("坐标架：Y 方向与 X 共线，换个点"); return; }
     this.cancel();
+    ctx.setAxes(f);
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
   }
 
@@ -77,7 +76,7 @@ export class AxesTool implements ToolHandler {
 
 
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
-    return this.stage === 1 ? "轴 ②/③：X 方向" : this.stage === 2 ? "轴 ③/③：Y 方向" : "";
+    return this.stage === 1 ? "坐标架 ②/③：X 方向" : this.stage === 2 ? "坐标架 ③/③：Y 方向" : "";
   }
 
   /** 候选帧直接画成上下文轴。 */
