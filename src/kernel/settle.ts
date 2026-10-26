@@ -130,7 +130,7 @@ export function dissolveAt(g: PlanarGraph, store: FaceStore, c: { a: VertexId; b
   curves?.onMerge(ne, c.ea, c.eb);
   for (const fid of new Set(fa)) {
     const f = store.face(fid);
-    if (f) for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne);
+    if (f) { for (const ring of [f.outer, ...f.holes]) spliceRing(g, ring, c.ea, c.eb, ne); store.touch(fid); }
   }
   g.removeEdge(c.ea);
   g.removeEdge(c.eb);
@@ -512,6 +512,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
         for (const eid of g.vertex(from).edges) for (const fid of g.edge(eid).faceLinks) {
           const f = store.face(fid); if (!f) continue;
           for (const ring of [f.outer, ...f.holes]) for (let i = 0; i < ring.vids.length; i++) if (ring.vids[i] === from) ring.vids[i] = to;
+          store.touch(fid);
         }
         candVerts.add(to);
       },

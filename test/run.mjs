@@ -29,7 +29,8 @@ import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点�
 import "./kernel-rev.test.ts";
 import "./settle-differential.test.ts";
 import "./draw-frame.test.ts";
-import "./fold.test.ts";   // DT87 折线底子（2026-10-26 Opus）   // DT86 坐标架 / 组件原点拆开（2026-10-26 Opus）
+import "./fold.test.ts";
+import "./change-log.test.ts";   // DT96 内核改动日志：变了的都记、没变的不记（2026-10-26 Opus）   // DT87 折线底子（2026-10-26 Opus）   // DT86 坐标架 / 组件原点拆开（2026-10-26 Opus）
 import "./segment-ref.test.ts";   // DT95 段数参考：弦高 ↔ 段数、数据文件、说明行（2026-10-26 Opus）
 import "./import-glb.test.ts";   // T11 导入外来 glb + 三角 → 膜 + 多级空间网格（2026-10-26 Opus）
 import "./two-sides.test.ts";   // DT8 两个表面 + 按侧灌（2026-10-26 Opus，周二 Fable 审）

@@ -11,6 +11,7 @@ import type { Edge, EdgeId, FaceId } from "./topology.ts";
 import type { FaceEvent } from "./face-lifecycle.ts";
 import { type Pt3, pointOnSegment3 } from "./geom.ts";
 import { INSERT_TOL } from "./subdivide.ts";
+import { type ChangeLog, LoggedMap, LoggedSet } from "./change-log.ts";
 
 export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
 
@@ -56,10 +57,13 @@ export function riserLayers(prev: readonly string[], next: readonly string[]): s
 
 export class EdgeLayers {
   private sets = new Map<string, Set<EdgeId>>();
+  /** 改动日志（Kernel 接上；DT96）：层集合是带记账的 Set，谁从哪里增删都记一笔。 */
+  log: ChangeLog | null = null;
+  private newSet(init?: Iterable<EdgeId>): Set<EdgeId> { return new LoggedSet<EdgeId>((id) => this.log?.e(id), init); }
 
   names(): string[] { return [...this.sets.keys()].filter((n) => this.sets.get(n)!.size > 0); }
   /** 取（无则建）。 */
-  layer(name: string): Set<EdgeId> { let s = this.sets.get(name); if (!s) { s = new Set(); this.sets.set(name, s); } return s; }
+  layer(name: string): Set<EdgeId> { let s = this.sets.get(name); if (!s) { s = this.newSet(); this.sets.set(name, s); } return s; }
   has(name: string, id: EdgeId): boolean { return this.sets.get(name)?.has(id) ?? false; }
   add(name: string, id: EdgeId): void { this.layer(name).add(id); }
   delete(name: string, id: EdgeId): void { this.sets.get(name)?.delete(id); }
@@ -93,7 +97,7 @@ export class EdgeLayers {
   /** 增量版：只清这批删掉的 id（结果 = prune，因为 id 不复用）。 */
   pruneIds(ids: readonly EdgeId[]): void { if (ids.length) for (const s of this.sets.values()) for (const id of ids) s.delete(id); }
 
-  clone(): EdgeLayers { const c = new EdgeLayers(); for (const [n, s] of this.sets) if (s.size) c.sets.set(n, new Set(s)); return c; }
+  clone(): EdgeLayers { const c = new EdgeLayers(); for (const [n, s] of this.sets) if (s.size) c.sets.set(n, c.newSet(s)); return c; }
   /** 快照：名字 → 有标记的边下标（按给定边序）。 */
   toIndex(edgeIds: readonly EdgeId[]): Record<string, number[]> | undefined {
     const out: Record<string, number[]> = {};
@@ -111,9 +115,12 @@ export class EdgeLayers {
 
 export class FaceLayers {
   private maps = new Map<string, Map<FaceId, number>>();
+  /** 改动日志（同 EdgeLayers）。 */
+  log: ChangeLog | null = null;
+  private newMap(init?: Iterable<readonly [FaceId, number]>): Map<FaceId, number> { return new LoggedMap<FaceId, number>((id) => this.log?.f(id), init); }
 
   names(): string[] { return [...this.maps.keys()].filter((n) => this.maps.get(n)!.size > 0); }
-  layer(name: string): Map<FaceId, number> { let m = this.maps.get(name); if (!m) { m = new Map(); this.maps.set(name, m); } return m; }
+  layer(name: string): Map<FaceId, number> { let m = this.maps.get(name); if (!m) { m = this.newMap(); this.maps.set(name, m); } return m; }
   get(name: string, id: FaceId): number | undefined { return this.maps.get(name)?.get(id); }
   set(name: string, id: FaceId, v: number): void { this.layer(name).set(id, v); }
   delete(name: string, id: FaceId): void { this.maps.get(name)?.delete(id); }
@@ -141,7 +148,7 @@ export class FaceLayers {
   prune(hasFace: (id: FaceId) => boolean): void { for (const m of this.maps.values()) for (const id of [...m.keys()]) if (!hasFace(id)) m.delete(id); }
   /** 增量版：只清这批删掉的 id；alive = 现在还在的（DIVIDE 之类保 id 的事件可能删了又铸回同一个 id）。 */
   pruneIds(ids: readonly FaceId[], alive: (id: FaceId) => boolean): void { if (ids.length) for (const m of this.maps.values()) for (const id of ids) if (!alive(id)) m.delete(id); }
-  clone(): FaceLayers { const c = new FaceLayers(); for (const [n, m] of this.maps) if (m.size) c.maps.set(n, new Map(m)); return c; }
+  clone(): FaceLayers { const c = new FaceLayers(); for (const [n, m] of this.maps) if (m.size) c.maps.set(n, c.newMap(m)); return c; }
   /** 快照：名字 → 每面一个值（−1 = 无），按给定面序。 */
   toIndex(faceIds: readonly FaceId[]): Record<string, number[]> | undefined {
     const out: Record<string, number[]> = {};

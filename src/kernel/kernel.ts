@@ -34,6 +34,7 @@ import { CAP_EXCLUDE, EdgeLayers, FaceLayers, MAT_BACK, MAT_FRONT, riserLayers }
 import { type Curve, type CurveId, type CurveParams, type CurveSpec, CurveRegistry } from "./curves.ts";
 import { planWeld } from "./weld.ts";
 import { alignClosedPath, dedupeRing, simplifyPath, sweepStations } from "./sweep.ts";
+import { ChangeLog } from "./change-log.ts";
 
 export type { Face, FaceEvent } from "./face-lifecycle.ts";
 export type { Edge, EdgeId, FaceId, Vertex, VertexId } from "./topology.ts";
@@ -91,6 +92,17 @@ export class Kernel {
   faceLayers = new FaceLayers();
   /** 曲线登记处（0.10）：一串有序边 = 一个实体，可带圆弧参数；结算机经像表钩子维护。 */
   private curveReg = new CurveRegistry();
+  /**
+   * 改动日志（DT96，2026-10-26 Claude Opus 5.5）：只记编号（顶点 / 边 / 膜，含层的变化），消费方按「从第几号起改过哪些」只更新变了的。
+   * 副本（clone）的日志从拷贝那一刻的号起记 → 副本的日志 = 「这次预演改了什么」；cloneOf / clonedAt = 族谱（弱引用，不拖住老内核）。
+   */
+  changes = new ChangeLog();
+  private _cloneOf: WeakRef<Kernel> | null = null;
+  /** 从哪个内核拷来的（已经被回收 = null）。 */
+  get cloneOf(): Kernel | null { return this._cloneOf?.deref() ?? null; }
+  /** 拷的时候父内核的日志号。 */
+  clonedAt = 0;
+  private attachLog(): void { this._graph.log = this.changes; this.store.log = this.changes; this.edgeLayers.log = this.changes; this.faceLayers.log = this.changes; }
   /** 池版本号：每个改写动词 +1（渲染 / 合成视图按池缓存的键；#22 池级局部性）。clone 继承当前值（副本从同一代起算）。 */
   private _rev = 0;
   get rev(): number { return this._rev; }
@@ -105,6 +117,7 @@ export class Kernel {
   constructor(opts?: { coplanarTol?: number; settleMode?: "local" | "global" }) {
     this.coplanarTol = opts?.coplanarTol ?? COPLANAR_TOL_DEFAULT;   // 10 µm（geom.ts 注释有出处）；按文档存，老文档吃自己的
     this.settleMode = opts?.settleMode ?? "local";
+    this.attachLog();
   }
   /**
    * 站点粘连（v0.10.3，D11 的跟随这一面）：站环点彼此、或与既有顶点，距离 ≤ SWEEP_STICKY → 同一坐标。
@@ -195,6 +208,7 @@ export class Kernel {
     k.edgeLayers = EdgeLayers.fromIndex(snap.edgeLayers, edgeIds, fail);
     k.faceLayers = FaceLayers.fromIndex(snap.faceLayers, faceIds);
     k.curveReg = CurveRegistry.fromIndex(g, snap.curves, edgeIds, fail);
+    k.attachLog(); k.changes.invalidate();   // 整批装载：之前的号一律「不知道」（消费方全量建）
     return k;
   }
 
@@ -236,6 +250,7 @@ export class Kernel {
     k.faceLayers = this.faceLayers.clone();
     k.curveReg = this.curveReg.clone();
     k._rev = this._rev;
+    k.changes = new ChangeLog(this.changes.seq); k._cloneOf = new WeakRef(this); k.clonedAt = this.changes.seq; k.attachLog();
     return k; // 事件日志不拷：副本的 log 只属于预演
   }
 

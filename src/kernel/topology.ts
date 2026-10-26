@@ -4,6 +4,7 @@
 // 公理 3（重合即同一）：顶点身份 = 量化格点 Map；两点落同格 = 同一个 vertex。
 
 import { type Pt3, ptKey3 } from "./geom.ts";
+import { type ChangeLog, LoggedMap } from "./change-log.ts";
 
 export type VertexId = number;
 export type EdgeId = number;
@@ -48,8 +49,10 @@ function cellsOnSegment(a: Pt3, b: Pt3, s: number, visit: (ix: number, iy: numbe
 }
 
 export class PlanarGraph {
-  private vertsById = new Map<VertexId, Vertex>();
-  private edgesById = new Map<EdgeId, Edge>();
+  /** 改动日志（Kernel 接上；DT96）：顶点表 / 边表是带记账的 Map；原地改坐标 / 改端点的几处另外显式记。 */
+  log: ChangeLog | null = null;
+  private vertsById: Map<VertexId, Vertex> = new LoggedMap<VertexId, Vertex>((id) => this.log?.v(id));
+  private edgesById: Map<EdgeId, Edge> = new LoggedMap<EdgeId, Edge>((id) => this.log?.e(id));
   private vertByKey = new Map<string, VertexId>();
   private nextV = 1;
   private nextE = 1;
@@ -236,6 +239,7 @@ export class PlanarGraph {
       if (ex === undefined) { const id = this.addEdge(x, y); this.edge(id).faceLinks = [...links]; return id; }
       const fl = this.edge(ex).faceLinks;
       for (const f of links) if (!fl.includes(f)) fl.push(f);
+      this.log?.e(ex);
       return ex;
     };
     const e1 = half(a, v);
@@ -261,6 +265,7 @@ export class PlanarGraph {
       const k = ptKey3(to);
       if (this.vertByKey.has(k)) throw new Error("relocateVertices 终态 key 碰撞——合并该在调用方先做");
       v.x = to.x; v.y = to.y; v.z = to.z;
+      this.log?.v(id);
       this.vertByKey.set(k, id);
     }
     for (const eid of touched) this.indexEdge(eid);
@@ -304,6 +309,7 @@ export class PlanarGraph {
     this.vertByKey.delete(oldKey);
     for (const eid of v.edges) this.unindexEdge(eid);
     v.x = p.x; v.y = p.y; v.z = p.z;
+    this.log?.v(id);
     this.vertByKey.set(ptKey3(p), id);
     for (const eid of v.edges) this.indexEdge(eid);
   }
@@ -328,6 +334,7 @@ export class PlanarGraph {
       }
       this.unindexEdge(eid);
       if (e.a === from) e.a = to; else e.b = to;
+      this.log?.e(eid); this.log?.v(to);
       vf.edges.delete(eid); vt.edges.add(eid);
       this.indexEdge(eid);
     }
