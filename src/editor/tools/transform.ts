@@ -93,8 +93,8 @@ export class TransformTool implements ToolHandler {
     if (!ctx.hasSelection()) return null;
     const o = this.pivotNow(ctx);
     if (!o) return null;
-    const F = ctx.contextFrame(), n = (v: Pt3): Pt3 => { const l = Math.hypot(v.x, v.y, v.z) || 1; return { x: v.x / l, y: v.y / l, z: v.z / l }; };
-    return { origin: o, axes: { x: n(F.x), y: n(F.y), z: n(F.z) } };
+    const F = ctx.orientFrame();   // 只选一个组 / 组件 = 它自己的轴（沿它缩放不会斜切），否则上下文的轴（2026-10-26）
+    return { origin: o, axes: { x: F.x, y: F.y, z: F.z } };
   }
   /** 屏幕把手：中心点（轴心的投影）和等比缩放块（中心右上方）。 */
   private screenHandles(ctx: ToolCtx, g: XformGizmo): { center: { x: number; y: number }; uniform: { x: number; y: number } } | null {

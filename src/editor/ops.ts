@@ -12,11 +12,11 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { dot3, normalize3, ptKey3, quantize3, sub3 } from "../kernel/geom.ts";
+import { dot3, normalize3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import { type Frame, type Xform, applyPt, compose, frameAt, frameToXform, invert, transformFrame, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideLine, addGuidePoint, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 
 export type Seg = [PtIn, PtIn];
@@ -49,6 +49,8 @@ export type Op =
   | { op: "makeGroup"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; groups?: number[]; instances?: number[] }
   /** 选区 → 新 definition + 一个实例（轴 = 包围盒最小角）。 */
   | { op: "makeComponent"; at: PoolRef; faces: FaceKey[]; edges: EdgeKey[]; name: string; groups?: number[]; instances?: number[] }
+  /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
+  | { op: "applyScale"; def: number; instance: number }
   /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
   | { op: "explode"; at: PoolRef; group?: number; instance?: number }
   | { op: "transformPool"; at: PoolRef; xform: Xform }
@@ -143,18 +145,48 @@ const poolOf = (s: Scene, at?: PoolRef): { kernel: Kernel; ref: PoolRef } => {
  * 新轴 f 用旧定义坐标给出；定义坐标改成「新轴下的坐标」= 定义里的几何 / 组的轴 / 参考几何 / 子实例全乘 M⁻¹（M = 帧 f 的矩阵：新坐标 → 旧坐标），
  * 每一份实例（场景里任何定义里放的）乘 M——世界里一点不动，只是组件的原点和朝向换了（SU Change Axes 同款）。只换原点时 M 是平移，几何只是平移。
  */
-function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] {
-  const M = frameToXform(f), Mi = invert(M), body = s.brep(def), events: FaceEvent[] = [];
+function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] { return retransformDefinition(s, def, frameToXform(f)); }
+/**
+ * 定义换坐标（M：新坐标 → 旧坐标）：定义里的几何 / 组的轴 / 参考几何 / 子实例全乘 M⁻¹，每一份实例乘 M——世界里一点不动。
+ * 换轴（M = 帧）和应用缩放（M = 缩放的逆，2026-10-26）共用。M 不是刚体时组的轴重新正交归一（轴只是朝向）。
+ */
+function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
+  const Mi = invert(M), body = s.brep(def), events: FaceEvent[] = [], rigid = isRigid(M);
   events.push(...body.kernel.transformAll((p) => applyPt(Mi, p)));
   transformGuides(body.guides, Mi);
-  for (const g of body.groups.values()) { events.push(...g.kernel.transformAll((p) => applyPt(Mi, p))); g.axes = transformFrame(Mi, g.axes); transformGuides(g.guides, Mi); }
+  for (const g of body.groups.values()) { events.push(...g.kernel.transformAll((p) => applyPt(Mi, p))); g.axes = rigid ? transformFrame(Mi, g.axes) : orthonormalFrame(transformFrame(Mi, g.axes)); transformGuides(g.guides, Mi); }
   for (const inst of s.def(def).instances.values()) inst.xform = compose(Mi, inst.xform);
   for (const d of s.defs.values()) for (const inst of d.instances.values()) if (inst.def === def) inst.xform = compose(inst.xform, M);
   return events;
 }
+/** 帧的三轴重新正交归一（x 定向，y 去掉 x 分量，z = x × y）。 */
+function orthonormalFrame(f: Frame): Frame {
+  const x = normalize3(f.x), y = normalize3(sub3(f.y, scale3(x, dot3(f.y, x)))), z = { x: x.y * y.z - x.z * y.y, y: x.z * y.x - x.x * y.z, z: x.x * y.y - x.y * y.x };
+  return { origin: f.origin, x, y, z };
+}
 
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
+/** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
+export class ShearRejected extends Error {}
+/** 会改组件实例矩阵、可能乘出斜切的指令（移动 / 旋转 / 等比缩放 / 镜像永远不会；非等比缩放转过的组件、炸开被非等比缩放过的组件会）。 */
+const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
+const shearedInstances = (s: Scene): Map<string, string> => {
+  const out = new Map<string, string>();
+  for (const d of s.defs.values()) for (const i of d.instances.values()) if (hasShear(i.xform)) out.set(`${d.id}/${i.id}`, s.def(i.def).name);
+  return out;
+};
+/**
+ * 执行一条指令。斜切护栏（2026-10-26，user「斜切：和gltf对齐……在发生的时候护栏住，然后提示报错」）：执行后出现了**新的**斜切实例 → 抛 ShearRejected
+ * （History 回滚整步）。老文件里本来就斜切的不算（不然那份文件之后什么都改不了）。
+ */
 export function applyOp(s: Scene, op: Op): ApplyResult {
+  if (!SHEAR_OPS.has(op.op)) return applyOpInner(s, op);
+  const before = shearedInstances(s);
+  const r = applyOpInner(s, op);
+  for (const [key, name] of shearedInstances(r.scene)) if (!before.has(key)) throw new ShearRejected(`这一步会把组件「${name}」斜切（glTF 不允许组件斜切），已撤回。转过的组件请沿它自己的轴缩放（只选它一个时，变换手柄就是它自己的轴），或者进组件里改几何`);
+  return r;
+}
+function applyOpInner(s: Scene, op: Op): ApplyResult {
   switch (op.op) {
     case "clear": return { scene: new Scene(), events: [] };
     case "preset": {
@@ -319,6 +351,16 @@ export function applyOp(s: Scene, op: Op): ApplyResult {
     }
     case "eraseGuides": { const { ref } = poolOf(s, op.at); eraseGuides(s.guidesOf(ref), new Set(op.ids)); return { scene: s, events: [] }; }
     case "clearGuides": { const { ref } = poolOf(s, op.at); const G = s.guidesOf(ref); G.lines = []; G.points = []; return { scene: s, events: [] }; }
+    case "applyScale": {
+      const inst = s.def(op.def).instances.get(op.instance);
+      if (!inst) throw new OpTargetError(`instance ${op.instance}`);
+      if (s.kindOf(inst.def) !== "brep") throw new OpTargetError(`definition ${inst.def} is not brep`);
+      if (hasShear(inst.xform)) throw new ShearRejected("这一份已经是斜切的（老文件里带来的），拆不出缩放；先把它炸开或重新做成组件");
+      const X = inst.xform, sc = [0, 1, 2].map((j) => Math.hypot(X[j], X[4 + j], X[8 + j]));
+      if (det3(X) < 0) sc[0] = -sc[0];   // 镜像也烘进几何（这一份变成纯旋转）
+      if (sc.every((v) => Math.abs(v - 1) < 1e-12)) return { scene: s, events: [] };
+      return { scene: s, events: retransformDefinition(s, inst.def, invert(scalingAbout({ x: 0, y: 0, z: 0 }, { x: sc[0], y: sc[1], z: sc[2] }))) };
+    }
     case "setAxes": {
       const { ref } = poolOf(s, op.at);
       const f: Frame = { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } };
@@ -489,6 +531,7 @@ export function describeOp(op: Op): string {
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;
     case "clearGuides": return `clearGuides${at}`;
     case "setAxes": return `setAxes${at}`;
+    case "applyScale": return `applyScale ${op.def}/${op.instance}`;
     case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;
   }
 }

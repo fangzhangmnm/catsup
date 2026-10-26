@@ -46,7 +46,7 @@ import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
 import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { PRESETS } from "./presets.ts";
-import { type Op, edgeKey, faceKey, resolveEdge } from "./ops.ts";
+import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge } from "./ops.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -54,7 +54,7 @@ import { type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
-import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation } from "../scene/xform.ts";
+import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -270,6 +270,9 @@ export class Editor {
   /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
   private stepDepth = 0;
   private stepHasOp = false;
+  /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
+  private stepOps = 0;
+  private stepFailed = false;
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
   /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
    *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
@@ -613,6 +616,18 @@ export class Editor {
   // ---------- 参考几何 / 轴（0.11 尺规纪元；世界坐标进、池本地坐标存）----------
   /** 上下文的帧（世界坐标）：根 = 绘图轴，进组 = 组的轴。 */
   contextFrame(): Frame { return this.scene.frameOfContext(this.ctx); }
+  orientFrame(): Frame {
+    const unit = (F: Frame): Frame => ({ origin: F.origin, x: normalize3(F.x), y: normalize3(F.y), z: normalize3(F.z) });
+    if (this.selectedPools.size === 1 && !this.selection.faces.size && !this.selection.edges.size && !this.selection.verts.size) { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return unit(fr[0]); }
+    return unit(this.contextFrame());
+  }
+  boxIn(f: Frame): { min: Pt3; max: Pt3 } | null {
+    const pts = this.selectionWorldPoints();
+    if (!pts.length) return null;
+    let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+    for (const p of pts) { const c = { x: dot3(p, f.x), y: dot3(p, f.y), z: dot3(p, f.z) }; min = { x: Math.min(min.x, c.x), y: Math.min(min.y, c.y), z: Math.min(min.z, c.z) }; max = { x: Math.max(max.x, c.x), y: Math.max(max.y, c.y), z: Math.max(max.z, c.z) }; }
+    return { min, max };
+  }
   addGuideLine(p: Pt3, dir: Pt3): void {
     const m = invert(this.ctxXform());
     this.commitOp({ op: "addGuide", at: this.activePool(), line: { p: this.toLocal(p), dir: normalize3(applyDir(m, dir)) } });
@@ -697,13 +712,14 @@ export class Editor {
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: () => T): T {
-    if (this.stepDepth++ === 0) this.stepHasOp = false;
+    if (this.stepDepth++ === 0) { this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; }
     try { return fn(); } finally { this.stepDepth--; }
   }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitOp(op: Op): FaceEvent[] {
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
+    if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
     const t0 = performance.now();
     const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : this.sessionSnap();   // 新的一步：记下它之前的会话（History 存，redo 尾巴一起作废）
     let r: ReturnType<History["commit"]>;
@@ -712,17 +728,31 @@ export class Editor {
       const cause = err instanceof OpApplyError ? err.cause : err;
       if (err instanceof OpApplyError) this.installScene(err.restored);
       const pool = ("at" in op && op.at) ? op.at : this.activePool();
-      const pre = this.scene.kernelOf(pool);   // err.restored 已装回 = 那一步之前
-      this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause), brep: pre.toBrep(), pool });
+      let preBrep: BrepSnapshot | undefined;
+      try { preBrep = this.scene.kernelOf(pool).toBrep(); } catch { /* 池在这一步里才建出来 */ }   // 复现包要「失败那条之前」——回滚整步之前先留
+      this.rollbackStep();   // 一步 = 原子：这一步前面已提交的也撤掉，重做队列里不留半截
+      if (cause instanceof ShearRejected) { this.host.trace?.({ kind: "fail", where: "commit", op, message: cause.message }); this.host.hint(cause.message); this.host.changed(); this.draw(); return []; }   // 护栏拒绝：不是崩溃，不弹错误胶囊
+      this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause), ...(preBrep ? { brep: preBrep } : {}), pool });
       this.fail("commit", cause);
       return [];
     }
     this.opCount++;
-    if (this.stepDepth > 0) this.stepHasOp = true;
+    if (this.stepDepth > 0) { this.stepHasOp = true; this.stepOps++; }
     this.installScene(r.scene);
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
     this.host.changed();   // HUD（撤销钮 / 选项条 / 数值小窗）随每个 op 刷新
     return r.events;
+  }
+  /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
+  private rollbackStep(): void {
+    if (this.stepDepth === 0) return;
+    this.stepFailed = true;
+    if (!this.stepOps) return;
+    let sc: Scene | null = null, before: Session | undefined;
+    for (let i = 0; i < this.stepOps; i++) { const r = this.history.undoOp(); if (!r) break; sc = r.scene; before = r.before ?? before; this.opCount--; }
+    this.history.dropRedo();
+    this.stepOps = 0; this.stepHasOp = false;
+    if (sc) this.installScene(sc, before);
   }
   private bump(): void {
     this._revision++;
@@ -1172,6 +1202,30 @@ export class Editor {
   // ---------- 隐藏（DT49，user 2026-10-25「然后 hide unhide all也马上需要了，这个gltf规范里有吗？」；存档 = glTF KHR_node_visibility）----------
   // 组件 = 整份藏（藏父连子）；散的面 / 线 = 各自打隐藏标记（user「嗯线和面也可以hidden，这样可以挖洞看里面，blender也支持。合理。」）；
   // 组不是物体、没有自己的隐藏 = 把组里（连同子组、放在里面的实例）的面 / 线 / 实例全藏。
+  /** 选中的组件里有被缩放过的（应用缩放钮出不出）。 */
+  hasScaledInstanceSelection(): boolean { return this.scaledInstancePicks().length > 0; }
+  private scaledInstancePicks(): InstId[] {
+    const d = this.scene.def(this.scene.defOfContext(this.ctx)), out: InstId[] = [];
+    for (const p of this.selectedPools.values()) if (p.kind === "instance" && !this.pickIsLocked(p)) {
+      const X = d.instances.get(p.instance)?.xform;
+      if (X && [0, 1, 2].some((j) => Math.abs(Math.hypot(X[j], X[4 + j], X[8 + j]) - 1) > 1e-9)) out.push(p.instance);
+    }
+    return out;
+  }
+  /**
+   * 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：选中组件的缩放烘进组件本身的几何，这一份只剩旋转 + 平移；
+   * 同一组件的别的份乘反比补偿，看起来不变。组件里有转过的子组件时会斜切 → 护栏拦下并说明。一次 = 一步。
+   */
+  applyScaleSelection(): boolean { return this.step(() => {
+    const ids = this.scaledInstancePicks(), def = this.scene.defOfContext(this.ctx);
+    if (!ids.length) { this.host.hint("选中的组件没有被缩放过"); return false; }
+    const n0 = this.opCount;
+    for (const id of ids) this.commitOp({ op: "applyScale", def, instance: id });
+    if (this.opCount === n0) return false;
+    this.host.hint(`已把缩放烘进 ${ids.length} 个组件的几何（同一组件的别的份看起来没变）`);
+    this.host.changed(); this.draw();
+    return true;
+  }); }
   hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.selectedPools.size > 0 || this.selection.guides.size > 0; }   // 点不单独藏
   /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
   hideSelection(): number { return this.step(() => this.hideSelectionStep()); }
@@ -1900,10 +1954,13 @@ export class Editor {
     return d;
   }
   // ---------- live（影子副本预演） ----------
+  /** 这次预演会把哪个组件斜切（拖的时候就提示「松手会被拦下」；提交时 ops.ts 的护栏真拦）。 */
+  private previewShear: string | null = null;
   private computeLive(): void {
     this.live = null;
     this.liveOverride = null;
     this.liveEvents = [];
+    this.previewShear = null;
     const run = (fn: (c: Kernel) => FaceEvent[]): void => {
       const c = perf.time("live.clone", () => this.kernel.clone());
       try { this.liveEvents = perf.time("live.run", () => fn(c)); }
@@ -1921,7 +1978,8 @@ export class Editor {
     if (dims !== this.dims) { this.dims = dims; this.host.readout?.(this.readoutText()); }
     if (this.live || this.liveOverride || dims) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
-      this.host.hint([dims, ev].filter(Boolean).join(" ｜ "));
+      const sh = this.previewShear ? `会把组件「${this.previewShear}」斜切（glTF 不允许），松手会被拦下：沿它自己的轴缩放（只选它一个时手柄就是它的轴）` : "";
+      this.host.hint([sh, dims, ev].filter(Boolean).join(" ｜ "));
     }
   }
   /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
@@ -1933,6 +1991,10 @@ export class Editor {
     } else if (vids.length) run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) }))));
     const picks = this.movablePoolPicks(false);
     if (picks.length) this.liveOverride = { picks, xform: X, ...(copy ? { copy: true } : {}) };
+    {   // 斜切护栏的提前量：变换后组件矩阵有新斜切 → 提示（提交时 ops.ts 照样拦）
+      const d = this.scene.def(this.scene.defOfContext(this.ctx));
+      for (const p of picks) if (p.kind === "instance") { const inst = d.instances.get(p.instance); if (inst && !hasShear(inst.xform) && hasShear(compose(XL, inst.xform))) { this.previewShear = this.scene.def(inst.def).name; break; } }
+    }
   }
   /**
    * 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
@@ -2202,6 +2264,8 @@ export class Editor {
       setSnap: (sn) => { this.snapInfo = sn; },
       recordLast: (L) => { this.last = L; this.offerXformAfterthought(); },
       contextFrame: () => this.contextFrame(),
+      orientFrame: () => this.orientFrame(),
+      boxIn: (f) => this.boxIn(f),
       setAxes: (f) => this.setContextAxes(f),
       hoverSnap: (s) => this.hoverSnap(s),
       setHoverEdge: (e) => { this.hoverEdge = e; },

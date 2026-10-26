@@ -70,6 +70,20 @@ export function scalingAlong(center: Pt3, axis: Pt3, f: number): Xform {
   const t = (r: number): number => (r === 0 ? center.x : r === 1 ? center.y : center.z) - (L[r * 3] * center.x + L[r * 3 + 1] * center.y + L[r * 3 + 2] * center.z);
   return [L[0], L[1], L[2], t(0), L[3], L[4], L[5], t(1), L[6], L[7], L[8], t(2)];
 }
+/**
+ * 斜切（剪切）：3×3 部分的三列不两两正交 = 分解不成「平移 · 旋转 · 缩放」。glTF 节点矩阵不许（规范：必须能分解成 TRS）——
+ * CatsUp 跟 glTF 对齐（2026-10-26 user「斜切：和gltf对齐。然后如果发生斜切能不能在发生的时候护栏住，然后提示报错？」）。
+ * 镜像（负缩放）不算斜切；容差按夹角余弦（数值误差 ~1e−15，远小于它）。
+ */
+export function hasShear(m: Xform, cosTol = 1e-6): boolean {
+  const c = [0, 1, 2].map((j) => ({ x: m[j], y: m[4 + j], z: m[8 + j] }));
+  for (const [i, j] of [[0, 1], [0, 2], [1, 2]] as const) {
+    const a = c[i], b = c[j], la = Math.hypot(a.x, a.y, a.z), lb = Math.hypot(b.x, b.y, b.z);
+    if (la < 1e-12 || lb < 1e-12) return true;   // 某个方向被压成零 = 退化，同样分解不了
+    if (Math.abs(a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb) > cosTol) return true;
+  }
+  return false;
+}
 /** 沿几根互相垂直的方向一起缩放 f（变换工具的平面缩放块 = 两根；单轴块 = 一根）。 */
 export function scalingAlongAxes(center: Pt3, axes: readonly Pt3[], f: number): Xform {
   let X: Xform = IDENTITY;

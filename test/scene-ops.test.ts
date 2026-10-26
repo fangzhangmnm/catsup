@@ -5,9 +5,9 @@ import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { Scene, ROOT_CONTEXT } from "../src/scene/scene.ts";
 import { WorldView } from "../src/scene/world-view.ts";
-import { applyOp, faceKey, edgeKey, type Op } from "../src/editor/ops.ts";
+import { applyOp, faceKey, edgeKey, ShearRejected, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
-import { rotationAbout, scalingAbout, translation, applyPt, invert, compose, isRigid } from "../src/scene/xform.ts";
+import { rotationAbout, scalingAbout, translation, applyPt, invert, compose, isRigid, hasShear } from "../src/scene/xform.ts";
 import { fingerprint, sceneBox, scenePainted } from "./format-scenes.ts";
 import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from "../src/format/index.ts";
 import { circleSegmentsOnPlane } from "../src/editor/tools.ts";
@@ -330,5 +330,90 @@ describe("scene: 建组件 / 建组嵌套", () => {
     eq(s.def(s.root).instances.get(aInst)!.parent, g.id, "A 挂到新组下");
     s = h.undo()!.scene;
     eq(s.brep(s.root).groups.size, 0, "撤销：没有组"); eq(s.def(s.root).instances.get(aInst)!.parent, null, "撤销：A 回到根");
+  });
+});
+
+// 斜切护栏（2026-10-26，user「斜切：和gltf对齐。然后如果发生斜切能不能在发生的时候护栏住，然后提示报错？」「我觉得有父子的时候只是改变hierarchy也会产生违规斜切吧」）
+describe("scene: 斜切护栏（glTF 节点矩阵必须能分解成平移·旋转·缩放）", () => {
+  const rotZ = (deg: number) => rotationAbout(P(0, 0, 0), P(0, 0, 1), (deg * Math.PI) / 180);
+  /** 根上一个组件 A（盒），实例转 30°。 */
+  const setup = (): { s: Scene; inst: number } => {
+    let s = new Scene(sceneBox(2, 1.5));
+    const k = rootK(s);
+    s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), name: "A" }).scene;
+    const inst = [...s.def(s.root).instances.values()][0].id;
+    s = applyOp(s, { op: "transformInstance", def: s.root, instance: inst, xform: rotZ(30) } as Op).scene;
+    return { s, inst };
+  };
+  const throwsShear = (fn: () => unknown): boolean => { try { fn(); return false; } catch (e) { return e instanceof ShearRejected; } };
+  it("转过的组件沿世界 X 拉长 = 斜切 → 拦下；沿它自己的轴拉长 → 放行（矩阵仍能分解）", () => {
+    const { s, inst } = setup();
+    assert(throwsShear(() => applyOp(s.clone(), { op: "transformInstance", def: s.root, instance: inst, xform: scalingAbout(P(0, 0, 0), P(2, 1, 1)) } as Op)), "沿世界 X：拦下");
+    const own = compose(rotZ(30), compose(scalingAbout(P(0, 0, 0), P(2, 1, 1)), rotZ(-30)));   // 沿组件自己的 X
+    const r = applyOp(s.clone(), { op: "transformInstance", def: s.root, instance: inst, xform: own } as Op);
+    assert(!hasShear(r.scene.def(r.scene.root).instances.get(inst)!.xform), "沿自己的轴：没有斜切");
+  });
+  it("炸开一个被非等比缩放过、里面有转过子组件的组件 = 子组件会斜切 → 拦下", () => {
+    let { s, inst } = setup();
+    // 外层组件 B 装着转过的 A；B 自己被沿 X 拉长（B 的矩阵仍能分解）
+    s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: [], edges: [], name: "B", instances: [inst] }).scene;
+    const b = [...s.def(s.root).instances.values()][0];
+    s = applyOp(s, { op: "transformInstance", def: s.root, instance: b.id, xform: scalingAbout(P(0, 0, 0), P(2, 1, 1)) } as Op).scene;
+    assert(!hasShear(s.def(s.root).instances.get(b.id)!.xform), "B 自己没斜切（只是非等比缩放）");
+    assert(throwsShear(() => applyOp(s.clone(), { op: "explode", at: rootAt(s), instance: b.id } as Op)), "炸开：A 的矩阵会变成 B·A = 斜切 → 拦下");
+  });
+  it("文件里原本就斜切的实例：别的操作照常能做（只拦新出现的斜切）", () => {
+    let { s, inst } = setup();
+    const def = s.def(s.root).instances.get(inst)!.def;
+    s.def(s.root).instances.get(inst)!.xform = compose(scalingAbout(P(0, 0, 0), P(2, 1, 1)), rotZ(30));   // 模拟老文件：直接写进一个斜切矩阵
+    assert(hasShear(s.def(s.root).instances.get(inst)!.xform));
+    const r = applyOp(s, { op: "placeInstance", at: rootAt(s), definition: def, xform: translation(P(5, 0, 0)) } as Op);
+    eq(r.scene.def(r.scene.root).instances.size, 2, "放一份新的照常成功");
+  });
+});
+
+// 应用缩放（2026-10-26，user「我觉得有父子的时候只是改变hierarchy也会产生违规斜切吧。以及这样的话我们需要一个apply scale」）
+describe("scene: 应用缩放", () => {
+  const rotZ = (deg: number) => rotationAbout(P(0, 0, 0), P(0, 0, 1), (deg * Math.PI) / 180);
+  const worldPts = (s: Scene): string[] => s.pointsOfDef(s.root).map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`).sort();
+  const colLens = (X: readonly number[]): number[] => [0, 1, 2].map((j) => +Math.hypot(X[j], X[4 + j], X[8 + j]).toFixed(9));
+  const twoCopies = (): { s: Scene; i1: number; i2: number } => {
+    let s = new Scene(sceneBox(2, 1.5));
+    const k = rootK(s);
+    s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: k.faces().map((f) => faceKey(k, f.id)), edges: k.edges().map((e) => edgeKey(k, e.id)), name: "A" }).scene;
+    const i1 = [...s.def(s.root).instances.values()][0].id, def = s.def(s.root).instances.get(i1)!.def;
+    s = applyOp(s, { op: "placeInstance", at: rootAt(s), definition: def, xform: translation(P(6, 0, 0)) } as Op).scene;
+    const i2 = [...s.def(s.root).instances.values()].find((i) => i.id !== i1)!.id;
+    // i1：先沿自己的 X 拉长 2 倍、再转 30°（矩阵能分解，只是带缩放）
+    s = applyOp(s, { op: "transformInstance", def: s.root, instance: i1, xform: compose(rotZ(30), scalingAbout(P(0, 0, 0), P(2, 1, 1))) } as Op).scene;
+    return { s, i1, i2 };
+  };
+  it("应用后这一份只剩旋转 + 平移；整个场景每个点不动（另一份外观不变、矩阵补了反比缩放）", () => {
+    let { s, i1, i2 } = twoCopies();
+    const before = worldPts(s);
+    s = applyOp(s, { op: "applyScale", def: s.root, instance: i1 }).scene;
+    eq(colLens(s.def(s.root).instances.get(i1)!.xform).join(","), "1,1,1", "这一份没有缩放了");
+    eq(worldPts(s).join("|"), before.join("|"), "世界里每个点都没动");
+    eq(colLens(s.def(s.root).instances.get(i2)!.xform).join(","), "0.5,1,1", "另一份补了反比（看起来不变）");
+    assert(!hasShear(s.def(s.root).instances.get(i2)!.xform), "补偿后也没斜切");
+  });
+  it("镜像过的一份：镜像烘进几何，这一份变成纯旋转（行列式变正），外观不变", () => {
+    let { s, i1 } = twoCopies();
+    s = applyOp(s, { op: "transformInstance", def: s.root, instance: i1, xform: scalingAbout(P(0, 0, 0), P(-1, 1, 1)) } as Op).scene;
+    const before = worldPts(s);
+    s = applyOp(s, { op: "applyScale", def: s.root, instance: i1 }).scene;
+    const X = s.def(s.root).instances.get(i1)!.xform;
+    assert(X[0] * (X[5] * X[10] - X[6] * X[9]) - X[1] * (X[4] * X[10] - X[6] * X[8]) + X[2] * (X[4] * X[9] - X[5] * X[8]) > 0, "行列式为正");
+    eq(worldPts(s).join("|"), before.join("|"), "世界里每个点都没动");
+  });
+  it("组件里有转过的子组件：烘缩放会让子组件斜切 → 拦下", () => {
+    let { s, i1 } = twoCopies();
+    // 把 i1 的定义 A 放进新组件 C，C 里那份 A 转 30°；再把 C 沿 X 拉长 → 对 C 应用缩放会让里面的 A 斜切
+    s = applyOp(s, { op: "makeComponent", at: rootAt(s), faces: [], edges: [], name: "C", instances: [i1] }).scene;
+    const c = [...s.def(s.root).instances.values()].find((i) => s.def(i.def).name === "C")!;
+    s = applyOp(s, { op: "transformInstance", def: s.root, instance: c.id, xform: scalingAbout(P(0, 0, 0), P(3, 1, 1)) } as Op).scene;
+    let threw = false;
+    try { applyOp(s.clone(), { op: "applyScale", def: s.root, instance: c.id }); } catch (e) { threw = e instanceof ShearRejected; }
+    assert(threw, "拦下");
   });
 });

@@ -106,6 +106,11 @@ export class History<M = unknown> {
     return { ...r!, events, after: this.sessions[c0]?.after };
   }
 
+  /** 丢掉重做队列（游标之后的 op、会话记录、快照）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
+  dropRedo(): void {
+    this.ops.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor;
+    for (const i of [...this.snaps.keys()]) if (i > this.cursor) this.snaps.delete(i);
+  }
   /** 应用 ops[0..i) 后的状态（新实例）：取 ≤ i 的最近快照 clone 再重放剩余。 */
   stateAt(i: number): Scene {
     let from = 0, src = this.base;

@@ -199,7 +199,8 @@ const hud: HudModel = {
     { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "lock", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
     { id: "unlock", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
-    { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: !editor.hasHideableSelection() },   // DT49（user「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden」）：H；视图菜单「全部显示」/ Alt+H 放回
+    { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: !editor.hasHideableSelection() },
+    { id: "applyScale", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },   // 2026-10-26 user「这样的话我们需要一个apply scale」   // DT49（user「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden」）：H；视图菜单「全部显示」/ Alt+H 放回
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
@@ -231,6 +232,7 @@ const hud: HudModel = {
       case "lock": editor.lockSelection(true); break;
       case "unlock": editor.lockSelection(false); break;
       case "hide": editor.hideSelection(); break;
+      case "applyScale": editor.applyScaleSelection(); break;
       case "exit": editor.exitContext(); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
