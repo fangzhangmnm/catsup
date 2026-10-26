@@ -10,10 +10,16 @@ export declare class OpApplyError extends Error {
     readonly restored: Scene;
     constructor(cause: unknown, restored: Scene);
 }
-export declare class History {
+/** 一步的会话记录：before = 这一步第一条 op 提交之前；after = 撤销它的那一刻（重做时还原）。 */
+export interface StepSession<M> {
+    before: M;
+    after?: M;
+}
+export declare class History<M = unknown> {
     private readonly base;
     private ops;
     private joins;
+    private sessions;
     private cursor;
     private snaps;
     private readonly snapEvery;
@@ -28,14 +34,27 @@ export declare class History {
     position(): number;
     log(): readonly Op[];
     snapshotIndices(): number[];
-    /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。join = 和上一条同一步。失败抛 OpApplyError（不记账，带回滚场景）。 */
-    commit(s: Scene, op: Op, join?: boolean): ApplyResult;
-    /** 撤销一步（这一步的全部 op）= 回到最近检查点重放到这一步之前。返回新场景（调用方换用）；没得撤 → null。 */
-    undo(): Scene | null;
-    /** 只撤一条 op（编辑器内部按新值重做那一步用；用户的撤销走 undo）。 */
-    undoOp(): Scene | null;
-    /** 重做一步 = 把下一步的 op 依次原地应用到当前场景。中途失败抛 OpApplyError（cursor 不动、带回这一步之前的场景）。 */
-    redo(s: Scene): ApplyResult | null;
+    /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。join = 和上一条同一步；before = 新开一步时这一步之前的会话。失败抛 OpApplyError（不记账，带回滚场景）。 */
+    commit(s: Scene, op: Op, join?: boolean, before?: M): ApplyResult;
+    /**
+     * 撤销一步（这一步的全部 op）= 回到最近检查点重放到这一步之前。now = 撤销这一刻的会话（记成这一步的 after，重做时还原）。
+     * 返回新场景 + 这一步之前的会话（调用方一起换用）；没得撤 → null。
+     */
+    undo(now?: M): {
+        scene: Scene;
+        before: M | undefined;
+    } | null;
+    /** 只撤一条 op（编辑器内部按新值重做那一步用；用户的撤销走 undo）。撤到一步的开头时带回那一步之前的会话。 */
+    undoOp(): {
+        scene: Scene;
+        before: M | undefined;
+    } | null;
+    /** 重做一步 = 把下一步的 op 依次原地应用到当前场景；带回这一步之后的会话（撤销时记下的）。中途失败抛 OpApplyError（cursor 不动、带回这一步之前的场景）。 */
+    redo(s: Scene): (ApplyResult & {
+        after: M | undefined;
+    }) | null;
+    /** 丢掉重做队列（游标之后的 op、会话记录、快照）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
+    dropRedo(): void;
     /** 应用 ops[0..i) 后的状态（新实例）：取 ≤ i 的最近快照 clone 再重放剩余。 */
     stateAt(i: number): Scene;
     /** 当前状态的独立重建（测试 / 校验用）。 */

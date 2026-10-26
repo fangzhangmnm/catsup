@@ -8,6 +8,8 @@ export declare class TransformTool implements ToolHandler {
     readonly grammar: "direct";
     private mode;
     private grab;
+    /** 拖中心点 / 拖选区（移动代驾）开始时的手柄：拖动中跟着走，不重算（重算时在手里的组件不算数，「自动」会跳回包围盒中心）。 */
+    private centerG;
     private dist;
     private angle;
     private factor;
@@ -65,6 +67,8 @@ export declare class TransformTool implements ToolHandler {
     private trackScale;
     /** 当前预演的变换（世界系，绕抓的时候的轴心）；中心点 / 选择 / 没在拖 → null。 */
     private xformOf;
+    /** 缩放沿哪几根轴：单轴块 = 那一根；平面块 = 两根；等比块 = 空（三轴等比）。 */
+    private scaleDirs;
     private currentXform;
     live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     up(ctx: ToolCtx, ev: ToolPointer, settle: () => ToolSample | null): void;

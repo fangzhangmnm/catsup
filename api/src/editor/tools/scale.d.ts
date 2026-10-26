@@ -13,8 +13,10 @@ export declare class ScaleTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
+    /** 这一柄 + 倍率的变换（世界）。 */
+    private static xform;
     describe(): Record<string, unknown>;
-    /** 角柄 8 个（等比）+ 面心柄 6 个（单轴），按选区的世界包围盒。 */
+    /** 角柄 8 个（等比）+ 面心柄 6 个（单轴），按选区在 orientFrame 下的包围盒（有朝向）。 */
     private handles;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {

@@ -3,6 +3,7 @@ import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kern
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3 } from "./pick.ts";
+import { type SelMode } from "./tools.ts";
 import { type ArcGesture } from "./arc-build.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
 import type { ToolHandler } from "./tool-handler.ts";
@@ -205,8 +206,8 @@ export type LastGesture = {
     entities?: {
         faces: FaceId[];
         edges: EdgeId[];
-    }; /** 沿任意方向的单轴缩放（变换工具的缩放块，帧可能是斜的）：有就按 scalingAlong、f 用 x 分量。 */
-    dir?: Pt3;
+    }; /** 沿任意方向缩放（变换工具的缩放块，帧可能是斜的）：1 根 = 单轴块、2 根 = 平面块（2026-10-26）；有就按 scalingAlongAxes、f 用 x 分量。 */
+    dirs?: readonly Pt3[];
     pivots?: Record<string, Pt3>;
     pivotUsed?: string;
 }
@@ -305,6 +306,9 @@ export declare class Editor {
     /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
     private stepDepth;
     private stepHasOp;
+    /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
+    private stepOps;
+    private stepFailed;
     /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
     /** A9 轴锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
      *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
@@ -377,6 +381,8 @@ export declare class Editor {
     canRedo(): boolean;
     hasSelection(): boolean;
     hasGeometrySelection(): boolean;
+    /** 选了点（2026-10-26）。 */
+    hasPointSelection(): boolean;
     hasPoolSelection(): boolean;
     selectedPoolPicks(): PoolPick[];
     isGestureActive(): boolean;
@@ -434,6 +440,11 @@ export declare class Editor {
     cancel(): void;
     /** 上下文的帧（世界坐标）：根 = 绘图轴，进组 = 组的轴。 */
     contextFrame(): Frame;
+    orientFrame(): Frame;
+    boxIn(f: Frame): {
+        min: Pt3;
+        max: Pt3;
+    } | null;
     addGuideLine(p: Pt3, dir: Pt3): void;
     addGuidePoint(p: Pt3): void;
     eraseGuides(ids: readonly number[]): void;
@@ -446,18 +457,31 @@ export declare class Editor {
     /** Shift 按下 / 松开（DT51：Shift = 把格点吸附反过来）：指针没动也按新规则重算悬停 / 手势预览。 */
     setShiftHeld(on: boolean): void;
     /**
-     * 选区跟着撤销走（user 2026-10-26「变换的时候按ctrl z不应该选区也没了，系统的修一下……我们是不是没有把选区做持久化undo化？」）：
-     * 每一步记下它之前的选区（第一条 op 提交时）；撤销 = 还原「之前」并顺手记下「之后」，重做 = 还原「之后」。id 在同一份历史里是确定的（重放同一串 op），
-     * 所以还原回去的 id 指的就是同一批东西；不存在的 id 剪掉；上下文变了（撤到组被删之前 / 换了层）= 选区清空——有定义的结果，不会挂到错的池上。
+     * 会话跟着撤销走（user 2026-10-26「变换的时候按ctrl z不应该选区也没了」→ 同日「undo似乎全坏了…涉及组件的修改进出之类的」「不要ad hoc，而是思考系统重新设计」）：
+     * 每一步记下它之前的会话 = 在哪个组件里 + 选区（第一条 op 提交时，交给 History 存）；撤销 = 场景和会话一起回到「之前」并顺手记下「之后」，重做 = 一起回到「之后」。
+     * 所以撤销组件里的改动时人会回到那个组件里（看得见撤了什么），选区也回来。id 在同一份历史里是确定的（重放同一串 op），还原回去的 id 指的就是同一批东西；
+     * 不存在的 id 剪掉；那一层组件已经没了（撤到建组件之前）= 退到还在的最深一层。设计稿 ai-docs/20261026-undo-session-redesign.md。
      */
-    private stepSel;
+    private sessionSnap;
+    private sessionRestore;
+    /** 场景里还在的最深一层上下文（实例链从尾往前剪；组不在了 = 那个实例的根）。 */
+    private validCtx;
+    private ctxKeyOf;
     private selSnap;
     private selRestore;
     /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
     private step;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
     private commitOp;
+    /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
+    private rollbackStep;
     private bump;
+    /**
+     * 换场景的唯一入口（2026-10-26 撤销重设计）：换场景 → 校正所在的组件（退到还在的最深一层）→ 剪 / 还原选区 → 充能点重核。
+     * **这里不通知界面**——调用方在这之后才关参数小窗、刷新 HUD。以前撤销先关小窗（会刷新界面、读「当前在哪个组件」）后校正：
+     * 在组件里一路撤、撤过「建出 / 复制出这个组件」那一步就抛错，撤到一半停住（历史已退、场景已换、人卡在不存在的组件里）。
+     */
+    private installScene;
     private pruneSelection;
     private fail;
     /** 刚提交的那一步：op + 它之前的活动池 B-rep（复现包「上一步」；成功但错的也能寄）。没有 / 池不是 brep → null。 */
@@ -484,9 +508,16 @@ export declare class Editor {
     pickAt(sx: number, sy: number): HitResult3;
     /**
      * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
-     * 空命中 = 清选区（非加选）。hit 是 WorldView 的全局 id。
+     * 点（2026-10-26）：单击 = 这个点；双击 = 连着它的线；三击 = 连通体。
+     * mode = 怎么合进已有选区（替换 / 加选 / 减选 / 切换，对齐 Blender）；空命中 + 替换 = 清选区。hit 是 WorldView 的全局 id。
      */
-    selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive?: boolean): boolean;
+    selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode?: SelMode): boolean;
+    /** 组 / 组件按 mode 合进选区（切换 = 逐个）。 */
+    private mergePools;
+    /** 反选（Blender Ctrl+I）：当前上下文里没选的面 / 边 / 子组 / 组件；点和参考几何清掉。隐藏的不选。 */
+    invertSelection(): boolean;
+    /** 全不选（Blender Alt+A；Esc 也行）。 */
+    deselectAll(): void;
     private afterSelect;
     /** 实体信息（0.10）：选区恰是一条曲线 → 「圆 r=… · N 段」/「弧 …」/「曲线 · N 段」；恰是一张曲面 → 「曲面 · N 面」；别的 → null（不抢提示行）。 */
     private selectionInfo;
@@ -503,11 +534,13 @@ export declare class Editor {
     /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
     makeGroup(): boolean;
     /**
-     * 选区 → component（新 definition + 一个实例；轴默认 = 包围盒最小角，SketchUp 同款）。
+     * 选区 → component（新 definition + 一个实例）。轴默认 = 底面中心（2026-10-26 user「忍不了了哈哈，组件默认是底部中心轴可以吗」；以前 = 包围盒最小角，SketchUp 同款）。
      * 之后右下角马后炮可换原点（user 2026-10-25「建立组件的时候能不能马后炮选择一下轴的居中模式」）：包围盒角 / 包围盒中心 / 底面中心 / 顶点平均——
      * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
      */
     makeComponent(name: string): boolean;
+    /** 选区里一起装进新组 / 新组件的子组和组件（SketchUp 同款嵌套，user 2026-10-26「当然要」）：锁定的不动（提示一句）。 */
+    private nestPicks;
     private makeComponentStep;
     /** 炸开选中的子 group / 实例。 */
     explodeSelection(): boolean;
@@ -527,6 +560,14 @@ export declare class Editor {
     /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
     lockSelection(on: boolean): boolean;
     private lockSelectionStep;
+    /** 选中的组件里有被缩放过的（应用缩放钮出不出）。 */
+    hasScaledInstanceSelection(): boolean;
+    private scaledInstancePicks;
+    /**
+     * 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：选中组件的缩放烘进组件本身的几何，这一份只剩旋转 + 平移；
+     * 同一组件的别的份乘反比补偿，看起来不变。组件里有转过的子组件时会斜切 → 护栏拦下并说明。一次 = 一步。
+     */
+    applyScaleSelection(): boolean;
     hasHideableSelection(): boolean;
     /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
     hideSelection(): number;
@@ -668,11 +709,18 @@ export declare class Editor {
     private freshHand;
     /** 预演失败时的复现描述（黑匣子）：工具 + 能重建那一步的参数（活动池本地坐标）。 */
     private previewDescriptor;
+    /** 这次预演会把哪个组件斜切（拖的时候就提示「松手会被拦下」；提交时 ops.ts 的护栏真拦）。 */
+    private previewShear;
     private computeLive;
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
-    /** 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。 */
+    /**
+     * 选区的轴心（变换工具的「轴心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
+     * 自动 = 只选了一个组 / 组件（没有散的面 / 边）→ 它的轴原点；别的 → 包围盒中心。
+     */
     private pivotOf;
+    /** 选中的点（世界坐标；只画点本身）。 */
+    private selVertsView;
     viewExtras: (() => Partial<ViewState>) | null;
     setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void;
     private drawSuspended;
@@ -701,6 +749,7 @@ export declare class Editor {
     readoutText(): string;
     /** 全选（Ctrl+A，A7）：当前上下文的全部几何 + 直接子 group / 实例。 */
     selectAll(): boolean;
+    private selectAllInner;
     /** steps 工具做完最后一子步：底座这边的手势残留清干净（锚点 / 光标 / 样本环 / arm / 预演），提示留给工具。 */
     private endStepGesture;
     /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */

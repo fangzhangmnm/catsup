@@ -92,6 +92,8 @@ export declare class Scene {
     constructor(rootKernel?: Kernel);
     mintDef(name: string, kernel: Kernel): Definition;
     mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame): Group;
+    /** 定义里全部顶点（本定义坐标 → 再经 m）：根池 + 各组 + 各实例（递归、经实例变换）。建组件 / 建组时算包围盒和原点用（2026-10-26 嵌套）。 */
+    pointsOfDef(defId: DefId, m?: Xform, depth?: number): Pt3[];
     mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform): Instance;
     /** 材质在某 definition 里的槽号（没有就开一个）。 */
     slotFor(defId: DefId, material: number): number;

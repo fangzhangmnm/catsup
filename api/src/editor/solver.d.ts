@@ -17,7 +17,7 @@ export interface View {
 }
 export type AxName = "x" | "y" | "z" | "u" | "v";
 export interface ConTag {
-    kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool" | "center" | "poolOrigin";
+    kind: "endpoint" | "origin" | "midpoint" | "intersection" | "edge" | "cross" | "axis" | "align" | "plane" | "guide" | "guidePoint" | "grid" | "edgeExt" | "tool" | "center" | "poolOrigin" | "axisCross";
     src?: Pt3;
     axis?: AxName;
     /** 工具目标的人话标签（「正方形」「黄金分割」「半圆」…），直接进光标提示。 */
@@ -184,8 +184,11 @@ export declare function occludedBy(k: GeomView, pf: PointerFrame, p: Pt3, skip?:
 /**
  * 1-D 轨迹的膜遮挡 = **可见区间裁剪**（2026-09-03 抖动破案：逐点二值判会在剪影边界随光标横跳；
  * 0-D 点的可见性不随光标变所以二值判无害——user 直觉「边是一个 range」正解）。
- * 对每张膜求「影柱∩直线」：s(t)=到膜平面的视向距离是 t 的线性函数，q2(t)=命中点在膜基下的 2D 坐标
- * 是 t 的仿射函数 → 遮挡边界 = s(t)=ε 的根 ∪ q2(t) 与多边形边的交 → 子区间中点采样定内外。
+ * **精确分割（2026-10-26 重写，user「面上面拖的时候为什么会有时候突然弹到下面…在炮塔顶面上随便拖一下，有时候会抖动」）**：
+ * 点被一张多边形膜挡住 ⇔ 它在「眼睛 → 多边形」的棱锥里、且在膜平面的另一侧。棱锥侧面 = 过多边形一条边、含该处视线方向的平面
+ * （透视 = 过眼睛；正交 = 平行视向），膜本身也是平面——直线和每个平面只交一次，分割点全是一次方程的精确根；
+ * 每段取中点按**该点自己的视线**判内外（= occludedBy 的单膜判定）。以前整条线段只用中点那一处的视向当常量：透视下长边（车身边几米长）
+ * 误差大，光标附近那截被挡的线被判成可见 → 隔着炮塔吸到后面低半米的车身边。
  * 返回 [tMin,tMax] 内的**被挡**区间（升序、已合并）。
  */
 export declare function occludedSpansOnLine(k: GeomView, pf: PointerFrame, a: Pt3, dir: Pt3, tMin: number, tMax: number, skip?: (fid: FaceId) => boolean, faces?: readonly Face[]): [number, number][];

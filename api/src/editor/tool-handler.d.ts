@@ -7,7 +7,7 @@ import type { PoolRef } from "../scene/scene.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
-import type { Selection } from "./tools.ts";
+import type { Selection, SelMode } from "./tools.ts";
 import type { LastGesture, PoolPick, ToolPointer } from "./editor.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { Scene, EditContext } from "../scene/scene.ts";
@@ -142,7 +142,7 @@ export interface ToolCtx {
         edges: readonly EdgeId[];
     }): void;
     /** 选区的轴心（变换工具）：包围盒中心 / 顶点平均 / 最后选的物体原点（最后选中的组 / 组件的轴原点，没选组 / 组件 = 包围盒中心）。没选区 → null。 */
-    pivotOf(mode: "bbox" | "mean" | "active"): Pt3 | null;
+    pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null;
     /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做（右下「刚才：」）。 */
     offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void): void;
     /** 选中的子 group / 实例里能整体动的（锁住的不动；say = 提示一次）。 */
@@ -173,19 +173,19 @@ export interface ToolCtx {
         edges: Iterable<number>;
         faces: Iterable<number>;
     };
-    /** 换掉 / 追加选区（本地 id + 子池项）。 */
+    /** 框选结果按 mode 合进选区（本地 id + 子池项；切换 = 逐个反转）。 */
     replaceSelection(sel: {
         edges: readonly number[];
         faces: readonly number[];
         pools: readonly PoolPick[];
         guides?: readonly number[];
-    }, additive: boolean): void;
-    /** A31：单击选中一条参考线 / 一个参考点（additive = Shift：已在选区里就拿掉）。 */
-    selectGuide(id: number, additive: boolean): void;
+    }, mode: SelMode): void;
+    /** A31：单击选中一条参考线 / 一个参考点（按 mode 合进选区）。 */
+    selectGuide(id: number, mode: SelMode): void;
     /** 选区变了之后的收尾（提示 / 缩放柄 / HUD）。 */
     afterSelect(): void;
-    /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体。 */
-    selectExpand(hit: HitResult3, stage: 0 | 1 | 2, additive: boolean): boolean;
+    /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体；按 mode 合进选区。 */
+    selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean;
     enterPool(p: PoolPick): void;
     exitContext(): boolean;
     contextDepth(): number;
@@ -197,6 +197,16 @@ export interface ToolCtx {
     }): void;
     /** 上下文的帧（世界坐标）。 */
     contextFrame(): Frame;
+    /**
+     * 选区的朝向（单位轴，世界坐标）：只选了一个组 / 组件（没有散的面 / 边 / 点）= 它自己的轴，否则 = 上下文的轴。变换手柄、缩放包围盒都按它摆
+     * （2026-10-26 斜切护栏：沿组件自己的轴缩放不会斜切；Blender 的 Local 朝向）。
+     */
+    orientFrame(): Frame;
+    /** 选区在某个朝向下的包围盒（坐标 = 点乘那三根单位轴）；没东西 → null。 */
+    boxIn(f: Frame): {
+        min: Pt3;
+        max: Pt3;
+    } | null;
     /** 改轴（世界坐标帧进来）：根 = 绘图轴；进组 = 组的轴。 */
     setAxes(frame: Frame): void;
 }

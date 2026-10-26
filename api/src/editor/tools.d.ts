@@ -46,13 +46,28 @@ export interface Marquee {
     maxY: number;
 }
 export declare function marqueeOf(a: Pt, b: Pt): Marquee;
-/** 选区：内核实体（边 / 面）+ 活动池的参考几何 id（A31，2026-10-24 Opus：参考线 / 参考点能被选择工具选中、Delete 删）。 */
+/**
+ * 选区：内核实体（边 / 面 / 点）+ 活动池的参考几何 id（A31，2026-10-24 Opus：参考线 / 参考点能被选择工具选中、Delete 删）。
+ * 点（2026-10-26，user「变换点中一个点的时候应该就是变换这个点啊」「以及我们还是希望我们能选点」）：选区里真的存点（Blender 式），移动 / 变换只动这些点；
+ * 以前单击点 = 选连着它的线（现在是双击）。
+ */
 export interface Selection {
     edges: Set<EdgeId>;
     faces: Set<FaceId>;
     guides: Set<number>;
+    verts: Set<VertexId>;
 }
 export declare const emptySelection: () => Selection;
+/**
+ * 选择怎么合进已有选区（2026-10-26，对齐 Blender；user「ipad同意，但是我想和blender对齐？」）：替换 / 加选 / 减选 / 切换。
+ * 键鼠：单击 = 替换、Shift 点 = 切换、Ctrl 点 = 减选；框选 Shift = 加、Ctrl = 减。iPad：选择工具右下角选项定（修饰键按着时修饰键说了算）。
+ */
+export type SelMode = "replace" | "add" | "remove" | "toggle";
+/**
+ * 把 picked 按 mode 合进 into（原地改）。切换有两种读法：点击（整组：picked 全已选中 = 全去掉，否则全加上——Shift 点一个已选的 = 取消它）/
+ * 框选（逐个：选中的去掉、没选的加上 = Blender 框选的「反转」）。替换由调用方先清空再当加选。
+ */
+export declare function mergeSel<T>(into: Set<T>, picked: Iterable<T>, mode: SelMode, perItem?: boolean): void;
 /** 移动工具的目标展开：顶点→自己；边→两端点；面→外环+洞环全部顶点。 */
 export declare function moveTargets(k: Kernel, hit: {
     vertex?: VertexId;

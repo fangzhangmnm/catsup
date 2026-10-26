@@ -85,11 +85,14 @@ export type Op = {
     faceLayers?: (Record<string, number> | undefined)[];
 }
 /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
+/** groups / instances = 一起装进去的、这一层的子组 / 组件（2026-10-26，SketchUp 同款嵌套；user「当然要」）。 */
  | {
     op: "makeGroup";
     at: PoolRef;
     faces: FaceKey[];
     edges: EdgeKey[];
+    groups?: number[];
+    instances?: number[];
 }
 /** 选区 → 新 definition + 一个实例（轴 = 包围盒最小角）。 */
  | {
@@ -98,6 +101,14 @@ export type Op = {
     faces: FaceKey[];
     edges: EdgeKey[];
     name: string;
+    groups?: number[];
+    instances?: number[];
+}
+/** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
+ | {
+    op: "applyScale";
+    def: number;
+    instance: number;
 }
 /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
  | {
@@ -246,7 +257,8 @@ export type Op = {
     };
     deleteOpposite: boolean;
     mergeSeam: boolean;
-    weld: number;
+    weld: number; /** 防碎距离（米）；缺 = 默认 0.1 mm（老复现包照旧）。 */
+    guard?: number;
 };
 export interface ApplyResult {
     scene: Scene;
@@ -267,5 +279,12 @@ export declare function moveOp(k: Kernel, moves: readonly {
     to: PtIn;
 }[], at?: PoolRef): Op;
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
+/** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
+export declare class ShearRejected extends Error {
+}
+/**
+ * 执行一条指令。斜切护栏（2026-10-26，user「斜切：和gltf对齐……在发生的时候护栏住，然后提示报错」）：执行后出现了**新的**斜切实例 → 抛 ShearRejected
+ * （History 回滚整步）。老文件里本来就斜切的不算（不然那份文件之后什么都改不了）。
+ */
 export declare function applyOp(s: Scene, op: Op): ApplyResult;
 export declare function describeOp(op: Op): string;

@@ -169,6 +169,33 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
+    /** 选择怎么合进已有选区（2026-10-26，对齐 Blender 工具栏框选的几种模式；user「ipad同意，但是我想和blender对齐？」）：iPad 没有修饰键，在这里切；
+     *  键鼠按着修饰键时修饰键说了算（点击 Shift = 切换、Ctrl = 减选；框选 Shift = 加选、Ctrl = 减选）。 */
+    readonly select: {
+        readonly mode: {
+            readonly kind: "enum";
+            readonly label: "选区";
+            readonly values: readonly [{
+                readonly id: "replace";
+                readonly label: "替换";
+                readonly hint: "新选的换掉原来的";
+            }, {
+                readonly id: "add";
+                readonly label: "加选";
+                readonly hint: "加进原来的选区（键鼠：框选按住 Shift）";
+            }, {
+                readonly id: "remove";
+                readonly label: "减选";
+                readonly hint: "从选区里拿掉（键鼠：按住 Ctrl）";
+            }, {
+                readonly id: "toggle";
+                readonly label: "切换";
+                readonly hint: "没选的加上、已选的拿掉（键鼠：点击按住 Shift）";
+            }];
+            readonly def: "replace";
+            readonly scope: "session";
+        };
+    };
     /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
     readonly move: {
         readonly copy: {
@@ -179,12 +206,17 @@ export declare const TOOL_OPTIONS: {
         };
     };
     /** 变换（2026-10-26，user「transform的时候ctrl应该是复制吧」「transform能不能马后炮可以切换 pivot…是工具自己记住的选项。而且每个工具单独记」）：
-     *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；轴心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」））。 */
+     *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；轴心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」）；
+     *  默认「自动」= 只选一个组 / 组件就绕它的轴原点、别的情况包围盒中心（user 2026-10-26「选的是组件的时候应该默认是pivot…选loose geom的时候默认是bb，或者多组件的时候默认是bb」））。 */
     readonly transform: {
         readonly pivot: {
             readonly kind: "enum";
             readonly label: "轴心";
             readonly values: readonly [{
+                readonly id: "auto";
+                readonly label: "自动";
+                readonly hint: "只选了一个组 / 组件 = 它的轴原点；散几何或几个物体 = 包围盒中心";
+            }, {
                 readonly id: "bbox";
                 readonly label: "包围盒中心";
             }, {
@@ -196,7 +228,7 @@ export declare const TOOL_OPTIONS: {
                 readonly label: "最后选的物体原点";
                 readonly hint: "最后选中的那个组 / 组件的轴原点（Blender 叫 Active Element）；没选组 / 组件 = 包围盒中心";
             }];
-            readonly def: "bbox";
+            readonly def: "auto";
             readonly scope: "session";
         };
         readonly copy: {

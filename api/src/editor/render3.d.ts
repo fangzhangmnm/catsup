@@ -101,6 +101,8 @@ export interface ViewState {
         sub?: number;
         on?: boolean;
     } | null;
+    /** 选中的点（2026-10-26，user「以及我们还是希望我们能选点」「为什么不是简简单单高亮点？」）：只画实心圆点。世界坐标。 */
+    selVerts?: readonly Pt3[] | null;
     /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
     charged?: {
         points: readonly Pt3[];
@@ -133,6 +135,8 @@ export interface ViewState {
         start: number;
         cube?: number;
         cubeHalf?: number;
+        plane?: number;
+        planeHalf?: number;
         uniform?: Pt3 | null;
         hot: string | null;
     } | null;
@@ -187,6 +191,7 @@ export declare class Renderer3 {
     private handleMarkers;
     private xgLines;
     private xgKey;
+    private xgSolids;
     private protractorLines;
     /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
     private labelSprites;
@@ -196,6 +201,8 @@ export declare class Renderer3 {
     private gridMat;
     private axesObj;
     private chargedLines;
+    private selVertDots;
+    private selVertKey;
     private tickLines;
     private poolAxesLines;
     private poolAxesKey;
@@ -270,6 +277,19 @@ export declare class Renderer3 {
         key: string;
     }[];
     private worldPerPx;
+    /**
+     * 远处能看到多远（世界长度，从视野中心 target 量）：透视 = 远平面，正交 = 深度窗口半宽。无限长的线（参考线 / 充能延长线）画到这么远；
+     * 和远平面一起按**场景包围球**定（2026-10-26，user「不应该写死特征长度。我们的普朗克长度到哈勃半径也跨了蛮多数量级了」：
+     * 以前远平面 = 眼距×40 + 100 m、正交窗口下限 500 m、参考线 ±200 m——100 m / 500 m / 200 m 在毫米零件和公里场景两头都不对）。
+     */
+    private viewReach;
+    /** 无限长直线（过 p、方向 dir 单位）的可画两端：从离视野中心最近的那点往两边各 viewReach + 那点到中心的距离。 */
+    private infLine;
+    /** 画无限长线的缓存键：视野范围按对数分档、中心按范围量化（相机大挪才重建）。 */
+    private reachKey;
+    private boundsKey;
+    private sceneSphere;
+    private sceneBounds;
     private syncCamera;
     private kernelId;
     render(k: GeomView, cam: OrbitCamera, vp: Viewport, view: ViewState): void;

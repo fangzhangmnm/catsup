@@ -43,7 +43,14 @@ export declare class OrbitCamera implements PointerFrame {
     } | null;
     angularPx(p: Pt3, vp: Viewport): ScreenPt;
     distTo(x: number, y: number, p: Pt3, vp: Viewport): number;
-    distToSeg(x: number, y: number, a: Pt3, b: Pt3, vp: Viewport, infinite?: boolean): {
+    /**
+     * 光标到线段 [a,b]（infinite = 过 a、b 的无限直线）的屏距 + 最近点在**原线段上的参数** t（0 = a、1 = b）。
+     * 透视下精确（2026-10-26，user「还有哪些不精确的算法也一起查一下」「不应该写死特征长度」）：
+     *   ① 线段先按近平面裁掉相机背后的那截（以前背后的点按近平面深度硬投，屏上方向是错的）；整段在背后 = 无穷远；
+     *   ② 无限直线任取它在眼前的两点（深度 = 眼距、两倍眼距——随相机走，不写死长度）：屏上那条线和取哪两点无关，精确；
+     *   ③ 屏上参数 → 线段参数做透视校正（屏上线性变化的是 1/深度）——以前直接把屏上参数当线段参数，拾取的遮挡判在偏了的点上。
+     */
+    distToSeg(x: number, y: number, a0: Pt3, b0: Pt3, vp: Viewport, infinite?: boolean): {
         d: number;
         t: number;
     };

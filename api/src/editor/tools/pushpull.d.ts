@@ -8,6 +8,7 @@ export declare class PushPullTool implements ToolHandler {
     readonly grammar: "steps";
     private face;
     private normal;
+    private nScale;
     private plane;
     private shell;
     private stops;
@@ -17,7 +18,7 @@ export declare class PushPullTool implements ToolHandler {
     sample(): Record<string, number>;
     scaleGeom(): ScaleGeom | null;
     describe(ctx?: ToolCtx): Record<string, unknown>;
-    /** 世界系推拉高度 → 活动池本地（上下文有缩放时按法向换算）。 */
+    /** 世界系推拉高度 → 活动池本地推拉距离（内核按本地平面法向走；down 里已把那根法向送到世界当 this.normal）。 */
     private localH;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     /** pp 双通道吸附：光标通道（世界 = 按下时模型，源面原位不透明；不吸轴）+ 高度通道（h 对静态高度集咬合）。 */

@@ -2,12 +2,15 @@ import type { Kernel } from "../../kernel/kernel.ts";
 import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { SelMode } from "../tools.ts";
 export declare class SelectTool implements ToolHandler {
     readonly tool: "select";
     readonly grammar: "direct";
     private start;
     private cur;
     active(): boolean;
+    /** 这一下怎么合进选区：修饰键 > 右下角选项。 */
+    static modeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean): SelMode;
     cancel(): void;
     sample(): Record<string, number>;
     live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
