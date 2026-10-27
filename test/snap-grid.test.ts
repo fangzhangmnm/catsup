@@ -119,7 +119,9 @@ describe("吸到格点（DT4）", () => {
       assert(k2.vertices().every((v) => onLattice(v, 0.1)), `seed ${seed}：全部点在格点上`);
       assert(k2.edges().filter((e) => e.faceLinks.length === 2).every((e) => k2.isSoft(e.id)), `seed ${seed}：折缝 / 对角线都是软边`);
     }
-    assert(wouldBurst >= 10, `退路真的被走到了（${wouldBurst} / 20 个不退路就会破）`);
+    // 2026-10-27 自动折面 rev2（Fable 账单 K3）之后内核自己兜住：这 20 个一个都不破了，退路成了最后一道（蝴蝶结那种投影不简单的才会走到）。
+    // 以前这里断言「至少 10 个不退路就会破」= 退路被走到；现在反过来钉住内核的新行为。edited by Claude Fable 5.1
+    eq(wouldBurst, 0, `内核自己兜住：不退路也零破面（${wouldBurst} / 20 会破）`);
   });
 });
 

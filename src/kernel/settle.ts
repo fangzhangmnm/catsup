@@ -137,20 +137,19 @@ export function dissolveAt(g: PlanarGraph, store: FaceStore, c: { a: VertexId; b
   return true;
 }
 
-/** 像的平面化：共面 → 原样；非平面无洞 → autofold 成片 + 折缝；非平面带洞 / 折不动 → 丢弃（零认领 = BURST 曝光）。 */
+/** 像的平面化：共面 → 原样；非平面（含带洞）→ autofold 成片 + 折缝（rev2 2026-10-27：带洞也折、凹的不再折到外面）；分不开 → 丢弃（零认领 = BURST 曝光）。 */
 function planarPieces(im: Image, tol: number): { images: Image[]; creases: Seg3[] } {
   const outer = dedupeRing(im.rings[0]);
   if (outer.length < 3) return { images: [], creases: [] };
   const plane = planeOfRing(outer);
   if (!plane) return { images: [], creases: [] };   // 整环退化成线
-  const all = [outer, ...im.rings.slice(1).map(dedupeRing)];
+  const all = [outer, ...im.rings.slice(1).map(dedupeRing).filter((r) => r.length >= 3)];
   if (all.every((r) => r.every((p) => distToPlane(p, plane!) <= tol))) return { images: [{ ...im, rings: all }], creases: [] };
-  if (im.rings.length > 1) return { images: [], creases: [] };
-  const d = foldDecompose(outer, tol);
+  const d = foldDecompose(outer, all.slice(1), tol);
   if (!d) return { images: [], creases: [] };
   return {
-    images: d.pieces.map((idxs) => ({ rings: [idxs.map((i) => outer[i])], algebra: im.algebra, ...(im.inherit !== undefined ? { inherit: im.inherit } : {}), ...(im.group !== undefined ? { group: im.group } : {}) })),
-    creases: d.creases.map(([i, j]) => ({ a: outer[i], b: outer[j] })),
+    images: d.pieces.map((ring) => ({ rings: [ring], algebra: im.algebra, ...(im.inherit !== undefined ? { inherit: im.inherit } : {}), ...(im.group !== undefined ? { group: im.group } : {}) })),
+    creases: d.creases.map(([a, b]) => ({ a, b })),
   };
 }
 function dedupeRing(r: readonly Pt3[]): Pt3[] {
