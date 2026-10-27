@@ -3,7 +3,7 @@
 > created 20261027 by Claude Opus 5.5 · as-of v0.14.70 / 2026-10-27 · 状态：讨论稿（user 手稿 + AI 挑刺），**没拍的都不是要求**；纪元还没 bump（等 user 答「先推不推正式版」）；**内核选择（brep 还是另做网格内核）同日重开，交 Fable 权衡（§6）**
 > 出处：user 2026-10-27 CatsUp 会话发的一张手写设计稿（图片没拷进仓，下面 §0 是逐行转写）+ 同一会话的几句话（§0 末尾原样照录）。
 > 上游：10-25 拍板「只有一种模态，用 brep，不做 Blender 网格」（纪元账本 `20261025-dog-tank-epoch-ledger.md` DT19 / DT22）；折线（DT87，v0.14.51）；user Blender 肌肉记忆原话全文 = 私仓建模历史 `ai-docs/20261024-discussions.md` D-9（摘要在 `20261024-design-blender-mode.md`，该稿「另一个内核」那条已作废）。
-> Fable 审：家族周账 F-104。
+> Fable 审：家族周账 F-104。**user 对本稿的逐条答复记在纪元账本 `20261027-free-modeling-epoch-ledger.md`（以账本为准，本稿的「AI 推荐」被答过的看账本）。**
 
 ## 0. user 原话 + 手稿转写
 
