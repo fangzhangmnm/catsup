@@ -101,3 +101,4 @@
 - 还开着：A1 注册表第 0 / 1 步（等 user 看完 .h）、A2 选区类型、A3 撤销审计 + 选区进撤销、A4 / A5 吸附、A6 手性审、K4 / T1 审（下面 §8 先写了结论）、O1–O4 取舍稿。
 - **新（FM83）**：`Kernel.selfCheck()` 五条不变量自检 + 打开后空闲检查 + 修复面板「检查」项 + 测试每步全图自检；不自动自愈。排在 mesh M1 之前。
 - **done（10-27 晚）**：`src/kernel/self-check.ts` 五条不变量自检 + `test/self-check.test.ts` 7 条（FM83 的内核那半；修复面板 / 打开后空闲检查的接线归 Opus）。核出：`fromBrep` 装载时已经拒「顶点离平面」「同环重复面」（审计稿 §2.3 已更正）。
+- **done（10-27 夜）**：FM80 软边 180° 自动并（v0.15.6）；K4 的「从装载态起步」差分测试 `test/loaded-differential.test.ts`（球 / 起伏格 / 平格，装载即修 → local / global 同串操作几何集合相同 + 操作后自检干净）；`fromBrep(snap, { settleMode })`；六个新测试文件登进 `test/run.mjs`。

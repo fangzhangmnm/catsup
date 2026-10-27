@@ -13,7 +13,7 @@ export interface Violation {
 export interface SelfCheckOptions {
     /** 只查这几条（缺 = 全部）。 */
     only?: readonly ViolationKind[];
-    /** 最多报几条（缺 = 不限；大模型上先要个数用）。 */
+    /** 最多报几条（缺 = 不限）。**只给界面省时间用**：报给人看时要说「≥ N」，不能把全量数藏起来（user 10-27「像切尔诺贝利一样……静默，就不好」：剂量计量程要够）。 */
     limit?: number;
 }
 /** 全图自检。O(E × 近边) + O(每平面膜数² 包围盒粗筛) + O(环边)。 */

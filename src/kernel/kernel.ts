@@ -154,8 +154,8 @@ export class Kernel {
    * 且全量校验面环自洽——校验失败整份拒开报出，不修不猜）。不跑 face-finding（A4：闭环可以无面，文件说有几张膜就是几张）。
    * created 2026-09-20 by Claude Fable 5.1
    */
-  static fromBrep(snap: BrepSnapshot): Kernel {
-    const k = new Kernel({ coplanarTol: snap.coplanarTol });
+  static fromBrep(snap: BrepSnapshot, opts?: { settleMode?: "local" | "global" }): Kernel {
+    const k = new Kernel({ coplanarTol: snap.coplanarTol, ...(opts?.settleMode ? { settleMode: opts.settleMode } : {}) });
     const g = k._graph;
     const fail = (msg: string): never => { throw new Error(`fromBrep: ${msg}`); };
     const vid: VertexId[] = [];
@@ -409,6 +409,17 @@ export class Kernel {
     for (const { id } of batch) if (this.graph.hasVertex(id)) for (const eid of this.graph.vertex(id).edges) dirtyEdges.add(eid);
     for (const sv of new Set(merged.values())) if (this.graph.hasVertex(sv)) for (const eid of this.graph.vertex(sv).edges) dirtyEdges.add(eid);
     const events = this.emit(this._settle({ consumed: touched, images, edgeLayers: this.edgeLayers, faceLayers: this.faceLayers, dirtyEdges, ...(opts?.creaseLayers?.length ? { creaseLayers: opts.creaseLayers } : {}) }));
+    // 软边两侧变 180° → 自动并掉（纪元账本 FM80，2026-10-27 Claude Fable 5.1；user「自动折硬边的话软边180自愈是不是还是可以加？关键还是看不见的180度软边的谜语人问题」）：
+    //   只看本次碰到的边（挪过的顶点的邻边 = 局部性）；软边、恰两张不同的膜、两张膜同一平面 → 走擦边机的 MERGE（擦边 v0.15.4 起局部化，坦克 45 ms）。
+    //   不限于自动折出来的（user：看不见又没视觉效果的软边 = 谜语人，不管谁画的）；没碰到的老 180° 软边归修复「清理碎渣」。写进 op 重放一致（在 moveVertices 内部）。
+    {
+      const flat: EdgeId[] = [];
+      const seen = new Set<EdgeId>();
+      const consider = (vid: VertexId): void => { if (!this.graph.hasVertex(vid)) return; for (const eid of this.graph.vertex(vid).edges) { if (seen.has(eid)) continue; seen.add(eid); const e = this.graph.edge(eid); if (!this.soft.has(eid) || e.faceLinks.length !== 2 || e.faceLinks[0] === e.faceLinks[1]) continue; const fa = this.store.face(e.faceLinks[0]), fb = this.store.face(e.faceLinks[1]); if (fa && fb && fa.planeId === fb.planeId) flat.push(eid); } };
+      for (const { id } of batch) consider(id);
+      for (const sv of new Set(merged.values())) consider(sv);
+      if (flat.length) { this._rev++; const vd = this.store.snapshotEraseVerdicts(this.graph, flat); for (const id of flat) { this.curveReg.onRemove(id); this.graph.removeEdge(id); } events.push(...this.emit(this.store.reconcileErase(this.graph, this.planes, this.coplanarTol, vd, { global: this.settleMode === "global" }))); }
+    }
     for (const [cid, vs] of curveVerts) {
       const c = this.curveReg.curve(cid);
       if (!c) continue;

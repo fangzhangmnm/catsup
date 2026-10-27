@@ -85,6 +85,8 @@ flowchart LR
 
 ---
 
+**挪点末尾多一步（v0.15.6，FM80）**：本次挪过的顶点的邻边里，软 + 恰两张不同膜 + 两膜同一平面的 → 走 ② 擦边裁决的 MERGE（局部化后 O(被碰平面)），看不见的 180° 软边不留。硬缝不自愈（FM79）。
+
 ## ② 擦边裁决（`Kernel.eraseEdges` → `FaceStore.snapshotEraseVerdicts` / `reconcileErase`）
 
 | 步 | 干什么 | 碰多少 |

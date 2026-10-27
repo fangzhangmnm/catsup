@@ -28,6 +28,12 @@ import "./reference-guard.test.ts";   // 参考窗单一接缝 + 图标（2026-1
 import "./facefind-hole-probe.test.ts";   // 挂洞探针不许用壳环顶点（2026-10-24，800 件场景第 379 步）
 import "./kernel-rev.test.ts";
 import "./settle-differential.test.ts";
+import "./autofold.test.ts";   // 自动折面 rev2（K3，2026-10-27 Fable）
+import "./cdt.test.ts";   // 约束 Delaunay 翻边（2026-10-27 Fable）
+import "./erase-differential.test.ts";   // 擦边局部化差分 oracle（T2，2026-10-27 Fable）
+import "./self-check.test.ts";   // 公理自检（FM83，2026-10-27 Fable）
+import "./loaded-differential.test.ts";   // 从装载态起步的差分（K4，2026-10-27 Fable）
+import "./soft-flat-merge.test.ts";   // 软边两侧变 180° 自动并（FM80，2026-10-27 Fable）
 import "./draw-frame.test.ts";   // DT86 坐标架 / 组件原点拆开（2026-10-26 Opus）
 import "./fold.test.ts";   // DT87 折线底子（2026-10-26 Opus）
 import "./change-log.test.ts";   // DT96 内核改动日志：变了的都记、没变的不记（2026-10-26 Opus）

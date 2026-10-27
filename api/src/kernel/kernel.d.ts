@@ -98,7 +98,9 @@ export declare class Kernel {
      * 且全量校验面环自洽——校验失败整份拒开报出，不修不猜）。不跑 face-finding（A4：闭环可以无面，文件说有几张膜就是几张）。
      * created 2026-09-20 by Claude Fable 5.1
      */
-    static fromBrep(snap: BrepSnapshot): Kernel;
+    static fromBrep(snap: BrepSnapshot, opts?: {
+        settleMode?: "local" | "global";
+    }): Kernel;
     /** 存储态快照（fromBrep 的逆）：索引 = 当前枚举顺序；只含被膜引用的平面。规范排序归 src/format。 */
     toBrep(): BrepSnapshot;
     /**
