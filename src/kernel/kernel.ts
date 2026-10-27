@@ -82,6 +82,15 @@ export interface BrepSnapshot {
 }
 
 export interface RewindMark { readonly seq: number; readonly events: number; }
+import type { GraphSource } from "./topology.ts";
+import type { FaceSource } from "./face-lifecycle.ts";
+import type { PlaneSource } from "./planes.ts";
+import type { CurveSource } from "./curves.ts";
+import type { EdgeLayerSource, FaceLayerSource } from "./layers.ts";
+import type { ChangeSet } from "./change-log.ts";
+import { type KernelDelta, type TouchedIds, DeltaSource } from "./delta.ts";
+import type { PlaneId as DeltaPlaneId, PlaneRec as DeltaPlaneRec } from "./planes.ts";
+import type { Ring as DeltaRing } from "./facefind.ts";
 /** 倒带后 rev 取的新值（进程内单调；缓存键不许回绕）。 */
 let revClock = 0;
 
@@ -251,21 +260,70 @@ export class Kernel {
   rewindTo(base: Kernel, mark: RewindMark): { verts: number; edges: number; faces: number } | null {
     const d = this.changes.since(mark.seq);
     if (!d) return null;
+    const ids = this.touchedClosure(d, base);
+    this.restoreFromSource(base._graph, base.store, base.planes, base.curveReg, base.edgeLayers, base.faceLayers, ids, mark.events, base._rev);
+    return { verts: ids.V.size, edges: ids.E.size, faces: ids.F.size };
+  }
+  /**
+   * 触碰集的闭包：改动日志给的编号，按邻接扩全（碰过的点的星、碰过的边的端点与两侧膜、碰过的膜的环边——本内核和 other 两边都看），
+   * 再带上牵连的平面（触碰膜的平面 + 一边有另一边没有的新平面）和曲线（触碰边的曲线 + 新曲线）。
+   */
+  private touchedClosure(d: ChangeSet, other: Kernel): TouchedIds {
     const V = new Set<VertexId>(d.verts), E = new Set<EdgeId>(d.edges), F = new Set<FaceId>(d.faces);
-    const g = this._graph, bg = base._graph;
-    for (const v of [...V]) { for (const gg of [g, bg]) { const rec = gg.vertexOrNull(v); if (rec) for (const e of rec.edges) E.add(e); } }
-    for (const f of [...F]) { for (const st of [this.store, base.store]) { const rec = st.face(f); if (rec) for (const r of [rec.outer, ...rec.holes]) for (const dd of r.edges) E.add(dd.edge); } }
-    for (const e of [...E]) { for (const gg of [g, bg]) { const rec = gg.edgeOrNull(e); if (rec) { V.add(rec.a); V.add(rec.b); for (const f of rec.faceLinks) F.add(f); } } }
-    for (const f of [...F]) { for (const st of [this.store, base.store]) { const rec = st.face(f); if (rec) for (const r of [rec.outer, ...rec.holes]) for (const dd of r.edges) E.add(dd.edge); } }
-    g.restoreFrom(bg, V, E);
-    this.store.restoreFrom(base.store, F);
-    this.planes.restoreFrom(base.planes);
-    this.curveReg.restoreFrom(base.curveReg, E);
-    this.edgeLayers.restoreFrom(base.edgeLayers, E);
-    this.faceLayers.restoreFrom(base.faceLayers, F);
-    this.eventLog.length = mark.events;
-    revClock = Math.max(revClock, this._rev, base._rev) + 1; this._rev = revClock;
-    return { verts: V.size, edges: E.size, faces: F.size };
+    const graphs = [this._graph, other._graph], stores = [this.store, other.store];
+    for (const v of [...V]) for (const g of graphs) { const rec = g.vertexOrNull(v); if (rec) for (const e of rec.edges) E.add(e); }
+    for (const f of [...F]) for (const st of stores) { const rec = st.face(f); if (rec) for (const r of [rec.outer, ...rec.holes]) for (const dd of r.edges) E.add(dd.edge); }
+    for (const e of [...E]) for (const g of graphs) { const rec = g.edgeOrNull(e); if (rec) { V.add(rec.a); V.add(rec.b); for (const f of rec.faceLinks) F.add(f); } }
+    // 端点的星再扩一圈：画线 / 擦线会让端点处的曲线重新分链（rechain）——邻边本身没动，它的「属于哪条曲线」却变了（差量测试 seed 3 抓到）
+    for (const v of [...V]) for (const g of graphs) { const rec = g.vertexOrNull(v); if (rec) for (const e of rec.edges) E.add(e); }
+    for (const f of [...F]) for (const st of stores) { const rec = st.face(f); if (rec) for (const r of [rec.outer, ...rec.holes]) for (const dd of r.edges) E.add(dd.edge); }
+    for (const e of [...E]) for (const g of graphs) { const rec = g.edgeOrNull(e); if (rec) { V.add(rec.a); V.add(rec.b); } }
+    const P = new Set<DeltaPlaneId>(), C = new Set<CurveId>();
+    for (const f of F) for (const st of stores) { const rec = st.face(f); if (rec) P.add(rec.planeId); }
+    const pMin = Math.min(this.planes.nextPlaneId, other.planes.nextPlaneId);
+    for (const reg of [this.planes, other.planes]) for (const id of reg.ids()) if (id >= pMin) P.add(id);
+    for (const e of E) for (const reg of [this.curveReg, other.curveReg]) { const c = reg.curveOf(e); if (c !== undefined) C.add(c); }
+    const cMin = Math.min(this.curveReg.nextCurveId, other.curveReg.nextCurveId);
+    for (const reg of [this.curveReg, other.curveReg]) for (const id of reg.ids()) if (id >= cMin) C.add(id);
+    return { V, E, F, P, C };
+  }
+  private restoreFromSource(g: GraphSource, fs: FaceSource, ps: PlaneSource, cs: CurveSource, el: EdgeLayerSource, fl: FaceLayerSource, ids: TouchedIds, events: number, otherRev: number): void {
+    this._graph.restoreFrom(g, ids.V, ids.E);
+    this.store.restoreFrom(fs, ids.F);
+    this.planes.restoreFrom(ps, ids.P);
+    this.curveReg.restoreFrom(cs, ids.E, ids.C);
+    this.edgeLayers.restoreFrom(el, ids.E);
+    this.faceLayers.restoreFrom(fl, ids.F);
+    this.eventLog.length = Math.min(this.eventLog.length, events);
+    revClock = Math.max(revClock, this._rev, otherRev) + 1; this._rev = revClock;
+  }
+  /** 抽差量：这些 id 在本内核现在的样子（null = 不存在）；纯数据，可估字节（kernel/delta.ts）。 */
+  extractDelta(ids: TouchedIds): KernelDelta {
+    const g = this._graph;
+    const cloneRing = (r: DeltaRing): DeltaRing => ({ edges: r.edges.map((d) => ({ ...d })), pts: r.pts.map((p) => ({ ...p })), vids: [...r.vids] });
+    const verts = new Map<VertexId, Vertex | null>(), edges = new Map<EdgeId, Edge | null>(), faces = new Map<FaceId, Face | null>();
+    for (const v of ids.V) { const r = g.vertexOrNull(v); verts.set(v, r ? { id: r.id, x: r.x, y: r.y, z: r.z, edges: new Set(r.edges) } : null); }
+    for (const e of ids.E) { const r = g.edgeOrNull(e); edges.set(e, r ? { id: r.id, a: r.a, b: r.b, faceLinks: [...r.faceLinks] } : null); }
+    for (const f of ids.F) { const r = this.store.face(f); faces.set(f, r ? { id: r.id, planeId: r.planeId, outer: cloneRing(r.outer), holes: r.holes.map(cloneRing), bbox: { ...r.bbox } } : null); }
+    const planes = new Map<DeltaPlaneId, DeltaPlaneRec | null>(); for (const p of ids.P) planes.set(p, this.planes.planeOrNull(p) ?? null);
+    const curves = new Map<CurveId, Curve | null>(); for (const c of ids.C) { const r = this.curveReg.curve(c); curves.set(c, r ? { ...r, edges: [...r.edges], ...(r.params ? { params: { ...r.params } } : {}) } : null); }
+    const curveOfEdge = new Map<EdgeId, CurveId | null>(); for (const e of ids.E) curveOfEdge.set(e, this.curveReg.curveOf(e) ?? null);
+    const edgeLayers = new Map<string, Map<EdgeId, boolean>>(); for (const n of this.edgeLayers.edgeLayerNames()) { const m = new Map<EdgeId, boolean>(); for (const e of ids.E) m.set(e, this.edgeLayers.has(n, e)); edgeLayers.set(n, m); }
+    const faceLayers = new Map<string, Map<FaceId, number | null>>(); for (const n of this.faceLayers.faceLayerNames()) { const m = new Map<FaceId, number | null>(); for (const f of ids.F) m.set(f, this.faceLayers.get(n, f) ?? null); faceLayers.set(n, m); }
+    return { ids, verts, edges, faces, planes, curves, curveOfEdge, edgeLayers, faceLayers, nextVertexId: g.nextVertexId, nextEdgeId: g.nextEdgeId, nextFaceId: this.store.nextFaceId, nextPlaneId: this.planes.nextPlaneId, nextCurveId: this.curveReg.nextCurveId, removedEdges: [...g.removedEdges()], removedFaces: [...this.store.removedFaces()], planeBucketWidth: this.planes.bucketWidth, planePending: [...this.planes.pendingRecs()], events: this.eventLog.length };
+  }
+  /** 应用差量（撤销 / 重做）：先抽现值作反向差量，再把内核写成 delta 的样子；自反。rev 取新值。 */
+  applyDelta(delta: KernelDelta): KernelDelta {
+    const inverse = this.extractDelta(delta.ids);
+    const src = new DeltaSource(delta);
+    this.restoreFromSource(src, src, src, src, src, src, delta.ids, delta.events, this._rev);
+    return inverse;
+  }
+  /** 「之前」的差量：本内核（影子 / 新真身）从 sinceSeq 起碰过的闭包，在 old（旧真身）里的样子。提交 = 影子换真身时抽一次，就是这一步的撤销记录。 */
+  deltaAgainst(old: Kernel, sinceSeq: number): KernelDelta | null {
+    const d = this.changes.since(sinceSeq);
+    if (!d) return null;
+    return old.extractDelta(this.touchedClosure(d, old));
   }
   clone(): Kernel {
     const k = new Kernel({ coplanarTol: this.coplanarTol, settleMode: this.settleMode });

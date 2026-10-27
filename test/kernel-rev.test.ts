@@ -12,10 +12,11 @@ const box = (k: Kernel): void => {
 };
 
 /** 查询 / 构造类方法（不改状态，不要求 bump）。 */
-const QUERIES = new Set(["constructor", "toBrep", "clone", "rewindMark", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "isFold", "foldPlan", "attachLog", "dihedralDeg", "bendDeg", "inwardAcross", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3", "curves", "curveById", "curveOf", "curveProblems", "isBreakJunction", "isFaceHidden", "isEdgeHidden"]);
+const QUERIES = new Set(["constructor", "toBrep", "clone", "rewindMark", "touchedClosure", "restoreFromSource", "extractDelta", "deltaAgainst", "vertices", "edges", "isSoft", "isCurve", "isSmooth", "isFold", "foldPlan", "attachLog", "dihedralDeg", "bendDeg", "inwardAcross", "faceMaterial", "faces", "face", "log", "hitTest", "planeOf", "faceMaterialOf", "faceRings3", "curves", "curveById", "curveOf", "curveProblems", "isBreakJunction", "isFaceHidden", "isEdgeHidden"]);
 /** 改写动词：每个在这里被调一次，rev 必须严格递增。 */
 const VERBS: Record<string, (k: Kernel) => void> = {
   rewindTo: (k) => { const base = k.clone(), mark = k.rewindMark(); k.rewindTo(base, mark); },   // 倒带（O1）：rev 取新值
+  applyDelta: (k) => { const d = k.extractDelta({ V: new Set(), E: new Set(), F: new Set(), P: new Set(), C: new Set() }); k.applyDelta(d); },   // 差量（A3）：rev 取新值
   addEdges: (k) => { k.addEdges([[P(5, 5), P(6, 5)]]); },
   eraseEdges: (k) => { k.eraseEdges([k.edges()[0].id]); },
   eraseFaces: (k) => { k.eraseFaces([k.faces()[0].id]); },

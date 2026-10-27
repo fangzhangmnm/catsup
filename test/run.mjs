@@ -41,6 +41,7 @@ import "./mesh-format.test.ts";   // CATSUP_mesh 1.0.0 多边形载荷（2026-10
 import "./object-commands.test.ts";
 import "./id-table.test.ts";   // 内核表的数组制度 IdMap / IdSet（2026-10-27 Fable O3）
 import "./preview-rewind.test.ts";   // 拖动预演「拷一次 + 每帧退回」差分（2026-10-27 Fable O1）   // 物体族：转成网格体 / 转回 SU 体 + 导入直接成网格体（2026-10-27 Fable）   // mesh 显示视图 + 场景 / 渲染缓存接网格体（2026-10-27 Fable M2）   // mesh 内核 M1：不变量 + 算子 + 随机串（2026-10-27 Fable）
+import "./kernel-delta.test.ts";   // 内核差量：提交 = 影子换真身、applyDelta 自反（2026-10-27 Fable A3）
 import "./draw-frame.test.ts";   // DT86 坐标架 / 组件原点拆开（2026-10-26 Opus）
 import "./fold.test.ts";   // DT87 折线底子（2026-10-26 Opus）
 import "./change-log.test.ts";   // DT96 内核改动日志：变了的都记、没变的不记（2026-10-26 Opus）

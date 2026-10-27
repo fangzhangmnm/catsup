@@ -39,6 +39,9 @@ const D_N = 1e-3;               // 法向分量桶宽（ANGLE_DOT 对应的分�
 const N_EPS = 2e-5;
 const keyN = (x: number): number => Math.floor(x / D_N);
 
+/** restoreFrom 的来源：真身的 PlaneRegistry 或差量。 */
+export interface PlaneSource { planeOrNull(id: PlaneId): PlaneRec | null | undefined; readonly nextPlaneId: number; readonly bucketWidth: number; pendingRecs(): readonly PlaneRec[]; }
+
 export class PlaneRegistry {
   private recs = new IdMap<PlaneRec>();   // 按 id 下标（O3）：all() / values() 按 id 序
   private nextId = 1;
@@ -140,13 +143,19 @@ export class PlaneRegistry {
   private drop(id: PlaneId): void { const r = this.recs.get(id); if (!r) return; this.recs.delete(id); if (this.dW) this.unindex(r); }
 
   /** 倒带（O1）：平面记录不可变，只对齐集合——base 没有的删（出索引）、base 有的补回；桶宽 / 待入索引照 base（桶宽变了 = 整个索引重建，少见）。 */
-  restoreFrom(base: PlaneRegistry): void {
-    for (const id of [...this.recs.keys()]) if (!base.recs.has(id)) this.drop(id);
-    if (this.dW !== base.dW) { this.dW = base.dW; this.buckets = new Map(); this.shared = new WeakSet(); for (const r of this.recs.values()) if (this.dW) this.index(r); }
-    for (const [id, r] of base.recs) if (!this.recs.has(id)) { this.recs.set(id, r); if (this.dW) this.index(r); }
-    this.pending = [...base.pending];
-    this.nextId = base.nextId;
+  restoreFrom(src: PlaneSource, pids: Iterable<PlaneId>): void {
+    const ids = [...pids];
+    for (const id of ids) if (this.recs.has(id) && !src.planeOrNull(id)) this.drop(id);
+    if (this.dW !== src.bucketWidth) { this.dW = src.bucketWidth; this.buckets = new Map(); this.shared = new WeakSet(); for (const r of this.recs.values()) if (this.dW) this.index(r); }
+    for (const id of ids) { const r = src.planeOrNull(id); if (r && !this.recs.has(id)) { this.recs.set(id, r); if (this.dW) this.index(r); } }
+    this.pending = [...src.pendingRecs()];
+    this.nextId = src.nextPlaneId;
   }
+  planeOrNull(id: PlaneId): PlaneRec | undefined { return this.recs.get(id); }
+  get nextPlaneId(): number { return this.nextId; }
+  get bucketWidth(): number { return this.dW; }
+  pendingRecs(): readonly PlaneRec[] { return this.pending; }
+  ids(): Iterable<PlaneId> { return this.recs.keys(); }
   clone(): PlaneRegistry {
     const c = new PlaneRegistry();
     c.nextId = this.nextId;
