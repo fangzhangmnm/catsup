@@ -8,13 +8,17 @@
 //   每组拍到同一张平面上（众数 = 组里已经落在同一平面上的点最多的那张，user 的例子 0.5 / 0.51 → 0.5；中位数 / 平均数可选）；擦内线 = 选项。
 //   边角：小角度硬边一边是平面、一边是平滑组的一片 → 照样是候选，拍平后并成一张面、成为平滑组的一员（user「和你相反……加入平滑组」）——不用特判。
 //   零破面（user「确保不要有任何面破，如果有，说明我们算法可能想错了」）：不在这里判，在执行（ops.ts makePlanar）那里看结算事件，有 BURST 整步拒绝。
+// 已经平的组（2026-10-26 夜修，Claude Opus 5.5）：组里每张面都在同一张平面上——中间只有画出来的硬线（墙上画的窗框，没推拉）= 故意的，不碰
+//   （以前照样算一组、擦掉，而拍平在修复面板里默认勾）；中间有看不见的软边 / 折线（导入的三角网、被拉正拉平的微折）= 只擦那些软边 / 折线，硬线留着
+//   （软边把两半连成「曲面」，推拉会被拦——检查模式要抓的就是它）。这一档要擦的软边超过 flatSoftMax 就先不并、报条数（擦边现在很慢，家族周账 F-97 ①）。
+//   擦内线也查材质：两侧材质不一样的边不擦（并成一张面以后颜色只能留一种）。
 // 一个点同时属于几组（被一条锐边分开的两组共用的边界点）→ 挪到这几张平面的交线 / 交点上（交替投影），几组都平。
 import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../../../kernel/kernel.ts";
 import { COPLANAR_TOL_DEFAULT, add3, cross3, dot3, normalize3, scale3, sub3 } from "../../../kernel/geom.ts";
 import { gates, partitionFaces } from "../../../kernel/flood.ts";
 
 export type PlanarTarget = "mode" | "median" | "mean";
-export interface PlanarOptions { /** 候选边的弯折上限（度）。 */ deg: number; target: PlanarTarget; /** 拍完擦掉组里的候选边（两边并成一张面）。 */ eraseInner: boolean; }
+export interface PlanarOptions { /** 候选边的弯折上限（度）。 */ deg: number; target: PlanarTarget; /** 已经平、只被软边 / 折线分开的面：这次要擦的软边超过这么多条就先不并（导入的三角网动辄上万条，擦边现在要重切全部平面、很慢）；缺 = 不限。 */ flatSoftMax?: number; /** 拍完擦掉组里的候选边（两边并成一张面）。 */ eraseInner: boolean; }
 export const PLANAR_DEFAULTS: PlanarOptions = { deg: 20, target: "mode", eraseInner: true };
 
 export interface PlanarPlan {
@@ -26,6 +30,8 @@ export interface PlanarPlan {
   erase: { id: EdgeId; a: Pt3; b: Pt3 }[];
   /** 整片弯得超过阈值、当曲面没拍的片数（按边连起来的那一层数）。 */
   curved: number;
+  /** 已经平、只被软边 / 折线分开的面：因为超过 flatSoftMax 先没并的软边条数。 */
+  flatSkipped: number;
 }
 interface Plane { n: Pt3; d: number }
 
@@ -39,13 +45,32 @@ export function planPlanar(k: Kernel, scope: readonly FaceId[] | null, opt: Plan
   const flatOn = (g: readonly FaceId[]): Plane | null => { const pl = targetPlane(k, g, vidsOf(g), opt.target, tau); return g.every((fid) => Math.abs(dot3(k.planeOf(fid)!.plane.n, pl.n)) >= cosMax - 1e-12) ? pl : null; };
   const groups: FaceId[][] = [], targets: Plane[] = [];
   let curved = 0;
+  const alreadyFlat = (g: readonly FaceId[]): boolean => g.every((f) => k.face(f)!.planeId === k.face(g[0])!.planeId);
+  const sameMat = (fa: FaceId, fb: FaceId): boolean => k.faceMaterialOf(fa, 0) === k.faceMaterialOf(fb, 0) && k.faceMaterialOf(fa, 1) === k.faceMaterialOf(fb, 1);
+  /** 组里能擦的内线（两边都在组里、两侧材质一样、是候选）；softOnly = 只要软边 / 折线。 */
+  const innerOf = (g: readonly FaceId[], softOnly: boolean): EdgeId[] => {
+    const inG = new Set(g), seen = new Set<EdgeId>(), out: EdgeId[] = [];
+    for (const fid of g) { const f = k.face(fid)!; for (const r of [f.outer, ...f.holes]) for (const d of r.edges) {
+      if (seen.has(d.edge)) continue; seen.add(d.edge);
+      const e = k.graph.edge(d.edge), fl = [...new Set(e.faceLinks)];
+      if (!gate(d.edge) || !fl.every((x) => inG.has(x)) || (fl.length === 2 && !sameMat(fl[0], fl[1]))) continue;   // 两侧颜色不一样：拍平但不并
+      if (softOnly && !k.isSoft(d.edge) && !k.isFold(d.edge)) continue;
+      out.push(d.edge);
+    } }
+    return out;
+  };
+  const flatSoft: { g: FaceId[]; soft: EdgeId[] }[] = [];
   for (const g of partitionFaces(k, faces, gate)) {
     if (g.length < 2) continue;
+    if (alreadyFlat(g)) { const soft = innerOf(g, true); if (soft.length) flatSoft.push({ g, soft }); continue; }
     const pl = flatOn(g);
     if (pl) { groups.push(g); targets.push(pl); continue; }
     curved++;
-    for (const h of partitionFaces(k, g, hard)) { if (h.length < 2) continue; const ph = flatOn(h); if (ph) { groups.push(h); targets.push(ph); } }
+    for (const h of partitionFaces(k, g, hard)) { if (h.length < 2 || alreadyFlat(h)) continue; const ph = flatOn(h); if (ph) { groups.push(h); targets.push(ph); } }
   }
+  const nFlatSoft = flatSoft.reduce((n, x) => n + x.soft.length, 0), takeFlat = nFlatSoft <= (opt.flatSoftMax ?? Infinity);
+  const softOnlyGroup = new Set<number>();
+  if (takeFlat) for (const x of flatSoft) { softOnlyGroup.add(groups.length); groups.push(x.g); const rec = k.planeOf(x.g[0])!; targets.push({ n: rec.plane.n, d: rec.plane.d }); }
   const planesOf = new Map<VertexId, Plane[]>();
   groups.forEach((g, i) => { for (const v of vidsOf(g)) { const a = planesOf.get(v) ?? []; a.push(targets[i]); planesOf.set(v, a); } });
   const moves: PlanarPlan["moves"] = [], moved = new Map<VertexId, Pt3>();
@@ -55,17 +80,11 @@ export function planPlanar(k: Kernel, scope: readonly FaceId[] | null, opt: Plan
   }
   const erase: PlanarPlan["erase"] = [];
   if (opt.eraseInner) {
-    for (const g of groups) {
-      const inG = new Set(g), seen = new Set<EdgeId>();
-      for (const fid of g) { const f = k.face(fid)!; for (const r of [f.outer, ...f.holes]) for (const d of r.edges) {
-        if (seen.has(d.edge)) continue; seen.add(d.edge);
-        const e = k.graph.edge(d.edge);
-        if (!gate(d.edge) || !e.faceLinks.every((x) => inG.has(x))) continue;   // 只擦组里的候选边（两边都在这组）
-        erase.push({ id: d.edge, a: moved.get(e.a) ?? k.graph.pt(e.a), b: moved.get(e.b) ?? k.graph.pt(e.b) });
-      } }
-    }
+    groups.forEach((g, i) => {
+      for (const id of innerOf(g, softOnlyGroup.has(i))) { const e = k.graph.edge(id); erase.push({ id, a: moved.get(e.a) ?? k.graph.pt(e.a), b: moved.get(e.b) ?? k.graph.pt(e.b) }); }
+    });
   }
-  return { groups, moves, erase, curved };
+  return { groups, moves, erase, curved, flatSkipped: takeFlat ? 0 : nFlatSoft };
 }
 
 /** 这一组拍到哪张平面。 */

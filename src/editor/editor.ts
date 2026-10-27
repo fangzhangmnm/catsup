@@ -1492,7 +1492,7 @@ export class Editor {
     return out;
   }
   /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
-  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): { ops: Op[]; count: number; extra?: number; skipped?: number } {
+  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): { ops: Op[]; count: number; extra?: number; skipped?: number; notes?: string[] } {
     return this.repairModule(kind).plan(this.repairCtx, { at, sel, xf }, v);
   }
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
@@ -1536,8 +1536,9 @@ export class Editor {
     // deepFirst（恢复层级）：深的池先跑（父层会把素组合进组件；先合了父层，轮到那个组自己时它已经不在了）
     const depth = (at: PoolRef): number => { if (at.group === null) return 0; let d = 1; for (let g = this.scene.group({ def: at.def, group: at.group }).parent; g !== null && d < 64; d++) g = this.scene.group({ def: at.def, group: g }).parent; return d; };
     const pools = names.deepFirst ? [...sc.pools].sort((a, b) => depth(b.at) - depth(a.at)) : sc.pools;
-    for (const p of pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
-    const skipText = skipped && names.skippedText ? `；${names.skippedText(skipped, v)}` : "";
+    const notes = new Set<string>();
+    for (const p of pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; for (const n of r.notes ?? []) notes.add(n); }
+    const skipText = `${skipped && names.skippedText ? `；${names.skippedText(skipped, v)}` : ""}${[...notes].map((n) => `；${n}`).join("")}`;
     const scopeText = `${this.scopeText(sc)}${skipText}`;
     if (!ops.length) return { count: 0, text: names.none, scope: scopeText, failed: false };
     // 会挪点的修复（tally：拉正 / 吸到格点）的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」

@@ -34,6 +34,8 @@ export interface RepairPlanOut {
     extra?: number;
     /** 没碰的（拍平：曲面片；吸格点：只选了一部分的圆上的点）。 */
     skipped?: number;
+    /** 提示里补的话（每个池一句以内；框架去重后接在后面）。 */
+    notes?: string[];
 }
 export type RepairValues = Readonly<Record<string, ParamValue>>;
 export interface RepairModule {

@@ -88,6 +88,33 @@ describe("planar: 拍平", () => {
     eq(plan.groups.length, 1); eq(plan.curved, 1);
     assert(plan.moves.every((m) => m.to.x < 5), "只挪板上的点");
   });
+  it("已经平的面上画的线框（窗框，没推拉）：不是拍平的活，不擦（以前会被擦掉）", () => {
+    const k = new Kernel(); loop(k, [P(0, 0), P(4, 0), P(4, 3), P(0, 3)]); loop(k, [P(1, 1), P(2, 1), P(2, 2), P(1, 2)]);
+    eq(k.faces().length, 2);
+    eq(planPlanar(k, null, PLANAR_DEFAULTS).groups.length, 0);
+  });
+  it("已经平、只被软边分开（被拉正拉平的微折 / 导入的三角网）：擦软边并成一张面；同平面上的硬线留着；超过上限先不并、报条数", () => {
+    const k = new Kernel(); loop(k, [P(0, 0), P(4, 0), P(4, 3), P(0, 3)]);
+    k.addEdges([[P(2, 0), P(2, 3)]]);   // 中线：一会儿变软
+    loop(k, [P(0.5, 0.5), P(1.5, 0.5), P(1.5, 1.5), P(0.5, 1.5)]);   // 左半边上画的硬线框（窗框）
+    const mid = k.edges().find((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return Math.abs(a.x - 2) < 1e-9 && Math.abs(b.x - 2) < 1e-9; })!.id;
+    k.setEdgeLayer("soft", [mid], true); k.setEdgeLayer("smooth", [mid], true);
+    const plan = planPlanar(k, null, PLANAR_DEFAULTS);
+    eq(plan.groups.length, 1); eq(plan.erase.map((e) => e.id).join(), String(mid), "只擦那条软边，窗框留着");
+    const capped = planPlanar(k, null, { ...PLANAR_DEFAULTS, flatSoftMax: 0 });
+    eq(capped.groups.length, 0); eq(capped.flatSkipped, 1, "超过上限：先不并、报条数");
+    let s = new Scene(k);
+    s = applyOp(s, op(s)).scene;
+    eq(s.kernelOf(rootAt(s)).faces().length, 2, "两半并成一张（窗框里那张照旧）");
+  });
+  it("微翘的两半、一半涂了色：拍平，但两侧颜色不一样的那条边不擦", () => {
+    const k = tilted();
+    const far = k.faces().find((f) => k.faceRings3(f.id)!.outer.some((p) => Math.abs(p.z - 0.51) < 1e-9))!;
+    k.faceLayers.set("material", far.id, 3);
+    const plan = planPlanar(k, null, PLANAR_DEFAULTS);
+    eq(plan.groups.length, 1); eq(plan.erase.length, 0, "颜色不一样不并");
+    assert(plan.moves.length > 0, "照样拍平");
+  });
   it("撤销回原样（一步）", () => {
     const s0 = new Scene(tilted()), h = new History(s0);
     let s = s0.clone();

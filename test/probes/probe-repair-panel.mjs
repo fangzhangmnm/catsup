@@ -44,7 +44,7 @@ const res = await page.evaluate(async () => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.worth && res.orangeBefore === 0 && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "straighten", "snap", "weld", "planar", "harden", "fillHoles", "hierarchy"])
+const ok = res.worth && res.orangeBefore === 0 && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "straighten", "snap", "cleanup", "weld", "planar", "harden", "fillHoles", "hierarchy"])
   && /焊接断口 1/.test(res.note) && /微折软边/.test(res.note) && res.orangeOn > 20 && res.orangeOff === 0
   && /修复：/.test(res.hint) && /拉正了 \d+ 个点|吸了 \d+ 个点到格点/.test(res.hint) && /焊了 1 处断口/.test(res.hint)
   && res.after?.phase === "after" && res.after.title === "修复" && /没有剩下的微折软边/.test(res.after.note ?? "") && res.cornerBack && res.breaks === 0 && res.undoBreaks === 1 && res.undoCorner && !errs.length;
