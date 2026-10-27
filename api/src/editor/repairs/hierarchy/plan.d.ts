@@ -20,7 +20,9 @@ export declare function shapeKey(s: BrepSnapshot): string;
  */
 export declare function congruentXform(a: BrepSnapshot, b: BrepSnapshot, opt?: {
     mirror?: boolean;
-    tol?: number;
+    tol?: number; /** 试满上限还没比完（太对称）时叫一声——不静默当成「不一样」。 */
+    onGiveUp?: () => void; /** 试的上限（缺 = MAX_TRIES；测试用）。 */
+    maxTries?: number;
 }): Xform | null;
 /**
  * 分门别类：形状一样的归一类。classes[c] = 这一类的成员下标（第一个 = 模板）；xf[i] = 模板 → 第 i 个的刚体变换（模板自己 = 单位）。
@@ -31,4 +33,5 @@ export declare function classifyShapes(snaps: readonly BrepSnapshot[], opt?: {
 }): {
     classes: number[][];
     xf: Xform[];
+    gaveUp: number;
 };

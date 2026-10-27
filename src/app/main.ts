@@ -133,6 +133,7 @@ let _session: Session | null = null;   // editor.host.changed 要同步喂 sessi
 const editor = new Editor(canvas, {
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
+  confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不做" }),   // 慢的修复先问（user「宁愿弹警告问yes no」）
   tip: (t, cx, cy, scale, measure) => {
     const html = scaleTipHtml(t, scale ?? null, scaleMax, measure || undefined);   // 读数第一行；B43 参考第二行（user「优先显示长度，参考只是参考」）
     if (html) {

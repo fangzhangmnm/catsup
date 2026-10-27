@@ -107,7 +107,7 @@ const MAX_TRIES = 20000;
  * 做法：点的重心对重心；a 里挑两个「离重心的距离最少撞车」的点 p、q（不和重心共线），b 里找离重心一样远、彼此一样远的 p′、q′，
  * 两组点各张一个右手架 → 旋转；每个候选都整件验一遍（sameAfter）。
  */
-export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, opt: { mirror?: boolean; tol?: number } = {}): Xform | null {
+export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, opt: { mirror?: boolean; tol?: number; /** 试满上限还没比完（太对称）时叫一声——不静默当成「不一样」。 */ onGiveUp?: () => void; /** 试的上限（缺 = MAX_TRIES；测试用）。 */ maxTries?: number } = {}): Xform | null {
   const tol = opt.tol ?? Math.max(congruenceTol(a), congruenceTol(b));
   if (shapeKey(a) !== shapeKey(b)) return null;
   const ca = mean(a.vertices), cb = mean(b.vertices);
@@ -126,7 +126,7 @@ export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, opt: { mirror?:
   let tries = 0;
   for (const flip of opt.mirror ? [false, true] : [false]) for (const pj of P) for (const qj of Q) {
     if (pj === qj || Math.abs(len(sub(b.vertices[pj], b.vertices[qj])) - dpq) > 4 * tol) continue;
-    if (++tries > MAX_TRIES) return null;
+    if (++tries > (opt.maxTries ?? MAX_TRIES)) { opt.onGiveUp?.(); return null; }
     const Fb0 = frame(cb, b.vertices[pj], b.vertices[qj]);
     if (!Fb0) continue;
     const Fb: [Pt3, Pt3, Pt3] = flip ? [Fb0[0], Fb0[1], { x: -Fb0[2].x, y: -Fb0[2].y, z: -Fb0[2].z }] : Fb0;   // 左手架 → 带镜像的变换（行列式 −1）
@@ -144,12 +144,14 @@ export function congruentXform(a: BrepSnapshot, b: BrepSnapshot, opt: { mirror?:
  * 分门别类：形状一样的归一类。classes[c] = 这一类的成员下标（第一个 = 模板）；xf[i] = 模板 → 第 i 个的刚体变换（模板自己 = 单位）。
  * 贪心：按顺序，每个先和同指纹的各类模板比，对上就进那类，都对不上就自己开一类。
  */
-export function classifyShapes(snaps: readonly BrepSnapshot[], opt: { mirror?: boolean } = {}): { classes: number[][]; xf: Xform[] } {
+export function classifyShapes(snaps: readonly BrepSnapshot[], opt: { mirror?: boolean } = {}): { classes: number[][]; xf: Xform[]; gaveUp: number } {
   const classes: number[][] = [], xf: Xform[] = snaps.map(() => IDENTITY), byKey = new Map<string, number[]>();
+  let gaveUp = 0;
+  const o = { ...opt, onGiveUp: () => { gaveUp++; } };
   snaps.forEach((s, i) => {
     const key = shapeKey(s), cands = byKey.get(key) ?? [];
-    for (const c of cands) { const m = congruentXform(snaps[classes[c][0]], s, opt); if (m) { classes[c].push(i); xf[i] = m; return; } }
+    for (const c of cands) { const m = congruentXform(snaps[classes[c][0]], s, o); if (m) { classes[c].push(i); xf[i] = m; return; } }
     classes.push([i]); cands.push(classes.length - 1); byKey.set(key, cands);
   });
-  return { classes, xf };
+  return { classes, xf, gaveUp };
 }

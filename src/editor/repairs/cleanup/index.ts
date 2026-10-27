@@ -40,23 +40,23 @@ export const cleanup: RepairModule = {
   id: "cleanup",
   title: "清理碎渣",
   panel: { on: false, label: () => "清理碎渣（悬空的线 / 很短的边 / 同一平面切碎的面）" },   // 默认不勾：会擦线，画在面上的线框（同材质）也算碎渣
-  defaults: () => ({ stray: true, tinyMm: 0, coplanar: true, softToo: false }),
+  defaults: () => ({ stray: true, tinyMm: 0, coplanar: true, softToo: true }),
   fields: () => [
     { key: "stray", def: { kind: "bool", label: "悬空的线（一张面都没挂的边）擦掉" } },
-    { key: "tinyMm", def: { kind: "number", label: `短于这么长的边并成一个点（0 = 不并；建议 ${TINY_LEN * 1000}；会破面就整步撤回）`, min: 0, max: 50, step: 0.1, unit: "mm" } },
+    { key: "tinyMm", def: { kind: "number", label: `短于这么长的边并成一个点（0 = 不并；默认不并是因为三角网上并短边容易把面弄破，会破就整步撤回；建议 ${TINY_LEN * 1000}）`, min: 0, max: 50, step: 0.1, unit: "mm" } },
     { key: "coplanar", def: { kind: "bool", label: "同一平面上被线切碎的面并回去（两边材质一样才并；画在面上的线框也算）" } },
-    { key: "softToo", def: { kind: "bool", label: "连看不见的软边也并（导入的模型可能有上万条、很慢）" } },
+    { key: "softToo", def: { kind: "bool", label: "连看不见的软边也并（导入的三角网里很多；大物体上会先问你，因为现在擦线很慢）" } },
   ],
   plan(ctx, { at, sel }, v) {
     const k = ctx.scene.kernelOf(at);
     let scope: Set<EdgeId> | null = null;
     if (sel) { scope = new Set(sel.edges); for (const f of sel.faces) { const F = k.face(f); if (F) for (const r of [F.outer, ...F.holes]) for (const d of r.edges) scope.add(d.edge); } if (!scope.size) return { ops: [], count: 0 }; }
-    const stray = v.stray !== false, coplanar = v.coplanar !== false, softToo = v.softToo === true, tinyLen = Math.max(0, Number(v.tinyMm ?? 0)) / 1000;
+    const stray = v.stray !== false, coplanar = v.coplanar !== false, softToo = v.softToo !== false, tinyLen = Math.max(0, Number(v.tinyMm ?? 0)) / 1000;
     const nStray = stray ? strayEdges(k, scope).length : 0, nTiny = tinyLen > 0 ? tinyEdgeMoves(k, scope, tinyLen).clusters : 0, nCop = coplanar ? coplanarInnerEdges(k, scope, { soft: softToo }).length : 0;
     const count = nStray + nTiny + nCop;
     if (!count) return { ops: [], count: 0 };
     const args: CleanupArgs = { edges: scope ? [...scope].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) : [], stray, tinyLen, coplanar, ...(softToo ? { softToo } : {}) };
-    return { ops: [{ op: "plugin", name: "cleanup", at, args: args as unknown as Record<string, unknown> }], count, extra: nCop };
+    return { ops: [{ op: "plugin", name: "cleanup", at, args: args as unknown as Record<string, unknown> }], count, extra: nCop, erases: nCop };
   },
   done: (n, e) => `清理了 ${n} 处碎渣${e ? `（其中 ${e} 条同一平面上的内线）` : ""}`,
   none: "没有碎渣（悬空的线、很短的边、同一平面切碎的面都没有）",

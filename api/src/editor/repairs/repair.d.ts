@@ -38,6 +38,8 @@ export interface RepairPlanOut {
     skipped?: number;
     /** 提示里补的话（每个池一句以内；框架去重后接在后面）。 */
     notes?: string[];
+    /** 要擦几条「面和面之间的」线：内核现在每擦一次都要把整个物体重新整理一遍（家族周账 F-97 ①），大物体上要等很久——框架据此先问 user（不静默跳过）。 */
+    erases?: number;
 }
 export type RepairValues = Readonly<Record<string, ParamValue>>;
 export interface RepairModule {

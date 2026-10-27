@@ -70,13 +70,14 @@ export const hierarchy: RepairModule = {
     const pieces = piecesOf(k, sel ? { faces, edges } : null);
     const plain = dedupe ? plainGroups(ctx.scene, at) : [];
     const snaps = [...pieces.map((p) => extractSnapshot(k, p.faces, p.edges)), ...plain.map((g) => g.kernel.toBrep())];
-    const classes = dedupe ? classifyShapes(snaps, { mirror }).classes : snaps.map((_, i) => [i]);
+    const cls = dedupe ? classifyShapes(snaps, { mirror }) : null, classes = cls ? cls.classes : snaps.map((_, i) => [i]);
+    const notes = cls?.gaveUp ? [`有 ${cls.gaveUp} 对形状太对称、比了 2 万次还没比完，当成不一样（没合）`] : [];
     const split = pieces.length >= 2;
     let count = 0, comps = 0;
     for (const c of classes) { if (c.length >= 2) { count += c.length; comps++; } else if (split && c[0] < pieces.length) count++; }
-    if (!count) return { ops: [], count: 0 };
+    if (!count) return { ops: [], count: 0, notes };
     const args: HierarchyArgs = { faces: faces.map((f) => faceKey(k, f)), edges: edges.map((e) => edgeKey(k, e)), dedupe, mirror };
-    return { ops: [{ op: "plugin", name: "hierarchy", at, args: args as unknown as Record<string, unknown> }], count, extra: comps };
+    return { ops: [{ op: "plugin", name: "hierarchy", at, args: args as unknown as Record<string, unknown> }], count, extra: comps, notes };
   },
   done: (n, e) => `整理了 ${n} 块：各自成组${e ? `，形状一样的合成 ${e} 个组件` : ""}`,
   none: "没有要整理的（每层只有一块、也没有形状一样的）",

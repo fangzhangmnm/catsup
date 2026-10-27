@@ -93,7 +93,7 @@ describe("planar: 拍平", () => {
     eq(k.faces().length, 2);
     eq(planPlanar(k, null, PLANAR_DEFAULTS).groups.length, 0);
   });
-  it("已经平、只被软边分开（被拉正拉平的微折 / 导入的三角网）：擦软边并成一张面；同平面上的硬线留着；超过上限先不并、报条数", () => {
+  it("已经平、只被软边分开（被拉正拉平的微折 / 导入的三角网）：擦软边并成一张面；同平面上的硬线留着", () => {
     const k = new Kernel(); loop(k, [P(0, 0), P(4, 0), P(4, 3), P(0, 3)]);
     k.addEdges([[P(2, 0), P(2, 3)]]);   // 中线：一会儿变软
     loop(k, [P(0.5, 0.5), P(1.5, 0.5), P(1.5, 1.5), P(0.5, 1.5)]);   // 左半边上画的硬线框（窗框）
@@ -101,8 +101,6 @@ describe("planar: 拍平", () => {
     k.setEdgeLayer("soft", [mid], true); k.setEdgeLayer("smooth", [mid], true);
     const plan = planPlanar(k, null, PLANAR_DEFAULTS);
     eq(plan.groups.length, 1); eq(plan.erase.map((e) => e.id).join(), String(mid), "只擦那条软边，窗框留着");
-    const capped = planPlanar(k, null, { ...PLANAR_DEFAULTS, flatSoftMax: 0 });
-    eq(capped.groups.length, 0); eq(capped.flatSkipped, 1, "超过上限：先不并、报条数");
     let s = new Scene(k);
     s = applyOp(s, op(s)).scene;
     eq(s.kernelOf(rootAt(s)).faces().length, 2, "两半并成一张（窗框里那张照旧）");

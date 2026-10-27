@@ -94,6 +94,8 @@ export interface EditorHost {
     readout?(text: string): void;
     /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
     optionKv?: OptionKv;
+    /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
+    confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
 }
 export declare const SNAP_LABELS: Record<string, string>;
 export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
@@ -684,6 +686,13 @@ export declare class Editor {
     private repairFields;
     /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
     repair(kind: RepairKind, scope?: "auto" | "context"): number;
+    /** 大物体上擦线的量级估计：坦克（3.2 万面）实测每擦一次内核整理一遍整个物体约 95 s、和擦几条几乎无关（家族周账 F-97 ①），按面数平方推算。量纲：秒。 */
+    private static readonly ERASE_REF;
+    /** 估计超过这么多秒才问（量纲：秒；AI 定的门槛）。 */
+    private static readonly ERASE_ASK_SECONDS;
+    private eraseEstimate;
+    private eraseAskText;
+    private repairNow;
     /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
     private static readonly SUBTLE_FOLD_DEG;
     /** 修复面板里跑的顺序 = 清单顺序（repairs/index.ts 头注释说为什么是这个顺序）。 */

@@ -53,7 +53,7 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIRS } from "./repairs/index.ts";
-import type { RepairCtx, RepairModule } from "./repairs/repair.ts";
+import type { RepairCtx, RepairModule, RepairPlanOut } from "./repairs/repair.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -112,6 +112,8 @@ export interface EditorHost {
   readout?(text: string): void;
   /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
   optionKv?: OptionKv;
+  /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
+  confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
 }
 
 function epsOfKindVR(e: EpsSet, kind: string): number {
@@ -1492,7 +1494,7 @@ export class Editor {
     return out;
   }
   /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
-  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): { ops: Op[]; count: number; extra?: number; skipped?: number; notes?: string[] } {
+  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): RepairPlanOut {
     return this.repairModule(kind).plan(this.repairCtx, { at, sel, xf }, v);
   }
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
@@ -1554,13 +1556,41 @@ export class Editor {
   /** 各修复指令自己的参数（马后炮里改）。 */
   private repairFields(kind: RepairKind): ParamField[] { return this.repairModule(kind).fields(this.repairCtx); }
   /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
-  repair(kind: RepairKind, scope: "auto" | "context" = "auto"): number { return this.step(() => {
+  repair(kind: RepairKind, scope: "auto" | "context" = "auto"): number {
+    const v0: Record<string, ParamValue> = { children: this.repairChildren, ...this.repairDefaults(kind) };
+    // 大物体上要擦线 = 要等一会儿：先问，不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）
+    const est = this.host.confirm ? this.eraseEstimate([{ kind, v: v0 }], scope) : null;
+    if (est) {
+      const title = this.repairModule(kind).title;
+      void this.host.confirm!(`${title}：要等一会儿`, this.eraseAskText(title, est), "做（会卡住一会儿）").then((ok) => { if (ok) this.repairNow(kind, scope, v0); else { this.host.hint(`${title}：没做（你选了不做）`); this.draw(); } });
+      return 0;
+    }
+    return this.repairNow(kind, scope, v0);
+  }
+  /** 大物体上擦线的量级估计：坦克（3.2 万面）实测每擦一次内核整理一遍整个物体约 95 s、和擦几条几乎无关（家族周账 F-97 ①），按面数平方推算。量纲：秒。 */
+  private static readonly ERASE_REF = { faces: 32220, seconds: 95 };
+  /** 估计超过这么多秒才问（量纲：秒；AI 定的门槛）。 */
+  private static readonly ERASE_ASK_SECONDS = 5;
+  private eraseEstimate(steps: readonly { kind: RepairKind; v: Readonly<Record<string, ParamValue>> }[], scope: "auto" | "context"): { edges: number; seconds: number; faces: number } | null {
+    let edges = 0, seconds = 0, faces = 0;
+    for (const { kind, v } of steps) for (const p of this.repairScope(scope, v.children !== false).pools) {
+      const r = this.repairPlan(kind, p.at, p.sel, v, p.xf);
+      if (!r.erases) continue;
+      const F = this.scene.kernelOf(p.at).faces().length;
+      edges += r.erases; faces = Math.max(faces, F); seconds += Editor.ERASE_REF.seconds * (F / Editor.ERASE_REF.faces) ** 2;
+    }
+    return edges && seconds >= Editor.ERASE_ASK_SECONDS ? { edges, seconds, faces } : null;
+  }
+  private eraseAskText(title: string, e: { edges: number; seconds: number; faces: number }): string {
+    const t = e.seconds < 90 ? `${Math.round(e.seconds)} 秒` : `${(e.seconds / 60).toFixed(1)} 分钟`;
+    return `${title}要擦掉 ${e.edges} 条面和面之间的线。内核现在每擦一次线都要把整个物体重新整理一遍（这里最大的物体有 ${e.faces} 张面），估计要 ${t} 左右，期间界面会卡住——按坦克 3.2 万面实测一次约 95 秒推算，只是量级。要做吗？`;
+  }
+  private repairNow(kind: RepairKind, scope: "auto" | "context", v0: Record<string, ParamValue>): number { return this.step(() => {
     const go = (v: Readonly<Record<string, ParamValue>>): number => {
       const r = this.runRepair(kind, scope, v);
       if (!r.failed) this.host.hint(`${r.text}（${r.scope}）`);
       return r.count;
     };
-    const v0: Record<string, ParamValue> = { children: this.repairChildren, ...this.repairDefaults(kind) };
     const n0 = this.opCount;
     const count = go(v0);
     if (!count && !this.repairModule(kind).offerAlways) return 0;
@@ -1653,7 +1683,13 @@ export class Editor {
       }
       return parts;
     };
-    const apply = (): void => { this.step(() => {
+    const apply = (): void => {
+      // 大物体上要擦线：先问（同编辑条入口）
+      const est = this.host.confirm ? this.eraseEstimate(REPAIRS.filter((m) => vals[m.id]).map((m) => ({ kind: m.id, v: { ...this.repairDefaults(m.id), children: vals.children !== false } })), "auto") : null;
+      if (est) { void this.host.confirm!("修复：要等一会儿", this.eraseAskText("这几步", est), "做（会卡住一会儿）").then((ok) => { if (ok) applyNow(); else { this.host.hint("修复：没做（你选了不做）"); this.draw(); } }); return; }
+      applyNow();
+    };
+    const applyNow = (): void => { this.step(() => {
       this.repairChildren = vals.children !== false; this.repairInspect = !!vals.inspect;
       const n0 = this.opCount, parts = runAll(vals), sc = this.scopeText(this.repairScope("auto", vals.children !== false));
       if (this.opCount === n0) { this.host.hint(`修复：没有要改的（${sc}）`); this.openParamSession(null); return; }

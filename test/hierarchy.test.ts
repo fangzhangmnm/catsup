@@ -62,6 +62,12 @@ describe("hierarchy: 形状比对", () => {
     absorbSnapshot(k, a, RX);
     assert(congruentXform(a, k.toBrep()) !== null);
   });
+  it("试满上限还没比完 → 叫一声（不静默当成不一样）", () => {
+    const a = wheelKernel().toBrep(), k = new Kernel(); absorbSnapshot(k, a, RX);
+    let called = 0;
+    eq(congruentXform(a, k.toBrep(), { maxTries: 0, onGiveUp: () => { called++; } }), null);
+    eq(called, 1);
+  });
   it("材质不同 → 不算一样", () => {
     const k1 = boxKernel(), k2 = boxKernel();
     const top = k2.faces().find((f) => k2.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 0.5) < 1e-9))!;
