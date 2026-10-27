@@ -891,6 +891,9 @@ export declare class Editor {
     /** 这次预演会把哪个组件斜切（拖的时候就提示「松手会被拦下」；提交时 ops.ts 的护栏真拦）。 */
     private previewShear;
     private computeLive;
+    /** 预演的影子副本（O1「拷一次 + 每帧退回」）：真身没变（同一对象、同一 rev）就把上一帧的影子倒回去再用；变了 / 倒不回（日志丢段）/ 全局结算模式 = 重新拷一份。 */
+    private shadow;
+    private shadowKernel;
     /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
     private previewXform;
     /**

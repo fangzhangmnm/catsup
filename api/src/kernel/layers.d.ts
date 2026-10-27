@@ -60,6 +60,8 @@ export declare class EdgeLayers {
     prune(hasEdge: (id: EdgeId) => boolean): void;
     /** 增量版：只清这批删掉的 id（结果 = prune，因为 id 不复用）。 */
     pruneIds(ids: readonly EdgeId[]): void;
+    /** 倒带（O1）：这几条边在每一层的归属照 base。 */
+    restoreFrom(base: EdgeLayers, eids: ReadonlySet<EdgeId>): void;
     clone(): EdgeLayers;
     /** 快照：名字 → 有标记的边下标（按给定边序）。 */
     toIndex(edgeIds: readonly EdgeId[]): Record<string, number[]> | undefined;
@@ -79,6 +81,8 @@ export declare class FaceLayers {
     /** 一张面的全部层值。 */
     of(id: FaceId): Record<string, number>;
     setAll(id: FaceId, vals: Readonly<Record<string, number>> | undefined): void;
+    /** 倒带（O1）：这几张面在每一层的值照 base。 */
+    restoreFrom(base: FaceLayers, fids: ReadonlySet<FaceId>): void;
     /** 两个表面互换（DT8：面翻到另一面朝 +n 了）。 */
     swapSides(id: FaceId): void;
     /** 按事件血缘：DIVIDE 子膜继承、MERGE / ABSORB 取首个有值的、死膜清。 */

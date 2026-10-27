@@ -248,6 +248,20 @@ export class CurveRegistry {
     return out;
   }
 
+  /** 倒带（O1）：这几条边牵到的曲线（影子里的 / base 里的）+ 影子里新铸的曲线，恢复成 base 的样子；边 → 曲线表对这几条边照 base。 */
+  restoreFrom(base: CurveRegistry, eids: ReadonlySet<EdgeId>): void {
+    const cids = new Set<CurveId>();
+    for (const e of eids) { const a = this.ofEdge.get(e); if (a !== undefined) cids.add(a); const b = base.ofEdge.get(e); if (b !== undefined) cids.add(b); }
+    for (const id of this.byId.keys()) if (id >= base.nextId) cids.add(id);
+    for (const id of cids) {
+      const mine = this.byId.get(id);
+      if (mine) { for (const e of mine.edges) if (this.ofEdge.get(e) === id) this.ofEdge.delete(e); this.byId.delete(id); }
+      const b = base.byId.get(id);
+      if (b) { this.byId.set(id, { ...b, edges: [...b.edges], ...(b.params ? { params: { ...b.params } } : {}) }); for (const e of b.edges) this.ofEdge.set(e, id); }
+    }
+    for (const e of eids) { const b = base.ofEdge.get(e); if (b === undefined) this.ofEdge.delete(e); else this.ofEdge.set(e, b); }
+    this.nextId = base.nextId;
+  }
   clone(): CurveRegistry {
     const r = new CurveRegistry();
     r.nextId = this.nextId;

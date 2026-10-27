@@ -74,6 +74,8 @@ export declare class CurveRegistry {
     private pruneCurve;
     /** 校验（fuzz / 装载）：边存在、相邻共顶点、每边至多一条曲线、闭合首尾相接。返回问题列表（空 = 好）。 */
     validate(g: G): string[];
+    /** 倒带（O1）：这几条边牵到的曲线（影子里的 / base 里的）+ 影子里新铸的曲线，恢复成 base 的样子；边 → 曲线表对这几条边照 base。 */
+    restoreFrom(base: CurveRegistry, eids: ReadonlySet<EdgeId>): void;
     clone(): CurveRegistry;
     /** 快照（契约 §5 brep.curves 的内存形）：边按给定边序取下标；按曲线 id 升序。 */
     toIndex(edgeIds: readonly EdgeId[]): {

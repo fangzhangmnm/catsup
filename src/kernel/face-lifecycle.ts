@@ -330,6 +330,17 @@ export class FaceStore {
   }
 
   /** 深拷贝（含 id 计数器；preview 影子副本用）。 */
+  /** 倒带（O1）：这几张膜恢复成 base 里的样子（深拷环）；base 没有的删；计数器 / 删过的膜表照 base。put / drop 走表的记账钩子 = 渲染缓存知道它们又变了。 */
+  restoreFrom(base: FaceStore, fids: ReadonlySet<FaceId>): void {
+    const cloneRing = (r: Ring): Ring => ({ edges: r.edges.map((d) => ({ ...d })), pts: r.pts.map((p) => ({ ...p })), vids: [...r.vids] });
+    for (const id of fids) {
+      this.drop(id);
+      const f = base.byId.get(id);
+      if (f) this.put({ id: f.id, planeId: f.planeId, outer: cloneRing(f.outer), holes: f.holes.map(cloneRing), bbox: { ...f.bbox } });
+    }
+    this.nextId = base.nextId;
+    this.removedF = [...base.removedF];
+  }
   clone(): FaceStore {
     const s = new FaceStore();
     s.nextId = this.nextId;

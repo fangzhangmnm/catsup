@@ -52,6 +52,10 @@ export interface BrepSnapshot {
         readonly params?: CurveParams;
     }[];
 }
+export interface RewindMark {
+    readonly seq: number;
+    readonly events: number;
+}
 export declare class Kernel {
     private _graph;
     private store;
@@ -107,6 +111,19 @@ export declare class Kernel {
      * 影子副本（preview 架构）：clone → 在副本上跑**同一套** mutation → 渲染 diff → 松手对真身重放。
      * id 计数器一起拷 → 副本上的事件与真身提交的事件逐字相同。
      */
+    /** 预演会话的起点（clone 之后立刻取）：改动日志的号 + 事件日志长度。 */
+    rewindMark(): RewindMark;
+    /**
+     * 倒带（拖动预演「拷一次 + 每帧退回」，Fable 账单 O1；设计稿 ai-docs/20261027-preview-rollback-design.md，(R2) 由数组制度解决）：
+     * 把本内核（影子副本）退回到 mark 那一刻 = base（真身，预演期间一个字节没动）的样子。不记旧值：改动日志给出从 mark 起碰过的编号（DT96 fuzz 保证完整），
+     * 按邻接扩全（碰过的点的星、碰过的边的端点、碰过的膜的环边），这些记录照 base 深拷回来、base 没有的删掉，派生索引只对它们重算。
+     * 返回 null = 日志已丢掉那段（太长），调用方重新 clone。rev 取一个没用过的新值（渲染 / 合成视图的缓存键不许回绕）。
+     */
+    rewindTo(base: Kernel, mark: RewindMark): {
+        verts: number;
+        edges: number;
+        faces: number;
+    } | null;
     clone(): Kernel;
     /**
      * 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层；

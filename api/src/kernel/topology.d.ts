@@ -107,6 +107,14 @@ export declare class PlanarGraph {
      */
     mergeVertex(from: VertexId, to: VertexId): void;
     private removeEdgeKeepVerts;
+    /**
+     * 倒带（拖动预演「拷一次 + 每帧退回」，O1）：把这几个顶点 / 边恢复成 base（真身，预演期间一个字节没动）里的样子——base 有的照 base 深拷回来、base 没有的删掉；
+     * 派生索引（格点键、空间网格）只对这几条重算；计数器 / 删过的边表照 base。调用方（Kernel.rewindTo）负责把触碰集按邻接扩全。
+     */
+    restoreFrom(base: PlanarGraph, vids: ReadonlySet<VertexId>, eids: ReadonlySet<EdgeId>): void;
+    /** 顶点 / 边是否在表里（倒带扩触碰集用）；星 / 端点的只读访问走 vertex / edge。 */
+    vertexOrNull(id: VertexId): Vertex | undefined;
+    edgeOrNull(id: EdgeId): Edge | undefined;
     /** 深拷贝（含 id 计数器——preview 影子副本的 id 分配与真身逐一致）。 */
     clone(): PlanarGraph;
 }

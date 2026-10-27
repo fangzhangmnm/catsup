@@ -81,6 +81,10 @@ export interface BrepSnapshot {
   readonly curves?: readonly { readonly edges: readonly number[]; readonly kind: "circle" | "arc" | "polyline"; readonly closed: boolean; readonly params?: CurveParams }[];
 }
 
+export interface RewindMark { readonly seq: number; readonly events: number; }
+/** 倒带后 rev 取的新值（进程内单调；缓存键不许回绕）。 */
+let revClock = 0;
+
 export class Kernel {
   private _graph = new PlanarGraph();
   private store = new FaceStore();
@@ -236,6 +240,33 @@ export class Kernel {
    * 影子副本（preview 架构）：clone → 在副本上跑**同一套** mutation → 渲染 diff → 松手对真身重放。
    * id 计数器一起拷 → 副本上的事件与真身提交的事件逐字相同。
    */
+  /** 预演会话的起点（clone 之后立刻取）：改动日志的号 + 事件日志长度。 */
+  rewindMark(): RewindMark { return { seq: this.changes.seq, events: this.eventLog.length }; }
+  /**
+   * 倒带（拖动预演「拷一次 + 每帧退回」，Fable 账单 O1；设计稿 ai-docs/20261027-preview-rollback-design.md，(R2) 由数组制度解决）：
+   * 把本内核（影子副本）退回到 mark 那一刻 = base（真身，预演期间一个字节没动）的样子。不记旧值：改动日志给出从 mark 起碰过的编号（DT96 fuzz 保证完整），
+   * 按邻接扩全（碰过的点的星、碰过的边的端点、碰过的膜的环边），这些记录照 base 深拷回来、base 没有的删掉，派生索引只对它们重算。
+   * 返回 null = 日志已丢掉那段（太长），调用方重新 clone。rev 取一个没用过的新值（渲染 / 合成视图的缓存键不许回绕）。
+   */
+  rewindTo(base: Kernel, mark: RewindMark): { verts: number; edges: number; faces: number } | null {
+    const d = this.changes.since(mark.seq);
+    if (!d) return null;
+    const V = new Set<VertexId>(d.verts), E = new Set<EdgeId>(d.edges), F = new Set<FaceId>(d.faces);
+    const g = this._graph, bg = base._graph;
+    for (const v of [...V]) { for (const gg of [g, bg]) { const rec = gg.vertexOrNull(v); if (rec) for (const e of rec.edges) E.add(e); } }
+    for (const f of [...F]) { for (const st of [this.store, base.store]) { const rec = st.face(f); if (rec) for (const r of [rec.outer, ...rec.holes]) for (const dd of r.edges) E.add(dd.edge); } }
+    for (const e of [...E]) { for (const gg of [g, bg]) { const rec = gg.edgeOrNull(e); if (rec) { V.add(rec.a); V.add(rec.b); for (const f of rec.faceLinks) F.add(f); } } }
+    for (const f of [...F]) { for (const st of [this.store, base.store]) { const rec = st.face(f); if (rec) for (const r of [rec.outer, ...rec.holes]) for (const dd of r.edges) E.add(dd.edge); } }
+    g.restoreFrom(bg, V, E);
+    this.store.restoreFrom(base.store, F);
+    this.planes.restoreFrom(base.planes);
+    this.curveReg.restoreFrom(base.curveReg, E);
+    this.edgeLayers.restoreFrom(base.edgeLayers, E);
+    this.faceLayers.restoreFrom(base.faceLayers, F);
+    this.eventLog.length = mark.events;
+    revClock = Math.max(revClock, this._rev, base._rev) + 1; this._rev = revClock;
+    return { verts: V.size, edges: E.size, faces: F.size };
+  }
   clone(): Kernel {
     const k = new Kernel({ coplanarTol: this.coplanarTol, settleMode: this.settleMode });
     k._graph = this._graph.clone();

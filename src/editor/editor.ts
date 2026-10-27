@@ -15,7 +15,7 @@
 // 拖拽中新长的帽/侧壁高度恒等于 h（对 h 零信息），中间态唯一贡献是遮挡，而遮挡正是「吸端面 / 不吸」逐帧交替的反馈回路。
 // **抬笔结算（A21，2026-10-21）**：抬笔前停留过的地方才是意图，末尾的短抖动不算（user「抬笔的时候总是会抖一下然后歪掉」）。
 
-import { Kernel } from "../kernel/kernel.ts";
+import { Kernel, type RewindMark } from "../kernel/kernel.ts";
 import { type WorldLabel, gridStepLabel, unitMark } from "./world-labels.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
@@ -2598,7 +2598,7 @@ export class Editor {
     this.liveEvents = [];
     this.previewShear = null;
     const run = (fn: (c: Kernel) => FaceEvent[]): void => {
-      const c = perf.time("live.clone", () => this.kernel.clone());
+      const c = this.shadowKernel();
       try { this.liveEvents = perf.time("live.run", () => fn(c)); }
       catch (err) {
         this.liveEvents = []; this.live = null;
@@ -2617,6 +2617,18 @@ export class Editor {
       const sh = this.previewShear ? `会把组件「${this.previewShear}」斜切（glTF 不允许），松手会被拦下：沿它自己的轴缩放（只选它一个时手柄就是它的轴）` : "";
       this.host.hint([sh, dims, ev].filter(Boolean).join(" ｜ "));
     }
+  }
+  /** 预演的影子副本（O1「拷一次 + 每帧退回」）：真身没变（同一对象、同一 rev）就把上一帧的影子倒回去再用；变了 / 倒不回（日志丢段）/ 全局结算模式 = 重新拷一份。 */
+  private shadow: { k: Kernel; base: Kernel; baseRev: number; mark: RewindMark } | null = null;
+  private shadowKernel(): Kernel {
+    const base = this.kernel, s = this.shadow;
+    if (s && s.base === base && s.baseRev === base.rev && base.settleMode !== "global") {
+      const r = perf.time("live.rewind", () => s.k.rewindTo(base, s.mark));
+      if (r) { perf.count["live.rewind"] = (perf.count["live.rewind"] ?? 0) + 1; return s.k; }
+    }
+    const k = perf.time("live.clone", () => base.clone());
+    this.shadow = { k, base, baseRev: base.rev, mark: k.rewindMark() };
+    return k;
   }
   /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
   private previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void, copy?: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): void {

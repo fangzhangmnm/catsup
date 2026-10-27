@@ -110,6 +110,8 @@ export declare class FaceStore {
      */
     restoreFace(g: PlanarGraph, reg: PlaneRegistry, planeId: PlaneId, outer: readonly VertexId[], holes: readonly (readonly VertexId[])[]): Face;
     /** 深拷贝（含 id 计数器；preview 影子副本用）。 */
+    /** 倒带（O1）：这几张膜恢复成 base 里的样子（深拷环）；base 没有的删；计数器 / 删过的膜表照 base。put / drop 走表的记账钩子 = 渲染缓存知道它们又变了。 */
+    restoreFrom(base: FaceStore, fids: ReadonlySet<FaceId>): void;
     clone(): FaceStore;
     /** 铸新膜。 */
     mint(planeId: PlaneId, r: Region): Face;

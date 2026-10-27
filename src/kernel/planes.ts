@@ -139,6 +139,14 @@ export class PlaneRegistry {
   dropIds(ids: Iterable<PlaneId>): void { for (const id of ids) this.drop(id); }
   private drop(id: PlaneId): void { const r = this.recs.get(id); if (!r) return; this.recs.delete(id); if (this.dW) this.unindex(r); }
 
+  /** 倒带（O1）：平面记录不可变，只对齐集合——base 没有的删（出索引）、base 有的补回；桶宽 / 待入索引照 base（桶宽变了 = 整个索引重建，少见）。 */
+  restoreFrom(base: PlaneRegistry): void {
+    for (const id of [...this.recs.keys()]) if (!base.recs.has(id)) this.drop(id);
+    if (this.dW !== base.dW) { this.dW = base.dW; this.buckets = new Map(); this.shared = new WeakSet(); for (const r of this.recs.values()) if (this.dW) this.index(r); }
+    for (const [id, r] of base.recs) if (!this.recs.has(id)) { this.recs.set(id, r); if (this.dW) this.index(r); }
+    this.pending = [...base.pending];
+    this.nextId = base.nextId;
+  }
   clone(): PlaneRegistry {
     const c = new PlaneRegistry();
     c.nextId = this.nextId;

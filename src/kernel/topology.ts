@@ -355,6 +355,21 @@ export class PlanarGraph {
     this.vertex(e.b).edges.delete(id);
   }
 
+  /**
+   * 倒带（拖动预演「拷一次 + 每帧退回」，O1）：把这几个顶点 / 边恢复成 base（真身，预演期间一个字节没动）里的样子——base 有的照 base 深拷回来、base 没有的删掉；
+   * 派生索引（格点键、空间网格）只对这几条重算；计数器 / 删过的边表照 base。调用方（Kernel.rewindTo）负责把触碰集按邻接扩全。
+   */
+  restoreFrom(base: PlanarGraph, vids: ReadonlySet<VertexId>, eids: ReadonlySet<EdgeId>): void {
+    for (const eid of eids) if (this.edgesById.has(eid)) { this.unindexEdge(eid); this.edgesById.delete(eid); }
+    for (const vid of vids) { const v = this.vertsById.get(vid); if (v) { this.vertByKey.delete(ptKey3({ x: v.x, y: v.y, z: v.z })); this.vertsById.delete(vid); } }
+    for (const vid of vids) { const bv = base.vertsById.get(vid); if (bv) { this.vertsById.set(vid, { id: bv.id, x: bv.x, y: bv.y, z: bv.z, edges: new IdSet(bv.edges) }); this.vertByKey.set(ptKey3({ x: bv.x, y: bv.y, z: bv.z }), vid); } }
+    for (const eid of eids) { const be = base.edgesById.get(eid); if (be) { this.edgesById.set(eid, { id: be.id, a: be.a, b: be.b, faceLinks: [...be.faceLinks] }); this.indexEdge(eid); } }
+    this.nextV = base.nextV; this.nextE = base.nextE;
+    this.removedE = [...base.removedE];
+  }
+  /** 顶点 / 边是否在表里（倒带扩触碰集用）；星 / 端点的只读访问走 vertex / edge。 */
+  vertexOrNull(id: VertexId): Vertex | undefined { return this.vertsById.get(id); }
+  edgeOrNull(id: EdgeId): Edge | undefined { return this.edgesById.get(id); }
   /** 深拷贝（含 id 计数器——preview 影子副本的 id 分配与真身逐一致）。 */
   clone(): PlanarGraph {
     const g = new PlanarGraph();

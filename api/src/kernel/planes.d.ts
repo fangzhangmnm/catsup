@@ -45,6 +45,8 @@ export declare class PlaneRegistry {
     /** 只删这几张（局部结算：被碰到、又没边组没膜的平面），不扫全表。 */
     dropIds(ids: Iterable<PlaneId>): void;
     private drop;
+    /** 倒带（O1）：平面记录不可变，只对齐集合——base 没有的删（出索引）、base 有的补回；桶宽 / 待入索引照 base（桶宽变了 = 整个索引重建，少见）。 */
+    restoreFrom(base: PlaneRegistry): void;
     clone(): PlaneRegistry;
 }
 /**

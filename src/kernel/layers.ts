@@ -98,6 +98,11 @@ export class EdgeLayers {
   /** 增量版：只清这批删掉的 id（结果 = prune，因为 id 不复用）。 */
   pruneIds(ids: readonly EdgeId[]): void { if (ids.length) for (const s of this.sets.values()) for (const id of ids) s.delete(id); }
 
+  /** 倒带（O1）：这几条边在每一层的归属照 base。 */
+  restoreFrom(base: EdgeLayers, eids: ReadonlySet<EdgeId>): void {
+    const names = new Set([...this.sets.keys(), ...base.sets.keys()]);
+    for (const n of names) { const mine = this.layer(n), theirs = base.sets.get(n); for (const e of eids) { if (theirs?.has(e)) mine.add(e); else mine.delete(e); } }
+  }
   clone(): EdgeLayers { const c = new EdgeLayers(); for (const [n, s] of this.sets) if (s.size) c.sets.set(n, c.newSet(s)); return c; }
   /** 快照：名字 → 有标记的边下标（按给定边序）。 */
   toIndex(edgeIds: readonly EdgeId[]): Record<string, number[]> | undefined {
@@ -128,6 +133,11 @@ export class FaceLayers {
   /** 一张面的全部层值。 */
   of(id: FaceId): Record<string, number> { const out: Record<string, number> = {}; for (const [n, m] of this.maps) { const v = m.get(id); if (v !== undefined) out[n] = v; } return out; }
   setAll(id: FaceId, vals: Readonly<Record<string, number>> | undefined): void { if (vals) for (const [n, v] of Object.entries(vals)) if (v >= 0) this.set(n, id, v); }
+  /** 倒带（O1）：这几张面在每一层的值照 base。 */
+  restoreFrom(base: FaceLayers, fids: ReadonlySet<FaceId>): void {
+    const names = new Set([...this.maps.keys(), ...base.maps.keys()]);
+    for (const n of names) { const mine = this.layer(n), theirs = base.maps.get(n); for (const f of fids) { const v = theirs?.get(f); if (v === undefined) mine.delete(f); else mine.set(f, v); } }
+  }
   /** 两个表面互换（DT8：面翻到另一面朝 +n 了）。 */
   swapSides(id: FaceId): void {
     const f = this.get(MAT_FRONT, id), b = this.get(MAT_BACK, id);
