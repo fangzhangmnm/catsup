@@ -19,7 +19,8 @@ import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology
 import { type DirEdge, type Region, type Ring, findRegions, regionContains, representativePoint } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, type CoplanarScope, groupCoplanar } from "./planes.ts";
 import { DisjointSet } from "./dsu.ts";
-import { type ChangeLog, LoggedMap } from "./change-log.ts";
+import type { ChangeLog } from "./change-log.ts";
+import { IdMap, IdSet } from "./id-table.ts";
 
 export type FaceEvent =
   | { type: "BIRTH"; face: FaceId }
@@ -57,18 +58,18 @@ export type RegionsByPlane = Map<PlaneId, Region[]>;
 export class FaceStore {
   /** 改动日志（Kernel 接上；DT96）：膜表是带记账的 Map（put / drop 都记）；原地改环的地方调 touch。 */
   log: ChangeLog | null = null;
-  private byId: Map<FaceId, Face> = new LoggedMap<FaceId, Face>((id) => this.log?.f(id));
+  private byId: IdMap<Face> = new IdMap<Face>((id) => this.log?.f(id));   // 按 id 下标（O3 数组制度）：膜的遍历序 = id 序，结算机铸膜 / 事件顺序不随历史变
   /** 原地改了这张膜的环（溶解 splice / 顶点并掉后改写环上的编号）：记一笔。 */
   touch(id: FaceId): void { this.log?.f(id); }
   /** 平面 → 膜 id（单主人：只在 put / drop 里维护；结算机按被碰平面取膜，不扫全表。2026-10-23） */
-  private byPlane = new Map<PlaneId, Set<FaceId>>();
+  private byPlane = new IdMap<IdSet>();
   private nextId = 1;
 
   private put(f: Face): Face {
     const old = this.byId.get(f.id);
     if (old) this.byPlane.get(old.planeId)?.delete(f.id);
     this.byId.set(f.id, f);
-    (this.byPlane.get(f.planeId) ?? this.byPlane.set(f.planeId, new Set()).get(f.planeId)!).add(f.id);
+    (this.byPlane.get(f.planeId) ?? this.byPlane.set(f.planeId, new IdSet()).get(f.planeId)!).add(f.id);
     return f;
   }
   /** 删过的膜（id 从不复用）：Kernel.emit 只拿它们去清面层（2026-10-26 Claude Opus 5.5，纪元账本 DT93）。 */

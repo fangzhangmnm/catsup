@@ -1,7 +1,7 @@
 import type { Edge, EdgeId, FaceId } from "./topology.ts";
 import type { FaceEvent } from "./face-lifecycle.ts";
 import { type Pt3 } from "./geom.ts";
-import { type ChangeLog } from "./change-log.ts";
+import type { ChangeLog } from "./change-log.ts";
 export interface Seg3 {
     readonly a: Pt3;
     readonly b: Pt3;

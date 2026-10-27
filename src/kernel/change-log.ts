@@ -84,19 +84,4 @@ export class ChangeLog {
   since(from: number, to = this.seq): ChangeSet | null { return this.data.since(from, to); }
 }
 
-/** 带记账的 Set（层的边集）：真改了才记（add 了原来没有的 / delete 了原来有的）。 */
-export class LoggedSet<T extends number> extends Set<T> {
-  private readonly onTouch: (id: T) => void;
-  constructor(onTouch: (id: T) => void, init?: Iterable<T>) { super(); this.onTouch = onTouch; if (init) for (const x of init) super.add(x); }
-  override add(v: T): this { if (!this.has(v)) { super.add(v); this.onTouch(v); } return this; }
-  override delete(v: T): boolean { const r = super.delete(v); if (r) this.onTouch(v); return r; }
-  override clear(): void { const all = [...this]; super.clear(); for (const v of all) this.onTouch(v); }
-}
-/** 带记账的 Map（顶点表 / 边表 / 膜表 / 面层）：set / delete 都记（set 同一个键 = 改了它）。 */
-export class LoggedMap<K extends number, V> extends Map<K, V> {
-  private readonly onTouch: (id: K) => void;
-  constructor(onTouch: (id: K) => void, init?: Iterable<readonly [K, V]>) { super(); this.onTouch = onTouch; if (init) for (const [k, v] of init) super.set(k, v); }
-  override set(k: K, v: V): this { super.set(k, v); this.onTouch(k); return this; }
-  override delete(k: K): boolean { const r = super.delete(k); if (r) this.onTouch(k); return r; }
-  override clear(): void { const all = [...this.keys()]; super.clear(); for (const k of all) this.onTouch(k); }
-}
+// 2026-10-27：LoggedSet / LoggedMap 退役——内核表换成 kernel/id-table.ts 的 IdMap / IdSet（数组制度 O3；记账回调同形）。edited by Claude Fable 5.1

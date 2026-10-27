@@ -15,6 +15,7 @@ import {
   planeFromPoints,
 } from "./geom.ts";
 import { type Edge, type VertexId, type EdgeId, PlanarGraph } from "./topology.ts";
+import { IdMap } from "./id-table.ts";
 
 export type PlaneId = number;
 
@@ -39,7 +40,7 @@ const N_EPS = 2e-5;
 const keyN = (x: number): number => Math.floor(x / D_N);
 
 export class PlaneRegistry {
-  private recs = new Map<PlaneId, PlaneRec>();
+  private recs = new IdMap<PlaneRec>();   // 按 id 下标（O3）：all() / values() 按 id 序
   private nextId = 1;
   /** 桶 → 平面 id（升序）。clone 共享数组，写时复制。 */
   private buckets = new Map<string, PlaneId[]>();

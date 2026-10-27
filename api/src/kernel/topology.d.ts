@@ -1,5 +1,5 @@
 import { type Pt3 } from "./geom.ts";
-import { type ChangeLog } from "./change-log.ts";
+import type { ChangeLog } from "./change-log.ts";
 export type VertexId = number;
 export type EdgeId = number;
 /** face 实体住在 face-lifecycle.ts；本层只把 FaceId 当不透明号码挂在 faceLinks 上。 */
@@ -18,7 +18,8 @@ export interface Edge {
     faceLinks: FaceId[];
 }
 export declare class PlanarGraph {
-    /** 改动日志（Kernel 接上；DT96）：顶点表 / 边表是带记账的 Map；原地改坐标 / 改端点的几处另外显式记。 */
+    /** 改动日志（Kernel 接上；DT96）：顶点表 / 边表是带记账的表；原地改坐标 / 改端点的几处另外显式记。
+     *  表是按 id 下标的数组（id-table.ts，O3 数组制度）：遍历按 id 升序、和增删历史无关；顶点的星（edges）也是有序集。 */
     log: ChangeLog | null;
     private vertsById;
     private edgesById;

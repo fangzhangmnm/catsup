@@ -763,7 +763,7 @@ export function settle(g: PlanarGraph, store: FaceStore, reg: PlaneRegistry, tol
     C.rechain(g, candVerts, tol);
   }
   mark("layers");
-  if (stretched.length) events.push({ type: "STRETCH", faces: stretched });
+  if (stretched.length) events.push({ type: "STRETCH", faces: [...new Set(stretched)].sort((a, b) => a - b) });   // 按 id 排：STRETCH 保 id、顺序无语义；局部 / 全局两条路遍历序不同（O3 数组制度后顶点星按 id 序），排了才逐字相同
   // DT8 两个表面：翻面的膜（身份像在它认领的填充胞腔上多数反绕）两侧材质互换——在旧 id 上换，事件随后按血缘把值带给新 id（Kernel.emit → applyEvents）。
   // 放在最后：前面任何一步 throw 都不会留下换了一半的层。
   if (table.faceLayers) {

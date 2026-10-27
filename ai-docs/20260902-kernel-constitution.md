@@ -108,3 +108,8 @@ golden 语料=共同 spec（膜事件表/暗礁①/灵魂手势≡手绘/E·F �
 
 edited by Claude Fable 5 2026-09-03 · edited by Claude Fable 5.1 2026-09-06 · edited by Claude Fable 5.1 2026-09-07
 edited by Claude Fable 5.1 2026-10-21（rev7：像表结算机、A3 context 槽落地、软边层、推拉推断世界例外）
+
+### 5.x 表的数组制度（2026-10-27，Claude Fable 5.1；Fable 账单 O3，user「一口气做成数组制度」）
+
+内核里按 id 存东西的表——顶点表 / 边表（`topology.ts`）、膜表与平面 → 膜索引（`face-lifecycle.ts`）、平面表（`planes.ts`）、曲线表与边 → 曲线（`curves.ts`）、边层集 / 面层表（`layers.ts`）、每个顶点的星——一律是 `kernel/id-table.ts` 的 `IdMap` / `IdSet`（按 id 下标的数组 / 升序小集合），不再是 Map / Set。
+**不变量：这些表的遍历顺序 = id 升序，和增删历史无关。** 由此：结算机铸膜 / 事件 / 环追踪起点不随「删了再插回」变；拖动预演「拷一次 + 每帧退回」的 (R2)（退回后遍历顺序相同）不再是难点；局部 / 全局两条结算路遍历序一致（STRETCH 事件的面列表按 id 排）。id 单调不复用，表只长不缩。改动日志的记账回调挂在表上（原 LoggedMap / LoggedSet 退役）。

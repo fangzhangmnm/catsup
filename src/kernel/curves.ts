@@ -10,6 +10,7 @@
 //   · 结算后 prune：死边出链、断链拆开、空曲线删。
 //   · 曲面不在这里：曲面 = 沿软边泛洪的面集，派生态（kernel/flood.ts surfaceFaces）。
 import type { EdgeId, VertexId, PlanarGraph } from "./topology.ts";
+import { IdMap } from "./id-table.ts";
 import { type PlaneParams, type Pt3, distToPlane, planeOfRing } from "./geom.ts";
 
 export type CurveId = number;
@@ -27,8 +28,8 @@ const shares = (g: G, e1: EdgeId, e2: EdgeId): boolean => { const [a, b] = ends(
 const hasVertex = (g: G, e: EdgeId, v: VertexId): boolean => { const [a, b] = ends(g, e); return a === v || b === v; };
 
 export class CurveRegistry {
-  private byId = new Map<CurveId, Curve>();
-  private ofEdge = new Map<EdgeId, CurveId>();
+  private byId = new IdMap<Curve>();   // 按 id 下标（O3）
+  private ofEdge = new IdMap<CurveId>();
   private nextId = 1;
 
   curves(): Curve[] { return [...this.byId.values()]; }

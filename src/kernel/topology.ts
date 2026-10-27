@@ -4,7 +4,8 @@
 // 公理 3（重合即同一）：顶点身份 = 量化格点 Map；两点落同格 = 同一个 vertex。
 
 import { type Pt3, ptKey3 } from "./geom.ts";
-import { type ChangeLog, LoggedMap } from "./change-log.ts";
+import type { ChangeLog } from "./change-log.ts";
+import { IdMap, IdSet } from "./id-table.ts";
 
 export type VertexId = number;
 export type EdgeId = number;
@@ -49,10 +50,11 @@ function cellsOnSegment(a: Pt3, b: Pt3, s: number, visit: (ix: number, iy: numbe
 }
 
 export class PlanarGraph {
-  /** 改动日志（Kernel 接上；DT96）：顶点表 / 边表是带记账的 Map；原地改坐标 / 改端点的几处另外显式记。 */
+  /** 改动日志（Kernel 接上；DT96）：顶点表 / 边表是带记账的表；原地改坐标 / 改端点的几处另外显式记。
+   *  表是按 id 下标的数组（id-table.ts，O3 数组制度）：遍历按 id 升序、和增删历史无关；顶点的星（edges）也是有序集。 */
   log: ChangeLog | null = null;
-  private vertsById: Map<VertexId, Vertex> = new LoggedMap<VertexId, Vertex>((id) => this.log?.v(id));
-  private edgesById: Map<EdgeId, Edge> = new LoggedMap<EdgeId, Edge>((id) => this.log?.e(id));
+  private vertsById: IdMap<Vertex> = new IdMap<Vertex>((id) => this.log?.v(id));
+  private edgesById: IdMap<Edge> = new IdMap<Edge>((id) => this.log?.e(id));
   private vertByKey = new Map<string, VertexId>();
   private nextV = 1;
   private nextE = 1;
@@ -179,7 +181,7 @@ export class PlanarGraph {
     const existing = this.vertByKey.get(k);
     if (existing !== undefined) return existing;
     const id = this.nextV++;
-    this.vertsById.set(id, { id, x: p.x, y: p.y, z: p.z, edges: new Set() });
+    this.vertsById.set(id, { id, x: p.x, y: p.y, z: p.z, edges: new IdSet() });
     this.vertByKey.set(k, id);
     return id;
   }
@@ -358,7 +360,7 @@ export class PlanarGraph {
     const g = new PlanarGraph();
     g.nextV = this.nextV;
     g.nextE = this.nextE;
-    for (const [id, v] of this.vertsById) g.vertsById.set(id, { id: v.id, x: v.x, y: v.y, z: v.z, edges: new Set(v.edges) });
+    for (const [id, v] of this.vertsById) g.vertsById.set(id, { id: v.id, x: v.x, y: v.y, z: v.z, edges: new IdSet(v.edges) });
     for (const [id, e] of this.edgesById) g.edgesById.set(id, { id: e.id, a: e.a, b: e.b, faceLinks: [...e.faceLinks] });
     for (const [k, vid] of this.vertByKey) g.vertByKey.set(k, vid);
     for (const [L, lv] of this.levels) { const cells = new Map<number, Set<EdgeId>>(); for (const [k, set] of lv.cells) cells.set(k, new Set(set)); g.levels.set(L, { size: lv.size, cells, edges: new Set(lv.edges) }); }

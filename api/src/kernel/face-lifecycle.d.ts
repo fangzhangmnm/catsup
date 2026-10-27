@@ -2,7 +2,7 @@ import { type Pt } from "./geom.ts";
 import { type EdgeId, type FaceId, type VertexId, PlanarGraph } from "./topology.ts";
 import { type Region, type Ring } from "./facefind.ts";
 import { type PlaneId, PlaneRegistry, type CoplanarScope } from "./planes.ts";
-import { type ChangeLog } from "./change-log.ts";
+import type { ChangeLog } from "./change-log.ts";
 export type FaceEvent = {
     type: "BIRTH";
     face: FaceId;

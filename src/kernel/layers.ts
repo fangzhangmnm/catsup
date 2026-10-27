@@ -11,7 +11,8 @@ import type { Edge, EdgeId, FaceId } from "./topology.ts";
 import type { FaceEvent } from "./face-lifecycle.ts";
 import { type Pt3, pointOnSegment3 } from "./geom.ts";
 import { INSERT_TOL } from "./subdivide.ts";
-import { type ChangeLog, LoggedMap, LoggedSet } from "./change-log.ts";
+import type { ChangeLog } from "./change-log.ts";
+import { IdMap, IdSet } from "./id-table.ts";
 
 export interface Seg3 { readonly a: Pt3; readonly b: Pt3; }
 
@@ -59,7 +60,7 @@ export class EdgeLayers {
   private sets = new Map<string, Set<EdgeId>>();
   /** 改动日志（Kernel 接上；DT96）：层集合是带记账的 Set，谁从哪里增删都记一笔。 */
   log: ChangeLog | null = null;
-  private newSet(init?: Iterable<EdgeId>): Set<EdgeId> { return new LoggedSet<EdgeId>((id) => this.log?.e(id), init); }
+  private newSet(init?: Iterable<EdgeId>): Set<EdgeId> { return new IdSet(init, (id) => this.log?.e(id)); }   // 有序集（O3）：遍历按 id 序
 
   names(): string[] { return [...this.sets.keys()].filter((n) => this.sets.get(n)!.size > 0); }
   /** 取（无则建）。 */
@@ -117,7 +118,7 @@ export class FaceLayers {
   private maps = new Map<string, Map<FaceId, number>>();
   /** 改动日志（同 EdgeLayers）。 */
   log: ChangeLog | null = null;
-  private newMap(init?: Iterable<readonly [FaceId, number]>): Map<FaceId, number> { return new LoggedMap<FaceId, number>((id) => this.log?.f(id), init); }
+  private newMap(init?: Iterable<readonly [FaceId, number]>): Map<FaceId, number> { return new IdMap<number>((id) => this.log?.f(id), init); }   // 按 id 下标（O3）
 
   names(): string[] { return [...this.maps.keys()].filter((n) => this.maps.get(n)!.size > 0); }
   layer(name: string): Map<FaceId, number> { let m = this.maps.get(name); if (!m) { m = this.newMap(); this.maps.set(name, m); } return m; }
