@@ -17,7 +17,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_definitions: {
         readonly major: 6;
-        readonly minor: 3;
+        readonly minor: 4;
         readonly patch: 0;
     };
     readonly CATSUP_instance: {
@@ -36,6 +36,12 @@ export declare const FORMAT: {
         readonly patch: 0;
     };
     readonly CATSUP_references: {
+        readonly major: 1;
+        readonly minor: 0;
+        readonly patch: 0;
+    };
+    /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
+    readonly CATSUP_mesh: {
         readonly major: 1;
         readonly minor: 0;
         readonly patch: 0;

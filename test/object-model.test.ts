@@ -97,7 +97,7 @@ describe("object model: 格式往返（document v3 / definitions v6）", () => {
     eq(back.layers.length, 2); eq(back.layers[1].name, "参考"); eq(JSON.stringify(back.layers[1].color), JSON.stringify([1, 0, 0]));
     const meshDoc = back.definitions.find((d) => d.kind === "mesh")!;
     assert(meshDoc && meshDoc.mesh, "mesh 载荷在");
-    eq(meshDoc.mesh!.indices.length, 36); eq(meshDoc.mesh!.positions.length, 8 * 3); eq(meshDoc.mesh!.triMaterial!.length, 12);
+    eq(meshDoc.mesh!.faceStart.length, 6); eq(meshDoc.mesh!.positions.length, 8 * 3); assert(meshDoc.mesh!.faceLen.every((n) => n === 4), "多边形载荷：6 张四边形");
     const rootDoc = back.root;
     const ci = rootDoc.instances.find((i) => back.definitions[i.definition].name === "参考体")!;
     eq(ci.layer, 1);

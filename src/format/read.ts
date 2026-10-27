@@ -9,6 +9,7 @@ import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, M
 import type { BodyKind } from "../scene/body-kind.ts";
 import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, refPanelOf, type DeskDoc, type LayerDoc, type ReferencesDoc } from "./document.ts";
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError } from "./migrate/index.ts";
+import { decodeMeshItem } from "./mesh-payload.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
 import { isFinalRecord } from "./final.ts";
@@ -127,12 +128,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     let payload: Partial<DefinitionDoc> = {};
     if (kind === "mesh") {
       if (!isObj(d.mesh)) fail(`definition ${di} mesh payload missing`);
-      const mj = d.mesh as Record<string, unknown>;
-      const bvOf = (k: string): number | null => { const o = mj[k]; return isObj(o) && typeof (o as Record<string, unknown>).bufferView === "number" ? ((o as Record<string, unknown>).bufferView as number) : null; };
-      const pb = bvOf("positions"), ib = bvOf("indices");
-      if (pb === null || ib === null) fail(`definition ${di} mesh positions / indices missing`);
-      const nb = bvOf("normals"), ub = bvOf("uvs"), tm = bvOf("triMaterial");
-      payload = { mesh: { positions: new Float32Array(sliceOf(pb as number)), indices: new Uint32Array(sliceOf(ib as number)), ...(nb !== null ? { normals: new Float32Array(sliceOf(nb)) } : {}), ...(ub !== null ? { uvs: new Float32Array(sliceOf(ub)) } : {}), ...(tm !== null ? { triMaterial: new Uint16Array(sliceOf(tm)) } : {}) } };
+      payload = { mesh: decodeMeshItem(d.mesh as Record<string, unknown>, sliceOf, notes, `definition ${di}`, fail) };   // CATSUP_mesh：多边形载荷；没 faceStart = 0.14 三角汤（migrate/mesh.ts）
     }
     return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });

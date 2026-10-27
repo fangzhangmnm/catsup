@@ -121,7 +121,7 @@ export interface EditorSelection { body: Selection | null; guides: Set<number>; 
 | M0 | 本 .h 过目 | user「可以」 |
 | M1 | `MeshKernel` + §2 的「几何 / 劈 / 并 / 合 / 填删 / 标记 / 建」算子 + 不变量性质测试 + 对抗案例集（node 直测，零 DOM） | **核心 done 10-27 夜（Claude Fable 5.1）**：`src/mesh/mesh-kernel.ts`（列式表 / 空闲表最小空位 / 邻接 CSR 按需重建 / CDT 三角化缓存 / 紧凑快照往返 / `check()` 不变量 / 封闭流形欧拉数）+ `src/mesh/ops/`（split: 劈边 / 劈面 / 刀；join: 并面 / 溶解二度点；merge: 合；delete: 面 / 边 / 点三档；extrude: 挤出；build: 多边形 / 填 / 盒子；geometry: 挪 / 变换 / 标记 / 材质 / 翻面）；`test/mesh-kernel.test.ts` 10 组（含 8 种子 × 40 步随机串：每步自检 + 克隆对拍）。v0.15.8 再加 loopcut（环切：闭环 / 开口带）+ cleanup（有限溶解 / 去重点），14 组测试。**还没做**：inset / bevel / mirrorWeld / addPrimitive 球柱、`subdivided()`、改动日志（现在只有 rev 计数） |
 | M2 | ~~`FaceSource` / `GeomView` 两个适配器~~ → **一份契约 `scene/kernel-view.ts`**（渲染 / 合成视图 / 拾取 / 吸附读内核的那份；brep 结构上满足、mesh 经 `mesh/mesh-view.ts` 真做）+ `Scene.viewOf` + `MeshBody.kernel` + brep → mesh 多边形转换 + 法向一致化 + 单面剔背面 + 进网格体守门 | **done v0.15.10（10-27 夜，Fable）**：852 绿；修复 / 开机三探针 OK；临时探针：盒子 → 组件 → cast 成 mesh 真画出来（剔背面）、进去被拦住给人话。`KindDef.modes` 仍空（M4 接工作台时填）。 |
-| M3 | `CATSUP_mesh` 格式 + 迁移 + 冻结样本 + 两条转换指令（含报告 / estimate）；导入外来 glb 改成 mesh | 往返测试；熊 / 小红帽导入 → 转 brep → 报告数字和 10-27 的一致 |
+| M3（done v0.15.11，10-27 夜，Fable；见 §12） | `CATSUP_mesh` 格式 + 迁移 + 冻结样本 + 两条转换指令（含报告 / estimate）；导入外来 glb 改成 mesh | 往返测试；熊 / 小红帽导入 → 转 brep → 报告数字和 10-27 的一致 |
 | M4（Opus） | `freeform` 模式 + 刀 / 拉 / 环切三个工具 + `mesh.*` 指令按注册表写 + 选择那一块 | 小红帽白模能从盒子做出来（FM61） |
 | M5（Opus） | 通用笔刷工具（软挪）+ 自动镜像（`mirrorWeld` 每步） | 手稿里的「软 TRS」「自动对称」 |
 | M6 | 长 / 倒角 / 细分显示参数（FM76）/ 雕刻的加速结构（以后） | — |
@@ -176,3 +176,16 @@ user：「不要monkey patch。基础打扎实」「不是冲刺，而是先专�
 - **文件**：`kind:"mesh"` 载荷仍是三角汤（`mesh/tri-soup.ts` 往返；n 边形读回来是三角形 = 有损）。现在没有任何 UI 能造出 mesh 身体，所以没有用户数据经过这条路；**M3（`CATSUP_mesh` 1.0.0 多边形载荷 + 冻结样本 + 转换指令）落地前不接任何造 mesh 身体的 UI**。
 - 测试 `test/mesh-view.test.ts`（8 组：记录 = 内核事实 / 缓存跟 rev / WorldView 开槽经变换 / cast op + clone / brep → mesh 盒子朝外 + 带洞三角化 / recalcNormals / 三角汤往返 / pool-mesh 全量 + 增量 + 族谱）；`body-kind` / `object-model` / `pool-mesh` 旧测试改到新形状。852 绿。
 - 剩给 M3：格式；给 M4（Opus）：`mode.ts freeform` + `KindDef.modes`、选择 / 挪点按 kind 派发（`MeshUnit` 进注册表、路由型动作）、拾取用三角形命中不平的 n 边形（现在用最佳拟合平面的 2D 环，近平面的面没问题）。
+
+## 12. M3 落地记录（v0.15.11，2026-10-27 夜，Claude Fable 5.1）：文件格式
+
+user：「gltf不是支持ngon的吗，为什么输出要三角化」→ glTF 2.0 本体没有多边形模式（只有点 / 线 / 三角形那七种 mode；Blender 导出也全三角化）。做法和 brep 一样：**本体里的三角形是 bake、给别的查看器看的派生物；真相住 `CATSUP_mesh`。**
+
+- **`CATSUP_mesh` 1.0.0**（`src/format/mesh-payload.ts`；住在 `CATSUP_definitions` 的 mesh 项里，不是顶层扩展）：positions f64 xyz / faceStart / faceLen / loopVert（i32）/ faceMat（i32，−1 默认）/ faceFlags（u8，bit0 隐藏）/ edgePairs + edgeFlags（只列带标记的边）。**不存三角形**。拍子进 `FORMAT` 表（签名多一段）；major 新拒开、minor 新提示一次。
+- **`CATSUP_definitions` 6.3 → 6.4**：mesh 项换形。老读者看不见多边形键 = 读不到网格体几何（它们本来也不画 mesh），提示一次；没有任何老版本能造出 mesh 身体，实际不存在这种文件。
+- **老形**（0.14 三角汤最小形 positions / indices / triMaterial，没拍子）：`migrate/mesh.ts polygonsFromTriangles` 读成每三角一面（需要二进制，所以不走 STEPS 表；读到没 faceStart 的 mesh 项就走它）。重存 = 多边形载荷。测过。
+- **bake**（`format/bake.ts bakeMesh`）：顶点一份（Y-up，无 NORMAL 省流档）、三角形按材质 core 分 primitive（约束 Delaunay 同屏幕）、LINES = 看得见的边（多边形环边 + 裸线；软 / 隐藏不出；三角化出来的内部边不出）、隐藏的面不出。网格体从此在别的 glTF 查看器里看得见（以前 mesh 定义没有 glTF 几何）。
+- **内核 ↔ 载荷** `src/mesh/mesh-doc.ts`：存时去空位重编；读时坏环 / 越界点名拒开（不静默丢）。
+- 冻结样本：新目录 `v3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.1.0-1.0.0-1.0.0`，新增 `meshed.glb`（根 brep 盒 + 转成 mesh 的盒：软 + 平滑边、隐藏面、涂了材质的面）；场景指纹认 mesh 身体。
+- 测试 `test/mesh-format.test.ts`（往返逐字 / 文件形状 / 老形照开 / 拍子纪律 / 坏环拒开）；872 绿；三探针 + 临时 mesh 渲染探针 OK。
+- **现在可以接造 mesh 身体的 UI 了**（M2 的禁令解除）：下一步 = 转换指令进注册表的物体族（`object.toMesh` / `object.toBrep`；toBrep = 三角化 → `kernelFromTriangles` 那条导入管线）+ 外来 glb 导入直接成 mesh（user「导入直接成 mesh」）。

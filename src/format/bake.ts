@@ -3,7 +3,8 @@
 // + LINES（全部边）。坐标换轴 Z-up → glTF Y-up：(x,y,z) → (x, z, -y)（与 obj-io 同规则）。created 2026-09-20 by Claude Fable 5.1
 
 import type { BrepSnapshot } from "../kernel/kernel.ts";
-import { COPLANAR_TOL_DEFAULT, dot3, planeBasis } from "../kernel/geom.ts";
+import { COPLANAR_TOL_DEFAULT, dot3, planeBasis, planeOfRing, type Pt3 } from "../kernel/geom.ts";
+import type { MeshDoc } from "./document.ts";
 import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
 import { triangulateRings } from "./triangulate.ts";
 import type { ViewSink } from "./brep-codec.ts";
@@ -217,6 +218,63 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
       accessors.push({ bufferView: uv, componentType: GL_FLOAT, count: UV.length / 2, type: "VEC2" });
     }
     primitives.push({ attributes, mode: MODE_TRIANGLES, ...(core >= 0 ? { material: core } : {}) });
+  }
+  return { accessors, bufferViewTargets: targets, mesh: { primitives } };
+}
+
+/**
+ * mesh 身体的 bake（M3，2026-10-27 Claude Fable 5.1）：真相在 CATSUP_mesh 载荷（多边形 / 标记）里，这里只出给别的查看器看的派生物——顶点一份（Y-up；无 NORMAL = 省流档，加载器自算平面法向），
+ * 三角形按材质 core 分 primitive（约束 Delaunay，和屏幕上同一套 triangulateRings），LINES = 看得见的边（多边形的环边 + 裸线；软 / 隐藏的不出；三角化出来的内部边不出），隐藏的面不出。
+ */
+export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult {
+  const accessors: Record<string, unknown>[] = [], targets = new Map<number, number>(), primitives: Record<string, unknown>[] = [];
+  const nV = Math.floor(m.positions.length / 3);
+  if (!nV) return { accessors, bufferViewTargets: targets, mesh: { primitives } };
+  const pts: Pt3[] = [], pos: number[] = [];
+  let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
+  for (let i = 0; i < nV; i++) {
+    const p = { x: m.positions[3 * i], y: m.positions[3 * i + 1], z: m.positions[3 * i + 2] };
+    pts.push(p);
+    const y = [p.x, p.z, -p.y];   // Z-up → Y-up
+    pos.push(y[0], y[1], y[2]);
+    min = [Math.min(min[0], y[0]), Math.min(min[1], y[1]), Math.min(min[2], y[2])];
+    max = [Math.max(max[0], y[0]), Math.max(max[1], y[1]), Math.max(max[2], y[2])];
+  }
+  const KEY = 1 << 26, keyOf = (a: number, b: number): number => Math.min(a, b) * KEY + Math.max(a, b);
+  const flagged = new Map<number, number>();
+  for (let i = 0; i < m.edgeFlags.length; i++) flagged.set(keyOf(m.edgePairs[2 * i], m.edgePairs[2 * i + 1]), m.edgeFlags[i]);
+  const byCore = new Map<number, number[]>(), lineKeys = new Set<number>(), lines: number[] = [];
+  for (let f = 0; f < m.faceStart.length; f++) {
+    if (m.faceFlags[f] & 1) continue;   // 隐藏的面不出
+    const s = m.faceStart[f], n = m.faceLen[f], ring = Array.from(m.loopVert.subarray(s, s + n));
+    for (let i = 0; i < n; i++) { const a = ring[i], b = ring[(i + 1) % n], key = keyOf(a, b); if (lineKeys.has(key)) continue; lineKeys.add(key); if (!((flagged.get(key) ?? 0) & (1 | 8))) lines.push(a, b); }
+    const slot = m.faceMat[f], core = slot >= 0 ? mats?.slotToCore(slot) : undefined, key = core === undefined ? -1 : core;
+    const rp = ring.map((i) => pts[i]);
+    const tris = n === 3 ? [[0, 1, 2]] : ((): number[][] => { const pl = planeOfRing(rp); return pl ? triangulateRings(rp, pl, ring.map((_, i) => i), []) : []; })();
+    const out = byCore.get(key) ?? byCore.set(key, []).get(key)!;
+    for (const [a, b, c] of tris) out.push(ring[a], ring[b], ring[c]);
+  }
+  for (const [key, fl] of flagged) if (fl & 16 && !lineKeys.has(key) && !(fl & (1 | 8))) lines.push(Math.floor(key / KEY), key % KEY);   // 裸线
+  const idxType = pickUintType(Math.max(0, nV - 1));
+  const idxGl = idxType === "uint8" ? GL_UNSIGNED_BYTE : idxType === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
+  const idxEnc = idxType === "uint64" ? "uint32" : idxType;
+  const posView = sink.add(encodeF32(pos));
+  targets.set(posView, GL_ARRAY_BUFFER);
+  accessors.push({ bufferView: posView, componentType: GL_FLOAT, count: nV, type: "VEC3", min, max });
+  for (const [core, tris] of [...byCore].sort((a, b) => a[0] - b[0])) {
+    if (!tris.length) continue;
+    const tv = sink.add(encodeUints(tris, idxEnc));
+    targets.set(tv, GL_ELEMENT_ARRAY_BUFFER);
+    const acc = accessorBase + accessors.length;
+    accessors.push({ bufferView: tv, componentType: idxGl, count: tris.length, type: "SCALAR" });
+    primitives.push({ attributes: { POSITION: accessorBase }, indices: acc, mode: MODE_TRIANGLES, ...(core >= 0 ? { material: core } : {}) });
+  }
+  if (lines.length) {
+    const lv = sink.add(encodeUints(lines, idxEnc));
+    targets.set(lv, GL_ELEMENT_ARRAY_BUFFER);
+    const acc = accessorBase + accessors.length;
+    accessors.push({ bufferView: lv, componentType: idxGl, count: lines.length, type: "SCALAR" });
+    primitives.push({ attributes: { POSITION: accessorBase }, indices: acc, mode: MODE_LINES });
   }
   return { accessors, bufferViewTargets: targets, mesh: { primitives } };
 }

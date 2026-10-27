@@ -13,8 +13,8 @@ const stampEq = (obj: any, ext: keyof typeof FORMAT, what: string): void => {
 };
 
 describe("format: 三级拍子", () => {
-  it("formatTag = 七个子结构的拍子签名（冻结样本目录名）；EXTENSION_VERSIONS = 各 major", () => {
-    eq(formatTag(), ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references"].map((k) => { const s = FORMAT[k as keyof typeof FORMAT]; return `${s.major}.${s.minor}.${s.patch}`; }).join("-"));
+  it("formatTag = 八个子结构的拍子签名（冻结样本目录名）；EXTENSION_VERSIONS = 各 major", () => {
+    eq(formatTag(), ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh"].map((k) => { const s = FORMAT[k as keyof typeof FORMAT]; return `${s.major}.${s.minor}.${s.patch}`; }).join("-"));
     for (const k of Object.keys(FORMAT) as (keyof typeof FORMAT)[]) eq(EXTENSION_VERSIONS[k], FORMAT[k].major, k);
   });
   it("写出来的每一处扩展都带本版拍子（version 必写，minor / patch 非 0 才写；document / definitions / 每个 brep / 实例节点 / 带贴图的材质 / desk）", () => {

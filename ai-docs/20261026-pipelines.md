@@ -196,3 +196,7 @@ flowchart LR
 ## 追记 2026-10-27 夜（v0.15.10，Claude Fable 5.1）：mesh 池进渲染 / 拾取 / 吸附
 
 渲染（⑦）和合成视图 / 拾取 / 吸附读内核的那一步改成只认契约 `scene/kernel-view.ts`：`Scene.viewOf(pool)` 派发——brep 池给内核本身（零改动），mesh 池给 `mesh/mesh-view.ts` 的派生视图（表按 rev 缓存 O(n)、改动日志是内核自己的 → 渲染缓存对 mesh 也是增量：挪一个点只重建它周围 3 张面，测过）。mesh 池的渲染多一个分叉：单面 → FrontSide 材质（剔背面）。随模型涨的新点：mesh 视图的派生表重算 O(mesh 大小)（每次 rev 变一次；增量重算 = 以后）。
+
+## 追记 2026-10-27 夜（v0.15.11，Claude Fable 5.1）：文件流程的网格体分叉
+
+保存：mesh 定义 → `meshDocFromKernel`（去空位重编，O(mesh)）→ `encodeMeshItem`（八个 bufferView）+ `bakeMesh`（三角化 O(面数)，给别的查看器）。打开：`decodeMeshItem`（拍子 → 多边形；没 faceStart = 老三角汤 → 每三角一面）→ `kernelFromMeshDoc`（addVertex / addFace O(mesh)；坏环拒开）。brep 定义的那条流程一字没动。

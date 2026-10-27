@@ -167,7 +167,7 @@ describe("format: group / component / 软边 往返（v2，2026-10-21）", () =>
       const doc = readCatsup(bytes);
       const s2 = sceneFromDocument(doc);
       eq(sceneFingerprint(s2), sceneFingerprint(s), "场景指纹");
-      const anySoft = (sc: typeof s): boolean => [...sc.defs.values()].some((d) => { const b = sc.brep(d.id); return b.kernel.soft.size > 0 || [...b.groups.values()].some((g) => g.kernel.soft.size > 0); });
+      const anySoft = (sc: typeof s): boolean => [...sc.defs.values()].some((d) => { if (d.body.kind !== "brep") return false; const b = sc.brep(d.id); return b.kernel.soft.size > 0 || [...b.groups.values()].some((g) => g.kernel.soft.size > 0); });
       const hadSoft = anySoft(s);
       if (hadSoft) assert(anySoft(s2), "软边随文件往返");
       if (s.materials.length) { eq(s2.materials.length, s.materials.length, "材质表往返"); const { json: j2 } = decodeGlb(bytes) as { json: any }; eq(j2.materials.length, s.materials.length, "glTF core materials"); assert(j2.meshes.some((m: any) => m.primitives.some((p: any) => typeof p.material === "number")), "按材质拆了 primitive"); if (s.materials.some((m) => m.texture)) { assert(Array.isArray(j2.images) && Array.isArray(j2.textures), "images / textures"); assert(j2.meshes.some((m: any) => m.primitives.some((p: any) => p.attributes.TEXCOORD_0 !== undefined)), "贴图面带 TEXCOORD_0"); } }
@@ -176,7 +176,7 @@ describe("format: group / component / 软边 往返（v2，2026-10-21）", () =>
       assert(again.every((b, i) => b === bytes[i]), "逐字节");
       const { json } = decodeGlb(bytes) as { json: any };
       eq(json.meshes.length, s.defs.size, "一个 definition 一个 mesh");
-      assert(json.nodes.length >= 1 + 2, "根节点 + 两个实例节点");
+      assert(json.nodes.length >= 1 + [...s.defs.values()].reduce((n, d) => n + d.instances.size, 0), "根节点 + 每个实例一个节点");
       assert(json.nodes.some((n: any) => Array.isArray(n.matrix) && n.matrix.length === 16), "实例节点带 4×4 matrix");
     });
   }

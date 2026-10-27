@@ -1,4 +1,5 @@
 import type { BrepSnapshot } from "../kernel/kernel.ts";
+import type { MeshDoc } from "./document.ts";
 import type { ViewSink } from "./brep-codec.ts";
 export interface BakeResult {
     accessors: Record<string, unknown>[];
@@ -30,3 +31,8 @@ export interface BakeMaterials {
  * 自己的 POSITION（逐角，不共享）+ 有贴图时 TEXCOORD_0 = 沿面平面确定性基的平面投影 / 物理尺寸（契约「默认不存 UV」档：三方看到的就是 app 的默认贴法）。
  */
 export declare function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult;
+/**
+ * mesh 身体的 bake（M3，2026-10-27 Claude Fable 5.1）：真相在 CATSUP_mesh 载荷（多边形 / 标记）里，这里只出给别的查看器看的派生物——顶点一份（Y-up；无 NORMAL = 省流档，加载器自算平面法向），
+ * 三角形按材质 core 分 primitive（约束 Delaunay，和屏幕上同一套 triangulateRings），LINES = 看得见的边（多边形的环边 + 裸线；软 / 隐藏的不出；三角化出来的内部边不出），隐藏的面不出。
+ */
+export declare function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult;

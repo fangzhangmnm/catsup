@@ -20,6 +20,9 @@
 //   CATSUP_definitions v5 → v6（2026-10-24 深夜 CardBody sunset，user「cardbody需要sunset」「拆」）：list[i].kind = card 的定义降成**空 brep 定义**（name / instances / 空 brep 占位留，card 载荷丢；dev 里从没有文件存过 card，拆在零成本窗口里）。
 //                      groups[j].locked **丢弃**（组不是物体，user 2026-10-24）。minor：老读者只是少看见一个可选键 / 不认的 kind 本来就拒开。
 
+//   CATSUP_definitions 6.4（2026-10-27 M3，Claude Fable 5.1）：mesh 项换成 CATSUP_mesh 1.0.0 多边形载荷（faceStart / faceLen / loopVert / faceMat / faceFlags / edgePairs / edgeFlags，f64 坐标）；
+//                      三角形不再存（bake 的派生物）。老读者（0.14 / 0.15.9 以前的 dev）看不见多边形键、也没有 positions / indices 三角汤 = 读不到网格体几何（它们本来就不画 mesh），提示一次；存回去会丢网格体 → 那是 minor 语义的边界，
+//                      但那些版本没有任何造 mesh 身体的入口，实际没有这种文件。
 //   CATSUP_document    3.1（2026-10-25 追认）：settings 里 10-24/25 加的可选键 gridPlane / gridPreset / scaleRefs（老读者原样带回、minor 提示一次）。
 //   CATSUP_desk        1.0（2026-10-25，Claude Fable 5.1）：桌面态子结构 = WeebPaint `.weebpaint/editor-state.json` 在 glb 里的镜像（user「不是应该跟文件吗，看一下weebpaint…」）：
 //                      menuTabs（两个 ☰ 停在哪页）、lastView（相机；从 CATSUP_document 搬来 = 契约 §7.2「保留读、停止写」）。不进定稿指纹、不标脏、新建必 reset；
@@ -50,14 +53,16 @@ export interface Stamp { readonly major: number; readonly minor: number; readonl
 export const FORMAT = {
   CATSUP_document: { major: 3, minor: 1, patch: 0 },
   CATSUP_brep: { major: 4, minor: 2, patch: 0 },
-  CATSUP_definitions: { major: 6, minor: 3, patch: 0 },
+  CATSUP_definitions: { major: 6, minor: 4, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },
   CATSUP_material: { major: 1, minor: 0, patch: 0 },
   CATSUP_desk: { major: 1, minor: 1, patch: 0 },
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
+  /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
+  CATSUP_mesh: { major: 1, minor: 0, patch: 0 },
 } as const satisfies Record<string, Stamp>;
 export type CatsupExtension = keyof typeof FORMAT;
-export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references"];
+export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh"];
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>> = Object.fromEntries(CATSUP_EXTENSION_ORDER.map((k) => [k, FORMAT[k].major])) as Record<CatsupExtension, number>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */

@@ -3,6 +3,8 @@ import { Kernel } from "../src/kernel/kernel.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 import { circleSegmentsOnPlane, rectSegments } from "../src/editor/tools.ts";
 import { Scene } from "../src/scene/scene.ts";
+import { brepToMesh } from "../src/scene/kinds.ts";
+import { F_SOFT, F_SMOOTH, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
 import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
 import { GROUND } from "../src/editor/pick.ts";
 import { translation } from "../src/scene/xform.ts";
@@ -160,7 +162,18 @@ export function sceneCompassed(): Scene {
   if (gid !== undefined) s = applyOp(s, { op: "addGuide", at: { def: s.root, group: gid }, sphere: { c: { x: 0.5, y: 0.5, z: 1 }, r: 1.25 } }).scene;
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed };
+/** 网格体（CATSUP_mesh 1.0.0，2026-10-27 M3，Claude Fable 5.1）：根 brep 盒 + 一个由 brep 盒转成的 mesh 定义（6 张四边形），带一条软 + 平滑边、一张隐藏面、一张涂了材质的面。 */
+export function sceneMeshed(): Scene {
+  let s = new Scene(sceneBox(2, 1.5));
+  s = applyOp(s, { op: "addMaterial", name: "蓝", color: [0.2, 0.3, 0.8] }).scene;
+  const d = s.mintDef("网格盒", sceneBox(1, 1));
+  const body = brepToMesh(s.brep(d.id)), m = body.kernel;
+  m.setEdgeFlags(m.edges()[0], F_SOFT | F_SMOOTH); m.setFaceFlags(m.faces()[1], FF_HIDDEN, true); m.setFaceMat(m.faces()[2], 0); body.materialSlots = [0];
+  d.body = body;
+  s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';
@@ -188,6 +201,7 @@ export function sceneFingerprint(s: Scene): string {
     (g.lines.length || g.points.length || g.circles?.length || g.spheres?.length) ? ` guides=[${g.lines.map((l) => `L${l.id}:${f3(l.p)}>${f3(l.dir)}`).join(" ")} ${g.points.map((q) => `P${q.id}:${f3(q.p)}`).join(" ")}${(g.circles ?? []).map((c) => ` C${c.id}:${f3(c.c)}^${f3(c.n)}r${c.r.toFixed(6)}`).join("")}${(g.spheres ?? []).map((x) => ` S${x.id}:${f3(x.c)}r${x.r.toFixed(6)}`).join("")}]` : "";
   parts.push(`axes ${f3(s.axes.origin)} | ${f3(s.axes.x)} | ${f3(s.axes.y)} | ${f3(s.axes.z)}`);
   for (const d of [...s.defs.values()].sort((a, b) => label(a.id).localeCompare(label(b.id)))) {
+    if (d.body.kind === "mesh") { const m = d.body.kernel, snap = m.toSnapshot(); parts.push(`def ${label(d.id)} kind=mesh slots=${d.body.materialSlots.join(",")}: ${JSON.stringify(snap)} faceFlags=${m.faces().map((f) => m.faceFlags[f]).join(",")}`); for (const i of d.instances.values()) parts.push(`  inst ${label(i.def)} parent=${i.parent} m=${i.xform.map((v) => Math.round(v * 1e6) / 1e6).join(",")}`); continue; }
     const b = s.brep(d.id);
     parts.push(`def ${label(d.id)} slots=${b.materialSlots.join(",")}: ${fingerprint(b.kernel)} mats=${b.kernel.faces().map((f) => `${b.kernel.faceMaterialOf(f.id) ?? -1}/${b.kernel.faceMaterialOf(f.id, 1) ?? -1}`).sort().join(",")}${guidesFp(b.guides)}${b.drawFrame ? ` drawFrame=${f3(b.drawFrame.origin)}|${f3(b.drawFrame.x)}|${f3(b.drawFrame.y)}|${f3(b.drawFrame.z)}` : ""}`);
     for (const g of b.groups.values()) parts.push(`  group parent=${g.parent} axes=${[g.axes.origin.x, g.axes.origin.y, g.axes.origin.z].join(",")}: ${fingerprint(g.kernel)}${guidesFp(g.guides)}`);

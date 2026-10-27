@@ -7,7 +7,8 @@ import { APP_VERSION } from "../version.ts";
 import { BinBuilder } from "./binary.ts";
 import { encodeGlb } from "./glb.ts";
 import { canonicalize, encodeBrep, type CatsupBrepJson, type ViewSink } from "./brep-codec.ts";
-import { bakeDefinition, mergeBrep } from "./bake.ts";
+import { bakeDefinition, bakeMesh, mergeBrep } from "./bake.ts";
+import { encodeMeshItem } from "./mesh-payload.ts";
 import type { CatsupDocument, DefinitionDoc } from "./document.ts";
 import { stampOf } from "./migrate/index.ts";
 import { MIN_GLTF_VERSION, WRITE_GLTF_VERSION } from "./migrate/gltf/index.ts";
@@ -68,10 +69,12 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   for (let i = 0; i < doc.definitions.length; i++) {
     const merged = mergeBrep([canon[i].root, ...canon[i].groups.map((g) => g.brep)]);
     const slots = doc.definitions[i].materialSlots;
-    const baked = bakeDefinition(merged, sink, accessors.length, {
-      slotToCore: (slot) => { const c = slots[slot]; return c !== undefined && c in doc.materials ? c : undefined; },
-      sizeOfCore: (core) => doc.materials[core]?.texture?.sizeM ?? null,
-    });
+    const mats = {
+      slotToCore: (slot: number) => { const c = slots[slot]; return c !== undefined && c in doc.materials ? c : undefined; },
+      sizeOfCore: (core: number) => doc.materials[core]?.texture?.sizeM ?? null,
+    };
+    const dd = doc.definitions[i];
+    const baked = dd.kind === "mesh" && dd.mesh ? bakeMesh(dd.mesh, sink, accessors.length, mats) : bakeDefinition(merged, sink, accessors.length, mats);   // 网格体：多边形三角化给别的查看器看（真相在 CATSUP_mesh 载荷里）
     for (const [bi, t] of baked.bufferViewTargets) bufferViews[bi] = { ...bufferViews[bi], target: t };
     accessors.push(...baked.accessors);
     // glTF 不许零个 primitive 的 mesh（spec：primitives minItems 1）：没几何的定义（空节点 / 只装孩子的容器组件）不出 mesh，节点也不挂（2026-10-26 Opus）
@@ -106,11 +109,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) }));
     // 0.14 身体载荷（definitions v5）：mesh = 几条 bufferView（card 载荷 v6 退场）
     let payload: Record<string, unknown> = {};
-    if (d.kind === "mesh" && d.mesh) {
-      const m = d.mesh;
-      const bv = (arr: Float32Array | Uint32Array | Uint16Array): number => sink.add(new Uint8Array(arr.buffer, arr.byteOffset, arr.byteLength));
-      payload = { mesh: { positions: { bufferView: bv(m.positions), count: m.positions.length / 3 }, indices: { bufferView: bv(m.indices), count: m.indices.length }, ...(m.normals ? { normals: { bufferView: bv(m.normals) } } : {}), ...(m.uvs ? { uvs: { bufferView: bv(m.uvs) } } : {}), ...(m.triMaterial ? { triMaterial: { bufferView: bv(m.triMaterial) } } : {}) } };
-    }
+    if (d.kind === "mesh" && d.mesh) payload = { mesh: encodeMeshItem(d.mesh, sink) };   // CATSUP_mesh 1.0.0 多边形载荷（M3）
     return { name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), ...payload, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), ...(d.drawFrame ? { drawFrame: { origin: v3(d.drawFrame.origin), x: v3(d.drawFrame.x), y: v3(d.drawFrame.y), z: v3(d.drawFrame.z) } } : {}), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
   });
 

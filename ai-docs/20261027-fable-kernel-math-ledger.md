@@ -109,3 +109,4 @@
 - 注册表底座 v0.15.9（两层：指令 / 动作；族名 = 单位种类；修复九条 = brep 族）。
 - **mesh M2 done v0.15.10**：契约 `scene/kernel-view.ts` + `mesh/mesh-view.ts`（见 mesh 提案 §11）。user「不要monkey patch。基础打扎实」。
 - 顺序改了（user「不是冲刺，而是先专心做这个」）：M2 → **M3 格式**（`CATSUP_mesh` 1.0.0 + 迁移 + 冻结样本 + `object.toMesh` / `object.toBrep` 两条指令进注册表的物体族）→ O3 brep 数组制度 → O1 倒带日志 → A3 撤销设计稿。
+- **mesh M3 done v0.15.11**：`CATSUP_mesh` 1.0.0 多边形载荷 + 定义表 6.4 + 老三角汤读法 + bakeMesh + 冻结样本（mesh 提案 §12）。下一块：转换指令进注册表物体族（`ObjectUnit`）+ 导入直接成 mesh → O3 → O1 → A3。
