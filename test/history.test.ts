@@ -1,4 +1,4 @@
-// history / ops（A1 正规 undo，2026-09-20）：八个动词 do→undo→redo 逐字往返；检查点环 = 全量重放对照；op JSON 往返；
+// history / ops（A1 正规 undo，2026-09-20 → A3 2026-10-27 差量栈）：八个动词 do→undo→redo 逐字往返；差量栈 = 全量重放对照；op JSON 往返；
 //   按坐标寻址跨 id 历史；提交失败回滚不记账；新提交清 redo 与其后快照。created 2026-09-20 by Claude Fable 5.1
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
@@ -43,11 +43,11 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     }
   });
 
-  it("检查点环（snapEvery=2, keepSnaps=1）：每一步 undo = 全量重放；快照被淘汰后仍正确", () => {
-    const h = new History(undefined, { snapEvery: 2, keepSnaps: 1 }); let s = new Scene();
+  it("差量栈（A3）：九步每一步 undo = 全量重放对照；撤到底 = 空；一路重做回来", () => {
+    const h = new History(); let s = new Scene();
     const ops: Op[] = [rect(0, 0, 10, 10), ...[1, 2, 3, 4, 5, 6, 7, 8].map(chord)];
     for (const op of ops) s = h.commit(s, op).scene;
-    eq(h.snapshotIndices().join(","), "8", "只留最新一个快照");
+    assert(h.usageBytes() > 0 && h.usageBytes() < 200_000, `撤销记录是差量不是整场景：${h.usageBytes()} B`);
     eq(rootK(s).faces().length, 9, "九格");
     for (let i = ops.length - 1; i >= 0; i--) {
       s = h.undo()!.scene;
@@ -101,21 +101,28 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     eq(h.depth(), 1);
   });
 
-  it("新提交清 redo 尾巴与其后的快照；undo 仍回到正确的中间态", () => {
-    const h = new History(undefined, { snapEvery: 2, keepSnaps: 8 }); let s = new Scene();
+  it("新提交清 redo 尾巴；undo 仍回到正确的中间态", () => {
+    const h = new History(); let s = new Scene();
     const ops: Op[] = [rect(0, 0, 10, 10), chord(2), chord(4), chord(6)];
     for (const op of ops) s = h.commit(s, op).scene;
-    eq(h.snapshotIndices().join(","), "2,4");
     s = h.undo()!.scene; s = h.undo()!.scene; s = h.undo()!.scene;
     eq(h.position(), 1);
     s = h.commit(s, chord(9)).scene;
     eq(h.depth(), 2, "尾巴清掉");
     assert(!h.canRedo());
-    eq(h.snapshotIndices().join(","), "2", "旧的 index 4 快照丢弃、新的 index 2 快照重建");
     eq(fingerprint(rootK(h.undo()!.scene)), fingerprint(replayFresh(ops, 1)), "undo 回到 rect 态");
   });
+  it("只改选区的一步（commitSession）：0 条 op、能撤能重做、带回之前 / 之后的会话；新提交截掉它的重做尾巴", () => {
+    const h = new History<string>(); let s = new Scene();
+    s = h.commit(s, rect(0, 0, 10, 10), false, "A").scene;
+    h.commitSession("sel-before");
+    assert(h.canUndo()); eq(h.depth(), 2);
+    const u = h.undo("sel-after")!; eq(u.before, "sel-before"); eq(fingerprint(rootK(u.scene)), fingerprint(rootK(s)), "几何没变");
+    const r = h.redo(s)!; eq(r.after, "sel-after"); eq(r.events.length, 0);
+    h.undo("x"); s = h.commit(s, chord(5), false, "B").scene; eq(h.depth(), 2, "重做尾巴截掉"); assert(!h.canRedo());
+  });
   it("一步 = 好几条 op（join）：撤销 / 重做一次走完整步；undoOp 只退一条（user 2026-10-25「*6 /6的时候undo不对」）", () => {
-    const h = new History(undefined, { snapEvery: 2, keepSnaps: 8 }); let s = new Scene();
+    const h = new History(); let s = new Scene();
     s = h.commit(s, rect(0, 0, 10, 10)).scene;
     const one = fingerprint(rootK(s));
     for (let i = 1; i <= 6; i++) s = h.commit(s, chord(i), i > 1).scene;   // 阵列 ×6 = 一步六条

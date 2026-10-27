@@ -1,28 +1,27 @@
-// history.ts —— 正规 undo（A1，2026-09-20）：**op 日志 + 检查点环**。状态 = base + 已应用 op 序列的纯函数（内核确定性，公理 5）。
-// created 2026-09-20 by Claude Fable 5.1（user 09-20「正规 undo…按照 multiplayer friendly 做这种 replay 指令式」「做」）
-// 2026-10-21（group / component 纪元）：状态从 Kernel 换成 **Scene**（definition / group / instance 全在里面），快照 = Scene.clone()。
+// history.ts —— 正规 undo：**指令流 + 差量栈**（A1 2026-09-20 立；A3 2026-10-27 换底子，设计稿 ai-docs/20261027-undo-delta-design.md）。
+// created 2026-09-20 by Claude Fable 5.1 · 2026-10-27 重做底子 by Claude Fable 5.1（user：「我是更喜欢逆指令……会不会不好写的有另外一条兜底的路？」「CatsUp为什么不128」「画画……我建议不走[自己的栈]」「影子换真身好主意」）
 //
-// · 记账 = 指令（ops.ts：可序列化、按坐标寻址）；undo = 回到最近检查点重放（O(SNAP_EVERY_OPS)），redo = 原地再应用；
-//   零逆操作、零内核入侵。
-// · 事务性：应用抛错（目标缺席 / 内核拒绝）→ 这批**不记账**，并交回一份「提交前状态」（OpApplyError.restored）。
-// · 联机形状：log() = 线协议本体；联机 undo = 抽 op 重放（OT 政策在上层），本类不做。
-// · 指令流生命周期 = runtime（user 2026-09-07）：不持久化；打开文件 = 新 base，历史从零开始。
-// · 一步 = 用户的一个动作，可以是好几条 op（阵列 ×6 = 6 份副本、移动两个组 = 两条变换、建组件再挪原点）：commit 带 join = 和前一条同一步；
-//   undo / redo 按步走（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）。undoOp 只退一条 = 编辑器内部「撤销刚才那步按新值重做」用。
-//   edited 2026-10-25 by Claude Opus 5.5
-// · 会话记录（2026-10-26 重设计，user「undo似乎全坏了…涉及组件的修改进出之类的」「不要ad hoc，而是思考系统重新设计」）：
-//   每一步自带「这一步之前 / 之后」的会话状态 M（编辑器给：在哪个组件里编辑 + 选区）。撤销 = 场景和会话一起回到之前，重做 = 一起回到之后。
-//   以前选区快照住在编辑器另一张按位置编号的表里，组件位置不一致就清空——撤的是组件里的改动、人在组件外时，改动没了、人还在外面、选区也没了。
-//   记录归 History 自己管（和 op 同一个数组下标、同一次截断），不会和步对不齐。设计稿 ai-docs/20261026-undo-session-redesign.md。
-import { Scene } from "../scene/scene.ts";
-import { applyOp, type ApplyResult, type Op } from "./ops.ts";
+// · 指令流 ops[]：可序列化、按坐标寻址——复现包 / 黑匣子 / 以后的联机 / 脚本都读它；永不驱逐（很小）。**不再是撤销的底子**（以前 = 每 8 条整场景快照 + 回到快照重放：八份整场景常驻、深撤销 O(全部指令)）。
+// · 差量栈 entries[i]：ops[i] 的撤销记录，三种部件，WeebPaint undo-stack 同款自反交换（应用一次 = 撤，记录被换成反向包；再应用 = 重做）：
+//     kernel —— 池内核差量（kernel/delta.ts）：**提交 = 影子换真身**：先从真身新拷一份当影子、在影子上跑这条 op、成功就把影子装进池（真身换对象），
+//               旧真身里触碰集的记录就是「之前」（deltaAgainst，O(触碰)），旧真身随即丢掉。任何 op 自动有逆，不手写逆指令。失败 = 真身原封不动。
+//               升真身的永远是提交时新拷、只跑过这一条 op 的副本；拖动用的预演影子（Editor.shadowKernel）永远可丢、不升（user：「影子坏了无所谓的 premise 会出问题，可能得小心点」）。
+//     scene  —— 整份场景对象的交换：skeleton 型 op（挪实例 / 层 / 材质 / 轴 / 参考几何 / 换身体种类……）只拷骨架（内核共享，很小）；结构型 op（建组 / 建组件 / 炸开 / 导入……）整份拷（少见）。
+//               kernel 型 op 也顺手带一份骨架（paintFaces 会改材质槽表之类的骨架副作用，差量管不到）。
+//     pool   —— 兜底：差量抽不出（改动日志丢段）就留整个旧内核对象，撤 = 换对象。
+// · 配额 128 MB（user「CatsUp 为什么不 128」；WeebPaint 同值）：从最老端整步驱逐，最新一步永不驱逐；驱逐只丢撤销记录，指令流留着；深过配额 = 不能再撤（灰掉），不重放。
+// · 一步 = 用户的一个动作，可以是好几条 op（join）；undo / redo 按步走；undoOp 只退一条（马后炮 / 一步中途失败回滚用）。
+// · 会话记录（10-26 重设计，保留）：每一步自带「之前 / 之后」的会话（在哪个组件里 + 选区）；撤销 = 场景和会话一起回去。只改选区的一步 = 0 条 op 的一步（编辑器 commitSession）。
+// · 崩溃恢复不靠重放（app/crash-store.ts 盲快照）。replay() 仍能从装载态 + 指令流全量重建（测试 / 校验用，不在热路径）。
+import { Scene, type PoolRef } from "../scene/scene.ts";
+import { applyOp, type ApplyResult, type Op, poolOf } from "./ops.ts";
+import type { Kernel } from "../kernel/kernel.ts";
+import { type KernelDelta, deltaBytes } from "../kernel/delta.ts";
 
-/** 每多少条 op 留一个场景快照（clone）——undo 最多重放 SNAP_EVERY_OPS−1 条。量纲：op 条数。 */
-export const SNAP_EVERY_OPS = 8;
-/** 最多保留几个快照（≈ SNAP_EVERY_OPS×KEEP_SNAPS 条 op 内 O(k) 撤销；更深回 base 全量重放，仍正确只是慢）。量纲：个。 */
-export const KEEP_SNAPS = 8;
+/** 撤销栈配额（字节）。 */
+export const UNDO_QUOTA_BYTES = 128 * 1024 * 1024;
 
-/** 应用失败：cause = 内核 / 解析抛的原错；restored = 提交前状态（新实例，调用方直接换用）。 */
+/** 应用失败：cause = 内核 / 解析抛的原错；restored = 提交前状态（调用方直接换用；kernel 型 = 同一个场景对象、内核已换回）。 */
 export class OpApplyError extends Error {
   readonly cause: unknown;
   readonly restored: Scene;
@@ -35,95 +34,167 @@ export class OpApplyError extends Error {
 /** 一步的会话记录：before = 这一步第一条 op 提交之前；after = 撤销它的那一刻（重做时还原）。 */
 export interface StepSession<M> { before: M; after?: M }
 
+type Entry =
+  | { kind: "kernel"; at: PoolRef; delta: KernelDelta; bytes: number }
+  | { kind: "pool"; at: PoolRef; kernel: Kernel; bytes: number }
+  | { kind: "scene"; snapshot: Scene; bytes: number; /** 骨架记录：内核共享——换进来时把现在的内核对象接回去（内核身份随提交换对象，记录只管骨架） */ skeleton: boolean };
+
+const KERNEL_OPS = new Set<Op["op"]>(["addEdges", "eraseEdges", "eraseFaces", "eraseSelection", "move", "pushpull", "followme", "absorb", "weldEdges", "dissolveVertices", "explodeCurves", "setEdgeLayers", "paintFaces", "plugin", "mirror", "setHidden"]);
+const SKELETON_OPS = new Set<Op["op"]>(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides"]);
+export type OpTier = "kernel" | "skeleton" | "scene";
+/** 这条 op 的撤销记录怎么记：kernel = 一个 brep 池的差量（+ 骨架）；skeleton = 只拷骨架；scene = 整份场景拷。 */
+export function opTier(s: Scene, op: Op): { tier: OpTier; at?: PoolRef } {
+  const o = op as { op: string; at?: PoolRef; instances?: number[]; instance?: number; name?: string };
+  if (KERNEL_OPS.has(op.op)) {
+    if (op.op === "mirror" && o.instances?.length) return { tier: "scene" };
+    if (op.op === "setHidden" && o.instance !== undefined) return { tier: "skeleton" };
+    if (op.op === "plugin" && o.name === "hierarchy") return { tier: "scene" };
+    const at = o.at ?? { def: s.root, group: null };
+    if (!s.hasPool(at) || s.kindOf(at.def) !== "brep") return { tier: "scene" };
+    return { tier: "kernel", at };
+  }
+  if (SKELETON_OPS.has(op.op)) return { tier: "skeleton" };
+  return { tier: "scene" };
+}
+
+const poolKernel = (s: Scene, at: PoolRef): Kernel => poolOf(s, at).kernel;
+const setPoolKernel = (s: Scene, at: PoolRef, k: Kernel): void => { if (at.group === null) s.brep(at.def).kernel = k; else s.group({ def: at.def, group: at.group }).kernel = k; };
+/** 字节估计（配额用；量纲：字节；对象图的量级，不求准）。 */
+const kernelBytes = (k: Kernel): number => k.vertices().length * 64 + k.edges().length * 48 + k.faces().length * 160 + 256;
+const skeletonBytes = (s: Scene): number => { let n = s.defs.size; for (const d of s.defs.values()) { n += d.instances.size; if (d.body.kind === "brep") n += d.body.groups.size; } return n * 200 + 256; };
+/** 骨架记录换进来：池的内核对象照现在的（同一定义同一种身体才接；换过身体种类的 = 记录里的旧身体才是真相）。 */
+const relinkKernels = (into: Scene, from: Scene): void => {
+  for (const [id, d] of into.defs) {
+    const f = from.defs.get(id);
+    if (!f || f.body.kind !== d.body.kind) continue;
+    if (d.body.kind === "brep" && f.body.kind === "brep") { d.body.kernel = f.body.kernel; for (const [gid, g] of d.body.groups) { const fg = f.body.groups.get(gid); if (fg) g.kernel = fg.kernel; } }
+    else if (d.body.kind === "mesh" && f.body.kind === "mesh") d.body.kernel = f.body.kernel;
+  }
+};
+const sceneBytes = (s: Scene): number => { let n = skeletonBytes(s); for (const { pool } of s.pools()) { const v = s.viewOf(pool); n += v.vertices().length * 64 + v.edges().length * 48 + v.faces().length * 160; } return n; };
+
 export class History<M = unknown> {
-  private readonly base: Scene;                  // 装载态（clone 持有，永不改）；undo 到底 = 回到刚打开时
+  private readonly base: Scene;                  // 装载态（clone 持有；replay 用）
   private ops: Op[] = [];
   private joins: boolean[] = [];                 // joins[i] = ops[i] 和 ops[i−1] 是同一步（第 0 条永远 false）
-  private sessions: (StepSession<M> | null)[] = [];   // sessions[i] = 以 ops[i] 开头的那一步的会话记录（步中间的 op = null）
+  private sessions: (StepSession<M> | null)[] = [];
+  private entries: Entry[][] = [];               // entries[i] = ops[i] 的撤销记录（自反：撤了就是重做记录）
   private cursor = 0;                            // 已应用 op 数：ops[0..cursor) 生效
-  private snaps = new Map<number, Scene>();      // index → 应用 ops[0..index) 后的快照（clone，只读）；base 视为 index 0
-  private readonly snapEvery: number;
-  private readonly keepSnaps: number;
+  private evicted = 0;                           // ops[0..evicted) 的撤销记录已被配额驱逐（指令流留着）
+  private current: Scene;                        // 现在的场景对象（撤销 / 重做原地改；scene 型记录 = 换对象）
+  private readonly quota: number;
 
-  constructor(base?: Scene, opts?: { snapEvery?: number; keepSnaps?: number }) {
+  constructor(base?: Scene, opts?: { quotaBytes?: number }) {
     this.base = base ? base.clone() : new Scene();
-    this.snapEvery = Math.max(1, opts?.snapEvery ?? SNAP_EVERY_OPS);
-    this.keepSnaps = Math.max(0, opts?.keepSnaps ?? KEEP_SNAPS);
+    this.current = base ?? new Scene();
+    this.quota = opts?.quotaBytes ?? UNDO_QUOTA_BYTES;
   }
 
-  canUndo(): boolean { return this.cursor > 0; }
+  canUndo(): boolean { return this.cursor > this.evicted; }
   canRedo(): boolean { return this.cursor < this.ops.length; }
   depth(): number { return this.ops.length; }
   position(): number { return this.cursor; }
   log(): readonly Op[] { return this.ops; }
-  snapshotIndices(): number[] { return [...this.snaps.keys()].sort((a, b) => a - b); }
+  /** 撤销记录占的字节（估计）。 */
+  usageBytes(): number { let n = 0; for (let i = this.evicted; i < this.entries.length; i++) for (const e of this.entries[i]) n += e.bytes; return n; }
+  /** 被配额驱逐、不能再撤的 op 数（披露用）。 */
+  evictedCount(): number { return this.evicted; }
 
-  /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴与其后的快照）。join = 和上一条同一步；before = 新开一步时这一步之前的会话。失败抛 OpApplyError（不记账，带回滚场景）。 */
+  /** 实时提交：应用 + 记账（新分支即清空 redo 尾巴）。join = 和上一条同一步；before = 新开一步时这一步之前的会话。失败抛 OpApplyError（不记账，带回提交前状态）。 */
   commit(s: Scene, op: Op, join = false, before?: M): ApplyResult {
+    if (this.cursor < this.ops.length) this.dropRedo();
+    const t = opTier(s, op);
     let r: ApplyResult;
-    try { r = applyOp(s, op); }
-    catch (e) { throw new OpApplyError(e, this.stateAt(this.cursor)); }
-    if (this.cursor < this.ops.length) {
-      this.ops.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor;
-      for (const i of [...this.snaps.keys()]) if (i > this.cursor) this.snaps.delete(i);
+    const entries: Entry[] = [];
+    if (t.tier === "kernel") {
+      const at = t.at!, truth = poolKernel(s, at), skel = s.cloneSkeleton(), shadow = truth.clone(), seq = shadow.changes.seq;
+      setPoolKernel(s, at, shadow);   // 这条 op 在影子上跑
+      try { r = applyOp(s, op); }
+      catch (e) { setPoolKernel(s, at, truth); throw new OpApplyError(e, skel); }   // 真身原封不动
+      truth.swapTablesWith(shadow); setPoolKernel(s, at, truth);   // 影子换真身：真身对象不变、表换成影子的；影子此刻持有「之前」的表
+      const delta = truth.deltaAgainst(shadow, seq);
+      entries.push({ kind: "scene", snapshot: skel, bytes: skeletonBytes(skel), skeleton: true });
+      entries.push(delta ? { kind: "kernel", at, delta, bytes: deltaBytes(delta) } : { kind: "pool", at, kernel: shadow, bytes: kernelBytes(shadow) });
+    } else {
+      const snap = t.tier === "skeleton" ? s.cloneSkeleton() : s.clone();
+      try { r = applyOp(s, op); }
+      catch (e) { throw new OpApplyError(e, snap); }
+      entries.push({ kind: "scene", snapshot: snap, bytes: t.tier === "skeleton" ? skeletonBytes(snap) : sceneBytes(snap), skeleton: t.tier === "skeleton" });
     }
+    this.current = r.scene;
     const joined = join && this.cursor > 0;
     this.ops.push(op); this.joins.push(joined);
     this.sessions.push(joined ? null : before !== undefined ? { before } : null);
+    this.entries.push(entries);
     this.cursor++;
-    if (this.cursor % this.snapEvery === 0) { this.snaps.set(this.cursor, r.scene.clone()); this.prune(); }
+    this.evictToQuota();
     return r;
   }
 
-  /**
-   * 撤销一步（这一步的全部 op）= 回到最近检查点重放到这一步之前。now = 撤销这一刻的会话（记成这一步的 after，重做时还原）。
-   * 返回新场景 + 这一步之前的会话（调用方一起换用）；没得撤 → null。
-   */
-  undo(now?: M): { scene: Scene; before: M | undefined } | null {
-    if (this.cursor === 0) return null;
-    do this.cursor--; while (this.cursor > 0 && this.joins[this.cursor]);
-    const rec = this.sessions[this.cursor];
-    if (rec && now !== undefined) rec.after = now;
-    return { scene: this.stateAt(this.cursor), before: rec?.before };
-  }
-  /** 只撤一条 op（编辑器内部按新值重做那一步用；用户的撤销走 undo）。撤到一步的开头时带回那一步之前的会话。 */
-  undoOp(): { scene: Scene; before: M | undefined } | null {
-    if (this.cursor === 0) return null;
-    this.cursor--;
-    return { scene: this.stateAt(this.cursor), before: this.sessions[this.cursor]?.before };
+  /** 只改会话（选区 / 进出组件）的一步：0 条 op，只有会话记录——「撤销也撤选区」（user 10-27「这个我们要」）。 */
+  commitSession(before: M): void {
+    if (this.cursor < this.ops.length) this.dropRedo();
+    this.ops.push({ op: "batch", label: "选区", ops: [] }); this.joins.push(false); this.sessions.push({ before }); this.entries.push([]);
+    this.cursor++;
   }
 
-  /** 重做一步 = 把下一步的 op 依次原地应用到当前场景；带回这一步之后的会话（撤销时记下的）。中途失败抛 OpApplyError（cursor 不动、带回这一步之前的场景）。 */
-  redo(s: Scene): (ApplyResult & { after: M | undefined }) | null {
+  /** 撤销一步（这一步的全部 op）：自反交换倒着走。now = 撤销这一刻的会话（记成这一步的 after）。返回场景 + 这一步之前的会话；没得撤 → null。 */
+  undo(now?: M): { scene: Scene; before: M | undefined } | null {
+    if (this.cursor <= this.evicted) return null;
+    const end = this.cursor;
+    let start = end;
+    do start--; while (start > this.evicted && this.joins[start]);
+    for (let i = end - 1; i >= start; i--) this.swap(i, true);
+    this.cursor = start;
+    const rec = this.sessions[start];
+    if (rec && now !== undefined) rec.after = now;
+    return { scene: this.current, before: rec?.before };
+  }
+  /** 只撤一条 op（编辑器内部按新值重做那一步 / 一步中途失败回滚用；用户的撤销走 undo）。撤到一步的开头时带回那一步之前的会话。 */
+  undoOp(): { scene: Scene; before: M | undefined } | null {
+    if (this.cursor <= this.evicted) return null;
+    this.cursor--;
+    this.swap(this.cursor, true);
+    return { scene: this.current, before: this.sessions[this.cursor]?.before };
+  }
+  /** 重做一步：自反交换正着走；带回这一步之后的会话。events 为空（重做不重跑动词）。 */
+  redo(_s: Scene): (ApplyResult & { after: M | undefined }) | null {
     if (this.cursor >= this.ops.length) return null;
     const c0 = this.cursor;
-    let r: ApplyResult | null = null;
-    const events: ApplyResult["events"] = [];
-    try {
-      do { r = applyOp(r ? r.scene : s, this.ops[this.cursor]); events.push(...r.events); this.cursor++; }
-      while (this.cursor < this.ops.length && this.joins[this.cursor]);
-    } catch (e) { this.cursor = c0; throw new OpApplyError(e, this.stateAt(c0)); }
-    return { ...r!, events, after: this.sessions[c0]?.after };
+    do { this.swap(this.cursor, false); this.cursor++; } while (this.cursor < this.ops.length && this.joins[this.cursor]);
+    return { scene: this.current, events: [], after: this.sessions[c0]?.after };
   }
-
-  /** 丢掉重做队列（游标之后的 op、会话记录、快照）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
+  /** 丢掉重做队列（游标之后的 op、会话记录、撤销记录）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
   dropRedo(): void {
-    this.ops.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor;
-    for (const i of [...this.snaps.keys()]) if (i > this.cursor) this.snaps.delete(i);
+    this.ops.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor; this.entries.length = this.cursor;
   }
-  /** 应用 ops[0..i) 后的状态（新实例）：取 ≤ i 的最近快照 clone 再重放剩余。 */
+  /** 当前状态的独立重建（装载态 + 指令流全量重放；测试 / 校验用，不在热路径）。 */
+  replay(): Scene { return this.stateAt(this.cursor); }
+  /** 应用 ops[0..i) 后的状态（新实例，全量重放）。 */
   stateAt(i: number): Scene {
-    let from = 0, src = this.base;
-    for (const [j, s] of this.snaps) if (j <= i && j > from) { from = j; src = s; }
-    let sc = src.clone();
-    for (let j = from; j < i; j++) sc = applyOp(sc, this.ops[j]).scene;
+    let sc = this.base.clone();
+    for (let j = 0; j < i; j++) sc = applyOp(sc, this.ops[j]).scene;
     return sc;
   }
-  /** 当前状态的独立重建（测试 / 校验用）。 */
-  replay(): Scene { return this.stateAt(this.cursor); }
 
-  private prune(): void {
-    const keys = this.snapshotIndices();
-    while (keys.length > this.keepSnaps) this.snaps.delete(keys.shift()!);
+  /** 自反交换 ops[i] 的记录（撤 = 倒序、重做 = 正序）；记录被换成反向包。 */
+  private swap(i: number, reverse: boolean): void {
+    const list = this.entries[i];
+    const order = reverse ? [...list].reverse() : list;
+    for (const e of order) {
+      if (e.kind === "kernel") { e.delta = poolKernel(this.current, e.at).applyDelta(e.delta); }
+      else if (e.kind === "pool") poolKernel(this.current, e.at).swapTablesWith(e.kernel);   // 兜底：整份表互换（对象身份不变）
+      else { const cur = this.current; if (e.skeleton) relinkKernels(e.snapshot, cur); this.current = e.snapshot; e.snapshot = cur; }
+    }
+  }
+  /** 从最老端整步驱逐到配额之内；最新一步永不驱逐。驱逐 = 丢撤销记录、游标之前不能再撤；指令流留着。 */
+  private evictToQuota(): void {
+    const lastStart = ((): number => { let s = this.cursor; do s--; while (s > 0 && this.joins[s]); return s; })();
+    while (this.usageBytes() > this.quota && this.evicted < lastStart) {
+      let j = this.evicted + 1;
+      while (j < this.ops.length && this.joins[j]) j++;
+      for (let i = this.evicted; i < j; i++) this.entries[i] = [];
+      this.evicted = j;
+    }
   }
 }

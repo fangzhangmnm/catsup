@@ -9,6 +9,13 @@ export interface PlaneRec {
         v: Pt3;
     };
 }
+/** restoreFrom 的来源：真身的 PlaneRegistry 或差量。 */
+export interface PlaneSource {
+    planeOrNull(id: PlaneId): PlaneRec | null | undefined;
+    readonly nextPlaneId: number;
+    readonly bucketWidth: number;
+    pendingRecs(): readonly PlaneRec[];
+}
 export declare class PlaneRegistry {
     private recs;
     private nextId;
@@ -46,7 +53,12 @@ export declare class PlaneRegistry {
     dropIds(ids: Iterable<PlaneId>): void;
     private drop;
     /** 倒带（O1）：平面记录不可变，只对齐集合——base 没有的删（出索引）、base 有的补回；桶宽 / 待入索引照 base（桶宽变了 = 整个索引重建，少见）。 */
-    restoreFrom(base: PlaneRegistry): void;
+    restoreFrom(src: PlaneSource, pids: Iterable<PlaneId>): void;
+    planeOrNull(id: PlaneId): PlaneRec | undefined;
+    get nextPlaneId(): number;
+    get bucketWidth(): number;
+    pendingRecs(): readonly PlaneRec[];
+    ids(): Iterable<PlaneId>;
     clone(): PlaneRegistry;
 }
 /**

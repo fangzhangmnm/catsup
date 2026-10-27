@@ -16,6 +16,7 @@ const QUERIES = new Set(["constructor", "toBrep", "clone", "rewindMark", "touche
 /** 改写动词：每个在这里被调一次，rev 必须严格递增。 */
 const VERBS: Record<string, (k: Kernel) => void> = {
   rewindTo: (k) => { const base = k.clone(), mark = k.rewindMark(); k.rewindTo(base, mark); },   // 倒带（O1）：rev 取新值
+  swapTablesWith: (k) => { const o = k.clone(); o.rewindTo(k, o.rewindMark()); k.swapTablesWith(o); },   // 影子换真身：表搬进来（rev 跟表走，影子的 rev 更新）
   applyDelta: (k) => { const d = k.extractDelta({ V: new Set(), E: new Set(), F: new Set(), P: new Set(), C: new Set() }); k.applyDelta(d); },   // 差量（A3）：rev 取新值
   addEdges: (k) => { k.addEdges([[P(5, 5), P(6, 5)]]); },
   eraseEdges: (k) => { k.eraseEdges([k.edges()[0].id]); },

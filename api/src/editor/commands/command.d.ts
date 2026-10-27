@@ -6,7 +6,7 @@ import type { Selection } from "../tools.ts";
 import type { ParamField, ParamValue } from "../param-panel.ts";
 /** 族 = 指令吃的单位种类。brep / mesh = 两个内核各自的动词；object = 组 / 组件 / 实例这些容器；select = 选区；view = 相机和显示（不记撤销）；doc = 文件和文档设置；paint = 画布像素；sim = 读任何几何、产出一个物体。
  *  不按纪元起名、不按菜单起名、不按工作台起名（user 10-27「赞」）。 */
-export type CommandFamily = "brep" | "mesh" | "object" | "select" | "view" | "doc" | "paint" | "sim";
+export type CommandFamily = "brep" | "mesh" | "object" | "select" | "view" | "doc" | "paint" | "simulation";
 export type CommandId = `${CommandFamily}.${string}`;
 export declare function familyOf(id: CommandId): CommandFamily;
 /** brep 族的单位：一个池（组件定义里的一个组；SU 内核）+ 这个池里选中的部分（null = 整个池）+ 池到当前上下文的变换（世界格点用）。 */

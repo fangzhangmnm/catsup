@@ -220,6 +220,9 @@ export class Editor {
     this.draw();
   }
   private history = new History<Session>();
+  /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
+  private lastSession: Session | null = null;
+  private static sessionKey(s: Session): string { return JSON.stringify(s); }
   private _tool: Tool = "line";
   private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建
 
@@ -955,6 +958,7 @@ export class Editor {
     this.scene = s;
     this.bump();
     if (session) this.sessionRestore(session);
+    this.lastSession = this.sessionSnap();
     this.revalidateCharged();
   }
   private pruneSelection(): void {
@@ -1029,6 +1033,7 @@ export class Editor {
     this.history = new History<Session>(s);
     this._revision++;
     this.selection = emptySelection(); this.selectedPools.clear();
+    this.lastSession = this.sessionSnap();
     this.clearCharged();
     this.host.trace?.({ kind: "load", label });
     this.host.changed();
@@ -1206,6 +1211,9 @@ export class Editor {
   /** 全不选（Blender Alt+A；Esc 也行）。 */
   deselectAll(): void { this.selection = emptySelection(); this.selectedPools.clear(); this.afterSelect(); }
   private afterSelect(): void {
+    const now = this.sessionSnap();
+    if (this.lastSession && this.stepDepth === 0 && !this.gestureActive() && this.lastSession.ctx.group === now.ctx.group && this.lastSession.ctx.chain.join("/") === now.ctx.chain.join("/") && Editor.sessionKey(this.lastSession) !== Editor.sessionKey(now)) this.history.commitSession(this.lastSession);
+    this.lastSession = now;
     this.host.readout?.(this.readoutText());
     const info = this.selectionInfo();
     if (info) this.host.hint(info);

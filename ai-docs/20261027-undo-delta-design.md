@@ -89,3 +89,13 @@ CatsUp 已有 `src/app/crash-store.ts`（无地 T-crash，WeebPaint 同形）：
 - **护栏（user「之前一些觉得影子坏了无所谓的premise会出问题，可能得小心点」）**：升真身的永远是**提交时从真身新拷的那份**，只跑这一条指令、成功才换、失败真身原封不动；拖动用的预演影子（被倒回几十次、跑过各种试探）永远可丢、永远不升真身。两种影子，两种待遇。
 - user 问「为什么我觉得两个要拷的东西是一样多的」：撤销记录一样多（都是被碰的那几条）；差在中间过程——拷一份当影子要先整抄一遍池再抽那几条，写入口加钩子只在改到那一刻抄那一条。列式后整抄几毫秒，所以选前者。
 - **落地进度**：步 2 done（`Kernel.extractDelta / applyDelta / deltaAgainst`，`kernel/delta.ts`，各表 restoreFrom 读「来源」接口、倒带和撤销同一条路；`test/kernel-delta.test.ts` 5 种子 × 20 步撤 / 重做逐字；差分抓到一处：端点处曲线重新分链要把端点的星再扩一圈）。
+
+## 7. 落地（v0.15.15，2026-10-27 夜，Claude Fable 5.1）：步 1–4 一口气
+
+- **栈**（`src/editor/history.ts` 重写，公开 API 不变：commit / undo / undoOp / redo / dropRedo / log / position / depth / replay）：指令流 `ops[]` 照旧、永不驱逐；每条 op 配 `entries[i]` 撤销记录；**快照环删**（`SNAP_EVERY_OPS / KEEP_SNAPS` 退场）；配额 128 MB（`UNDO_QUOTA_BYTES`）从最老端整步驱逐、最新一步不驱逐、驱逐只丢记录不丢指令流；`usageBytes() / evictedCount()` 披露用。
+- **三种记录**（自反交换，WeebPaint 同款）：kernel = 一个 brep 池的差量（+ 一份骨架）；scene = 整份场景对象交换（skeleton 型 op 只拷骨架、内核共享；结构型 op 整份拷）；pool = 兜底（差量抽不出就留整个旧内核的表）。`opTier(op)` 分类：kernel = addEdges / 擦 / 挪 / 推拉 / 跟随 / absorb / 焊 / 溶解 / 炸曲线 / 边层 / 涂面 / 修复插件（hierarchy 除外）/ 镜像（不带实例）/ 藏面线；skeleton = 挪实例 / 放删实例 / 锁 / 层 / 材质 / 轴 / 坐标架 / 换身体种类 / 参考几何；其余 scene。
+- **提交 = 影子换真身，但对象身份不变**：从真身新拷一份影子、op 在影子上跑；成功 → `Kernel.swapTablesWith`（O(1) 把影子的表搬进真身对象、旧表搬给影子）→ 真身对象还是同一个（编辑器 / 渲染缓存 / 测试拿着的引用都不失效；差分测试首轮就抓到了「换对象」会让握着内核的测试看到旧表）；影子此刻持有「之前」的表 → `deltaAgainst` 抽触碰集 = 撤销记录。失败 → 真身原封不动。升真身的永远是提交时新拷的那份，预演影子不升。
+- **选区进撤销**：`History.commitSession(before)` = 0 条 op 的一步；编辑器在选区口子 `afterSelect` 比对上一次的会话（同一上下文、选区变了、不在一步中、不在手势中）就记一步；进 / 出组件不算选区步；撤销 / 重做 / 装场景后刷新基准。连续几下不合并（user「当然」）。
+- **数**（node，1600 盒 = 9600 膜，每步挪一个点）：提交 66.8 ms（拷池占大头，user 接受的代价；列式后几毫秒）、撤销 0.26 ms、重做 0.13 ms、十步记录 47 KB（以前 = 八份整场景常驻）。
+- 网：`test/kernel-delta.test.ts`（5 种子 × 20 步撤 / 重做逐字）、`test/history.test.ts`（八动词往返、九步每步撤 = 全量重放对照、join / undoOp、commitSession、失败回滚、截尾）、`probe-undo-session`（选区步进来后重做 6 步）；887 绿、探针全过。
+- 没做：步 5 场景结构记录逐条细化（现在结构型 op 整份拷，少见）；步 6 设置里显示配额用量。

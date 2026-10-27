@@ -163,6 +163,8 @@ export declare class Scene {
         chain: readonly InstId[];
         depth: number;
     }>;
+    /** 骨架拷贝（撤销的 skeleton 记录；history.ts）：定义 / 组的元数据 / 实例 / 材质 / 层 / 轴 / 参考几何都拷，**内核共享**（不拷几何）。O(定义 + 实例 + 组)。 */
+    cloneSkeleton(): Scene;
     clone(): Scene;
 }
 /** 从池里抠出一份子快照：选中的膜（含其环边）+ 选中的边（含端点）。索引 = 本地顺序。 */

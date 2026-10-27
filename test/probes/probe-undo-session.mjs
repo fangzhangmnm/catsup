@@ -54,7 +54,9 @@ const res = await page.evaluate(async () => {
   // ⑤ 一路重做（推拉那一步之后应该和 sigs[4] 一致）
   const redoSigs = [];
   for (let i = 0; i < 10; i++) { const p0 = e.history.position(); key("y"); await sleep(30); if (e.history.position() === p0) break; redoSigs.push(sig()); }
-  out.redoAll = { steps: redoSigs.length, ok: redoSigs.length === 5 && redoSigs.every((s2, i) => s2 === sigs[i + 1]) };   // 5 步 = 盒 / 建组件 / 复制 / 推拉 / 组件里那条线（③ 撤掉后还在重做队列里）
+  // 6 步 = 盒 / 全选（只改选区的一步，几何不变；2026-10-27 起选区进撤销）/ 建组件 / 复制 / 推拉 / 组件里那条线（③ 撤掉后还在重做队列里）
+  const want = [sigs[1], sigs[1], sigs[2], sigs[3], sigs[4], sigs[5]];
+  out.redoAll = { steps: redoSigs.length, ok: redoSigs.length === 6 && redoSigs.every((s2, i) => s2 === want[i]) };
   return out;
 });
 console.log(JSON.stringify(res));

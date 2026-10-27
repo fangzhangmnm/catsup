@@ -267,6 +267,9 @@ export declare class Editor {
     get grid(): Readonly<GridSettings>;
     setGrid(patch: Partial<GridSettings>): void;
     private history;
+    /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
+    private lastSession;
+    private static sessionKey;
     private _tool;
     private _revision;
     private anchor3;

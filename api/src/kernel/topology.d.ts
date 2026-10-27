@@ -11,6 +11,14 @@ export interface Vertex {
     z: number;
     readonly edges: Set<EdgeId>;
 }
+/** restoreFrom 的来源：真身内核（PlanarGraph 自己满足）或一份差量（kernel/delta.ts DeltaSource）。 */
+export interface GraphSource {
+    vertexOrNull(id: VertexId): Vertex | null | undefined;
+    edgeOrNull(id: EdgeId): Edge | null | undefined;
+    readonly nextVertexId: number;
+    readonly nextEdgeId: number;
+    removedEdges(): readonly EdgeId[];
+}
 export interface Edge {
     readonly id: EdgeId;
     a: VertexId;
@@ -111,7 +119,8 @@ export declare class PlanarGraph {
      * 倒带（拖动预演「拷一次 + 每帧退回」，O1）：把这几个顶点 / 边恢复成 base（真身，预演期间一个字节没动）里的样子——base 有的照 base 深拷回来、base 没有的删掉；
      * 派生索引（格点键、空间网格）只对这几条重算；计数器 / 删过的边表照 base。调用方（Kernel.rewindTo）负责把触碰集按邻接扩全。
      */
-    restoreFrom(base: PlanarGraph, vids: ReadonlySet<VertexId>, eids: ReadonlySet<EdgeId>): void;
+    restoreFrom(src: GraphSource, vids: ReadonlySet<VertexId>, eids: ReadonlySet<EdgeId>): void;
+    removedEdges(): readonly EdgeId[];
     /** 顶点 / 边是否在表里（倒带扩触碰集用）；星 / 端点的只读访问走 vertex / edge。 */
     vertexOrNull(id: VertexId): Vertex | undefined;
     edgeOrNull(id: EdgeId): Edge | undefined;

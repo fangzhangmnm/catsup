@@ -319,6 +319,16 @@ export class Kernel {
     this.restoreFromSource(src, src, src, src, src, src, delta.ids, delta.events, this._rev);
     return inverse;
   }
+  /**
+   * 提交 = 影子换真身（editor/history.ts）：把影子的表搬进来、把我的旧表搬给影子——**对象身份不变**（编辑器 / 渲染缓存 / 测试拿着的还是同一个内核对象），表是影子跑完这一步的表；
+   * 影子随后持有「之前」的表 = 抽差量的来源。O(1)。改动日志跟着表走（影子的日志是从我这里分叉的，族谱接得上 = 渲染缓存仍增量）。
+   */
+  swapTablesWith(o: Kernel): void {
+    [this._graph, o._graph] = [o._graph, this._graph]; [this.store, o.store] = [o.store, this.store]; [this.planes, o.planes] = [o.planes, this.planes];
+    [this.edgeLayers, o.edgeLayers] = [o.edgeLayers, this.edgeLayers]; [this.faceLayers, o.faceLayers] = [o.faceLayers, this.faceLayers]; [this.curveReg, o.curveReg] = [o.curveReg, this.curveReg];
+    [this.eventLog, o.eventLog] = [o.eventLog, this.eventLog]; [this.changes, o.changes] = [o.changes, this.changes]; [this._rev, o._rev] = [o._rev, this._rev];
+    this.attachLog(); o.attachLog();
+  }
   /** 「之前」的差量：本内核（影子 / 新真身）从 sinceSeq 起碰过的闭包，在 old（旧真身）里的样子。提交 = 影子换真身时抽一次，就是这一步的撤销记录。 */
   deltaAgainst(old: Kernel, sinceSeq: number): KernelDelta | null {
     const d = this.changes.since(sinceSeq);

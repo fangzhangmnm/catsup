@@ -55,6 +55,12 @@ export interface EraseVerdicts {
 }
 /** 每平面的 region 提取结果。 */
 export type RegionsByPlane = Map<PlaneId, Region[]>;
+/** restoreFrom 的来源：真身的 FaceStore 或差量。 */
+export interface FaceSource {
+    face(id: FaceId): Face | null | undefined;
+    readonly nextFaceId: number;
+    removedFaces(): readonly FaceId[];
+}
 export declare class FaceStore {
     /** 改动日志（Kernel 接上；DT96）：膜表是带记账的 Map（put / drop 都记）；原地改环的地方调 touch。 */
     log: ChangeLog | null;
@@ -111,7 +117,9 @@ export declare class FaceStore {
     restoreFace(g: PlanarGraph, reg: PlaneRegistry, planeId: PlaneId, outer: readonly VertexId[], holes: readonly (readonly VertexId[])[]): Face;
     /** 深拷贝（含 id 计数器；preview 影子副本用）。 */
     /** 倒带（O1）：这几张膜恢复成 base 里的样子（深拷环）；base 没有的删；计数器 / 删过的膜表照 base。put / drop 走表的记账钩子 = 渲染缓存知道它们又变了。 */
-    restoreFrom(base: FaceStore, fids: ReadonlySet<FaceId>): void;
+    restoreFrom(src: FaceSource, fids: ReadonlySet<FaceId>): void;
+    get nextFaceId(): number;
+    removedFaces(): readonly FaceId[];
     clone(): FaceStore;
     /** 铸新膜。 */
     mint(planeId: PlaneId, r: Region): Face;

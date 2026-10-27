@@ -56,6 +56,8 @@ export interface RewindMark {
     readonly seq: number;
     readonly events: number;
 }
+import { type KernelDelta, type TouchedIds } from "./delta.ts";
+import type { PlaneRec as DeltaPlaneRec } from "./planes.ts";
 export declare class Kernel {
     private _graph;
     private store;
@@ -124,6 +126,23 @@ export declare class Kernel {
         edges: number;
         faces: number;
     } | null;
+    /**
+     * 触碰集的闭包：改动日志给的编号，按邻接扩全（碰过的点的星、碰过的边的端点与两侧膜、碰过的膜的环边——本内核和 other 两边都看），
+     * 再带上牵连的平面（触碰膜的平面 + 一边有另一边没有的新平面）和曲线（触碰边的曲线 + 新曲线）。
+     */
+    private touchedClosure;
+    private restoreFromSource;
+    /** 抽差量：这些 id 在本内核现在的样子（null = 不存在）；纯数据，可估字节（kernel/delta.ts）。 */
+    extractDelta(ids: TouchedIds): KernelDelta;
+    /** 应用差量（撤销 / 重做）：先抽现值作反向差量，再把内核写成 delta 的样子；自反。rev 取新值。 */
+    applyDelta(delta: KernelDelta): KernelDelta;
+    /**
+     * 提交 = 影子换真身（editor/history.ts）：把影子的表搬进来、把我的旧表搬给影子——**对象身份不变**（编辑器 / 渲染缓存 / 测试拿着的还是同一个内核对象），表是影子跑完这一步的表；
+     * 影子随后持有「之前」的表 = 抽差量的来源。O(1)。改动日志跟着表走（影子的日志是从我这里分叉的，族谱接得上 = 渲染缓存仍增量）。
+     */
+    swapTablesWith(o: Kernel): void;
+    /** 「之前」的差量：本内核（影子 / 新真身）从 sinceSeq 起碰过的闭包，在 old（旧真身）里的样子。提交 = 影子换真身时抽一次，就是这一步的撤销记录。 */
+    deltaAgainst(old: Kernel, sinceSeq: number): KernelDelta | null;
     clone(): Kernel;
     /**
      * 构造手势：一批线段（Rect = 4 段）。opts.layers = 这批线落下的边带哪些边层；
@@ -246,7 +265,7 @@ export declare class Kernel {
         outer: Pt3[];
         holes: Pt3[][];
     } | undefined;
-    planeOf(id: FaceId): import("./planes.ts").PlaneRec | undefined;
+    planeOf(id: FaceId): DeltaPlaneRec | undefined;
     /** 涂材质（槽号；null = 回默认）。sides = 每张面涂哪一侧（0 = 平面法向 +n 那侧、1 = −n 那侧，与 ids 对齐）；不给 = 两侧都涂（DT8 之前的语义）。 */
     setFaceMaterial(ids: readonly FaceId[], slot: number | null, sides?: readonly (0 | 1)[]): void;
     /** 面某一侧的材质槽（DT8；side 0 = +n 侧（缺省）、1 = −n 侧）。 */

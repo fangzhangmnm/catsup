@@ -243,6 +243,28 @@ export class Scene {
     yield* walk.call(this, this.root, [], IDENTITY, 0);
   }
 
+  /** 骨架拷贝（撤销的 skeleton 记录；history.ts）：定义 / 组的元数据 / 实例 / 材质 / 层 / 轴 / 参考几何都拷，**内核共享**（不拷几何）。O(定义 + 实例 + 组)。 */
+  cloneSkeleton(): Scene {
+    const s = Object.create(Scene.prototype) as Scene;
+    (s as { defs: Map<DefId, Definition> }).defs = new Map();
+    (s as { root: DefId }).root = this.root;
+    (s as unknown as { nextDef: number }).nextDef = this.nextDef;
+    (s as { materials: Material[] }).materials = [...this.materials];
+    s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
+    s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer;
+    for (const [id, d] of this.defs) {
+      let body: Body;
+      if (d.body.kind === "brep") {
+        const groups = new Map<GroupId, Group>();
+        for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel, guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
+        body = { kind: "brep", kernel: d.body.kernel, groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };
+      } else body = { kind: "mesh", kernel: d.body.kernel, materialSlots: [...d.body.materialSlots] };
+      const instances = new Map<InstId, Instance>();
+      for (const [iid, i] of d.instances) instances.set(iid, { ...i });
+      s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });
+    }
+    return s;
+  }
   // ---------- 深拷贝 ----------
   clone(): Scene {
     const s = Object.create(Scene.prototype) as Scene;
