@@ -119,7 +119,7 @@ export interface EditorSelection { body: Selection | null; guides: Set<number>; 
 | 期 | 做什么 | 验收 |
 |---|---|---|
 | M0 | 本 .h 过目 | user「可以」 |
-| M1 | `MeshKernel` + §2 的「几何 / 劈 / 并 / 合 / 填删 / 标记 / 建」算子 + 不变量性质测试 + 对抗案例集（node 直测，零 DOM） | 每个算子 (M1)–(M6)；随机算子串不变量不破；clone 对拍 |
+| M1 | `MeshKernel` + §2 的「几何 / 劈 / 并 / 合 / 填删 / 标记 / 建」算子 + 不变量性质测试 + 对抗案例集（node 直测，零 DOM） | **核心 done 10-27 夜（Claude Fable 5.1）**：`src/mesh/mesh-kernel.ts`（列式表 / 空闲表最小空位 / 邻接 CSR 按需重建 / CDT 三角化缓存 / 紧凑快照往返 / `check()` 不变量 / 封闭流形欧拉数）+ `src/mesh/ops/`（split: 劈边 / 劈面 / 刀；join: 并面 / 溶解二度点；merge: 合；delete: 面 / 边 / 点三档；extrude: 挤出；build: 多边形 / 填 / 盒子；geometry: 挪 / 变换 / 标记 / 材质 / 翻面）；`test/mesh-kernel.test.ts` 10 组（含 8 种子 × 40 步随机串：每步自检 + 克隆对拍）。**还没做**：loopCut / inset / bevel / limitedDissolve / removeDoubles / mirrorWeld / addPrimitive 球柱、`subdivided()`、改动日志（现在只有 rev 计数） |
 | M2 | `FaceSource` / `GeomView` 两个适配器 + `KindDef` 填实 + `Scene.bodyOf` | 现有 brep 行为零变化（探针照过）；mesh 身体能画、能点、能吸 |
 | M3 | `CATSUP_mesh` 格式 + 迁移 + 冻结样本 + 两条转换指令（含报告 / estimate）；导入外来 glb 改成 mesh | 往返测试；熊 / 小红帽导入 → 转 brep → 报告数字和 10-27 的一致 |
 | M4（Opus） | `freeform` 模式 + 刀 / 拉 / 环切三个工具 + `mesh.*` 指令按注册表写 + 选择那一块 | 小红帽白模能从盒子做出来（FM61） |

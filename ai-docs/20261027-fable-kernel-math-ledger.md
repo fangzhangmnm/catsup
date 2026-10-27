@@ -102,3 +102,4 @@
 - **新（FM83）**：`Kernel.selfCheck()` 五条不变量自检 + 打开后空闲检查 + 修复面板「检查」项 + 测试每步全图自检；不自动自愈。排在 mesh M1 之前。
 - **done（10-27 晚）**：`src/kernel/self-check.ts` 五条不变量自检 + `test/self-check.test.ts` 7 条（FM83 的内核那半；修复面板 / 打开后空闲检查的接线归 Opus）。核出：`fromBrep` 装载时已经拒「顶点离平面」「同环重复面」（审计稿 §2.3 已更正）。
 - **done（10-27 夜）**：FM80 软边 180° 自动并（v0.15.6）；K4 的「从装载态起步」差分测试 `test/loaded-differential.test.ts`（球 / 起伏格 / 平格，装载即修 → local / global 同串操作几何集合相同 + 操作后自检干净）；`fromBrep(snap, { settleMode })`；六个新测试文件登进 `test/run.mjs`。
+- **done（10-27 夜，user AFK 期间）**：mesh 内核 M1 核心（提案 §9 M1 行有清单）；O1 设计稿 `20261027-preview-rollback-design.md`；A5 性质测试；A6 手性审结论。**下一班**：M1 剩的算子（环切 / 内插 / 有限溶解 / 去重点 / 镜像焊 / 改动日志）→ M2 适配器（FaceSource / GeomView / KindDef 填实 / Scene.bodyOf）→ M3 格式 + 转换。
