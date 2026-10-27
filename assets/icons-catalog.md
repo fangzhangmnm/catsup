@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-87 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+88 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -12,7 +12,7 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -62,6 +62,7 @@
 | `eraser-weld` 👁待过目 | 焊边橡皮:eraser 本体缩 0.8 挪到左上(旋 -45 围绕 9.6,9.6) + 右下一条短横线中间一粒实心焊点(=两段边在接点处焊成一条)；与 eraser(擦)/ eraser-soft(软)同族靠右下徽记分辨【CatsUp 左柱橡皮格小三角里的「焊边橡皮」（刮两条相邻的边 → 接点共轴真合并 / 护栏角内焊成一条曲线）；2026-10-24 Claude Fable 5.1 自画未过目】 |
 | `eraser-soft` 👁待过目 | 软边橡皮:eraser 本体同 eraser-weld 缩放挪位 + 右下一道正弦小波(=两膜之间的边变软、连成曲面)【CatsUp 左柱橡皮格小三角里的「软边橡皮」（刮两膜之间的边 → 共面删边并面 / 护栏角内软化 + 平滑）；2026-10-24 Claude Fable 5.1 自画未过目】 |
 | `protractor` 👁待过目 | 量角器:半圆(外弧) + 底下一条直尺边(长方条) + 中间半圆镂空 + 外弧五道刻度 + 底边中点一道短刻 = 量角度；与 compass(圆规)/ rotate(圆箭头)分工；不画指针(画了像车速表)【CatsUp 左柱测量组展开条里的「量角器」工具（以前一直是缺图标虚线框）；2026-10-26 Claude Opus 5.5 重画（user「量角器顺便画一下？」「旧的是以前还不太会画画的你做的，你可以重做」——旧草稿在 WORKBENCH，已撤），未过目】 |
+| `fill-hole` 👁待过目 | 补洞:等轴测线框方盒 + 顶面半透明填实 = 没封口的开口补上面；与 push-pull(推拉)/ rectangle(画面)分工【CatsUp 编辑条「补洞…（N 个）」修复入口；2026-10-26 Claude Opus 5.5 自画（渲过亮 / 暗底 24 / 60 px），未过目】 |
 
 ## image-processing
 
