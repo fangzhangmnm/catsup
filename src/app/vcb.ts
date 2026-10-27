@@ -110,7 +110,8 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     if (k === "Enter") { if (!buf) return false; apply(); return true; }
     if (k === "Escape") { if (!buf) return false; buf = ""; render(); return true; }
     if (k === "Backspace") { if (!buf) return false; buf = buf.slice(0, -1); render(); return true; }
-    const starter = /^[0-9.,\-+*/]$/.test(k);
+    // 「.」不能开头：空的时候按「.」= 缩放到选区（Blender 小键盘 .，user 2026-10-27「随手做掉：【.】是blender的numpad . 用来recenter」）；.5 要打 0.5，小数键盘照旧能点「.」
+    const starter = /^[0-9,\-+*/]$/.test(k);
     const cont = /^[0-9.,\-+*/xsmc°'"ftindeg ]$/i.test(k);   // 接着打：单位后缀（m / cm / mm / ft / in / ' / " / ° / deg）、段数 s、英制分数里的空格
     if (starter || (buf && cont)) { buf += k; render(); return true; }
     return false;

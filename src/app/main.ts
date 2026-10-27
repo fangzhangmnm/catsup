@@ -963,6 +963,7 @@ window.addEventListener("keydown", (ev) => {
     if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件（选中的组 / 组件一起装进去）
     if (key === "h" && !locomotion.isWalking()) { ev.preventDefault(); if (editor.hasHideableSelection()) editor.hideSelection(); return; }   // Blender：H = 隐藏选中（DT49）
     if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
+    if (key === ".") { ev.preventDefault(); editor.zoomTo(); return; }   // Blender 小键盘 .：缩放到选区（再按 = 当前物体 → 全部，同右上放大镜）；数值框没在打数字时才到这（vcb.ts）
   }
   if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); editor.selectAll(); return; }   // Ctrl+A 全选（A7）
   if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.code === "KeyI") { ev.preventDefault(); editor.invertSelection(); return; }   // Blender：Ctrl+I 反选（2026-10-26）
