@@ -200,3 +200,7 @@ flowchart LR
 ## 追记 2026-10-27 夜（v0.15.11，Claude Fable 5.1）：文件流程的网格体分叉
 
 保存：mesh 定义 → `meshDocFromKernel`（去空位重编，O(mesh)）→ `encodeMeshItem`（八个 bufferView）+ `bakeMesh`（三角化 O(面数)，给别的查看器）。打开：`decodeMeshItem`（拍子 → 多边形；没 faceStart = 老三角汤 → 每三角一面）→ `kernelFromMeshDoc`（addVertex / addFace O(mesh)；坏环拒开）。brep 定义的那条流程一字没动。
+
+## 追记 2026-10-27 夜（v0.15.12，Claude Fable 5.1）：导入 → 网格体；转换指令
+
+导入（⑨ 文件 / 导入那条）：`castImport` 不再三角形 → 膜，而是每三角一张网格面 + 按角度软 / 平滑（O(三角数)，不再过结算机 = 导入快了）；op 载荷 = 网格载荷；老复现包带膜的照装。新流程「转换」：选中组件 → 物体族指令规划 `castDefinition` → 一步提交；mesh → brep 走 `kernelFromTriangles`（O(三角数)，约 9000 三角 / 秒）+ 共面软边擦边 MERGE（局部化，O(影响域)）；brep → mesh O(面数)。

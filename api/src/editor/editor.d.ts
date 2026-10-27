@@ -660,12 +660,20 @@ export declare class Editor {
     /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
     repairLoaded(kind: RepairKind): boolean;
     private repairModule;
-    /** 编辑条上的修复入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。 */
-    repairMenu(): {
+    /** 选区浮条上的指令入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。brep 族按池数、object 族按选中的组件数。 */
+    commandMenu(): {
         id: string;
         label: string;
         icon: string;
     }[];
+    /** 跑一条指令（浮条 / 右键的入口）：按它吃的单位种类派发——brep 族走修复那条路（作用域 = 池），object 族走物体那条路（作用域 = 选中的组件）。 */
+    runCommand(id: CommandId): number;
+    /** 物体族的作用域：选中的组件实例 → 定义（同一定义去重；锁着的跳过；组不是物体、不算）。 */
+    private objectUnits;
+    private objectCount;
+    /** 跑一条物体指令：一次 = 一步；要等很久先问；做完说清做了什么、丢了什么；有参数的给马后炮。 */
+    private runObjectCommand;
+    private runObjectNow;
     /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
     private repairPlan;
     /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */

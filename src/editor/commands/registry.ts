@@ -36,6 +36,7 @@ export function checkRegistry(): string[] {
     for (const c of f.commands) {
       if (seenC.has(c.id)) bad.push(`指令 id 重复：${c.id}`); seenC.add(c.id);
       if (!FAMILY_NAMES.has(familyOf(c.id))) bad.push(`指令 ${c.id} 的族名不在表里（族名 = 单位种类）`);
+      if (familyOf(c.id) !== c.unit) bad.push(`指令 ${c.id} 吃的单位是 ${c.unit}，族名却是 ${familyOf(c.id)}（族名 = 单位种类）`);
       if (!c.title || !c.none) bad.push(`指令 ${c.id} 缺标题 / 没事做时的说法`);
     }
     for (const a of f.actions) {

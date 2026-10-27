@@ -6,7 +6,7 @@ import { ptKey3, quantize3 } from "../../../kernel/geom.ts";
 import { SEGMENT_TIERS, SEG_MAX, chordHeight, clampSegments, fmtTolerance, tierSegments } from "../../segment-ref.ts";
 import { faceKey, poolOf, registerOpPlugin, resolveFace, type FaceKey } from "../../ops.ts";
 import { fmtLen } from "../../units.ts";
-import type { Command, Params } from "../../commands/command.ts";
+import type { Command, PoolUnit, Params } from "../../commands/command.ts";
 import { type RevolvedBody, findRevolved, revolvedSnapshot } from "./plan.ts";
 
 /** 段数怎么定：固定段数，或者按 3D 打印档（弦高公差，按每个回转体的最大半径各自算）。 */
@@ -49,8 +49,8 @@ const choiceOf = (v: Params): { segments: number; tier?: string } => {
   return PRINT && id === PRINT.id ? { segments: 24, tier: PRINT.id } : { segments: Number(id) || 24 };
 };
 
-export const resegment: Command = {
-  id: "brep.resegment",
+export const resegment: Command<PoolUnit> = {
+  id: "brep.resegment", unit: "brep",
   title: "改段数",
   defaults: (ctx) => ({ segments: String(ctx.circleSegments()) }),
   params: (ctx) => {

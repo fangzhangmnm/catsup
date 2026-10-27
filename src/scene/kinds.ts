@@ -8,6 +8,8 @@ import type { Body, BrepBody, MeshBody } from "./scene.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
 import { recalcNormals } from "../mesh/ops/orient.ts";
+import { kernelFromTriangles } from "../kernel/from-triangles.ts";
+import { emptyGuides } from "./guides.ts";
 
 export type KindModeId = "geometry" | "surface";
 export interface AlignGeometry { points: Pt3[]; segments: [Pt3, Pt3][]; planes: PlaneParams[]; }
@@ -43,7 +45,7 @@ export const BREP_KIND: KindDef<BrepBody> = {
 export const MESH_KIND: KindDef<MeshBody> = {
   id: "mesh", label: "网格",
   modes: [],   // 自由建模工作台（M4，Opus）接上之前只在物体层摆
-  castsTo: [],   // mesh → brep：M3（不平的面先折成平面块，再走 kernelFromTriangles 那条管线）
+  castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "隐藏的面", "裸线（不属于任何面的边）", "面的材质", "软边 / 平滑标记（改按弯折角度重判）"] }],
   alignGeometry(b) {
     const m = b.kernel, points = m.verts().map((v) => m.pt(v));
     const segments = m.edges().filter((e) => !(m.edgeFlags[e] & (F_SOFT | F_HIDDEN))).map((e) => [m.pt(m.edgeA[e]), m.pt(m.edgeB[e])] as [Pt3, Pt3]);
@@ -97,10 +99,27 @@ export function brepToMesh(b: BrepBody): MeshBody {
   recalcNormals(m);   // brep 的平面法向是规范化符号的，不是朝外：封闭壳朝外、开口片按种子面一致化
   return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots] };
 }
-/** 显式 cast（op 层调用）：只认登记表里的方向。 */
-export function castBody(body: Body, to: BodyKind): Body {
+/**
+ * mesh → brep：三角化（约束 Delaunay，同屏幕）→ 导入那条「三角形 → 膜」管线（kernel/from-triangles.ts：量化合点 → 分平面 → 整批装 → 谓词挑脏的交结算机）。
+ * 共面的三角形并成一张膜（盒子回来还是 6 张）；不平的 n 边形折成平面块、块之间按 softDeg 变软；隐藏的面不带；材质不带（披露在 castsTo.loses）。
+ */
+export function meshToBrep(b: MeshBody, softDeg: number): BrepBody {
+  const m = b.kernel, verts = m.verts(), idx = new Map<number, number>(verts.map((v, i) => [v, i]));
+  const positions = verts.map((v) => m.pt(v));
+  const { tris, faceOfTri } = m.triangles();
+  const t: number[] = [];
+  for (let i = 0; i < tris.length; i += 3) { if (m.faceFlags[faceOfTri[i / 3]] & FF_HIDDEN) continue; t.push(idx.get(tris[i])!, idx.get(tris[i + 1])!, idx.get(tris[i + 2])!); }
+  const { kernel } = kernelFromTriangles(positions, t, { softDeg });
+  // 共面的三角形并回一张膜（同 FM80「软边两侧 180° 自动并掉」：软边、恰两张不同的膜、同一平面 → 擦边机 MERGE）；盒子回来还是 6 张、不留谜语人软边
+  const flat = kernel.edges().filter((e) => { if (!kernel.isSoft(e.id) || e.faceLinks.length !== 2 || e.faceLinks[0] === e.faceLinks[1]) return false; const pa = kernel.planeOf(e.faceLinks[0]), pb = kernel.planeOf(e.faceLinks[1]); return !!pa && !!pb && pa.id === pb.id; }).map((e) => e.id);
+  if (flat.length) kernel.eraseEdges(flat);
+  return { kind: "brep", kernel, groups: new Map(), nextGroup: 1, materialSlots: [...b.materialSlots], guides: emptyGuides() };
+}
+/** 显式 cast（op 层调用）：只认登记表里的方向。opts.softDeg = mesh → brep 的软边角度（缺 = 20°）。 */
+export function castBody(body: Body, to: BodyKind, opts?: { softDeg?: number }): Body {
   const c = canCast(body.kind, to);
   if (!c.ok) throw new Error(`cast: ${c.why}`);
   if (body.kind === "brep" && to === "mesh") return brepToMesh(body);
+  if (body.kind === "mesh" && to === "brep") return meshToBrep(body, opts?.softDeg ?? 20);
   throw new Error(`cast: ${body.kind} → ${to} 登记了却没有实现（内部）`);
 }

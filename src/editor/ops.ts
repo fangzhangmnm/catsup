@@ -89,7 +89,7 @@ export type Op =
   | { op: "unhideAll" }
   // ---------- 0.14 物体模型（契约 ai-docs/20261024-object-model-contract.md）----------
   /** 显式换身体种类（定义级：共享定义的全部实例一起变）；只认 kinds.ts 登记表里的方向，失败不改文档。 */
-  | { op: "castDefinition"; def: number; to: BodyKind }
+  | { op: "castDefinition"; def: number; to: BodyKind; /** mesh → brep：弯折不到这个角度的边算软边（度；缺 = 20）。 */ softDeg?: number }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -521,7 +521,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     }
     case "castDefinition": {
       const d = s.def(op.def);
-      const body = castBody(d.body, op.to);   // 不认的方向在这里抛，文档不动
+      const body = castBody(d.body, op.to, op.softDeg !== undefined ? { softDeg: op.softDeg } : undefined);   // 不认的方向在这里抛，文档不动
       d.body = body;
       return { scene: s, events: [] };
     }

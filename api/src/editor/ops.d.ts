@@ -226,7 +226,8 @@ export type Op =
  | {
     op: "castDefinition";
     def: number;
-    to: BodyKind;
+    to: BodyKind; /** mesh → brep：弯折不到这个角度的边算软边（度；缺 = 20）。 */
+    softDeg?: number;
 }
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {

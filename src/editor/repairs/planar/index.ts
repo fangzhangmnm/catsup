@@ -2,7 +2,7 @@
 // 2026-10-26 Claude Opus 5.5 从 editor.ts / ops.ts 搬成模块（user「做成可以扔的模块化的」）；老指令名 makePlanar 由 ops.ts 认成 "planar" 重放。
 import type { EdgeId, FaceEvent } from "../../../kernel/kernel.ts";
 import { PlanarBurst, faceKey, poolOf, registerOpPlugin, resolveEdge, resolveFace, type FaceKey } from "../../ops.ts";
-import type { Command } from "../../commands/command.ts";
+import type { Command, PoolUnit } from "../../commands/command.ts";
 import { PLANAR_DEFAULTS, type PlanarTarget, planPlanar } from "./plan.ts";
 
 interface PlanarArgs { faces: FaceKey[]; deg: number; target: PlanarTarget; eraseInner: boolean }
@@ -25,8 +25,8 @@ registerOpPlugin("planar", {
   describe: (a0) => { const a = a0 as unknown as PlanarArgs; return `faces=${a.faces.length || "all"} deg=${a.deg} ${a.target}${a.eraseInner ? " +erase" : ""}`; },
 });
 
-export const planar: Command = {
-  id: "brep.planar",
+export const planar: Command<PoolUnit> = {
+  id: "brep.planar", unit: "brep",
   title: "拍平",
   defaults: (ctx) => ({ deg: ctx.sharpDeg(), target: PLANAR_DEFAULTS.target, eraseInner: PLANAR_DEFAULTS.eraseInner }),
   params: () => [

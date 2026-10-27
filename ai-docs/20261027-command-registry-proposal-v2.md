@@ -299,3 +299,7 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 - 「magic里面有sim也有过程生成以及geometry node之类的，不过改名快」→ 魔法纪元 = 模拟 + 过程生成 + 几何节点；到时按「吃什么、产什么」分族（模拟吃三角形视图产物体；过程生成吃参数产物体；节点吃图产物体），族名到时候定，改名是字符串替换，不卡。
 - 「fable继续做，加油」→ 下一块 = mesh M2（网格接进场景），brep 数组制度排它后面（冲刺要的是能自由建模）。
 - 「二次元显然逻辑和三次元不一样，而且weebpaint的transform很复杂的。到时候专门弄。brep mesh object倒是ux可以统一」→ §7.4 里「变换手势通吃三种后端（含画布像素）」的提议**作废**：变换手势只在 brep / mesh / 物体三者之间统一；绘制的变换到时候专门做。
+
+### 7.7 第二族落地（v0.15.12）
+
+物体族 `src/editor/objects/`：单位 = 定义（`ObjectUnit`），两条指令 `object.toMesh` / `object.toBrep`。`Command<U>` 按单位种类泛型化、`unit` 字段 = 族名（守卫）、`estimate` 进接口；编辑器 `commandMenu` / `runCommand` 按单位种类派发（brep 族 = 池作用域；object 族 = 选中的组件）。第三步（选区动作表 28 项拆成动作）仍归 Opus。

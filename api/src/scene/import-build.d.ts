@@ -1,6 +1,7 @@
 import type { ImportNode, ImportScene } from "../format/gltf-import.ts";
 import { type BrepSnapshot } from "../kernel/kernel.ts";
-import { type TriangleCastReport } from "../kernel/from-triangles.ts";
+import type { TriangleCastReport } from "../kernel/from-triangles.ts";
+import type { MeshDoc } from "../format/document.ts";
 import { type PoolRef, Scene } from "./scene.ts";
 import { type Xform } from "./xform.ts";
 /** op 带的东西：节点树 + 每个网格**已经装好的**膜（存档同款快照）。三角 → 膜只在提交前跑一次（castImport）；撤销重放 / 复现包只做装载，
@@ -8,10 +9,11 @@ import { type Xform } from "./xform.ts";
 export interface ImportedScene {
     name: string;
     nodes: ImportNode[];
-    roots: number[];
+    roots: number[]; /** 每个网格的载荷：mesh = 网格体（2026-10-27 起，user「导入直接成 mesh」）；brep = 老复现包里装好的膜（照装）。 */
     meshes: {
         name: string;
-        brep: BrepSnapshot;
+        mesh?: MeshDoc;
+        brep?: BrepSnapshot;
     }[];
 }
 export interface ImportBuildReport {
@@ -24,7 +26,8 @@ export interface ImportBuildReport {
     /** 最外面那一份的实例 id（在 at 的定义里）。 */
     top: number;
 }
-/** 三角 → 膜（每个网格一次）：纯函数，提交前在编辑器里跑。 */
+/** 三角 → 网格体（每个网格一次；2026-10-27 起直接成 mesh，user「agree. that is what supposed to do. earlier is just an ad hoc dirty jumpwire」）：每个三角一张面、弯折 ≤ softDeg 的边软 + 平滑；
+ *  纯函数，提交前在编辑器里跑。要在 SU 工作台里修 = 导入后「转回 SU 体」（物体族 object.toBrep = 原来那条三角形 → 膜的管线）。 */
 export declare function castImport(data: ImportScene, softDeg: number): {
     scene: ImportedScene;
     report: TriangleCastReport;

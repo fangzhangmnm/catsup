@@ -1,2 +1,2 @@
-import type { Command } from "../../commands/command.ts";
-export declare const cleanup: Command;
+import type { Command, PoolUnit } from "../../commands/command.ts";
+export declare const cleanup: Command<PoolUnit>;

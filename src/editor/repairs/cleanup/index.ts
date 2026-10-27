@@ -2,7 +2,7 @@
 // 前一步挪了点、后一步照新样子算。created 2026-10-26 by Claude Opus 5.5
 import type { EdgeId, FaceEvent } from "../../../kernel/kernel.ts";
 import { OpTargetError, edgeKey, poolOf, registerOpPlugin, resolveEdge, type EdgeKey } from "../../ops.ts";
-import type { Command } from "../../commands/command.ts";
+import type { Command, PoolUnit } from "../../commands/command.ts";
 import { coplanarInnerEdges, strayEdges, tinyEdgeMoves, type EdgeScope } from "./plan.ts";
 
 interface CleanupArgs { edges: EdgeKey[]; stray: boolean; tinyLen: number; coplanar: boolean; /** 同平面并面时看不见的软边也算。缺 = 否。 */ softToo?: boolean }
@@ -36,8 +36,8 @@ registerOpPlugin("cleanup", {
 /** 「很短的边」打开时的建议门槛（量纲：米）；默认不打开（AI 定的默认，user 没拍：三角网上并短边容易破面）。 */
 const TINY_LEN = 0.001;
 
-export const cleanup: Command = {
-  id: "brep.cleanup",
+export const cleanup: Command<PoolUnit> = {
+  id: "brep.cleanup", unit: "brep",
   title: "清理碎渣",
   defaults: () => ({ stray: true, tinyMm: 0, coplanar: true, softToo: true }),
   params: () => [

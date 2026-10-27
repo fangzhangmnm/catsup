@@ -60,8 +60,8 @@ const frameField = (hint: string) => ({ key: "frame", def: { kind: "enum" as con
 const creaseField = (hint: string) => ({ key: "crease", def: { kind: "enum" as const, label: "折缝", values: [{ id: "soft", label: "软边", hint }, { id: "hard", label: "硬边" }] } });
 const curvesSkipped = (n: number): string => `${n} 个点在只选了一部分的圆 / 弧上，没动`;
 
-export const straighten: Command = {
-  id: "brep.straighten",
+export const straighten: Command<PoolUnit> = {
+  id: "brep.straighten", unit: "brep",
   title: "拉正",
   defaults: () => ({ deg: STRAIGHTEN_DEG, frame: "own", crease: "soft", grid: false, step: "grid", curves: "rigid" }),
   params: (ctx) => [
@@ -77,8 +77,8 @@ export const straighten: Command = {
   tally: true,
 };
 
-export const snap: Command = {
-  id: "brep.snap",
+export const snap: Command<PoolUnit> = {
+  id: "brep.snap", unit: "brep",
   title: "吸到格点",
   defaults: () => ({ step: "grid", frame: "own", crease: "soft", curves: "rigid", straighten: false }),
   params: (ctx) => [

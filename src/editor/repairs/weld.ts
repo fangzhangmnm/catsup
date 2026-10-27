@@ -2,10 +2,10 @@
 // 2026-10-26 Claude Opus 5.5 从 editor.ts 搬成模块（user「做成可以扔的模块化的」）；执行走核心指令 dissolveVertices。
 import type { VertexId } from "../../kernel/kernel.ts";
 import { moveTargetsSelection } from "../tools.ts";
-import type { Command } from "../commands/command.ts";
+import type { Command, PoolUnit } from "../commands/command.ts";
 
-export const weld: Command = {
-  id: "brep.weld",
+export const weld: Command<PoolUnit> = {
+  id: "brep.weld", unit: "brep",
   title: "焊接断口",
   defaults: () => ({}),
   params: () => [],

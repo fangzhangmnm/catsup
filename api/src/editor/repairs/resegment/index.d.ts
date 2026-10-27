@@ -1,2 +1,2 @@
-import type { Command } from "../../commands/command.ts";
-export declare const resegment: Command;
+import type { Command, PoolUnit } from "../../commands/command.ts";
+export declare const resegment: Command<PoolUnit>;

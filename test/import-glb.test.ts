@@ -167,7 +167,7 @@ describe("导入成组件（scene/import-build.ts + op importScene）", () => {
     eq(s.def(kids[0].def).name, "cube");
     assert(s.isBare(kids[2].def), "空节点是空定义");
     assert(!s.isBare(kids[0].def), "立方体不是空的");
-    eq(s.kernelOf({ def: kids[0].def, group: null }).faces().length, 12);
+    eq(s.mesh(kids[0].def).kernel.faceCount(), 12, "导入直接成网格体（user 10-27）：12 个三角形一张不少");
     // 组件的轴 = 节点的原点和朝向：box_b 的原点在世界 (13 → 绕 Y 转后) 的位置
     const o = applyPt(compose(top[0].xform, kids[1].xform), P(0, 0, 0));
     assert(near(o, C(P(10, 2, -3))), `box_b 原点 ${JSON.stringify(o)}`);

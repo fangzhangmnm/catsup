@@ -42,7 +42,7 @@ describe("指令注册表守卫 / 修复一族可整个扔", () => {
   it("注册表自洽：id 不重复、族名 = 单位种类、动作 → 指令、放置 → 动作", () => {
     eq(checkRegistry().join("\n"), "");
     assert(allCommands().length >= 9, "修复一族九条指令都在");
-    assert(allCommands().every((c) => c.id.startsWith("brep.")), "今天只有 brep 族");
+    assert(allCommands().every((c) => c.id.startsWith("brep.") || c.id.startsWith("object.")), "今天有 brep 族和 object 族");
   });
   it("修复面板步骤表 / 浮条放置：每一步都是登记过的指令、每条放置都有动作", () => {
     const ids = new Set(allCommands().map((c) => c.id));

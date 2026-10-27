@@ -41,16 +41,19 @@ describe("object model: 图片资产必带尺度 + cast 登记表", () => {
     try { assertImageAsset({ mimeType: "image/png", bytes: new Uint8Array(0), sizeM: [1, 1] }); } catch { t++; }
     eq(t, 2);
   });
-  it("cast：brep → mesh 通（盒子 6 张四边形、材质槽照抄）；mesh → brep 拒且文档不动", () => {
+  it("cast：brep → mesh 通（盒子 6 张四边形、材质槽照抄）；mesh → brep 也通（盒子回来 6 张膜）；同种拒且文档不动", () => {
     const s = new Scene(box());
     const child = s.mintDef("盒", box()); s.mintInstance(s.root, null, child.id, at(2, 0, 0));
-    assert(canCast("brep", "mesh").ok && !canCast("mesh", "brep").ok && !canCast("brep", "brep").ok);
+    assert(canCast("brep", "mesh").ok && canCast("mesh", "brep").ok && !canCast("brep", "brep").ok, "两个方向都登记了；同种拒");
     const m = brepToMesh(s.brep(child.id));
     eq(m.kernel.faceCount(), 6); assert(m.kernel.faces().every((f) => m.kernel.faceVerts(f).length === 4), "6 张四边形"); eq(m.materialSlots.length, s.brep(child.id).materialSlots.length);
     applyOp(s, { op: "castDefinition", def: child.id, to: "mesh" });
     eq(s.kindOf(child.id), "mesh");
+    applyOp(s, { op: "castDefinition", def: child.id, to: "brep" });   // 2026-10-27 起 mesh → brep 通（物体族 object.toBrep）
+    eq(s.kindOf(child.id), "brep", "转回 SU 体"); eq(s.brep(child.id).kernel.faces().length, 6, "盒子回来还是 6 张膜");
     let threw = false; try { applyOp(s, { op: "castDefinition", def: child.id, to: "brep" }); } catch { threw = true; }
-    assert(threw && s.kindOf(child.id) === "mesh", "拒了且没动");
+    assert(threw && s.kindOf(child.id) === "brep", "同种拒了且没动");
+    applyOp(s, { op: "castDefinition", def: child.id, to: "mesh" });
     // 内核 op 对 mesh 池拒
     threw = false; try { applyOp(s, { op: "addEdges", at: { def: child.id, group: null }, segs: [[P(0, 0), P(1, 0)]] }); } catch { threw = true; }
     assert(threw, "mesh 池没有内核 op");

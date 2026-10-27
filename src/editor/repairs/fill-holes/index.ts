@@ -1,10 +1,10 @@
 // repairs/fill-holes —— 修复「补洞」（DT103）：规划在 plan.ts；执行 = 核心指令 addEdges（沿环重描一遍，结算机给没主的胞腔长面）。created 2026-10-26 by Claude Opus 5.5
 import type { EdgeId } from "../../../kernel/kernel.ts";
-import type { Command } from "../../commands/command.ts";
+import type { Command, PoolUnit } from "../../commands/command.ts";
 import { planHoles } from "./plan.ts";
 
-export const fillHoles: Command = {
-  id: "brep.fillHoles",
+export const fillHoles: Command<PoolUnit> = {
+  id: "brep.fillHoles", unit: "brep",
   title: "补洞",
   // 默认不勾：开口有时是故意的（看得见里面的房间、花盆、杯子）
   defaults: () => ({}),

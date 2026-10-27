@@ -189,3 +189,14 @@ user：「gltf不是支持ngon的吗，为什么输出要三角化」→ glTF 2.
 - 冻结样本：新目录 `v3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.1.0-1.0.0-1.0.0`，新增 `meshed.glb`（根 brep 盒 + 转成 mesh 的盒：软 + 平滑边、隐藏面、涂了材质的面）；场景指纹认 mesh 身体。
 - 测试 `test/mesh-format.test.ts`（往返逐字 / 文件形状 / 老形照开 / 拍子纪律 / 坏环拒开）；872 绿；三探针 + 临时 mesh 渲染探针 OK。
 - **现在可以接造 mesh 身体的 UI 了**（M2 的禁令解除）：下一步 = 转换指令进注册表的物体族（`object.toMesh` / `object.toBrep`；toBrep = 三角化 → `kernelFromTriangles` 那条导入管线）+ 外来 glb 导入直接成 mesh（user「导入直接成 mesh」）。
+
+## 13. 转换指令 + 导入直接成网格体（v0.15.12，2026-10-27 夜，Claude Fable 5.1）
+
+- **物体族** `src/editor/objects/index.ts`（注册表第二族，单位 = 一个定义 `ObjectUnit { def, name, body, copies }`）：`object.toMesh` / `object.toBrep`，规划出 `castDefinition` op（toBrep 带 `softDeg`，马后炮可改）；提示里**披露丢什么**（`KindDef.castsTo.loses` 文案）+「N 份实例一起变」；已是那种 → 跳过说清。toBrep 有 `estimate`（三角数 ÷ 9000 / 秒，node 实测量级；≥ 5 s 先问「做 / 不做」）。
+- **注册表**：`Command<U>` 按单位种类泛型化（`unit` 字段 = 族名，守卫钉死 `familyOf(id) === unit`）；`PoolUnit.kind = "brep"`；`estimate` 进接口。修复九条改成 `Command<PoolUnit>`。
+- **编辑器**：`commandMenu()`（浮条入口 = contextBar 放置表；brep 族按池数、object 族按选中组件数）、`runCommand(id)` 按单位种类派发、`objectUnits()`（选中的实例 → 定义去重、锁着的跳过）、`runObjectCommand`（估时先问 → 一步提交 → 披露 → 有参数给马后炮 → 清选区）。main.ts 的浮条照 `commandMenu()` 画、点了走 `runCommand`。
+- **mesh → brep** `scene/kinds.ts meshToBrep`：三角化（隐藏面不带）→ 导入那条 `kernelFromTriangles` 管线 → **共面的软边并回一张膜**（同 FM80 的判据：软边、恰两张不同的膜、同一平面 → `eraseEdges` 走擦边机 MERGE；盒子回来还是 6 张、0 条软边）。不平的 n 边形折成平面块、块之间按 softDeg 变软。丢：隐藏面、裸线、材质、原来的软 / 平滑标记（按角度重判）——都在 `castsTo.loses` 里。
+- **导入直接成网格体** `scene/import-build.ts`：`castImport` 每个三角一张面 + `smoothByAngle`（`mesh/ops/shade.ts`：恰两张面的边、|cos| ≥ cos(softDeg) → 软 + 平滑；|cos| 是为了外来文件绕向不一致）；op 载荷 = `MeshDoc`（老复现包里带膜的照装成 brep）。要在 SU 工作台里修 = 导入后「转回 SU 体」= 原来那条管线。
+- 临时探针（job tmp）：盒子 → 组件 → 浮条「转成网格体（1）」→ 画得出 → 浮条「转回 SU 体（1）」→ 6 张膜 0 软边 → 撤销两步 / 重做一步都对。877 绿。
+- 图标：两条动作暂用 `collection` / `wrench`，已在图标库 TODO 登记 `to-mesh` / `to-brep`。
+- **wishlist**（user）：自动三角 → 四边形（FM97）。

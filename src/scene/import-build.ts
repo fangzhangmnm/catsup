@@ -9,13 +9,17 @@
 // 网格几何走 kernel/from-triangles.ts（三角 → 膜；弯折 ≤ softDeg 的边变 soft + smooth），在 castImport 里、提交前跑一次。以后有 mesh 了，换掉的只是 castImport。
 import type { ImportNode, ImportScene } from "../format/gltf-import.ts";
 import { type BrepSnapshot, Kernel } from "../kernel/kernel.ts";
-import { type TriangleCastReport, kernelFromTriangles } from "../kernel/from-triangles.ts";
+import type { TriangleCastReport } from "../kernel/from-triangles.ts";
+import type { MeshDoc } from "../format/document.ts";
+import { meshFromTriangles } from "../mesh/tri-soup.ts";
+import { smoothByAngle } from "../mesh/ops/shade.ts";
+import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
 import { type DefId, type PoolRef, Scene } from "./scene.ts";
 import { type Xform, compose } from "./xform.ts";
 
 /** op 带的东西：节点树 + 每个网格**已经装好的**膜（存档同款快照）。三角 → 膜只在提交前跑一次（castImport）；撤销重放 / 复现包只做装载，
  *  不受以后改装法的影响。 */
-export interface ImportedScene { name: string; nodes: ImportNode[]; roots: number[]; meshes: { name: string; brep: BrepSnapshot }[] }
+export interface ImportedScene { name: string; nodes: ImportNode[]; roots: number[]; /** 每个网格的载荷：mesh = 网格体（2026-10-27 起，user「导入直接成 mesh」）；brep = 老复现包里装好的膜（照装）。 */ meshes: { name: string; mesh?: MeshDoc; brep?: BrepSnapshot }[] }
 
 export interface ImportBuildReport {
   /** 新建的定义数（含空的、包一层的）。 */
@@ -30,13 +34,17 @@ export interface ImportBuildReport {
 
 const MAX_DEPTH = 64;
 
-/** 三角 → 膜（每个网格一次）：纯函数，提交前在编辑器里跑。 */
+/** 三角 → 网格体（每个网格一次；2026-10-27 起直接成 mesh，user「agree. that is what supposed to do. earlier is just an ad hoc dirty jumpwire」）：每个三角一张面、弯折 ≤ softDeg 的边软 + 平滑；
+ *  纯函数，提交前在编辑器里跑。要在 SU 工作台里修 = 导入后「转回 SU 体」（物体族 object.toBrep = 原来那条三角形 → 膜的管线）。 */
 export function castImport(data: ImportScene, softDeg: number): { scene: ImportedScene; report: TriangleCastReport } {
   const report: TriangleCastReport = { triangles: 0, degenerate: 0, duplicate: 0, repaired: 0, rejected: 0, softened: 0 };
   const meshes = data.meshes.map((m) => {
-    const r = kernelFromTriangles(m.positions, m.tris, { softDeg });
-    for (const key of Object.keys(report) as (keyof TriangleCastReport)[]) report[key] += r.report[key];
-    return { name: m.name, brep: r.kernel.toBrep() };
+    const positions = new Float32Array(m.positions.length * 3);
+    m.positions.forEach((p, i) => { positions[3 * i] = p.x; positions[3 * i + 1] = p.y; positions[3 * i + 2] = p.z; });
+    const { kernel, skipped } = meshFromTriangles({ positions, indices: Uint32Array.from(m.tris) });
+    report.triangles += m.tris.length / 3; report.degenerate += skipped;
+    report.softened += smoothByAngle(kernel, softDeg);
+    return { name: m.name, mesh: meshDocFromKernel(kernel) };
   });
   return { scene: { name: data.name, nodes: data.nodes, roots: data.roots, meshes }, report };
 }
@@ -44,11 +52,12 @@ export function castImport(data: ImportScene, softDeg: number): { scene: Importe
 /** 把装好的导入装进场景 s 的 at 池里；place = 文件坐标 → at 所在定义坐标。直接改 s（op 语义）。 */
 export function buildImport(s: Scene, at: PoolRef, data: ImportedScene, place: Xform): ImportBuildReport {
   let definitions = 0, instances = 0, empties = 0;
-  const meshKernel = new Map<number, Kernel>();
-  const kernelOfMesh = (mi: number): Kernel => {
-    let k = meshKernel.get(mi);
-    if (!k) { k = Kernel.fromBrep(data.meshes[mi].brep); meshKernel.set(mi, k); }
-    return k;
+  /** 网格号 → 新定义（网格体 = 自己的内核；老复现包的膜 = brep 定义）。 */
+  const mintMeshDef = (name: string, mi: number): DefId => {
+    const m = data.meshes[mi];
+    if (m.mesh) { const d = s.mintDef(name, new Kernel()); d.body = { kind: "mesh", kernel: kernelFromMeshDoc(m.mesh, `导入「${name}」`), materialSlots: [] }; return d.id; }
+    if (m.brep) return s.mintDef(name, Kernel.fromBrep(m.brep)).id;
+    throw new Error(`导入：网格 ${mi} 没有载荷`);
   };
   const leafDef = new Map<number, DefId>();   // 网格号 → 共用的定义（没孩子的节点用）
   const visiting = new Set<number>();
@@ -59,11 +68,11 @@ export function buildImport(s: Scene, at: PoolRef, data: ImportedScene, place: X
     const mesh = n.mesh !== null && data.meshes[n.mesh] ? n.mesh : null;
     if (mesh !== null && !n.children.length) {
       let id = leafDef.get(mesh);
-      if (id === undefined) { id = s.mintDef(data.meshes[mesh].name, kernelOfMesh(mesh).clone()).id; leafDef.set(mesh, id); definitions++; }
+      if (id === undefined) { id = mintMeshDef(data.meshes[mesh].name, mesh); leafDef.set(mesh, id); definitions++; }
       return id;
     }
     visiting.add(ni);
-    const d = s.mintDef(n.name, mesh !== null ? kernelOfMesh(mesh).clone() : new Kernel());
+    const d = mesh !== null ? s.def(mintMeshDef(n.name, mesh)) : s.mintDef(n.name, new Kernel());
     definitions++;
     if (mesh === null && !n.children.length) empties++;
     for (const ci of n.children) {

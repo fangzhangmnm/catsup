@@ -2,10 +2,10 @@
 // （user 10-26 旧文件案：折 90° 的软边 = 墙上渐变 + 画线描不上）。2026-10-26 Claude Opus 5.5 从 editor.ts 搬成模块；执行走核心指令 setEdgeLayers。
 import type { EdgeId } from "../../kernel/kernel.ts";
 import { edgeKey } from "../ops.ts";
-import type { Command } from "../commands/command.ts";
+import type { Command, PoolUnit } from "../commands/command.ts";
 
-export const harden: Command = {
-  id: "brep.harden",
+export const harden: Command<PoolUnit> = {
+  id: "brep.harden", unit: "brep",
   title: "折得很厉害的软边变硬",
   defaults: () => ({ deg: 60 }),
   params: () => [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }],

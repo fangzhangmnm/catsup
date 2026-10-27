@@ -9,3 +9,4 @@ export { moveVerts, translateVerts, transformVerts, setEdgeFlags, setFaceMateria
 export { loopCut, type LoopCutResult } from "./loopcut.ts";
 export { limitedDissolve, removeDoubles } from "./cleanup.ts";
 export { recalcNormals } from "./orient.ts";
+export { smoothByAngle } from "./shade.ts";

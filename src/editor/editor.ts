@@ -54,7 +54,7 @@ import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
 import { actionById, commandById, placementsAt } from "./commands/registry.ts";
-import type { Command, CommandEnv, CommandId, PlanOut } from "./commands/command.ts";
+import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -199,7 +199,7 @@ interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null
 /** 修复指令 = 注册表里 brep 族一条指令的 id（查法 = commands/registry.ts；修复一族的清单 = repairs/index.ts）。 */
 type RepairKind = CommandId;
 /** pools[].xf = 这个池的定义坐标 → 当前上下文定义坐标（组 = 不带变换；组件 = 一路实例变换的乘积，几条路径到同一定义取先到的那条）。 */
-interface RepairScope { pools: { at: PoolRef; sel: Selection | null; xf: Xform }[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
+interface RepairScope { pools: PoolUnit[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
 
 export class Editor {
   readonly cam = new OrbitCamera();
@@ -1438,7 +1438,7 @@ export class Editor {
     const mode: "selection" | "context" = scope === "auto" && (geoSel || this.selectedPools.size > 0) ? "selection" : "context";
     const out: RepairScope = { pools: [], mode, components: 0, copies: 0, locked: 0 };
     const seenPool = new Set<string>(), seenDef = new Set<DefId>([ctxDef]);
-    const addPool = (at: PoolRef, sel: Selection | null, xf: Xform = IDENTITY): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ at, sel, xf }); };
+    const addPool = (at: PoolRef, sel: Selection | null, xf: Xform = IDENTITY): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ kind: "brep", at, sel, xf }); };
     const groupsUnder = (def: DefId, gid: GroupId | null): GroupId[] => {
       const body = s.def(def).body;
       if (body.kind !== "brep") return [];
@@ -1488,16 +1488,77 @@ export class Editor {
   }
   /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
   repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }
-  private repairModule(kind: RepairKind): Command { const m = commandById(kind); if (!m) throw new Error(`command "${kind}" is not loaded`); return m; }
-  /** 编辑条上的修复入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。 */
-  repairMenu(): { id: string; label: string; icon: string }[] {
+  private repairModule(kind: RepairKind): Command<PoolUnit> { const m = commandById(kind); if (!m || m.unit !== "brep") throw new Error(`command "${kind}" is not loaded (or is not a brep command)`); return m as Command<PoolUnit>; }
+  /** 选区浮条上的指令入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。brep 族按池数、object 族按选中的组件数。 */
+  commandMenu(): { id: string; label: string; icon: string }[] {
     const out: { id: string; label: string; icon: string }[] = [];
-    for (const p of placementsAt("contextBar")) { const a = actionById(p.action); if (!a) continue; const n = this.repairMenuCount(a.command); if (n) out.push({ id: a.id, label: a.label(n), icon: a.icon ?? "" }); }
+    for (const p of placementsAt("contextBar")) {
+      const a = actionById(p.action); if (!a) continue;
+      const c = commandById(a.command); if (!c) continue;
+      const n = c.unit === "object" ? this.objectCount(a.command) : this.repairMenuCount(a.command);
+      if (n) out.push({ id: a.id, label: a.label(n), icon: a.icon ?? "" });
+    }
     return out;
   }
+  /** 跑一条指令（浮条 / 右键的入口）：按它吃的单位种类派发——brep 族走修复那条路（作用域 = 池），object 族走物体那条路（作用域 = 选中的组件）。 */
+  runCommand(id: CommandId): number {
+    const c = commandById(id);
+    if (!c) { this.host.hint(`指令「${id}」没装`); return 0; }
+    return c.unit === "object" ? this.runObjectCommand(id) : this.repair(id);
+  }
+  /** 物体族的作用域：选中的组件实例 → 定义（同一定义去重；锁着的跳过；组不是物体、不算）。 */
+  private objectUnits(): ObjectUnit[] {
+    const s = this.scene, ctxDef = s.defOfContext(this.ctx), seen = new Set<DefId>(), out: ObjectUnit[] = [];
+    for (const p of this.selectedPools.values()) {
+      if (p.kind !== "instance") continue;
+      const inst = s.instance(ctxDef, p.instance);
+      if (inst.locked || seen.has(inst.def)) continue;
+      seen.add(inst.def);
+      const d = s.def(inst.def);
+      out.push({ kind: "object", def: d.id, name: d.name, body: d.body.kind, copies: s.instanceCount(d.id) });
+    }
+    return out;
+  }
+  private objectCount(id: CommandId): number {
+    const c = commandById(id); if (!c || c.unit !== "object") return 0;
+    const cmd = c as Command<ObjectUnit>, v = cmd.defaults(this.repairCtx);
+    let n = 0;
+    for (const u of this.objectUnits()) n += cmd.plan(this.repairCtx, u, v).count;
+    return n;
+  }
+  /** 跑一条物体指令：一次 = 一步；要等很久先问；做完说清做了什么、丢了什么；有参数的给马后炮。 */
+  private runObjectCommand(id: CommandId): number {
+    const c = commandById(id) as Command<ObjectUnit>, v0 = c.defaults(this.repairCtx), units = this.objectUnits();
+    const est = c.estimate?.(this.repairCtx, units, v0);
+    if (est && est.seconds >= Editor.ERASE_ASK_SECONDS && this.host.confirm) {
+      const t = est.seconds < 90 ? `${Math.round(est.seconds)} 秒` : `${(est.seconds / 60).toFixed(1)} 分钟`;
+      void this.host.confirm(`${c.title}：要等一会儿`, `${est.what}，估计 ${t} 左右（按量级估），期间界面会卡住。要做吗？`, "做（会卡住一会儿）").then((ok) => { if (ok) this.runObjectNow(c, units, v0); else { this.host.hint(`${c.title}：没做（你选了不做）`); this.draw(); } });
+      return 0;
+    }
+    return this.runObjectNow(c, units, v0);
+  }
+  private runObjectNow(c: Command<ObjectUnit>, units: readonly ObjectUnit[], v0: CmdParams): number { return this.step(() => {
+    const go = (v: CmdParams): number => {
+      const ops: Op[] = [], notes = new Set<string>();
+      let count = 0;
+      for (const u of units) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); count += r.count; for (const n of r.notes ?? []) notes.add(n); }
+      const tail = [...notes].map((n) => `；${n}`).join("");
+      if (!ops.length) { this.host.hint(`${c.none}${tail}`); return 0; }
+      const n0 = this.opCount;
+      for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
+      if (this.opCount === n0) return 0;
+      this.host.hint(`${c.done(count, 0, v)}${tail}`);
+      return count;
+    };
+    const n0 = this.opCount, count = go(v0);
+    if (count && c.params(this.repairCtx).length) this.offerAfterthought(c.title, c.params(this.repairCtx), v0, this.opCount - n0, (v) => { go(v); });
+    this.selectedPools.clear(); this.selection = emptySelection();   // 身体换了种类：旧的选区 / 拾取对不上新内核，清掉（诚实）
+    this.host.changed(); this.draw();
+    return count;
+  }); }
   /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
   private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): PlanOut {
-    return this.repairModule(kind).plan(this.repairCtx, { at, sel, xf }, v);
+    return this.repairModule(kind).plan(this.repairCtx, { kind: "brep", at, sel, xf }, v);
   }
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
   private snapStepChoices(): { id: string; label: string; hint?: string }[] {

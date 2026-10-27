@@ -5,7 +5,7 @@ import { bboxMin, extractSnapshot, transformSnapshot, type Scene, type PoolRef }
 import { IDENTITY, compose, frameAt, translation } from "../../../scene/xform.ts";
 import { guideCount } from "../../../scene/guides.ts";
 import { edgeKey, faceKey, poolOf, registerOpPlugin, resolveEdge, resolveFace, type EdgeKey, type FaceKey } from "../../ops.ts";
-import type { Command } from "../../commands/command.ts";
+import type { Command, PoolUnit } from "../../commands/command.ts";
 import { classifyShapes, piecesOf } from "./plan.ts";
 
 interface HierarchyArgs { faces: FaceKey[]; edges: EdgeKey[]; dedupe: boolean; /** 镜像对上的也算一样（负变换实例）。缺 = 否（老 op）。 */ mirror?: boolean }
@@ -56,8 +56,8 @@ registerOpPlugin("hierarchy", {
 /** 模板快照挪到组件自己的原点（包围盒最小角 = 0）。 */
 const transformSnapshotOf = (snap: Parameters<typeof transformSnapshot>[0], origin: { x: number; y: number; z: number }) => transformSnapshot(snap, translation({ x: -origin.x, y: -origin.y, z: -origin.z }));
 
-export const hierarchy: Command = {
-  id: "brep.hierarchy",
+export const hierarchy: Command<PoolUnit> = {
+  id: "brep.hierarchy", unit: "brep",
   title: "恢复层级",
   defaults: () => ({ dedupe: true, mirror: true }),
   params: () => [{ key: "dedupe", def: { kind: "bool", label: "形状一样的合成组件" } }, { key: "mirror", def: { kind: "bool", label: "镜像对上的也算一样（左右对称件 = 镜像的一份）" } }],
