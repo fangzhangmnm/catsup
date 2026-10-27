@@ -899,8 +899,8 @@ export class Editor {
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitOp(op0: Op): FaceEvent[] {
     // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。
-    // 自由建模工作台 = 折线；其余（SketchUp 式）= **软 + 平滑**（user 2026-10-27「折边退役，SU 的自动折缝改成软 + 平滑 可以」；SketchUp 自己的自动折缝也是藏起来的，要硬用修复「软边变硬」）。rev 2026-10-27 Claude Fable 5.1
-    const op: Op = op0.op === "move" && !op0.creaseLayers ? { ...op0, creaseLayers: this.mode.workflow?.autofold === "fold" ? ["fold"] : ["soft", "smooth"] } : op0;
+    // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
+    const op: Op = op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0;
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
