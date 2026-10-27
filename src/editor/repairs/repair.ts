@@ -20,6 +20,8 @@ export interface RepairCtx {
   snapLattice(at: PoolRef, xf: Xform, frame: "own" | "world"): Xform;
   /** 油漆桶的锐角阈值（拍平的默认角度，同一个量）。 */
   sharpDeg(): number;
+  /** 画圆工具当前的段数（改段数的默认）。 */
+  circleSegments(): number;
 }
 
 /** 修复作用的一个池：有选区 = 只看选区（sel），没选 = 整个池；xf = 这个池到当前上下文的变换（世界格点用）。 */
@@ -63,4 +65,6 @@ export interface RepairModule {
   readonly deepFirst?: boolean;
   /** 提示里披露「合并了 N 个点 / 面多了 M 张」（会挪点的修复）。 */
   readonly tally?: boolean;
+  /** 没事可做也打开右下角参数（改段数：都已经是默认段数时，还得能挑别的段数）。 */
+  readonly offerAlways?: boolean;
 }

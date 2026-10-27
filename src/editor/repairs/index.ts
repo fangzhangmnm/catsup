@@ -9,5 +9,6 @@ import { harden } from "./harden.ts";
 import { hierarchy } from "./hierarchy/index.ts";
 import { fillHoles } from "./fill-holes/index.ts";
 import { cleanup } from "./cleanup/index.ts";
+import { resegment } from "./resegment/index.ts";
 
-export const REPAIRS: readonly RepairModule[] = [straighten, snap, cleanup, weld, planar, harden, fillHoles, hierarchy];
+export const REPAIRS: readonly RepairModule[] = [straighten, snap, cleanup, weld, planar, harden, fillHoles, resegment, hierarchy];

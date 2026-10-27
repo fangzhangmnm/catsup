@@ -14,16 +14,20 @@ export interface Piece { faces: FaceId[]; edges: EdgeId[]; }
 
 /** 含面的连通块；按块里最小的面 id 排（确定）。scope 有 = 只要碰到这些面 / 边的块。 */
 export function piecesOf(k: Kernel, scope?: { faces: readonly FaceId[]; edges: readonly EdgeId[] } | null): Piece[] {
-  const seen = new Set<FaceId>(), out: Piece[] = [];
-  const want = scope ? { f: new Set(scope.faces), e: new Set(scope.edges) } : null;
-  for (const f of [...k.faces()].sort((a, b) => a.id - b.id)) {
-    if (seen.has(f.id)) continue;
-    const c = connectedFrom(k, [], [f.id]);
+  const seen = new Set<FaceId>(), seenE = new Set<EdgeId>(), out: Piece[] = [];
+  // 有范围就只从范围里出发（选区一般很小，不用扫整个池）；块按块里最小的面 id 排
+  const seeds: { face?: FaceId; edge?: EdgeId }[] = scope
+    ? [...scope.faces.filter((f) => k.face(f)).map((f) => ({ face: f })), ...scope.edges.filter((e) => k.graph.hasEdge(e)).map((e) => ({ edge: e }))]
+    : [...k.faces()].sort((a, b) => a.id - b.id).map((f) => ({ face: f.id }));
+  for (const sd of seeds) {
+    if ((sd.face !== undefined && seen.has(sd.face)) || (sd.edge !== undefined && seenE.has(sd.edge))) continue;
+    const c = sd.face !== undefined ? connectedFrom(k, [], [sd.face]) : connectedFrom(k, [sd.edge!], []);
     for (const x of c.faces) seen.add(x);
-    if (want && ![...c.faces].some((x) => want.f.has(x)) && ![...c.edges].some((x) => want.e.has(x))) continue;
+    for (const x of c.edges) seenE.add(x);
+    if (!c.faces.size) continue;
     out.push({ faces: [...c.faces].sort((a, b) => a - b), edges: [...c.edges].sort((a, b) => a - b) });
   }
-  return out;
+  return out.sort((a, b) => a.faces[0] - b.faces[0]);
 }
 
 /** 比对的容差（米）：内核坐标量化 1 µm，复制 / 旋转出来的件差几 µm；大件按尺寸放宽。 */

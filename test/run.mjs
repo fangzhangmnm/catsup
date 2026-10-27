@@ -80,6 +80,7 @@ import "./hierarchy.test.ts";   // 恢复层级（DT99，2026-10-26）
 import "./repairs-modular.test.ts";   // 修复指令可整个扔（2026-10-26）
 import "./fill-holes.test.ts";   // 补洞（DT103，2026-10-26）
 import "./cleanup.test.ts";   // 清理碎渣（DT102，2026-10-26）
+import "./resegment.test.ts";   // 改段数（回转体，DT94，2026-10-26）
 import "./intent.test.ts";   // 意图门：反方向的吸附不合法（0.9，2026-10-21）
 import "./vcb.test.ts";   // 数值小窗解析 + 阵列（0.9 #11，2026-10-21）
 import "./snap-align.test.ts";

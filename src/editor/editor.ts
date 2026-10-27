@@ -1480,7 +1480,7 @@ export class Editor {
   /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
   private get repairCtx(): RepairCtx {
     const self = this;
-    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg") };
+    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), circleSegments: () => this.config.get("circle", "segments") };
   }
   /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
   repairLoaded(kind: RepairKind): boolean { return REPAIRS.some((x) => x.id === kind); }
@@ -1563,7 +1563,7 @@ export class Editor {
     const v0: Record<string, ParamValue> = { children: this.repairChildren, ...this.repairDefaults(kind) };
     const n0 = this.opCount;
     const count = go(v0);
-    if (!count) return 0;
+    if (!count && !this.repairModule(kind).offerAlways) return 0;
     this.offerAfterthought(this.repairModule(kind).title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...this.repairFields(kind)], v0, this.opCount - n0,
       (v) => { this.repairChildren = v.children !== false; go(v); });
     this.host.changed(); this.draw();
