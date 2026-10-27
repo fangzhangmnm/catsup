@@ -190,6 +190,8 @@ export declare class Renderer3 {
     private texCache;
     private faceMeshOther;
     private faceMatOther;
+    private faceMatFront;
+    private faceMatOtherFront;
     private edgeLines;
     private edgeMat;
     private edgePixel;

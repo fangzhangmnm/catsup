@@ -292,3 +292,10 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 ### 7.5 今天落地的（v0.15.9）
 
 `src/editor/commands/`：`command.ts`（`CommandFamily` / `CommandId` / `PoolUnit` / `CommandEnv` / `PlanOut` / `Command`）、`action.ts`（`Action` / `Surface` / `Placement` / `Family`）、`registry.ts`（查法 + `checkRegistry`）、`index.ts`（清单）。修复一族 = `repairs/index.ts`（`commands` + `actions` + `placements` + `REPAIR_STEPS`）。今天只有最笨的动作（一条指令一个同 id 的动作）；路由型动作等 mesh M2 / 物体族来了在 `action.ts` 里长（`run(env, units) → CommandCall[]`）。
+
+### 7.6 追记（user 10-27 更晚）
+
+- 「变换手势叫什么意思」→ 就是拖着手柄挪 / 转 / 缩那一下（移动、旋转、缩放三个工具共用的手柄 + 吸附）；「通吃三种后端」= 同一套手柄，选的是 SU 点就挪点、网格点就挪网格点、拉索圈的像素就沿表面挪。手势一套、数学三份。仍是 AI 提议。
+- 「magic里面有sim也有过程生成以及geometry node之类的，不过改名快」→ 魔法纪元 = 模拟 + 过程生成 + 几何节点；到时按「吃什么、产什么」分族（模拟吃三角形视图产物体；过程生成吃参数产物体；节点吃图产物体），族名到时候定，改名是字符串替换，不卡。
+- 「fable继续做，加油」→ 下一块 = mesh M2（网格接进场景），brep 数组制度排它后面（冲刺要的是能自由建模）。
+- 「二次元显然逻辑和三次元不一样，而且weebpaint的transform很复杂的。到时候专门弄。brep mesh object倒是ux可以统一」→ §7.4 里「变换手势通吃三种后端（含画布像素）」的提议**作废**：变换手势只在 brep / mesh / 物体三者之间统一；绘制的变换到时候专门做。

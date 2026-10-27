@@ -1789,6 +1789,8 @@ export class Editor {
   /** 进入选中（或命中）的子 group / 实例编辑。 */
   enterPool(p: PoolPick): void {
     if (this.pickIsLocked(p)) { this.host.hint("已锁定：解锁后再进入（选中它 → 解锁）"); return; }
+    // 网格体（mesh 身体，2026-10-27 M2）：画得出、点得中、吸得到、能整体挪 / 转 / 缩；进去编辑要自由建模工作台（M4，Opus 接）——现在诚实拦住，不让 brep 工具碰它
+    if (p.kind === "instance" && this.scene.kindOf(this.scene.instance(this.scene.defOfContext(this.ctx), p.instance).def) !== "brep") { this.host.hint("网格体：自由建模工作台还没接上，现在只能整体挪 / 转 / 缩"); return; }
     this.last = null;
     this.cancelGesture();
     this.selection = emptySelection(); this.selectedPools.clear();
@@ -2663,7 +2665,7 @@ export class Editor {
   }
   private ticksCache: { kernel: Kernel; rev: number; xform: Xform; ticks: { p: Pt3; dir: Pt3 }[] } | null = null;
   breakTicks(view: WorldView = this.liveWorld()): readonly { p: Pt3; dir: Pt3 }[] {
-    const slot = view.activeSlot(), k = slot.kernel;
+    const slot = view.activeSlot(), k = slot.kernel as Kernel;   // 活动池永远是 brep（enterPool 守门：网格体进不来）；断口刻度是 brep 的概念
     const c = this.ticksCache;
     if (c && c.kernel === k && c.rev === k.rev && c.xform === slot.xform) return c.ticks;
     const ticks: { p: Pt3; dir: Pt3 }[] = [];

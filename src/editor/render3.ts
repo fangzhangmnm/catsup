@@ -40,7 +40,7 @@ import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { GeomView, PoolSlot, WorldView } from "../scene/world-view.ts";
 import { ID_STRIDE, slotKey } from "../scene/world-view.ts";
 import { poolKey } from "../scene/scene.ts";
-import type { Kernel } from "../kernel/kernel.ts";
+import type { KernelView } from "../scene/kernel-view.ts";
 import type { Material, Scene } from "../scene/scene.ts";
 import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 import type { GuidesWorld } from "../scene/guides.ts";
@@ -323,6 +323,7 @@ export class Renderer3 {
   private texMeshes: { mesh: any; mat: any; tex: any; key: string }[] = [];   // 每种贴图材质一份网格（自己的 UV）
   private texCache = new Map<object, any>();                                  // Material 对象 → three Texture（原图解码一次）
   private faceMeshOther: any; private faceMatOther: any;
+  private faceMatFront: any; private faceMatOtherFront: any;   // 单面身体（mesh）的两份：只画正面（剔背面 = user 10-27「enforce backface culling」）
   private edgeLines: any; private edgeMat: any;
   private edgePixel: any;                 // 原生 GL 线（1 设备像素）：默认线稿
   private lineStyle: LineStyle = "pixel";
@@ -386,6 +387,9 @@ export class Renderer3 {
     this.faceMeshOther = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMatOther);
     this.faceMeshOther.frustumCulled = false; this.faceMeshOther.visible = false;
     this.scene.add(this.faceMeshOther);
+    // 单面身体（mesh）：同两份 shader，只画正面
+    this.faceMatFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
+    this.faceMatOtherFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther });
     // 覆盖层（选中 / 悬停的面）：同 shader、polygonOffset 0 → 压在各槽底几何（1 / 4）上面
     this.faceMatTop = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
@@ -1309,7 +1313,7 @@ export class Renderer3 {
   private syncPools(kd: WorldView, view: ViewState): void {
     this.syncGen++;
     const dim = view.dimSlots;
-    const taken = new Map<PoolGpu, Kernel>();   // 这一帧哪份池网格画的是哪个内核
+    const taken = new Map<PoolGpu, KernelView>();   // 这一帧哪份池网格画的是哪个内核
     for (const s of kd.slots) {
       const key = slotKey(s);
       let n = this.slotNodes.get(key);
@@ -1319,7 +1323,7 @@ export class Renderer3 {
       setMatrix(n.root, s.xform);
       const pg = this.poolGpu(s, kd.scene, taken), dimmed = !!dim?.has(s.index);
       // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
-      n.plain.material = s.active ? this.faceMat : this.faceMatOther;
+      n.plain.material = pg.mesh.singleSided ? (s.active ? this.faceMatFront : this.faceMatOtherFront) : (s.active ? this.faceMat : this.faceMatOther);
       const plain = pg.faces.get("plain"), showPlain = !!plain && (pg.mesh.groups.get("plain")?.store.count ?? 0) > 0;
       n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
       let ti = 0;
@@ -1372,7 +1376,7 @@ export class Renderer3 {
     return m;
   }
   /** 槽 s 用哪份池网格（同步到 s 的内核、传上显卡）。同一帧同一个内核只同步一次。 */
-  private poolGpu(s: PoolSlot, scene: Scene, taken: Map<PoolGpu, Kernel>): PoolGpu {
+  private poolGpu(s: PoolSlot, scene: Scene, taken: Map<PoolGpu, KernelView>): PoolGpu {
     const key = poolKey(s.pool), k = s.kernel;
     let list = this.poolGpus.get(key);
     if (!list) { list = []; this.poolGpus.set(key, list); }
@@ -1393,7 +1397,8 @@ export class Renderer3 {
     const eDim = hex(PALETTE.edgeDim), eWire = hex(PALETTE.edgeWire), eFace = hex(PALETTE.edge);
     return {
       matOf: (slot) => scene.materialOfSlot(defId, slot),
-      slotsSig: scene.brep(defId).materialSlots.map((i) => uid(scene.materials[i])).join(","),
+      slotsSig: scene.def(defId).body.materialSlots.map((i) => uid(scene.materials[i])).join(","),
+      singleSided: scene.kindOf(defId) === "mesh",
       // 淡出（上下文之外）：底色换成 faceDim、纯色材质和它对半混；贴图材质 = faceDim 乘贴图（和以前的变体同一套规则）
       faceColor: (mat, dim) => {
         if (dim) { const d = srgb(PALETTE.faceDim); return mat && !mat.texture ? [(d[0] + mat.color[0]) / 2, (d[1] + mat.color[1]) / 2, (d[2] + mat.color[2]) / 2] : d; }

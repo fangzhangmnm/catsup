@@ -5,7 +5,7 @@
 // **按槽缓存（#22 池级局部性，2026-10-21）**：每个槽变换到世界坐标的那份几何（parts）按 (kernel 对象, 槽序号) 缓存，键 = 池版本号 Kernel.rev + 变换；
 // 新建一份 WorldView 只重算「池变了 / 变换变了」的槽（预演 = 只有活动池的影子副本），其余槽直接复用上一份的 part。查询按 gid 的槽序号路由到 part。
 import { bboxOfRing } from "../kernel/face-lifecycle.ts";
-import type { Kernel } from "../kernel/kernel.ts";
+import type { KernelView } from "./kernel-view.ts";
 import type { Edge, EdgeId, FaceId, Pt3, Vertex, VertexId } from "../kernel/kernel.ts";
 import type { Face } from "../kernel/face-lifecycle.ts";
 import type { PlaneRec } from "../kernel/planes.ts";
@@ -53,7 +53,7 @@ export interface GeomView {
 
 export const ID_STRIDE = 1 << 22;
 
-export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: Kernel; active: boolean; inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */ tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; /** 复制预演的副本槽（DT14）：同一个池多画一份、在手里待遇（空 part），key 带 +copy；原槽照常。 */ ghost?: boolean; }
+export interface PoolSlot { index: number; pool: PoolRef; chain: readonly InstId[]; xform: Xform; kernel: KernelView; active: boolean; inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */ tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */ overridden: boolean; /** 复制预演的副本槽（DT14）：同一个池多画一份、在手里待遇（空 part），key 带 +copy；原槽照常。 */ ghost?: boolean; }
 
 
 /** 一个槽变换到世界坐标后的几何（只读缓存单元）。 */
@@ -67,7 +67,7 @@ export interface SlotPart {
   hiddenEdges: Set<EdgeId>; hiddenVerts: Set<VertexId>;
 }
 /** kernel 对象 → 槽序号 → part（同一 definition 的多个实例 = 同一 kernel、不同槽 / 变换）。 */
-const PART_CACHE = new WeakMap<Kernel, Map<number, SlotPart>>();
+const PART_CACHE = new WeakMap<KernelView, Map<number, SlotPart>>();
 /** 本进程累计的 part 重算统计（编辑器把它抄进 perf；scene 层不 import editor）。 */
 export const PART_STATS = { ms: 0, n: 0 };
 /** 在手里（整体变换预演）的槽不算世界坐标：它不吸附、不遮挡、渲染只改矩阵——拖最大的 uber 组每帧成本 ≈ 0（user 2026-10-21「如果transform最大的uber组会发生什么」）。 */
@@ -94,7 +94,7 @@ export function regularPolygonCenter(pts: readonly Pt3[]): Pt3 | null {
   return c;
 }
 
-function buildPart(index: number, k: Kernel, m: Xform): SlotPart {
+function buildPart(index: number, k: KernelView, m: Xform): SlotPart {
   const off = index * ID_STRIDE;
   const ident = isIdentity(m);
   const part: SlotPart = { rev: k.rev, xform: m, verts: new Map(), edges: new Map(), faces: new Map(), planes: new Map(), soft: new Set(), smooth: new Set(), fold: new Set(), centers: [], hiddenEdges: new Set(), hiddenVerts: new Set() };
@@ -221,16 +221,15 @@ export class WorldView implements GeomView {
   frame(): Frame { return this.ctxFrame; }
   guides(): GuidesWorld { return this.ctxGuides; }
   grid(): GridSpec | null { return this.ctxGrid; }
-  constructor(scene: Scene, ctx: EditContext, live: Kernel | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number; frame?: Frame } | null; copies?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[]; isolate?: boolean }) {
+  constructor(scene: Scene, ctx: EditContext, live: KernelView | null = null, overrides?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[], extras?: { grid?: { step: number; sub: number; frame?: Frame } | null; copies?: readonly { match(pool: PoolRef, chain: readonly InstId[]): boolean; xform: Xform }[]; isolate?: boolean }) {
     this.scene = scene; this.ctx = ctx;   // 不用参数属性：node strip-types 不支持
     const activePool = scene.poolOfContext(ctx);
     this.ctxFrame = scene.frameOfContext(ctx);
     this.ctxGrid = extras?.grid ? { frame: extras.grid.frame ?? this.ctxFrame, step: extras.grid.step, sub: extras.grid.sub } : null;   // 网格面可换（yz / xz 立面）：帧由编辑器按 gridFrame 换好递来
     this.ctxGuides = guidesToWorld(scene.guidesOf(activePool), scene.xformOfContext(ctx));
     const chainKey = ctx.chain.join("/");
-    const used = new Map<Kernel, Set<number>>();
+    const used = new Map<KernelView, Set<number>>();
     for (const { pool, xform, chain } of scene.pools()) {
-      if (scene.kindOf(pool.def) !== "brep") continue;   // 门 1：只有 brep 池有 kernel 可 bake；card 等别的 kind 以后各自 bake
       if (chain.length && chain.join("/") !== chainKey && !chainVisible(scene, chain)) continue;   // 层藏掉的（含祖先藏）不进推断世界、不画（契约 §4；上下文自己所在的链永远算可见——你站在里面）
       if (extras?.isolate && !insideContext(scene, ctx, pool, chain)) continue;   // 「只看这个」：上下文外面的不画、不吸、点不中（SU「隐藏模型其余部分」）
       const isActive = samePool(pool, activePool) && chain.join("/") === chainKey;
@@ -243,7 +242,7 @@ export class WorldView implements GeomView {
       // 但当「在手里」（空 part：不吸附、不遮挡、点不中）——它们跟着光标动，再当吸附目标就是自己吸自己（user「会不会自己卡住自己」；周账 F-89 Fable 审）。
       const twin = !isActive && !!live && samePool(pool, activePool);
       if (twin) overridden = true;
-      const kernel = (isActive || twin) && live ? live : scene.kernelOf(pool);
+      const kernel = (isActive || twin) && live ? live : scene.viewOf(pool);   // 契约 kernel-view.ts：brep 池 = 内核，mesh 池 = 派生视图
       this.slots.push({ index, pool, chain, xform: m, kernel, active: isActive, inContext: sameDefChain, overridden, tier: isActive ? 0 : tierOfSlot(scene, ctx, pool, chain) });
       this.byKey.set(key, index);
       // part：命中缓存（同 kernel 对象 + 同槽序号 + 池版本没变 + 变换没变）就复用，否则重算这一个槽

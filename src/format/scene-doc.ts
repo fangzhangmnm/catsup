@@ -3,6 +3,7 @@
 // definition 的 id：文件里是 list 索引，运行时由 Scene 顺序铸造（装载顺序 = 文件顺序 → 索引 i ↔ DefId i+1）。
 // created 2026-10-21 by Claude Fable 5.1
 import { Kernel } from "../kernel/kernel.ts";
+import { meshFromTriangles, meshToTriangles } from "../mesh/tri-soup.ts";
 import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc } from "./document.ts";
 import { Scene, type DefId } from "../scene/scene.ts";
 import type { CatsupDocument, DefinitionDoc, GuidesDoc } from "./document.ts";
@@ -38,7 +39,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   doc.definitions.forEach((d, i) => {
     const def = scene.def(idOf.get(i)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
-    if (d.kind === "mesh" && d.mesh) { def.body = { kind: "mesh", positions: d.mesh.positions, indices: d.mesh.indices, ...(d.mesh.normals ? { normals: d.mesh.normals } : {}), ...(d.mesh.uvs ? { uvs: d.mesh.uvs } : {}), ...(d.mesh.triMaterial ? { triMaterial: d.mesh.triMaterial } : {}), materialSlots: d.materialSlots.map((m) => (m in doc.materials ? m : -1)) }; for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; } return; }
+    if (d.kind === "mesh" && d.mesh) { const soup = meshFromTriangles(d.mesh); if (soup.skipped) console.warn(`mesh definition "${d.name}": ${soup.skipped} degenerate triangles dropped`); def.body = { kind: "mesh", kernel: soup.kernel, materialSlots: d.materialSlots.map((m) => (m in doc.materials ? m : -1)) }; for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; } return; }
     const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
     body.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
     body.guides = guidesFromDoc(d.guides);
@@ -84,7 +85,7 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   const definitions: DefinitionDoc[] = ids.map((id) => {
     const d = scene.def(id);
     const instances = [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
-    if (d.body.kind === "mesh") return { name: d.name, kind: "mesh", mesh: { positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: [...d.body.materialSlots], guides: emptyGuidesDoc() };
+    if (d.body.kind === "mesh") return { name: d.name, kind: "mesh", mesh: meshToTriangles(d.body.kernel), brep: EMPTY_BREP(), groups: [], instances, materialSlots: [...d.body.materialSlots], guides: emptyGuidesDoc() };
     const b = d.body;
     return {
       name: id === scene.root ? name : d.name,

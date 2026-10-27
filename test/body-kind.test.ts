@@ -9,6 +9,7 @@ import { applyOp, OpTargetError } from "../src/editor/ops.ts";
 import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from "../src/format/index.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { sceneBox } from "./format-scenes.ts";
+import { meshFromTriangles } from "../src/mesh/tri-soup.ts";
 
 describe("body kind: 对象层 / 内容层", () => {
   it("mintDef 默认 brep 身体；kindOf / brep() 取得到；BODY_KINDS 两个成员（brep / mesh；card 已退场）", () => {
@@ -17,17 +18,17 @@ describe("body kind: 对象层 / 内容层", () => {
     eq(s.brep(s.root).kernel.faces().length, 6);
     eq(BODY_KINDS.length, 2); assert(isBodyKind("brep") && isBodyKind("mesh") && !isBodyKind("card") && !isBodyKind("nurbs"));
   });
-  it("mesh 身体：没有内核（kernelOf 抛）、内核 op 拒（OpTargetError）、hasPool 对根成立对 group 不成立、WorldView 跳过它、clone 保留 kind", () => {
+  it("mesh 身体：没有内核（kernelOf 抛）、内核 op 拒（OpTargetError）、hasPool 对根成立对 group 不成立、WorldView 给它开槽、clone 保留 kind", () => {
     const s = new Scene(sceneBox());
     const card = s.mintDef("网格", new Kernel());
-    card.body = { kind: "mesh", positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]), materialSlots: [] };
-    s.mintInstance(s.root, null, card.id, [1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0, 0]);
+    card.body = { kind: "mesh", kernel: meshFromTriangles({ positions: new Float32Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), indices: new Uint32Array([0, 1, 2]) }).kernel, materialSlots: [] };
+    s.mintInstance(s.root, null, card.id, [1, 0, 0, 3, 0, 1, 0, 0, 0, 0, 1, 0]);
     eq(s.kindOf(card.id), "mesh");
     let threw = false; try { s.kernelOf({ def: card.id, group: null }); } catch { threw = true; } assert(threw, "kernelOf 该抛");
     threw = false; try { applyOp(s, { op: "addEdges", at: { def: card.id, group: null }, segs: [[{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }]] }); } catch (e) { threw = e instanceof OpTargetError; } assert(threw, "内核 op 该被 OpTargetError 拒");
     assert(s.hasPool({ def: card.id, group: null }) && !s.hasPool({ def: card.id, group: 1 }));
     const view = new WorldView(s, ROOT_CONTEXT);
-    eq(view.slots.length, 1, "只有根 brep 池进槽");
+    eq(view.slots.length, 2, "根 brep 池 + mesh 池都进槽（2026-10-27 M2：mesh 经契约 kernel-view.ts 进推断世界）");
     const c = s.clone();
     eq(c.kindOf(card.id), "mesh"); eq(c.brep(c.root).kernel.faces().length, 6);
   });

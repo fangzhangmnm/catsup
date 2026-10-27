@@ -1,11 +1,13 @@
 // scene/kinds.ts —— kind 登记表（契约 ai-docs/20261024-object-model-contract.md §2 / §5）：每种身体声明可用模式、能 cast 到哪（丢什么）、对齐几何、包围盒。
 // 加 kind = 加一条登记，不改既有的；cast 只在表里有的方向上成功、不做部分转换（user 2026-10-24「每个物体有一个kind，可以换，换了要explicit cast op用户点确认」）。
-// created 2026-10-24 by Claude Fable 5.1
+// created 2026-10-24 by Claude Fable 5.1 · 2026-10-27 mesh 身体换成可编辑的 mesh 内核（src/mesh/），brep → mesh 出多边形面不出三角汤（edited by Claude Fable 5.1）
 import type { Pt3 } from "../kernel/geom.ts";
 import type { PlaneParams } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
 import type { Body, BrepBody, MeshBody } from "./scene.ts";
 import { triangulateRings } from "../format/triangulate.ts";
+import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
+import { recalcNormals } from "../mesh/ops/orient.ts";
 
 export type KindModeId = "geometry" | "surface";
 export interface AlignGeometry { points: Pt3[]; segments: [Pt3, Pt3][]; planes: PlaneParams[]; }
@@ -29,7 +31,7 @@ const boundsOf = (pts: Iterable<Pt3>): { min: Pt3; max: Pt3 } | null => {
 export const BREP_KIND: KindDef<BrepBody> = {
   id: "brep", label: "肥皂膜",
   modes: ["geometry", "surface"],
-  castsTo: [{ to: "mesh", loses: ["拓扑（面 / 边身份，推拉 / 偏移 / 跟随不再可用）", "曲线实体（圆 / 弧 / 焊接链）", "软边 / 平滑组标记", "组分区", "参考几何"] }],
+  castsTo: [{ to: "mesh", loses: ["拓扑公理（共面即同面、重合即同点；推拉 / 偏移 / 跟随不再可用）", "带洞的面（变成三角形，内部的边软 + 平滑）", "背面材质（mesh 单面）", "折线（变成软 + 平滑的边）", "曲线实体（圆 / 弧 / 焊接链）", "组分区", "参考几何"] }],
   alignGeometry(b) {
     const k = b.kernel, points = k.vertices().map((v) => ({ x: v.x, y: v.y, z: v.z }));
     const segments = k.edges().map((e) => [k.graph.pt(e.a), k.graph.pt(e.b)] as [Pt3, Pt3]);
@@ -40,16 +42,14 @@ export const BREP_KIND: KindDef<BrepBody> = {
 };
 export const MESH_KIND: KindDef<MeshBody> = {
   id: "mesh", label: "网格",
-  modes: [],
-  castsTo: [],   // mesh → brep：要平面多边形 + 流形，以后做；没有就是拒
-  alignGeometry(m) {
-    const points: Pt3[] = [];
-    for (let i = 0; i + 2 < m.positions.length; i += 3) points.push({ x: m.positions[i], y: m.positions[i + 1], z: m.positions[i + 2] });
-    const seen = new Set<string>(), segments: [Pt3, Pt3][] = [];
-    for (let t = 0; t + 2 < m.indices.length; t += 3) for (let k = 0; k < 3; k++) { const a = m.indices[t + k], b = m.indices[t + ((k + 1) % 3)]; const key = a < b ? `${a}-${b}` : `${b}-${a}`; if (seen.has(key)) continue; seen.add(key); segments.push([points[a], points[b]]); }
+  modes: [],   // 自由建模工作台（M4，Opus）接上之前只在物体层摆
+  castsTo: [],   // mesh → brep：M3（不平的面先折成平面块，再走 kernelFromTriangles 那条管线）
+  alignGeometry(b) {
+    const m = b.kernel, points = m.verts().map((v) => m.pt(v));
+    const segments = m.edges().filter((e) => !(m.edgeFlags[e] & (F_SOFT | F_HIDDEN))).map((e) => [m.pt(m.edgeA[e]), m.pt(m.edgeB[e])] as [Pt3, Pt3]);
     return { points, segments, planes: [] };
   },
-  bounds(m) { const pts: Pt3[] = []; for (let i = 0; i + 2 < m.positions.length; i += 3) pts.push({ x: m.positions[i], y: m.positions[i + 1], z: m.positions[i + 2] }); return boundsOf(pts); },
+  bounds(b) { const m = b.kernel; return boundsOf(m.verts().map((v) => m.pt(v))); },
 };
 export const KINDS: Readonly<Record<BodyKind, KindDef>> = { brep: BREP_KIND as KindDef, mesh: MESH_KIND as KindDef };
 export const kindOfBody = (b: Body): KindDef => KINDS[b.kind];
@@ -59,22 +59,43 @@ export function canCast(from: BodyKind, to: BodyKind): { ok: true; loses: readon
   return c ? { ok: true, loses: c.loses } : { ok: false, why: `还没有 ${KINDS[from].label} → ${KINDS[to].label} 这条路` };
 }
 
-/** brep → mesh：每张膜按 triangulateRings 三角化，材质槽照抄，每三角记面的材质槽。失败（某膜三角化不了）= 整个 cast 拒。 */
+const dot = (a: Pt3, b: Pt3): number => a.x * b.x + a.y * b.y + a.z * b.z;
+const newell = (pts: readonly Pt3[]): Pt3 => { let x = 0, y = 0, z = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; x += (a.y - b.y) * (a.z + b.z); y += (a.z - b.z) * (a.x + b.x); z += (a.x - b.x) * (a.y + b.y); } return { x, y, z }; };
+
+/**
+ * brep → mesh：一张膜 = 一张多边形面（环绕膜的法向 +n 逆时针 = 正面朝 +n，和 brep 渲染的正面一致）；带洞的膜三角化（mesh 的面不带洞），三角形之间的内部边软 + 平滑（看起来还是一张面）；
+ * 边标记照搬（软 / 平滑 / 隐藏；折线 = 软 + 平滑）；悬空的边 = 裸线；隐藏的面照旧隐藏；材质槽照抄（正面那槽）。失败（某膜三角化不了）= 整个 cast 拒。
+ */
 export function brepToMesh(b: BrepBody): MeshBody {
-  const k = b.kernel;
-  const pos: number[] = [], idx: number[] = [], tri: number[] = [];
+  const k = b.kernel, m = new MeshKernel();
   const vid = new Map<number, number>();
-  const vi = (id: number): number => { let i = vid.get(id); if (i === undefined) { const p = k.graph.pt(id); i = pos.length / 3; pos.push(p.x, p.y, p.z); vid.set(id, i); } return i; };
+  const vi = (id: number): number => { let i = vid.get(id); if (i === undefined) { i = m.addVertex(k.graph.pt(id)); vid.set(id, i); } return i; };
+  const brepEdge = new Set<string>();
+  for (const e of k.edges()) brepEdge.add(e.a < e.b ? `${e.a}-${e.b}` : `${e.b}-${e.a}`);
   for (const f of k.faces()) {
-    const F = k.face(f.id)!, rec = k.planeOf(f.id)!;
-    const outer = F.outer.vids, holes = F.holes.map((h) => h.vids);
-    const all = [...new Set([...outer, ...holes.flat()])];
+    const F = k.face(f.id)!, rec = k.planeOf(f.id)!, n = rec.plane.n, slot = k.faceMaterialOf(f.id, 0) ?? -1, hidden = k.isFaceHidden(f.id);
+    const add = (ring: number[]): void => { if (dot(newell(ring.map((v) => m.pt(v))), n) < 0) ring.reverse(); const fid = m.addFace(ring, slot); if (hidden) m.setFaceFlags(fid, FF_HIDDEN, true); };
+    if (!F.holes.length) { add(F.outer.vids.map(vi)); continue; }
+    const outer = F.outer.vids, holes = F.holes.map((h) => h.vids), all = [...new Set([...outer, ...holes.flat()])];
     const local = new Map<number, number>(all.map((v, i) => [v, i]));
     const tris = triangulateRings(all.map((v) => k.graph.pt(v)), rec.plane, outer.map((v) => local.get(v)!), holes.map((h) => h.map((v) => local.get(v)!)));
-    const slot = k.faceMaterialOf(f.id);
-    for (const [a, b2, c] of tris) { idx.push(vi(all[a]), vi(all[b2]), vi(all[c])); tri.push(slot === undefined || slot < 0 ? 0xffff : slot); }
+    if (!tris.length) throw new Error(`cast: face ${f.id} could not be triangulated`);
+    for (const [a, b2, c] of tris) add([vi(all[a]), vi(all[b2]), vi(all[c])]);
   }
-  return { kind: "mesh", positions: new Float32Array(pos), indices: new Uint32Array(idx), triMaterial: new Uint16Array(tri), materialSlots: [...b.materialSlots] };
+  for (const e of k.edges()) {
+    if (e.faceLinks.length === 0) { const me = m.ensureEdge(vi(e.a), vi(e.b)); m.setEdgeFlags(me, m.edgeFlags[me] | F_WIRE); }
+  }
+  const brepIdOf = new Map<number, number>([...vid].map(([b2, mm]) => [mm, b2]));
+  for (const me of m.edges()) {
+    const a = brepIdOf.get(m.edgeA[me])!, bb = brepIdOf.get(m.edgeB[me])!, key = a < bb ? `${a}-${bb}` : `${bb}-${a}`;
+    if (!brepEdge.has(key)) { m.setEdgeFlags(me, m.edgeFlags[me] | F_SOFT | F_SMOOTH); continue; }   // 三角化出来的内部边：看不见、明暗连续
+    const eid = k.graph.vertex(a).edges;
+    let fl = m.edgeFlags[me];
+    for (const x of eid) { const E = k.graph.edge(x); if ((E.a === a && E.b === bb) || (E.a === bb && E.b === a)) { if (k.isSoft(x)) fl |= F_SOFT; if (k.isSmooth(x)) fl |= F_SMOOTH; if (k.isFold(x)) fl |= F_SOFT | F_SMOOTH; if (k.isEdgeHidden(x)) fl |= F_HIDDEN; } }
+    if (fl !== m.edgeFlags[me]) m.setEdgeFlags(me, fl);
+  }
+  recalcNormals(m);   // brep 的平面法向是规范化符号的，不是朝外：封闭壳朝外、开口片按种子面一致化
+  return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots] };
 }
 /** 显式 cast（op 层调用）：只认登记表里的方向。 */
 export function castBody(body: Body, to: BodyKind): Body {

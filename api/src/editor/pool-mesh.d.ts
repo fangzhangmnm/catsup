@@ -1,4 +1,5 @@
-import type { EdgeId, FaceId, Kernel, Pt3 } from "../kernel/kernel.ts";
+import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
+import type { KernelView } from "../scene/kernel-view.ts";
 import type { Material } from "../scene/scene.ts";
 import type { GeomView } from "../scene/world-view.ts";
 /** 属性的存法：f32 = 浮点（位置 / 粗线端点 / uv）；i16n / i8n = 归一化整数（法线 / 面颜色；显卡读成 −1…1 的浮点，省一半到四分之三的内存）。 */
@@ -100,7 +101,7 @@ export interface FaceRec {
     readonly u: Pt3;
     readonly v: Pt3;
 }
-export declare function buildFaceRec(k: Kernel, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null;
+export declare function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null;
 export interface EdgeRec {
     readonly a: Pt3;
     readonly b: Pt3;
@@ -110,7 +111,7 @@ export interface EdgeRec {
     readonly flag: number;
 }
 /** 看得见的边（软边 / 折线 / 隐藏的不画）一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。 */
-export declare function buildEdgeRec(k: Kernel, eid: EdgeId): EdgeRec | null;
+export declare function buildEdgeRec(k: KernelView, eid: EdgeId): EdgeRec | null;
 export type TexSide = "front" | "back" | "double";
 export interface PoolMeshEnv {
     /** 槽号 → 材质（scene.materialOfSlot 绑好 definition）。 */
@@ -121,6 +122,8 @@ export interface PoolMeshEnv {
     edgeColor(loose: boolean, dim: boolean): readonly [number, number, number];
     /** 粗线（LineSegments2 实例）还是像素线。 */
     thick: boolean;
+    /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
+    singleSided: boolean;
 }
 export interface FaceGroup {
     readonly key: string;
@@ -134,6 +137,8 @@ export declare class PoolMesh {
     private srcSeq;
     private sig;
     private thick;
+    /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */
+    singleSided: boolean;
     /**
      * 缓存反映的每张面当时的环边（画不画都记——隐藏的面没有画的记录）：面被删 / 被改的时候，靠这里知道它当时挨着哪些边，
      * 那些边的面链接变了、边两头的法线扇也可能变（日志只记了面）。只记边编号：顶点从边的两头来（边被删了 = 日志里有那条边 + 它两侧的面）。
@@ -145,7 +150,7 @@ export declare class PoolMesh {
     lines: DenseStore;
     private matIds;
     /** 现在反映的是哪个内核（渲染器挑「本来就画着它的那份」用）。 */
-    get source(): Kernel | null;
+    get source(): KernelView | null;
     /** 上一次同步：全量还是增量、重建了多少（计时 / 测试用）。 */
     last: {
         full: boolean;
@@ -153,7 +158,7 @@ export declare class PoolMesh {
         edges: number;
     };
     /** 让缓存反映内核 T（池本地坐标）。返回这次重建了多少。 */
-    sync(T: Kernel, env: PoolMeshEnv): {
+    sync(T: KernelView, env: PoolMeshEnv): {
         full: boolean;
         faces: number;
         edges: number;

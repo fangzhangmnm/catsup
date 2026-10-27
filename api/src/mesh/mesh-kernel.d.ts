@@ -1,5 +1,8 @@
 import { type Pt3 } from "../kernel/geom.ts";
+import { ChangeLog } from "../kernel/change-log.ts";
 export declare const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;
+/** 面标记：隐藏（user 10-27「show and hide faces」；点 / 边的显隐从面推导，游离的才自己带 F_HIDDEN）。 */
+export declare const FF_HIDDEN = 1;
 export interface MeshSnapshot {
     readonly version: 1;
     readonly minor: 0;
@@ -18,6 +21,7 @@ export declare class MeshKernel {
     faceLen: Int32Array<ArrayBuffer>;
     fAlive: Uint8Array<ArrayBuffer>;
     faceMat: Int32Array<ArrayBuffer>;
+    faceFlags: Uint8Array<ArrayBuffer>;
     private fCount;
     private fFree;
     loopVert: Int32Array<ArrayBuffer>;
@@ -35,6 +39,8 @@ export declare class MeshKernel {
     private triCache;
     /** 改动计数（渲染缓存 / 预演差量的钥匙；拓扑或坐标改了就 +1）。 */
     rev: number;
+    /** 改动日志（编号 + 族谱，kernel/change-log.ts 同一份实现）：每个原语记下碰到的点 / 边 / 面；渲染缓存据此只重建改过的；clone = 分叉。 */
+    changes: ChangeLog;
     vertexCount(): number;
     edgeCount(): number;
     faceCount(): number;
@@ -65,6 +71,11 @@ export declare class MeshKernel {
     setFaceRing(f: number, ring: readonly number[]): void;
     setPos(v: number, p: Pt3): void;
     setFlags(e: number, mask: number, on: boolean): void;
+    /** 整字节写边标记（算子搬标记用）；记日志。 */
+    setEdgeFlags(e: number, flags: number): void;
+    setFaceMat(f: number, slot: number): void;
+    setFaceFlags(f: number, mask: number, on: boolean): void;
+    isFaceHidden(f: number): boolean;
     hasFlag(e: number, mask: number): boolean;
     private keyOf;
     private touch;

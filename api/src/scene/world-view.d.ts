@@ -1,4 +1,4 @@
-import type { Kernel } from "../kernel/kernel.ts";
+import type { KernelView } from "./kernel-view.ts";
 import type { Edge, EdgeId, FaceId, Pt3, Vertex, VertexId } from "../kernel/kernel.ts";
 import type { Face } from "../kernel/face-lifecycle.ts";
 import type { PlaneRec } from "../kernel/planes.ts";
@@ -56,7 +56,7 @@ export interface PoolSlot {
     pool: PoolRef;
     chain: readonly InstId[];
     xform: Xform;
-    kernel: Kernel;
+    kernel: KernelView;
     active: boolean;
     inContext: boolean; /** 层级距离（#30）：0 自己 / 1 近亲 / 2 其他。 */
     tier: 0 | 1 | 2; /** 正被整体变换预演的池（在手里：不吸、不遮）。 */
@@ -113,7 +113,7 @@ export declare class WorldView implements GeomView {
     frame(): Frame;
     guides(): GuidesWorld;
     grid(): GridSpec | null;
-    constructor(scene: Scene, ctx: EditContext, live?: Kernel | null, overrides?: readonly {
+    constructor(scene: Scene, ctx: EditContext, live?: KernelView | null, overrides?: readonly {
         match(pool: PoolRef, chain: readonly InstId[]): boolean;
         xform: Xform;
     }[], extras?: {

@@ -120,7 +120,7 @@ export interface EditorSelection { body: Selection | null; guides: Set<number>; 
 |---|---|---|
 | M0 | 本 .h 过目 | user「可以」 |
 | M1 | `MeshKernel` + §2 的「几何 / 劈 / 并 / 合 / 填删 / 标记 / 建」算子 + 不变量性质测试 + 对抗案例集（node 直测，零 DOM） | **核心 done 10-27 夜（Claude Fable 5.1）**：`src/mesh/mesh-kernel.ts`（列式表 / 空闲表最小空位 / 邻接 CSR 按需重建 / CDT 三角化缓存 / 紧凑快照往返 / `check()` 不变量 / 封闭流形欧拉数）+ `src/mesh/ops/`（split: 劈边 / 劈面 / 刀；join: 并面 / 溶解二度点；merge: 合；delete: 面 / 边 / 点三档；extrude: 挤出；build: 多边形 / 填 / 盒子；geometry: 挪 / 变换 / 标记 / 材质 / 翻面）；`test/mesh-kernel.test.ts` 10 组（含 8 种子 × 40 步随机串：每步自检 + 克隆对拍）。v0.15.8 再加 loopcut（环切：闭环 / 开口带）+ cleanup（有限溶解 / 去重点），14 组测试。**还没做**：inset / bevel / mirrorWeld / addPrimitive 球柱、`subdivided()`、改动日志（现在只有 rev 计数） |
-| M2 | `FaceSource` / `GeomView` 两个适配器 + `KindDef` 填实 + `Scene.bodyOf` | 现有 brep 行为零变化（探针照过）；mesh 身体能画、能点、能吸 |
+| M2 | ~~`FaceSource` / `GeomView` 两个适配器~~ → **一份契约 `scene/kernel-view.ts`**（渲染 / 合成视图 / 拾取 / 吸附读内核的那份；brep 结构上满足、mesh 经 `mesh/mesh-view.ts` 真做）+ `Scene.viewOf` + `MeshBody.kernel` + brep → mesh 多边形转换 + 法向一致化 + 单面剔背面 + 进网格体守门 | **done v0.15.10（10-27 夜，Fable）**：852 绿；修复 / 开机三探针 OK；临时探针：盒子 → 组件 → cast 成 mesh 真画出来（剔背面）、进去被拦住给人话。`KindDef.modes` 仍空（M4 接工作台时填）。 |
 | M3 | `CATSUP_mesh` 格式 + 迁移 + 冻结样本 + 两条转换指令（含报告 / estimate）；导入外来 glb 改成 mesh | 往返测试；熊 / 小红帽导入 → 转 brep → 报告数字和 10-27 的一致 |
 | M4（Opus） | `freeform` 模式 + 刀 / 拉 / 环切三个工具 + `mesh.*` 指令按注册表写 + 选择那一块 | 小红帽白模能从盒子做出来（FM61） |
 | M5（Opus） | 通用笔刷工具（软挪）+ 自动镜像（`mirrorWeld` 每步） | 手稿里的「软 TRS」「自动对称」 |
@@ -162,3 +162,17 @@ export interface EditorSelection { body: Selection | null; guides: Set<number>; 
 6. 分期 §9：M1–M3 Fable、M4 起 Opus——同意 / 改。
 
 拍了我开 M1（内核 + 算子 + 性质测试），不碰现有 brep 一行。
+
+## 11. M2 落地记录（v0.15.10，2026-10-27 夜，Claude Fable 5.1）
+
+user：「不要monkey patch。基础打扎实」「不是冲刺，而是先专心做这个」→ 没走「网格假装成 brep 内核骗过渲染器」那条路，而是：
+
+- **契约** `src/scene/kernel-view.ts`（`KernelView`）：渲染缓存 `editor/pool-mesh.ts`、合成视图 `scene/world-view.ts`（→ 拾取 / 吸附 / 屏幕索引）、渲染器 `editor/render3.ts`、`scene.ts poolBounds` 全部改成只认它。brep 的 `Kernel` 结构上就满足（记录类型就是它的，零改动）。
+- **mesh 真做** `src/mesh/mesh-view.ts`：派生表按 rev 缓存（点 / 边 / 面记录、每面的朝向平面 = 环的 Newell 法向、2D 环 = 投影到自己的最佳拟合平面）；改动日志 = 内核自己的（`MeshKernel.changes`，每个原语记点 / 边 / 面，`clone` 分叉族谱 → 渲染缓存对预演副本仍是增量）；面显隐 `faceFlags`（`FF_HIDDEN`）；背面材质永远 undefined。算子写标记 / 材质改走内核方法（`setEdgeFlags` / `setFaceMat` / `setFaceFlags`，记日志）。
+- **场景** `Scene.viewOf(pool)` 唯一派发；`MeshBody = { kernel, materialSlots }`（三角汤形退场）；`Scene.mesh(def)`；`pointsOfDef` / `clone` 认 mesh。
+- **转换** `scene/kinds.ts brepToMesh`：一张膜 = 一张多边形面（环绕 +n 逆时针）；带洞的膜三角化、内部边软 + 平滑；边标记照搬（折线 = 软 + 平滑）；悬空边 = 裸线；隐藏面照旧；最后 `mesh/ops/orient.ts recalcNormals`（流形边传播一致、封闭壳朝外——brep 的平面法向是规范化符号的，不是朝外）。`castsTo.loses` 文案补全。mesh → brep 仍是 M3。
+- **渲染** 单面身体：`PoolMeshEnv.singleSided` → render3 两份 FrontSide 材质（活动池 / 别的池）。
+- **守门** `Editor.enterPool`：进网格体的实例 → 提示「网格体：自由建模工作台还没接上，现在只能整体挪 / 转 / 缩」。
+- **文件**：`kind:"mesh"` 载荷仍是三角汤（`mesh/tri-soup.ts` 往返；n 边形读回来是三角形 = 有损）。现在没有任何 UI 能造出 mesh 身体，所以没有用户数据经过这条路；**M3（`CATSUP_mesh` 1.0.0 多边形载荷 + 冻结样本 + 转换指令）落地前不接任何造 mesh 身体的 UI**。
+- 测试 `test/mesh-view.test.ts`（8 组：记录 = 内核事实 / 缓存跟 rev / WorldView 开槽经变换 / cast op + clone / brep → mesh 盒子朝外 + 带洞三角化 / recalcNormals / 三角汤往返 / pool-mesh 全量 + 增量 + 族谱）；`body-kind` / `object-model` / `pool-mesh` 旧测试改到新形状。852 绿。
+- 剩给 M3：格式；给 M4（Opus）：`mode.ts freeform` + `KindDef.modes`、选择 / 挪点按 kind 派发（`MeshUnit` 进注册表、路由型动作）、拾取用三角形命中不平的 n 边形（现在用最佳拟合平面的 2D 环，近平面的面没问题）。

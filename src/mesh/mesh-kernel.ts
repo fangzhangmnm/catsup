@@ -8,8 +8,11 @@
 // 这里只有数据 + 查询 + 最基本的生长 / 删除原语；拓扑算子在 mesh/ops/*.ts（每个一个文件，可扔）。
 import { type Pt3, planeOfRing } from "../kernel/geom.ts";
 import { triangulateRings } from "../format/triangulate.ts";
+import { ChangeLog } from "../kernel/change-log.ts";
 
 export const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;   // F_WIRE = 裸线（不属于任何面也合法）
+/** 面标记：隐藏（user 10-27「show and hide faces」；点 / 边的显隐从面推导，游离的才自己带 F_HIDDEN）。 */
+export const FF_HIDDEN = 1;
 
 export interface MeshSnapshot {
   readonly version: 1; readonly minor: 0; readonly patch: 0;
@@ -25,7 +28,7 @@ export class MeshKernel {
   // 顶点
   pos = new Float64Array(0); vAlive = new Uint8Array(0); private vCount = 0; private vFree: number[] = [];
   // 面：loopVert[faceStart[f] .. +faceLen[f])
-  faceStart = new Int32Array(0); faceLen = new Int32Array(0); fAlive = new Uint8Array(0); faceMat = new Int32Array(0); private fCount = 0; private fFree: number[] = [];
+  faceStart = new Int32Array(0); faceLen = new Int32Array(0); fAlive = new Uint8Array(0); faceMat = new Int32Array(0); faceFlags = new Uint8Array(0); private fCount = 0; private fFree: number[] = [];
   loopVert = new Int32Array(0); private loopCount = 0;
   // 边
   edgeA = new Int32Array(0); edgeB = new Int32Array(0); eAlive = new Uint8Array(0); edgeFlags = new Uint8Array(0); private eCount = 0; private eFree: number[] = [];
@@ -37,6 +40,8 @@ export class MeshKernel {
   private triCache: { tris: Int32Array; faceOfTri: Int32Array; rev: number } | null = null;
   /** 改动计数（渲染缓存 / 预演差量的钥匙；拓扑或坐标改了就 +1）。 */
   rev = 0;
+  /** 改动日志（编号 + 族谱，kernel/change-log.ts 同一份实现）：每个原语记下碰到的点 / 边 / 面；渲染缓存据此只重建改过的；clone = 分叉。 */
+  changes = new ChangeLog();
 
   // ---------------- 基本查询
   vertexCount(): number { let n = 0; for (let i = 0; i < this.vCount; i++) if (this.vAlive[i]) n++; return n; }
@@ -67,7 +72,7 @@ export class MeshKernel {
     const v = this.vFree.length ? this.vFree.pop()! : this.vCount++;
     this.pos = grow(this.pos, 3 * this.vCount); this.vAlive = grow(this.vAlive, this.vCount);
     this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.vAlive[v] = 1;
-    this.touch(true); return v;
+    this.changes.v(v); this.touch(true); return v;
   }
   /** 加一张面（顶点环）；相邻顶点对没有边的自动补边。环 < 3 个不同顶点 / 有重复 / 顶点不活 → 抛（人话）。 */
   addFace(ring: readonly number[], mat = -1): number {
@@ -75,8 +80,8 @@ export class MeshKernel {
     if (ring.length < 3 || distinct.size !== ring.length) throw new Error(`addFace: ring must have ≥ 3 distinct vertices (got ${ring.length}, ${distinct.size} distinct)`);
     for (const v of ring) if (!this.hasV(v)) throw new Error(`addFace: vertex ${v} is not alive`);
     const f = this.fFree.length ? this.fFree.pop()! : this.fCount++;
-    this.faceStart = grow(this.faceStart, this.fCount); this.faceLen = grow(this.faceLen, this.fCount); this.fAlive = grow(this.fAlive, this.fCount); this.faceMat = grow(this.faceMat, this.fCount);
-    this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length; this.fAlive[f] = 1; this.faceMat[f] = mat;
+    this.faceStart = grow(this.faceStart, this.fCount); this.faceLen = grow(this.faceLen, this.fCount); this.fAlive = grow(this.fAlive, this.fCount); this.faceMat = grow(this.faceMat, this.fCount); this.faceFlags = grow(this.faceFlags, this.fCount);
+    this.faceStart[f] = this.loopCount; this.faceLen[f] = ring.length; this.fAlive[f] = 1; this.faceMat[f] = mat; this.faceFlags[f] = 0; this.changes.f(f);
     this.loopVert = grow(this.loopVert, this.loopCount + ring.length);
     for (let i = 0; i < ring.length; i++) this.loopVert[this.loopCount + i] = ring[i];
     this.loopCount += ring.length;
@@ -88,7 +93,7 @@ export class MeshKernel {
     if (!this.hasF(f)) return;
     const vs = this.faceVerts(f);
     this.fAlive[f] = 0; this.fFree.push(f); this.fFree.sort((a, b) => b - a);
-    this.touch(true);
+    this.changes.f(f); this.touch(true);
     for (let i = 0; i < vs.length; i++) { const e = this.edgeOf(vs[i], vs[(i + 1) % vs.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
   removeEdge(e: number): void {
@@ -96,13 +101,13 @@ export class MeshKernel {
     if (this.eFaces(e).length) throw new Error(`removeEdge: edge ${e} still belongs to a face`);
     this.edgeKey.delete(this.keyOf(this.edgeA[e], this.edgeB[e]));
     this.eAlive[e] = 0; this.edgeFlags[e] = 0; this.eFree.push(e); this.eFree.sort((a, b) => b - a);
-    this.touch(true);
+    this.changes.e(e); this.touch(true);
   }
   removeVertex(v: number): void {
     if (!this.hasV(v)) return;
     if (this.vEdges(v).length) throw new Error(`removeVertex: vertex ${v} still has edges`);
     this.vAlive[v] = 0; this.vFree.push(v); this.vFree.sort((a, b) => b - a);
-    this.touch(true);
+    this.changes.v(v); this.touch(true);
   }
   ensureEdge(a: number, b: number): number {
     if (a === b) throw new Error("ensureEdge: loop edge");
@@ -111,7 +116,7 @@ export class MeshKernel {
     this.edgeA = grow(this.edgeA, this.eCount); this.edgeB = grow(this.edgeB, this.eCount); this.eAlive = grow(this.eAlive, this.eCount); this.edgeFlags = grow(this.edgeFlags, this.eCount);
     this.edgeA[e] = Math.min(a, b); this.edgeB[e] = Math.max(a, b); this.eAlive[e] = 1; this.edgeFlags[e] = 0;
     this.edgeKey.set(this.keyOf(a, b), e);
-    this.touch(true); return e;
+    this.changes.e(e); this.touch(true); return e;
   }
   /** 原地改一张面的环（劈面 / 并面 / 并点用）：旧环独占的边删掉、新环缺的边补上。 */
   setFaceRing(f: number, ring: readonly number[]): void {
@@ -123,11 +128,16 @@ export class MeshKernel {
     for (let i = 0; i < ring.length; i++) this.loopVert[this.loopCount + i] = ring[i];
     this.loopCount += ring.length;
     for (let i = 0; i < ring.length; i++) this.ensureEdge(ring[i], ring[(i + 1) % ring.length]);
-    this.touch(true);
+    this.changes.f(f); this.touch(true);
     for (let i = 0; i < old.length; i++) { const e = this.edgeOf(old[i], old[(i + 1) % old.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
-  setPos(v: number, p: Pt3): void { this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.touch(false); }
-  setFlags(e: number, mask: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | mask : this.edgeFlags[e] & ~mask; this.rev++; }
+  setPos(v: number, p: Pt3): void { this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.changes.v(v); this.touch(false); }
+  setFlags(e: number, mask: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | mask : this.edgeFlags[e] & ~mask; this.changes.e(e); this.rev++; }
+  /** 整字节写边标记（算子搬标记用）；记日志。 */
+  setEdgeFlags(e: number, flags: number): void { if (!this.hasE(e)) return; this.edgeFlags[e] = flags; this.changes.e(e); this.rev++; }
+  setFaceMat(f: number, slot: number): void { if (!this.hasF(f)) return; this.faceMat[f] = slot; this.changes.f(f); this.rev++; }
+  setFaceFlags(f: number, mask: number, on: boolean): void { if (!this.hasF(f)) return; this.faceFlags[f] = on ? this.faceFlags[f] | mask : this.faceFlags[f] & ~mask; this.changes.f(f); this.rev++; }
+  isFaceHidden(f: number): boolean { return this.hasF(f) && (this.faceFlags[f] & FF_HIDDEN) !== 0; }
   hasFlag(e: number, mask: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & mask) !== 0; }
 
   private keyOf(a: number, b: number): number { return a < b ? a * 67108864 + b : b * 67108864 + a; }
@@ -170,7 +180,8 @@ export class MeshKernel {
     m.faceStart = this.faceStart.slice(); m.faceLen = this.faceLen.slice(); m.fAlive = this.fAlive.slice(); m.faceMat = this.faceMat.slice(); m.fCount = this.fCount; m.fFree = [...this.fFree];
     m.loopVert = this.loopVert.slice(); m.loopCount = this.loopCount;
     m.edgeA = this.edgeA.slice(); m.edgeB = this.edgeB.slice(); m.eAlive = this.eAlive.slice(); m.edgeFlags = this.edgeFlags.slice(); m.eCount = this.eCount; m.eFree = [...this.eFree];
-    m.edgeKey = new Map(this.edgeKey); m.rev = this.rev;
+    m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.faceFlags = this.faceFlags.slice();
+    m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
     return m;
   }
   /** 紧凑快照（去空位、id 重编：存 / 导出时整理，user 10-27「catsup rule: organize in export/save」）。 */

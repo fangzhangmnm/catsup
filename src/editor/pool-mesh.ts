@@ -8,7 +8,8 @@
 // 平滑法线 = 每个顶点处按硬边把周围的面分成一扇一扇、在扇内按内角加权（Blender 分裂法线同款）：局部、增量友好；
 //   取代旧的「整组并查集 + 整组朝向统一」（那个在一个平滑组跨过硬接缝绕回来的地方会把接缝抹平）。
 // 纯数据，零 three（three 只在 render3.ts，build lint）；颜色由宿主注入（调色板在 render3）。
-import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { EdgeId, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { KernelView } from "../scene/kernel-view.ts";
 import type { ChangeSet, Lineage } from "../kernel/change-log.ts";
 import type { Material } from "../scene/scene.ts";
 import type { GeomView } from "../scene/world-view.ts";
@@ -251,7 +252,7 @@ export interface FaceRec {
   /** 平面基（贴图 uv = 点乘基 / 贴图物理尺寸）。 */
   readonly u: Pt3; readonly v: Pt3;
 }
-export function buildFaceRec(k: Kernel, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null {
+export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null {
   const f = k.face(fid), rec = k.planeOf(fid);
   if (!f || !rec || k.isFaceHidden(fid)) return null;
   const g = k.graph, pts: Pt3[] = [], outer: number[] = [], holes: number[][] = [];
@@ -275,7 +276,7 @@ export function buildFaceRec(k: Kernel, fid: FaceId, matOf: (slot: number | unde
 
 export interface EdgeRec { readonly a: Pt3; readonly b: Pt3; readonly loose: boolean; readonly w1: Pt3; readonly w2: Pt3; readonly flag: number; }
 /** 看得见的边（软边 / 折线 / 隐藏的不画）一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。 */
-export function buildEdgeRec(k: Kernel, eid: EdgeId): EdgeRec | null {
+export function buildEdgeRec(k: KernelView, eid: EdgeId): EdgeRec | null {
   const g = k.graph;
   if (!g.hasEdge(eid) || k.isSoft(eid) || k.isFold(eid) || k.isEdgeHidden(eid)) return null;
   const e = g.edge(eid), a = g.pt(e.a), b = g.pt(e.b);
@@ -297,6 +298,8 @@ export interface PoolMeshEnv {
   edgeColor(loose: boolean, dim: boolean): readonly [number, number, number];
   /** 粗线（LineSegments2 实例）还是像素线。 */
   thick: boolean;
+  /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
+  singleSided: boolean;
 }
 export interface FaceGroup { readonly key: string; readonly mat: Material | null; readonly side: TexSide | null; readonly store: RegionStore; }
 
@@ -319,10 +322,12 @@ function writeGeom(a: Record<string, AttrArray>, off: number, rec: FaceRec): voi
 
 export class PoolMesh {
   /** 现在反映的是哪个内核到第几号。 */
-  private src: Kernel | null = null;
+  private src: KernelView | null = null;
   private srcSeq = 0;
   private sig = "";
   private thick = false;
+  /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */
+  singleSided = false;
   /**
    * 缓存反映的每张面当时的环边（画不画都记——隐藏的面没有画的记录）：面被删 / 被改的时候，靠这里知道它当时挨着哪些边，
    * 那些边的面链接变了、边两头的法线扇也可能变（日志只记了面）。只记边编号：顶点从边的两头来（边被删了 = 日志里有那条边 + 它两侧的面）。
@@ -334,16 +339,16 @@ export class PoolMesh {
   lines = new DenseStore(PIXEL_SPECS, 2);
   private matIds = new Map<Material, number>();
   /** 现在反映的是哪个内核（渲染器挑「本来就画着它的那份」用）。 */
-  get source(): Kernel | null { return this.src; }
+  get source(): KernelView | null { return this.src; }
   /** 上一次同步：全量还是增量、重建了多少（计时 / 测试用）。 */
   last = { full: true, faces: 0, edges: 0 };
 
   /** 让缓存反映内核 T（池本地坐标）。返回这次重建了多少。 */
-  sync(T: Kernel, env: PoolMeshEnv): { full: boolean; faces: number; edges: number } {
+  sync(T: KernelView, env: PoolMeshEnv): { full: boolean; faces: number; edges: number } {
     // 材质槽表：一边是另一边的前缀（加了槽 / 撤销了加槽）= 共同那段槽号 → 材质不变，用了多出来那段槽号的面都在差里（换槽号 = 改面层，日志记着）
     const pre = (x: string, y: string): boolean => x === "" || y === x || y.startsWith(x + ",");
     const sigOk = this.src !== null && (pre(this.sig, env.slotsSig) || pre(env.slotsSig, this.sig));
-    const d = sigOk && env.thick === this.thick ? this.diffTo(T) : null;
+    const d = sigOk && env.thick === this.thick && env.singleSided === this.singleSided ? this.diffTo(T) : null;
     this.sig = env.slotsSig;
     if (!d) return this.last = this.full(T, env);
     const F = new Set(d.faces), E = new Set(d.edges), V = new Set(d.verts);
@@ -369,7 +374,7 @@ export class PoolMesh {
    * 现在反映的状态 → 目标 T 之间可能不同的编号：沿族谱（ChangeLog.lineage：每格 = 一份日志数据 + 到第几号）找最近的共同祖先，
    * 把两边各段的日志并起来（每个后代从它分出来那号起改过的 + 共同祖先在两个分叉点之间改过的）。找不到 / 有一段说不知道 = null（全量）。
    */
-  private diffTo(T: Kernel): ChangeSet | null {
+  private diffTo(T: KernelView): ChangeSet | null {
     const S = this.src;
     if (!S) return null;
     const cs = S.changes.lineage(), ct = T.changes.lineage();
@@ -391,9 +396,9 @@ export class PoolMesh {
     return out;
   }
 
-  private full(T: Kernel, env: PoolMeshEnv): { full: boolean; faces: number; edges: number } {
+  private full(T: KernelView, env: PoolMeshEnv): { full: boolean; faces: number; edges: number } {
     this.faceTopo.clear(); this.faceGroups.clear(); this.groups.clear(); this.matIds.clear();
-    this.thick = env.thick;
+    this.thick = env.thick; this.singleSided = env.singleSided;
     this.lines = new DenseStore(env.thick ? THICK_SPECS : PIXEL_SPECS, env.thick ? 1 : 2);
     for (const f of T.faces()) { this.noteFace(T, f.id); this.writeFace(f.id, buildFaceRec(T, f.id, (s) => env.matOf(s)), env); }
     for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id), env);
@@ -403,7 +408,7 @@ export class PoolMesh {
     return { full: true, faces: this.faceGroups.size, edges: this.lines.count };
   }
 
-  private noteFace(T: Kernel, fid: FaceId): void {
+  private noteFace(T: KernelView, fid: FaceId): void {
     const f = T.face(fid);
     if (!f) { this.faceTopo.delete(fid); return; }
     const edges: EdgeId[] = [];

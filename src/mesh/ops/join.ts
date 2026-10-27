@@ -39,6 +39,6 @@ export function dissolveVertex(k: MeshKernel, v: number): number {
   const wire = !faces.size;
   for (const e of es) if (k.hasE(e)) { if (k.eFaces(e).length) throw new Error("dissolveVertex: internal"); k.removeEdge(e); }
   k.removeVertex(v);
-  const ne = k.ensureEdge(a, b); k.edgeFlags[ne] = (flags & ~F_WIRE) | (wire ? F_WIRE : 0);
+  const ne = k.ensureEdge(a, b); k.setEdgeFlags(ne, (flags & ~F_WIRE) | (wire ? F_WIRE : 0));
   return ne;
 }

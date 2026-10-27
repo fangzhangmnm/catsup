@@ -41,12 +41,12 @@ describe("object model: 图片资产必带尺度 + cast 登记表", () => {
     try { assertImageAsset({ mimeType: "image/png", bytes: new Uint8Array(0), sizeM: [1, 1] }); } catch { t++; }
     eq(t, 2);
   });
-  it("cast：brep → mesh 通（盒子 12 三角、材质槽照抄）；mesh → brep 拒且文档不动", () => {
+  it("cast：brep → mesh 通（盒子 6 张四边形、材质槽照抄）；mesh → brep 拒且文档不动", () => {
     const s = new Scene(box());
     const child = s.mintDef("盒", box()); s.mintInstance(s.root, null, child.id, at(2, 0, 0));
     assert(canCast("brep", "mesh").ok && !canCast("mesh", "brep").ok && !canCast("brep", "brep").ok);
     const m = brepToMesh(s.brep(child.id));
-    eq(m.indices.length, 12 * 3); eq(m.triMaterial!.length, 12);
+    eq(m.kernel.faceCount(), 6); assert(m.kernel.faces().every((f) => m.kernel.faceVerts(f).length === 4), "6 张四边形"); eq(m.materialSlots.length, s.brep(child.id).materialSlots.length);
     applyOp(s, { op: "castDefinition", def: child.id, to: "mesh" });
     eq(s.kindOf(child.id), "mesh");
     let threw = false; try { applyOp(s, { op: "castDefinition", def: child.id, to: "brep" }); } catch { threw = true; }

@@ -30,7 +30,7 @@ export function mergeVerts(k: MeshKernel, ids: readonly number[], target: "cente
   }
   // 被并顶点剩下的边（裸线 / 面已删留下的）全删，再删顶点
   for (const v of gone) { for (const e of [...k.vEdges(v)]) { if (k.eFaces(e).length) throw new Error("mergeVerts: internal: face still references merged vertex"); k.removeEdge(e); } k.removeVertex(v); }
-  for (const [a, b, fl] of wires) if (a !== b) { const e = k.ensureEdge(a, b); if (!k.eFaces(e).length) k.edgeFlags[e] = fl; }
+  for (const [a, b, fl] of wires) if (a !== b) { const e = k.ensureEdge(a, b); if (!k.eFaces(e).length) k.setEdgeFlags(e, fl); }
   k.setPos(survivor, to);
   return survivor;
 }

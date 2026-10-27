@@ -11,6 +11,9 @@ import { Kernel, type BrepSnapshot, type EdgeId, type FaceEvent, type FaceId, ty
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyNormal, applyPlane, applyPt, compose, det3, frameAt, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import type { KernelView } from "./kernel-view.ts";
+import { meshViewOf } from "../mesh/mesh-view.ts";
 import type { CurveParams } from "../kernel/curves.ts";
 import { type ImageAsset, type LayerDoc, defaultLayers } from "../format/document.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
@@ -45,7 +48,8 @@ export interface BrepBody {
   drawFrame?: Frame;
 }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
-export interface MeshBody { readonly kind: "mesh"; positions: Float32Array; indices: Uint32Array; normals?: Float32Array; uvs?: Float32Array; triMaterial?: Uint16Array; materialSlots: number[]; }
+/** 2026-10-27：身体 = 可编辑的 mesh 内核（src/mesh/；单池、单面、顶点 id 寻址）；文件里的载荷见 format/scene-doc.ts（M3 前仍是三角汤）。 */
+export interface MeshBody { readonly kind: "mesh"; kernel: MeshKernel; materialSlots: number[]; }
 export type Body = BrepBody | MeshBody;   // card 2026-10-24 sunset（body-kind.ts 头注释）
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
@@ -98,7 +102,7 @@ export class Scene {
     if (depth > 32) return [];
     const d = this.def(defId), out: Pt3[] = [];
     if (d.body.kind === "brep") { for (const k of [d.body.kernel, ...[...d.body.groups.values()].map((g) => g.kernel)]) for (const v of k.vertices()) out.push(applyPt(m, v)); }
-    else { const P = d.body.positions; for (let i = 0; i + 2 < P.length; i += 3) out.push(applyPt(m, { x: P[i], y: P[i + 1], z: P[i + 2] })); }
+    else { const mk = d.body.kernel; for (const v of mk.verts()) out.push(applyPt(m, mk.pt(v))); }
     for (const i of d.instances.values()) out.push(...this.pointsOfDef(i.def, compose(m, i.xform), depth + 1));
     return out;
   }
@@ -156,6 +160,14 @@ export class Scene {
     return d.body;
   }
   kernelOf(p: PoolRef): Kernel { return p.group === null ? this.brep(p.def).kernel : this.group({ def: p.def, group: p.group }).kernel; }
+  /** definition 的 mesh 身体（不是 mesh → 抛）。 */
+  mesh(id: DefId): MeshBody {
+    const d = this.def(id);
+    if (d.body.kind !== "mesh") throw new Error(`definition ${id} body is "${d.body.kind}", not mesh`);
+    return d.body;
+  }
+  /** 池的显示视图（渲染 / 拾取 / 吸附读的那份契约 kernel-view.ts）：brep 池 = 内核本身；mesh 池 = 它的派生视图。场景层只经这里认内核。 */
+  viewOf(p: PoolRef): KernelView { return this.kindOf(p.def) === "mesh" ? meshViewOf(this.mesh(p.def).kernel) : this.kernelOf(p); }
   /** 池锁着吗（A27）：group 自己或任何祖先 group 锁着；根池永不锁（锁的是对象，不是定义）。 */
   poolLocked(p: PoolRef): boolean {
     if (p.group === null) return false;
@@ -246,7 +258,7 @@ export class Scene {
         const groups = new Map<GroupId, Group>();
         for (const [gid, g] of d.body.groups) groups.set(gid, { id: g.id, parent: g.parent, axes: g.axes, kernel: g.kernel.clone(), guides: cloneGuides(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) });
         body = { kind: "brep", kernel: d.body.kernel.clone(), groups, nextGroup: d.body.nextGroup, materialSlots: [...d.body.materialSlots], guides: cloneGuides(d.body.guides), ...(d.body.drawFrame ? { drawFrame: d.body.drawFrame } : {}) };   // Frame 按不可变对待
-      } else body = { kind: "mesh", positions: d.body.positions, indices: d.body.indices, ...(d.body.normals ? { normals: d.body.normals } : {}), ...(d.body.uvs ? { uvs: d.body.uvs } : {}), ...(d.body.triMaterial ? { triMaterial: d.body.triMaterial } : {}), materialSlots: [...d.body.materialSlots] };   // 网格数组按不可变对待（cast 整体换）
+      } else body = { kind: "mesh", kernel: d.body.kernel.clone(), materialSlots: [...d.body.materialSlots] };   // mesh 内核深拷（列式 = 几次 slice）
       const instances = new Map<InstId, Instance>();
       for (const [iid, i] of d.instances) instances.set(iid, { id: i.id, def: i.def, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
       s.defs.set(id, { id: d.id, name: d.name, body, instances, nextInst: d.nextInst });
@@ -377,7 +389,7 @@ export function bboxMin(pts: readonly Pt3[]): Pt3 {
   for (const p of pts) { x = Math.min(x, p.x); y = Math.min(y, p.y); z = Math.min(z, p.z); }
   return pts.length ? { x, y, z } : { x: 0, y: 0, z: 0 };
 }
-export function poolBounds(k: Kernel, m: Xform = IDENTITY): { min: Pt3; max: Pt3 } | null {
+export function poolBounds(k: KernelView, m: Xform = IDENTITY): { min: Pt3; max: Pt3 } | null {
   let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
   for (const v of k.vertices()) {
     const p = applyPt(m, v);

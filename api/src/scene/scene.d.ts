@@ -2,6 +2,8 @@ import { Kernel, type BrepSnapshot, type EdgeId, type FaceEvent, type FaceId, ty
 import { type Frame, type Xform, WORLD_FRAME, frameAt, transformFrame } from "./xform.ts";
 import { type Guides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import type { KernelView } from "./kernel-view.ts";
 import { type LayerDoc } from "../format/document.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 export type DefId = number;
@@ -53,13 +55,10 @@ export interface BrepBody {
     drawFrame?: Frame;
 }
 /** 网格身体（Blender 式三角网最小形，user 2026-10-24 命名 `mesh` / 「网格」；契约 §2）：定义坐标；默认剔背面；材质槽同 brep 语义。 */
+/** 2026-10-27：身体 = 可编辑的 mesh 内核（src/mesh/；单池、单面、顶点 id 寻址）；文件里的载荷见 format/scene-doc.ts（M3 前仍是三角汤）。 */
 export interface MeshBody {
     readonly kind: "mesh";
-    positions: Float32Array;
-    indices: Uint32Array;
-    normals?: Float32Array;
-    uvs?: Float32Array;
-    triMaterial?: Uint16Array;
+    kernel: MeshKernel;
     materialSlots: number[];
 }
 export type Body = BrepBody | MeshBody;
@@ -119,6 +118,10 @@ export declare class Scene {
     /** definition 的 brep 身体（不是 brep → 抛：内核 op / 分组 / 参考几何只对 brep 成立）。 */
     brep(id: DefId): BrepBody;
     kernelOf(p: PoolRef): Kernel;
+    /** definition 的 mesh 身体（不是 mesh → 抛）。 */
+    mesh(id: DefId): MeshBody;
+    /** 池的显示视图（渲染 / 拾取 / 吸附读的那份契约 kernel-view.ts）：brep 池 = 内核本身；mesh 池 = 它的派生视图。场景层只经这里认内核。 */
+    viewOf(p: PoolRef): KernelView;
     /** 池锁着吗（A27）：group 自己或任何祖先 group 锁着；根池永不锁（锁的是对象，不是定义）。 */
     poolLocked(p: PoolRef): boolean;
     /** 子项锁着吗（自己或祖先 group）。 */
@@ -183,7 +186,7 @@ export declare function snapshotLayerPayload(snap: BrepSnapshot, P: readonly Pt3
 export declare function remapSnapshotMaterial(snap: BrepSnapshot, remap: (slot: number) => number): BrepSnapshot;
 /** 轴框默认：选区包围盒的最小角（SU 把组件轴放在包围盒角）。 */
 export declare function bboxMin(pts: readonly Pt3[]): Pt3;
-export declare function poolBounds(k: Kernel, m?: Xform): {
+export declare function poolBounds(k: KernelView, m?: Xform): {
     min: Pt3;
     max: Pt3;
 } | null;

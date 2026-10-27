@@ -17,7 +17,7 @@ const MATS: Material[] = [
 const env = (thick: boolean, slots = MATS.length): PoolMeshEnv => ({
   matOf: (slot) => (slot === undefined || slot >= slots ? null : MATS[slot] ?? null), slotsSig: MATS.slice(0, slots).map((_, i) => i + 1).join(","),
   faceColor: (m, dim) => (m ? [m.color[0] * (dim ? 0.5 : 1), m.color[1], m.color[2]] : dim ? [0.2, 0.2, 0.2] : [0.7, 0.7, 0.7]),
-  edgeColor: (loose, dim) => (dim ? [0.5, 0.5, 0.5] : loose ? [0.1, 0.3, 0.1] : [0.05, 0.05, 0.05]), thick,
+  edgeColor: (loose, dim) => (dim ? [0.5, 0.5, 0.5] : loose ? [0.1, 0.3, 0.1] : [0.05, 0.05, 0.05]), thick, singleSided: false,
 });
 const r4 = (x: number): string => (Math.round(x * 1e4) / 1e4).toFixed(4);
 /** 一个仓库里画得出来的单元（三角 = 3 个顶点；线 = 1 个实例或 2 个顶点），按属性拼字符串、排序。 */

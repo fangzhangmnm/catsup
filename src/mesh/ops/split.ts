@@ -15,7 +15,7 @@ export function splitEdge(k: MeshKernel, e: number, t = 0.5): number {
     k.setFaceRing(f, out);
   }
   if (!faces.length) { k.removeEdge(e); }   // 裸线：原边删、两半各成裸线
-  for (const [x, y] of [[a, v], [v, b]] as const) { const ne = k.ensureEdge(x, y); k.edgeFlags[ne] = flags | (faces.length ? 0 : F_WIRE); }
+  for (const [x, y] of [[a, v], [v, b]] as const) { const ne = k.ensureEdge(x, y); k.setEdgeFlags(ne, flags | (faces.length ? 0 : F_WIRE)); }
   return v;
 }
 

@@ -35,7 +35,10 @@ export declare function canCast(from: BodyKind, to: BodyKind): {
     ok: false;
     why: string;
 };
-/** brep → mesh：每张膜按 triangulateRings 三角化，材质槽照抄，每三角记面的材质槽。失败（某膜三角化不了）= 整个 cast 拒。 */
+/**
+ * brep → mesh：一张膜 = 一张多边形面（环绕膜的法向 +n 逆时针 = 正面朝 +n，和 brep 渲染的正面一致）；带洞的膜三角化（mesh 的面不带洞），三角形之间的内部边软 + 平滑（看起来还是一张面）；
+ * 边标记照搬（软 / 平滑 / 隐藏；折线 = 软 + 平滑）；悬空的边 = 裸线；隐藏的面照旧隐藏；材质槽照抄（正面那槽）。失败（某膜三角化不了）= 整个 cast 拒。
+ */
 export declare function brepToMesh(b: BrepBody): MeshBody;
 /** 显式 cast（op 层调用）：只认登记表里的方向。 */
 export declare function castBody(body: Body, to: BodyKind): Body;

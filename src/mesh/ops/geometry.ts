@@ -16,7 +16,7 @@ export function setEdgeFlags(k: MeshKernel, es: readonly number[], mask: number,
   for (const e of es) k.setFlags(e, mask, on);
 }
 export function setFaceMaterial(k: MeshKernel, fs: readonly number[], slot: number): void {
-  for (const f of fs) if (k.hasF(f)) { k.faceMat[f] = slot; k.rev++; }
+  for (const f of fs) k.setFaceMat(f, slot);
 }
 /** 翻面：环倒过来（单面网格：朝向 = 环的绕向）。 */
 export function flipFaces(k: MeshKernel, fs: readonly number[]): void {
