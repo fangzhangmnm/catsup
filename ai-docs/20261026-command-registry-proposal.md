@@ -1,7 +1,7 @@
 # 指令注册表 · 提案（纪元排期 T4 / 账本 DT1）
 
 > created 20261026 by Claude Opus 5.5 · as-of v0.14.35 / 2026-10-26
-> 状态：**提案，等 user 过目；周二（10-27）Fable 审**。没动代码。现状头文件 = `api/src/`（v0.14.35 刷新，`scripts/gen-api.sh`）。
+> 状态：**已被 `20261027-command-registry-proposal-v2.md` 取代**（10-27 Fable 权衡稿：多放置表、run 改按池 plan、效果分三种；user「做！发我过目」）。本文留作 v1 记录。edited by Claude Fable 5.1 2026-10-27现状头文件 = `api/src/`（v0.14.35 刷新，`scripts/gen-api.sh`）。
 > user 拍过的形状要求（10-25）：「面板里也可以配置，所以能不能做成blender一样一个命令是一个类似函数的东西，你面板喂，而不是查面板。以及注意性能」；DT5：「他们语义上就是一个东西，只是作用域……不同」。
 
 ## 1. 为什么要它（一句话）

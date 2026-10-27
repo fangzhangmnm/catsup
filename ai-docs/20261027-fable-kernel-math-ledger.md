@@ -44,7 +44,7 @@
 
 | # | 题目 | 为什么现在 | → |
 |---|---|---|---|
-| A1 | **指令注册表**（指令放在哪个菜单 / 工具栏 / 子模式，数据驱动；Blender 的 Python 控制台那种） | user 10-26：「让fable攒够了足够的例子之后做。比如可能等blender纪元。然后要给以后的sculpt, body paint和node editing留位置」——**自由建模纪元就是那个 Blender 纪元**。提案 + 提案 .h 已写；修复这一族（v0.14.66 `src/editor/repairs/`）是第一个实例。提案 .h 还等 user 过目 | 周账 F-108（10-26 登记时写成 F-98、和云冲突那条撞号，10-27 周账整理改号）；`20261026-command-registry-proposal.md`；狗咬坦克账本 DT1 / T4 |
+| A1 | **指令注册表**（指令放在哪个菜单 / 工具栏 / 子模式，数据驱动；Blender 的 Python 控制台那种） | user 10-26：「让fable攒够了足够的例子之后做。比如可能等blender纪元。然后要给以后的sculpt, body paint和node editing留位置」——**自由建模纪元就是那个 Blender 纪元**。**10-27 Fable 权衡稿 = `20261027-command-registry-proposal-v2.md`**（现在做；多放置表；run 改按池 plan；效果分三种；三个纪元对过），等 user 过目六条；修复这一族（v0.14.66 `src/editor/repairs/`）是第一个实例 | 周账 F-108（10-26 登记时写成 F-98、和云冲突那条撞号，10-27 周账整理改号）；`20261027-command-registry-proposal-v2.md`（v1 = `20261026-command-registry-proposal.md`）；狗咬坦克账本 DT1 / T4 |
 | A2 | **选区的类型**：Opus 10-24 口头说「参考几何单独一份集合、不混进内核选区类型」，实际把 `guides` 加进了 `Selection`（`src/editor/tools.ts`） | 选择那一块（套索、X 光、环选、扩缩、点 / 边 / 面）全要往 `Selection` 上加东西；先定类型，不然越加越乱 | 周账 F-84（还有 ②–⑧ 七条 Opus 自报的疑点） |
 | A3 | **撤销重设计审计**（按「一步」撤、撤销保留选区、马后炮重放、组件其他实例实时跟） | 每个新动词都骑在撤销上 | 周账 F-93；`20261026-undo-session-redesign.md` |
 | A4 | **吸附排序收成一张表**（「边 > 轴 > 栅格」现在是排序表 + 维度档 + 合成交点 + 两个后处理 + 工具层推断五处叠出来的） | 自由建模加「默认永远不吸、按住 Shift 才吸」（FM24），又一层叠上去 | 周账 F-85 |
