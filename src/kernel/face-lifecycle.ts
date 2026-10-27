@@ -141,11 +141,19 @@ export class FaceStore {
 
   // ---------------- erase ----------------
 
-  /** 删边**前**按 loop 身份裁决。radial：命中面先按平面分组，各平面独立裁决。 */
-  snapshotEraseVerdicts(edgeIds: readonly EdgeId[]): EraseVerdicts {
+  /**
+   * 删边**前**按 loop 身份裁决。radial：命中面先按平面分组，各平面独立裁决。
+   * 局部化（2026-10-27 Claude Fable 5.1，家族周账 F-97 ① / Fable 账单 T2）：候选面 = 这条边的 faceLinks（边 → 膜的权威索引），不再扫全部膜
+   * ——以前每条被擦的边都 O(全部膜)（坦克 800 条 4.6 s）。faceLinks 按 id 升序，裁决顺序确定。
+   */
+  snapshotEraseVerdicts(g: PlanarGraph, edgeIds: readonly EdgeId[]): EraseVerdicts {
     const v: EraseVerdicts = { burst: new Set(), mergePairs: [], heal: new Set() };
     for (const e of edgeIds) {
-      const hits = this.faces()
+      if (!g.hasEdge(e)) continue;
+      const cand = [...new Set(g.edge(e).faceLinks)].sort((a, b) => a - b);
+      const hits = cand
+        .map((id) => this.byId.get(id))
+        .filter((f): f is Face => !!f)
         .map((f) => ({ f, occ: this.occurrences(f, e) }))
         .filter((x) => x.occ.count > 0);
       if (hits.length === 0) continue; // wire/filament：只删边
@@ -171,8 +179,17 @@ export class FaceStore {
     return v;
   }
 
-  reconcileErase(g: PlanarGraph, reg: PlaneRegistry, tol: number, v: EraseVerdicts): FaceEvent[] {
+  /**
+   * 擦边后的整理。局部化（2026-10-27 Claude Fable 5.1，家族周账 F-97 ① / Fable 账单 T2；证明留档 ai-docs/proofs/20261027-erase-localization.md）：
+   * 胞腔只在**被碰到的平面**上算（并组成员 / 整理膜所在的平面；每张平面取 τ 内的全部边——含裸线，和全局同一份输入），别的平面一条胞腔都不切；
+   * faceLinks 增量维护（relinkFaces），不全量重建。opts.global = 老路（全平面全膜，差分 oracle：结果必须逐字相同）。
+   * 以前每擦一次都把全部平面重新切胞腔：全合并坦克（3.2 万面 / 1.35 万平面）擦 50 条软边 97 s、和擦几条几乎无关。
+   */
+  reconcileErase(g: PlanarGraph, reg: PlaneRegistry, tol: number, v: EraseVerdicts, opts?: { global?: boolean }): FaceEvent[] {
     const events: FaceEvent[] = [];
+    const changed = new Set<FaceId>();
+    const oldRings = new Map<FaceId, EdgeId[]>();
+    const dropNoted = (id: FaceId): boolean => { const f = this.byId.get(id); if (f && !oldRings.has(id)) oldRings.set(id, ringEdgeIds(f)); changed.add(id); return this.drop(id); };
 
     const dsu = new DisjointSet<FaceId>();   // kernel/dsu.ts：同一套合并约定（a 的根挂到 b 的根下），加了路径压缩
     for (const [a, b] of v.mergePairs) dsu.union(a, b);
@@ -182,7 +199,23 @@ export class FaceStore {
       (groups.get(r) ?? groups.set(r, []).get(r)!).push(id);
     }
 
-    const byPlane = this.regionsByPlane(g, reg, tol);
+    // 影响域 = 会去找后继的膜所在的平面（并组成员 + 整理膜）。纯 BURST 不找后继，不需要胞腔。
+    const affected = new Set<PlaneId>();
+    for (const [a, b] of v.mergePairs) for (const id of [a, b]) { const f = this.byId.get(id); if (f) affected.add(f.planeId); }
+    for (const id of v.heal) { const f = this.byId.get(id); if (f) affected.add(f.planeId); }
+    let byPlane: RegionsByPlane;
+    if (opts?.global) byPlane = this.regionsByPlane(g, reg, tol);
+    else if (!affected.size) byPlane = new Map();
+    else {
+      // 每张被碰平面上 τ 内的全部边（含裸线：空闭环会给并后的膜留洞，全局也是这样）——一次扫边，O(E × 被碰平面数)
+      const recs = [...affected].map((pid) => ({ pid, plane: reg.rec(pid).plane }));
+      const edgesOf = new Map<PlaneId, Set<EdgeId>>(recs.map(({ pid }) => [pid, new Set<EdgeId>()]));
+      for (const e of g.edges()) {
+        const pa = g.pt(e.a), pb = g.pt(e.b);
+        for (const { pid, plane } of recs) if (distToPlane(pa, plane) <= tol && distToPlane(pb, plane) <= tol) edgesOf.get(pid)!.add(e.id);
+      }
+      byPlane = this.regionsByPlane(g, reg, tol, { only: affected, edges: edgesOf });
+    }
     const taken = new Set<Region>();
     // D12（2026-10-24，Claude Fable 5.1）：后继区域不许是**别的活膜已经占着的胞腔**。τ 带里的脏嵌入会给膜配上碰着外环的假「洞」，
     // 代表点（按外环 + 洞的奇偶扫描）落到邻膜肚子里，旧代码就把邻膜的胞腔再铸一张 = 同环双胞（fuzz 种子 31）。
@@ -212,8 +245,9 @@ export class FaceStore {
         }
       }
       if (survivorRegion && survivorPlane !== undefined) {
-        for (const m of members) this.drop(m);
+        for (const m of members) dropNoted(m);
         const nf = this.mint(survivorPlane, survivorRegion);
+        changed.add(nf.id);
         taken.add(survivorRegion);
         events.push({ type: "MERGE", from: members, into: nf.id });
       } else {
@@ -227,8 +261,9 @@ export class FaceStore {
       const f = this.byId.get(id)!;
       const r = findSuccessor(f);
       if (r) {
-        this.drop(id);
+        dropNoted(id);
         const nf = this.mint(f.planeId, r);
+        changed.add(nf.id);
         taken.add(r);
         events.push({ type: "ABSORB", from: id, into: nf.id });
       } else {
@@ -237,10 +272,10 @@ export class FaceStore {
     }
 
     for (const id of dead) {
-      if (this.drop(id)) events.push({ type: "BURST", face: id });
+      if (dropNoted(id)) events.push({ type: "BURST", face: id });
     }
 
-    this.rebuildFaceLinks(g);
+    this.relinkFaces(g, changed, oldRings);   // 只动出库 / 新铸的膜碰到的边；以前 rebuildFaceLinks 全量（O(全部环边)）
     return events;
   }
 

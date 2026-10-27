@@ -13,6 +13,7 @@
 
 import { type Pt, type Pt3, EPS, EPS_AREA, distToPlane, planeBasis, planeFromPoints, planeOfRing, pointInRing, projectToPlane, segIntersections, signedArea, type PlaneParams } from "./geom.ts";
 import { orient2dD } from "./exact/predicates.ts";
+import { delaunayFlips } from "./cdt.ts";
 
 export interface FoldResult {
   /** 每片 = 世界坐标环（顺环序；片在 tol 内共面）。 */
@@ -133,8 +134,14 @@ function triangulateAndMerge(outer: readonly Pt3[], holes: readonly (readonly Pt
     const merged = bridgeHoles(pr, outerIds, holeIds);
     if (!merged) continue;
     const off = P.map((p) => distToPlane(p, plane));   // 离拟合平面多远：先切最翘的顶点（见 earClip）
-    const tris = earClip(pr, merged, off);
-    if (!tris) continue;
+    const tris0 = earClip(pr, merged, off);
+    if (!tris0) continue;
+    // 质量整理（user 10-27「耳切三角化……很丑……能不能用一个更均匀，regular的triangulation」）：不是原边的对角线按空圆准则翻到约束 Delaunay
+    // ——折缝 = 翻完的对角线，不再有细长条。原边（外环 + 洞）是约束，永远不翻；翻只在严格凸四边形里做，覆盖集合不变（证明留档 §4）。
+    const constrained = new Set<string>();
+    const ringKeys = (ids: readonly number[]): void => { for (let i = 0; i < ids.length; i++) { const a = ids[i], b = ids[(i + 1) % ids.length]; constrained.add(a < b ? `${a}-${b}` : `${b}-${a}`); } };
+    ringKeys(outerIds); for (const h of holeIds) ringKeys(h);
+    const tris = delaunayFlips(pr.q, tris0, constrained);
     return mergeCoplanar(P, pr, tris, outerIds, holeIds, tol);
   }
   return null;

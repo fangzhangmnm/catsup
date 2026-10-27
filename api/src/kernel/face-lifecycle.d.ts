@@ -80,9 +80,21 @@ export declare class FaceStore {
     private occurrences;
     /** coplanarity 分组 + 每平面跑 findRegions（canonical 基投影）。scope = 局部结算的影响域（planes.ts CoplanarScope）；不给 = 全局。 */
     regionsByPlane(g: PlanarGraph, reg: PlaneRegistry, tol: number, scope?: CoplanarScope): RegionsByPlane;
-    /** 删边**前**按 loop 身份裁决。radial：命中面先按平面分组，各平面独立裁决。 */
-    snapshotEraseVerdicts(edgeIds: readonly EdgeId[]): EraseVerdicts;
-    reconcileErase(g: PlanarGraph, reg: PlaneRegistry, tol: number, v: EraseVerdicts): FaceEvent[];
+    /**
+     * 删边**前**按 loop 身份裁决。radial：命中面先按平面分组，各平面独立裁决。
+     * 局部化（2026-10-27 Claude Fable 5.1，家族周账 F-97 ① / Fable 账单 T2）：候选面 = 这条边的 faceLinks（边 → 膜的权威索引），不再扫全部膜
+     * ——以前每条被擦的边都 O(全部膜)（坦克 800 条 4.6 s）。faceLinks 按 id 升序，裁决顺序确定。
+     */
+    snapshotEraseVerdicts(g: PlanarGraph, edgeIds: readonly EdgeId[]): EraseVerdicts;
+    /**
+     * 擦边后的整理。局部化（2026-10-27 Claude Fable 5.1，家族周账 F-97 ① / Fable 账单 T2；证明留档 ai-docs/proofs/20261027-erase-localization.md）：
+     * 胞腔只在**被碰到的平面**上算（并组成员 / 整理膜所在的平面；每张平面取 τ 内的全部边——含裸线，和全局同一份输入），别的平面一条胞腔都不切；
+     * faceLinks 增量维护（relinkFaces），不全量重建。opts.global = 老路（全平面全膜，差分 oracle：结果必须逐字相同）。
+     * 以前每擦一次都把全部平面重新切胞腔：全合并坦克（3.2 万面 / 1.35 万平面）擦 50 条软边 97 s、和擦几条几乎无关。
+     */
+    reconcileErase(g: PlanarGraph, reg: PlaneRegistry, tol: number, v: EraseVerdicts, opts?: {
+        global?: boolean;
+    }): FaceEvent[];
     /** 静默出库（结算机 / 删膜用；叙事由调用方负责）。 */
     deleteSilently(id: FaceId): boolean;
     eraseFaces(g: PlanarGraph, ids: readonly FaceId[]): FaceEvent[];

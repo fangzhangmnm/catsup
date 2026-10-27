@@ -686,7 +686,7 @@ export declare class Editor {
     private repairFields;
     /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
     repair(kind: RepairKind, scope?: "auto" | "context"): number;
-    /** 大物体上擦线的量级估计：坦克（3.2 万面）实测每擦一次内核整理一遍整个物体约 95 s、和擦几条几乎无关（家族周账 F-97 ①），按面数平方推算。量纲：秒。 */
+    /** 大物体上擦线的量级估计。v0.15.4 擦边局部化（Fable 账单 T2）之后坦克（3.2 万面）擦 50 条 45 ms、200 条 76 ms（以前 95 s），按面数线性推算（剩下的是一次扫边）。量纲：秒。 */
     private static readonly ERASE_REF;
     /** 估计超过这么多秒才问（量纲：秒；AI 定的门槛）。 */
     private static readonly ERASE_ASK_SECONDS;

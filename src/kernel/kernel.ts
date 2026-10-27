@@ -277,9 +277,9 @@ export class Kernel {
       if (cid !== undefined) for (const e of this.curveReg.curve(cid)!.edges) if (this.graph.hasEdge(e)) set.add(e);
     }
     const valid = [...set];
-    const verdicts = this.store.snapshotEraseVerdicts(valid);
+    const verdicts = this.store.snapshotEraseVerdicts(this.graph, valid);
     for (const id of valid) { this.curveReg.onRemove(id); this.graph.removeEdge(id); }
-    return this.emit(this.store.reconcileErase(this.graph, this.planes, this.coplanarTol, verdicts));
+    return this.emit(this.store.reconcileErase(this.graph, this.planes, this.coplanarTol, verdicts, { global: this.settleMode === "global" }));   // 局部化（T2）；global 内核 = 差分 oracle
   }
   /** 炸开曲线（SU Explode Curve）：实体没了，边留着、不再带 curve 层（之后推拉它们的侧棱是硬的）。 */
   /** 焊接（B19）：选中的边（所属曲线整条连坐）焊成一条曲线——同圆参数的弧 → 弧 / 圆，否则折线曲线。不是一条链 → 抛（人话）。 */
