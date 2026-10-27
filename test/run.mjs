@@ -34,6 +34,7 @@ import "./erase-differential.test.ts";   // 擦边局部化差分 oracle（T2，
 import "./self-check.test.ts";   // 公理自检（FM83，2026-10-27 Fable）
 import "./loaded-differential.test.ts";   // 从装载态起步的差分（K4，2026-10-27 Fable）
 import "./soft-flat-merge.test.ts";   // 软边两侧变 180° 自动并（FM80，2026-10-27 Fable）
+import "./no-self-snap.test.ts";   // 拖着的东西不吸自己：对齐引擎层性质（A5 / F-89，2026-10-27 Fable）
 import "./draw-frame.test.ts";   // DT86 坐标架 / 组件原点拆开（2026-10-26 Opus）
 import "./fold.test.ts";   // DT87 折线底子（2026-10-26 Opus）
 import "./change-log.test.ts";   // DT96 内核改动日志：变了的都记、没变的不记（2026-10-26 Opus）

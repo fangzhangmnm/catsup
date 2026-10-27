@@ -126,7 +126,24 @@ export interface EditorSelection { body: Selection | null; guides: Set<number>; 
 | M5（Opus） | 通用笔刷工具（软挪）+ 自动镜像（`mirrorWeld` 每步） | 手稿里的「软 TRS」「自动对称」 |
 | M6 | 长 / 倒角 / 细分显示参数（FM76）/ 雕刻的加速结构（以后） | — |
 
-## 10. 要 user 拍的
+## 10. user 10-27 夜答复（Claude Fable 5.1 记；原话逐条）
+
+1. 单面：「单面我还得权衡一下，这个涉及到和brep的互导，但是人类的全量计算机图形学，除了thor，都是单面」「blender have no backface culling so most time it is misleading. so we want to enforce backface culling. wysiwyg. but we might shade backface in a way or just leave wireframe if wireframe is rendered?」「brep 转过去时背面材质丢、带洞的面要先桥成一个环 agree. and loop is better than just 1 line cut」「yes lets do single sided」→ **单面、强制剔背面（WYSIWYG）**；背面怎么画 = 渲染纪元的问题（候选：特殊着色、或线框模式下只剩线）；桥洞时**优先用一圈环切**（loop）而不是一条桥线（一条桥线 = 两条重合的边，丑；环切 = 洞和外环之间切出一圈面，干净）。
+2. 单池：「yes there is no need for grouping. if we really want it, show and hide faces. if we already have face level layering in brep, we can also have it. how to do with line and vert in layering? i guess dangling vertices are ugly. but shared vertices should not be hidden. is that wise? think critically」→ **单池；要分组就用面的显隐 / 面级层**。线和点的显隐规则（AI 想过的）：**从面推导**——一条边 / 一个点藏起来 ⇔ 它所有的面都藏了（和看得见的面共享的点 / 边照样显示）；裸线 / 悬空点没有面可推 → 自己带显隐标记。这和 Blender 一致，也是「披露」的：看得见的面的轮廓永远完整，不会出现面在、边缺的怪相。
+3. 寻址：「if we go to float then that is the only choice」→ 顶点 id。
+4. 「撤销靠重放 what do you mean? what are alternatives?」→ 见回复：重放 = op 日志 + 检查点（现有），备选 = 备忘录快照 / 逆指令 / 可持久化结构；列式下检查点 = memcpy，所以重放 + 检查点就够。
+5. 重编：「yes. catsup rule: organize in export/save. perhaps we can also do organizing in highschool era where the unedited things are being optimized as video game asset in background, like lod generation, mesh optimization and culling, for gta level scene editing」→ 存 / 导出时整理；**远期（高中）**：没在编辑的物体在后台优化成游戏资产（LOD、网格优化、剔除）——记总账 B51。
+6. 导入直接成 mesh：「agree. that is what supposed to do. earlier is just an ad hoc dirty jumpwire」。
+7. 列式：「do it」。
+8. 分期：「没太懂，你自己决定」→ 按 §9。
+9. 注册表：「推我」→ 再发一次 v2.1。
+10. 球规：「球轨和圆规只有到验证纪元才会发光，以后还会有更多的辅助工具。要不要先拖延球规，不过圆规上线了是可以顺便做一下」→ 已上线的留着，不再投入；验证纪元再发光。
+11. 「圆不和轴线合成交点 为什么不」→ AI 改口：应该合成（尺规作图要圆 × 轴 / 圆 × 边的交点）；圆 × 直线是闭式解，便宜——记成 Opus 的小活（随圆规顺手）。
+12. 「圆的吸附秩低于实边 justify it」→ 秩只在候选同时落进容差时裁决；原则 = 模型本体 > 作图辅助 > 栅格（和 F-85「边 > 轴 > 栅格」同一精神）：真边是作品，圆是脚手架，撞上时作品赢。
+13. 非等比缩放：「椭圆轨应该特别难而且没有意义对吧。同意」。
+14. 转换先问：「同意，然后看一下moonsinger的进度条怎么做的（让opus做这种ux活，但是让它收深模块）」→ 进度条深模块从 MoonSinger 收（Opus）。
+
+## 10（原）. 要 user 拍的
 
 1. **mesh 的面不带洞、单面、默认剔背面**（Blender 同款；brep 的两槽材质转过去丢背面）——推荐是。另一条路 = mesh 也做两槽：渲染 / 格式都要多一份，和 Blender 的习惯不一样。
 2. **mesh 身体只有一个池**（没有 brep 的组分区；分家 = 另一个组件）——推荐是。
