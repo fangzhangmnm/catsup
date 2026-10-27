@@ -303,3 +303,4 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 ### 7.7 第二族落地（v0.15.12）
 
 物体族 `src/editor/objects/`：单位 = 定义（`ObjectUnit`），两条指令 `object.toMesh` / `object.toBrep`。`Command<U>` 按单位种类泛型化、`unit` 字段 = 族名（守卫）、`estimate` 进接口；编辑器 `commandMenu` / `runCommand` 按单位种类派发（brep 族 = 池作用域；object 族 = 选中的组件）。第三步（选区动作表 28 项拆成动作）仍归 Opus。
+- 「模拟叫sim，或者长一点的，不简写。magic是ux概念，而且我可能到时候会换别的」→ 族名 `simulation`（代码里已改）；UX 上叫什么（魔法 / 别的）随 user 换，指令族名不动。

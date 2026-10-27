@@ -15,7 +15,7 @@ import type { ParamField, ParamValue } from "../param-panel.ts";
 
 /** 族 = 指令吃的单位种类。brep / mesh = 两个内核各自的动词；object = 组 / 组件 / 实例这些容器；select = 选区；view = 相机和显示（不记撤销）；doc = 文件和文档设置；paint = 画布像素；sim = 读任何几何、产出一个物体。
  *  不按纪元起名、不按菜单起名、不按工作台起名（user 10-27「赞」）。 */
-export type CommandFamily = "brep" | "mesh" | "object" | "select" | "view" | "doc" | "paint" | "sim";
+export type CommandFamily = "brep" | "mesh" | "object" | "select" | "view" | "doc" | "paint" | "simulation";   // simulation 不简写（user 10-27「模拟叫sim，或者长一点的，不简写。magic是ux概念，而且我可能到时候会换别的」）
 export type CommandId = `${CommandFamily}.${string}`;
 export function familyOf(id: CommandId): CommandFamily { return id.slice(0, id.indexOf(".")) as CommandFamily; }
 

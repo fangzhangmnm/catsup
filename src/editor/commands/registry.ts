@@ -5,7 +5,7 @@ import type { Action, ActionId, Placement, Surface } from "./action.ts";
 import type { ModeId } from "../mode.ts";
 import { FAMILIES } from "./index.ts";
 
-const FAMILY_NAMES: ReadonlySet<string> = new Set(["brep", "mesh", "object", "select", "view", "doc", "paint", "sim"]);
+const FAMILY_NAMES: ReadonlySet<string> = new Set(["brep", "mesh", "object", "select", "view", "doc", "paint", "simulation"]);
 
 let built: { commands: Map<CommandId, Command>; actions: Map<ActionId, Action>; placements: Placement[] } | null = null;
 function tables(): NonNullable<typeof built> {

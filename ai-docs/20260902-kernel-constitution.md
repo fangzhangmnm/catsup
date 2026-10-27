@@ -113,3 +113,7 @@ edited by Claude Fable 5.1 2026-10-21（rev7：像表结算机、A3 context 槽�
 
 内核里按 id 存东西的表——顶点表 / 边表（`topology.ts`）、膜表与平面 → 膜索引（`face-lifecycle.ts`）、平面表（`planes.ts`）、曲线表与边 → 曲线（`curves.ts`）、边层集 / 面层表（`layers.ts`）、每个顶点的星——一律是 `kernel/id-table.ts` 的 `IdMap` / `IdSet`（按 id 下标的数组 / 升序小集合），不再是 Map / Set。
 **不变量：这些表的遍历顺序 = id 升序，和增删历史无关。** 由此：结算机铸膜 / 事件 / 环追踪起点不随「删了再插回」变；拖动预演「拷一次 + 每帧退回」的 (R2)（退回后遍历顺序相同）不再是难点；局部 / 全局两条结算路遍历序一致（STRETCH 事件的面列表按 id 排）。id 单调不复用，表只长不缩。改动日志的记账回调挂在表上（原 LoggedMap / LoggedSet 退役）。
+
+### 公理 5 的范围：浮点确定性（2026-10-27，Claude Fable 5.1；user「float不是没有确定性吗？还是同一台机器上有」）
+
+同一台机器同一个引擎：加减乘除开方按 IEEE 正确舍入，逐位确定——复现包 / 撤销重放 / 差分 oracle 都靠这个。跨机器 / 跨浏览器：`Math.sin / cos / acos / atan2` 由引擎实现，末几位可能不同。内核判决里用到它们的只有三处（`settle.ts` 边绕顶点的角排序 `atan2`、`kernel.ts bendDeg / dihedralDeg` 的 `acos`、`autofold.ts` 一处 `atan2`），坐标又先量化到微米格点，所以只在「两个角几乎相等」「刚好压在门槛上」时可能翻。**跨机逐字（以后的联机）= 把这三处换成不用超越函数的判法**（叉积 / 点积比较、exact 谓词），记账不排期。
