@@ -1,7 +1,7 @@
 // mesh 内核 M1（提案 ai-docs/20261027-mesh-kernel-proposal.md；2026-10-27 Claude Fable 5.1）：不变量 (M1)–(M6) 逐算子查 + 几个形状上的事实。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_SOFT, F_WIRE } from "../src/mesh/mesh-kernel.ts";
-import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFace, translateVerts, flipFaces } from "../src/mesh/ops/index.ts";
+import { addBox, addPolygon, deleteFaces, dissolveVertex, extrudeFaces, joinFaces, knife, mergeVerts, splitEdge, splitFace, translateVerts, flipFaces, loopCut, limitedDissolve, removeDoubles } from "../src/mesh/ops/index.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -126,5 +126,39 @@ describe("mesh 内核：不变量与算子", () => {
       }
       assert(done >= 10, `seed ${seed}：只做成了 ${done} 步`);
     }
+  });
+  it("环切：盒子竖棱出发 → 绕一圈四条竖棱劈开、四张侧面各切一刀（闭环）；仍封闭流形 χ = 2；再在一条横棱上切 → 顶面 / 底面也被切", () => {
+    const k = new MeshKernel(); const { verts } = addBox(k, P(0, 0, 0), P(1, 1, 1));
+    const e = k.edgeOf(verts[0], verts[4]);   // 竖棱
+    const r = loopCut(k, e, 0.5);
+    assert(r.closed, "闭环"); eq(r.newVerts.length, 4); eq(r.edges.length, 4);
+    eq(k.faceCount(), 10); eq(k.eulerOfClosedManifoldComponents().join(","), "2"); clean(k, "环切");
+    for (const v of r.newVerts) eq(k.pt(v).z, 0.5, "新点在半高");
+    const r2 = loopCut(k, k.edgeOf(verts[0], verts[1]), 0.5);   // 底面的一条横棱：环穿过底面 → 下半侧面 → 顶面 → 对面
+    assert(r2.closed); clean(k, "环切 2"); eq(k.eulerOfClosedManifoldComponents().join(","), "2");
+  });
+  it("环切开口带：两张四边形排成一条、从中间的边出发 → 两头停在边界", () => {
+    const k = new MeshKernel();
+    const a = addPolygon(k, [P(0, 0), P(1, 0), P(1, 1), P(0, 1)]).verts;
+    const f2 = k.addFace([a[1], k.addVertex(P(2, 0)), k.addVertex(P(2, 1)), a[2]]);
+    const r = loopCut(k, k.edgeOf(a[1], a[2]));
+    assert(!r.closed); eq(r.newVerts.length, 3); eq(r.edges.length, 2); eq(k.faceCount(), 4); clean(k, "开口环切");
+    assert(k.hasF(f2));
+  });
+  it("有限溶解：盒子顶面环切后（共面的两半）→ 并回一张、二度点溶掉；三角网的平面 → 一张 n 边形", () => {
+    const k = new MeshKernel(); const { verts } = addBox(k, P(0, 0, 0), P(1, 1, 1));
+    loopCut(k, k.edgeOf(verts[0], verts[1]));
+    eq(k.faceCount(), 10);
+    const r = limitedDissolve(k, 1);
+    eq(k.faceCount(), 6, `并回 6 面（并了 ${r.edges} 条边、溶了 ${r.verts} 个点）`); eq(k.vertexCount(), 8); eq(k.edgeCount(), 12);
+    eq(k.eulerOfClosedManifoldComponents().join(","), "2"); clean(k, "有限溶解");
+  });
+  it("去重点：两张共面四边形各自带顶点、边上重合 → 合并成共享边的两张面", () => {
+    const k = new MeshKernel();
+    addPolygon(k, [P(0, 0), P(1, 0), P(1, 1), P(0, 1)]); addPolygon(k, [P(1, 0), P(2, 0), P(2, 1), P(1, 1)]);
+    eq(k.vertexCount(), 8);
+    eq(removeDoubles(k, 1e-6), 2); clean(k, "去重点");
+    eq(k.vertexCount(), 6); eq(k.edgeCount(), 7); eq(k.faceCount(), 2);
+    const shared = k.edges().filter((e) => k.eFaces(e).length === 2); eq(shared.length, 1, "一条共享边");
   });
 });

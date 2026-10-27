@@ -5,3 +5,5 @@ export { deleteFaces, deleteEdges, deleteVerts } from "./delete.ts";
 export { extrudeFaces, type ExtrudeResult } from "./extrude.ts";
 export { addPolygon, fillLoop, addBox } from "./build.ts";
 export { moveVerts, translateVerts, transformVerts, setEdgeFlags, setFaceMaterial, flipFaces } from "./geometry.ts";
+export { loopCut, type LoopCutResult } from "./loopcut.ts";
+export { limitedDissolve, removeDoubles } from "./cleanup.ts";
