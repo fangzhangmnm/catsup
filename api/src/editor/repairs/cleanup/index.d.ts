@@ -1,2 +1,2 @@
-import type { RepairModule } from "../repair.ts";
-export declare const cleanup: RepairModule;
+import type { Command } from "../../commands/command.ts";
+export declare const cleanup: Command;

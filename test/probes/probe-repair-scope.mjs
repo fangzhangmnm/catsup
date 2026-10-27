@@ -21,8 +21,8 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "setLocked", at, instance: cI, on: true });
   e.deselectAll();
   const breaks = (def) => { const k = s().kernelOf({ def, group: null }); return k.vertices().filter((v) => v.edges.size === 2 && k.isBreakJunction(v.id)).length; };
-  const out = { count: e.repairCount("weld"), before: { root: breaks(s().root), A: breaks(A), B: breaks(B) } };
-  out.n = e.repair("weld"); await sleep(30);
+  const out = { count: e.repairCount("brep.weld"), before: { root: breaks(s().root), A: breaks(A), B: breaks(B) } };
+  out.n = e.repair("brep.weld"); await sleep(30);
   out.hint = document.getElementById("hint")?.textContent ?? "";
   out.after = { root: breaks(s().root), A: breaks(A), B: breaks(B) };
   const pp = e.paramPanel(); out.fields = pp ? pp.fields.map((f) => f.key) : null;

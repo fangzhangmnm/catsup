@@ -2,14 +2,13 @@
 // 2026-10-26 Claude Opus 5.5 从 editor.ts 搬成模块（user「做成可以扔的模块化的」）；执行走核心指令 dissolveVertices。
 import type { VertexId } from "../../kernel/kernel.ts";
 import { moveTargetsSelection } from "../tools.ts";
-import type { RepairModule } from "./repair.ts";
+import type { Command } from "../commands/command.ts";
 
-export const weld: RepairModule = {
-  id: "weld",
+export const weld: Command = {
+  id: "brep.weld",
   title: "焊接断口",
-  panel: { on: true, label: () => "焊接断口" },
   defaults: () => ({}),
-  fields: () => [],
+  params: () => [],
   plan(ctx, { at, sel }) {
     const k = ctx.scene.kernelOf(at);
     const cand = sel ? new Set(moveTargetsSelection(k, sel)) : k.vertices().map((x) => x.id);
@@ -19,5 +18,4 @@ export const weld: RepairModule = {
   },
   done: (n) => `焊了 ${n} 处断口`,
   none: "没有断口（共线、只连两段的点）",
-  menu: { icon: "arc", label: (n) => `焊接断口（${n}）` },
 };

@@ -31,6 +31,7 @@ import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet, isBusyActive } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_PLANES, GRID_PRESETS, TOOLS, gridPreset, gridStepsFor, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
+import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
 import { README_SECTIONS } from "./readme-docs.ts";
@@ -227,7 +228,7 @@ const hud: HudModel = {
   pick: (id) => {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
-    if (id.startsWith("repair:")) { editor.repair(id.slice("repair:".length)); return; }
+    if (id.startsWith("repair:")) { editor.repair(id.slice("repair:".length) as CommandId); return; }
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
@@ -416,8 +417,8 @@ function menuPick(id: MenuId): void | "keep" {
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
       case "debuglog": openDebugLogSheet(); break;
       case "softenAll": { const n = editor.softenByAngle(20); notify({ text: n ? `软化了 ${n} 条边（夹角 ≤ 20°）` : "没有夹角 ≤ 20° 的边", level: "info" }); break; }
-      case "weldAllBreaks": editor.repair("weld", "context"); break;
-      case "makePlanarAll": editor.repair("planar", "context"); break;
+      case "weldAllBreaks": editor.repair("brep.weld", "context"); break;
+      case "makePlanarAll": editor.repair("brep.planar", "context"); break;
       case "material": toggleMatSheet(true); break;
       case "persp": editor.toggleProjection(); return "keep";
       case "xray": editor.setXray(!editor.xray); return "keep";
@@ -468,8 +469,8 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock", tab: "file" }
       : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", tab: "file", hint: "锁住几何 / 材质" },
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", tab: "model", hint: "平滑组" },
-    ...(editor.repairLoaded("weld") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("weld", "context"); return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", tab: "model", hint: "当前在编辑的整个物体（含子物体）", disabled: !n }; })()] : []),   // T7 / DT5   // 修复模块扔掉了 = 这一项不出
-    ...(editor.repairLoaded("planar") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("planar", "context"); return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", tab: "model", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n }; })()] : []),   // T9 / DT7   // 修复模块扔掉了 = 这一项不出
+    ...(editor.repairLoaded("brep.weld") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("brep.weld", "context"); return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", tab: "model", hint: "当前在编辑的整个物体（含子物体）", disabled: !n }; })()] : []),   // T7 / DT5   // 修复模块扔掉了 = 这一项不出
+    ...(editor.repairLoaded("brep.planar") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("brep.planar", "context"); return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", tab: "model", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n }; })()] : []),   // T9 / DT7   // 修复模块扔掉了 = 这一项不出
     { id: "material", label: "材质…", icon: "color", tab: "model", hint: "油漆桶蘸什么" },
     { id: "clear", label: "清空模型", icon: "trash-can", tab: "model", separatorBefore: true },
     { id: "finger", label: "手指也能画", checked: fingerDraws, tab: "settings", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },

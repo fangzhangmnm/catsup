@@ -52,8 +52,9 @@ import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace } fr
 import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
-import { REPAIRS } from "./repairs/index.ts";
-import type { RepairCtx, RepairModule, RepairPlanOut } from "./repairs/repair.ts";
+import { REPAIR_STEPS } from "./repairs/index.ts";
+import { actionById, commandById, placementsAt } from "./commands/registry.ts";
+import type { Command, CommandEnv, CommandId, PlanOut } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -195,8 +196,8 @@ export type LastGesture =
 interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
 
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-/** 修复指令 = repairs/ 里一个模块的 id（清单 = repairs/index.ts）。 */
-type RepairKind = string;
+/** 修复指令 = 注册表里 brep 族一条指令的 id（查法 = commands/registry.ts；修复一族的清单 = repairs/index.ts）。 */
+type RepairKind = CommandId;
 /** pools[].xf = 这个池的定义坐标 → 当前上下文定义坐标（组 = 不带变换；组件 = 一路实例变换的乘积，几条路径到同一定义取先到的那条）。 */
 interface RepairScope { pools: { at: PoolRef; sel: Selection | null; xf: Xform }[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
 
@@ -1481,21 +1482,21 @@ export class Editor {
     return `作用于：${where}${parts.length ? `；${parts.join("；")}` : ""}`;
   }
   /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
-  private get repairCtx(): RepairCtx {
+  private get repairCtx(): CommandEnv {
     const self = this;
     return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), circleSegments: () => this.config.get("circle", "segments") };
   }
   /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
-  repairLoaded(kind: RepairKind): boolean { return REPAIRS.some((x) => x.id === kind); }
-  private repairModule(kind: RepairKind): RepairModule { const m = REPAIRS.find((x) => x.id === kind); if (!m) throw new Error(`repair "${kind}" is not loaded`); return m; }
-  /** 编辑条上的修复入口（有菜单的模块、按现在的范围数出来 > 0 的）：main.ts 照着画。 */
+  repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }
+  private repairModule(kind: RepairKind): Command { const m = commandById(kind); if (!m) throw new Error(`command "${kind}" is not loaded`); return m; }
+  /** 编辑条上的修复入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。 */
   repairMenu(): { id: string; label: string; icon: string }[] {
     const out: { id: string; label: string; icon: string }[] = [];
-    for (const m of REPAIRS) { if (!m.menu) continue; const n = this.repairMenuCount(m.id); if (n) out.push({ id: m.id, label: m.menu.label(n), icon: m.menu.icon }); }
+    for (const p of placementsAt("contextBar")) { const a = actionById(p.action); if (!a) continue; const n = this.repairMenuCount(a.command); if (n) out.push({ id: a.id, label: a.label(n), icon: a.icon ?? "" }); }
     return out;
   }
   /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
-  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): RepairPlanOut {
+  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): PlanOut {
     return this.repairModule(kind).plan(this.repairCtx, { at, sel, xf }, v);
   }
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
@@ -1555,7 +1556,7 @@ export class Editor {
     return { count, text: `${names.done(count, extra, v)}${more}`, scope: scopeText, failed: false };
   }
   /** 各修复指令自己的参数（马后炮里改）。 */
-  private repairFields(kind: RepairKind): ParamField[] { return this.repairModule(kind).fields(this.repairCtx); }
+  private repairFields(kind: RepairKind): ParamField[] { return this.repairModule(kind).params(this.repairCtx); }
   /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
   repair(kind: RepairKind, scope: "auto" | "context" = "auto"): number {
     const v0: Record<string, ParamValue> = { children: this.repairChildren, ...this.repairDefaults(kind) };
@@ -1608,7 +1609,7 @@ export class Editor {
   /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
   private static readonly SUBTLE_FOLD_DEG = 1;
   /** 修复面板里跑的顺序 = 清单顺序（repairs/index.ts 头注释说为什么是这个顺序）。 */
-  private static readonly REPAIR_ORDER: readonly RepairKind[] = REPAIRS.map((m) => m.id);
+  private static readonly REPAIR_ORDER: readonly RepairKind[] = REPAIR_STEPS.map((s) => s.command);
   /** 当前的修复面板会话（马前炮或应用后的马后炮）；它在右下角开着时才画「检查」高亮。 */
   private repairSession: ParamSession | null = null;
   private repairInspect = true;
@@ -1662,8 +1663,8 @@ export class Editor {
   beginRepairPanel(): void {
     this.cancelGesture();
     const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect };
-    for (const m of REPAIRS) vals[m.id] = m.panel.on;   // 默认勾不勾 = 模块自己说（拉正 / 焊断口 / 拍平 / 软边变硬勾：只动小毛病；吸格点 / 恢复层级不勾）
-    const stepFields = (): ParamField[] => REPAIRS.map((m) => ({ key: m.id, def: { kind: "bool" as const, label: m.panel.label(this.repairCtx) } }));
+    for (const s of REPAIR_STEPS) vals[s.command] = s.on;   // 默认勾不勾 = 步骤表说（拉正 / 焊断口 / 拍平 / 软边变硬勾：只动小毛病；吸格点 / 恢复层级不勾）
+    const stepFields = (): ParamField[] => REPAIR_STEPS.map((s) => ({ key: s.command, def: { kind: "bool" as const, label: s.label(this.repairCtx) } }));
     const fields: ParamField[] = [{ key: "children", def: { kind: "bool", label: "含子物体" } }, { key: "inspect", def: { kind: "bool", label: "检查：高亮看起来平、其实折过的软边" } }, ...stepFields()];
     const note = (v: Readonly<Record<string, ParamValue>>): string => {
       const ch = v.children !== false, counts = Editor.REPAIR_ORDER.filter((k) => v[k]).map((k) => {
@@ -1686,7 +1687,7 @@ export class Editor {
     };
     const apply = (): void => {
       // 大物体上要擦线：先问（同编辑条入口）
-      const est = this.host.confirm ? this.eraseEstimate(REPAIRS.filter((m) => vals[m.id]).map((m) => ({ kind: m.id, v: { ...this.repairDefaults(m.id), children: vals.children !== false } })), "auto") : null;
+      const est = this.host.confirm ? this.eraseEstimate(REPAIR_STEPS.filter((s) => vals[s.command]).map((s) => ({ kind: s.command, v: { ...this.repairDefaults(s.command), children: vals.children !== false } })), "auto") : null;
       if (est) { void this.host.confirm!("修复：要等一会儿", this.eraseAskText("这几步", est), "做（会卡住一会儿）").then((ok) => { if (ok) applyNow(); else { this.host.hint("修复：没做（你选了不做）"); this.draw(); } }); return; }
       applyNow();
     };
@@ -1712,9 +1713,9 @@ export class Editor {
     this.draw();
   }
   /** 兼容老入口（☰「焊接全部断口」/ 选区「焊接断口」）。 */
-  weldAllBreaks(scope: "auto" | "context" = "auto"): number { return this.repair("weld", scope); }
+  weldAllBreaks(scope: "auto" | "context" = "auto"): number { return this.repair("brep.weld", scope); }
   /** 兼容老入口（☰「拍平几乎共面的面」/ 选区「拍平」）。 */
-  makePlanar(scope: "auto" | "context" = "auto"): number { return this.repair("planar", scope); }
+  makePlanar(scope: "auto" | "context" = "auto"): number { return this.repair("brep.planar", scope); }
   /** 选中的组件里有被缩放过的（应用缩放钮出不出）。 */
   hasScaledInstanceSelection(): boolean { return this.scaledInstancePicks().length > 0; }
   private scaledInstancePicks(): InstId[] {

@@ -2,7 +2,7 @@
 // 前一步挪了点、后一步照新样子算。created 2026-10-26 by Claude Opus 5.5
 import type { EdgeId, FaceEvent } from "../../../kernel/kernel.ts";
 import { OpTargetError, edgeKey, poolOf, registerOpPlugin, resolveEdge, type EdgeKey } from "../../ops.ts";
-import type { RepairModule } from "../repair.ts";
+import type { Command } from "../../commands/command.ts";
 import { coplanarInnerEdges, strayEdges, tinyEdgeMoves, type EdgeScope } from "./plan.ts";
 
 interface CleanupArgs { edges: EdgeKey[]; stray: boolean; tinyLen: number; coplanar: boolean; /** 同平面并面时看不见的软边也算。缺 = 否。 */ softToo?: boolean }
@@ -36,12 +36,11 @@ registerOpPlugin("cleanup", {
 /** 「很短的边」打开时的建议门槛（量纲：米）；默认不打开（AI 定的默认，user 没拍：三角网上并短边容易破面）。 */
 const TINY_LEN = 0.001;
 
-export const cleanup: RepairModule = {
-  id: "cleanup",
+export const cleanup: Command = {
+  id: "brep.cleanup",
   title: "清理碎渣",
-  panel: { on: false, label: () => "清理碎渣（悬空的线 / 很短的边 / 同一平面切碎的面）" },   // 默认不勾：会擦线，画在面上的线框（同材质）也算碎渣
   defaults: () => ({ stray: true, tinyMm: 0, coplanar: true, softToo: true }),
-  fields: () => [
+  params: () => [
     { key: "stray", def: { kind: "bool", label: "悬空的线（一张面都没挂的边）擦掉" } },
     { key: "tinyMm", def: { kind: "number", label: `短于这么长的边并成一个点（0 = 不并；默认不并是因为三角网上并短边容易把面弄破，会破就整步撤回；建议 ${TINY_LEN * 1000}）`, min: 0, max: 50, step: 0.1, unit: "mm" } },
     { key: "coplanar", def: { kind: "bool", label: "同一平面上被线切碎的面并回去（两边材质一样才并；画在面上的线框也算）" } },
@@ -60,5 +59,4 @@ export const cleanup: RepairModule = {
   },
   done: (n, e) => `清理了 ${n} 处碎渣${e ? `（其中 ${e} 条同一平面上的内线）` : ""}`,
   none: "没有碎渣（悬空的线、很短的边、同一平面切碎的面都没有）",
-  menu: { icon: "eraser", label: (n) => `清理碎渣…（${n} 处）` },
 };

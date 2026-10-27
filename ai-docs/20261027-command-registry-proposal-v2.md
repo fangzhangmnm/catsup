@@ -1,4 +1,6 @@
-# 指令注册表 · 提案 v2.1（Fable 权衡稿；user 10-27 下午第一轮答复已并入，表还在看）
+# 指令注册表 · 提案 v2.2（Fable 权衡稿；user 10-27 夜拍：两层 = 指令 / 动作，族名 = 单位种类；底座 v0.15.9 落地）
+
+> **v2.2 相对 v2.1 改了什么（user 10-27 夜；全文在 §7，这里只列结论）**：① **分两层**：指令 = 带类型的内核动词（一条只吃一种单位、不重载、不认上下文），动作 = UX 动词（看选区 / 上下文 / 点几下，决定调哪几条指令）；放置表放的是动作；撤销记录和复现包记的是指令调用。② **族名 = 单位种类**：brep / mesh / object / select / view / doc / paint / sim——不按纪元（魔法 / 验证 / 绘制）、不按菜单（修复）、不按工作台起名；v2.1 里的 `geom.*` / `scene.*` / `physics.*` / `verify.*` / `tool.*` 作废，「通吃」的 `transform.*` / `edit.*` 也作废（它们就是重载）。③ 「同一个挪动工具，挪物体和挪顶点是同一个指令吗」——不是：三条带类型的指令，一个工具路由。④ §2 的 .h 是 v2.1 的形状，**以代码为准**：`src/editor/commands/{command,action,registry,index}.ts`；下面 §2 里和 ⑦ 矛盾的地方（`CommandId` 的族名、`geom.*` 例子、笔刷表的 `dab` 指向指令）读作「动作」。
 
 > created 20261027 by Claude Fable 5.1 · as-of v0.15.1 / 2026-10-27 · 家族周账 F-108（原写 F-98，撞号改）
 > 取代 `20261026-command-registry-proposal.md`（Opus 10-26 的 v1）。没动代码。
@@ -200,8 +202,8 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 
 ## 3. 搬迁（行为零变化；每步一版、各自推开发版；每步加一条守卫）
 
-0. 建 `commands/`（四个类型文件 + 空清单）+ `runCommand` / `previewCommand` + 放置表的视图函数（`menuItems(where, mode)`、`keyFor(keystroke)`）。
-1. **修复那一族改名**：`RepairModule` → `Command`（`plan` / `fields` → `params` / `panel` → 一条 `repairPanel` 放置 / `menu` → 一条 `contextMenu` 放置 / `erases` → `estimate`）。修复面板改读放置表。九个模块各改一次。
+0. **done v0.15.9（10-27 夜，Fable）**：`src/editor/commands/`——`command.ts`（指令 + 单位 + 环境 + 规划结果）、`action.ts`（动作 + 放置面 + 放置 + 族）、`registry.ts`（`commandById` / `actionById` / `placementsAt` / `allCommands` / `checkRegistry` 守卫）、`index.ts`（清单：一族一行）。`runCommand` / `previewCommand` 还没抽（修复那条跑法原地没动，等第二个消费者再抽）。
+1. **done v0.15.9**：修复九条 = brep 族（`brep.straighten / snap / cleanup / weld / planar / harden / fillHoles / resegment / hierarchy`）；模块只剩指令（`fields` → `params`，`panel` / `menu` 拿掉）；菜单上的字 / 图标 → 动作（`repairs/index.ts actions`），浮条入口 → 放置（`contextBar`），面板的勾 / 标签 / 顺序 → 步骤表 `REPAIR_STEPS`（= 那条复合动作的定义）；`erases` 暂留（估时还是那条路）。插件 op 名不变（老复现包照开）。守卫 `test/repairs-modular.test.ts` 改成注册表守卫（核心只认 `commands/` 与各族清单、模块只认类型文件、`checkRegistry()` 空、步骤表 / 放置都指向登记过的东西）；843 绿；`probe-repair-panel` / `probe-repair-scope` OK（只改了探针里的 id）。
 2. **选区动作表**：`edits()` 的 28 项拆成 `select.*`（session）、`scene.*`（建组 / 建组件 / 炸开 / 镜像 / 锁 / 隐藏 / 应用缩放 / 改原点 / 独立）、`geom.*`（软化 / 硬化 / 焊接 / 炸开曲线 / 删除）；`HudModel.edits()` 变成 `menuItems("contextMenu", mode)` 的包装；`selection-actions.ts` 的 SKIP 补丁消失。
 3. **快捷键**：keydown 里 G / Ctrl+G / Ctrl+Shift+G / H / Alt+H / Ctrl+A / Ctrl+I / Alt+A / Alt+Z / Delete / Shift+Z / `.` 改成查放置表的 `key`；工具快捷键 = `tool.*` 条目（同键循环在 `tool.*` 的 plan 里）。方向键锁轴、Esc、Shift 按住这些是手势状态，留在 keydown。
 4. **☰ 和视图菜单**里的场景 / 视图动作 → `view.*` / `scene.*`。
@@ -233,8 +235,60 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 
 **已拍**：现在做（1）；作用域默认 auto 但不写死（2）；放置单独一张表，UX 要变很多次（3）；改选区也记撤销步（4，Blender 同款）；要等很久先问 + 挂机不问（5）；快捷键留口子、暂不开放（6）；可扔（赞）；笔刷这一类现在接。
 
+**10-27 夜又拍**：表看过（「注册表我好像看过，先做吧。其实这种反而比数据契约吃书重构更容易一点」「注册表先这么做」）；两层 + 族名 = 单位种类（§7）；第 0 / 1 步 done v0.15.9。
+
 **还开着**：
-- 表（§2 的 .h）user 还在看；看完说一声就开第 0 / 1 步。
+- 变换手势通吃三种后端（SU 点 / 网格点 / 画布蒙版）= AI 的提议（§7.4），user 没拍；模拟那一族叫 sim 还是 magic（AI 选 sim），user 没拍。
 - 2.1 第 4 条「按世界坐标架的指令碰到多份实例：按你手里那一份算 + 可「先独立」」= AI 的提议，没拍。
 - 连续几步选区变化要不要合并成一步：先不合并（Blender 同款），以后是 History 上一条策略。
 - Pinterest 式长按环形菜单：`radial` 放置面留了，渲染器等 FM4 的实验。
+
+## 7. v2.2：两层 + 族名 = 单位种类（user 10-27 夜；Claude Fable 5.1 记）
+
+### 7.1 user 原话（按时间）
+
+- 「不过geom是个坏名字吧，如果brep的move不是mesh的move的话」「还是他们会路由不同的类型，我觉得这个grill一下，就是是每个操作只吃自己的内核，还是能通吃？特别是物理那边」
+- 「不过改指令名字应该很容易吧，不过我还是觉得你的指令名字和category起的很怪，能不能好好想一下」
+- 「绘制的关键是我会有液化，拉锁选区变换，这些有了bodypaint才能用。液化反而不重要，lasso transform才是真正承重的」
+- （AI 给了「族名 = 这个动词改的是什么东西，不按纪元 / 菜单 / 工作台起名」）「赞」
+- 「变换 transform 选中东西的位置 不太同意，对于物体你move的是transform，但是对于vertex你move的是vector array access」「给你一个送命题：同一个move tool，移动物体和移动顶点是同一个指令吗」「我们UX和command kernel可以分开一下」「特别是我的创新一直变，然后tool的语义好多都合租的，比如分类型路由」「我觉得函数的话是有type的。然后我们也不需要重载，而是tool有自己的以后可能很复杂的智能规律」「比如拖动猫娘，点一下是梳毛，点第二下是摸头，点第三下是投喂。都是一个手tool，所以也许具体的动词和ux要分家」
+- 「一个hand可以摸头，抓尾巴，拖动，或者drag in out物品栏。然后transform也可以移动，move也可以移动。select也可以移动。你难道要写几十个移动命令？」
+- 「注册表我好像看过，先做吧。其实这种反而比数据契约吃书重构更容易一点」「注册表先这么做」
+
+### 7.2 送命题的答案：不是同一个指令
+
+| 层 | 是什么 | 谁记它 | 谁改它 |
+|---|---|---|---|
+| **指令**（`command.ts`） | 带类型的内核动词：(环境, **一种**单位, 参数) → 要提交的 op。不认上下文、不认菜单、不认工具、**不重载**。 | 撤销记录、复现包、以后的联机 / 脚本接口 | 内核纪元换代时 |
+| **动作**（`action.ts`） | UX 动词：右键菜单项、快捷键、笔刷的一个落点、工具松手那一下。看选区、看上下文、看点了几下，决定调哪几条指令；一次松手的几条调用 join 成一步。 | 放置表 | user 的 UX 创新（经常） |
+| **放置** | 动作放在哪个面、什么顺序、哪些工作台、钉什么作用域 | — | 更经常 |
+
+挪物体改的是变换矩阵，挪 SU 点是写坐标再过结算机，挪网格点是往位置数组里写：`object.move` / `brep.move` / `mesh.move` 三条带类型的指令。一个挪动工具按手里的东西路由；混选一拖松手 = 一步里三条调用。猫娘的手工具同款：一下梳毛、两下摸头、三下投喂是三条猫娘实体上的指令，哪条由工具的聪明规则定。
+
+**不会有几十个挪动指令**：指令按「什么东西有位置」数，不按工具数——场景里凡是摆着的（实例、组、猫娘、参考线、画布实体、发射口）都是带变换矩阵的物体 = 一条 `object.move`；SU 点一条；网格点一条；以后画布上的蒙版一条。四条。手、变换手柄、挪动工具、选择工具拖拽、nudge 笔刷、方向键、数值输入全是动作。摸头抓尾巴不是挪；拖进拖出物品栏是 `object.add` / `object.delete`。
+
+### 7.3 族名 = 单位种类（规矩只有一条：族名 = 这个动词改的是什么东西）
+
+| 族 | 单位 | 例子 |
+|---|---|---|
+| `object` | 组 / 组件 / 实例这些容器 | group · component · explode · makeUnique · lock · hide · duplicate · delete · applyScale · origin · toMesh · toBrep · add（猫娘 / 参考线也是物体，带种类参数） |
+| `brep` | 一个 SU 池（今天的 `PoolUnit`） | pushpull · followme · offset · explodeCurves · resegment · planar · snap · fillHoles · cleanup · weld · harden · straighten · hierarchy · move |
+| `mesh` | 一个网格体（M2 时加） | extrude · inset · bevel · loopCut · knife · dissolve · merge · fill · bridge · subdivide · mirrorWeld · move |
+| `select` | 选区（会话态；记成 0 op 步） | all · none · invert · grow · shrink · loop · linked |
+| `view` | 相机和显示（不记撤销） | zoomExtents · xray · isolate · showAll |
+| `doc` | 文件和文档设置 | open · save · import · export · units · grid |
+| `paint` | 画布像素 | canvas · dab · liquify · resample · bake |
+| `sim` | 读任何几何的三角形视图、产出一个类型声明好的新物体 | tag · cast |
+
+作废：`geom.*`（重载）、`scene.*`（改叫 object）、`physics.*` / `verify.*`（按纪元起的名）、`repair.*`（按菜单起的名——修复面板只是一个放置面，九条各归 brep）、`tool.*`（切工具是动作不是指令）、`transform.*` / `edit.*`（v2.2 草稿里的「通吃族」，就是重载）。
+
+### 7.4 分型路由（user「每个操作只吃自己的内核，还是能通吃？特别是物理那边」）
+
+- **指令只吃自己的那种单位。** 作用域解开后每一块都带着自己的种类（brep 池 / mesh 体 / 物体）；动作按种类把块分给指令；直接按 id 调一条指令（脚本 / 复现包）时，不是它那种的块跳过并在结果里说出来（「跳过了 2 个网格体：推拉只对 SU 体有效」），一块都不剩 = 不可用并给原因。不静默。
+- **物理（`sim`）**：既不是只吃自己也不是通吃动词——它吃两个内核都能给的三角形视图，产出一个类型声明好的新物体（布 / 枕头 → 网格体；碎裂切口是平面 → SU 体；积雪只改材质或网格）。永远不调内核动词，内核分家牵连不到它。
+- **绘制**（user「lasso transform 才是真正承重的」）：画布蒙版 = 第四种有位置的单位。**AI 的提议（没拍）**：变换手势通吃三种后端（SU 点 / 网格点 / 画布像素），选中什么就变换什么，WeebPaint 的拉索 → 变换感觉直接搬过来；说实话：画布上的变换是沿表面的二维变形不是三维刚体变换，共用的是手势和选区模型，数学另一份。
+- **动作层就是「合租」的地方**（user「tool 的语义好多都合租的，比如分类型路由」）：路由、点几下、混选，全在动作和工具里长；指令和文件格式纹丝不动。
+
+### 7.5 今天落地的（v0.15.9）
+
+`src/editor/commands/`：`command.ts`（`CommandFamily` / `CommandId` / `PoolUnit` / `CommandEnv` / `PlanOut` / `Command`）、`action.ts`（`Action` / `Surface` / `Placement` / `Family`）、`registry.ts`（查法 + `checkRegistry`）、`index.ts`（清单）。修复一族 = `repairs/index.ts`（`commands` + `actions` + `placements` + `REPAIR_STEPS`）。今天只有最笨的动作（一条指令一个同 id 的动作）；路由型动作等 mesh M2 / 物体族来了在 `action.ts` 里长（`run(env, units) → CommandCall[]`）。

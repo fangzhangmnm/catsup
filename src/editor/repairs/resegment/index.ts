@@ -6,7 +6,7 @@ import { ptKey3, quantize3 } from "../../../kernel/geom.ts";
 import { SEGMENT_TIERS, SEG_MAX, chordHeight, clampSegments, fmtTolerance, tierSegments } from "../../segment-ref.ts";
 import { faceKey, poolOf, registerOpPlugin, resolveFace, type FaceKey } from "../../ops.ts";
 import { fmtLen } from "../../units.ts";
-import type { RepairModule, RepairValues } from "../repair.ts";
+import type { Command, Params } from "../../commands/command.ts";
 import { type RevolvedBody, findRevolved, revolvedSnapshot } from "./plan.ts";
 
 /** 段数怎么定：固定段数，或者按 3D 打印档（弦高公差，按每个回转体的最大半径各自算）。 */
@@ -44,17 +44,16 @@ registerOpPlugin("resegment", {
 
 /** 下拉：常用段数（带上参考档的名字）+ 3D 打印档（按弦高、各自的半径算）。 */
 const COMMON = [8, 12, 16, 24, 32, 48, 64, 96].filter((n) => n <= SEG_MAX);
-const choiceOf = (v: RepairValues): { segments: number; tier?: string } => {
+const choiceOf = (v: Params): { segments: number; tier?: string } => {
   const id = String(v.segments ?? "24");
   return PRINT && id === PRINT.id ? { segments: 24, tier: PRINT.id } : { segments: Number(id) || 24 };
 };
 
-export const resegment: RepairModule = {
-  id: "resegment",
+export const resegment: Command = {
+  id: "brep.resegment",
   title: "改段数",
-  panel: { on: false, label: () => "改段数（回转体：圆柱、轮子、炮管…）" },   // 默认不勾：段数是你挑的
   defaults: (ctx) => ({ segments: String(ctx.circleSegments()) }),
-  fields: (ctx) => {
+  params: (ctx) => {
     const cur = ctx.circleSegments(), nums = [...new Set([...COMMON, cur])].sort((a, b) => a - b);
     const name = (n: number): string => { const t = SEGMENT_TIERS.find((x) => x.segments === n); return t ? ` · ${t.name}` : ""; };
     return [{ key: "segments", def: { kind: "enum", label: "段数", values: [...nums.map((n) => ({ id: String(n), label: `${n} 段${name(n)}` })), ...(PRINT ? [{ id: PRINT.id, label: `${PRINT.name} · ${PRINT.typical}（按各自的半径算）` }] : [])] } }];
@@ -77,7 +76,6 @@ export const resegment: RepairModule = {
   },
   done: (n, _e, v) => { const c = choiceOf(v); return `${n} 个回转体改成了${c.tier ? ` ${PRINT?.name ?? c.tier} 档` : ` ${c.segments} 段`}`; },
   none: "回转体都已经是这个段数（右下角挑别的段数）",
-  menu: { icon: "circle", label: (n) => `改段数…（${n} 个回转体）` },
   // 菜单：范围里有几个干净的回转体（不管段数）
   quickCount(ctx, { at, sel }) {
     const k = ctx.scene.kernelOf(at);

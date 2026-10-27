@@ -5,7 +5,7 @@ import { bboxMin, extractSnapshot, transformSnapshot, type Scene, type PoolRef }
 import { IDENTITY, compose, frameAt, translation } from "../../../scene/xform.ts";
 import { guideCount } from "../../../scene/guides.ts";
 import { edgeKey, faceKey, poolOf, registerOpPlugin, resolveEdge, resolveFace, type EdgeKey, type FaceKey } from "../../ops.ts";
-import type { RepairModule } from "../repair.ts";
+import type { Command } from "../../commands/command.ts";
 import { classifyShapes, piecesOf } from "./plan.ts";
 
 interface HierarchyArgs { faces: FaceKey[]; edges: EdgeKey[]; dedupe: boolean; /** 镜像对上的也算一样（负变换实例）。缺 = 否（老 op）。 */ mirror?: boolean }
@@ -56,12 +56,11 @@ registerOpPlugin("hierarchy", {
 /** 模板快照挪到组件自己的原点（包围盒最小角 = 0）。 */
 const transformSnapshotOf = (snap: Parameters<typeof transformSnapshot>[0], origin: { x: number; y: number; z: number }) => transformSnapshot(snap, translation({ x: -origin.x, y: -origin.y, z: -origin.z }));
 
-export const hierarchy: RepairModule = {
-  id: "hierarchy",
+export const hierarchy: Command = {
+  id: "brep.hierarchy",
   title: "恢复层级",
-  panel: { on: false, label: () => "恢复层级（连在一起的块各成一组，形状一样的合成组件）" },   // 默认不勾：它改结构，不是修小伤
   defaults: () => ({ dedupe: true, mirror: true }),
-  fields: () => [{ key: "dedupe", def: { kind: "bool", label: "形状一样的合成组件" } }, { key: "mirror", def: { kind: "bool", label: "镜像对上的也算一样（左右对称件 = 镜像的一份）" } }],
+  params: () => [{ key: "dedupe", def: { kind: "bool", label: "形状一样的合成组件" } }, { key: "mirror", def: { kind: "bool", label: "镜像对上的也算一样（左右对称件 = 镜像的一份）" } }],
   plan(ctx, { at, sel }, v) {
     // 按现在的样子数：会搬家的块（成组 / 成实例）+ 合进组件的素组；extra = 合成几个组件。执行时插件指令自己再规划一遍。
     const k = ctx.scene.kernelOf(at), dedupe = v.dedupe !== false, mirror = dedupe && v.mirror !== false;
@@ -81,7 +80,6 @@ export const hierarchy: RepairModule = {
   },
   done: (n, e) => `整理了 ${n} 块：各自成组${e ? `，形状一样的合成 ${e} 个组件` : ""}`,
   none: "没有要整理的（每层只有一块、也没有形状一样的）",
-  menu: { icon: "collection", label: (n) => `恢复层级…（${n} 块）` },
   // 菜单用的便宜数法：块 ≥ 2 → 块数 + 素组 ≥ 2 → 组数（不做形状比对；大模型上每步都比太贵）
   quickCount(ctx, { at, sel }) {
     const k = ctx.scene.kernelOf(at);

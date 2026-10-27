@@ -2,7 +2,7 @@
 // 2026-10-26 Claude Opus 5.5 从 editor.ts / ops.ts 搬成模块（user「做成可以扔的模块化的」）；老指令名 makePlanar 由 ops.ts 认成 "planar" 重放。
 import type { EdgeId, FaceEvent } from "../../../kernel/kernel.ts";
 import { PlanarBurst, faceKey, poolOf, registerOpPlugin, resolveEdge, resolveFace, type FaceKey } from "../../ops.ts";
-import type { RepairModule } from "../repair.ts";
+import type { Command } from "../../commands/command.ts";
 import { PLANAR_DEFAULTS, type PlanarTarget, planPlanar } from "./plan.ts";
 
 interface PlanarArgs { faces: FaceKey[]; deg: number; target: PlanarTarget; eraseInner: boolean }
@@ -25,12 +25,11 @@ registerOpPlugin("planar", {
   describe: (a0) => { const a = a0 as unknown as PlanarArgs; return `faces=${a.faces.length || "all"} deg=${a.deg} ${a.target}${a.eraseInner ? " +erase" : ""}`; },
 });
 
-export const planar: RepairModule = {
-  id: "planar",
+export const planar: Command = {
+  id: "brep.planar",
   title: "拍平",
-  panel: { on: true, label: (ctx) => `拍平（弯折 < ${ctx.sharpDeg()}° 的边，整片差不多平才拍）` },
   defaults: (ctx) => ({ deg: ctx.sharpDeg(), target: PLANAR_DEFAULTS.target, eraseInner: PLANAR_DEFAULTS.eraseInner }),
-  fields: () => [
+  params: () => [
     { key: "deg", def: { kind: "number", label: "弯折小于", min: 0.5, max: 45, step: 0.5, unit: "°" } },
     { key: "target", def: { kind: "enum", label: "拍到", values: [{ id: "mode", label: "众数平面", hint: "组里已经落在同一平面上的点最多的那张" }, { id: "median", label: "中位数", hint: "每个点到平面距离的中位数" }, { id: "mean", label: "平均数", hint: "最小二乘" }] } },
     { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
@@ -48,5 +47,4 @@ export const planar: RepairModule = {
   done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`,
   none: "没有要拍平的面（被弯折小于阈值的边分开、整片差不多平的面）",
   skippedText: (n, v) => `${n} 片是曲面（整片弯得超过 ${Number(v.deg) || PLANAR_DEFAULTS.deg}°，比如圆柱侧面），没拍`,
-  menu: { icon: "sharpen", label: (n) => `拍平（${n} 组）` },
 };

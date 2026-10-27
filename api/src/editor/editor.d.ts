@@ -18,6 +18,7 @@ import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
+import type { CommandId } from "./commands/command.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
 import { type Frame } from "../scene/xform.ts";
@@ -248,8 +249,8 @@ export type LastGesture = {
     copies?: number;
 };
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-/** 修复指令 = repairs/ 里一个模块的 id（清单 = repairs/index.ts）。 */
-type RepairKind = string;
+/** 修复指令 = 注册表里 brep 族一条指令的 id（查法 = commands/registry.ts；修复一族的清单 = repairs/index.ts）。 */
+type RepairKind = CommandId;
 export declare class Editor {
     private canvas;
     private host;
@@ -659,7 +660,7 @@ export declare class Editor {
     /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
     repairLoaded(kind: RepairKind): boolean;
     private repairModule;
-    /** 编辑条上的修复入口（有菜单的模块、按现在的范围数出来 > 0 的）：main.ts 照着画。 */
+    /** 编辑条上的修复入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。 */
     repairMenu(): {
         id: string;
         label: string;

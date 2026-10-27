@@ -6,7 +6,7 @@ import type { Xform } from "../../../scene/xform.ts";
 import { fmtLen } from "../../units.ts";
 import { moveTargetsSelection } from "../../tools.ts";
 import { PlanarBurst, OpTargetError, poolOf, registerOpPlugin, resolveVertex } from "../../ops.ts";
-import type { RepairCtx, RepairModule, RepairPool, RepairValues } from "../repair.ts";
+import type { CommandEnv, Command, PoolUnit, Params } from "../../commands/command.ts";
 import { type SnapCurves, planGridSnap, triangulationDiagonals } from "./plan.ts";
 
 interface GridSnapArgs { verts: Pt3[]; step: number; lattice: number[]; curves: SnapCurves; crease: "soft" | "hard"; straighten?: number; grid?: boolean }
@@ -39,10 +39,10 @@ registerOpPlugin("gridSnap", {
 });
 
 /** 拉正的默认门槛：和轴差这么多度以内的边算「歪了一点」（AI 定的默认，user 没拍；马后炮可改）。量纲：度。 */
-const STRAIGHTEN_DEG = 1;
+export const STRAIGHTEN_DEG = 1;
 
 /** 两个入口共用的规划：grid / straighten 由入口和「顺便」开关定。 */
-function planBoth(ctx: RepairCtx, { at, sel, xf }: RepairPool, v: RepairValues, entry: "snap" | "straighten") {
+function planBoth(ctx: CommandEnv, { at, sel, xf }: PoolUnit, v: Params, entry: "snap" | "straighten") {
   const k = ctx.scene.kernelOf(at);
   const vids = sel ? moveTargetsSelection(k, sel) : null;
   if (sel && !vids!.length) return { ops: [], count: 0 };
@@ -60,12 +60,11 @@ const frameField = (hint: string) => ({ key: "frame", def: { kind: "enum" as con
 const creaseField = (hint: string) => ({ key: "crease", def: { kind: "enum" as const, label: "折缝", values: [{ id: "soft", label: "软边", hint }, { id: "hard", label: "硬边" }] } });
 const curvesSkipped = (n: number): string => `${n} 个点在只选了一部分的圆 / 弧上，没动`;
 
-export const straighten: RepairModule = {
-  id: "straighten",
+export const straighten: Command = {
+  id: "brep.straighten",
   title: "拉正",
-  panel: { on: true, label: () => `拉正（和轴差 ${STRAIGHTEN_DEG}° 以内的边）` },
   defaults: () => ({ deg: STRAIGHTEN_DEG, frame: "own", crease: "soft", grid: false, step: "grid", curves: "rigid" }),
-  fields: (ctx) => [
+  params: (ctx) => [
     { key: "deg", def: { kind: "number", label: "和轴差", min: 0.1, max: 10, step: 0.1, unit: "°" } },
     frameField("组件转过也照它自己的轴拉正"),
     { key: "grid", def: { kind: "bool", label: `顺便吸到格点（${fmtLen(ctx.gridFineStep())} 的格子）` } },
@@ -75,16 +74,14 @@ export const straighten: RepairModule = {
   done: (n, e) => `拉正了 ${n} 个点${e ? `（${e} 条圆 / 弧整条平移）` : ""}`,
   none: "没有歪一点点的边（和轴差得多的不算歪，不碰）",
   skippedText: curvesSkipped,
-  menu: { icon: "axes", label: (n) => `拉正…（${n} 个点）` },
   tally: true,
 };
 
-export const snap: RepairModule = {
-  id: "snap",
+export const snap: Command = {
+  id: "brep.snap",
   title: "吸到格点",
-  panel: { on: false, label: (ctx) => `吸到格点（${fmtLen(ctx.gridFineStep())} 的格子）` },
   defaults: () => ({ step: "grid", frame: "own", crease: "soft", curves: "rigid", straighten: false }),
-  fields: (ctx) => [
+  params: (ctx) => [
     { key: "step", def: { kind: "enum", label: "格子", values: ctx.snapStepChoices() } },
     frameField("组件转过、缩放过也照它自己的轴吸（同一组件的别的份不会离格）"),
     creaseField("吸歪的面折开处不画线、明暗连续"),
@@ -95,6 +92,5 @@ export const snap: RepairModule = {
   done: (n, e) => `吸了 ${n} 个点到格点${e ? `（${e} 条圆 / 弧整条平移，保持是圆）` : ""}`,
   none: "都已经在格点上了",
   skippedText: curvesSkipped,
-  menu: { icon: "snap-grid", label: (n) => `吸到格点…（${n} 个点）` },
   tally: true,
 };
