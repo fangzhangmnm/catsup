@@ -77,6 +77,7 @@ import "./paint-modes.test.ts";   // 油漆桶模式面集（0.9，2026-10-21）
 import "./flood.test.ts";   // 灌的纯函数模块（T5，2026-10-26）
 import "./planar.test.ts";   // 拍平（T9，2026-10-26）
 import "./hierarchy.test.ts";   // 恢复层级（DT99，2026-10-26）
+import "./repairs-modular.test.ts";   // 修复指令可整个扔（2026-10-26）
 import "./intent.test.ts";   // 意图门：反方向的吸附不合法（0.9，2026-10-21）
 import "./vcb.test.ts";   // 数值小窗解析 + 阵列（0.9 #11，2026-10-21）
 import "./snap-align.test.ts";

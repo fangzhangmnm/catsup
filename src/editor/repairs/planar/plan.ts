@@ -9,9 +9,9 @@
 //   边角：小角度硬边一边是平面、一边是平滑组的一片 → 照样是候选，拍平后并成一张面、成为平滑组的一员（user「和你相反……加入平滑组」）——不用特判。
 //   零破面（user「确保不要有任何面破，如果有，说明我们算法可能想错了」）：不在这里判，在执行（ops.ts makePlanar）那里看结算事件，有 BURST 整步拒绝。
 // 一个点同时属于几组（被一条锐边分开的两组共用的边界点）→ 挪到这几张平面的交线 / 交点上（交替投影），几组都平。
-import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
-import { COPLANAR_TOL_DEFAULT, add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
-import { gates, partitionFaces } from "../kernel/flood.ts";
+import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../../../kernel/kernel.ts";
+import { COPLANAR_TOL_DEFAULT, add3, cross3, dot3, normalize3, scale3, sub3 } from "../../../kernel/geom.ts";
+import { gates, partitionFaces } from "../../../kernel/flood.ts";
 
 export type PlanarTarget = "mode" | "median" | "mean";
 export interface PlanarOptions { /** 候选边的弯折上限（度）。 */ deg: number; target: PlanarTarget; /** 拍完擦掉组里的候选边（两边并成一张面）。 */ eraseInner: boolean; }

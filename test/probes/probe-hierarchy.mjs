@@ -26,7 +26,7 @@ const res = await page.evaluate(async () => {
   box(0, 0, 1, 2, 0.5); box(3, 0, 1, 2, 0.5); box(6, 1, 1, 2, 0.5, Math.PI / 6); box(0, 6, 2, 2, 1);
   const pts0 = C.editor.sceneRef.pointsOfDef(C.editor.sceneRef.root).length;
   await new Promise((r) => setTimeout(r, 200));
-  const cand = e.hierarchyCandidates();
+  const cand = e.repairMenuCount("hierarchy");
   const n = e.repair("hierarchy");
   const s = e.sceneRef, rootDef = s.def(s.root);
   const twoBox = [...s.defs.values()].find((d) => d.name === "两盒");
@@ -44,7 +44,7 @@ const res = await page.evaluate(async () => {
   // 大场景：400 个盒子（一半转过），量便宜数法 + 真跑
   e.commitOp({ op: "clearGuides", at: root() });
   for (let i = 0; i < 20; i++) for (let j = 0; j < 20; j++) box(40 + i * 3, j * 3, 1, 2, 0.5, (i + j) % 2 ? Math.PI / 6 : 0);
-  let t = performance.now(); e.hierarchyCandidates(); out.bigCandMs = Math.round(performance.now() - t);
+  let t = performance.now(); e.repairMenuCount("hierarchy"); out.bigCandMs = Math.round(performance.now() - t);
   t = performance.now(); const nb = e.repair("hierarchy"); out.bigRepairMs = Math.round(performance.now() - t); out.bigN = nb;
   out.bigRootInst = e.sceneRef.def(e.sceneRef.root).instances.size;
   return out;

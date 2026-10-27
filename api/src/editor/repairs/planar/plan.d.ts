@@ -1,4 +1,4 @@
-import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { EdgeId, FaceId, Kernel, Pt3, VertexId } from "../../../kernel/kernel.ts";
 export type PlanarTarget = "mode" | "median" | "mean";
 export interface PlanarOptions {
     deg: number;

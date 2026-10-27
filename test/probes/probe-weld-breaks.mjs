@@ -19,7 +19,7 @@ const res = await page.evaluate(async () => {
   e.cancel();
   for (const ed of e.kernel.edges()) { const a = e.kernel.graph.pt(ed.a); if (a.x >= 4) e.selection.edges.add(ed.id); }
   out.menu = hud.edits().filter((it) => !it.hidden).map((it) => it.label).filter((l) => l.startsWith("焊接断口"));
-  hud.pick("weldBreaks"); await sleep(20);
+  hud.pick("repair:weld"); await sleep(20);
   out.afterSel = count();
   return out;
 });

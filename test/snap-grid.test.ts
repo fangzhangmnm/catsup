@@ -6,7 +6,8 @@ import type { Pt3 } from "../src/kernel/kernel.ts";
 import { kernelFromTriangles } from "../src/kernel/from-triangles.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp, type Op } from "../src/editor/ops.ts";
-import { planGridSnap } from "../src/editor/snap-grid.ts";
+import { planGridSnap } from "../src/editor/repairs/grid-snap/plan.ts";
+import "../src/editor/repairs/grid-snap/index.ts";   // 登记插件指令 "gridSnap"
 import { IDENTITY, type Xform, applyPt, frameToXform, invert } from "../src/scene/xform.ts";
 import { circleCurveSpec, circleSegmentsOnPlane } from "../src/editor/tools.ts";
 import { GROUND } from "../src/editor/pick.ts";
@@ -14,7 +15,8 @@ import { GROUND } from "../src/editor/pick.ts";
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
 const loop = (k: Kernel, pts: Pt3[], curve = false): void => { k.addEdges(pts.map((p, i) => [p, pts[(i + 1) % pts.length]] as [Pt3, Pt3]), curve ? { curve: true } : undefined); };
 const rootAt = (s: Scene) => ({ def: s.root, group: null });
-const snapOp = (s: Scene, step: number, extra: Record<string, unknown> = {}): Op => ({ op: "snapToGrid", at: rootAt(s), verts: [], step, lattice: [...IDENTITY], curves: "rigid", crease: "soft", ...extra } as Op);
+/** 用老指令名 snapToGrid（搬成插件之前的）：顺带验老复现包照旧能重放。 */
+const snapOp = (s: Scene, step: number, extra: Record<string, unknown> = {}): Op => ({ op: "snapToGrid", at: rootAt(s), verts: [], step, lattice: [...IDENTITY], curves: "rigid", crease: "soft", ...extra } as unknown as Op);
 /** 在格点上：格子坐标离最近的格点 < 2 µm（内核坐标按 1 µm 取整，斜格子上的格点会被挪最多半微米）。 */
 const onLattice = (p: Pt3, step: number, L: Xform = IDENTITY): boolean => { const q = applyPt(L, p); return [q.x, q.y, q.z].every((c) => Math.abs(c - Math.round(c / step) * step) < 2e-6); };
 /** 真正的圆（带圆心 / 半径，和画圆工具一样）。 */
@@ -118,5 +120,62 @@ describe("吸到格点（DT4）", () => {
       assert(k2.edges().filter((e) => e.faceLinks.length === 2).every((e) => k2.isSoft(e.id)), `seed ${seed}：折缝 / 对角线都是软边`);
     }
     assert(wouldBurst >= 10, `退路真的被走到了（${wouldBurst} / 20 个不退路就会破）`);
+  });
+});
+
+// 拉正（DT101，2026-10-26 Claude Opus 5.5；user「拉正 好想要，比snap更好……这个可以和snap合租。就是可以拉正不snap之类的？」）
+describe("拉正（DT101）", () => {
+  /** 盒子放在不在格点上的地方（拉正不该把它吸上格点）。 */
+  const offBox = (x0: number): Kernel => { const k = new Kernel(); loop(k, [P(x0, 0), P(x0 + 1, 0), P(x0 + 1, 1), P(x0, 1)]); k.pushPull(k.faces()[0].id, 1); return k; };
+  /** 每条边都和轴平行（平面里的内线不算：先挪歪那一下内核把面折开留下的对角线，拉正后两边又在同一张平面上）。 */
+  const axisAligned = (k: Kernel): boolean => k.edges().every((e) => { const fl = e.faceLinks; if (fl.length === 2 && k.face(fl[0])?.planeId === k.face(fl[1])?.planeId) return true; const a = k.graph.pt(e.a), b = k.graph.pt(e.b); const same = [a.x - b.x, a.y - b.y, a.z - b.z].filter((d) => Math.abs(d) < 1e-9).length; return same >= 2; });
+  it("盒子一个角歪了 0.2° → 只拉正：角回到原位，盒子不吸格点（x0 = 0.0337 照旧），别的点不动", () => {
+    const x0 = 0.0337, k = offBox(x0);
+    const corner = k.vertices().find((v) => Math.abs(v.x - (x0 + 1)) < 1e-9 && v.y === 1 && v.z === 1)!;
+    k.moveVertices([{ id: corner.id, to: P(x0 + 1.003, 1, 1.002) }]);
+    const plan = planGridSnap(k, null, IDENTITY, { step: 0.1, curves: "rigid", straighten: 1, grid: false });
+    eq(plan.moves.length, 1, "只挪那个角"); eq(plan.moves[0].id, corner.id);
+    const to = plan.moves[0].to;
+    assert(Math.abs(to.x - (x0 + 1)) < 1e-9 && Math.abs(to.y - 1) < 1e-9 && Math.abs(to.z - 1) < 1e-9, `角回到原位：${JSON.stringify(to)}`);
+    let s = new Scene(k);
+    const r = applyOp(s, snapOp(s, 0.1, { straighten: 1, grid: false })); s = r.scene;
+    const k2 = s.kernelOf(rootAt(s));
+    assert(axisAligned(k2), "边全部和轴平行"); assert(k2.vertices().some((v) => Math.abs(v.x - x0) < 1e-9), "没吸格点");
+    assert(!r.events.some((e) => e.type === "BURST"), "零破面");
+  });
+  it("整个盒子转了 0.5° → 拉正后每条边都和轴平行；转 5° 的不动（超过阈值）", () => {
+    for (const [deg, expect] of [[0.5, true], [5, false]] as const) {
+      const a = (deg * Math.PI) / 180, c = Math.cos(a), sn = Math.sin(a), R = (x: number, y: number) => P(x * c - y * sn, x * sn + y * c);
+      const k = new Kernel(); loop(k, [R(0, 0), R(1, 0), R(1, 2), R(0, 2)]); k.pushPull(k.faces()[0].id, 1);
+      let s = new Scene(k);
+      s = applyOp(s, snapOp(s, 0.1, { straighten: 1, grid: false })).scene;
+      eq(axisAligned(s.kernelOf(rootAt(s))), expect, `转 ${deg}°`);
+    }
+  });
+  it("范围外连着的点当锚：只选歪的那个角 → 它对齐到邻居，邻居不动", () => {
+    const k = offBox(0);
+    const corner = k.vertices().find((v) => v.x === 1 && v.y === 1 && v.z === 1)!;
+    k.moveVertices([{ id: corner.id, to: P(1.004, 1.003, 1) }]);
+    const plan = planGridSnap(k, [corner.id], IDENTITY, { step: 0.1, curves: "rigid", straighten: 1, grid: false });
+    eq(plan.moves.length, 1);
+    assert(Math.abs(plan.moves[0].to.x - 1) < 1e-9 && Math.abs(plan.moves[0].to.y - 1) < 1e-9, "对齐到邻居的 x = 1、y = 1");
+  });
+  it("圆斜了 0.3°：只沿法向那根轴拉平（所有点同一个 z），圆周上的点不被拉歪", () => {
+    const k = new Kernel(), n = 24, tilt = (0.3 * Math.PI) / 180;
+    const pts = Array.from({ length: n }, (_, i) => { const t = (i / n) * 2 * Math.PI, x = Math.cos(t), y = Math.sin(t); return P(x, y * Math.cos(tilt), 0.5 + y * Math.sin(tilt)); });
+    loop(k, pts, true);
+    const plan = planGridSnap(k, null, IDENTITY, { step: 0.1, curves: "rigid", straighten: 1, grid: false });
+    const zs = new Set(plan.moves.map((m) => Math.round(m.to.z * 1e6)));
+    eq(zs.size, 1, "拉平到同一个 z");
+    assert(plan.moves.every((m) => { const p = k.graph.pt(m.id); return Math.abs(m.to.x - p.x) < 1e-9 && Math.abs(m.to.y - p.y) < 1e-9; }), "x、y 不动");
+  });
+  it("拉正 + 吸格点：歪角 + 不在格点上的盒子 → 全部在格点上、边和轴平行", () => {
+    const k = offBox(0.0337);
+    const corner = k.vertices().find((v) => Math.abs(v.x - 1.0337) < 1e-9 && v.y === 1 && v.z === 1)!;
+    k.moveVertices([{ id: corner.id, to: P(1.0367, 1, 1.002) }]);
+    let s = new Scene(k);
+    s = applyOp(s, snapOp(s, 0.1, { straighten: 1, grid: true })).scene;
+    const k2 = s.kernelOf(rootAt(s));
+    assert(k2.vertices().every((v) => onLattice(v, 0.1)), "全在格点上"); assert(axisAligned(k2), "边和轴平行");
   });
 });

@@ -2,8 +2,6 @@ import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { type PlanarTarget } from "./planar.ts";
-import { type SnapCurves } from "./snap-grid.ts";
 import { type PoolRef, Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import { type ImportedScene } from "../scene/import-build.ts";
@@ -12,7 +10,14 @@ export type Seg = [PtIn, PtIn];
 export type EdgeKey = [Pt3, Pt3];
 /** 面的寻址 = 外环顶点坐标（顺序无关；集合相等即同一张膜）。 */
 export type FaceKey = Pt3[];
-export type Op = {
+export type Op = 
+/** 插件指令（可整个扔的模块：修复指令等；user 10-26「做成可以扔的模块化的，最好是各种命令都这样」）：按 name 找 registerOpPlugin 登记的执行器；args 由插件自己定、可序列化。 */
+{
+    op: "plugin";
+    name: string;
+    at: PoolRef;
+    args: Record<string, unknown>;
+} | {
     op: "clear";
 } | {
     op: "preset";
@@ -115,36 +120,10 @@ export type Op = {
     instances?: number[];
 }
 /** 拍平（纪元排期 T9 / DT7）：faces = 作用域（空 = 池里全部）；规划在 planar.ts（纯函数，预演同一份）；执行时结算出 BURST = 整步拒绝（零破面不变量）。 */
- | {
-    op: "makePlanar";
-    at: PoolRef;
-    faces: FaceKey[];
-    deg: number;
-    target: PlanarTarget;
-    eraseInner: boolean;
-}
 /**
  * 吸到格点（纪元排期 T8 / DT4）：verts = 作用域（坐标；空 = 池里全部）；lattice = 池本地坐标 → 格子坐标（12 个数的仿射变换），格点 = 分量是 step 的整数倍；
  * 规划在 snap-grid.ts（纯函数）。不破面：先在拷贝上试，会破的面先在原平面里三角化（对角线带折缝的层），再真吸；还破 = 整步拒绝。
  */
- | {
-    op: "snapToGrid";
-    at: PoolRef;
-    verts: Pt3[];
-    step: number;
-    lattice: number[];
-    curves: SnapCurves;
-    crease: "soft" | "hard";
-}
-/** 恢复层级（DT99）：这个池里含面的连通块各成一组；形状一样的（含这一层的素组）合成同一个组件的几份。faces / edges 空 = 整个池，有 = 只要碰到它们的块。 */
- | {
-    op: "restoreHierarchy";
-    at: PoolRef;
-    faces: FaceKey[];
-    edges: EdgeKey[];
-    dedupe: boolean; /** 镜像对上的也算一样（负变换实例）。缺 = 否（老 op）。 */
-    mirror?: boolean;
-}
 /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
  | {
     op: "applyScale";
@@ -329,6 +308,12 @@ export interface ApplyResult {
     scene: Scene;
     events: FaceEvent[];
 }
+/** 插件指令的执行器。插件模块 import 本文件、在自己的文件顶层登记；本文件不认识任何具体插件（删掉插件模块 = 它的指令变成「没装」）。 */
+export interface OpPlugin {
+    apply(s: Scene, at: PoolRef, args: Record<string, unknown>): ApplyResult;
+    describe?(args: Record<string, unknown>): string;
+}
+export declare function registerOpPlugin(name: string, plugin: OpPlugin): void;
 export declare class OpTargetError extends Error {
     readonly what: string;
     constructor(what: string);
@@ -343,6 +328,10 @@ export declare function moveOp(k: Kernel, moves: readonly {
     id: VertexId;
     to: PtIn;
 }[], at?: PoolRef): Op;
+export declare const poolOf: (s: Scene, at?: PoolRef) => {
+    kernel: Kernel;
+    ref: PoolRef;
+};
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
 /** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
 export declare class ShearRejected extends Error {
@@ -354,5 +343,5 @@ export declare class PlanarBurst extends Error {
  * 执行一条指令。斜切护栏（2026-10-26，user「斜切：和gltf对齐……在发生的时候护栏住，然后提示报错」）：执行后出现了**新的**斜切实例 → 抛 ShearRejected
  * （History 回滚整步）。老文件里本来就斜切的不算（不然那份文件之后什么都改不了）。
  */
-export declare function applyOp(s: Scene, op: Op): ApplyResult;
-export declare function describeOp(op: Op): string;
+export declare function applyOp(s: Scene, op0: Op): ApplyResult;
+export declare function describeOp(op0: Op): string;

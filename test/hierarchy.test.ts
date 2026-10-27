@@ -6,7 +6,8 @@ import type { Pt3 } from "../src/kernel/kernel.ts";
 import { Scene, absorbSnapshot, extractSnapshot } from "../src/scene/scene.ts";
 import { applyOp, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
-import { classifyShapes, congruentXform, piecesOf } from "../src/editor/hierarchy.ts";
+import { classifyShapes, congruentXform, piecesOf } from "../src/editor/repairs/hierarchy/plan.ts";
+import "../src/editor/repairs/hierarchy/index.ts";   // 登记插件指令 "hierarchy"
 import { compose, det3, rotationAbout, scalingAbout, translation, applyPt } from "../src/scene/xform.ts";
 import { circleCurveSpec, circleSegmentsOnPlane } from "../src/editor/tools.ts";
 import { GROUND } from "../src/editor/pick.ts";
@@ -24,7 +25,7 @@ const lKernel = (): Kernel => {
 };
 const wheelKernel = (): Kernel => { const k = new Kernel(), c = P(0, 0, 0), rim = P(0.4, 0, 0); k.addEdges(circleSegmentsOnPlane(GROUND.plane, GROUND.basis, c, rim, 24), { curve: circleCurveSpec((p) => p, c, rim, GROUND, 24) }); k.pushPull(k.faces()[0].id, 0.2); return k; };
 const ROOT = (s: Scene) => ({ def: s.root, group: null });
-const op = (s: Scene, dedupe = true, mirror = false): Op => ({ op: "restoreHierarchy", at: ROOT(s), faces: [], edges: [], dedupe, mirror });
+const op = (s: Scene, dedupe = true, mirror = false): Op => ({ op: "plugin", name: "hierarchy", at: ROOT(s), args: { faces: [], edges: [], dedupe, mirror } });
 /** 两组点按 1 µm 容差一一配上（整理前后世界里的点应完全一样）。 */
 const samePts = (a: Pt3[], b: Pt3[], tol = 1e-6): boolean => {
   if (a.length !== b.length) return false;
@@ -130,7 +131,7 @@ describe("hierarchy: 恢复层级 op", () => {
     s = applyOp(s, { op: "makeComponent", at: ROOT(s), faces: [...all[0].faces, ...all[1].faces].map((f) => { const r = k.faceRings3(f)!; return r.outer; }), edges: [], name: "两个盒子" } as unknown as Op).scene;
     const def = [...s.defs.values()].find((d) => d.name === "两个盒子")!;
     const before = worldPts(s);
-    s = applyOp(s, { op: "restoreHierarchy", at: { def: def.id, group: null }, faces: [], edges: [], dedupe: true }).scene;
+    s = applyOp(s, { op: "restoreHierarchy", at: { def: def.id, group: null }, faces: [], edges: [], dedupe: true } as unknown as Op).scene;   // 老指令名（搬成插件之前的）照旧能重放
     eq(s.def(def.id).instances.size, 2, "定义里的两个盒子 → 两份实例");
     assert(samePts(worldPts(s), before), "世界里的几何不变");
   });

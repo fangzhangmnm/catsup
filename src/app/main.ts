@@ -207,12 +207,9 @@ const hud: HudModel = {
     { id: "applyScale", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },
     { id: "componentOrigin", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
-    ...((): HudItem[] => { const n = editor.repairCount("weld"); return n ? [{ id: "weldBreaks", label: `焊接断口（${n}）`, icon: "arc" }] : []; })(),
-    ...((): HudItem[] => { const n = editor.repairCount("planar"); return n ? [{ id: "makePlanar", label: `拍平（${n} 组）`, icon: "sharpen" }] : []; })(),
     { id: "repairPanel", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
-    ...((): HudItem[] => { const n = editor.repairCount("snap"); return n ? [{ id: "snapToGrid", label: `吸到格点…（${n} 个点）`, icon: "snap-grid" }] : []; })(),   // T8 / DT4（user「吸到格点同意」；右下角马后炮改格子 / 坐标架 / 折缝 / 圆弧）
-    ...((): HudItem[] => { const n = editor.hierarchyCandidates(); return n ? [{ id: "restoreHierarchy", label: `恢复层级…（${n} 块）`, icon: "collection" }] : []; })(),   // DT99（user「自动恢复层级做着吧」）：连在一起的块各成一组、形状一样的合成组件；右下角马后炮可关合并
-    ...((): HudItem[] => { const n = editor.repairCount("harden"); return n ? [{ id: "hardenBent", label: `折得很厉害的软边变硬（${n}）`, icon: "sharpen" }] : []; })(),   // T9（图标 stopgap）   // T7：选区里的断口（图标 stopgap 同焊接）   // 2026-10-26 user「这样的话我们需要一个apply scale」   // DT49（user「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden」）：H；视图菜单「全部显示」/ Alt+H 放回
+    // 各个修复模块自己的入口（src/editor/repairs/ 清单；user 10-26「做成可以扔的模块化的」）：拉正 / 吸到格点 / 焊断口 / 拍平 / 软边变硬 / 恢复层级…
+    ...editor.repairMenu().map((m): HudItem => ({ id: `repair:${m.id}`, label: m.label, icon: m.icon })),
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
@@ -229,6 +226,7 @@ const hud: HudModel = {
   pick: (id) => {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
+    if (id.startsWith("repair:")) { editor.repair(id.slice("repair:".length)); return; }
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
@@ -246,11 +244,6 @@ const hud: HudModel = {
       case "hide": editor.hideSelection(); break;
       case "applyScale": editor.applyScaleSelection(); break;
       case "componentOrigin": editor.beginComponentOrigin(); syncUi(); break;
-      case "weldBreaks": editor.repair("weld"); break;
-      case "makePlanar": editor.repair("planar"); break;
-      case "hardenBent": editor.repair("harden"); break;
-      case "snapToGrid": editor.repair("snap"); break;
-      case "restoreHierarchy": editor.repair("hierarchy"); break;
       case "repairPanel": editor.beginRepairPanel(); break;
       case "exit": editor.exitContext(); break;
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
@@ -474,8 +467,8 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
       ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock", tab: "file" }
       : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", tab: "file", hint: "锁住几何 / 材质" },
     { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", tab: "model", hint: "平滑组" },
-    ((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("weld", "context"); return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", tab: "model", hint: "当前在编辑的整个物体（含子物体）", disabled: !n }; })(),   // T7 / DT5
-    ((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("planar", "context"); return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", tab: "model", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n }; })(),   // T9 / DT7
+    ...(editor.repairLoaded("weld") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("weld", "context"); return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", tab: "model", hint: "当前在编辑的整个物体（含子物体）", disabled: !n }; })()] : []),   // T7 / DT5   // 修复模块扔掉了 = 这一项不出
+    ...(editor.repairLoaded("planar") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("planar", "context"); return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", tab: "model", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n }; })()] : []),   // T9 / DT7   // 修复模块扔掉了 = 这一项不出
     { id: "material", label: "材质…", icon: "color", tab: "model", hint: "油漆桶蘸什么" },
     { id: "clear", label: "清空模型", icon: "trash-can", tab: "model", separatorBefore: true },
     { id: "finger", label: "手指也能画", checked: fingerDraws, tab: "settings", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },

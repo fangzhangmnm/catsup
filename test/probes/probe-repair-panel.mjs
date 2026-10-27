@@ -1,4 +1,4 @@
-// 修复面板（纪元排期 T6 / 账本 DT6 + DT9「检查」；v0.14.63 起拍平也管软边 → 微折软边应用后清零；v0.14.64 第五步恢复层级，默认不勾）：编辑条「修复…」→ 右下角马前炮（含子物体 / 检查 / 四步）→ 说明行计数 →「检查」把微折软边画成橙色 →
+// 修复面板（纪元排期 T6 / 账本 DT6 + DT9「检查」；v0.14.63 起拍平也管软边 → 微折软边应用后清零；v0.14.64 第五步恢复层级，默认不勾；v0.14.66 第一步拉正、默认勾——挪歪 1 mm 的角先被拉正挪回，吸格点就没事做了）：编辑条「修复…」→ 右下角马前炮（含子物体 / 检查 / 四步）→ 说明行计数 →「检查」把微折软边画成橙色 →
 // 勾上吸到格点、应用 = 按固定顺序跑完 = 一步撤销 → 马后炮。场景：根上 ① 一个盒子，一个角被挪了 1 mm（折出硬折缝）② 一条断口 ③ 一张面被软折了一点点（微折软边）。
 // created 2026-10-26 by Claude Opus 5.5
 import { createRequire } from "node:module";
@@ -44,9 +44,9 @@ const res = await page.evaluate(async () => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.worth && res.orangeBefore === 0 && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "snap", "weld", "planar", "harden", "hierarchy"])
+const ok = res.worth && res.orangeBefore === 0 && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "straighten", "snap", "weld", "planar", "harden", "hierarchy"])
   && /焊接断口 1/.test(res.note) && /微折软边/.test(res.note) && res.orangeOn > 20 && res.orangeOff === 0
-  && /修复：/.test(res.hint) && /吸了 \d+ 个点到格点/.test(res.hint) && /焊了 1 处断口/.test(res.hint)
+  && /修复：/.test(res.hint) && /拉正了 \d+ 个点|吸了 \d+ 个点到格点/.test(res.hint) && /焊了 1 处断口/.test(res.hint)
   && res.after?.phase === "after" && res.after.title === "修复" && /没有剩下的微折软边/.test(res.after.note ?? "") && res.cornerBack && res.breaks === 0 && res.undoBreaks === 1 && res.undoCorner && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

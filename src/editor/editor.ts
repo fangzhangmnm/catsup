@@ -52,9 +52,8 @@ import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace } fr
 import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
-import { PLANAR_DEFAULTS, type PlanarOptions, type PlanarTarget, planPlanar } from "./planar.ts";
-import { classifyShapes, piecesOf } from "./hierarchy.ts";
-import { type SnapCurves, planGridSnap } from "./snap-grid.ts";
+import { REPAIRS } from "./repairs/index.ts";
+import type { RepairCtx, RepairModule } from "./repairs/repair.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -194,7 +193,8 @@ export type LastGesture =
 interface GestureSample { t: number; sx: number; sy: number; cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> }
 
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-type RepairKind = "weld" | "planar" | "harden" | "snap" | "hierarchy";
+/** 修复指令 = repairs/ 里一个模块的 id（清单 = repairs/index.ts）。 */
+type RepairKind = string;
 /** pools[].xf = 这个池的定义坐标 → 当前上下文定义坐标（组 = 不带变换；组件 = 一路实例变换的乘积，几条路径到同一定义取先到的那条）。 */
 interface RepairScope { pools: { at: PoolRef; sel: Selection | null; xf: Xform }[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
 
@@ -1477,64 +1477,24 @@ export class Editor {
     const parts = [sc.components ? `含 ${sc.components} 个组件、共 ${sc.copies} 份` : "", sc.locked ? `锁着的 ${sc.locked} 个跳过` : ""].filter(Boolean);
     return `作用于：${where}${parts.length ? `；${parts.join("；")}` : ""}`;
   }
+  /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
+  private get repairCtx(): RepairCtx {
+    const self = this;
+    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg") };
+  }
+  /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
+  repairLoaded(kind: RepairKind): boolean { return REPAIRS.some((x) => x.id === kind); }
+  private repairModule(kind: RepairKind): RepairModule { const m = REPAIRS.find((x) => x.id === kind); if (!m) throw new Error(`repair "${kind}" is not loaded`); return m; }
+  /** 编辑条上的修复入口（有菜单的模块、按现在的范围数出来 > 0 的）：main.ts 照着画。 */
+  repairMenu(): { id: string; label: string; icon: string }[] {
+    const out: { id: string; label: string; icon: string }[] = [];
+    for (const m of REPAIRS) { if (!m.menu) continue; const n = this.repairMenuCount(m.id); if (n) out.push({ id: m.id, label: m.menu.label(n), icon: m.menu.icon }); }
+    return out;
+  }
   /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
   private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): { ops: Op[]; count: number; extra?: number; skipped?: number } {
-    const k = this.scene.kernelOf(at);
-    if (kind === "weld") {
-      const cand = sel ? new Set(moveTargetsSelection(k, sel)) : k.vertices().map((x) => x.id);
-      const ids: VertexId[] = [];
-      for (const vid of cand) { const x = k.graph.hasVertex(vid) ? k.graph.vertex(vid) : null; if (x && x.edges.size === 2 && k.isBreakJunction(vid)) ids.push(vid); }
-      return ids.length ? { ops: [{ op: "dissolveVertices", at, points: ids.map((x) => k.graph.pt(x)) }], count: ids.length } : { ops: [], count: 0 };
-    }
-    if (kind === "planar") {
-      const faces = sel ? [...sel.faces].filter((f) => k.face(f)) : null;
-      if (sel && !faces!.length) return { ops: [], count: 0 };
-      const o: PlanarOptions = { deg: Number(v.deg) || PLANAR_DEFAULTS.deg, target: (String(v.target ?? PLANAR_DEFAULTS.target) as PlanarTarget), eraseInner: v.eraseInner === undefined ? PLANAR_DEFAULTS.eraseInner : !!v.eraseInner };
-      const plan = planPlanar(k, faces, o);
-      if (!plan.groups.length) return { ops: [], count: 0, skipped: plan.curved };
-      return plan.groups.length ? { ops: [{ op: "makePlanar", at, faces: faces ? faces.map((f) => faceKey(k, f)) : [], deg: o.deg, target: o.target, eraseInner: o.eraseInner }], count: plan.groups.length, extra: o.eraseInner ? plan.erase.length : 0, skipped: plan.curved } : { ops: [], count: 0 };
-    }
-    if (kind === "snap") {
-      const vids = sel ? moveTargetsSelection(k, sel) : null;
-      if (sel && !vids!.length) return { ops: [], count: 0 };
-      const step = Number(v.step) > 0 ? Number(v.step) : this.gridFineStep();
-      const lattice = this.snapLattice(at, xf, v.frame === "world" ? "world" : "own");
-      const curves = (v.curves === "points" ? "points" : "rigid") as SnapCurves;
-      const plan = planGridSnap(k, vids, lattice, { step, curves });
-      if (!plan.moves.length) return { ops: [], count: 0, skipped: plan.skipped };
-      return { ops: [{ op: "snapToGrid", at, verts: vids ? vids.map((x) => k.graph.pt(x)) : [], step, lattice: [...lattice], curves, crease: v.crease === "hard" ? "hard" : "soft" }], count: plan.moves.length, extra: plan.curves, skipped: plan.skipped };
-    }
-    if (kind === "hierarchy") {
-      // 恢复层级（DT99）：按现在的样子数——会搬家的块（成组 / 成实例）+ 合进组件的素组；extra = 合成几个组件。执行时 op 自己再规划一遍。
-      const dedupe = v.dedupe !== false, mirror = dedupe && v.mirror !== false;
-      const pieces = piecesOf(k, sel ? { faces: [...sel.faces].filter((f) => k.face(f)), edges: [...sel.edges].filter((e) => k.graph.hasEdge(e)) } : null);
-      if (sel && !sel.faces.size && !sel.edges.size) return { ops: [], count: 0 };
-      const d0 = this.scene.def(at.def), b0 = this.scene.brep(at.def);
-      const plain = !dedupe ? [] : [...b0.groups.values()].filter((g) => g.parent === at.group && g.kernel.faces().length > 0 && guideCount(g.guides) === 0
-        && ![...b0.groups.values()].some((c) => c.parent === g.id) && ![...d0.instances.values()].some((i) => i.parent === g.id));
-      const snaps = [...pieces.map((p) => extractSnapshot(k, p.faces, p.edges)), ...plain.map((g) => g.kernel.toBrep())];
-      const classes = dedupe ? classifyShapes(snaps, { mirror }).classes : snaps.map((_, i) => [i]);
-      const split = pieces.length >= 2;
-      let count = 0, comps = 0;
-      for (const c of classes) { if (c.length >= 2) { count += c.length; comps++; } else if (split && c[0] < pieces.length) count++; }
-      if (!count) return { ops: [], count: 0 };
-      return { ops: [{ op: "restoreHierarchy", at, faces: sel ? [...sel.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)) : [], edges: sel ? [...sel.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) : [], dedupe, mirror }], count, extra: comps };
-    }
-    // harden：折得很厉害（弯折 > deg）却还标着软 / 平滑的边 → 变硬（user 10-26 旧文件案：折 90° 的软边 = 墙上渐变 + 画线描不上）
-    const deg = Number(v.deg) || 60;
-    const pool = new Set<EdgeId>();
-    if (sel) { for (const e of sel.edges) pool.add(e); for (const f of sel.faces) { const F = k.face(f); if (F) for (const r of [F.outer, ...F.holes]) for (const d of r.edges) pool.add(d.edge); } }
-    else for (const e of k.edges()) pool.add(e.id);
-    const hit = [...pool].filter((e) => { if (!k.graph.hasEdge(e) || !(k.isSoft(e) || k.isSmooth(e))) return false; const b = k.bendDeg(e); return b !== null && b > deg; });
-    return hit.length ? { ops: [{ op: "setEdgeLayers", at, edges: hit.map((e) => edgeKey(k, e)), layers: ["soft", "smooth"], on: false }], count: hit.length } : { ops: [], count: 0 };
+    return this.repairModule(kind).plan(this.repairCtx, { at, sel, xf }, v);
   }
-  private static readonly REPAIR_DEFAULTS: Record<RepairKind, Record<string, ParamValue>> = {
-    weld: {},
-    planar: { deg: PLANAR_DEFAULTS.deg, target: PLANAR_DEFAULTS.target, eraseInner: PLANAR_DEFAULTS.eraseInner },
-    harden: { deg: 60 },
-    snap: { step: "grid", frame: "own", crease: "soft", curves: "rigid" },
-    hierarchy: { dedupe: true, mirror: true },
-  };
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
   private snapStepChoices(): { id: string; label: string; hint?: string }[] {
     const fine = this.gridFineStep();
@@ -1556,7 +1516,7 @@ export class Editor {
     const f = at.group !== null ? s.group({ def: at.def, group: at.group }).axes : at.def === s.root ? s.axes : body.drawFrame ?? WORLD_FRAME;
     return invert(frameToXform(f));
   }
-  private repairDefaults(kind: RepairKind): Record<string, ParamValue> { return kind === "planar" ? { ...Editor.REPAIR_DEFAULTS.planar, deg: this.config.get("surface", "sharpDeg") } : { ...Editor.REPAIR_DEFAULTS[kind] }; }
+  private repairDefaults(kind: RepairKind): Record<string, ParamValue> { return this.repairModule(kind).defaults(this.repairCtx); }
   private repairCountCache: { key: string; n: number } | null = null;
   /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */
   repairCount(kind: RepairKind, scope: "auto" | "context" = "auto"): number {
@@ -1568,52 +1528,30 @@ export class Editor {
     this.repairCountCache = { key, n };
     return n;
   }
-  private static readonly REPAIR_NAMES: Record<RepairKind, { title: string; done: (n: number, extra: number) => string; none: string }> = {
-    weld: { title: "焊接断口", done: (n) => `焊了 ${n} 处断口`, none: "没有断口（共线、只连两段的点）" },
-    planar: { title: "拍平", done: (n, e) => `拍平了 ${n} 组${e ? `，擦掉 ${e} 条内线` : ""}`, none: "没有要拍平的面（被弯折小于阈值的边分开、整片差不多平的面）" },
-    harden: { title: "折得很厉害的软边变硬", done: (n) => `把 ${n} 条折得很厉害的软边变硬了`, none: "没有折得很厉害的软边" },
-    snap: { title: "吸到格点", done: (n, e) => `吸了 ${n} 个点到格点${e ? `（${e} 条圆 / 弧整条平移，保持是圆）` : ""}`, none: "都已经在格点上了" },
-    hierarchy: { title: "恢复层级", done: (n, e) => `整理了 ${n} 块：各自成组${e ? `，形状一样的合成 ${e} 个组件` : ""}`, none: "没有要整理的（每层只有一块、也没有形状一样的）" },
-  };
   /** 一条修复指令这一次做了什么（提交 op，不出提示）。failed = 被拒（报错已出）。 */
   private runRepair(kind: RepairKind, scope: "auto" | "context", v: Readonly<Record<string, ParamValue>>): { count: number; text: string; scope: string; failed: boolean } {
-    const sc = this.repairScope(scope, v.children !== false), names = Editor.REPAIR_NAMES[kind];
+    const sc = this.repairScope(scope, v.children !== false), names = this.repairModule(kind);
     let count = 0, extra = 0, skipped = 0;
     const ops: Op[] = [];
-    // 恢复层级：深的池先跑（父层会把素组合进组件；先合了父层，轮到那个组自己时它已经不在了）
+    // deepFirst（恢复层级）：深的池先跑（父层会把素组合进组件；先合了父层，轮到那个组自己时它已经不在了）
     const depth = (at: PoolRef): number => { if (at.group === null) return 0; let d = 1; for (let g = this.scene.group({ def: at.def, group: at.group }).parent; g !== null && d < 64; d++) g = this.scene.group({ def: at.def, group: g }).parent; return d; };
-    const pools = kind === "hierarchy" ? [...sc.pools].sort((a, b) => depth(b.at) - depth(a.at)) : sc.pools;
+    const pools = names.deepFirst ? [...sc.pools].sort((a, b) => depth(b.at) - depth(a.at)) : sc.pools;
     for (const p of pools) { const r = this.repairPlan(kind, p.at, p.sel, v, p.xf); ops.push(...r.ops); count += r.count; extra += r.extra ?? 0; skipped += r.skipped ?? 0; }
-    const skipText = !skipped ? "" : kind === "planar" ? `；${skipped} 片是曲面（整片弯得超过 ${Number(v.deg) || PLANAR_DEFAULTS.deg}°，比如圆柱侧面），没拍` : `；${skipped} 个点在只选了一部分的圆 / 弧上，没动`;
+    const skipText = skipped && names.skippedText ? `；${names.skippedText(skipped, v)}` : "";
     const scopeText = `${this.scopeText(sc)}${skipText}`;
     if (!ops.length) return { count: 0, text: names.none, scope: scopeText, failed: false };
-    // 吸到格点的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」
+    // 会挪点的修复（tally：拉正 / 吸到格点）的披露：合并了几个点（落到同一格点）、面多了几张（折开 / 三角化）——账本 DT4「预演照样报『合并 N 点 / 折 M 张面』」
     const tally = (): { v: number; f: number } => { let nv = 0, nf = 0; for (const p of sc.pools) { const k = this.scene.kernelOf(p.at); nv += k.vertices().length; nf += k.faces().length; } return { v: nv, f: nf }; };
-    const before = kind === "snap" ? tally() : null;
+    const before = names.tally ? tally() : null;
     const n0 = this.opCount;
     for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return { count: 0, text: "", scope: scopeText, failed: true }; }
     if (this.opCount === n0) return { count: 0, text: "", scope: scopeText, failed: true };
     let more = "";
     if (before) { const after = tally(), merged = before.v - after.v, folded = after.f - before.f; more = [merged > 0 ? `合并了 ${merged} 个点` : "", folded > 0 ? `面多了 ${folded} 张（被吸歪的面折开 / 三角化，折缝 = ${v.crease === "hard" ? "硬边" : "软边"}）` : ""].filter(Boolean).join("，"); if (more) more = `；${more}`; }
-    return { count, text: `${names.done(count, extra)}${more}`, scope: scopeText, failed: false };
+    return { count, text: `${names.done(count, extra, v)}${more}`, scope: scopeText, failed: false };
   }
   /** 各修复指令自己的参数（马后炮里改）。 */
-  private repairFields(kind: RepairKind): ParamField[] {
-    if (kind === "planar") return [
-      { key: "deg", def: { kind: "number", label: "弯折小于", min: 0.5, max: 45, step: 0.5, unit: "°" } },
-      { key: "target", def: { kind: "enum", label: "拍到", values: [{ id: "mode", label: "众数平面", hint: "组里已经落在同一平面上的点最多的那张" }, { id: "median", label: "中位数", hint: "每个点到平面距离的中位数" }, { id: "mean", label: "平均数", hint: "最小二乘" }] } },
-      { key: "eraseInner", def: { kind: "bool", label: "擦内线" } },
-    ];
-    if (kind === "harden") return [{ key: "deg", def: { kind: "number", label: "弯折大于", min: 20, max: 179, step: 1, unit: "°" } }];
-    if (kind === "hierarchy") return [{ key: "dedupe", def: { kind: "bool", label: "形状一样的合成组件" } }, { key: "mirror", def: { kind: "bool", label: "镜像对上的也算一样（左右对称件 = 镜像的一份）" } }];
-    if (kind === "snap") return [
-      { key: "step", def: { kind: "enum", label: "格子", values: this.snapStepChoices() } },
-      { key: "frame", def: { kind: "enum", label: "按", values: [{ id: "own", label: "物体自己的坐标架", hint: "组件转过、缩放过也照它自己的轴吸（同一组件的别的份不会离格）" }, { id: "world", label: "世界格点", hint: "在根上看到的那张格子" }] } },
-      { key: "crease", def: { kind: "enum", label: "折缝", values: [{ id: "soft", label: "软边", hint: "吸歪的面折开处不画线、明暗连续" }, { id: "hard", label: "硬边" }] } },
-      { key: "curves", def: { kind: "enum", label: "圆 / 弧", values: [{ id: "rigid", label: "整条平移", hint: "圆心吸上格点，保持是圆" }, { id: "points", label: "逐点吸", hint: "每个点各自吸（小圆会吸歪）" }] } },
-    ];
-    return [];
-  }
+  private repairFields(kind: RepairKind): ParamField[] { return this.repairModule(kind).fields(this.repairCtx); }
   /** 跑一条修复指令：一次 = 一步（原子）；之后右下角参数小窗（含子物体 + 这条指令自己的参数），改了 = 撤掉按新值重做。返回碰了几处。 */
   repair(kind: RepairKind, scope: "auto" | "context" = "auto"): number { return this.step(() => {
     const go = (v: Readonly<Record<string, ParamValue>>): number => {
@@ -1625,7 +1563,7 @@ export class Editor {
     const n0 = this.opCount;
     const count = go(v0);
     if (!count) return 0;
-    this.offerAfterthought(Editor.REPAIR_NAMES[kind].title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...this.repairFields(kind)], v0, this.opCount - n0,
+    this.offerAfterthought(this.repairModule(kind).title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...this.repairFields(kind)], v0, this.opCount - n0,
       (v) => { this.repairChildren = v.children !== false; go(v); });
     this.host.changed(); this.draw();
     return count;
@@ -1637,8 +1575,8 @@ export class Editor {
   // AI 定的默认（默认 + 披露，user 没拍）：焊断口 / 拍平 / 软边变硬默认勾（只动小毛病），吸到格点默认不勾（会挪点、合并点，看格子大小）；每步的细参数用各自默认值，要细调从菜单单独跑那条。
   /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
   private static readonly SUBTLE_FOLD_DEG = 1;
-  /** 固定顺序：先吸格点（吸完会冒出新的共线断口、新的微折），再焊断口，再拍平，最后折得很厉害的软边变硬。 */
-  private static readonly REPAIR_ORDER: readonly RepairKind[] = ["snap", "weld", "planar", "harden", "hierarchy"];   // 恢复层级最后：它把几何搬进新组，前面几步按池跑，先搬了它们就看不到
+  /** 修复面板里跑的顺序 = 清单顺序（repairs/index.ts 头注释说为什么是这个顺序）。 */
+  private static readonly REPAIR_ORDER: readonly RepairKind[] = REPAIRS.map((m) => m.id);
   /** 当前的修复面板会话（马前炮或应用后的马后炮）；它在右下角开着时才画「检查」高亮。 */
   private repairSession: ParamSession | null = null;
   private repairInspect = true;
@@ -1666,24 +1604,17 @@ export class Editor {
     return this.subtleCache;
   }
   /** 菜单上露不露「修复…」：有任何一步会碰东西，或者有要检查的小伤。 */
-  repairWorth(): boolean { return Editor.REPAIR_ORDER.some((k) => (k === "hierarchy" ? this.hierarchyCandidates() : this.repairCount(k)) > 0) || this.subtleFolds(this.repairChildren).n > 0; }
-  private hierCache: { key: string; n: number } | null = null;
-  /**
-   * 菜单用的便宜数法（恢复层级）：范围里每个池「含面的连通块 ≥ 2 → 块数」+「素组 ≥ 2 → 组数」。不做形状比对（大模型上每步都比太贵）；
-   * 真跑和修复面板的说明行用完整规划（repairPlan）。
-   */
-  hierarchyCandidates(scope: "auto" | "context" = "auto"): number {
-    const key = this.repairKey(scope, this.repairChildren);
-    if (this.hierCache?.key === key) return this.hierCache.n;
+  repairWorth(): boolean { return Editor.REPAIR_ORDER.some((k) => this.repairMenuCount(k) > 0) || this.subtleFolds(this.repairChildren).n > 0; }
+  private quickCache = new Map<RepairKind, { key: string; n: number }>();
+  /** 菜单上的数：模块有便宜数法（quickCount）就用它（大模型上每步都要算），没有就用完整规划的 count。 */
+  repairMenuCount(kind: RepairKind, scope: "auto" | "context" = "auto"): number {
+    const m = this.repairModule(kind);
+    if (!m.quickCount) return this.repairCount(kind, scope);
+    const key = this.repairKey(scope, this.repairChildren), hit = this.quickCache.get(kind);
+    if (hit?.key === key) return hit.n;
     let n = 0;
-    for (const p of this.repairScope(scope, this.repairChildren).pools) {
-      const k = this.scene.kernelOf(p.at), d0 = this.scene.def(p.at.def), b0 = this.scene.brep(p.at.def);
-      const pieces = p.sel && !p.sel.faces.size && !p.sel.edges.size ? [] : piecesOf(k, p.sel ? { faces: [...p.sel.faces].filter((f) => k.face(f)), edges: [...p.sel.edges].filter((e) => k.graph.hasEdge(e)) } : null);
-      const plain = [...b0.groups.values()].filter((g) => g.parent === p.at.group && g.kernel.faces().length > 0 && guideCount(g.guides) === 0
-        && ![...b0.groups.values()].some((c) => c.parent === g.id) && ![...d0.instances.values()].some((i) => i.parent === g.id)).length;
-      n += (pieces.length >= 2 ? pieces.length : 0) + (plain >= 2 ? plain : 0);
-    }
-    this.hierCache = { key, n };
+    for (const p of this.repairScope(scope, this.repairChildren).pools) n += m.quickCount(this.repairCtx, p);
+    this.quickCache.set(kind, { key, n });
     return n;
   }
   /** 「检查」高亮：画面上的边 id（每个画到这些池的槽都算）。修复面板没开 / 检查关着 = null。 */
@@ -1698,14 +1629,15 @@ export class Editor {
   /** 打开修复面板（马前炮）。 */
   beginRepairPanel(): void {
     this.cancelGesture();
-    const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect, snap: false, weld: true, planar: true, harden: true, hierarchy: false };   // 恢复层级默认不勾：它改结构（成组 / 成组件），不是修小伤
-    const stepFields = (): ParamField[] => Editor.REPAIR_ORDER.map((k) => ({ key: k, def: { kind: "bool" as const, label: k === "snap" ? `吸到格点（${fmtLen(this.gridFineStep())} 的格子）` : k === "planar" ? `拍平（弯折 < ${this.config.get("surface", "sharpDeg")}° 的边，整片差不多平才拍）` : k === "hierarchy" ? "恢复层级（连在一起的块各成一组，形状一样的合成组件）" : Editor.REPAIR_NAMES[k].title } }));
+    const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect };
+    for (const m of REPAIRS) vals[m.id] = m.panel.on;   // 默认勾不勾 = 模块自己说（拉正 / 焊断口 / 拍平 / 软边变硬勾：只动小毛病；吸格点 / 恢复层级不勾）
+    const stepFields = (): ParamField[] => REPAIRS.map((m) => ({ key: m.id, def: { kind: "bool" as const, label: m.panel.label(this.repairCtx) } }));
     const fields: ParamField[] = [{ key: "children", def: { kind: "bool", label: "含子物体" } }, { key: "inspect", def: { kind: "bool", label: "检查：高亮看起来平、其实折过的软边" } }, ...stepFields()];
     const note = (v: Readonly<Record<string, ParamValue>>): string => {
       const ch = v.children !== false, counts = Editor.REPAIR_ORDER.filter((k) => v[k]).map((k) => {
         const sc = this.repairScope("auto", ch), dv = { ...this.repairDefaults(k), children: ch };
         let n = 0; for (const p of sc.pools) n += this.repairPlan(k, p.at, p.sel, dv, p.xf).count;
-        return `${Editor.REPAIR_NAMES[k].title} ${n}`;
+        return `${this.repairModule(k).title} ${n}`;
       });
       const sub = this.subtleFolds(ch).n;
       return `会碰（按现在的样子数，前一步做完后一步可能变）：${counts.length ? counts.join(" · ") : "没勾"}；检查：${sub ? `${sub} 条微折软边${v.inspect ? "（橙色高亮）" : ""}` : "没有微折软边"}`;
@@ -1715,7 +1647,7 @@ export class Editor {
       for (const k of Editor.REPAIR_ORDER) {
         if (!v[k]) continue;
         const r = this.runRepair(k, "auto", { ...this.repairDefaults(k), children: v.children !== false });
-        if (r.failed) { parts.push(`${Editor.REPAIR_NAMES[k].title}：被拒，后面的没做`); break; }
+        if (r.failed) { parts.push(`${this.repairModule(k).title}：被拒，后面的没做`); break; }
         if (r.count) parts.push(r.text);
       }
       return parts;

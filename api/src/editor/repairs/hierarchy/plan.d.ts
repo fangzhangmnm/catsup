@@ -1,5 +1,5 @@
-import type { BrepSnapshot, EdgeId, FaceId, Kernel } from "../kernel/kernel.ts";
-import { type Xform } from "../scene/xform.ts";
+import type { BrepSnapshot, EdgeId, FaceId, Kernel } from "../../../kernel/kernel.ts";
+import { type Xform } from "../../../scene/xform.ts";
 export interface Piece {
     faces: FaceId[];
     edges: EdgeId[];

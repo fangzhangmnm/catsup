@@ -5,10 +5,10 @@
 // 子子孙孙 = 修复的「含子物体」：每个组 / 组件定义各跑一遍（editor.ts 深的先跑）。
 // AI 定的（默认 + 披露，user 没拍）：只有线没有面的块不动（那是清理碎渣的事）；只有一块就不包组（多一层没用）；
 //   镜像对上的也算一样（负变换实例，SketchUp 做左右对称件的老办法；真坦克上 6 对左右件靠它才合上），开关在马后炮。
-import type { BrepSnapshot, EdgeId, FaceId, Kernel, Pt3 } from "../kernel/kernel.ts";
-import { connectedFrom } from "../kernel/flood.ts";
-import { type Xform, IDENTITY } from "../scene/xform.ts";
-import { transformSnapshot } from "../scene/scene.ts";
+import type { BrepSnapshot, EdgeId, FaceId, Kernel, Pt3 } from "../../../kernel/kernel.ts";
+import { connectedFrom } from "../../../kernel/flood.ts";
+import { type Xform, IDENTITY } from "../../../scene/xform.ts";
+import { transformSnapshot } from "../../../scene/scene.ts";
 
 export interface Piece { faces: FaceId[]; edges: EdgeId[]; }
 

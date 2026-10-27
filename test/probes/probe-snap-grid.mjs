@@ -38,7 +38,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 const ok = res.count === 2 && res.n === 2 && /吸了 2 个点到格点/.test(res.hint) && /作用于：整个物体；含 1 个组件/.test(res.hint)
-  && res.rootOn && res.aOwnOn && !res.aWorldOnBefore && JSON.stringify(res.fields) === JSON.stringify(["children", "step", "frame", "crease", "curves"])
+  && res.rootOn && res.aOwnOn && !res.aWorldOnBefore && JSON.stringify(res.fields) === JSON.stringify(["children", "step", "frame", "crease", "curves", "straighten"])
   && res.aWorldOn && /吸了 \d+ 个点到格点/.test(res.hintWorld) && res.undoBack && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

@@ -246,7 +246,8 @@ export type LastGesture = {
     copies?: number;
 };
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
-type RepairKind = "weld" | "planar" | "harden" | "snap" | "hierarchy";
+/** 修复指令 = repairs/ 里一个模块的 id（清单 = repairs/index.ts）。 */
+type RepairKind = string;
 export declare class Editor {
     private canvas;
     private host;
@@ -651,9 +652,19 @@ export declare class Editor {
     private repairScope;
     /** 提示行的「作用于」那半句（披露）。 */
     private scopeText;
+    /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
+    private get repairCtx();
+    /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
+    repairLoaded(kind: RepairKind): boolean;
+    private repairModule;
+    /** 编辑条上的修复入口（有菜单的模块、按现在的范围数出来 > 0 的）：main.ts 照着画。 */
+    repairMenu(): {
+        id: string;
+        label: string;
+        icon: string;
+    }[];
     /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
     private repairPlan;
-    private static readonly REPAIR_DEFAULTS;
     /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
     private snapStepChoices;
     /** 画图吸附用的那个格子边长（格距 ÷ 细分；「吸到格点」的默认）。 */
@@ -667,7 +678,6 @@ export declare class Editor {
     private repairCountCache;
     /** 菜单上的数字：按现在的范围（含子物体按会话记住的）这条修复指令会碰几处。按场景版本 + 选区签名缓存（菜单每次重画都问）。 */
     repairCount(kind: RepairKind, scope?: "auto" | "context"): number;
-    private static readonly REPAIR_NAMES;
     /** 一条修复指令这一次做了什么（提交 op，不出提示）。failed = 被拒（报错已出）。 */
     private runRepair;
     /** 各修复指令自己的参数（马后炮里改）。 */
@@ -676,7 +686,7 @@ export declare class Editor {
     repair(kind: RepairKind, scope?: "auto" | "context"): number;
     /** 「检查」的门槛：弯折 ≤ 这么多度的软边 = 看起来平、其实被折过（折线层是有意折的，不算）。量纲：度。 */
     private static readonly SUBTLE_FOLD_DEG;
-    /** 固定顺序：先吸格点（吸完会冒出新的共线断口、新的微折），再焊断口，再拍平，最后折得很厉害的软边变硬。 */
+    /** 修复面板里跑的顺序 = 清单顺序（repairs/index.ts 头注释说为什么是这个顺序）。 */
     private static readonly REPAIR_ORDER;
     /** 当前的修复面板会话（马前炮或应用后的马后炮）；它在右下角开着时才画「检查」高亮。 */
     private repairSession;
@@ -689,12 +699,9 @@ export declare class Editor {
     private subtleFolds;
     /** 菜单上露不露「修复…」：有任何一步会碰东西，或者有要检查的小伤。 */
     repairWorth(): boolean;
-    private hierCache;
-    /**
-     * 菜单用的便宜数法（恢复层级）：范围里每个池「含面的连通块 ≥ 2 → 块数」+「素组 ≥ 2 → 组数」。不做形状比对（大模型上每步都比太贵）；
-     * 真跑和修复面板的说明行用完整规划（repairPlan）。
-     */
-    hierarchyCandidates(scope?: "auto" | "context"): number;
+    private quickCache;
+    /** 菜单上的数：模块有便宜数法（quickCount）就用它（大模型上每步都要算），没有就用完整规划的 count。 */
+    repairMenuCount(kind: RepairKind, scope?: "auto" | "context"): number;
     /** 「检查」高亮：画面上的边 id（每个画到这些池的槽都算）。修复面板没开 / 检查关着 = null。 */
     private inspectHighlights;
     /** 打开修复面板（马前炮）。 */

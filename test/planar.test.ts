@@ -7,7 +7,8 @@ import type { Pt3 } from "../src/kernel/kernel.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
-import { PLANAR_DEFAULTS, planPlanar } from "../src/editor/planar.ts";
+import { PLANAR_DEFAULTS, planPlanar } from "../src/editor/repairs/planar/plan.ts";
+import "../src/editor/repairs/planar/index.ts";   // 登记插件指令 "planar"
 import { circleSegmentsOnPlane } from "../src/editor/tools.ts";
 import { GROUND } from "../src/editor/pick.ts";
 
@@ -21,7 +22,7 @@ const tilted = (): Kernel => {
   return k;
 };
 const rootAt = (s: Scene) => ({ def: s.root, group: null });
-const op = (s: Scene, extra: Partial<Op & { op: "makePlanar" }> = {}): Op => ({ op: "makePlanar", at: rootAt(s), faces: [], deg: 20, target: "mode", eraseInner: true, ...extra } as Op);
+const op = (s: Scene, extra: Record<string, unknown> = {}): Op => ({ op: "plugin", name: "planar", at: rootAt(s), args: { faces: [], deg: 20, target: "mode", eraseInner: true, ...extra } });
 
 describe("planar: 拍平", () => {
   it("user 的例子：大多数点在 0.5、翘起的两点在 0.51 → 全部到 0.5；擦内线 = 并成一张面；没有破面", () => {
