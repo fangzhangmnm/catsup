@@ -1,0 +1,138 @@
+# mesh 内核 + `Body` 接口 · 提案（.h，等 user 过目）
+
+> created 20261027 by Claude Fable 5.1 · as-of v0.15.4 / 2026-10-27 · 路线 = `20261027-kernel-route-bmesh-recommendation.md`（user 当天拍：另做网格内核、名字 brep / mesh、折边退役、手动转换、转换不带隐藏元数据）· 注册表 = `20261027-command-registry-proposal-v2.md` · 优化取舍 O3-B（mesh 第一天就列式 + 纯函数）
+> 现状（核过）：`scene/body-kind.ts` 已有 `BodyKind = "brep" | "mesh"`；`scene.ts MeshBody` = 三角汤最小形（positions / indices / triMaterial，**不能编辑**，`MESH_KIND.modes = []`）；`kinds.ts` 已有登记表 + `brepToMesh`（三角化）+ `canCast`；导入外来 glb 现在走 `from-triangles.ts` 直接成 brep。**本提案 = 把 mesh 从三角汤升级成可编辑的多边形网格内核，把登记表填实；没动代码。**
+
+## 0. 一句话
+
+mesh 身体 = 一个 **MeshKernel**：顶点坐标 + 多边形面（任意边数、允许不平）+ 边标记（软 / 平滑 / 缝）+ 每面材质，**列式类型数组存、纯函数改**（Euler 算子），没有几何公理，只有拓扑不变量；三角汤变成它的**派生物**（渲染 / 导出 / 碰撞用，约束 Delaunay 三角化，改过的面才重算）。brep 和 mesh 通过同一个 `KindDef` 登记表接进场景 / 渲染 / 拾取 / 格式 / 指令；两边的几何动词各写各的，场景级的东西（组件 / 实例 / 变换 / 镜像 / 选物体）一份。
+
+## 1. 数据（`src/mesh/mesh-kernel.ts`，新）
+
+```ts
+// 列式（O3-B）：所有表都是定长类型数组 + 活跃位图 + 空闲表；id = 下标，删了不挪（空位复用由分配器按最小空位，确定性）。
+export class MeshKernel {
+  // 顶点
+  pos: Float64Array;            // x y z × 顶点（编辑用双精度；导出转 float32）
+  vAlive: Uint8Array;
+  // 面 = 顶点环（loop）。loopVert 按面分段：面 f 的顶点 = loopVert[faceStart[f] .. faceStart[f] + faceLen[f])
+  faceStart: Int32Array; faceLen: Int32Array; loopVert: Int32Array; fAlive: Uint8Array;
+  faceMat: Int32Array;          // 材质槽（-1 = 默认）；mesh 面单面（默认剔背面，user 10-24），没有 brep 的两槽
+  // 边 = 无序顶点对（显式表，只为标记和邻接）
+  edgeA: Int32Array; edgeB: Int32Array; eAlive: Uint8Array;
+  edgeFlags: Uint8Array;        // 位：SOFT=1 SMOOTH=2 SEAM=4 HIDDEN=8（和 brep 边层同名同义；缝给绘制纪元留）
+  // 邻接（派生，CSR；拓扑算子后标脏、下次查询前重建 O(n)；只动坐标的算子不碰它）
+  vEdges(v: number): Int32Array;   // 顶点 → 边
+  eFaces(e: number): Int32Array;   // 边 → 面（0 = 裸线 / 边界 1 / 流形 2 / 非流形 ≥3）
+  fEdges(f: number): Int32Array;   // 面 → 边（按环序）
+  edgeOf(a: number, b: number): number | -1;
+  // 派生缓存（随改动日志失效）
+  triangles(): { tris: Int32Array; faceOfTri: Int32Array };   // 每面约束 Delaunay 三角化（不平的面投影到最佳拟合平面；kernel/cdt.ts）
+  faceNormal(f: number): Pt3;                                   // Newell
+  subdivided(level: number): { pos: Float32Array; tris: Int32Array; faceOfTri: Int32Array };   // FM76：Catmull-Clark，显示 / 导出参数，笼子是原子
+  // 日志（渲染缓存 / 预演差量 / 撤销对拍用；形状照 kernel/change-log.ts）
+  readonly log: ChangeLog;      // 改过的顶点 / 边 / 面 id + 族谱
+  clone(): MeshKernel;          // 列式 = 几块 memcpy（O1 的 ❸ 在 mesh 上天然成立）
+  toSnapshot(): MeshSnapshot; static fromSnapshot(s: MeshSnapshot): MeshKernel;   // 紧凑（去空位、id 重编）；格式 §5
+}
+```
+
+**不变量**（`test/mesh-invariants.test.ts` 每个算子前后都查；性质测试 + 对抗案例集）：(M1) 每张活面的环 ≥ 3 个**不同**的活顶点、环里没有重复顶点；(M2) 环上相邻顶点对都在边表里，边表里的边至少属于一张面或显式标为裸线；(M3) 标记只在活边上；(M4) 封闭流形连通块满足 V − E + F = 2 − 2g（只对流形块查）；(M5) 删了的 id 不被任何活元素引用；(M6) 同一算子在克隆上跑 = 同一结果（确定性）。**没有**：平面性、重合即同一、闭环长面——这三条是 brep 的公理，mesh 刻意没有。
+
+## 2. 算子（`src/mesh/ops/*.ts`，每个一个文件，纯函数：`(k: MeshKernel, args) → MeshEvent[]`，原地改 k）
+
+| 族 | 算子 | 对应的自由建模动词（设计稿 §1 最小集 + 加速器） |
+|---|---|---|
+| 几何 | `moveVerts(ids, to[])`、`transformVerts(ids, X)` | 挪 / 转 / 尺寸（含软变换：权重由工具算，算子只收最终坐标） |
+| 劈 | `splitEdge(e, t)`、`splitFace(f, va, vb)`（两顶点之间加边）、`knife(f, path)`（面上一串点 → 劈边 + 劈面） | 刀（只切不长：永远不会多出一张面——劈面是把一张变两张） |
+| 并 | `joinFaces(e)`（擦掉两面之间的边 → 一张 n 边形，不管平不平）、`dissolveVertex(v)`（二度点并边）、`limitedDissolve(angleDeg)`（Blender Limited Dissolve） | 去边 / 溶解 |
+| 合 | `mergeVerts(ids, target: "center" \| "cursor" \| "first" \| Pt3)` | 合（到中心 / 到游标 / 塌缩）；合并后退化的面 / 边自动清 |
+| 填 / 删 | `fillLoop(vertRing)`、`deleteFaces / deleteEdges / deleteVerts(ids, { onlyFaces?: boolean })` | 填、删（Blender 的删除 = 面 / 边 / 点三档） |
+| 长 | `extrudeFaces(fs)`（不挪：只复制环、长侧面；挪归工具）、`extrudeEdges(es)`、`loopCut(e, n)`（沿四边形环切 n 刀）、`insetFaces(fs, t)`、`bevel(es, w, segs)`（后做） | 拉 / 插 / 环切 / 倒角 |
+| 建 | `addFace(verts)`、`addPolygon(ring)`（空处建 n 边形）、`addPrimitive(kind, params)`（盒 / 球 / 柱…一次性） | 建 n 边形 |
+| 标记 | `setEdgeFlags(es, mask, on)`、`setFaceMat(fs, slot)`、`flipFaces(fs)` | 软 / 硬 / 缝 / 涂 / 翻面 |
+| 对称 | `mirrorWeld(axisPlane, side)`（把另一半换成这一半的镜像，中缝焊） | 自动镜像（FM23；设计稿 §7） |
+| 整理 | `triangulateFaces(fs)`、`removeDoubles(dist)`、`recalcNormalsOutside()`、`separateLoose()` | 修复族的 mesh 版 |
+
+每个算子一个文件 = 可扔；族清单 = `src/mesh/ops/index.ts`；指令注册表的 `mesh.*` 族直接包它们（§6）。
+
+## 3. `Body` 接口：登记表填实（`scene/kinds.ts`，改）
+
+```ts
+export interface KindDef<B extends Body = Body> {
+  readonly id: BodyKind; readonly label: string;
+  readonly modes: readonly ModeId[];                        // brep: geometry / surface；mesh: freeform（以后 sculpt / bodypaint）
+  readonly castsTo: readonly { to: BodyKind; loses: readonly string[] }[];
+  alignGeometry(body: B): AlignGeometry;                    // 点 / 线 / 面：两种内核都往同一个屏幕索引喂（FM65：一个对齐引擎、两个喂料口）
+  bounds(body: B): { min: Pt3; max: Pt3 } | null;
+  // 新增（渲染 / 拾取 / 格式 / 预演都按它派发，不再 `if (body.kind === "brep")` 散落）
+  render(body: B): FaceSource;                              // pool-mesh.ts 的输入：每面三角 + 法线扇 + 材质 + 每条可见边；改动日志驱动增量
+  pick(body: B): GeomView;                                  // 顶点 / 边 / 面的世界几何（screen-index / pick / solver 用）
+  clone(body: B): B;
+  changes(body: B): ChangeLog;                              // 预演差量 / 渲染增量的钥匙
+  snapshot(body: B): BodySnapshot; restore(s: BodySnapshot): B;   // 格式 §5
+}
+// FaceSource = pool-mesh.ts 现在直接读 Kernel 的那几个方法抽成接口（faces() / ringVerts / faceMaterial / edgesVisible / fanNeighbors）；brep 适配器 = 现有代码原样，mesh 适配器 = 读 MeshKernel.triangles()
+```
+
+`Scene.kernelOf(at)` 保留（brep 专用）；新加 `Scene.bodyOf(def)`；mesh 身体**只有一个池**（没有 brep 的 group 分区——分区是 brep 的粘连几何管理法；mesh 的「分家」= 另一个组件）。
+
+## 4. 选区（`editor/tools.ts Selection`，改 = Fable 账单 A2）
+
+```ts
+export type Selection =
+  | { kind: "brep"; verts: Set<VertexId>; edges: Set<EdgeId>; faces: Set<FaceId> }
+  | { kind: "mesh"; verts: Set<number>; edges: Set<number>; faces: Set<number> };
+// 参考几何单独一份（user 10-24 定的、Opus 没做到的那条）：
+export interface EditorSelection { body: Selection | null; guides: Set<number>; instances: Set<InstId>; groups: Set<GroupId>; }
+```
+
+清选区的十几处改成一个 `clearSelection()`（Opus 当时把 guides 塞进 Selection 的理由）。选区进撤销（FM67）：撤销重设计里的会话状态 M 存的就是 `EditorSelection`，kind 跟着当前上下文的身体。
+
+## 5. 格式（`CATSUP_mesh` 扩展，拍子 1.0.0，照家族格式纪律：自己的 major.minor.patch、升级代码一个文件夹、冻结样本、未知键直通）
+
+- glTF 本体：一个 primitive，TRIANGLES = `triangles()` 的三角汤（引擎 / 别的软件看的；约束 Delaunay），POSITION = 紧凑顶点（float32），NORMAL = 按边标记算的平滑法线（和屏幕上一样），材质按面槽拆 primitive（同 brep 的 bake）。
+- `CATSUP_mesh`：`{ version: 1, minor: 0, patch: 0, faceStart, faceLen, loopVert, faceMat, edgePairs, edgeFlags, subdivLevel? }`（各是 accessor；顶点下标空间 = POSITION）。**不存**：三角剖分（派生）、法线以外的任何派生、brep 的曲线 / 平面（FM75）。
+- 读取侧：major 比自己新 → 拒开；minor 新 → 能开能存 + 未知键直通 + 提示一次；patch 静默。
+- 载荷住在 `CATSUP_definitions` 的 mesh 项里（10-24 契约的位子），自己带 `version / minor / patch` 三键（子结构自己的拍子，家族格式纪律）。现有三角汤载荷（10-24 契约的最小形：positions / indices / triMaterial，没有拍子）：读进来 = 每三角一张面（迁移一步 → 1.0.0），老文件照开。
+- **旧依赖核过（user 10-27 问）**：今天读三角汤的只有格式读写、`kinds.alignGeometry`、ops 的「mesh 池拒 brep 指令」、editor 的几处跳过，渲染 / 拾取都没接 mesh——三角汤改成派生物不坏任何现有行为。**导入外来 glb 改成直接成 mesh 身体（无损，熊不再痛苦）**；要 brep 用转换指令。
+
+## 6. 转换（两条指令，走注册表 `body.*` 族；都一步撤销、作用在选中的物体上、转换后工作台跟着换）
+
+- `body.toMesh`：一张 brep 面 = 一张多边形面（带洞的 brep 面 = 一张带洞的多边形？**mesh 的面不带洞**（Blender 同款）→ 带洞的面先桥接成一个环（K3 的桥洞）再成面，或三角化；报告写明）；边层 soft / smooth / seam → 标记；面材质（brep 正面槽）→ faceMat（**背面材质丢**，报告写明；mesh 单面）；组分区 → 并成一个池（报告）；曲线 / 平面记录 / 参考几何**不带**（FM75，报告写明条数）。
+- `body.toBrep`：不平的面 → K3（投影 → 桥洞 → 耳切 → CDT → 合并）成平面块 → 走 `kernelFromTriangles` 同一条管线（量化合点 → 分平面 → `fromBrep` 整批装 → 谓词挑脏的交结算机 absorb；审计稿 K4 §2.3）→ 报告：三角化 N 张、合并 M 点、拒收 K 张（拒收的留成一个 mesh 子物体，不丢）；`estimate` 先问「要等一会儿」（三角数 × 修的比例推算，参考熊 127 ms / 坦克 28.6 s）。
+
+## 7. 工作台与工具（接线归 Opus；这里只定边界）
+
+- `mode.ts` 新模式 `freeform`（自由建模）：`kinds: ["mesh"]`；工具 = 选择（共用 SelectTool，按 kind 派发拾取）、移动 / 旋转 / 缩放（共用整体变换；顶点那半按 `Body` 派发：brep → moveVertices、mesh → moveVerts）、刀（新：`direct` 语法，落点 → `knife`）、拉（新：`steps` 语法，`extrudeFaces` + 挪）、环切（新：`direct`，`loopCut` 预演）、笔刷（注册表 §2.4 的通用笔刷工具：软挪 / 雕 / 生命之粉以后只是加行）；轴锁、吸附（只点 / 边 / 面，不推断，按住 Shift 才吸 = 工作台开关 FM24）照旧走对齐引擎。
+- 指令族 `mesh.*`（注册表 §3 第 8 步）：合 / 填 / 溶解 / 删 / 扩缩选区 / 环选 / 翻面 / 镜像开关 / 有限溶解 / 三角化 / 去重点。
+- brep 工作台的工具在 mesh 物体上不存在（`mode.tools` 按 kind）；进出子物体照旧，工作台跟着物体类型换（路线稿 §6）。
+
+## 8. 渲染 / 拾取 / 对齐（一份代码、两个适配器）
+
+- `pool-mesh.ts` 的 `buildFaceRec(k: Kernel, …)` / `buildEdgeRec` 改读 `FaceSource`（§3）；平滑法线扇的算法不变（边标记代替边层）；改动日志驱动增量（mesh 的 `log` 同形）。
+- `screen-index` / `pick` / `solver` 读 `GeomView`：mesh 适配器给顶点 / 边 / 三角面（面命中用 `triangles()` 的三角 + `faceOfTri` 映回面）。对齐引擎不改（FM65）；自由建模工作台关掉推断候选（工作台开关）。
+- X 光 / 面点（Opus 的选择那一块）对两种身体一样：面的中心点 = 面环的质心。
+
+## 9. 分期（Fable M1–M3，Opus M4 起）
+
+| 期 | 做什么 | 验收 |
+|---|---|---|
+| M0 | 本 .h 过目 | user「可以」 |
+| M1 | `MeshKernel` + §2 的「几何 / 劈 / 并 / 合 / 填删 / 标记 / 建」算子 + 不变量性质测试 + 对抗案例集（node 直测，零 DOM） | 每个算子 (M1)–(M6)；随机算子串不变量不破；clone 对拍 |
+| M2 | `FaceSource` / `GeomView` 两个适配器 + `KindDef` 填实 + `Scene.bodyOf` | 现有 brep 行为零变化（探针照过）；mesh 身体能画、能点、能吸 |
+| M3 | `CATSUP_mesh` 格式 + 迁移 + 冻结样本 + 两条转换指令（含报告 / estimate）；导入外来 glb 改成 mesh | 往返测试；熊 / 小红帽导入 → 转 brep → 报告数字和 10-27 的一致 |
+| M4（Opus） | `freeform` 模式 + 刀 / 拉 / 环切三个工具 + `mesh.*` 指令按注册表写 + 选择那一块 | 小红帽白模能从盒子做出来（FM61） |
+| M5（Opus） | 通用笔刷工具（软挪）+ 自动镜像（`mirrorWeld` 每步） | 手稿里的「软 TRS」「自动对称」 |
+| M6 | 长 / 倒角 / 细分显示参数（FM76）/ 雕刻的加速结构（以后） | — |
+
+## 10. 要 user 拍的
+
+1. **mesh 的面不带洞、单面、默认剔背面**（Blender 同款；brep 的两槽材质转过去丢背面）——推荐是。另一条路 = mesh 也做两槽：渲染 / 格式都要多一份，和 Blender 的习惯不一样。
+2. **mesh 身体只有一个池**（没有 brep 的组分区；分家 = 另一个组件）——推荐是。
+3. **mesh 算子按顶点 id 寻址**（不是 brep 的坐标寻址：mesh 允许两个顶点同坐标）；撤销 / 重放照 op 日志（确定性）；文件里 id 重编——推荐是。
+4. **导入外来 glb 直接成 mesh**（要 brep 再转）——推荐是；不选 = 照旧导成 brep。
+5. **列式 + 纯函数从第一天**（O3-B）——推荐是。
+6. 分期 §9：M1–M3 Fable、M4 起 Opus——同意 / 改。
+
+拍了我开 M1（内核 + 算子 + 性质测试），不碰现有 brep 一行。
