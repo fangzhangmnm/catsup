@@ -7,7 +7,7 @@ import { padUnitKeys } from "../editor/vcb.ts";
 import { showNotice } from "./ui/notice.ts";
 import { fieldControl, fieldEditing } from "./ui/field-control.ts";
 
-export interface VcbUi { render(): void; feedKey(ev: KeyboardEvent): boolean; }
+export interface VcbUi { render(): void; feedKey(ev: KeyboardEvent): boolean; /** 只读：这一下按键数值小窗要不要（和 feedKey 同一套判断，不改状态；键表 controller/keymap.ts 的 vcb 层问它）。 */ wants(ev: { key: string; ctrl: boolean; alt: boolean }): boolean; }
 
 const KEYS: readonly (readonly string[])[] = [
   ["7", "8", "9", "⌫"],
@@ -117,6 +117,13 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     if (starter || (buf && cont)) { buf += k; render(); return true; }
     return false;
   };
+  const wants = (ev: { key: string; ctrl: boolean; alt: boolean }): boolean => {
+    if (ev.ctrl || ev.alt) return false;
+    if (!editor.vcbState().kind) return false;
+    const k = ev.key;
+    if (k === "Enter" || k === "Escape" || k === "Backspace") return !!buf;
+    return /^[0-9,\-+*/]$/.test(k) || (!!buf && /^[0-9.,\-+*/xsmc°'"ftindeg ]$/i.test(k));
+  };
   render();
-  return { render, feedKey };
+  return { render, feedKey, wants };
 }

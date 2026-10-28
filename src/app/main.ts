@@ -43,6 +43,7 @@ import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
+import { resolveKey, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
 import { formatQuantity } from "../editor/units.ts";
 import { TouchControls } from "./touch-controls.ts";
@@ -1043,99 +1044,81 @@ function renderSnapWidget(): void {
 }
 window.addEventListener("keyup", (ev) => { if (ev.key === "Shift") editor.setShiftHeld(false); });   // DT51：松开 Shift = 格点吸附回到右上锁钮的状态
 window.addEventListener("blur", () => editor.setShiftHeld(false));
+// 键盘 = 分层键表（controller/keymap.ts；UX 心智模型 §2.7，账本 UX17 / UX18）：每次按键从现状算出压着哪几层，从顶往下找第一个绑了的，这里只按动作 id 做事。
+// 以前这里是一长串 if（v0.15.46），2026-10-28 抄成层，行为照旧，只改了 user 拍的 X（操作工具里 X / Y / Z 永远 = 轴，选择工具里 X = 删除）。
+const keyEvt = (ev: KeyboardEvent): KeyEvt => ({ key: ev.key, code: ev.code, shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey, alt: ev.altKey });
+function keyContext(): KeyContext {
+  return {
+    mode: editor.modeId, tool: editor.tool, gesture: editor.isGestureActive(), hasSelection: editor.hasSelection(),
+    walk: locomotion.walkPhase(), walking: locomotion.isWalking(), mirrorSession: editor.mirrorActive(), lockStyle: editor.lockStyle(),
+    vcbWants: (e) => vcb.wants(e),
+  };
+}
+/** 工具键：同一个键再按一下 = 在这个工具组里换下一把（user 2026-10-25「快捷键在工具组里怎么循环：同一个键再按一下」）：E 橡皮 → 焊边 → 软边；R 矩形 → 旋转矩形；T 卷尺 → 量角器 → 轴；A 弧的四种画法轮换（画法是工具选项）。 */
+function toolKey(key: string, t: Tool): void {
+  const cyc = KEY_CYCLES[key];
+  if (cyc && cyc.includes(editor.tool)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next); return; } }
+  if (key === "a" && editor.tool === "arc") { const modes: string[] = ARC_MODES.map((m) => m.id), cur = editor.config.get("arc", "mode") as string; const nx = modes[(modes.indexOf(cur) + 1) % modes.length]; editor.config.set("arc", "mode", nx); hintEl.textContent = `弧：${ARC_MODES.find((m) => m.id === nx)?.label ?? nx}（再按 A 换下一种）`; syncUi(); return; }
+  editor.setTool(t);
+}
+function runKeyAction(action: string, ev: KeyboardEvent): void {
+  const [verb, p1, p2] = action.split(":");
+  switch (verb) {
+    case "walk.editInPlace": locomotion.editInPlace(); return;
+    case "walk.exit": closePopupMenu(); locomotion.exitWalk(); return;
+    case "walk.cancelPlace": locomotion.cancelPlace(); return;
+    case "vcb.feed": vcb.feedKey(ev); return;
+    case "mirror.apply": editor.pressParam("apply"); syncUi(); return;
+    case "grid.toggle":   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
+      editor.setGrid({ on: !editor.grid.on });
+      hintEl.textContent = editor.grid.on ? "格点吸附：开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "格点吸附：关（按住 Shift 临时开）";
+      syncUi(); return;
+    case "modal": {   // Blender 的 G / R / S / E / I / Alt+S / Ctrl+B：有选区就从光标处起手；没选区 = 切到那把工具（倒角 / 沿法线 = 提示）
+      const t = p1 as Tool;
+      if (!editor.startModal(t, p2)) {
+        if (t === "shrink") hintEl.textContent = "沿法线移动：先选点 / 边 / 面";
+        else if (p2) hintEl.textContent = p2 === "bevelVerts" ? "倒角（点）：先选点" : "倒角：先选边（选面 = 倒它的边）";
+        else editor.setTool(t);
+      }
+      syncUi(); return;
+    }
+    case "select.all": editor.selectAll(); syncUi(); return;
+    case "select.invert": editor.invertSelection(); return;
+    case "select.none": editor.deselectAll(); return;
+    case "delete.ifAny": if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return;
+    case "delete": editor.deleteSelection(); return;
+    case "mesh.connect": editor.runAction("mesh.connect"); syncUi(); return;
+    case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
+    case "lock.key": editor.lockKey(p1 === "none" ? null : (p1 as "x" | "y" | "z"), p2 === "plane"); syncUi(); return;   // 方向键（A9）
+    case "lock.arm": editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 先锁好、下一下生效
+    case "lock.axis": if (editor.isGestureActive()) editor.lockKey(p1 as "x" | "y" | "z", p2 === "plane"); else editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 操作工具 = 自动按了 G（UX17）
+    case "tool.key": toolKey(p1, p2 as Tool); return;
+    case "component.make": if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return;   // SU：G = 建组件
+    case "hide": if (editor.hasHideableSelection()) editor.hideSelection(); return;   // Blender：H（DT49）
+    case "show.all": editor.unhideAll(); return;
+    case "view.zoomExtents": editor.zoomExtents(); return;
+    case "view.zoomTo": editor.zoomTo(); return;   // Blender 小键盘 .
+    case "view.xray": editor.setXray(!editor.xray); return;
+    case "group.make": editor.makeGroup(); return;
+    case "group.explode": editor.explodeSelection(); return;
+    case "undo": editor.undo(); return;
+    case "redo": editor.redo(); return;
+    case "escape":
+      closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); toggleMatSheet(false);
+      // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
+      if (!editor.isGestureActive() && !editor.hasSelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
+      return;
+  }
+}
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
   if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
-  // 步行（FM151 / FM154）：FPS 里键盘归走路（工具键不响应），Tab = 原地编辑、Esc = 离开（锁着鼠标时 Esc 被浏览器吃掉，pointerlockchange 那边离开）；
-  // 放置里 Esc = 取消；原地编辑里 Esc：手势中 / 有选区照旧取消，否则离开步行
-  if (locomotion.isFps()) {
-    if (ev.key === "Tab") { ev.preventDefault(); locomotion.editInPlace(); }
-    else if (ev.key === "Escape") { ev.preventDefault(); locomotion.exitWalk(); }
-    return;
-  }
-  if (locomotion.isPlacing() && ev.key === "Escape") { ev.preventDefault(); locomotion.cancelPlace(); return; }
-  if (locomotion.isEditInPlace() && ev.key === "Escape" && !editor.isGestureActive() && !editor.hasSelection()) { ev.preventDefault(); closePopupMenu(); locomotion.exitWalk(); return; }
-  if (vcb.feedKey(ev)) { ev.preventDefault(); return; }
-  if (ev.key === "Enter" && editor.mirrorActive()) { ev.preventDefault(); editor.pressParam("apply"); syncUi(); return; }   // 镜像会话：回车 = 应用（Esc = 取消走 editor.cancel）   // 数值小窗：数字开头直接进小窗（SU 同款），字母只在缓冲非空时进
   if (ev.key === "Shift") editor.setShiftHeld(true);   // DT51：按住 Shift = 格点吸附反过来，指针不动也立刻换规则
-  if (ev.key === "Tab" && ev.shiftKey && !ev.ctrlKey && !ev.metaKey && !ev.altKey) {   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
-    ev.preventDefault();
-    editor.setGrid({ on: !editor.grid.on });
-    hintEl.textContent = editor.grid.on ? "格点吸附：开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "格点吸附：关（按住 Shift 临时开）";
-    syncUi(); return;
-  }
-  // 自由建模的 Blender 键位（user 10-27「然后能不能blender 快捷键无缝接上」；硬表面照旧 SketchUp 键位）：
-  // G / R / S / E = 有选区就从光标处起手移动 / 旋转 / 缩放 / 挤出（跟着鼠标走、点一下落定、Esc / 右键取消；没选区 = 切到那把工具），手势中 X / Y / Z 锁轴（Shift = 锁面）；
-  // A 全选、X / Delete 删除、J 连线（两个点）、K 切割、Ctrl+R 环切（下一下点边）。移动工具本身 = Blender 的 tweak（按下就拖），G 是键盘起手的另一回事。
-  if (editor.modeId === "freeform" && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !locomotion.isWalking()) {
-    const k = ev.key.toLowerCase();
-    if (editor.isGestureActive() && (k === "x" || k === "y" || k === "z")) { ev.preventDefault(); editor.lockKey(k, ev.shiftKey); syncUi(); return; }
-    // 手势之外先按 X / Y / Z = 锁好、下一下生效（user 10-28「就是先按y的话可以对下一个操作生效」）；X 有选区时照旧是删除（Blender X），没选区才是锁 X（有选区要先锁 X：按 → 或者起手以后再按 X）
-    if (!editor.isGestureActive() && (k === "y" || k === "z" || (k === "x" && !editor.hasSelection()))) { ev.preventDefault(); editor.armLock(k, ev.shiftKey); syncUi(); return; }
-    const modal: Record<string, Tool> = { g: "move", r: "rotate", s: "scale", e: "pp", i: "offset" };   // I = 插入（Blender I）
-    if (modal[k] && !ev.shiftKey) { ev.preventDefault(); if (!editor.startModal(modal[k])) editor.setTool(modal[k]); syncUi(); return; }
-    if (k === "a" && !ev.shiftKey) { ev.preventDefault(); editor.selectAll(); syncUi(); return; }
-    if (k === "x" && !ev.shiftKey) { ev.preventDefault(); if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return; }
-    if (k === "j" && !ev.shiftKey) { ev.preventDefault(); editor.runAction("mesh.connect"); syncUi(); return; }
-  }
-  if (editor.modeId === "freeform" && ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey && (ev.code === "KeyS" || ev.code === "KeyW")) {   // 沿法线移动（Blender Alt+S；user「我经常用的是alt W用处就是环变胖」）
-    ev.preventDefault(); if (!editor.startModal("shrink")) hintEl.textContent = "沿法线移动：先选点 / 边 / 面"; syncUi(); return;
-  }
-  if (editor.modeId === "freeform" && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.code === "KeyR") { ev.preventDefault(); editor.armLoopCut(); syncUi(); return; }   // Blender Ctrl+R（浏览器的刷新被拦下）
-  if (editor.modeId === "freeform" && (ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.code === "KeyB" && !locomotion.isWalking()) {   // Blender Ctrl+B 倒边 / Ctrl+Shift+B 倒点（纪元账本 FM152；浏览器的书签栏被拦下）
-    ev.preventDefault();
-    if (!editor.startModal("offset", ev.shiftKey ? "bevelVerts" : "bevel")) hintEl.textContent = ev.shiftKey ? "倒角（点）：先选点" : "倒角：先选边（选面 = 倒它的边）";
-    syncUi(); return;
-  }
-  if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
-    // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
-    // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "scale", p: "pp", k: "knife", f: "offset", w: "followme", b: "paint", e: "erase", t: "tape", tab: "select", x: "erase" };
-    const key = ev.key.toLowerCase();
-    const t = map[key];
-    const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q" || key === "a" || key === "t");
-    if (t && !takenByWalk) {
-      ev.preventDefault();
-      // 同一个键再按一下 = 在这个工具组里换下一把（user 2026-10-25「快捷键在工具组里怎么循环：同一个键再按一下」）：
-      // E 橡皮 → 焊边 → 软边；R 矩形 → 旋转矩形；T 卷尺 → 量角器 → 轴；A 弧的四种画法轮换（画法是工具选项）。不在组里 = 照旧切过去。
-      const cyc = KEY_CYCLES[key];
-      if (cyc && cyc.includes(editor.tool)) { const next = cyc[(cyc.indexOf(editor.tool) + 1) % cyc.length]; if (editor.modeTools().includes(next)) { editor.setTool(next); return; } }
-      if (key === "a" && editor.tool === "arc") { const modes: string[] = ARC_MODES.map((m) => m.id), cur = editor.config.get("arc", "mode") as string; const nx = modes[(modes.indexOf(cur) + 1) % modes.length]; editor.config.set("arc", "mode", nx); hintEl.textContent = `弧：${ARC_MODES.find((m) => m.id === nx)?.label ?? nx}（再按 A 换下一种）`; syncUi(); return; }
-      editor.setTool(t); return;
-    }
-    if (key === "g") { ev.preventDefault(); if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return; }   // SU：G = 建组件（选中的组 / 组件一起装进去）
-    if (key === "h" && !locomotion.isWalking()) { ev.preventDefault(); if (editor.hasHideableSelection()) editor.hideSelection(); return; }   // Blender：H = 隐藏选中（DT49）
-    if (key === "z" && ev.shiftKey) { ev.preventDefault(); editor.zoomExtents(); return; }   // SU：Shift+Z = 缩放到全部
-    if (key === ".") { ev.preventDefault(); editor.zoomTo(); return; }   // Blender 小键盘 .：缩放到选区（再按 = 当前物体 → 全部，同右上放大镜）；数值框没在打数字时才到这（vcb.ts）
-  }
-  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "a" || ev.key === "A")) { ev.preventDefault(); editor.selectAll(); return; }   // Ctrl+A 全选（A7）
-  if ((ev.ctrlKey || ev.metaKey) && !ev.shiftKey && ev.code === "KeyI") { ev.preventDefault(); editor.invertSelection(); return; }   // Blender：Ctrl+I 反选（2026-10-26）
-  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyA") { ev.preventDefault(); editor.deselectAll(); return; }   // Blender：Alt+A 全不选（用 code：Mac 上 Alt+A 打出的是别的字）
-  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyH") { ev.preventDefault(); editor.unhideAll(); return; }
-  if (ev.altKey && !ev.ctrlKey && !ev.metaKey && ev.code === "KeyZ") { ev.preventDefault(); editor.setXray(!editor.xray); return; }   // Blender：Alt+Z = X 光（DT17）   // Blender：Alt+H = 全部显示（DT49；用 code：Mac 上 Alt+H 打出的是别的字）
-  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "g" || ev.key === "G")) { ev.preventDefault(); if (ev.shiftKey) editor.explodeSelection(); else editor.makeGroup(); return; }
-  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "z" || ev.key === "Z")) {
-    ev.preventDefault();
-    if (ev.shiftKey) editor.redo(); else editor.undo();
-    return;
-  }
-  if ((ev.ctrlKey || ev.metaKey) && (ev.key === "y" || ev.key === "Y")) { ev.preventDefault(); editor.redo(); return; }
-  if (!ev.ctrlKey && !ev.metaKey && !ev.altKey && (ev.key === "ArrowRight" || ev.key === "ArrowLeft" || ev.key === "ArrowUp" || ev.key === "ArrowDown") && !locomotion.isWalking()) {
-    // A9（SU 同款）：→ X 红、← Y 绿、↑ Z 蓝、↓ 解锁；同一个键再按 = 解锁。Shift+方向键 = 面锁（Blender Shift+X 语义：Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下的面）。
-    // 先定平面的工具（矩形 / 圆 / 弧 / 旋转 / 量角器）不分 Shift：方向键就是锁平面。分派在 editor.lockKey。
-    ev.preventDefault();
-    const ax = ev.key === "ArrowDown" ? null : ev.key === "ArrowRight" ? "x" : ev.key === "ArrowLeft" ? "y" : "z";
-    if (editor.modeId === "freeform" && !editor.isGestureActive() && ax && !editor.lockStyle()) editor.armLock(ax, ev.shiftKey);   // 自由建模拿着不吃锁的工具（选择）：先锁好、下一下生效（同 X / Y / Z）
-    else editor.lockKey(ax, ev.shiftKey);
-    syncUi(); return;
-  }
-  if (ev.key === "Delete" || ev.key === "Backspace") { if (editor.hasSelection()) { ev.preventDefault(); editor.deleteSelection(); } return; }
-  if (ev.key === "Escape") {
-    closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); toggleMatSheet(false);
-    // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
-    if (!editor.isGestureActive() && !editor.hasSelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
-  }
+  const r = resolveKey(keyContext(), keyEvt(ev));
+  if (r === "swallow" || r === null) return;   // FPS 里键盘归走路（吞掉）/ 没人要（交给浏览器）
+  if (r.action !== "escape") ev.preventDefault();
+  runKeyAction(r.action, ev);
 });
 
 // ---------- 尺寸 ----------
