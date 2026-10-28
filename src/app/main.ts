@@ -23,6 +23,8 @@ import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
+import { stanceShown } from "../controller/chips.ts";
+import { selectModeFor } from "../editor/tool-config.ts";
 import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
 import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
@@ -126,6 +128,14 @@ const lineWeightInit = (): number => { const v = Number(PREF.get("lineWeight"));
 
 // ---------- DOM ----------
 const canvas = $<HTMLCanvasElement>("board");
+// 键名芯片（MFD）的实时状态：放在最前面——syncUi 在开机过程里随时可能重画芯片（const / let 在声明行之前读 = 抛错）。
+/** 现在按着的修饰键（键名芯片亮哪枚；下面 keydown / keyup 写）。 */
+const heldMods = { shift: false, ctrl: false, alt: false };
+/** 正按在画布上的指针（拖着没松 = 芯片不出「取消」：松手本身就是决定）。 */
+const canvasPresses = new Set<number>();
+/** 键名芯片锁住的修饰键（没键盘时 Shift / Ctrl / Alt = 开关；user 10-28 晚「ipad上面shift反而变成toggle」）。换工具 / 换工作台就放开（不许有看不见的状态改行为）。 */
+const latchedMods = { shift: false, ctrl: false, alt: false };
+let latchFor = "";
 const stage = $("stage");
 const hintEl = $("hint");
 const tipEl = $("tip");
@@ -686,7 +696,16 @@ vcbRef = vcb;
 var lastPointerType = typeof matchMedia === "function" && matchMedia("(hover: none), (pointer: coarse)").matches ? "touch" : "mouse";   // 开机先按设备猜（触屏为主的设备 = 手指），之后跟最近一次按下
 // eslint-disable-next-line no-var
 var vcbRef: { render(): void } | null = null;   // var：上下文条 mount 时就回调 afterRender（参数小窗那时还没挂）   // var：上下文条的 selection provider 在 mount 时就读它（加载期）
-canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; syncUi(); } }, { capture: true });
+canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; selectModeFollow(ev.pointerType); syncUi(); } }, { capture: true });
+// 选区两档跟着手上的指针走（user 10-28 晚「鼠标模式点应该是替换选择」）：换成鼠标 = 替换、换成笔 / 手指 = 多选（stance.ts BOOLEAN_DEFAULT）；
+// 人在工具条上自己选过一档 = 这次打开不再自动换（尊重手选）。capture 阶段先于工具收到这一下，所以这一下就按新设备算。
+let selectModeChosen = false, selectModeAuto = false;
+editor.config.subscribe((tool, key) => { if (tool === "select" && key === "mode" && !selectModeAuto) selectModeChosen = true; });
+function selectModeFollow(pt: string): void {
+  if (selectModeChosen) return;
+  selectModeAuto = true;
+  try { editor.config.set("select", "mode", selectModeFor(pt === "mouse" ? "mouse" : pt === "pen" ? "pen" : "finger")); } finally { selectModeAuto = false; }
+}
 const crumbsEl = document.getElementById("crumbs") as HTMLElement;
 function renderCrumbs(): void {
   const crumbs = editor.contextCrumbs();
@@ -774,7 +793,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 function syncUi(): void {
   renderSnapWidget();
   refreshMachineBoard();   // 指令板上的数跟着模型变
-  mfdRef?.render();   // 键名芯片（UX19）
+  releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
   // 右上角的手 + 放大镜（拖着平移 / 缩放）：键鼠时藏（有滚轮 / 中键 / Shift+Z），检测到触摸 / 笔就露（账本 UX37，user 10-28「键鼠的时候手柄可以自动隐藏。检测到触摸自动出现」）
   { const nav = document.querySelector<HTMLElement>(".gizmo-nav"); if (nav) nav.hidden = lastPointerType === "mouse"; }
   renderMachineBtns();
@@ -950,6 +969,7 @@ const gestures = attachGestures(canvas, editor, {
   onContext: (x, y, cx, cy) => openContextMenuAt(editor, hud, x, y, cx, cy),   // 三层：空处 / 几何 / 子组件的物体菜单（context-menu.ts）
   longPressEnabled: () => editor.tool === "select",
   // #23 user「move反而是点两下」「旋转和move对齐」：移动 = 点两下、旋转 = 点三下，笔 / 手指也开；画线 / 矩形 / 推拉在笔 / 手指上仍只拖（误触连线案）
+  latched: () => latchedMods,   // 键名芯片锁住的修饰键（iPad 没键盘：Shift / Ctrl / Alt = 开关）
   armable: (pt) => pt === "mouse" || pt === "pen" || editor.tool === "move" || editor.tool === "rotate",   // 笔也点两下（B23）；手指只在移动 / 旋转（#23）
 });
 // 视图 = 右上角导航 gizmo（Blender / Unity 式；user 2026-10-21「视图之类的能不能参考unity blender editor」）。视图弹层退役；透视 / 步行 / 穿墙 / 粗线稿进 ☰。
@@ -1093,8 +1113,8 @@ function renderSnapWidget(): void {
   const a = editor.axisLock, p = editor.planeLock, axis = a ?? (p === "face" ? null : p);
   badge.hidden = !a && !p; badge.textContent = a ? a.toUpperCase() : p ? planeLockLabel(p) : ""; badge.dataset.axis = axis ?? "";
 }
-window.addEventListener("keyup", (ev) => { if (ev.key === "Shift") editor.setShiftHeld(false); if (modPeek && ev.key === modPeek.key) endModPeek(); });   // DT51：松开 Shift = 格点吸附回到右上锁钮的状态
-window.addEventListener("blur", () => { editor.setShiftHeld(false); endModPeek(); });
+window.addEventListener("keyup", (ev) => { if (ev.key === "Shift") editor.setShiftHeld(latchedMods.shift); if (modPeek && ev.key === modPeek.key) endModPeek(); });   // DT51：松开 Shift = 格点吸附回到右上锁钮的状态
+window.addEventListener("blur", () => { editor.setShiftHeld(latchedMods.shift); endModPeek(); });
 // 状态行披露（接线清单第 5 条；UX 心智模型 §2.7「键 = 分层键表 + 披露」）：按住 Shift / Ctrl / Alt 一小会儿（MOD_PEEK_MS）不按别的键 = 提示行露出
 // 「这把工具按住它是什么」（立场表那一格）+ 现在压着的层里带它的和弦（keymap.ts modifierChords，和真按下去生效的是同一条）；松开 / 按别的键 / 点画布 = 收回原来的提示。手势中不打扰。
 let modPeek: { key: string; timer: number; prev: string | null } | null = null;
@@ -1102,7 +1122,8 @@ const modOfKey = (k: string): "shift" | "ctrl" | "alt" | null => (k === "Shift" 
 function modPeekText(mod: "shift" | "ctrl" | "alt"): string {
   const name = mod === "shift" ? "Shift" : mod === "ctrl" ? "Ctrl" : "Alt", own = stanceOf(editor.modeId, editor.tool)?.[mod];
   const chords = modifierChords(keyContext(), mod).slice(0, 6).map((x) => `${chordLabel(x.chord)} ${x.label}`);
-  return [own && own !== "—" ? `按住 ${name}：${own}` : `按住 ${name}`, ...chords].join(" · ");
+  const shown = own ? stanceShown(own) : "";   // 去掉账本代号 / 施工附注（界面不出代号）
+  return [shown && shown !== "—" ? `按住 ${name}：${shown}` : `按住 ${name}`, ...chords].join(" · ");
 }
 function startModPeek(ev: KeyboardEvent): void {
   endModPeek();
@@ -1119,11 +1140,24 @@ function endModPeek(): void {
 }
 canvas.addEventListener("pointerdown", () => endModPeek(), { capture: true });
 // 键名芯片（MFD，账本 UX19；controller/chips.ts + app/mfd.ts）：提示行上面一排固定槽位；手势开始 / 结束、换工具都要重画（syncUi 管大部分，指针按下 / 抬起补一下）
+function setLatch(m: "shift" | "ctrl" | "alt", on: boolean): void {
+  latchedMods[m] = on;
+  if (m === "shift") editor.setShiftHeld(on || heldMods.shift);   // DT51：Shift = 格点吸附反过来，悬停 / 预览立刻按新规则重算
+}
+/** syncUi 里调：工具 / 工作台换了 = 锁住的修饰键全放开。 */
+function releaseLatchesOnToolChange(): void {
+  const k = `${editor.modeId}/${editor.tool}`;
+  if (k === latchFor) return;
+  latchFor = k;
+  for (const m of ["shift", "ctrl", "alt"] as const) if (latchedMods[m]) setLatch(m, false);
+}
 // eslint-disable-next-line no-var
 var mfdRef: { render(): void } | null = null;
 mfdRef = mountMfd($("hintWrap"), {
   ctx: () => keyContext(),
   stance: () => stanceOf(editor.modeId, editor.tool),
+  live: () => ({ held: { ...heldMods }, axisLock: editor.axisLock, planeLock: editor.planeLock, keys: lastPointerType === "mouse", pressing: canvasPresses.size > 0, latched: { ...latchedMods } }),
+  latch: (m) => { setLatch(m, !latchedMods[m]); syncUi(); },   // 键鼠才印键名（user「ipad的时候能不能不显示键位」）
   press: (chord) => {   // 点芯片 = 按了这个键：和真按键走同一条（resolveKey → runKeyAction）
     const p = chord.split("+"), n = p[p.length - 1], code = /^[a-z]$/.test(n) ? `Key${n.toUpperCase()}` : n === "escape" ? "Escape" : n === "enter" ? "Enter" : n === "arrowright" ? "ArrowRight" : n === "arrowleft" ? "ArrowLeft" : n === "arrowup" ? "ArrowUp" : n;
     const key = /^[a-z]$/.test(n) ? n : code;
@@ -1135,8 +1169,14 @@ mfdRef = mountMfd($("hintWrap"), {
   setCollapsed: (on) => PREF.set("mfd", on ? "0" : "1"),
   touchy: () => lastPointerType !== "mouse",
 });
+canvas.addEventListener("pointerdown", (ev) => { canvasPresses.add(ev.pointerId); }, { capture: true });
+for (const t of ["pointerup", "pointercancel"] as const) window.addEventListener(t, (ev) => { canvasPresses.delete(ev.pointerId); queueMicrotask(() => mfdRef?.render()); }, { capture: true });
 for (const t of ["pointerdown", "pointerup"] as const) canvas.addEventListener(t, () => queueMicrotask(() => mfdRef?.render()));
-window.addEventListener("keyup", () => mfdRef?.render());
+// 实时响应按键（user 10-28 晚）：按下 / 松开都重画；按着哪几个修饰键自己记（键盘事件的 shiftKey 等是「这一下」的，松开那一下才知道没了）；切走窗口 = 全松
+const noteMods = (ev: KeyboardEvent): void => { heldMods.shift = ev.shiftKey; heldMods.ctrl = ev.ctrlKey || ev.metaKey; heldMods.alt = ev.altKey; queueMicrotask(() => mfdRef?.render()); };
+window.addEventListener("keydown", noteMods, { capture: true });
+window.addEventListener("keyup", noteMods, { capture: true });
+window.addEventListener("blur", () => { heldMods.shift = heldMods.ctrl = heldMods.alt = false; mfdRef?.render(); });
 // 键盘 = 分层键表（controller/keymap.ts；UX 心智模型 §2.7，账本 UX17 / UX18）：每次按键从现状算出压着哪几层，从顶往下找第一个绑了的，这里只按动作 id 做事。
 // 以前这里是一长串 if（v0.15.46），2026-10-28 抄成层，行为照旧，只改了 user 拍的 X（操作工具里 X / Y / Z 永远 = 轴，选择工具里 X = 删除）。
 const keyEvt = (ev: KeyboardEvent): KeyEvt => ({ key: ev.key, code: ev.code, shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey, alt: ev.altKey });

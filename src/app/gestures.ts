@@ -38,6 +38,8 @@ export interface GestureOpts {
   toolBlocked?(): boolean;
   /** 上下文菜单（#19，2026-10-21）：桌面右键（没拖成环绕）/ 触屏长按（没动）→ 在该点弹菜单。坐标 = 画布本地 + client。 */
   onContext?(x: number, y: number, clientX: number, clientY: number): void;
+  /** 没键盘时点键名芯片锁住的修饰键（= 一直按着；app/mfd.ts）。 */
+  latched?(): { shift: boolean; ctrl: boolean; alt: boolean };
   /** 长按是否可用（main：只在选择工具里）。 */
   longPressEnabled?(): boolean;
   /** 「点两下 / 点三下」是否可用（缺省 = 只有鼠标）：#23 移动 / 旋转对笔和手指也开。 */
@@ -58,8 +60,8 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     return { x: ev.clientX - r.left, y: ev.clientY - r.top };
   };
   const tp = (ev: PointerEvent): ToolPointer => {
-    const s = local(ev);
-    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey, copy: ev.ctrlKey || ev.altKey || ev.metaKey, altKey: ev.altKey };
+    const s = local(ev), L = opts.latched?.() ?? { shift: false, ctrl: false, alt: false };   // 锁住的修饰键 = 一直按着（iPad 没键盘）
+    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey || L.shift, copy: ev.ctrlKey || ev.altKey || ev.metaKey || L.ctrl || L.alt, altKey: ev.altKey || L.alt };
   };
   const touches = (): [number, Tracked][] => [...pointers.entries()].filter(([, p]) => p.type === "touch");
   const toolPointerActive = (): boolean => [...pointers.values()].some((p) => p.role === "tool");

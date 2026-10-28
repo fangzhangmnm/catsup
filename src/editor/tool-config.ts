@@ -16,7 +16,10 @@ import type { Tool } from "./editor.ts";
 
 /** 选区默认档：有笔 / 触屏的设备 = 多选，键鼠 = 替换（user 10-28「平板上选择能不能默认是点击xor」）。node（测试）里没有 navigator = 替换。 */
 /** 「选区」两档的出厂值按设备（controller/stance.ts BOOLEAN_DEFAULT：鼠标点一下 = 替换 → 「替换」档；笔点一下 = 切换 → 「多选」档）。有触屏的设备 = 笔（iPad；手指版以后，先照笔）。 */
-const DEFAULT_SELECT_MODE: string = BOOLEAN_DEFAULT[typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0 && (typeof matchMedia !== "function" || matchMedia("(any-pointer: coarse)").matches) ? "pen" : "mouse"].click === "replace" ? "replace" : "multi";
+// 2026-10-28 晚修（user「鼠标模式点应该是替换选择」「而不是xor，可能之前表写错了」）：表没写错（鼠标点 = 替换），错在猜设备——以前按「这台机器有没有触屏」猜，
+// 带触屏的电脑用鼠标也落到「多选」（点 = 切换）。现在按主指针猜（和右上角拖柄同一条：(hover: none), (pointer: coarse) = 触屏为主），用起来以后 app 跟着这一下的指针换（main.ts selectModeFollow）。
+export function selectModeFor(device: "mouse" | "pen" | "finger"): "replace" | "multi" { return BOOLEAN_DEFAULT[device].click === "replace" ? "replace" : "multi"; }
+const DEFAULT_SELECT_MODE: string = selectModeFor(typeof matchMedia === "function" && matchMedia("(hover: none), (pointer: coarse)").matches ? "pen" : "mouse");
 
 export type OptionScope = "session" | "device" | "doc";
 export interface Modifiers { ctrl?: boolean; shift?: boolean; }
