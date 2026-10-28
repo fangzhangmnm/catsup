@@ -1,4 +1,5 @@
 import type { Kernel } from "../kernel/kernel.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
 import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
@@ -38,6 +39,12 @@ export interface ToolCtx {
     readonly config: CatsUpToolConfig;
     /** 活动池的 checkpoint 内核（本地坐标）。 */
     kernel(): Kernel;
+    /** 活动池是网格体时它的内核（本地坐标；不是网格体 → 抛）。自由建模工作台的工具用。 */
+    mesh(): MeshKernel;
+    /** 方向锁锁住的轴（世界、单位长；没锁 = null）。不推断的工具自己投影用（applyLock 是给吸附结果用的）。 */
+    axisLockDir(): Pt3 | null;
+    /** 面锁的法向（世界、单位长；没锁 = null）。 */
+    planeLockNormal(): Pt3 | null;
     /** 当前选区（活动池本地 id；只读）。 */
     selection(): Readonly<Selection>;
     /** 静态推断世界（全池合成，世界坐标）。 */
@@ -202,6 +209,12 @@ export interface ToolCtx {
     selectGuide(id: number, mode: SelMode): void;
     /** 选区变了之后的收尾（提示 / 缩放柄 / HUD）。 */
     afterSelect(): void;
+    /** 选区整个换成活动池里的这些点 / 边 / 面（本地 id；子池选区清掉）。做完新几何留在选区里的工具用（自由建模的拉）。 */
+    setSelection(sel: {
+        verts?: readonly number[];
+        edges?: readonly number[];
+        faces?: readonly number[];
+    }): void;
     /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体；按 mode 合进选区。 */
     selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean;
     enterPool(p: PoolPick): void;
@@ -285,6 +298,8 @@ export interface ToolHandler {
     }): void;
     /** 预演：把本工具当前状态跑到克隆内核上（run 一次 = 一份影子）；返回尺寸文案（"" = 无）。 */
     live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    /** 网格体池里的预演（自由建模工作台的工具）：run 给一份活动网格体内核的副本，改完画出来；返回尺寸文案。没有 = 这把工具在网格体池里不预演。 */
+    liveMesh?(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
     /** 本工具要进样本环的数（抬笔结算回放时按 extra 读回）。 */
     sample(): Record<string, number>;
     /** 复现包用的手势描述（预演失败时随黑匣子走）。 */

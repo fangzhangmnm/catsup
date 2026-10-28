@@ -73,6 +73,8 @@ import { FreeformMode } from "./modes/freeform.ts";
 import { KINDS } from "../scene/kinds.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
+import { meshViewOf } from "../mesh/mesh-view.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { OptionKv } from "./tool-config.ts";
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
@@ -249,6 +251,7 @@ export class Editor {
   setMode(id: ModeId): void {
     const next = this.modeList.find((m) => m.id === id);
     if (!next || next === this.mode) return;
+    if (!(next.kinds as readonly BodyKind[]).includes(this.activeKind())) { this.host.hint(`「${next.label}」管不了现在这个物体`); return; }   // 不变量：工作台管活动池的身体种类
     this.cancelGesture();
     this.mode.leave?.(this.toolCtx);
     this.mode = next;
@@ -269,6 +272,8 @@ export class Editor {
   private hoverEdge: EdgeId | null = null;
   private hoverFace: FaceId | null = null;
   private live: Kernel | null = null;
+  /** 网格体池的预演副本（自由建模工作台；brep 的影子是 live）。 */
+  private liveMesh: MeshKernel | null = null;
   private liveOverride: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null;
   private liveEvents: FaceEvent[] = [];
   private armed = false;
@@ -527,7 +532,7 @@ export class Editor {
   private kid(o: object): number { let id = this.kids.get(o); if (id === undefined) { id = this.nextKid++; this.kids.set(o, id); } return id; }
   private ctxKey(): string { return `${this.ctx.chain.join("/")}#${this.ctx.group ?? "root"}`; }
   /** 世界视图（缓存：场景代数 + 影子副本身份 + 上下文 + 整体变换预演）。 */
-  private worldView(live: Kernel | null = null, override: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null): WorldView {
+  private worldView(live: KernelView | null = null, override: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null): WorldView {
     // 复制模式：原件不动；副本当「副本槽」画出来（DT14，此前副本要到 commit 才出现 = 没预演）
     const copy = override?.copy ? override : null;
     if (copy) override = null;
@@ -688,9 +693,9 @@ export class Editor {
 
   // ---------- 工具 ----------
   setTool(t: Tool): void {
-    if (!this.mode.tools.includes(t)) {   // 工具属于别的模式（快捷键 B 在几何模式按了油漆桶）→ 先切过去
-      const owner = this.modeList.find((m) => m.tools.includes(t));
-      if (!owner) return;
+    if (!this.mode.tools.includes(t)) {   // 工具属于别的模式（快捷键 B 在几何模式按了油漆桶）→ 先切过去；只切到管活动池这种身体的工作台（网格体里按画线键不能切进硬表面建模）
+      const kind = this.activeKind(), owner = this.modeList.find((m) => m.tools.includes(t) && (m.kinds as readonly BodyKind[]).includes(kind));
+      if (!owner) { const any = this.modeList.find((m) => m.tools.includes(t)); if (any) this.host.hint(`「${this.mode.label}」工作台里没有这把工具（它在「${any.label}」里，管的是别的物体）`); return; }
       this.setMode(owner.id);
     }
     this.last = null;
@@ -866,7 +871,7 @@ export class Editor {
     this.snapInfo = null;
     this.hoverEdge = null;
     this.hoverFace = null;
-    this.live = null;
+    this.live = null; this.liveMesh = null;
     this.liveOverride = null;
     this.liveEvents = [];
     this.host.marquee(null);
@@ -2203,16 +2208,16 @@ export class Editor {
   }
   private endMirror(): void {
     this.gizmo = null; this.cmdPreview = null; this.cmdGhosts = null;
-    this.live = null; this.liveOverride = null; this.liveEvents = [];
+    this.live = null; this.liveMesh = null; this.liveOverride = null; this.liveEvents = [];
     this.snapInfo = null;
     this.draw();
   }
   private refreshCmdPreview(): void {
-    this.live = null; this.liveEvents = []; this.liveOverride = null;
+    this.live = null; this.liveMesh = null; this.liveEvents = []; this.liveOverride = null;
     if (this.cmdPreview) {
       const c = this.kernel.clone();
       try { this.liveEvents = this.cmdPreview(c); this.live = c; }
-      catch (err) { this.live = null; this.host.hint(`镜像预演不行：${err instanceof Error ? err.message : String(err)}`); }
+      catch (err) { this.live = null; this.liveMesh = null; this.host.hint(`镜像预演不行：${err instanceof Error ? err.message : String(err)}`); }
       const gh = this.cmdGhosts?.();
       if (gh) this.liveOverride = { picks: gh.picks, xform: gh.xform, copy: true };
     }
@@ -2689,7 +2694,7 @@ export class Editor {
     return this.anchor3 !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
-  private liveWorld(): WorldView { return this.gestureActive() || this.cmdPreview ? this.worldView(this.live, this.liveOverride) : this.worldView(); }
+  private liveWorld(): WorldView { return this.gestureActive() || this.cmdPreview ? this.worldView(this.live ?? (this.liveMesh ? meshViewOf(this.liveMesh) : null), this.liveOverride) : this.worldView(); }
   /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
   private freshHand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
     const known = new Set(this.kernel.vertices().map((v) => v.id));
@@ -2724,7 +2729,7 @@ export class Editor {
   /** 这次预演会把哪个组件斜切（拖的时候就提示「松手会被拦下」；提交时 ops.ts 的护栏真拦）。 */
   private previewShear: string | null = null;
   private computeLive(): void {
-    this.live = null;
+    this.live = null; this.liveMesh = null;
     this.liveOverride = null;
     this.liveEvents = [];
     this.previewShear = null;
@@ -2732,7 +2737,7 @@ export class Editor {
       const c = this.shadowKernel();
       try { this.liveEvents = perf.time("live.run", () => fn(c)); }
       catch (err) {
-        this.liveEvents = []; this.live = null;
+        this.liveEvents = []; this.live = null; this.liveMesh = null;
         this.host.trace?.({ kind: "fail", where: "preview", op: null, message: err instanceof Error ? err.message : String(err), brep: this.kernel.toBrep(), pool: this.activePool(), preview: this.previewDescriptor() });
         this.fail("preview", err); return;
       }
@@ -2741,9 +2746,15 @@ export class Editor {
     const tool = this._tool;
     let dims = "";
     const H = this.handlers[tool];
-    if (H && (H.active() || H.previewOnHover)) dims = H.live(this.toolCtx, run);
+    const runMesh = (fn: (m: MeshKernel) => void): void => {   // 网格体：拷一份（类型数组，几毫秒）改完画；真身不动
+      const c = this.scene.mesh(this.activePool().def).kernel.clone();
+      try { perf.time("live.run", () => fn(c)); }
+      catch (err) { this.liveMesh = null; this.host.trace?.({ kind: "fail", where: "preview", op: null, message: err instanceof Error ? err.message : String(err) }); this.fail("preview", err); return; }
+      this.liveMesh = c;
+    };
+    if (H && (H.active() || H.previewOnHover)) dims = this.activeKind() === "mesh" ? (H.liveMesh ? H.liveMesh(this.toolCtx, runMesh) : "") : H.live(this.toolCtx, run);
     if (dims !== this.dims) { this.dims = dims; this.host.readout?.(this.readoutText()); }
-    if (this.live || this.liveOverride || dims) {
+    if (this.live || this.liveMesh || this.liveOverride || dims) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
       const sh = this.previewShear ? `会把组件「${this.previewShear}」斜切（glTF 不允许），松手会被拦下：沿它自己的轴缩放（只选它一个时手柄就是它的轴）` : "";
       this.host.hint([sh, dims, ev].filter(Boolean).join(" ｜ "));
@@ -2980,7 +2991,7 @@ export class Editor {
     this.anchor3 = null; this.cursor3 = null; this.snapInfo = null;
     this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 手势落定 = 锁解（SU 同款）
     this.samples = []; this.armed = false; this.canArm = false; this.downPoint = null; this.justCommitted = false;
-    this.live = null; this.liveOverride = null; this.liveEvents = [];
+    this.live = null; this.liveMesh = null; this.liveOverride = null; this.liveEvents = [];
   }
   /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
   private consumeCharges(): void { this.clearCharged(); }
@@ -3024,6 +3035,9 @@ export class Editor {
       modeId: () => this.mode.id,
       get config() { return self.config; },   // getter：toolCtx 字段先于 config 字段初始化，直接取值会是 undefined（v0.13.11 vcb / scene 探针抓到）
       kernel: () => this.kernel,
+      mesh: () => this.scene.mesh(this.activePool().def).kernel,
+      axisLockDir: () => (this._axisLock ? normalize3(this.contextFrame()[this._axisLock]) : null),
+      planeLockNormal: () => this._planeLockN,
       selection: () => this.selection,
       world: () => this.worldView(),
       live: () => this.liveWorld(),
@@ -3102,6 +3116,13 @@ export class Editor {
         this.host.changed(); this.draw();
       },
       afterSelect: () => this.afterSelect(),
+      setSelection: (sel) => {
+        this.selection = this.blankSelection(); this.selectedPools.clear();
+        for (const v of sel.verts ?? []) this.selection.verts.add(v);
+        for (const e of sel.edges ?? []) this.selection.edges.add(e);
+        for (const f of sel.faces ?? []) this.selection.faces.add(f);
+        this.pruneSelection(); this.afterSelect();
+      },
       selectExpand: (hit, stage, mode) => this.selectExpand(hit, stage, mode),
       enterPool: (p) => this.enterPool(p),
       exitContext: () => this.exitContext(),
@@ -3200,7 +3221,7 @@ export class Editor {
       this.snapInfo = null;
       this.hoverEdge = null;
       this.hoverFace = null;
-        this.live = null;
+        this.live = null; this.liveMesh = null;
       this.host.tip(null, 0, 0);
       this.host.hint(null);
       this.draw();

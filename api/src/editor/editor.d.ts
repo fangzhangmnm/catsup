@@ -299,6 +299,8 @@ export declare class Editor {
     private hoverEdge;
     private hoverFace;
     private live;
+    /** 网格体池的预演副本（自由建模工作台；brep 的影子是 live）。 */
+    private liveMesh;
     private liveOverride;
     private liveEvents;
     private armed;

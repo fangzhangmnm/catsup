@@ -238,6 +238,15 @@ export type Op =
         to: Pt3;
     }[];
 }
+/** 拉（自由建模；2026-10-27 Opus 5.5）：有面挤面（区域）、否则挤边、否则挤点，新点整体平移 offset（本地坐标）。mesh/ops/extrude.ts extrudeAndOffset。 */
+ | {
+    op: "meshExtrude";
+    def: number;
+    faces?: number[];
+    edges?: number[];
+    verts?: number[];
+    offset: Pt3;
+}
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {
     op: "addLayer";
