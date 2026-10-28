@@ -13,7 +13,8 @@
 // · 一步 = 用户的一个动作，可以是好几条 op（join）；undo / redo 按步走；undoOp 只退一条（马后炮 / 一步中途失败回滚用）。
 // · 会话记录（10-26 重设计，保留）：每一步自带「之前 / 之后」的会话（在哪个组件里 + 选区）；撤销 = 场景和会话一起回去。只改选区的一步 = 0 条 op 的一步（编辑器 commitSession）。
 // · 崩溃恢复不靠重放（app/crash-store.ts 盲快照）。replay() 仍能从装载态 + 指令流全量重建（测试 / 校验用，不在热路径）。
-import { Scene, type PoolRef } from "../scene/scene.ts";
+import { Scene, type PoolRef, type DefId } from "../scene/scene.ts";
+import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { applyOp, type ApplyResult, type Op, poolOf } from "./ops.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import { type KernelDelta, deltaBytes } from "../kernel/delta.ts";
@@ -37,14 +38,23 @@ export interface StepSession<M> { before: M; after?: M }
 type Entry =
   | { kind: "kernel"; at: PoolRef; delta: KernelDelta; bytes: number }
   | { kind: "pool"; at: PoolRef; kernel: Kernel; bytes: number }
-  | { kind: "scene"; snapshot: Scene; bytes: number; /** 骨架记录：内核共享——换进来时把现在的内核对象接回去（内核身份随提交换对象，记录只管骨架） */ skeleton: boolean };
+  | { kind: "scene"; snapshot: Scene; bytes: number; /** 骨架记录：内核共享——换进来时把现在的内核对象接回去（内核身份随提交换对象，记录只管骨架） */ skeleton: boolean }
+  /** 网格体的记录（2026-10-27 接缝）：提交前的整份拷贝（类型数组，拷得快）；撤 / 重做 = 和真身整表互换（MeshKernel.swapWith，自反、对象身份不变）。差量版等网格大了再做（和 brep 的 KernelDelta 同形）。 */
+  | { kind: "mesh"; def: DefId; kernel: MeshKernel; bytes: number };
 
 const KERNEL_OPS = new Set<Op["op"]>(["addEdges", "eraseEdges", "eraseFaces", "eraseSelection", "move", "pushpull", "followme", "absorb", "weldEdges", "dissolveVertices", "explodeCurves", "setEdgeLayers", "paintFaces", "plugin", "mirror", "setHidden"]);
 const SKELETON_OPS = new Set<Op["op"]>(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides"]);
-export type OpTier = "kernel" | "skeleton" | "scene";
+/** mesh 族的 op：改一个网格体的内核（寻址 = 定义）。加一种内核 = 加一个集合 + 一种记录；以后种类多了把「怎么记」挂到 KindDef 上。 */
+const MESH_OPS = new Set<Op["op"]>(["meshMove"]);
+export type OpTier = "kernel" | "mesh" | "skeleton" | "scene";
 /** 这条 op 的撤销记录怎么记：kernel = 一个 brep 池的差量（+ 骨架）；skeleton = 只拷骨架；scene = 整份场景拷。 */
-export function opTier(s: Scene, op: Op): { tier: OpTier; at?: PoolRef } {
-  const o = op as { op: string; at?: PoolRef; instances?: number[]; instance?: number; name?: string };
+export function opTier(s: Scene, op: Op): { tier: OpTier; at?: PoolRef; def?: DefId } {
+  const o = op as { op: string; at?: PoolRef; instances?: number[]; instance?: number; name?: string; def?: number };
+  if (MESH_OPS.has(op.op)) {
+    const def = o.def;
+    if (def === undefined || !s.defs.has(def) || s.kindOf(def) !== "mesh") return { tier: "scene" };
+    return { tier: "mesh", def };
+  }
   if (KERNEL_OPS.has(op.op)) {
     if (op.op === "mirror" && o.instances?.length) return { tier: "scene" };
     if (op.op === "setHidden" && o.instance !== undefined) return { tier: "skeleton" };
@@ -60,6 +70,7 @@ export function opTier(s: Scene, op: Op): { tier: OpTier; at?: PoolRef } {
 const poolKernel = (s: Scene, at: PoolRef): Kernel => poolOf(s, at).kernel;
 const setPoolKernel = (s: Scene, at: PoolRef, k: Kernel): void => { if (at.group === null) s.brep(at.def).kernel = k; else s.group({ def: at.def, group: at.group }).kernel = k; };
 /** 字节估计（配额用；量纲：字节；对象图的量级，不求准）。 */
+const meshBytes = (m: MeshKernel): number => m.pos.length * 8 + m.loopVert.length * 4 + (m.edgeA.length * 3 + m.faceStart.length * 4) * 4 + m.edgeCount() * 24 + 256;
 const kernelBytes = (k: Kernel): number => k.vertices().length * 64 + k.edges().length * 48 + k.faces().length * 160 + 256;
 const skeletonBytes = (s: Scene): number => { let n = s.defs.size; for (const d of s.defs.values()) { n += d.instances.size; if (d.body.kind === "brep") n += d.body.groups.size; } return n * 200 + 256; };
 /** 骨架记录换进来：池的内核对象照现在的（同一定义同一种身体才接；换过身体种类的 = 记录里的旧身体才是真相）。 */
@@ -115,6 +126,14 @@ export class History<M = unknown> {
       const delta = truth.deltaAgainst(shadow, seq);
       entries.push({ kind: "scene", snapshot: skel, bytes: skeletonBytes(skel), skeleton: true });
       entries.push(delta ? { kind: "kernel", at, delta, bytes: deltaBytes(delta) } : { kind: "pool", at, kernel: shadow, bytes: kernelBytes(shadow) });
+    } else if (t.tier === "mesh") {
+      const def = t.def!, body = s.mesh(def), truth = body.kernel, skel = s.cloneSkeleton(), shadow = truth.clone();
+      body.kernel = shadow;   // 这条 op 在影子上跑
+      try { r = applyOp(s, op); }
+      catch (e) { body.kernel = truth; throw new OpApplyError(e, skel); }
+      truth.swapWith(shadow); body.kernel = truth;   // 影子换真身：真身对象不变、表换成影子的；影子此刻持有「之前」的表
+      entries.push({ kind: "scene", snapshot: skel, bytes: skeletonBytes(skel), skeleton: true });
+      entries.push({ kind: "mesh", def, kernel: shadow, bytes: meshBytes(shadow) });
     } else {
       const snap = t.tier === "skeleton" ? s.cloneSkeleton() : s.clone();
       try { r = applyOp(s, op); }
@@ -184,6 +203,7 @@ export class History<M = unknown> {
     for (const e of order) {
       if (e.kind === "kernel") { e.delta = poolKernel(this.current, e.at).applyDelta(e.delta); }
       else if (e.kind === "pool") poolKernel(this.current, e.at).swapTablesWith(e.kernel);   // 兜底：整份表互换（对象身份不变）
+      else if (e.kind === "mesh") this.current.mesh(e.def).kernel.swapWith(e.kernel);   // 网格体：整表互换（自反）
       else { const cur = this.current; if (e.skeleton) relinkKernels(e.snapshot, cur); this.current = e.snapshot; e.snapshot = cur; }
     }
   }

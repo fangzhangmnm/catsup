@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
-import { type Selection, type SelMode, circleSegmentsOnPlane, emptySelection, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
+import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, guidesOf, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
@@ -53,8 +53,8 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
-import { actionById, commandById, placementsAt } from "./commands/registry.ts";
-import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit } from "./commands/command.ts";
+import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
+import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
@@ -69,6 +69,10 @@ import type { Tool } from "./tool-ids.ts";
 import type { Mode, ModeId } from "./mode.ts";
 import { GeometryMode } from "./modes/geometry.ts";
 import { SurfaceMode } from "./modes/surface.ts";
+import { FreeformMode } from "./modes/freeform.ts";
+import { KINDS } from "../scene/kinds.ts";
+import type { BodyKind } from "../scene/body-kind.ts";
+import type { KernelView } from "../scene/kernel-view.ts";
 import type { OptionKv } from "./tool-config.ts";
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
@@ -232,10 +236,11 @@ export class Editor {
   private snapInfo: Snap3 | null = null;
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
   /** 编辑模式（0.13 刀 ① / 刀 ③）：几何 / 表面；工具集 + 手势模块表住模式里；左上下拉框切（user「切换编辑模式还是左上下拉框」）。 */
-  private readonly modeList: readonly Mode[] = [new GeometryMode(), new SurfaceMode()];
+  private readonly modeList: readonly Mode[] = [new GeometryMode(), new SurfaceMode(), new FreeformMode()];
   private mode: Mode = this.modeList[0];
   get modeId(): ModeId { return this.mode.id; }
-  modes(): readonly { id: ModeId; label: string }[] { return this.modeList.map((m) => ({ id: m.id, label: m.label })); }
+  /** 左上下拉框里的工作台 = 管活动池这种身体的那些（SU 体：硬表面建模 / 表面；网格体：自由建模）。 */
+  modes(): readonly { id: ModeId; label: string }[] { const kind = this.activeKind(); return this.modeList.filter((m) => (m.kinds as readonly BodyKind[]).includes(kind)).map((m) => ({ id: m.id, label: m.label })); }
   /** 当前模式有哪些工具（左柱按它排）。 */
   modeTools(): readonly Tool[] { return this.mode.tools; }
   /** 某工具的手势模块（上下文条要碰工具自己的状态，如吸色锁定）。 */
@@ -440,6 +445,25 @@ export class Editor {
   get tool(): Tool { return this._tool; }
   /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
   get kernel(): Kernel { return this.scene.kernelOf(this.activePool()); }
+  /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
+  activeKind(): BodyKind { return this.scene.kindOf(this.activePool().def); }
+  /** 活动池的显示视图（渲染 / 拾取读的那份契约 kernel-view.ts；任何种类的内核都有——选区的通用路径只认它）。 */
+  private get activeView(): KernelView { return this.scene.viewOf(this.activePool()); }
+  /** 按活动池的种类造空选区（不变量：selection.kind === activeKind()）。 */
+  private blankSelection(): Selection { return emptySelection(this.activeKind()); }
+  /** brep 专属动词的守门：活动池不是 SU 体 → 提示一句、不做（网格体上的同名动词 = 自由建模工作台 M4）。不静默。 */
+  private requireBrep(verb: string): boolean {
+    if (this.activeKind() === "brep") return true;
+    this.host.hint(`「${verb}」是 SU 体的动词；网格体上的还没接（自由建模工作台）`);
+    return false;
+  }
+  /** 工作台跟着活动池的身体种类走：当前工作台不管这种身体 → 切到管它的第一个（进出上下文、换场景后调）。 */
+  private ensureModeForKind(): void {
+    const kind = this.activeKind();
+    if ((this.mode.kinds as readonly BodyKind[]).includes(kind)) return;
+    const next = this.modeList.find((m) => (m.kinds as readonly BodyKind[]).includes(kind));
+    if (next) this.setMode(next.id);
+  }
   get sceneRef(): Scene { return this.scene; }
   /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
   worldGeom(): WorldView { return this.worldView(); }
@@ -448,7 +472,7 @@ export class Editor {
   get revision(): number { return this._revision; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }
-  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selection.verts.size > 0 || this.selection.guides.size > 0 || this.selectedPools.size > 0; }
+  hasSelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0 || this.selection.verts.size > 0 || guidesOf(this.selection).size > 0 || this.selectedPools.size > 0; }
   hasGeometrySelection(): boolean { return this.selection.edges.size > 0 || this.selection.faces.size > 0; }
   /** 选了面。 */
   hasFaceSelection(): boolean { return this.selection.faces.size > 0; }
@@ -683,7 +707,7 @@ export class Editor {
     if (this.liveOriginEdit()) { const t = this.originEdit!.prevTool; this.setTool(t); this.host.hint("改组件原点：取消了"); return; }   // 选区留着
     this.taps.cancel();
     this.last = null;
-    this.selection = emptySelection();
+    this.selection = this.blankSelection();
     this.selectedPools.clear();
     this.cancelGesture();
     this.host.changed();
@@ -884,21 +908,23 @@ export class Editor {
     return ROOT_CONTEXT;
   }
   private ctxKeyOf(c: EditContext): string { return `${c.chain.join("/")}#${c.group ?? "root"}`; }
-  private selSnap(): SelSnap { return { ctx: this.ctxKey(), faces: [...this.selection.faces], edges: [...this.selection.edges], verts: [...this.selection.verts], guides: [...this.selection.guides], pools: [...this.selectedPools.entries()] }; }
+  private selSnap(): SelSnap { return { ctx: this.ctxKey(), faces: [...this.selection.faces], edges: [...this.selection.edges], verts: [...this.selection.verts], guides: [...guidesOf(this.selection)], pools: [...this.selectedPools.entries()] }; }
   private selRestore(s: SelSnap | undefined): void {
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     if (!s || s.ctx !== this.ctxKey()) return;
     for (const f of s.faces) this.selection.faces.add(f);
     for (const e of s.edges) this.selection.edges.add(e);
     for (const v of s.verts) this.selection.verts.add(v);
-    for (const g of s.guides) this.selection.guides.add(g);
+    if (this.selection.kind === "brep") for (const g of s.guides) this.selection.guides.add(g);
     for (const [k, p] of s.pools) this.selectedPools.set(k, p);
     this.pruneSelection();
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: () => T): T {
     if (this.stepDepth++ === 0) { this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; }
-    try { return fn(); } finally { this.stepDepth--; }
+    try { return fn(); }
+    finally { if (--this.stepDepth === 0) { if (this.stepHasOp) { if (!this.gestureActive()) this.lastSession = this.sessionSnap(); } else this.recordSession(); } }   // 一步结束：有 op 的步，它之后的会话由撤销那一刻记（rec.after）；没 op 的步 = 可能只改了选区 → 记 0 op 步
+
   }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitOp(op0: Op): FaceEvent[] {
@@ -958,17 +984,19 @@ export class Editor {
     this.scene = s;
     this.bump();
     if (session) this.sessionRestore(session);
+    this.ensureModeForKind();
     this.lastSession = this.sessionSnap();
     this.revalidateCharged();
   }
   private pruneSelection(): void {
-    const k = this.kernel;
-    for (const e of [...this.selection.edges]) if (!k.graph.hasEdge(e)) this.selection.edges.delete(e);
-    for (const f of [...this.selection.faces]) if (!k.face(f)) this.selection.faces.delete(f);
-    for (const v of [...this.selection.verts]) if (!k.graph.hasVertex(v)) this.selection.verts.delete(v);
+    if (this.selection.kind !== this.activeKind()) this.selection = this.blankSelection();   // 上下文换了身体种类（撤到转换之前 / 之后）：旧 id 空间作废
+    const v = this.activeView;
+    for (const e of [...this.selection.edges]) if (!v.graph.hasEdge(e)) this.selection.edges.delete(e);
+    for (const f of [...this.selection.faces]) if (!v.face(f)) this.selection.faces.delete(f);
+    for (const x of [...this.selection.verts]) if (!v.graph.hasVertex(x)) this.selection.verts.delete(x);
     const def = this.scene.defOfContext(this.ctx);
     for (const [key, p] of [...this.selectedPools]) {
-      const ok = p.kind === "group" ? this.scene.brep(def).groups.get(p.group)?.parent === this.ctx.group : this.scene.def(def).instances.get(p.instance)?.parent === this.ctx.group;
+      const ok = p.kind === "group" ? this.scene.def(def).body.kind === "brep" && this.scene.brep(def).groups.get(p.group)?.parent === this.ctx.group : this.scene.def(def).instances.get(p.instance)?.parent === this.ctx.group;
       if (!ok) this.selectedPools.delete(key);
     }
   }
@@ -1032,7 +1060,7 @@ export class Editor {
     this.ctx = ROOT_CONTEXT;
     this.history = new History<Session>(s);
     this._revision++;
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     this.lastSession = this.sessionSnap();
     this.clearCharged();
     this.host.trace?.({ kind: "load", label });
@@ -1058,7 +1086,7 @@ export class Editor {
   clearAll(): void {
     this.last = null;
     this.cancelGesture();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     this.clearCharged();
     this.ctx = ROOT_CONTEXT;
     this.commitOp({ op: "clear" });
@@ -1068,7 +1096,7 @@ export class Editor {
     const preset = PRESETS.find((p) => p.name === name);
     if (!preset) return false;
     this.cancelGesture();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     this.clearCharged();
     this.ctx = ROOT_CONTEXT;
     this.commitOp({ op: "preset", name });
@@ -1078,7 +1106,7 @@ export class Editor {
   /** 外部喂线段（OBJ 导入等）：一次 addEdges = 一个手势（进活动池，世界坐标 → 本地）。 */
   addSegments(segs: [PtIn, PtIn][], label: string): FaceEvent[] {
     this.cancelGesture();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     this.host.trace?.({ kind: "load", label });
     const evs = this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([a, b]) => [this.toLocal({ x: a.x, y: a.y, z: a.z ?? 0 }), this.toLocal({ x: b.x, y: b.y, z: b.z ?? 0 })]) });
     this.draw();
@@ -1104,7 +1132,7 @@ export class Editor {
     let added: number[] = [];
     const go = (up: ImportUp, unit: string): void => {
       const before = new Set(this.scene.def(defId).instances.keys());
-      this.selection = emptySelection(); this.selectedPools.clear();
+      this.selection = this.blankSelection(); this.selectedPools.clear();
       this.commitOp({ op: "importScene", at, scene: castOf(up, unit).scene, place });
       added = [...this.scene.def(defId).instances.keys()].filter((id) => !before.has(id));
       for (const id of added) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
@@ -1152,9 +1180,10 @@ export class Editor {
   selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode = "replace"): boolean {
     const view = this.liveWorld();
     const c = this.classify(view, hit);
-    if (mode === "replace") { this.selection = emptySelection(); this.selectedPools.clear(); }
+    if (mode === "replace") { this.selection = this.blankSelection(); this.selectedPools.clear(); }
     if (c.kind === "pool") { this.mergePools([c.pick], mode); this.afterSelect(); return true; }
     if (c.kind === "none") { this.afterSelect(); return true; }
+    if (this.activeKind() !== "brep") return this.selectExpandView(c.local, stage, mode);
     const k = this.kernel;
     const picked = emptySelection();
     const h = c.local;
@@ -1188,6 +1217,29 @@ export class Editor {
     this.afterSelect();
     return true;
   }
+  /**
+   * 非 brep 的池（网格体……）的点击族，只认显示契约 KernelView：一下 = 点 / 边 / 面本身；两下 = 面连同它的环、边连同两侧的面、点连同它的边；三下 = 沿边连通的面。
+   * 曲线 / 曲面 / 参考几何是 brep 的概念，这里没有；隐藏的不选。新种类的内核只要给了 KernelView 就自动有这一套。
+   */
+  private selectExpandView(h: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean {
+    const v = this.activeView, picked = this.blankSelection();
+    const ringEdges = (fid: number): void => { const f = v.face(fid); if (!f) return; picked.faces.add(fid); for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) picked.edges.add(d.edge); };
+    if (h.edge !== undefined && v.graph.hasEdge(h.edge)) { picked.edges.add(h.edge); if (stage >= 1) for (const fid of v.graph.edge(h.edge).faceLinks) picked.faces.add(fid); }
+    else if (h.face !== undefined && v.face(h.face)) { if (stage >= 1) ringEdges(h.face); else picked.faces.add(h.face); }
+    else if (h.vertex !== undefined && v.graph.hasVertex(h.vertex)) { if (stage === 0) picked.verts.add(h.vertex); else for (const eid of v.graph.vertex(h.vertex).edges) picked.edges.add(eid); }
+    if (stage >= 2) {   // 连通体：沿边的 faceLinks 泛洪
+      const faces = new Set(picked.faces), edges = new Set(picked.edges), queue = [...faces];
+      for (const e of edges) for (const f of v.graph.edge(e).faceLinks) if (!faces.has(f)) { faces.add(f); queue.push(f); }
+      while (queue.length) { const f = v.face(queue.pop()!); if (!f) continue; for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) { edges.add(d.edge); for (const g of v.graph.edge(d.edge).faceLinks) if (!faces.has(g)) { faces.add(g); queue.push(g); } } }
+      picked.faces = faces; picked.edges = edges;
+    }
+    const pe = [...picked.edges].filter((e) => !v.isEdgeHidden(e)), pf = [...picked.faces].filter((f) => !v.isFaceHidden(f)), pv = [...picked.verts];
+    const all = mode === "toggle" && pe.every((e) => this.selection.edges.has(e)) && pf.every((f) => this.selection.faces.has(f)) && pv.every((x) => this.selection.verts.has(x));
+    const m: SelMode = mode === "toggle" ? (all ? "remove" : "add") : mode;
+    mergeSel(this.selection.edges, pe, m); mergeSel(this.selection.faces, pf, m); mergeSel(this.selection.verts, pv, m);
+    this.afterSelect();
+    return true;
+  }
   /** 组 / 组件按 mode 合进选区（切换 = 逐个）。 */
   private mergePools(picks: readonly PoolPick[], mode: SelMode, perItem = true): void {
     const keys = picks.map((p) => this.pickKey(p));
@@ -1209,11 +1261,19 @@ export class Editor {
     return true;
   }
   /** 全不选（Blender Alt+A；Esc 也行）。 */
-  deselectAll(): void { this.selection = emptySelection(); this.selectedPools.clear(); this.afterSelect(); }
-  private afterSelect(): void {
+  deselectAll(): void { this.selection = this.blankSelection(); this.selectedPools.clear(); this.afterSelect(); }
+  /**
+   * 「撤销也撤选区」（user 10-27「这个我们要」）：同一上下文里选区变了、没在手势里 → 记成 0 op 的一步。lastSession 只在这里和换场景时前进。
+   * 鼠标点选 / 框选发生在指针事件的那一步里（stepDepth > 0）——那一步结束时（step 的 finally）再记；以前 afterSelect 在步里直接把 lastSession 推进、不记，点选就永远进不了撤销栈（v0.15.15 的 bug，10-27 夜修）。
+   */
+  private recordSession(): void {
+    if (this.gestureActive()) return;
     const now = this.sessionSnap();
-    if (this.lastSession && this.stepDepth === 0 && !this.gestureActive() && this.lastSession.ctx.group === now.ctx.group && this.lastSession.ctx.chain.join("/") === now.ctx.chain.join("/") && Editor.sessionKey(this.lastSession) !== Editor.sessionKey(now)) this.history.commitSession(this.lastSession);
+    if (this.lastSession && this.lastSession.ctx.group === now.ctx.group && this.lastSession.ctx.chain.join("/") === now.ctx.chain.join("/") && Editor.sessionKey(this.lastSession) !== Editor.sessionKey(now)) this.history.commitSession(this.lastSession);
     this.lastSession = now;
+  }
+  private afterSelect(): void {
+    if (this.stepDepth === 0) this.recordSession();
     this.host.readout?.(this.readoutText());
     const info = this.selectionInfo();
     if (info) this.host.hint(info);
@@ -1224,6 +1284,7 @@ export class Editor {
   private selectionInfo(): string | null {
     const lockedN = [...this.selectedPools.values()].filter((p) => this.pickIsLocked(p)).length;
     if (lockedN) return `已锁定 ${lockedN} 个（不能改 / 移 / 进入；可当推断参考；选区菜单 → 解锁）`;
+    if (this.activeKind() !== "brep") return null;   // 曲线 / 曲面是 brep 的概念
     const k = this.kernel;
     const es = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)), fs = [...this.selection.faces].filter((f) => k.face(f));
     if (es.length && !fs.length) {
@@ -1242,24 +1303,26 @@ export class Editor {
     return null;
   }
   /** 选区里有没有曲线的边（炸开曲线钮）。 */
-  hasCurveSelection(): boolean { const k = this.kernel; for (const e of this.selection.edges) if (k.graph.hasEdge(e) && k.curveOf(e) !== undefined) return true; return false; }
+  hasCurveSelection(): boolean { if (this.activeKind() !== "brep") return false; const k = this.kernel; for (const e of this.selection.edges) if (k.graph.hasEdge(e) && k.curveOf(e) !== undefined) return true; return false; }
   /** 炸开选区里的曲线（SU Explode Curve）：每条曲线给一条代表边，op 按坐标寻址。 */
   /** 选区能焊吗（粗筛，菜单显示用；真判在 planWeld）：≥ 2 条边、没选面。 */
-  canWeldSelection(): boolean { const k = this.kernel; return !this.selection.faces.size && [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).length >= 2; }
+  canWeldSelection(): boolean { if (this.activeKind() !== "brep") return false; const k = this.kernel; return !this.selection.faces.size && [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).length >= 2; }
   /** 焊接选区（B19，SU Weld Edges）：成一条曲线，之后选中整条。 */
   weldSelection(): boolean {
+    if (!this.requireBrep("焊接")) return false;
     const k = this.kernel, at = this.activePool();
     const plan = planWeld(k, [...this.selection.edges].filter((e) => k.graph.hasEdge(e)));
     if (typeof plan === "string") { this.host.hint(plan); return false; }
     const keys = plan.edges.map((e) => edgeKey(k, e));
     this.commitOp({ op: "weldEdges", at, edges: keys });
-    const k2 = this.kernel; this.selection = emptySelection(); this.selectedPools.clear();
+    const k2 = this.kernel; this.selection = this.blankSelection(); this.selectedPools.clear();
     for (const key of keys) { try { this.selection.edges.add(resolveEdge(k2, key)); } catch { /* 没了就不选 */ } }
     this.host.hint(`焊接：${plan.edges.length} 段 → 一条${plan.spec.kind === "circle" ? "圆" : plan.spec.kind === "arc" ? "弧" : "曲线"}（选 / 擦 / 高亮当整体）`);
     this.host.changed(); this.draw();
     return true;
   }
   explodeCurveSelection(): void {
+    if (!this.requireBrep("炸开曲线")) return;
     const k = this.kernel, at = this.activePool();
     const seen = new Set<number>(); const edges: ReturnType<typeof edgeKey>[] = [];
     for (const e of this.selection.edges) { if (!k.graph.hasEdge(e)) continue; const cid = k.curveOf(e); if (cid === undefined || seen.has(cid)) continue; seen.add(cid); edges.push(edgeKey(k, e)); }
@@ -1270,13 +1333,16 @@ export class Editor {
   deleteSelection(): void { return this.step(() => this.deleteSelectionStep()); }
   private deleteSelectionStep(): void {
     if (!this.hasSelection()) return;
-    const k = this.kernel, at = this.activePool();
-    // 删点 = 删连着它的线（Blender「删除顶点」；面跟着线没了就没了）
-    const delE = new Set<EdgeId>([...this.selection.edges].filter((e) => k.graph.hasEdge(e)));
-    for (const v of this.selection.verts) if (k.graph.hasVertex(v)) for (const e of k.graph.vertex(v).edges) delE.add(e);
-    if (this.selection.faces.size || delE.size) {
-      this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...delE].map((e) => edgeKey(k, e)) });
-    }
+    const at = this.activePool(), n0 = this.opCount;
+    if (this.activeKind() === "brep") {
+      const k = this.kernel;
+      // 删点 = 删连着它的线（Blender「删除顶点」；面跟着线没了就没了）
+      const delE = new Set<EdgeId>([...this.selection.edges].filter((e) => k.graph.hasEdge(e)));
+      for (const v of this.selection.verts) if (k.graph.hasVertex(v)) for (const e of k.graph.vertex(v).edges) delE.add(e);
+      if (this.selection.faces.size || delE.size) {
+        this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...delE].map((e) => edgeKey(k, e)) });
+      }
+    } else if (this.hasGeometrySelection() || this.hasPointSelection()) this.requireBrep("删除几何");   // 网格体的删除 = M4；选中的子实例照删
     const def = this.scene.defOfContext(this.ctx);
     const kept = new Map<string, PoolPick>();   // 锁住的不删、留在选区里（要解锁得先选中它）
     for (const [key, p] of [...this.selectedPools]) {
@@ -1284,8 +1350,10 @@ export class Editor {
       if (p.kind === "group") this.commitOp({ op: "eraseGroup", at, group: p.group });
       else this.commitOp({ op: "eraseInstance", def, instance: p.instance });
     }
-    if (this.selection.guides.size) this.commitOp({ op: "eraseGuides", at, ids: [...this.selection.guides] });   // A31：选中的参考线 / 参考点
-    this.selection = emptySelection(); this.selectedPools = kept;
+    const gsel = guidesOf(this.selection);
+    if (gsel.size) this.commitOp({ op: "eraseGuides", at, ids: [...gsel] });   // A31：选中的参考线 / 参考点
+    if (this.opCount === n0) return;   // 什么都没删（网格体的几何 / 全锁着）：选区留着，不假装删过
+    this.selection = this.blankSelection(); this.selectedPools = kept;
     if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没删（选区菜单 → 解锁）`);
     this.host.changed();
     this.draw();
@@ -1295,13 +1363,14 @@ export class Editor {
   /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
   makeGroup(): boolean {
     if (!this.hasSelection()) return false;
+    if (!this.requireBrep("建组 / 建组件")) return false;
     const at = this.activePool(), k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
     const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
     const nest = this.nestPicks();
     if (!faces.length && !edges.length && !nest.groups.length && !nest.instances.length) return false;
     this.commitOp({ op: "makeGroup", at, faces, edges, ...nest.fields });
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     const def = this.scene.brep(this.scene.defOfContext(this.ctx));
     const newest = [...def.groups.values()].filter((g) => g.parent === this.ctx.group).pop();
     if (newest) this.selectedPools.set(`g${newest.id}`, { kind: "group", group: newest.id });
@@ -1325,6 +1394,7 @@ export class Editor {
   }
   private makeComponentStep(name: string): boolean {
     if (!this.hasSelection()) return false;
+    if (!this.requireBrep("建组 / 建组件")) return false;
     const at = this.activePool(), k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
     const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
@@ -1340,7 +1410,7 @@ export class Editor {
       this.commitOp({ op: "setAxes", at: { def: defId, group: null }, frame: { origin, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } });
     };
     const selectNewest = (): void => {
-      this.selection = emptySelection(); this.selectedPools.clear();
+      this.selection = this.blankSelection(); this.selectedPools.clear();
       const def = this.scene.def(this.scene.defOfContext(this.ctx));
       const newest = [...def.instances.values()].filter((i) => i.parent === this.ctx.group).pop();
       if (newest) this.selectedPools.set(`i${newest.id}`, { kind: "instance", instance: newest.id });
@@ -1358,6 +1428,7 @@ export class Editor {
   explodeSelection(): boolean { return this.step(() => this.explodeSelectionStep()); }
   private explodeSelectionStep(): boolean {
     if (!this.selectedPools.size) return false;
+    if (!this.requireBrep("炸开")) return false;   // 炸进网格体的池 = M4（炸开的几何要并进 mesh 内核）
     const at = this.activePool();
     const kept = new Map<string, PoolPick>();
     for (const [key, p] of [...this.selectedPools]) {
@@ -1446,7 +1517,7 @@ export class Editor {
     const mode: "selection" | "context" = scope === "auto" && (geoSel || this.selectedPools.size > 0) ? "selection" : "context";
     const out: RepairScope = { pools: [], mode, components: 0, copies: 0, locked: 0 };
     const seenPool = new Set<string>(), seenDef = new Set<DefId>([ctxDef]);
-    const addPool = (at: PoolRef, sel: Selection | null, xf: Xform = IDENTITY): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ kind: "brep", at, sel, xf }); };
+    const addPool = (at: PoolRef, sel: BrepSelection | null, xf: Xform = IDENTITY): void => { const key = `${at.def}/${at.group ?? "root"}`; if (seenPool.has(key) || s.def(at.def).body.kind !== "brep") return; seenPool.add(key); out.pools.push({ kind: "brep", at, sel, xf }); };
     const groupsUnder = (def: DefId, gid: GroupId | null): GroupId[] => {
       const body = s.def(def).body;
       if (body.kind !== "brep") return [];
@@ -1473,7 +1544,7 @@ export class Editor {
       }
       return out;
     }
-    if (geoSel) addPool(active, this.selection);
+    if (geoSel && this.selection.kind === "brep") addPool(active, this.selection);   // 修复是 brep 的动词：网格体的几何选区不进它的作用域
     for (const p of this.selectedPools.values()) {
       if (p.kind === "group") {
         const gs = [p.group, ...groupsUnder(ctxDef, p.group)];
@@ -1497,46 +1568,88 @@ export class Editor {
   /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
   repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }
   private repairModule(kind: RepairKind): Command<PoolUnit> { const m = commandById(kind); if (!m || m.unit !== "brep") throw new Error(`command "${kind}" is not loaded (or is not a brep command)`); return m as Command<PoolUnit>; }
-  /** 选区浮条上的指令入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。brep 族按池数、object 族按选中的组件数。 */
+  /** 选区浮条上的入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露；按工作台筛）：main.ts 照着画。数 = 路由表里每种单位各数各的（brep 走修复那条作用域、其余按单位规划）。 */
   commandMenu(): { id: string; label: string; icon: string }[] {
     const out: { id: string; label: string; icon: string }[] = [];
-    for (const p of placementsAt("contextBar")) {
+    for (const p of placementsAt("contextBar", this.mode.id)) {
       const a = actionById(p.action); if (!a) continue;
-      const c = commandById(a.command); if (!c) continue;
-      const n = c.unit === "object" ? this.objectCount(a.command) : this.repairMenuCount(a.command);
+      let n = 0;
+      for (const r of routesOf(a)) n += r.kind === "brep" ? this.repairMenuCount(r.command.id) : this.unitCount(r.command, r.kind);
       if (n) out.push({ id: a.id, label: a.label(n), icon: a.icon ?? "" });
     }
     return out;
   }
-  /** 跑一条指令（浮条 / 右键的入口）：按它吃的单位种类派发——brep 族走修复那条路（作用域 = 池），object 族走物体那条路（作用域 = 选中的组件）。 */
-  runCommand(id: CommandId): number {
-    const c = commandById(id);
-    if (!c) { this.host.hint(`指令「${id}」没装`); return 0; }
-    return c.unit === "object" ? this.runObjectCommand(id) : this.repair(id);
-  }
-  /** 物体族的作用域：选中的组件实例 → 定义（同一定义去重；锁着的跳过；组不是物体、不算）。 */
-  private objectUnits(): ObjectUnit[] {
-    const s = this.scene, ctxDef = s.defOfContext(this.ctx), seen = new Set<DefId>(), out: ObjectUnit[] = [];
-    for (const p of this.selectedPools.values()) {
-      if (p.kind !== "instance") continue;
-      const inst = s.instance(ctxDef, p.instance);
-      if (inst.locked || seen.has(inst.def)) continue;
-      seen.add(inst.def);
-      const d = s.def(inst.def);
-      out.push({ kind: "object", def: d.id, name: d.name, body: d.body.kind, copies: s.instanceCount(d.id) });
-    }
-    return out;
-  }
-  private objectCount(id: CommandId): number {
-    const c = commandById(id); if (!c || c.unit !== "object") return 0;
-    const cmd = c as Command<ObjectUnit>, v = cmd.defaults(this.repairCtx);
+  /** 老入口（动作 id = 指令 id 的那些）；新代码走 runAction。 */
+  runCommand(id: CommandId): number { return this.runAction(id); }
+  /** 一条指令在它那种单位上会碰几处（object 族按 perDefinition 去重后数）。 */
+  private unitCount(c: Command, kind: UnitKind): number {
+    const v = c.defaults(this.repairCtx);
     let n = 0;
-    for (const u of this.objectUnits()) n += cmd.plan(this.repairCtx, u, v).count;
+    for (const u of this.unitsFor(c, kind)) n += c.quickCount ? c.quickCount(this.repairCtx, u) : c.plan(this.repairCtx, u, v).count;
     return n;
+  }
+  /**
+   * 作用域解成单位（注册表提案 §2.1 的最小版，按种类；2026-10-27 接缝）：brep / mesh = 活动池 + 它的几何选区（没选几何 = 没有这个单位；修复那条路另有「整个物体」的作用域）；
+   * object = 选中的、没锁的实例（场景里摆着的每一份一个单位）。加一种身体 = 这里多一个分支 + 它的选区类型，别处不动。
+   */
+  private unitsOf(kind: UnitKind): Unit[] {
+    const s = this.scene, at = this.activePool();
+    if (kind === "object") {
+      const ctxDef = s.defOfContext(this.ctx), out: ObjectUnit[] = [];
+      for (const p of this.selectedPools.values()) {
+        if (p.kind !== "instance") continue;
+        const inst = s.instance(ctxDef, p.instance);
+        if (inst.locked) continue;
+        const d = s.def(inst.def);
+        out.push({ kind: "object", at, instance: inst.id, def: d.id, name: d.name, body: d.body.kind, copies: s.instanceCount(d.id), xf: inst.xform });
+      }
+      return out;
+    }
+    if (this.activeKind() !== kind || (!this.hasGeometrySelection() && !this.hasPointSelection())) return [];
+    const sel = this.selection;
+    return sel.kind === "brep" ? [{ kind: "brep", at, sel, xf: IDENTITY }] : [{ kind: "mesh", def: at.def, sel, xf: IDENTITY }];
+  }
+  /** 指令声明 perDefinition（改定义不改这一份）时按定义去重：同一定义几份实例只喂一次（copies 披露「N 份一起变」）。 */
+  private unitsFor(c: Command, kind: UnitKind): Unit[] {
+    const all = this.unitsOf(kind);
+    if (!c.perDefinition || kind !== "object") return all;
+    const seen = new Set<DefId>();
+    return all.filter((u) => u.kind === "object" && !seen.has(u.def) && !!seen.add(u.def));
+  }
+  /**
+   * 跑一个动作（浮条 / 右键 / 以后的搜索与脚本）：按路由表把作用域里每种单位喂给它那条指令，全部调用合成一步；表里没有的种类跳过并说出来（不静默）。
+   * 今天的两个特例（注册表第三步把 28 条选区动作搬进表时折进通用跑法）：只路由 brep 一种 = 修复那条路（作用域「选中的 / 整个物体」、含子物体、擦线估时、马后炮都在那）；只路由 object 一种 = 物体那条路（估时 + 按定义去重）。
+   */
+  runAction(id: string, params?: CmdParams): number {
+    const a = actionById(id);
+    if (!a) { this.host.hint(`动作「${id}」没装`); return 0; }
+    const routes = routesOf(a);
+    if (!params && routes.length === 1 && routes[0].kind === "brep") return this.repair(routes[0].command.id);
+    if (!params && routes.length === 1 && routes[0].kind === "object") return this.runObjectCommand(routes[0].command.id);
+    return this.step(() => {
+      const ops: Op[] = [], notes = new Set<string>(), dones: { c: Command; n: number; v: CmdParams }[] = [];
+      let count = 0;
+      for (const { kind, command: c } of routes) {
+        const v: CmdParams = { ...c.defaults(this.repairCtx), ...(params ?? {}) };
+        let n = 0;
+        for (const u of this.unitsFor(c, kind)) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); n += r.count; for (const t of r.notes ?? []) notes.add(t); }
+        if (n) dones.push({ c, n, v });
+        count += n;
+      }
+      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).length) notes.add(`跳过了${kind === "brep" ? "SU 体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
+      const tail = [...notes].map((t) => `；${t}`).join("");
+      if (!ops.length) { this.host.hint(`${[...new Set(routes.map((r) => r.command.none))].join("；")}${tail}`); return 0; }
+      const n0 = this.opCount;
+      for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
+      if (this.opCount === n0) return 0;
+      this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}`);
+      this.host.changed(); this.draw();
+      return count;
+    });
   }
   /** 跑一条物体指令：一次 = 一步；要等很久先问；做完说清做了什么、丢了什么；有参数的给马后炮。 */
   private runObjectCommand(id: CommandId): number {
-    const c = commandById(id) as Command<ObjectUnit>, v0 = c.defaults(this.repairCtx), units = this.objectUnits();
+    const c = commandById(id) as Command<ObjectUnit>, v0 = c.defaults(this.repairCtx), units = this.unitsFor(c, "object") as ObjectUnit[];
     const est = c.estimate?.(this.repairCtx, units, v0);
     if (est && est.seconds >= Editor.ERASE_ASK_SECONDS && this.host.confirm) {
       const t = est.seconds < 90 ? `${Math.round(est.seconds)} 秒` : `${(est.seconds / 60).toFixed(1)} 分钟`;
@@ -1560,12 +1673,12 @@ export class Editor {
     };
     const n0 = this.opCount, count = go(v0);
     if (count && c.params(this.repairCtx).length) this.offerAfterthought(c.title, c.params(this.repairCtx), v0, this.opCount - n0, (v) => { go(v); });
-    this.selectedPools.clear(); this.selection = emptySelection();   // 身体换了种类：旧的选区 / 拾取对不上新内核，清掉（诚实）
+    this.selectedPools.clear(); this.selection = this.blankSelection();   // 身体换了种类：旧的选区 / 拾取对不上新内核，清掉（诚实）
     this.host.changed(); this.draw();
     return count;
   }); }
   /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
-  private repairPlan(kind: RepairKind, at: PoolRef, sel: Selection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): PlanOut {
+  private repairPlan(kind: RepairKind, at: PoolRef, sel: BrepSelection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): PlanOut {
     return this.repairModule(kind).plan(this.repairCtx, { kind: "brep", at, sel, xf }, v);
   }
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
@@ -1809,10 +1922,11 @@ export class Editor {
     this.host.changed(); this.draw();
     return true;
   }); }
-  hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.selectedPools.size > 0 || this.selection.guides.size > 0; }   // 点不单独藏
+  hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.selectedPools.size > 0 || guidesOf(this.selection).size > 0; }   // 点不单独藏
   /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
   hideSelection(): number { return this.step(() => this.hideSelectionStep()); }
   private hideSelectionStep(): number {
+    if (!this.requireBrep("隐藏")) return 0;
     const at = this.activePool(), k = this.kernel, def = at.def, body = this.scene.brep(def);
     let n = 0;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
@@ -1831,7 +1945,7 @@ export class Editor {
     for (const i of this.scene.def(def).instances.values()) if (i.parent !== null && tree.has(i.parent) && !i.hidden) insts.push(i.id);
     for (const iid of insts) { const inst = this.scene.def(def).instances.get(iid)!; this.commitOp({ op: "setHidden", at: { def, group: inst.parent }, instance: iid, on: true }); n++; }
     if (!n) return 0;
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     this.host.hint(`藏起来了；视图菜单「全部显示」放回来（Alt+H）`);
     this.host.changed(); this.draw();
     return n;
@@ -1858,13 +1972,17 @@ export class Editor {
   /** 进入选中（或命中）的子 group / 实例编辑。 */
   enterPool(p: PoolPick): void {
     if (this.pickIsLocked(p)) { this.host.hint("已锁定：解锁后再进入（选中它 → 解锁）"); return; }
-    // 网格体（mesh 身体，2026-10-27 M2）：画得出、点得中、吸得到、能整体挪 / 转 / 缩；进去编辑要自由建模工作台（M4，Opus 接）——现在诚实拦住，不让 brep 工具碰它
-    if (p.kind === "instance" && this.scene.kindOf(this.scene.instance(this.scene.defOfContext(this.ctx), p.instance).def) !== "brep") { this.host.hint("网格体：自由建模工作台还没接上，现在只能整体挪 / 转 / 缩"); return; }
+    if (p.kind === "instance") {   // 进一份实例 = 进它的定义：那种身体得有工作台管（KindDef.modes 登记 + 这里装了那个 Mode），没有就诚实拦住
+      const kind = this.scene.kindOf(this.scene.instance(this.scene.defOfContext(this.ctx), p.instance).def);
+      if (!KINDS[kind].modes.length || !this.modeList.some((m) => (m.kinds as readonly BodyKind[]).includes(kind))) { this.host.hint(`${KINDS[kind].label}：还没有能编辑它的工作台，现在只能整体挪 / 转 / 缩`); return; }
+    }
     this.last = null;
     this.cancelGesture();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selectedPools.clear();
     if (p.kind === "group") this.ctx = { chain: this.ctx.chain, group: p.group };
     else this.ctx = { chain: [...this.ctx.chain, p.instance], group: null };
+    this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类）
+    this.ensureModeForKind();
     this._revision++;
     this.host.changed(); this.draw();
   }
@@ -1879,7 +1997,7 @@ export class Editor {
     this.last = null;
     if (this.ctx.chain.length === 0 && this.ctx.group === null) return false;
     this.cancelGesture();
-    this.selection = emptySelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();
     const def = this.scene.defOfContext(this.ctx);
     let reselect: PoolPick | null = null;
     if (this.ctx.group !== null) {
@@ -1893,6 +2011,7 @@ export class Editor {
       reselect = { kind: "instance", instance: inst.id };
       this.ctx = { chain, group: inst.parent };
     }
+    this.selection = this.blankSelection(); this.ensureModeForKind();   // 退到的那层可能是另一种身体（从网格体退回 SU 体）
     if (reselect) this.selectedPools.set(this.pickKey(reselect), reselect);
     this._revision++;
     this.host.changed(); this.draw();
@@ -1944,6 +2063,7 @@ export class Editor {
   // ---------- 平滑组：软化 / 硬化 ----------
   /** 给这些边（本地 id）软化（soft + smooth）或硬化。 */
   softenEdges(ids: readonly EdgeId[], on: boolean): void {
+    if (!this.requireBrep("软化 / 硬化")) return;
     const k = this.kernel;
     const edges = ids.filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
     if (!edges.length) return;
@@ -1952,6 +2072,7 @@ export class Editor {
   }
   /** 按二面角阈值软化：有选区 → 选区的边（含选中膜的环边）；否则活动池全部。只碰恰好两膜的边。 */
   softenByAngle(maxDeg: number, on = true): number {
+    if (!this.requireBrep("软化 / 硬化")) return 0;
     const k = this.kernel;
     let pool: EdgeId[];
     if (this.hasGeometrySelection()) {
@@ -1965,6 +2086,7 @@ export class Editor {
   }
   /** 选区的边软化 / 硬化（不看角度）。 */
   softenSelection(on: boolean): number {
+    if (!this.requireBrep("软化 / 硬化")) return 0;
     const k = this.kernel;
     const set = new Set<EdgeId>(this.selection.edges);
     for (const fid of this.selection.faces) { const f = k.face(fid); if (f) for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) set.add(d.edge); }
@@ -2019,6 +2141,7 @@ export class Editor {
   mirrorActive(): boolean { return this.gizmo !== null; }
   /** 镜像…：作用在选区（散几何 + 选中的组件实例）上；没有可镜的 → false。 */
   beginMirror(): boolean {
+    if (!this.requireBrep("镜像")) return false;
     const k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)), edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e));
     const instPicks = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance");
@@ -2053,7 +2176,7 @@ export class Editor {
       this.endMirror();
       this.commitOp(opOf(vals, pl));
       if (this.opCount === n0) return;   // 被拒（破面 / 锁着）：报错已出，不进马后炮
-      this.selection = emptySelection(); this.selectedPools.clear();
+      this.selection = this.blankSelection(); this.selectedPools.clear();
       this.offerAfterthought("镜像", fields, { ...vals }, this.opCount - n0, (v) => { this.commitOp(opOf(v, pl)); });
       this.host.hint("镜像好了：右下角还能改选项（撤销重做）");
     };
@@ -2476,7 +2599,7 @@ export class Editor {
     if (c.kind === "pool") return this.selectedPools.has(c.key);
     if (c.kind !== "entity") return false;
     const h = c.local;
-    return (h.face !== undefined && this.selection.faces.has(h.face)) || (h.edge !== undefined && this.selection.edges.has(h.edge)) || (h.vertex !== undefined && this.selection.verts.has(h.vertex)) || (h.vertex !== undefined && [...this.selection.edges].some((e) => { const ed = this.kernel.graph.edge(e); return ed.a === h.vertex || ed.b === h.vertex; }));
+    return (h.face !== undefined && this.selection.faces.has(h.face)) || (h.edge !== undefined && this.selection.edges.has(h.edge)) || (h.vertex !== undefined && this.selection.verts.has(h.vertex)) || (h.vertex !== undefined && [...this.selection.edges].some((e) => { const ed = this.activeView.graph.edge(e); return ed.a === h.vertex || ed.b === h.vertex; }));
   }
   /** 把选区扩成连通体（SU「选择 → 所有相连」）。 */
   selectConnected(): boolean {
@@ -2711,7 +2834,7 @@ export class Editor {
       handles: null,
       protractor: null,
       guides: view.guides(),
-      guideSel: this.selection.guides,
+      guideSel: guidesOf(this.selection),
       frame: view.frame(),
       grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.step, sub: this._grid.subdiv, on: this._grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
@@ -2775,8 +2898,8 @@ export class Editor {
     const view = this.worldView();
     let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
     const add = (p: Pt3): void => { min = { x: Math.min(min.x, p.x), y: Math.min(min.y, p.y), z: Math.min(min.z, p.z) }; max = { x: Math.max(max.x, p.x), y: Math.max(max.y, p.y), z: Math.max(max.z, p.z) }; };
-    const k = this.kernel, m = this.ctxXform();
-    for (const vid of moveTargetsSelection(k, this.selection)) add(applyPt(m, k.graph.pt(vid)));
+    const v = this.activeView, m = this.ctxXform();
+    for (const vid of moveTargetsSelection(v, this.selection)) add(applyPt(m, v.graph.pt(vid)));
     for (const p of this.selectedPools.values()) for (const s of this.slotsOfPick(view, p)) { const b = poolBounds(s.kernel, s.xform); if (b) { add(b.min); add(b.max); } }
     return Number.isFinite(min.x) ? { min, max } : null;
   }
@@ -2818,6 +2941,11 @@ export class Editor {
   /** 手势中 = 工具的 dims；否则选中面的面积合计 / 选中边的长度合计；都没有 = ""。 */
   readoutText(): string {
     if (this.dims) return this.dims;
+    if (this.activeKind() !== "brep") {   // 非 brep 的池：只认显示契约——数面 / 点、量边长（面积要平面环，brep 才有）
+      const v = this.activeView, fs = [...this.selection.faces].filter((f) => v.face(f)).length, vn = [...this.selection.verts].filter((x) => v.graph.hasVertex(x)).length, es = [...this.selection.edges].filter((e) => v.graph.hasEdge(e));
+      let L = 0; for (const e of es) { const E = v.graph.edge(e); L += len3(sub3(v.graph.pt(E.b), v.graph.pt(E.a))); }
+      return [fs ? `${fs} 面` : "", vn ? `${vn} 个点` : "", es.length ? `长 ${fmtLen(L)}${es.length > 1 ? `（${es.length} 边）` : ""}` : ""].filter(Boolean).join(" · ");
+    }
     const k = this.kernel;
     const fs = [...this.selection.faces].filter((f) => k.face(f)), es = [...this.selection.edges].filter((e) => k.graph.hasEdge(e));
     const parts: string[] = [];
@@ -2838,10 +2966,10 @@ export class Editor {
   /** 全选（Ctrl+A，A7）：当前上下文的全部几何 + 直接子 group / 实例。 */
   selectAll(): boolean { this.selectAllInner(); this.afterSelect(); return this.hasSelection(); }
   private selectAllInner(): void {
-    const k = this.kernel;
-    this.selection = emptySelection(); this.selectedPools.clear();
-    for (const f of k.faces()) if (!k.isFaceHidden(f.id)) this.selection.faces.add(f.id);   // 隐藏的（DT49）不选
-    for (const e of k.edges()) if (!k.isEdgeHidden(e.id)) this.selection.edges.add(e.id);
+    const v = this.activeView;   // 显示契约：任何种类的池都能全选
+    this.selection = this.blankSelection(); this.selectedPools.clear();
+    for (const f of v.faces()) if (!v.isFaceHidden(f.id)) this.selection.faces.add(f.id);   // 隐藏的（DT49）不选
+    for (const e of v.edges()) if (!v.isEdgeHidden(e.id)) this.selection.edges.add(e.id);
     const def = this.scene.def(this.scene.defOfContext(this.ctx));
     const shown = (gk: Kernel): boolean => gk.faces().some((f) => !gk.isFaceHidden(f.id)) || gk.edges().some((e) => !gk.isEdgeHidden(e.id));
     if (def.body.kind === "brep") for (const g of def.body.groups.values()) if (g.parent === this.ctx.group && (shown(g.kernel) || [...def.body.groups.values()].some((c) => c.parent === g.id))) this.selectedPools.set(`g${g.id}`, { kind: "group", group: g.id });
@@ -2962,15 +3090,15 @@ export class Editor {
       emptyAt: (sx, sy) => this.emptyAt(sx, sy),
       emptiesIn: (box) => this.emptiesIn(box),
       replaceSelection: (sel, mode) => {
-        if (mode === "replace") { this.selection = emptySelection(); this.selectedPools.clear(); }
+        if (mode === "replace") { this.selection = this.blankSelection(); this.selectedPools.clear(); }
         mergeSel(this.selection.edges, sel.edges, mode, true);
         mergeSel(this.selection.faces, sel.faces, mode, true);
-        mergeSel(this.selection.guides, sel.guides ?? [], mode, true);
+        if (this.selection.kind === "brep") mergeSel(this.selection.guides, sel.guides ?? [], mode, true);
         this.mergePools(sel.pools, mode);
       },
       selectGuide: (id, mode) => {
-        if (mode === "replace") { this.selection = emptySelection(); this.selectedPools.clear(); }
-        mergeSel(this.selection.guides, [id], mode);
+        if (mode === "replace") { this.selection = this.blankSelection(); this.selectedPools.clear(); }
+        if (this.selection.kind === "brep") mergeSel(this.selection.guides, [id], mode);
         this.host.changed(); this.draw();
       },
       afterSelect: () => this.afterSelect(),

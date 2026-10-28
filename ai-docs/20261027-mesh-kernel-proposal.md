@@ -122,7 +122,7 @@ export interface EditorSelection { body: Selection | null; guides: Set<number>; 
 | M1 | `MeshKernel` + §2 的「几何 / 劈 / 并 / 合 / 填删 / 标记 / 建」算子 + 不变量性质测试 + 对抗案例集（node 直测，零 DOM） | **核心 done 10-27 夜（Claude Fable 5.1）**：`src/mesh/mesh-kernel.ts`（列式表 / 空闲表最小空位 / 邻接 CSR 按需重建 / CDT 三角化缓存 / 紧凑快照往返 / `check()` 不变量 / 封闭流形欧拉数）+ `src/mesh/ops/`（split: 劈边 / 劈面 / 刀；join: 并面 / 溶解二度点；merge: 合；delete: 面 / 边 / 点三档；extrude: 挤出；build: 多边形 / 填 / 盒子；geometry: 挪 / 变换 / 标记 / 材质 / 翻面）；`test/mesh-kernel.test.ts` 10 组（含 8 种子 × 40 步随机串：每步自检 + 克隆对拍）。v0.15.8 再加 loopcut（环切：闭环 / 开口带）+ cleanup（有限溶解 / 去重点），14 组测试。**还没做**：inset / bevel / mirrorWeld / addPrimitive 球柱、`subdivided()`、改动日志（现在只有 rev 计数） |
 | M2 | ~~`FaceSource` / `GeomView` 两个适配器~~ → **一份契约 `scene/kernel-view.ts`**（渲染 / 合成视图 / 拾取 / 吸附读内核的那份；brep 结构上满足、mesh 经 `mesh/mesh-view.ts` 真做）+ `Scene.viewOf` + `MeshBody.kernel` + brep → mesh 多边形转换 + 法向一致化 + 单面剔背面 + 进网格体守门 | **done v0.15.10（10-27 夜，Fable）**：852 绿；修复 / 开机三探针 OK；临时探针：盒子 → 组件 → cast 成 mesh 真画出来（剔背面）、进去被拦住给人话。`KindDef.modes` 仍空（M4 接工作台时填）。 |
 | M3（done v0.15.11，10-27 夜，Fable；见 §12） | `CATSUP_mesh` 格式 + 迁移 + 冻结样本 + 两条转换指令（含报告 / estimate）；导入外来 glb 改成 mesh | 往返测试；熊 / 小红帽导入 → 转 brep → 报告数字和 10-27 的一致 |
-| M4（Opus） | `freeform` 模式 + 刀 / 拉 / 环切三个工具 + `mesh.*` 指令按注册表写 + 选择那一块 | 小红帽白模能从盒子做出来（FM61） |
+| M4（Opus） | ~~`freeform` 模式~~（壳 v0.15.16 Fable 做了，§14）+ 刀 / 拉 / 环切三个工具 + `mesh.*` 指令按注册表写（照 `meshMove`）+ 选择那一块（点击族 / 全选 v0.15.16 已通，套索 / 环选 / 扩缩待做） | 小红帽白模能从盒子做出来（FM61） |
 | M5（Opus） | 通用笔刷工具（软挪）+ 自动镜像（`mirrorWeld` 每步） | 手稿里的「软 TRS」「自动对称」 |
 | M6 | 长 / 倒角 / 细分显示参数（FM76）/ 雕刻的加速结构（以后） | — |
 
@@ -200,3 +200,9 @@ user：「gltf不是支持ngon的吗，为什么输出要三角化」→ glTF 2.
 - 临时探针（job tmp）：盒子 → 组件 → 浮条「转成网格体（1）」→ 画得出 → 浮条「转回 SU 体（1）」→ 6 张膜 0 软边 → 撤销两步 / 重做一步都对。877 绿。
 - 图标：两条动作暂用 `collection` / `wrench`，已在图标库 TODO 登记 `to-mesh` / `to-brep`。
 - **wishlist**（user）：自动三角 → 四边形（FM97）。
+
+## 14. 接缝落地（v0.15.16，2026-10-27 夜，Claude Fable 5.1）：M4 的底子
+
+- `MeshUnit` 进注册表（§10 第 20 条兑现）；`Selection` 带种类（A2）；`ModeId freeform` + `MESH_KIND.modes = ["freeform"]` + `modes/freeform.ts`（壳 + 选择）；`enterPool` 按 KindDef.modes 放行；`meshMove` op + 撤销 mesh 记录（整表互换）；第一个路由型动作「挪」。全文 = 注册表提案 §7.8（含给 Opus 的 M4 清单）。
+- 网格体池里今天能做的：进 / 出、点 / 边 / 面点击族（一下 / 两下 / 三下连通）、框选、全选 / 反选 / 取消、数值挪（api 面）、撤销 / 重做；画得出、吸得到。不能做的（M4）：所有改拓扑的动词、删除几何、隐藏、建组件。
+- 场景层三个只认 brep 的取数改成按身体种类分（`Scene.guidesOf / materialOfSlot / childGroups`）：合成视图在网格体上下文里不再抛。

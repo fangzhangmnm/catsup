@@ -11,7 +11,7 @@ import { recalcNormals } from "../mesh/ops/orient.ts";
 import { kernelFromTriangles } from "../kernel/from-triangles.ts";
 import { emptyGuides } from "./guides.ts";
 
-export type KindModeId = "geometry" | "surface";
+export type KindModeId = "geometry" | "surface" | "freeform";
 export interface AlignGeometry { points: Pt3[]; segments: [Pt3, Pt3][]; planes: PlaneParams[]; }
 export interface KindDef<B extends Body = Body> {
   readonly id: BodyKind;
@@ -44,7 +44,7 @@ export const BREP_KIND: KindDef<BrepBody> = {
 };
 export const MESH_KIND: KindDef<MeshBody> = {
   id: "mesh", label: "网格",
-  modes: [],   // 自由建模工作台（M4，Opus）接上之前只在物体层摆
+  modes: ["freeform"],   // 自由建模工作台（modes/freeform.ts；2026-10-27 接缝：壳 + 选择；刀 / 拉 / 环切 = M4 Opus）
   castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "隐藏的面", "裸线（不属于任何面的边）", "面的材质", "软边 / 平滑标记（改按弯折角度重判）"] }],
   alignGeometry(b) {
     const m = b.kernel, points = m.verts().map((v) => m.pt(v));

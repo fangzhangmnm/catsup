@@ -12,14 +12,14 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "addEdges", segs: [[P(0, 0), P(1, 0)], [P(1, 0), P(2, 0)], [P(2, 0), P(2, 1)], [P(2, 1), P(0, 1)], [P(0, 1), P(0, 0)]] });
   e.commitOp({ op: "addEdges", segs: [[P(4, 0), P(5, 0)], [P(5, 0), P(6, 0)]] });
   const count = () => ({ edges: e.kernel.edges().length, faces: e.kernel.faces().length, ticks: e.breakTicks().length });
-  const out = { before: count(), scopeAll: e.repairCount("weld", "context") };
-  out.welded = e.repair("weld", "context"); out.after = count();
+  const out = { before: count(), scopeAll: e.repairCount("brep.weld", "context") };
+  out.welded = e.repair("brep.weld", "context"); out.after = count();
   e.undo(); await sleep(20); out.undone = count();
   // 只选散线
   e.cancel();
   for (const ed of e.kernel.edges()) { const a = e.kernel.graph.pt(ed.a); if (a.x >= 4) e.selection.edges.add(ed.id); }
   out.menu = hud.edits().filter((it) => !it.hidden).map((it) => it.label).filter((l) => l.startsWith("焊接断口"));
-  hud.pick("repair:weld"); await sleep(20);
+  hud.pick("action:brep.weld"); await sleep(20);
   out.afterSel = count();
   return out;
 });

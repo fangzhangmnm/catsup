@@ -10,6 +10,7 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
+import { moveVerts } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -17,7 +18,7 @@ import { edgesAlongSegs } from "../kernel/curves.ts";
 import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
-import { type PoolRef, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
+import { type PoolRef, type MeshBody, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Frame, type Xform, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
@@ -90,6 +91,9 @@ export type Op =
   // ---------- 0.14 物体模型（契约 ai-docs/20261024-object-model-contract.md）----------
   /** 显式换身体种类（定义级：共享定义的全部实例一起变）；只认 kinds.ts 登记表里的方向，失败不改文档。 */
   | { op: "castDefinition"; def: number; to: BodyKind; /** mesh → brep：弯折不到这个角度的边算软边（度；缺 = 20）。 */ softDeg?: number }
+  // ---------- mesh 族（0.15 网格体；2026-10-27 接缝）：网格体没有组，寻址 = 定义 + 内核 id（数组制度：id 稳定、克隆保号，不用按坐标寻址）----------
+  /** 挪网格点：往位置数组里写（mesh/ops/geometry.ts moveVerts）。不过结算机、不合并、不折面——mesh 刻意没有 brep 的公理。 */
+  | { op: "meshMove"; def: number; moves: { v: number; to: Pt3 }[] }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -161,6 +165,13 @@ export function moveOp(k: Kernel, moves: readonly { id: VertexId; to: PtIn }[], 
 
 // ---------- 应用（重放与实时同一条路；clear / preset 换新场景，其余原地）----------
 // 门 1（0.13 刀 ①）：内核 op 只对 brep 池成立；别的 kind（mesh…）各有自己的 op 集，到时按 s.kindOf(ref.def) 在这里分叉，不改既有分支。
+/** 门 1 的 mesh 那半：mesh op 只对网格体定义成立（定义不在 / 不是网格体 = 目标缺席，不是崩溃）。 */
+export const meshOf = (s: Scene, def: number): MeshBody => {
+  if (!s.defs.has(def)) throw new OpTargetError(`definition ${def}`);
+  const kind = s.kindOf(def);
+  if (kind !== "mesh") throw new OpTargetError(`definition ${def} is a ${kind} body: no mesh op applies`);
+  return s.mesh(def);
+};
 export const poolOf = (s: Scene, at?: PoolRef): { kernel: Kernel; ref: PoolRef } => {
   const ref = at ?? { def: s.root, group: null };
   if (!s.hasPool(ref)) throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"}`);
@@ -519,6 +530,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       }
       return { scene: s, events: [] };
     }
+    case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
     case "castDefinition": {
       const d = s.def(op.def);
       const body = castBody(d.body, op.to, op.softDeg !== undefined ? { softDeg: op.softDeg } : undefined);   // 不认的方向在这里抛，文档不动
@@ -574,6 +586,7 @@ export function describeOp(op0: Op): string {
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
+    case "meshMove": { const m = op.moves[0], d = m ? ` v${m.v}→${m.to.x.toFixed(3)},${m.to.y.toFixed(3)},${m.to.z.toFixed(3)}` : ""; return `meshMove def=${op.def} verts=${op.moves.length}${d}`; }
     case "addLayer": return `addLayer ${op.name}`;
     case "renameLayer": return `renameLayer ${op.layer}`;
     case "setLayerVisible": return `setLayerVisible ${op.layer} ${op.visible ? "on" : "off"}`;

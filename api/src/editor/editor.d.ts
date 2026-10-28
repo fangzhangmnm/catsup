@@ -18,13 +18,14 @@ import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
-import type { CommandId } from "./commands/command.ts";
+import type { CommandId, Params as CmdParams } from "./commands/command.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
 import { type Frame } from "../scene/xform.ts";
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ModeId } from "./mode.ts";
+import type { BodyKind } from "../scene/body-kind.ts";
 import type { OptionKv } from "./tool-config.ts";
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
@@ -279,6 +280,7 @@ export declare class Editor {
     private readonly modeList;
     private mode;
     get modeId(): ModeId;
+    /** 左上下拉框里的工作台 = 管活动池这种身体的那些（SU 体：硬表面建模 / 表面；网格体：自由建模）。 */
     modes(): readonly {
         id: ModeId;
         label: string;
@@ -393,6 +395,16 @@ export declare class Editor {
     get tool(): Tool;
     /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
     get kernel(): Kernel;
+    /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
+    activeKind(): BodyKind;
+    /** 活动池的显示视图（渲染 / 拾取读的那份契约 kernel-view.ts；任何种类的内核都有——选区的通用路径只认它）。 */
+    private get activeView();
+    /** 按活动池的种类造空选区（不变量：selection.kind === activeKind()）。 */
+    private blankSelection;
+    /** brep 专属动词的守门：活动池不是 SU 体 → 提示一句、不做（网格体上的同名动词 = 自由建模工作台 M4）。不静默。 */
+    private requireBrep;
+    /** 工作台跟着活动池的身体种类走：当前工作台不管这种身体 → 切到管它的第一个（进出上下文、换场景后调）。 */
+    private ensureModeForKind;
     get sceneRef(): Scene;
     /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
     worldGeom(): WorldView;
@@ -596,12 +608,22 @@ export declare class Editor {
      * mode = 怎么合进已有选区（替换 / 加选 / 减选 / 切换，对齐 Blender）；空命中 + 替换 = 清选区。hit 是 WorldView 的全局 id。
      */
     selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode?: SelMode): boolean;
+    /**
+     * 非 brep 的池（网格体……）的点击族，只认显示契约 KernelView：一下 = 点 / 边 / 面本身；两下 = 面连同它的环、边连同两侧的面、点连同它的边；三下 = 沿边连通的面。
+     * 曲线 / 曲面 / 参考几何是 brep 的概念，这里没有；隐藏的不选。新种类的内核只要给了 KernelView 就自动有这一套。
+     */
+    private selectExpandView;
     /** 组 / 组件按 mode 合进选区（切换 = 逐个）。 */
     private mergePools;
     /** 反选（Blender Ctrl+I）：当前上下文里没选的面 / 边 / 子组 / 组件；点和参考几何清掉。隐藏的不选。 */
     invertSelection(): boolean;
     /** 全不选（Blender Alt+A；Esc 也行）。 */
     deselectAll(): void;
+    /**
+     * 「撤销也撤选区」（user 10-27「这个我们要」）：同一上下文里选区变了、没在手势里 → 记成 0 op 的一步。lastSession 只在这里和换场景时前进。
+     * 鼠标点选 / 框选发生在指针事件的那一步里（stepDepth > 0）——那一步结束时（step 的 finally）再记；以前 afterSelect 在步里直接把 lastSession 推进、不记，点选就永远进不了撤销栈（v0.15.15 的 bug，10-27 夜修）。
+     */
+    private recordSession;
     private afterSelect;
     /** 实体信息（0.10）：选区恰是一条曲线 → 「圆 r=… · N 段」/「弧 …」/「曲线 · N 段」；恰是一张曲面 → 「曲面 · N 面」；别的 → null（不抢提示行）。 */
     private selectionInfo;
@@ -663,17 +685,28 @@ export declare class Editor {
     /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
     repairLoaded(kind: RepairKind): boolean;
     private repairModule;
-    /** 选区浮条上的指令入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露）：main.ts 照着画。动作 id 今天 = 指令 id（最笨的动作）。brep 族按池数、object 族按选中的组件数。 */
+    /** 选区浮条上的入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露；按工作台筛）：main.ts 照着画。数 = 路由表里每种单位各数各的（brep 走修复那条作用域、其余按单位规划）。 */
     commandMenu(): {
         id: string;
         label: string;
         icon: string;
     }[];
-    /** 跑一条指令（浮条 / 右键的入口）：按它吃的单位种类派发——brep 族走修复那条路（作用域 = 池），object 族走物体那条路（作用域 = 选中的组件）。 */
+    /** 老入口（动作 id = 指令 id 的那些）；新代码走 runAction。 */
     runCommand(id: CommandId): number;
-    /** 物体族的作用域：选中的组件实例 → 定义（同一定义去重；锁着的跳过；组不是物体、不算）。 */
-    private objectUnits;
-    private objectCount;
+    /** 一条指令在它那种单位上会碰几处（object 族按 perDefinition 去重后数）。 */
+    private unitCount;
+    /**
+     * 作用域解成单位（注册表提案 §2.1 的最小版，按种类；2026-10-27 接缝）：brep / mesh = 活动池 + 它的几何选区（没选几何 = 没有这个单位；修复那条路另有「整个物体」的作用域）；
+     * object = 选中的、没锁的实例（场景里摆着的每一份一个单位）。加一种身体 = 这里多一个分支 + 它的选区类型，别处不动。
+     */
+    private unitsOf;
+    /** 指令声明 perDefinition（改定义不改这一份）时按定义去重：同一定义几份实例只喂一次（copies 披露「N 份一起变」）。 */
+    private unitsFor;
+    /**
+     * 跑一个动作（浮条 / 右键 / 以后的搜索与脚本）：按路由表把作用域里每种单位喂给它那条指令，全部调用合成一步；表里没有的种类跳过并说出来（不静默）。
+     * 今天的两个特例（注册表第三步把 28 条选区动作搬进表时折进通用跑法）：只路由 brep 一种 = 修复那条路（作用域「选中的 / 整个物体」、含子物体、擦线估时、马后炮都在那）；只路由 object 一种 = 物体那条路（估时 + 按定义去重）。
+     */
+    runAction(id: string, params?: CmdParams): number;
     /** 跑一条物体指令：一次 = 一步；要等很久先问；做完说清做了什么、丢了什么；有参数的给马后炮。 */
     private runObjectCommand;
     private runObjectNow;

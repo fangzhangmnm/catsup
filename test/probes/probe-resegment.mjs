@@ -13,8 +13,8 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "pushpull", at, face: pts, dist: 1 });
   e.deselectAll(); e.draw(); await sleep(30);
   const segs = () => e.kernel.curves().filter((c) => c.kind === "circle" && c.params).map((c) => c.params.segments).join();
-  const out = { N, menu: e.repairMenu().map((m) => m.label), before: segs() };
-  C.hud.pick("repair:resegment"); await sleep(30);
+  const out = { N, menu: e.commandMenu().map((m) => m.label), before: segs() };
+  C.hud.pick("action:brep.resegment"); await sleep(30);
   out.hint0 = document.getElementById("hint")?.textContent ?? ""; out.panelOpen = !!e.paramPanel(); out.same = segs();
   e.setParam("segments", "48"); await sleep(30);
   out.hint48 = document.getElementById("hint")?.textContent ?? ""; out.after = segs(); out.faces = e.kernel.faces().length;

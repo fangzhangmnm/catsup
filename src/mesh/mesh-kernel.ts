@@ -184,6 +184,18 @@ export class MeshKernel {
     m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
     return m;
   }
+  /**
+   * 整份表互换（对象身份不变；brep Kernel.swapTablesWith 同款）：撤销记录 = 提交前的拷贝，撤 / 重做 = 和真身互换——自反、不重跑算子。
+   * rev / 改动日志一起换：换回来的表配的是它自己那本日志（渲染缓存按日志族谱算差）。
+   */
+  swapWith(o: MeshKernel): void {
+    [this.pos, o.pos] = [o.pos, this.pos]; [this.vAlive, o.vAlive] = [o.vAlive, this.vAlive]; [this.vCount, o.vCount] = [o.vCount, this.vCount]; [this.vFree, o.vFree] = [o.vFree, this.vFree];
+    [this.faceStart, o.faceStart] = [o.faceStart, this.faceStart]; [this.faceLen, o.faceLen] = [o.faceLen, this.faceLen]; [this.fAlive, o.fAlive] = [o.fAlive, this.fAlive]; [this.faceMat, o.faceMat] = [o.faceMat, this.faceMat]; [this.faceFlags, o.faceFlags] = [o.faceFlags, this.faceFlags]; [this.fCount, o.fCount] = [o.fCount, this.fCount]; [this.fFree, o.fFree] = [o.fFree, this.fFree];
+    [this.loopVert, o.loopVert] = [o.loopVert, this.loopVert]; [this.loopCount, o.loopCount] = [o.loopCount, this.loopCount];
+    [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeFlags, o.edgeFlags] = [o.edgeFlags, this.edgeFlags]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
+    [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.adjDirty, o.adjDirty] = [o.adjDirty, this.adjDirty]; [this.vE, o.vE] = [o.vE, this.vE]; [this.eF, o.eF] = [o.eF, this.eF]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
+    [this.rev, o.rev] = [o.rev, this.rev]; [this.changes, o.changes] = [o.changes, this.changes];
+  }
   /** 紧凑快照（去空位、id 重编：存 / 导出时整理，user 10-27「catsup rule: organize in export/save」）。 */
   toSnapshot(): MeshSnapshot {
     const map = new Int32Array(this.vCount).fill(-1); const positions: number[] = []; let n = 0;

@@ -1,4 +1,5 @@
 import type { Edge, EdgeId, Face, FaceId, Kernel, Pt, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { KernelView } from "../scene/kernel-view.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { type Xform } from "../scene/xform.ts";
 import { type PlaneParams } from "../kernel/geom.ts";
@@ -51,13 +52,30 @@ export declare function marqueeOf(a: Pt, b: Pt): Marquee;
  * 点（2026-10-26，user「变换点中一个点的时候应该就是变换这个点啊」「以及我们还是希望我们能选点」）：选区里真的存点（Blender 式），移动 / 变换只动这些点；
  * 以前单击点 = 选连着它的线（现在是双击）。
  */
-export interface Selection {
+/**
+ * 选区带种类标签（Fable 账单 A2，2026-10-27 Claude Fable 5.1）：id 住在活动池那种内核的 id 空间里——brep 的点 / 边 / 膜 id 和 mesh 的点 / 边 / 面 id 不是一回事，
+ * 一个选区只能是其中一种（联合，不混）。参考几何只有 brep 池有（A31），所以 guides 只在 BrepSelection 上；mesh 的选区没有这一项。
+ * 不变量：selection.kind === 活动池的身体种类（Editor.blankSelection 按活动池造；进出上下文时重造）。
+ */
+export interface BrepSelection {
+    readonly kind: "brep";
     edges: Set<EdgeId>;
     faces: Set<FaceId>;
     guides: Set<number>;
     verts: Set<VertexId>;
 }
-export declare const emptySelection: () => Selection;
+export interface MeshSelection {
+    readonly kind: "mesh";
+    edges: Set<number>;
+    faces: Set<number>;
+    verts: Set<number>;
+}
+export type Selection = BrepSelection | MeshSelection;
+export declare function emptySelection(kind: "mesh"): MeshSelection;
+export declare function emptySelection(kind?: "brep"): BrepSelection;
+export declare function emptySelection(kind: Selection["kind"]): Selection;
+/** 选区里的参考几何（mesh 选区 = 空集）。 */
+export declare const guidesOf: (s: Selection) => ReadonlySet<number>;
 /**
  * 选择怎么合进已有选区（2026-10-26，对齐 Blender；user「ipad同意，但是我想和blender对齐？」）：替换 / 加选 / 减选 / 切换。
  * 键鼠：单击 = 替换、Shift 点 = 切换、Ctrl 点 = 减选；框选 Shift = 加、Ctrl = 减。iPad：选择工具右下角选项定（修饰键按着时修饰键说了算）。
@@ -69,7 +87,7 @@ export type SelMode = "replace" | "add" | "remove" | "toggle";
  */
 export declare function mergeSel<T>(into: Set<T>, picked: Iterable<T>, mode: SelMode, perItem?: boolean): void;
 /** 移动工具的目标展开：顶点→自己；边→两端点；面→外环+洞环全部顶点。 */
-export declare function moveTargets(k: Kernel, hit: {
+export declare function moveTargets(k: KernelView, hit: {
     vertex?: VertexId;
     edge?: EdgeId;
     face?: FaceId;
@@ -88,7 +106,7 @@ export declare function translateMoves(k: Kernel, vids: readonly VertexId[], del
     };
 }[];
 /** 多选混移展开（SU 同款：线/面混选合法）：选区全部实体 → 顶点并集。added by Claude Fable 5 2026-09-01 */
-export declare function moveTargetsSelection(k: Kernel, sel: Selection): VertexId[];
+export declare function moveTargetsSelection(k: KernelView, sel: Selection): VertexId[];
 /** 类型 re-export 便利（main.ts 少一层 import）。 */
 export type { Edge, Face };
 import type { ToolTarget } from "./solver.ts";

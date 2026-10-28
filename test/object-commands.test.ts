@@ -33,7 +33,7 @@ describe("物体族：转成网格体 / 转回 SU 体", () => {
   it("toMesh：规划出 castDefinition；披露丢什么、几份实例一起变；已是网格体 → 跳过说清", () => {
     const s = new Scene(sceneBox()), d = s.mintDef("盒", sceneBox());
     s.mintInstance(s.root, null, d.id, IDENTITY); s.mintInstance(s.root, null, d.id, IDENTITY);
-    const u: ObjectUnit = { kind: "object", def: d.id, name: "盒", body: "brep", copies: 2 };
+    const u: ObjectUnit = { kind: "object", at: { def: s.root, group: null }, instance: [...s.def(s.root).instances.keys()][0], def: d.id, name: "盒", body: "brep", copies: 2, xf: IDENTITY };
     const r = toMesh.plan(env(s), u, {});
     eq(r.count, 1); eq(r.ops[0].op, "castDefinition");
     assert(r.notes!.some((n) => /2 份实例/.test(n)) && r.notes!.some((n) => /丢掉/.test(n)), `披露：${r.notes!.join(" / ")}`);
@@ -46,7 +46,7 @@ describe("物体族：转成网格体 / 转回 SU 体", () => {
     const s = new Scene(sceneBox()), d = s.mintDef("盒", sceneBox());
     s.mintInstance(s.root, null, d.id, IDENTITY);
     let s2 = applyOp(s, { op: "castDefinition", def: d.id, to: "mesh" }).scene;
-    const u: ObjectUnit = { kind: "object", def: d.id, name: "盒", body: "mesh", copies: 1 };
+    const u: ObjectUnit = { kind: "object", at: { def: s.root, group: null }, instance: 0, def: d.id, name: "盒", body: "mesh", copies: 1, xf: IDENTITY };
     const est = toBrep.estimate!(env(s2), [u], { softDeg: 20 });
     assert(est && est.seconds > 0 && /12 个三角形/.test(est.what), `估时：${JSON.stringify(est)}`);
     const r = toBrep.plan(env(s2), u, { softDeg: 20 });

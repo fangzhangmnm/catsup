@@ -85,6 +85,11 @@ export declare class MeshKernel {
         faceOfTri: Int32Array;
     };
     clone(): MeshKernel;
+    /**
+     * 整份表互换（对象身份不变；brep Kernel.swapTablesWith 同款）：撤销记录 = 提交前的拷贝，撤 / 重做 = 和真身互换——自反、不重跑算子。
+     * rev / 改动日志一起换：换回来的表配的是它自己那本日志（渲染缓存按日志族谱算差）。
+     */
+    swapWith(o: MeshKernel): void;
     /** 紧凑快照（去空位、id 重编：存 / 导出时整理，user 10-27「catsup rule: organize in export/save」）。 */
     toSnapshot(): MeshSnapshot;
     static fromSnapshot(s: MeshSnapshot): MeshKernel;

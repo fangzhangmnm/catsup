@@ -29,17 +29,17 @@ export const REPAIR_STEPS: readonly { readonly command: CommandId; readonly on: 
   { command: "brep.hierarchy", on: false, label: () => "恢复层级（连在一起的块各成一组，形状一样的合成组件）" },
 ];
 
-/** 最笨的动作：一条指令一个同 id 的动作。字和图标是 UX，住这里不住指令里。 */
+/** 最笨的动作：一条指令一个同 id 的动作（路由表只有 brep 一行）。字和图标是 UX，住这里不住指令里。 */
 const actions: readonly Action[] = [
-  { id: "brep.straighten", command: "brep.straighten", icon: "axes", label: (n) => `拉正…（${n} 个点）` },
-  { id: "brep.snap", command: "brep.snap", icon: "snap-grid", label: (n) => `吸到格点…（${n} 个点）` },
-  { id: "brep.cleanup", command: "brep.cleanup", icon: "eraser", label: (n) => `清理碎渣…（${n} 处）` },
-  { id: "brep.weld", command: "brep.weld", icon: "arc", label: (n) => `焊接断口（${n}）` },
-  { id: "brep.planar", command: "brep.planar", icon: "sharpen", label: (n) => `拍平（${n} 组）` },
-  { id: "brep.harden", command: "brep.harden", icon: "sharpen", label: (n) => `折得很厉害的软边变硬（${n}）` },
-  { id: "brep.fillHoles", command: "brep.fillHoles", icon: "fill-hole", label: (n) => `补洞…（${n} 个）` },
-  { id: "brep.resegment", command: "brep.resegment", icon: "circle", label: (n) => `改段数…（${n} 个回转体）` },
-  { id: "brep.hierarchy", command: "brep.hierarchy", icon: "collection", label: (n) => `恢复层级…（${n} 块）` },
+  { id: "brep.straighten", commands: { brep: "brep.straighten" }, icon: "axes", label: (n) => `拉正…（${n} 个点）` },
+  { id: "brep.snap", commands: { brep: "brep.snap" }, icon: "snap-grid", label: (n) => `吸到格点…（${n} 个点）` },
+  { id: "brep.cleanup", commands: { brep: "brep.cleanup" }, icon: "eraser", label: (n) => `清理碎渣…（${n} 处）` },
+  { id: "brep.weld", commands: { brep: "brep.weld" }, icon: "arc", label: (n) => `焊接断口（${n}）` },
+  { id: "brep.planar", commands: { brep: "brep.planar" }, icon: "sharpen", label: (n) => `拍平（${n} 组）` },
+  { id: "brep.harden", commands: { brep: "brep.harden" }, icon: "sharpen", label: (n) => `折得很厉害的软边变硬（${n}）` },
+  { id: "brep.fillHoles", commands: { brep: "brep.fillHoles" }, icon: "fill-hole", label: (n) => `补洞…（${n} 个）` },
+  { id: "brep.resegment", commands: { brep: "brep.resegment" }, icon: "circle", label: (n) => `改段数…（${n} 个回转体）` },
+  { id: "brep.hierarchy", commands: { brep: "brep.hierarchy" }, icon: "collection", label: (n) => `恢复层级…（${n} 块）` },
 ];
 
 /** 选区浮条 / 右键菜单上的修复入口（按现在的范围数出来 > 0 的才露；顺序 = 这里的 order）。 */

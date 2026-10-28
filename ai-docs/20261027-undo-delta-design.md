@@ -99,3 +99,8 @@ CatsUp 已有 `src/app/crash-store.ts`（无地 T-crash，WeebPaint 同形）：
 - **数**（node，1600 盒 = 9600 膜，每步挪一个点）：提交 66.8 ms（拷池占大头，user 接受的代价；列式后几毫秒）、撤销 0.26 ms、重做 0.13 ms、十步记录 47 KB（以前 = 八份整场景常驻）。
 - 网：`test/kernel-delta.test.ts`（5 种子 × 20 步撤 / 重做逐字）、`test/history.test.ts`（八动词往返、九步每步撤 = 全量重放对照、join / undoOp、commitSession、失败回滚、截尾）、`probe-undo-session`（选区步进来后重做 6 步）；887 绿、探针全过。
 - 没做：步 5 场景结构记录逐条细化（现在结构型 op 整份拷，少见）；步 6 设置里显示配额用量。
+
+## 8. 追记（v0.15.16，2026-10-27 夜，Claude Fable 5.1）：网格体的记录 + 点选没进栈的 bug
+
+- **第四种记录 `mesh`**：mesh 族的 op（今天只有 `meshMove`）→ 提交前整份拷这个网格体的内核（类型数组，拷得快）→ op 在影子上跑 → `MeshKernel.swapWith`（真身对象不变）→ 记录 = 提交前那份；撤 / 重做 = 和真身整表互换（自反）。骨架记录照旧接回内核对象（`relinkKernels` 本来就认 mesh）。差量版（和 KernelDelta 同形）等网格大了再做。以后种类多了把「怎么记」挂到 KindDef 上。
+- **bug（v0.15.15）**：鼠标点选 / 框选发生在指针事件的那一步里（stepDepth > 0），`afterSelect` 只在步深 0 记录、却无条件推进 lastSession → 点选的变化永远不进栈、Ctrl+Z 撤不掉刚才的点选（和 §2.2 / FM106 说的「会先撤刚才的点选」不符）。修：选区记录挪到 `step()` 的 finally——这一步没提交 op → `recordSession`（同上下文、选区变了、不在手势里 → 0 op 步）；有 op → 只推进 lastSession（它之后的会话由撤销那一刻记成 rec.after）。网：`probe-mesh-workbench` 点面 → Ctrl+Z 清、Ctrl+Y 回；`probe-undo-session` 照过。

@@ -4,7 +4,7 @@
 
 > created 20261027 by Claude Fable 5.1 · as-of v0.15.1 / 2026-10-27 · 家族周账 F-108（原写 F-98，撞号改）
 > 取代 `20261026-command-registry-proposal.md`（Opus 10-26 的 v1）。没动代码。
-> **v2.1 相对 v2 改了什么**（user 10-27 下午答复）：① 作用域不写死，是每次调用的参数，另加「含子物体」一档，组件按定义去重并披露；② 放置表的「位置」是开放的（环形菜单 / VR / 搜索 / 脚本接口都算）；③ **改选区的指令也记成撤销的一步**（Blender 同款，user「这个我们要」）；④ 「要等很久先问」加「挂机不问」的口子，长跑不挡别的物体；⑤ 新增 §2.4 笔刷 = 配置好的指令 × 一笔（nudge / 生命之粉 / 绘制都是这一类）；⑥ 新增 §2.5 魔法纪元的「布置一半做别的」= 场景实体，不是 modal。
+> **v2.1 相对 v2 改了什么**（user 10-27 下午答复）：① 作用域不写死，是每次调用的参数，另加「含子物体」一档，组件按定义去重并披露；② 放置表的「位置」是开放的（环形菜单 / VR / 搜索 / 脚本接口都算）；③ **改选区的指令也记成撤销的一步**（Blender 同款，user「这个我们要」）；④ ~~「要等很久先问」加「挂机不问」的口子，长跑不挡别的物体~~（**撤回**：AI 误读，见 §2.3；留下的只有 10-26 的「要等很久先问做 / 不做」）；⑤ 新增 §2.4 笔刷 = 配置好的指令 × 一笔（nudge / 生命之粉 / 绘制都是这一类）；⑥ 新增 §2.5 魔法纪元的「布置一半做别的」= 场景实体，不是 modal。
 > user 2026-10-27 原话（权衡那一问）：「可以，让fable权衡一下，是先攒一堆屎山一起找规律还是先做。我倾向于先做，然后加上我说的生命之粉纪元，还有绘制纪元，一起想一下，不过确实，一直等总是有还可以再攒攒。但实际上有三个消费者就可以抽象了。做！发我过目」；第一轮答复：「1做」「2同意，不过一定要写死吗？然后对于组件和孩子hierarchy怎么办」「3到时候可能会重构，所以确实猜出来，重构的就是表了……类似blender的搜索和python api，6也算，关键是ux我们会变很多次，比如我最近在思考pinterest的长按弹出菜单」「4 blender怎么做的《撤销系统现在稳健吗还是现在是小学没毕业状态」「5 同意，但是如果用户说了要挂机长跑的话不应该停下来。我觉得可以先做其他的？」「前五个同意，我是没说非要python」「modal operator这个怎么办，特别是魔法纪元，不过那个可能就不是modal了而是可以布置一半做别的。然后绘制怎么办」「「撤销」也能撤选区 不借 这个我没想好，等等等。 这个我们要，weebpaint应该也是这个吧。不然很痛苦，而且也更容易出bug」「可扔 赞。魔法纪元和su插件现在都会出一大堆bloat的operator。可能会经常变动」「生命之粉 其实是一个球状的笔刷... 这么说就是有很大一类op是你配置好了，然后一笔笔刷，还是这个其实我们现在能接。最朴素的就是nudge的对齐设置和nudge」「以后可以开放改快捷键，虽然我不太想开，但是可以留个口子」。
 > 更早的原话（10-25 / 10-26）：「能不能做成blender一样一个命令是一个类似函数的东西，你面板喂，而不是查面板。以及注意性能」「相当于每个指令我们可以自由数据驱动的放在不同的菜单里，或者工具栏里面，或者子工具模式里面」「要给以后的sculpt, body paint和node editing留位置」「做成可以扔的模块化的，最好是各种命令都这样」。
 
@@ -86,7 +86,7 @@ export interface Command {
   /** 能不能做：true / 不能的人话原因。每次重画菜单都调，必须 O(选区) 或更便宜。 */
   available(env: CommandEnv, scope: Scope): true | string;
   /** 纯规划（不改任何东西）。ops 型按 ScopeUnit 逐池调、框架汇总；session / view 型 unit 为 null、只调一次。做不了 = 人话原因。 */
-  plan(env: CommandEnv, unit: ScopeUnit | null, params: Params): Effect | { error: string } | Promise<Effect | { error: string }>;   // Promise = 长跑（§2.2 第 ③ 条；实现留到物理纪元）
+  plan(env: CommandEnv, unit: ScopeUnit | null, params: Params): Effect | { error: string } | Promise<Effect | { error: string }>;   // Promise = 长跑 → 撤回（§2.3 误读）；代码里 plan 是同步的
   done(count: number, extra: number, params: Params): string;
   readonly none?: string;
   /** 可能要等很久的指令（擦线、物理）：先估；框架按家族规矩问「做 / 不做 / 这次会话别再问」。量纲：秒。 */
@@ -126,7 +126,7 @@ export interface Brush {
 export const FAMILIES: readonly { commands: readonly Command[]; placements: readonly Placement[]; brushes?: readonly Brush[] }[];
 
 // Editor 上的入口（其余全部是读表 + 凑参数）：
-//   runCommand(id, scope?, params?, { ask?: boolean })   一步提交；有参数的做完自动给马后炮；ask:false = 挂机 / 脚本，estimate 不问直接跑
+//   runCommand(id, scope?, params?)   一步提交；有参数的做完自动给马后炮。（原来的 { ask?: boolean } / ask:false「挂机免问」撤回：§2.3 误读；脚本接口要不要免问以后另议）
 //   previewCommand(id, scope?, params?)                  同一组参数在克隆上跑一遍画出来（对话框式 / 修复面板的马前炮）
 //   笔刷工具（tool.brush，一个通用 ToolHandler）：按 Brush 表落点 → 每点 plan（picked）→ 克隆上预演 → 松手一步提交
 ```
@@ -155,11 +155,13 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 
 **三种效果 × 记不记步**：ops 型 = 记（join 成一步）；session 型 = 记（0 op 步）；view 型（缩放到全部、X 光开关）= 不记。
 
-### 2.3 长跑与「挂机」（user「如果用户说了要挂机长跑的话不应该停下来」「可以先做其他的？」）
+### 2.3 ~~长跑与「挂机」~~ → 整节撤回（2026-10-27 夜；Claude Fable 5.1 记）
 
-- `estimate` 超过门槛 → 问一次，三个按钮：**做 / 不做 / 做，这次会话别再问**。第三个 = 挂机开关（会话级，不持久化）。脚本 / 宏 / 复现包调用带 `ask: false`，从不问。
-- **长跑不挡别的物体**：`plan` 返回 Promise 的指令在后台跑（以后放 worker）；跑的那几个池标成「忙」（画面上打斜线、这几个池不能编辑），其余照常编辑；跑完一步提交。你在它跑的时候撤销到了它开始之前 → 结果作废、提示一句，不硬塞。
-- **实现留到物理纪元**（现在没有一条指令需要异步）；接口现在就按 `Promise` 写，免得到时改表。擦线那条 10-26 的「做 / 不做」现在就并进 `estimate`。
+user 原话：「长跑与挂机你完全理解错了，那段能撤掉吗。我说的是今天我能挂机让你产品吗。我不是说catsup」「不知道你这个错误理解造成了多少混乱」「或者错误的决策」。
+
+错在哪：user 第 5 条答复「5 同意，但是如果用户说了要挂机长跑的话不应该停下来。我觉得可以先做其他的？」说的是**这个会话**——他离开（挂机）让 AI 自己跑的时候，AI 不该停下来等他拍板，可以先做别的。AI 把它读成了 CatsUp 的产品功能，编出了一整节：「做 / 不做 / 这次会话别再问」第三个按钮（挂机开关）、脚本调用 `ask:false` 免问、长跑在后台跑不挡别的物体（池标「忙」、`plan` 返回 Promise）、「实现留到物理纪元」。**这些全部作废，不是需求。**
+
+牵连核对（10-27 夜查）：代码里没有落任何一条——`Command.estimate` + 两个按钮「做 / 不做」来自 10-26 本来就拍过的「不要因为性能静默不做，宁愿弹警告问 yes no」，留着；没有「别再问」开关、没有 `ask` 参数、`plan` 是同步的、没有后台跑。文档里引用过这一节的地方（本文件开头 ④、§2 .h 两处注释、§2.5、§5 表、§6「已拍」第 5 条；纪元账本 FM70；家族周账 20261027 第 69 行）同日全部改成「撤回」。以后物理纪元真要长跑，另起讨论，不从这节继承。
 
 ### 2.4 笔刷 = 配置好的指令 × 一笔（user「有很大一类 op 是你配置好了，然后一笔笔刷……最朴素的就是 nudge 的对齐设置和 nudge」）
 
@@ -184,7 +186,7 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 
 对。施法分两段，都不是 modal：
 1. **布置** = 场景里的实体（发射口、落点、布料区域的标记、风向……），像参考线和猫娘一样是文件里的原子，用普通工具摆、挪、删，放一半去干别的、明天回来接着摆。
-2. **施法** = 一条指令（`physics.cast`），读这些实体 + 标记层，长跑（§2.3），结果一步提交；实体留不留当参数（留着 = 还能再施一次）。
+2. **施法** = 一条指令（`physics.cast`），读这些实体 + 标记层，可能要跑很久（怎么跑另议；§2.3 那套已撤回），结果一步提交；实体留不留当参数（留着 = 还能再施一次）。
 
 绘制同理：画布是实体（`paint.canvas` 创建），笔是笔刷（§2.4），语义通道是工具选项。
 
@@ -226,14 +228,14 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 | 纪元 | 例子 | 形状 |
 |---|---|---|
 | 自由建模（现在） | 合 / 填 / 溶解 / 扩缩 / 环选 / 镜像开关；软挪、雕 | 指令（ops / session）；笔刷 |
-| 生命之粉 / 魔法 | 生命之粉（球状笔刷打标记）；布置（实体）；施法（长跑指令）；悬链线、积雪（指令） | 笔刷 + 实体 + `estimate` / Promise；结果是「换一种物体」要 ops.ts 加一条 op（那时加） |
+| 生命之粉 / 魔法 | 生命之粉（球状笔刷打标记）；布置（实体）；施法（长跑指令）；悬链线、积雪（指令） | 笔刷 + 实体 + `estimate`（Promise 撤回，§2.3）；结果是「换一种物体」要 ops.ts 加一条 op（那时加） |
 | 绘制 | 创建画布（指令）；落笔（笔刷）；重新指派语义 / 重采样 / 烤（指令） | 指令 + 笔刷 |
 | 验证 | 放猫娘（点一下的笔刷或指令）；射界叠加层开关（view） | 指令 |
 | 雕刻 / bodypaint / 节点 | 主要是笔刷和工作台；一次性的「重细分」「烘」是指令 | 族名前缀 + 放置表 modes 就是留的位置 |
 
 ## 6. 状态：user 10-27 下午已拍 / 还开着
 
-**已拍**：现在做（1）；作用域默认 auto 但不写死（2）；放置单独一张表，UX 要变很多次（3）；改选区也记撤销步（4，Blender 同款）；要等很久先问 + 挂机不问（5）；快捷键留口子、暂不开放（6）；可扔（赞）；笔刷这一类现在接。
+**已拍**：现在做（1）；作用域默认 auto 但不写死（2）；放置单独一张表，UX 要变很多次（3）；改选区也记撤销步（4，Blender 同款）；要等很久先问（5；「挂机不问」是 AI 误读，撤回，§2.3）；快捷键留口子、暂不开放（6）；可扔（赞）；笔刷这一类现在接。
 
 **10-27 夜又拍**：表看过（「注册表我好像看过，先做吧。其实这种反而比数据契约吃书重构更容易一点」「注册表先这么做」）；两层 + 族名 = 单位种类（§7）；第 0 / 1 步 done v0.15.9。
 
@@ -304,3 +306,18 @@ export const FAMILIES: readonly { commands: readonly Command[]; placements: read
 
 物体族 `src/editor/objects/`：单位 = 定义（`ObjectUnit`），两条指令 `object.toMesh` / `object.toBrep`。`Command<U>` 按单位种类泛型化、`unit` 字段 = 族名（守卫）、`estimate` 进接口；编辑器 `commandMenu` / `runCommand` 按单位种类派发（brep 族 = 池作用域；object 族 = 选中的组件）。第三步（选区动作表 28 项拆成动作）仍归 Opus。
 - 「模拟叫sim，或者长一点的，不简写。magic是ux概念，而且我可能到时候会换别的」→ 族名 `simulation`（代码里已改）；UX 上叫什么（魔法 / 别的）随 user 换，指令族名不动。
+
+### 7.8 两道接缝落地（v0.15.16，2026-10-27 夜，Claude Fable 5.1）——给 M4（Opus）的底子
+
+user 10-27 夜「以后会有各种不同的物体类型，有些可能你根本想不到」→ 接缝全部按**种类**开口，不写 `if brep else mesh`：
+
+- **三种单位齐了**（`commands/command.ts`）：`PoolUnit`（brep 池 + BrepSelection）/ `MeshUnit`（网格体定义 + MeshSelection；网格体没有组，池 = 定义）/ `ObjectUnit`（**摆着的一份实例**：at 池 + instance + def + body + copies + xf）。物体族改成实例级：挪 / 转 / 缩 / 锁 / 藏改的是这一份；改定义的指令（转换）声明 `perDefinition`，框架按定义去重、披露「N 份一起变」。
+- **动作 = 按单位种类的路由表**（`action.ts` `commands: Partial<Record<UnitKind, CommandId>>`）：挪 = `{ brep: brep.move, mesh: mesh.move, object: object.move }`；修复 / 转换的动作只有一行。守卫（`registry.ts checkRegistry`）：路由指向的指令吃的正是那种单位。更聪明的路由（点几下、猫娘）以后在这里长成函数。
+- **第一个路由型动作「挪」**（`src/editor/move/index.ts`，一个可扔的模块装三条不同族的指令——**文件夹 = 按功能分的模块，族 = id 前缀 = 单位种类**，两者不是一回事）：`brep.move`（选区解成点集、按坐标寻址、过结算机）/ `mesh.move`（新 op `meshMove`：按 id 写位置数组，不过结算机）/ `object.move`（实例矩阵左乘平移）。参数 (dx, dy, dz) 米，坐标系 = 当前上下文（定义坐标）。今天只登记在 api / search 面；挪动工具 / 变换手柄 / 方向键 / nudge 以后都路由到这三条。
+- **通用跑法** `Editor.runAction(id, params?)`：`unitsOf(kind)`（brep / mesh = 活动池 + 几何选区；object = 选中的没锁的实例）→ 每种单位喂它那条指令 → 全部 op 合成一步；表里没有的种类跳过并说出来；没事做把各指令的 `none` 连起来说。混选一挪 = 一步两条调用（探针 ⑥：网格体实例 + 根池的膜，Ctrl+Z 一次全回）。两个特例等第三步（28 条选区动作进表）折进来：只路由 brep 一种 = 修复那条路；只路由 object 一种 = 物体那条路。HUD 的 id 前缀 `repair:` → `action:`。
+- **撤销的 mesh 记录**（`history.ts` tier `mesh`）：提交前整份拷（类型数组）→ 影子换真身（`MeshKernel.swapWith`，对象身份不变）→ 记录 = 整表互换、自反。差量版等网格大了再做（和 brep 的 KernelDelta 同形）。
+- **选区带种类标签**（`tools.ts`：`Selection = BrepSelection | MeshSelection`，`kind` 判别；参考几何只在 brep 上）= Fable 账单 A2。不变量 selection.kind === 活动池的身体种类（`Editor.blankSelection`，进出上下文 / 换场景时重造，`pruneSelection` 遇到种类不符整个作废）。
+- **自由建模工作台的边界**：`ModeId` += `freeform`，`MESH_KIND.modes = ["freeform"]`，`modes/freeform.ts` = 壳 + 选择工具；`enterPool` 按 KindDef.modes + 装了的 Mode 放行（没有的种类诚实拦住）；进出上下文 / 换场景后 `ensureModeForKind` 切工作台；左上下拉只列管这种身体的工作台。编辑器里的通用路径（点击族 `selectExpandView`、全选、缩放到选区、状态行、剪选区）只认显示契约 `KernelView`——新种类的内核给了 KernelView 就自动有选择；brep 专属动词（删除几何 / 建组 / 建组件 / 炸开 / 镜像 / 隐藏 / 软化 / 焊接 / 炸开曲线）在别的池里 `requireBrep` 提示一句、HUD 不露（露了点不动 = 误导）。
+- **顺手修的撤销 bug（v0.15.15 的）**：鼠标点选 / 框选发生在指针事件那一步里，`afterSelect` 只在步深 0 记录、却无条件推进 lastSession → 点选永远进不了撤销栈。现在选区记录在一步结束时做（`step()` 的 finally：这一步没 op → `recordSession`；有 op → 只推进 lastSession）。探针：点选一张面 → Ctrl+Z 选区清、Ctrl+Y 回来。
+- 网：`test/registry-seams.test.ts`（守卫 / 三条挪 / meshMove 目标缺席 / mesh 记录自反 / 种类登记）+ 无头 `test/probes/probe-mesh-workbench.mjs`（进网格体池 → 自由建模 / mesh 选区 → 点面 / 撤点选 / 全选 → brep 动词拒绝不崩不记步 → 挪网格点 + 撤 → 退出回硬表面建模 → 混选一挪一步 → 没选说清 → 撤到头 / 重做到头不崩）。893 单测绿；修复 / 撤销 / 开机探针全过；六个 v0.15.9 起就坏的修复探针（还在调 `repairMenu()` / 短 id）顺手修好。
+- **给 Opus 的 M4 清单**：① 工具进 `modes/freeform.ts handlers`（刀 / 拉 / 环切 / 溶解 / 合并 / 填 / 挤出……算子在 `src/mesh/ops/`），动词写成 `mesh.*` 指令 + op（照 `meshMove` 加进 `ops.ts` 的 mesh 族 + `history.ts MESH_OPS`）；② 挪动工具 / 变换手柄路由到「挪」的三条指令（`runAction` 或直接 `routesOf`）；③ 第三步：28 条选区动作进表、两个特例折进 `runAction`；④ mesh 池里的删除 / 隐藏 / 建组件（含子实例）= `mesh.delete` / `mesh.hide` + 物体族；⑤ 点击族三下的连通体在 mesh 上只沿 faceLinks 泛洪（没有软边 / 曲面概念，够用）；⑥ 种类再多时把「撤销怎么记」挂到 KindDef 上（今天 brep / mesh 各一段）。

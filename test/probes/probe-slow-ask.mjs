@@ -18,11 +18,11 @@ await page.evaluate(() => {
 });
 const state = () => page.evaluate(() => ({ faces: globalThis.__catsup.editor.kernel.faces().length, hint: document.getElementById("hint")?.textContent ?? "", sheet: !document.getElementById("sheetConfirm")?.closest("[hidden]") && !!document.getElementById("sheetConfirm")?.offsetParent, title: document.getElementById("sheetTitle")?.textContent ?? "" }));
 const out = {};
-await page.evaluate(() => globalThis.__catsup.hud.pick("repair:cleanup")); await page.waitForTimeout(200);
+await page.evaluate(() => globalThis.__catsup.hud.pick("action:brep.cleanup")); await page.waitForTimeout(200);
 out.ask1 = await state();
 await page.click("#sheetCancel"); await page.waitForTimeout(200);
 out.no = await state();
-await page.evaluate(() => globalThis.__catsup.hud.pick("repair:cleanup")); await page.waitForTimeout(200);
+await page.evaluate(() => globalThis.__catsup.hud.pick("action:brep.cleanup")); await page.waitForTimeout(200);
 out.ask2 = await state();
 await page.click("#sheetConfirm"); await page.waitForTimeout(300);
 out.yes = await state();

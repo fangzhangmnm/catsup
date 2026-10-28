@@ -192,33 +192,34 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
 const hud: HudModel = {
   version: APP_VERSION,
   tools: (): HudItem[] => TOOL_SPEC.map((t) => ({ id: t.tool, label: t.label, icon: t.icon, key: t.key, active: editor.tool === t.tool })),
-  edits: (): HudItem[] => [
+  edits: (): HudItem[] => { const brepOnly = editor.activeKind() !== "brep";   // 网格体的池：SU 体的动词先不露（自由建模工作台的同名动词 = M4），露了点不动 = 误导
+    return [
     { id: "undo", label: "撤销", icon: "arrow-undo", disabled: !editor.canUndo() },
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
-    { id: "delete", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },
-    { id: "group", label: "建组", icon: "collection", hidden: !editor.hasGeometrySelection() && !editor.hasPoolSelection() },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
-    { id: "component", label: "建组件", icon: "object", hidden: !editor.hasGeometrySelection() && !editor.hasPoolSelection() },
-    { id: "explode", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },
-    { id: "mirror", label: "镜像…", icon: "flip-horizontal", hidden: !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
+    { id: "delete", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() || (brepOnly && !editor.hasPoolSelection()) },
+    { id: "group", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
+    { id: "component", label: "建组件", icon: "object", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },
+    { id: "explode", label: "炸开", icon: "explode-folder", hidden: brepOnly || !editor.hasPoolSelection() },
+    { id: "mirror", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
     { id: "explodeCurve", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
     { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "lock", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
     { id: "unlock", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
-    { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: !editor.hasHideableSelection() },
+    { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !editor.hasHideableSelection() },
     { id: "applyScale", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },
     { id: "componentOrigin", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
     { id: "repairPanel", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
     // 各个修复模块自己的入口（src/editor/repairs/ 清单；user 10-26「做成可以扔的模块化的」）：拉正 / 吸到格点 / 焊断口 / 拍平 / 软边变硬 / 恢复层级…
-    ...editor.commandMenu().map((m): HudItem => ({ id: `repair:${m.id}`, label: m.label, icon: m.icon })),   // 注册表 contextBar 面上的动作（修复九条 + 物体族的两条转换）
+    ...editor.commandMenu().map((m): HudItem => ({ id: `action:${m.id}`, label: m.label, icon: m.icon })),   // 注册表 contextBar 面上的动作（修复九条 + 物体族的两条转换）
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
-    { id: "soften", label: "软化选区", icon: "blur", hidden: !editor.hasGeometrySelection() },
-    { id: "harden", label: "硬化选区", icon: "sharpen", hidden: !editor.hasGeometrySelection() },
+    { id: "soften", label: "软化选区", icon: "blur", hidden: brepOnly || !editor.hasGeometrySelection() },
+    { id: "harden", label: "硬化选区", icon: "sharpen", hidden: brepOnly || !editor.hasGeometrySelection() },
     { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
     { id: "invert", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
     { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
-  ],
+  ]; },
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
     { id: "respawn", label: "回出生点" },
@@ -228,7 +229,7 @@ const hud: HudModel = {
   pick: (id) => {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
-    if (id.startsWith("repair:")) { editor.runCommand(id.slice("repair:".length) as CommandId); return; }
+    if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;

@@ -15,9 +15,9 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "move", at, moves: [{ from: P(x0 + 1, 1, 1), to: P(x0 + 1.003, 1, 1.002) }] });
   e.deselectAll(); e.draw(); await sleep(30);
   const step = e.grid.step / e.grid.subdiv, on = (c) => Math.abs(c - Math.round(c / step) * step) < 2e-6;
-  const menu = e.repairMenu().map((m) => m.label);
-  const out = { menu, count: e.repairMenuCount("straighten") };
-  C.hud.pick("repair:straighten"); await sleep(30);
+  const menu = e.commandMenu().map((m) => m.label);
+  const out = { menu, count: e.repairMenuCount("brep.straighten") };
+  C.hud.pick("action:brep.straighten"); await sleep(30);
   out.hint = document.getElementById("hint")?.textContent ?? "";
   const vs = () => e.kernel.vertices();
   out.cornerBack = vs().some((v) => Math.abs(v.x - (x0 + 1)) < 1e-9 && v.y === 1 && v.z === 1) && !vs().some((v) => Math.abs(v.x - (x0 + 1.003)) < 1e-9);

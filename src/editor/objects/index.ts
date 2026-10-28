@@ -1,4 +1,4 @@
-// objects/index.ts —— 物体族（object.*）：吃一个定义（组件），不吃几何。第一批 = 两条显式转换（user 10-24「每个物体有一个kind，可以换，换了要explicit cast op用户点确认」；
+// objects/index.ts —— 转换模块（object.* 两条）：吃摆着的一份实例、改的是它的定义（perDefinition：同一定义几份只喂一次），不吃几何。第一批 = 两条显式转换（user 10-24「每个物体有一个kind，可以换，换了要explicit cast op用户点确认」；
 // 10-27「explicit转换的话元数据也许也不要带，我们要诚实披露，不要藏东西」）：转成网格体 / 转回 SU 体，各自把丢掉什么写进提示。created 2026-10-27 by Claude Fable 5.1
 import type { Command, CommandEnv, ObjectUnit, Params } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
@@ -10,7 +10,7 @@ const TRIS_PER_SECOND = 9000;
 const disclose = (u: ObjectUnit, loses: readonly string[]): string[] => [u.copies > 1 ? `「${u.name}」的 ${u.copies} 份实例一起变` : "", `丢掉：${loses.join("、")}`].filter(Boolean);
 
 export const toMesh: Command<ObjectUnit> = {
-  id: "object.toMesh", unit: "object", title: "转成网格体",
+  id: "object.toMesh", unit: "object", perDefinition: true, title: "转成网格体",
   defaults: () => ({}),
   params: () => [],
   plan(_env, u) {
@@ -23,7 +23,7 @@ export const toMesh: Command<ObjectUnit> = {
 };
 
 export const toBrep: Command<ObjectUnit> = {
-  id: "object.toBrep", unit: "object", title: "转回 SU 体",
+  id: "object.toBrep", unit: "object", perDefinition: true, title: "转回 SU 体",
   defaults: (env) => ({ softDeg: env.sharpDeg() }),
   params: () => [{ key: "softDeg", def: { kind: "number", label: "弯折不到这个角度的边算软边", min: 0, max: 90, step: 1, unit: "°" } }],
   plan(_env, u, v) {
@@ -43,8 +43,8 @@ export const toBrep: Command<ObjectUnit> = {
 const commands: readonly Command[] = [toMesh, toBrep];
 /** 图标：两个都是 stopgap（图标库还没有「转成网格体 / 转回 SU 体」，已登记 SVG Icons TODO）。 */
 const actions: readonly Action[] = [
-  { id: "object.toMesh", command: "object.toMesh", icon: "collection", label: (n) => `转成网格体（${n}）` },
-  { id: "object.toBrep", command: "object.toBrep", icon: "wrench", label: (n) => `转回 SU 体（${n}）` },
+  { id: "object.toMesh", commands: { object: "object.toMesh" }, icon: "collection", label: (n) => `转成网格体（${n}）` },
+  { id: "object.toBrep", commands: { object: "object.toBrep" }, icon: "wrench", label: (n) => `转回 SU 体（${n}）` },
 ];
 const placements: readonly Placement[] = [{ action: "object.toMesh", where: "contextBar", order: 60 }, { action: "object.toBrep", where: "contextBar", order: 61 }];
 

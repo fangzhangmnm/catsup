@@ -1,4 +1,4 @@
-import { Scene, type PoolRef } from "../scene/scene.ts";
+import { Scene, type PoolRef, type DefId } from "../scene/scene.ts";
 import { type ApplyResult, type Op } from "./ops.ts";
 /** 撤销栈配额（字节）。 */
 export declare const UNDO_QUOTA_BYTES: number;
@@ -13,11 +13,12 @@ export interface StepSession<M> {
     before: M;
     after?: M;
 }
-export type OpTier = "kernel" | "skeleton" | "scene";
+export type OpTier = "kernel" | "mesh" | "skeleton" | "scene";
 /** 这条 op 的撤销记录怎么记：kernel = 一个 brep 池的差量（+ 骨架）；skeleton = 只拷骨架；scene = 整份场景拷。 */
 export declare function opTier(s: Scene, op: Op): {
     tier: OpTier;
     at?: PoolRef;
+    def?: DefId;
 };
 export declare class History<M = unknown> {
     private readonly base;

@@ -10,6 +10,8 @@ import { add3, sub3, scale3, dist3, normalize3, cross3 } from "../kernel/geom.ts
 import { Kernel, type BrepSnapshot, type EdgeId, type FaceEvent, type FaceId, type Pt3, type Seg3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyNormal, applyPlane, applyPt, compose, det3, frameAt, transformFrame } from "./xform.ts";
 import { type Guides, cloneGuides, emptyGuides } from "./guides.ts";
+/** 非 brep 身体的「参考几何」：永远空的那一份（别往里写）。 */
+const NO_GUIDES: Guides = emptyGuides();
 import type { BodyKind } from "./body-kind.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { KernelView } from "./kernel-view.ts";
@@ -130,7 +132,7 @@ export class Scene {
   /** 槽号 → 材质（无 / 越界 = null）。 */
   materialOfSlot(defId: DefId, slot: number | undefined): Material | null {
     if (slot === undefined) return null;
-    const idx = this.brep(defId).materialSlots[slot];
+    const idx = this.def(defId).body.materialSlots[slot];   // 两种身体都有槽表
     return idx === undefined ? null : (this.materials[idx] ?? null);
   }
   addMaterial(m: Material): number { this.materials.push(m); return this.materials.length - 1; }
@@ -192,7 +194,8 @@ export class Scene {
   }
   poolOfContext(ctx: EditContext): PoolRef { return { def: this.defOfContext(ctx), group: ctx.group }; }
   /** 池的参考几何（可变引用；池本地坐标）。 */
-  guidesOf(ref: PoolRef): Guides { return ref.group !== null ? this.group({ def: ref.def, group: ref.group }).guides : this.brep(ref.def).guides; }
+  /** 池的参考几何（只有 SU 体有；网格体 = 空——合成视图 / 编辑器对任何种类的活动池都能问）。 */
+  guidesOf(ref: PoolRef): Guides { const b = this.def(ref.def).body; return b.kind !== "brep" ? NO_GUIDES : ref.group !== null ? this.group({ def: ref.def, group: ref.group }).guides : b.guides; }
   /**
    * 上下文的坐标架（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①；DT86 叫「坐标架」）：根 = 绘图轴；进了 group = 那个 group 的坐标架；
    * 进了组件实例 = 那个 definition 的坐标架（没摆过 = 组件原点）——都乘上链上的实例变换。
@@ -213,7 +216,7 @@ export class Scene {
     return m;
   }
   /** group 的子 group / 子实例（同一 definition 内，按 parent 链）。 */
-  childGroups(defId: DefId, parent: GroupId | null): Group[] { return [...this.brep(defId).groups.values()].filter((g) => g.parent === parent); }
+  childGroups(defId: DefId, parent: GroupId | null): Group[] { const b = this.def(defId).body; return b.kind === "brep" ? [...b.groups.values()].filter((g) => g.parent === parent) : []; }   // 网格体没有组
   childInstances(defId: DefId, parent: GroupId | null): Instance[] { return [...this.def(defId).instances.values()].filter((i) => i.parent === parent); }
   /** definition 是否（直接或间接）引用 target——防循环引用。 */
   references(defId: DefId, target: DefId, seen = new Set<DefId>()): boolean {

@@ -3,6 +3,7 @@
 // 全链路无任何 Face 构造。
 
 import type { Edge, EdgeId, Face, FaceId, Kernel, Pt, Pt3, VertexId } from "../kernel/kernel.ts";
+import type { KernelView } from "../scene/kernel-view.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
 import { applyPt, type Xform } from "../scene/xform.ts";
 import { liftFromPlane, projectToPlane, type PlaneParams, add3, sub3, scale3, dist3, normalize3, len3, cross3 } from "../kernel/geom.ts";
@@ -126,8 +127,23 @@ export function marqueeOf(a: Pt, b: Pt): Marquee {
  * 点（2026-10-26，user「变换点中一个点的时候应该就是变换这个点啊」「以及我们还是希望我们能选点」）：选区里真的存点（Blender 式），移动 / 变换只动这些点；
  * 以前单击点 = 选连着它的线（现在是双击）。
  */
-export interface Selection { edges: Set<EdgeId>; faces: Set<FaceId>; guides: Set<number>; verts: Set<VertexId>; }
-export const emptySelection = (): Selection => ({ edges: new Set(), faces: new Set(), guides: new Set(), verts: new Set() });
+/**
+ * 选区带种类标签（Fable 账单 A2，2026-10-27 Claude Fable 5.1）：id 住在活动池那种内核的 id 空间里——brep 的点 / 边 / 膜 id 和 mesh 的点 / 边 / 面 id 不是一回事，
+ * 一个选区只能是其中一种（联合，不混）。参考几何只有 brep 池有（A31），所以 guides 只在 BrepSelection 上；mesh 的选区没有这一项。
+ * 不变量：selection.kind === 活动池的身体种类（Editor.blankSelection 按活动池造；进出上下文时重造）。
+ */
+export interface BrepSelection { readonly kind: "brep"; edges: Set<EdgeId>; faces: Set<FaceId>; guides: Set<number>; verts: Set<VertexId>; }
+export interface MeshSelection { readonly kind: "mesh"; edges: Set<number>; faces: Set<number>; verts: Set<number>; }
+export type Selection = BrepSelection | MeshSelection;
+export function emptySelection(kind: "mesh"): MeshSelection;
+export function emptySelection(kind?: "brep"): BrepSelection;
+export function emptySelection(kind: Selection["kind"]): Selection;
+export function emptySelection(kind: Selection["kind"] = "brep"): Selection {
+  return kind === "mesh" ? { kind: "mesh", edges: new Set(), faces: new Set(), verts: new Set() } : { kind: "brep", edges: new Set(), faces: new Set(), guides: new Set(), verts: new Set() };
+}
+const NO_GUIDES: ReadonlySet<number> = new Set();
+/** 选区里的参考几何（mesh 选区 = 空集）。 */
+export const guidesOf = (s: Selection): ReadonlySet<number> => (s.kind === "brep" ? s.guides : NO_GUIDES);
 /**
  * 选择怎么合进已有选区（2026-10-26，对齐 Blender；user「ipad同意，但是我想和blender对齐？」）：替换 / 加选 / 减选 / 切换。
  * 键鼠：单击 = 替换、Shift 点 = 切换、Ctrl 点 = 减选；框选 Shift = 加、Ctrl = 减。iPad：选择工具右下角选项定（修饰键按着时修饰键说了算）。
@@ -148,7 +164,7 @@ export function mergeSel<T>(into: Set<T>, picked: Iterable<T>, mode: SelMode, pe
 }
 
 /** 移动工具的目标展开：顶点→自己；边→两端点；面→外环+洞环全部顶点。 */
-export function moveTargets(k: Kernel, hit: { vertex?: VertexId; edge?: EdgeId; face?: FaceId }): VertexId[] {
+export function moveTargets(k: KernelView, hit: { vertex?: VertexId; edge?: EdgeId; face?: FaceId }): VertexId[] {
   if (hit.vertex !== undefined) return [hit.vertex];
   if (hit.edge !== undefined) {
     const e = k.graph.edge(hit.edge);
@@ -184,7 +200,7 @@ export function translateMoves(
 }
 
 /** 多选混移展开（SU 同款：线/面混选合法）：选区全部实体 → 顶点并集。added by Claude Fable 5 2026-09-01 */
-export function moveTargetsSelection(k: Kernel, sel: Selection): VertexId[] {
+export function moveTargetsSelection(k: KernelView, sel: Selection): VertexId[] {
   const ids = new Set<VertexId>();
   for (const eid of sel.edges) {
     if (!k.graph.hasEdge(eid)) continue;

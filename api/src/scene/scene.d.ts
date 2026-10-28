@@ -137,6 +137,7 @@ export declare class Scene {
     defOfContext(ctx: EditContext): DefId;
     poolOfContext(ctx: EditContext): PoolRef;
     /** 池的参考几何（可变引用；池本地坐标）。 */
+    /** 池的参考几何（只有 SU 体有；网格体 = 空——合成视图 / 编辑器对任何种类的活动池都能问）。 */
     guidesOf(ref: PoolRef): Guides;
     /**
      * 上下文的坐标架（世界坐标）= 推断引擎的「纸的边」（0.11 尺规纪元 ①；DT86 叫「坐标架」）：根 = 绘图轴；进了 group = 那个 group 的坐标架；

@@ -6,25 +6,31 @@
 //     「同一个挪动工具，挪物体和挪顶点是同一个指令吗」——不是：挪物体改变换矩阵、挪 SU 点写坐标再过结算机、挪网格点写位置数组，三条带类型的指令；
 //     一个挪动工具按手里的东西路由，混选一拖松手 = 一步里三条调用。
 // 第一族 = 修复（repairs/，10-26 Opus 做成的可扔模块原样搬进来改名；行为零变化）。
+// 2026-10-27 夜 接缝（Fable）：三种单位齐了——PoolUnit（brep 池）/ MeshUnit（网格体）/ ObjectUnit（摆着的一份实例）；第一个路由型动作 = 挪（move/）。
 import type { Op } from "../ops.ts";
-import type { DefId, PoolRef, Scene } from "../../scene/scene.ts";
+import type { DefId, InstId, PoolRef, Scene } from "../../scene/scene.ts";
 import type { BodyKind } from "../../scene/body-kind.ts";
 import type { Xform } from "../../scene/xform.ts";
-import type { Selection } from "../tools.ts";
+import type { BrepSelection, MeshSelection } from "../tools.ts";
 import type { ParamField, ParamValue } from "../param-panel.ts";
 
-/** 族 = 指令吃的单位种类。brep / mesh = 两个内核各自的动词；object = 组 / 组件 / 实例这些容器；select = 选区；view = 相机和显示（不记撤销）；doc = 文件和文档设置；paint = 画布像素；sim = 读任何几何、产出一个物体。
+/** 族 = 指令吃的单位种类。brep / mesh = 两个内核各自的动词；object = 组 / 组件 / 实例这些容器；select = 选区；view = 相机和显示（不记撤销）；doc = 文件和文档设置；paint = 画布像素；simulation = 读任何几何、产出一个物体。
  *  不按纪元起名、不按菜单起名、不按工作台起名（user 10-27「赞」）。 */
 export type CommandFamily = "brep" | "mesh" | "object" | "select" | "view" | "doc" | "paint" | "simulation";   // simulation 不简写（user 10-27「模拟叫sim，或者长一点的，不简写。magic是ux概念，而且我可能到时候会换别的」）
 export type CommandId = `${CommandFamily}.${string}`;
 export function familyOf(id: CommandId): CommandFamily { return id.slice(0, id.indexOf(".")) as CommandFamily; }
 
 /** brep 族的单位：一个池（组件定义里的一个组；SU 内核）+ 这个池里选中的部分（null = 整个池）+ 池到当前上下文的变换（世界格点用）。 */
-export interface PoolUnit { readonly kind: "brep"; readonly at: PoolRef; readonly sel: Selection | null; readonly xf: Xform; }
-/** object 族的单位：一个定义（组件）。同一定义去重（改一次 = 全部实例一起变，copies 披露用）。 */
-export interface ObjectUnit { readonly kind: "object"; readonly def: DefId; readonly name: string; readonly body: BodyKind; readonly copies: number; }
-/** 单位的并集（mesh 族的 MeshUnit 随 M4 加）。指令按单位种类泛型化：一条指令只吃一种，不重载（user 10-27「函数的话是有type的……不需要重载」）。 */
-export type Unit = PoolUnit | ObjectUnit;
+export interface PoolUnit { readonly kind: "brep"; readonly at: PoolRef; readonly sel: BrepSelection | null; readonly xf: Xform; }
+/** mesh 族的单位：一个网格体（定义；网格体没有组，池 = 定义）+ 选中的部分（null = 整个网格）+ 到当前上下文的变换。 */
+export interface MeshUnit { readonly kind: "mesh"; readonly def: DefId; readonly sel: MeshSelection | null; readonly xf: Xform; }
+/**
+ * object 族的单位：场景里**摆着的一份**（实例：at 池里的 instance；它的定义 def、身体种类 body、这个定义在场景里有几份 copies、它在 at 里的变换 xf）。
+ * 「凡是摆着的都是带变换矩阵的物体」（注册表提案 §7.2）：挪 / 转 / 缩 / 锁 / 藏改的是这一份；改定义的指令（转换身体种类）声明 perDefinition，框架按定义去重、披露「N 份一起变」。
+ */
+export interface ObjectUnit { readonly kind: "object"; readonly at: PoolRef; readonly instance: InstId; readonly def: DefId; readonly name: string; readonly body: BodyKind; readonly copies: number; readonly xf: Xform; }
+/** 单位的并集。指令按单位种类泛型化：一条指令只吃一种，不重载（user 10-27「函数的话是有type的……不需要重载」）。 */
+export type Unit = PoolUnit | MeshUnit | ObjectUnit;
 export type UnitKind = Unit["kind"];
 
 /** 指令能看到的东西（只读；指令不碰 Editor 本体）。 */
@@ -85,4 +91,9 @@ export interface Command<U extends Unit = Unit> {
   readonly tally?: boolean;
   /** 没事可做也打开右下角参数（改段数：都已经是默认段数时，还得能挑别的段数）。 */
   readonly offerAlways?: boolean;
+  /** object 族：改的是定义不是这一份（转换身体种类）——框架按定义去重，同一定义的几份实例只喂一次（copies 披露）。 */
+  readonly perDefinition?: boolean;
 }
+
+/** 一次指令调用（动作路由出来的；撤销记录 / 复现包以后记它）。 */
+export interface CommandCall { readonly command: CommandId; readonly unit: Unit; readonly params: Params; }

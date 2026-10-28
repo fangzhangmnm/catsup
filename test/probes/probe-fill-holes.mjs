@@ -12,8 +12,8 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "pushpull", at, face: rect, dist: 1 });
   e.commitOp({ op: "eraseFaces", at, faces: [rect.map((p) => P(p.x, p.y, 1))] });
   e.deselectAll(); e.draw(); await sleep(30);
-  const out = { faces0: e.kernel.faces().length, menu: e.repairMenu().map((m) => m.label) };
-  C.hud.pick("repair:fillHoles"); await sleep(30);
+  const out = { faces0: e.kernel.faces().length, menu: e.commandMenu().map((m) => m.label) };
+  C.hud.pick("action:brep.fillHoles"); await sleep(30);
   out.hint = document.getElementById("hint")?.textContent ?? ""; out.faces1 = e.kernel.faces().length;
   e.undo(); await sleep(20); out.faces2 = e.kernel.faces().length;
   return out;

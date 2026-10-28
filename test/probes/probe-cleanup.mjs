@@ -13,8 +13,8 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "addEdges", at, segs: [[P(1, 0), P(1, 1)]] });
   e.commitOp({ op: "addEdges", at, segs: [[P(4, 0), P(5, 0)]] });
   e.deselectAll(); e.draw(); await sleep(30);
-  const out = { faces0: e.kernel.faces().length, edges0: e.kernel.edges().length, menu: e.repairMenu().map((m) => m.label) };
-  C.hud.pick("repair:cleanup"); await sleep(30);
+  const out = { faces0: e.kernel.faces().length, edges0: e.kernel.edges().length, menu: e.commandMenu().map((m) => m.label) };
+  C.hud.pick("action:brep.cleanup"); await sleep(30);
   out.hint = document.getElementById("hint")?.textContent ?? ""; out.faces1 = e.kernel.faces().length; out.edges1 = e.kernel.edges().length;
   const pp = e.paramPanel(); out.fields = pp ? pp.fields.map((f) => f.key) : null;
   e.undo(); await sleep(20); out.faces2 = e.kernel.faces().length; out.edges2 = e.kernel.edges().length;

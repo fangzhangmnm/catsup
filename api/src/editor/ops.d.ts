@@ -2,7 +2,7 @@ import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { type PoolRef, Scene } from "../scene/scene.ts";
+import { type PoolRef, type MeshBody, Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import { type ImportedScene } from "../scene/import-build.ts";
 export type Seg = [PtIn, PtIn];
@@ -229,6 +229,15 @@ export type Op =
     to: BodyKind; /** mesh → brep：弯折不到这个角度的边算软边（度；缺 = 20）。 */
     softDeg?: number;
 }
+/** 挪网格点：往位置数组里写（mesh/ops/geometry.ts moveVerts）。不过结算机、不合并、不折面——mesh 刻意没有 brep 的公理。 */
+ | {
+    op: "meshMove";
+    def: number;
+    moves: {
+        v: number;
+        to: Pt3;
+    }[];
+}
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {
     op: "addLayer";
@@ -329,6 +338,8 @@ export declare function moveOp(k: Kernel, moves: readonly {
     id: VertexId;
     to: PtIn;
 }[], at?: PoolRef): Op;
+/** 门 1 的 mesh 那半：mesh op 只对网格体定义成立（定义不在 / 不是网格体 = 目标缺席，不是崩溃）。 */
+export declare const meshOf: (s: Scene, def: number) => MeshBody;
 export declare const poolOf: (s: Scene, at?: PoolRef) => {
     kernel: Kernel;
     ref: PoolRef;
