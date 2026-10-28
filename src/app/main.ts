@@ -21,6 +21,7 @@ import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts"
 import { openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
+import { mountWorkBar } from "./ui/work-bar.ts";
 import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, type Machine } from "./machine-window.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
@@ -126,6 +127,7 @@ const hintEl = $("hint");
 const tipEl = $("tip");
 /** 盖上图库（或别的整屏覆盖层）前收掉画布上的光标提示 / 悬停（user 10-26：回图库之后读数框还挂在左上角——从菜单进图库指针没「离开画布」，画线中途离开也不清）。 */
 function hideCanvasTip(): void { tipEl.hidden = true; lastTipHtml = ""; editor.pointerLeave(); }
+const workBar = mountWorkBar();
 const marqueeEl = $("marquee"), lassoEl = document.getElementById("lasso") as unknown as SVGSVGElement & { hidden: boolean };
 const toolbarEl = $("toolbar");
 const readoutEl = $("readout");
@@ -178,6 +180,7 @@ const editor = new Editor(canvas, {
     Object.assign(lassoEl.style, { left: `${b.left}px`, top: `${b.top}px`, width: `${b.width}px`, height: `${b.height}px` });
     lassoEl.querySelector("polygon")!.setAttribute("points", pts.map((p) => `${p.x},${p.y}`).join(" "));
   },
+  working: (label) => { if (label === null) { workBar.hide(); return; } return workBar.show(label); },   // 要等的大活：顶边细进度条（UX7）
   changed: () => { syncUi(); _session?.noteChange(); },   // 同步：首笔安家在 commit 的同一调用栈里翻旗（WeebPaint wp:histchange 同形）
   error: (err, where) => reportError(where === "commit" ? "提交" : "预演", err),
   readout: (text) => { readoutEl.textContent = text; readoutEl.hidden = !READOUT_ON || !text; },   // 右下血槽位（A28）；10-25 先不显示（READOUT_ON）

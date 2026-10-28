@@ -137,6 +137,8 @@ export interface EditorHost {
   optionKv?: OptionKv;
   /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
   confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
+  /** 要等的大活的细进度条（顶边一条线，MoonSinger 同款；账本 UX7）：label = 露出来、返回「已经画上了」的 Promise（等它再开跑，不然卡住的那一帧画不出来）；null = 收起。缺 = 宿主不画。 */
+  working?(label: string | null): Promise<void> | void;
 }
 
 function epsOfKindVR(e: EpsSet, kind: string): number {
@@ -2078,13 +2080,19 @@ export class Editor {
       return count;
     });
   }
+  /** 确认了要等的大活：先请宿主把细进度条画出来（画上了再跑——跑的时候主线程卡住、画不了），跑完收起（账本 UX7）。 */
+  private runSlow(label: string, run: () => void): void {
+    const go = (): void => { try { run(); } finally { this.host.working?.(null); } };
+    const w = this.host.working?.(`${label}：在算…`);
+    if (w && typeof (w as Promise<void>).then === "function") void (w as Promise<void>).then(go); else go();
+  }
   /** 跑一条物体指令：一次 = 一步；要等很久先问；做完说清做了什么、丢了什么；有参数的给马后炮。 */
   private runObjectCommand(id: CommandId): number {
     const c = commandById(id) as Command<ObjectUnit>, v0 = c.defaults(this.repairCtx), units = this.unitsFor(c, "object") as ObjectUnit[];
     const est = c.estimate?.(this.repairCtx, units, v0);
     if (est && est.seconds >= Editor.ERASE_ASK_SECONDS && this.host.confirm) {
       const t = est.seconds < 90 ? `${Math.round(est.seconds)} 秒` : `${(est.seconds / 60).toFixed(1)} 分钟`;
-      void this.host.confirm(`${c.title}：要等一会儿`, `${est.what}，估计 ${t} 左右（按量级估），期间界面会卡住。要做吗？`, "做（会卡住一会儿）").then((ok) => { if (ok) this.runObjectNow(c, units, v0); else { this.host.hint(`${c.title}：没做（你选了不做）`); this.draw(); } });
+      void this.host.confirm(`${c.title}：要等一会儿`, `${est.what}，估计 ${t} 左右（按量级估），期间界面会卡住。要做吗？`, "做（会卡住一会儿）").then((ok) => { if (ok) this.runSlow(c.title, () => this.runObjectNow(c, units, v0)); else { this.host.hint(`${c.title}：没做（你选了不做）`); this.draw(); } });
       return 0;
     }
     return this.runObjectNow(c, units, v0);
@@ -2177,7 +2185,7 @@ export class Editor {
     const est = this.host.confirm ? this.eraseEstimate([{ kind, v: v0 }], scope) : null;
     if (est) {
       const title = this.repairModule(kind).title;
-      void this.host.confirm!(`${title}：要等一会儿`, this.eraseAskText(title, est), "做（会卡住一会儿）").then((ok) => { if (ok) this.repairNow(kind, scope, v0); else { this.host.hint(`${title}：没做（你选了不做）`); this.draw(); } });
+      void this.host.confirm!(`${title}：要等一会儿`, this.eraseAskText(title, est), "做（会卡住一会儿）").then((ok) => { if (ok) this.runSlow(title, () => this.repairNow(kind, scope, v0)); else { this.host.hint(`${title}：没做（你选了不做）`); this.draw(); } });
       return 0;
     }
     return this.repairNow(kind, scope, v0);
@@ -2302,7 +2310,7 @@ export class Editor {
     const apply = (): void => {
       // 大物体上要擦线：先问（同编辑条入口）
       const est = this.host.confirm ? this.eraseEstimate(REPAIR_STEPS.filter((s) => vals[s.command]).map((s) => ({ kind: s.command, v: { ...this.repairDefaults(s.command), children: vals.children !== false } })), "auto") : null;
-      if (est) { void this.host.confirm!("修复：要等一会儿", this.eraseAskText("这几步", est), "做（会卡住一会儿）").then((ok) => { if (ok) applyNow(); else { this.host.hint("修复：没做（你选了不做）"); this.draw(); } }); return; }
+      if (est) { void this.host.confirm!("修复：要等一会儿", this.eraseAskText("这几步", est), "做（会卡住一会儿）").then((ok) => { if (ok) this.runSlow("修复", applyNow); else { this.host.hint("修复：没做（你选了不做）"); this.draw(); } }); return; }
       applyNow();
     };
     const applyNow = (): void => { this.step((pass) => {

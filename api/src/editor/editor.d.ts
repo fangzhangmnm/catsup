@@ -123,6 +123,8 @@ export interface EditorHost {
     optionKv?: OptionKv;
     /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
     confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
+    /** 要等的大活的细进度条（顶边一条线，MoonSinger 同款；账本 UX7）：label = 露出来、返回「已经画上了」的 Promise（等它再开跑，不然卡住的那一帧画不出来）；null = 收起。缺 = 宿主不画。 */
+    working?(label: string | null): Promise<void> | void;
 }
 export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 export declare function describeEvent(ev: FaceEvent): string;
@@ -870,6 +872,8 @@ export declare class Editor {
      * 今天的两个特例（注册表第三步把 28 条选区动作搬进表时折进通用跑法）：只路由 brep 一种 = 修复那条路（作用域「选中的 / 整个物体」、含子物体、擦线估时、马后炮都在那）；只路由 object 一种 = 物体那条路（估时 + 按定义去重）。
      */
     runAction(id: string, params?: CmdParams): number;
+    /** 确认了要等的大活：先请宿主把细进度条画出来（画上了再跑——跑的时候主线程卡住、画不了），跑完收起（账本 UX7）。 */
+    private runSlow;
     /** 跑一条物体指令：一次 = 一步；要等很久先问；做完说清做了什么、丢了什么；有参数的给马后炮。 */
     private runObjectCommand;
     private runObjectNow;
