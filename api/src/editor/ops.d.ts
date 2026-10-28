@@ -296,6 +296,21 @@ export type Op =
     edges: number[];
     mark: "sharp" | "smooth" | "none";
 }
+/** 倒边（2026-10-28 FM152；mesh/ops/bevel.ts bevelEdges）：width = 本地长度、segments ≥ 1（≥ 2 = 圆角）；一条都没倒 = 拒（不提交空步）。 */
+ | {
+    op: "meshBevel";
+    def: number;
+    edges: number[];
+    width: number;
+    segments: number;
+}
+/** 倒点（Blender Ctrl+Shift+B）。 */
+ | {
+    op: "meshBevelVerts";
+    def: number;
+    verts: number[];
+    width: number;
+}
 /** 网格体的默认平滑（2026-10-28 FM129；几何属性：没手标的边算棱还是光滑过渡）。 */
  | {
     op: "meshSmoothDefault";

@@ -974,6 +974,11 @@ window.addEventListener("keydown", (ev) => {
     ev.preventDefault(); if (!editor.startModal("shrink")) hintEl.textContent = "沿法线移动：先选点 / 边 / 面"; syncUi(); return;
   }
   if (editor.modeId === "freeform" && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.code === "KeyR") { ev.preventDefault(); editor.armLoopCut(); syncUi(); return; }   // Blender Ctrl+R（浏览器的刷新被拦下）
+  if (editor.modeId === "freeform" && (ev.ctrlKey || ev.metaKey) && !ev.altKey && ev.code === "KeyB" && !locomotion.isWalking()) {   // Blender Ctrl+B 倒边 / Ctrl+Shift+B 倒点（纪元账本 FM152；浏览器的书签栏被拦下）
+    ev.preventDefault();
+    if (!editor.startModal("offset", ev.shiftKey ? "bevelVerts" : "bevel")) hintEl.textContent = ev.shiftKey ? "倒角（点）：先选点" : "倒角：先选边（选面 = 倒它的边）";
+    syncUi(); return;
+  }
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X

@@ -17,5 +17,7 @@ export declare const originToSelection: Command<MeshUnit>;
 export declare const markSharp: Command<MeshUnit>;
 export declare const markSmooth: Command<MeshUnit>;
 export declare const clearMarks: Command<MeshUnit>;
+export declare const bevel: Command<MeshUnit>;
+export declare const bevelPoints: Command<MeshUnit>;
 export declare const smoothByAngle: Command<MeshUnit>, smoothAll: Command<MeshUnit>, smoothNone: Command<MeshUnit>;
 export declare const meshEdits: Family;

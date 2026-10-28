@@ -55,14 +55,11 @@ export class MeshPullTool implements ToolHandler {
     if (sel.kind === "mesh" && sel.faces.size) t = { faces: [...sel.faces].filter((f) => m.hasF(f)), edges: [], verts: [] };
     else if (sel.kind === "mesh" && sel.edges.size) t = { faces: [], edges: [...sel.edges].filter((e) => m.hasE(e)), verts: [] };
     else if (sel.kind === "mesh" && sel.verts.size) t = { faces: [], edges: [], verts: [...sel.verts].filter((v) => m.hasV(v)) };
-    else {
-      const c = ctx.classify(ctx.live(), ctx.pick(ev.x, ev.y));
-      if (c.kind === "entity") {
-        const h = c.local;
-        t = h.face !== undefined ? { faces: [h.face], edges: [], verts: [] } : h.edge !== undefined ? { faces: [], edges: [h.edge], verts: [] } : h.vertex !== undefined ? { faces: [], edges: [], verts: [h.vertex] } : null;
-      }
+    else {   // 没选区：按下只认面（点和边不挡路，小面也按得到；挤边 / 点 = 先选中它们。纪元账本 FM165 user「边基础点挤出非常少……或者只有在选择模式才这么做」）
+      const gf = ctx.pickFace(ev.x, ev.y), c = gf !== undefined ? ctx.classify(ctx.live(), { face: gf }) : null;
+      if (c && c.kind === "entity" && c.local.face !== undefined && m.hasF(c.local.face)) t = { faces: [c.local.face], edges: [], verts: [] };
     }
-    if (!t || !(t.faces.length || t.edges.length || t.verts.length)) { ctx.hint("挤出：先选面 / 边 / 点，或者直接在要挤的东西上按下"); return; }
+    if (!t || !(t.faces.length || t.edges.length || t.verts.length)) { ctx.hint("挤出：直接在面上按下；要挤边 / 点，先用选择工具选中它们"); return; }
     const X = ctx.ctxXform(), vs = new Set<number>();
     for (const f of t.faces) for (const v of m.faceVerts(f)) vs.add(v);
     for (const e of t.edges) { vs.add(m.edgeA[e]); vs.add(m.edgeB[e]); }

@@ -21,7 +21,7 @@ import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } fro
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
-import { NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
+import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, guidesOf, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
@@ -229,7 +229,7 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   eraseInstance: "删除物体", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
-  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
+  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
 const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
@@ -1293,7 +1293,11 @@ export class Editor {
     return q ? Math.hypot(q.x - ray.origin.x, q.y - ray.origin.y, q.z - ray.origin.z) : null;
   }
   /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
-  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), { ...opts, xray: this._xray && this._tool === "select", softActive: this.mode.id === "freeform" }); }
+  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), { ...opts, xray: this._xray && this._tool === "select", ...this.meshPickOpts() }); }
+  /** 自由建模的拾取：正在编辑的网格体的平滑边点得中（FM138）+ 点用常量大半径（FM165）。硬表面 = 空（照旧）。 */
+  private meshPickOpts(): { softActive?: boolean; vertexPx?: number } {
+    return this.mode.id === "freeform" ? { softActive: true, vertexPx: (this.hitPx() * MESH_VERT_HIT_PX) / HIT_PX } : {};
+  }
   // ---------- X 光（纪元账本 DT17 的拾取 + 叠加层两半；半透明渲染留 Tron 纪元）----------
   // user 10-26「X光模式有一半是tron纪元的渲染器的事情，但是我现在想的是拾取模式和overlay 这个是不是现在就可以做？」
   // 开着：选择工具点得到被面挡住的点 / 边；画面上池的边透过面画淡的、选中的边不被挡。框选本来就会选到被挡的（SketchUp 同款），不变。
@@ -2855,7 +2859,8 @@ export class Editor {
    * 键盘起手（自由建模的 Blender G / R / S / E；user 10-27「然后能不能blender 快捷键无缝接上」）：有选区 = 切到那把工具、以光标处为起点直接进手势
    * （跟着鼠标走、点一下落定、Esc / 右键取消）；没选区 / 不在自由建模 / 正在手势里 = false（调用方退回「切工具」）。
    */
-  startModal(tool: Tool): boolean {
+  /** variant = 同一格里的哪种（插入那一格：Ctrl+B "bevel" / Ctrl+Shift+B "bevelVerts"）；工具自己认。 */
+  startModal(tool: Tool, variant?: string): boolean {
     if (this.mode.id !== "freeform" || this.gestureActive() || !this.lastPtr) return false;
     if (!this.mode.tools.includes(tool)) return false;
     const at = this.lastPtr;
@@ -2863,7 +2868,7 @@ export class Editor {
     const H = this.handlers[tool];
     if (!H?.startModal) return false;
     this.samples = []; this.downPoint = null;
-    if (!H.startModal(this.toolCtx, at)) return false;
+    if (!H.startModal(this.toolCtx, at, variant)) return false;
     this.armed = true; this.canArm = true; this.justCommitted = false;
     this.computeLive(); this.host.changed(); this.draw();
     return true;
@@ -3353,7 +3358,7 @@ export class Editor {
       snapPx: () => this.snapPx(),
       pickFace: (sx, sy) => pickFace(this.liveWorld(), this.frame(), this.fvp(), sx, sy),
       pick: (sx, sy, opts) => this.pickAt(sx, sy, opts),
-      pickStatic: (sx, sy) => pickEntity(this.worldView(), this.frame(), this.fvp(), sx, sy, this.hitPx(), {}),
+      pickStatic: (sx, sy) => pickEntity(this.worldView(), this.frame(), this.fvp(), sx, sy, this.hitPx(), this.meshPickOpts()),
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), ...q }),
       applyLock: (sn, sx, sy) => this.applyLock(sn, this.anchor3, sx, sy),

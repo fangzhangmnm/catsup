@@ -9,6 +9,7 @@
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
+import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
@@ -112,6 +113,10 @@ export type Op =
   | { op: "meshInset"; def: number; faces: number[]; dist: number }
   /** 手标边（2026-10-28 FM129）：sharp = 棱 / smooth = 平滑且不画线 / none = 清掉交给默认平滑（mesh/edge-smooth.ts markEdges）。 */
   | { op: "meshEdgeMarks"; def: number; edges: number[]; mark: "sharp" | "smooth" | "none" }
+  /** 倒边（2026-10-28 FM152；mesh/ops/bevel.ts bevelEdges）：width = 本地长度、segments ≥ 1（≥ 2 = 圆角）；一条都没倒 = 拒（不提交空步）。 */
+  | { op: "meshBevel"; def: number; edges: number[]; width: number; segments: number }
+  /** 倒点（Blender Ctrl+Shift+B）。 */
+  | { op: "meshBevelVerts"; def: number; verts: number[]; width: number }
   /** 网格体的默认平滑（2026-10-28 FM129；几何属性：没手标的边算棱还是光滑过渡）。 */
   | { op: "meshSmoothDefault"; def: number; mode: "angle" | "smooth" | "hard"; deg: number }
   | { op: "meshDelete"; def: number; verts?: number[]; edges?: number[]; faces?: number[]; dissolve?: boolean }
@@ -562,6 +567,16 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
     case "meshAddPrimitive": { addPrimitive(meshOf(s, op.def).kernel, op.kind, op.frame, op.size, op.segments); return { scene: s, events: [] }; }
     case "meshInset": { insetFaces(meshOf(s, op.def).kernel, op.faces, op.dist); return { scene: s, events: [] }; }
+    case "meshBevel": {
+      if (!(op.width > 0) || !(op.segments >= 1 && op.segments <= 64)) throw new OpTargetError(`bevel width ${op.width} segments ${op.segments}`);
+      if (!bevelEdges(meshOf(s, op.def).kernel, op.edges, op.width, Math.round(op.segments)).faces.length) throw new OpTargetError("bevel: none of the edges can be beveled");
+      return { scene: s, events: [] };
+    }
+    case "meshBevelVerts": {
+      if (!(op.width > 0)) throw new OpTargetError(`bevel width ${op.width}`);
+      if (!bevelVerts(meshOf(s, op.def).kernel, op.verts, op.width).faces.length) throw new OpTargetError("bevel: none of the vertices can be beveled");
+      return { scene: s, events: [] };
+    }
     case "meshEdgeMarks": { const k = meshOf(s, op.def).kernel; for (const e of op.edges) if (!k.hasE(e)) throw new OpTargetError(`edge ${e}`); markEdges(k, op.edges, op.mark); return { scene: s, events: [] }; }
     case "meshSmoothDefault": { if (!(op.deg > 0 && op.deg < 180)) throw new OpTargetError(`smooth default angle ${op.deg}`); meshOf(s, op.def).kernel.setSmoothDefault({ mode: op.mode, deg: op.deg }); return { scene: s, events: [] }; }
     case "meshDelete": { deleteSelection(meshOf(s, op.def).kernel, op, !!op.dissolve); return { scene: s, events: [] }; }
@@ -625,6 +640,8 @@ export function describeOp(op0: Op): string {
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
     case "meshAddPrimitive": return `meshAddPrimitive def=${op.def} ${op.kind}`;
     case "meshInset": return `meshInset def=${op.def} faces=${op.faces.length} d=${op.dist.toFixed(4)}`;
+    case "meshBevel": return `meshBevel def=${op.def} edges=${op.edges.length} w=${op.width.toFixed(4)} seg=${op.segments}`;
+    case "meshBevelVerts": return `meshBevelVerts def=${op.def} verts=${op.verts.length} w=${op.width.toFixed(4)}`;
     case "meshEdgeMarks": return `meshEdgeMarks def=${op.def} edges=${op.edges.length} ${op.mark}`;
     case "meshSmoothDefault": return `meshSmoothDefault def=${op.def} ${op.mode} ${op.deg}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;

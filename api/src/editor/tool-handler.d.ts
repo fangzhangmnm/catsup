@@ -289,7 +289,7 @@ export interface ToolHandler {
     startModal?(ctx: ToolCtx, s: {
         x: number;
         y: number;
-    }): boolean;
+    }, variant?: string): boolean;
     /** 切割：下一下点到边上直接环切（Ctrl+R）。 */
     armLoop?(ctx: ToolCtx): void;
     /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */

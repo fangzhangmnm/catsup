@@ -655,6 +655,8 @@ export declare class Editor {
     pickAt(sx: number, sy: number, opts?: {
         soft?: boolean;
     }): HitResult3;
+    /** 自由建模的拾取：正在编辑的网格体的平滑边点得中（FM138）+ 点用常量大半径（FM165）。硬表面 = 空（照旧）。 */
+    private meshPickOpts;
     private _xray;
     get xray(): boolean;
     setXray(on: boolean): void;
@@ -980,7 +982,8 @@ export declare class Editor {
      * 键盘起手（自由建模的 Blender G / R / S / E；user 10-27「然后能不能blender 快捷键无缝接上」）：有选区 = 切到那把工具、以光标处为起点直接进手势
      * （跟着鼠标走、点一下落定、Esc / 右键取消）；没选区 / 不在自由建模 / 正在手势里 = false（调用方退回「切工具」）。
      */
-    startModal(tool: Tool): boolean;
+    /** variant = 同一格里的哪种（插入那一格：Ctrl+B "bevel" / Ctrl+Shift+B "bevelVerts"）；工具自己认。 */
+    startModal(tool: Tool, variant?: string): boolean;
     /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
     armLoopCut(): boolean;
     private ctxPick;

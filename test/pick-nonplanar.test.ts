@@ -71,3 +71,17 @@ describe("拾取：网格体的面不平时，角点不被自己的邻面挡住"
     });
   }
 });
+
+describe("自由建模的点拾取半径 = 常量（纪元账本 FM165 user「还是常量比较好」）", () => {
+  it("离一个角 10 px：默认半径（6）拿不到点、自由建模的点半径（14）拿到点；边的半径不变", () => {
+    const { scene, m, ctx } = twistedCylinderScene(0);
+    const view = new WorldView(scene, ctx), cam = new OrbitCamera();
+    cam.projection = "persp"; cam.target = { x: 0, y: 0, z: 0.5 }; cam.yaw = 0.3; cam.pitch = 0.25; cam.halfH = 1.2;
+    // 屏幕上最左边的点（轮廓上）；往左挪 10 px（离开模型，旁边没有别的点）
+    const v = m.verts().reduce((a, b) => (cam.angularPx(m.pt(a), VP).x < cam.angularPx(m.pt(b), VP).x ? a : b));
+    const s = cam.angularPx(m.pt(v), VP);
+    const near = pickEntity(view, cam, VP, s.x - 10, s.y, 6), far = pickEntity(view, cam, VP, s.x - 10, s.y, 6, { vertexPx: 14 });
+    assert(near.vertex === undefined, `半径 6：拿不到点（${JSON.stringify(near)}）`);
+    assert(far.vertex !== undefined && view.local(far.vertex).id === v, `半径 14：拿到那个点（${JSON.stringify(far)}）`);
+  });
+});

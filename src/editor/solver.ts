@@ -59,6 +59,8 @@ export const RANK = { endpoint: 90, origin: 80, poolOrigin: 80, guidePoint: 75, 
 export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;
 /** 取点基准容差 / 实体拾取容差（单位同 EPS：fovY 的 1/800；编辑器与 frameEps 共用这一份）。 */
 export const SNAP_PX = 8, HIT_PX = 6;
+/** 自由建模里点的拾取半径（同一套度量：800 高视口的 px；2026-10-28 纪元账本 FM165 user「还是常量比较好」「大小成比例手感不好」）：点比边好抓，快速轻推不误点到线和面；边仍是 HIT_PX。硬表面不用它。 */
+export const MESH_VERT_HIT_PX = 14;
 /** 第二点平面「近擦」容差（CSS px @800 高）：光标离含锚点膜的剪影这么近 = 仍算在那张膜上（滑出底边不翻面）。 */
 export const PLANE_NEAR_PX = 24;   // line 5→3.5：「点松线紧」试验（user 2026-09-07「可以试试」；B6）
 /**

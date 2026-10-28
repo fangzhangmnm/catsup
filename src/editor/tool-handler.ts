@@ -211,7 +211,7 @@ export interface ToolHandler {
   /** steps 工具的「点一下（没拖）」：有它 = 不进「再点一下落定」，交给工具（自由建模：点空处 = 取消选择、点东西 = 选它；只有拖才是操作——user 10-27）。 */
   tap?(ctx: ToolCtx, s: { x: number; y: number }): void;
   /** 键盘起手（Blender G / R / S / E；自由建模）：用选区当目标、以光标处为起点开始一次手势（不用按下）；之后跟着鼠标走、点一下落定、Esc / 右键取消。没选区 = false。 */
-  startModal?(ctx: ToolCtx, s: { x: number; y: number }): boolean;
+  startModal?(ctx: ToolCtx, s: { x: number; y: number }, variant?: string): boolean;
   /** 切割：下一下点到边上直接环切（Ctrl+R）。 */
   armLoop?(ctx: ToolCtx): void;
   /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */

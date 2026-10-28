@@ -3,7 +3,7 @@
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts } from "../../mesh/ops/index.ts";
+import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts } from "../../mesh/ops/index.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
 
 /** 两个点共有的面（最小 id；没有 = null）。 */
@@ -128,6 +128,57 @@ export const markSharp = markCommand("sharp", "mesh.markSharp", "标成棱", "N 
 export const markSmooth = markCommand("smooth", "mesh.markSmooth", "标成平滑", "N 条边标成了平滑（明暗连续、不画线）", "标成平滑：先选边或面");
 export const clearMarks = markCommand("none", "mesh.clearMarks", "清掉手标", "N 条边清掉了手标，交给默认平滑", "清掉手标：选中的边没有手标");
 
+// ---------- 倒角（2026-10-28 FM152；算子 mesh/ops/bevel.ts；user「bevel为什么不做？这个没什么歧义吧。」）----------
+// 右键 = 指令（马后炮改宽度 / 段数）；拖着定宽度的手势版 = 插入那一格选了边 / 点（Ctrl+B / Ctrl+Shift+B 键盘起手），同一条 op。
+
+const lenOf = (m: MeshKernel, e: number): number => { const a = m.pt(m.edgeA[e]), b = m.pt(m.edgeB[e]); return Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z); };
+/** 默认宽度 = 最短那条相关边的十分之一，取到毫米（≥ 1 mm）。 */
+const defaultWidth = (shortest: number): number => (Number.isFinite(shortest) && shortest > 0 ? Math.max(0.001, Math.round(shortest * 0.1 * 1000) / 1000) : 0.05);
+const bevelNotes = (r: { clamped: boolean; width: number; skipped: number }, what: string): string[] => [
+  ...(r.clamped ? [`宽度被限到 ${Math.round(r.width * 1000) / 1000} m（再宽会穿过别的边）`] : []),
+  ...(r.skipped ? [`${r.skipped} ${what}没倒（要两侧都有面、四周围满面；网格边缘上的不行）`] : []),
+];
+export const bevel: Command<MeshUnit> = {
+  id: "mesh.bevel", unit: "mesh", title: "倒角",
+  defaults(env, units) {
+    let lo = Infinity;
+    for (const u of units ?? []) { const m = env.scene.mesh(u.def).kernel; for (const e of selEdges(m, u)) lo = Math.min(lo, lenOf(m, e)); }
+    return { width: defaultWidth(lo), segments: 1 };
+  },
+  params: () => [{ key: "width", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, unit: "m" } }, { key: "segments", def: { kind: "number", label: "段数", min: 1, max: 32, step: 1 } }],
+  quickCount: (env, u) => selEdges(env.scene.mesh(u.def).kernel, u).length,   // 菜单露不露：不在副本上真倒一遍
+  plan(env, u, v) {
+    const m = env.scene.mesh(u.def).kernel, es = selEdges(m, u), w = Number(v.width), seg = Math.round(Number(v.segments));
+    if (!es.length || !(w > 0) || !(seg >= 1)) return { ops: [], count: 0 };
+    const r = bevelEdges(m.clone(), es, w, seg);
+    if (!r.faces.length) return { ops: [], count: 0, notes: bevelNotes(r, "条边") };
+    return { ops: [{ op: "meshBevel", def: u.def, edges: es, width: w, segments: seg }], count: es.length - r.skipped, select: { faces: r.faces }, notes: bevelNotes(r, "条边") };
+  },
+  done: (n, _x, v) => `倒角：${n} 条边（${Number(v.segments) > 1 ? `${Number(v.segments)} 段圆角` : "一刀切平"}；宽度 / 段数在马后炮里改）`,
+  none: "倒角：先选边（选面 = 倒它的边；点选点用「倒角（点）」）",
+};
+export const bevelPoints: Command<MeshUnit> = {
+  id: "mesh.bevelVerts", unit: "mesh", title: "倒角（点）",
+  defaults(env, units) {
+    let lo = Infinity;
+    for (const u of units ?? []) { const m = env.scene.mesh(u.def).kernel; for (const x of u.sel?.verts ?? []) if (m.hasV(x)) for (const e of m.vEdges(x)) lo = Math.min(lo, lenOf(m, e)); }
+    return { width: defaultWidth(lo) };
+  },
+  params: () => [{ key: "width", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, unit: "m" } }],
+  quickCount: (env, u) => (u.sel && !u.sel.edges.size && !u.sel.faces.size ? [...u.sel.verts].filter((x) => env.scene.mesh(u.def).kernel.hasV(x)).length : 0),
+  plan(env, u, v) {
+    const m = env.scene.mesh(u.def).kernel, w = Number(v.width);
+    if (!u.sel || u.sel.edges.size || u.sel.faces.size || !(w > 0)) return { ops: [], count: 0 };
+    const vs = [...u.sel.verts].filter((x) => m.hasV(x)).sort((a, b) => a - b);
+    if (!vs.length) return { ops: [], count: 0 };
+    const r = bevelVerts(m.clone(), vs, w);
+    if (!r.faces.length) return { ops: [], count: 0, notes: bevelNotes(r, "个点") };
+    return { ops: [{ op: "meshBevelVerts", def: u.def, verts: vs, width: w }], count: vs.length - r.skipped, select: { faces: r.faces }, notes: bevelNotes(r, "个点") };
+  },
+  done: (n) => `倒角（点）：${n} 个角切掉了（宽度在马后炮里改）`,
+  none: "倒角（点）：只选点",
+};
+
 const SMOOTH_LABEL: Record<SmoothDefaultMode, string> = { angle: "按角度", smooth: "全部平滑", hard: "全部是棱" };
 /** 默认平滑的三档各一条指令（菜单里一档一行；已经是这一档的不露，按角度那条永远露、马后炮里改角度）。 */
 function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
@@ -148,13 +199,15 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
 const commands: readonly Command[] = [loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
-  markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
+  bevel as Command, bevelPoints as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
   { id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } },
   { id: "mesh.connect", icon: "line", label: () => "连线（J）", commands: { mesh: "mesh.connect" } },
   { id: "mesh.inset", icon: "selection-expand", label: () => "插入", commands: { mesh: "mesh.inset" } },
   { id: "mesh.originToSelection", icon: "axes", label: () => "设置原点到选择中心", commands: { mesh: "mesh.originToSelection" } },
+  { id: "mesh.bevel", icon: "selection-expand", label: (n) => `倒角（${n} 条边）`, commands: { mesh: "mesh.bevel" } },
+  { id: "mesh.bevelVerts", icon: "selection-expand", label: (n) => `倒角（${n} 个点）`, commands: { mesh: "mesh.bevelVerts" } },
   { id: "mesh.markSharp", icon: "line", label: (n) => `标成棱（${n} 条边）`, commands: { mesh: "mesh.markSharp" } },
   { id: "mesh.markSmooth", icon: "line", label: (n) => `标成平滑（${n} 条边）`, commands: { mesh: "mesh.markSmooth" } },
   { id: "mesh.clearMarks", icon: "line", label: (n) => `清掉手标（${n} 条边）`, commands: { mesh: "mesh.clearMarks" } },
@@ -162,7 +215,8 @@ const actions: readonly Action[] = [
   { id: "mesh.smooth.smooth", icon: "circle", label: () => "默认平滑：全部平滑", commands: { mesh: "mesh.smooth.smooth" } },
   { id: "mesh.smooth.hard", icon: "circle", label: () => "默认平滑：全部是棱", commands: { mesh: "mesh.smooth.hard" } },
 ];
-const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
+const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
+  { action: "mesh.bevel", where: "contextBar", order: 23, modes: ["freeform"] }, { action: "mesh.bevelVerts", where: "contextBar", order: 24, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
   { action: "mesh.markSharp", where: "contextBar", order: 40, modes: ["freeform"], submenu: { label: "手标", item: "标成棱" } },
   { action: "mesh.markSmooth", where: "contextBar", order: 41, modes: ["freeform"], submenu: { label: "手标", item: "标成平滑" } },
   { action: "mesh.clearMarks", where: "contextBar", order: 42, modes: ["freeform"], submenu: { label: "手标", item: "清掉手标（交给默认平滑）" } },

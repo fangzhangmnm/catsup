@@ -52,12 +52,14 @@ export function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewport, xray:
 /** 一个点所在的面（连着的边两侧的面）。 */
 export function facesAtVertex(k: GeomView, vid: VertexId): Set<FaceId> { const out = new Set<FaceId>(); for (const e of k.graph.vertex(vid).edges) if (k.graph.hasEdge(e)) for (const f of k.graph.edge(e).faceLinks) out.add(f); return out; }
 
-export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean }): HitResult3 {
+/** vertexPx = 点自己的半径（缺 = tolPx；自由建模给 MESH_VERT_HIT_PX 换算过的常量）。 */
+export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean; vertexPx?: number }): HitResult3 {
   // 顶点 / 边只在**看得见**时参赛；候选只从指针附近的格取（屏幕索引 #22）
   const idx = ScreenIndex.for(k, pf, vp);
   const hidden = occlusionTest(k, pf, vp, !!opts?.xray);
-  let bestV: VertexId | undefined, bestVd = tolPx;
-  for (const v of idx ? idx.verticesNear(sx, sy, tolPx + 1) : k.vertices()) {
+  const vTol = opts?.vertexPx ?? tolPx;
+  let bestV: VertexId | undefined, bestVd = vTol;
+  for (const v of idx ? idx.verticesNear(sx, sy, vTol + 1) : k.vertices()) {
     const p = { x: v.x, y: v.y, z: v.z };
     const d = pf.distTo(sx, sy, p, vp);
     if (d <= bestVd && !hidden(p, facesAtVertex(k, v.id))) { bestVd = d; bestV = v.id; }

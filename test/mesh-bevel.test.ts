@@ -106,3 +106,41 @@ describe("倒点（bevelVerts）", () => {
     eq(r.clamped, true); eq(m.faceCount(), 14); eq(m.check().join("\n"), ""); eq(closedConsistent(m).join("\n"), ""); eq(allOutward(m, C), 0);
   });
 });
+
+import { Scene } from "../src/scene/scene.ts";
+import { applyOp } from "../src/editor/ops.ts";
+import { History } from "../src/editor/history.ts";
+import { sceneBox } from "./format-scenes.ts";
+import { IDENTITY } from "../src/scene/xform.ts";
+import { bevel as bevelCmd, bevelPoints } from "../src/editor/mesh-edits/index.ts";
+import type { CommandEnv, MeshUnit } from "../src/editor/commands/command.ts";
+
+function cubeScene(): { s: Scene; def: number; m: MeshKernel } {
+  const s0 = new Scene(), d = s0.mintDef("块", sceneBox()); s0.mintInstance(s0.root, null, d.id, IDENTITY);
+  const s = applyOp(s0, { op: "castDefinition", def: d.id, to: "mesh" }).scene, m = cube(); s.mesh(d.id).kernel = m;
+  return { s, def: d.id, m };
+}
+const unitOf = (def: number, sel: { verts?: number[]; edges?: number[]; faces?: number[] }): MeshUnit => ({ kind: "mesh", def, sel: { kind: "mesh", verts: new Set(sel.verts ?? []), edges: new Set(sel.edges ?? []), faces: new Set(sel.faces ?? []) }, xf: IDENTITY });
+const canon = (m: MeshKernel): string => JSON.stringify({ v: m.verts().map((v) => [v, m.pt(v)]), f: m.faces().map((f) => m.faceVerts(f)), e: m.edges().map((e) => m.edgeFlags[e]) });
+
+describe("倒角：op / 撤销 / 右键指令", () => {
+  it("meshBevel op 一步、撤销逐字回去、重做同结果；一条都倒不了 = 拒（不提交空步）", () => {
+    const { s, def, m } = cubeScene(), h = new History(s), c0 = canon(m);
+    h.commit(s, { op: "meshBevel", def, edges: [m.edges()[0]], width: 0.1, segments: 2 });
+    eq(m.faceCount(), 8); const c1 = canon(m);
+    h.undo(); eq(canon(m), c0); h.redo(s); eq(canon(m), c1);
+    let threw = false; try { applyOp(s, { op: "meshBevel", def, edges: [], width: 0.1, segments: 1 }); } catch { threw = true; }
+    assert(threw, "空的倒角被拒");
+  });
+  it("右键「倒角」：选面 = 倒它的四条边；默认宽度 = 最短边 / 10；做完四条倒角带在选区；只选点时「倒角（点）」露、「倒角」不露", () => {
+    const { s, def, m } = cubeScene(), env = { scene: s } as unknown as CommandEnv;
+    const top = m.faces().find((f) => m.faceVerts(f).every((v) => m.pt(v).z === 1))!;
+    const u = unitOf(def, { faces: [top] }), v = bevelCmd.defaults(env, [u]);
+    eq(v.width, 0.1); eq(v.segments, 1);
+    const r = bevelCmd.plan(env, u, v);
+    eq(r.ops.length, 1); eq(r.ops[0].op, "meshBevel"); eq((r.ops[0] as { edges: number[] }).edges.length, 4); eq(r.select?.faces?.length, 4, "4 条倒角带（每个角是两条倒边斜接，不补片，Blender 同款）");
+    const pv = unitOf(def, { verts: [m.verts()[0]] });
+    eq(bevelCmd.quickCount!(env, pv), 0); eq(bevelPoints.quickCount!(env, pv), 1);
+    eq(bevelPoints.plan(env, pv, bevelPoints.defaults(env, [pv])).ops[0].op, "meshBevelVerts");
+  });
+});
