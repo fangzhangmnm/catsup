@@ -11,7 +11,7 @@ import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { PrimitiveKind } from "../mesh/ops/primitives.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
-import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
+import type { AlignHand, AlignQuery, DrawPlane, HitResult3, PickKinds, Snap3 } from "./pick.ts";
 import type { WorldView } from "../scene/world-view.ts";
 import type { PoolRef } from "../scene/scene.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
@@ -59,7 +59,8 @@ export interface ToolCtx {
   pickFace(sx: number, sy: number): FaceId | undefined;
   /** 屏幕点下的实体（顶点 > 边 > 面，全局 id；0.11 卷尺要知道起点落在哪条边上）。 */
   /** opts.soft = 软边也拾（平时软边点不中；硬化的橡皮要碰得到它）。 */
-  pick(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3;
+  /** opts.kinds = 拾取范围（关掉的那一级不参赛；自由建模工具条三个开关，selecting.ts pickKinds）。 */
+  pick(sx: number, sy: number, opts?: { soft?: boolean; kinds?: PickKinds }): HitResult3;
   /** 在静态世界（不含预演）里拾取：要按真身的拓扑落点的工具用（刀：预演里那条边已经劈开了，id 对不上真身）。配 classify(world(), …)。 */
   pickStatic(sx: number, sy: number): HitResult3;
   classify(view: WorldView, hit: HitResult3): Classified;
@@ -232,6 +233,8 @@ export interface ToolHandler {
   armLoop?(ctx: ToolCtx): void;
   /** 手势进行中能打数（Blender「S Z 0」；user 10-28 晚）：这把工具收的是什么量（长度 / 角度 / 倍数）。没有 = 打字不进这把工具。 */
   readonly typedQuantity?: QuantityTag;
+  /** 右键（自由建模手势中）= 原地落定：几何长出来但留在原地、新长出来的成为选区，接着 G 挪（Blender 的 E 然后右键；user 10-28 晚）。没有 = 右键只是取消。 */
+  commitInPlace?(ctx: ToolCtx): void;
   /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
   readonly previewOnHover?: boolean;
   /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */

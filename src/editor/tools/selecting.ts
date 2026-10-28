@@ -34,13 +34,19 @@ export function adoptPress(ctx: ToolCtx, adopt: Target["adopt"] | null | undefin
   ctx.afterSelect();
 }
 /** 按下处抓到的东西（立场表「抓什么」：element = 点 > 边 > 面，face = 只认面）；没东西 = null。只管网格体（自由建模）。 */
+/** 拾取范围（工具条三个开关，自由建模）：关掉的那一级不参赛；全关 = 当全开（不让人把自己锁死）。硬表面 = undefined（照旧）。 */
+export function pickKinds(ctx: ToolCtx): { verts: boolean; edges: boolean; faces: boolean } | undefined {
+  if (ctx.selection().kind !== "mesh") return undefined;
+  const k = { verts: ctx.config.get("pick", "verts"), edges: ctx.config.get("pick", "edges"), faces: ctx.config.get("pick", "faces") };
+  return k.verts || k.edges || k.faces ? k : { verts: true, edges: true, faces: true };
+}
 function grabUnder(ctx: ToolCtx, at: { x: number; y: number }, grab: string): { verts: number[]; edges: number[]; faces: number[] } | null {
   const m = ctx.mesh();
   if (grab === "face") {
     const gf = ctx.pickFace(at.x, at.y), c = gf !== undefined ? ctx.classify(ctx.world(), { face: gf }) : null;
     return c && c.kind === "entity" && c.local.face !== undefined && m.hasF(c.local.face) ? { verts: [], edges: [], faces: [c.local.face] } : null;
   }
-  const c = ctx.classify(ctx.world(), ctx.pick(at.x, at.y));
+  const c = ctx.classify(ctx.world(), ctx.pick(at.x, at.y, { kinds: pickKinds(ctx) }));
   if (c.kind !== "entity") return null;
   const h = c.local;
   return { verts: h.vertex !== undefined ? [h.vertex] : [], edges: h.edge !== undefined ? [h.edge] : [], faces: h.face !== undefined && h.vertex === undefined && h.edge === undefined ? [h.face] : [] };
@@ -94,7 +100,7 @@ export function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso")
 /** 点一下（第 n 下）：和选择工具同一套（见文件头）。 */
 export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number): void {
   const view = ctx.live(), mode = selModeOf(ctx, ev, false);
-  const hit = ctx.pick(ev.x, ev.y);
+  const hit = ctx.pick(ev.x, ev.y, { kinds: pickKinds(ctx) });
   if (ev.altKey && hit.edge !== undefined && ctx.selectLoop(hit, mode)) return;   // Alt 点边 = 环 / 洞（网格体；硬表面没有这个，照常点）
   // A31：参考线 / 参考点（光标下不是边或顶点时）——参考点 > 参考线，与实体拾取「点 > 边」同口径；面上的参考线照样点得中
   if (hit.edge === undefined && hit.vertex === undefined) {
@@ -128,6 +134,8 @@ export function boxSelect(ctx: ToolCtx, box: ScreenArea, mode: SelMode): void {
   for (const gid of picked.edges) { const c = ctx.classify(view, { edge: gid }); if (c.kind === "entity" && c.local.edge !== undefined) edges.push(c.local.edge); else if (c.kind === "pool") pools.set(c.key, c.pick); }
   for (const gid of picked.faces) { const c = ctx.classify(view, { face: gid }); if (c.kind === "entity" && c.local.face !== undefined) faces.push(c.local.face); else if (c.kind === "pool") pools.set(c.key, c.pick); }
   for (const em of ctx.emptiesIn(box)) pools.set(em.key, em.pick);   // 空组件（导入的空节点）：标记的原点在框里
+  const K = pickKinds(ctx);   // 拾取范围：关掉的那一级框不到
+  if (K) { if (!K.verts) verts.length = 0; if (!K.edges) edges.length = 0; if (!K.faces) faces.length = 0; }
   const vp = ctx.vp(), guides = view.guides().points.filter((q) => { const s2 = ctx.frame().project?.(q.p, vp); return !!s2 && inArea(s2); }).map((q) => q.id);
   ctx.replaceSelection({ verts, edges, faces, pools: [...pools.values()], guides }, mode);
   ctx.afterSelect();

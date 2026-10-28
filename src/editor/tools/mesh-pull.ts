@@ -2,8 +2,9 @@
 // user 10-27 深夜：「默认垂直」（边 / 点）、左柱在自由建模里叫「挤出」（「或者叫挤出也行，更标准」）；挤完要不要自动进挪 = 连击系统，user 自己想（纪元账本 FM110）。
 // 设计稿 §2-2 + 纪元账本 FM14 / FM15 / FM25：和硬表面推拉同一个工具 id、同一套「点几下」语法；差在**总是长新几何**（= SU 推拉的 Ctrl 档）、不推断。
 //   · 面：沿法向（选了几张面 = 区域一起挤、内部边不长，方向 = 法向平均），拖多少走多少（沿法向在屏幕上的投影量）；正对着面时法向投影没长度 → 按屏幕竖直方向（往上 = 往外）。
-//   · 边 / 点：默认垂直（user 10-27 拍）——每个新点沿它源点的方向走（边界边 = 它那张面的法向、内部边 = 两侧平均、孤立的 = +Z；mesh/ops/extrude.ts extrudeNormalDirs），
-//     一圈裙摆下沿 = 各自往外；拖动量沿这些方向的平均在屏幕上的投影量（抵消掉了 = 屏幕往上 = 往外）。
+//   · 边 / 点：**屏幕空间自由拖**（2026-10-28 晚 user「如果没有面的话，是边或者点，那么E是screen space，这个是blender的手感」；之前 10-27「默认垂直」被这句取代）；
+//     Shift = 沿各自的垂直方向（每个新点沿它源点的方向走：边界边 = 它那张面的法向、内部边 = 两侧平均、孤立的 = +Z；mesh/ops/extrude.ts extrudeNormalDirs）。
+//   · 右键 = 原地留下（user 10-28 晚「E之后右键是创作了面但是在原来的位置上可以切g」）：挤出 0、新长出来的成为选区，接着 G 挪；Esc = 什么都不留。
 //   · 锁轴（方向键）对三种都管：沿那根轴拉。做完新长出来的东西就是选区（FM14「做完的东西留在选区里，接着挪」）：面 = 顶上那几张、边 = 新的那排边、点 = 新点。
 //   · 提交 = 一条 meshExtrude（挤出 + 平移一起；重放确定：同一份内核 → 同一批新 id）。
 import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
@@ -80,7 +81,7 @@ export class MeshPullTool implements ToolHandler {
     this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y };
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
-    ctx.hint(`挤出 ${this.what()}：${t.faces.length ? "沿法向" : "沿垂直方向"}拖着松手，或者点第二下落定（按住 Shift = 屏幕平面里自由拖；方向键锁轴）`);
+    ctx.hint(`挤出 ${this.what()}：${t.faces.length ? "沿法向拖（按住 Shift = 屏幕平面自由拖）" : "屏幕平面自由拖（按住 Shift = 沿各自的垂直方向）"}，松手或点第二下落定；右键 = 原地留下接着 G；方向键锁轴`);
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
@@ -112,7 +113,9 @@ export class MeshPullTool implements ToolHandler {
     }
     if (ax) return { off: scale3(ax, dot3(d, ax)) };
     if (pn) return { off: sub3(d, scale3(pn, dot3(d, pn))) };
-    if (ctx.mods().shift) return { off: d };   // 按住 Shift = 不锁方向、屏幕平面里自由拖（user 10-27「挤出是不是可以shift切换不锁定，屏幕空间拖拽」；Shift = 把默认的对齐反过来）
+    // 面：默认沿法向，Shift = 屏幕平面自由拖；边 / 点：默认屏幕平面自由拖（Blender 手感，user 10-28 晚），Shift = 沿各自的垂直方向。Shift 永远 = 把默认反过来。
+    const free = t.faces.length ? ctx.mods().shift : !ctx.mods().shift;
+    if (free) return { off: d };
     const amt = this.amountAlong(ctx, s0, s1);
     if (t.faces.length) return this.nW ? { off: scale3(this.nW, amt) } : { off: { x: 0, y: 0, z: 0 } };
     return { along: amt };
@@ -128,6 +131,22 @@ export class MeshPullTool implements ToolHandler {
     return -ds.y * (up ? len3(sub3(up, grab)) : 0);
   }
 
+  /** 右键 = 原地留下（Blender E 然后右键）：挤出 0——几何长出来叠在原地，新长出来的成为选区，接着 G 挪。 */
+  commitInPlace(ctx: ToolCtx): void {
+    const t = this.t, what = this.what(), adopt = this.adopt;
+    this.cancel();
+    ctx.setAnchor(null); ctx.setCursor(null);
+    if (!t) return;
+    const def = ctx.activePool().def, sel = t.faces.length ? { faces: t.faces } : t.edges.length ? { edges: t.edges } : { verts: t.verts };
+    const probe = ctx.mesh().clone(), r = extrudeAndOffset(probe, t, { x: 0, y: 0, z: 0 });
+    adoptPress(ctx, adopt);
+    ctx.commitOp({ op: "meshExtrude", def, ...sel, offset: { x: 0, y: 0, z: 0 } });
+    const m = ctx.mesh();
+    if (t.faces.length) ctx.setSelection({ faces: t.faces.filter((f) => m.hasF(f)) });
+    else if (t.edges.length) ctx.setSelection({ edges: t.edges.map((e) => m.edgeOf(r.newVerts.get(probe.edgeA[e])!, r.newVerts.get(probe.edgeB[e])!)).filter((e) => e >= 0) });
+    else ctx.setSelection({ verts: [...r.newVerts.values()].filter((v) => m.hasV(v)) });
+    ctx.hint(`原地挤出了 ${what}（叠在原来的位置上，新长出来的在选区里）：按 G 或者用移动工具挪开`);
+  }
   private commit(ctx: ToolCtx): void {
     const t = this.t, mv = this.motion(ctx), what = this.what(), scaleL = this.alongScale, hadSel = this.hadSel, adopt = this.adopt;
     this.cancel();

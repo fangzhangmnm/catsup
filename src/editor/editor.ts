@@ -20,7 +20,7 @@ import { type WorldLabel, gridStepLabel, unitMark } from "./world-labels.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
-import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
+import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint , type PickKinds } from "./pick.ts";
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, symmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
@@ -1491,7 +1491,7 @@ export class Editor {
     return q ? Math.hypot(q.x - ray.origin.x, q.y - ray.origin.y, q.z - ray.origin.z) : null;
   }
   /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
-  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), { ...opts, xray: this._xray && this._tool === "select", ...this.meshPickOpts() }); }
+  pickAt(sx: number, sy: number, opts?: { soft?: boolean; kinds?: PickKinds }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), { ...opts, xray: this._xray && this._tool === "select", ...this.meshPickOpts() }); }
   /** 自由建模的拾取：正在编辑的网格体的平滑边点得中（FM138）+ 点用常量大半径（FM165）。硬表面 = 空（照旧）。 */
   private meshPickOpts(): { softActive?: boolean; vertexPx?: number } {
     return this.mode.id === "freeform" ? { softActive: true, vertexPx: (this.hitPx() * MESH_VERT_HIT_PX) / HIT_PX } : {};
@@ -3199,6 +3199,14 @@ export class Editor {
   }
   /** 正在打的字（探针 / 状态行）。 */
   typedText(): string { return this.gestureActive() ? this.typedBuf : ""; }
+  /** 自由建模手势中右键：这把工具会「原地落定」（挤出：几何留在原地、新的成为选区，接着 G）就做，返回 true；不会 = false（调用方当取消）。 */
+  commitInPlace(): boolean {
+    const H = this.handlers[this._tool];
+    if (!H?.commitInPlace || !H.active()) return false;
+    this.step(() => { H.commitInPlace!(this.toolCtx); this.endStepGesture(); });
+    this.host.changed(); this.draw();
+    return true;
+  }
   /** 回车 = 定：「点一下落定」那一下（键盘起手 / 点了一下在等下一点的手势）；按着没松的拖 = 松手才定，回车不管。 */
   confirmGesture(): void {
     const ev = this.lastMoveEv;

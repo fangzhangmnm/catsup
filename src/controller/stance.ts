@@ -139,7 +139,7 @@ const FREEFORM: Partial<Record<Tool, Stance>> = {
   rotate: S({ ...FREEFORM_XFORM, direction: "viewAxis", shift: "15° 一档", ctrl: "—", alt: "—" }),
   scale: S({ ...FREEFORM_XFORM, direction: "uniform", shift: "0.1 一档", ctrl: "—", alt: "—" }),
   shrink: S({ ...FREEFORM_XFORM, direction: "normal", shift: "—", ctrl: "—", alt: "（Alt+S / Alt+W = 这把工具）" }),
-  pp: S({ ...FREEFORM_XFORM, grab: "face", direction: "normal", shift: "自由拖（屏幕平面；§3-3 要改成吸附）", ctrl: "—", alt: "—" }),   // 边 / 点 = perp（各自垂直）
+  pp: S({ ...FREEFORM_XFORM, grab: "face", direction: "normal", shift: "反过来：面 = 屏幕平面自由拖、边 / 点 = 沿各自垂直方向", ctrl: "—", alt: "—" }),   // 面默认沿法向；边 / 点默认屏幕平面（Blender 手感，user 10-28 晚）
   offset: S({ ...FREEFORM_XFORM, grab: "face", direction: "inPlane", shift: "—", ctrl: "（Ctrl+B / Ctrl+Shift+B 键盘 = 倒角 / 倒点）", alt: "—", lock: null }),   // 面 = 插入、边 = 倒角、点 = 倒点
   knife: S({ grab: "pointOrEdge", tap: "drop", emptyDrag: "none", direction: "inPlane", snap: "infer", shift: "—", ctrl: "（Ctrl+R = 环切）", alt: "—", center: "none", lock: null, grammar: "steps", after: "clear", charge: false, intent: false }),   // 同边两下 = 环切；刀吸点 / 边
   erase: S({ grab: "scrub", tap: "apply", emptyDrag: "scrub", direction: "none", snap: "none", shift: "—", ctrl: "溶解", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),

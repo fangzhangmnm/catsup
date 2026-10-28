@@ -53,13 +53,15 @@ export function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewport, xray:
 export function facesAtVertex(k: GeomView, vid: VertexId): Set<FaceId> { const out = new Set<FaceId>(); for (const e of k.graph.vertex(vid).edges) if (k.graph.hasEdge(e)) for (const f of k.graph.edge(e).faceLinks) out.add(f); return out; }
 
 /** vertexPx = 点自己的半径（缺 = tolPx；自由建模给 MESH_VERT_HIT_PX 换算过的常量）。 */
-export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean; vertexPx?: number }): HitResult3 {
+/** 拾取范围（自由建模工具条「拾取：点 / 边 / 面」三个开关；user 10-28 晚「点线面，要不三个toggle，放在马前炮」）：关掉的那一级不参赛，下一级顶上。 */
+export interface PickKinds { readonly verts?: boolean; readonly edges?: boolean; readonly faces?: boolean }
+export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean; vertexPx?: number; kinds?: PickKinds }): HitResult3 {
   // 顶点 / 边只在**看得见**时参赛；候选只从指针附近的格取（屏幕索引 #22）
   const idx = ScreenIndex.for(k, pf, vp);
   const hidden = occlusionTest(k, pf, vp, !!opts?.xray);
   const vTol = opts?.vertexPx ?? tolPx;
   let bestV: VertexId | undefined, bestVd = vTol;
-  for (const v of idx ? idx.verticesNear(sx, sy, vTol + 1) : k.vertices()) {
+  for (const v of opts?.kinds?.verts === false ? [] : idx ? idx.verticesNear(sx, sy, vTol + 1) : k.vertices()) {
     const p = { x: v.x, y: v.y, z: v.z };
     const d = pf.distTo(sx, sy, p, vp);
     if (d <= bestVd && !hidden(p, facesAtVertex(k, v.id))) { bestVd = d; bestV = v.id; }
@@ -67,7 +69,7 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
   if (bestV !== undefined) return { vertex: bestV };
 
   let bestE: EdgeId | undefined, bestEd = tolPx;
-  for (const e of idx ? idx.edgesNear(sx, sy, tolPx + 1) : k.edges()) {
+  for (const e of opts?.kinds?.edges === false ? [] : idx ? idx.edgesNear(sx, sy, tolPx + 1) : k.edges()) {
     if (k.isFold(e.id)) continue;   // 折线（DT87）不是边：永远点不中，点到的是两侧那个面
     if (k.isSoft(e.id) && !opts?.soft && !(opts?.softActive && k.isActive?.(e.id))) continue;   // 自由建模（softActive）：正在编辑的网格体的平滑边画出来了，也点得中（纪元账本 FM138）   // 软边不可拾（0.10：看不见的东西不该被橡皮 / 选择碰到；「显示隐藏几何」视图开关 = wishlist）；硬化的橡皮例外（opts.soft，2026-10-26：不然软边永远硬化不了）
     const a = k.graph.pt(e.a), b = k.graph.pt(e.b);
@@ -80,7 +82,7 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
   }
   if (bestE !== undefined) return { edge: bestE };
 
-  const bestF = pickFace(k, pf, vp, sx, sy);
+  const bestF = opts?.kinds?.faces === false ? undefined : pickFace(k, pf, vp, sx, sy);
   if (bestF !== undefined) return { face: bestF };
   return {};
 }

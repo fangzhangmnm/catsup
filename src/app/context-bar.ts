@@ -12,6 +12,7 @@ import type { ParamValue } from "../editor/param-panel.ts";
 import { iconHtml } from "./ui/icon.ts";
 import type { Editor } from "../editor/editor.ts";
 import { optionGroupOf, type OptionEntry } from "../editor/tool-config.ts";
+import { stanceOf } from "../controller/stance.ts";
 import type { HudItem } from "./ui/hud-model.ts";
 
 /** 工具自己的动作 / chip（轴 → 重置轴；卷尺 / 量角器 / 圆规 → 删除所有参考几何；油漆桶 → 当前材质 / 吸色）。 */
@@ -41,6 +42,11 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     root.replaceChildren();
     for (const a of leading) root.appendChild(actionBtn(a));
     for (const e of entries) root.appendChild(control(group, e));
+    // 拾取范围（自由建模，按「点 > 边 > 面」抓东西的工具；tool-config.ts pick；user 10-28 晚「放在马前炮」）：挂在工具自己的选项后面
+    if (editor.modeId === "freeform" && stanceOf("freeform", tool)?.grab === "element") {
+      const cap = document.createElement("span"); cap.className = "bar-caption"; cap.textContent = "拾取"; root.appendChild(cap);
+      for (const e of config.entries("pick")) root.appendChild(control("pick", e));
+    }
     for (const a of actions) root.appendChild(actionBtn(a));
     if (sel.length) {
       if (hasTool) { const sep = document.createElement("span"); sep.className = "bar-sep"; sep.setAttribute("aria-hidden", "true"); root.appendChild(sep); }
