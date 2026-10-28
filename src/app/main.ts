@@ -216,6 +216,17 @@ const hud: HudModel = {
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
     { id: "repairPanel", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
     // 各个修复模块自己的入口（src/editor/repairs/ 清单；user 10-26「做成可以扔的模块化的」）：拉正 / 吸到格点 / 焊断口 / 拍平 / 软边变硬 / 恢复层级…
+    // 镜像（自由建模；纪元账本 FM134：编辑方式那一层，按网格体记、不进撤销）：关 / 镜像编辑 / 强行对称 + 镜像面；「对称对齐…」是注册表指令，并进同一个子菜单
+    ...((): HudItem[] => {
+      if (editor.modeId !== "freeform") return [];
+      const ms = editor.mirrorOf(), sub = (item: string) => ({ label: "镜像", item });
+      return [
+        { id: "mirror:off", label: "镜像：关", icon: "axes", active: !ms, submenu: sub("关") },
+        { id: "mirror:edit", label: "镜像编辑", icon: "axes", active: ms?.mode === "edit", submenu: sub("镜像编辑（对面的点一起改）") },
+        { id: "mirror:force", label: "强行对称", icon: "axes", active: ms?.mode === "force", submenu: sub("强行对称（每一步都镜回来）") },
+        ...([0, 1, 2] as const).map((a): HudItem => ({ id: `mirror:axis:${a}`, label: `镜像面 ${"XYZ"[a]}`, icon: "axes", active: (ms?.axis ?? 0) === a, submenu: sub(`镜像面：${"XYZ"[a]}`) })),
+      ];
+    })(),
     ...editor.commandMenu().map((m): HudItem => ({ id: `action:${m.id}`, label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) })),   // 注册表 contextBar 面上的动作（修复九条 + 物体族的两条转换）
     { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
     { id: "soften", label: "软化选区", icon: "blur", hidden: brepOnly || !editor.hasGeometrySelection() },
@@ -237,6 +248,13 @@ const hud: HudModel = {
     if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as "box"); syncUi(); return; }
+    if (id.startsWith("mirror:")) {   // 镜像开关（FM134）：关 / 镜像编辑 / 强行对称 / 换镜像面（换面保持当前模式；关着时换面 = 开镜像编辑）
+      const ms = editor.mirrorOf(), rest = id.slice("mirror:".length);
+      if (rest === "off") editor.setMirror(null);
+      else if (rest === "edit" || rest === "force") editor.setMirror(rest, ms?.axis);
+      else if (rest.startsWith("axis:")) editor.setMirror(ms?.mode ?? "edit", Number(rest.slice(5)) as 0 | 1 | 2);
+      syncUi(); return;
+    }
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;

@@ -142,6 +142,7 @@ const OTHER_KEY = { other: true } as const;   // rebuildFaces 分组键：别的
 const HINT_PX = 1.2;        // 吸附提示线宽
 const SOFT_EDGE_PX = 1;     // 自由建模里平滑边的线宽（CSS px；比棱细）
 const SOFT_EDGE_COLOR = 0x9a9a9a;   // 平滑边：比棱（edge 0x2a2a2a）淡得多，比面（0xd6d6d6）深一点，看得出来但不抢
+const MIRROR_COLOR = 0x8b5cf6;   // 镜像面 / 中缝上的点：和「原点 / 对齐」同一个紫（「这里有一条看不见的规矩」）
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
 const ARC_PX = 2.5;
 const SNAP_MARKER_PX = 5;
@@ -211,6 +212,8 @@ export interface ViewState {
   vertDots?: { key: string; pts: readonly Pt3[] } | null;
   /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
   softEdges?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[] } | null;
+  /** 镜像（自由建模，FM23「看得见：镜像面淡淡画出来，中缝上的点高亮」）：镜像面的淡框 + 中缝上的点。 */
+  mirror?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[]; seam: readonly Pt3[] } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
@@ -351,7 +354,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private mirrorLines: any; private seamDots: any; private mirrorKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -509,6 +512,17 @@ export class Renderer3 {
     this.softLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(SOFT_EDGE_PX, { offset: true, vertexColors: true }));
     this.softLines.frustumCulled = false; this.softLines.visible = false;
     this.scene.add(this.softLines);
+    // 镜像面淡框（不被几何挡：知道镜像面在哪）+ 中缝上的点（镜像色的实心点，压在顶点小点上面）
+    this.mirrorLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
+    this.mirrorLines.material.depthTest = false; this.mirrorLines.frustumCulled = false; this.mirrorLines.visible = false; this.mirrorLines.renderOrder = 6;
+    this.scene.add(this.mirrorLines);
+    this.seamDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Vector3(((MIRROR_COLOR >> 16) & 255) / 255, ((MIRROR_COLOR >> 8) & 255) / 255, (MIRROR_COLOR & 255) / 255) }, uSize: { value: VERT_DOT_PX } },
+      vertexShader: "uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= 0.995; else mv.xyz *= 0.995; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }",
+      fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
+    }));
+    this.seamDots.frustumCulled = false; this.seamDots.visible = false; this.seamDots.renderOrder = 3.5;
+    this.scene.add(this.seamDots);
     this.tickLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tickLines.frustumCulled = false; this.tickLines.visible = false;
     this.scene.add(this.tickLines);
@@ -948,6 +962,23 @@ export class Renderer3 {
       }
       this.softLines.visible = true;
     } else { this.softLines.visible = false; this.softKey = ""; }
+
+    // ---- 镜像（自由建模）----
+    const mi = view.mirror;
+    if (mi) {
+      if (mi.key !== this.mirrorKey) {
+        this.mirrorKey = mi.key;
+        const pos: number[] = [], col: number[] = [], c = this.tmpColor.setHex(MIRROR_COLOR);
+        for (const sg of mi.segs) { pos.push(sg.a.x, sg.a.y, sg.a.z, sg.b.x, sg.b.y, sg.b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b); }
+        this.setLineGeometry(this.mirrorLines, pos, col);
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(mi.seam.flatMap((q) => [q.x, q.y, q.z]), 3));
+        this.seamDots.geometry.dispose(); this.seamDots.geometry = g;
+      }
+      this.mirrorLines.visible = true;
+      this.seamDots.material.uniforms.uSize.value = (VERT_DOT_PX + 2) * this.dpr;
+      this.seamDots.visible = mi.seam.length > 0;
+    } else { this.mirrorLines.visible = false; this.seamDots.visible = false; this.mirrorKey = ""; }
 
     // ---- 选中的点 ----
     const sv = view.selVerts;

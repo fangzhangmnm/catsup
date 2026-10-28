@@ -34,7 +34,7 @@ export function foldSubmenus(items: readonly HudItem[]): PopupMenuItem[] {
     if (!it.submenu) { out.push({ id: it.id, label: it.label, icon: it.icon, disabled: it.disabled }); continue; }
     let g = groups.get(it.submenu.label);
     if (!g) { g = { id: `submenu:${it.submenu.label}`, label: it.submenu.label, icon: it.icon, children: [] }; groups.set(it.submenu.label, g); out.push(g); }
-    g.children!.push({ id: it.id, label: it.submenu.item, icon: it.icon, disabled: it.disabled });
+    g.children!.push({ id: it.id, label: it.submenu.item, icon: it.icon, disabled: it.disabled, ...(it.active !== undefined ? { checked: it.active } : {}) });   // 子菜单里的开关项带勾（镜像 › 关 / 镜像编辑 / 强行对称 / 轴）
   }
   return out;
 }

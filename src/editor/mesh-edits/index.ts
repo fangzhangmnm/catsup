@@ -4,6 +4,7 @@
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
 import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts } from "../../mesh/ops/index.ts";
+import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
 
 /** 两个点共有的面（最小 id；没有 = null）。 */
@@ -179,6 +180,31 @@ export const bevelPoints: Command<MeshUnit> = {
   none: "倒角（点）：只选点",
 };
 
+// ---------- 对称对齐（2026-10-28 FM136；user「然后可以只对选择区域修复镜像snap吗」；Blender Snap to Symmetry）----------
+const AXES: Record<string, MirrorAxis> = { x: 0, y: 1, z: 2 };
+const SIDE_LABEL: Record<SnapSide, string> = { auto: "选区重心那边", flip: "另一边", average: "两边取平均" };
+export const symmetrySnap: Command<MeshUnit> = {
+  id: "mesh.symmetrySnap", unit: "mesh", title: "对称对齐",
+  defaults: () => ({ axis: "x", tol: 0.01, side: "auto" }),
+  params: () => [
+    { key: "axis", def: { kind: "enum", label: "镜像面", values: [{ id: "x", label: "X" }, { id: "y", label: "Y" }, { id: "z", label: "Z" }] } },
+    { key: "tol", def: { kind: "number", label: "容差", min: 0.0001, max: 1, step: 0.001, unit: "m" } },
+    { key: "side", def: { kind: "enum", label: "以哪边为准", values: (["auto", "flip", "average"] as const).map((id) => ({ id, label: SIDE_LABEL[id] })) } },
+  ],
+  quickCount: (env, u) => (u.sel ? selectionVerts(env.scene.mesh(u.def).kernel, u.sel).length : 0),
+  plan(env, u, v) {
+    if (!u.sel) return { ops: [], count: 0 };
+    const m = env.scene.mesh(u.def).kernel, vs = selectionVerts(m, u.sel).sort((a, b) => a - b), axis = AXES[String(v.axis)] ?? 0, tol = Number(v.tol), side = (String(v.side) as SnapSide);
+    if (!vs.length || !(tol > 0)) return { ops: [], count: 0 };
+    const r = snapToSymmetry(m.clone(), vs, axis, tol, side);
+    const notes = r.unpaired ? [`${r.unpaired} 个点在容差里找不到对面，没动（拓扑不对称的修不了，用「强行对称」）`] : [];
+    if (!r.pairs && !r.pinned) return { ops: [], count: 0, notes };
+    return { ops: [{ op: "meshSymmetrySnap", def: u.def, verts: vs, axis, tol, mode: side }], count: r.pairs + r.pinned, notes };
+  },
+  done: (n, _x, v) => `对称对齐：${n} 处对齐了（以${SIDE_LABEL[String(v.side) as SnapSide] ?? "选区重心那边"}为准；镜像面 / 容差 / 哪边为准在马后炮里改）`,
+  none: "对称对齐：先选点 / 边 / 面",
+};
+
 const SMOOTH_LABEL: Record<SmoothDefaultMode, string> = { angle: "按角度", smooth: "全部平滑", hard: "全部是棱" };
 /** 默认平滑的三档各一条指令（菜单里一档一行；已经是这一档的不露，按角度那条永远露、马后炮里改角度）。 */
 function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
@@ -199,7 +225,7 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
 const commands: readonly Command[] = [loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
-  bevel as Command, bevelPoints as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
+  bevel as Command, bevelPoints as Command, symmetrySnap as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
   { id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } },
@@ -208,6 +234,7 @@ const actions: readonly Action[] = [
   { id: "mesh.originToSelection", icon: "axes", label: () => "设置原点到选择中心", commands: { mesh: "mesh.originToSelection" } },
   { id: "mesh.bevel", icon: "selection-expand", label: (n) => `倒角（${n} 条边）`, commands: { mesh: "mesh.bevel" } },
   { id: "mesh.bevelVerts", icon: "selection-expand", label: (n) => `倒角（${n} 个点）`, commands: { mesh: "mesh.bevelVerts" } },
+  { id: "mesh.symmetrySnap", icon: "axes", label: (n) => `对称对齐（${n} 个点）`, commands: { mesh: "mesh.symmetrySnap" } },
   { id: "mesh.markSharp", icon: "line", label: (n) => `标成棱（${n} 条边）`, commands: { mesh: "mesh.markSharp" } },
   { id: "mesh.markSmooth", icon: "line", label: (n) => `标成平滑（${n} 条边）`, commands: { mesh: "mesh.markSmooth" } },
   { id: "mesh.clearMarks", icon: "line", label: (n) => `清掉手标（${n} 条边）`, commands: { mesh: "mesh.clearMarks" } },
@@ -217,6 +244,7 @@ const actions: readonly Action[] = [
 ];
 const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
   { action: "mesh.bevel", where: "contextBar", order: 23, modes: ["freeform"] }, { action: "mesh.bevelVerts", where: "contextBar", order: 24, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
+  { action: "mesh.symmetrySnap", where: "contextBar", order: 38, modes: ["freeform"], submenu: { label: "镜像", item: "对称对齐…" } },
   { action: "mesh.markSharp", where: "contextBar", order: 40, modes: ["freeform"], submenu: { label: "手标", item: "标成棱" } },
   { action: "mesh.markSmooth", where: "contextBar", order: 41, modes: ["freeform"], submenu: { label: "手标", item: "标成平滑" } },
   { action: "mesh.clearMarks", where: "contextBar", order: 42, modes: ["freeform"], submenu: { label: "手标", item: "清掉手标（交给默认平滑）" } },

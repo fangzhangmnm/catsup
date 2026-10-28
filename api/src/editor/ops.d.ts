@@ -304,6 +304,22 @@ export type Op =
     width: number;
     segments: number;
 }
+/** 强行对称（2026-10-28 FM134；mesh/mirror.ts symmetrize）：side 那半为准，另一半删掉照它镜回来；跨过镜像面的面 = 拒。 */
+ | {
+    op: "meshSymmetrize";
+    def: number;
+    axis: 0 | 1 | 2;
+    side: -1 | 1;
+}
+/** 对称对齐（FM136；只动选中的点）：mode auto = 选区重心那边为准 / flip = 另一边 / average = 取平均。 */
+ | {
+    op: "meshSymmetrySnap";
+    def: number;
+    verts: number[];
+    axis: 0 | 1 | 2;
+    tol: number;
+    mode: "auto" | "flip" | "average";
+}
 /** 倒点（Blender Ctrl+Shift+B）。 */
  | {
     op: "meshBevelVerts";

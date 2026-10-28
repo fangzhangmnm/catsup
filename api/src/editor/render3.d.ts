@@ -121,6 +121,15 @@ export interface ViewState {
             b: Pt3;
         }[];
     } | null;
+    /** 镜像（自由建模，FM23「看得见：镜像面淡淡画出来，中缝上的点高亮」）：镜像面的淡框 + 中缝上的点。 */
+    mirror?: {
+        key: string;
+        segs: readonly {
+            a: Pt3;
+            b: Pt3;
+        }[];
+        seam: readonly Pt3[];
+    } | null;
     /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
     charged?: {
         points: readonly Pt3[];
@@ -247,6 +256,9 @@ export declare class Renderer3 {
     private vertDotKey;
     private softLines;
     private softKey;
+    private mirrorLines;
+    private seamDots;
+    private mirrorKey;
     private tickLines;
     private poolAxesLines;
     private poolAxesKey;

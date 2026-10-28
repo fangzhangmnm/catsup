@@ -3,6 +3,7 @@ import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kern
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type DrawPlane, type HitResult3 } from "./pick.ts";
+import { type MirrorAxis, type MirrorMode, type MirrorSetting } from "../mesh/mirror.ts";
 import { type SelMode } from "./tools.ts";
 import { type ArcGesture } from "./arc-build.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
@@ -601,6 +602,35 @@ export declare class Editor {
     private setCtx;
     /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
     commitOp(op: Op): FaceEvent[];
+    private mirrors;
+    private mirrorLastSide;
+    /** 这一步里镜像想说的话（对面找不到的点 / 这一步没对称）：接在这一下的提示后面。 */
+    private mirrorNote;
+    /** 护栏把这一下工具的提交挡下来在等确认：这一下工具自己的提示 / 选区不作数（不谎报「挤出了」）。 */
+    private mirrorDeferred;
+    private static readonly MIRROR_TOPO;
+    private static readonly MIRROR_TOPO_ACTIONS;
+    private static readonly NO_SYMMETRIZE;
+    /** 正在编辑的网格体的镜像设置（不在网格体里 = null）。 */
+    mirrorOf(): MirrorSetting | null;
+    /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。 */
+    setMirror(mode: MirrorMode | null, axis?: MirrorAxis): void;
+    /** 选区重心在镜像面哪一边（没选区 / 正好在面上 = null）。 */
+    private selectionSide;
+    private symmetrizeNow;
+    /** 镜像编辑：挪点补上对面、手标补上对面的边（提交前改写；进日志的是改写后的 op = 重放一致）。 */
+    private mirrorRewrite;
+    private mirrorForceBefore;
+    private mirrorForceAfter;
+    /** 预演同一道：镜像编辑补对面的点、强行对称把影子对称一遍（真身不动）。 */
+    private mirrorPreview;
+    /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */
+    private mirrorBlocks;
+    private mirrorAsk;
+    /** 右键指令 / 删除的同一道护栏（入口处问，问完从头再来一次）。 */
+    private mirrorGateEntry;
+    /** 画镜像面（淡框）+ 中缝上的点（自由建模、开着镜像时）。 */
+    private mirrorView;
     /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
     private toolPass;
     private toolCommit;
