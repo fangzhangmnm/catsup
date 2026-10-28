@@ -215,7 +215,8 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "protractor", icon: "protractor", label: "量角器", key: "" },
   { tool: "compass", icon: "compass", label: "圆规", key: "" },
   { tool: "knife", icon: "knife", label: "切割", key: "K" },
-  { tool: "walk", icon: "walk", label: "步行", key: "" },   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
+  { tool: "walk", icon: "walk", label: "步行", key: "" },
+  { tool: "create", icon: "new", label: "新建", key: "" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键不占（Shift+A 在 Blender 是「添加」菜单，等 user 拍）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
   { tool: "shrink", icon: "push-pull", label: "沿法线", key: "Alt+S" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）

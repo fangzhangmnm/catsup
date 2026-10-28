@@ -3184,9 +3184,10 @@ export class Editor {
   /** 刚右键过（新建那几项露在右键菜单里；点在点 / 面上也露 = 落在那上面，user「按右键的位置吸附，比如顶点，面，原点，地面平面」）。 */
   contextNewAllowed(): boolean { return !!this.ctxPick && this.mode.id === "freeform"; }   // 只在自由建模（user 10-27「然后硬表面建模不应该有新建网络体」）
   /** 右键点 → 新建落点（世界）+ 法向（朝镜头）：点 > 面 > 原点 > 地面（上下文坐标架的 XY 面）。 */
-  private newObjectAnchor(): { p: Pt3; n: Pt3 | null; on: string } | null {
-    const c = this.ctxPick;
-    if (!c) return null;
+  private newObjectAnchor(): { p: Pt3; n: Pt3 | null; on: string } | null { const c = this.ctxPick; return c ? this.newObjectAnchorAt(c.x, c.y) : null; }
+  /** 新建物体的落点（屏幕点 → 打到的点 / 边 / 面 / 原点 / 地面 + 法向）：右键新建记下的那一点，或新建工具按下的那一点。 */
+  private newObjectAnchorAt(cx: number, cy: number): { p: Pt3; n: Pt3 | null; on: string } | null {
+    const c = { x: cx, y: cy };
     const view = this.worldView(), fr = this.frame(), vp = this.fvp(), ray = fr.ray(c.x, c.y, vp);
     const toward = (v: Pt3): Pt3 => (dot3(v, ray.dir) > 0 ? scale3(v, -1) : v);
     const hit = pickEntity(view, fr, vp, c.x, c.y, this.hitPx(), {});
@@ -3227,12 +3228,9 @@ export class Editor {
     if (g && dot3(sub3(g, ray.origin), ray.dir) > 0) return { p: g, n: null, on: "地面" };
     return null;
   }
-  /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
-  addPrimitive(kind: PrimitiveKind): boolean { return this.step((pass) => {
-    const A = this.newObjectAnchor(), P = PRIMITIVES[kind];
-    if (!A) { this.host.hint("新建：右键点在点 / 面 / 原点 / 地面上"); return false; }
-    if (this.activeKind() !== "mesh") { this.host.hint("新建：只在自由建模（网格体）里"); return false; }   // user 10-27「然后硬表面建模不应该有新建网络体」
-    const at = this.activePool(), Xi = invert(this.ctxXform()), F = this.contextFrame();
+  /** 新建基本体的计划（落点 + 对齐 + 尺寸 → 本地坐标架 + 三个尺寸）：提交（addPrimitive）和新建工具的预演共用一份。尺寸 = 边长（立方体 / 平面）或直径（圆的几种），世界长度。 */
+  private primitivePlan(kind: PrimitiveKind, A: { p: Pt3; n: Pt3 | null }): (align: string, sizeW: number, seg: number) => { frame: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; size: [number, number, number]; segments: number } {
+    const Xi = invert(this.ctxXform()), F = this.contextFrame();
     const frameW = (align: string): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => {
       let z: Pt3, x0: Pt3;
       if (align === "world") { z = { x: 0, y: 0, z: 1 }; x0 = { x: 1, y: 0, z: 0 }; }
@@ -3246,15 +3244,36 @@ export class Editor {
     const toLocal = (f: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => ({ o: applyPt(Xi, f.o), x: normalize3(applyDir(Xi, f.x)), y: normalize3(applyDir(Xi, f.y)), z: normalize3(applyDir(Xi, f.z)) });
     const dims = (sz: number): [number, number, number] => (kind === "box" ? [sz, sz, sz] : kind === "plane" ? [sz, sz, 0] : [sz / 2, sz / 2, kind === "sphere" ? sz / 2 : sz]);
     const scaleL = len3(applyDir(Xi, { x: 1, y: 0, z: 0 })) || 1;
+    return (align, sizeW, seg) => ({ frame: toLocal(frameW(align)), size: dims(sizeW * scaleL), segments: seg });
+  }
+  /** 新建工具：从按下那一点拖到 (x1, y1) = 多大（世界长度：屏上拖的距离 × 落点那里一像素多长）；落不到东西 = null。 */
+  primitiveDragSize(x0: number, y0: number, x1: number, y1: number): number | null {
+    const A = this.newObjectAnchorAt(x0, y0), wpp = A ? worldPerPx(this.frame(), this.fvp(), A.p) : null;
+    return A && wpp ? Math.hypot(x1 - x0, y1 - y0) * wpp : null;
+  }
+  /** 新建工具的预演：在影子网格上按同一份计划长出来（对齐 = 法向 / 落在地面 = 世界）。返回说法；落不到东西 = null。 */
+  previewPrimitive(kind: PrimitiveKind, x: number, y: number, sizeW: number, m: MeshKernel): string | null {
+    const A = this.newObjectAnchorAt(x, y), P = PRIMITIVES[kind];
+    if (!A) return null;
+    const { frame, size, segments } = this.primitivePlan(kind, A)(A.n ? "normal" : "world", sizeW, 16);
+    addPrimitive(m, kind, frame, size, segments);
+    return `新建${P.label}（${kind === "box" || kind === "plane" ? "边长" : "直径"} ${fmtLen(sizeW)}）`;
+  }
+  /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
+  addPrimitive(kind: PrimitiveKind, opts: { at?: { x: number; y: number }; size?: number } = {}): boolean { return this.step((pass) => {
+    const A = opts.at ? this.newObjectAnchorAt(opts.at.x, opts.at.y) : this.newObjectAnchor(), P = PRIMITIVES[kind];
+    if (!A) { this.host.hint(opts.at ? "新建：按在点 / 面 / 原点 / 地面上" : "新建：右键点在点 / 面 / 原点 / 地面上"); return false; }
+    if (this.activeKind() !== "mesh") { this.host.hint("新建：只在自由建模（网格体）里"); return false; }   // user 10-27「然后硬表面建模不应该有新建网络体」
+    const at = this.activePool(), plan = this.primitivePlan(kind, A);
     const go = (v: Readonly<Record<string, ParamValue>>): void => {
-      const fL = toLocal(frameW(String(v.align))), sz = Number(v.size) * scaleL, seg = Number(v.segments) || 16;
-      const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, dims(sz), seg);
-      this.commitIn(pass, { op: "meshAddPrimitive", def, kind, frame: fL, size: dims(sz), ...(P.round ? { segments: seg } : {}) });
+      const { frame: fL, size, segments: seg } = plan(String(v.align), Number(v.size), Number(v.segments) || 16);
+      const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, size, seg);
+      this.commitIn(pass, { op: "meshAddPrimitive", def, kind, frame: fL, size, ...(P.round ? { segments: seg } : {}) });
       this.clearSel(pass);
       for (const f of r.faces) this.selection.faces.add(f);
       this.bump();
     };
-    const v0: Record<string, ParamValue> = { align: A.n ? "normal" : "world", size: kind === "box" || kind === "plane" ? P.size[0] : P.size[0] * 2, segments: 16 };
+    const v0: Record<string, ParamValue> = { align: A.n ? "normal" : "world", size: opts.size ?? (kind === "box" || kind === "plane" ? P.size[0] : P.size[0] * 2), segments: 16 };
     const n0 = this.opCount;
     go(v0);
     if (this.opCount === n0) return false;
@@ -3680,6 +3699,9 @@ export class Editor {
       orientFrame: () => this.orientFrame(),
       boxIn: (f) => this.boxIn(f),
       setAxes: (f) => this.setContextAxes(f),
+      newPrimitive: (kind, x, y, size) => this.addPrimitive(kind, { at: { x, y }, ...(size !== undefined ? { size } : {}) }),
+      previewPrimitive: (kind, x, y, size, m) => this.previewPrimitive(kind, x, y, size, m),
+      primitiveDragSize: (x0, y0, x1, y1) => this.primitiveDragSize(x0, y0, x1, y1),
       hoverSnap: (s) => this.hoverSnap(s),
       setHoverEdge: (e) => { this.hoverEdge = e; },
       hysteresis: (sn, sx, sy) => this.applyHysteresis(sn, sx, sy),

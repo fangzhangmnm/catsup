@@ -200,6 +200,12 @@ export const TOOL_OPTIONS = {
     action: { kind: "enum", label: "动作", values: [{ id: "soften", label: "软化" }, { id: "harden", label: "硬化", hint: "刮过的边变硬（= 标记硬边；按住 Shift 临时反过来）" }], def: "soften", scope: "session" },
     maxDeg: { kind: "number", label: "最大角度", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "session" },
   },
+  /** 新建（自由建模；纪元账本 FM182，user 10-27「然后能不能加一个新建的tool，就是拖动然后新建，可以马前炮和马后炮，如果你想用马前炮的尺寸就点击」）：
+   *  新建什么 + 点一下时的尺寸（= 马前炮；拖 = 拖多大就多大）。尺寸 = 边长（立方体 / 平面）或直径（圆柱 / 圆锥 / 球），存米、按显示单位显示。马后炮（对齐 / 尺寸 / 段数）照右键新建那一套。 */
+  create: {
+    kind: { kind: "enum", label: "新建", values: [{ id: "box", label: "立方体" }, { id: "cylinder", label: "圆柱" }, { id: "cone", label: "圆锥" }, { id: "sphere", label: "球" }, { id: "plane", label: "平面" }], def: "box", scope: "session" },
+    size: { kind: "number", label: "点一下的尺寸", def: 1, min: 0.01, max: 10000, step: 0.01, quantity: { q: "length" }, scope: "session" },   // 量化以 min 为格点原点：min = step（0.001 / 0.1 会把 0.5 量成 0.501）
+  },
   /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
   surface: {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },

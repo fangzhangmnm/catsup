@@ -37,7 +37,7 @@
 7. **【done v0.16.13】键鼠时手柄自动藏、触摸出现**（UX37；读成右上角的手 + 放大镜拖柄；开机按设备猜）：按 `lastPointerType`（`main.ts` 已有）切右上角把手那组的显隐；鼠标 / 笔藏、手指露。
 8. **【done v0.16.12】硬表面缩放 Shift = 等比但锚点仍是对面那个点**（UX35；面心柄按住 Shift，探针 probe-transform ③½）：`src/editor/tools/scale.ts` 查现在 Shift 的锚点；等比只改比例不改锚。
 9. **【done】零实例的定义存读往返不丢**（`test/orphan-defs.test.ts`）（UX26 的 TODO）：`test/format*.test.ts` 加一条（造一个没有实例的定义 → 写 glb → 读回来还在）。
-10. **新建工具**（FM182 / 任务 #25）：拖出来新建、点一下用马前炮尺寸、马后炮可改；入口两处先同一条指令（UX 账本「新建两入口先同一指令」）。
+10. **新建工具**（FM182 / 任务 #25）：拖出来新建、点一下用马前炮尺寸、马后炮可改；入口两处先同一条指令（UX 账本「新建两入口先同一指令」）。**done v0.16.21（Claude Opus 5.5）**：`tools/mesh-create.ts`（直接操作：点一下 = 工具条尺寸、拖 = 拖的距离当半径 / 半边长、预演）；右键新建和它都走 `Editor.addPrimitive`（落点 / 坐标架 / 马后炮一份，`primitivePlan` 提交和预演共用）；左柱第九格；探针 `probe-create`。没快捷键（Shift+A 在 Blender 是「添加」菜单，等 user 拍）。
 
 ## 纪律提醒
 

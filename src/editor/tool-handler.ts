@@ -8,6 +8,7 @@
 import type { ScreenArea } from "./marquee.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import type { PrimitiveKind } from "../mesh/ops/primitives.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
 import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
@@ -185,6 +186,13 @@ export interface ToolCtx {
   boxIn(f: Frame): { min: Pt3; max: Pt3 } | null;
   /** 搬坐标架（世界坐标帧进来；DT86）：最外层 = 绘图轴、组里 = 组的、组件里 = 组件的，都不碰几何；改组件原点会话里 = 改那个组件的原点。提示行由编辑器写。 */
   setAxes(frame: Frame): void;
+  // ---- 新建（自由建模；FM182）：和右键「新建 ›」同一条（Editor.addPrimitive：落点 / 对齐 / 马后炮一份）----
+  /** 在屏幕点 (x, y) 打到的地方（点 / 边 / 面 / 原点 / 地面）新建一个基本体；size = 世界长度（边长 / 直径），不给 = 出厂尺寸。落不到东西 = false。 */
+  newPrimitive(kind: PrimitiveKind, x: number, y: number, size?: number): boolean;
+  /** 预演：同一份计划长在给的影子网格上；返回说法（落不到东西 = null）。 */
+  previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel): string | null;
+  /** 从 (x0, y0) 拖到 (x1, y1) 在落点那里是多长（世界长度）；落不到东西 = null。 */
+  primitiveDragSize(x0: number, y0: number, x1: number, y1: number): number | null;
 }
 
 /**

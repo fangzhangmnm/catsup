@@ -31,7 +31,7 @@ export const RAIL_GROUPS: readonly RailGroup[] = [
  * 验证 = 步行第一格（v0.15.43，user「12同意」）+ 选择 / 移动 / 旋转 + 尺规（v0.15.44「以及尺规还是要的」）。没列的工作台 = 走上面的分组。
  */
 export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
-  freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"],
+  freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset", "create"],   // create = 新建（FM182；排最后：八格常用之外的第九格）
   verify: ["walk", "select", "move", "rotate", "tape", "protractor", "compass", "axes"],
 };
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
