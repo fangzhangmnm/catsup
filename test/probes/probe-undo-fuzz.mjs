@@ -34,7 +34,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
     if (seed % 2 === 0) { box(0, 0, 0, 2, 1, 1); e.selectAll(); e.makeComponent(`m${seed}`); e.runAction("object.toMesh"); const mi0 = [...S().def(S().root).instances.values()].at(-1); e.selectedPools.clear(); e.selectedPools.set(`i${mi0.id}`, { kind: "instance", instance: mi0.id }); e.enterSelected(); trail.push("[mesh]"); }
     for (let k = 0; k < ACTIONS && out.failures.length < 6; k++) {
       const r = rnd(), hasSel = e.hasSelection(), hasPool = e.selectedPools.size > 0, depth = e.contextCrumbs().length - 1;
-      const stepsBefore = e.history.steps(), fpBefore = fp(S());
+      const stepsBefore = e.history.steps(), posBefore = e.history.position(), fpBefore = fp(S());
       let name;
       try {
         // 动作 = 加权清单（2026-10-28 晚 Claude Fable 5.1，F-113 审计：加进镜像那条路 + 网格体整体算子 + 物体动词）；不可用的不进清单
@@ -78,7 +78,8 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
       if (!selValid()) fail("selection references dead geometry");
       if (!modeFits()) fail(`workbench ${e.mode.id} does not fit the active body`);
       if (drifts.length) fail(`DRIFT ${JSON.stringify(drifts.splice(0))}`);
-      if (name === "undo" || name === "redo" || e.history.steps() !== stepsBefore) selAtLastStep = selKey();
+      // 撤销 / 重做只有游标真动了才算回到某一步（没东西可重做的一下 = 什么都没发生；以前照记，把之后的导航〔退出一层〕错当成「最后一步的会话」= 2026-10-28 种子 3 的假红，Opus 查）
+      if ((name === "undo" || name === "redo") ? e.history.position() !== posBefore : e.history.steps() !== stepsBefore) selAtLastStep = selKey();
       await sleep(0);
     }
     // 撤到种子开头、再重做到底：指纹和选区逐字回来
