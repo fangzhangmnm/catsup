@@ -3,10 +3,12 @@
 // 单选：user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做，以及也许可以做成那种可以滚动可以点开的下拉框」——
 //   菜单里一行 = 名字 + 当前值 ▾（popup-menu.ts 的 choices 行），点开 = 这一层，选了就关层；长了自己滚，开的时候滚到勾着的那项。
 // 层带 data-popup-child：上层菜单（popup-menu.ts）在它里面点不算点到外面；同一时刻只开一层，再点同一行 = 收起。
+// 子菜单（2026-10-27 Opus；user「新建能不能收到一个子菜单里面…需要把菜单的深模块做成支持子菜单的，还要防止跑到屏幕外面」）：同一个壳，带图标的普通菜单项，
+//   先往右开（桌面子菜单的习惯）、右边放不下往左、两边都放不下摆下面；太高自己滚（.choice-layer 的 max-height），上下夹在屏幕里。
 // 以后和 select-field 一起抬进 @internal/workbench-elements（总账 #30）。前身 = multi-select.ts（同日，只有多选）。
 import { iconHtml } from "./icon.ts";
 
-export interface ChoiceOption { id: string; label: string; group?: string; hint?: string }
+export interface ChoiceOption { id: string; label: string; group?: string; hint?: string; icon?: string; disabled?: boolean }
 interface LayerOpts {
   /** 挂在谁旁边（一般是菜单里那一行）：先摆左边（右上角的菜单往左开），再右边，都放不下就摆下面。 */
   anchor: HTMLElement;
@@ -17,6 +19,10 @@ interface LayerOpts {
   multi: boolean;
   head?: { label: string; enabled: () => boolean; onClick: () => void };
   ariaLabel?: string;
+  /** 先摆哪边：left = 下拉层（右上角的菜单往左开，缺省）；right = 子菜单（往右开，放不下再往左）。 */
+  prefer?: "left" | "right";
+  /** menu = 子菜单（普通菜单项，没有勾）；缺省 listbox = 单选 / 多选。 */
+  role?: "menu" | "listbox";
 }
 export interface ChoiceLayerHandle { readonly el: HTMLElement; readonly anchor: HTMLElement; close(): void; isOpen(): boolean }
 
@@ -68,19 +74,32 @@ export function openSingleSelect(o: SingleSelectOpts): ChoiceLayerHandle {
   });
 }
 
+export interface SubmenuOpts {
+  anchor: HTMLElement;
+  items: () => ChoiceOption[];
+  /** 点了一项：返回 "close" = 关层（上层菜单关不关由调用方定）。 */
+  onPick: (id: string) => "close" | "keep";
+  ariaLabel?: string;
+}
+/** 子菜单：菜单里一行旁边开一层普通菜单项（带图标、没有勾）。 */
+export function openSubmenu(o: SubmenuOpts): ChoiceLayerHandle {
+  return openLayer({ anchor: o.anchor, options: o.items, multi: false, ariaLabel: o.ariaLabel, isOn: () => false, onPick: o.onPick, prefer: "right", role: "menu" });
+}
+
 function openLayer(opts: LayerOpts): ChoiceLayerHandle {
   current?.close();
   const el = document.createElement("div");
   el.className = "popup-menu choice-layer";
   el.dataset.popupChild = "1";
-  el.setAttribute("role", "listbox");
+  el.setAttribute("role", opts.role ?? "listbox");
+  if (opts.role === "menu") el.classList.add("submenu");
   if (opts.multi) el.setAttribute("aria-multiselectable", "true");
   if (opts.ariaLabel) el.setAttribute("aria-label", opts.ariaLabel);
   document.body.appendChild(el);
   let open = true;
-  const row = (label: string, checked: boolean, hint?: string): HTMLButtonElement => {
+  const row = (label: string, checked: boolean, hint?: string, icon?: string): HTMLButtonElement => {
     const b = document.createElement("button"); b.type = "button"; b.className = "menu-item";
-    b.innerHTML = `<span class="ico-gap"></span><span class="menu-label"></span>${hint ? '<span class="menu-hint"></span>' : ""}${checked ? iconHtml("check", { cls: "ico menu-check" }) : ""}`;
+    b.innerHTML = `${icon ? iconHtml(icon) : '<span class="ico-gap"></span>'}<span class="menu-label"></span>${hint ? '<span class="menu-hint"></span>' : ""}${checked ? iconHtml("check", { cls: "ico menu-check" }) : ""}`;
     (b.querySelector(".menu-label") as HTMLElement).textContent = label;
     if (hint) (b.querySelector(".menu-hint") as HTMLElement).textContent = hint;
     return b;
@@ -96,8 +115,10 @@ function openLayer(opts: LayerOpts): ChoiceLayerHandle {
     let group: string | undefined;
     for (const o of opts.options()) {
       if (o.group !== group) { group = o.group; if (group) { const h = document.createElement("div"); h.className = "menu-section-label"; h.textContent = group; el.appendChild(h); } }
-      const on = opts.isOn(o.id), b = row(o.label, on, o.hint);
-      b.setAttribute("role", "option"); b.setAttribute("aria-selected", String(on)); b.dataset.choiceId = o.id;
+      const on = opts.isOn(o.id), b = row(o.label, on, o.hint, o.icon);
+      if (opts.role === "menu") b.setAttribute("role", "menuitem");
+      else { b.setAttribute("role", "option"); b.setAttribute("aria-selected", String(on)); }
+      b.dataset.choiceId = o.id; b.disabled = !!o.disabled;
       if (on) b.classList.add("on");
       b.addEventListener("click", () => { if (opts.onPick(o.id) === "close") close(); else render(); });
       el.appendChild(b);
@@ -108,9 +129,14 @@ function openLayer(opts: LayerOpts): ChoiceLayerHandle {
     const a = opts.anchor.getBoundingClientRect(), vw = window.innerWidth, vh = window.innerHeight;
     el.style.left = "0px"; el.style.top = "0px";
     const w = el.offsetWidth, h = el.offsetHeight;
-    let left = a.left - w - 6, top = a.top;
-    if (left < 6) { left = a.right + 6; if (left + w > vw - 6) { left = Math.min(Math.max(6, a.left), vw - 6 - w); top = a.bottom + 4; } }
-    if (top + h > vh - 6) top = Math.max(6, vh - 6 - h);
+    const leftSide = a.left - w - 6, rightSide = a.right + 6;
+    const fitsL = leftSide >= 6, fitsR = rightSide + w <= vw - 6;
+    let left: number, top = opts.prefer === "right" ? a.top - 6 : a.top;   // 子菜单：第一项和这一行对齐（层有 6 px 内边距）
+    if (opts.prefer === "right" ? fitsR : fitsL) left = opts.prefer === "right" ? rightSide : leftSide;
+    else if (opts.prefer === "right" ? fitsL : fitsR) left = opts.prefer === "right" ? leftSide : rightSide;
+    else { left = Math.min(Math.max(6, a.left), vw - 6 - w); top = a.bottom + 4; }   // 两边都放不下（窄屏）：摆下面
+    if (top + h > vh - 6) top = Math.max(6, vh - 6 - h);   // 夹在屏幕里（太高的层自己滚：.choice-layer max-height）
+    if (top < 6) top = 6;
     el.style.left = `${left}px`; el.style.top = `${top}px`;
   };
   const onDocDown = (ev: Event): void => {

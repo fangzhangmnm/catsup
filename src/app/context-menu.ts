@@ -4,8 +4,8 @@
 // 触屏长按（只在选择工具里，gestures.ts 计时）、顶部选区浮条（选中东西就出现，零长按可发现）。菜单本体 = 共享 popup-menu 深模块，
 // 定位靠一个 0×0 的锚点元素挪到指针处。
 import type { Editor } from "../editor/editor.ts";
-import type { HudModel } from "./ui/hud-model.ts";
-import { openPopupMenu } from "./ui/popup-menu.ts";
+import type { HudItem, HudModel } from "./ui/hud-model.ts";
+import { openPopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { type SelectionRoute, selectionActions } from "./selection-actions.ts";
 
@@ -22,9 +22,21 @@ export function openContextMenuAt(editor: Editor, hud: HudModel, x: number, y: n
   anchor.style.left = `${cx}px`; anchor.style.top = `${cy}px`;
   openPopupMenu({
     anchor,
-    items: () => selectionActions(hud).map((it) => ({ id: it.id, label: it.label, icon: it.icon, disabled: it.disabled })),
+    items: () => foldSubmenus(selectionActions(hud)),
     onPick: (id) => { hud.pick(id); },
   });
+}
+
+/** 表 → 右键菜单的行：带 submenu 的几项按子菜单名并成一行（摆在第一项的位置），其余原样。 */
+export function foldSubmenus(items: readonly HudItem[]): PopupMenuItem[] {
+  const out: PopupMenuItem[] = [], groups = new Map<string, PopupMenuItem>();
+  for (const it of items) {
+    if (!it.submenu) { out.push({ id: it.id, label: it.label, icon: it.icon, disabled: it.disabled }); continue; }
+    let g = groups.get(it.submenu.label);
+    if (!g) { g = { id: `submenu:${it.submenu.label}`, label: it.submenu.label, icon: it.icon, children: [] }; groups.set(it.submenu.label, g); out.push(g); }
+    g.children!.push({ id: it.id, label: it.submenu.item, icon: it.icon, disabled: it.disabled });
+  }
+  return out;
 }
 
 // （顶部选区浮条 mountSelectionBar 2026-10-24 并进 context-bar.ts 的上下文条，A25）

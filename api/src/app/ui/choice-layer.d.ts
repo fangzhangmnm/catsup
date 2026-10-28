@@ -3,6 +3,8 @@ export interface ChoiceOption {
     label: string;
     group?: string;
     hint?: string;
+    icon?: string;
+    disabled?: boolean;
 }
 export interface ChoiceLayerHandle {
     readonly el: HTMLElement;
@@ -37,3 +39,12 @@ export interface SingleSelectOpts {
     ariaLabel?: string;
 }
 export declare function openSingleSelect(o: SingleSelectOpts): ChoiceLayerHandle;
+export interface SubmenuOpts {
+    anchor: HTMLElement;
+    items: () => ChoiceOption[];
+    /** 点了一项：返回 "close" = 关层（上层菜单关不关由调用方定）。 */
+    onPick: (id: string) => "close" | "keep";
+    ariaLabel?: string;
+}
+/** 子菜单：菜单里一行旁边开一层普通菜单项（带图标、没有勾）。 */
+export declare function openSubmenu(o: SubmenuOpts): ChoiceLayerHandle;

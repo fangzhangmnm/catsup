@@ -11,6 +11,8 @@ export interface HudItem {
   disabled?: boolean;
   danger?: boolean;
   hidden?: boolean;
+  /** 右键菜单里收进哪个子菜单（label = 子菜单那一行的字；item = 这一项在子菜单里的字）。同名的几项并成一行，摆在第一项的位置；浮条 / VR 手腕面板照旧平铺、用 label。2026-10-27 Opus（user「新建能不能收到一个子菜单里面」）。 */
+  submenu?: { label: string; item: string };
 }
 
 export interface HudModel {

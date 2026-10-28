@@ -4,7 +4,7 @@
 // created 2026-09-06 by Claude Fable 5.1
 
 import { iconHtml } from "./icon.ts";
-import { choiceLayerOn, choiceLayerOpen, closeChoiceLayer, openSingleSelect } from "./choice-layer.ts";
+import { type ChoiceLayerHandle, choiceLayerOn, choiceLayerOpen, closeChoiceLayer, openSingleSelect, openSubmenu } from "./choice-layer.ts";
 
 export interface PopupMenuItem<Id extends string = string> {
   id: Id;
@@ -25,6 +25,10 @@ export interface PopupMenuItem<Id extends string = string> {
   value?: string;
   /** 纯文字说明（不可点；label = 正文；B43「新手提醒」）。 */
   note?: boolean;
+  /** 子菜单（2026-10-27 Opus；user「新建能不能收到一个子菜单里面…需要把菜单的深模块做成支持子菜单的，还要防止跑到屏幕外面」）：
+   *  这一行 = label + ›；点 / 鼠标悬停 = 旁边开一层（choice-layer.ts openSubmenu：先往右、放不下往左、太高自己滚）；点里面一项 = onPick(那一项的 id)，
+   *  整个菜单关（返回 "keep" = 留着并刷新）。只一层：子项的 children 不看。 */
+  children?: PopupMenuItem<Id>[];
 }
 /** 弹层顶部的 tab（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）：图标 + 字一排；只显示当前 tab 的项。 */
 export interface PopupMenuTab { id: string; label: string; icon?: string }
@@ -75,6 +79,15 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   document.body.appendChild(el);
   let open = true;
 
+  // 开着的子菜单：鼠标移到别的行上，等一小会儿再收（斜着往子菜单挪的路上会擦过下一行，不能一碰就关）
+  let sub: { row: HTMLElement; layer: ChoiceLayerHandle } | null = null, subTimer: ReturnType<typeof setTimeout> | null = null;
+  const cancelSubClose = (): void => { if (subTimer !== null) { clearTimeout(subTimer); subTimer = null; } };
+  const subOpen = (): boolean => !!sub && sub.layer.isOpen();
+  const closeSubSoon = (): void => {
+    if (!subOpen() || subTimer !== null) return;
+    subTimer = setTimeout(() => { subTimer = null; if (sub && sub.layer.isOpen() && !sub.layer.el.matches(":hover") && !sub.row.matches(":hover")) { sub.layer.close(); sub = null; } }, 220);
+  };
+  const hoverSibling = (b: HTMLElement): void => { b.addEventListener("pointerenter", (ev) => { if (ev.pointerType === "mouse") closeSubSoon(); }); };
   const tabs = opts.tabs ?? [];
   let tab = tabs.length ? opts.tab || (opts.tabKey && recallTab(opts.tabKey)) || tabs[0].id : "";
   if (opts.tab && opts.tabKey) rememberTab(opts.tabKey, opts.tab);
@@ -108,6 +121,27 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
         el.appendChild(h);
       }
       if (it.note) { const d = document.createElement("div"); d.className = "menu-note"; d.textContent = it.label; el.appendChild(d); continue; }
+      if (it.children) {
+        const kids = it.children, b = document.createElement("button");
+        b.type = "button"; b.className = "menu-item menu-sub"; b.dataset.menuId = it.id; b.disabled = !!it.disabled || !kids.length;
+        b.setAttribute("aria-haspopup", "menu");
+        b.innerHTML = `${it.icon ? iconHtml(it.icon) : '<span class="ico-gap"></span>'}<span class="menu-label"></span><span class="menu-sub-mark" aria-hidden="true"></span>`;
+        (b.querySelector(".menu-label") as HTMLElement).textContent = it.label;
+        const openSub = (): void => {
+          cancelSubClose();
+          if (choiceLayerOn(b)) return;
+          const layer = openSubmenu({
+            anchor: b, ariaLabel: it.label,
+            items: () => kids.map((k) => ({ id: k.id, label: k.label, ...(k.icon ? { icon: k.icon } : {}), ...(k.hint ? { hint: k.hint } : {}), ...(k.disabled ? { disabled: true } : {}) })),
+            onPick: (id) => { const r = opts.onPick(id as Id); if (r === "keep") { if (open) render(); return "close"; } close(); return "close"; },
+          });
+          layer.el.addEventListener("pointerenter", cancelSubClose);
+          sub = { row: b, layer };
+        };
+        b.addEventListener("click", openSub);   // 点 / 点按 = 开（开着再点不收：鼠标是悬停先开的，这一下点不该把它关掉）
+        b.addEventListener("pointerenter", (ev) => { if (ev.pointerType === "mouse") openSub(); });
+        el.appendChild(b); continue;
+      }
       if (it.choices || it.value !== undefined) {
         const cur = it.choices?.find((c) => c.checked), b = document.createElement("button");
         b.type = "button"; b.className = "menu-item menu-field"; b.dataset.menuId = it.id; b.disabled = !!it.disabled;
@@ -126,6 +160,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
             onPick: (id) => { opts.onPick(id as Id); if (open) render(); },
           });
         });
+        hoverSibling(b);
         el.appendChild(b); continue;
       }
       const b = document.createElement("button");
@@ -140,6 +175,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
         const r = opts.onPick(it.id);
         if (r === "keep") render(); else close();
       });
+      hoverSibling(b);
       el.appendChild(b);
     }
     position();
@@ -153,7 +189,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
     let top = a.bottom + 4;
     if (left + w > vw - 6) left = vw - 6 - w;
     if (left < 6) left = 6;
-    if (top + h > vh - 6) top = Math.max(6, a.top - 4 - h);
+    if (top + h > vh - 6) top = Math.max(6, a.top - 4 - h);   // 下面放不下 → 摆上面；都放不下 = 贴顶（高度被 CSS 夹在屏幕里、自己滚，不跑出屏幕）
     el.style.left = `${left}px`;
     el.style.top = `${top}px`;
   };
@@ -168,6 +204,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   const close = (): void => {
     if (!open) return;
     open = false;
+    cancelSubClose(); sub = null;
     closeChoiceLayer();   // 从这里开出来的下拉层跟着关
     el.remove();
     document.removeEventListener("pointerdown", onDocDown, true);
