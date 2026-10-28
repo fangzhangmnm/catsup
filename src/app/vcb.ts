@@ -7,7 +7,7 @@ import { padUnitKeys } from "../editor/vcb.ts";
 import { showNotice } from "./ui/notice.ts";
 import { fieldControl, fieldEditing } from "./ui/field-control.ts";
 
-export interface VcbUi { render(): void; feedKey(ev: KeyboardEvent): boolean; /** 只读：这一下按键数值小窗要不要（和 feedKey 同一套判断，不改状态；键表 controller/keymap.ts 的 vcb 层问它）。 */ wants(ev: { key: string; ctrl: boolean; alt: boolean }): boolean; }
+export interface VcbUi { render(): void; /** 参数区（马前炮那一块）住哪：给了 el 且 accepts() = 现在这一段会话归它 → 搬进 el；null = 回右下角（指令板用，2026-10-28 Opus）。 */ setParamsHome(el: HTMLElement | null, accepts?: () => boolean): void; feedKey(ev: KeyboardEvent): boolean; /** 只读：这一下按键数值小窗要不要（和 feedKey 同一套判断，不改状态；键表 controller/keymap.ts 的 vcb 层问它）。 */ wants(ev: { key: string; ctrl: boolean; alt: boolean }): boolean; }
 
 const KEYS: readonly (readonly string[])[] = [
   ["7", "8", "9", "⌫"],
@@ -68,8 +68,11 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     else showNotice({ id: "vcb", text: r.error, level: "warning" });
     render();
   };
+  let home: { el: HTMLElement; accepts: () => boolean } | null = null;
   const renderParams = (): boolean => {
     const pp = editor.paramPanel();
+    const want = home && pp && home.accepts() ? home.el : root;   // 指令板开着、正在用它那台机器的马前炮 = 住进板里；别的（马后炮、别的指令）照旧右下角
+    if (params.parentElement !== want) { if (want === root) root.prepend(params); else want.appendChild(params); }
     if (pp && fieldEditing(params)) return true;   // 正在就地打字：不重画（重画会把输入框换掉）
     params.hidden = !pp;
     params.replaceChildren();
@@ -93,7 +96,7 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
   const render = (): void => {
     const st = editor.vcbState();
     const hasParams = renderParams();
-    root.hidden = !st.kind && !buf && !hasParams && (!strip || strip.hidden);
+    root.hidden = !st.kind && !buf && !(hasParams && params.parentElement === root) && (!strip || strip.hidden);
     const showNum = !!st.kind || !!buf;
     label.hidden = field.hidden = !showNum;
     label.textContent = st.prompt;
@@ -125,5 +128,5 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
     return /^[0-9,\-+*/]$/.test(k) || (!!buf && /^[0-9.,\-+*/xsmc°'"ftindeg ]$/i.test(k));
   };
   render();
-  return { render, feedKey, wants };
+  return { render, feedKey, wants, setParamsHome: (el, accepts) => { home = el ? { el, accepts: accepts ?? (() => true) } : null; render(); } };
 }

@@ -401,4 +401,20 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .mfd-chip kbd { font: 600 11px/1 system-ui, sans-serif; padding: 3px 5px; border-radius: 5px; background: #555; color: #fff; }
 .mfd-toggle { border: 0; background: rgba(255,255,255,.6); border-radius: 8px; font: inherit; font-size: 12px; padding: 4px 6px; cursor: pointer; color: var(--muted); }
 .mfd-toggle[hidden] { display: none; }
+/* 指令板（ui/command-board.ts；UX 心智模型 §8 补 4）：浮在画面上、按住标题拖、长按标题归位；手机竖屏 = 底部不锁屏抽屉（和物品栏同一个位置） */
+.board { position: fixed; z-index: 40; width: 300px; max-height: 70vh; display: flex; flex-direction: column; background: var(--panel, #fff); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); overflow: hidden; }
+.board-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: grab; touch-action: none; user-select: none; border-bottom: 1px solid var(--line, #ddd); }
+.board-title { flex: 1; font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.board-close { border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); padding: 0 4px; }
+.board-body { overflow: auto; padding: 8px 10px; display: flex; flex-direction: column; gap: 8px; }
+.board-params:empty { display: none; }
+.board-params .vcb-params { align-items: stretch; }
+.board-params .vcb-params-fields, .board-params .vcb-params-buttons { justify-content: flex-start; }
+.board-params .vcb-params-note { max-width: none; }
+.board-list { display: flex; flex-direction: column; gap: 4px; }
+.board-cmd { text-align: left; padding: 7px 10px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--paper); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+.board-cmd:disabled { opacity: .5; cursor: default; }
+.board-note { font-size: 12px; color: var(--muted); }
+.board.board-drawer { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-height: 50vh; border-radius: 14px 14px 0 0; }
+.board.board-drawer .board-head { cursor: default; }
 

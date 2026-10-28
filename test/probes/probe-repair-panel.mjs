@@ -1,5 +1,5 @@
 // 修复面板（纪元排期 T6 / 账本 DT6 + DT9「检查」；v0.14.63 起拍平也管软边 → 微折软边应用后清零；v0.14.64 第五步恢复层级，默认不勾；v0.14.66 第一步拉正、默认勾——挪歪 1 mm 的角先被拉正挪回，吸格点就没事做了）：
-// 右边「修复」机器钮 → 修复面板窗（第一行「修复：最外层」；「修复面板…」+ 九条修复；2026-10-28 Claude Fable 5.1：修复 = 车间里的一台机器，自己一窗，不进物体属性）→ 右下角马前炮（含子物体 / 检查 / 四步）→ 说明行计数 →「检查」把微折软边画成橙色 →
+// 右边「修复」机器钮 → 修复的指令板（标题「修复：最外层」；九条修复带数量；开板 = 直接进修复面板、参数区在板上——v0.16.20 指令板，UX41）→ 右下角马前炮（含子物体 / 检查 / 四步）→ 说明行计数 →「检查」把微折软边画成橙色 →
 // 勾上吸到格点、应用 = 按固定顺序跑完 = 一步撤销 → 马后炮。场景：根上 ① 一个盒子，一个角被挪了 1 mm（折出硬折缝）② 一条断口 ③ 一张面被软折了一点点（微折软边）。
 // created 2026-10-26 by Claude Opus 5.5
 import { createRequire } from "node:module";
@@ -25,9 +25,11 @@ const res = await page.evaluate(async () => {
   const orange = () => { e.draw(); const c = document.getElementById("board"), gl = c.getContext("webgl2") ?? c.getContext("webgl"); const px = new Uint8Array(c.width * c.height * 4); gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px); let n = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 190 && px[i + 1] > 90 && px[i + 1] < 150 && px[i + 2] < 60) n++; return n; };
   out.orangeBefore = orange();
   const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), click = (el) => el?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
-  click(document.querySelector('.gizmo-machine[data-machine="repairWindow"]')); await sleep(60);
-  out.window = { who: menu()?.querySelector(".menu-note")?.textContent ?? "", rows: [...(menu()?.querySelectorAll("[data-menu-id]") ?? [])].map((x) => x.dataset.menuId) };
-  click(menu()?.querySelector('[data-menu-id="repairPanel"]')); await sleep(60);
+  // 指令板（v0.16.20，UX41）：点扳手 = 修复这台机器的浮板；开板 = 直接进修复面板（参数区住进板里，不在右下角）
+  click(document.querySelector('.gizmo-machine[data-machine="repairWindow"]')); await sleep(80);
+  const board = () => document.querySelector('.board[data-board="repairWindow"]');
+  out.window = { who: board()?.querySelector(".board-title")?.textContent ?? "", rows: [...(board()?.querySelectorAll("[data-cmd]") ?? [])].map((x) => x.dataset.cmd),
+    paramsInBoard: !!board()?.querySelector(".board-params .vcb-params:not([hidden])"), paramsInCorner: !!document.querySelector("#vcb > .vcb-params:not([hidden])") };
   const pp = () => e.paramPanel();
   out.open = e.repairPanelOpen();
   out.fields = pp()?.fields.map((f) => f.key);
@@ -48,7 +50,7 @@ const res = await page.evaluate(async () => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.worth && res.orangeBefore === 0 && /修复：最外层/.test(res.window.who) && res.window.rows.includes("repairPanel") && res.window.rows.includes("action:brep.weld") && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "brep.straighten", "brep.snap", "brep.cleanup", "brep.weld", "brep.planar", "brep.harden", "brep.fillHoles", "brep.resegment", "brep.hierarchy"])
+const ok = res.worth && res.orangeBefore === 0 && /修复：最外层/.test(res.window.who) && !res.window.rows.includes("repairPanel") && res.window.rows.includes("action:brep.weld") && res.window.paramsInBoard && !res.window.paramsInCorner && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "brep.straighten", "brep.snap", "brep.cleanup", "brep.weld", "brep.planar", "brep.harden", "brep.fillHoles", "brep.resegment", "brep.hierarchy"])
   && /焊接断口 1/.test(res.note) && /微折软边/.test(res.note) && res.orangeOn > 20 && res.orangeOff === 0
   && /修复：/.test(res.hint) && /拉正了 \d+ 个点|吸了 \d+ 个点到格点/.test(res.hint) && /焊了 1 处断口/.test(res.hint)
   && res.after?.phase === "after" && res.after.title === "修复" && /没有剩下的微折软边/.test(res.after.note ?? "") && res.cornerBack && res.breaks === 0 && res.undoBreaks === 1 && res.undoCorner && !errs.length;

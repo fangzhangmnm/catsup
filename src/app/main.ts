@@ -24,7 +24,8 @@ import { openObjectWindow } from "./object-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
 import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
-import { MACHINES, openMachineWindow, type Machine } from "./machine-window.ts";
+import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
+import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, bareName, supportsOpenPicker, supportsSavePicker } from "./session.ts";
@@ -417,7 +418,7 @@ function renderShop(): void {
   shopHint.textContent = defs.length ? `组件 ${defs.length} 种 · 图层 / 场景树以后在这里` : "还没有组件：选中几何 → 建组件（G）。图层 / 场景树以后在这里";
 }
 // 非模态（user 2026-10-25「物品栏不应该是模态的」）：开着照样画，内容跟着模型变；抽屉多高，贴底的 HUD 就往上让多少（「物品栏弹起来时会把小窗顶到上面，然后其他的hud也一样」）
-btnShop.addEventListener("click", () => { if (!shopEl.hidden) { shopEl.hidden = true; return; } renderShop(); shopEl.hidden = false; });
+btnShop.addEventListener("click", () => { if (!shopEl.hidden) { shopEl.hidden = true; return; } if (boardAsDrawer()) closeBoard(); renderShop(); shopEl.hidden = false; });   // 手机竖屏：开物品栏 = 指令板收起（同一个底部位置，UX41）
 $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 {
   const sheet = shopEl.querySelector<HTMLElement>(".sheet")!;
@@ -771,6 +772,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 }
 function syncUi(): void {
   renderSnapWidget();
+  refreshMachineBoard();   // 指令板上的数跟着模型变
   mfdRef?.render();   // 键名芯片（UX19）
   // 右上角的手 + 放大镜（拖着平移 / 缩放）：键鼠时藏（有滚轮 / 中键 / Shift+Z），检测到触摸 / 笔就露（账本 UX37，user 10-28「键鼠的时候手柄可以自动隐藏。检测到触摸自动出现」）
   { const nav = document.querySelector<HTMLElement>(".gizmo-nav"); if (nav) nav.hidden = lastPointerType === "mouse"; }
@@ -1057,7 +1059,12 @@ objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", 
 machineBtnsRef = MACHINES.map((m) => {
   const b = document.createElement("button"); b.type = "button"; b.className = "gizmo-btn gizmo-machine"; b.dataset.machine = m.id; b.title = `${m.label}：这一层的${m.label}指令`;
   b.innerHTML = iconHtml(m.icon); widgets.appendChild(b);
-  b.addEventListener("click", () => openMachineWindow(editor, hud, m, b, syncUi, "end"));
+  b.addEventListener("click", () => openMachineWindow(editor, hud, m, b, {
+    store: { get: (id) => { try { const v = PREF.get(`board.${id}`); return v ? JSON.parse(v) as { x: number; y: number } : null; } catch { return null; } }, set: (id, p) => PREF.set(`board.${id}`, p ? JSON.stringify({ x: Math.round(p.x), y: Math.round(p.y) }) : "") },   // 板的位置记在这台设备（长按标题 = 归位）
+    params: { setHome: (el, accepts) => vcb.setParamsHome(el, accepts) },
+    onDrawer: () => { shopEl.hidden = true; },   // 手机竖屏：板和物品栏抢同一个底部位置（UX41）
+    after: syncUi,
+  }));
   return [m, b] as const;
 });
 renderMachineBtns();
