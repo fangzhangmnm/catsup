@@ -6,6 +6,12 @@ const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftsha
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
+// 手 + 放大镜键鼠时藏、碰过触摸 / 笔才露（账本 UX37，2026-10-28 Opus）：这个探针测的是平板上拖柄那套——先用一下触摸把它们叫出来，画布上的点选改用笔（鼠标一按画布它们又会藏）
+const res0 = {};
+res0.hiddenOnMouseBoot = await page.evaluate(() => document.querySelector(".gizmo-nav").hidden);
+await page.evaluate(() => { const c = document.getElementById("board"), q = c.getBoundingClientRect(); for (const t of ["pointerdown", "pointerup"]) c.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: q.left + 40, clientY: q.top + 40, pointerType: "touch", pointerId: 9, isPrimary: true, buttons: t === "pointerdown" ? 1 : 0 })); });
+await page.waitForTimeout(80);
+res0.shownAfterTouch = await page.evaluate(() => !document.querySelector(".gizmo-nav").hidden);
 const cam = () => page.evaluate(() => { const c = globalThis.__catsup.editor.cam; return { halfH: +c.halfH.toFixed(4), tx: +c.target.x.toFixed(3), ty: +c.target.y.toFixed(3) }; });
 const res = {};
 // 一列（user 2026-10-25「汉堡，手和放大镜，上下挪一下。给gizmos留出空间」「手和放大镜可以大一些，占满gizmos的行宽」）：☰ 在 gizmo 上方靠右；手 / 放大镜在下方左右各半、合起来占满 gizmo 宽；都不压 gizmo
@@ -25,7 +31,7 @@ res.stagesNoSel = await page.evaluate(() => globalThis.__catsup.editor.zoomStage
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setTool("select"); });
 const em = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.zoomExtents(); return e.cam.angularPx({ x: 7, y: 6, z: 0 }, e.vp()); });
 const bb = await page.locator("#board").boundingBox();
-await page.mouse.click(bb.x + em.x, bb.y + em.y); await page.waitForTimeout(120);
+await page.evaluate((p) => { const c = document.getElementById("board"), q = c.getBoundingClientRect(); for (const t of ["pointermove", "pointerdown", "pointerup"]) c.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: q.left + p.x, clientY: q.top + p.y, pointerType: "pen", pointerId: 4, isPrimary: true, buttons: t === "pointerdown" ? 1 : 0 })); }, em); await page.waitForTimeout(500);   // 笔点（鼠标点画布会把拖柄藏起来）
 res.stagesSel = await page.evaluate(() => globalThis.__catsup.editor.zoomStages().map((x) => x.key).join(","));
 const tapZoom = async () => { await page.mouse.click(zc[0], zc[1]); await page.waitForTimeout(150); return page.evaluate(() => +globalThis.__catsup.editor.cam.halfH.toFixed(4)); };
 res.cycle = [await tapZoom(), await tapZoom(), await tapZoom()];
@@ -42,7 +48,7 @@ res.hint = await page.evaluate(() => document.getElementById("hint").textContent
   res.ballX = await page.evaluate(() => { const c = globalThis.__catsup.editor.cam, f = c.forward(); return [f.x, f.y, f.z].map((v) => Math.round(v * 100) / 100); });
   res.boxW = await page.evaluate(() => Math.round(document.querySelector(".gizmo-svg").getBoundingClientRect().width * 10) / 10); }
 console.log(JSON.stringify({ ...res, errs }));
-const ok = res.layout.menuTR && res.layout.panBL && res.layout.zoomBR && res.layout.big
+const ok = res0.hiddenOnMouseBoot && res0.shownAfterTouch && res.layout.menuTR && res.layout.panBL && res.layout.zoomBR && res.layout.big
   && Math.abs(res.tap.tx - 7) < 1.5 && Math.abs(res.tap.ty - 7) < 1.5 && res.tap.halfH < res.before.halfH
   && Math.abs(res.drag.halfH - res.tap.halfH) > 1e-3 && res.drag.tx === res.tap.tx
   && res.proj0 !== res.proj1 && res.proj2 === res.proj1 && /^(|缩放到.*)$/.test(res.hint)

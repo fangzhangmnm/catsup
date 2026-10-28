@@ -675,7 +675,7 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
 const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
 vcbRef = vcb;
 // eslint-disable-next-line no-var
-var lastPointerType = "mouse";
+var lastPointerType = typeof matchMedia === "function" && matchMedia("(hover: none), (pointer: coarse)").matches ? "touch" : "mouse";   // 开机先按设备猜（触屏为主的设备 = 手指），之后跟最近一次按下
 // eslint-disable-next-line no-var
 var vcbRef: { render(): void } | null = null;   // var：上下文条 mount 时就回调 afterRender（参数小窗那时还没挂）   // var：上下文条的 selection provider 在 mount 时就读它（加载期）
 canvas.addEventListener("pointerdown", (ev) => { if (ev.pointerType !== lastPointerType) { lastPointerType = ev.pointerType; syncUi(); } }, { capture: true });
@@ -765,6 +765,8 @@ function onGridPick(id: GridMenuId): "keep" | void {
 }
 function syncUi(): void {
   renderSnapWidget();
+  // 右上角的手 + 放大镜（拖着平移 / 缩放）：键鼠时藏（有滚轮 / 中键 / Shift+Z），检测到触摸 / 笔就露（账本 UX37，user 10-28「键鼠的时候手柄可以自动隐藏。检测到触摸自动出现」）
+  { const nav = document.querySelector<HTMLElement>(".gizmo-nav"); if (nav) nav.hidden = lastPointerType === "mouse"; }
   renderMachineBtns();
   ensureScaleLadder();   // B43：选了参考项就（空闲时）拉数据
   renderModeSelect();

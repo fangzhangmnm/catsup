@@ -60,6 +60,7 @@ svg.ico use { color: inherit; }
 /* ☰ 在上、手 + 放大镜在下（user 2026-10-25「汉堡，手和放大镜，上下挪一下。给gizmos留出空间」「手和放大镜可以大一些，占满gizmos的行宽」）：
    gizmo 本体不被压、方框裁到轴端小球最远处（view-gizmo.ts fitBox，--gizmo-w）；☰ 一行靠右（还是右上角那颗）；手 + 放大镜一行、各占半宽、比 34 px 高一点 */
 .gizmo-top { width: var(--gizmo-w, 96px); display: flex; justify-content: flex-end; }   /* ☰ 不带底（user 2026-10-25「三条杠背景拿掉」） */
+.gizmo-nav[hidden] { display: none; }
 .gizmo-nav { flex-direction: row; width: var(--gizmo-w, 96px); gap: 4px; padding: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .gizmo-nav .gizmo-btn { flex: 1; width: auto; height: 42px; background: rgba(255,255,255,.6); }
 .gizmo-nav .gizmo-btn .ico { width: 24px; height: 24px; }
