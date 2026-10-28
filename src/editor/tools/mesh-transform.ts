@@ -14,7 +14,7 @@ import { add3, dot3, len3, normalize3, scale3, sub3, cross3 } from "../../kernel
 import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt, invert } from "../../scene/xform.ts";
 import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
-import { fmtLen } from "../editor.ts";
+import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";

@@ -11,7 +11,7 @@ import { nearestStep } from "../increments.ts";
 import { applyDir, invert } from "../../scene/xform.ts";
 import { rayPlane } from "../camera.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
-import { fmtLen } from "../editor.ts";
+import { fmtLen } from "../units.ts";
 import { type TapeStart, classifyStart, tapeResult } from "../tape-geom.ts";
 export { type TapeResult, type TapeStart, classifyStart, tapeResult } from "../tape-geom.ts";
 import type { ToolPointer } from "../editor.ts";

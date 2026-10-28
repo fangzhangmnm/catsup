@@ -143,15 +143,6 @@ const EPS_OF: Record<string, number> = {
   endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
   "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5, tool: 5,
 };
-export const SNAP_LABELS: Record<string, string> = {
-  endpoint: "端点", midpoint: "中点", "on-edge": "边上", origin: "原点",
-  "axis-x": "X 轴", "axis-y": "Y 轴", "axis-z": "Z 轴",
-  align: "共轴", "align-combo": "共轴角点", "edge-align": "边上·共轴", intersection: "交点", "cross-line": "交线",
-  "h-stop": "高度咬合", "on-face": "面上",
-  "on-guide": "参考线上", "guide-point": "参考点", "guide-cross": "参考线交点",
-  "grid-point": "格点", increment: "整数长度", "on-extension": "延长线上",
-  center: "圆心", "pool-origin": "轴原点",
-};
 export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 
 export function describeEvent(ev: FaceEvent): string {
@@ -172,14 +163,15 @@ const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX =
 /** 抬笔小滑上限（CSS px @800 高）：停留帧与最后一帧相距超过它 = 不是抖动是挪动，按最后一帧。 */
 const DWELL_SLIP_PX = 24;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
-export const MIN_GESTURE_LEN = 0.01;
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 
 import { fmtArea, fmtDeg, fmtLen, setDisplayUnit } from "./units.ts";
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
-export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）；工具仍从 editor.ts 拿，调用处不动
+export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
+import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
+export { MIN_GESTURE_LEN, SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; instance: InstId };

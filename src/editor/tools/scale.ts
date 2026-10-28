@@ -11,7 +11,7 @@ import { closestOnAxis } from "../camera.ts";
 import { intentAllows1D } from "../intent.ts";
 import { type Xform, applyPt, scalingAbout, scalingAlong } from "../../scene/xform.ts";
 import { moveTargetsSelection } from "../tools.ts";
-import { MIN_GESTURE_LEN } from "../editor.ts";
+import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../render3.ts";

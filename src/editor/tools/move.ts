@@ -10,7 +10,8 @@ import { cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, type SnapKind 
 import type { AxName } from "../solver.ts";
 import { moveTargets, moveTargetsSelection } from "../tools.ts";
 import { applyDir, invert, translation } from "../../scene/xform.ts";
-import { MIN_GESTURE_LEN, fmtLen } from "../editor.ts";
+import { fmtLen } from "../units.ts";
+import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { PoolPick, ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";

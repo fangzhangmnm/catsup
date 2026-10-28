@@ -1,27 +1,27 @@
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx } from "../tool-handler.ts";
 import type { SelMode } from "../tools.ts";
+import type { Tool } from "../tool-ids.ts";
 /**
- * 没选区时按下抓什么（每个工具一个词；user 10-28「关键是不同的子工具的选择逻辑是不是都不一样。能不能把这些逻辑整理出来做一个深模块窄接口」）：
+ * 没选区时按下抓什么 = 立场表（stance.ts）那把工具在自由建模那一行的「抓什么」（user 10-28「关键是不同的子工具的选择逻辑是不是都不一样。能不能把这些逻辑整理出来做一个深模块窄接口」）：
  * "element" = 点 > 边 > 面（常量半径，纪元账本 FM165；移动 / 旋转 / 缩放 / 沿法线）；"face" = 只认面（点和边不挡路、小面也按得到；挤出、插入 / 倒角）。
  */
-export type Grab = "element" | "face";
 export interface Target {
     readonly verts: number[];
     readonly edges: number[];
     readonly faces: number[]; /** 来自选区（不是按下处抓的）。 */
     readonly fromSelection: boolean;
 }
-/** 按下这一下作用在什么上：有选区 = 选区；没选区 = 按下处按 grab 抓的那一个；空处 = "box"（拖 = 框选，BoxDrag）。只管网格体（自由建模）。 */
+/** 按下这一下作用在什么上：有选区 = 选区；没选区 = 按下处按这把工具的立场抓那一个；空处 = "box"（拖 = 框选，BoxDrag）。只管网格体（自由建模）。 */
 export declare function pressTarget(ctx: ToolCtx, at: {
     x: number;
     y: number;
-}, grab: Grab): Target | "box";
+}, tool: Tool): Target | "box";
 /** 右下角「选区」两档：多选（= 一直按着 Shift）？ */
 export declare const multiSelect: (ctx: ToolCtx) => boolean;
 /**
- * 这一下怎么合进选区：Ctrl（⌘）= 减选；Shift 或「多选」档 = 拖 = 加选、点 = 切换；别的 = 替换（FM158）。
- * Alt 不算减选（它留给「点边选环」；移动复制照旧认 Alt，那是 copy 的事）。
+ * 这一下怎么合进选区：Ctrl（⌘）= 减选；Shift 或「多选」档 = 笔的默认（拖 = 加选、点 = 切换）；别的 = 鼠标的默认（替换）。默认值表 = stance.ts BOOLEAN_DEFAULT（按设备：鼠标 / 笔 / 手指）；
+ * 「多选」档就是「把笔的默认搬到鼠标上」，笔的设备上它默认开着（tool-config.ts）。Alt 不算减选（它留给「点边选环」；移动复制照旧认 Alt，那是 copy 的事）。
  */
 export declare function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean): SelMode;
 /** 点一下（第 n 下）：和选择工具同一套（见文件头）。 */

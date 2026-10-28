@@ -116,15 +116,15 @@ export interface EditorHost {
     /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
     confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
 }
-export declare const SNAP_LABELS: Record<string, string>;
 export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 export declare function describeEvent(ev: FaceEvent): string;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
-export declare const MIN_GESTURE_LEN = 0.01;
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export declare const CIRCLE_SEGMENTS: 24;
 export { fmtLen, fmtDeg } from "./units.ts";
+import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
+export { MIN_GESTURE_LEN, SNAP_LABELS };
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = {
     kind: "group";

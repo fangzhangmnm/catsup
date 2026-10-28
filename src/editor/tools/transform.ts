@@ -15,7 +15,8 @@ import { applyDir, applyPt, rotationAbout, scalingAbout, scalingAlong, scalingAl
 import { moveTargetsSelection, unwrapAngle } from "../tools.ts";
 import { INCREMENT_DEG, nearestStep } from "../increments.ts";
 import { type XformGizmo, type XformGrab, type XformHandle, XG_UNIFORM_OFFSET_PX, axisOf, dragMove, dragRotate, dragScale, grabXform, hitXformGizmo, isPlaneHandle, planeAxes, xformGizmoGeom } from "../transform-gizmo.ts";
-import { MIN_GESTURE_LEN, SNAP_LABELS, fmtDeg, fmtLen } from "../editor.ts";
+import { fmtDeg, fmtLen } from "../units.ts";
+import { MIN_GESTURE_LEN, SNAP_LABELS } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ViewState } from "../render3.ts";

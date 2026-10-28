@@ -11,7 +11,7 @@ import { bevelEdges, bevelVerts, insetFaces } from "../../mesh/ops/index.ts";
 import { add3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt } from "../../scene/xform.ts";
-import { fmtLen } from "../editor.ts";
+import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
