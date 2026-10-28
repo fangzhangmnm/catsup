@@ -43,6 +43,6 @@ const actions: readonly Action[] = [
 ];
 
 /** 选区浮条 / 右键菜单上的修复入口（按现在的范围数出来 > 0 的才露；顺序 = 这里的 order）。 */
-const placements: readonly Placement[] = actions.map((a, i) => ({ action: a.id, where: "contextBar" as const, order: 100 + i * 10 }));
+const placements: readonly Placement[] = actions.map((a, i) => ({ action: a.id, where: "repairWindow" as const, order: 100 + i * 10 }));   // 修复 = 自己一窗（工具面包；user 10-28「修复是一个工具面包，类似瑞士军刀这种，而不是放在物体属性里面」）
 
 export const repairs: Family = { name: "repairs", commands, actions, placements };

@@ -20,6 +20,7 @@ import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
 import { type Op } from "./ops.ts";
 import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
+import type { Surface } from "./commands/action.ts";
 import type { CommandId, Params as CmdParams } from "./commands/command.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
@@ -43,6 +44,8 @@ export type PaintPick = {
     sizeM: [number, number];
 } | null;
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
+/** 菜单 / 物体窗口作用在谁上（Editor.withMenuTarget）：selection = 当前选区（几何层）；self = 你所在的这一层本身；children = 选中的子物体。 */
+export type MenuTarget = "selection" | "self" | "children";
 export interface ToolPointer {
     x: number;
     y: number;
@@ -438,6 +441,8 @@ export declare class Editor {
     get kernel(): Kernel;
     /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
     activeKind(): BodyKind;
+    /** 某个定义的身体种类（物体窗口：对称只有网格体有）。 */
+    kindOfDef(def: number): BodyKind;
     /** 活动池的显示视图（渲染 / 拾取读的那份契约 kernel-view.ts；任何种类的内核都有——选区的通用路径只认它）。 */
     private get activeView();
     /** 按活动池的种类造空选区（不变量：selection.kind === activeKind()）。 */
@@ -619,10 +624,10 @@ export declare class Editor {
     private static readonly MIRROR_TOPO;
     private static readonly MIRROR_TOPO_ACTIONS;
     private static readonly NO_SYMMETRIZE;
-    /** 正在编辑的网格体的镜像设置（不在网格体里 = null）。 */
-    mirrorOf(): MirrorSetting | null;
-    /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。 */
-    setMirror(mode: MirrorMode | null, axis?: MirrorAxis): void;
+    /** 网格体的「对称」属性：缺 def = 正在编辑的那个（不在网格体里 = null）；给 def = 那个网格体（物体窗口里设子物体的）。 */
+    mirrorOf(def?: number): MirrorSetting | null;
+    /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。缺 def = 正在编辑的网格体。 */
+    setMirror(mode: MirrorMode | null, axis?: MirrorAxis, defIn?: number): void;
     /** 选区重心在镜像面哪一边（没选区 / 正好在面上 = null）。 */
     private selectionSide;
     private symmetrizeNow;
@@ -726,6 +731,12 @@ export declare class Editor {
     selectLoop(hit: HitResult3, mode?: SelMode): boolean;
     /** 右键「选成环 / 洞」（触屏没有 Alt）：选中的每条边都扩成它的环 / 洞（网格体）。 */
     selectLoopsOfSelection(): boolean;
+    /** 选区里组 / 组件各几个、有没有几何（右键往哪送：只选了组件 = 物体菜单）。 */
+    selectionMakeup(): {
+        groups: number;
+        instances: number;
+        geometry: boolean;
+    };
     /** 选区里有网格体的边吗（右键「选成环 / 洞」露不露）。 */
     hasMeshEdgeSelection(): boolean;
     private selectExpandIn;
@@ -803,7 +814,8 @@ export declare class Editor {
     repairLoaded(kind: RepairKind): boolean;
     private repairModule;
     /** 选区浮条上的入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露；按工作台筛）：main.ts 照着画。数 = 路由表里每种单位各数各的（brep 走修复那条作用域、其余按单位规划）。 */
-    commandMenu(): {
+    /** 放置表某个面上现在能做的动作（菜单显示什么 = 按面查表；contextBar = 几何层的右键 / 浮条，objectWindow = 物体窗口——在 withMenuTarget 里数）。 */
+    commandMenu(where?: Surface): {
         id: string;
         label: string;
         icon: string;
@@ -821,6 +833,17 @@ export declare class Editor {
      * object = 选中的、没锁的实例（场景里摆着的每一份一个单位）。加一种身体 = 这里多一个分支 + 它的选区类型，别处不动。
      */
     private unitsOf;
+    /** 单位按谁取：selection = 当前选区（几何层的右键 / 浮条，默认）；self = 你所在的这一层本身（物体钮）；children = 选中的子物体（子组件的物体菜单 → 物体设置…）。 */
+    private unitTarget;
+    /** 目标不是选区时的单位：self = 这一层（object = 它本身；网格体 = 整个；硬表面的几何不算）；children = 选中的子物体（object = 那几份；子物体是网格体 = 整个）。 */
+    private targetUnits;
+    /** 在某个目标下数 / 跑指令（物体窗口用；跑完恢复成选区）。 */
+    withMenuTarget<T>(t: MenuTarget, fn: () => T): T;
+    /** 物体窗口的第一行：设置的是哪个物体（user「选窗要说明选择的是哪个object」）。 */
+    describeTarget(t: Exclude<MenuTarget, "selection">): {
+        title: string;
+        defs: number[];
+    };
     /** 指令声明 perDefinition（改定义不改这一份）时按定义去重：同一定义几份实例只喂一次（copies 披露「N 份一起变」）。 */
     private unitsFor;
     /**

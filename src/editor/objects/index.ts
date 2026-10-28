@@ -46,6 +46,6 @@ const actions: readonly Action[] = [
   { id: "object.toMesh", commands: { object: "object.toMesh" }, icon: "collection", label: (n) => `转成网格体（${n}）` },
   { id: "object.toBrep", commands: { object: "object.toBrep" }, icon: "wrench", label: (n) => `转回硬表面体（${n}）` },
 ];
-const placements: readonly Placement[] = [{ action: "object.toMesh", where: "contextBar", order: 60 }, { action: "object.toBrep", where: "contextBar", order: 61 }];
+const placements: readonly Placement[] = [{ action: "object.toMesh", where: "objectWindow", order: 10 }, { action: "object.toBrep", where: "objectWindow", order: 11 }];   // 物体窗口（2026-10-28：物体级不混进选区的右键，UX 心智模型 §2.2）
 
 export const objects: Family = { name: "object", commands, actions, placements };

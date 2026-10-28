@@ -19,7 +19,9 @@ import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
 import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts";
 import { openContextMenuAt } from "./context-menu.ts";
-import { selectionActions, selectionRoute } from "./selection-actions.ts";
+import { barItems, selectionRoute } from "./selection-actions.ts";
+import { openObjectWindow } from "./object-window.ts";
+import { MACHINES, openMachineWindow, type Machine } from "./machine-window.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
@@ -209,44 +211,33 @@ const hud: HudModel = {
     return [
     { id: "undo", label: "撤销", icon: "arrow-undo", disabled: !editor.canUndo() },
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
-    { id: "delete", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
-    { id: "group", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
-    { id: "component", label: "建组件", icon: "object", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },
-    { id: "explode", label: "炸开", icon: "explode-folder", hidden: brepOnly || !editor.hasPoolSelection() },
-    { id: "mirror", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
-    { id: "weld", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
-    { id: "explodeCurve", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
-    { id: "enter", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
-    { id: "lock", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
-    { id: "unlock", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
-    { id: "hide", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !editor.hasHideableSelection() },
-    { id: "applyScale", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },
-    { id: "componentOrigin", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
+    { id: "delete", layer: "geometry", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
+    { id: "group", layer: "geometry", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
+    { id: "component", layer: "geometry", label: "建组件", icon: "object", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },
+    { id: "explode", layer: "child", label: "炸开", icon: "explode-folder", hidden: brepOnly || !editor.hasPoolSelection() },
+    { id: "mirror", layer: "geometry", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
+    { id: "weld", layer: "geometry", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
+    { id: "explodeCurve", layer: "geometry", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
+    { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
+    { id: "lock", layer: "child", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
+    { id: "unlock", layer: "child", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
+    { id: "hide", layer: "child", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !editor.hasHideableSelection() },
+    { id: "applyScale", layer: "child", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },
+    { id: "componentOrigin", layer: "child", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
-    { id: "repairPanel", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
+    { id: "repairPanel", layer: "self", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
     // 各个修复模块自己的入口（src/editor/repairs/ 清单；user 10-26「做成可以扔的模块化的」）：拉正 / 吸到格点 / 焊断口 / 拍平 / 软边变硬 / 恢复层级…
-    // 镜像（自由建模；纪元账本 FM134：编辑方式那一层，按网格体记、不进撤销）：关 / 强行对称 / 镜像编辑 + 镜像面；「对称对齐…」是注册表指令，并进同一个子菜单
-    ...((): HudItem[] => {
-      if (editor.modeId !== "freeform") return [];
-      const ms = editor.mirrorOf(), sub = (item: string) => ({ label: "镜像", item });
-      return [
-        { id: "mirror:off", label: "镜像：关", icon: "axes", active: !ms, submenu: sub("关") },
-        // 强行对称排第一 = 主入口（user 10-28「但是我要的是强制切割然后镜像啊」「就是水杉和blender那种啊，强行对称」）；镜像编辑 = 只挪点的那种（Blender 编辑模式的 X 镜像）
-        { id: "mirror:force", label: "强行对称", icon: "axes", active: ms?.mode === "force", submenu: sub("强行对称（沿镜像面切开、另一半镜过来，每一步都镜）") },
-        { id: "mirror:edit", label: "镜像编辑", icon: "axes", active: ms?.mode === "edit", submenu: sub("镜像编辑（只挪点：对面的点一起改）") },
-        ...([0, 1, 2] as const).map((a): HudItem => ({ id: `mirror:axis:${a}`, label: `镜像面 ${"XYZ"[a]}`, icon: "axes", active: (ms?.axis ?? 0) === a, submenu: sub(`镜像面：${"XYZ"[a]}`) })),
-      ];
-    })(),
-    ...editor.commandMenu().map((m): HudItem => ({ id: `action:${m.id}`, label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) })),   // 注册表 contextBar 面上的动作（修复九条 + 物体族的两条转换）
-    { id: "exit", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
-    { id: "soften", label: "软化选区", icon: "blur", hidden: brepOnly || !editor.hasGeometrySelection() },
-    { id: "harden", label: "硬化选区", icon: "sharpen", hidden: brepOnly || !editor.hasGeometrySelection() },
-    { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
-    { id: "loop", label: "选成环 / 洞", icon: "select", hidden: !editor.hasMeshEdgeSelection() },   // 触屏没有 Alt：选中的边扩成环 / 洞（桌面 = Alt 点边；user 10-28「alt 点边可以选择洞还是环」）
-    { id: "invert", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
-    { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },
+    // 镜像（网格体的「对称」属性）2026-10-28 搬进物体窗口（object-window.ts）；硬表面的「镜像…」是一次性指令，留在几何层
+    ...editor.commandMenu().map((m): HudItem => ({ id: `action:${m.id}`, layer: "geometry", label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) })),   // 注册表 contextBar 面上的动作（修复九条 + 物体族的两条转换）
+    { id: "exit", layer: "empty", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
+    { id: "soften", layer: "geometry", label: "软化选区", icon: "blur", hidden: brepOnly || !editor.hasGeometrySelection() },
+    { id: "harden", layer: "geometry", label: "硬化选区", icon: "sharpen", hidden: brepOnly || !editor.hasGeometrySelection() },
+    { id: "connected", layer: "geometry", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
+    { id: "loop", layer: "geometry", label: "选成环 / 洞", icon: "select", hidden: !editor.hasMeshEdgeSelection() },   // 触屏没有 Alt：选中的边扩成环 / 洞（桌面 = Alt 点边；user 10-28「alt 点边可以选择洞还是环」）
+    { id: "invert", layer: "geometry", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
+    { id: "deselect", layer: "geometry", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },
     // 右键新建（FM120）：刚右键过就露（落点 = 右键那一点，吸点 / 面 / 原点 / 地面）；网格体里 = 长进这个网格体，别处 = 新的网格体组件。图标暂用 object（图标库没有基本体的图标）
-    ...(["box", "cylinder", "cone", "sphere", "plane"] as const).map((k): HudItem => { const n = ({ box: "立方体", cylinder: "圆柱", cone: "圆锥", sphere: "球", plane: "平面" } as const)[k]; return { id: `new:${k}`, label: `新建${n}`, icon: "object", hidden: !editor.contextNewAllowed(), submenu: { label: "新建", item: n } }; }),   // 右键菜单里收进「新建 ›」子菜单（user 10-27「新建能不能收到一个子菜单里面」）   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
+    ...(["box", "cylinder", "cone", "sphere", "plane"] as const).map((k): HudItem => { const n = ({ box: "立方体", cylinder: "圆柱", cone: "圆锥", sphere: "球", plane: "平面" } as const)[k]; return { id: `new:${k}`, layer: "empty", label: `新建${n}`, icon: "object", hidden: !editor.contextNewAllowed(), submenu: { label: "新建", item: n } }; }),   // 右键菜单里收进「新建 ›」子菜单（user 10-27「新建能不能收到一个子菜单里面」）   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
   ]; },
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -260,13 +251,7 @@ const hud: HudModel = {
     if ((TOOLS as readonly string[]).includes(id)) { if (locomotion.isPlacing()) locomotion.cancelPlace(); editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as "box"); syncUi(); return; }
-    if (id.startsWith("mirror:")) {   // 镜像开关（FM134）：关 / 镜像编辑 / 强行对称 / 换镜像面（换面保持当前模式；关着时换面 = 开镜像编辑）
-      const ms = editor.mirrorOf(), rest = id.slice("mirror:".length);
-      if (rest === "off") editor.setMirror(null);
-      else if (rest === "edit" || rest === "force") editor.setMirror(rest, ms?.axis);
-      else if (rest.startsWith("axis:")) editor.setMirror(ms?.mode ?? "edit", Number(rest.slice(5)) as 0 | 1 | 2);
-      syncUi(); return;
-    }
+    if (id === "objectWindow") { openObjectWindow(editor, hud, "children", objectBtn, syncUi, "end"); return; }   // 子组件物体菜单 / 浮条的「物体设置…」：窗口的家 = 右边物体钮
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
@@ -675,7 +660,7 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
     return [];
   },
   // 选区动作：笔 / 手指路由才进条（鼠标走右键菜单，#19 的路由不变）；有选区、不在手势中
-  selection: () => (selectionRoute(lastPointerType) === "bar" && editor.hasSelection() && !editor.isGestureActive() ? selectionActions(hud) : []),
+  selection: () => (selectionRoute(lastPointerType) === "bar" && editor.hasSelection() && !editor.isGestureActive() ? barItems(editor, hud) : []),
   pickSelection: (id) => { hud.pick(id as never); },
   afterRender: () => { vcbRef?.render(); },   // 上下文选项住在参数小窗里（user 2026-10-25「参数小窗就是上下文选项条，全搬进去」）
 });
@@ -772,6 +757,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 }
 function syncUi(): void {
   renderSnapWidget();
+  renderMachineBtns();
   ensureScaleLadder();   // B43：选了参考项就（空闲时）拉数据
   renderModeSelect();
   renderSlots();
@@ -916,7 +902,7 @@ const gestures = attachGestures(canvas, editor, {
   walking: () => locomotion.isWalking(),
   toolBlocked: () => locomotion.sim.state.teleport.charging || locomotion.isPlacing() || locomotion.isFps(),   // 放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
   // #19 上下文菜单：桌面右键任何工具都行（SU）；触屏长按只在选择工具里
-  onContext: (x, y, cx, cy) => openContextMenuAt(editor, hud, x, y, cx, cy),
+  onContext: (x, y, cx, cy) => openContextMenuAt(editor, hud, x, y, cx, cy),   // 三层：空处 / 几何 / 子组件的物体菜单（context-menu.ts）
   longPressEnabled: () => editor.tool === "select",
   // #23 user「move反而是点两下」「旋转和move对齐」：移动 = 点两下、旋转 = 点三下，笔 / 手指也开；画线 / 矩形 / 推拉在笔 / 手指上仍只拖（误触连线案）
   armable: (pt) => pt === "mouse" || pt === "pen" || editor.tool === "move" || editor.tool === "rotate",   // 笔也点两下（B23）；手指只在移动 / 旋转（#23）
@@ -1021,6 +1007,18 @@ const widgets = document.createElement("div"); widgets.className = "gizmo-btns g
 const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 方向锁 / 面锁、栅格设置）";
 snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
+// 物体窗口的钮（UX 心智模型 §2.1：一个窗口只看一个指针——这一颗 = 你所在的这一层；子组件的物体菜单「物体设置…」也从这里开，当前换成它们）
+const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "gizmo-btn gizmo-object"; objectBtn.title = "物体：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
+objectBtn.innerHTML = iconHtml("object"); widgets.appendChild(objectBtn);
+objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, syncUi, "end"));
+// 车间里的机器（machine-window.ts MACHINES 表）：一台一颗钮，按车间 / 身体露（renderMachineBtns）；面板 = 那台机器的低频指令（user 10-28「每个机器一个面板，然后左栏是你的手和常用工具袋」）
+machineBtnsRef = MACHINES.map((m) => {
+  const b = document.createElement("button"); b.type = "button"; b.className = "gizmo-btn gizmo-machine"; b.dataset.machine = m.id; b.title = `${m.label}：这一层的${m.label}指令`;
+  b.innerHTML = iconHtml(m.icon); widgets.appendChild(b);
+  b.addEventListener("click", () => openMachineWindow(editor, hud, m, b, syncUi, "end"));
+  return [m, b] as const;
+});
+renderMachineBtns();
 snapBtnRef = snapBtn;
 const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("grid"); return; } return onGridPick(id); } }); };
 let snapPress: { t: number; fired: boolean } | null = null;
@@ -1032,6 +1030,9 @@ snapBtn.addEventListener("contextmenu", (ev) => { ev.preventDefault(); snapPress
 // var（提升）而不是 const：editor 的 host.changed → syncUi 可能在本段执行之前就被叫到（加载过程），那时挂件还没建，跳过即可
 // eslint-disable-next-line no-var
 var snapBtnRef: HTMLButtonElement | undefined;
+var machineBtnsRef: readonly (readonly [Machine, HTMLButtonElement])[] | undefined;
+/** 机器钮按车间 / 身体露（修复只在硬表面体里）。 */
+function renderMachineBtns(): void { for (const [m, b] of machineBtnsRef ?? []) b.hidden = !!m.when && !m.when(editor); }
 function renderSnapWidget(): void {
   const btn = snapBtnRef;
   if (!btn) return;

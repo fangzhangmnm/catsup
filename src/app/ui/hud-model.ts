@@ -13,6 +13,11 @@ export interface HudItem {
   hidden?: boolean;
   /** 右键菜单里收进哪个子菜单（label = 子菜单那一行的字；item = 这一项在子菜单里的字）。同名的几项并成一行，摆在第一项的位置；浮条 / VR 手腕面板照旧平铺、用 label。2026-10-27 Opus（user「新建能不能收到一个子菜单里面」）。 */
   submenu?: { label: string; item: string };
+  /**
+   * 属于哪一层（菜单显示什么 = selection-actions.ts；UX 心智模型 §2.2，user 10-28「object级别的上下文菜单但你在选择东西编辑的时候能不能不要污染」）：
+   * geometry = 几何层（选区的右键 / 浮条）；child = 选中的子物体（组件 → 物体菜单；组照旧在几何层菜单里，组不是物体）；self = 这一层的（物体窗口）；empty = 空处右键（新建 / 回上一层）。缺 = 不进任何右键。
+   */
+  layer?: "geometry" | "child" | "self" | "empty";
 }
 
 export interface HudModel {

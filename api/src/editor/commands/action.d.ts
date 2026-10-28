@@ -10,7 +10,9 @@ export interface Action {
     readonly commands: Readonly<Partial<Record<UnitKind, CommandId>>>;
 }
 /** 放置面（开放集：新的 UI 面 = 加一个词 + 一个渲染器）。contextBar = 选区浮条 / 右键菜单共用的那张动作表；repairPanel = 修复面板那条复合动作的步骤表；search / api = 搜索框 / 脚本接口（渲染器还没有，登记了先）。 */
-export type Surface = "contextBar" | "repairPanel" | "hamburger" | "contextMenu" | "radial" | "viewMenu" | "toolStrip" | "wristPanel" | "search" | "api";
+/** contextBar = 几何层（选区的右键 / 浮条）；objectWindow = 物体窗口（这一层 / 选中的子物体的字段与物体级动词，UX 心智模型 §2.1 / §2.2，2026-10-28）；objectMenu = 子组件的右键物体菜单；
+ *  repairWindow = 修复窗（折腾几何的工具面包，自己一窗；user 10-28「修复是一个工具面包，类似瑞士军刀这种，而不是放在物体属性里面，因为物体属性还是多放字段，修复还是折腾几何的」）。 */
+export type Surface = "contextBar" | "objectWindow" | "objectMenu" | "repairWindow" | "repairPanel" | "hamburger" | "contextMenu" | "radial" | "viewMenu" | "toolStrip" | "wristPanel" | "search" | "api";
 export interface Placement {
     readonly action: ActionId;
     readonly where: Surface;

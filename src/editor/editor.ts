@@ -55,6 +55,7 @@ import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
 import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
+import type { Surface } from "./commands/action.ts";
 import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
@@ -86,6 +87,8 @@ import type { OptionKv } from "./tool-config.ts";
 export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
 
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
+/** 菜单 / 物体窗口作用在谁上（Editor.withMenuTarget）：selection = 当前选区（几何层）；self = 你所在的这一层本身；children = 选中的子物体。 */
+export type MenuTarget = "selection" | "self" | "children";
 export interface ToolPointer {
   x: number; y: number;
   clientX: number; clientY: number;
@@ -495,6 +498,8 @@ export class Editor {
   get kernel(): Kernel { return this.scene.kernelOf(this.activePool()); }
   /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
   activeKind(): BodyKind { return this.scene.kindOf(this.activePool().def); }
+  /** 某个定义的身体种类（物体窗口：对称只有网格体有）。 */
+  kindOfDef(def: number): BodyKind { return this.scene.kindOf(def); }
   /** 活动池的显示视图（渲染 / 拾取读的那份契约 kernel-view.ts；任何种类的内核都有——选区的通用路径只认它）。 */
   private get activeView(): KernelView { return this.scene.viewOf(this.activePool()); }
   /** 按活动池的种类造空选区（不变量：selection.kind === activeKind()）。 */
@@ -1051,12 +1056,16 @@ export class Editor {
   private static readonly MIRROR_TOPO = new Set<Op["op"]>(["meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshBevel", "meshBevelVerts", "meshMerge"]);
   private static readonly MIRROR_TOPO_ACTIONS = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter"]);
   private static readonly NO_SYMMETRIZE = new Set<Op["op"]>(["meshSymmetrize", "meshSymmetrySnap", "meshSmoothDefault"]);
-  /** 正在编辑的网格体的镜像设置（不在网格体里 = null）。 */
-  mirrorOf(): MirrorSetting | null { return this.activeKind() === "mesh" ? this.mirrors.get(this.activePool().def) ?? null : null; }
-  /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。 */
-  setMirror(mode: MirrorMode | null, axis?: MirrorAxis): void {
-    if (this.activeKind() !== "mesh") { this.host.hint("镜像：先进一个网格体（自由建模）"); return; }
-    const def = this.activePool().def, ax = axis ?? this.mirrors.get(def)?.axis ?? 0, A = "XYZ"[ax];
+  /** 网格体的「对称」属性：缺 def = 正在编辑的那个（不在网格体里 = null）；给 def = 那个网格体（物体窗口里设子物体的）。 */
+  mirrorOf(def?: number): MirrorSetting | null {
+    const d = def ?? (this.activeKind() === "mesh" ? this.activePool().def : undefined);
+    return d !== undefined && this.scene.kindOf(d) === "mesh" ? this.mirrors.get(d) ?? null : null;
+  }
+  /** 开 / 关 / 换轴（mode = null 关）。开强行对称 = 马上对称一次（一步，可撤销）。缺 def = 正在编辑的网格体。 */
+  setMirror(mode: MirrorMode | null, axis?: MirrorAxis, defIn?: number): void {
+    const def = defIn ?? (this.activeKind() === "mesh" ? this.activePool().def : undefined);
+    if (def === undefined || this.scene.kindOf(def) !== "mesh") { this.host.hint("对称：只有网格体有这个属性"); return; }
+    const ax = axis ?? this.mirrors.get(def)?.axis ?? 0, A = "XYZ"[ax];
     if (!mode) { this.mirrors.delete(def); this.host.hint("镜像：关"); this.host.changed(); this.draw(); return; }
     this.mirrors.set(def, { mode, axis: ax });
     if (mode === "edit") {
@@ -1500,6 +1509,12 @@ export class Editor {
       return true;
     }, { title: "选成环" });
   }
+  /** 选区里组 / 组件各几个、有没有几何（右键往哪送：只选了组件 = 物体菜单）。 */
+  selectionMakeup(): { groups: number; instances: number; geometry: boolean } {
+    let groups = 0, instances = 0;
+    for (const p of this.selectedPools.values()) if (p.kind === "group") groups++; else instances++;
+    return { groups, instances, geometry: this.hasGeometrySelection() || this.hasPointSelection() };
+  }
   /** 选区里有网格体的边吗（右键「选成环 / 洞」露不露）。 */
   hasMeshEdgeSelection(): boolean { return this.activeKind() === "mesh" && this.selection.kind === "mesh" && this.selection.edges.size > 0; }
   private selectExpandIn(pass: StepPass, hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean {
@@ -1900,12 +1915,13 @@ export class Editor {
   repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }
   private repairModule(kind: RepairKind): Command<PoolUnit> { const m = commandById(kind); if (!m || m.unit !== "brep") throw new Error(`command "${kind}" is not loaded (or is not a brep command)`); return m as Command<PoolUnit>; }
   /** 选区浮条上的入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露；按工作台筛）：main.ts 照着画。数 = 路由表里每种单位各数各的（brep 走修复那条作用域、其余按单位规划）。 */
-  commandMenu(): { id: string; label: string; icon: string; submenu?: { label: string; item: string } }[] {
+  /** 放置表某个面上现在能做的动作（菜单显示什么 = 按面查表；contextBar = 几何层的右键 / 浮条，objectWindow = 物体窗口——在 withMenuTarget 里数）。 */
+  commandMenu(where: Surface = "contextBar"): { id: string; label: string; icon: string; submenu?: { label: string; item: string } }[] {
     const out: { id: string; label: string; icon: string; submenu?: { label: string; item: string } }[] = [];
-    for (const p of placementsAt("contextBar", this.mode.id)) {
+    for (const p of placementsAt(where, this.mode.id)) {
       const a = actionById(p.action); if (!a) continue;
       let n = 0;
-      for (const r of routesOf(a)) n += r.kind === "brep" ? this.repairMenuCount(r.command.id) : this.unitCount(r.command, r.kind);
+      for (const r of routesOf(a)) n += r.kind === "brep" ? (this.unitTarget === "children" ? 0 : this.repairMenuCount(r.command.id, this.unitTarget === "self" ? "context" : "auto")) : this.unitCount(r.command, r.kind);
       if (n) out.push({ id: a.id, label: a.label(n), icon: a.icon ?? "", ...(p.submenu ? { submenu: { label: p.submenu.label, item: p.submenu.item ?? a.label(n) } } : {}) });
     }
     return out;
@@ -1925,6 +1941,7 @@ export class Editor {
    */
   private unitsOf(kind: UnitKind): Unit[] {
     const s = this.scene, at = this.activePool();
+    if (this.unitTarget !== "selection") return this.targetUnits(kind);
     if (kind === "object") {
       const ctxDef = s.defOfContext(this.ctx), out: ObjectUnit[] = [];
       for (const p of this.selectedPools.values()) {
@@ -1948,6 +1965,38 @@ export class Editor {
     const sel = this.selection;
     return sel.kind === "brep" ? [{ kind: "brep", at, sel, xf: IDENTITY }] : [{ kind: "mesh", def: at.def, sel, xf: IDENTITY }];
   }
+  // ---------- 菜单 / 物体窗口的目标（UX 心智模型 §2.1 / §2.2，2026-10-28；user「自己的object property: 物体设置选窗」「孩子的：选中孩子，右键…物体选项只是其中一项」）----------
+  /** 单位按谁取：selection = 当前选区（几何层的右键 / 浮条，默认）；self = 你所在的这一层本身（物体钮）；children = 选中的子物体（子组件的物体菜单 → 物体设置…）。 */
+  private unitTarget: MenuTarget = "selection";
+  /** 目标不是选区时的单位：self = 这一层（object = 它本身；网格体 = 整个；硬表面的几何不算）；children = 选中的子物体（object = 那几份；子物体是网格体 = 整个）。 */
+  private targetUnits(kind: UnitKind): Unit[] {
+    const s = this.scene, at = this.activePool(), ctxDef = s.defOfContext(this.ctx);
+    if (this.unitTarget === "self") {
+      if (kind === "object") { const d = s.def(ctxDef); return [{ kind: "object", at, instance: null, def: d.id, name: ctxDef === s.root ? "最外层" : d.name, body: d.body.kind, copies: Math.max(1, s.instanceCount(d.id)), xf: IDENTITY }]; }
+      return kind === "mesh" && this.activeKind() === "mesh" ? [{ kind: "mesh", def: at.def, sel: null, xf: IDENTITY }] : [];
+    }
+    const out: Unit[] = [];
+    for (const p of this.selectedPools.values()) {
+      if (p.kind !== "instance") continue;
+      const inst = s.def(ctxDef).instances.get(p.instance);
+      if (!inst || inst.locked) continue;
+      const d = s.def(inst.def);
+      if (kind === "object") out.push({ kind: "object", at, instance: inst.id, def: d.id, name: d.name, body: d.body.kind, copies: s.instanceCount(d.id), xf: inst.xform });
+      else if (kind === "mesh" && d.body.kind === "mesh" && !out.some((u) => u.kind === "mesh" && u.def === d.id)) out.push({ kind: "mesh", def: d.id, sel: null, xf: inst.xform });
+    }
+    return out;
+  }
+  /** 在某个目标下数 / 跑指令（物体窗口用；跑完恢复成选区）。 */
+  withMenuTarget<T>(t: MenuTarget, fn: () => T): T { const prev = this.unitTarget; this.unitTarget = t; try { return fn(); } finally { this.unitTarget = prev; } }
+  /** 物体窗口的第一行：设置的是哪个物体（user「选窗要说明选择的是哪个object」）。 */
+  describeTarget(t: Exclude<MenuTarget, "selection">): { title: string; defs: number[] } {
+    const s = this.scene, kindLabel = (d: number): string => (s.kindOf(d) === "mesh" ? "网格体" : "硬表面体");
+    if (t === "self") { const d = s.defOfContext(this.ctx); return { title: `${d === s.root ? "最外层" : `组件「${s.def(d).name}」`}（${kindLabel(d)}）`, defs: [d] }; }
+    const ctxDef = s.defOfContext(this.ctx), defs: number[] = [];
+    let n = 0;
+    for (const p of this.selectedPools.values()) if (p.kind === "instance") { n++; const inst = s.def(ctxDef).instances.get(p.instance); if (inst && !defs.includes(inst.def)) defs.push(inst.def); }
+    return { title: n === 1 && defs.length === 1 ? `组件「${s.def(defs[0]).name}」（${kindLabel(defs[0])}）` : `选中的 ${n} 个物体`, defs };
+  }
   /** 指令声明 perDefinition（改定义不改这一份）时按定义去重：同一定义几份实例只喂一次（copies 披露「N 份一起变」）。 */
   private unitsFor(c: Command, kind: UnitKind): Unit[] {
     const all = this.unitsOf(kind).filter((u) => u.kind !== "object" || u.instance !== null || !!c.takesContext);
@@ -1964,7 +2013,7 @@ export class Editor {
     const a = actionById(id);
     if (!a) { this.host.hint(`动作「${id}」没装`); return 0; }
     const routes = routesOf(a);
-    if (!params && routes.length === 1 && routes[0].kind === "brep") return this.repair(routes[0].command.id);
+    if (!params && routes.length === 1 && routes[0].kind === "brep") return this.repair(routes[0].command.id, this.unitTarget === "self" ? "context" : "auto");   // 物体窗口（self）= 整个物体，不看几何选区
     if (!params && routes.length === 1 && routes[0].kind === "object") return this.runObjectCommand(routes[0].command.id);
     return this.step((pass) => {
       // 单位只取一次：马后炮按新参数重做时用同一批（上一次做完的选区已经换成结果了）

@@ -25,10 +25,11 @@ const boxSoup = (): { positions: Pt3[]; tris: number[] } => {
 };
 
 describe("物体族：转成网格体 / 转回 SU 体", () => {
-  it("注册表里有物体族两条指令、浮条两条放置；族名 = 单位种类；自洽", () => {
+  it("注册表里有物体族两条指令、物体窗口两条放置（2026-10-28 物体级搬进物体窗口，不进几何层的右键 / 浮条）；族名 = 单位种类；自洽", () => {
     eq(checkRegistry().join("\n"), "");
     assert(commandById("object.toMesh")?.unit === "object" && commandById("object.toBrep")?.unit === "object");
-    assert(placementsAt("contextBar").some((p) => p.action === "object.toMesh") && placementsAt("contextBar").some((p) => p.action === "object.toBrep"));
+    assert(placementsAt("objectWindow").some((p) => p.action === "object.toMesh") && placementsAt("objectWindow").some((p) => p.action === "object.toBrep"));
+    assert(!placementsAt("contextBar").some((p) => p.action === "object.toMesh" || p.action === "object.toBrep"));
     assert(commandById("brep.weld")?.unit === "brep");
   });
   it("toMesh：规划出 castDefinition；披露丢什么、几份实例一起变；已是网格体 → 跳过说清", () => {

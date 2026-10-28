@@ -34,6 +34,7 @@ const res = await page.evaluate(async () => {
   { const f0 = m().faceCount(); layer()?.querySelector('[data-choice-id="new:box"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60);
     out.three = { df: m().faceCount() - f0, menus: document.querySelectorAll(".popup-menu").length }; }
   await closeAll();
+  e.deselectAll(); await sleep(10);   // 新建的盒子留在选区里；空处右键有选区 = 选区的菜单（2026-10-28 账本 UX32），要「新建 ›」得先清选区
   // ④ 右边缘（空地：屏幕右边缘中间）
   await rclickClient(vw - 24, Math.round(vh * 0.45));
   out.fourMenu = !!menu();
@@ -45,8 +46,8 @@ const res = await page.evaluate(async () => {
   out.five = menu() ? { inScreen: inScreen(rect(menu())) } : null;
   if (row()) { row().dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40); out.fiveLayer = layer() ? inScreen(rect(layer())) : null; }
   await closeAll();
-  // ⑥ 悬停开、移到别的行一会儿后收
-  await rclickClient(r.left + mid.x, r.top + mid.y);
+  // ⑥ 悬停开、移到别的行一会儿后收（③ 新建的盒子落在 mid 那一点上了，右键得找空处：用 ④ 那个右边缘的点）
+  await rclickClient(vw - 24, Math.round(vh * 0.45));
   row()?.dispatchEvent(new PointerEvent("pointerenter", { pointerType: "mouse" })); await sleep(30);
   out.hoverOpen = !!layer();
   const other = [...(menu()?.querySelectorAll(".menu-item") ?? [])].find((x) => !x.classList.contains("menu-sub"));

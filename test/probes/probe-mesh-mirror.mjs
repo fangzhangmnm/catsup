@@ -1,5 +1,6 @@
 // 网格体镜像接线（2026-10-28 Claude Opus 5.5；纪元账本 FM23 / FM134 / FM136）。中缝切开的盒子（-1..1）：
-// ① 右键「镜像 ›」子菜单（关 / 镜像编辑 / 强行对称 / 镜像面 / 对称对齐…）② 开镜像编辑：镜像面的框 + 中缝点画出来 ③ 挪 +x 一个角 → 对面跟着镜、一步撤销两个一起回
+// ① 右边「物体」钮 → 物体窗口第一行「组件「块」（网格体）」、「属性」页「对称」下拉（关 / 强行对称 / 镜像编辑）、开了才露「镜像面」（2026-10-28 Claude Fable 5.1：对称 = 网格体的属性，搬进物体窗口，UX 心智模型 §2.1）
+//   ② 开镜像编辑：镜像面的框 + 中缝点画出来 ③ 挪 +x 一个角 → 对面跟着镜、一步撤销两个一起回
 // ④ 镜像编辑开着用挤出（改拓扑）→ 应用内确认「关掉镜像，照做」→ 照做了、镜像关了 ⑤ 强行对称：开的时候按选区那边对称一次；之后挤出 +x 一张面 → -x 也长出来、同一步、撤销一下全回
 // ⑥ 对称对齐：歪一个点、选两边那一对 → 右键「对称对齐」对回来 ⑦ 强行对称先沿镜像面切开
 // ⑧（2026-10-28 user「镜像编辑还是坏的」「其实我倾向于不画。可以画在gizmos之类的上面」）：模型偏在镜像面一边 → 右上角视图 gizmo 的镜像方片橙色虚线 + 对不上的个数、
@@ -16,7 +17,9 @@ const res = await page.evaluate(async () => {
   const fire = (type, x, y, buttons) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, pointerId: 11, pointerType: "mouse", isPrimary: true, button: 0, buttons }));
   const drag = async (x0, y0, x1, y1) => { fire("pointermove", x0, y0, 0); await sleep(10); fire("pointerdown", x0, y0, 1); await sleep(10); for (let i = 1; i <= 6; i++) { fire("pointermove", x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6, 1); await sleep(10); } fire("pointerup", x1, y1, 0); await sleep(40); };
   const rclick = async () => { c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + Math.round(vw * 0.15), clientY: r.top + Math.round(vh * 0.3), button: 2 })); await sleep(60); };
-  const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), layer = () => document.querySelector(".popup-menu.choice-layer.submenu");
+  const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), layer = () => document.querySelector(".popup-menu.choice-layer");
+  const openObj = async () => { document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物体」钮 → 物体窗口（这一层）
+  const mirrorPick = async (id) => { await openObj(); menu()?.querySelector('[data-menu-id="mirror:mode"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40); layer()?.querySelector(`[data-choice-id="mirror:mode:${id}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };
   const closeAll = async () => { document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); await sleep(30); document.querySelectorAll(".popup-menu").forEach((m) => m.remove()); };
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.addSegments(segs); };
   const S = () => e.scene, px = (p) => e.cam.angularPx(p, e.vp()), hint = () => hud.status();
@@ -35,11 +38,13 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "meshLoopCut", def, edge: cut, t: 0.5 });
   out.cutVerts = m().vertexCount();
   // ①
-  await rclick();
-  const row = menu()?.querySelector('[data-menu-id="submenu:镜像"]');
+  await openObj();
+  const row = menu()?.querySelector('[data-menu-id="mirror:mode"]');
+  out.one = { row: !!row, who: menu()?.querySelector(".menu-note")?.textContent ?? "", axisBefore: !!menu()?.querySelector('[data-menu-id="mirror:axis"]') };
   row?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
-  out.one = { row: !!row, items: layer() ? [...layer().querySelectorAll(".menu-label")].map((x) => x.textContent).join("|") : "" };
-  layer()?.querySelector('[data-choice-id="mirror:edit"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
+  out.one.items = layer() ? [...layer().querySelectorAll(".menu-label")].map((x) => x.textContent).join("|") : "";
+  layer()?.querySelector('[data-choice-id="mirror:mode:edit"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
+  out.one.axisAfter = !!menu()?.querySelector('[data-menu-id="mirror:axis"]');   // 开了才露「镜像面」
   await closeAll();
   // ②（镜像面不画在模型上，画在右上角视图 gizmo；rAF 轮询，等一下）
   const gz = () => { const g = document.querySelector(".gizmo-mirror"); return g ? { mode: g.dataset.mode, unpaired: Number(g.dataset.unpaired), stroke: g.querySelector("polygon")?.getAttribute("stroke"), badge: g.querySelector("text")?.textContent ?? null } : null; };
@@ -69,8 +74,7 @@ const res = await page.evaluate(async () => {
   // ⑤ 强行对称：先把 -x 那个角挪歪（镜像关着），选 +x 的一张面再开强行对称（以选区那边为准）→ 对称了
   e.commitOp({ op: "meshMove", def, moves: [{ v: w, to: P(cx - 1.5, Y1, Z1) }] });
   out.five = { symBefore: sym(m()) };
-  await rclick(); menu()?.querySelector('[data-menu-id="submenu:镜像"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
-  layer()?.querySelector('[data-choice-id="mirror:force"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); await closeAll();
+  await mirrorPick("force"); await closeAll();
   out.five.mode = e.mirrorOf()?.mode; out.five.symAfterOn = sym(m()); out.five.hint = hint();
   const fF = m().faceCount(), sBefore = e.history.steps();
   e.commitOp({ op: "meshExtrude", def, faces: [endFace()], offset: P(0.5, 0, 0) });
@@ -130,7 +134,7 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.one.row && /关/.test(res.one.items) && /镜像编辑/.test(res.one.items) && /强行对称/.test(res.one.items) && res.found.v !== undefined && res.found.w !== undefined   // 「对称对齐…」要有选区才露（没选 = 不露），⑥ 走它
+const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.test(res.one.who) && !res.one.axisBefore && res.one.axisAfter && /关/.test(res.one.items) && /镜像编辑/.test(res.one.items) && /强行对称/.test(res.one.items) && res.found.v !== undefined && res.found.w !== undefined   // 「对称对齐…」要有选区才露（没选 = 不露），⑥ 走它
   && res.two.mode === "edit" && res.two.noPlaneOnModel && res.two.gizmo?.mode === "edit" && res.two.gizmo?.unpaired === 0 && res.two.gizmo?.stroke === "#8b5cf6" && res.two.seam
   && Math.abs(res.three.w.x - (res.localCenterX - 1.3)) < 1e-9 && Math.abs(res.three.w.y - (res.local.Y1 + 0.2)) < 1e-9 && res.three.steps === 1 && Math.abs(res.three.afterUndo.w.x - (res.localCenterX - 1)) < 1e-9
   && res.four.selFaces === 1 && /关掉镜像/.test(res.four.sheet ?? "") && res.four.facesBefore === 0 && res.four.facesAfter === 4 && res.four.mirrorAfter === null && res.four.undone === 0

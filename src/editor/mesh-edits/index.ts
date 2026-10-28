@@ -289,13 +289,13 @@ const actions: readonly Action[] = [
 const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
   { action: "mesh.bevel", where: "contextBar", order: 23, modes: ["freeform"] }, { action: "mesh.bevelVerts", where: "contextBar", order: 24, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
   { action: "mesh.mergeCenter", where: "contextBar", order: 25, modes: ["freeform"] },
-  { action: "mesh.subdivide", where: "contextBar", order: 36, modes: ["freeform"] },
+  { action: "mesh.subdivide", where: "objectWindow", order: 36 },   // 细分 / 默认平滑 = 物体级 → 物体窗口（user 10-28「镜像细分默认平滑这些都收到选窗里面」）
   { action: "mesh.symmetrySnap", where: "contextBar", order: 38, modes: ["freeform"], submenu: { label: "镜像", item: "对称对齐…" } },
   { action: "mesh.markSharp", where: "contextBar", order: 40, modes: ["freeform"], submenu: { label: "手标", item: "标成棱" } },
   { action: "mesh.markSmooth", where: "contextBar", order: 41, modes: ["freeform"], submenu: { label: "手标", item: "标成平滑" } },
   { action: "mesh.clearMarks", where: "contextBar", order: 42, modes: ["freeform"], submenu: { label: "手标", item: "清掉手标（交给默认平滑）" } },
-  { action: "mesh.smooth.angle", where: "contextBar", order: 45, modes: ["freeform"], submenu: { label: "默认平滑", item: "按角度…" } },
-  { action: "mesh.smooth.smooth", where: "contextBar", order: 46, modes: ["freeform"], submenu: { label: "默认平滑", item: "全部平滑" } },
-  { action: "mesh.smooth.hard", where: "contextBar", order: 47, modes: ["freeform"], submenu: { label: "默认平滑", item: "全部是棱" } }];
+  { action: "mesh.smooth.angle", where: "objectWindow", order: 45, submenu: { label: "默认平滑", item: "按角度…" } },
+  { action: "mesh.smooth.smooth", where: "objectWindow", order: 46, submenu: { label: "默认平滑", item: "全部平滑" } },
+  { action: "mesh.smooth.hard", where: "objectWindow", order: 47, submenu: { label: "默认平滑", item: "全部是棱" } }];
 
 export const meshEdits: Family = { name: "meshEdits", commands, actions, placements };
