@@ -45,7 +45,7 @@ describe("立场表：每把工具每个工作台一行，和手势模块一致"
       const src = fs.readFileSync(new URL(f, dir), "utf8");
       for (const line of src.split("\n")) {
         if (/^import\s+(?!type\b)[^;]*from\s+"[^"]*(\/kernel\/|\/mesh\/|^three|three\/)/.test(line)) bad.push(`${f}: ${line.trim()}`);
-        if (/\b(document|window|navigator)\./.test(line) && !line.trim().startsWith("//")) bad.push(`${f}: DOM: ${line.trim().slice(0, 80)}`);
+        if (/(?<![-\w])(document|window|navigator)\./.test(line) && !line.trim().startsWith("//")) bad.push(`${f}: DOM: ${line.trim().slice(0, 80)}`);   // 前面是「-」的不算（文件名 object-window.ts 那种）
       }
     }
     eq(bad.join("; "), "", "控制器文件夹漏了");

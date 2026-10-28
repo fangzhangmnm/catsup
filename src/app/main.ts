@@ -21,6 +21,7 @@ import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts"
 import { openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
+import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, type Machine } from "./machine-window.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
@@ -287,20 +288,10 @@ const hud: HudModel = {
 //   后面每组有**预算**，开局只显示常驻的，组下面一条矮的「⌄」展开条弹整组；池里的工具用过了、且还有预算，就长出一格「最近」槽；
 //   柱子不够高时先吃最近槽、再吃常驻（吃掉的都在 ⌄ 里）。第二组常驻推拉 / 移动，第三组常驻卷尺 / 轴，第四组常驻油漆桶（以后 + 元数据分析）。
 //   su 的视角操作不进左柱（右边 view 栏管）。旧「更多」钮与按高度给最近格的逻辑撤。
-type RailGroup = { id: string; pinned: Tool[]; pool: Tool[]; budget: number };
-const SHAPES: Tool[] = ["rect", "crect", "rrect", "circle", "arc"];
 /** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
 let eraserCurrent: Tool = "erase";
-const RAIL_GROUPS: RailGroup[] = [
-  { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale", "transform"], budget: 4 },
-  { id: "measure", pinned: ["tape", "axes"], pool: ["protractor", "compass"], budget: 3 },   // 卷尺 / 轴常驻（v0.15.19 误把 user 10-27「卷尺和座标架相对比较低频，不需要常驻」读成也管硬表面，那句说的是自由建模左柱；user「硬表面建模为什么卷尺和轴不常驻了」→ 还原）
-  { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
-];
-/** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
-const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };   // 插入那一格合租倒角（user 10-28「3插入倒角」）
-/** 工作台自己定死的左柱（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」+「用两字词语吧和硬表面对齐」：选择 · 挤出 · 移动 · 旋转 · 缩放 · 切割 · 删除 · 插入（删除 / 插入还没做的不露）。 */
-const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"], verify: ["walk", "select", "move", "rotate", "tape", "protractor", "compass", "axes"] };   // 尺规还要（user 10-28「以及尺规还是要的」）
-const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = MODE_TOOL_LABEL[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
+// 哪把工具进哪一组 / 预算 / 工作台定死的一列 / 改名 = 放置表 src/controller/placement.ts（接线清单第 1 条）；这里只按表画
+const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = RAIL_LABELS[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
 const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
 let shapeCurrent: Tool = "rect";
@@ -368,9 +359,13 @@ function renderSlots(): void {
   toolbarEl.replaceChildren();
   const inMode = (t: Tool): boolean => editor.modeTools().includes(t);   // 左柱只排当前模式的工具（刀 ③：表面模式 = 选择 + 油漆桶）
   const add = (t: Tool, fly?: () => Tool[]): void => { if (!inMode(t)) return; const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
-  const fixed = MODE_RAIL[editor.modeId];
-  if (fixed) { for (const t of fixed) add(t); return; }   // 这个工作台有自己定死的一列（自由建模）
-  add("select"); add("line"); if (SHAPES.some(inMode)) add(shapeCurrent, () => SHAPES.filter(inMode)); if (ERASERS.some(inMode)) add(eraserCurrent, () => ERASERS.filter(inMode));   // 第一组常驻
+  const fixed = RAIL_FIXED[editor.modeId];
+  if (fixed) { for (const t of fixed) add(t); return; }   // 这个工作台有自己定死的一列（自由建模 / 验证）
+  for (const slot of RAIL_FIRST) {   // 第一组常驻（形状格 / 橡皮格 = 一格一组、显示当前那把、小三角换）
+    if ("tool" in slot) { add(slot.tool); continue; }
+    const set = slot.flyout === "shapes" ? SHAPES : ERASERS;
+    if (set.some(inMode)) add(slot.flyout === "shapes" ? shapeCurrent : eraserCurrent, () => set.filter(inMode));
+  }
   const slots = allocate();
   RAIL_GROUPS.forEach((g, gi) => {
     const k = slots[gi];
@@ -482,37 +477,42 @@ function menuPick(id: MenuId): void | "keep" {
 // 轴 / 参考线归工具条（user「轴是工具，轴不归汉堡管，归工具管」）。
 // ☰ = WeebPaint 式 tab 制（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页顺序 = 家族统一（F-81）：
 // 图库 → 新建 / 打开（含导入）→ 保存 / 导出 → 定稿；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
-const MAIN_MENU_TABS = [
-  { id: "file", label: "文件", icon: "floppy-disk" },
-  { id: "model", label: "模型", icon: "object" },
-  { id: "settings", label: "设置", icon: "settings" },
-  { id: "help", label: "帮助", icon: "help" },
-] as const;
+// ☰ 的页签和每页放哪几行 = 放置表 src/controller/placement.ts（MENU_TABS / MENU_ROWS）；这里只管每行长什么样（字 / 图标 / 动态的勾和数字）
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
-  anchor: btnMenu, tabs: MAIN_MENU_TABS, tabKey: "main",
-  items: () => [
-    // 文件页 = WeebPaint 合租法（user 10-24「看一下weebpaint是怎么收的更干净的，谁和谁合租」）：新建 / 打开 / 导入合一行、另存 / 导出合一行，各开小弹层；
-    // 保存走顶栏保存钮（Ctrl+S），登录走保存时的问询与图库页云账号钮——都不占菜单行（WeebPaint 同款）
-    { id: "gallery", label: "图库", icon: "gallery", tab: "file", hint: hasStore() ? undefined : "本机 + OneDrive" },
-    { id: "newOpen", label: "新建 / 打开…", icon: "folder-open", tab: "file", hint: "Ctrl+O" },
-    { id: "exportHub", label: "导出与另存…", icon: "export", tab: "file" },
-    session.finalRecord()
-      ? { id: "revise" as MenuId, label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock", tab: "file" }
-      : { id: "finalize" as MenuId, label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", tab: "file", hint: "锁住几何 / 材质" },
-    { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", tab: "model", hint: "平滑组" },
-    ...(editor.repairLoaded("brep.weld") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("brep.weld", "context"); return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", tab: "model", hint: "当前在编辑的整个物体（含子物体）", disabled: !n }; })()] : []),   // T7 / DT5   // 修复模块扔掉了 = 这一项不出
-    ...(editor.repairLoaded("brep.planar") ? [((): { id: MenuId; label: string; icon: string; tab: string; hint: string; disabled: boolean } => { const n = editor.repairCount("brep.planar", "context"); return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", tab: "model", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n }; })()] : []),   // T9 / DT7   // 修复模块扔掉了 = 这一项不出
-    { id: "material", label: "材质…", icon: "color", tab: "model", hint: "油漆桶蘸什么" },
-    { id: "clear", label: "清空模型", icon: "trash-can", tab: "model", separatorBefore: true },
-    { id: "finger", label: "手指也能画", checked: fingerDraws, tab: "settings", hint: gestures.penEverSeen() ? "已见过笔，手指=相机" : undefined },
-    // 「开发者」节（家规 2½：还原出厂住开发者菜单；「强制更新（清缓存重启）」是另一个钮，留在帮助页）
-    { id: "factoryReset", label: "还原出厂设置…", icon: "trash-can", tab: "settings", sectionBefore: "开发者", hint: "两步确认" },
-    { id: "help", label: "使用手册", icon: "help", tab: "help" },
-    { id: "debuglog", label: "调试日志", icon: "wrench", tab: "help", hint: "复制给开发者" },
-    { id: "update", label: "强制更新", icon: "refresh", tab: "help", hint: APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "") },   // WeebPaint 同款：版本号 = 行尾小字（user 10-24「字超了……weebpaint用的应该是小字」）
-  ],
+  anchor: btnMenu, tabs: MENU_TABS, tabKey: "main",
+  items: () => MENU_ROWS.flatMap((r) => { const it = menuRow(r.id); return it ? [{ ...it, tab: r.tab, ...(r.section ? { sectionBefore: r.section } : {}), ...(r.separatorBefore ? { separatorBefore: true } : {}) }] : []; }),
   onPick: menuPick,
 }));
+/** ☰ 一行长什么样（放哪 = 放置表 MENU_ROWS）；null = 这一行现在不露。文件页 = WeebPaint 合租法：保存走顶栏保存钮（Ctrl+S），登录走保存时的问询与图库页云账号钮——都不占菜单行。 */
+function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
+  switch (id) {
+    case "gallery": return { id: "gallery", label: "图库", icon: "gallery", ...(hasStore() ? {} : { hint: "本机 + OneDrive" }) };
+    case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "folder-open", hint: "Ctrl+O" };
+    case "exportHub": return { id: "exportHub", label: "导出与另存…", icon: "export" };
+    case "finalize": return session.finalRecord()
+      ? { id: "revise", label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock" }
+      : { id: "finalize", label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", hint: "锁住几何 / 材质" };
+    case "softenAll": return { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", hint: "平滑组" };
+    case "weldAllBreaks": {   // T7 / DT5；修复模块扔掉了 = 这一项不出
+      if (!editor.repairLoaded("brep.weld")) return null;
+      const n = editor.repairCount("brep.weld", "context");
+      return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", hint: "当前在编辑的整个物体（含子物体）", disabled: !n };
+    }
+    case "makePlanarAll": {   // T9 / DT7；修复模块扔掉了 = 这一项不出
+      if (!editor.repairLoaded("brep.planar")) return null;
+      const n = editor.repairCount("brep.planar", "context");
+      return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n };
+    }
+    case "material": return { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么" };
+    case "clear": return { id: "clear", label: "清空模型", icon: "trash-can" };
+    case "finger": return { id: "finger", label: "手指也能画", checked: fingerDraws, ...(gestures.penEverSeen() ? { hint: "已见过笔，手指=相机" } : {}) };
+    case "factoryReset": return { id: "factoryReset", label: "还原出厂设置…", icon: "trash-can", hint: "两步确认" };
+    case "help": return { id: "help", label: "使用手册", icon: "help" };
+    case "debuglog": return { id: "debuglog", label: "调试日志", icon: "wrench", hint: "复制给开发者" };
+    case "update": return { id: "update", label: "强制更新", icon: "refresh", hint: APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "") };   // WeebPaint 同款：版本号 = 行尾小字（user 10-24「字超了……weebpaint用的应该是小字」）
+  }
+  return null;
+}
 
 // ---------- 移动（步行相机 / VR 共用的 player）----------
 const locomotion = new Locomotion(editor, canvas);
