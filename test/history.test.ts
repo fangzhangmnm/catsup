@@ -115,11 +115,11 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
   it("只改选区的一步（commitSession）：0 条 op、能撤能重做、带回之前 / 之后的会话；新提交截掉它的重做尾巴", () => {
     const h = new History<string>(); let s = new Scene();
     s = h.commit(s, rect(0, 0, 10, 10), false, "A").scene;
-    h.commitSession("sel-before");
+    h.commitSession("sel-before", "sel-after");
     assert(h.canUndo()); eq(h.depth(), 2);
-    const u = h.undo("sel-after")!; eq(u.before, "sel-before"); eq(fingerprint(rootK(u.scene)), fingerprint(rootK(s)), "几何没变");
+    const u = h.undo()!; eq(u.before, "sel-before"); eq(u.label?.title, "选择"); eq(fingerprint(rootK(u.scene)), fingerprint(rootK(s)), "几何没变");
     const r = h.redo(s)!; eq(r.after, "sel-after"); eq(r.events.length, 0);
-    h.undo("x"); s = h.commit(s, chord(5), false, "B").scene; eq(h.depth(), 2, "重做尾巴截掉"); assert(!h.canRedo());
+    h.undo(); s = h.commit(s, chord(5), false, "B").scene; eq(h.depth(), 2, "重做尾巴截掉"); assert(!h.canRedo());
   });
   it("一步 = 好几条 op（join）：撤销 / 重做一次走完整步；undoOp 只退一条（user 2026-10-25「*6 /6的时候undo不对」）", () => {
     const h = new History(); let s = new Scene();
@@ -144,28 +144,52 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     eq(h.commit(new Scene(), rect(0, 0, 1, 1), true).scene !== null, true, "第一条 join 无效（前面没有）");
     eq(h.undo() !== null, true); eq(h.position(), 0);
   });
-  it("会话记录（2026-10-26 重设计）：撤销带回「之前」并记下「之后」，重做带回「之后」；同一步中间不另记；新分支截掉旧记录", () => {
+  it("会话记录（2026-10-28 改：之后在步结束时封）：撤销带回「之前」，重做带回 sealStep 封的「之后」；同一步中间不另记；新分支截掉旧记录", () => {
     const h = new History<string>(); let s = new Scene();
-    s = h.commit(s, rect(0, 0, 10, 10), false, "A前").scene;
+    s = h.commit(s, rect(0, 0, 10, 10), false, "A前", { title: "画矩形" }).scene; h.sealStep("A后");
     s = h.commit(s, chord(2), false, "B前").scene;
     s = h.commit(s, chord(4), true, "不该记").scene;   // 和 B 同一步
-    let u = h.undo("B后")!;
-    eq(u.before, "B前", "撤一步带回这一步之前的会话"); eq(h.position(), 1);
+    h.sealStep("B后", { title: "两条弦" });
+    let u = h.undo()!;
+    eq(u.before, "B前", "撤一步带回这一步之前的会话"); eq(u.label?.title, "两条弦", "sealStep 补的标签"); eq(h.position(), 1);
     s = u.scene;
     const r = h.redo(s)!;
-    eq(r.after, "B后", "重做带回撤销那一刻记下的会话"); eq(h.position(), 3);
+    eq(r.after, "B后", "重做带回步结束时封的会话"); eq(r.label?.title, "两条弦"); eq(h.position(), 3);
     s = r.scene;
-    u = h.undo("B后2")!; s = u.scene;
-    u = h.undo("A后")!; s = u.scene;
-    eq(u.before, "A前"); eq(h.position(), 0);
+    u = h.undo()!; s = u.scene;
+    u = h.undo()!; s = u.scene;
+    eq(u.before, "A前"); eq(u.label?.title, "画矩形"); eq(h.position(), 0);
     s = h.redo(s)!.scene;   // 回到 A 之后
-    s = h.commit(s, chord(6), false, "C前").scene;   // 新分支：B 那一步的记录作废
-    u = h.undo("C后")!;
+    s = h.commit(s, chord(6), false, "C前").scene; h.sealStep("C后");   // 新分支：B 那一步的记录作废
+    u = h.undo()!;
     eq(u.before, "C前"); eq(h.position(), 1);
     s = u.scene;
     const r2 = h.redo(s)!;
     eq(r2.after, "C后", "重做的是新分支 C，不是旧的 B");
     const op = h.undoOp()!;
     eq(op.before, "C前", "undoOp 退到一步的开头 = 带回那一步之前的会话");
+    h.sealStep("没有步也不炸");   // 游标不在栈顶：规章定义的结果 = 不做
+  });
+  it("部件注册表（2026-10-28 设计稿 §5 Phase B）：外部部件 register + 在当前步 record → 撤销 / 重做按自反 swap 走，和场景记录同一步；重名 / 没登记 = 登记处响亮失败", () => {
+    const h = new History<string>(); let s = new Scene();
+    const box = { v: 0 };   // 一个自带 substrate 的外部部件：记录 = 旧值
+    h.registerComponent({ kind: "box", swap: (r: number) => { const old = box.v; box.v = r; return old; }, bytes: () => 8 });
+    let threw = false; try { h.registerComponent({ kind: "box", swap: (r: number) => r, bytes: () => 0 }); } catch { threw = true; } assert(threw, "重名响亮失败");
+    threw = false; try { h.record("nope", 1); } catch { threw = true; } assert(threw, "没登记响亮失败");
+    threw = false; try { h.record("box", 1); } catch { threw = true; } assert(threw, "游标 0 没有步可挂");
+    s = h.commit(s, rect(0, 0, 10, 10), false, "前").scene;
+    const old = box.v; box.v = 5; h.record("box", old);   // 这一步里部件自己写了 substrate，记旧值
+    h.sealStep("后");
+    const g0 = fingerprint(rootK(s));
+    s = h.undo()!.scene; eq(box.v, 0, "撤销把部件放回去"); eq(rootK(s).edges().length, 0, "场景记录同一步撤掉");
+    s = h.redo(s)!.scene; eq(box.v, 5, "重做再放回来"); eq(fingerprint(rootK(s)), g0);
+  });
+  it("evictedSteps：被配额驱逐的是步数不是 op 数", () => {
+    const h = new History(undefined, { quotaBytes: 1 }); let s = new Scene();
+    s = h.commit(s, rect(0, 0, 10, 10)).scene;
+    s = h.commit(s, chord(2)).scene; s = h.commit(s, chord(4), true).scene;   // 一步两条
+    s = h.commit(s, chord(6)).scene;
+    assert(h.evictedCount() >= 2, `驱逐了 ${h.evictedCount()} 条 op`);
+    eq(h.evictedSteps(), h.evictedCount() === 3 ? 2 : 1);
   });
 });

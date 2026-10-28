@@ -56,7 +56,7 @@ import { REPAIR_STEPS } from "./repairs/index.ts";
 import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
 import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
-import { History, OpApplyError } from "./history.ts";
+import { History, OpApplyError, type StepLabel } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
@@ -105,6 +105,7 @@ interface Session { ctx: EditContext; sel: SelSnap }
 export type EditorTrace =
   | { kind: "op"; op: Op; events: number; ms: number; position: number }
   | { kind: "undo" | "redo"; position: number; depth: number }
+  | { kind: "step"; label: string; ops: number; session: boolean }   // 一步封账（设计稿 §3 层 6）
   | { kind: "load"; label: string }
   /** 失败行另带复现材料（黑匣子，2026-10-24）：那一步之前的活动池 B-rep + 池地址；预演失败带工具描述。宿主只在内存里留。 */
   | { kind: "fail"; where: string; op: Op | null; message: string; brep?: BrepSnapshot; pool?: PoolRef; preview?: Record<string, unknown> };
@@ -219,6 +220,18 @@ declare const STEP_PASS_BRAND: unique symbol;
 export interface StepPass { readonly [STEP_PASS_BRAND]: true }
 const STEP_PASS = Object.freeze({}) as StepPass;
 
+/** op → 一步的默认标签（中文动词；显式给了 step() 标签的用那个）。开放集：没登记的用 op 名。 */
+const OP_TITLES: Readonly<Record<string, string>> = {
+  addEdges: "画线", eraseEdges: "擦边", eraseFaces: "擦面", eraseSelection: "删除", move: "移动", pushpull: "推拉", followme: "跟随", absorb: "合并", weldEdges: "焊接", dissolveVertices: "溶解点",
+  explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物体", placeInstance: "放置",
+  eraseInstance: "删除物体", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
+  setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
+  copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
+  meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
+};
+function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
+function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }
+
 export class Editor {
   readonly cam = new OrbitCamera();
   private r3: Renderer3;
@@ -239,7 +252,6 @@ export class Editor {
   }
   private history = new History<Session>();
   /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
-  private lastSession: Session | null = null;
   private static sessionKey(s: Session): string { return JSON.stringify(s); }
   private _tool: Tool = "select";   // 开机 = 鼠标（选择）工具（user 10-27「硬建模默认也是鼠标工具」）
   private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建
@@ -267,6 +279,7 @@ export class Editor {
     if (!(next.kinds as readonly BodyKind[]).includes(this.activeKind())) { this.host.hint(`「${next.label}」管不了现在这个物体`); return; }   // 不变量：工作台管活动池的身体种类
     this.cancelGesture();
     this.mode.leave?.(this.toolCtx);
+    this.openParamSession(null);   // 换工作台：马前炮 / 马后炮都收
     this.mode = next;
     this.mode.enter?.(this.toolCtx);
     if (!next.tools.includes(this._tool)) this._tool = next.defaultTool;
@@ -324,6 +337,10 @@ export class Editor {
   /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
   private stepOps = 0;
   private stepFailed = false;
+  private stepTouched = false;                   // 这一步里会话（选区 / 上下文）被写过（写口 clearSel / setCtx / afterSelect 标）
+  private stepBefore: Session | null = null;     // 这一步开始前的会话（手势按下时点选的那份延后到落定那一步）
+  private stepLabel: StepLabel | undefined;      // 这一步的标签（提示行「撤销：建组」）
+  private deferredBefore: Session | null = null; // 手势中改的选区：等手势落定那一步一起封（SU：按下选中 + 拖 = 一步）
   /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
   /** A9 方向锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
    *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
@@ -719,6 +736,7 @@ export class Editor {
       this.setMode(owner.id);
     }
     this.last = null;
+    if (this.param?.phase === "after") { this.openParamSession(null); this.host.hint("刚才那一步的参数已收起（换了工具）"); }   // 马后炮寿命 = 栈顶没变 ∧ 工具没换 ∧ 没撤销过（设计稿 §7 第 4 条；user「切换工具…还是显示着“刚才”」）
     this._tool = t;
     this.originEdit = null;   // 改组件原点会话随换工具结束（beginComponentOrigin 在换完之后才开）
     this.cancelGesture();
@@ -732,11 +750,7 @@ export class Editor {
     if (this.liveOriginEdit()) { const t = this.originEdit!.prevTool; this.setTool(t); this.host.hint("改组件原点：取消了"); return; }   // 选区留着
     this.taps.cancel();
     this.last = null;
-    this.selection = this.blankSelection();
-    this.selectedPools.clear();
-    this.cancelGesture();
-    this.host.changed();
-    this.draw();
+    this.step((pass) => { this.clearSel(pass); this.cancelGesture(); this.host.changed(); this.draw(); }, { title: "取消选择" });
   }
 
   // ---------- 参考几何 / 轴（0.11 尺规纪元；世界坐标进、池本地坐标存）----------
@@ -943,7 +957,7 @@ export class Editor {
   private ctxKeyOf(c: EditContext): string { return `${c.chain.join("/")}#${c.group ?? "root"}`; }
   private selSnap(): SelSnap { return { ctx: this.ctxKey(), faces: [...this.selection.faces], edges: [...this.selection.edges], verts: [...this.selection.verts], guides: [...guidesOf(this.selection)], pools: [...this.selectedPools.entries()] }; }
   private selRestore(s: SelSnap | undefined): void {
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.selection = this.blankSelection(); this.selectedPools.clear();   // 装场景路径：不是用户的写，不经写口
     if (!s || s.ctx !== this.ctxKey()) return;
     for (const f of s.faces) this.selection.faces.add(f);
     for (const e of s.edges) this.selection.edges.add(e);
@@ -953,12 +967,42 @@ export class Editor {
     this.pruneSelection();
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
-  private step<T>(fn: (pass: StepPass) => T): T {
-    if (this.stepDepth++ === 0) { this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; }
+  private step<T>(fn: (pass: StepPass) => T, label?: StepLabel): T {
+    if (this.stepDepth++ === 0) { this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
+    else if (label && !this.stepLabel) this.stepLabel = label;
     try { return fn(STEP_PASS); }
-    finally { if (--this.stepDepth === 0) { if (this.stepHasOp) { if (!this.gestureActive()) this.lastSession = this.sessionSnap(); } else this.recordSession(); } }   // 一步结束：有 op 的步，它之后的会话由撤销那一刻记（rec.after）；没 op 的步 = 可能只改了选区 → 记 0 op 步
-
+    finally { if (--this.stepDepth === 0) this.closeStep(); }
   }
+  /**
+   * 一步结束时封账（设计稿 ai-docs/20261028-undo-step-regime.md §2 I1 / I4）：有 op 的步 → 把「之后」的会话封进栈顶那一步（重做回到它）；
+   * 没 op 但写过会话的步 → 同一上下文里选区变了才记一条 0 op 的选区步（进 / 出组件不算，FM106）；手势中按下时的点选延后到落定那一步一起；失败的步 = 没这一步，会话也退回。
+   * 以前（≤ v0.15.28）是事后对账：拿现在的选区和上次记的比——分不清「用户点了一下」和「建组做完顺手选中新组」，补出来的空步就是撤销「没反应」的根。
+   */
+  private closeStep(): void {
+    const before = this.stepBefore ?? this.sessionSnap(), label = this.stepLabel, touched = this.stepTouched, hadOp = this.stepHasOp && !this.stepFailed, failed = this.stepFailed, ops = this.stepOps;
+    this.stepBefore = null; this.stepLabel = undefined; this.stepTouched = false;
+    if (failed) { this.deferredBefore = null; this.sessionRestore(before); this.host.changed(); return; }
+    if (hadOp) {
+      this.deferredBefore = null;
+      this.history.sealStep(this.sessionSnap(), label);
+      this.host.trace?.({ kind: "step", label: this.history.topLabel()?.title ?? "", ops, session: touched });
+      return;
+    }
+    if (!touched && this.deferredBefore === null) return;
+    if (this.gestureActive()) { this.deferredBefore ??= before; return; }
+    this.deferredBefore = null;
+    const after = this.sessionSnap();
+    if (!Editor.sameCtx(before, after) || Editor.sessionKey(before) === Editor.sessionKey(after)) return;
+    const L = label ?? { title: "选择" };
+    this.history.commitSession(before, after, L);
+    this.host.trace?.({ kind: "step", label: L.title, ops: 0, session: true });
+    this.host.changed();
+  }
+  private static sameCtx(a: Session, b: Session): boolean { return a.ctx.group === b.ctx.group && a.ctx.chain.join("/") === b.ctx.chain.join("/"); }
+  /** 会话（选区 + 上下文）的写口（设计稿 §2 I4）：只在一步里、带通行证；这一步结束时按「之前 / 之后」记进栈。守卫测试钉死：editor.ts 里 selection / selectedPools 的整体赋值、ctx 的赋值只准出现在写口和装场景的路径里。 */
+  private clearSel(_pass: StepPass): void { this.selection = this.blankSelection(); this.selectedPools.clear(); this.stepTouched = true; }
+  private setCtx(_pass: StepPass, ctx: EditContext): void { this.ctx = ctx; this.stepTouched = true; }
+
   /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
   commitOp(op: Op): FaceEvent[] { return this.step((pass) => this.commitIn(pass, op)); }
   /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
@@ -979,9 +1023,10 @@ export class Editor {
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
     const t0 = performance.now();
-    const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : this.sessionSnap();   // 新的一步：记下它之前的会话（History 存，redo 尾巴一起作废）
+    const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : (this.stepBefore ?? this.sessionSnap());   // 新的一步：它之前的会话（步开始时记的；手势按下时点选的那份延后进来）
+    const label = join ? undefined : (this.stepLabel ?? opLabel(op));
     let r: ReturnType<History["commit"]>;
-    try { r = perf.time("commit", () => this.history.commit(this.scene, op, join, before)); }
+    try { r = perf.time("commit", () => this.history.commit(this.scene, op, join, before, label)); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
       if (err instanceof OpApplyError) this.installScene(err.restored);
@@ -1029,7 +1074,6 @@ export class Editor {
     this.bump();
     if (session) this.sessionRestore(session);
     this.ensureModeForKind();
-    this.lastSession = this.sessionSnap();
     this.revalidateCharged();
   }
   private pruneSelection(): void {
@@ -1067,12 +1111,14 @@ export class Editor {
     this.last = null;
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
     if (this._locked) { this.lockedSay(); return; }
-    const r = this.history.undo(this.sessionSnap());   // 撤之前的会话 = 这一步「之后」的样子（重做时还原）
-    if (!r) return;
+    const r = this.history.undo();
+    if (!r) { const n = this.history.evictedSteps(); this.host.hint(n ? `撤到头了（更早的 ${n} 步超过 128 MB 配额，撤不回去）` : "没有可撤销的"); return; }
+    this.deferredBefore = null;
     this.installScene(r.scene, r.before);   // 撤销 = 回到这一步之前：场景 + 在哪个组件里 + 选区一起（先装好，再碰界面）
     this.openParamSession(null);   // 马后炮 / 马前炮跟着那一步走：撤了就关（不然再改值会撤错一步）
     this.cancelGesture();
     this.host.trace?.({ kind: "undo", position: this.history.position(), depth: this.history.depth() });
+    this.host.hint(`撤销：${labelText(r.label)}`);   // user 10-28「undo redo的时候信息应该有显示都做了啥，还是失败了」
     this.host.changed();
     this.draw();
   }
@@ -1083,14 +1129,17 @@ export class Editor {
     try { r = this.history.redo(this.scene); }
     catch (err) {
       const cause = err instanceof OpApplyError ? err.cause : err;
-      if (err instanceof OpApplyError) this.installScene(err.restored);
+      if (err instanceof OpApplyError) this.installScene(err.restored, this.sessionSnap());   // 场景和会话一起回到重做前（§2 乱用表）
       this.host.trace?.({ kind: "fail", where: "redo", op: null, message: cause instanceof Error ? cause.message : String(cause) });
+      this.host.hint(`重做失败：${cause instanceof Error ? cause.message : String(cause)}`);
       this.fail("commit", cause);
       return;
     }
-    if (!r) return;
-    this.installScene(r.scene, r.after);   // 重做 = 回到这一步之后（撤销那一刻的样子）：场景 + 在哪个组件里 + 选区一起
+    if (!r) { this.host.hint("没有可重做的"); return; }
+    this.deferredBefore = null;
+    this.installScene(r.scene, r.after);   // 重做 = 回到这一步之后（步结束时封的那份）：场景 + 在哪个组件里 + 选区一起
     this.openParamSession(null);
+    this.host.hint(`重做：${labelText(r.label)}`);
     this.cancelGesture();
     this.host.trace?.({ kind: "redo", position: this.history.position(), depth: this.history.depth() });
     this.host.changed();
@@ -1101,11 +1150,10 @@ export class Editor {
     this.last = null;
     this.cancelGesture();
     this.scene = s;
-    this.ctx = ROOT_CONTEXT;
+    this.ctx = ROOT_CONTEXT;   // 装场景：不经写口
     this.history = new History<Session>(s);
     this._revision++;
-    this.selection = this.blankSelection(); this.selectedPools.clear();
-    this.lastSession = this.sessionSnap();
+    this.selection = this.blankSelection(); this.selectedPools.clear();   // 装场景：不经写口
     this.clearCharged();
     this.host.trace?.({ kind: "load", label });
     this.host.changed();
@@ -1131,9 +1179,9 @@ export class Editor {
     return this.step((pass) => {
     this.last = null;
     this.cancelGesture();
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.clearSel(pass);
     this.clearCharged();
-    this.ctx = ROOT_CONTEXT;
+    this.setCtx(pass, ROOT_CONTEXT);
     this.commitIn(pass, { op: "clear" });
     this.draw();
     });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
@@ -1143,9 +1191,9 @@ export class Editor {
     const preset = PRESETS.find((p) => p.name === name);
     if (!preset) return false;
     this.cancelGesture();
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.clearSel(pass);
     this.clearCharged();
-    this.ctx = ROOT_CONTEXT;
+    this.setCtx(pass, ROOT_CONTEXT);
     this.commitIn(pass, { op: "preset", name });
     this.draw();
     return true;
@@ -1155,7 +1203,7 @@ export class Editor {
   addSegments(segs: [PtIn, PtIn][], label: string): FaceEvent[] {
     return this.step((pass) => {
     this.cancelGesture();
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.clearSel(pass);
     this.host.trace?.({ kind: "load", label });
     const evs = this.commitIn(pass, { op: "addEdges", at: this.activePool(), segs: segs.map(([a, b]) => [this.toLocal({ x: a.x, y: a.y, z: a.z ?? 0 }), this.toLocal({ x: b.x, y: b.y, z: b.z ?? 0 })]) });
     this.draw();
@@ -1183,7 +1231,7 @@ export class Editor {
     let added: number[] = [];
     const go = (up: ImportUp, unit: string): void => {
       const before = new Set(this.scene.def(defId).instances.keys());
-      this.selection = this.blankSelection(); this.selectedPools.clear();
+      this.clearSel(pass);
       this.commitIn(pass, { op: "importScene", at, scene: castOf(up, unit).scene, place });
       added = [...this.scene.def(defId).instances.keys()].filter((id) => !before.has(id));
       for (const id of added) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
@@ -1229,13 +1277,14 @@ export class Editor {
    * 点（2026-10-26）：单击 = 这个点；双击 = 连着它的线；三击 = 连通体。
    * mode = 怎么合进已有选区（替换 / 加选 / 减选 / 切换，对齐 Blender）；空命中 + 替换 = 清选区。hit 是 WorldView 的全局 id。
    */
-  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode = "replace"): boolean {
+  selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode = "replace"): boolean { return this.step((pass) => this.selectExpandIn(pass, hit, stage, mode)); }
+  private selectExpandIn(pass: StepPass, hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean {
     const view = this.liveWorld();
     const c = this.classify(view, hit);
-    if (mode === "replace") { this.selection = this.blankSelection(); this.selectedPools.clear(); }
-    if (c.kind === "pool") { this.mergePools([c.pick], mode); this.afterSelect(); return true; }
-    if (c.kind === "none") { this.afterSelect(); return true; }
-    if (this.activeKind() !== "brep") return this.selectExpandView(c.local, stage, mode);
+    if (mode === "replace") { this.clearSel(pass); }
+    if (c.kind === "pool") { this.mergePools([c.pick], mode); this.afterSelect(pass); return true; }
+    if (c.kind === "none") { this.afterSelect(pass); return true; }
+    if (this.activeKind() !== "brep") return this.selectExpandView(pass, c.local, stage, mode);
     const k = this.kernel;
     const picked = emptySelection();
     const h = c.local;
@@ -1266,14 +1315,14 @@ export class Editor {
     const all = mode === "toggle" && pe.every((e) => this.selection.edges.has(e)) && pf.every((f) => this.selection.faces.has(f)) && pv.every((v) => this.selection.verts.has(v));
     const m: SelMode = mode === "toggle" ? (all ? "remove" : "add") : mode;
     mergeSel(this.selection.edges, pe, m); mergeSel(this.selection.faces, pf, m); mergeSel(this.selection.verts, pv, m);
-    this.afterSelect();
+    this.afterSelect(pass);
     return true;
   }
   /**
    * 非 brep 的池（网格体……）的点击族，只认显示契约 KernelView：一下 = 点 / 边 / 面本身；两下 = 面连同它的环、边连同两侧的面、点连同它的边；三下 = 沿边连通的面。
    * 曲线 / 曲面 / 参考几何是 brep 的概念，这里没有；隐藏的不选。新种类的内核只要给了 KernelView 就自动有这一套。
    */
-  private selectExpandView(h: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean {
+  private selectExpandView(pass: StepPass, h: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean {
     const v = this.activeView, picked = this.blankSelection();
     const ringEdges = (fid: number): void => { const f = v.face(fid); if (!f) return; picked.faces.add(fid); for (const ring of [f.outer, ...f.holes]) for (const d of ring.edges) picked.edges.add(d.edge); };
     if (h.edge !== undefined && v.graph.hasEdge(h.edge)) { picked.edges.add(h.edge); if (stage >= 1) for (const fid of v.graph.edge(h.edge).faceLinks) picked.faces.add(fid); }
@@ -1289,7 +1338,7 @@ export class Editor {
     const all = mode === "toggle" && pe.every((e) => this.selection.edges.has(e)) && pf.every((f) => this.selection.faces.has(f)) && pv.every((x) => this.selection.verts.has(x));
     const m: SelMode = mode === "toggle" ? (all ? "remove" : "add") : mode;
     mergeSel(this.selection.edges, pe, m); mergeSel(this.selection.faces, pf, m); mergeSel(this.selection.verts, pv, m);
-    this.afterSelect();
+    this.afterSelect(pass);
     return true;
   }
   /** 组 / 组件按 mode 合进选区（切换 = 逐个）。 */
@@ -1304,28 +1353,21 @@ export class Editor {
   }
   /** 反选（Blender Ctrl+I）：当前上下文里没选的面 / 边 / 子组 / 组件；点和参考几何清掉。隐藏的不选。 */
   invertSelection(): boolean {
+    return this.step((pass) => {
     const before = this.selection, pools = new Set(this.selectedPools.keys());
-    this.selectAllInner();
+    this.selectAllInner(pass);
     for (const f of before.faces) this.selection.faces.delete(f);
     for (const e of before.edges) this.selection.edges.delete(e);
     for (const key of pools) this.selectedPools.delete(key);
-    this.afterSelect();
+    this.afterSelect(pass);
     return true;
+    }, { title: "反选" });
   }
   /** 全不选（Blender Alt+A；Esc 也行）。 */
-  deselectAll(): void { this.selection = this.blankSelection(); this.selectedPools.clear(); this.afterSelect(); }
-  /**
-   * 「撤销也撤选区」（user 10-27「这个我们要」）：同一上下文里选区变了、没在手势里 → 记成 0 op 的一步。lastSession 只在这里和换场景时前进。
-   * 鼠标点选 / 框选发生在指针事件的那一步里（stepDepth > 0）——那一步结束时（step 的 finally）再记；以前 afterSelect 在步里直接把 lastSession 推进、不记，点选就永远进不了撤销栈（v0.15.15 的 bug，10-27 夜修）。
-   */
-  private recordSession(): void {
-    if (this.gestureActive()) return;
-    const now = this.sessionSnap();
-    if (this.lastSession && this.lastSession.ctx.group === now.ctx.group && this.lastSession.ctx.chain.join("/") === now.ctx.chain.join("/") && Editor.sessionKey(this.lastSession) !== Editor.sessionKey(now)) this.history.commitSession(this.lastSession);
-    this.lastSession = now;
-  }
-  private afterSelect(): void {
-    if (this.stepDepth === 0) this.recordSession();
+  deselectAll(): void { this.step((pass) => { this.clearSel(pass); this.afterSelect(pass); }, { title: "取消选择" }); }
+  /** 选区变化的口子：每一处改完选区都调它（带通行证 = 一定在一步里；步结束时记账）。 */
+  private afterSelect(_pass: StepPass): void {
+    this.stepTouched = true;
     this.host.readout?.(this.readoutText());
     const info = this.selectionInfo();
     if (info) this.host.hint(info);
@@ -1368,7 +1410,7 @@ export class Editor {
     if (typeof plan === "string") { this.host.hint(plan); return false; }
     const keys = plan.edges.map((e) => edgeKey(k, e));
     this.commitIn(pass, { op: "weldEdges", at, edges: keys });
-    const k2 = this.kernel; this.selection = this.blankSelection(); this.selectedPools.clear();
+    const k2 = this.kernel; this.clearSel(pass);
     for (const key of keys) { try { this.selection.edges.add(resolveEdge(k2, key)); } catch { /* 没了就不选 */ } }
     this.host.hint(`焊接：${plan.edges.length} 段 → 一条${plan.spec.kind === "circle" ? "圆" : plan.spec.kind === "arc" ? "弧" : "曲线"}（选 / 擦 / 高亮当整体）`);
     this.host.changed(); this.draw();
@@ -1413,7 +1455,7 @@ export class Editor {
     const gsel = guidesOf(this.selection);
     if (gsel.size) this.commitIn(pass, { op: "eraseGuides", at, ids: [...gsel] });   // A31：选中的参考线 / 参考点
     if (this.opCount === n0) return;   // 什么都没删（网格体的几何 / 全锁着）：选区留着，不假装删过
-    this.selection = this.blankSelection(); this.selectedPools = kept;
+    this.clearSel(pass); this.selectedPools = kept;   // 写口已标过
     if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没删（选区菜单 → 解锁）`);
     this.host.changed();
     this.draw();
@@ -1431,7 +1473,7 @@ export class Editor {
     const nest = this.nestPicks();
     if (!faces.length && !edges.length && !nest.groups.length && !nest.instances.length) return false;
     this.commitIn(pass, { op: "makeGroup", at, faces, edges, ...nest.fields });
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.clearSel(pass);
     const def = this.scene.brep(this.scene.defOfContext(this.ctx));
     const newest = [...def.groups.values()].filter((g) => g.parent === this.ctx.group).pop();
     if (newest) this.selectedPools.set(`g${newest.id}`, { kind: "group", group: newest.id });
@@ -1472,7 +1514,7 @@ export class Editor {
       this.commitIn(pass, { op: "setAxes", at: { def: defId, group: null }, frame: { origin, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } });
     };
     const selectNewest = (): void => {
-      this.selection = this.blankSelection(); this.selectedPools.clear();
+      this.clearSel(pass);
       const def = this.scene.def(this.scene.defOfContext(this.ctx));
       const newest = [...def.instances.values()].filter((i) => i.parent === this.ctx.group).pop();
       if (newest) this.selectedPools.set(`i${newest.id}`, { kind: "instance", instance: newest.id });
@@ -1497,7 +1539,7 @@ export class Editor {
       if (this.pickIsLocked(p)) { kept.set(key, p); continue; }
       this.commitIn(pass, p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance });
     }
-    this.selectedPools = kept;
+    this.selectedPools = kept;   // 写口已标过（前面 clearSel）
     if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没炸开（选区菜单 → 解锁）`);
     this.host.changed(); this.draw();
     return true;
@@ -1710,7 +1752,7 @@ export class Editor {
         const n0 = this.opCount;
         for (const op of ops) { this.commitIn(pass, op); if (this.opCount === n0 && this.stepFailed) return 0; }
         if (this.opCount === n0) return 0;
-        if (sel && selN === 1) { const S = sel; this.selection = this.blankSelection(); this.selectedPools.clear(); for (const x of S.verts ?? []) this.selection.verts.add(x); for (const x of S.edges ?? []) this.selection.edges.add(x); for (const x of S.faces ?? []) this.selection.faces.add(x); this.pruneSelection(); this.afterSelect(); }
+        if (sel && selN === 1) { const S = sel; this.clearSel(pass); for (const x of S.verts ?? []) this.selection.verts.add(x); for (const x of S.edges ?? []) this.selection.edges.add(x); for (const x of S.faces ?? []) this.selection.faces.add(x); this.pruneSelection(); this.afterSelect(pass); }
         this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}`);
         this.host.changed(); this.draw();
         return count;
@@ -1748,7 +1790,7 @@ export class Editor {
     };
     const n0 = this.opCount, count = go(v0);
     if (count && c.params(this.repairCtx).length) this.offerAfterthought(c.title, c.params(this.repairCtx), v0, this.opCount - n0, (v) => { go(v); });
-    this.selectedPools.clear(); this.selection = this.blankSelection();   // 身体换了种类：旧的选区 / 拾取对不上新内核，清掉（诚实）
+    this.clearSel(pass);   // 身体换了种类：旧的选区 / 拾取对不上新内核，清掉（诚实）
     this.host.changed(); this.draw();
     return count;
   }); }
@@ -2022,7 +2064,7 @@ export class Editor {
     for (const i of this.scene.def(def).instances.values()) if (i.parent !== null && tree.has(i.parent) && !i.hidden) insts.push(i.id);
     for (const iid of insts) { const inst = this.scene.def(def).instances.get(iid)!; this.commitIn(pass, { op: "setHidden", at: { def, group: inst.parent }, instance: iid, on: true }); n++; }
     if (!n) return 0;
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.clearSel(pass);
     this.host.hint(`藏起来了；视图菜单「全部显示」放回来（Alt+H）`);
     this.host.changed(); this.draw();
     return n;
@@ -2050,20 +2092,24 @@ export class Editor {
   }
   /** 进入选中（或命中）的子 group / 实例编辑。 */
   enterPool(p: PoolPick): void {
+    return this.step((pass) => {
+    if (p.kind === "group" && !(this.scene.def(this.scene.defOfContext(this.ctx)).body.kind === "brep" && this.scene.brep(this.scene.defOfContext(this.ctx)).groups.get(p.group)?.parent === this.ctx.group)) { this.host.hint("要进的那个组不在这一层（选区过期了）"); return; }
     if (this.pickIsLocked(p)) { this.host.hint("已锁定：解锁后再进入（选中它 → 解锁）"); return; }
     if (p.kind === "instance") {   // 进一份实例 = 进它的定义：那种身体得有工作台管（KindDef.modes 登记 + 这里装了那个 Mode），没有就诚实拦住
-      const kind = this.scene.kindOf(this.scene.instance(this.scene.defOfContext(this.ctx), p.instance).def);
+      const inst = this.scene.def(this.scene.defOfContext(this.ctx)).instances.get(p.instance);
+      if (!inst || inst.parent !== this.ctx.group) { this.host.hint("要进的那个组件不在这一层（选区过期了）"); return; }   // 规章定义的结果（设计稿 §2 I5）：过期的拾取不炸
+      const kind = this.scene.kindOf(inst.def);
       if (!KINDS[kind].modes.length || !this.modeList.some((m) => (m.kinds as readonly BodyKind[]).includes(kind))) { this.host.hint(`${KINDS[kind].label}：还没有能编辑它的工作台，现在只能整体挪 / 转 / 缩`); return; }
     }
     this.last = null;
     this.cancelGesture();
-    this.selectedPools.clear();
-    if (p.kind === "group") this.ctx = { chain: this.ctx.chain, group: p.group };
-    else this.ctx = { chain: [...this.ctx.chain, p.instance], group: null };
-    this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类）
+    this.clearSel(pass);
+    this.setCtx(pass, p.kind === "group" ? { chain: this.ctx.chain, group: p.group } : { chain: [...this.ctx.chain, p.instance], group: null });
+    this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类；写口已标过）
     this.ensureModeForKind();
     this._revision++;
     this.host.changed(); this.draw();
+    });
   }
   enterSelected(): boolean {
     const p = [...this.selectedPools.values()][0];
@@ -2073,28 +2119,30 @@ export class Editor {
   }
   /** 退出一层（到父 group / 父实例）；已在根 → false。 */
   exitContext(): boolean {
+    return this.step((pass) => {
     this.last = null;
     if (this.ctx.chain.length === 0 && this.ctx.group === null) return false;
     this.cancelGesture();
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.clearSel(pass);
     const def = this.scene.defOfContext(this.ctx);
     let reselect: PoolPick | null = null;
     if (this.ctx.group !== null) {
       const g = this.scene.group({ def, group: this.ctx.group });
       reselect = { kind: "group", group: g.id };
-      this.ctx = { chain: this.ctx.chain, group: g.parent };
+      this.setCtx(pass, { chain: this.ctx.chain, group: g.parent });
     } else {
       const chain = this.ctx.chain.slice(0, -1);
       const parentDef = this.scene.defOfContext({ chain, group: null });
       const inst = this.scene.instance(parentDef, this.ctx.chain[this.ctx.chain.length - 1]);
       reselect = { kind: "instance", instance: inst.id };
-      this.ctx = { chain, group: inst.parent };
+      this.setCtx(pass, { chain, group: inst.parent });
     }
-    this.selection = this.blankSelection(); this.ensureModeForKind();   // 退到的那层可能是另一种身体（从网格体退回 SU 体）
+    this.selection = this.blankSelection(); this.ensureModeForKind();   // 退到的那层可能是另一种身体（写口已标过）   // 退到的那层可能是另一种身体（从网格体退回 SU 体）
     if (reselect) this.selectedPools.set(this.pickKey(reselect), reselect);
     this._revision++;
     this.host.changed(); this.draw();
     return true;
+    });
   }
 
   // ---------- 材质 / 油漆桶 ----------
@@ -2260,7 +2308,7 @@ export class Editor {
       this.endMirror();
       this.commitIn(pass, opOf(vals, pl));
       if (this.opCount === n0) return;   // 被拒（破面 / 锁着）：报错已出，不进马后炮
-      this.selection = this.blankSelection(); this.selectedPools.clear();
+      this.clearSel(pass);
       this.offerAfterthought("镜像", fields, { ...vals }, this.opCount - n0, (v) => { this.commitIn(pass, opOf(v, pl)); });
       this.host.hint("镜像好了：右下角还能改选项（撤销重做）");
     };
@@ -2370,7 +2418,7 @@ export class Editor {
   }
   /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做。note = 说明行（按当前值现算）。 */
   private offerAfterthought(title: string, fields: readonly ParamField[], values: Record<string, ParamValue>, nOps: number, redo: (v: Readonly<Record<string, ParamValue>>) => void, note?: (v: Readonly<Record<string, ParamValue>>) => string): void {
-    this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, undoN: (n) => this.undoN(n), redo, ...(note ? { note } : {}) }));
+    this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, stackKey: () => `${this.history.position()}/${this.history.depth()}`, undoN: (n) => this.undoN(n), redo, ...(note ? { note } : {}) }));
   }
   /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 变换中心）、圆 / 弧（段数）。 */
   private offerLastAfterthought(pass: StepPass): void {
@@ -2873,7 +2921,7 @@ export class Editor {
       const fL = toLocal(frameW(String(v.align))), sz = Number(v.size) * scaleL, seg = Number(v.segments) || 16;
       const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, dims(sz), seg);
       this.commitIn(pass, { op: "meshAddPrimitive", def, kind, frame: fL, size: dims(sz), ...(P.round ? { segments: seg } : {}) });
-      this.selection = this.blankSelection(); this.selectedPools.clear();
+      this.clearSel(pass);
       for (const f of r.faces) this.selection.faces.add(f);
       this.bump();
     };
@@ -3189,10 +3237,10 @@ export class Editor {
     return parts.join(" · ");
   }
   /** 全选（Ctrl+A，A7）：当前上下文的全部几何 + 直接子 group / 实例。 */
-  selectAll(): boolean { this.selectAllInner(); this.afterSelect(); return this.hasSelection(); }
-  private selectAllInner(): void {
+  selectAll(): boolean { return this.step((pass) => { this.selectAllInner(pass); this.afterSelect(pass); return this.hasSelection(); }, { title: "全选" }); }
+  private selectAllInner(pass: StepPass): void {
     const v = this.activeView;   // 显示契约：任何种类的池都能全选
-    this.selection = this.blankSelection(); this.selectedPools.clear();
+    this.clearSel(pass);
     for (const f of v.faces()) if (!v.isFaceHidden(f.id)) this.selection.faces.add(f.id);   // 隐藏的（DT49）不选
     for (const e of v.edges()) if (!v.isEdgeHidden(e.id)) this.selection.edges.add(e.id);
     const def = this.scene.def(this.scene.defOfContext(this.ctx));
@@ -3242,6 +3290,7 @@ export class Editor {
   }
   /** 工具模块的上下文（tool-handler.ts ToolCtx）：底座能力的窄出口；工具只认它。 */
   private makeToolCtx(): EditorCore {
+    const pass = this.toolPass();   // 工具边界的通行证（运行时发；工具只在包好的指针事件里被调，commitIn 的运行时检查兜底）
     const self = this;
     return {
       scene: () => this.scene,
@@ -3320,24 +3369,24 @@ export class Editor {
       emptyAt: (sx, sy) => this.emptyAt(sx, sy),
       emptiesIn: (box) => this.emptiesIn(box),
       replaceSelection: (sel, mode) => {
-        if (mode === "replace") { this.selection = this.blankSelection(); this.selectedPools.clear(); }
+        if (mode === "replace") { this.clearSel(pass); }
         mergeSel(this.selection.edges, sel.edges, mode, true);
         mergeSel(this.selection.faces, sel.faces, mode, true);
         if (this.selection.kind === "brep") mergeSel(this.selection.guides, sel.guides ?? [], mode, true);
         this.mergePools(sel.pools, mode);
       },
       selectGuide: (id, mode) => {
-        if (mode === "replace") { this.selection = this.blankSelection(); this.selectedPools.clear(); }
+        if (mode === "replace") { this.clearSel(pass); }
         if (this.selection.kind === "brep") mergeSel(this.selection.guides, [id], mode);
         this.host.changed(); this.draw();
       },
-      afterSelect: () => this.afterSelect(),
+      afterSelect: () => this.afterSelect(this.toolPass()),
       setSelection: (sel) => {
-        this.selection = this.blankSelection(); this.selectedPools.clear();
+        this.clearSel(pass);
         for (const v of sel.verts ?? []) this.selection.verts.add(v);
         for (const e of sel.edges ?? []) this.selection.edges.add(e);
         for (const f of sel.faces ?? []) this.selection.faces.add(f);
-        this.pruneSelection(); this.afterSelect();
+        this.pruneSelection(); this.afterSelect(pass);
       },
       selectExpand: (hit, stage, mode) => this.selectExpand(hit, stage, mode),
       enterPool: (p) => this.enterPool(p),

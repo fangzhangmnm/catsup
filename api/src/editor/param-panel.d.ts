@@ -40,6 +40,8 @@ export declare function afterthought(o: {
     opCount: () => number;
     undoN: (n: number) => void;
     redo: (values: Readonly<Record<string, ParamValue>>) => void;
+    /** 栈顶的身份（编辑器给「位置 / 深度」）：变了 = 作废。点选一下是 0 条 op 的一步，光看 opCount 看不出来（2026-10-28 设计稿 §7¾）。不给 = 只看 opCount。 */
+    stackKey?: () => string;
     /** 说明行（每次画小窗时按当前值现算）。 */
     note?: (values: Readonly<Record<string, ParamValue>>) => string;
 }): ParamSession;

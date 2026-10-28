@@ -1,5 +1,5 @@
 // 撤销 / 重做带着会话走（2026-10-26 重设计）。user：「undo似乎全坏了，可能需要系统大修。涉及组件的修改进出之类的」「undo你先修，不要ad hoc，而是思考系统重新设计」。
-// 每一步存「之前 / 之后」的会话 = 在哪个组件里 + 选区；撤销 = 场景和会话一起回到之前，重做 = 一起回到之后（撤销那一刻）。设计稿 ai-docs/20261026-undo-session-redesign.md。
+// 每一步存「之前 / 之后」的会话 = 在哪个组件里 + 选区；撤销 = 场景和会话一起回到之前，重做 = 一起回到之后（这一步结束时封的，2026-10-28 起；以前是撤销那一刻）。设计稿 ai-docs/20261026-undo-session-redesign.md。
 // ① 进第二份组件、选中顶面、推拉 0.5、退出 → Ctrl+Z：顶面回去、人回到那份组件里、选区 = 顶面 ② Ctrl+Y：顶面又上去、人回到最外层（撤销时在那）
 // ③ 组件里画线 → 组件里 Ctrl+Z：线没了、人还在组件里 ④ 一路撤到「建组件」之前：人退回最外层、不报错 ⑤ 一路重做回来：场景逐步和当初一致。
 // created 2026-10-26 by Claude Opus 5.5
@@ -42,8 +42,8 @@ const res = await page.evaluate(async () => {
   out.undo1 = { topZ: +topZ().toFixed(3), depth: depth(), selFaces: e.selection.faces.size, selIsTop: e.selection.faces.has(top.id), ok: sig() === sigs[3] };
   key("y"); await sleep(40);
   out.redo1 = { topZ: +topZ().toFixed(3), depth: depth(), ok: sig() === sigs[4] };
-  // ③ 组件里画线 → 组件里撤
-  e.selectedPools.clear(); e.selectedPools.set(`i${inst2.id}`, { kind: "instance", instance: inst2.id }); e.enterSelected();
+  // ③ 组件里画线 → 组件里撤（2026-10-28 起重做回到「这一步刚做完」= 还在组件里，不用再进；以前重做回到「撤销那一刻」= 根）
+  if (depth() !== 1) throw new Error(`重做之后应该还在组件里，depth=${depth()}`);
   e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(-0.3, -0.3, 1.5), P(0.3, 0.3, 1.5)]] }); sigs.push(sig());
   key("z"); await sleep(40);
   out.undoInside = { depth: depth(), ok: sig() === sigs[4] };
@@ -54,15 +54,15 @@ const res = await page.evaluate(async () => {
   // ⑤ 一路重做（推拉那一步之后应该和 sigs[4] 一致）
   const redoSigs = [];
   for (let i = 0; i < 10; i++) { const p0 = e.history.position(); key("y"); await sleep(30); if (e.history.position() === p0) break; redoSigs.push(sig()); }
-  // 6 步 = 盒 / 全选（只改选区的一步，几何不变；2026-10-27 起选区进撤销）/ 建组件 / 复制 / 推拉 / 组件里那条线（③ 撤掉后还在重做队列里）
-  const want = [sigs[1], sigs[1], sigs[2], sigs[3], sigs[4], sigs[5]];
-  out.redoAll = { steps: redoSigs.length, ok: redoSigs.length === 6 && redoSigs.every((s2, i) => s2 === want[i]) };
+  // 7 步 = 盒 / 全选（只改选区的一步，几何不变；2026-10-27 起选区进撤销）/ 建组件 / 复制 / 取消选择（Esc 清掉选区 = 选区步，2026-10-28 起 cancel 也是一步）/ 推拉 / 组件里那条线（③ 撤掉后还在重做队列里）
+  const want = [sigs[1], sigs[1], sigs[2], sigs[3], sigs[3], sigs[4], sigs[5]];
+  out.redoAll = { steps: redoSigs.length, ok: redoSigs.length === 7 && redoSigs.every((s2, i) => s2 === want[i]) };
   return out;
 });
 console.log(JSON.stringify(res));
 const ok = res.pushed === 1.5 && res.depthBeforeUndo === 0
   && res.undo1.ok && res.undo1.topZ === 1 && res.undo1.depth === 1 && res.undo1.selIsTop && res.undo1.selFaces === 1
-  && res.redo1.ok && res.redo1.topZ === 1.5 && res.redo1.depth === 0
+  && res.redo1.ok && res.redo1.topZ === 1.5 && res.redo1.depth === 1   // 重做回到「这一步刚做完」= 还在组件里（2026-10-28 起；以前 = 撤销那一刻 = 根）
   && res.undoInside.ok && res.undoInside.depth === 1
   && res.undoAll.ok && res.undoAll.depth === 0 && !res.undoAll.threw && res.redoAll.ok && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");

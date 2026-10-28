@@ -67,6 +67,11 @@ export type EditorTrace = {
     position: number;
     depth: number;
 } | {
+    kind: "step";
+    label: string;
+    ops: number;
+    session: boolean;
+} | {
     kind: "load";
     label: string;
 }
@@ -253,6 +258,16 @@ export type LastGesture = {
 /** 修复指令（DT85 作用范围统一 + 传播到子物体）。 */
 /** 修复指令 = 注册表里 brep 族一条指令的 id（查法 = commands/registry.ts；修复一族的清单 = repairs/index.ts）。 */
 type RepairKind = CommandId;
+/**
+ * 一步的通行证（2026-10-28 Claude Opus 5.5；user「找到背后的深层系统性问题。然后思考能不能在静态甚至是写代码时就堵住」）：
+ * 「一个用户动作 = 一步（它的全部 op + 之后的选区一起撤销）」以前靠每个入口自觉包 step()，类型上随处都能提交——漏包一个，
+ * 动作之后改的选区被补记成一条空的「选区」步、连着提交的几条 op 拆成好几步撤销（user「undo还是萎靡不振的，特别是物体模式下，比如建组之类的」）。
+ * 现在：commitOp 必须带通行证，通行证只有 step() 发 → 步外提交写出来就编译不过；给工具的 ToolCtx.commitOp 在边界上运行时查（工具只在包好的指针事件里被调）。
+ */
+declare const STEP_PASS_BRAND: unique symbol;
+export interface StepPass {
+    readonly [STEP_PASS_BRAND]: true;
+}
 export declare class Editor {
     private canvas;
     private host;
@@ -270,7 +285,6 @@ export declare class Editor {
     setGrid(patch: Partial<GridSettings>): void;
     private history;
     /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
-    private lastSession;
     private static sessionKey;
     private _tool;
     private _revision;
@@ -332,10 +346,16 @@ export declare class Editor {
     private get gridEff();
     /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
     private stepDepth;
+    /** 步外提交的次数（应当永远是 0；探针 / 测试读它）。 */
+    stepViolations: number;
     private stepHasOp;
     /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
     private stepOps;
     private stepFailed;
+    private stepTouched;
+    private stepBefore;
+    private stepLabel;
+    private deferredBefore;
     /** 数值小窗的默认长度单位（文档级单位设置落地前 = 出厂 m；后缀可覆盖）。 */
     /** A9 方向锁（user 2026-09-06 / 10-24「键盘小箭头控制axis，然后触屏上应该有对应的虚拟键」）：SU 同款 → X / ← Y / ↑ Z / ↓ 解锁；
      *  轴 = 上下文帧（绘图轴 / 组轴）的轴。生命周期 = 一次手势：手势结束 / 换工具 / Esc 就解。只对调用 ctx.applyLock 的工具生效（画线 / 移动 / 卷尺）。
@@ -553,8 +573,23 @@ export declare class Editor {
     private selRestore;
     /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
     private step;
+    /**
+     * 一步结束时封账（设计稿 ai-docs/20261028-undo-step-regime.md §2 I1 / I4）：有 op 的步 → 把「之后」的会话封进栈顶那一步（重做回到它）；
+     * 没 op 但写过会话的步 → 同一上下文里选区变了才记一条 0 op 的选区步（进 / 出组件不算，FM106）；手势中按下时的点选延后到落定那一步一起；失败的步 = 没这一步，会话也退回。
+     * 以前（≤ v0.15.28）是事后对账：拿现在的选区和上次记的比——分不清「用户点了一下」和「建组做完顺手选中新组」，补出来的空步就是撤销「没反应」的根。
+     */
+    private closeStep;
+    private static sameCtx;
+    /** 会话（选区 + 上下文）的写口（设计稿 §2 I4）：只在一步里、带通行证；这一步结束时按「之前 / 之后」记进栈。守卫测试钉死：editor.ts 里 selection / selectedPools 的整体赋值、ctx 的赋值只准出现在写口和装场景的路径里。 */
+    private clearSel;
+    private setCtx;
+    /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
+    commitOp(op: Op): FaceEvent[];
+    /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
+    private toolPass;
+    private toolCommit;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
-    private commitOp;
+    private commitIn;
     /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
     private rollbackStep;
     private bump;
@@ -613,6 +648,7 @@ export declare class Editor {
      * mode = 怎么合进已有选区（替换 / 加选 / 减选 / 切换，对齐 Blender）；空命中 + 替换 = 清选区。hit 是 WorldView 的全局 id。
      */
     selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode?: SelMode): boolean;
+    private selectExpandIn;
     /**
      * 非 brep 的池（网格体……）的点击族，只认显示契约 KernelView：一下 = 点 / 边 / 面本身；两下 = 面连同它的环、边连同两侧的面、点连同它的边；三下 = 沿边连通的面。
      * 曲线 / 曲面 / 参考几何是 brep 的概念，这里没有；隐藏的不选。新种类的内核只要给了 KernelView 就自动有这一套。
@@ -624,11 +660,7 @@ export declare class Editor {
     invertSelection(): boolean;
     /** 全不选（Blender Alt+A；Esc 也行）。 */
     deselectAll(): void;
-    /**
-     * 「撤销也撤选区」（user 10-27「这个我们要」）：同一上下文里选区变了、没在手势里 → 记成 0 op 的一步。lastSession 只在这里和换场景时前进。
-     * 鼠标点选 / 框选发生在指针事件的那一步里（stepDepth > 0）——那一步结束时（step 的 finally）再记；以前 afterSelect 在步里直接把 lastSession 推进、不记，点选就永远进不了撤销栈（v0.15.15 的 bug，10-27 夜修）。
-     */
-    private recordSession;
+    /** 选区变化的口子：每一处改完选区都调它（带通行证 = 一定在一步里；步结束时记账）。 */
     private afterSelect;
     /** 实体信息（0.10）：选区恰是一条曲线 → 「圆 r=… · N 段」/「弧 …」/「曲线 · N 段」；恰是一张曲面 → 「曲面 · N 面」；别的 → null（不抢提示行）。 */
     private selectionInfo;

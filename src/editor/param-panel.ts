@@ -35,26 +35,29 @@ export interface ParamSession extends ParamPanelState {
 export function afterthought(o: {
   title: string; fields: readonly ParamField[]; values: Record<string, ParamValue>; nOps: number;
   opCount: () => number; undoN: (n: number) => void; redo: (values: Readonly<Record<string, ParamValue>>) => void;
+  /** 栈顶的身份（编辑器给「位置 / 深度」）：变了 = 作废。点选一下是 0 条 op 的一步，光看 opCount 看不出来（2026-10-28 设计稿 §7¾）。不给 = 只看 opCount。 */
+  stackKey?: () => string;
   /** 说明行（每次画小窗时按当前值现算）。 */
   note?: (values: Readonly<Record<string, ParamValue>>) => string;
 }): ParamSession {
-  let n = o.nOps, mark = o.opCount(), replaying = false;
+  const key = (): string => `${o.opCount()}|${o.stackKey?.() ?? ""}`;
+  let n = o.nOps, mark = key(), replaying = false;
   const values = { ...o.values };
   return {
     phase: "after", title: o.title, fields: o.fields, buttons: [], values,
     get note() { return o.note?.(values); },
     // 自己重做的途中不算作废：重做里每提交一条宿主都会重画小窗、来问这里（2026-10-25 修：第二次改值时小窗已经被自己关掉）
-    stale: () => !replaying && o.opCount() !== mark,
-    set(key, v) {
-      if (o.opCount() !== mark || values[key] === v) return;
+    stale: () => !replaying && key() !== mark,
+    set(key_, v) {
+      if (key() !== mark || values[key_] === v) return;
       replaying = true;
       try {
         o.undoN(n);
         const n0 = o.opCount();
-        values[key] = v;
+        values[key_] = v;
         o.redo(values);
         n = o.opCount() - n0;
-      } finally { mark = o.opCount(); replaying = false; }
+      } finally { mark = key(); replaying = false; }
     },
     press() {},
   };

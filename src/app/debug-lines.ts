@@ -25,6 +25,7 @@ export function traceLine(e: EditorTrace): string {
   switch (e.kind) {
     case "op": return `${describeOp(e.op)} → ${e.events}ev ${e.ms.toFixed(1)}ms #${e.position}`;
     case "undo": case "redo": return `${e.kind} → #${e.position}/${e.depth}`;
+    case "step": return `step ${e.label} ops=${e.ops}${e.session ? " +sel" : ""}`;
     case "load": return `load ${e.label}`;
     case "fail": return `FAIL ${e.where}: ${e.message} op=${e.op ? JSON.stringify(e.op).slice(0, 400) : "-"}`;
   }
