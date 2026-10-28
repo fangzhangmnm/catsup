@@ -304,6 +304,12 @@ export type Op =
     width: number;
     segments: number;
 }
+/** 细分（Catmull-Clark，破坏性；2026-10-28 FM133；mesh/ops/subdivide.ts）：levels 次；有裸线 / 孤立的点 = 拒。 */
+ | {
+    op: "meshSubdivide";
+    def: number;
+    levels: number;
+}
 /** 强行对称（2026-10-28 FM134；mesh/mirror.ts symmetrize）：side 那半为准，另一半删掉照它镜回来；跨过镜像面的面 = 拒。 */
  | {
     op: "meshSymmetrize";

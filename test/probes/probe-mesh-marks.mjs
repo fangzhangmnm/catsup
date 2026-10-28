@@ -33,6 +33,10 @@ const res = await page.evaluate(async () => {
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(40);
   out.mode = e.mode.id;
   m().setSmoothDefault({ mode: "hard", deg: 30 }); e.draw();
+  // ⓪ 没选区：「默认平滑 ›」露（管整个网格体）、「手标 ›」不露（要选边）——2026-10-28 修：以前没选区网格体指令拿不到单位
+  e.deselectAll(); await sleep(10); await rclick();
+  out.zero = { smooth: !!menu()?.querySelector('[data-menu-id="submenu:默认平滑"]'), marks: !!menu()?.querySelector('[data-menu-id="submenu:手标"]') };
+  await closeAll();
   // ①
   e.selectAll(); await sleep(20);
   await rclick();
@@ -62,7 +66,7 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.mode === "freeform"
+const ok = res.mode === "freeform" && res.zero.smooth && !res.zero.marks
   && res.one.marks && res.one.smooth && !res.one.flat
   && res.two.clicked && res.two.mode === "smooth" && res.two.softLines
   && res.three.mode === "hard"

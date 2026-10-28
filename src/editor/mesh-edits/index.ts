@@ -3,7 +3,7 @@
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts } from "../../mesh/ops/index.ts";
+import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits } from "../../mesh/ops/index.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
 
@@ -180,6 +180,30 @@ export const bevelPoints: Command<MeshUnit> = {
   none: "倒角（点）：只选点",
 };
 
+// ---------- 细分（2026-10-28 FM133；算子 mesh/ops/subdivide.ts；user「工具式的subdiv反而可以，不就是破坏性吗」）----------
+/** 一次细分后面数 = 每张 n 边形变 n 张四边形；之后每次 × 4。 */
+const facesAfter = (m: MeshKernel, levels: number): number => { let n = 0; for (const f of m.faces()) n += m.faceVerts(f).length; return n * 4 ** Math.max(0, levels - 1); };
+export const subdivideCmd: Command<MeshUnit> = {
+  id: "mesh.subdivide", unit: "mesh", title: "细分",
+  defaults: () => ({ levels: 1 }),
+  params: () => [{ key: "levels", def: { kind: "number", label: "次数", min: 1, max: 4, step: 1 } }],
+  quickCount: () => 1,   // 整个网格体（不看选区）
+  estimate(env, units, v) {   // 面数 × 4 一次：大了先问（家族「慢的事先问」）
+    let n = 0; for (const u of units) n += facesAfter(env.scene.mesh(u.def).kernel, Math.round(Number(v.levels)));
+    return n > 200_000 ? { seconds: n / 150_000, what: `细分以后大约 ${Math.round(n / 1000)} 千张面` } : null;
+  },
+  plan(env, u, v) {
+    const m = env.scene.mesh(u.def).kernel, levels = Math.max(1, Math.min(4, Math.round(Number(v.levels))));
+    const loose = looseBits(m);
+    if (loose) return { ops: [], count: 0, notes: [`网格体里有 ${loose} 条裸线 / 孤立的点：细分只认面，先删掉它们或接到面上`] };
+    if (!m.faceCount()) return { ops: [], count: 0 };
+    const notes = m.smoothDefault.mode !== "smooth" ? ["要看起来圆：右键「默认平滑 › 全部平滑」（想留棱的边标成棱，细分也会留着）"] : [];
+    return { ops: [{ op: "meshSubdivide", def: u.def, levels }], count: facesAfter(m, levels), notes };
+  },
+  done: (n, _x, v) => `细分 ${Number(v.levels)} 次：现在 ${n} 张面（手标的棱和网格边缘当折痕；次数在马后炮里改）`,
+  none: "细分：先进一个网格体",
+};
+
 // ---------- 对称对齐（2026-10-28 FM136；user「然后可以只对选择区域修复镜像snap吗」；Blender Snap to Symmetry）----------
 const AXES: Record<string, MirrorAxis> = { x: 0, y: 1, z: 2 };
 const SIDE_LABEL: Record<SnapSide, string> = { auto: "选区重心那边", flip: "另一边", average: "两边取平均" };
@@ -225,7 +249,7 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
 const commands: readonly Command[] = [loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
-  bevel as Command, bevelPoints as Command, symmetrySnap as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
+  bevel as Command, bevelPoints as Command, symmetrySnap as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
   { id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } },
@@ -234,6 +258,7 @@ const actions: readonly Action[] = [
   { id: "mesh.originToSelection", icon: "axes", label: () => "设置原点到选择中心", commands: { mesh: "mesh.originToSelection" } },
   { id: "mesh.bevel", icon: "selection-expand", label: (n) => `倒角（${n} 条边）`, commands: { mesh: "mesh.bevel" } },
   { id: "mesh.bevelVerts", icon: "selection-expand", label: (n) => `倒角（${n} 个点）`, commands: { mesh: "mesh.bevelVerts" } },
+  { id: "mesh.subdivide", icon: "collection", label: () => "细分（Catmull-Clark）…", commands: { mesh: "mesh.subdivide" } },
   { id: "mesh.symmetrySnap", icon: "axes", label: (n) => `对称对齐（${n} 个点）`, commands: { mesh: "mesh.symmetrySnap" } },
   { id: "mesh.markSharp", icon: "line", label: (n) => `标成棱（${n} 条边）`, commands: { mesh: "mesh.markSharp" } },
   { id: "mesh.markSmooth", icon: "line", label: (n) => `标成平滑（${n} 条边）`, commands: { mesh: "mesh.markSmooth" } },
@@ -244,6 +269,7 @@ const actions: readonly Action[] = [
 ];
 const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
   { action: "mesh.bevel", where: "contextBar", order: 23, modes: ["freeform"] }, { action: "mesh.bevelVerts", where: "contextBar", order: 24, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
+  { action: "mesh.subdivide", where: "contextBar", order: 36, modes: ["freeform"] },
   { action: "mesh.symmetrySnap", where: "contextBar", order: 38, modes: ["freeform"], submenu: { label: "镜像", item: "对称对齐…" } },
   { action: "mesh.markSharp", where: "contextBar", order: 40, modes: ["freeform"], submenu: { label: "手标", item: "标成棱" } },
   { action: "mesh.markSmooth", where: "contextBar", order: 41, modes: ["freeform"], submenu: { label: "手标", item: "标成平滑" } },

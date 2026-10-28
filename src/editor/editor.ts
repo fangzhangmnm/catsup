@@ -230,7 +230,7 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   eraseInstance: "删除物体", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
-  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
+  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
 const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
@@ -1880,7 +1880,10 @@ export class Editor {
       }
       return out;
     }
-    if (this.activeKind() !== kind || (!this.hasGeometrySelection() && !this.hasPointSelection())) return [];
+    if (this.activeKind() !== kind) return [];
+    // 网格体：没选区也交出整个网格体（sel = null；2026-10-28：「默认平滑」「细分」这种管整个网格体的指令以前没选区就拿不到单位、右键里不露）。
+    // 要选区的指令（插入 / 倒角 / 标边……）自己在 sel = null 时数 0、照样不露。硬表面照旧：没选区 = 没单位（修复那条路自己管作用域）。
+    if (!this.hasGeometrySelection() && !this.hasPointSelection()) return kind === "mesh" ? [{ kind: "mesh", def: at.def, sel: null, xf: IDENTITY }] : [];
     const sel = this.selection;
     return sel.kind === "brep" ? [{ kind: "brep", at, sel, xf: IDENTITY }] : [{ kind: "mesh", def: at.def, sel, xf: IDENTITY }];
   }

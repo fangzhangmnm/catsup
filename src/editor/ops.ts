@@ -11,6 +11,7 @@ import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
 import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
 import { snapToSymmetry, straddlingFaces, symmetrize } from "../mesh/mirror.ts";
+import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
@@ -116,6 +117,8 @@ export type Op =
   | { op: "meshEdgeMarks"; def: number; edges: number[]; mark: "sharp" | "smooth" | "none" }
   /** 倒边（2026-10-28 FM152；mesh/ops/bevel.ts bevelEdges）：width = 本地长度、segments ≥ 1（≥ 2 = 圆角）；一条都没倒 = 拒（不提交空步）。 */
   | { op: "meshBevel"; def: number; edges: number[]; width: number; segments: number }
+  /** 细分（Catmull-Clark，破坏性；2026-10-28 FM133；mesh/ops/subdivide.ts）：levels 次；有裸线 / 孤立的点 = 拒。 */
+  | { op: "meshSubdivide"; def: number; levels: number }
   /** 强行对称（2026-10-28 FM134；mesh/mirror.ts symmetrize）：side 那半为准，另一半删掉照它镜回来；跨过镜像面的面 = 拒。 */
   | { op: "meshSymmetrize"; def: number; axis: 0 | 1 | 2; side: -1 | 1 }
   /** 对称对齐（FM136；只动选中的点）：mode auto = 选区重心那边为准 / flip = 另一边 / average = 取平均。 */
@@ -582,6 +585,13 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (!bevelVerts(meshOf(s, op.def).kernel, op.verts, op.width).faces.length) throw new OpTargetError("bevel: none of the vertices can be beveled");
       return { scene: s, events: [] };
     }
+    case "meshSubdivide": {
+      if (!(op.levels >= 1 && op.levels <= 4)) throw new OpTargetError(`subdivide levels ${op.levels}`);
+      const k = meshOf(s, op.def).kernel;
+      if (looseBits(k)) throw new OpTargetError("subdivide: loose edges or vertices");
+      subdivide(k, Math.round(op.levels));
+      return { scene: s, events: [] };
+    }
     case "meshSymmetrize": {
       const k = meshOf(s, op.def).kernel;
       if (straddlingFaces(k, op.axis)) throw new OpTargetError("symmetrize: faces cross the mirror plane");
@@ -654,6 +664,7 @@ export function describeOp(op0: Op): string {
     case "meshInset": return `meshInset def=${op.def} faces=${op.faces.length} d=${op.dist.toFixed(4)}`;
     case "meshBevel": return `meshBevel def=${op.def} edges=${op.edges.length} w=${op.width.toFixed(4)} seg=${op.segments}`;
     case "meshBevelVerts": return `meshBevelVerts def=${op.def} verts=${op.verts.length} w=${op.width.toFixed(4)}`;
+    case "meshSubdivide": return `meshSubdivide def=${op.def} levels=${op.levels}`;
     case "meshSymmetrize": return `meshSymmetrize def=${op.def} axis=${"xyz"[op.axis]} side=${op.side}`;
     case "meshSymmetrySnap": return `meshSymmetrySnap def=${op.def} verts=${op.verts.length} axis=${"xyz"[op.axis]} tol=${op.tol} ${op.mode}`;
     case "meshEdgeMarks": return `meshEdgeMarks def=${op.def} edges=${op.edges.length} ${op.mark}`;
