@@ -42,7 +42,8 @@ import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
-import { Locomotion } from "./locomotion.ts";
+import { EYE_DEFAULT, EYE_MAX, EYE_MIN, Locomotion } from "./locomotion.ts";
+import type { ParamSession } from "../editor/param-panel.ts";
 import { VR } from "./vr.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
@@ -128,7 +129,9 @@ const buildEl = $("build");
 const HINT_DEFAULT = "";   // 左下角默认不再列快捷键（user 2026-10-25「左下角的那行快捷键早应该删掉了」）；只在真有提示时显示，快捷键在使用手册里
 const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
-const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isWalking() ? HINT_WALK : HINT_DEFAULT);
+const HINT_PLACE = "步行：点一下落在哪（绿 = 站得下、红 = 站不下；虚影 = 身子的半径和高）· 眼高在右下小窗改 · Esc 取消";
+const HINT_EDIT = "原地编辑：镜头钉在这里，工具照常用（右键拖 = 原地转头）· 上方「继续走」回去 · Esc 离开步行";
+const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isPlacing() ? HINT_PLACE : locomotion?.isEditInPlace() ? HINT_EDIT : locomotion?.isWalking() ? `${HINT_WALK} · Tab 原地编辑 · Esc 离开` : HINT_DEFAULT);
 
 // ---------- Editor ----------
 let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
@@ -455,7 +458,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "persp": editor.toggleProjection(); return "keep";
       case "xray": editor.setXray(!editor.xray); return "keep";
       case "unhideAll": editor.unhideAll(); break;
-      case "walk": setWalk(!locomotion.isWalking()); return "keep";
+      case "walk": { const on = !(locomotion.isWalking() || locomotion.isPlacing()); setWalk(on); return on ? undefined : "keep"; }   // 开 = 关菜单去点落点
       case "thick": editor.setLineStyle(editor.lineStyle === "thick" ? "pixel" : "thick"); return "keep";
       case "lw:1": case "lw:1.5": case "lw:2": case "lw:3": { const w = Number(id.slice(3)); editor.setLineWeight(w); PREF.set("lineWeight", String(w)); return "keep"; }
       case "guidesClear": editor.clearGuides(); return "keep";
@@ -517,7 +520,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
 
 // ---------- 移动（步行相机 / VR 共用的 player）----------
 const locomotion = new Locomotion(editor, canvas);
-editor.viewExtras = () => ({ near: locomotion.isWalking() ? 0.05 : undefined, teleport: locomotion.teleportArc() });
+editor.viewExtras = () => ({ near: locomotion.isWalking() ? 0.05 : undefined, teleport: locomotion.teleportArc(), capsule: locomotion.placeGhost() });
 // XR 画质 A/B（dev 诊断，真机不重 build 就能比：?xrfov=0..1 周边降采样、?xrscale=0.5..2 framebuffer 缩放；默认 0 / 1.0，见 render3）
 {
   const q = new URLSearchParams(location.search);
@@ -554,15 +557,49 @@ function syncLoop(): void {
 const vr = new VR({
   editor, locomotion, hud,
   leftHanded: () => leftHanded,
-  onChange: () => { syncLoop(); syncUi(); hintEl.textContent = hintDefault(); },
+  onChange: () => { syncLoop(); syncUi(); syncWalkBar(); hintEl.textContent = hintDefault(); },
   log: (m) => console.warn(m),
 });
+/** 视图菜单「步行相机」：开 = 进放置（先点一下落在哪）；关 = 离开步行（回到进来之前的视角）。 */
 function setWalk(on: boolean): void {
-  if (on) locomotion.enterWalk(); else locomotion.exitWalk();
+  if (on) { locomotion.beginPlace(); editor.openParamSession(placeSession()); } else locomotion.exitWalk();
   syncLoop();
   hintEl.textContent = hintDefault();
   syncUi();
 }
+/** 放置的马前炮：眼高（纪元账本 FM140 ③「马前炮还可以设置身高」）；说明行 = 这一点站不站得下。 */
+function placeSession(): ParamSession {
+  const s: ParamSession = {
+    phase: "before", title: "步行：点一下落在哪",
+    fields: [{ key: "eye", def: { kind: "number", label: "眼高", min: EYE_MIN, max: EYE_MAX, step: 0.05, unit: "m" } }],
+    buttons: [{ key: "cancel", label: "取消" }],
+    get values() { return { eye: locomotion.eyeHeight }; },
+    get note() { return locomotion.placeWhy() ?? "绿 = 站得下，红 = 站不下"; },
+    set(key, value) { if (key === "eye") { locomotion.eyeHeight = Math.max(EYE_MIN, Math.min(EYE_MAX, Number(value) || EYE_DEFAULT)); locomotion.refreshGhost(); } },
+    press(key) { if (key === "cancel") locomotion.cancelPlace(); },
+    dispose() { if (locomotion.isPlacing()) locomotion.cancelPlace(); },
+  };
+  return s;
+}
+// 上方正中那一颗低调的按钮（user 10-28「只有一个按钮」「这个按钮做的和嵌入的那些汉堡符号一样低调一点就是enter webxr 这种半灰的感觉，不抢眼」）：
+// 原地编辑里 =「继续走」；平时、浏览器支持 VR（Quest）=「进入 VR」；别的时候不露。
+const walkBar = $("walkBar"), walkBtn = $<HTMLButtonElement>("walkBtn");
+function syncWalkBar(): void {
+  const ph = locomotion.walkPhase();
+  const label = ph === "edit" ? "继续走" : ph === "off" && !locomotion.isXR() && vr.isSupported() && !vr.isPresenting() ? "进入 VR" : null;
+  walkBar.hidden = !label;
+  if (label) walkBtn.textContent = label;
+}
+walkBtn.addEventListener("click", () => {
+  if (locomotion.isEditInPlace()) locomotion.resumeWalk();
+  else if (vr.isSupported()) vr.enter();
+});
+locomotion.onPhase = () => {
+  if (!locomotion.isPlacing() && editor.paramPanel()?.title === "步行：点一下落在哪") editor.openParamSession(null);
+  syncWalkBar(); syncLoop();
+  hintEl.textContent = hintDefault();
+  syncUi();
+};
 
 // ---------- 状态同步 ----------
 editor.renderer3.setLineWeight(lineWeightInit());   // 线稿粗细：存的 / 高 DPI 默认 1.5（直接打渲染器：此时 HUD 元素还没挂，不能走 host.changed）
@@ -833,7 +870,7 @@ const gestures = attachGestures(canvas, editor, {
   onRedo: () => editor.redo(),
   look: (dx, dy) => locomotion.look(dx, dy),
   walking: () => locomotion.isWalking(),
-  toolBlocked: () => locomotion.sim.state.teleport.charging,
+  toolBlocked: () => locomotion.sim.state.teleport.charging || locomotion.isPlacing() || locomotion.isFps(),   // 放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
   // #19 上下文菜单：桌面右键任何工具都行（SU）；触屏长按只在选择工具里
   onContext: (x, y, cx, cy) => openContextMenuAt(editor, hud, x, y, cx, cy),
   longPressEnabled: () => editor.tool === "select",
@@ -921,7 +958,7 @@ function openViewMenu(tab?: ViewTab): void {
       ...gridTabItems(),
       { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },
       ...refTabItems(),
-      { id: "walk" as MenuId, label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking(), tab: "camera" },
+      { id: "walk" as MenuId, label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking() || locomotion.isPlacing(), tab: "camera" },
       { id: "noclip" as MenuId, label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking(), tab: "camera" },
       ...(vr.isSupported() ? [
         { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", sectionBefore: "VR", hint: "Quest", tab: "camera" },
@@ -967,6 +1004,15 @@ window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
   if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
+  // 步行（FM151 / FM154）：FPS 里键盘归走路（工具键不响应），Tab = 原地编辑、Esc = 离开（锁着鼠标时 Esc 被浏览器吃掉，pointerlockchange 那边离开）；
+  // 放置里 Esc = 取消；原地编辑里 Esc：手势中 / 有选区照旧取消，否则离开步行
+  if (locomotion.isFps()) {
+    if (ev.key === "Tab") { ev.preventDefault(); locomotion.editInPlace(); }
+    else if (ev.key === "Escape") { ev.preventDefault(); locomotion.exitWalk(); }
+    return;
+  }
+  if (locomotion.isPlacing() && ev.key === "Escape") { ev.preventDefault(); locomotion.cancelPlace(); return; }
+  if (locomotion.isEditInPlace() && ev.key === "Escape" && !editor.isGestureActive() && !editor.hasSelection()) { ev.preventDefault(); closePopupMenu(); locomotion.exitWalk(); return; }
   if (vcb.feedKey(ev)) { ev.preventDefault(); return; }
   if (ev.key === "Enter" && editor.mirrorActive()) { ev.preventDefault(); editor.pressParam("apply"); syncUi(); return; }   // 镜像会话：回车 = 应用（Esc = 取消走 editor.cancel）   // 数值小窗：数字开头直接进小窗（SU 同款），字母只在缓冲非空时进
   if (ev.key === "Shift") editor.setShiftHeld(true);   // DT51：按住 Shift = 格点吸附反过来，指针不动也立刻换规则

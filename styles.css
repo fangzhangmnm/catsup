@@ -99,6 +99,11 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .hud-topstack > * { pointer-events: auto; }
 .hud-topstack > .hud { position: static; margin-left: 66px; max-width: calc(100% - 66px); }   /* 上下文条 / 面包屑：第二、三排缩到左柱右边（左柱居中、短屏时顶到上面，不缩会压住它；user「再不济也是左柱子右边靠着」） */
 .hud-topleft { display: flex; align-items: center; gap: 4px; }
+/* 上方正中那颗按钮（FM154：「和嵌入的那些汉堡符号一样低调……enter webxr 这种半灰的感觉，不抢眼」）：没底板、半灰字，悬停才实一点 */
+.walk-bar { position: absolute; z-index: 6; top: calc(12px + var(--safe-top)); left: 50%; transform: translateX(-50%); }
+.walk-bar[hidden] { display: none; }
+.walk-btn { border: 0; background: transparent; color: var(--muted); font: 500 14px/1 system-ui, sans-serif; padding: 10px 14px; border-radius: 9px; cursor: pointer; opacity: .8; filter: drop-shadow(0 1px 1px rgba(255,255,255,.9)); }
+.walk-btn:hover { background: rgba(0,0,0,.06); opacity: 1; color: var(--ink); }
 .hud-topleft .tb-btn { width: 40px; height: 40px; filter: drop-shadow(0 1px 1px rgba(255,255,255,.9)); }
 .hud-crumbs { gap: 4px; padding: 4px 10px; font-size: 13px; flex-wrap: wrap; }   /* 住进 .hud-topstack 第三排 */
 .crumb { border: 0; background: transparent; font: inherit; color: var(--accent); cursor: pointer; padding: 4px 4px; border-radius: 6px; }

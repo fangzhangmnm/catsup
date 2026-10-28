@@ -39,6 +39,8 @@ export declare class Locomotion {
     /** 视图菜单「步行相机」：进放置（先点一下落在哪）。 */
     beginPlace(): void;
     cancelPlace(): void;
+    /** 眼高改了：虚影跟着重画。 */
+    refreshGhost(): void;
     private updateGhost;
     /** 放置的虚影（渲染用；不在放置 = null）。 */
     placeGhost(): {

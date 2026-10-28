@@ -66,13 +66,23 @@ export class Locomotion {
       this.cursor = { x: ev.clientX - r.left, y: ev.clientY - r.top };
       if (this.phase === "place") this.updateGhost();
     });
-    // 放置：点一下 = 落下去（工具层在放置时被挡住，gestures toolBlocked）
-    canvas.addEventListener("pointerdown", (ev) => {
-      if (this.phase !== "place" || ev.button !== 0) return;
+    // 放置：点一下 = 落下去（工具层在放置时被挡住，gestures toolBlocked）。鼠标 / 笔 = 按下就落；手指 = 轻点才落（拖 = 照常转视角）
+    let touchDown: { x: number; y: number; t: number } | null = null;
+    const placeAt = (ev: PointerEvent): void => {
       const r = canvas.getBoundingClientRect();
       this.cursor = { x: ev.clientX - r.left, y: ev.clientY - r.top };
       this.updateGhost();
       this.commitPlace();
+    };
+    canvas.addEventListener("pointerdown", (ev) => {
+      if (this.phase !== "place" || ev.button !== 0) return;
+      if (ev.pointerType === "touch") { touchDown = { x: ev.clientX, y: ev.clientY, t: performance.now() }; return; }
+      placeAt(ev);
+    });
+    canvas.addEventListener("pointerup", (ev) => {
+      const d = touchDown; touchDown = null;
+      if (this.phase !== "place" || ev.pointerType !== "touch" || !d) return;
+      if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 12 && performance.now() - d.t < 400) placeAt(ev);
     });
     // 锁鼠标的 FPS：鼠标动 = 看
     document.addEventListener("mousemove", (ev) => { if (document.pointerLockElement === canvas && this.phase === "walk") this.look(ev.movementX, ev.movementY); });
@@ -97,6 +107,8 @@ export class Locomotion {
     this.updateGhost();
   }
   cancelPlace(): void { if (this.phase !== "place") return; this.ghost = null; this.setPhase("off"); this.editor.draw(); }
+  /** 眼高改了：虚影跟着重画。 */
+  refreshGhost(): void { if (this.phase === "place") this.updateGhost(); }
   private updateGhost(): void {
     const vp = this.editor.vp();
     if (!(vp.w > 0 && vp.h > 0)) return;

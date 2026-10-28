@@ -7,6 +7,8 @@ const out = process.env.PROBE_OUT ?? "/tmp";
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 /* iPad mini 6 竖屏（user 2026-10-21「默认测试按 ipad mini」「我比较习惯竖屏」）*/ });
 const errs = []; page.on("pageerror", (e) => errs.push(e.message)); page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
+// 无头 Chromium 锁上鼠标会把动画帧压到每秒 6 帧（真浏览器不会；2026-10-28 实测 60 → 6）：探针当「锁不上鼠标的设备」（触屏那条路：右键拖看），只记有没有请求锁
+await page.addInitScript(() => { globalThis.__lockRequests = 0; HTMLCanvasElement.prototype.requestPointerLock = function () { globalThis.__lockRequests++; }; });
 await page.goto("http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
 const fails = [];
 const check = (ok, msg) => { console.log((ok ? "  ✓ " : "  ✗ ") + msg); if (!ok) fails.push(msg); };
@@ -22,13 +24,28 @@ await page.evaluate(() => {
 const faces = await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length);
 check(faces === 6, `盒子六膜 (faces=${faces})`);
 
-// 经「视图」菜单开步行相机（2026-10-21 视图弹层退役，步行进 ☰；走 UI 一次 = 接线 + 起循环），再把人放到 (-1,0,0) 面朝 +X
+// 经「视图」菜单开步行相机（2026-10-28 改成 FPS：菜单 → 放置（虚影）→ 点地面落人；纪元账本 FM140 / FM145 / FM154）
+const box = await page.locator("#board").boundingBox();
 await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(80);   // 步行相机住右上角「视图」菜单（不在 ☰）
 await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);   // v0.13.51 视图菜单分页：步行在「相机」页
 await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(80);
-const walkChecked = await page.evaluate(() => [...document.querySelectorAll(".menu-item")].some((b) => b.textContent.includes("步行相机") && b.querySelector(".menu-check")));
-check(walkChecked, "☰ 菜单「步行相机」已勾");
+const placing = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), panel: globalThis.__catsup.editor.paramPanel()?.title ?? null }));
+check(placing.phase === "place" && placing.panel === "步行：点一下落在哪", `菜单 → 放置（马前炮小窗）${JSON.stringify(placing)}`);
+// 平时按什么都不进步行：放置里 Esc = 取消、什么都没发生
 await page.keyboard.press("Escape"); await page.waitForTimeout(50);
+check(await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase() === "off" && !globalThis.__catsup.editor.paramPanel()), "放置里 Esc = 取消");
+await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(80);
+await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);
+await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(80);
+// 悬停在原点南边的地面上：虚影绿（站得下）；悬停在盒子侧面：落到墙脚
+const ground = await page.evaluate(() => { const e = globalThis.__catsup.editor; return e.cam.angularPx({ x: -1.5, y: -1, z: 0 }, e.vp()); });
+await page.mouse.move(box.x + ground.x, box.y + ground.y); await page.waitForTimeout(60);
+const ghost = await page.evaluate(() => globalThis.__catsup.locomotion.placeGhost());
+check(!!ghost && ghost.ok && Math.abs(ghost.feet.z) < 1e-6 && Math.abs(ghost.height - 1.7) < 1e-9, `悬停地面：虚影站得下、身高 1.7 ${JSON.stringify(ghost)}`);
+await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(80);
+const placed = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), walking: globalThis.__catsup.locomotion.isWalking(), pos: { ...globalThis.__catsup.locomotion.sim.state.pos }, panel: globalThis.__catsup.editor.paramPanel()?.title ?? null }));
+check(placed.phase === "walk" && placed.walking && Math.abs(placed.pos.x + 1.5) < 0.05 && !placed.panel, `点地面 = 落在那里、进 FPS、小窗收起 ${JSON.stringify(placed)}`);
+check(await page.evaluate(() => globalThis.__lockRequests >= 1), "落人那一下请求了锁鼠标（FPS）");
 await page.evaluate(() => { globalThis.__catsup.locomotion.sim.reset({ x: -1, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 1.7 }); });
 const st0 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos, walking: globalThis.__catsup.locomotion.isWalking() }));
 check(st0.walking && Math.abs(st0.x + 1) < 1e-9, `就位 ${JSON.stringify(st0)}`);
@@ -55,8 +72,7 @@ const st2 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.s
 check(st2.x > 1 && st2.z > 0.75 && st2.grounded, `跳上盒顶 ${JSON.stringify(st2)}`);
 await page.screenshot({ path: out + "/probe-walk-2-top.png" });
 
-// 右键拖看：heading 变
-const box = await page.locator("#board").boundingBox();
+// 右键拖看：heading 变（无头里锁不上鼠标 = 触屏那条路：右键拖看）
 const h0 = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.heading);
 await page.mouse.move(box.x + 600, box.y + 400);
 await page.mouse.down({ button: "right" });
@@ -65,7 +81,29 @@ await page.mouse.up({ button: "right" });
 const h1 = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.heading);
 check(h1 < h0, `右拖看向右 heading ${h0.toFixed(3)} → ${h1.toFixed(3)}`);
 
-// 工具在步行模式仍可用：画线 hover 有吸附标签（把线画在盒顶角上）
+// teleport：T 按住瞄准前方地面 → 松开跳过去
+await page.evaluate(() => { const l = globalThis.__catsup.locomotion; l.sim.reset({ x: -4, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 1.7 }); });
+await page.mouse.move(box.x + 600, box.y + 600);   // 光标偏下 = 瞄地面
+await page.keyboard.down("t"); await page.waitForTimeout(300);
+const arc = await page.evaluate(() => { const a = globalThis.__catsup.locomotion.sim.state.teleport.arc; return a ? { valid: a.valid, n: a.points.length, reason: a.reason } : null; });
+check(arc && arc.valid, `充能弧线 ${JSON.stringify(arc)}`);
+await page.screenshot({ path: out + "/probe-walk-3-arc.png" });
+await page.keyboard.up("t"); await page.waitForTimeout(150);
+const st3 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos }));
+check(st3.x > -3.5, `瞬移落地 ${JSON.stringify(st3)}`);
+
+await page.evaluate((h) => { const L = globalThis.__catsup.locomotion; L.sim.reset({ x: 1.95, y: 0, z: 0.8 }, h, { x: 0, y: 0, z: 1.7 }); L.look(0, 150); }, h1);   // 落人以后视线水平（SU 步行同款）：低头看盒顶   // 放回瞬移之前的样子（盒顶、右拖过的朝向）：下面的吸附角点从这里看
+
+// FPS 里工具键不响应（监工不编辑）；Tab = 原地编辑：上方正中「继续走」、工具照常用
+await page.evaluate(() => globalThis.__catsup.editor.setTool("select"));
+const beforeL = await page.evaluate(() => ({ tool: globalThis.__catsup.editor.tool, phase: globalThis.__catsup.locomotion.walkPhase() }));
+await page.keyboard.press("l"); await page.waitForTimeout(30);
+const afterL = await page.evaluate(() => ({ tool: globalThis.__catsup.editor.tool, phase: globalThis.__catsup.locomotion.walkPhase() }));
+check(beforeL.phase === "walk" && afterL.tool === beforeL.tool, `FPS 里按 L 不换工具 ${JSON.stringify({ beforeL, afterL })}`);
+await page.keyboard.press("Tab"); await page.waitForTimeout(60);
+const editInPlace = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), bar: !document.getElementById("walkBar").hidden, label: document.getElementById("walkBtn").textContent }));
+check(editInPlace.phase === "edit" && editInPlace.bar && editInPlace.label === "继续走", `Tab = 原地编辑、上方「继续走」${JSON.stringify(editInPlace)}`);
+// 原地编辑里工具照常用：画线 hover 有吸附标签（把线画在盒顶角上）
 await page.keyboard.press("l");
 await page.evaluate(() => { globalThis.__catsup.locomotion.sim.state.pos.x = 2.0; }); await page.waitForTimeout(80);   // 走多远随真实时间浮动（1.85–2.0 m），角点会贴着视口下沿忽进忽出：先把人放到固定位置再找（2026-10-27 Opus）
 const corner = await page.evaluate(() => {
@@ -102,25 +140,12 @@ await page.waitForTimeout(900);
 const zThawed = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.pos.z);
 check(zThawed < 0.9, `收笔后落地 z=${zThawed}`);
 
-// teleport：T 按住瞄准前方地面 → 松开跳过去
-await page.keyboard.press("Escape");
-await page.evaluate(() => { const l = globalThis.__catsup.locomotion; l.sim.reset({ x: -4, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 1.7 }); });
-await page.mouse.move(box.x + 600, box.y + 600);   // 光标偏下 = 瞄地面
-await page.keyboard.down("t"); await page.waitForTimeout(300);
-const arc = await page.evaluate(() => { const a = globalThis.__catsup.locomotion.sim.state.teleport.arc; return a ? { valid: a.valid, n: a.points.length, reason: a.reason } : null; });
-check(arc && arc.valid, `充能弧线 ${JSON.stringify(arc)}`);
-await page.screenshot({ path: out + "/probe-walk-3-arc.png" });
-await page.keyboard.up("t"); await page.waitForTimeout(150);
-const st3 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos }));
-check(st3.x > -3.5, `瞬移落地 ${JSON.stringify(st3)}`);
-
-// 退出步行：轨道相机恢复
-await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(50);
-await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);
-await page.click(".menu-item:has-text('步行相机')");
-await page.waitForTimeout(80);
-const after = await page.evaluate(() => ({ walking: globalThis.__catsup.locomotion.isWalking(), halfH: globalThis.__catsup.editor.cam.halfH }));
-check(!after.walking && after.halfH === 4, `退出步行恢复轨道相机 ${JSON.stringify(after)}`);
+// 「继续走」回 FPS；FPS 里 Esc = 离开步行、回到进来之前的视角（什么都没发生过）
+await page.click("#walkBtn"); await page.waitForTimeout(60);
+check(await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase() === "walk" && document.getElementById("walkBar").hidden), "点「继续走」= 回 FPS、按钮收起");
+await page.keyboard.press("Escape"); await page.waitForTimeout(80);
+const after = await page.evaluate(() => ({ walking: globalThis.__catsup.locomotion.isWalking(), phase: globalThis.__catsup.locomotion.walkPhase(), halfH: globalThis.__catsup.editor.cam.halfH }));
+check(!after.walking && after.phase === "off" && after.halfH === 4, `Esc 离开步行、恢复轨道相机 ${JSON.stringify(after)}`);
 
 console.log("errors:", errs.length ? errs.join("; ") : "none");
 await browser.close();
