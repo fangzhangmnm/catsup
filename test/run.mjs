@@ -63,6 +63,7 @@ import "./placement.test.ts";   // 放置表的 app 那半：左柱 / ☰ / 放�
 import "./marquee-area.test.ts";   // 屏幕区域：框 / 套索（UX5，2026-10-28 Opus）
 import "./orphan-defs.test.ts";   // 孤儿森林：零实例的定义存读往返不丢（UX26，2026-10-28 Opus）
 import "./chips.test.ts";   // 键名芯片（MFD）的数据：固定槽位、字 = 键表 / 立场表（UX19，2026-10-28 Opus）
+import "./tool-tips.test.ts";   // 工具提示 = 键表生成（不手抄键名、按工作台；2026-10-28 晚 Opus）
 import "./mesh-subdivide.test.ts";   // 细分（Catmull-Clark，破坏性）：教科书值 / 折痕 / 裸线拒 / op + 撤销（FM133，2026-10-28 Opus）
 import "./touch-stick.test.ts";   // 吃鸡式虚拟摇杆的数学：死区 / 冲刺 / 浮动底座（FM142，2026-10-28 Opus）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）

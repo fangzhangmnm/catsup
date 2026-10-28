@@ -209,6 +209,45 @@ export function keyDocs(toolLabel: (t: Tool) => string): { title: string; when: 
   });
 }
 
+// ---------- 工具的键（工具提示 / 小三角 / 手腕面板从这里生成，不手抄；2026-10-28 晚 Claude Opus 5.5）----------
+// user 10-28 晚「tooltip你没有更新，这背后有什么架构问题和可以设计瑞士奶酪的修」：以前左柱按钮的提示读 main.ts 工具表里手写的键名（第二份拷贝，而且不分工作台：
+// 自由建模「删除（E）」，可那里 E = 挤出键盘起手）。键表 v0.16.3 立的时候、帮助页 v0.16.17 改生成的时候都没把它收进来。现在提示 = 这里按真按键（resolveKey）现算。
+/** 同一个键再按一下 = 组里换下一把（user 10-25；app 层 toolKey 做轮换，数据住这里，提示也读它）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
+export const TOOL_CYCLES: Readonly<Record<Chord, readonly Tool[]>> = { e: ["erase", "weldErase", "softErase"], x: ["erase", "weldErase", "softErase"], r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
+export interface ToolKey { readonly chord: Chord; readonly how: "pick" | "cycle" | "modal"; readonly label: string }
+/**
+ * 这个工作台里这把工具的键（和真按下去同一条 resolveKey；手上拿着别的工具、有选区、没在手势里）：
+ * pick = 从别的工具按它就拿起这把；cycle = 那个键的组里再按几下轮到它；modal = 键盘起手（Blender G / R / S / E；label = 键表那一条，带变体时用得上）。
+ * inMode = 这个工作台有没有这把工具（轮换只在工作台有的工具里转，app toolKey 同规矩）。
+ */
+export function toolKeysOf(mode: ModeId, tool: Tool, inMode: (t: Tool) => boolean = () => true): ToolKey[] {
+  const from: Tool = tool === "select" ? "line" : "select";
+  const c: KeyContext = { mode, tool: from, gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
+  const chords: Chord[] = [];
+  for (const L of ALL_LAYERS) for (const b of L.bindings) if (b.chord !== "*" && !chords.includes(b.chord)) chords.push(b.chord);
+  const out: ToolKey[] = [];
+  for (const ch of chords) {
+    const r = resolveKey(c, evtOfChord(ch));
+    if (!r || r === "swallow") continue;
+    const pick = /^tool\.key:([^:]+):(.+)$/.exec(r.action), modal = /^modal:([a-zA-Z]+)(:.+)?$/.exec(r.action);
+    if (pick) {
+      const cyc = (TOOL_CYCLES[pick[1]] ?? []).filter(inMode);
+      if (pick[2] === tool) out.push({ chord: ch, how: "pick", label: r.label });
+      else if (cyc.includes(tool) && cyc.includes(pick[2] as Tool)) out.push({ chord: ch, how: "cycle", label: r.label });
+    } else if (modal && modal[1] === tool) out.push({ chord: ch, how: "modal", label: modal[2] ? r.label : "" });
+  }
+  return out;
+}
+/** 工具提示里的键那一截（「M · G 键盘起手」；没有键 = ""）：pick 直接写键名；没有 pick 才写 cycle「再按 E / X」；modal 写「G 键盘起手」（同义的并成「Alt+S / Alt+W 键盘起手」）、带变体的写那条的名字（「Ctrl+B 倒角」）。 */
+export function toolKeyText(mode: ModeId, tool: Tool, inMode?: (t: Tool) => boolean): string {
+  const ks = toolKeysOf(mode, tool, inMode);
+  const pick = ks.filter((k) => k.how === "pick").map((k) => chordLabel(k.chord));
+  const cyc = ks.filter((k) => k.how === "cycle").map((k) => chordLabel(k.chord));
+  const plain = ks.filter((k) => k.how === "modal" && !k.label).map((k) => chordLabel(k.chord));
+  const variants = ks.filter((k) => k.how === "modal" && k.label).map((k) => `${chordLabel(k.chord)} ${k.label.replace(/（键盘起手）$/, "")}`);
+  return [...pick, ...(!pick.length && cyc.length ? [`再按 ${cyc.join(" / ")}`] : []), ...(plain.length ? [`${plain.join(" / ")} 键盘起手`] : []), ...variants].join(" · ");
+}
+
 // ---------- 肌肉记忆冲突（账本 UX15，user 10-28「其实玩游戏最怕的就是两个魂系游戏，一个的x是紧急躲避，一个的x是喝药」）----------
 // 原则：同一个键在会来回切的几个地方意思不许不同；没有孟婆汤，就让冲突看得见、逐条拍。守卫 test/keymap.test.ts：新冒出来的冲突 = 红；下面登记的 = 已知、等 user 拍。
 /** 肌肉记忆层面的「意思」：锁轴的几种时机（马上锁 / 先锁下一下 / 手势中锁）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */

@@ -51,7 +51,7 @@ import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
-import { chordLabel, keyDocs, modifierChords, resolveKey, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
+import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
 import { stanceOf } from "../controller/stance.ts";
 import { MOD_PEEK_MS } from "../controller/feel.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
@@ -201,33 +201,34 @@ const editor = new Editor(canvas, {
 });
 
 // ---------- 工具条 ----------
-const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
-  { tool: "select", icon: "select", label: "选择", key: "空格" },
-  { tool: "line", icon: "line", label: "画线", key: "L" },
-  { tool: "rect", icon: "rectangle", label: "矩形", key: "R" },
-  { tool: "crect", icon: "rectangle", label: "中心矩形", key: "" },   // user 10-27「中心矩形能单独做一个工具吗」；图标 = stopgap（图标库 TODO 已登记 rectangle-center）
-  { tool: "rrect", icon: "rotated-rectangle", label: "旋转矩形", key: "" },   // SU Rotated Rectangle（user 10-24）；图标 = 图标库 PENDING 层自画未过目
-  { tool: "circle", icon: "circle", label: "圆", key: "C" },
-  { tool: "arc", icon: "arc", label: "弧", key: "A" },
-  { tool: "move", icon: "move", label: "移动", key: "M" },
-  { tool: "rotate", icon: "rotate", label: "旋转", key: "Q" },
-  { tool: "scale", icon: "scale-uniform", label: "缩放", key: "S" },   // 2026-10-26 恢复（user「box也需要……先留着move rotate scale，transform做单独的，就是恢复之前的scale」）
-  { tool: "transform", icon: "free-transform", label: "变换", key: "" },   // 箭头 + 环 + 缩放块 + 变换中心（2026-10-26；专用图标在图标库待办，先用 free-transform；快捷键暂不占）
-  { tool: "pp", icon: "push-pull", label: "推拉", key: "P" },
-  { tool: "offset", icon: "selection-expand", label: "偏移", key: "F" },   // 图标 = stopgap（图标库 TODO 已登记 offset）
-  { tool: "followme", icon: "move-to-folder", label: "跟随", key: "W" },   // 图标 = stopgap（图标库 TODO 已登记 follow-me）
-  { tool: "paint", icon: "paint-bucket", label: "油漆桶", key: "B" },
-  { tool: "erase", icon: "eraser", label: "橡皮", key: "E" },
-  { tool: "weldErase", icon: "eraser-weld", label: "焊边橡皮", key: "" },   // 橡皮家族（user 10-24）；图标 = 图标库 PENDING 层自画未过目
-  { tool: "softErase", icon: "eraser-soft", label: "软边橡皮", key: "" },   // 同上
-  { tool: "tape", icon: "dimensions", label: "卷尺", key: "T" },   // 0.11 尺规；图标 = stopgap（图标库 TODO 已登记 tape-measure）
-  { tool: "axes", icon: "axes", label: "坐标架", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
-  { tool: "protractor", icon: "protractor", label: "量角器", key: "" },
-  { tool: "compass", icon: "compass", label: "圆规", key: "" },
-  { tool: "knife", icon: "knife", label: "切割", key: "K" },
-  { tool: "walk", icon: "walk", label: "步行", key: "" },
-  { tool: "create", icon: "new", label: "新建", key: "" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键不占（Shift+A 在 Blender 是「添加」菜单，等 user 拍）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
-  { tool: "shrink", icon: "push-pull", label: "沿法线", key: "Alt+S" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
+// 工具表只有 id / 图标 / 名字：键名不手抄——提示 / 小三角 / 手腕面板读 controller/keymap.ts toolKeyText（按工作台、按真按键现算；user 10-28 晚「tooltip你没有更新，这背后有什么架构问题」）。守卫 test/tool-tips.test.ts。
+const TOOL_SPEC: { tool: Tool; icon: string; label: string }[] = [
+  { tool: "select", icon: "select", label: "选择" },
+  { tool: "line", icon: "line", label: "画线" },
+  { tool: "rect", icon: "rectangle", label: "矩形" },
+  { tool: "crect", icon: "rectangle", label: "中心矩形" },   // user 10-27「中心矩形能单独做一个工具吗」；图标 = stopgap（图标库 TODO 已登记 rectangle-center）
+  { tool: "rrect", icon: "rotated-rectangle", label: "旋转矩形" },   // SU Rotated Rectangle（user 10-24）；图标 = 图标库 PENDING 层自画未过目
+  { tool: "circle", icon: "circle", label: "圆" },
+  { tool: "arc", icon: "arc", label: "弧" },
+  { tool: "move", icon: "move", label: "移动" },
+  { tool: "rotate", icon: "rotate", label: "旋转" },
+  { tool: "scale", icon: "scale-uniform", label: "缩放" },   // 2026-10-26 恢复（user「box也需要……先留着move rotate scale，transform做单独的，就是恢复之前的scale」）
+  { tool: "transform", icon: "free-transform", label: "变换" },   // 箭头 + 环 + 缩放块 + 变换中心（2026-10-26；专用图标在图标库待办，先用 free-transform；快捷键暂不占）
+  { tool: "pp", icon: "push-pull", label: "推拉" },
+  { tool: "offset", icon: "selection-expand", label: "偏移" },   // 图标 = stopgap（图标库 TODO 已登记 offset）
+  { tool: "followme", icon: "move-to-folder", label: "跟随" },   // 图标 = stopgap（图标库 TODO 已登记 follow-me）
+  { tool: "paint", icon: "paint-bucket", label: "油漆桶" },
+  { tool: "erase", icon: "eraser", label: "橡皮" },
+  { tool: "weldErase", icon: "eraser-weld", label: "焊边橡皮" },   // 橡皮家族（user 10-24）；图标 = 图标库 PENDING 层自画未过目
+  { tool: "softErase", icon: "eraser-soft", label: "软边橡皮" },   // 同上
+  { tool: "tape", icon: "dimensions", label: "卷尺" },   // 0.11 尺规；图标 = stopgap（图标库 TODO 已登记 tape-measure）
+  { tool: "axes", icon: "axes", label: "坐标架" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
+  { tool: "protractor", icon: "protractor", label: "量角器" },
+  { tool: "compass", icon: "compass", label: "圆规" },
+  { tool: "knife", icon: "knife", label: "切割" },
+  { tool: "walk", icon: "walk", label: "步行" },
+  { tool: "create", icon: "new", label: "新建" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键不占（Shift+A 在 Blender 是「添加」菜单，等 user 拍）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
+  { tool: "shrink", icon: "push-pull", label: "沿法线" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
 const hud: HudModel = {
@@ -316,9 +317,9 @@ const hud: HudModel = {
 /** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
 let eraserCurrent: Tool = "erase";
 // 哪把工具进哪一组 / 预算 / 工作台定死的一列 / 改名 = 放置表 src/controller/placement.ts（接线清单第 1 条）；这里只按表画
-const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = RAIL_LABELS[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
+const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = RAIL_LABELS[editor.modeId]?.[t], key = toolKeyText(editor.modeId, t, (x) => editor.modeTools().includes(x)); return { ...sp, label: l ?? sp.label, key }; };   // key = 键表现算（这个工作台里按什么拿起它 / 键盘起手）
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
-const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
+const KEY_CYCLES = TOOL_CYCLES;   // 数据住键表（提示也读它）
 let shapeCurrent: Tool = "rect";
 /** 本次会话里用过的池工具（按最近使用）；开局为空 = 只显示常驻。 */
 const usedPool = new Map<string, Tool[]>(RAIL_GROUPS.map((g) => [g.id, []]));
