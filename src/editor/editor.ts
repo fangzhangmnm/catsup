@@ -209,6 +209,16 @@ type RepairKind = CommandId;
 /** pools[].xf = 这个池的定义坐标 → 当前上下文定义坐标（组 = 不带变换；组件 = 一路实例变换的乘积，几条路径到同一定义取先到的那条）。 */
 interface RepairScope { pools: PoolUnit[]; mode: "selection" | "context"; components: number; copies: number; locked: number }
 
+/**
+ * 一步的通行证（2026-10-28 Claude Opus 5.5；user「找到背后的深层系统性问题。然后思考能不能在静态甚至是写代码时就堵住」）：
+ * 「一个用户动作 = 一步（它的全部 op + 之后的选区一起撤销）」以前靠每个入口自觉包 step()，类型上随处都能提交——漏包一个，
+ * 动作之后改的选区被补记成一条空的「选区」步、连着提交的几条 op 拆成好几步撤销（user「undo还是萎靡不振的，特别是物体模式下，比如建组之类的」）。
+ * 现在：commitOp 必须带通行证，通行证只有 step() 发 → 步外提交写出来就编译不过；给工具的 ToolCtx.commitOp 在边界上运行时查（工具只在包好的指针事件里被调）。
+ */
+declare const STEP_PASS_BRAND: unique symbol;
+export interface StepPass { readonly [STEP_PASS_BRAND]: true }
+const STEP_PASS = Object.freeze({}) as StepPass;
+
 export class Editor {
   readonly cam = new OrbitCamera();
   private r3: Renderer3;
@@ -251,6 +261,7 @@ export class Editor {
   toolHandler(t: Tool): ToolHandler | undefined { return this.mode.handlers[t]; }
   /** 切模式：清手势；当前工具不在新模式里 → 换成它的默认工具；选区留着（面选区两边都认）。 */
   setMode(id: ModeId): void {
+    return this.step((pass) => {
     const next = this.modeList.find((m) => m.id === id);
     if (!next || next === this.mode) return;
     if (!(next.kinds as readonly BodyKind[]).includes(this.activeKind())) { this.host.hint(`「${next.label}」管不了现在这个物体`); return; }   // 不变量：工作台管活动池的身体种类
@@ -263,6 +274,7 @@ export class Editor {
     this.clearCharged();
     this.host.changed();
     this.draw();
+    });   // 一个用户动作 = 一步（2026-10-28：通行证逼出来的漏包入口）
   }
   private get handlers(): Partial<Record<Tool, ToolHandler>> { return this.mode.handlers; }
   private readonly toolCtx: EditorCore = this.makeToolCtx();
@@ -306,6 +318,8 @@ export class Editor {
   private get gridEff(): boolean { return gridEffective(this._grid.on, this.mods.shift); }
   /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
   private stepDepth = 0;
+  /** 步外提交的次数（应当永远是 0；探针 / 测试读它）。 */
+  stepViolations = 0;
   private stepHasOp = false;
   /** 这一步已提交了几条 / 有没有失败过（一步 = 原子：中途有一条失败 → 这一步已提交的全部回滚、剩下的不再执行；2026-10-26）。 */
   private stepOps = 0;
@@ -741,26 +755,30 @@ export class Editor {
     return { min, max };
   }
   addGuideLine(p: Pt3, dir: Pt3): void {
+    return this.step((pass) => {
     const m = invert(this.ctxXform());
-    this.commitOp({ op: "addGuide", at: this.activePool(), line: { p: this.toLocal(p), dir: normalize3(applyDir(m, dir)) } });
+    this.commitIn(pass, { op: "addGuide", at: this.activePool(), line: { p: this.toLocal(p), dir: normalize3(applyDir(m, dir)) } });
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
-  addGuidePoint(p: Pt3): void { this.commitOp({ op: "addGuide", at: this.activePool(), point: this.toLocal(p) }); }
-  eraseGuides(ids: readonly number[]): void { if (ids.length) this.commitOp({ op: "eraseGuides", at: this.activePool(), ids: [...ids] }); }
+  addGuidePoint(p: Pt3): void { return this.step((pass) => { this.commitIn(pass, { op: "addGuide", at: this.activePool(), point: this.toLocal(p) }); }); }
+  eraseGuides(ids: readonly number[]): void { return this.step((pass) => { if (ids.length) this.commitIn(pass, { op: "eraseGuides", at: this.activePool(), ids: [...ids] }); }); }
   /** 清空活动池的参考几何（SU「删除参考线」同款）。 */
-  clearGuides(): void { this.commitOp({ op: "clearGuides", at: this.activePool() }); }
+  clearGuides(): void { return this.step((pass) => { this.commitIn(pass, { op: "clearGuides", at: this.activePool() }); }); }
   hasGuides(): boolean { return guideCount(this.scene.guidesOf(this.activePool())) > 0; }
   /**
    * 搬坐标架（世界坐标帧进来；DT86，user「坐标架同意 组件原点同意」）：最外层 = 绘图轴；组里 = 组的坐标架；组件里 = 组件的坐标架——都不碰几何。
    * 「改组件原点」会话里（beginComponentOrigin）= 改那个组件的原点（挪几何、每份实例补，世界不动）。提示行说清这次动的是哪一个（默认 + 披露）。
    */
   setContextAxes(frame: Frame): void {
-    if (this.liveOriginEdit()) { this.commitComponentOrigin(frame); return; }
+    return this.step((pass) => {
+    if (this.liveOriginEdit()) { this.commitComponentOrigin(pass, frame); return; }
     const m = invert(this.ctxXform());
     const local: Frame = { origin: this.toLocal(frame.origin), x: normalize3(applyDir(m, frame.x)), y: normalize3(applyDir(m, frame.y)), z: normalize3(applyDir(m, frame.z)) };
     const at = this.activePool(), n0 = this.opCount;
-    this.commitOp({ op: "setDrawFrame", at, frame: local });
+    this.commitIn(pass, { op: "setDrawFrame", at, frame: local });
     if (this.opCount === n0) return;   // 没提交（定稿锁着 / 锁定）：commitOp 已经说了原因
     this.host.hint(at.group !== null ? "组里的坐标架已搬（几何没动）" : this.contextDepth() ? "组件里的坐标架已搬——组件原点没动；工具条「设为组件原点」可以把原点对过来" : "坐标架已搬（画图 / 网格 / 推断跟着它；几何没动）");
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 坐标架工具点一下只换位置时沿用的朝向：平时 = 当前坐标架；改组件原点时 = 那个组件现在的原点。 */
   axesBase(): Frame {
@@ -770,10 +788,12 @@ export class Editor {
   }
   /** 重置坐标架（工具条「重置坐标架」）：最外层 → 世界；组里 → 它所在那层的坐标架；组件里 → 跟组件原点。 */
   resetContextFrame(): void {
+    return this.step((pass) => {
     const at = this.activePool(), n0 = this.opCount;
-    this.commitOp({ op: "setDrawFrame", at, frame: null });
+    this.commitIn(pass, { op: "setDrawFrame", at, frame: null });
     if (this.opCount === n0) return;
     this.host.hint(at.group !== null ? "组里的坐标架回到外面那层的" : this.contextDepth() ? "坐标架回到组件原点" : "坐标架回到世界");
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 现在在组件里（不在组里）——「设为组件原点」按钮出不出。 */
   inComponentRoot(): boolean { return this.contextDepth() > 0 && this.ctx.group === null; }
@@ -784,19 +804,21 @@ export class Editor {
    * 挪几何、每份实例补（世界不动；user「原点挪几何，因为是低频commitment」），坐标架回到「跟原点」。一步撤销。
    */
   setComponentOriginToFrame(): boolean {
+    return this.step((pass) => {
     if (!this.inComponentRoot()) return false;
     const at = this.activePool(), body = this.scene.brep(at.def);
     if (!body.drawFrame) { this.host.hint("坐标架就在组件原点上"); return false; }
     const f = body.drawFrame, n = this.copiesOf(at.def);
-    return this.step(() => {
+    return this.step((pass) => {
       const n0 = this.opCount;
-      this.commitOp({ op: "setAxes", at, frame: f });
+      this.commitIn(pass, { op: "setAxes", at, frame: f });
       if (this.opCount === n0 || this.stepFailed) return false;
-      this.commitOp({ op: "setDrawFrame", at, frame: null });
+      this.commitIn(pass, { op: "setDrawFrame", at, frame: null });
       this.host.hint(`组件原点换到了坐标架（世界里没动；${n} 份一起换）`);
       this.host.changed(); this.draw();
       return true;
     });
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 改组件原点会话（右键 / 顶部浮条「改组件原点…」）：坐标架工具的同一套点击，落定改的是这个组件。 */
   private originEdit: { instance: InstId; def: DefId; prevTool: Tool; ctx: string } | null = null;
@@ -830,7 +852,7 @@ export class Editor {
     return true;
   }
   /** 会话落定：世界帧 → 那个组件的定义坐标 → setAxes（挪几何、每份实例补）；马后炮给现成位置（同建组件那套）；回到原来的工具。 */
-  private commitComponentOrigin(frameWorld: Frame): void {
+  private commitComponentOrigin(pass: StepPass, frameWorld: Frame): void {
     const E = this.originEdit!;
     this.originEdit = null;
     const inst = this.scene.def(this.scene.defOfContext(this.ctx)).instances.get(E.instance);
@@ -842,7 +864,7 @@ export class Editor {
       const o = mode === "picked" ? picked.origin : this.originPresetPoint(E.def, mode as OriginPreset);
       if (!o) return false;
       const k0 = this.opCount;
-      this.commitOp({ op: "setAxes", at, frame: { ...picked, origin: o } });
+      this.commitIn(pass, { op: "setAxes", at, frame: { ...picked, origin: o } });
       return this.opCount !== k0;
     };
     const n0 = this.opCount;
@@ -931,14 +953,25 @@ export class Editor {
     this.pruneSelection();
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
-  private step<T>(fn: () => T): T {
+  private step<T>(fn: (pass: StepPass) => T): T {
     if (this.stepDepth++ === 0) { this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; }
-    try { return fn(); }
+    try { return fn(STEP_PASS); }
     finally { if (--this.stepDepth === 0) { if (this.stepHasOp) { if (!this.gestureActive()) this.lastSession = this.sessionSnap(); } else this.recordSession(); } }   // 一步结束：有 op 的步，它之后的会话由撤销那一刻记（rec.after）；没 op 的步 = 可能只改了选区 → 记 0 op 步
 
   }
+  /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
+  commitOp(op: Op): FaceEvent[] { return this.step((pass) => this.commitIn(pass, op)); }
+  /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
+  private toolPass(): StepPass { return STEP_PASS; }
+  private toolCommit(op: Op): FaceEvent[] { return this.commitIn(this.toolPass(), op); }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
-  private commitOp(op0: Op): FaceEvent[] {
+  private commitIn(_pass: StepPass, op0: Op): FaceEvent[] {
+    if (this.stepDepth === 0) {   // 通行证被闭包带到步外来用（编译期拦不住的那一种）：照样包成一步做完，但记进黑匣子 + 控制台，测试 / 探针据此抓
+      this.stepViolations++;
+      this.host.trace?.({ kind: "fail", where: "commit", op: op0, message: "op committed outside a step (StepPass leaked)" });
+      console.error("[editor] op committed outside a step:", op0.op);
+      return this.step((p) => this.commitIn(p, op0));
+    }
     // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。
     // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
     const op: Op = op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0;
@@ -1095,33 +1128,39 @@ export class Editor {
     return { selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(), hoverEdge: null, hoverFace: null, preview: null, snap: null, snapAnchor: null, revision: this._revision, dimSlots: null, handles: null };
   }
   clearAll(): void {
+    return this.step((pass) => {
     this.last = null;
     this.cancelGesture();
     this.selection = this.blankSelection(); this.selectedPools.clear();
     this.clearCharged();
     this.ctx = ROOT_CONTEXT;
-    this.commitOp({ op: "clear" });
+    this.commitIn(pass, { op: "clear" });
     this.draw();
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   applyPreset(name: string): boolean {
+    return this.step((pass) => {
     const preset = PRESETS.find((p) => p.name === name);
     if (!preset) return false;
     this.cancelGesture();
     this.selection = this.blankSelection(); this.selectedPools.clear();
     this.clearCharged();
     this.ctx = ROOT_CONTEXT;
-    this.commitOp({ op: "preset", name });
+    this.commitIn(pass, { op: "preset", name });
     this.draw();
     return true;
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 外部喂线段（OBJ 导入等）：一次 addEdges = 一个手势（进活动池，世界坐标 → 本地）。 */
   addSegments(segs: [PtIn, PtIn][], label: string): FaceEvent[] {
+    return this.step((pass) => {
     this.cancelGesture();
     this.selection = this.blankSelection(); this.selectedPools.clear();
     this.host.trace?.({ kind: "load", label });
-    const evs = this.commitOp({ op: "addEdges", at: this.activePool(), segs: segs.map(([a, b]) => [this.toLocal({ x: a.x, y: a.y, z: a.z ?? 0 }), this.toLocal({ x: b.x, y: b.y, z: b.z ?? 0 })]) });
+    const evs = this.commitIn(pass, { op: "addEdges", at: this.activePool(), segs: segs.map(([a, b]) => [this.toLocal({ x: a.x, y: a.y, z: a.z ?? 0 }), this.toLocal({ x: b.x, y: b.y, z: b.z ?? 0 })]) });
     this.draw();
     return evs;
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /**
    * 导入外来 glb（T11 / DT2）：节点树原样变成组件，挂在当前上下文下面（文件坐标 = 世界坐标，同 OBJ）；三角 → 膜在这里跑（锐角阈值 = 油漆桶 / 拍平同一个量），
@@ -1129,6 +1168,7 @@ export class Editor {
    * 失败 → 人话原因（不提交）。
    */
   importForeign(data: ImportScene): { ok: true; cast: TriangleCastReport; empties: number; instances: number } | { ok: false; reason: string } {
+    return this.step((pass) => {
     this.cancelGesture();
     if (data.nodes.some((n) => hasShear(n.xform))) return { ok: false, reason: "文件里有斜切的节点（glTF 不允许），导不进来" };
     if (!data.roots.length) return { ok: false, reason: "文件里没有节点" };
@@ -1144,7 +1184,7 @@ export class Editor {
     const go = (up: ImportUp, unit: string): void => {
       const before = new Set(this.scene.def(defId).instances.keys());
       this.selection = this.blankSelection(); this.selectedPools.clear();
-      this.commitOp({ op: "importScene", at, scene: castOf(up, unit).scene, place });
+      this.commitIn(pass, { op: "importScene", at, scene: castOf(up, unit).scene, place });
       added = [...this.scene.def(defId).instances.keys()].filter((id) => !before.has(id));
       for (const id of added) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
       this.bump();
@@ -1162,6 +1202,7 @@ export class Editor {
     const count = (d: number, depth: number): void => { if (depth > 64) return; for (const i of this.scene.def(d).instances.values()) { instances++; count(i.def, depth + 1); } };
     for (const id of added) { instances++; count(this.scene.def(defId).instances.get(id)!.def, 0); }
     return { ok: true, cast: castOf("y", "m").report, empties: data.nodes.filter((n) => n.mesh === null && !n.children.length).length, instances };
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   pointerHitDistance(sx: number, sy: number): number | null {
     const k = this.liveWorld();
@@ -1320,29 +1361,33 @@ export class Editor {
   canWeldSelection(): boolean { if (this.activeKind() !== "brep") return false; const k = this.kernel; return !this.selection.faces.size && [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).length >= 2; }
   /** 焊接选区（B19，SU Weld Edges）：成一条曲线，之后选中整条。 */
   weldSelection(): boolean {
+    return this.step((pass) => {
     if (!this.requireBrep("焊接")) return false;
     const k = this.kernel, at = this.activePool();
     const plan = planWeld(k, [...this.selection.edges].filter((e) => k.graph.hasEdge(e)));
     if (typeof plan === "string") { this.host.hint(plan); return false; }
     const keys = plan.edges.map((e) => edgeKey(k, e));
-    this.commitOp({ op: "weldEdges", at, edges: keys });
+    this.commitIn(pass, { op: "weldEdges", at, edges: keys });
     const k2 = this.kernel; this.selection = this.blankSelection(); this.selectedPools.clear();
     for (const key of keys) { try { this.selection.edges.add(resolveEdge(k2, key)); } catch { /* 没了就不选 */ } }
     this.host.hint(`焊接：${plan.edges.length} 段 → 一条${plan.spec.kind === "circle" ? "圆" : plan.spec.kind === "arc" ? "弧" : "曲线"}（选 / 擦 / 高亮当整体）`);
     this.host.changed(); this.draw();
     return true;
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   explodeCurveSelection(): void {
+    return this.step((pass) => {
     if (!this.requireBrep("炸开曲线")) return;
     const k = this.kernel, at = this.activePool();
     const seen = new Set<number>(); const edges: ReturnType<typeof edgeKey>[] = [];
     for (const e of this.selection.edges) { if (!k.graph.hasEdge(e)) continue; const cid = k.curveOf(e); if (cid === undefined || seen.has(cid)) continue; seen.add(cid); edges.push(edgeKey(k, e)); }
-    if (edges.length) this.commitOp({ op: "explodeCurves", at, edges });
+    if (edges.length) this.commitIn(pass, { op: "explodeCurves", at, edges });
     this.host.changed(); this.draw();
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
 
-  deleteSelection(): void { return this.step(() => this.deleteSelectionStep()); }
-  private deleteSelectionStep(): void {
+  deleteSelection(): void { return this.step((pass) => this.deleteSelectionStep(pass)); }
+  private deleteSelectionStep(pass: StepPass): void {
     if (!this.hasSelection()) return;
     const at = this.activePool(), n0 = this.opCount;
     if (this.activeKind() === "brep") {
@@ -1351,22 +1396,22 @@ export class Editor {
       const delE = new Set<EdgeId>([...this.selection.edges].filter((e) => k.graph.hasEdge(e)));
       for (const v of this.selection.verts) if (k.graph.hasVertex(v)) for (const e of k.graph.vertex(v).edges) delE.add(e);
       if (this.selection.faces.size || delE.size) {
-        this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...delE].map((e) => edgeKey(k, e)) });
+        this.commitIn(pass, { op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...delE].map((e) => edgeKey(k, e)) });
       }
     } else if (this.activeKind() === "mesh" && (this.hasGeometrySelection() || this.hasPointSelection())) {
       // 网格体：按选区的种类删（Blender X 同语义）——有面 = 只删面（面带的环边不连累邻面）、否则有边 = 删边（连着的面一起）、否则删点（2026-10-27 Opus 5.5）
       const sel = this.selection, f = [...sel.faces], e = [...sel.edges], v = [...sel.verts];
-      this.commitOp({ op: "meshDelete", def: at.def, ...(f.length ? { faces: f } : e.length ? { edges: e } : { verts: v }) });
+      this.commitIn(pass, { op: "meshDelete", def: at.def, ...(f.length ? { faces: f } : e.length ? { edges: e } : { verts: v }) });
     } else if (this.hasGeometrySelection() || this.hasPointSelection()) this.requireBrep("删除几何");
     const def = this.scene.defOfContext(this.ctx);
     const kept = new Map<string, PoolPick>();   // 锁住的不删、留在选区里（要解锁得先选中它）
     for (const [key, p] of [...this.selectedPools]) {
       if (this.pickIsLocked(p)) { kept.set(key, p); continue; }
-      if (p.kind === "group") this.commitOp({ op: "eraseGroup", at, group: p.group });
-      else this.commitOp({ op: "eraseInstance", def, instance: p.instance });
+      if (p.kind === "group") this.commitIn(pass, { op: "eraseGroup", at, group: p.group });
+      else this.commitIn(pass, { op: "eraseInstance", def, instance: p.instance });
     }
     const gsel = guidesOf(this.selection);
-    if (gsel.size) this.commitOp({ op: "eraseGuides", at, ids: [...gsel] });   // A31：选中的参考线 / 参考点
+    if (gsel.size) this.commitIn(pass, { op: "eraseGuides", at, ids: [...gsel] });   // A31：选中的参考线 / 参考点
     if (this.opCount === n0) return;   // 什么都没删（网格体的几何 / 全锁着）：选区留着，不假装删过
     this.selection = this.blankSelection(); this.selectedPools = kept;
     if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没删（选区菜单 → 解锁）`);
@@ -1377,6 +1422,7 @@ export class Editor {
   // ---------- group / component ----------
   /** 选区 → group（选中的膜 / 边搬进新 group；子 group / 实例选区一并进组——先建组再把它们挪进去）。 */
   makeGroup(): boolean {
+    return this.step((pass) => {
     if (!this.hasSelection()) return false;
     if (!this.requireBrep("建组 / 建组件")) return false;
     const at = this.activePool(), k = this.kernel;
@@ -1384,20 +1430,21 @@ export class Editor {
     const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
     const nest = this.nestPicks();
     if (!faces.length && !edges.length && !nest.groups.length && !nest.instances.length) return false;
-    this.commitOp({ op: "makeGroup", at, faces, edges, ...nest.fields });
+    this.commitIn(pass, { op: "makeGroup", at, faces, edges, ...nest.fields });
     this.selection = this.blankSelection(); this.selectedPools.clear();
     const def = this.scene.brep(this.scene.defOfContext(this.ctx));
     const newest = [...def.groups.values()].filter((g) => g.parent === this.ctx.group).pop();
     if (newest) this.selectedPools.set(`g${newest.id}`, { kind: "group", group: newest.id });
     this.host.changed(); this.draw();
     return true;
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /**
    * 选区 → component（新 definition + 一个实例）。轴默认 = 底面中心（2026-10-26 user「忍不了了哈哈，组件默认是底部中心轴可以吗」；以前 = 包围盒最小角，SketchUp 同款）。
    * 之后右下角马后炮可换原点（user 2026-10-25「建立组件的时候能不能马后炮选择一下轴的居中模式」）：包围盒角 / 包围盒中心 / 底面中心 / 顶点平均——
    * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
    */
-  makeComponent(name: string): boolean { return this.step(() => this.makeComponentStep(name)); }
+  makeComponent(name: string): boolean { return this.step((pass) => this.makeComponentStep(pass, name)); }
   /** 选区里一起装进新组 / 新组件的子组和组件（SketchUp 同款嵌套，user 2026-10-26「当然要」）：锁定的不动（提示一句）。 */
   private nestPicks(): { groups: GroupId[]; instances: InstId[]; fields: { groups?: GroupId[]; instances?: InstId[] } } {
     const picks = [...this.selectedPools.values()], locked = picks.filter((p) => this.pickIsLocked(p)).length;
@@ -1407,7 +1454,7 @@ export class Editor {
     const instances = free.filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance").map((p) => p.instance);
     return { groups, instances, fields: { ...(groups.length ? { groups } : {}), ...(instances.length ? { instances } : {}) } };
   }
-  private makeComponentStep(name: string): boolean {
+  private makeComponentStep(pass: StepPass, name: string): boolean {
     if (!this.hasSelection()) return false;
     if (!this.requireBrep("建组 / 建组件")) return false;
     const at = this.activePool(), k = this.kernel;
@@ -1417,12 +1464,12 @@ export class Editor {
     if (!faces.length && !edges.length && !nest.groups.length && !nest.instances.length) return false;
     const go = (mode: string): void => {
       const before = new Set(this.scene.defs.keys());
-      this.commitOp({ op: "makeComponent", at, faces, edges, name, ...nest.fields });
+      this.commitIn(pass, { op: "makeComponent", at, faces, edges, name, ...nest.fields });
       const defId = [...this.scene.defs.keys()].find((id) => !before.has(id));
       if (defId === undefined || mode === "corner") return;
       const origin = this.originPresetPoint(defId, mode as OriginPreset);
       if (!origin) return;
-      this.commitOp({ op: "setAxes", at: { def: defId, group: null }, frame: { origin, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } });
+      this.commitIn(pass, { op: "setAxes", at: { def: defId, group: null }, frame: { origin, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } });
     };
     const selectNewest = (): void => {
       this.selection = this.blankSelection(); this.selectedPools.clear();
@@ -1440,15 +1487,15 @@ export class Editor {
     return true;
   }
   /** 炸开选中的子 group / 实例。 */
-  explodeSelection(): boolean { return this.step(() => this.explodeSelectionStep()); }
-  private explodeSelectionStep(): boolean {
+  explodeSelection(): boolean { return this.step((pass) => this.explodeSelectionStep(pass)); }
+  private explodeSelectionStep(pass: StepPass): boolean {
     if (!this.selectedPools.size) return false;
     if (!this.requireBrep("炸开")) return false;   // 炸进网格体的池 = M4（炸开的几何要并进 mesh 内核）
     const at = this.activePool();
     const kept = new Map<string, PoolPick>();
     for (const [key, p] of [...this.selectedPools]) {
       if (this.pickIsLocked(p)) { kept.set(key, p); continue; }
-      this.commitOp(p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance });
+      this.commitIn(pass, p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance });
     }
     this.selectedPools = kept;
     if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没炸开（选区菜单 → 解锁）`);
@@ -1456,14 +1503,14 @@ export class Editor {
     return true;
   }
   /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
-  copyInstance(delta: Pt3): boolean { return this.step(() => this.copyInstanceStep(delta)); }
-  private copyInstanceStep(delta: Pt3): boolean {
+  copyInstance(delta: Pt3): boolean { return this.step((pass) => this.copyInstanceStep(pass, delta)); }
+  private copyInstanceStep(pass: StepPass, delta: Pt3): boolean {
     const picks = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance");
     if (!picks.length) return false;
     const def = this.scene.defOfContext(this.ctx), at = this.activePool();
     for (const p of picks) {
       const inst = this.scene.instance(def, p.instance);
-      this.commitOp({ op: "placeInstance", at, definition: inst.def, xform: compose(this.xformToLocal(translation(delta)), inst.xform) });
+      this.commitIn(pass, { op: "placeInstance", at, definition: inst.def, xform: compose(this.xformToLocal(translation(delta)), inst.xform) });
     }
     this.host.changed(); this.draw();
     return true;
@@ -1497,14 +1544,14 @@ export class Editor {
     return ok;
   }
   /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
-  lockSelection(on: boolean): boolean { return this.step(() => this.lockSelectionStep(on)); }
-  private lockSelectionStep(on: boolean): boolean {
+  lockSelection(on: boolean): boolean { return this.step((pass) => this.lockSelectionStep(pass, on)); }
+  private lockSelectionStep(pass: StepPass, on: boolean): boolean {
     // 0.14：组不是物体、不能锁（user「组永远不进hierarchy」）——只锁实例；选区里只有组时提示怎么办
     const all = [...this.selectedPools.values()];
     const picks = all.filter((p) => p.kind === "instance" && this.pickIsLocked(p) !== on);
     if (!picks.length) { if (on && all.some((p) => p.kind === "group")) this.host.hint("组不是物体，不能锁；要当参考就先「建组件」（G）再锁"); return false; }
     const at = this.activePool();
-    for (const p of picks) if (p.kind === "instance") this.commitOp({ op: "setLocked", at, instance: p.instance, on });
+    for (const p of picks) if (p.kind === "instance") this.commitIn(pass, { op: "setLocked", at, instance: p.instance, on });
     this.host.hint(on ? `已锁定 ${picks.length} 个：不能改、不能移、不能进入；仍可当推断参考` : `已解锁 ${picks.length} 个`);
     this.host.changed(); this.draw();
     return true;
@@ -1641,7 +1688,7 @@ export class Editor {
     const routes = routesOf(a);
     if (!params && routes.length === 1 && routes[0].kind === "brep") return this.repair(routes[0].command.id);
     if (!params && routes.length === 1 && routes[0].kind === "object") return this.runObjectCommand(routes[0].command.id);
-    return this.step(() => {
+    return this.step((pass) => {
       // 单位只取一次：马后炮按新参数重做时用同一批（上一次做完的选区已经换成结果了）
       const plans = routes.map(({ kind, command: c }) => ({ c, units: this.unitsFor(c, kind) }));
       const skips: string[] = [];
@@ -1661,7 +1708,7 @@ export class Editor {
         const tail = [...notes].map((t) => `；${t}`).join("");
         if (!ops.length) { this.host.hint(`${[...new Set(routes.map((r) => r.command.none))].join("；")}${tail}`); return 0; }
         const n0 = this.opCount;
-        for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
+        for (const op of ops) { this.commitIn(pass, op); if (this.opCount === n0 && this.stepFailed) return 0; }
         if (this.opCount === n0) return 0;
         if (sel && selN === 1) { const S = sel; this.selection = this.blankSelection(); this.selectedPools.clear(); for (const x of S.verts ?? []) this.selection.verts.add(x); for (const x of S.edges ?? []) this.selection.edges.add(x); for (const x of S.faces ?? []) this.selection.faces.add(x); this.pruneSelection(); this.afterSelect(); }
         this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}`);
@@ -1686,7 +1733,7 @@ export class Editor {
     }
     return this.runObjectNow(c, units, v0);
   }
-  private runObjectNow(c: Command<ObjectUnit>, units: readonly ObjectUnit[], v0: CmdParams): number { return this.step(() => {
+  private runObjectNow(c: Command<ObjectUnit>, units: readonly ObjectUnit[], v0: CmdParams): number { return this.step((pass) => {
     const go = (v: CmdParams): number => {
       const ops: Op[] = [], notes = new Set<string>();
       let count = 0;
@@ -1694,7 +1741,7 @@ export class Editor {
       const tail = [...notes].map((n) => `；${n}`).join("");
       if (!ops.length) { this.host.hint(`${c.none}${tail}`); return 0; }
       const n0 = this.opCount;
-      for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
+      for (const op of ops) { this.commitIn(pass, op); if (this.opCount === n0 && this.stepFailed) return 0; }
       if (this.opCount === n0) return 0;
       this.host.hint(`${c.done(count, 0, v)}${tail}`);
       return count;
@@ -1743,7 +1790,7 @@ export class Editor {
     return n;
   }
   /** 一条修复指令这一次做了什么（提交 op，不出提示）。failed = 被拒（报错已出）。 */
-  private runRepair(kind: RepairKind, scope: "auto" | "context", v: Readonly<Record<string, ParamValue>>): { count: number; text: string; scope: string; failed: boolean } {
+  private runRepair(pass: StepPass, kind: RepairKind, scope: "auto" | "context", v: Readonly<Record<string, ParamValue>>): { count: number; text: string; scope: string; failed: boolean } {
     const sc = this.repairScope(scope, v.children !== false), names = this.repairModule(kind);
     let count = 0, extra = 0, skipped = 0;
     const ops: Op[] = [];
@@ -1759,7 +1806,7 @@ export class Editor {
     const tally = (): { v: number; f: number } => { let nv = 0, nf = 0; for (const p of sc.pools) { const k = this.scene.kernelOf(p.at); nv += k.vertices().length; nf += k.faces().length; } return { v: nv, f: nf }; };
     const before = names.tally ? tally() : null;
     const n0 = this.opCount;
-    for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return { count: 0, text: "", scope: scopeText, failed: true }; }
+    for (const op of ops) { this.commitIn(pass, op); if (this.opCount === n0 && this.stepFailed) return { count: 0, text: "", scope: scopeText, failed: true }; }
     if (this.opCount === n0) return { count: 0, text: "", scope: scopeText, failed: true };
     let more = "";
     if (before) { const after = tally(), merged = before.v - after.v, folded = after.f - before.f; more = [merged > 0 ? `合并了 ${merged} 个点` : "", folded > 0 ? `面多了 ${folded} 张（被吸歪的面折开 / 三角化，折缝 = ${v.crease === "hard" ? "硬边" : "软边"}）` : ""].filter(Boolean).join("，"); if (more) more = `；${more}`; }
@@ -1797,9 +1844,9 @@ export class Editor {
     const t = e.seconds < 90 ? `${Math.round(e.seconds)} 秒` : `${(e.seconds / 60).toFixed(1)} 分钟`;
     return `${title}要擦掉 ${e.edges} 条面和面之间的线。内核现在每擦一次线都要把整个物体重新整理一遍（这里最大的物体有 ${e.faces} 张面），估计要 ${t} 左右，期间界面会卡住——按坦克 3.2 万面实测一次约 95 秒推算，只是量级。要做吗？`;
   }
-  private repairNow(kind: RepairKind, scope: "auto" | "context", v0: Record<string, ParamValue>): number { return this.step(() => {
+  private repairNow(kind: RepairKind, scope: "auto" | "context", v0: Record<string, ParamValue>): number { return this.step((pass) => {
     const go = (v: Readonly<Record<string, ParamValue>>): number => {
-      const r = this.runRepair(kind, scope, v);
+      const r = this.runRepair(pass, kind, scope, v);
       if (!r.failed) this.host.hint(`${r.text}（${r.scope}）`);
       return r.count;
     };
@@ -1871,6 +1918,7 @@ export class Editor {
   }
   /** 打开修复面板（马前炮）。 */
   beginRepairPanel(): void {
+    return this.step((pass) => {
     this.cancelGesture();
     const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect };
     for (const s of REPAIR_STEPS) vals[s.command] = s.on;   // 默认勾不勾 = 步骤表说（拉正 / 焊断口 / 拍平 / 软边变硬勾：只动小毛病；吸格点 / 恢复层级不勾）
@@ -1889,7 +1937,7 @@ export class Editor {
       const parts: string[] = [];
       for (const k of Editor.REPAIR_ORDER) {
         if (!v[k]) continue;
-        const r = this.runRepair(k, "auto", { ...this.repairDefaults(k), children: v.children !== false });
+        const r = this.runRepair(pass, k, "auto", { ...this.repairDefaults(k), children: v.children !== false });
         if (r.failed) { parts.push(`${this.repairModule(k).title}：被拒，后面的没做`); break; }
         if (r.count) parts.push(r.text);
       }
@@ -1901,7 +1949,7 @@ export class Editor {
       if (est) { void this.host.confirm!("修复：要等一会儿", this.eraseAskText("这几步", est), "做（会卡住一会儿）").then((ok) => { if (ok) applyNow(); else { this.host.hint("修复：没做（你选了不做）"); this.draw(); } }); return; }
       applyNow();
     };
-    const applyNow = (): void => { this.step(() => {
+    const applyNow = (): void => { this.step((pass) => {
       this.repairChildren = vals.children !== false; this.repairInspect = !!vals.inspect;
       const n0 = this.opCount, parts = runAll(vals), sc = this.scopeText(this.repairScope("auto", vals.children !== false));
       if (this.opCount === n0) { this.host.hint(`修复：没有要改的（${sc}）`); this.openParamSession(null); return; }
@@ -1921,6 +1969,7 @@ export class Editor {
     this.repairSession = session; this.openParamSession(session);
     this.host.hint("修复：右下角勾要做的几步，说明行数着每步会碰几处；「检查」把看起来平、其实折过的软边标成橙色");
     this.draw();
+    });   // 打开面板这一下包成一步：面板里「应用」的闭包要带着通行证（应用时由 pressParam 包成真正的一步）
   }
   /** 兼容老入口（☰「焊接全部断口」/ 选区「焊接断口」）。 */
   weldAllBreaks(scope: "auto" | "context" = "auto"): number { return this.repair("brep.weld", scope); }
@@ -1940,11 +1989,11 @@ export class Editor {
    * 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：选中组件的缩放烘进组件本身的几何，这一份只剩旋转 + 平移；
    * 同一组件的别的份乘反比补偿，看起来不变。组件里有转过的子组件时会斜切 → 护栏拦下并说明。一次 = 一步。
    */
-  applyScaleSelection(): boolean { return this.step(() => {
+  applyScaleSelection(): boolean { return this.step((pass) => {
     const ids = this.scaledInstancePicks(), def = this.scene.defOfContext(this.ctx);
     if (!ids.length) { this.host.hint("选中的组件没有被缩放过"); return false; }
     const n0 = this.opCount;
-    for (const id of ids) this.commitOp({ op: "applyScale", def, instance: id });
+    for (const id of ids) this.commitIn(pass, { op: "applyScale", def, instance: id });
     if (this.opCount === n0) return false;
     this.host.hint(`已把缩放烘进 ${ids.length} 个组件的几何（同一组件的别的份看起来没变）`);
     this.host.changed(); this.draw();
@@ -1952,14 +2001,14 @@ export class Editor {
   }); }
   hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.selectedPools.size > 0 || guidesOf(this.selection).size > 0; }   // 点不单独藏
   /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
-  hideSelection(): number { return this.step(() => this.hideSelectionStep()); }
-  private hideSelectionStep(): number {
+  hideSelection(): number { return this.step((pass) => this.hideSelectionStep(pass)); }
+  private hideSelectionStep(pass: StepPass): number {
     if (!this.requireBrep("隐藏")) return 0;
     const at = this.activePool(), k = this.kernel, def = at.def, body = this.scene.brep(def);
     let n = 0;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
     const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
-    if (faces.length || edges.length) { this.commitOp({ op: "setHidden", at, faces, edges, on: true }); n += faces.length + edges.length; }
+    if (faces.length || edges.length) { this.commitIn(pass, { op: "setHidden", at, faces, edges, on: true }); n += faces.length + edges.length; }
     // 组：整棵子树（子组的面 / 线 + 放在这棵树里的实例）
     const groupIds = [...this.selectedPools.values()].filter((p) => p.kind === "group").map((p) => (p as { group: GroupId }).group);
     const tree = new Set<GroupId>(groupIds);
@@ -1967,11 +2016,11 @@ export class Editor {
     for (const gid of tree) {
       const gk = body.groups.get(gid)!.kernel;
       const gf = gk.faces().filter((f) => !gk.isFaceHidden(f.id)).map((f) => faceKey(gk, f.id)), ge = gk.edges().filter((e) => !gk.isEdgeHidden(e.id)).map((e) => edgeKey(gk, e.id));
-      if (gf.length || ge.length) { this.commitOp({ op: "setHidden", at: { def, group: gid }, faces: gf, edges: ge, on: true }); n += gf.length + ge.length; }
+      if (gf.length || ge.length) { this.commitIn(pass, { op: "setHidden", at: { def, group: gid }, faces: gf, edges: ge, on: true }); n += gf.length + ge.length; }
     }
     const insts = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance").map((p) => p.instance);
     for (const i of this.scene.def(def).instances.values()) if (i.parent !== null && tree.has(i.parent) && !i.hidden) insts.push(i.id);
-    for (const iid of insts) { const inst = this.scene.def(def).instances.get(iid)!; this.commitOp({ op: "setHidden", at: { def, group: inst.parent }, instance: iid, on: true }); n++; }
+    for (const iid of insts) { const inst = this.scene.def(def).instances.get(iid)!; this.commitIn(pass, { op: "setHidden", at: { def, group: inst.parent }, instance: iid, on: true }); n++; }
     if (!n) return 0;
     this.selection = this.blankSelection(); this.selectedPools.clear();
     this.host.hint(`藏起来了；视图菜单「全部显示」放回来（Alt+H）`);
@@ -1990,12 +2039,14 @@ export class Editor {
   }
   /** 全部显示（一条 op，可撤销）。返回放回了几样。 */
   unhideAll(): number {
+    return this.step((pass) => {
     const c = this.hiddenCount(), n = c.instances + c.faces + c.edges;
     if (!n) { this.host.hint("没有隐藏的东西"); return 0; }
-    this.commitOp({ op: "unhideAll" });
+    this.commitIn(pass, { op: "unhideAll" });
     this.host.hint(`全部放回来了（${[c.instances ? `组件 ${c.instances} 份` : "", c.faces ? `面 ${c.faces}` : "", c.edges ? `线 ${c.edges}` : ""].filter(Boolean).join("、")}）`);
     this.host.changed(); this.draw();
     return n;
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 进入选中（或命中）的子 group / 实例编辑。 */
   enterPool(p: PoolPick): void {
@@ -2052,7 +2103,7 @@ export class Editor {
   /** 文档材质表（只读）。 */
   materials(): readonly import("../scene/scene.ts").Material[] { return this.scene.materials; }
   /** 蘸的材质在文档材质表里的索引（没有就新建一条 addMaterial op）；null = 默认。 */
-  private materialIndexForPick(): number | null {
+  private materialIndexForPick(pass: StepPass): number | null {
     const p = this.paintPick;
     if (!p) return null;
     const same = (m: import("../scene/scene.ts").Material): boolean => p.kind === "color"
@@ -2060,18 +2111,20 @@ export class Editor {
       : !!m.texture && m.name === p.name && m.texture.bytes === p.bytes;
     const i = this.scene.materials.findIndex(same);
     if (i >= 0) return i;
-    if (p.kind === "color") this.commitOp({ op: "addMaterial", name: p.name, color: p.color });
-    else this.commitOp({ op: "addMaterial", name: p.name, color: [1, 1, 1], texture: { mimeType: p.mimeType, bytes: p.bytes, sizeM: p.sizeM } });
+    if (p.kind === "color") this.commitIn(pass, { op: "addMaterial", name: p.name, color: p.color });
+    else this.commitIn(pass, { op: "addMaterial", name: p.name, color: [1, 1, 1], texture: { mimeType: p.mimeType, bytes: p.bytes, sizeM: p.sizeM } });
     return this.scene.materials.length - 1;
   }
   /** 给活动池里的这些面涂当前材质（op）。 */
   paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): void {
+    return this.step((pass) => {
     const k = this.kernel;
     const idx = faces.map((f, i) => i).filter((i) => k.face(faces[i]));
     if (!idx.length) return;
     const keys = idx.map((i) => faceKey(k, faces[i]));
-    const material = this.materialIndexForPick();
-    this.commitOp({ op: "paintFaces", at: this.activePool(), faces: keys, material, ...(sides ? { sides: idx.map((i) => sides[i] ?? 0) } : {}) });   // DT8：sides = 每张面涂哪一侧；不给 = 两侧
+    const material = this.materialIndexForPick(pass);
+    this.commitIn(pass, { op: "paintFaces", at: this.activePool(), faces: keys, material, ...(sides ? { sides: idx.map((i) => sides[i] ?? 0) } : {}) });   // DT8：sides = 每张面涂哪一侧；不给 = 两侧
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认灰）。 */
   pickMaterialOf(face: FaceId, side: 0 | 1 = 0): void {
@@ -2091,12 +2144,14 @@ export class Editor {
   // ---------- 平滑组：软化 / 硬化 ----------
   /** 给这些边（本地 id）软化（soft + smooth）或硬化。 */
   softenEdges(ids: readonly EdgeId[], on: boolean): void {
+    return this.step((pass) => {
     if (!this.requireBrep("软化 / 硬化")) return;
     const k = this.kernel;
     const edges = ids.filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
     if (!edges.length) return;
-    this.commitOp({ op: "setEdgeLayers", at: this.activePool(), edges, layers: ["soft", "smooth"], on });
+    this.commitIn(pass, { op: "setEdgeLayers", at: this.activePool(), edges, layers: ["soft", "smooth"], on });
     this.draw();
+    });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
   /** 按二面角阈值软化：有选区 → 选区的边（含选中膜的环边）；否则活动池全部。只碰恰好两膜的边。 */
   softenByAngle(maxDeg: number, on = true): number {
@@ -2169,6 +2224,7 @@ export class Editor {
   mirrorActive(): boolean { return this.gizmo !== null; }
   /** 镜像…：作用在选区（散几何 + 选中的组件实例）上；没有可镜的 → false。 */
   beginMirror(): boolean {
+    return this.step((pass) => {
     if (!this.requireBrep("镜像")) return false;
     const k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)), edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e));
@@ -2202,10 +2258,10 @@ export class Editor {
     const apply = (): void => {
       const pl = planeLocal(), n0 = this.opCount;
       this.endMirror();
-      this.commitOp(opOf(vals, pl));
+      this.commitIn(pass, opOf(vals, pl));
       if (this.opCount === n0) return;   // 被拒（破面 / 锁着）：报错已出，不进马后炮
       this.selection = this.blankSelection(); this.selectedPools.clear();
-      this.offerAfterthought("镜像", fields, { ...vals }, this.opCount - n0, (v) => { this.commitOp(opOf(v, pl)); });
+      this.offerAfterthought("镜像", fields, { ...vals }, this.opCount - n0, (v) => { this.commitIn(pass, opOf(v, pl)); });
       this.host.hint("镜像好了：右下角还能改选项（撤销重做）");
     };
     const session: ParamSession = {
@@ -2228,6 +2284,7 @@ export class Editor {
     this.refreshCmdPreview();
     this.host.hint("镜像：拖镜像面上的把手（中心 = 移，箭头 = 推，边上的点 = 转）；右下角应用 / 取消（回车 / Esc）");
     return true;
+    });   // 一个用户动作 = 一步（2026-10-28：通行证逼出来的漏包入口）
   }
   private endMirror(): void {
     this.gizmo = null; this.cmdPreview = null; this.cmdGhosts = null;
@@ -2285,7 +2342,7 @@ export class Editor {
    * 「复制」开关（事后改成复制 / 不复制）+ 变换工具的「变换中心」；改了 = 撤这一步、按新选项重做（和数值小窗的重做同一套：按坐标、复制走 commitCopies）。
    * 数值小窗改完数之后会再挂一次（读最新的 last），所以两边能接着改。
    */
-  private offerXformAfterthought(): void {
+  private offerXformAfterthought(pass: StepPass): void {
     const L0 = this.last;
     if (!L0 || (L0.kind !== "move" && L0.kind !== "rotate" && L0.kind !== "scale") || !L0.entities) return;
     const L = L0, ents = L0.entities;
@@ -2305,8 +2362,8 @@ export class Editor {
       if (pid && pid !== "picked" && pid !== (L.kind !== "move" ? L.pivotUsed : undefined)) this.config.set("transform", "pivot", pid as "auto" | "bbox" | "mean" | "active");   // 工具自己记住
       const at = L.at, n0 = this.opCount;
       const X = L.kind === "move" ? translation(L.delta) : L.kind === "rotate" ? rotationAbout(piv ?? L.center, L.axis, L.angle) : L.dirs ? scalingAlongAxes(piv ?? L.anchor, L.dirs, L.f.x) : scalingAbout(piv ?? L.anchor, L.f);
-      if (copy) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, ents), XL }], L.pools, at); }
-      else this.redoXform(X, L.froms, L.pools, at);
+      if (copy) { const XL = this.xformToLocal(X); this.commitCopies(pass, [{ payload: this.copyPayload(XL, ents), XL }], L.pools, at); }
+      else this.redoXform(pass, X, L.froms, L.pools, at);
       const ops = this.opCount - n0;
       this.last = L.kind === "move" ? { ...L, copy, ops } : L.kind === "rotate" ? { ...L, copy, ops, center: piv ?? L.center, ...(pid ? { pivotUsed: pid } : {}) } : { ...L, copy, ops, anchor: piv ?? L.anchor, ...(pid ? { pivotUsed: pid } : {}) };
     });
@@ -2316,24 +2373,24 @@ export class Editor {
     this.openParamSession(afterthought({ title, fields, values, nOps, opCount: () => this.opCount, undoN: (n) => this.undoN(n), redo, ...(note ? { note } : {}) }));
   }
   /** 每一步记下来之后挂哪种马后炮：变换类（复制 / 变换中心）、圆 / 弧（段数）。 */
-  private offerLastAfterthought(): void {
+  private offerLastAfterthought(pass: StepPass): void {
     const k = this.last?.kind;
-    if (k === "circle" || k === "arc") this.offerSegmentsAfterthought();
-    else this.offerXformAfterthought();
+    if (k === "circle" || k === "arc") this.offerSegmentsAfterthought(pass);
+    else this.offerXformAfterthought(pass);
   }
   /** 圆：按新的边缘点 / 段数重画（数值小窗和段数马后炮共用；调用方已撤掉上一步）。 */
-  private redrawCircle(L: Extract<LastGesture, { kind: "circle" }>, rim: Pt3, segments: number): void {
+  private redrawCircle(pass: StepPass, L: Extract<LastGesture, { kind: "circle" }>, rim: Pt3, segments: number): void {
     const n0 = this.opCount;
     const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
-    if (segs.length) this.commitOp({ op: "addEdges", at: L.at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
+    if (segs.length) this.commitIn(pass, { op: "addEdges", at: L.at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
     this.last = { ...L, ops: this.opCount - n0, rim, segments };
   }
   /** 弧：按新的手势量重画（同上）；构不出来 = null，什么都不提交。 */
-  private redrawArc(L: Extract<LastGesture, { kind: "arc" }>, g: ArcGesture): ReturnType<typeof buildArc> {
+  private redrawArc(pass: StepPass, L: Extract<LastGesture, { kind: "arc" }>, g: ArcGesture): ReturnType<typeof buildArc> {
     const built = buildArc(g);
     if (!built) return null;
     const n0 = this.opCount;
-    this.commitOp(arcOp((p) => this.toLocal(p), L.at, built));
+    this.commitIn(pass, arcOp((p) => this.toLocal(p), L.at, built));
     this.last = { ...L, ...g, ops: this.opCount - n0 };
     return built;
   }
@@ -2341,7 +2398,7 @@ export class Editor {
    * 圆 / 弧画完的马后炮（纪元账本 DT95，user 2026-10-26「马后炮选择段数的时候给一下公差和试用对象参考。加上次世代和lowpoly的推荐值」）：
    * 档位（数据 = segment-tiers.json）+ 段数；说明行 = 这个段数的弦高公差 + 对上的那一档适用什么。改了 = 撤这一步、按新段数重画，并记进工具选项（同数值小窗 24s）。
    */
-  private offerSegmentsAfterthought(): void {
+  private offerSegmentsAfterthought(pass: StepPass): void {
     const L0 = this.last;
     if (!L0 || (L0.kind !== "circle" && L0.kind !== "arc")) return;
     const arc = L0.kind === "arc";
@@ -2359,8 +2416,8 @@ export class Editor {
       const t = v.tier !== prevTier ? SEGMENT_TIERS.find((x) => x.id === v.tier) : undefined;
       if (t) n = tierSegments(t, r, sweep);
       n = clampSegments(n, arc);
-      if (cur.kind === "circle") { this.redrawCircle(cur, cur.rim, n); this.config.set("circle", "segments", n); }
-      else if (cur.kind === "arc") { this.redrawArc(cur, { ...cur, segments: n }); this.config.set("arc", "segments", n); }
+      if (cur.kind === "circle") { this.redrawCircle(pass, cur, cur.rim, n); this.config.set("circle", "segments", n); }
+      else if (cur.kind === "arc") { this.redrawArc(pass, cur, { ...cur, segments: n }); this.config.set("arc", "segments", n); }
       if (this.last) cur = this.last;
       const w = v as Record<string, ParamValue>;
       w.segments = n; w.tier = prevTier = tierId(n);
@@ -2420,8 +2477,8 @@ export class Editor {
   /** 手势进行中不能输（例外：画线的连画态只是下一笔的锚点）。 */
   private vcbBlocked(): boolean { return this.gestureActive() && !(this._tool === "line" && this.armed && this.anchor3 !== null); }
   /** 应用一条输入：解析 → 撤销那一步的 op → 按精确值重做 → 更新 last（可以连着改）。 */
-  applyVcb(text: string): { ok: true; message: string } | { ok: false; error: string } { return this.step(() => this.applyVcbStep(text)); }
-  private applyVcbStep(text: string): { ok: true; message: string } | { ok: false; error: string } {
+  applyVcb(text: string): { ok: true; message: string } | { ok: false; error: string } { return this.step((pass) => this.applyVcbStep(pass, text)); }
+  private applyVcbStep(pass: StepPass, text: string): { ok: true; message: string } | { ok: false; error: string } {
     const L = this.last;
     if (!L) return { ok: false, error: "先做一步（画 / 推拉 / 移动…），再输精确值" };
     if (this.vcbBlocked()) return { ok: false, error: "先松手落定，再输精确值" };
@@ -2439,7 +2496,7 @@ export class Editor {
       case "line": {
         if (v.kind !== "length") break;
         const b = add3(L.a, scale3(normalize3(sub3(L.b, L.a)), v.m));
-        this.commitOp({ op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]], harden: true });
+        this.commitIn(pass, { op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]], harden: true });
         this.last = { ...L, ops: this.opCount - n0, b };
         { const HL = this.handlers.line; if (this._tool === "line" && HL) { HL.vcbContinue?.(this.toolCtx, b); this.armed = HL.active(); } }
         msg = `线长 ${fmtLen(Math.abs(v.m))}`;
@@ -2450,7 +2507,7 @@ export class Editor {
         const d = sub3(L.corner, L.anchor), [u, w] = Editor.rectAxes(L.plane.basis), from = L.from ?? "corner", k = from === "center" ? 0.5 : 1;
         const corner = add3(L.anchor, add3(scale3(u, sign(dot3(d, u)) * Math.abs(v.a) * k), scale3(w, sign(dot3(d, w)) * Math.abs(v.b) * k)));
         const segs = rectSegmentsOnPlane(L.plane.plane, L.plane.basis, rectOpposite(L.anchor, corner, from), corner);
-        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
+        if (segs.length) this.commitIn(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
         this.last = { ...L, ops: this.opCount - n0, corner };
         msg = `矩形 ${fmtLen(Math.abs(v.a))} × ${fmtLen(Math.abs(v.b))}`;
         break;
@@ -2463,7 +2520,7 @@ export class Editor {
         else if (v.kind === "length") c = add3(L.b, scale3(rrectDirAt(L.a, L.b, n, th), v.m));
         else break;
         const segs = rrectSegments(L.a, L.b, c);
-        if (segs.length) this.commitOp({ op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
+        if (segs.length) this.commitIn(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
         this.last = { ...L, ops: this.opCount - n0, c };
         msg = `旋转矩形 ${fmtLen(dist(L.a, L.b))} × ${fmtLen(dist(L.b, c))} · ${fmtDeg(rrectThetaOf(L.a, L.b, n, c))}`;
         break;
@@ -2475,7 +2532,7 @@ export class Editor {
         else if (v.kind === "length" && (g.mode === "center" || g.mode === "pie") && g.center) g.a = add3(g.center, scale3(normalize3(sub3(g.a, g.center)), v.m));
         else if (v.kind === "length" && g.b && g.p) g.p = bulgePointForRadius(g.a, g.b, g.p, v.m);
         else { msg = ""; this.last = L; break; }
-        const built = this.redrawArc(L, g);
+        const built = this.redrawArc(pass, L, g);
         if (!built) { this.last = L; break; }
         msg = `弧 r=${fmtLen(built.radius)} · ${fmtDeg(Math.abs(built.sweep))} · ${built.segs.length} 段`;
         break;
@@ -2485,14 +2542,14 @@ export class Editor {
         if (v.kind === "length") rim = add3(L.center, scale3(normalize3(sub3(L.rim, L.center)), Math.abs(v.m)));
         else if (v.kind === "segments") { segments = v.n; this.config.set("circle", "segments", v.n); }
         else break;
-        this.redrawCircle(L, rim, segments);
+        this.redrawCircle(pass, L, rim, segments);
         msg = `圆 半径 ${fmtLen(dist(L.center, rim))} · ${segments} 段`;
         break;
       }
       case "pp": {
         if (v.kind !== "length") break;
         const h = sign(L.h) * v.m, hl = L.h !== 0 ? h * (L.hl / L.h) : h;
-        this.commitOp({ op: "pushpull", at, face: L.face, dist: hl, ...(L.keepRing ? { keepRing: true } : {}) });
+        this.commitIn(pass, { op: "pushpull", at, face: L.face, dist: hl, ...(L.keepRing ? { keepRing: true } : {}) });
         this.last = { ...L, ops: this.opCount - n0, h, hl };
         msg = `推拉 ${fmtLen(h)}`;
         break;
@@ -2505,7 +2562,7 @@ export class Editor {
         if (r.length >= 3) {
           const r3 = r.map((q) => liftFromPlane(q, L.plane.plane, L.plane.basis));
           const spec = L.circle ? offsetCircleSpec(L.circle, d) : null;   // 0.10：源面是圆 → 偏移环也是圆
-          this.commitOp({ op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]), ...(spec ? { curve: curveSpecToLocal((pt) => this.toLocal(pt), spec) } : {}) });
+          this.commitIn(pass, { op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]), ...(spec ? { curve: curveSpecToLocal((pt) => this.toLocal(pt), spec) } : {}) });
         }
         this.last = { ...L, ops: this.opCount - n0, d };
         msg = `偏移 ${d > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(d))}`;
@@ -2516,7 +2573,7 @@ export class Editor {
         const angle = (v.deg * Math.PI) / 180;
         const dir = rotateDir(L.center, L.axis, L.ref, angle);
         const mInv = invert(this.ctxXform());
-        this.commitOp({ op: "addGuide", at, line: { p: this.toLocal(L.center), dir: normalize3(applyDir(mInv, dir)) } });
+        this.commitIn(pass, { op: "addGuide", at, line: { p: this.toLocal(L.center), dir: normalize3(applyDir(mInv, dir)) } });
         this.last = { ...L, ops: this.opCount - n0, angle };
         msg = `角度参考线 ${fmtDeg(angle)}`;
         break;
@@ -2525,7 +2582,7 @@ export class Editor {
         // 打长度 = 精确半径；x5 = 5 个同心（r、2r…5r）；/5 = 把半径五等分（r/5、2r/5…r）
         const radii = v.kind === "length" ? [Math.abs(v.m)] : v.kind === "array" ? Array.from({ length: v.n }, (_, i) => (v.mode === "x" ? L.r * (i + 1) : (L.r * (i + 1)) / v.n)) : null;
         if (!radii) break;
-        for (const r of radii) this.commitOp(compassOp(this.toolCtx, at, L.center, L.n, r, L.sphere));
+        for (const r of radii) this.commitIn(pass, compassOp(this.toolCtx, at, L.center, L.n, r, L.sphere));
         const r0 = v.kind === "length" ? radii[0] : L.r;
         this.last = { ...L, ops: this.opCount - n0, r: r0, copies: radii.length };
         msg = radii.length > 1 ? `${radii.length} 个同心${L.sphere ? "球" : "圆"}（半径 ${radii.map((r) => fmtLen(r)).join("、")}）` : `${L.sphere ? "参考球" : "参考圆"} 半径 ${fmtLen(r0)}`;
@@ -2536,8 +2593,8 @@ export class Editor {
         const d = Math.abs(v.m);
         const p = add3(L.a, scale3(L.dir, d));
         const mInv = invert(this.ctxXform());
-        if (L.make === "line" && L.lineDir) this.commitOp({ op: "addGuide", at, line: { p: this.toLocal(p), dir: normalize3(applyDir(mInv, L.lineDir)) } });
-        else this.commitOp({ op: "addGuide", at, point: this.toLocal(p) });
+        if (L.make === "line" && L.lineDir) this.commitIn(pass, { op: "addGuide", at, line: { p: this.toLocal(p), dir: normalize3(applyDir(mInv, L.lineDir)) } });
+        else this.commitIn(pass, { op: "addGuide", at, point: this.toLocal(p) });
         this.last = { ...L, ops: this.opCount - n0, d };
         msg = L.make === "line" ? `参考线 · 偏移 ${fmtLen(d)}` : `参考点 · 距 ${fmtLen(d)}`;
         break;
@@ -2548,22 +2605,22 @@ export class Editor {
           // 这一步已先撤销（原件回原位），直接按阵列放副本，之后这一步按复制算（再输距离 = 改复制距离）。
           const Xs = arrayTranslations(L.delta, v.mode, v.n);
           const copies = Xs.map((X) => { const XL = this.xformToLocal(X); return { payload: this.copyPayload(XL, L.entities), XL }; });   // 全部先从撤销后的内核算
-          this.commitCopies(copies, L.pools, at);
+          this.commitCopies(pass, copies, L.pools, at);
           this.last = { ...L, copy: true, ops: this.opCount - n0 };
           msg = v.mode === "x" ? `阵列 ${v.n} 份（每份 ${fmtLen(len3(L.delta))}）` : `内分 ${v.n} 份`;
           break;
         }
         if (v.kind !== "length") break;
         const delta = scale3(normalize3(L.delta), v.m);
-        if (L.copy) { const XL = this.xformToLocal(translation(delta)); this.commitCopies([{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); }
-        else this.redoXform(translation(delta), L.froms, L.pools, at);
+        if (L.copy) { const XL = this.xformToLocal(translation(delta)); this.commitCopies(pass, [{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); }
+        else this.redoXform(pass, translation(delta), L.froms, L.pools, at);
         this.last = { ...L, ops: this.opCount - n0, delta };
         msg = `${L.copy ? "复制" : "移动"} ${fmtLen(Math.abs(v.m))}`;
         break;
       }
       case "rotate": {
         // 复制那一步（变换工具 Ctrl / 「复制」开着）重做 = 重新放副本，不是转原件（2026-10-26）
-        const redoRot = (ang: number): void => { const X = rotationAbout(L.center, L.axis, ang); if (L.copy && L.entities) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); } else this.redoXform(X, L.froms, L.pools, at); };
+        const redoRot = (ang: number): void => { const X = rotationAbout(L.center, L.axis, ang); if (L.copy && L.entities) { const XL = this.xformToLocal(X); this.commitCopies(pass, [{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); } else this.redoXform(pass, X, L.froms, L.pools, at); };
         if (v.kind === "array") { redoRot(L.angle); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: "旋转不做 *n /n 阵列（只有移动 / 缩放有）" }; }
         if (v.kind !== "angle") break;
         const angle = (v.deg * Math.PI) / 180;
@@ -2574,13 +2631,13 @@ export class Editor {
       }
       case "scale": {
         const scaleX = (f: Pt3): Xform => (L.dirs ? scalingAlongAxes(L.anchor, L.dirs, f.x) : scalingAbout(L.anchor, f));
-        const redoScale = (f: Pt3): void => { const X = scaleX(f); if (L.copy && L.entities) { const XL = this.xformToLocal(X); this.commitCopies([{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); } else this.redoXform(X, L.froms, L.pools, at); };
+        const redoScale = (f: Pt3): void => { const X = scaleX(f); if (L.copy && L.entities) { const XL = this.xformToLocal(X); this.commitCopies(pass, [{ payload: this.copyPayload(XL, L.entities), XL }], L.pools, at); } else this.redoXform(pass, X, L.froms, L.pools, at); };
         if (v.kind === "array") {
           // 缩放阵列（user 2026-10-26「变换能不能也支持移动的/5 *5，不过只对move和scale」）：原件回原位（这一步已撤），放 n 份——x = 第 k 份 f^k，/ = 第 k 份 f^(k/n)
           const Xs = L.dirs ? (v.mode === "/" && L.f.x < 0 ? null : Array.from({ length: v.n }, (_, i) => scalingAlongAxes(L.anchor, L.dirs!, Math.sign(L.f.x) ** (i + 1) * Math.abs(L.f.x) ** (v.mode === "x" ? i + 1 : (i + 1) / v.n)))) : arrayScalings(L.anchor, L.f, v.mode, v.n);
           if (!Xs || !L.entities) { redoScale(L.f); this.last = { ...L, ops: this.opCount - n0 }; return { ok: false, error: !Xs ? "带镜像（负倍率）的缩放不能内分：用 3x 这种" : "这一步做不了阵列" }; }
           const ents = L.entities;
-          this.commitCopies(Xs.map((X) => { const XL = this.xformToLocal(X); return { payload: this.copyPayload(XL, ents), XL }; }), L.pools, at);
+          this.commitCopies(pass, Xs.map((X) => { const XL = this.xformToLocal(X); return { payload: this.copyPayload(XL, ents), XL }; }), L.pools, at);
           this.last = { ...L, copy: true, ops: this.opCount - n0 };
           msg = v.mode === "x" ? `缩放阵列 ${v.n} 份（一份比一份 ×${L.f.x === L.f.y && L.f.y === L.f.z ? L.f.x.toFixed(3) : "倍率"}）` : `缩放内分 ${v.n} 份`;
           break;
@@ -2594,7 +2651,7 @@ export class Editor {
       }
     }
     if (!msg) { this.last = null; this.host.changed(); this.draw(); return { ok: false, error: "这一步不收这种输入" }; }
-    this.offerLastAfterthought();   // 改完数，马后炮按最新的那一步再挂上（复制 / 变换中心 / 段数接着能改）
+    this.offerLastAfterthought(pass);   // 改完数，马后炮按最新的那一步再挂上（复制 / 变换中心 / 段数接着能改）
     this.host.changed(); this.draw();
     return { ok: true, message: msg };
   }
@@ -2606,13 +2663,13 @@ export class Editor {
     if (sc) this.installScene(sc, before);   // 回到这一步之前的会话（数值小窗 / 马后炮按新值重做时选区不丢、组件位置不变）
   }
   /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
-  private redoXform(X: Xform, froms: readonly Pt3[], pools: readonly PoolPick[], at: PoolRef): void {
+  private redoXform(pass: StepPass, X: Xform, froms: readonly Pt3[], pools: readonly PoolPick[], at: PoolRef): void {
     const XL = this.xformToLocal(X);
-    if (froms.length) this.commitOp({ op: "move", at, moves: froms.map((f) => ({ from: f, to: applyPt(XL, f) })) });
+    if (froms.length) this.commitIn(pass, { op: "move", at, moves: froms.map((f) => ({ from: f, to: applyPt(XL, f) })) });
     const def = this.scene.defOfContext(this.ctx);
     for (const p of pools) {
-      if (p.kind === "group") this.commitOp({ op: "transformPool", at: { def, group: p.group }, xform: XL });
-      else this.commitOp({ op: "transformInstance", def, instance: p.instance, xform: XL });
+      if (p.kind === "group") this.commitIn(pass, { op: "transformPool", at: { def, group: p.group }, xform: XL });
+      else this.commitIn(pass, { op: "transformInstance", def, instance: p.instance, xform: XL });
     }
   }
 
@@ -2794,7 +2851,7 @@ export class Editor {
     return null;
   }
   /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
-  addPrimitive(kind: PrimitiveKind): boolean { return this.step(() => {
+  addPrimitive(kind: PrimitiveKind): boolean { return this.step((pass) => {
     const A = this.newObjectAnchor(), P = PRIMITIVES[kind];
     if (!A) { this.host.hint("新建：右键点在点 / 面 / 原点 / 地面上"); return false; }
     if (this.activeKind() !== "mesh") { this.host.hint("新建：只在自由建模（网格体）里"); return false; }   // user 10-27「然后硬表面建模不应该有新建网络体」
@@ -2815,7 +2872,7 @@ export class Editor {
     const go = (v: Readonly<Record<string, ParamValue>>): void => {
       const fL = toLocal(frameW(String(v.align))), sz = Number(v.size) * scaleL, seg = Number(v.segments) || 16;
       const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, dims(sz), seg);
-      this.commitOp({ op: "meshAddPrimitive", def, kind, frame: fL, size: dims(sz), ...(P.round ? { segments: seg } : {}) });
+      this.commitIn(pass, { op: "meshAddPrimitive", def, kind, frame: fL, size: dims(sz), ...(P.round ? { segments: seg } : {}) });
       this.selection = this.blankSelection(); this.selectedPools.clear();
       for (const f of r.faces) this.selection.faces.add(f);
       this.bump();
@@ -3216,7 +3273,7 @@ export class Editor {
       ctxXform: () => this.ctxXform(),
       activePool: () => this.activePool(),
       intentOn: (s, travel) => this.intentOn(s, travel),
-      commitOp: (op) => this.commitOp(op),
+      commitOp: (op) => this.toolCommit(op),
       opCount: () => this.opCount,
       hint: (t) => this.host.hint(t),
       tip: (t) => { this.toolTip = t; },
@@ -3224,7 +3281,7 @@ export class Editor {
       setAnchor: (p) => { this.anchor3 = p; },
       setCursor: (p) => { this.cursor3 = p; },
       setSnap: (sn) => { this.snapInfo = sn; },
-      recordLast: (L) => { this.last = L; this.offerLastAfterthought(); },
+      recordLast: (L) => { this.last = L; this.offerLastAfterthought(this.toolPass()); },
       contextFrame: () => this.contextFrame(),
       axesBase: () => this.axesBase(),
       workflow: () => ({ eraseNonCoplanar: this.mode.workflow?.eraseNonCoplanar ?? "burst", autofold: this.mode.workflow?.autofold ?? "hard" }),
@@ -3243,7 +3300,7 @@ export class Editor {
       mods: () => this.mods,
       currentSnap: () => this.snapInfo,
       setHoverFace: (f) => { this.hoverFace = f; },
-      paintMaterialIndex: () => this.materialIndexForPick(),
+      paintMaterialIndex: () => this.materialIndexForPick(this.toolPass()),
       paintFaces: (faces, sides) => this.paintFaces(faces, sides),
       pickMaterialOf: (f, side) => this.pickMaterialOf(f, side),
       grid: () => (this.gridEff === this._grid.on ? this._grid : { ...this._grid, on: this.gridEff }),   // 工具看到的是有效开关（按住 Shift 反过来）
@@ -3251,8 +3308,8 @@ export class Editor {
       setLiveOverride: (o) => { this.liveOverride = o; },
       xformToLocal: (X) => this.xformToLocal(X),
       copyPayload: (XL, entities) => this.copyPayload(XL, entities),
-      commitCopies: (copies, pools, at) => this.commitCopies(copies, pools, at),
-      commitXform: (X, vids, pools) => this.commitXform(X, vids, pools),
+      commitCopies: (copies, pools, at) => this.commitCopies(this.toolPass(), copies, pools, at),
+      commitXform: (X, vids, pools) => this.commitXform(this.toolPass(), X, vids, pools),
       previewXform: (X, run, copy) => this.previewXform(X, run, copy),
       pivotOf: (m) => this.pivotOf(m),
       offerAfterthought: (title, fields, values, nOps, redo) => this.offerAfterthought(title, fields, values, nOps, redo),
@@ -3395,13 +3452,13 @@ export class Editor {
   }
 
   /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
-  private commitCopies(copies: { payload: ReturnType<Editor["copyPayload"]>; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void {
+  private commitCopies(pass: StepPass, copies: { payload: ReturnType<Editor["copyPayload"]>; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void {
     const def = this.scene.defOfContext(this.ctx);
     for (const { payload, XL } of copies) {
-      if (payload) this.commitOp({ op: "absorb", at, faces: payload.faces, wires: payload.wires, edgeSegs: payload.edgeSegs, faceLayers: payload.faceLayers });
+      if (payload) this.commitIn(pass, { op: "absorb", at, faces: payload.faces, wires: payload.wires, edgeSegs: payload.edgeSegs, faceLayers: payload.faceLayers });
       for (const p of pools) {
-        if (p.kind === "group") this.commitOp({ op: "copyGroup", at, group: p.group, xform: XL });
-        else { const inst = this.scene.instance(def, p.instance); this.commitOp({ op: "placeInstance", at, definition: inst.def, xform: compose(XL, inst.xform) }); }
+        if (p.kind === "group") this.commitIn(pass, { op: "copyGroup", at, group: p.group, xform: XL });
+        else { const inst = this.scene.instance(def, p.instance); this.commitIn(pass, { op: "placeInstance", at, definition: inst.def, xform: compose(XL, inst.xform) }); }
       }
     }
   }
@@ -3425,16 +3482,16 @@ export class Editor {
     };
   }
   /** 世界系变换 X 作用于：活动池顶点集（move op，本地坐标）+ 子池（transformPool / transformInstance，父空间变换）。 */
-  private commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void {
+  private commitXform(pass: StepPass, X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void {
     const at = this.activePool(), k = this.kernel, XL = this.xformToLocal(X);
     if (vids.length) {
       const moves = vids.filter((id) => k.graph.hasVertex(id)).map((id) => ({ from: k.graph.pt(id), to: applyPt(XL, k.graph.pt(id)) }));
-      this.commitOp({ op: "move", at, moves, ...(det3(XL) < 0 ? { mirror: true } : {}) });   // 镜像挪点：两个表面跟着法向走（DT8）
+      this.commitIn(pass, { op: "move", at, moves, ...(det3(XL) < 0 ? { mirror: true } : {}) });   // 镜像挪点：两个表面跟着法向走（DT8）
     }
     const def = this.scene.defOfContext(this.ctx);
     for (const p of pools) {
-      if (p.kind === "group") this.commitOp({ op: "transformPool", at: { def, group: p.group }, xform: XL });
-      else this.commitOp({ op: "transformInstance", def, instance: p.instance, xform: XL });
+      if (p.kind === "group") this.commitIn(pass, { op: "transformPool", at: { def, group: p.group }, xform: XL });
+      else this.commitIn(pass, { op: "transformInstance", def, instance: p.instance, xform: XL });
     }
   }
 }

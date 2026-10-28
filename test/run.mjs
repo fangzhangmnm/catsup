@@ -44,6 +44,7 @@ import "./preview-rewind.test.ts";   // 拖动预演「拷一次 + 每帧退回�
 import "./registry-seams.test.ts";   // (接缝)
 import "./mesh-extrude.test.ts";
 import "./mesh-inset.test.ts";
+import "./step-pass-guard.test.ts";   // 撤销一步的通行证：静态守卫（2026-10-28 Fable）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）
 import "./mesh-primitives.test.ts";   // 右键新建的基本体 + addMeshObject（2026-10-27 Opus）   // 插入：面内插一圈 + op 撤销（2026-10-27 Opus）   // 拉：边 / 点挤出 + meshExtrude op + 撤销（2026-10-27 Opus）   // 注册表两道接缝：三种单位 + 路由型动作「挪」+ meshMove 撤销记录（2026-10-27 Fable）
 import "./kernel-delta.test.ts";   // 内核差量：提交 = 影子换真身、applyDelta 自反（2026-10-27 Fable A3）
