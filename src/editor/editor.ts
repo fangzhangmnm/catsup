@@ -505,6 +505,8 @@ export class Editor {
   get kernel(): Kernel { return this.scene.kernelOf(this.activePool()); }
   /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
   activeKind(): BodyKind { return this.scene.kindOf(this.activePool().def); }
+  /** 你所在的这一层自己有没有几何（不算子组件）：工作台下拉换种类时，空的直接转、有东西的先问（main.ts pickWorkbench）。 */
+  layerHasGeometry(): boolean { return this.activeView.vertices().length > 0; }
   /** 某个定义的身体种类（物体窗口：对称只有网格体有）。 */
   kindOfDef(def: number): BodyKind { return this.scene.kindOf(def); }
   /** 活动池的显示视图（渲染 / 拾取读的那份契约 kernel-view.ts；任何种类的内核都有——选区的通用路径只认它）。 */

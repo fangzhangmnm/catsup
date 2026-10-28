@@ -279,7 +279,7 @@ const hud: HudModel = {
     if ((TOOLS as readonly string[]).includes(id)) { if (locomotion.isPlacing()) locomotion.cancelPlace(); editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as "box"); syncUi(); return; }
-    if (id === "objectWindow") { openObjectWindow(editor, hud, "children", objectBtn, syncUi, "end"); return; }   // 子组件物体菜单 / 浮条的「物体设置…」：窗口的家 = 右边物体钮
+    if (id === "objectWindow") { openObjectWindow(editor, hud, "children", objectBtn, syncUi, "start"); return; }   // 子组件物体菜单 / 浮条的「物体设置…」：窗口的家 = 右边物体钮
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
@@ -1084,9 +1084,10 @@ const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapB
 snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
 // 物体窗口的钮（UX 心智模型 §2.1：一个窗口只看一个指针——这一颗 = 你所在的这一层；子组件的物体菜单「物体设置…」也从这里开，当前换成它们）
-const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "gizmo-btn gizmo-object"; objectBtn.title = "物体：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
-objectBtn.innerHTML = iconHtml("object"); widgets.appendChild(objectBtn);
-objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, syncUi, "end"));
+// 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
+const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物体：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
+objectBtn.innerHTML = iconHtml("object"); $("modeSelect").after(objectBtn);
+objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, syncUi, "start"));
 // 车间里的机器（machine-window.ts MACHINES 表）：一台一颗钮，按车间 / 身体露（renderMachineBtns）；面板 = 那台机器的低频指令（user 10-28「每个机器一个面板，然后左栏是你的手和常用工具袋」）
 machineBtnsRef = MACHINES.map((m) => {
   const b = document.createElement("button"); b.type = "button"; b.className = "gizmo-btn gizmo-machine"; b.dataset.machine = m.id; b.title = `${m.label}：这一层的${m.label}指令`;
@@ -1302,7 +1303,22 @@ const btnSave = $<HTMLButtonElement>("btnSave");
 const finalBadge = $<HTMLElement>("finalBadge");
 // 编辑模式下拉（几何 / 表面）：下拉标准件，不用原生 <select>（user 2026-10-24「不要用ios自带的。丑」）
 // eslint-disable-next-line no-var
-var modeField: SelectField | undefined = mountSelectField($("modeSelect"), { items: () => editor.modes().map((m) => ({ value: m.id, label: m.label })), value: () => editor.modeId, onChange: (v) => editor.setMode(v as ModeId), ariaLabel: "编辑模式" });
+// 工作台下拉：这一层的身体管得了的工作台 + 另一种身体的建模工作台（标明要转种类）。user 10-28 夜「我希望一进来的那个物体可以变成mesh。而不是需要建立子物体」：
+// 一进来（最外层是硬表面体）就能在这里选「自由建模（转成网格体）」——这一层空的直接转，有几何的先问一句（能撤销、转完提示行说丢了什么）。反过来同理。
+const CROSS_WORKBENCH: Readonly<Record<string, { mode: ModeId; label: string; action: string; ask: string }>> = {
+  brep: { mode: "freeform", label: "自由建模（转成网格体）", action: "object.toMesh", ask: "现在这一层是硬表面体，自由建模只管网格体，所以要先转。一步，能撤销。硬表面才有的东西（曲线身份、参考线、平滑组之类）转过去不保留，转完提示行会写丢了什么。" },
+  mesh: { mode: "geometry", label: "硬表面建模（转回硬表面体）", action: "object.toBrep", ask: "现在这一层是网格体，硬表面建模只管硬表面体，所以要先转回去。一步，能撤销。不平的面会被拆开，转完提示行会写改了什么。" },
+};
+async function pickWorkbench(v: string): Promise<void> {
+  const cross = CROSS_WORKBENCH[editor.activeKind()];
+  if (!cross || v !== cross.mode || editor.modes().some((m) => m.id === v)) { editor.setMode(v as ModeId); syncUi(); return; }
+  if (editor.layerHasGeometry() && !(await openConfirmSheet("把这一层转了再换工作台？", cross.ask, { okLabel: "转", cancelLabel: "不转" }))) { syncUi(); return; }
+  editor.deselectAll(); editor.runAction(cross.action); editor.setMode(cross.mode); syncUi();
+}
+var modeField: SelectField | undefined = mountSelectField($("modeSelect"), {
+  items: () => { const own = editor.modes().map((m) => ({ value: m.id as string, label: m.label })), cross = CROSS_WORKBENCH[editor.activeKind()]; return cross && !own.some((m) => m.value === cross.mode) ? [...own, { value: cross.mode, label: cross.label }] : own; },
+  value: () => editor.modeId, onChange: (v) => { void pickWorkbench(v); }, ariaLabel: "编辑模式",
+});
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {
@@ -1588,7 +1604,7 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
+(window as unknown as { __catsup: unknown }).__catsup = { pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
 editor.setTool("line");
