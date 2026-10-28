@@ -164,6 +164,12 @@ export interface ViewState {
         } | null;
         point?: Pt3 | null;
     } | null;
+    /** 切割的刀线（上一个落点 → 光标）：永远画在最上面、不被几何挡（user 10-27「线还是需要画的，以及线不要被别的遮挡了。这样用户知道自己没退出刀」）；valid = 这一刀切得出来。 */
+    knifeLine?: {
+        a: Pt3;
+        b: Pt3;
+        valid: boolean;
+    } | null;
 }
 export declare class Renderer3 {
     private renderer;
@@ -221,6 +227,8 @@ export declare class Renderer3 {
     private labelSprites;
     private guideLines;
     private tapeLines;
+    private knifeLines;
+    private knifeKey;
     private gridMesh;
     private gridMat;
     private axesObj;
@@ -357,7 +365,12 @@ export declare class Renderer3 {
     /** 池网格改过的段 → 显卡。数组换过（长大了 / 全量重建换了线仓库）= 那份几何重建。 */
     private uploadPool;
     private disposePoolGpu;
-    /** 覆盖层：选中 / 悬停的面（世界坐标，只这几张）+ 选中 / 刮擦 / 悬停的边（粗线）。 */
+    /**
+     * 覆盖层：选中 / 悬停的面 + 选中 / 刮擦 / 悬停的边（粗线）。
+     * 不带贴图的面（绝大多数）：**不再叠一张世界坐标的面**——在它自己那个槽的节点下、用和面本身同一组三角（pool-mesh buildFaceRec，同样的 Float32 坐标、同一个材质 / 深度偏移），
+     * 画在后面：GPU 算出来的深度和面本身逐位相同，后画的赢 = 换颜色，没有 z-fighting（user 10-27「高亮感觉还有时候有z fighting，就简单的高亮和不高亮的primitive分开画或者画的时候不同颜色就那么难嘛」）。
+     * 带贴图的面照旧走世界坐标那张（少见；以后一并换）。
+     */
     private rebuildOverlay;
     /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */
     private setLineGeometry;

@@ -270,6 +270,15 @@ export type Op =
     edge: number;
     t?: number;
 }
+/** 删（自由建模的 X / Delete / 删除工具）：面 → 边 → 点三档一次；dissolve = 溶解（边 → 两侧面并一张、二度点去掉；溶解不了的跳过）。mesh/ops/delete.ts deleteSelection。 */
+ | {
+    op: "meshDelete";
+    def: number;
+    verts?: number[];
+    edges?: number[];
+    faces?: number[];
+    dissolve?: boolean;
+}
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {
     op: "addLayer";

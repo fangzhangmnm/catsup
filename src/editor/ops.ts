@@ -10,7 +10,7 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -103,6 +103,8 @@ export type Op =
   | { op: "meshKnife"; def: number; face: number; path: ({ v: number } | { e: number; t: number })[] }
   /** 环切：从 edge 出发沿四边形带切一圈，每条边在 t 处劈开（缺 = 0.5）。mesh/ops/loopcut.ts。 */
   | { op: "meshLoopCut"; def: number; edge: number; t?: number }
+  /** 删（自由建模的 X / Delete / 删除工具）：面 → 边 → 点三档一次；dissolve = 溶解（边 → 两侧面并一张、二度点去掉；溶解不了的跳过）。mesh/ops/delete.ts deleteSelection。 */
+  | { op: "meshDelete"; def: number; verts?: number[]; edges?: number[]; faces?: number[]; dissolve?: boolean }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -540,6 +542,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
+    case "meshDelete": { deleteSelection(meshOf(s, op.def).kernel, op, !!op.dissolve); return { scene: s, events: [] }; }
     case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
     case "meshLoopCut": { const r = loopCut(meshOf(s, op.def).kernel, op.edge, op.t ?? 0.5); if (!r.edges.length) throw new OpTargetError(`loop cut from edge ${op.edge}: not a quad strip`); return { scene: s, events: [] }; }
     case "meshExtrude": { const k = meshOf(s, op.def).kernel; if (op.along !== undefined && !op.faces?.length) extrudeAlongNormals(k, op, op.along); else extrudeAndOffset(k, op, op.offset ?? { x: 0, y: 0, z: 0 }); return { scene: s, events: [] }; }
@@ -598,6 +601,7 @@ export function describeOp(op0: Op): string {
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
+    case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;
     case "meshLoopCut": return `meshLoopCut def=${op.def} edge=${op.edge} t=${op.t ?? 0.5}`;
     case "meshExtrude": return `meshExtrude def=${op.def} ${op.faces?.length ? `faces=${op.faces.length}` : op.edges?.length ? `edges=${op.edges.length}` : `verts=${op.verts?.length ?? 0}`} ${op.along !== undefined ? `along=${op.along.toFixed(3)}` : `Δ=${(op.offset?.x ?? 0).toFixed(3)},${(op.offset?.y ?? 0).toFixed(3)},${(op.offset?.z ?? 0).toFixed(3)}`}`;

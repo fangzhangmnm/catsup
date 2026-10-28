@@ -32,7 +32,7 @@ svg.ico use { color: inherit; }
 
 #app { position: relative; height: 100%; }
 #stage { position: absolute; inset: 0; }
-#board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; display: block; }
+#board { position: absolute; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: default;   /* 普通箭头（user 10-27「能不能不要用十字鼠标style，大屏幕上很容易找不到」） */ display: block; }
 
 /* HUD（user 2026-09-06「hud 在视口里面…以后转 VR 会无疼」；2026-09-07 二稿：更游戏化——顶上空、左右两根竖栏、
    栏=弱玻璃无边框，文字（状态/版本）无背景只描白边；画布满屏，空白全部透给场景） */

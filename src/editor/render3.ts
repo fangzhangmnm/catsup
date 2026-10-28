@@ -48,7 +48,7 @@ import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { cross3, dot3, sub3 } from "../kernel/geom.ts";
-import { PoolMesh, type PoolMeshEnv, type TexSide, fanNormal } from "./pool-mesh.ts";
+import { PoolMesh, type PoolMeshEnv, type TexSide, fanNormal, buildFaceRec } from "./pool-mesh.ts";
 import { SPHERE_RINGS, circlePoints } from "./guide-pick.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
@@ -162,7 +162,7 @@ interface GpuFaces { readonly key: string; readonly mat: Material | null; readon
 interface GpuLines { readonly thick: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; }
 interface PoolGpu { readonly mesh: PoolMesh; faces: Map<string, GpuFaces>; lines: GpuLines | null; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
+interface SlotNodes { root: any; plain: any; /** 选中 / 悬停的面（同一个节点、同一个材质、和面本身同一组三角，画在后面 = 替换颜色；2026-10-27 Opus 5.5）。 */ sel: any; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
 
 export interface ViewState {
   selectionEdges: ReadonlySet<EdgeId>;
@@ -221,6 +221,8 @@ export interface ViewState {
   xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
+  /** 切割的刀线（上一个落点 → 光标）：永远画在最上面、不被几何挡（user 10-27「线还是需要画的，以及线不要被别的遮挡了。这样用户知道自己没退出刀」）；valid = 这一刀切得出来。 */
+  knifeLine?: { a: Pt3; b: Pt3; valid: boolean } | null;
 }
 
 /** 地面网格 = 一张 shader 平面（Blender 式；user 2026-10-24「根治，修……z-fight 加一个 z-offset」）：主线每 uStep、细线每 uStep/uSub，像素定宽（fwidth 抗锯齿），
@@ -345,7 +347,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -476,6 +478,10 @@ export class Renderer3 {
     this.tapeLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tapeLines.frustumCulled = false; this.tapeLines.visible = false;
     this.scene.add(this.tapeLines);
+    this.knifeLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX + 0.5, { vertexColors: true }));
+    this.knifeLines.material.depthTest = false; this.knifeLines.material.depthWrite = false;   // 刀线不被几何挡
+    this.knifeLines.frustumCulled = false; this.knifeLines.visible = false; this.knifeLines.renderOrder = 10;
+    this.scene.add(this.knifeLines);
     this.chargedLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.chargedLines.frustumCulled = false; this.chargedLines.visible = false;
     this.scene.add(this.chargedLines);
@@ -1109,6 +1115,18 @@ export class Renderer3 {
       this.tapeLines.visible = true;
     } else { this.tapeLines.visible = false; this.tapeKey = ""; }
 
+    // ---- 切割的刀线（最上层）----
+    const kl = view.knifeLine;
+    if (kl) {
+      const kk = `${kl.a.x},${kl.a.y},${kl.a.z}>${kl.b.x},${kl.b.y},${kl.b.z}|${kl.valid}`;
+      if (kk !== this.knifeKey) {
+        this.knifeKey = kk;
+        const c = this.tmpColor.setHex(kl.valid ? PALETTE.edgeSelected : 0x8a8a8a);
+        this.setLineGeometry(this.knifeLines, [kl.a.x, kl.a.y, kl.a.z, kl.b.x, kl.b.y, kl.b.z], [c.r, c.g, c.b, c.r, c.g, c.b]);
+      }
+      this.knifeLines.visible = true;
+    } else { this.knifeLines.visible = false; this.knifeKey = ""; }
+
     // ---- 吸附指示（小球 + 提示线）----
     const sn = view.snap;
     if (sn?.kind) {
@@ -1384,13 +1402,14 @@ export class Renderer3 {
     const root = new THREE.Group();
     root.matrixAutoUpdate = false;
     const plain = new THREE.Mesh(this.emptyGeo, this.faceMat); plain.frustumCulled = false; plain.visible = false;
+    const sel = new THREE.Mesh(this.emptyGeo, this.faceMat); sel.frustumCulled = false; sel.visible = false; sel.renderOrder = 2;   // 画在面之后：深度一模一样时后画的赢
     const pixel = new THREE.LineSegments(this.emptyGeo, this.pixelMat); pixel.frustumCulled = false; pixel.visible = false;
     const thick = new LineSegments2(this.emptyLineGeo, this.edgeMat); thick.frustumCulled = false; thick.visible = false;
     const xpixel = new THREE.LineSegments(this.emptyGeo, this.xrayPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3;
     const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3;
-    root.add(plain); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
+    root.add(plain); root.add(sel); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
-    return { root, plain, tex: [], pixel, thick, xpixel, xthick, gen: 0 };
+    return { root, plain, sel, tex: [], pixel, thick, xpixel, xthick, gen: 0 };
   }
   private texMatFor(mat: Material, side: TexSide = "double"): any {
     let bySide = this.texMats.get(mat);
@@ -1497,15 +1516,37 @@ export class Renderer3 {
     for (const gf of pg.faces.values()) { gf.geo.dispose(); gf.geoDim.dispose(); }
     if (pg.lines) { pg.lines.geo.dispose(); pg.lines.geoDim.dispose(); }
   }
-  /** 覆盖层：选中 / 悬停的面（世界坐标，只这几张）+ 选中 / 刮擦 / 悬停的边（粗线）。 */
+  /**
+   * 覆盖层：选中 / 悬停的面 + 选中 / 刮擦 / 悬停的边（粗线）。
+   * 不带贴图的面（绝大多数）：**不再叠一张世界坐标的面**——在它自己那个槽的节点下、用和面本身同一组三角（pool-mesh buildFaceRec，同样的 Float32 坐标、同一个材质 / 深度偏移），
+   * 画在后面：GPU 算出来的深度和面本身逐位相同，后画的赢 = 换颜色，没有 z-fighting（user 10-27「高亮感觉还有时候有z fighting，就简单的高亮和不高亮的primitive分开画或者画的时候不同颜色就那么难嘛」）。
+   * 带贴图的面照旧走世界坐标那张（少见；以后一并换）。
+   */
   private rebuildOverlay(kd: GeomView, view: ViewState): void {
     const ids = new Set<FaceId>(view.selectionFaces);
     if (view.hoverFace !== null) ids.add(view.hoverFace);
     const groups = new Map<object | null, { pos: number[]; nor: number[]; col: number[]; uv: number[] }>();
+    const wv = kd as Partial<WorldView>, bySlot = new Map<number, { pos: number[]; nor: number[]; col: number[] }>();
+    for (const n of this.slotNodes.values()) { if (n.sel.visible) { n.sel.visible = false; } }
     for (const fid of ids) {
       const f = kd.face(fid), rec = kd.planeOf(fid);
       if (!f || !rec) continue;
       const mat = kd.faceMaterial(fid);
+      if (wv.slots && wv.scene && !mat?.texture) {   // 同节点、同三角、后画
+        const si = Math.floor(fid / ID_STRIDE), s = wv.slots.find((x) => x.index === si);
+        if (s && this.slotNodes.get(slotKey(s))) {
+          const r0 = buildFaceRec(s.kernel, fid - si * ID_STRIDE, (slot) => wv.scene!.materialOfSlot(s.pool.def, slot));
+          if (r0) {
+            let [r, g, b] = srgb(view.selectionFaces.has(fid) ? PALETTE.faceSelected : PALETTE.faceHover);
+            if (mat) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; }
+            let acc = bySlot.get(si);
+            if (!acc) { acc = { pos: [], nor: [], col: [] }; bySlot.set(si, acc); }
+            for (let i = 0; i < r0.pos.length; i++) { acc.pos.push(r0.pos[i]); acc.nor.push(r0.nor[i]); }
+            for (let i = 0; i < r0.pos.length / 3; i++) acc.col.push(r, g, b);
+            continue;
+          }
+        }
+      }
       let [r, g, b] = srgb(view.selectionFaces.has(fid) ? PALETTE.faceSelected : PALETTE.faceHover);
       if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; }
       const key = mat?.texture ? mat : null;
@@ -1518,6 +1559,17 @@ export class Renderer3 {
         if (key) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
       }
     }
+    for (const [si, acc] of bySlot) {
+      const s = wv.slots!.find((x) => x.index === si)!, n = this.slotNodes.get(slotKey(s))!;
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", new THREE.Float32BufferAttribute(acc.pos, 3));
+      geo.setAttribute("normal", new THREE.Float32BufferAttribute(acc.nor, 3));
+      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(acc.col, 3));
+      geo.setAttribute("aColorB", new THREE.Float32BufferAttribute(acc.col, 3));
+      if (n.sel.geometry !== this.emptyGeo) n.sel.geometry.dispose();
+      n.sel.geometry = geo; n.sel.material = n.plain.material; n.sel.visible = true;   // 和这个槽的面同一个材质 = 同一个深度偏移
+    }
+    for (const n of this.slotNodes.values()) if (!n.sel.visible && n.sel.geometry !== this.emptyGeo) { n.sel.geometry.dispose(); n.sel.geometry = this.emptyGeo; }
     const plain = groups.get(null);
     this.faceMesh.material = this.faceMatTop;
     if (plain && plain.pos.length) {

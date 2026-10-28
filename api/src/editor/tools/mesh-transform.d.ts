@@ -24,6 +24,10 @@ export declare class MeshTransformTool implements ToolHandler {
     private snapT;
     constructor(kind: MeshXformKind);
     active(): boolean;
+    startModal(ctx: ToolCtx, s: {
+        x: number;
+        y: number;
+    }): boolean;
     cancel(): void;
     sample(): Record<string, number>;
     live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;

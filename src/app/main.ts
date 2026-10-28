@@ -198,7 +198,7 @@ const hud: HudModel = {
     return [
     { id: "undo", label: "撤销", icon: "arrow-undo", disabled: !editor.canUndo() },
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
-    { id: "delete", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() || (brepOnly && !editor.hasPoolSelection()) },
+    { id: "delete", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
     { id: "group", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
     { id: "component", label: "建组件", icon: "object", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },
     { id: "explode", label: "炸开", icon: "explode-folder", hidden: brepOnly || !editor.hasPoolSelection() },
@@ -276,7 +276,7 @@ const RAIL_GROUPS: RailGroup[] = [
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
-const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出" } };
+const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出", erase: "删除" } };
 /** 工作台自己定死的左柱（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」+「用两字词语吧和硬表面对齐」：选择 · 挤出 · 移动 · 旋转 · 缩放 · 切割 · 删除 · 插入（删除 / 插入还没做的不露）。 */
 const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"] };
 const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = MODE_TOOL_LABEL[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
@@ -954,6 +954,19 @@ window.addEventListener("keydown", (ev) => {
     hintEl.textContent = editor.grid.on ? "格点吸附：开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "格点吸附：关（按住 Shift 临时开）";
     syncUi(); return;
   }
+  // 自由建模的 Blender 键位（user 10-27「然后能不能blender 快捷键无缝接上」；硬表面照旧 SketchUp 键位）：
+  // G / R / S / E = 有选区就从光标处起手移动 / 旋转 / 缩放 / 挤出（跟着鼠标走、点一下落定、Esc / 右键取消；没选区 = 切到那把工具），手势中 X / Y / Z 锁轴（Shift = 锁面）；
+  // A 全选、X / Delete 删除、J 连线（两个点）、K 切割、Ctrl+R 环切（下一下点边）。移动工具本身 = Blender 的 tweak（按下就拖），G 是键盘起手的另一回事。
+  if (editor.modeId === "freeform" && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !locomotion.isWalking()) {
+    const k = ev.key.toLowerCase();
+    if (editor.isGestureActive() && (k === "x" || k === "y" || k === "z")) { ev.preventDefault(); editor.lockKey(k, ev.shiftKey); syncUi(); return; }
+    const modal: Record<string, Tool> = { g: "move", r: "rotate", s: "scale", e: "pp" };
+    if (modal[k] && !ev.shiftKey) { ev.preventDefault(); if (!editor.startModal(modal[k])) editor.setTool(modal[k]); syncUi(); return; }
+    if (k === "a" && !ev.shiftKey) { ev.preventDefault(); editor.selectAll(); syncUi(); return; }
+    if (k === "x" && !ev.shiftKey) { ev.preventDefault(); if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return; }
+    if (k === "j" && !ev.shiftKey) { ev.preventDefault(); editor.runAction("mesh.connect"); syncUi(); return; }
+  }
+  if (editor.modeId === "freeform" && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.code === "KeyR") { ev.preventDefault(); editor.armLoopCut(); syncUi(); return; }   // Blender Ctrl+R（浏览器的刷新被拦下）
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X

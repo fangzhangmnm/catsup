@@ -19,6 +19,11 @@ export declare class MeshKnifeTool implements ToolHandler {
     private start;
     private startW;
     private hov;
+    /** Ctrl+R 预备：下一下点到边上直接环切（Blender Ctrl+R；纪元账本 FM10「也加一个模式按钮」）。 */
+    private loopNext;
+    armLoop(ctx: ToolCtx): void;
+    /** 光标在过上一个落点、垂直视线的平面上的位置（没落在点 / 边上时刀线也画到这）。 */
+    private cursorW;
     /** 这一串切开始时有没有选区（user 10-27：没选区开始 = 做完也不留选区）。 */
     private hadSel;
     active(): boolean;
@@ -34,9 +39,13 @@ export declare class MeshKnifeTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
+    /** 屏幕点 → 过上一个落点、垂直于视线的平面上的点。 */
+    private onPlane;
+    /** 现在这一下切不切得出来（刀线的颜色）。 */
+    private validNow;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
-    viewExtras(): Partial<ViewState>;
+    viewExtras(ctx: ToolCtx): Partial<ViewState>;
     private loopCutAt;
     /** 光标下看得见的点 / 边上的点（拓扑吸附，永远开）。边上的点 = 光标在这条边屏幕投影上的位置。 */
     private snapAt;

@@ -49,6 +49,13 @@ export class MeshTransformTool implements ToolHandler {
   constructor(kind: MeshXformKind) { this.tool = kind; }
 
   active(): boolean { return this.vids.length > 0; }
+  startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
+    const sel = ctx.selection();
+    if (!(sel.faces.size || sel.edges.size || sel.verts.size)) return false;
+    this.down(ctx, { x: s.x, y: s.y, clientX: s.x, clientY: s.y, pointerType: "mouse", shiftKey: false } as ToolPointer);
+    return this.active();
+  }
+
   cancel(): void { this.vids = []; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh

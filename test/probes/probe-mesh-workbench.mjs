@@ -39,7 +39,7 @@ const res = await page.evaluate(async () => {
   // ③ brep 专属动词在网格体池里：诚实拒绝、不崩、不记步
   const pos0 = e.history.position();
   out.hudInMesh = hud.edits().filter((x) => !x.hidden).map((x) => x.id);
-  e.deleteSelection(); const h1 = hint(); e.makeGroup(); const h2 = hint(); e.softenSelection(true); const h3 = hint();
+  e.hideSelection(); const h1 = hint(); e.makeGroup(); const h2 = hint(); e.softenSelection(true); const h3 = hint();   // 删除在网格体里能用了（v0.15.22），换隐藏当「SU 专属动词」的例子
   out.brepVerbs = { pos: e.history.position() - pos0, faces: e.selection.faces.size, hints: [h1, h2, h3].map((h) => /SU 体的动词/.test(h ?? "")) };
   // ④ 挪：网格体池里选中顶面 → runAction("move", dz=0.5) → 顶面四个点上去；撤销回来
   e.deselectAll(); await click(P(0.5, 0.5, 1));
@@ -76,7 +76,7 @@ res.errs = errs;
 const ok = res.kindAfterCast === "mesh" && res.enter.mode === "freeform" && res.enter.kind === "mesh" && res.enter.selKind === "mesh" && res.enter.modes.join() === "freeform" && res.enter.depth === 1
   && res.pickTop.faces === 1 && /1 面/.test(res.pickTop.readout) && res.clickUndo.faces === 0 && res.clickUndo.redoFaces === 1 && res.selectAll.faces === 6 && res.selectAll.edges === 12
   && res.brepVerbs.pos === 0 && res.brepVerbs.faces === 6 && res.brepVerbs.hints.every(Boolean)
-  && ["group", "component", "mirror", "hide", "soften", "harden", "explode", "delete"].every((id) => !res.hudInMesh.includes(id)) && res.hudInMesh.includes("deselect")
+  && ["group", "component", "mirror", "hide", "soften", "harden", "explode"].every((id) => !res.hudInMesh.includes(id)) && res.hudInMesh.includes("deselect") && res.hudInMesh.includes("delete")
   && res.meshMove.topZ === 1.5 && res.meshMove.steps === 1 && res.meshMoveUndo.topZ === 1 && res.meshMoveUndo.mode === "freeform" && res.meshMoveUndo.selKind === "mesh"
   && res.exit.depth === 0 && res.exit.mode === "geometry" && res.exit.selKind === "brep" && res.exit.pools === 1 && res.exit.modes.join() === "geometry,surface"
   && res.mixed.dInstX === 1 && res.mixed.dLooseTopX === 1 && res.mixedUndo.dInstX === 0 && res.mixedUndo.dLooseTopX === 0 && res.mixedUndo.pos === 0

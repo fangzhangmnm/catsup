@@ -208,6 +208,10 @@ export interface ToolHandler {
   readonly draws?: boolean;
   /** steps 工具：等下一点时在锚点附近又按一下，也递给工具（底座默认当「同一处又点了一下」吞掉）。刀要它：同一条边点两下 = 环切。 */
   readonly repeatTap?: boolean;
+  /** 键盘起手（Blender G / R / S / E；自由建模）：用选区当目标、以光标处为起点开始一次手势（不用按下）；之后跟着鼠标走、点一下落定、Esc / 右键取消。没选区 = false。 */
+  startModal?(ctx: ToolCtx, s: { x: number; y: number }): boolean;
+  /** 切割：下一下点到边上直接环切（Ctrl+R）。 */
+  armLoop?(ctx: ToolCtx): void;
   /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
   readonly previewOnHover?: boolean;
   /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */

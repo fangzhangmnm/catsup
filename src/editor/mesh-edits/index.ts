@@ -3,7 +3,34 @@
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { loopCut as loopCutOp } from "../../mesh/ops/index.ts";
+import { loopCut as loopCutOp, knife as knifeOp } from "../../mesh/ops/index.ts";
+import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
+
+/** 两个点共有的面（最小 id；没有 = null）。 */
+function commonFaceOf(m: MeshKernel, a: number, b: number): number | null {
+  const fa = new Set<number>(); for (const e of m.vEdges(a)) for (const f of m.eFaces(e)) fa.add(f);
+  let best: number | null = null; for (const e of m.vEdges(b)) for (const f of m.eFaces(e)) if (fa.has(f) && (best === null || f < best)) best = f;
+  return best;
+}
+
+/** 连线（Blender J = Connect Vertex Path 的两点版；user 10-27「blender里面选择两个点之后ctrl j 是连线对吧」——是 J，Ctrl+J 是合并物体）：同一张面上的两个点之间切一刀。 */
+export const connect: Command<MeshUnit> = {
+  id: "mesh.connect", unit: "mesh", title: "连线",
+  defaults: () => ({}),
+  params: () => [],
+  plan(env, u) {
+    if (!u.sel || u.sel.verts.size !== 2 || u.sel.edges.size || u.sel.faces.size) return { ops: [], count: 0 };
+    const [a, b] = [...u.sel.verts].sort((x, y) => x - y), m = env.scene.mesh(u.def).kernel;
+    if (!m.hasV(a) || !m.hasV(b)) return { ops: [], count: 0 };
+    if (m.edgeOf(a, b) >= 0) return { ops: [], count: 0, notes: ["这两个点之间已经有边了"] };
+    const f = commonFaceOf(m, a, b);
+    if (f === null) return { ops: [], count: 0, notes: ["这两个点不在同一张面上"] };
+    const probe = m.clone(); knifeOp(probe, f, [{ v: a }, { v: b }]);
+    return { ops: [{ op: "meshKnife", def: u.def, face: f, path: [{ v: a }, { v: b }] }], count: 1, select: { edges: [probe.edgeOf(a, b)] } };
+  },
+  done: () => "连线：两个点之间切了一刀（新边在选区里）",
+  none: "连线：选同一张面上的两个点（J）",
+};
 
 export const loopCut: Command<MeshUnit> = {
   id: "mesh.loopCut", unit: "mesh", title: "环切",
@@ -21,9 +48,12 @@ export const loopCut: Command<MeshUnit> = {
   none: "环切：选一条四边形带上的边（只选一条）",
 };
 
-const commands: readonly Command[] = [loopCut as Command];
+const commands: readonly Command[] = [loopCut as Command, connect as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
-const actions: readonly Action[] = [{ id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } }];
-const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }];
+const actions: readonly Action[] = [
+  { id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } },
+  { id: "mesh.connect", icon: "line", label: () => "连线（J）", commands: { mesh: "mesh.connect" } },
+];
+const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }];
 
 export const meshEdits: Family = { name: "meshEdits", commands, actions, placements };

@@ -1351,7 +1351,11 @@ export class Editor {
       if (this.selection.faces.size || delE.size) {
         this.commitOp({ op: "eraseSelection", at, faces: [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)), edges: [...delE].map((e) => edgeKey(k, e)) });
       }
-    } else if (this.hasGeometrySelection() || this.hasPointSelection()) this.requireBrep("删除几何");   // 网格体的删除 = M4；选中的子实例照删
+    } else if (this.activeKind() === "mesh" && (this.hasGeometrySelection() || this.hasPointSelection())) {
+      // 网格体：按选区的种类删（Blender X 同语义）——有面 = 只删面（面带的环边不连累邻面）、否则有边 = 删边（连着的面一起）、否则删点（2026-10-27 Opus 5.5）
+      const sel = this.selection, f = [...sel.faces], e = [...sel.edges], v = [...sel.verts];
+      this.commitOp({ op: "meshDelete", def: at.def, ...(f.length ? { faces: f } : e.length ? { edges: e } : { verts: v }) });
+    } else if (this.hasGeometrySelection() || this.hasPointSelection()) this.requireBrep("删除几何");
     const def = this.scene.defOfContext(this.ctx);
     const kept = new Map<string, PoolPick>();   // 锁住的不删、留在选区里（要解锁得先选中它）
     for (const [key, p] of [...this.selectedPools]) {
@@ -2700,6 +2704,31 @@ export class Editor {
     return this.anchor3 !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
+  /**
+   * 键盘起手（自由建模的 Blender G / R / S / E；user 10-27「然后能不能blender 快捷键无缝接上」）：有选区 = 切到那把工具、以光标处为起点直接进手势
+   * （跟着鼠标走、点一下落定、Esc / 右键取消）；没选区 / 不在自由建模 / 正在手势里 = false（调用方退回「切工具」）。
+   */
+  startModal(tool: Tool): boolean {
+    if (this.mode.id !== "freeform" || this.gestureActive() || !this.lastPtr) return false;
+    if (!this.mode.tools.includes(tool)) return false;
+    const at = this.lastPtr;
+    if (this._tool !== tool) this.setTool(tool);
+    const H = this.handlers[tool];
+    if (!H?.startModal) return false;
+    this.samples = []; this.downPoint = null;
+    if (!H.startModal(this.toolCtx, at)) return false;
+    this.armed = true; this.canArm = true; this.justCommitted = false;
+    this.computeLive(); this.host.changed(); this.draw();
+    return true;
+  }
+  /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
+  armLoopCut(): boolean {
+    if (this.mode.id !== "freeform" || !this.mode.tools.includes("knife")) return false;
+    if (this._tool !== "knife") this.setTool("knife"); else this.cancelGesture();
+    this.handlers.knife?.armLoop?.(this.toolCtx);
+    this.draw();
+    return true;
+  }
   /** 探针用：手势中的实时世界（预演）。 */
   liveWorldForProbe(): WorldView { return this.liveWorld(); }
   private liveWorld(): WorldView { return this.gestureActive() || this.cmdPreview ? this.worldView(this.live ?? (this.liveMesh ? meshViewOf(this.liveMesh) : null), this.liveOverride) : this.worldView(); }

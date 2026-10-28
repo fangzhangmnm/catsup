@@ -42,11 +42,16 @@ export class MeshKnifeTool implements ToolHandler {
   private start: KnifePoint | null = null;
   private startW: Pt3 | null = null;
   private hov: Hit | null = null;
+  /** Ctrl+R 预备：下一下点到边上直接环切（Blender Ctrl+R；纪元账本 FM10「也加一个模式按钮」）。 */
+  private loopNext = false;
+  armLoop(ctx: ToolCtx): void { this.cancel(); this.loopNext = true; ctx.hint("环切：点一条边（四边形带上的）就切一圈；Esc 取消"); }
+  /** 光标在过上一个落点、垂直视线的平面上的位置（没落在点 / 边上时刀线也画到这）。 */
+  private cursorW: Pt3 | null = null;
   /** 这一串切开始时有没有选区（user 10-27：没选区开始 = 做完也不留选区）。 */
   private hadSel = false;
 
   active(): boolean { return this.start !== null; }
-  cancel(): void { this.start = this.startW = null; this.hov = null; }
+  cancel(): void { this.start = this.startW = null; this.hov = null; this.cursorW = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshKnife: { start: this.start, hov: this.hov?.pt ?? null } }; }
@@ -58,11 +63,35 @@ export class MeshKnifeTool implements ToolHandler {
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
     this.hov = this.snapAt(ctx, s);
     ctx.setSnap(this.hov ? { p: this.hov.w, kind: this.hov.kind } : null);
-    if (this.hov) ctx.setCursor(this.hov.w);
+    this.cursorW = this.hov?.w ?? this.onPlane(ctx, s);
+    if (this.cursorW) ctx.setCursor(this.cursorW);
+  }
+  /** 屏幕点 → 过上一个落点、垂直于视线的平面上的点。 */
+  private onPlane(ctx: ToolCtx, s: { x: number; y: number }): Pt3 | null {
+    const a = this.startW;
+    if (!a) return null;
+    const vp = ctx.vp(), fr = ctx.frame(), pa = fr.project?.(a, vp), n = fr.ray(pa?.x ?? s.x, pa?.y ?? s.y, vp).dir, r = fr.ray(s.x, s.y, vp);
+    const den = n.x * r.dir.x + n.y * r.dir.y + n.z * r.dir.z;
+    if (Math.abs(den) < 1e-9) return null;
+    const t = (n.x * (a.x - r.origin.x) + n.y * (a.y - r.origin.y) + n.z * (a.z - r.origin.z)) / den;
+    return { x: r.origin.x + r.dir.x * t, y: r.origin.y + r.dir.y * t, z: r.origin.z + r.dir.z * t };
+  }
+  /** 现在这一下切不切得出来（刀线的颜色）。 */
+  private validNow(ctx: ToolCtx): boolean {
+    const a = this.start, h = this.hov;
+    if (!a || !h) return false;
+    const m = ctx.mesh(), b = h.pt;
+    if ("e" in a && "e" in b && a.e === b.e) return true;   // 同一条边 = 环切
+    return !cutsNothing(m, a, b) && commonFace(m, a, b) !== null;
   }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     const h = this.snapAt(ctx, ev);
+    if (this.loopNext) {
+      this.loopNext = false;
+      if (h && "e" in h.pt) { const sel = ctx.selection(); this.hadSel = sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0; this.loopCutAt(ctx, h.pt.e); return; }
+      ctx.hint("环切：要点在边上（Ctrl+R 再来一次）"); return;
+    }
     if (!h) { ctx.hint(this.start ? "切割：落在点或边上（停在面中间还没做）；Esc 收刀" : "切割：在点或边上按下开始切；同一条边点两下 = 环切"); return; }
     if (!this.start) { const sel = ctx.selection(); this.hadSel = sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0; this.start = h.pt; this.startW = h.w; ctx.setAnchor(h.w); ctx.setCursor(h.w); ctx.hint("切割：点下一个点切一刀（同一张面上的点或边）；同一条边再点一下 = 环切；Esc 收刀"); return; }
     const a = this.start, b = h.pt, m = ctx.mesh(), def = ctx.activePool().def;
@@ -93,7 +122,10 @@ export class MeshKnifeTool implements ToolHandler {
     return "切一刀";
   }
 
-  viewExtras(): Partial<ViewState> { return this.startW && this.hov ? { tape: { a: this.startW, b: this.hov.w } } : {}; }
+  viewExtras(ctx: ToolCtx): Partial<ViewState> {   // 刀没退出就一直画刀线（切不出来 = 灰；不被几何挡）
+    const b = this.hov?.w ?? this.cursorW;
+    return this.startW && b ? { knifeLine: { a: this.startW, b, valid: this.validNow(ctx) } } : {};
+  }
 
   private loopCutAt(ctx: ToolCtx, e: number): void {
     const m = ctx.mesh(), probe = m.clone(), r = loopCut(probe, e, 0.5), hadSel = this.hadSel;

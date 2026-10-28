@@ -923,6 +923,13 @@ export declare class Editor {
     private applyHysteresis;
     private gestureActive;
     /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
+    /**
+     * 键盘起手（自由建模的 Blender G / R / S / E；user 10-27「然后能不能blender 快捷键无缝接上」）：有选区 = 切到那把工具、以光标处为起点直接进手势
+     * （跟着鼠标走、点一下落定、Esc / 右键取消）；没选区 / 不在自由建模 / 正在手势里 = false（调用方退回「切工具」）。
+     */
+    startModal(tool: Tool): boolean;
+    /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
+    armLoopCut(): boolean;
     /** 探针用：手势中的实时世界（预演）。 */
     liveWorldForProbe(): WorldView;
     private liveWorld;

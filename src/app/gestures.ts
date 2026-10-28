@@ -255,6 +255,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     // 右键拖成了环绕就不弹；触屏长按走自家计时器（系统 contextmenu 事件在 iOS 上不来）
     if (rightDown?.moved) { rightDown = null; return; }
     rightDown = null;
+    if (editor.modeId === "freeform" && editor.isGestureActive()) { editor.cancel(); return; }   // 自由建模：手势中右键 = 取消（Blender G / R / S / E 同款），不弹菜单
     if ((me as PointerEvent).pointerType === "touch") return;
     const r = canvas.getBoundingClientRect();
     opts.onContext(me.clientX - r.left, me.clientY - r.top, me.clientX, me.clientY);
