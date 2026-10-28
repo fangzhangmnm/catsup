@@ -229,6 +229,8 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
   meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
+/** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
+const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
 function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
 function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }
 
@@ -1101,9 +1103,10 @@ export class Editor {
     const op = this.history.log()[pos - 1];
     const pool: PoolRef = ("at" in op && op.at) ? op.at : { def: this.scene.root, group: null };
     try {
-      const before = this.history.stateAt(pos - 1);
-      if (!before.hasPool(pool) || before.kindOf(pool.def) !== "brep") return null;
-      return { op, brep: before.kernelOf(pool).toBrep(), pool };
+      if (!this.scene.hasPool(pool) || this.scene.kindOf(pool.def) !== "brep") return null;
+      const k = this.history.beforeLastOp(pool) ?? (this.history.log()[pos - 1] && SKELETON_ONLY.has(op.op) ? this.scene.kernelOf(pool) : null);   // 按记录倒推，不重放指令流（v0.15.32）
+      if (!k) return null;
+      return { op, brep: k.toBrep(), pool };
     } catch { return null; }
   }
 

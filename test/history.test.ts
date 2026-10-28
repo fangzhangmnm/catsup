@@ -184,6 +184,16 @@ describe("history: op 日志 + 检查点环（A1 正规 undo）", () => {
     s = h.undo()!.scene; eq(box.v, 0, "撤销把部件放回去"); eq(rootK(s).edges().length, 0, "场景记录同一步撤掉");
     s = h.redo(s)!.scene; eq(box.v, 5, "重做再放回来"); eq(fingerprint(rootK(s)), g0);
   });
+  it("beforeLastOp：上一条 op 之前的池内核按记录倒推 = stateAt(pos − 1)（kernel 差量 / pool 整表 / 整份场景三种记录）；没碰的池 = null", () => {
+    const h = new History(); let s = new Scene(); const at = { def: s.root, group: null };
+    s = h.commit(s, rect(0, 0, 10, 10)).scene;
+    s = h.commit(s, chord(3)).scene;
+    eq(fingerprint(h.beforeLastOp(at)!), fingerprint(rootK(h.stateAt(h.position() - 1))), "kernel 差量记录：倒推 = 重放");
+    eq(fingerprint(rootK(s)), fingerprint(rootK(h.replay())), "真身没被倒推碰到");
+    s = h.commit(s, { op: "clear" }).scene;   // 整份场景记录
+    const b = h.beforeLastOp(at); assert(b !== null, "整份场景记录也能倒推"); eq(fingerprint(b!), fingerprint(rootK(h.stateAt(h.position() - 1))));
+    eq(h.beforeLastOp({ def: 999, group: null }), null, "没这个池 = null");
+  });
   it("evictedSteps：被配额驱逐的是步数不是 op 数", () => {
     const h = new History(undefined, { quotaBytes: 1 }); let s = new Scene();
     s = h.commit(s, rect(0, 0, 10, 10)).scene;

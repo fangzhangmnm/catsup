@@ -1,5 +1,6 @@
 import { Scene, type PoolRef, type DefId } from "../scene/scene.ts";
 import { type ApplyResult, type Op } from "./ops.ts";
+import type { Kernel } from "../kernel/kernel.ts";
 /** 撤销栈配额（字节）。 */
 export declare const UNDO_QUOTA_BYTES: number;
 /** 应用失败：cause = 内核 / 解析抛的原错；restored = 提交前状态（调用方直接换用；kernel 型 = 同一个场景对象、内核已换回）。 */
@@ -77,6 +78,12 @@ export declare class History<M = unknown> {
     private topStart;
     /** 封步：这一步结束时的会话（重做回到它）+ 可补标签。没有步 = 不做（规章定义的结果，不炸）。 */
     sealStep(after: M, label?: StepLabel): void;
+    /**
+     * 上一条 op 提交之前、池 at 的内核（复现包「上一步」钮）：按这条 op 的记录倒推一次——kernel 差量 = 在真身的拷贝上应用一次（记录存的是撤销方向）；
+     * pool 整表 = 那份旧表的拷贝；整份场景记录 = 快照里的那个池。不重放指令流（以前 stateAt(pos − 1) = O(指令数)，大文件上会卡）。
+     * 没有上一条 / 记录被驱逐 / 这条 op 没碰 at / at 在那之前还不存在 → null（规章定义的结果，不猜）。
+     */
+    beforeLastOp(at: PoolRef): Kernel | null;
     /** 栈顶那一步的标签（提示行 / 马后炮标题）。 */
     topLabel(): StepLabel | undefined;
     /** 只改会话（选区 / 进出组件）的一步：0 条 op，只有会话记录——「撤销也撤选区」（user 10-27「这个我们要」）。 */

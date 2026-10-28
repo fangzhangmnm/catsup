@@ -212,6 +212,23 @@ export class History<M = unknown> {
     if (rec) rec.after = after; else this.sessions[i] = { before: after, after };   // 没记「之前」的步（直接调 History 的调用方）：之前 = 之后，撤销不动会话
     if (label) this.labels[i] = label;
   }
+  /**
+   * 上一条 op 提交之前、池 at 的内核（复现包「上一步」钮）：按这条 op 的记录倒推一次——kernel 差量 = 在真身的拷贝上应用一次（记录存的是撤销方向）；
+   * pool 整表 = 那份旧表的拷贝；整份场景记录 = 快照里的那个池。不重放指令流（以前 stateAt(pos − 1) = O(指令数)，大文件上会卡）。
+   * 没有上一条 / 记录被驱逐 / 这条 op 没碰 at / at 在那之前还不存在 → null（规章定义的结果，不猜）。
+   */
+  beforeLastOp(at: PoolRef): Kernel | null {
+    if (this.cursor === 0 || this.cursor <= this.evicted) return null;
+    const list = this.entries[this.cursor - 1];
+    if (!list.length) return null;
+    const same = (b: PoolRef): boolean => b.def === at.def && b.group === at.group;
+    for (const e of [...list].reverse()) {
+      if (e.kind === "kernel" && same((e.data as KernelRec).at)) { const k = poolKernel(this.current, at).clone(); k.applyDelta((e.data as KernelRec).delta); return k; }
+      if (e.kind === "pool" && same((e.data as PoolRec).at)) return (e.data as PoolRec).kernel.clone();
+      if (e.kind === "scene" && !(e.data as SceneRec).skeleton) { const sc = (e.data as SceneRec).snapshot; return sc.hasPool(at) && sc.kindOf(at.def) === "brep" ? sc.kernelOf(at).clone() : null; }
+    }
+    return null;   // 只有骨架记录（挪实例 / 层 / 材质……）：内核没动，这一步的「之前」对这个池 = 现在
+  }
   /** 栈顶那一步的标签（提示行 / 马后炮标题）。 */
   topLabel(): StepLabel | undefined { const i = this.topStart(); return i < 0 ? undefined : this.labels[i]; }
 
