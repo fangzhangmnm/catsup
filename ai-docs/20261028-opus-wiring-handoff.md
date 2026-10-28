@@ -3,11 +3,12 @@
 > created 20261028 by Claude Fable 5.1 · as-of v0.16.4 / 2026-10-28 晚 · user「opus的接线有文档对吧」→ 这一份。
 > 先读：`20261028-ux-mental-model.md`（§2 五张图、§6 落地顺序、§8 补 1–3）、`20261028-mirror-ux-epoch-ledger.md`（UX1–UX37，每条 user 原话都在）、仓 `CLAUDE.md`「当前纪元 0.16」段。设计全拍过了，下面每条只是接线；**有疑问看账本那一行的原话，别再问 user 拍过的事。**
 
-## 别碰的（Fable 在做 / 做完了）
+## Fable 做好了的（10-28 晚；动之前读它的稿，别重新发明）
 
-- `src/mesh/mirror.ts`、`src/editor/editor.ts` 镜像那一段（`mirrorRewrite / mirrorForceBefore / mirrorForceAfter / mirrorPreview / mirrorBlocks`）——镜像重做（`20261028-mirror-redo-design.md`）。
-- `src/editor/history.ts` / `step()` / `commitIn` 的护栏——撤销 / 重做的瑞士奶酪轮（家族周账 F-113）。
-- `src/kernel/`、`src/mesh/`（内核）——有坑记账给 Fable。
+- **镜像做好了**（v0.16.5 挪点纪律四条 + v0.16.6 对称属性进文件；设计稿 `20261028-mirror-redo-design.md`；user 10-28 晚「镜像不用我审了对吧，四条规则没问题」）：`src/mesh/mirror.ts`（`mirrorMoves(…, mode)` / `symmetrize` + `removeSeamWalls`）、`src/editor/editor.ts` 镜像那一段、`Scene.meshMirrors`。可以动，但**新加 mesh op / 网格体动作必须在 `src/mesh/mirror-ops.ts` 登记**（守卫 `test/mirror-ops.test.ts` 红了就是在提醒你）。已知边角（设计稿 §5.5）：点拖到中缝一条边的中间不劈边、面会捏一下——要做的话是一条小活，先读 R2。
+- **撤销 / 重做护栏审完了**（v0.16.7，家族周账 F-113 done；制度稿 `20261028-undo-step-regime.md` §8⅞）：`history.ts` / `step()` / `commitIn` 照制度用——提交一律 `commitIn(pass, …)`，守卫 `test/step-pass-guard.test.ts` 会拦；改了撤销 / 选区 / 步相关的代码必跑 `probe-undo-fuzz`。
+- **网格体定点：user 拍了 A（维持 f64，不上格）**——`CATSUP_mesh` 的 positions 不动；大文件 / 雕刻的精度等那个纪元（取舍稿 `20261028-mesh-fixed-point-tradeoff.md` §6）。
+- `src/kernel/`、`src/mesh/` 内核里碰到坑：记账给 Fable，别在接线里绕。
 
 ## 清单（按顺序；每条 = 做什么 / 改哪 / 怎么验 / 账本）
 
