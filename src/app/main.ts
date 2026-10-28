@@ -126,7 +126,7 @@ const hintEl = $("hint");
 const tipEl = $("tip");
 /** 盖上图库（或别的整屏覆盖层）前收掉画布上的光标提示 / 悬停（user 10-26：回图库之后读数框还挂在左上角——从菜单进图库指针没「离开画布」，画线中途离开也不清）。 */
 function hideCanvasTip(): void { tipEl.hidden = true; lastTipHtml = ""; editor.pointerLeave(); }
-const marqueeEl = $("marquee");
+const marqueeEl = $("marquee"), lassoEl = document.getElementById("lasso") as unknown as SVGSVGElement & { hidden: boolean };
 const toolbarEl = $("toolbar");
 const readoutEl = $("readout");
 /** 右下读数（面积 / 长 / 手势尺寸）先关（user 2026-10-25「面积和长可以先不显示……右边把小窗位置都让出来」）；尺寸仍在光标旁的小提示和参数小窗的数值里。 */
@@ -170,6 +170,13 @@ const editor = new Editor(canvas, {
     const b = canvas.getBoundingClientRect();
     marqueeEl.hidden = false;
     Object.assign(marqueeEl.style, { left: `${b.left + r.x}px`, top: `${b.top + r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
+  },
+  lasso: (pts) => {   // 套索轨迹：SVG 盖在画布上（坐标 = 画布本地 CSS px）
+    if (!pts) { lassoEl.hidden = true; return; }
+    const b = canvas.getBoundingClientRect();
+    lassoEl.hidden = false;
+    Object.assign(lassoEl.style, { left: `${b.left}px`, top: `${b.top}px`, width: `${b.width}px`, height: `${b.height}px` });
+    lassoEl.querySelector("polygon")!.setAttribute("points", pts.map((p) => `${p.x},${p.y}`).join(" "));
   },
   changed: () => { syncUi(); _session?.noteChange(); },   // 同步：首笔安家在 commit 的同一调用栈里翻旗（WeebPaint wp:histchange 同形）
   error: (err, where) => reportError(where === "commit" ? "提交" : "预演", err),

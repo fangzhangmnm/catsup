@@ -25,7 +25,7 @@
    - 做什么：移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线有选区时，按下处先问「在选区里 / 空处 / 选区外的可选对象」：选区里 = 留着选区做；空处 = 对选区做（Blender）；选区外的可选对象 = **替换**选区成它再做（做完留着它）。没选区的那半不变（按在东西上 = 它、空处 = 拖框）。
    - 改哪：`src/editor/tools/selecting.ts pressTarget`（现在有选区 = 不管按在哪都对选区做）；立场表 `stance.ts` 加「按下」一列三格，`pressTarget` 读表；守卫 `test/stance.test.ts` 跟着加列。
    - 验：`probe-selecting` 加三段（按在选区外的点上拖 → 只动那个点、选区换成它）。
-3. **套索**（UX5，user「套索要进 0.16」）
+3. **【done v0.16.11】套索**（UX5，user「套索要进 0.16」；选项「空处拖：框 / 套索」、`marquee.ts ScreenArea / areaTest`、`BoxDrag` 记轨迹、SVG 虚线；探针 probe-lasso）
    - 做什么：选择工具 / 操作工具没选区时空处拖 = 框选，加「套索」档（右下角「选区」下拉：框 / 套索）；布尔默认照 `stance.ts BOOLEAN_DEFAULT`（鼠标 替换 / 替换 / 加，笔 切换 / 加 / 加）。
    - 改哪：`selecting.ts boxSelect` 旁边加 `lassoSelect`（屏幕多边形内判点 / 边 / 面，X 光关着只算看得见的，同框选 `pick.ts occlusionTest`）；`tool-config.ts`「选区」加一项；手势层 `gestures.ts` 把拖的轨迹交出来。
    - 验：探针一条（套索圈住方块正面三张面；X 光关着背面不进）。

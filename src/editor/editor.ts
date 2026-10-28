@@ -24,7 +24,7 @@ import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapK
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, symmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
-import { marqueeScreen } from "./marquee.ts";
+import { marqueeScreen, areaTest, type ScreenArea } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, guidesOf, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
@@ -127,6 +127,8 @@ export interface EditorHost {
   tip(text: string | null, clientX: number, clientY: number, scale?: ScaleTipView | null, measure?: string): void;
   trace?(entry: EditorTrace): void;
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
+  /** 套索轨迹（canvas 本地 CSS px；null = 收起；缺 = 宿主不画套索）。 */
+  lasso?(pts: readonly { x: number; y: number }[] | null): void;
   changed(): void;
   error?(err: unknown, where: string): void;
   /** 右下角血槽位的尺寸读数（手势中的 dims / 选中面的面积 / 选中边的长度；"" = 空）。A28。 */
@@ -736,12 +738,12 @@ export class Editor {
     return best ? { pick: best, key: this.pickKey(best) } : null;
   }
   /** 屏幕框里的空组件标记（原点投影在框里）。 */
-  private emptiesIn(box: { minX: number; minY: number; maxX: number; maxY: number }): { pick: PoolPick; key: string }[] {
-    const pf = this.frame(), vp = this.fvp(), out: { pick: PoolPick; key: string }[] = [];
+  private emptiesIn(area: ScreenArea): { pick: PoolPick; key: string }[] {
+    const pf = this.frame(), vp = this.fvp(), out: { pick: PoolPick; key: string }[] = [], inside = areaTest(area);
     for (const em of this.emptyMarkers(this.liveWorld())) {
       if (!em.pick) continue;
       const s0 = pf.project?.(em.frame.origin, vp);
-      if (s0 && s0.x >= box.minX && s0.x <= box.maxX && s0.y >= box.minY && s0.y <= box.maxY) out.push({ pick: em.pick, key: this.pickKey(em.pick) });
+      if (s0 && inside(s0)) out.push({ pick: em.pick, key: this.pickKey(em.pick) });
     }
     return out;
   }
@@ -3041,7 +3043,7 @@ export class Editor {
 
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
-  abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.hint(null); this.draw(); }
+  abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.hint(null); this.draw(); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
   gestureInProgress(): boolean { return this.gestureActive(); }
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
@@ -3698,9 +3700,10 @@ export class Editor {
       movablePoolPicks: (say) => this.movablePoolPicks(say),
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
-      marqueePick: (box) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), box, { xray: this._xray, verts: this.mode.id === "freeform" }),
+      lasso: (pts) => this.host.lasso?.(pts),
+      marqueePick: (area) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), area, { xray: this._xray, verts: this.mode.id === "freeform" }),
       emptyAt: (sx, sy) => this.emptyAt(sx, sy),
-      emptiesIn: (box) => this.emptiesIn(box),
+      emptiesIn: (area) => this.emptiesIn(area),
       replaceSelection: (sel, mode) => {
         if (mode === "replace") { this.clearSel(pass); }
         mergeSel(this.selection.verts, sel.verts ?? [], mode, true);

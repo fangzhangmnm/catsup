@@ -14,6 +14,7 @@ import type { ToolCtx } from "../tool-handler.ts";
 import type { SelMode } from "../tools.ts";
 import type { Tool } from "../tool-ids.ts";
 import { BOOLEAN_DEFAULT, deviceOf, stanceOf } from "../../controller/stance.ts";
+import { areaTest, type ScreenArea } from "../marquee.ts";
 
 // ---------- 按下作用在什么上（窄接口：工具只报「没选区时抓什么」）----------
 /**
@@ -84,9 +85,9 @@ export const multiSelect = (ctx: ToolCtx): boolean => ctx.config.get("select", "
  * 这一下怎么合进选区：Ctrl（⌘）= 减选；Shift 或「多选」档 = 笔的默认（拖 = 加选、点 = 切换）；别的 = 鼠标的默认（替换）。默认值表 = stance.ts BOOLEAN_DEFAULT（按设备：鼠标 / 笔 / 手指）；
  * 「多选」档就是「把笔的默认搬到鼠标上」，笔的设备上它默认开着（tool-config.ts）。Alt 不算减选（它留给「点边选环」；移动复制照旧认 Alt，那是 copy 的事）。
  */
-export function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean): SelMode {
+export function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso"): SelMode {
   if (ev.copy && !ev.altKey) return "remove";
-  const gesture = box ? "box" : "click";
+  const gesture = box === "lasso" ? "lasso" : box ? "box" : "click";
   return ev.shiftKey || multiSelect(ctx) ? BOOLEAN_DEFAULT.pen[gesture] : BOOLEAN_DEFAULT[deviceOf("mouse")][gesture];
 }
 
@@ -118,43 +119,56 @@ export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number): void {
 }
 
 export interface ScreenBox { minX: number; minY: number; maxX: number; maxY: number }
-/** 框选：框里的点（自由建模，FM139）/ 边 / 面 / 子物体 / 空组件 / 参考点（参考线无限长、框选会全中，不收）。 */
-export function boxSelect(ctx: ToolCtx, box: ScreenBox, mode: SelMode): void {
-  const view = ctx.live(), picked = ctx.marqueePick(box);
+/** 框选 / 套索：区域里的点（自由建模，FM139）/ 边 / 面 / 子物体 / 空组件 / 参考点（参考线无限长、框选会全中，不收）。区域 = 框或套索（marquee.ts ScreenArea），遮挡同一套。 */
+export function boxSelect(ctx: ToolCtx, box: ScreenArea, mode: SelMode): void {
+  const view = ctx.live(), picked = ctx.marqueePick(box), inArea = areaTest(box);
   const verts: number[] = [], edges: number[] = [], faces: number[] = [];
   const pools = new Map<string, Parameters<ToolCtx["enterPool"]>[0]>();
   for (const gid of picked.verts) { const c = ctx.classify(view, { vertex: gid }); if (c.kind === "entity" && c.local.vertex !== undefined) verts.push(c.local.vertex); else if (c.kind === "pool") pools.set(c.key, c.pick); }
   for (const gid of picked.edges) { const c = ctx.classify(view, { edge: gid }); if (c.kind === "entity" && c.local.edge !== undefined) edges.push(c.local.edge); else if (c.kind === "pool") pools.set(c.key, c.pick); }
   for (const gid of picked.faces) { const c = ctx.classify(view, { face: gid }); if (c.kind === "entity" && c.local.face !== undefined) faces.push(c.local.face); else if (c.kind === "pool") pools.set(c.key, c.pick); }
   for (const em of ctx.emptiesIn(box)) pools.set(em.key, em.pick);   // 空组件（导入的空节点）：标记的原点在框里
-  const vp = ctx.vp(), guides = view.guides().points.filter((q) => { const s2 = ctx.frame().project?.(q.p, vp); return !!s2 && s2.x >= box.minX && s2.x <= box.maxX && s2.y >= box.minY && s2.y <= box.maxY; }).map((q) => q.id);
+  const vp = ctx.vp(), guides = view.guides().points.filter((q) => { const s2 = ctx.frame().project?.(q.p, vp); return !!s2 && inArea(s2); }).map((q) => q.id);
   ctx.replaceSelection({ verts, edges, faces, pools: [...pools.values()], guides }, mode);
   ctx.afterSelect();
 }
 
-/** 拖框：按下记起点；拖过点按容差才出框；松手 = 框选（没拖出框 = 什么都不做，那是「点」，归 clickSelect）。 */
+/** 拖框 / 套索：按下记起点；拖过点按容差才出框（套索 = 开始记轨迹）；松手 = 框选 / 套索选（没拖出去 = 什么都不做，那是「点」，归 clickSelect）。
+ *  框还是套索 = 选择工具的选项「空处拖」（tool-config.ts select.drag；账本 UX5「套索要进 0.16」），按下那一刻读定。 */
 export class BoxDrag {
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
+  private lasso: { x: number; y: number }[] | null = null;
   active(): boolean { return this.start !== null; }
-  begin(ev: { x: number; y: number }): void { this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; }
+  begin(ev: { x: number; y: number }, ctx?: ToolCtx): void {
+    this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y };
+    this.lasso = ctx && ctx.config.get("select", "drag") === "lasso" ? [{ x: ev.x, y: ev.y }] : null;
+  }
   /** 跟手（在拖框 = true）。 */
   track(ctx: ToolCtx, s: { x: number; y: number }): boolean {
     if (!this.start) return false;
     this.cur = { x: s.x, y: s.y };
+    if (this.lasso) {   // 套索：轨迹点隔 3 px 记一个（笔 / 鼠标的事件密度不一样，别让一圈几千个点）
+      const last = this.lasso[this.lasso.length - 1];
+      if (Math.hypot(s.x - last.x, s.y - last.y) >= 3) this.lasso.push({ x: s.x, y: s.y });
+      ctx.lasso(ctx.moved(s) <= ctx.tapSlop() && this.lasso.length < 3 ? null : this.lasso);
+      return true;
+    }
     if (ctx.moved(s) <= ctx.tapSlop()) { ctx.marquee(null); return true; }   // 还在点按容差里：不出框（笔跟进的那一下滑一点不闪小框）
     const b = this.box()!;
     ctx.marquee({ x: b.minX, y: b.minY, w: b.maxX - b.minX, h: b.maxY - b.minY });
     return true;
   }
-  /** 松手：框选（按这一下的修饰键 / 两档定怎么合）。 */
+  /** 松手：框选 / 套索选（按这一下的修饰键 / 两档定怎么合；套索的默认布尔照 stance.ts BOOLEAN_DEFAULT.lasso）。 */
   finish(ctx: ToolCtx, ev: ToolPointer): void {
     if (ev.x !== undefined) this.cur = { x: ev.x, y: ev.y };
-    const b = this.box();
+    const b = this.box(), lasso = this.lasso;
+    if (lasso && ev.x !== undefined) lasso.push({ x: ev.x, y: ev.y });
     this.cancel(ctx);
+    if (lasso) { if (lasso.length >= 3) boxSelect(ctx, { pts: lasso }, selModeOf(ctx, ev, "lasso")); return; }
     if (b) boxSelect(ctx, b, selModeOf(ctx, ev, true));
   }
-  cancel(ctx?: ToolCtx): void { this.start = this.cur = null; ctx?.marquee(null); }
+  cancel(ctx?: ToolCtx): void { this.start = this.cur = null; this.lasso = null; ctx?.marquee(null); ctx?.lasso(null); }
   private box(): ScreenBox | null {
     const a = this.start, c = this.cur;
     return a && c ? { minX: Math.min(a.x, c.x), maxX: Math.max(a.x, c.x), minY: Math.min(a.y, c.y), maxY: Math.max(a.y, c.y) } : null;

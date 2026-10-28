@@ -189,6 +189,22 @@ export declare const TOOL_OPTIONS: {
             readonly def: string;
             readonly scope: "session";
         };
+        /** 空处拖 = 框 / 套索（账本 UX5「套索要进 0.16」；2026-10-28 Claude Opus 5.5）：选择工具和自由建模的操作工具（没选区时空处拖）共用这一项。布尔默认照 stance.ts BOOLEAN_DEFAULT（鼠标：框 = 替换、套索 = 加）。 */
+        readonly drag: {
+            readonly kind: "enum";
+            readonly label: "空处拖";
+            readonly values: readonly [{
+                readonly id: "box";
+                readonly label: "框";
+                readonly hint: "拉一个矩形，整个框进来的才算";
+            }, {
+                readonly id: "lasso";
+                readonly label: "套索";
+                readonly hint: "画一圈，整个圈进来的才算";
+            }];
+            readonly def: "box";
+            readonly scope: "session";
+        };
     };
     /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
     readonly move: {

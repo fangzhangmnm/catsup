@@ -64,7 +64,7 @@ export class MeshInsetTool implements ToolHandler {
     if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
     this.begin(ctx, { x: ev.x, y: ev.y });
-    if (!this.job && !this.hadSel) { this.box.begin(ev); ctx.hint("框选（插入 / 倒角工具里：没选东西时在空处拖 = 框）"); }   // user 10-28「其他的同理」
+    if (!this.job && !this.hadSel) { this.box.begin(ev, ctx); ctx.hint("框选（插入 / 倒角工具里：没选东西时在空处拖 = 框）"); }   // user 10-28「其他的同理」
   }
 
   private begin(ctx: ToolCtx, at: { x: number; y: number }, force?: "bevel" | "bevelVerts"): void {

@@ -1,3 +1,4 @@
+import type { ScreenArea } from "./marquee.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
@@ -175,13 +176,13 @@ export interface ToolCtx {
         w: number;
         h: number;
     } | null): void;
+    /** 套索的轨迹（canvas 本地 CSS px；null = 收起）。 */
+    lasso(pts: readonly {
+        x: number;
+        y: number;
+    }[] | null): void;
     /** 屏幕矩形里的边 / 面（全局 id）。 */
-    marqueePick(box: {
-        minX: number;
-        minY: number;
-        maxX: number;
-        maxY: number;
-    }): {
+    marqueePick(area: ScreenArea): {
         verts: Iterable<number>;
         edges: Iterable<number>;
         faces: Iterable<number>;
@@ -192,12 +193,7 @@ export interface ToolCtx {
         key: string;
     } | null;
     /** 屏幕框里的空组件标记。 */
-    emptiesIn(box: {
-        minX: number;
-        minY: number;
-        maxX: number;
-        maxY: number;
-    }): {
+    emptiesIn(area: ScreenArea): {
         pick: PoolPick;
         key: string;
     }[];

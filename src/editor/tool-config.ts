@@ -170,6 +170,8 @@ export const TOOL_OPTIONS = {
    *  「12同意」）：替换 / 多选（= 按住 Shift：拖 = 加选、点 = 切换）；Ctrl 照旧减选；多选里点空处 = 清空；有笔 / 触屏的设备默认多选（平板多选高频、没有 Shift）。 */
   select: {
     mode: { kind: "enum", label: "选区", values: [{ id: "replace", label: "替换", hint: "新选的换掉原来的（键鼠：按住 Shift = 多选、Ctrl = 减选）" }, { id: "multi", label: "多选", hint: "拖 = 加选；点 = 没选的加上、选了的去掉；点空处 = 清空（键鼠：按住 Ctrl = 减选）" }], def: DEFAULT_SELECT_MODE, scope: "session" },
+    /** 空处拖 = 框 / 套索（账本 UX5「套索要进 0.16」；2026-10-28 Claude Opus 5.5）：选择工具和自由建模的操作工具（没选区时空处拖）共用这一项。布尔默认照 stance.ts BOOLEAN_DEFAULT（鼠标：框 = 替换、套索 = 加）。 */
+    drag: { kind: "enum", label: "空处拖", values: [{ id: "box", label: "框", hint: "拉一个矩形，整个框进来的才算" }, { id: "lasso", label: "套索", hint: "画一圈，整个圈进来的才算" }], def: "box", scope: "session" },
   },
   /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
   move: {

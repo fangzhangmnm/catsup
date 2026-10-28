@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=4cf471e9cec1" />
+    <link rel="stylesheet" href="./styles.css?v=4967c0a11216" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -286,6 +286,7 @@
         <!-- 右下读数（面积 / 长）先不显示（user 2026-10-25「面积和长可以先不显示……右边把小窗位置都让出来」）：节点留着，main.ts READOUT_ON = false；版本号搬去左柱最底下 -->
         <div class="hud-text hud-br"><span id="readout" class="readout" hidden></span></div>
         <div id="marquee" hidden></div>
+        <svg id="lasso" class="lasso" hidden aria-hidden="true"><polygon /></svg>
       </div>
     </div>
 
@@ -371,6 +372,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-1b407076109e.mjs"></script>
+    <script type="module" src="./dist/catsup-afff46aaaad3.mjs"></script>
   </body>
 </html>

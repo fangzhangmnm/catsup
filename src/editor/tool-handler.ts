@@ -5,6 +5,7 @@
 // 选区、上下文、HUD 刷新；**工具模块**（src/editor/tools/<tool>.ts）管自己那套手势：按下 / 跟随 / 松手 / 预演 / 取消 + 自己的状态。
 // 工具只认这里递给它的 ToolCtx，**不 import 别的工具、不碰 editor.ts 的私有字段**——这就是以后 VR 换一套手势实现的接缝。
 // 搬迁纪律：行为零变更（搬的是代码位置不是语义），每搬一个过同一套探针。
+import type { ScreenArea } from "./marquee.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
@@ -142,12 +143,14 @@ export interface ToolCtx {
   // ---- 选择工具的底座服务（选区是会话态，住底座；工具只经这几个口写）----
   /** 屏幕框选矩形（HUD 画；null = 收）。 */
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
+  /** 套索的轨迹（canvas 本地 CSS px；null = 收起）。 */
+  lasso(pts: readonly { x: number; y: number }[] | null): void;
   /** 屏幕矩形里的边 / 面（全局 id）。 */
-  marqueePick(box: { minX: number; minY: number; maxX: number; maxY: number }): { verts: Iterable<number>; edges: Iterable<number>; faces: Iterable<number> };
+  marqueePick(area: ScreenArea): { verts: Iterable<number>; edges: Iterable<number>; faces: Iterable<number> };
   /** 光标下的空组件标记（导入的空节点画的小三轴，T11）：没几何，点它的标记 = 点它。 */
   emptyAt(sx: number, sy: number): { pick: PoolPick; key: string } | null;
   /** 屏幕框里的空组件标记。 */
-  emptiesIn(box: { minX: number; minY: number; maxX: number; maxY: number }): { pick: PoolPick; key: string }[];
+  emptiesIn(area: ScreenArea): { pick: PoolPick; key: string }[];
   /** 框选结果按 mode 合进选区（本地 id + 子池项；切换 = 逐个反转）。 */
   replaceSelection(sel: { verts?: readonly number[]; edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[]; guides?: readonly number[] }, mode: SelMode): void;
   /** A31：单击选中一条参考线 / 一个参考点（按 mode 合进选区）。 */

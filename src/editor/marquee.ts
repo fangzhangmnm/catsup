@@ -10,8 +10,28 @@ import type { GeomView } from "../scene/world-view.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import { facesAtVertex, occlusionTest } from "./pick.ts";
 
+/** 屏幕上的一块区域（CSS px，canvas 本地）：框 = 矩形；套索 = 一圈折线（自动闭合；UX 账本 UX5 套索，2026-10-28 Claude Opus 5.5）。 */
+export type ScreenArea = { readonly minX: number; readonly minY: number; readonly maxX: number; readonly maxY: number } | { readonly pts: readonly { readonly x: number; readonly y: number }[] };
+/** 点在不在区域里：框 = 含边界；套索 = 奇偶规则（射线法，先用包围盒筛）。 */
+export function areaTest(a: ScreenArea): (p: { x: number; y: number }) => boolean {
+  if (!("pts" in a)) return (p) => p.x >= a.minX && p.x <= a.maxX && p.y >= a.minY && p.y <= a.maxY;
+  const P = a.pts, n = P.length;
+  if (n < 3) return () => false;
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const q of P) { x0 = Math.min(x0, q.x); y0 = Math.min(y0, q.y); x1 = Math.max(x1, q.x); y1 = Math.max(y1, q.y); }
+  return (p) => {
+    if (p.x < x0 || p.x > x1 || p.y < y0 || p.y > y1) return false;
+    let inside = false;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const a1 = P[i], b1 = P[j];
+      if ((a1.y > p.y) !== (b1.y > p.y) && p.x < ((b1.x - a1.x) * (p.y - a1.y)) / (b1.y - a1.y) + a1.x) inside = !inside;
+    }
+    return inside;
+  };
+}
+
 /**
- * 屏幕空间框选（window 语义）。**桌面专属**（吃 OrbitCamera 的屏幕投影）。
+ * 屏幕空间框选 / 套索（window 语义：整个进区域才算）。**桌面专属**（吃 OrbitCamera 的屏幕投影）。
  * verts = false（硬表面）：边 = 两端投影都在框内且中点看得见；面 = 外环全部顶点投影在框内且形心看得见。
  * verts = true（自由建模）：点 = 投影在框内且看得见；边 = 两端都框进来；面 = 角全框进来且形心看得见（侧着看的薄片不算）。
  * xray = true：不看遮挡（背面、被挡住的照样框进来）。
@@ -20,10 +40,10 @@ export function marqueeScreen(
   k: GeomView,
   cam: OrbitCamera,
   vp: Viewport,
-  m: { minX: number; minY: number; maxX: number; maxY: number },
+  m: ScreenArea,
   opts: { xray?: boolean; verts?: boolean } = {},
 ): { verts: Set<VertexId>; edges: Set<EdgeId>; faces: Set<FaceId> } {
-  const inBox = (p: { x: number; y: number }): boolean => p.x >= m.minX && p.x <= m.maxX && p.y >= m.minY && p.y <= m.maxY;
+  const inBox = areaTest(m);   // 框或套索，同一套遮挡
   const hidden = occlusionTest(k, cam, vp, !!opts.xray);
   const sel = { verts: new Set<VertexId>(), edges: new Set<EdgeId>(), faces: new Set<FaceId>() };
   const boxed = new Set<VertexId>();

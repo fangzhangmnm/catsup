@@ -60,6 +60,7 @@ import "./mirror-ops.test.ts";   // 镜像分类表守卫（F-113 审计，2026-
 import "./export-model.test.ts";   // 导出模型 = 只写 glTF core 的交付物（导出设计稿 §5，2026-10-28 Opus）
 import "./doc-names.test.ts";   // 工程文件名字：.catsup 新、.glb 老；改名保留后缀；云库种类表两行（2026-10-28 Opus）
 import "./placement.test.ts";   // 放置表的 app 那半：左柱 / ☰ / 放置面渲染器登记（接线清单第 1 条，2026-10-28 Opus）
+import "./marquee-area.test.ts";   // 屏幕区域：框 / 套索（UX5，2026-10-28 Opus）
 import "./mesh-subdivide.test.ts";   // 细分（Catmull-Clark，破坏性）：教科书值 / 折痕 / 裸线拒 / op + 撤销（FM133，2026-10-28 Opus）
 import "./touch-stick.test.ts";   // 吃鸡式虚拟摇杆的数学：死区 / 冲刺 / 浮动底座（FM142，2026-10-28 Opus）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）

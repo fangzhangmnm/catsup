@@ -101,7 +101,7 @@ const RULER = S({ ...HARD_PICK, direction: "drawPlane", ctrl: "—", alt: "—",
 
 /** 硬表面建模（SketchUp 语义；user「sketchup的行为不变」）。 */
 const GEOMETRY: Partial<Record<Tool, Stance>> = {
-  select: S({ grab: "element", tap: "select", emptyDrag: "box", direction: "none", snap: "none", shift: "点 = 切换、框 = 加", ctrl: "减选", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false, todo: "套索（0.16）；再点选区 = 扩缩条" }),
+  select: S({ grab: "element", tap: "select", emptyDrag: "box",   /* 框 / 套索 = 选项「空处拖」（tool-config select.drag，v0.16.11） */ direction: "none", snap: "none", shift: "点 = 切换、框 = 加", ctrl: "减选", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false, todo: "再点选区 = 扩缩条" }),
   line: S({ ...HARD_PICK, direction: "drawPlane", ctrl: "—", alt: "—", lock: "axis", intent: true }),
   rect: S({ ...HARD_PICK, direction: "drawPlane", ctrl: "临时从中心", alt: "—", lock: "plane", intent: false }),
   crect: S({ ...HARD_PICK, direction: "drawPlane", ctrl: "临时从角", alt: "—", lock: "plane", intent: false }),

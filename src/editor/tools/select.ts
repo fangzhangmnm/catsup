@@ -23,7 +23,7 @@ export class SelectTool implements ToolHandler {
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
 
-  down(_ctx: ToolCtx, ev: ToolPointer): void { this.box.begin(ev); }
+  down(ctx: ToolCtx, ev: ToolPointer): void { this.box.begin(ev, ctx); }
   track(ctx: ToolCtx, s: { x: number; y: number }): void { this.box.track(ctx, s); }
 
   up(ctx: ToolCtx, ev: ToolPointer, _settle: () => ToolSample | null): void {

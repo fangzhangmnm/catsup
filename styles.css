@@ -176,6 +176,9 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .rail-more:hover { background: rgba(0,0,0,.06); }
 
 #marquee { position: fixed; z-index: 5; border: 1px dashed #666; background: rgba(43,108,176,.08); pointer-events: none; }
+/* 套索（选区「空处拖：套索」；2026-10-28 Opus）：和框同一个样子，盖在画布上、点不着 */
+#lasso { position: fixed; z-index: 5; pointer-events: none; overflow: visible; }
+#lasso polygon { fill: rgba(43,108,176,.08); stroke: #666; stroke-width: 1; stroke-dasharray: 4 3; }
 #tip { position: fixed; z-index: var(--z-notice); padding: 2px 7px; font-size: 12px; background: rgba(255,255,255,.95);
   border: 1px solid #888; border-radius: 4px; pointer-events: none; white-space: nowrap; }
 /* 状态行=RPG 对话框：最多两行，超出省略（user 2026-09-07「左下角的状态显示…相当于 rpg 游戏的对话，超出了怎么办」）*/

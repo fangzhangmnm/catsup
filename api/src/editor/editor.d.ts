@@ -110,6 +110,11 @@ export interface EditorHost {
         w: number;
         h: number;
     } | null): void;
+    /** 套索轨迹（canvas 本地 CSS px；null = 收起；缺 = 宿主不画套索）。 */
+    lasso?(pts: readonly {
+        x: number;
+        y: number;
+    }[] | null): void;
     changed(): void;
     error?(err: unknown, where: string): void;
     /** 右下角血槽位的尺寸读数（手势中的 dims / 选中面的面积 / 选中边的长度；"" = 空）。A28。 */

@@ -14,7 +14,7 @@ export declare class SelectTool implements ToolHandler {
     cancel(): void;
     sample(): Record<string, number>;
     live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
-    down(_ctx: ToolCtx, ev: ToolPointer): void;
+    down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {
         x: number;
         y: number;
