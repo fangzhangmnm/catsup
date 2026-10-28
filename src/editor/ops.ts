@@ -8,6 +8,7 @@
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
 import type { CurveSpec } from "../kernel/kernel.ts";
+import { markEdges } from "../mesh/edge-smooth.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
@@ -109,6 +110,10 @@ export type Op =
   /** 右键新建（SU 体里 / 根上）：新的网格体组件（定义 + 一份实例，摆在 at 池里 xform 处）。 */
   /** 插入（自由建模；面各自往里插一圈，dist 本地长度、超过上限按上限）。mesh/ops/inset.ts insetFaces。 */
   | { op: "meshInset"; def: number; faces: number[]; dist: number }
+  /** 手标边（2026-10-28 FM129）：sharp = 棱 / smooth = 平滑且不画线 / none = 清掉交给默认平滑（mesh/edge-smooth.ts markEdges）。 */
+  | { op: "meshEdgeMarks"; def: number; edges: number[]; mark: "sharp" | "smooth" | "none" }
+  /** 网格体的默认平滑（2026-10-28 FM129；几何属性：没手标的边算棱还是光滑过渡）。 */
+  | { op: "meshSmoothDefault"; def: number; mode: "angle" | "smooth" | "hard"; deg: number }
   | { op: "meshDelete"; def: number; verts?: number[]; edges?: number[]; faces?: number[]; dissolve?: boolean }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
@@ -557,6 +562,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
     case "meshAddPrimitive": { addPrimitive(meshOf(s, op.def).kernel, op.kind, op.frame, op.size, op.segments); return { scene: s, events: [] }; }
     case "meshInset": { insetFaces(meshOf(s, op.def).kernel, op.faces, op.dist); return { scene: s, events: [] }; }
+    case "meshEdgeMarks": { const k = meshOf(s, op.def).kernel; for (const e of op.edges) if (!k.hasE(e)) throw new OpTargetError(`edge ${e}`); markEdges(k, op.edges, op.mark); return { scene: s, events: [] }; }
+    case "meshSmoothDefault": { if (!(op.deg > 0 && op.deg < 180)) throw new OpTargetError(`smooth default angle ${op.deg}`); meshOf(s, op.def).kernel.setSmoothDefault({ mode: op.mode, deg: op.deg }); return { scene: s, events: [] }; }
     case "meshDelete": { deleteSelection(meshOf(s, op.def).kernel, op, !!op.dissolve); return { scene: s, events: [] }; }
     case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
     case "meshLoopCut": { const r = loopCut(meshOf(s, op.def).kernel, op.edge, op.t ?? 0.5); if (!r.edges.length) throw new OpTargetError(`loop cut from edge ${op.edge}: not a quad strip`); return { scene: s, events: [] }; }
@@ -618,6 +625,8 @@ export function describeOp(op0: Op): string {
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
     case "meshAddPrimitive": return `meshAddPrimitive def=${op.def} ${op.kind}`;
     case "meshInset": return `meshInset def=${op.def} faces=${op.faces.length} d=${op.dist.toFixed(4)}`;
+    case "meshEdgeMarks": return `meshEdgeMarks def=${op.def} edges=${op.edges.length} ${op.mark}`;
+    case "meshSmoothDefault": return `meshSmoothDefault def=${op.def} ${op.mode} ${op.deg}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;
     case "meshLoopCut": return `meshLoopCut def=${op.def} edge=${op.edge} t=${op.t ?? 0.5}`;

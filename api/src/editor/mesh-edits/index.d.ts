@@ -14,4 +14,8 @@ export declare const inset: Command<MeshUnit>;
  * 选区的点的平均（= 移动 / 旋转 / 缩放的轴心）当这个网格体的新原点；朝向不动。一条 setAxes（和硬表面「改组件原点」同一条：几何反挪、每份实例补，世界里不动）。
  */
 export declare const originToSelection: Command<MeshUnit>;
+export declare const markSharp: Command<MeshUnit>;
+export declare const markSmooth: Command<MeshUnit>;
+export declare const clearMarks: Command<MeshUnit>;
+export declare const smoothByAngle: Command<MeshUnit>, smoothAll: Command<MeshUnit>, smoothNone: Command<MeshUnit>;
 export declare const meshEdits: Family;

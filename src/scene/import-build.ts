@@ -12,7 +12,7 @@ import { type BrepSnapshot, Kernel } from "../kernel/kernel.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import type { MeshDoc } from "../format/document.ts";
 import { meshFromTriangles } from "../mesh/tri-soup.ts";
-import { smoothByAngle } from "../mesh/ops/shade.ts";
+import { edgeSmooth } from "../mesh/edge-smooth.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
 import { type DefId, type PoolRef, Scene } from "./scene.ts";
 import { type Xform, compose } from "./xform.ts";
@@ -43,7 +43,8 @@ export function castImport(data: ImportScene, softDeg: number): { scene: Importe
     m.positions.forEach((p, i) => { positions[3 * i] = p.x; positions[3 * i + 1] = p.y; positions[3 * i + 2] = p.z; });
     const { kernel, skipped } = meshFromTriangles({ positions, indices: Uint32Array.from(m.tris) });
     report.triangles += m.tris.length / 3; report.degenerate += skipped;
-    report.softened += smoothByAngle(kernel, softDeg);
+    kernel.setSmoothDefault({ mode: "angle", deg: softDeg });   // 默认平滑（FM129）代替以前按角度烘标记：样子一样（同一条 |cos| 规则），之后改默认平滑还管得到这些边
+    report.softened += kernel.edges().filter((e) => edgeSmooth(kernel, e)).length;
     return { name: m.name, mesh: meshDocFromKernel(kernel) };
   });
   return { scene: { name: data.name, nodes: data.nodes, roots: data.roots, meshes }, report };

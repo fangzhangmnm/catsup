@@ -46,7 +46,7 @@ export function insetFaces(k: MeshKernel, fs: readonly number[], dist: number): 
     const ring = k.faceVerts(f), P = ring.map((v) => k.pt(v)), n = k.faceNormal(f);
     const d = Math.max(0, Math.min(dist, maxInset(P, n)));
     const target = insetRing(P, n, d);
-    const r = extrudeFaces(k, [f]);
+    const r = extrudeFaces(k, [f], false);   // 新的一圈在面里：不带原边界的手标（硬软边设计稿 §3）
     ring.forEach((v, i) => k.setPos(r.newVerts.get(v)!, target[i]));
     out.push(r);
   }

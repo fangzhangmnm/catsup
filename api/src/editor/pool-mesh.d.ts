@@ -1,7 +1,6 @@
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import type { Material } from "../scene/scene.ts";
-import type { GeomView } from "../scene/world-view.ts";
 /** 属性的存法：f32 = 浮点（位置 / 粗线端点 / uv）；i16n / i8n = 归一化整数（法线 / 面颜色；显卡读成 −1…1 的浮点，省一半到四分之三的内存）。 */
 export type AttrType = "f32" | "i16n" | "i8n";
 export interface AttrSpec {
@@ -82,15 +81,7 @@ export declare class DenseStore extends ArrayStore {
     /** 全量建完：收紧到用到的 + 八分之一余量。 */
     trim(): void;
 }
-/** 扇内法线要看的（内核和场景视图都满足：渲染的池网格用内核、平铺路径用场景视图）。 */
-export type FanView = Pick<GeomView, "face" | "planeOf" | "isSmooth" | "isFold"> & {
-    readonly graph: Pick<GeomView["graph"], "pt" | "edge">;
-};
-/**
- * 面 fid 外环第 j 个角的平滑法线：从这张面出发，在这个顶点处向两边跨平滑边 / 折线（硬边、边界、非流形就停），把扇里每张面的法向按内角加权；
- * 跨边时按「两张面在共享边上面在左的符号相反 = 朝向一致」统一朝向（kernel/flood.ts faceLeftSign）。结果翻到本面法向那一侧。扇里只有自己 = 平面法向。
- */
-export declare function fanNormal(k: FanView, fid: FaceId, j: number): Pt3;
+export { fanNormal, type FanView } from "../scene/fan-normal.ts";
 export interface FaceRec {
     /** 每个三角顶点 3 个数（池本地坐标）；绕向统一成绕平面法向 +n 逆时针（两个表面靠 gl_FrontFacing 分正反）。 */
     readonly pos: Float32Array;
@@ -178,4 +169,3 @@ export declare class PoolMesh {
     private writeFace;
     private writeEdge;
 }
-export {};

@@ -9,7 +9,8 @@ import { toMesh, toBrep } from "../src/editor/objects/index.ts";
 import { castImport, buildImport, type ImportedScene } from "../src/scene/import-build.ts";
 import type { ImportScene } from "../src/format/gltf-import.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
-import { addBox, smoothByAngle } from "../src/mesh/ops/index.ts";
+import { addBox } from "../src/mesh/ops/index.ts";
+import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
 import { sceneBox } from "./format-scenes.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
@@ -75,26 +76,29 @@ describe("物体族：转成网格体 / 转回 SU 体", () => {
     const data: ImportScene = { name: "f", nodes: [{ name: "cube", xform: IDENTITY, mesh: 0, children: [] }], meshes: [{ name: "cube", positions: soup.positions, tris: soup.tris }], roots: [0], losses: [] };
     const { scene: imp, report } = castImport(data, 20);
     assert(imp.meshes[0].mesh && !imp.meshes[0].brep, "载荷是网格");
-    eq(report.triangles, 12); eq(report.softened, 6, "六条对角线软 + 平滑"); eq(report.degenerate, 0);
+    eq(report.triangles, 12); eq(report.softened, 6, "六条对角线按默认平滑（按角度）平滑"); eq(report.degenerate, 0);
     const s = new Scene(sceneBox());
     const rep = buildImport(s, { def: s.root, group: null }, imp, IDENTITY);
     eq(rep.definitions, 1); eq(rep.instances, 1);
     const d = [...s.defs.values()].find((x) => x.body.kind === "mesh")!;
     const m = s.mesh(d.id).kernel;
-    eq(m.faceCount(), 12); eq(m.edges().filter((e) => (m.edgeFlags[e] & (F_SOFT | F_SMOOTH)) === (F_SOFT | F_SMOOTH)).length, 6);
+    eq(m.faceCount(), 12); eq(m.smoothDefault.mode, "angle"); eq(m.edges().filter((e) => edgeSmooth(m, e) && edgeSoft(m, e)).length, 6, "对角线平滑且不画线（默认平滑判，不再烘标记）");
     const old: ImportedScene = { name: "f", nodes: data.nodes, roots: [0], meshes: [{ name: "cube", brep: sceneBox().toBrep() }] };
     const s3 = new Scene(sceneBox());
     buildImport(s3, { def: s3.root, group: null }, old, IDENTITY);
     assert([...s3.defs.values()].some((x) => x.id !== s3.root && x.body.kind === "brep"), "老复现包（带膜）照装成 brep");
   });
-  it("smoothByAngle：盒子没有可平滑的边；三角化盒子 6 条对角线；反向绕的相邻面也认（|cos|）", () => {
-    const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
-    eq(smoothByAngle(m, 20), 0);
+  it("默认平滑「按角度」（2026-10-28 代替烘标记的 smoothByAngle，同一条 |cos| 规则）：盒子没有平滑边；三角化盒子 6 条对角线；反向绕的相邻面也认", () => {
+    const nSmooth = (k: MeshKernel): number => k.edges().filter((e) => edgeSmooth(k, e)).length;
+    const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1)); m.setSmoothDefault({ mode: "angle", deg: 20 });
+    eq(nSmooth(m), 0);
     const soup = boxSoup(), t = new MeshKernel(), vs = soup.positions.map((p) => t.addVertex(p));
     for (let i = 0; i < soup.tris.length; i += 3) t.addFace([vs[soup.tris[i]], vs[soup.tris[i + 1]], vs[soup.tris[i + 2]]]);
-    eq(smoothByAngle(t, 20), 6); eq(smoothByAngle(t, 20), 0, "第二次没有新的");
+    t.setSmoothDefault({ mode: "angle", deg: 20 });
+    eq(nSmooth(t), 6);
     const w = new MeshKernel(), a = w.addVertex(P(0, 0, 0)), b = w.addVertex(P(1, 0, 0)), c = w.addVertex(P(1, 1, 0)), d = w.addVertex(P(0, 1, 0));
     w.addFace([a, b, c]); w.addFace([a, d, c]);   // 第二张反向绕（法向朝 −z）：共面仍平滑
-    eq(smoothByAngle(w, 20), 1);
+    w.setSmoothDefault({ mode: "angle", deg: 20 });
+    eq(nSmooth(w), 1);
   });
 });

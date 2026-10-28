@@ -8,6 +8,7 @@ import type { Body, BrepBody, MeshBody } from "./scene.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
 import { recalcNormals } from "../mesh/ops/orient.ts";
+import { edgeSoft, keepLookUnderAngle } from "../mesh/edge-smooth.ts";
 import { kernelFromTriangles } from "../kernel/from-triangles.ts";
 import { emptyGuides } from "./guides.ts";
 
@@ -48,7 +49,7 @@ export const MESH_KIND: KindDef<MeshBody> = {
   castsTo: [{ to: "brep", loses: ["不平的面（折成平面块，块之间加软边）", "隐藏的面", "裸线（不属于任何面的边）", "面的材质", "软边 / 平滑标记（改按弯折角度重判）"] }],
   alignGeometry(b) {
     const m = b.kernel, points = m.verts().map((v) => m.pt(v));
-    const segments = m.edges().filter((e) => !(m.edgeFlags[e] & (F_SOFT | F_HIDDEN))).map((e) => [m.pt(m.edgeA[e]), m.pt(m.edgeB[e])] as [Pt3, Pt3]);
+    const segments = m.edges().filter((e) => !edgeSoft(m, e) && !(m.edgeFlags[e] & F_HIDDEN)).map((e) => [m.pt(m.edgeA[e]), m.pt(m.edgeB[e])] as [Pt3, Pt3]);   // 画线的边（默认平滑 + 手标判，FM129）
     return { points, segments, planes: [] };
   },
   bounds(b) { const m = b.kernel; return boundsOf(m.verts().map((v) => m.pt(v))); },
@@ -97,6 +98,7 @@ export function brepToMesh(b: BrepBody): MeshBody {
     if (fl !== m.edgeFlags[me]) m.setEdgeFlags(me, fl);
   }
   recalcNormals(m);   // brep 的平面法向是规范化符号的，不是朝外：封闭壳朝外、开口片按种子面一致化
+  keepLookUnderAngle(m, 30);   // 默认平滑 = 按角度 30°（FM129）；SU 里本来硬、夹角又小于 30° 的边手标成棱 = 转过来样子不变，之后新长的几何跟着默认平滑走
   return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots] };
 }
 /**

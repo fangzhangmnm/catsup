@@ -113,6 +113,14 @@ export interface ViewState {
         key: string;
         pts: readonly Pt3[];
     } | null;
+    /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
+    softEdges?: {
+        key: string;
+        segs: readonly {
+            a: Pt3;
+            b: Pt3;
+        }[];
+    } | null;
     /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
     charged?: {
         points: readonly Pt3[];
@@ -237,6 +245,8 @@ export declare class Renderer3 {
     private selVertKey;
     private vertDots;
     private vertDotKey;
+    private softLines;
+    private softKey;
     private tickLines;
     private poolAxesLines;
     private poolAxesKey;

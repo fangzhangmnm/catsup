@@ -11,6 +11,13 @@ import { triangulateFace } from "../format/triangulate.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
 
 export const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;   // F_WIRE = 裸线（不属于任何面也合法）
+/** 手标硬边（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM131）：压过网格体的「默认平滑」，这条边永远是棱（画线、明暗断开）。和 F_SOFT / F_SMOOTH 互斥（标的时候清掉另两位）。 */
+export const F_SHARP = 32;
+/** 网格体的「默认平滑」（几何属性，不是画法——user 10-28「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」；每个网格体一个；mesh/edge-smooth.ts 按它判没手标的边）：angle = 两侧面夹角小于 deg 算平滑（硬表面）/ smooth = 全平滑（软角色）/ hard = 全是棱（低多边形；
+ *  也是老文件的语义——没这个键的文件 = 只看手标，和以前逐字一样）。 */
+export type SmoothDefaultMode = "angle" | "smooth" | "hard";
+export interface SmoothDefault { readonly mode: SmoothDefaultMode; readonly deg: number }
+export const SMOOTH_DEFAULT_LEGACY: SmoothDefault = { mode: "hard", deg: 30 };
 /** 面标记：隐藏（user 10-27「show and hide faces」；点 / 边的显隐从面推导，游离的才自己带 F_HIDDEN）。 */
 export const FF_HIDDEN = 1;
 
@@ -47,6 +54,8 @@ export class MeshKernel {
   private triCache: { tris: Int32Array; faceOfTri: Int32Array; rev: number } | null = null;
   /** 改动计数（渲染缓存 / 预演差量的钥匙；拓扑或坐标改了就 +1）。 */
   rev = 0;
+  /** 默认平滑（FM129；新内核 = 老语义 hard，转换 / 导入时设 angle）。改它走 setSmoothDefault（整体标改动，渲染全量重建法向）。 */
+  smoothDefault: SmoothDefault = SMOOTH_DEFAULT_LEGACY;
   /** 改动日志（编号 + 族谱，kernel/change-log.ts 同一份实现）：每个原语记下碰到的点 / 边 / 面；渲染缓存据此只重建改过的；clone = 分叉。 */
   changes = new ChangeLog();
 
@@ -144,6 +153,14 @@ export class MeshKernel {
   setEdgeFlags(e: number, flags: number): void { if (!this.hasE(e)) return; this.edgeFlags[e] = flags; this.changes.e(e); this.rev = ++meshRevClock; }
   setFaceMat(f: number, slot: number): void { if (!this.hasF(f)) return; this.faceMat[f] = slot; this.changes.f(f); this.rev = ++meshRevClock; }
   setFaceFlags(f: number, mask: number, on: boolean): void { if (!this.hasF(f)) return; this.faceFlags[f] = on ? this.faceFlags[f] | mask : this.faceFlags[f] & ~mask; this.changes.f(f); this.rev = ++meshRevClock; }
+  /** 换默认平滑：每条边的「平滑吗 / 画线吗」都可能变 → 所有边和面都记进改动日志（渲染按日志增量重建）。 */
+  setSmoothDefault(sd: SmoothDefault): void {
+    if (sd.mode === this.smoothDefault.mode && sd.deg === this.smoothDefault.deg) return;
+    this.smoothDefault = { mode: sd.mode, deg: sd.deg };
+    for (let e = 0; e < this.eCount; e++) if (this.eAlive[e]) this.changes.e(e);
+    for (let f = 0; f < this.fCount; f++) if (this.fAlive[f]) this.changes.f(f);
+    this.rev = ++meshRevClock;
+  }
   isFaceHidden(f: number): boolean { return this.hasF(f) && (this.faceFlags[f] & FF_HIDDEN) !== 0; }
   hasFlag(e: number, mask: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & mask) !== 0; }
 
@@ -185,7 +202,7 @@ export class MeshKernel {
     m.faceStart = this.faceStart.slice(); m.faceLen = this.faceLen.slice(); m.fAlive = this.fAlive.slice(); m.faceMat = this.faceMat.slice(); m.fCount = this.fCount; m.fFree = [...this.fFree];
     m.loopVert = this.loopVert.slice(); m.loopCount = this.loopCount;
     m.edgeA = this.edgeA.slice(); m.edgeB = this.edgeB.slice(); m.eAlive = this.eAlive.slice(); m.edgeFlags = this.edgeFlags.slice(); m.eCount = this.eCount; m.eFree = [...this.eFree];
-    m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.faceFlags = this.faceFlags.slice();
+    m.edgeKey = new Map(this.edgeKey); m.rev = this.rev; m.faceFlags = this.faceFlags.slice(); m.smoothDefault = this.smoothDefault;
     m.changes = this.changes.fork();   // 族谱：渲染缓存从原件切到副本只重建差的
     return m;
   }
@@ -199,7 +216,7 @@ export class MeshKernel {
     [this.loopVert, o.loopVert] = [o.loopVert, this.loopVert]; [this.loopCount, o.loopCount] = [o.loopCount, this.loopCount];
     [this.edgeA, o.edgeA] = [o.edgeA, this.edgeA]; [this.edgeB, o.edgeB] = [o.edgeB, this.edgeB]; [this.eAlive, o.eAlive] = [o.eAlive, this.eAlive]; [this.edgeFlags, o.edgeFlags] = [o.edgeFlags, this.edgeFlags]; [this.eCount, o.eCount] = [o.eCount, this.eCount]; [this.eFree, o.eFree] = [o.eFree, this.eFree];
     [this.edgeKey, o.edgeKey] = [o.edgeKey, this.edgeKey]; [this.adjDirty, o.adjDirty] = [o.adjDirty, this.adjDirty]; [this.vE, o.vE] = [o.vE, this.vE]; [this.eF, o.eF] = [o.eF, this.eF]; [this.triCache, o.triCache] = [o.triCache, this.triCache];
-    [this.rev, o.rev] = [o.rev, this.rev]; [this.changes, o.changes] = [o.changes, this.changes];
+    [this.rev, o.rev] = [o.rev, this.rev]; [this.changes, o.changes] = [o.changes, this.changes]; [this.smoothDefault, o.smoothDefault] = [o.smoothDefault, this.smoothDefault];
   }
   /** 紧凑快照（去空位、id 重编：存 / 导出时整理，user 10-27「catsup rule: organize in export/save」）。 */
   toSnapshot(): MeshSnapshot {

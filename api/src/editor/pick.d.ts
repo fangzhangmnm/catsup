@@ -13,6 +13,7 @@ export interface HitResult3 {
 export declare function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: {
     soft?: boolean;
     xray?: boolean;
+    softActive?: boolean;
 }): HitResult3;
 export declare function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): FaceId | undefined;
 /** 画线平面：光标下的面 → 它的平面；否则地面。 */

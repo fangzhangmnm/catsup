@@ -4,8 +4,9 @@ import { describe, it, eq, assert } from "./runner.mjs";
 import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument, formatTag } from "../src/format/index.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { FormatTooNewError } from "../src/format/migrate/index.ts";
-import { kernelFromMeshDoc } from "../src/mesh/mesh-doc.ts";
-import { F_SOFT, F_SMOOTH, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
+import { kernelFromMeshDoc, meshDocFromKernel } from "../src/mesh/mesh-doc.ts";
+import { addBox } from "../src/mesh/ops/index.ts";
+import { F_SHARP, F_SOFT, F_SMOOTH, FF_HIDDEN, MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { sceneMeshed, sceneFingerprint } from "./format-scenes.ts";
 
 type AnyJson = Record<string, any>;   // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -27,10 +28,11 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     eq(back.mesh(d.id).materialSlots.join(","), "0");
     eq(m.check().length, 0);
   });
-  it("文件里：mesh 项带拍子 1.0.0 + 多边形键（不存三角形）；定义表 6.4；本体给别的查看器 TRIANGLES + LINES primitive；签名含 CATSUP_mesh", () => {
+  it("文件里：mesh 项带拍子 1.1.0 + 多边形键（不存三角形）；定义表 6.4；本体给别的查看器 TRIANGLES + LINES primitive；签名含 CATSUP_mesh", () => {
     const g = glbOf(), defs = g.json.extensions.CATSUP_definitions, md = meshItem(g);
     eq(defs.version, 6); eq(defs.minor, 4);
-    eq(md.mesh.version, 1); assert(!("minor" in md.mesh) && !("patch" in md.mesh), "0 不写");
+    eq(md.mesh.version, 1); eq(md.mesh.minor, 1, "1.1：默认平滑（2026-10-28）"); assert(!("patch" in md.mesh), "0 不写");
+    eq(md.mesh.smoothDefault?.mode, "angle", "转换来的网格体 = 按角度（scene/kinds.ts keepLookUnderAngle）");
     for (const k of ["positions", "faceStart", "faceLen", "loopVert", "faceMat", "faceFlags", "edgePairs", "edgeFlags"]) assert(typeof md.mesh[k]?.bufferView === "number", `缺 ${k}`);
     assert(!("indices" in md.mesh) && !("triMaterial" in md.mesh), "三角形是派生物，不存");
     eq(md.mesh.faceStart.count, 6); eq(md.mesh.positions.count, 8); eq(md.mesh.edgePairs.count, 1);
@@ -39,7 +41,7 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     const prims = g.json.meshes[node.mesh].primitives as AnyJson[];
     assert(prims.some((p) => (p.mode ?? 4) === 4) && prims.some((p) => p.mode === 1), "TRIANGLES + LINES");
     assert(prims.some((p) => p.material === 0), "涂了材质的面单独一个 primitive");
-    eq(formatTag(), "3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.1.0-1.0.0-1.0.0");
+    eq(formatTag(), "3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.1.0-1.0.0-1.1.0");   // CATSUP_mesh 1.1（2026-10-28 默认平滑）
     assert(!g.json.extensionsUsed.includes("CATSUP_mesh"), "不是顶层扩展（住在定义里）");
   });
   it("0.14 的三角汤最小形（没拍子、只有 positions / indices）照开：每三角一面；重存变成多边形载荷", () => {
@@ -56,11 +58,11 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     const g2 = decodeGlb(writeCatsup(doc)) as unknown as { json: AnyJson };
     assert(typeof meshItem(g2).mesh.faceStart?.bufferView === "number" && meshItem(g2).mesh.version === 1, "重存 = 多边形载荷");
   });
-  it("拍子纪律：mesh 项 major 2 → 拒开（FormatTooNewError）；minor 1 → 能开 + readNotes.newerMinor 记 CATSUP_mesh", () => {
+  it("拍子纪律：mesh 项 major 2 → 拒开（FormatTooNewError）；minor 比本版新 → 能开 + readNotes.newerMinor 记 CATSUP_mesh", () => {
     const g = glbOf(); meshItem(g).mesh.version = 2;
     let threw: unknown = null; try { readCatsup(encodeGlb(g.json, g.bin)); } catch (e) { threw = e; }
     assert(threw instanceof FormatTooNewError, `该拒开：${String(threw)}`);
-    const g2 = glbOf(); meshItem(g2).mesh.minor = 1;
+    const g2 = glbOf(); meshItem(g2).mesh.minor = 9;
     const doc = readCatsup(encodeGlb(g2.json, g2.bin));
     assert(doc.readNotes?.newerMinor.some((n) => n.ext === "CATSUP_mesh"), "minor 新 → 提示一次");
   });
@@ -71,5 +73,17 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     assert(msg.length > 0, "该报错");
     let m2 = ""; try { kernelFromMeshDoc({ positions: new Float64Array([0, 0, 0, 1, 0, 0, 0, 1, 0]), faceStart: Int32Array.from([0]), faceLen: Int32Array.from([3]), loopVert: Int32Array.from([0, 1, 7]), faceMat: Int32Array.from([-1]), faceFlags: new Uint8Array(1), edgePairs: new Int32Array(0), edgeFlags: new Uint8Array(0) }, "t"); } catch (e) { m2 = e instanceof Error ? e.message : String(e); }
     assert(/vertex 7/.test(m2), `越界顶点要点名：${m2}`);
+  });
+  it("默认平滑（1.1，2026-10-28）：往返保住 mode / deg；没这个键的老载荷 = 全硬（只看手标，和以前逐字一样）；手标硬的位 32 往返", () => {
+    const m = new MeshKernel(); addBox(m, { x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 });
+    m.setSmoothDefault({ mode: "angle", deg: 25 });
+    const e0 = m.edges()[0]; m.setEdgeFlags(e0, F_SHARP);
+    const doc = meshDocFromKernel(m);
+    eq(JSON.stringify(doc.smoothDefault), JSON.stringify({ mode: "angle", deg: 25 }));
+    const back = kernelFromMeshDoc(doc);
+    eq(back.smoothDefault.mode, "angle"); eq(back.smoothDefault.deg, 25);
+    eq(back.edges().filter((e) => back.edgeFlags[e] & F_SHARP).length, 1, "手标硬的位往返");
+    const legacy = kernelFromMeshDoc({ ...doc, smoothDefault: undefined });
+    eq(legacy.smoothDefault.mode, "hard", "缺键 = 老文件 = 全硬");
   });
 });

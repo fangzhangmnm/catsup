@@ -32,7 +32,10 @@ export interface BakeMaterials {
  */
 export declare function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult;
 /**
- * mesh 身体的 bake（M3，2026-10-27 Claude Fable 5.1）：真相在 CATSUP_mesh 载荷（多边形 / 标记）里，这里只出给别的查看器看的派生物——顶点一份（Y-up；无 NORMAL = 省流档，加载器自算平面法向），
- * 三角形按材质 core 分 primitive（约束 Delaunay，和屏幕上同一套 triangulateRings），LINES = 看得见的边（多边形的环边 + 裸线；软 / 隐藏的不出；三角化出来的内部边不出），隐藏的面不出。
+ * mesh 身体的 bake（M3，2026-10-27 Claude Fable 5.1；2026-10-28 Claude Opus 5.5 补法向 + 绕向，纪元账本 FM130）：真相在 CATSUP_mesh 载荷（多边形 / 标记 / 默认平滑）里，
+ * 这里只出给别的查看器看的派生物。三角形按材质 core 分 primitive，**每组自己的 POSITION + NORMAL**（逐角法向 = scene/fan-normal.ts 扇内法线，平滑判定 = mesh/edge-smooth.ts——
+ * 和屏幕上同一个算法；同一组里位置和法向都一样的角合成一个顶点：光滑的地方共用、棱上自然分开）；三角形按面自己的绕向切（triangulateFace）。
+ * 以前没写 NORMAL（glTF：查看器自己按三角形算平面法向 = 一律一棱一棱）、且约一半三角形反了（user 10-27「导出的时候面的法向一堆错误」）。
+ * LINES = 画线的边（mesh/edge-smooth.ts edgeSoft 判：手标软 / 没手标且默认平滑判成平滑的不出；隐藏的不出）+ 裸线，用全体顶点那份 POSITION（accessorBase）。
  */
 export declare function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult;

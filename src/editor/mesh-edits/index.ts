@@ -4,7 +4,7 @@
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
 import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts } from "../../mesh/ops/index.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
+import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
 
 /** 两个点共有的面（最小 id；没有 = null）。 */
 function commonFaceOf(m: MeshKernel, a: number, b: number): number | null {
@@ -97,14 +97,77 @@ export const originToSelection: Command<MeshUnit> = {
   none: "设置原点：先选点 / 边 / 面",
 };
 
-const commands: readonly Command[] = [loopCut as Command, connect as Command, inset as Command, originToSelection as Command];
+// ---------- 默认平滑 + 手标（2026-10-28；纪元账本 FM129 / FM138；判定 = mesh/edge-smooth.ts）----------
+// user「明暗同意」「不要叫明暗方式，我们的语义就是几何，和representation没关系。默认平滑之类的？」：网格体一个「默认平滑」（按角度 / 全平滑 / 全是棱）+ 边上的手标压过它。
+
+/** 选区里的边：选中的边 + 选中的面的全部边（活着的，升序）。 */
+function selEdges(m: MeshKernel, u: MeshUnit): number[] {
+  if (!u.sel) return [];
+  const out = new Set<number>();
+  for (const e of u.sel.edges) if (m.hasE(e)) out.add(e);
+  for (const f of u.sel.faces) if (m.hasF(f)) { const r = m.faceVerts(f); for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0) out.add(e); } }
+  return [...out].sort((a, b) => a - b);
+}
+type EdgeMark = "sharp" | "smooth" | "none";
+const MARK_BITS: Record<EdgeMark, number> = { sharp: F_SHARP, smooth: F_SOFT | F_SMOOTH, none: 0 };
+function markCommand(mark: EdgeMark, id: `mesh.${string}`, title: string, done: string, none: string): Command<MeshUnit> {
+  return {
+    id, unit: "mesh", title,
+    defaults: () => ({}),
+    params: () => [],
+    plan(env, u) {
+      const m = env.scene.mesh(u.def).kernel, all = F_SHARP | F_SMOOTH | F_SOFT;
+      const es = selEdges(m, u).filter((e) => (m.edgeFlags[e] & all) !== MARK_BITS[mark]);   // 已经是这个标的不算
+      return es.length ? { ops: [{ op: "meshEdgeMarks", def: u.def, edges: es, mark }], count: es.length } : { ops: [], count: 0 };
+    },
+    done: (n) => done.replace("N", String(n)),
+    none,
+  };
+}
+export const markSharp = markCommand("sharp", "mesh.markSharp", "标成棱", "N 条边标成了棱（不管默认平滑怎么设，这里永远断开、画线）", "标成棱：先选边或面");
+export const markSmooth = markCommand("smooth", "mesh.markSmooth", "标成平滑", "N 条边标成了平滑（明暗连续、不画线）", "标成平滑：先选边或面");
+export const clearMarks = markCommand("none", "mesh.clearMarks", "清掉手标", "N 条边清掉了手标，交给默认平滑", "清掉手标：选中的边没有手标");
+
+const SMOOTH_LABEL: Record<SmoothDefaultMode, string> = { angle: "按角度", smooth: "全部平滑", hard: "全部是棱" };
+/** 默认平滑的三档各一条指令（菜单里一档一行；已经是这一档的不露，按角度那条永远露、马后炮里改角度）。 */
+function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
+  return {
+    id: `mesh.smooth.${mode}` as const, unit: "mesh", title: `默认平滑：${SMOOTH_LABEL[mode]}`,
+    defaults(env, units) { const u = units?.[0]; const sd = u ? env.scene.mesh(u.def).kernel.smoothDefault : null; return { deg: sd && sd.mode === "angle" ? sd.deg : 30 }; },
+    params: () => (mode === "angle" ? [{ key: "deg", def: { kind: "number", label: "小于这个角度算平滑", min: 1, max: 179, step: 1, unit: "°" } }] : []),
+    plan(env, u, v) {
+      const sd = env.scene.mesh(u.def).kernel.smoothDefault, deg = mode === "angle" ? Number(v.deg) : sd.deg;
+      if (!(deg > 0 && deg < 180)) return { ops: [], count: 0 };
+      if (mode !== "angle" && sd.mode === mode) return { ops: [], count: 0, notes: [`已经是${SMOOTH_LABEL[mode]}了`] };
+      return { ops: [{ op: "meshSmoothDefault", def: u.def, mode, deg }], count: 1 };
+    },
+    done: (_n, _x, v) => (mode === "angle" ? `默认平滑：两张面夹角小于 ${Number(v?.deg ?? 30)}° 的边算平滑（手标的边不受影响）` : `默认平滑：${SMOOTH_LABEL[mode]}（手标的边不受影响）`),
+    none: "默认平滑：先进一个网格体",
+  };
+}
+export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
+
+const commands: readonly Command[] = [loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
+  markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
   { id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } },
   { id: "mesh.connect", icon: "line", label: () => "连线（J）", commands: { mesh: "mesh.connect" } },
   { id: "mesh.inset", icon: "selection-expand", label: () => "插入", commands: { mesh: "mesh.inset" } },
   { id: "mesh.originToSelection", icon: "axes", label: () => "设置原点到选择中心", commands: { mesh: "mesh.originToSelection" } },
+  { id: "mesh.markSharp", icon: "line", label: (n) => `标成棱（${n} 条边）`, commands: { mesh: "mesh.markSharp" } },
+  { id: "mesh.markSmooth", icon: "line", label: (n) => `标成平滑（${n} 条边）`, commands: { mesh: "mesh.markSmooth" } },
+  { id: "mesh.clearMarks", icon: "line", label: (n) => `清掉手标（${n} 条边）`, commands: { mesh: "mesh.clearMarks" } },
+  { id: "mesh.smooth.angle", icon: "circle", label: () => "默认平滑：按角度…", commands: { mesh: "mesh.smooth.angle" } },
+  { id: "mesh.smooth.smooth", icon: "circle", label: () => "默认平滑：全部平滑", commands: { mesh: "mesh.smooth.smooth" } },
+  { id: "mesh.smooth.hard", icon: "circle", label: () => "默认平滑：全部是棱", commands: { mesh: "mesh.smooth.hard" } },
 ];
-const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] }];
+const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
+  { action: "mesh.markSharp", where: "contextBar", order: 40, modes: ["freeform"], submenu: { label: "手标", item: "标成棱" } },
+  { action: "mesh.markSmooth", where: "contextBar", order: 41, modes: ["freeform"], submenu: { label: "手标", item: "标成平滑" } },
+  { action: "mesh.clearMarks", where: "contextBar", order: 42, modes: ["freeform"], submenu: { label: "手标", item: "清掉手标（交给默认平滑）" } },
+  { action: "mesh.smooth.angle", where: "contextBar", order: 45, modes: ["freeform"], submenu: { label: "默认平滑", item: "按角度…" } },
+  { action: "mesh.smooth.smooth", where: "contextBar", order: 46, modes: ["freeform"], submenu: { label: "默认平滑", item: "全部平滑" } },
+  { action: "mesh.smooth.hard", where: "contextBar", order: 47, modes: ["freeform"], submenu: { label: "默认平滑", item: "全部是棱" } }];
 
 export const meshEdits: Family = { name: "meshEdits", commands, actions, placements };

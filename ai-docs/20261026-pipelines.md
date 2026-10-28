@@ -239,3 +239,10 @@ flowchart LR
 - 新指令：`mesh.inset`（右键面 → 插入；`meshInset`，O(选中面的点)）、`mesh.originToSelection`（右键 → 设置原点到选择中心；一条 `setAxes`）。
 - `setAxes` 落在定义根上（换组件 / 网格体的原点）：内核层 `retransformDefinition` 多一个网格体分支（每个点乘 M⁻¹，O(网格的点)；每份实例补 M，O(场景实例数)）；**撤销记录从骨架改成整份场景拷**（O(整个场景)，少见操作）——骨架记录共享内核，撤销只换回实例矩阵、几何留在挪过的地方 = 世界里错位（v0.15.15 起的 bug，测试 `test/draw-frame.test.ts` 钉住）。还随整个模型涨的点：这一条的撤销记录（整份拷）；要省就给它做「定义换坐标」的专用自反记录（只记 M）。
 - 右键「新建」只在自由建模；硬表面那条「新网格体组件」流程（op `addMeshObject`）撤了。
+
+## 追记 2026-10-28（v0.15.33–34，Claude Opus 5.5）：网格体的默认平滑 + 导出法向
+
+- **「这条边平滑吗 / 画线吗」只问一处** `mesh/edge-smooth.ts`（`edgeSmooth` / `edgeSoft`）：手标优先，没手标的按网格体的「默认平滑」（按角度 / 全部平滑 / 全部是棱）。读它的：`mesh/mesh-view.ts` 的软 / 平滑表（→ 渲染、拾取、吸附）、`bakeMesh`（导出的线和法向）、`scene/kinds.ts` 转换、`import-build.ts` 导入。改默认平滑 = `MeshKernel.setSmoothDefault`：所有边和面记进改动日志、rev 涨 → 视图表重算 O(mesh)，渲染整池重建一次（不是每帧）。
+- **导出（⑨ 保存的 bake 那半）**：`bakeMesh` 改成「内核 → 视图 → 每个材质一组」：三角化走 `triangulateFace`（按面自己的绕向，v0.15.33 修一半三角朝里）；每个角的法向 = 渲染同一个分扇函数（`scene/fan-normal.ts`，棱两侧分开、平滑区共用），角按「顶点 + 量化法向」去重 → 每组自己的 POSITION + NORMAL；线 = 画线的边（不平滑的 + 裸线，隐藏的不出）。O(角数)，随这个网格体的大小涨（保存时一次）。
+- **右键「手标 ›」「默认平滑 ›」** = 注册表 mesh 族指令 → op `meshEdgeMarks` / `meshSmoothDefault` → 走网格体那条撤销记录（自反交换，O(这个网格体)）。挤出面的帽子 / 区域内部的新边带原来的手标（`extrudeFaces` inheritMarks），插入不带；溶解二度点并出来的边手标取交集。
+- **自由建模显示**：正在编辑的网格体的平滑边 = 一层淡线（`render3 softEdges`，键 = 合成视图身份，几何变了才重建，O(这个网格体的边)）；拾取对这个池放开平滑边（`softActive`）。

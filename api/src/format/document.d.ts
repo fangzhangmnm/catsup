@@ -49,7 +49,11 @@ export interface MeshDoc {
     faceMat: Int32Array;
     faceFlags: Uint8Array;
     edgePairs: Int32Array;
-    edgeFlags: Uint8Array;
+    edgeFlags: Uint8Array; /** 明暗方式（CATSUP_mesh 1.1，2026-10-28 FM129）：缺 = 老文件 = flat（只看手标，和以前逐字一样）。 */
+    smoothDefault?: {
+        mode: "angle" | "smooth" | "hard";
+        deg: number;
+    };
 }
 /** 参考几何（0.11 尺规纪元；definitions v4）：池本地坐标，id 线 / 点同一空间。 */
 export interface GuidesDoc {

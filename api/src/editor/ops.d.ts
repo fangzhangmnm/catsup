@@ -288,6 +288,20 @@ export type Op =
     def: number;
     faces: number[];
     dist: number;
+}
+/** 手标边（2026-10-28 FM129）：sharp = 棱 / smooth = 平滑且不画线 / none = 清掉交给默认平滑（mesh/edge-smooth.ts markEdges）。 */
+ | {
+    op: "meshEdgeMarks";
+    def: number;
+    edges: number[];
+    mark: "sharp" | "smooth" | "none";
+}
+/** 网格体的默认平滑（2026-10-28 FM129；几何属性：没手标的边算棱还是光滑过渡）。 */
+ | {
+    op: "meshSmoothDefault";
+    def: number;
+    mode: "angle" | "smooth" | "hard";
+    deg: number;
 } | {
     op: "meshDelete";
     def: number;

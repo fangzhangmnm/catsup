@@ -7,6 +7,11 @@ import { COPLANAR_TOL_DEFAULT, dot3, planeBasis, type Pt3 } from "../kernel/geom
 import type { MeshDoc } from "./document.ts";
 import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
 import { triangulateFace, triangulateRings } from "./triangulate.ts";
+import { kernelFromMeshDoc } from "../mesh/mesh-doc.ts";
+import { meshViewOf } from "../mesh/mesh-view.ts";
+import { F_HIDDEN, F_WIRE } from "../mesh/mesh-kernel.ts";
+import { edgeSoft } from "../mesh/edge-smooth.ts";
+import { fanNormal } from "../scene/fan-normal.ts";
 import type { ViewSink } from "./brep-codec.ts";
 
 const GL_UNSIGNED_BYTE = 5121, GL_UNSIGNED_SHORT = 5123, GL_UNSIGNED_INT = 5125, GL_FLOAT = 5126;
@@ -223,57 +228,78 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
 }
 
 /**
- * mesh 身体的 bake（M3，2026-10-27 Claude Fable 5.1）：真相在 CATSUP_mesh 载荷（多边形 / 标记）里，这里只出给别的查看器看的派生物——顶点一份（Y-up；无 NORMAL = 省流档，加载器自算平面法向），
- * 三角形按材质 core 分 primitive（约束 Delaunay，和屏幕上同一套 triangulateRings），LINES = 看得见的边（多边形的环边 + 裸线；软 / 隐藏的不出；三角化出来的内部边不出），隐藏的面不出。
+ * mesh 身体的 bake（M3，2026-10-27 Claude Fable 5.1；2026-10-28 Claude Opus 5.5 补法向 + 绕向，纪元账本 FM130）：真相在 CATSUP_mesh 载荷（多边形 / 标记 / 默认平滑）里，
+ * 这里只出给别的查看器看的派生物。三角形按材质 core 分 primitive，**每组自己的 POSITION + NORMAL**（逐角法向 = scene/fan-normal.ts 扇内法线，平滑判定 = mesh/edge-smooth.ts——
+ * 和屏幕上同一个算法；同一组里位置和法向都一样的角合成一个顶点：光滑的地方共用、棱上自然分开）；三角形按面自己的绕向切（triangulateFace）。
+ * 以前没写 NORMAL（glTF：查看器自己按三角形算平面法向 = 一律一棱一棱）、且约一半三角形反了（user 10-27「导出的时候面的法向一堆错误」）。
+ * LINES = 画线的边（mesh/edge-smooth.ts edgeSoft 判：手标软 / 没手标且默认平滑判成平滑的不出；隐藏的不出）+ 裸线，用全体顶点那份 POSITION（accessorBase）。
  */
 export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult {
   const accessors: Record<string, unknown>[] = [], targets = new Map<number, number>(), primitives: Record<string, unknown>[] = [];
   const nV = Math.floor(m.positions.length / 3);
   if (!nV) return { accessors, bufferViewTargets: targets, mesh: { primitives } };
-  const pts: Pt3[] = [], pos: number[] = [];
+  const k = kernelFromMeshDoc(m, "bake");   // 新内核：顶点 id = 载荷下标、面 id = 载荷面序号（按序加、没有空位）
+  const view = meshViewOf(k);
+  const yUp = (p: Pt3): [number, number, number] => [p.x, p.z, -p.y];
+  const pos: number[] = [];
   let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < nV; i++) {
-    const p = { x: m.positions[3 * i], y: m.positions[3 * i + 1], z: m.positions[3 * i + 2] };
-    pts.push(p);
-    const y = [p.x, p.z, -p.y];   // Z-up → Y-up
+    const y = yUp({ x: m.positions[3 * i], y: m.positions[3 * i + 1], z: m.positions[3 * i + 2] });
     pos.push(y[0], y[1], y[2]);
     min = [Math.min(min[0], y[0]), Math.min(min[1], y[1]), Math.min(min[2], y[2])];
     max = [Math.max(max[0], y[0]), Math.max(max[1], y[1]), Math.max(max[2], y[2])];
   }
-  const KEY = 1 << 26, keyOf = (a: number, b: number): number => Math.min(a, b) * KEY + Math.max(a, b);
-  const flagged = new Map<number, number>();
-  for (let i = 0; i < m.edgeFlags.length; i++) flagged.set(keyOf(m.edgePairs[2 * i], m.edgePairs[2 * i + 1]), m.edgeFlags[i]);
-  const byCore = new Map<number, number[]>(), lineKeys = new Set<number>(), lines: number[] = [];
-  for (let f = 0; f < m.faceStart.length; f++) {
-    if (m.faceFlags[f] & 1) continue;   // 隐藏的面不出
-    const s = m.faceStart[f], n = m.faceLen[f], ring = Array.from(m.loopVert.subarray(s, s + n));
-    for (let i = 0; i < n; i++) { const a = ring[i], b = ring[(i + 1) % n], key = keyOf(a, b); if (lineKeys.has(key)) continue; lineKeys.add(key); if (!((flagged.get(key) ?? 0) & (1 | 8))) lines.push(a, b); }
-    const slot = m.faceMat[f], core = slot >= 0 ? mats?.slotToCore(slot) : undefined, key = core === undefined ? -1 : core;
-    const rp = ring.map((i) => pts[i]);
-    const tris = triangulateFace(rp);   // 按面自己的绕向（FM130 user「导出的时候面的法向一堆错误」：以前按规范化平面切，一半三角形反了）
-    const out = byCore.get(key) ?? byCore.set(key, []).get(key)!;
-    for (const [a, b, c] of tris) out.push(ring[a], ring[b], ring[c]);
-  }
-  for (const [key, fl] of flagged) if (fl & 16 && !lineKeys.has(key) && !(fl & (1 | 8))) lines.push(Math.floor(key / KEY), key % KEY);   // 裸线
-  const idxType = pickUintType(Math.max(0, nV - 1));
-  const idxGl = idxType === "uint8" ? GL_UNSIGNED_BYTE : idxType === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
-  const idxEnc = idxType === "uint64" ? "uint32" : idxType;
   const posView = sink.add(encodeF32(pos));
   targets.set(posView, GL_ARRAY_BUFFER);
   accessors.push({ bufferView: posView, componentType: GL_FLOAT, count: nV, type: "VEC3", min, max });
-  for (const [core, tris] of [...byCore].sort((a, b) => a[0] - b[0])) {
-    if (!tris.length) continue;
-    const tv = sink.add(encodeUints(tris, idxEnc));
-    targets.set(tv, GL_ELEMENT_ARRAY_BUFFER);
-    const acc = accessorBase + accessors.length;
-    accessors.push({ bufferView: tv, componentType: idxGl, count: tris.length, type: "SCALAR" });
-    primitives.push({ attributes: { POSITION: accessorBase }, indices: acc, mode: MODE_TRIANGLES, ...(core >= 0 ? { material: core } : {}) });
+  // 三角形：按材质 core 分组，每组逐角（位置 + 扇内法线）去重成顶点
+  interface Group { P: number[]; N: number[]; idx: number[]; key: Map<string, number>; mn: number[]; mx: number[] }
+  const groups = new Map<number, Group>();
+  for (const f of k.faces()) {
+    if (k.isFaceHidden(f)) continue;   // 隐藏的面不出
+    const ring = k.faceVerts(f), slot = k.faceMat[f], core = slot >= 0 ? mats?.slotToCore(slot) : undefined, gk = core === undefined ? -1 : core;
+    const G = groups.get(gk) ?? groups.set(gk, { P: [], N: [], idx: [], key: new Map(), mn: [Infinity, Infinity, Infinity], mx: [-Infinity, -Infinity, -Infinity] }).get(gk)!;
+    const corner = ring.map((v, j) => {
+      const nn = fanNormal(view, f, j), q = quantNormal(nn), key = `${v}|${q[0]},${q[1]},${q[2]}`;
+      let id = G.key.get(key);
+      if (id === undefined) {
+        id = G.P.length / 3; G.key.set(key, id);
+        const y = yUp(k.pt(v)); G.P.push(y[0], y[1], y[2]); G.N.push(q[0], q[2], -q[1]);   // 法向同样换轴
+        G.mn = [Math.min(G.mn[0], y[0]), Math.min(G.mn[1], y[1]), Math.min(G.mn[2], y[2])]; G.mx = [Math.max(G.mx[0], y[0]), Math.max(G.mx[1], y[1]), Math.max(G.mx[2], y[2])];
+      }
+      return id;
+    });
+    for (const [a, b, c] of triangulateFace(ring.map((v) => k.pt(v)))) G.idx.push(corner[a], corner[b], corner[c]);
+  }
+  for (const [core, G] of [...groups].sort((a, b) => a[0] - b[0])) {
+    if (!G.idx.length) continue;
+    const t = pickUintType(Math.max(0, G.P.length / 3 - 1)), gl = t === "uint8" ? GL_UNSIGNED_BYTE : t === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT, enc = t === "uint64" ? "uint32" : t;
+    const pv = sink.add(encodeF32(G.P)); targets.set(pv, GL_ARRAY_BUFFER);
+    const posAcc = accessorBase + accessors.length;
+    accessors.push({ bufferView: pv, componentType: GL_FLOAT, count: G.P.length / 3, type: "VEC3", min: G.mn, max: G.mx });
+    const nv = sink.add(encodeF32(G.N)); targets.set(nv, GL_ARRAY_BUFFER);
+    const norAcc = accessorBase + accessors.length;
+    accessors.push({ bufferView: nv, componentType: GL_FLOAT, count: G.N.length / 3, type: "VEC3" });
+    const tv = sink.add(encodeUints(G.idx, enc)); targets.set(tv, GL_ELEMENT_ARRAY_BUFFER);
+    const idxAcc = accessorBase + accessors.length;
+    accessors.push({ bufferView: tv, componentType: gl, count: G.idx.length, type: "SCALAR" });
+    primitives.push({ attributes: { POSITION: posAcc, NORMAL: norAcc }, indices: idxAcc, mode: MODE_TRIANGLES, ...(core >= 0 ? { material: core } : {}) });
+  }
+  // 线：画线的边（不软、不隐藏）——面上的边看面显没显，裸线看自己
+  const lines: number[] = [];
+  for (const e of k.edges()) {
+    const fl = k.edgeFlags[e], faces = k.eFaces(e);
+    if (fl & F_HIDDEN) continue;
+    if (!faces.length) { if (fl & F_WIRE) lines.push(k.edgeA[e], k.edgeB[e]); continue; }
+    if ([...faces].every((f) => k.isFaceHidden(f))) continue;
+    if (!edgeSoft(k, e)) lines.push(k.edgeA[e], k.edgeB[e]);
   }
   if (lines.length) {
-    const lv = sink.add(encodeUints(lines, idxEnc));
+    const t = pickUintType(Math.max(0, nV - 1)), gl = t === "uint8" ? GL_UNSIGNED_BYTE : t === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT, enc = t === "uint64" ? "uint32" : t;
+    const lv = sink.add(encodeUints(lines, enc));
     targets.set(lv, GL_ELEMENT_ARRAY_BUFFER);
     const acc = accessorBase + accessors.length;
-    accessors.push({ bufferView: lv, componentType: idxGl, count: lines.length, type: "SCALAR" });
+    accessors.push({ bufferView: lv, componentType: gl, count: lines.length, type: "SCALAR" });
     primitives.push({ attributes: { POSITION: accessorBase }, indices: acc, mode: MODE_LINES });
   }
   return { accessors, bufferViewTargets: targets, mesh: { primitives } };

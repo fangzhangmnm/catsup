@@ -727,6 +727,10 @@ export declare class Editor {
         id: string;
         label: string;
         icon: string;
+        submenu?: {
+            label: string;
+            item: string;
+        };
     }[];
     /** 老入口（动作 id = 指令 id 的那些）；新代码走 runAction。 */
     runCommand(id: CommandId): number;
@@ -994,6 +998,8 @@ export declare class Editor {
     private pivotOf;
     /** 选中的点（世界坐标；只画点本身）。 */
     private selVertsView;
+    /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
+    private softEdgesView;
     /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
     private vertDotsView;
     viewExtras: (() => Partial<ViewState>) | null;

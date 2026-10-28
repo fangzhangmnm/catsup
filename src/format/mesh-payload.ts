@@ -1,6 +1,7 @@
 // mesh-payload.ts —— CATSUP_definitions 里 kind:"mesh" 定义的载荷 = CATSUP_mesh 子结构（自己的拍子 1.0.0；家族格式纪律：major 新拒开 / minor 新提示一次 / patch 静默；未知键直通归 carry）。
 // 多边形是真相：positions（f64 xyz，定义坐标 Z-up）/ faceStart / faceLen / loopVert（i32；顶点下标空间 = positions）/ faceMat（i32，−1 = 默认槽）/ faceFlags（u8，bit0 隐藏）/
-// edgePairs（i32 成对）+ edgeFlags（u8：软 1 / 平滑 2 / 接缝 4 / 隐藏 8 / 裸线 16；只列带标记的边）。三角形不存（bake 的派生物，给别的查看器看）。
+// edgePairs（i32 成对）+ edgeFlags（u8：软 1 / 平滑 2 / 接缝 4 / 隐藏 8 / 裸线 16 / 手标硬 32（1.1）；只列带标记的边）。三角形不存（bake 的派生物，给别的查看器看）。
+// 1.1（2026-10-28 Claude Opus 5.5，FM129）：smoothDefault { mode: angle | smooth | hard, deg }（JSON 键，可选）= 网格体的默认平滑（没手标的边算棱还是光滑过渡；几何属性）；缺 = hard（老文件语义：只看手标）。老读者看到 1.1 = 提示一次、照开（默认平滑丢了 = 全按手标，手标硬的位不认）。
 // 没有 faceStart 键 = 0.14 的三角汤最小形（migrate/mesh.ts 读成每三角一面）。created 2026-10-27 by Claude Fable 5.1
 import type { MeshDoc } from "./document.ts";
 import type { ViewSink } from "./brep-codec.ts";
@@ -17,6 +18,7 @@ export function encodeMeshItem(m: MeshDoc, sink: ViewSink): Record<string, unkno
     faceStart: bv(m.faceStart, m.faceStart.length), faceLen: bv(m.faceLen, m.faceLen.length), loopVert: bv(m.loopVert, m.loopVert.length),
     faceMat: bv(m.faceMat, m.faceMat.length), faceFlags: bv(m.faceFlags, m.faceFlags.length),
     edgePairs: bv(m.edgePairs, m.edgePairs.length / 2), edgeFlags: bv(m.edgeFlags, m.edgeFlags.length),
+    ...(m.smoothDefault ? { smoothDefault: { mode: m.smoothDefault.mode, deg: m.smoothDefault.deg } } : {}),
   };
 }
 
@@ -38,6 +40,8 @@ export function decodeMeshItem(raw: Record<string, unknown>, sliceOf: (bv: numbe
     faceMat: new Int32Array(sliceOf(need("faceMat"))), faceFlags: new Uint8Array(sliceOf(need("faceFlags"))),
     edgePairs: new Int32Array(sliceOf(need("edgePairs"))), edgeFlags: new Uint8Array(sliceOf(need("edgeFlags"))),
   };
+  const sh = mj.smoothDefault;
+  if (isObj(sh) && (sh.mode === "angle" || sh.mode === "smooth" || sh.mode === "hard") && typeof sh.deg === "number" && Number.isFinite(sh.deg)) d.smoothDefault = { mode: sh.mode, deg: sh.deg };
   const nF = d.faceStart.length;
   if (d.positions.length % 3 !== 0) fail(`${where} mesh positions length ${d.positions.length} is not a multiple of 3`);
   if (d.faceLen.length !== nF || d.faceMat.length !== nF || d.faceFlags.length !== nF) fail(`${where} mesh face tables disagree (${nF} faces)`);

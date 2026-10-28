@@ -46,6 +46,7 @@ import "./mesh-extrude.test.ts";
 import "./mesh-inset.test.ts";
 import "./step-pass-guard.test.ts";   // 撤销一步的通行证：静态守卫（2026-10-28 Fable）
 import "./mesh-winding.test.ts";   // 网格体三角化保持面的绕向，导出不再一半反面（FM130，2026-10-28 Opus）
+import "./mesh-edge-marks.test.ts";   // 网格体手标 + 默认平滑：指令、继承、自由建模里平滑边点得中（FM129 / FM138，2026-10-28 Opus）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）
 import "./mesh-primitives.test.ts";   // 右键新建的基本体 + addMeshObject（2026-10-27 Opus）   // 插入：面内插一圈 + op 撤销（2026-10-27 Opus）   // 拉：边 / 点挤出 + meshExtrude op + 撤销（2026-10-27 Opus）   // 注册表两道接缝：三种单位 + 路由型动作「挪」+ meshMove 撤销记录（2026-10-27 Fable）
 import "./kernel-delta.test.ts";   // 内核差量：提交 = 影子换真身、applyDelta 自反（2026-10-27 Fable A3）

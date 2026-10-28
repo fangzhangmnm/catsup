@@ -24,6 +24,8 @@ export interface GeomView {
     } | undefined;
     /** 软边：渲染不画线。 */
     isSoft(id: EdgeId): boolean;
+    /** 这个实体在不在正在编辑的池里（合成视图有；单个内核没有 = 不知道）。 */
+    isActive?(id: number): boolean;
     /** 折线（DT87）：面内部的折痕——不画、点不中、不当吸附的边、两侧算一个面、明暗连续。 */
     isFold(id: EdgeId): boolean;
     /** 平滑边：两侧膜的法向跨边插值（平滑组）。 */

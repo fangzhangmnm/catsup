@@ -227,7 +227,7 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   eraseInstance: "删除物体", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
-  meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
+  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
 const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
@@ -1266,7 +1266,7 @@ export class Editor {
     return q ? Math.hypot(q.x - ray.origin.x, q.y - ray.origin.y, q.z - ray.origin.z) : null;
   }
   /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
-  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), { ...opts, xray: this._xray && this._tool === "select" }); }
+  pickAt(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3 { return pickEntity(this.liveWorld(), this.frame(), this.fvp(), sx, sy, this.hitPx(), { ...opts, xray: this._xray && this._tool === "select", softActive: this.mode.id === "freeform" }); }
   // ---------- X 光（纪元账本 DT17 的拾取 + 叠加层两半；半透明渲染留 Tron 纪元）----------
   // user 10-26「X光模式有一半是tron纪元的渲染器的事情，但是我现在想的是拾取模式和overlay 这个是不是现在就可以做？」
   // 开着：选择工具点得到被面挡住的点 / 边；画面上池的边透过面画淡的、选中的边不被挡。框选本来就会选到被挡的（SketchUp 同款），不变。
@@ -1676,13 +1676,13 @@ export class Editor {
   repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }
   private repairModule(kind: RepairKind): Command<PoolUnit> { const m = commandById(kind); if (!m || m.unit !== "brep") throw new Error(`command "${kind}" is not loaded (or is not a brep command)`); return m as Command<PoolUnit>; }
   /** 选区浮条上的入口 = 放置表里 contextBar 面上的动作（按现在的范围数出来 > 0 的才露；按工作台筛）：main.ts 照着画。数 = 路由表里每种单位各数各的（brep 走修复那条作用域、其余按单位规划）。 */
-  commandMenu(): { id: string; label: string; icon: string }[] {
-    const out: { id: string; label: string; icon: string }[] = [];
+  commandMenu(): { id: string; label: string; icon: string; submenu?: { label: string; item: string } }[] {
+    const out: { id: string; label: string; icon: string; submenu?: { label: string; item: string } }[] = [];
     for (const p of placementsAt("contextBar", this.mode.id)) {
       const a = actionById(p.action); if (!a) continue;
       let n = 0;
       for (const r of routesOf(a)) n += r.kind === "brep" ? this.repairMenuCount(r.command.id) : this.unitCount(r.command, r.kind);
-      if (n) out.push({ id: a.id, label: a.label(n), icon: a.icon ?? "" });
+      if (n) out.push({ id: a.id, label: a.label(n), icon: a.icon ?? "", ...(p.submenu ? { submenu: { label: p.submenu.label, item: p.submenu.item ?? a.label(n) } } : {}) });
     }
     return out;
   }
@@ -3057,6 +3057,17 @@ export class Editor {
     for (const v of ids) { const gv = g(v); if (view.graph.hasVertex(gv)) out.push(view.graph.pt(gv)); }
     return out.length ? out : null;
   }
+  /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
+  private softEdgesView(view: WorldView, g: (id: number) => number): { key: string; segs: { a: Pt3; b: Pt3 }[] } | null {
+    if (this.mode.id !== "freeform" || this.cmdPreview) return null;
+    const k = view.activeSlot().kernel, segs: { a: Pt3; b: Pt3 }[] = [];
+    for (const e of k.edges()) {
+      const ge = g(e.id);
+      if (!view.isSoft(ge) || !view.graph.hasEdge(ge)) continue;
+      const E = view.graph.edge(ge); segs.push({ a: view.graph.pt(E.a), b: view.graph.pt(E.b) });
+    }
+    return segs.length ? { key: String(this.kid(view)), segs } : null;
+  }
   /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
   private vertDotsView(view: WorldView, g: (id: number) => number): { key: string; pts: Pt3[] } | null {
     if (this.mode.id !== "freeform" || this.cmdPreview) return null;
@@ -3113,6 +3124,7 @@ export class Editor {
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
       vertDots: this.vertDotsView(view, g),
+      softEdges: this.softEdgesView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
       originAxes: this.originMarker(),

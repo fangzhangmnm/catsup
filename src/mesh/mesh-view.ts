@@ -10,7 +10,8 @@ import type { Ring } from "../kernel/facefind.ts";
 import type { Curve } from "../kernel/curves.ts";
 import type { ChangeLog } from "../kernel/change-log.ts";
 import { COPLANAR_TOL_DEFAULT, planeBasis, projectToPlane } from "../kernel/geom.ts";
-import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, FF_HIDDEN } from "./mesh-kernel.ts";
+import { MeshKernel, F_HIDDEN, FF_HIDDEN } from "./mesh-kernel.ts";
+import { edgeSmooth, edgeSoft } from "./edge-smooth.ts";
 
 interface Tables { rev: number; verts: Map<VertexId, Vertex>; edges: Map<EdgeId, Edge>; faces: Map<FaceId, Face>; planes: Map<FaceId, PlaneRec>; soft: Set<EdgeId>; smooth: Set<EdgeId>; hidden: Set<EdgeId>; }
 
@@ -42,10 +43,9 @@ export class MeshView implements KernelView {
     for (const v of m.verts()) { const p = m.pt(v); verts.set(v, { id: v, x: p.x, y: p.y, z: p.z, edges: new Set(m.vEdges(v)) }); }
     for (const e of m.edges()) {
       edges.set(e, { id: e, a: m.edgeA[e], b: m.edgeB[e], faceLinks: [...m.eFaces(e)] });
-      const fl = m.edgeFlags[e];
-      if (fl & F_SOFT) soft.add(e);
-      if (fl & F_SMOOTH) smooth.add(e);
-      if (fl & F_HIDDEN) hidden.add(e);
+      if (edgeSoft(m, e)) soft.add(e);   // 有效的软 / 平滑 = 手标 + 默认平滑（mesh/edge-smooth.ts 唯一判定，FM129）
+      if (edgeSmooth(m, e)) smooth.add(e);
+      if (m.edgeFlags[e] & F_HIDDEN) hidden.add(e);
     }
     for (const f of m.faces()) {
       const vs = m.faceVerts(f), pts = m.facePts(f), n = m.faceNormal(f);
@@ -70,8 +70,8 @@ export class MeshView implements KernelView {
   face(id: FaceId): Face | undefined { return this.tables().faces.get(id); }
   planeOf(id: FaceId): PlaneRec | undefined { return this.tables().planes.get(id); }
   curves(): Curve[] { return []; }
-  isSoft(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_SOFT); }
-  isSmooth(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_SMOOTH); }
+  isSoft(id: EdgeId): boolean { return this.tables().soft.has(id); }
+  isSmooth(id: EdgeId): boolean { return this.tables().smooth.has(id); }
   /** mesh 没有折线：面内的折痕就是一条软 + 平滑的边。 */
   isFold(): boolean { return false; }
   isEdgeHidden(id: EdgeId): boolean { return this.mesh.hasFlag(id, F_HIDDEN); }

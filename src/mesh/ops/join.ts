@@ -1,5 +1,7 @@
 // mesh/ops/join.ts —— 并：擦掉两面之间的边 → 一张 n 边形（不管平不平）；二度点溶解。created 2026-10-27 by Claude Fable 5.1
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
+import { MeshKernel, F_WIRE, F_SHARP, F_SMOOTH, F_SOFT } from "../mesh-kernel.ts";
+
+const MARKS = F_SHARP | F_SMOOTH | F_SOFT;
 
 /**
  * 并面（溶解边 e）：e 恰两张不同的面 → 合成一张（fa 保 id、fb 删、e 删）。
@@ -32,7 +34,8 @@ export function dissolveVertex(k: MeshKernel, v: number): number {
   if (es.length !== 2) throw new Error(`dissolveVertex: vertex ${v} has ${es.length} edges (need exactly 2)`);
   const other = (e: number): number => (k.edgeA[e] === v ? k.edgeB[e] : k.edgeA[e]);
   const a = other(es[0]), b = other(es[1]);
-  const flags = k.edgeFlags[es[0]] | k.edgeFlags[es[1]];
+  // 手标（棱 / 平滑 / 不画线）两条都有才留（和 SU 体一致；硬软边设计稿 §6 第 3 问默认）；别的位（接缝 / 隐藏）有一条就留
+  const f0 = k.edgeFlags[es[0]], f1 = k.edgeFlags[es[1]], flags = ((f0 | f1) & ~MARKS) | (f0 & f1 & MARKS);
   const faces = new Set<number>([...k.eFaces(es[0]), ...k.eFaces(es[1])]);
   for (const f of faces) if (k.faceVerts(f).length <= 3) throw new Error(`dissolveVertex: face ${f} would drop below 3 vertices`);
   for (const f of faces) k.setFaceRing(f, k.faceVerts(f).filter((x) => x !== v));

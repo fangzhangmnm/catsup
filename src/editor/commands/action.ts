@@ -29,6 +29,8 @@ export interface Placement {
   readonly modes?: readonly ModeId[];
   /** 这个入口钉的作用域（缺 = auto：有选区用选区、没选用当前在编辑的整个物体）。 */
   readonly scope?: "auto" | "context";
+  /** 右键菜单里收进哪个子菜单（2026-10-28：子菜单的名字；同名的几条并成一行「名字 ›」；item = 子菜单里显示的字，缺 = 动作自己的 label）。浮条照旧平铺。 */
+  readonly submenu?: { readonly label: string; readonly item?: string };
 }
 
 /**

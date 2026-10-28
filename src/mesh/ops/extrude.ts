@@ -1,10 +1,16 @@
 // mesh/ops/extrude.ts —— 长：挤出一组面（区域的顶点复制一份、面改指向新点、区域边界每条边长一张四边形侧面；内部边不长）。不挪：挪归工具。
 // created 2026-10-27 by Claude Fable 5.1
-import { MeshKernel, F_WIRE } from "../mesh-kernel.ts";
+import { MeshKernel, F_WIRE, F_SHARP, F_SMOOTH, F_SOFT } from "../mesh-kernel.ts";
 
 export interface ExtrudeResult { newVerts: Map<number, number>; sides: number[]; }
 
-export function extrudeFaces(k: MeshKernel, fs: readonly number[]): ExtrudeResult {
+const MARKS = F_SHARP | F_SMOOTH | F_SOFT;
+
+/**
+ * inheritMarks（2026-10-28 Claude Opus 5.5；硬软边设计稿 §3）：挤出来的那块是原来那几张面的复制，所以它的边（帽子那一圈 + 区域里面的边）带上原来那些边的手标；
+ * 侧面的竖边不标；原来的边界留在老面和侧面之间，手标不动。插入传 false（新的一圈在面里，夹角 0，交给默认平滑）。
+ */
+export function extrudeFaces(k: MeshKernel, fs: readonly number[], inheritMarks = true): ExtrudeResult {
   const region = new Set([...fs].filter((f) => k.hasF(f)));
   if (!region.size) throw new Error("extrudeFaces: no alive faces");
   // 区域顶点 → 新顶点（同位置）
@@ -20,8 +26,15 @@ export function extrudeFaces(k: MeshKernel, fs: readonly number[]): ExtrudeResul
       if (inRegion === 1) boundary.push([a, b, f]);
     }
   }
+  // 区域里每条边的手标（面改指向新点以后，内部边会被删、帽子那圈是新边）
+  const marks: [number, number, number][] = [];
+  if (inheritMarks) for (const f of [...region].sort((a, b) => a - b)) {
+    const r = k.faceVerts(f);
+    for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length], m = k.edgeFlags[k.edgeOf(a, b)] & MARKS; if (m) marks.push([a, b, m]); }
+  }
   // 面改指向新点
   for (const f of [...region].sort((a, b) => a - b)) k.setFaceRing(f, k.faceVerts(f).map((v) => newVerts.get(v)!));
+  for (const [a, b, m] of marks) { const e = k.edgeOf(newVerts.get(a)!, newVerts.get(b)!); if (e >= 0) k.setEdgeFlags(e, (k.edgeFlags[e] & ~MARKS) | m); }
   // 侧面：顶面绕向 a→b（朝外时从外面看逆时针），侧面 (a, b, b', a') 的右手法向 = (b−a) × (b'−b) 朝外（盒子顶面 y=0 那条边：(1,0,0) × (0,0,1) = (0,−1,0)）
   const sides: number[] = [];
   for (const [a, b, f] of boundary) sides.push(k.addFace([a, b, newVerts.get(b)!, newVerts.get(a)!], k.faceMat[f]));

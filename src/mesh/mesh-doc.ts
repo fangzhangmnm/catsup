@@ -12,7 +12,7 @@ export function meshDocFromKernel(m: MeshKernel): MeshDoc {
   faces.forEach((f, i) => { const vs = m.faceVerts(f); faceStart[i] = loop.length; faceLen[i] = vs.length; faceMat[i] = m.faceMat[f]; faceFlags[i] = m.faceFlags[f]; for (const v of vs) loop.push(map.get(v)!); });
   const pairs: number[] = [], flags: number[] = [];
   for (const e of m.edges()) if (m.edgeFlags[e]) { pairs.push(map.get(m.edgeA[e])!, map.get(m.edgeB[e])!); flags.push(m.edgeFlags[e]); }
-  return { positions, faceStart, faceLen, loopVert: Int32Array.from(loop), faceMat, faceFlags, edgePairs: Int32Array.from(pairs), edgeFlags: Uint8Array.from(flags) };
+  return { positions, faceStart, faceLen, loopVert: Int32Array.from(loop), faceMat, faceFlags, edgePairs: Int32Array.from(pairs), edgeFlags: Uint8Array.from(flags), smoothDefault: { mode: m.smoothDefault.mode, deg: m.smoothDefault.deg } };
 }
 
 export function kernelFromMeshDoc(d: MeshDoc, where = "mesh"): MeshKernel {
@@ -34,5 +34,6 @@ export function kernelFromMeshDoc(d: MeshDoc, where = "mesh"): MeshKernel {
     if (a < 0 || b < 0 || a >= nV || b >= nV || a === b) throw new Error(`${where}: flagged edge ${i} invalid`);
     m.setEdgeFlags(m.ensureEdge(a, b), d.edgeFlags[i]);   // 不属于任何面的 = 裸线（F_WIRE 由标记自己带）
   }
+  if (d.smoothDefault) m.setSmoothDefault(d.smoothDefault);   // 缺 = 老文件 = 全硬（MeshKernel 默认；老文件语义 = 只看手标）
   return m;
 }

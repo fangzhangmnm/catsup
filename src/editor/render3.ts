@@ -140,6 +140,8 @@ export const LINE_WEIGHTS: readonly number[] = [1, 1.5, 2, 3];
 const profileAddFor = (w: number): number => Math.min(w, 5 - w);   // 轮廓 ≈ 两倍粗，总宽不超过 5 设备像素
 const OTHER_KEY = { other: true } as const;   // rebuildFaces 分组键：别的池的纯色面
 const HINT_PX = 1.2;        // 吸附提示线宽
+const SOFT_EDGE_PX = 1;     // 自由建模里平滑边的线宽（CSS px；比棱细）
+const SOFT_EDGE_COLOR = 0x9a9a9a;   // 平滑边：比棱（edge 0x2a2a2a）淡得多，比面（0xd6d6d6）深一点，看得出来但不抢
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
 const ARC_PX = 2.5;
 const SNAP_MARKER_PX = 5;
@@ -207,6 +209,8 @@ export interface ViewState {
   selVerts?: readonly Pt3[] | null;
   /** 全部顶点的小点（自由建模；key 变了才重建）。 */
   vertDots?: { key: string; pts: readonly Pt3[] } | null;
+  /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
+  softEdges?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
@@ -347,7 +351,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -501,6 +505,10 @@ export class Renderer3 {
     }));
     this.vertDots.frustumCulled = false; this.vertDots.visible = false; this.vertDots.renderOrder = 3;
     this.scene.add(this.vertDots);
+    // 平滑边（自由建模）：细、淡、和面一样往后让（polygonOffset），被挡住的不露
+    this.softLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(SOFT_EDGE_PX, { offset: true, vertexColors: true }));
+    this.softLines.frustumCulled = false; this.softLines.visible = false;
+    this.scene.add(this.softLines);
     this.tickLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tickLines.frustumCulled = false; this.tickLines.visible = false;
     this.scene.add(this.tickLines);
@@ -928,6 +936,18 @@ export class Renderer3 {
       this.vertDots.material.uniforms.uSize.value = VERT_DOT_PX * this.dpr;
       this.vertDots.visible = true;
     } else { this.vertDots.visible = false; this.vertDotKey = ""; }
+
+    // ---- 平滑边（自由建模）----
+    const se = view.softEdges;
+    if (se && se.segs.length) {
+      if (se.key !== this.softKey) {
+        this.softKey = se.key;
+        const pos: number[] = [], col: number[] = [], c = this.tmpColor.setHex(SOFT_EDGE_COLOR);
+        for (const s of se.segs) { pos.push(s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b); }
+        this.setLineGeometry(this.softLines, pos, col);
+      }
+      this.softLines.visible = true;
+    } else { this.softLines.visible = false; this.softKey = ""; }
 
     // ---- 选中的点 ----
     const sv = view.selVerts;
