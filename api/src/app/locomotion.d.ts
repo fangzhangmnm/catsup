@@ -4,6 +4,10 @@ import { PlayerSim, type RigPose } from "../player/player.ts";
 import { FlatInput } from "../player/flat-input.ts";
 import type { InputFrame } from "../player/input.ts";
 export type LocomotionMode = "orbit" | "walk" | "xr";
+/** 步行的几个阶段（mode = walk 时 walk / edit；放置时 mode 还是 orbit）。 */
+export type WalkPhase = "off" | "place" | "walk" | "edit";
+/** 眼高的默认 / 上下限（米；马前炮可调）。 */
+export declare const EYE_DEFAULT: number, EYE_MIN = 0.3, EYE_MAX = 5;
 export declare class Locomotion {
     readonly world: KernelCollisionWorld;
     readonly sim: PlayerSim;
@@ -12,11 +16,47 @@ export declare class Locomotion {
     private lookPitch;
     private saved;
     private cursor;
+    private phase;
+    /** 放置的眼高（马前炮；落下去以后就是这个人的身高）。 */
+    eyeHeight: number;
+    /** 悬停处的放置结果（画虚影用）。 */
+    private ghost;
+    /** 自己为了原地编辑放开鼠标（区别于 Esc 被浏览器放开）。 */
+    private unlockForEdit;
+    /** 阶段变了（app 刷新上方那颗按钮 / 提示）。 */
+    onPhase: (() => void) | null;
     /** 外部输入源（VR）：非 null 时代替键盘。 */
     externalInput: ((dt: number) => InputFrame) | null;
     private editor;
     private canvas;
     constructor(editor: Editor, canvas: HTMLCanvasElement);
+    walkPhase(): WalkPhase;
+    isPlacing(): boolean;
+    /** FPS 进行中（不是原地编辑）：键盘归走路，工具键不响应。 */
+    isFps(): boolean;
+    isEditInPlace(): boolean;
+    private setPhase;
+    /** 视图菜单「步行相机」：进放置（先点一下落在哪）。 */
+    beginPlace(): void;
+    cancelPlace(): void;
+    private updateGhost;
+    /** 放置的虚影（渲染用；不在放置 = null）。 */
+    placeGhost(): {
+        feet: {
+            x: number;
+            y: number;
+            z: number;
+        };
+        radius: number;
+        height: number;
+        ok: boolean;
+    } | null;
+    placeWhy(): string | null;
+    private commitPlace;
+    /** 回 FPS（放置落下 / 原地编辑里点「继续走」）：要一次用户点击才锁得上鼠标，这两个入口都是点击。 */
+    resumeWalk(): void;
+    /** Tab：原地编辑（镜头钉住、鼠标放出来、键盘归工具）。 */
+    editInPlace(): void;
     getMode(): LocomotionMode;
     isWalking(): boolean;
     isXR(): boolean;
@@ -44,8 +84,9 @@ export declare class Locomotion {
     exitXR(): void;
     get noclip(): boolean;
     setNoclip(on: boolean): void;
-    /** 进步行模式：落到轨道相机 target 的地面上，朝相机前向。 */
+    /** 直接进步行（不经放置；测试 / 探针用）：落到轨道相机 target 的地面上，朝相机前向。 */
     enterWalk(): void;
+    /** 离开步行：回到进来之前的视角（什么都没发生过）。放置中 = 取消放置。 */
     exitWalk(): void;
     toggleWalk(): void;
     /** 鼠标视角（app 手势路由在步行模式下把右键拖喂进来）。返回 false = 不在步行模式，调用方走轨道。 */

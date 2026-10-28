@@ -22,7 +22,7 @@ import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
-import { type MirrorAxis, type MirrorMode, type MirrorSetting, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, straddlingFaces, symmetrize } from "../mesh/mirror.ts";
+import { type MirrorAxis, type MirrorMode, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, symmetrize } from "../mesh/mirror.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, guidesOf, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
@@ -1070,14 +1070,18 @@ export class Editor {
   }
   private symmetrizeNow(def: number, ax: MirrorAxis): void {
     return this.step((pass) => {
-      const m = this.scene.mesh(def).kernel, A = "XYZ"[ax], st = straddlingFaces(m, ax);
-      if (st) { this.host.hint(`强行对称：开，但有 ${st} 张面跨过镜像面，先在中缝上切一圈（环切）才对称得了；在那之前每一步都不对称`); return; }
+      const m = this.scene.mesh(def).kernel, A = "XYZ"[ax];
       if (isSymmetric(m, ax)) { this.host.hint(`强行对称：开（${A} 轴；已经是对称的）——以后每一步都会对称，动了哪边哪边为准`); return; }
-      const side = this.selectionSide(def, ax) ?? this.mirrorLastSide.get(def) ?? 1, probe = m.clone(), r = symmetrize(probe, ax, side);
+      const side = this.selectionSide(def, ax) ?? this.mirrorLastSide.get(def) ?? 1, r = this.trySymmetrize(m, ax, side);
+      if (!r) { this.host.hint(`强行对称：开，但有面跨过镜像面、而且一刀劈不开（凹的面）：先在中缝上手动切一刀；在那之前每一步都不对称`); return; }
       this.mirrorLastSide.set(def, side);
       this.commitIn(pass, { op: "meshSymmetrize", def, axis: ax, side });
-      this.host.hint(`强行对称：开（${A} 轴，以 ${side > 0 ? "+" : "−"}${A} 那半为准；另一半删了 ${r.removedFaces} 张面、镜过来 ${r.added} 张面）——以后每一步都会对称`);
+      this.host.hint(`强行对称：开（${A} 轴，以 ${side > 0 ? "+" : "−"}${A} 那半为准；${r.cutEdges ? `沿镜像面切开了 ${r.cutEdges} 条边、` : ""}另一半删了 ${r.removedFaces} 张面、镜过来 ${r.added} 张面）——以后每一步都会对称`);
     }, { title: "强行对称" });
+  }
+  /** 在副本上试一次对称（会先沿镜像面切开）：成了 = 结果（切了几条边、删了 / 镜了几张面，说给人听），劈不开 = null。 */
+  private trySymmetrize(m: MeshKernel, ax: MirrorAxis, side: -1 | 1): SymmetrizeResult | null {
+    try { return symmetrize(m.clone(), ax, side); } catch { return null; }
   }
   /** 镜像编辑：挪点补上对面、手标补上对面的边（提交前改写；进日志的是改写后的 op = 重放一致）。 */
   private mirrorRewrite(op: Op): Op {
@@ -1102,10 +1106,10 @@ export class Editor {
   private mirrorForceAfter(pass: StepPass, op: Op, before: MeshKernel): void {
     const def = (op as { def: number }).def, ms = this.mirrors.get(def);
     if (!ms) return;
-    const m = this.scene.mesh(def).kernel, st = straddlingFaces(m, ms.axis);
-    if (st) { this.mirrorNote = `强行对称：有 ${st} 张面跨过镜像面，这一步没对称（先在中缝上切一圈）`; return; }
+    const m = this.scene.mesh(def).kernel;
     if (isSymmetric(m, ms.axis)) return;
     const side = sideOfChange(before, m, ms.axis) || this.mirrorLastSide.get(def) || 1;
+    if (!this.trySymmetrize(m, ms.axis, side)) { this.mirrorNote = "强行对称：有面跨过镜像面、而且一刀劈不开（凹的面），这一步没对称（先在中缝上手动切一刀）"; return; }
     this.mirrorLastSide.set(def, side);
     this.commitIn(pass, { op: "meshSymmetrize", def, axis: ms.axis, side });
   }
@@ -1119,8 +1123,9 @@ export class Editor {
       if (moves.length) for (const mv of mirrorMoves(base, moves, ms.axis).moves) if (c.hasV(mv.v)) c.setPos(mv.v, mv.to);
       return;
     }
-    if (straddlingFaces(c, ms.axis) || isSymmetric(c, ms.axis)) return;
-    symmetrize(c, ms.axis, sideOfChange(base, c, ms.axis) || this.mirrorLastSide.get(def) || 1);
+    if (isSymmetric(c, ms.axis)) return;
+    const probe = c.clone();
+    try { symmetrize(probe, ms.axis, sideOfChange(base, c, ms.axis) || this.mirrorLastSide.get(def) || 1); c.swapWith(probe); } catch { /* 劈不开：预演照原样（提交时会说） */ }
   }
   /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */
   private mirrorBlocks(op: Op): boolean {

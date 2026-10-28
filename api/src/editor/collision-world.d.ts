@@ -1,12 +1,15 @@
 import type { Kernel, Pt3 } from "../kernel/kernel.ts";
 import type { WorldHit, WorldQuery } from "../player/world-query.ts";
+import type { GeomView } from "../scene/world-view.ts";
+/** 碰撞吃的几何：面 + 面的平面 + 面的三维环。brep 内核结构上满足；全场景的合成视图（WorldView，世界坐标、含网格体、隐藏的面不进）也满足（2026-10-28）。 */
+export type CollisionSource = Pick<GeomView, "faces" | "planeOf" | "faceRings3">;
 export declare class KernelCollisionWorld implements WorldQuery {
     private faces;
     private floor;
     /** 已吃进来的 Editor.revision（调用方比对以决定要不要 rebuild）。 */
     revision: number;
-    constructor(k?: Kernel, revision?: number);
-    rebuild(k: Kernel, revision?: number): void;
+    constructor(k?: Kernel | CollisionSource, revision?: number);
+    rebuild(k: CollisionSource, revision?: number): void;
     faceCount(): number;
     floorZ(): number;
     private inside;

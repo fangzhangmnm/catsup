@@ -81,6 +81,22 @@ const res = await page.evaluate(async () => {
   e.selectAll(); await sleep(10);
   e.runAction("mesh.symmetrySnap"); await sleep(20);
   out.six.symAfter = sym(m()); out.six.hint = hint();
+  // ⑦ user 10-28 截图那一案：没在中缝切过的方块、拉歪一个角 → 开强行对称 = 自己沿镜像面切开再对称（「镜像你忘了做切割」）
+  e.exitContext(); await sleep(20);
+  box(4, 0, 0, 6, 1, 1); e.deselectAll();
+  { const before = new Set([...S().def(S().root).instances.keys()]); e.selectAll(); }
+  const loose = () => [...S().def(S().root).instances.values()];
+  e.makeComponent("块2"); e.runAction("object.toMesh"); await sleep(20);
+  const inst2 = loose().find((i) => i.id !== inst.id), m2 = () => S().mesh(inst2.def).kernel;
+  e.selectedPools.clear(); e.selectedPools.set(`i${inst2.id}`, { kind: "instance", instance: inst2.id }); e.enterSelected(); await sleep(30);
+  e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await sleep(10);   // 镜像面 = 物体自己的原点：先把原点放到方块中间
+  const xs2 = m2().verts().map((x) => m2().pt(x).x), c2 = (Math.min(...xs2) + Math.max(...xs2)) / 2;
+  const corner = m2().verts().find((x) => m2().pt(x).x === Math.max(...xs2));
+  e.commitOp({ op: "meshMove", def: inst2.def, moves: [{ v: corner, to: { ...m2().pt(corner), x: m2().pt(corner).x + 0.3 } }] });
+  out.seven = { faces0: m2().faceCount(), center: c2 };
+  e.setMirror("force", 0); await sleep(20);
+  const sym2 = (k) => k.verts().every((v) => { const q = k.pt(v); return k.verts().some((w) => { const p = k.pt(w); return Math.abs((p.x - c2) + (q.x - c2)) < 1e-9 && Math.abs(p.y - q.y) < 1e-9 && Math.abs(p.z - q.z) < 1e-9; }); });
+  out.seven.faces = m2().faceCount(); out.seven.sym = sym2(m2()); out.seven.hint = hint();
   return out;
 });
 await b.close();
@@ -91,6 +107,7 @@ const ok = res.one.row && /关/.test(res.one.items) && /镜像编辑/.test(res.o
   && res.four.selFaces === 1 && /关掉镜像/.test(res.four.sheet ?? "") && res.four.facesBefore === 0 && res.four.facesAfter === 4 && res.four.mirrorAfter === null && res.four.undone === 0
   && res.five.symBefore === false && res.five.mode === "force" && res.five.symAfterOn && res.five.extrude.dFaces === 8 && res.five.extrude.steps === 1 && res.five.extrude.sym && res.five.undo === 0
   && res.six.symBefore === false && res.six.symAfter
+  && res.seven.faces0 === 6 && Math.abs(res.seven.center) < 1e-9 && res.seven.faces === 10 && res.seven.sym && /切开/.test(res.seven.hint)
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-mirror OK" : "probe-mesh-mirror FAIL");

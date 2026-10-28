@@ -184,6 +184,8 @@ export interface ViewState {
   near?: number;
   /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
   teleport?: { points: readonly Pt3[]; valid: boolean; landing: Pt3 | null } | null;
+  /** 放置的胶囊虚影（步行「点一下落在哪」；player/placement.ts）：脚底、半径、身高、站得下吗（绿 / 红）。 */
+  capsule?: { feet: Pt3; radius: number; height: number; ok: boolean } | null;
   /** 变暗的池槽序号（进了 group / 组件后，上下文之外的几何；SU 同款淡出）。null = 不变暗。2026-10-21 */
   dimSlots?: ReadonlySet<number> | null;
   /** 缩放柄（世界点；active = 正在拖的那个）。 */
@@ -354,7 +356,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private mirrorLines: any; private seamDots: any; private mirrorKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private mirrorLines: any; private seamDots: any; private mirrorKey = ""; private capsuleLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -467,6 +469,10 @@ export class Renderer3 {
     this.landingRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: TP_OK, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
     this.landingRing.renderOrder = 9; this.landingRing.visible = false;
     this.scene.add(this.landingRing);
+    // 放置的胶囊虚影：脚底圈 + 头顶圈 + 四根竖线 + 眼高那一小圈（线，不被几何挡 = 落在墙后也看得见在哪）
+    this.capsuleLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(ARC_PX, {}));
+    this.capsuleLines.material.depthTest = false; this.capsuleLines.frustumCulled = false; this.capsuleLines.visible = false; this.capsuleLines.renderOrder = 9;
+    this.scene.add(this.capsuleLines);
     // 缩放柄（14 个小方块，按屏幕像素定尺寸）：透视画、永远在最上面（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」——看不见就点不中）
     for (let i = 0; i < 14; i++) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x2e8b57, depthTest: false, depthWrite: false }));
@@ -1224,6 +1230,18 @@ export class Renderer3 {
         this.landingRing.material.color.setHex(color);
       } else this.landingRing.visible = false;
     } else { this.arcLines.visible = false; this.landingRing.visible = false; }
+
+    // ---- 放置的胶囊虚影（每帧位置都可能变，几十段，现建）----
+    const cp = view.capsule;
+    if (cp) {
+      const pos: number[] = [], N = 24, f = cp.feet, r = cp.radius;
+      const ring = (z: number, rr: number): void => { for (let i = 0; i < N; i++) { const a = (i / N) * 2 * Math.PI, b = ((i + 1) / N) * 2 * Math.PI; pos.push(f.x + rr * Math.cos(a), f.y + rr * Math.sin(a), z, f.x + rr * Math.cos(b), f.y + rr * Math.sin(b), z); } };
+      ring(f.z + 0.01, r); ring(f.z + cp.height, r); ring(f.z + cp.height, r * 0.25);   // 脚底 / 头顶 / 眼睛那一点
+      for (let i = 0; i < 4; i++) { const a = (i / 4) * 2 * Math.PI; pos.push(f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + 0.01, f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + cp.height); }
+      this.setLineGeometry(this.capsuleLines, pos, null);
+      this.capsuleLines.material.color.setHex(cp.ok ? TP_OK : TP_BAD);
+      this.capsuleLines.visible = true;
+    } else this.capsuleLines.visible = false;
 
     this.renderer.render(this.scene, cam3);
   }

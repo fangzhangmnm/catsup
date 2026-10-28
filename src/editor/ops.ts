@@ -10,7 +10,7 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
 import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
-import { snapToSymmetry, straddlingFaces, symmetrize } from "../mesh/mirror.ts";
+import { snapToSymmetry, symmetrize } from "../mesh/mirror.ts";
 import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
@@ -593,9 +593,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "meshSymmetrize": {
-      const k = meshOf(s, op.def).kernel;
-      if (straddlingFaces(k, op.axis)) throw new OpTargetError("symmetrize: faces cross the mirror plane");
-      symmetrize(k, op.axis, op.side);
+      try { symmetrize(meshOf(s, op.def).kernel, op.axis, op.side); }   // 先沿镜像面切开再对称；劈不开的凹面 = 拒
+      catch (err) { throw new OpTargetError(err instanceof Error ? err.message : String(err)); }
       return { scene: s, events: [] };
     }
     case "meshSymmetrySnap": { if (!(op.tol > 0)) throw new OpTargetError(`symmetry snap tol ${op.tol}`); snapToSymmetry(meshOf(s, op.def).kernel, op.verts, op.axis, op.tol, op.mode); return { scene: s, events: [] }; }

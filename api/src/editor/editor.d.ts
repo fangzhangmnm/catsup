@@ -618,6 +618,8 @@ export declare class Editor {
     /** 选区重心在镜像面哪一边（没选区 / 正好在面上 = null）。 */
     private selectionSide;
     private symmetrizeNow;
+    /** 在副本上试一次对称（会先沿镜像面切开）：成了 = 结果（切了几条边、删了 / 镜了几张面，说给人听），劈不开 = null。 */
+    private trySymmetrize;
     /** 镜像编辑：挪点补上对面、手标补上对面的边（提交前改写；进日志的是改写后的 op = 重放一致）。 */
     private mirrorRewrite;
     private mirrorForceBefore;

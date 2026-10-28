@@ -3,6 +3,7 @@
 // 「然后可以只对选择区域修复镜像snap吗」。两半都是真几何（不是后处理器）；镜像面 = 网格体自己坐标的 axis = 0 平面；中缝上的点钉在镜像面上；哪边动了哪边说了算。
 // 纯函数（只读 / 改传进来的内核），编辑器在提交和预演两处各调一次（editor.ts mirrorRewrite / mirrorAfter）。
 import { MeshKernel } from "./mesh-kernel.ts";
+import { splitEdge, splitFace } from "./ops/split.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
 
 export type MirrorAxis = 0 | 1 | 2;
@@ -93,13 +94,72 @@ export function straddlingFaces(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TO
   return n;
 }
 
-export interface SymmetrizeResult { removedFaces: number; removedVerts: number; added: number; pinned: number }
+export interface BisectResult { cutEdges: number; splitFaces: number; left: number }
 /**
- * 强行对称：中缝上的点钉回镜像面；删掉 side 的另一边全部面和点；把 side 这边的面镜过去（绕向反过来 = 朝向一致，中缝上的点两边共用 = 焊上）。
- * 跨过镜像面的面 = 抛（调用方先用 straddlingFaces 查，跳过并说出来）。边的标记跟着镜过去。
+ * 沿镜像面切开（Blender Symmetrize / 镜像修改器的 Bisect 同款；user 10-28「镜像你忘了做切割」）：两端在两侧的边在镜像面上劈开（新点钉在面上），
+ * 再把跨过镜像面的面沿中缝上的两个点劈成两半。一张面里中缝上的点不止两个（凹多边形被镜像面切成好几段）= 劈不了，数进 left。
+ */
+export function bisectPlane(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): BisectResult {
+  const c = (v: number): number => coordOf(m.pt(v), axis);
+  let cutEdges = 0, splitFaces = 0, left = 0;
+  for (const e of m.edges()) {
+    if (!m.hasE(e)) continue;
+    const ca = c(m.edgeA[e]), cb = c(m.edgeB[e]);
+    if (!((ca > tol && cb < -tol) || (ca < -tol && cb > tol))) continue;
+    const v = splitEdge(m, e, ca / (ca - cb));
+    m.setPos(v, withCoord(m.pt(v), axis, 0));
+    cutEdges++;
+  }
+  for (const f of m.faces()) {
+    const r = m.faceVerts(f), sides = r.map((v) => sideOf(c(v), tol));
+    if (!(sides.includes(1) && sides.includes(-1))) continue;
+    const chords = planeChords(m, f, r, sides, axis);
+    if (!chords) { left++; continue; }
+    // 一刀一刀劈：每一刀找当前含这两个点（且不相邻）的那一块劈开（user 10-28「凹为什么劈不开，努力一下？」）
+    const pieces = [f];
+    let ok = true;
+    for (const [a, b] of chords) {
+      const g = pieces.find((x) => { const rr = m.faceVerts(x), ia = rr.indexOf(a), ib = rr.indexOf(b), n = rr.length; return ia >= 0 && ib >= 0 && (ib - ia + n) % n !== 1 && (ia - ib + n) % n !== 1; });
+      if (g === undefined) { ok = false; break; }
+      pieces.push(splitFace(m, g, a, b));
+    }
+    if (ok) splitFaces++; else left++;
+  }
+  return { cutEdges, splitFaces, left };
+}
+
+/**
+ * 一张跨过镜像面的面要劈的几刀：中缝上「穿过去」的点（前后两侧不同；只碰一下又回同一侧的不算）沿面与镜像面的交线排好序、两两一组 = 一刀
+ * （平面多边形被直线切开的标准做法：直线和多边形内部的交集 = 排序后相邻两个穿越点之间的那几段；凹的面就是不止一段）。
+ * 有一条边整条贴在镜像面上、面又跨两侧（中缝上连着两个点）= null（少见；说出来不做）。
+ */
+function planeChords(m: MeshKernel, f: number, r: readonly number[], sides: readonly (-1 | 0 | 1)[], axis: MirrorAxis): [number, number][] | null {
+  const n = r.length, cross: number[] = [];
+  for (let i = 0; i < n; i++) {
+    if (sides[i] !== 0) continue;
+    const prev = sides[(i - 1 + n) % n], next = sides[(i + 1) % n];
+    if (prev === 0 || next === 0) return null;
+    if (prev !== next) cross.push(r[i]);
+  }
+  if (cross.length < 2 || cross.length % 2) return null;
+  const fn = m.faceNormal(f), ax = withCoord({ x: 0, y: 0, z: 0 }, axis, 1);
+  const d = { x: fn.y * ax.z - fn.z * ax.y, y: fn.z * ax.x - fn.x * ax.z, z: fn.x * ax.y - fn.y * ax.x };
+  if (Math.hypot(d.x, d.y, d.z) < 1e-12) return null;
+  const t = (v: number): number => { const p = m.pt(v); return p.x * d.x + p.y * d.y + p.z * d.z; };
+  cross.sort((a, b) => t(a) - t(b) || a - b);
+  const out: [number, number][] = [];
+  for (let i = 0; i < cross.length; i += 2) out.push([cross[i], cross[i + 1]]);
+  return out;
+}
+
+export interface SymmetrizeResult { removedFaces: number; removedVerts: number; added: number; pinned: number; cutEdges: number }
+/**
+ * 强行对称：先沿镜像面切开（bisectPlane）；中缝上的点钉回镜像面；删掉 side 的另一边全部面和点；把 side 这边的面镜过去
+ * （绕向反过来 = 朝向一致，中缝上的点两边共用 = 焊上）。切开以后还有跨过镜像面的面（凹多边形劈不开）= 抛（调用方在副本上先试，说出来）。边的标记跟着镜过去。
  */
 export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = MIRROR_TOL): SymmetrizeResult {
-  if (straddlingFaces(m, axis, tol)) throw new Error("symmetrize: some faces cross the mirror plane");
+  const cut = bisectPlane(m, axis, tol);
+  if (cut.left || straddlingFaces(m, axis, tol)) throw new Error("symmetrize: some faces cross the mirror plane and cannot be cut in two");
   const s = (v: number): -1 | 0 | 1 => sideOf(coordOf(m.pt(v), axis), tol);
   let pinned = 0;
   for (const v of m.verts()) if (s(v) === 0 && coordOf(m.pt(v), axis) !== 0) { m.setPos(v, withCoord(m.pt(v), axis, 0)); pinned++; }
@@ -120,7 +180,7 @@ export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = 
     for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0 && m.edgeFlags[e]) flagCopies.push([tw(r[i]), tw(r[(i + 1) % r.length]), m.edgeFlags[e]]); }
   }
   for (const [a, b, fl] of flagCopies) { const e = m.edgeOf(a, b); if (e >= 0 && a !== b) m.setEdgeFlags(e, fl); }
-  return { removedFaces: other.length, removedVerts, added, pinned };
+  return { removedFaces: other.length, removedVerts, added, pinned, cutEdges: cut.cutEdges };
 }
 
 export type SnapSide = "auto" | "flip" | "average";

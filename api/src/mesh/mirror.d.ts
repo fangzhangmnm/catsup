@@ -37,15 +37,26 @@ export declare function sideOfChange(before: MeshKernel, after: MeshKernel, axis
 export declare function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol?: number): boolean;
 /** 跨过镜像面的面（两侧都有点）有几张：强行对称做不了这种（先在中缝上切一刀）。 */
 export declare function straddlingFaces(m: MeshKernel, axis: MirrorAxis, tol?: number): number;
+export interface BisectResult {
+    cutEdges: number;
+    splitFaces: number;
+    left: number;
+}
+/**
+ * 沿镜像面切开（Blender Symmetrize / 镜像修改器的 Bisect 同款；user 10-28「镜像你忘了做切割」）：两端在两侧的边在镜像面上劈开（新点钉在面上），
+ * 再把跨过镜像面的面沿中缝上的两个点劈成两半。一张面里中缝上的点不止两个（凹多边形被镜像面切成好几段）= 劈不了，数进 left。
+ */
+export declare function bisectPlane(m: MeshKernel, axis: MirrorAxis, tol?: number): BisectResult;
 export interface SymmetrizeResult {
     removedFaces: number;
     removedVerts: number;
     added: number;
     pinned: number;
+    cutEdges: number;
 }
 /**
- * 强行对称：中缝上的点钉回镜像面；删掉 side 的另一边全部面和点；把 side 这边的面镜过去（绕向反过来 = 朝向一致，中缝上的点两边共用 = 焊上）。
- * 跨过镜像面的面 = 抛（调用方先用 straddlingFaces 查，跳过并说出来）。边的标记跟着镜过去。
+ * 强行对称：先沿镜像面切开（bisectPlane）；中缝上的点钉回镜像面；删掉 side 的另一边全部面和点；把 side 这边的面镜过去
+ * （绕向反过来 = 朝向一致，中缝上的点两边共用 = 焊上）。切开以后还有跨过镜像面的面（凹多边形劈不开）= 抛（调用方在副本上先试，说出来）。边的标记跟着镜过去。
  */
 export declare function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol?: number): SymmetrizeResult;
 export type SnapSide = "auto" | "flip" | "average";

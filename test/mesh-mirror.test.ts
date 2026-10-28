@@ -3,7 +3,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
 import { addBox, loopCut } from "../src/mesh/ops/index.ts";
-import { mirrorPairs, mirrorMoves, sideOfChange, straddlingFaces, symmetrize, snapToSymmetry } from "../src/mesh/mirror.ts";
+import { bisectPlane, mirrorPairs, mirrorMoves, sideOfChange, straddlingFaces, symmetrize, snapToSymmetry } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
@@ -48,11 +48,30 @@ describe("镜像（mesh/mirror.ts）", () => {
     const w = m.verts().find((x) => { const q = m.pt(x); return Math.abs(q.x + 1.3) < 1e-12; })!;
     eq(JSON.stringify(m.pt(w)), JSON.stringify(P(-1.3, 1.2, 1.4)));
   });
-  it("强行对称：跨过镜像面的面 = 抛（调用方先查、跳过并说）；不切的盒子 4 张跨面", () => {
+  it("强行对称会自己沿镜像面切开（user 10-28「镜像你忘了做切割」）：没切过的盒子拉歪一个角 → 切开 4 条边、两边严格镜像、封闭、朝向一致", () => {
     const m = new MeshKernel(); addBox(m, P(-1, 0, 0), P(1, 1, 1));
     eq(straddlingFaces(m, 0), 4);
-    let threw = false; try { symmetrize(m, 0, 1); } catch { threw = true; }
-    assert(threw);
+    const v = m.verts().find((x) => { const q = m.pt(x); return q.x === 1 && q.y === 1 && q.z === 1; })!;
+    m.setPos(v, P(1.4, 1.2, 1.3));
+    const r = symmetrize(m, 0, 1);
+    eq(r.cutEdges, 4); eq(straddlingFaces(m, 0), 0);
+    assert(symmetric(m), "两边严格镜像"); eq(m.faceCount(), 10); eq(closedConsistent(m), 0); eq(m.check().join("\n"), "");
+    eq(m.verts().filter((x) => m.pt(x).x === 0).length, 4, "中缝上 4 个点，钉在镜像面上");
+  });
+  it("凹的面也劈得开（user 10-28「凹为什么劈不开，努力一下？」）：开口朝 +x 的「匚」= 镜像面穿过四次 → 劈成三块（背一块、上下两条臂各一块）；对称以后 4 块", () => {
+    const m = new MeshKernel();
+    const ring = [P(-2, 0, 0), P(2, 0, 0), P(2, 0, 1), P(-1, 0, 1), P(-1, 0, 2), P(2, 0, 2), P(2, 0, 3), P(-2, 0, 3)].map((q) => m.addVertex(q));
+    m.addFace(ring);
+    const r = bisectPlane(m, 0);
+    eq(r.cutEdges, 4); eq(r.splitFaces, 1); eq(r.left, 0); eq(m.faceCount(), 3); eq(straddlingFaces(m, 0), 0); eq(m.check().join("\n"), "");
+    const s2 = symmetrize(m, 0, 1);
+    eq(m.faceCount(), 4); eq(s2.removedFaces, 1); assert(symmetric(m), "两边严格镜像"); eq(m.check().join("\n"), "");
+  });
+  it("沿镜像面切开（bisectPlane）单独用：只切跨过的、已经在中缝上的边不动", () => {
+    const m = new MeshKernel(); addBox(m, P(-1, 0, 0), P(1, 1, 1));
+    const r = bisectPlane(m, 0);
+    eq(r.cutEdges, 4); eq(r.splitFaces, 4); eq(r.left, 0); eq(m.faceCount(), 10); eq(closedConsistent(m), 0);
+    eq(bisectPlane(m, 0).cutEdges, 0, "再切一次什么都不动");
   });
   it("这一步动了哪边：挪 -x 的点 = -1；新长出来在 +x = +1；没动 = 0", () => {
     const a = halvedBox(), b = a.clone();

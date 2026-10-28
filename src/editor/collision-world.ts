@@ -11,6 +11,10 @@
 import type { Kernel, Pt3 } from "../kernel/kernel.ts";
 import { type Pt, type PlaneParams, dot3, pointInRing, sub3 } from "../kernel/geom.ts";
 import type { WorldHit, WorldQuery } from "../player/world-query.ts";
+import type { GeomView } from "../scene/world-view.ts";
+
+/** 碰撞吃的几何：面 + 面的平面 + 面的三维环。brep 内核结构上满足；全场景的合成视图（WorldView，世界坐标、含网格体、隐藏的面不进）也满足（2026-10-28）。 */
+export type CollisionSource = Pick<GeomView, "faces" | "planeOf" | "faceRings3">;
 
 interface FaceRec {
   plane: PlaneParams;
@@ -37,9 +41,9 @@ export class KernelCollisionWorld implements WorldQuery {
   /** 已吃进来的 Editor.revision（调用方比对以决定要不要 rebuild）。 */
   revision = -1;
 
-  constructor(k?: Kernel, revision = 0) { if (k) this.rebuild(k, revision); }
+  constructor(k?: Kernel | CollisionSource, revision = 0) { if (k) this.rebuild(k, revision); }
 
-  rebuild(k: Kernel, revision = 0): void {
+  rebuild(k: CollisionSource, revision = 0): void {
     this.revision = revision;
     this.faces = [];
     this.floor = 0;   // 地板永远 z=0（user 2026-09-07 吃书：「vr 的地板永远都是 z=0。不用 min(0,min(model))。想进地下室以后可以用别的办法」）

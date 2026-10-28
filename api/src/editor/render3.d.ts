@@ -68,6 +68,13 @@ export interface ViewState {
         valid: boolean;
         landing: Pt3 | null;
     } | null;
+    /** 放置的胶囊虚影（步行「点一下落在哪」；player/placement.ts）：脚底、半径、身高、站得下吗（绿 / 红）。 */
+    capsule?: {
+        feet: Pt3;
+        radius: number;
+        height: number;
+        ok: boolean;
+    } | null;
     /** 变暗的池槽序号（进了 group / 组件后，上下文之外的几何；SU 同款淡出）。null = 不变暗。2026-10-21 */
     dimSlots?: ReadonlySet<number> | null;
     /** 缩放柄（世界点；active = 正在拖的那个）。 */
@@ -259,6 +266,7 @@ export declare class Renderer3 {
     private mirrorLines;
     private seamDots;
     private mirrorKey;
+    private capsuleLines;
     private tickLines;
     private poolAxesLines;
     private poolAxesKey;
