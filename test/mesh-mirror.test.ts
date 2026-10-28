@@ -2,7 +2,7 @@
 // 标准答案：中缝切开的盒子 = 每个点都找得到对面；挪一个点对面跟着镜、中缝上的点钉回镜像面；强行对称以后两边严格镜像、封闭、朝向一致；对称对齐只动选中的。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { addBox, loopCut } from "../src/mesh/ops/index.ts";
+import { addBox, loopCut, mergeVerts } from "../src/mesh/ops/index.ts";
 import { bisectPlane, mirrorPairs, mirrorMoves, sideOfChange, straddlingFaces, symmetrize, snapToSymmetry } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 
@@ -78,6 +78,48 @@ describe("镜像（mesh/mirror.ts）", () => {
     const v = b.verts().find((x) => b.pt(x).x === -1)!; b.setPos(v, P(-1.4, 0, 0));
     eq(sideOfChange(a, b, 0), -1); eq(sideOfChange(a, a.clone(), 0), 0);
     const c = a.clone(); c.addVertex(P(2, 0, 0)); eq(sideOfChange(a, c, 0), 1);
+  });
+  // ---- 挪点的纪律（2026-10-28 晚 Claude Fable 5.1；设计稿 20261028-mirror-redo-design.md §1；账本 UX31）----
+  const corner = (m: MeshKernel, x: number, y: number, z: number): number => m.verts().find((v) => { const q = m.pt(v); return q.x === x && q.y === y && q.z === z; })!;
+  it("R1 钉：两种模式都一样——中缝上的点往外拖只在面内滑（x 永远 0），不并不裂（user「中间的点往外拖不应该变成两个点，而是被吸附在中线上」）", () => {
+    const m = halvedBox(), c = corner(m, 0, 1, 1);
+    for (const mode of ["edit", "force"] as const) {
+      const r = mirrorMoves(m, [{ v: c, to: P(0.4, 1.2, 1.1) }], 0, mode);
+      eq(r.pinned, 1); eq(r.merges.length, 0); eq(r.moves.length, 1); eq(JSON.stringify(r.moves[0].to), JSON.stringify(P(0, 1.2, 1.1)));
+    }
+  });
+  it("R3 不穿 + R2 并：+x 的角拖过镜像面 → 停在中缝、和对面的角并成一个（两种模式）→ 11 个点、自检干净、仍对称、角塌成中缝上的一道折（折边 4 张面）；强行对称再对称化也不多不少", () => {
+    for (const mode of ["edit", "force"] as const) {
+      const m = halvedBox(), v = corner(m, 1, 1, 1), w = corner(m, -1, 1, 1);
+      const r = mirrorMoves(m, [{ v, to: P(-0.5, 0.5, 0.5) }], 0, mode);
+      eq(r.clamped, 1); eq(r.merges.length, 1); eq(r.merges[0].keep, v); eq(JSON.stringify(r.merges[0].drop), JSON.stringify([w])); eq(r.merges[0].at.x, 0);
+      assert(!r.moves.some((x) => x.v === w), "被并走的孪生点不再单独挪");
+      for (const mv of r.moves) m.setPos(mv.v, mv.to);
+      mergeVerts(m, [r.merges[0].keep, ...r.merges[0].drop], r.merges[0].at);
+      const creases = (): number => m.edges().filter((e) => m.eFaces(e).length === 4).length;
+      eq(m.vertexCount(), 11); eq(m.check().length, 0); assert(symmetric(m), mode); eq(m.faceCount(), 10); eq(creases(), 1, "并进中缝的点到它中缝邻居的那条边 = 两半共用的折边（4 张面；这个角只有一个中缝邻居）");
+      assert(m.edges().every((e) => m.eFaces(e).length === 2 || m.eFaces(e).length === 4));
+      if (mode === "force") { const s = symmetrize(m, 0, 1); eq(s.cutEdges, 0); eq(m.vertexCount(), 11); eq(m.faceCount(), 10); assert(symmetric(m)); eq(creases(), 1); }
+    }
+  });
+  it("R2 落在中缝点上：拖到一个已有中缝点的位置 → 孪生点和那个中缝点一起并进来（不留重合点），退化的面自动清掉（10 个点、自检干净、封闭朝向一致）", () => {
+    const m = halvedBox(), v = corner(m, 1, 1, 1), w = corner(m, -1, 1, 1), s0 = corner(m, 0, 1, 1);
+    const r = mirrorMoves(m, [{ v, to: P(-0.3, 1, 1) }], 0, "edit");
+    eq(r.merges.length, 1); eq(JSON.stringify([...r.merges[0].drop].sort((a, b) => a - b)), JSON.stringify([w, s0].sort((a, b) => a - b)));
+    for (const mv of r.moves) m.setPos(mv.v, mv.to);
+    mergeVerts(m, [r.merges[0].keep, ...r.merges[0].drop], r.merges[0].at);
+    eq(m.vertexCount(), 10); eq(m.check().length, 0); assert(symmetric(m)); eq(closedConsistent(m), 0);
+  });
+  it("动了哪边：+x 的点夹到中缝上，算 +x 动了（不然对称化会把这一边删了）", () => {
+    const m = halvedBox(), a = m.clone(); m.setPos(corner(m, 1, 1, 1), P(0, 1, 1));
+    eq(sideOfChange(a, m, 0), 1);
+  });
+  it("R4 清夹层：闭合盒子贴着镜像面的那张面，对称以后夹在两半中间 → 删掉（10 张面、封闭朝向一致）；孤零零躺在镜像面上的一张平面 → 留着", () => {
+    const m = new MeshKernel(); addBox(m, P(0, 0, 0), P(1, 1, 1));
+    const r = symmetrize(m, 0, 1);
+    eq(r.walls, 1); eq(m.faceCount(), 10); eq(closedConsistent(m), 0); assert(symmetric(m));
+    const p = new MeshKernel(), a = p.addVertex(P(0, 0, 0)), b = p.addVertex(P(0, 1, 0)), c = p.addVertex(P(0, 1, 1)), d = p.addVertex(P(0, 0, 1)); p.addFace([a, b, c, d]);
+    const r2 = symmetrize(p, 0, 1); eq(r2.walls, 0); eq(p.faceCount(), 1);
   });
   it("对称对齐：只动选中的；默认以选区重心那边为准；对面找不到的数出来", () => {
     const m = halvedBox();

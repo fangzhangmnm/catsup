@@ -621,6 +621,10 @@ export declare class Editor {
     private mirrorNote;
     /** 护栏把这一下工具的提交挡下来在等确认：这一下工具自己的提示 / 选区不作数（不谎报「挤出了」）。 */
     private mirrorDeferred;
+    /** 正在提交镜像并点（落到中缝的点和孪生点并成一个的 meshMerge）：这几条不各自触发对称化，等整步最后那一次。 */
+    private mirrorMerging;
+    /** 这一步的镜像披露（并点 / 夹住 / 对面找不到）已经进提示行了吗：指令自己拼进去的算，没拼的步结束时补一条（工具拖动那条路）。 */
+    private mirrorNoteShown;
     private static readonly MIRROR_TOPO;
     private static readonly MIRROR_TOPO_ACTIONS;
     private static readonly NO_SYMMETRIZE;
@@ -633,11 +637,14 @@ export declare class Editor {
     private symmetrizeNow;
     /** 在副本上试一次对称（会先沿镜像面切开）：成了 = 结果（切了几条边、删了 / 镜了几张面，说给人听），劈不开 = null。 */
     private trySymmetrize;
-    /** 镜像编辑：挪点补上对面、手标补上对面的边（提交前改写；进日志的是改写后的 op = 重放一致）。 */
+    /**
+     * 挪点在镜像下的纪律（两种模式；设计稿 `ai-docs/20261028-mirror-redo-design.md` §1）：中缝上的点钉住、想穿过去的夹在面上、落到中缝的和孪生点并成一个；
+     * 镜像编辑另外补上对面的点、手标补上对面的边。提交前改写；进日志的是改写后的 op = 重放一致；并点作为同一步里紧跟的 meshMerge 提交（commitIn）。
+     */
     private mirrorRewrite;
     private mirrorForceBefore;
     private mirrorForceAfter;
-    /** 预演同一道：镜像编辑补对面的点、强行对称把影子对称一遍（真身不动）。 */
+    /** 预演同一道：影子上做同一套挪点纪律（钉 / 不穿 / 并；镜像编辑补对面）——拖到中缝眼睛看到的就是并好的样子，松手前拖回去 = 影子从真身重算、自然分开；强行对称再把影子对称一遍（真身不动）。 */
     private mirrorPreview;
     /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */
     private mirrorBlocks;

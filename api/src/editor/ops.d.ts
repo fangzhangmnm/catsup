@@ -331,6 +331,7 @@ export type Op =
     op: "meshMerge";
     def: number;
     verts: number[];
+    to?: Pt3;
 }
 /** 倒点（Blender Ctrl+Shift+B）。 */
  | {

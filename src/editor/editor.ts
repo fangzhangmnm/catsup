@@ -22,7 +22,7 @@ import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
-import { type MirrorAxis, type MirrorMode, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, symmetrize } from "../mesh/mirror.ts";
+import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, symmetrize } from "../mesh/mirror.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, guidesOf, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
@@ -78,7 +78,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
-import { addPrimitive, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
+import { addPrimitive, mergeVerts, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
 import { MeshKernel, F_HIDDEN } from "../mesh/mesh-kernel.ts";
 import { edgeLoop } from "../mesh/select-loop.ts";
 import type { OptionKv } from "./tool-config.ts";
@@ -1007,7 +1007,7 @@ export class Editor {
   }
   /** 用户的一个动作：fn 里提交的全部 op 并成一步（撤销 / 重做一次走完）。可嵌套（外层说了算）。 */
   private step<T>(fn: (pass: StepPass) => T, label?: StepLabel): T {
-    if (this.stepDepth++ === 0) { this.mirrorNote = ""; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
+    if (this.stepDepth++ === 0) { this.mirrorNote = ""; this.mirrorNoteShown = false; this.mirrorDeferred = false; this.stepHasOp = false; this.stepOps = 0; this.stepFailed = false; this.stepTouched = false; this.stepBefore = this.deferredBefore ?? this.sessionSnap(); this.stepLabel = label; }
     else if (label && !this.stepLabel) this.stepLabel = label;
     try { return fn(STEP_PASS); }
     finally { if (--this.stepDepth === 0) this.closeStep(); }
@@ -1025,6 +1025,7 @@ export class Editor {
       this.deferredBefore = null;
       this.history.sealStep(this.sessionSnap(), label);
       this.host.trace?.({ kind: "step", label: this.history.topLabel()?.title ?? "", ops, session: touched });
+      if (this.mirrorNote && !this.mirrorNoteShown) { this.host.hint(this.mirrorNote); this.mirrorNoteShown = true; }   // 工具拖动那条路也要披露（并点 / 夹住 / 对面找不到）
       return;
     }
     if (!touched && this.deferredBefore === null) return;
@@ -1053,6 +1054,10 @@ export class Editor {
   private mirrorNote = "";
   /** 护栏把这一下工具的提交挡下来在等确认：这一下工具自己的提示 / 选区不作数（不谎报「挤出了」）。 */
   private mirrorDeferred = false;
+  /** 正在提交镜像并点（落到中缝的点和孪生点并成一个的 meshMerge）：这几条不各自触发对称化，等整步最后那一次。 */
+  private mirrorMerging = false;
+  /** 这一步的镜像披露（并点 / 夹住 / 对面找不到）已经进提示行了吗：指令自己拼进去的算，没拼的步结束时补一条（工具拖动那条路）。 */
+  private mirrorNoteShown = false;
   private static readonly MIRROR_TOPO = new Set<Op["op"]>(["meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshBevel", "meshBevelVerts", "meshMerge"]);
   private static readonly MIRROR_TOPO_ACTIONS = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter"]);
   private static readonly NO_SYMMETRIZE = new Set<Op["op"]>(["meshSymmetrize", "meshSymmetrySnap", "meshSmoothDefault"]);
@@ -1098,23 +1103,30 @@ export class Editor {
   private trySymmetrize(m: MeshKernel, ax: MirrorAxis, side: -1 | 1): SymmetrizeResult | null {
     try { return symmetrize(m.clone(), ax, side); } catch { return null; }
   }
-  /** 镜像编辑：挪点补上对面、手标补上对面的边（提交前改写；进日志的是改写后的 op = 重放一致）。 */
-  private mirrorRewrite(op: Op): Op {
-    if (op.op !== "meshMove" && op.op !== "meshEdgeMarks") return op;
+  /**
+   * 挪点在镜像下的纪律（两种模式；设计稿 `ai-docs/20261028-mirror-redo-design.md` §1）：中缝上的点钉住、想穿过去的夹在面上、落到中缝的和孪生点并成一个；
+   * 镜像编辑另外补上对面的点、手标补上对面的边。提交前改写；进日志的是改写后的 op = 重放一致；并点作为同一步里紧跟的 meshMerge 提交（commitIn）。
+   */
+  private mirrorRewrite(op: Op): { op: Op; merges: MirrorMovesResult["merges"] } {
+    if (op.op !== "meshMove" && op.op !== "meshEdgeMarks") return { op, merges: [] };
     const ms = this.mirrors.get(op.def);
-    if (!ms || ms.mode !== "edit") return op;
+    if (!ms) return { op, merges: [] };
     const m = this.scene.mesh(op.def).kernel;
     if (op.op === "meshMove") {
-      const r = mirrorMoves(m, op.moves, ms.axis);
-      if (r.unpaired) this.mirrorNote = `镜像编辑：${r.unpaired} 个点对面找不到，只改了这一边（右上角镜像方片是橙的 = 模型对镜像面不对称）`;
-      return { ...op, moves: r.moves };
+      const r = mirrorMoves(m, op.moves, ms.axis, ms.mode), notes: string[] = [];
+      if (r.unpaired && ms.mode === "edit") notes.push(`${r.unpaired} 个点对面找不到，只改了这一边（右上角镜像方片是橙的 = 模型对镜像面不对称）`);
+      if (r.clamped) notes.push(`${r.clamped} 个点想穿过镜像面，停在了中缝上`);
+      if (r.merges.length) notes.push(`${r.merges.length} 处在中缝上并成一个点`);
+      if (notes.length) this.mirrorNote = `${ms.mode === "edit" ? "镜像编辑" : "强行对称"}：${notes.join("；")}`;
+      return { op: { ...op, moves: r.moves }, merges: r.merges };
     }
+    if (ms.mode !== "edit") return { op, merges: [] };
     const p = mirrorPairs(m, ms.axis), es = new Set(op.edges);
     for (const e of op.edges) { const a = p.get(m.edgeA[e]) ?? -1, b = p.get(m.edgeB[e]) ?? -1; if (a >= 0 && b >= 0 && a !== b) { const t = m.edgeOf(a, b); if (t >= 0) es.add(t); } }
-    return { ...op, edges: [...es].sort((x, y) => x - y) };
+    return { op: { ...op, edges: [...es].sort((x, y) => x - y) }, merges: [] };
   }
   private mirrorForceBefore(op: Op): MeshKernel | null {
-    if (!op.op.startsWith("mesh") || !("def" in op) || Editor.NO_SYMMETRIZE.has(op.op)) return null;
+    if (this.mirrorMerging || !op.op.startsWith("mesh") || !("def" in op) || Editor.NO_SYMMETRIZE.has(op.op)) return null;
     const ms = this.mirrors.get((op as { def: number }).def);
     return ms && ms.mode === "force" ? this.scene.mesh((op as { def: number }).def).kernel.clone() : null;
   }
@@ -1128,17 +1140,18 @@ export class Editor {
     this.mirrorLastSide.set(def, side);
     this.commitIn(pass, { op: "meshSymmetrize", def, axis: ms.axis, side });
   }
-  /** 预演同一道：镜像编辑补对面的点、强行对称把影子对称一遍（真身不动）。 */
+  /** 预演同一道：影子上做同一套挪点纪律（钉 / 不穿 / 并；镜像编辑补对面）——拖到中缝眼睛看到的就是并好的样子，松手前拖回去 = 影子从真身重算、自然分开；强行对称再把影子对称一遍（真身不动）。 */
   private mirrorPreview(def: number, base: MeshKernel, c: MeshKernel): void {
     const ms = this.mirrors.get(def);
     if (!ms) return;
-    if (ms.mode === "edit") {
-      const moves: { v: number; to: Pt3 }[] = [];
-      for (const v of c.verts()) if (base.hasV(v)) { const p = c.pt(v), q = base.pt(v); if (p.x !== q.x || p.y !== q.y || p.z !== q.z) moves.push({ v, to: p }); }
-      if (moves.length) for (const mv of mirrorMoves(base, moves, ms.axis).moves) if (c.hasV(mv.v)) c.setPos(mv.v, mv.to);
-      return;
+    const moves: { v: number; to: Pt3 }[] = [];
+    for (const v of c.verts()) if (base.hasV(v)) { const p = c.pt(v), q = base.pt(v); if (p.x !== q.x || p.y !== q.y || p.z !== q.z) moves.push({ v, to: p }); }
+    if (moves.length) {
+      const r = mirrorMoves(base, moves, ms.axis, ms.mode);
+      for (const mv of r.moves) if (c.hasV(mv.v)) c.setPos(mv.v, mv.to);
+      for (const mg of r.merges) { const ids = [mg.keep, ...mg.drop].filter((v) => c.hasV(v)); if (ids.length >= 2) mergeVerts(c, ids, mg.at); }
     }
-    if (isSymmetric(c, ms.axis)) return;
+    if (ms.mode === "edit" || isSymmetric(c, ms.axis)) return;
     const probe = c.clone();
     try { symmetrize(probe, ms.axis, sideOfChange(base, c, ms.axis) || this.mirrorLastSide.get(def) || 1); c.swapWith(probe); } catch { /* 劈不开：预演照原样（提交时会说） */ }
   }
@@ -1198,7 +1211,7 @@ export class Editor {
   private toolPass(): StepPass { return STEP_PASS; }
   private toolCommit(op: Op): FaceEvent[] { return this.mirrorBlocks(op) ? [] : this.commitIn(this.toolPass(), op); }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
-  private commitIn(_pass: StepPass, op0: Op): FaceEvent[] {
+  private commitIn(pass: StepPass, op0: Op): FaceEvent[] {
     if (this.stepDepth === 0) {   // 通行证被闭包带到步外来用（编译期拦不住的那一种）：照样包成一步做完，但记进黑匣子 + 控制台，测试 / 探针据此抓
       this.stepViolations++;
       this.host.trace?.({ kind: "fail", where: "commit", op: op0, message: "op committed outside a step (StepPass leaked)" });
@@ -1207,7 +1220,7 @@ export class Editor {
     }
     // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。
     // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
-    const op: Op = this.mirrorRewrite(op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0);   // 镜像编辑：挪点补上对面（FM134）
+    const rw = this.mirrorRewrite(op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
@@ -1233,7 +1246,12 @@ export class Editor {
     if (this.stepDepth > 0) { this.stepHasOp = true; this.stepOps++; }
     this.installScene(r.scene);
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
-    if (symBefore) this.mirrorForceAfter(_pass, op, symBefore);   // 同一步里补一条对称（撤销一下 = 一起撤）
+    if (rw.merges.length && op.op === "meshMove") {   // 落到中缝的点和孪生点并成一个：同一步里紧跟着提交（写进日志 = 重放一致；对称化等并完才跑）
+      this.mirrorMerging = true;
+      try { for (const mg of rw.merges) { this.commitIn(pass, { op: "meshMerge", def: op.def, verts: [mg.keep, ...mg.drop], to: mg.at }); if (this.stepFailed) return []; } }
+      finally { this.mirrorMerging = false; }
+    }
+    if (symBefore) this.mirrorForceAfter(pass, op, symBefore);   // 同一步里补一条对称（撤销一下 = 一起撤）
     this.host.changed();   // HUD（撤销钮 / 选项条 / 数值小窗）随每个 op 刷新
     return r.events;
   }
@@ -2038,7 +2056,7 @@ export class Editor {
         for (const op of ops) { this.commitIn(pass, op); if (this.opCount === n0 && this.stepFailed) return 0; }
         if (this.opCount === n0) return 0;
         if (sel && selN === 1) { const S = sel; this.clearSel(pass); for (const x of S.verts ?? []) this.selection.verts.add(x); for (const x of S.edges ?? []) this.selection.edges.add(x); for (const x of S.faces ?? []) this.selection.faces.add(x); this.pruneSelection(); this.afterSelect(pass); }
-        this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}${this.mirrorNote ? ` ｜ ${this.mirrorNote}` : ""}`);
+        this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}${this.mirrorNote ? ` ｜ ${this.mirrorNote}` : ""}`); this.mirrorNoteShown = true;
         this.host.changed(); this.draw();
         return count;
       };

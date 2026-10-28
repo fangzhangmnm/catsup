@@ -19,19 +19,29 @@ export interface MirrorMovesResult {
         v: number;
         to: Pt3;
     }[];
+    /** 落到中缝上的点并成一个（keep 留；drop = 它的孪生点 + 落点处本来就有的中缝点，一起并进去；at = 并到哪）。两种模式都有，调用方提交 meshMerge。 */
+    merges: {
+        keep: number;
+        drop: number[];
+        at: Pt3;
+    }[];
     mirrored: number;
     unpaired: number;
     pinned: number;
+    /** 想穿过镜像面被夹住的点数（R3）。 */
+    clamped: number;
 }
 /**
- * 镜像编辑：一组挪点 → 补上对面的点（镜过去）、中缝上的点钉回镜像面。两边都被挪了的一对：动得多的那一边说了算（哪边动了哪边为准）。
- * m = 挪之前的内核（配对按挪之前的位置找）。输出按点 id 升序（确定性）。
+ * 挪点在镜像下的纪律（设计稿 `ai-docs/20261028-mirror-redo-design.md` §1，user 10-28「中间的点往外拖不应该变成两个点，而是被吸附在中线上」「往中线拖也是collapse到中线，不要有double point，不要拖到对面去」）：
+ * R1 钉：中缝上的点只在面内滑；R3 不穿：跑到对面的点夹在镜像面上；R2 并：落到中缝的点和孪生点并成一个（孪生点自己的目标作废）；
+ * 镜像编辑另外补上对面的点（镜过去），两边都被挪了的一对：动得多的那一边说了算（哪边动了哪边为准）；强行对称只管住这一边，另一半事后由对称化重建。
+ * m = 挪之前的内核（分边、配对都按挪之前的位置）。输出按点 id 升序（确定性）。
  */
 export declare function mirrorMoves(m: MeshKernel, moves: readonly {
     v: number;
     to: Pt3;
-}[], axis: MirrorAxis, tol?: number): MirrorMovesResult;
-/** 这一步动了哪一边（新长出来的点按 1、挪过的点按挪的距离投票）：+1 / -1；看不出来 = 0。 */
+}[], axis: MirrorAxis, mode?: MirrorMode, tol?: number): MirrorMovesResult;
+/** 这一步动了哪一边（新长出来的点按 1、挪过的点按挪的距离投票；挪到中缝上的点按它来的那一边算）：+1 / -1；看不出来 = 0。 */
 export declare function sideOfChange(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, tol?: number): -1 | 0 | 1;
 /** 已经对称了吗：每个点都找得到对面、每条边的镜像也是一条边（强行对称每步先查，对称的就不重建另一半 = 另一半的 id 不乱换）。 */
 export declare function isSymmetric(m: MeshKernel, axis: MirrorAxis, tol?: number): boolean;
@@ -53,12 +63,16 @@ export interface SymmetrizeResult {
     added: number;
     pinned: number;
     cutEdges: number;
+    walls: number;
 }
 /**
  * 强行对称：先沿镜像面切开（bisectPlane）；中缝上的点钉回镜像面；删掉 side 的另一边全部面和点；把 side 这边的面镜过去
  * （绕向反过来 = 朝向一致，中缝上的点两边共用 = 焊上）。切开以后还有跨过镜像面的面（凹多边形劈不开）= 抛（调用方在副本上先试，说出来）。边的标记跟着镜过去。
+ * 最后 R4：整张躺在镜像面上、镜完变成夹层的面（每条边都夹在 ≥ 3 张面之间）清掉（user 10-28「degenerate和中线上的面也许应该清」，读成「只清会变成夹层的」）。
  */
 export declare function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol?: number): SymmetrizeResult;
+/** R4：整张躺在镜像面上、而且每条边都已经夹在 ≥ 3 张面之间的面（镜完变成两半中间的夹层）删掉；孤零零躺在镜像面上的平面（没有两侧）不碰。返回删了几张。 */
+export declare function removeSeamWalls(m: MeshKernel, axis: MirrorAxis, tol?: number): number;
 export type SnapSide = "auto" | "flip" | "average";
 export interface SnapResult {
     pairs: number;

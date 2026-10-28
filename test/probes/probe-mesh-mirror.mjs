@@ -130,6 +130,31 @@ const res = await page.evaluate(async () => {
   fire("pointerup", sc.x + 48, sc.y - 30, 0); await sleep(60);
   const a = m3().pt(v8), bq = m3().pt(w8);
   out.eight.after = { moved: Math.hypot(a.x - X3, a.y - Yt, a.z - Zt) > 0.05, mirrored: Math.abs(bq.x + a.x) < 1e-6 && Math.abs(bq.y - a.y) < 1e-6 && Math.abs(bq.z - a.z) < 1e-6, wMoved: Math.hypot(bq.x - w0.x, bq.y - w0.y, bq.z - w0.z) > 0.05, hint: hint() };
+  // ⑨（2026-10-28 晚 Claude Fable 5.1，账本 UX31 / 设计稿 20261028-mirror-redo-design.md）：镜像编辑真拖 v8 穿过镜像面到对面 → 预演里就停在中缝、和 w8 并成一个点；松手 = 一步（挪 + 并）；撤销一下全回
+  {
+    const n0 = m3().vertexCount(), pv0 = { ...m3().pt(v8) }, tgt = { x: -pv0.x - 0.3, y: pv0.y, z: pv0.z };
+    const w2s = (lp) => px({ x: X[0] * lp.x + X[1] * lp.y + X[2] * lp.z + X[3], y: X[4] * lp.x + X[5] * lp.y + X[6] * lp.z + X[7], z: X[8] * lp.x + X[9] * lp.y + X[10] * lp.z + X[11] });
+    const s0 = w2s(pv0), s1 = w2s(tgt);
+    e.setTool("move"); await sleep(10);
+    fire("pointermove", s0.x, s0.y, 0); await sleep(10); fire("pointerdown", s0.x, s0.y, 1); await sleep(10);
+    for (let i = 1; i <= 8; i++) { fire("pointermove", s0.x + (s1.x - s0.x) * i / 8, s0.y + (s1.y - s0.y) * i / 8, 1); await sleep(15); }
+    const lm9 = e.liveMesh;
+    out.nine = { n0, previewVerts: lm9 ? lm9.vertexCount() : null, previewKeepX: lm9 && lm9.hasV(v8) ? lm9.pt(v8).x : null };
+    fire("pointerup", s1.x, s1.y, 0); await sleep(60);
+    out.nine.verts = m3().vertexCount(); out.nine.keepX = m3().hasV(v8) ? m3().pt(v8).x : null; out.nine.dropGone = !m3().hasV(w8); out.nine.sym = sym(m3()); out.nine.check = m3().check().length; out.nine.hint = hint();
+    e.undo(); await sleep(20);
+    out.nine.undoVerts = m3().vertexCount(); out.nine.undoBack = m3().hasV(w8) && Math.abs(m3().pt(v8).x - pv0.x) < 1e-9;
+  }
+  // ⑩ 强行对称：中缝上的点往外拖 → 钉在镜像面上只在面内滑，点数不变（user「不应该变成两个点，而是被吸附在中线上」）
+  e.setMirror("force", 0); await sleep(20);
+  {
+    const cut3 = m3().edges().find((x) => Math.abs(m3().pt(m3().edgeA[x]).x - m3().pt(m3().edgeB[x]).x) > 1);
+    e.commitOp({ op: "meshLoopCut", def: inst3.def, edge: cut3, t: 0.5 }); await sleep(20);   // 这个盒子还没切过中缝：先环切一圈，才有中缝点可拖
+    const seamV = m3().verts().find((q) => Math.abs(m3().pt(q).x) < 1e-9), n0 = m3().vertexCount(), p0 = { ...m3().pt(seamV) };
+    e.commitOp({ op: "meshMove", def: inst3.def, moves: [{ v: seamV, to: { x: 0.4, y: p0.y + 0.1, z: p0.z } }] }); await sleep(20);
+    out.ten = { n0, verts: m3().vertexCount(), x: m3().pt(seamV).x, dy: m3().pt(seamV).y - p0.y, sym: sym(m3()), faces: m3().faceCount() };
+    e.undo(); await sleep(10);
+  }
   return out;
 });
 await b.close();
@@ -144,6 +169,9 @@ const ok = res.one.row && /组件「块」/.test(res.one.who) && /网格体/.tes
   && res.eight.gizmoOff?.unpaired === 8 && res.eight.gizmoOff?.stroke === "#e8890c" && res.eight.gizmoOff?.badge === "8" && /设置原点到选择中心/.test(res.eight.hintOn)
   && res.eight.gizmoCentered?.unpaired === 0 && res.eight.gizmoCentered?.stroke === "#8b5cf6"
   && res.eight.preview?.moved && res.eight.preview?.mirrored && res.eight.after.moved && res.eight.after.mirrored && res.eight.after.wMoved
+  && res.nine.previewVerts === res.nine.n0 - 1 && res.nine.previewKeepX === 0 && res.nine.verts === res.nine.n0 - 1 && res.nine.keepX === 0 && res.nine.dropGone && res.nine.sym && res.nine.check === 0 && /并成一个/.test(res.nine.hint)
+  && res.nine.undoVerts === res.nine.n0 && res.nine.undoBack
+  && res.ten.n0 === 12 && res.ten.verts === 12 && res.ten.x === 0 && Math.abs(res.ten.dy - 0.1) < 1e-9 && res.ten.sym && res.ten.faces === 10
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-mirror OK" : "probe-mesh-mirror FAIL");

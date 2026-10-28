@@ -40,40 +40,64 @@ export function mirrorPairs(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): 
   return out;
 }
 
-export interface MirrorMovesResult { moves: { v: number; to: Pt3 }[]; mirrored: number; unpaired: number; pinned: number }
+export interface MirrorMovesResult {
+  moves: { v: number; to: Pt3 }[];
+  /** 落到中缝上的点并成一个（keep 留；drop = 它的孪生点 + 落点处本来就有的中缝点，一起并进去；at = 并到哪）。两种模式都有，调用方提交 meshMerge。 */
+  merges: { keep: number; drop: number[]; at: Pt3 }[];
+  mirrored: number; unpaired: number; pinned: number;
+  /** 想穿过镜像面被夹住的点数（R3）。 */
+  clamped: number;
+}
 /**
- * 镜像编辑：一组挪点 → 补上对面的点（镜过去）、中缝上的点钉回镜像面。两边都被挪了的一对：动得多的那一边说了算（哪边动了哪边为准）。
- * m = 挪之前的内核（配对按挪之前的位置找）。输出按点 id 升序（确定性）。
+ * 挪点在镜像下的纪律（设计稿 `ai-docs/20261028-mirror-redo-design.md` §1，user 10-28「中间的点往外拖不应该变成两个点，而是被吸附在中线上」「往中线拖也是collapse到中线，不要有double point，不要拖到对面去」）：
+ * R1 钉：中缝上的点只在面内滑；R3 不穿：跑到对面的点夹在镜像面上；R2 并：落到中缝的点和孪生点并成一个（孪生点自己的目标作废）；
+ * 镜像编辑另外补上对面的点（镜过去），两边都被挪了的一对：动得多的那一边说了算（哪边动了哪边为准）；强行对称只管住这一边，另一半事后由对称化重建。
+ * m = 挪之前的内核（分边、配对都按挪之前的位置）。输出按点 id 升序（确定性）。
  */
-export function mirrorMoves(m: MeshKernel, moves: readonly { v: number; to: Pt3 }[], axis: MirrorAxis, tol = MIRROR_TOL): MirrorMovesResult {
+export function mirrorMoves(m: MeshKernel, moves: readonly { v: number; to: Pt3 }[], axis: MirrorAxis, mode: MirrorMode = "edit", tol = MIRROR_TOL): MirrorMovesResult {
   const pairs = mirrorPairs(m, axis, tol), want = new Map<number, Pt3>();
   for (const mv of moves) if (m.hasV(mv.v)) want.set(mv.v, mv.to);
   // 哪边说了算：按两边各自挪了多远加权投票
   let vote = 0;
   for (const [v, to] of want) vote += sideOf(coordOf(m.pt(v), axis), tol) * dist(m.pt(v), to);
   const winner: -1 | 1 = vote < 0 ? -1 : 1;
-  const out = new Map<number, Pt3>();
-  let mirrored = 0, unpaired = 0, pinned = 0;
+  const out = new Map<number, Pt3>(), merges: MirrorMovesResult["merges"] = [], dropped = new Set<number>();
+  // 落点处本来就有的中缝点（容差内）：一起并（不然落在中缝点上 = 两个重合的点）
+  const seamAt = (at: Pt3, skip: number[]): number[] => m.verts().filter((u) => !skip.includes(u) && !dropped.has(u) && sideOf(coordOf(m.pt(u), axis), tol) === 0 && !want.has(u) && dist(m.pt(u), at) <= tol);
+  let mirrored = 0, unpaired = 0, pinned = 0, clamped = 0;
   for (const [v, to] of [...want].sort((a, b) => a[0] - b[0])) {
+    if (dropped.has(v)) continue;                              // 孪生点已经落到中缝、把它并走了：它自己的目标作废
     const s = sideOf(coordOf(m.pt(v), axis), tol), w = pairs.get(v) ?? -1;
-    if (s === 0) { out.set(v, withCoord(to, axis, 0)); pinned++; continue; }
-    if (w < 0) { if (!out.has(v)) out.set(v, to); unpaired++; continue; }
+    if (s === 0) { out.set(v, withCoord(to, axis, 0)); pinned++; continue; }   // R1
+    let t = to;
+    if (sideOf(coordOf(t, axis), tol) === -s) { t = withCoord(t, axis, 0); clamped++; }   // R3
+    const landed = sideOf(coordOf(t, axis), tol) === 0;
+    if (landed) t = withCoord(t, axis, 0);
+    if (landed) {   // R2：和孪生点（有的话）+ 落点处的中缝点并成一个
+      const drop = [...(w >= 0 ? [w] : []), ...seamAt(t, [v, w])];
+      out.set(v, t);
+      if (drop.length) { for (const d of drop) { out.delete(d); dropped.add(d); } merges.push({ keep: v, drop, at: t }); }
+      if (w < 0) unpaired++;
+      continue;
+    }
+    if (w < 0) { if (!out.has(v)) out.set(v, t); unpaired++; continue; }
+    if (mode === "force") { out.set(v, t); continue; }
     if (want.has(w) && s !== winner) continue;               // 对面也被挪了、而且那边说了算：这个点跟着那边（下面会写）
-    out.set(v, to);
-    out.set(w, mirrorPt(to, axis)); mirrored++;
+    out.set(v, t);
+    out.set(w, mirrorPt(t, axis)); mirrored++;
   }
-  return { moves: [...out].sort((a, b) => a[0] - b[0]).map(([v, to]) => ({ v, to })), mirrored, unpaired, pinned };
+  for (const d of dropped) out.delete(d);
+  return { moves: [...out].sort((a, b) => a[0] - b[0]).map(([v, to]) => ({ v, to })), merges: merges.sort((a, b) => a.keep - b.keep), mirrored, unpaired, pinned, clamped };
 }
 
-/** 这一步动了哪一边（新长出来的点按 1、挪过的点按挪的距离投票）：+1 / -1；看不出来 = 0。 */
+/** 这一步动了哪一边（新长出来的点按 1、挪过的点按挪的距离投票；挪到中缝上的点按它来的那一边算）：+1 / -1；看不出来 = 0。 */
 export function sideOfChange(before: MeshKernel, after: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): -1 | 0 | 1 {
   let vote = 0;
   for (const v of after.verts()) {
     const p = after.pt(v), s = sideOf(coordOf(p, axis), tol);
-    if (!s) continue;
-    if (!before.hasV(v)) { vote += s; continue; }
+    if (!before.hasV(v)) { if (s) vote += s; continue; }
     const d = dist(before.pt(v), p);
-    if (d > 1e-9) vote += s * d;
+    if (d > 1e-9) { const s0 = s || sideOf(coordOf(before.pt(v), axis), tol); vote += s0 * d; }
   }
   return vote > 1e-12 ? 1 : vote < -1e-12 ? -1 : 0;
 }
@@ -152,10 +176,11 @@ function planeChords(m: MeshKernel, f: number, r: readonly number[], sides: read
   return out;
 }
 
-export interface SymmetrizeResult { removedFaces: number; removedVerts: number; added: number; pinned: number; cutEdges: number }
+export interface SymmetrizeResult { removedFaces: number; removedVerts: number; added: number; pinned: number; cutEdges: number; walls: number }
 /**
  * 强行对称：先沿镜像面切开（bisectPlane）；中缝上的点钉回镜像面；删掉 side 的另一边全部面和点；把 side 这边的面镜过去
  * （绕向反过来 = 朝向一致，中缝上的点两边共用 = 焊上）。切开以后还有跨过镜像面的面（凹多边形劈不开）= 抛（调用方在副本上先试，说出来）。边的标记跟着镜过去。
+ * 最后 R4：整张躺在镜像面上、镜完变成夹层的面（每条边都夹在 ≥ 3 张面之间）清掉（user 10-28「degenerate和中线上的面也许应该清」，读成「只清会变成夹层的」）。
  */
 export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = MIRROR_TOL): SymmetrizeResult {
   const cut = bisectPlane(m, axis, tol);
@@ -180,7 +205,18 @@ export function symmetrize(m: MeshKernel, axis: MirrorAxis, side: -1 | 1, tol = 
     for (let i = 0; i < r.length; i++) { const e = m.edgeOf(r[i], r[(i + 1) % r.length]); if (e >= 0 && m.edgeFlags[e]) flagCopies.push([tw(r[i]), tw(r[(i + 1) % r.length]), m.edgeFlags[e]]); }
   }
   for (const [a, b, fl] of flagCopies) { const e = m.edgeOf(a, b); if (e >= 0 && a !== b) m.setEdgeFlags(e, fl); }
-  return { removedFaces: other.length, removedVerts, added, pinned, cutEdges: cut.cutEdges };
+  const walls = removeSeamWalls(m, axis, tol);
+  return { removedFaces: other.length, removedVerts, added, pinned, cutEdges: cut.cutEdges, walls };
+}
+
+/** R4：整张躺在镜像面上、而且每条边都已经夹在 ≥ 3 张面之间的面（镜完变成两半中间的夹层）删掉；孤零零躺在镜像面上的平面（没有两侧）不碰。返回删了几张。 */
+export function removeSeamWalls(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): number {
+  let n = 0;
+  for (const f of m.faces()) {
+    if (!m.faceVerts(f).every((v) => sideOf(coordOf(m.pt(v), axis), tol) === 0)) continue;
+    if (m.fEdges(f).every((e) => m.eFaces(e).length >= 3)) { m.removeFace(f); n++; }
+  }
+  return n;
 }
 
 export type SnapSide = "auto" | "flip" | "average";
