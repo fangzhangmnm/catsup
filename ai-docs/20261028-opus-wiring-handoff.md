@@ -12,6 +12,11 @@
 
 ## 清单（按顺序；每条 = 做什么 / 改哪 / 怎么验 / 账本）
 
+0. **数据安全先做：「导出」不许再把工程文件当 glb 发出去**（账本 UX39；user「现在的导出有数据安全问题…极端误导。工程文件要不要叫catsup. vroid也是glb换皮」）
+   - 现状：☰「导出 .glb（下载一份）」= `session.export()` = `encode()` = 整份工程（`CATSUP_*` 全在：硬表面数据、尺规、**参考图连图片字节**、桌面态、缩略图），只是后缀叫 .glb。
+   - **拍板（Claude Fable 5.1，10-28 晚；user「你只用拍板，到时候opus一起实现」）**：① 工程文件后缀改叫 **`.catsup`**（内里仍是 glb 容器，VRoid 的 .vrm 同款）；认工程靠内容（有 `CATSUP_document` 扩展 = 工程），不靠后缀；老的 .glb 工程永远照开、不改名（改叫法不迁移旧数据）；新建 / 另存写 .catsup；图库两种后缀都列。② ☰ 里不再有裸的「导出 .glb（下载一份）」。换成两项：**「导出给别的软件（.glb）…」= 交付物**——节点层级 + 三角形 + 线 + 材质 + 贴图，**剥掉全部 `CATSUP_*` 扩展**（硬表面 / 网格体的作者数据、尺规、参考图连图片字节、桌面态、设置、缩略图），导出前一行披露「不含硬表面数据 / 尺规 / 参考图；要备份工程用另存工程文件」；**「另存工程文件（.catsup）…」= 完整副本**（含一切，给备份 / 别的 CatsUp 用户）。OBJ 逃生口照旧（它本来就是交付物形状）。③ 导入：.catsup / .glb 都收；外来 glb 照旧成网格体；CatsUp 工程按工程开。④ 后缀动到图库 / store 的筛选（`DOC_EXT`、库的 suffix 白名单）= 红线区边上：先读 MASTER.md，库要改就 escalate，不在 app 端绕；两条守卫测试：导出的 glb 里没有任何 `CATSUP_*` 键、没有参考图的 image；老 .glb 工程照开。
+   - 改哪：`src/app/session.ts`（`DOC_EXT` / `export()` 拆成「导出交付物」「另存工程」两条）、`src/format/write.ts`（加一个「剥干净」的写法：只留 glTF core + 烤好的 TRIANGLES / LINES + materials / textures / images 里真被材质引用的）、`src/app/main.ts` ☰ 两项 + 导出前的披露句、`session.ts open` 认工程靠内容、图库 / store 的后缀筛选（红线区边上：先读 MASTER.md）。
+   - 验：单测「导出的 glb 里没有任何 CATSUP_* 键、images 里没有参考图、能被别的查看器开」「老 .glb 工程照开」「.catsup 往返逐字」；冒烟 + 图库探针。
 1. **放置表吃左柱和 ☰**（心智模型 §2.2 / §8 补 3；UX34「放置表管的事不同的面板里面放什么指令，不只是左栏和右键菜单」）
    - 做什么：左柱的工具格和 ☰ 的菜单项改成从放置表长出来（Surface `toolStrip` / `hamburger` 已登记在 `commands/action.ts`，还没有渲染器）。工具本身仍是立场表（`controller/stance.ts`）的事；左柱的常驻 / 预算 / 最近用过那张表（`main.ts RAIL_GROUPS`）留着当「手 + 工具袋」的布局规则，只是「哪把工具 / 哪条指令进哪一组」改成查放置表。
    - 验：现有探针全绿（`probe-rail*` / `probe-context` / `probe-submenu`）；`test/registry*` 守卫加一条「每个放置的面都有渲染器或登记为还没有」。
