@@ -20,6 +20,9 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
     L.enterWalk(); L.sim.reset({ x: 0, y: 0, z: 0 }, 0, { x: 0, y: 0, z: 1.7 }); await sleep(100);
     // enterWalk 不经 onPhase 以外的路：确保操作层按阶段露
     out.visible = !root.hidden && getComputedStyle(root).display !== "none";
+    // 没按的时候摇杆待在左下角（user 10-28 截图「摇杆位置不对」：v0.15.42 停在 (0, 0)、罩在 ☰ 上）
+    { const b0 = root.querySelector(".tc-base").getBoundingClientRect(), m0 = document.getElementById("btnMenu").getBoundingClientRect(), hint = document.getElementById("hint").getBoundingClientRect();
+      out.idle = { left: b0.left, top: b0.top, bottom: b0.bottom, w: innerWidth, h: innerHeight, overMenu: b0.left < m0.right && b0.top < m0.bottom, hintTop: hint.top }; }
     const lr = left.getBoundingClientRect(), rr = right.getBoundingClientRect();
     out.zones = { leftW: Math.round(lr.width), rightW: Math.round(rr.width), vw: innerWidth };
     const fire = (t, el, x, y, id) => el.dispatchEvent(new PointerEvent(t, { bubbles: true, clientX: x, clientY: y, pointerId: id, pointerType: "touch", isPrimary: id === 21, buttons: t === "pointerup" ? 0 : 1 }));
@@ -53,7 +56,7 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
   await page.close();
 }
 await b.close();
-const ok = Object.values(results).every((r) => r.visible && Math.abs(r.zones.leftW - r.zones.vw / 2) <= 1 && Math.abs(r.zones.rightW - r.zones.vw / 2) <= 1
+const ok = Object.values(results).every((r) => r.visible && !r.idle.overMenu && r.idle.left < r.idle.w / 2 && r.idle.top > r.idle.h / 2 && r.idle.bottom <= r.idle.hintTop + 4 && Math.abs(r.zones.leftW - r.zones.vw / 2) <= 1 && Math.abs(r.zones.rightW - r.zones.vw / 2) <= 1
   && r.walk.dist > 1.2 && r.walk.dist < 1.8 && Math.abs(r.walk.read.walkY - 1) < 1e-9 && !r.walk.read.dash
   && r.dash.dash && r.dash.dist > 2.4 && r.released.walkX === 0 && r.released.walkY === 0
   && Math.abs(r.turn - 0.45) < 0.02 && r.jumpZ > 0.2 && r.edit.phase === "edit" && r.edit.hidden) && errs.length === 0;

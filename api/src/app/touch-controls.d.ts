@@ -27,6 +27,8 @@ export declare class TouchControls {
     /** 这台设备有触屏吗（只在有的时候露）。 */
     static available(): boolean;
     setVisible(on: boolean): void;
+    /** 没按的时候摇杆待在哪（左半屏的左下，拇指自然落下的地方）。 */
+    private home;
     /** 这一帧的输入（没在推 = 0；蹲是切换态）。 */
     read(): TouchRead;
     private drawStick;

@@ -361,7 +361,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .tc-base { position: absolute; left: 0; top: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.75); background: rgba(0,0,0,.12); box-shadow: 0 1px 4px rgba(0,0,0,.25); pointer-events: none; }
 .tc-knob { position: absolute; left: 0; top: 0; width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,.85); box-shadow: 0 1px 4px rgba(0,0,0,.3); pointer-events: none; }
 .tc-knob.is-dash { background: var(--accent); }
-.tc-base[hidden], .tc-knob[hidden] { display: none; }
+.tc-base.is-idle, .tc-knob.is-idle { opacity: .45; }   /* 没按的时候：左下角淡淡的一个，告诉你往哪按 */
 .tc-btn { position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(255,255,255,.8); background: rgba(0,0,0,.18); color: #fff; font: 600 16px/1 system-ui, sans-serif; pointer-events: auto; touch-action: none; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
 .tc-btn.is-on { background: var(--accent); }
 .tc-jump { right: calc(24px + var(--safe-right)); bottom: calc(110px + var(--safe-bottom)); }

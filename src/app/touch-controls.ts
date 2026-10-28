@@ -1,6 +1,7 @@
 // touch-controls.ts —— 步行 FPS 的触屏操作层（吃鸡式；纪元账本 FM142）。created 2026-10-28 by Claude Opus 5.5
 // 数学在 src/player/touch-stick.ts（死区 / 冲刺 / 浮动底座，node 测过）；这里只管 DOM 和指针：
-//   左半屏 = 浮动摇杆（按在哪底座就在哪；推满 = 全速走、推出底座边缘 = 冲刺、拖太远底座跟着走）；
+//   左半屏 = 浮动摇杆（没按的时候左下角淡淡地画一个 = 告诉你往哪按；按在左半屏哪里底座就跳到哪里；推满 = 全速走、推出底座边缘 = 冲刺、
+//     拖太远底座跟着走；松手回左下角。user 10-28 截图「摇杆位置不对」= v0.15.42 没按的时候底座和摇杆头停在覆盖层的 (0, 0)、罩在 ☰ 上）；
 //   右半屏 = 拖动转头（不加速、不平滑）；右下 = 跳（按住）、蹲（点一下切换）；上方两颗低调的 =「原地编辑」「离开」（iPad 没有 Tab / Esc）。
 // 竖屏为主（user「我很多时候ipad都是竖屏哦」）：分区按百分比，横屏一样能用。顶上 15% 留给 HUD。
 // 只在有触屏的设备、FPS（走）阶段露；鼠标指针不进这里（键鼠照旧 WASD + 锁鼠标）。
@@ -41,6 +42,8 @@ export class TouchControls {
     const leave = el("button", "tc-top tc-leave", "离开"); leave.type = "button";
     this.root.append(this.left, this.right, this.base, this.knob, jump, this.crouchBtn, edit, leave);
     host.appendChild(this.root);
+    this.drawStick();   // 一开始就按「没在推」画（以前忘了 = 停在 (0, 0)）
+    new ResizeObserver(() => { if (!this.stick) this.drawStick(); }).observe(this.root);
     const local = (ev: PointerEvent): { x: number; y: number } => { const r = this.root.getBoundingClientRect(); return { x: ev.clientX - r.left, y: ev.clientY - r.top }; };
     const notMouse = (ev: PointerEvent): boolean => ev.pointerType !== "mouse";
     // 左：摇杆
@@ -86,7 +89,13 @@ export class TouchControls {
   setVisible(on: boolean): void {
     if (this.root.hidden === !on) return;
     this.root.hidden = !on;
-    if (!on) { this.stick = null; this.look = null; this.jumpHeld = false; this.drawStick(); }
+    if (!on) { this.stick = null; this.look = null; this.jumpHeld = false; }
+    this.drawStick();
+  }
+  /** 没按的时候摇杆待在哪（左半屏的左下，拇指自然落下的地方）。 */
+  private home(): { x: number; y: number } {
+    const z = this.left.getBoundingClientRect(), r = this.root.getBoundingClientRect();
+    return { x: z.left - r.left + Math.max(STICK.radius + 28, z.width * 0.4), y: z.bottom - r.top - (STICK.radius + 96) };   // 底下留出状态行（提示字）
   }
 
   /** 这一帧的输入（没在推 = 0；蹲是切换态）。 */
@@ -97,8 +106,14 @@ export class TouchControls {
 
   private drawStick(): void {
     const s = this.stick;
-    this.base.hidden = this.knob.hidden = !s;
-    if (!s) return;
+    this.base.classList.toggle("is-idle", !s); this.knob.classList.toggle("is-idle", !s);
+    if (!s) {
+      const h = this.home();
+      this.base.style.transform = `translate(${h.x - STICK.radius}px, ${h.y - STICK.radius}px)`;
+      this.knob.style.transform = `translate(${h.x - 24}px, ${h.y - 24}px)`;
+      this.knob.classList.remove("is-dash");
+      return;
+    }
     this.base.style.transform = `translate(${s.base.x - STICK.radius}px, ${s.base.y - STICK.radius}px)`;
     const dx = s.cur.x - s.base.x, dy = s.cur.y - s.base.y, d = Math.hypot(dx, dy), k = d > STICK.radius * STICK.dashAt ? STICK.radius * STICK.dashAt / d : 1;
     this.knob.style.transform = `translate(${s.base.x + dx * k - 24}px, ${s.base.y + dy * k - 24}px)`;

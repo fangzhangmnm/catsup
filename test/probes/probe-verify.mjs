@@ -15,7 +15,7 @@ const res = await page.evaluate(async () => {
   const { editor: e, hud, locomotion: L } = globalThis.__catsup, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), out = {};
   out.modes = e.modes().map((m) => m.id);
   e.setMode("verify"); await sleep(20);
-  out.rail = { mode: e.modeId, tools: hud.tools().filter((t) => e.mode.tools.includes(t.id)).map((t) => t.id), railLabels: [...document.querySelectorAll(".hud-rail-tools .tool .tool-label")].map((x) => x.textContent).slice(0, 4) };
+  out.rail = { mode: e.modeId, tools: hud.tools().filter((t) => e.mode.tools.includes(t.id)).map((t) => t.id), railLabels: [...document.querySelectorAll(".hud-rail-tools .tool .tool-label")].map((x) => x.textContent) };
   hud.pick("walk"); await sleep(30);
   out.place = { phase: L.walkPhase(), tool: e.tool, panel: e.paramPanel()?.title ?? null };
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true })); await sleep(30);
@@ -32,7 +32,7 @@ res.edit = await page.evaluate(() => { const { editor: e, hud, locomotion: L } =
 res.resume = await page.evaluate(() => { const { hud, locomotion: L } = globalThis.__catsup; hud.pick("walk"); return { phase: L.walkPhase() }; });
 await b.close();
 res.errs = errs;
-const ok = res.modes.includes("verify") && res.rail.mode === "verify" && res.rail.tools.includes("walk") && res.rail.railLabels.join() === "步行,选择,移动,旋转"
+const ok = res.modes.includes("verify") && res.rail.mode === "verify" && res.rail.tools.includes("walk") && res.rail.railLabels.join() === "步行,选择,移动,旋转,卷尺,量角器,圆规,坐标架"
   && res.place.phase === "place" && res.place.tool === "walk" && res.place.panel === "步行：点一下落在哪"
   && res.cancel.phase === "off" && res.cancel.tool === "select" && res.cancel.mode === "verify"
   && res.walk.phase === "walk" && res.walk.mode === "verify"

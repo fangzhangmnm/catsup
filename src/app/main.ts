@@ -132,7 +132,8 @@ const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞�
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const HINT_PLACE = "步行：点一下落在哪（绿 = 站得下、红 = 站不下；虚影 = 身子的半径和高）· 眼高在右下小窗改 · Esc 取消";
 const HINT_EDIT = "原地编辑：镜头钉在这里，工具照常用（右键拖 = 原地转头）· 上方「继续走」回去 · Esc 离开步行";
-const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isPlacing() ? HINT_PLACE : locomotion?.isEditInPlace() ? HINT_EDIT : locomotion?.isWalking() ? `${HINT_WALK} · Tab 原地编辑 · Esc 离开` : HINT_DEFAULT);
+const HINT_WALK_TOUCH = "步行：左边按住拖 = 走（推出圈外 = 跑）· 右边拖 = 看 · 跳 / 蹲 · 上面「原地编辑」「离开」";
+const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isPlacing() ? HINT_PLACE : locomotion?.isEditInPlace() ? HINT_EDIT : locomotion?.isWalking() ? (TouchControls.available() ? HINT_WALK_TOUCH : `${HINT_WALK} · Tab 原地编辑 · Esc 离开`) : HINT_DEFAULT);
 
 // ---------- Editor ----------
 let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
@@ -307,7 +308,7 @@ const RAIL_GROUPS: RailGroup[] = [
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
 const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };   // 插入那一格合租倒角（user 10-28「3插入倒角」）
 /** 工作台自己定死的左柱（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」+「用两字词语吧和硬表面对齐」：选择 · 挤出 · 移动 · 旋转 · 缩放 · 切割 · 删除 · 插入（删除 / 插入还没做的不露）。 */
-const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"], verify: ["walk", "select", "move", "rotate"] };
+const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"], verify: ["walk", "select", "move", "rotate", "tape", "protractor", "compass", "axes"] };   // 尺规还要（user 10-28「以及尺规还是要的」）
 const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = MODE_TOOL_LABEL[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
 const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
