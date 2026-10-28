@@ -1196,6 +1196,7 @@ function keyContext(): KeyContext {
     mode: editor.modeId, tool: editor.tool, gesture: editor.isGestureActive(), hasSelection: editor.hasSelection(),
     walk: locomotion.walkPhase(), walking: locomotion.isWalking(), mirrorSession: editor.mirrorActive(), lockStyle: editor.lockStyle(),
     vcbWants: (e) => vcb.wants(e),
+    typingWants: (e) => editor.gestureTypingWants(e.key),   // 手势中打数（S Z 0）
   };
 }
 /** 工具键：同一个键再按一下 = 在这个工具组里换下一把（user 2026-10-25「快捷键在工具组里怎么循环：同一个键再按一下」）：E 橡皮 → 焊边 → 软边；R 矩形 → 旋转矩形；T 卷尺 → 量角器 → 轴；A 弧的四种画法轮换（画法是工具选项）。 */
@@ -1231,6 +1232,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "select.none": editor.deselectAll(); return;
     case "delete.ifAny": if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return;
     case "delete": editor.deleteSelection(); return;
+    case "gesture.type": editor.typeIntoGesture(ev.key); syncUi(); return;   // 手势中打数（Blender「S Z 0」）
     case "mesh.connect": editor.runAction("mesh.connect"); syncUi(); return;
     case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
     case "lock.key": editor.lockKey(p1 === "none" ? null : (p1 as "x" | "y" | "z"), p2 === "plane"); syncUi(); return;   // 方向键（A9）
@@ -1249,6 +1251,8 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "redo": editor.redo(); return;
     case "escape":
       closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); toggleMatSheet(false);
+      // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
+      if (editor.modeId === "freeform" && editor.isGestureActive() && !editor.mirrorActive()) { editor.abortGesture(); syncUi(); return; }
       // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
       if (!editor.isGestureActive() && !editor.hasSelection() && editor.contextDepth() > 0) editor.exitContext(); else editor.cancel();
       return;

@@ -172,7 +172,7 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 
-import { fmtArea, fmtDeg, fmtLen, setDisplayUnit } from "./units.ts";
+import { fmtArea, fmtDeg, fmtLen, parseQuantity, quantityKey, setDisplayUnit } from "./units.ts";
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
@@ -1031,6 +1031,7 @@ export class Editor {
    * 以前（≤ v0.15.28）是事后对账：拿现在的选区和上次记的比——分不清「用户点了一下」和「建组做完顺手选中新组」，补出来的空步就是撤销「没反应」的根。
    */
   private closeStep(): void {
+    if (!this.gestureActive()) this.typedBuf = "";   // 打的数一次手势一份：手势没了就清
     const before = this.stepBefore ?? this.sessionSnap(), label = this.stepLabel, touched = this.stepTouched, hadOp = this.stepHasOp && !this.stepFailed, failed = this.stepFailed, ops = this.stepOps;
     this.stepBefore = null; this.stepLabel = undefined; this.stepTouched = false;
     if (failed) { this.deferredBefore = null; this.sessionRestore(before); this.host.changed(); return; }
@@ -3171,6 +3172,39 @@ export class Editor {
     this.computeLive(); this.host.changed(); this.draw();
     return true;
   }
+  // ---------- 手势中打数（Blender「S Z 0」；user 10-28 晚「s z 0这个快捷键能不能接住……这也是一个新的模式」「可以打小数点，然后接上我们的单位系统，然后最后可以打单位」
+  //            「所以就是一个parser啦，看一下能不能和单位文本框深模块窄接口」；设计稿 ai-docs/20261028-typed-amount.md）----------
+  // 打的字住这里（一次手势一份，步结束且手势没了就清——closeStep）；读法 = units.ts parseQuantity（单位文本框同一个）；哪个键能进 = units.ts quantityKey；工具只问 ctx.typed()。
+  private typedBuf = "";
+  /** 这一下键盘能不能进手势里的数：手势进行中、这把工具收数；回车 / 退格永远收（不让它们漏到下层：退格 = 删除选区），别的键 = 这个量写得出来的字。 */
+  gestureTypingWants(key: string): boolean {
+    const q = this.handlers[this._tool]?.typedQuantity;
+    if (!q || !this.gestureActive()) return false;
+    return key === "Enter" || key === "Backspace" || quantityKey(q, this.typedBuf, key);
+  }
+  /** 打一个键：字进缓冲 / 退格删一个 / 回车 = 定（同点一下）。预演跟着变。 */
+  typeIntoGesture(key: string): void {
+    const q = this.handlers[this._tool]?.typedQuantity;
+    if (!q || !this.gestureActive()) return;
+    if (key === "Enter") { this.confirmGesture(); return; }
+    this.typedBuf = key === "Backspace" ? this.typedBuf.slice(0, -1) : this.typedBuf + key;
+    this.computeLive(); this.host.changed(); this.draw();   // 状态行由 computeLive 写（打的字 + 预演读数一起）
+  }
+  /** 打的数（按工具的量读）；没打 / 看不懂 / 没在手势里 = null。 */
+  typedValue(): number | null {
+    const q = this.handlers[this._tool]?.typedQuantity;
+    if (!q || !this.typedBuf || !this.gestureActive()) return null;
+    const v = parseQuantity(this.typedBuf, q);
+    return typeof v === "number" ? v : null;
+  }
+  /** 正在打的字（探针 / 状态行）。 */
+  typedText(): string { return this.gestureActive() ? this.typedBuf : ""; }
+  /** 回车 = 定：「点一下落定」那一下（键盘起手 / 点了一下在等下一点的手势）；按着没松的拖 = 松手才定，回车不管。 */
+  confirmGesture(): void {
+    const ev = this.lastMoveEv;
+    if (!this.gestureActive() || !this.armed || !ev) return;
+    this.pointerDown({ ...ev }); this.pointerUp({ ...ev });
+  }
   /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
   armLoopCut(): boolean {
     if (this.mode.id !== "freeform" || !this.mode.tools.includes("knife")) return false;
@@ -3355,7 +3389,8 @@ export class Editor {
     if (this.live || this.liveMesh || this.liveOverride || dims) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
       const sh = this.previewShear ? `会把组件「${this.previewShear}」斜切（glTF 不允许），松手会被拦下：沿它自己的轴缩放（只选它一个时手柄就是它的轴）` : "";
-      this.host.hint([sh, dims, ev].filter(Boolean).join(" ｜ "));
+      const typing = this.typedBuf && this.gestureActive() ? `打数：${this.typedBuf}▏${this.typedValue() === null ? "（还没看懂，接着打）" : ""} · 回车 / 点一下 = 定 · 退格改 · Esc 取消` : "";   // 打的字一直看得见（预演读数会盖掉 typeIntoGesture 写的那句）
+      this.host.hint([sh, typing, dims, ev].filter(Boolean).join(" ｜ "));
     }
   }
   /** 预演的影子副本（O1「拷一次 + 每帧退回」）：真身没变（同一对象、同一 rev）就把上一帧的影子倒回去再用；变了 / 倒不回（日志丢段）/ 全局结算模式 = 重新拷一份。 */
@@ -3714,6 +3749,7 @@ export class Editor {
       newPrimitive: (kind, x, y, size) => this.addPrimitive(kind, { at: { x, y }, ...(size !== undefined ? { size } : {}) }),
       previewPrimitive: (kind, x, y, size, m) => this.previewPrimitive(kind, x, y, size, m),
       primitiveDragSize: (x0, y0, x1, y1) => this.primitiveDragSize(x0, y0, x1, y1),
+      typed: () => this.typedValue(),
       hoverSnap: (s) => this.hoverSnap(s),
       setHoverEdge: (e) => { this.hoverEdge = e; },
       hysteresis: (sn, sx, sy) => this.applyHysteresis(sn, sx, sy),

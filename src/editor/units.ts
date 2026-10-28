@@ -93,7 +93,8 @@ export function parseLength(part: string, unit: LengthUnit): number | { error: s
 }
 
 // ---------- 量：带标签的数（长度 / 速度）的显示、读输入、− + ----------
-export type Quantity = "length" | "speed";
+/** 量的种类。angle（2026-10-28 晚加）= 存弧度、显示 / 打字按度；factor = 倍数（无量纲，打 % 也认）——键盘起手里打数（S Z 0）和单位文本框走同一个读法（user「所以就是一个parser啦，看一下能不能和单位文本框深模块窄接口」）。 */
+export type Quantity = "length" | "speed" | "angle" | "factor";
 /** 速度用在谁身上：同一个 m/s，人走看配速、车看 km/h / mph、船和飞机看节（user 10-22「我会马拉松，开车和开飞机……配速，mph和knots这样我能和现实体感比」）。 */
 export type Mover = "foot" | "road" | "water" | "air";
 export interface QuantityTag { readonly q: Quantity; /** 速度才有；不给 = 走路。 */ readonly mover?: Mover }
@@ -129,6 +130,8 @@ function paceText(sec: number): string { let m = Math.floor(sec / 60), s = Math.
 /** 显示（精确，不带 ~）：长度按当前显示单位（米 3 位小数、英尺英寸到 1/16″）；速度按 speedUnitFor。 */
 export function formatQuantity(si: number, tag: QuantityTag): string {
   if (tag.q === "length") return fmtVcbLength(si, display);
+  if (tag.q === "angle") return `${Number((si * 180 / Math.PI).toFixed(2))}°`;
+  if (tag.q === "factor") return `×${Number(si.toFixed(4))}`;
   const u = speedUnitFor(tag.mover), S = SPEED[u];
   if (S.pace) return si > 0 ? `${paceText(S.fromSI(si))}/${u === "min/km" ? "km" : "mi"}` : "—";
   return `${Number(S.fromSI(si).toFixed(u === "m/s" ? 2 : 1))} ${u}`;
@@ -151,7 +154,34 @@ function parseSpeed(text: string, mover: Mover | undefined): number | { error: s
 }
 /** 读输入：什么单位都接（长度 = parseLength 那一套，速度 = 配速 / km/h / mph / 节 / m/s）；裸数 = 当前显示单位。 */
 export function parseQuantity(text: string, tag: QuantityTag): number | { error: string } {
+  if (tag.q === "angle") return parseAngle(text);
+  if (tag.q === "factor") return parseFactor(text);
   return tag.q === "length" ? parseLength(text, display) : parseSpeed(text, tag.mover);
+}
+const NUM = String.raw`[-+]?(?:\d+\.?\d*|\.\d+)`;
+/** 角度文字 → 弧度：裸数 = 度；`30°` `30deg` `30度` `0.5rad`。 */
+function parseAngle(text: string): number | { error: string } {
+  const m = new RegExp(`^(${NUM})\\s*(°|deg|度|rad)?$`, "i").exec(text.trim());
+  if (!m || !Number.isFinite(Number(m[1]))) return { error: `看不懂「${text.trim()}」（例：30、-45°、0.5rad）` };
+  return m[2]?.toLowerCase() === "rad" ? Number(m[1]) : Number(m[1]) * Math.PI / 180;
+}
+/** 倍数文字 → 倍数：`0` `1.5` `-1`（翻过去）`50%`。 */
+function parseFactor(text: string): number | { error: string } {
+  const m = new RegExp(`^(${NUM})\\s*(%)?$`).exec(text.trim());
+  if (!m || !Number.isFinite(Number(m[1]))) return { error: `看不懂「${text.trim()}」（例：0、1.5、-1、50%）` };
+  return m[2] ? Number(m[1]) / 100 : Number(m[1]);
+}
+/**
+ * 打字时这个键能不能接进这一段量的文字（键盘起手里打数用；和 parseQuantity 是同一张「这个量怎么写」）：
+ * 数字 / 小数点 / 正负号永远能；单位那几个字只在已经有数之后（长度 m c i n f t ' " 空格 /，角度 ° d e g r a，倍数 %）。
+ * X / Y / Z 永远不接（它们是锁轴，打到一半也能锁，Blender 同款）。
+ */
+export function quantityKey(tag: QuantityTag, buf: string, key: string): boolean {
+  if (key.length !== 1) return false;
+  if (/^[0-9.\-+]$/.test(key)) return true;
+  if (!/[0-9]/.test(buf) || /^[xyz]$/i.test(key)) return false;
+  const units = tag.q === "length" ? /^[mcinft'" \/米厘毫]$/i : tag.q === "angle" ? /^[°degra度]$/i : tag.q === "factor" ? /^%$/ : /^[a-z:'"\/ ]$/i;
+  return units.test(key);
 }
 
 /** 显示单位下的「一格」：长度从 SI 步长换过去取整齐数（英制按 1/16″ … 1′ 的格）；速度用各单位自己的格（配速 5 秒）。 */
@@ -172,6 +202,7 @@ export function nudgeQuantity(si: number, dir: 1 | -1, tag: QuantityTag, siStep:
   const eps = 1e-9;
   const walk = (d: number, g: number, up: boolean): number => (up ? (Math.floor(d / g + eps) + 1) * g : (Math.ceil(d / g - eps) - 1) * g);
   if (tag.q === "length") { const { per, step } = lengthGrid(siStep); return walk(si / per, step, dir > 0) * per; }
+  if (tag.q === "angle" || tag.q === "factor") return walk(si, siStep, dir > 0);
   const S = SPEED[speedUnitFor(tag.mover)], d = S.fromSI(si), up = S.pace ? dir < 0 : dir > 0, nd = walk(d, S.step, up);
   return nd > 0 ? S.toSI(nd) : si;
 }

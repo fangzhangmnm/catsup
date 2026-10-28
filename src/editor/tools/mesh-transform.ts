@@ -44,7 +44,9 @@ export class MeshTransformTool implements ToolHandler {
   private shift = false;
   private handleW: Pt3 | null = null;        // 挪：抓住的那个点（目标里离按下处最近的点，世界）——吸附时是它落到目标上
   private snapT: { p: Pt3; kind: SnapKind } | null = null;
-  constructor(kind: MeshXformKind) { this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; }
+  /** 手势中打的数是什么量（Blender「S Z 0」：缩放 = 倍数、旋转 = 角度、移动 / 沿法线 = 长度；读法 = units.ts，工具只问 ctx.typed()）。 */
+  readonly typedQuantity: { q: "length" | "angle" | "factor" };
+  constructor(kind: MeshXformKind) { this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; this.typedQuantity = { q: kind === "rotate" ? "angle" : kind === "scale" ? "factor" : "length" }; }
   /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
   private box = new BoxDrag();
   tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）
@@ -153,7 +155,7 @@ export class MeshTransformTool implements ToolHandler {
   private solve(ctx: ToolCtx): { moves: Map<number, Pt3>; dims: string } | null {
     const pivot = this.pivotW, grab = this.grabW, s0 = this.start, s1 = this.cur;
     if (!pivot || !grab || !s0 || !s1) return null;
-    const X = ctx.ctxXform(), Xi = invert(X), ax = ctx.axisLockDir(), pn = ctx.planeLockNormal();
+    const X = ctx.ctxXform(), Xi = invert(X), ax = ctx.axisLockDir(), pn = ctx.planeLockNormal(), typed = ctx.typed(), tag = typed !== null ? "（打的数）" : "";
     let fW: (p: Pt3) => Pt3, dims: string;
     if (this.kind === "normal") {   // 沿法线：离轴心（屏幕）远了 = 胖、近了 = 瘦（Blender Alt+S 同手感）；每个点沿自己的法向走同样长
       const vp = ctx.vp(), ps = ctx.frame().project?.(pivot, vp);
@@ -163,18 +165,23 @@ export class MeshTransformTool implements ToolHandler {
       if (L0 < SCALE_REF_PX) d0 = L0 > 1e-6 ? { x: d0.x / L0 * SCALE_REF_PX, y: d0.y / L0 * SCALE_REF_PX } : { x: SCALE_REF_PX, y: 0 };
       const o = { x: s0.x - d0.x, y: s0.y - d0.y }, px = Math.hypot(s1.x - o.x, s1.y - o.y) - Math.hypot(d0.x, d0.y);
       const a = this.onPlane(ctx, ps.x, ps.y), b = this.onPlane(ctx, ps.x + 1, ps.y), wpp = a && b ? len3(sub3(b, a)) : 0;
-      const tW = px * wpp, sL = len3(applyDir(Xi, { x: 1, y: 0, z: 0 })) || 1, tL = tW * sL;
+      const tW = typed ?? px * wpp, sL = len3(applyDir(Xi, { x: 1, y: 0, z: 0 })) || 1, tL = tW * sL;
       const moves = new Map<number, Pt3>();
       for (const [v, p] of this.base) { const d = this.dirs.get(v) ?? { x: 0, y: 0, z: 1 }; moves.set(v, add3(p, scale3(d, tL))); }
-      return { moves, dims: `沿法线 ${tW >= 0 ? "+" : "−"}${fmtLen(Math.abs(tW))}` };
+      return { moves, dims: `沿法线 ${tW >= 0 ? "+" : "−"}${fmtLen(Math.abs(tW))}${tag}` };
     }
     if (this.kind === "move") {
       const now = this.onPlane(ctx, s1.x, s1.y) ?? grab;
       let d = this.snapT && this.handleW ? sub3(this.snapT.p, this.handleW) : sub3(now, grab);   // 吸附：抓住的点落到目标上
       if (ax) d = scale3(ax, dot3(d, ax));             // 锁轴：投到轴上（贴近视线 = 变慢，FM18）
       else if (pn) d = sub3(d, scale3(pn, dot3(d, pn)));   // 锁面：去掉法向分量
+      if (typed !== null) {   // 打了数 = 沿锁着的轴走这么长；没锁 = 沿目前拖出来的方向（锁面 = 面内那个方向）；还没方向 = 等你锁轴或拖一下
+        const dir = ax ?? (len3(d) > 1e-9 ? normalize3(d) : null);
+        if (!dir) return { moves: new Map(this.base), dims: `打数 ${fmtLen(Math.abs(typed))}：先锁一个轴（X / Y / Z）或者拖出个方向` };
+        d = scale3(dir, typed);
+      }
       fW = (p) => add3(p, d);
-      dims = `移动 ${fmtLen(len3(d))}${this.snapT ? `（吸到${this.snapT.kind === "endpoint" ? "点" : this.snapT.kind === "origin" ? "原点" : this.snapT.kind === "on-edge" ? "边" : this.snapT.kind.startsWith("axis-") ? `${this.snapT.kind.slice(5).toUpperCase()} 轴` : "面"}上）` : ""}`;
+      dims = `移动 ${fmtLen(len3(d))}${tag}${this.snapT ? `（吸到${this.snapT.kind === "endpoint" ? "点" : this.snapT.kind === "origin" ? "原点" : this.snapT.kind === "on-edge" ? "边" : this.snapT.kind.startsWith("axis-") ? `${this.snapT.kind.slice(5).toUpperCase()} 轴` : "面"}上）` : ""}`;
     } else {
       const vp = ctx.vp(), ps = ctx.frame().project?.(pivot, vp);
       if (!ps) return null;
@@ -186,9 +193,10 @@ export class MeshTransformTool implements ToolHandler {
         if (dot3(axis, toCam) < 0) th = -th;
         th = Math.atan2(Math.sin(th), Math.cos(th));
         if (this.shift) th = Math.round(th / ROT_STEP) * ROT_STEP;
+        if (typed !== null) th = typed;   // 打的角度（弧度；绕锁着的轴 / 视线）
         const k = normalize3(axis), c = Math.cos(th), sn = Math.sin(th);
         fW = (p) => { const v = sub3(p, pivot); const r = add3(add3(scale3(v, c), scale3(cross3(k, v), sn)), scale3(k, dot3(k, v) * (1 - c))); return add3(pivot, r); };   // Rodrigues
-        dims = `旋转 ${(th * 180 / Math.PI).toFixed(1)}°${ax ? "（锁轴）" : ""}`;
+        dims = `旋转 ${(th * 180 / Math.PI).toFixed(1)}°${ax ? "（锁轴）" : ""}${tag}`;
       } else {
         let d0 = { x: s0.x - ps.x, y: s0.y - ps.y };
         const L0 = Math.hypot(d0.x, d0.y);
@@ -196,10 +204,11 @@ export class MeshTransformTool implements ToolHandler {
         const o = { x: s0.x - d0.x, y: s0.y - d0.y };      // 起点离轴心太近：在起点后面 40 px 立一个虚轴心（往外拖 = 放大）
         let f = Math.hypot(s1.x - o.x, s1.y - o.y) / Math.hypot(d0.x, d0.y);
         if (this.shift) f = Math.round(f / SCALE_STEP) * SCALE_STEP;
+        if (typed !== null) f = typed;   // 打的倍数（S Z 0 = 沿 Z 压平）
         if (ax) fW = (p) => { const v = sub3(p, pivot); return add3(p, scale3(ax, dot3(v, ax) * (f - 1))); };   // 只沿这根轴（S Z 0 = 压平）
         else if (pn) fW = (p) => { const v = sub3(p, pivot), vn = scale3(pn, dot3(v, pn)); return add3(pivot, add3(vn, scale3(sub3(v, vn), f))); };   // 只在面内
         else fW = (p) => add3(pivot, scale3(sub3(p, pivot), f));
-        dims = `缩放 ×${f.toFixed(3)}${ax ? "（锁轴）" : pn ? "（锁面）" : ""}`;
+        dims = `缩放 ×${f.toFixed(3)}${ax ? "（锁轴）" : pn ? "（锁面）" : ""}${tag}`;
       }
     }
     const moves = new Map<number, Pt3>();

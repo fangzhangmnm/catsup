@@ -22,6 +22,8 @@ type Target = { faces: number[]; edges: number[]; verts: number[] };
 export class MeshPullTool implements ToolHandler {
   readonly tool = "pp" as const;
   readonly grammar = "steps" as const;
+  /** 手势中打的数 = 挤出多长（Blender「E 0.5」；读法 = units.ts）。 */
+  readonly typedQuantity = { q: "length" as const };
   readonly lock = "axis" as const;
   private t: Target | null = null;
   /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
@@ -102,7 +104,12 @@ export class MeshPullTool implements ToolHandler {
   private motion(ctx: ToolCtx): { off: Pt3; along?: undefined } | { along: number; off?: undefined } | null {
     const pivot = this.pivotW, grab = this.grabW, s0 = this.start, s1 = this.cur, t = this.t;
     if (!pivot || !grab || !s0 || !s1 || !t) return null;
-    const ax = ctx.axisLockDir(), pn = ctx.planeLockNormal(), now = this.onPlane(ctx, s1.x, s1.y) ?? grab, d = sub3(now, grab);
+    const ax = ctx.axisLockDir(), pn = ctx.planeLockNormal(), now = this.onPlane(ctx, s1.x, s1.y) ?? grab, d = sub3(now, grab), typed = ctx.typed();
+    if (typed !== null) {   // 打了数：锁着轴 = 沿轴这么长；面 = 沿法向；边 / 点 = 沿各自垂直方向
+      if (ax) return { off: scale3(ax, typed) };
+      if (t.faces.length) return { off: scale3(this.nW ?? { x: 0, y: 0, z: 1 }, typed) };
+      return { along: typed };
+    }
     if (ax) return { off: scale3(ax, dot3(d, ax)) };
     if (pn) return { off: sub3(d, scale3(pn, dot3(d, pn))) };
     if (ctx.mods().shift) return { off: d };   // 按住 Shift = 不锁方向、屏幕平面里自由拖（user 10-27「挤出是不是可以shift切换不锁定，屏幕空间拖拽」；Shift = 把默认的对齐反过来）

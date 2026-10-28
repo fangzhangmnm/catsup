@@ -47,7 +47,7 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(act(ctx({ mode: "freeform", tool: "move", lockStyle: "axis" }), K("ArrowRight", "ArrowRight")), "lock.key:x", "吃锁的工具 = 直接锁");
   });
   it("栈的形状：自由建模 + 操作工具 + 手势中 = 全局 / 工作台 / 工具 / 手势 / 数值小窗", () => {
-    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > gesture > vcb");
+    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > gesture > gesture:typing > vcb");
   });
   it("披露：按住修饰键时这一层有什么（modifierChords）——自由建模 Ctrl 有环切 / 倒角；硬表面 Shift+Z = 缩放到全部、操作工具里 = 面锁；披露的每一条 = 真按下去生效的那条", () => {
     const ff = ctx({ mode: "freeform", tool: "move" }), ctrl = modifierChords(ff, "ctrl").map((x) => x.chord), shift = modifierChords(ff, "shift");
@@ -77,5 +77,27 @@ describe("键表：什么时候按 X 是什么意思", () => {
     const fresh = [...now].filter(([ch]) => !known.has(ch)).map(([ch, m]) => `${ch}: ${[...m].map(([k, v]) => `${k}@${v.join("/")}`).join(" | ")}`);
     eq(fresh.join("; "), "", "新冒出来的肌肉记忆冲突（想清楚、登记进 KNOWN_CONFLICTS、告诉 user）");
     eq([...known].filter((ch) => !now.has(ch)).join(","), "", "登记了但已经不冲突（从 KNOWN_CONFLICTS 删掉）");
+  });
+});
+
+// 手势中打数（Blender「S Z 0」；2026-10-28 晚 Claude Opus 5.5）：打字层压在手势层上面，只要编辑器说要的键；X / Y / Z 编辑器不要 → 照旧锁轴。
+import { quantityKey, parseQuantity } from "../src/editor/units.ts";
+describe("手势中打数（S Z 0）", () => {
+  const typing = (buf: string) => ctx({ mode: "freeform", tool: "scale", gesture: true, lockStyle: "axis", typingWants: (e: KeyEvt) => e.key === "Enter" || e.key === "Backspace" || quantityKey({ q: "factor" }, buf, e.key) });
+  const k = (key: string): KeyEvt => ({ key, code: /^[0-9]$/.test(key) ? `Digit${key}` : /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : key, shift: false, ctrl: false, alt: false });
+  it("S（键盘起手）→ Z = 锁 Z → 0 = 打数 → 回车 = 打数层收（编辑器当「定」）", () => {
+    const z = resolveKey(typing(""), k("z")); eq(z && z !== "swallow" ? z.action : null, "lock.key:z");
+    const zero = resolveKey(typing(""), k("0")); eq(zero && zero !== "swallow" ? zero.action : null, "gesture.type");
+    const en = resolveKey(typing("0"), k("Enter")); eq(en && en !== "swallow" ? en.action : null, "gesture.type");
+  });
+  it("单位字只在有数之后进（长度：先打 1 再打 m；空的时候 m = 照旧是别的键）；退格不漏到下层的「删除选区」", () => {
+    eq(quantityKey({ q: "length" }, "", "m"), false); eq(quantityKey({ q: "length" }, "1.5", "m"), true); eq(quantityKey({ q: "length" }, "1", "z"), false);
+    const bs = resolveKey(typing(""), k("Backspace")); eq(bs && bs !== "swallow" ? bs.action : null, "gesture.type");
+  });
+  it("读法 = 单位文本框同一个 parseQuantity：倍数 0 / 50%、角度 -45°、长度 1.5cm / 3'6\"", () => {
+    eq(parseQuantity("0", { q: "factor" }), 0); eq(parseQuantity("50%", { q: "factor" }), 0.5);
+    eq(Math.abs((parseQuantity("-45°", { q: "angle" }) as number) + Math.PI / 4) < 1e-12, true);
+    eq(Math.abs((parseQuantity("1.5cm", { q: "length" }) as number) - 0.015) < 1e-12, true);
+    eq(Math.abs((parseQuantity("3'6\"", { q: "length" }) as number) - 1.0668) < 1e-9, true);
   });
 });

@@ -32,6 +32,8 @@ function edgesOfFaces(m: MeshKernel, faces: readonly number[]): number[] {
 export class MeshInsetTool implements ToolHandler {
   readonly tool = "offset" as const;
   readonly grammar = "steps" as const;
+  /** 手势中打的数 = 插入 / 倒角的宽度（读法 = units.ts）。 */
+  readonly typedQuantity = { q: "length" as const };
   private job: Job | null = null;
   /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
   private adopt: Target["adopt"] | null = null;
@@ -103,6 +105,7 @@ export class MeshInsetTool implements ToolHandler {
    * 起点离中心太近 = 在起点后面 40 px 立一个虚中心。
    */
   private distW(ctx: ToolCtx): number {
+    { const t = ctx.typed(); if (t !== null) return Math.max(0, t); }   // 打的宽度
     const c = this.centerW, s0 = this.start, s1 = this.cur;
     if (!c || !s0 || !s1) return 0;
     const vp = ctx.vp(), fr = ctx.frame(), cs = fr.project?.(c, vp);

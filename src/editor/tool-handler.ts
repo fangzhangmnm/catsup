@@ -17,6 +17,7 @@ import type { PoolRef } from "../scene/scene.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
+import type { QuantityTag } from "./units.ts";
 import type { Selection, SelMode } from "./tools.ts";
 import type { LastGesture, PoolPick, ToolPointer } from "./editor.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -193,6 +194,8 @@ export interface ToolCtx {
   previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel): string | null;
   /** 从 (x0, y0) 拖到 (x1, y1) 在落点那里是多长（世界长度）；落不到东西 = null。 */
   primitiveDragSize(x0: number, y0: number, x1: number, y1: number): number | null;
+  /** 手势进行中打的数（键盘起手 / 拖着时打字；Blender「S Z 0」）：按这把工具的 typedQuantity 读（单位文本框同一个 parseQuantity：长度 = 米、角度 = 弧度、倍数）；没打 / 还没看懂 = null（照鼠标）。 */
+  typed(): number | null;
 }
 
 /**
@@ -227,6 +230,8 @@ export interface ToolHandler {
   startModal?(ctx: ToolCtx, s: { x: number; y: number }, variant?: string): boolean;
   /** 切割：下一下点到边上直接环切（Ctrl+R）。 */
   armLoop?(ctx: ToolCtx): void;
+  /** 手势进行中能打数（Blender「S Z 0」；user 10-28 晚）：这把工具收的是什么量（长度 / 角度 / 倍数）。没有 = 打字不进这把工具。 */
+  readonly typedQuantity?: QuantityTag;
   /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
   readonly previewOnHover?: boolean;
   /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */

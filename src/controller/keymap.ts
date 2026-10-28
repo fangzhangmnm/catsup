@@ -29,6 +29,8 @@ export interface KeyContext {
   readonly lockStyle: "axis" | "plane" | null;
   /** 数值小窗要不要这一下（它有自己的缓冲状态，问它）。 */
   readonly vcbWants: (e: KeyEvt) => boolean;
+  /** 手势中打数要不要这一下（编辑器问：手势进行中、工具收数、键 = 回车 / 退格 / 这个量写得出来的字；Blender「S Z 0」，2026-10-28 晚）。没给 = 不要。 */
+  readonly typingWants?: (e: KeyEvt) => boolean;
 }
 export type Chord = string;
 export interface Binding { readonly chord: Chord; readonly action: string; readonly label: string; readonly when?: (c: KeyContext, e: KeyEvt) => boolean }
@@ -108,6 +110,9 @@ export const GESTURE: Layer = {
     B("shift+x", "lock.key:x:plane", "面锁 YZ"), B("shift+y", "lock.key:y:plane", "面锁 XZ"), B("shift+z", "lock.key:z:plane", "面锁 XY"),
   ],
 };
+/** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。
+ *  X / Y / Z 它不要（单位里没有这三个字母）→ 落到下面的手势层照旧锁轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
+export const TYPING: Layer = { id: "gesture:typing", bindings: [B("*", "gesture.type", "打数（手势中）", (c, e) => !!c.typingWants?.(e))] };
 /** 镜像会话（马前炮）：回车 = 应用（Esc = 取消走全局的 escape → editor.cancel）。 */
 export const MIRROR: Layer = { id: "mirror-session", bindings: [B("enter", "mirror.apply", "应用镜像")] };
 /** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */
@@ -124,6 +129,7 @@ export function layersOf(c: KeyContext): Layer[] {
   if (freeform) out.push(FREEFORM);
   if (freeform && OP_TOOLS.has(c.tool)) out.push(TOOL_OPS);
   if (freeform && c.gesture) out.push(GESTURE);
+  if (c.gesture) out.push(TYPING);
   if (c.mirrorSession) out.push(MIRROR);
   out.push(VCB);
   if (c.walk === "edit") out.push(WALK_EDIT);
@@ -186,13 +192,14 @@ export const LAYER_DOCS: Readonly<Record<string, { title: string; when: string }
   "workbench:freeform": { title: "自由建模", when: "在网格体里" },
   "tool:ops": { title: "自由建模 · 拿着操作工具", when: "移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线" },
   gesture: { title: "自由建模 · 手势进行中", when: "按下了还没落定" },
+  "gesture:typing": { title: "手势中打数", when: "移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线进行中直接打（S Z 0 = 沿 Z 压平）；回车 / 点一下 = 定，退格改，Esc 取消" },
   "mirror-session": { title: "镜像会话", when: "硬表面「镜像…」把手出来时" },
   vcb: { title: "数值小窗", when: "刚做完一步、右下角小窗亮着时打数字" },
   "walk:edit": { title: "步行 · 原地编辑", when: "" },
   "walk:place": { title: "步行 · 放置", when: "点地面落人之前" },
   "walk:fps": { title: "步行", when: "键盘归走路：WASD 走、空格跳，别的只认下面这几个" },
 };
-export const ALL_LAYERS: readonly Layer[] = [GLOBAL, FREEFORM, TOOL_OPS, GESTURE, MIRROR, VCB, WALK_EDIT, WALK_PLACE, WALK_FPS];
+export const ALL_LAYERS: readonly Layer[] = [GLOBAL, FREEFORM, TOOL_OPS, GESTURE, TYPING, MIRROR, VCB, WALK_EDIT, WALK_PLACE, WALK_FPS];
 /**
  * 快捷键表（数据 → 文字；帮助页「快捷键」一节就是它）：每层一节、每条 = 和弦（给人看的写法）+ 做什么。工具键的名字由调用方给（左柱那张表的中文，keymap 不认识中文工具名）。
  * 同一层里同一个和弦只列一次（when 分情况的几条合成一行，用「 / 」连）。"*"（数值小窗吃一切）写成一句话。
