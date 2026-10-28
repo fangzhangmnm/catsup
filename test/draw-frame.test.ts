@@ -2,6 +2,7 @@
 // 坐标架（画图用）三种上下文各一份、改它不挪任何几何；组件原点 = 定义坐标系，改它挪几何、每份实例补（世界不动），另摆的坐标架在世界里原地不动。
 import { describe, it, assert } from "./runner.mjs";
 import { applyOp } from "../src/editor/ops.ts";
+import { History } from "../src/editor/history.ts";
 import { sceneGrouped } from "./format-scenes.ts";
 import { Scene } from "../src/scene/scene.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
@@ -62,6 +63,16 @@ describe("坐标架 / 组件原点（DT86）", () => {
     const inst1 = sc.def(sc.root).instances.get(inst.id)!;
     assert(near(applyPt(inst1.xform, { x: 0, y: 0, z: 0 }), applyPt(xf0, newOrigin.origin)), "组件原点到了新位置");
     assert(sameFrame(sc.frameOfContext(ctx), dfWorld, ), "另摆的坐标架原地不动（跟着定义坐标反变换）");
+  });
+  it("改组件原点能撤销：几何和实例矩阵一起回去、世界不动（v0.15.15 起它按骨架记、内核共享 → 撤销后组件在世界里错位；10-27 改成整份记）", () => {
+    const sc = sceneGrouped(), inst = [...sc.def(sc.root).instances.values()][0], h = new History(sc);
+    const before = worldPoints(sc);
+    const after = h.commit(sc, { op: "setAxes", at: { def: inst.def, group: null }, frame: { origin: { x: 0.5, y: 0.5, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } }).scene;
+    assert(samePts(worldPoints(after), before, 1e-9), "做完世界不动");
+    const back = h.undo()!.scene;
+    assert(samePts(worldPoints(back), before, 1e-9), "撤销后世界也不动");
+    const redo = h.redo(back)!.scene;
+    assert(samePts(worldPoints(redo), before, 1e-9), "重做后世界也不动");
   });
   it("「设为组件原点」那两步：原点 = 坐标架，之后坐标架回到跟原点、世界不动", () => {
     let sc = sceneGrouped();

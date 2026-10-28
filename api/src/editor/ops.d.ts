@@ -1,7 +1,6 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
-import type { MeshDoc } from "../format/document.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, type MeshBody, Scene } from "../scene/scene.ts";
@@ -283,13 +282,6 @@ export type Op =
     segments?: number;
 }
 /** 右键新建（SU 体里 / 根上）：新的网格体组件（定义 + 一份实例，摆在 at 池里 xform 处）。 */
- | {
-    op: "addMeshObject";
-    at: PoolRef;
-    name: string;
-    mesh: MeshDoc;
-    xform: Xform;
-}
 /** 插入（自由建模；面各自往里插一圈，dist 本地长度、超过上限按上限）。mesh/ops/inset.ts insetFaces。 */
  | {
     op: "meshInset";

@@ -88,14 +88,44 @@ const res = await page.evaluate(async () => {
   { const f = [...e.selection.faces][0], xs = f !== undefined ? m().faceVerts(f).map((v) => m().pt(v).x) : [];
     out.inset = { df: stat().f - st0.f, sel: e.selection.faces.size, smaller: xs.length === 4 && Math.max(...xs) - Math.min(...xs) < 0.999, check: m().check().join(";"), label: hud.tools().find((t) => t.id === "offset")?.label }; }
   kd("z", { ctrl: true }); await sleep(40);
-  // ⑪ 右键面 → 「插入（I）」→ 从右键那一点起手插入
+  // ⑪ 右键面 → 「插入」= 指令：不换工具、不进手势，做完马后炮改宽度（user 10-27「右键的插入，切环不应该切到工具里面，插入好了应该还是之前的操作模式」）
   e.setTool("select"); e.deselectAll(); await sleep(400);
-  { const s = px(P(0.9, 0.9, 1)); fire("pointermove", s.x, s.y, 0); await sleep(20); c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + s.x, clientY: r.top + s.y, button: 2 })); await sleep(40); }
-  out.rInsetItem = hud.edits().some((it) => it.id === "freeform:inset" && !it.hidden);
-  hud.pick("freeform:inset"); await sleep(20); document.querySelectorAll(".popup-menu").forEach((x) => x.remove());
-  out.rInset = { active: e.isGestureActive(), tool: e.tool };
-  kd("Escape", { code: "Escape" }); await sleep(20);
-    out.backToStart = (() => { let n = 0; while (e.history.position() > pos0 && n++ < 30) kd("z", { ctrl: true }); return JSON.stringify(stat()) === JSON.stringify(st0); })();
+  const rc = async (p) => { const s = px(p); fire("pointermove", s.x, s.y, 0); await sleep(20); c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + s.x, clientY: r.top + s.y, button: 2 })); await sleep(40); };
+  await rc(P(0.9, 0.9, 1));
+  out.rInsetItem = hud.edits().some((it) => it.id === "action:mesh.inset" && !it.hidden);
+  { const f0 = stat().f; hud.pick("action:mesh.inset"); await sleep(20); document.querySelectorAll(".popup-menu").forEach((x) => x.remove());
+    out.rInset = { active: e.isGestureActive(), tool: e.tool, df: stat().f - f0, sel: e.selection.faces.size, check: m().check().join(";"), panel: !!document.querySelector(".param-panel, .afterthought, [data-afterthought]") }; }
+  kd("z", { ctrl: true }); await sleep(40);
+  // ⑪b 右键面 → 「设置原点到选择中心」：世界里不动，原点到了那张面的中心
+  e.deselectAll(); await sleep(400); await rc(P(0.5, 0.5, 1));
+  out.rOriginItem = hud.edits().some((it) => it.id === "action:mesh.originToSelection" && !it.hidden);
+  { const W = () => { const I = root().instances.get(inst.id), X = I.xform; return m().verts().map((v) => { const p = m().pt(v); return [q(X[0] * p.x + X[1] * p.y + X[2] * p.z + X[3]), q(X[4] * p.x + X[5] * p.y + X[6] * p.z + X[7]), q(X[8] * p.x + X[9] * p.y + X[10] * p.z + X[11])].join(","); }).sort().join(" "); };
+    const w0 = W(); hud.pick("action:mesh.originToSelection"); await sleep(20); document.querySelectorAll(".popup-menu").forEach((x) => x.remove());
+    const X = root().instances.get(inst.id).xform;
+    out.rOrigin = { same: W() === w0, origin: [q(X[3]), q(X[7]), q(X[11])], tool: e.tool, mode: e.modeId };
+    kd("z", { ctrl: true }); await sleep(40);
+    const X2 = root().instances.get(inst.id).xform; out.rOriginUndo = { same: W() === w0, origin: [q(X2[3]), q(X2[7]), q(X2[11])] }; }
+    // ⑫ 点一下的规矩（user「当你单击空白的时候取消选择，只有在空白拖动的时候才是操作」）：移动工具里点顶面 = 选它、点空处 = 取消选择，都不进「再点一下」
+  e.deselectAll(); e.setTool("move"); await sleep(400);
+  await click(P(0.5, 0.5, 1)); out.tapFace = { faces: e.selection.faces.size, active: e.isGestureActive() };
+  await sleep(400); await click(P(-1.5, -1.5, 0)); out.tapBlank = { faces: e.selection.faces.size, active: e.isGestureActive(), depth: e.contextCrumbs().length - 1 };
+  // ⑬ Alt+S 沿法线：选顶面、光标离面中心远一点按 Alt+S、往外挪、点一下 → 顶面四个点都升高（顶面法向 +Z）
+  await selTop(); { const ctr = px(P(0.5, 0.5, 1)), a0 = { x: ctr.x + 60, y: ctr.y }; fire("pointermove", a0.x, a0.y, 0); await sleep(20);
+    window.dispatchEvent(new KeyboardEvent("keydown", { key: "s", code: "KeyS", altKey: true, bubbles: true, cancelable: true })); await sleep(20);
+    out.altS = { active: e.isGestureActive(), tool: e.tool };
+    for (let i = 1; i <= 5; i++) { fire("pointermove", a0.x + 8 * i, a0.y, 0); await sleep(15); }
+    fire("pointerdown", a0.x + 40, a0.y, 1); await sleep(10); fire("pointerup", a0.x + 40, a0.y, 0); await sleep(40); }
+  out.fatten = { top: m().verts().filter((v) => m().pt(v).z > 1.001).length, xyKept: m().verts().every((v) => { const p = m().pt(v); return Math.abs(Math.abs(p.x) - 0.5) < 1e-9 && Math.abs(Math.abs(p.y) - 0.5) < 1e-9; }) };
+  kd("z", { ctrl: true }); await sleep(40);
+  // ⑭ 双击空处 = 退出一层（单击不退）：选择工具
+  e.setTool("select"); e.deselectAll(); await sleep(400);
+  await click(P(-1.5, -1.5, 0)); out.singleBlank = e.contextCrumbs().length - 1;
+  { const s = px(P(-1.5, -1.5, 0)); for (let k = 0; k < 2; k++) { fire("pointermove", s.x, s.y, 0); await sleep(10); fire("pointerdown", s.x, s.y, 1); await sleep(10); fire("pointerup", s.x, s.y, 0); await sleep(60); } }
+  out.doubleBlank = { depth: e.contextCrumbs().length - 1, mode: e.modeId };
+  // ⑮ 硬表面里按 K：不会切到没反应的切割
+  kd("k", { code: "KeyK" }); await sleep(20); out.kInGeometry = e.tool;
+  e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(40);
+  out.backToStart = (() => { let n = 0; while (e.history.position() > pos0 && n++ < 30) kd("z", { ctrl: true }); return JSON.stringify(stat()) === JSON.stringify(st0); })();
   return out;
 });
 await b.close();
@@ -107,7 +137,11 @@ const ok = res.gStart.active && res.gStart.tool === "move" && res.gPreview.commi
   && res.jSel === 2 && res.jDone.df === 1 && res.jDone.selE === 1 && res.jDone.check === ""
   && res.crTool === "knife" && res.crDone.df === 4 && !res.crDone.active && res.crDone.check === ""
   && res.eraseLabel === "删除" && res.eraseFace.df === -1 && res.dissolve.df === -1 && res.dissolve.check === ""
-  && res.rInsetItem && res.rInset.active && res.rInset.tool === "offset"
+  && res.tapFace.faces === 1 && !res.tapFace.active && res.tapBlank.faces === 0 && !res.tapBlank.active && res.tapBlank.depth === 1
+  && res.altS.active && res.altS.tool === "shrink" && res.fatten.top === 4 && res.fatten.xyKept
+  && res.singleBlank === 1 && res.doubleBlank.depth === 0 && res.doubleBlank.mode === "geometry" && res.kInGeometry !== "knife"
+  && res.rInsetItem && !res.rInset.active && res.rInset.tool === "select" && res.rInset.df === 4 && res.rInset.sel === 1 && res.rInset.check === ""
+  && res.rOriginItem && res.rOrigin.same && res.rOrigin.origin.join() === "0.5,0.5,1" && res.rOrigin.tool === "select" && res.rOrigin.mode === "freeform" && res.rOriginUndo.same
   && res.iStart.active && res.iStart.tool === "offset" && res.inset.df === 4 && res.inset.sel === 1 && res.inset.smaller && res.inset.check === "" && res.inset.label === "插入"
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));

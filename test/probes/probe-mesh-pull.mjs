@@ -71,7 +71,7 @@ const res = await page.evaluate(async () => {
   { const a = px(P(0.5, 0.5, 1)); fire("pointermove", a.x, a.y, 0); await sleep(10); fire("pointerdown", a.x, a.y, 1); await sleep(10); fire("pointerup", a.x, a.y, 0); await sleep(30); fire("pointerdown", a.x, a.y, 1); await sleep(10); fire("pointerup", a.x, a.y, 0); await sleep(30); }
   const armed = e.isGestureActive();
   window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })); await sleep(30);
-  out.zero = { steps: e.history.position() - pos5, armed, activeAfterEsc: e.isGestureActive() };
+  out.zero = { steps: e.history.position() - pos5, armed, activeAfterEsc: e.isGestureActive(), same: JSON.stringify(stat()) === JSON.stringify(st0) };
   // ⑥ 撤到头 / 重做到头
   let threw = false;
   try { for (let i = 0; i < 20 && e.history.position() > 0; i++) { key("z"); await sleep(20); } for (let i = 0; i < 20; i++) { const p0 = e.history.position(); key("y"); await sleep(20); if (e.history.position() === p0) break; } } catch { threw = true; }
@@ -80,13 +80,13 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,offset"
+const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,offset,shrink"
   && res.pullFace.st1.f === res.pullFace.st0.f + 4 && res.pullFace.st1.v === res.pullFace.st0.v + 4 && res.pullFace.steps === 1 && res.pullFace.selFaces === 0 && res.pullFace.topZ > 1 && res.pullFace.check === ""
   && res.pullWithSel.selFaces === 1 && res.pullWithSel.f === 10 && res.thenMove.up && res.undo2.back
   && res.edgeSel === 1 && res.pullEdge.d.f === 1 && res.pullEdge.d.v === 2 && res.pullEdge.selEdges === 1 && res.pullEdge.onlyZ && res.pullEdge.check === ""
   && res.edgeSelAgain === 1 && res.pullEdgePerp.diag && res.pullVert.perp
   && res.vertSel === 1 && res.pullVert.dv === 1 && res.pullVert.de === 1 && res.pullVert.df === 0 && res.pullVert.selVerts === 1
-  && res.zero.steps === 0 && res.zero.armed && !res.zero.activeAfterEsc
+  && res.zero.same && !res.zero.armed && !res.zero.activeAfterEsc   // 自由建模：点一下 = 选 / 取消选择，不进「再点一下落定」（user 10-27）
   && !res.undoRedoAll.threw && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-pull OK" : "probe-mesh-pull FAIL");

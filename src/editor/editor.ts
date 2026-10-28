@@ -76,7 +76,6 @@ import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { addPrimitive, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
-import { meshDocFromKernel } from "../mesh/mesh-doc.ts";
 import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { OptionKv } from "./tool-config.ts";
 
@@ -1643,25 +1642,36 @@ export class Editor {
     if (!params && routes.length === 1 && routes[0].kind === "brep") return this.repair(routes[0].command.id);
     if (!params && routes.length === 1 && routes[0].kind === "object") return this.runObjectCommand(routes[0].command.id);
     return this.step(() => {
-      const ops: Op[] = [], notes = new Set<string>(), dones: { c: Command; n: number; v: CmdParams }[] = [];
-      let sel: NonNullable<PlanOut["select"]> | null = null, selN = 0;   // 做完的选区（PlanOut.select；只有一个单位给了才用）
-      let count = 0;
-      for (const { kind, command: c } of routes) {
-        const v: CmdParams = { ...c.defaults(this.repairCtx), ...(params ?? {}) };
-        let n = 0;
-        for (const u of this.unitsFor(c, kind)) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); n += r.count; for (const t of r.notes ?? []) notes.add(t); if (r.select && r.ops.length) { sel = r.select; selN++; } }
-        if (n) dones.push({ c, n, v });
-        count += n;
-      }
-      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).length) notes.add(`跳过了${kind === "brep" ? "SU 体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
-      const tail = [...notes].map((t) => `；${t}`).join("");
-      if (!ops.length) { this.host.hint(`${[...new Set(routes.map((r) => r.command.none))].join("；")}${tail}`); return 0; }
-      const n0 = this.opCount;
-      for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
-      if (this.opCount === n0) return 0;
-      if (sel && selN === 1) { const S = sel; this.selection = this.blankSelection(); this.selectedPools.clear(); for (const x of S.verts ?? []) this.selection.verts.add(x); for (const x of S.edges ?? []) this.selection.edges.add(x); for (const x of S.faces ?? []) this.selection.faces.add(x); this.pruneSelection(); this.afterSelect(); }
-      this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}`);
-      this.host.changed(); this.draw();
+      // 单位只取一次：马后炮按新参数重做时用同一批（上一次做完的选区已经换成结果了）
+      const plans = routes.map(({ kind, command: c }) => ({ c, units: this.unitsFor(c, kind) }));
+      const skips: string[] = [];
+      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).length) skips.push(`跳过了${kind === "brep" ? "SU 体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
+      const valuesOf = (c: Command, units: readonly Unit[], p?: CmdParams): CmdParams => ({ ...c.defaults(this.repairCtx, units), ...(p ?? {}) });
+      const go = (p?: CmdParams): number => {
+        const ops: Op[] = [], notes = new Set<string>(skips), dones: { c: Command; n: number; v: CmdParams }[] = [];
+        let sel: NonNullable<PlanOut["select"]> | null = null, selN = 0;   // 做完的选区（PlanOut.select；只有一个单位给了才用）
+        let count = 0;
+        for (const { c, units } of plans) {
+          const v = valuesOf(c, units, p);
+          let n = 0;
+          for (const u of units) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); n += r.count; for (const t of r.notes ?? []) notes.add(t); if (r.select && r.ops.length) { sel = r.select; selN++; } }
+          if (n) dones.push({ c, n, v });
+          count += n;
+        }
+        const tail = [...notes].map((t) => `；${t}`).join("");
+        if (!ops.length) { this.host.hint(`${[...new Set(routes.map((r) => r.command.none))].join("；")}${tail}`); return 0; }
+        const n0 = this.opCount;
+        for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
+        if (this.opCount === n0) return 0;
+        if (sel && selN === 1) { const S = sel; this.selection = this.blankSelection(); this.selectedPools.clear(); for (const x of S.verts ?? []) this.selection.verts.add(x); for (const x of S.edges ?? []) this.selection.edges.add(x); for (const x of S.faces ?? []) this.selection.faces.add(x); this.pruneSelection(); this.afterSelect(); }
+        this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}`);
+        this.host.changed(); this.draw();
+        return count;
+      };
+      const n0 = this.opCount, count = go(params);
+      // 有参数的指令（只路由到一条、从菜单点的 = 没带参数）给马后炮：做完就能改数（右键「插入」的宽度等；同新建、物体指令那套）。带了参数的调用（api / 搜索）不开界面
+      const one = plans.length === 1 && !params ? plans[0] : null, fields = one ? one.c.params(this.repairCtx) : [];
+      if (count && one && fields.length) this.offerAfterthought(one.c.title, fields, valuesOf(one.c, one.units, params), this.opCount - n0, (v) => { go(v); });
       return count;
     });
   }
@@ -2738,7 +2748,7 @@ export class Editor {
   /** 右键菜单打开时记下按在哪（新建的落点，点 / 面 / 原点 / 地面都吸）；blank = 光标下没有几何。画布上再按一下就作废。 */
   noteContextPoint(x: number, y: number, blank: boolean): void { this.ctxPick = { x, y, blank }; }
   /** 刚右键过（新建那几项露在右键菜单里；点在点 / 面上也露 = 落在那上面，user「按右键的位置吸附，比如顶点，面，原点，地面平面」）。 */
-  contextNewAllowed(): boolean { return !!this.ctxPick && this.mode.id !== "surface"; }
+  contextNewAllowed(): boolean { return !!this.ctxPick && this.mode.id === "freeform"; }   // 只在自由建模（user 10-27「然后硬表面建模不应该有新建网络体」）
   /** 右键点 → 新建落点（世界）+ 法向（朝镜头）：点 > 面 > 原点 > 地面（上下文坐标架的 XY 面）。 */
   private newObjectAnchor(): { p: Pt3; n: Pt3 | null; on: string } | null {
     const c = this.ctxPick;
@@ -2787,7 +2797,8 @@ export class Editor {
   addPrimitive(kind: PrimitiveKind): boolean { return this.step(() => {
     const A = this.newObjectAnchor(), P = PRIMITIVES[kind];
     if (!A) { this.host.hint("新建：右键点在点 / 面 / 原点 / 地面上"); return false; }
-    const inMesh = this.activeKind() === "mesh", at = this.activePool(), Xi = invert(this.ctxXform()), F = this.contextFrame();
+    if (this.activeKind() !== "mesh") { this.host.hint("新建：只在自由建模（网格体）里"); return false; }   // user 10-27「然后硬表面建模不应该有新建网络体」
+    const at = this.activePool(), Xi = invert(this.ctxXform()), F = this.contextFrame();
     const frameW = (align: string): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => {
       let z: Pt3, x0: Pt3;
       if (align === "world") { z = { x: 0, y: 0, z: 1 }; x0 = { x: 1, y: 0, z: 0 }; }
@@ -2803,18 +2814,10 @@ export class Editor {
     const scaleL = len3(applyDir(Xi, { x: 1, y: 0, z: 0 })) || 1;
     const go = (v: Readonly<Record<string, ParamValue>>): void => {
       const fL = toLocal(frameW(String(v.align))), sz = Number(v.size) * scaleL, seg = Number(v.segments) || 16;
-      if (inMesh) {
-        const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, dims(sz), seg);
-        this.commitOp({ op: "meshAddPrimitive", def, kind, frame: fL, size: dims(sz), ...(P.round ? { segments: seg } : {}) });
-        this.selection = this.blankSelection(); this.selectedPools.clear();
-        for (const f of r.faces) this.selection.faces.add(f);
-      } else {
-        const m = new MeshKernel(); addPrimitive(m, kind, { o: { x: 0, y: 0, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } }, dims(sz), seg);
-        const ctxDef = this.scene.defOfContext(this.ctx), before = new Set(this.scene.def(ctxDef).instances.keys());
-        this.commitOp({ op: "addMeshObject", at, name: P.label, mesh: meshDocFromKernel(m), xform: frameToXform({ origin: fL.o, x: fL.x, y: fL.y, z: fL.z }) });
-        this.selection = this.blankSelection(); this.selectedPools.clear();
-        for (const id of this.scene.def(ctxDef).instances.keys()) if (!before.has(id)) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
-      }
+      const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, dims(sz), seg);
+      this.commitOp({ op: "meshAddPrimitive", def, kind, frame: fL, size: dims(sz), ...(P.round ? { segments: seg } : {}) });
+      this.selection = this.blankSelection(); this.selectedPools.clear();
+      for (const f of r.faces) this.selection.faces.add(f);
       this.bump();
     };
     const v0: Record<string, ParamValue> = { align: A.n ? "normal" : "world", size: kind === "box" || kind === "plane" ? P.size[0] : P.size[0] * 2, segments: 16 };
@@ -2827,7 +2830,7 @@ export class Editor {
       ...(P.round ? [{ key: "segments", def: { kind: "number" as const, label: "段数", min: 3, max: 128, step: 1 } }] : []),
     ];
     this.offerAfterthought(`新建${P.label}`, fields, v0, this.opCount - n0, (v) => go(v));
-    this.host.hint(`新建了${P.label}${inMesh ? "" : "（网格体组件，双击进去就是自由建模）"}：落在${A.on}上`);
+    this.host.hint(`新建了${P.label}：落在${A.on}上`);
     this.host.changed(); this.draw();
     return true;
   }); }
@@ -3353,6 +3356,13 @@ export class Editor {
       return this.settledSample();
     };
     const H = this.handlers[this._tool];
+    if (H?.tap && H.grammar === "steps" && !this.armed && isTap()) {   // 自由建模的取量工具：点一下 ≠ 进「再点一下落定」（user 10-27「当你单击空白的时候取消选择，只有在空白拖动的时候才是操作」「移动的时候有时候鼠标弹起来还是没有成功退出移动」）
+      if (H.active()) H.cancel();
+      this.endStepGesture();
+      H.tap(this.toolCtx, ev);
+      this.consumeCharges(); this.host.changed(); this.draw();
+      return;
+    }
     if (H?.active()) {
       if (H.grammar === "direct") H.up?.(this.toolCtx, ev, () => { const smp = settle(); return smp ? { cursor3: smp.cursor3, snap: smp.snap, extra: smp.extra } : null; });
       else if (this.justCommitted) this.justCommitted = false;

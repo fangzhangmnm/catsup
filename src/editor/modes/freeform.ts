@@ -17,7 +17,7 @@ export class FreeformMode implements Mode {
   readonly id = "freeform" as const;
   readonly label = "自由建模";
   readonly kinds = ["mesh"] as const;
-  readonly tools: readonly Tool[] = ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"];   // user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的」（删 / 插做出来再加）   // 和硬表面同 id 同快捷键（user「不要一个工具在不同模式下面语义和用法差太多」）；差在不推断
+  readonly tools: readonly Tool[] = ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset", "shrink"];   // shrink = 沿法线移动（Alt+S / Alt+W；不进左柱）   // user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的」（删 / 插做出来再加）   // 和硬表面同 id 同快捷键（user「不要一个工具在不同模式下面语义和用法差太多」）；差在不推断
   readonly defaultTool: Tool = "select";
-  readonly handlers: Partial<Record<Tool, ToolHandler>> = { select: new SelectTool(), move: new MeshTransformTool("move"), rotate: new MeshTransformTool("rotate"), scale: new MeshTransformTool("scale"), pp: new MeshPullTool(), knife: new MeshKnifeTool(), erase: new MeshEraseTool(), offset: new MeshInsetTool() };
+  readonly handlers: Partial<Record<Tool, ToolHandler>> = { select: new SelectTool(), move: new MeshTransformTool("move"), rotate: new MeshTransformTool("rotate"), scale: new MeshTransformTool("scale"), pp: new MeshPullTool(), knife: new MeshKnifeTool(), erase: new MeshEraseTool(), offset: new MeshInsetTool(), shrink: new MeshTransformTool("normal") };
 }

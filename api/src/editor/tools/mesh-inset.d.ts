@@ -11,6 +11,10 @@ export declare class MeshInsetTool implements ToolHandler {
     private start;
     private cur;
     private localScale;
+    tap(ctx: ToolCtx, s: {
+        x: number;
+        y: number;
+    }): void;
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;

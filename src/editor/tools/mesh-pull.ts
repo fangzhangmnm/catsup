@@ -14,6 +14,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyNormal, applyPt, invert } from "../../scene/xform.ts";
 import { fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
+import { meshTap } from "./mesh-transform.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 
 type Target = { faces: number[]; edges: number[]; verts: number[] };
@@ -32,6 +33,7 @@ export class MeshPullTool implements ToolHandler {
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
 
+  tap(ctx: ToolCtx, s: { x: number; y: number }): void { meshTap(ctx, s); }   // 点一下 = 选 / 取消选择，只有拖才挤出 / 插入（user 10-27）
   active(): boolean { return this.t !== null; }
   startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
     const sel = ctx.selection();

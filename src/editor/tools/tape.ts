@@ -94,7 +94,7 @@ export class TapeTool implements ToolHandler {
       const a = this.start!.p;
       const dir = res.make === "line" ? normalize3(sub3(res.p, a)) : normalize3(sub3(res.p, a));
       ctx.recordLast({ kind: "tape", ops: ctx.opCount() - n0, at, a, dir, d: res.d, make: res.make, ...(res.make === "line" ? { lineDir: res.dir } : {}) });
-      ctx.hint(res.make === "line" ? `参考线 · 偏移 ${fmtLen(res.d)}` : `参考点 · 距 ${fmtLen(res.d)}`);
+      ctx.hint(res.make === "line" ? (res.d === 0 ? "参考线 · 共线（沿这条边）" : `参考线 · 偏移 ${fmtLen(res.d)}`) : `参考点 · 距 ${fmtLen(res.d)}`);
     } else {
       ctx.hint(res.d > 0 ? `距离 ${fmtLen(res.d)}` : "卷尺：第二点太近，没量到");
     }

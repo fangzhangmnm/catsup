@@ -2,17 +2,19 @@ import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
-export type MeshXformKind = "move" | "rotate" | "scale";
-/** 网格体选区 / 命中 → 点集（边 = 两端、面 = 环上的点）。 */
-export declare function meshTargets(m: MeshKernel, sel: {
-    verts: Iterable<number>;
-    edges: Iterable<number>;
-    faces: Iterable<number>;
-}): number[];
+export type MeshXformKind = "move" | "rotate" | "scale" | "normal";
+/** 点一下（没拖）：点到点 / 边 / 面 = 选它（替换）；点空处 = 取消选择（user 10-27「当你单击空白的时候取消选择，只有在空白拖动的时候才是操作」）。挤出 / 插入 / 移动 / 旋转 / 缩放共用。 */
+export declare function meshTap(ctx: ToolCtx, s: {
+    x: number;
+    y: number;
+}): void;
 export declare class MeshTransformTool implements ToolHandler {
     readonly grammar: "steps";
     readonly lock: "axis";
-    readonly tool: MeshXformKind;
+    readonly tool: "move" | "rotate" | "scale" | "shrink";
+    private readonly kind;
+    /** 沿法线：每个点自己的方向（本地，单位长；点 = 连着的面的法向平均）。 */
+    private dirs;
     private vids;
     private base;
     private pivotW;
@@ -23,6 +25,10 @@ export declare class MeshTransformTool implements ToolHandler {
     private handleW;
     private snapT;
     constructor(kind: MeshXformKind);
+    tap(ctx: ToolCtx, s: {
+        x: number;
+        y: number;
+    }): void;
     active(): boolean;
     startModal(ctx: ToolCtx, s: {
         x: number;

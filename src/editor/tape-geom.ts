@@ -18,7 +18,7 @@ export function tapeResult(start: TapeStart, b: Pt3): TapeResult {
     const v = sub3(b, start.p);
     const w = sub3(v, scale3(start.dir, dot3(v, start.dir)));   // 去掉沿线分量 = 垂直偏移
     const d = Math.hypot(w.x, w.y, w.z);
-    if (d < TAPE_MIN) return { make: "measure", d: 0 };
+    if (d < TAPE_MIN) return { make: "line", p: start.p, dir: start.dir, d: 0 };   // 点一条边、再点它自己（没有垂直偏移）= 沿这条边的共线参考线（user 10-27「卷尺，如果点一下一条边，然后点自己，应该是一个共轴的尺」；SketchUp 双击边同款）
     return { make: "line", p: add3(start.p, w), dir: start.dir, d };
   }
   const d = dist3(start.p, b);

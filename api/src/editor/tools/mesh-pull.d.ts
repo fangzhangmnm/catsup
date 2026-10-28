@@ -15,6 +15,10 @@ export declare class MeshPullTool implements ToolHandler {
     private grabW;
     private start;
     private cur;
+    tap(ctx: ToolCtx, s: {
+        x: number;
+        y: number;
+    }): void;
     active(): boolean;
     startModal(ctx: ToolCtx, s: {
         x: number;

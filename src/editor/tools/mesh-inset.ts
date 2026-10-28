@@ -10,6 +10,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt } from "../../scene/xform.ts";
 import { fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
+import { meshTap } from "./mesh-transform.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 
 export class MeshInsetTool implements ToolHandler {
@@ -22,6 +23,7 @@ export class MeshInsetTool implements ToolHandler {
   private cur: { x: number; y: number } | null = null;
   private localScale = 1;
 
+  tap(ctx: ToolCtx, s: { x: number; y: number }): void { meshTap(ctx, s); }   // 点一下 = 选 / 取消选择，只有拖才挤出 / 插入（user 10-27）
   active(): boolean { return this.faces.length > 0; }
   cancel(): void { this.faces = []; this.centerW = null; this.start = this.cur = null; }
   sample(): Record<string, number> { return {}; }

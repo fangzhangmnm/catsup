@@ -74,7 +74,7 @@ export class SelectTool implements ToolHandler {
     }
     const c = ctx.classify(view, hit);
     if (c.kind === "pool" && n >= 2) { ctx.enterPool(c.pick); return; }   // 双击子 group / 组件 = 进入
-    if (c.kind === "none" && mode === "replace" && ctx.contextDepth() > 0 && n === 1 && !ctx.hasSelection()) { ctx.exitContext(); return; }   // 点空处 = 退出一层（SU 同款）
+    if (c.kind === "none" && mode === "replace" && ctx.contextDepth() > 0 && n === 2) { ctx.exitContext(); return; }   // 双击空处 = 退出一层（user 10-27「单击空白退出一层其实还是蛮容易误触的，既然进去是双击，退出也改成双击」；单击空处 = 取消选择）
     ctx.selectExpand(hit, n >= 3 ? 2 : n === 2 ? 1 : 0, mode);
   }
 }

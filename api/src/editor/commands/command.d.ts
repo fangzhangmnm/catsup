@@ -86,7 +86,8 @@ export interface Command<U extends Unit = Unit> {
     readonly unit: U["kind"];
     /** 动词的名字（马后炮小窗标题、提示里用）；菜单上的字归动作。 */
     readonly title: string;
-    defaults(env: CommandEnv): Record<string, ParamValue>;
+    /** 参数默认值。units = 这一次要做的单位（可选：默认值要看目标大小的指令用，比如插入的宽度 = 面的五分之一；2026-10-27 Opus）。 */
+    defaults(env: CommandEnv, units?: readonly U[]): Record<string, ParamValue>;
     /** 马后炮里能改的参数（「含子物体」由框架加）。 */
     params(env: CommandEnv): ParamField[];
     /** 纯规划：一个单位上要做什么（不提交）。 */

@@ -43,7 +43,7 @@ type Entry =
   | { kind: "mesh"; def: DefId; kernel: MeshKernel; bytes: number };
 
 const KERNEL_OPS = new Set<Op["op"]>(["addEdges", "eraseEdges", "eraseFaces", "eraseSelection", "move", "pushpull", "followme", "absorb", "weldEdges", "dissolveVertices", "explodeCurves", "setEdgeLayers", "paintFaces", "plugin", "mirror", "setHidden"]);
-const SKELETON_OPS = new Set<Op["op"]>(["transformInstance", "placeInstance", "addMeshObject", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides"]);
+const SKELETON_OPS = new Set<Op["op"]>(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides"]);
 /** mesh 族的 op：改一个网格体的内核（寻址 = 定义）。加一种内核 = 加一个集合 + 一种记录；以后种类多了把「怎么记」挂到 KindDef 上。 */
 const MESH_OPS = new Set<Op["op"]>(["meshMove", "meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshAddPrimitive"]);
 export type OpTier = "kernel" | "mesh" | "skeleton" | "scene";
@@ -63,6 +63,8 @@ export function opTier(s: Scene, op: Op): { tier: OpTier; at?: PoolRef; def?: De
     if (!s.hasPool(at) || s.kindOf(at.def) !== "brep") return { tier: "scene" };
     return { tier: "kernel", at };
   }
+  // 换组件 / 网格体的原点（setAxes 落在定义根上）= 定义里的几何整体挪（retransformDefinition），不只是骨架：骨架记录共享内核，撤销会把实例矩阵换回去、几何留在挪过的地方 → 世界里错位。整份拷（少见的操作）。
+  if (op.op === "setAxes" && o.at && o.at.group === null && o.at.def !== s.root) return { tier: "scene" };
   if (SKELETON_OPS.has(op.op)) return { tier: "skeleton" };
   return { tier: "scene" };
 }

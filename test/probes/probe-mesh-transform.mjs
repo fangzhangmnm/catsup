@@ -73,7 +73,7 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,offset"
+const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,offset,shrink"
   && res.move.moved === res.move.top && res.move.steps === 1 && res.moveUndo
   && res.moveZ.xyKept && res.moveZ.zUp
   && res.rotate.zKept && res.rotate.distKept && res.rotate.changed

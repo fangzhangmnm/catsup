@@ -11,8 +11,6 @@ import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
-import { kernelFromMeshDoc } from "../mesh/mesh-doc.ts";
-import type { MeshDoc } from "../format/document.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -109,7 +107,6 @@ export type Op =
   /** 右键新建（网格体里）：在这个网格体里长一个基本体（坐标架 = 本地；mesh/ops/primitives.ts）。 */
   | { op: "meshAddPrimitive"; def: number; kind: PrimitiveKind; frame: PrimitiveFrame; size: [number, number, number]; segments?: number }
   /** 右键新建（SU 体里 / 根上）：新的网格体组件（定义 + 一份实例，摆在 at 池里 xform 处）。 */
-  | { op: "addMeshObject"; at: PoolRef; name: string; mesh: MeshDoc; xform: Xform }
   /** 插入（自由建模；面各自往里插一圈，dist 本地长度、超过上限按上限）。mesh/ops/inset.ts insetFaces。 */
   | { op: "meshInset"; def: number; faces: number[]; dist: number }
   | { op: "meshDelete"; def: number; verts?: number[]; edges?: number[]; faces?: number[]; dissolve?: boolean }
@@ -210,7 +207,14 @@ function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] { re
  * 换轴（M = 帧）和应用缩放（M = 缩放的逆，2026-10-26）共用。M 不是刚体时组的轴重新正交归一（轴只是朝向）。
  */
 function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
-  const Mi = invert(M), body = s.brep(def), events: FaceEvent[] = [], rigid = isRigid(M);
+  const Mi = invert(M), events: FaceEvent[] = [], rigid = isRigid(M), b = s.def(def).body;
+  if (b.kind === "mesh") {   // 网格体（2026-10-27 Opus：自由建模右键「设置原点到选择中心」）：点的位置整体乘 M⁻¹；网格体没有组 / 参考几何 / 另摆的坐标架
+    const k = b.kernel;
+    for (const v of k.verts()) k.setPos(v, applyPt(Mi, k.pt(v)));
+    for (const d of s.defs.values()) for (const inst of d.instances.values()) if (inst.def === def) inst.xform = compose(inst.xform, M);
+    return events;
+  }
+  const body = s.brep(def);
   events.push(...body.kernel.transformAll((p) => applyPt(Mi, p)));
   transformGuides(body.guides, Mi);
   if (body.drawFrame) body.drawFrame = rigid ? transformFrame(Mi, body.drawFrame) : orthonormalFrame(transformFrame(Mi, body.drawFrame));   // 组件里另摆的坐标架在世界里原地不动（DT86）
@@ -466,8 +470,9 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "setAxes": {
-      const { ref } = poolOf(s, op.at);
       const f: Frame = { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } };
+      if (op.at.group === null && op.at.def !== s.root && s.defs.has(op.at.def) && s.kindOf(op.at.def) === "mesh") return { scene: s, events: changeDefinitionAxes(s, op.at.def, f) };   // 网格体的原点（定义根；网格体没有组）
+      const { ref } = poolOf(s, op.at);
       if (ref.group !== null) s.group({ def: ref.def, group: ref.group }).axes = f;
       else if (ref.def === s.root) s.axes = f;
       else return { scene: s, events: changeDefinitionAxes(s, ref.def, f) };
@@ -551,13 +556,6 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     }
     case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
     case "meshAddPrimitive": { addPrimitive(meshOf(s, op.def).kernel, op.kind, op.frame, op.size, op.segments); return { scene: s, events: [] }; }
-    case "addMeshObject": {
-      const { ref } = poolOf(s, op.at);
-      const d = s.mintDef(op.name, new Kernel());
-      d.body = { kind: "mesh", kernel: kernelFromMeshDoc(op.mesh), materialSlots: [] };
-      s.mintInstance(ref.def, ref.group, d.id, op.xform);
-      return { scene: s, events: [] };
-    }
     case "meshInset": { insetFaces(meshOf(s, op.def).kernel, op.faces, op.dist); return { scene: s, events: [] }; }
     case "meshDelete": { deleteSelection(meshOf(s, op.def).kernel, op, !!op.dissolve); return { scene: s, events: [] }; }
     case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
@@ -619,7 +617,6 @@ export function describeOp(op0: Op): string {
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
     case "meshAddPrimitive": return `meshAddPrimitive def=${op.def} ${op.kind}`;
-    case "addMeshObject": return `addMeshObject "${op.name}"${at}`;
     case "meshInset": return `meshInset def=${op.def} faces=${op.faces.length} d=${op.dist.toFixed(4)}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;

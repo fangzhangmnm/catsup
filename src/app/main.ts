@@ -188,7 +188,8 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "axes", icon: "axes", label: "坐标架", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
   { tool: "protractor", icon: "protractor", label: "量角器", key: "" },
   { tool: "compass", icon: "compass", label: "圆规", key: "" },
-  { tool: "knife", icon: "knife", label: "切割", key: "K" },   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
+  { tool: "knife", icon: "knife", label: "切割", key: "K" },
+  { tool: "shrink", icon: "push-pull", label: "沿法线", key: "Alt+S" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
 const hud: HudModel = {
@@ -221,10 +222,8 @@ const hud: HudModel = {
     { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
     { id: "invert", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
     { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },
-    // 右键面 = 插入（user 10-27「右键边环切赞」「那么右键面也能insert」）：自由建模里选中了面就露，点了 = 从右键那一点起手插入（同 I 键：往面中心挪、点一下落定）
-    { id: "freeform:inset", label: "插入（I）", icon: "selection-expand", hidden: !(editor.modeId === "freeform" && editor.hasFaceSelection()) },
     // 右键新建（FM120）：刚右键过就露（落点 = 右键那一点，吸点 / 面 / 原点 / 地面）；网格体里 = 长进这个网格体，别处 = 新的网格体组件。图标暂用 object（图标库没有基本体的图标）
-    ...(["box", "cylinder", "cone", "sphere", "plane"] as const).map((k): HudItem => ({ id: `new:${k}`, label: `新建${({ box: "立方体", cylinder: "圆柱", cone: "圆锥", sphere: "球", plane: "平面" } as const)[k]}${editor.activeKind() === "mesh" ? "" : "（网格体）"}`, icon: "object", hidden: !editor.contextNewAllowed() })),   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
+    ...(["box", "cylinder", "cone", "sphere", "plane"] as const).map((k): HudItem => ({ id: `new:${k}`, label: `新建${({ box: "立方体", cylinder: "圆柱", cone: "圆锥", sphere: "球", plane: "平面" } as const)[k]}`, icon: "object", hidden: !editor.contextNewAllowed() })),   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
   ]; },
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -236,7 +235,6 @@ const hud: HudModel = {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
-    if (id === "freeform:inset") { if (!editor.startModal("offset")) editor.setTool("offset"); syncUi(); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as "box"); syncUi(); return; }
     switch (id) {
       case "undo": editor.undo(); break;
@@ -278,7 +276,7 @@ const SHAPES: Tool[] = ["rect", "crect", "rrect", "circle", "arc"];
 let eraserCurrent: Tool = "erase";
 const RAIL_GROUPS: RailGroup[] = [
   { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale", "transform"], budget: 4 },
-  { id: "measure", pinned: [], pool: ["tape", "axes", "protractor", "compass"], budget: 3 },   // user 10-27「卷尺和座标架相对比较低频，不需要常驻，虽然还在」：用过才长出来，平时收在 ⌄ 里
+  { id: "measure", pinned: ["tape", "axes"], pool: ["protractor", "compass"], budget: 3 },   // 卷尺 / 轴常驻（v0.15.19 误把 user 10-27「卷尺和座标架相对比较低频，不需要常驻」读成也管硬表面，那句说的是自由建模左柱；user「硬表面建模为什么卷尺和轴不常驻了」→ 还原）
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
@@ -971,6 +969,9 @@ window.addEventListener("keydown", (ev) => {
     if (k === "a" && !ev.shiftKey) { ev.preventDefault(); editor.selectAll(); syncUi(); return; }
     if (k === "x" && !ev.shiftKey) { ev.preventDefault(); if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return; }
     if (k === "j" && !ev.shiftKey) { ev.preventDefault(); editor.runAction("mesh.connect"); syncUi(); return; }
+  }
+  if (editor.modeId === "freeform" && ev.altKey && !ev.ctrlKey && !ev.metaKey && !ev.shiftKey && (ev.code === "KeyS" || ev.code === "KeyW")) {   // 沿法线移动（Blender Alt+S；user「我经常用的是alt W用处就是环变胖」）
+    ev.preventDefault(); if (!editor.startModal("shrink")) hintEl.textContent = "沿法线移动：先选点 / 边 / 面"; syncUi(); return;
   }
   if (editor.modeId === "freeform" && (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey && ev.code === "KeyR") { ev.preventDefault(); editor.armLoopCut(); syncUi(); return; }   // Blender Ctrl+R（浏览器的刷新被拦下）
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {

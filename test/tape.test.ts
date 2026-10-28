@@ -16,7 +16,8 @@ describe("tape: 起点身份 → 产物", () => {
     assert(r.make === "line");
     if (r.make === "line") { assert(near(r.p, P(0, 1.5, 0)), "过 (0,1.5)：沿边的 3 不算"); assert(near(r.dir, P(1, 0, 0))); eq(r.d, 1.5); }
     const r2 = tapeResult({ kind: "line", p: P(0, 0, 0), dir: P(1, 0, 0) }, P(3, 0, 0));
-    eq(r2.make, "measure", "第二点落在线上 = 没偏移，不造参考线");
+    assert(r2.make === "line" && r2.d === 0, "第二点落在这条边上（点它自己）= 共线参考线（user 10-27「卷尺，如果点一下一条边，然后点自己，应该是一个共轴的尺」）");
+    if (r2.make === "line") { assert(near(r2.p, P(0, 0, 0)), "过这条边"); assert(near(r2.dir, P(1, 0, 0)), "沿这条边"); }
   });
   it("端点起步 → 参考点落在第二点，距离 = 两点距；太近不造", () => {
     const r = tapeResult({ kind: "point", p: P(1, 1, 0) }, P(1, 4, 0));

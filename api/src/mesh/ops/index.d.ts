@@ -4,7 +4,7 @@ export { mergeVerts } from "./merge.ts";
 export { deleteFaces, deleteEdges, deleteVerts, deleteSelection } from "./delete.ts";
 export { extrudeFaces, extrudeEdges, extrudeVerts, extrudeAndOffset, extrudeAlongNormals, extrudeNormalDirs, type ExtrudeResult } from "./extrude.ts";
 export { addPolygon, fillLoop, addBox } from "./build.ts";
-export { moveVerts, translateVerts, transformVerts, setEdgeFlags, setFaceMaterial, flipFaces } from "./geometry.ts";
+export { selectionVerts, moveVerts, translateVerts, transformVerts, setEdgeFlags, setFaceMaterial, flipFaces } from "./geometry.ts";
 export { loopCut, type LoopCutResult } from "./loopcut.ts";
 export { limitedDissolve, removeDoubles } from "./cleanup.ts";
 export { recalcNormals } from "./orient.ts";
