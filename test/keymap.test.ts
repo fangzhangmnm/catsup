@@ -1,6 +1,7 @@
 // 分层键表（controller/keymap.ts）守卫：几个关键上下文里「按 X 是什么意思」（2026-10-28 Claude Fable 5.1；账本 UX17 / UX18）。
 import { describe, it, eq } from "./runner.mjs";
-import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
+import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, keyDocs, ALL_LAYERS, LAYER_DOCS, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
+import { KEYS_TABLE, README_SECTIONS } from "../src/app/readme-docs.ts";
 
 const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
 const ctx = (o: Partial<KeyContext>): KeyContext => ({ ...base, ...o });
@@ -58,5 +59,16 @@ describe("键表：什么时候按 X 是什么意思", () => {
     eq(modifierChords(ctx({}), "shift").find((x) => x.chord === "shift+z")?.label, "缩放到全部", "硬表面选择工具");
     eq(new Set(shift.map((x) => x.chord)).size, shift.length, "同一和弦只露一次");
     eq(chordLabel("ctrl+shift+b"), "Ctrl+Shift+B"); eq(chordLabel("shift+arrowright"), "Shift+→"); eq(chordLabel("space"), "Space");
+  });
+  it("快捷键表从键表生成（UX40）：layersOf 能压上来的层都在 ALL_LAYERS、都有名字；表里每层每个和弦都列了；帮助页那一节是生成的、不是手抄的", () => {
+    const seen = new Set<string>();
+    for (const mode of ["geometry", "freeform", "verify", "surface"] as const) for (const tool of ["select", "move", "pp", "walk"] as const) for (const gesture of [false, true]) for (const walk of ["off", "place", "walk", "edit"] as const) for (const mirrorSession of [false, true])
+      for (const L of layersOf(ctx({ mode, tool, gesture, walk, walking: walk === "walk" || walk === "edit", mirrorSession }))) seen.add(L.id);
+    const all = new Set(ALL_LAYERS.map((L) => L.id));
+    eq([...seen].filter((id) => !all.has(id)).join(","), "", "layersOf 压上来的层不在 ALL_LAYERS");
+    eq(ALL_LAYERS.filter((L) => !LAYER_DOCS[L.id]).map((L) => L.id).join(","), "", "层没有名字");
+    const docs = keyDocs((t) => `工具：${t}`);
+    ALL_LAYERS.forEach((L, i) => { const keys = new Set(docs[i].rows.map((r) => r.keys)); for (const b of L.bindings) eq(keys.has(b.chord === "*" ? "数字 / 运算符" : chordLabel(b.chord)), true, `${L.id} ${b.chord}`); });
+    eq(README_SECTIONS.find((x) => x.id === "keys")?.body, KEYS_TABLE, "帮助页「快捷键」= 生成的表");
   });
 });

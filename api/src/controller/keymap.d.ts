@@ -81,3 +81,21 @@ export declare function modifierChords(c: KeyContext, mod: "shift" | "ctrl" | "a
 }[];
 /** 和弦给人看：shift+z → Shift+Z；ctrl+shift+b → Ctrl+Shift+B；arrowright → →。 */
 export declare function chordLabel(ch: Chord): string;
+/** 每一层给人看的名字 + 什么时候压上来（层的 id → 一节）。加一层 = 这里一行（守卫：每层都得有）。 */
+export declare const LAYER_DOCS: Readonly<Record<string, {
+    title: string;
+    when: string;
+}>>;
+export declare const ALL_LAYERS: readonly Layer[];
+/**
+ * 快捷键表（数据 → 文字；帮助页「快捷键」一节就是它）：每层一节、每条 = 和弦（给人看的写法）+ 做什么。工具键的名字由调用方给（左柱那张表的中文，keymap 不认识中文工具名）。
+ * 同一层里同一个和弦只列一次（when 分情况的几条合成一行，用「 / 」连）。"*"（数值小窗吃一切）写成一句话。
+ */
+export declare function keyDocs(toolLabel: (t: Tool) => string): {
+    title: string;
+    when: string;
+    rows: {
+        keys: string;
+        does: string;
+    }[];
+}[];

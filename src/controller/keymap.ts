@@ -179,3 +179,33 @@ export function chordLabel(ch: Chord): string {
   return ch.split("+").map((p) => ARROWS[p] ?? (p.length === 1 ? p.toUpperCase() : p === "ctrl" ? "Ctrl" : p === "alt" ? "Alt" : p === "shift" ? "Shift" : p[0].toUpperCase() + p.slice(1))).join("+");
 }
 
+// ---------- 快捷键表（帮助页从这里生成，不手抄；账本 UX40 / 接线清单第 11 条，user 10-28「快捷键用数据生成，然后使用手册到时候得好好写归，和快捷键分开来是两个东西宣发纪元」）----------
+/** 每一层给人看的名字 + 什么时候压上来（层的 id → 一节）。加一层 = 这里一行（守卫：每层都得有）。 */
+export const LAYER_DOCS: Readonly<Record<string, { title: string; when: string }>> = {
+  global: { title: "到处都在", when: "" },
+  "workbench:freeform": { title: "自由建模", when: "在网格体里" },
+  "tool:ops": { title: "自由建模 · 拿着操作工具", when: "移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线" },
+  gesture: { title: "自由建模 · 手势进行中", when: "按下了还没落定" },
+  "mirror-session": { title: "镜像会话", when: "硬表面「镜像…」把手出来时" },
+  vcb: { title: "数值小窗", when: "刚做完一步、右下角小窗亮着时打数字" },
+  "walk:edit": { title: "步行 · 原地编辑", when: "" },
+  "walk:place": { title: "步行 · 放置", when: "点地面落人之前" },
+  "walk:fps": { title: "步行", when: "键盘归走路：WASD 走、空格跳，别的只认下面这几个" },
+};
+export const ALL_LAYERS: readonly Layer[] = [GLOBAL, FREEFORM, TOOL_OPS, GESTURE, MIRROR, VCB, WALK_EDIT, WALK_PLACE, WALK_FPS];
+/**
+ * 快捷键表（数据 → 文字；帮助页「快捷键」一节就是它）：每层一节、每条 = 和弦（给人看的写法）+ 做什么。工具键的名字由调用方给（左柱那张表的中文，keymap 不认识中文工具名）。
+ * 同一层里同一个和弦只列一次（when 分情况的几条合成一行，用「 / 」连）。"*"（数值小窗吃一切）写成一句话。
+ */
+export function keyDocs(toolLabel: (t: Tool) => string): { title: string; when: string; rows: { keys: string; does: string }[] }[] {
+  return ALL_LAYERS.map((L) => {
+    const doc = LAYER_DOCS[L.id] ?? { title: L.id, when: "" }, by = new Map<Chord, string[]>();
+    for (const b of L.bindings) {
+      const m = /^tool\.key:[^:]+:(.+)$/.exec(b.action), label = m ? toolLabel(m[1] as Tool) : b.label;
+      const list = by.get(b.chord) ?? by.set(b.chord, []).get(b.chord)!;
+      if (!list.includes(label)) list.push(label);
+    }
+    return { title: doc.title, when: doc.when, rows: [...by].map(([ch, labels]) => ({ keys: ch === "*" ? "数字 / 运算符" : chordLabel(ch), does: labels.join(" / ") })) };
+  });
+}
+

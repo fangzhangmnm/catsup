@@ -2,11 +2,14 @@
 // created 2026-10-24 by Claude Fable 5.1（user「快捷键那个可以撤掉了，看一下weebpaint放在哪里，那个显示markdown的深模块可以搬过来」）。
 // 措辞 user 过目；改了行为就改这里（手册和代码漂移 = 手册错）。CatsUp 界面只有中文，不走 i18n。
 export interface ReadmeSection { id: string; title: string; body: string; }
+/** 帮助页渲染时换成生成的快捷键表（main.ts toggleHelp）。 */
+export const KEYS_TABLE = "{{KEYS_TABLE}}";
 
 export const README_SECTIONS: ReadmeSection[] = [
-  { id: "keys", title: "快捷键", body: `空格 选择 · L 画线 · R 矩形 · C 圆 · A 弧 · T 卷尺 · M 移动 · Q 旋转 · S 缩放 · P 推拉 · F 偏移 · W 跟随 · B 油漆桶 · E 橡皮（对齐 SketchUp）。
-
-- **Ctrl+Z / Ctrl+Y** 撤销 / 重做；**Delete** 删除选区（Shift 点选可加选）；**Esc** 取消当前手势 / 收笔
+  // 快捷键表 = 从键表数据生成（controller/keymap.ts keyDocs；帮助页渲染时把 KEYS_TABLE 换成生成的表）——不手抄（账本 UX40，user 10-28「快捷键用数据生成…和快捷键分开来是两个东西」）
+  { id: "keys", title: "快捷键", body: KEYS_TABLE },
+  // 按键背后的规矩（手册的一部分，措辞 user 过目过；宣发纪元整份手册重写时再理）
+  { id: "keyRules", title: "几个键的规矩", body: `- **Ctrl+Z / Ctrl+Y** 撤销 / 重做；**Delete** 删除选区（Shift 点选可加选）；**Esc** 取消当前手势 / 收笔
 - **G / Ctrl+G / Ctrl+Shift+G** 建组件 / 建组 / 炸开；双击组或组件 = 进入编辑，点空处或 Esc = 退出一层
 - **格点吸附**（右上锁钮 / **Shift+Tab**）：格点 · 整格长度（从起点量，沿着线也算）· 15° 整角，都是离得近才咬；**按住 Shift** = 临时反过来（开着就临时关、关着就临时开）。端点 / 中点 / 边这些几何推断不归它管，一直都在
 - **H** 隐藏选中（组件整份藏；面 / 线单独藏 = 挖洞看里面）· **Alt+H** 全部显示（视图菜单也有）

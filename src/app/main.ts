@@ -39,7 +39,7 @@ import { Editor, GRID_PLANES, GRID_PRESETS, TOOLS, gridPreset, gridStepsFor, nea
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
-import { README_SECTIONS } from "./readme-docs.ts";
+import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
 import { PALETTE_ZH } from "./palette.ts";
 import { faceTriangles } from "../editor/render3.ts";
@@ -47,7 +47,7 @@ import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
-import { chordLabel, modifierChords, resolveKey, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
+import { chordLabel, keyDocs, modifierChords, resolveKey, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
 import { stanceOf } from "../controller/stance.ts";
 import { MOD_PEEK_MS } from "../controller/feel.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
@@ -787,12 +787,17 @@ function syncUi(): void {
 }
 
 // ---------- 帮助 ----------
+/** 快捷键表（md-lite）= 键表数据生成（controller/keymap.ts keyDocs；工具名用左柱那张表的中文）。 */
+function keysTableMd(): string {
+  const toolName = (t: Tool): string => { const sp = TOOL_SPEC.find((x) => x.tool === t); return sp ? `工具：${sp.label}` : `工具：${t}`; };
+  return keyDocs(toolName).filter((g) => g.rows.length).map((g) => `**${g.title}**${g.when ? `（${g.when}）` : ""}\n\n${g.rows.map((r) => `- **${r.keys}** ${r.does}`).join("\n")}`).join("\n\n");
+}
 const helpEl = $("helpSheet");   // 不能叫 help：图标 sprite 里有 <symbol id="help">（守卫 test/page-ids.test.ts）
 let helpRendered = false;
 function toggleHelp(on: boolean): void {
   if (on && !helpRendered) {   // 使用手册 = readme-docs.ts 各节（md-lite 渲染，抄 WeebPaint readme-panel）
     helpRendered = true;
-    $("helpBody").innerHTML = README_SECTIONS.map((sec) => `<section id="help-${sec.id}"><h3>${escapeHtml(sec.title)}</h3>${renderMdLite(sec.body)}</section>`).join("");
+    $("helpBody").innerHTML = README_SECTIONS.map((sec) => `<section id="help-${sec.id}"><h3>${escapeHtml(sec.title)}</h3>${renderMdLite(sec.body === KEYS_TABLE ? keysTableMd() : sec.body)}</section>`).join("");
   }
   helpEl.hidden = !on;
 }
