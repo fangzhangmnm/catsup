@@ -143,13 +143,13 @@ export interface ToolCtx {
   /** 屏幕框选矩形（HUD 画；null = 收）。 */
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   /** 屏幕矩形里的边 / 面（全局 id）。 */
-  marqueePick(box: { minX: number; minY: number; maxX: number; maxY: number }): { edges: Iterable<number>; faces: Iterable<number> };
+  marqueePick(box: { minX: number; minY: number; maxX: number; maxY: number }): { verts: Iterable<number>; edges: Iterable<number>; faces: Iterable<number> };
   /** 光标下的空组件标记（导入的空节点画的小三轴，T11）：没几何，点它的标记 = 点它。 */
   emptyAt(sx: number, sy: number): { pick: PoolPick; key: string } | null;
   /** 屏幕框里的空组件标记。 */
   emptiesIn(box: { minX: number; minY: number; maxX: number; maxY: number }): { pick: PoolPick; key: string }[];
   /** 框选结果按 mode 合进选区（本地 id + 子池项；切换 = 逐个反转）。 */
-  replaceSelection(sel: { edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[]; guides?: readonly number[] }, mode: SelMode): void;
+  replaceSelection(sel: { verts?: readonly number[]; edges: readonly number[]; faces: readonly number[]; pools: readonly PoolPick[]; guides?: readonly number[] }, mode: SelMode): void;
   /** A31：单击选中一条参考线 / 一个参考点（按 mode 合进选区）。 */
   selectGuide(id: number, mode: SelMode): void;
   /** 选区变了之后的收尾（提示 / 缩放柄 / HUD）。 */

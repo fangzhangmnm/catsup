@@ -9,10 +9,10 @@ import { arcSegmentsOnPlane, centerArcSegments, curveSpecToLocal } from "./tools
 
 export type ArcMode = "two" | "center" | "three" | "pie";
 export const ARC_MODES: readonly { id: ArcMode; label: string; hint: string }[] = [
-  { id: "two", label: "两点弧", hint: "起点 → 终点 → 拉凸度（SU 2 Point Arc）" },
-  { id: "center", label: "圆心弧", hint: "圆心 → 起点 → 转角度（SU Arc）" },
-  { id: "three", label: "三点弧", hint: "起点 → 弧上一点 → 终点（SU 3 Point Arc）" },
-  { id: "pie", label: "扇形", hint: "圆心 → 起点 → 转角度，两条半径闭合成面（SU Pie）" },
+  { id: "two", label: "两点弧", hint: "起点 → 终点 → 拉凸度" },
+  { id: "center", label: "圆心弧", hint: "圆心 → 起点 → 转角度" },
+  { id: "three", label: "三点弧", hint: "起点 → 弧上一点 → 终点" },
+  { id: "pie", label: "扇形", hint: "圆心 → 起点 → 转角度，两条半径闭合成面" },
 ];
 
 /** 一个弧手势的量（世界坐标）：two / three 用 a b p；center / pie 用 center a sweep。 */

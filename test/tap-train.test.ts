@@ -26,7 +26,7 @@ describe("tap-train 点按族", () => {
     const T = new TapTrain<P>();
     eq(tap(T, "pen", 0, { x: 100, y: 100 }, 80, 8), 0);
   });
-  it("笔：跟进的那一下拖得够远（> 12）仍是拖，连击断", () => {
+  it("笔：跟进的那一下拖得够远（> 20）仍是拖，连击断", () => {
     const T = new TapTrain<P>();
     eq(tap(T, "pen", 0, { x: 100, y: 100 }), 1);
     eq(tap(T, "pen", 200, { x: 101, y: 100 }, 150, 30), 0);
@@ -43,8 +43,14 @@ describe("tap-train 点按族", () => {
   it("笔：超出窗口 / 离得远 → 重新数", () => {
     const T = new TapTrain<P>();
     eq(tap(T, "pen", 0, { x: 100, y: 100 }), 1);
-    eq(tap(T, "pen", 80 + 351, { x: 100, y: 100 }), 1);
+    eq(tap(T, "pen", 80 + 501, { x: 100, y: 100 }), 1);
     eq(tap(T, "pen", 600, { x: 130, y: 100 }), 1);
+  });
+  it("笔放宽（2026-10-28）：两下隔 450 ms、第二下落在 20 外、滑 15 → 仍是双击；第一下滑 5 仍是点", () => {
+    const T = new TapTrain<P>();
+    eq(tap(T, "pen", 0, { x: 100, y: 100 }, 120, 5), 1);
+    eq(tap(T, "pen", 120 + 450, { x: 118, y: 108 }, 90, 15), 2);
+    eq(tap(T, "pen", 660 + 420, { x: 110, y: 112 }, 90, 12), 3);
   });
   it("鼠标照旧：第二下滑 5 = 拖；离上一下 7 = 重新数", () => {
     const T = new TapTrain<P>();
@@ -64,7 +70,7 @@ describe("tap-train 点按族", () => {
     const T = new TapTrain<P>();
     tap(T, "pen", 0, { x: 0, y: 0 });
     T.down(200, { x: 0, y: 0 }, TAP_RULES.pen, (p) => d({ x: 0, y: 0 }, p));
-    eq(T.slop(), 12);
+    eq(T.slop(), 20);
     eq(T.up(260, 0), 2);
     eq(T.up(270, 0), 0);
     T.cancel();

@@ -40,7 +40,7 @@ const res = await page.evaluate(async () => {
   const pos0 = e.history.position();
   out.hudInMesh = hud.edits().filter((x) => !x.hidden).map((x) => x.id);
   e.hideSelection(); const h1 = hint(); e.makeGroup(); const h2 = hint(); e.softenSelection(true); const h3 = hint();   // 删除在网格体里能用了（v0.15.22），换隐藏当「SU 专属动词」的例子
-  out.brepVerbs = { pos: e.history.position() - pos0, faces: e.selection.faces.size, hints: [h1, h2, h3].map((h) => /SU 体的动词/.test(h ?? "")) };
+  out.brepVerbs = { pos: e.history.position() - pos0, faces: e.selection.faces.size, hints: [h1, h2, h3].map((h) => /硬表面体的动词/.test(h ?? "")) };
   // ④ 挪：网格体池里选中顶面 → runAction("move", dz=0.5) → 顶面四个点上去；撤销回来
   e.deselectAll(); await click(P(0.5, 0.5, 1));
   const m = S().mesh(def).kernel, topZ = () => Math.max(...m.verts().map((v) => m.pt(v).z));

@@ -47,14 +47,15 @@ export class SelectTool implements ToolHandler {
     if (n === 0) {   // 拖 = 框选；门槛 = 这一下的点按容差（桌面 4 / VR 本帧 tap；笔跟进的那一下放宽）
       const box = { minX: Math.min(start.x, cur.x), maxX: Math.max(start.x, cur.x), minY: Math.min(start.y, cur.y), maxY: Math.max(start.y, cur.y) };
       const picked = ctx.marqueePick(box);
-      const sel = { edges: [] as number[], faces: [] as number[], pools: [] as { kind: "group"; group: number }[] | { kind: "instance"; instance: number }[] };
+      const sel = { verts: [] as number[], edges: [] as number[], faces: [] as number[], pools: [] as { kind: "group"; group: number }[] | { kind: "instance"; instance: number }[] };
       const pools = new Map<string, { kind: "group"; group: number } | { kind: "instance"; instance: number }>();
+      for (const gid of picked.verts) { const c = ctx.classify(view, { vertex: gid }); if (c.kind === "entity" && c.local.vertex !== undefined) sel.verts.push(c.local.vertex); else if (c.kind === "pool") pools.set(c.key, c.pick); }   // 自由建模框点（FM139）
       for (const gid of picked.edges) { const c = ctx.classify(view, { edge: gid }); if (c.kind === "entity" && c.local.edge !== undefined) sel.edges.push(c.local.edge); else if (c.kind === "pool") pools.set(c.key, c.pick); }
       for (const gid of picked.faces) { const c = ctx.classify(view, { face: gid }); if (c.kind === "entity" && c.local.face !== undefined) sel.faces.push(c.local.face); else if (c.kind === "pool") pools.set(c.key, c.pick); }
       for (const em of ctx.emptiesIn(box)) pools.set(em.key, em.pick);   // 空组件（导入的空节点）：标记的原点在框里
       // 框选也收参考点（投影在框里的）；参考线无限长、框选会全中，不收（单击选）
       const vp = ctx.vp(), guides = view.guides().points.filter((q) => { const s2 = ctx.frame().project?.(q.p, vp); return !!s2 && s2.x >= box.minX && s2.x <= box.maxX && s2.y >= box.minY && s2.y <= box.maxY; }).map((q) => q.id);
-      ctx.replaceSelection({ edges: sel.edges, faces: sel.faces, pools: [...pools.values()], guides }, mode);
+      ctx.replaceSelection({ verts: sel.verts, edges: sel.edges, faces: sel.faces, pools: [...pools.values()], guides }, mode);
       ctx.afterSelect();
       return;
     }

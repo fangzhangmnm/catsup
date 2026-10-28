@@ -33,26 +33,34 @@ export const GROUND: DrawPlane = (() => {
 export interface HitResult3 { vertex?: VertexId; edge?: EdgeId; face?: FaceId; }
 
 /** 实体拾取：顶点 > 边（度量距离：桌面 px / VR 度）> 面（射线求交，取沿射线最近者——正确遮挡序）。tolPx = 本帧量纲的容差。 */
-export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean }): HitResult3 {
-  // 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：顶点/边只在**看得见**时参赛——
-  // 与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡，所以棱/角本身不会被自己的邻膜挡掉）。
-  // 屏幕索引（#22）：候选只从指针附近的格取；遮挡只看盖住候选点那一格的膜（超集，判定照旧）。
+/**
+ * 「这个点被挡住了吗」——单击拾取和框选共用一台（2026-10-28 抽出来；纪元账本 FM44「X 光关着时框选只选看得见的」）。
+ * 遮挡（2026-09-07 user「high：有时候选择会选到面后面的东西」）：与对齐引擎同一台 occludedBy（贴在膜面上的点不算挡）。
+ * 屏幕索引（#22）：遮挡只看盖住这一点那一格的膜（超集，判定照旧）。X 光（DT17）= 永远不挡。
+ * own = 这个点自己所在的面（点 = 连着的边两侧的面；边上的点 = 这条边两侧的面）：一个点不会被自己所在的面挡住。
+ * 以前靠「贴在膜平面上」几何地判，网格体的面不平时角点不在那张面的拟合平面上，会被自己的邻面挡掉 = 点不中（user 10-27「有些侧面的点选不中」）；改按拓扑判。
+ */
+export function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewport, xray: boolean): (p: Pt3, own?: ReadonlySet<FaceId>) => boolean {
   const idx = ScreenIndex.for(k, pf, vp);
-  // X 光（DT17，选择工具）：被面挡住的点 / 边照样参赛（面仍取射线上最近的那张）
-  // own = 这个点自己所在的面（点 = 连着的边两侧的面；边上的点 = 这条边两侧的面）：一个点不会被自己所在的面挡住。
-  // 以前靠「贴在膜平面上」几何地判，网格体的面不平时角点不在那张面的拟合平面上，会被自己的邻面挡掉 = 点不中（user 10-27「有些侧面的点选不中」）；改按拓扑判。
-  const hidden = (p: Pt3, own?: ReadonlySet<FaceId>): boolean => {
-    if (opts?.xray) return false;
+  return (p, own) => {
+    if (xray) return false;
     const skip = own && own.size ? (fid: FaceId): boolean => own.has(fid) : undefined;
     if (idx && pf.project) { const q = pf.project(p, vp); if (q) return occludedBy(k, pf, p, skip, idx.facesNear(q.x, q.y, 0)); }
     return occludedBy(k, pf, p, skip);
   };
-  const facesAtVertex = (vid: VertexId): Set<FaceId> => { const out = new Set<FaceId>(); for (const e of k.graph.vertex(vid).edges) if (k.graph.hasEdge(e)) for (const f of k.graph.edge(e).faceLinks) out.add(f); return out; };
+}
+/** 一个点所在的面（连着的边两侧的面）。 */
+export function facesAtVertex(k: GeomView, vid: VertexId): Set<FaceId> { const out = new Set<FaceId>(); for (const e of k.graph.vertex(vid).edges) if (k.graph.hasEdge(e)) for (const f of k.graph.edge(e).faceLinks) out.add(f); return out; }
+
+export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: { soft?: boolean; xray?: boolean; softActive?: boolean }): HitResult3 {
+  // 顶点 / 边只在**看得见**时参赛；候选只从指针附近的格取（屏幕索引 #22）
+  const idx = ScreenIndex.for(k, pf, vp);
+  const hidden = occlusionTest(k, pf, vp, !!opts?.xray);
   let bestV: VertexId | undefined, bestVd = tolPx;
   for (const v of idx ? idx.verticesNear(sx, sy, tolPx + 1) : k.vertices()) {
     const p = { x: v.x, y: v.y, z: v.z };
     const d = pf.distTo(sx, sy, p, vp);
-    if (d <= bestVd && !hidden(p, facesAtVertex(v.id))) { bestVd = d; bestV = v.id; }
+    if (d <= bestVd && !hidden(p, facesAtVertex(k, v.id))) { bestVd = d; bestV = v.id; }
   }
   if (bestV !== undefined) return { vertex: bestV };
 

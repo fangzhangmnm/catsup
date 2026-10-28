@@ -37,7 +37,7 @@ export const PRESETS: LabPreset[] = [
   },
   {
     name: "三层回字",
-    note: "暗礁①现场：中环擦=ABSORB？内环擦=BURST？（推导值待真机 SU 裁决）",
+    note: "暗礁①现场：中环擦=ABSORB？内环擦=BURST？（推导值待对照裁决）",
     batches: [rect(-1.2, -1.2, 1.2, 1.2), rect(-0.75, -0.75, 0.75, 0.75), rect(-0.3, -0.3, 0.3, 0.3)],
     expectFaces: 3,
   },

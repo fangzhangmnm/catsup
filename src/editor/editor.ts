@@ -496,7 +496,7 @@ export class Editor {
   /** brep 专属动词的守门：活动池不是 SU 体 → 提示一句、不做（网格体上的同名动词 = 自由建模工作台 M4）。不静默。 */
   private requireBrep(verb: string): boolean {
     if (this.activeKind() === "brep") return true;
-    this.host.hint(`「${verb}」是 SU 体的动词；网格体上的还没接（自由建模工作台）`);
+    this.host.hint(`「${verb}」是硬表面体的动词；网格体上的还没接（自由建模工作台）`);
     return false;
   }
   /** 工作台跟着活动池的身体种类走：当前工作台不管这种身体 → 切到管它的第一个（进出上下文、换场景后调）。 */
@@ -1737,7 +1737,7 @@ export class Editor {
       // 单位只取一次：马后炮按新参数重做时用同一批（上一次做完的选区已经换成结果了）
       const plans = routes.map(({ kind, command: c }) => ({ c, units: this.unitsFor(c, kind) }));
       const skips: string[] = [];
-      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).length) skips.push(`跳过了${kind === "brep" ? "SU 体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
+      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).length) skips.push(`跳过了${kind === "brep" ? "硬表面体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
       const valuesOf = (c: Command, units: readonly Unit[], p?: CmdParams): CmdParams => ({ ...c.defaults(this.repairCtx, units), ...(p ?? {}) });
       const go = (p?: CmdParams): number => {
         const ops: Op[] = [], notes = new Set<string>(skips), dones: { c: Command; n: number; v: CmdParams }[] = [];
@@ -3380,11 +3380,12 @@ export class Editor {
       movablePoolPicks: (say) => this.movablePoolPicks(say),
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
-      marqueePick: (box) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), box),
+      marqueePick: (box) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), box, { xray: this._xray, verts: this.mode.id === "freeform" }),
       emptyAt: (sx, sy) => this.emptyAt(sx, sy),
       emptiesIn: (box) => this.emptiesIn(box),
       replaceSelection: (sel, mode) => {
         if (mode === "replace") { this.clearSel(pass); }
+        mergeSel(this.selection.verts, sel.verts ?? [], mode, true);
         mergeSel(this.selection.edges, sel.edges, mode, true);
         mergeSel(this.selection.faces, sel.faces, mode, true);
         if (this.selection.kind === "brep") mergeSel(this.selection.guides, sel.guides ?? [], mode, true);

@@ -182,6 +182,7 @@ export interface ToolCtx {
         maxX: number;
         maxY: number;
     }): {
+        verts: Iterable<number>;
         edges: Iterable<number>;
         faces: Iterable<number>;
     };
@@ -202,6 +203,7 @@ export interface ToolCtx {
     }[];
     /** 框选结果按 mode 合进选区（本地 id + 子池项；切换 = 逐个反转）。 */
     replaceSelection(sel: {
+        verts?: readonly number[];
         edges: readonly number[];
         faces: readonly number[];
         pools: readonly PoolPick[];

@@ -624,7 +624,7 @@ function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boo
   return [
     { id: "grid" as MenuId, label: "栅格吸附", checked: g.on, tab: "grid", hint: g.on ? `${gridPreset(g.preset).label} · ${fmtGridStep(g.step, g.preset)} · 1/${g.subdiv}` : "关" },
     // 单选组一组一行下拉（user 2026-10-25「能下拉框的就做」）：名字 + 当前值 ▾，点开旁边一层
-    { id: "preset:si" as GridMenuId, label: "制式", tab: "grid", choices: GRID_PRESETS.map((p) => ({ id: `preset:${p.id}` as GridMenuId, label: p.label, checked: g.preset === p.id, ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "SketchUp 建筑模板那套" } : {}) })) },   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）
+    { id: "preset:si" as GridMenuId, label: "制式", tab: "grid", choices: GRID_PRESETS.map((p) => ({ id: `preset:${p.id}` as GridMenuId, label: p.label, checked: g.preset === p.id, ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "英尺英寸，建筑图纸那套" } : {}) })) },   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）
     { id: `step:${steps[0]}` as GridMenuId, label: "格距", tab: "grid", choices: steps.map((st) => ({ id: `step:${st}` as GridMenuId, label: fmtGridStep(st, g.preset), checked: Math.abs(g.step - st) < 1e-9 })) },
     { id: "plane:xy" as GridMenuId, label: "栅格面", tab: "grid", choices: GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.plane === p.id, hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })) },
     { id: "sub:5" as GridMenuId, label: "吸附细分", tab: "grid", choices: [
