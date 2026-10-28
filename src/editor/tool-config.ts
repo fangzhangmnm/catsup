@@ -15,7 +15,8 @@ import type { QuantityTag } from "./units.ts";
 import type { Tool } from "./editor.ts";
 
 /** 选区默认档：有笔 / 触屏的设备 = 多选，键鼠 = 替换（user 10-28「平板上选择能不能默认是点击xor」）。node（测试）里没有 navigator = 替换。 */
-const DEFAULT_SELECT_MODE: string = typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0 && (typeof matchMedia !== "function" || matchMedia("(any-pointer: coarse)").matches) ? "multi" : "replace";
+/** 「选区」两档的出厂值按设备（controller/stance.ts BOOLEAN_DEFAULT：鼠标点一下 = 替换 → 「替换」档；笔点一下 = 切换 → 「多选」档）。有触屏的设备 = 笔（iPad；手指版以后，先照笔）。 */
+const DEFAULT_SELECT_MODE: string = BOOLEAN_DEFAULT[typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0 && (typeof matchMedia !== "function" || matchMedia("(any-pointer: coarse)").matches) ? "pen" : "mouse"].click === "replace" ? "replace" : "multi";
 
 export type OptionScope = "session" | "device" | "doc";
 export interface Modifiers { ctrl?: boolean; shift?: boolean; }
@@ -139,6 +140,7 @@ export class ToolConfig<T extends OptionTable> {
 /** 表面指派的档位（user 2026-10-24 定稿：三档 平滑组 / 到锐角为止 / 连通体 ↔ 单击 / 双击 / 三击；选项档 = 下限）。定义住 surface-assign.ts。 */
 import { SURFACE_TIERS } from "./surface-assign.ts";
 import { ARC_MODES } from "./arc-build.ts";
+import { BOOLEAN_DEFAULT } from "../controller/stance.ts";
 /** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
 export function optionGroupOf(tool: string): string { return tool === "paint" ? "surface" : tool; }
 

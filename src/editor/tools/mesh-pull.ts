@@ -54,7 +54,7 @@ export class MeshPullTool implements ToolHandler {
     if (this.active()) { this.commit(ctx); return; }
     const m = ctx.mesh();
     // 按下作用在什么上 = selecting.ts（没选区只认面：点和边不挡路，小面也按得到；挤边 / 点 = 先选中它们。纪元账本 FM165）；挤什么 = 这里：面 > 边 > 点
-    const p = pressTarget(ctx, ev, "face");
+    const p = pressTarget(ctx, ev, this.tool);
     if (p === "box") { this.hadSel = false; this.box.begin(ev); ctx.hint("框选（挤出工具里：没选东西时在空处拖 = 框；挤边 / 点 = 框住它们再拖）"); return; }   // user 10-28「其他的同理」
     this.hadSel = p.fromSelection;
     const t: Target = p.faces.length ? { faces: p.faces, edges: [], verts: [] } : p.edges.length ? { faces: [], edges: p.edges, verts: [] } : { faces: [], edges: [], verts: p.verts };

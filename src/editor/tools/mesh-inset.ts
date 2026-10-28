@@ -68,7 +68,7 @@ export class MeshInsetTool implements ToolHandler {
   private begin(ctx: ToolCtx, at: { x: number; y: number }, force?: "bevel" | "bevelVerts"): void {
     const m = ctx.mesh();
     // 按下作用在什么上 = selecting.ts（没选区只认面；FM165）；拿它做什么 = 这里：面 = 插入、边 = 倒角、点 = 倒点（Ctrl+B / Ctrl+Shift+B 强制倒角 / 倒点）
-    const p = pressTarget(ctx, at, "face");
+    const p = pressTarget(ctx, at, this.tool);
     this.hadSel = p !== "box" && p.fromSelection;
     const faces = p === "box" ? [] : p.faces, edges = p === "box" ? [] : p.edges, verts = p === "box" ? [] : p.verts;
     let job: Job | null = null;

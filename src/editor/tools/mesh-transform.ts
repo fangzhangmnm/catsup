@@ -64,7 +64,7 @@ export class MeshTransformTool implements ToolHandler {
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
-    const m = ctx.mesh(), sel = ctx.selection(), t = pressTarget(ctx, ev, "element");   // 选区 > 按下处的点 / 边 / 面 > 空处拖框（selecting.ts）
+    const m = ctx.mesh(), sel = ctx.selection(), t = pressTarget(ctx, ev, this.tool);   // 选区 > 按下处的点 / 边 / 面 > 空处拖框（selecting.ts）
     if (t === "box") { this.box.begin(ev); ctx.hint(`框选（${this.verb()}工具里：没选东西时在空处拖 = 框）`); return; }   // user 10-28「move的时候在没选择的时候能不能拖框」
     const vids = selectionVerts(m, t);
     if (!vids.length) { ctx.hint(`${this.verb()}：选区里没有能${this.verb()}的点`); return; }
