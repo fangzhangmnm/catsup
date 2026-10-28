@@ -209,3 +209,50 @@ export function keyDocs(toolLabel: (t: Tool) => string): { title: string; when: 
   });
 }
 
+// ---------- 肌肉记忆冲突（账本 UX15，user 10-28「其实玩游戏最怕的就是两个魂系游戏，一个的x是紧急躲避，一个的x是喝药」）----------
+// 原则：同一个键在会来回切的几个地方意思不许不同；没有孟婆汤，就让冲突看得见、逐条拍。守卫 test/keymap.test.ts：新冒出来的冲突 = 红；下面登记的 = 已知、等 user 拍。
+/** 肌肉记忆层面的「意思」：锁轴的几种时机（马上锁 / 先锁下一下 / 手势中锁）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
+export function meaningOf(action: string): string {
+  const lock = /^lock\.(?:arm|key|axis):([xyz])(:plane)?$/.exec(action);
+  if (lock) return `锁 ${lock[1].toUpperCase()}${lock[2] ? " 面" : ""}`;
+  const tool = /^tool\.key:[^:]+:(.+)$/.exec(action), modal = /^modal:([a-z]+)/.exec(action);
+  const verb = tool?.[1] ?? modal?.[1];
+  return verb ? `动词 ${verb}` : action;
+}
+/** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */
+export const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "vcbWants">>> = {
+  "硬表面·选择": { mode: "geometry", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+  "硬表面·移动": { mode: "geometry", tool: "move", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: "axis" },
+  "自由建模·选择": { mode: "freeform", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+  "自由建模·移动": { mode: "freeform", tool: "move", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: "axis" },
+  "验证·选择": { mode: "verify", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+  "表面·选择": { mode: "surface", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
+};
+/** 现在的冲突：和弦 → 意思 → 在哪几个地方（没绑的不算；只有一种意思的不列）。 */
+export function muscleConflicts(): Map<Chord, Map<string, string[]>> {
+  const out = new Map<Chord, Map<string, string[]>>(), chords = new Set<Chord>();
+  for (const L of ALL_LAYERS) for (const b of L.bindings) if (b.chord !== "*") chords.add(b.chord);
+  for (const ch of [...chords].sort()) {
+    const by = new Map<string, string[]>();
+    for (const [where, c0] of Object.entries(MUSCLE_CONTEXTS)) {
+      const r = resolveKey({ ...c0, vcbWants: () => false }, evtOfChord(ch));
+      if (r === null || r === "swallow") continue;
+      const m = meaningOf(r.action); (by.get(m) ?? by.set(m, []).get(m)!).push(where);
+    }
+    if (by.size > 1) out.set(ch, by);
+  }
+  return out;
+}
+/**
+ * 已知的冲突（10-28 登记 = 当时的现状；UX15 列过前五个），**等 user 逐条拍**：留着（两个工作台各是各的肌肉记忆）/ 改掉某一边。拍了就改这里和键表。
+ * 新冒出来的（不在这里）= 守卫红：先想清楚是不是真要这么绑，要的话登记进来并告诉 user。
+ */
+export const KNOWN_CONFLICTS: Readonly<Record<Chord, string>> = {
+  a: "硬表面 = 弧 · 自由建模 = 全选（Blender）",
+  e: "硬表面 = 橡皮 · 自由建模 = 挤出（Blender）",
+  g: "硬表面 = 建组件（SketchUp）· 自由建模 = 抓起来移动（Blender）",
+  r: "硬表面 = 矩形 · 自由建模 = 旋转（Blender）",
+  x: "硬表面 = 橡皮（轮换）· 自由建模选择 = 删除 · 自由建模操作工具 = 锁 X（UX17 user 拍的）",
+  "shift+z": "硬表面 = 缩放到全部 · 自由建模 = 锁面 XY（Blender）",
+};
+

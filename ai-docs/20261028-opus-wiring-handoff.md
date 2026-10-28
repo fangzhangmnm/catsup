@@ -29,7 +29,7 @@
    - 做什么：选择工具 / 操作工具没选区时空处拖 = 框选，加「套索」档（右下角「选区」下拉：框 / 套索）；布尔默认照 `stance.ts BOOLEAN_DEFAULT`（鼠标 替换 / 替换 / 加，笔 切换 / 加 / 加）。
    - 改哪：`selecting.ts boxSelect` 旁边加 `lassoSelect`（屏幕多边形内判点 / 边 / 面，X 光关着只算看得见的，同框选 `pick.ts occlusionTest`）；`tool-config.ts`「选区」加一项；手势层 `gestures.ts` 把拖的轨迹交出来。
    - 验：探针一条（套索圈住方块正面三张面；X 光关着背面不进）。
-4. **肌肉记忆冲突守卫 + 芯片渲染（MFD）**（UX14 / UX20）
+4. **肌肉记忆冲突守卫【done】+ 芯片渲染（MFD）**（UX15 / UX19；守卫 = `keymap.ts muscleConflicts / KNOWN_CONFLICTS`，6 个已知冲突待 user 拍）
    - 守卫：`test/keymap.test.ts` 加一条——同一个键在不同工作台 / 层里意思不同的，列成表；不在白名单里的 = 红。白名单一开始 = 现状，新冲突逐条拍。
    - 芯片：状态行（右下）按当前键层渲染「键名 + 意思」的芯片，槽位固定（`keymap.ts explainKey` 已有）；触屏设备芯片可点 = 按了那个键。
 5. **【done v0.16.16】状态行披露**（按住 Shift / Ctrl / Alt 0.45 s：立场表那一格 + 带它的和弦；`keymap.ts modifierChords / chordLabel`，探针 probe-mod-peek）：`explainKey` 接到提示行（按下一个修饰键时露这一层有什么）。

@@ -1,6 +1,6 @@
 // 分层键表（controller/keymap.ts）守卫：几个关键上下文里「按 X 是什么意思」（2026-10-28 Claude Fable 5.1；账本 UX17 / UX18）。
 import { describe, it, eq } from "./runner.mjs";
-import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, keyDocs, ALL_LAYERS, LAYER_DOCS, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
+import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, keyDocs, ALL_LAYERS, LAYER_DOCS, KNOWN_CONFLICTS, muscleConflicts, meaningOf, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
 import { KEYS_TABLE, README_SECTIONS } from "../src/app/readme-docs.ts";
 
 const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
@@ -70,5 +70,12 @@ describe("键表：什么时候按 X 是什么意思", () => {
     const docs = keyDocs((t) => `工具：${t}`);
     ALL_LAYERS.forEach((L, i) => { const keys = new Set(docs[i].rows.map((r) => r.keys)); for (const b of L.bindings) eq(keys.has(b.chord === "*" ? "数字 / 运算符" : chordLabel(b.chord)), true, `${L.id} ${b.chord}`); });
     eq(README_SECTIONS.find((x) => x.id === "keys")?.body, KEYS_TABLE, "帮助页「快捷键」= 生成的表");
+  });
+  it("肌肉记忆冲突（UX15）：同一个键在会来回切的几个地方意思不同 = 只许是登记过、等 user 拍的那几个；登记了但已经不冲突的 = 该删", () => {
+    eq(meaningOf("lock.arm:x"), meaningOf("lock.axis:x")); eq(meaningOf("lock.key:z:plane"), meaningOf("lock.arm:z:plane")); eq(meaningOf("tool.key:s:scale"), meaningOf("modal:scale"));
+    const now = muscleConflicts(), known = new Set(Object.keys(KNOWN_CONFLICTS));
+    const fresh = [...now].filter(([ch]) => !known.has(ch)).map(([ch, m]) => `${ch}: ${[...m].map(([k, v]) => `${k}@${v.join("/")}`).join(" | ")}`);
+    eq(fresh.join("; "), "", "新冒出来的肌肉记忆冲突（想清楚、登记进 KNOWN_CONFLICTS、告诉 user）");
+    eq([...known].filter((ch) => !now.has(ch)).join(","), "", "登记了但已经不冲突（从 KNOWN_CONFLICTS 删掉）");
   });
 });
