@@ -177,6 +177,8 @@ import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tie
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
 import { RELEASE_WINDOW_MS, FINAL_HOLD_MS, MIN_DWELL_MS, HOLD_PX, DWELL_SLIP_PX, CHARGE_DWELL_MS } from "../controller/feel.ts";
+import { lockLines, lockThrough } from "../controller/lock-guide.ts";
+import { stanceOf } from "../controller/stance.ts";
 export { MIN_GESTURE_LEN, SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
@@ -2803,7 +2805,8 @@ export class Editor {
   // ---------- 轴移到选择中心（user 2026-10-25「加一个把轴移动到选择中心的命令……现在先用blender的bounding box center」「选中轴工具之后如果有选择就出现这个，然后点了之后右下角的马后炮可以选择是哪种居中算法」）----------
   /** 选区（散几何 + 选中的组 / 组件）的全部顶点（世界坐标）。 */
   private selectionWorldPoints(): Pt3[] {
-    const out: Pt3[] = [], k = this.kernel, X = this.ctxXform();
+    // 读显示契约（KernelView），不读硬表面内核：网格体池里也要能算变换中心（2026-10-28 晚：锁轴线在自由建模里算过哪一点，读 this.kernel = 抛「body is mesh」，probe-lock-line 抓到）
+    const out: Pt3[] = [], k = this.activeView, X = this.ctxXform();
     const vids = new Set<VertexId>();
     for (const f of this.selection.faces) { const F = k.face(f); if (F) for (const r of [F.outer, ...F.holes]) for (const v of r.vids) vids.add(v); }
     for (const e of this.selection.edges) if (k.graph.hasEdge(e)) { const E = k.graph.edge(e); vids.add(E.a); vids.add(E.b); }
@@ -3385,6 +3388,14 @@ export class Editor {
    * 选区的变换中心（变换工具的「变换中心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
    * 自动 = 只选了一个组 / 组件（没有散的面 / 边）→ 它的轴原点；别的 → 包围盒中心。
    */
+  /** 锁着时画的轴线（所有工具同一处：锁状态只有这一份）：方向 = 上下文坐标架；过 = 手势中的锚点 / 没手势时下一下要动的东西的变换中心。 */
+  private lockGuide(): ReturnType<typeof lockLines> | null {
+    if (!this._axisLock && !this._planeLock) return null;
+    const st = stanceOf(this.mode.id, this._tool), acts = !!st && st.center !== "none" && this.hasSelection();
+    const pivot = acts ? this.pivotOf(this.mode.id === "freeform" ? "mean" : "auto") : null;
+    const ls = lockLines({ axis: this._axisLock, plane: this._planeLock, planeN: this._planeLockN }, this.contextFrame(), lockThrough(this.gestureActive(), this.anchor3, pivot));
+    return ls.length ? ls : null;
+  }
   private pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null {
     if (mode === "auto" && this.selectedPools.size === 1 && !this.selection.faces.size && !this.selection.edges.size && !this.selection.verts.size) { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[0].origin; }
     if (mode === "active") { const fr = this.selectedPoolFrames(this.worldView()); if (fr.length) return fr[fr.length - 1].origin; }
@@ -3474,6 +3485,7 @@ export class Editor {
       mirror: this.mirrorView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
+      lockLines: this.lockGuide(),   // 锁看得见（controller/lock-guide.ts；user 10-28 晚「轴锁的时候能不能看到小轴线」）
       originAxes: this.originMarker(),
       emptyAxes: this.emptyMarkers(view).map((e) => e.frame),
       planeGizmo: this.gizmo ? (() => { const G = gizmoGeom(this.gizmo.g, this.frame(), this.fvp()); return { origin: G.origin, normal: G.normal, u: G.u, v: G.v, size: G.size, hot: this.gizmo.grab?.handle ?? this.gizmo.hot }; })() : null,

@@ -115,6 +115,8 @@ const SEL_VERT_DOT_PX = 9;
 const VERT_DOT_PX = 5;
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
 export const POOL_AXES_PX = 22;
+/** 锁着时画的轴线（controller/lock-guide.ts）两头各伸多长（屏幕 px，按线过的那一点的一像素多长换算）：够横穿画面，像 Blender 的无限长线。 */
+export const LOCK_LINE_SPAN_PX = 2400;
 /** 平面 gizmo 的颜色（常态 / 悬停）。 */
 const GIZMO_COLOR = 0x2b6cb0, GIZMO_HOT = 0xd97706;
 /** 参考几何（0.11 尺规纪元）：参考线画到视野最远处（视觉上 = 无限；2026-10-26 以前写死 ±200 m），参考点画三轴小叉（像素尺寸）。 */
@@ -226,6 +228,8 @@ export interface ViewState {
   emptyAxes?: readonly Frame[] | null;
   /** 组件原点（DT86）：组件里另摆了坐标架、和原点不在一处时，原点处画一个淡小三轴（披露「现在是两个」）；同上画法、半透明。 */
   originAxes?: readonly Frame[] | null;
+  /** 锁看得见：锁着的轴 / 面里的两根轴（过锚点或变换中心；controller/lock-guide.ts）。透视画在最上面。 */
+  lockLines?: readonly { readonly through: Pt3; readonly dir: Pt3; readonly color: "x" | "y" | "z" | "n" }[] | null;
   /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
   xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
@@ -356,7 +360,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private seamDots: any; private mirrorKey = ""; private capsuleLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private lockLinesObj: any; private lockLinesKey = ""; private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private seamDots: any; private mirrorKey = ""; private capsuleLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -543,6 +547,12 @@ export class Renderer3 {
     this.originAxesLines.material.transparent = true; this.originAxesLines.material.opacity = 0.4;
     this.originAxesLines.renderOrder = 10; this.originAxesLines.frustumCulled = false; this.originAxesLines.visible = false;
     this.scene.add(this.originAxesLines);
+    // 锁看得见（2026-10-28 晚）：轴色长线、透视（被几何挡住也看得见）、比选中组的小三轴再晚画
+    this.lockLinesObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
+    this.lockLinesObj.material.depthTest = false; this.lockLinesObj.material.depthWrite = false;
+    this.lockLinesObj.material.transparent = true; this.lockLinesObj.material.opacity = 0.75;
+    this.lockLinesObj.renderOrder = 11; this.lockLinesObj.frustumCulled = false; this.lockLinesObj.visible = false;
+    this.scene.add(this.lockLinesObj);
     // 平面 gizmo（镜像面）：描边 / 箭头 / 把手 = 透视粗线；面 = 很淡的半透明方块（也透视，被几何挡住也看得见在哪）
     this.gizmoLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX * 1.5, { vertexColors: true }));
     this.gizmoLines.material.depthTest = false; this.gizmoLines.material.depthWrite = false;
@@ -1145,6 +1155,7 @@ export class Renderer3 {
     this.poolAxesKey = this.drawTriads(this.poolAxesLines, view.poolAxes, this.poolAxesKey, cam, vp);
     this.emptyAxesKey = this.drawTriads(this.emptyAxesLines, view.emptyAxes, this.emptyAxesKey, cam, vp);
     this.originAxesKey = this.drawTriads(this.originAxesLines, view.originAxes, this.originAxesKey, cam, vp);
+    this.lockLinesKey = this.drawLockLines(view.lockLines, cam, vp);
 
     this.syncLabels(view.labels ?? [], cam, vp);
 
@@ -1704,6 +1715,22 @@ export class Renderer3 {
 
   /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
   /** 一组小三轴（每个帧：原点出三根屏幕定长 POOL_AXES_PX 的短轴，RGB = XYZ）；key 没变就不重建。返回新 key。 */
+  /** 锁着时的轴线：每根过 through、两头各伸 LOCK_LINE_SPAN_PX 屏幕像素那么长（按那一点的一像素多长换算）；颜色 = 轴色，斜面 = 中性灰。 */
+  private drawLockLines(lines: ViewState["lockLines"], cam: any, vp: any): string {
+    if (!lines || !lines.length) { this.lockLinesObj.visible = false; return ""; }
+    const k = lines.map((l) => `${l.through.x},${l.through.y},${l.through.z}/${l.dir.x},${l.dir.y},${l.dir.z}/${l.color}@${this.worldPerPx(cam, vp, l.through).toExponential(2)}`).join("|");
+    if (k !== this.lockLinesKey) {
+      const pos: number[] = [], col: number[] = [];
+      for (const l of lines) {
+        const L = LOCK_LINE_SPAN_PX * this.worldPerPx(cam, vp, l.through), o = l.through, d = l.dir;
+        pos.push(o.x - d.x * L, o.y - d.y * L, o.z - d.z * L, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
+        const c = this.tmpColor.setHex(l.color === "n" ? 0x888888 : AXIS_COLORS[l.color]); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
+      }
+      this.setLineGeometry(this.lockLinesObj, pos, col);
+    }
+    this.lockLinesObj.visible = true;
+    return k;
+  }
   private drawTriads(lines: any, frames: readonly Frame[] | null | undefined, key: string, cam: any, vp: any): string {
     if (!frames || !frames.length) { lines.visible = false; return ""; }
     const wpp = frames.map((f) => this.worldPerPx(cam, vp, f.origin));
