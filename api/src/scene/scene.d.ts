@@ -3,6 +3,7 @@ import { type Frame, type Xform, WORLD_FRAME, frameAt, transformFrame } from "./
 import { type Guides } from "./guides.ts";
 import type { BodyKind } from "./body-kind.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
 import { type LayerDoc } from "../format/document.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
@@ -84,6 +85,9 @@ export interface EditContext {
 }
 export declare const ROOT_CONTEXT: EditContext;
 export declare class Scene {
+    /** 网格体的「对称」属性（镜像编辑 / 强行对称 + 镜像面；UX 心智模型 §2.1 物体窗口的字段；文件 CATSUP_mesh 1.2 `mirror`）：按定义 id 记。编辑方式那一层、**不进撤销**（0.15 账本 FM134）——
+     *  所以 clone / cloneSkeleton 都共享同一张表（撤销换场景时它不跟着倒回去）；定义转成硬表面体 / 删掉后留下的旧条目无害（读的人按 kindOf 筛）。 */
+    readonly meshMirrors: Map<DefId, MirrorSetting>;
     readonly defs: Map<number, Definition>;
     readonly root: DefId;
     /** 文档材质表（只增）。 */

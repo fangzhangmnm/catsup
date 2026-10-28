@@ -28,10 +28,10 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     eq(back.mesh(d.id).materialSlots.join(","), "0");
     eq(m.check().length, 0);
   });
-  it("文件里：mesh 项带拍子 1.1.0 + 多边形键（不存三角形）；定义表 6.4；本体给别的查看器 TRIANGLES + LINES primitive；签名含 CATSUP_mesh", () => {
+  it("文件里：mesh 项带拍子 1.2.0 + 多边形键（不存三角形）；定义表 6.4；本体给别的查看器 TRIANGLES + LINES primitive；签名含 CATSUP_mesh", () => {
     const g = glbOf(), defs = g.json.extensions.CATSUP_definitions, md = meshItem(g);
     eq(defs.version, 6); eq(defs.minor, 4);
-    eq(md.mesh.version, 1); eq(md.mesh.minor, 1, "1.1：默认平滑（2026-10-28）"); assert(!("patch" in md.mesh), "0 不写");
+    eq(md.mesh.version, 1); eq(md.mesh.minor, 2, "1.1：默认平滑（2026-10-28）；1.2：对称属性（2026-10-28 晚）"); assert(!("patch" in md.mesh), "0 不写");
     eq(md.mesh.smoothDefault?.mode, "angle", "转换来的网格体 = 按角度（scene/kinds.ts keepLookUnderAngle）");
     for (const k of ["positions", "faceStart", "faceLen", "loopVert", "faceMat", "faceFlags", "edgePairs", "edgeFlags"]) assert(typeof md.mesh[k]?.bufferView === "number", `缺 ${k}`);
     assert(!("indices" in md.mesh) && !("triMaterial" in md.mesh), "三角形是派生物，不存");
@@ -41,7 +41,7 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     const prims = g.json.meshes[node.mesh].primitives as AnyJson[];
     assert(prims.some((p) => (p.mode ?? 4) === 4) && prims.some((p) => p.mode === 1), "TRIANGLES + LINES");
     assert(prims.some((p) => p.material === 0), "涂了材质的面单独一个 primitive");
-    eq(formatTag(), "3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.1.0-1.0.0-1.1.0");   // CATSUP_mesh 1.1（2026-10-28 默认平滑）
+    eq(formatTag(), "3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.1.0-1.0.0-1.2.0");   // CATSUP_mesh 1.1（2026-10-28 默认平滑）→ 1.2（2026-10-28 晚 对称属性）
     assert(!g.json.extensionsUsed.includes("CATSUP_mesh"), "不是顶层扩展（住在定义里）");
   });
   it("0.14 的三角汤最小形（没拍子、只有 positions / indices）照开：每三角一面；重存变成多边形载荷", () => {
@@ -87,3 +87,30 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     eq(legacy.smoothDefault.mode, "hard", "缺键 = 老文件 = 全硬");
   });
 });
+
+describe("CATSUP_mesh 1.2：对称属性进文件（2026-10-28 晚 Claude Fable 5.1，镜像重做第二刀；FM134「还没存进文件」收口）", () => {
+  it("往返：网格体的对称（强行对称 / Y 轴）写进 mesh 项的 mirror 键、读回来在 scene.meshMirrors 里；没设的网格体文件里没有这个键、读回来表里也没有", () => {
+    const s = sceneMeshed(), d = [...s.defs.values()].find((x) => x.body.kind === "mesh")!;
+    s.meshMirrors.set(d.id, { mode: "force", axis: 1 });
+    const g = decodeGlb(writeCatsup(documentFromScene(s, "t"))) as unknown as { json: AnyJson };
+    eq(JSON.stringify(meshItem(g).mesh.mirror), JSON.stringify({ mode: "force", axis: 1 }));
+    eq(meshItem(g).mesh.version, 1); eq(meshItem(g).mesh.minor, 2);
+    const back = sceneFromDocument(readCatsup(writeCatsup(documentFromScene(s, "t"))));
+    const d2 = [...back.defs.values()].find((x) => x.body.kind === "mesh")!;
+    eq(JSON.stringify(back.meshMirrors.get(d2.id)), JSON.stringify({ mode: "force", axis: 1 }));
+    eq(sceneFingerprint(back), sceneFingerprint(s));
+    const plain = sceneFromDocument(readCatsup(writeCatsup(documentFromScene(sceneMeshed(), "t"))));
+    eq(plain.meshMirrors.size, 0);
+    assert(!("mirror" in meshItem(glbOf()).mesh), "没设对称 = 文件里没有 mirror 键");
+  });
+  it("认不出的 mirror 值 = 当没有（关），不拒开；撤销换场景不碰它（clone / cloneSkeleton 共享同一张表）", () => {
+    const s = sceneMeshed(), d = [...s.defs.values()].find((x) => x.body.kind === "mesh")!;
+    s.meshMirrors.set(d.id, { mode: "edit", axis: 2 });
+    const g = decodeGlb(writeCatsup(documentFromScene(s, "t"))) as unknown as { json: AnyJson; bin: Uint8Array };
+    meshItem(g).mesh.mirror = { mode: "whatever", axis: 7 };
+    const back = sceneFromDocument(readCatsup(encodeGlb(g.json, g.bin)));
+    eq(back.meshMirrors.size, 0);
+    assert(s.clone().meshMirrors === s.meshMirrors && s.cloneSkeleton().meshMirrors === s.meshMirrors);
+  });
+});
+

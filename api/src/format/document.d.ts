@@ -53,6 +53,10 @@ export interface MeshDoc {
     smoothDefault?: {
         mode: "angle" | "smooth" | "hard";
         deg: number;
+    }; /** 对称（CATSUP_mesh 1.2，2026-10-28 UX 账本 FM134 / 镜像重做第二刀）：网格体的属性——镜像编辑 / 强行对称 + 镜像面（定义坐标 axis = 0 平面）；缺 = 关。编辑方式那一层，不进撤销。 */
+    mirror?: {
+        mode: "edit" | "force";
+        axis: 0 | 1 | 2;
     };
 }
 /** 参考几何（0.11 尺规纪元；definitions v4）：池本地坐标，id 线 / 点同一空间。 */

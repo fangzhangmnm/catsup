@@ -615,7 +615,8 @@ export declare class Editor {
     private setCtx;
     /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
     commitOp(op: Op): FaceEvent[];
-    private mirrors;
+    /** 网格体的「对称」属性表 = 场景的那张（Scene.meshMirrors：随文件走、克隆共享 = 不进撤销）。 */
+    private get mirrors();
     private mirrorLastSide;
     /** 这一步里镜像想说的话（对面找不到的点 / 这一步没对称）：接在这一下的提示后面。 */
     private mirrorNote;

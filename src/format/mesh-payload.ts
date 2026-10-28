@@ -2,6 +2,8 @@
 // 多边形是真相：positions（f64 xyz，定义坐标 Z-up）/ faceStart / faceLen / loopVert（i32；顶点下标空间 = positions）/ faceMat（i32，−1 = 默认槽）/ faceFlags（u8，bit0 隐藏）/
 // edgePairs（i32 成对）+ edgeFlags（u8：软 1 / 平滑 2 / 接缝 4 / 隐藏 8 / 裸线 16 / 手标硬 32（1.1）；只列带标记的边）。三角形不存（bake 的派生物，给别的查看器看）。
 // 1.1（2026-10-28 Claude Opus 5.5，FM129）：smoothDefault { mode: angle | smooth | hard, deg }（JSON 键，可选）= 网格体的默认平滑（没手标的边算棱还是光滑过渡；几何属性）；缺 = hard（老文件语义：只看手标）。老读者看到 1.1 = 提示一次、照开（默认平滑丢了 = 全按手标，手标硬的位不认）。
+// 1.2（2026-10-28 晚 Claude Fable 5.1，镜像重做第二刀；FM134「按网格体记、还没存进文件」收口）：mirror { mode: edit | force, axis: 0 | 1 | 2 }（JSON 键，可选）= 网格体的「对称」属性（UX 心智模型 §2.1：物体窗口里的字段）；缺 = 关。
+//   老读者看到 1.2 = 提示一次、照开（对称设置丢了 = 关着）。
 // 没有 faceStart 键 = 0.14 的三角汤最小形（migrate/mesh.ts 读成每三角一面）。created 2026-10-27 by Claude Fable 5.1
 import type { MeshDoc } from "./document.ts";
 import type { ViewSink } from "./brep-codec.ts";
@@ -19,6 +21,7 @@ export function encodeMeshItem(m: MeshDoc, sink: ViewSink): Record<string, unkno
     faceMat: bv(m.faceMat, m.faceMat.length), faceFlags: bv(m.faceFlags, m.faceFlags.length),
     edgePairs: bv(m.edgePairs, m.edgePairs.length / 2), edgeFlags: bv(m.edgeFlags, m.edgeFlags.length),
     ...(m.smoothDefault ? { smoothDefault: { mode: m.smoothDefault.mode, deg: m.smoothDefault.deg } } : {}),
+    ...(m.mirror ? { mirror: { mode: m.mirror.mode, axis: m.mirror.axis } } : {}),
   };
 }
 
@@ -42,6 +45,8 @@ export function decodeMeshItem(raw: Record<string, unknown>, sliceOf: (bv: numbe
   };
   const sh = mj.smoothDefault;
   if (isObj(sh) && (sh.mode === "angle" || sh.mode === "smooth" || sh.mode === "hard") && typeof sh.deg === "number" && Number.isFinite(sh.deg)) d.smoothDefault = { mode: sh.mode, deg: sh.deg };
+  const mr = mj.mirror;
+  if (isObj(mr) && (mr.mode === "edit" || mr.mode === "force") && (mr.axis === 0 || mr.axis === 1 || mr.axis === 2)) d.mirror = { mode: mr.mode, axis: mr.axis };   // 认不出的值 = 当没有（关），不拒开
   const nF = d.faceStart.length;
   if (d.positions.length % 3 !== 0) fail(`${where} mesh positions length ${d.positions.length} is not a multiple of 3`);
   if (d.faceLen.length !== nF || d.faceMat.length !== nF || d.faceFlags.length !== nF) fail(`${where} mesh face tables disagree (${nF} faces)`);
