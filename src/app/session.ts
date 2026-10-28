@@ -16,7 +16,7 @@
 //   · flushForHide = hidden / blur / pagehide(!persisted) 的崩溃安全 flush（只本地不推）。
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
-import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument } from "../format/index.ts";
+import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument, writeGltfModel } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
@@ -25,7 +25,9 @@ import { fmtStamp } from "../format/migrate/index.ts";
 import { unitFromSettings, unitToSettings } from "../editor/units.ts";
 import { contentFingerprint } from "../format/final.ts";
 import { APP_VERSION } from "../version.ts";
-import { AUTOSAVE_IDLE_MS, DOC_EXT, defaultDocName, downloadName } from "../config.ts";
+import type { Xform } from "../scene/xform.ts";
+import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName } from "../config.ts";
+import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
 import { setOpened } from "@internal/gallery";
@@ -39,7 +41,9 @@ const fsa = window as unknown as {
   showSaveFilePicker?: (o: unknown) => Promise<FSHandle>;
   showOpenFilePicker?: (o: unknown) => Promise<FSHandle[]>;
 };
-const GLB_PICKER_TYPES = [{ description: "CatsUp 模型（glTF 二进制）", accept: { "model/gltf-binary": [".glb"] } }];
+// 选择框：打开认 .catsup + 老 .glb 工程（外来 glb 打开时按内容拒、指去导入）；另存只给 .catsup（账本 UX39）
+const OPEN_PICKER_TYPES = [{ description: "CatsUp 工程文件", accept: { "model/gltf-binary": [...DOC_EXTS] } }];
+const SAVE_PICKER_TYPES = [{ description: "CatsUp 工程文件", accept: { "model/gltf-binary": [DOC_EXT] } }];
 export const supportsSavePicker = (): boolean => typeof fsa.showSaveFilePicker === "function" && window.self === window.top;
 export const supportsOpenPicker = (): boolean => typeof fsa.showOpenFilePicker === "function" && window.self === window.top;
 
@@ -69,9 +73,7 @@ export interface SessionDeps {
 }
 
 const online = () => typeof navigator === "undefined" || navigator.onLine !== false;
-export const bareName = (full: string): string => full.replace(/^.*\//, "").replace(new RegExp(`\\${DOC_EXT}$`, "i"), "");
-export const fullName = (dir: string, bare: string): string => `${dir ? dir + "/" : ""}${bare}${DOC_EXT}`;
-export const isDocName = (p: string): boolean => p.toLowerCase().endsWith(DOC_EXT);
+export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
 const dirOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
 /** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
@@ -141,7 +143,7 @@ export class Session {
   displayName(): string {
     switch (this.home.kind) {
       case "gallery": return bareName(this.home.path);
-      case "file": return this.home.fileName.replace(new RegExp(`\\${DOC_EXT}$`, "i"), "");
+      case "file": return bareName(this.home.fileName);
       case "transient": return this.home.name ?? "新模型";
     }
   }
@@ -390,9 +392,10 @@ export class Session {
   /** 撞名消歧：`base`、`base-1`、`base-2`…（store files.occupied 本机 ∪ 云端）。 */
   private async freeName(dir: string, base: string): Promise<string> {
     const files = requireStore().files;
-    let path = fullName(dir, base);
-    for (let n = 1; n < 100 && (await files.occupied(path)); n++) path = fullName(dir, `${base}-${n}`);
-    return path;
+    const taken = async (stem: string): Promise<boolean> => { for (const e of DOC_EXTS) if (await files.occupied(fullName(dir, stem, e))) return true; return false; };   // 同主干的老 .glb 也算占用：不造「房子.catsup + 房子.glb」双胞胎
+    let stem = base;
+    for (let n = 1; n < 100 && (await taken(stem)); n++) stem = `${base}-${n}`;
+    return fullName(dir, stem);
   }
 
   // ---------- 生命周期 ----------
@@ -513,7 +516,7 @@ export class Session {
   async openLocalPicker(): Promise<boolean> {
     if (!supportsOpenPicker()) return false;
     let handles: FSHandle[];
-    try { handles = await fsa.showOpenFilePicker!({ types: GLB_PICKER_TYPES, multiple: false }); } catch { return false; }   // 用户取消
+    try { handles = await fsa.showOpenFilePicker!({ types: OPEN_PICKER_TYPES, multiple: false }); } catch { return false; }   // 用户取消
     const h = handles[0]; if (!h) return false;
     const file = await h.getFile();
     return this.openLocalBytes(new Uint8Array(await file.arrayBuffer()), file.name, h);
@@ -573,7 +576,7 @@ export class Session {
     const suggested = `${this.displayName()}${DOC_EXT}`;
     if (supportsSavePicker()) {
       let h: FSHandle;
-      try { h = await fsa.showSaveFilePicker!({ suggestedName: suggested, types: GLB_PICKER_TYPES }); } catch { return false; }
+      try { h = await fsa.showSaveFilePicker!({ suggestedName: suggested, types: SAVE_PICKER_TYPES }); } catch { return false; }
       this.lazy = false;
       this.setHome({ kind: "file", handle: h, fileName: h.name });
       return this.save();
@@ -583,11 +586,21 @@ export class Session {
     this.d.setStatus(`已下载 ${suggested}（本浏览器无法原地写回；模型仍未安家）`);
     return false;
   }
-  /** 导出一份（永不清 dirty）。 */
-  exportDownload(): void {
+  /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。 */
+  exportProject(): string {
     const bytes = this.encode(), name = `${downloadName(this.displayName())}${DOC_EXT}`;   // 导出名带导出时间（WeebPaint 同款；user 10-28）
     this.download(bytes, name);
-    this.d.setStatus(`已导出 ${name}`);
+    this.d.setStatus(`${name} 已下载（工程原样，可以开回 CatsUp）`);
+    return name;
+  }
+  /** 导出模型 .glb（导出设计稿 §4 / §5）：给别的软件看的烤好的模型——只写 glTF core，不是工程备份。only = 只导这几份物体（定义 id + 世界变换）。永不清 dirty。 */
+  exportModelGlb(opts: { textures: boolean; lines: boolean; only?: readonly { def: number; xform: Xform; name?: string }[] }): { name: string; bytes: number } {
+    const scene = this.d.editor.sceneRef, doc = documentFromScene(scene, this.displayName(), this.loaded), ids = [...scene.defs.keys()];
+    const only = opts.only?.map((o) => ({ definition: ids.indexOf(o.def), xform: o.xform, ...(o.name !== undefined ? { name: o.name } : {}) })).filter((o) => o.definition >= 0);
+    const bytes = writeGltfModel(doc, { textures: opts.textures, lines: opts.lines, ...(only ? { only } : {}) }), name = `${downloadName(this.displayName())}.glb`;
+    this.download(bytes, name);
+    this.d.setStatus(`${name} 已下载（给别的软件看的模型，不是工程备份）`);
+    return { name, bytes: bytes.byteLength };
   }
   private download(bytes: Uint8Array, name: string): void {
     const url = URL.createObjectURL(new Blob([bytes], { type: "model/gltf-binary" }));
@@ -615,7 +628,7 @@ export class Session {
     const cur = this.home.path;
     const bare = await openInputSheet("重命名", { defaultValue: bareName(cur), validate: (v) => (v.trim() ? (/[\\/:*?"<>|]/.test(v) ? "名字不能含 \\ / : * ? \" < > |" : null) : "名字不能为空") });
     if (bare === null) return null;
-    const target = fullName(dirOf(cur), bare.trim());
+    const target = fullName(dirOf(cur), bare.trim(), docSuffixOf(cur) || DOC_EXT);   // 改名只改主干：老 .glb 工程改名还是 .glb（图库包同款）
     if (target === cur) return cur;
     if (this.lazy) { this.setHome({ kind: "gallery", path: target }); return target; }   // 文件还没建：只换内存里的计划名
     const r = await docFile(cur).tryMove(target);

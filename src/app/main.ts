@@ -24,14 +24,14 @@ import { openObjectWindow } from "./object-window.ts";
 import { MACHINES, openMachineWindow, type Machine } from "./machine-window.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
-import { Session, supportsOpenPicker, supportsSavePicker } from "./session.ts";
+import { Session, bareName, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { createReferenceHost } from "./reference-host.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet, openConfirmSheet, isBusyActive } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, isBusyActive } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_PLANES, GRID_PRESETS, TOOLS, gridPreset, gridStepsFor, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
 import type { CommandId } from "../editor/commands/command.ts";
@@ -416,21 +416,22 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "download" | "cloud" | "export" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
     switch (id) {
       case "newOpen": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
         { id: "new", label: "新建模型", icon: "new" },
-        { id: "open", label: "打开本地 .glb…", icon: "folder-open", hint: "Ctrl+O" },
+        { id: "open", label: "打开本地工程文件…", icon: "folder-open", hint: "Ctrl+O · .catsup（老的 .glb 也行）" },
         { id: "importGlb", label: "导入 glb…", icon: "import", hint: "别的软件导出的；层级变成组件，放进当前位置" },
         { id: "import", label: "导入 OBJ…", icon: "import" },
       ], onPick: menuPick }); break;
       case "exportHub": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
-        ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .glb）", icon: "save-as" }] : []),
-        { id: "download", label: "导出 .glb（下载一份）", icon: "download" },
-        { id: "export", label: "导出 OBJ…", icon: "export", hint: "Blender 逃生口" },
+        ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .catsup）", icon: "save-as" }] : []),
+        // 账本 UX39 / 导出设计稿 §3：后缀说话——.catsup = 工程（原样），.glb / .obj = 给别的软件的模型（不是备份）
+        { id: "exportProject", label: "导出工程文件（.catsup）", icon: "download", hint: "原样一份，可以开回 CatsUp" },
+        { id: "exportModel", label: "导出模型…", icon: "export", hint: "给别的软件：glb / obj（不是工程备份）" },
       ], onPick: menuPick }); break;
       case "new": void session.newDoc(); break;
       case "finalize": void (async () => { if (await openConfirmSheet(`定稿第 ${session.finalRev() + 1} 版？`, "之后锁住几何与材质，只能看、量、导出；☰「改稿」随时解锁（版本号不减）。", { okLabel: "定稿" })) await session.finalize(); })(); break;
@@ -439,9 +440,9 @@ function menuPick(id: MenuId): void | "keep" {
       case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
       case "open": openLocal(); break;
-      case "download": session.exportDownload(); break;
+      case "exportProject": session.exportProject(); break;
+      case "exportModel": void openExportModel(); break;
       case "cloud": if (auth.isSignedIn()) { void cloudSignOut(); } else { cloudSignIn(); } break;
-      case "export": doExport(); break;
       case "import": objInput.click(); break;
       case "importGlb": glbImportInput.click(); break;
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
@@ -835,6 +836,26 @@ matImageInput.addEventListener("change", async () => {
   }
 });
 
+
+// ---------- 导出模型（导出设计稿 ai-docs/20261028-export-design.md §4；账本 UX39）：模态 sheet，给别的软件看的烤好的模型，不是工程备份 ----------
+// 选择记在这台设备上（PREF；设计稿说桌面态，那要 CATSUP_desk 加键 + 冻样本——导出习惯跟设备走也说得通，先这样）
+async function openExportModel(): Promise<void> {
+  const picks = editor.exportPicks(), last = (PREF.get("exportModel") ?? "").split("|");
+  const glbOnly = (v: Readonly<Record<string, string>>): boolean => v.format !== "glb";
+  const v = await openFormSheet("导出模型", [
+    { key: "format", label: "格式", value: last[0] === "obj" ? "obj" : "glb", options: [{ value: "glb", label: "glb" }, { value: "obj", label: "obj" }] },
+    { key: "scope", label: "范围", value: picks.length && last[1] === "sel" ? "sel" : "all", options: [{ value: "all", label: "整个模型" }, ...(picks.length ? [{ value: "sel", label: `选中的 ${picks.length} 个物体` }] : [])], hidden: glbOnly },
+    { key: "textures", label: "贴图", value: last[2] === "none" ? "none" : "embed", options: [{ value: "embed", label: "嵌进文件" }, { value: "none", label: "不带" }], hidden: glbOnly },
+    { key: "lines", label: "边线", value: last[3] === "none" ? "none" : "with", options: [{ value: "with", label: "带" }, { value: "none", label: "不带" }], hidden: glbOnly },
+  ], {
+    okLabel: "导出",
+    note: (x) => `给别的软件看的烤好的模型（${x.format === "obj" ? "三角形；OBJ 只导整个模型、不带贴图" : "三角形 + 材质 + 贴图"}）。不是工程备份——备份用「导出工程文件」。`,
+  });
+  if (!v) return;
+  PREF.set("exportModel", [v.format, v.scope ?? "all", v.textures ?? "embed", v.lines ?? "with"].join("|"));
+  if (v.format === "obj") { doExport(); return; }
+  session.exportModelGlb({ textures: v.textures !== "none", lines: v.lines !== "none", ...(v.scope === "sel" && picks.length ? { only: picks } : {}) });
+}
 
 // ---------- OBJ 逃生口 ----------
 const objInput = $<HTMLInputElement>("objFile");
@@ -1346,7 +1367,7 @@ auth.onAuthChanged((st) => {
   if (galleryHost.isOpen()) galleryHost.refresh();
 });
 window.addEventListener("online", () => { updateSaveStatus(); void afterCloudReachable("online"); }); window.addEventListener("offline", updateSaveStatus);
-// 打开本地 .glb：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
+// 打开本地工程文件（.catsup / 老 .glb）：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
 const glbInput = $<HTMLInputElement>("glbFile");
 function openLocal(): void { if (supportsOpenPicker()) void session.openLocalPicker(); else glbInput.click(); }
 glbInput.addEventListener("change", async () => {
@@ -1356,7 +1377,7 @@ glbInput.addEventListener("change", async () => {
 stage.addEventListener("dragover", (e) => { if (e.dataTransfer?.types.includes("Files")) { e.preventDefault(); } });
 stage.addEventListener("drop", async (e) => {
   const file = e.dataTransfer?.files?.[0];
-  if (!file || !/\.glb$/i.test(file.name)) return;
+  if (!file || !/\.(catsup|glb)$/i.test(file.name)) return;   // 工程（.catsup / 老 .glb）；外来 glb 由 openLocalBytes 按内容拒、指去导入
   e.preventDefault();
   await session.openLocalBytes(new Uint8Array(await file.arrayBuffer()), file.name, null);
 });
@@ -1401,10 +1422,10 @@ function bootRestore(): Promise<RestoreOutcome> {
     openBlankCanvas: async () => {},      // 无库：开机就是 transient（Session 初始态），零变更
     onNoGallery: () => {},
     onOpened: (name) => note("boot", `restored "${name}"`),
-    onNotFound: (name) => { note("boot", `restore failed "${name}" → fresh canvas (slate kept)`); notify({ text: `上次的模型「${name.replace(/\.glb$/i, "")}」本机没有副本；登录后会再试`, level: "warning" }); },
+    onNotFound: (name) => { note("boot", `restore failed "${name}" → fresh canvas (slate kept)`); notify({ text: `上次的模型「${bareName(name)}」本机没有副本；登录后会再试`, level: "warning" }); },
     getRestoreAttempt: () => readSlate().restoreAttempt,
     setRestoreAttempt: (name) => setRestoreAttempt(name),
-    onCrashLoopSkipped: (name) => notify({ text: `上次打开「${name.replace(/\.glb$/i, "")}」时崩溃了，这次没有自动打开——可从图库手动打开`, level: "warning" }),
+    onCrashLoopSkipped: (name) => notify({ text: `上次打开「${bareName(name)}」时崩溃了，这次没有自动打开——可从图库手动打开`, level: "warning" }),
     isDocLockedElsewhere: async () => false,   // 双实例互认（Web Locks）未移植——审计 §5 后续
     onLockedElsewhere: () => {},
   });

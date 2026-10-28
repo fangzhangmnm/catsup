@@ -8,8 +8,13 @@ export const AUTHORITY = "https://login.microsoftonline.com/consumers";
 export const SCOPES = ["Files.ReadWrite.AppFolder", "offline_access"];
 export const MSAL_URL = "./vendor/msal/msal-browser.min.js";
 
-/** 文档扩展名（契约 §2：文件 = 一个 .glb；身份 = `[夹/]<名>.glb`，路径即身份）。 */
-export const DOC_EXT = ".glb";
+/** 工程文件后缀（2026-10-28 账本 UX39 / 导出设计稿 §6：.catsup = glb 换皮，VRoid 的 .vrm 同款；身份 = `[夹/]<名>.catsup`，路径即身份）。
+ *  新建 / 另存 / 导出工程文件都写它。为什么不是 .catsup.glb：别的软件开了再存会把 catsup 这个名字带走，一份烤过的模型顶着工程的名字。 */
+export const DOC_EXT = ".catsup";
+/** 老工程文件的后缀（≤ v0.16.7 写的 .glb 工程）：永远照开、不改名（改叫法不迁移旧数据）；认工程靠内容（CATSUP_document），不靠后缀。 */
+export const LEGACY_DOC_EXT = ".glb";
+/** 认得的工程后缀（新的在前）。 */
+export const DOC_EXTS: readonly string[] = [DOC_EXT, LEGACY_DOC_EXT];
 /** 图库里不当文档、也不当杂物显示的名字：写入方半成品。 */
 export const HIDDEN_NAME_RE = /(^|\/)([^/]*\.part|~[^/]*|[^/]*\.tmp)$/i;
 /** 图库家文档的自动保存：编辑后空闲这么久落本地（并在线时推云）——WeebPaint 无地标准 T-crash 节律同值。 */

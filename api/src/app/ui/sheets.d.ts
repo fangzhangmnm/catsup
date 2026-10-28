@@ -34,3 +34,23 @@ export interface Choice<T> {
     onPick?: () => void;
 }
 export declare function openChoiceSheet<T>(title: string, message: string, choices: Choice<T>[]): Promise<T | null>;
+/** 表单 sheet 的一行：几个选项选一个（分段钮）；hidden(当前值) = true 时这一行不露（如 OBJ 没有贴图 / 边线可选）。 */
+export interface FormField {
+    key: string;
+    label: string;
+    options: readonly {
+        value: string;
+        label: string;
+    }[];
+    value: string;
+    hidden?: (v: Readonly<Record<string, string>>) => boolean;
+}
+export interface FormOpts {
+    okLabel?: string;
+    note?: (v: Readonly<Record<string, string>>) => string;
+}
+/**
+ * 表单 sheet → 各行的值 | null（取消 / Esc / 点背板）。模态：锁屏、认真答、答完消失（UX 心智模型 §8 补 4「模态 sheet」；导出模型就是它）。
+ * 每改一个值：重画（隐藏行跟着变）+ 说明行按 note(值) 重算。created 2026-10-28 by Claude Opus 5.5
+ */
+export declare function openFormSheet(title: string, fields: readonly FormField[], opts?: FormOpts): Promise<Record<string, string> | null>;

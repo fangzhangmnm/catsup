@@ -10,7 +10,7 @@ import { withBusy, openChoiceSheet, openConfirmSheet, openGateChoiceSheet } from
 import { showNotice, type NoticeHandle } from "./app/ui/notice.ts";
 import { reportError } from "./app/error-funnel.ts";
 import { note } from "./app/debug-log.ts";
-import { DOC_EXT } from "./config.ts";
+import { bareName } from "./app/doc-names.ts";
 
 // 库 16 个 busy 文案 key → 中文（孵化中项目不走 i18n SSoT；毕业时搬）。穷举 Record：库加 key 本表漏映 = 编译错。
 const STORE_TEXT: Record<StoreTextKey, (p?: StoreTextParams) => string> = {
@@ -31,7 +31,7 @@ const STORE_TEXT: Record<StoreTextKey, (p?: StoreTextParams) => string> = {
   "folder.creating": () => "正在新建文件夹…",
   "folder.deleting": () => "正在删除文件夹…",
 };
-const stripExt = (n: string): string => n.replace(/^.*\//, "").replace(new RegExp(`\\${DOC_EXT}$`, "i"), "");
+const stripExt = bareName;   // .catsup / 老 .glb 都剥（doc-names.ts）
 
 const QUIET_KEYS = new Set<StoreTextKey>(["sync.pushing", "file.renaming", "file.pulling", "cloud.checking"]);
 let _quietDepth = 0;

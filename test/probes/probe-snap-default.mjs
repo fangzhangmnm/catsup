@@ -15,7 +15,7 @@ await page.click(".gizmo-snap"); await page.waitForTimeout(100);
 await page.evaluate(() => globalThis.__catsup.session.beginLazyBlank()); await page.waitForTimeout(300); r.afterLazy = await st();
 await page.evaluate(() => globalThis.__catsup.session.newDoc()); await page.waitForTimeout(300);
 await page.evaluate(() => globalThis.__catsup.editor.commitOp({ op: "addEdges", segs: [[{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }]] }));
-const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportDownload())]);
+const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportProject())]);
 const bytes = [...(await (await import("node:fs")).promises.readFile(await dl.path()))];
 await page.reload({ waitUntil: "load" }); await page.waitForTimeout(1500);
 await page.click(".gizmo-snap"); await page.waitForTimeout(100);

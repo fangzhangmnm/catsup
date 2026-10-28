@@ -37,14 +37,14 @@ await page.waitForTimeout(1300);
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "rect drawn");
 eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "dirty", "save btn dirty"); eq(await page.evaluate(() => document.title), "CatsUp", "dirty 时 document.title 照旧只是 CatsUp（脏不脏看保存钮）");
 
-// 无地导出 .glb（下载）→ node 侧读回
-const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportDownload())]);
-const dlPath = path.join(out, "smoke-export.glb");
+// 无地导出工程文件 .catsup（下载；2026-10-28 账本 UX39 起工程文件叫 .catsup）→ node 侧读回
+const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportProject())]);
+const dlPath = path.join(out, "smoke-export.catsup");
 await dl.saveAs(dlPath);
 const bytes = new Uint8Array(readFileSync(dlPath));
 const doc = readCatsup(bytes);
-eq(Kernel.fromBrep(doc.root.brep).faces().length, 1, "exported .glb reads back (1 face)");
-eq(!!doc.thumbnail && doc.thumbnail.bytes.length > 500, true, `exported .glb carries a JPEG thumbnail (${doc.thumbnail?.bytes.length ?? 0} B)`);
+eq(Kernel.fromBrep(doc.root.brep).faces().length, 1, "exported .catsup reads back (1 face)");
+eq(!!doc.thumbnail && doc.thumbnail.bytes.length > 500, true, `exported .catsup carries a JPEG thumbnail (${doc.thumbnail?.bytes.length ?? 0} B)`);
 console.log("  · export size", bytes.byteLength, "B");
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-1-editor.png") });
 
@@ -56,7 +56,7 @@ if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke
 eq(await page.evaluate(() => document.getElementById("sheetTitle").textContent), "这个模型还没有家", "leave gate sheet for dirty transient");
 await page.click("#sheetChoices .sheet-choice.danger");
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "file");
-eq(await page.evaluate(() => globalThis.__catsup.session.home.fileName), "smoke-export.glb", "opened local file → file home");
+eq(await page.evaluate(() => globalThis.__catsup.session.home.fileName), "smoke-export.catsup", "opened local file → file home");
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "local open restores 1 face");
 eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "local-only", "save btn: file, clean = local-only");
 
@@ -68,7 +68,7 @@ if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke
 await page.click("#galleryNew");
 await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
 const plannedPath = await page.evaluate(() => globalThis.__catsup.session.home.path);
-eq(/^\d{8}-[0-9a-f]{4}\.glb$/.test(plannedPath), true, `new doc gets a gallery-home date name (${plannedPath})`);
+eq(/^\d{8}-[0-9a-f]{4}\.catsup$/.test(plannedPath), true, `new doc gets a gallery-home date name (${plannedPath})`);
 // v0.5.7 lazyblank（WeebPaint P1.5）：新建 = 日期名只在内存，**不建文件**；空白期 save 钮 none、显式保存诚实回话、回执条不指它
 eq(await page.evaluate(() => globalThis.__catsup.session.lazy), true, "new doc is lazyblank (no file until first stroke)");
 eq(await page.evaluate((p) => globalThis.__catsup.store().files.occupied(p), plannedPath), false, "untouched new doc created NO file");
@@ -96,7 +96,7 @@ eq(await page.evaluate(() => globalThis.__catsup.session.dirty()), false, "clean
 eq(await page.evaluate(() => document.getElementById("btnSave").dataset.state), "local-only", "save btn: gallery home, configured but signed out = local-only（斜杠云）");
 await page.evaluate(() => globalThis.__catsup.galleryHost.open());
 await page.waitForTimeout(1200);
-const tileText = await page.evaluate((p) => document.getElementById("galleryMount").textContent.includes(p.replace(/\.glb$/, "")), gpath);
+const tileText = await page.evaluate((p) => document.getElementById("galleryMount").textContent.includes(p.replace(/\.(catsup|glb)$/, "")), gpath);
 eq(tileText, true, "gallery lists the saved doc");
 await page.waitForTimeout(1500);
 const thumb = await page.evaluate(() => ({ imgs: document.querySelectorAll("#galleryMount img").length, stats: globalThis.__catsup.galleryHost.thumbStats() }));
@@ -172,7 +172,7 @@ await page.reload({ waitUntil: "load" });
 await page.waitForFunction(() => globalThis.__catsup?.session?.home?.kind === "gallery" && /-恢复/.test(globalThis.__catsup.session.home.path), null, { timeout: 15000 }).catch(() => {});
 await page.waitForTimeout(300);
 const adoptedPath = await page.evaluate(() => globalThis.__catsup.session.home.path ?? "");
-eq(/^smoke-export-恢复(-\d+)?\.glb$/.test(adoptedPath), true, `pending record auto-adopted into gallery as <name>-恢复 (${adoptedPath})`);
+eq(/^smoke-export-恢复(-\d+)?\.catsup$/.test(adoptedPath), true, `pending record auto-adopted into gallery as <name>-恢复 (${adoptedPath})`);
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), facesBefore, "adopted geometry matches the snapshot");
 eq(await page.evaluate(() => globalThis.__catsup.session.dirty()), false, "adopted doc saved into gallery (clean)");
 eq((await page.evaluate(() => globalThis.__catsup.crash.listAtBoot())).length, 0, "pending record consumed");
@@ -188,7 +188,7 @@ await page.evaluate(() => { const t = [...document.querySelectorAll("#noticeStac
 await page.waitForFunction(() => /幽灵-恢复/.test(globalThis.__catsup.session.home.path ?? ""), null, { timeout: 15000 }).catch(() => {});
 await page.waitForTimeout(300);
 const ghostPath = await page.evaluate(() => globalThis.__catsup.session.home.path ?? "");
-eq(/^幽灵-恢复(-\d+)?\.glb$/.test(ghostPath), true, `crash frame recovered into gallery (${ghostPath})`);
+eq(/^幽灵-恢复(-\d+)?\.catsup$/.test(ghostPath), true, `crash frame recovered into gallery (${ghostPath})`);
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "recovered geometry (1 face)");
 eq((await page.evaluate(() => globalThis.__catsup.crash.listAtBoot())).length, 0, "crash record consumed");
 if (!process.env.SKIP_SHOTS) await page.screenshot({ path: path.join(out, "smoke-7-recovered.png") });

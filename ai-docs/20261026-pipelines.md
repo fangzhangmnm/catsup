@@ -277,3 +277,8 @@ flowchart LR
 
 - 「对称」（镜像编辑 / 强行对称 + 镜像面）= `Scene.meshMirrors`（按定义 id；克隆共享 = 不进撤销）→ 写文件时进 mesh 项 `mirror`（`CATSUP_mesh` 1.1 → 1.2，可选键；老读者提示一次照开）→ 读回来填表。改设置 = `Editor._revision++`（存盘钮亮）。碰多少东西：O(网格体定义数)。
 
+## 追记 2026-10-28 晚（v0.16.8，Claude Opus 5.5）：⑨ 文件分成「工程」和「模型」两条（导出设计稿 `20261028-export-design.md`；账本 UX39）
+
+- **工程**（保存 / 另存 / ☰「导出工程文件」）= 同一条：`Session.encode()` → `writeCatsup`，后缀 **`.catsup`**（老 `.glb` 工程照开、改名保留后缀；认工程靠内容 `CATSUP_document`）。「导出工程文件」= `encode()` 逐字下载，永不清脏。碰多少东西：照旧（随整个模型）。
+- **模型**（☰「导出模型…」模态 sheet → glb）= `writeGltfModel(doc, { textures, lines, only? })`：只写 glTF 2.0 core——只烤够得着的定义（整个模型 = 从根往下；选中的物体 = 从那几份往下）、节点树、材质（贴图可关）、LINES 可关；不写 `CATSUP_*` / 缩略图 / 参考牌组 / 携带键 / B-rep 流。bake 加 `BakeOptions.lines`。碰多少东西：随导出范围。OBJ 照旧走 `obj-io.ts`（整个模型）。
+- 名字：`src/app/doc-names.ts`（`docSuffixOf` / `bareName` / `fullName(dir, stem, ext = .catsup)`）；云库种类表两行同一个 kind（`.catsup` 新、`.glb` 老，`app-store.ts DOC_KINDS`）；新名字查占用时同主干的 `.glb` 也算（不造双胞胎）。

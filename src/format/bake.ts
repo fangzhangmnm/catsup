@@ -137,13 +137,15 @@ export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [nu
 
 /** 材质槽 → glTF core 材质索引 + 贴图物理尺寸（bake 按材质拆 primitive、算 TEXCOORD_0 用）。 */
 export interface BakeMaterials { slotToCore: (slot: number) => number | undefined; sizeOfCore: (core: number) => readonly [number, number] | null; }
+/** bake 的取舍（「导出模型」sheet 用；导出设计稿 §4）：lines = false → 不出 LINES primitive（有的查看器画出来怪）。缺省 = 和工程文件里那份一样。 */
+export interface BakeOptions { lines?: boolean }
 
 /**
  * 把一个 definition 的 B-rep 烘成 glTF mesh（accessor 索引从 accessorBase 起）。软边不进 LINES（圆柱侧面不出竖线）。
  * 贴图纪元（2026-10-21）：按材质拆 primitive（契约「按 (材质, tag) 拆 prim」）——默认材质一份（共享顶点，无 UV）；每种材质一份
  * 自己的 POSITION（逐角，不共享）+ 有贴图时 TEXCOORD_0 = 沿面平面确定性基的平面投影 / 物理尺寸（契约「默认不存 UV」档：三方看到的就是 app 的默认贴法）。
  */
-export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult {
+export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase: number, mats?: BakeMaterials, opts: BakeOptions = {}): BakeResult {
   const pos: number[] = [];
   let min = [Infinity, Infinity, Infinity], max = [-Infinity, -Infinity, -Infinity];
   for (const p of snap.vertices) {
@@ -165,7 +167,7 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
     (byMat.get(key) ?? byMat.set(key, []).get(key)!).push(i);
   });
   const soft = new Set([...(snap.edgeLayers?.soft ?? []), ...(snap.edgeLayers?.hidden ?? []), ...(snap.edgeLayers?.fold ?? [])]);   // 软边 / 隐藏的边 / 折线（DT87：面内部的折痕，屏幕上不画）不出线——导出的 = 屏幕上的（2026-10-26 补折线）
-  const lines: number[] = snap.edges.flatMap((e, i) => (soft.has(i) ? [] : [e[0], e[1]]));
+  const lines: number[] = opts.lines === false ? [] : snap.edges.flatMap((e, i) => (soft.has(i) ? [] : [e[0], e[1]]));
   const idxType = pickUintType(Math.max(0, snap.vertices.length - 1));
   const idxGl = idxType === "uint8" ? GL_UNSIGNED_BYTE : idxType === "uint16" ? GL_UNSIGNED_SHORT : GL_UNSIGNED_INT;
   const idxEnc = idxType === "uint64" ? "uint32" : idxType;   // glTF 索引最大 uint32；2^32 顶点以上不在 v1 范围
@@ -234,7 +236,7 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
  * 以前没写 NORMAL（glTF：查看器自己按三角形算平面法向 = 一律一棱一棱）、且约一半三角形反了（user 10-27「导出的时候面的法向一堆错误」）。
  * LINES = 画线的边（mesh/edge-smooth.ts edgeSoft 判：手标软 / 没手标且默认平滑判成平滑的不出；隐藏的不出）+ 裸线，用全体顶点那份 POSITION（accessorBase）。
  */
-export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?: BakeMaterials): BakeResult {
+export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?: BakeMaterials, opts: BakeOptions = {}): BakeResult {
   const accessors: Record<string, unknown>[] = [], targets = new Map<number, number>(), primitives: Record<string, unknown>[] = [];
   const nV = Math.floor(m.positions.length / 3);
   if (!nV) return { accessors, bufferViewTargets: targets, mesh: { primitives } };
@@ -287,7 +289,7 @@ export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?
   }
   // 线：画线的边（不软、不隐藏）——面上的边看面显没显，裸线看自己
   const lines: number[] = [];
-  for (const e of k.edges()) {
+  for (const e of opts.lines === false ? [] : k.edges()) {
     const fl = k.edgeFlags[e], faces = k.eFaces(e);
     if (fl & F_HIDDEN) continue;
     if (!faces.length) { if (fl & F_WIRE) lines.push(k.edgeA[e], k.edgeB[e]); continue; }

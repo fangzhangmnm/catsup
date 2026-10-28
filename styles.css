@@ -325,6 +325,13 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .sheet-choice { padding: 10px 14px; border-radius: 10px; border: 1px solid var(--line-strong); background: var(--paper); color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .sheet-choice.primary { background: var(--accent); color: #fff; border-color: transparent; }
 .sheet-choice.danger { color: var(--danger); }
+/* 表单 sheet（openFormSheet；导出模型…）：一行 = 标签 + 分段单选钮（2026-10-28 Opus） */
+.sheet-form { gap: 10px; }
+.sheet-field { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.sheet-field-label { color: var(--muted); font-size: 13px; min-width: 3em; }
+.sheet-seg { display: flex; gap: 4px; flex-wrap: wrap; }
+.sheet-seg button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--paper); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
+.sheet-seg button[aria-checked="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .busy-overlay { position: fixed; inset: 0; z-index: var(--z-busy); background: rgba(0,0,0,.25); display: grid; place-items: center; cursor: default; }
 .busy-overlay[hidden] { display: none; }

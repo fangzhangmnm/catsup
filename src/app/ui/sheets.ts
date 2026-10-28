@@ -136,3 +136,47 @@ export function openChoiceSheet<T>(title: string, message: string, choices: Choi
     _open = onCancel; _show();
   });
 }
+
+/** 表单 sheet 的一行：几个选项选一个（分段钮）；hidden(当前值) = true 时这一行不露（如 OBJ 没有贴图 / 边线可选）。 */
+export interface FormField { key: string; label: string; options: readonly { value: string; label: string }[]; value: string; hidden?: (v: Readonly<Record<string, string>>) => boolean }
+export interface FormOpts { okLabel?: string; note?: (v: Readonly<Record<string, string>>) => string }
+/**
+ * 表单 sheet → 各行的值 | null（取消 / Esc / 点背板）。模态：锁屏、认真答、答完消失（UX 心智模型 §8 补 4「模态 sheet」；导出模型就是它）。
+ * 每改一个值：重画（隐藏行跟着变）+ 说明行按 note(值) 重算。created 2026-10-28 by Claude Opus 5.5
+ */
+export function openFormSheet(title: string, fields: readonly FormField[], opts: FormOpts = {}): Promise<Record<string, string> | null> {
+  _assertNotBusy("form");
+  return new Promise((resolve) => {
+    _reset();
+    g.title().textContent = title;
+    const vals: Record<string, string> = Object.fromEntries(fields.map((f) => [f.key, f.value]));
+    const box = g.choices(); box.hidden = false; box.classList.add("sheet-form");
+    const render = (): void => {
+      box.textContent = "";
+      for (const f of fields) {
+        if (f.hidden?.(vals)) continue;
+        const row = document.createElement("div"); row.className = "sheet-field"; row.dataset.field = f.key;
+        const lab = document.createElement("span"); lab.className = "sheet-field-label"; lab.textContent = f.label; row.appendChild(lab);
+        const seg = document.createElement("div"); seg.className = "sheet-seg"; seg.setAttribute("role", "radiogroup"); seg.setAttribute("aria-label", f.label);
+        for (const o of f.options) {
+          const b = document.createElement("button"); b.type = "button"; b.textContent = o.label; b.dataset.value = o.value;
+          b.setAttribute("role", "radio"); b.setAttribute("aria-checked", String(vals[f.key] === o.value));
+          b.addEventListener("click", () => { vals[f.key] = o.value; render(); });
+          seg.appendChild(b);
+        }
+        row.appendChild(seg); box.appendChild(row);
+      }
+      const n = opts.note?.(vals) ?? "";
+      g.message().textContent = n; g.message().hidden = !n;
+    };
+    if (opts.okLabel) g.confirm().textContent = opts.okLabel;
+    const done = (v: Record<string, string> | null): void => { g.confirm().removeEventListener("click", onOk); g.cancel().removeEventListener("click", onCancel); box.classList.remove("sheet-form"); _hide(); resolve(v); };
+    const onOk = (): void => { const out: Record<string, string> = {}; for (const f of fields) if (!f.hidden?.(vals)) out[f.key] = vals[f.key]; done(out); };
+    const onCancel = (): void => done(null);
+    g.confirm().addEventListener("click", onOk); g.cancel().addEventListener("click", onCancel);
+    render();
+    _open = onCancel; _show();
+    setTimeout(() => g.confirm().focus(), 0);
+  });
+}
+

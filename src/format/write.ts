@@ -7,7 +7,7 @@ import { APP_VERSION } from "../version.ts";
 import { BinBuilder } from "./binary.ts";
 import { encodeGlb } from "./glb.ts";
 import { canonicalize, encodeBrep, type CatsupBrepJson, type ViewSink } from "./brep-codec.ts";
-import { bakeDefinition, bakeMesh, mergeBrep } from "./bake.ts";
+import { bakeDefinition, bakeMesh, mergeBrep, type BakeMaterials } from "./bake.ts";
 import { encodeMeshItem } from "./mesh-payload.ts";
 import type { CatsupDocument, DefinitionDoc } from "./document.ts";
 import { stampOf } from "./migrate/index.ts";
@@ -178,6 +178,84 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       },
       ...(refsExt ? { CATSUP_references: refsExt } : {}),
     },
+  };
+  const binBytes = bin.finish();
+  (json.buffers as Record<string, unknown>[])[0] = { byteLength: binBytes.byteLength };
+  return encodeGlb(json, binBytes);
+}
+
+// ---------------- 「导出模型」：给别的软件看的烤好的模型（导出设计稿 ai-docs/20261028-export-design.md §5；账本 UX39）----------------
+// 工程文件（writeCatsup）本来就带烤好的三角形给别的查看器，但它是工程：.catsup、原样。这里写的是**交付物**——只有 glTF 2.0 core：
+// 节点层级 + 三角形（+ 线）+ 材质（+ 贴图）；不带任何 CATSUP_* 扩展、不带参考图 / 缩略图 / 携带的未知键 / 硬表面数据。开回 CatsUp 是「别的软件的 glb」（只能导入）。
+// created 2026-10-28 by Claude Opus 5.5
+
+/** 「导出模型」的选择：textures = 贴图嵌进文件（false = 只留底色）；lines = 带边线 primitive；only = 只导这几份物体（世界变换 + 定义下标；缺 = 整个模型）。 */
+export interface ModelExportOpts {
+  textures: boolean;
+  lines: boolean;
+  only?: readonly { definition: number; xform: Xform; name?: string }[];
+}
+
+export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint8Array {
+  const bin = new BinBuilder();
+  const bufferViews: Record<string, unknown>[] = [];
+  const sink: ViewSink = { add(bytes) { const span = bin.push(bytes); bufferViews.push({ buffer: 0, byteOffset: span.byteOffset, byteLength: span.byteLength }); return bufferViews.length - 1; } };
+  const images: Record<string, unknown>[] = [], textures: Record<string, unknown>[] = [];
+  const materials = doc.materials.map((m) => {
+    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [m.color[0], m.color[1], m.color[2], 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
+    if (m.texture && opts.textures) {
+      images.push({ bufferView: sink.add(m.texture.bytes), mimeType: m.texture.mimeType, name: m.name });
+      textures.push({ source: images.length - 1 });
+      (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: textures.length - 1 };
+    }
+    return out;
+  });
+  // 只烤够得着的定义（整个模型 = 从根往下；只导选中的 = 从那几份往下）
+  const reach = new Set<number>();
+  const visit = (i: number, depth: number): void => { if (reach.has(i) || depth > 32 || !doc.definitions[i]) return; reach.add(i); for (const inst of doc.definitions[i].instances) visit(inst.definition, depth + 1); };
+  if (opts.only) for (const o of opts.only) visit(o.definition, 0); else visit(doc.rootIndex, 0);
+  const accessors: Record<string, unknown>[] = [], meshes: Record<string, unknown>[] = [];
+  const meshOf: number[] = doc.definitions.map(() => -1);
+  for (const i of [...reach].sort((a, b) => a - b)) {
+    const d = doc.definitions[i], slots = d.materialSlots;
+    const mats: BakeMaterials = {
+      slotToCore: (slot) => { const c = slots[slot]; return c !== undefined && c in doc.materials ? c : undefined; },
+      sizeOfCore: (core) => (opts.textures ? doc.materials[core]?.texture?.sizeM ?? null : null),   // 不带贴图 = 不出 UV
+    };
+    const baked = d.kind === "mesh" && d.mesh ? bakeMesh(d.mesh, sink, accessors.length, mats, { lines: opts.lines })
+      : bakeDefinition(mergeBrep([canonicalize(d.brep), ...d.groups.map((g) => canonicalize(g.brep))]), sink, accessors.length, mats, { lines: opts.lines });
+    for (const [bi, t] of baked.bufferViewTargets) bufferViews[bi] = { ...bufferViews[bi], target: t };
+    accessors.push(...baked.accessors);
+    if ((baked.mesh.primitives as unknown[]).length) { meshOf[i] = meshes.length; meshes.push({ name: d.name, ...baked.mesh }); }
+  }
+  const nodes: Record<string, unknown>[] = [];
+  let anyHidden = false;
+  const buildNode = (defIndex: number, depth: number, extra: Record<string, unknown>, hidden: boolean): number => {
+    const d = doc.definitions[defIndex], idx = nodes.length;
+    if (hidden) anyHidden = true;
+    const node: Record<string, unknown> = { name: d.name, ...(meshOf[defIndex] >= 0 ? { mesh: meshOf[defIndex] } : {}), ...(hidden ? { extensions: { KHR_node_visibility: { visible: false } } } : {}), ...extra };
+    nodes.push(node);
+    if (depth > 32) return idx;
+    const children: number[] = [];
+    for (const inst of d.instances) if (doc.definitions[inst.definition]) children.push(buildNode(inst.definition, depth + 1, { matrix: xformToGltfMatrix(inst.xform), ...(inst.name !== undefined ? { name: inst.name } : {}) }, !!inst.hidden));
+    if (children.length) node.children = children;
+    return idx;
+  };
+  if (opts.only) {
+    nodes.push({ name: doc.root.name });
+    const kids = opts.only.map((o) => buildNode(o.definition, 1, { matrix: xformToGltfMatrix(o.xform), ...(o.name !== undefined ? { name: o.name } : {}) }, false));
+    if (kids.length) nodes[0].children = kids;
+  } else buildNode(doc.rootIndex, 0, {}, false);
+  const json: Record<string, unknown> = {
+    asset: { version: "2.0", generator: `CatsUp ${APP_VERSION}` },   // 只用 2.0 的东西：写 2.0，别的软件最好认
+    ...(anyHidden ? { extensionsUsed: ["KHR_node_visibility"] } : {}),
+    buffers: [{ byteLength: 0 }],
+    bufferViews, accessors,
+    ...(images.length ? { images } : {}),
+    ...(textures.length ? { textures } : {}),
+    ...(materials.length ? { materials } : {}),
+    meshes, nodes,
+    scenes: [{ nodes: [0] }], scene: 0,
   };
   const binBytes = bin.finish();
   (json.buffers as Record<string, unknown>[])[0] = { byteLength: binBytes.byteLength };

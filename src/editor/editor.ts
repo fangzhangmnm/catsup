@@ -543,6 +543,12 @@ export class Editor {
   get sceneRef(): Scene { return this.scene; }
   /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
   worldGeom(): WorldView { return this.worldView(); }
+  /** 「导出模型 · 选中的物体」（导出设计稿 §4）：选中的组件实例（这一层里的；世界变换 = 这一层的变换 ∘ 实例的变换）。没选组件 = 空。 */
+  exportPicks(): { def: number; xform: Xform; name: string }[] {
+    const s = this.scene, ctxDef = s.defOfContext(this.ctx), X = this.ctxXform(), out: { def: number; xform: Xform; name: string }[] = [];
+    for (const p of this.selectedPools.values()) { if (p.kind !== "instance") continue; const inst = s.def(ctxDef).instances.get(p.instance); if (inst) out.push({ def: inst.def, xform: compose(X, inst.xform), name: inst.name ?? s.def(inst.def).name }); }
+    return out;
+  }
   get context(): EditContext { return this.ctx; }
   get renderer3(): Renderer3 { return this.r3; }
   get revision(): number { return this._revision; }

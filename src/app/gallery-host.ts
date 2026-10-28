@@ -1,7 +1,7 @@
 // gallery-host.ts —— @internal/gallery 0.8.7 的 CatsUp 消费面（JRB gallery-host.ts 同形）。包出屏幕 + 动词 + 数据面；本文件只出：
 //   Vue 注入（递**整个模块** = 用构建时编好的模板、运行时零 eval，0.8.4；Teleport 也在里面 = 0.6.2 卡片 ⋯ 菜单出卡片进菜单 band）、
-//   DocHost（编辑器端口 → session）、policy（无图片；缩略图 = .glb 字节头 peek，种类 "glb"）、记忆（当前夹走 device-kv）、名册库名（0.8.7 起归宿主）。
-//   哪些是文档、主干怎么切、显示名去 .glb、改名只编辑主干——全由 store 的种类表说（gallery 0.6.0 起吃 store.identifiers；宿主不再给 naming / isDoc / isZipDoc / hasThumb）。
+//   DocHost（编辑器端口 → session）、policy（无图片；缩略图 = 工程文件（.catsup / 老 .glb，都是 glb 容器）字节头 peek，种类 "glb"）、记忆（当前夹走 device-kv）、名册库名（0.8.7 起归宿主）。
+//   哪些是文档、主干怎么切、显示名去后缀、改名只编辑主干（后缀保留）——全由 store 的种类表说（gallery 0.6.0 起吃 store.identifiers；宿主不再给 naming / isDoc / isZipDoc / hasThumb）。
 //   卡片上的「推送到云端」0.8.1 起不存在：没同步好的行只有「处理…」→ store file.resolve()，由人在库弹的面里三选一（user 2026-10-16「禁止越狱」）。
 //   回收站 + 备份箱 = 搁置区（0.5.0；`GalleryView = files | trash | backup`），清空钮包自带（0.8.6），宿主只切视图。
 //   缩略缓存 = 包的 idbThumbStore（独立 IDB `THUMB_DB_NAME`，key = 文件身份（0.8.7 起全名；0.4.0 是裸名 → 旧条目成孤儿，首开各缺一次、可再生）、token = 时间/大小，
@@ -21,7 +21,7 @@ import { openDebugLogSheet } from "./debug-log-sheet.ts";
 export interface GalleryHostDeps {
   mountEl: HTMLElement;
   fullEl: HTMLElement;
-  /** 正在编辑的那个模型（身份 = 全路径 `夹/名.glb`）；没有图库家 = null。 */
+  /** 正在编辑的那个模型（身份 = 全路径 `夹/名.catsup`，老的 `夹/名.glb`）；没有图库家 = null。 */
   activeName: () => string | null;
   /** 打开一个模型（身份）。true = 编辑器已切过去。 */
   openDoc: (identifier: string) => Promise<boolean>;
@@ -79,7 +79,7 @@ export function initGalleryHost(d: GalleryHostDeps) {
     ui: { iconHtml: (name, opts) => iconHtml(name, opts), tilePlaceholderHtml: () => iconHtml("object" as never) },
     policy: {
       isImage: () => false,
-      // 缩略图 = .glb 字节头里的 asset.thumbnail（契约 §3：BIN 首段）。store getHead：本机 slice / 纯云端 byte-range，
+      // 缩略图 = 工程文件字节头里的 asset.thumbnail（契约 §3：BIN 首段）。store getHead：本机 slice / 纯云端 byte-range，
       //   先 64 KB，头片不够（JSON 大 / 缩略图靠后）按 headBytesNeeded 补拉，最多三步。契约：null = 确定没有（缓存）；抛 = 未知（不缓存）。
       thumbs: {
         kinds: ["glb"],

@@ -5,7 +5,7 @@
 // 表态（pwa-cloud-store skill §2，每条都是决定不是占位）：
 //   provider   OneDrive personal only（authority /consumers，硬规则 #7）+ AppFolder（硬规则 #6）；CLIENT_ID 空 = 未配置纯无地。
 //              transport 三个显式开关（store 0.17.1 / 0.17.2，库默认全关）这里开——理由见 GRAPH_TRANSPORT 注释。
-//   docKinds   一行 `{ kind:"glb", suffix:".glb", container:"raw" }`（store 0.16 文档种类表，必填）。身份从 0.5.0 起就是全名 `夹/名.glb`（session.fullName），
+//   docKinds   两行同一个 kind：`.catsup`（2026-10-28 起新文档）+ 老的 `.glb`（store 0.16 文档种类表，必填）。身份从 0.5.0 起就是全名 `夹/名.glb`（session.fullName），
 //              云端名 = 身份、不加密 → 和 0.15.2 一个字节不变，存量零迁移。切身份的唯一库入口 = store.identifiers；app 内部的裸名 ↔ 全名仍在 session 边界转（bareName / fullName）。
 //   persistence "app-managed"：挂上图库 / 首次保存的用户手势里调 requestStoragePersistence()。
 //   encryption  零 codec 实例（不加密）。 reconcilePolicy "app-driven"：focus / online / 前台 60 s 轮询由 app 驱动。
@@ -24,13 +24,14 @@
 //   谁就把「开机秒开」变回「开机等一次 Graph」。登录落地后的新鲜度由 session.refreshOpenDoc（pullIfClean，trustHints:false）后台补。
 import { createStore, createOneDriveProvider, requestStoragePersistence, isCached, isDirty, DEFAULT_GRAPH_TIMEOUTS } from "@internal/store";
 import type { Store, RawFile, DocKind, GraphTransportOptions } from "@internal/store";
-import { APP_ID, AUTHORITY, CLIENT_ID, DOC_EXT, HIDDEN_NAME_RE, MSAL_URL, SCOPES } from "./config.ts";
+import { APP_ID, AUTHORITY, CLIENT_ID, DOC_EXT, HIDDEN_NAME_RE, LEGACY_DOC_EXT, MSAL_URL, SCOPES } from "./config.ts";
 import { storeUI } from "./store-ui.ts";
 import { appEncryption } from "./encryption.ts";
 import { isCatsupDocumentHead } from "./format/peek.ts";
 
-/** 文档种类表（store 0.16）：只有 .glb 一行；裸文件不是 zip。图库包据它认文档 / 切主干 / 改名只编辑主干。 */
-export const DOC_KINDS: readonly DocKind[] = [{ kind: "glb", suffix: DOC_EXT, container: "raw" }];
+/** 文档种类表（store 0.16）：同一种文档两种拼法（库：「几行可以是同一个 kind」）——.catsup（2026-10-28 起新文档都写它，账本 UX39）+ 老的 .glb 工程（永远照开、不改名）。
+ *  kind 标签沿用 "glb"（缩略图 kinds / 名册都认这个词，换标签没好处）。裸文件不是 zip。图库包据它认文档 / 切主干 / 改名只编辑主干（后缀保留）。 */
+export const DOC_KINDS: readonly DocKind[] = [{ kind: "glb", suffix: DOC_EXT, container: "raw" }, { kind: "glb", suffix: LEGACY_DOC_EXT, container: "raw" }];
 
 // Graph 传输层三个显式开关（store 0.17.2 默认全关 = 行为变更默认关、消费方显式开；WeebPaint v0.14.39 user 10-21「没问题」开了同三个；CatsUp 的取舍 = 迁库 doc §4）：
 //   timeouts：每个 Graph 请求带超时（meta 30 s / 一块 120 s / byte-range 60 s / 整文件 15 min）。iPad 锁屏后在途 fetch 常常永远挂着；
@@ -80,7 +81,7 @@ export function requireStore(): Store {
   if (!_store) throw new Error("store not attached (landless mode)");
   return _store;
 }
-/** 文档句柄工厂（身份 = 全名 `夹/名.glb`；.glb 是裸文件，走 file() 不走 zip()）。 */
+/** 文档句柄工厂（身份 = 全名 `夹/名.catsup`，老的 `夹/名.glb`；都是裸 glb 容器，走 file() 不走 zip()）。 */
 export function docFile(identifier: string, mode: "new" | "existing" = "existing"): RawFile {
   return requireStore().file(identifier, { mode });
 }

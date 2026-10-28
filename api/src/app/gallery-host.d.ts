@@ -2,7 +2,7 @@ import { type GalleryView } from "@internal/gallery";
 export interface GalleryHostDeps {
     mountEl: HTMLElement;
     fullEl: HTMLElement;
-    /** 正在编辑的那个模型（身份 = 全路径 `夹/名.glb`）；没有图库家 = null。 */
+    /** 正在编辑的那个模型（身份 = 全路径 `夹/名.catsup`，老的 `夹/名.glb`）；没有图库家 = null。 */
     activeName: () => string | null;
     /** 打开一个模型（身份）。true = 编辑器已切过去。 */
     openDoc: (identifier: string) => Promise<boolean>;

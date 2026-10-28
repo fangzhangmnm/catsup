@@ -24,7 +24,7 @@ import type { Surface } from "./commands/action.ts";
 import type { CommandId, Params as CmdParams } from "./commands/command.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
-import { type Frame } from "../scene/xform.ts";
+import { type Frame, type Xform } from "../scene/xform.ts";
 export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ModeId } from "./mode.ts";
@@ -463,6 +463,12 @@ export declare class Editor {
     get sceneRef(): Scene;
     /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
     worldGeom(): WorldView;
+    /** 「导出模型 · 选中的物体」（导出设计稿 §4）：选中的组件实例（这一层里的；世界变换 = 这一层的变换 ∘ 实例的变换）。没选组件 = 空。 */
+    exportPicks(): {
+        def: number;
+        xform: Xform;
+        name: string;
+    }[];
     get context(): EditContext;
     get renderer3(): Renderer3;
     get revision(): number;

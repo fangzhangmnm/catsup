@@ -1,5 +1,6 @@
 import type { Editor } from "../editor/editor.ts";
 import { type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
+import type { Xform } from "../scene/xform.ts";
 interface FSHandle {
     readonly name: string;
     createWritable(): Promise<{
@@ -44,9 +45,7 @@ export interface SessionDeps {
     setStatus: (text: string, error?: boolean) => void;
     online: () => boolean;
 }
-export declare const bareName: (full: string) => string;
-export declare const fullName: (dir: string, bare: string) => string;
-export declare const isDocName: (p: string) => boolean;
+export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
 /** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
  *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
 export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
@@ -190,8 +189,21 @@ export declare class Session {
     }): Promise<boolean>;
     /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
     settleToFile(): Promise<boolean>;
-    /** 导出一份（永不清 dirty）。 */
-    exportDownload(): void;
+    /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。 */
+    exportProject(): string;
+    /** 导出模型 .glb（导出设计稿 §4 / §5）：给别的软件看的烤好的模型——只写 glTF core，不是工程备份。only = 只导这几份物体（定义 id + 世界变换）。永不清 dirty。 */
+    exportModelGlb(opts: {
+        textures: boolean;
+        lines: boolean;
+        only?: readonly {
+            def: number;
+            xform: Xform;
+            name?: string;
+        }[];
+    }): {
+        name: string;
+        bytes: number;
+    };
     private download;
     /** 离开当前文档前的挽留：图库家 = 自动保存（WeebPaint 图库模式 UX）；文件家 / transient 且脏 = 三键。 */
     leaveGate(): Promise<boolean>;
@@ -207,4 +219,3 @@ export declare class Session {
      *  它们马上要被清；beforeunload 看 dirty() 也不再挽留。不走 setHome（它会写回执条，而回执条正要被清）。 */
     haltForReset(): void;
 }
-export {};

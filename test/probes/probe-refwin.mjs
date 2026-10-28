@@ -14,7 +14,7 @@ const win = () => page.evaluate(() => { const el = document.querySelector("wp-re
 const dirty = () => page.evaluate(() => globalThis.__catsup.session.dirty());
 // 一条边先让文件有内容（transient 家）
 await page.evaluate(() => globalThis.__catsup.editor.commitOp({ op: "addEdges", segs: [[{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }]] }));
-const [dl0] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportDownload())]);
+const [dl0] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportProject())]);
 const base = [...(await (await import("node:fs")).promises.readFile(await dl0.path()))];
 await page.reload({ waitUntil: "load" }); await page.waitForTimeout(1200);
 await page.evaluate((arr) => globalThis.__catsup.session.openLocalBytes(new Uint8Array(arr), "m.glb", null), base); await page.waitForTimeout(300);
@@ -42,7 +42,7 @@ await page.waitForTimeout(400);
 r.afterImport = await win();
 r.dirtyAfterImport = await dirty();
 // ④ 导出（= 保存同一个 encode）
-const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportDownload())]);
+const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportProject())]);
 const bytes = [...(await (await import("node:fs")).promises.readFile(await dl.path()))];
 r.glbHasRefs = (() => { const buf = Buffer.from(bytes); const len = buf.readUInt32LE(12); const json = JSON.parse(buf.subarray(20, 20 + len).toString("utf8")); return { used: json.extensionsUsed.includes("CATSUP_references"), files: json.extensions.CATSUP_references?.files.map((f) => f.path), panel: json.extensions.CATSUP_desk.refPanel ?? null }; })();
 // ⑤ 刷新 → 打开那份：卡、窗都回来
