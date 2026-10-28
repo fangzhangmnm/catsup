@@ -20,6 +20,7 @@
 // Editor 只吃工具指针（pointerDown/Move/Up/Leave）；相机改动直接打 editor.cam 再 draw。
 
 import type { Editor, ToolPointer } from "../editor/editor.ts";
+import { LONG_PRESS_MS, GESTURE_TAP_MAX_MS, GESTURE_TAP_MAX_MOVE, PALM_PEN_GUARD_MS, STALE_TOUCH_MS, SINGLE_TAP_MS, UNLOCK_PX } from "../controller/feel.ts";   // 时间 / 距离的数值住手感表（2026-10-28）
 
 type Role = "tool" | "orbit" | "pan" | "hold" | "multi";
 interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; }
@@ -42,14 +43,7 @@ export interface GestureOpts {
   /** 「点两下 / 点三下」是否可用（缺省 = 只有鼠标）：#23 移动 / 旋转对笔和手指也开。 */
   armable?(pointerType: string): boolean;
 }
-const LONG_PRESS_MS = 500;
 
-const GESTURE_TAP_MAX_MS = 250;
-const GESTURE_TAP_MAX_MOVE = 16;
-const PALM_PEN_GUARD_MS = 600;
-const STALE_TOUCH_MS = 8000;
-const SINGLE_TAP_MS = 250;
-const UNLOCK_PX = 28;
 
 export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: GestureOpts): { dispose(): void; penEverSeen(): boolean } {
   const pointers = new Map<number, Tracked>();

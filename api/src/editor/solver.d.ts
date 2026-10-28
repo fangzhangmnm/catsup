@@ -74,29 +74,8 @@ export declare const RANK: {
     readonly grid: 20;
     readonly plane: 10;
 };
-export declare const EPS: {
-    readonly point: 10;
-    readonly edge: 7;
-    readonly line: 3.5;
-    readonly combo: 12;
-};
-/** 取点基准容差 / 实体拾取容差（单位同 EPS：fovY 的 1/800；编辑器与 frameEps 共用这一份）。 */
-export declare const SNAP_PX = 8, HIT_PX = 6;
-/** 自由建模里点的拾取半径（同一套度量：800 高视口的 px；2026-10-28 纪元账本 FM165 user「还是常量比较好」「大小成比例手感不好」）：点比边好抓，快速轻推不误点到线和面；边仍是 HIT_PX。硬表面不用它。 */
-export declare const MESH_VERT_HIT_PX = 14;
-/** 第二点平面「近擦」容差（CSS px @800 高）：光标离含锚点膜的剪影这么近 = 仍算在那张膜上（滑出底边不翻面）。 */
-export declare const PLANE_NEAR_PX = 24;
-/**
- * ε 语义（user 2026-09-06「吸附的语义还是屏幕大小…height+aspect 这个老 gl convention」）：
- * 所有 ε 常量按 **800 px 高的视口**标定，实际使用按 `vp.h / 800` 等比缩放——等价于「fovY 的角度分数」
- * （透视：ε_px = θ/fovY·vp.h；正交拿 halfH 当"角度"换算，同一个式子）。屏幕越大圈越大，high-DPI 无关，
- * 宽屏/竖屏只看高度（aspect 只管横向裁剪）。测试/探针全用 h=800，数值一字不变。VR 把射线周围的角度空间
- * 当 800 px 高的虚拟屏即可复用。
- */
-/** 1-D 轨迹与指针射线近平行（夹角 < 10°）→ 公垂点病态（射线每动 1° 点飞 1/sin ≈ 6×），该轨迹不参赛。
- *  2026-09-08 user「小屋子的侧面上画线的时候 z 轴对齐不见了」：朝北看时 Y 轴线与 Z 轴线在视线里重合、并列取 Y、点飞到 18 m 外。单位：度。 */
-export declare const RAY_PARALLEL_DEG = 10;
-export declare const REF_VP_H = 800;
+import { EPS, SNAP_PX, HIT_PX, MESH_VERT_HIT_PX, PLANE_NEAR_PX, RAY_PARALLEL_DEG, REF_VP_H } from "../controller/feel.ts";
+export { EPS, SNAP_PX, HIT_PX, MESH_VERT_HIT_PX, PLANE_NEAR_PX, RAY_PARALLEL_DEG, REF_VP_H };
 export declare const epsScale: (vp: Viewport) => number;
 /**
  * 本帧的容差集（A17）：帧自带 eps → 用它（VR：度常量，独立）；否则桌面 = EPS × (tolPx/8)，单位 = fovY 的 1/800（tolPx = SNAP·vp.h/800，

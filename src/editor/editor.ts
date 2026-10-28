@@ -158,10 +158,7 @@ export function describeEvent(ev: FaceEvent): string {
 }
 
 const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z);
-/** 抬笔结算（A21）三个物理量，各自量纲独立（调参纪律）。 */
-const RELEASE_WINDOW_MS = 150, FINAL_HOLD_MS = 100, MIN_DWELL_MS = 40, HOLD_PX = 4;
-/** 抬笔小滑上限（CSS px @800 高）：停留帧与最后一帧相距超过它 = 不是抖动是挪动，按最后一帧。 */
-const DWELL_SLIP_PX = 24;
+// 抬笔结算（A21）的物理量和充能停留时长住手感表 controller/feel.ts（2026-10-28）
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 /** 圆的多边形段数（SU 默认 24）。 */
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
@@ -171,6 +168,7 @@ import { fmtArea, fmtDeg, fmtLen, setDisplayUnit } from "./units.ts";
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
+import { RELEASE_WINDOW_MS, FINAL_HOLD_MS, MIN_DWELL_MS, HOLD_PX, DWELL_SLIP_PX, CHARGE_DWELL_MS } from "../controller/feel.ts";
 export { MIN_GESTURE_LEN, SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
@@ -3021,7 +3019,7 @@ export class Editor {
     this.charged.set(key, { ...p });
     while (this.charged.size > 3) this.charged.delete(this.charged.keys().next().value!);
   }
-  private trackCharge(sn: Snap3 | null, edge: { a: Pt3; b: Pt3 } | null = null, dwellMs = 300): void {
+  private trackCharge(sn: Snap3 | null, edge: { a: Pt3; b: Pt3 } | null = null, dwellMs = CHARGE_DWELL_MS): void {
     if (sn?.kind === "on-edge" && edge) {   // 充能边：停在边上 ≥ dwell
       const key = `e:${edge.a.x},${edge.a.y},${edge.a.z}|${edge.b.x},${edge.b.y},${edge.b.z}`;
       if (this.chargedEdges.has(key)) { this.dwell = null; return; }

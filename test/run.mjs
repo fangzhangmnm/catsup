@@ -21,6 +21,7 @@ import "./mirror.test.ts";   // DT23 镜像指令（2026-10-25 Opus）
 import "./plane-gizmo.test.ts";   // 镜像面把手大小只看屏幕像素（2026-10-28 Opus）
 import "./select-loop.test.ts";   // Alt 点边 = 环 / 洞（2026-10-28 Opus）
 import "./stance.test.ts";   // 立场表守卫 + 控制器文件夹无头（2026-10-28 Fable）
+import "./feel.test.ts";   // 手感表守卫（2026-10-28 Fable）
 import "./instance-ids.test.ts";   // 读文件实例 id 有空缺不再重复（2026-10-25 Opus）
 import "./param-panel.test.ts";   // 参数小窗马后炮会话（2026-10-25 Opus）
 import "./scale-handle.test.ts";   // 缩放柄透视拾、叠在一起近的赢（2026-10-25 Opus）

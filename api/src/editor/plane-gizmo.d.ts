@@ -6,14 +6,8 @@ export interface PlaneGizmo {
     normal: Pt3;
 }
 export type GizmoHandle = "move" | "push" | "rotU" | "rotV";
-/** 方块半边长（CSS px）。 */
-export declare const GIZMO_PX = 64;
-/** 把手捕获半径（CSS px）。 */
-export declare const HANDLE_PX = 16;
-/** 转动的档（度）。 */
-export declare const ROT_STEP_DEG = 15;
-/** 法线离帧的某根轴这么近（度）就吸正。 */
-export declare const AXIS_SNAP_DEG = 4;
+import { GIZMO_PX, HANDLE_PX, ROT_STEP_DEG, AXIS_SNAP_DEG } from "../controller/feel.ts";
+export { GIZMO_PX, HANDLE_PX, ROT_STEP_DEG, AXIS_SNAP_DEG };
 /** 面内两根轴（右手：u × v = n）；u 尽量水平。 */
 export declare function gizmoBasis(n0: Pt3): {
     u: Pt3;

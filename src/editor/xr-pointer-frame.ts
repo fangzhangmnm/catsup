@@ -15,7 +15,8 @@ import type { EpsSet, PointerFrame, Ray, ScreenPt, Viewport } from "./pointer-fr
 /** 光标坐标的名义载体（不是屏幕）：编辑器把指针位置存成 (x, y)，VR 里恒为正中。 */
 export const XR_NOMINAL_VP: Viewport = { w: 800, h: 800 };
 /** VR 容差集（度）。独立常量，各自 playtest；手柄姿态抖动量级 ≈ 0.5°。 */
-export const EPS_VR_DEG: EpsSet = { point: 1.0, edge: 0.7, line: 0.5, combo: 1.2, hit: 1.0, snap: 0.8, planeNear: 2.0, tap: 0.4, drag: 1.2 };
+import { EPS_VR_DEG } from "../controller/feel.ts";   // 数值住手感表（2026-10-28）；这里转出给老调用方
+export { EPS_VR_DEG };
 const DEG = 180 / Math.PI;
 const clamp1 = (x: number): number => Math.max(-1, Math.min(1, x));
 /** 两单位向量夹角（度）：atan2(|a×b|, a·b)——0° 附近比 acos 精确得多。 */

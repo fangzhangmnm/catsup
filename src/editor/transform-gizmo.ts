@@ -7,27 +7,21 @@ import type { PointerFrame, Viewport } from "./pointer-frame.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
 import { worldPerPx } from "./plane-gizmo.ts";
 
+import { XG_UNIFORM_OFFSET_PX, XG_ARROW_PX, XG_ARROW_START_PX, XG_SCALE_PX, XG_CUBE_PX, XG_RING_PX, XG_PLANE_PX, XG_PLANE_HALF_PX } from "../controller/feel.ts";   // 像素数值住手感表（2026-10-28）；这里转出给老调用方
+export { XG_UNIFORM_OFFSET_PX, XG_ARROW_PX, XG_ARROW_START_PX, XG_SCALE_PX, XG_CUBE_PX, XG_RING_PX, XG_PLANE_PX, XG_PLANE_HALF_PX };
 export type AxisName = "x" | "y" | "z";
 /** 把手：m 移动箭头 / r 旋转环 / s 单轴缩放块 / su 等比缩放块 / p 平面（双轴）缩放块（2026-10-26，user「以及变换你还是没给我xy yz xz的手柄」）。 */
 export type XformHandle = "mx" | "my" | "mz" | "rx" | "ry" | "rz" | "sx" | "sy" | "sz" | "su" | "pxy" | "pyz" | "pxz";
 /** 等比缩放块：轴心在屏上的位置往右、往上各这么多（CSS px）。 */
-export const XG_UNIFORM_OFFSET_PX = 34;
 // 比例（2026-10-26 改，user「然后比例也不对，看的好难受」+ 坦克截图：环套住整辆车、箭头细短、方块过大）：照 Blender 合在一起的样子——
 // 环小（56）、箭头在环外（64 → 100，实心锥头）、轴上缩放块在环里（32，半边 3.5）；环和箭头不相交，抓的时候不含糊。
 export const AXIS_NAMES: readonly AxisName[] = ["x", "y", "z"];
 /** 箭头尖离原点多远（CSS px）。 */
-export const XG_ARROW_PX = 100;
 /** 箭头从原点外多少开始（CSS px；在环外面）。 */
-export const XG_ARROW_START_PX = 64;
 /** 单轴缩放块在轴上离原点多远（CSS px）（2026-10-26，user「我们也需要scale的手柄」）。中心点 = 移动、等比缩放块在中心右上方（屏幕把手，工具自己拾）。 */
-export const XG_SCALE_PX = 32;
 /** 缩放块半边长（CSS px，画用；拾取按点）。 */
-export const XG_CUBE_PX = 3.5;
 /** 旋转环半径（CSS px）：箭头在环外、缩放块在环里（Blender 合在一起时的布局）——环和箭头不相交，抓的时候不含糊。 */
-export const XG_RING_PX = 56;
 /** 平面缩放块：中心离轴心沿两根轴各这么远（CSS px）/ 方块半边长（CSS px）。在缩放块和环之间。 */
-export const XG_PLANE_PX = 20;
-export const XG_PLANE_HALF_PX = 4.5;
 export const PLANE_HANDLES = ["pxy", "pyz", "pxz"] as const;
 /** 平面块的两根轴 + 垂直于它的那根（上色用，Blender 同款：xy 块 = 蓝）。 */
 export const planeAxes = (h: XformHandle): { a: AxisName; b: AxisName; n: AxisName } => (h === "pxy" ? { a: "x", b: "y", n: "z" } : h === "pyz" ? { a: "y", b: "z", n: "x" } : { a: "x", b: "z", n: "y" });

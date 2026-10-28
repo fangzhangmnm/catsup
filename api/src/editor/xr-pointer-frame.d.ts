@@ -3,7 +3,8 @@ import type { EpsSet, PointerFrame, Ray, ScreenPt, Viewport } from "./pointer-fr
 /** 光标坐标的名义载体（不是屏幕）：编辑器把指针位置存成 (x, y)，VR 里恒为正中。 */
 export declare const XR_NOMINAL_VP: Viewport;
 /** VR 容差集（度）。独立常量，各自 playtest；手柄姿态抖动量级 ≈ 0.5°。 */
-export declare const EPS_VR_DEG: EpsSet;
+import { EPS_VR_DEG } from "../controller/feel.ts";
+export { EPS_VR_DEG };
 export declare class XRPointerFrame implements PointerFrame {
     private origin;
     private dir;

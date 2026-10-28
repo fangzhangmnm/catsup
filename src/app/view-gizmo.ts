@@ -10,6 +10,7 @@
 // 朝向 = 镜像面（跟着物体自己的轴）；有点对面找不到（镜像编辑挪它们只改一边）= 橙色虚线 + 个数。
 import type { Editor } from "../editor/editor.ts";
 import { iconHtml } from "./ui/icon.ts";
+import { VIEW_GIZMO_DRAG_SLOP_PX } from "../controller/feel.ts";
 
 const AXES: { id: string; v: [number, number, number]; color: string; label: string; view: "right" | "left" | "back" | "front" | "top" | "bottom"; opposite: "right" | "left" | "back" | "front" | "top" | "bottom" }[] = [
   { id: "+x", v: [1, 0, 0], color: "#d9342b", label: "X", view: "right", opposite: "left" },
@@ -41,7 +42,7 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
   };
   // 拖柄：按住拖 = 平移 / 缩放；点一下 = onTap（user 2026-10-25「放大镜和fit vp合租」「怎么区分双击和pan？怎么防抖？」）。
   // 点 vs 拖：按下后挪过 DRAG_SLOP 才算拖、才开始动相机——笔点下去手抖几 px 不会误缩放 / 误平移（防抖）；没挪过就松手 = 点一下。
-  const DRAG_SLOP = 6;   // CSS px
+  const DRAG_SLOP = VIEW_GIZMO_DRAG_SLOP_PX;   // CSS px（手感表）
   const drag = (b: HTMLButtonElement, onDrag: (dx: number, dy: number) => void, onTap?: () => void): void => {
     let d: { id: number; x: number; y: number; x0: number; y0: number; moving: boolean } | null = null;
     b.addEventListener("pointerdown", (ev) => { ev.preventDefault(); ev.stopPropagation(); b.setPointerCapture(ev.pointerId); d = { id: ev.pointerId, x: ev.clientX, y: ev.clientY, x0: ev.clientX, y0: ev.clientY, moving: false }; b.classList.add("dragging"); });

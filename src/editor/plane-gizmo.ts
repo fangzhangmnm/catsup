@@ -9,14 +9,8 @@ import { type Frame, applyDir, rotationAbout } from "../scene/xform.ts";
 
 export interface PlaneGizmo { origin: Pt3; normal: Pt3; }
 export type GizmoHandle = "move" | "push" | "rotU" | "rotV";
-/** 方块半边长（CSS px）。 */
-export const GIZMO_PX = 64;
-/** 把手捕获半径（CSS px）。 */
-export const HANDLE_PX = 16;
-/** 转动的档（度）。 */
-export const ROT_STEP_DEG = 15;
-/** 法线离帧的某根轴这么近（度）就吸正。 */
-export const AXIS_SNAP_DEG = 4;
+import { GIZMO_PX, HANDLE_PX, ROT_STEP_DEG, AXIS_SNAP_DEG } from "../controller/feel.ts";   // 方块半边长 / 捕获半径 / 转动档 / 吸正角 住手感表（2026-10-28）；这里转出给老调用方
+export { GIZMO_PX, HANDLE_PX, ROT_STEP_DEG, AXIS_SNAP_DEG };
 
 /** 面内两根轴（右手：u × v = n）；u 尽量水平。 */
 export function gizmoBasis(n0: Pt3): { u: Pt3; v: Pt3 } {

@@ -56,13 +56,12 @@ export const TIER_EPS = [1, 0.85, 0.7] as const, TIER_DIST = [1, 1.25, 1.6] as c
 
 /** 秩（0.11 尺规纪元加参考几何：参考点在端点与中点之间，参考线与边同秩「线上」；线 × 线交点由合成器涌现、0-D 先于 1-D 胜出）。 */
 export const RANK = { endpoint: 90, origin: 80, poolOrigin: 80, guidePoint: 75, midpoint: 70, center: 70, intersection: 65, edge: 60, guide: 60, cross: 55, axisLine: 45, grid: 20, plane: 10 } as const;
-export const EPS = { point: 10, edge: 7, line: 3.5, combo: 12 } as const;
+// ε / 半径的数值住手感表 controller/feel.ts（2026-10-28；这里转出给老调用方）
+import { EPS, SNAP_PX, HIT_PX, MESH_VERT_HIT_PX, PLANE_NEAR_PX, RAY_PARALLEL_DEG, REF_VP_H, FRAME_TAP, FRAME_DRAG } from "../controller/feel.ts";
+export { EPS, SNAP_PX, HIT_PX, MESH_VERT_HIT_PX, PLANE_NEAR_PX, RAY_PARALLEL_DEG, REF_VP_H };
 /** 取点基准容差 / 实体拾取容差（单位同 EPS：fovY 的 1/800；编辑器与 frameEps 共用这一份）。 */
-export const SNAP_PX = 8, HIT_PX = 6;
 /** 自由建模里点的拾取半径（同一套度量：800 高视口的 px；2026-10-28 纪元账本 FM165 user「还是常量比较好」「大小成比例手感不好」）：点比边好抓，快速轻推不误点到线和面；边仍是 HIT_PX。硬表面不用它。 */
-export const MESH_VERT_HIT_PX = 14;
 /** 第二点平面「近擦」容差（CSS px @800 高）：光标离含锚点膜的剪影这么近 = 仍算在那张膜上（滑出底边不翻面）。 */
-export const PLANE_NEAR_PX = 24;   // line 5→3.5：「点松线紧」试验（user 2026-09-07「可以试试」；B6）
 /**
  * ε 语义（user 2026-09-06「吸附的语义还是屏幕大小…height+aspect 这个老 gl convention」）：
  * 所有 ε 常量按 **800 px 高的视口**标定，实际使用按 `vp.h / 800` 等比缩放——等价于「fovY 的角度分数」
@@ -72,9 +71,7 @@ export const PLANE_NEAR_PX = 24;   // line 5→3.5：「点松线紧」试验（
  */
 /** 1-D 轨迹与指针射线近平行（夹角 < 10°）→ 公垂点病态（射线每动 1° 点飞 1/sin ≈ 6×），该轨迹不参赛。
  *  2026-09-08 user「小屋子的侧面上画线的时候 z 轴对齐不见了」：朝北看时 Y 轴线与 Z 轴线在视线里重合、并列取 Y、点飞到 18 m 外。单位：度。 */
-export const RAY_PARALLEL_DEG = 10;
 const RAY_PARALLEL_COS = Math.cos((RAY_PARALLEL_DEG * Math.PI) / 180);
-export const REF_VP_H = 800;
 export const epsScale = (vp: Viewport): number => vp.h / REF_VP_H;
 /**
  * 本帧的容差集（A17）：帧自带 eps → 用它（VR：度常量，独立）；否则桌面 = EPS × (tolPx/8)，单位 = fovY 的 1/800（tolPx = SNAP·vp.h/800，
@@ -84,7 +81,7 @@ export function frameEps(pf: PointerFrame, vp: Viewport, tolPx: number): EpsSet 
   const own = pf.eps?.(vp);
   if (own) return own;
   const k = tolPx / SNAP_PX;
-  return { point: EPS.point * k, edge: EPS.edge * k, line: EPS.line * k, combo: EPS.combo * k, hit: HIT_PX * k, snap: SNAP_PX * k, planeNear: PLANE_NEAR_PX * epsScale(vp), tap: 4, drag: 16 * epsScale(vp) };
+  return { point: EPS.point * k, edge: EPS.edge * k, line: EPS.line * k, combo: EPS.combo * k, hit: HIT_PX * k, snap: SNAP_PX * k, planeNear: PLANE_NEAR_PX * epsScale(vp), tap: FRAME_TAP, drag: FRAME_DRAG * epsScale(vp) };
 }
 const GAP_WORLD = 1e-5;
 
