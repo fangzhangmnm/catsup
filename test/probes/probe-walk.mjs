@@ -67,6 +67,7 @@ check(h1 < h0, `右拖看向右 heading ${h0.toFixed(3)} → ${h1.toFixed(3)}`);
 
 // 工具在步行模式仍可用：画线 hover 有吸附标签（把线画在盒顶角上）
 await page.keyboard.press("l");
+await page.evaluate(() => { globalThis.__catsup.locomotion.sim.state.pos.x = 2.0; }); await page.waitForTimeout(80);   // 走多远随真实时间浮动（1.85–2.0 m），角点会贴着视口下沿忽进忽出：先把人放到固定位置再找（2026-10-27 Opus）
 const corner = await page.evaluate(() => {
   const e = globalThis.__catsup.editor; const vp = e.vp(); const eye = e.cam.eye(), fwd = e.cam.forward();
   for (const v of e.kernel.vertices()) {

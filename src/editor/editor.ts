@@ -231,7 +231,7 @@ export class Editor {
   /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
   private lastSession: Session | null = null;
   private static sessionKey(s: Session): string { return JSON.stringify(s); }
-  private _tool: Tool = "line";
+  private _tool: Tool = "select";   // 开机 = 鼠标（选择）工具（user 10-27「硬建模默认也是鼠标工具」）
   private _revision = 0;                  // 场景每次变（commit/undo/redo/load/进出上下文）+1；碰撞世界等消费方据此重建
 
   // ---- 瞬态 ----

@@ -29,7 +29,7 @@ export class GeometryMode implements Mode {
   readonly label = "硬表面建模";   // 2026-10-26 user「我的思路很简单，一个硬表面建模一个有机体建模啊，虽然就是工具栏和一些手势规则不一样」（原「几何」）。统称「工作台」（user 同日「模式名方案 同意」）：硬表面建模 / 自由建模 / 表面 / 绘制 / 检查，后几个做出来再加
   readonly kinds = ["brep"] as const;
   readonly tools: readonly Tool[] = TOOLS.filter((t) => t !== "paint" && t !== "knife" && t !== "shrink");   // 切割 / 沿法线是自由建模的（硬表面没有它们的手势模块；按 K 不该切到一把没反应的工具）   // 油漆桶归表面模式（刀 ③）
-  readonly defaultTool: Tool = "line";
+  readonly defaultTool: Tool = "select";   // 硬表面默认 = 鼠标（选择）工具（user 10-27「硬建模默认也是鼠标工具」；以前是画线）
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
     offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(), compass: new CompassTool(),
     erase: new EraseTool(), weldErase: new WeldEraseTool(), softErase: new SoftEraseTool(), select: new SelectTool(), scale: new ScaleTool(), transform: new TransformTool(), rotate: new RotateTool(), pp: new PushPullTool(), move: new MoveTool(),

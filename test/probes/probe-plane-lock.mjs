@@ -51,6 +51,6 @@ const rectOnX0 = res.rectEdges.length >= 4 && res.rectEdges.every((e) => near(e[
 const ok = res.rectArmed.plane === "x" && res.rectLive.cur && near(res.rectLive.cur[0], 0) && res.rectLive.cur[2] > 0.5 && rectOnX0 && res.rectAfter.plane === null
   && res.lineLive.plane === "x" && /面锁 YZ/.test(res.lineLive.label) && res.lineLive.cur && near(res.lineLive.cur[0], 0.5) && res.lineLive.cur[2] > 0.3 && res.lineAfterEsc.plane === null
   && res.faceLock.plane === "face"
-  && /面锁 YZ/.test(res.rectMenu) && !/轴锁 X/.test(res.rectMenu) && /轴锁 X/.test(res.lineMenu) && /面锁 XY/.test(res.lineMenu);
+  && /面锁 YZ/.test(res.rectMenu) && !/方向锁 X/.test(res.rectMenu) && /方向锁 X/.test(res.lineMenu) && /面锁 XY/.test(res.lineMenu);
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);
