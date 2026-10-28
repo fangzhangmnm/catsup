@@ -43,6 +43,7 @@ import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { EYE_DEFAULT, EYE_MAX, EYE_MIN, Locomotion } from "./locomotion.ts";
+import { TouchControls } from "./touch-controls.ts";
 import type { ParamSession } from "../editor/param-panel.ts";
 import { VR } from "./vr.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
@@ -594,7 +595,11 @@ walkBtn.addEventListener("click", () => {
   if (locomotion.isEditInPlace()) locomotion.resumeWalk();
   else if (vr.isSupported()) vr.enter();
 });
+// 触屏摇杆（吃鸡式，FM142）：有触屏的设备、FPS 阶段才露
+const touchCtl = new TouchControls(stage, { lookRad: (y, p) => locomotion.lookRad(y, p), editInPlace: () => locomotion.editInPlace(), leave: () => locomotion.exitWalk() });
+locomotion.touch = () => touchCtl.read();
 locomotion.onPhase = () => {
+  touchCtl.setVisible(locomotion.isFps() && TouchControls.available());
   if (!locomotion.isPlacing() && editor.paramPanel()?.title === "步行：点一下落在哪") editor.openParamSession(null);
   syncWalkBar(); syncLoop();
   hintEl.textContent = hintDefault();

@@ -25,6 +25,14 @@ export declare class Locomotion {
     private unlockForEdit;
     /** 阶段变了（app 刷新上方那颗按钮 / 提示）。 */
     onPhase: (() => void) | null;
+    /** 触屏摇杆（touch-controls.ts）：FPS 时和键盘合并（推得远的那个算、按钮取或）。 */
+    touch: (() => {
+        walkX: number;
+        walkY: number;
+        dash: boolean;
+        jump: boolean;
+        crouch: boolean;
+    }) | null;
     /** 外部输入源（VR）：非 null 时代替键盘。 */
     externalInput: ((dt: number) => InputFrame) | null;
     private editor;
@@ -93,6 +101,8 @@ export declare class Locomotion {
     toggleWalk(): void;
     /** 鼠标视角（app 手势路由在步行模式下把右键拖喂进来）。返回 false = 不在步行模式，调用方走轨道。 */
     look(dxPx: number, dyPx: number): boolean;
+    /** 触屏转头（弧度；正 = 往右 / 往下看）。 */
+    lookRad(dYaw: number, dPitch: number): void;
     /** 碰撞世界跟 checkpoint（force = 无视 revision）。 */
     syncWorld(force?: boolean): void;
     /** 每渲染帧：喂输入、步进、写相机（XR 模式相机归 XR，只步进）。 */

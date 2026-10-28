@@ -351,3 +351,21 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .menu-sub .menu-sub-mark { flex: 0 0 auto; width: 0; height: 0; margin-right: 2px; border: 4px solid transparent; border-left-color: currentColor; border-right-width: 0; opacity: .6; }
 .menu-sub.is-open { background: #f3f0ea; }
 .popup-menu.choice-layer.submenu .menu-item { min-height: 40px; padding: 6px 10px; }   /* 子菜单的行和普通菜单一样高（下拉层那层更紧） */
+
+/* 步行 FPS 的触屏操作层（吃鸡式，纪元账本 FM142；src/app/touch-controls.ts）：左半屏摇杆、右半屏转头、右下跳 / 蹲、上方两颗低调的 */
+.touch-ctl { position: absolute; inset: 0; z-index: 4; pointer-events: none; }
+.touch-ctl[hidden] { display: none; }
+.tc-zone { position: absolute; top: 15%; bottom: 0; pointer-events: auto; touch-action: none; }
+.tc-left { left: 0; width: 50%; }
+.tc-right { right: 0; width: 50%; }
+.tc-base { position: absolute; left: 0; top: 0; border-radius: 50%; border: 2px solid rgba(255,255,255,.75); background: rgba(0,0,0,.12); box-shadow: 0 1px 4px rgba(0,0,0,.25); pointer-events: none; }
+.tc-knob { position: absolute; left: 0; top: 0; width: 48px; height: 48px; border-radius: 50%; background: rgba(255,255,255,.85); box-shadow: 0 1px 4px rgba(0,0,0,.3); pointer-events: none; }
+.tc-knob.is-dash { background: var(--accent); }
+.tc-base[hidden], .tc-knob[hidden] { display: none; }
+.tc-btn { position: absolute; width: 64px; height: 64px; border-radius: 50%; border: 2px solid rgba(255,255,255,.8); background: rgba(0,0,0,.18); color: #fff; font: 600 16px/1 system-ui, sans-serif; pointer-events: auto; touch-action: none; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.tc-btn.is-on { background: var(--accent); }
+.tc-jump { right: calc(24px + var(--safe-right)); bottom: calc(110px + var(--safe-bottom)); }
+.tc-crouch { right: calc(100px + var(--safe-right)); bottom: calc(40px + var(--safe-bottom)); width: 52px; height: 52px; font-size: 14px; }
+.tc-top { position: absolute; top: calc(12px + var(--safe-top)); border: 0; background: transparent; color: var(--muted); font: 500 14px/1 system-ui, sans-serif; padding: 10px 14px; border-radius: 9px; pointer-events: auto; opacity: .8; filter: drop-shadow(0 1px 1px rgba(255,255,255,.9)); }
+.tc-leave { left: 50%; transform: translateX(calc(-100% - 6px)); }   /* 正中两侧（FPS 里正中那颗「继续走」不露） */
+.tc-edit { left: 50%; transform: translateX(6px); }

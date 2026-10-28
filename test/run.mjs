@@ -52,6 +52,7 @@ import "./mesh-bevel.test.ts";   // 网格体倒角：倒边 / 倒点，封闭�
 import "./export-naming.test.ts";   // 导出名带导出时间（WeebPaint 同款，2026-10-28 Opus）
 import "./mesh-mirror.test.ts";   // 网格体镜像：配对 / 镜像编辑 / 强行对称 / 对称对齐（FM134 / FM136，2026-10-28 Opus）
 import "./mesh-subdivide.test.ts";   // 细分（Catmull-Clark，破坏性）：教科书值 / 折痕 / 裸线拒 / op + 撤销（FM133，2026-10-28 Opus）
+import "./touch-stick.test.ts";   // 吃鸡式虚拟摇杆的数学：死区 / 冲刺 / 浮动底座（FM142，2026-10-28 Opus）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）
 import "./mesh-primitives.test.ts";   // 右键新建的基本体 + addMeshObject（2026-10-27 Opus）   // 插入：面内插一圈 + op 撤销（2026-10-27 Opus）   // 拉：边 / 点挤出 + meshExtrude op + 撤销（2026-10-27 Opus）   // 注册表两道接缝：三种单位 + 路由型动作「挪」+ meshMove 撤销记录（2026-10-27 Fable）
 import "./kernel-delta.test.ts";   // 内核差量：提交 = 影子换真身、applyDelta 自反（2026-10-27 Fable A3）

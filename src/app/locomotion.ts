@@ -53,6 +53,8 @@ export class Locomotion {
   private unlockForEdit = false;
   /** 阶段变了（app 刷新上方那颗按钮 / 提示）。 */
   onPhase: (() => void) | null = null;
+  /** 触屏摇杆（touch-controls.ts）：FPS 时和键盘合并（推得远的那个算、按钮取或）。 */
+  touch: (() => { walkX: number; walkY: number; dash: boolean; jump: boolean; crouch: boolean }) | null = null;
   /** 外部输入源（VR）：非 null 时代替键盘。 */
   externalInput: ((dt: number) => InputFrame) | null = null;
   private editor: Editor;
@@ -236,6 +238,14 @@ export class Locomotion {
     return true;
   }
 
+  /** 触屏转头（弧度；正 = 往右 / 往下看）。 */
+  lookRad(dYaw: number, dPitch: number): void {
+    if (this.mode !== "walk") return;
+    this.sim.state.heading -= dYaw;
+    this.lookPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, this.lookPitch - dPitch));
+    this.syncCamera();
+  }
+
   /** 碰撞世界跟 checkpoint（force = 无视 revision）。 */
   syncWorld(force = false): void {
     if (force || this.world.revision !== this.editor.revision) this.world.rebuild(this.editor.worldGeom(), this.editor.revision);   // 全场景（世界坐标，含网格体）
@@ -256,7 +266,12 @@ export class Locomotion {
     const head = { local: { x: 0, y: 0, z: this.sim.cfg.height }, fwdLocal: { x: 0, y: Math.cos(p), z: Math.sin(p) } };
     const vp = this.editor.vp();
     const aim: Ray | null = vp.w > 0 && vp.h > 0 ? this.editor.cam.ray(this.cursor.x, this.cursor.y, vp) : null;
-    return this.flat.read(head, aim);
+    const f = this.flat.read(head, aim), t = this.phase === "walk" ? this.touch?.() : null;
+    if (t) {
+      if (Math.hypot(t.walkX, t.walkY) > Math.hypot(f.walkX, f.walkY)) { f.walkX = t.walkX; f.walkY = t.walkY; }
+      f.dash = f.dash || t.dash; f.jump = f.jump || t.jump; f.crouch = f.crouch || t.crouch;
+    }
+    return f;
   }
 
   pose(): RigPose { return this.sim.pose(); }
