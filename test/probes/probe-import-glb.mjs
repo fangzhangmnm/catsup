@@ -69,11 +69,14 @@ Object.assign(out, await page.evaluate((mid) => {
   const e = globalThis.__catsup.editor;
   return { markerPicked: !!e.selectedPools && [...e.selectedPools.values()].some((p) => p.kind === "instance" && p.instance === mid) };
 }, sel.marker));
-// ③ 撤销 = 一步全没
+// ③ 撤销：② 的点选自己是一步（v0.15.15 起选区进撤销栈、v0.15.30 撤销制度——这条探针写在那之前，期望一下全没；2026-10-28 Opus 改）
+//   → 第一下撤点选（导入还在）、第二下导入整个没了（导入仍是一步）
 Object.assign(out, await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   e.undo(); await sleep(50);
-  return { afterUndo: e.scene.def(e.scene.root).instances.size };
+  const afterUndo1 = { instances: e.scene.def(e.scene.root).instances.size, selPools: e.selectedPools.size };
+  e.undo(); await sleep(50);
+  return { afterUndo1, afterUndo: e.scene.def(e.scene.root).instances.size };
 }));
 // ④ 「打开」外来 glb = 拒，说清去哪导入
 await page.setInputFiles("#glbFile", { name: "toy.glb", mimeType: "model/gltf-binary", buffer: Buffer.from(glb) });
@@ -82,6 +85,6 @@ out.openNotice = /别的软件做的 glb.*导入 glb/.test(await notices());
 console.log(JSON.stringify(out));
 const ok = out.panel?.title === "导入 toy" && out.panel.fields.join() === "up,unit" && Math.abs(out.size0 - 1) < 1e-6 && Math.abs(out.sizeCm - 0.01) < 1e-6 && out.topsCm === 1 && Math.abs(out.sizeBack - 1) < 1e-6
   && out.top?.[0] === "rig" && out.kids?.join() === "box,marker" && /导入 toy\.glb：/.test(out.notice) && /顶点法线/.test(out.notice) && /1 个空节点/.test(out.notice)
-  && out.markerPicked && out.afterUndo === 0 && out.openNotice && !errs.length;
+  && out.markerPicked && out.afterUndo1?.instances === 1 && out.afterUndo1?.selPools === 0 && out.afterUndo === 0 && out.openNotice && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);
