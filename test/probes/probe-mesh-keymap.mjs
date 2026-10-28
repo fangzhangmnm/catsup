@@ -78,6 +78,15 @@ const res = await page.evaluate(async () => {
     c.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, ctrlKey: true })); await sleep(10);
     c.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0, ctrlKey: true })); await sleep(40); }
   out.dissolve = { df: stat().f - st0.f, de: stat().e - st0.e, check: m().check().join(";"), hint: hud.status() };
+  kd("z", { ctrl: true }); await sleep(40);
+  // ⑩ I = 插入：选顶面，光标放在靠近顶面一角的地方按 I，往面中心挪，点一下
+  await selTop(); { const near = px(P(0.9, 0.9, 1)), ctr = px(P(0.5, 0.5, 1)); fire("pointermove", near.x, near.y, 0); await sleep(25); kd("i"); await sleep(20);
+    out.iStart = { active: e.isGestureActive(), tool: e.tool };
+    for (let i = 1; i <= 5; i++) { fire("pointermove", near.x + (ctr.x - near.x) * i / 10, near.y + (ctr.y - near.y) * i / 10, 0); await sleep(15); }
+    const mid = { x: near.x + (ctr.x - near.x) * 0.5, y: near.y + (ctr.y - near.y) * 0.5 };
+    fire("pointerdown", mid.x, mid.y, 1); await sleep(10); fire("pointerup", mid.x, mid.y, 0); await sleep(40); }
+  { const f = [...e.selection.faces][0], xs = f !== undefined ? m().faceVerts(f).map((v) => m().pt(v).x) : [];
+    out.inset = { df: stat().f - st0.f, sel: e.selection.faces.size, smaller: xs.length === 4 && Math.max(...xs) - Math.min(...xs) < 0.999, check: m().check().join(";"), label: hud.tools().find((t) => t.id === "offset")?.label }; }
   out.backToStart = (() => { let n = 0; while (e.history.position() > pos0 && n++ < 30) kd("z", { ctrl: true }); return JSON.stringify(stat()) === JSON.stringify(st0); })();
   return out;
 });
@@ -90,6 +99,7 @@ const ok = res.gStart.active && res.gStart.tool === "move" && res.gPreview.commi
   && res.jSel === 2 && res.jDone.df === 1 && res.jDone.selE === 1 && res.jDone.check === ""
   && res.crTool === "knife" && res.crDone.df === 4 && !res.crDone.active && res.crDone.check === ""
   && res.eraseLabel === "删除" && res.eraseFace.df === -1 && res.dissolve.df === -1 && res.dissolve.check === ""
+  && res.iStart.active && res.iStart.tool === "offset" && res.inset.df === 4 && res.inset.sel === 1 && res.inset.smaller && res.inset.check === "" && res.inset.label === "插入"
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-keymap OK" : "probe-mesh-keymap FAIL");

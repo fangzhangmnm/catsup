@@ -9,3 +9,4 @@ export { loopCut, type LoopCutResult } from "./loopcut.ts";
 export { limitedDissolve, removeDoubles } from "./cleanup.ts";
 export { recalcNormals } from "./orient.ts";
 export { smoothByAngle } from "./shade.ts";
+export { insetFaces, insetRing, maxInset } from "./inset.ts";

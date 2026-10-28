@@ -276,7 +276,7 @@ const RAIL_GROUPS: RailGroup[] = [
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
-const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出", erase: "删除" } };
+const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入" } };
 /** 工作台自己定死的左柱（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」+「用两字词语吧和硬表面对齐」：选择 · 挤出 · 移动 · 旋转 · 缩放 · 切割 · 删除 · 插入（删除 / 插入还没做的不露）。 */
 const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"] };
 const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = MODE_TOOL_LABEL[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
@@ -960,7 +960,7 @@ window.addEventListener("keydown", (ev) => {
   if (editor.modeId === "freeform" && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !locomotion.isWalking()) {
     const k = ev.key.toLowerCase();
     if (editor.isGestureActive() && (k === "x" || k === "y" || k === "z")) { ev.preventDefault(); editor.lockKey(k, ev.shiftKey); syncUi(); return; }
-    const modal: Record<string, Tool> = { g: "move", r: "rotate", s: "scale", e: "pp" };
+    const modal: Record<string, Tool> = { g: "move", r: "rotate", s: "scale", e: "pp", i: "offset" };   // I = 插入（Blender I）
     if (modal[k] && !ev.shiftKey) { ev.preventDefault(); if (!editor.startModal(modal[k])) editor.setTool(modal[k]); syncUi(); return; }
     if (k === "a" && !ev.shiftKey) { ev.preventDefault(); editor.selectAll(); syncUi(); return; }
     if (k === "x" && !ev.shiftKey) { ev.preventDefault(); if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return; }
