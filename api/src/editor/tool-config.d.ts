@@ -1,3 +1,4 @@
+import type { QuantityTag } from "./units.ts";
 export type OptionScope = "session" | "device" | "doc";
 export interface Modifiers {
     ctrl?: boolean;
@@ -29,6 +30,8 @@ export interface NumberOption {
     readonly step: number;
     /** 显示单位（纯标注；值的量纲由选项自己定义——调参纪律） */
     readonly unit?: string;
+    /** 这个数是一个物理量（值存 SI：米 / 米每秒）：显示、− +、打字都按用户选的单位（units.ts；2026-10-28 user「都单位和用户选择单位对齐」）。给了它 unit 就不看。 */
+    readonly quantity?: QuantityTag;
     readonly scope: OptionScope;
 }
 export interface BoolOption {

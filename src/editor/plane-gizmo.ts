@@ -1,7 +1,7 @@
 // plane-gizmo.ts —— 场景里的「平面」操纵器（纯数学、零 DOM）。镜像面先用（user 2026-10-25「能不能做一个深模块gizmos……同时有一个gizmos确定mirror的轴。
 // 拖动gizmos可以snap，然后也有把手for rotate and move」）；以后剖切面 / 对称面 / 光照方向都能用同一个。
 // 把手：中心「移」（拖到吸附点上，平面跟着平移）/ 法线箭头「推」（沿法线推，悬停在点上就推到和那点齐平）/ 两条边中点「转」（绕面内的轴转，15° 一档、靠近帧的三轴吸正）。
-// 尺寸按屏幕像素定（不随缩放变）；坐标一律世界系。渲染在 render3（ViewState.planeGizmo，透视画）。created 2026-10-25 by Claude Opus 5.5
+// 尺寸按屏幕像素定（不随缩放、不随视角变）；坐标一律世界系。渲染在 render3（ViewState.planeGizmo，透视画）。created 2026-10-25 by Claude Opus 5.5
 import { type Pt3, add3, cross3, dot3, normalize3, scale3, sub3 } from "../kernel/geom.ts";
 import type { PointerFrame, Viewport } from "./pointer-frame.ts";
 import { closestOnAxis, rayPlane } from "./camera.ts";
@@ -26,9 +26,14 @@ export function gizmoBasis(n0: Pt3): { u: Pt3; v: Pt3 } {
   return { u, v: cross3(n, u) };
 }
 
-/** 世界长度 / 屏幕 px（在 p 处）：投两点量。投不出来 → null。 */
-export function worldPerPx(pf: PointerFrame, vp: Viewport, p: Pt3, u: Pt3): number | null {   // 变换 gizmo 共用（2026-10-26）
+/**
+ * 世界长度 / 屏幕 px（在 p 处）：沿垂直于视线的方向投两点量。投不出来 → null。变换 gizmo / 空组件标记共用（2026-10-26）。
+ * 量尺方向不由调用方给（2026-10-28 user「硬表面的镜像的gizmos大小不应该随着视口乱动」：以前镜像面把手沿面内的轴量，
+ * 那根轴斜着朝镜头时投影变短 → 算出来的把手巨大、转一下视角就忽大忽小；变换 gizmo 10-26 修过同一个坑，这回收进函数里）。
+ */
+export function worldPerPx(pf: PointerFrame, vp: Viewport, p: Pt3): number | null {
   if (!pf.project) return null;
+  const w = pf.viewDir(p), u = normalize3(cross3(w, Math.abs(w.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 }));
   const a = pf.project(p, vp), b = pf.project(add3(p, u), vp);
   if (!a || !b) return null;
   const d = Math.hypot(a.x - b.x, a.y - b.y);
@@ -39,7 +44,7 @@ export interface GizmoGeom { origin: Pt3; normal: Pt3; u: Pt3; v: Pt3; size: num
 /** 这一帧的几何（世界）：方块半边长 size、四个把手的位置。 */
 export function gizmoGeom(g: PlaneGizmo, pf: PointerFrame, vp: Viewport): GizmoGeom {
   const n = normalize3(g.normal), { u, v } = gizmoBasis(n);
-  const wpp = worldPerPx(pf, vp, g.origin, u) ?? 0.01;
+  const wpp = worldPerPx(pf, vp, g.origin) ?? 0.01;
   const size = GIZMO_PX * wpp;
   return { origin: g.origin, normal: n, u, v, size, handles: { move: g.origin, push: add3(g.origin, scale3(n, size * 1.3)), rotU: add3(g.origin, scale3(v, size)), rotV: add3(g.origin, scale3(u, size)) } };
 }

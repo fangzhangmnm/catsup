@@ -16,6 +16,9 @@ import type { ToolPointer } from "../editor.ts";
 import { meshTap } from "./mesh-transform.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
+import type { QuantityTag } from "../units.ts";
+/** 长度字段：值存米，显示 / − + / 打字按用户选的单位（units.ts）。 */
+const LEN: QuantityTag = { q: "length" };
 
 type Job = { kind: "inset"; faces: number[] } | { kind: "bevel"; edges: number[] } | { kind: "bevelVerts"; verts: number[] };
 
@@ -152,8 +155,8 @@ export class MeshInsetTool implements ToolHandler {
     };
     if (!go(dL, this.segments)) return;
     const fields = job.kind === "bevel"
-      ? [{ key: "width", def: { kind: "number" as const, label: "宽度", min: 0.001, max: 10000, step: 0.01, unit: "m" } }, { key: "segments", def: { kind: "number" as const, label: "段数", min: 1, max: 32, step: 1 } }]
-      : [{ key: "width", def: { kind: "number" as const, label: "宽度", min: 0.001, max: 10000, step: 0.01, unit: "m" } }];
+      ? [{ key: "width", def: { kind: "number" as const, label: "宽度", min: 0.001, max: 10000, step: 0.01, quantity: LEN } }, { key: "segments", def: { kind: "number" as const, label: "段数", min: 1, max: 32, step: 1 } }]
+      : [{ key: "width", def: { kind: "number" as const, label: "宽度", min: 0.001, max: 10000, step: 0.01, quantity: LEN } }];
     ctx.offerAfterthought("倒角", fields, { width: Math.round(dW * 1000) / 1000, segments: this.segments }, 1, (v) => {
       const seg = Math.max(1, Math.min(32, Math.round(Number(v.segments ?? 1))));
       this.segments = seg;

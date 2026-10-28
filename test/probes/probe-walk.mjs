@@ -41,12 +41,27 @@ await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeo
 const ground = await page.evaluate(() => { const e = globalThis.__catsup.editor; return e.cam.angularPx({ x: -1.5, y: -1, z: 0 }, e.vp()); });
 await page.mouse.move(box.x + ground.x, box.y + ground.y); await page.waitForTimeout(60);
 const ghost = await page.evaluate(() => globalThis.__catsup.locomotion.placeGhost());
-check(!!ghost && ghost.ok && Math.abs(ghost.feet.z) < 1e-6 && Math.abs(ghost.height - 1.7) < 1e-9, `悬停地面：虚影站得下、身高 1.7 ${JSON.stringify(ghost)}`);
+check(!!ghost && ghost.ok && Math.abs(ghost.feet.z) < 1e-6 && Math.abs(ghost.stature - 1.72) < 1e-9 && !("height" in ghost), `悬停地面：虚影站得下、画的是身高 1.72（不露眼高） ${JSON.stringify(ghost)}`);
+// 马前炮：这个人的参数（2026-10-28 user「眼睛top，身高，宽度，蹲高，爬高」「然后移动速度，跑步倍速，跳高」「然后应该能估算跳远距离」「速度可以识别配速，然后你可以输入其他单位文本框能接住」）
+const typeInto = async (label, text) => {
+  const f = page.locator(".vcb-params .strip-field", { has: page.locator(".strip-label", { hasText: new RegExp(`^${label}$`) }) });
+  await f.locator(".strip-value").click(); await page.waitForTimeout(30);
+  await f.locator(".strip-input").fill(text); await f.locator(".strip-input").press("Enter"); await page.waitForTimeout(40);
+};
+const panel0 = await page.evaluate(() => ({ labels: [...document.querySelectorAll(".vcb-params .strip-label")].map((x) => x.textContent), values: [...document.querySelectorAll(".vcb-params .strip-value")].map((x) => x.textContent), note: document.querySelector(".vcb-params-note")?.textContent ?? "" }));
+check(panel0.labels.join() === "身高,宽度,眼到头顶,蹲高,爬高,走速,跑步倍速,跳高" && panel0.values[0] === "1.72 m" && /\/km$/.test(panel0.values[5]) && /跑着/.test(panel0.note) && /跳远/.test(panel0.note), `马前炮八项 + 跳远估算 ${JSON.stringify(panel0)}`);
+await typeInto("身高", `6'2"`);
+await typeInto("走速", "5:00/km");
+const typed = await page.evaluate(() => { const L = globalThis.__catsup.locomotion, g = L.placeGhost(), b = L.body(); return { stature: g?.stature, walk: b.walkSpeed, radius: b.radius, shown: [...document.querySelectorAll(".vcb-params .strip-value")].map((x) => x.textContent) }; });
+check(Math.abs(typed.stature - 74 * 0.0254) < 1e-9 && Math.abs(typed.walk - 1000 / 300) < 1e-9 && Math.abs(typed.radius - 0.3 * 74 * 0.0254 / 1.72) < 1e-9 && typed.shown[5] === "5'00\"/km", `打字带单位：身高 6'2" → 虚影跟着长、宽度按比例；走速 5:00/km ${JSON.stringify(typed)}`);
+await page.click(".vcb-params .strip-action:has-text('恢复默认')"); await page.waitForTimeout(40);
+check(await page.evaluate(() => Math.abs(globalThis.__catsup.locomotion.placeGhost().stature - 1.72) < 1e-9 && globalThis.__catsup.locomotion.body().walkSpeed === 3), "恢复默认");
+await page.mouse.move(box.x + ground.x + 1, box.y + ground.y); await page.waitForTimeout(40); await page.mouse.move(box.x + ground.x, box.y + ground.y); await page.waitForTimeout(40);
 await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(80);
 const placed = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), walking: globalThis.__catsup.locomotion.isWalking(), pos: { ...globalThis.__catsup.locomotion.sim.state.pos }, panel: globalThis.__catsup.editor.paramPanel()?.title ?? null }));
 check(placed.phase === "walk" && placed.walking && Math.abs(placed.pos.x + 1.5) < 0.05 && !placed.panel, `点地面 = 落在那里、进 FPS、小窗收起 ${JSON.stringify(placed)}`);
 check(await page.evaluate(() => globalThis.__lockRequests >= 1), "落人那一下请求了锁鼠标（FPS）");
-await page.evaluate(() => { globalThis.__catsup.locomotion.sim.reset({ x: -1, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 1.7 }); });
+await page.evaluate(() => { globalThis.__catsup.locomotion.sim.standAt({ x: -1, y: 0, z: 0 }, -Math.PI / 2); });
 const st0 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos, walking: globalThis.__catsup.locomotion.isWalking() }));
 check(st0.walking && Math.abs(st0.x + 1) < 1e-9, `就位 ${JSON.stringify(st0)}`);
 const hint = await page.evaluate(() => document.getElementById("hint").textContent);
@@ -82,7 +97,7 @@ const h1 = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.he
 check(h1 < h0, `右拖看向右 heading ${h0.toFixed(3)} → ${h1.toFixed(3)}`);
 
 // teleport：T 按住瞄准前方地面 → 松开跳过去
-await page.evaluate(() => { const l = globalThis.__catsup.locomotion; l.sim.reset({ x: -4, y: 0, z: 0 }, -Math.PI / 2, { x: 0, y: 0, z: 1.7 }); });
+await page.evaluate(() => { const l = globalThis.__catsup.locomotion; l.sim.standAt({ x: -4, y: 0, z: 0 }, -Math.PI / 2); });
 await page.mouse.move(box.x + 600, box.y + 600);   // 光标偏下 = 瞄地面
 await page.keyboard.down("t"); await page.waitForTimeout(300);
 const arc = await page.evaluate(() => { const a = globalThis.__catsup.locomotion.sim.state.teleport.arc; return a ? { valid: a.valid, n: a.points.length, reason: a.reason } : null; });
@@ -92,7 +107,7 @@ await page.keyboard.up("t"); await page.waitForTimeout(150);
 const st3 = await page.evaluate(() => ({ ...globalThis.__catsup.locomotion.sim.state.pos }));
 check(st3.x > -3.5, `瞬移落地 ${JSON.stringify(st3)}`);
 
-await page.evaluate((h) => { const L = globalThis.__catsup.locomotion; L.sim.reset({ x: 1.95, y: 0, z: 0.8 }, h, { x: 0, y: 0, z: 1.7 }); L.look(0, 150); }, h1);   // 落人以后视线水平（SU 步行同款）：低头看盒顶   // 放回瞬移之前的样子（盒顶、右拖过的朝向）：下面的吸附角点从这里看
+await page.evaluate((h) => { const L = globalThis.__catsup.locomotion; L.sim.standAt({ x: 1.95, y: 0, z: 0.8 }, h); L.look(0, 150); }, h1);   // 落人以后视线水平（SU 步行同款）：低头看盒顶   // 放回瞬移之前的样子（盒顶、右拖过的朝向）：下面的吸附角点从这里看
 
 // FPS 里工具键不响应（监工不编辑）；Tab = 原地编辑：上方正中「继续走」、工具照常用
 await page.evaluate(() => globalThis.__catsup.editor.setTool("select"));

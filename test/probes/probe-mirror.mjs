@@ -21,16 +21,12 @@ const setup = await page.evaluate(() => {
   const pp = e.paramPanel();
   return { active: e.mirrorActive(), phase: pp?.phase ?? null, title: pp?.title ?? null, fields: pp?.fields.map((f) => f.key) ?? [], previewFaces: e.liveWorld().vertices().length > 0 };
 });
-// 拖法线箭头（推）：箭头尖 = 原点 + 法线 × 1.3 × 方块半边长（64 px 换成世界长度）
+// 拖法线箭头（推）：箭头尖 = 原点 + 法线 × 1.3 × 方块半边长（64 px 换成世界长度；位置问编辑器）
 const push = await page.evaluate(() => {
   const e = globalThis.__catsup.editor, g = e.gizmo.g, vp = e.vp(), cam = e.cam;
-  const n = g.normal, ref = Math.abs(n.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 };
-  const cx = (a, b) => ({ x: a.y * b.z - a.z * b.y, y: a.z * b.x - a.x * b.z, z: a.x * b.y - a.y * b.x });
-  let u = cx(ref, n); const ul = Math.hypot(u.x, u.y, u.z); u = { x: u.x / ul, y: u.y / ul, z: u.z / ul };
-  const a = cam.angularPx(g.origin, vp), b2 = cam.angularPx({ x: g.origin.x + u.x, y: g.origin.y + u.y, z: g.origin.z + u.z }, vp);
-  const size = 64 / Math.hypot(a.x - b2.x, a.y - b2.y);
-  const tip = { x: g.origin.x + n.x * size * 1.3, y: g.origin.y + n.y * size * 1.3, z: g.origin.z + n.z * size * 1.3 };
-  return { tip: cam.angularPx(tip, vp), far: cam.angularPx({ x: tip.x + 0.6, y: tip.y, z: tip.z }, vp) };
+  const tip = e.gizmoHandlesPx().push;   // 把手位置问编辑器（2026-10-28：以前这里抄了一份把手大小的算法，算法一改探针就错位）
+  const w = { x: g.origin.x + g.normal.x * 0.5, y: g.origin.y + g.normal.y * 0.5, z: g.origin.z + g.normal.z * 0.5 };
+  return { tip, far: cam.angularPx({ x: w.x + 0.6, y: w.y, z: w.z }, vp) };
 });
 await page.mouse.move(box.x + push.tip.x, box.y + push.tip.y); await page.waitForTimeout(80);
 const hot = await page.evaluate(() => globalThis.__catsup.editor.gizmo.hot);

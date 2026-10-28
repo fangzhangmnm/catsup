@@ -631,8 +631,21 @@ export declare class Editor {
     private mirrorAsk;
     /** 右键指令 / 删除的同一道护栏（入口处问，问完从头再来一次）。 */
     private mirrorGateEntry;
-    /** 画镜像面（淡框）+ 中缝上的点（自由建模、开着镜像时）。 */
+    /** 中缝上的点（自由建模、开着镜像时）。镜像面本身不画在模型上（2026-10-28 user「这边镜像面也不应该随着内容变大。其实我倾向于不画。可以画在gizmos之类的上面。
+     *  而不要干扰用户观察建模。自由建模模型上的干扰需要少一点」）：开没开、哪根轴、对不对得上 = mirrorIndicator → 右上角视图 gizmo。 */
     private mirrorView;
+    private mirrorIndCache;
+    /**
+     * 镜像的状态（给右上角视图 gizmo 画）：镜像面的法线和面内两根轴（世界方向，跟着物体自己的轴）+ 几个点对面找不到（> 0 = 镜像编辑挪它们只改一边，
+     * 2026-10-28 user「镜像编辑还是坏的」：模型不对称于镜像面时以前只在状态行闪一句）。不在网格体里 / 没开 = null。
+     */
+    mirrorIndicator(): {
+        mode: MirrorMode;
+        axis: MirrorAxis;
+        normal: Pt3;
+        span: [Pt3, Pt3];
+        unpaired: number;
+    } | null;
     /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
     private toolPass;
     private toolCommit;

@@ -9,7 +9,7 @@
 // 出入步行模式（2026-10-28 改成 FPS，纪元账本 FM140 / FM141 / FM145 / FM151 / FM154；Claude Opus 5.5）：
 //   平时（orbit）：步行不开，按什么键都不会进步行，只有视图菜单「步行相机」开（user「平时不行模式不开……按什么都不会去步行，得开」）。
 //   放置（place）：光标 / 笔悬停处画一个胶囊虚影（半径 + 身高；绿 = 站得下、红 = 站不下），点一下 = 落在那里（placement.ts 深模块）；
-//     马前炮小窗调眼高；Esc / 取消 = 回平时，什么都没发生。
+//     马前炮小窗调身材（身高 / 宽度 / 眼到头顶 / 蹲高 / 爬高 / 走跑跳）；Esc / 取消 = 回平时，什么都没发生。
 //   走（walk）：锁鼠标的 FPS（WASD 走、空格跳、鼠标看）；锁不上的设备（触屏）照旧右键拖 / 双指看。
 //     Esc = 离开步行、回到进来之前的视角，什么都没发生过（user「步行模式的时候esc回到平时模式。什么都没发生过」）；
 //     Tab = 原地编辑（user「步行模式的时候tab是临时编辑模式，这时候有一个页面上方正中的小按钮说要不要回去。只有一个按钮」）。
@@ -18,7 +18,8 @@
 
 import type { Editor } from "../editor/editor.ts";
 import { KernelCollisionWorld } from "../editor/collision-world.ts";
-import { PlayerSim, type RigPose, DEFAULT_CONFIG } from "../player/player.ts";
+import { PlayerSim, type RigPose, type PlayerConfig, DEFAULT_CONFIG } from "../player/player.ts";
+import { type AvatarSpec, AVATAR_DEFAULT, statureOf, withAvatar } from "../player/body.ts";
 import { FlatInput } from "../player/flat-input.ts";
 import type { InputFrame } from "../player/input.ts";
 import type { Ray } from "../player/world-query.ts";
@@ -33,8 +34,6 @@ const SPAWN_SOUTH = 3;          // 默认出生点：原点正南 3 m，面朝�
 export type LocomotionMode = "orbit" | "walk" | "xr";
 /** 步行的几个阶段（mode = walk 时 walk / edit；放置时 mode 还是 orbit）。 */
 export type WalkPhase = "off" | "place" | "walk" | "edit";
-/** 眼高的默认 / 上下限（米；马前炮可调）。 */
-export const EYE_DEFAULT = DEFAULT_CONFIG.height, EYE_MIN = 0.3, EYE_MAX = 5;
 
 export class Locomotion {
   readonly world = new KernelCollisionWorld();
@@ -45,8 +44,8 @@ export class Locomotion {
   private saved: { target: { x: number; y: number; z: number }; yaw: number; pitch: number; halfH: number; projection: "ortho" | "persp"; nearMin: number } | null = null;
   private cursor = { x: 0, y: 0 };
   private phase: WalkPhase = "off";
-  /** 放置的眼高（马前炮；落下去以后就是这个人的身高）。 */
-  eyeHeight = EYE_DEFAULT;
+  /** 这个人（马前炮可调：身高 / 宽度 / 眼到头顶 / 蹲高 / 爬高 / 走速 / 跑步倍速 / 跳高；不填的按身高自动）。眼睛在哪只有 player / body 知道。 */
+  avatar: AvatarSpec = AVATAR_DEFAULT;
   /** 悬停处的放置结果（画虚影用）。 */
   private ghost: Placement | null = null;
   /** 自己为了原地编辑放开鼠标（区别于 Esc 被浏览器放开）。 */
@@ -54,7 +53,7 @@ export class Locomotion {
   /** 阶段变了（app 刷新上方那颗按钮 / 提示）。 */
   onPhase: (() => void) | null = null;
   /** 触屏摇杆（touch-controls.ts）：FPS 时和键盘合并（推得远的那个算、按钮取或）。 */
-  touch: (() => { walkX: number; walkY: number; dash: boolean; jump: boolean; crouch: boolean }) | null = null;
+  touch: (() => { walkX: number; walkY: number; dash: boolean; jump: boolean; crouch: boolean; crawl: boolean }) | null = null;
   /** 外部输入源（VR）：非 null 时代替键盘。 */
   externalInput: ((dt: number) => InputFrame) | null = null;
   private editor: Editor;
@@ -109,17 +108,21 @@ export class Locomotion {
     this.updateGhost();
   }
   cancelPlace(): void { if (this.phase !== "place") return; this.ghost = null; this.setPhase("off"); this.editor.draw(); }
-  /** 眼高改了：虚影跟着重画。 */
+  /** 这个人的整份配置（身体 + 走跑跳；手感参数照旧）。 */
+  body(): PlayerConfig { return withAvatar(DEFAULT_CONFIG, this.avatar); }
+  /** 身体参数改了：虚影跟着重画。 */
   refreshGhost(): void { if (this.phase === "place") this.updateGhost(); }
   private updateGhost(): void {
     const vp = this.editor.vp();
     if (!(vp.w > 0 && vp.h > 0)) return;
-    this.ghost = placeCapsule(this.world, this.editor.cam.ray(this.cursor.x, this.cursor.y, vp), { radius: DEFAULT_CONFIG.radius, height: this.eyeHeight });
+    this.ghost = placeCapsule(this.world, this.editor.cam.ray(this.cursor.x, this.cursor.y, vp), this.body());
     this.editor.draw();
   }
   /** 放置的虚影（渲染用；不在放置 = null）。 */
-  placeGhost(): { feet: { x: number; y: number; z: number }; radius: number; height: number; ok: boolean } | null {
-    return this.phase === "place" && this.ghost ? { feet: this.ghost.feet, radius: DEFAULT_CONFIG.radius, height: this.eyeHeight, ok: this.ghost.ok } : null;
+  placeGhost(): { feet: { x: number; y: number; z: number }; radius: number; stature: number; ok: boolean } | null {
+    if (this.phase !== "place" || !this.ghost) return null;
+    const b = this.body();
+    return { feet: this.ghost.feet, radius: b.radius, stature: statureOf(b), ok: this.ghost.ok };
   }
   placeWhy(): string | null { return this.phase === "place" ? (this.ghost ? this.ghost.why ?? null : "往地面上点（朝天看点不到地方）") : null; }
   private commitPlace(): void {
@@ -128,8 +131,8 @@ export class Locomotion {
     const cam = this.editor.cam;
     this.saved = { target: { ...cam.target }, yaw: cam.yaw, pitch: cam.pitch, halfH: cam.halfH, projection: cam.projection, nearMin: cam.nearMin };
     const fwd = cam.forward(), heading = Math.atan2(-fwd.x, fwd.y);
-    this.sim.cfg = { ...DEFAULT_CONFIG, height: this.eyeHeight };
-    this.sim.reset({ ...g.feet }, heading, { x: 0, y: 0, z: this.eyeHeight });
+    this.sim.cfg = this.body();
+    this.sim.standAt({ ...g.feet }, heading);
     this.lookPitch = 0;
     this.ghost = null;
     this.mode = "walk";
@@ -203,7 +206,8 @@ export class Locomotion {
     const t = cam.target;
     const ground = this.world.floorBelow(t.x, t.y, t.z + 50, this.world.floorZ() - 1, 0.5);
     const z = ground ?? Math.max(t.z, this.world.floorZ());
-    this.sim.reset({ x: t.x, y: t.y, z }, heading, { x: 0, y: 0, z: DEFAULT_CONFIG.height });
+    this.sim.cfg = this.body();
+    this.sim.standAt({ x: t.x, y: t.y, z }, heading);
     this.lookPitch = Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, Math.asin(Math.max(-1, Math.min(1, fwd.z)))));
     this.mode = "walk";
     this.flat.setEnabled(true);
@@ -262,14 +266,13 @@ export class Locomotion {
   }
 
   private readFlat(): InputFrame {
-    const p = this.lookPitch;
-    const head = { local: { x: 0, y: 0, z: this.sim.cfg.height }, fwdLocal: { x: 0, y: Math.cos(p), z: Math.sin(p) } };
+    const head = this.sim.flatHead(this.lookPitch);
     const vp = this.editor.vp();
     const aim: Ray | null = vp.w > 0 && vp.h > 0 ? this.editor.cam.ray(this.cursor.x, this.cursor.y, vp) : null;
     const f = this.flat.read(head, aim), t = this.phase === "walk" ? this.touch?.() : null;
     if (t) {
       if (Math.hypot(t.walkX, t.walkY) > Math.hypot(f.walkX, f.walkY)) { f.walkX = t.walkX; f.walkY = t.walkY; }
-      f.dash = f.dash || t.dash; f.jump = f.jump || t.jump; f.crouch = f.crouch || t.crouch;
+      f.dash = f.dash || t.dash; f.jump = f.jump || t.jump; f.crouch = f.crouch || t.crouch; f.crawl = f.crawl || t.crawl;
     }
     return f;
   }

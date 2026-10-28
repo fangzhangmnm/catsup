@@ -1,7 +1,9 @@
 // 网格体镜像接线（2026-10-28 Claude Opus 5.5；纪元账本 FM23 / FM134 / FM136）。中缝切开的盒子（-1..1）：
 // ① 右键「镜像 ›」子菜单（关 / 镜像编辑 / 强行对称 / 镜像面 / 对称对齐…）② 开镜像编辑：镜像面的框 + 中缝点画出来 ③ 挪 +x 一个角 → 对面跟着镜、一步撤销两个一起回
 // ④ 镜像编辑开着用挤出（改拓扑）→ 应用内确认「关掉镜像，照做」→ 照做了、镜像关了 ⑤ 强行对称：开的时候按选区那边对称一次；之后挤出 +x 一张面 → -x 也长出来、同一步、撤销一下全回
-// ⑥ 对称对齐：歪一个点、选两边那一对 → 右键「对称对齐」对回来 ⑦ 没有页面错误。跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-mirror.mjs
+// ⑥ 对称对齐：歪一个点、选两边那一对 → 右键「对称对齐」对回来 ⑦ 强行对称先沿镜像面切开
+// ⑧（2026-10-28 user「镜像编辑还是坏的」「其实我倾向于不画。可以画在gizmos之类的上面」）：模型偏在镜像面一边 → 右上角视图 gizmo 的镜像方片橙色虚线 + 对不上的个数、
+//   模型上不画镜像面；全选「设置原点到选择中心」→ 方片变紫、0 个对不上 → 移动工具真拖一个角点：预演和松手后对面那点都跟着镜。没有页面错误。跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-mirror.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -39,8 +41,10 @@ const res = await page.evaluate(async () => {
   out.one = { row: !!row, items: layer() ? [...layer().querySelectorAll(".menu-label")].map((x) => x.textContent).join("|") : "" };
   layer()?.querySelector('[data-choice-id="mirror:edit"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40);
   await closeAll();
-  // ②
-  out.two = { mode: e.mirrorOf()?.mode, axis: e.mirrorOf()?.axis, lines: !!e.r3.mirrorLines?.visible, seam: !!e.r3.seamDots?.visible };
+  // ②（镜像面不画在模型上，画在右上角视图 gizmo；rAF 轮询，等一下）
+  const gz = () => { const g = document.querySelector(".gizmo-mirror"); return g ? { mode: g.dataset.mode, unpaired: Number(g.dataset.unpaired), stroke: g.querySelector("polygon")?.getAttribute("stroke"), badge: g.querySelector("text")?.textContent ?? null } : null; };
+  await sleep(250);
+  out.two = { mode: e.mirrorOf()?.mode, axis: e.mirrorOf()?.axis, noPlaneOnModel: !e.r3.mirrorLines, gizmo: gz(), seam: !!e.r3.seamDots?.visible };
   // ③（本地坐标里中缝在 x = cx；盒子在本地是 cx ± 1）
   const v = at(m(), cx + 1, Y1, Z1), w = at(m(), cx - 1, Y1, Z1), steps0 = e.history.steps();
   out.found = { v, w };
@@ -97,17 +101,45 @@ const res = await page.evaluate(async () => {
   e.setMirror("force", 0); await sleep(20);
   const sym2 = (k) => k.verts().every((v) => { const q = k.pt(v); return k.verts().some((w) => { const p = k.pt(w); return Math.abs((p.x - c2) + (q.x - c2)) < 1e-9 && Math.abs(p.y - q.y) < 1e-9 && Math.abs(p.z - q.z) < 1e-9; }); });
   out.seven.faces = m2().faceCount(); out.seven.sym = sym2(m2()); out.seven.hint = hint();
+  e.setMirror(null); e.exitTo(0); await sleep(20);
+  // ⑧ 偏在一边的盒子：本地整体挪 +0.7（镜像面还在原点）
+  box(8, 0, 0, 10, 1, 1); e.deselectAll();
+  const before8 = new Set(S().def(S().root).instances.keys());
+  e.selectAll(); e.makeComponent("偏"); e.runAction("object.toMesh"); await sleep(20);
+  const inst3 = [...S().def(S().root).instances.values()].find((x) => !before8.has(x.id) && S().kindOf?.(x.def) !== "brep") ?? [...S().def(S().root).instances.values()].at(-1), m3 = () => S().mesh(inst3.def).kernel;
+  e.selectedPools.clear(); e.selectedPools.set(`i${inst3.id}`, { kind: "instance", instance: inst3.id }); e.enterSelected(); await sleep(30);
+  e.commitOp({ op: "meshMove", def: inst3.def, moves: m3().verts().map((q) => ({ v: q, to: { ...m3().pt(q), x: m3().pt(q).x + 0.7 } })) });
+  e.setMirror("edit", 0); await sleep(250);
+  out.eight = { gizmoOff: gz(), hintOn: hint() };
+  e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await sleep(250);
+  out.eight.gizmoCentered = gz();
+  const vs3 = m3().verts(), X3 = Math.max(...vs3.map((q) => m3().pt(q).x)), Yt = Math.max(...vs3.map((q) => m3().pt(q).y)), Zt = Math.max(...vs3.map((q) => m3().pt(q).z));
+  const near3 = (q, x) => Math.abs(m3().pt(q).x - x) < 1e-9 && Math.abs(m3().pt(q).y - Yt) < 1e-9 && Math.abs(m3().pt(q).z - Zt) < 1e-9;
+  const v8 = vs3.find((q) => near3(q, X3)), w8 = vs3.find((q) => near3(q, X3 - 2)), w0 = { ...m3().pt(w8) };
+  e.cam.target = P(9, 0.5, 0.5); e.draw(); await sleep(20);
+  const X = S().xformOfContext(e.ctx), lp = m3().pt(v8), sc = px({ x: X[0] * lp.x + X[1] * lp.y + X[2] * lp.z + X[3], y: X[4] * lp.x + X[5] * lp.y + X[6] * lp.z + X[7], z: X[8] * lp.x + X[9] * lp.y + X[10] * lp.z + X[11] });   // 本地 → 世界（3×4 行主序）
+  e.setTool("move"); await sleep(10);
+  fire("pointermove", sc.x, sc.y, 0); await sleep(10); out.eight.pressInView = sc.x > 0 && sc.y > 0 && sc.x < vw && sc.y < vh; await sleep(10); fire("pointerdown", sc.x, sc.y, 1); await sleep(10);
+  for (let i = 1; i <= 6; i++) { fire("pointermove", sc.x + 8 * i, sc.y - 5 * i, 1); await sleep(15); }
+  const lm = e.liveMesh, pv = lm ? lm.pt(v8) : null, pw = lm ? lm.pt(w8) : null;
+  out.eight.preview = pv && pw ? { moved: Math.hypot(pv.x - X3, pv.y - Yt, pv.z - Zt) > 0.05, mirrored: Math.abs(pw.x + pv.x) < 1e-6 && Math.abs(pw.y - pv.y) < 1e-6 && Math.abs(pw.z - pv.z) < 1e-6 } : null;
+  fire("pointerup", sc.x + 48, sc.y - 30, 0); await sleep(60);
+  const a = m3().pt(v8), bq = m3().pt(w8);
+  out.eight.after = { moved: Math.hypot(a.x - X3, a.y - Yt, a.z - Zt) > 0.05, mirrored: Math.abs(bq.x + a.x) < 1e-6 && Math.abs(bq.y - a.y) < 1e-6 && Math.abs(bq.z - a.z) < 1e-6, wMoved: Math.hypot(bq.x - w0.x, bq.y - w0.y, bq.z - w0.z) > 0.05, hint: hint() };
   return out;
 });
 await b.close();
 res.errs = errs;
 const ok = res.one.row && /关/.test(res.one.items) && /镜像编辑/.test(res.one.items) && /强行对称/.test(res.one.items) && res.found.v !== undefined && res.found.w !== undefined   // 「对称对齐…」要有选区才露（没选 = 不露），⑥ 走它
-  && res.two.mode === "edit" && res.two.lines && res.two.seam
+  && res.two.mode === "edit" && res.two.noPlaneOnModel && res.two.gizmo?.mode === "edit" && res.two.gizmo?.unpaired === 0 && res.two.gizmo?.stroke === "#8b5cf6" && res.two.seam
   && Math.abs(res.three.w.x - (res.localCenterX - 1.3)) < 1e-9 && Math.abs(res.three.w.y - (res.local.Y1 + 0.2)) < 1e-9 && res.three.steps === 1 && Math.abs(res.three.afterUndo.w.x - (res.localCenterX - 1)) < 1e-9
   && res.four.selFaces === 1 && /关掉镜像/.test(res.four.sheet ?? "") && res.four.facesBefore === 0 && res.four.facesAfter === 4 && res.four.mirrorAfter === null && res.four.undone === 0
   && res.five.symBefore === false && res.five.mode === "force" && res.five.symAfterOn && res.five.extrude.dFaces === 8 && res.five.extrude.steps === 1 && res.five.extrude.sym && res.five.undo === 0
   && res.six.symBefore === false && res.six.symAfter
   && res.seven.faces0 === 6 && Math.abs(res.seven.center) < 1e-9 && res.seven.faces === 10 && res.seven.sym && /切开/.test(res.seven.hint)
+  && res.eight.gizmoOff?.unpaired === 8 && res.eight.gizmoOff?.stroke === "#e8890c" && res.eight.gizmoOff?.badge === "8" && /设置原点到选择中心/.test(res.eight.hintOn)
+  && res.eight.gizmoCentered?.unpaired === 0 && res.eight.gizmoCentered?.stroke === "#8b5cf6"
+  && res.eight.preview?.moved && res.eight.preview?.mirrored && res.eight.after.moved && res.eight.after.mirrored && res.eight.after.wMoved
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-mirror OK" : "probe-mesh-mirror FAIL");

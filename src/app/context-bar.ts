@@ -7,7 +7,7 @@
 //   工具 chip / 动作 = 宿主按工具 id 给（provider）；
 //   选区动作 = selection-actions.ts 那张表，只在「浮条路由」（笔 / 手指；鼠标走右键菜单）、有选区、不在手势中时进条。
 // 形状：enum → 下拉标准件（select-field）；number → − 值 +（触屏友好，不弹软键盘；精确输入归数值小窗）；bool → 开关钮。三类都空 → 整条隐藏。
-import { fieldControl } from "./ui/field-control.ts";
+import { fieldControl, fieldEditing } from "./ui/field-control.ts";
 import type { ParamValue } from "../editor/param-panel.ts";
 import { iconHtml } from "./ui/icon.ts";
 import type { Editor } from "../editor/editor.ts";
@@ -37,6 +37,7 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     const entries = config.entries(group), leading = p.leading?.(tool) ?? [], actions = p.actions?.(tool) ?? [], sel = p.selection?.() ?? [];
     const hasTool = entries.length + leading.length + actions.length > 0;
     root.hidden = !hasTool && sel.length === 0;
+    if (fieldEditing(root)) return;   // 正在就地打字：不重画
     root.replaceChildren();
     for (const a of leading) root.appendChild(actionBtn(a));
     for (const e of entries) root.appendChild(control(group, e));

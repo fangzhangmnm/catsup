@@ -6,7 +6,7 @@
 // created 2026-10-25 by Claude Opus 5.5
 import type { BoolOption, EnumOption, NumberOption } from "./tool-config.ts";
 
-export type ParamFieldDef = Pick<EnumOption, "kind" | "label" | "values"> | Pick<NumberOption, "kind" | "label" | "min" | "max" | "step" | "unit"> | Pick<BoolOption, "kind" | "label">;
+export type ParamFieldDef = Pick<EnumOption, "kind" | "label" | "values"> | Pick<NumberOption, "kind" | "label" | "min" | "max" | "step" | "unit" | "quantity"> | Pick<BoolOption, "kind" | "label">;
 export type ParamValue = string | number | boolean;
 export interface ParamField { readonly key: string; readonly def: ParamFieldDef; }
 export interface ParamButton { readonly key: string; readonly label: string; readonly primary?: boolean; readonly on?: boolean; }

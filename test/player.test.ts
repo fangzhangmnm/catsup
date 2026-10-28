@@ -388,3 +388,47 @@ describe("PlayerSim: 插值与边沿", () => {
     assert(near(sim.pose().origin.y, sim.state.pos.y, 1e-9), "落点即渲染点");
   });
 });
+
+describe("player: 身体（body.ts）+ 趴（2026-10-28 Opus；user「应该是有一个眼睛到头顶的高度，这样站蹲爬都能算对」「嗯可以做一个爬」「然后应该能估算跳远距离」）", () => {
+  it("默认那个人：身高 1.72、头顶 = 眼 + 眼到头顶；尺寸按身高同比例", async () => {
+    const { avatarFields, statureOf, resolveAvatar } = await import("../src/player/body.ts");
+    const a = avatarFields(1.72);
+    assert(near(statureOf(a), 1.72, 1e-9) && near(a.headroom, 1.72 * 0.065, 1e-9) && near(a.radius, 0.3, 1e-9), JSON.stringify(a));
+    const kid = avatarFields(0.86);
+    assert(near(kid.radius, 0.15, 1e-9) && near(kid.crouchMinHead + kid.headroom, 0.43, 1e-9) && near(kid.walkSpeed, a.walkSpeed, 1e-9), "小孩尺寸减半、速度不变");
+    const r = resolveAvatar({ stature: 1.8, crawlHeight: 5, crouchHeight: 0.1 });
+    assert(r.crouchHeight >= r.eyeToTop + 0.02 - 1e-12 && r.crawlHeight <= r.crouchHeight, `夹住：${JSON.stringify(r)}`);
+  });
+  it("趴：头降到爬高、慢、不能跳；钻在矮处松开趴 = 站不起来（头上不去、照样爬速）", () => {
+    const st = createPlayerState(); const w = flatFloorWorld();
+    run(st, w, { ...emptyInput(), crawl: true }, 1);
+    assert(near(st.headZ, cfg.crawlHead, 0.01), `headZ=${st.headZ}`);
+    const y0 = st.pos.y; run(st, w, { ...emptyInput(), crawl: true, walkY: 1, dash: true }, 1);
+    assert(near(st.pos.y - y0, cfg.crawlSpeed, 0.05), `爬 1 s 走了 ${st.pos.y - y0}（爬速 ${cfg.crawlSpeed}）`);
+    run(st, w, { ...emptyInput(), crawl: true, jump: true }, 0.3);
+    assert(st.pos.z < 1e-3, `趴着跳不起来 z=${st.pos.z}`);
+    // 头顶 0.6 m 的板：松开趴，头最多到板下
+    const st2 = createPlayerState(); const low = boxWorld([{ min: { x: -5, y: -5, z: 0.6 }, max: { x: 5, y: 5, z: 0.7 } }]);
+    run(st2, w, { ...emptyInput(), crawl: true }, 1);   // 先在空地上趴好，再「钻进」矮处（一开局就站在板里 = 被推到板上面）
+    run(st2, low, { ...emptyInput(), crawl: true }, 0.2);
+    run(st2, low, emptyInput(), 1);
+    assert(st2.headZ + cfg.headroom < 0.6 + 0.02, `站不起来：头顶 ${st2.headZ + cfg.headroom}（板底 0.6，净空判定余量 2 cm）`);
+    const y1 = st2.pos.y; run(st2, low, { ...emptyInput(), walkY: 1 }, 1);
+    assert(near(st2.pos.y - y1, cfg.crawlSpeed, 0.05), `矮处照样爬速：${st2.pos.y - y1}`);
+  });
+  it("跳远估算 = 模拟器真跑出来的（平地上跑着按住跳，脚落回起跳高度时水平走了多远；关掉贴地吸附比，吸附开着会在离地 stickDown 内提早落地）", async () => {
+    const { jumpReach } = await import("../src/player/body.ts");
+    const est = jumpReach(cfg), c2 = { ...cfg, stickDown: 0 };
+    const st = createPlayerState(); const w = flatFloorWorld();
+    run(st, w, { ...emptyInput(), walkY: 1, dash: true }, 0.5);
+    let y0 = NaN, t = 0, peak = 0;
+    for (let i = 0; i < 300; i++) {
+      stepPlayer(st, { ...emptyInput(), walkY: 1, dash: true, jump: true }, PHYS_DT, w, c2);
+      if (Number.isNaN(y0)) y0 = st.pos.y - cfg.dashSpeed * PHYS_DT;
+      peak = Math.max(peak, st.pos.z); t += PHYS_DT;
+      if (i > 2 && st.grounded) break;
+    }
+    assert(near(peak, est.height, 0.05), `跳高 ${peak} vs 估算 ${est.height}`);
+    assert(near(st.pos.y - y0, est.run, 0.15), `跑跳 ${st.pos.y - y0} vs 估算 ${est.run}`);
+  });
+});

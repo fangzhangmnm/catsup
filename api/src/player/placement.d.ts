@@ -1,10 +1,6 @@
 import type { Pt3 } from "../kernel/geom.ts";
 import type { Ray, WorldQuery } from "./world-query.ts";
 import { type PlayerConfig } from "./player.ts";
-export interface Capsule {
-    readonly radius: number;
-    readonly height: number;
-}
 export interface Placement {
     /** 脚底（胶囊最低点）落在哪。 */
     readonly feet: Pt3;
@@ -20,4 +16,4 @@ export interface Placement {
  *   · 站得下 = 站立胶囊（这一组半径 / 高度）在那里不穿几何。
  * 射线什么都没打到（朝天看）= null。far = 射线最远多少米。
  */
-export declare function placeCapsule(world: WorldQuery, ray: Ray, cap: Capsule, cfg?: PlayerConfig, far?: number): Placement | null;
+export declare function placeCapsule(world: WorldQuery, ray: Ray, cfg?: PlayerConfig, far?: number): Placement | null;

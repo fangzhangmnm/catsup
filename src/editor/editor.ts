@@ -712,8 +712,8 @@ export class Editor {
       const o = em.frame.origin, s0 = pf.project?.(o, vp);
       if (!s0) continue;
       let d = Math.hypot(s0.x - sx, s0.y - sy);
+      const wpp = worldPerPx(pf, vp, o);   // 和渲染画标记的换算同一个（不按轴方向量）
       for (const u of [em.frame.x, em.frame.y, em.frame.z]) {
-        const wpp = worldPerPx(pf, vp, o, u);
         const s1 = wpp ? pf.project?.(add3(o, scale3(u, POOL_AXES_PX * wpp)), vp) : null;
         if (s1) d = Math.min(d, distToSegment(q, s0, s1));
       }
@@ -1056,7 +1056,7 @@ export class Editor {
     this.mirrors.set(def, { mode, axis: ax });
     if (mode === "edit") {
       const lone = [...mirrorPairs(this.scene.mesh(def).kernel, ax).values()].filter((w) => w < 0).length;
-      this.host.hint(`镜像编辑：开（${A} 轴；挪点时对面的点一起镜，中缝上的点钉在镜像面上；改拓扑的操作不镜）${lone ? `——${lone} 个点对面找不到，挪它们只改这一边（右键「镜像 › 对称对齐」能修）` : ""}`);
+      this.host.hint(`镜像编辑：开（${A} 轴；挪点时对面的点一起镜，中缝上的点钉在镜像面上；改拓扑的操作不镜）${lone ? `——${lone} 个点对面找不到（镜像面在这个物体自己的原点上，模型对它不对称），挪它们只改这一边。模型偏在一边：全选、右键「设置原点到选择中心」把镜像面挪到中间；只是歪了一点：右键「镜像 › 对称对齐」` : ""}`);
     } else this.symmetrizeNow(def, ax);
     this.host.changed(); this.draw();
   }
@@ -1092,7 +1092,7 @@ export class Editor {
     const m = this.scene.mesh(op.def).kernel;
     if (op.op === "meshMove") {
       const r = mirrorMoves(m, op.moves, ms.axis);
-      if (r.unpaired) this.mirrorNote = `镜像编辑：${r.unpaired} 个点对面找不到，只改了这一边`;
+      if (r.unpaired) this.mirrorNote = `镜像编辑：${r.unpaired} 个点对面找不到，只改了这一边（右上角镜像方片是橙的 = 模型对镜像面不对称）`;
       return { ...op, moves: r.moves };
     }
     const p = mirrorPairs(m, ms.axis), es = new Set(op.edges);
@@ -1156,18 +1156,28 @@ export class Editor {
     void this.mirrorAsk(what).then((ok) => { if (ok) { this.mirrors.delete(def); again(); } });
     return true;
   }
-  /** 画镜像面（淡框）+ 中缝上的点（自由建模、开着镜像时）。 */
-  private mirrorView(view: WorldView, g: (id: number) => number): { key: string; segs: { a: Pt3; b: Pt3 }[]; seam: Pt3[] } | null {
+  /** 中缝上的点（自由建模、开着镜像时）。镜像面本身不画在模型上（2026-10-28 user「这边镜像面也不应该随着内容变大。其实我倾向于不画。可以画在gizmos之类的上面。
+   *  而不要干扰用户观察建模。自由建模模型上的干扰需要少一点」）：开没开、哪根轴、对不对得上 = mirrorIndicator → 右上角视图 gizmo。 */
+  private mirrorView(view: WorldView, g: (id: number) => number): { key: string; seam: Pt3[] } | null {
     const ms = this.mode.id === "freeform" && !this.cmdPreview ? this.mirrorOf() : null;
     if (!ms) return null;
-    const m = this.scene.mesh(this.activePool().def).kernel, X = this.ctxXform(), ax = ms.axis, u = ((ax + 1) % 3) as MirrorAxis, w = ((ax + 2) % 3) as MirrorAxis;
-    let lo = [Infinity, Infinity], hi = [-Infinity, -Infinity];
-    const seam: Pt3[] = [];
-    for (const v of m.verts()) { const p = m.pt(v); lo = [Math.min(lo[0], coordOf(p, u)), Math.min(lo[1], coordOf(p, w))]; hi = [Math.max(hi[0], coordOf(p, u)), Math.max(hi[1], coordOf(p, w))]; if (Math.abs(coordOf(p, ax)) <= MIRROR_TOL) { const gv = g(v); if (view.graph.hasVertex(gv)) seam.push(view.graph.pt(gv)); } }
-    if (!Number.isFinite(lo[0])) return null;
-    const pad = 0.1 * Math.max(hi[0] - lo[0], hi[1] - lo[1], 0.1), P = (a: number, b: number): Pt3 => { const q = [0, 0, 0]; q[u] = a; q[w] = b; return applyPt(X, { x: q[0], y: q[1], z: q[2] }); };
-    const c = [P(lo[0] - pad, lo[1] - pad), P(hi[0] + pad, lo[1] - pad), P(hi[0] + pad, hi[1] + pad), P(lo[0] - pad, hi[1] + pad)];
-    return { key: `${this.kid(view)}|${ax}|${ms.mode}`, segs: [0, 1, 2, 3].map((i) => ({ a: c[i], b: c[(i + 1) % 4] })), seam };
+    const m = this.scene.mesh(this.activePool().def).kernel, ax = ms.axis, seam: Pt3[] = [];
+    for (const v of m.verts()) if (Math.abs(coordOf(m.pt(v), ax)) <= MIRROR_TOL) { const gv = g(v); if (view.graph.hasVertex(gv)) seam.push(view.graph.pt(gv)); }
+    return { key: `${this.kid(view)}|${ax}|${ms.mode}`, seam };
+  }
+  private mirrorIndCache: { key: string; unpaired: number } | null = null;
+  /**
+   * 镜像的状态（给右上角视图 gizmo 画）：镜像面的法线和面内两根轴（世界方向，跟着物体自己的轴）+ 几个点对面找不到（> 0 = 镜像编辑挪它们只改一边，
+   * 2026-10-28 user「镜像编辑还是坏的」：模型不对称于镜像面时以前只在状态行闪一句）。不在网格体里 / 没开 = null。
+   */
+  mirrorIndicator(): { mode: MirrorMode; axis: MirrorAxis; normal: Pt3; span: [Pt3, Pt3]; unpaired: number } | null {
+    const ms = this.mode.id === "freeform" ? this.mirrorOf() : null;
+    if (!ms) return null;
+    const def = this.activePool().def, m = this.scene.mesh(def).kernel, X = this.ctxXform(), ax = ms.axis;
+    const dir = (i: number): Pt3 => normalize3(applyDir(X, { x: i === 0 ? 1 : 0, y: i === 1 ? 1 : 0, z: i === 2 ? 1 : 0 }));
+    const key = `${def}|${m.rev}|${ax}`;
+    if (this.mirrorIndCache?.key !== key) this.mirrorIndCache = { key, unpaired: [...mirrorPairs(m, ax).values()].filter((w) => w < 0).length };
+    return { mode: ms.mode, axis: ax, normal: dir(ax), span: [dir((ax + 1) % 3), dir((ax + 2) % 3)], unpaired: this.mirrorIndCache.unpaired };
   }
 
   /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
@@ -2450,6 +2460,13 @@ export class Editor {
   private cmdPreview: ((k: Kernel) => FaceEvent[]) | null = null;
   private cmdGhosts: (() => { picks: PoolPick[]; xform: Xform } | null) | null = null;
   mirrorActive(): boolean { return this.gizmo !== null; }
+  /** 镜像面把手这一帧在屏上的位置（探针用：别在外面另抄一份把手大小的算法；不在镜像会话 = null）。 */
+  gizmoHandlesPx(): Partial<Record<GizmoHandle, { x: number; y: number }>> | null {
+    if (!this.gizmo) return null;
+    const pf = this.frame(), vp = this.fvp(), G = gizmoGeom(this.gizmo.g, pf, vp), out: Partial<Record<GizmoHandle, { x: number; y: number }>> = {};
+    for (const h of Object.keys(G.handles) as GizmoHandle[]) { const q = pf.project?.(G.handles[h], vp); if (q) out[h] = q; }
+    return out;
+  }
   /** 镜像…：作用在选区（散几何 + 选中的组件实例）上；没有可镜的 → false。 */
   beginMirror(): boolean {
     return this.step((pass) => {
@@ -2477,7 +2494,7 @@ export class Editor {
     const fields: ParamField[] = [
       { key: "deleteOpposite", def: { kind: "bool", label: "删掉对面" } },
       { key: "mergeSeam", def: { kind: "bool", label: "缝上自愈" } },
-      { key: "weld", def: { kind: "number", label: "融合阈值", min: 0, max: 0.1, step: 0.001, unit: " m" } },
+      { key: "weld", def: { kind: "number", label: "融合阈值", min: 0, max: 0.1, step: 0.001, quantity: { q: "length" } } },
       { key: "guardMm", def: { kind: "number", label: "防碎距离", min: 0, max: 2, step: 0.01, unit: " mm" } },   // 2026-10-26 user「加防碎距离」：离镜像面这么近的点吸上去、太短的切段不要；0 = 关（小零件调小）
       ...(instPicks.length ? [{ key: "instances", def: { kind: "bool" as const, label: "组件也镜" } }] : []),
     ];
@@ -3112,7 +3129,7 @@ export class Editor {
     if (this.opCount === n0) return false;
     const fields: ParamField[] = [
       { key: "align", def: { kind: "enum", label: "对齐", values: [{ id: "normal", label: "法向", hint: "贴着右键点到的面 / 点（默认）" }, { id: "world", label: "世界", hint: "世界的 X Y Z" }, { id: "object", label: "物体", hint: "所在物体自己的轴" }] } },
-      { key: "size", def: { kind: "number", label: kind === "box" || kind === "plane" ? "边长" : "直径", min: 0.001, max: 10000, step: 0.1, unit: "m" } },
+      { key: "size", def: { kind: "number", label: kind === "box" || kind === "plane" ? "边长" : "直径", min: 0.001, max: 10000, step: 0.1, quantity: { q: "length" } } },
       ...(P.round ? [{ key: "segments", def: { kind: "number" as const, label: "段数", min: 3, max: 128, step: 1 } }] : []),
     ];
     this.offerAfterthought(`新建${P.label}`, fields, v0, this.opCount - n0, (v) => go(v));

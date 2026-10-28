@@ -5,9 +5,12 @@ export declare class FlatInput {
     private edges;
     private _enabled;
     private dblJump;
+    private crawlOn;
     private onKeyDown;
     private onKeyUp;
     private onBlur;
+    /** 关掉 = 也起来（下次进来站着）。 */
+    private reset;
     attach(): void;
     detach(): void;
     /** 关闭时不吞任何键（轨道模式下 WASD 等照旧不被截）。 */

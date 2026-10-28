@@ -142,7 +142,7 @@ const OTHER_KEY = { other: true } as const;   // rebuildFaces 分组键：别的
 const HINT_PX = 1.2;        // 吸附提示线宽
 const SOFT_EDGE_PX = 1;     // 自由建模里平滑边的线宽（CSS px；比棱细）
 const SOFT_EDGE_COLOR = 0x9a9a9a;   // 平滑边：比棱（edge 0x2a2a2a）淡得多，比面（0xd6d6d6）深一点，看得出来但不抢
-const MIRROR_COLOR = 0x8b5cf6;   // 镜像面 / 中缝上的点：和「原点 / 对齐」同一个紫（「这里有一条看不见的规矩」）
+const MIRROR_COLOR = 0x8b5cf6;   // 中缝上的点（镜像面本身不画在模型上，2026-10-28；画在右上角视图 gizmo）：和「原点 / 对齐」同一个紫（「这里有一条看不见的规矩」）
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
 const ARC_PX = 2.5;
 const SNAP_MARKER_PX = 5;
@@ -185,7 +185,7 @@ export interface ViewState {
   /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
   teleport?: { points: readonly Pt3[]; valid: boolean; landing: Pt3 | null } | null;
   /** 放置的胶囊虚影（步行「点一下落在哪」；player/placement.ts）：脚底、半径、身高、站得下吗（绿 / 红）。 */
-  capsule?: { feet: Pt3; radius: number; height: number; ok: boolean } | null;
+  capsule?: { feet: Pt3; radius: number; stature: number; ok: boolean } | null;
   /** 变暗的池槽序号（进了 group / 组件后，上下文之外的几何；SU 同款淡出）。null = 不变暗。2026-10-21 */
   dimSlots?: ReadonlySet<number> | null;
   /** 缩放柄（世界点；active = 正在拖的那个）。 */
@@ -215,7 +215,7 @@ export interface ViewState {
   /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
   softEdges?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 镜像（自由建模，FM23「看得见：镜像面淡淡画出来，中缝上的点高亮」）：镜像面的淡框 + 中缝上的点。 */
-  mirror?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[]; seam: readonly Pt3[] } | null;
+  mirror?: { key: string; seam: readonly Pt3[] } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
@@ -356,7 +356,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private mirrorLines: any; private seamDots: any; private mirrorKey = ""; private capsuleLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private seamDots: any; private mirrorKey = ""; private capsuleLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -469,7 +469,7 @@ export class Renderer3 {
     this.landingRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: TP_OK, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
     this.landingRing.renderOrder = 9; this.landingRing.visible = false;
     this.scene.add(this.landingRing);
-    // 放置的胶囊虚影：脚底圈 + 头顶圈 + 四根竖线 + 眼高那一小圈（线，不被几何挡 = 落在墙后也看得见在哪）
+    // 放置的胶囊虚影：脚底圈 + 头顶圈 + 四根竖线（线，不被几何挡 = 落在墙后也看得见在哪；不画眼睛）
     this.capsuleLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(ARC_PX, {}));
     this.capsuleLines.material.depthTest = false; this.capsuleLines.frustumCulled = false; this.capsuleLines.visible = false; this.capsuleLines.renderOrder = 9;
     this.scene.add(this.capsuleLines);
@@ -519,9 +519,6 @@ export class Renderer3 {
     this.softLines.frustumCulled = false; this.softLines.visible = false;
     this.scene.add(this.softLines);
     // 镜像面淡框（不被几何挡：知道镜像面在哪）+ 中缝上的点（镜像色的实心点，压在顶点小点上面）
-    this.mirrorLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
-    this.mirrorLines.material.depthTest = false; this.mirrorLines.frustumCulled = false; this.mirrorLines.visible = false; this.mirrorLines.renderOrder = 6;
-    this.scene.add(this.mirrorLines);
     this.seamDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Vector3(((MIRROR_COLOR >> 16) & 255) / 255, ((MIRROR_COLOR >> 8) & 255) / 255, (MIRROR_COLOR & 255) / 255) }, uSize: { value: VERT_DOT_PX } },
       vertexShader: "uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= 0.995; else mv.xyz *= 0.995; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }",
@@ -974,17 +971,13 @@ export class Renderer3 {
     if (mi) {
       if (mi.key !== this.mirrorKey) {
         this.mirrorKey = mi.key;
-        const pos: number[] = [], col: number[] = [], c = this.tmpColor.setHex(MIRROR_COLOR);
-        for (const sg of mi.segs) { pos.push(sg.a.x, sg.a.y, sg.a.z, sg.b.x, sg.b.y, sg.b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b); }
-        this.setLineGeometry(this.mirrorLines, pos, col);
         const g = new THREE.BufferGeometry();
         g.setAttribute("position", new THREE.Float32BufferAttribute(mi.seam.flatMap((q) => [q.x, q.y, q.z]), 3));
         this.seamDots.geometry.dispose(); this.seamDots.geometry = g;
       }
-      this.mirrorLines.visible = true;
       this.seamDots.material.uniforms.uSize.value = (VERT_DOT_PX + 2) * this.dpr;
       this.seamDots.visible = mi.seam.length > 0;
-    } else { this.mirrorLines.visible = false; this.seamDots.visible = false; this.mirrorKey = ""; }
+    } else { this.seamDots.visible = false; this.mirrorKey = ""; }
 
     // ---- 选中的点 ----
     const sv = view.selVerts;
@@ -1236,8 +1229,8 @@ export class Renderer3 {
     if (cp) {
       const pos: number[] = [], N = 24, f = cp.feet, r = cp.radius;
       const ring = (z: number, rr: number): void => { for (let i = 0; i < N; i++) { const a = (i / N) * 2 * Math.PI, b = ((i + 1) / N) * 2 * Math.PI; pos.push(f.x + rr * Math.cos(a), f.y + rr * Math.sin(a), z, f.x + rr * Math.cos(b), f.y + rr * Math.sin(b), z); } };
-      ring(f.z + 0.01, r); ring(f.z + cp.height, r); ring(f.z + cp.height, r * 0.25);   // 脚底 / 头顶 / 眼睛那一点
-      for (let i = 0; i < 4; i++) { const a = (i / 4) * 2 * Math.PI; pos.push(f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + 0.01, f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + cp.height); }
+      ring(f.z + 0.01, r); ring(f.z + cp.stature, r);   // 脚底 / 头顶（不画眼睛：user 10-28「消费者不应该知道你有眼睛」）
+      for (let i = 0; i < 4; i++) { const a = (i / 4) * 2 * Math.PI; pos.push(f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + 0.01, f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + cp.stature); }
       this.setLineGeometry(this.capsuleLines, pos, null);
       this.capsuleLines.material.color.setHex(cp.ok ? TP_OK : TP_BAD);
       this.capsuleLines.visible = true;

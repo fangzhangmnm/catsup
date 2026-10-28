@@ -2,12 +2,12 @@
 // 数学在 src/player/touch-stick.ts（死区 / 冲刺 / 浮动底座，node 测过）；这里只管 DOM 和指针：
 //   左半屏 = 浮动摇杆（没按的时候左下角淡淡地画一个 = 告诉你往哪按；按在左半屏哪里底座就跳到哪里；推满 = 全速走、推出底座边缘 = 冲刺、
 //     拖太远底座跟着走；松手回左下角。user 10-28 截图「摇杆位置不对」= v0.15.42 没按的时候底座和摇杆头停在覆盖层的 (0, 0)、罩在 ☰ 上）；
-//   右半屏 = 拖动转头（不加速、不平滑）；右下 = 跳（按住）、蹲（点一下切换）；上方两颗低调的 =「原地编辑」「离开」（iPad 没有 Tab / Esc）。
+//   右半屏 = 拖动转头（不加速、不平滑）；右下 = 跳（按住）、蹲 / 趴（点一下切换，两颗互斥；2026-10-28 user「可以做一个爬」）；上方两颗低调的 =「原地编辑」「离开」（iPad 没有 Tab / Esc）。
 // 竖屏为主（user「我很多时候ipad都是竖屏哦」）：分区按百分比，横屏一样能用。顶上 15% 留给 HUD。
 // 只在有触屏的设备、FPS（走）阶段露；鼠标指针不进这里（键鼠照旧 WASD + 锁鼠标）。
 import { STICK, TOUCH_LOOK_RAD_PER_PX, followBase, placeBase, stickOutput } from "../player/touch-stick.ts";
 
-export interface TouchRead { walkX: number; walkY: number; dash: boolean; jump: boolean; crouch: boolean }
+export interface TouchRead { walkX: number; walkY: number; dash: boolean; jump: boolean; crouch: boolean; crawl: boolean }
 export interface TouchControlsOpts {
   /** 转头（弧度：水平 / 竖直；正 = 往右 / 往下看）。 */
   lookRad(dYaw: number, dPitch: number): void;
@@ -29,7 +29,9 @@ export class TouchControls {
   private look: { id: number; x: number; y: number } | null = null;
   private jumpHeld = false;
   private crouchOn = false;
+  private crawlOn = false;
   private crouchBtn: HTMLButtonElement;
+  private crawlBtn: HTMLButtonElement;
 
   constructor(host: HTMLElement, private opts: TouchControlsOpts) {
     this.root = el("div", "touch-ctl"); this.root.hidden = true;
@@ -38,9 +40,10 @@ export class TouchControls {
     this.base.style.width = this.base.style.height = `${STICK.radius * 2}px`;
     const jump = el("button", "tc-btn tc-jump", "跳"); jump.type = "button";
     this.crouchBtn = el("button", "tc-btn tc-crouch", "蹲"); this.crouchBtn.type = "button";
+    this.crawlBtn = el("button", "tc-btn tc-crawl", "趴"); this.crawlBtn.type = "button";   // 吃鸡同款：蹲旁边一颗趴（点一下切换）
     const edit = el("button", "tc-top tc-edit", "原地编辑"); edit.type = "button";
     const leave = el("button", "tc-top tc-leave", "离开"); leave.type = "button";
-    this.root.append(this.left, this.right, this.base, this.knob, jump, this.crouchBtn, edit, leave);
+    this.root.append(this.left, this.right, this.base, this.knob, jump, this.crouchBtn, this.crawlBtn, edit, leave);
     host.appendChild(this.root);
     this.drawStick();   // 一开始就按「没在推」画（以前忘了 = 停在 (0, 0)）
     new ResizeObserver(() => { if (!this.stick) this.drawStick(); }).observe(this.root);
@@ -78,7 +81,9 @@ export class TouchControls {
     jump.addEventListener("pointerdown", (ev) => { ev.preventDefault(); this.jumpHeld = true; jump.classList.add("is-on"); });
     const upJump = (): void => { this.jumpHeld = false; jump.classList.remove("is-on"); };
     jump.addEventListener("pointerup", upJump); jump.addEventListener("pointercancel", upJump); jump.addEventListener("pointerleave", upJump);
-    this.crouchBtn.addEventListener("click", () => { this.crouchOn = !this.crouchOn; this.crouchBtn.classList.toggle("is-on", this.crouchOn); });
+    const posture = (crouch: boolean, crawl: boolean): void => { this.crouchOn = crouch; this.crawlOn = crawl; this.crouchBtn.classList.toggle("is-on", crouch); this.crawlBtn.classList.toggle("is-on", crawl); };
+    this.crouchBtn.addEventListener("click", () => posture(!this.crouchOn, false));   // 蹲 / 趴互斥（点另一颗 = 换姿势）
+    this.crawlBtn.addEventListener("click", () => posture(false, !this.crawlOn));
     edit.addEventListener("click", () => this.opts.editInPlace());
     leave.addEventListener("click", () => this.opts.leave());
   }
@@ -101,7 +106,7 @@ export class TouchControls {
   /** 这一帧的输入（没在推 = 0；蹲是切换态）。 */
   read(): TouchRead {
     const s = this.stick, o = s ? stickOutput(s.cur.x - s.base.x, s.cur.y - s.base.y) : { walkX: 0, walkY: 0, dash: false };
-    return { ...o, jump: this.jumpHeld, crouch: this.crouchOn };
+    return { ...o, jump: this.jumpHeld, crouch: this.crouchOn, crawl: this.crawlOn };
   }
 
   private drawStick(): void {

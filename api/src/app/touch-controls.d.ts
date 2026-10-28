@@ -4,6 +4,7 @@ export interface TouchRead {
     dash: boolean;
     jump: boolean;
     crouch: boolean;
+    crawl: boolean;
 }
 export interface TouchControlsOpts {
     /** 转头（弧度：水平 / 竖直；正 = 往右 / 往下看）。 */
@@ -22,7 +23,9 @@ export declare class TouchControls {
     private look;
     private jumpHeld;
     private crouchOn;
+    private crawlOn;
     private crouchBtn;
+    private crawlBtn;
     constructor(host: HTMLElement, opts: TouchControlsOpts);
     /** 这台设备有触屏吗（只在有的时候露）。 */
     static available(): boolean;

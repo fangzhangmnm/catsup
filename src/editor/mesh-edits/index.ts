@@ -6,6 +6,9 @@ import type { Action, Family, Placement } from "../commands/action.ts";
 import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits } from "../../mesh/ops/index.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
+import type { QuantityTag } from "../units.ts";
+/** 长度字段：值存米，显示 / − + / 打字按用户选的单位（units.ts）。 */
+const LEN: QuantityTag = { q: "length" };
 
 /** 两个点共有的面（最小 id；没有 = null）。 */
 function commonFaceOf(m: MeshKernel, a: number, b: number): number | null {
@@ -64,7 +67,7 @@ export const inset: Command<MeshUnit> = {
     for (const u of units ?? []) { const m = env.scene.mesh(u.def).kernel; for (const f of selFaces(m, u)) lim = Math.min(lim, maxInset(m.facePts(f), m.faceNormal(f))); }
     return { dist: Number.isFinite(lim) && lim > 0 ? Math.max(0.001, Math.round(lim * 0.2 * 1000) / 1000) : 0.1 };
   },
-  params: () => [{ key: "dist", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, unit: "m" } }],
+  params: () => [{ key: "dist", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, quantity: LEN } }],
   plan(env, u, v) {
     const m = env.scene.mesh(u.def).kernel, fs = selFaces(m, u), d = Number(v.dist);
     if (!fs.length || !(d > 0)) return { ops: [], count: 0 };
@@ -146,7 +149,7 @@ export const bevel: Command<MeshUnit> = {
     for (const u of units ?? []) { const m = env.scene.mesh(u.def).kernel; for (const e of selEdges(m, u)) lo = Math.min(lo, lenOf(m, e)); }
     return { width: defaultWidth(lo), segments: 1 };
   },
-  params: () => [{ key: "width", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, unit: "m" } }, { key: "segments", def: { kind: "number", label: "段数", min: 1, max: 32, step: 1 } }],
+  params: () => [{ key: "width", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, quantity: LEN } }, { key: "segments", def: { kind: "number", label: "段数", min: 1, max: 32, step: 1 } }],
   quickCount: (env, u) => selEdges(env.scene.mesh(u.def).kernel, u).length,   // 菜单露不露：不在副本上真倒一遍
   plan(env, u, v) {
     const m = env.scene.mesh(u.def).kernel, es = selEdges(m, u), w = Number(v.width), seg = Math.round(Number(v.segments));
@@ -165,7 +168,7 @@ export const bevelPoints: Command<MeshUnit> = {
     for (const u of units ?? []) { const m = env.scene.mesh(u.def).kernel; for (const x of u.sel?.verts ?? []) if (m.hasV(x)) for (const e of m.vEdges(x)) lo = Math.min(lo, lenOf(m, e)); }
     return { width: defaultWidth(lo) };
   },
-  params: () => [{ key: "width", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, unit: "m" } }],
+  params: () => [{ key: "width", def: { kind: "number", label: "宽度", min: 0.001, max: 10000, step: 0.01, quantity: LEN } }],
   quickCount: (env, u) => (u.sel && !u.sel.edges.size && !u.sel.faces.size ? [...u.sel.verts].filter((x) => env.scene.mesh(u.def).kernel.hasV(x)).length : 0),
   plan(env, u, v) {
     const m = env.scene.mesh(u.def).kernel, w = Number(v.width);
@@ -212,7 +215,7 @@ export const symmetrySnap: Command<MeshUnit> = {
   defaults: () => ({ axis: "x", tol: 0.01, side: "auto" }),
   params: () => [
     { key: "axis", def: { kind: "enum", label: "镜像面", values: [{ id: "x", label: "X" }, { id: "y", label: "Y" }, { id: "z", label: "Z" }] } },
-    { key: "tol", def: { kind: "number", label: "容差", min: 0.0001, max: 1, step: 0.001, unit: "m" } },
+    { key: "tol", def: { kind: "number", label: "容差", min: 0.0001, max: 1, step: 0.001, quantity: LEN } },
     { key: "side", def: { kind: "enum", label: "以哪边为准", values: (["auto", "flip", "average"] as const).map((id) => ({ id, label: SIDE_LABEL[id] })) } },
   ],
   quickCount: (env, u) => (u.sel ? selectionVerts(env.scene.mesh(u.def).kernel, u.sel).length : 0),

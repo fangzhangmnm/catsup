@@ -146,7 +146,10 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .strip-number { display: inline-flex; align-items: center; gap: 2px; }
 .strip-step { width: 32px; height: 32px; border: 0; border-radius: 8px; background: rgba(0,0,0,.05); cursor: pointer; font-size: 16px; }
 .strip-step:active { background: var(--accent-soft); color: var(--accent); }
-.strip-value { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; }
+.strip-value { min-width: 40px; text-align: center; font-variant-numeric: tabular-nums; border: 0; background: none; font: inherit; color: inherit; padding: 4px 2px; border-radius: 6px; cursor: text; }
+.strip-value:hover { background: rgba(0,0,0,.05); }
+.strip-input { width: 84px; height: 28px; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 6px; padding: 0 6px; font: inherit; font-variant-numeric: tabular-nums; text-align: center; background: var(--panel, #fff); color: inherit; }
+.strip-input.bad { border-color: var(--danger); }
 .strip-toggle { min-height: 32px; padding: 0 12px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; cursor: pointer; }
 .strip-toggle.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .strip-action { min-height: 32px; padding: 0 12px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; }   /* 工具的动作钮（user 10-24「轴是工具…归工具管」） */
@@ -366,6 +369,7 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .tc-btn.is-on { background: var(--accent); }
 .tc-jump { right: calc(24px + var(--safe-right)); bottom: calc(110px + var(--safe-bottom)); }
 .tc-crouch { right: calc(100px + var(--safe-right)); bottom: calc(40px + var(--safe-bottom)); width: 52px; height: 52px; font-size: 14px; }
+.tc-crawl { right: calc(30px + var(--safe-right)); bottom: calc(40px + var(--safe-bottom)); width: 52px; height: 52px; font-size: 14px; }
 .tc-top { position: absolute; top: calc(12px + var(--safe-top)); border: 0; background: transparent; color: var(--muted); font: 500 14px/1 system-ui, sans-serif; padding: 10px 14px; border-radius: 9px; pointer-events: auto; opacity: .8; filter: drop-shadow(0 1px 1px rgba(255,255,255,.9)); }
 .tc-leave { left: 50%; transform: translateX(calc(-100% - 6px)); }   /* 正中两侧（FPS 里正中那颗「继续走」不露） */
 .tc-edit { left: 50%; transform: translateX(6px); }

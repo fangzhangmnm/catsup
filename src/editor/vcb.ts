@@ -10,7 +10,7 @@ import type { Xform } from "../scene/xform.ts";
 import { rotationAbout, scalingAbout, translation } from "../scene/xform.ts";
 import { scale3 } from "../kernel/geom.ts";
 
-import { type LengthUnit, UNIT_M, fmtVcbLength } from "./units.ts";
+import { type LengthUnit, parseLength } from "./units.ts";
 export { type LengthUnit, LENGTH_UNITS, fmtVcbLength } from "./units.ts";   // 单位归 units.ts（2026-10-24），这里转出给老调用方
 export interface VcbCtx { unit: LengthUnit; }
 /** 数值小窗作用的那一步属于哪类手势（决定怎么读输入）。 */
@@ -27,29 +27,13 @@ export type VcbValue =
   | { kind: "array"; mode: "x" | "/"; n: number };
 
 
-/** 英制写法：`3'6"`、`3' 6 1/2"`、`42"`、`12'`、`5ft`、`30in`（user 喜欢英制；默认单位 ft 时裸数 = 英尺，in 时 = 英寸）。 */
-function imperial(part: string): number | null {
-  const t = part.trim().replace(/[’′]/g, "'").replace(/[”″]/g, '"');
-  const m = /^([-+]?)\s*(?:(\d+(?:\.\d+)?)\s*(?:'|ft)\s*)?(?:(\d+(?:\.\d+)?)(?:\s+(\d+)\/(\d+))?\s*(?:"|in))?$/i.exec(t);
-  if (!m || (m[2] === undefined && m[3] === undefined)) return null;
-  const ft = m[2] ? Number(m[2]) : 0;
-  let inch = m[3] ? Number(m[3]) : 0;
-  if (m[4] && m[5] && Number(m[5]) > 0) inch += Number(m[4]) / Number(m[5]);
-  const v = ft * UNIT_M.ft + inch * UNIT_M.in;
-  return m[1] === "-" ? -v : v;
-}
-
-/** 一个数（可带单位后缀）→ 米；角度 / 倍率时忽略长度后缀。 */
+/** 一个数（可带单位后缀）→ 米；角度 / 倍率时忽略长度后缀。长度的读法归 units.ts（parseLength）。 */
 function num(part: string, ctx: VcbCtx, as: "length" | "plain"): number | string {
-  if (as === "length") { const imp = imperial(part); if (imp !== null) return imp; }
+  if (as === "length") { const v = parseLength(part, ctx.unit); return typeof v === "number" ? v : v.error; }
   const m = /^([-+]?(?:\d+\.?\d*|\.\d+))\s*(m|cm|mm|ft|in|°|deg)?$/i.exec(part.trim());
   if (!m) return `看不懂「${part.trim()}」`;
   const v = Number(m[1]);
-  if (!Number.isFinite(v)) return `看不懂「${part.trim()}」`;
-  if (as === "plain") return v;
-  const u = (m[2] ?? ctx.unit).toLowerCase();
-  if (!(u in UNIT_M)) return `长度不能带「${m[2]}」`;
-  return v * UNIT_M[u as LengthUnit];
+  return Number.isFinite(v) ? v : `看不懂「${part.trim()}」`;
 }
 
 /** 小键盘的单位键（user 2026-10-25「小键盘应该跟着公制英制度变换」）：按这一步收什么 + 当前单位。

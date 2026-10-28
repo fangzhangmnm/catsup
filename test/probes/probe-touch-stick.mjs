@@ -17,7 +17,7 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
   results[name] = await page.evaluate(async () => {
     const L = globalThis.__catsup.locomotion, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), out = {};
     const root = document.querySelector(".touch-ctl"), left = root.querySelector(".tc-left"), right = root.querySelector(".tc-right");
-    L.enterWalk(); L.sim.reset({ x: 0, y: 0, z: 0 }, 0, { x: 0, y: 0, z: 1.7 }); await sleep(100);
+    L.enterWalk(); L.sim.standAt({ x: 0, y: 0, z: 0 }, 0); await sleep(100);
     // enterWalk 不经 onPhase 以外的路：确保操作层按阶段露
     out.visible = !root.hidden && getComputedStyle(root).display !== "none";
     // 没按的时候摇杆待在左下角（user 10-28 截图「摇杆位置不对」：v0.15.42 停在 (0, 0)、罩在 ☰ 上）
@@ -37,6 +37,11 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
     out.dash = { dist: Math.hypot(q1.x - q0.x, q1.y - q0.y), dash: L.touch().dash };
     fire("pointerup", left, sx, sy - 90, 21); await sleep(50);
     out.released = L.touch();
+    // 趴 / 蹲（v0.15.45，user 10-28「嗯可以做一个爬」）：点「趴」= 趴、头降到爬高；再点「蹲」= 换成蹲（互斥）；再点蹲 = 站
+    { const crawl = root.querySelector(".tc-crawl"), crouch = root.querySelector(".tc-crouch");
+      crawl.click(); await sleep(400); const a = { ...L.touch(), head: L.sim.state.headZ, crawlHead: L.sim.cfg.crawlHead };
+      crouch.click(); await sleep(50); const b = L.touch(); crouch.click(); await sleep(400);
+      out.posture = { crawlOn: a.crawl && !a.crouch, headLow: Math.abs(a.head - a.crawlHead) < 0.03, swapped: b.crouch && !b.crawl, standing: !L.touch().crouch && !L.touch().crawl && L.sim.state.headZ > 1.5 }; }
     // ④ 右半屏往右拖 100 px
     const h0 = L.sim.state.heading, rx = rr.left + rr.width / 2, ry = rr.top + rr.height * 0.5;
     fire("pointerdown", right, rx, ry, 22); for (let i = 1; i <= 5; i++) fire("pointermove", right, rx + i * 20, ry, 22); fire("pointerup", right, rx + 100, ry, 22);
@@ -56,7 +61,7 @@ for (const [name, vp] of [["竖屏", { width: 744, height: 1133 }], ["横屏", {
   await page.close();
 }
 await b.close();
-const ok = Object.values(results).every((r) => r.visible && !r.idle.overMenu && r.idle.left < r.idle.w / 2 && r.idle.top > r.idle.h / 2 && r.idle.bottom <= r.idle.hintTop + 4 && Math.abs(r.zones.leftW - r.zones.vw / 2) <= 1 && Math.abs(r.zones.rightW - r.zones.vw / 2) <= 1
+const ok = Object.values(results).every((r) => r.posture?.crawlOn && r.posture.headLow && r.posture.swapped && r.posture.standing && r.visible && !r.idle.overMenu && r.idle.left < r.idle.w / 2 && r.idle.top > r.idle.h / 2 && r.idle.bottom <= r.idle.hintTop + 4 && Math.abs(r.zones.leftW - r.zones.vw / 2) <= 1 && Math.abs(r.zones.rightW - r.zones.vw / 2) <= 1
   && r.walk.dist > 1.2 && r.walk.dist < 1.8 && Math.abs(r.walk.read.walkY - 1) < 1e-9 && !r.walk.read.dash
   && r.dash.dash && r.dash.dist > 2.4 && r.released.walkX === 0 && r.released.walkY === 0
   && Math.abs(r.turn - 0.45) < 0.02 && r.jumpZ > 0.2 && r.edit.phase === "edit" && r.edit.hidden) && errs.length === 0;

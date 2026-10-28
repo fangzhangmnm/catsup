@@ -23,6 +23,8 @@ export interface InputFrame {
     yawStep: -1 | 0 | 1;
     jump: boolean;
     crouch: boolean;
+    /** 趴下爬（切换态由适配器管；压过蹲）。 */
+    crawl: boolean;
     /** noclip 上/下（A/B 或 Q/E）。 */
     up: boolean;
     down: boolean;
@@ -32,6 +34,7 @@ export interface InputFrame {
     /** 瞄准射线（世界坐标）：VR = 手柄 targetRay；flat = 相机/光标射线。null = 没在瞄。 */
     aim: Ray | null;
 }
+/** 空输入：头在默认那个人的眼高（身体尺寸只从 body.ts 来，这里不另写数）。 */
 export declare function emptyInput(eyeHeight?: number): InputFrame;
 /** 一帧多步：第 2 步起把边沿类字段清零（同一帧的 turn 不许触发两次）。 */
 export declare function stripEdges(f: InputFrame): InputFrame;

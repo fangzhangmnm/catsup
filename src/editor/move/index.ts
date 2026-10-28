@@ -8,11 +8,14 @@ import type { ParamField } from "../param-panel.ts";
 import type { Pt3 } from "../../kernel/geom.ts";
 import { translation } from "../../scene/xform.ts";
 import { moveTargetsSelection } from "../tools.ts";
+import type { QuantityTag } from "../units.ts";
+/** 长度字段：值存米，显示 / − + / 打字按用户选的单位（units.ts）。 */
+const LEN: QuantityTag = { q: "length" };
 
 const fields = (): ParamField[] => [
-  { key: "dx", def: { kind: "number", label: "沿 X", min: -1e6, max: 1e6, step: 0.01, unit: "m" } },
-  { key: "dy", def: { kind: "number", label: "沿 Y", min: -1e6, max: 1e6, step: 0.01, unit: "m" } },
-  { key: "dz", def: { kind: "number", label: "沿 Z", min: -1e6, max: 1e6, step: 0.01, unit: "m" } },
+  { key: "dx", def: { kind: "number", label: "沿 X", min: -1e6, max: 1e6, step: 0.01, quantity: LEN } },
+  { key: "dy", def: { kind: "number", label: "沿 Y", min: -1e6, max: 1e6, step: 0.01, quantity: LEN } },
+  { key: "dz", def: { kind: "number", label: "沿 Z", min: -1e6, max: 1e6, step: 0.01, quantity: LEN } },
 ];
 const deltaOf = (v: Readonly<Record<string, unknown>>): Pt3 => ({ x: Number(v.dx) || 0, y: Number(v.dy) || 0, z: Number(v.dz) || 0 });
 const isZero = (d: Pt3): boolean => d.x === 0 && d.y === 0 && d.z === 0;

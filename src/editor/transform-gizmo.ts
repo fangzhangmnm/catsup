@@ -43,9 +43,8 @@ export interface XformGizmoGeom extends XformGizmo { arrow: number; ring: number
 export function planeHandleCenter(G: XformGizmoGeom, h: XformHandle): Pt3 { const { a, b } = planeAxes(h); return add3(G.origin, scale3(add3(G.axes[a], G.axes[b]), G.plane)); }
 
 export function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport): XformGizmoGeom {
-  // 量尺的方向要垂直于视线（2026-10-26）：沿红轴量的话，红轴斜着时别的轴箭头在屏上短一截，红轴正对镜头时整个手柄被算得巨大
-  const w = pf.viewDir(g.origin), side = normalize3(cross3(w, Math.abs(w.z) < 0.9 ? { x: 0, y: 0, z: 1 } : { x: 1, y: 0, z: 0 }));
-  const wpp = worldPerPx(pf, vp, g.origin, side) ?? 0.01;
+  // 量尺的方向垂直于视线（2026-10-26；现在由 worldPerPx 自己保证）：沿红轴量的话，红轴斜着时别的轴箭头在屏上短一截，红轴正对镜头时整个手柄被算得巨大
+  const wpp = worldPerPx(pf, vp, g.origin) ?? 0.01;
   return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp, cube: XG_SCALE_PX * wpp, cubeHalf: XG_CUBE_PX * wpp, plane: XG_PLANE_PX * wpp, planeHalf: XG_PLANE_HALF_PX * wpp };
 }
 /** 绕 axis 的环上的点（闭合：首尾相同）。 */

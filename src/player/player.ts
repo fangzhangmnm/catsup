@@ -27,6 +27,8 @@
 // 单位：米（A10 纪律「内部单位永远是 SI」）；heading：绕 +Z 弧度，0 = 面向 +Y（北），逆时针为正；前向 = (−sin h, cos h)，右向 = (cos h, sin h)。
 // 本文件不 import kernel / three / DOM。
 
+import { avatarFields, AVATAR_DEFAULT } from "./body.ts";
+
 /** 可变三维向量（player 状态原地更新；结构上兼容 kernel 的只读 Vec3）。 */
 export interface Vec3 { x: number; y: number; z: number; }
 import { type InputFrame, stripEdges } from "./input.ts";
@@ -35,11 +37,16 @@ import type { WorldQuery } from "./world-query.ts";
 
 export interface PlayerConfig {
   walkSpeed: number; dashSpeed: number;        // m/s 硬钳（无加速度）
+  crawlSpeed: number;                          // 趴着爬（m/s；身体尺寸 / 走跑跳归 body.ts）
   flySpeed: number; flyDashSpeed: number;      // noclip
   jumpVel: number; gravity: number; gravityHeld: number; terminalVel: number;
-  height: number;                              // flat 眼高 / 站立头高
+  height: number;                              // 站立眼高（VR = 头显高）——身体尺寸归 body.ts，别在这里写数
+  /** 眼到头顶（米）：碰撞胶囊的顶永远 = 眼 + 它，站 / 蹲 / 爬都一样（2026-10-28 user「碰撞不是很对，不知道是头高了还是碰撞体低了」
+   *  「应该是有一个眼睛到头顶的高度，这样站蹲爬都能算对」：以前胶囊顶 = 眼，钻到天花板 / 门楣底下时眼睛贴着几何、镜头近平面伸进去看穿）。 */
+  headroom: number;
   radius: number; stepHeight: number; stickDown: number; followTau: number;
   crouchMinHead: number; crouchDrop: number;   // 蹲：角色头高地板 / 主动蹲（B / Ctrl）下沉量
+  crawlHead: number;                           // 趴：头（眼）降到多高（头顶 = 它 + headroom = 爬高）
   substepLen: number; substepCap: number;
   maxRoomscaleStep: number;
   snapTurnDeg: number;
@@ -49,12 +56,9 @@ export interface PlayerConfig {
 }
 
 export const DEFAULT_CONFIG: PlayerConfig = {
-  walkSpeed: 3, dashSpeed: 6,
-  flySpeed: 5, flyDashSpeed: 12,
-  jumpVel: 5.5, gravity: 25, gravityHeld: 15, terminalVel: 50,
-  height: 1.7,
-  radius: 0.3, stepHeight: 0.3, stickDown: 0.3, followTau: 0.06,
-  crouchMinHead: 0.75, crouchDrop: 0.7,
+  flySpeed: 5, flyDashSpeed: 12, terminalVel: 50,
+  ...avatarFields(AVATAR_DEFAULT),   // 身体尺寸 + 走 / 跑 / 跳只从「这个人」模块来（body.ts；1.72 m 的人：眼 ≈ 1.61、眼到头顶 ≈ 0.11、半径 0.3、台阶 0.3、蹲下眼最低 0.75、主动蹲下沉 0.7）
+  followTau: 0.06,
   substepLen: 0.3, substepCap: 8,
   maxRoomscaleStep: 0.5,
   snapTurnDeg: 45,
@@ -108,10 +112,12 @@ export function worldToLocal2(h: number, wx: number, wy: number): { x: number; y
 
 // ---------- 胶囊 ----------
 export interface CapsuleSpheres { r: number; topZ: number; bottomZ: number; midZ: number; degenerate: boolean; }
-/** 顶球上缘 = 头高；腹球 = min(台阶+r, 顶)——站立时钉在台阶高，蹲低了跟顶球塌成一球。腹球下缘 = 腿区上界（对墙不可见）。 */
+/** 球半径：平时 = radius；头顶低到装不下一个整球（趴着）时缩到头顶的一半——球不伸进脚底下的地面。 */
+const sphereR = (top: number, cfg: PlayerConfig): number => Math.min(cfg.radius, Math.max(0.05, top / 2 - 0.005));
+/** 顶球上缘 = 头顶 = 眼 + headroom（2026-10-28 起；以前 = 眼）；腹球 = min(台阶+r, 顶)——站立时钉在台阶高，蹲低了跟顶球塌成一球。腹球下缘 = 腿区上界（对墙不可见）。 */
 export function capsuleSpheres(headZ: number, cfg: PlayerConfig): CapsuleSpheres {
-  const r = cfg.radius;
-  const topZ = headZ - r;
+  const top = headZ + (cfg.headroom ?? 0), r = sphereR(top, cfg);
+  const topZ = top - r;
   const bottomZ = Math.min(cfg.stepHeight + r, topZ);
   const midZ = (bottomZ + topZ) * 0.5;
   return { r, topZ, bottomZ, midZ, degenerate: topZ <= bottomZ + 0.01 };
@@ -166,9 +172,9 @@ export function groundProbe(pos: Vec3, world: WorldQuery, cfg: PlayerConfig): nu
 /** 头顶净空：从 lo 向 hi 连续上扫（5 cm 步），顶球撞到就停——不是端点测试，薄顶不会被穿过去。 */
 export function clearHeadHeight(pos: Vec3, lo: number, hi: number, world: WorldQuery, cfg: PlayerConfig, slack = 0.02): number {
   if (hi <= lo) return hi;
-  const r = cfg.radius;
   const blocked = (h: number): boolean => {
-    const d = world.pushOut({ x: pos.x, y: pos.y, z: pos.z + h - r }, r - slack);
+    const top = h + (cfg.headroom ?? 0), r = sphereR(top, cfg);
+    const d = world.pushOut({ x: pos.x, y: pos.y, z: pos.z + top - r }, r - slack);   // 顶球 = 眼 h + 头顶余量（和 capsuleSpheres 同一个定义）
     return !!d;
   };
   let reached = lo;
@@ -219,15 +225,19 @@ export function stepPlayer(st: PlayerState, input: InputFrame, dt: number, world
   st.t += dt;
   const frozen = isFrozen(st);
 
-  // ① 角色头高：HMD 意图（flat = 眼高）− 主动蹲下沉；下自由，上受净空钳，地板 crouchMinHead
+  // ① 角色头高：HMD 意图（flat = 眼高）− 主动蹲 / 趴下沉；下自由，上受净空钳（钻在矮处松开蹲 / 趴 = 有地方了才站起来），地板 crouchMinHead（趴 = crawlHead）
   {
     const a = 1 - Math.exp(-dt / 0.1);
-    st.crouchDrop += ((input.crouch ? cfg.crouchDrop : 0) - st.crouchDrop) * a;
-    const desired = Math.max(cfg.crouchMinHead, input.head.local.z - st.crouchDrop);
+    const floor = input.crawl ? cfg.crawlHead : cfg.crouchMinHead;
+    const drop = input.crawl ? Math.max(0, input.head.local.z - cfg.crawlHead) : input.crouch ? cfg.crouchDrop : 0;
+    st.crouchDrop += (drop - st.crouchDrop) * a;
+    const desired = Math.max(floor, input.head.local.z - st.crouchDrop);
     if (st.noclip) st.headZ = desired;
     else if (desired <= st.headZ) st.headZ = desired;
-    else st.headZ = Math.max(cfg.crouchMinHead, clearHeadHeight(st.pos, st.headZ, desired, world, cfg));
+    else st.headZ = clearHeadHeight(st.pos, st.headZ, desired, world, cfg);
   }
+  // 趴着（按着趴，或者头低过趴和蹲中间 = 钻在矮处站不起来）：爬的速度、不能跳
+  const crawling = !st.noclip && (input.crawl || st.headZ < (cfg.crawlHead + cfg.crouchMinHead) / 2);
 
   // ② snap turn（边沿已由适配器/PlayerSim 保证一帧一次）
   if (input.turn) snapTurn(st, (input.turn * cfg.snapTurnDeg * Math.PI) / 180, input, world, cfg);
@@ -243,7 +253,7 @@ export function stepPlayer(st: PlayerState, input: InputFrame, dt: number, world
     const fh = Math.hypot(f3.x, f3.y) || 1;
     const fx = f3.x / fh, fy = f3.y / fh;
     const rx = fy, ry = -fx;   // 右 = 前 × 上（Z 上）：(fx,fy,0)×(0,0,1) = (fy, −fx, 0)
-    const speed = (st.noclip ? (input.dash ? cfg.flyDashSpeed : cfg.flySpeed) : (input.dash ? cfg.dashSpeed : cfg.walkSpeed)) * dt * k;
+    const speed = (st.noclip ? (input.dash ? cfg.flyDashSpeed : cfg.flySpeed) : crawling ? cfg.crawlSpeed : (input.dash ? cfg.dashSpeed : cfg.walkSpeed)) * dt * k;
     sweepMove(st, (fx * input.walkY + rx * input.walkX) * speed, (fy * input.walkY + ry * input.walkX) * speed, world, cfg);
   } else {
     // roomscale：身体追 HMD（冻结期照旧——user：「平时都是头移动会导致身体跟着的」）
@@ -269,7 +279,7 @@ export function stepPlayer(st: PlayerState, input: InputFrame, dt: number, world
     if (input.down) st.pos.z -= speed;
     st.velZ = 0; st.grounded = true;
   } else if (!frozen) {
-    if (input.jump && st.grounded) { st.velZ = cfg.jumpVel; st.grounded = false; }
+    if (input.jump && st.grounded && !crawling) { st.velZ = cfg.jumpVel; st.grounded = false; }
     const zBefore = st.pos.z;
     const pushed = resolveCapsule(st.pos, st.headZ, world, cfg, cfg.passivePushCap);
     if (st.velZ > 0 && st.pos.z < zBefore - 1e-4) st.velZ = 0;   // 撞头
@@ -393,6 +403,10 @@ export class PlayerSim {
   }
 
   /** 出生/重置：脚落 pos、朝 heading；头重锚到当前 HMD。 */
+  /** 站到这里（脚底 = pos），朝 heading，头在这份身体站直时的位置（消费者不用知道眼睛在哪）。 */
+  standAt(pos: Vec3, heading: number): void { this.reset(pos, heading, { x: 0, y: 0, z: this.cfg.height }); }
+  /** 没有头显时的「头」：站着的眼睛那里、按俯仰看（键鼠 / 触屏喂输入用；眼睛在哪只有 player 知道）。 */
+  flatHead(pitch: number): { local: Vec3; fwdLocal: Vec3 } { return { local: { x: 0, y: 0, z: this.cfg.height }, fwdLocal: { x: 0, y: Math.cos(pitch), z: Math.sin(pitch) } }; }
   reset(pos: Vec3, heading: number, head: Vec3): void {
     const st = this.state;
     st.pos = { ...pos }; st.heading = heading;

@@ -42,9 +42,11 @@ import { faceTriangles } from "../editor/render3.ts";
 import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
-import { EYE_DEFAULT, EYE_MAX, EYE_MIN, Locomotion } from "./locomotion.ts";
+import { Locomotion } from "./locomotion.ts";
+import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
+import { formatQuantity } from "../editor/units.ts";
 import { TouchControls } from "./touch-controls.ts";
-import type { ParamSession } from "../editor/param-panel.ts";
+import type { ParamFieldDef, ParamSession } from "../editor/param-panel.ts";
 import { VR } from "./vr.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
@@ -130,7 +132,7 @@ const buildEl = $("build");
 const HINT_DEFAULT = "";   // 左下角默认不再列快捷键（user 2026-10-25「左下角的那行快捷键早应该删掉了」）；只在真有提示时显示，快捷键在使用手册里
 const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
-const HINT_PLACE = "步行：点一下落在哪（绿 = 站得下、红 = 站不下；虚影 = 身子的半径和高）· 眼高在右下小窗改 · Esc 取消";
+const HINT_PLACE = "步行：点一下落在哪（绿 = 站得下、红 = 站不下）· 身材在右下改 · Esc 取消";
 const HINT_EDIT = "原地编辑：镜头钉在这里，工具照常用（右键拖 = 原地转头）· 上方「继续走」回去 · Esc 离开步行";
 const HINT_WALK_TOUCH = "步行：左边按住拖 = 走（推出圈外 = 跑）· 右边拖 = 看 · 跳 / 蹲 · 上面「原地编辑」「离开」";
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isPlacing() ? HINT_PLACE : locomotion?.isEditInPlace() ? HINT_EDIT : locomotion?.isWalking() ? (TouchControls.available() ? HINT_WALK_TOUCH : `${HINT_WALK} · Tab 原地编辑 · Esc 离开`) : HINT_DEFAULT);
@@ -571,16 +573,39 @@ function setWalk(on: boolean): void {
   hintEl.textContent = hintDefault();
   syncUi();
 }
-/** 放置的马前炮：眼高（纪元账本 FM140 ③「马前炮还可以设置身高」）；说明行 = 这一点站不站得下。 */
+/** 放置的马前炮：这个人的身材 + 走跑跳（纪元账本 FM140 ③「马前炮还可以设置身高」→ 10-28 扩成八项）；说明行 = 这一点站不站得下 + 跳多高多远。 */
+// 这个人的参数（马前炮；user 10-28「身高 宽度眼高，以及后来的射击 都可以调整，现在还没想好放在哪里，就先算马前炮」「眼睛top，身高，宽度，蹲高，爬高」
+// 「然后移动速度，跑步倍速，跳高」「然后应该能估算跳远距离」「都单位和用户选择单位对齐」）：长度 / 速度按用户的单位显示、点数值能带单位打字；
+// 改了身高、别的没碰过 = 按新身高同比例跟着变（resolveAvatar 的自动）；碰过的那几项钉住。还没存（session 内记住；以后和射击参数一起理）。
+const LEN = { q: "length" } as const, FOOT = { q: "speed", mover: "foot" } as const;
+const AVATAR_FIELDS = [
+  { key: "stature", def: { kind: "number", label: "身高", min: STATURE_MIN, max: STATURE_MAX, step: 0.05, quantity: LEN } },
+  { key: "width", def: { kind: "number", label: "宽度", min: 0.05, max: 2.5, step: 0.05, quantity: LEN } },
+  { key: "eyeToTop", def: { kind: "number", label: "眼到头顶", min: 0.04, max: 1, step: 0.01, quantity: LEN } },
+  { key: "crouchHeight", def: { kind: "number", label: "蹲高", min: 0.1, max: STATURE_MAX, step: 0.05, quantity: LEN } },
+  { key: "crawlHeight", def: { kind: "number", label: "爬高", min: 0.1, max: STATURE_MAX, step: 0.05, quantity: LEN } },
+  { key: "walkSpeed", def: { kind: "number", label: "走速", min: 0.1, max: 50, step: 0.1, quantity: FOOT } },
+  { key: "runFactor", def: { kind: "number", label: "跑步倍速", min: 1, max: 10, step: 0.1, unit: "×" } },
+  { key: "jumpHeight", def: { kind: "number", label: "跳高", min: 0, max: 20, step: 0.05, quantity: LEN } },
+] as const satisfies readonly { key: keyof AvatarSpec; def: ParamFieldDef }[];
 function placeSession(): ParamSession {
   const s: ParamSession = {
     phase: "before", title: "步行：点一下落在哪",
-    fields: [{ key: "eye", def: { kind: "number", label: "眼高", min: EYE_MIN, max: EYE_MAX, step: 0.05, unit: "m" } }],
-    buttons: [{ key: "cancel", label: "取消" }],
-    get values() { return { eye: locomotion.eyeHeight }; },
-    get note() { return locomotion.placeWhy() ?? "绿 = 站得下，红 = 站不下"; },
-    set(key, value) { if (key === "eye") { locomotion.eyeHeight = Math.max(EYE_MIN, Math.min(EYE_MAX, Number(value) || EYE_DEFAULT)); locomotion.refreshGhost(); } },
-    press(key) { if (key === "cancel") locomotion.cancelPlace(); },
+    fields: AVATAR_FIELDS,
+    buttons: [{ key: "reset", label: "恢复默认" }, { key: "cancel", label: "取消" }],
+    get values() { const a = resolveAvatar(locomotion.avatar); return Object.fromEntries(AVATAR_FIELDS.map((f) => [f.key, a[f.key]])); },
+    get note() {
+      const why = locomotion.placeWhy(), b = locomotion.body(), j = jumpReach(b);
+      const reach = `跳 ${formatQuantity(j.height, LEN)}、空中 ${j.airtime.toFixed(2)} s，走着跳远 ${formatQuantity(j.walk, LEN)}、跑着 ${formatQuantity(j.run, LEN)}（跑 ${formatQuantity(b.dashSpeed, FOOT)}；落回起跳高度时算）`;
+      return `${why ?? "绿 = 站得下，红 = 站不下"} ｜ ${reach}`;
+    },
+    set(key, value) {
+      const v = Number(value);
+      if (!Number.isFinite(v) || !AVATAR_FIELDS.some((f) => f.key === key)) return;
+      locomotion.avatar = { ...locomotion.avatar, [key]: v } as AvatarSpec;
+      locomotion.refreshGhost();
+    },
+    press(key) { if (key === "cancel") locomotion.cancelPlace(); else if (key === "reset") { locomotion.avatar = AVATAR_DEFAULT; locomotion.refreshGhost(); } },
     dispose() { if (locomotion.isPlacing()) locomotion.cancelPlace(); },
   };
   return s;

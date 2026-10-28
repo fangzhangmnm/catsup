@@ -1,13 +1,12 @@
 import type { Editor } from "../editor/editor.ts";
 import { KernelCollisionWorld } from "../editor/collision-world.ts";
-import { PlayerSim, type RigPose } from "../player/player.ts";
+import { PlayerSim, type RigPose, type PlayerConfig } from "../player/player.ts";
+import { type AvatarSpec } from "../player/body.ts";
 import { FlatInput } from "../player/flat-input.ts";
 import type { InputFrame } from "../player/input.ts";
 export type LocomotionMode = "orbit" | "walk" | "xr";
 /** 步行的几个阶段（mode = walk 时 walk / edit；放置时 mode 还是 orbit）。 */
 export type WalkPhase = "off" | "place" | "walk" | "edit";
-/** 眼高的默认 / 上下限（米；马前炮可调）。 */
-export declare const EYE_DEFAULT: number, EYE_MIN = 0.3, EYE_MAX = 5;
 export declare class Locomotion {
     readonly world: KernelCollisionWorld;
     readonly sim: PlayerSim;
@@ -17,8 +16,8 @@ export declare class Locomotion {
     private saved;
     private cursor;
     private phase;
-    /** 放置的眼高（马前炮；落下去以后就是这个人的身高）。 */
-    eyeHeight: number;
+    /** 这个人（马前炮可调：身高 / 宽度 / 眼到头顶 / 蹲高 / 爬高 / 走速 / 跑步倍速 / 跳高；不填的按身高自动）。眼睛在哪只有 player / body 知道。 */
+    avatar: AvatarSpec;
     /** 悬停处的放置结果（画虚影用）。 */
     private ghost;
     /** 自己为了原地编辑放开鼠标（区别于 Esc 被浏览器放开）。 */
@@ -32,6 +31,7 @@ export declare class Locomotion {
         dash: boolean;
         jump: boolean;
         crouch: boolean;
+        crawl: boolean;
     }) | null;
     /** 外部输入源（VR）：非 null 时代替键盘。 */
     externalInput: ((dt: number) => InputFrame) | null;
@@ -47,7 +47,9 @@ export declare class Locomotion {
     /** 视图菜单「步行相机」：进放置（先点一下落在哪）。 */
     beginPlace(): void;
     cancelPlace(): void;
-    /** 眼高改了：虚影跟着重画。 */
+    /** 这个人的整份配置（身体 + 走跑跳；手感参数照旧）。 */
+    body(): PlayerConfig;
+    /** 身体参数改了：虚影跟着重画。 */
     refreshGhost(): void;
     private updateGhost;
     /** 放置的虚影（渲染用；不在放置 = null）。 */
@@ -58,7 +60,7 @@ export declare class Locomotion {
             z: number;
         };
         radius: number;
-        height: number;
+        stature: number;
         ok: boolean;
     } | null;
     placeWhy(): string | null;

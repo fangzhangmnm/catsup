@@ -11,6 +11,7 @@
 //   ③ 修饰键 = **按住时的临时覆盖**（SU 同款：Ctrl 按着 = 另一种模式，松开回来），不改存的值；要锁定走选项条。
 //   ④ 值永远合法：enum 不在表里 → 忽略；number 夹到 [min, max] 并按 step 量化；bool 强转。
 //   ⑤ 模块零 DOM、零 editor import：node 直测（test/tool-config.test.ts）。
+import type { QuantityTag } from "./units.ts";
 import type { Tool } from "./editor.ts";
 
 /** 选区默认档：有笔 / 触屏的设备 = 多选，键鼠 = 替换（user 10-28「平板上选择能不能默认是点击xor」）。node（测试）里没有 navigator = 替换。 */
@@ -37,6 +38,8 @@ export interface NumberOption {
   readonly step: number;
   /** 显示单位（纯标注；值的量纲由选项自己定义——调参纪律） */
   readonly unit?: string;
+  /** 这个数是一个物理量（值存 SI：米 / 米每秒）：显示、− +、打字都按用户选的单位（units.ts；2026-10-28 user「都单位和用户选择单位对齐」）。给了它 unit 就不看。 */
+  readonly quantity?: QuantityTag;
   readonly scope: OptionScope;
 }
 export interface BoolOption {

@@ -6,6 +6,8 @@
 // user 2026-10-21「模仿unity也有鼠标模式时点上去可以pan和zoom的小图标…也许不是overlay而是下面放三个，这样数位笔是不是导航就方便了因为没有shift」
 // 「只保留最essential的」：透视 / 步行 / 穿墙 / 粗线稿偶尔才用 → ☰。
 // 零 three：轴向量用相机的 right / up / forward 投到 2D；rAF 轮询相机键（yaw / pitch / 投影）只在变了时重画。
+// 镜像（自由建模）也画在这里（2026-10-28 user「其实我倾向于不画。可以画在gizmos之类的上面。而不要干扰用户观察建模」）：开着 = 正中一块紫色小方片，
+// 朝向 = 镜像面（跟着物体自己的轴）；有点对面找不到（镜像编辑挪它们只改一边）= 橙色虚线 + 个数。
 import type { Editor } from "../editor/editor.ts";
 import { iconHtml } from "./ui/icon.ts";
 
@@ -18,6 +20,8 @@ const AXES: { id: string; v: [number, number, number]; color: string; label: str
   { id: "-z", v: [0, 0, -1], color: "#1e6fd9", label: "", view: "bottom", opposite: "top" },
 ];
 const SIZE = 96, C = SIZE / 2, LEN = 34, R_POS = 9.5, R_NEG = 7;
+/** 镜像面小方片的半边长（轴长为 1）；颜色和模型上中缝点同一个紫，对不上 = 橙。 */
+const MIRROR_HALF = 0.5, MIRROR_FILL = "#8b5cf6", MIRROR_WARN = "#e8890c";
 
 export interface ViewGizmoOpts { isWalking(): boolean; /** 透视 / 平行切了（宿主刷新菜单勾选之类）。 */ onProjection?(): void; }
 export interface ViewGizmo { render(): void; dispose(): void; }
@@ -62,20 +66,16 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
   // 轴 → 屏幕 2D。平行投影 = 相机 right / up 直接投；透视 = gizmo 自己一块小屏幕、自己在正中，用相机同一个视场角做透视
   // （user 2026-10-25「不和场景共用vp。而是自己算透视，相当于自己有一块小屏幕，这样自己是居中的，就不会歪」）：
   // 近的轴端大、远的轴端小，但不随 gizmo 在大屏幕上的位置歪（v0.13.68 按所在那块屏幕的透视投 = 歪，撤）。
-  const project = (): { a: typeof AXES[number]; x: number; y: number; depth: number }[] => {
+  /** 一个世界方向（轴长为单位）→ 小屏幕上的点 + 深度（正 = 远）。 */
+  const projectVec = (x: number, y: number, z: number): { x: number; y: number; depth: number } => {
     const cam = editor.cam, r = cam.right(), u = cam.up(), f = cam.forward();
-    if (cam.projection === "persp") {
-      const D = (C / LEN) / Math.tan(cam.fovY / 2);   // 小屏幕半高 = C px；轴长 1 = LEN px（在中心那个深度）→ 眼到中心的距离（轴长为单位）
-      return AXES.map((a) => {
-        const [x, y, z] = a.v, cx = x * r.x + y * r.y + z * r.z, cy = x * u.x + y * u.y + z * u.z, cz = x * f.x + y * f.y + z * f.z, k = D / Math.max(0.2, D + cz);
-        return { a, x: C + LEN * cx * k, y: C - LEN * cy * k, depth: cz };
-      }).sort((p, q) => q.depth - p.depth);
-    }
-    return AXES.map((a) => {
-      const [x, y, z] = a.v;
-      return { a, x: C + LEN * (x * r.x + y * r.y + z * r.z), y: C - LEN * (x * u.x + y * u.y + z * u.z), depth: x * f.x + y * f.y + z * f.z };
-    }).sort((p, q) => q.depth - p.depth);   // 远的先画
+    const cx = x * r.x + y * r.y + z * r.z, cy = x * u.x + y * u.y + z * u.z, cz = x * f.x + y * f.y + z * f.z;
+    if (cam.projection !== "persp") return { x: C + LEN * cx, y: C - LEN * cy, depth: cz };
+    const D = (C / LEN) / Math.tan(cam.fovY / 2), k = D / Math.max(0.2, D + cz);   // 小屏幕半高 = C px；轴长 1 = LEN px（在中心那个深度）→ 眼到中心的距离（轴长为单位）
+    return { x: C + LEN * cx * k, y: C - LEN * cy * k, depth: cz };
   };
+  const project = (): { a: typeof AXES[number]; x: number; y: number; depth: number }[] =>
+    AXES.map((a) => ({ a, ...projectVec(a.v[0], a.v[1], a.v[2]) })).sort((p, q) => q.depth - p.depth);   // 远的先画
   // 方框裁到轴端小球最远能到的地方，上下的钮贴着（user 2026-10-25「gizmos上下空间留多了。你重新算一下。贴着」）：
   // 平行投影 = LEN + R_POS；透视 = LEN / √(1 − 1/D²) + R_POS（轴斜向镜头 sinφ = 1/D 时屏上最长）；+1 = 描边。视场 50° → 46.5（原来留到 48）。
   let boxR = C, boxFov = NaN;
@@ -92,11 +92,23 @@ export function mountViewGizmo(root: HTMLElement, editor: Editor, opts: ViewGizm
   const render = (): void => {
     const cam = editor.cam;
     fitBox();
-    const k = `${cam.yaw.toFixed(4)}|${cam.pitch.toFixed(4)}|${cam.projection}|${opts.isWalking()}|${boxR}`;
+    const mi = editor.mirrorIndicator();
+    const mk = mi ? `${mi.mode}|${mi.unpaired}|${[mi.span[0], mi.span[1]].map((d) => `${d.x.toFixed(3)},${d.y.toFixed(3)},${d.z.toFixed(3)}`).join("|")}` : "-";
+    const k = `${cam.yaw.toFixed(4)}|${cam.pitch.toFixed(4)}|${cam.projection}|${opts.isWalking()}|${boxR}|${mk}`;
     if (k === key) return;
     key = k;
     const pts = project();
     let html = "";
+    if (mi) {
+      // 镜像面：正中一块小方片（垫在轴下面）；强行对称 = 实心一点
+      const [a, b] = mi.span, h = MIRROR_HALF, warn = mi.unpaired > 0;
+      const cs = [[h, h], [-h, h], [-h, -h], [h, -h]].map(([s, t]) => projectVec(a.x * s + b.x * t, a.y * s + b.y * t, a.z * s + b.z * t));
+      const stroke = warn ? MIRROR_WARN : MIRROR_FILL;
+      html += `<g class="gizmo-mirror" data-mode="${mi.mode}" data-unpaired="${mi.unpaired}"><title>${warn ? `镜像：${mi.unpaired} 个点对面找不到（模型对这个镜像面不对称），镜像编辑挪它们只改一边` : mi.mode === "force" ? "强行对称开着" : "镜像编辑开着"}</title>`;
+      html += `<polygon points="${cs.map((p) => `${p.x.toFixed(1)},${p.y.toFixed(1)}`).join(" ")}" fill="${MIRROR_FILL}" fill-opacity="${mi.mode === "force" ? 0.4 : 0.22}" stroke="${stroke}" stroke-width="1.5"${warn ? ` stroke-dasharray="3 2"` : ""}/>`;
+      if (warn) { const c0 = cs.reduce((m, p) => (p.y > m.y ? p : m)); html += `<text x="${c0.x.toFixed(1)}" y="${(c0.y + 9).toFixed(1)}" text-anchor="middle" font-size="9" font-weight="700" fill="${MIRROR_WARN}">${mi.unpaired}</text>`; }
+      html += "</g>";
+    }
     for (const p of pts) if (p.a.label) html += `<line x1="${C}" y1="${C}" x2="${p.x.toFixed(1)}" y2="${p.y.toFixed(1)}" stroke="${p.a.color}" stroke-width="2" stroke-linecap="round" opacity="${p.depth > 0 ? 0.45 : 0.9}"/>`;
     for (const p of pts) {
       const neg = !p.a.label, rr = neg ? R_NEG : R_POS, op = p.depth > 0 ? 0.55 : 1;

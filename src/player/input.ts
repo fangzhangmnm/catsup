@@ -7,6 +7,9 @@
 
 import type { Pt3 } from "../kernel/geom.ts";
 import type { Ray } from "./world-query.ts";
+import { AVATAR_DEFAULT, avatarFields } from "./body.ts";
+
+const DEFAULT_EYE = avatarFields(AVATAR_DEFAULT).height;
 
 /** HMD / 相机在 rig 局部（Z 上、x 右、y 前、脚底原点）的姿态。flat：local=(0,0,眼高)、fwd=(0,1,0)。 */
 export interface HeadFrame {
@@ -31,6 +34,8 @@ export interface InputFrame {
   yawStep: -1 | 0 | 1;
   jump: boolean;
   crouch: boolean;
+  /** 趴下爬（切换态由适配器管；压过蹲）。 */
+  crawl: boolean;
   /** noclip 上/下（A/B 或 Q/E）。 */
   up: boolean; down: boolean;
   /** 双击跳（A / 空格）**边沿** = 切换 noclip（Minecraft 约定；user 2026-09-07 VR 首轮反馈）。 */
@@ -40,10 +45,11 @@ export interface InputFrame {
   aim: Ray | null;
 }
 
-export function emptyInput(eyeHeight = 1.7): InputFrame {
+/** 空输入：头在默认那个人的眼高（身体尺寸只从 body.ts 来，这里不另写数）。 */
+export function emptyInput(eyeHeight = DEFAULT_EYE): InputFrame {
   return {
     walkX: 0, walkY: 0, dash: false, turn: 0, tpCharge: false, tpBack: false, tierStep: 0, yawStep: 0,
-    jump: false, crouch: false, up: false, down: false, noclipToggle: false,
+    jump: false, crouch: false, crawl: false, up: false, down: false, noclipToggle: false,
     head: { local: { x: 0, y: 0, z: eyeHeight }, fwdLocal: { x: 0, y: 1, z: 0 } },
     aim: null,
   };

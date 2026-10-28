@@ -5,7 +5,7 @@
 import type { Editor } from "../editor/editor.ts";
 import { padUnitKeys } from "../editor/vcb.ts";
 import { showNotice } from "./ui/notice.ts";
-import { fieldControl } from "./ui/field-control.ts";
+import { fieldControl, fieldEditing } from "./ui/field-control.ts";
 
 export interface VcbUi { render(): void; feedKey(ev: KeyboardEvent): boolean; }
 
@@ -70,6 +70,7 @@ export function mountVcb(root: HTMLElement, editor: Editor): VcbUi {
   };
   const renderParams = (): boolean => {
     const pp = editor.paramPanel();
+    if (pp && fieldEditing(params)) return true;   // 正在就地打字：不重画（重画会把输入框换掉）
     params.hidden = !pp;
     params.replaceChildren();
     if (!pp) return false;

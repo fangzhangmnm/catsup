@@ -6,7 +6,6 @@ import type { Pt3 } from "../kernel/geom.ts";
 import type { Ray, WorldQuery } from "./world-query.ts";
 import { DEFAULT_CONFIG, type PlayerConfig, standingClear } from "./player.ts";
 
-export interface Capsule { readonly radius: number; readonly height: number }
 export interface Placement {
   /** 脚底（胶囊最低点）落在哪。 */
   readonly feet: Pt3;
@@ -23,20 +22,19 @@ export interface Placement {
  *   · 站得下 = 站立胶囊（这一组半径 / 高度）在那里不穿几何。
  * 射线什么都没打到（朝天看）= null。far = 射线最远多少米。
  */
-export function placeCapsule(world: WorldQuery, ray: Ray, cap: Capsule, cfg: PlayerConfig = DEFAULT_CONFIG, far = 500): Placement | null {
+export function placeCapsule(world: WorldQuery, ray: Ray, cfg: PlayerConfig = DEFAULT_CONFIG, far = 500): Placement | null {   // 身体 = 这份配置（body.ts withAvatar 出来的）：不另传半径 / 高度
   const a = ray.origin, b = { x: a.x + ray.dir.x * far, y: a.y + ray.dir.y * far, z: a.z + ray.dir.z * far };
   const hit = world.segmentHit(a, b);
   if (!hit) return null;
-  const c: PlayerConfig = { ...cfg, radius: cap.radius, height: cap.height };
   const minNz = Math.cos((cfg.maxSlopeDeg * Math.PI) / 180);
   let feet = hit.p, why: string | undefined;
   if (Math.abs(hit.n.z) < minNz) {
-    const back = { x: hit.p.x - ray.dir.x * cap.radius * 1.05, y: hit.p.y - ray.dir.y * cap.radius * 1.05 };
+    const back = { x: hit.p.x - ray.dir.x * cfg.radius * 1.05, y: hit.p.y - ray.dir.y * cfg.radius * 1.05 };
     const z = world.floorBelow(back.x, back.y, hit.p.z, world.floorZ() - 1, minNz);
     if (z === null) return { feet, ok: false, why: "这里是墙 / 陡坡，下面也没有能站的地方" };
     feet = { x: back.x, y: back.y, z };
     why = "点在墙上：落到墙脚";
   }
-  const ok = standingClear(feet, world, c);
+  const ok = standingClear(feet, world, cfg);
   return ok ? { feet, ok, ...(why ? { why } : {}) } : { feet, ok, why: "这里站不下（身子或头会穿过几何）" };
 }

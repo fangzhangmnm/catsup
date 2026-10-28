@@ -19,8 +19,12 @@ export declare function gizmoBasis(n0: Pt3): {
     u: Pt3;
     v: Pt3;
 };
-/** 世界长度 / 屏幕 px（在 p 处）：投两点量。投不出来 → null。 */
-export declare function worldPerPx(pf: PointerFrame, vp: Viewport, p: Pt3, u: Pt3): number | null;
+/**
+ * 世界长度 / 屏幕 px（在 p 处）：沿垂直于视线的方向投两点量。投不出来 → null。变换 gizmo / 空组件标记共用（2026-10-26）。
+ * 量尺方向不由调用方给（2026-10-28 user「硬表面的镜像的gizmos大小不应该随着视口乱动」：以前镜像面把手沿面内的轴量，
+ * 那根轴斜着朝镜头时投影变短 → 算出来的把手巨大、转一下视角就忽大忽小；变换 gizmo 10-26 修过同一个坑，这回收进函数里）。
+ */
+export declare function worldPerPx(pf: PointerFrame, vp: Viewport, p: Pt3): number | null;
 export interface GizmoGeom {
     origin: Pt3;
     normal: Pt3;
