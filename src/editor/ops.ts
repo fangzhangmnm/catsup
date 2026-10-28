@@ -10,7 +10,7 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -94,8 +94,11 @@ export type Op =
   // ---------- mesh 族（0.15 网格体；2026-10-27 接缝）：网格体没有组，寻址 = 定义 + 内核 id（数组制度：id 稳定、克隆保号，不用按坐标寻址）----------
   /** 挪网格点：往位置数组里写（mesh/ops/geometry.ts moveVerts）。不过结算机、不合并、不折面——mesh 刻意没有 brep 的公理。 */
   | { op: "meshMove"; def: number; moves: { v: number; to: Pt3 }[] }
-  /** 拉（自由建模；2026-10-27 Opus 5.5）：有面挤面（区域）、否则挤边、否则挤点，新点整体平移 offset（本地坐标）。mesh/ops/extrude.ts extrudeAndOffset。 */
-  | { op: "meshExtrude"; def: number; faces?: number[]; edges?: number[]; verts?: number[]; offset: Pt3 }
+  /**
+   * 挤出（自由建模；2026-10-27 Opus 5.5）：有面挤面（区域）、否则挤边、否则挤点。offset = 新点整体平移（本地坐标；面、或锁了轴）；
+   * along = 边 / 点的新点各自沿源点的「垂直」方向走这么长（本地长度；user「默认垂直」，mesh/ops/extrude.ts extrudeNormalDirs）。两个给一个。
+   */
+  | { op: "meshExtrude"; def: number; faces?: number[]; edges?: number[]; verts?: number[]; offset?: Pt3; along?: number }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -533,7 +536,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
-    case "meshExtrude": { extrudeAndOffset(meshOf(s, op.def).kernel, op, op.offset); return { scene: s, events: [] }; }
+    case "meshExtrude": { const k = meshOf(s, op.def).kernel; if (op.along !== undefined && !op.faces?.length) extrudeAlongNormals(k, op, op.along); else extrudeAndOffset(k, op, op.offset ?? { x: 0, y: 0, z: 0 }); return { scene: s, events: [] }; }
     case "castDefinition": {
       const d = s.def(op.def);
       const body = castBody(d.body, op.to, op.softDeg !== undefined ? { softDeg: op.softDeg } : undefined);   // 不认的方向在这里抛，文档不动
@@ -589,7 +592,7 @@ export function describeOp(op0: Op): string {
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
-    case "meshExtrude": return `meshExtrude def=${op.def} ${op.faces?.length ? `faces=${op.faces.length}` : op.edges?.length ? `edges=${op.edges.length}` : `verts=${op.verts?.length ?? 0}`} Δ=${op.offset.x.toFixed(3)},${op.offset.y.toFixed(3)},${op.offset.z.toFixed(3)}`;
+    case "meshExtrude": return `meshExtrude def=${op.def} ${op.faces?.length ? `faces=${op.faces.length}` : op.edges?.length ? `edges=${op.edges.length}` : `verts=${op.verts?.length ?? 0}`} ${op.along !== undefined ? `along=${op.along.toFixed(3)}` : `Δ=${(op.offset?.x ?? 0).toFixed(3)},${(op.offset?.y ?? 0).toFixed(3)},${(op.offset?.z ?? 0).toFixed(3)}`}`;
     case "meshMove": { const m = op.moves[0], d = m ? ` v${m.v}→${m.to.x.toFixed(3)},${m.to.y.toFixed(3)},${m.to.z.toFixed(3)}` : ""; return `meshMove def=${op.def} verts=${op.moves.length}${d}`; }
     case "addLayer": return `addLayer ${op.name}`;
     case "renameLayer": return `renameLayer ${op.layer}`;

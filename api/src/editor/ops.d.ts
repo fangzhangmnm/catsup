@@ -238,14 +238,18 @@ export type Op =
         to: Pt3;
     }[];
 }
-/** 拉（自由建模；2026-10-27 Opus 5.5）：有面挤面（区域）、否则挤边、否则挤点，新点整体平移 offset（本地坐标）。mesh/ops/extrude.ts extrudeAndOffset。 */
+/**
+ * 挤出（自由建模；2026-10-27 Opus 5.5）：有面挤面（区域）、否则挤边、否则挤点。offset = 新点整体平移（本地坐标；面、或锁了轴）；
+ * along = 边 / 点的新点各自沿源点的「垂直」方向走这么长（本地长度；user「默认垂直」，mesh/ops/extrude.ts extrudeNormalDirs）。两个给一个。
+ */
  | {
     op: "meshExtrude";
     def: number;
     faces?: number[];
     edges?: number[];
     verts?: number[];
-    offset: Pt3;
+    offset?: Pt3;
+    along?: number;
 }
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {

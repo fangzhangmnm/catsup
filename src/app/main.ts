@@ -191,7 +191,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
 const hud: HudModel = {
   version: APP_VERSION,
-  tools: (): HudItem[] => TOOL_SPEC.map((t) => ({ id: t.tool, label: t.label, icon: t.icon, key: t.key, active: editor.tool === t.tool })),
+  tools: (): HudItem[] => TOOL_SPEC.map((t0) => { const t = specOf(t0.tool); return { id: t.tool, label: t.label, icon: t.icon, key: t.key, active: editor.tool === t.tool }; }),
   edits: (): HudItem[] => { const brepOnly = editor.activeKind() !== "brep";   // 网格体的池：SU 体的动词先不露（自由建模工作台的同名动词 = M4），露了点不动 = 误导
     return [
     { id: "undo", label: "撤销", icon: "arrow-undo", disabled: !editor.canUndo() },
@@ -273,7 +273,9 @@ const RAIL_GROUPS: RailGroup[] = [
   { id: "measure", pinned: ["tape", "axes"], pool: ["protractor", "compass"], budget: 3 },
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
-const specOf = (t: Tool) => TOOL_SPEC.find((x) => x.tool === t)!;
+/** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
+const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出" } };
+const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = MODE_TOOL_LABEL[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
 const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "rrect"], t: ["tape", "protractor", "axes"] };
 let shapeCurrent: Tool = "rect";

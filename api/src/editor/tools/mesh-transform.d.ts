@@ -25,6 +25,8 @@ export declare class MeshTransformTool implements ToolHandler {
     private start;
     private cur;
     private shift;
+    private handleW;
+    private snapT;
     constructor(kind: MeshXformKind);
     active(): boolean;
     cancel(): void;
@@ -40,6 +42,8 @@ export declare class MeshTransformTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
+    /** 挪的吸附目标（Shift）：光标吸附圈里最近的点 > 边上最近的点 > 光标射线打到的面；被挪的点、连着它们的边 / 面不算。O(网格)，几千面以内每帧零点几毫秒。 */
+    private snapTarget;
     liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
     /** 当前拖动 → 每个点的新本地坐标 + 读数。 */
     private solve;

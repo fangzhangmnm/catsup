@@ -55,6 +55,14 @@ const res = await page.evaluate(async () => {
   { const ctr = px(P(0.5, 0.5, 1)), a = { x: ctr.x + 50, y: ctr.y }; await drag(a, { x: ctr.x + 87, y: ctr.y }, true); }
   const t5 = snap().filter((v) => top0.includes(v[0])), f5 = Math.hypot(t5[0][1], t5[0][2]) / Math.hypot(0.5, 0.5);
   out.scaleShift = { f: +f5.toFixed(4), step: Math.abs(f5 * 10 - Math.round(f5 * 10)) < 1e-3 };
+  key("z"); await sleep(30);
+  // ④b 挪 + Shift = 吸附：选中右前上角那个点，按住 Shift 拖到右后上角 → 落得正正好（点 > 边 > 面）
+  e.deselectAll(); e.setTool("select"); await click(P(1, 0, 1)); out.snapSel = e.selection.verts.size;
+  e.setTool("move");
+  { const a = px(P(1, 0, 1)), z = px(P(1, 1, 1)); await drag(a, { x: z.x + 3, y: z.y + 2 }, true); }
+  const sv = [...e.selection.verts][0], sp = sv !== undefined ? m().pt(sv) : null;
+  out.snapMove = { p: sp ? [q(sp.x), q(sp.y), q(sp.z)] : null, hint: hud.status() };
+  key("z"); await sleep(30);
   // ⑤ 守门：画线键不跳工作台
   e.setTool("line"); out.lineGuard = { mode: e.modeId, tool: e.tool, hint: hud.status() };
   // ⑥ 撤到头 / 重做到头
@@ -70,7 +78,8 @@ const ok = res.rail === "select,pp,move,rotate,scale"
   && res.moveZ.xyKept && res.moveZ.zUp
   && res.rotate.zKept && res.rotate.distKept && res.rotate.changed
   && res.scaleSel === 1 && res.scale.zKept && res.scale.bigger && res.scale.bottomKept && res.scaleShift.step
-  && res.lineGuard.mode === "freeform" && res.lineGuard.tool === "scale" && /没有这把工具/.test(res.lineGuard.hint)
+  && res.snapSel === 1 && JSON.stringify(res.snapMove.p) === JSON.stringify([0.5, 0.5, 1])
+  && res.lineGuard.mode === "freeform" && res.lineGuard.tool === "move" && /没有这把工具/.test(res.lineGuard.hint)
   && !res.undoRedoAll.threw && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-transform OK" : "probe-mesh-transform FAIL");

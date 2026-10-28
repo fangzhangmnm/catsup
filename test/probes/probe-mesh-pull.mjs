@@ -49,11 +49,18 @@ const res = await page.evaluate(async () => {
   const st3 = stat(), newE = [...e.selection.edges][0], nb = newE !== undefined ? [m().edgeA[newE], m().edgeB[newE]].map((v) => m().pt(v)) : [];
   out.pullEdge = { d: { f: st3.f - st0.f, v: st3.v - st0.v }, selEdges: e.selection.edges.size, onlyZ: nb.length === 2 && nb.every((p) => ea.some((o) => Math.abs(o.x - p.x) < 1e-9 && Math.abs(o.y - p.y) < 1e-9 && p.z > o.z)), check: m().check().join(";") };
   key("z"); await sleep(30);
+  // ③b 不锁轴拉同一条边 = 默认垂直：顶面前沿那条边两侧是顶面（+Z）和前面（−Y）→ 新点沿 (0, −1, 1)/√2 走
+  out.edgeSelAgain = e.selection.edges.size;
+  { const a = px(P(0.5, 0, 1)); await drag(a, { x: a.x, y: a.y - 50 }); }
+  const nb2 = [...e.selection.edges].flatMap((x) => [m().edgeA[x], m().edgeB[x]]).map((v) => m().pt(v));
+  out.pullEdgePerp = { n: nb2.length, diag: nb2.length === 2 && nb2.every((p) => { const o = ea.find((q) => Math.abs(q.x - p.x) < 1e-9); return !!o && Math.abs((p.z - o.z) + (p.y - o.y)) < 1e-6 && p.z - o.z > 1e-3; }) };
+  key("z"); await sleep(30);
   // ④ 拉一个点（选中再拉）
   e.deselectAll(); e.setTool("select"); await click(P(1, 0, 1)); out.vertSel = e.selection.verts.size;
   e.setTool("pp");
   { const a = px(P(1, 0, 1)); await drag(a, { x: a.x + 40, y: a.y - 10 }); }
-  const st4 = stat(); out.pullVert = { dv: st4.v - st0.v, de: st4.e - st0.e, df: st4.f - st0.f, selVerts: e.selection.verts.size };
+  const st4 = stat(), nv = [...e.selection.verts][0], np = nv !== undefined ? m().pt(nv) : null, cp = { x: 0.5, y: -0.5, z: 1 };   // 角点 (1,0,1) 的本地坐标；三张面 +X −Y +Z → 方向 (1,−1,1)/√3
+  out.pullVert = { dv: st4.v - st0.v, de: st4.e - st0.e, df: st4.f - st0.f, selVerts: e.selection.verts.size, perp: !!np && Math.abs((np.x - cp.x) + (np.y - cp.y)) < 1e-6 && Math.abs((np.x - cp.x) - (np.z - cp.z)) < 1e-6 && Math.abs(np.x - cp.x) > 1e-4 };
   key("z"); await sleep(30);
   // ⑤ 拉 0：按下不动就松手 = 点一下（底座进「预览，再点一下落定」）；同一处再点 = 底座吞掉；Esc 取消 = 什么都没做
   e.deselectAll(); const pos5 = e.history.position();
@@ -73,6 +80,7 @@ const ok = res.rail === "select,pp,move,rotate,scale"
   && res.pullFace.st1.f === res.pullFace.st0.f + 4 && res.pullFace.st1.v === res.pullFace.st0.v + 4 && res.pullFace.steps === 1 && res.pullFace.selFaces === 1 && res.pullFace.topZ > 1 && res.pullFace.check === ""
   && res.thenMove.up && res.thenMove.steps === 2 && res.undo2.back
   && res.edgeSel === 1 && res.pullEdge.d.f === 1 && res.pullEdge.d.v === 2 && res.pullEdge.selEdges === 1 && res.pullEdge.onlyZ && res.pullEdge.check === ""
+  && res.edgeSelAgain === 1 && res.pullEdgePerp.diag && res.pullVert.perp
   && res.vertSel === 1 && res.pullVert.dv === 1 && res.pullVert.de === 1 && res.pullVert.df === 0 && res.pullVert.selVerts === 1
   && res.zero.steps === 0 && res.zero.armed && !res.zero.activeAfterEsc
   && !res.undoRedoAll.threw && errs.length === 0;

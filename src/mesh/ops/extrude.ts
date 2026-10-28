@@ -68,3 +68,36 @@ export function extrudeAndOffset(k: MeshKernel, t: { faces?: readonly number[]; 
   for (const n of r.newVerts.values()) { const p = k.pt(n); k.setPos(n, { x: p.x + offset.x, y: p.y + offset.y, z: p.z + offset.z }); }
   return r;
 }
+
+const ZUP = { x: 0, y: 0, z: 1 };
+const nrm = (v: { x: number; y: number; z: number }): { x: number; y: number; z: number } | null => { const L = Math.hypot(v.x, v.y, v.z); return L > 1e-12 ? { x: v.x / L, y: v.y / L, z: v.z / L } : null; };
+/**
+ * 边 / 点挤出的「垂直」方向（user 2026-10-27「拉边 / 拉点默认往哪走 默认垂直」；纪元账本 FM110）：挤出之前按原几何算，每个源点一个单位方向（本地坐标）。
+ * 边：每条选中的边 = 它两侧面法向的平均（边界边 = 它那张面的法向；拉一圈裙摆的下沿 = 各自往外）；点的方向 = 连着它的选中边的方向之和。
+ * 点：连着它的面的法向平均。没有面（孤立的边 / 点）或相互抵消 = 本地 +Z（拉墙）。确定性：只读内核、按 id 序累加。
+ */
+export function extrudeNormalDirs(k: MeshKernel, t: { edges?: readonly number[]; verts?: readonly number[] }): Map<number, { x: number; y: number; z: number }> {
+  const acc = new Map<number, { x: number; y: number; z: number }>();
+  const add = (v: number, d: { x: number; y: number; z: number }): void => { const a = acc.get(v) ?? { x: 0, y: 0, z: 0 }; acc.set(v, { x: a.x + d.x, y: a.y + d.y, z: a.z + d.z }); };
+  const faceSum = (fs: Iterable<number>): { x: number; y: number; z: number } => { let s = { x: 0, y: 0, z: 0 }; for (const f of fs) { const n = k.faceNormal(f); s = { x: s.x + n.x, y: s.y + n.y, z: s.z + n.z }; } return s; };
+  if (t.edges?.length) {
+    for (const e of [...new Set(t.edges)].filter((x) => k.hasE(x)).sort((a, b) => a - b)) {
+      const n = nrm(faceSum([...k.eFaces(e)].sort((a, b) => a - b))) ?? { x: 0, y: 0, z: 0 };
+      add(k.edgeA[e], n); add(k.edgeB[e], n);
+    }
+  } else for (const v of [...new Set(t.verts ?? [])].filter((x) => k.hasV(x)).sort((a, b) => a - b)) {
+    const fs = new Set<number>();
+    for (const e of k.vEdges(v)) for (const f of k.eFaces(e)) fs.add(f);
+    add(v, faceSum([...fs].sort((a, b) => a - b)));
+  }
+  const out = new Map<number, { x: number; y: number; z: number }>();
+  for (const [v, d] of [...acc].sort((a, b) => a[0] - b[0])) out.set(v, nrm(d) ?? ZUP);
+  return out;
+}
+/** 边 / 点挤出、每个新点沿它源点的「垂直」方向走 dist（本地长度）。面不走这条（面 = 区域一起沿平均法向平移，extrudeAndOffset）。 */
+export function extrudeAlongNormals(k: MeshKernel, t: { edges?: readonly number[]; verts?: readonly number[] }, dist: number): ExtrudeResult {
+  const dirs = extrudeNormalDirs(k, t);
+  const r = t.edges?.length ? extrudeEdges(k, t.edges) : extrudeVerts(k, t.verts ?? []);
+  for (const [src, n] of r.newVerts) { const d = dirs.get(src) ?? ZUP, p = k.pt(n); k.setPos(n, { x: p.x + d.x * dist, y: p.y + d.y * dist, z: p.z + d.z * dist }); }
+  return r;
+}

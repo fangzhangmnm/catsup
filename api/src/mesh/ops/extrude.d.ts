@@ -24,3 +24,21 @@ export declare function extrudeAndOffset(k: MeshKernel, t: {
     y: number;
     z: number;
 }): ExtrudeResult;
+/**
+ * 边 / 点挤出的「垂直」方向（user 2026-10-27「拉边 / 拉点默认往哪走 默认垂直」；纪元账本 FM110）：挤出之前按原几何算，每个源点一个单位方向（本地坐标）。
+ * 边：每条选中的边 = 它两侧面法向的平均（边界边 = 它那张面的法向；拉一圈裙摆的下沿 = 各自往外）；点的方向 = 连着它的选中边的方向之和。
+ * 点：连着它的面的法向平均。没有面（孤立的边 / 点）或相互抵消 = 本地 +Z（拉墙）。确定性：只读内核、按 id 序累加。
+ */
+export declare function extrudeNormalDirs(k: MeshKernel, t: {
+    edges?: readonly number[];
+    verts?: readonly number[];
+}): Map<number, {
+    x: number;
+    y: number;
+    z: number;
+}>;
+/** 边 / 点挤出、每个新点沿它源点的「垂直」方向走 dist（本地长度）。面不走这条（面 = 区域一起沿平均法向平移，extrudeAndOffset）。 */
+export declare function extrudeAlongNormals(k: MeshKernel, t: {
+    edges?: readonly number[];
+    verts?: readonly number[];
+}, dist: number): ExtrudeResult;

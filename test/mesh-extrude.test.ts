@@ -2,7 +2,7 @@
 // 不变量：挤出后 MeshKernel.check() 干净；边挤出的新面和原来那张面在共用边上方向相反（法向一致）；同一份内核 + 同一组参数 → 同一批新 id（重放确定）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel, F_WIRE } from "../src/mesh/mesh-kernel.ts";
-import { addBox, extrudeEdges, extrudeVerts, extrudeAndOffset } from "../src/mesh/ops/index.ts";
+import { addBox, extrudeEdges, extrudeVerts, extrudeAndOffset, extrudeAlongNormals, extrudeNormalDirs } from "../src/mesh/ops/index.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
@@ -46,6 +46,23 @@ describe("拉：边 / 点的挤出", () => {
   });
 });
 
+describe("挤出边 / 点默认垂直（user 10-27「默认垂直」）", () => {
+  const box = (): MeshKernel => { const k = new MeshKernel(); addBox(k, P(0, 0, 0), P(1, 1, 1)); return k; };
+  const vAt = (k: MeshKernel, x: number, y: number, z: number): number => k.verts().find((v) => { const p = k.pt(v); return p.x === x && p.y === y && p.z === z; })!;
+  it("盒子顶面前沿那条边：两侧 +Z 和 −Y → (0, −1, 1)/√2；挤出后两个新点都沿它走", () => {
+    const k = box(), e = k.edgeOf(vAt(k, 0, 0, 1), vAt(k, 1, 0, 1)), d = extrudeNormalDirs(k, { edges: [e] });
+    for (const n of d.values()) { eq(+n.x.toFixed(6), 0); eq(+(n.y + n.z).toFixed(6), 0); assert(n.z > 0.7, `${JSON.stringify(n)}`); }
+    const r = extrudeAlongNormals(k, { edges: [e] }, Math.SQRT2);
+    for (const [src, nv] of r.newVerts) { const a = k.pt(src), b = k.pt(nv); eq([b.x - a.x, b.y - a.y, b.z - a.z].map((x) => +x.toFixed(6)).join(","), "0,-1,1"); }
+    eq(k.check().join("\n"), "");
+  });
+  it("角点：三张面 +X −Y +Z → (1, −1, 1)/√3；孤立的点 = +Z", () => {
+    const k = box(), c = vAt(k, 1, 0, 1), n = extrudeNormalDirs(k, { verts: [c] }).get(c)!;
+    eq([n.x, n.y, n.z].map((x) => +(x * Math.sqrt(3)).toFixed(6)).join(","), "1,-1,1");
+    const lone = k.addVertex(P(5, 5, 5)); eq(JSON.stringify(extrudeNormalDirs(k, { verts: [lone] }).get(lone)), JSON.stringify(P(0, 0, 1)));
+  });
+});
+
 describe("拉：meshExtrude op + 撤销", () => {
   it("op 只认网格体；提交 = 一步、撤 / 重做逐字；全量重放同结果", () => {
     const s0 = new Scene(sceneBox()), d = s0.mintDef("盒", sceneBox());
@@ -60,5 +77,12 @@ describe("拉：meshExtrude op + 撤销", () => {
     eq(JSON.stringify(h.replay().mesh(d.id).kernel.faces().map((f) => h.replay().mesh(d.id).kernel.faceVerts(f))), JSON.stringify(m.faces().map((f) => m.faceVerts(f))));
     let threw = ""; try { applyOp(s, { op: "meshExtrude", def: s.root, faces: [0], offset: P(0, 0, 1) }); } catch (e) { threw = (e as Error).name; }
     eq(threw, "OpTargetError");
+  });
+  it("along（边 / 点垂直）走 op 也一样：重放同结果", () => {
+    const s0 = new Scene(sceneBox()), d = s0.mintDef("盒", sceneBox());
+    s0.mintInstance(s0.root, null, d.id, IDENTITY);
+    const s = applyOp(s0, { op: "castDefinition", def: d.id, to: "mesh" }).scene, h = new History(s), m = s.mesh(d.id).kernel;
+    h.commit(s, { op: "meshExtrude", def: d.id, edges: [m.edges()[0]], along: 0.3 });
+    eq(m.check().join("\n"), ""); eq(JSON.stringify(h.replay().mesh(d.id).kernel.verts().map((v) => h.replay().mesh(d.id).kernel.pt(v))), JSON.stringify(m.verts().map((v) => m.pt(v))));
   });
 });
