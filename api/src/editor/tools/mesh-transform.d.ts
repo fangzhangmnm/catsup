@@ -3,11 +3,6 @@ import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 export type MeshXformKind = "move" | "rotate" | "scale";
-/** 悬停：没选区时高亮按下会作用的那张面 / 那条边（设计稿 §2½「操作前高亮会被作用的东西」）；有选区 = 作用于选区，不高亮。 */
-export declare function meshHover(ctx: ToolCtx, s: {
-    x: number;
-    y: number;
-}): void;
 /** 网格体选区 / 命中 → 点集（边 = 两端、面 = 环上的点）。 */
 export declare function meshTargets(m: MeshKernel, sel: {
     verts: Iterable<number>;
@@ -33,10 +28,6 @@ export declare class MeshTransformTool implements ToolHandler {
     sample(): Record<string, number>;
     live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     describe(): Record<string, unknown>;
-    hover(ctx: ToolCtx, s: {
-        x: number;
-        y: number;
-    }): void;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {
         x: number;

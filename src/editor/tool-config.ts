@@ -137,10 +137,7 @@ import { ARC_MODES } from "./arc-build.ts";
 export function optionGroupOf(tool: string): string { return tool === "paint" ? "surface" : tool; }
 
 export const TOOL_OPTIONS = {
-  /** 矩形从哪画（user 2026-10-24「中心rect……还是要」；SU 按 Ctrl / Option 从中心）：Ctrl 按着 = 临时从中心。 */
-  rect: {
-    from: { kind: "enum", label: "起点", values: [{ id: "corner", label: "从角" }, { id: "center", label: "从中心" }], def: "corner", scope: "session", modifiers: { ctrl: "center" } },
-  },
+  // 矩形的「起点」预设撤了（user 10-27「中心矩形能单独做一个工具吗而不是矩形的预设」）：中心矩形 = 独立工具 crect（tools/draw.ts CenterRectTool）；Ctrl 临时换起点照旧。
   circle: {
     segments: { kind: "number", label: "段数", def: 24, min: 3, max: 96, step: 1, scope: "session" },
   },

@@ -24,6 +24,13 @@ export interface MeshSnapshot {
 
 const grow = <T extends Float64Array | Int32Array | Uint8Array>(a: T, n: number): T => { if (n <= a.length) return a; const b = new (a.constructor as new (n: number) => T)(Math.max(n, a.length * 2, 16)); b.set(a as never); return b; };
 
+/**
+ * 改动计数的全局时钟（2026-10-27 Claude Opus 5.5；user「undo完全是坏的」「undo之后操作还锁住了」的根）：rev 以前是每个内核自己的计数器，
+ * 撤销 = 整表互换把旧 rev 换回来，之后再做同样多步就撞上撤销前用过的号 → 按 (内核, rev) 缓存的视图 / 合成视图 / 渲染给出旧几何，拾取点到不存在的面，工具看起来全锁住。
+ * 全局递增 = 每个内容一个独一无二的号（撤销换回来的旧号对应的就是那份旧内容），同 brep 的 revClock。
+ */
+let meshRevClock = 0;
+
 export class MeshKernel {
   // 顶点
   pos = new Float64Array(0); vAlive = new Uint8Array(0); private vCount = 0; private vFree: number[] = [];
@@ -132,16 +139,16 @@ export class MeshKernel {
     for (let i = 0; i < old.length; i++) { const e = this.edgeOf(old[i], old[(i + 1) % old.length]); if (e >= 0 && this.eFaces(e).length === 0 && !(this.edgeFlags[e] & F_WIRE)) this.removeEdge(e); }
   }
   setPos(v: number, p: Pt3): void { this.pos[3 * v] = p.x; this.pos[3 * v + 1] = p.y; this.pos[3 * v + 2] = p.z; this.changes.v(v); this.touch(false); }
-  setFlags(e: number, mask: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | mask : this.edgeFlags[e] & ~mask; this.changes.e(e); this.rev++; }
+  setFlags(e: number, mask: number, on: boolean): void { if (!this.hasE(e)) return; this.edgeFlags[e] = on ? this.edgeFlags[e] | mask : this.edgeFlags[e] & ~mask; this.changes.e(e); this.rev = ++meshRevClock; }
   /** 整字节写边标记（算子搬标记用）；记日志。 */
-  setEdgeFlags(e: number, flags: number): void { if (!this.hasE(e)) return; this.edgeFlags[e] = flags; this.changes.e(e); this.rev++; }
-  setFaceMat(f: number, slot: number): void { if (!this.hasF(f)) return; this.faceMat[f] = slot; this.changes.f(f); this.rev++; }
-  setFaceFlags(f: number, mask: number, on: boolean): void { if (!this.hasF(f)) return; this.faceFlags[f] = on ? this.faceFlags[f] | mask : this.faceFlags[f] & ~mask; this.changes.f(f); this.rev++; }
+  setEdgeFlags(e: number, flags: number): void { if (!this.hasE(e)) return; this.edgeFlags[e] = flags; this.changes.e(e); this.rev = ++meshRevClock; }
+  setFaceMat(f: number, slot: number): void { if (!this.hasF(f)) return; this.faceMat[f] = slot; this.changes.f(f); this.rev = ++meshRevClock; }
+  setFaceFlags(f: number, mask: number, on: boolean): void { if (!this.hasF(f)) return; this.faceFlags[f] = on ? this.faceFlags[f] | mask : this.faceFlags[f] & ~mask; this.changes.f(f); this.rev = ++meshRevClock; }
   isFaceHidden(f: number): boolean { return this.hasF(f) && (this.faceFlags[f] & FF_HIDDEN) !== 0; }
   hasFlag(e: number, mask: number): boolean { return this.hasE(e) && (this.edgeFlags[e] & mask) !== 0; }
 
   private keyOf(a: number, b: number): number { return a < b ? a * 67108864 + b : b * 67108864 + a; }
-  private touch(topo: boolean): void { this.rev++; this.triCache = null; if (topo) this.adjDirty = true; }
+  private touch(topo: boolean): void { this.rev = ++meshRevClock; this.triCache = null; if (topo) this.adjDirty = true; }
 
   // ---------------- 邻接（派生，O(n) 重建）
   private adjacency(): void {
@@ -211,7 +218,7 @@ export class MeshKernel {
     for (let i = 0; i + 2 < s.positions.length; i += 3) m.addVertex({ x: s.positions[i], y: s.positions[i + 1], z: s.positions[i + 2] });
     s.faces.forEach((r, i) => m.addFace(r, s.faceMat[i] ?? -1));
     for (const [a, b, fl] of s.edges) { const e = m.ensureEdge(a, b); m.edgeFlags[e] = fl; }
-    m.rev = 0;
+    m.rev = ++meshRevClock;
     return m;
   }
 

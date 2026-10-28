@@ -110,6 +110,8 @@ const SNAP_COLORS: Record<string, number> = {
 const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** 选中的点：圆点直径（CSS px）。 */
 const SEL_VERT_DOT_PX = 9;
+/** 自由建模里每个顶点画一个小点（user 10-27「自由建模模式应该能看到顶点和选择」）。CSS px。 */
+const VERT_DOT_PX = 5;
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
 export const POOL_AXES_PX = 22;
 /** 平面 gizmo 的颜色（常态 / 悬停）。 */
@@ -202,6 +204,8 @@ export interface ViewState {
   grid?: { frame: Frame; step: number; sub?: number; on?: boolean } | null;
   /** 选中的点（2026-10-26，user「以及我们还是希望我们能选点」「为什么不是简简单单高亮点？」）：只画实心圆点。世界坐标。 */
   selVerts?: readonly Pt3[] | null;
+  /** 全部顶点的小点（自由建模；key 变了才重建）。 */
+  vertDots?: { key: string; pts: readonly Pt3[] } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
   charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
@@ -340,7 +344,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
+  private guideLines: any; private tapeLines: any; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -482,6 +486,14 @@ export class Renderer3 {
     }));
     this.selVertDots.frustumCulled = false; this.selVertDots.visible = false; this.selVertDots.renderOrder = 4;
     this.scene.add(this.selVertDots);
+    // 全部顶点：小一号的深色点（选中的点画在它上面，renderOrder 更大）
+    this.vertDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+      uniforms: { uColor: { value: new THREE.Vector3(((PALETTE.edge >> 16) & 255) / 255, ((PALETTE.edge >> 8) & 255) / 255, (PALETTE.edge & 255) / 255) }, uSize: { value: VERT_DOT_PX } },
+      vertexShader: "uniform float uSize; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z -= 0.0015 * gl_Position.w; gl_PointSize = uSize; }",
+      fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
+    }));
+    this.vertDots.frustumCulled = false; this.vertDots.visible = false; this.vertDots.renderOrder = 3;
+    this.scene.add(this.vertDots);
     this.tickLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
     this.tickLines.frustumCulled = false; this.tickLines.visible = false;
     this.scene.add(this.tickLines);
@@ -896,6 +908,19 @@ export class Renderer3 {
     const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = 1;
     const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
+
+    // ---- 全部顶点（自由建模）----
+    const vd = view.vertDots;
+    if (vd && vd.pts.length) {
+      if (vd.key !== this.vertDotKey) {
+        this.vertDotKey = vd.key;
+        const g = new THREE.BufferGeometry();
+        g.setAttribute("position", new THREE.Float32BufferAttribute(vd.pts.flatMap((q) => [q.x, q.y, q.z]), 3));
+        this.vertDots.geometry.dispose(); this.vertDots.geometry = g;
+      }
+      this.vertDots.material.uniforms.uSize.value = VERT_DOT_PX * this.dpr;
+      this.vertDots.visible = true;
+    } else { this.vertDots.visible = false; this.vertDotKey = ""; }
 
     // ---- 选中的点 ----
     const sv = view.selVerts;
@@ -1706,10 +1731,17 @@ export function faceTriangles(k: GeomView, id: FaceId): [Pt3, Pt3, Pt3][] {
     y: u.y * q.x + v.y * q.y + n.y * d,
     z: u.z * q.x + v.z * q.y + n.z * d,
   });
+  // 不平的面（网格体的面可以扭；2026-10-27 Claude Opus 5.5，user「面的预览也是坏的」截图）：剖分仍在平面基里做（定连接），但三角的角用顶点的真实 3D 坐标——
+  // 以前一律抬回最佳拟合平面，扭过的面画成一张平板、选中高亮跟面对不上（高亮浮在平面上、和真面互相穿插）。brep 的膜离平面 ≤ τ，照旧抬（字节出口不变）。
+  const pts3 = [f.outer, ...f.holes].flatMap((r) => r.vids.map((vid) => (k.graph.hasVertex(vid) ? k.graph.pt(vid) : null)));
+  let off = 0;
+  for (const p of pts3) { if (!p) { off = -1; break; } off = Math.max(off, Math.abs(n.x * p.x + n.y * p.y + n.z * p.z - d)); }
+  const real = off > 1e-6 && pts3.length === all.length;
+  const at = (i: number): Pt3 => (real ? pts3[i]! : lift(all[i]));
   // 绕向统一成「绕 +n 逆时针」（平面基里逆时针；u × v = n）：两个表面（DT8）靠 gl_FrontFacing 分正反，三角的绕向必须一致
   return tris.map(([a, b, c]) => {
     const A = all[a], B = all[b], C = all[c];
     const ccw = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x) >= 0;
-    return ccw ? [lift(A), lift(B), lift(C)] : [lift(A), lift(C), lift(B)];
+    return ccw ? [at(a), at(b), at(c)] : [at(a), at(c), at(b)];
   });
 }

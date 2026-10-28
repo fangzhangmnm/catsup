@@ -324,6 +324,8 @@ export class PoolMesh {
   /** 现在反映的是哪个内核到第几号。 */
   private src: KernelView | null = null;
   private srcSeq = 0;
+  /** 画的那一刻那份日志的族谱（2026-10-27 Opus 5.5）：提交 / 撤销会在内核对象之间整份换日志（swapTablesWith / swapWith），事后再读 src.changes 拿到的是换过的那份 → 差算错、该重建的没重建。所以画的时候就把族谱存下来。 */
+  private srcLin: { data: unknown; seq: number }[] = [];
   private sig = "";
   private thick = false;
   /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */
@@ -366,7 +368,7 @@ export class PoolMesh {
     }
     for (const fid of F) { this.noteFace(T, fid); this.writeFace(fid, buildFaceRec(T, fid, (s) => env.matOf(s)), env); }
     for (const eid of E) this.writeEdge(eid, buildEdgeRec(T, eid), env);
-    this.src = T; this.srcSeq = T.changes.seq;
+    this.src = T; this.srcSeq = T.changes.seq; this.srcLin = T.changes.lineage();
     return this.last = { full: false, faces: F.size, edges: E.size };
   }
 
@@ -377,8 +379,8 @@ export class PoolMesh {
   private diffTo(T: KernelView): ChangeSet | null {
     const S = this.src;
     if (!S) return null;
-    const cs = S.changes.lineage(), ct = T.changes.lineage();
-    cs[0] = { data: cs[0].data, seq: this.srcSeq };   // 缓存反映的是 S 到 srcSeq 那一刻
+    const cs = this.srcLin.slice() as ReturnType<typeof T.changes.lineage>, ct = T.changes.lineage();   // 缓存反映的是画那一刻的那份日志（不是 S 现在挂着的那份）
+    if (!cs.length) return null;
     let i = -1, j = -1;
     for (let a = 0; a < cs.length && i < 0; a++) { const b = ct.findIndex((x) => x.data === cs[a].data); if (b >= 0) { i = a; j = b; } }
     if (i < 0) return null;
@@ -404,7 +406,7 @@ export class PoolMesh {
     for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id), env);
     for (const g of this.groups.values()) g.store.trim();
     this.lines.trim();
-    this.src = T; this.srcSeq = T.changes.seq;
+    this.src = T; this.srcSeq = T.changes.seq; this.srcLin = T.changes.lineage();
     return { full: true, faces: this.faceGroups.size, edges: this.lines.count };
   }
 

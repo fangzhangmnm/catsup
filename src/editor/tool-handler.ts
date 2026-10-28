@@ -57,6 +57,8 @@ export interface ToolCtx {
   /** 屏幕点下的实体（顶点 > 边 > 面，全局 id；0.11 卷尺要知道起点落在哪条边上）。 */
   /** opts.soft = 软边也拾（平时软边点不中；硬化的橡皮要碰得到它）。 */
   pick(sx: number, sy: number, opts?: { soft?: boolean }): HitResult3;
+  /** 在静态世界（不含预演）里拾取：要按真身的拓扑落点的工具用（刀：预演里那条边已经劈开了，id 对不上真身）。配 classify(world(), …)。 */
+  pickStatic(sx: number, sy: number): HitResult3;
   classify(view: WorldView, hit: HitResult3): Classified;
   /** 吸附求解（世界视图 + 帧 + ε 由底座配好）。 */
   snap(view: WorldView, sx: number, sy: number, q: AlignQuery): Snap3;
@@ -204,6 +206,8 @@ export interface ToolHandler {
   readonly grammar: ToolGrammar;
   /** draw 类工具（画线 / 矩形 / 圆…）：手里的膜只算 BIRTH 出来的（底座 freshHand 据此豁免遮挡）。 */
   readonly draws?: boolean;
+  /** steps 工具：等下一点时在锚点附近又按一下，也递给工具（底座默认当「同一处又点了一下」吞掉）。刀要它：同一条边点两下 = 环切。 */
+  readonly repeatTap?: boolean;
   /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
   readonly previewOnHover?: boolean;
   /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */

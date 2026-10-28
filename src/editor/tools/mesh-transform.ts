@@ -23,13 +23,7 @@ const SCALE_REF_PX = 40;
 /** Shift 档：转 15°、缩 0.1。 */
 const ROT_STEP = Math.PI / 12, SCALE_STEP = 0.1;
 
-/** 悬停：没选区时高亮按下会作用的那张面 / 那条边（设计稿 §2½「操作前高亮会被作用的东西」）；有选区 = 作用于选区，不高亮。 */
-export function meshHover(ctx: ToolCtx, s: { x: number; y: number }): void {
-  if (ctx.hasSelection()) { ctx.setHoverFace(null); ctx.setHoverEdge(null); return; }
-  const c = ctx.classify(ctx.live(), ctx.pick(s.x, s.y));
-  ctx.setHoverFace(c.kind === "entity" && c.local.face !== undefined ? c.local.face : null);
-  ctx.setHoverEdge(c.kind === "entity" && c.local.edge !== undefined ? c.local.edge : null);
-}
+// 悬停不高亮（user 10-27「自由建模模式不要悬浮高亮」）：自由建模的工具都不写 hover。
 /** 网格体选区 / 命中 → 点集（边 = 两端、面 = 环上的点）。 */
 export function meshTargets(m: MeshKernel, sel: { verts: Iterable<number>; edges: Iterable<number>; faces: Iterable<number> }): number[] {
   const out = new Set<number>();
@@ -60,7 +54,6 @@ export class MeshTransformTool implements ToolHandler {
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
 
-  hover(ctx: ToolCtx, s: { x: number; y: number }): void { meshHover(ctx, s); }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.active()) { this.commit(ctx); return; }
@@ -81,7 +74,6 @@ export class MeshTransformTool implements ToolHandler {
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; this.shift = ev.shiftKey;
     { const vp = ctx.vp(); let best = Infinity; for (const [, p] of this.base) { const w = applyPt(X, p), q = ctx.frame().project?.(w, vp); const d = q ? Math.hypot(q.x - ev.x, q.y - ev.y) : Infinity; if (d < best) { best = d; this.handleW = w; } } }
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
-    ctx.setHoverFace(null); ctx.setHoverEdge(null);
     ctx.hint(`${this.verb()} ${vids.length} 个点：拖着松手，或者点第二下落定（方向键锁轴 / Shift+方向键锁面；按住 Shift = ${this.tool === "move" ? "吸附：点 > 边 > 面" : this.tool === "rotate" ? "15° 一档" : "0.1 一档"}）`);
   }
 

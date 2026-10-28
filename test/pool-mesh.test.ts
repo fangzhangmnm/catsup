@@ -130,6 +130,41 @@ describe("池网格（DT96）：增量同步 = 全量重建", () => {
       eq(m.last.full, false, "撤销走增量");
     }
   });
+  it("拖动预演 O1（影子复用 + 每帧倒回，v0.15.14 起的真实路径）：每帧倒回再跑一步，增量 = 全量（user 10-27「拖动矩形的时候显示也不对，有退化」）", () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const rnd = rng(seed * 4099), base = new Kernel(), m = new PoolMesh(), E = env(true);
+      for (let i = 0; i < 4; i++) randomStep(base, rnd);
+      m.sync(base, E);
+      const shadow = base.clone(), mark = shadow.rewindMark();
+      for (let frame = 0; frame < 10; frame++) {
+        randomStep(shadow, rnd);
+        m.sync(shadow, E); sameAsFull(m, shadow, true, `seed ${seed} frame ${frame} 影子`);
+        assert(shadow.rewindTo(base, mark), "倒得回");
+        if (rnd() < 0.3) { m.sync(shadow, E); sameAsFull(m, shadow, true, `seed ${seed} frame ${frame} 倒回后`); }
+      }
+      m.sync(base, E); sameAsFull(m, base, true, `seed ${seed} 松手回真身`);
+    }
+  });
+  it("提交 = 影子换真身（swapTablesWith，日志跟着表换）+ 撤销 / 重做 = applyDelta：每一下增量 = 全量（user 10-27「undo完全是坏的」）", () => {
+    for (let seed = 1; seed <= 25; seed++) {
+      const rnd = rng(seed * 6151), truth = new Kernel(), m = new PoolMesh(), E = env(false);
+      for (let i = 0; i < 3; i++) randomStep(truth, rnd);
+      m.sync(truth, E);
+      const undo: ReturnType<Kernel["deltaAgainst"]>[] = [];
+      for (let i = 0; i < 10; i++) {
+        const shadow = truth.clone(), seq = shadow.changes.seq;
+        randomStep(shadow, rnd);
+        truth.swapTablesWith(shadow);
+        undo.push(truth.deltaAgainst(shadow, seq));
+        m.sync(truth, E); sameAsFull(m, truth, false, `seed ${seed} step ${i} 提交`);
+        if (rnd() < 0.4 && undo.length) {
+          const d = undo.pop()!; if (!d) continue;
+          const inv = truth.applyDelta(d); m.sync(truth, E); sameAsFull(m, truth, false, `seed ${seed} step ${i} 撤销`);
+          if (rnd() < 0.5) { undo.push(truth.applyDelta(inv)); m.sync(truth, E); sameAsFull(m, truth, false, `seed ${seed} step ${i} 重做`); }
+        }
+      }
+    }
+  });
   it("材质槽表加槽 / 撤销加槽（一边是另一边的前缀）走增量；槽号换了材质 = 全量", () => {
     const k = new Kernel(), m = new PoolMesh();
     k.addEdges([[P(0, 0, 0), P(1, 0, 0)], [P(1, 0, 0), P(1, 1, 0)], [P(1, 1, 0), P(0, 1, 0)], [P(0, 1, 0), P(0, 0, 0)]]);

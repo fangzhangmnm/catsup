@@ -319,6 +319,8 @@ export class Editor {
   private _planeLock: PlaneLock | null = null;
   private _planeLockN: Pt3 | null = null;   // 面锁法向（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
   private lastPtr: { x: number; y: number } | null = null;
+  /** 这次按下以后离按下处最远到过多远（点按容差的量纲；松手时判点 / 拖用）。 */
+  private pressPeak = 0;
   private lastMoveEv: ToolPointer | null = null;   // Shift 按下 / 松开时按它重算（setShiftHeld）   // 最后一次指针位置（Shift+↓ 取光标下的膜用）
   get axisLock(): LockAxis | null { return this._axisLock; }
   get planeLock(): PlaneLock | null { return this._planeLock; }
@@ -539,7 +541,9 @@ export class Editor {
     const keyOf = (o: { picks: PoolPick[]; xform: Xform }): string => `${o.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${o.xform.map((v) => v.toFixed(9)).join(",")}`;
     const ovKey = override ? keyOf(override) : copy ? `copy:${keyOf(copy)}` : "";
     const grid = this.gridEff ? { step: this._grid.step, sub: this._grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this._grid.plane) } : null;
-    const key = `${this._revision}|${live ? this.kid(live) : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}|${this._isolate ? "iso" : ""}`;
+    // 影子的 rev 也进键（2026-10-27 Claude Opus 5.5；user「拖动矩形的时候显示也不对，有退化」「move的显示也有问题」）：v0.15.14 起预演影子同一个对象每帧倒回复用，
+    // 只按对象身份当键 = 拖动中一直拿到第一帧的合成视图、渲染器的重建键也不变 → 屏幕停在旧的那帧。
+    const key = `${this._revision}|${live ? `${this.kid(live)}.${live.rev}` : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}|${this._isolate ? "iso" : ""}`;
     if (this.viewCache?.key === key) return this.viewCache.view;
     const overrides = override ? this.overrideList(override) : undefined;
     const copies = copy ? this.overrideList(copy) : undefined;
@@ -1633,11 +1637,12 @@ export class Editor {
     if (!params && routes.length === 1 && routes[0].kind === "object") return this.runObjectCommand(routes[0].command.id);
     return this.step(() => {
       const ops: Op[] = [], notes = new Set<string>(), dones: { c: Command; n: number; v: CmdParams }[] = [];
+      let sel: NonNullable<PlanOut["select"]> | null = null, selN = 0;   // 做完的选区（PlanOut.select；只有一个单位给了才用）
       let count = 0;
       for (const { kind, command: c } of routes) {
         const v: CmdParams = { ...c.defaults(this.repairCtx), ...(params ?? {}) };
         let n = 0;
-        for (const u of this.unitsFor(c, kind)) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); n += r.count; for (const t of r.notes ?? []) notes.add(t); }
+        for (const u of this.unitsFor(c, kind)) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); n += r.count; for (const t of r.notes ?? []) notes.add(t); if (r.select && r.ops.length) { sel = r.select; selN++; } }
         if (n) dones.push({ c, n, v });
         count += n;
       }
@@ -1647,6 +1652,7 @@ export class Editor {
       const n0 = this.opCount;
       for (const op of ops) { this.commitOp(op); if (this.opCount === n0 && this.stepFailed) return 0; }
       if (this.opCount === n0) return 0;
+      if (sel && selN === 1) { const S = sel; this.selection = this.blankSelection(); this.selectedPools.clear(); for (const x of S.verts ?? []) this.selection.verts.add(x); for (const x of S.edges ?? []) this.selection.edges.add(x); for (const x of S.faces ?? []) this.selection.faces.add(x); this.pruneSelection(); this.afterSelect(); }
       this.host.hint(`${dones.map((d) => d.c.done(d.n, 0, d.v)).join("；")}${tail}`);
       this.host.changed(); this.draw();
       return count;
@@ -2694,6 +2700,8 @@ export class Editor {
     return this.anchor3 !== null || Object.values(this.handlers).some((h) => h.active());
   }
   /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
+  /** 探针用：手势中的实时世界（预演）。 */
+  liveWorldForProbe(): WorldView { return this.liveWorld(); }
   private liveWorld(): WorldView { return this.gestureActive() || this.cmdPreview ? this.worldView(this.live ?? (this.liveMesh ? meshViewOf(this.liveMesh) : null), this.liveOverride) : this.worldView(); }
   /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
   private freshHand(view: WorldView, extra?: (vid: VertexId) => boolean, opaque = false): AlignHand {
@@ -2797,10 +2805,22 @@ export class Editor {
   }
   /** 选中的点（世界坐标；只画点本身）。 */
   private selVertsView(view: WorldView, g: (id: number) => number): Pt3[] | null {
-    if (!this.selection.verts.size) return null;
+    const ids = new Set<number>(this.selection.verts);
+    if (this.mode.id === "freeform") {   // 自由建模：选中的边 / 面的角也画成选中的点（这一下会动的就是它们；user「应该能看到顶点和选择」，不要半截边那种画法）
+      for (const e of this.selection.edges) { const ge = g(e); if (view.graph.hasEdge(ge)) { const E = view.graph.edge(ge); ids.add(E.a - g(0)); ids.add(E.b - g(0)); } }
+      for (const f of this.selection.faces) { const F = view.face(g(f)); if (F) for (const r of [F.outer, ...F.holes]) for (const v of r.vids) ids.add(v - g(0)); }
+    }
+    if (!ids.size) return null;
     const out: Pt3[] = [];
-    for (const v of this.selection.verts) { const gv = g(v); if (view.graph.hasVertex(gv)) out.push(view.graph.pt(gv)); }
+    for (const v of ids) { const gv = g(v); if (view.graph.hasVertex(gv)) out.push(view.graph.pt(gv)); }
     return out.length ? out : null;
+  }
+  /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
+  private vertDotsView(view: WorldView, g: (id: number) => number): { key: string; pts: Pt3[] } | null {
+    if (this.mode.id !== "freeform" || this.cmdPreview) return null;
+    const k = view.activeSlot().kernel, pts: Pt3[] = [];
+    for (const v of k.vertices()) { const gv = g(v.id); if (view.graph.hasVertex(gv)) pts.push(view.graph.pt(gv)); }
+    return { key: String(this.kid(view)), pts };
   }
   // ---------- 渲染 ----------
   viewExtras: (() => Partial<ViewState>) | null = null;
@@ -2850,6 +2870,7 @@ export class Editor {
       grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.step, sub: this._grid.subdiv, on: this._grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
+      vertDots: this.vertDotsView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,
       poolAxes: this.selectedPoolFrames(view),
       originAxes: this.originMarker(),
@@ -2920,6 +2941,7 @@ export class Editor {
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
+    this.pressPeak = 0;
     { const r = this.frame().ray(s.x, s.y, this.fvp()); this.taps.down(performance.now(), add3(r.origin, r.dir), TAP_RULES[ev.pointerType] ?? frameTapRule(this.eps().tap), (prev) => this.frame().distTo(s.x, s.y, prev, this.fvp())); }
     const H = this.handlers[this._tool];
     if (H) {
@@ -2928,7 +2950,7 @@ export class Editor {
         // 起因（user 2026-10-25「为什么会在同一个地方点两下会在垂直的方向画线？」）：笔点两下差 6 px，第二点被吸到过锚点的竖直线上 = 7 cm 竖线
         // （屏上只有 6 px，世界长度却过了 MIN_GESTURE_LEN 1 cm）。根因（锚点附近不该推竖直线）在求解器，归 Fable（总账记了）；这里是手势层的护栏。探针 probe-pen-tap。
         // 半径 = 吸附半径（点按容差 4 px 拦不住：Pencil「同一处」点两下常差 5–8 px）——这么近本来就该吸回锚点本身，不该另起一段；要画更短的线就放大或输长度。
-        if (this.anchor3 && this.frame().distTo(s.x, s.y, this.anchor3, this.fvp()) <= Math.max(this.eps().tap, this.eps().snap)) {
+        if (!H.repeatTap && this.anchor3 && this.frame().distTo(s.x, s.y, this.anchor3, this.fvp()) <= Math.max(this.eps().tap, this.eps().snap)) {
           if (this._tool === "line") { this.cancelGesture(); this.host.hint(null); this.host.changed(); }
           this.draw();
           return;
@@ -3000,6 +3022,7 @@ export class Editor {
   private pointerMoveStep(ev: ToolPointer): void {
     if (this.gizmoPointer("move", ev)) return;
     const s = ev;
+    { const at = this.taps.pressAt(); if (at && this.taps.pressing()) this.pressPeak = Math.max(this.pressPeak, this.frame().distTo(s.x, s.y, at, this.fvp())); }
     this.lastPtr = { x: s.x, y: s.y };
     this.lastMoveEv = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
@@ -3047,6 +3070,7 @@ export class Editor {
       snapPx: () => this.snapPx(),
       pickFace: (sx, sy) => pickFace(this.liveWorld(), this.frame(), this.fvp(), sx, sy),
       pick: (sx, sy, opts) => this.pickAt(sx, sy, opts),
+      pickStatic: (sx, sy) => pickEntity(this.worldView(), this.frame(), this.fvp(), sx, sy, this.hitPx(), {}),
       classify: (view, hit) => this.classify(view, hit),
       snap: (view, sx, sy, q) => snapPoint(view, this.frame(), this.fvp(), sx, sy, this.snapPx(), { chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), ...q }),
       applyLock: (sn, sx, sy) => this.applyLock(sn, this.anchor3, sx, sy),
@@ -3188,7 +3212,7 @@ export class Editor {
   private pointerUpStep(ev: ToolPointer): void {
     if (this.gizmoPointer("up", ev)) return;
     const s = ev;
-    { const at = this.taps.pressAt(); this.taps.up(performance.now(), ev.travel ?? (at ? this.frame().distTo(s.x, s.y, at, this.fvp()) : 0)); }
+    { const at = this.taps.pressAt(), now = at ? this.frame().distTo(s.x, s.y, at, this.fvp()) : 0; this.taps.up(performance.now(), ev.travel ?? Math.max(now, this.pressPeak)); this.pressPeak = 0; }   // 点还是拖按「按下以后离开过多远」判，不按「松手离按下处多远」（拖出去又拖回来 = 拖；user「拖动面的时候有时候松开鼠标还在跟着走」）
     const isTap = (): boolean => !!this.downPoint && this.taps.clicks() > 0;   // 点 / 拖 = 点按族一处判（笔跟进的那一下偏向点）
     const settle = (): GestureSample | null => {
       if (this.justCommitted) return null;

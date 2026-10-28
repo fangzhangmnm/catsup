@@ -251,6 +251,25 @@ export type Op =
     offset?: Pt3;
     along?: number;
 }
+/** 刀（自由建模；2026-10-27 Opus 5.5）：face 上按顺序的落点（已有的点 { v } / 边上的点 { e, t }），相邻两点之间劈面。mesh/ops/split.ts knife。 */
+ | {
+    op: "meshKnife";
+    def: number;
+    face: number;
+    path: ({
+        v: number;
+    } | {
+        e: number;
+        t: number;
+    })[];
+}
+/** 环切：从 edge 出发沿四边形带切一圈，每条边在 t 处劈开（缺 = 0.5）。mesh/ops/loopcut.ts。 */
+ | {
+    op: "meshLoopCut";
+    def: number;
+    edge: number;
+    t?: number;
+}
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {
     op: "addLayer";

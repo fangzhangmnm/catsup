@@ -10,7 +10,7 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset, extrudeAlongNormals } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -99,6 +99,10 @@ export type Op =
    * along = 边 / 点的新点各自沿源点的「垂直」方向走这么长（本地长度；user「默认垂直」，mesh/ops/extrude.ts extrudeNormalDirs）。两个给一个。
    */
   | { op: "meshExtrude"; def: number; faces?: number[]; edges?: number[]; verts?: number[]; offset?: Pt3; along?: number }
+  /** 刀（自由建模；2026-10-27 Opus 5.5）：face 上按顺序的落点（已有的点 { v } / 边上的点 { e, t }），相邻两点之间劈面。mesh/ops/split.ts knife。 */
+  | { op: "meshKnife"; def: number; face: number; path: ({ v: number } | { e: number; t: number })[] }
+  /** 环切：从 edge 出发沿四边形带切一圈，每条边在 t 处劈开（缺 = 0.5）。mesh/ops/loopcut.ts。 */
+  | { op: "meshLoopCut"; def: number; edge: number; t?: number }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -536,6 +540,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "meshMove": { moveVerts(meshOf(s, op.def).kernel, op.moves); return { scene: s, events: [] }; }
+    case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
+    case "meshLoopCut": { const r = loopCut(meshOf(s, op.def).kernel, op.edge, op.t ?? 0.5); if (!r.edges.length) throw new OpTargetError(`loop cut from edge ${op.edge}: not a quad strip`); return { scene: s, events: [] }; }
     case "meshExtrude": { const k = meshOf(s, op.def).kernel; if (op.along !== undefined && !op.faces?.length) extrudeAlongNormals(k, op, op.along); else extrudeAndOffset(k, op, op.offset ?? { x: 0, y: 0, z: 0 }); return { scene: s, events: [] }; }
     case "castDefinition": {
       const d = s.def(op.def);
@@ -592,6 +598,8 @@ export function describeOp(op0: Op): string {
     case "explodeCurves": return `explodeCurves n=${op.edges.length}${at}`;
     case "weldEdges": return `weldEdges n=${op.edges.length}${at}`;
     case "castDefinition": return `castDefinition def=${op.def} → ${op.to}`;
+    case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;
+    case "meshLoopCut": return `meshLoopCut def=${op.def} edge=${op.edge} t=${op.t ?? 0.5}`;
     case "meshExtrude": return `meshExtrude def=${op.def} ${op.faces?.length ? `faces=${op.faces.length}` : op.edges?.length ? `edges=${op.edges.length}` : `verts=${op.verts?.length ?? 0}`} ${op.along !== undefined ? `along=${op.along.toFixed(3)}` : `Δ=${(op.offset?.x ?? 0).toFixed(3)},${(op.offset?.y ?? 0).toFixed(3)},${(op.offset?.z ?? 0).toFixed(3)}`}`;
     case "meshMove": { const m = op.moves[0], d = m ? ` v${m.v}→${m.to.x.toFixed(3)},${m.to.y.toFixed(3)},${m.to.z.toFixed(3)}` : ""; return `meshMove def=${op.def} verts=${op.moves.length}${d}`; }
     case "addLayer": return `addLayer ${op.name}`;

@@ -20,7 +20,7 @@ import { ScaleTool } from "../tools/scale.ts";
 import { RotateTool } from "../tools/rotate.ts";
 import { PushPullTool } from "../tools/pushpull.ts";
 import { MoveTool } from "../tools/move.ts";
-import { LineTool, RectTool, CircleTool } from "../tools/draw.ts";
+import { LineTool, RectTool, CenterRectTool, CircleTool } from "../tools/draw.ts";
 import { EraseFaceTool } from "../tools/erase-face.ts";
 import { RRectTool } from "../tools/rrect.ts";
 
@@ -33,6 +33,6 @@ export class GeometryMode implements Mode {
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
     offset: new OffsetTool(), followme: new FollowMeTool(), arc: new ArcTool(), tape: new TapeTool(), axes: new AxesTool(), protractor: new ProtractorTool(), compass: new CompassTool(),
     erase: new EraseTool(), weldErase: new WeldEraseTool(), softErase: new SoftEraseTool(), select: new SelectTool(), scale: new ScaleTool(), transform: new TransformTool(), rotate: new RotateTool(), pp: new PushPullTool(), move: new MoveTool(),
-    line: new LineTool(), rect: new RectTool(), rrect: new RRectTool(), circle: new CircleTool(), eraseFace: new EraseFaceTool(),
+    line: new LineTool(), rect: new RectTool(), crect: new CenterRectTool(), rrect: new RRectTool(), circle: new CircleTool(), eraseFace: new EraseFaceTool(),
   };
 }

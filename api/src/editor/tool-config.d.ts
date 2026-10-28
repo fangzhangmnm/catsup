@@ -79,25 +79,6 @@ export declare class ToolConfig<T extends OptionTable> {
 /** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
 export declare function optionGroupOf(tool: string): string;
 export declare const TOOL_OPTIONS: {
-    /** 矩形从哪画（user 2026-10-24「中心rect……还是要」；SU 按 Ctrl / Option 从中心）：Ctrl 按着 = 临时从中心。 */
-    readonly rect: {
-        readonly from: {
-            readonly kind: "enum";
-            readonly label: "起点";
-            readonly values: readonly [{
-                readonly id: "corner";
-                readonly label: "从角";
-            }, {
-                readonly id: "center";
-                readonly label: "从中心";
-            }];
-            readonly def: "corner";
-            readonly scope: "session";
-            readonly modifiers: {
-                readonly ctrl: "center";
-            };
-        };
-    };
     readonly circle: {
         readonly segments: {
             readonly kind: "number";

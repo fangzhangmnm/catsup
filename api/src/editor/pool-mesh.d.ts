@@ -135,6 +135,8 @@ export declare class PoolMesh {
     /** 现在反映的是哪个内核到第几号。 */
     private src;
     private srcSeq;
+    /** 画的那一刻那份日志的族谱（2026-10-27 Opus 5.5）：提交 / 撤销会在内核对象之间整份换日志（swapTablesWith / swapWith），事后再读 src.changes 拿到的是换过的那份 → 差算错、该重建的没重建。所以画的时候就把族谱存下来。 */
+    private srcLin;
     private sig;
     private thick;
     /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */

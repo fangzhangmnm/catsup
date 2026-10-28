@@ -5,7 +5,7 @@ import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 declare abstract class DrawTool implements ToolHandler {
-    abstract readonly tool: "line" | "rect" | "circle";
+    abstract readonly tool: "line" | "rect" | "crect" | "circle";
     readonly grammar: "steps";
     readonly draws = true;
     readonly lock: "axis" | "plane";
@@ -49,13 +49,21 @@ export declare class LineTool extends DrawTool {
     vcbContinue(ctx: ToolCtx, p: Pt3): void;
 }
 export declare class RectTool extends DrawTool {
-    readonly tool: "rect";
-    /** 起点语义：选项 rect.from；Ctrl 按着 = 临时从中心（SU Ctrl / Option 同款）。 */
-    private from;
+    readonly tool: "rect" | "crect";
+    /** 起点：从角；Ctrl 按着 = 临时从中心（SU Ctrl / Option 同款）。中心矩形（CenterRectTool）反过来。 */
+    protected from(ctx: ToolCtx): "corner" | "center";
     protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
     scaleGeom(ctx: ToolCtx): ScaleGeom | null;
     protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     protected commit(ctx: ToolCtx): void;
+}
+/**
+ * 中心矩形（user 10-27「随手，硬表面里面中心矩形能单独做一个工具吗而不是矩形的预设」）：第一下 = 中心、第二下 = 一个角；Ctrl 按着 = 临时从角。
+ * 和矩形同一套手势 / 吸附 / 数值小窗（数值仍是整个矩形的宽 × 高）；矩形工具原来的「起点」选项（预设）撤掉，两个工具各管一种。
+ */
+export declare class CenterRectTool extends RectTool {
+    readonly tool: "crect";
+    protected from(ctx: ToolCtx): "corner" | "center";
 }
 export declare class CircleTool extends DrawTool {
     readonly tool: "circle";

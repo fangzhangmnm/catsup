@@ -15,7 +15,6 @@ import { applyDir, applyNormal, applyPt, invert } from "../../scene/xform.ts";
 import { fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
-import { meshHover } from "./mesh-transform.ts";
 
 type Target = { faces: number[]; edges: number[]; verts: number[] };
 
@@ -36,7 +35,6 @@ export class MeshPullTool implements ToolHandler {
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshPull: { t: this.t, start: this.start, cur: this.cur } }; }
-  hover(ctx: ToolCtx, s: { x: number; y: number }): void { meshHover(ctx, s); }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.active()) { this.commit(ctx); return; }
@@ -70,7 +68,6 @@ export class MeshPullTool implements ToolHandler {
     this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y };
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
-    ctx.setHoverFace(null); ctx.setHoverEdge(null);
     ctx.hint(`挤出 ${this.what()}：${t.faces.length ? "沿法向" : "沿垂直方向"}拖着松手，或者点第二下落定（方向键锁轴）`);
   }
 

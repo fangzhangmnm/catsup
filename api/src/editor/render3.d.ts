@@ -108,6 +108,11 @@ export interface ViewState {
     } | null;
     /** 选中的点（2026-10-26，user「以及我们还是希望我们能选点」「为什么不是简简单单高亮点？」）：只画实心圆点。世界坐标。 */
     selVerts?: readonly Pt3[] | null;
+    /** 全部顶点的小点（自由建模；key 变了才重建）。 */
+    vertDots?: {
+        key: string;
+        pts: readonly Pt3[];
+    } | null;
     /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
     charged?: {
         points: readonly Pt3[];
@@ -222,6 +227,8 @@ export declare class Renderer3 {
     private chargedLines;
     private selVertDots;
     private selVertKey;
+    private vertDots;
+    private vertDotKey;
     private tickLines;
     private poolAxesLines;
     private poolAxesKey;

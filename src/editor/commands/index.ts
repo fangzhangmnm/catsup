@@ -3,5 +3,6 @@ import type { Family } from "./action.ts";
 import { repairs } from "../repairs/index.ts";
 import { objects } from "../objects/index.ts";
 import { move } from "../move/index.ts";
+import { meshEdits } from "../mesh-edits/index.ts";
 
-export const FAMILIES: readonly Family[] = [repairs, objects, move];
+export const FAMILIES: readonly Family[] = [repairs, objects, move, meshEdits];

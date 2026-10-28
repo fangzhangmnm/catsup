@@ -15,7 +15,7 @@ import type { ScaleGeom } from "../scale-ref.ts";
 
 
 abstract class DrawTool implements ToolHandler {
-  abstract readonly tool: "line" | "rect" | "circle";
+  abstract readonly tool: "line" | "rect" | "crect" | "circle";
   readonly grammar = "steps" as const;
   readonly draws = true;
   readonly lock: "axis" | "plane" = "plane";   // A9：矩形 / 圆 = 方向键锁平面（画线覆盖成 axis）
@@ -120,9 +120,9 @@ export class LineTool extends DrawTool {
 }
 
 export class RectTool extends DrawTool {
-  readonly tool = "rect" as const;
-  /** 起点语义：选项 rect.from；Ctrl 按着 = 临时从中心（SU Ctrl / Option 同款）。 */
-  private from(ctx: ToolCtx): "corner" | "center" { const m = ctx.mods(); return ctx.config.effective("rect", "from", { ctrl: m.copy, shift: m.shift }); }
+  readonly tool: "rect" | "crect" = "rect";
+  /** 起点：从角；Ctrl 按着 = 临时从中心（SU Ctrl / Option 同款）。中心矩形（CenterRectTool）反过来。 */
+  protected from(ctx: ToolCtx): "corner" | "center" { return ctx.mods().copy ? "center" : "corner"; }
   protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][] { return rectSegmentsOnPlane(this.plane.plane, this.plane.basis, rectOpposite(this.anchor!, b, this.from(ctx)), b); }
   scaleGeom(ctx: ToolCtx): ScaleGeom | null {
     const b = ctx.cursor();
@@ -148,6 +148,15 @@ export class RectTool extends DrawTool {
     this.finish(ctx);
     if (segs.length) { ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([p, q]) => [ctx.toLocal(p), ctx.toLocal(q)]), harden: true }); ctx.recordLast({ kind: "rect", ops: ctx.opCount() - n0, at: at0, plane, anchor, corner: b, from }); }
   }
+}
+
+/**
+ * 中心矩形（user 10-27「随手，硬表面里面中心矩形能单独做一个工具吗而不是矩形的预设」）：第一下 = 中心、第二下 = 一个角；Ctrl 按着 = 临时从角。
+ * 和矩形同一套手势 / 吸附 / 数值小窗（数值仍是整个矩形的宽 × 高）；矩形工具原来的「起点」选项（预设）撤掉，两个工具各管一种。
+ */
+export class CenterRectTool extends RectTool {
+  readonly tool = "crect" as const;
+  protected from(ctx: ToolCtx): "corner" | "center" { return ctx.mods().copy ? "corner" : "center"; }
 }
 
 export class CircleTool extends DrawTool {

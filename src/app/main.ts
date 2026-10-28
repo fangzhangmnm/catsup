@@ -169,6 +169,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "select", icon: "select", label: "选择", key: "空格" },
   { tool: "line", icon: "line", label: "画线", key: "L" },
   { tool: "rect", icon: "rectangle", label: "矩形", key: "R" },
+  { tool: "crect", icon: "rectangle", label: "中心矩形", key: "" },   // user 10-27「中心矩形能单独做一个工具吗」；图标 = stopgap（图标库 TODO 已登记 rectangle-center）
   { tool: "rrect", icon: "rotated-rectangle", label: "旋转矩形", key: "" },   // SU Rotated Rectangle（user 10-24）；图标 = 图标库 PENDING 层自画未过目
   { tool: "circle", icon: "circle", label: "圆", key: "C" },
   { tool: "arc", icon: "arc", label: "弧", key: "A" },
@@ -186,7 +187,8 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "tape", icon: "dimensions", label: "卷尺", key: "T" },   // 0.11 尺规；图标 = stopgap（图标库 TODO 已登记 tape-measure）
   { tool: "axes", icon: "axes", label: "坐标架", key: "" },           // 0.11 尺规：三下定帧（原点 / X / Y）；SU 无默认键
   { tool: "protractor", icon: "protractor", label: "量角器", key: "" },
-  { tool: "compass", icon: "compass", label: "圆规", key: "" },   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
+  { tool: "compass", icon: "compass", label: "圆规", key: "" },
+  { tool: "knife", icon: "cut", label: "刀", key: "K" },   // 自由建模的刀 + 环切（2026-10-27 Opus 5.5）；图标 = stopgap（剪刀；图标库 TODO 已登记 knife）   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
 const hud: HudModel = {
@@ -265,19 +267,21 @@ const hud: HudModel = {
 //   柱子不够高时先吃最近槽、再吃常驻（吃掉的都在 ⌄ 里）。第二组常驻推拉 / 移动，第三组常驻卷尺 / 轴，第四组常驻油漆桶（以后 + 元数据分析）。
 //   su 的视角操作不进左柱（右边 view 栏管）。旧「更多」钮与按高度给最近格的逻辑撤。
 type RailGroup = { id: string; pinned: Tool[]; pool: Tool[]; budget: number };
-const SHAPES: Tool[] = ["rect", "rrect", "circle", "arc"];
+const SHAPES: Tool[] = ["rect", "crect", "rrect", "circle", "arc"];
 /** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
 let eraserCurrent: Tool = "erase";
 const RAIL_GROUPS: RailGroup[] = [
   { id: "edit", pinned: ["pp", "move"], pool: ["offset", "followme", "rotate", "scale", "transform"], budget: 4 },
-  { id: "measure", pinned: ["tape", "axes"], pool: ["protractor", "compass"], budget: 3 },
+  { id: "measure", pinned: [], pool: ["tape", "axes", "protractor", "compass"], budget: 3 },   // user 10-27「卷尺和座标架相对比较低频，不需要常驻，虽然还在」：用过才长出来，平时收在 ⌄ 里
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
 const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出" } };
+/** 工作台自己定死的左柱（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」（删 / 插还没做的不露）。 */
+const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"] };
 const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = MODE_TOOL_LABEL[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
-const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "rrect"], t: ["tape", "protractor", "axes"] };
+const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
 let shapeCurrent: Tool = "rect";
 /** 本次会话里用过的池工具（按最近使用）；开局为空 = 只显示常驻。 */
 const usedPool = new Map<string, Tool[]>(RAIL_GROUPS.map((g) => [g.id, []]));
@@ -343,6 +347,8 @@ function renderSlots(): void {
   toolbarEl.replaceChildren();
   const inMode = (t: Tool): boolean => editor.modeTools().includes(t);   // 左柱只排当前模式的工具（刀 ③：表面模式 = 选择 + 油漆桶）
   const add = (t: Tool, fly?: () => Tool[]): void => { if (!inMode(t)) return; const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
+  const fixed = MODE_RAIL[editor.modeId];
+  if (fixed) { for (const t of fixed) add(t); return; }   // 这个工作台有自己定死的一列（自由建模）
   add("select"); add("line"); if (SHAPES.some(inMode)) add(shapeCurrent, () => SHAPES.filter(inMode)); if (ERASERS.some(inMode)) add(eraserCurrent, () => ERASERS.filter(inMode));   // 第一组常驻
   const slots = allocate();
   RAIL_GROUPS.forEach((g, gi) => {
@@ -951,7 +957,7 @@ window.addEventListener("keydown", (ev) => {
   if (!ev.ctrlKey && !ev.metaKey && !ev.altKey) {
     // SU 对齐（user 2026-09-02：默认对齐 SU，确实不爽再挪；WASD 留给未来 fly cam）
     // 步行模式（0.4）：空格=跳、E=上升 归 player；选择/橡皮另有双模式通用键 Tab / X
-    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "scale", p: "pp", f: "offset", w: "followme", b: "paint", e: "erase", t: "tape", tab: "select", x: "erase" };
+    const map: Record<string, Tool> = { " ": "select", l: "line", r: "rect", c: "circle", a: "arc", m: "move", q: "rotate", s: "scale", p: "pp", k: "knife", f: "offset", w: "followme", b: "paint", e: "erase", t: "tape", tab: "select", x: "erase" };
     const key = ev.key.toLowerCase();
     const t = map[key];
     const takenByWalk = locomotion.isWalking() && (key === " " || key === "e" || key === "s" || key === "q" || key === "a" || key === "t");

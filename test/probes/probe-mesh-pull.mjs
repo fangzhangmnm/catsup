@@ -76,7 +76,7 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.rail === "select,pp,move,rotate,scale"
+const ok = res.rail === "select,pp,move,rotate,scale,knife"
   && res.pullFace.st1.f === res.pullFace.st0.f + 4 && res.pullFace.st1.v === res.pullFace.st0.v + 4 && res.pullFace.steps === 1 && res.pullFace.selFaces === 1 && res.pullFace.topZ > 1 && res.pullFace.check === ""
   && res.thenMove.up && res.thenMove.steps === 2 && res.undo2.back
   && res.edgeSel === 1 && res.pullEdge.d.f === 1 && res.pullEdge.d.v === 2 && res.pullEdge.selEdges === 1 && res.pullEdge.onlyZ && res.pullEdge.check === ""

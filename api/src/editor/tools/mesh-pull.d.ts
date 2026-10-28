@@ -18,10 +18,6 @@ export declare class MeshPullTool implements ToolHandler {
     sample(): Record<string, number>;
     live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     describe(): Record<string, unknown>;
-    hover(ctx: ToolCtx, s: {
-        x: number;
-        y: number;
-    }): void;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {
         x: number;

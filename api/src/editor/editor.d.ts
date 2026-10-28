@@ -346,6 +346,8 @@ export declare class Editor {
     private _planeLock;
     private _planeLockN;
     private lastPtr;
+    /** 这次按下以后离按下处最远到过多远（点按容差的量纲；松手时判点 / 拖用）。 */
+    private pressPeak;
     private lastMoveEv;
     get axisLock(): LockAxis | null;
     get planeLock(): PlaneLock | null;
@@ -921,6 +923,8 @@ export declare class Editor {
     private applyHysteresis;
     private gestureActive;
     /** 手势中 = 影子副本（活动池）+ 整体变换预演；平时 = checkpoint。eraseFace 悬停预告不算手势现实。 */
+    /** 探针用：手势中的实时世界（预演）。 */
+    liveWorldForProbe(): WorldView;
     private liveWorld;
     /** 基线手：活动池里 checkpoint 之外的新生顶点（追光标者）+ 工具自报的移动集（本地 id 谓词）。 */
     private freshHand;
@@ -941,6 +945,8 @@ export declare class Editor {
     private pivotOf;
     /** 选中的点（世界坐标；只画点本身）。 */
     private selVertsView;
+    /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
+    private vertDotsView;
     viewExtras: (() => Partial<ViewState>) | null;
     setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void;
     private drawSuspended;

@@ -58,6 +58,8 @@ export class TapTrain<P> {
 
   /** 这一下按在哪（调用方自己的点）。 */
   pressAt(): P | null { return this.press?.at ?? null; }
+  /** 按着（按下了、还没抬起）。 */
+  pressing(): boolean { return !!this.press && !this.press.done; }
 
   /** 抬起。moved = 按下到抬起走了多远（本帧度量）。返回 0 = 拖；n ≥ 1 = 连着的第 n 下点击。 */
   up(t: number, moved: number): number {

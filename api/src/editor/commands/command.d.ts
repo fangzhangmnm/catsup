@@ -73,6 +73,12 @@ export interface PlanOut {
     notes?: string[];
     /** 要擦几条「面和面之间的」线：框架据此估时、先问 user（不静默跳过；user 10-26「宁愿弹警告问 yes no」）。 */
     erases?: number;
+    /** 做完的选区（活动池本地 id；纪元账本 FM14「做完的东西留在选区里」）：规划时在副本上跑一遍算出来（op 确定性 = 提交后同一批 id）。只有一个单位给了才用。 */
+    select?: {
+        verts?: number[];
+        edges?: number[];
+        faces?: number[];
+    };
 }
 export interface Command<U extends Unit = Unit> {
     readonly id: CommandId;

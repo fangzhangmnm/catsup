@@ -295,6 +295,11 @@ export class Kernel {
     this.edgeLayers.restoreFrom(el, ids.E);
     this.faceLayers.restoreFrom(fl, ids.F);
     this.eventLog.length = Math.min(this.eventLog.length, events);
+    // 恢复的记录也要记进改动日志（2026-10-27 Claude Opus 5.5；user「硬表面建模在拖动矩形的时候显示也不对，有退化」「move的显示也有问题」）：
+    // 各表的 restoreFrom 绕过了记账回调，渲染缓存按日志增量重建 → 上一帧预演改过、这一帧倒回去的面没人通知 → 屏幕上留着上一帧的残影。倒带（预演）和撤销（applyDelta）共用这里。
+    for (const v of ids.V) this.changes.v(v);
+    for (const e of ids.E) this.changes.e(e);
+    for (const f of ids.F) this.changes.f(f);
     revClock = Math.max(revClock, this._rev, otherRev) + 1; this._rev = revClock;
   }
   /** 抽差量：这些 id 在本内核现在的样子（null = 不存在）；纯数据，可估字节（kernel/delta.ts）。 */
