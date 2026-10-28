@@ -1,4 +1,4 @@
-import { type Pt3 } from "../kernel/geom.ts";
+import type { Pt3 } from "../kernel/geom.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
 export declare const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;
 /** 面标记：隐藏（user 10-27「show and hide faces」；点 / 边的显隐从面推导，游离的才自己带 F_HIDDEN）。 */

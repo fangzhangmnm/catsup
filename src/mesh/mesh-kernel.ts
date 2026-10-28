@@ -6,8 +6,8 @@
 // 不变量（test/mesh-kernel.test.ts 逐算子查）：(M1) 活面的环 ≥ 3 个不同的活顶点、环里没有重复顶点 (M2) 环上相邻顶点对都在边表里、边表里的边至少属于一张面或标为裸线
 // (M3) 标记只在活边上 (M4) 封闭流形块 V − E + F = 2 − 2g（只对流形块查）(M5) 删了的 id 不被任何活元素引用 (M6) 同算子在克隆上跑 = 同结果。
 // 这里只有数据 + 查询 + 最基本的生长 / 删除原语；拓扑算子在 mesh/ops/*.ts（每个一个文件，可扔）。
-import { type Pt3, planeOfRing } from "../kernel/geom.ts";
-import { triangulateRings } from "../format/triangulate.ts";
+import type { Pt3 } from "../kernel/geom.ts";
+import { triangulateFace } from "../format/triangulate.ts";
 import { ChangeLog } from "../kernel/change-log.ts";
 
 export const F_SOFT = 1, F_SMOOTH = 2, F_SEAM = 4, F_HIDDEN = 8, F_WIRE = 16;   // F_WIRE = 裸线（不属于任何面也合法）
@@ -172,9 +172,7 @@ export class MeshKernel {
       if (!this.fAlive[f]) continue;
       const vs = this.faceVerts(f);
       if (vs.length === 3) { tris.push(vs[0], vs[1], vs[2]); of.push(f); continue; }
-      const pts = vs.map((v) => this.pt(v)), plane = planeOfRing(pts);
-      if (!plane) continue;
-      for (const [a, b, c] of triangulateRings(pts, plane, vs.map((_, i) => i), [])) { tris.push(vs[a], vs[b], vs[c]); of.push(f); }
+      for (const [a, b, c] of triangulateFace(vs.map((v) => this.pt(v)))) { tris.push(vs[a], vs[b], vs[c]); of.push(f); }   // 按面自己的绕向（FM130：以前一半三角形反了）
     }
     this.triCache = { tris: Int32Array.from(tris), faceOfTri: Int32Array.from(of), rev: this.rev };
     return this.triCache;

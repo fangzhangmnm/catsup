@@ -3,10 +3,10 @@
 // + LINES（全部边）。坐标换轴 Z-up → glTF Y-up：(x,y,z) → (x, z, -y)（与 obj-io 同规则）。created 2026-09-20 by Claude Fable 5.1
 
 import type { BrepSnapshot } from "../kernel/kernel.ts";
-import { COPLANAR_TOL_DEFAULT, dot3, planeBasis, planeOfRing, type Pt3 } from "../kernel/geom.ts";
+import { COPLANAR_TOL_DEFAULT, dot3, planeBasis, type Pt3 } from "../kernel/geom.ts";
 import type { MeshDoc } from "./document.ts";
 import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
-import { triangulateRings } from "./triangulate.ts";
+import { triangulateFace, triangulateRings } from "./triangulate.ts";
 import type { ViewSink } from "./brep-codec.ts";
 
 const GL_UNSIGNED_BYTE = 5121, GL_UNSIGNED_SHORT = 5123, GL_UNSIGNED_INT = 5125, GL_FLOAT = 5126;
@@ -250,7 +250,7 @@ export function bakeMesh(m: MeshDoc, sink: ViewSink, accessorBase: number, mats?
     for (let i = 0; i < n; i++) { const a = ring[i], b = ring[(i + 1) % n], key = keyOf(a, b); if (lineKeys.has(key)) continue; lineKeys.add(key); if (!((flagged.get(key) ?? 0) & (1 | 8))) lines.push(a, b); }
     const slot = m.faceMat[f], core = slot >= 0 ? mats?.slotToCore(slot) : undefined, key = core === undefined ? -1 : core;
     const rp = ring.map((i) => pts[i]);
-    const tris = n === 3 ? [[0, 1, 2]] : ((): number[][] => { const pl = planeOfRing(rp); return pl ? triangulateRings(rp, pl, ring.map((_, i) => i), []) : []; })();
+    const tris = triangulateFace(rp);   // 按面自己的绕向（FM130 user「导出的时候面的法向一堆错误」：以前按规范化平面切，一半三角形反了）
     const out = byCore.get(key) ?? byCore.set(key, []).get(key)!;
     for (const [a, b, c] of tris) out.push(ring[a], ring[b], ring[c]);
   }
