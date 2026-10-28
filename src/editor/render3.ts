@@ -141,7 +141,7 @@ const profileAddFor = (w: number): number => Math.min(w, 5 - w);   // 轮廓 ≈
 const OTHER_KEY = { other: true } as const;   // rebuildFaces 分组键：别的池的纯色面
 const HINT_PX = 1.2;        // 吸附提示线宽
 const SOFT_EDGE_PX = 1;     // 自由建模里平滑边的线宽（CSS px；比棱细）
-const SOFT_EDGE_COLOR = 0x9a9a9a;   // 平滑边：比棱（edge 0x2a2a2a）淡得多，比面（0xd6d6d6）深一点，看得出来但不抢
+const SOFT_EDGE_COLOR = 0x6e6e6e;   // 平滑边：比棱（edge 0x2a2a2a）淡，比面（0xd6d6d6）深得多——看得出来但不抢。v0.16.14 从 0x9a9a9a 调深（账本 UX29，user 10-28「自由建模里面的细线有点太淡了」）
 const MIRROR_COLOR = 0x8b5cf6;   // 中缝上的点（镜像面本身不画在模型上，2026-10-28；画在右上角视图 gizmo）：和「原点 / 对齐」同一个紫（「这里有一条看不见的规矩」）
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
 const ARC_PX = 2.5;

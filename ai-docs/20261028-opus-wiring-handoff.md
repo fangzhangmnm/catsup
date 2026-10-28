@@ -33,7 +33,7 @@
    - 守卫：`test/keymap.test.ts` 加一条——同一个键在不同工作台 / 层里意思不同的，列成表；不在白名单里的 = 红。白名单一开始 = 现状，新冲突逐条拍。
    - 芯片：状态行（右下）按当前键层渲染「键名 + 意思」的芯片，槽位固定（`keymap.ts explainKey` 已有）；触屏设备芯片可点 = 按了那个键。
 5. **状态行披露**：`explainKey` 接到提示行（按下一个修饰键时露这一层有什么）。
-6. **自由建模细线太淡**（UX29，user「记账到时候opus修」）：`render3.ts` 平滑边淡线 / 顶点小点的颜色 / 透明度加深；给个样张 user 过目。
+6. **【done v0.16.14，样张已发 user】自由建模细线太淡**（UX29，user「记账到时候opus修」）：`render3.ts` 平滑边淡线 / 顶点小点的颜色 / 透明度加深；给个样张 user 过目。
 7. **【done v0.16.13】键鼠时手柄自动藏、触摸出现**（UX37；读成右上角的手 + 放大镜拖柄；开机按设备猜）：按 `lastPointerType`（`main.ts` 已有）切右上角把手那组的显隐；鼠标 / 笔藏、手指露。
 8. **【done v0.16.12】硬表面缩放 Shift = 等比但锚点仍是对面那个点**（UX35；面心柄按住 Shift，探针 probe-transform ③½）：`src/editor/tools/scale.ts` 查现在 Shift 的锚点；等比只改比例不改锚。
 9. **【done】零实例的定义存读往返不丢**（`test/orphan-defs.test.ts`）（UX26 的 TODO）：`test/format*.test.ts` 加一条（造一个没有实例的定义 → 写 glb → 读回来还在）。
