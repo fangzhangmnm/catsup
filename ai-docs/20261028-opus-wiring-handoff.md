@@ -12,11 +12,12 @@
 
 ## 清单（按顺序；每条 = 做什么 / 改哪 / 怎么验 / 账本）
 
-0. **数据安全先做：「导出」不许再把工程文件当 glb 发出去**（账本 UX39；user「现在的导出有数据安全问题…极端误导。工程文件要不要叫catsup. vroid也是glb换皮」）
-   - 现状：☰「导出 .glb（下载一份）」= `session.export()` = `encode()` = 整份工程（`CATSUP_*` 全在：硬表面数据、尺规、**参考图连图片字节**、桌面态、缩略图），只是后缀叫 .glb。
-   - **拍板（Claude Fable 5.1，10-28 晚；user「你只用拍板，到时候opus一起实现」）**：① 工程文件后缀改叫 **`.catsup`**（内里仍是 glb 容器，VRoid 的 .vrm 同款）；认工程靠内容（有 `CATSUP_document` 扩展 = 工程），不靠后缀；老的 .glb 工程永远照开、不改名（改叫法不迁移旧数据）；新建 / 另存写 .catsup；图库两种后缀都列。② ☰ 里不再有裸的「导出 .glb（下载一份）」。换成两项：**「导出给别的软件（.glb）…」= 交付物**——节点层级 + 三角形 + 线 + 材质 + 贴图，**剥掉全部 `CATSUP_*` 扩展**（硬表面 / 网格体的作者数据、尺规、参考图连图片字节、桌面态、设置、缩略图），导出前一行披露「不含硬表面数据 / 尺规 / 参考图；要备份工程用另存工程文件」；**「另存工程文件（.catsup）…」= 完整副本**（含一切，给备份 / 别的 CatsUp 用户）。OBJ 逃生口照旧（它本来就是交付物形状）。③ 导入：.catsup / .glb 都收；外来 glb 照旧成网格体；CatsUp 工程按工程开。④ 后缀动到图库 / store 的筛选（`DOC_EXT`、库的 suffix 白名单）= 红线区边上：先读 MASTER.md，库要改就 escalate，不在 app 端绕；两条守卫测试：导出的 glb 里没有任何 `CATSUP_*` 键、没有参考图的 image；老 .glb 工程照开。
-   - 改哪：`src/app/session.ts`（`DOC_EXT` / `export()` 拆成「导出交付物」「另存工程」两条）、`src/format/write.ts`（加一个「剥干净」的写法：只留 glTF core + 烤好的 TRIANGLES / LINES + materials / textures / images 里真被材质引用的）、`src/app/main.ts` ☰ 两项 + 导出前的披露句、`session.ts open` 认工程靠内容、图库 / store 的后缀筛选（红线区边上：先读 MASTER.md）。
-   - 验：单测「导出的 glb 里没有任何 CATSUP_* 键、images 里没有参考图、能被别的查看器开」「老 .glb 工程照开」「.catsup 往返逐字」；冒烟 + 图库探针。
+0. **数据安全先做：「导出」的后缀要说话，工程文件原样**（账本 UX39；user「现在的导出有数据安全问题…极端误导。工程文件要不要叫catsup. vroid也是glb换皮」「看一下weebpaint是怎么做的。其实是无地骑士的一大堆决策」「工程文件导出本来就是原样不要改任何东西」）
+   - 现状：☰「导出 .glb（下载一份）」= `session.export()` = `encode()` = 整份工程（本来就带烤好的三角形给别的查看器）。字节没问题；问题是 `.glb` 这个后缀既可能是 CatsUp 工程、也可能是别的软件烤出来的坏模型（Blender 转一圈存回来硬表面 / 尺规全没了，后缀一样）——user 分不清手里哪份是备份。
+   - 先读 WeebPaint：`src/export-import-menu.ts` 的「导出与另存」hub（choice sheet 三去向：导出图片 / 存为本地 .ora / 复制一份到图库）+ `ai-docs/20260825-localfile-knight-grill-verdicts.md`（保存 = 回家、导出永不清脏、下载开始 = 责任移交 + toast）。CatsUp 照抄形状。
+   - **拍板（Claude Fable 5.1，10-28 晚，对齐 WeebPaint「导出与另存」hub；user 纠正「你弄反了，这个反而是expected behavior。我说的隐患是你以为是工程备份但只是baked的坏模型」「工程文件导出本来就是原样不要改任何东西」）**：① **工程文件 = `.catsup`**（内里仍是 glb 容器，VRoid 的 .vrm 同款）；认工程靠内容（有 `CATSUP_document` 扩展），不靠后缀；老的 .glb 工程永远照开、不改名（改叫法不迁移旧数据）；新建 / 另存写 .catsup；图库两种后缀都列。② ☰ 一个入口「**导出与另存…**」→ 三个去向（WeebPaint 同形）：**存为本地 .catsup**（工程**原样、一个字节不改**，参考图 / 尺规 / 硬表面数据全在——那是应该的）；**复制一份到图库**（另存为）；**导出给别的软件**（格式下拉 glb / obj）。③ 导出 glb = **同一份字节换后缀 .glb**（工程本来就带烤好的三角形给别的查看器；不剥任何东西），所以开回 CatsUp 仍是完整工程、给 Blender 看到的是三角形——没有「以为是备份其实是烤过的」这种坑；导出 OBJ 的标签明写「只有三角形，不是工程备份」。④ 隐患的真身 = 后缀不说话：`.glb` 既可能是 CatsUp 的工程也可能是别的软件烤出来的坏模型（Blender 转一圈再存回来的 glb 硬表面 / 尺规全没了，后缀一样）。.catsup 后缀 + 打开时按内容认（外来 glb 照旧拒开、走导入）= 两层。⑤ 后缀动到图库 / store 的筛选（`DOC_EXT`、库的 suffix 白名单）= 红线区边上：先读 MASTER.md，库要改就 escalate，不在 app 端绕；守卫测试：「存为本地 .catsup」的字节 == 当前工程 `encode()` 逐字；老 .glb 工程照开；外来 glb 拒开走导入。
+   - 改哪：`src/app/session.ts`（`DOC_EXT` → `.catsup`；`export()` 拆成「存为本地 .catsup（原样）」「导出给别的软件（同字节换 .glb / OBJ）」；`open` 认工程靠内容，老 .glb 照开）、`src/app/main.ts` ☰ 一个入口「导出与另存…」+ 三去向 choice sheet + 导出前一句披露、图库 / store 的后缀筛选（红线区边上：先读 MASTER.md）、`manifest` 的 file_handlers 若有。
+   - 验：单测「存为本地 .catsup 的字节 == encode() 逐字」「老 .glb 工程照开」「外来 glb 拒开走导入」；冒烟 + 图库探针。
 1. **放置表吃左柱和 ☰**（心智模型 §2.2 / §8 补 3；UX34「放置表管的事不同的面板里面放什么指令，不只是左栏和右键菜单」）
    - 做什么：左柱的工具格和 ☰ 的菜单项改成从放置表长出来（Surface `toolStrip` / `hamburger` 已登记在 `commands/action.ts`，还没有渲染器）。工具本身仍是立场表（`controller/stance.ts`）的事；左柱的常驻 / 预算 / 最近用过那张表（`main.ts RAIL_GROUPS`）留着当「手 + 工具袋」的布局规则，只是「哪把工具 / 哪条指令进哪一组」改成查放置表。
    - 验：现有探针全绿（`probe-rail*` / `probe-context` / `probe-submenu`）；`test/registry*` 守卫加一条「每个放置的面都有渲染器或登记为还没有」。
