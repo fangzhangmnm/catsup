@@ -2,7 +2,7 @@
 // 设计稿 §2-1 / §2½ + 纪元账本 FM10 / FM11 / FM12：
 //   · 刀**要吸**（§2½「刀要吸、挪不要吸」：落点是拓扑，不吸就切出一堆差 0.1 mm 的碎边）——落点永远是光标下看得见的点或边上的点；
 //   · 一下一下连着切：每两个落点之间切一刀（= 一步撤销），接着从刚切到的点往下切；Esc 收刀；两个点得在同一张面上（跨面先切到中间那条边上）；
-//   · **同一条边点两下 = 环切**（FM10「ctrl r 刀双击好想法」）：沿四边形带切一圈（中线），切出来的那圈边进选区，接着挪 / 缩；
+//   · **同一条边点两下 = 环切**（FM10「ctrl r 刀双击好想法」）：沿四边形带切一圈（中线），切出来的那圈边进选区，接着移动 / 缩放；
 //   · 不带 XOR（FM11「好刀不要xor」）：去边归溶解。停在面中间（悬线）还没做（网格面是简单环，悬线要另一种表示）。
 import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
@@ -61,13 +61,13 @@ export class MeshKnifeTool implements ToolHandler {
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     const h = this.snapAt(ctx, ev);
-    if (!h) { ctx.hint(this.start ? "刀：落在点或边上（停在面中间还没做）；Esc 收刀" : "刀：在点或边上按下开始切；同一条边点两下 = 环切"); return; }
-    if (!this.start) { this.start = h.pt; this.startW = h.w; ctx.setAnchor(h.w); ctx.setCursor(h.w); ctx.hint("刀：点下一个点切一刀（同一张面上的点或边）；同一条边再点一下 = 环切；Esc 收刀"); return; }
+    if (!h) { ctx.hint(this.start ? "切刀：落在点或边上（停在面中间还没做）；Esc 收刀" : "切刀：在点或边上按下开始切；同一条边点两下 = 环切"); return; }
+    if (!this.start) { this.start = h.pt; this.startW = h.w; ctx.setAnchor(h.w); ctx.setCursor(h.w); ctx.hint("切刀：点下一个点切一刀（同一张面上的点或边）；同一条边再点一下 = 环切；Esc 收刀"); return; }
     const a = this.start, b = h.pt, m = ctx.mesh(), def = ctx.activePool().def;
     if ("e" in a && "e" in b && a.e === b.e) { this.loopCutAt(ctx, a.e); return; }
-    if (cutsNothing(m, a, b)) { if ("v" in b) { this.start = b; this.startW = h.w; ctx.setAnchor(h.w); } ctx.hint("刀：这两个点之间已经有边了，从这里接着切"); return; }
+    if (cutsNothing(m, a, b)) { if ("v" in b) { this.start = b; this.startW = h.w; ctx.setAnchor(h.w); } ctx.hint("切刀：这两个点之间已经有边了，从这里接着切"); return; }
     const face = commonFace(m, a, b);
-    if (face === null) { ctx.hint("刀：两个点不在同一张面上（先切到中间那条边上，再接着切）"); return; }
+    if (face === null) { ctx.hint("切刀：两个点不在同一张面上（先切到中间那条边上，再接着切）"); return; }
     const probe = m.clone(), verts = knife(probe, face, [a, b]);   // 先在副本上切一遍拿新点的 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
     ctx.commitOp({ op: "meshKnife", def, face, path: [a, b] });
     this.start = { v: verts[verts.length - 1] }; this.startW = h.w;
@@ -101,7 +101,7 @@ export class MeshKnifeTool implements ToolHandler {
     ctx.commitOp({ op: "meshLoopCut", def: ctx.activePool().def, edge: e, t: 0.5 });
     const k = ctx.mesh();
     ctx.setSelection({ edges: r.edges.filter((x) => k.hasE(x)) });
-    ctx.hint(`环切：切了一圈 ${r.edges.length} 条边${r.closed ? "（闭合）" : "（开口带）"}；这圈边在选区里，接着可以挪 / 缩`);
+    ctx.hint(`环切：切了一圈 ${r.edges.length} 条边${r.closed ? "（闭合）" : "（开口带）"}；这圈边在选区里，接着可以移动 / 缩放`);
   }
 
   /** 光标下看得见的点 / 边上的点（拓扑吸附，永远开）。边上的点 = 光标在这条边屏幕投影上的位置。 */

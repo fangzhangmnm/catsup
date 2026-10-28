@@ -17,7 +17,7 @@ export const loopCut: Command<MeshUnit> = {
     if (!r.edges.length) return { ops: [], count: 0, notes: ["这条边两侧不是四边形，切不出一圈"] };
     return { ops: [{ op: "meshLoopCut", def: u.def, edge: e, t: 0.5 }], count: r.edges.length, select: { edges: r.edges } };
   },
-  done: (n) => `环切：切了一圈 ${n} 条边（在选区里，接着可以挪 / 缩）`,
+  done: (n) => `环切：切了一圈 ${n} 条边（在选区里，接着可以移动 / 缩放）`,
   none: "环切：选一条四边形带上的边（只选一条）",
 };
 

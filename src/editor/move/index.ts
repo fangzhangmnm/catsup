@@ -20,7 +20,7 @@ const shift = (p: Pt3, d: Pt3): Pt3 => ({ x: p.x + d.x, y: p.y + d.y, z: p.z + d
 
 /** 挪 SU 点：选区解成点集（边的两端、膜的环、单点），每点 from → from + d，按坐标寻址（结算机会再合并 / 折面）。 */
 export const brepMove: Command<PoolUnit> = {
-  id: "brep.move", unit: "brep", title: "挪点",
+  id: "brep.move", unit: "brep", title: "移动点",
   defaults: () => ({ dx: 0, dy: 0, dz: 0 }),
   params: fields,
   plan(env: CommandEnv, u, v) {
@@ -29,14 +29,14 @@ export const brepMove: Command<PoolUnit> = {
     if (!ids.length || isZero(d)) return { ops: [], count: 0 };
     return { ops: [{ op: "move", at: u.at, moves: ids.map((id) => { const p = k.graph.pt(id); return { from: p, to: shift(p, d) }; }) }], count: ids.length };
   },
-  done: (n) => `挪了 ${n} 个点`,
-  none: "没有能挪的点：先选中点 / 边 / 面，再给位移",
+  done: (n) => `移动了 ${n} 个点`,
+  none: "没有能移动的点：先选中点 / 边 / 面，再给位移",
   tally: true,
 };
 
 /** 挪网格点：选区解成点集（边的两端、面的环、单点），写位置数组；id 按数组制度稳定、克隆保号，直接按 id 寻址。 */
 export const meshMove: Command<MeshUnit> = {
-  id: "mesh.move", unit: "mesh", title: "挪网格点",
+  id: "mesh.move", unit: "mesh", title: "移动网格点",
   defaults: () => ({ dx: 0, dy: 0, dz: 0 }),
   params: fields,
   plan(env: CommandEnv, u, v) {
@@ -50,13 +50,13 @@ export const meshMove: Command<MeshUnit> = {
     if (!ids.size || isZero(d)) return { ops: [], count: 0 };
     return { ops: [{ op: "meshMove", def: u.def, moves: [...ids].map((x) => ({ v: x, to: shift(m.pt(x), d) })) }], count: ids.size };
   },
-  done: (n) => `挪了 ${n} 个网格点`,
-  none: "没有能挪的网格点：先选中点 / 边 / 面，再给位移",
+  done: (n) => `移动了 ${n} 个网格点`,
+  none: "没有能移动的网格点：先选中点 / 边 / 面，再给位移",
 };
 
 /** 挪物体：这一份实例的变换矩阵左乘平移（它所在那个定义的坐标里）。 */
 export const objectMove: Command<ObjectUnit> = {
-  id: "object.move", unit: "object", title: "挪物体",
+  id: "object.move", unit: "object", title: "移动物体",
   defaults: () => ({ dx: 0, dy: 0, dz: 0 }),
   params: fields,
   plan(_env, u, v) {
@@ -64,13 +64,13 @@ export const objectMove: Command<ObjectUnit> = {
     if (isZero(d)) return { ops: [], count: 0 };
     return { ops: [{ op: "transformInstance", def: u.at.def, instance: u.instance, xform: translation(d) }], count: 1 };
   },
-  done: (n) => `挪了 ${n} 个物体`,
-  none: "没有能挪的物体：先选中组件 / 组，再给位移",
+  done: (n) => `移动了 ${n} 个物体`,
+  none: "没有能移动的物体：先选中组件 / 组，再给位移",
 };
 
 const commands: readonly Command[] = [brepMove, meshMove, objectMove];
 /** 一个动作、三条指令：按手里的东西路由（混选 = 一步里三条调用）。 */
-const actions: readonly Action[] = [{ id: "move", icon: "move", label: (n) => `挪（${n}）`, commands: { brep: "brep.move", mesh: "mesh.move", object: "object.move" } }];
+const actions: readonly Action[] = [{ id: "move", icon: "move", label: (n) => `移动（${n}）`, commands: { brep: "brep.move", mesh: "mesh.move", object: "object.move" } }];
 /** 今天只登记在脚本 / 搜索面（渲染器还没有）：浮条上挪动走工具，不走菜单。 */
 const placements: readonly Placement[] = [{ action: "move", where: "api", order: 10 }, { action: "move", where: "search", order: 10 }];
 

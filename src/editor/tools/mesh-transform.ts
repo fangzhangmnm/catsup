@@ -136,7 +136,7 @@ export class MeshTransformTool implements ToolHandler {
       if (ax) d = scale3(ax, dot3(d, ax));             // 锁轴：投到轴上（贴近视线 = 变慢，FM18）
       else if (pn) d = sub3(d, scale3(pn, dot3(d, pn)));   // 锁面：去掉法向分量
       fW = (p) => add3(p, d);
-      dims = `挪 ${fmtLen(len3(d))}${this.snapT ? `（吸到${this.snapT.kind === "endpoint" ? "点" : this.snapT.kind === "on-edge" ? "边" : "面"}上）` : ""}`;
+      dims = `移动 ${fmtLen(len3(d))}${this.snapT ? `（吸到${this.snapT.kind === "endpoint" ? "点" : this.snapT.kind === "on-edge" ? "边" : "面"}上）` : ""}`;
     } else {
       const vp = ctx.vp(), ps = ctx.frame().project?.(pivot, vp);
       if (!ps) return null;
@@ -150,7 +150,7 @@ export class MeshTransformTool implements ToolHandler {
         if (this.shift) th = Math.round(th / ROT_STEP) * ROT_STEP;
         const k = normalize3(axis), c = Math.cos(th), sn = Math.sin(th);
         fW = (p) => { const v = sub3(p, pivot); const r = add3(add3(scale3(v, c), scale3(cross3(k, v), sn)), scale3(k, dot3(k, v) * (1 - c))); return add3(pivot, r); };   // Rodrigues
-        dims = `转 ${(th * 180 / Math.PI).toFixed(1)}°${ax ? "（锁轴）" : ""}`;
+        dims = `旋转 ${(th * 180 / Math.PI).toFixed(1)}°${ax ? "（锁轴）" : ""}`;
       } else {
         let d0 = { x: s0.x - ps.x, y: s0.y - ps.y };
         const L0 = Math.hypot(d0.x, d0.y);
@@ -161,7 +161,7 @@ export class MeshTransformTool implements ToolHandler {
         if (ax) fW = (p) => { const v = sub3(p, pivot); return add3(p, scale3(ax, dot3(v, ax) * (f - 1))); };   // 只沿这根轴（S Z 0 = 压平）
         else if (pn) fW = (p) => { const v = sub3(p, pivot), vn = scale3(pn, dot3(v, pn)); return add3(pivot, add3(vn, scale3(sub3(v, vn), f))); };   // 只在面内
         else fW = (p) => add3(pivot, scale3(sub3(p, pivot), f));
-        dims = `缩 ×${f.toFixed(3)}${ax ? "（锁轴）" : pn ? "（锁面）" : ""}`;
+        dims = `缩放 ×${f.toFixed(3)}${ax ? "（锁轴）" : pn ? "（锁面）" : ""}`;
       }
     }
     const moves = new Map<number, Pt3>();
@@ -180,7 +180,7 @@ export class MeshTransformTool implements ToolHandler {
     ctx.hint(`${verb}了 ${n} 个点（${r.dims}）`);
   }
 
-  private verb(): string { return this.tool === "move" ? "挪" : this.tool === "rotate" ? "转" : "缩"; }
+  private verb(): string { return this.tool === "move" ? "移动" : this.tool === "rotate" ? "旋转" : "缩放"; }   // 两字词，和硬表面对齐（user 10-27）
   /** 屏幕点 → 过轴心、垂直于视线的平面上的点（世界）。不用 pick.ts cameraPlane：那个是「最朝向镜头的轴平面」（SU 画图用），等轴视角下是地面，锁 Z 就挪不动了。 */
   private onPlane(ctx: ToolCtx, x: number, y: number): Pt3 | null {
     const pivot = this.pivotW;

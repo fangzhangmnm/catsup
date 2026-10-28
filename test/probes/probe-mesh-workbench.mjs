@@ -80,7 +80,7 @@ const ok = res.kindAfterCast === "mesh" && res.enter.mode === "freeform" && res.
   && res.meshMove.topZ === 1.5 && res.meshMove.steps === 1 && res.meshMoveUndo.topZ === 1 && res.meshMoveUndo.mode === "freeform" && res.meshMoveUndo.selKind === "mesh"
   && res.exit.depth === 0 && res.exit.mode === "geometry" && res.exit.selKind === "brep" && res.exit.pools === 1 && res.exit.modes.join() === "geometry,surface"
   && res.mixed.dInstX === 1 && res.mixed.dLooseTopX === 1 && res.mixedUndo.dInstX === 0 && res.mixedUndo.dLooseTopX === 0 && res.mixedUndo.pos === 0
-  && /没有能挪/.test(res.nothing) && !res.undoAll.threw && res.undoAll.kind === "gone" && res.undoAll.mode === "geometry" && res.redoAll.kind === "mesh" && res.redoAll.mode === "geometry"
+  && /没有能移动/.test(res.nothing) && !res.undoAll.threw && res.undoAll.kind === "gone" && res.undoAll.mode === "geometry" && res.redoAll.kind === "mesh" && res.redoAll.mode === "geometry"
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-workbench OK" : "probe-mesh-workbench FAIL");

@@ -125,7 +125,7 @@ export class MeshPullTool implements ToolHandler {
     if (t.faces.length) ctx.setSelection({ faces: t.faces.filter((f) => m.hasF(f)) });
     else if (t.edges.length) ctx.setSelection({ edges: t.edges.map((e) => m.edgeOf(r.newVerts.get(probe.edgeA[e])!, r.newVerts.get(probe.edgeB[e])!)).filter((e) => e >= 0) });
     else ctx.setSelection({ verts: [...r.newVerts.values()].filter((v) => m.hasV(v)) });
-    ctx.hint(`挤出了 ${what}（${fmtLen(amount)}）；新长出来的留在选区里，接着可以挪 / 缩`);
+    ctx.hint(`挤出了 ${what}（${fmtLen(amount)}）；新长出来的留在选区里，接着可以移动 / 缩放`);
   }
 
   private what(): string { const t = this.t; return !t ? "" : t.faces.length ? `${t.faces.length} 张面` : t.edges.length ? `${t.edges.length} 条边` : `${t.verts.length} 个点`; }

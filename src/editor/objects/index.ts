@@ -18,7 +18,7 @@ export const toMesh: Command<ObjectUnit> = {
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
     return { ops: [{ op: "castDefinition", def: u.def, to: "mesh" }], count: 1, notes: disclose(u, c.loses) };
   },
-  done: (n) => `转成网格体：${n} 个组件（自由建模工作台接上之前只能整体挪 / 转 / 缩）`,
+  done: (n) => `转成网格体：${n} 个组件（双击进去就是自由建模工作台）`,
   none: "没有能转的：先选中一个 SU 体组件",
 };
 
