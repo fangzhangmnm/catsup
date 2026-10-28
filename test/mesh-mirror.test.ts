@@ -2,7 +2,7 @@
 // 标准答案：中缝切开的盒子 = 每个点都找得到对面；挪一个点对面跟着镜、中缝上的点钉回镜像面；强行对称以后两边严格镜像、封闭、朝向一致；对称对齐只动选中的。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { MeshKernel } from "../src/mesh/mesh-kernel.ts";
-import { addBox, loopCut, mergeVerts } from "../src/mesh/ops/index.ts";
+import { addBox, loopCut, mergeVerts, splitEdge } from "../src/mesh/ops/index.ts";
 import { bisectPlane, mirrorPairs, mirrorMoves, sideOfChange, straddlingFaces, symmetrize, snapToSymmetry } from "../src/mesh/mirror.ts";
 import type { Pt3 } from "../src/kernel/kernel.ts";
 
@@ -120,6 +120,21 @@ describe("镜像（mesh/mirror.ts）", () => {
     eq(r.walls, 1); eq(m.faceCount(), 10); eq(closedConsistent(m), 0); assert(symmetric(m));
     const p = new MeshKernel(), a = p.addVertex(P(0, 0, 0)), b = p.addVertex(P(0, 1, 0)), c = p.addVertex(P(0, 1, 1)), d = p.addVertex(P(0, 0, 1)); p.addFace([a, b, c, d]);
     const r2 = symmetrize(p, 0, 1); eq(r2.walls, 0); eq(p.faceCount(), 1);
+  });
+  it("R2 落在一条中缝边的中间（设计稿 §5.5 边角，2026-10-28 Opus）：先在落点劈开那条边、劈出来的点和这一对并成一个；被拖的角和那条边同在一张面上 = 并完剪掉零面积的刺（mergeVerts）——面不往回折、自检干净、仍对称", () => {
+    const m = halvedBox(), v = corner(m, 1, 1, 1), w = corner(m, -1, 1, 1);
+    const r = mirrorMoves(m, [{ v, to: P(-0.4, 0.5, 1) }], 0, "edit");   // 夹到 (0, 0.5, 1) = 中缝顶上那条边 (0,0,1)–(0,1,1) 的正中
+    eq(r.merges.length, 1); const mg = r.merges[0];
+    assert(!!mg.split, "要劈边"); eq(Math.abs(mg.split!.t - 0.5) < 1e-9, true);
+    const a = m.edgeA[mg.split!.edge], b = m.edgeB[mg.split!.edge]; eq(m.pt(a).x, 0); eq(m.pt(b).x, 0);
+    for (const mv of r.moves) m.setPos(mv.v, mv.to);
+    const ids = [mg.keep, ...mg.drop, splitEdge(m, mg.split!.edge, mg.split!.t)];
+    mergeVerts(m, ids, mg.at);
+    eq(m.check().length, 0); assert(symmetric(m));
+    // 不往回折：每张面每个角，进来和出去的方向不是正好反过来（没劈的话会出现 A → B → 落点 往回走那种捏）
+    let folds = 0;
+    for (const f of m.faces()) { const rr = m.faceVerts(f), n = rr.length; for (let i = 0; i < n; i++) { const p0 = m.pt(rr[(i + n - 1) % n]), p1 = m.pt(rr[i]), p2 = m.pt(rr[(i + 1) % n]); const ux = p1.x - p0.x, uy = p1.y - p0.y, uz = p1.z - p0.z, vx = p2.x - p1.x, vy = p2.y - p1.y, vz = p2.z - p1.z; const d = ux * vx + uy * vy + uz * vz, L = Math.hypot(ux, uy, uz) * Math.hypot(vx, vy, vz); if (L > 1e-12 && d / L < -1 + 1e-9) folds++; } }
+    eq(folds, 0, "面里不许有往回折的角");
   });
   it("对称对齐：只动选中的；默认以选区重心那边为准；对面找不到的数出来", () => {
     const m = halvedBox();

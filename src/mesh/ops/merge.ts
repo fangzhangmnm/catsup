@@ -21,7 +21,9 @@ export function mergeVerts(k: MeshKernel, ids: readonly number[], target: "cente
     for (const v of r) if (!ring.length || ring[ring.length - 1] !== v) ring.push(v);
     while (ring.length > 1 && ring[0] === ring[ring.length - 1]) ring.pop();
     if (new Set(ring).size < 3) { k.removeFace(f); continue; }
-    if (new Set(ring).size !== ring.length) {   // 环里还有不相邻的重复（并出一个捏点）：按第一次出现的位置去重——面还成立，拓扑上是捏点，留给自检报
+    cutSpurs(ring);   // 两次出现之间只夹着不到 3 个不同点的那段 = 零面积的刺（并点落在自己这张面的一条边上），剪掉（2026-10-28 Opus；镜像设计稿 §5.5）
+    if (new Set(ring).size < 3) { k.removeFace(f); continue; }
+    if (new Set(ring).size !== ring.length) {   // 环里还有不相邻的重复（并出一个捏点 = 两边都是像样的环，蝴蝶结）：按第一次出现的位置去重——面还成立，拓扑上是捏点，留给自检报
       const seen = new Set<number>(), r2: number[] = []; for (const v of ring) if (!seen.has(v)) { seen.add(v); r2.push(v); }
       if (r2.length < 3) { k.removeFace(f); continue; }
       k.setFaceRing(f, r2); continue;
@@ -34,3 +36,23 @@ export function mergeVerts(k: MeshKernel, ids: readonly number[], target: "cente
   k.setPos(survivor, to);
   return survivor;
 }
+
+/**
+ * 剪刺（原地改 ring）：某个点在环里出现两次（不相邻），两次之间那段（或绕回来的另一段）不到 3 个不同的点 = 零面积的一根刺（来回走同一条线），剪掉那段、留一次。
+ * 例：A X M B M（把 X 对面的角并到自己这张面的边 AB 的中点 M 上）→ A X M。两段都像样（蝴蝶结）的不碰。
+ */
+function cutSpurs(ring: number[]): void {
+  for (let guard = 0; guard < 64; guard++) {
+    let cut = false;
+    outer: for (let i = 0; i < ring.length; i++) for (let j = i + 1; j < ring.length; j++) {
+      if (ring[i] !== ring[j]) continue;
+      const inner = ring.slice(i, j), outerArc = [...ring.slice(j), ...ring.slice(0, i)];
+      if (new Set(inner).size < 3) { ring.splice(i + 1, j - i); cut = true; break outer; }          // 里面那段是刺：留 ring[i]，去掉 i+1..j
+      if (new Set(outerArc).size < 3) { const keep = ring.slice(i, j); ring.length = 0; ring.push(...keep); cut = true; break outer; }   // 外面那段是刺：只留里面
+    }
+    if (!cut) return;
+    for (let i = ring.length - 1; i > 0; i--) if (ring[i] === ring[i - 1]) ring.splice(i, 1);   // 剪完可能又挨着重复
+    while (ring.length > 1 && ring[0] === ring[ring.length - 1]) ring.pop();
+  }
+}
+

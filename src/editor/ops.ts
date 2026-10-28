@@ -14,7 +14,7 @@ import { snapToSymmetry, symmetrize } from "../mesh/mirror.ts";
 import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -124,7 +124,7 @@ export type Op =
   /** 对称对齐（FM136；只动选中的点）：mode auto = 选区重心那边为准 / flip = 另一边 / average = 取平均。 */
   | { op: "meshSymmetrySnap"; def: number; verts: number[]; axis: 0 | 1 | 2; tol: number; mode: "auto" | "flip" | "average" }
   /** 合并到中心（Blender M → 到中心；2026-10-28 user「选择多个点的时候右键可以merge to center」）：这几个点并成一个、放在它们的平均位置；退化的面自动清掉（mesh/ops/merge.ts）。 */
-  | { op: "meshMerge"; def: number; verts: number[]; to?: Pt3 }   // to 缺 = 并到中心；镜像并点（落到中缝的点和孪生点）给定落点
+  | { op: "meshMerge"; def: number; verts: number[]; to?: Pt3; split?: { edge: number; t: number } }   // to 缺 = 并到中心；镜像并点（落到中缝的点和孪生点）给定落点；split = 先在 t 处劈这条边、劈出来的点一起并（落点在中缝一条边的中间，2026-10-28 Opus）
   /** 倒点（Blender Ctrl+Shift+B）。 */
   | { op: "meshBevelVerts"; def: number; verts: number[]; width: number }
   /** 网格体的默认平滑（2026-10-28 FM129；几何属性：没手标的边算棱还是光滑过渡）。 */
@@ -599,7 +599,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       catch (err) { throw new OpTargetError(err instanceof Error ? err.message : String(err)); }
       return { scene: s, events: [] };
     }
-    case "meshMerge": { if (op.verts.length < 2) throw new OpTargetError(`merge needs 2+ verts, got ${op.verts.length}`); const k = meshOf(s, op.def).kernel; for (const v of op.verts) if (!k.hasV(v)) throw new OpTargetError(`vertex ${v}`); mergeVerts(k, op.verts, op.to ?? "center"); return { scene: s, events: [] }; }
+    case "meshMerge": { if (op.verts.length < 2) throw new OpTargetError(`merge needs 2+ verts, got ${op.verts.length}`); const k = meshOf(s, op.def).kernel; for (const v of op.verts) if (!k.hasV(v)) throw new OpTargetError(`vertex ${v}`); const ids = [...op.verts]; if (op.split) { if (!k.hasE(op.split.edge)) throw new OpTargetError(`edge ${op.split.edge}`); ids.push(splitEdge(k, op.split.edge, op.split.t)); } mergeVerts(k, ids, op.to ?? "center"); return { scene: s, events: [] }; }
     case "meshSymmetrySnap": { if (!(op.tol > 0)) throw new OpTargetError(`symmetry snap tol ${op.tol}`); snapToSymmetry(meshOf(s, op.def).kernel, op.verts, op.axis, op.tol, op.mode); return { scene: s, events: [] }; }
     case "meshEdgeMarks": { const k = meshOf(s, op.def).kernel; for (const e of op.edges) if (!k.hasE(e)) throw new OpTargetError(`edge ${e}`); markEdges(k, op.edges, op.mark); return { scene: s, events: [] }; }
     case "meshSmoothDefault": { if (!(op.deg > 0 && op.deg < 180)) throw new OpTargetError(`smooth default angle ${op.deg}`); meshOf(s, op.def).kernel.setSmoothDefault({ mode: op.mode, deg: op.deg }); return { scene: s, events: [] }; }

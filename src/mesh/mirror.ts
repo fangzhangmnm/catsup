@@ -42,8 +42,8 @@ export function mirrorPairs(m: MeshKernel, axis: MirrorAxis, tol = MIRROR_TOL): 
 
 export interface MirrorMovesResult {
   moves: { v: number; to: Pt3 }[];
-  /** 落到中缝上的点并成一个（keep 留；drop = 它的孪生点 + 落点处本来就有的中缝点，一起并进去；at = 并到哪）。两种模式都有，调用方提交 meshMerge。 */
-  merges: { keep: number; drop: number[]; at: Pt3 }[];
+  /** 落到中缝上的点并成一个（keep 留；drop = 它的孪生点 + 落点处本来就有的中缝点，一起并进去；at = 并到哪；split = 落点在一条中缝边的中间：先在 t 处劈开它、劈出来的点一起并）。两种模式都有，调用方提交 meshMerge。 */
+  merges: { keep: number; drop: number[]; at: Pt3; split?: { edge: number; t: number } }[];
   mirrored: number; unpaired: number; pinned: number;
   /** 想穿过镜像面被夹住的点数（R3）。 */
   clamped: number;
@@ -64,6 +64,19 @@ export function mirrorMoves(m: MeshKernel, moves: readonly { v: number; to: Pt3 
   const out = new Map<number, Pt3>(), merges: MirrorMovesResult["merges"] = [], dropped = new Set<number>();
   // 落点处本来就有的中缝点（容差内）：一起并（不然落在中缝点上 = 两个重合的点）
   const seamAt = (at: Pt3, skip: number[]): number[] => m.verts().filter((u) => !skip.includes(u) && !dropped.has(u) && sideOf(coordOf(m.pt(u), axis), tol) === 0 && !want.has(u) && dist(m.pt(u), at) <= tol);
+  // 落点在一条中缝边（两头都在中缝上）的中间：返回那条边和参数（不在端点附近）；没有 = null。设计稿 §5.5 的边角（不劈的话面会在那里捏一下）
+  const seamEdgeAt = (at: Pt3): { edge: number; t: number } | null => {
+    for (const e of m.edges()) {
+      const a = m.edgeA[e], b = m.edgeB[e];
+      if (want.has(a) || want.has(b) || sideOf(coordOf(m.pt(a), axis), tol) !== 0 || sideOf(coordOf(m.pt(b), axis), tol) !== 0) continue;
+      const pa = m.pt(a), pb = m.pt(b), dx = pb.x - pa.x, dy = pb.y - pa.y, dz = pb.z - pa.z, L2 = dx * dx + dy * dy + dz * dz;
+      if (L2 < 1e-18) continue;
+      const t = ((at.x - pa.x) * dx + (at.y - pa.y) * dy + (at.z - pa.z) * dz) / L2;
+      if (t * Math.sqrt(L2) <= tol || (1 - t) * Math.sqrt(L2) <= tol) continue;
+      if (dist(at, { x: pa.x + dx * t, y: pa.y + dy * t, z: pa.z + dz * t }) <= tol) return { edge: e, t };
+    }
+    return null;
+  };
   let mirrored = 0, unpaired = 0, pinned = 0, clamped = 0;
   for (const [v, to] of [...want].sort((a, b) => a[0] - b[0])) {
     if (dropped.has(v)) continue;                              // 孪生点已经落到中缝、把它并走了：它自己的目标作废
@@ -75,8 +88,9 @@ export function mirrorMoves(m: MeshKernel, moves: readonly { v: number; to: Pt3 
     if (landed) t = withCoord(t, axis, 0);
     if (landed) {   // R2：和孪生点（有的话）+ 落点处的中缝点并成一个
       const drop = [...(w >= 0 ? [w] : []), ...seamAt(t, [v, w])];
+      const split = drop.length === (w >= 0 ? 1 : 0) ? seamEdgeAt(t) : null;   // 落点不在已有的中缝点上、而在一条中缝边的中间：先劈开它
       out.set(v, t);
-      if (drop.length) { for (const d of drop) { out.delete(d); dropped.add(d); } merges.push({ keep: v, drop, at: t }); }
+      if (drop.length || split) { for (const d of drop) { out.delete(d); dropped.add(d); } merges.push({ keep: v, drop, at: t, ...(split ? { split } : {}) }); }
       if (w < 0) unpaired++;
       continue;
     }

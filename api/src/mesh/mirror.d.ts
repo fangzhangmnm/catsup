@@ -19,11 +19,15 @@ export interface MirrorMovesResult {
         v: number;
         to: Pt3;
     }[];
-    /** 落到中缝上的点并成一个（keep 留；drop = 它的孪生点 + 落点处本来就有的中缝点，一起并进去；at = 并到哪）。两种模式都有，调用方提交 meshMerge。 */
+    /** 落到中缝上的点并成一个（keep 留；drop = 它的孪生点 + 落点处本来就有的中缝点，一起并进去；at = 并到哪；split = 落点在一条中缝边的中间：先在 t 处劈开它、劈出来的点一起并）。两种模式都有，调用方提交 meshMerge。 */
     merges: {
         keep: number;
         drop: number[];
         at: Pt3;
+        split?: {
+            edge: number;
+            t: number;
+        };
     }[];
     mirrored: number;
     unpaired: number;

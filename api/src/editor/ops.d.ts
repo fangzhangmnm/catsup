@@ -332,6 +332,10 @@ export type Op =
     def: number;
     verts: number[];
     to?: Pt3;
+    split?: {
+        edge: number;
+        t: number;
+    };
 }
 /** 倒点（Blender Ctrl+Shift+B）。 */
  | {

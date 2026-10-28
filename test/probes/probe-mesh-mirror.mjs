@@ -114,6 +114,7 @@ const res = await page.evaluate(async () => {
   e.selectedPools.clear(); e.selectedPools.set(`i${inst3.id}`, { kind: "instance", instance: inst3.id }); e.enterSelected(); await sleep(30);
   e.commitOp({ op: "meshMove", def: inst3.def, moves: m3().verts().map((q) => ({ v: q, to: { ...m3().pt(q), x: m3().pt(q).x + 0.7 } })) });
   e.setMirror("edit", 0); await sleep(250);
+  for (let i = 0; i < 12 && !gz(); i++) await sleep(120);   // 方片是 rAF 画的：机器忙时 250 ms 可能还没画上（2026-10-28 一次假红），轮询等它出现
   out.eight = { gizmoOff: gz(), hintOn: hint() };
   e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await sleep(250);
   out.eight.gizmoCentered = gz();

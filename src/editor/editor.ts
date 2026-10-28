@@ -79,7 +79,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
-import { addPrimitive, mergeVerts, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
+import { addPrimitive, mergeVerts, splitEdge, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
 import { MeshKernel, F_HIDDEN } from "../mesh/mesh-kernel.ts";
 import { edgeLoop } from "../mesh/select-loop.ts";
 import type { OptionKv } from "./tool-config.ts";
@@ -1162,7 +1162,7 @@ export class Editor {
     if (moves.length) {
       const r = mirrorMoves(base, moves, ms.axis, ms.mode);
       for (const mv of r.moves) if (c.hasV(mv.v)) c.setPos(mv.v, mv.to);
-      for (const mg of r.merges) { const ids = [mg.keep, ...mg.drop].filter((v) => c.hasV(v)); if (ids.length >= 2) mergeVerts(c, ids, mg.at); }
+      for (const mg of r.merges) { const ids = [mg.keep, ...mg.drop].filter((v) => c.hasV(v)); if (mg.split && c.hasE(mg.split.edge)) ids.push(splitEdge(c, mg.split.edge, mg.split.t)); if (ids.length >= 2) mergeVerts(c, ids, mg.at); }
     }
     if (ms.mode === "edit" || isSymmetric(c, ms.axis)) return;
     const probe = c.clone();
@@ -1261,7 +1261,7 @@ export class Editor {
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
     if (rw.merges.length && op.op === "meshMove") {   // 落到中缝的点和孪生点并成一个：同一步里紧跟着提交（写进日志 = 重放一致；对称化等并完才跑）
       this.mirrorMerging = true;
-      try { for (const mg of rw.merges) { this.commitIn(pass, { op: "meshMerge", def: op.def, verts: [mg.keep, ...mg.drop], to: mg.at }); if (this.stepFailed) return []; } }
+      try { for (const mg of rw.merges) { this.commitIn(pass, { op: "meshMerge", def: op.def, verts: [mg.keep, ...mg.drop], to: mg.at, ...(mg.split ? { split: mg.split } : {}) }); if (this.stepFailed) return []; } }
       finally { this.mirrorMerging = false; }
     }
     if (symBefore) this.mirrorForceAfter(pass, op, symBefore);   // 同一步里补一条对称（撤销一下 = 一起撤）

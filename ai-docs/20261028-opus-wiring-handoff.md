@@ -5,7 +5,7 @@
 
 ## Fable 做好了的（10-28 晚；动之前读它的稿，别重新发明）
 
-- **镜像做好了**（v0.16.5 挪点纪律四条 + v0.16.6 对称属性进文件；设计稿 `20261028-mirror-redo-design.md`；user 10-28 晚「镜像不用我审了对吧，四条规则没问题」）：`src/mesh/mirror.ts`（`mirrorMoves(…, mode)` / `symmetrize` + `removeSeamWalls`）、`src/editor/editor.ts` 镜像那一段、`Scene.meshMirrors`。可以动，但**新加 mesh op / 网格体动作必须在 `src/mesh/mirror-ops.ts` 登记**（守卫 `test/mirror-ops.test.ts` 红了就是在提醒你）。已知边角（设计稿 §5.5）：点拖到中缝一条边的中间不劈边、面会捏一下——要做的话是一条小活，先读 R2。
+- **镜像做好了**（v0.16.5 挪点纪律四条 + v0.16.6 对称属性进文件；设计稿 `20261028-mirror-redo-design.md`；user 10-28 晚「镜像不用我审了对吧，四条规则没问题」）：`src/mesh/mirror.ts`（`mirrorMoves(…, mode)` / `symmetrize` + `removeSeamWalls`）、`src/editor/editor.ts` 镜像那一段、`Scene.meshMirrors`。可以动，但**新加 mesh op / 网格体动作必须在 `src/mesh/mirror-ops.ts` 登记**（守卫 `test/mirror-ops.test.ts` 红了就是在提醒你）。已知边角（设计稿 §5.5）点拖到中缝一条边的中间 = **v0.16.19 修了**（劈边 + 剪刺）。
 - **撤销 / 重做护栏审完了**（v0.16.7，家族周账 F-113 done；制度稿 `20261028-undo-step-regime.md` §8⅞）：`history.ts` / `step()` / `commitIn` 照制度用——提交一律 `commitIn(pass, …)`，守卫 `test/step-pass-guard.test.ts` 会拦；改了撤销 / 选区 / 步相关的代码必跑 `probe-undo-fuzz`。
 - **网格体定点：user 拍了 A（维持 f64，不上格）**——`CATSUP_mesh` 的 positions 不动；大文件 / 雕刻的精度等那个纪元（取舍稿 `20261028-mesh-fixed-point-tradeoff.md` §6）。
 - `src/kernel/`、`src/mesh/` 内核里碰到坑：记账给 Fable，别在接线里绕。
