@@ -78,7 +78,7 @@ const ok = res.kindAfterCast === "mesh" && res.enter.mode === "freeform" && res.
   && res.brepVerbs.pos === 0 && res.brepVerbs.faces === 6 && res.brepVerbs.hints.every(Boolean)
   && ["group", "component", "mirror", "hide", "soften", "harden", "explode"].every((id) => !res.hudInMesh.includes(id)) && res.hudInMesh.includes("deselect") && res.hudInMesh.includes("delete")
   && res.meshMove.topZ === 1.5 && res.meshMove.steps === 1 && res.meshMoveUndo.topZ === 1 && res.meshMoveUndo.mode === "freeform" && res.meshMoveUndo.selKind === "mesh"
-  && res.exit.depth === 0 && res.exit.mode === "geometry" && res.exit.selKind === "brep" && res.exit.pools === 1 && res.exit.modes.join() === "geometry,surface"
+  && res.exit.depth === 0 && res.exit.mode === "geometry" && res.exit.selKind === "brep" && res.exit.pools === 1 && res.exit.modes.join() === "geometry,surface,verify"
   && res.mixed.dInstX === 1 && res.mixed.dLooseTopX === 1 && res.mixedUndo.dInstX === 0 && res.mixedUndo.dLooseTopX === 0 && res.mixedUndo.pos === 0
   && /没有能移动/.test(res.nothing) && !res.undoAll.threw && res.undoAll.kind === "gone" && res.undoAll.mode === "geometry" && res.redoAll.kind === "mesh" && res.redoAll.mode === "geometry"
   && errs.length === 0;

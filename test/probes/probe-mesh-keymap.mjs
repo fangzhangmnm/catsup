@@ -142,7 +142,7 @@ const ok = res.gStart.active && res.gStart.tool === "move" && res.gPreview.commi
   && res.singleBlank === 1 && res.doubleBlank.depth === 0 && res.doubleBlank.mode === "geometry" && res.kInGeometry !== "knife"
   && res.rInsetItem && !res.rInset.active && res.rInset.tool === "select" && res.rInset.df === 4 && res.rInset.sel === 1 && res.rInset.check === ""
   && res.rOriginItem && res.rOrigin.same && res.rOrigin.origin.join() === "0.5,0.5,1" && res.rOrigin.tool === "select" && res.rOrigin.mode === "freeform" && res.rOriginUndo.same
-  && res.iStart.active && res.iStart.tool === "offset" && res.inset.df === 4 && res.inset.sel === 1 && res.inset.smaller && res.inset.check === "" && res.inset.label === "插入"
+  && res.iStart.active && res.iStart.tool === "offset" && res.inset.df === 4 && res.inset.sel === 1 && res.inset.smaller && res.inset.check === "" && res.inset.label === "插入/倒角"
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-keymap OK" : "probe-mesh-keymap FAIL");

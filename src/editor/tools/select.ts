@@ -17,11 +17,12 @@ export class SelectTool implements ToolHandler {
 
   active(): boolean { return this.start !== null; }
   /** 这一下怎么合进选区：修饰键 > 右下角选项。 */
+  /** 两档（2026-10-28 FM158）：替换 / 多选（= 按住 Shift）：多选里拖 = 加选、点 = 切换；Ctrl 照旧减选。 */
   static modeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean): SelMode {
     if (ev.copy) return "remove";
-    if (ev.shiftKey) return box ? "add" : "toggle";
-    return ctx.config.get("select", "mode") as SelMode;
+    return ev.shiftKey || SelectTool.multi(ctx) ? (box ? "add" : "toggle") : "replace";
   }
+  static multi(ctx: ToolCtx): boolean { return ctx.config.get("select", "mode") === "multi"; }
   cancel(): void { this.start = this.cur = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
@@ -75,7 +76,9 @@ export class SelectTool implements ToolHandler {
     }
     const c = ctx.classify(view, hit);
     if (c.kind === "pool" && n >= 2) { ctx.enterPool(c.pick); return; }   // 双击子 group / 组件 = 进入
-    if (c.kind === "none" && mode === "replace" && ctx.contextDepth() > 0 && n === 2) { ctx.exitContext(); return; }   // 双击空处 = 退出一层（user 10-27「单击空白退出一层其实还是蛮容易误触的，既然进去是双击，退出也改成双击」；单击空处 = 取消选择）
+    const multiTap = mode === "toggle" && !ev.shiftKey && SelectTool.multi(ctx);   // 多选那一档（不是按着 Shift）
+    if (c.kind === "none" && (mode === "replace" || multiTap) && ctx.contextDepth() > 0 && n === 2) { ctx.exitContext(); return; }
+    if (c.kind === "none" && multiTap) { ctx.replaceSelection({ edges: [], faces: [], pools: [] }, "replace"); ctx.afterSelect(); return; }   // 多选里点空处 = 清空（FM158）   // 双击空处 = 退出一层（user 10-27「单击空白退出一层其实还是蛮容易误触的，既然进去是双击，退出也改成双击」；单击空处 = 取消选择）
     ctx.selectExpand(hit, n >= 3 ? 2 : n === 2 ? 1 : 0, mode);
   }
 }

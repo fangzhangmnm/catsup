@@ -71,6 +71,7 @@ import type { Mode, ModeId } from "./mode.ts";
 import { GeometryMode } from "./modes/geometry.ts";
 import { SurfaceMode } from "./modes/surface.ts";
 import { FreeformMode } from "./modes/freeform.ts";
+import { VerifyMode } from "./modes/verify.ts";
 import { KINDS } from "../scene/kinds.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
@@ -267,7 +268,7 @@ export class Editor {
   private snapInfo: Snap3 | null = null;
   // 工具模块（tool-handler.ts 接缝；架构重构 2026-10-21）：有模块的工具走这里，其余仍在本文件的 case 里（Opus 票 3 逐个搬）
   /** 编辑模式（0.13 刀 ① / 刀 ③）：几何 / 表面；工具集 + 手势模块表住模式里；左上下拉框切（user「切换编辑模式还是左上下拉框」）。 */
-  private readonly modeList: readonly Mode[] = [new GeometryMode(), new SurfaceMode(), new FreeformMode()];
+  private readonly modeList: readonly Mode[] = [new GeometryMode(), new SurfaceMode(), new FreeformMode(), new VerifyMode()];
   private mode: Mode = this.modeList[0];
   get modeId(): ModeId { return this.mode.id; }
   /** 左上下拉框里的工作台 = 管活动池这种身体的那些（SU 体：硬表面建模 / 表面；网格体：自由建模）。 */

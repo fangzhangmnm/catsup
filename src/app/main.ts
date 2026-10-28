@@ -194,6 +194,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string; key: string }[] = [
   { tool: "protractor", icon: "protractor", label: "量角器", key: "" },
   { tool: "compass", icon: "compass", label: "圆规", key: "" },
   { tool: "knife", icon: "knife", label: "切割", key: "K" },
+  { tool: "walk", icon: "walk", label: "步行", key: "" },   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
   { tool: "shrink", icon: "push-pull", label: "沿法线", key: "Alt+S" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
@@ -249,7 +250,8 @@ const hud: HudModel = {
   status: () => hintEl.textContent ?? "",
   pick: (id) => {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
-    if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
+    if (id === "walk") { pickWalk(); return; }   // 验证工作台的「步行」：放置 → FPS（原地编辑里再点 = 继续走）
+    if ((TOOLS as readonly string[]).includes(id)) { if (locomotion.isPlacing()) locomotion.cancelPlace(); editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as "box"); syncUi(); return; }
     if (id.startsWith("mirror:")) {   // 镜像开关（FM134）：关 / 镜像编辑 / 强行对称 / 换镜像面（换面保持当前模式；关着时换面 = 开镜像编辑）
@@ -303,9 +305,9 @@ const RAIL_GROUPS: RailGroup[] = [
   { id: "paint", pinned: ["paint"], pool: [], budget: 1 },
 ];
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」）。 */
-const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入" } };
+const MODE_TOOL_LABEL: Partial<Record<ModeId, Partial<Record<Tool, string>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };   // 插入那一格合租倒角（user 10-28「3插入倒角」）
 /** 工作台自己定死的左柱（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」+「用两字词语吧和硬表面对齐」：选择 · 挤出 · 移动 · 旋转 · 缩放 · 切割 · 删除 · 插入（删除 / 插入还没做的不露）。 */
-const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"] };
+const MODE_RAIL: Partial<Record<ModeId, readonly Tool[]>> = { freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset"], verify: ["walk", "select", "move", "rotate"] };
 const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = MODE_TOOL_LABEL[editor.modeId]?.[t]; return l ? { ...sp, label: l } : sp; };
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
 const KEY_CYCLES: Record<string, readonly Tool[]> = { e: ERASERS, x: ERASERS, r: ["rect", "crect", "rrect"], t: ["tape", "protractor", "axes"] };
@@ -598,7 +600,14 @@ walkBtn.addEventListener("click", () => {
 // 触屏摇杆（吃鸡式，FM142）：有触屏的设备、FPS 阶段才露
 const touchCtl = new TouchControls(stage, { lookRad: (y, p) => locomotion.lookRad(y, p), editInPlace: () => locomotion.editInPlace(), leave: () => locomotion.exitWalk() });
 locomotion.touch = () => touchCtl.read();
+/** 验证工作台的「步行」工具：原地编辑里 = 继续走；平时 = 拿起工具 + 进放置。 */
+function pickWalk(): void {
+  if (locomotion.isEditInPlace()) { locomotion.resumeWalk(); return; }
+  editor.setTool("walk");
+  if (!locomotion.isPlacing() && !locomotion.isWalking()) setWalk(true);
+}
 locomotion.onPhase = () => {
+  if (locomotion.walkPhase() === "off" && editor.tool === "walk") editor.setTool("select");   // 离开步行 / 取消放置 = 放下步行工具（什么都没发生过）
   touchCtl.setVisible(locomotion.isFps() && TouchControls.available());
   if (!locomotion.isPlacing() && editor.paramPanel()?.title === "步行：点一下落在哪") editor.openParamSession(null);
   syncWalkBar(); syncLoop();

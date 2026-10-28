@@ -13,6 +13,9 @@
 //   ⑤ 模块零 DOM、零 editor import：node 直测（test/tool-config.test.ts）。
 import type { Tool } from "./editor.ts";
 
+/** 选区默认档：有笔 / 触屏的设备 = 多选，键鼠 = 替换（user 10-28「平板上选择能不能默认是点击xor」）。node（测试）里没有 navigator = 替换。 */
+const DEFAULT_SELECT_MODE: string = typeof navigator !== "undefined" && (navigator.maxTouchPoints ?? 0) > 0 && (typeof matchMedia !== "function" || matchMedia("(any-pointer: coarse)").matches) ? "multi" : "replace";
+
 export type OptionScope = "session" | "device" | "doc";
 export interface Modifiers { ctrl?: boolean; shift?: boolean; }
 
@@ -158,10 +161,10 @@ export const TOOL_OPTIONS = {
   axes: {
     mode: { kind: "enum", label: "设什么", values: [{ id: "point", label: "只设原点" }, { id: "full", label: "原点 + 方向" }], def: "point", scope: "session" },
   },
-  /** 选择怎么合进已有选区（2026-10-26，对齐 Blender 工具栏框选的几种模式；user「ipad同意，但是我想和blender对齐？」）：iPad 没有修饰键，在这里切；
-   *  键鼠按着修饰键时修饰键说了算（点击 Shift = 切换、Ctrl = 减选；框选 Shift = 加选、Ctrl = 减选）。 */
+  /** 选择怎么合进已有选区。2026-10-28 收成两档（纪元账本 FM158；user「我觉得四个模式太麻烦了……就是两个模式，非shift模式是替换。shift模式是 拖动是加选，然后点击是xor」
+   *  「12同意」）：替换 / 多选（= 按住 Shift：拖 = 加选、点 = 切换）；Ctrl 照旧减选；多选里点空处 = 清空；有笔 / 触屏的设备默认多选（平板多选高频、没有 Shift）。 */
   select: {
-    mode: { kind: "enum", label: "选区", values: [{ id: "replace", label: "替换", hint: "新选的换掉原来的" }, { id: "add", label: "加选", hint: "加进原来的选区（键鼠：框选按住 Shift）" }, { id: "remove", label: "减选", hint: "从选区里拿掉（键鼠：按住 Ctrl）" }, { id: "toggle", label: "切换", hint: "没选的加上、已选的拿掉（键鼠：点击按住 Shift）" }], def: "replace", scope: "session" },
+    mode: { kind: "enum", label: "选区", values: [{ id: "replace", label: "替换", hint: "新选的换掉原来的（键鼠：按住 Shift = 多选、Ctrl = 减选）" }, { id: "multi", label: "多选", hint: "拖 = 加选；点 = 没选的加上、选了的去掉；点空处 = 清空（键鼠：按住 Ctrl = 减选）" }], def: DEFAULT_SELECT_MODE, scope: "session" },
   },
   /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
   move: {

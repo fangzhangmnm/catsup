@@ -99,7 +99,7 @@ const ok = res.centerMove[0] === 1 && res.centerMove[1] === 2 && res.selAfterMov
   && res.afterUndo.faces === 6 && res.afterUndo.xs[0] === 0 && res.afterUndo.sel === 6
   && res.scaled[0] === -0.5 && res.scaled[1] === 1.5 && res.vcb3 && res.arrayXs[1] === 4.5 && res.backXs[0] === 0 && res.backXs[1] === 1 && res.backSel === 6
   && res.pivot && res.rotXs[0] === 1 && res.rotXs[1] === 2
-  && res.emptyTapSel === false && res.faceTapSel === 1 && res.boxSel === 6
+  && res.emptyTapSel === false && res.faceTapSel === 1 && res.boxSel === 3   /* v0.15.35 起 X 光关着框选只框看得见的（FM44）：盒子正面 3 张 */
   && res.rotCopy.faces === 11 && res.rotCopy.xs[0] === -1 && res.rotCopy.xs[1] === 1
   && res.autoMode === "auto" && String(res.autoOne) === "0.5,0.5,0" && String(res.autoMid) === "1.5,0.5,0" && String(res.autoAfter) === "1.5,0.5,0" && String(res.autoMixed) === "2.5,0.5,0.5" && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");

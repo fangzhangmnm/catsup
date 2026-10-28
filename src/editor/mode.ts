@@ -9,7 +9,7 @@ import type { Tool } from "./tool-ids.ts";
 import type { EditorCore, ToolHandler } from "./tool-handler.ts";
 import type { ViewState } from "./render3.ts";
 
-export type ModeId = "object" | "geometry" | "surface" | "freeform";   // freeform = 自由建模工作台（网格体；modes/freeform.ts，2026-10-27 接缝）
+export type ModeId = "object" | "geometry" | "surface" | "freeform" | "verify";   // verify = 验证工作台（步行 / 以后摆关卡、丢猫娘；modes/verify.ts，2026-10-28）   // freeform = 自由建模工作台（网格体；modes/freeform.ts，2026-10-27 接缝）
 
 export interface Mode {
   readonly id: ModeId;

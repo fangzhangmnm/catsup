@@ -10,7 +10,9 @@ export declare class SelectTool implements ToolHandler {
     private cur;
     active(): boolean;
     /** 这一下怎么合进选区：修饰键 > 右下角选项。 */
+    /** 两档（2026-10-28 FM158）：替换 / 多选（= 按住 Shift）：多选里拖 = 加选、点 = 切换；Ctrl 照旧减选。 */
     static modeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean): SelMode;
+    static multi(ctx: ToolCtx): boolean;
     cancel(): void;
     sample(): Record<string, number>;
     live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;

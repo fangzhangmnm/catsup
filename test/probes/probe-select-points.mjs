@@ -61,9 +61,11 @@ const res = await page.evaluate(async () => {
   await tap(top, {}, T2);
   key("i", "KeyI", { ctrl: true }); await sleep(30); out.inverted = S();
   key("a", "KeyA", { alt: true }); await sleep(30); out.none = S();
-  // ⑦ iPad 选项「加选」
-  e.config.set("select", "mode", "add");
+  // ⑦ 选区「多选」那一档（2026-10-28 两档，FM158；iPad 默认）：点 = 加上 / 去掉；点空处 = 清空
+  e.config.set("select", "mode", "multi");
   await tap(top, {}, T2); await tap(side, {}, T2); out.addMode = S();
+  await tap(side, {}, T2); out.multiToggleOff = S();
+  await tap({ x: 8, y: e.vp().h - 8 }, {}, T2); out.multiEmpty = S();
   e.config.set("select", "mode", "replace");
   // ⑧ 删点
   e.deselectAll(); await tap(px(corner), {}, T2); e.deleteSelection(); await sleep(30);
@@ -77,8 +79,8 @@ const ok = !!res.corner && eq(res.tapPoint, { v: 1, e: 0, f: 0 }) && /1 个点/.
   && Math.abs(res.undoMaxZ - 1) < 1e-9 && eq(res.selAfterUndo, { v: 1, e: 0, f: 0 })
   && eq(res.dblPoint, { v: 0, e: 3, f: 0 })
   && eq(res.f1, { v: 0, e: 0, f: 1 }) && eq(res.f2, { v: 0, e: 0, f: 2 }) && eq(res.f3, { v: 0, e: 0, f: 1 }) && eq(res.f4, { v: 0, e: 0, f: 1 })
-  && eq(res.boxSubtract, { v: 0, e: 0, f: 0 })
-  && eq(res.inverted, { v: 0, e: 12, f: 5 }) && eq(res.none, { v: 0, e: 0, f: 0 }) && eq(res.addMode, { v: 0, e: 0, f: 2 })
+  && eq(res.boxSubtract, { v: 0, e: 3, f: 3 })   // v0.15.35 起框选 X 光关着只框看得见的（FM44）：背面 3 边 3 面没框到、留在选区（以前全减掉）
+  && eq(res.inverted, { v: 0, e: 12, f: 5 }) && eq(res.none, { v: 0, e: 0, f: 0 }) && eq(res.addMode, { v: 0, e: 0, f: 2 }) && eq(res.multiToggleOff, { v: 0, e: 0, f: 1 }) && eq(res.multiEmpty, { v: 0, e: 0, f: 0 })
   && res.afterDelete.edges === 9 && res.afterDelete.faces === 3 && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

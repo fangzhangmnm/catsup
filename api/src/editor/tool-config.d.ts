@@ -168,8 +168,8 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
-    /** 选择怎么合进已有选区（2026-10-26，对齐 Blender 工具栏框选的几种模式；user「ipad同意，但是我想和blender对齐？」）：iPad 没有修饰键，在这里切；
-     *  键鼠按着修饰键时修饰键说了算（点击 Shift = 切换、Ctrl = 减选；框选 Shift = 加选、Ctrl = 减选）。 */
+    /** 选择怎么合进已有选区。2026-10-28 收成两档（纪元账本 FM158；user「我觉得四个模式太麻烦了……就是两个模式，非shift模式是替换。shift模式是 拖动是加选，然后点击是xor」
+     *  「12同意」）：替换 / 多选（= 按住 Shift：拖 = 加选、点 = 切换）；Ctrl 照旧减选；多选里点空处 = 清空；有笔 / 触屏的设备默认多选（平板多选高频、没有 Shift）。 */
     readonly select: {
         readonly mode: {
             readonly kind: "enum";
@@ -177,21 +177,13 @@ export declare const TOOL_OPTIONS: {
             readonly values: readonly [{
                 readonly id: "replace";
                 readonly label: "替换";
-                readonly hint: "新选的换掉原来的";
+                readonly hint: "新选的换掉原来的（键鼠：按住 Shift = 多选、Ctrl = 减选）";
             }, {
-                readonly id: "add";
-                readonly label: "加选";
-                readonly hint: "加进原来的选区（键鼠：框选按住 Shift）";
-            }, {
-                readonly id: "remove";
-                readonly label: "减选";
-                readonly hint: "从选区里拿掉（键鼠：按住 Ctrl）";
-            }, {
-                readonly id: "toggle";
-                readonly label: "切换";
-                readonly hint: "没选的加上、已选的拿掉（键鼠：点击按住 Shift）";
+                readonly id: "multi";
+                readonly label: "多选";
+                readonly hint: "拖 = 加选；点 = 没选的加上、选了的去掉；点空处 = 清空（键鼠：按住 Ctrl = 减选）";
             }];
-            readonly def: "replace";
+            readonly def: string;
             readonly scope: "session";
         };
     };

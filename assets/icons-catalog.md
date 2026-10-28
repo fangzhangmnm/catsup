@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-90 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+91 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -12,7 +12,7 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -64,6 +64,7 @@
 | `protractor` 👁待过目 | 量角器:半圆(外弧) + 底下一条直尺边(长方条) + 中间半圆镂空 + 外弧五道刻度 + 底边中点一道短刻 = 量角度；与 compass(圆规)/ rotate(圆箭头)分工；不画指针(画了像车速表)【CatsUp 左柱测量组展开条里的「量角器」工具（以前一直是缺图标虚线框）；2026-10-26 Claude Opus 5.5 重画（user「量角器顺便画一下？」「旧的是以前还不太会画画的你做的，你可以重做」——旧草稿在 WORKBENCH，已撤），未过目】 |
 | `fill-hole` 👁待过目 | 补洞:等轴测线框方盒 + 顶面半透明填实 = 没封口的开口补上面；与 push-pull(推拉)/ rectangle(画面)分工【CatsUp 编辑条「补洞…（N 个）」修复入口；2026-10-26 Claude Opus 5.5 自画（渲过亮 / 暗底 24 / 60 px），未过目】 |
 | `knife` 👁待过目 | 切割(雕刻用的美工刀):右上一根细长握柄(粗线圆头) + 一节夹头(更粗的平头短段) + 左下一片短三角刀片(淡填，刀尖朝左下) + 刀下一段短虚线(切出来的新边) = 在网格上切出新边；与 cut(剪切到剪贴板的剪刀)分工【CatsUp 自由建模工作台左柱「切割」(K；同一条边点两下 = 环切)；2026-10-27 Claude Opus 5.5 自画第二版（user「小刀能不能朝着左下，然后刀刃短一点，那种雕刻用的美工刀」；cairosvg 渲过 96 / 24 px），**未过目**】 |
+| `walk` 👁待过目 | 步行(走路的小人):圆头 + 前倾的身子 + 一前一后两条腿(膝盖弯) + 一前一后摆臂 = 进步行相机(第一人称走进模型里)；与 move(四向箭头 = 挪东西)分工【CatsUp「验证」工作台左柱第一格「步行」（放置 → FPS）；2026-10-28 Claude Opus 5.5 自画，**未过目**】 |
 
 ## image-processing
 
