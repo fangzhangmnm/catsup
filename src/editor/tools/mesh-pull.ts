@@ -14,7 +14,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyNormal, applyPt, invert } from "../../scene/xform.ts";
 import { fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
-import { meshTap } from "./mesh-transform.ts";
+import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 
 type Target = { faces: number[]; edges: number[]; verts: number[] };
@@ -33,8 +33,10 @@ export class MeshPullTool implements ToolHandler {
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
 
-  tap(ctx: ToolCtx, s: { x: number; y: number }): void { meshTap(ctx, s); }   // 点一下 = 选 / 取消选择，只有拖才挤出 / 插入（user 10-27）
-  active(): boolean { return this.t !== null; }
+  /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
+  private box = new BoxDrag();
+  tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（同选择工具），只有拖才挤出（user 10-27）
+  active(): boolean { return this.t !== null || this.box.active(); }
   startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
     const sel = ctx.selection();
     if (!(sel.faces.size || sel.edges.size || sel.verts.size)) return false;
@@ -42,24 +44,21 @@ export class MeshPullTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.t = null; this.pivotW = this.nW = this.grabW = null; this.start = this.cur = null; }
+  cancel(): void { this.box.cancel(); this.t = null; this.pivotW = this.nW = this.grabW = null; this.start = this.cur = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshPull: { t: this.t, start: this.start, cur: this.cur } }; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
+    if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
-    const m = ctx.mesh(), sel = ctx.selection();
-    let t: Target | null = null;
-    this.hadSel = sel.kind === "mesh" && (sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0);
-    if (sel.kind === "mesh" && sel.faces.size) t = { faces: [...sel.faces].filter((f) => m.hasF(f)), edges: [], verts: [] };
-    else if (sel.kind === "mesh" && sel.edges.size) t = { faces: [], edges: [...sel.edges].filter((e) => m.hasE(e)), verts: [] };
-    else if (sel.kind === "mesh" && sel.verts.size) t = { faces: [], edges: [], verts: [...sel.verts].filter((v) => m.hasV(v)) };
-    else {   // 没选区：按下只认面（点和边不挡路，小面也按得到；挤边 / 点 = 先选中它们。纪元账本 FM165 user「边基础点挤出非常少……或者只有在选择模式才这么做」）
-      const gf = ctx.pickFace(ev.x, ev.y), c = gf !== undefined ? ctx.classify(ctx.live(), { face: gf }) : null;
-      if (c && c.kind === "entity" && c.local.face !== undefined && m.hasF(c.local.face)) t = { faces: [c.local.face], edges: [], verts: [] };
-    }
-    if (!t || !(t.faces.length || t.edges.length || t.verts.length)) { ctx.hint("挤出：直接在面上按下；要挤边 / 点，先用选择工具选中它们"); return; }
+    const m = ctx.mesh();
+    // 按下作用在什么上 = selecting.ts（没选区只认面：点和边不挡路，小面也按得到；挤边 / 点 = 先选中它们。纪元账本 FM165）；挤什么 = 这里：面 > 边 > 点
+    const p = pressTarget(ctx, ev, "face");
+    if (p === "box") { this.hadSel = false; this.box.begin(ev); ctx.hint("框选（挤出工具里：没选东西时在空处拖 = 框；挤边 / 点 = 框住它们再拖）"); return; }   // user 10-28「其他的同理」
+    this.hadSel = p.fromSelection;
+    const t: Target = p.faces.length ? { faces: p.faces, edges: [], verts: [] } : p.edges.length ? { faces: [], edges: p.edges, verts: [] } : { faces: [], edges: [], verts: p.verts };
+    if (!(t.faces.length || t.edges.length || t.verts.length)) { ctx.hint("挤出：直接在面上按下；要挤边 / 点，先选中它们"); return; }
     const X = ctx.ctxXform(), vs = new Set<number>();
     for (const f of t.faces) for (const v of m.faceVerts(f)) vs.add(v);
     for (const e of t.edges) { vs.add(m.edgeA[e]); vs.add(m.edgeB[e]); }
@@ -81,7 +80,7 @@ export class MeshPullTool implements ToolHandler {
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
-    if (!this.active()) return;
+    if (this.box.track(ctx, s) || !this.active()) return;
     this.cur = { x: s.x, y: s.y };
     const p = this.onPlane(ctx, s.x, s.y);
     if (p) ctx.setCursor(p);

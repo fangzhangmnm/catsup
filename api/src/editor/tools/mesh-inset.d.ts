@@ -13,10 +13,9 @@ export declare class MeshInsetTool implements ToolHandler {
     private localScale;
     /** 倒角的段数（这个会话里记着上一次用的；马后炮里改）。 */
     private segments;
-    tap(ctx: ToolCtx, s: {
-        x: number;
-        y: number;
-    }): void;
+    /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
+    private box;
+    tap(ctx: ToolCtx, ev: ToolPointer): void;
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;

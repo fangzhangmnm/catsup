@@ -3,11 +3,6 @@ import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal";
-/** 点一下（没拖）：点到点 / 边 / 面 = 选它（替换）；点空处 = 取消选择（user 10-27「当你单击空白的时候取消选择，只有在空白拖动的时候才是操作」）。挤出 / 插入 / 移动 / 旋转 / 缩放共用。 */
-export declare function meshTap(ctx: ToolCtx, s: {
-    x: number;
-    y: number;
-}): void;
 export declare class MeshTransformTool implements ToolHandler {
     readonly grammar: "steps";
     readonly lock: "axis";
@@ -25,10 +20,9 @@ export declare class MeshTransformTool implements ToolHandler {
     private handleW;
     private snapT;
     constructor(kind: MeshXformKind);
-    tap(ctx: ToolCtx, s: {
-        x: number;
-        y: number;
-    }): void;
+    /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
+    private box;
+    tap(ctx: ToolCtx, ev: ToolPointer): void;
     active(): boolean;
     startModal(ctx: ToolCtx, s: {
         x: number;

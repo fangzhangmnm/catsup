@@ -224,14 +224,15 @@ const hud: HudModel = {
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
     { id: "repairPanel", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
     // 各个修复模块自己的入口（src/editor/repairs/ 清单；user 10-26「做成可以扔的模块化的」）：拉正 / 吸到格点 / 焊断口 / 拍平 / 软边变硬 / 恢复层级…
-    // 镜像（自由建模；纪元账本 FM134：编辑方式那一层，按网格体记、不进撤销）：关 / 镜像编辑 / 强行对称 + 镜像面；「对称对齐…」是注册表指令，并进同一个子菜单
+    // 镜像（自由建模；纪元账本 FM134：编辑方式那一层，按网格体记、不进撤销）：关 / 强行对称 / 镜像编辑 + 镜像面；「对称对齐…」是注册表指令，并进同一个子菜单
     ...((): HudItem[] => {
       if (editor.modeId !== "freeform") return [];
       const ms = editor.mirrorOf(), sub = (item: string) => ({ label: "镜像", item });
       return [
         { id: "mirror:off", label: "镜像：关", icon: "axes", active: !ms, submenu: sub("关") },
-        { id: "mirror:edit", label: "镜像编辑", icon: "axes", active: ms?.mode === "edit", submenu: sub("镜像编辑（对面的点一起改）") },
-        { id: "mirror:force", label: "强行对称", icon: "axes", active: ms?.mode === "force", submenu: sub("强行对称（每一步都镜回来）") },
+        // 强行对称排第一 = 主入口（user 10-28「但是我要的是强制切割然后镜像啊」「就是水杉和blender那种啊，强行对称」）；镜像编辑 = 只挪点的那种（Blender 编辑模式的 X 镜像）
+        { id: "mirror:force", label: "强行对称", icon: "axes", active: ms?.mode === "force", submenu: sub("强行对称（沿镜像面切开、另一半镜过来，每一步都镜）") },
+        { id: "mirror:edit", label: "镜像编辑", icon: "axes", active: ms?.mode === "edit", submenu: sub("镜像编辑（只挪点：对面的点一起改）") },
         ...([0, 1, 2] as const).map((a): HudItem => ({ id: `mirror:axis:${a}`, label: `镜像面 ${"XYZ"[a]}`, icon: "axes", active: (ms?.axis ?? 0) === a, submenu: sub(`镜像面：${"XYZ"[a]}`) })),
       ];
     })(),
@@ -240,6 +241,7 @@ const hud: HudModel = {
     { id: "soften", label: "软化选区", icon: "blur", hidden: brepOnly || !editor.hasGeometrySelection() },
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: brepOnly || !editor.hasGeometrySelection() },
     { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
+    { id: "loop", label: "选成环 / 洞", icon: "select", hidden: !editor.hasMeshEdgeSelection() },   // 触屏没有 Alt：选中的边扩成环 / 洞（桌面 = Alt 点边；user 10-28「alt 点边可以选择洞还是环」）
     { id: "invert", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
     { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },
     // 右键新建（FM120）：刚右键过就露（落点 = 右键那一点，吸点 / 面 / 原点 / 地面）；网格体里 = 长进这个网格体，别处 = 新的网格体组件。图标暂用 object（图标库没有基本体的图标）
@@ -286,6 +288,7 @@ const hud: HudModel = {
       case "soften": { const n = editor.softenSelection(true); notify({ text: n ? `软化了 ${n} 条边（soft + smooth）` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "harden": { const n = editor.softenSelection(false); notify({ text: n ? `硬化了 ${n} 条边` : "选区里没有两膜之间的边", level: "info" }); break; }
       case "connected": editor.selectConnected(); break;
+      case "loop": editor.selectLoopsOfSelection(); break;
       case "invert": editor.invertSelection(); break;
       case "noclip": locomotion.setNoclip(!locomotion.noclip); vr.invalidatePanel(); break;
       case "respawn": { const sp = locomotion.defaultSpawn(); locomotion.sim.reset(sp.pos, sp.heading, { x: 0, y: 0, z: 1.6 }); break; }
@@ -1068,6 +1071,8 @@ window.addEventListener("keydown", (ev) => {
   if (editor.modeId === "freeform" && !ev.ctrlKey && !ev.metaKey && !ev.altKey && !locomotion.isWalking()) {
     const k = ev.key.toLowerCase();
     if (editor.isGestureActive() && (k === "x" || k === "y" || k === "z")) { ev.preventDefault(); editor.lockKey(k, ev.shiftKey); syncUi(); return; }
+    // 手势之外先按 X / Y / Z = 锁好、下一下生效（user 10-28「就是先按y的话可以对下一个操作生效」）；X 有选区时照旧是删除（Blender X），没选区才是锁 X（有选区要先锁 X：按 → 或者起手以后再按 X）
+    if (!editor.isGestureActive() && (k === "y" || k === "z" || (k === "x" && !editor.hasSelection()))) { ev.preventDefault(); editor.armLock(k, ev.shiftKey); syncUi(); return; }
     const modal: Record<string, Tool> = { g: "move", r: "rotate", s: "scale", e: "pp", i: "offset" };   // I = 插入（Blender I）
     if (modal[k] && !ev.shiftKey) { ev.preventDefault(); if (!editor.startModal(modal[k])) editor.setTool(modal[k]); syncUi(); return; }
     if (k === "a" && !ev.shiftKey) { ev.preventDefault(); editor.selectAll(); syncUi(); return; }
@@ -1120,7 +1125,9 @@ window.addEventListener("keydown", (ev) => {
     // A9（SU 同款）：→ X 红、← Y 绿、↑ Z 蓝、↓ 解锁；同一个键再按 = 解锁。Shift+方向键 = 面锁（Blender Shift+X 语义：Shift+→ YZ / Shift+← XZ / Shift+↑ XY / Shift+↓ 光标下的面）。
     // 先定平面的工具（矩形 / 圆 / 弧 / 旋转 / 量角器）不分 Shift：方向键就是锁平面。分派在 editor.lockKey。
     ev.preventDefault();
-    editor.lockKey(ev.key === "ArrowDown" ? null : ev.key === "ArrowRight" ? "x" : ev.key === "ArrowLeft" ? "y" : "z", ev.shiftKey);
+    const ax = ev.key === "ArrowDown" ? null : ev.key === "ArrowRight" ? "x" : ev.key === "ArrowLeft" ? "y" : "z";
+    if (editor.modeId === "freeform" && !editor.isGestureActive() && ax && !editor.lockStyle()) editor.armLock(ax, ev.shiftKey);   // 自由建模拿着不吃锁的工具（选择）：先锁好、下一下生效（同 X / Y / Z）
+    else editor.lockKey(ax, ev.shiftKey);
     syncUi(); return;
   }
   if (ev.key === "Delete" || ev.key === "Backspace") { if (editor.hasSelection()) { ev.preventDefault(); editor.deleteSelection(); } return; }

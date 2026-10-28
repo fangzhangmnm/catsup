@@ -12,6 +12,7 @@ import { type GridSettings } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
 import { type ParamPanelState, type ParamSession, type ParamValue } from "./param-panel.ts";
+import { type GizmoHandle } from "./plane-gizmo.ts";
 import type { FaceKey } from "./ops.ts";
 import { type LockAxis, type PlaneLock } from "./locks.ts";
 import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
@@ -53,6 +54,8 @@ export interface ToolPointer {
     shiftKey: boolean;
     /** 复制修饰（Ctrl / Alt / ⌘）：移动 = 留一份原件再放（SU Move+Ctrl）。 */
     copy?: boolean;
+    /** 单独的 Alt（点边 = 选环 / 洞；2026-10-28）。copy 里照旧含 Alt（移动复制），选区的减选只认 Ctrl / ⌘。 */
+    altKey?: boolean;
     /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
     travel?: number;
 }
@@ -387,6 +390,11 @@ export declare class Editor {
     /** 面锁："x" / "y" / "z" = 法向是那根上下文轴的面；"face" = 光标下那张膜的面（光标下没膜 → 不锁，给提示）。 */
     setPlaneLock(p: PlaneLock | null): void;
     togglePlaneLock(p: PlaneLock): void;
+    /**
+     * 先按好锁、对下一下生效（自由建模的 X / Y / Z 在手势之外；user 10-28「然后移动的时候能不能x y z 这种设置锁轴？就是先按y的话可以对下一个操作生效」）：
+     * 不看当前工具（拿着选择工具先按 Y、再按 S 也算）；Shift = 锁面；再按同一个 = 解；下一下落定 / Esc / 取消 = 解（同手势里的锁）。
+     */
+    armLock(axis: LockAxis, plane: boolean): void;
     /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
     lockKey(axis: LockAxis | null, plane: boolean): void;
     /** 面锁下过 through 的平面（先定平面的工具在首点之后用；没锁 = null）。轴面的基 = 另外两根上下文轴。 */
@@ -711,6 +719,15 @@ export declare class Editor {
      * mode = 怎么合进已有选区（替换 / 加选 / 减选 / 切换，对齐 Blender）；空命中 + 替换 = 清选区。hit 是 WorldView 的全局 id。
      */
     selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode?: SelMode): boolean;
+    /**
+     * Alt 点边 = 环 / 洞（网格体；mesh/select-loop.ts）。镜像开着 = 把这个网格体的镜像面交给走法（中缝的开口不算洞）。不是网格体的边 = false（照常点）。
+     * user 10-28「对了，alt 点边可以选择洞还是环，然后有镜像的时候环的算法要小心一点」。
+     */
+    selectLoop(hit: HitResult3, mode?: SelMode): boolean;
+    /** 右键「选成环 / 洞」（触屏没有 Alt）：选中的每条边都扩成它的环 / 洞（网格体）。 */
+    selectLoopsOfSelection(): boolean;
+    /** 选区里有网格体的边吗（右键「选成环 / 洞」露不露）。 */
+    hasMeshEdgeSelection(): boolean;
     private selectExpandIn;
     /**
      * 非 brep 的池（网格体……）的点击族，只认显示契约 KernelView：一下 = 点 / 边 / 面本身；两下 = 面连同它的环、边连同两侧的面、点连同它的边；三下 = 沿边连通的面。
@@ -933,6 +950,11 @@ export declare class Editor {
     private cmdPreview;
     private cmdGhosts;
     mirrorActive(): boolean;
+    /** 镜像面把手这一帧在屏上的位置（探针用：别在外面另抄一份把手大小的算法；不在镜像会话 = null）。 */
+    gizmoHandlesPx(): Partial<Record<GizmoHandle, {
+        x: number;
+        y: number;
+    }>> | null;
     /** 镜像…：作用在选区（散几何 + 选中的组件实例）上；没有可镜的 → false。 */
     beginMirror(): boolean;
     private endMirror;

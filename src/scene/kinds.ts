@@ -7,6 +7,7 @@ import type { BodyKind } from "./body-kind.ts";
 import type { Body, BrepBody, MeshBody } from "./scene.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
+import type { Kernel } from "../kernel/kernel.ts";
 import { recalcNormals } from "../mesh/ops/orient.ts";
 import { edgeSoft, keepLookUnderAngle } from "../mesh/edge-smooth.ts";
 import { kernelFromTriangles } from "../kernel/from-triangles.ts";
@@ -65,12 +66,8 @@ export function canCast(from: BodyKind, to: BodyKind): { ok: true; loses: readon
 const dot = (a: Pt3, b: Pt3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const newell = (pts: readonly Pt3[]): Pt3 => { let x = 0, y = 0, z = 0; for (let i = 0; i < pts.length; i++) { const a = pts[i], b = pts[(i + 1) % pts.length]; x += (a.y - b.y) * (a.z + b.z); y += (a.z - b.z) * (a.x + b.x); z += (a.x - b.x) * (a.y + b.y); } return { x, y, z }; };
 
-/**
- * brep → mesh：一张膜 = 一张多边形面（环绕膜的法向 +n 逆时针 = 正面朝 +n，和 brep 渲染的正面一致）；带洞的膜三角化（mesh 的面不带洞），三角形之间的内部边软 + 平滑（看起来还是一张面）；
- * 边标记照搬（软 / 平滑 / 隐藏；折线 = 软 + 平滑）；悬空的边 = 裸线；隐藏的面照旧隐藏；材质槽照抄（正面那槽）。失败（某膜三角化不了）= 整个 cast 拒。
- */
-export function brepToMesh(b: BrepBody): MeshBody {
-  const k = b.kernel, m = new MeshKernel();
+/** 一个 brep 池 → 往网格里加（自己的点表；面 / 裸线 / 边标记照搬）。 */
+function addBrepPool(m: MeshKernel, k: Kernel): void {
   const vid = new Map<number, number>();
   const vi = (id: number): number => { let i = vid.get(id); if (i === undefined) { i = m.addVertex(k.graph.pt(id)); vid.set(id, i); } return i; };
   const brepEdge = new Set<string>();
@@ -90,6 +87,7 @@ export function brepToMesh(b: BrepBody): MeshBody {
   }
   const brepIdOf = new Map<number, number>([...vid].map(([b2, mm]) => [mm, b2]));
   for (const me of m.edges()) {
+    if (!brepIdOf.has(m.edgeA[me]) || !brepIdOf.has(m.edgeB[me])) continue;   // 别的池的边
     const a = brepIdOf.get(m.edgeA[me])!, bb = brepIdOf.get(m.edgeB[me])!, key = a < bb ? `${a}-${bb}` : `${bb}-${a}`;
     if (!brepEdge.has(key)) { m.setEdgeFlags(me, m.edgeFlags[me] | F_SOFT | F_SMOOTH); continue; }   // 三角化出来的内部边：看不见、明暗连续
     const eid = k.graph.vertex(a).edges;
@@ -97,6 +95,16 @@ export function brepToMesh(b: BrepBody): MeshBody {
     for (const x of eid) { const E = k.graph.edge(x); if ((E.a === a && E.b === bb) || (E.a === bb && E.b === a)) { if (k.isSoft(x)) fl |= F_SOFT; if (k.isSmooth(x)) fl |= F_SMOOTH; if (k.isFold(x)) fl |= F_SOFT | F_SMOOTH; if (k.isEdgeHidden(x)) fl |= F_HIDDEN; } }
     if (fl !== m.edgeFlags[me]) m.setEdgeFlags(me, fl);
   }
+}
+/**
+ * brep → mesh：一张膜 = 一张多边形面（环绕膜的法向 +n 逆时针 = 正面朝 +n，和 brep 渲染的正面一致）；带洞的膜三角化（mesh 的面不带洞），三角形之间的内部边软 + 平滑（看起来还是一张面）；
+ * 边标记照搬（软 / 平滑 / 隐藏；折线 = 软 + 平滑）；悬空的边 = 裸线；隐藏的面照旧隐藏；材质槽照抄（正面那槽）；组里的几何一起并进来（组分区丢掉）。失败（某膜三角化不了）= 整个 cast 拒。
+ */
+export function brepToMesh(b: BrepBody): MeshBody {
+  const m = new MeshKernel();
+  // 根池 + 每个组的池（组 = 分区、不是物体：几何本来就在定义坐标里，并进来就行；2026-10-28 以前只转根池 = 组里的几何静默丢了。各池各自的点，不焊）
+  addBrepPool(m, b.kernel);
+  for (const g of [...b.groups.values()].sort((x, y) => x.id - y.id)) addBrepPool(m, g.kernel);
   recalcNormals(m);   // brep 的平面法向是规范化符号的，不是朝外：封闭壳朝外、开口片按种子面一致化
   keepLookUnderAngle(m, 30);   // 默认平滑 = 按角度 30°（FM129）；SU 里本来硬、夹角又小于 30° 的边手标成棱 = 转过来样子不变，之后新长的几何跟着默认平滑走
   return { kind: "mesh", kernel: m, materialSlots: [...b.materialSlots] };

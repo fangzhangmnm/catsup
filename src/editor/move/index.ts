@@ -65,6 +65,7 @@ export const objectMove: Command<ObjectUnit> = {
   plan(_env, u, v) {
     const d = deltaOf(v);
     if (isZero(d)) return { ops: [], count: 0 };
+    if (u.instance === null) return { ops: [], count: 0 };   // 「你所在的这一层」不是摆着的一份（不声明 takesContext，到不了这里；类型上守一下）
     return { ops: [{ op: "transformInstance", def: u.at.def, instance: u.instance, xform: translation(d) }], count: 1 };
   },
   done: (n) => `移动了 ${n} 个物体`,

@@ -7,10 +7,10 @@ import { canCast } from "../../scene/kinds.ts";
 /** 三角形 → 膜那条管线的速度（三角 / 秒；2026-10-27 node 实测：1 万个不平四边形 = 2 万三角 → 2 万张膜 2.2 s ≈ 9000 三角 / 秒，含共面合并；只是量级，浏览器同量级）。量纲：个 / 秒。 */
 const TRIS_PER_SECOND = 9000;
 
-const disclose = (u: ObjectUnit, loses: readonly string[]): string[] => [u.copies > 1 ? `「${u.name}」的 ${u.copies} 份实例一起变` : "", `丢掉：${loses.join("、")}`].filter(Boolean);
+const disclose = (u: ObjectUnit, loses: readonly string[]): string[] => [u.instance === null ? `转的是你所在的这一层「${u.name}」` : "", u.copies > 1 ? `「${u.name}」的 ${u.copies} 份实例一起变` : "", `丢掉：${loses.join("、")}`].filter(Boolean);
 
 export const toMesh: Command<ObjectUnit> = {
-  id: "object.toMesh", unit: "object", perDefinition: true, title: "转成网格体",
+  id: "object.toMesh", unit: "object", perDefinition: true, takesContext: true, title: "转成网格体",
   defaults: () => ({}),
   params: () => [],
   plan(_env, u) {
@@ -18,12 +18,12 @@ export const toMesh: Command<ObjectUnit> = {
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
     return { ops: [{ op: "castDefinition", def: u.def, to: "mesh" }], count: 1, notes: disclose(u, c.loses) };
   },
-  done: (n) => `转成网格体：${n} 个组件（双击进去就是自由建模工作台）`,
-  none: "没有能转的：先选中一个硬表面体组件",
+  done: (n) => `转成网格体：${n} 个（组件双击进去就是自由建模工作台）`,
+  none: "没有能转的：选中一个硬表面体组件；什么都不选 = 转你所在的这一层",
 };
 
 export const toBrep: Command<ObjectUnit> = {
-  id: "object.toBrep", unit: "object", perDefinition: true, title: "转回硬表面体",
+  id: "object.toBrep", unit: "object", perDefinition: true, takesContext: true, title: "转回硬表面体",
   defaults: (env) => ({ softDeg: env.sharpDeg() }),
   params: () => [{ key: "softDeg", def: { kind: "number", label: "弯折不到这个角度的边算软边", min: 0, max: 90, step: 1, unit: "°" } }],
   plan(_env, u, v) {
@@ -31,8 +31,8 @@ export const toBrep: Command<ObjectUnit> = {
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
     return { ops: [{ op: "castDefinition", def: u.def, to: "brep", softDeg: Number(v.softDeg) }], count: 1, notes: disclose(u, c.loses) };
   },
-  done: (n) => `转回硬表面体：${n} 个组件`,
-  none: "没有能转的：先选中一个网格体组件",
+  done: (n) => `转回硬表面体：${n} 个`,
+  none: "没有能转的：选中一个网格体组件；什么都不选 = 转你所在的这一层",
   estimate(env: CommandEnv, units: readonly ObjectUnit[], _v: Params) {
     let tris = 0;
     for (const u of units) if (u.body === "mesh") tris += env.scene.mesh(u.def).kernel.triangles().faceOfTri.length;

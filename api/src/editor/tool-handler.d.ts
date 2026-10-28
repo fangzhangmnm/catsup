@@ -221,6 +221,8 @@ export interface ToolCtx {
     }): void;
     /** 点击族：0 = 命中实体 / 1 = 膜 + 环边 / 2 = 连通体；按 mode 合进选区。 */
     selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean;
+    /** Alt 点边 = 环 / 洞（网格体）；不是网格体的边 = false。 */
+    selectLoop(hit: HitResult3, mode: SelMode): boolean;
     enterPool(p: PoolPick): void;
     exitContext(): boolean;
     contextDepth(): number;
@@ -281,10 +283,7 @@ export interface ToolHandler {
     /** steps 工具：等下一点时在锚点附近又按一下，也递给工具（底座默认当「同一处又点了一下」吞掉）。刀要它：同一条边点两下 = 环切。 */
     readonly repeatTap?: boolean;
     /** steps 工具的「点一下（没拖）」：有它 = 不进「再点一下落定」，交给工具（自由建模：点空处 = 取消选择、点东西 = 选它；只有拖才是操作——user 10-27）。 */
-    tap?(ctx: ToolCtx, s: {
-        x: number;
-        y: number;
-    }): void;
+    tap?(ctx: ToolCtx, ev: ToolPointer): void;
     /** 键盘起手（Blender G / R / S / E；自由建模）：用选区当目标、以光标处为起点开始一次手势（不用按下）；之后跟着鼠标走、点一下落定、Esc / 右键取消。没选区 = false。 */
     startModal?(ctx: ToolCtx, s: {
         x: number;

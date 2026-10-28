@@ -78,7 +78,8 @@ import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { addPrimitive, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
-import { MeshKernel } from "../mesh/mesh-kernel.ts";
+import { MeshKernel, F_HIDDEN } from "../mesh/mesh-kernel.ts";
+import { edgeLoop } from "../mesh/select-loop.ts";
 import type { OptionKv } from "./tool-config.ts";
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
@@ -94,6 +95,8 @@ export interface ToolPointer {
   shiftKey: boolean;
   /** 复制修饰（Ctrl / Alt / ⌘）：移动 = 留一份原件再放（SU Move+Ctrl）。 */
   copy?: boolean;
+  /** 单独的 Alt（点边 = 选环 / 洞；2026-10-28）。copy 里照旧含 Alt（移动复制），选区的减选只认 Ctrl / ⌘。 */
+  altKey?: boolean;
   /** 自落笔以来指针「走了多远」（本帧量纲：桌面 px / VR 度）。缺省 = 本帧 distTo（editor.movedSinceDown）。 */
   travel?: number;
 }
@@ -231,7 +234,7 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   eraseInstance: "删除物体", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
-  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
+  meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
 const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
@@ -385,6 +388,15 @@ export class Editor {
     this.host.changed(); this.draw();
   }
   togglePlaneLock(p: PlaneLock): void { this.setPlaneLock(this._planeLock === p ? null : p); }
+  /**
+   * 先按好锁、对下一下生效（自由建模的 X / Y / Z 在手势之外；user 10-28「然后移动的时候能不能x y z 这种设置锁轴？就是先按y的话可以对下一个操作生效」）：
+   * 不看当前工具（拿着选择工具先按 Y、再按 S 也算）；Shift = 锁面；再按同一个 = 解；下一下落定 / Esc / 取消 = 解（同手势里的锁）。
+   */
+  armLock(axis: LockAxis, plane: boolean): void {
+    if (plane) this.togglePlaneLock(axis); else this.toggleAxisLock(axis);
+    const on = plane ? this._planeLock === axis : this._axisLock === axis;
+    if (on) this.host.hint(`${plane ? `面锁 ${planeLockLabel(axis)}` : `方向锁 ${axis.toUpperCase()}`}：下一下移动 / 旋转 / 缩放 / 挤出生效（再按一次解锁，Esc 也解）`);
+  }
   /** 方向键 / 触屏虚拟轴键的唯一入口：axis = 键对应的轴（→ X / ← Y / ↑ Z），null = ↓；plane = Shift。按当前工具的锁种分派。 */
   lockKey(axis: LockAxis | null, plane: boolean): void {
     const style = this.lockStyle();
@@ -767,7 +779,10 @@ export class Editor {
     if (this.param?.phase === "after") { this.openParamSession(null); this.host.hint("刚才那一步的参数已收起（换了工具）"); }   // 马后炮寿命 = 栈顶没变 ∧ 工具没换 ∧ 没撤销过（设计稿 §7 第 4 条；user「切换工具…还是显示着“刚才”」）
     this._tool = t;
     this.originEdit = null;   // 改组件原点会话随换工具结束（beginComponentOrigin 在换完之后才开）
+    // 手势之外先按好的锁（armLock：「下一下」生效）跟着换工具留下来——先按 Y 再按 S / 换移动工具，锁照样作用在那一下（2026-10-28）
+    const armed = this.gestureActive() ? null : { a: this._axisLock, p: this._planeLock, n: this._planeLockN };
     this.cancelGesture();
+    if (armed) { this._axisLock = armed.a; this._planeLock = armed.p; this._planeLockN = armed.n; }
     this.clearCharged();   // 充能生命周期 = 工具子步（user 2026-10-24）：换工具就清
     this.host.changed();
     this.draw();
@@ -1043,8 +1058,8 @@ export class Editor {
   private mirrorNote = "";
   /** 护栏把这一下工具的提交挡下来在等确认：这一下工具自己的提示 / 选区不作数（不谎报「挤出了」）。 */
   private mirrorDeferred = false;
-  private static readonly MIRROR_TOPO = new Set<Op["op"]>(["meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshBevel", "meshBevelVerts"]);
-  private static readonly MIRROR_TOPO_ACTIONS = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts"]);
+  private static readonly MIRROR_TOPO = new Set<Op["op"]>(["meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshBevel", "meshBevelVerts", "meshMerge"]);
+  private static readonly MIRROR_TOPO_ACTIONS = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter"]);
   private static readonly NO_SYMMETRIZE = new Set<Op["op"]>(["meshSymmetrize", "meshSymmetrySnap", "meshSmoothDefault"]);
   /** 正在编辑的网格体的镜像设置（不在网格体里 = null）。 */
   mirrorOf(): MirrorSetting | null { return this.activeKind() === "mesh" ? this.mirrors.get(this.activePool().def) ?? null : null; }
@@ -1462,6 +1477,41 @@ export class Editor {
    * mode = 怎么合进已有选区（替换 / 加选 / 减选 / 切换，对齐 Blender）；空命中 + 替换 = 清选区。hit 是 WorldView 的全局 id。
    */
   selectExpand(hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode = "replace"): boolean { return this.step((pass) => this.selectExpandIn(pass, hit, stage, mode)); }
+  /**
+   * Alt 点边 = 环 / 洞（网格体；mesh/select-loop.ts）。镜像开着 = 把这个网格体的镜像面交给走法（中缝的开口不算洞）。不是网格体的边 = false（照常点）。
+   * user 10-28「对了，alt 点边可以选择洞还是环，然后有镜像的时候环的算法要小心一点」。
+   */
+  selectLoop(hit: HitResult3, mode: SelMode = "replace"): boolean {
+    if (this.activeKind() !== "mesh") return false;
+    const c = this.classify(this.liveWorld(), hit);
+    if (c.kind !== "entity" || c.local.edge === undefined) return false;
+    const e = c.local.edge;
+    return this.step((pass) => {
+      const m = this.scene.mesh(this.activePool().def).kernel, ms = this.mirrorOf(), r = edgeLoop(m, e, ms ? { mirror: { axis: ms.axis, tol: MIRROR_TOL } } : {});
+      const edges = r.edges.filter((x) => !(m.edgeFlags[x] & F_HIDDEN));
+      if (mode === "replace") this.clearSel(pass);
+      const all = mode === "toggle" && edges.every((x) => this.selection.edges.has(x));
+      mergeSel(this.selection.edges, edges, mode === "toggle" ? (all ? "remove" : "add") : mode);
+      this.afterSelect(pass);
+      this.host.hint(`${r.kind === "hole" ? "洞" : r.kind === "wire" ? "线" : "环"}：${edges.length} 条边${r.closed ? "（闭合）" : ""}`);
+      return true;
+    }, { title: "选环" });
+  }
+  /** 右键「选成环 / 洞」（触屏没有 Alt）：选中的每条边都扩成它的环 / 洞（网格体）。 */
+  selectLoopsOfSelection(): boolean {
+    if (this.activeKind() !== "mesh" || this.selection.kind !== "mesh" || !this.selection.edges.size) return false;
+    return this.step((pass) => {
+      const m = this.scene.mesh(this.activePool().def).kernel, ms = this.mirrorOf(), opts = ms ? { mirror: { axis: ms.axis, tol: MIRROR_TOL } } : {};
+      const add: number[] = [];
+      for (const e of [...this.selection.edges]) for (const x of edgeLoop(m, e, opts).edges) if (!(m.edgeFlags[x] & F_HIDDEN)) add.push(x);
+      mergeSel(this.selection.edges, add, "add");
+      this.afterSelect(pass);
+      this.host.hint(`选成环 / 洞：一共 ${this.selection.edges.size} 条边`);
+      return true;
+    }, { title: "选成环" });
+  }
+  /** 选区里有网格体的边吗（右键「选成环 / 洞」露不露）。 */
+  hasMeshEdgeSelection(): boolean { return this.activeKind() === "mesh" && this.selection.kind === "mesh" && this.selection.edges.size > 0; }
   private selectExpandIn(pass: StepPass, hit: HitResult3, stage: 0 | 1 | 2, mode: SelMode): boolean {
     const view = this.liveWorld();
     const c = this.classify(view, hit);
@@ -1894,6 +1944,11 @@ export class Editor {
         const d = s.def(inst.def);
         out.push({ kind: "object", at, instance: inst.id, def: d.id, name: d.name, body: d.body.kind, copies: s.instanceCount(d.id), xf: inst.xform });
       }
+      // 什么都没选 = 你所在的这一层（最外层 / 进着的组件；组不是物体、不算）：只给声明了 takesContext 的指令（unitsFor 筛）
+      if (!out.length && this.ctx.group === null && !this.hasGeometrySelection() && !this.hasPointSelection()) {
+        const d = s.def(ctxDef);
+        out.push({ kind: "object", at, instance: null, def: d.id, name: ctxDef === s.root ? "最外层" : d.name, body: d.body.kind, copies: Math.max(1, s.instanceCount(d.id)), xf: IDENTITY });
+      }
       return out;
     }
     if (this.activeKind() !== kind) return [];
@@ -1905,7 +1960,7 @@ export class Editor {
   }
   /** 指令声明 perDefinition（改定义不改这一份）时按定义去重：同一定义几份实例只喂一次（copies 披露「N 份一起变」）。 */
   private unitsFor(c: Command, kind: UnitKind): Unit[] {
-    const all = this.unitsOf(kind);
+    const all = this.unitsOf(kind).filter((u) => u.kind !== "object" || u.instance !== null || !!c.takesContext);
     if (!c.perDefinition || kind !== "object") return all;
     const seen = new Set<DefId>();
     return all.filter((u) => u.kind === "object" && !seen.has(u.def) && !!seen.add(u.def));
@@ -1925,7 +1980,7 @@ export class Editor {
       // 单位只取一次：马后炮按新参数重做时用同一批（上一次做完的选区已经换成结果了）
       const plans = routes.map(({ kind, command: c }) => ({ c, units: this.unitsFor(c, kind) }));
       const skips: string[] = [];
-      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).length) skips.push(`跳过了${kind === "brep" ? "硬表面体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
+      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).some((u) => u.kind !== "object" || u.instance !== null)) skips.push(`跳过了${kind === "brep" ? "硬表面体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
       const valuesOf = (c: Command, units: readonly Unit[], p?: CmdParams): CmdParams => ({ ...c.defaults(this.repairCtx, units), ...(p ?? {}) });
       const go = (p?: CmdParams): number => {
         const ops: Op[] = [], notes = new Set<string>(skips), dones: { c: Command; n: number; v: CmdParams }[] = [];
@@ -3603,6 +3658,7 @@ export class Editor {
         this.pruneSelection(); this.afterSelect(pass);
       },
       selectExpand: (hit, stage, mode) => this.selectExpand(hit, stage, mode),
+      selectLoop: (hit, mode) => this.selectLoop(hit, mode),
       enterPool: (p) => this.enterPool(p),
       exitContext: () => this.exitContext(),
       contextDepth: () => this.contextDepth(),

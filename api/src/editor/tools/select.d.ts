@@ -6,11 +6,9 @@ import type { SelMode } from "../tools.ts";
 export declare class SelectTool implements ToolHandler {
     readonly tool: "select";
     readonly grammar: "direct";
-    private start;
-    private cur;
+    private box;
     active(): boolean;
-    /** 这一下怎么合进选区：修饰键 > 右下角选项。 */
-    /** 两档（2026-10-28 FM158）：替换 / 多选（= 按住 Shift）：多选里拖 = 加选、点 = 切换；Ctrl 照旧减选。 */
+    /** 这一下怎么合进选区（两档 + 修饰键）：归 selecting.ts（「会选的工具」共用）。 */
     static modeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean): SelMode;
     static multi(ctx: ToolCtx): boolean;
     cancel(): void;

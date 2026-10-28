@@ -5,7 +5,7 @@
 //     锁轴 / 锁面复用方向键（A9）：锁轴 = 投到轴上（轴贴近视线时挪得变慢、不暴涨，FM18）；
 //     **挪按住 Shift = 开吸附**（user 10-27「shift挪就是开吸附啊，也不一定是点。点>线>面，就是控制吸附开关」）：抓住的那个点落到光标下的点 > 边 > 面上（被挪的不算）；
 //     转 / 缩按住 Shift = 15° / 0.1 一档；
-//   · 目标 = 选区（点 / 边 / 面的全部点）；没选 = 按下处的点 / 边 / 面；轴心 = 目标点的平均（FM7「各工具自己管轴心」）；做完选区不变（FM14：接着挪）。
+//   · 目标 = 选区（点 / 边 / 面的全部点）；没选 = 按下处的点 / 边 / 面，按在空处 = 拖框（2026-10-28，selecting.ts）；点一下 = 选（同选择工具）；轴心 = 目标点的平均（FM7「各工具自己管轴心」）；做完选区不变（FM14：接着挪）。
 //   · 提交 = 一条 meshMove（每个点写绝对坐标）：挪 / 转 / 缩都是「改位置数组」，一条 op 一步撤销。
 import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
 import type { SnapKind } from "../solver.ts";
@@ -17,6 +17,7 @@ import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
 import { fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";
 
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal";   // normal = 沿法线移动（Blender Shrink / Fatten；工具 id shrink）
 /** 起点离轴心太近时缩放的参考半径（CSS px；Blender 要人先把鼠标挪开，触屏上点中的常常就是轴心）。 */
@@ -25,15 +26,6 @@ const SCALE_REF_PX = 40;
 const ROT_STEP = Math.PI / 12, SCALE_STEP = 0.1;
 
 // 悬停不高亮（user 10-27「自由建模模式不要悬浮高亮」）：自由建模的工具都不写 hover。
-/** 点一下（没拖）：点到点 / 边 / 面 = 选它（替换）；点空处 = 取消选择（user 10-27「当你单击空白的时候取消选择，只有在空白拖动的时候才是操作」）。挤出 / 插入 / 移动 / 旋转 / 缩放共用。 */
-export function meshTap(ctx: ToolCtx, s: { x: number; y: number }): void {
-  const c = ctx.classify(ctx.world(), ctx.pickStatic(s.x, s.y));
-  if (c.kind === "entity") { const h = c.local; ctx.setSelection(h.vertex !== undefined ? { verts: [h.vertex] } : h.edge !== undefined ? { edges: [h.edge] } : h.face !== undefined ? { faces: [h.face] } : {}); }
-  else if (ctx.clicks() >= 2 && ctx.contextDepth() > 0) ctx.exitContext();   // 双击空处 = 退出一层（同选择工具）
-  else ctx.setSelection({});
-  ctx.hint(null);
-}
-
 export class MeshTransformTool implements ToolHandler {
   readonly grammar = "steps" as const;
   readonly lock = "axis" as const;
@@ -51,9 +43,11 @@ export class MeshTransformTool implements ToolHandler {
   private handleW: Pt3 | null = null;        // 挪：抓住的那个点（目标里离按下处最近的点，世界）——吸附时是它落到目标上
   private snapT: { p: Pt3; kind: SnapKind } | null = null;
   constructor(kind: MeshXformKind) { this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; }
-  tap(ctx: ToolCtx, s: { x: number; y: number }): void { meshTap(ctx, s); }
+  /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
+  private box = new BoxDrag();
+  tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）
 
-  active(): boolean { return this.vids.length > 0; }
+  active(): boolean { return this.vids.length > 0 || this.box.active(); }
   startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
     const sel = ctx.selection();
     if (!(sel.faces.size || sel.edges.size || sel.verts.size)) return false;
@@ -61,22 +55,19 @@ export class MeshTransformTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.vids = []; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; }
+  cancel(): void { this.box.cancel(); this.vids = []; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
 
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
+    if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
-    const m = ctx.mesh(), sel = ctx.selection();
-    let vids: number[] = [];
-    if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) vids = selectionVerts(m, sel);
-    else {
-      const c = ctx.classify(ctx.live(), ctx.pick(ev.x, ev.y));
-      if (c.kind === "entity") vids = selectionVerts(m, { verts: c.local.vertex !== undefined ? [c.local.vertex] : [], edges: c.local.edge !== undefined ? [c.local.edge] : [], faces: c.local.face !== undefined ? [c.local.face] : [] });
-    }
-    if (!vids.length) { ctx.hint(`${this.verb()}：先选点 / 边 / 面，或者直接在要${this.verb()}的东西上按下`); return; }
+    const m = ctx.mesh(), sel = ctx.selection(), t = pressTarget(ctx, ev, "element");   // 选区 > 按下处的点 / 边 / 面 > 空处拖框（selecting.ts）
+    if (t === "box") { this.box.begin(ev); ctx.hint(`框选（${this.verb()}工具里：没选东西时在空处拖 = 框）`); return; }   // user 10-28「move的时候在没选择的时候能不能拖框」
+    const vids = selectionVerts(m, t);
+    if (!vids.length) { ctx.hint(`${this.verb()}：选区里没有能${this.verb()}的点`); return; }
     const X = ctx.ctxXform();
     this.vids = vids; this.base.clear(); this.dirs = new Map();
     if (this.kind === "normal") {   // 选了面 = 每个点只看选中的面（选一张顶面 = 直直往上，Blender Shrink / Fatten 同）；只选了边 / 点 = 看连着的全部面（一圈环 = 各自往外胖）
@@ -98,7 +89,7 @@ export class MeshTransformTool implements ToolHandler {
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
-    if (!this.active()) return;
+    if (this.box.track(ctx, s) || !this.active()) return;
     this.cur = { x: s.x, y: s.y };
     this.shift = ctx.mods().shift;
     const p = this.onPlane(ctx, s.x, s.y);
@@ -149,7 +140,7 @@ export class MeshTransformTool implements ToolHandler {
   }
 
   liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
-    if (!this.active()) return "";
+    if (!this.vids.length) return "";
     const r = this.solve(ctx);
     if (!r) return "";
     run((m) => { for (const [v, p] of r.moves) m.setPos(v, p); });

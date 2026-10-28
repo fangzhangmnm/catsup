@@ -326,6 +326,12 @@ export type Op =
     tol: number;
     mode: "auto" | "flip" | "average";
 }
+/** 合并到中心（Blender M → 到中心；2026-10-28 user「选择多个点的时候右键可以merge to center」）：这几个点并成一个、放在它们的平均位置；退化的面自动清掉（mesh/ops/merge.ts）。 */
+ | {
+    op: "meshMerge";
+    def: number;
+    verts: number[];
+}
 /** 倒点（Blender Ctrl+Shift+B）。 */
  | {
     op: "meshBevelVerts";

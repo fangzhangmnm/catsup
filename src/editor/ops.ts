@@ -14,7 +14,7 @@ import { snapToSymmetry, symmetrize } from "../mesh/mirror.ts";
 import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -123,6 +123,8 @@ export type Op =
   | { op: "meshSymmetrize"; def: number; axis: 0 | 1 | 2; side: -1 | 1 }
   /** 对称对齐（FM136；只动选中的点）：mode auto = 选区重心那边为准 / flip = 另一边 / average = 取平均。 */
   | { op: "meshSymmetrySnap"; def: number; verts: number[]; axis: 0 | 1 | 2; tol: number; mode: "auto" | "flip" | "average" }
+  /** 合并到中心（Blender M → 到中心；2026-10-28 user「选择多个点的时候右键可以merge to center」）：这几个点并成一个、放在它们的平均位置；退化的面自动清掉（mesh/ops/merge.ts）。 */
+  | { op: "meshMerge"; def: number; verts: number[] }
   /** 倒点（Blender Ctrl+Shift+B）。 */
   | { op: "meshBevelVerts"; def: number; verts: number[]; width: number }
   /** 网格体的默认平滑（2026-10-28 FM129；几何属性：没手标的边算棱还是光滑过渡）。 */
@@ -597,6 +599,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       catch (err) { throw new OpTargetError(err instanceof Error ? err.message : String(err)); }
       return { scene: s, events: [] };
     }
+    case "meshMerge": { if (op.verts.length < 2) throw new OpTargetError(`merge needs 2+ verts, got ${op.verts.length}`); const k = meshOf(s, op.def).kernel; for (const v of op.verts) if (!k.hasV(v)) throw new OpTargetError(`vertex ${v}`); mergeVerts(k, op.verts, "center"); return { scene: s, events: [] }; }
     case "meshSymmetrySnap": { if (!(op.tol > 0)) throw new OpTargetError(`symmetry snap tol ${op.tol}`); snapToSymmetry(meshOf(s, op.def).kernel, op.verts, op.axis, op.tol, op.mode); return { scene: s, events: [] }; }
     case "meshEdgeMarks": { const k = meshOf(s, op.def).kernel; for (const e of op.edges) if (!k.hasE(e)) throw new OpTargetError(`edge ${e}`); markEdges(k, op.edges, op.mark); return { scene: s, events: [] }; }
     case "meshSmoothDefault": { if (!(op.deg > 0 && op.deg < 180)) throw new OpTargetError(`smooth default angle ${op.deg}`); meshOf(s, op.def).kernel.setSmoothDefault({ mode: op.mode, deg: op.deg }); return { scene: s, events: [] }; }
@@ -607,6 +610,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "castDefinition": {
       const d = s.def(op.def);
       const body = castBody(d.body, op.to, op.softDeg !== undefined ? { softDeg: op.softDeg } : undefined);   // 不认的方向在这里抛，文档不动
+      // 组没了（网格体没有组分区）：住在组里的实例挂回定义的根上——组没有自己的变换，摆的位置不变（2026-10-28：以前留着指向不存在的组）
+      if (body.kind !== "brep") for (const inst of d.instances.values()) if (inst.parent !== null) inst.parent = null;
       d.body = body;
       return { scene: s, events: [] };
     }
@@ -665,6 +670,7 @@ export function describeOp(op0: Op): string {
     case "meshBevelVerts": return `meshBevelVerts def=${op.def} verts=${op.verts.length} w=${op.width.toFixed(4)}`;
     case "meshSubdivide": return `meshSubdivide def=${op.def} levels=${op.levels}`;
     case "meshSymmetrize": return `meshSymmetrize def=${op.def} axis=${"xyz"[op.axis]} side=${op.side}`;
+    case "meshMerge": return `meshMerge def=${op.def} verts=${op.verts.length}`;
     case "meshSymmetrySnap": return `meshSymmetrySnap def=${op.def} verts=${op.verts.length} axis=${"xyz"[op.axis]} tol=${op.tol} ${op.mode}`;
     case "meshEdgeMarks": return `meshEdgeMarks def=${op.def} edges=${op.edges.length} ${op.mark}`;
     case "meshSmoothDefault": return `meshSmoothDefault def=${op.def} ${op.mode} ${op.deg}`;

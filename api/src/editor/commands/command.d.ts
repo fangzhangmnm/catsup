@@ -27,10 +27,11 @@ export interface MeshUnit {
  * object 族的单位：场景里**摆着的一份**（实例：at 池里的 instance；它的定义 def、身体种类 body、这个定义在场景里有几份 copies、它在 at 里的变换 xf）。
  * 「凡是摆着的都是带变换矩阵的物体」（注册表提案 §7.2）：挪 / 转 / 缩 / 锁 / 藏改的是这一份；改定义的指令（转换身体种类）声明 perDefinition，框架按定义去重、披露「N 份一起变」。
  */
+/** instance = null：没选任何东西时「你现在所在的这一层」（最外层 / 进着的那个组件的定义本身；只喂给声明了 takesContext 的指令）。 */
 export interface ObjectUnit {
     readonly kind: "object";
     readonly at: PoolRef;
-    readonly instance: InstId;
+    readonly instance: InstId | null;
     readonly def: DefId;
     readonly name: string;
     readonly body: BodyKind;
@@ -111,6 +112,8 @@ export interface Command<U extends Unit = Unit> {
     readonly offerAlways?: boolean;
     /** object 族：改的是定义不是这一份（转换身体种类）——框架按定义去重，同一定义的几份实例只喂一次（copies 披露）。 */
     readonly perDefinition?: boolean;
+    /** object 族：什么都没选时也吃「你现在所在的这一层」（instance = null；2026-10-28 user「以及最外层的base节点为什么不能转mesh」）。 */
+    readonly takesContext?: boolean;
 }
 /** 一次指令调用（动作路由出来的；撤销记录 / 复现包以后记它）。 */
 export interface CommandCall {

@@ -65,7 +65,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   };
   const tp = (ev: PointerEvent): ToolPointer => {
     const s = local(ev);
-    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey, copy: ev.ctrlKey || ev.altKey || ev.metaKey };
+    return { x: s.x, y: s.y, clientX: ev.clientX, clientY: ev.clientY, pointerType: ev.pointerType, armable: opts.armable ? opts.armable(ev.pointerType) : ev.pointerType === "mouse", shiftKey: ev.shiftKey, copy: ev.ctrlKey || ev.altKey || ev.metaKey, altKey: ev.altKey };
   };
   const touches = (): [number, Tracked][] => [...pointers.entries()].filter(([, p]) => p.type === "touch");
   const toolPointerActive = (): boolean => [...pointers.values()].some((p) => p.role === "tool");

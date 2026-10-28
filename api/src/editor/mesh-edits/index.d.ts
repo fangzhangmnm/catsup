@@ -19,6 +19,7 @@ export declare const markSmooth: Command<MeshUnit>;
 export declare const clearMarks: Command<MeshUnit>;
 export declare const bevel: Command<MeshUnit>;
 export declare const bevelPoints: Command<MeshUnit>;
+export declare const mergeCenter: Command<MeshUnit>;
 export declare const subdivideCmd: Command<MeshUnit>;
 export declare const symmetrySnap: Command<MeshUnit>;
 export declare const smoothByAngle: Command<MeshUnit>, smoothAll: Command<MeshUnit>, smoothNone: Command<MeshUnit>;

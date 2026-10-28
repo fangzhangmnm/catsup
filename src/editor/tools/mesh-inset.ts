@@ -13,7 +13,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt } from "../../scene/xform.ts";
 import { fmtLen } from "../editor.ts";
 import type { ToolPointer } from "../editor.ts";
-import { meshTap } from "./mesh-transform.ts";
+import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
 import type { QuantityTag } from "../units.ts";
@@ -41,9 +41,11 @@ export class MeshInsetTool implements ToolHandler {
   /** 倒角的段数（这个会话里记着上一次用的；马后炮里改）。 */
   private segments = 1;
 
-  tap(ctx: ToolCtx, s: { x: number; y: number }): void { meshTap(ctx, s); }   // 点一下 = 选 / 取消选择，只有拖才插入 / 倒角（user 10-27）
-  active(): boolean { return this.job !== null; }
-  cancel(): void { this.job = null; this.centerW = null; this.start = this.cur = null; }
+  /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
+  private box = new BoxDrag();
+  tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（同选择工具），只有拖才插入 / 倒角（user 10-27）
+  active(): boolean { return this.job !== null || this.box.active(); }
+  cancel(): void { this.box.cancel(); this.job = null; this.centerW = null; this.start = this.cur = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshInset: { job: this.job?.kind ?? null, start: this.start, cur: this.cur } }; }
@@ -57,24 +59,24 @@ export class MeshInsetTool implements ToolHandler {
   }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
+    if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
     this.begin(ctx, { x: ev.x, y: ev.y });
+    if (!this.job && !this.hadSel) { this.box.begin(ev); ctx.hint("框选（插入 / 倒角工具里：没选东西时在空处拖 = 框）"); }   // user 10-28「其他的同理」
   }
 
   private begin(ctx: ToolCtx, at: { x: number; y: number }, force?: "bevel" | "bevelVerts"): void {
-    const m = ctx.mesh(), sel = ctx.selection();
-    this.hadSel = sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0;
-    const faces = [...sel.faces].filter((f) => m.hasF(f)).sort((a, b) => a - b), edges = [...sel.edges].filter((e) => m.hasE(e)).sort((a, b) => a - b), verts = [...sel.verts].filter((v) => m.hasV(v)).sort((a, b) => a - b);
+    const m = ctx.mesh();
+    // 按下作用在什么上 = selecting.ts（没选区只认面；FM165）；拿它做什么 = 这里：面 = 插入、边 = 倒角、点 = 倒点（Ctrl+B / Ctrl+Shift+B 强制倒角 / 倒点）
+    const p = pressTarget(ctx, at, "face");
+    this.hadSel = p !== "box" && p.fromSelection;
+    const faces = p === "box" ? [] : p.faces, edges = p === "box" ? [] : p.edges, verts = p === "box" ? [] : p.verts;
     let job: Job | null = null;
     if (force === "bevelVerts") job = verts.length ? { kind: "bevelVerts", verts } : null;
     else if (force === "bevel") { const es = [...new Set([...edges, ...edgesOfFaces(m, faces)])].sort((a, b) => a - b); job = es.length ? { kind: "bevel", edges: es } : null; }
     else if (faces.length) job = { kind: "inset", faces };
     else if (edges.length) job = { kind: "bevel", edges };
     else if (verts.length) job = { kind: "bevelVerts", verts };
-    else {   // 没选区：按下只认面（点和边不挡路；FM165）
-      const gf = ctx.pickFace(at.x, at.y), c = gf !== undefined ? ctx.classify(ctx.world(), { face: gf }) : null;
-      if (c && c.kind === "entity" && c.local.face !== undefined && m.hasF(c.local.face)) job = { kind: "inset", faces: [c.local.face] };
-    }
     if (!job) { ctx.hint(force ? "倒角：先选边（或面）/ 点" : "插入 / 倒角：在一张面上按下 = 插入；选中边 / 点再拖 = 倒角"); return; }
     const X = ctx.ctxXform(), vs = job.kind === "inset" ? job.faces.flatMap((f) => m.faceVerts(f)) : job.kind === "bevel" ? job.edges.flatMap((e) => [m.edgeA[e], m.edgeB[e]]) : job.verts;
     let c0 = { x: 0, y: 0, z: 0 };
@@ -92,7 +94,7 @@ export class MeshInsetTool implements ToolHandler {
       : job.kind === "bevel" ? `倒角 ${job.edges.length} 条边：往外拖 = 倒得宽，松手或点第二下落定（段数在马后炮里改）`
         : `倒角 ${job.verts.length} 个点：往外拖 = 切得多，松手或点第二下落定`);
   }
-  track(ctx: ToolCtx, s: { x: number; y: number }): void { if (this.active()) { this.cur = { x: s.x, y: s.y }; void ctx; } }
+  track(ctx: ToolCtx, s: { x: number; y: number }): void { if (this.box.track(ctx, s)) return; if (this.job) this.cur = { x: s.x, y: s.y }; }
 
   /**
    * 当前拖动 → 多宽（世界长度）：离目标中心（屏幕）的距离变了多少 × 每像素的世界长度；插入 = 靠近中心为正，倒角 = 远离中心为正。

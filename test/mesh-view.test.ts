@@ -13,6 +13,7 @@ import { WorldView } from "../src/scene/world-view.ts";
 import { brepToMesh } from "../src/scene/kinds.ts";
 import { PoolMesh, type PoolMeshEnv } from "../src/editor/pool-mesh.ts";
 import { applyOp } from "../src/editor/ops.ts";
+import { IDENTITY, WORLD_FRAME } from "../src/scene/xform.ts";
 import { sceneBox, sceneHoledOpen } from "./format-scenes.ts";
 
 const env: PoolMeshEnv = { matOf: () => null, slotsSig: "", faceColor: () => [0.5, 0.5, 0.5], edgeColor: () => [0, 0, 0], thick: false, singleSided: true };
@@ -82,6 +83,13 @@ describe("网格体进场景", () => {
 });
 
 describe("brep → mesh", () => {
+  it("组里的几何一起进网格体、住在组里的实例挂回根上（2026-10-28：以前只转根池 = 组里的静默丢了、实例指着不存在的组）", () => {
+    const s = new Scene(sceneBox()), g = s.mintGroup(s.root, null, sceneBox(), WORLD_FRAME), part = s.mintDef("件", new Kernel());
+    const inst = s.mintInstance(s.root, g.id, part.id, IDENTITY);
+    eq(brepToMesh(s.brep(s.root)).kernel.faceCount(), 12, "根池 6 + 组里 6");
+    applyOp(s, { op: "castDefinition", def: s.root, to: "mesh" });
+    eq(s.def(s.root).body.kind, "mesh"); eq(s.def(s.root).instances.get(inst.id)!.parent, null, "实例挂回根");
+  });
   it("盒子：6 张四边形、12 条硬边、8 点；法向一律朝外（封闭壳）", () => {
     const s = new Scene(sceneBox()), m = brepToMesh(s.brep(s.root)).kernel;
     eq(m.faceCount(), 6); eq(m.edgeCount(), 12); eq(m.vertexCount(), 8);

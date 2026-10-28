@@ -15,10 +15,9 @@ export declare class MeshPullTool implements ToolHandler {
     private grabW;
     private start;
     private cur;
-    tap(ctx: ToolCtx, s: {
-        x: number;
-        y: number;
-    }): void;
+    /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
+    private box;
+    tap(ctx: ToolCtx, ev: ToolPointer): void;
     active(): boolean;
     startModal(ctx: ToolCtx, s: {
         x: number;
