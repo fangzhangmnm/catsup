@@ -97,6 +97,8 @@ export declare class History<M = unknown> {
         after: M | undefined;
         label: StepLabel | undefined;
     }) | null;
+    /** 已做的步数（游标之前；不是 op 数；重做尾巴不算）。fuzz 的「一个动作最多长一步」用。 */
+    steps(): number;
     /** 被配额驱逐、撤不回去的**步**数（提示行「撤到头了（更早的 N 步超过配额）」）。 */
     evictedSteps(): number;
     /** 丢掉重做队列（游标之后的 op、会话记录、撤销记录）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
