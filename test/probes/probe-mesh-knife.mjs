@@ -46,13 +46,13 @@ const res = await page.evaluate(async () => {
   const st3a = stat(); await tap(P(1, 0, 0.5)); await tap(P(1, 0, 0.52));
   out.loop = { st: stat(), d: { f: stat().f - st3a.f, v: stat().v - st3a.v }, selEdges: e.selection.edges.size, check: m().check().join(";"), hint: hud.status(), active: e.isGestureActive() };
   const ringZ = [...e.selection.edges].flatMap((x) => [m().edgeA[x], m().edgeB[x]]).map((v) => q(m().pt(v).z));
-  out.loopFlat = ringZ.length > 0 && ringZ.every((z) => z === 0.5);
+  out.loopFlat = true;   // 没选区开始的环切做完不留选区（user 10-27）：环的位置在 ④（菜单版，有选区）里核
   key("z"); await sleep(30);
   // ④ 浮条「环切」：选一条边 → 菜单里有「环切」→ 点它
   e.setTool("select"); e.deselectAll(); await sleep(700); await click(P(1, 0, 0.5));   // 隔开连击窗口（刚才环切那两下在同一处）
   const menu = e.commandMenu(); out.menu = menu.map((x) => x.id);
   if (menu.some((x) => x.id === "mesh.loopCut")) hud.pick("action:mesh.loopCut"); await sleep(30);
-  out.menuLoop = { d: stat().f - st3a.f, selEdges: e.selection.edges.size };
+  out.menuLoop = { d: stat().f - st3a.f, selEdges: e.selection.edges.size, flat: [...e.selection.edges].flatMap((x) => [m().edgeA[x], m().edgeB[x]]).every((v) => q(m().pt(v).z) === 0.5) };
   // ⑤ 撤到头 / 重做到头
   let threw = false;
   try { for (let i = 0; i < 20 && e.history.position() > 0; i++) { key("z"); await sleep(20); } for (let i = 0; i < 20; i++) { const p0 = e.history.position(); key("y"); await sleep(20); if (e.history.position() === p0) break; } } catch { threw = true; }
@@ -65,8 +65,8 @@ const ok = res.rail.includes("knife") && res.started.active
   && res.cut1.st.f === 7 && res.cut1.steps === 1 && res.cut1.check === "" && res.cut1.active
   && res.cross.steps === 1 && /不在同一张面/.test(res.cross.hint)
   && res.cut2.st.f === 8 && res.cut2.steps === 2 && res.cut2.check === "" && res.escaped && res.undo
-  && res.loop.d.f === 4 && res.loop.d.v === 4 && res.loop.selEdges === 4 && res.loop.check === "" && res.loopFlat && !res.loop.active
-  && res.menu.includes("mesh.loopCut") && res.menuLoop.d === 4 && res.menuLoop.selEdges === 4
+  && res.loop.d.f === 4 && res.loop.d.v === 4 && res.loop.selEdges === 0 && res.loop.check === "" && res.loopFlat && !res.loop.active
+  && res.menu.includes("mesh.loopCut") && res.menuLoop.d === 4 && res.menuLoop.selEdges === 4 && res.menuLoop.flat
   && !res.undoRedoAll.threw && res.undoRedoAll.check === "" && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-mesh-knife OK" : "probe-mesh-knife FAIL");

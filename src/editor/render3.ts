@@ -30,6 +30,7 @@
 //     两者可由 setXRQuality 覆盖（main.ts 读 URL ?xrfov= ?xrscale= 给真机 A/B）。粗线的 resolution/linewidth 在 XR 每帧按每眼 viewport 换算
 //     （此前沿用桌面 canvas 尺寸——XR 里线宽/纵横比都是错的）。
 
+import { triangulateRings } from "../format/triangulate.ts";
 import * as THREE from "three";
 import { type WorldLabel, anchorCenter, rasterizeLabel } from "./world-labels.ts";
 import { LineSegments2 } from "../vendor/three/addons/lines/LineSegments2.js";
@@ -1737,7 +1738,19 @@ export function faceTriangles(k: GeomView, id: FaceId): [Pt3, Pt3, Pt3][] {
   let off = 0;
   for (const p of pts3) { if (!p) { off = -1; break; } off = Math.max(off, Math.abs(n.x * p.x + n.y * p.y + n.z * p.z - d)); }
   const real = off > 1e-6 && pts3.length === all.length;
-  const at = (i: number): Pt3 => (real ? pts3[i]! : lift(all[i]));
+  if (real) {
+    // 不平的面：和主渲染（pool-mesh.ts buildFaceRec）用**同一个**剖分（format/triangulate.ts triangulateRings）——两边挑的对角线不一样时，
+    // 高亮的那半张在真面底下、被深度测试吃掉（user「选择的面高亮有时候还是没显示」「碰到不平的面还是没成功高亮」）。同一组三角 = 高亮就是把这张面换个颜色（user「应该是替换」）。
+    const P3 = pts3 as Pt3[], outerIdx = f.outer.vids.map((_, i) => i);
+    let base = f.outer.vids.length;
+    const holeIdx = f.holes.map((h) => { const idx = h.vids.map((_, i) => base + i); base += h.vids.length; return idx; });
+    return triangulateRings(P3, rec.plane, outerIdx, holeIdx).map(([a, b, c]) => {
+      const A = P3[a], B = P3[b], C = P3[c];
+      const cx = (B.y - A.y) * (C.z - A.z) - (B.z - A.z) * (C.y - A.y), cy = (B.z - A.z) * (C.x - A.x) - (B.x - A.x) * (C.z - A.z), cz = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x);
+      return cx * n.x + cy * n.y + cz * n.z >= 0 ? [A, B, C] : [A, C, B];
+    });
+  }
+  const at = (i: number): Pt3 => lift(all[i]);
   // 绕向统一成「绕 +n 逆时针」（平面基里逆时针；u × v = n）：两个表面（DT8）靠 gl_FrontFacing 分正反，三角的绕向必须一致
   return tris.map(([a, b, c]) => {
     const A = all[a], B = all[b], C = all[c];

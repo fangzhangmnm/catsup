@@ -42,6 +42,8 @@ export class MeshKnifeTool implements ToolHandler {
   private start: KnifePoint | null = null;
   private startW: Pt3 | null = null;
   private hov: Hit | null = null;
+  /** 这一串切开始时有没有选区（user 10-27：没选区开始 = 做完也不留选区）。 */
+  private hadSel = false;
 
   active(): boolean { return this.start !== null; }
   cancel(): void { this.start = this.startW = null; this.hov = null; }
@@ -61,13 +63,13 @@ export class MeshKnifeTool implements ToolHandler {
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     const h = this.snapAt(ctx, ev);
-    if (!h) { ctx.hint(this.start ? "切刀：落在点或边上（停在面中间还没做）；Esc 收刀" : "切刀：在点或边上按下开始切；同一条边点两下 = 环切"); return; }
-    if (!this.start) { this.start = h.pt; this.startW = h.w; ctx.setAnchor(h.w); ctx.setCursor(h.w); ctx.hint("切刀：点下一个点切一刀（同一张面上的点或边）；同一条边再点一下 = 环切；Esc 收刀"); return; }
+    if (!h) { ctx.hint(this.start ? "切割：落在点或边上（停在面中间还没做）；Esc 收刀" : "切割：在点或边上按下开始切；同一条边点两下 = 环切"); return; }
+    if (!this.start) { const sel = ctx.selection(); this.hadSel = sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0; this.start = h.pt; this.startW = h.w; ctx.setAnchor(h.w); ctx.setCursor(h.w); ctx.hint("切割：点下一个点切一刀（同一张面上的点或边）；同一条边再点一下 = 环切；Esc 收刀"); return; }
     const a = this.start, b = h.pt, m = ctx.mesh(), def = ctx.activePool().def;
     if ("e" in a && "e" in b && a.e === b.e) { this.loopCutAt(ctx, a.e); return; }
-    if (cutsNothing(m, a, b)) { if ("v" in b) { this.start = b; this.startW = h.w; ctx.setAnchor(h.w); } ctx.hint("切刀：这两个点之间已经有边了，从这里接着切"); return; }
+    if (cutsNothing(m, a, b)) { if ("v" in b) { this.start = b; this.startW = h.w; ctx.setAnchor(h.w); } ctx.hint("切割：这两个点之间已经有边了，从这里接着切"); return; }
     const face = commonFace(m, a, b);
-    if (face === null) { ctx.hint("切刀：两个点不在同一张面上（先切到中间那条边上，再接着切）"); return; }
+    if (face === null) { ctx.hint("切割：两个点不在同一张面上（先切到中间那条边上，再接着切）"); return; }
     const probe = m.clone(), verts = knife(probe, face, [a, b]);   // 先在副本上切一遍拿新点的 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
     ctx.commitOp({ op: "meshKnife", def, face, path: [a, b] });
     this.start = { v: verts[verts.length - 1] }; this.startW = h.w;
@@ -94,14 +96,14 @@ export class MeshKnifeTool implements ToolHandler {
   viewExtras(): Partial<ViewState> { return this.startW && this.hov ? { tape: { a: this.startW, b: this.hov.w } } : {}; }
 
   private loopCutAt(ctx: ToolCtx, e: number): void {
-    const m = ctx.mesh(), probe = m.clone(), r = loopCut(probe, e, 0.5);
+    const m = ctx.mesh(), probe = m.clone(), r = loopCut(probe, e, 0.5), hadSel = this.hadSel;
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (!r.edges.length) { ctx.hint("环切：这条边两侧不是四边形，切不出一圈"); return; }
     ctx.commitOp({ op: "meshLoopCut", def: ctx.activePool().def, edge: e, t: 0.5 });
     const k = ctx.mesh();
-    ctx.setSelection({ edges: r.edges.filter((x) => k.hasE(x)) });
-    ctx.hint(`环切：切了一圈 ${r.edges.length} 条边${r.closed ? "（闭合）" : "（开口带）"}；这圈边在选区里，接着可以移动 / 缩放`);
+    if (hadSel) { ctx.setSelection({ edges: r.edges.filter((x) => k.hasE(x)) }); ctx.hint(`环切：切了一圈 ${r.edges.length} 条边${r.closed ? "（闭合）" : "（开口带）"}；这圈边在选区里，接着可以移动 / 缩放`); }
+    else ctx.hint(`环切：切了一圈 ${r.edges.length} 条边${r.closed ? "（闭合）" : "（开口带）"}`);
   }
 
   /** 光标下看得见的点 / 边上的点（拓扑吸附，永远开）。边上的点 = 光标在这条边屏幕投影上的位置。 */

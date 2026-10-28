@@ -23,6 +23,8 @@ export class MeshPullTool implements ToolHandler {
   readonly grammar = "steps" as const;
   readonly lock = "axis" as const;
   private t: Target | null = null;
+  /** 按下时有没有选区（user 10-27：一开始没选区 = SU 手感，做完还是没选区、接着挑下一个「受害者」；一开始有选区才留选区）。 */
+  private hadSel = false;
   private pivotW: Pt3 | null = null;
   private nW: Pt3 | null = null;     // 量拖动量的方向（世界、单位长）：面 = 法向平均；边 / 点 = 各点「垂直」方向的平均；抵消了 = null（屏幕竖直兜底）
   private alongScale = 1;            // 边 / 点：世界长度 / 本地长度（组件被缩放过时）
@@ -40,6 +42,7 @@ export class MeshPullTool implements ToolHandler {
     if (this.active()) { this.commit(ctx); return; }
     const m = ctx.mesh(), sel = ctx.selection();
     let t: Target | null = null;
+    this.hadSel = sel.kind === "mesh" && (sel.faces.size > 0 || sel.edges.size > 0 || sel.verts.size > 0);
     if (sel.kind === "mesh" && sel.faces.size) t = { faces: [...sel.faces].filter((f) => m.hasF(f)), edges: [], verts: [] };
     else if (sel.kind === "mesh" && sel.edges.size) t = { faces: [], edges: [...sel.edges].filter((e) => m.hasE(e)), verts: [] };
     else if (sel.kind === "mesh" && sel.verts.size) t = { faces: [], edges: [], verts: [...sel.verts].filter((v) => m.hasV(v)) };
@@ -68,7 +71,7 @@ export class MeshPullTool implements ToolHandler {
     this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y };
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
-    ctx.hint(`挤出 ${this.what()}：${t.faces.length ? "沿法向" : "沿垂直方向"}拖着松手，或者点第二下落定（方向键锁轴）`);
+    ctx.hint(`挤出 ${this.what()}：${t.faces.length ? "沿法向" : "沿垂直方向"}拖着松手，或者点第二下落定（按住 Shift = 屏幕平面里自由拖；方向键锁轴）`);
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
@@ -95,6 +98,7 @@ export class MeshPullTool implements ToolHandler {
     const ax = ctx.axisLockDir(), pn = ctx.planeLockNormal(), now = this.onPlane(ctx, s1.x, s1.y) ?? grab, d = sub3(now, grab);
     if (ax) return { off: scale3(ax, dot3(d, ax)) };
     if (pn) return { off: sub3(d, scale3(pn, dot3(d, pn))) };
+    if (ctx.mods().shift) return { off: d };   // 按住 Shift = 不锁方向、屏幕平面里自由拖（user 10-27「挤出是不是可以shift切换不锁定，屏幕空间拖拽」；Shift = 把默认的对齐反过来）
     const amt = this.amountAlong(ctx, s0, s1);
     if (t.faces.length) return this.nW ? { off: scale3(this.nW, amt) } : { off: { x: 0, y: 0, z: 0 } };
     return { along: amt };
@@ -111,7 +115,7 @@ export class MeshPullTool implements ToolHandler {
   }
 
   private commit(ctx: ToolCtx): void {
-    const t = this.t, mv = this.motion(ctx), what = this.what(), scaleL = this.alongScale;
+    const t = this.t, mv = this.motion(ctx), what = this.what(), scaleL = this.alongScale, hadSel = this.hadSel;
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null);
     if (!t || !mv) return;
@@ -122,6 +126,7 @@ export class MeshPullTool implements ToolHandler {
     const probe = ctx.mesh().clone(), r = how.along !== undefined ? extrudeAlongNormals(probe, t, how.along) : extrudeAndOffset(probe, t, how.offset);   // 先在副本上跑一遍拿新 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
     ctx.commitOp({ op: "meshExtrude", def, ...sel, ...how });
     const m = ctx.mesh();
+    if (!hadSel) { ctx.hint(`挤出了 ${what}（${fmtLen(amount)}）`); return; }   // 没选区开始的 = 做完也不留选区（SU 手感，接着点下一个）
     if (t.faces.length) ctx.setSelection({ faces: t.faces.filter((f) => m.hasF(f)) });
     else if (t.edges.length) ctx.setSelection({ edges: t.edges.map((e) => m.edgeOf(r.newVerts.get(probe.edgeA[e])!, r.newVerts.get(probe.edgeB[e])!)).filter((e) => e >= 0) });
     else ctx.setSelection({ verts: [...r.newVerts.values()].filter((v) => m.hasV(v)) });

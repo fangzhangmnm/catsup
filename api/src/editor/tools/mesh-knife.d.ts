@@ -19,6 +19,8 @@ export declare class MeshKnifeTool implements ToolHandler {
     private start;
     private startW;
     private hov;
+    /** 这一串切开始时有没有选区（user 10-27：没选区开始 = 做完也不留选区）。 */
+    private hadSel;
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;

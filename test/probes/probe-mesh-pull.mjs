@@ -31,14 +31,18 @@ const res = await page.evaluate(async () => {
   // ① 拉顶面
   e.setTool("pp"); const st0 = stat(), pos0 = e.history.position();
   { const a = px(P(0.5, 0.5, 1)); await drag(a, { x: a.x, y: a.y - 70 }); }
-  const st1 = stat(), topNow = [...e.selection.faces], topZ = topNow.length ? Math.min(...m().faceVerts(topNow[0]).map((v) => m().pt(v).z)) : null;
-  out.pullFace = { st0, st1, steps: e.history.position() - pos0, selFaces: topNow.length, topZ: topZ !== null ? +topZ.toFixed(3) : null, check: m().check().join(";"), hint: hud.status() };
-  // ② 接着挪：选区 = 顶面，锁 Z 往上
+  const st1 = stat(), topZ = Math.max(...m().verts().map((v) => m().pt(v).z));
+  out.pullFace = { st0, st1, steps: e.history.position() - pos0, selFaces: e.selection.faces.size, topZ: +topZ.toFixed(3), check: m().check().join(";"), hint: hud.status() };
+  // ② 一开始有选区的挤出：先选顶面再挤 → 做完选区还是顶面（user 10-27：没选区开始的做完不留选区，有选区开始的才留）；接着锁 Z 挪
+  key("z"); await sleep(30);
+  e.setTool("select"); await sleep(400); await click(P(0.5, 0.5, 1)); e.setTool("pp");
+  { const a = px(P(0.5, 0.5, 1)); await drag(a, { x: a.x, y: a.y - 70 }); }
+  out.pullWithSel = { selFaces: e.selection.faces.size, f: m().faceCount() };
   e.setTool("move"); e.lockKey("z", false);
   { const a = px(P(0.5, 0.5, 1.4)); await drag(a, { x: a.x + 20, y: a.y - 40 }); }
-  const topZ2 = Math.min(...m().faceVerts(topNow[0]).map((v) => m().pt(v).z));
-  out.thenMove = { up: topZ2 > topZ + 1e-6, steps: e.history.position() - pos0 };
-  key("z"); await sleep(30); key("z"); await sleep(30);
+  const topNow2 = [...e.selection.faces], topZ2 = topNow2.length ? Math.min(...m().faceVerts(topNow2[0]).map((v) => m().pt(v).z)) : -1;
+  out.thenMove = { up: topZ2 > topZ + 1e-6 };
+  for (let i = 0; i < 6 && e.history.position() > pos0; i++) { key("z"); await sleep(30); }
   out.undo2 = { back: JSON.stringify(stat()) === JSON.stringify(st0), sel: e.selection.faces.size };
   // ③ 拉一条边 + 锁 Z：先选边（底面前沿那条，从 y=0 那一侧看得见），再拉
   e.deselectAll(); e.setTool("select"); await click(P(0.5, 0, 1));
@@ -77,8 +81,8 @@ const res = await page.evaluate(async () => {
 await b.close();
 res.errs = errs;
 const ok = res.rail === "select,pp,move,rotate,scale,knife"
-  && res.pullFace.st1.f === res.pullFace.st0.f + 4 && res.pullFace.st1.v === res.pullFace.st0.v + 4 && res.pullFace.steps === 1 && res.pullFace.selFaces === 1 && res.pullFace.topZ > 1 && res.pullFace.check === ""
-  && res.thenMove.up && res.thenMove.steps === 2 && res.undo2.back
+  && res.pullFace.st1.f === res.pullFace.st0.f + 4 && res.pullFace.st1.v === res.pullFace.st0.v + 4 && res.pullFace.steps === 1 && res.pullFace.selFaces === 0 && res.pullFace.topZ > 1 && res.pullFace.check === ""
+  && res.pullWithSel.selFaces === 1 && res.pullWithSel.f === 10 && res.thenMove.up && res.undo2.back
   && res.edgeSel === 1 && res.pullEdge.d.f === 1 && res.pullEdge.d.v === 2 && res.pullEdge.selEdges === 1 && res.pullEdge.onlyZ && res.pullEdge.check === ""
   && res.edgeSelAgain === 1 && res.pullEdgePerp.diag && res.pullVert.perp
   && res.vertSel === 1 && res.pullVert.dv === 1 && res.pullVert.de === 1 && res.pullVert.df === 0 && res.pullVert.selVerts === 1
