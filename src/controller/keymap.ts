@@ -1,0 +1,151 @@
+// controller/keymap.ts —— 分层键表 + 上下文栈：「什么时候按 X 是什么意思」（UX 心智模型 §2.7；账本 UX17 / UX18）。created 2026-10-28 by Claude Fable 5.1
+// user 10-28「不是说x代表什么，而是说，在什么时候，按x是什么意思」「状态机会组合爆炸吧。然后写条件容易错，行为树可能太复杂了专业也不对口」
+// 「X 我的建议是在选择模式下面x才是删除？move模式相当于blender帮你自动按G，所以这个时候x永远路由到轴」。
+//
+// 做法（Blender 键表分层 / Emacs minor-mode 键表那派，不是状态机、不是 when 条件表）：
+//   · 每一层 = 一张小表「和弦 → 动作」；层有：全局、工作台（自由建模）、工具（操作工具：移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线）、手势中、镜像会话、数值小窗、步行三阶段。
+//   · 每次按键从编辑器现状**算出**压着哪几层（layersOf，纯函数，没有转移），从顶往下找第一个绑了这个和弦的层（resolve）。
+//   · 层是加法不是乘法；「什么时候」= 现在栈里有什么。层内偶尔用 when 谓词（有没有选区 / 在不在走路），尽量少。
+//   · 这个文件零 DOM、零编辑器 import（只认和弦和一个只读上下文）；动作是字符串 id，app 层（main.ts）按 id 做事。守卫 test/keymap.test.ts。
+// 这一版 = v0.15.46 的 keydown 那串 if 抄成层（行为照旧），只改了 user 拍的 X（UX17）：操作工具里 X / Y / Z 永远 = 轴，选择工具里 X = 删除；
+// 另一处有意的清理：按着 Shift 的字母键不再误触工具键（以前 Shift+L 也会切到画线）。
+import type { ModeId } from "../editor/mode.ts";
+import type { Tool } from "../editor/tool-ids.ts";
+
+export interface KeyEvt { readonly key: string; readonly code: string; readonly shift: boolean; readonly ctrl: boolean; readonly alt: boolean }
+/** 查表要看的现状（app 层每次按键现算；全是只读）。 */
+export interface KeyContext {
+  readonly mode: ModeId;
+  readonly tool: Tool;
+  /** 手势进行中（按下没松 / 点了一下在等第二下 / 键盘起手的模态中）。 */
+  readonly gesture: boolean;
+  readonly hasSelection: boolean;
+  /** 步行阶段：off / place（放置中）/ walk（FPS）/ edit（原地编辑）。 */
+  readonly walk: "off" | "place" | "walk" | "edit";
+  /** locomotion 在步行模式（FPS 或原地编辑）。 */
+  readonly walking: boolean;
+  readonly mirrorSession: boolean;
+  /** 当前工具吃哪种锁（null = 不吃：选择 / 橡皮…）。 */
+  readonly lockStyle: "axis" | "plane" | null;
+  /** 数值小窗要不要这一下（它有自己的缓冲状态，问它）。 */
+  readonly vcbWants: (e: KeyEvt) => boolean;
+}
+export type Chord = string;
+export interface Binding { readonly chord: Chord; readonly action: string; readonly label: string; readonly when?: (c: KeyContext, e: KeyEvt) => boolean }
+export interface Layer { readonly id: string; readonly bindings: readonly Binding[]; /** 独占：没绑的键也吞掉、不往下传（FPS 里键盘归走路）。 */ readonly exclusive?: boolean }
+export interface Resolved { readonly action: string; readonly label: string; readonly layer: string; readonly chord: Chord }
+
+/** 按键 → 和弦：修饰键按 ctrl+ / alt+ / shift+ 的固定顺序；字母按物理键（code：Mac 上 Alt+字母打出别的字）；别的按 key 小写（space / tab / escape / enter / delete / backspace / arrowright / "."）。 */
+export function chordOf(e: KeyEvt): Chord {
+  let name: string;
+  if (e.code.startsWith("Key")) name = e.code.slice(3).toLowerCase();
+  else if (e.code.startsWith("Digit")) name = e.code.slice(5);
+  else name = e.key === " " ? "space" : e.key.toLowerCase();
+  return (e.ctrl ? "ctrl+" : "") + (e.alt ? "alt+" : "") + (e.shift ? "shift+" : "") + name;
+}
+
+const B = (chord: Chord, action: string, label: string, when?: Binding["when"]): Binding => (when ? { chord, action, label, when } : { chord, action, label });
+const notWalking = (c: KeyContext): boolean => !c.walking;
+
+/** 工具键（SketchUp 对齐，user 2026-09-02「默认对齐 SU」）：同一个键再按一下 = 组里换下一把（app 层做轮换）。步行时空格 / E / S / Q / A / T 归走路。 */
+const TOOL_KEYS: readonly [Chord, Tool][] = [["space", "select"], ["l", "line"], ["r", "rect"], ["c", "circle"], ["a", "arc"], ["m", "move"], ["q", "rotate"], ["s", "scale"], ["p", "pp"], ["k", "knife"], ["f", "offset"], ["w", "followme"], ["b", "paint"], ["e", "erase"], ["t", "tape"], ["tab", "select"], ["x", "erase"]];
+const TAKEN_BY_WALK = new Set<Chord>(["space", "e", "s", "q", "a", "t"]);
+
+/** 全局层（最底）。 */
+export const GLOBAL: Layer = {
+  id: "global",
+  bindings: [
+    ...TOOL_KEYS.map(([k, t]) => B(k, `tool.key:${k}:${t}`, `工具：${t}`, (c) => !(c.walking && TAKEN_BY_WALK.has(k)))),
+    B("g", "component.make", "建组件"),
+    B("h", "hide", "隐藏选中", notWalking),
+    B("shift+z", "view.zoomExtents", "缩放到全部"),
+    B(".", "view.zoomTo", "缩放到选区"),
+    B("shift+tab", "grid.toggle", "格点吸附开 / 关"),
+    B("ctrl+a", "select.all", "全选"), B("ctrl+i", "select.invert", "反选"), B("alt+a", "select.none", "全不选"),
+    B("alt+h", "show.all", "全部显示"), B("alt+z", "view.xray", "X 光"),
+    B("ctrl+g", "group.make", "建组"), B("ctrl+shift+g", "group.explode", "炸开"),
+    B("ctrl+z", "undo", "撤销"), B("ctrl+shift+z", "redo", "重做"), B("ctrl+y", "redo", "重做"),
+    B("delete", "delete", "删除", (c) => c.hasSelection), B("backspace", "delete", "删除", (c) => c.hasSelection),
+    B("escape", "escape", "取消 / 退一层"),
+    // 方向键锁（A9，SketchUp 同款）：→ X / ← Y / ↑ Z / ↓ 解；Shift+方向键 = 面锁
+    B("arrowright", "lock.key:x", "锁 X", notWalking), B("arrowleft", "lock.key:y", "锁 Y", notWalking), B("arrowup", "lock.key:z", "锁 Z", notWalking), B("arrowdown", "lock.key:none", "解锁", notWalking),
+    B("shift+arrowright", "lock.key:x:plane", "面锁 YZ", notWalking), B("shift+arrowleft", "lock.key:y:plane", "面锁 XZ", notWalking), B("shift+arrowup", "lock.key:z:plane", "面锁 XY", notWalking), B("shift+arrowdown", "lock.key:none:plane", "面锁：光标下的面", notWalking),
+  ],
+};
+
+/** 自由建模工作台层（Blender 键位；user 10-27「能不能blender 快捷键无缝接上」）。 */
+export const FREEFORM: Layer = {
+  id: "workbench:freeform",
+  bindings: [
+    B("g", "modal:move", "移动（键盘起手）"), B("r", "modal:rotate", "旋转（键盘起手）"), B("s", "modal:scale", "缩放（键盘起手）"), B("e", "modal:pp", "挤出（键盘起手）"), B("i", "modal:offset", "插入（键盘起手）"),
+    B("a", "select.all", "全选"), B("j", "mesh.connect", "连线"),
+    B("x", "delete.ifAny", "删除"),   // 选择工具里 X = 删除（操作工具层在上面把 X 接走 = 轴，UX17）
+    B("y", "lock.arm:y", "先锁 Y", (c) => !c.gesture), B("z", "lock.arm:z", "先锁 Z", (c) => !c.gesture),
+    B("shift+y", "lock.arm:y:plane", "先锁面 XZ", (c) => !c.gesture), B("shift+z", "lock.arm:z:plane", "先锁面 XY", (c) => !c.gesture),
+    B("alt+s", "modal:shrink", "沿法线（键盘起手）"), B("alt+w", "modal:shrink", "沿法线（键盘起手）"),
+    B("ctrl+r", "mesh.loopCutArm", "环切（下一下点边）"), B("ctrl+b", "modal:offset:bevel", "倒角（键盘起手）"), B("ctrl+shift+b", "modal:offset:bevelVerts", "倒角（点）（键盘起手）"),
+    // 拿着不吃锁的工具（选择）按方向键 = 先锁好、下一下生效；吃锁的工具落到全局层的 lockKey
+    ...(["arrowright", "arrowleft", "arrowup"] as const).map((k, i) => B(k, `lock.arm:${"xyz"[i]}`, `先锁 ${"XYZ"[i]}`, (c) => !c.gesture && !c.lockStyle)),
+    ...(["arrowright", "arrowleft", "arrowup"] as const).map((k, i) => B(`shift+${k}`, `lock.arm:${"xyz"[i]}:plane`, `先锁面`, (c) => !c.gesture && !c.lockStyle)),
+  ],
+};
+
+/** 操作工具层（自由建模的移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线）：= Blender 帮你自动按了 G，所以 X / Y / Z 永远 = 轴（手势里锁、手势外先锁）。 */
+export const OP_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["move", "rotate", "scale", "pp", "offset", "shrink"]);
+export const TOOL_OPS: Layer = {
+  id: "tool:ops",
+  bindings: [
+    B("x", "lock.axis:x", "锁 X"), B("y", "lock.axis:y", "锁 Y"), B("z", "lock.axis:z", "锁 Z"),
+    B("shift+x", "lock.axis:x:plane", "面锁 YZ"), B("shift+y", "lock.axis:y:plane", "面锁 XZ"), B("shift+z", "lock.axis:z:plane", "面锁 XY"),
+  ],
+};
+
+/** 手势中（自由建模）：X / Y / Z 锁轴、Shift = 锁面（Blender 同款）。 */
+export const GESTURE: Layer = {
+  id: "gesture",
+  bindings: [
+    B("x", "lock.key:x", "锁 X"), B("y", "lock.key:y", "锁 Y"), B("z", "lock.key:z", "锁 Z"),
+    B("shift+x", "lock.key:x:plane", "面锁 YZ"), B("shift+y", "lock.key:y:plane", "面锁 XZ"), B("shift+z", "lock.key:z:plane", "面锁 XY"),
+  ],
+};
+/** 镜像会话（马前炮）：回车 = 应用（Esc = 取消走全局的 escape → editor.cancel）。 */
+export const MIRROR: Layer = { id: "mirror-session", bindings: [B("enter", "mirror.apply", "应用镜像")] };
+/** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */
+export const VCB: Layer = { id: "vcb", bindings: [B("*", "vcb.feed", "数值小窗", (c, e) => c.vcbWants(e))] };
+/** 步行三阶段。 */
+export const WALK_EDIT: Layer = { id: "walk:edit", bindings: [B("escape", "walk.exit", "离开步行", (c) => !c.gesture && !c.hasSelection)] };
+export const WALK_PLACE: Layer = { id: "walk:place", bindings: [B("escape", "walk.cancelPlace", "取消放置")] };
+export const WALK_FPS: Layer = { id: "walk:fps", exclusive: true, bindings: [B("tab", "walk.editInPlace", "原地编辑"), B("escape", "walk.exit", "离开步行")] };
+
+/** 现在压着哪几层（从底到顶）。纯函数：没有转移，每次按键现算。 */
+export function layersOf(c: KeyContext): Layer[] {
+  const out: Layer[] = [GLOBAL];
+  const freeform = c.mode === "freeform" && !c.walking;
+  if (freeform) out.push(FREEFORM);
+  if (freeform && OP_TOOLS.has(c.tool)) out.push(TOOL_OPS);
+  if (freeform && c.gesture) out.push(GESTURE);
+  if (c.mirrorSession) out.push(MIRROR);
+  out.push(VCB);
+  if (c.walk === "edit") out.push(WALK_EDIT);
+  if (c.walk === "place") out.push(WALK_PLACE);
+  if (c.walk === "walk") out.push(WALK_FPS);
+  return out;
+}
+
+/** 这一下按键 → 动作（从顶往下第一个绑了的层）；"swallow" = 独占层吞掉了没绑的键；null = 没人要（交给浏览器）。 */
+export function resolveKey(c: KeyContext, e: KeyEvt): Resolved | "swallow" | null {
+  const chord = chordOf(e), stack = layersOf(c);
+  for (let i = stack.length - 1; i >= 0; i--) {
+    const L = stack[i];
+    for (const b of L.bindings) if ((b.chord === chord || b.chord === "*") && (!b.when || b.when(c, e))) return { action: b.action, label: b.label, layer: L.id, chord };
+    if (L.exclusive) return "swallow";
+  }
+  return null;
+}
+
+/** 披露 / 帮助页用：现在这个和弦从顶往下各层分别是什么（第一条就是生效的）。 */
+export function explainKey(c: KeyContext, e: KeyEvt): { layer: string; label: string }[] {
+  const chord = chordOf(e), out: { layer: string; label: string }[] = [];
+  for (const L of [...layersOf(c)].reverse()) for (const b of L.bindings) if ((b.chord === chord || b.chord === "*") && (!b.when || b.when(c, e))) out.push({ layer: L.id, label: b.label });
+  return out;
+}
