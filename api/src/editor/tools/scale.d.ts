@@ -10,6 +10,8 @@ export declare class ScaleTool implements ToolHandler {
     private hIdx;
     private t0;
     private f;
+    /** 面心柄按着 Shift = 三轴等比、锚点仍是对面那个面心（账本 UX35，user 10-28「if i hit shift, i should be able to scale uniformly but still use the antipodal as anchor」）。 */
+    private uniform;
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;

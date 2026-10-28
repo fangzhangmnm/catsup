@@ -29,12 +29,14 @@ export class ScaleTool implements ToolHandler {
   private hIdx = -1;
   private t0 = 1;
   private f = 1;   // 倍率（角柄 = 三轴等比；面心柄 = 沿 h.axis）
+  /** 面心柄按着 Shift = 三轴等比、锚点仍是对面那个面心（账本 UX35，user 10-28「if i hit shift, i should be able to scale uniformly but still use the antipodal as anchor」）。 */
+  private uniform = false;
 
   active(): boolean { return this.h !== null; }
-  cancel(): void { this.h = null; this.hIdx = -1; this.f = 1; }
+  cancel(): void { this.h = null; this.hIdx = -1; this.f = 1; this.uniform = false; }
   sample(): Record<string, number> { return { f: this.f }; }
   /** 这一柄 + 倍率的变换（世界）。 */
-  private static xform(h: Handle, f: number): Xform { return h.kind === "corner" || !h.axis ? scalingAbout(h.anchor, { x: f, y: f, z: f }) : scalingAlong(h.anchor, h.axis, f); }
+  private static xform(h: Handle, f: number, uniform = false): Xform { return h.kind === "corner" || !h.axis || uniform ? scalingAbout(h.anchor, { x: f, y: f, z: f }) : scalingAlong(h.anchor, h.axis, f); }
   describe(): Record<string, unknown> { return { scale: { anchor: this.h?.anchor ?? null, f: this.f } }; }
 
   /** 角柄 8 个（等比）+ 面心柄 6 个（单轴），按选区在 orientFrame 下的包围盒（有朝向）。 */
@@ -70,7 +72,7 @@ export class ScaleTool implements ToolHandler {
     const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
     this.t0 = q ? Math.max(dot3(sub3(q, h.anchor), dir), MIN_GESTURE_LEN) : dist3(h.p, h.anchor);
     ctx.setCursor(h.p);
-    ctx.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖（拖过对面到 −1 = 沿这根轴镜像）");
+    ctx.hint(h.kind === "corner" ? "等比缩放：沿对角拖" : "单轴缩放：沿轴拖（拖过对面到 −1 = 沿这根轴镜像）；按住 Shift = 等比、锚点还在对面");
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
@@ -81,12 +83,15 @@ export class ScaleTool implements ToolHandler {
     const q = closestOnAxis(h.anchor, dir, ray.origin, ray.dir);
     if (!q) return;
     const t = dot3(sub3(q, h.anchor), dir);
+    this.uniform = h.kind === "face" && ctx.mods().shift;
     let f = t / this.t0;
+    if (this.uniform && f < 1e-3) f = 1e-3;   // 等比不许翻过去（三轴一起 −1 = 点反射，不是想要的）
     if (Math.abs(f) < 1e-3) f = 1e-3;   // 不许缩到零（退化）
     // 咬合按屏距（和别的吸附一样）：光标离「倍率 v 的落点」在吸附半径内就咬住、最近的赢（2026-10-25 改：以前是倍率差 < 0.02，屏上只有几个像素、很难咬到）。
     // 意图门：倍率相对 1 的符号 = 放大 / 缩小；反向的咬合不合法（1 本身保留）
     let snapped: number | undefined, bestD = ctx.eps().snap;
     for (const v of SNAP_FACTORS) {
+      if (this.uniform && v < 0) continue;
       if (ctx.intentOn(s, travel) && !intentAllows1D(f - 1, v - 1, 0.01)) continue;
       const d = ctx.frame().distTo(s.x, s.y, add3(h.anchor, scale3(dir, v * this.t0)), ctx.vp());
       if (d <= bestD) { bestD = d; snapped = v; }
@@ -100,8 +105,8 @@ export class ScaleTool implements ToolHandler {
 
   live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     if (!this.h) return "";
-    ctx.previewXform(ScaleTool.xform(this.h, this.f), run);
-    return `缩放 ${this.h.kind === "corner" ? "等比" : "单轴"} ×${this.f.toFixed(3)}`;
+    ctx.previewXform(ScaleTool.xform(this.h, this.f, this.uniform), run);
+    return `缩放 ${this.h.kind === "corner" ? "等比" : this.uniform ? "等比（Shift，锚在对面）" : "单轴"} ×${this.f.toFixed(3)}`;
   }
 
   up(ctx: ToolCtx, _ev: ToolPointer, settle: () => ToolSample | null): void {
@@ -109,7 +114,7 @@ export class ScaleTool implements ToolHandler {
     if (!h) return;
     const smp = settle();
     const f = smp && smp.extra.f !== undefined ? smp.extra.f : this.f;
-    const anchor = h.anchor, axis = h.axis;
+    const anchor = h.anchor, axis = h.axis, uniform = this.uniform;
     const sel = ctx.selection(), k0 = ctx.kernel(), vids = moveTargetsSelection(k0, sel), pools = ctx.movablePoolPicks(false);
     const entities = { faces: [...sel.faces], edges: [...sel.edges] };   // 数值小窗 *n /n 缩放阵列要抠副本（2026-10-26）
     const froms = vids.filter((id) => k0.graph.hasVertex(id)).map((id) => k0.graph.pt(id));
@@ -117,14 +122,14 @@ export class ScaleTool implements ToolHandler {
     this.cancel();
     ctx.setCursor(null); ctx.setSnap(null);
     if (Math.abs(f - 1) < 1e-9) return;
-    ctx.commitXform(ScaleTool.xform(h, f), vids, pools);
-    ctx.recordLast({ kind: "scale", ops: ctx.opCount() - n0, at: at0, froms, pools, anchor, axis: null, f: { x: f, y: f, z: f }, entities, ...(h.kind === "face" && axis ? { dirs: [axis] } : {}) });
+    ctx.commitXform(ScaleTool.xform(h, f, uniform), vids, pools);
+    ctx.recordLast({ kind: "scale", ops: ctx.opCount() - n0, at: at0, froms, pools, anchor, axis: null, f: { x: f, y: f, z: f }, entities, ...(h.kind === "face" && axis && !uniform ? { dirs: [axis] } : {}) });
   }
 
   /** 柄跟着预演实时动（user 2026-10-21「缩放的handle应该跟着实时动」）：拖动中按当前倍率把柄过一遍同一个变换。 */
   viewExtras(ctx: ToolCtx): Partial<ViewState> {
     const hs = this.handles(ctx);
-    const X = this.h ? ScaleTool.xform(this.h, this.f) : null;
+    const X = this.h ? ScaleTool.xform(this.h, this.f, this.uniform) : null;
     return { handles: hs.map((h, i) => ({ p: X ? applyPt(X, h.p) : h.p, active: i === this.hIdx })) };
   }
 }

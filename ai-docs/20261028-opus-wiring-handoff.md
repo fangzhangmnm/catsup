@@ -35,7 +35,7 @@
 5. **状态行披露**：`explainKey` 接到提示行（按下一个修饰键时露这一层有什么）。
 6. **自由建模细线太淡**（UX29，user「记账到时候opus修」）：`render3.ts` 平滑边淡线 / 顶点小点的颜色 / 透明度加深；给个样张 user 过目。
 7. **键鼠时手柄自动藏、触摸出现**（UX37）：按 `lastPointerType`（`main.ts` 已有）切右上角把手那组的显隐；鼠标 / 笔藏、手指露。
-8. **硬表面缩放 Shift = 等比但锚点仍是对面那个点**（UX35）：`src/editor/tools/scale.ts` 查现在 Shift 的锚点；等比只改比例不改锚。
+8. **【done v0.16.12】硬表面缩放 Shift = 等比但锚点仍是对面那个点**（UX35；面心柄按住 Shift，探针 probe-transform ③½）：`src/editor/tools/scale.ts` 查现在 Shift 的锚点；等比只改比例不改锚。
 9. **【done】零实例的定义存读往返不丢**（`test/orphan-defs.test.ts`）（UX26 的 TODO）：`test/format*.test.ts` 加一条（造一个没有实例的定义 → 写 glb → 读回来还在）。
 10. **新建工具**（FM182 / 任务 #25）：拖出来新建、点一下用马前炮尺寸、马后炮可改；入口两处先同一条指令（UX 账本「新建两入口先同一指令」）。
 
