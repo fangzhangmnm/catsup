@@ -23,6 +23,7 @@ import type { PointerFrame } from "./pointer-frame.ts";
 import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint } from "./pick.ts";
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, symmetrize } from "../mesh/mirror.ts";
+import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
 import { marqueeScreen } from "./marquee.ts";
 import type { EpsSet } from "./pointer-frame.ts";
 import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane, emptySelection, guidesOf, mergeSel, moveTargetsSelection, rectSegmentsOnPlane, curveSpecToLocal, offsetCircleSpec, circleCurveSpec, rrectSegments, rrectDirAt, rrectThetaOf, bulgePointForRadius, rectOpposite, rectAxesOf } from "./tools.ts";
@@ -1059,9 +1060,10 @@ export class Editor {
   private mirrorMerging = false;
   /** 这一步的镜像披露（并点 / 夹住 / 对面找不到）已经进提示行了吗：指令自己拼进去的算，没拼的步结束时补一条（工具拖动那条路）。 */
   private mirrorNoteShown = false;
-  private static readonly MIRROR_TOPO = new Set<Op["op"]>(["meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshBevel", "meshBevelVerts", "meshMerge"]);
-  private static readonly MIRROR_TOPO_ACTIONS = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter"]);
-  private static readonly NO_SYMMETRIZE = new Set<Op["op"]>(["meshSymmetrize", "meshSymmetrySnap", "meshSmoothDefault"]);
+  // 镜像下每条 op / 动作归哪一类 = mesh/mirror-ops.ts 的分类表（守卫 test/mirror-ops.test.ts 逼新 op 登记；F-113 审计 2026-10-28 晚）；这里只按类取集合
+  private static readonly MIRROR_TOPO = new Set<Op["op"]>(opsOfClass("topo"));
+  private static readonly MIRROR_TOPO_ACTIONS = MIRROR_TOPO_ACTIONS;
+  private static readonly NO_SYMMETRIZE = new Set<Op["op"]>(opsOfClass("meta"));
   /** 网格体的「对称」属性：缺 def = 正在编辑的那个（不在网格体里 = null）；给 def = 那个网格体（物体窗口里设子物体的）。 */
   mirrorOf(def?: number): MirrorSetting | null {
     const d = def ?? (this.activeKind() === "mesh" ? this.activePool().def : undefined);

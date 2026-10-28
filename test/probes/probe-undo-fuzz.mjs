@@ -1,5 +1,5 @@
 // 编辑器级撤销 fuzz（设计稿 ai-docs/20261028-undo-step-regime.md §3 层 4；2026-10-28 Claude Fable 5.1）。
-// 随机的用户动作序列（画盒 / 全选 / 取消 / 建组 / 建组件 / 进 / 退 / 移动 / 转网格体 / 删除 / 撤 / 重做），每个动作之后断言：
+// 随机的用户动作序列（画盒 / 全选 / 取消 / 建组 / 建组件 / 进 / 退 / 移动 / 转网格体 / 转回硬表面 / 删除 / 锁 / 藏 / 炸开 / 修复 / 镜像开关 / 挪点〔镜像下钉 / 不穿 / 并〕/ 挤出 / 细分 / 默认平滑 / 撤 / 重做），每个动作之后断言：
 //   ① stepViolations 永远 0（没有步外提交）② 一个动作最多长一步（没有幻影步）③ 从装载态重放整条指令流的指纹 == 活场景（差分 oracle）
 //   ④ 选区里的东西都还在活动视图里 ⑤ 工作台管得了活动池的身体（不变量 I5，2026-10-28 Opus）、全程没有 DRIFT 记录。
 //   每个种子最后：撤到种子开头、再重做到底，指纹和选区逐字回来；再（能进就先进一个网格体）重开模型，工作台得跟上（user 10-28 黑匣子那一案）。
@@ -23,32 +23,52 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.commitOp({ op: "addEdges", at: e.activePool(), segs }); };
   e.setGrid({ ...e.grid, on: false });
-  const out = { seeds: [], failures: [], reloads: [] }, drifts = [];
+  const out = { seeds: [], failures: [], reloads: [], hist: {} }, drifts = [];
   const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
   const modeFits = () => e.mode.kinds.includes(S().kindOf(S().defOfContext(e.context)));
   for (let seed = 1; seed <= SEEDS; seed++) {
     const rnd = mulberry(seed * 7919), posStart = e.history.position(), stepsStart = e.history.steps(), trail = [];
     let selAtLastStep = selKey();   // 进 / 出组件是导航不是步（FM106），撤到头再重做回来的是最后一步封的会话，不是之后的导航
     const fail = (why) => { out.failures.push(`seed ${seed} @${trail.length} [${trail.slice(-6).join(" ")}]: ${why}`); };
+    // 双数种子从网格体里开始（不然进网格体要连着 盒 → 组件 → 转网格体 → 进入 四步，镜像那条路几乎跑不到）
+    if (seed % 2 === 0) { box(0, 0, 0, 2, 1, 1); e.selectAll(); e.makeComponent(`m${seed}`); e.runAction("object.toMesh"); const mi0 = [...S().def(S().root).instances.values()].at(-1); e.selectedPools.clear(); e.selectedPools.set(`i${mi0.id}`, { kind: "instance", instance: mi0.id }); e.enterSelected(); trail.push("[mesh]"); }
     for (let k = 0; k < ACTIONS && out.failures.length < 6; k++) {
       const r = rnd(), hasSel = e.hasSelection(), hasPool = e.selectedPools.size > 0, depth = e.contextCrumbs().length - 1;
       const stepsBefore = e.history.steps(), fpBefore = fp(S());
       let name;
       try {
-        if (r < 0.18) { const i = Math.floor(rnd() * 6), j = Math.floor(rnd() * 6); box(i * 2, j * 2, 0, i * 2 + 1, j * 2 + 1, 1); name = "box"; }
-        else if (r < 0.28) { e.selectAll(); name = "selectAll"; }
-        else if (r < 0.34) { e.deselectAll(); name = "deselect"; }
-        else if (r < 0.42 && hasSel) { e.makeGroup(); name = "group"; }
-        else if (r < 0.50 && hasSel) { e.makeComponent(`c${k}`); name = "component"; }
-        else if (r < 0.56 && hasPool) { e.enterSelected(); name = "enter"; }
-        else if (r < 0.62 && depth > 0) { e.exitContext(); name = "exit"; }
-        else if (r < 0.70 && hasSel) { e.runAction("move", { dx: Math.round(rnd() * 3) - 1, dy: Math.round(rnd() * 3) - 1, dz: Math.round(rnd() * 2) }); name = "move"; }
-        else if (r < 0.74 && hasPool && [...e.selectedPools.values()].every((p) => p.kind === "instance")) { e.runAction("object.toMesh"); name = "toMesh"; }
-        else if (r < 0.80 && hasSel) { e.deleteSelection(); name = "delete"; }
-        else if (r < 0.90 && e.history.position() > posStart) { e.undo(); name = "undo"; }   // 不撤到种子开头之前（撤过头再提交会截掉前面种子的重做尾巴，「撤回种子开头」就对不上了）
-        else { e.redo(); name = "redo"; }
+        // 动作 = 加权清单（2026-10-28 晚 Claude Fable 5.1，F-113 审计：加进镜像那条路 + 网格体整体算子 + 物体动词）；不可用的不进清单
+        const inMesh = e.activeKind() === "mesh", meshDef = inMesh ? e.activePool().def : null, mk = inMesh ? S().mesh(meshDef).kernel : null;
+        const ctxDef = S().defOfContext(e.ctx), pools = [...e.selectedPools.values()], allInst = hasPool && pools.every((p) => p.kind === "instance");
+        const allMeshInst = allInst && pools.every((p) => { const ii = S().def(ctxDef).instances.get(p.instance); return !!ii && S().kindOf(ii.def) === "mesh"; });
+        const picks = [], add = (w, n, f) => picks.push([w, n, f]);
+        add(14, "box", () => { const i = Math.floor(rnd() * 6), j = Math.floor(rnd() * 6); box(i * 2, j * 2, 0, i * 2 + 1, j * 2 + 1, 1); });
+        add(8, "selectAll", () => e.selectAll());
+        add(5, "deselect", () => e.deselectAll());
+        if (hasSel) add(6, "group", () => e.makeGroup());
+        if (hasSel) add(6, "component", () => e.makeComponent(`c${k}`));
+        if (hasPool) add(5, "enter", () => e.enterSelected());
+        if (depth > 0) add(5, "exit", () => e.exitContext());
+        if (hasSel) add(7, "move", () => e.runAction("move", { dx: Math.round(rnd() * 3) - 1, dy: Math.round(rnd() * 3) - 1, dz: Math.round(rnd() * 2) }));
+        if (allInst) add(3, "toMesh", () => e.runAction("object.toMesh"));
+        if (allMeshInst) add(2, "toBrep", () => e.runAction("object.toBrep"));
+        if (hasSel) add(5, "delete", () => e.deleteSelection());
+        if (hasPool) { add(2, "lock", () => e.lockSelection(true)); add(1, "unlock", () => e.lockSelection(false)); add(2, "explode", () => e.explodeSelection()); }
+        if (hasSel && e.hasHideableSelection()) add(2, "hide", () => e.hideSelection());
+        add(1, "unhideAll", () => e.unhideAll());
+        if (inMesh) {   // 镜像那条路（v0.16.5 挪点纪律：钉 / 不穿 / 并 + 强行对称的对称化）+ 网格体的整体算子
+          add(3, "mirrorEdit", () => e.setMirror("edit", 0)); add(3, "mirrorForce", () => e.setMirror("force", 0)); add(2, "mirrorOff", () => e.setMirror(null));
+          add(2, "subdivide", () => e.runAction("mesh.subdivide")); add(2, "smooth", () => e.runAction(rnd() < 0.5 ? "mesh.smooth.smooth" : "mesh.smooth.hard"));
+          if (mk.vertexCount()) add(6, "moveVert", () => { const vs = mk.verts(), v = vs[Math.floor(rnd() * vs.length)], p = mk.pt(v); e.commitOp({ op: "meshMove", def: meshDef, moves: [{ v, to: { x: p.x + (rnd() * 2 - 1) * 1.5, y: p.y + rnd() - 0.5, z: p.z + rnd() - 0.5 } }] }); });
+          if (e.selection.kind === "mesh" && e.selection.faces.size) add(4, "extrude", () => e.commitOp({ op: "meshExtrude", def: meshDef, faces: [...e.selection.faces], offset: P(0.3, 0, 0) }));
+        } else if (!hasSel && depth === 0) add(2, "repair", () => e.runAction(["brep.straighten", "brep.weld", "brep.planar", "brep.harden"][Math.floor(rnd() * 4)]));
+        if (e.history.position() > posStart) add(10, "undo", () => e.undo());   // 不撤到种子开头之前（撤过头再提交会截掉前面种子的重做尾巴，「撤回种子开头」就对不上了）
+        add(5, "redo", () => e.redo());
+        const total = picks.reduce((acc, [w]) => acc + w, 0); let x = rnd() * total, chosen = picks[picks.length - 1];
+        for (const pk of picks) { x -= pk[0]; if (x < 0) { chosen = pk; break; } }
+        name = chosen[1]; chosen[2]();
       } catch (err) { name = name ?? "?"; trail.push(name); fail(`threw: ${String(err).slice(0, 120)}`); continue; }
-      trail.push(name);
+      trail.push(name); out.hist[name] = (out.hist[name] ?? 0) + 1;
       if (e.isGestureActive()) e.cancel();
       if (e.stepViolations !== 0) fail(`stepViolations=${e.stepViolations}`);
       if (name !== "undo" && name !== "redo" && e.history.steps() - stepsBefore > 1) fail(`one action grew ${e.history.steps() - stepsBefore} steps`);
@@ -82,6 +102,6 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
 }, { SEEDS, ACTIONS });
 await b.close();
 const ok = res.failures.length === 0 && errs.length === 0;
-console.log(JSON.stringify({ seeds: res.seeds, reloads: res.reloads, failures: res.failures, errs }, null, 1).slice(0, 4000));
+console.log(JSON.stringify({ hist: res.hist, failures: res.failures, errs, reloads: res.reloads, seeds: res.seeds }, null, 1).slice(0, 6000));
 console.log(ok ? "probe-undo-fuzz OK" : "probe-undo-fuzz FAIL");
 process.exit(ok ? 0 : 1);
