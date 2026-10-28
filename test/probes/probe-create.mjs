@@ -1,5 +1,5 @@
 // 自由建模的「新建」工具（纪元账本 FM182；tools/mesh-create.ts；created 2026-10-28 by Claude Opus 5.5）：网格体盒子里——
-// ① 左柱有「新建」；工具条露「新建 / 点一下的尺寸」② 地面上点一下 = 马前炮尺寸的立方体（边长 0.5）、一步撤销、新的留在选区、马后炮面板「新建立方体」
+// ① Shift+A = 拿起新建工具；左柱有「新建」；工具条露「新建 / 点一下的尺寸」② 地面上点一下 = 马前炮尺寸的立方体（边长 0.5）、一步撤销、新的留在选区、马后炮面板「新建立方体」
 // ③ 地面上拖 = 拖的时候有预演、松手 = 拖多大就多大（边长 = 2 × 拖的长度）④ 换圆柱、点在盒子顶面上 = 立在顶面上（直径 = 高 = 0.5）⑤ 撤销一步 = 圆柱没了
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-create.mjs
 import { createRequire } from "node:module";
@@ -26,7 +26,9 @@ const res = await page.evaluate(async () => {
   const stat = () => ({ f: m().faceCount(), v: m().vertexCount() });
   const newVerts = (before) => m().verts().filter((v) => !before.has(v));
   const ext = (vs) => { const ps = vs.map((v) => m().pt(v)), k = (a) => q(Math.max(...ps.map((p) => p[a])) - Math.min(...ps.map((p) => p[a]))); return { x: k("x"), y: k("y"), z: k("z"), zMin: q(Math.min(...ps.map((p) => p.z))) }; };
-  // ①
+  // ① Shift+A（Blender「添加」= 新建工具；user 10-28 晚「Shift+A 同意」）
+  e.setTool("select"); window.dispatchEvent(new KeyboardEvent("keydown", { key: "A", code: "KeyA", shiftKey: true, bubbles: true, cancelable: true })); await sleep(40);
+  out.shiftA = e.tool;
   e.setTool("create"); await sleep(60);
   out.rail = e.modeTools().join(",");
   out.strip = { kind: !!document.querySelector("#toolStrip")?.textContent?.includes("新建"), size: !!document.querySelector("#toolStrip")?.textContent?.includes("点一下的尺寸") };
@@ -62,7 +64,7 @@ await b.close();
 res.errs = errs;
 console.log(JSON.stringify(res, null, 1));
 const t = res.tap, d = res.drag, cy = res.cyl;
-const ok = /create/.test(res.rail) && res.strip.kind && res.strip.size
+const ok = res.shiftA === "create" && /create/.test(res.rail) && res.strip.kind && res.strip.size
   && t.st1.f === t.st0.f + 6 && t.st1.v === t.st0.v + 8 && t.steps === 1 && t.ext && t.ext.z === 0.5 && Math.max(t.ext.x, t.ext.y) === 0.5 && t.ext.zMin === 0 && t.sel === 6 && /新建立方体/.test(t.panel) && !t.check
   && d.st1.f === d.st0.f + 6 && d.ext && Math.abs(d.ext.z - d.want) < 0.01 && d.want > 0.05 && Math.abs(d.want - 0.5) > 0.01
   && cy.st1.f > cy.st0.f && cy.steps === 1 && cy.ext && cy.ext.zMin === 1 && cy.ext.z === 0.5 && cy.ext.x === 0.5 && !cy.check
