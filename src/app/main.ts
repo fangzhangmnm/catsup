@@ -22,6 +22,7 @@ import { openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
+import { mountMfd } from "./mfd.ts";
 import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, type Machine } from "./machine-window.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
@@ -770,6 +771,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 }
 function syncUi(): void {
   renderSnapWidget();
+  mfdRef?.render();   // 键名芯片（UX19）
   // 右上角的手 + 放大镜（拖着平移 / 缩放）：键鼠时藏（有滚轮 / 中键 / Shift+Z），检测到触摸 / 笔就露（账本 UX37，user 10-28「键鼠的时候手柄可以自动隐藏。检测到触摸自动出现」）
   { const nav = document.querySelector<HTMLElement>(".gizmo-nav"); if (nav) nav.hidden = lastPointerType === "mouse"; }
   renderMachineBtns();
@@ -1108,6 +1110,25 @@ function endModPeek(): void {
   modPeek = null;
 }
 canvas.addEventListener("pointerdown", () => endModPeek(), { capture: true });
+// 键名芯片（MFD，账本 UX19；controller/chips.ts + app/mfd.ts）：提示行上面一排固定槽位；手势开始 / 结束、换工具都要重画（syncUi 管大部分，指针按下 / 抬起补一下）
+// eslint-disable-next-line no-var
+var mfdRef: { render(): void } | null = null;
+mfdRef = mountMfd($("hintWrap"), {
+  ctx: () => keyContext(),
+  stance: () => stanceOf(editor.modeId, editor.tool),
+  press: (chord) => {   // 点芯片 = 按了这个键：和真按键走同一条（resolveKey → runKeyAction）
+    const p = chord.split("+"), n = p[p.length - 1], code = /^[a-z]$/.test(n) ? `Key${n.toUpperCase()}` : n === "escape" ? "Escape" : n === "enter" ? "Enter" : n === "arrowright" ? "ArrowRight" : n === "arrowleft" ? "ArrowLeft" : n === "arrowup" ? "ArrowUp" : n;
+    const key = /^[a-z]$/.test(n) ? n : code;
+    const r = resolveKey(keyContext(), { key, code, shift: p.includes("shift"), ctrl: p.includes("ctrl"), alt: p.includes("alt") });
+    if (r && r !== "swallow") runKeyAction(r.action, new KeyboardEvent("keydown", { key, code }));
+    syncUi();
+  },
+  collapsed: () => PREF.get("mfd") === "0",
+  setCollapsed: (on) => PREF.set("mfd", on ? "0" : "1"),
+  touchy: () => lastPointerType !== "mouse",
+});
+for (const t of ["pointerdown", "pointerup"] as const) canvas.addEventListener(t, () => queueMicrotask(() => mfdRef?.render()));
+window.addEventListener("keyup", () => mfdRef?.render());
 // 键盘 = 分层键表（controller/keymap.ts；UX 心智模型 §2.7，账本 UX17 / UX18）：每次按键从现状算出压着哪几层，从顶往下找第一个绑了的，这里只按动作 id 做事。
 // 以前这里是一长串 if（v0.15.46），2026-10-28 抄成层，行为照旧，只改了 user 拍的 X（操作工具里 X / Y / Z 永远 = 轴，选择工具里 X = 删除）。
 const keyEvt = (ev: KeyboardEvent): KeyEvt => ({ key: ev.key, code: ev.code, shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey, alt: ev.altKey });

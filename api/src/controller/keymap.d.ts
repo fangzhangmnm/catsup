@@ -99,3 +99,14 @@ export declare function keyDocs(toolLabel: (t: Tool) => string): {
         does: string;
     }[];
 }[];
+/** 肌肉记忆层面的「意思」：锁轴的几种时机（马上锁 / 先锁下一下 / 手势中锁）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
+export declare function meaningOf(action: string): string;
+/** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */
+export declare const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "vcbWants">>>;
+/** 现在的冲突：和弦 → 意思 → 在哪几个地方（没绑的不算；只有一种意思的不列）。 */
+export declare function muscleConflicts(): Map<Chord, Map<string, string[]>>;
+/**
+ * 已知的冲突（10-28 登记 = 当时的现状；UX15 列过前五个），**等 user 逐条拍**：留着（两个工作台各是各的肌肉记忆）/ 改掉某一边。拍了就改这里和键表。
+ * 新冒出来的（不在这里）= 守卫红：先想清楚是不是真要这么绑，要的话登记进来并告诉 user。
+ */
+export declare const KNOWN_CONFLICTS: Readonly<Record<Chord, string>>;
