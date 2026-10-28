@@ -25,6 +25,7 @@ import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
+import { railFace } from "../controller/rail-face.ts";
 import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
 import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
@@ -339,6 +340,15 @@ const flyoutItems = (tools: Tool[]) => tools.map((x) => { const s2 = specOf(x); 
 const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   const sp = specOf(t);
   const b = document.createElement("button");
+  // 按上下文换脸（controller/rail-face.ts；user 10-28 晚「有选区的时候删除的tool能变成小垃圾桶然后点了直接删吗」）：换了脸 = 图标 / 字 / 提示都换，点了跑键表同一条动作
+  const face = railFace(t, { mode: editor.modeId, hasSelection: editor.hasSelection(), gesture: editor.isGestureActive() });
+  if (face) {
+    b.type = "button"; b.className = "tool rail-face"; b.dataset.face = face.action; b.title = face.tip;
+    b.innerHTML = `${iconHtml(face.icon)}<span class="tool-label"></span>`;
+    (b.querySelector(".tool-label") as HTMLElement).textContent = face.label;
+    b.addEventListener("click", () => { if (editor.isGestureActive()) editor.abortGesture(); runKeyAction(face.action, new KeyboardEvent("keydown")); syncUi(); });   // 操作做到一半点它 = 先取消那个操作（选区不动）再删
+    return b;
+  }
   b.type = "button"; b.className = "tool"; b.title = sp.key ? `${sp.label}（${sp.key}）` : sp.label;
   b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>${flyout ? '<span class="tool-flyout" aria-hidden="true"></span>' : ""}`;
   (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
