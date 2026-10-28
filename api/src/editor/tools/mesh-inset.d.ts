@@ -6,6 +6,8 @@ export declare class MeshInsetTool implements ToolHandler {
     readonly tool: "offset";
     readonly grammar: "steps";
     private job;
+    /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
+    private adopt;
     private hadSel;
     private centerW;
     private start;

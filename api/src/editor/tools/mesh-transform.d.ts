@@ -11,6 +11,8 @@ export declare class MeshTransformTool implements ToolHandler {
     /** 沿法线：每个点自己的方向（本地，单位长；点 = 连着的面的法向平均）。 */
     private dirs;
     private vids;
+    /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
+    private adopt;
     private base;
     private pivotW;
     private grabW;

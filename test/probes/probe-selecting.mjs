@@ -2,6 +2,7 @@
 // 「alt 点边可以选择洞还是环，然后有镜像的时候环的算法要小心一点」）。自由建模里一个环切过的网格盒子：
 // ① 移动工具、没选区：空处拖 = 框选（框住的点进选区、盒子没被挪）② 挤出、插入工具同理 ③ 移动工具点一下点 = 选它；Shift 再点另一个点 = 加上（和选择工具同一套）
 // ④ Alt 点环切那一圈的边 = 整圈 4 条 ⑤ 再沿中间竖切一刀（中缝上有点）、强行对称开着：Alt 点横着那圈中缝一侧的一段 = 走过中缝、整圈 6 条 ⑥ 选一条边 → 右键「选成环 / 洞」⑦ 选两个点 → 右键「合并到中心」→ 少一个点、撤销回来 ⑧ 没有页面错误。
+// ⑧ 按下三分法（UX30）：按在选区外的东西上 = 换成它再做；空处 / 选区上 = 对选区做。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-selecting.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -75,6 +76,21 @@ const res = await page.evaluate(async () => {
   document.querySelectorAll(".popup-menu").forEach((x) => x.remove());
   out.merge = { picked: tv.length, row: !!mr, before: n0, after: m().vertexCount(), steps: e.history.steps() - st0 };
   e.undo(); await sleep(20); out.merge.undone = m().vertexCount();
+  // ⑧ 按下三分法（账本 UX30，2026-10-28 Opus；立场表 press = split3）：移动工具、选着 v1——
+  //   (a) 按在选区外的点 v2 上拖 = 选区换成 v2、挪 v2（v1 不动）、做完选着 v2；一下撤销 = v2 回原处、选区回到 v1
+  //   (b) 在空处拖 = 挪选区（Blender），选区还是 v1   (c) 按在 v1 自己上拖 = 挪 v1
+  e.setMirror(null); e.setTool("move"); e.deselectAll(); await sleep(20);
+  const tops = m().verts().filter((v) => Math.abs(m().pt(v).z - 1) < 1e-9), a1 = tops[0], a2 = tops.find((v) => Math.hypot(px(v).x - px(a1).x, px(v).y - px(a1).y) > 60);
+  const pos = (v) => JSON.stringify(m().pt(v)), selV = () => [...(e.selection.verts ?? [])].sort().join(",");
+  const q1 = px(a1); await tap(q1.x, q1.y);
+  out.split3 = { pre: selV(), want1: String(a1) };
+  { const p1 = pos(a1), p2 = pos(a2), q2 = px(a2), st = e.history.steps();
+    await drag(q2.x, q2.y, q2.x + 50, q2.y - 30);
+    out.split3.a = { sel: selV(), want: String(a2), v2moved: pos(a2) !== p2, v1still: pos(a1) === p1, steps: e.history.steps() - st };
+    e.undo(); await sleep(30);
+    out.split3.a.undo = { v2back: pos(a2) === p2, sel: selV() }; }
+  { const p1 = pos(a1); await drag(60, 640, 110, 600); out.split3.b = { v1moved: pos(a1) !== p1, sel: selV() }; e.undo(); await sleep(30); }
+  { const p1 = pos(a1), q = px(a1); await drag(q.x, q.y, q.x + 40, q.y - 40); out.split3.c = { v1moved: pos(a1) !== p1, sel: selV() }; e.undo(); await sleep(30); }
   return out;
 });
 await b.close();
@@ -86,6 +102,8 @@ const ok = boxOk(res.move) && boxOk(res.pp) && boxOk(res.offset)
   && res.mirror.ring === 6 && res.mirror.picked === 6 && res.mirror.crosses
   && res.menu.one === 1 && res.menu.row && res.menu.after > 1
   && res.merge.row && res.merge.after === res.merge.before - 1 && res.merge.undone === res.merge.before
+  && res.split3.pre === res.split3.want1 && res.split3.a.sel === res.split3.a.want && res.split3.a.v2moved && res.split3.a.v1still && res.split3.a.steps === 1 && res.split3.a.undo.v2back && res.split3.a.undo.sel === res.split3.want1
+  && res.split3.b.v1moved && res.split3.b.sel === res.split3.want1 && res.split3.c.v1moved && res.split3.c.sel === res.split3.want1
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-selecting OK" : "probe-selecting FAIL");

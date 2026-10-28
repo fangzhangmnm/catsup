@@ -9,10 +9,24 @@ import type { Tool } from "../tool-ids.ts";
 export interface Target {
     readonly verts: number[];
     readonly edges: number[];
-    readonly faces: number[]; /** 来自选区（不是按下处抓的）。 */
-    readonly fromSelection: boolean;
+    readonly faces: number[];
+    /** 来自选区（不是按下处抓的）。 */ readonly fromSelection: boolean;
+    /** 按在选区外的东西上（立场 press = split3）：真做了（落定那一步）才把选区换成它——按下时还分不清是点还是拖，点一下要照旧走点选（Shift 加选不能被它截胡）。 */
+    readonly adopt?: {
+        readonly verts: number[];
+        readonly edges: number[];
+        readonly faces: number[];
+    };
 }
-/** 按下这一下作用在什么上：有选区 = 选区；没选区 = 按下处按这把工具的立场抓那一个；空处 = "box"（拖 = 框选，BoxDrag）。只管网格体（自由建模）。 */
+/** 落定那一步里调（commitOp 之前）：把选区换成按下时抓到的那个（Target.adopt）；没有 = 什么都不做。 */
+export declare function adoptPress(ctx: ToolCtx, adopt: Target["adopt"] | null | undefined): void;
+/**
+ * 按下这一下作用在什么上（只管网格体 = 自由建模）：
+ * 没选区 = 按下处按这把工具的立场抓那一个；空处 = "box"（拖 = 框选，BoxDrag）。
+ * 有选区 = 看立场表 press 列（账本 UX30）：split3 = 按在选区上 / 空处 → 选区；按在选区外的可选对象上 → 对它做，落定那一步里选区换成它（Target.adopt → adoptPress）、做完留着；
+ *   只是点一下（没拖）= 工具走 clickSelect，选区照点选的规矩变（Shift 加选不被截胡）。
+ * 缺 press = 有选区就是选区（不管按在哪）。
+ */
 export declare function pressTarget(ctx: ToolCtx, at: {
     x: number;
     y: number;

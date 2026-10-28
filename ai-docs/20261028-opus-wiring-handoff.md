@@ -21,7 +21,7 @@
 1. **【done v0.16.9】放置表吃左柱和 ☰**（`src/controller/placement.ts`：RAIL_FIRST / RAIL_GROUPS / RAIL_FIXED / RAIL_LABELS / MENU_TABS / MENU_ROWS + SURFACE_RENDERERS；main.ts 只按表画；守卫 `test/placement.test.ts`；探针 `probe-rail` 和搬家前逐字一样。视图 ☰ 还没吃，登记成 pending）（心智模型 §2.2 / §8 补 3；UX34「放置表管的事不同的面板里面放什么指令，不只是左栏和右键菜单」）
    - 做什么：左柱的工具格和 ☰ 的菜单项改成从放置表长出来（Surface `toolStrip` / `hamburger` 已登记在 `commands/action.ts`，还没有渲染器）。工具本身仍是立场表（`controller/stance.ts`）的事；左柱的常驻 / 预算 / 最近用过那张表（`main.ts RAIL_GROUPS`）留着当「手 + 工具袋」的布局规则，只是「哪把工具 / 哪条指令进哪一组」改成查放置表。
    - 验：现有探针全绿（`probe-rail*` / `probe-context` / `probe-submenu`）；`test/registry*` 守卫加一条「每个放置的面都有渲染器或登记为还没有」。
-2. **操作工具按下三分法**（UX30，user 拍了）
+2. **【done v0.16.10】操作工具按下三分法**（UX30，user 拍了；立场表 press 列 + pressTarget + adoptPress，探针 probe-selecting ⑧）
    - 做什么：移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线有选区时，按下处先问「在选区里 / 空处 / 选区外的可选对象」：选区里 = 留着选区做；空处 = 对选区做（Blender）；选区外的可选对象 = **替换**选区成它再做（做完留着它）。没选区的那半不变（按在东西上 = 它、空处 = 拖框）。
    - 改哪：`src/editor/tools/selecting.ts pressTarget`（现在有选区 = 不管按在哪都对选区做）；立场表 `stance.ts` 加「按下」一列三格，`pressTarget` 读表；守卫 `test/stance.test.ts` 跟着加列。
    - 验：`probe-selecting` 加三段（按在选区外的点上拖 → 只动那个点、选区换成它）。

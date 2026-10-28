@@ -37,6 +37,12 @@ export interface Stance {
     readonly charge: boolean;
     /** 意图门（硬表面：屏上拖的方向判意图，反方向的吸附不合法）。 */
     readonly intent: boolean;
+    /**
+     * 有选区时按下作用在什么上（账本 UX30，user 10-28「move类的东西，在有选择的时候，如果空白处拖动是类似blender的做法，但是如果有明显的选择含义，比如点一个点，那么还是换选择」
+     * 「所以相当于看点的是选区，空白，还是选区外的可选择对象」）：split3 = 按在选区上（含选中面 / 边的边和点）→ 对选区做；空处 → 对选区做（Blender）；
+     * 选区外的可选对象 → 选区换成它、再做、做完留着它。缺 = 这把工具的手势模块自己管（硬表面 SketchUp 语义、画线 / 刮 / 尺规不看选区）。读的人 = tools/selecting.ts pressTarget。
+     */
+    readonly press?: "split3";
     /** 还没做的部分（表里先写明立场、不发明行为）。 */
     readonly todo?: string;
 }

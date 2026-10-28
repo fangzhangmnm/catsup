@@ -13,7 +13,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
-import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target } from "./selecting.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
 import type { QuantityTag } from "../units.ts";
@@ -33,6 +33,8 @@ export class MeshInsetTool implements ToolHandler {
   readonly tool = "offset" as const;
   readonly grammar = "steps" as const;
   private job: Job | null = null;
+  /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
+  private adopt: Target["adopt"] | null = null;
   private hadSel = false;
   private centerW: Pt3 | null = null;
   private start: { x: number; y: number } | null = null;
@@ -45,7 +47,7 @@ export class MeshInsetTool implements ToolHandler {
   private box = new BoxDrag();
   tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（同选择工具），只有拖才插入 / 倒角（user 10-27）
   active(): boolean { return this.job !== null || this.box.active(); }
-  cancel(): void { this.box.cancel(); this.job = null; this.centerW = null; this.start = this.cur = null; }
+  cancel(): void { this.box.cancel(); this.job = null; this.adopt = null; this.centerW = null; this.start = this.cur = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshInset: { job: this.job?.kind ?? null, start: this.start, cur: this.cur } }; }
@@ -69,7 +71,7 @@ export class MeshInsetTool implements ToolHandler {
     const m = ctx.mesh();
     // 按下作用在什么上 = selecting.ts（没选区只认面；FM165）；拿它做什么 = 这里：面 = 插入、边 = 倒角、点 = 倒点（Ctrl+B / Ctrl+Shift+B 强制倒角 / 倒点）
     const p = pressTarget(ctx, at, this.tool);
-    this.hadSel = p !== "box" && p.fromSelection;
+    this.hadSel = p !== "box" && p.fromSelection; this.adopt = p !== "box" ? p.adopt ?? null : null;
     const faces = p === "box" ? [] : p.faces, edges = p === "box" ? [] : p.edges, verts = p === "box" ? [] : p.verts;
     let job: Job | null = null;
     if (force === "bevelVerts") job = verts.length ? { kind: "bevelVerts", verts } : null;
@@ -132,12 +134,13 @@ export class MeshInsetTool implements ToolHandler {
   }
 
   private commit(ctx: ToolCtx): void {
-    const job = this.job, dW = this.distW(ctx), dL = dW / this.localScale, hadSel = this.hadSel, scale = this.localScale;
+    const job = this.job, dW = this.distW(ctx), dL = dW / this.localScale, hadSel = this.hadSel, scale = this.localScale, adopt = this.adopt;
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null);
     if (!job) return;
     const name = job.kind === "inset" ? "插入" : "倒角";
     if (dL < 1e-6) { ctx.hint(`${name}：没动`); return; }
+    adoptPress(ctx, adopt);
     if (job.kind === "inset") {
       ctx.commitOp(this.opFor(ctx, job, dL, 1));
       if (hadSel) ctx.setSelection({ faces: job.faces.filter((f) => ctx.mesh().hasF(f)) });   // 里面那几张面（插入保号：面还是原来的 id）

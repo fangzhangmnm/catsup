@@ -287,3 +287,7 @@ flowchart LR
 
 - 左柱 / ☰ 的「放哪、第几」= `src/controller/placement.ts` 一张表（纯数据，node 直测）；`main.ts renderSlots` / ☰ 的 `items` 按表画、`menuRow(id)` 给每行长相。每次渲染 O(表长)，和以前一样。注册表的放置面加了「谁画」的登记（`SURFACE_RENDERERS`）。
 
+## 追记 2026-10-28 晚（v0.16.10，Claude Opus 5.5）：自由建模按下三分法
+
+- 「按下作用在什么上」（`tools/selecting.ts pressTarget`）多一次按下处拾取（有选区时也拾，O(1) 一次 pick）+ 「在不在选区上」判定（O(选中面的点 / 边)）；换选区不在按下时做，挪到三把工具的落定里（`adoptPress` → 同一步里先换选区再 commitOp）。
+

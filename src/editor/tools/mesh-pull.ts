@@ -14,7 +14,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyNormal, applyPt, invert } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
-import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target as SelTarget } from "./selecting.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 
 type Target = { faces: number[]; edges: number[]; verts: number[] };
@@ -24,6 +24,8 @@ export class MeshPullTool implements ToolHandler {
   readonly grammar = "steps" as const;
   readonly lock = "axis" as const;
   private t: Target | null = null;
+  /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
+  private adopt: SelTarget["adopt"] | null = null;
   /** 按下时有没有选区（user 10-27：一开始没选区 = SU 手感，做完还是没选区、接着挑下一个「受害者」；一开始有选区才留选区）。 */
   private hadSel = false;
   private pivotW: Pt3 | null = null;
@@ -44,7 +46,7 @@ export class MeshPullTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.box.cancel(); this.t = null; this.pivotW = this.nW = this.grabW = null; this.start = this.cur = null; }
+  cancel(): void { this.box.cancel(); this.t = null; this.adopt = null; this.pivotW = this.nW = this.grabW = null; this.start = this.cur = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshPull: { t: this.t, start: this.start, cur: this.cur } }; }
@@ -56,7 +58,7 @@ export class MeshPullTool implements ToolHandler {
     // 按下作用在什么上 = selecting.ts（没选区只认面：点和边不挡路，小面也按得到；挤边 / 点 = 先选中它们。纪元账本 FM165）；挤什么 = 这里：面 > 边 > 点
     const p = pressTarget(ctx, ev, this.tool);
     if (p === "box") { this.hadSel = false; this.box.begin(ev); ctx.hint("框选（挤出工具里：没选东西时在空处拖 = 框；挤边 / 点 = 框住它们再拖）"); return; }   // user 10-28「其他的同理」
-    this.hadSel = p.fromSelection;
+    this.hadSel = p.fromSelection; this.adopt = p.adopt ?? null;
     const t: Target = p.faces.length ? { faces: p.faces, edges: [], verts: [] } : p.edges.length ? { faces: [], edges: p.edges, verts: [] } : { faces: [], edges: [], verts: p.verts };
     if (!(t.faces.length || t.edges.length || t.verts.length)) { ctx.hint("挤出：直接在面上按下；要挤边 / 点，先选中它们"); return; }
     const X = ctx.ctxXform(), vs = new Set<number>();
@@ -120,7 +122,7 @@ export class MeshPullTool implements ToolHandler {
   }
 
   private commit(ctx: ToolCtx): void {
-    const t = this.t, mv = this.motion(ctx), what = this.what(), scaleL = this.alongScale, hadSel = this.hadSel;
+    const t = this.t, mv = this.motion(ctx), what = this.what(), scaleL = this.alongScale, hadSel = this.hadSel, adopt = this.adopt;
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null);
     if (!t || !mv) return;
@@ -129,6 +131,7 @@ export class MeshPullTool implements ToolHandler {
     const def = ctx.activePool().def, sel = t.faces.length ? { faces: t.faces } : t.edges.length ? { edges: t.edges } : { verts: t.verts };
     const how = mv.along !== undefined ? { along: mv.along / scaleL } : { offset: applyDir(invert(ctx.ctxXform()), mv.off) };
     const probe = ctx.mesh().clone(), r = how.along !== undefined ? extrudeAlongNormals(probe, t, how.along) : extrudeAndOffset(probe, t, how.offset);   // 先在副本上跑一遍拿新 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
+    adoptPress(ctx, adopt);
     ctx.commitOp({ op: "meshExtrude", def, ...sel, ...how });
     const m = ctx.mesh();
     if (!hadSel) { ctx.hint(`挤出了 ${what}（${fmtLen(amount)}）`); return; }   // 没选区开始的 = 做完也不留选区（SU 手感，接着点下一个）

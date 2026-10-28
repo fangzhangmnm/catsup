@@ -17,7 +17,7 @@ import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
-import { BoxDrag, clickSelect, pressTarget } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target } from "./selecting.ts";
 
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal";   // normal = 沿法线移动（Blender Shrink / Fatten；工具 id shrink）
 /** 起点离轴心太近时缩放的参考半径（CSS px；Blender 要人先把鼠标挪开，触屏上点中的常常就是轴心）。 */
@@ -34,6 +34,8 @@ export class MeshTransformTool implements ToolHandler {
   /** 沿法线：每个点自己的方向（本地，单位长；点 = 连着的面的法向平均）。 */
   private dirs = new Map<number, Pt3>();
   private vids: number[] = [];
+  /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
+  private adopt: Target["adopt"] | null = null;
   private base = new Map<number, Pt3>();   // 按下那一刻的本地坐标
   private pivotW: Pt3 | null = null;         // 轴心（世界）
   private grabW: Pt3 | null = null;          // 按下处在过轴心的相机平面上的点（世界）
@@ -55,7 +57,7 @@ export class MeshTransformTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.box.cancel(); this.vids = []; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; }
+  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
@@ -69,7 +71,7 @@ export class MeshTransformTool implements ToolHandler {
     const vids = selectionVerts(m, t);
     if (!vids.length) { ctx.hint(`${this.verb()}：选区里没有能${this.verb()}的点`); return; }
     const X = ctx.ctxXform();
-    this.vids = vids; this.base.clear(); this.dirs = new Map();
+    this.vids = vids; this.adopt = t.adopt ?? null; this.base.clear(); this.dirs = new Map();
     if (this.kind === "normal") {   // 选了面 = 每个点只看选中的面（选一张顶面 = 直直往上，Blender Shrink / Fatten 同）；只选了边 / 点 = 看连着的全部面（一圈环 = 各自往外胖）
       const selF = sel.kind === "mesh" ? [...sel.faces].filter((f) => m.hasF(f)) : [];
       if (selF.length) {
@@ -206,12 +208,13 @@ export class MeshTransformTool implements ToolHandler {
   }
 
   private commit(ctx: ToolCtx): void {
-    const r = this.solve(ctx), n = this.vids.length, verb = this.verb();
+    const r = this.solve(ctx), n = this.vids.length, verb = this.verb(), adopt = this.adopt;
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (!r) return;
     const moves = [...r.moves].filter(([v, p]) => { const b = ctx.mesh().pt(v); return b.x !== p.x || b.y !== p.y || b.z !== p.z; }).map(([v, to]) => ({ v, to }));
     if (!moves.length) { ctx.hint(`${verb}：没动`); return; }
+    adoptPress(ctx, adopt);
     ctx.commitOp({ op: "meshMove", def: ctx.activePool().def, moves });
     ctx.hint(`${verb}了 ${n} 个点（${r.dims}）`);
   }

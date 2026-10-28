@@ -37,6 +37,10 @@ describe("立场表：每把工具每个工作台一行，和手势模块一致"
     for (const d of ["mouse", "pen", "finger"] as const) for (const g of ["click", "box", "lasso"] as const) assert(["replace", "add", "remove", "toggle"].includes(BOOLEAN_DEFAULT[d][g]), `${d}/${g}`);
     eq(BOOLEAN_DEFAULT.mouse.click, "replace"); eq(BOOLEAN_DEFAULT.pen.click, "toggle"); eq(BOOLEAN_DEFAULT.pen.box, "add");
   });
+  it("按下三分法（账本 UX30）：自由建模里经 pressTarget 的工具（移动 / 旋转 / 缩放 / 沿法线 / 挤出 / 插入）都声明 press = split3", () => {
+    for (const t of ["move", "rotate", "scale", "shrink", "pp", "offset"] as const) eq(stanceOf("freeform", t)?.press, "split3", t);
+    for (const t of ["select", "knife", "erase"] as const) eq(stanceOf("freeform", t)?.press, undefined, `${t} 不经 pressTarget`);
+  });
   it("src/controller/ 是无头骑士：不许运行时 import 内核 / 网格 / three / DOM", () => {
     const dir = new URL("../src/controller/", import.meta.url);
     const bad: string[] = [];

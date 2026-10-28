@@ -7,6 +7,8 @@ export declare class MeshPullTool implements ToolHandler {
     readonly grammar: "steps";
     readonly lock: "axis";
     private t;
+    /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
+    private adopt;
     /** 按下时有没有选区（user 10-27：一开始没选区 = SU 手感，做完还是没选区、接着挑下一个「受害者」；一开始有选区才留选区）。 */
     private hadSel;
     private pivotW;

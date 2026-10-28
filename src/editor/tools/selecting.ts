@@ -5,7 +5,7 @@
 //     Alt 点边 = 环 / 洞（网格体；mesh/select-loop.ts）、双击组件进去、双击空处退出一层、参考线 / 空组件；
 //   · 框（boxSelect）：屏幕框里的点 / 边 / 面 / 子物体 / 参考点；
 //   · 拖框（BoxDrag）：按下 → 拖 → 松手的那一套状态（出框的门槛 = 点按容差）。
-// 自由建模的操作工具怎么用：点一下 = clickSelect；按下 = pressTarget(抓什么)——有选区 = 选区、手下有东西 = 它、**没选区又按在空处 = 拖框**；
+// 自由建模的操作工具怎么用：点一下 = clickSelect；按下 = pressTarget(抓什么)——有选区 = 按在选区上 / 空处对选区做、按在选区外的东西上换成它（立场表 press 列，账本 UX30）；手下有东西 = 它；**没选区又按在空处 = 拖框**；
 // 拿到目标以后「拿它做什么」（挤面 / 挤边、插入 / 倒角……）才归工具自己。各工具的选法一张表 = ai-docs/20261027-freeform-tools.md §选法。
 // 硬表面的移动 / 旋转 / 缩放不走这里（SketchUp 的语义不变，纪元账本 FM159）；两套肌肉记忆怎么统一 = 家族周账 F-117 交 Fable。
 import { pickGuide } from "../guide-pick.ts";
@@ -20,22 +20,62 @@ import { BOOLEAN_DEFAULT, deviceOf, stanceOf } from "../../controller/stance.ts"
  * 没选区时按下抓什么 = 立场表（stance.ts）那把工具在自由建模那一行的「抓什么」（user 10-28「关键是不同的子工具的选择逻辑是不是都不一样。能不能把这些逻辑整理出来做一个深模块窄接口」）：
  * "element" = 点 > 边 > 面（常量半径，纪元账本 FM165；移动 / 旋转 / 缩放 / 沿法线）；"face" = 只认面（点和边不挡路、小面也按得到；挤出、插入 / 倒角）。
  */
-export interface Target { readonly verts: number[]; readonly edges: number[]; readonly faces: number[]; /** 来自选区（不是按下处抓的）。 */ readonly fromSelection: boolean }
-/** 按下这一下作用在什么上：有选区 = 选区；没选区 = 按下处按这把工具的立场抓那一个；空处 = "box"（拖 = 框选，BoxDrag）。只管网格体（自由建模）。 */
-export function pressTarget(ctx: ToolCtx, at: { x: number; y: number }, tool: Tool): Target | "box" {
-  const m = ctx.mesh(), sel = ctx.selection(), grab = stanceOf("freeform", tool)?.grab ?? "element";
-  if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) {
-    const by = (xs: Iterable<number>, alive: (x: number) => boolean): number[] => [...xs].filter(alive).sort((a, b) => a - b);
-    return { verts: by(sel.verts, (v) => m.hasV(v)), edges: by(sel.edges, (e) => m.hasE(e)), faces: by(sel.faces, (f) => m.hasF(f)), fromSelection: true };
-  }
+export interface Target {
+  readonly verts: number[]; readonly edges: number[]; readonly faces: number[];
+  /** 来自选区（不是按下处抓的）。 */ readonly fromSelection: boolean;
+  /** 按在选区外的东西上（立场 press = split3）：真做了（落定那一步）才把选区换成它——按下时还分不清是点还是拖，点一下要照旧走点选（Shift 加选不能被它截胡）。 */
+  readonly adopt?: { readonly verts: number[]; readonly edges: number[]; readonly faces: number[] };
+}
+/** 落定那一步里调（commitOp 之前）：把选区换成按下时抓到的那个（Target.adopt）；没有 = 什么都不做。 */
+export function adoptPress(ctx: ToolCtx, adopt: Target["adopt"] | null | undefined): void {
+  if (!adopt) return;
+  ctx.replaceSelection({ verts: adopt.verts, edges: adopt.edges, faces: adopt.faces, pools: [] }, "replace");
+  ctx.afterSelect();
+}
+/** 按下处抓到的东西（立场表「抓什么」：element = 点 > 边 > 面，face = 只认面）；没东西 = null。只管网格体（自由建模）。 */
+function grabUnder(ctx: ToolCtx, at: { x: number; y: number }, grab: string): { verts: number[]; edges: number[]; faces: number[] } | null {
+  const m = ctx.mesh();
   if (grab === "face") {
     const gf = ctx.pickFace(at.x, at.y), c = gf !== undefined ? ctx.classify(ctx.world(), { face: gf }) : null;
-    return c && c.kind === "entity" && c.local.face !== undefined && m.hasF(c.local.face) ? { verts: [], edges: [], faces: [c.local.face], fromSelection: false } : "box";
+    return c && c.kind === "entity" && c.local.face !== undefined && m.hasF(c.local.face) ? { verts: [], edges: [], faces: [c.local.face] } : null;
   }
   const c = ctx.classify(ctx.world(), ctx.pick(at.x, at.y));
-  if (c.kind !== "entity") return "box";
+  if (c.kind !== "entity") return null;
   const h = c.local;
-  return { verts: h.vertex !== undefined ? [h.vertex] : [], edges: h.edge !== undefined ? [h.edge] : [], faces: h.face !== undefined && h.vertex === undefined && h.edge === undefined ? [h.face] : [], fromSelection: false };
+  return { verts: h.vertex !== undefined ? [h.vertex] : [], edges: h.edge !== undefined ? [h.edge] : [], faces: h.face !== undefined && h.vertex === undefined && h.edge === undefined ? [h.face] : [] };
+}
+/** 按下处的东西算不算「在选区上」：它自己选着，或者它是选中的面 / 边的一部分（按在选中面的边上、选中边的端点上 = 按在选区上，不换选区）。 */
+function touchesSelection(ctx: ToolCtx, sel: { verts: ReadonlySet<number>; edges: ReadonlySet<number>; faces: ReadonlySet<number> }, u: { verts: number[]; edges: number[]; faces: number[] }): boolean {
+  const m = ctx.mesh();
+  const selFaceEdges = new Set<number>(), selVerts = new Set<number>(sel.verts);
+  for (const f of sel.faces) if (m.hasF(f)) { for (const e of m.fEdges(f)) selFaceEdges.add(e); for (const v of m.faceVerts(f)) selVerts.add(v); }
+  for (const e of sel.edges) if (m.hasE(e)) { selVerts.add(m.edgeA[e]); selVerts.add(m.edgeB[e]); }
+  if (u.faces.some((f) => sel.faces.has(f))) return true;
+  if (u.edges.some((e) => sel.edges.has(e) || selFaceEdges.has(e))) return true;
+  if (u.verts.some((v) => selVerts.has(v))) return true;
+  // 只认面的工具按在一张没选的面上，但这张面带着选中的边 / 点（选了边去挤）= 也算在选区上
+  if (u.faces.length && !u.edges.length && !u.verts.length) for (const f of u.faces) if (m.hasF(f) && (m.fEdges(f).some((e) => sel.edges.has(e)) || m.faceVerts(f).some((v) => sel.verts.has(v)))) return true;
+  return false;
+}
+/**
+ * 按下这一下作用在什么上（只管网格体 = 自由建模）：
+ * 没选区 = 按下处按这把工具的立场抓那一个；空处 = "box"（拖 = 框选，BoxDrag）。
+ * 有选区 = 看立场表 press 列（账本 UX30）：split3 = 按在选区上 / 空处 → 选区；按在选区外的可选对象上 → 对它做，落定那一步里选区换成它（Target.adopt → adoptPress）、做完留着；
+ *   只是点一下（没拖）= 工具走 clickSelect，选区照点选的规矩变（Shift 加选不被截胡）。
+ * 缺 press = 有选区就是选区（不管按在哪）。
+ */
+export function pressTarget(ctx: ToolCtx, at: { x: number; y: number }, tool: Tool): Target | "box" {
+  const m = ctx.mesh(), sel = ctx.selection(), st = stanceOf("freeform", tool), grab = st?.grab ?? "element";
+  const by = (xs: Iterable<number>, alive: (x: number) => boolean): number[] => [...xs].filter(alive).sort((a, b) => a - b);
+  if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) {
+    if (st?.press === "split3") {
+      const u = grabUnder(ctx, at, grab);
+      if (u && !touchesSelection(ctx, sel, u)) return { ...u, fromSelection: true, adopt: u };   // 选区外的可选对象：对它做，落定时选区换成它（adoptPress）
+    }
+    return { verts: by(sel.verts, (v) => m.hasV(v)), edges: by(sel.edges, (e) => m.hasE(e)), faces: by(sel.faces, (f) => m.hasF(f)), fromSelection: true };
+  }
+  const u = grabUnder(ctx, at, grab);
+  return u ? { ...u, fromSelection: false } : "box";
 }
 
 /** 右下角「选区」两档：多选（= 一直按着 Shift）？ */
