@@ -25,7 +25,7 @@ import { fmtStamp } from "../format/migrate/index.ts";
 import { unitFromSettings, unitToSettings } from "../editor/units.ts";
 import { contentFingerprint } from "../format/final.ts";
 import { APP_VERSION } from "../version.ts";
-import { AUTOSAVE_IDLE_MS, DOC_EXT, defaultDocName } from "../config.ts";
+import { AUTOSAVE_IDLE_MS, DOC_EXT, defaultDocName, downloadName } from "../config.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
 import { setOpened } from "@internal/gallery";
@@ -585,9 +585,9 @@ export class Session {
   }
   /** 导出一份（永不清 dirty）。 */
   exportDownload(): void {
-    const bytes = this.encode();
-    this.download(bytes, `${this.displayName()}${DOC_EXT}`);
-    this.d.setStatus(`已导出 ${this.displayName()}${DOC_EXT}`);
+    const bytes = this.encode(), name = `${downloadName(this.displayName())}${DOC_EXT}`;   // 导出名带导出时间（WeebPaint 同款；user 10-28）
+    this.download(bytes, name);
+    this.d.setStatus(`已导出 ${name}`);
   }
   private download(bytes: Uint8Array, name: string): void {
     const url = URL.createObjectURL(new Blob([bytes], { type: "model/gltf-binary" }));

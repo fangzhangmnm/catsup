@@ -25,6 +25,16 @@ export function defaultDocName(now = new Date()): string {
   const hex = Math.floor(Math.random() * 0x10000).toString(16).padStart(4, "0");
   return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${hex}`;
 }
+/**
+ * 导出 / 下载文件名里的时间（WeebPaint `src/naming.ts downloadStamp` 同款：本地时间 YYYYMMDD-HHMM）。
+ * user 2026-10-28「导出的时候应该加一个导出时间，看一下weebpaint的导出命名规范」：导出名 = `模型名-YYYYMMDD-HHMM.扩展名`（另存 / 安家不加，那是文档自己的名字）。
+ */
+export function downloadStamp(now = new Date()): string {
+  const p = (n: number) => String(n).padStart(2, "0");
+  return `${now.getFullYear()}${p(now.getMonth() + 1)}${p(now.getDate())}-${p(now.getHours())}${p(now.getMinutes())}`;
+}
+/** 导出 / 下载文件基名 = `名-YYYYMMDD-HHMM`（不含扩展名）。 */
+export function downloadName(base: string, now = new Date()): string { return `${base}-${downloadStamp(now)}`; }
 /** 派生缓存 / 崩溃影子的独立 IDB（家规 2026-08-15：可再生派生缓存与 T-crash 附加层不进 store 的库、逐案批；user 2026-09-20「234批准」）。
  *  名字带 device-kv 同一 GUID 前缀（file:// 共桶防撞）；两个库全删无损（缩略图可再生、崩溃帧本就是附加层）。 */
 export const THUMB_DB_NAME = "catsup-7c1f0d2e9a4b6c58.thumbs";

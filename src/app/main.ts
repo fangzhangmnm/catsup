@@ -13,6 +13,7 @@ import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
+import { downloadName } from "../config.ts";
 import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
@@ -758,9 +759,8 @@ function doExport(): void {
   const blob = new Blob([text], { type: "model/obj" });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
-  const stamp = new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-");
   a.href = url;
-  a.download = `catsup-${stamp}.obj`;
+  a.download = `${downloadName(session.displayName())}.obj`;   // 模型名-YYYYMMDD-HHMM（WeebPaint 导出命名同款；user 10-28「导出的时候应该加一个导出时间」）
   document.body.appendChild(a);
   a.click();
   a.remove();

@@ -107,6 +107,8 @@ export type EditorTrace =
   | { kind: "undo" | "redo"; position: number; depth: number }
   | { kind: "step"; label: string; ops: number; session: boolean }   // 一步封账（设计稿 §3 层 6）
   | { kind: "load"; label: string }
+  /** 工作台和活动池的身体种类对不上（不变量 I5：本该不可能；画之前查到 = 当场纠正 + 记一行）。where = 谁漏了。 */
+  | { kind: "drift"; where: string; mode: string; body: string }
   /** 失败行另带复现材料（黑匣子，2026-10-24）：那一步之前的活动池 B-rep + 池地址；预演失败带工具描述。宿主只在内存里留。 */
   | { kind: "fail"; where: string; op: Op | null; message: string; brep?: BrepSnapshot; pool?: PoolRef; preview?: Record<string, unknown> };
 
@@ -499,12 +501,34 @@ export class Editor {
     this.host.hint(`「${verb}」是硬表面体的动词；网格体上的还没接（自由建模工作台）`);
     return false;
   }
-  /** 工作台跟着活动池的身体种类走：当前工作台不管这种身体 → 切到管它的第一个（进出上下文、换场景后调）。 */
-  private ensureModeForKind(): void {
+  /**
+   * 不变量 I5：工作台管得了活动池的身体种类（2026-10-28；user「想一下深层次的原因，为什么工作台没有跟着物体」「然后多码几层瑞士奶酪」）。
+   * 根：「人在哪」和「用哪个工作台」是两份状态，以前靠每个改「人在哪」的入口事后自觉补一句 → 「打开模型」漏了（黑匣子「definition 1 body is "brep", not mesh」）。
+   * 层 1：它住在「人在哪 / 场景」的写口里面（setCtx / sessionRestore / bump / installScene / loadScene），不是调用方的事；
+   * 层 2：守卫 test/step-pass-guard.test.ts 第五条——写 this.ctx / this.scene 的函数必须同一个函数里调它；
+   * 层 3：画之前 checkModeFits 再查一次，对不上 = 当场纠正 + 黑匣子记一行 drift；层 4：撤销 fuzz 探针每步核对、带「重开模型」动作。
+   * 只切工作台本身（不是用户的一步、不画、不通知；调用方之后自己画）。
+   */
+  private syncModeToKind(): void {
     const kind = this.activeKind();
     if ((this.mode.kinds as readonly BodyKind[]).includes(kind)) return;
     const next = this.modeList.find((m) => (m.kinds as readonly BodyKind[]).includes(kind));
-    if (next) this.setMode(next.id);
+    if (!next) return;
+    this.cancelGesture();
+    this.mode.leave?.(this.toolCtx);
+    this.openParamSession(null);
+    this.mode = next;
+    this.mode.enter?.(this.toolCtx);
+    if (!next.tools.includes(this._tool)) this._tool = next.defaultTool;
+    this.last = null;
+    this.clearCharged();
+  }
+  /** 层 3：画之前核对 I5；对不上 = 有入口绕过了写口（层 1 / 2 都漏了）→ 记一行、当场纠正。 */
+  private checkModeFits(where: string): void {
+    const kind = this.activeKind();
+    if ((this.mode.kinds as readonly BodyKind[]).includes(kind)) return;
+    this.host.trace?.({ kind: "drift", where, mode: this.mode.id, body: kind });
+    this.syncModeToKind();
   }
   get sceneRef(): Scene { return this.scene; }
   /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
@@ -942,6 +966,7 @@ export class Editor {
   private sessionSnap(): Session { return { ctx: { chain: [...this.ctx.chain], group: this.ctx.group }, sel: this.selSnap() }; }
   private sessionRestore(s: Session | undefined): void {
     if (s) { const c = this.validCtx(s.ctx); if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; this._revision++; } }
+    this.syncModeToKind();
     this.selRestore(s?.sel);
   }
   /** 场景里还在的最深一层上下文（实例链从尾往前剪；组不在了 = 那个实例的根）。 */
@@ -1003,7 +1028,7 @@ export class Editor {
   private static sameCtx(a: Session, b: Session): boolean { return a.ctx.group === b.ctx.group && a.ctx.chain.join("/") === b.ctx.chain.join("/"); }
   /** 会话（选区 + 上下文）的写口（设计稿 §2 I4）：只在一步里、带通行证；这一步结束时按「之前 / 之后」记进栈。守卫测试钉死：editor.ts 里 selection / selectedPools 的整体赋值、ctx 的赋值只准出现在写口和装场景的路径里。 */
   private clearSel(_pass: StepPass): void { this.selection = this.blankSelection(); this.selectedPools.clear(); this.stepTouched = true; }
-  private setCtx(_pass: StepPass, ctx: EditContext): void { this.ctx = ctx; this.stepTouched = true; }
+  private setCtx(_pass: StepPass, ctx: EditContext): void { this.ctx = ctx; this.stepTouched = true; this.syncModeToKind(); }
 
   /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
   commitOp(op: Op): FaceEvent[] { return this.step((pass) => this.commitIn(pass, op)); }
@@ -1064,6 +1089,7 @@ export class Editor {
     // 上下文可能已不存在（撤掉了建组 / 建组件 / 复制）→ 退到还在的最深一层
     const c = this.validCtx(this.ctx);
     if (this.ctxKeyOf(c) !== this.ctxKey()) { this.ctx = c; if (c.chain.length === 0 && c.group === null) this._isolate = false; }
+    this.syncModeToKind();
     this.pruneSelection();
   }
   /**
@@ -1075,7 +1101,7 @@ export class Editor {
     this.scene = s;
     this.bump();
     if (session) this.sessionRestore(session);
-    this.ensureModeForKind();
+    this.syncModeToKind();
     this.revalidateCharged();
   }
   private pruneSelection(): void {
@@ -1158,6 +1184,7 @@ export class Editor {
     this._revision++;
     this.selection = this.blankSelection(); this.selectedPools.clear();   // 装场景：不经写口
     this.clearCharged();
+    this.syncModeToKind();   // 人回到根上：工作台跟着根的身体种类走（2026-10-28 user 黑匣子「definition 1 body is "brep", not mesh」= 在网格体里重开模型，工作台还停在自由建模）
     this.host.trace?.({ kind: "load", label });
     this.host.changed();
     this.draw();
@@ -2108,8 +2135,7 @@ export class Editor {
     this.cancelGesture();
     this.clearSel(pass);
     this.setCtx(pass, p.kind === "group" ? { chain: this.ctx.chain, group: p.group } : { chain: [...this.ctx.chain, p.instance], group: null });
-    this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类；写口已标过）
-    this.ensureModeForKind();
+    this.selection = this.blankSelection();   // 上下文定了再造（选区的 id 空间 = 活动池的种类；写口已标过）；工作台在 setCtx 里已经跟上
     this._revision++;
     this.host.changed(); this.draw();
     });
@@ -2140,7 +2166,7 @@ export class Editor {
       reselect = { kind: "instance", instance: inst.id };
       this.setCtx(pass, { chain, group: inst.parent });
     }
-    this.selection = this.blankSelection(); this.ensureModeForKind();   // 退到的那层可能是另一种身体（写口已标过）   // 退到的那层可能是另一种身体（从网格体退回 SU 体）
+    this.selection = this.blankSelection();   // 退到的那层可能是另一种身体（从网格体退回硬表面体；写口已标过；工作台在 setCtx 里已经跟上）
     if (reselect) this.selectedPools.set(this.pickKey(reselect), reselect);
     this._revision++;
     this.host.changed(); this.draw();
@@ -3086,6 +3112,7 @@ export class Editor {
   }
   draw(): void {
     if (this.drawSuspended) return;
+    this.checkModeFits("draw");
     const view = this.liveWorld();
     const active = view.activeSlot();
     const off = active.index;

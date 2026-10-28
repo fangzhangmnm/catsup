@@ -1,7 +1,8 @@
 // 编辑器级撤销 fuzz（设计稿 ai-docs/20261028-undo-step-regime.md §3 层 4；2026-10-28 Claude Fable 5.1）。
 // 随机的用户动作序列（画盒 / 全选 / 取消 / 建组 / 建组件 / 进 / 退 / 移动 / 转网格体 / 删除 / 撤 / 重做），每个动作之后断言：
 //   ① stepViolations 永远 0（没有步外提交）② 一个动作最多长一步（没有幻影步）③ 从装载态重放整条指令流的指纹 == 活场景（差分 oracle）
-//   ④ 选区里的东西都还在活动视图里。每个种子最后：撤到种子开头、再重做到底，指纹和选区逐字回来。
+//   ④ 选区里的东西都还在活动视图里 ⑤ 工作台管得了活动池的身体（不变量 I5，2026-10-28 Opus）、全程没有 DRIFT 记录。
+//   每个种子最后：撤到种子开头、再重做到底，指纹和选区逐字回来；再（能进就先进一个网格体）重开模型，工作台得跟上（user 10-28 黑匣子那一案）。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-undo-fuzz.mjs [seeds=4] [actions=28]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -22,7 +23,9 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.commitOp({ op: "addEdges", at: e.activePool(), segs }); };
   e.setGrid({ ...e.grid, on: false });
-  const out = { seeds: [], failures: [] };
+  const out = { seeds: [], failures: [], reloads: [] }, drifts = [];
+  const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
+  const modeFits = () => e.mode.kinds.includes(S().kindOf(S().defOfContext(e.context)));
   for (let seed = 1; seed <= SEEDS; seed++) {
     const rnd = mulberry(seed * 7919), posStart = e.history.position(), stepsStart = e.history.steps(), trail = [];
     let selAtLastStep = selKey();   // 进 / 出组件是导航不是步（FM106），撤到头再重做回来的是最后一步封的会话，不是之后的导航
@@ -53,6 +56,8 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
       let rep; try { rep = fp(e.history.replay()); } catch (err) { fail(`replay threw: ${String(err).slice(0, 120)}`); continue; }
       if (rep !== fp(S())) fail("replay(ops) != live scene");
       if (!selValid()) fail("selection references dead geometry");
+      if (!modeFits()) fail(`workbench ${e.mode.id} does not fit the active body`);
+      if (drifts.length) fail(`DRIFT ${JSON.stringify(drifts.splice(0))}`);
       if (name === "undo" || name === "redo" || e.history.steps() !== stepsBefore) selAtLastStep = selKey();
       await sleep(0);
     }
@@ -65,11 +70,18 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
     if (fp(S()) !== fpEnd) fail("undo-all then redo-all: scene differs");
     if (selKey() !== selAtLastStep) fail(`undo-all then redo-all: selection differs (${selKey()} vs ${selAtLastStep}; at seed end ${selEnd})`);
     out.seeds.push({ seed, actions: trail.length, steps: stepsEnd - stepsStart, undone: n, redone: m, trail: trail.join(" ") });
+    // 重开模型（I5 那一案）：能进网格体就先进去
+    const mi = [...S().def(S().root).instances.values()].find((i) => S().kindOf(i.def) === "mesh");
+    if (mi && e.contextCrumbs().length === 1) { e.selectedPools.clear(); e.selectedPools.set(`i${mi.id}`, { kind: "instance", instance: mi.id }); e.enterSelected(); }
+    const before = e.mode.id; e.loadScene(S());
+    out.reloads.push(`${before}→${e.mode.id}`);
+    if (!modeFits()) fail(`after reload: workbench ${e.mode.id} does not fit`);
+    if (drifts.length) fail(`after reload: DRIFT ${JSON.stringify(drifts.splice(0))}`);
   }
   return out;
 }, { SEEDS, ACTIONS });
 await b.close();
 const ok = res.failures.length === 0 && errs.length === 0;
-console.log(JSON.stringify({ seeds: res.seeds, failures: res.failures, errs }, null, 1).slice(0, 4000));
+console.log(JSON.stringify({ seeds: res.seeds, reloads: res.reloads, failures: res.failures, errs }, null, 1).slice(0, 4000));
 console.log(ok ? "probe-undo-fuzz OK" : "probe-undo-fuzz FAIL");
 process.exit(ok ? 0 : 1);

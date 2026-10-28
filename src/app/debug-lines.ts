@@ -27,6 +27,7 @@ export function traceLine(e: EditorTrace): string {
     case "undo": case "redo": return `${e.kind} → #${e.position}/${e.depth}`;
     case "step": return `step ${e.label} ops=${e.ops}${e.session ? " +sel" : ""}`;
     case "load": return `load ${e.label}`;
+    case "drift": return `DRIFT 工作台「${e.mode}」管不了「${e.body}」（${e.where} 时查到，已纠正）`;
     case "fail": return `FAIL ${e.where}: ${e.message} op=${e.op ? JSON.stringify(e.op).slice(0, 400) : "-"}`;
   }
 }

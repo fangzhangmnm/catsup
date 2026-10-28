@@ -75,6 +75,13 @@ export type EditorTrace = {
     kind: "load";
     label: string;
 }
+/** 工作台和活动池的身体种类对不上（不变量 I5：本该不可能；画之前查到 = 当场纠正 + 记一行）。where = 谁漏了。 */
+ | {
+    kind: "drift";
+    where: string;
+    mode: string;
+    body: string;
+}
 /** 失败行另带复现材料（黑匣子，2026-10-24）：那一步之前的活动池 B-rep + 池地址；预演失败带工具描述。宿主只在内存里留。 */
  | {
     kind: "fail";
@@ -428,8 +435,17 @@ export declare class Editor {
     private blankSelection;
     /** brep 专属动词的守门：活动池不是 SU 体 → 提示一句、不做（网格体上的同名动词 = 自由建模工作台 M4）。不静默。 */
     private requireBrep;
-    /** 工作台跟着活动池的身体种类走：当前工作台不管这种身体 → 切到管它的第一个（进出上下文、换场景后调）。 */
-    private ensureModeForKind;
+    /**
+     * 不变量 I5：工作台管得了活动池的身体种类（2026-10-28；user「想一下深层次的原因，为什么工作台没有跟着物体」「然后多码几层瑞士奶酪」）。
+     * 根：「人在哪」和「用哪个工作台」是两份状态，以前靠每个改「人在哪」的入口事后自觉补一句 → 「打开模型」漏了（黑匣子「definition 1 body is "brep", not mesh」）。
+     * 层 1：它住在「人在哪 / 场景」的写口里面（setCtx / sessionRestore / bump / installScene / loadScene），不是调用方的事；
+     * 层 2：守卫 test/step-pass-guard.test.ts 第五条——写 this.ctx / this.scene 的函数必须同一个函数里调它；
+     * 层 3：画之前 checkModeFits 再查一次，对不上 = 当场纠正 + 黑匣子记一行 drift；层 4：撤销 fuzz 探针每步核对、带「重开模型」动作。
+     * 只切工作台本身（不是用户的一步、不画、不通知；调用方之后自己画）。
+     */
+    private syncModeToKind;
+    /** 层 3：画之前核对 I5；对不上 = 有入口绕过了写口（层 1 / 2 都漏了）→ 记一行、当场纠正。 */
+    private checkModeFits;
     get sceneRef(): Scene;
     /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
     worldGeom(): WorldView;

@@ -37,6 +37,24 @@ describe("撤销一步的通行证（静态守卫）", () => {
     });
     eq(bad.length, 0, `会话写绕过了写口：\n${bad.join("\n")}`);
   });
+  it("工作台跟着物体（不变量 I5，2026-10-28）：写 this.ctx / this.scene 的函数必须在同一个函数里调 this.syncModeToKind()", () => {
+    // user 10-28 黑匣子「definition 1 body is "brep", not mesh」：打开模型的写口漏了对工作台。「人在哪」一变工作台就得跟上——写在写口里面，漏了这里红。
+    const hdr = /^  (?:private |public |protected )?(?:async |get )?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\(/;
+    const bodies = new Map<string, string[]>();
+    let meth = "?";
+    lines.forEach((l: string) => {
+      const m = hdr.exec(l);
+      if (m && !/^\s*(if|for|while|switch|return|else|catch)\b/.test(l)) meth = m[1];
+      (bodies.get(meth) ?? bodies.set(meth, []).get(meth)!).push(l);
+    });
+    const bad: string[] = [];
+    for (const [name, ls] of bodies) {
+      const code = ls.filter((l) => !/^\s*(\/\/|\*|\/\*)/.test(l)).join("\n");
+      if (/this\.(ctx|scene) = /.test(code) && !/this\.syncModeToKind\(\)/.test(code)) bad.push(name);
+    }
+    eq(bad.length, 0, `改了「人在哪 / 场景」却没对工作台：${bad.join(", ")}`);
+    assert(bodies.has("syncModeToKind") && bodies.has("checkModeFits"), "写口里的同步 + 画之前的核对都在");
+  });
   it("history.commit / commitSession 只有 commitIn 和 closeStep 碰（撤销栈只有这两个入口）", () => {
     const commits = hits(/this\.history\.commit\(/), sessions = hits(/this\.history\.commitSession\(/);
     eq(commits.length, 1, `history.commit 调用处：${commits.join(", ")}`);
