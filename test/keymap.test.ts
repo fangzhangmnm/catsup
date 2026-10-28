@@ -1,6 +1,6 @@
 // 分层键表（controller/keymap.ts）守卫：几个关键上下文里「按 X 是什么意思」（2026-10-28 Claude Fable 5.1；账本 UX17 / UX18）。
 import { describe, it, eq } from "./runner.mjs";
-import { resolveKey, chordOf, layersOf, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
+import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
 
 const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
 const ctx = (o: Partial<KeyContext>): KeyContext => ({ ...base, ...o });
@@ -47,5 +47,16 @@ describe("键表：什么时候按 X 是什么意思", () => {
   });
   it("栈的形状：自由建模 + 操作工具 + 手势中 = 全局 / 工作台 / 工具 / 手势 / 数值小窗", () => {
     eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > gesture > vcb");
+  });
+  it("披露：按住修饰键时这一层有什么（modifierChords）——自由建模 Ctrl 有环切 / 倒角；硬表面 Shift+Z = 缩放到全部、操作工具里 = 面锁；披露的每一条 = 真按下去生效的那条", () => {
+    const ff = ctx({ mode: "freeform", tool: "move" }), ctrl = modifierChords(ff, "ctrl").map((x) => x.chord), shift = modifierChords(ff, "shift");
+    eq(ctrl.includes("ctrl+r") && ctrl.includes("ctrl+b"), true, ctrl.join(","));
+    eq(shift.find((x) => x.chord === "shift+z")?.label, "面锁 XY", "操作工具里 Shift+Z = 面锁（操作工具层压过自由建模层）");
+    // 不变量：披露的每一条 = 真按下去生效的那条（resolveKey 同一条）
+    const evt = (ch: string): KeyEvt => { const p = ch.split("+"), n = p[p.length - 1]; return { key: n === "space" ? " " : n, code: /^[a-z]$/.test(n) ? `Key${n.toUpperCase()}` : /^[0-9]$/.test(n) ? `Digit${n}` : n, shift: p.includes("shift"), ctrl: p.includes("ctrl"), alt: p.includes("alt") }; };
+    for (const c of [ff, ctx({}), ctx({ mode: "freeform", tool: "select", hasSelection: true }), ctx({ mode: "freeform", tool: "move", gesture: true })]) for (const m of ["shift", "ctrl", "alt"] as const) for (const x of modifierChords(c, m)) { const r = resolveKey(c, evt(x.chord)); eq(r !== null && r !== "swallow" ? r.label : String(r), x.label, `${c.mode}/${c.tool} ${x.chord}`); }
+    eq(modifierChords(ctx({}), "shift").find((x) => x.chord === "shift+z")?.label, "缩放到全部", "硬表面选择工具");
+    eq(new Set(shift.map((x) => x.chord)).size, shift.length, "同一和弦只露一次");
+    eq(chordLabel("ctrl+shift+b"), "Ctrl+Shift+B"); eq(chordLabel("shift+arrowright"), "Shift+→"); eq(chordLabel("space"), "Space");
   });
 });

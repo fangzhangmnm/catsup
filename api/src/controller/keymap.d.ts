@@ -70,3 +70,14 @@ export declare function explainKey(c: KeyContext, e: KeyEvt): {
     layer: string;
     label: string;
 }[];
+/**
+ * 现在压着的层里带这个修饰键的和弦（从顶往下；同一个和弦第一个生效的那条；when 不成立的跳过、让下层的露出来；独占层到此为止）。
+ * 读的人 = app 的状态行：按住 Shift / Ctrl / Alt 一小会儿不按别的键 = 露出来。
+ */
+export declare function modifierChords(c: KeyContext, mod: "shift" | "ctrl" | "alt"): {
+    chord: Chord;
+    label: string;
+    layer: string;
+}[];
+/** 和弦给人看：shift+z → Shift+Z；ctrl+shift+b → Ctrl+Shift+B；arrowright → →。 */
+export declare function chordLabel(ch: Chord): string;

@@ -47,7 +47,9 @@ import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
 import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
-import { resolveKey, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
+import { chordLabel, modifierChords, resolveKey, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
+import { stanceOf } from "../controller/stance.ts";
+import { MOD_PEEK_MS } from "../controller/feel.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
 import { formatQuantity } from "../editor/units.ts";
 import { TouchControls } from "./touch-controls.ts";
@@ -1076,8 +1078,31 @@ function renderSnapWidget(): void {
   const a = editor.axisLock, p = editor.planeLock, axis = a ?? (p === "face" ? null : p);
   badge.hidden = !a && !p; badge.textContent = a ? a.toUpperCase() : p ? planeLockLabel(p) : ""; badge.dataset.axis = axis ?? "";
 }
-window.addEventListener("keyup", (ev) => { if (ev.key === "Shift") editor.setShiftHeld(false); });   // DT51：松开 Shift = 格点吸附回到右上锁钮的状态
-window.addEventListener("blur", () => editor.setShiftHeld(false));
+window.addEventListener("keyup", (ev) => { if (ev.key === "Shift") editor.setShiftHeld(false); if (modPeek && ev.key === modPeek.key) endModPeek(); });   // DT51：松开 Shift = 格点吸附回到右上锁钮的状态
+window.addEventListener("blur", () => { editor.setShiftHeld(false); endModPeek(); });
+// 状态行披露（接线清单第 5 条；UX 心智模型 §2.7「键 = 分层键表 + 披露」）：按住 Shift / Ctrl / Alt 一小会儿（MOD_PEEK_MS）不按别的键 = 提示行露出
+// 「这把工具按住它是什么」（立场表那一格）+ 现在压着的层里带它的和弦（keymap.ts modifierChords，和真按下去生效的是同一条）；松开 / 按别的键 / 点画布 = 收回原来的提示。手势中不打扰。
+let modPeek: { key: string; timer: number; prev: string | null } | null = null;
+const modOfKey = (k: string): "shift" | "ctrl" | "alt" | null => (k === "Shift" ? "shift" : k === "Control" || k === "Meta" ? "ctrl" : k === "Alt" ? "alt" : null);
+function modPeekText(mod: "shift" | "ctrl" | "alt"): string {
+  const name = mod === "shift" ? "Shift" : mod === "ctrl" ? "Ctrl" : "Alt", own = stanceOf(editor.modeId, editor.tool)?.[mod];
+  const chords = modifierChords(keyContext(), mod).slice(0, 6).map((x) => `${chordLabel(x.chord)} ${x.label}`);
+  return [own && own !== "—" ? `按住 ${name}：${own}` : `按住 ${name}`, ...chords].join(" · ");
+}
+function startModPeek(ev: KeyboardEvent): void {
+  endModPeek();
+  const mod = modOfKey(ev.key);
+  if (!mod || ev.repeat || editor.isGestureActive()) return;
+  const key = ev.key;
+  modPeek = { key, prev: null, timer: window.setTimeout(() => { if (!modPeek || modPeek.key !== key || editor.isGestureActive()) return; modPeek.prev = hintEl.textContent; hintEl.textContent = modPeekText(mod); }, MOD_PEEK_MS) };
+}
+function endModPeek(): void {
+  if (!modPeek) return;
+  clearTimeout(modPeek.timer);
+  if (modPeek.prev !== null) hintEl.textContent = modPeek.prev;
+  modPeek = null;
+}
+canvas.addEventListener("pointerdown", () => endModPeek(), { capture: true });
 // 键盘 = 分层键表（controller/keymap.ts；UX 心智模型 §2.7，账本 UX17 / UX18）：每次按键从现状算出压着哪几层，从顶往下找第一个绑了的，这里只按动作 id 做事。
 // 以前这里是一长串 if（v0.15.46），2026-10-28 抄成层，行为照旧，只改了 user 拍的 X（操作工具里 X / Y / Z 永远 = 轴，选择工具里 X = 删除）。
 const keyEvt = (ev: KeyboardEvent): KeyEvt => ({ key: ev.key, code: ev.code, shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey, alt: ev.altKey });
@@ -1149,6 +1174,7 @@ window.addEventListener("keydown", (ev) => {
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
   if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
   if (ev.key === "Shift") editor.setShiftHeld(true);   // DT51：按住 Shift = 格点吸附反过来，指针不动也立刻换规则
+  if (modOfKey(ev.key)) { if (!modPeek || modPeek.key !== ev.key) startModPeek(ev); } else endModPeek();   // 状态行披露：按住修饰键一小会儿
   const r = resolveKey(keyContext(), keyEvt(ev));
   if (r === "swallow" || r === null) return;   // FPS 里键盘归走路（吞掉）/ 没人要（交给浏览器）
   if (r.action !== "escape") ev.preventDefault();

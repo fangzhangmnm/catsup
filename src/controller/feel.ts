@@ -86,6 +86,8 @@ export const GIZMO_PX = 64, HANDLE_PX = 16, ROT_STEP_DEG = 15, AXIS_SNAP_DEG = 4
 export const XG_UNIFORM_OFFSET_PX = 34, XG_ARROW_PX = 100, XG_ARROW_START_PX = 64, XG_SCALE_PX = 32, XG_CUBE_PX = 3.5, XG_RING_PX = 56, XG_PLANE_PX = 20, XG_PLANE_HALF_PX = 4.5;
 /** 导航把手上的拖柄：按下后挪过这么多才算拖（CSS px；笔点下去手抖几 px 不误缩放）。 */
 export const VIEW_GIZMO_DRAG_SLOP_PX = 6;
+/** 按住修饰键多久不按别的键 = 状态行露出「这一层按住它是什么」（接线清单第 5 条；比长按短：是看一眼，不是动作）。毫秒。 */
+export const MOD_PEEK_MS = 450;
 
 // 没搬进来、留在各自模块里的连续量（它们是别的深模块自己的表，这里只是索引）：
 //   触屏摇杆 player/touch-stick.ts STICK（CSS px / 比例）+ TOUCH_LOOK_RAD_PER_PX；步行转头 app/locomotion.ts LOOK_SENS（rad / px）；

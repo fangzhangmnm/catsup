@@ -149,3 +149,33 @@ export function explainKey(c: KeyContext, e: KeyEvt): { layer: string; label: st
   for (const L of [...layersOf(c)].reverse()) for (const b of L.bindings) if ((b.chord === chord || b.chord === "*") && (!b.when || b.when(c, e))) out.push({ layer: L.id, label: b.label });
   return out;
 }
+
+// ---------- 披露：按住一个修饰键时这一层有什么（接线清单第 5 条；2026-10-28 Claude Opus 5.5）----------
+/** 和弦 → 一下假的按键（判 when 用）：字母 / 数字按物理键还原。 */
+const evtOfChord = (ch: Chord): KeyEvt => {
+  const parts = ch.split("+"), name = parts[parts.length - 1];
+  const code = /^[a-z]$/.test(name) ? `Key${name.toUpperCase()}` : /^[0-9]$/.test(name) ? `Digit${name}` : name;
+  return { key: name === "space" ? " " : name, code, shift: parts.includes("shift"), ctrl: parts.includes("ctrl"), alt: parts.includes("alt") };
+};
+/**
+ * 现在压着的层里带这个修饰键的和弦（从顶往下；同一个和弦第一个生效的那条；when 不成立的跳过、让下层的露出来；独占层到此为止）。
+ * 读的人 = app 的状态行：按住 Shift / Ctrl / Alt 一小会儿不按别的键 = 露出来。
+ */
+export function modifierChords(c: KeyContext, mod: "shift" | "ctrl" | "alt"): { chord: Chord; label: string; layer: string }[] {
+  const seen = new Set<Chord>(), out: { chord: Chord; label: string; layer: string }[] = [];
+  for (const L of [...layersOf(c)].reverse()) {
+    for (const b of L.bindings) {
+      if (b.chord === "*" || seen.has(b.chord) || !b.chord.split("+").slice(0, -1).includes(mod)) continue;
+      if (b.when && !b.when(c, evtOfChord(b.chord))) continue;
+      seen.add(b.chord); out.push({ chord: b.chord, label: b.label, layer: L.id });
+    }
+    if (L.exclusive) break;
+  }
+  return out;
+}
+/** 和弦给人看：shift+z → Shift+Z；ctrl+shift+b → Ctrl+Shift+B；arrowright → →。 */
+export function chordLabel(ch: Chord): string {
+  const ARROWS: Record<string, string> = { arrowleft: "←", arrowright: "→", arrowup: "↑", arrowdown: "↓" };
+  return ch.split("+").map((p) => ARROWS[p] ?? (p.length === 1 ? p.toUpperCase() : p === "ctrl" ? "Ctrl" : p === "alt" ? "Alt" : p === "shift" ? "Shift" : p[0].toUpperCase() + p.slice(1))).join("+");
+}
+

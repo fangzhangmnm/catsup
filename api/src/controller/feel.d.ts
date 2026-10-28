@@ -70,3 +70,5 @@ export declare const GIZMO_PX = 64, HANDLE_PX = 16, ROT_STEP_DEG = 15, AXIS_SNAP
 export declare const XG_UNIFORM_OFFSET_PX = 34, XG_ARROW_PX = 100, XG_ARROW_START_PX = 64, XG_SCALE_PX = 32, XG_CUBE_PX = 3.5, XG_RING_PX = 56, XG_PLANE_PX = 20, XG_PLANE_HALF_PX = 4.5;
 /** 导航把手上的拖柄：按下后挪过这么多才算拖（CSS px；笔点下去手抖几 px 不误缩放）。 */
 export declare const VIEW_GIZMO_DRAG_SLOP_PX = 6;
+/** 按住修饰键多久不按别的键 = 状态行露出「这一层按住它是什么」（接线清单第 5 条；比长按短：是看一眼，不是动作）。毫秒。 */
+export declare const MOD_PEEK_MS = 450;
