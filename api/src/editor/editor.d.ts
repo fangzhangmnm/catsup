@@ -26,6 +26,7 @@ export { TOOLS, type Tool } from "./tool-ids.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ModeId } from "./mode.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
+import { type PrimitiveKind } from "../mesh/ops/index.ts";
 import type { OptionKv } from "./tool-config.ts";
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
@@ -930,6 +931,15 @@ export declare class Editor {
     startModal(tool: Tool): boolean;
     /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
     armLoopCut(): boolean;
+    private ctxPick;
+    /** 右键菜单打开时记下按在哪（新建的落点，点 / 面 / 原点 / 地面都吸）；blank = 光标下没有几何。画布上再按一下就作废。 */
+    noteContextPoint(x: number, y: number, blank: boolean): void;
+    /** 刚右键过（新建那几项露在右键菜单里；点在点 / 面上也露 = 落在那上面，user「按右键的位置吸附，比如顶点，面，原点，地面平面」）。 */
+    contextNewAllowed(): boolean;
+    /** 右键点 → 新建落点（世界）+ 法向（朝镜头）：点 > 面 > 原点 > 地面（上下文坐标架的 XY 面）。 */
+    private newObjectAnchor;
+    /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
+    addPrimitive(kind: PrimitiveKind): boolean;
     /** 探针用：手势中的实时世界（预演）。 */
     liveWorldForProbe(): WorldView;
     private liveWorld;

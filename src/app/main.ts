@@ -220,7 +220,11 @@ const hud: HudModel = {
     { id: "harden", label: "硬化选区", icon: "sharpen", hidden: brepOnly || !editor.hasGeometrySelection() },
     { id: "connected", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
     { id: "invert", label: "反选", icon: "selection-invert", hidden: !editor.hasSelection() },   // Blender Ctrl+I（user 10-26「我们现在选择有shift之类的多选，反选吗」）
-    { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
+    { id: "deselect", label: "取消选择", icon: "x", hidden: !editor.hasSelection() },
+    // 右键面 = 插入（user 10-27「右键边环切赞」「那么右键面也能insert」）：自由建模里选中了面就露，点了 = 从右键那一点起手插入（同 I 键：往面中心挪、点一下落定）
+    { id: "freeform:inset", label: "插入（I）", icon: "selection-expand", hidden: !(editor.modeId === "freeform" && editor.hasFaceSelection()) },
+    // 右键新建（FM120）：刚右键过就露（落点 = 右键那一点，吸点 / 面 / 原点 / 地面）；网格体里 = 长进这个网格体，别处 = 新的网格体组件。图标暂用 object（图标库没有基本体的图标）
+    ...(["box", "cylinder", "cone", "sphere", "plane"] as const).map((k): HudItem => ({ id: `new:${k}`, label: `新建${({ box: "立方体", cylinder: "圆柱", cone: "圆锥", sphere: "球", plane: "平面" } as const)[k]}${editor.activeKind() === "mesh" ? "" : "（网格体）"}`, icon: "object", hidden: !editor.contextNewAllowed() })),   // user 2026-10-24「有东西选择的时候应该永远有取消选择的上下文胶囊」
   ]; },
   vr: (): HudItem[] => [
     { id: "noclip", label: locomotion.noclip ? "飞行中" : "穿墙飞行", active: locomotion.noclip },
@@ -232,6 +236,8 @@ const hud: HudModel = {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if ((TOOLS as readonly string[]).includes(id)) { editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
+    if (id === "freeform:inset") { if (!editor.startModal("offset")) editor.setTool("offset"); syncUi(); return; }
+    if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as "box"); syncUi(); return; }
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;

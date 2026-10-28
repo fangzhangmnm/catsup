@@ -11,3 +11,4 @@ export { limitedDissolve, removeDoubles } from "./cleanup.ts";
 export { recalcNormals } from "./orient.ts";
 export { smoothByAngle } from "./shade.ts";
 export { insetFaces, insetRing, maxInset } from "./inset.ts";
+export { addPrimitive, PRIMITIVES, type PrimitiveKind, type PrimitiveFrame } from "./primitives.ts";

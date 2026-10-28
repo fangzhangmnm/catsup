@@ -13,6 +13,7 @@ import { type SelectionRoute, selectionActions } from "./selection-actions.ts";
 export function openContextMenuAt(editor: Editor, hud: HudModel, x: number, y: number, cx: number, cy: number): void {
   const hit = editor.pickAt(x, y);
   const hasHit = hit.face !== undefined || hit.edge !== undefined || hit.vertex !== undefined;
+  editor.noteContextPoint(x, y, !hasHit);   // 新建物体的落点；空白处右键 = 自己的菜单（新建那几项只在这时露）
   if (hasHit && !editor.hitInSelection(hit)) editor.selectExpand(hit, 0);
   const items = selectionActions(hud);
   if (!items.length) return;

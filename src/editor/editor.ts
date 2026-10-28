@@ -74,7 +74,10 @@ import { KINDS } from "../scene/kinds.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
-import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import { triangulateRings } from "../format/triangulate.ts";
+import { addPrimitive, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
+import { meshDocFromKernel } from "../mesh/mesh-doc.ts";
+import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { OptionKv } from "./tool-config.ts";
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
@@ -2729,6 +2732,105 @@ export class Editor {
     this.draw();
     return true;
   }
+  // ---------- 右键新建（纪元账本 FM120；user 10-27「创建物体可以放右键」「右键新建物体的时候按右键的位置吸附，比如顶点，面，原点，地面平面。然后新建的时候马后炮有对齐方式，默认法向对齐」
+  //            「然后以后圆柱，长立方体建立的时候都是原点在底部中心，和锥体一样。不过球的话还是圆点在原点」）----------
+  private ctxPick: { x: number; y: number; blank: boolean } | null = null;
+  /** 右键菜单打开时记下按在哪（新建的落点，点 / 面 / 原点 / 地面都吸）；blank = 光标下没有几何。画布上再按一下就作废。 */
+  noteContextPoint(x: number, y: number, blank: boolean): void { this.ctxPick = { x, y, blank }; }
+  /** 刚右键过（新建那几项露在右键菜单里；点在点 / 面上也露 = 落在那上面，user「按右键的位置吸附，比如顶点，面，原点，地面平面」）。 */
+  contextNewAllowed(): boolean { return !!this.ctxPick && this.mode.id !== "surface"; }
+  /** 右键点 → 新建落点（世界）+ 法向（朝镜头）：点 > 面 > 原点 > 地面（上下文坐标架的 XY 面）。 */
+  private newObjectAnchor(): { p: Pt3; n: Pt3 | null; on: string } | null {
+    const c = this.ctxPick;
+    if (!c) return null;
+    const view = this.worldView(), fr = this.frame(), vp = this.fvp(), ray = fr.ray(c.x, c.y, vp);
+    const toward = (v: Pt3): Pt3 => (dot3(v, ray.dir) > 0 ? scale3(v, -1) : v);
+    const hit = pickEntity(view, fr, vp, c.x, c.y, this.hitPx(), {});
+    if (hit.vertex !== undefined && view.graph.hasVertex(hit.vertex)) {
+      let acc = { x: 0, y: 0, z: 0 };
+      for (const e of view.graph.vertex(hit.vertex).edges) for (const f of view.graph.edge(e).faceLinks) { const r = view.planeOf(f); if (r) acc = add3(acc, toward(r.plane.n)); }
+      return { p: view.graph.pt(hit.vertex), n: len3(acc) > 1e-9 ? normalize3(acc) : null, on: "点" };
+    }
+    if (hit.edge !== undefined && view.graph.hasEdge(hit.edge)) {   // 边：落在光标下边上的那一点（不是边的中点；user「新建对齐的是点中的那个点而不是点中的那个图元的中心」）
+      const E = view.graph.edge(hit.edge), a = view.graph.pt(E.a), b = view.graph.pt(E.b), u = sub3(b, a), w0 = sub3(a, ray.origin);
+      const A = dot3(u, u), B = dot3(u, ray.dir), C = dot3(ray.dir, ray.dir), D = dot3(u, w0), Ee = dot3(ray.dir, w0), den = A * C - B * B;
+      const t = den > 1e-12 ? Math.max(0, Math.min(1, (B * Ee - C * D) / den)) : 0.5;
+      let acc = { x: 0, y: 0, z: 0 };
+      for (const f of E.faceLinks) { const r = view.planeOf(f); if (r) acc = add3(acc, toward(r.plane.n)); }
+      return { p: add3(a, scale3(u, t)), n: len3(acc) > 1e-9 ? normalize3(acc) : null, on: "边" };
+    }
+    if (hit.face !== undefined) {   // 面：光标打到的那一点——按面真正的三角形（扭过的网格面不平，不能用平均平面），法向 = 打到的那个三角形的
+      const F = view.face(hit.face), r = view.planeOf(hit.face);
+      if (F && r) {
+        const pts = [F.outer, ...F.holes].flatMap((g) => g.vids.map((v) => view.graph.pt(v))), outer = F.outer.vids.map((_, i) => i);
+        let base = F.outer.vids.length; const holes = F.holes.map((h) => { const idx = h.vids.map((_, i) => base + i); base += h.vids.length; return idx; });
+        let best: { t: number; n: Pt3 } | null = null;
+        for (const [i, j, k] of triangulateRings(pts, r.plane, outer, holes)) {
+          const A0 = pts[i], e1 = sub3(pts[j], A0), e2 = sub3(pts[k], A0), pv = cross3(ray.dir, e2), det = dot3(e1, pv);
+          if (Math.abs(det) < 1e-14) continue;
+          const tv = sub3(ray.origin, A0), uu = dot3(tv, pv) / det; if (uu < -1e-9 || uu > 1 + 1e-9) continue;
+          const qv = cross3(tv, e1), vv = dot3(ray.dir, qv) / det; if (vv < -1e-9 || uu + vv > 1 + 1e-9) continue;
+          const t = dot3(e2, qv) / det;
+          if (t > 0 && (!best || t < best.t)) best = { t, n: normalize3(cross3(e1, e2)) };
+        }
+        if (best) return { p: add3(ray.origin, scale3(ray.dir, best.t)), n: toward(best.n), on: "面" };
+        const p = rayPlane(ray.origin, ray.dir, r.plane.n, r.plane.d); if (p) return { p, n: normalize3(toward(r.plane.n)), on: "面" };
+      }
+    }
+    const F = this.contextFrame(), os = fr.project?.(F.origin, vp);
+    if (os && Math.hypot(os.x - c.x, os.y - c.y) <= this.snapPx()) return { p: F.origin, n: null, on: "原点" };
+    const zN = normalize3(F.z), g = rayPlane(ray.origin, ray.dir, zN, dot3(zN, F.origin));
+    if (g && dot3(sub3(g, ray.origin), ray.dir) > 0) return { p: g, n: null, on: "地面" };
+    return null;
+  }
+  /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
+  addPrimitive(kind: PrimitiveKind): boolean { return this.step(() => {
+    const A = this.newObjectAnchor(), P = PRIMITIVES[kind];
+    if (!A) { this.host.hint("新建：右键点在点 / 面 / 原点 / 地面上"); return false; }
+    const inMesh = this.activeKind() === "mesh", at = this.activePool(), Xi = invert(this.ctxXform()), F = this.contextFrame();
+    const frameW = (align: string): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => {
+      let z: Pt3, x0: Pt3;
+      if (align === "world") { z = { x: 0, y: 0, z: 1 }; x0 = { x: 1, y: 0, z: 0 }; }
+      else if (align === "object") { z = normalize3(F.z); x0 = normalize3(F.x); }
+      else { z = A.n ?? normalize3(F.z); x0 = normalize3(F.x); }
+      let x = sub3(x0, scale3(z, dot3(x0, z)));
+      if (len3(x) < 1e-6) { const y0 = normalize3(F.y); x = sub3(y0, scale3(z, dot3(y0, z))); }
+      x = normalize3(x);
+      return { o: A.p, x, y: cross3(z, x), z };
+    };
+    const toLocal = (f: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => ({ o: applyPt(Xi, f.o), x: normalize3(applyDir(Xi, f.x)), y: normalize3(applyDir(Xi, f.y)), z: normalize3(applyDir(Xi, f.z)) });
+    const dims = (sz: number): [number, number, number] => (kind === "box" ? [sz, sz, sz] : kind === "plane" ? [sz, sz, 0] : [sz / 2, sz / 2, kind === "sphere" ? sz / 2 : sz]);
+    const scaleL = len3(applyDir(Xi, { x: 1, y: 0, z: 0 })) || 1;
+    const go = (v: Readonly<Record<string, ParamValue>>): void => {
+      const fL = toLocal(frameW(String(v.align))), sz = Number(v.size) * scaleL, seg = Number(v.segments) || 16;
+      if (inMesh) {
+        const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, dims(sz), seg);
+        this.commitOp({ op: "meshAddPrimitive", def, kind, frame: fL, size: dims(sz), ...(P.round ? { segments: seg } : {}) });
+        this.selection = this.blankSelection(); this.selectedPools.clear();
+        for (const f of r.faces) this.selection.faces.add(f);
+      } else {
+        const m = new MeshKernel(); addPrimitive(m, kind, { o: { x: 0, y: 0, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } }, dims(sz), seg);
+        const ctxDef = this.scene.defOfContext(this.ctx), before = new Set(this.scene.def(ctxDef).instances.keys());
+        this.commitOp({ op: "addMeshObject", at, name: P.label, mesh: meshDocFromKernel(m), xform: frameToXform({ origin: fL.o, x: fL.x, y: fL.y, z: fL.z }) });
+        this.selection = this.blankSelection(); this.selectedPools.clear();
+        for (const id of this.scene.def(ctxDef).instances.keys()) if (!before.has(id)) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
+      }
+      this.bump();
+    };
+    const v0: Record<string, ParamValue> = { align: A.n ? "normal" : "world", size: kind === "box" || kind === "plane" ? P.size[0] : P.size[0] * 2, segments: 16 };
+    const n0 = this.opCount;
+    go(v0);
+    if (this.opCount === n0) return false;
+    const fields: ParamField[] = [
+      { key: "align", def: { kind: "enum", label: "对齐", values: [{ id: "normal", label: "法向", hint: "贴着右键点到的面 / 点（默认）" }, { id: "world", label: "世界", hint: "世界的 X Y Z" }, { id: "object", label: "物体", hint: "所在物体自己的轴" }] } },
+      { key: "size", def: { kind: "number", label: kind === "box" || kind === "plane" ? "边长" : "直径", min: 0.001, max: 10000, step: 0.1, unit: "m" } },
+      ...(P.round ? [{ key: "segments", def: { kind: "number" as const, label: "段数", min: 3, max: 128, step: 1 } }] : []),
+    ];
+    this.offerAfterthought(`新建${P.label}`, fields, v0, this.opCount - n0, (v) => go(v));
+    this.host.hint(`新建了${P.label}${inMesh ? "" : "（网格体组件，双击进去就是自由建模）"}：落在${A.on}上`);
+    this.host.changed(); this.draw();
+    return true;
+  }); }
   /** 探针用：手势中的实时世界（预演）。 */
   liveWorldForProbe(): WorldView { return this.liveWorld(); }
   private liveWorld(): WorldView { return this.gestureActive() || this.cmdPreview ? this.worldView(this.live ?? (this.liveMesh ? meshViewOf(this.liveMesh) : null), this.liveOverride) : this.worldView(); }
@@ -2967,6 +3069,7 @@ export class Editor {
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
   private pointerDownStep(ev: ToolPointer): void {
+    this.ctxPick = null;   // 右键菜单那一下记的点：画布上再按一下就作废
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };

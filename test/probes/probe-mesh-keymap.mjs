@@ -87,7 +87,15 @@ const res = await page.evaluate(async () => {
     fire("pointerdown", mid.x, mid.y, 1); await sleep(10); fire("pointerup", mid.x, mid.y, 0); await sleep(40); }
   { const f = [...e.selection.faces][0], xs = f !== undefined ? m().faceVerts(f).map((v) => m().pt(v).x) : [];
     out.inset = { df: stat().f - st0.f, sel: e.selection.faces.size, smaller: xs.length === 4 && Math.max(...xs) - Math.min(...xs) < 0.999, check: m().check().join(";"), label: hud.tools().find((t) => t.id === "offset")?.label }; }
-  out.backToStart = (() => { let n = 0; while (e.history.position() > pos0 && n++ < 30) kd("z", { ctrl: true }); return JSON.stringify(stat()) === JSON.stringify(st0); })();
+  kd("z", { ctrl: true }); await sleep(40);
+  // ⑪ 右键面 → 「插入（I）」→ 从右键那一点起手插入
+  e.setTool("select"); e.deselectAll(); await sleep(400);
+  { const s = px(P(0.9, 0.9, 1)); fire("pointermove", s.x, s.y, 0); await sleep(20); c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + s.x, clientY: r.top + s.y, button: 2 })); await sleep(40); }
+  out.rInsetItem = hud.edits().some((it) => it.id === "freeform:inset" && !it.hidden);
+  hud.pick("freeform:inset"); await sleep(20); document.querySelectorAll(".popup-menu").forEach((x) => x.remove());
+  out.rInset = { active: e.isGestureActive(), tool: e.tool };
+  kd("Escape", { code: "Escape" }); await sleep(20);
+    out.backToStart = (() => { let n = 0; while (e.history.position() > pos0 && n++ < 30) kd("z", { ctrl: true }); return JSON.stringify(stat()) === JSON.stringify(st0); })();
   return out;
 });
 await b.close();
@@ -99,6 +107,7 @@ const ok = res.gStart.active && res.gStart.tool === "move" && res.gPreview.commi
   && res.jSel === 2 && res.jDone.df === 1 && res.jDone.selE === 1 && res.jDone.check === ""
   && res.crTool === "knife" && res.crDone.df === 4 && !res.crDone.active && res.crDone.check === ""
   && res.eraseLabel === "删除" && res.eraseFace.df === -1 && res.dissolve.df === -1 && res.dissolve.check === ""
+  && res.rInsetItem && res.rInset.active && res.rInset.tool === "offset"
   && res.iStart.active && res.iStart.tool === "offset" && res.inset.df === 4 && res.inset.sel === 1 && res.inset.smaller && res.inset.check === "" && res.inset.label === "插入"
   && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));

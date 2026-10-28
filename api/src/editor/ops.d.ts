@@ -1,5 +1,7 @@
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
+import { type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
+import type { MeshDoc } from "../format/document.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, type MeshBody, Scene } from "../scene/scene.ts";
@@ -271,6 +273,23 @@ export type Op =
     t?: number;
 }
 /** 删（自由建模的 X / Delete / 删除工具）：面 → 边 → 点三档一次；dissolve = 溶解（边 → 两侧面并一张、二度点去掉；溶解不了的跳过）。mesh/ops/delete.ts deleteSelection。 */
+/** 右键新建（网格体里）：在这个网格体里长一个基本体（坐标架 = 本地；mesh/ops/primitives.ts）。 */
+ | {
+    op: "meshAddPrimitive";
+    def: number;
+    kind: PrimitiveKind;
+    frame: PrimitiveFrame;
+    size: [number, number, number];
+    segments?: number;
+}
+/** 右键新建（SU 体里 / 根上）：新的网格体组件（定义 + 一份实例，摆在 at 池里 xform 处）。 */
+ | {
+    op: "addMeshObject";
+    at: PoolRef;
+    name: string;
+    mesh: MeshDoc;
+    xform: Xform;
+}
 /** 插入（自由建模；面各自往里插一圈，dist 本地长度、超过上限按上限）。mesh/ops/inset.ts insetFaces。 */
  | {
     op: "meshInset";

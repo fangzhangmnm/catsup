@@ -488,15 +488,15 @@ export class Renderer3 {
     // 选中的点：实心圆点（屏幕像素大小、往相机拉一点不被自己的面吃掉）
     this.selVertDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Vector3(((PALETTE.edgeSelected >> 16) & 255) / 255, ((PALETTE.edgeSelected >> 8) & 255) / 255, (PALETTE.edgeSelected & 255) / 255) }, uSize: { value: SEL_VERT_DOT_PX } },   // 原样 sRGB 数值（ShaderMaterial 不做色彩空间换算；用 Color 会被转成线性、显得发暗）
-      vertexShader: "uniform float uSize; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z -= 0.002 * gl_Position.w; gl_PointSize = uSize; }",
+      vertexShader: "uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= 0.994; else mv.xyz *= 0.994; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }",
       fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
     }));
     this.selVertDots.frustumCulled = false; this.selVertDots.visible = false; this.selVertDots.renderOrder = 4;
     this.scene.add(this.selVertDots);
-    // 全部顶点：小一号的深色点（选中的点画在它上面，renderOrder 更大）
+    // 全部顶点：小一号的深色点（选中的点画在它上面，renderOrder 更大）。往镜头拉 = 视空间按距离的 0.4%（以前按深度缓冲拉固定 0.0015，远了等于好几米 → 背面的点露出来；user「背面的点在距离比较远的时候露出来了」）
     this.vertDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Vector3(((PALETTE.edge >> 16) & 255) / 255, ((PALETTE.edge >> 8) & 255) / 255, (PALETTE.edge & 255) / 255) }, uSize: { value: VERT_DOT_PX } },
-      vertexShader: "uniform float uSize; void main(){ gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_Position.z -= 0.0015 * gl_Position.w; gl_PointSize = uSize; }",
+      vertexShader: "uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= 0.996; else mv.xyz *= 0.996; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }",
       fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
     }));
     this.vertDots.frustumCulled = false; this.vertDots.visible = false; this.vertDots.renderOrder = 3;
