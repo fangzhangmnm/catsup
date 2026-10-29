@@ -55,6 +55,7 @@ import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { LINE_WEIGHTS } from "../editor/render3.ts";
 import { PRESETS, PRESET_IDS, isPresetId } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
+import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
 import { PALETTE_ZH } from "./palette.ts";
@@ -1715,7 +1716,11 @@ void (async () => {
   crypto: { setPassword, getPassword, lock: lockPasswords, isUnlocked, rememberedUntil, restoreRemembered, forgetRemembered, answer: (fn: ((o: PromptOpts) => Promise<string | null>) | null) => { probePasswordAnswer = fn; }, keeper: passwordKeeper }, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
-editor.renderer3.onRedrawWanted = () => editor.draw();   // 风格的遮蔽停手后重烘好了 → 重画一帧（Tron 第 1 步，2026-10-29 Opus）
+editor.renderer3.onRedrawWanted = () => editor.draw();
+{   // 血槽位披露（Tron 清单第 9 步，2026-10-29 Opus）：连续超预算才说一次，提示行 + 黑匣子；开着风格时指路换回白模
+  const watch = makeBudgetWatch(() => { const s = editor.renderer3.getPreset(); return s === "white" ? null : PRESETS[s].name; });
+  editor.renderer3.onMeasured = (b) => { const said = watch.feed(b); if (said) { hintEl.textContent = said; note("budget", said); } };
+}   // 风格的遮蔽停手后重烘好了 → 重画一帧（Tron 第 1 步，2026-10-29 Opus）
 editor.renderer3.onTextureReady = () => editor.draw();   // 贴图异步解好 → 重画一帧（以前没人接：贴图要等下一次交互才出现；2026-10-29 Claude Fable 5.1）
 editor.setTool("line");
 hintEl.textContent = hintDefault();

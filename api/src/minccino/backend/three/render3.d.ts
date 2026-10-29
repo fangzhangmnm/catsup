@@ -96,6 +96,8 @@ export declare class Renderer3 implements Backend {
     private aoBaked;
     private aoChangedAt;
     private aoTimer;
+    /** 每画完一帧：预算核对 + 实测（app 层的血槽位披露接它）。 */
+    onMeasured: ((b: BudgetReport | null, m: Measurement) => void) | null;
     /** 后端自己想再画一帧（遮蔽停手后重烘好了）：app 层接 editor.draw。 */
     onRedrawWanted: (() => void) | null;
     private overlayLines;

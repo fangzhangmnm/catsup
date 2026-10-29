@@ -252,6 +252,8 @@ export class Renderer3 implements Backend {
   private envSky: EnvSky | null = null;                // 环境图（程序海天 + 球谐；铸铜）
   private pbr: PbrMaterials | null = null;             // 有光照的表面（铸铜）
   private aoSeen = ""; private aoBaked = ""; private aoChangedAt = 0; private aoTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 每画完一帧：预算核对 + 实测（app 层的血槽位披露接它）。 */
+  onMeasured: ((b: BudgetReport | null, m: Measurement) => void) | null = null;
   /** 后端自己想再画一帧（遮蔽停手后重烘好了）：app 层接 editor.draw。 */
   onRedrawWanted: (() => void) | null = null;
   private overlayLines!: OverlayLinesDrawer;
@@ -636,6 +638,7 @@ export class Renderer3 implements Backend {
     const P = this.perf;
     P.last["render.ms"] = m.frameMs; P.last["render.drawCalls"] = m.drawCalls; P.last["render.triangles"] = m.triangles ?? 0; P.last["render.vramMb"] = m.vramMb;
     if (this.lastBudget?.over.length) P.count["budget.over"] = (P.count["budget.over"] ?? 0) + 1;
+    if (!this.capturing) this.onMeasured?.(this.lastBudget, m);   // 血槽位披露（app 层决定什么时候说；截缩略图那帧不算）
   }
 
   /** 平涂的材质 / 地面 / 遮蔽烘焙器：第一次有预设要它们时才建（要在拉流之前：槽节点换材质要用）。 */
