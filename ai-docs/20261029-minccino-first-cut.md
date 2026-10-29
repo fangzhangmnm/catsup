@@ -28,4 +28,12 @@
 - 2026-10-29 · 全部 · 首次冻结（v0.17.0 的画面）。
 - 2026-10-29 · box-textured · 贴图黑面 bug 修了（上面那条），画面从黑变格子。
 
-## 步 2 目录 + 守卫（待）
+## 步 2 目录 + 守卫（v0.17.2）
+
+`src/minccino/`（README.md 是边界标准）：`contract/`（`geometry.ts` 同形类型 Vec3 / Xform12 / Mat4；`stream.ts` 块 / 放置 / 视锥带 / 预算 / 提供者；`view.ts` 视图 = 相机 + 画到哪 + 预算 + 画质档 + 后台预算；`cost.ts` 血槽位读数 / 代价表 / 降档一级 / 能力位）、`graph/frame-graph.ts`（规划器 `planFrame(passes, wanted)`：拓扑排序 + 没人要的剪掉 + 环 / 双写者抛——步 4 才把现状的 draw call 声明成 pass）、`backend/backend.ts`（接口只有名字 + 能力位 + dispose）、`backend/three/`、`overlay/`、`material/`（三个占位，步 5 / 6 / 8 填）、`index.ts` 门牌。
+
+守卫 `test/minccino-guard.test.ts`（进 `npm test`）：① three 围栏棘轮（import three 的文件 ⊆ `backend/three/` ∪ 名单 `THREE_LEAKS = ["editor/render3.ts"]`，名单只准变短、登记了却不再漏 = 红）② 引擎零 three ③ 引擎不 import editor / scene / kernel / mesh / app / format / player / controller，backend 外零 DOM ④ graph / overlay / material / backend 里没有 userAgent / 平台名 / 机型名 ⑤ 规划器单测四条。`scripts/build.sh` 0.7「three 只在 render3」那条 lint 步 5 改成「只在 backend/three」。
+
+契约的取舍：块 = 池本地坐标 + 版本号（= Kernel.rev），放置 = 池键 + 3×4 变换 + 槽键——这正是现状 render3「每池一份几何 + 每槽一个矩阵」的形状，步 3 只是把它写成接口。`colors` 先留着（现状把材质色 / 选中 / 悬停烤进顶点色），步 6 叠加层搬走后只剩材质色。留口全部只留形状：多带、裁块、半成品池、笔画、惰性池、画质档、后台预算、降档梯子。
+
+## 步 3 流提供者（待）
