@@ -3,6 +3,33 @@
 // Tron 第一刀步 6a（v0.17.6，Claude Fable 5.1）：从 render3 原样搬出——每组的几何、颜色、键**逐字一样**（基线 0 像素差）；量尺（一像素多长 / 视野多远 / 相机三轴）
 // 由引擎经 OverlayCtx 给，这里不知道是桌面还是 XR。
 import type { OverlayCtx, OverlayLines } from "../minccino/index.ts";
+
+/** 每组线的画法 = 引擎认的几个 GL 参数（线宽 CSS px / 深度模式 / 透明度 / 叠放次序）；**名字留在这里**，引擎那边没有样式表（刀 a，v0.17.17）。值 = 以前 LINE_STYLES 逐字搬来。 */
+export type Look = Pick<OverlayLines, "widthPx" | "depth" | "alpha" | "layer" | "depthWrite" | "shared">;
+const HINT_PX = 1.2, ARC_PX = 2.5, SOFT_EDGE_PX = 1;
+const plain = (widthPx: number): Look => ({ widthPx, depth: "visible" });
+const onTop = (widthPx: number, layer: number, alpha?: number): Look => (alpha === undefined ? { widthPx, depth: "through", layer } : { widthPx, depth: "through", layer, alpha });
+export const LOOK = {
+  hint: plain(HINT_PX),
+  arc: plain(ARC_PX),
+  capsule: { widthPx: ARC_PX, depth: "through", depthWrite: true, layer: 9 },
+  protractor: plain(HINT_PX),
+  guide: plain(HINT_PX),
+  tape: plain(HINT_PX),
+  knife: onTop(HINT_PX + 0.5, 10),
+  charged: plain(HINT_PX),
+  soft: plain(SOFT_EDGE_PX),
+  /** 断口小垂线：线宽跟线稿粗细走（鼓包，不是另一种线）。 */
+  tick: { widthPx: "edge", depth: "visible" },
+  poolAxes: onTop(HINT_PX, 10),
+  emptyAxes: onTop(HINT_PX, 10),
+  originAxes: onTop(HINT_PX, 10, 0.4),
+  lock: onTop(HINT_PX, 11, 0.75),
+  gizmo: onTop(HINT_PX * 1.5, 11),
+  xg: onTop(HINT_PX * 1.5, 11),
+  /** 选中 / 刮擦 / 悬停 / 检查的边（6c）：后端边线自己的材质（shared），定死最后画（layer 2）= 盖得住底下同材质的黑边。 */
+  edge: { widthPx: 1.6, depth: "visible", layer: 2, shared: "edge" },
+} as const satisfies Record<string, Look>;
 import { hexToLinear, PALETTE } from "../minccino/index.ts";
 import type { ViewState } from "./view-state.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
@@ -29,7 +56,7 @@ const AXIS_TICK_REACH_M = 50;
 type Segs = { pos: number[]; col: number[] };
 const segs = (): Segs => ({ pos: [], col: [] });
 const push = (s: Segs, a: Pt3, b: Pt3, hex: number): void => { s.pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const [r, g, bb] = hexToLinear(hex); s.col.push(r, g, bb, r, g, bb); };
-const lines = (id: string, style: OverlayLines["style"], key: string, s: Segs, color?: number): OverlayLines => ({ kind: "lines", id, style, key, positions: s.pos, colors: s.col.length ? s.col : null, color });
+const lines = (id: string, look: Look, key: string, s: Segs, color?: number): OverlayLines => ({ kind: "lines", id, key, positions: s.pos, colors: s.col.length ? s.col : null, color, ...look });
 
 /** 这一帧的线段族叠加层（没有的组不出现 = 后端藏起来）。 */
 export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
@@ -51,7 +78,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
     for (let i = 0; i < N; i++) push(s, at((2 * Math.PI * i) / N, R), at((2 * Math.PI * (i + 1)) / N, R), 0x8b5cf6);
     for (let i = 0; i < 24; i++) { const a = (2 * Math.PI * i) / 24; push(s, at(a, R), at(a, i % 6 === 0 ? R * 0.8 : R * 0.9), 0x8b5cf6); }
     if (pr.ref) { push(s, pr.center, at(0, R * 1.15), 0x111111); push(s, pr.center, at(pr.angle, R * 1.15), 0xd97706); }
-    out.push(lines("protractor", "protractor", pk, s));
+    out.push(lines("protractor", LOOK.protractor, pk, s));
   }
   // ---- 参考几何（0.11 尺规纪元）：参考线 = 长线；参考点 = 像素尺寸的小叉 ----
   const gd = view.guides;
@@ -71,14 +98,14 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
       push(s, { x: q.p.x, y: q.p.y - r, z: q.p.z }, { x: q.p.x, y: q.p.y + r, z: q.p.z }, gcol(q.id));
       push(s, { x: q.p.x, y: q.p.y, z: q.p.z - r }, { x: q.p.x, y: q.p.y, z: q.p.z + r }, gcol(q.id));
     }
-    out.push(lines("guides", "guide", gk, s));
+    out.push(lines("guides", LOOK.guide, gk, s));
   }
   // ---- 平滑边（自由建模）----
   const se = view.softEdges;
   if (se && se.segs.length) {
     const s = segs();
     for (const g of se.segs) push(s, g.a, g.b, SOFT_EDGE_COLOR);
-    out.push(lines("soft", "soft", se.key, s));
+    out.push(lines("soft", LOOK.soft, se.key, s));
   }
   // ---- 充能标记：点 = 小菱形（像素尺寸），边 = 淡淡的延长线 ----
   const ch = view.charged;
@@ -99,7 +126,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
       const E2 = { x: p.x + right.x * r, y: p.y + right.y * r, z: p.z + right.z * r }, W = { x: p.x - right.x * r, y: p.y - right.y * r, z: p.z - right.z * r };
       push(s, N, E2, CHARGED_COLOR); push(s, E2, S, CHARGED_COLOR); push(s, S, W, CHARGED_COLOR); push(s, W, N, CHARGED_COLOR);
     }
-    out.push(lines("charged", "charged", ck, s));
+    out.push(lines("charged", LOOK.charged, ck, s));
   }
   // ---- A33 断口小垂线：线上一个小鼓包（半长 = 线宽 × TICK_K，边线色），垂直于边、面向相机 ----
   // 同一套小短线也画轴的刻度（user 2026-10-25「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）：Z 轴每 axisTickM 一根（屏上挤到 < 6 px 就改成每 10 个一根），
@@ -130,7 +157,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
       s.pos.push(t.p.x - n.x * r, t.p.y - n.y * r, t.p.z - n.z * r, t.p.x + n.x * r, t.p.y + n.y * r, t.p.z + n.z * r);
       s.col.push(cr, cg, cb, cr, cg, cb);
     }
-    out.push(lines("ticks", "tick", kk, s));
+    out.push(lines("ticks", LOOK.tick, kk, s));
   }
   // ---- 平面 gizmo（镜像面）的线：描边 / 法线箭头 / 转动把手 / 中心小框（半透明方块归后端的标记）----
   const pg = view.planeGizmo;
@@ -148,7 +175,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
     ring(0, S, "rotU"); ring(S, 0, "rotV");                                          // 转动把手（边中点）
     const m = S * 0.07;
     push(s, P(-m, -m), P(m, -m), colOf("move")); push(s, P(m, -m), P(m, m), colOf("move")); push(s, P(m, m), P(-m, m), colOf("move")); push(s, P(-m, m), P(-m, -m), colOf("move"));
-    out.push(lines("planeGizmo", "gizmo", k, s));
+    out.push(lines("planeGizmo", LOOK.gizmo, k, s));
   }
   // ---- 变换 gizmo 的线：三根箭杆 + 三个环，RGB = XYZ，悬停 / 拖着的那个换橙（锥 / 块 / 片归后端的标记）----
   const xg = view.xformGizmo;
@@ -167,10 +194,10 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
       const Pp = (i: number): Pt3 => { const a = (2 * Math.PI * i) / N, c = Math.cos(a) * xg.ring, sn = Math.sin(a) * xg.ring; return { x: xg.origin.x + ref.x * c + v.x * sn, y: xg.origin.y + ref.y * c + v.y * sn, z: xg.origin.z + ref.z * c + v.z * sn }; };
       for (let i = 0; i < N; i++) push(s, Pp(i), Pp(i + 1), hr);
     }
-    out.push(lines("xformGizmo", "xg", k, s));
+    out.push(lines("xformGizmo", LOOK.xg, k, s));
   }
   // ---- DT15 选中组件的原点 / T11 空组件的常驻标记 / DT86 组件原点（淡）：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
-  const triads = (id: string, style: OverlayLines["style"], frames: readonly Frame[] | null | undefined): void => {
+  const triads = (id: string, look: Look, frames: readonly Frame[] | null | undefined): void => {
     if (!frames || !frames.length) return;
     const wpp = frames.map((f) => ctx.worldPerPx(f.origin));
     const k = frames.map((f, i) => `${f.origin.x},${f.origin.y},${f.origin.z}/${f.x.x},${f.x.y},${f.x.z}/${f.y.x},${f.y.y},${f.y.z}/${f.z.x},${f.z.y},${f.z.z}@${wpp[i].toExponential(2)}`).join("|");
@@ -179,11 +206,11 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
       const L = POOL_AXES_PX * wpp[i], o = f.origin;
       for (const [d, hex] of [[f.x, PALETTE.axisX], [f.y, PALETTE.axisY], [f.z, PALETTE.axisZ]] as const) push(s, o, { x: o.x + d.x * L, y: o.y + d.y * L, z: o.z + d.z * L }, hex);
     });
-    out.push(lines(id, style, k, s));
+    out.push(lines(id, look, k, s));
   };
-  triads("poolAxes", "poolAxes", view.poolAxes);
-  triads("emptyAxes", "emptyAxes", view.emptyAxes);
-  triads("originAxes", "originAxes", view.originAxes);
+  triads("poolAxes", LOOK.poolAxes, view.poolAxes);
+  triads("emptyAxes", LOOK.emptyAxes, view.emptyAxes);
+  triads("originAxes", LOOK.originAxes, view.originAxes);
   // ---- 锁看得见：轴色长线、透视 ----
   const lk = view.lockLines;
   if (lk && lk.length) {
@@ -193,7 +220,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
       const L = LOCK_LINE_SPAN_PX * ctx.worldPerPx(l.through), o = l.through, d = l.dir;
       push(s, { x: o.x - d.x * L, y: o.y - d.y * L, z: o.z - d.z * L }, { x: o.x + d.x * L, y: o.y + d.y * L, z: o.z + d.z * L }, l.color === "n" ? 0x888888 : AXIS_COLORS[l.color]);
     }
-    out.push(lines("lockLines", "lock", k, s));
+    out.push(lines("lockLines", LOOK.lock, k, s));
   }
   // ---- 卷尺预演：量线 + 候选参考线 / 参考点 ----
   const tp0 = view.tape;
@@ -204,7 +231,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
     push(s, tp0.a, tp0.b, 0x111111);
     if (tp0.guide) { const g = tp0.guide, [a, b] = ctx.infLine(g.p, g.dir); push(s, a, b, GUIDE_COLOR); }
     if (tp0.point) { const q = tp0.point; push(s, { x: q.x - r, y: q.y, z: q.z }, { x: q.x + r, y: q.y, z: q.z }, GUIDE_COLOR); push(s, { x: q.x, y: q.y - r, z: q.z }, { x: q.x, y: q.y + r, z: q.z }, GUIDE_COLOR); push(s, { x: q.x, y: q.y, z: q.z - r }, { x: q.x, y: q.y, z: q.z + r }, GUIDE_COLOR); }
-    out.push(lines("tape", "tape", tk, s));
+    out.push(lines("tape", LOOK.tape, tk, s));
   }
   // ---- 切割的刀线（最上层）----
   const kl = view.knifeLine;
@@ -212,7 +239,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
     const kk = `${kl.a.x},${kl.a.y},${kl.a.z}>${kl.b.x},${kl.b.y},${kl.b.z}|${kl.valid}`;
     const s = segs();
     push(s, kl.a, kl.b, kl.valid ? PALETTE.edgeSelected : 0x8a8a8a);
-    out.push(lines("knife", "knife", kk, s));
+    out.push(lines("knife", LOOK.knife, kk, s));
   }
   // ---- 吸附提示线（小球归后端的标记）----
   const sn = view.snap;
@@ -225,7 +252,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
       const hk = hs.map((h) => `${h.color}:${h.a.x},${h.a.y},${h.a.z},${h.b.x},${h.b.y},${h.b.z}`).join("|");
       const s = segs();
       for (const h of hs) push(s, h.a, h.b, h.color);
-      out.push(lines("hint", "hint", hk, s));
+      out.push(lines("hint", LOOK.hint, hk, s));
     }
   }
   // ---- teleport 弧线（绿=可落 / 红=取消；落点环归后端的标记；位置每帧变 → 每帧重建这几十段）----
@@ -233,7 +260,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
   if (tp && tp.points.length >= 2) {
     const s = segs();
     for (let i = 0; i + 1 < tp.points.length; i++) { const a = tp.points[i], b = tp.points[i + 1]; s.pos.push(a.x, a.y, a.z, b.x, b.y, b.z); }
-    out.push({ kind: "lines", id: "arc", style: "arc", key: `arc${s.pos.length}@${s.pos.join(",")}`, positions: s.pos, colors: null, color: tp.valid ? TP_OK : TP_BAD });
+    out.push({ kind: "lines", id: "arc", ...LOOK.arc, key: `arc${s.pos.length}@${s.pos.join(",")}`, positions: s.pos, colors: null, color: tp.valid ? TP_OK : TP_BAD });
   }
   // ---- 放置的胶囊虚影（每帧位置都可能变，几十段，现建）----
   const cp = view.capsule;
@@ -242,7 +269,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): OverlayLines[] {
     const ring = (z: number, rr: number): void => { for (let i = 0; i < N; i++) { const a = (i / N) * 2 * Math.PI, b = ((i + 1) / N) * 2 * Math.PI; pos.push(f.x + rr * Math.cos(a), f.y + rr * Math.sin(a), z, f.x + rr * Math.cos(b), f.y + rr * Math.sin(b), z); } };
     ring(f.z + 0.01, r); ring(f.z + cp.stature, r);   // 脚底 / 头顶（不画眼睛：user 10-28「消费者不应该知道你有眼睛」）
     for (let i = 0; i < 4; i++) { const a = (i / 4) * 2 * Math.PI; pos.push(f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + 0.01, f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + cp.stature); }
-    out.push({ kind: "lines", id: "capsule", style: "capsule", key: `cap@${pos.join(",")}`, positions: pos, colors: null, color: cp.ok ? TP_OK : TP_BAD });
+    out.push({ kind: "lines", id: "capsule", ...LOOK.capsule, key: `cap@${pos.join(",")}`, positions: pos, colors: null, color: cp.ok ? TP_OK : TP_BAD });
   }
   return out;
 }

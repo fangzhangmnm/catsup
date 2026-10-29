@@ -1,29 +1,31 @@
-// minccino/backend/three/overlay-marks.ts —— 叠加层的点 / 标记 / 三角 / 文字的 three 画法（步 6b）：点 = 每种样式一份 Points + shader 材质（shader 字符串
-// 和以前 render3 的逐字一样）；标记 = 每个 id 一个 Mesh（几何 / 材质按 MARKER_STYLES）；三角 = 每个 id 一个 Mesh；文字 = Sprite + label-raster 的位图。
-// created 2026-10-29 by Claude Fable 5.1
+// minccino/backend/three/overlay-marks.ts —— 叠加层的点 / 标记 / 三角 / 文字的 three 画法（步 6b）：点 = 每个 id 一份 Points + shader 材质（shader 字符串
+// 和以前 render3 的逐字一样）；标记 = 每个 id 一个 Mesh；三角 = 每个 id 一个 Mesh；文字 = Sprite + label-raster 的位图。
+// 材质参数全从 item 自带的画法参数来（刀 a：引擎这边没有样式表）；参数变了才重建。created 2026-10-29 by Claude Fable 5.1
 import * as THREE from "three";
-import { MARKER_STYLES, POINT_STYLES, TRIS_STYLES, type MarkerStyleId, type OverlayLabel, type OverlayMarker, type OverlayPoints, type OverlayTris, type PointStyleId, type TrisStyleId } from "../../overlay/index.ts";
+import type { MarkerGeom, OverlayLabel, OverlayMarker, OverlayPoints, OverlayTris } from "../../overlay/index.ts";
 import { anchorCenter, rasterizeLabel } from "../label-raster.ts";
 import type { Vec3 } from "../../contract/geometry.ts";
 
 const rgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];   // 原样 sRGB 数值（ShaderMaterial 不做色彩空间换算）
 
-function pointMaterial(st: (typeof POINT_STYLES)[PointStyleId]): any {
-  if (st.color === null) {
+const pointKey = (it: OverlayPoints): string => `${it.sizePx}|${it.shape}|${it.pull}|${it.color}|${it.depth}|${it.alpha ?? 1}`;
+function pointMaterial(it: OverlayPoints): any {
+  const depthTest = it.depth !== "through";
+  if (it.color === null) {
     return new THREE.ShaderMaterial({
-      uniforms: { uSize: { value: st.sizePx } }, depthTest: st.depthTest, depthWrite: false, transparent: true,
+      uniforms: { uSize: { value: it.sizePx } }, depthTest, depthWrite: false, transparent: true,
       vertexShader: "uniform float uSize; attribute vec3 color; varying vec3 vC; void main(){ vC = color; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_PointSize = uSize; }",
-      fragmentShader: `varying vec3 vC; void main(){ vec2 d = abs(gl_PointCoord - 0.5); if (max(d.x, d.y) > 0.5) discard; gl_FragColor = vec4(vC, ${st.alpha}); }`,
+      fragmentShader: `varying vec3 vC; void main(){ vec2 d = ${it.shape === "square" ? "abs(gl_PointCoord - 0.5); if (max(d.x, d.y) > 0.5)" : "gl_PointCoord - 0.5; if (dot(d, d) > 0.25)"} discard; gl_FragColor = vec4(vC, ${(it.alpha ?? 1).toFixed(3)}); }`,
     });
   }
-  const [r, g, b] = rgb(st.color);
+  const [r, g, b] = rgb(it.color), pull = it.pull ?? 1;
   return new THREE.ShaderMaterial({
-    uniforms: { uColor: { value: new THREE.Vector3(r, g, b) }, uSize: { value: st.sizePx } },
-    vertexShader: `uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= ${st.pull}; else mv.xyz *= ${st.pull}; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }`,
-    fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
+    uniforms: { uColor: { value: new THREE.Vector3(r, g, b) }, uSize: { value: it.sizePx } }, depthTest,
+    vertexShader: `uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= ${pull}; else mv.xyz *= ${pull}; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }`,
+    fragmentShader: `uniform vec3 uColor; void main(){ vec2 d = ${it.shape === "square" ? "abs(gl_PointCoord - 0.5); if (max(d.x, d.y) > 0.5)" : "gl_PointCoord - 0.5; if (dot(d, d) > 0.25)"} discard; gl_FragColor = vec4(uColor, 1.0); }`,
   });
 }
-function markerGeometry(geom: (typeof MARKER_STYLES)[MarkerStyleId]["geom"]): any {
+function markerGeometry(geom: MarkerGeom): any {
   switch (geom) {
     case "sphere": return new THREE.SphereGeometry(1, 12, 8);
     case "sphereHalf": return new THREE.SphereGeometry(0.5, 16, 10);
@@ -33,58 +35,66 @@ function markerGeometry(geom: (typeof MARKER_STYLES)[MarkerStyleId]["geom"]): an
     case "plane": return new THREE.PlaneGeometry(1, 1);
   }
 }
+const markerKey = (it: OverlayMarker): string => `${it.geom}|${it.depth}|${it.depthWrite ?? "-"}|${it.alpha ?? 1}|${it.doubleSide ? 1 : 0}`;
+const trisKey = (it: OverlayTris): string => `${it.color}|${it.depth}|${it.alpha ?? 1}|${it.doubleSide ? 1 : 0}`;
+function basicMaterial(color: number, depth: "visible" | "through", depthWrite: boolean | undefined, alpha: number | undefined, doubleSide: boolean | undefined): any {
+  const transparent = alpha !== undefined && alpha < 1;
+  return new THREE.MeshBasicMaterial({ color, depthTest: depth !== "through", depthWrite: depthWrite ?? depth !== "through", transparent, opacity: alpha ?? 1, side: doubleSide ? THREE.DoubleSide : THREE.FrontSide });
+}
 
 export class OverlayMarksDrawer {
-  private points = new Map<PointStyleId, { obj: any; key: string; id: string | null }>();
-  private markers = new Map<string, { obj: any; style: MarkerStyleId }>();
-  private tris = new Map<string, { obj: any; key: string; style: TrisStyleId }>();
+  private points = new Map<string, { obj: any; key: string; mat: string }>();
+  private markers = new Map<string, { obj: any; mat: string }>();
+  private tris = new Map<string, { obj: any; key: string; mat: string }>();
   private labels = new Map<string, { sprite: any; key: string; w: number; h: number }>();
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly v1 = new THREE.Vector3(); private readonly v2 = new THREE.Vector3(); private readonly v3 = new THREE.Vector3();
   private readonly m4 = new THREE.Matrix4();
-  constructor(private readonly scene: any) {
-    for (const [id, st] of Object.entries(POINT_STYLES) as [PointStyleId, (typeof POINT_STYLES)[PointStyleId]][]) {
-      const obj = new THREE.Points(new THREE.BufferGeometry(), pointMaterial(st));
-      obj.frustumCulled = false; obj.visible = false; obj.renderOrder = st.renderOrder;
-      this.scene.add(obj);
-      this.points.set(id, { obj, key: "\u0000", id: null });
-    }
-  }
+  constructor(private readonly scene: any) {}
   /** 探针：这个 id 这一帧画着没有。 */
   isVisible(id: string): boolean {
-    for (const p of this.points.values()) if (p.id === id) return !!p.obj.visible;
-    return !!(this.markers.get(id)?.obj.visible || this.tris.get(id)?.obj.visible || this.labels.get(id)?.sprite.visible);
+    return !!(this.points.get(id)?.obj.visible || this.markers.get(id)?.obj.visible || this.tris.get(id)?.obj.visible || this.labels.get(id)?.sprite.visible);
   }
   /** 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
   labelKeys(): { id: string; key: string }[] { return [...this.labels].map(([id, e]) => ({ id, key: e.key })); }
 
   sync(items: readonly (OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel)[], dpr: number, worldPerPx: (p: Vec3) => number): void {
-    const seenPts = new Set<PointStyleId>(), seenM = new Set<string>(), seenT = new Set<string>(), seenL = new Set<string>();
+    const seenPts = new Set<string>(), seenM = new Set<string>(), seenT = new Set<string>(), seenL = new Set<string>();
     for (const it of items) {
       if (it.kind === "points") {
-        const e = this.points.get(it.style)!; seenPts.add(it.style);
-        if (e.key !== it.key || e.id !== it.id) {
-          e.key = it.key; e.id = it.id;
+        seenPts.add(it.id);
+        const mk = pointKey(it);
+        let e = this.points.get(it.id);
+        if (!e || e.mat !== mk) {
+          if (e) { this.scene.remove(e.obj); e.obj.geometry.dispose(); e.obj.material.dispose(); }
+          const obj = new THREE.Points(new THREE.BufferGeometry(), pointMaterial(it));
+          obj.frustumCulled = false; obj.visible = false;
+          this.scene.add(obj);
+          e = { obj, key: "\u0000", mat: mk }; this.points.set(it.id, e);
+        }
+        if (e.key !== it.key) {
+          e.key = it.key;
           const g = new THREE.BufferGeometry();
           g.setAttribute("position", new THREE.Float32BufferAttribute(it.positions as number[], 3));
           if (it.colors) g.setAttribute("color", new THREE.Float32BufferAttribute(it.colors as number[], 3));
           e.obj.geometry.dispose(); e.obj.geometry = g;
         }
-        e.obj.material.uniforms.uSize.value = POINT_STYLES[it.style].sizePx * dpr;
+        e.obj.renderOrder = it.layer ?? 0;
+        e.obj.material.uniforms.uSize.value = it.sizePx * dpr;
         e.obj.visible = true;
       } else if (it.kind === "marker") {
         seenM.add(it.id);
+        const mk = markerKey(it);
         let e = this.markers.get(it.id);
-        if (!e || e.style !== it.style) {
+        if (!e || e.mat !== mk) {
           if (e) { this.scene.remove(e.obj); e.obj.geometry.dispose(); e.obj.material.dispose(); }
-          const st = MARKER_STYLES[it.style];
-          const obj = new THREE.Mesh(markerGeometry(st.geom), new THREE.MeshBasicMaterial({ color: 0xffffff, depthTest: st.depthTest, depthWrite: st.depthWrite, transparent: st.transparent, opacity: st.opacity, side: st.doubleSide ? THREE.DoubleSide : THREE.FrontSide }));
-          obj.renderOrder = st.renderOrder; obj.frustumCulled = st.frustumCulled; obj.visible = false;
+          const obj = new THREE.Mesh(markerGeometry(it.geom), basicMaterial(0xffffff, it.depth, it.depthWrite, it.alpha, it.doubleSide));
+          obj.frustumCulled = false; obj.visible = false;
           this.scene.add(obj);
-          e = { obj, style: it.style }; this.markers.set(it.id, e);
+          e = { obj, mat: mk }; this.markers.set(it.id, e);
         }
         const m = e.obj;
-        m.visible = true;
+        m.visible = true; m.renderOrder = it.layer ?? 0;
         m.position.set(it.at.x, it.at.y, it.at.z);
         if (typeof it.scale === "number") m.scale.setScalar(it.scale); else m.scale.set(it.scale.x, it.scale.y, it.scale.z);
         m.material.color.setHex(it.color);
@@ -94,13 +104,14 @@ export class OverlayMarksDrawer {
         else m.quaternion.setFromRotationMatrix(this.m4.makeBasis(this.v1.set(o.x.x, o.x.y, o.x.z), this.v2.set(o.y.x, o.y.y, o.y.z), this.v3.set(o.z.x, o.z.y, o.z.z)));
       } else if (it.kind === "tris") {
         seenT.add(it.id);
+        const mk = trisKey(it);
         let e = this.tris.get(it.id);
-        if (!e) {
-          const st = TRIS_STYLES[it.style];
-          const obj = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: st.color, transparent: st.transparent, opacity: st.opacity, side: st.doubleSide ? THREE.DoubleSide : THREE.FrontSide, depthTest: st.depthTest, depthWrite: st.depthWrite }));
-          obj.renderOrder = st.renderOrder; obj.frustumCulled = false; obj.visible = false;
+        if (!e || e.mat !== mk) {
+          if (e) { this.scene.remove(e.obj); e.obj.geometry.dispose(); e.obj.material.dispose(); }
+          const obj = new THREE.Mesh(new THREE.BufferGeometry(), basicMaterial(it.color, it.depth, undefined, it.alpha, it.doubleSide));
+          obj.frustumCulled = false; obj.visible = false;
           this.scene.add(obj);
-          e = { obj, key: "\u0000", style: it.style }; this.tris.set(it.id, e);
+          e = { obj, key: "\u0000", mat: mk }; this.tris.set(it.id, e);
         }
         if (e.key !== it.key) {
           e.key = it.key;
@@ -108,6 +119,7 @@ export class OverlayMarksDrawer {
           g.setAttribute("position", new THREE.Float32BufferAttribute(it.positions as number[], 3));
           const old = e.obj.geometry; e.obj.geometry = g; old.dispose();
         }
+        e.obj.renderOrder = it.layer ?? 0;
         e.obj.visible = true;
       } else {
         seenL.add(it.id);

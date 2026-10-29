@@ -330,7 +330,7 @@ export class Renderer3 implements Backend {
     // 选中 / 刮擦 / 悬停的边 = 叠加层 "edge" 样式（6c）：用边线本身的材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
     // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
     // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。
-    // 叠加层线段族（步 6a）：材质按 LINE_STYLES 声明顺序建在这里 = 和以前各组线材质的创建顺序一致（three 画家排序平手按材质 id）；"edge" 不建材质
+    // 叠加层线段族（步 6a；刀 a 起材质按 item 的画法参数按需建）；"edge" 不建材质
     const overlayHost = { add: (o: any): void => { o.layers.set(OVERLAY_LAYER); this.scene.add(o); }, remove: (o: any): void => { this.scene.remove(o); } };   // 叠加层的东西住 OVERLAY_LAYER
     this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => (this.xrayPass ? this.xrayOverlayMat : this.edgeMat) });
     // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
@@ -501,7 +501,7 @@ export class Renderer3 implements Backend {
     const k = presenting ? scale : 1;
     this.edgeMat.linewidth = Math.max(this.lineWeight, 1) * k;
     this.profileAdd.value = profileAddFor(Math.max(this.lineWeight, 1)) * k;
-    if (this.overlayLines) this.overlayLines.material("tick").linewidth = Math.max(this.lineWeight, 1) * k;   // 断口小垂线跟边线一样粗（鼓包，不是另一种线）
+    if (this.overlayLines) this.overlayLines.edgeWidth(Math.max(this.lineWeight, 1) * k);   // 断口小垂线跟边线一样粗（鼓包，不是另一种线）
     if (this.axesObj) this.axesObj.material.linewidth = Math.min(STATIC_PX * scale, this.lineWeight > 1 ? this.lineWeight * k : 0.6 * k);   // 原生细线（1 px）覆盖的采样点和粗线插件不同，轴同宽会从缝里透红 → 细线模式下轴画 0.6 px   // 轴不比边粗：压在轴上的边要整条盖住轴（2× 屏上轴 2.4 px > 边 1.5 px → 边成了「红边夹黑芯」，2026-10-25）
   }
 

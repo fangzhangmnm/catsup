@@ -14,6 +14,7 @@ import { dot3 } from "../kernel/geom.ts";
 import { buildFaceRec } from "./pool-mesh.ts";
 import { faceTriangles } from "./face-triangles.ts";
 import { perf } from "./perf-stats.ts";
+import { LOOK } from "./overlay-lines.ts";
 
 export interface HighlightState {
   readonly selectionFaces: ReadonlySet<FaceId>;
@@ -104,6 +105,6 @@ function buildHighlight(kd: WorldView, view: HighlightState, key: string): Overl
     const [cr, cg, cb] = hexToLinear(hot ? PALETTE.edgeHot : warn ? PALETTE.edgeWarn : PALETTE.edgeSelected);
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(cr, cg, cb, cr, cg, cb);
   }
-  if (pos.length) out.push({ kind: "lines", id: "edgeSel", style: "edge", key, positions: pos, colors: col } satisfies OverlayLines);
+  if (pos.length) out.push({ kind: "lines", id: "edgeSel", ...LOOK.edge, key, positions: pos, colors: col } satisfies OverlayLines);
   return out;
 }

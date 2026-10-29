@@ -124,3 +124,10 @@
 - **守卫 ③′ 清零**：`render3.ts` 零内容层 import（1196 → 922 行；import 只剩 three / vendor / 引擎门牌）；`TRANSITIONAL = {}`，再 import 内容层 = 守卫 ③ 直接红。`editor/render3.ts` 转出口 = 后端类 + 调色板 + 编辑器侧三样（ViewState / frameInput / overlayItems / faceTriangles / 两个像素常量）。编辑器体重棘轮 4170 → 4169。
 - 验：`npm test` 1169 绿；截图基线 11 张 **0 像素差**（选中 / 悬停 / 锁轴线 / 网格体选中面 / X 光 / 贴图 / 五个冻结样本）；探针 lock-line / mesh-marks / mesh-mirror / erase-red / xr-fake 18 / hover / select-points / xray-facedots / thumb-square（缩略图走 captureRgba 新签名）/ xray / mesh-knife / soft-select / isolate / hide 全绿。
 - 没做 / 如实说：相机还是「轨道量」不是两个矩阵（near / far 要后端按包围球算，初中收）；叠加层回调每帧一个闭包（可忽略）；`FrameInput` 没有 `dimSlots`（淡出进了提供者的内容键）。
+
+## 窄接口清理刀（设计稿 `20261029-narrow-interface-design.md`；Claude Fable 5.1，2026-10-29 深夜起）
+
+### 刀 a（v0.17.17）：叠加层去样式表，item 自带 GL 画法参数
+- 做了什么：`src/minccino/overlay/index.ts` 删掉 `LINE_STYLES / POINT_STYLES / MARKER_STYLES / TRIS_STYLES`（17 + 4 + 7 + 1 个**编辑器名字**：lock / gizmo / protractor / poolAxes…）；每个 item 自带线宽（CSS px 或 `"edge"` = 跟线稿粗细走）/ 深度模式（`visible` 测深度并前拉 · `through` 压最上 · `hidden` 只画被挡住的那段，T73）/ 透明度 / 叠放次序 `layer` / `depthWrite`；点带大小 · 圆方 · 往相机拉 · 颜色；标记带几何形状。后端 `overlay-lines.ts` / `overlay-marks.ts` 按参数**按需建材质、按参数复用**（键 = 参数拼起来）。名字搬到编辑器侧：`src/editor/overlay-lines.ts LOOK`、`overlay.ts DOT / MARK / TRI`（值逐字 = 旧表）。断口小垂线的「跟边线宽走」从 render3 点名 `material("tick")` 改成 item 说 `widthPx: "edge"`、后端 `edgeWidth()` 统一刷。
+- 怎么验：`npm test` 1175 绿；截图基线 22 张 **0 像素差**（材质从「按表序预建」改成「按需建」后 three 画家排序平手的次序理论上可能变，基线证明现有场景没撞上）。
+- 基线：没动。

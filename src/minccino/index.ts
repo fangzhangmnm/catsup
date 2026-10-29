@@ -8,8 +8,8 @@ export type { Measurement, CostTable, DegradeStep, BackendCaps } from "./contrac
 export type { PassDecl, FramePlan } from "./graph/frame-graph.ts";
 export { planFrame } from "./graph/frame-graph.ts";
 export type { Backend, FrameInput } from "./backend/backend.ts";
-export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayLabel, OverlayFaces, OverlayCtx, LineStyle as OverlayLineStyle, LineStyleId, PointStyle, PointStyleId, MarkerStyle, MarkerStyleId, TrisStyle, TrisStyleId } from "./overlay/index.ts";
-export { LINE_STYLES, POINT_STYLES, MARKER_STYLES, TRIS_STYLES, hexToLinear } from "./overlay/index.ts";
+export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayLabel, OverlayFaces, OverlayCtx, DepthMode, MarkerGeom } from "./overlay/index.ts";
+export { hexToLinear } from "./overlay/index.ts";
 export { PALETTE } from "./palette.ts";
 export { NOOP_PERF, type PerfSink } from "./perf.ts";
 export { PRESETS, PRESET_IDS, isPresetId, isStyled, presetPasses, type Preset, type PresetId, type PixelOutlinePost, type FlatShade, type AoParams, type TronShade, type BloomPost, type PbrShade, type EnvLight, type SurfaceLayer } from "./preset/index.ts";
