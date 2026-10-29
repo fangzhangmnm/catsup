@@ -23,7 +23,7 @@ export function makeBudgetWatch(styleName: () => string | null): BudgetWatch {
       if (told || streak < BUDGET_STREAK) return null;
       told = true;
       const s = styleName();
-      return `${b.disclose}${s ? `——现在的风格是「${s}」，卡的话视图 ☰「风格」可以换回白模` : ""}`;
+      return `${b.disclose}${s ? `——现在的风格是「${s}」，卡的话视图 ☰「风格」可以换回线稿` : ""}`;
     },
   };
 }

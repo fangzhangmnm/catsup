@@ -15,12 +15,12 @@ describe("血槽位披露", () => {
     assert(!!said && said.includes("每帧毫秒 40.0 ms / 16.7 ms") && !said.includes("风格"), said ?? "");
     eq(w.feed(over), null); eq(w.feed(over), null);
   });
-  it("回到预算内再超 = 重新计、再说一次；开着风格时指路换回白模；没核对的帧不算", () => {
+  it("回到预算内再超 = 重新计、再说一次；开着风格时指路换回线稿；没核对的帧不算", () => {
     const w = makeBudgetWatch(() => "CRT Tron");
     for (let i = 0; i < BUDGET_STREAK; i++) w.feed(over);
     eq(w.feed(ok), null); eq(w.feed(null), null);
     let said: string | null = null;
     for (let i = 0; i < BUDGET_STREAK; i++) said = w.feed(over) ?? said;
-    assert(!!said && said.includes("「CRT Tron」") && said.includes("换回白模"), said ?? "");
+    assert(!!said && said.includes("「CRT Tron」") && said.includes("换回线稿"), said ?? "");
   });
 });

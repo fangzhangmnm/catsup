@@ -9,15 +9,15 @@ const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slic
 await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1000);
 const w = (ms) => page.waitForTimeout(ms);
 const val = (id) => page.evaluate((id) => document.querySelector(`.popup-menu:not(.choice-layer) [data-menu-id="${id}"] .menu-value`)?.textContent ?? null, id);
-const state = () => page.evaluate(() => ({ menu: !!document.querySelector(".popup-menu:not(.choice-layer)"), layer: document.querySelectorAll(".choice-layer").length, g: globalThis.__catsup.editor.grid, lw: globalThis.__catsup.editor.lineWeight, unit: globalThis.__catsup.editor.vcbUnit }));
+const state = () => page.evaluate(() => ({ menu: !!document.querySelector(".popup-menu:not(.choice-layer)"), layer: document.querySelectorAll(".choice-layer").length, g: globalThis.__catsup.editor.grid, screen: globalThis.__catsup.editor.renderer3.getScreen(), unit: globalThis.__catsup.editor.vcbUnit }));
 const res = {};
 await page.click(".gizmo-menu"); await w(120);
 await page.click('.popup-menu [data-menu-tab="display"]'); await w(80);
-res.flatRows = await page.evaluate(() => document.querySelectorAll('.popup-menu [data-menu-id^="lw:"]:not([data-menu-id="lw:pick"]), .popup-menu [data-menu-id^="unit:"]:not([data-menu-id="unit:pick"])').length);   // 平铺的单选行没了
-await page.click('[data-menu-id="lw:pick"]'); await w(100);
+res.flatRows = await page.evaluate(() => document.querySelectorAll('.popup-menu [data-menu-id^="screen:"]:not([data-menu-id="screen:pick"]), .popup-menu [data-menu-id^="unit:"]:not([data-menu-id="unit:pick"])').length);   // 平铺的单选行没了
+await page.click('[data-menu-id="screen:pick"]'); await w(100);
 res.lwOpen = await state();
-await page.click('.choice-layer [data-choice-id="lw:2"]'); await w(100);
-res.lwAfter = { ...(await state()), val: await val("lw:pick") };
+await page.click('.choice-layer [data-choice-id="screen:pixel2"]'); await w(100);
+res.lwAfter = { ...(await state()), val: await val("screen:pick") };
 await page.click('[data-menu-id="unit:pick"]'); await w(80);
 await page.click('[data-menu-id="unit:pick"]'); await w(80);   // 再点同一行 = 收起
 res.unitToggle = await state();
@@ -36,7 +36,7 @@ res.esc2 = await state();
 console.log(JSON.stringify(res));
 const ok = res.flatRows === 0
   && res.lwOpen.menu && res.lwOpen.layer === 1
-  && res.lwAfter.lw === 2 && res.lwAfter.menu && res.lwAfter.layer === 0 && res.lwAfter.val === "2 px"
+  && res.lwAfter.screen === "pixel2" && res.lwAfter.menu && res.lwAfter.layer === 0 && res.lwAfter.val === "像素 ×2"
   && res.unitToggle.layer === 0 && res.unitToggle.menu
   && res.unitAfter.unit === "cm" && res.unitAfter.val === "厘米"
   && res.preset.g.preset === "dnd" && res.preset.val === "D&D 格子" && /^5'/.test(res.preset.step ?? "")

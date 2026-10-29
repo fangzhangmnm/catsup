@@ -57,7 +57,8 @@ export const SCREENS = {
   pixel2: { id: "pixel2", name: "像素 ×2", brief: "一个像素放大 2 倍", pixelate: 2, rows: null, look: "none" },
   pixel3: { id: "pixel3", name: "像素 ×3", brief: "一个像素放大 3 倍", pixelate: 3, rows: null, look: "none" },
   pixel4: { id: "pixel4", name: "像素 ×4", brief: "一个像素放大 4 倍", pixelate: 4, rows: null, look: "none" },
-  crt240: { id: "crt240", name: "CRT 240 行", brief: "最多 240 行 + 电视外观", pixelate: 1, rows: 240, look: "crt-tv" },
+  crt3: { id: "crt3", name: "CRT ×3", brief: "像素 ×3 + 电视外观", pixelate: 3, rows: null, look: "crt-tv" },
+  crt240: { id: "crt240", name: "CRT 240 行", brief: "最多 240 行 + 电视外观（糊）", pixelate: 1, rows: 240, look: "crt-tv" },
 } as const satisfies Record<string, ScreenPreset>;
 export type ScreenId = keyof typeof SCREENS;
 export const SCREEN_IDS = Object.keys(SCREENS) as ScreenId[];
@@ -75,7 +76,7 @@ export interface Preset {
   readonly source: string;
   /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
    *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
-  /** material.edges 线稿三档：none 不画 / all 全画 / active 只画正在编辑那一层的（T60 像素里编辑中的东西显示网格；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
+  /** material.edges 线稿三档：none 不画 / all 全画（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）/ active 只画正在编辑那一层的。像素描边 = all（T113 user「像素里面边的显示其实就是看硬和软边就行了」：硬边都画、软边不画；T89 时是 active）；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
   readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all" | "active"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
     /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[] };
   /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
@@ -92,7 +93,7 @@ export interface Preset {
 export const PRESETS = {
   /** 白模（现状）：零成本兜底，不是风格。 */
   white: {
-    id: "white", name: "白模", note: "现在的样子：跟着相机的平光、线稿照常", brief: "现在的样子",
+    id: "white", name: "线稿", note: "跟着相机的平光 + 线稿（建模时的默认看法）", brief: "建模的默认看法",   // T96 user「白模这个名字不对（sketchup线稿）」：界面叫「线稿」（app 里不出现 SketchUp 字样）；id 不动
     source: "CatsUp 现状（≈ 实验室「最省 · 白模」）",
     material: { shade: "camera", texFilter: "asset", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
     light: { background: null, ground: null, ao: null, env: null },
@@ -104,7 +105,7 @@ export const PRESETS = {
   pixelOutline: {
     id: "pixelOutline", name: "像素描边", brief: "1/3 分辨率 + 一格黑描边", note: "按 1/3 分辨率画、最近邻放大，模型外轮廓和前后错开处描一格黑线；不打光、贴图最近邻；模型自己的线稿不画（选中 / 悬停的边、网格、吸附照常按原分辨率画）",
     source: "实验室 平涂 flat.js ·「像素描边」（contrast 0、pixelate 3、pixOutline、outlineTint 1、outlineShade 0.25、outlineDark；BASE 的 pixInner true、outline #1b1b1b、background #fde6bd）",
-    material: { shade: "none", texFilter: "nearest", edges: "active", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
+    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
     light: { background: 0xfde6bd, ground: null, ao: null, env: null },
     post: { pixelOutline: { color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },
     screen: "pixel3",
@@ -129,7 +130,7 @@ export const PRESETS = {
     material: { shade: "tron", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: 0x3fe6ff, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: 0xff9a2e }, pbr: null, surface: [] },
     light: { background: 0x010307, ground: { color: 0x010307, on: 0, grid: 0.55 }, ao: null, env: null },
     post: { pixelOutline: null, bloom: { amount: 1.0, radius: 0.7, cap: 1.8, vignette: 0.55 } },
-    screen: "crt240",
+    screen: "crt3",   // T85 user「tron的分辨率能不能别那么拉跨。先试下像素描边的分辨率」：240 行太糊 → 像素描边那档（×3）+ CRT 外观；240 行留在屏幕下拉里
     geometry: {},
   },
   /** 写实（实验室「基础」分类，标准金属度 / 粗糙度那套）：照模型上色——材质色和贴图都进底色。**真实材质的底子**：铸铜等 = 写实 + 材料参数 + 涂装车间的表面层（user 10-29「应该是真实材质复用写实，而不是写实复用铸铜！」）。也是 user 场景 4「全量渲染视口」的起点。 */
