@@ -3,19 +3,12 @@
 // **内容那半**（池网格本体 pool-mesh、同一帧同一内核只同步一次、两代没人用的释放、材质槽签名）搬到这里，render3 只剩「块 → 显卡 → 槽节点」。
 // 画面一个像素不变：块直接包池网格的大数组（零拷贝）、属性名 / 颜色烤法原样；颜色和粗线 / 像素线由 `ChunkStyle`（render3 给）决定——
 // 那是样式，过渡期还烤在顶点色里，材质模块 / 叠加层落地后从这里退役。
-import type { Chunk, ChunkAttr, Placement, StreamFrame, StreamProvider, StreamQuery } from "../minccino/index.ts";
+import type { Chunk, ChunkAttr, ChunkStyle, Placement, StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
 import { PoolMesh, type PoolMeshEnv } from "./pool-mesh.ts";
 import { type WorldView, type PoolSlot, slotKey } from "../scene/world-view.ts";
 import { poolKey, type Material, type Scene } from "../scene/scene.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { perf } from "./perf-stats.ts";
-
-/** 样式那半（render3 给）：面 / 边的颜色、粗线还是像素线。过渡期的接口，叠加层 + 材质模块落地后退役。 */
-export interface ChunkStyle {
-  faceColor(mat: Material | null, dim: boolean): readonly [number, number, number];
-  edgeColor(loose: boolean, dim: boolean): readonly [number, number, number];
-  thick(): boolean;
-}
 
 /** 一份池网格 = 一个「身体」：同一个池通常一份；同一帧要画两个不同内核（预演影子 + 原件）就多开一份。 */
 interface Body { readonly id: string; readonly mesh: PoolMesh; gen: number; faces: Map<string, Chunk>; lines: Chunk | null; }
@@ -23,6 +16,7 @@ interface Body { readonly id: string; readonly mesh: PoolMesh; gen: number; face
 export class EditorStreamProvider implements StreamProvider {
   private world: WorldView | null = null;
   private dimSlots: ReadonlySet<number> | null = null;
+  private revision = 0;
   private bodies = new Map<string, Body[]>();
   private gen = 0;
   private nextBody = 1;
@@ -30,10 +24,29 @@ export class EditorStreamProvider implements StreamProvider {
   private seq = 0;
   /** 材质对象 → 小整数（材质槽签名用：槽表只追加 = 池网格增量；别的变化 = 全量）。 */
   private matUids = new WeakMap<Material, number>(); private nextMatUid = 1;
+  /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
+  private worldIds = new WeakMap<object, number>(); private nextWorldId = 1;
+  private boundsCache: { world: WorldView; rev: number; sphere: { c: Vec3; r: number } | null } | null = null;
+  /** 样式那半由后端给（`ChunkStyle`，引擎契约里的过渡期接口）。 */
   constructor(private readonly style: ChunkStyle) {}
 
-  /** 这一帧画哪个世界（活的那份，含预演影子）+ 上下文之外的槽（淡出）。编辑器每次画之前调。 */
-  setWorld(world: WorldView, dimSlots: ReadonlySet<number> | null | undefined): void { this.world = world; this.dimSlots = dimSlots ?? null; }
+  /** 这一帧画哪个世界（活的那份，含预演影子）+ 上下文之外的槽（淡出）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。 */
+  setWorld(world: WorldView, dimSlots: ReadonlySet<number> | null | undefined, revision = 0): void { this.world = world; this.dimSlots = dimSlots ?? null; this.revision = revision; }
+  private worldId(w: WorldView): number { let id = this.worldIds.get(w); if (id === undefined) { id = this.nextWorldId++; this.worldIds.set(w, id); } return id; }
+  /** 内容键（引擎契约）：世界身份 + 版本 + 淡出集；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
+  contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}:${this.dimSlots ? [...this.dimSlots].join(",") : ""}` : "none"; }
+  /** 场景包围球（引擎契约）：远平面 / 正交深度窗口 / 无限长线按它定（user 10-26「不应该写死特征长度」）。按世界身份 + 版本缓存。 */
+  bounds(): { c: Vec3; r: number } | null {
+    const w = this.world;
+    if (!w) return null;
+    const c = this.boundsCache;
+    if (c && c.world === w && c.rev === this.revision) return c.sphere;
+    const min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
+    for (const v of w.vertices()) { if (v.x < min.x) min.x = v.x; if (v.y < min.y) min.y = v.y; if (v.z < min.z) min.z = v.z; if (v.x > max.x) max.x = v.x; if (v.y > max.y) max.y = v.y; if (v.z > max.z) max.z = v.z; }
+    const sphere = Number.isFinite(min.x) ? { c: { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 }, r: Math.hypot(max.x - min.x, max.y - min.y, max.z - min.z) / 2 } : null;
+    this.boundsCache = { world: w, rev: this.revision, sphere };
+    return sphere;
+  }
 
   pull(_q: StreamQuery): StreamFrame {
     const world = this.world;

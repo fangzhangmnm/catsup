@@ -8,8 +8,23 @@ import type { Vec3, Xform12 } from "./geometry.ts";
 /** 块的原语种类。开放集：以后加「笔画」（折线 + 每点宽度 / 压力，屏幕恒宽）= 多一个值，不改别的。 */
 export type ChunkKind = "tris" | "lines" | "points";
 
-/** 对材质模块的引用：小学 = 文档里那个材质对象本身（不透明，引擎只拿它当缓存键和翻译入口）。 */
-export type MaterialRef = object;
+/**
+ * 对材质模块的引用：小学 = 文档里那个材质对象本身（和场景的 Material **同形**：颜色 + 可选贴图），引擎只读这几个字段——拿它当贴图缓存键，
+ * 颜色过渡期还由提供者烤进顶点色（`ChunkStyle`）；材质模块落地后换成槽表（material/）。
+ */
+export interface MaterialRef {
+  readonly color: readonly number[];
+  readonly texture?: { readonly mimeType: string; readonly bytes: Uint8Array; readonly sizeM: readonly number[] };
+}
+/** 贴图面画哪一侧（两个表面，DT8）：double = 两侧同一张贴图；front / back = 只画 +n / −n 那侧。 */
+export type ChunkSide = "front" | "back" | "double";
+
+/** 过渡期（步 3 → 材质模块落地前）：样式那半由后端给提供者，提供者把面 / 边的颜色和「粗线还是像素线」烤进顶点属性。 */
+export interface ChunkStyle {
+  faceColor(mat: MaterialRef | null, dim: boolean): readonly [number, number, number];
+  edgeColor(loose: boolean, dim: boolean): readonly [number, number, number];
+  thick(): boolean;
+}
 
 export type ChunkArray = Float32Array | Int16Array | Int8Array | Uint8Array | Uint16Array | Uint32Array;
 
@@ -38,7 +53,7 @@ export interface Chunk {
   readonly instanced?: boolean;
   readonly dirty: ChunkDirty;
   readonly material?: MaterialRef;
-  readonly side?: "front" | "back" | "double";
+  readonly side?: ChunkSide;
 }
 
 /** 一次放置 = 某个池的一份实例：用哪个池 + 世界变换 + 稳定的槽键。同一个池摆了三份 = 三个 Placement，块只有一份。 */
@@ -77,4 +92,8 @@ export interface StreamFrame {
 
 export interface StreamProvider {
   pull(q: StreamQuery): StreamFrame;
+  /** 内容的缓存键（可选）：没变 = 引擎这一帧不重新拉。编辑器 = 世界身份 + 版本 + 淡出集；不给 = 每帧都拉（串流提供者的常态）。 */
+  contentKey?(): string;
+  /** 场景包围球（可选，世界坐标）：远平面 / 正交深度窗口 / 无限长线画多远按它定（提供者才知道内容有多大）。不给或 null = 空场景。 */
+  bounds?(): { readonly c: Vec3; readonly r: number } | null;
 }

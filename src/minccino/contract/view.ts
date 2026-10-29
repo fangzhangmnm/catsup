@@ -42,6 +42,31 @@ export interface View {
   readonly validUntil?: number;
 }
 
+/** 视口大小（CSS 像素；与编辑器 `Viewport` 同形）。 */
+export interface ViewportSize { readonly w: number; readonly h: number }
+
+/**
+ * 相机的来源（6c，过渡期）：编辑器的轨道相机**结构上**满足它，引擎只读这几样、不认识编辑器的类。
+ * 初中换后端时收成 `ViewCamera` 的两个矩阵——现在 near / far 还要后端按场景包围球（提供者 `bounds()`）算，所以先拿轨道量。
+ */
+export interface CameraSource {
+  readonly projection: "persp" | "ortho";
+  readonly target: Vec3;
+  /** 透视：竖直视场角（弧度）。 */
+  readonly fovY: number;
+  /** 正交：target 深度处的视野半高（米）。 */
+  readonly halfH: number;
+  eye(): Vec3;
+  up(): Vec3;
+  forward(): Vec3;
+  right(): Vec3;
+  eyeDir(): Vec3;
+  eyeDist(): number;
+  /** 透视近平面下限（米）。 */
+  nearClamp(): number;
+  halfW(vp: ViewportSize): number;
+}
+
 /** 后台预算（空闲 / 不在前台时给烤作业、串流预拉、着色器预热；不变量 3）。小学：空对象占位，形状先钉。 */
 export interface BackgroundBudget {
   readonly msPerIdle: number;

@@ -33,7 +33,7 @@ const BREP_ONLY: Readonly<Record<string, string>> = {
   commitXform: "硬表面移动 / 旋转 / 缩放落定（tools/move / rotate / scale）",
 };
 /** 体重棘轮（行数）：切出去一块就往下调；只准降。 */
-const LINE_PIN = 4170;   // v0.16.57 = 4183；v0.17.3 断口刻度切去 break-ticks.ts + 流提供者接线 → 4170（含末尾空行）；切一刀调低一次
+const LINE_PIN = 4169;   // v0.16.57 = 4183；v0.17.3 断口刻度切去 break-ticks.ts + 流提供者接线 → 4170；v0.17.9 叠加层回调不再手递 → 4168（含末尾空行）；切一刀调低一次
 
 describe("编辑器本体：两种身体的路由（F-126 第一刀）", () => {
   it("this.kernel 只出现在登记过的 brep 专属方法里；登记表里的方法都还在", () => {

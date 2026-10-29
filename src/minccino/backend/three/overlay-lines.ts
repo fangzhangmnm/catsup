@@ -16,12 +16,15 @@ export function setLineGeometry(obj: any, pos: readonly number[], col: readonly 
 }
 
 export type LineMatFactory = (px: number, opts: { offset?: boolean; vertexColors?: boolean }) => any;
+/** 样式表里标了 `shared` 的那几种：材质由后端给（每次 sync 都问一遍——X 光开关会换材质）。 */
+export type SharedLineMats = Partial<Record<LineStyleId, () => any>>;
 
 export class OverlayLinesDrawer {
   private mats = new Map<LineStyleId, any>();
   private objs = new Map<string, { obj: any; key: string; style: LineStyleId }>();
-  constructor(private readonly scene: any, lineMat: LineMatFactory) {
+  constructor(private readonly scene: any, lineMat: LineMatFactory, private readonly shared: SharedLineMats = {}) {
     for (const [id, st] of Object.entries(LINE_STYLES) as [LineStyleId, LineStyle][]) {
+      if (st.shared) continue;   // 不建材质：上面各样式的材质创建顺序（three 画家排序的平手规则）不动
       const m = lineMat(st.widthPx, { offset: st.offset, vertexColors: st.vertexColors });
       m.depthTest = st.depthTest; m.depthWrite = st.depthWrite;
       if (st.transparent !== undefined) m.transparent = st.transparent;
@@ -37,15 +40,17 @@ export class OverlayLinesDrawer {
     const seen = new Set<string>();
     for (const it of items) {
       seen.add(it.id);
+      const sm = this.shared[it.style], mat = sm ? sm() : this.mats.get(it.style);
       let e = this.objs.get(it.id);
       if (!e || e.style !== it.style) {
         if (e) { this.scene.remove(e.obj); e.obj.geometry.dispose(); }
-        const obj = new LineSegments2(new LineSegmentsGeometry(), this.mats.get(it.style));
+        const obj = new LineSegments2(new LineSegmentsGeometry(), mat);
         obj.frustumCulled = false; obj.visible = false; obj.renderOrder = LINE_STYLES[it.style].renderOrder;
         this.scene.add(obj);
         e = { obj, key: "\u0000", style: it.style };
         this.objs.set(it.id, e);
       }
+      if (sm) e.obj.material = mat;   // 共享材质每帧跟后端走
       if (e.key !== it.key) { e.key = it.key; setLineGeometry(e.obj, it.positions, it.colors); }
       if (it.color !== undefined) e.obj.material.color.setHex(it.color);
       e.obj.visible = true;

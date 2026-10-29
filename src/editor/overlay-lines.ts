@@ -3,10 +3,14 @@
 // Tron 第一刀步 6a（v0.17.6，Claude Fable 5.1）：从 render3 原样搬出——每组的几何、颜色、键**逐字一样**（基线 0 像素差）；量尺（一像素多长 / 视野多远 / 相机三轴）
 // 由引擎经 OverlayCtx 给，这里不知道是桌面还是 XR。
 import type { OverlayCtx, OverlayLines } from "../minccino/index.ts";
-import { hexToLinear } from "../minccino/index.ts";
-import type { ViewState } from "../minccino/backend/three/render3.ts";
-import { PALETTE, LOCK_LINE_SPAN_PX, POOL_AXES_PX } from "../minccino/backend/three/render3.ts";   // 直接拿本体，不经转出口（转出口再导出本文件 = 环）
+import { hexToLinear, PALETTE } from "../minccino/index.ts";
+import type { ViewState } from "./view-state.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
+
+/** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。6c 从 render3 搬来（编辑器的内容，引擎不认识）。 */
+export const POOL_AXES_PX = 22;
+/** 锁着时画的轴线（controller/lock-guide.ts）两头各伸多长（屏幕 px，按线过的那一点的一像素多长换算）：够横穿画面，像 Blender 的无限长线。 */
+export const LOCK_LINE_SPAN_PX = 2400;
 import { cross3, sub3 } from "../kernel/geom.ts";
 import type { Frame } from "../scene/xform.ts";
 import { SPHERE_RINGS, circlePoints } from "./guide-pick.ts";

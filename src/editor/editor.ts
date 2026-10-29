@@ -48,7 +48,7 @@ import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
-import { POOL_AXES_PX, Renderer3, overlayItems, type LineStyle, type ViewState } from "./render3.ts";
+import { POOL_AXES_PX, Renderer3, frameInput, type LineStyle, type ViewState } from "./render3.ts";
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
@@ -511,7 +511,7 @@ export class Editor {
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost) {
     this.config = new ToolConfig(TOOL_OPTIONS, host.optionKv);   // 字段初始化先于构造体（es2022）：config 在这里建，toolCtx 用 getter 取
-    this.r3 = new Renderer3(canvas); this.provider = new EditorStreamProvider(this.r3.chunkStyle()); this.r3.setProvider(this.provider);
+    this.r3 = new Renderer3(canvas, perf); this.provider = new EditorStreamProvider(this.r3.chunkStyle()); this.r3.setProvider(this.provider);
     this.cam.pitch = 0.61;
     this.cam.projection = "persp";
   }
@@ -1420,8 +1420,8 @@ export class Editor {
     const cam = this.cam, h0 = cam.halfH, f0 = cam.fovY;
     try {
       if (k !== 1) { cam.halfH = h0 * k; cam.fovY = 2 * Math.atan(Math.tan(f0 / 2) * k); }
-      const world = this.worldView(); this.provider.setWorld(world, null);
-      return this.r3.captureRgba(world, cam, { w, h }, this.cleanState());
+      const world = this.worldView(); this.provider.setWorld(world, null, this._revision);
+      return this.r3.captureRgba(frameInput(world, cam, { w, h }, this.cleanState()));
     } finally { cam.halfH = h0; cam.fovY = f0; }
   }
   private cleanState(): ViewState {
@@ -3706,8 +3706,8 @@ export class Editor {
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !s.active).map((s) => s.index)) : null;
-    this.provider.setWorld(view, dimmed);   // 这一帧画哪个世界：提供者按它吐块（引擎拉）
-    this.r3.render(view, this.cam, this.vp(), {
+    this.provider.setWorld(view, dimmed, this._revision);   // 这一帧画哪个世界：提供者按它吐块（引擎拉）；版本进内容键
+    this.r3.render(frameInput(view, this.cam, this.vp(), {   // view-state.ts：相机 / 网格 / 叠加层（选中高亮 + 线点标记文字）交给后端，引擎给量尺
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,
       selectionFaces: selF,
@@ -3715,7 +3715,6 @@ export class Editor {
       warnEdges: this.inspectHighlights(view),   // 修复面板「检查」：微折软边（DT9）
       hoverEdge: this.hoverEdge !== null ? g(this.hoverEdge) : null,
       hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
-      overlay: overlayItems,   // 叠加层（editor/overlay.ts：线 / 点 / 标记 / 文字；引擎给量尺）
       snap: this.snapInfo,
       snapAnchor: this.anchor3,
       revision: this._revision,
@@ -3741,7 +3740,7 @@ export class Editor {
       ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
-    });
+    }));
   }
   /**
    * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：

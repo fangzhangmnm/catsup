@@ -1,6 +1,7 @@
 // minccino/backend/three/render3.ts —— three.js 后端（Tron 第一刀步 5 从 src/editor/render3.ts 整个搬进笼子；旧位置只剩转出口）。
 // 边界纪律：three 只在 src/minccino/backend/three/ 出现（build.sh 0.7 + 守卫 ①）；相机数学在 editor/camera.ts、拾取/求解在 pick.ts/solver.ts（都不碰 three）。
-// **过渡期的债**（守卫 ③ 的棘轮名单）：这里还 import 编辑器 / 场景 / 内核的类型和叠加层几何（选中高亮读 WorldView、尺规 / gizmo 读 Frame…）——步 6 叠加层契约落地后逐条划掉。
+// 6c（v0.17.9）起**零内容层 import**（守卫 ③′ 棘轮清零）：相机 / 视口 / 坐标架 / 材质 / XR 姿态全是引擎契约里的同形类型；选中高亮经叠加层契约（OverlayFaces + "edge" 线）；
+// 场景包围球和内容键由流提供者给；计时走 PerfSink。编辑器的 ViewState 住 editor/view-state.ts，后端只看 FrameInput。
 // created by Claude Fable 5 2026-09-01（playground 耗材版）；**Workbench 雏形重写 2026-09-06 by Claude Fable 5.1**
 //   （user：「perspective camera」「所有的面同一层灰色，好看一点」「线之间的 z fighting 和有时候有些线看不见…现在需要好好处理」
 //    「可以开始做 workbench(blender renderer) 雏形」）。
@@ -31,34 +32,19 @@
 //     两者可由 setXRQuality 覆盖（main.ts 读 URL ?xrfov= ?xrscale= 给真机 A/B）。粗线的 resolution/linewidth 在 XR 每帧按每眼 viewport 换算
 //     （此前沿用桌面 canvas 尺寸——XR 里线宽/纵横比都是错的）。
 
-import { triangulateRings } from "../../../format/triangulate.ts";
 import * as THREE from "three";
-import type { WorldLabel } from "../../../editor/world-labels.ts";
 import { LineSegments2 } from "../../../vendor/three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "../../../vendor/three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "../../../vendor/three/addons/lines/LineMaterial.js";
-import { perf } from "../../../editor/perf-stats.ts";
-import type { EdgeId, FaceId, Pt3 } from "../../../kernel/kernel.ts";
-import type { GeomView, PoolSlot, WorldView } from "../../../scene/world-view.ts";
-import { ID_STRIDE, slotKey } from "../../../scene/world-view.ts";
-import { poolKey } from "../../../scene/scene.ts";
-import type { KernelView } from "../../../scene/kernel-view.ts";
-import type { Material, Scene } from "../../../scene/scene.ts";
-import { type Frame, type Xform, WORLD_FRAME } from "../../../scene/xform.ts";
-import type { GuidesWorld } from "../../../scene/guides.ts";
-import type { OrbitCamera, Viewport } from "../../../editor/camera.ts";
-import type { Snap3 } from "../../../editor/pick.ts";
-import { cross3, dot3, sub3 } from "../../../kernel/geom.ts";
-import { type TexSide, buildFaceRec } from "../../../editor/pool-mesh.ts";
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
 import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
-import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
-import type { Backend, BackendCaps } from "../../index.ts";
-import { DEFAULT_VIEW_BUDGET, planFrame, checkBudget, type BudgetReport, type Chunk, type Measurement, type PassDecl, type StreamProvider, type View } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）
-import type { ChunkStyle } from "../../../editor/stream-provider.ts";
-import type { RigPose } from "../../../player/player.ts";
-import type { Ray } from "../../../player/world-query.ts";
+import { OverlayFacesDrawer } from "./overlay-faces.ts";
+import type { OverlayCtx, OverlayFaces, OverlayItem, OverlayLines } from "../../overlay/index.ts";
+import type { Backend, BackendCaps, FrameInput } from "../../index.ts";
+import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type ChunkStyle, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
+import { PALETTE } from "../../palette.ts";
+import { NOOP_PERF, type PerfSink } from "../../perf.ts";
 
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
@@ -70,31 +56,12 @@ export interface XRFacade {
   on(type: "sessionstart" | "sessionend", cb: () => void): void;
 }
 export type XRHand = "left" | "right";
+/** XR rig 姿态（player 每帧同步；与 player/player.ts RigPose 同形的那两样）。 */
+export interface XRRigPose { readonly origin: Vec3; readonly heading: number }
+/** 世界射线（与 player/world-query.ts Ray 同形）。 */
+export interface XRRay { readonly origin: Vec3; readonly dir: Vec3 }
 
-export const PALETTE = {
-  background: 0xf2f0ea,
-  face: 0xd6d6d6,
-  faceSelected: 0x8fb4e8,
-  faceHover: 0xb6cff0,
-  faceDim: 0xe9e9e9,        // 上下文之外的几何（淡出）
-  edgeDim: 0xb8b8b8,
-  edge: 0x2a2a2a,
-  edgeWire: 0x111111,
-  edgeSelected: 0x2b6cb0,
-  edgeHot: 0xcc3333,      // 刮擦/悬停将删
-  edgeWarn: 0xd97706,     // 修复面板「检查」：微折软边
-  grid: 0xd9d6cf,
-  /** 网格正片叠底的系数色（× 背景 ≈ 原 grid 灰）：主线 / 细线；压在深色材质上只暗 ~10% / ~5%。 */
-  gridMajor: 0xe3e1dc, gridMinor: 0xf0eeea,
-  axisX: 0xcc3333,
-  axisY: 0x2e8b57,
-  axisZ: 0x2b6cb0,
-} as const;
-
-/** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
-export const POOL_AXES_PX = 22;
-/** 锁着时画的轴线（controller/lock-guide.ts）两头各伸多长（屏幕 px，按线过的那一点的一像素多长换算）：够横穿画面，像 Blender 的无限长线。 */
-export const LOCK_LINE_SPAN_PX = 2400;
+// 调色板 PALETTE 住 ../../palette.ts（6c 搬出：编辑器拿颜色不再碰后端）；POOL_AXES_PX / LOCK_LINE_SPAN_PX 住编辑器 overlay-lines.ts。
 
 
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
@@ -125,83 +92,12 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
  * 线同理。每份几何都把「另一套颜色」也挂在一个着色器不用的名字下——three 画一份几何时把它挂着的缓冲全传上去，
  * 这样没被画的那套颜色的局部上传也不会一直攒着。缓冲直接包池网格的大数组（不拷），改过哪段只传哪段（addUpdateRange）。
  */
-interface GpuFaces { readonly id: string; version: number; readonly mat: Material | null; readonly side: TexSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
+interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; /** 选中 / 悬停的面（同一个节点、同一个材质、和面本身同一组三角，画在后面 = 替换颜色；2026-10-27 Opus 5.5）。 */ sel: any; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
+interface SlotNodes { root: any; plain: any; /** 选中 / 悬停的面（同一个节点、同一个材质、和面本身同一组三角，画在后面 = 替换颜色；2026-10-27 Opus 5.5）。 */ sel: any; /** 上次高亮的键（overlay-faces.ts 按它判要不要重建）。 */ selKey: string; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
 
-export interface ViewState {
-  selectionEdges: ReadonlySet<EdgeId>;
-  selectionFaces: ReadonlySet<FaceId>;
-  scrubEdges: ReadonlySet<EdgeId>;
-  /** 修复面板「检查」要标出来的边（橙色；软边也画——标的就是看起来平、其实折过的软边，DT9）。null / 缺 = 没有。 */
-  warnEdges?: ReadonlySet<EdgeId> | null;
-  hoverEdge: EdgeId | null;
-  hoverFace: FaceId | null;
-  preview?: GeomView | null;   // 影子副本（预演即提交；WYSIWYG 期间整场景画它）；2026-10-21 起编辑器直接递合成好的世界视图，此字段多为 null
-  snap: Snap3 | null;
-  snapAnchor: Pt3 | null;      // axis 锁的虚线起点
-  /** checkpoint 代数（editor.revision）：几何缓存键的一部分。 */
-  revision?: number;
-  /** 透视近平面下限（第一人称 0.05；轨道默认 0.5）。 */
-  near?: number;
-  /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
-  teleport?: { points: readonly Pt3[]; valid: boolean; landing: Pt3 | null } | null;
-  /** 放置的胶囊虚影（步行「点一下落在哪」；player/placement.ts）：脚底、半径、身高、站得下吗（绿 / 红）。 */
-  capsule?: { feet: Pt3; radius: number; stature: number; ok: boolean } | null;
-  /** 变暗的池槽序号（进了 group / 组件后，上下文之外的几何；SU 同款淡出）。null = 不变暗。2026-10-21 */
-  dimSlots?: ReadonlySet<number> | null;
-  /** 缩放柄（世界点；active = 正在拖的那个）。 */
-  handles?: readonly { p: Pt3; active: boolean }[] | null;
-  /** 量角器：圆心 + 转轴 + 参考点 + 当前角（弧度）。 */
-  protractor?: { center: Pt3; axis: Pt3; ref: Pt3 | null; angle: number; /** 圆环至少多大（世界长度；新建第二步 = 套在基本体外面，不被它挡住）；不给 = 屏上 60 px。 */ minRadius?: number } | null;
-  /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
-  guides?: GuidesWorld | null;
-  /** 选中的参考线 / 参考点 id（A31）：画成选中色。 */
-  guideSel?: ReadonlySet<number>;
-  /** A33 断口提示：一根直线中间断了一截的接点（世界坐标 + 边向）→ 屏幕定长的小垂线（焊边橡皮刮一下就没）。 */
-  ticks?: readonly { p: Pt3; dir: Pt3 }[] | null;
-  /** 世界里的文字（world-labels.ts 深模块；第一个用户 = X 轴 +1 个单位处的「1 m」）。 */
-  labels?: readonly WorldLabel[] | null;
-  /** Z 轴刻度间距（米；1 m 或 1 ft；user「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）；null = 不画。 */
-  axisTickM?: number | null;
-  /** X 轴 +1 个单位处那根小短线（跟「1 m」字一起，只在空场景）。 */
-  axisUnitX?: number | null;   // X 轴上「一格多长」标记的位置（米；DT16 跟格子走）；null = 不画
-  /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
-  frame?: Frame | null;
-  /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
-  grid?: { frame: Frame; step: number; sub?: number; on?: boolean } | null;
-  /** 选中的点（2026-10-26，user「以及我们还是希望我们能选点」「为什么不是简简单单高亮点？」）：只画实心圆点。世界坐标。 */
-  selVerts?: readonly Pt3[] | null;
-  /** 全部顶点的小点（自由建模；key 变了才重建）。 */
-  vertDots?: { key: string; pts: readonly Pt3[] } | null;
-  /** X 光面点（每张面中心一个小方点、不被挡；sel = 这张面选中着，画强调色）。 */
-  faceDots?: { key: string; pts: readonly Pt3[]; sel: readonly boolean[] } | null;
-  /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
-  softEdges?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[] } | null;
-  /** 镜像（自由建模，FM23「看得见：镜像面淡淡画出来，中缝上的点高亮」）：镜像面的淡框 + 中缝上的点。 */
-  mirror?: { key: string; seam: readonly Pt3[] } | null;
-  /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */
-  charged?: { points: readonly Pt3[]; edges: readonly { a: Pt3; b: Pt3 }[] } | null;
-  /** 平面 gizmo（镜像面，DT23 / DT26；plane-gizmo.ts gizmoGeom 的输出 + 悬停的把手）：半透明方块 + 描边 + 法线箭头 + 两个转动把手 + 中心，透视画。 */
-  planeGizmo?: { origin: Pt3; normal: Pt3; u: Pt3; v: Pt3; size: number; hot: string | null } | null;
-  /** 选中的组 / 组件的轴（世界帧，DT15）：透视画小三轴（被几何挡住也看得见），原点可吸。 */
-  poolAxes?: readonly Frame[] | null;
-  /** 空组件（导入的空节点，T11）的小三轴：常驻、透视画，长度同 poolAxes；点它的标记 = 点它（编辑器 emptyAt）。 */
-  emptyAxes?: readonly Frame[] | null;
-  /** 组件原点（DT86）：组件里另摆了坐标架、和原点不在一处时，原点处画一个淡小三轴（披露「现在是两个」）；同上画法、半透明。 */
-  originAxes?: readonly Frame[] | null;
-  /** 锁看得见：锁着的轴 / 面里的两根轴（过锚点或变换中心；controller/lock-guide.ts）。透视画在最上面。 */
-  lockLines?: readonly { readonly through: Pt3; readonly dir: Pt3; readonly color: "x" | "y" | "z" | "n" }[] | null;
-  /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
-  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
-  /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
-  tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
-  /** 切割的刀线（上一个落点 → 光标）：永远画在最上面、不被几何挡（user 10-27「线还是需要画的，以及线不要被别的遮挡了。这样用户知道自己没退出刀」）；valid = 这一刀切得出来。 */
-  knifeLine?: { a: Pt3; b: Pt3; valid: boolean } | null;
-  /** 叠加层线段族（步 6a）：编辑器按这一帧的 ViewState 和引擎给的量尺算线段（editor/overlay-lines.ts）；缺 = 没有。 */
-  overlay?: (view: ViewState, ctx: OverlayCtx) => readonly OverlayItem[];
-}
+// ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
 
 /** 地面网格 = 一张 shader 平面（Blender 式；user 2026-10-24「根治，修……z-fight 加一个 z-offset」）：主线每 uStep、细线每 uStep/uSub，像素定宽（fwidth 抗锯齿），
  *  太密自动淡出；正片叠底只变暗底下的东西；polygonOffset 前拉 = 贴在 z=0 的面不再 z-fight，网格直接「印」在地面材质上。 */
@@ -293,7 +189,7 @@ export class Renderer3 implements Backend {
   private lineMats: any[] = [];          // 共享粗线材质（linewidth 随 lineScale 原地改）
   private lineMatPx: number[] = [];
   // ---- 持久节点（retained）----
-  private faceMesh: any; private faceMat: any;
+  private faceMat: any;
   // ---- 池级几何（#22 池级局部性，2026-10-21）：每个槽一组节点 + 每个 kernel 一份共享几何；选中 / 悬停走覆盖层 ----
   private faceMatTop: any;                          // 覆盖层材质（polygonOffset 0：压在底几何上）
   private pixelMat: any;                            // 原生线材质（顶点色，共享）
@@ -311,13 +207,14 @@ export class Renderer3 implements Backend {
   /** 这一帧 X 光那条 pass 在不在规划里（X 光的节点可见性只看它，不直接看 xray 开关）。 */
   private xrayPass = false;
   private syncGen = 0;
-  private poolKey = ""; private overlayKey = "";
+  private poolKey = "";
+  /** 提供者没给内容键时的帧号（= 每帧都拉）。 */
+  private frameNo = 0;
   private emptyGeo: any; private emptyLineGeo: any;
-  private texMeshes: { mesh: any; mat: any; tex: any; key: string }[] = [];   // 每种贴图材质一份网格（自己的 UV）
   private texCache = new Map<object, any>();                                  // Material 对象 → three Texture（原图解码一次）
   private faceMatOther: any;
   private faceMatFront: any; private faceMatOtherFront: any;   // 单面身体（mesh）的两份：只画正面（剔背面 = user 10-27「enforce backface culling」）
-  private edgeLines: any; private edgeMat: any;
+  private edgeMat: any;
   private lineStyle: LineStyle = "pixel";
   /** X 光（DT17）：开着 = 池的边透过面画淡的、选中的边不被挡。 */
   private xray = false;
@@ -326,11 +223,12 @@ export class Renderer3 implements Backend {
   private readonly profileAdd = { value: 1 };          // 轮廓线加粗（设备像素）；edgeMat 的 shader uniform
   private overlayLines!: OverlayLinesDrawer;
   private overlayMarks!: OverlayMarksDrawer;
+  private overlayFaces!: OverlayFacesDrawer;
+  /** 计时口（消费方递进来的计数器；不给 = 不计）。 */
+  private readonly perf: PerfSink;
    // 变换 gizmo（2026-10-26）
   private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null;
-  private faceKey = ""; private edgeKey = ""; private gridKey = "";
-  private kernelIds = new WeakMap<object, number>();
-  private nextKernelId = 1;
+  private gridKey = "";
   private scratchV = new THREE.Vector3();
   private scratchV2 = new THREE.Vector3();
   private scratchM = new THREE.Matrix4();
@@ -347,14 +245,15 @@ export class Renderer3 implements Backend {
   private wrist: { mesh: any; tex: any; inv: any } | null = null;
   readonly xr: XRFacade;
 
-  constructor(canvas: HTMLCanvasElement) {
+  constructor(canvas: HTMLCanvasElement, perf: PerfSink = NOOP_PERF) {
+    this.perf = perf;
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: "high-performance" });
     this.scene = new THREE.Scene();
     this.scene.background = new THREE.Color(PALETTE.background);
     this.camOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20000);
     this.camPersp = new THREE.PerspectiveCamera(50, 1, 1, 20000);
     this.resolution = new THREE.Vector2(1, 1);
-    this.rebuildGrid(WORLD_FRAME, 1, 1);
+    this.rebuildGrid(WORLD_FRAME3, 1, 1);
 
     // 膜：一份几何 + 一个 shader（光向 uniform）
     this.faceMat = new THREE.ShaderMaterial({
@@ -362,9 +261,6 @@ export class Renderer3 implements Backend {
       uniforms: { uLight: { value: new THREE.Vector3(0, 0, 1) } },
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face,
     });
-    this.faceMesh = new THREE.Mesh(new THREE.BufferGeometry(), this.faceMat);
-    this.faceMesh.frustumCulled = false; this.faceMesh.visible = false;
-    this.scene.add(this.faceMesh);
     // 别的池的面：同一 shader、polygonOffset 再往后推一格 → 共面重叠时活动池 / loose 几何赢（#25 user「overlap的时候优先显示loose geometry」）
     this.faceMatOther = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
@@ -394,17 +290,17 @@ export class Renderer3 implements Backend {
     Object.assign(this.xrayThickMat, { transparent: true, opacity: XRAY_OPACITY, depthTest: false, depthWrite: false });
     this.xrayOverlayMat = this.lineMat(EDGE_PX + 1, { vertexColors: true });
     Object.assign(this.xrayOverlayMat, { depthTest: false, depthWrite: false });
-    this.edgeLines = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat);
-    this.edgeLines.frustumCulled = false; this.edgeLines.visible = false;
-    // 覆盖层（选中蓝 / 刮擦·悬停红）和底下的边同一个材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
+    // 选中 / 刮擦 / 悬停的边 = 叠加层 "edge" 样式（6c）：用边线本身的材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
     // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
-    // 定死覆盖层最后画；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。
-    this.edgeLines.renderOrder = 2;
-    this.scene.add(this.edgeLines);
-    // 叠加层线段族（步 6a）：材质按 LINE_STYLES 声明顺序建在这里 = 和以前各组线材质的创建顺序一致（three 画家排序平手按材质 id）
-    this.overlayLines = new OverlayLinesDrawer(this.scene, (px, o) => this.lineMat(px, o));
+    // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。
+    // 叠加层线段族（步 6a）：材质按 LINE_STYLES 声明顺序建在这里 = 和以前各组线材质的创建顺序一致（three 画家排序平手按材质 id）；"edge" 不建材质
+    this.overlayLines = new OverlayLinesDrawer(this.scene, (px, o) => this.lineMat(px, o), { edge: () => (this.xrayPass ? this.xrayOverlayMat : this.edgeMat) });
     // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
     this.overlayMarks = new OverlayMarksDrawer(this.scene);
+    // 面高亮（6c）：挂槽的 sel 网格 / 世界坐标一份（faceMatTop）/ 每种贴图材质一份（材质懒建 = 和以前第一次画带贴图的高亮时同一时机）
+    this.overlayFaces = new OverlayFacesDrawer(this.scene, this.emptyGeo, this.faceMatTop,
+      () => new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay }),
+      (m) => this.textureFor(m));
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -454,7 +350,7 @@ export class Renderer3 implements Backend {
   }
 
   /** rig 姿态（player 每帧同步；heading 绕 Z、origin 世界坐标）。 */
-  setRig(pose: RigPose): void {
+  setRig(pose: XRRigPose): void {
     this.rig.position.set(pose.origin.x, pose.origin.y, pose.origin.z);
     this.rig.rotation.set(Math.PI / 2, 0, pose.heading, "ZYX");   // = Rz(heading)·Rx(90°)
     this.rig.updateMatrixWorld(true);
@@ -499,7 +395,7 @@ export class Renderer3 implements Backend {
   }
   updateWristTexture(): void { if (this.wrist) this.wrist.tex.needsUpdate = true; }
   /** 世界射线 ∩ 面板平面 → 面板 uv（u 右 0..1、v 下 0..1，与 canvas 像素同向）及距离；不在面板内 → null。 */
-  wristHit(ray: Ray): { u: number; v: number; dist: number } | null {
+  wristHit(ray: XRRay): { u: number; v: number; dist: number } | null {
     if (!this.wrist) return null;
     const m = this.wrist.mesh;
     m.updateWorldMatrix(true, false);
@@ -535,7 +431,7 @@ export class Renderer3 implements Backend {
     this.subtitle = null;
   }
   /** XR 会话中 HMD 的世界位置（marker 尺寸用；返回共享 scratch，勿保存）。 */
-  private xrEye(): Pt3 | null {
+  private xrEye(): Vec3 | null {
     if (!this.renderer.xr.isPresenting) return null;
     const c = this.renderer.xr.getCamera();
     return this.scratchV.setFromMatrixPosition(c.matrixWorld);
@@ -546,7 +442,7 @@ export class Renderer3 implements Backend {
     this.renderer.setAnimationLoop(cb);
   }
 
-  resize(vp: Viewport, dpr: number): void {
+  resize(vp: ViewportSize, dpr: number): void {
     if (this.renderer.xr.isPresenting) return;   // XR 会话中尺寸归 XR layer
     this.dpr = dpr;
     this.renderer.setPixelRatio(dpr);
@@ -574,11 +470,12 @@ export class Renderer3 implements Backend {
   /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
   /** 调试 / 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
   labelKeys(): { id: string; key: string }[] { return this.overlayMarks.labelKeys(); }
-  private worldPerPx(cam: OrbitCamera, vp: Viewport, p: Pt3): number {
+  private worldPerPx(cam: CameraSource, vp: ViewportSize, p: Vec3): number {
     const eye = this.xrEye();
     if (eye) return (Math.max(0.2, Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z)) * (Math.PI / 180)) / XR_PX_PER_DEG;
     if (cam.projection === "persp") {
-      const z = Math.max(dot3(sub3(p, cam.eye()), cam.forward()), cam.nearClamp());
+      const e = cam.eye(), f = cam.forward();
+      const z = Math.max((p.x - e.x) * f.x + (p.y - e.y) * f.y + (p.z - e.z) * f.z, cam.nearClamp());
       return (2 * z * Math.tan(cam.fovY / 2)) / vp.h;
     }
     return (2 * cam.halfH) / vp.h;
@@ -591,25 +488,14 @@ export class Renderer3 implements Backend {
    */
   private viewReach = 1;
   /** 无限长直线（过 p、方向 dir 单位）的可画两端：从离视野中心最近的那点往两边各 viewReach + 那点到中心的距离。 */
-  private infLine(p: Pt3, dir: Pt3, target: Pt3): [Pt3, Pt3] {
+  private infLine(p: Vec3, dir: Vec3, target: Vec3): [Vec3, Vec3] {
     const t = (target.x - p.x) * dir.x + (target.y - p.y) * dir.y + (target.z - p.z) * dir.z;
     const c = { x: p.x + dir.x * t, y: p.y + dir.y * t, z: p.z + dir.z * t }, L = this.viewReach + Math.hypot(c.x - target.x, c.y - target.y, c.z - target.z);
     return [{ x: c.x - dir.x * L, y: c.y - dir.y * L, z: c.z - dir.z * L }, { x: c.x + dir.x * L, y: c.y + dir.y * L, z: c.z + dir.z * L }];
   }
   /** 画无限长线的缓存键：视野范围按对数分档、中心按范围量化（相机大挪才重建）。 */
-  private reachKey(target: Pt3): string { const q = this.viewReach / 8; return `${Math.round(Math.log2(this.viewReach) * 2)}@${Math.round(target.x / q)},${Math.round(target.y / q)},${Math.round(target.z / q)}`; }
-  private boundsKey = ""; private sceneSphere: { c: Pt3; r: number } | null = null;
-  private sceneBounds(k: GeomView, rev: number): { c: Pt3; r: number } | null {
-    const key = `${this.kernelId(k)}:${rev}`;
-    if (key !== this.boundsKey) {
-      this.boundsKey = key;
-      let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
-      for (const v of k.vertices()) { if (v.x < min.x) min.x = v.x; if (v.y < min.y) min.y = v.y; if (v.z < min.z) min.z = v.z; if (v.x > max.x) max.x = v.x; if (v.y > max.y) max.y = v.y; if (v.z > max.z) max.z = v.z; }
-      this.sceneSphere = Number.isFinite(min.x) ? { c: { x: (min.x + max.x) / 2, y: (min.y + max.y) / 2, z: (min.z + max.z) / 2 }, r: Math.hypot(max.x - min.x, max.y - min.y, max.z - min.z) / 2 } : null;
-    }
-    return this.sceneSphere;
-  }
-  private syncCamera(cam: OrbitCamera, vp: Viewport, sphere: { c: Pt3; r: number } | null): any {
+  private reachKey(target: Vec3): string { const q = this.viewReach / 8; return `${Math.round(Math.log2(this.viewReach) * 2)}@${Math.round(target.x / q)},${Math.round(target.y / q)},${Math.round(target.z / q)}`; }
+  private syncCamera(cam: CameraSource, vp: ViewportSize, sphere: { c: Vec3; r: number } | null): any {
     const eye = cam.eye(), up = cam.up();
     let c: any;
     if (cam.projection === "persp") {
@@ -639,22 +525,17 @@ export class Renderer3 implements Backend {
     return c;
   }
 
-  private kernelId(k: GeomView): number {
-    let id = this.kernelIds.get(k);
-    if (id === undefined) { id = this.nextKernelId++; this.kernelIds.set(k, id); }
-    return id;
-  }
-
-  render(k: GeomView, cam: OrbitCamera, vp: Viewport, view: ViewState): void {
+  render(input: FrameInput): void {
+    const cam = input.camera, vp = input.viewport;
     const presenting = !!this.renderer.xr.isPresenting;
     let cam3: any;
     if (presenting) {
       // XR：three 从 HMD 写 camPersp 姿态与投影；我们只管 near/far（会话 depthNear/Far）
       cam3 = this.camPersp;
-      cam3.near = view.near ?? 0.05; cam3.far = 2000;
+      cam3.near = input.near ?? 0.05; cam3.far = 2000;
     } else {
       this.rig.position.set(0, 0, 0); this.rig.rotation.set(0, 0, 0);
-      cam3 = this.syncCamera(cam, vp, this.sceneBounds(k, view.revision ?? 0));
+      cam3 = this.syncCamera(cam, vp, this.provider?.bounds?.() ?? null);   // 场景包围球归提供者（内容有多大只有它知道）
     }
     this.syncLineScale(presenting);
     // ---- 视图对象 + frame graph（步 4）：现状 = 四组往一张画布上追加画的 pass（膜 / 边、地面网格、叠加层、X 光），还是 three 的一个渲染调用；
@@ -664,31 +545,19 @@ export class Renderer3 implements Backend {
     this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
     this.lastPlan = planFrame(this.passes(), ["frame"]);
     const xrayPass = this.lastPlan.order.includes("xray");
-    if (xrayPass !== this.xrayPass) { this.xrayPass = xrayPass; this.poolKey = ""; this.overlayKey = ""; }
-
-    // WYSIWYG（user 黄线）：拖拽期间整个场景渲染影子副本。
-    const kd = view.preview ?? k;
-    const kid = this.kernelId(kd), rev = view.revision ?? 0;
-    const selF = [...view.selectionFaces].join(","), selE = [...view.selectionEdges].join(",");
+    if (xrayPass !== this.xrayPass) { this.xrayPass = xrayPass; this.poolKey = ""; }
 
     // ---- 面：光向 uniform 每帧（视空间：法向走 normalMatrix）；几何只在键变时重建 ----
     const L = presenting ? this.xrKeyLight() : keyLight(cam);
     this.scratchV.set(L.x, L.y, L.z).transformDirection(cam3.matrixWorldInverse);
     this.faceMat.uniforms.uLight.value.copy(this.scratchV);
-    const dimK = view.dimSlots ? [...view.dimSlots].join(",") : "";
-    const wv = kd as Partial<WorldView>;
-    if (wv.slots && wv.scene) {
-      // 池级路径：每槽一组节点 + 每 kernel 一份几何（只重建变了的池）；选中 / 悬停 = 覆盖层
-      const pk = `${kid}:${rev}:${dimK}:${this.lineStyle}`;
-      if (pk !== this.poolKey) { this.poolKey = pk; perf.time("syncPools", () => this.syncPools()); }
-      const ok = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}:${view.warnEdges ? `${view.warnEdges.size}|${[...view.warnEdges].slice(0, 16).join(",")}` : ""}`;
-      if (ok !== this.overlayKey) { this.overlayKey = ok; perf.time("rebuildOverlay", () => this.rebuildOverlay(kd, view)); }
-      this.faceKey = ""; this.edgeKey = "";
-    } else throw new Error("render3: bare GeomView without slots is not drawn any more (pass a WorldView); the flat path was removed in v0.17.5");
+    // 池级路径：每槽一组节点 + 每池一份几何（只重建变了的池）。内容键由提供者给（世界身份 + 版本 + 淡出集 = 以前的 kid:rev:dimK）；没给 = 每帧都拉
+    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}`;
+    if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
 
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」「sub incremental就是sub刻度的」）：吸附的 1/5、1/10 只管吸，像尺子上的小刻度，不画成网格线
-    const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = 1;
+    const gfr = input.grid?.frame ?? WORLD_FRAME3, gstep = input.grid?.step ?? 1, gsub = 1;
     const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
 
@@ -702,9 +571,10 @@ export class Renderer3 implements Backend {
       up: { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] },
       lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1,
     };
-    const items = view.overlay ? view.overlay(view, octx) : [];
+    const items = input.overlay ? input.overlay(octx) : [];
+    this.overlayFaces.sync(items.filter((it): it is OverlayFaces => it.kind === "faces"), this.slotNodes);   // 选中 / 悬停的面（6c）：挂槽 / 世界 / 贴图
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"));
-    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
+    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines" && it.kind !== "faces") as Exclude<OverlayItem, OverlayLines | OverlayFaces>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
 
     const t0 = performance.now();
     this.renderer.render(this.scene, cam3);
@@ -715,22 +585,23 @@ export class Renderer3 implements Backend {
     for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
     const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
     this.lastMeasurement = m; this.lastBudget = this.lastView ? checkBudget(m, this.lastView.budget) : null;
-    perf.last["render.ms"] = m.frameMs; perf.last["render.drawCalls"] = m.drawCalls; perf.last["render.triangles"] = m.triangles ?? 0; perf.last["render.vramMb"] = m.vramMb;
-    if (this.lastBudget?.over.length) perf.count["budget.over"] = (perf.count["budget.over"] ?? 0) + 1;
+    const P = this.perf;
+    P.last["render.ms"] = m.frameMs; P.last["render.drawCalls"] = m.drawCalls; P.last["render.triangles"] = m.triangles ?? 0; P.last["render.vramMb"] = m.vramMb;
+    if (this.lastBudget?.over.length) P.count["budget.over"] = (P.count["budget.over"] ?? 0) + 1;
   }
 
   /**
    * 离屏截图（缩略图；转正纪元 2026-09-20）：渲到 w×h 的 render target 再 readRenderTargetPixels。
    * 返回 RGBA、行序**自上而下**（three 读回是自下而上，这里翻好）。XR 会话中不截（相机归 XR）。
    */
-  captureRgba(k: GeomView, cam: OrbitCamera, vp: Viewport, view: ViewState): Uint8Array {
+  captureRgba(input: FrameInput): Uint8Array {
     if (this.renderer.xr.isPresenting) throw new Error("captureRgba: not available during an XR session");
+    const vp = input.viewport;
     const rt = new THREE.WebGLRenderTarget(vp.w, vp.h, { depthBuffer: true });
-    const prevKeys = { f: this.faceKey, e: this.edgeKey };
-    this.faceKey = ""; this.edgeKey = ""; this.poolKey = ""; this.overlayKey = "";   // 强制按干净视图重建（选区/悬停不进缩略图）
+    this.poolKey = "";   // 强制重拉；选区 / 悬停不进缩略图 = 调用方递的是干净视图（叠加层里没有高亮，画家自己藏）
     try {
       this.renderer.setRenderTarget(rt);
-      this.render(k, cam, vp, view);
+      this.render(input);
       const buf = new Uint8Array(vp.w * vp.h * 4);
       this.renderer.readRenderTargetPixels(rt, 0, 0, vp.w, vp.h, buf);
       const out = new Uint8Array(buf.length);
@@ -740,8 +611,7 @@ export class Renderer3 implements Backend {
     } finally {
       this.renderer.setRenderTarget(null);
       rt.dispose();
-      this.faceKey = prevKeys.f === "" ? "" : "";   // 下一帧按主视图键重建
-      this.edgeKey = ""; this.poolKey = ""; this.overlayKey = "";
+      this.poolKey = "";   // 下一帧按主视图重拉
     }
   }
 
@@ -750,7 +620,7 @@ export class Renderer3 implements Backend {
    * 平滑组（0.8，user「平滑组是一个很重要的概念，好好设计一下」）：被 **smooth** 边连起来的膜 = 一个平滑组，组内顶点法向 = 含该顶点的膜法向按内角加权平均；
    * soft（不画线）与 smooth（插值法向）是两个独立的边层（SU 的 Soft / Smooth），推拉侧棱两者都给、软化工具默认两者都给。
    */
-  private textureFor(mat: { texture?: { mimeType: string; bytes: Uint8Array } }): any {
+  private textureFor(mat: MaterialRef): any {
     let tex = this.texCache.get(mat);
     if (tex) return tex;
     tex = new THREE.DataTexture(new Uint8Array([200, 200, 200, 255]), 1, 1);
@@ -779,9 +649,8 @@ export class Renderer3 implements Backend {
   /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
   onTextureReady: (() => void) | null = null;
 
-  /** 全部边 → 一份粗线（顶点色按类别）。 */
-  /** 线稿风格（视图菜单「粗线稿」）。 */
-  setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.edgeKey = ""; this.poolKey = ""; } }
+  /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
+  setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.poolKey = ""; } }
   setXray(on: boolean): void { this.xray = on; }   // 真正生效在下一帧的规划（xrayPass 变了才重建池 / 叠加层）
   /** 这一帧的 pass 声明（现状）：膜 + 边从流产出 frame，地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。 */
   private passes(): PassDecl[] {
@@ -799,7 +668,7 @@ export class Renderer3 implements Backend {
   getLineWeight(): number { return this.lineWeight; }
 
   /** 探针：叠加层线段族里某个 id（lockLines / soft / guides / …）这一帧画着没有。 */
-  overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id); }
+  overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id) || this.overlayFaces.isVisible(id); }
   /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
   setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
   /** 样式那半给提供者（过渡期：面 / 边颜色和粗线 / 像素线还烤在顶点色里；材质模块 + 叠加层落地后退役）。 */
@@ -823,7 +692,7 @@ export class Renderer3 implements Backend {
     const frame = this.provider.pull({ view: "main", eye: this.lastView?.camera.eye, bands: [{ near: 0, far: Infinity }], budget: {} });   // 小学：一带、预算只记不裁
     this.syncGen++;
     const byPool = new Map<string, { plain: GpuFaces | null; tex: GpuFaces[]; lines: GpuLines | null }>();
-    perf.time("poolMesh.upload", () => {
+    this.perf.time("poolMesh.upload", () => {
       for (const ch of frame.chunks) {
         let pb = byPool.get(ch.pool);
         if (!pb) { pb = { plain: null, tex: [], lines: null }; byPool.set(ch.pool, pb); }
@@ -876,9 +745,9 @@ export class Renderer3 implements Backend {
     const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3;
     root.add(plain); root.add(sel); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
-    return { root, plain, sel, tex: [], pixel, thick, xpixel, xthick, gen: 0 };
+    return { root, plain, sel, selKey: "\u0000", tex: [], pixel, thick, xpixel, xthick, gen: 0 };
   }
-  private texMatFor(mat: Material, side: TexSide = "double"): any {
+  private texMatFor(mat: MaterialRef, side: ChunkSide = "double"): any {
     let bySide = this.texMats.get(mat);
     if (!bySide) { bySide = new Map(); this.texMats.set(mat, bySide); }
     let m = bySide.get(side);
@@ -905,7 +774,7 @@ export class Renderer3 implements Backend {
         else { geo.setAttribute("aColorB", dim ? at.aColorBDim : at.aColorB); geo.setAttribute("_aColorBOther", dim ? at.aColorB : at.aColorBDim); }
         return geo;
       };
-      gf = { id: ch.id, version: ch.version, mat: (ch.material as Material | undefined) ?? null, side: (ch.side as TexSide | undefined) ?? null, attrs: at, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
+      gf = { id: ch.id, version: ch.version, mat: ch.material ?? null, side: ch.side ?? null, attrs: at, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
       this.chunkGpus.set(ch.id, gf);
     } else { for (const a of Object.values(gf.attrs)) pushRanges(a, a.itemSize, ch.dirty.ranges); gf.version = ch.version; gf.count = ch.count; gf.gen = this.syncGen; }
     gf.geo.setDrawRange(0, ch.count); gf.geoDim.setDrawRange(0, ch.count);
@@ -947,112 +816,11 @@ export class Renderer3 implements Backend {
     else { gl.geo.setDrawRange(0, ch.count); gl.geoDim.setDrawRange(0, ch.count); }
     return gl;
   }
-  /**
-   * 覆盖层：选中 / 悬停的面 + 选中 / 刮擦 / 悬停的边（粗线）。
-   * 不带贴图的面（绝大多数）：**不再叠一张世界坐标的面**——在它自己那个槽的节点下、用和面本身同一组三角（pool-mesh buildFaceRec，同样的 Float32 坐标、同一个材质 / 深度偏移），
-   * 画在后面：GPU 算出来的深度和面本身逐位相同，后画的赢 = 换颜色，没有 z-fighting（user 10-27「高亮感觉还有时候有z fighting，就简单的高亮和不高亮的primitive分开画或者画的时候不同颜色就那么难嘛」）。
-   * 带贴图的面照旧走世界坐标那张（少见；以后一并换）。
-   */
-  private rebuildOverlay(kd: GeomView, view: ViewState): void {
-    const ids = new Set<FaceId>(view.selectionFaces);
-    if (view.hoverFace !== null) ids.add(view.hoverFace);
-    const groups = new Map<object | null, { pos: number[]; nor: number[]; col: number[]; uv: number[] }>();
-    const wv = kd as Partial<WorldView>, bySlot = new Map<number, { pos: number[]; nor: number[]; col: number[] }>();
-    for (const n of this.slotNodes.values()) { if (n.sel.visible) { n.sel.visible = false; } }
-    for (const fid of ids) {
-      const f = kd.face(fid), rec = kd.planeOf(fid);
-      if (!f || !rec) continue;
-      const mat = kd.faceMaterial(fid);
-      if (wv.slots && wv.scene && !mat?.texture) {   // 同节点、同三角、后画
-        const si = Math.floor(fid / ID_STRIDE), s = wv.slots.find((x) => x.index === si);
-        if (s && this.slotNodes.get(slotKey(s))) {
-          const r0 = buildFaceRec(s.kernel, fid - si * ID_STRIDE, (slot) => wv.scene!.materialOfSlot(s.pool.def, slot));
-          if (r0) {
-            let [r, g, b] = srgb(view.selectionFaces.has(fid) ? PALETTE.faceSelected : PALETTE.faceHover);
-            if (mat) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; }
-            let acc = bySlot.get(si);
-            if (!acc) { acc = { pos: [], nor: [], col: [] }; bySlot.set(si, acc); }
-            for (let i = 0; i < r0.pos.length; i++) { acc.pos.push(r0.pos[i]); acc.nor.push(r0.nor[i]); }
-            for (let i = 0; i < r0.pos.length / 3; i++) acc.col.push(r, g, b);
-            continue;
-          }
-        }
-      }
-      let [r, g, b] = srgb(view.selectionFaces.has(fid) ? PALETTE.faceSelected : PALETTE.faceHover);
-      if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; }
-      const key = mat?.texture ? mat : null;
-      let grp = groups.get(key);
-      if (!grp) { grp = { pos: [], nor: [], col: [], uv: [] }; groups.set(key, grp); }
-      const n = rec.plane.n;
-      const texW = mat?.texture?.sizeM[0] ?? 1, texH = mat?.texture?.sizeM[1] ?? 1;
-      for (const tri of faceTriangles(kd, fid)) for (const p of tri) {
-        grp.pos.push(p.x, p.y, p.z); grp.nor.push(n.x, n.y, n.z); grp.col.push(r, g, b);
-        if (key) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
-      }
-    }
-    for (const [si, acc] of bySlot) {
-      const s = wv.slots!.find((x) => x.index === si)!, n = this.slotNodes.get(slotKey(s))!;
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(acc.pos, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(acc.nor, 3));
-      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(acc.col, 3));
-      geo.setAttribute("aColorB", new THREE.Float32BufferAttribute(acc.col, 3));
-      if (n.sel.geometry !== this.emptyGeo) n.sel.geometry.dispose();
-      n.sel.geometry = geo; n.sel.material = n.plain.material; n.sel.visible = true;   // 和这个槽的面同一个材质 = 同一个深度偏移
-    }
-    for (const n of this.slotNodes.values()) if (!n.sel.visible && n.sel.geometry !== this.emptyGeo) { n.sel.geometry.dispose(); n.sel.geometry = this.emptyGeo; }
-    const plain = groups.get(null);
-    this.faceMesh.material = this.faceMatTop;
-    if (plain && plain.pos.length) {
-      const old = this.faceMesh.geometry;
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(plain.pos, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(plain.nor, 3));
-      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(plain.col, 3));
-      geo.setAttribute("aColorB", new THREE.Float32BufferAttribute(plain.col, 3));   // 覆盖层（选中 / 悬停）两侧同色
-      this.faceMesh.geometry = geo; this.faceMesh.visible = true; if (old !== this.emptyGeo) old.dispose();
-    } else this.faceMesh.visible = false;
-    const texGroups = [...groups.entries()].filter(([k]) => k !== null) as [Material, { pos: number[]; nor: number[]; col: number[]; uv: number[] }][];
-    for (let i = 0; i < Math.max(texGroups.length, this.texMeshes.length); i++) {
-      const tg = texGroups[i];
-      let slot = this.texMeshes[i];
-      if (!tg) { if (slot) slot.mesh.visible = false; continue; }
-      if (!slot) {
-        const mat = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay });
-        const mesh = new THREE.Mesh(new THREE.BufferGeometry(), mat);
-        mesh.frustumCulled = false;
-        this.scene.add(mesh);
-        slot = { mesh, mat, tex: null, key: "" };
-        this.texMeshes.push(slot);
-      }
-      slot.mat.uniforms.uMap.value = this.textureFor(tg[0]);
-      const geo = new THREE.BufferGeometry();
-      geo.setAttribute("position", new THREE.Float32BufferAttribute(tg[1].pos, 3));
-      geo.setAttribute("normal", new THREE.Float32BufferAttribute(tg[1].nor, 3));
-      geo.setAttribute("aColor", new THREE.Float32BufferAttribute(tg[1].col, 3));
-      geo.setAttribute("aUv", new THREE.Float32BufferAttribute(tg[1].uv, 2));
-      const oldG = slot.mesh.geometry; slot.mesh.geometry = geo; slot.mesh.visible = true; oldG.dispose();
-    }
-    // 边覆盖层：选中 / 刮擦 / 悬停 → 粗线
-    const pos: number[] = [], col: number[] = [];
-    const eids = new Set<EdgeId>([...view.selectionEdges, ...view.scrubEdges, ...(view.warnEdges ?? [])]);
-    if (view.hoverEdge !== null) eids.add(view.hoverEdge);
-    for (const id of eids) {
-      if (!kd.graph.hasEdge(id)) continue;
-      const e = kd.graph.edge(id);
-      const hot = view.scrubEdges.has(id) || view.hoverEdge === id, warn = !hot && !!view.warnEdges?.has(id);
-      if ((kd.isSoft(id) || kd.isFold(id)) && !hot && !warn) continue;   // 选中的软边不画粗线（user 2026-10-25「选中的时候软边显示了粗线」）；「检查」标的软边照画
-      const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
-      const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : warn ? PALETTE.edgeWarn : PALETTE.edgeSelected);
-      pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-    }
-    this.edgeLines.material = this.xrayPass ? this.xrayOverlayMat : this.edgeMat;   // X 光：选中 / 悬停 / 检查标的边不被面挡
-    if (pos.length) { setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;
-  }
+  // 选中 / 悬停的面与边的高亮（原 rebuildOverlay）6c 起由编辑器算（editor/highlight.ts）、经叠加层契约进来，画在 overlay-faces.ts / overlay-lines.ts（"edge" 样式）。
 
 
   /** XR：key light 钉在 HMD 相机系（同 keyLight 公式）。 */
-  private xrKeyLight(): Pt3 {
+  private xrKeyLight(): Vec3 {
     const c = this.renderer.xr.getCamera();
     const m = c.matrixWorld.elements;
     const e = { x: m[8], y: m[9], z: m[10] }, u = { x: m[4], y: m[5], z: m[6] }, r = { x: m[0], y: m[1], z: m[2] };
@@ -1083,7 +851,7 @@ export class Renderer3 implements Backend {
    * 地面网格 = 一张 shader 平面（GRID_FRAG；0.13.23 起不再一条条线）+ 三色轴一份粗线（SU 约定：X 红 / Y 绿 / Z 蓝向上）。
    * 0.11 ⑤ 起跟帧与格距走：平面贴在帧的 XY 面上、过帧原点；格距 / 细分是 uniform。网格关着时只画 1 m 主线（sub = 1）。
    */
-  private rebuildGrid(frame: Frame, step: number, sub: number): void {
+  private rebuildGrid(frame: Frame3, step: number, sub: number): void {
     const o = frame.origin, X = frame.x, Y = frame.y, Zd = frame.z;
     const L = GRID_N * GRID_STEP;
     if (!this.gridMesh) {
@@ -1106,13 +874,13 @@ export class Renderer3 implements Backend {
     this.gridMat.uniforms.uSub.value = sub > 1 ? sub : 1;
     this.gridMesh.matrix.set(X.x, Y.x, Zd.x, o.x, X.y, Y.y, Zd.y, o.y, X.z, Y.z, Zd.z, o.z, 0, 0, 0, 1);
     this.gridMesh.matrixWorldNeedsUpdate = true;
-    const at = (u: number, v: number, w: number): Pt3 => ({ x: o.x + X.x * u + Y.x * v + Zd.x * w, y: o.y + X.y * u + Y.y * v + Zd.y * w, z: o.z + X.z * u + Y.z * v + Zd.z * w });
+    const at = (u: number, v: number, w: number): Vec3 => ({ x: o.x + X.x * u + Y.x * v + Zd.x * w, y: o.y + X.y * u + Y.y * v + Zd.y * w, z: o.z + X.z * u + Y.z * v + Zd.z * w });
     const apos: number[] = [], acol: number[] = [];
-    const pushA = (a: Pt3, b: Pt3, hex: number): void => { apos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); acol.push(c.r, c.g, c.b, c.r, c.g, c.b); };
+    const pushA = (a: Vec3, b: Vec3, hex: number): void => { apos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); acol.push(c.r, c.g, c.b, c.r, c.g, c.b); };
     // 轴切成短段（2026-10-25 Opus）：LineMaterial 在屏幕上按两端点插值深度，一根 100 m 的线一端越过近平面被截断后插值误差很大，
     // 实测（2× 像素比）轴的深度会跑到压在它上面的边前面，多边形偏移也救不回来。短段各自插值，深度准。
     const AXIS_SEG = 2;   // 米
-    const seg = (a: number, b: number, f: (t: number) => Pt3, hex: number): void => { for (let t = a; t < b - 1e-9; t += AXIS_SEG) pushA(f(t), f(Math.min(b, t + AXIS_SEG)), hex); };
+    const seg = (a: number, b: number, f: (t: number) => Vec3, hex: number): void => { for (let t = a; t < b - 1e-9; t += AXIS_SEG) pushA(f(t), f(Math.min(b, t + AXIS_SEG)), hex); };
     seg(-L, L, (t) => at(t, 0, 0), PALETTE.axisX);
     seg(-L, L, (t) => at(0, t, 0), PALETTE.axisY);
     seg(0, L, (t) => at(0, 0, t), PALETTE.axisZ);
@@ -1121,7 +889,7 @@ export class Renderer3 implements Backend {
 }
 
 /** 3×4 行主序 Xform → three 矩阵（Group 的本地矩阵；matrixAutoUpdate 关着）。 */
-function setMatrix(obj: any, m: Xform): void {
+function setMatrix(obj: any, m: Xform12): void {
   obj.matrix.set(m[0], m[1], m[2], m[3], m[4], m[5], m[6], m[7], m[8], m[9], m[10], m[11], 0, 0, 0, 1);
   obj.matrixWorldNeedsUpdate = true;
 }
@@ -1143,54 +911,11 @@ function pushRanges(a: any, per: number, ranges: readonly (readonly [number, num
 
 
 /** 相机系 key light：眼方向 + 上 0.55 + 右 0.35（Blender studio 光的最小近似）。 */
-function keyLight(cam: OrbitCamera): Pt3 {
+function keyLight(cam: CameraSource): Vec3 {
   const e = cam.eyeDir(), u = cam.up(), r = cam.right();
   const v = { x: e.x + u.x * 0.55 + r.x * 0.35, y: e.y + u.y * 0.55 + r.y * 0.35, z: e.z + u.z * 0.55 + r.z * 0.35 };
   const n = Math.hypot(v.x, v.y, v.z) || 1;
   return { x: v.x / n, y: v.y / n, z: v.z / n };
 }
 
-/**
- * 面的三角剖分（世界坐标；含洞）——膜批几何与 OBJ 导出等「字节出口」共用，three 的 earcut 不出本文件。
- */
-export function faceTriangles(k: GeomView, id: FaceId): [Pt3, Pt3, Pt3][] {
-  const f = k.face(id);
-  const rec = k.planeOf(id);
-  if (!f || !rec) return [];
-  const contour = f.outer.pts.map((p) => new THREE.Vector2(p.x, p.y));
-  const holes = f.holes.map((h) => h.pts.map((p) => new THREE.Vector2(p.x, p.y)));
-  const tris: number[][] = THREE.ShapeUtils.triangulateShape(contour, holes);
-  const all = [...contour, ...holes.flat()];
-  const { u, v } = rec.basis;
-  const n = rec.plane.n, d = rec.plane.d;
-  const lift = (q: { x: number; y: number }): Pt3 => ({
-    x: u.x * q.x + v.x * q.y + n.x * d,
-    y: u.y * q.x + v.y * q.y + n.y * d,
-    z: u.z * q.x + v.z * q.y + n.z * d,
-  });
-  // 不平的面（网格体的面可以扭；2026-10-27 Claude Opus 5.5，user「面的预览也是坏的」截图）：剖分仍在平面基里做（定连接），但三角的角用顶点的真实 3D 坐标——
-  // 以前一律抬回最佳拟合平面，扭过的面画成一张平板、选中高亮跟面对不上（高亮浮在平面上、和真面互相穿插）。brep 的膜离平面 ≤ τ，照旧抬（字节出口不变）。
-  const pts3 = [f.outer, ...f.holes].flatMap((r) => r.vids.map((vid) => (k.graph.hasVertex(vid) ? k.graph.pt(vid) : null)));
-  let off = 0;
-  for (const p of pts3) { if (!p) { off = -1; break; } off = Math.max(off, Math.abs(n.x * p.x + n.y * p.y + n.z * p.z - d)); }
-  const real = off > 1e-6 && pts3.length === all.length;
-  if (real) {
-    // 不平的面：和主渲染（pool-mesh.ts buildFaceRec）用**同一个**剖分（format/triangulate.ts triangulateRings）——两边挑的对角线不一样时，
-    // 高亮的那半张在真面底下、被深度测试吃掉（user「选择的面高亮有时候还是没显示」「碰到不平的面还是没成功高亮」）。同一组三角 = 高亮就是把这张面换个颜色（user「应该是替换」）。
-    const P3 = pts3 as Pt3[], outerIdx = f.outer.vids.map((_, i) => i);
-    let base = f.outer.vids.length;
-    const holeIdx = f.holes.map((h) => { const idx = h.vids.map((_, i) => base + i); base += h.vids.length; return idx; });
-    return triangulateRings(P3, rec.plane, outerIdx, holeIdx).map(([a, b, c]) => {
-      const A = P3[a], B = P3[b], C = P3[c];
-      const cx = (B.y - A.y) * (C.z - A.z) - (B.z - A.z) * (C.y - A.y), cy = (B.z - A.z) * (C.x - A.x) - (B.x - A.x) * (C.z - A.z), cz = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x);
-      return cx * n.x + cy * n.y + cz * n.z >= 0 ? [A, B, C] : [A, C, B];
-    });
-  }
-  const at = (i: number): Pt3 => lift(all[i]);
-  // 绕向统一成「绕 +n 逆时针」（平面基里逆时针；u × v = n）：两个表面（DT8）靠 gl_FrontFacing 分正反，三角的绕向必须一致
-  return tris.map(([a, b, c]) => {
-    const A = all[a], B = all[b], C = all[c];
-    const ccw = (B.x - A.x) * (C.y - A.y) - (B.y - A.y) * (C.x - A.x) >= 0;
-    return ccw ? [at(a), at(b), at(c)] : [at(a), at(c), at(b)];
-  });
-}
+// faceTriangles（面的三角剖分：高亮的世界坐标那条路 + OBJ 导出）6c 起住 src/editor/face-triangles.ts，不再借 three 的 earcut。

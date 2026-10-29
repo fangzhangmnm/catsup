@@ -3,6 +3,7 @@
 // 分工：**内容归编辑器**（哪几段线、什么颜色、什么键），**量尺归引擎**（OverlayCtx：一像素多长、视野多远、相机的右 / 上 / 前——XR 里按角尺寸、桌面按深度，
 // 编辑器不用知道是哪种），**画归后端**（LINE_STYLES 表里的材质参数）。created 2026-10-29 by Claude Fable 5.1（步 6a：线段族；点 / 标记 / 文字 / 选中高亮 = 6b / 6c）
 import type { Vec3 } from "../contract/geometry.ts";
+import type { MaterialRef } from "../contract/stream.ts";
 
 /** 一组线段（世界坐标，a b 成对）；颜色 = 每顶点线性空间 rgb（null = 用 color 整组一色）；key 没变 = 后端不重建几何。 */
 export interface OverlayLines {
@@ -53,7 +54,24 @@ export interface OverlayLabel {
   readonly gapPx?: number;
   readonly occlude?: boolean;
 }
-export type OverlayItem = OverlayLines | OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel;
+/**
+ * 面高亮（选中 / 悬停；6c）：三角 + 法线 + 每顶点 sRGB 颜色（膜 shader 直接出，不过色彩管理）。
+ * `slot` 给了 = 挂在那个放置槽（Placement.slot）的节点下：**池本地坐标**、和那个槽的面同一个材质同一个深度偏移、画在面之后——GPU 算出的深度逐位相同，
+ * 后画的赢 = 换颜色，没有 z-fighting（内容方要给和面本身同一组三角）。`slot = null` = 世界坐标、覆盖层材质压在各槽面上；
+ * `material` 给了 = 带贴图的面（世界坐标 + uv；引擎只拿 material 当贴图的钥匙）。key 没变不重建。
+ */
+export interface OverlayFaces {
+  readonly kind: "faces";
+  readonly id: string;
+  readonly key: string;
+  readonly slot: string | null;
+  readonly positions: readonly number[];
+  readonly normals: readonly number[];
+  readonly colors: readonly number[];
+  readonly material?: MaterialRef | null;
+  readonly uvs?: readonly number[] | null;
+}
+export type OverlayItem = OverlayLines | OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel | OverlayFaces;
 
 /** 点的样式（= 现状四种 Points 的 shader 参数：CSS px 大小、圆 / 方、往相机拉的系数、颜色 null = 每点一色、不做深度测试、透明度、画序）。 */
 export interface PointStyle { readonly sizePx: number; readonly shape: "round" | "square"; readonly pull: number | null; readonly color: number | null; readonly depthTest: boolean; readonly alpha: number; readonly renderOrder: number }
@@ -113,8 +131,10 @@ export interface LineStyle {
   readonly transparent?: boolean;
   readonly opacity?: number;
   readonly renderOrder: number;
+  /** 不另建材质，用后端自己的那份（`"edge"` = 边线材质：线宽跟线稿粗细走、SU 轮廓线 shader、X 光下换成不做深度测试那份）。widthPx 等只是说明。 */
+  readonly shared?: "edge";
 }
-const HINT_PX = 1.2, ARC_PX = 2.5, SOFT_EDGE_PX = 1;
+const HINT_PX = 1.2, ARC_PX = 2.5, SOFT_EDGE_PX = 1, EDGE_PX = 1.6;
 const plain = (widthPx: number, vertexColors = true): LineStyle => ({ widthPx, vertexColors, offset: true, depthTest: true, depthWrite: true, renderOrder: 0 });
 const onTop = (widthPx: number, renderOrder: number, extra: Partial<LineStyle> = {}): LineStyle => ({ widthPx, vertexColors: true, offset: false, depthTest: false, depthWrite: false, renderOrder, ...extra });
 export const LINE_STYLES = {
@@ -134,6 +154,8 @@ export const LINE_STYLES = {
   lock: onTop(HINT_PX, 11, { transparent: true, opacity: 0.75 }),
   gizmo: onTop(HINT_PX * 1.5, 11),
   xg: onTop(HINT_PX * 1.5, 11),
+  /** 选中 / 刮擦 / 悬停 / 检查的边（6c）：后端边线自己的材质（shared），定死最后画（renderOrder 2）= 盖得住底下同材质的黑边（probe-erase-red）。不建材质 → 不动上面各样式的材质创建顺序。 */
+  edge: { widthPx: EDGE_PX, vertexColors: true, offset: true, depthTest: true, depthWrite: true, renderOrder: 2, shared: "edge" },
 } as const satisfies Record<string, LineStyle>;
 export type LineStyleId = keyof typeof LINE_STYLES;
 

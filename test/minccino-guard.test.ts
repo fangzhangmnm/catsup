@@ -5,7 +5,7 @@
 // ④ pass 代码不判设备：graph/ overlay/ material/ backend/ 里不出现 userAgent / 平台名 / 机型名（设备只以代价表 + 能力位进来；量设备以后住 device.ts）。
 // ⑤ frame graph 规划器：拓扑排序 + 没人要的剪掉 + 环 / 双写者抛。
 // ⑥ 轮廓线 shader 源 = vendored LineMaterial 顶点着色器 + PROFILE_PATCHES（逐字；升级 three 漂了立刻红）。
-// ③′ 过渡期棘轮：backend/three/render3.ts 还 import 内容层（编辑器 / 场景 / 内核），条数只准降，步 6 叠加层契约落地后清零。
+// ③′ 过渡期棘轮：backend/three/render3.ts 曾 import 内容层（编辑器 / 场景 / 内核）19 → 18 → 0 条（6c，v0.17.9 清零；名单空着，留着是为了下一次搬东西进笼子时再用）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { planFrame } from "../src/minccino/graph/frame-graph.ts";
 import { PROFILE_LINE_VERTEX, applyProfilePatches } from "../src/minccino/backend/three/profile-line-shader.ts";
@@ -49,8 +49,8 @@ describe("minccino 守卫 ② 引擎零 three", () => {
 
 describe("minccino 守卫 ③ 引擎不认识编辑器、零 DOM", () => {
   const FORBIDDEN = /^import[^;]*from\s+["']\.\.?\/(\.\.\/)*(editor|scene|kernel|mesh|app|format|player|controller)\//gm;
-  /** ③′ 过渡期棘轮：搬进来的 render3 还 import 内容层的条数（只准降，步 6 做完清零）。 */
-  const TRANSITIONAL: Readonly<Record<string, number>> = { "minccino/backend/three/render3.ts": 18 };   // 步 5 = 19 → 6a = 18（guide-pick 走了）
+  /** ③′ 过渡期棘轮：搬进来的 render3 还 import 内容层的条数（只准降）。步 5 = 19 → 6a = 18 → **6c = 0（v0.17.9，名单清空；再有 = 守卫 ③ 直接红）**。 */
+  const TRANSITIONAL: Readonly<Record<string, number>> = {};
   it("不 import 编辑器 / 场景 / 内核 / app（过渡期名单除外）", () => {
     const bad = engine.filter((f) => !(f.rel in TRANSITIONAL) && FORBIDDEN.test(f.text)).map((f) => f.rel);
     assert(bad.length === 0, `引擎 import 了仓里的内容层：${bad.join(", ")}（引擎只认 contract/ 里自己的同形类型）`);

@@ -11,3 +11,7 @@ export type Xform12 = readonly [number, number, number, number, number, number, 
 export type Mat4 = readonly number[];
 
 export const IDENTITY_XFORM: Xform12 = [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0];
+
+/** 坐标架：原点 + 三根单位轴（与 `scene/xform.ts Frame` 同形）。地面网格 / 三色轴跟它走（6c 起由消费方递进来）。 */
+export interface Frame3 { readonly origin: Vec3; readonly x: Vec3; readonly y: Vec3; readonly z: Vec3 }
+export const WORLD_FRAME3: Frame3 = { origin: { x: 0, y: 0, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } };

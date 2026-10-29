@@ -311,6 +311,7 @@ export declare class Editor {
     private host;
     readonly cam: OrbitCamera;
     private r3;
+    private readonly provider;
     private scene;
     private ctx;
     private _grid;

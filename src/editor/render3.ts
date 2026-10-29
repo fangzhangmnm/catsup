@@ -1,4 +1,9 @@
-// editor/render3.ts —— 转出口（Tron 第一刀步 5，2026-10-29 Claude Fable 5.1）：three 后端本体搬进了 src/minccino/backend/three/render3.ts，
-// 编辑器 / app 这边的 import 路径不变。步 6 叠加层契约落地后这个口子收窄成「视图 + 叠加层 + 流」三样。
-export { Renderer3, PALETTE, LINE_WEIGHTS, POOL_AXES_PX, LOCK_LINE_SPAN_PX, faceTriangles, type ViewState, type LineStyle, type XRFacade, type XRHand } from "../minccino/backend/three/render3.ts";
-export { overlayItems } from "./overlay.ts";   // 叠加层（编辑器侧：线 / 点 / 标记 / 三角 / 文字；步 6a / 6b）
+// editor/render3.ts —— 编辑器到渲染器的转出口（Tron 第一刀步 5 立，6c 收窄；2026-10-29 Claude Fable 5.1）：three 后端本体住 src/minccino/backend/three/render3.ts，
+// 编辑器 / app 这边的 import 路径不变。6c 起这个口子只剩三样：后端类（Renderer3 + 线稿粗细 / XR 面）、引擎的调色板、编辑器自己的视图状态与叠加层（ViewState / frameInput /
+// overlayItems / faceTriangles / 两个屏幕像素常量都住编辑器侧，引擎不认识它们）。
+export { Renderer3, LINE_WEIGHTS, type LineStyle, type XRFacade, type XRHand } from "../minccino/backend/three/render3.ts";
+export { PALETTE } from "../minccino/index.ts";
+export { type ViewState, frameInput } from "./view-state.ts";
+export { overlayItems } from "./overlay.ts";
+export { POOL_AXES_PX, LOCK_LINE_SPAN_PX } from "./overlay-lines.ts";
+export { faceTriangles } from "./face-triangles.ts";

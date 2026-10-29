@@ -2,8 +2,8 @@
 // 从 render3 原样搬出——缩放柄、顶点小点、X 光面点、中缝点、选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、吸附小球、落点环、文字；
 // 几何、颜色、键逐字一样（基线 0 像素差）；朝向的矩阵数学（锥沿轴、块按三轴摆）交给后端，这里只说「让 +Y 指向 d / 按这三根轴」。
 import type { OverlayCtx, OverlayItem, OverlayMarker } from "../minccino/index.ts";
-import type { ViewState } from "../minccino/backend/three/render3.ts";
-import { PALETTE } from "../minccino/backend/three/render3.ts";
+import { PALETTE } from "../minccino/index.ts";
+import type { ViewState } from "./view-state.ts";
 import type { Pt3 } from "../kernel/kernel.ts";
 import { overlayLines, SNAP_COLORS } from "./overlay-lines.ts";
 
