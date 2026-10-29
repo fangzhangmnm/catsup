@@ -36,4 +36,16 @@
 
 契约的取舍：块 = 池本地坐标 + 版本号（= Kernel.rev），放置 = 池键 + 3×4 变换 + 槽键——这正是现状 render3「每池一份几何 + 每槽一个矩阵」的形状，步 3 只是把它写成接口。`colors` 先留着（现状把材质色 / 选中 / 悬停烤进顶点色），步 6 叠加层搬走后只剩材质色。留口全部只留形状：多带、裁块、半成品池、笔画、惰性池、画质档、后台预算、降档梯子。
 
-## 步 3 流提供者（待）
+## 步 3 流提供者 = 编辑器（v0.17.3）
+
+**切在哪**：render3 原来的池路径 = 「每池一份池网格（pool-mesh）+ 每槽一个矩阵 + 同一帧同一内核只同步一次 + 两代没人用的释放 + 只传改过的段」。按**内容 / 显卡**切成两半：
+- 内容那半 → `src/editor/stream-provider.ts EditorStreamProvider implements StreamProvider`：拥有池网格（`Body` = 一份 PoolMesh；同一个池要画两个内核就两份）、材质槽签名、两代释放；`pull()` 吐 `StreamFrame { chunks, placements }`——块 = 池网格的大数组**直接包进去**（零拷贝）+ `dirty`（takeDirty 的段）+ 全局单调的 `version`；放置 = 槽键 + 3×4 矩阵 + 过渡期三面旗（active / dim / singleSided）。编辑器 `draw()` / `captureRgba()` 画之前 `provider.setWorld(view, dimSlots)`。
+- 显卡那半留在 render3：`setProvider()`、`syncPools()` = 拉一帧 → `uploadFaces / uploadLines`（版本没变不碰；数组换过 / 长大了重建几何；否则 `addUpdateRange` 只传改过的段）→ 槽节点挑材质 / 几何（和以前逐字一样）。`chunkGpus` 两代释放。
+- 样式那半（面 / 边颜色、粗线还是像素线）还烤在顶点色里 → `ChunkStyle` 接口（render3 `chunkStyle()` 给，提供者只转交给 pool-mesh）。这是**过渡期的债**：叠加层（步 6）和材质模块（步 8 / Opus）落地后，块只带材质引用、颜色归翻译层。
+- 契约改动：`Chunk` 从「positions / normals / colors」改成属性表 `attributes: Record<name, { array, size, normalized }>` + `count` + `instanced` + `dirty`（粗线 = LineSegments2 的实例布局 seg / col / colDim / w1 / w2 / flag，也是过渡期：步 5 后端应该自己从线段造它）。
+
+**验**：单测 1162 绿（含 minccino 守卫、编辑器棘轮 4183 → 4170：断口刻度切去 `editor/break-ticks.ts` 纯函数）；截图基线 11 张 **0 像素差**；探针 pool-mesh（增量 / 全量计数 `poolMesh.full` 照旧）/ twin-preview / nested-preview / preview-refresh / hide / isolate / xray 绿。**旧账**：`probe-context` 红与本刀无关（v0.16.38 笔 / 手指的选区浮条只留「删除 / 更多…」后探针仍期望 `selBarLabels` 含「炸开」、`crumbsShown`）——给 Opus 的探针维护清单。
+
+**没动的**：render3 的「平铺路径」（`rebuildFaces / rebuildEdges`，裸 GeomView 没有槽时走）——两个调用方（draw / captureRgba）都传 WorldView，它是死代码，步 5 删。
+
+## 步 4 frame graph 骨架（待）

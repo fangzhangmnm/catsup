@@ -48,7 +48,9 @@ import type { GuidesWorld } from "../scene/guides.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { cross3, dot3, sub3 } from "../kernel/geom.ts";
-import { PoolMesh, type PoolMeshEnv, type TexSide, fanNormal, buildFaceRec } from "./pool-mesh.ts";
+import { type TexSide, fanNormal, buildFaceRec } from "./pool-mesh.ts";
+import type { Chunk, StreamProvider } from "../minccino/index.ts";   // 流契约：块 → 显卡（Tron 第一刀步 3）
+import type { ChunkStyle } from "./stream-provider.ts";
 import { SPHERE_RINGS, circlePoints } from "./guide-pick.ts";
 import type { RigPose } from "../player/player.ts";
 import type { Ray } from "../player/world-query.ts";
@@ -165,9 +167,8 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
  * 线同理。每份几何都把「另一套颜色」也挂在一个着色器不用的名字下——three 画一份几何时把它挂着的缓冲全传上去，
  * 这样没被画的那套颜色的局部上传也不会一直攒着。缓冲直接包池网格的大数组（不拷），改过哪段只传哪段（addUpdateRange）。
  */
-interface GpuFaces { readonly key: string; readonly mat: Material | null; readonly side: TexSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; }
-interface GpuLines { readonly thick: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; }
-interface PoolGpu { readonly mesh: PoolMesh; faces: Map<string, GpuFaces>; lines: GpuLines | null; gen: number; }
+interface GpuFaces { readonly id: string; version: number; readonly mat: Material | null; readonly side: TexSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
+interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
 interface SlotNodes { root: any; plain: any; /** 选中 / 悬停的面（同一个节点、同一个材质、和面本身同一组三角，画在后面 = 替换颜色；2026-10-27 Opus 5.5）。 */ sel: any; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
 
@@ -337,10 +338,9 @@ export class Renderer3 {
   private pixelMat: any;                            // 原生线材质（顶点色，共享）
   private texMats = new Map<object, any>();         // 贴图材质对象 → 共享 ShaderMaterial（uMap）
   private slotNodes = new Map<string, SlotNodes>();
-  /** 池（poolKey）→ 池网格：通常一个；同一帧一个池要画两个不同的内核（少见）就多开一个。两代没人用的释放。 */
-  private poolGpus = new Map<string, PoolGpu[]>();
-  /** 材质对象 → 小整数（材质槽签名用：槽表只追加 = 池网格增量；别的变化 = 全量）。 */
-  private matUids = new WeakMap<Material, number>(); private nextMatUid = 1;
+  /** 块（流契约 Chunk.id）→ 显卡几何：两代没人用的释放。池网格本体住编辑器那边的流提供者（stream-provider.ts），这里只有显卡副本。 */
+  private chunkGpus = new Map<string, GpuFaces | GpuLines>();
+  private provider: StreamProvider | null = null;
   private syncGen = 0;
   private poolKey = ""; private overlayKey = "";
   private emptyGeo: any; private emptyLineGeo: any;
@@ -883,7 +883,7 @@ export class Renderer3 {
     if (wv.slots && wv.scene) {
       // 池级路径：每槽一组节点 + 每 kernel 一份几何（只重建变了的池）；选中 / 悬停 = 覆盖层
       const pk = `${kid}:${rev}:${dimK}:${this.lineStyle}`;
-      if (pk !== this.poolKey) { this.poolKey = pk; perf.time("syncPools", () => this.syncPools(kd as WorldView, view)); }
+      if (pk !== this.poolKey) { this.poolKey = pk; perf.time("syncPools", () => this.syncPools()); }
       const ok = `${kid}:${rev}:${selF}:${view.hoverFace ?? ""}:${selE}:${[...view.scrubEdges].join(",")}:${view.hoverEdge ?? ""}:${view.warnEdges ? `${view.warnEdges.size}|${[...view.warnEdges].slice(0, 16).join(",")}` : ""}`;
       if (ok !== this.overlayKey) { this.overlayKey = ok; perf.time("rebuildOverlay", () => this.rebuildOverlay(kd, view)); }
       this.faceKey = ""; this.edgeKey = "";
@@ -1460,34 +1460,60 @@ export class Renderer3 {
   // 同 definition 的 N 个实例 = 一份几何 N 个矩阵；拖整棵子树 = 只改矩阵。
   // 几何 = 池网格（pool-mesh.ts）：跟着池现在显示的内核走（原件 / 预演副本 / 撤销快照之间按克隆族谱 + 改动日志算差），
   // 只重建改过的面 / 边、只上传改过的那几段。淡出 / 线稿风格不再是几何变体：淡出 = 同一份几何换一套颜色缓冲，线稿风格变了 = 池网格全量重建。
-  private syncPools(kd: WorldView, view: ViewState): void {
+  /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
+  setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
+  /** 样式那半给提供者（过渡期：面 / 边颜色和粗线 / 像素线还烤在顶点色里；材质模块 + 叠加层落地后退役）。 */
+  chunkStyle(): ChunkStyle {
+    const c = new THREE.Color(), hex = (h: number): readonly [number, number, number] => { c.setHex(h); return [c.r, c.g, c.b]; };
+    const eDim = hex(PALETTE.edgeDim), eWire = hex(PALETTE.edgeWire), eFace = hex(PALETTE.edge);
+    return {
+      // 淡出（上下文之外）：底色换成 faceDim、纯色材质和它对半混；贴图材质 = faceDim 乘贴图（和以前的变体同一套规则）
+      faceColor: (mat, dim) => {
+        if (dim) { const d = srgb(PALETTE.faceDim); return mat && !mat.texture ? [(d[0] + mat.color[0]) / 2, (d[1] + mat.color[1]) / 2, (d[2] + mat.color[2]) / 2] : d; }
+        if (mat && !mat.texture) return [mat.color[0], mat.color[1], mat.color[2]];
+        return mat?.texture ? [1, 1, 1] : srgb(PALETTE.face);
+      },
+      edgeColor: (loose, dim) => (dim ? eDim : loose ? eWire : eFace),
+      thick: () => this.lineStyle === "thick",
+    };
+  }
+  /** 拉一帧流 → 块进显卡 → 每个放置一组槽节点（矩阵 + 按活动 / 淡出 / 单面挑材质和几何）。 */
+  private syncPools(): void {
+    if (!this.provider) throw new Error("render3: no stream provider (editor wires EditorStreamProvider before the first draw)");
+    const frame = this.provider.pull({ view: "main", bands: [{ near: 0, far: Infinity }], budget: {} });   // 小学：一带、预算只记不裁
     this.syncGen++;
-    const dim = view.dimSlots;
-    const taken = new Map<PoolGpu, KernelView>();   // 这一帧哪份池网格画的是哪个内核
-    for (const s of kd.slots) {
-      const key = slotKey(s);
-      let n = this.slotNodes.get(key);
-      if (!n) { n = this.makeSlotNodes(); this.slotNodes.set(key, n); }
+    const byPool = new Map<string, { plain: GpuFaces | null; tex: GpuFaces[]; lines: GpuLines | null }>();
+    perf.time("poolMesh.upload", () => {
+      for (const ch of frame.chunks) {
+        let pb = byPool.get(ch.pool);
+        if (!pb) { pb = { plain: null, tex: [], lines: null }; byPool.set(ch.pool, pb); }
+        if (ch.kind === "lines") pb.lines = this.uploadLines(ch);
+        else { const gf = this.uploadFaces(ch); if (gf.mat && gf.side) pb.tex.push(gf); else pb.plain = gf; }
+      }
+    });
+    for (const pl of frame.placements) {
+      let n = this.slotNodes.get(pl.slot);
+      if (!n) { n = this.makeSlotNodes(); this.slotNodes.set(pl.slot, n); }
       n.gen = this.syncGen;
       n.root.visible = true;
-      setMatrix(n.root, s.xform);
-      const pg = this.poolGpu(s, kd.scene, taken), dimmed = !!dim?.has(s.index);
+      setMatrix(n.root, pl.xform);
+      const pb = byPool.get(pl.pool), dimmed = pl.dim;
       // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
-      n.plain.material = pg.mesh.singleSided ? (s.active ? this.faceMatFront : this.faceMatOtherFront) : (s.active ? this.faceMat : this.faceMatOther);
-      const plain = pg.faces.get("plain"), showPlain = !!plain && (pg.mesh.groups.get("plain")?.store.count ?? 0) > 0;
+      n.plain.material = pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
+      const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
       n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
       let ti = 0;
-      for (const gf of pg.faces.values()) {
-        if (!gf.side || !gf.mat || !(pg.mesh.groups.get(gf.key)?.store.count)) continue;
+      for (const gf of pb?.tex ?? []) {
+        if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
-        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat, gf.side)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = this.texMatFor(gf.mat, gf.side);
+        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
+        slot.mesh.material = this.texMatFor(gf.mat!, gf.side!);
         slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
         ti++;
       }
       for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
       // 边
-      const L = pg.lines, showL = !!L && pg.mesh.lines.count > 0;
+      const L = pb?.lines ?? null, showL = !!L && L.count > 0;
       if (this.lineStyle === "thick") { n.thick.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
       else { n.pixel.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
       const xr = this.xray && showL;
@@ -1496,11 +1522,8 @@ export class Renderer3 {
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
     for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
-    // 池网格：两代没人用的释放（隔离看一个组件再出来 = 别的池全量重建一次，和以前一样）
-    for (const [key, list] of this.poolGpus) {
-      for (let i = list.length - 1; i >= 0; i--) if (list[i].gen < this.syncGen - 1) { this.disposePoolGpu(list[i]); list.splice(i, 1); }
-      if (!list.length) this.poolGpus.delete(key);
-    }
+    // 块的显卡副本：两代没人用的释放
+    for (const [id, g] of this.chunkGpus) if (g.gen < this.syncGen - 1) { g.geo.dispose(); g.geoDim.dispose(); this.chunkGpus.delete(id); }
     this.faceMeshOther.visible = false;   // 平铺路径的节点
   }
   private hidePools(): void { for (const n of this.slotNodes.values()) n.root.visible = false; }
@@ -1526,73 +1549,40 @@ export class Renderer3 {
     bySide.set(side, m);
     return m;
   }
-  /** 槽 s 用哪份池网格（同步到 s 的内核、传上显卡）。同一帧同一个内核只同步一次。 */
-  private poolGpu(s: PoolSlot, scene: Scene, taken: Map<PoolGpu, KernelView>): PoolGpu {
-    const key = poolKey(s.pool), k = s.kernel;
-    let list = this.poolGpus.get(key);
-    if (!list) { list = []; this.poolGpus.set(key, list); }
-    let pg = list.find((p) => taken.get(p) === k);
-    if (pg) return pg;
-    pg = list.find((p) => !taken.has(p) && p.mesh.source === k) ?? list.find((p) => !taken.has(p));
-    if (!pg) { pg = { mesh: new PoolMesh(), faces: new Map(), lines: null, gen: 0 }; list.push(pg); }
-    taken.set(pg, k); pg.gen = this.syncGen;
-    const P = pg, env = this.poolEnv(scene, s.pool.def);
-    const r = perf.time("poolMesh.sync", () => P.mesh.sync(k, env));
-    if (r.full) perf.count["poolMesh.full"] = (perf.count["poolMesh.full"] ?? 0) + 1;   // 全量重建了几次（探针 / 黑匣子：拖动预演里不该涨）
-    perf.time("poolMesh.upload", () => this.uploadPool(P));
-    return pg;
+  /** 一块面 → 显卡。版本没变 = 不碰；数组换过 / 长大了 = 重建几何（直接包块的大数组，不拷）；否则只传改过的段。 */
+  private uploadFaces(ch: Chunk): GpuFaces {
+    let gf = this.chunkGpus.get(ch.id) as GpuFaces | undefined;
+    const A = ch.attributes;
+    if (gf && gf.version === ch.version) { gf.gen = this.syncGen; return gf; }
+    if (!gf || ch.dirty.grown || gf.attrs.position.array !== A.position.array) {
+      if (gf) { gf.geo.dispose(); gf.geoDim.dispose(); }
+      // 法线 / 面颜色是归一化整数（pool-mesh 的 i16n / i8n）：显卡读成 −1…1 的浮点
+      const at: Record<string, any> = {};
+      for (const name of Object.keys(A)) { const x = new THREE.BufferAttribute(A[name].array, A[name].size, !!A[name].normalized); x.setUsage(THREE.DynamicDrawUsage); at[name] = x; }
+      const mk = (dim: boolean): any => {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", at.position); geo.setAttribute("normal", at.normal);
+        geo.setAttribute("aColor", dim ? at.aColorDim : at.aColor); geo.setAttribute("_aColorOther", dim ? at.aColor : at.aColorDim);
+        if (at.aUv) geo.setAttribute("aUv", at.aUv);
+        else { geo.setAttribute("aColorB", dim ? at.aColorBDim : at.aColorB); geo.setAttribute("_aColorBOther", dim ? at.aColorB : at.aColorBDim); }
+        return geo;
+      };
+      gf = { id: ch.id, version: ch.version, mat: (ch.material as Material | undefined) ?? null, side: (ch.side as TexSide | undefined) ?? null, attrs: at, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
+      this.chunkGpus.set(ch.id, gf);
+    } else { for (const a of Object.values(gf.attrs)) pushRanges(a, a.itemSize, ch.dirty.ranges); gf.version = ch.version; gf.count = ch.count; gf.gen = this.syncGen; }
+    gf.geo.setDrawRange(0, ch.count); gf.geoDim.setDrawRange(0, ch.count);
+    return gf;
   }
-  private poolEnv(scene: Scene, defId: number): PoolMeshEnv {
-    const uid = (m: Material | undefined): number => { if (!m) return 0; let u = this.matUids.get(m); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(m, u); } return u; };
-    const c = new THREE.Color(), hex = (h: number): readonly [number, number, number] => { c.setHex(h); return [c.r, c.g, c.b]; };
-    const eDim = hex(PALETTE.edgeDim), eWire = hex(PALETTE.edgeWire), eFace = hex(PALETTE.edge);
-    return {
-      matOf: (slot) => scene.materialOfSlot(defId, slot),
-      slotsSig: scene.def(defId).body.materialSlots.map((i) => uid(scene.materials[i])).join(","),
-      singleSided: scene.kindOf(defId) === "mesh",
-      // 淡出（上下文之外）：底色换成 faceDim、纯色材质和它对半混；贴图材质 = faceDim 乘贴图（和以前的变体同一套规则）
-      faceColor: (mat, dim) => {
-        if (dim) { const d = srgb(PALETTE.faceDim); return mat && !mat.texture ? [(d[0] + mat.color[0]) / 2, (d[1] + mat.color[1]) / 2, (d[2] + mat.color[2]) / 2] : d; }
-        if (mat && !mat.texture) return [mat.color[0], mat.color[1], mat.color[2]];
-        return mat?.texture ? [1, 1, 1] : srgb(PALETTE.face);
-      },
-      edgeColor: (loose, dim) => (dim ? eDim : loose ? eWire : eFace),
-      thick: this.lineStyle === "thick",
-    };
-  }
-  /** 池网格改过的段 → 显卡。数组换过（长大了 / 全量重建换了线仓库）= 那份几何重建。 */
-  private uploadPool(pg: PoolGpu): void {
-    for (const [key, gf] of pg.faces) if (!pg.mesh.groups.has(key)) { gf.geo.dispose(); gf.geoDim.dispose(); pg.faces.delete(key); }   // 全量重建后不再有的组
-    for (const g of pg.mesh.groups.values()) {
-      const d = g.store.takeDirty();
-      let gf = pg.faces.get(g.key);
-      if (!gf || d.grown || gf.attrs.position.array !== g.store.arrays.position) {
-        if (gf) { gf.geo.dispose(); gf.geoDim.dispose(); }
-        // 法线 / 面颜色是归一化整数（pool-mesh 的 i16n / i8n）：显卡读成 −1…1 的浮点
-        const A = g.store.arrays, attr = (name: string, size: number): any => { const x = new THREE.BufferAttribute(A[name], size, !(A[name] instanceof Float32Array)); x.setUsage(THREE.DynamicDrawUsage); return x; };
-        const at: Record<string, any> = { position: attr("position", 3), normal: attr("normal", 3), aColor: attr("aColor", 3), aColorDim: attr("aColorDim", 3) };
-        if (g.side) at.aUv = attr("aUv", 2); else { at.aColorB = attr("aColorB", 3); at.aColorBDim = attr("aColorBDim", 3); }
-        const mk = (dim: boolean): any => {
-          const geo = new THREE.BufferGeometry();
-          geo.setAttribute("position", at.position); geo.setAttribute("normal", at.normal);
-          geo.setAttribute("aColor", dim ? at.aColorDim : at.aColor); geo.setAttribute("_aColorOther", dim ? at.aColor : at.aColorDim);
-          if (g.side) geo.setAttribute("aUv", at.aUv);
-          else { geo.setAttribute("aColorB", dim ? at.aColorBDim : at.aColorB); geo.setAttribute("_aColorBOther", dim ? at.aColorB : at.aColorBDim); }
-          return geo;
-        };
-        gf = { key: g.key, mat: g.mat, side: g.side, attrs: at, geo: mk(false), geoDim: mk(true) };
-        pg.faces.set(g.key, gf);
-      } else for (const a of Object.values(gf.attrs)) pushRanges(a, a.itemSize, d.ranges);
-      gf.geo.setDrawRange(0, g.store.end); gf.geoDim.setDrawRange(0, g.store.end);
-    }
-    const L = pg.mesh.lines, d = L.takeDirty(), thick = this.lineStyle === "thick";
-    let gl = pg.lines;
-    const A = L.arrays;
-    if (!gl || d.grown || gl.thick !== thick || gl.bufs.first.array !== A[thick ? "seg" : "position"]) {
+  /** 一块线 → 显卡：粗线 = LineSegments2 的实例缓冲（seg / col / colDim / w1 / w2 / flag），像素线 = 普通顶点缓冲。 */
+  private uploadLines(ch: Chunk): GpuLines {
+    let gl = this.chunkGpus.get(ch.id) as GpuLines | undefined;
+    const A = ch.attributes, instanced = !!ch.instanced;
+    if (gl && gl.version === ch.version) { gl.gen = this.syncGen; return gl; }
+    if (!gl || ch.dirty.grown || gl.instanced !== instanced || gl.bufs.first.array !== A[instanced ? "seg" : "position"].array) {
       if (gl) { gl.geo.dispose(); gl.geoDim.dispose(); }
-      if (thick) {
-        const ib = (name: string, stride: number): any => { const b = new THREE.InstancedInterleavedBuffer(A[name], stride, 1); b.setUsage(THREE.DynamicDrawUsage); return b; };
-        const ia = (name: string, size: number): any => { const b = new THREE.InstancedBufferAttribute(A[name], size); b.setUsage(THREE.DynamicDrawUsage); return b; };
+      if (instanced) {
+        const ib = (name: string, stride: number): any => { const b = new THREE.InstancedInterleavedBuffer(A[name].array, stride, 1); b.setUsage(THREE.DynamicDrawUsage); return b; };
+        const ia = (name: string, size: number): any => { const b = new THREE.InstancedBufferAttribute(A[name].array, size); b.setUsage(THREE.DynamicDrawUsage); return b; };
         const bufs: Record<string, any> = { first: ib("seg", 6), col: ib("col", 6), colDim: ib("colDim", 6), w1: ia("w1", 3), w2: ia("w2", 3), flag: ia("flag", 1) };
         const mk = (dim: boolean): any => {
           const geo = new LineSegmentsGeometry(), c = dim ? bufs.colDim : bufs.col, o = dim ? bufs.col : bufs.colDim;
@@ -1602,25 +1592,22 @@ export class Renderer3 {
           geo.setAttribute("instanceW1", bufs.w1); geo.setAttribute("instanceW2", bufs.w2); geo.setAttribute("instanceFlag", bufs.flag);
           return geo;
         };
-        gl = { thick, bufs, geo: mk(false), geoDim: mk(true) };
+        gl = { id: ch.id, version: ch.version, instanced, bufs, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
       } else {
-        const attr = (name: string): any => { const x = new THREE.BufferAttribute(A[name], 3); x.setUsage(THREE.DynamicDrawUsage); return x; };
+        const attr = (name: string): any => { const x = new THREE.BufferAttribute(A[name].array, 3); x.setUsage(THREE.DynamicDrawUsage); return x; };
         const bufs: Record<string, any> = { first: attr("position"), color: attr("color"), colorDim: attr("colorDim") };
         const mk = (dim: boolean): any => {
           const geo = new THREE.BufferGeometry();
           geo.setAttribute("position", bufs.first); geo.setAttribute("color", dim ? bufs.colorDim : bufs.color); geo.setAttribute("_colorOther", dim ? bufs.color : bufs.colorDim);
           return geo;
         };
-        gl = { thick, bufs, geo: mk(false), geoDim: mk(true) };
+        gl = { id: ch.id, version: ch.version, instanced, bufs, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
       }
-      pg.lines = gl;
-    } else for (const b of Object.values(gl.bufs)) pushRanges(b, b.stride ?? b.itemSize, d.ranges);
-    if (thick) { gl.geo.instanceCount = L.count; gl.geoDim.instanceCount = L.count; }
-    else { gl.geo.setDrawRange(0, L.end); gl.geoDim.setDrawRange(0, L.end); }
-  }
-  private disposePoolGpu(pg: PoolGpu): void {
-    for (const gf of pg.faces.values()) { gf.geo.dispose(); gf.geoDim.dispose(); }
-    if (pg.lines) { pg.lines.geo.dispose(); pg.lines.geoDim.dispose(); }
+      this.chunkGpus.set(ch.id, gl);
+    } else { for (const b of Object.values(gl.bufs)) pushRanges(b, b.stride ?? b.itemSize, ch.dirty.ranges); gl.version = ch.version; gl.count = ch.count; gl.gen = this.syncGen; }
+    if (instanced) { gl.geo.instanceCount = ch.count; gl.geoDim.instanceCount = ch.count; }
+    else { gl.geo.setDrawRange(0, ch.count); gl.geoDim.setDrawRange(0, ch.count); }
+    return gl;
   }
   /**
    * 覆盖层：选中 / 悬停的面 + 选中 / 刮擦 / 悬停的边（粗线）。

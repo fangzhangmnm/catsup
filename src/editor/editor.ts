@@ -49,6 +49,8 @@ import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlan
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
 import { POOL_AXES_PX, Renderer3, type LineStyle, type ViewState } from "./render3.ts";
+import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
+import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
 import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace } from "./ops.ts";
 import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from "../format/gltf-import.ts";
@@ -256,7 +258,7 @@ function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${
 
 export class Editor {
   readonly cam = new OrbitCamera();
-  private r3: Renderer3;
+  private r3: Renderer3; private readonly provider: EditorStreamProvider;
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private _grid: GridSettings = { ...NEW_DOC_GRID };
@@ -509,7 +511,7 @@ export class Editor {
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost) {
     this.config = new ToolConfig(TOOL_OPTIONS, host.optionKv);   // 字段初始化先于构造体（es2022）：config 在这里建，toolCtx 用 getter 取
-    this.r3 = new Renderer3(canvas);
+    this.r3 = new Renderer3(canvas); this.provider = new EditorStreamProvider(this.r3.chunkStyle()); this.r3.setProvider(this.provider);
     this.cam.pitch = 0.61;
     this.cam.projection = "persp";
   }
@@ -1418,7 +1420,8 @@ export class Editor {
     const cam = this.cam, h0 = cam.halfH, f0 = cam.fovY;
     try {
       if (k !== 1) { cam.halfH = h0 * k; cam.fovY = 2 * Math.atan(Math.tan(f0 / 2) * k); }
-      return this.r3.captureRgba(this.worldView(), cam, { w, h }, this.cleanState());
+      const world = this.worldView(); this.provider.setWorld(world, null);
+      return this.r3.captureRgba(world, cam, { w, h }, this.cleanState());
     } finally { cam.halfH = h0; cam.fovY = f0; }
   }
   private cleanState(): ViewState {
@@ -3703,6 +3706,7 @@ export class Editor {
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !s.active).map((s) => s.index)) : null;
+    this.provider.setWorld(view, dimmed);   // 这一帧画哪个世界：提供者按它吐块（引擎拉）
     this.r3.render(view, this.cam, this.vp(), {
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,
@@ -3757,25 +3761,8 @@ export class Editor {
     if (this.emptyCache?.rev !== this._revision) this.emptyCache = { rev: this._revision, empty: this.worldView().vertices().length === 0 };
     return this.emptyCache.empty;
   }
-  private ticksCache: { kernel: Kernel; rev: number; xform: Xform; ticks: { p: Pt3; dir: Pt3 }[] } | null = null;
-  breakTicks(view: WorldView = this.liveWorld()): readonly { p: Pt3; dir: Pt3 }[] {
-    const slot = view.activeSlot(), k = slot.kernel as Kernel;   // 活动池永远是 brep（enterPool 守门：网格体进不来）；断口刻度是 brep 的概念
-    const c = this.ticksCache;
-    if (c && c.kernel === k && c.rev === k.rev && c.xform === slot.xform) return c.ticks;
-    const ticks: { p: Pt3; dir: Pt3 }[] = [];
-    const g = k.graph;
-    for (const v of k.vertices()) {
-      if (v.edges.size !== 2 || !k.isBreakJunction(v.id)) continue;
-      const [ea] = [...v.edges];
-      const other = g.pt(g.otherEnd(g.edge(ea), v.id));
-      const p0 = applyPt(slot.xform, { x: v.x, y: v.y, z: v.z }), p1 = applyPt(slot.xform, other);
-      const d = sub3(p1, p0), l = Math.hypot(d.x, d.y, d.z);
-      if (l === 0) continue;
-      ticks.push({ p: p0, dir: { x: d.x / l, y: d.y / l, z: d.z / l } });
-    }
-    this.ticksCache = { kernel: k, rev: k.rev, xform: slot.xform, ticks };
-    return ticks;
-  }
+  private ticksCache: BreakTicksCache | null = null;
+  breakTicks(view: WorldView = this.liveWorld()): readonly { p: Pt3; dir: Pt3 }[] { return (this.ticksCache = breakTicksOf(view.activeSlot(), this.ticksCache)).ticks; }   // 纯函数在 break-ticks.ts
   resize(dpr: number): void { this.r3.resize(this.vp(), dpr); this.draw(); }
   private updateTip(clientX: number, clientY: number): void {
     // 工具提示 > 吸附自带 label（15° / 整数长度的数值…）> 吸附种类标签（user 2026-10-24「incremental 是不是可以 tooltip 跟着指针走」）
