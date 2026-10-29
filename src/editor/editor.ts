@@ -1772,6 +1772,20 @@ export class Editor {
    */
   makeComponent(name: string): boolean { return this.step((pass) => this.makeComponentStep(pass, name)); }
   // ---------- 分开 / 合并物体（Blender P / Ctrl+J；user 10-28 夜「6非常重要，67放右键」）----------
+  /** 网格体里建组件（user 10-28 夜「mesh也要有和sketchup类似的组件管理」「所以反而就是你说的join之类的操作，我们现在就是可以自己打组」）：
+   *  选中的面搬进一个新的网格体组件、嵌在这一层里（同一个 op separateObject，只是摆在这一层而不是外面）；炸开它 = 并回来。 */
+  private makeMeshComponentStep(pass: StepPass, name: string): boolean {
+    if (!this.canSeparate()) { this.host.hint("建组件：先在网格体里选要做成组件的面"); return false; }
+    const def = this.activePool().def, faces = [...(this.selection as { faces: Set<number> }).faces].sort((a, b) => a - b);
+    const before = new Set(this.scene.def(def).instances.keys());
+    this.commitIn(pass, { op: "separateObject", at: { def, group: null }, def, faces, name });
+    this.clearSel(pass);
+    const fresh = [...this.scene.def(def).instances.keys()].find((id) => !before.has(id));
+    if (fresh !== undefined) this.selectedPools.set(`i${fresh}`, { kind: "instance", instance: fresh });
+    this.host.hint(`建了组件「${name}」：${faces.length} 张面，嵌在这一层里；双击进去改、炸开 = 并回来`);
+    this.host.changed(); this.draw();
+    return true;
+  }
   /** 分开：在网格体里选中的面搬进一个新的网格体组件，摆在外面一层、世界里不动。 */
   canSeparate(): boolean { return this.activeKind() === "mesh" && this.selection.kind === "mesh" && this.selection.faces.size > 0; }
   separateSelection(): boolean { return this.step((pass) => {
@@ -1813,6 +1827,7 @@ export class Editor {
   }
   private makeComponentStep(pass: StepPass, name: string): boolean {
     if (!this.hasSelection()) return false;
+    if (this.activeKind() === "mesh") return this.makeMeshComponentStep(pass, name);   // 网格体里：选中的面 → 嵌在这一层里的网格体组件（SketchUp 式组件管理，user 10-28 夜）
     if (!this.requireBrep("建组 / 建组件")) return false;
     const at = this.activePool(), k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
@@ -1847,7 +1862,7 @@ export class Editor {
   explodeSelection(): boolean { return this.step((pass) => this.explodeSelectionStep(pass)); }
   private explodeSelectionStep(pass: StepPass): boolean {
     if (!this.selectedPools.size) return false;
-    if (!this.requireBrep("炸开")) return false;   // 炸进网格体的池 = M4（炸开的几何要并进 mesh 内核）
+    // 外面一层是网格体也能炸（2026-10-28 夜：op explode 对两种身体都成立，explodeAcrossKinds）
     const at = this.activePool();
     const kept = new Map<string, PoolPick>();
     for (const [key, p] of [...this.selectedPools]) {

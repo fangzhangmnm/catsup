@@ -1,4 +1,4 @@
-// 工作台下拉换种类 + 物体钮在左上（created 2026-10-28 by Claude Opus 5.5；user 10-28 夜「我希望一进来的那个物体可以变成mesh。而不是需要建立子物体，
+// 工作台下拉 = 纯视图（v0.16.37 撤了 v0.16.29 的「换种类」：user 10-28 夜「我说了不要用tab切换mesh brep，tab是纯视图操作」）+ 物体钮在左上（created 2026-10-28 by Claude Opus 5.5；user 10-28 夜「我希望一进来的那个物体可以变成mesh。而不是需要建立子物体，
 // 然后物体属性不在视图那边，可以放在工作流左边」）——
 // ① 开机（最外层 = 硬表面体、空的）：下拉里有「自由建模（转成网格体）」；选它 = 不问、直接转、进自由建模 ② 物体钮在左上那一排（工作台下拉后面），右边视图那一列没有它
 // ③ 最外层有几何时选它 = 先弹确认；「不转」= 什么都没动；「转」= 转成网格体（6 张面还在）、进自由建模；撤销 = 回硬表面体
@@ -42,9 +42,7 @@ r.threeUndo = await state();
 await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
-const ok = /自由建模（转成网格体）/.test(r.oneItems) && r.oneBefore.kind === "brep" && r.oneAfter.kind === "mesh" && r.oneAfter.mode === "freeform" && !r.oneSheet
-  && r.two.inTopLeft && r.two.afterMode && !r.two.inWidgets && /硬表面建模（转回硬表面体）/.test(r.fourItems)
-  && r.threeBefore.kind === "brep" && r.threeBefore.faces === 6 && r.threeAsked && r.threeCancel.kind === "brep" && r.threeCancel.mode === "geometry"
-  && r.threeOk.kind === "mesh" && r.threeOk.mode === "freeform" && r.threeOk.faces === 6 && r.threeUndo.kind === "brep" && errs.length === 0;
+const ok = !/转成网格体/.test(r.oneItems) && r.oneAfter.kind === "brep" && r.oneAfter.mode === "geometry"   // 下拉里没有换种类的项；选「自由建模」= 管不了，什么都不转
+  && r.two.inTopLeft && r.two.afterMode && !r.two.inWidgets && errs.length === 0;
 console.log(ok ? "probe-workbench-cross OK" : "probe-workbench-cross FAIL");
 process.exit(ok ? 0 : 1);

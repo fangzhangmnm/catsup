@@ -23,7 +23,7 @@ import { edgesAlongSegs } from "../kernel/curves.ts";
 import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
-import { type PoolRef, type MeshBody, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
+import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Instance, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import { type Frame, type Xform, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
@@ -392,6 +392,12 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events };
     }
     case "explode": {
+      // 炸开实例：先看「外面一层」和「选中的那个组件」各是什么身体（2026-10-28 夜：以前只看外面一层，网格体组件炸进硬表面层 → 拿网格体当硬表面体用、抛内部错误）
+      if (op.instance !== undefined) {
+        const host = s.def(op.at.def), inst = host.instances.get(op.instance);
+        if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
+        if (s.kindOf(op.at.def) === "mesh" || s.kindOf(inst.def) === "mesh") { explodeAcrossKinds(s, op.at, inst); return { scene: s, events: [] }; }
+      }
       const { kernel, ref } = poolOf(s, op.at);
       const d = s.def(ref.def), db = s.brep(ref.def);
       if (op.group !== undefined) {
@@ -634,11 +640,8 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "joinObjects": {
       const host = s.def(op.at.def), tgt = s.instance(op.at.def, op.target), tb = meshOf(s, tgt.def), Xi = invert(tgt.xform);
       for (const sid of op.sources) {
-        const si = s.instance(op.at.def, sid), sb = meshOf(s, si.def), sk = sb.kernel, X = compose(Xi, si.xform), map = new Map<number, number>();
-        const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tb.kernel.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); } return x; };
-        const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
-        for (const f of sk.faces()) tb.kernel.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]));
-        for (const e of sk.edges()) if (sk.eFaces(e).length === 0) tb.kernel.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e]));   // 裸线也带上
+        const si = s.instance(op.at.def, sid);
+        appendMesh(tb, meshOf(s, si.def), compose(Xi, si.xform));
         if (!host.instances.delete(sid)) throw new OpTargetError(`instance ${sid}`);
       }
       return { scene: s, events: [] };
@@ -761,4 +764,36 @@ export function describeOp(op0: Op): string {
     case "applyScale": return `applyScale ${op.def}/${op.instance}`;
     case "mirror": return `mirror faces=${op.faces.length} edges=${op.edges.length} instances=${op.instances?.length ?? 0}${op.deleteOpposite ? " -opp" : ""}${op.mergeSeam ? " +seam" : ""}${op.weld ? ` weld=${op.weld}` : ""}${op.guard !== undefined ? ` guard=${op.guard}` : ""}${at}`;
   }
+}
+
+/** 把一份网格体的几何经变换 X 并进另一份（材质槽重映射、手标跟着走、裸线带上）。合并物体 / 炸开网格体共用。created 2026-10-28 by Claude Opus 5.5 */
+function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
+  const sk = sb.kernel, tk = tb.kernel, map = new Map<number, number>();
+  const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tk.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); } return x; };
+  const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; if (id === undefined) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
+  for (const f of sk.faces()) tk.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]));
+  for (const e of sk.edges()) {
+    if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
+    const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];
+  }
+}
+/**
+ * 炸开一份实例，外面一层或组件本身有一边是网格体（2026-10-28 夜 user「炸开mesh会出bug」）：
+ * 外面是网格体 → 组件的几何（硬表面组件先拷一份转成网格体）经实例变换并进外面那份网格体；外面是硬表面体 → 网格体组件拷一份转成硬表面体、吸进那一层的汤。
+ * 组件里摆着的子实例 → 搬到外面一层（变换叠上）；这一份删掉；定义没人用了就删。和硬表面的炸开同一个语义（SketchUp Explode）。
+ */
+function explodeAcrossKinds(s: Scene, at: PoolRef, inst: Instance): void {
+  const host = s.def(at.def), src = s.def(inst.def), hostMesh = s.kindOf(at.def) === "mesh";
+  const copyBody = (): SceneBody => (src.body.kind === "mesh" ? { ...src.body, kernel: src.body.kernel.clone(), materialSlots: [...src.body.materialSlots] } : src.body);
+  if (hostMesh) {
+    const mb = (src.body.kind === "mesh" ? copyBody() : castBody(src.body, "mesh")) as MeshBody;
+    appendMesh(s.mesh(at.def), mb, inst.xform);
+  } else {
+    const bb = castBody(copyBody(), "brep") as BrepBody;
+    const remap = (slot: number): number => { const mat = bb.materialSlots[slot]; return mat === undefined ? -1 : s.slotFor(at.def, mat); };
+    absorbSnapshot(poolOf(s, at).kernel, bb.kernel.toBrep(), inst.xform, remap);
+  }
+  for (const si of src.instances.values()) s.mintInstance(at.def, hostMesh ? null : at.group, si.def, compose(inst.xform, si.xform));
+  host.instances.delete(inst.id);
+  if (s.instanceCount(src.id) === 0 && src.id !== s.root) s.defs.delete(src.id);
 }

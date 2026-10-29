@@ -245,10 +245,10 @@ const hud: HudModel = {
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
     { id: "delete", layer: "geometry", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
     { id: "group", layer: "geometry", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
-    { id: "component", layer: "geometry", label: "建组件", icon: "object", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },
+    { id: "component", layer: "geometry", label: "建组件", icon: "object", hidden: brepOnly ? !editor.canSeparate() : (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 网格体里 = 选中的面做成嵌在这一层的组件（v0.16.37）
     { id: "separate", layer: "geometry", label: "分开（成新物体）", icon: "explode-folder", hidden: !editor.canSeparate() },   // Blender P（user 10-28 夜「6非常重要，67放右键」）
     { id: "joinObjects", layer: "child", label: "合并物体", icon: "collection", hidden: !editor.canJoin() },   // Blender Ctrl+J
-    { id: "explode", layer: "child", label: "炸开", icon: "explode-folder", hidden: brepOnly || !editor.hasPoolSelection() },
+    { id: "explode", layer: "child", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },   // 两种身体都能炸（v0.16.37：op 看外面一层和组件本身的身体种类）
     { id: "mirror", layer: "geometry", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", layer: "geometry", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
     { id: "explodeCurve", layer: "geometry", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
@@ -1340,22 +1340,10 @@ const btnSave = $<HTMLButtonElement>("btnSave");
 const finalBadge = $<HTMLElement>("finalBadge");
 // 编辑模式下拉（几何 / 表面）：下拉标准件，不用原生 <select>（user 2026-10-24「不要用ios自带的。丑」）
 // eslint-disable-next-line no-var
-// 工作台下拉：这一层的身体管得了的工作台 + 另一种身体的建模工作台（标明要转种类）。user 10-28 夜「我希望一进来的那个物体可以变成mesh。而不是需要建立子物体」：
-// 一进来（最外层是硬表面体）就能在这里选「自由建模（转成网格体）」——这一层空的直接转，有几何的先问一句（能撤销、转完提示行说丢了什么）。反过来同理。
-const CROSS_WORKBENCH: Readonly<Record<string, { mode: ModeId; label: string; action: string; ask: string }>> = {
-  brep: { mode: "freeform", label: "自由建模（转成网格体）", action: "object.toMesh", ask: "现在这一层是硬表面体，自由建模只管网格体，所以要先转。一步，能撤销。硬表面才有的东西（曲线身份、参考线、平滑组之类）转过去不保留，转完提示行会写丢了什么。" },
-  mesh: { mode: "geometry", label: "硬表面建模（转回硬表面体）", action: "object.toBrep", ask: "现在这一层是网格体，硬表面建模只管硬表面体，所以要先转回去。一步，能撤销。不平的面会被拆开，转完提示行会写改了什么。" },
-};
-async function pickWorkbench(v: string): Promise<void> {
-  const cross = CROSS_WORKBENCH[editor.activeKind()];
-  if (!cross || v !== cross.mode || editor.modes().some((m) => m.id === v)) { editor.setMode(v as ModeId); syncUi(); return; }
-  if (editor.layerHasGeometry() && !(await openConfirmSheet("把这一层转了再换工作台？", cross.ask, { okLabel: "转", cancelLabel: "不转" }))) { syncUi(); return; }
-  editor.deselectAll(); editor.runAction(cross.action); editor.setMode(cross.mode); syncUi();
-}
-var modeField: SelectField | undefined = mountSelectField($("modeSelect"), {
-  items: () => { const own = editor.modes().map((m) => ({ value: m.id as string, label: m.label })), cross = CROSS_WORKBENCH[editor.activeKind()]; return cross && !own.some((m) => m.value === cross.mode) ? [...own, { value: cross.mode, label: cross.label }] : own; },
-  value: () => editor.modeId, onChange: (v) => { void pickWorkbench(v); }, ariaLabel: "编辑模式",
-});
+// 工作台下拉 = 纯视图操作（user 10-28 夜「我说了不要用tab切换mesh brep，tab是纯视图操作」）：只列这一层的身体管得了的工作台，不转种类；转换在物体窗口（左上物体钮）。
+// v0.16.29 让它顺手转种类，v0.16.37 撤了。
+async function pickWorkbench(v: string): Promise<void> { editor.setMode(v as ModeId); syncUi(); }
+var modeField: SelectField | undefined = mountSelectField($("modeSelect"), { items: () => editor.modes().map((m) => ({ value: m.id as string, label: m.label })), value: () => editor.modeId, onChange: (v) => { void pickWorkbench(v); }, ariaLabel: "编辑模式" });
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {

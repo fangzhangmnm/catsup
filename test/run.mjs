@@ -69,6 +69,7 @@ import "./rail-face.test.ts";   // 左柱换脸：有选区时删除 = 垃圾桶
 import "./soft-select.test.ts";   // 软选择权重（2026-10-28 夜 Opus）
 import "./mesh-fill.test.ts";   // 复制 / 补洞 / 桥接（2026-10-28 夜 Opus）
 import "./select-grow.test.ts";   // 扩 / 缩选区（2026-10-28 夜 Opus）
+import "./object-ops-kinds.test.ts";   // 物体级 op × 身体种类组合矩阵（2026-10-28 夜 Opus）
 import "./mesh-subdivide.test.ts";   // 细分（Catmull-Clark，破坏性）：教科书值 / 折痕 / 裸线拒 / op + 撤销（FM133，2026-10-28 Opus）
 import "./touch-stick.test.ts";   // 吃鸡式虚拟摇杆的数学：死区 / 冲刺 / 浮动底座（FM142，2026-10-28 Opus）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）
