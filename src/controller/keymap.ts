@@ -81,7 +81,7 @@ export const FREEFORM: Layer = {
   bindings: [
     B("g", "modal:move", "移动（键盘起手）"), B("r", "modal:rotate", "旋转（键盘起手）"), B("s", "modal:scale", "缩放（键盘起手）"), B("e", "modal:pp", "挤出（键盘起手）"), B("i", "modal:offset", "插入（键盘起手）"),
     B("a", "select.all", "全选"), B("j", "mesh.connect", "连线"),
-    B("shift+a", "tool.key:shift+a:create", "新建"),
+    B("shift+a", "tool.key:shift+a:create", "新建"), B("shift+d", "mesh.duplicateMove", "复制并接着挪（Blender Shift+D）", (c) => !c.gesture && c.hasSelection),
     B("o", "soft.toggle", "软选择 开 / 关"), B("[", "soft.smaller", "软半径 小一点"), B("]", "soft.bigger", "软半径 大一点"),   // Blender O；[ ] = WeebPaint 调笔刷粗细同款（user 10-28 夜「weebpaint的slider」）   // Blender 的「添加」= 这里的新建工具（user 10-28 晚「Shift+A 同意」）
     B("x", "delete.ifAny", "删除"),   // 选择工具里 X = 删除（操作工具层在上面把 X 接走 = 轴，UX17）
     B("y", "lock.arm:y", "先锁 Y", (c) => !c.gesture), B("z", "lock.arm:z", "先锁 Z", (c) => !c.gesture),

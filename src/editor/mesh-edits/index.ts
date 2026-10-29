@@ -3,7 +3,7 @@
 // 做完的选区走 PlanOut.select（规划时在副本上跑一遍拿新 id；op 确定性 = 提交后同一批）。
 import type { Command, MeshUnit } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits } from "../../mesh/ops/index.ts";
+import { loopCut as loopCutOp, knife as knifeOp, maxInset, selectionVerts, bevelEdges, bevelVerts, looseBits, duplicateGeometry, fillOrBridge } from "../../mesh/ops/index.ts";
 import { snapToSymmetry, type MirrorAxis, type SnapSide } from "../../mesh/mirror.ts";
 import { F_SHARP, F_SMOOTH, F_SOFT, type MeshKernel, type SmoothDefaultMode } from "../../mesh/mesh-kernel.ts";
 import type { QuantityTag } from "../units.ts";
@@ -198,6 +198,44 @@ export const mergeCenter: Command<MeshUnit> = {
   none: "合并到中心：先选两个以上的点（或边 / 面）",
 };
 
+// ---------- 复制 / 补洞桥接 / 翻转法线（2026-10-28 夜 user「12做」「67放右键」；算子 mesh/ops/duplicate.ts、geometry.ts flipFaces）----------
+const sorted = (xs: Iterable<number>, alive: (x: number) => boolean): number[] => [...xs].filter(alive).sort((a, b) => a - b);
+const selOf = (k: MeshKernel, u: MeshUnit): { faces: number[]; edges: number[]; verts: number[] } => (u.sel ? { faces: sorted(u.sel.faces, (f) => k.hasF(f)), edges: sorted(u.sel.edges, (e) => k.hasE(e)), verts: sorted(u.sel.verts, (v) => k.hasV(v)) } : { faces: [], edges: [], verts: [] });
+export const duplicate: Command<MeshUnit> = {
+  id: "mesh.duplicate", unit: "mesh", title: "复制",
+  defaults: () => ({}), params: () => [],
+  quickCount: (env, u) => { const s = selOf(env.scene.mesh(u.def).kernel, u); return s.faces.length || s.edges.length || s.verts.length; },
+  plan(env, u) {
+    const k = env.scene.mesh(u.def).kernel, s = selOf(k, u), n = s.faces.length || s.edges.length || s.verts.length;
+    if (!n) return { ops: [], count: 0 };
+    const probe = k.clone(), r = duplicateGeometry(probe, s);   // 先在副本上跑拿新 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
+    const sel = s.faces.length ? { faces: r.faces } : s.edges.length ? { edges: r.edges } : { verts: r.verts };
+    return { ops: [{ op: "meshDuplicate", def: u.def, ...(s.faces.length ? { faces: s.faces } : {}), ...(s.edges.length ? { edges: s.edges } : {}), ...(s.verts.length ? { verts: s.verts } : {}) }], count: n, select: sel };
+  },
+  done: (n) => `复制了 ${n} 处（叠在原处，新的在选区里）：按 G 或者用移动工具挪开；Shift+D = 复制并接着挪`,
+  none: "复制：先选要复制的点 / 边 / 面",
+};
+export const fill: Command<MeshUnit> = {
+  id: "mesh.fill", unit: "mesh", title: "补洞 / 桥接",
+  defaults: () => ({}), params: () => [],
+  quickCount: (env, u) => { const k = env.scene.mesh(u.def).kernel, r = fillOrBridge(k.clone(), selOf(k, u)); return typeof r === "string" ? 0 : r.faces.length; },
+  plan(env, u) {
+    const k = env.scene.mesh(u.def).kernel, s = selOf(k, u), probe = k.clone(), r = fillOrBridge(probe, s);
+    if (typeof r === "string") return { ops: [], count: 0 };
+    return { ops: [{ op: "meshFill", def: u.def, ...(s.edges.length ? { edges: s.edges } : { verts: s.verts }) }], count: r.faces.length, select: { faces: r.faces } };
+  },
+  done: (n) => (n === 1 ? "补洞：补了一张面" : `桥接：连了 ${n} 张四边形`),
+  none: "补洞 / 桥接：先选一圈开口的边（补洞）或者两圈点数一样的边（桥接）",
+};
+export const flipNormals: Command<MeshUnit> = {
+  id: "mesh.flipNormals", unit: "mesh", title: "翻转法线",
+  defaults: () => ({}), params: () => [],
+  quickCount: (env, u) => selOf(env.scene.mesh(u.def).kernel, u).faces.length,
+  plan(env, u) { const s = selOf(env.scene.mesh(u.def).kernel, u); return s.faces.length ? { ops: [{ op: "meshFlip", def: u.def, faces: s.faces }], count: s.faces.length } : { ops: [], count: 0 }; },
+  done: (n) => `翻转了 ${n} 张面的朝向`,
+  none: "翻转法线：先选面",
+};
+
 // ---------- 细分（2026-10-28 FM133；算子 mesh/ops/subdivide.ts；user「工具式的subdiv反而可以，不就是破坏性吗」）----------
 /** 一次细分后面数 = 每张 n 边形变 n 张四边形；之后每次 × 4。 */
 const facesAfter = (m: MeshKernel, levels: number): number => { let n = 0; for (const f of m.faces()) n += m.faceVerts(f).length; return n * 4 ** Math.max(0, levels - 1); };
@@ -266,10 +304,13 @@ function smoothDefaultCommand(mode: SmoothDefaultMode): Command<MeshUnit> {
 }
 export const smoothByAngle = smoothDefaultCommand("angle"), smoothAll = smoothDefaultCommand("smooth"), smoothNone = smoothDefaultCommand("hard");
 
-const commands: readonly Command[] = [loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
+const commands: readonly Command[] = [duplicate as Command, fill as Command, flipNormals as Command, loopCut as Command, connect as Command, inset as Command, originToSelection as Command,
   bevel as Command, bevelPoints as Command, symmetrySnap as Command, mergeCenter as Command, subdivideCmd as Command, markSharp as Command, markSmooth as Command, clearMarks as Command, smoothByAngle as Command, smoothAll as Command, smoothNone as Command];
 /** 图标 = stopgap（剪刀；图标库 TODO 已登记 loop-cut）。 */
 const actions: readonly Action[] = [
+  { id: "mesh.duplicate", icon: "copy", label: (n) => `复制（${n}）`, commands: { mesh: "mesh.duplicate" } },
+  { id: "mesh.fill", icon: "fill-hole", label: (n) => (n === 1 ? "补洞" : `桥接（${n} 张面）`), commands: { mesh: "mesh.fill" } },
+  { id: "mesh.flipNormals", icon: "flip-horizontal", label: (n) => `翻转法线（${n} 张面）`, commands: { mesh: "mesh.flipNormals" } },
   { id: "mesh.loopCut", icon: "cut", label: (n) => `环切（${n} 条边）`, commands: { mesh: "mesh.loopCut" } },
   { id: "mesh.connect", icon: "line", label: () => "连线（J）", commands: { mesh: "mesh.connect" } },
   { id: "mesh.inset", icon: "selection-expand", label: () => "插入", commands: { mesh: "mesh.inset" } },
@@ -289,6 +330,8 @@ const actions: readonly Action[] = [
 const placements: readonly Placement[] = [{ action: "mesh.loopCut", where: "contextBar", order: 20, modes: ["freeform"] }, { action: "mesh.connect", where: "contextBar", order: 21, modes: ["freeform"] }, { action: "mesh.inset", where: "contextBar", order: 22, modes: ["freeform"] },
   { action: "mesh.bevel", where: "contextBar", order: 23, modes: ["freeform"] }, { action: "mesh.bevelVerts", where: "contextBar", order: 24, modes: ["freeform"] }, { action: "mesh.originToSelection", where: "contextBar", order: 30, modes: ["freeform"] },
   { action: "mesh.mergeCenter", where: "contextBar", order: 25, modes: ["freeform"] },
+  { action: "mesh.duplicate", where: "contextBar", order: 26, modes: ["freeform"] }, { action: "mesh.fill", where: "contextBar", order: 27, modes: ["freeform"] },
+  { action: "mesh.flipNormals", where: "contextBar", order: 28, modes: ["freeform"] },
   { action: "mesh.subdivide", where: "objectWindow", order: 36 },   // 细分 / 默认平滑 = 物体级 → 物体窗口（user 10-28「镜像细分默认平滑这些都收到选窗里面」）
   { action: "mesh.symmetrySnap", where: "contextBar", order: 38, modes: ["freeform"], submenu: { label: "镜像", item: "对称对齐…" } },
   { action: "mesh.markSharp", where: "contextBar", order: 40, modes: ["freeform"], submenu: { label: "手标", item: "标成棱" } },

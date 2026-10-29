@@ -13,3 +13,4 @@ export { insetFaces, insetRing, maxInset } from "./inset.ts";
 export { bevelEdges, bevelVerts, type BevelResult } from "./bevel.ts";
 export { catmullClark, subdivide, looseBits } from "./subdivide.ts";
 export { addPrimitive, PRIMITIVES, type PrimitiveKind, type PrimitiveFrame } from "./primitives.ts";
+export { duplicateGeometry, fillOrBridge, edgeLoops, type MeshSel } from "./duplicate.ts";

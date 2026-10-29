@@ -1256,6 +1256,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "delete.ifAny": if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return;
     case "delete": editor.deleteSelection(); return;
     case "gesture.type": editor.typeIntoGesture(ev.key); syncUi(); return;
+    case "mesh.duplicateMove": if (editor.runAction("mesh.duplicate") > 0) editor.startModal("move"); syncUi(); return;   // Blender Shift+D：复制叠在原处 → 接着 G
     case "soft.toggle": editor.config.set("soft", "on", !editor.config.get("soft", "on")); editor.refreshGesture(); syncUi(); return;
     case "soft.smaller": case "soft.bigger": { const r = editor.config.get("soft", "radius"); editor.config.set("soft", "radius", Math.round(verb === "soft.bigger" ? r * 1.2 : r / 1.2)); editor.refreshGesture(); syncUi(); return; }   // 手势中打数（Blender「S Z 0」）
     case "mesh.connect": editor.runAction("mesh.connect"); syncUi(); return;

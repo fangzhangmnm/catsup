@@ -14,7 +14,7 @@ import { snapToSymmetry, symmetrize } from "../mesh/mirror.ts";
 import { looseBits, subdivide } from "../mesh/ops/subdivide.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
-import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge } from "../mesh/ops/index.ts";
+import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -130,6 +130,12 @@ export type Op =
   /** 网格体的默认平滑（2026-10-28 FM129；几何属性：没手标的边算棱还是光滑过渡）。 */
   | { op: "meshSmoothDefault"; def: number; mode: "angle" | "smooth" | "hard"; deg: number }
   | { op: "meshDelete"; def: number; verts?: number[]; edges?: number[]; faces?: number[]; dissolve?: boolean }
+  /** 复制选中的几何叠在原处（Blender Shift+D；之后接着 G 挪开）。 */
+  | { op: "meshDuplicate"; def: number; verts?: number[]; edges?: number[]; faces?: number[] }
+  /** 补洞（一圈开口边 → 一张面）/ 桥接（两圈点数一样 → 一圈四边形）。 */
+  | { op: "meshFill"; def: number; verts?: number[]; edges?: number[] }
+  /** 翻转这些面的朝向（单面网格的正面 = 环的绕向）。 */
+  | { op: "meshFlip"; def: number; faces: number[] }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -604,6 +610,9 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshEdgeMarks": { const k = meshOf(s, op.def).kernel; for (const e of op.edges) if (!k.hasE(e)) throw new OpTargetError(`edge ${e}`); markEdges(k, op.edges, op.mark); return { scene: s, events: [] }; }
     case "meshSmoothDefault": { if (!(op.deg > 0 && op.deg < 180)) throw new OpTargetError(`smooth default angle ${op.deg}`); meshOf(s, op.def).kernel.setSmoothDefault({ mode: op.mode, deg: op.deg }); return { scene: s, events: [] }; }
     case "meshDelete": { deleteSelection(meshOf(s, op.def).kernel, op, !!op.dissolve); return { scene: s, events: [] }; }
+    case "meshDuplicate": { duplicateGeometry(meshOf(s, op.def).kernel, op); return { scene: s, events: [] }; }
+    case "meshFill": { const r = fillOrBridge(meshOf(s, op.def).kernel, op); if (typeof r === "string") throw new OpTargetError(r); return { scene: s, events: [] }; }
+    case "meshFlip": { const k = meshOf(s, op.def).kernel; flipFaces(k, op.faces.filter((f) => k.hasF(f))); return { scene: s, events: [] }; }
     case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
     case "meshLoopCut": { const r = loopCut(meshOf(s, op.def).kernel, op.edge, op.t ?? 0.5); if (!r.edges.length) throw new OpTargetError(`loop cut from edge ${op.edge}: not a quad strip`); return { scene: s, events: [] }; }
     case "meshExtrude": { const k = meshOf(s, op.def).kernel; if (op.along !== undefined && !op.faces?.length) extrudeAlongNormals(k, op, op.along); else extrudeAndOffset(k, op, op.offset ?? { x: 0, y: 0, z: 0 }); return { scene: s, events: [] }; }
@@ -674,6 +683,9 @@ export function describeOp(op0: Op): string {
     case "meshSymmetrySnap": return `meshSymmetrySnap def=${op.def} verts=${op.verts.length} axis=${"xyz"[op.axis]} tol=${op.tol} ${op.mode}`;
     case "meshEdgeMarks": return `meshEdgeMarks def=${op.def} edges=${op.edges.length} ${op.mark}`;
     case "meshSmoothDefault": return `meshSmoothDefault def=${op.def} ${op.mode} ${op.deg}`;
+    case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
+    case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
+    case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;
     case "meshLoopCut": return `meshLoopCut def=${op.def} edge=${op.edge} t=${op.t ?? 0.5}`;

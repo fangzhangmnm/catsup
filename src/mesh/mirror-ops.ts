@@ -10,7 +10,7 @@
 export type MirrorOpClass = "move" | "topo" | "flags" | "whole" | "meta";
 export const MIRROR_OP_CLASS = {
   meshMove: "move",
-  meshExtrude: "topo", meshKnife: "topo", meshLoopCut: "topo", meshDelete: "topo", meshInset: "topo", meshBevel: "topo", meshBevelVerts: "topo", meshMerge: "topo", meshAddPrimitive: "topo",
+  meshExtrude: "topo", meshDuplicate: "topo", meshFill: "topo", meshFlip: "topo", meshKnife: "topo", meshLoopCut: "topo", meshDelete: "topo", meshInset: "topo", meshBevel: "topo", meshBevelVerts: "topo", meshMerge: "topo", meshAddPrimitive: "topo",
   meshEdgeMarks: "flags",
   meshSubdivide: "whole",
   meshSymmetrize: "meta", meshSymmetrySnap: "meta", meshSmoothDefault: "meta",
