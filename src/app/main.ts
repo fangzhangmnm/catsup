@@ -55,7 +55,7 @@ import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
 const LINE_WEIGHTS: readonly number[] = [1, 1.5, 2, 3];   // 线稿粗细档位（设备像素；T88 要 sunset）
-import { PRESETS, PRESET_IDS, isPresetId } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
+import { PRESETS, PRESET_IDS, isPresetId, SCREENS, SCREEN_IDS, isScreenId } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
@@ -494,6 +494,12 @@ type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | 
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
+    if (id.startsWith("screen:")) {   // 屏幕（T106：和画风分开选；像素下采样 / 行数 / 外观；写实也能套屏）。按设备记
+      const sc = id.slice(7);
+      const v = sc === "auto" ? null : isScreenId(sc) ? sc : undefined;
+      if (v !== undefined) { editor.renderer3.setScreen(v); PREF.set("screen", v ?? ""); editor.draw(); hintEl.textContent = v === null ? "屏幕：跟画风的默认" : `屏幕：${SCREENS[v].name}——${SCREENS[v].brief}`; }
+      return "keep";
+    }
     if (id.startsWith("style:")) {   // 风格（Tron 纪元第 1 步；视图，不进文件、不标脏、按设备记）。选了就在提示行披露画面会怎样
       const s = id.slice(6);
       if (isPresetId(s)) { editor.renderer3.setPreset(s); PREF.set("style", s); editor.draw(); hintEl.textContent = s === "white" ? "风格：白模" : `风格：${PRESETS[s].name}——${PRESETS[s].note}。VR 和缩略图里照旧画白模`; }
@@ -727,7 +733,7 @@ locomotion.onPhase = () => {
 
 // ---------- 状态同步 ----------
 editor.renderer3.setLineWeight(lineWeightInit());   // 线稿粗细：存的 / 高 DPI 默认 1.5（直接打渲染器：此时 HUD 元素还没挂，不能走 host.changed）
-{ const s = PREF.get("style"); if (isPresetId(s)) editor.renderer3.setPreset(s); }   // 风格：这台设备上次选的（没选过 = 白模）
+{ const s = PREF.get("style"); if (isPresetId(s)) editor.renderer3.setPreset(s); const sc = PREF.get("screen"); if (isScreenId(sc)) editor.renderer3.setScreen(sc); }   // 风格 / 屏幕：这台设备上次选的（没选过 = 白模 / 跟画风）
 // 上下文条（A25，2026-10-24 Opus）：工具选项 / 工具动作 / 选区动作同一条（user「context bar好像油漆桶和选择没有统一……做一个深模块」）
 const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLElement, editor, {
   // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
@@ -1131,7 +1137,8 @@ function openViewMenu(tab?: ViewTab): void {
       ((): { id: MenuId; label: string; icon: string; hint: string; disabled: boolean; tab: string } => { const c = editor.hiddenCount(), n = c.instances + c.faces + c.edges; return { id: "unhideAll", label: n ? `全部显示（${n}）` : "全部显示", icon: "visibility-show", hint: "Alt+H", disabled: !n, tab: "display" }; })(),   // DT49
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
       { id: "lw:pick" as MenuId, label: "线稿粗细", tab: "display", choices: LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "1 px（原生细线）" : `${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗" })) },   // 设备像素
-      { id: "style:pick" as MenuId, label: "风格", tab: "display", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },   // Tron 纪元：预设 = 数据（minccino/preset/）
+      { id: "style:pick" as MenuId, label: "风格", tab: "display", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },
+      { id: "screen:pick" as MenuId, label: "屏幕", tab: "display", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
       { id: "unit:pick" as MenuId, label: "单位", tab: "display", choices: LENGTH_UNITS.map((u) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id })) },
       ...gridTabItems(),
       { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },

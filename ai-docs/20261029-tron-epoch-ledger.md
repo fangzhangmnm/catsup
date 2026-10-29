@@ -115,6 +115,7 @@
 | T109 | **three 配不上叫后端，只是一个 provider；后端 = 无头骑士里的无头骑士（小栗鼠、几何引擎）** | 「three配不上叫后端，而只是一个provider。后端反而是我们无头骑士里面的无头骑士。比如小栗鼠，几何引擎这种」 | 改词：引擎目录里 `backend/` 这个名字错了——three 那层 = **供货商（provider）**：拿 GL 画画的库，可换；**后端** = 无头的小栗鼠本体 / 几何引擎。刀 f 做：目录 `src/minccino/backend/` → `src/minccino/providers/`（three 一个、以后 WebGPU / 无头各一个），接口 `Backend` → `RenderProvider`（和内容的 `StreamProvider` 对称：一个供画、一个供内容），build lint / 守卫 / 文档一起改；编辑器只持 `RenderProvider` 契约、app 层 new three 那份。 |
 | T110 | 刀 f 落地（v0.17.23） | — | `backend/` → `providers/`；契约 `RenderProvider` 住 `contract/render-provider.ts`（三 + 编辑器 / app 用到的全部公开面，含 XR 那几样）；编辑器只持契约、app 层 new three 那份；`editor/render3.ts` 转出口删。0 像素差。 |
 | T111 | 刀 g 落地（v0.17.24） | — | `Placement.active → tier`；引擎标识符里最后几个编辑器词改名；词汇守卫上线（引擎代码剥掉注释 / 字符串后不出现 gizmo / lock / xray / selection / hover / editor / tool… 当标识符）。清理刀 a–d + f + g 到此落完，e 只出方案（设计稿 §6）；下一刀 = 屏幕一刀的用户面（T106：画风预设 / 屏幕预设拆两张表）。 |
+| T112 | 屏幕一刀的用户面落地（v0.17.25，T106） | — | `SCREENS` 表（原生 / 像素 ×2 ×3 ×4 / CRT 240 行）独立于画风；画风只记默认屏；`setScreen(null = 跟画风)`；视图 ☰「屏幕」一行按设备记；写实 + 像素屏 = scene 进小图再放大。Opus 接着：档位数值 / 命名、风格跟文件时屏要不要也跟（T86）、Tron 分辨率试像素档（T85）。 |
 | T9 | Tron 纪元要多讨论几轮；静态该做了 | 「然后tron纪元我的想法还是需要你和我多讨论几轮，我没想到你会主动开这个，但确实静态该做了 / 加油 / 先讨论。」 | 本纪元开头 = 讨论轮，不写码；每轮答复落这里。 |
 
 ## 3. 分级分档（T21 + T23；尺子 = DT92 的内容尺度；每级「扛多大 / 做什么 / 给下一级留的口」，留口就是「不绊下一步」）

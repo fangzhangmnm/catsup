@@ -56,8 +56,9 @@ export interface Placement {
     readonly slot: string;
     /** 槽序号（编辑器的 PoolSlot.index；过渡期叠加层按它找节点）。 */
     readonly index: number;
-    /** 过渡期的现状旗（刀 g 改名 tier）：活动池（深度偏移档）、单面身体（剔背面）。淡出 = 视图侧的标记（FrameInput.marks，刀 c），不在流里。 */
-    readonly active: boolean;
+    /** 深度优先级档：1 = 共面时赢（提交方正在改的那一层；引擎只认识「谁赢」这个数，不认识「活动池」）；0 = 普通。 */
+    readonly tier: 0 | 1;
+    /** 单面身体（剔背面）。淡出 / 选中 = 视图侧的标记（FrameInput.marks），不在流里。 */
     readonly singleSided: boolean;
 }
 /** 视锥带：近 / 远（米）。小学只有一带、全驻留；superlod 时是数组（月亮永远在最远那带）。 */

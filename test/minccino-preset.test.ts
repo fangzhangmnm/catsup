@@ -1,7 +1,7 @@
 // Minccino 预设 = 数据（Tron 纪元第 1 步）：每个预设的 pass 声明都排得出一帧；白模走原来那一条；风格的屏幕一刀是整数倍。
 // created 2026-10-29 by Claude Opus 5.5
 import { describe, it, eq, assert } from "./runner.mjs";
-import { PRESETS, PRESET_IDS, isPresetId, isStyled, presetPasses } from "../src/minccino/preset/index.ts";
+import { PRESETS, PRESET_IDS, SCREENS, isPresetId, isScreenId, isStyled, presetPasses } from "../src/minccino/preset/index.ts";
 import { planFrame } from "../src/minccino/graph/frame-graph.ts";
 import { ENV_RECIPES, SURFACE_RECIPES } from "../src/minccino/paintshop/index.ts";
 
@@ -41,8 +41,13 @@ describe("minccino 预设 = 数据", () => {
       const p = PRESETS[id];
       eq(p.id, id); assert(p.source.length > 0 && p.note.length > 0, `${id} 缺出处 / 说明`);
       if (id !== "realistic" && p.material.shade === "pbr") assert(p.material.surface.length > 0 || p.material.colorize === "none", `${id}：真实材质 = 写实 + 材料参数 + 涂装车间`);
-      assert(p.screen.pixelate >= 1, `${id} 像素化 < 1`);
+      assert(isScreenId(p.screen) && SCREENS[p.screen].pixelate >= 1, `${id} 的默认屏不在 SCREENS 里`);
     }
     assert(isPresetId("pixelOutline") && !isPresetId("nope") && !isPresetId("toString"), "isPresetId 认错了");
+  });
+  it("屏幕和画风分开选（T106）：白模套像素屏 = 进小图再放大；像素描边套原生 = 还是描边那条路", () => {
+    eq(planFrame(presetPasses(PRESETS.white, SCREENS.pixel3), ["frame"]).order.join(","), "scene,upscale,grid,overlay");
+    eq(planFrame(presetPasses(PRESETS.pixelOutline, SCREENS.native), ["frame"]).order.join(","), "scene,pixelOutline,upscale,grid,overlay");
+    assert(isStyled(PRESETS.white, SCREENS.pixel3) && !isStyled(PRESETS.white), "isStyled 没按实际套的屏算");
   });
 });

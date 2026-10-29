@@ -97,7 +97,8 @@ const LOOK = { lock: ["thinTop", "lock"], xg: ["thickTop", /*按轴*/], poolAxes
 | e | 文字 → 描边字库折线；`label-raster.ts` 出引擎——**只写方案（§6），给 Opus**（user 10-29：不急、不该 Fable 写码） | — |
 | f | 编辑器不再拿 three 那层的类：`editor/render3.ts` 转出口删、`Editor` 只持契约、app 层 new three 那份；`world-labels.ts` 不再 import 那层。**改词（T109）**：three 那层 = 供货商 `providers/three/`、接口 `RenderProvider`（和内容的 `StreamProvider` 对称）；「后端」留给无头的小栗鼠本体 / 几何引擎——**v0.17.23 落了** | 0 差 |
 | g | `Placement.active → tier`、pass id `xray` 退役（刀 d 做了）；守卫：引擎目录禁词表——**v0.17.24 落了**（`test/minccino-vocabulary.test.ts`） | 0 差 |
-| h | 视图 ☰「叠加层」开关 + 探针 | 新场景 |
+| 屏 | 画风预设 / 屏幕预设拆两张表（T106）——**v0.17.25 落了**：`SCREENS` + `setScreen` + 视图 ☰「屏幕」；下拉档位 / 写实配屏的细调归 Opus | 0 差 |
+| h | 视图 ☰「叠加层」开关 + 探针（归 Opus，刀 h） | 新场景 |
 
 ## 5. 体重预期
 

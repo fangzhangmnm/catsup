@@ -44,7 +44,7 @@ import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, Pro
 import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
-import { PRESETS, isStyled, presetPasses, type Preset, type PresetId } from "../../preset/index.ts";
+import { PRESETS, SCREENS, isStyled, presetPasses, type Preset, type PresetId, type ScreenId, type ScreenPreset } from "../../preset/index.ts";
 import { PixelScreen } from "./screen-pixel.ts";
 import { AoBaker } from "./ao-bake.ts";
 import { PaperMaterials } from "./paper-shader.ts";
@@ -233,6 +233,9 @@ export class Renderer3 implements RenderProvider {
   private preset: Preset = PRESETS.white;
   /** 这一帧真正生效的预设（XR / 截图 = 白模）。 */
   private framePreset: Preset = PRESETS.white;
+  /** 屏幕（T106：和画风分开选）：null = 跟画风默认；frameScreen = 这一帧实际套的屏（XR / 缩略图 = 原生）。 */
+  private screen: ScreenId | null = null;
+  private frameScreen: ScreenPreset = SCREENS.native;
   private readonly unlitU = { value: false };          // 面 shader 的「不打光」（材质挂点 shade = none）
   private pixelScreen: PixelScreen | null = null;      // 风格那条路的小图 + 描边 + 放大（第一次用到才建）
   private aoBaker: AoBaker | null = null;              // 世界空间遮蔽（剪纸的多重阴影；第一次用到才建）
@@ -564,6 +567,7 @@ export class Renderer3 implements RenderProvider {
     const eye = cam.eye(); this.lastTarget = cam.target;
     this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
     this.framePreset = this.currentPreset();   // XR / 缩略图走白模
+    this.frameScreen = this.currentScreen();
     this.lastPlan = planFrame(this.passes(), ["frame"]);
 
     // ---- 面：光向 uniform 每帧（视空间：法向走 normalMatrix）；几何只在键变时重建 ----
@@ -579,7 +583,7 @@ export class Renderer3 implements RenderProvider {
       this.envSky = new EnvSky(); this.pbr = new PbrMaterials(this.aoBaker.uniforms, this.envSky, DEPTH.face, DEPTH.faceOther);
       this.pbr.ground.layers.set(GROUND_LAYER); this.scene.add(this.pbr.ground);
     }
-    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyleInUse()}:${this.framePreset.id}`;
+    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyleInUse()}:${this.framePreset.id}:${this.frameScreen.id}`;
     if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
     this.syncPaper(cam3);   // 平涂 / 地面 / 遮蔽（剪纸）：没用到 = 地面藏着、什么都不建
     this.syncMarks(input.marks ? input.marks() : []);   // 标记（选中 / 悬停的面换材质槽；刀 b）：拉完流之后，块 id 才稳定
@@ -674,7 +678,7 @@ export class Renderer3 implements RenderProvider {
    */
   private renderStyled(cam3: any): void {
     const p = this.framePreset, W = this.flatRes.w, H = this.flatRes.h;
-    const k = p.screen.rows ? Math.max(1, Math.floor(H / p.screen.rows)) : Math.max(1, Math.round(p.screen.pixelate * this.dpr));   // 行数上限：整数倍铺满、不留黑边
+    const sc = this.frameScreen, k = sc.rows ? Math.max(1, Math.floor(H / sc.rows)) : Math.max(1, Math.round(sc.pixelate * this.dpr));   // 行数上限：整数倍铺满、不留黑边
     const ps = (this.pixelScreen ??= new PixelScreen());
     const low = ps.prepare(W, H, k), target = this.renderer.getRenderTarget();
     const bg = this.scene.background, mask = cam3.layers.mask, auto = this.renderer.autoClear;
@@ -699,12 +703,12 @@ export class Renderer3 implements RenderProvider {
         cam3.clearViewOffset();
         // ② 辉光合成（后处理挂点）③ 放大回画布（屏幕一刀：CRT 电视）
         bl.run(this.renderer, low.texture, ps.postTarget, p.post.bloom);
-        ps.upscale(this.renderer, target, "post", p.screen.look);
+        ps.upscale(this.renderer, target, "post", sc.look);
       } else {
         cam3.clearViewOffset();
         // ② ③ 描边 + 放大（写回深度）
         ps.outline(this.renderer, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera });
-        ps.upscale(this.renderer, target, "post", p.screen.look);
+        ps.upscale(this.renderer, target, "post", sc.look);
       }
       } finally { restoreLines(); }   // 叠加层那遍（选中边用同一份边线材质）按原分辨率的线宽
       // ④ 叠加层那一层：不清屏，按原分辨率画在放大好的画面上
@@ -785,9 +789,12 @@ export class Renderer3 implements RenderProvider {
   setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.poolKey = ""; } }
   /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。
    *  XR 会话里先只走白模（风格的小图 / 放大还没接两只眼——视图菜单那行的提示写着）。 */
-  private passes(): PassDecl[] { return presetPasses(this.currentPreset()); }
+  private passes(): PassDecl[] { return presetPasses(this.currentPreset(), this.currentScreen()); }
   /** 这一帧该用的预设：XR 会话里 / 截缩略图时 = 白模。 */
   private currentPreset(): Preset { return this.renderer.xr.isPresenting || this.capturing ? PRESETS.white : this.preset; }
+  private currentScreen(): ScreenPreset { return this.renderer.xr.isPresenting || this.capturing ? SCREENS.native : SCREENS[this.screen ?? this.preset.screen]; }
+  setScreen(id: ScreenId | null): void { if (this.screen !== id) { this.screen = id; this.poolKey = ""; } }
+  getScreen(): ScreenId | null { return this.screen; }
   /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
   setPreset(id: PresetId): void {
     const p = PRESETS[id] ?? PRESETS.white;
@@ -806,7 +813,7 @@ export class Renderer3 implements RenderProvider {
   private capturing = false;
   getLineStyle(): LineStyle { return this.lineStyle; }
   /** 实际画的线：像素化的风格（像素描边等）锁成原生 1 像素线——光栅器自己的 Bresenham = 像素准确；粗线是三角形拼的，放大后台阶不匀（user 10-29「调成1px就lineart perfect了……像素的时候锁1px加这么一条风格覆盖」）。Tron 例外：它自己的发光粗线。 */
-  lineStyleInUse(): LineStyle { const p = this.framePreset; return isStyled(p) && !p.material.tron ? "pixel" : this.lineStyle; }
+  lineStyleInUse(): LineStyle { const p = this.framePreset; return isStyled(p, this.frameScreen) && !p.material.tron ? "pixel" : this.lineStyle; }
   /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
   setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
   getLineWeight(): number { return this.lineWeight; }

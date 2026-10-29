@@ -1,7 +1,7 @@
 import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput } from "../../index.ts";
 import { type BudgetReport, type Measurement, type StreamProvider, type View, type ViewportSize } from "../../index.ts";
 import { type PerfSink } from "../../perf.ts";
-import { type PresetId } from "../../preset/index.ts";
+import { type PresetId, type ScreenId } from "../../preset/index.ts";
 export declare class Renderer3 implements RenderProvider {
     readonly name = "three";
     private renderer;
@@ -53,6 +53,9 @@ export declare class Renderer3 implements RenderProvider {
     private preset;
     /** 这一帧真正生效的预设（XR / 截图 = 白模）。 */
     private framePreset;
+    /** 屏幕（T106：和画风分开选）：null = 跟画风默认；frameScreen = 这一帧实际套的屏（XR / 缩略图 = 原生）。 */
+    private screen;
+    private frameScreen;
     private readonly unlitU;
     private pixelScreen;
     private aoBaker;
@@ -183,6 +186,9 @@ export declare class Renderer3 implements RenderProvider {
     private passes;
     /** 这一帧该用的预设：XR 会话里 / 截缩略图时 = 白模。 */
     private currentPreset;
+    private currentScreen;
+    setScreen(id: ScreenId | null): void;
+    getScreen(): ScreenId | null;
     /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
     setPreset(id: PresetId): void;
     getPreset(): PresetId;

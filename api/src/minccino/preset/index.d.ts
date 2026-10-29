@@ -78,6 +78,61 @@ export interface AoParams {
     readonly groundRadius: number;
     readonly soft: number;
 }
+/** 屏幕预设（屏幕一刀的用户面，T106 user「像素类的用户都可以调下采样吧，或者说写实的也可以，反正就是之后的那个屏幕的选项」）：和画风分开选。
+ *  pixelate = 一个画面像素放大几倍（CSS 像素；后端按设备像素比取整成整数倍放大）；rows = 分辨率上限（画面最多几行）；look = 屏幕外观（none 最近邻 / crt-tv 电视）。 */
+export interface ScreenPreset {
+    readonly id: string;
+    readonly name: string;
+    readonly brief: string;
+    readonly pixelate: number;
+    readonly rows: number | null;
+    readonly look: "none" | "crt-tv";
+}
+export declare const SCREENS: {
+    readonly native: {
+        readonly id: "native";
+        readonly name: "原生";
+        readonly brief: "不下采样";
+        readonly pixelate: 1;
+        readonly rows: null;
+        readonly look: "none";
+    };
+    readonly pixel2: {
+        readonly id: "pixel2";
+        readonly name: "像素 ×2";
+        readonly brief: "一个像素放大 2 倍";
+        readonly pixelate: 2;
+        readonly rows: null;
+        readonly look: "none";
+    };
+    readonly pixel3: {
+        readonly id: "pixel3";
+        readonly name: "像素 ×3";
+        readonly brief: "一个像素放大 3 倍";
+        readonly pixelate: 3;
+        readonly rows: null;
+        readonly look: "none";
+    };
+    readonly pixel4: {
+        readonly id: "pixel4";
+        readonly name: "像素 ×4";
+        readonly brief: "一个像素放大 4 倍";
+        readonly pixelate: 4;
+        readonly rows: null;
+        readonly look: "none";
+    };
+    readonly crt240: {
+        readonly id: "crt240";
+        readonly name: "CRT 240 行";
+        readonly brief: "最多 240 行 + 电视外观";
+        readonly pixelate: 1;
+        readonly rows: 240;
+        readonly look: "crt-tv";
+    };
+};
+export type ScreenId = keyof typeof SCREENS;
+export declare const SCREEN_IDS: ScreenId[];
+export declare const isScreenId: (s: unknown) => s is ScreenId;
 export interface Preset {
     readonly id: string;
     /** 界面上的名字（视图 ☰「风格」）。 */
@@ -119,11 +174,7 @@ export interface Preset {
     };
     /** 屏幕一刀：像素化 = 一个画面像素放大几倍（CSS 像素；后端按设备像素比取整成整数倍放大）；1 = 原生。rows = 分辨率上限（画面最多几行，整数倍放大铺满，不留黑边）；
      *  look = 屏幕外观（none 最近邻 / crt-tv 电视）。 */
-    readonly screen: {
-        readonly pixelate: number;
-        readonly rows: number | null;
-        readonly look: "none" | "crt-tv";
-    };
+    readonly screen: ScreenId;
     /** 几何预处理挂点（小学的四个风格里像素描边用不到；剪纸 / Tron / 铸铜接边信息、零件、倒角时填）。 */
     readonly geometry: Readonly<Record<string, never>>;
 }
@@ -155,11 +206,7 @@ export declare const PRESETS: {
             readonly pixelOutline: null;
             readonly bloom: null;
         };
-        readonly screen: {
-            readonly pixelate: 1;
-            readonly rows: null;
-            readonly look: "none";
-        };
+        readonly screen: "native";
         readonly geometry: {};
     };
     /** 像素描边（实验室「像素」分类的门面，10-28 user「像素描边是纯色的poster child」）。 */
@@ -196,11 +243,7 @@ export declare const PRESETS: {
             };
             readonly bloom: null;
         };
-        readonly screen: {
-            readonly pixelate: 3;
-            readonly rows: null;
-            readonly look: "none";
-        };
+        readonly screen: "pixel3";
         readonly geometry: {};
     };
     /** 剪纸 · 色纸（实验室「切面」分类；user 10-26「剪纸可能就是多重阴影？」「剪纸也是立体主义」）。 */
@@ -248,11 +291,7 @@ export declare const PRESETS: {
             readonly pixelOutline: null;
             readonly bloom: null;
         };
-        readonly screen: {
-            readonly pixelate: 1;
-            readonly rows: null;
-            readonly look: "none";
-        };
+        readonly screen: "native";
         readonly geometry: {};
     };
     /** CRT Tron（实验室「霓虹」分类的门面，10-28 user「tron 复古当poster child」「霓虹除了tron复古都sunset吧」）。 */
@@ -303,11 +342,7 @@ export declare const PRESETS: {
                 readonly vignette: 0.55;
             };
         };
-        readonly screen: {
-            readonly pixelate: 1;
-            readonly rows: 240;
-            readonly look: "crt-tv";
-        };
+        readonly screen: "crt240";
         readonly geometry: {};
     };
     /** 写实（实验室「基础」分类，标准金属度 / 粗糙度那套）：照模型上色——材质色和贴图都进底色。**真实材质的底子**：铸铜等 = 写实 + 材料参数 + 涂装车间的表面层（user 10-29「应该是真实材质复用写实，而不是写实复用铸铜！」）。也是 user 场景 4「全量渲染视口」的起点。 */
@@ -359,11 +394,7 @@ export declare const PRESETS: {
             readonly pixelOutline: null;
             readonly bloom: null;
         };
-        readonly screen: {
-            readonly pixelate: 1;
-            readonly rows: null;
-            readonly look: "none";
-        };
+        readonly screen: "native";
         readonly geometry: {};
     };
     /** 铸铜（实验室「雕塑与手办」分类的门面，10-28 user「铸铜是雕塑的poster child」）= 写实 + 青铜的材料参数（不上色、金属、蜡）+ 涂装车间两层（砂铸、铜绿）；露天大件 = 程序海天。 */
@@ -423,11 +454,7 @@ export declare const PRESETS: {
             readonly pixelOutline: null;
             readonly bloom: null;
         };
-        readonly screen: {
-            readonly pixelate: 1;
-            readonly rows: null;
-            readonly look: "none";
-        };
+        readonly screen: "native";
         readonly geometry: {};
     };
 };
@@ -435,9 +462,9 @@ export type PresetId = keyof typeof PRESETS;
 export declare const PRESET_IDS: PresetId[];
 export declare const isPresetId: (s: unknown) => s is PresetId;
 /** 这个预设要不要走「屏幕」那条路（小图 → 后处理 → 放大 → 叠加层）；白模、剪纸（原生分辨率、没有后处理）= 不走，一次画完。 */
-export declare function isStyled(p: Preset): boolean;
+export declare function isStyled(p: Preset, screen?: ScreenPreset): boolean;
 /**
  * 这一帧的 pass 声明（frame graph）：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大进 frame；
  * 地面网格 / 叠加层 / X 光照旧往 frame 上追加画（编辑器的东西按原分辨率，不跟着风格像素化——不变量 7）。
  */
-export declare function presetPasses(p: Preset): PassDecl[];
+export declare function presetPasses(p: Preset, screen?: ScreenPreset): PassDecl[];

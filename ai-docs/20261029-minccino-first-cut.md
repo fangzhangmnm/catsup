@@ -161,3 +161,9 @@
 - 看得见的变化：没有。
 - 怎么验：`npm test` 1177 绿（新守卫当场 0 命中）；基线 24 张 0 差；探针 style / selecting / mesh-workbench / xray 绿。
 - 基线：没动。
+
+### 屏（v0.17.25）：画风预设 / 屏幕预设拆两张表（屏幕一刀的用户面，T106）
+- 做了什么：`preset/index.ts` 多一张 `SCREENS` 表（原生 / 像素 ×2 ×3 ×4 / CRT 240 行：下采样倍数、行数上限、外观），画风预设的 `screen` 字段改成「默认套哪块屏」的 id；`isStyled(p, screen)` / `presetPasses(p, screen)` 按实际套的屏算（不给 = 画风默认，老调用不变）。render3：`setScreen(id | null)`（null = 跟画风），帧里用 `frameScreen`（XR / 缩略图 = 原生），池键带屏 id（像素化锁 1 px 线跟着屏走）。契约 `RenderProvider` 加 `setScreen / getScreen`。视图 ☰「风格」下面多一行「屏幕」：跟画风 / 原生 / 像素 ×2 ×3 ×4 / CRT 240 行，按设备记（PREF `screen`）。**写实也能套屏**（白模 + 像素 ×3 = scene 进小图 → 放大 → 网格 / 叠加层）。
+- 看得见的变化：默认没有（每个画风的默认屏 = 以前捆在它里面的那块）；用户另选了屏才变。
+- 怎么验：`npm test`（预设测试加「画风的默认屏存在」「白模 + 像素屏的 pass 表」）；基线 24 张 0 差；probe-style 绿。
+- 基线：没动。

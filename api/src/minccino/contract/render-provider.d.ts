@@ -2,7 +2,7 @@ import type { ProviderCaps, Measurement } from "./cost.ts";
 import type { BudgetReport } from "../budget.ts";
 import type { Vec3 } from "./geometry.ts";
 import type { StreamProvider } from "./stream.ts";
-import type { PresetId } from "../preset/index.ts";
+import type { PresetId, ScreenId } from "../preset/index.ts";
 import type { CameraSource, ViewportSize } from "./view.ts";
 import type { Frame3 } from "./geometry.ts";
 import type { OverlayCtx, OverlayItem } from "../overlay/index.ts";
@@ -82,6 +82,9 @@ export interface RenderProvider {
     getLineWeight(): number;
     setPreset(id: PresetId): void;
     getPreset(): PresetId;
+    /** 屏幕（和画风分开选，T106）：null = 跟画风的默认。 */
+    setScreen(id: ScreenId | null): void;
+    getScreen(): ScreenId | null;
     readonly xr: XRFacade;
     setXRQuality(q: {
         foveation?: number;
