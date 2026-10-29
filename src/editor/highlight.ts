@@ -23,6 +23,8 @@ export interface HighlightState {
   readonly revision?: number;
   /** 上下文之外的槽（淡出）= 整槽的 faceDim / edgeDim 标记（刀 c）。 */
   readonly dimSlots?: ReadonlySet<number> | null;
+  /** X 光：每个槽的边再提交一条 edgeHidden 标记（只画被挡住的那段，刀 d）；选中的边改走透视线。引擎不认识 X 光。 */
+  readonly xray?: boolean;
 }
 /** 池网格的布局（流提供者给）：某个槽里一张面（池本地 id）在哪些块的哪一段。 */
 export interface MarkLayout {
@@ -39,7 +41,7 @@ const markCache = new WeakMap<object, { key: string; marks: Mark[] }>();
 export function highlightKey(world: WorldView, v: HighlightState): string {
   let wid = worldIds.get(world);
   if (wid === undefined) { wid = nextWorldId++; worldIds.set(world, wid); }
-  return `${wid}:${v.revision ?? 0}:${[...v.selectionFaces].join(",")}:${v.hoverFace ?? ""}:${[...v.selectionEdges].join(",")}:${[...v.scrubEdges].join(",")}:${v.hoverEdge ?? ""}:${v.warnEdges ? `${v.warnEdges.size}|${[...v.warnEdges].join(",")}` : ""}:${v.dimSlots ? [...v.dimSlots].join(",") : ""}`;
+  return `${wid}:${v.revision ?? 0}:${[...v.selectionFaces].join(",")}:${v.hoverFace ?? ""}:${[...v.selectionEdges].join(",")}:${[...v.scrubEdges].join(",")}:${v.hoverEdge ?? ""}:${v.warnEdges ? `${v.warnEdges.size}|${[...v.warnEdges].join(",")}` : ""}:${v.dimSlots ? [...v.dimSlots].join(",") : ""}:${v.xray ? "x" : ""}`;
 }
 
 /** 这一帧的高亮叠加层（边；没选没悬停 = 空数组）；键没变就是上一帧那份。 */
@@ -79,6 +81,8 @@ function buildMarks(kd: WorldView, view: HighlightState, layout: MarkLayout): Ma
     const slot = slotKey(s);
     for (const c of layout.chunksOf(slot)) out.push({ slot, chunk: c.chunk, start: 0, count: c.count, material: c.kind === "lines" ? "edgeDim" : "faceDim" });
   }
+  // X 光：每个槽的边块再提交一条「被挡住的那段」（深度模式 hidden，叠着画）
+  if (view.xray) for (const s of kd.slots) { const slot = slotKey(s); for (const c of layout.chunksOf(slot)) if (c.kind === "lines") out.push({ slot, chunk: c.chunk, start: 0, count: c.count, material: "edgeHidden" }); }
   return out;
 }
 
@@ -97,6 +101,6 @@ function buildEdges(kd: WorldView, view: HighlightState, key: string): OverlayIt
     const [cr, cg, cb] = hexToLinear(hot ? PALETTE.edgeHot : warn ? PALETTE.edgeWarn : PALETTE.edgeSelected);
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(cr, cg, cb, cr, cg, cb);
   }
-  if (pos.length) out.push({ kind: "lines", id: "edgeSel", ...LOOK.edge, key, positions: pos, colors: col } satisfies OverlayLines);
+  if (pos.length) out.push({ kind: "lines", id: "edgeSel", ...(view.xray ? LOOK.edgeXray : LOOK.edge), key, positions: pos, colors: col } satisfies OverlayLines);   // X 光下选中的边透过面画（以前 = 后端按 X 光换材质，刀 d 起编辑器自己说）
   return out;
 }

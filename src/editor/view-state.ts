@@ -26,6 +26,8 @@ export interface ViewState {
   revision?: number;
   /** 透视近平面下限（第一人称 0.05；轨道默认 0.5）。 */
   near?: number;
+  /** X 光开着（隐线标记 + 选中边透视；刀 d）。 */
+  xray?: boolean;
   /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
   teleport?: { points: readonly Pt3[]; valid: boolean; landing: Pt3 | null } | null;
   /** 放置的胶囊虚影（步行「点一下落在哪」；player/placement.ts）：脚底、半径、身高、站得下吗（绿 / 红）。 */

@@ -93,12 +93,25 @@ const LOOK = { lock: ["thinTop", "lock"], xg: ["thickTop", /*按轴*/], poolAxes
 | a | ③ 的材质 id 收成通用的 + 调色板槽位（编辑器侧 LOOK 表；后端按当前调色板算 rgb，调色板换了重算颜色属性） | 0 差 |
 | b | 高亮改 mark + 画段表（`OverlayFaces` 删；贴图面 / 找不到槽一并走 mark；`selMat` 三元分派 → 材质表） | 0 差（颜色算法不变） |
 | c | 淡出改 mark（`ChunkStyle` / `aColorDim` 退役；dim 在着色器里混）——**v0.17.19 落了**；顺手：线稿三档 `edges: none / all / active`（像素 = active，T89） | 没上色的面淡出色变了（纯淡出色 → 拉一半）；补了淡出场景；像素三张重冻 |
-| d | 隐线 = `edgeHidden` 深度 hidden（深度 > ）；Tron 不再借 X 光节点、跟 X 光走（T60 / T63） | 画面变（看得见的边不再被半透明再画一遍）→ 重冻 + 理由 |
-| e | 文字 → 描边字库折线；`label-raster.ts` 出引擎 | 画面变（「1 m」长相）→ 重冻 + 理由 |
-| f | 编辑器不再拿后端类：`editor/render3.ts` 转出口删、`Editor` 只持 `Backend` 契约、app 层 new `Renderer3`；`world-labels.ts` 不再 import 后端 | 0 差 |
+| d | 隐线 = `edgeHidden` 深度 hidden（深度 > ）；Tron 不再借 X 光节点、跟 X 光走（T60 / T63）——**v0.17.22 落了**；X 光 pass 退役（原 g 的一半） | Tron 两张重冻（隐线不再常开）；白模 X 光 0 差 |
+| e | 文字 → 描边字库折线；`label-raster.ts` 出引擎——**只写方案（§6），给 Opus**（user 10-29：不急、不该 Fable 写码） | — |
+| f | 编辑器不再拿 three 那层的类：`editor/render3.ts` 转出口删、`Editor` 只持契约、app 层 new three 那份；`world-labels.ts` 不再 import 那层。**改词（T109）**：three 那层 = 供货商 `providers/three/`、接口 `RenderProvider`（和内容的 `StreamProvider` 对称）；「后端」留给无头的小栗鼠本体 / 几何引擎 | 0 差 |
 | g | `Placement.active → tier`、pass id `xray` 退役（隐线是 mark，不是 pass）；守卫：引擎目录禁词表（lock / gizmo / protractor / xray / active / 选中 …） | 0 差 |
 | h | 视图 ☰「叠加层」开关 + 探针 | 新场景 |
 
 ## 5. 体重预期
 
 删：`overlay-faces.ts`（面高亮画法）、`label-raster.ts`（出引擎，一半删一半变折线字库）、`ChunkStyle` 和顶点色烤淡出那一半、render3 里按风格挑 `selMat` / 借 X 光节点的分支、`xray` pass。加：材质表 / 调色板两张小表、mark 画段表（~80 行）、描边字库数据（~4 KB）。净值预计引擎 −200 行左右；之后每加一个风格 = 预设里两张表各几行，不碰引擎。
+
+## 6. 文字 = 几何：方案（刀 e 只写方案不写码；user 10-29「现在没有做文字的紧迫性，而且为什么文字需要你做。你写设计方案就行了」「文字折线方案写好了给opus」）
+
+**现状**：世界里的字只有「1 m」那块（X 轴 +1 个单位处）：编辑器 `world-labels.ts` 说「哪段字挂哪」，引擎后端 `label-raster.ts` 用 canvas 2D 烤成位图、贴成固定屏幕大小的面片。引擎里因此有一个认识「文字」的模块（`OverlayLabel`）。
+
+**目标**（T72 / T105）：引擎不认识文字；字是**几何**——① 辅助几何里的字（刻度、量尺读数）= 折线，走第三批的通用线材质 + 调色板；② 世界里的字（billboard / 牌子：「到此一游」「古罗马豪华浴室」）= **实体**（建模历史 D-14 的 billboard · note 类），存进文件、随风格走、能选能挪。
+
+**做法（给 Opus）**：
+1. 描边字库：`src/editor/stroke-font.ts`（编辑器侧，不进引擎）——Hershey simplex 那种折线字，先只要数字 + 拉丁 + 单位符号（`m ° ' " × / . - :`），每个字形 = 一串折线（单位 em 坐标）；`strokeText(text, at, basis, heightM, align) → { positions, key }`；在 `overlay.ts` 里把 `WorldLabel` 换成这个 → 一条 `OverlayLines`（`widthPx` 细、`depth: "through"`、调色板 `ink`）。`OverlayLabel` 类型和 `backend/label-raster.ts` 删掉。中文不进世界（靠 UI）。
+2. billboard 实体（哲学轮之后排期）：`Definition` 多一种身体 `{ kind: "billboard", text, heightM, face: "camera" | "fixed" }`（和 CardBody 同类）；渲染 = 流提供者吐一个线块（折线字）+ 可选一张底板面；拾取 = 按包围框；文件 = `CATSUP_definitions` 的一种 kind（按格式纪律加 minor + 冻样本）；风格化的字 = 各风格调色板的 `ink` 槽位（Tron 发光、像素 1 px），要更花的（手写体、位图字）= 风格自己的文字转图元方案，不进引擎。
+3. 不做的：引擎里任何「文字」类型；系统字体 / 位图字贴片在世界里（VR 豆腐块问题）；UI 面板的字照旧走 DOM / canvas（那是 UI，不是世界）。
+
+**体重**：字库数据 ≈ 3–4 KB（几十个字形）；删 `label-raster.ts` ≈ −120 行引擎。

@@ -102,7 +102,7 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
+interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; /** 这个槽的线这一帧画不画、粗线还是像素线（隐线标记按它开节点）。 */ linesVisible: boolean; thickLines: boolean; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
 interface MarkedGeo { geo: any; src: any; index: any }
 
 // ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
@@ -235,8 +235,6 @@ export class Renderer3 implements Backend {
   lastMeasurement: Measurement | null = null;
   lastBudget: BudgetReport | null = null;
   lastPlan: { order: readonly string[]; pruned: readonly string[] } | null = null;
-  /** 这一帧 X 光那条 pass 在不在规划里（X 光的节点可见性只看它，不直接看 xray 开关）。 */
-  private xrayPass = false;
   private syncGen = 0;
   private poolKey = "";
   /** 提供者没给内容键时的帧号（= 每帧都拉）。 */
@@ -248,8 +246,8 @@ export class Renderer3 implements Backend {
   private edgeMat: any;
   private lineStyle: LineStyle = "pixel";
   /** X 光（DT17）：开着 = 池的边透过面画淡的、选中的边不被挡。 */
-  private xray = false;
-  private xrayPixelMat: any; private xrayThickMat: any; private xrayOverlayMat: any;
+  /** 被挡住的边（edgeHidden 标记，刀 d）：深度模式 hidden（深度大于才画）+ 半透明，画在模型那一层。 */
+  private hiddenPixelMat: any; private hiddenThickMat: any;
   private lineWeight = 1;                              // 设备像素；1 = 原生线
   private readonly profileAdd = { value: 1 };          // 轮廓线加粗（设备像素）；edgeMat 的 shader uniform
   /** 风格（Tron 第 1 步；预设 = 数据，minccino/preset/）。白模 = 原来那一条渲染。 */
@@ -333,17 +331,15 @@ export class Renderer3 implements Backend {
     this.edgeDimMat.vertexShader = PROFILE_LINE_VERTEX; this.edgeDimMat.uniforms.profileAdd = this.profileAdd; this.edgeDimMat.color.setHex(PALETTE.edgeDim);
     this.pixelDimMat = new THREE.LineBasicMaterial({ color: PALETTE.edgeDim });
     // X 光（DT17，2026-10-26）：池的边再画一遍（共用几何、不另占内存）+ 覆盖层不做深度测试；半透明渲染那半留 Tron 纪元
-    this.xrayPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: XRAY_OPACITY, depthTest: false, depthWrite: false });
-    this.xrayThickMat = this.lineMat(EDGE_PX, { vertexColors: true });
-    Object.assign(this.xrayThickMat, { transparent: true, opacity: XRAY_OPACITY, depthTest: false, depthWrite: false });
-    this.xrayOverlayMat = this.lineMat(EDGE_PX + 1, { vertexColors: true });
-    Object.assign(this.xrayOverlayMat, { depthTest: false, depthWrite: false });
+    this.hiddenPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: XRAY_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
+    this.hiddenThickMat = this.lineMat(EDGE_PX, { vertexColors: true });
+    Object.assign(this.hiddenThickMat, { transparent: true, opacity: XRAY_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
     // 选中 / 刮擦 / 悬停的边 = 叠加层 "edge" 样式（6c）：用边线本身的材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
     // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
     // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。
     // 叠加层线段族（步 6a；刀 a 起材质按 item 的画法参数按需建）；"edge" 不建材质
     const overlayHost = { add: (o: any): void => { o.layers.set(OVERLAY_LAYER); this.scene.add(o); }, remove: (o: any): void => { this.scene.remove(o); } };   // 叠加层的东西住 OVERLAY_LAYER
-    this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => (this.xrayPass ? this.xrayOverlayMat : this.edgeMat) });
+    this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => this.edgeMat });
     // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
     this.overlayMarks = new OverlayMarksDrawer(overlayHost);
 
@@ -590,8 +586,6 @@ export class Renderer3 implements Backend {
     this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
     this.framePreset = this.currentPreset();   // XR / 缩略图走白模
     this.lastPlan = planFrame(this.passes(), ["frame"]);
-    const xrayPass = this.lastPlan.order.includes("xray");
-    if (xrayPass !== this.xrayPass) { this.xrayPass = xrayPass; this.poolKey = ""; }
 
     // ---- 面：光向 uniform 每帧（视空间：法向走 normalMatrix）；几何只在键变时重建 ----
     const L = presenting ? this.xrKeyLight() : keyLight(cam);
@@ -810,10 +804,9 @@ export class Renderer3 implements Backend {
 
   /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
   setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.poolKey = ""; } }
-  setXray(on: boolean): void { this.xray = on; }   // 真正生效在下一帧的规划（xrayPass 变了才重建池 / 叠加层）
   /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。
    *  XR 会话里先只走白模（风格的小图 / 放大还没接两只眼——视图菜单那行的提示写着）。 */
-  private passes(): PassDecl[] { return presetPasses(this.currentPreset(), this.xray); }
+  private passes(): PassDecl[] { return presetPasses(this.currentPreset()); }
   /** 这一帧该用的预设：XR 会话里 / 截缩略图时 = 白模。 */
   private currentPreset(): Preset { return this.renderer.xr.isPresenting || this.capturing ? PRESETS.white : this.preset; }
   /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
@@ -891,12 +884,10 @@ export class Renderer3 implements Backend {
       else { n.pixel.geometry = hasL ? L!.geo : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
       n.thick.material = tron ? tron.lineThick : this.edgeMat; n.pixel.material = tron ? tron.linePixel : this.pixelMat;
       n.thickMat = n.thick.material; n.pixelMat = n.pixel.material; n.linesChunk = L?.id ?? null;   // 线的标记（淡出）按它换材质
-      // 被挡住的边：Tron 拿 X 光那两个节点（同一份线几何）换成「深度反测 + 半透明」画在模型那一层；别的风格 = X 光（叠加层那一层、不做深度测试）
-      const xr = (this.xrayPass || !!tron) && hasL, xLayer = tron ? 1 : 1 << OVERLAY_LAYER;
-      n.xthick.layers.mask = xLayer; n.xpixel.layers.mask = xLayer;
-      n.xthick.material = tron ? tron.hiddenThick : this.xrayThickMat; n.xpixel.material = tron ? tron.hiddenPixel : this.xrayPixelMat;
-      n.xthick.geometry = xr && thickLines ? n.thick.geometry : this.emptyLineGeo; n.xthick.visible = xr && thickLines;
-      n.xpixel.geometry = xr && !thickLines ? n.pixel.geometry : this.emptyGeo; n.xpixel.visible = xr && !thickLines;
+      // 被挡住的边（edgeHidden 标记，刀 d）：同一份线几何再画一遍、深度大于才画；显不显示由标记定（syncMarks），这里只备好几何 / 材质
+      n.xthick.material = tron ? tron.hiddenThick : this.hiddenThickMat; n.xpixel.material = tron ? tron.hiddenPixel : this.hiddenPixelMat;
+      n.xthick.geometry = n.thick.geometry; n.xpixel.geometry = n.pixel.geometry;
+      n.linesVisible = showL; n.thickLines = thickLines; n.xthick.visible = false; n.xpixel.visible = false;
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
     for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
@@ -920,6 +911,9 @@ export class Renderer3 implements Backend {
       const lm = n.linesChunk ? ms.find((m) => m.chunk === n.linesChunk && m.material === "edgeDim") : undefined;
       n.thick.material = lm ? this.lineSlotMaterial(n.thickMat, "edgeDim") : n.thickMat;
       n.pixel.material = lm ? this.lineSlotMaterial(n.pixelMat, "edgeDim") : n.pixelMat;
+      // 隐线：edgeHidden 标记 = 同一份线几何再画一遍（深度大于才画）；没标记 = 不画
+      const hidden = n.linesVisible && !!(n.linesChunk && ms.some((m) => m.chunk === n.linesChunk && m.material === "edgeHidden"));
+      n.xthick.visible = hidden && n.thickLines; n.xpixel.visible = hidden && !n.thickLines;
     }
   }
   /** 线的材质槽（刀 c：只有 edgeDim）：白模的边 → 淡出那份；别的风格（Tron）的线材质自己不认淡出 = 照旧。 */
@@ -986,11 +980,11 @@ export class Renderer3 implements Backend {
     const plain = new THREE.Mesh(this.emptyGeo, this.faceMat); plain.frustumCulled = false; plain.visible = false;
     const pixel = new THREE.LineSegments(this.emptyGeo, this.pixelMat); pixel.frustumCulled = false; pixel.visible = false;
     const thick = new LineSegments2(this.emptyLineGeo, this.edgeMat); thick.frustumCulled = false; thick.visible = false;
-    const xpixel = new THREE.LineSegments(this.emptyGeo, this.xrayPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3; xpixel.layers.set(OVERLAY_LAYER);
-    const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3; xthick.layers.set(OVERLAY_LAYER);
+    const xpixel = new THREE.LineSegments(this.emptyGeo, this.hiddenPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3;
+    const xthick = new LineSegments2(this.emptyLineGeo, this.hiddenThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3;
     root.add(plain); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
-    return { root, plain, plainSrc: this.emptyGeo, plainMat: this.faceMat, plainChunk: null, tex: [], pixel, thick, thickMat: this.edgeMat, pixelMat: this.pixelMat, linesChunk: null, xpixel, xthick, gen: 0, markKey: "\u0000", marked: new Map() };
+    return { root, plain, plainSrc: this.emptyGeo, plainMat: this.faceMat, plainChunk: null, tex: [], pixel, thick, thickMat: this.edgeMat, pixelMat: this.pixelMat, linesChunk: null, linesVisible: false, thickLines: false, xpixel, xthick, gen: 0, markKey: "\u0000", marked: new Map() };
   }
   private texMatFor(mat: MaterialRef, side: ChunkSide = "double"): any {
     let bySide = this.texMats.get(mat);

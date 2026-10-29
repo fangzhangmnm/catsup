@@ -143,3 +143,9 @@
 - 看得见的变化（开工前声明）：① 淡出：没上色的面以前是纯淡出色（0xe9e9e9），现在往淡出色拉一半（0xdfdfdf）——基线里没有淡出场景，补了 `dim-context-sel`（进组件、外面的盒子淡出 + 里面选一张面）；② 像素描边里正在编辑那一层的边画出来了（`style-pixel-sel / house / textured` 三张重冻，理由 = T89：在面上画的边描边描不出来、user 以为吸附坏了）；③ Tron / 写实里淡出以前没效果（不借顶点色），现在有。
 - 怎么验：`npm test` 1175 绿；探针 selecting / style / xr-fake / mesh-workbench / context / erase-red 绿（新包）；基线 24 张：粗线两张（`box-thick-sel-hover-lock` / `style-tron-house-thick`）第一版红 → 修后 0 差；像素三张按声明重冻；剪纸两张 ±1 噪声（28 / 10 像素，阈值内，不追）；其余 0 差。
 - 基线：+1 张（`dim-context-sel`）、重冻 3 张（像素）。
+
+### 刀 d（v0.17.22）：隐线 = edgeHidden 标记 + 线材质深度模式；X 光 pass 退役
+- 做了什么：被挡住的边不再是「X 光 pass + 每槽两个不测深度的半透明节点、Tron 借来常开」——编辑器 X 光开着时给每个槽的边块提交一条 `edgeHidden` 标记（`highlight.ts buildMarks`，整块、叠着画），后端用「深度大于才画」的材质（`hiddenPixelMat / hiddenThickMat`：`depthFunc GreaterDepth` + 35% 半透明；Tron = 它自己的 `hiddenThick / hiddenPixel`，Opus 本来就是深度反测）在模型那一层把同一份线几何再画一遍，只有被挡住的那段出来。`presetPasses(p)` 不再有 `xray` 那条 pass，render3 的 `setXray / xrayPass / xrayOverlayMat` 删了（引擎不认识 X 光；T73 / T60 / T63）。X 光下的选中边透过面画 = 编辑器自己说（`LOOK.edgeXray`：边线宽 + 1、不测深度），不再由后端按 X 光换共享材质。顺手：手势中右键的含义收进编辑器 `rightClickInGesture()`（T102 系统性修法），app 层按工作台分叉加棘轮守卫 `test/app-mode-branch-ratchet.test.ts`（PIN 8，只准降）。
+- 看得见的变化（开工前声明）：Tron 的隐线跟 X 光开关走（以前常开 0.12 淡线）→ `style-tron-sel / style-tron-house-thick` 重冻；白模 X 光场景（`box-xray / mesh-xray-dots`）0 差（看得见的边以前被半透明再描一遍，黑上黑看不出；被挡的段同一个 35%）。
+- 怎么验：`npm test`（1175 + 新守卫）；探针 xray / xray-facedots / lasso / present-lock / style / selecting 绿；基线 24 张：Tron 两张按声明重冻，其余 0 差（剪纸 ±1 噪声照旧）。
+- 基线：重冻 2 张（Tron）。

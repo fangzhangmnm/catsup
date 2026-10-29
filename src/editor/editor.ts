@@ -1526,7 +1526,7 @@ export class Editor {
   // 视图设置：不进文件、不进撤销；快捷键 Alt+Z（Blender 同键）。
   private _xray = false;
   get xray(): boolean { return this._xray; }
-  setXray(on: boolean): void { if (this._xray === on) return; this._xray = on; this.r3.setXray(on); this.host.hint(on ? "X 光开：选择工具点得到被挡住的点 / 边 / 面（面 = 每张面中心的小方点），边透过面画出来（Alt+Z 关）" : "X 光关"); this.host.changed(); this.draw(); }
+  setXray(on: boolean): void { if (this._xray === on) return; this._xray = on; this.host.hint(on ? "X 光开：选择工具点得到被挡住的点 / 边 / 面（面 = 每张面中心的小方点），边透过面画出来（Alt+Z 关）" : "X 光关"); this.host.changed(); this.draw(); }
 
   /**
    * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
@@ -3189,6 +3189,8 @@ export class Editor {
 
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
+  /** 手势中右键（两种工作台一样，T102）：能原地留下的（挤出）原地留下，别的只取消这一下、选区留着；不在手势里 = false（app 弹菜单）。 */
+  rightClickInGesture(): boolean { if (!this.gestureActive()) return false; if (!this.commitInPlace()) this.abortGesture(); return true; }
   abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
   gestureInProgress(): boolean { return this.gestureActive(); }
@@ -3719,6 +3721,7 @@ export class Editor {
       snapAnchor: this.anchor3,
       revision: this._revision,
       dimSlots: dimmed,
+      xray: this._xray,
       handles: null,
       protractor: null,
       guides: view.guides(),

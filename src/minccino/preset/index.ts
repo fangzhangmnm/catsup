@@ -153,7 +153,7 @@ export function isStyled(p: Preset): boolean { return p.screen.pixelate > 1 || p
  * 这一帧的 pass 声明（frame graph）：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大进 frame；
  * 地面网格 / 叠加层 / X 光照旧往 frame 上追加画（编辑器的东西按原分辨率，不跟着风格像素化——不变量 7）。
  */
-export function presetPasses(p: Preset, xray: boolean): PassDecl[] {
+export function presetPasses(p: Preset): PassDecl[] {
   const tgt = isStyled(p) ? "lowres" : "frame";
   const ps: PassDecl[] = [];
   if (p.light.ao) ps.push({ id: "aoBake", reads: ["stream"], writes: ["ao"] });
@@ -170,6 +170,5 @@ export function presetPasses(p: Preset, xray: boolean): PassDecl[] {
     ps.push({ id: "upscale", reads: [cur], writes: ["frame"] });
   }
   ps.push({ id: "grid", appends: ["frame"] }, { id: "overlay", reads: ["stream", "editor"], appends: ["frame"] });
-  if (xray) ps.push({ id: "xray", reads: ["stream"], appends: ["frame"] });
   return ps;
 }

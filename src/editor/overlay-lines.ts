@@ -29,6 +29,8 @@ export const LOOK = {
   xg: onTop(HINT_PX * 1.5, 11),
   /** 选中 / 刮擦 / 悬停 / 检查的边（6c）：后端边线自己的材质（shared），定死最后画（layer 2）= 盖得住底下同材质的黑边。 */
   edge: { widthPx: 1.6, depth: "visible", layer: 2, shared: "edge" },
+  /** X 光下的选中边：透过面画（= 以前后端的 xrayOverlayMat：边线宽 + 1、不测深度）。 */
+  edgeXray: { widthPx: 2.6, depth: "through", layer: 2 },
 } as const satisfies Record<string, Look>;
 import { hexToLinear, PALETTE } from "../minccino/index.ts";
 import type { ViewState } from "./view-state.ts";
