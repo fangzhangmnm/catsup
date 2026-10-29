@@ -17,6 +17,15 @@ describe("minccino 预设 = 数据", () => {
     eq(planFrame(presetPasses(PRESETS.white, false), ["frame"]).order.join(","), "scene,grid,overlay");
     assert(isStyled(PRESETS.pixelOutline), "像素描边该走风格那条路");
     eq(planFrame(presetPasses(PRESETS.pixelOutline, false), ["frame"]).order.join(","), "scene,pixelOutline,upscale,grid,overlay");
+    assert(!isStyled(PRESETS.papercut), "剪纸是原生分辨率、没有后处理：不走屏幕那条路");
+    eq(planFrame(presetPasses(PRESETS.papercut, false), ["frame"]).order.join(","), "aoBake,ground,scene,grid,overlay");   // 遮蔽先烘、地面先画、模型追加
+  });
+  it("一件一色 / 平涂 / 遮蔽：要平涂的预设一定给了平涂参数；遮蔽的长度都是正的", () => {
+    for (const id of PRESET_IDS) {
+      const p = PRESETS[id];
+      if (p.material.shade === "flat") assert(!!p.material.flat, `${id} 要平涂但没给参数`);
+      const ao = p.light.ao; if (ao) assert(ao.radius > 0 && ao.groundRadius > 0 && ao.amount >= 0 && ao.amount <= 1, `${id} 遮蔽参数不对`);
+    }
   });
   it("每个预设都写了出处和一句话说明；像素化 ≥ 1；id 和键一致", () => {
     for (const id of PRESET_IDS) {

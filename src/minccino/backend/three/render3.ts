@@ -47,6 +47,8 @@ import { PALETTE } from "../../palette.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
 import { PRESETS, isStyled, presetPasses, type Preset, type PresetId } from "../../preset/index.ts";
 import { PixelScreen } from "./screen-pixel.ts";
+import { AoBaker } from "./ao-bake.ts";
+import { PaperMaterials } from "./paper-shader.ts";
 
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
@@ -181,6 +183,10 @@ const TEX_FRAG = /* glsl */`
 /** 叠加层专用的 three 层（Tron 第 1 步）：编辑器的东西（网格、三轴、叠加层线点标记文字、X 光线）住这一层，风格那条路里按原分辨率最后画；
  *  白模那条路相机两层都看 = 和以前同一批对象同一个顺序。不用 1 / 2：three 的 XR 用它们分左右眼。 */
 const OVERLAY_LAYER = 5;
+/** 风格的地面 / 背景那一遍全屏（剪纸）住第 6 层：遮蔽烘焙的相机只看第 0 层，地面不挡自己。 */
+const GROUND_LAYER = 6;
+/** 改完模型停手多久才重烘遮蔽（毫秒）：拖着改的时候不烘，影子停手后跟上（披露在预设说明里）。 */
+const AO_QUIET_MS = 250;
 /** 0xRRGGBB → sRGB 浮点三元（膜 shader 用；不过 three 的色彩管理）。 */
 const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
@@ -234,6 +240,11 @@ export class Renderer3 implements Backend {
   private framePreset: Preset = PRESETS.white;
   private readonly unlitU = { value: false };          // 面 shader 的「不打光」（材质挂点 shade = none）
   private pixelScreen: PixelScreen | null = null;      // 风格那条路的小图 + 描边 + 放大（第一次用到才建）
+  private aoBaker: AoBaker | null = null;              // 世界空间遮蔽（剪纸的多重阴影；第一次用到才建）
+  private paper: PaperMaterials | null = null;         // 平涂的面材质 + 地面那一遍
+  private aoSeen = ""; private aoBaked = ""; private aoChangedAt = 0; private aoTimer: ReturnType<typeof setTimeout> | null = null;
+  /** 后端自己想再画一帧（遮蔽停手后重烘好了）：app 层接 editor.draw。 */
+  onRedrawWanted: (() => void) | null = null;
   private overlayLines!: OverlayLinesDrawer;
   private overlayMarks!: OverlayMarksDrawer;
   private overlayFaces!: OverlayFacesDrawer;
@@ -266,6 +277,7 @@ export class Renderer3 implements Backend {
     this.camOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20000);
     this.camPersp = new THREE.PerspectiveCamera(50, 1, 1, 20000);
     this.camOrtho.layers.enable(OVERLAY_LAYER); this.camPersp.layers.enable(OVERLAY_LAYER);
+    this.camOrtho.layers.enable(GROUND_LAYER); this.camPersp.layers.enable(GROUND_LAYER);
     this.resolution = new THREE.Vector2(1, 1);
     this.rebuildGrid(WORLD_FRAME3, 1, 1);
 
@@ -558,6 +570,7 @@ export class Renderer3 implements Backend {
     cam3.updateMatrixWorld();
     const eye = cam.eye();
     this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
+    this.framePreset = this.currentPreset();   // XR / 缩略图走白模
     this.lastPlan = planFrame(this.passes(), ["frame"]);
     const xrayPass = this.lastPlan.order.includes("xray");
     if (xrayPass !== this.xrayPass) { this.xrayPass = xrayPass; this.poolKey = ""; }
@@ -568,10 +581,11 @@ export class Renderer3 implements Backend {
     this.faceMat.uniforms.uLight.value.copy(this.scratchV);
     // 池级路径：每槽一组节点 + 每池一份几何（只重建变了的池）。内容键由提供者给（世界身份 + 版本 + 淡出集 = 以前的 kid:rev:dimK）；没给 = 每帧都拉
     const styled = this.lastPlan.order.includes("upscale");   // 这一帧走风格那条路（规划器说了算：XR / 截图时它不在表里）
-    this.framePreset = styled ? this.preset : PRESETS.white;
-    this.unlitU.value = styled && this.preset.material.shade === "none";
-    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}:${styled ? this.preset.id : "white"}`;
+    this.unlitU.value = this.framePreset.material.shade === "none";
+    this.ensurePaper();
+    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}:${this.framePreset.id}`;
     if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
+    this.syncPaper(cam3);   // 平涂 / 地面 / 遮蔽（剪纸）：没用到 = 地面藏着、什么都不建
 
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」「sub incremental就是sub刻度的」）：吸附的 1/5、1/10 只管吸，像尺子上的小刻度，不画成网格线
@@ -600,7 +614,7 @@ export class Renderer3 implements Backend {
     else { info3.autoReset = false; info3.reset(); try { this.renderStyled(cam3); } finally { info3.autoReset = true; } }
     // ---- 血槽位（步 7）：三个数 + 预算核对。显存 = 块的显卡副本 + 贴图的估算（three 不报字节数）+ 风格的小图 ----
     const info = info3?.render;
-    let bytes = styled && this.pixelScreen ? this.pixelScreen.bytes() : 0;
+    let bytes = (styled && this.pixelScreen ? this.pixelScreen.bytes() : 0) + (this.framePreset.light.ao && this.aoBaker ? this.aoBaker.bytes() : 0);
     for (const g of this.chunkGpus.values()) for (const a of Object.values("attrs" in g ? g.attrs : g.bufs) as any[]) bytes += a.array?.byteLength ?? 0;
     for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
     const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
@@ -608,6 +622,39 @@ export class Renderer3 implements Backend {
     const P = this.perf;
     P.last["render.ms"] = m.frameMs; P.last["render.drawCalls"] = m.drawCalls; P.last["render.triangles"] = m.triangles ?? 0; P.last["render.vramMb"] = m.vramMb;
     if (this.lastBudget?.over.length) P.count["budget.over"] = (P.count["budget.over"] ?? 0) + 1;
+  }
+
+  /** 平涂的材质 / 地面 / 遮蔽烘焙器：第一次有预设要它们时才建（要在拉流之前：槽节点换材质要用）。 */
+  private ensurePaper(): void {
+    const p = this.framePreset;
+    if (this.paper || (!p.light.ao && !p.light.ground && p.material.shade !== "flat")) return;
+    this.aoBaker = new AoBaker();
+    this.paper = new PaperMaterials(this.aoBaker.uniforms, DEPTH.face, DEPTH.faceOther, PALETTE.face);
+    this.paper.ground.layers.set(GROUND_LAYER); this.scene.add(this.paper.ground);
+  }
+  /**
+   * 平涂 / 地面 / 遮蔽（剪纸 · 色纸）：预设要地面或遮蔽才建。遮蔽 = 后台作业的小学版：内容键（提供者给）变了先记下，停手 AO_QUIET_MS 才重烘
+   * （拖着改的时候影子停在上一份，停手后跟上；第一次立刻烘）；烘的时间记在 perf.last["aoBake"]。场景是空的（没有包围球）= 不烘、不遮。
+   */
+  private syncPaper(cam3: any): void {
+    const p = this.framePreset, L = p.light;
+    if (!this.paper || (!L.ao && !L.ground && p.material.shade !== "flat")) { this.paper?.hide(); return; }
+    const sphere = this.provider?.bounds?.() ?? null;
+    if (L.ao && this.aoBaker) {
+      const ck = this.provider?.contentKey?.() ?? "static", now = performance.now();
+      if (ck !== this.aoSeen) {
+        this.aoSeen = ck; this.aoChangedAt = now;
+        if (this.aoBaked !== "") { if (this.aoTimer) clearTimeout(this.aoTimer); this.aoTimer = setTimeout(() => { this.aoTimer = null; this.onRedrawWanted?.(); }, AO_QUIET_MS + 10); }
+      }
+      if (sphere && this.aoBaked !== ck && (this.aoBaked === "" || now - this.aoChangedAt >= AO_QUIET_MS)) {
+        const baker = this.aoBaker;
+        this.perf.time("aoBake", () => baker.bake(this.renderer, this.scene, sphere));
+        this.aoBaked = ck;
+      }
+    }
+    cam3.updateMatrixWorld();
+    this.paper.sync(p.material.flat ?? { base: PALETTE.face, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 0 },
+      L.ao, !!sphere && this.aoBaked !== "", L.ground, L.background ?? PALETTE.background, cam3);
   }
 
   /**
@@ -625,7 +672,7 @@ export class Renderer3 implements Backend {
     try {
       // ① 模型 → 小图：清成全零（背景色在描边那遍补，渲染目标里 three 不给背景做色彩换算）
       this.scene.background = null; this.renderer.setClearColor(0x000000, 0);
-      cam3.layers.mask = 1;   // 只看第 0 层（模型）
+      cam3.layers.mask = 1 | (1 << GROUND_LAYER);   // 模型 + 风格的地面（叠加层那一层后面单画）
       cam3.setViewOffset(W, H, 0, H - ps.h * k, ps.w * k, ps.h * k);
       this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3);
       cam3.clearViewOffset();
@@ -706,7 +753,9 @@ export class Renderer3 implements Backend {
   setXray(on: boolean): void { this.xray = on; }   // 真正生效在下一帧的规划（xrayPass 变了才重建池 / 叠加层）
   /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。
    *  XR 会话里先只走白模（风格的小图 / 放大还没接两只眼——视图菜单那行的提示写着）。 */
-  private passes(): PassDecl[] { return presetPasses(this.renderer.xr.isPresenting || this.capturing ? PRESETS.white : this.preset, this.xray); }
+  private passes(): PassDecl[] { return presetPasses(this.currentPreset(), this.xray); }
+  /** 这一帧该用的预设：XR 会话里 / 截缩略图时 = 白模。 */
+  private currentPreset(): Preset { return this.renderer.xr.isPresenting || this.capturing ? PRESETS.white : this.preset; }
   /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
   setPreset(id: PresetId): void {
     const p = PRESETS[id] ?? PRESETS.white;
@@ -769,7 +818,8 @@ export class Renderer3 implements Backend {
       setMatrix(n.root, pl.xform);
       const pb = byPool.get(pl.pool), dimmed = pl.dim;
       // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
-      n.plain.material = pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
+      const paper = this.framePreset.material.shade === "flat" ? this.paper : null;   // 平涂（剪纸）：纸的那组材质，深度偏移档照旧
+      n.plain.material = paper ? paper.face(pl.singleSided ? "front" : "double", pl.active, false) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
       const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
       n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
       let ti = 0;
@@ -777,7 +827,7 @@ export class Renderer3 implements Backend {
         if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
         if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = this.texMatFor(gf.mat!, gf.side!);
+        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : this.texMatFor(gf.mat!, gf.side!);   // 一件一色印不出贴图：贴图面 = 纸本色
         slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
         ti++;
       }

@@ -85,6 +85,14 @@ export declare class Renderer3 implements Backend {
     private framePreset;
     private readonly unlitU;
     private pixelScreen;
+    private aoBaker;
+    private paper;
+    private aoSeen;
+    private aoBaked;
+    private aoChangedAt;
+    private aoTimer;
+    /** 后端自己想再画一帧（遮蔽停手后重烘好了）：app 层接 editor.draw。 */
+    onRedrawWanted: (() => void) | null;
     private overlayLines;
     private overlayMarks;
     private overlayFaces;
@@ -163,6 +171,13 @@ export declare class Renderer3 implements Backend {
     private reachKey;
     private syncCamera;
     render(input: FrameInput): void;
+    /** 平涂的材质 / 地面 / 遮蔽烘焙器：第一次有预设要它们时才建（要在拉流之前：槽节点换材质要用）。 */
+    private ensurePaper;
+    /**
+     * 平涂 / 地面 / 遮蔽（剪纸 · 色纸）：预设要地面或遮蔽才建。遮蔽 = 后台作业的小学版：内容键（提供者给）变了先记下，停手 AO_QUIET_MS 才重烘
+     * （拖着改的时候影子停在上一份，停手后跟上；第一次立刻烘）；烘的时间记在 perf.last["aoBake"]。场景是空的（没有包围球）= 不烘、不遮。
+     */
+    private syncPaper;
     /**
      * 风格那条路（Tron 第 1 步：像素描边）：① 模型画进小图（画布设备像素 ÷ k，k = 像素化 × 设备像素比取整，整数倍）——相机用 view offset 让小图恰好盖住
      * 「k × 小图」那么大一块，画布外多出来的那一点裁掉，叠加层和小图逐像素对齐；② 描边（后处理挂点）③ 最近邻放大回画布并写回深度 ④ 叠加层那一层
@@ -188,6 +203,8 @@ export declare class Renderer3 implements Backend {
     /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。
      *  XR 会话里先只走白模（风格的小图 / 放大还没接两只眼——视图菜单那行的提示写着）。 */
     private passes;
+    /** 这一帧该用的预设：XR 会话里 / 截缩略图时 = 白模。 */
+    private currentPreset;
     /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
     setPreset(id: PresetId): void;
     getPreset(): PresetId;

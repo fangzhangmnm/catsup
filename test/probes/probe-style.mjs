@@ -36,15 +36,26 @@ const r = await page.evaluate(() => {
   const xr = r3.renderer.xr, was = xr.isPresenting; xr.isPresenting = true;
   out.xrPasses = r3.passes().map((p) => p.id).join(",");
   xr.isPresenting = was;
-  r3.setPreset("white"); e.draw(); out.back = order();
+  // 剪纸：遮蔽第一次立刻烘；改了模型马上画 = 不烘（影子停在上一份）
+  r3.setPreset("papercut"); e.draw(); out.paper = order(); out.bake1 = r3.perf.count.aoBake ?? 0;
+  e.commitOp({ op: "addEdges", at, segs: [[P(2, 0, 0), P(3, 0, 0)], [P(3, 0, 0), P(3, 1, 0)], [P(3, 1, 0), P(2, 1, 0)], [P(2, 1, 0), P(2, 0, 0)]] }); e.draw();
+  out.bake2 = r3.perf.count.aoBake ?? 0;
   return out;
 });
+// 停手 0.25 秒后：后端自己要一帧（onRedrawWanted → editor.draw）、重烘
+await page.waitForTimeout(450);
+const later = await page.evaluate(() => { const r3 = globalThis.__catsup.editor.renderer3, n = r3.perf.count.aoBake ?? 0; r3.setPreset("white"); globalThis.__catsup.editor.draw(); return { bake3: n, back: r3.lastPlan.order.join(",") }; });
+r.back = later.back;
 check(r.white === "scene,grid,overlay" && r.whitePreset === "white", `默认 = 白模那一条：${r.white}`);
 check(r.styled === "scene,pixelOutline,upscale,grid,overlay" && r.styledPreset === "pixelOutline", `像素描边 = 场景 → 描边 → 放大 → 网格 / 叠加层：${r.styled}`);
 check(r.styledDraws >= 3, `风格那条路的 draw call 把几遍都算上了：${r.styledDraws}`);
 check(r.thumbSame, "缩略图画白模：风格开着截的 = 白模时截的，逐字节一样");
 check(r.afterThumb.includes("upscale"), `截完缩略图主视图还是风格：${r.afterThumb}`);
 check(!r.xrPasses.includes("upscale") && r.xrPasses.startsWith("scene,grid"), `XR 会话里只排白模：${r.xrPasses}`);
+check(r.paper === "aoBake,ground,scene,grid,overlay", `剪纸 = 遮蔽 → 地面 → 模型追加 → 网格 / 叠加层：${r.paper}`);
+check(r.bake1 === 1, `剪纸第一次就烘遮蔽：${r.bake1} 次`);
+check(r.bake2 === 1, `改了模型马上画不重烘（拖着改的时候不烘）：${r.bake2} 次`);
+check(later.bake3 === 2, `停手 0.25 秒后自己要一帧、重烘了：${later.bake3} 次`);
 check(r.back === "scene,grid,overlay", `切回白模 = 原来那一条：${r.back}`);
 check(errs.length === 0, `页面没报错${errs.length ? "：" + errs.join(" | ") : ""}`);
 await browser.close();

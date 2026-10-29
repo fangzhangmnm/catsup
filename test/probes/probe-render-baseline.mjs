@@ -83,6 +83,10 @@ const SCENES = {
   "style-pixel-sel": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.setTool("move"); e.setAxisLock("x"); const s = sp(P(1, 0.5, 0.5)); await hover(s.x, s.y);`,
   // 风格 × 有颜色的样本（材质色 + 组 / 组件，场景铺开：内部深度跳变也描）
   "style-pixel-house": { fixture: "house.glb", after: `e.renderer3.setPreset("pixelOutline"); e.draw();` },
+  // 剪纸 · 色纸（Tron 第 1 步第二个风格）：一件一色 + 平涂 + 多重阴影（20 方向遮蔽）+ 纸色地面；两个盒子叠出零件之间的影子
+  "style-papercut-boxes": `e.renderer3.setPreset("papercut"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.draw();`,
+  // 剪纸 × 有材质色的样本（材质色 = 色纸）
+  "style-papercut-painted": { fixture: "painted.glb", noTexWait: true, after: `e.renderer3.setPreset("papercut"); e.draw();` },
   // 风格 × 贴图（最近邻覆盖）
   "style-pixel-textured": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
     e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
