@@ -87,6 +87,10 @@ const SCENES = {
   "style-papercut-boxes": `e.renderer3.setPreset("papercut"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.draw();`,
   // 剪纸 × 有材质色的样本（材质色 = 色纸）
   "style-papercut-painted": { fixture: "painted.glb", noTexWait: true, after: `e.renderer3.setPreset("papercut"); e.draw();` },
+  // CRT Tron（Tron 第 1 步第三个风格）：深色面 + 青线 + 被挡住的边 + 辉光 + 地格 + 240 行 CRT；选中顶面 = 认领色（Clu 橙）
+  "style-tron-sel": `e.renderer3.setPreset("tron"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.draw();`,
+  // Tron × 粗线（轮廓加粗那条路）× 房子样本
+  "style-tron-house-thick": { fixture: "house.glb", after: `e.renderer3.setPreset("tron"); e.setLineWeight(2); e.draw();` },
   // 风格 × 贴图（最近邻覆盖）
   "style-pixel-textured": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
     e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });

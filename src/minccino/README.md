@@ -20,7 +20,7 @@
 | `backend/` | 后端接口（`Backend` + 一帧的输入 `FrameInput`：相机 / 视口 / 网格 / 叠加层回调）；`backend/three/` = three 实现（`render3.ts` 步 5 整个搬进来：几何上传、材质、线、渲染目标、XR 会话钩子；`profile-line-shader.ts` 轮廓线自己的 GLSL 源，守卫 ⑥ 逐字比对 vendored 源；`overlay-{lines,marks,faces}.ts` 叠加层的画法） | 步 5 done；**6c（v0.17.9）零内容层 import**（守卫 ③′ 清零，922 行） |
 | `overlay/` | 叠加层契约：线段族 / 点 / 标记 / 三角 / 文字 / **面高亮**（`OverlayFaces`：挂槽 / 世界 / 贴图组）+ OverlayCtx 量尺 + 样式表（内容归编辑器 `editor/overlay.ts` + `editor/highlight.ts`，画归 `backend/three/overlay-*.ts`） | 6a / 6b / 6c done |
 | `palette.ts` / `perf.ts` | 白模调色板一处放（预设认领选中色从这里长）；计时口 `PerfSink`（消费方递计数器进来，引擎不 import 谁的 perf） | 6c done |
-| `preset/` | 预设 = 数据（四个挂点 + 屏幕一刀的旋钮；每个写明实验室出处）+ `presetPasses` 给 frame graph 的 pass 声明。画法在 `backend/three/screen-pixel.ts`（小图 → 后处理 → 整数倍放大） | Tron 第 1 步：白模 + 像素描边（v0.17.10）+ 剪纸 · 色纸（v0.17.11：平涂 `paper-shader.ts` + 遮蔽 `ao-bake.ts` + 地面）；Tron / 铸铜待 |
+| `preset/` | 预设 = 数据（四个挂点 + 屏幕一刀的旋钮；每个写明实验室出处）+ `presetPasses` 给 frame graph 的 pass 声明。画法在 `backend/three/screen-pixel.ts`（小图 → 后处理 → 整数倍放大） | Tron 第 1 步：白模 + 像素描边（v0.17.10）+ 剪纸 · 色纸（v0.17.11：平涂 `paper-shader.ts` + 遮蔽 `ao-bake.ts` + 地面）+ CRT Tron（v0.17.12：`tron-shader.ts` + `bloom.ts` + CRT 放大）；铸铜待 |
 | `material/` | 语义通道注册表 / 工艺标签 / 翻译按工艺一份 / 开放槽表 `BASE_SLOTS` / 管线 `reads` 守卫 / 小学四风格 reads（T36） | 步 8 done（只钉接口，内容归 Opus） |
 | `budget.ts` / `device.ts` | 预算核对 + 人话披露；量设备的唯一地方（电量感知默认开、跟设备、披露不静默） | 步 7 done |
 

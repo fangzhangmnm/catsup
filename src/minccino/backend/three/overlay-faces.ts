@@ -7,7 +7,7 @@ import type { OverlayFaces } from "../../overlay/index.ts";
 import type { MaterialRef } from "../../contract/stream.ts";
 
 /** 槽节点里和高亮有关的三样（render3 的 SlotNodes 结构上满足）：sel 网格、面网格（借它的材质）、上次的键。 */
-export interface SelHost { sel: any; plain: any; selKey: string }
+export interface SelHost { sel: any; plain: any; selKey: string; /** 风格认领选中时给的材质（Tron = Clu 橙）；null = 跟面同一个。 */ selMat?: any }
 
 const NO_KEY = "\u0000";
 
@@ -48,7 +48,7 @@ export class OverlayFacesDrawer {
         const n = slots.get(it.slot);
         if (!n) continue;   // 槽这一帧不在（放置没了）：内容方给错了也不画到别处去
         if (n.selKey !== it.key) { if (n.sel.geometry !== this.emptyGeo) n.sel.geometry.dispose(); n.sel.geometry = facesGeometry(it); n.selKey = it.key; }
-        n.sel.material = n.plain.material;   // 和这个槽的面同一个材质 = 同一个深度偏移（面的材质随活动 / 淡出 / 单面变，每帧跟）
+        n.sel.material = n.selMat ?? n.plain.material;   // 和这个槽的面同一个材质 = 同一个深度偏移（面的材质随活动 / 淡出 / 单面变，每帧跟）；风格认领选中时换它给的那份（同深度偏移）
         n.sel.visible = true;
         seenSlots.add(it.slot);
       } else if (!it.material) {

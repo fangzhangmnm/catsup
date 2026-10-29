@@ -26,6 +26,27 @@ export interface FlatShade {
     readonly lightAz: number;
     readonly lightEl: number;
 }
+/** CRT Tron 的面和线（实验室 tron.js「青 Tron · 复古」）：正面 / 背面色、明暗强度、轮廓光、线色、线芯发白、线宽（画面像素）、轮廓加粗倍数、被挡住的边的不透明度、认领的选中色。 */
+export interface TronShade {
+    readonly face: number;
+    readonly back: number;
+    readonly shade: number;
+    readonly rim: number;
+    readonly rimPower: number;
+    readonly line: number;
+    readonly core: number;
+    readonly widthPx: number;
+    readonly profile: number;
+    readonly hidden: number;
+    readonly select: number;
+}
+/** 辉光（后处理挂点）：强度、半径、上限（软削顶）、暗角。 */
+export interface BloomPost {
+    readonly amount: number;
+    readonly radius: number;
+    readonly cap: number;
+    readonly vignette: number;
+}
 /** 世界空间遮蔽（实验室 20 方向深度图）：强度、模型上 / 地面上的长度（场景半径 = 1）、影子边的软（0 = 硬边碎片感，剪纸的多重阴影）。 */
 export interface AoParams {
     readonly amount: number;
@@ -46,28 +67,34 @@ export interface Preset {
     /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
      *  上色方式（model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色）。 */
     readonly material: {
-        readonly shade: "camera" | "none" | "flat";
+        readonly shade: "camera" | "none" | "flat" | "tron";
         readonly texFilter: "asset" | "nearest";
         readonly edges: boolean;
         readonly colorize: "model" | "part";
         readonly flat: FlatShade | null;
+        readonly tron: TronShade | null;
     };
-    /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有）、世界空间遮蔽（null = 没有；要后台烘）。 */
+    /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
     readonly light: {
         readonly background: number | null;
         readonly ground: {
             readonly color: number;
             readonly on: number;
+            readonly grid: number;
         } | null;
         readonly ao: AoParams | null;
     };
     /** 后处理挂点。 */
     readonly post: {
         readonly pixelOutline: PixelOutlinePost | null;
+        readonly bloom: BloomPost | null;
     };
-    /** 屏幕一刀：像素化 = 一个画面像素放大几倍（CSS 像素；后端按设备像素比取整成整数倍放大）；1 = 原生。 */
+    /** 屏幕一刀：像素化 = 一个画面像素放大几倍（CSS 像素；后端按设备像素比取整成整数倍放大）；1 = 原生。rows = 分辨率上限（画面最多几行，整数倍放大铺满，不留黑边）；
+     *  look = 屏幕外观（none 最近邻 / crt-tv 电视）。 */
     readonly screen: {
         readonly pixelate: number;
+        readonly rows: number | null;
+        readonly look: "none" | "crt-tv";
     };
     /** 几何预处理挂点（小学的四个风格里像素描边用不到；剪纸 / Tron / 铸铜接边信息、零件、倒角时填）。 */
     readonly geometry: Readonly<Record<string, never>>;
@@ -86,6 +113,7 @@ export declare const PRESETS: {
             readonly edges: true;
             readonly colorize: "model";
             readonly flat: null;
+            readonly tron: null;
         };
         readonly light: {
             readonly background: null;
@@ -94,9 +122,12 @@ export declare const PRESETS: {
         };
         readonly post: {
             readonly pixelOutline: null;
+            readonly bloom: null;
         };
         readonly screen: {
             readonly pixelate: 1;
+            readonly rows: null;
+            readonly look: "none";
         };
         readonly geometry: {};
     };
@@ -113,6 +144,7 @@ export declare const PRESETS: {
             readonly edges: false;
             readonly colorize: "model";
             readonly flat: null;
+            readonly tron: null;
         };
         readonly light: {
             readonly background: 16639677;
@@ -128,9 +160,12 @@ export declare const PRESETS: {
                 readonly inner: true;
                 readonly width: 1;
             };
+            readonly bloom: null;
         };
         readonly screen: {
             readonly pixelate: 3;
+            readonly rows: null;
+            readonly look: "none";
         };
         readonly geometry: {};
     };
@@ -156,12 +191,14 @@ export declare const PRESETS: {
                 readonly lightAz: -30;
                 readonly lightEl: 60;
             };
+            readonly tron: null;
         };
         readonly light: {
             readonly background: 16248800;
             readonly ground: {
                 readonly color: 15721679;
                 readonly on: 1;
+                readonly grid: 0;
             };
             readonly ao: {
                 readonly amount: 0.8;
@@ -172,9 +209,64 @@ export declare const PRESETS: {
         };
         readonly post: {
             readonly pixelOutline: null;
+            readonly bloom: null;
         };
         readonly screen: {
             readonly pixelate: 1;
+            readonly rows: null;
+            readonly look: "none";
+        };
+        readonly geometry: {};
+    };
+    /** CRT Tron（实验室「霓虹」分类的门面，10-28 user「tron 复古当poster child」「霓虹除了tron复古都sunset吧」）。 */
+    readonly tron: {
+        readonly id: "tron";
+        readonly name: "CRT Tron";
+        readonly brief: "青线 + 辉光 + CRT 电视";
+        readonly note: "深色的面、青色发光的硬边（轮廓加粗、线芯发白）、被挡住的边淡淡透出来、青色地格；画面最多 240 行、整数倍放大进 CRT 电视（扫描线、荫罩、色度横糊、四角暗）；选中的面被风格认领成 Clu 橙。和实验室不一样：屏幕先不弯、没有街机机框、扫描线那道光不跑、被挡住的边是实线不是虚线";
+        readonly source: "实验室 硬边线 tron.js ·「青 Tron · 复古」（lineColor #3fe6ff、lineWidth 1、profile 1.3、lineCore 0.45、hiddenLines 0.12、faceColor #06141e、backColor #1c0b10、shade 0.55、facet 1、bloom 1.0、bloomRadius 0.7、rim 0.25、rimPower 3、background #010307、grid 0.55、vignette 0.55、glowCap 1.8、res ps1 = 240 行、screen crt-tv；Clu 橙 #ff9a2e 是 Opus 选的，待 user 调）";
+        readonly material: {
+            readonly shade: "tron";
+            readonly texFilter: "asset";
+            readonly edges: true;
+            readonly colorize: "model";
+            readonly flat: null;
+            readonly tron: {
+                readonly face: 398366;
+                readonly back: 1837840;
+                readonly shade: 0.55;
+                readonly rim: 0.25;
+                readonly rimPower: 3;
+                readonly line: 4187903;
+                readonly core: 0.45;
+                readonly widthPx: 1;
+                readonly profile: 1.3;
+                readonly hidden: 0.12;
+                readonly select: 16751150;
+            };
+        };
+        readonly light: {
+            readonly background: 66311;
+            readonly ground: {
+                readonly color: 66311;
+                readonly on: 0;
+                readonly grid: 0.55;
+            };
+            readonly ao: null;
+        };
+        readonly post: {
+            readonly pixelOutline: null;
+            readonly bloom: {
+                readonly amount: 1;
+                readonly radius: 0.7;
+                readonly cap: 1.8;
+                readonly vignette: 0.55;
+            };
+        };
+        readonly screen: {
+            readonly pixelate: 1;
+            readonly rows: 240;
+            readonly look: "crt-tv";
         };
         readonly geometry: {};
     };

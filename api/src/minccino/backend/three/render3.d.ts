@@ -87,6 +87,9 @@ export declare class Renderer3 implements Backend {
     private pixelScreen;
     private aoBaker;
     private paper;
+    private tron;
+    private lastTarget;
+    private bloom;
     private aoSeen;
     private aoBaked;
     private aoChangedAt;

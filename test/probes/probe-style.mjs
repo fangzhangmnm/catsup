@@ -36,6 +36,8 @@ const r = await page.evaluate(() => {
   const xr = r3.renderer.xr, was = xr.isPresenting; xr.isPresenting = true;
   out.xrPasses = r3.passes().map((p) => p.id).join(",");
   xr.isPresenting = was;
+  // CRT Tron：地面（地格）→ 模型 → 辉光那遍 → 辉光 → 合成 → CRT 放大；风格那条路的显存把辉光图算上
+  r3.setPreset("tron"); e.draw(); out.tron = order(); out.tronVram = r3.lastMeasurement.vramMb;
   // 剪纸：遮蔽第一次立刻烘；改了模型马上画 = 不烘（影子停在上一份）
   r3.setPreset("papercut"); e.draw(); out.paper = order(); out.bake1 = r3.perf.count.aoBake ?? 0;
   e.commitOp({ op: "addEdges", at, segs: [[P(2, 0, 0), P(3, 0, 0)], [P(3, 0, 0), P(3, 1, 0)], [P(3, 1, 0), P(2, 1, 0)], [P(2, 1, 0), P(2, 0, 0)]] }); e.draw();
@@ -52,6 +54,8 @@ check(r.styledDraws >= 3, `风格那条路的 draw call 把几遍都算上了：
 check(r.thumbSame, "缩略图画白模：风格开着截的 = 白模时截的，逐字节一样");
 check(r.afterThumb.includes("upscale"), `截完缩略图主视图还是风格：${r.afterThumb}`);
 check(!r.xrPasses.includes("upscale") && r.xrPasses.startsWith("scene,grid"), `XR 会话里只排白模：${r.xrPasses}`);
+check(["ground", "scene", "glow", "bloom", "composite", "upscale", "grid", "overlay"].every((x) => r.tron.split(",").includes(x)) && r.tron.indexOf("composite") < r.tron.indexOf("upscale") && r.tron.indexOf("bloom") < r.tron.indexOf("composite"), `CRT Tron = 地面 / 模型 / 辉光那遍 → 辉光 → 合成 → 放大：${r.tron}`);
+check(r.tronVram > 0, `Tron 的显存估算有数：${r.tronVram?.toFixed?.(2)} MB`);
 check(r.paper === "aoBake,ground,scene,grid,overlay", `剪纸 = 遮蔽 → 地面 → 模型追加 → 网格 / 叠加层：${r.paper}`);
 check(r.bake1 === 1, `剪纸第一次就烘遮蔽：${r.bake1} 次`);
 check(r.bake2 === 1, `改了模型马上画不重烘（拖着改的时候不烘）：${r.bake2} 次`);

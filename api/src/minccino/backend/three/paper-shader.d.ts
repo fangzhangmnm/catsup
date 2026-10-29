@@ -24,7 +24,18 @@ export declare class PaperMaterials {
     } | null, aoReady: boolean, ground: {
         color: number;
         on: number;
-    } | null, background: number, cam: any): void;
+        grid: number;
+    } | null, background: number, cam: any, grid?: {
+        line: number;
+        r: number;
+        fade: {
+            x: number;
+            y: number;
+            z: number;
+        };
+    } | null): void;
+    /** 辉光那遍：地面只出地格的光。 */
+    setGlowPass(on: boolean): void;
     hide(): void;
     dispose(): void;
 }

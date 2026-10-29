@@ -49,6 +49,8 @@ import { PRESETS, isStyled, presetPasses, type Preset, type PresetId } from "../
 import { PixelScreen } from "./screen-pixel.ts";
 import { AoBaker } from "./ao-bake.ts";
 import { PaperMaterials } from "./paper-shader.ts";
+import { TronMaterials } from "./tron-shader.ts";
+import { Bloom } from "./bloom.ts";
 
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
@@ -99,7 +101,7 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; /** 选中 / 悬停的面（同一个节点、同一个材质、和面本身同一组三角，画在后面 = 替换颜色；2026-10-27 Opus 5.5）。 */ sel: any; /** 上次高亮的键（overlay-faces.ts 按它判要不要重建）。 */ selKey: string; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
+interface SlotNodes { root: any; plain: any; /** 选中 / 悬停的面（同一个节点、同一个材质、和面本身同一组三角，画在后面 = 替换颜色；2026-10-27 Opus 5.5）。 */ sel: any; /** 上次高亮的键（overlay-faces.ts 按它判要不要重建）。 */ selKey: string; /** 风格认领选中时的材质（Tron）；null = 跟面同一个。 */ selMat: any; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
 
 // ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
 
@@ -242,6 +244,9 @@ export class Renderer3 implements Backend {
   private pixelScreen: PixelScreen | null = null;      // 风格那条路的小图 + 描边 + 放大（第一次用到才建）
   private aoBaker: AoBaker | null = null;              // 世界空间遮蔽（剪纸的多重阴影；第一次用到才建）
   private paper: PaperMaterials | null = null;         // 平涂的面材质 + 地面那一遍
+  private tron: TronMaterials | null = null;           // CRT Tron 的面 / 线材质（第一次用到才建）
+  private lastTarget: Vec3 = { x: 0, y: 0, z: 0 };     // 视野中心（正交下 Tron 地格的淡出按它）
+  private bloom: Bloom | null = null;                  // 辉光（后处理）
   private aoSeen = ""; private aoBaked = ""; private aoChangedAt = 0; private aoTimer: ReturnType<typeof setTimeout> | null = null;
   /** 后端自己想再画一帧（遮蔽停手后重烘好了）：app 层接 editor.draw。 */
   onRedrawWanted: (() => void) | null = null;
@@ -568,7 +573,7 @@ export class Renderer3 implements Backend {
     // ---- 视图对象 + frame graph（步 4）：现状 = 四组往一张画布上追加画的 pass（膜 / 边、地面网格、叠加层、X 光），还是 three 的一个渲染调用；
     //      规划器只决定哪几组存在（X 光关着 = 那条 pass 不在表里，不是画了再藏）。分目标的 pass（泛光 / 描边 / 整数倍放大）等后处理落地。
     cam3.updateMatrixWorld();
-    const eye = cam.eye();
+    const eye = cam.eye(); this.lastTarget = cam.target;
     this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
     this.framePreset = this.currentPreset();   // XR / 缩略图走白模
     this.lastPlan = planFrame(this.passes(), ["frame"]);
@@ -583,6 +588,7 @@ export class Renderer3 implements Backend {
     const styled = this.lastPlan.order.includes("upscale");   // 这一帧走风格那条路（规划器说了算：XR / 截图时它不在表里）
     this.unlitU.value = this.framePreset.material.shade === "none";
     this.ensurePaper();
+    if (this.framePreset.material.tron && !this.tron) this.tron = new TronMaterials(DEPTH.face, DEPTH.faceOther);
     const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}:${this.framePreset.id}`;
     if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
     this.syncPaper(cam3);   // 平涂 / 地面 / 遮蔽（剪纸）：没用到 = 地面藏着、什么都不建
@@ -614,7 +620,7 @@ export class Renderer3 implements Backend {
     else { info3.autoReset = false; info3.reset(); try { this.renderStyled(cam3); } finally { info3.autoReset = true; } }
     // ---- 血槽位（步 7）：三个数 + 预算核对。显存 = 块的显卡副本 + 贴图的估算（three 不报字节数）+ 风格的小图 ----
     const info = info3?.render;
-    let bytes = (styled && this.pixelScreen ? this.pixelScreen.bytes() : 0) + (this.framePreset.light.ao && this.aoBaker ? this.aoBaker.bytes() : 0);
+    let bytes = (styled && this.pixelScreen ? this.pixelScreen.bytes() : 0) + (this.framePreset.light.ao && this.aoBaker ? this.aoBaker.bytes() : 0) + (this.framePreset.post.bloom && this.bloom ? this.bloom.bytes() : 0);
     for (const g of this.chunkGpus.values()) for (const a of Object.values("attrs" in g ? g.attrs : g.bufs) as any[]) bytes += a.array?.byteLength ?? 0;
     for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
     const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
@@ -654,7 +660,8 @@ export class Renderer3 implements Backend {
     }
     cam3.updateMatrixWorld();
     this.paper.sync(p.material.flat ?? { base: PALETTE.face, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 0 },
-      L.ao, !!sphere && this.aoBaked !== "", L.ground, L.background ?? PALETTE.background, cam3);
+      L.ao, !!sphere && this.aoBaked !== "", L.ground, L.background ?? PALETTE.background, cam3,
+      p.material.tron && L.ground?.grid ? { line: p.material.tron.line, r: sphere?.r ?? 1, fade: this.lastView?.camera.kind === "ortho" ? this.lastTarget : (this.lastView?.camera.eye ?? { x: 0, y: 0, z: 0 }) } : null);   // Tron 地格：场景半径 = 1 格；淡出按到眼（正交按到视野中心）
   }
 
   /**
@@ -664,7 +671,7 @@ export class Renderer3 implements Backend {
    */
   private renderStyled(cam3: any): void {
     const p = this.framePreset, W = this.flatRes.w, H = this.flatRes.h;
-    const k = Math.max(1, Math.round(p.screen.pixelate * this.dpr));
+    const k = p.screen.rows ? Math.max(1, Math.floor(H / p.screen.rows)) : Math.max(1, Math.round(p.screen.pixelate * this.dpr));   // 行数上限：整数倍铺满、不留黑边
     const ps = (this.pixelScreen ??= new PixelScreen());
     const low = ps.prepare(W, H, k), target = this.renderer.getRenderTarget();
     const bg = this.scene.background, mask = cam3.layers.mask, auto = this.renderer.autoClear;
@@ -674,10 +681,23 @@ export class Renderer3 implements Backend {
       this.scene.background = null; this.renderer.setClearColor(0x000000, 0);
       cam3.layers.mask = 1 | (1 << GROUND_LAYER);   // 模型 + 风格的地面（叠加层那一层后面单画）
       cam3.setViewOffset(W, H, 0, H - ps.h * k, ps.w * k, ps.h * k);
+      if (p.material.tron && this.tron) this.tron.sync(p.material.tron, H / this.dpr / ps.h);   // 线宽按小图的像素（LineSegments2 按画布 CSS 视口算，见 tron-shader.ts 头）
       this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3);
-      cam3.clearViewOffset();
-      // ② ③ 描边 + 放大（写回深度）
-      ps.finish(this.renderer, target, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera });
+      if (p.post.bloom) {
+        // 辉光那遍：同一个场景再画一遍进半精度的辉光图（面只出轮廓光、线全色、被挡的边 × 0.4、地格的光）
+        const bl = (this.bloom ??= new Bloom()); bl.prepare(ps.w, ps.h);
+        this.tron?.setGlowPass(true); this.paper?.setGlowPass(true);
+        try { this.renderer.setRenderTarget(bl.glow); this.renderer.render(this.scene, cam3); } finally { this.tron?.setGlowPass(false); this.paper?.setGlowPass(false); }
+        cam3.clearViewOffset();
+        // ② 辉光合成（后处理挂点）③ 放大回画布（屏幕一刀：CRT 电视）
+        bl.run(this.renderer, low.texture, ps.postTarget, p.post.bloom);
+        ps.upscale(this.renderer, target, "post", p.screen.look);
+      } else {
+        cam3.clearViewOffset();
+        // ② ③ 描边 + 放大（写回深度）
+        ps.outline(this.renderer, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera });
+        ps.upscale(this.renderer, target, "post", p.screen.look);
+      }
       // ④ 叠加层那一层：不清屏，按原分辨率画在放大好的画面上
       this.renderer.autoClear = false; cam3.layers.mask = 1 << OVERLAY_LAYER;
       this.renderer.setRenderTarget(target); this.renderer.render(this.scene, cam3);
@@ -819,7 +839,10 @@ export class Renderer3 implements Backend {
       const pb = byPool.get(pl.pool), dimmed = pl.dim;
       // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
       const paper = this.framePreset.material.shade === "flat" ? this.paper : null;   // 平涂（剪纸）：纸的那组材质，深度偏移档照旧
-      n.plain.material = paper ? paper.face(pl.singleSided ? "front" : "double", pl.active, false) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
+      const tron = this.framePreset.material.shade === "tron" ? this.tron : null;      // CRT Tron：深色面 + 青线；选中面认领成橙色
+      const fside = pl.singleSided ? "front" : "double";
+      n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
+      n.selMat = tron ? tron.face(fside, pl.active, false, true) : null;
       const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
       n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
       let ti = 0;
@@ -827,7 +850,7 @@ export class Renderer3 implements Backend {
         if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
         if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : this.texMatFor(gf.mat!, gf.side!);   // 一件一色印不出贴图：贴图面 = 纸本色
+        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : this.texMatFor(gf.mat!, gf.side!);   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
         slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
         ti++;
       }
@@ -836,7 +859,11 @@ export class Renderer3 implements Backend {
       const L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && this.framePreset.material.edges;   // 风格可以不画模型的线稿（像素描边）；X 光的线照画
       if (this.lineStyle === "thick") { n.thick.geometry = hasL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
       else { n.pixel.geometry = hasL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
-      const xr = this.xrayPass && hasL;
+      n.thick.material = tron ? tron.lineThick : this.edgeMat; n.pixel.material = tron ? tron.linePixel : this.pixelMat;
+      // 被挡住的边：Tron 拿 X 光那两个节点（同一份线几何）换成「深度反测 + 半透明」画在模型那一层；别的风格 = X 光（叠加层那一层、不做深度测试）
+      const xr = (this.xrayPass || !!tron) && hasL, xLayer = tron ? 1 : 1 << OVERLAY_LAYER;
+      n.xthick.layers.mask = xLayer; n.xpixel.layers.mask = xLayer;
+      n.xthick.material = tron ? tron.hiddenThick : this.xrayThickMat; n.xpixel.material = tron ? tron.hiddenPixel : this.xrayPixelMat;
       n.xthick.geometry = xr && this.lineStyle === "thick" ? n.thick.geometry : this.emptyLineGeo; n.xthick.visible = xr && this.lineStyle === "thick";
       n.xpixel.geometry = xr && this.lineStyle !== "thick" ? n.pixel.geometry : this.emptyGeo; n.xpixel.visible = xr && this.lineStyle !== "thick";
     }
@@ -856,7 +883,7 @@ export class Renderer3 implements Backend {
     const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3; xthick.layers.set(OVERLAY_LAYER);
     root.add(plain); root.add(sel); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
-    return { root, plain, sel, selKey: "\u0000", tex: [], pixel, thick, xpixel, xthick, gen: 0 };
+    return { root, plain, sel, selKey: "\u0000", selMat: null, tex: [], pixel, thick, xpixel, xthick, gen: 0 };
   }
   private texMatFor(mat: MaterialRef, side: ChunkSide = "double"): any {
     let bySide = this.texMats.get(mat);

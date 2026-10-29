@@ -3,6 +3,8 @@
 //   ① CatsUp 有正交相机：内部深度跳变的「按对面那格外推」在透视下用 1/z（屏幕上仿射）、正交下用 z 本身（也仿射）；透视那支和实验室逐字一样。
 //   ② 背景格：实验室靠清屏色，这里小图清成全零、背景色在这遍补上（渲染目标里 three 不给背景做色彩换算，自己补最稳）。
 // 放大那遍顺手把小图的深度写回画布（gl_FragDepth）：之后按原分辨率画的叠加层（网格、吸附、选中边）照样被模型挡。
+// 放大两种外观（屏幕一刀）：none = 最近邻；crt-tv = 实验室 lab/app.js SCREEN_FS 的 CRT 电视（复合视频的色度横糊、电子束横向连续、荧光粉的晕、
+// 越亮越粗的扫描线、荫罩三色条、四角暗、关着的荧光屏是深灰）——**弧面先不弯**：叠加层和拾取还没接屏幕的逆变换（不变量 6），弯了就对不上。
 // created 2026-10-29 by Claude Opus 5.5（Tron 纪元第 1 步）
 import * as THREE from "three";
 import type { PixelOutlinePost } from "../../preset/index.ts";
@@ -54,12 +56,36 @@ const OUTLINE_FS = /* glsl */`
 const UPSCALE_FS = /* glsl */`
   precision highp float;
   uniform sampler2D uCol, uDepth;
-  uniform int uK;
+  uniform int uK, uLook;
+  uniform vec2 uSrcSize, uDstSize;
   layout(location = 0) out vec4 oColor;
+  vec3 px(ivec2 q) { return texelFetch(uCol, clamp(q, ivec2(0), ivec2(uSrcSize) - 1), 0).rgb; }
+  float Y(vec3 c) { return dot(c, vec3(0.299, 0.587, 0.114)); }
   void main() {
-    ivec2 p = ivec2(gl_FragCoord.xy) / uK;
-    oColor = texelFetch(uCol, p, 0);
-    gl_FragDepth = texelFetch(uDepth, p, 0).r;
+    ivec2 i = ivec2(gl_FragCoord.xy) / uK;
+    gl_FragDepth = texelFetch(uDepth, i, 0).r;
+    vec3 col = px(i);
+    if (uLook == 1) {   // CRT 电视（实验室 SCREEN_FS mode 1，去掉弧面）
+      vec2 fc = gl_FragCoord.xy, f = fract(fc / float(uK)); float scale = float(uK);
+      vec3 l = px(i - ivec2(1, 0)), r = px(i + ivec2(1, 0));
+      vec3 blur = (l + 2.0 * col + r) * 0.25;
+      col = vec3(Y(col)) + (blur - vec3(Y(blur)));                                   // 复合视频：色度横向糊开
+      col = mix(col, f.x < 0.5 ? l : r, 0.45 * 0.5 * smoothstep(0.0, 0.5, abs(f.x - 0.5)));   // 电子束横向连续
+      float yS = Y(col);
+      vec3 lc = pow(max(col, 0.0), vec3(2.2));                                       // 下面按线性光算
+      vec3 halo = pow((l + r + px(i + ivec2(0, 1)) + px(i - ivec2(0, 1))) * 0.25, vec3(2.2));
+      lc += max(halo - lc, 0.0) * 0.18;                                              // 荧光粉的一圈晕
+      float beam = mix(0.3, 0.8, smoothstep(0.12, 0.85, yS));
+      float scan = exp(-pow((f.y - 0.5) / beam, 2.0) * 1.2), scanMean = min(1.0, beam * 1.62);
+      lc *= mix(1.0, scan / scanMean, 0.25 * smoothstep(1.5, 3.0, scale));           // 扫描线：越亮越粗，总亮度不变
+      int m = int(fc.x) % 3;
+      vec3 mask = m == 0 ? vec3(1.0, 0.7, 0.7) : m == 1 ? vec3(0.7, 1.0, 0.7) : vec3(0.7, 0.7, 1.0);
+      if ((int(fc.y) % 2) == 1) mask = mask.gbr;
+      lc *= mix(vec3(1.0), mask / 0.8, 0.12);                                        // 荫罩
+      vec2 v = fc / uDstSize * 2.0 - 1.0; lc *= 1.0 - 0.3 * dot(v, v) * 0.5;          // 四角暗三成
+      col = pow(lc, vec3(1.0 / 2.2)) * 0.985 + 0.015;                                // 关着的荧光屏是深灰
+    }
+    oColor = vec4(col, 1.0);
   }`;
 
 const srgbVec = (hex: number): any => new THREE.Vector3(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
@@ -84,7 +110,7 @@ export class PixelScreen {
     });
     this.upscaleMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: UPSCALE_FS, depthTest: true, depthFunc: THREE.AlwaysDepth, depthWrite: true,
-      uniforms: { uCol: { value: null }, uDepth: { value: null }, uK: { value: 1 } },
+      uniforms: { uCol: { value: null }, uDepth: { value: null }, uK: { value: 1 }, uLook: { value: 0 }, uSrcSize: { value: new THREE.Vector2() }, uDstSize: { value: new THREE.Vector2() } },
     });
     this.quad = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), this.outlineMat);
     this.quad.frustumCulled = false;
@@ -103,8 +129,16 @@ export class PixelScreen {
     this.k = k;
     return this.low;
   }
-  /** 小图 → 描边 → 放大进 `target`（null = 画布），深度一起写回。 */
+  /** 描边后的那张小图（辉光合成也写进它）。 */
+  get postTarget(): any { return this.post; }
+  get lowTarget(): any { return this.low; }
+  /** 小图 → 描边（或只补背景）→ 放大进 `target`（null = 画布），深度一起写回。 */
   finish(renderer: any, target: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean }): void {
+    this.outline(renderer, o);
+    this.upscale(renderer, target, "post", "none");
+  }
+  /** 小图 → 描边（后处理挂点）→ post。 */
+  outline(renderer: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean }): void {
     const u = this.outlineMat.uniforms, pl = o.outline;
     u.uCol.value = this.low.texture; u.uDepth.value = this.low.depthTexture;
     u.uBg.value.copy(srgbVec(o.background)); u.uOn.value = !!pl;
@@ -112,8 +146,12 @@ export class PixelScreen {
     u.uNear.value = o.near; u.uFar.value = o.far; u.uOrtho.value = o.ortho;
     this.quad.material = this.outlineMat;
     renderer.setRenderTarget(this.post); renderer.render(this.quadScene, this.quadCam);
+  }
+  /** 放大回 target（屏幕一刀）：src = 小图本身或 post；外观 none / crt-tv；深度取小图的写回。 */
+  upscale(renderer: any, target: any, src: "low" | "post", look: "none" | "crt-tv"): void {
     const v = this.upscaleMat.uniforms;
-    v.uCol.value = this.post.texture; v.uDepth.value = this.low.depthTexture; v.uK.value = this.k;
+    v.uCol.value = (src === "post" ? this.post : this.low).texture; v.uDepth.value = this.low.depthTexture; v.uK.value = this.k;
+    v.uLook.value = look === "crt-tv" ? 1 : 0; v.uSrcSize.value.set(this.w, this.h); v.uDstSize.value.set(this.w * this.k, this.h * this.k);
     this.quad.material = this.upscaleMat;
     renderer.setRenderTarget(target); renderer.render(this.quadScene, this.quadCam);
   }

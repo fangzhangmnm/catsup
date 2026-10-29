@@ -19,6 +19,8 @@ describe("minccino 预设 = 数据", () => {
     eq(planFrame(presetPasses(PRESETS.pixelOutline, false), ["frame"]).order.join(","), "scene,pixelOutline,upscale,grid,overlay");
     assert(!isStyled(PRESETS.papercut), "剪纸是原生分辨率、没有后处理：不走屏幕那条路");
     eq(planFrame(presetPasses(PRESETS.papercut, false), ["frame"]).order.join(","), "aoBake,ground,scene,grid,overlay");   // 遮蔽先烘、地面先画、模型追加
+    assert(isStyled(PRESETS.tron), "CRT Tron 走屏幕那条路（240 行 + CRT）");
+    eq(planFrame(presetPasses(PRESETS.tron, false), ["frame"]).order.join(","), "ground,scene,glow,bloom,composite,upscale,grid,overlay");   // 辉光那遍 → 辉光 → 合成 → CRT 放大
   });
   it("一件一色 / 平涂 / 遮蔽：要平涂的预设一定给了平涂参数；遮蔽的长度都是正的", () => {
     for (const id of PRESET_IDS) {

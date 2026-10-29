@@ -62,21 +62,29 @@ const GROUND_FS = /* glsl */`
   precision highp float;
   in vec2 vNdc;
   uniform mat4 uInvVP;
-  uniform vec3 uBg, uGround;
-  uniform float uGroundOn, uAoAmt;
-  uniform bool uAoOn;
+  uniform vec3 uBg, uGround, uLine, uFade;
+  uniform float uGroundOn, uAoAmt, uGrid, uGridR;
+  uniform bool uAoOn, uGlowPass;
   layout(location = 0) out vec4 oColor;
   ${AO_GLSL}
+  // Tron 的地格（实验室 tron.js BG_FS）：小格 1/4、大格 1（场景半径 = 1），按到相机的距离淡出
+  float gridLine(vec2 g) { vec2 fw = max(fwidth(g), vec2(1e-4)); vec2 a = abs(fract(g - 0.5) - 0.5) / fw; return (1.0 - min(min(a.x, a.y), 1.0)) * (1.0 - smoothstep(0.2, 0.7, max(fw.x, fw.y))); }
   void main() {
     vec4 a = uInvVP * vec4(vNdc, -1.0, 1.0), b = uInvVP * vec4(vNdc, 1.0, 1.0);
     vec3 p0 = a.xyz / a.w, d = b.xyz / b.w - p0;
-    vec3 col = uBg;
+    vec3 g = p0 + d * (d.z < -1e-9 ? -p0.z / d.z : 0.0);
+    vec2 q = g.xy / uGridR;
+    float gSmall = gridLine(q * 4.0), gBig = gridLine(q);   // 导数在分支外面求
+    vec3 col = uBg, glow = vec3(0.0);
     if (d.z < -1e-9 && p0.z > 0.0) {   // 往下看、起点在地面以上：打到 z = 0
-      vec3 g = p0 + d * (-p0.z / d.z);
       col = mix(uBg, uGround, uGroundOn);
       if (uAoOn) col *= mix(1.0, aoAt(g, vec3(0.0, 0.0, 1.0)), uAoAmt);   // 模型压在地上的多重阴影
+      if (uGrid > 0.0) {
+        float al = max(gSmall * 0.3, gBig) * exp(-0.22 * length(g - uFade) / uGridR) * uGrid;
+        col = mix(col, uLine, al * 0.55); glow = uLine * al * 0.3;
+      }
     }
-    oColor = vec4(col, 1.0);
+    oColor = uGlowPass ? vec4(glow, 1.0) : vec4(col, 1.0);
   }`;
 
 const srgb3 = (hex: number): any => new THREE.Vector3(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255);
@@ -88,11 +96,11 @@ export class PaperMaterials {
   private readonly aoGround = { uAoRadius: { value: 0.2 }, uAoSoft: { value: 1 }, uAoAmt: { value: 0 }, uAoOn: { value: false } };
   private readonly mats = new Map<string, any>();
   readonly ground: any;
-  private readonly groundU: { uInvVP: { value: any }; uBg: { value: any }; uGround: { value: any }; uGroundOn: { value: number } };
+  private readonly groundU: { uInvVP: { value: any }; uBg: { value: any }; uGround: { value: any }; uGroundOn: { value: number }; uLine: { value: any }; uFade: { value: any }; uGrid: { value: number }; uGridR: { value: number }; uGlowPass: { value: boolean } };
   /** @param defaultFace 白模没上色的面那个灰（0xRRGGBB；认出来换成纸色） */
   constructor(private readonly ao: AoUniforms, private readonly depthFace: number, private readonly depthOther: number, defaultFace: number) {
     this.shade.uDefaultFace.value.copy(srgb3(defaultFace));
-    this.groundU = { uInvVP: { value: new THREE.Matrix4() }, uBg: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3() }, uGroundOn: { value: 1 } };
+    this.groundU = { uInvVP: { value: new THREE.Matrix4() }, uBg: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3() }, uGroundOn: { value: 1 }, uLine: { value: new THREE.Vector3() }, uFade: { value: new THREE.Vector3() }, uGrid: { value: 0 }, uGridR: { value: 1 }, uGlowPass: { value: false } };
     const mat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: GROUND_VS, fragmentShader: GROUND_FS, depthTest: false, depthWrite: false, uniforms: { ...this.groundU, ...this.aoGround, ...ao } });
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), mat);
     this.ground.frustumCulled = false; this.ground.renderOrder = -100; this.ground.visible = false;
@@ -113,7 +121,8 @@ export class PaperMaterials {
     return m;
   }
   /** 每帧：光（视空间，跟着相机）、参数、遮蔽开没开；地面的逆矩阵。 */
-  sync(f: FlatShade, ao: { amount: number; radius: number; groundRadius: number; soft: number } | null, aoReady: boolean, ground: { color: number; on: number } | null, background: number, cam: any): void {
+  sync(f: FlatShade, ao: { amount: number; radius: number; groundRadius: number; soft: number } | null, aoReady: boolean, ground: { color: number; on: number; grid: number } | null, background: number, cam: any,
+    grid: { line: number; r: number; fade: { x: number; y: number; z: number } } | null = null): void {
     const az = f.lightAz * Math.PI / 180, el = f.lightEl * Math.PI / 180;
     this.shade.uLight.value.set(Math.sin(az) * Math.cos(el), Math.sin(el), Math.cos(az) * Math.cos(el));   // 光跟着相机走（实验室原式，视空间）
     this.shade.uShadowTint.value.copy(srgb3(f.shadowTint)); this.shade.uBase.value.copy(srgb3(f.base)); this.shade.uSteps.value = f.steps; this.shade.uSoft.value = f.soft;
@@ -128,7 +137,12 @@ export class PaperMaterials {
     this.groundU.uBg.value.copy(srgb3(background));
     this.groundU.uGround.value.copy(srgb3(ground?.color ?? background)); this.groundU.uGroundOn.value = ground ? ground.on : 0;
     this.groundU.uInvVP.value.multiplyMatrices(cam.projectionMatrix, cam.matrixWorldInverse).invert();
+    this.groundU.uGrid.value = ground && grid ? ground.grid : 0;
+    if (grid) { this.groundU.uLine.value.copy(srgb3(grid.line)); this.groundU.uGridR.value = Math.max(grid.r, 1e-6); this.groundU.uFade.value.set(grid.fade.x, grid.fade.y, grid.fade.z); }
+    this.groundU.uGlowPass.value = false;
   }
+  /** 辉光那遍：地面只出地格的光。 */
+  setGlowPass(on: boolean): void { this.groundU.uGlowPass.value = on; }
   hide(): void { this.ground.visible = false; }
   dispose(): void { for (const m of this.mats.values()) m.dispose(); this.ground.material.dispose(); this.ground.geometry.dispose(); }
 }

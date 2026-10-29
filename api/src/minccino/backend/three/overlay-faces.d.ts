@@ -4,7 +4,8 @@ import type { MaterialRef } from "../../contract/stream.ts";
 export interface SelHost {
     sel: any;
     plain: any;
-    selKey: string;
+    selKey: string; /** 风格认领选中时给的材质（Tron = Clu 橙）；null = 跟面同一个。 */
+    selMat?: any;
 }
 export declare class OverlayFacesDrawer {
     private readonly scene;
