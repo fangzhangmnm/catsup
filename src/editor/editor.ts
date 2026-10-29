@@ -48,7 +48,7 @@ import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
-import { POOL_AXES_PX, Renderer3, type LineStyle, type ViewState } from "./render3.ts";
+import { POOL_AXES_PX, Renderer3, overlayLines, type LineStyle, type ViewState } from "./render3.ts";
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
@@ -1425,7 +1425,7 @@ export class Editor {
     } finally { cam.halfH = h0; cam.fovY = f0; }
   }
   private cleanState(): ViewState {
-    return { selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(), hoverEdge: null, hoverFace: null, preview: null, snap: null, snapAnchor: null, revision: this._revision, dimSlots: null, handles: null };
+    return { selectionEdges: new Set(), selectionFaces: new Set(), scrubEdges: new Set(), hoverEdge: null, hoverFace: null, snap: null, snapAnchor: null, revision: this._revision, dimSlots: null, handles: null };
   }
   clearAll(): void {
     return this.step((pass) => {
@@ -3715,7 +3715,7 @@ export class Editor {
       warnEdges: this.inspectHighlights(view),   // 修复面板「检查」：微折软边（DT9）
       hoverEdge: this.hoverEdge !== null ? g(this.hoverEdge) : null,
       hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
-      preview: null,
+      overlay: overlayLines,   // 叠加层线段族（editor/overlay-lines.ts；引擎给量尺）
       snap: this.snapInfo,
       snapAnchor: this.anchor3,
       revision: this._revision,

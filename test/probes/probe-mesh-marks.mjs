@@ -49,7 +49,7 @@ const res = await page.evaluate(async () => {
   await closeAll(); await openObj(); out.one.smooth = smoothRow(); await closeAll();
   // ②
   out.two = { clicked: await pick("默认平滑", "mesh.smooth.smooth", "object") };
-  out.two.mode = m().smoothDefault.mode; out.two.softLines = !!e.r3.softLines?.visible;
+  out.two.mode = m().smoothDefault.mode; out.two.softLines = e.r3.overlayVisible("soft");
   await closeAll();
   // ③
   e.undo(); await sleep(30);

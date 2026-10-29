@@ -49,8 +49,8 @@ describe("minccino 守卫 ② 引擎零 three", () => {
 
 describe("minccino 守卫 ③ 引擎不认识编辑器、零 DOM", () => {
   const FORBIDDEN = /^import[^;]*from\s+["']\.\.?\/(\.\.\/)*(editor|scene|kernel|mesh|app|format|player|controller)\//gm;
-  /** ③′ 过渡期棘轮：搬进来的 render3 还 import 内容层的条数（步 5 = 19；只准降，步 6 清零）。 */
-  const TRANSITIONAL: Readonly<Record<string, number>> = { "minccino/backend/three/render3.ts": 19 };
+  /** ③′ 过渡期棘轮：搬进来的 render3 还 import 内容层的条数（只准降，步 6 做完清零）。 */
+  const TRANSITIONAL: Readonly<Record<string, number>> = { "minccino/backend/three/render3.ts": 18 };   // 步 5 = 19 → 6a = 18（guide-pick 走了）
   it("不 import 编辑器 / 场景 / 内核 / app（过渡期名单除外）", () => {
     const bad = engine.filter((f) => !(f.rel in TRANSITIONAL) && FORBIDDEN.test(f.text)).map((f) => f.rel);
     assert(bad.length === 0, `引擎 import 了仓里的内容层：${bad.join(", ")}（引擎只认 contract/ 里自己的同形类型）`);

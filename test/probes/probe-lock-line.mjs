@@ -30,20 +30,20 @@ const res = await page.evaluate(async () => {
   e.setTool("move"); e.selectAll(); e.setAxisLock("z"); e.draw(); await sleep(30);
   const vs = m().verts(), mean = vs.reduce((acc, v) => { const w = L2W(m().pt(v)); return { x: acc.x + w.x / vs.length, y: acc.y + w.y / vs.length, z: acc.z + w.z / vs.length }; }, P(0, 0, 0));
   const g1 = e.lockGuide();
-  out.one = { n: g1?.length ?? 0, color: g1?.[0]?.color, ownZ: g1 ? near(g1[0].dir, ownZ) || near(g1[0].dir, { x: -ownZ.x, y: -ownZ.y, z: -ownZ.z }) : false, notWorldZ: g1 ? Math.abs(g1[0].dir.z) < 0.99 : false, throughMean: g1 ? near(g1[0].through, mean, 1e-6) : false, visible: !!e.r3.lockLinesObj?.visible };
+  out.one = { n: g1?.length ?? 0, color: g1?.[0]?.color, ownZ: g1 ? near(g1[0].dir, ownZ) || near(g1[0].dir, { x: -ownZ.x, y: -ownZ.y, z: -ownZ.z }) : false, notWorldZ: g1 ? Math.abs(g1[0].dir.z) < 0.99 : false, throughMean: g1 ? near(g1[0].through, mean, 1e-6) : false, visible: e.r3.overlayVisible("lockLines") };
   // ②
   { const corner = vs.map((v) => L2W(m().pt(v))).sort((p, q) => { const ey = e.cam.eye(); return Math.hypot(p.x - ey.x, p.y - ey.y, p.z - ey.z) - Math.hypot(q.x - ey.x, q.y - ey.y, q.z - ey.z); })[0], s0 = px(corner);
     fire("pointermove", s0.x, s0.y, 0); await sleep(10); fire("pointerdown", s0.x, s0.y, 1); await sleep(10);
     for (let i = 1; i <= 5; i++) { fire("pointermove", s0.x + 6 * i, s0.y - 9 * i, 1); await sleep(15); }
     e.draw(); await sleep(20);
     const g2 = e.lockGuide();
-    out.two = { n: g2?.length ?? 0, throughAnchor: g2 ? !near(g2[0].through, mean, 1e-3) : false, visible: !!e.r3.lockLinesObj?.visible };
+    out.two = { n: g2?.length ?? 0, throughAnchor: g2 ? !near(g2[0].through, mean, 1e-3) : false, visible: e.r3.overlayVisible("lockLines") };
     globalThis.__lockShotReady = true; await sleep(10);
     out.shotAt = { x: s0.x, y: s0.y };
     fire("pointerup", s0.x + 30, s0.y - 45, 0); await sleep(40); }
   // ③
   e.setAxisLock(null); e.draw(); await sleep(20);
-  out.three = { none: e.lockGuide() === null, hidden: !e.r3.lockLinesObj?.visible };
+  out.three = { none: e.lockGuide() === null, hidden: !e.r3.overlayVisible("lockLines") };
   // ④
   e.selectAll(); e.lockKey("z", true); e.draw(); await sleep(20);
   const g4 = e.lockGuide();

@@ -51,10 +51,11 @@ import type { Snap3 } from "../../../editor/pick.ts";
 import { cross3, dot3, sub3 } from "../../../kernel/geom.ts";
 import { type TexSide, buildFaceRec } from "../../../editor/pool-mesh.ts";
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
+import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
+import type { OverlayCtx, OverlayLines } from "../../overlay/index.ts";
 import type { Backend, BackendCaps } from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, planFrame, type Chunk, type PassDecl, type StreamProvider, type View } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）
 import type { ChunkStyle } from "../../../editor/stream-provider.ts";
-import { SPHERE_RINGS, circlePoints } from "../../../editor/guide-pick.ts";
 import type { RigPose } from "../../../player/player.ts";
 import type { Ray } from "../../../player/world-query.ts";
 
@@ -113,7 +114,6 @@ const SNAP_COLORS: Record<string, number> = {
   center: 0x2b6cb0,
   "pool-origin": 0x111111,
 };
-const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 /** 选中的点：圆点直径（CSS px）。 */
 const SEL_VERT_DOT_PX = 9;
 /** 自由建模里每个顶点画一个小点（user 10-27「自由建模模式应该能看到顶点和选择」）。CSS px。 */
@@ -126,13 +126,7 @@ export const POOL_AXES_PX = 22;
 export const LOCK_LINE_SPAN_PX = 2400;
 /** 平面 gizmo 的颜色（常态 / 悬停）。 */
 const GIZMO_COLOR = 0x2b6cb0, GIZMO_HOT = 0xd97706;
-/** 参考几何（0.11 尺规纪元）：参考线画到视野最远处（视觉上 = 无限；2026-10-26 以前写死 ±200 m），参考点画三轴小叉（像素尺寸）。 */
-const GUIDE_COLOR = 0x6b7280, GUIDE_SEL_COLOR = 0x2b6cb0, GUIDE_POINT_PX = 6;   // 选中 = 与选中膜同一个蓝（A31）
-/** A33 断口小垂线：半长 px + 颜色（提醒色，与参考线 / 充能区分）。 */
-/** A33 断口小垂线：半长 = 线宽 × TICK_K、颜色 = 边线色、粗细 = 边线（user 2026-10-24「首先应该黑色，其次应该小一点不显眼……线宽的多少倍……相当于线上面多一个鼓包这样，但是看得出是一个线头」；此前橙色、半长固定 5 px）。 */
-const TICK_K = 2;
 
-const AXIS_COLORS: Record<string, number> = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ, u: 0x888888, v: 0x888888, i: 0x111111 };
 const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
@@ -147,12 +141,8 @@ const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 
  */
 export const LINE_WEIGHTS: readonly number[] = [1, 1.5, 2, 3];
 const profileAddFor = (w: number): number => Math.min(w, 5 - w);   // 轮廓 ≈ 两倍粗，总宽不超过 5 设备像素
-const HINT_PX = 1.2;        // 吸附提示线宽
-const SOFT_EDGE_PX = 1;     // 自由建模里平滑边的线宽（CSS px；比棱细）
-const SOFT_EDGE_COLOR = 0x6e6e6e;   // 平滑边：比棱（edge 0x2a2a2a）淡，比面（0xd6d6d6）深得多——看得出来但不抢。v0.16.14 从 0x9a9a9a 调深（账本 UX29，user 10-28「自由建模里面的细线有点太淡了」）
 const MIRROR_COLOR = 0x8b5cf6;   // 中缝上的点（镜像面本身不画在模型上，2026-10-28；画在右上角视图 gizmo）：和「原点 / 对齐」同一个紫（「这里有一条看不见的规矩」）
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
-const ARC_PX = 2.5;
 const SNAP_MARKER_PX = 5;
 /** 网格：1 m 一格、±50 m（PC/VR 同一份；user 2026-09-07「vr 和 pc 的网格都是 1m，不应跟 branch」；无限/自适应网格 = A12）。 */
 const GRID_STEP = 1, GRID_N = 50;
@@ -182,7 +172,7 @@ export interface ViewState {
   warnEdges?: ReadonlySet<EdgeId> | null;
   hoverEdge: EdgeId | null;
   hoverFace: FaceId | null;
-  preview: GeomView | null;    // 影子副本（预演即提交；WYSIWYG 期间整场景画它）；2026-10-21 起编辑器直接递合成好的世界视图，此字段多为 null
+  preview?: GeomView | null;   // 影子副本（预演即提交；WYSIWYG 期间整场景画它）；2026-10-21 起编辑器直接递合成好的世界视图，此字段多为 null
   snap: Snap3 | null;
   snapAnchor: Pt3 | null;      // axis 锁的虚线起点
   /** checkpoint 代数（editor.revision）：几何缓存键的一部分。 */
@@ -243,6 +233,8 @@ export interface ViewState {
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
   /** 切割的刀线（上一个落点 → 光标）：永远画在最上面、不被几何挡（user 10-27「线还是需要画的，以及线不要被别的遮挡了。这样用户知道自己没退出刀」）；valid = 这一刀切得出来。 */
   knifeLine?: { a: Pt3; b: Pt3; valid: boolean } | null;
+  /** 叠加层线段族（步 6a）：编辑器按这一帧的 ViewState 和引擎给的量尺算线段（editor/overlay-lines.ts）；缺 = 没有。 */
+  overlay?: (view: ViewState, ctx: OverlayCtx) => readonly OverlayLines[];
 }
 
 /** 地面网格 = 一张 shader 平面（Blender 式；user 2026-10-24「根治，修……z-fight 加一个 z-offset」）：主线每 uStep、细线每 uStep/uSub，像素定宽（fwidth 抗锯齿），
@@ -363,17 +355,16 @@ export class Renderer3 implements Backend {
   private xrayPixelMat: any; private xrayThickMat: any; private xrayOverlayMat: any;
   private lineWeight = 1;                              // 设备像素；1 = 原生线
   private readonly profileAdd = { value: 1 };          // 轮廓线加粗（设备像素）；edgeMat 的 shader uniform
-  private hintLines: any;
+  private overlayLines!: OverlayLinesDrawer;
   private snapMarker: any;
-  private arcLines: any; private landingRing: any;
+  private landingRing: any;
   private handleMarkers: any[] = [];
-  private xgLines: any; private xgKey = ""; private xgSolids: any[] = [];   // 变换 gizmo（2026-10-26）
-  private protractorLines: any;
+  private xgSolids: any[] = [];   // 变换 gizmo（2026-10-26）
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
   private faceDots: any; private faceDotKey = "";
-  private lockLinesObj: any; private lockLinesKey = ""; private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private seamDots: any; private mirrorKey = ""; private capsuleLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
-  private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
+  private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private seamDots: any; private mirrorKey = ""; private gizmoQuad: any; private gizmoKey = "";
+  private faceKey = ""; private edgeKey = ""; private gridKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
   private scratchV = new THREE.Vector3();
@@ -446,25 +437,16 @@ export class Renderer3 implements Backend {
     // 定死覆盖层最后画；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。
     this.edgeLines.renderOrder = 2;
     this.scene.add(this.edgeLines);
-    // 吸附提示线（顶点色：轴色）
-    this.hintLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
-    this.hintLines.frustumCulled = false; this.hintLines.visible = false;
-    this.scene.add(this.hintLines);
+    // 叠加层线段族（步 6a）：材质按 LINE_STYLES 声明顺序建在这里 = 和以前各组线材质的创建顺序一致（three 画家排序平手按材质 id）
+    this.overlayLines = new OverlayLinesDrawer(this.scene, (px, o) => this.lineMat(px, o));
     // 吸附小球（单位球，按屏幕像素缩放；走深度测试）
     this.snapMarker = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
     this.snapMarker.visible = false;
     this.scene.add(this.snapMarker);
-    // teleport 弧线 + 落点环
-    this.arcLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(ARC_PX, { offset: true }));
-    this.arcLines.frustumCulled = false; this.arcLines.visible = false;
-    this.scene.add(this.arcLines);
+    // teleport 落点环（弧线归叠加层线段族）
     this.landingRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: TP_OK, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
     this.landingRing.renderOrder = 9; this.landingRing.visible = false;
     this.scene.add(this.landingRing);
-    // 放置的胶囊虚影：脚底圈 + 头顶圈 + 四根竖线（线，不被几何挡 = 落在墙后也看得见在哪；不画眼睛）
-    this.capsuleLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(ARC_PX, {}));
-    this.capsuleLines.material.depthTest = false; this.capsuleLines.frustumCulled = false; this.capsuleLines.visible = false; this.capsuleLines.renderOrder = 9;
-    this.scene.add(this.capsuleLines);
     // 缩放柄（14 个小方块，按屏幕像素定尺寸）：透视画、永远在最上面（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」——看不见就点不中）
     for (let i = 0; i < 14; i++) {
       const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x2e8b57, depthTest: false, depthWrite: false }));
@@ -472,24 +454,6 @@ export class Renderer3 implements Backend {
       this.scene.add(m);
       this.handleMarkers.push(m);
     }
-    // 量角器（圆环 + 刻度 + 参考线 + 当前角线）
-    this.protractorLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
-    this.protractorLines.frustumCulled = false; this.protractorLines.visible = false;
-    this.scene.add(this.protractorLines);
-    // 参考几何（0.11）+ 上下文轴：各一份粗线
-    this.guideLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
-    this.guideLines.frustumCulled = false; this.guideLines.visible = false;
-    this.scene.add(this.guideLines);
-    this.tapeLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
-    this.tapeLines.frustumCulled = false; this.tapeLines.visible = false;
-    this.scene.add(this.tapeLines);
-    this.knifeLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX + 0.5, { vertexColors: true }));
-    this.knifeLines.material.depthTest = false; this.knifeLines.material.depthWrite = false;   // 刀线不被几何挡
-    this.knifeLines.frustumCulled = false; this.knifeLines.visible = false; this.knifeLines.renderOrder = 10;
-    this.scene.add(this.knifeLines);
-    this.chargedLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
-    this.chargedLines.frustumCulled = false; this.chargedLines.visible = false;
-    this.scene.add(this.chargedLines);
     // 选中的点：实心圆点（屏幕像素大小、往相机拉一点不被自己的面吃掉）
     this.selVertDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Vector3(((PALETTE.edgeSelected >> 16) & 255) / 255, ((PALETTE.edgeSelected >> 8) & 255) / 255, (PALETTE.edgeSelected & 255) / 255) }, uSize: { value: SEL_VERT_DOT_PX } },   // 原样 sRGB 数值（ShaderMaterial 不做色彩空间换算；用 Color 会被转成线性、显得发暗）
@@ -514,10 +478,6 @@ export class Renderer3 implements Backend {
     }));
     this.faceDots.frustumCulled = false; this.faceDots.visible = false; this.faceDots.renderOrder = 5;
     this.scene.add(this.faceDots);
-    // 平滑边（自由建模）：细、淡、和面一样往后让（polygonOffset），被挡住的不露
-    this.softLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(SOFT_EDGE_PX, { offset: true, vertexColors: true }));
-    this.softLines.frustumCulled = false; this.softLines.visible = false;
-    this.scene.add(this.softLines);
     // 镜像面淡框（不被几何挡：知道镜像面在哪）+ 中缝上的点（镜像色的实心点，压在顶点小点上面）
     this.seamDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
       uniforms: { uColor: { value: new THREE.Vector3(((MIRROR_COLOR >> 16) & 255) / 255, ((MIRROR_COLOR >> 8) & 255) / 255, (MIRROR_COLOR & 255) / 255) }, uSize: { value: VERT_DOT_PX } },
@@ -526,42 +486,9 @@ export class Renderer3 implements Backend {
     }));
     this.seamDots.frustumCulled = false; this.seamDots.visible = false; this.seamDots.renderOrder = 3.5;
     this.scene.add(this.seamDots);
-    this.tickLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { offset: true, vertexColors: true }));
-    this.tickLines.frustumCulled = false; this.tickLines.visible = false;
-    this.scene.add(this.tickLines);
-    // DT15 选中的组 / 组件的轴：透视（不做深度测试、最后画）——轴埋在几何里也看得见
-    this.poolAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
-    this.poolAxesLines.material.depthTest = false; this.poolAxesLines.material.depthWrite = false;
-    this.poolAxesLines.renderOrder = 10; this.poolAxesLines.frustumCulled = false; this.poolAxesLines.visible = false;
-    this.scene.add(this.poolAxesLines);
-    this.emptyAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
-    this.emptyAxesLines.material.depthTest = false; this.emptyAxesLines.material.depthWrite = false;
-    this.emptyAxesLines.renderOrder = 10; this.emptyAxesLines.frustumCulled = false; this.emptyAxesLines.visible = false;
-    this.scene.add(this.emptyAxesLines);
-    this.originAxesLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
-    this.originAxesLines.material.depthTest = false; this.originAxesLines.material.depthWrite = false;
-    this.originAxesLines.material.transparent = true; this.originAxesLines.material.opacity = 0.4;
-    this.originAxesLines.renderOrder = 10; this.originAxesLines.frustumCulled = false; this.originAxesLines.visible = false;
-    this.scene.add(this.originAxesLines);
-    // 锁看得见（2026-10-28 晚）：轴色长线、透视（被几何挡住也看得见）、比选中组的小三轴再晚画
-    this.lockLinesObj = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX, { vertexColors: true }));
-    this.lockLinesObj.material.depthTest = false; this.lockLinesObj.material.depthWrite = false;
-    this.lockLinesObj.material.transparent = true; this.lockLinesObj.material.opacity = 0.75;
-    this.lockLinesObj.renderOrder = 11; this.lockLinesObj.frustumCulled = false; this.lockLinesObj.visible = false;
-    this.scene.add(this.lockLinesObj);
-    // 平面 gizmo（镜像面）：描边 / 箭头 / 把手 = 透视粗线；面 = 很淡的半透明方块（也透视，被几何挡住也看得见在哪）
-    this.gizmoLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX * 1.5, { vertexColors: true }));
-    this.gizmoLines.material.depthTest = false; this.gizmoLines.material.depthWrite = false;
-    this.gizmoLines.renderOrder = 11; this.gizmoLines.frustumCulled = false; this.gizmoLines.visible = false;
-    this.scene.add(this.gizmoLines);
     this.gizmoQuad = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: GIZMO_COLOR, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthTest: false, depthWrite: false }));
     this.gizmoQuad.renderOrder = 10; this.gizmoQuad.frustumCulled = false; this.gizmoQuad.visible = false;
     this.scene.add(this.gizmoQuad);
-    // 变换 gizmo（移动箭头 + 旋转环；透视画，同缩放柄）
-    this.xgLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(HINT_PX * 1.5, { vertexColors: true }));
-    this.xgLines.material.depthTest = false; this.xgLines.material.depthWrite = false;
-    this.xgLines.renderOrder = 11; this.xgLines.frustumCulled = false; this.xgLines.visible = false;
-    this.scene.add(this.xgLines);
     // 变换 gizmo 的实心小件：三个轴上缩放块 + 等比块（方块）+ 中心点（圆）+ 三个箭头锥；透视画、在线条上面
     for (let i = 0; i < 8; i++) {   // 0–3 方块（三轴缩放 + 等比）· 4 中心点（圆）· 5–7 箭头锥
       const m = new THREE.Mesh(i < 4 ? new THREE.BoxGeometry(1, 1, 1) : i === 4 ? new THREE.SphereGeometry(0.5, 16, 10) : new THREE.ConeGeometry(1, 1, 16), new THREE.MeshBasicMaterial({ color: 0x777777, depthTest: false, depthWrite: false }));
@@ -735,7 +662,7 @@ export class Renderer3 implements Backend {
     const k = presenting ? scale : 1;
     this.edgeMat.linewidth = Math.max(this.lineWeight, 1) * k;
     this.profileAdd.value = profileAddFor(Math.max(this.lineWeight, 1)) * k;
-    if (this.tickLines) this.tickLines.material.linewidth = Math.max(this.lineWeight, 1) * k;   // 断口小垂线跟边线一样粗（鼓包，不是另一种线）
+    if (this.overlayLines) this.overlayLines.material("tick").linewidth = Math.max(this.lineWeight, 1) * k;   // 断口小垂线跟边线一样粗（鼓包，不是另一种线）
     if (this.axesObj) this.axesObj.material.linewidth = Math.min(STATIC_PX * scale, this.lineWeight > 1 ? this.lineWeight * k : 0.6 * k);   // 原生细线（1 px）覆盖的采样点和粗线插件不同，轴同宽会从缝里透红 → 细线模式下轴画 0.6 px   // 轴不比边粗：压在轴上的边要整条盖住轴（2× 屏上轴 2.4 px > 边 1.5 px → 边成了「红边夹黑芯」，2026-10-25）
   }
 
@@ -894,57 +821,6 @@ export class Renderer3 implements Backend {
       m.scale.setScalar((h.active ? 9 : 6) * this.worldPerPx(cam, vp, h.p));
       m.material.color.setHex(h.active ? 0xd97706 : 0x2e8b57);
     }
-    // ---- 量角器 ----
-    const pr = view.protractor;
-    if (pr) {
-      const pk = `${pr.center.x},${pr.center.y},${pr.center.z}|${pr.axis.x},${pr.axis.y},${pr.axis.z}|${pr.ref ? `${pr.ref.x},${pr.ref.y},${pr.ref.z}` : "-"}|${pr.angle.toFixed(4)}|${this.worldPerPx(cam, vp, pr.center).toExponential(2)}|${pr.minRadius ?? 0}`;
-      if (pk !== this.protKey) {
-        this.protKey = pk;
-        const R = Math.max(60 * this.worldPerPx(cam, vp, pr.center), pr.minRadius ?? 0);
-        const n = pr.axis;
-        const seed = Math.abs(n.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
-        const ux0 = { x: n.y * seed.z - n.z * seed.y, y: n.z * seed.x - n.x * seed.z, z: n.x * seed.y - n.y * seed.x };
-        const ul = Math.hypot(ux0.x, ux0.y, ux0.z) || 1;
-        let u = { x: ux0.x / ul, y: ux0.y / ul, z: ux0.z / ul };
-        if (pr.ref) { const r = { x: pr.ref.x - pr.center.x, y: pr.ref.y - pr.center.y, z: pr.ref.z - pr.center.z }; const rl = Math.hypot(r.x, r.y, r.z) || 1; u = { x: r.x / rl, y: r.y / rl, z: r.z / rl }; }
-        const v = { x: n.y * u.z - n.z * u.y, y: n.z * u.x - n.x * u.z, z: n.x * u.y - n.y * u.x };
-        const at = (a: number, rr: number): Pt3 => ({ x: pr.center.x + rr * (Math.cos(a) * u.x + Math.sin(a) * v.x), y: pr.center.y + rr * (Math.cos(a) * u.y + Math.sin(a) * v.y), z: pr.center.z + rr * (Math.cos(a) * u.z + Math.sin(a) * v.z) });
-        const pos: number[] = [], col: number[] = [];
-        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        const N = 72;
-        for (let i = 0; i < N; i++) push(at((2 * Math.PI * i) / N, R), at((2 * Math.PI * (i + 1)) / N, R), 0x8b5cf6);
-        for (let i = 0; i < 24; i++) { const a = (2 * Math.PI * i) / 24; push(at(a, R), at(a, i % 6 === 0 ? R * 0.8 : R * 0.9), 0x8b5cf6); }
-        if (pr.ref) { push(pr.center, at(0, R * 1.15), 0x111111); push(pr.center, at(pr.angle, R * 1.15), 0xd97706); }
-        this.setLineGeometry(this.protractorLines, pos, col);
-      }
-      this.protractorLines.visible = true;
-    } else { this.protractorLines.visible = false; this.protKey = ""; }
-
-    // ---- 参考几何（0.11 尺规纪元）：参考线 = 长线；参考点 = 像素尺寸的小叉 ----
-    const gd = view.guides;
-    if (gd && (gd.lines.length || gd.points.length || gd.circles.length || gd.spheres.length)) {
-      const px = gd.points.length ? this.worldPerPx(cam, vp, gd.points[0].p) : 0;
-      const gsel = view.guideSel, gcol = (id: number): number => (gsel?.has(id) ? GUIDE_SEL_COLOR : GUIDE_COLOR);
-      const gk = `${gd.lines.map((l) => `${l.id}:${l.p.x},${l.p.y},${l.p.z}>${l.dir.x},${l.dir.y},${l.dir.z}`).join("|")}#${gd.points.map((q) => `${q.id}:${q.p.x},${q.p.y},${q.p.z}`).join("|")}#${gd.circles.map((c) => `${c.id}:${c.c.x},${c.c.y},${c.c.z}^${c.n.x},${c.n.y},${c.n.z}r${c.r}`).join("|")}#${gd.spheres.map((x) => `${x.id}:${x.c.x},${x.c.y},${x.c.z}r${x.r}`).join("|")}#${px.toExponential(2)}#${gsel ? [...gsel].join(",") : ""}#${this.reachKey(cam.target)}`;
-      if (gk !== this.guideKey) {
-        this.guideKey = gk;
-        const pos: number[] = [], col: number[] = [];
-        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        for (const l of gd.lines) { const [a, b] = this.infLine(l.p, l.dir, cam.target); push(a, b, gcol(l.id)); }
-        // 参考圆 = 一圈折线；参考球 = 过球心、垂直于 x / y / z 的三圈（圆规 / 球规，DT50）
-        const ring = (pts: Pt3[], hex: number): void => { for (let i = 0; i < pts.length; i++) push(pts[i], pts[(i + 1) % pts.length], hex); };
-        for (const c of gd.circles) ring(circlePoints(c.c, c.n, c.r), gcol(c.id));
-        for (const x of gd.spheres) for (const n of SPHERE_RINGS) ring(circlePoints(x.c, n, x.r), gcol(x.id));
-        for (const q of gd.points) {
-          const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, q.p);
-          push({ x: q.p.x - r, y: q.p.y, z: q.p.z }, { x: q.p.x + r, y: q.p.y, z: q.p.z }, gcol(q.id));
-          push({ x: q.p.x, y: q.p.y - r, z: q.p.z }, { x: q.p.x, y: q.p.y + r, z: q.p.z }, gcol(q.id));
-          push({ x: q.p.x, y: q.p.y, z: q.p.z - r }, { x: q.p.x, y: q.p.y, z: q.p.z + r }, gcol(q.id));
-        }
-        this.setLineGeometry(this.guideLines, pos, col);
-      }
-      this.guideLines.visible = true;
-    } else { this.guideLines.visible = false; this.guideKey = ""; }
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」「sub incremental就是sub刻度的」）：吸附的 1/5、1/10 只管吸，像尺子上的小刻度，不画成网格线
     const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = 1;
@@ -980,18 +856,6 @@ export class Renderer3 implements Backend {
       this.faceDots.visible = true;
     } else { this.faceDots.visible = false; this.faceDotKey = ""; }
 
-    // ---- 平滑边（自由建模）----
-    const se = view.softEdges;
-    if (se && se.segs.length) {
-      if (se.key !== this.softKey) {
-        this.softKey = se.key;
-        const pos: number[] = [], col: number[] = [], c = this.tmpColor.setHex(SOFT_EDGE_COLOR);
-        for (const s of se.segs) { pos.push(s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b); }
-        this.setLineGeometry(this.softLines, pos, col);
-      }
-      this.softLines.visible = true;
-    } else { this.softLines.visible = false; this.softKey = ""; }
-
     // ---- 镜像（自由建模）----
     const mi = view.mirror;
     if (mi) {
@@ -1019,121 +883,24 @@ export class Renderer3 implements Backend {
       this.selVertDots.visible = true;
     } else { this.selVertDots.visible = false; this.selVertKey = ""; }
 
-    // ---- 充能标记：点 = 小菱形（像素尺寸），边 = 淡淡的延长线 ----
-    const ch = view.charged;
-    if (ch && (ch.points.length || ch.edges.length)) {
-      const px0 = ch.points.length ? this.worldPerPx(cam, vp, ch.points[0]) : 0;
-      const ck = `${ch.points.map((p) => `${p.x},${p.y},${p.z}`).join("|")}#${ch.edges.map((e) => `${e.a.x},${e.a.y},${e.a.z}>${e.b.x},${e.b.y},${e.b.z}`).join("|")}#${px0.toExponential(2)}#${this.reachKey(cam.target)}`;
-      if (ck !== this.chargedKey) {
-        this.chargedKey = ck;
-        const pos: number[] = [], col: number[] = [];
-        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        for (const e of ch.edges) {
-          const d = sub3(e.b, e.a), l = Math.hypot(d.x, d.y, d.z) || 1, u = { x: d.x / l, y: d.y / l, z: d.z / l };
-          const [far0, far1] = this.infLine(e.a, u, cam.target);   // 延长线画到视野最远处（以前写死 ±200 m）
-          push(far0, e.a, CHARGED_EXT_COLOR);
-          push(e.b, far1, CHARGED_EXT_COLOR);
-        }
-        const right = { x: cam3.matrixWorld.elements[0], y: cam3.matrixWorld.elements[1], z: cam3.matrixWorld.elements[2] };
-        const up = { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] };
-        for (const p of ch.points) {
-          const r = CHARGED_PX * this.worldPerPx(cam, vp, p);
-          const N = { x: p.x + up.x * r, y: p.y + up.y * r, z: p.z + up.z * r }, S = { x: p.x - up.x * r, y: p.y - up.y * r, z: p.z - up.z * r };
-          const E2 = { x: p.x + right.x * r, y: p.y + right.y * r, z: p.z + right.z * r }, W = { x: p.x - right.x * r, y: p.y - right.y * r, z: p.z - right.z * r };
-          push(N, E2, CHARGED_COLOR); push(E2, S, CHARGED_COLOR); push(S, W, CHARGED_COLOR); push(W, N, CHARGED_COLOR);
-        }
-        this.setLineGeometry(this.chargedLines, pos, col);
-      }
-      this.chargedLines.visible = true;
-    } else { this.chargedLines.visible = false; this.chargedKey = ""; }
-
-    // ---- A33 断口小垂线：线上一个小鼓包（半长 = 线宽 × TICK_K，边线色），垂直于边、面向相机 ----
-    // 同一套小短线也画轴的刻度（user 2026-10-25「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）：Z 轴每 axisTickM 一根（屏上挤到 < 6 px 就改成每 10 个一根），
-    // X 轴 +1 个单位处一根（「1 m」字标在它下面）；颜色 = 那根轴的颜色。
-    const tks: { p: Pt3; dir: Pt3; color?: number }[] = [...(view.ticks ?? [])];
-    const atm = view.axisTickM, afr = view.frame;
-    if (atm && atm > 0 && afr) {
-      const o = afr.origin, zd = afr.z, xd = afr.x;
-      let step = atm;
-      const wpp0 = this.worldPerPx(cam, vp, o);
-      while (step / wpp0 < 6 && step < 1e6) step *= 10;
-      const L = GRID_N * GRID_STEP;
-      for (let k = 1; k * step <= L + 1e-9; k++) tks.push({ p: { x: o.x + zd.x * k * step, y: o.y + zd.y * k * step, z: o.z + zd.z * k * step }, dir: zd, color: PALETTE.axisZ });
-      if (view.axisUnitX) { const ux = view.axisUnitX; tks.push({ p: { x: o.x + xd.x * ux, y: o.y + xd.y * ux, z: o.z + xd.z * ux }, dir: xd, color: PALETTE.axisX }); }
-    }
-    if (tks.length) {
-      const px = this.worldPerPx(cam, vp, tks[0].p);
-      const fwd = cam.forward();
-      const halfCss = TICK_K * Math.max(this.lineWeight, 1) / (this.renderer.getPixelRatio?.() || 1);   // 线宽是设备像素，worldPerPx 按 CSS 像素
-      const kk = `${tks.map((t) => `${t.p.x},${t.p.y},${t.p.z}>${t.dir.x},${t.dir.y},${t.dir.z}`).join("|")}#${px.toExponential(2)}#${fwd.x.toFixed(3)},${fwd.y.toFixed(3)},${fwd.z.toFixed(3)}#${halfCss}`;
-      if (kk !== this.tickKey) {
-        this.tickKey = kk;
-        const pos: number[] = [], col: number[] = [];
-        for (const t of tks) {
-          const c = this.tmpColor.setHex(t.color ?? PALETTE.edge);
-          let n = cross3(t.dir, fwd);
-          let l = Math.hypot(n.x, n.y, n.z);
-          if (l < 1e-6) { n = Math.abs(t.dir.z) < 0.9 ? cross3(t.dir, { x: 0, y: 0, z: 1 }) : cross3(t.dir, { x: 1, y: 0, z: 0 }); l = Math.hypot(n.x, n.y, n.z); }
-          const r = halfCss * this.worldPerPx(cam, vp, t.p) / l;
-          pos.push(t.p.x - n.x * r, t.p.y - n.y * r, t.p.z - n.z * r, t.p.x + n.x * r, t.p.y + n.y * r, t.p.z + n.z * r);
-          col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-        }
-        this.setLineGeometry(this.tickLines, pos, col);
-      }
-      this.tickLines.visible = true;
-    } else { this.tickLines.visible = false; this.tickKey = ""; }
-
-    // ---- 平面 gizmo（镜像面）----
+    // ---- 平面 gizmo（镜像面）的半透明方块（线归叠加层线段族）----
     const pg = view.planeGizmo;
     if (pg) {
       const k = `${pg.origin.x},${pg.origin.y},${pg.origin.z}/${pg.normal.x},${pg.normal.y},${pg.normal.z}/${pg.size.toExponential(3)}/${pg.hot ?? ""}`;
       if (k !== this.gizmoKey) {
         this.gizmoKey = k;
-        const o = pg.origin, S = pg.size, P = (a: number, b: number, c = 0): Pt3 => ({ x: o.x + pg.u.x * a + pg.v.x * b + pg.normal.x * c, y: o.y + pg.u.y * a + pg.v.y * b + pg.normal.y * c, z: o.z + pg.u.z * a + pg.v.z * b + pg.normal.z * c });
-        const pos: number[] = [], col: number[] = [];
-        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        const colOf = (h: string): number => (pg.hot === h ? GIZMO_HOT : GIZMO_COLOR);
+        const o = pg.origin, S = pg.size, P = (a: number, b: number): Pt3 => ({ x: o.x + pg.u.x * a + pg.v.x * b, y: o.y + pg.u.y * a + pg.v.y * b, z: o.z + pg.u.z * a + pg.v.z * b });
         const cs = [P(-S, -S), P(S, -S), P(S, S), P(-S, S)];
-        for (let i = 0; i < 4; i++) push(cs[i], cs[(i + 1) % 4], GIZMO_COLOR);
-        push(o, P(0, 0, S * 1.3), colOf("push"));                                      // 法线箭头
-        const tip = S * 1.3, h = S * 0.12;
-        push(P(0, 0, tip), P(h, 0, tip - h * 1.5), colOf("push")); push(P(0, 0, tip), P(-h, 0, tip - h * 1.5), colOf("push"));
-        const ring = (cx: number, cy: number, hx: string): void => { const r = S * 0.12, N = 12; for (let i = 0; i < N; i++) { const a0 = (2 * Math.PI * i) / N, a1 = (2 * Math.PI * (i + 1)) / N; push(P(cx + r * Math.cos(a0), cy + r * Math.sin(a0)), P(cx + r * Math.cos(a1), cy + r * Math.sin(a1)), colOf(hx)); } };
-        ring(0, S, "rotU"); ring(S, 0, "rotV");                                          // 转动把手（边中点）
-        const m = S * 0.07;
-        push(P(-m, -m), P(m, -m), colOf("move")); push(P(m, -m), P(m, m), colOf("move")); push(P(m, m), P(-m, m), colOf("move")); push(P(-m, m), P(-m, -m), colOf("move"));
-        this.setLineGeometry(this.gizmoLines, pos, col);
         const qg = new THREE.BufferGeometry();
         qg.setAttribute("position", new THREE.Float32BufferAttribute([cs[0], cs[1], cs[2], cs[0], cs[2], cs[3]].flatMap((p) => [p.x, p.y, p.z]), 3));
         const oldQ = this.gizmoQuad.geometry; this.gizmoQuad.geometry = qg; oldQ.dispose();
       }
-      this.gizmoLines.visible = true; this.gizmoQuad.visible = true;
-    } else { this.gizmoLines.visible = false; this.gizmoQuad.visible = false; this.gizmoKey = ""; }
+      this.gizmoQuad.visible = true;
+    } else { this.gizmoQuad.visible = false; this.gizmoKey = ""; }
 
-    // ---- 变换 gizmo：三根箭头（箭杆 + 箭头）+ 三个环，RGB = XYZ，悬停 / 拖着的那个换橙 ----
+    // ---- 变换 gizmo 的实心小件（箭杆 / 环归叠加层线段族）----
     const xg = view.xformGizmo;
     if (xg) {
-      const r6 = (p: Pt3): string => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`;
-      const k = `${r6(xg.origin)}/${r6(xg.axes.x)}/${r6(xg.axes.y)}/${r6(xg.axes.z)}/${xg.arrow.toExponential(3)}/${xg.hot ?? ""}/${xg.uniform ? r6(xg.uniform) : "-"}`;
-      if (k !== this.xgKey) {
-        this.xgKey = k;
-        const pos: number[] = [], col: number[] = [];
-        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        const at = (d: Pt3, t: number): Pt3 => ({ x: xg.origin.x + d.x * t, y: xg.origin.y + d.y * t, z: xg.origin.z + d.z * t });
-        const hexOf = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const;
-        for (const ax of ["x", "y", "z"] as const) {
-          const d = xg.axes[ax], others = (["x", "y", "z"] as const).filter((o) => o !== ax).map((o) => xg.axes[o]);
-          const hm = xg.hot === `m${ax}` ? GIZMO_HOT : hexOf[ax], hr = xg.hot === `r${ax}` ? GIZMO_HOT : hexOf[ax];
-          push(at(d, xg.start), at(d, xg.arrow - (xg.arrow - xg.start) * 0.32), hm);   // 箭杆；箭头 = 实心锥（下面 xgSolids）
-          void others;
-          const ref = ax === "z" ? xg.axes.x : ax === "x" ? xg.axes.y : xg.axes.z, N = 48;
-          const v = { x: d.y * ref.z - d.z * ref.y, y: d.z * ref.x - d.x * ref.z, z: d.x * ref.y - d.y * ref.x };
-          const P = (i: number): Pt3 => { const a = (2 * Math.PI * i) / N, c = Math.cos(a) * xg.ring, sn = Math.sin(a) * xg.ring; return { x: xg.origin.x + ref.x * c + v.x * sn, y: xg.origin.y + ref.y * c + v.y * sn, z: xg.origin.z + ref.z * c + v.z * sn }; };
-          for (let i = 0; i < N; i++) push(P(i), P(i + 1), hr);
-        }
-        this.setLineGeometry(this.xgLines, pos, col);
-      }
-      this.xgLines.visible = true;
       // 缩放块（轴上的 = 沿那根轴、右上方的 = 等比）+ 中心点（= 移动）：实心小件（user 2026-10-26「变换的resize handle为什么是线框方块，好难看哈哈」），方块顺着 gizmo 三轴摆
       const [sx, sy, sz, su, mc, cx, cy, cz, pxy, pyz, pxz] = this.xgSolids;
       {   // 箭头锥：尖在 arrow，长 = 箭头段的 32%，粗 = 长的 0.36
@@ -1165,103 +932,39 @@ export class Renderer3 implements Backend {
           m.material.color.setHex(xg.hot === h ? GIZMO_HOT : ({ x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const)[n]);
         });
       } else for (const m of [pxy, pyz, pxz]) m.visible = false;
-    } else { this.xgLines.visible = false; this.xgKey = ""; for (const m of this.xgSolids) m.visible = false; }
-
-    // ---- DT15 选中组件的原点 / T11 空组件的常驻标记 / DT86 组件原点（淡）：原点出三根屏幕定长的短轴（RGB = XYZ），透视 ----
-    this.poolAxesKey = this.drawTriads(this.poolAxesLines, view.poolAxes, this.poolAxesKey, cam, vp);
-    this.emptyAxesKey = this.drawTriads(this.emptyAxesLines, view.emptyAxes, this.emptyAxesKey, cam, vp);
-    this.originAxesKey = this.drawTriads(this.originAxesLines, view.originAxes, this.originAxesKey, cam, vp);
-    this.lockLinesKey = this.drawLockLines(view.lockLines, cam, vp);
+    } else for (const m of this.xgSolids) m.visible = false;
 
     this.syncLabels(view.labels ?? [], cam, vp);
 
-    // ---- 卷尺预演：量线 + 候选参考线 / 参考点 ----
-    const tp0 = view.tape;
-    if (tp0) {
-      const r = GUIDE_POINT_PX * this.worldPerPx(cam, vp, tp0.b);
-      const tk = `${tp0.a.x},${tp0.a.y},${tp0.a.z}>${tp0.b.x},${tp0.b.y},${tp0.b.z}|${tp0.guide ? `${tp0.guide.p.x},${tp0.guide.p.y},${tp0.guide.p.z}/${tp0.guide.dir.x},${tp0.guide.dir.y},${tp0.guide.dir.z}` : ""}|${tp0.point ? "P" : ""}|${r.toExponential(2)}|${this.reachKey(cam.target)}`;
-      if (tk !== this.tapeKey) {
-        this.tapeKey = tk;
-        const pos: number[] = [], col: number[] = [];
-        const push = (a: Pt3, b: Pt3, hex: number): void => { pos.push(a.x, a.y, a.z, b.x, b.y, b.z); const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b); };
-        push(tp0.a, tp0.b, 0x111111);
-        if (tp0.guide) { const g = tp0.guide, [a, b] = this.infLine(g.p, g.dir, cam.target); push(a, b, GUIDE_COLOR); }
-        if (tp0.point) { const q = tp0.point; push({ x: q.x - r, y: q.y, z: q.z }, { x: q.x + r, y: q.y, z: q.z }, GUIDE_COLOR); push({ x: q.x, y: q.y - r, z: q.z }, { x: q.x, y: q.y + r, z: q.z }, GUIDE_COLOR); push({ x: q.x, y: q.y, z: q.z - r }, { x: q.x, y: q.y, z: q.z + r }, GUIDE_COLOR); }
-        this.setLineGeometry(this.tapeLines, pos, col);
-      }
-      this.tapeLines.visible = true;
-    } else { this.tapeLines.visible = false; this.tapeKey = ""; }
-
-    // ---- 切割的刀线（最上层）----
-    const kl = view.knifeLine;
-    if (kl) {
-      const kk = `${kl.a.x},${kl.a.y},${kl.a.z}>${kl.b.x},${kl.b.y},${kl.b.z}|${kl.valid}`;
-      if (kk !== this.knifeKey) {
-        this.knifeKey = kk;
-        const c = this.tmpColor.setHex(kl.valid ? PALETTE.edgeSelected : 0x8a8a8a);
-        this.setLineGeometry(this.knifeLines, [kl.a.x, kl.a.y, kl.a.z, kl.b.x, kl.b.y, kl.b.z], [c.r, c.g, c.b, c.r, c.g, c.b]);
-      }
-      this.knifeLines.visible = true;
-    } else { this.knifeLines.visible = false; this.knifeKey = ""; }
-
-    // ---- 吸附指示（小球 + 提示线）----
+    // ---- 吸附指示的小球（提示线归叠加层线段族）----
     const sn = view.snap;
     if (sn?.kind) {
-      const color = SNAP_COLORS[sn.kind] ?? 0x2b6cb0;
       const m = this.snapMarker;
       m.visible = true;
       m.position.set(sn.p.x, sn.p.y, sn.p.z);
       m.scale.setScalar(SNAP_MARKER_PX * this.worldPerPx(cam, vp, sn.p));
-      m.material.color.setHex(color);
-      let segs: { a: Pt3; b: Pt3; color: number }[] | null = null;
-      if (sn.hints?.length) segs = sn.hints.map((h) => ({ a: h.a, b: h.b, color: AXIS_COLORS[h.axis] ?? 0x888888 }));
-      else if (sn.kind.startsWith("axis") && view.snapAnchor) segs = [{ a: view.snapAnchor, b: sn.p, color }];
-      if (segs) {
-        const hk = segs.map((s) => `${s.color}:${s.a.x},${s.a.y},${s.a.z},${s.b.x},${s.b.y},${s.b.z}`).join("|");
-        if (hk !== this.hintKey) {
-          this.hintKey = hk;
-          const pos: number[] = [], col: number[] = [];
-          for (const s of segs) {
-            pos.push(s.a.x, s.a.y, s.a.z, s.b.x, s.b.y, s.b.z);
-            const c = this.tmpColor.setHex(s.color);
-            col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-          }
-          this.setLineGeometry(this.hintLines, pos, col);
-        }
-        this.hintLines.visible = true;
-      } else this.hintLines.visible = false;
-    } else { this.snapMarker.visible = false; this.hintLines.visible = false; }
+      m.material.color.setHex(SNAP_COLORS[sn.kind] ?? 0x2b6cb0);
+    } else this.snapMarker.visible = false;
 
-    // ---- teleport 弧线（绿=可落 / 红=取消）+ 落点环（只在充能中存在，位置每帧变 → 每帧重建这几十段）----
+    // ---- teleport 落点环（弧线归叠加层线段族）----
     const tp = view.teleport;
-    if (tp && tp.points.length >= 2) {
-      const color = tp.valid ? TP_OK : TP_BAD;
-      const pos: number[] = [];
-      for (let i = 0; i + 1 < tp.points.length; i++) {
-        const a = tp.points[i], b = tp.points[i + 1];
-        pos.push(a.x, a.y, a.z, b.x, b.y, b.z);
-      }
-      this.setLineGeometry(this.arcLines, pos, null);
-      this.arcLines.material.color.setHex(color);
-      this.arcLines.visible = true;
-      if (tp.landing) {
-        this.landingRing.visible = true;
-        this.landingRing.position.set(tp.landing.x, tp.landing.y, tp.landing.z + 0.01);
-        this.landingRing.material.color.setHex(color);
-      } else this.landingRing.visible = false;
-    } else { this.arcLines.visible = false; this.landingRing.visible = false; }
+    if (tp && tp.points.length >= 2 && tp.landing) {
+      this.landingRing.visible = true;
+      this.landingRing.position.set(tp.landing.x, tp.landing.y, tp.landing.z + 0.01);
+      this.landingRing.material.color.setHex(tp.valid ? TP_OK : TP_BAD);
+    } else this.landingRing.visible = false;
 
-    // ---- 放置的胶囊虚影（每帧位置都可能变，几十段，现建）----
-    const cp = view.capsule;
-    if (cp) {
-      const pos: number[] = [], N = 24, f = cp.feet, r = cp.radius;
-      const ring = (z: number, rr: number): void => { for (let i = 0; i < N; i++) { const a = (i / N) * 2 * Math.PI, b = ((i + 1) / N) * 2 * Math.PI; pos.push(f.x + rr * Math.cos(a), f.y + rr * Math.sin(a), z, f.x + rr * Math.cos(b), f.y + rr * Math.sin(b), z); } };
-      ring(f.z + 0.01, r); ring(f.z + cp.stature, r);   // 脚底 / 头顶（不画眼睛：user 10-28「消费者不应该知道你有眼睛」）
-      for (let i = 0; i < 4; i++) { const a = (i / 4) * 2 * Math.PI; pos.push(f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + 0.01, f.x + r * Math.cos(a), f.y + r * Math.sin(a), f.z + cp.stature); }
-      this.setLineGeometry(this.capsuleLines, pos, null);
-      this.capsuleLines.material.color.setHex(cp.ok ? TP_OK : TP_BAD);
-      this.capsuleLines.visible = true;
-    } else this.capsuleLines.visible = false;
+    // ---- 叠加层线段族（步 6a）：内容归编辑器（view.overlay），量尺归这里（一像素多长 / 视野多远 / 相机三轴；XR 和桌面在 worldPerPx 里分）----
+    const octx: OverlayCtx = {
+      worldPerPx: (p) => this.worldPerPx(cam, vp, p),
+      infLine: (p, dir) => this.infLine(p, dir, cam.target),
+      reachKey: () => this.reachKey(cam.target),
+      target: cam.target, forward: cam.forward(),
+      right: { x: cam3.matrixWorld.elements[0], y: cam3.matrixWorld.elements[1], z: cam3.matrixWorld.elements[2] },
+      up: { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] },
+      lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1,
+    };
+    this.overlayLines.sync(view.overlay ? view.overlay(view, octx) : []);
 
     this.renderer.render(this.scene, cam3);
   }
@@ -1345,6 +1048,8 @@ export class Renderer3 implements Backend {
   setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
   getLineWeight(): number { return this.lineWeight; }
 
+  /** 探针：叠加层线段族里某个 id（lockLines / soft / guides / …）这一帧画着没有。 */
+  overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id); }
   /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
   setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
   /** 样式那半给提供者（过渡期：面 / 边颜色和粗线 / 像素线还烤在顶点色里；材质模块 + 叠加层落地后退役）。 */
@@ -1592,18 +1297,9 @@ export class Renderer3 implements Backend {
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
     }
     this.edgeLines.material = this.xrayPass ? this.xrayOverlayMat : this.edgeMat;   // X 光：选中 / 悬停 / 检查标的边不被面挡
-    if (pos.length) { this.setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;
+    if (pos.length) { setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;
   }
 
-  /** 换粗线几何（dispose 旧的）。col = 每段 6 个分量（起/止顶点色，线性空间）或 null。 */
-  private setLineGeometry(obj: any, pos: number[], col: number[] | null): void {
-    const old = obj.geometry;
-    const geo = new LineSegmentsGeometry();
-    geo.setPositions(pos);
-    if (col) geo.setColors(col);
-    obj.geometry = geo;
-    old.dispose();
-  }
 
   /** XR：key light 钉在 HMD 相机系（同 keyLight 公式）。 */
   private xrKeyLight(): Pt3 {
@@ -1618,39 +1314,6 @@ export class Renderer3 implements Backend {
   /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
   /** 一组小三轴（每个帧：原点出三根屏幕定长 POOL_AXES_PX 的短轴，RGB = XYZ）；key 没变就不重建。返回新 key。 */
   /** 锁着时的轴线：每根过 through、两头各伸 LOCK_LINE_SPAN_PX 屏幕像素那么长（按那一点的一像素多长换算）；颜色 = 轴色，斜面 = 中性灰。 */
-  private drawLockLines(lines: ViewState["lockLines"], cam: any, vp: any): string {
-    if (!lines || !lines.length) { this.lockLinesObj.visible = false; return ""; }
-    const k = lines.map((l) => `${l.through.x},${l.through.y},${l.through.z}/${l.dir.x},${l.dir.y},${l.dir.z}/${l.color}@${this.worldPerPx(cam, vp, l.through).toExponential(2)}`).join("|");
-    if (k !== this.lockLinesKey) {
-      const pos: number[] = [], col: number[] = [];
-      for (const l of lines) {
-        const L = LOCK_LINE_SPAN_PX * this.worldPerPx(cam, vp, l.through), o = l.through, d = l.dir;
-        pos.push(o.x - d.x * L, o.y - d.y * L, o.z - d.z * L, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
-        const c = this.tmpColor.setHex(l.color === "n" ? 0x888888 : AXIS_COLORS[l.color]); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-      }
-      this.setLineGeometry(this.lockLinesObj, pos, col);
-    }
-    this.lockLinesObj.visible = true;
-    return k;
-  }
-  private drawTriads(lines: any, frames: readonly Frame[] | null | undefined, key: string, cam: any, vp: any): string {
-    if (!frames || !frames.length) { lines.visible = false; return ""; }
-    const wpp = frames.map((f) => this.worldPerPx(cam, vp, f.origin));
-    const k = frames.map((f, i) => `${f.origin.x},${f.origin.y},${f.origin.z}/${f.x.x},${f.x.y},${f.x.z}/${f.y.x},${f.y.y},${f.y.z}/${f.z.x},${f.z.y},${f.z.z}@${wpp[i].toExponential(2)}`).join("|");
-    if (k !== key) {
-      const pos: number[] = [], col: number[] = [];
-      frames.forEach((f, i) => {
-        const L = POOL_AXES_PX * wpp[i], o = f.origin;
-        for (const [d, hex] of [[f.x, PALETTE.axisX], [f.y, PALETTE.axisY], [f.z, PALETTE.axisZ]] as const) {
-          pos.push(o.x, o.y, o.z, o.x + d.x * L, o.y + d.y * L, o.z + d.z * L);
-          const c = this.tmpColor.setHex(hex); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
-        }
-      });
-      this.setLineGeometry(lines, pos, col);
-    }
-    lines.visible = true;
-    return k;
-  }
   private lineMat(px: number, opts: { offset?: boolean; vertexColors?: boolean; blend?: "multiply" } = {}): any {
     const mat = new LineMaterial({
       color: 0xffffff,
@@ -1703,7 +1366,7 @@ export class Renderer3 implements Backend {
     seg(-L, L, (t) => at(t, 0, 0), PALETTE.axisX);
     seg(-L, L, (t) => at(0, t, 0), PALETTE.axisY);
     seg(0, L, (t) => at(0, 0, t), PALETTE.axisZ);
-    this.setLineGeometry(this.axesObj, apos, acol);
+    setLineGeometry(this.axesObj, apos, acol);
   }
 }
 
