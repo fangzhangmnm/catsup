@@ -1524,8 +1524,7 @@ export class Editor {
   // user 10-26「X光模式有一半是tron纪元的渲染器的事情，但是我现在想的是拾取模式和overlay 这个是不是现在就可以做？」
   // 开着：选择工具点得到被面挡住的点 / 边；画面上池的边透过面画淡的、选中的边不被挡。框选本来就会选到被挡的（SketchUp 同款），不变。
   // 视图设置：不进文件、不进撤销；快捷键 Alt+Z（Blender 同键）。
-  private _xray = false;
-  get xray(): boolean { return this._xray; }
+  private _xray = false; get xray(): boolean { return this._xray; }
   setXray(on: boolean): void { if (this._xray === on) return; this._xray = on; this.host.hint(on ? "X 光开：选择工具点得到被挡住的点 / 边 / 面（面 = 每张面中心的小方点），边透过面画出来（Alt+Z 关）" : "X 光关"); this.host.changed(); this.draw(); }
 
   /**
@@ -3189,8 +3188,7 @@ export class Editor {
 
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
-  /** 手势中右键（两种工作台一样，T102）：能原地留下的（挤出）原地留下，别的只取消这一下、选区留着；不在手势里 = false（app 弹菜单）。 */
-  rightClickInGesture(): boolean { if (!this.gestureActive()) return false; if (!this.commitInPlace()) this.abortGesture(); return true; }
+  rightClickInGesture(): boolean { if (!this.gestureActive()) return false; if (!this.commitInPlace()) this.abortGesture(); return true; }   // 手势中右键（两种工作台一样，T102）：能原地留下的原地留下，别的只取消这一下；不在手势里 = false（app 弹菜单）
   abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
   gestureInProgress(): boolean { return this.gestureActive(); }
