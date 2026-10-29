@@ -4,8 +4,11 @@
 // ③ 引擎不认识编辑器：src/minccino/ 不 import ../editor ../scene ../kernel ../mesh ../app ../format ../player ../controller；backend/ 之外零 DOM。
 // ④ pass 代码不判设备：graph/ overlay/ material/ backend/ 里不出现 userAgent / 平台名 / 机型名（设备只以代价表 + 能力位进来；量设备以后住 device.ts）。
 // ⑤ frame graph 规划器：拓扑排序 + 没人要的剪掉 + 环 / 双写者抛。
+// ⑥ 轮廓线 shader 源 = vendored LineMaterial 顶点着色器 + PROFILE_PATCHES（逐字；升级 three 漂了立刻红）。
+// ③′ 过渡期棘轮：backend/three/render3.ts 还 import 内容层（编辑器 / 场景 / 内核），条数只准降，步 6 叠加层契约落地后清零。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { planFrame } from "../src/minccino/graph/frame-graph.ts";
+import { PROFILE_LINE_VERTEX, applyProfilePatches } from "../src/minccino/backend/three/profile-line-shader.ts";
 const fs = (await import("node:fs" as string)) as { readdirSync(u: URL, o: { withFileTypes: true }): { name: string; isDirectory(): boolean }[]; readFileSync(u: URL, enc: "utf8"): string };
 
 const SRC = new URL("../src/", import.meta.url);
@@ -17,11 +20,13 @@ function* walk(dir: URL): Generator<{ rel: string; text: string }> {
   }
 }
 const files = [...walk(SRC)];
+/** 去掉注释再查（注释里提到 iPad / three 不算）。 */
+const code = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "").replace(/\s\/\/(?![^"'`\n]*["'`]).*$/gm, "");
 const engine = files.filter((f) => f.rel.startsWith("minccino/"));
 const IMPORTS_THREE = /^import[^;]*from\s+["'](three|\.\.?\/.*vendor\/three)/m;
 
-/** ① 登记在册的旧漏点（步 5 搬完 render3 就划掉；只准变短）。 */
-const THREE_LEAKS: readonly string[] = ["editor/render3.ts"];
+/** ① 登记在册的旧漏点（步 5 把 render3 搬进 backend/three/ 后清零；只准变短）。 */
+const THREE_LEAKS: readonly string[] = [];
 
 describe("minccino 守卫 ① three 围栏（棘轮）", () => {
   const leakers = files.filter((f) => IMPORTS_THREE.test(f.text)).map((f) => f.rel);
@@ -43,13 +48,24 @@ describe("minccino 守卫 ② 引擎零 three", () => {
 });
 
 describe("minccino 守卫 ③ 引擎不认识编辑器、零 DOM", () => {
-  const FORBIDDEN = /^import[^;]*from\s+["']\.\.?\/(\.\.\/)*(editor|scene|kernel|mesh|app|format|player|controller)\//m;
-  it("不 import 编辑器 / 场景 / 内核 / app", () => {
-    const bad = engine.filter((f) => FORBIDDEN.test(f.text)).map((f) => f.rel);
+  const FORBIDDEN = /^import[^;]*from\s+["']\.\.?\/(\.\.\/)*(editor|scene|kernel|mesh|app|format|player|controller)\//gm;
+  /** ③′ 过渡期棘轮：搬进来的 render3 还 import 内容层的条数（步 5 = 19；只准降，步 6 清零）。 */
+  const TRANSITIONAL: Readonly<Record<string, number>> = { "minccino/backend/three/render3.ts": 19 };
+  it("不 import 编辑器 / 场景 / 内核 / app（过渡期名单除外）", () => {
+    const bad = engine.filter((f) => !(f.rel in TRANSITIONAL) && FORBIDDEN.test(f.text)).map((f) => f.rel);
     assert(bad.length === 0, `引擎 import 了仓里的内容层：${bad.join(", ")}（引擎只认 contract/ 里自己的同形类型）`);
   });
+  it("③′ 过渡期名单：内容层 import 条数只准降", () => {
+    for (const [rel, pin] of Object.entries(TRANSITIONAL)) {
+      const f = engine.find((x) => x.rel === rel);
+      assert(!!f, `${rel} 不在了，把它从 TRANSITIONAL 划掉`);
+      const n = (f!.text.match(FORBIDDEN) ?? []).length;
+      assert(n <= pin, `${rel} import 内容层 ${n} 条 > 棘轮 ${pin}：别往后端里加编辑器 / 场景的依赖`);
+      eq(n, pin, `${rel} 内容层 import 降到 ${n} 条了，把棘轮调到 ${n}`);
+    }
+  });
   it("backend/ 之外零 DOM", () => {
-    const bad = engine.filter((f) => !f.rel.startsWith("minccino/backend/") && /\b(document|window|navigator)\./.test(f.text)).map((f) => f.rel);
+    const bad = engine.filter((f) => !f.rel.startsWith("minccino/backend/") && /\b(document|window|navigator)\./.test(code(f.text))).map((f) => f.rel);
     assert(bad.length === 0, `引擎碰了 DOM：${bad.join(", ")}`);
   });
 });
@@ -57,8 +73,18 @@ describe("minccino 守卫 ③ 引擎不认识编辑器、零 DOM", () => {
 describe("minccino 守卫 ④ pass 代码不判设备", () => {
   const DEVICE = /navigator\.(userAgent|platform|maxTouchPoints|deviceMemory|hardwareConcurrency|getBattery)|\b(iPad|iPhone|Android|Quest|Macintosh|Windows NT|Safari|Chrome)\b/;
   it("graph/ overlay/ material/ backend/ 里没有设备判断", () => {
-    const bad = engine.filter((f) => /^minccino\/(graph|overlay|material|backend)\//.test(f.rel) && DEVICE.test(f.text)).map((f) => f.rel);
+    const bad = engine.filter((f) => /^minccino\/(graph|overlay|material|backend)\//.test(f.rel) && DEVICE.test(code(f.text))).map((f) => f.rel);
     assert(bad.length === 0, `pass 代码判了设备：${bad.join(", ")}（代价表是数据，不是 if；量设备住 minccino/device.ts）`);
+  });
+});
+
+describe("minccino 守卫 ⑥ 轮廓线 shader 源逐字 = vendored LineMaterial + PROFILE_PATCHES", () => {
+  it("字面量没漂（改了 PROFILE_PATCHES 或升级 three 后跑 scripts/gen-profile-line-shader.mjs）", () => {
+    const lm = fs.readFileSync(new URL("vendor/three/addons/lines/LineMaterial.js", SRC), "utf8");
+    const m = /vertexShader:\s*\/\* glsl \*\/`([\s\S]*?)`,\s*\n\s*fragmentShader:/.exec(lm);
+    assert(!!m, "LineMaterial.js: vertexShader literal not found");
+    eq(PROFILE_LINE_VERTEX === applyProfilePatches(m![1]), true, "profile-line-shader.ts 的 PROFILE_LINE_VERTEX 和 vendored 源 + 替换不一样");
+    assert(PROFILE_LINE_VERTEX.includes("float lw = linewidth + ( isProfile ? profileAdd : 0.0 );"), "轮廓加粗那行不在 shader 里");
   });
 });
 

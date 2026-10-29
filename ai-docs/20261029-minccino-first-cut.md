@@ -55,4 +55,14 @@
 - **如实说**：四条 pass 仍是 three 的**一个**渲染调用里的四组节点，规划器只决定哪几组存在、顺序是声明顺序；分目标的 pass（泛光 / 描边 / 整数倍放大 / 缩略图）等后处理落地时才真分开——那时 `appends` 的语义正是「叠加层追加到合成结果上」。目标有效期（`View.validUntil`）钉了形状没用上，按需渲染照旧走编辑器的 batchDraw。
 - 验：单测 1163 绿；截图基线 11 张 0 像素差；probe-xray / xray-btn / xray-facedots / pool-mesh / preview-refresh 绿；活页面 dump：`plan = scene>grid>overlay`，开 X 光后 `…>xray`。
 
-## 步 5 three 全收进 backend/three/（待）
+## 步 5 three 全收进 backend/three/（v0.17.5）
+
+- **搬家**：`src/editor/render3.ts` 整个 `git mv` 到 `src/minccino/backend/three/render3.ts`（1930 → 1783 行），旧位置只剩转出口（`Renderer3 / PALETTE / LINE_WEIGHTS / POOL_AXES_PX / faceTriangles / ViewState / LineStyle / XRFacade / XRHand` re-export），编辑器 / app 的 import 路径不变。`scripts/build.sh` 0.7 改成「three 只准在 `src/minccino/backend/three/`」；守卫 ① `THREE_LEAKS` 清零。
+- **漏点 ① 轮廓线 shader**：`onBeforeCompile` 在 three 编译时改源 → `backend/three/profile-line-shader.ts` 自己的 GLSL 源（= vendored `LineMaterial.js` 的顶点着色器 + `PROFILE_PATCHES` 四处替换，`scripts/gen-profile-line-shader.mjs` 生成字面量）；`edgeMat.vertexShader = PROFILE_LINE_VERTEX`、`uniforms.profileAdd` 直接挂。守卫 ⑥ 逐字比对「vendored 源 + 替换 = 字面量」——升级 three 漂了立刻红；像素一模一样（基线 + probe-erase-red 的粗线轮廓）。
+- **漏点 ③ XR 会话钩子**：`Renderer3 implements Backend`（`name / caps() / dispose()`），既有的 `xr` 门面（isPresenting / setSession / session / frame / refSpace / on）+ `setLoop` 就是后端接口上的会话钩子；vr.ts / locomotion.ts 照旧经 `editor.renderer3.xr`。
+- **漏点 ② three 的向量 / 矩阵 / 颜色**：搬家后全在围栏里；引擎其他部分零 three（守卫 ②）。编辑器侧经 render3 API 拿到的 three 对象只剩 `rig`（旧假 XR 探针读它）——6½ 收。
+- **删死代码**：平铺路径（`rebuildFaces / rebuildEdges / flatSmoothNormals / vkey / OTHER_KEY / hidePools` + `faceMeshOther` / `edgePixel` 两个节点）——两个调用方都传 WorldView，裸 GeomView 现在直接抛。
+- **过渡期的债，守卫 ③′ 棘轮盯着**：搬进来的 render3 还 import 内容层 **19 条**（编辑器 / 场景 / 内核类型 + 叠加层几何：选中高亮读 WorldView、尺规 / gizmo 读 Frame、`faceTriangles` 用 three 的 earcut 给 OBJ 导出）。条数只准降，步 6 叠加层契约落地后清零；清零后 `src/editor/render3.ts` 这个转出口也收窄成「视图 + 叠加层 + 流」。
+- 验：单测 1165 绿；截图基线 11 张 0 像素差；probe-erase-red / xray / pool-mesh / lift / lock-line / walk 绿；旧假 XR 探针仍 13 ✓。
+
+## 步 6 叠加层契约（待）

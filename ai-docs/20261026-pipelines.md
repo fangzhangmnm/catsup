@@ -137,7 +137,7 @@ flowchart LR
 - 改值 = `undoN(这一步占的操作数)` → 按新值重做 → 重新数操作数；之后又提交别的 / 撤销 = 作废。
 - 数值小窗：`undoN(L.ops)` → 按精确值重做；圆 / 弧的重画（`redrawCircle` / `redrawArc`）和段数马后炮共用。
 
-## ⑦ 渲染（`src/scene/world-view.ts` → `src/editor/render3.ts`）
+## ⑦ 渲染（`src/scene/world-view.ts` → `src/editor/render3.ts`；v0.17.5 起 render3 本体 = `src/minccino/backend/three/render3.ts`，编辑器那个文件只是转出口）
 
 - WorldView：每个池（根 / 组 / 组件定义）一个「部分」，按 `kernel.rev` 缓存；每份实例一个槽 = 一个矩阵（同一个定义的几份共享几何）。软边 / 平滑边 / 折线集合在部分里。
 - render3：每个池一份**池网格**（`editor/pool-mesh.ts`，v0.14.52 / DT96），每槽一个矩阵；选中 / 悬停 = 覆盖层；轮廓线判定在着色器（`profile-edges.ts` 的 GLSL 镜像）；小三轴（选中组件 / 空组件 / 淡的组件原点）共用一个画法。
