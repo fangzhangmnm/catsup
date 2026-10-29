@@ -1,7 +1,9 @@
 // 新建的第二步：转朝向的环（tools/mesh-create.ts；created 2026-10-28 by Claude Opus 5.5；user 10-28 夜「新建能不能做成两步手势，拉好了之后会有一个环，设置朝向」）。
 // 顶视图、网格体盒子里、新建立方体——① 地面上拖出来、松手 = 还没建、出环（量角器圆环）、一步都没记 ② 鼠标绕着落点转 ≈ 30° = 预演跟着转，点一下 = 落定：
 // 新方块的底边和 X 轴夹角 ≈ 30°（模 90°）、一步撤销、马后炮有「朝向」③ 撤销一步 = 没了 ④ 拖出来、打「22.5」回车 = 正好 22.5° ⑤ 拖出来、按 Esc = 不建
-// ⑥ 转到离 X 轴 2° 的地方 = 吸到轴上（0°）⑦ 按住 Shift 转到 37° = 落在 30° 或 45° 档 ⑧ 笔：拖出来、再按下拖着转、松手 = 落定（转了）。
+// ⑥ 转到离 X 轴 2° 的地方 = 吸到轴上（0°）⑦ 按住 Shift 转到 37° = 落在 30° 或 45° 档 ⑧ 笔：拖出来、再按下拖着转、松手 = 落定（转了）
+// ⑨ 笔：拖出来、点一下（手抖 3 px）= 不转（0°）⑩ 鼠标：绕到 30° 再右键 = 不要环、按起始朝向（0°）⑪ 起始朝向看边：留一个转了 22.5° 的方块，点一下它的顶面 = 新方块顺着那条边（22.5°）。
+// 每一条做完撤销，下一条还落在空地上。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-create-orient.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -32,7 +34,7 @@ const res = await page.evaluate(async () => {
   const dragOut = async (o = {}) => { const z = at(0); fire("pointermove", a.x, a.y, 0, o); await sleep(10); fire("pointerdown", a.x, a.y, 1, o); for (let i = 1; i <= 8; i++) { fire("pointermove", a.x + (z.x - a.x) * i / 8 * (R / Math.hypot(z.x - a.x, z.y - a.y)), a.y + (z.y - a.y) * i / 8 * (R / Math.hypot(z.x - a.x, z.y - a.y)), 1, o); await sleep(16); } const u = { x: a.x + (z.x - a.x) * (R / Math.hypot(z.x - a.x, z.y - a.y)), y: a.y + (z.y - a.y) * (R / Math.hypot(z.x - a.x, z.y - a.y)) }; fire("pointerup", u.x, u.y, 0, o); await sleep(40); return u; };
   const sweep = async (deg, o = {}) => { for (let i = 1; i <= 6; i++) { const s = at(deg * i / 6); fire("pointermove", s.x, s.y, o.pen ? 1 : 0, o); await sleep(16); } };
   const click = async (s, o = {}) => { fire("pointerdown", s.x, s.y, 1, o); await sleep(10); fire("pointerup", s.x, s.y, 0, o); await sleep(40); };
-  const out = {};
+  const out = {}, undo = async () => { window.dispatchEvent(new KeyboardEvent("keydown", { key: "z", code: "KeyZ", ctrlKey: true, bubbles: true, cancelable: true })); await sleep(40); };
   // ①
   { const f0 = m().faceCount(), pos0 = e.history.position();
     await dragOut();
@@ -50,13 +52,13 @@ const res = await page.evaluate(async () => {
   // ④ 打数
   { const before = new Set(m().verts());
     await dragOut(); for (const k of ["2", "2", ".", "5"]) { key(k); await sleep(10); } key("Enter"); await sleep(60);
-    out.four = { ang: angleOfNew(before), phase: desc().phase }; }
+    out.four = { ang: angleOfNew(before), phase: desc().phase }; await undo(); }
   // ⑤ Esc
   { const f0 = m().faceCount(); await dragOut(); key("Escape"); await sleep(40); out.five = { same: m().faceCount() === f0, phase: desc().phase, ring: prot() }; }
   // ⑥ 吸轴
-  { const before = new Set(m().verts()); await dragOut(); await sweep(2); await click(at(2)); out.six = { ang: angleOfNew(before) }; }
+  { const before = new Set(m().verts()); await dragOut(); await sweep(2); await click(at(2)); out.six = { ang: angleOfNew(before) }; await undo(); }
   // ⑦ Shift 档
-  { const before = new Set(m().verts()); await dragOut(); await sweep(37, { shift: true }); fire("pointerdown", at(37).x, at(37).y, 1, { shift: true }); await sleep(10); fire("pointerup", at(37).x, at(37).y, 0, { shift: true }); await sleep(40); out.seven = { ang: angleOfNew(before) }; }
+  { const before = new Set(m().verts()); await dragOut(); await sweep(37, { shift: true }); fire("pointerdown", at(37).x, at(37).y, 1, { shift: true }); await sleep(10); fire("pointerup", at(37).x, at(37).y, 0, { shift: true }); await sleep(40); out.seven = { ang: angleOfNew(before) }; await undo(); }
   // ⑧ 笔
   { const before = new Set(m().verts()), pos0 = e.history.position();
     const u = await dragOut({ pen: true });
@@ -65,7 +67,25 @@ const res = await page.evaluate(async () => {
     await sweep(40, { pen: true });
     out.eight.mid = +(desc().spin * 180 / Math.PI).toFixed(1);
     const s = at(40); fire("pointerup", s.x, s.y, 0, { pen: true }); await sleep(60);
-    out.eight.ang = angleOfNew(before); out.eight.steps = e.history.position() - pos0; out.eight.after = desc().phase; }
+    out.eight.ang = angleOfNew(before); out.eight.steps = e.history.position() - pos0; out.eight.after = desc().phase; await undo(); }
+  // ⑨ 笔点一下（手抖）= 不转
+  { const before = new Set(m().verts());
+    const u = await dragOut({ pen: true });
+    fire("pointerdown", u.x, u.y, 1, { pen: true }); await sleep(10); fire("pointermove", u.x + 2, u.y - 2, 1, { pen: true }); await sleep(16); fire("pointerup", u.x + 2, u.y - 2, 0, { pen: true }); await sleep(60);
+    out.nine = { ang: angleOfNew(before), after: desc().phase }; await undo(); }
+  // ⑩ 鼠标右键 = 按起始朝向
+  { const before = new Set(m().verts());
+    await dragOut(); await sweep(30);
+    const s = at(30); c.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 2, buttons: 2 }));
+    c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + s.x, clientY: r.top + s.y, button: 2 }));
+    c.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 2, buttons: 0 })); await sleep(60);
+    out.ten = { ang: angleOfNew(before), after: desc().phase }; await undo(); }
+  // ⑪ 看边：先留一个 22.5° 的，再点一下它的顶面
+  { await dragOut(); for (const k of ["2", "2", ".", "5"]) { key(k); await sleep(10); } key("Enter"); await sleep(60);
+    const before = new Set(m().verts());
+    e.config.set("create", "size", 0.3); await click(a); await sleep(30);
+    const nv = m().verts().filter((v) => !before.has(v)), z0 = nv.length ? Math.min(...nv.map((v) => m().pt(v).z)) : null;
+    out.eleven = { ang: angleOfNew(before), onTop: z0 !== null && z0 > 0.5 }; }
   return out;
 });
 await b.close();
@@ -77,6 +97,8 @@ const ok = res.one.phase === "orient" && res.one.ring && res.one.facesSame && re
   && res.three.back && near(res.four.ang, 22.5, 0.01) && res.four.phase === "idle"
   && res.five.same && res.five.phase === "idle" && !res.five.ring
   && (near(res.six.ang, 0, 0.01) || near(res.six.ang, 90, 0.01)) && (near(res.seven.ang, 30, 0.01) || near(res.seven.ang, 45, 0.01))
-  && res.eight.phase === "orient" && near(res.eight.mid, 40, 3) && near(res.eight.ang, 40, 3) && res.eight.steps === 1 && res.eight.after === "idle" && errs.length === 0;
+  && res.eight.phase === "orient" && near(res.eight.mid, 40, 3) && near(res.eight.ang, 40, 3) && res.eight.steps === 1 && res.eight.after === "idle"
+  && (near(res.nine.ang, 0, 0.01) || near(res.nine.ang, 90, 0.01)) && res.nine.after === "idle" && (near(res.ten.ang, 0, 0.01) || near(res.ten.ang, 90, 0.01)) && res.ten.after === "idle"
+  && near(res.eleven.ang, 22.5, 0.01) && res.eleven.onTop && errs.length === 0;
 console.log(ok ? "probe-create-orient OK" : "probe-create-orient FAIL");
 process.exit(ok ? 0 : 1);

@@ -5,7 +5,10 @@
 //   · 点一下 = 在按下那一点打到的地方（点 / 边 / 面 / 原点 / 地面；和右键新建同一套落点）新建一个，尺寸 = 工具条上「点一下的尺寸」（马前炮），朝向不转。
 //   · ① 按住拖 = 从按下那一点往外拖多远，基本体就多大：拖的距离 = 半径（圆柱 / 圆锥 / 球）或半边长（立方体 / 平面）；拖的时候预演。
 //   · ② 松手不落定，出一个环（量角器同款，画在底面那个平面里）：鼠标绕着环转 / 笔再按下拖着转 = 绕底面法向转朝向；
-//     贴着上下文的轴会吸住，按住 Shift = 15° 一档，也能直接打角度（打数层，单位文本框同一个读法）；点一下 / 松手 / 回车 = 落定，Esc = 不建。
+//     起始朝向看边（落在面上 = 顺着离落点最近的那条边，落在边上 = 这条边；Editor.newObjectAnchorAt 的 e）；转的时候每 90°（从起始算）和上下文的轴会吸住，
+//     按住 Shift = 15° 一档，也能直接打角度（打数层，单位文本框同一个读法）；点一下 / 松手 / 回车 = 落定，Esc = 不建。
+//     不想转、要起始那个精确的角（user 10-28 夜「如同我不想环想要精确怎么办。就笔点一下？会不会误触……然后电脑应该相当于右键？」）：
+//     笔 / 手指 = 点一下（按下后挪不过点按容差就不转，和别处分单击 / 拖动同一个容差）；电脑 = 右键（commitInPlace）。
 //   · 落定以后右下「刚才：」= 马后炮（对齐 法向 / 世界 / 物体、尺寸、段数、朝向），和右键新建同一份（Editor.addPrimitive）。新的那个留在选区里，接着可以挤出 / 移动。
 // 工具只管「按在哪、拖多大、转多少」；落点、坐标架、提交、马后炮都在编辑器那一条里（ctx.newPrimitive / previewPrimitive / primitiveDragSize / primitiveFrameAt）。
 import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
@@ -38,6 +41,8 @@ export class MeshCreateTool implements ToolHandler {
   private base = 0;
   private refAng: number | null = null;
   private pressing = false;
+  /** 第二步按下之后挪过了点按容差（= 在拖着转；没过 = 这一下是点一下，不转）。 */
+  private turning = false;
 
   /** 第二步能打角度（「30」回车 = 转 30°）。 */
   get typedQuantity(): QuantityTag | undefined { return this.phase === "orient" ? ANGLE : undefined; }
@@ -45,7 +50,14 @@ export class MeshCreateTool implements ToolHandler {
   active(): boolean { return this.phase !== "idle"; }
   cancel(): void {
     this.phase = "idle"; this.start = this.cur = null; this.dragging = false;
-    this.size = 0; this.frame = null; this.spin = this.base = 0; this.refAng = null; this.pressing = false;
+    this.size = 0; this.frame = null; this.spin = this.base = 0; this.refAng = null; this.pressing = this.turning = false;
+  }
+  /** 右键 = 不要环：拖着定大小时 / 第二步里，都按起始朝向（打了角度就按打的）落定。 */
+  commitInPlace(ctx: ToolCtx): void {
+    const s0 = this.start, size = this.phase === "orient" ? this.size : this.dragSize(ctx), kind = this.kind(ctx), typed = this.phase === "orient" ? ctx.typed() : null;
+    this.cancel();
+    if (!s0 || size === null) return;
+    ctx.newPrimitive(kind, s0.x, s0.y, size, typed ?? 0);
   }
   sample(): Record<string, number> { return this.phase === "orient" ? { spin: this.spin } : {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
@@ -81,13 +93,17 @@ export class MeshCreateTool implements ToolHandler {
     const d = a - this.refAng;
     let ang = this.base + Math.atan2(Math.sin(d), Math.cos(d));
     if (ctx.mods().shift) { const step = SHIFT_STEP_DEG * Math.PI / 180; ang = Math.round(ang / step) * step; }
-    else { const hit = axisAlignAngle(f.origin, f.z, add3(f.origin, f.x), ctx.contextFrame(), ang, AXIS_SNAP_DEG); if (hit) ang = hit.ang; }
+    else {
+      const q = Math.PI / 2, near = Math.round(ang / q) * q;   // 先吸起始朝向（看的那条边）的 0 / 90 / 180 / 270°，再吸上下文的轴
+      if (Math.abs(ang - near) <= AXIS_SNAP_DEG * Math.PI / 180) ang = near;
+      else { const hit = axisAlignAngle(f.origin, f.z, add3(f.origin, f.x), ctx.contextFrame(), ang, AXIS_SNAP_DEG); if (hit) ang = hit.ang; }
+    }
     this.spin = Math.atan2(Math.sin(ang), Math.cos(ang));
   }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
-    if (this.phase === "orient") {   // 第二步再按下：从现在的朝向接着转（不跳），松手落定
-      this.pressing = true; this.base = this.spin; this.refAng = this.angleAt(ctx, ev);
+    if (this.phase === "orient") {   // 第二步再按下：从现在的朝向接着转（不跳）；挪过点按容差才开始转，松手落定
+      this.pressing = true; this.turning = false; this.base = this.spin; this.refAng = this.angleAt(ctx, ev);
       return;
     }
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; this.dragging = false; this.phase = "size";
@@ -95,7 +111,10 @@ export class MeshCreateTool implements ToolHandler {
     ctx.hint("新建 ①/②：拖出来定大小，松手后转朝向；点一下 = 用工具条上的尺寸");
   }
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
-    if (this.phase === "orient") { this.orientTo(ctx, s); return; }
+    if (this.phase === "orient") {
+      if (this.pressing && !this.turning) { if (ctx.moved(s, travel) <= ctx.tapSlop()) return; this.turning = true; }   // 笔点一下手抖 ≠ 转
+      this.orientTo(ctx, s); return;
+    }
     if (!this.start) return;
     this.cur = { x: s.x, y: s.y };
     if (!this.dragging && ctx.moved(s, travel) > ctx.tapSlop()) this.dragging = true;
@@ -125,8 +144,8 @@ export class MeshCreateTool implements ToolHandler {
     const size = this.dragSize(ctx), frame = ctx.primitiveFrameAt(s0.x, s0.y);
     if (size === null || !frame) { this.cancel(); ctx.hint("新建：拖得太短，没建；点一下 = 用工具条上的尺寸"); return; }
     // 进第二步：从松手那一点的方向起算（不转），环出来
-    this.phase = "orient"; this.size = size; this.frame = frame; this.spin = this.base = 0; this.pressing = false;
+    this.phase = "orient"; this.size = size; this.frame = frame; this.spin = this.base = 0; this.pressing = this.turning = false;
     this.refAng = this.angleAt(ctx, ev);
-    ctx.hint("新建 ②/②：转一转定朝向（鼠标绕着环转 / 笔按下拖着转；贴轴会吸、Shift = 15° 一档、能直接打角度），点一下 / 松手 / 回车落定；Esc 不建");
+    ctx.hint("新建 ②/②：转一转定朝向（鼠标绕着环转 / 笔按下拖着转；每 90° 和贴轴会吸、Shift = 15° 一档、能直接打角度），点一下 / 回车落定；不转 = 笔点一下 / 右键；Esc 不建");
   }
 }

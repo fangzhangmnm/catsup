@@ -60,7 +60,7 @@ import type { Surface } from "./commands/action.ts";
 import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
-import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
+import { add3, cross3, distToSegment3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
@@ -3317,9 +3317,11 @@ export class Editor {
   /** 刚右键过（新建那几项露在右键菜单里；点在点 / 面上也露 = 落在那上面，user「按右键的位置吸附，比如顶点，面，原点，地面平面」）。 */
   contextNewAllowed(): boolean { return !!this.ctxPick && this.mode.id === "freeform"; }   // 只在自由建模（user 10-27「然后硬表面建模不应该有新建网络体」）
   /** 右键点 → 新建落点（世界）+ 法向（朝镜头）：点 > 面 > 原点 > 地面（上下文坐标架的 XY 面）。 */
-  private newObjectAnchor(): { p: Pt3; n: Pt3 | null; on: string } | null { const c = this.ctxPick; return c ? this.newObjectAnchorAt(c.x, c.y) : null; }
-  /** 新建物体的落点（屏幕点 → 打到的点 / 边 / 面 / 原点 / 地面 + 法向）：右键新建记下的那一点，或新建工具按下的那一点。 */
-  private newObjectAnchorAt(cx: number, cy: number): { p: Pt3; n: Pt3 | null; on: string } | null {
+  private newObjectAnchor(): { p: Pt3; n: Pt3 | null; on: string; e?: Pt3 } | null { const c = this.ctxPick; return c ? this.newObjectAnchorAt(c.x, c.y) : null; }
+  /** 新建物体的落点（屏幕点 → 打到的点 / 边 / 面 / 原点 / 地面 + 法向）：右键新建记下的那一点，或新建工具按下的那一点。
+   *  e = 起始朝向看的那条边（世界方向；user 10-28 夜「初始角度的推理能不能智能一点，比如看边？」）：落在面上 = 离落点最近的那条边；落在边上 = 这条边；
+   *  落在点上 = 连着它的边里最贴上下文 X 的那条。法向对齐时基本体的 X 顺着它（primitivePlan）。 */
+  private newObjectAnchorAt(cx: number, cy: number): { p: Pt3; n: Pt3 | null; on: string; e?: Pt3 } | null {
     const c = { x: cx, y: cy };
     const view = this.worldView(), fr = this.frame(), vp = this.fvp(), ray = fr.ray(c.x, c.y, vp);
     const toward = (v: Pt3): Pt3 => (dot3(v, ray.dir) > 0 ? scale3(v, -1) : v);
@@ -3327,7 +3329,10 @@ export class Editor {
     if (hit.vertex !== undefined && view.graph.hasVertex(hit.vertex)) {
       let acc = { x: 0, y: 0, z: 0 };
       for (const e of view.graph.vertex(hit.vertex).edges) for (const f of view.graph.edge(e).faceLinks) { const r = view.planeOf(f); if (r) acc = add3(acc, toward(r.plane.n)); }
-      return { p: view.graph.pt(hit.vertex), n: len3(acc) > 1e-9 ? normalize3(acc) : null, on: "点" };
+      const p0 = view.graph.pt(hit.vertex), fx = normalize3(this.contextFrame().x);
+      let e: Pt3 | undefined, best = -1;
+      for (const id of view.graph.vertex(hit.vertex).edges) { const E = view.graph.edge(id), d = sub3(view.graph.pt(E.a === hit.vertex ? E.b : E.a), p0), L = len3(d); if (L < 1e-12) continue; const s = Math.abs(dot3(d, fx)) / L; if (s > best) { best = s; e = scale3(d, 1 / L); } }
+      return { p: p0, n: len3(acc) > 1e-9 ? normalize3(acc) : null, on: "点", ...(e ? { e } : {}) };
     }
     if (hit.edge !== undefined && view.graph.hasEdge(hit.edge)) {   // 边：落在光标下边上的那一点（不是边的中点；user「新建对齐的是点中的那个点而不是点中的那个图元的中心」）
       const E = view.graph.edge(hit.edge), a = view.graph.pt(E.a), b = view.graph.pt(E.b), u = sub3(b, a), w0 = sub3(a, ray.origin);
@@ -3335,7 +3340,7 @@ export class Editor {
       const t = den > 1e-12 ? Math.max(0, Math.min(1, (B * Ee - C * D) / den)) : 0.5;
       let acc = { x: 0, y: 0, z: 0 };
       for (const f of E.faceLinks) { const r = view.planeOf(f); if (r) acc = add3(acc, toward(r.plane.n)); }
-      return { p: add3(a, scale3(u, t)), n: len3(acc) > 1e-9 ? normalize3(acc) : null, on: "边" };
+      return { p: add3(a, scale3(u, t)), n: len3(acc) > 1e-9 ? normalize3(acc) : null, on: "边", ...(len3(u) > 1e-12 ? { e: normalize3(u) } : {}) };
     }
     if (hit.face !== undefined) {   // 面：光标打到的那一点——按面真正的三角形（扭过的网格面不平，不能用平均平面），法向 = 打到的那个三角形的
       const F = view.face(hit.face), r = view.planeOf(hit.face);
@@ -3351,8 +3356,14 @@ export class Editor {
           const t = dot3(e2, qv) / det;
           if (t > 0 && (!best || t < best.t)) best = { t, n: normalize3(cross3(e1, e2)) };
         }
-        if (best) return { p: add3(ray.origin, scale3(ray.dir, best.t)), n: toward(best.n), on: "面" };
-        const p = rayPlane(ray.origin, ray.dir, r.plane.n, r.plane.d); if (p) return { p, n: normalize3(toward(r.plane.n)), on: "面" };
+        // 起始朝向：这张面（外环 + 洞）里离落点最近的那条边
+        const nearestEdge = (q: Pt3): Pt3 | undefined => {
+          let e: Pt3 | undefined, bd = Infinity;
+          for (const g of [F.outer, ...F.holes]) for (let i = 0; i < g.vids.length; i++) { const a = view.graph.pt(g.vids[i]), b = view.graph.pt(g.vids[(i + 1) % g.vids.length]), u = sub3(b, a), L = len3(u); if (L < 1e-12) continue; const d = distToSegment3(q, a, b); if (d < bd) { bd = d; e = scale3(u, 1 / L); } }
+          return e;
+        };
+        if (best) { const p = add3(ray.origin, scale3(ray.dir, best.t)), e = nearestEdge(p); return { p, n: toward(best.n), on: "面", ...(e ? { e } : {}) }; }
+        const p = rayPlane(ray.origin, ray.dir, r.plane.n, r.plane.d); if (p) { const e = nearestEdge(p); return { p, n: normalize3(toward(r.plane.n)), on: "面", ...(e ? { e } : {}) }; }
       }
     }
     const F = this.contextFrame(), os = fr.project?.(F.origin, vp);
@@ -3363,13 +3374,13 @@ export class Editor {
   }
   /** 新建基本体的计划（落点 + 对齐 + 尺寸 → 本地坐标架 + 三个尺寸）：提交（addPrimitive）和新建工具的预演共用一份。尺寸 = 边长（立方体 / 平面）或直径（圆的几种），世界长度。 */
   /** spin = 绕底面法向（坐标架 z）转多少弧度（新建工具第二步的环；马后炮「朝向」）。 */
-  private primitivePlan(kind: PrimitiveKind, A: { p: Pt3; n: Pt3 | null }): (align: string, sizeW: number, seg: number, spin?: number) => { frame: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; world: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; size: [number, number, number]; segments: number } {
+  private primitivePlan(kind: PrimitiveKind, A: { p: Pt3; n: Pt3 | null; e?: Pt3 }): (align: string, sizeW: number, seg: number, spin?: number) => { frame: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; world: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; size: [number, number, number]; segments: number } {
     const Xi = invert(this.ctxXform()), F = this.contextFrame();
     const frameW = (align: string, spin: number): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => {
       let z: Pt3, x0: Pt3;
       if (align === "world") { z = { x: 0, y: 0, z: 1 }; x0 = { x: 1, y: 0, z: 0 }; }
       else if (align === "object") { z = normalize3(F.z); x0 = normalize3(F.x); }
-      else { z = A.n ?? normalize3(F.z); x0 = normalize3(F.x); }
+      else { z = A.n ?? normalize3(F.z); x0 = A.e ?? normalize3(F.x); }   // 法向对齐：X 顺着落点看的那条边（没有 = 上下文 X）
       let x = sub3(x0, scale3(z, dot3(x0, z)));
       if (len3(x) < 1e-6) { const y0 = normalize3(F.y); x = sub3(y0, scale3(z, dot3(y0, z))); }
       x = normalize3(x);
