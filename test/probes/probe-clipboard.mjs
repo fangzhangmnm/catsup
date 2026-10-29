@@ -6,6 +6,7 @@
 // ④ 环：剪切 A 的一份、进 A 自己、Ctrl+V = 拒绝、说清
 // ⑤ 网格体 → 硬表面：网格体组件 M 里剪两张面、出来到最外层 Ctrl+V = 弹「要转种类」；点「不转」= 什么都没贴；再贴、点「转」= 最外层多两张硬表面面
 // ⑥ 网格体 → 网格体：M 里剪两张面、进另一个网格体组件 N（挪过的）、Ctrl+V = N 多两张面、世界坐标不变
+// ⑦ 拷了换一个模型（新建）再 Ctrl+V = 如实拒绝、菜单里不露「粘贴」（跨模型拷贝等 Fable 设计，user 10-29 wishlist）
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-clipboard.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -103,6 +104,13 @@ const r = await page.evaluate(async () => {
   key("v", { ctrlKey: true }); await sleep(40);
   const added = nk().faces().slice(nf0), nw = added.flatMap((f) => nk().faceVerts(f).map((v) => { const p = W(Nx, nk().pt(v)); return `${q(p.x)},${q(p.y)},${q(p.z)}`; })).sort().join(";");
   out.six = { added: added.length, samePlace: nw === mw, check: nk().check().join(";"), sel: e.selection.faces.size };
+  // ⑦ 换模型以后贴 = 如实拒绝（跨模型拷贝没做；编号对不上会贴错）
+  e.exitTo(0); e.deselectAll(); e.selectedPools.set(`i${insts()[0].id}`, { kind: "instance", instance: insts()[0].id });
+  key("c", { ctrlKey: true }); await sleep(20);
+  e.loadKernel(new (Object.getPrototypeOf(e.scene.brep(e.scene.root).kernel).constructor)(), "新建"); await sleep(30);
+  const n7 = e.scene.def(e.scene.root).instances.size;
+  key("v", { ctrlKey: true }); await sleep(40);
+  out.seven = { refused: e.scene.def(e.scene.root).instances.size === n7, hint: hud.status(), menu: e.canPaste() };
   return out;
 });
 await b.close();
@@ -113,6 +121,7 @@ const ok = r.one.cutA === 1 && r.one.pasted === 1 && r.one.samePlace && r.one.st
   && r.three.rootAfterCut === 1 && r.three.inB && r.three.rootNow === 1 && r.three.samePlace && r.three.undone
   && r.four.refused && /自己/.test(r.four.hint)
   && r.five.cut && r.five.asked.some((t) => /转成硬表面体再贴/.test(t)) && r.five.asked.some((t) => /不做|取消/.test(t)) && r.five.declined && /没贴/.test(r.five.hintNo) && r.five.pasted === 2 && r.five.check === 0
-  && r.six.added === 2 && r.six.samePlace && !r.six.check && r.six.sel === 2 && errs.length === 0;
+  && r.six.added === 2 && r.six.samePlace && !r.six.check && r.six.sel === 2
+  && r.seven.refused && /另一个模型/.test(r.seven.hint) && r.seven.menu === false && errs.length === 0;
 console.log(ok ? "probe-clipboard OK" : "probe-clipboard FAIL");
 process.exit(ok ? 0 : 1);

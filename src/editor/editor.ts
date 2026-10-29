@@ -1384,7 +1384,10 @@ export class Editor {
     this.draw();
   }
   /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
+  /** 第几个模型（换模型 = 加一）：剪贴板据此认出「这是从别的模型拷来的」（clipboard.ts）。 */
+  private docEpoch = 0;
   loadScene(s: Scene, label = "打开"): void {
+    this.docEpoch++;
     this.last = null;
     this.cancelGesture();
     this.scene = s;
@@ -1896,7 +1899,7 @@ export class Editor {
   copySelection(): boolean {
     const p = transferExtract(this.scene, this.ctx, this.selection, [...this.selectedPools.values()]);
     if (!p) { this.host.hint("拷贝：先选中要拷的东西"); return false; }
-    clipboard.set(p);
+    clipboard.set(p, this.docEpoch);
     this.host.hint(`拷贝了 ${transferSay(p)}（Ctrl+V 原位粘贴；到别的组件里也能贴）`);
     this.host.changed();
     return true;
@@ -1911,11 +1914,12 @@ export class Editor {
     this.host.hint(`剪切了 ${transferSay(clipboard.get()!)}（Ctrl+V 原位粘贴；到别的组件里也能贴）`);
     return true;
   }
-  canPaste(): boolean { return clipboard.has(); }
+  canPaste(): boolean { return clipboard.has() && clipboard.doc() === this.docEpoch; }
   /** 原位粘贴进当前上下文。散几何种类对不上 → 先问「转过去再贴」（castPayload），点了才贴。 */
   pasteClipboard(): void {
     const p = clipboard.get();
     if (!p) { this.host.hint("粘贴：剪贴板是空的（先 Ctrl+C / Ctrl+X）"); return; }
+    if (clipboard.doc() !== this.docEpoch) { this.host.hint("粘贴：剪贴板里的东西是从另一个模型拷的——跨模型拷贝还没做（组件和材质对不上会贴错），没贴；这件在愿望单里"); return; }
     if (this.activeKind() === "mesh" && this.mirrorGateEntry("粘贴", () => this.pasteClipboard())) return;
     const kind = this.activeKind(), a = transferAccept(p, kind);
     if (a.ok) { this.pasteNow(p); return; }
