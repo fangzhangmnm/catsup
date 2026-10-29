@@ -35,5 +35,7 @@ export declare const CRASH_DB_NAME = "catsup-7c1f0d2e9a4b6c58.crash";
 /** 图库包这台设备的记事本（多库登记；gallery 0.8.7 起库名归宿主 `configureGalleryRegistry`，不配 = 包里写死的 WeebPaint GUID 名）。家族命名 `<app>-<guid>.<用途>`，GUID 同 device-kv 前缀。
  *  CatsUp 单库、0.4.0 时从没开过那个库 → 换名零迁移；四等（还原出厂一起删）。2026-10-25 Claude Fable 5.1 */
 export declare const GALLERY_REGISTRY_DB = "catsup-7c1f0d2e9a4b6c58.gallery-registry";
+/** 「在这台设备上记住口令」的本机库（@internal/encryption 0.2.x createPasswordKeeper；2026-10-29 周账 F-123）。同一 GUID 前缀 = 还原出厂一起删；没勾过的设备不会建它。 */
+export declare const REMEMBER_DB = "catsup-7c1f0d2e9a4b6c58.remember";
 /** 封面头片 peek 首拉长度（契约 §3：JSON ≈ 2 KB + JPEG ≈ 5–12 KB 全在前 ~20 KB；不够按 JSON 长度补拉，最多三步）。 */
 export declare const HEAD_PEEK_BYTES: number;

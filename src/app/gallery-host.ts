@@ -8,7 +8,10 @@
 //   全删可再生；user 2026-09-20 批）；封面取字节 = store `getHead` 分步拉（本机 slice / 纯云端 byte-range 不整份下载）。
 //   created 2026-09-20 by Claude Fable 5.1 · 2026-10-25 收 gallery 0.8.7 重写（Claude Fable 5.1；逐版差异 = ai-docs/20261025-store-2.2.0-gallery-0.8.7-migration.md §3）
 import * as Vue from "../../vendor/vue/vue.esm-browser.prod.js";
-import { createGallery, configureGalleryRegistry, type CreateGalleryDeps, type GalleryDocHost, type VueRuntime, type GItem, type VerbStore, type DataFaceStore, type Gallery, type GalleryView } from "@internal/gallery";
+import { createGallery, configureGalleryRegistry, type CreateGalleryDeps, type GalleryDocHost, type VueRuntime, type GItem, type VerbStore, type DataFaceStore, type Gallery, type GalleryView, type GalleryEncryption } from "@internal/gallery";
+import { appEncryption } from "../encryption.ts";
+import { isUnlocked, onLockChange, setPassword } from "../crypto-state.ts";
+import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword } from "./unlock.ts";
 import { iconHtml } from "@internal/workbench-elements";
 import { ensureStore, auth, docFile } from "../app-store.ts";
 import { GALLERY_REGISTRY_DB, HEAD_PEEK_BYTES, THUMB_DB_NAME } from "../config.ts";
@@ -62,10 +65,24 @@ export function initGalleryHost(d: GalleryHostDeps) {
     exit: async () => { await d.flushLocal(); },
     dropCheckpoint: () => {},
   };
+  // 加密（2026-10-29 周账 F-123；WeebPaint gallery.ts 同形）：卡片小锁 / 卡片菜单「加密 / 解除」/ 开加密件先问口令。CatsUp 的封面来自文件头 peek，
+  //   加密件拿不到（库对加密件 getHead = null）→ 封面空、只有锁；localPeekThumb / decryptCloudPeekThumb 这两条给 zip 容器缩略图的路 CatsUp 没有 = null。
+  const encryption: GalleryEncryption = {
+    isUnlocked, onLockChange: (cb) => { onLockChange(cb); },
+    isEncryptedPeekBlob: (b) => appEncryption.isEncryptedPeekBlob(b),
+    localPeekThumb: async () => null,
+    decryptCloudPeekThumb: async () => null,
+    isEncrypted: (id) => docFile(id).isEncrypted(),
+    ensureUnlocked: (id) => ensureUnlocked(id),
+    ensureNewPassword: () => ensureNewPassword(),
+    isFreshPasswordSetup, rollbackFreshPassword,
+    setPassword: (pw) => setPassword(pw),
+  };
   const deps: CreateGalleryDeps = {
     vue,
     store: storeFace,
     doc,
+    encryption,
     host: {
       signedIn: () => auth.isSignedIn(),
       online: () => (typeof navigator === "undefined" || navigator.onLine !== false),
@@ -85,6 +102,7 @@ export function initGalleryHost(d: GalleryHostDeps) {
         kinds: ["glb"],
         fetch: async (identifier, source) => {
           const f = docFile(identifier);
+          if (source === "local" && await f.isEncrypted()) return null;   // 加密件：at-rest 头片是容器外壳，没有封面可取（确定没有；卡片只画锁）
           let want = HEAD_PEEK_BYTES;
           for (let step = 0; step < 3; step++) {
             const blob = await f.getHead({ bytesLength: want, source });   // 云端不可达 → 库抛 → 未知

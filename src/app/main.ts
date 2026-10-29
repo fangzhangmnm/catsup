@@ -37,11 +37,18 @@ import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, bareName, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { createReferenceHost } from "./reference-host.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
+// 口令（2026-10-29 周账 F-123）：政策 crypto-state / 验证器 / 设备记住；面板注入在下面 setPasswordPrompt；解锁循环 unlock.ts
+import { setPasswordPrompt, setPassword, getPassword, lock as lockPasswords, isUnlocked, onLockChange, type PromptOpts } from "../crypto-state.ts";
+import { appEncryption, passwordKeeper } from "../encryption.ts";
+import { hasVerifier, checkVerifier } from "../password-verifier.ts";
+import { wireRememberPassword, restoreRemembered, forgetRemembered, rememberedUntil, rememberChoice, setRememberChoice, rememberAvailable, onRememberChange } from "../remember-password.ts";
+import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, unlockImportedContainer } from "./unlock.ts";
+import { verifierReady } from "../app-store.ts";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, isBusyActive } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openPasswordSheet, isBusyActive } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { Editor, GRID_PLANES, GRID_PRESETS, TOOLS, gridPreset, gridStepsFor, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
 import type { CommandId } from "../editor/commands/command.ts";
@@ -480,7 +487,7 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "lock" | "unlock" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -500,6 +507,10 @@ function menuPick(id: MenuId): void | "keep" {
       case "new": void session.newDoc(); break;
       case "lock": void session.setLocked(true); break;     // 演示锁（周账 F-124）：一点就锁、没有确认框、没有口令
       case "unlock": void session.setLocked(false); break;
+      case "encrypt": void session.encryptCurrent().then(() => { syncUi(); galleryHost.refresh(); }); break;   // 口令（周账 F-123）
+      case "decrypt": void (async () => { if (await openConfirmSheet("解除加密？", "这份模型会变回明文存在本机和云端（OneDrive 版本历史里也是明文）。")) { await session.decryptCurrent(); syncUi(); galleryHost.refresh(); } })(); break;
+      case "pwLock": lockPasswords(); void forgetRemembered(); notify({ text: "已锁定：口令忘掉了，再开加密的模型要重新输", level: "info" }); break;
+      case "pwForget": void forgetRemembered().then(() => notify({ text: "这台设备不再记着口令", level: "info" })); break;
       case "gallery": hideCanvasTip(); void galleryHost.open(); break;
       case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
@@ -561,6 +572,12 @@ function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
     case "lock": return session.locked()
       ? { id: "unlock", label: "解锁", icon: "unlock", hint: "放开：又能改了" }
       : { id: "lock", label: "锁上", icon: "lock", hint: "防误触：只能看、能进去玩；改不了" };
+    case "encrypt": if (session.home.kind !== "gallery" || session.lazy) return null;   // 图库家才有（本地文件 / 空白 = 先安家）
+      return session.encrypted
+        ? { id: "decrypt", label: "解除加密…", icon: "unlock", hint: "变回明文" }
+        : { id: "encrypt", label: "加密保护…", icon: "lock", hint: "整个图库一个口令；7-Zip 也能开" };
+    case "pwLock": return isUnlocked() ? { id: "pwLock", label: "锁定（忘掉口令）", icon: "lock", hint: "之后再开加密的模型要重新输" } : null;
+    case "pwForget": { const u = rememberedUntil(); return u != null ? { id: "pwForget", label: "忘记这台设备记着的口令", icon: "unlock", hint: `记到 ${rememberDayText(u)}` } : null; }
     case "softenAll": return { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", hint: "平滑组" };
     case "weldAllBreaks": {   // T7 / DT5；修复模块扔掉了 = 这一项不出
       if (!editor.repairLoaded("brep.weld")) return null;
@@ -1431,7 +1448,28 @@ const session = new Session({
   onHomeChanged: updateSaveStatus,
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   online: () => navigator.onLine !== false,
+  crypto: { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, setPassword, getPassword, unlockImportedContainer, isEncryptedBlob: (bytes) => appEncryption.isEncryptedBlob(bytes) },
 });
+// 口令面板注入（crypto-state 零 DOM；守「无系统对话框」红线）。探针可换成脚本答题（__catsup.crypto.answer）。
+let probePasswordAnswer: ((o: PromptOpts) => Promise<string | null>) | null = null;
+setPasswordPrompt(async (o) => {
+  if (probePasswordAnswer) { setRememberChoice(false); return probePasswordAnswer(o); }
+  const r = await openPasswordSheet(o.title ?? "输入口令", { message: o.message, purpose: o.purpose, account: "catsup",
+    checkbox: o.offerRemember && rememberAvailable() ? { label: "在这台设备上记住 30 天（能解锁这台设备的人就能打开你的加密模型）", checked: rememberChoice() } : undefined });
+  setRememberChoice(!!o.offerRemember && rememberAvailable() ? !!r?.checked : false);   // 不给勾的面板一律清掉勾态（流程里只有最后一个面板给勾）
+  return r ? r.value : null;
+});
+// 「在这台设备上记住口令」（remember-password.ts；≤ 30 天，库钉的上限）。keeper 只在这里递进去。
+const rememberDayText = (t: number): string => new Date(t).toLocaleDateString("zh-CN", { month: "long", day: "numeric" });
+wireRememberPassword({
+  enabled: true,   // CatsUp 没有单文件 html / itch 形态（同源只有自己）
+  keeper: passwordKeeper, hasVerifier, checkVerifier, setPassword: (pw) => setPassword(pw),
+  onError: (e) => funnel(e instanceof Error ? e : new Error(String(e)), "warning"),
+  onRemembered: (until) => notify({ text: `这台设备会记住口令到 ${rememberDayText(until)}（☰ → 设置 → 口令 里能忘记）`, level: "info" }),
+});
+onLockChange(() => updateSaveStatus()); onRememberChange(() => updateSaveStatus());
+// CSP（index.html 的 meta）拦下的东西进黑匣子（log 级）：真机上某个功能突然不灵时，先看这里是不是策略挡了它。
+document.addEventListener("securitypolicyviolation", (e) => funnel(new Error(`[csp] blocked ${e.effectiveDirective} ${String(e.blockedURI).slice(0, 120)} (${e.sourceFile ? e.sourceFile.split("/").pop() : "?"}:${e.lineNumber})`), "log"));
 configureTabMemory({ get: (k) => session.menuTab(k), set: (k, t) => session.setMenuTab(k, t) });   // 两个 ☰ 停在哪页跟着文件走（WeebPaint desk.menuTab 同款）
 _session = session;
 let storeWired = false;
@@ -1495,7 +1533,7 @@ function cloudSignIn(): void {
       .finally(go);
   } else go();   // 手势同步栈起跳（iOS redirect）
 }
-async function cloudSignOut(): Promise<void> { note("auth", "sign-out click"); try { await auth.signOut(); notify({ text: "已退出 OneDrive 登录（本机副本仍在）", level: "info" }); } catch (e) { funnel(e); } }
+async function cloudSignOut(): Promise<void> { note("auth", "sign-out click"); try { await auth.signOut(); lockPasswords(); void forgetRemembered(); notify({ text: "已退出 OneDrive 登录（本机副本仍在；口令也忘了）", level: "info" }); } catch (e) { funnel(e); } }   // 退出登录 = 锁 + 忘（ADR-0001）
 type CloudId = "in" | "out" | "refresh";
 cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   anchor: cloudBtn, align: "end",
@@ -1641,6 +1679,8 @@ void (async () => {
   //   或 URL 带 OAuth 回程碎片时**先接线再 initAuth**，一条都不许漏。纯无地首开仍不碰 createStore。
   const oauthReturn = /(^|[#&?])(code|error|state)=/.test(location.hash);
   if (deviceKvGet("gallery-attached") === "1" || oauthReturn) { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
+  // 记着的口令（≤ 30 天）：验证器接上后、开上次模型**之前**试——对了就静默解锁（上次开着的是加密件也秒开）；对不上 = 忘掉、说一句（ADR-0001）
+  if (hasStore()) { try { await verifierReady(); const rr = await restoreRemembered(); note("boot", `remembered password: ${rr}`); if (rr === "stale") notify({ text: "这台设备记着的口令对不上（别的设备改过？），已经忘掉；要用时再输一次", level: "warning" }); } catch (e) { funnel(e, "warning"); } }
   // ① 先从本地恢复上次的模型，**再** initAuth（v0.5.7；WeebPaint 顺序）：此刻 store 视为未登录（0.14 起在线 = 有网 ∧ 已登录）→ open()
   //   直接读本地副本、零网络，模型秒开；登录落地后 onAuthChanged → refreshOpenDoc 后台干净快进。反过来先等 MSAL（脚本 + 静默续签 iframe）
   //   再开 = 开机多等一次 Graph 往返才见模型（v0.5.6 的样子）。app-store.ts 头注释钉了这条顺序契约。
@@ -1664,7 +1704,9 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
+(window as unknown as { __catsup: unknown }).__catsup = { pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore,
+  encryption: appEncryption,
+  crypto: { setPassword, getPassword, lock: lockPasswords, isUnlocked, rememberedUntil, restoreRemembered, forgetRemembered, answer: (fn: ((o: PromptOpts) => Promise<string | null>) | null) => { probePasswordAnswer = fn; }, keeper: passwordKeeper }, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 
 // ---------- 起 ----------
 editor.setTool("line");

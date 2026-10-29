@@ -8,7 +8,8 @@
 //   docKinds   两行同一个 kind：`.catsup`（2026-10-28 起新文档）+ 老的 `.glb`（store 0.16 文档种类表，必填）。身份从 0.5.0 起就是全名 `夹/名.glb`（session.fullName），
 //              云端名 = 身份、不加密 → 和 0.15.2 一个字节不变，存量零迁移。切身份的唯一库入口 = store.identifiers；app 内部的裸名 ↔ 全名仍在 session 边界转（bareName / fullName）。
 //   persistence "app-managed"：挂上图库 / 首次保存的用户手势里调 requestStoragePersistence()。
-//   encryption  零 codec 实例（不加密）。 reconcilePolicy "app-driven"：focus / online / 前台 60 s 轮询由 app 驱动。
+//   encryption  真 codec（2026-10-29 周账 F-123：zip.js 外壳 + 7z-wasm payload，WeebPaint 同款）；口令经 crypt.getPassword 非交互取（crypto-state.ts）。
+//              图库口令验证器住 collection "app-state" 的 galleryPasswordVerifier（跟账号走；password-verifier.ts）。 reconcilePolicy "app-driven"：focus / online / 前台 60 s 轮询由 app 驱动。
 //   validateAdopt 只看字节头：GLB magic + extensionsUsed 含 CATSUP_document（挡 captive-portal HTML / 外来 glb）。
 //   autoCacheOpenedFile true（编辑器：开即留本地）。readOnlyFiles false。offlineUploadReplay "ask"。
 //   signedIn = auth（0.14.0：云腿闸 = isOnline ∧ signedIn）。activeIdentifier = 当前打开的文档（cloud-gone 收敛不碰它；0.16 起叫这个名）。
@@ -27,6 +28,8 @@ import type { Store, RawFile, DocKind, GraphTransportOptions } from "@internal/s
 import { APP_ID, AUTHORITY, CLIENT_ID, DOC_EXT, HIDDEN_NAME_RE, LEGACY_DOC_EXT, MSAL_URL, SCOPES } from "./config.ts";
 import { storeUI } from "./store-ui.ts";
 import { appEncryption } from "./encryption.ts";
+import { getPassword } from "./crypto-state.ts";   // 口令接缝：store 非交互取（解锁循环在 app/unlock.ts，busy 外）
+import { isVerifierRecord, wireVerifierStore } from "./password-verifier.ts";
 import { isCatsupDocumentHead } from "./format/peek.ts";
 
 /** 文档种类表（store 0.16）：同一种文档两种拼法（库：「几行可以是同一个 kind」）——.catsup（2026-10-28 起新文档都写它，账本 UX39）+ 老的 .glb 工程（永远照开、不改名）。
@@ -61,6 +64,7 @@ export function ensureStore(): Store {
     appId: APP_ID,
     persistence: "app-managed",
     encryption: appEncryption,
+    crypt: { getPassword },   // 口令只活内存（crypto-state）；加密 / 解密 / 换钥 / 打开加密件时库从这取，没有 = status locked，绝不弹窗
     reconcilePolicy: "app-driven",
     docKinds: DOC_KINDS,
     // store 2.1.4（F-54）上传会话落盘：> 4 MB 的推（贴图多的模型）开分块上传会话时把会话 URL / 大小 / If-Match / 这份字节的 sha256 / 时间记进本 store 的 kv
@@ -75,8 +79,15 @@ export function ensureStore(): Store {
     activeIdentifier: () => _activeDoc,
     hidden: (id) => HIDDEN_NAME_RE.test(id),
   });
+  // 图库口令验证器（password-verifier.ts）：synced collection "app-state" 的一项，跟账号走。init 完才接——没接之前 hasVerifier() = false，
+  //   解锁循环 / 首次加密都先 await verifierReady()，免得把真验证器当「没设过」覆盖掉。
+  const col = _store.collection("app-state");
+  _verifierReady = col.init().then(() => { wireVerifierStore({ get: () => { const v = col.getItem("galleryPasswordVerifier"); return isVerifierRecord(v) ? v : null; }, set: (rec) => col.setItem("galleryPasswordVerifier", rec) }); }).catch(() => { /* 接不上 = 当没有验证器；库已 reportError */ });
   return _store;
 }
+let _verifierReady: Promise<void> = Promise.resolve();
+/** 口令验证器接上了没有（无地 = 立刻）。解锁 / 首次加密前先等它。 */
+export function verifierReady(): Promise<void> { return _verifierReady; }
 export function requireStore(): Store {
   if (!_store) throw new Error("store not attached (landless mode)");
   return _store;
@@ -89,6 +100,6 @@ export function docFile(identifier: string, mode: "new" | "existing" = "existing
 export { requestStoragePersistence, isCached, isDirty };
 export { wipeAppNamespace, scanAppNamespace } from "@internal/store";   // maintenance 面经接缝转口（factory-reset.ts 消费；库内 typed consent）
 /** 还原出厂前置：释放本 store 实例（否则库 wipe 进 blocked 报告）。之后任何面抛 StoreDisposedError——只能 reload。没挂过图库 = no-op。 */
-export async function disposeStore(): Promise<void> { const s = _store; if (!s) return; _store = null; await s.dispose(); }
+export async function disposeStore(): Promise<void> { const s = _store; if (!s) return; _store = null; wireVerifierStore(null); _verifierReady = Promise.resolve(); await s.dispose(); }
 export type { Store, RawFile };
 export type { Item, SyncState, SaveResult, TryMoveResult, FolderSnapshot } from "@internal/store";

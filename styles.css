@@ -93,6 +93,10 @@ svg.ico use { color: inherit; }
 .strip-chip { display: inline-flex; align-items: center; gap: 6px; }
 .strip-swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); background-size: cover; background-position: center; }
 /* 定稿（ai-docs/20261024-finalize.md）：角标 + 护栏 ① 界面灰掉 */
+.sheet-form { display: contents; }
+.sheet-user { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }   /* 账号字段只给密码管理器看（口令 sheet 真表单） */
+.sheet-check { display: flex; align-items: flex-start; gap: 8px; font-size: 13px; color: var(--muted, #666); margin: 6px 0 2px; line-height: 1.35; }
+.sheet-check input { margin-top: 2px; }
 .lock-badge { font-size: 12px; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent); border-radius: 999px; background: rgba(255,255,255,.7); align-self: center; display: inline-flex; align-items: center; gap: 4px; }
 .lock-badge .ico { width: 14px; height: 14px; }
 /* 演示锁（周账 F-124）护栏 ①：工具区灰掉；视图挂件 / ☰ / 工作台下拉照旧（看和玩不锁） */

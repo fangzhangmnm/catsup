@@ -1,0 +1,4 @@
+{
+  "type": "commonjs",
+  "//": "vendored 7z-wasm UMD 是 CJS；隔离上层 WeebPaint package.json 的 type:module（否则 node require 得空 namespace）。浏览器不读这个，走 classic <script> window.SevenZip。"
+}

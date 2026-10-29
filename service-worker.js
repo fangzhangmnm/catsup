@@ -12,6 +12,8 @@ const STATIC_PRECACHE = [
   "./apple-touch-icon-180.png",
   "./styles.css",
   "./vendor/msal/msal-browser.min.js",
+  "./boot-guard.js",
+  "./vendor/zip-js/zip-full.min.js",   // 加密容器外壳（7z-wasm 1.7 MB 不预缓存：首次加密 / 解密时拉、fetch handler 运行时缓存）
   "./vendor/internal-css/gallery.css",
   "./vendor/internal-css/workbench-elements.css",
   "./vendor/vue/vue.esm-browser.prod.js",

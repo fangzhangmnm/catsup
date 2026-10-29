@@ -9,6 +9,8 @@ export declare function activeDocName(): string | null;
 export declare function hasStore(): boolean;
 /** 首次挂图库 / 登录时建；之后常驻（无地 = 从不调用）。 */
 export declare function ensureStore(): Store;
+/** 口令验证器接上了没有（无地 = 立刻）。解锁 / 首次加密前先等它。 */
+export declare function verifierReady(): Promise<void>;
 export declare function requireStore(): Store;
 /** 文档句柄工厂（身份 = 全名 `夹/名.catsup`，老的 `夹/名.glb`；都是裸 glb 容器，走 file() 不走 zip()）。 */
 export declare function docFile(identifier: string, mode?: "new" | "existing"): RawFile;

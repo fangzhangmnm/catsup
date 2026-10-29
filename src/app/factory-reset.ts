@@ -14,11 +14,11 @@ import { deviceKvWipeAll, deviceKvCount } from "./device-kv.ts";
 import { openConfirmSheet, openInputSheet } from "./ui/sheets.ts";
 import { reportError } from "./error-funnel.ts";
 import { note } from "./debug-log.ts";
-import { APP_ID, CRASH_DB_NAME, GALLERY_REGISTRY_DB, THUMB_DB_NAME } from "../config.ts";
+import { APP_ID, CRASH_DB_NAME, GALLERY_REGISTRY_DB, REMEMBER_DB, THUMB_DB_NAME } from "../config.ts";
 import { APP_VERSION } from "../version.ts";
 
 /** 自家三个派生库（都全删无损：缩略图可再生、崩溃影子是附加层、名册 CatsUp 单库几乎空）。store 自己的库归 wipeAppNamespace。 */
-const OWN_DBS: readonly string[] = [THUMB_DB_NAME, CRASH_DB_NAME, GALLERY_REGISTRY_DB];
+const OWN_DBS: readonly string[] = [THUMB_DB_NAME, CRASH_DB_NAME, GALLERY_REGISTRY_DB, REMEMBER_DB];   // + 记住的口令（2026-10-29；没勾过的设备没有这个库，删不存在的 = no-op）
 const PHRASE = "还原出厂";
 const MARKER = "factory";
 const MARKER_MAX_AGE_MS = 2 * 60_000;

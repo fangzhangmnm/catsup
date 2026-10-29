@@ -42,6 +42,11 @@ const g = {
   title: () => $("sheetTitle"),
   message: () => $("sheetMessage"),
   input: () => $("sheetInput") as HTMLInputElement,
+  form: () => $("sheetForm") as HTMLFormElement,
+  user: () => $("sheetUser") as HTMLInputElement,
+  check: () => $("sheetCheck"),
+  checkInput: () => $("sheetCheckInput") as HTMLInputElement,
+  checkLabel: () => $("sheetCheckLabel"),
   error: () => $("sheetError"),
   choices: () => $("sheetChoices"),
   confirm: () => $("sheetConfirm") as HTMLButtonElement,
@@ -57,7 +62,8 @@ function _hide(): void {
 }
 function _reset(): void {
   g.message().hidden = true; g.message().classList.remove("warning");
-  g.input().hidden = true; g.input().value = "";
+  g.input().hidden = true; g.input().value = ""; g.input().type = "text"; g.input().removeAttribute("autocomplete"); g.user().value = "";
+  g.check().hidden = true; g.checkInput().checked = false;
   g.error().hidden = true; g.error().textContent = "";
   g.choices().hidden = true; g.choices().innerHTML = "";
   g.confirm().hidden = false; g.confirm().classList.remove("danger"); g.cancel().hidden = false;
@@ -110,6 +116,32 @@ export function openInputSheet(title: string, opts: InputOpts = {}): Promise<str
     g.confirm().addEventListener("click", onOk); g.cancel().addEventListener("click", onCancel); inp.addEventListener("keydown", onKey);
     _open = onCancel; _show();
     setTimeout(() => { inp.focus(); inp.select(); }, 0);
+  });
+}
+
+export interface PasswordOpts { message?: string; /** "new" = 设口令（autocomplete=new-password，密码管理器问「保存？」）；缺省 = 输入已有口令（current-password）。 */ purpose?: "current" | "new"; /** 账号字段（密码管理器按它记 / 填）：图库 id。 */ account?: string; /** 面板底下一个勾（「在这台设备上记住」）。 */ checkbox?: { label: string; checked?: boolean } }
+/** 口令 sheet（2026-10-29 周账 F-123）：真表单 = type=password + autocomplete + 隐藏的账号字段 + 确定 = 提交（user 10-21「口令面板改成真表单让 Edge 密码管理器记住，全家做」）。
+ *  绝不 autocomplete="off"、不禁粘贴。返回 { value, checked } | null（取消）。 */
+export function openPasswordSheet(title: string, opts: PasswordOpts = {}): Promise<{ value: string; checked: boolean } | null> {
+  _assertNotBusy("password");
+  return new Promise((resolve) => {
+    _reset();
+    g.title().textContent = title;
+    if (opts.message) { g.message().textContent = opts.message; g.message().hidden = false; }
+    const inp = g.input();
+    inp.hidden = false; inp.type = "password"; inp.setAttribute("autocomplete", opts.purpose === "new" ? "new-password" : "current-password"); inp.placeholder = "图库口令"; inp.value = "";
+    g.user().value = opts.account ?? "";
+    if (opts.checkbox) { g.checkLabel().textContent = opts.checkbox.label; g.checkInput().checked = !!opts.checkbox.checked; g.check().hidden = false; }
+    let done = false;
+    const cleanup = () => { g.form().removeEventListener("submit", onSubmit); g.confirm().removeEventListener("click", onOk); g.cancel().removeEventListener("click", onCancel); inp.removeEventListener("keydown", onKey); };
+    const finish = (r: { value: string; checked: boolean } | null) => { if (done) return; done = true; cleanup(); _hide(); _reset(); resolve(r); };
+    const onSubmit = (e: Event) => { e.preventDefault(); finish({ value: inp.value, checked: !!opts.checkbox && g.checkInput().checked }); };
+    const onOk = () => { g.form().requestSubmit(); };   // 确定钮 = 提交；密码管理器看的就是这次提交
+    const onCancel = () => finish(null);
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Enter") { e.preventDefault(); g.form().requestSubmit(); } else if (e.key === "Escape") { e.preventDefault(); onCancel(); } };
+    g.form().addEventListener("submit", onSubmit); g.confirm().addEventListener("click", onOk); g.cancel().addEventListener("click", onCancel); inp.addEventListener("keydown", onKey);
+    _open = onCancel; _show();
+    setTimeout(() => { inp.focus(); }, 0);
   });
 }
 

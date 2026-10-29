@@ -69,12 +69,15 @@ export const MENU_ROWS: readonly MenuRow[] = [
   { id: "newOpen", tab: "file" },
   { id: "exportHub", tab: "file" },
   { id: "lock", tab: "file" },              // 锁上 / 解锁（演示锁，同一行，渲染器按状态换字；周账 F-124 吃掉定稿 / 改稿）
+  { id: "encrypt", tab: "file" },           // 加密保护… / 解除加密…（同一行按状态换字；图库家才出；周账 F-123）
   { id: "softenAll", tab: "model" },
   { id: "weldAllBreaks", tab: "model" },
   { id: "makePlanarAll", tab: "model" },
   { id: "material", tab: "model" },
   { id: "clear", tab: "model", separatorBefore: true },
   { id: "finger", tab: "settings" },
+  { id: "pwLock", tab: "settings", section: "口令" },     // 锁定（忘掉口令）；解锁着才出
+  { id: "pwForget", tab: "settings", section: "口令" },   // 忘记这台设备记着的口令（X 到期）；记着才出
   { id: "factoryReset", tab: "settings", section: "开发者" },   // 家规 2½：还原出厂住开发者菜单；「强制更新」是另一个钮，留在帮助页
   { id: "help", tab: "help" },
   { id: "debuglog", tab: "help" },

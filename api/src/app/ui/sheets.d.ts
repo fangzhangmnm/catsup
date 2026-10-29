@@ -25,6 +25,21 @@ export interface InputOpts {
 }
 /** 输入 sheet → string | null（取消）。 */
 export declare function openInputSheet(title: string, opts?: InputOpts): Promise<string | null>;
+export interface PasswordOpts {
+    message?: string; /** "new" = 设口令（autocomplete=new-password，密码管理器问「保存？」）；缺省 = 输入已有口令（current-password）。 */
+    purpose?: "current" | "new"; /** 账号字段（密码管理器按它记 / 填）：图库 id。 */
+    account?: string; /** 面板底下一个勾（「在这台设备上记住」）。 */
+    checkbox?: {
+        label: string;
+        checked?: boolean;
+    };
+}
+/** 口令 sheet（2026-10-29 周账 F-123）：真表单 = type=password + autocomplete + 隐藏的账号字段 + 确定 = 提交（user 10-21「口令面板改成真表单让 Edge 密码管理器记住，全家做」）。
+ *  绝不 autocomplete="off"、不禁粘贴。返回 { value, checked } | null（取消）。 */
+export declare function openPasswordSheet(title: string, opts?: PasswordOpts): Promise<{
+    value: string;
+    checked: boolean;
+} | null>;
 /** onPick：在按钮 click 监听器里**同步**调——iOS 的 redirect 登录必须在手势同步栈起跳。 */
 export interface Choice<T> {
     label: string;

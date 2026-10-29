@@ -180,7 +180,7 @@ flowchart LR
 
 ## ⑨ 文件（`src/format/`）
 
-写：Scene → `scene-doc.ts documentFromScene` → `CatsupDocument` → `write.ts`（`CATSUP_*` 扩展按拍子写 + bake 出别的软件看的网格）→ glb。读：glb → `read.ts` → `migrate/`（每个子结构自己的拍子，`FORMAT` = 唯一 SSoT）→ document → Scene。演示锁住 `CATSUP_desk.locked`（v0.16.53；老 `final / finalRev` 照读照写不起作用）。加可选键 = 该子结构 minor +1 + 冻结样本（`scripts/freeze-format-fixtures.mjs`）。
+写：Scene → `scene-doc.ts documentFromScene` → `CatsupDocument` → `write.ts`（`CATSUP_*` 扩展按拍子写 + bake 出别的软件看的网格）→ glb。读：glb → `read.ts` → `migrate/`（每个子结构自己的拍子，`FORMAT` = 唯一 SSoT）→ document → Scene。演示锁住 `CATSUP_desk.locked`（v0.16.53；老 `final / finalRev` 照读照写不起作用）。**加密**（v0.16.55）：图库打开前 `file.isEncrypted()` → `unlock.ts ensureUnlocked`（busy 外弹口令、验尾部 peek）→ `file.open()` 透明解壳；保存时锁着（内存没口令）= 如实拒、改动留内存；加密 / 解除 = `file.encrypt / decrypt`（库：先本地后云 If-Match）。加可选键 = 该子结构 minor +1 + 冻结样本（`scripts/freeze-format-fixtures.mjs`）。
 
 ---
 

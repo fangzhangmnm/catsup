@@ -29,7 +29,7 @@ import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
 import { setOpened } from "@internal/gallery";
-import { openChoiceSheet, openInputSheet, showBusy, hideBusy } from "./ui/sheets.ts";
+import { openChoiceSheet, openInputSheet, showBusy, hideBusy, withBusy } from "./ui/sheets.ts";
 import { reportError } from "./error-funnel.ts";
 import { note } from "./debug-log.ts";
 import { crashStore, mintLuggageTag, type LuggageTag } from "./crash-store.ts";
@@ -68,6 +68,18 @@ export interface SessionDeps {
   onHomeChanged: () => void;
   setStatus: (text: string, error?: boolean) => void;
   online: () => boolean;
+  /** 口令（2026-10-29 周账 F-123；政策在 crypto-state / unlock.ts，这里只用）。**弹面板的都在 busy 外调。** */
+  crypto: {
+    ensureUnlocked: (path: string) => Promise<boolean>;
+    ensureNewPassword: () => Promise<string | null>;
+    isFreshPasswordSetup: () => boolean;
+    rollbackFreshPassword: () => void;
+    setPassword: (pw: string | null) => void;
+    getPassword: (path: string | null) => string | null;
+    /** 本地加密文件：全量解，返回验过的口令 + 明文；取消 = null。 */
+    unlockImportedContainer: (blob: Blob) => Promise<{ pw: string; plain: Blob } | null>;
+    isEncryptedBlob: (bytes: Uint8Array) => Promise<boolean>;
+  };
 }
 
 const online = () => typeof navigator === "undefined" || navigator.onLine !== false;
@@ -85,6 +97,8 @@ export class Session {
   private halted = false;
   /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
   pushPending = false;
+  /** 正在编辑的图库模型是加密的（打开 / 加密 / 解密后刷新；换家清）。锁着（内存没口令）时保存会如实拒。 */
+  encrypted = false;
   /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
    *  清的时机：推上去了（save / resolveActive 成功）、换了文档。横幅本身在 main（onAttentionChanged）。 */
   attention: { cloudState: string | null } | null = null;
@@ -340,6 +354,7 @@ export class Session {
    *  （空白不算「上次开着的画」）；未挂库时回执条无意义，一律不碰。 */
   private setHome(h: DocHome): void {
     this.home = h;
+    this.encrypted = false;   // 换家先清；图库家打开 / 加密后由调用方再设
     if (h.kind === "gallery") this.dropLuggage(); else if (!this.luggage) this.mintLuggage();   // 图库家的影子 = store 本地副本；本地家要牌
     setActiveDocName(h.kind === "gallery" && !this.lazy ? h.path : null);
     if (hasStore()) {
@@ -427,14 +442,63 @@ export class Session {
   async openFromGallery(path: string): Promise<boolean> {
     if (!(await this.leaveGate())) return false;
     try {
+      // 加密件：先问口令（解锁循环在 busy 外弹面板、验的是尾部 peek，便宜）；取消 = 这份从头到尾没装进编辑器（没有脏、退出不推）
+      const enc = await docFile(path).isEncrypted();
+      if (enc && !(await this.d.crypto.ensureUnlocked(path))) { this.d.setStatus("已取消（需要口令）", true); return false; }
       const blob = await docFile(path).open();
-      if (!blob) { this.d.setStatus(`「${bareName(path)}」本机没有副本，云端也连不上`, true); return false; }
+      if (!blob) { this.d.setStatus(enc ? `「${bareName(path)}」是加密的，解不开（口令不对或本机没有副本）` : `「${bareName(path)}」本机没有副本，云端也连不上`, true); return false; }
       this.adopt(new Uint8Array(await blob.arrayBuffer()));
       this.dropLuggage();
       this.setHome({ kind: "gallery", path });
-      this.d.setStatus(`已打开 ${bareName(path)}`);
+      this.encrypted = enc;
+      this.d.setStatus(enc ? `已打开 ${bareName(path)}（加密的）` : `已打开 ${bareName(path)}`);
       return true;
     } catch (e) { reportError(e); return false; }
+  }
+  // ---------- 加密 / 解除（2026-10-29 周账 F-123；WeebPaint session-state encryptCurrent / decryptCurrent 同形）----------
+  /** 给正在编辑的图库模型加密（明文 → 容器，先本地后云 If-Match；库做）。无地 / 本地文件 = 先安家。口令：已解锁复用、验证器在就校验、都没有就设新的。 */
+  async encryptCurrent(): Promise<boolean> {
+    if (this.home.kind !== "gallery" || this.lazy) { this.d.setStatus("先保存进图库，再加密（本地文件 / 空白模型没法加密）", true); return false; }
+    const path = this.home.path;
+    if (await docFile(path).isEncrypted()) { this.d.setStatus("已经是加密的"); this.encrypted = true; return true; }
+    const fresh = this.d.crypto.isFreshPasswordSetup();   // 首次创建的口令只有这次加密成功才算数
+    const pw = await this.d.crypto.ensureNewPassword();
+    if (pw == null) { this.d.setStatus("已取消"); return false; }
+    this.d.crypto.setPassword(pw);   // 库在 encrypt 里非交互取，必须先进内存
+    let ok = false;
+    await withBusy(`正在加密 ${bareName(path)}…`, async () => {
+      try {
+        if (this.dirty()) await this.save({ implicit: true, localOnly: true });   // 先把内存里的落本地明文，库读它打包
+        const r = await docFile(path).encrypt({ isOnline: () => this.d.online() && auth.isSignedIn() });
+        if (r.status === "offline") { this.d.setStatus("加密要在线做（云端那份也要一起换）：联网 / 登录后再试", true); return; }
+        if (r.status === "locked") { this.d.setStatus("已取消（需要口令）", true); return; }
+        ok = true; this.encrypted = true;
+        this.d.setStatus(r.status === "cloud-deferred" ? `已加密 ${bareName(path)}（云端那份稍后同步）` : `已加密 ${bareName(path)}`, r.status === "cloud-deferred");
+        this.d.onHomeChanged();
+      } catch (e) { reportError(e); this.d.setStatus(`加密失败：${(e as Error)?.message ?? e}`, true); }
+    });
+    if (fresh && !ok) this.d.crypto.rollbackFreshPassword();   // 一件都没加密成 → 空头新口令 + 验证器撤销
+    return ok;
+  }
+  /** 解除加密（容器 → 明文，先本地后云）。先问口令（不在内存就弹）。 */
+  async decryptCurrent(): Promise<boolean> {
+    if (this.home.kind !== "gallery" || this.lazy) { this.d.setStatus("这份不在图库里", true); return false; }
+    const path = this.home.path;
+    if (!(await docFile(path).isEncrypted())) { this.d.setStatus("这份没有加密"); this.encrypted = false; return true; }
+    if (!(await this.d.crypto.ensureUnlocked(path))) { this.d.setStatus("已取消（需要口令）", true); return false; }
+    let ok = false;
+    await withBusy(`正在解除加密 ${bareName(path)}…`, async () => {
+      try {
+        if (this.dirty()) await this.save({ implicit: true, localOnly: true });
+        const r = await docFile(path).decrypt({ isOnline: () => this.d.online() && auth.isSignedIn() });
+        if (r.status === "offline") { this.d.setStatus("解除加密要在线做：联网 / 登录后再试", true); return; }
+        if (r.status === "locked") { this.d.setStatus("已取消（需要口令）", true); return; }
+        ok = true; this.encrypted = false;
+        this.d.setStatus(`已解除加密 ${bareName(path)}`);
+        this.d.onHomeChanged();
+      } catch (e) { reportError(e); this.d.setStatus(`解除失败：${(e as Error)?.message ?? e}`, true); }
+    });
+    return ok;
   }
   /** 登录落地 / 回线 / 回前台的**显式快进**（WeebPaint refreshOpenDoc，P1 2026-08-25）：图库家 ∧ 干净 ∧ 云可达 → pullIfClean；
    *  云端更新且本地干净 → 库拉字节（期间 busy 遮罩：别让用户在换字节的半路落笔）→ 同名重开。脏 / push-pending / lazyblank 一律不快进
@@ -466,6 +530,19 @@ export class Session {
   }
   /** 打开本地文件字节（拖入 / 文件输入 / FSA 句柄）。 */
   async openLocalBytes(bytes: Uint8Array, fileName: string, handle: FSHandle | null): Promise<boolean> {
+    // 本地的加密工程文件（图库里加密后导出 / 别的设备拷来）：问口令、解开，当**临时模型**开（无家：保存 = 另存；绝不把明文写回那个加密文件）
+    if (await this.d.crypto.isEncryptedBlob(bytes)) {
+      const r = await this.d.crypto.unlockImportedContainer(new Blob([bytes as BlobPart]));
+      if (!r) { this.d.setStatus("已取消（需要口令）", true); return false; }
+      if (!(await this.leaveGate())) return false;
+      try {
+        this.adopt(new Uint8Array(await r.plain.arrayBuffer()));
+        this.dropLuggage();
+        this.setHome({ kind: "transient", name: fileName.replace(/\.zip$/i, "").replace(/\.(catsup|glb)$/i, "") });
+        this.d.setStatus(`已解开加密的「${fileName}」，当临时模型打开：要留就「存为…」或「复制到图库」`);
+        return true;
+      } catch (e) { reportError(e); return false; }
+    }
     // 别的软件导出的 glb：打开照旧拒（T11 / DT2 user「拒开glb，但是可以导入」），说清去哪导入；先于「要不要先保存」那一问
     if (isForeignGlb(bytes)) { this.d.setStatus(`「${fileName}」是别的软件做的 glb，不能当 CatsUp 模型打开；要放进当前模型请用 ☰ → 导入 glb…`, true); return false; }
     if (!(await this.leaveGate())) return false;
@@ -495,6 +572,7 @@ export class Session {
     const home = this.home;
     if (home.kind === "transient") return opts.implicit ? false : this.settleToFile();
     if (home.kind === "gallery" && this.lazy) { if (!opts.implicit) this.d.setStatus("空白场景，还没有需要保存的内容"); return false; }   // WeebPaint blankNothingToSave
+    if (home.kind === "gallery" && this.encrypted && !this.d.crypto.getPassword(home.path)) { if (!opts.implicit) this.d.setStatus("这份是加密的、现在锁着：先解锁再保存（改动还在内存里）", true); return false; }   // 锁着绝不写（库也不会写明文；这里先说人话）
     this.saving = true; this.d.onHomeChanged();
     try {
       if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的

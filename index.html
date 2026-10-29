@@ -9,30 +9,17 @@
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
     <title>CatsUp</title>
+    <!-- CSP（2026-10-29 周账 F-123 接密码时上，WeebPaint ADR-0015 同款；GitHub Pages 配不了响应头）：不放行内联脚本（开机兜底搬成 boot-guard.js）；
+         wasm-unsafe-eval = 7z-wasm；connect-src https: = OneDrive Graph / 登录；frame-src = MSAL 静默续签 iframe；被拦的东西经 securitypolicyviolation 进黑匣子。 -->
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'wasm-unsafe-eval'; worker-src 'self' blob:; connect-src 'self' https: blob: data: http://127.0.0.1:* http://localhost:*; img-src 'self' data: blob:; media-src 'self' data: blob:; font-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; frame-src 'self' https://login.microsoftonline.com https://login.live.com; object-src 'none'; base-uri 'self'; form-action 'self'; manifest-src 'self'" />
     <link rel="manifest" href="./manifest.webmanifest" />
     <link rel="icon" href="./icon-192.png" type="image/png" />
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=07d35c85fb97" />
-    <script>
-      // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
-      (function () {
-        function show(text) {
-          var bar = document.getElementById("errBanner");
-          if (!bar) {
-            bar = document.createElement("div");
-            bar.id = "errBanner"; bar.className = "err-banner";
-            bar.addEventListener("click", function () { bar.hidden = true; });
-            (document.body || document.documentElement).appendChild(bar);
-          }
-          bar.hidden = false;
-          bar.textContent = text + "  (点击关闭)";
-        }
-        window.addEventListener("error", function (e) { show("脚本错误：" + (e.message || e.error || e)); });
-        window.addEventListener("unhandledrejection", function (e) { show("未处理的 Promise 错误：" + (e.reason && (e.reason.message || e.reason))); });
-      })();
-    </script>
+    <link rel="stylesheet" href="./styles.css?v=1a62ab0f409e" />
+    <script src="./boot-guard.js"></script>
+    <script defer src="./vendor/zip-js/zip-full.min.js"></script>   <!-- 加密容器的明文外壳（UMD，挂 window.zip；7z-wasm 惰性加载） -->
   </head>
   <body>
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
@@ -337,7 +324,11 @@
       <div class="sheet sheet-modal">
         <h3 class="sheet-title" id="sheetTitle"></h3>
         <p class="sheet-message" id="sheetMessage" hidden></p>
-        <input id="sheetInput" class="sheet-input" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" hidden />
+        <form id="sheetForm" class="sheet-form" autocomplete="on">
+          <input id="sheetUser" class="sheet-user" type="text" name="username" autocomplete="username" tabindex="-1" aria-hidden="true" />
+          <input id="sheetInput" class="sheet-input" type="text" autocapitalize="off" autocorrect="off" spellcheck="false" hidden />
+        </form>
+        <label id="sheetCheck" class="sheet-check" hidden><input type="checkbox" id="sheetCheckInput" /><span id="sheetCheckLabel"></span></label>
         <p id="sheetError" class="sheet-error" hidden></p>
         <div id="sheetChoices" class="sheet-choices" hidden></div>
         <div class="sheet-actions">
@@ -392,6 +383,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-fe1aa26942c2.mjs"></script>
+    <script type="module" src="./dist/catsup-6c5876124c04.mjs"></script>
   </body>
 </html>

@@ -44,6 +44,21 @@ export interface SessionDeps {
     onHomeChanged: () => void;
     setStatus: (text: string, error?: boolean) => void;
     online: () => boolean;
+    /** 口令（2026-10-29 周账 F-123；政策在 crypto-state / unlock.ts，这里只用）。**弹面板的都在 busy 外调。** */
+    crypto: {
+        ensureUnlocked: (path: string) => Promise<boolean>;
+        ensureNewPassword: () => Promise<string | null>;
+        isFreshPasswordSetup: () => boolean;
+        rollbackFreshPassword: () => void;
+        setPassword: (pw: string | null) => void;
+        getPassword: (path: string | null) => string | null;
+        /** 本地加密文件：全量解，返回验过的口令 + 明文；取消 = null。 */
+        unlockImportedContainer: (blob: Blob) => Promise<{
+            pw: string;
+            plain: Blob;
+        } | null>;
+        isEncryptedBlob: (bytes: Uint8Array) => Promise<boolean>;
+    };
 }
 export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
 /** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
@@ -57,6 +72,8 @@ export declare class Session {
     private halted;
     /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
     pushPending: boolean;
+    /** 正在编辑的图库模型是加密的（打开 / 加密 / 解密后刷新；换家清）。锁着（内存没口令）时保存会如实拒。 */
+    encrypted: boolean;
     /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
      *  清的时机：推上去了（save / resolveActive 成功）、换了文档。横幅本身在 main（onAttentionChanged）。 */
     attention: {
@@ -163,6 +180,10 @@ export declare class Session {
     restore(path: string): Promise<boolean>;
     /** 从图库打开（本地优先；没本地且离线 → 诚实报）。 */
     openFromGallery(path: string): Promise<boolean>;
+    /** 给正在编辑的图库模型加密（明文 → 容器，先本地后云 If-Match；库做）。无地 / 本地文件 = 先安家。口令：已解锁复用、验证器在就校验、都没有就设新的。 */
+    encryptCurrent(): Promise<boolean>;
+    /** 解除加密（容器 → 明文，先本地后云）。先问口令（不在内存就弹）。 */
+    decryptCurrent(): Promise<boolean>;
     /** 登录落地 / 回线 / 回前台的**显式快进**（WeebPaint refreshOpenDoc，P1 2026-08-25）：图库家 ∧ 干净 ∧ 云可达 → pullIfClean；
      *  云端更新且本地干净 → 库拉字节（期间 busy 遮罩：别让用户在换字节的半路落笔）→ 同名重开。脏 / push-pending / lazyblank 一律不快进
      *  （分歧留给保存的 412 冲突面）。库侧 localDirty 二次核对 fetchMeta 期间有没有落笔。 */
