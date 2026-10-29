@@ -196,9 +196,11 @@ export interface ToolCtx {
   setAxes(frame: Frame): void;
   // ---- 新建（自由建模；FM182）：和右键「新建 ›」同一条（Editor.addPrimitive：落点 / 对齐 / 马后炮一份）----
   /** 在屏幕点 (x, y) 打到的地方（点 / 边 / 面 / 原点 / 地面）新建一个基本体；size = 世界长度（边长 / 直径），不给 = 出厂尺寸。落不到东西 = false。 */
-  newPrimitive(kind: PrimitiveKind, x: number, y: number, size?: number): boolean;
-  /** 预演：同一份计划长在给的影子网格上；返回说法（落不到东西 = null）。 */
-  previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel): string | null;
+  newPrimitive(kind: PrimitiveKind, x: number, y: number, size?: number, spin?: number): boolean;
+  /** 预演：同一份计划长在给的影子网格上；返回说法（落不到东西 = null）。spin = 绕底面法向转多少弧度。 */
+  previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel, spin?: number): string | null;
+  /** 在 (x, y) 落下时的世界坐标架（还没转；定朝向的环画在它的 xy 平面里）；落不到东西 = null。 */
+  primitiveFrameAt(x: number, y: number): Frame | null;
   /** 从 (x0, y0) 拖到 (x1, y1) 在落点那里是多长（世界长度）；落不到东西 = null。 */
   primitiveDragSize(x0: number, y0: number, x1: number, y1: number): number | null;
   /** 手势进行中打的数（键盘起手 / 拖着时打字；Blender「S Z 0」）：按这把工具的 typedQuantity 读（单位文本框同一个 parseQuantity：长度 = 米、角度 = 弧度、倍数）；没打 / 还没看懂 = null（照鼠标）。 */
@@ -239,6 +241,8 @@ export interface ToolHandler {
   armLoop?(ctx: ToolCtx): void;
   /** 手势进行中能打数（Blender「S Z 0」；user 10-28 晚）：这把工具收的是什么量（长度 / 角度 / 倍数）。没有 = 打字不进这把工具。 */
   readonly typedQuantity?: QuantityTag;
+  /** direct 工具松着手还在手势里、等再点一下（新建第二步的环）：回车 = 那一下。 */
+  awaitsClick?(): boolean;
   /** 右键（自由建模手势中）= 原地落定：几何长出来但留在原地、新长出来的成为选区，接着 G 挪（Blender 的 E 然后右键；user 10-28 晚）。没有 = 右键只是取消。 */
   commitInPlace?(ctx: ToolCtx): void;
   /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */

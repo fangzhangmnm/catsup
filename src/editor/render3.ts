@@ -193,7 +193,7 @@ export interface ViewState {
   /** 缩放柄（世界点；active = 正在拖的那个）。 */
   handles?: readonly { p: Pt3; active: boolean }[] | null;
   /** 量角器：圆心 + 转轴 + 参考点 + 当前角（弧度）。 */
-  protractor?: { center: Pt3; axis: Pt3; ref: Pt3 | null; angle: number } | null;
+  protractor?: { center: Pt3; axis: Pt3; ref: Pt3 | null; angle: number; /** 圆环至少多大（世界长度；新建第二步 = 套在基本体外面，不被它挡住）；不给 = 屏上 60 px。 */ minRadius?: number } | null;
   /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
   guides?: GuidesWorld | null;
   /** 选中的参考线 / 参考点 id（A31）：画成选中色。 */
@@ -897,10 +897,10 @@ export class Renderer3 {
     // ---- 量角器 ----
     const pr = view.protractor;
     if (pr) {
-      const pk = `${pr.center.x},${pr.center.y},${pr.center.z}|${pr.axis.x},${pr.axis.y},${pr.axis.z}|${pr.ref ? `${pr.ref.x},${pr.ref.y},${pr.ref.z}` : "-"}|${pr.angle.toFixed(4)}|${this.worldPerPx(cam, vp, pr.center).toExponential(2)}`;
+      const pk = `${pr.center.x},${pr.center.y},${pr.center.z}|${pr.axis.x},${pr.axis.y},${pr.axis.z}|${pr.ref ? `${pr.ref.x},${pr.ref.y},${pr.ref.z}` : "-"}|${pr.angle.toFixed(4)}|${this.worldPerPx(cam, vp, pr.center).toExponential(2)}|${pr.minRadius ?? 0}`;
       if (pk !== this.protKey) {
         this.protKey = pk;
-        const R = 60 * this.worldPerPx(cam, vp, pr.center);
+        const R = Math.max(60 * this.worldPerPx(cam, vp, pr.center), pr.minRadius ?? 0);
         const n = pr.axis;
         const seed = Math.abs(n.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };
         const ux0 = { x: n.y * seed.z - n.z * seed.y, y: n.z * seed.x - n.x * seed.z, z: n.x * seed.y - n.y * seed.x };
