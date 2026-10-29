@@ -297,6 +297,7 @@ export function muscleConflicts(): Map<Chord, Map<string, string[]>> {
  * 已知的冲突（10-28 登记 = 当时的现状；UX15 列过前五个），**等 user 逐条拍**：留着（两个工作台各是各的肌肉记忆）/ 改掉某一边。拍了就改这里和键表。
  * 新冒出来的（不在这里）= 守卫红：先想清楚是不是真要这么绑，要的话登记进来并告诉 user。
  */
+// user 10-29 拍：这六个「保持现状」（两个工作台各留各的；账本 UX71）。新冲出来的照旧 = 守卫红、再拍。
 export const KNOWN_CONFLICTS: Readonly<Record<Chord, string>> = {
   a: "硬表面 = 弧 · 自由建模 = 全选（Blender）",
   e: "硬表面 = 橡皮 · 自由建模 = 挤出（Blender）",
