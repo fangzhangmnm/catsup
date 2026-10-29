@@ -711,7 +711,12 @@ export class Renderer3 implements Backend {
       this.scene.background = null; this.renderer.setClearColor(0x000000, 0);
       cam3.layers.mask = 1 | (1 << GROUND_LAYER);   // 模型 + 风格的地面（叠加层那一层后面单画）
       cam3.setViewOffset(W, H, 0, H - ps.h * k, ps.w * k, ps.h * k);
-      if (p.material.tron && this.tron) this.tron.sync(p.material.tron, H / this.dpr / ps.h);   // 线宽按小图的像素（LineSegments2 按画布 CSS 视口算，见 tron-shader.ts 头）
+      const pxScale = H / this.dpr / ps.h;   // LineSegments2 按画布 CSS 视口算像素：小图里线宽要乘回去（tron-shader.ts 头）——不乘 = 粗线在小图里只有几分之一像素宽、画成断断续续的虚线（user 10-29 iPad 截图：线稿粗细 1.5 的粗线路）
+      if (p.material.tron && this.tron) this.tron.sync(p.material.tron, pxScale);
+      const lw0 = this.edgeMat.linewidth, lwd0 = this.edgeDimMat.linewidth, pa0 = this.profileAdd.value;
+      this.edgeMat.linewidth = lw0 * pxScale; this.edgeDimMat.linewidth = lwd0 * pxScale; this.profileAdd.value = pa0 * pxScale;
+      const restoreLines = (): void => { this.edgeMat.linewidth = lw0; this.edgeDimMat.linewidth = lwd0; this.profileAdd.value = pa0; };
+      try {
       this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3);
       if (p.post.bloom) {
         // 辉光那遍：同一个场景再画一遍进半精度的辉光图（面只出轮廓光、线全色、被挡的边 × 0.4、地格的光）
@@ -728,6 +733,7 @@ export class Renderer3 implements Backend {
         ps.outline(this.renderer, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera });
         ps.upscale(this.renderer, target, "post", p.screen.look);
       }
+      } finally { restoreLines(); }   // 叠加层那遍（选中边用同一份边线材质）按原分辨率的线宽
       // ④ 叠加层那一层：不清屏，按原分辨率画在放大好的画面上
       this.renderer.autoClear = false; cam3.layers.mask = 1 << OVERLAY_LAYER;
       this.renderer.setRenderTarget(target); this.renderer.render(this.scene, cam3);
