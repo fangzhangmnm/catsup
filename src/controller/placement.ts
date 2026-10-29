@@ -35,11 +35,20 @@ export const RAIL_FIXED_FLYOUTS: Readonly<Partial<Record<ModeId, Partial<Record<
   freeform: { pp: ["pp", "shrink"] },
 };
 export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
-  freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset", "create"],   // create = 新建（FM182；排最后：八格常用之外的第九格）
+  // create = 拉出（FM182；user 10-28 夜「拉出放到推拉上面」）；删除 / 插入倒角搬进下面的折叠组（「删除，插入倒角也折叠」）
+  freeform: ["select", "create", "pp", "move", "rotate", "scale", "knife"],
   verify: ["walk", "select", "move", "rotate", "tape", "protractor", "compass", "axes"],
 };
+/**
+ * 定死一列下面的折叠组（user 10-28 夜「笔刷小三角同意。然后算是自动折叠的不是常驻的。删除，插入倒角也折叠」）：
+ * 平时只有一条矮「…」（点开 = 整组）；这次会话里用过的按最近使用长出来，最多 budget 格（和硬表面后面几组的「池」同一个意思，只是没有常驻）。
+ * 小三角组（RAIL_FIXED_FLYOUTS）也能放进来：写组的第一把，长出来的那格显示最近用的那把。
+ */
+export const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, { readonly pool: readonly Tool[]; readonly budget: number }>>> = {
+  freeform: { pool: ["erase", "offset"], budget: 3 },
+};
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
-export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };
+export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };   // 拉出 = 工具本名（自由建模独有）
 
 // ---------------- ☰ ----------------
 // 分页 = WeebPaint 范式（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页 = 合租法（user 10-24「看一下weebpaint是怎么收的更干净的，谁和谁合租」）：

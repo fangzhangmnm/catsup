@@ -1,5 +1,6 @@
 // 左柱 + ☰ 长什么样（放置表 src/controller/placement.ts；接线清单第 1 条；created 2026-10-28 by Claude Opus 5.5）。
-// 抓：硬表面开局的左柱（第一组常驻 + 各组常驻 + ⌄）、用过池里的工具（旋转）后长出的格、自由建模 / 验证定死的一列（含改名「挤出 / 删除 / 插入/倒角」）、☰ 每页的行。
+// 抓：硬表面开局的左柱（第一组常驻 + 各组常驻 + ⌄）、用过池里的工具（旋转）后长出的格、自由建模 / 验证定死的一列（含改名「挤出 / 删除 / 插入/倒角」）、
+// 自由建模的折叠组（删除 / 插入倒角平时收在 ⌄，用过才长出来；v0.16.42）、☰ 每页的行。
 // 期望值 = 放置表搬家前（v0.16.8）的样子（零行为变更）。2026-10-28 晚加：按钮提示（title）= 键表生成，按工作台不同（user「tooltip你没有更新」；奶酪第四层 = 读页面上真的 title）。跑法：python3 -m http.server 8765 后 node test/probes/probe-rail.mjs [--print]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -19,6 +20,8 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor, P = (x, y, z =
 await page.waitForTimeout(120);
 r.freeform = await rail();
 r.freeformTitles = await titles();
+await page.evaluate(() => { globalThis.__catsup.hud.pick("offset"); globalThis.__catsup.hud.pick("select"); }); await page.waitForTimeout(80);
+r.freeformAfterUse = await rail();   // 折叠组：用过插入/倒角 = 它长出来，删除还在「…」里（user 10-28 夜「删除，插入倒角也折叠」）
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.exitTo(0); e.setMode("verify"); }); await page.waitForTimeout(120);
 r.verify = await rail();
 await page.evaluate(() => globalThis.__catsup.editor.setMode("geometry")); await page.waitForTimeout(80);
@@ -34,4 +37,4 @@ console.log(JSON.stringify({ diffs: diffs.map((k) => ({ k, want: want[k], got: r
 const ok = !diffs.length && !errs.length;
 console.log(ok ? "probe-rail OK" : "probe-rail FAIL");
 process.exit(ok ? 0 : 1);
-function EXPECTED() { return {"geometryTitles": "选择（Space · Tab） | 画线（L） | 矩形（R） | 橡皮（E · X） | 推拉（P） | 移动（M） | 卷尺（T） | 坐标架（再按 T）", "freeformTitles": "选择（Space · Tab） | 挤出（P · E 键盘起手） | 移动（M · G 键盘起手） | 旋转（Q · R 键盘起手） | 缩放（S 键盘起手） | 切割（K） | 删除 | 插入/倒角（F · I 键盘起手 · Ctrl+B 倒角 · Ctrl+Shift+B 倒角（点）） | 新建（Shift+A）", "geometry": "选择 画线 矩形▾ 橡皮▾ | 推拉 移动 ⌄ | 卷尺 坐标架 ⌄", "geometryAfterRotate": "选择 画线 矩形▾ 橡皮▾ | 推拉 移动 旋转 ⌄ | 卷尺 坐标架 ⌄", "freeform": "选择 挤出▾ 移动 旋转 缩放 切割 删除 插入/倒角 新建", "verify": "步行 选择 移动 旋转 卷尺 量角器 圆规 坐标架", "menu": {"file": "图库 / 新建 / 打开… / 导出与另存… / 定稿…", "model": "软化所有 ≤ 20° 的边 / 焊接全部断口 / 拍平几乎共面的面 / 材质… / 清空模型", "settings": "手指也能画 / §开发者 / 还原出厂设置…", "help": "使用手册 / 调试日志 / 强制更新"}}; }
+function EXPECTED() { return {"geometryTitles": "选择（Space · Tab） | 画线（L） | 矩形（R） | 橡皮（E · X） | 推拉（P） | 移动（M） | 卷尺（T） | 坐标架（再按 T）", "freeformTitles": "选择（Space · Tab） | 拉出（Shift+A） | 挤出（P · E 键盘起手） | 移动（M · G 键盘起手） | 旋转（Q · R 键盘起手） | 缩放（S 键盘起手） | 切割（K）", "geometry": "选择 画线 矩形▾ 橡皮▾ | 推拉 移动 ⌄ | 卷尺 坐标架 ⌄", "geometryAfterRotate": "选择 画线 矩形▾ 橡皮▾ | 推拉 移动 旋转 ⌄ | 卷尺 坐标架 ⌄", "freeform": "选择 拉出 挤出▾ 移动 旋转 缩放 切割 | ⌄", "freeformAfterUse": "选择 拉出 挤出▾ 移动 旋转 缩放 切割 | 插入/倒角 ⌄", "verify": "步行 选择 移动 旋转 卷尺 量角器 圆规 坐标架", "menu": {"file": "图库 / 新建 / 打开… / 导出与另存… / 定稿…", "model": "软化所有 ≤ 20° 的边 / 焊接全部断口 / 拍平几乎共面的面 / 材质… / 清空模型", "settings": "手指也能画 / §开发者 / 还原出厂设置…", "help": "使用手册 / 调试日志 / 强制更新"}}; }

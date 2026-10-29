@@ -28,7 +28,7 @@ import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
 import { mountSoftSlider, type SoftSlider } from "./soft-slider.ts";
 import { mountSelGrowBar, type SelGrowBar } from "./sel-grow-bar.ts";
-import { RAIL_FIXED_FLYOUTS, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
+import { RAIL_FIXED_FLYOUTS, RAIL_FIXED_FOLD, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
 import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
@@ -232,7 +232,7 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string }[] = [
   { tool: "compass", icon: "compass", label: "圆规" },
   { tool: "knife", icon: "knife", label: "切割" },
   { tool: "walk", icon: "walk", label: "步行" },
-  { tool: "create", icon: "new", label: "新建" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键 Shift+A（键表自由建模层；user 10-28 晚「Shift+A 同意」）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
+  { tool: "create", icon: "new", label: "拉出" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键 Shift+A（键表自由建模层；user 10-28 晚「Shift+A 同意」）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
   { tool: "shrink", icon: "push-pull", label: "沿法线" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
@@ -327,6 +327,8 @@ const hud: HudModel = {
 let eraserCurrent: Tool = "erase";
 /** 定死一列里小三角组各自最近用的那把（组的第一把 → 当前）。 */
 const fixedFlyCurrent = new Map<Tool, Tool>();
+/** 定死一列下面折叠组里这次会话用过的（按最近使用；存组头 = 小三角组的第一把）；开局空 = 只有「…」。 */
+const foldUsed = new Map<string, Tool[]>();
 // 哪把工具进哪一组 / 预算 / 工作台定死的一列 / 改名 = 放置表 src/controller/placement.ts（接线清单第 1 条）；这里只按表画
 const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = RAIL_LABELS[editor.modeId]?.[t], key = toolKeyText(editor.modeId, t, (x) => editor.modeTools().includes(x)); return { ...sp, label: l ?? sp.label, key }; };   // key = 键表现算（这个工作台里按什么拿起它 / 键盘起手）
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
@@ -341,6 +343,11 @@ function noteToolUse(t: Tool): void {
   if (SHAPES.includes(t)) shapeCurrent = t;
   if (ERASERS.includes(t)) eraserCurrent = t;
   for (const g of Object.values(RAIL_FIXED_FLYOUTS[editor.modeId] ?? {})) if (g.includes(t)) fixedFlyCurrent.set(g[0], t);
+  const fold = RAIL_FIXED_FOLD[editor.modeId];
+  if (fold) {
+    const head = fold.pool.find((h) => h === t || (RAIL_FIXED_FLYOUTS[editor.modeId]?.[h] ?? []).includes(t));
+    if (head) { const l = foldUsed.get(editor.modeId) ?? []; bumpFront(l, head); foldUsed.set(editor.modeId, l); }
+  }
   for (const g of RAIL_GROUPS) {
     if (g.pool.includes(t)) bumpFront(usedPool.get(g.id)!, t);
     if (g.pinned.includes(t) || g.pool.includes(t)) bumpFront(groupMru.get(g.id)!, t);
@@ -409,7 +416,15 @@ function renderSlots(): void {
   const fixed = RAIL_FIXED[editor.modeId];
   if (fixed) {   // 这个工作台有自己定死的一列（自由建模 / 验证）；列里的小三角组（RAIL_FIXED_FLYOUTS）= 格子显示最近用的那把
     const groups = RAIL_FIXED_FLYOUTS[editor.modeId] ?? {};
-    for (const t of fixed) { const g = groups[t]; if (g) { const cur = fixedFlyCurrent.get(t) ?? t; add(cur, () => g.filter(inMode)); } else add(t); }
+    const slot = (t: Tool): void => { const g = groups[t]; if (g) { const cur = fixedFlyCurrent.get(t) ?? t; add(cur, () => g.filter(inMode)); } else add(t); };
+    for (const t of fixed) slot(t);
+    const fold = RAIL_FIXED_FOLD[editor.modeId];   // 折叠组：用过的长出来（最多 budget 格），其余收在「…」里
+    if (fold) {
+      const heads = fold.pool.filter((h) => inMode(h) || (groups[h] ?? []).some(inMode)), shown = (foldUsed.get(editor.modeId) ?? []).filter((h) => heads.includes(h)).slice(0, fold.budget);
+      if (heads.length) { const sep = document.createElement("div"); sep.className = "rail-sep"; toolbarEl.appendChild(sep); }
+      for (const h of shown) slot(h);
+      if (heads.length > shown.length) toolbarEl.appendChild(mkMore(heads.flatMap((h) => groups[h] ?? [h]).filter(inMode)));
+    }
     return;
   }
   for (const slot of RAIL_FIRST) {   // 第一组常驻（形状格 / 橡皮格 = 一格一组、显示当前那把、小三角换）

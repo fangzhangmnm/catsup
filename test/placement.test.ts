@@ -3,7 +3,7 @@
 // ③ ☰ 每行 id 不重复、页合法、每页至少一行 ④ 每个注册表放置面都登记了谁画；放在「没渲染器且不准先登记」的面上的动作 = 红；renderer 文件真的在
 // ⑤ main.ts 不再手写这些表（只按表画）。
 import { describe, it, eq, assert } from "./runner.mjs";
-import { RAIL_FIXED_FLYOUTS, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES, SURFACE_RENDERERS } from "../src/controller/placement.ts";
+import { RAIL_FIXED_FLYOUTS, RAIL_FIXED_FOLD, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES, SURFACE_RENDERERS } from "../src/controller/placement.ts";
 import { ERASERS, TOOLS } from "../src/editor/tool-ids.ts";
 import { allActions } from "../src/editor/commands/registry.ts";
 import { FAMILIES } from "../src/editor/commands/index.ts";
@@ -32,7 +32,9 @@ describe("放置表（controller/placement.ts）", () => {
       const has = new Set<string>(m.tools);
       eq(list!.filter((t) => !has.has(t)).join(","), "", `${id} 列里有工作台没有的工具`);
       const fly = Object.values(RAIL_FIXED_FLYOUTS[id as keyof typeof RAIL_FIXED_FLYOUTS] ?? {}).flat();   // 小三角组里的也算上了左柱
-      eq(m.tools.filter((t) => !list!.includes(t) && !fly.includes(t)).join(","), "", `${id} 工作台有工具没上左柱`);
+      const fold = RAIL_FIXED_FOLD[id as keyof typeof RAIL_FIXED_FOLD];   // 折叠组里的也算（收在 ⌄ 里、用过长出来）
+      if (fold) { eq(fold.pool.filter((t) => !has.has(t) || list!.includes(t)).join(","), "", `${id} 折叠组里有工作台没有的 / 和定死一列重复的`); assert(fold.budget >= 1, `${id} 折叠组预算`); }
+      eq(m.tools.filter((t) => !list!.includes(t) && !fly.includes(t) && !(fold?.pool ?? []).includes(t)).join(","), "", `${id} 工作台有工具没上左柱`);
       eq(list!.filter((t, i) => list!.indexOf(t) !== i).join(","), "", `${id} 重复`);
     }
     for (const [id, labels] of Object.entries(RAIL_LABELS)) { const m = modes[id as keyof typeof modes]; for (const t of Object.keys(labels!)) assert(m.tools.includes(t as never), `${id} 改名的 ${t} 不在那个工作台`); }

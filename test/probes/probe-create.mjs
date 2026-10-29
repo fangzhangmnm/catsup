@@ -31,7 +31,7 @@ const res = await page.evaluate(async () => {
   out.shiftA = e.tool;
   e.setTool("create"); await sleep(60);
   out.rail = e.modeTools().join(",");
-  out.strip = { kind: !!document.querySelector("#toolStrip")?.textContent?.includes("新建"), size: !!document.querySelector("#toolStrip")?.textContent?.includes("点一下的尺寸") };
+  out.strip = { kind: !!document.querySelector("#toolStrip")?.textContent?.includes("形状"), size: !!document.querySelector("#toolStrip")?.textContent?.includes("点一下的尺寸") };
   e.config.set("create", "kind", "box"); e.config.set("create", "size", 0.5);
   // ② 点一下
   { const before = new Set(m().verts()), st0 = stat(), pos0 = e.history.position();
@@ -67,7 +67,7 @@ res.errs = errs;
 console.log(JSON.stringify(res, null, 1));
 const t = res.tap, d = res.drag, cy = res.cyl;
 const ok = res.shiftA === "create" && /create/.test(res.rail) && res.strip.kind && res.strip.size
-  && t.st1.f === t.st0.f + 6 && t.st1.v === t.st0.v + 8 && t.steps === 1 && t.ext && t.ext.z === 0.5 && Math.max(t.ext.x, t.ext.y) === 0.5 && t.ext.zMin === 0 && t.sel === 6 && /新建立方体/.test(t.panel) && !t.check
+  && t.st1.f === t.st0.f + 6 && t.st1.v === t.st0.v + 8 && t.steps === 1 && t.ext && t.ext.z === 0.5 && Math.max(t.ext.x, t.ext.y) === 0.5 && t.ext.zMin === 0 && t.sel === 6 && /拉出立方体/.test(t.panel) && !t.check
   && d.stUp.f === d.st0.f && d.st1.f === d.st0.f + 6 && d.ext && Math.abs(d.ext.z - d.want) < 0.01 && d.want > 0.05 && Math.abs(d.want - 0.5) > 0.01
   && cy.st1.f > cy.st0.f && cy.steps === 1 && cy.ext && cy.ext.zMin === 1 && cy.ext.z === 0.5 && cy.ext.x === 0.5 && !cy.check
   && res.undo.back && errs.length === 0;

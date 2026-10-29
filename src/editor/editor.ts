@@ -60,7 +60,7 @@ import type { Surface } from "./commands/action.ts";
 import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
 import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
-import { add3, cross3, distToSegment3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
+import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
@@ -3319,8 +3319,8 @@ export class Editor {
   /** 右键点 → 新建落点（世界）+ 法向（朝镜头）：点 > 面 > 原点 > 地面（上下文坐标架的 XY 面）。 */
   private newObjectAnchor(): { p: Pt3; n: Pt3 | null; on: string; e?: Pt3 } | null { const c = this.ctxPick; return c ? this.newObjectAnchorAt(c.x, c.y) : null; }
   /** 新建物体的落点（屏幕点 → 打到的点 / 边 / 面 / 原点 / 地面 + 法向）：右键新建记下的那一点，或新建工具按下的那一点。
-   *  e = 起始朝向看的那条边（世界方向；user 10-28 夜「初始角度的推理能不能智能一点，比如看边？」）：落在面上 = 离落点最近的那条边；落在边上 = 这条边；
-   *  落在点上 = 连着它的边里最贴上下文 X 的那条。法向对齐时基本体的 X 顺着它（primitivePlan）。 */
+   *  e = 起始朝向看的那条边（世界方向；user 10-28 夜「初始角度的推理能不能智能一点，比如看边？」→「不一定是最近边吧。最长？」）：
+   *  落在面上 = 这张面外环最长的那条边（和点在面上哪儿无关）；落在边上 = 这条边；落在点上 = 连着它的最长那条边。法向对齐时基本体的 X 顺着它（primitivePlan）。 */
   private newObjectAnchorAt(cx: number, cy: number): { p: Pt3; n: Pt3 | null; on: string; e?: Pt3 } | null {
     const c = { x: cx, y: cy };
     const view = this.worldView(), fr = this.frame(), vp = this.fvp(), ray = fr.ray(c.x, c.y, vp);
@@ -3329,9 +3329,9 @@ export class Editor {
     if (hit.vertex !== undefined && view.graph.hasVertex(hit.vertex)) {
       let acc = { x: 0, y: 0, z: 0 };
       for (const e of view.graph.vertex(hit.vertex).edges) for (const f of view.graph.edge(e).faceLinks) { const r = view.planeOf(f); if (r) acc = add3(acc, toward(r.plane.n)); }
-      const p0 = view.graph.pt(hit.vertex), fx = normalize3(this.contextFrame().x);
-      let e: Pt3 | undefined, best = -1;
-      for (const id of view.graph.vertex(hit.vertex).edges) { const E = view.graph.edge(id), d = sub3(view.graph.pt(E.a === hit.vertex ? E.b : E.a), p0), L = len3(d); if (L < 1e-12) continue; const s = Math.abs(dot3(d, fx)) / L; if (s > best) { best = s; e = scale3(d, 1 / L); } }
+      const p0 = view.graph.pt(hit.vertex);
+      let e: Pt3 | undefined, best = 1e-12;
+      for (const id of view.graph.vertex(hit.vertex).edges) { const E = view.graph.edge(id), d = sub3(view.graph.pt(E.a === hit.vertex ? E.b : E.a), p0), L = len3(d); if (L > best) { best = L; e = scale3(d, 1 / L); } }
       return { p: p0, n: len3(acc) > 1e-9 ? normalize3(acc) : null, on: "点", ...(e ? { e } : {}) };
     }
     if (hit.edge !== undefined && view.graph.hasEdge(hit.edge)) {   // 边：落在光标下边上的那一点（不是边的中点；user「新建对齐的是点中的那个点而不是点中的那个图元的中心」）
@@ -3356,14 +3356,11 @@ export class Editor {
           const t = dot3(e2, qv) / det;
           if (t > 0 && (!best || t < best.t)) best = { t, n: normalize3(cross3(e1, e2)) };
         }
-        // 起始朝向：这张面（外环 + 洞）里离落点最近的那条边
-        const nearestEdge = (q: Pt3): Pt3 | undefined => {
-          let e: Pt3 | undefined, bd = Infinity;
-          for (const g of [F.outer, ...F.holes]) for (let i = 0; i < g.vids.length; i++) { const a = view.graph.pt(g.vids[i]), b = view.graph.pt(g.vids[(i + 1) % g.vids.length]), u = sub3(b, a), L = len3(u); if (L < 1e-12) continue; const d = distToSegment3(q, a, b); if (d < bd) { bd = d; e = scale3(u, 1 / L); } }
-          return e;
-        };
-        if (best) { const p = add3(ray.origin, scale3(ray.dir, best.t)), e = nearestEdge(p); return { p, n: toward(best.n), on: "面", ...(e ? { e } : {}) }; }
-        const p = rayPlane(ray.origin, ray.dir, r.plane.n, r.plane.d); if (p) { const e = nearestEdge(p); return { p, n: normalize3(toward(r.plane.n)), on: "面", ...(e ? { e } : {}) }; }
+        // 起始朝向：这张面外环最长的那条边
+        let e: Pt3 | undefined;
+        { let bl = 1e-12; const g = F.outer.vids; for (let i = 0; i < g.length; i++) { const u = sub3(view.graph.pt(g[(i + 1) % g.length]), view.graph.pt(g[i])), L = len3(u); if (L > bl) { bl = L; e = scale3(u, 1 / L); } } }
+        if (best) return { p: add3(ray.origin, scale3(ray.dir, best.t)), n: toward(best.n), on: "面", ...(e ? { e } : {}) };
+        const p = rayPlane(ray.origin, ray.dir, r.plane.n, r.plane.d); if (p) return { p, n: normalize3(toward(r.plane.n)), on: "面", ...(e ? { e } : {}) };
       }
     }
     const F = this.contextFrame(), os = fr.project?.(F.origin, vp);
@@ -3408,13 +3405,14 @@ export class Editor {
     if (!A) return null;
     const { frame, size, segments } = this.primitivePlan(kind, A)(A.n ? "normal" : "world", sizeW, 16, spin);
     addPrimitive(m, kind, frame, size, segments);
-    return `新建${P.label}（${kind === "box" || kind === "plane" ? "边长" : "直径"} ${fmtLen(sizeW)}${spin ? ` · 朝向 ${fmtDeg(spin)}` : ""}）`;
+    return `拉出${P.label}（${kind === "box" || kind === "plane" ? "边长" : "直径"} ${fmtLen(sizeW)}${spin ? ` · 朝向 ${fmtDeg(spin)}` : ""}）`;   // 预演只有拉出工具用
   }
   /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
-  addPrimitive(kind: PrimitiveKind, opts: { at?: { x: number; y: number }; size?: number; spin?: number } = {}): boolean { return this.step((pass) => {
+  addPrimitive(kind: PrimitiveKind, opts: { at?: { x: number; y: number }; size?: number; spin?: number; verb?: string } = {}): boolean { return this.step((pass) => {
+    const verb = opts.verb ?? "新建";   // 右键「新建 ›」= 新建；左柱工具 = 拉出（user 10-28 夜「拉出也行吧」）
     const A = opts.at ? this.newObjectAnchorAt(opts.at.x, opts.at.y) : this.newObjectAnchor(), P = PRIMITIVES[kind];
-    if (!A) { this.host.hint(opts.at ? "新建：按在点 / 面 / 原点 / 地面上" : "新建：右键点在点 / 面 / 原点 / 地面上"); return false; }
-    if (this.activeKind() !== "mesh") { this.host.hint("新建：只在自由建模（网格体）里"); return false; }   // user 10-27「然后硬表面建模不应该有新建网络体」
+    if (!A) { this.host.hint(opts.at ? `${verb}：按在点 / 面 / 原点 / 地面上` : `${verb}：右键点在点 / 面 / 原点 / 地面上`); return false; }
+    if (this.activeKind() !== "mesh") { this.host.hint(`${verb}：只在自由建模（网格体）里`); return false; }   // user 10-27「然后硬表面建模不应该有新建网络体」
     const at = this.activePool(), plan = this.primitivePlan(kind, A);
     const go = (v: Readonly<Record<string, ParamValue>>): void => {
       const { frame: fL, size, segments: seg } = plan(String(v.align), Number(v.size), Number(v.segments) || 16, Number(v.spin) || 0);
@@ -3434,8 +3432,8 @@ export class Editor {
       ...(P.round ? [{ key: "segments", def: { kind: "number" as const, label: "段数", min: 3, max: 128, step: 1 } }] : []),
       { key: "spin", def: { kind: "number", label: "朝向", min: -2 * Math.PI, max: 2 * Math.PI, step: Math.PI / 12, quantity: { q: "angle" } } },
     ];
-    this.offerAfterthought(`新建${P.label}`, fields, v0, this.opCount - n0, (v) => go(v));
-    this.host.hint(`新建了${P.label}：落在${A.on}上`);
+    this.offerAfterthought(`${verb}${P.label}`, fields, v0, this.opCount - n0, (v) => go(v));
+    this.host.hint(`${verb}了${P.label}：落在${A.on}上`);
     this.host.changed(); this.draw();
     return true;
   }); }
@@ -3867,7 +3865,7 @@ export class Editor {
       orientFrame: () => this.orientFrame(),
       boxIn: (f) => this.boxIn(f),
       setAxes: (f) => this.setContextAxes(f),
-      newPrimitive: (kind, x, y, size, spin) => this.addPrimitive(kind, { at: { x, y }, ...(size !== undefined ? { size } : {}), ...(spin ? { spin } : {}) }),
+      newPrimitive: (kind, x, y, size, spin) => this.addPrimitive(kind, { at: { x, y }, verb: "拉出", ...(size !== undefined ? { size } : {}), ...(spin ? { spin } : {}) }),
       previewPrimitive: (kind, x, y, size, m, spin) => this.previewPrimitive(kind, x, y, size, m, spin),
       primitiveFrameAt: (x, y) => { const f = this.primitiveFrameAt(x, y); return f ? { origin: f.o, x: f.x, y: f.y, z: f.z } : null; },
       primitiveDragSize: (x0, y0, x1, y1) => this.primitiveDragSize(x0, y0, x1, y1),

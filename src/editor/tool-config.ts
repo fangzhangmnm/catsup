@@ -208,7 +208,7 @@ export const TOOL_OPTIONS = {
   /** 新建（自由建模；纪元账本 FM182，user 10-27「然后能不能加一个新建的tool，就是拖动然后新建，可以马前炮和马后炮，如果你想用马前炮的尺寸就点击」）：
    *  新建什么 + 点一下时的尺寸（= 马前炮；拖 = 拖多大就多大）。尺寸 = 边长（立方体 / 平面）或直径（圆柱 / 圆锥 / 球），存米、按显示单位显示。马后炮（对齐 / 尺寸 / 段数）照右键新建那一套。 */
   create: {
-    kind: { kind: "enum", label: "新建", values: [{ id: "box", label: "立方体" }, { id: "cylinder", label: "圆柱" }, { id: "cone", label: "圆锥" }, { id: "sphere", label: "球" }, { id: "plane", label: "平面" }], def: "box", scope: "session" },
+    kind: { kind: "enum", label: "形状", values: [{ id: "box", label: "立方体" }, { id: "cylinder", label: "圆柱" }, { id: "cone", label: "圆锥" }, { id: "sphere", label: "球" }, { id: "plane", label: "平面" }], def: "box", scope: "session" },
     size: { kind: "number", label: "点一下的尺寸", def: 1, min: 0.01, max: 10000, step: 0.01, quantity: { q: "length" }, scope: "session" },   // 量化以 min 为格点原点：min = step（0.001 / 0.1 会把 0.5 量成 0.501）
   },
   /** 软选择（比例编辑，Blender 的 O；user 10-28 夜「为什么不先做软选择，然后weebpaint的slider放哪里」；纪元账本 FM1 / FM20「软编辑半径全局共享，像 WeebPaint 的笔刷大小滑条」）：

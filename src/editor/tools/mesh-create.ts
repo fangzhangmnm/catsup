@@ -1,11 +1,11 @@
-// tools/mesh-create.ts —— 自由建模工作台的「新建」（网格体里长一个基本体）。created 2026-10-28 by Claude Opus 5.5
+// tools/mesh-create.ts —— 自由建模工作台的「拉出」（网格体里长一个基本体；10-28 夜由「新建」改名，user「新建可能名字比较误导，因为你这个是拉出长出」「拉出也行吧」）。created 2026-10-28 by Claude Opus 5.5
 // user 10-27（纪元账本 FM182）：「然后能不能加一个新建的tool，就是拖动然后新建，可以马前炮和马后炮，如果你想用马前炮的尺寸就点击」；「新建两个入口先同一条指令」。
 // user 10-28 夜（账本 UX57）：「新建能不能做成两步手势，拉好了之后会有一个环，设置朝向」。
 // 直接操作（direct），两步：
 //   · 点一下 = 在按下那一点打到的地方（点 / 边 / 面 / 原点 / 地面；和右键新建同一套落点）新建一个，尺寸 = 工具条上「点一下的尺寸」（马前炮），朝向不转。
 //   · ① 按住拖 = 从按下那一点往外拖多远，基本体就多大：拖的距离 = 半径（圆柱 / 圆锥 / 球）或半边长（立方体 / 平面）；拖的时候预演。
 //   · ② 松手不落定，出一个环（量角器同款，画在底面那个平面里）：鼠标绕着环转 / 笔再按下拖着转 = 绕底面法向转朝向；
-//     起始朝向看边（落在面上 = 顺着离落点最近的那条边，落在边上 = 这条边；Editor.newObjectAnchorAt 的 e）；转的时候每 90°（从起始算）和上下文的轴会吸住，
+//     起始朝向看边（落在面上 = 顺着这张面最长的那条边，落在边上 = 这条边；Editor.newObjectAnchorAt 的 e；user「不一定是最近边吧。最长？」）；转的时候每 90°（从起始算）和上下文的轴会吸住，
 //     按住 Shift = 15° 一档，也能直接打角度（打数层，单位文本框同一个读法）；点一下 / 松手 / 回车 = 落定，Esc = 不建。
 //     不想转、要起始那个精确的角（user 10-28 夜「如同我不想环想要精确怎么办。就笔点一下？会不会误触……然后电脑应该相当于右键？」）：
 //     笔 / 手指 = 点一下（按下后挪不过点按容差就不转，和别处分单击 / 拖动同一个容差）；电脑 = 右键（commitInPlace）。
@@ -107,8 +107,8 @@ export class MeshCreateTool implements ToolHandler {
       return;
     }
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; this.dragging = false; this.phase = "size";
-    if (ctx.primitiveDragSize(ev.x, ev.y, ev.x, ev.y) === null) { this.cancel(); ctx.hint("新建：按在点 / 面 / 原点 / 地面上"); return; }
-    ctx.hint("新建 ①/②：拖出来定大小，松手后转朝向；点一下 = 用工具条上的尺寸");
+    if (ctx.primitiveDragSize(ev.x, ev.y, ev.x, ev.y) === null) { this.cancel(); ctx.hint("拉出：按在点 / 面 / 原点 / 地面上"); return; }
+    ctx.hint("拉出 ①/②：拖出来定大小，松手后转朝向；点一下 = 用工具条上的尺寸");
   }
   track(ctx: ToolCtx, s: { x: number; y: number }, travel?: number): void {
     if (this.phase === "orient") {
@@ -142,10 +142,10 @@ export class MeshCreateTool implements ToolHandler {
     const tap = ctx.clicks() > 0 || !this.dragging;
     if (tap) { const size = ctx.config.get("create", "size"); this.cancel(); ctx.newPrimitive(kind, s0.x, s0.y, size); return; }
     const size = this.dragSize(ctx), frame = ctx.primitiveFrameAt(s0.x, s0.y);
-    if (size === null || !frame) { this.cancel(); ctx.hint("新建：拖得太短，没建；点一下 = 用工具条上的尺寸"); return; }
+    if (size === null || !frame) { this.cancel(); ctx.hint("拉出：拖得太短，没建；点一下 = 用工具条上的尺寸"); return; }
     // 进第二步：从松手那一点的方向起算（不转），环出来
     this.phase = "orient"; this.size = size; this.frame = frame; this.spin = this.base = 0; this.pressing = this.turning = false;
     this.refAng = this.angleAt(ctx, ev);
-    ctx.hint("新建 ②/②：转一转定朝向（鼠标绕着环转 / 笔按下拖着转；每 90° 和贴轴会吸、Shift = 15° 一档、能直接打角度），点一下 / 回车落定；不转 = 笔点一下 / 右键；Esc 不建");
+    ctx.hint("拉出 ②/②：转一转定朝向（鼠标绕着环转 / 笔按下拖着转；每 90° 和贴轴会吸、Shift = 15° 一档、能直接打角度），点一下 / 回车落定；不转 = 笔点一下 / 右键；Esc 不建");
   }
 }

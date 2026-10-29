@@ -62,7 +62,7 @@ await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
 const noK = (s) => s.every((x) => !/:K|,K/.test(x));
-const ok = r.rail.n === 9 && r.rail.inView && !r.rail.overflow && /新建/.test(r.rail.labels)
+const ok = r.rail.n === 8 && r.rail.inView && !r.rail.overflow && /拉出/.test(r.rail.labels)   // v0.16.42：七格 + 折叠组的「…」；新建改名拉出
   && r.idleChips.length === 0 && r.selChips.some((s) => s.startsWith("lock:")) && r.selChips.some((s) => s === "shift:吸附") && noK(r.selChips)
   && r.lockZ.axisLock === "z" && r.lockZ.chips.some((s) => /锁 Z\*/.test(s)) && r.lockZ.line
   && r.latch.some((s) => s === "shift:吸附*") && r.drag.dx === 0 && r.drag.dy === 0 && Math.abs(r.drag.dz) > 0.02
