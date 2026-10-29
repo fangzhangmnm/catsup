@@ -72,7 +72,7 @@ const res = await page.evaluate(async () => {
   // ⑤ 拾取范围
   { e.deselectAll(); hud.pick("move"); await sleep(30);
     const strip = document.getElementById("toolStrip")?.textContent ?? "";
-    out.pick = { strip: /拾取/.test(strip) && /点/.test(strip) && /边/.test(strip) && /面/.test(strip) };
+    out.pick = { strip: /拾取/.test(strip) && document.querySelectorAll("#toolStrip .strip-icon-toggle").length === 3 };   // v0.16.39 起点 / 边 / 面 = 三颗图标开关
     // 角点往顶面中心挪一点点（几个像素）：正好在角点上射线会擦过去打不到面；挪一点 = 点的半径内、两条边的半径内、也在面上
     const c0 = px(P(1, 1, 1)), cc = px(P(0.5, 0.5, 1)), corner = { x: c0.x + (cc.x - c0.x) * 0.06, y: c0.y + (cc.y - c0.y) * 0.06 };
     const grabAt = async () => { e.deselectAll(); fire("pointermove", 40, 40, 0); await sleep(700); fire("pointermove", corner.x, corner.y, 0); await sleep(10); /* 先挪开、等过点按族的窗口：同一处连点 = 双击 / 三击（选面 / 选连通体） */ fire("pointerdown", corner.x, corner.y, 1); await sleep(10); fire("pointerup", corner.x, corner.y, 0); await sleep(40); return { v: e.selection.verts.size, e: e.selection.edges.size, f: e.selection.faces.size }; };

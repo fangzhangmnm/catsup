@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=bf83ddacdf96" />
+    <link rel="stylesheet" href="./styles.css?v=718e5dfd4927" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -38,7 +38,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  91 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  94 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -100,6 +100,12 @@
   <symbol id="knife" data-cat="3d-modeling" data-src="own" data-note="切割(雕刻用的美工刀):右上一根细长握柄(粗线圆头) + 一节夹头(更粗的平头短段) + 左下一片短三角刀片(淡填，刀尖朝左下) + 刀下一段短虚线(切出来的新边) = 在网格上切出新边；与 cut(剪切到剪贴板的剪刀)分工【CatsUp 自由建模工作台左柱「切割」(K；同一条边点两下 = 环切)；2026-10-27 Claude Opus 5.5 自画第二版（user「小刀能不能朝着左下，然后刀刃短一点，那种雕刻用的美工刀」；cairosvg 渲过 96 / 24 px），**未过目**】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20.2 3.8 L12.9 11.1" stroke-width="2.6"/><path d="M13.1 10.9 L11.0 13.0" stroke-width="4.0" stroke-linecap="butt"/><path d="M9.9 11.9 L12.1 14.1 L3.8 20.2 Z" fill="currentColor" fill-opacity="0.22"/><path d="M9.9 11.9 L12.1 14.1 L3.8 20.2 Z"/><path d="M8.6 21.2 H15.2" stroke-dasharray="1.5 2.1"/></symbol>
   <!-- walk — 步行(走路的小人):圆头 + 前倾的身子 + 一前一后两条腿(膝盖弯) + 一前一后摆臂 = 进步行相机(第一人称走进模型里)；与 move(四向箭头 = 挪东西)分工【CatsUp「验证」工作台左柱第一格「步行」（放置 → FPS）；2026-10-28 Claude Opus 5.5 自画，**未过目**】 -->
   <symbol id="walk" data-cat="3d-modeling" data-src="own" data-note="步行(走路的小人):圆头 + 前倾的身子 + 一前一后两条腿(膝盖弯) + 一前一后摆臂 = 进步行相机(第一人称走进模型里)；与 move(四向箭头 = 挪东西)分工【CatsUp「验证」工作台左柱第一格「步行」（放置 → FPS）；2026-10-28 Claude Opus 5.5 自画，**未过目**】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="13.6" cy="4.3" r="1.9"/><path d="M13 7.6 L11.2 13.4"/><path d="M12.6 9 L15.9 11.4"/><path d="M12.6 9 L9.1 10.9"/><path d="M11.2 13.4 L14.2 16.6 L14.9 21"/><path d="M11.2 13.4 L8.9 17.2 L6.4 20.6"/></symbol>
+  <!-- select-vertex — 拾取点(Blender 点选模式):等轴测线框盒 + 正前上角一颗实心大圆点 = 点一下只选中顶点；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 -->
+  <symbol id="select-vertex" data-cat="3d-modeling" data-src="own" data-note="拾取点(Blender 点选模式):等轴测线框盒 + 正前上角一颗实心大圆点 = 点一下只选中顶点；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.00 3.60 L20.00 7.60 L12.00 11.60 L4.00 7.60 Z" stroke-width="1.4"/><path d="M4.00 7.60 V16.60 L12.00 20.60 L20.00 16.60 V7.60" stroke-width="1.4"/><path d="M12.00 11.60 V20.60" stroke-width="1.4"/><circle cx="12" cy="11.6" r="2.6" fill="currentColor" stroke="none"/></symbol>
+  <!-- select-edge — 拾取边(Blender 边选模式):等轴测线框盒 + 正前那条竖棱加粗(粗 3.4) = 点一下只选中边；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 -->
+  <symbol id="select-edge" data-cat="3d-modeling" data-src="own" data-note="拾取边(Blender 边选模式):等轴测线框盒 + 正前那条竖棱加粗(粗 3.4) = 点一下只选中边；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.00 3.60 L20.00 7.60 L12.00 11.60 L4.00 7.60 Z" stroke-width="1.4"/><path d="M4.00 7.60 V16.60 L12.00 20.60 L20.00 16.60 V7.60" stroke-width="1.4"/><path d="M12.00 11.60 V20.60" stroke-width="1.4"/><path d="M12.00 11.60 V20.60" stroke-width="3.4"/></symbol>
+  <!-- select-face — 拾取面(Blender 面选模式):等轴测线框盒 + 右前那张侧面实填(不透明 0.6) = 点一下只选中面；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 -->
+  <symbol id="select-face" data-cat="3d-modeling" data-src="own" data-note="拾取面(Blender 面选模式):等轴测线框盒 + 右前那张侧面实填(不透明 0.6) = 点一下只选中面；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12.00 3.60 L20.00 7.60 L12.00 11.60 L4.00 7.60 Z" stroke-width="1.4"/><path d="M4.00 7.60 V16.60 L12.00 20.60 L20.00 16.60 V7.60" stroke-width="1.4"/><path d="M12.00 11.60 V20.60" stroke-width="1.4"/><path d="M12.00 11.60 L20.00 7.60 V16.60 L12.00 20.60 Z" fill="currentColor" fill-opacity="0.6" stroke="none"/></symbol>
   <!-- image-processing -->
   <!-- color — 三色文氏图(弱半透明填充,重叠处自然叠深) -->
   <symbol id="color" data-cat="image-processing" data-src="own" data-note="三色文氏图(弱半透明填充,重叠处自然叠深)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="5.3" fill="currentColor" fill-opacity="0.18"/><circle cx="9" cy="13.75" r="5.3" fill="currentColor" fill-opacity="0.18"/><circle cx="15" cy="13.75" r="5.3" fill="currentColor" fill-opacity="0.18"/></symbol>
@@ -372,6 +378,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-4e11d7dd9813.mjs"></script>
+    <script type="module" src="./dist/catsup-1efed40063c4.mjs"></script>
   </body>
 </html>

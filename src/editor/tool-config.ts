@@ -51,6 +51,8 @@ export interface BoolOption {
   readonly label: string;
   readonly def: boolean;
   readonly scope: OptionScope;
+  /** 有图标 = 画成图标开关（label 当提示字；拾取 点 / 边 / 面，user 10-28 夜「最好换成icon」）。 */
+  readonly icon?: string;
 }
 export type OptionDef = EnumOption | NumberOption | BoolOption;
 export type OptionTable = Readonly<Record<string, Readonly<Record<string, OptionDef>>>>;
@@ -224,9 +226,9 @@ export const TOOL_OPTIONS = {
    *  点 / 边 / 面各一个开关，关掉的那一级点不中、框不到，下一级顶上（Blender 的 1 / 2 / 3 选择模式，这里是三个独立开关）。全关 = 当全开。
    *  自由建模里按「点 > 边 > 面」抓东西的工具共用这一组（选择 / 移动 / 旋转 / 缩放 / 沿法线；context-bar 按立场表 grab = element 挂上）。 */
   pick: {
-    verts: { kind: "bool", label: "点", def: true, scope: "session" },
-    edges: { kind: "bool", label: "边", def: true, scope: "session" },
-    faces: { kind: "bool", label: "面", def: true, scope: "session" },
+    verts: { kind: "bool", label: "点", def: true, scope: "session", icon: "select-vertex" },
+    edges: { kind: "bool", label: "边", def: true, scope: "session", icon: "select-edge" },
+    faces: { kind: "bool", label: "面", def: true, scope: "session", icon: "select-face" },
   },
   /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
   surface: {

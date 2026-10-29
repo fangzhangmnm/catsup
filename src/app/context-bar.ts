@@ -47,10 +47,7 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     // 软选择（自由建模的移动 / 旋转 / 缩放 / 沿法线；开关在这里，半径在左边竖滑条）
     if (editor.modeId === "freeform" && ["move", "rotate", "scale", "shrink"].includes(tool)) for (const e of config.entries("soft")) if (e.key === "on") root.appendChild(control("soft", e));
     // 拾取范围（自由建模，按「点 > 边 > 面」抓东西的工具；tool-config.ts pick；user 10-28 晚「放在马前炮」）：挂在工具自己的选项后面
-    if (editor.modeId === "freeform" && stanceOf("freeform", tool)?.grab === "element") {
-      const cap = document.createElement("span"); cap.className = "bar-caption"; cap.textContent = "拾取"; root.appendChild(cap);
-      for (const e of config.entries("pick")) root.appendChild(control("pick", e));
-    }
+    if (editor.modeId === "freeform" && stanceOf("freeform", tool)?.grab === "element") root.appendChild(pickToggles());
     for (const a of actions) root.appendChild(actionBtn(a));
     if (sel.length) {
       if (hasTool) { const sep = document.createElement("span"); sep.className = "bar-sep"; sep.setAttribute("aria-hidden", "true"); root.appendChild(sep); }
@@ -73,6 +70,24 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     (b.lastElementChild as HTMLElement).textContent = it.label;
     b.addEventListener("click", () => p.pickSelection?.(it.id, b));
     return b;
+  };
+  // 拾取三颗图标开关（user 10-28 夜「拾取能不能点边面自己就是toggleable，最好换成icon」）：各管各的；
+  // 关掉最后亮着的那颗 = 三颗全亮——全关在 selecting.ts pickKinds 里本来就当全开，照实画出来，不画一排全灭却照样都点得中
+  const pickToggles = (): HTMLElement => {
+    const wrap = document.createElement("span"); wrap.className = "strip-field"; wrap.setAttribute("role", "group"); wrap.setAttribute("aria-label", "拾取");
+    const lab = document.createElement("span"); lab.className = "strip-label"; lab.textContent = "拾取"; wrap.appendChild(lab);
+    const es = config.entries("pick");
+    for (const e of es) {
+      const on = !!e.value, b = document.createElement("button"); b.type = "button"; b.className = "strip-icon-toggle" + (on ? " on" : "");
+      b.title = `拾取${e.def.label}`; b.setAttribute("aria-pressed", on ? "true" : "false"); b.dataset.pick = e.key;
+      b.innerHTML = iconHtml(e.def.kind === "bool" && e.def.icon ? e.def.icon : "icon-missing");
+      b.addEventListener("click", () => {
+        if (on && !es.some((x) => x.key !== e.key && x.value)) for (const x of es) config.set("pick", x.key as never, true as never);
+        else config.set("pick", e.key as never, !on as never);
+      });
+      wrap.appendChild(b);
+    }
+    return wrap;
   };
   // 控件本体住 ui/field-control.ts（参数小窗共用，2026-10-25）；这里只把工具配置的值和写回接上
   const control = (tool: string, e: OptionEntry): HTMLElement => fieldControl(e.def, e.value as ParamValue, (v) => { config.set(tool as never, e.key as never, v as never); });

@@ -117,7 +117,6 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 /* 选区浮条（#19）：顶居中；选中东西且没在手势中才出现；项 = HUD 编辑动作表 */
 /* 上下文条里工具段与选区段之间的竖分隔（A25，2026-10-24 Opus；顶部选区浮条 .hud-selbar 已并入上下文条） */
 .bar-sep { width: 1px; align-self: stretch; margin: 4px 2px; background: var(--line); }
-.bar-caption { font-size: 11px; color: var(--muted); margin-left: 6px; align-self: center; }   /* 工具条里一组开关的小标题（「拾取」）*/
 .selbar-btn { display: inline-flex; align-items: center; gap: 4px; min-height: 36px; padding: 0 10px; border: 0; border-radius: 9px; background: transparent; font: inherit; font-size: 12px; color: var(--ink); cursor: pointer; }
 .selbar-btn .ico { width: 18px; height: 18px; }
 .selbar-btn:hover { background: rgba(0,0,0,.06); }
@@ -154,6 +153,10 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .strip-input.bad { border-color: var(--danger); }
 .strip-toggle { min-height: 32px; padding: 0 12px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; cursor: pointer; }
 .strip-toggle.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.strip-icon-toggle { width: 34px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; color: var(--muted); cursor: pointer; }   /* 图标开关（拾取 点 / 边 / 面，2026-10-28 Opus） */
+.strip-icon-toggle + .strip-icon-toggle { margin-left: 2px; }
+.strip-icon-toggle .ico { width: 22px; height: 22px; }
+.strip-icon-toggle.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
 .strip-action { min-height: 32px; padding: 0 12px; border: 1px solid rgba(0,0,0,.12); border-radius: 8px; background: #fff; cursor: pointer; font: inherit; }   /* 工具的动作钮（user 10-24「轴是工具…归工具管」） */
 .strip-action:disabled { opacity: .45; cursor: default; }
 .tb-btn { width: 40px; height: 40px; display: grid; place-items: center; border: 0; border-radius: 9px; background: transparent; cursor: pointer; color: var(--ink); }
