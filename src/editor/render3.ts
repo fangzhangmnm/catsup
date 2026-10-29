@@ -1395,11 +1395,15 @@ export class Renderer3 {
     if (bytes && typeof createImageBitmap === "function") {
       const blob = new Blob([bytes as BlobPart], { type: mat.texture!.mimeType });
       createImageBitmap(blob, { imageOrientation: "flipY" }).then((bmp) => {
-        tex.image = bmp;
-        tex.flipY = false;
-        tex.generateMipmaps = true;
-        tex.minFilter = THREE.LinearMipmapLinearFilter;
-        tex.needsUpdate = true;
+        // 解好的位图要换成一张**普通** Texture：占位的是 DataTexture，three 按 `image.data` 上传，塞进去的 ImageBitmap 没有 data →
+        // texSubImage2D「no pixels」→ 贴图面全黑（2026-10-29 截图基线 box-textured 抓到的；Claude Fable 5.1）。换对象、材质的 uMap 跟着换。
+        if (this.texCache.get(mat) !== tex) { bmp.close?.(); return; }   // 材质已经换过贴图 / 被回收：这份解码作废
+        const real = new THREE.Texture(bmp);
+        real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;
+        real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter; real.needsUpdate = true;
+        this.texCache.set(mat, real);
+        for (const m of this.texMats.get(mat)?.values() ?? []) m.uniforms.uMap.value = real;
+        tex.dispose();
         this.onTextureReady?.();
       }).catch(() => { /* 解码失败：留灰占位 */ });
     }

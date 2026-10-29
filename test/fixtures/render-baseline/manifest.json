@@ -1,0 +1,76 @@
+{
+  "note": "截图基线：test/probes/probe-render-baseline.mjs 冻结 / 比对（画布像素，不含 DOM）。重冻只在画面本来就该变时（--update），并在 ai-docs/20261029-minccino-first-cut.md 写一行为什么。",
+  "viewport": {
+    "width": 744,
+    "height": 1133
+  },
+  "dpr": 1,
+  "scenes": {
+    "box-iso": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "box-thick-sel-hover-lock": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "box-xray": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "mesh-sel": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "mesh-xray-dots": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "fixture-house": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "fixture-painted": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "fixture-guided": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "fixture-meshed": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "fixture-twoSided": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    },
+    "box-textured": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.0-2026-10-29"
+    }
+  }
+}
