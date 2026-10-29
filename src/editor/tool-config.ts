@@ -209,6 +209,13 @@ export const TOOL_OPTIONS = {
     kind: { kind: "enum", label: "新建", values: [{ id: "box", label: "立方体" }, { id: "cylinder", label: "圆柱" }, { id: "cone", label: "圆锥" }, { id: "sphere", label: "球" }, { id: "plane", label: "平面" }], def: "box", scope: "session" },
     size: { kind: "number", label: "点一下的尺寸", def: 1, min: 0.01, max: 10000, step: 0.01, quantity: { q: "length" }, scope: "session" },   // 量化以 min 为格点原点：min = step（0.001 / 0.1 会把 0.5 量成 0.501）
   },
+  /** 软选择（比例编辑，Blender 的 O；user 10-28 夜「为什么不先做软选择，然后weebpaint的slider放哪里」；纪元账本 FM1 / FM20「软编辑半径全局共享，像 WeebPaint 的笔刷大小滑条」）：
+   *  开着 = 移动 / 旋转 / 缩放 / 沿法线也带着选区周围的点走，越远越少（mesh/soft-select.ts）。半径按屏幕像素存（手上看到多大就多大，和 WeebPaint 笔刷一样），
+   *  按下那一刻在轴心那里换算成世界长度；左边那根竖滑条 / [ ] 键调（以后的软编辑笔刷共用这一个半径）。 */
+  soft: {
+    on: { kind: "bool", label: "软选择", def: false, scope: "session" },
+    radius: { kind: "number", label: "软半径", def: 120, min: 10, max: 800, step: 1, unit: "px", scope: "session" },
+  },
   /** 拾取范围（自由建模；user 10-28 晚「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮可以吗？」）：
    *  点 / 边 / 面各一个开关，关掉的那一级点不中、框不到，下一级顶上（Blender 的 1 / 2 / 3 选择模式，这里是三个独立开关）。全关 = 当全开。
    *  自由建模里按「点 > 边 > 面」抓东西的工具共用这一组（选择 / 移动 / 旋转 / 缩放 / 沿法线；context-bar 按立场表 grab = element 挂上）。 */
@@ -222,6 +229,6 @@ export const TOOL_OPTIONS = {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },
     sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "device" },
   },
-} as const satisfies Partial<Record<Tool | "surface" | "pick", Readonly<Record<string, OptionDef>>>>;
+} as const satisfies Partial<Record<Tool | "surface" | "pick" | "soft", Readonly<Record<string, OptionDef>>>>;
 
 export type CatsUpToolConfig = ToolConfig<typeof TOOL_OPTIONS>;

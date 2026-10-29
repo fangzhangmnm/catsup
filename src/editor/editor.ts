@@ -129,6 +129,8 @@ export interface EditorHost {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   /** 套索轨迹（canvas 本地 CSS px；null = 收起；缺 = 宿主不画套索）。 */
   lasso?(pts: readonly { x: number; y: number }[] | null): void;
+  /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
+  softRing?(c: { x: number; y: number; r: number } | null): void;
   changed(): void;
   error?(err: unknown, where: string): void;
   /** 右下角血槽位的尺寸读数（手势中的 dims / 选中面的面积 / 选中边的长度；"" = 空）。A28。 */
@@ -953,6 +955,7 @@ export class Editor {
     return mode === "corner" ? lo : mode === "center" ? c : mode === "bottom" ? { x: c.x, y: c.y, z: lo.z } : scale3(sum, 1 / vs.length);
   }
   private cancelGesture(): void {
+    this.host.softRing?.(null);   // 软选择的半径圈跟手势走
     this.anchor3 = null;
     this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 方向锁 / 面锁随手势解（换工具 / Esc / 取消）
     for (const h of Object.values(this.handlers)) h.cancel();
@@ -3057,7 +3060,7 @@ export class Editor {
 
   // ---------- 上下文菜单（#19）给壳的三个小口 ----------
   /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
-  abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.hint(null); this.draw(); }
+  abortGesture(): void { this.taps.cancel(); this.cancelGesture(); this.host.marquee(null); this.host.lasso?.(null); this.host.softRing?.(null); this.host.hint(null); this.draw(); }
   /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
   gestureInProgress(): boolean { return this.gestureActive(); }
   /** 指针下的实体是否已在选区里（右键 = 不在就先选它，SU 同款）。 */
@@ -3370,6 +3373,8 @@ export class Editor {
   // ---------- live（影子副本预演） ----------
   /** 这次预演会把哪个组件斜切（拖的时候就提示「松手会被拦下」；提交时 ops.ts 的护栏真拦）。 */
   private previewShear: string | null = null;
+  /** 手势进行中换了会影响预演的设置（软选择开关 / 半径）：照现在的指针重算预演。 */
+  refreshGesture(): void { if (this.gestureActive()) { this.computeLive(); this.draw(); } }
   private computeLive(): void {
     this.live = null; this.liveMesh = null;
     this.liveOverride = null;
@@ -3789,6 +3794,7 @@ export class Editor {
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
       lasso: (pts) => this.host.lasso?.(pts),
+      softRing: (c) => this.host.softRing?.(c),
       marqueePick: (area) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), area, { xray: this._xray, verts: this.mode.id === "freeform" }),
       emptyAt: (sx, sy) => this.emptyAt(sx, sy),
       emptiesIn: (area) => this.emptiesIn(area),

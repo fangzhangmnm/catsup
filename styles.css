@@ -422,4 +422,10 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .board-note { font-size: 12px; color: var(--muted); }
 .board.board-drawer { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-height: 50vh; border-radius: 14px 14px 0 0; }
 .board.board-drawer .board-head { cursor: default; }
-
+/* 软选择：半径竖滑条（WeebPaint 左栏同款，放在左柱右边、竖着居中；只在用得上时露）+ 画布上的半径圈 */
+.soft-slider { position: fixed; z-index: 6; left: calc(76px + var(--safe-left, 0px)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 12px; background: color-mix(in srgb, var(--panel, #fff) 80%, transparent); border: 1px solid var(--line); width: 36px; box-sizing: border-box; }
+.soft-slider[hidden] { display: none; }
+.soft-slider-range { -webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 24px; max-width: 24px; height: 140px; margin: 0; padding: 0; background: transparent; }
+.soft-slider-label { font-size: 10px; color: var(--muted); user-select: none; }
+#softRing { position: fixed; z-index: 5; pointer-events: none; overflow: visible; }
+#softRing circle { fill: none; stroke: var(--accent, #2b6cb0); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .8; }

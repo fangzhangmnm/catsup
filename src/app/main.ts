@@ -26,6 +26,7 @@ import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
+import { mountSoftSlider, type SoftSlider } from "./soft-slider.ts";
 import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
 import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
@@ -188,6 +189,7 @@ const editor = new Editor(canvas, {
     marqueeEl.hidden = false;
     Object.assign(marqueeEl.style, { left: `${b.left + r.x}px`, top: `${b.top + r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
   },
+  softRing: (c) => softSliderRef?.ring(c),   // 软选择的半径圈（app/soft-slider.ts）
   lasso: (pts) => {   // 套索轨迹：SVG 盖在画布上（坐标 = 画布本地 CSS px）
     if (!pts) { lassoEl.hidden = true; return; }
     const b = canvas.getBoundingClientRect();
@@ -805,6 +807,7 @@ function syncUi(): void {
   renderSnapWidget();
   refreshMachineBoard();   // 指令板上的数跟着模型变
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
+  softSliderRef?.render();   // 软选择半径滑条
   // 右上角的手 + 放大镜（拖着平移 / 缩放）：键鼠时藏（有滚轮 / 中键 / Shift+Z），检测到触摸 / 笔就露（账本 UX37，user 10-28「键鼠的时候手柄可以自动隐藏。检测到触摸自动出现」）
   { const nav = document.querySelector<HTMLElement>(".gizmo-nav"); if (nav) nav.hidden = lastPointerType === "mouse"; }
   renderMachineBtns();
@@ -1163,6 +1166,13 @@ function releaseLatchesOnToolChange(): void {
   latchFor = k;
   for (const m of ["shift", "ctrl", "alt"] as const) if (latchedMods[m]) setLatch(m, false);
 }
+// 软选择的半径竖滑条（WeebPaint 左栏那根的同款；user 10-28 夜「weebpaint的slider放哪里」）：左柱右边，开着软选择 + 拿着会用它的工具才露
+const SOFT_TOOLS: readonly Tool[] = ["move", "rotate", "scale", "shrink"];
+// eslint-disable-next-line no-var
+var softSliderRef: SoftSlider | null = mountSoftSlider($("stage"), canvas, editor, {
+  visible: () => editor.modeId === "freeform" && editor.config.get("soft", "on") && SOFT_TOOLS.includes(editor.tool),
+  selectionScreenCenter: () => { const p = editor.selectionCenter("mean"); return p ? editor.cam.angularPx(p, editor.vp()) : null; },
+});
 // eslint-disable-next-line no-var
 var mfdRef: { render(): void } | null = null;
 mfdRef = mountMfd($("hintWrap"), {
@@ -1233,7 +1243,9 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "select.none": editor.deselectAll(); return;
     case "delete.ifAny": if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return;
     case "delete": editor.deleteSelection(); return;
-    case "gesture.type": editor.typeIntoGesture(ev.key); syncUi(); return;   // 手势中打数（Blender「S Z 0」）
+    case "gesture.type": editor.typeIntoGesture(ev.key); syncUi(); return;
+    case "soft.toggle": editor.config.set("soft", "on", !editor.config.get("soft", "on")); editor.refreshGesture(); syncUi(); return;
+    case "soft.smaller": case "soft.bigger": { const r = editor.config.get("soft", "radius"); editor.config.set("soft", "radius", Math.round(verb === "soft.bigger" ? r * 1.2 : r / 1.2)); editor.refreshGesture(); syncUi(); return; }   // 手势中打数（Blender「S Z 0」）
     case "mesh.connect": editor.runAction("mesh.connect"); syncUi(); return;
     case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
     case "lock.key": editor.lockKey(p1 === "none" ? null : (p1 as "x" | "y" | "z"), p2 === "plane"); syncUi(); return;   // 方向键（A9）

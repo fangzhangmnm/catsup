@@ -75,7 +75,9 @@ export function pressTarget(ctx: ToolCtx, at: { x: number; y: number }, tool: To
   const m = ctx.mesh(), sel = ctx.selection(), st = stanceOf("freeform", tool), grab = st?.grab ?? "element";
   const by = (xs: Iterable<number>, alive: (x: number) => boolean): number[] => [...xs].filter(alive).sort((a, b) => a - b);
   if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) {
-    if (st?.press === "split3") {
+    // 键盘起手（G / R / S / E / I；工具造的那一下 pointerType = "keyboard"）= 永远对选区做（Blender）：不走「按在选区外的东西上 = 对它做」的三分法——
+    // 不然光标正下方有个没选的点时，G 挪的是它不是选区（2026-10-28 夜 probe-soft-select 抓到；之前的探针都是全选，撞不上）
+    if (st?.press === "split3" && (at as { pointerType?: string }).pointerType !== "keyboard") {
       const u = grabUnder(ctx, at, grab);
       if (u && !touchesSelection(ctx, sel, u)) return { ...u, fromSelection: true, adopt: u };   // 选区外的可选对象：对它做，落定时选区换成它（adoptPress）
     }

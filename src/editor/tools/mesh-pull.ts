@@ -45,7 +45,7 @@ export class MeshPullTool implements ToolHandler {
   startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
     const sel = ctx.selection();
     if (!(sel.faces.size || sel.edges.size || sel.verts.size)) return false;
-    this.down(ctx, { x: s.x, y: s.y, clientX: s.x, clientY: s.y, pointerType: "mouse", shiftKey: false } as ToolPointer);
+    this.down(ctx, { x: s.x, y: s.y, clientX: s.x, clientY: s.y, pointerType: "keyboard", shiftKey: false } as ToolPointer);
     return this.active();
   }
 

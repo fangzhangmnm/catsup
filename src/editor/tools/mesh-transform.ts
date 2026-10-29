@@ -15,6 +15,7 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt, invert } from "../../scene/xform.ts";
 import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
 import { fmtLen } from "../units.ts";
+import { softDistances, softWeights } from "../../mesh/soft-select.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target } from "./selecting.ts";
@@ -44,6 +45,8 @@ export class MeshTransformTool implements ToolHandler {
   private shift = false;
   private handleW: Pt3 | null = null;        // 挪：抓住的那个点（目标里离按下处最近的点，世界）——吸附时是它落到目标上
   private snapT: { p: Pt3; kind: SnapKind } | null = null;
+  /** 软选择（开着时按下那一刻算）：选区外每个点到选区的世界距离 + 它的本地坐标（+ 沿法线时它自己的方向）。 */
+  private soft: { dist: Map<number, number>; base: Map<number, Pt3>; dirs: Map<number, Pt3> } | null = null;
   /** 手势中打的数是什么量（Blender「S Z 0」：缩放 = 倍数、旋转 = 角度、移动 / 沿法线 = 长度；读法 = units.ts，工具只问 ctx.typed()）。 */
   readonly typedQuantity: { q: "length" | "angle" | "factor" };
   constructor(kind: MeshXformKind) { this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; this.typedQuantity = { q: kind === "rotate" ? "angle" : kind === "scale" ? "factor" : "length" }; }
@@ -55,11 +58,11 @@ export class MeshTransformTool implements ToolHandler {
   startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
     const sel = ctx.selection();
     if (!(sel.faces.size || sel.edges.size || sel.verts.size)) return false;
-    this.down(ctx, { x: s.x, y: s.y, clientX: s.x, clientY: s.y, pointerType: "mouse", shiftKey: false } as ToolPointer);
+    this.down(ctx, { x: s.x, y: s.y, clientX: s.x, clientY: s.y, pointerType: "keyboard", shiftKey: false } as ToolPointer);
     return this.active();
   }
 
-  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; }
+  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; this.soft = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
@@ -86,6 +89,12 @@ export class MeshTransformTool implements ToolHandler {
     for (const v of vids) { const p = m.pt(v); this.base.set(v, p); c0 = add3(c0, p); }
     this.pivotW = applyPt(X, scale3(c0, 1 / vids.length));
     this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
+    this.soft = null;
+    if (ctx.config.get("soft", "on")) {   // 软选择：选区外的点按离选区多远带着走（权重每帧按当前半径算，拖的时候能改半径）
+      const picked = new Set(vids), dist = softDistances(m.verts(), picked, (v) => applyPt(X, m.pt(v)));
+      const sbase = new Map<number, Pt3>(); for (const v of dist.keys()) sbase.set(v, m.pt(v));
+      this.soft = { dist, base: sbase, dirs: this.kind === "normal" ? extrudeNormalDirs(m, { verts: [...dist.keys()] }) : new Map() };
+    }
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; this.shift = ev.shiftKey;
     { const vp = ctx.vp(); let best = Infinity; for (const [, p] of this.base) { const w = applyPt(X, p), q = ctx.frame().project?.(w, vp); const d = q ? Math.hypot(q.x - ev.x, q.y - ev.y) : Infinity; if (d < best) { best = d; this.handleW = w; } } }
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
@@ -168,7 +177,9 @@ export class MeshTransformTool implements ToolHandler {
       const tW = typed ?? px * wpp, sL = len3(applyDir(Xi, { x: 1, y: 0, z: 0 })) || 1, tL = tW * sL;
       const moves = new Map<number, Pt3>();
       for (const [v, p] of this.base) { const d = this.dirs.get(v) ?? { x: 0, y: 0, z: 1 }; moves.set(v, add3(p, scale3(d, tL))); }
-      return { moves, dims: `沿法线 ${tW >= 0 ? "+" : "−"}${fmtLen(Math.abs(tW))}${tag}` };
+      const sw = this.softWeightsNow(ctx);
+      if (sw) for (const [v, w] of sw.w) { const d = this.soft!.dirs.get(v) ?? { x: 0, y: 0, z: 1 }; moves.set(v, add3(this.soft!.base.get(v)!, scale3(d, tL * w))); }
+      return { moves, dims: `${sw ? `软 ${fmtLen(sw.R)} · ` : ""}沿法线 ${tW >= 0 ? "+" : "−"}${fmtLen(Math.abs(tW))}${tag}` };
     }
     if (this.kind === "move") {
       const now = this.onPlane(ctx, s1.x, s1.y) ?? grab;
@@ -213,12 +224,23 @@ export class MeshTransformTool implements ToolHandler {
     }
     const moves = new Map<number, Pt3>();
     for (const [v, p] of this.base) moves.set(v, applyPt(Xi, fW(applyPt(X, p))));
-    return { moves, dims };
+    const sw = this.softWeightsNow(ctx);
+    if (sw) for (const [v, w] of sw.w) { const p = applyPt(X, this.soft!.base.get(v)!); moves.set(v, applyPt(Xi, add3(p, scale3(sub3(fW(p), p), w)))); }   // 选区外：只走 w 那么多
+    return { moves, dims: sw ? `${dims} · 软 ${fmtLen(sw.R)}` : dims };
   }
 
+  /** 软选择这一帧的权重：半径（屏幕像素）在轴心那里换成世界长度；顺手画半径圈。没开 = null。 */
+  private softWeightsNow(ctx: ToolCtx): { w: Map<number, number>; R: number } | null {
+    if (!this.soft || !this.pivotW) { ctx.softRing(null); return null; }
+    const vp = ctx.vp(), ps = ctx.frame().project?.(this.pivotW, vp);
+    if (!ps) return null;
+    const a = this.onPlane(ctx, ps.x, ps.y), b = this.onPlane(ctx, ps.x + 1, ps.y), wpp = a && b ? len3(sub3(b, a)) : 0, rPx = ctx.config.get("soft", "radius"), R = rPx * wpp;
+    ctx.softRing({ x: ps.x, y: ps.y, r: rPx });
+    return { w: softWeights(this.soft.dist, R), R };
+  }
   private commit(ctx: ToolCtx): void {
     const r = this.solve(ctx), n = this.vids.length, verb = this.verb(), adopt = this.adopt;
-    this.cancel();
+    this.cancel(); ctx.softRing(null);
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (!r) return;
     const moves = [...r.moves].filter(([v, p]) => { const b = ctx.mesh().pt(v); return b.x !== p.x || b.y !== p.y || b.z !== p.z; }).map(([v, to]) => ({ v, to }));
