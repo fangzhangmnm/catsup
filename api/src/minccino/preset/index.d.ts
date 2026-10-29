@@ -86,12 +86,12 @@ export interface Preset {
     /** 出处：实验室插件 · 预设（视觉归 user 调，改默认值要说清改了什么）。 */
     readonly source: string;
     /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
-     *  上色方式（model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色）。 */
+     *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
     readonly material: {
         readonly shade: "camera" | "none" | "flat" | "tron" | "pbr";
         readonly texFilter: "asset" | "nearest";
         readonly edges: boolean;
-        readonly colorize: "model" | "part";
+        readonly colorize: "model" | "part" | "none";
         readonly flat: FlatShade | null;
         readonly tron: TronShade | null;
         readonly pbr: PbrShade | null;
@@ -258,7 +258,7 @@ export declare const PRESETS: {
             readonly shade: "tron";
             readonly texFilter: "asset";
             readonly edges: true;
-            readonly colorize: "model";
+            readonly colorize: "none";
             readonly flat: null;
             readonly tron: {
                 readonly face: 398366;
@@ -312,7 +312,7 @@ export declare const PRESETS: {
             readonly shade: "pbr";
             readonly texFilter: "asset";
             readonly edges: false;
-            readonly colorize: "model";
+            readonly colorize: "none";
             readonly flat: null;
             readonly tron: null;
             readonly pbr: {
@@ -345,6 +345,65 @@ export declare const PRESETS: {
                 readonly kind: "sky-sea";
                 readonly amount: 1.1;
                 readonly exposure: 0.95;
+                readonly sunAz: 35;
+                readonly sunEl: 45;
+            };
+        };
+        readonly post: {
+            readonly pixelOutline: null;
+            readonly bloom: null;
+        };
+        readonly screen: {
+            readonly pixelate: 1;
+            readonly rows: null;
+            readonly look: "none";
+        };
+        readonly geometry: {};
+    };
+    /** 写实（实验室「基础」分类，标准金属度 / 粗糙度那套）：照模型上色——材质色和贴图都进底色，光和铸铜同一套。不是小学点名的四个风格之一，是 user 场景 4「全量渲染视口」的起点。 */
+    readonly realistic: {
+        readonly id: "realistic";
+        readonly name: "写实";
+        readonly brief: "照模型上色 + 海天 + 投影";
+        readonly note: "照模型上色：材质色和贴图都进底色，光是程序海天（漫反射球谐、镜面按粗糙度）+ 太阳投影 + 世界空间遮蔽（改完模型停手约 0.25 秒后跟上）；背景是那片海天、地面浅灰；模型自己的线稿不画。粗糙度先统一 0.6、不是金属（CatsUp 的材质还没有粗糙度 / 金属度这两项）";
+        readonly source: "实验室 表面 material.js ·「写实」（colMode full、rough 0.6、spec 1、envAmt 1、envBg、aoMode 世界空间 × 1、exposure 0.9、ground #9a9a96；useOrm = 读模型的粗糙度 / 金属度——CatsUp 材质没有这两项，用滑杆值；BASE 的 sunAz 35 / sunEl 45、metal 0）";
+        readonly material: {
+            readonly shade: "pbr";
+            readonly texFilter: "asset";
+            readonly edges: false;
+            readonly colorize: "model";
+            readonly flat: null;
+            readonly tron: null;
+            readonly pbr: {
+                readonly base: 14079702;
+                readonly metal: 0;
+                readonly rough: 0.6;
+                readonly patina: 0;
+                readonly patinaColor: 3817267;
+                readonly coat: 0;
+                readonly coatRough: 0.05;
+                readonly pattern: "none";
+                readonly patternAmt: 0;
+                readonly spec: 1;
+            };
+        };
+        readonly light: {
+            readonly background: null;
+            readonly ground: {
+                readonly color: 10132118;
+                readonly on: 1;
+                readonly grid: 0;
+            };
+            readonly ao: {
+                readonly amount: 1;
+                readonly radius: 0.5;
+                readonly groundRadius: 0.25;
+                readonly soft: 1;
+            };
+            readonly env: {
+                readonly kind: "sky-sea";
+                readonly amount: 1;
+                readonly exposure: 0.9;
                 readonly sunAz: 35;
                 readonly sunEl: 45;
             };

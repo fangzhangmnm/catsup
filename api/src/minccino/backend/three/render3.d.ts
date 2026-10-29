@@ -202,6 +202,9 @@ export declare class Renderer3 implements Backend {
      * soft（不画线）与 smooth（插值法向）是两个独立的边层（SU 的 Soft / Smooth），推拉侧棱两者都给、软化工具默认两者都给。
      */
     private textureFor;
+    /** 贴图的 uniform 对象（风格的材质共用：解码完换贴图时在同一个对象里换值）。 */
+    private texU;
+    private texUniform;
     /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
     onTextureReady: (() => void) | null;
     /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */

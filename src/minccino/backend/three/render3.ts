@@ -678,7 +678,7 @@ export class Renderer3 implements Backend {
       this.paper.hide();
       const es = this.envSky;
       if (es.ensure(this.renderer, [sunW.x, sunW.z, -sunW.y])) { this.perf.last.envBake = es.lastMs; this.perf.count.envBake = (this.perf.count.envBake ?? 0) + 1; }   // 真烘了才记
-      this.pbr.sync(p.material.pbr, env, sunW, L.ao, !!sphere && this.aoBaked !== "", L.ground, cam3, fade);
+      this.pbr.sync(p.material.pbr, p.material.colorize === "model", env, sunW, L.ao, !!sphere && this.aoBaked !== "", L.ground, cam3, fade);
       return;
     }
     this.pbr?.hide();
@@ -782,12 +782,16 @@ export class Renderer3 implements Backend {
         real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter; real.needsUpdate = true; this.applyTexFilter(real);
         this.texCache.set(mat, real);
         for (const m of this.texMats.get(mat)?.values() ?? []) m.uniforms.uMap.value = real;
+        const tu = this.texU.get(mat); if (tu) tu.value = real;   // 风格材质（写实）的那份也换
         tex.dispose();
         this.onTextureReady?.();
       }).catch(() => { /* 解码失败：留灰占位 */ });
     }
     return tex;
   }
+  /** 贴图的 uniform 对象（风格的材质共用：解码完换贴图时在同一个对象里换值）。 */
+  private texU = new Map<object, { value: unknown }>();
+  private texUniform(mat: MaterialRef): { value: unknown } { let u = this.texU.get(mat); if (!u) { u = { value: this.textureFor(mat) }; this.texU.set(mat, u); } return u; }
   /** 贴图异步解好后的回调（app 层接 editor.draw）。 */
   onTextureReady: (() => void) | null = null;
 
@@ -874,7 +878,7 @@ export class Renderer3 implements Backend {
         if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
         if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true) : this.texMatFor(gf.mat!, gf.side!);   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
+        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true, false, this.framePreset.material.colorize === "model" ? this.texUniform(gf.mat!) : null) : this.texMatFor(gf.mat!, gf.side!);   // 写实：贴图进底色   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
         slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
         ti++;
       }

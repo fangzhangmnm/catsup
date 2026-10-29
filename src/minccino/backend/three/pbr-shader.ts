@@ -46,9 +46,15 @@ const FACE_VS = /* glsl */`
   in vec3 aColorB;
   out vec3 vColorB;
   #endif
+  #ifdef TEX
+  in vec2 aUv; out vec2 vUv;
+  #endif
   out vec3 vColor; out vec3 vPosW; out vec3 vNrmW;
   void main() {
     vColor = aColor;
+    #ifdef TEX
+    vUv = aUv;
+    #endif
     #ifndef SINGLE
     vColorB = aColorB;
     #endif
@@ -62,6 +68,10 @@ const FACE_FS = /* glsl */`
   #ifndef SINGLE
   in vec3 vColorB;
   #endif
+  #ifdef TEX
+  in vec2 vUv; uniform sampler2D uMap;
+  #endif
+  uniform bool uModelColor;   // 照模型上色（写实）：顶点色（材质色，sRGB）/ 贴图进底色；false = 材料本色（铸铜）
   uniform vec3 uBase, uPatinaCol;
   uniform float uMetal, uRough, uPatina, uCoat, uCoatRough, uSpec, uPatternAmt, uAoAmt;
   uniform int uPattern;
@@ -82,7 +92,10 @@ const FACE_FS = /* glsl */`
     vec3 N = normalize(vNrmW); if (!gl_FrontFacing) N = -N;
     vec3 dNx = dFdx(N), dNy = dFdy(N);
     float specAA = min(0.3 * (dot(dNx, dNx) + dot(dNy, dNy)), 0.2);
-    vec3 base = pow(uBase, vec3(2.2));
+    vec3 base = uModelColor ? pow(max(c, 0.0), vec3(2.2)) : pow(uBase, vec3(2.2));
+    #ifdef TEX
+    if (uModelColor) base = texture(uMap, vUv).rgb * pow(max(vColor, 0.0), vec3(2.2));   // 贴图按 sRGB 存、采样出来已是线性
+    #endif
     float castRough = 0.0;
     if (uPattern == 9) {   // 砂铸：砂型的颗粒印 + 气孔，坑里粗、暗；细到看不清时抹平，不闪
       vec3 Pm = P / max(uAoR, 1e-3);   // 场景半径 = 1（实验室的模型先归一化）
@@ -149,7 +162,7 @@ export class PbrMaterials {
     uEnvAmt: { value: 1 }, uExposure: { value: 1 }, uSunDir: { value: new THREE.Vector3(0, 0, 1) }, uSunCol: { value: new THREE.Vector3(1.7, 1.6, 1.45) },
     uSkyCol: { value: new THREE.Vector3(0.4, 0.46, 0.55) }, uGroundCol: { value: new THREE.Vector3(0.26, 0.24, 0.21) }, uSunOn: { value: false },
   };
-  private readonly mat = { uBase: { value: new THREE.Vector3() }, uPatinaCol: { value: new THREE.Vector3() }, uMetal: { value: 0 }, uRough: { value: 0.5 }, uPatina: { value: 0 }, uCoat: { value: 0 }, uCoatRough: { value: 0.05 }, uSpec: { value: 1 }, uPatternAmt: { value: 0 }, uPattern: { value: 0 } };
+  private readonly mat = { uModelColor: { value: false }, uBase: { value: new THREE.Vector3() }, uPatinaCol: { value: new THREE.Vector3() }, uMetal: { value: 0 }, uRough: { value: 0.5 }, uPatina: { value: 0 }, uCoat: { value: 0 }, uCoatRough: { value: 0.05 }, uSpec: { value: 1 }, uPatternAmt: { value: 0 }, uPattern: { value: 0 } };
   private readonly aoModel = { uAoRadius: { value: 0.5 }, uAoSoft: { value: 1 }, uAoAmt: { value: 1 }, uAoOn: { value: false } };
   private readonly aoGround = { uAoRadius: { value: 0.25 }, uAoSoft: { value: 1 }, uAoAmt: { value: 1 }, uAoOn: { value: false } };
   private readonly groundU = { uInvVP: { value: new THREE.Matrix4() }, uGround: { value: new THREE.Vector3() }, uEye: { value: new THREE.Vector3() }, uGroundOn: { value: 1 } };
@@ -160,13 +173,17 @@ export class PbrMaterials {
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), gm);
     this.ground.frustumCulled = false; this.ground.renderOrder = -100; this.ground.visible = false;
   }
-  face(side: "front" | "back" | "double", active: boolean, single: boolean, sel = false): any {
-    const key = `${side}|${active ? 1 : 0}|${single ? 1 : 0}|${sel ? 1 : 0}`;
+  private mapIds = new WeakMap<object, number>(); private nextMapId = 1;
+  /** map = 贴图的 uniform 对象（后端的贴图缓存给，解码完换贴图时同一个对象里换值）；只有贴图网格、照模型上色时给。 */
+  face(side: "front" | "back" | "double", active: boolean, single: boolean, sel = false, map: { value: unknown } | null = null): any {
+    let mid = 0;
+    if (map) { mid = this.mapIds.get(map) ?? 0; if (!mid) { mid = this.nextMapId++; this.mapIds.set(map, mid); } }
+    const key = `${side}|${active ? 1 : 0}|${single ? 1 : 0}|${sel ? 1 : 0}|${mid}`;
     let m = this.mats.get(key);
     if (!m) {
-      const defines: Record<string, number> = {}; if (single) defines.SINGLE = 1; if (sel) defines.SEL = 1;
+      const defines: Record<string, number> = {}; if (single) defines.SINGLE = 1; if (sel) defines.SEL = 1; if (map) defines.TEX = 1;
       m = new THREE.ShaderMaterial({
-        glslVersion: THREE.GLSL3, vertexShader: FACE_VS, fragmentShader: FACE_FS, defines, uniforms: { ...this.light, ...this.mat, ...this.aoModel, ...this.ao, ...this.env.uniforms },
+        glslVersion: THREE.GLSL3, vertexShader: FACE_VS, fragmentShader: FACE_FS, defines, uniforms: { ...this.light, ...this.mat, ...this.aoModel, ...this.ao, ...this.env.uniforms, ...(map ? { uMap: map } : {}) },
         side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
       });
@@ -175,9 +192,10 @@ export class PbrMaterials {
     return m;
   }
   /** 每帧：材质 / 光 / 遮蔽开没开 / 地面。sunWorld = 世界坐标的太阳方向（单位向量）。 */
-  sync(p: PbrShade, env: { amount: number; exposure: number }, sunWorld: { x: number; y: number; z: number }, ao: { amount: number; radius: number; groundRadius: number; soft: number } | null, aoReady: boolean,
+  sync(p: PbrShade, modelColor: boolean, env: { amount: number; exposure: number }, sunWorld: { x: number; y: number; z: number }, ao: { amount: number; radius: number; groundRadius: number; soft: number } | null, aoReady: boolean,
     ground: { color: number; on: number } | null, cam: any, fade: { x: number; y: number; z: number }): void {
     const m = this.mat;
+    m.uModelColor.value = modelColor;
     m.uBase.value.copy(lin3(p.base)); m.uPatinaCol.value.copy(lin3(p.patinaColor)); m.uMetal.value = p.metal; m.uRough.value = p.rough; m.uPatina.value = p.patina;
     m.uCoat.value = p.coat; m.uCoatRough.value = p.coatRough; m.uSpec.value = p.spec; m.uPatternAmt.value = p.patternAmt; m.uPattern.value = p.pattern === "sand" ? 9 : 0;
     this.light.uEnvAmt.value = env.amount; this.light.uExposure.value = env.exposure; this.light.uSunDir.value.set(sunWorld.x, sunWorld.y, sunWorld.z);

@@ -125,6 +125,18 @@
       "h": 1133,
       "frozenAt": "2026-10-29",
       "version": "v0.17.12-2026-10-29"
+    },
+    "style-realistic-textured": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.14-2026-10-29"
+    },
+    "style-realistic-painted": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.14-2026-10-29"
     }
   }
 }

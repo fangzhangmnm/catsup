@@ -95,6 +95,14 @@ const SCENES = {
   "style-bronze-boxes": `e.renderer3.setPreset("bronze"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.setTool("select"); const t = sp(P(1.7, 0.5, 0.6)); await tap(t.x, t.y); e.draw();`,
   // 铸铜 × 房子样本（平滑组、组件）
   "style-bronze-house": { fixture: "house.glb", after: `e.renderer3.setPreset("bronze"); e.draw();` },
+  // 写实（照模型上色的 PBR）× 贴图：格子贴图进底色 + 海天 + 投影 + 遮蔽
+  "style-realistic-textured": `e.renderer3.setPreset("realistic"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
+    e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
+    const mid = [...e.scene.materials.keys()].pop(), k = e.kernel, at = e.activePool();
+    const top = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.z - 1) < 1e-6)), side = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.x - 1) < 1e-6));
+    e.commitOp({ op: "paintFaces", at, faces: [k.faceRings3(top.id).outer, k.faceRings3(side.id).outer], material: mid });`,
+  // 写实 × 上色样本（材质色进底色）
+  "style-realistic-painted": { fixture: "painted.glb", noTexWait: true, after: `e.renderer3.setPreset("realistic"); e.draw();` },
   // 风格 × 贴图（最近邻覆盖）
   "style-pixel-textured": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
     e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
