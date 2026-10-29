@@ -20,5 +20,5 @@ export type MeshOpName = keyof typeof MIRROR_OP_CLASS;
 export function opsOfClass(c: MirrorOpClass): MeshOpName[] { return (Object.keys(MIRROR_OP_CLASS) as MeshOpName[]).filter((k) => MIRROR_OP_CLASS[k] === c); }
 
 /** 注册表里路由到网格体指令的动作：会改拓扑的（镜像编辑开着先问）vs 对称进对称出 / 只改标记 / 镜像自己的（直接做）。每个网格体动作必须在其中一张里（守卫查注册表）。 */
-export const MIRROR_TOPO_ACTIONS: ReadonlySet<string> = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter"]);
+export const MIRROR_TOPO_ACTIONS: ReadonlySet<string> = new Set(["mesh.loopCut", "mesh.connect", "mesh.inset", "mesh.bevel", "mesh.bevelVerts", "mesh.mergeCenter", "mesh.duplicate", "mesh.fill", "mesh.flipNormals"]);
 export const MIRROR_PASS_ACTIONS: ReadonlySet<string> = new Set(["move", "mesh.subdivide", "mesh.symmetrySnap", "mesh.originToSelection", "mesh.markSharp", "mesh.markSmooth", "mesh.clearMarks", "mesh.smooth.angle", "mesh.smooth.smooth", "mesh.smooth.hard"]);
