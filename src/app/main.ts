@@ -1277,8 +1277,7 @@ function keyContext(): KeyContext {
   return {
     mode: editor.modeId, tool: editor.tool, gesture: editor.isGestureActive(), hasSelection: editor.hasSelection(),
     walk: locomotion.walkPhase(), walking: locomotion.isWalking(), mirrorSession: editor.mirrorActive(), lockStyle: editor.lockStyle(),
-    vcbWants: (e) => vcb.wants(e),
-    typingWants: (e) => editor.gestureTypingWants(e.key),   // 手势中打数（S Z 0）
+    typingWants: (e) => editor.typing.wants(e.key, e),   // 打字（手势中打数 / 数值小窗）：主人 typed-input.ts 定去向
   };
 }
 /** 工具键：同一个键再按一下 = 在这个工具组里换下一把（user 2026-10-25「快捷键在工具组里怎么循环：同一个键再按一下」）：E 橡皮 → 焊边 → 软边；R 矩形 → 旋转矩形；T 卷尺 → 量角器 → 轴；A 弧的四种画法轮换（画法是工具选项）。 */
@@ -1294,7 +1293,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "walk.editInPlace": locomotion.editInPlace(); return;
     case "walk.exit": closePopupMenu(); locomotion.exitWalk(); return;
     case "walk.cancelPlace": locomotion.cancelPlace(); return;
-    case "vcb.feed": vcb.feedKey(ev); return;
+    case "typing.key": editor.typing.feed(ev.key); vcb.render(); syncUi(); return;   // 打字（手势中 / 刚做完一步）
     case "mirror.apply": editor.pressParam("apply"); syncUi(); return;
     case "grid.toggle":   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
       editor.setGrid({ on: !editor.grid.on });
@@ -1317,7 +1316,6 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "edit.cut": editor.cutSelection(); syncUi(); return;
     case "edit.copy": editor.copySelection(); syncUi(); return;
     case "edit.paste": editor.pasteClipboard(); syncUi(); return;
-    case "gesture.type": editor.typeIntoGesture(ev.key); syncUi(); return;
     case "objects.join": editor.mergeUnderCursor(); syncUi(); return;
     case "mesh.duplicateMove": if (editor.runAction("mesh.duplicate") > 0) editor.startModal("move"); syncUi(); return;   // Blender Shift+D：复制叠在原处 → 接着 G
     case "soft.toggle": editor.config.set("soft", "on", !editor.config.get("soft", "on")); editor.refreshGesture(); syncUi(); return;

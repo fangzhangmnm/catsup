@@ -1,6 +1,7 @@
 # 手势中打数（Blender「S Z 0」）
 
 > created 2026-10-28 by Claude Opus 5.5 · as-of v0.16.26 / 2026-10-28 · 家族周账 F-122
+> **2026-10-29 追记（v0.16.56，Claude Fable 5.1；周账 F-125）**：打的字不再住编辑器的 `typedBuf`——主人 = `controller/typed-input.ts`（和右下角数值小窗共一份缓冲、一层键表 `typing`、一个小键盘）；本文的行为一条没变。详 `ai-docs/20261029-input-unification.md`。
 
 ## 0. user 原话
 

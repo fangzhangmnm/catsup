@@ -20,7 +20,7 @@ describe("工具提示从键表生成（keymap.ts toolKeyText）", () => {
   });
   it("提示里的每个键反查：在那个工作台从别的工具按下去，确实拿起这把（或组里轮到它）/ 键盘起手这把", () => {
     for (const m of modes) for (const t of m.tools) {
-      const from = t === "select" ? "line" : "select", c: KeyContext = { mode: m.id, tool: from, gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
+      const from = t === "select" ? "line" : "select", c: KeyContext = { mode: m.id, tool: from, gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
       for (const k of toolKeysOf(m.id, t, (x) => m.tools.includes(x))) {
         const r = resolveKey(c, evt(k.chord));
         assert(r && r !== "swallow", `${m.id}/${t}：${k.chord} 现在不绑东西`);

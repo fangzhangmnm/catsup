@@ -21,10 +21,8 @@ export interface KeyContext {
     readonly mirrorSession: boolean;
     /** 当前工具吃哪种锁（null = 不吃：选择 / 橡皮…）。 */
     readonly lockStyle: "axis" | "plane" | null;
-    /** 数值小窗要不要这一下（它有自己的缓冲状态，问它）。 */
-    readonly vcbWants: (e: KeyEvt) => boolean;
-    /** 手势中打数要不要这一下（编辑器问：手势进行中、工具收数、键 = 回车 / 退格 / 这个量写得出来的字；Blender「S Z 0」，2026-10-28 晚）。没给 = 不要。 */
-    readonly typingWants?: (e: KeyEvt) => boolean;
+    /** 打字要不要这一下（「正在打的字」的唯一主人 controller/typed-input.ts 问：手势中打数 / 刚做完一步的数值小窗，去向它自己定；2026-10-29 周账 F-125 并成一层）。。 */
+    readonly typingWants: (e: KeyEvt) => boolean;
 }
 export type Chord = string;
 export interface Binding {
@@ -61,7 +59,6 @@ export declare const TYPING: Layer;
 /** 镜像会话（马前炮）：回车 = 应用（Esc = 取消走全局的 escape → editor.cancel）。 */
 export declare const MIRROR: Layer;
 /** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */
-export declare const VCB: Layer;
 /** 步行三阶段。 */
 export declare const WALK_EDIT: Layer;
 export declare const WALK_PLACE: Layer;
@@ -122,7 +119,7 @@ export declare function toolKeyText(mode: ModeId, tool: Tool, inMode?: (t: Tool)
 /** 肌肉记忆层面的「意思」：锁轴的几种时机（马上锁 / 先锁下一下 / 手势中锁）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
 export declare function meaningOf(action: string): string;
 /** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */
-export declare const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "vcbWants">>>;
+export declare const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "typingWants">>>;
 /** 现在的冲突：和弦 → 意思 → 在哪几个地方（没绑的不算；只有一种意思的不列）。 */
 export declare function muscleConflicts(): Map<Chord, Map<string, string[]>>;
 /**

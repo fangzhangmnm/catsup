@@ -27,10 +27,8 @@ export interface KeyContext {
   readonly mirrorSession: boolean;
   /** 当前工具吃哪种锁（null = 不吃：选择 / 橡皮…）。 */
   readonly lockStyle: "axis" | "plane" | null;
-  /** 数值小窗要不要这一下（它有自己的缓冲状态，问它）。 */
-  readonly vcbWants: (e: KeyEvt) => boolean;
-  /** 手势中打数要不要这一下（编辑器问：手势进行中、工具收数、键 = 回车 / 退格 / 这个量写得出来的字；Blender「S Z 0」，2026-10-28 晚）。没给 = 不要。 */
-  readonly typingWants?: (e: KeyEvt) => boolean;
+  /** 打字要不要这一下（「正在打的字」的唯一主人 controller/typed-input.ts 问：手势中打数 / 刚做完一步的数值小窗，去向它自己定；2026-10-29 周账 F-125 并成一层）。。 */
+  readonly typingWants: (e: KeyEvt) => boolean;
 }
 export type Chord = string;
 export interface Binding { readonly chord: Chord; readonly action: string; readonly label: string; readonly when?: (c: KeyContext, e: KeyEvt) => boolean }
@@ -116,11 +114,10 @@ export const GESTURE: Layer = {
 };
 /** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。
  *  X / Y / Z 它不要（单位里没有这三个字母）→ 落到下面的手势层照旧锁轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
-export const TYPING: Layer = { id: "gesture:typing", bindings: [B("*", "gesture.type", "打数（手势中）", (c, e) => !!c.typingWants?.(e))] };
+export const TYPING: Layer = { id: "typing", bindings: [B("*", "typing.key", "打数", (c, e) => c.typingWants(e))] };   // 手势中打数 + 数值小窗 = 同一层（主人 typed-input.ts 定去向）
 /** 镜像会话（马前炮）：回车 = 应用（Esc = 取消走全局的 escape → editor.cancel）。 */
 export const MIRROR: Layer = { id: "mirror-session", bindings: [B("enter", "mirror.apply", "应用镜像")] };
 /** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */
-export const VCB: Layer = { id: "vcb", bindings: [B("*", "vcb.feed", "数值小窗", (c, e) => c.vcbWants(e))] };
 /** 步行三阶段。 */
 export const WALK_EDIT: Layer = { id: "walk:edit", bindings: [B("escape", "walk.exit", "离开步行", (c) => !c.gesture && !c.hasSelection)] };
 export const WALK_PLACE: Layer = { id: "walk:place", bindings: [B("escape", "walk.cancelPlace", "取消放置")] };
@@ -133,9 +130,9 @@ export function layersOf(c: KeyContext): Layer[] {
   if (freeform) out.push(FREEFORM);
   if (freeform && OP_TOOLS.has(c.tool)) out.push(TOOL_OPS);
   if (freeform && c.gesture) out.push(GESTURE);
-  if (c.gesture) out.push(TYPING);
+  if (c.gesture) out.push(TYPING);   // 手势中：打数压在手势层上面（数字 / 单位先给它，X Y Z 不是量的字、照旧锁轴）
   if (c.mirrorSession) out.push(MIRROR);
-  out.push(VCB);
+  if (!c.gesture) out.push(TYPING);   // 刚做完一步：数值小窗在镜像会话下面、步行层下面（同一层对象，两个位置）
   if (c.walk === "edit") out.push(WALK_EDIT);
   if (c.walk === "place") out.push(WALK_PLACE);
   if (c.walk === "walk") out.push(WALK_FPS);
@@ -196,14 +193,13 @@ export const LAYER_DOCS: Readonly<Record<string, { title: string; when: string }
   "workbench:freeform": { title: "自由建模", when: "在网格体里" },
   "tool:ops": { title: "自由建模 · 拿着操作工具", when: "移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线" },
   gesture: { title: "自由建模 · 手势进行中", when: "按下了还没落定" },
-  "gesture:typing": { title: "手势中打数", when: "移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线进行中直接打（S Z 0 = 沿 Z 压平）；回车 / 点一下 = 定，退格改，Esc 取消" },
+  typing: { title: "打数", when: "手势进行中直接打（移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线；S Z 0 = 沿 Z 压平；回车 / 点一下 = 定，退格改，Esc 取消）；或刚做完一步、右下角小窗亮着时打数字按精确值重做" },
   "mirror-session": { title: "镜像会话", when: "硬表面「镜像…」把手出来时" },
-  vcb: { title: "数值小窗", when: "刚做完一步、右下角小窗亮着时打数字" },
   "walk:edit": { title: "步行 · 原地编辑", when: "" },
   "walk:place": { title: "步行 · 放置", when: "点地面落人之前" },
   "walk:fps": { title: "步行", when: "键盘归走路：WASD 走、空格跳，别的只认下面这几个" },
 };
-export const ALL_LAYERS: readonly Layer[] = [GLOBAL, FREEFORM, TOOL_OPS, GESTURE, TYPING, MIRROR, VCB, WALK_EDIT, WALK_PLACE, WALK_FPS];
+export const ALL_LAYERS: readonly Layer[] = [GLOBAL, FREEFORM, TOOL_OPS, GESTURE, TYPING, MIRROR, WALK_EDIT, WALK_PLACE, WALK_FPS];
 /**
  * 快捷键表（数据 → 文字；帮助页「快捷键」一节就是它）：每层一节、每条 = 和弦（给人看的写法）+ 做什么。工具键的名字由调用方给（左柱那张表的中文，keymap 不认识中文工具名）。
  * 同一层里同一个和弦只列一次（when 分情况的几条合成一行，用「 / 」连）。"*"（数值小窗吃一切）写成一句话。
@@ -233,7 +229,7 @@ export interface ToolKey { readonly chord: Chord; readonly how: "pick" | "cycle"
  */
 export function toolKeysOf(mode: ModeId, tool: Tool, inMode: (t: Tool) => boolean = () => true): ToolKey[] {
   const from: Tool = tool === "select" ? "line" : "select";
-  const c: KeyContext = { mode, tool: from, gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
+  const c: KeyContext = { mode, tool: from, gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
   const chords: Chord[] = [];
   for (const L of ALL_LAYERS) for (const b of L.bindings) if (b.chord !== "*" && !chords.includes(b.chord)) chords.push(b.chord);
   const out: ToolKey[] = [];
@@ -270,7 +266,7 @@ export function meaningOf(action: string): string {
   return verb ? `动词 ${verb}` : action;
 }
 /** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */
-export const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "vcbWants">>> = {
+export const MUSCLE_CONTEXTS: Readonly<Record<string, Omit<KeyContext, "typingWants">>> = {
   "硬表面·选择": { mode: "geometry", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
   "硬表面·移动": { mode: "geometry", tool: "move", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: "axis" },
   "自由建模·选择": { mode: "freeform", tool: "select", gesture: false, hasSelection: true, walk: "off", walking: false, mirrorSession: false, lockStyle: null },
@@ -285,7 +281,7 @@ export function muscleConflicts(): Map<Chord, Map<string, string[]>> {
   for (const ch of [...chords].sort()) {
     const by = new Map<string, string[]>();
     for (const [where, c0] of Object.entries(MUSCLE_CONTEXTS)) {
-      const r = resolveKey({ ...c0, vcbWants: () => false }, evtOfChord(ch));
+      const r = resolveKey({ ...c0, typingWants: () => false }, evtOfChord(ch));
       if (r === null || r === "swallow") continue;
       const m = meaningOf(r.action); (by.get(m) ?? by.set(m, []).get(m)!).push(where);
     }

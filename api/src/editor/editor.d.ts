@@ -47,12 +47,16 @@ export type PaintPick = {
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
 /** 菜单 / 物体窗口作用在谁上（Editor.withMenuTarget）：selection = 当前选区（几何层）；self = 你所在的这一层本身；children = 选中的子物体。 */
 export type MenuTarget = "selection" | "self" | "children";
+export type GestureStart = "pointer" | "keyboard";
 export interface ToolPointer {
     x: number;
     y: number;
     clientX: number;
     clientY: number;
     pointerType: string;
+    /** 这一下手势怎么起的（周账 F-125）：pointer = 真按下（鼠标 / 笔 / 手指 / XR）；keyboard = G / R / S / E / I 键盘起手（只有 ToolCtx.keyboardStart 造它）。缺 = pointer。
+     *  谁关心：selecting.ts pressTarget——键盘起手永远对选区做，不走「按在选区外的东西上 = 对它做」的三分法。 */
+    start?: GestureStart;
     /** 允许「点两下」模式（第一击是点击不是拖 → 移动预览再点放置）：桌面鼠标 = true；数位笔/手指 = false（误触发意外连线）。由适配器裁决。 */
     armable?: boolean;
     shiftKey: boolean;
@@ -146,6 +150,7 @@ export declare function describeEvent(ev: FaceEvent): string;
 export declare const CIRCLE_SEGMENTS: 24;
 export { fmtLen, fmtDeg } from "./units.ts";
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
+import { type TypedInput } from "../controller/typed-input.ts";
 export { MIN_GESTURE_LEN, SNAP_LABELS };
 /** 子池选区项（相对活动上下文的直接子项）。 */
 export type PoolPick = {
@@ -1142,15 +1147,14 @@ export declare class Editor {
      */
     /** variant = 同一格里的哪种（插入那一格：Ctrl+B "bevel" / Ctrl+Shift+B "bevelVerts"）；工具自己认。 */
     startModal(tool: Tool, variant?: string): boolean;
-    private typedBuf;
-    /** 这一下键盘能不能进手势里的数：手势进行中、这把工具收数；回车 / 退格永远收（不让它们漏到下层：退格 = 删除选区），别的键 = 这个量写得出来的字。 */
-    gestureTypingWants(key: string): boolean;
-    /** 打一个键：字进缓冲 / 退格删一个 / 回车 = 定（同点一下）。预演跟着变。 */
-    typeIntoGesture(key: string): void;
+    readonly typing: TypedInput;
+    private readonly _typingSub;
     /** 打的数（按工具的量读）；没打 / 看不懂 / 没在手势里 = null。 */
     typedValue(): number | null;
     /** 正在打的字（探针 / 状态行）。 */
     typedText(): string;
+    /** 手势里现在收的是什么量（小键盘的单位键按它换；没在收 = null）。 */
+    typedQuantityTag(): "length" | "angle" | "factor" | "speed" | null;
     /** 自由建模手势中右键：这把工具会「原地落定」（挤出：几何留在原地、新的成为选区，接着 G）就做，返回 true；不会 = false（调用方当取消）。 */
     commitInPlace(): boolean;
     /** 回车 = 定：「点一下落定」那一下（键盘起手 / 点了一下在等下一点的手势）；按着没松的拖 = 松手才定，回车不管。 */

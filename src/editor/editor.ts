@@ -93,10 +93,14 @@ export type PaintPick = { kind: "color"; name: string; color: [number, number, n
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
 /** 菜单 / 物体窗口作用在谁上（Editor.withMenuTarget）：selection = 当前选区（几何层）；self = 你所在的这一层本身；children = 选中的子物体。 */
 export type MenuTarget = "selection" | "self" | "children";
+export type GestureStart = "pointer" | "keyboard";
 export interface ToolPointer {
   x: number; y: number;
   clientX: number; clientY: number;
   pointerType: string;
+  /** 这一下手势怎么起的（周账 F-125）：pointer = 真按下（鼠标 / 笔 / 手指 / XR）；keyboard = G / R / S / E / I 键盘起手（只有 ToolCtx.keyboardStart 造它）。缺 = pointer。
+   *  谁关心：selecting.ts pressTarget——键盘起手永远对选区做，不走「按在选区外的东西上 = 对它做」的三分法。 */
+  start?: GestureStart;
   /** 允许「点两下」模式（第一击是点击不是拖 → 移动预览再点放置）：桌面鼠标 = true；数位笔/手指 = false（误触发意外连线）。由适配器裁决。 */
   armable?: boolean;
   shiftKey: boolean;
@@ -179,7 +183,7 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 
-import { fmtArea, fmtDeg, fmtLen, parseQuantity, quantityKey, setDisplayUnit } from "./units.ts";
+import { fmtArea, fmtDeg, fmtLen, parseQuantity, setDisplayUnit } from "./units.ts";
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
@@ -187,6 +191,7 @@ import { RELEASE_WINDOW_MS, FINAL_HOLD_MS, MIN_DWELL_MS, HOLD_PX, DWELL_SLIP_PX,
 import { lockLines, lockThrough } from "../controller/lock-guide.ts";
 import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
 import { SNAP_BASE, deviceOf, stanceOf } from "../controller/stance.ts";
+import { createTypedInput, type TypedInput } from "../controller/typed-input.ts";
 export { MIN_GESTURE_LEN, SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
@@ -1044,7 +1049,7 @@ export class Editor {
    * 以前（≤ v0.15.28）是事后对账：拿现在的选区和上次记的比——分不清「用户点了一下」和「建组做完顺手选中新组」，补出来的空步就是撤销「没反应」的根。
    */
   private closeStep(): void {
-    if (!this.gestureActive()) this.typedBuf = "";   // 打的数一次手势一份：手势没了就清
+    this.typing.sync();   // 打的数一次手势一份 / 一步一份：去向变了就清（typed-input.ts）
     const before = this.stepBefore ?? this.sessionSnap(), label = this.stepLabel, touched = this.stepTouched, hadOp = this.stepHasOp && !this.stepFailed, failed = this.stepFailed, ops = this.stepOps;
     this.stepBefore = null; this.stepLabel = undefined; this.stepTouched = false;
     if (failed) { this.deferredBefore = null; this.sessionRestore(before); this.host.changed(); return; }
@@ -3301,31 +3306,28 @@ export class Editor {
   }
   // ---------- 手势中打数（Blender「S Z 0」；user 10-28 晚「s z 0这个快捷键能不能接住……这也是一个新的模式」「可以打小数点，然后接上我们的单位系统，然后最后可以打单位」
   //            「所以就是一个parser啦，看一下能不能和单位文本框深模块窄接口」；设计稿 ai-docs/20261028-typed-amount.md）----------
-  // 打的字住这里（一次手势一份，步结束且手势没了就清——closeStep）；读法 = units.ts parseQuantity（单位文本框同一个）；哪个键能进 = units.ts quantityKey；工具只问 ctx.typed()。
-  private typedBuf = "";
-  /** 这一下键盘能不能进手势里的数：手势进行中、这把工具收数；回车 / 退格永远收（不让它们漏到下层：退格 = 删除选区），别的键 = 这个量写得出来的字。 */
-  gestureTypingWants(key: string): boolean {
-    const q = this.handlers[this._tool]?.typedQuantity;
-    if (!q || !this.gestureActive()) return false;
-    return key === "Enter" || key === "Backspace" || quantityKey(q, this.typedBuf, key);
-  }
-  /** 打一个键：字进缓冲 / 退格删一个 / 回车 = 定（同点一下）。预演跟着变。 */
-  typeIntoGesture(key: string): void {
-    const q = this.handlers[this._tool]?.typedQuantity;
-    if (!q || !this.gestureActive()) return;
-    if (key === "Enter") { this.confirmGesture(); return; }
-    this.typedBuf = key === "Backspace" ? this.typedBuf.slice(0, -1) : this.typedBuf + key;
-    this.computeLive(); this.host.changed(); this.draw();   // 状态行由 computeLive 写（打的字 + 预演读数一起）
-  }
+  // 打的字的唯一主人 = controller/typed-input.ts（2026-10-29 周账 F-125：手势中打数 + 数值小窗一份缓冲、一层键表、一个小键盘）。去向 gesture = 手势进行中且这把工具收数；
+  //   读法 = units.ts parseQuantity（单位文本框同一个）；哪个键能进 = units.ts quantityKey；工具只问 ctx.typed()。vcb 那一半由 app/vcb.ts 订阅同一个主人。
+  readonly typing: TypedInput = createTypedInput({
+    gestureQuantity: () => (this.gestureActive() ? this.handlers[this._tool]?.typedQuantity ?? null : null),
+    vcbOpen: () => !!this.vcbState().kind,
+  });
+  private readonly _typingSub = this.typing.subscribe((e) => {
+    if (e.target !== "gesture") return;
+    if (e.kind === "confirm") { this.confirmGesture(); return; }
+    this.computeLive(); this.host.changed(); this.draw();   // 字变了：预演跟着变（状态行由 computeLive 写：打的字 + 预演读数一起）
+  });
   /** 打的数（按工具的量读）；没打 / 看不懂 / 没在手势里 = null。 */
   typedValue(): number | null {
-    const q = this.handlers[this._tool]?.typedQuantity;
-    if (!q || !this.typedBuf || !this.gestureActive()) return null;
-    const v = parseQuantity(this.typedBuf, q);
+    const q = this.handlers[this._tool]?.typedQuantity, t = this.typing.text();
+    if (!q || !t || !this.gestureActive()) return null;
+    const v = parseQuantity(t, q);
     return typeof v === "number" ? v : null;
   }
   /** 正在打的字（探针 / 状态行）。 */
-  typedText(): string { return this.gestureActive() ? this.typedBuf : ""; }
+  typedText(): string { return this.gestureActive() ? this.typing.text() : ""; }
+  /** 手势里现在收的是什么量（小键盘的单位键按它换；没在收 = null）。 */
+  typedQuantityTag(): "length" | "angle" | "factor" | "speed" | null { return this.gestureActive() ? this.handlers[this._tool]?.typedQuantity?.q ?? null : null; }
   /** 自由建模手势中右键：这把工具会「原地落定」（挤出：几何留在原地、新的成为选区，接着 G）就做，返回 true；不会 = false（调用方当取消）。 */
   commitInPlace(): boolean {
     const H = this.handlers[this._tool];
@@ -3585,7 +3587,7 @@ export class Editor {
     if (this.live || this.liveMesh || this.liveOverride || dims) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
       const sh = this.previewShear ? `会把组件「${this.previewShear}」斜切（glTF 不允许），松手会被拦下：沿它自己的轴缩放（只选它一个时手柄就是它的轴）` : "";
-      const typing = this.typedBuf && this.gestureActive() ? `打数：${this.typedBuf}▏${this.typedValue() === null ? "（还没看懂，接着打）" : ""} · 回车 / 点一下 = 定 · 退格改 · Esc 取消` : "";   // 打的字一直看得见（预演读数会盖掉 typeIntoGesture 写的那句）
+      const typing = this.typing.text() && this.gestureActive() ? `打数：${this.typing.text()}▏${this.typedValue() === null ? "（还没看懂，接着打）" : ""} · 回车 / 点一下 = 定 · 退格改 · Esc 取消` : "";   // 打的字一直看得见（预演读数会盖掉 typeIntoGesture 写的那句）
       this.host.hint([sh, typing, dims, ev].filter(Boolean).join(" ｜ "));
     }
   }
@@ -3795,7 +3797,7 @@ export class Editor {
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
   private pointerDownStep(ev: ToolPointer): void {
     if (this._locked) { this.lockedSay(); return; }   // 护栏 ②（演示锁）：工具指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里
-    if (ev.pointerType !== "keyboard") this.lastPtrType = ev.pointerType;
+    this.lastPtrType = ev.pointerType;   // 键盘起手的那一下带的也是真设备（keyboardStart 填的）
     this.ctxPick = null; this.pointed = null;   // 右键菜单那一下记的点 / Ctrl+J 压着的那个：画布上再按一下就作废
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;
@@ -3883,7 +3885,7 @@ export class Editor {
     const s = ev;
     { const at = this.taps.pressAt(); if (at && this.taps.pressing()) this.pressPeak = Math.max(this.pressPeak, this.frame().distTo(s.x, s.y, at, this.fvp())); }
     this.lastPtr = { x: s.x, y: s.y };
-    if (ev.pointerType !== "keyboard") this.lastPtrType = ev.pointerType;
+    this.lastPtrType = ev.pointerType;
     this.lastMoveEv = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     if (!this.gestureActive()) {
@@ -3972,6 +3974,7 @@ export class Editor {
       clicks: () => this.taps.clicks(),
       cursor: () => this.cursor3,
       mods: () => this.mods,
+      keyboardStart: (at) => ({ x: at.x, y: at.y, clientX: at.x, clientY: at.y, pointerType: this.lastPtrType, shiftKey: false, start: "keyboard" }),
       snapBase: () => SNAP_BASE[deviceOf(this.lastPtrType)] === "lock" && this.grid.on,   // 自由建模吸附的底：鼠标关、触屏跟右上角锁钮（F-128）
       currentSnap: () => this.snapInfo,
       setHoverFace: (f) => { this.hoverFace = f; },

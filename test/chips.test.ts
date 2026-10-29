@@ -5,7 +5,7 @@ import { CHIP_SLOTS, IDLE_LIVE, chipLabel, chipsOf, stanceShown, type ChipLive }
 import { stanceOf } from "../src/controller/stance.ts";
 import type { KeyContext } from "../src/controller/keymap.ts";
 
-const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
+const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
 const at = (o: Partial<KeyContext>, L: Partial<Omit<ChipLive, "held" | "latched">> & { held?: Partial<ChipLive["held"]>; latched?: Partial<ChipLive["latched"]> } = {}) => { const c = { ...base, ...o }; return chipsOf(c, stanceOf(c.mode, c.tool), { ...IDLE_LIVE, ...L, held: { ...IDLE_LIVE.held, ...(L.held ?? {}) }, latched: { ...IDLE_LIVE.latched, ...(L.latched ?? {}) } }); };
 const FF_MOVE = { mode: "freeform" as const, tool: "move" as const, lockStyle: "axis" as const };
 

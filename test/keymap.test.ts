@@ -3,7 +3,7 @@ import { describe, it, eq } from "./runner.mjs";
 import { resolveKey, chordOf, chordLabel, layersOf, modifierChords, keyDocs, ALL_LAYERS, LAYER_DOCS, KNOWN_CONFLICTS, muscleConflicts, meaningOf, type KeyContext, type KeyEvt } from "../src/controller/keymap.ts";
 import { KEYS_TABLE, README_SECTIONS } from "../src/app/readme-docs.ts";
 
-const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, vcbWants: () => false };
+const base: KeyContext = { mode: "geometry", tool: "select", gesture: false, hasSelection: false, walk: "off", walking: false, mirrorSession: false, lockStyle: null, typingWants: () => false };
 const ctx = (o: Partial<KeyContext>): KeyContext => ({ ...base, ...o });
 const K = (code: string, key = code.replace(/^Key/, "").toLowerCase(), m: Partial<KeyEvt> = {}): KeyEvt => ({ key, code, shift: false, ctrl: false, alt: false, ...m });
 const act = (c: KeyContext, e: KeyEvt): string => { const r = resolveKey(c, e); return r === null ? "∅" : r === "swallow" ? "swallow" : r.action; };
@@ -41,13 +41,14 @@ describe("键表：什么时候按 X 是什么意思", () => {
   });
   it("镜像会话回车 = 应用；数值小窗要的键先给它；方向键锁 / Shift+Tab 格点", () => {
     eq(act(ctx({ mirrorSession: true }), K("Enter", "Enter")), "mirror.apply");
-    eq(act(ctx({ vcbWants: (e) => e.key === "5" }), K("Digit5", "5")), "vcb.feed");
+    eq(act(ctx({ typingWants: (e) => e.key === "5" }), K("Digit5", "5")), "typing.key");
     eq(act(ctx({}), K("ArrowRight", "ArrowRight")), "lock.key:x"); eq(act(ctx({}), K("Tab", "Tab", { shift: true })), "grid.toggle");
     eq(act(ctx({ mode: "freeform", tool: "select" }), K("ArrowRight", "ArrowRight")), "lock.arm:x", "自由建模拿着选择工具 = 先锁");
     eq(act(ctx({ mode: "freeform", tool: "move", lockStyle: "axis" }), K("ArrowRight", "ArrowRight")), "lock.key:x", "吃锁的工具 = 直接锁");
   });
   it("栈的形状：自由建模 + 操作工具 + 手势中 = 全局 / 工作台 / 工具 / 手势 / 数值小窗", () => {
-    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > gesture > gesture:typing > vcb");
+    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > gesture > typing");
+    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: false, mirrorSession: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > mirror-session > typing", "不在手势里：打字层（数值小窗）在镜像会话下面");
   });
   it("披露：按住修饰键时这一层有什么（modifierChords）——自由建模 Ctrl 有环切 / 倒角；硬表面 Shift+Z = 缩放到全部、操作工具里 = 面锁；披露的每一条 = 真按下去生效的那条", () => {
     const ff = ctx({ mode: "freeform", tool: "move" }), ctrl = modifierChords(ff, "ctrl").map((x) => x.chord), shift = modifierChords(ff, "shift");
@@ -87,12 +88,12 @@ describe("手势中打数（S Z 0）", () => {
   const k = (key: string): KeyEvt => ({ key, code: /^[0-9]$/.test(key) ? `Digit${key}` : /^[a-z]$/i.test(key) ? `Key${key.toUpperCase()}` : key, shift: false, ctrl: false, alt: false });
   it("S（键盘起手）→ Z = 锁 Z → 0 = 打数 → 回车 = 打数层收（编辑器当「定」）", () => {
     const z = resolveKey(typing(""), k("z")); eq(z && z !== "swallow" ? z.action : null, "lock.key:z");
-    const zero = resolveKey(typing(""), k("0")); eq(zero && zero !== "swallow" ? zero.action : null, "gesture.type");
-    const en = resolveKey(typing("0"), k("Enter")); eq(en && en !== "swallow" ? en.action : null, "gesture.type");
+    const zero = resolveKey(typing(""), k("0")); eq(zero && zero !== "swallow" ? zero.action : null, "typing.key");
+    const en = resolveKey(typing("0"), k("Enter")); eq(en && en !== "swallow" ? en.action : null, "typing.key");
   });
   it("单位字只在有数之后进（长度：先打 1 再打 m；空的时候 m = 照旧是别的键）；退格不漏到下层的「删除选区」", () => {
     eq(quantityKey({ q: "length" }, "", "m"), false); eq(quantityKey({ q: "length" }, "1.5", "m"), true); eq(quantityKey({ q: "length" }, "1", "z"), false);
-    const bs = resolveKey(typing(""), k("Backspace")); eq(bs && bs !== "swallow" ? bs.action : null, "gesture.type");
+    const bs = resolveKey(typing(""), k("Backspace")); eq(bs && bs !== "swallow" ? bs.action : null, "typing.key");
   });
   it("读法 = 单位文本框同一个 parseQuantity：倍数 0 / 50%、角度 -45°、长度 1.5cm / 3'6\"", () => {
     eq(parseQuantity("0", { q: "factor" }), 0); eq(parseQuantity("50%", { q: "factor" }), 0.5);

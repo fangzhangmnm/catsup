@@ -10,6 +10,7 @@
 // 硬表面的移动 / 旋转 / 缩放不走这里（SketchUp 的语义不变，纪元账本 FM159）；两套肌肉记忆怎么统一 = 家族周账 F-117 交 Fable。
 import { pickGuide } from "../guide-pick.ts";
 import type { ToolPointer } from "../editor.ts";
+import type { GestureStart } from "../editor.ts";
 import type { ToolCtx } from "../tool-handler.ts";
 import type { SelMode } from "../tools.ts";
 import type { Tool } from "../tool-ids.ts";
@@ -71,13 +72,13 @@ function touchesSelection(ctx: ToolCtx, sel: { verts: ReadonlySet<number>; edges
  *   只是点一下（没拖）= 工具走 clickSelect，选区照点选的规矩变（Shift 加选不被截胡）。
  * 缺 press = 有选区就是选区（不管按在哪）。
  */
-export function pressTarget(ctx: ToolCtx, at: { x: number; y: number }, tool: Tool): Target | "box" {
+export function pressTarget(ctx: ToolCtx, at: { x: number; y: number; start?: GestureStart }, tool: Tool): Target | "box" {
   const m = ctx.mesh(), sel = ctx.selection(), st = stanceOf("freeform", tool), grab = st?.grab ?? "element";
   const by = (xs: Iterable<number>, alive: (x: number) => boolean): number[] => [...xs].filter(alive).sort((a, b) => a - b);
   if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) {
-    // 键盘起手（G / R / S / E / I；工具造的那一下 pointerType = "keyboard"）= 永远对选区做（Blender）：不走「按在选区外的东西上 = 对它做」的三分法——
-    // 不然光标正下方有个没选的点时，G 挪的是它不是选区（2026-10-28 夜 probe-soft-select 抓到；之前的探针都是全选，撞不上）
-    if (st?.press === "split3" && (at as { pointerType?: string }).pointerType !== "keyboard") {
+    // 键盘起手（G / R / S / E / I；ToolPointer.start = "keyboard"，ctx.keyboardStart 唯一造处）= 永远对选区做（Blender）：不走「按在选区外的东西上 = 对它做」的三分法——
+    // 不然光标正下方有个没选的点时，G 挪的是它不是选区（2026-10-28 夜 probe-soft-select 抓到；以前拿 pointerType 冒充，2026-10-29 改成一等字段，周账 F-125）
+    if (st?.press === "split3" && at.start !== "keyboard") {
       const u = grabUnder(ctx, at, grab);
       if (u && !touchesSelection(ctx, sel, u)) return { ...u, fromSelection: true, adopt: u };   // 选区外的可选对象：对它做，落定时选区换成它（adoptPress）
     }

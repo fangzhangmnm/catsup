@@ -1,4 +1,5 @@
 import type { ToolPointer } from "../editor.ts";
+import type { GestureStart } from "../editor.ts";
 import type { ToolCtx } from "../tool-handler.ts";
 import type { SelMode } from "../tools.ts";
 import type { Tool } from "../tool-ids.ts";
@@ -38,6 +39,7 @@ export declare function pickKinds(ctx: ToolCtx): {
 export declare function pressTarget(ctx: ToolCtx, at: {
     x: number;
     y: number;
+    start?: GestureStart;
 }, tool: Tool): Target | "box";
 /** 右下角「选区」两档：多选（= 一直按着 Shift）？ */
 export declare const multiSelect: (ctx: ToolCtx) => boolean;
