@@ -48,4 +48,11 @@
 
 **没动的**：render3 的「平铺路径」（`rebuildFaces / rebuildEdges`，裸 GeomView 没有槽时走）——两个调用方（draw / captureRgba）都传 WorldView，它是死代码，步 5 删。
 
-## 步 4 frame graph 骨架（待）
+## 步 4 frame graph 骨架（v0.17.4）
+
+- 规划器加**追加画**（`PassDecl.appends`）：几组东西往同一个目标上接着画，排在写者和声明顺序在前的追加者之后；要那个资源 = 写者 + 全部追加者；往外部目标（画布）上追加也行。单测四条（含「X 光关着 = 那条 pass 不在表里」、「读 frame 的缩略图 pass 排在追加者之后」）。
+- render3 每帧：造 **View**（`id / camera{view, projection, eye, kind} / target{canvas | xr-eye, 设备像素} / budget = DEFAULT_VIEW_BUDGET / quality`）→ `planFrame(passes(), ["frame"])`。现状的 pass 表 = `scene`（膜 + 边，读流写 frame）、`grid`、`overlay`、`xray`（开着才在表里）三个追加。**X 光的节点可见性只看规划里有没有 `xray`**（`setXray` 只改开关，重建在下一帧规划变了才做）。eye 进提供者的 query。`renderer3.lastView / lastPlan` 给探针 / 血槽位读。
+- **如实说**：四条 pass 仍是 three 的**一个**渲染调用里的四组节点，规划器只决定哪几组存在、顺序是声明顺序；分目标的 pass（泛光 / 描边 / 整数倍放大 / 缩略图）等后处理落地时才真分开——那时 `appends` 的语义正是「叠加层追加到合成结果上」。目标有效期（`View.validUntil`）钉了形状没用上，按需渲染照旧走编辑器的 batchDraw。
+- 验：单测 1163 绿；截图基线 11 张 0 像素差；probe-xray / xray-btn / xray-facedots / pool-mesh / preview-refresh 绿；活页面 dump：`plan = scene>grid>overlay`，开 X 光后 `…>xray`。
+
+## 步 5 three 全收进 backend/three/（待）

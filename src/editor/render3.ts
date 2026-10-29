@@ -49,7 +49,7 @@ import type { OrbitCamera, Viewport } from "./camera.ts";
 import type { Snap3 } from "./pick.ts";
 import { cross3, dot3, sub3 } from "../kernel/geom.ts";
 import { type TexSide, fanNormal, buildFaceRec } from "./pool-mesh.ts";
-import type { Chunk, StreamProvider } from "../minccino/index.ts";   // 流契约：块 → 显卡（Tron 第一刀步 3）
+import { DEFAULT_VIEW_BUDGET, planFrame, type Chunk, type PassDecl, type StreamProvider, type View } from "../minccino/index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）
 import type { ChunkStyle } from "./stream-provider.ts";
 import { SPHERE_RINGS, circlePoints } from "./guide-pick.ts";
 import type { RigPose } from "../player/player.ts";
@@ -341,6 +341,11 @@ export class Renderer3 {
   /** 块（流契约 Chunk.id）→ 显卡几何：两代没人用的释放。池网格本体住编辑器那边的流提供者（stream-provider.ts），这里只有显卡副本。 */
   private chunkGpus = new Map<string, GpuFaces | GpuLines>();
   private provider: StreamProvider | null = null;
+  /** 这一帧的视图对象（画到哪 + 分辨率 + 预算 + 画质档；Minccino 契约 View）和 frame graph 的规划（哪些 pass 跑）。探针 / 血槽位读。 */
+  lastView: View | null = null;
+  lastPlan: { order: readonly string[]; pruned: readonly string[] } | null = null;
+  /** 这一帧 X 光那条 pass 在不在规划里（X 光的节点可见性只看它，不直接看 xray 开关）。 */
+  private xrayPass = false;
   private syncGen = 0;
   private poolKey = ""; private overlayKey = "";
   private emptyGeo: any; private emptyLineGeo: any;
@@ -867,6 +872,14 @@ export class Renderer3 {
       cam3 = this.syncCamera(cam, vp, this.sceneBounds(k, view.revision ?? 0));
     }
     this.syncLineScale(presenting);
+    // ---- 视图对象 + frame graph（步 4）：现状 = 四组往一张画布上追加画的 pass（膜 / 边、地面网格、叠加层、X 光），还是 three 的一个渲染调用；
+    //      规划器只决定哪几组存在（X 光关着 = 那条 pass 不在表里，不是画了再藏）。分目标的 pass（泛光 / 描边 / 整数倍放大）等后处理落地。
+    cam3.updateMatrixWorld();
+    const eye = cam.eye();
+    this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
+    this.lastPlan = planFrame(this.passes(), ["frame"]);
+    const xrayPass = this.lastPlan.order.includes("xray");
+    if (xrayPass !== this.xrayPass) { this.xrayPass = xrayPass; this.poolKey = ""; this.overlayKey = ""; }
 
     // WYSIWYG（user 黄线）：拖拽期间整个场景渲染影子副本。
     const kd = view.preview ?? k;
@@ -875,7 +888,6 @@ export class Renderer3 {
 
     // ---- 面：光向 uniform 每帧（视空间：法向走 normalMatrix）；几何只在键变时重建 ----
     const L = presenting ? this.xrKeyLight() : keyLight(cam);
-    cam3.updateMatrixWorld();
     this.scratchV.set(L.x, L.y, L.z).transformDirection(cam3.matrixWorldInverse);
     this.faceMat.uniforms.uLight.value.copy(this.scratchV);
     const dimK = view.dimSlots ? [...view.dimSlots].join(",") : "";
@@ -1415,7 +1427,17 @@ export class Renderer3 {
   /** 全部边 → 一份粗线（顶点色按类别）。 */
   /** 线稿风格（视图菜单「粗线稿」）。 */
   setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.edgeKey = ""; this.poolKey = ""; } }
-  setXray(on: boolean): void { if (this.xray !== on) { this.xray = on; this.poolKey = ""; this.overlayKey = ""; } }
+  setXray(on: boolean): void { this.xray = on; }   // 真正生效在下一帧的规划（xrayPass 变了才重建池 / 叠加层）
+  /** 这一帧的 pass 声明（现状）：膜 + 边从流产出 frame，地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。 */
+  private passes(): PassDecl[] {
+    const ps: PassDecl[] = [
+      { id: "scene", reads: ["stream"], writes: ["frame"] },
+      { id: "grid", appends: ["frame"] },
+      { id: "overlay", reads: ["stream", "editor"], appends: ["frame"] },
+    ];
+    if (this.xray) ps.push({ id: "xray", reads: ["stream"], appends: ["frame"] });
+    return ps;
+  }
   getLineStyle(): LineStyle { return this.lineStyle; }
   /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
   setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
@@ -1480,7 +1502,7 @@ export class Renderer3 {
   /** 拉一帧流 → 块进显卡 → 每个放置一组槽节点（矩阵 + 按活动 / 淡出 / 单面挑材质和几何）。 */
   private syncPools(): void {
     if (!this.provider) throw new Error("render3: no stream provider (editor wires EditorStreamProvider before the first draw)");
-    const frame = this.provider.pull({ view: "main", bands: [{ near: 0, far: Infinity }], budget: {} });   // 小学：一带、预算只记不裁
+    const frame = this.provider.pull({ view: "main", eye: this.lastView?.camera.eye, bands: [{ near: 0, far: Infinity }], budget: {} });   // 小学：一带、预算只记不裁
     this.syncGen++;
     const byPool = new Map<string, { plain: GpuFaces | null; tex: GpuFaces[]; lines: GpuLines | null }>();
     perf.time("poolMesh.upload", () => {
@@ -1516,7 +1538,7 @@ export class Renderer3 {
       const L = pb?.lines ?? null, showL = !!L && L.count > 0;
       if (this.lineStyle === "thick") { n.thick.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
       else { n.pixel.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
-      const xr = this.xray && showL;
+      const xr = this.xrayPass && showL;
       n.xthick.geometry = xr && this.lineStyle === "thick" ? n.thick.geometry : this.emptyLineGeo; n.xthick.visible = xr && this.lineStyle === "thick";
       n.xpixel.geometry = xr && this.lineStyle !== "thick" ? n.pixel.geometry : this.emptyGeo; n.xpixel.visible = xr && this.lineStyle !== "thick";
     }
@@ -1708,7 +1730,7 @@ export class Renderer3 {
       const c = this.tmpColor.setHex(hot ? PALETTE.edgeHot : warn ? PALETTE.edgeWarn : PALETTE.edgeSelected);
       pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(c.r, c.g, c.b, c.r, c.g, c.b);
     }
-    this.edgeLines.material = this.xray ? this.xrayOverlayMat : this.edgeMat;   // X 光：选中 / 悬停 / 检查标的边不被面挡
+    this.edgeLines.material = this.xrayPass ? this.xrayOverlayMat : this.edgeMat;   // X 光：选中 / 悬停 / 检查标的边不被面挡
     if (pos.length) { this.setLineGeometry(this.edgeLines, pos, col); this.edgeLines.visible = true; } else this.edgeLines.visible = false;
     this.edgePixel.visible = false;
   }

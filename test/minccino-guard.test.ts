@@ -82,6 +82,21 @@ describe("minccino ⑤ frame graph 规划器", () => {
     eq([...p.pruned].sort().join(), "bloom,composite,overlay");
   });
   it("要一个外部输入 = 什么都不跑", () => { eq(planFrame(passes, ["stream"]).order.length, 0); });
+  it("追加画：要 frame = 写者 + 全部追加者，追加者按声明顺序排在写者后；不在列表里的（X 光关着）就不存在", () => {
+    const P = (xray: boolean) => [
+      { id: "scene", reads: ["stream"], writes: ["frame"] },
+      { id: "grid", appends: ["frame"] },
+      { id: "overlay", reads: ["stream", "editor"], appends: ["frame"] },
+      ...(xray ? [{ id: "xray", reads: ["stream"], appends: ["frame"] }] : []),
+      { id: "thumb", reads: ["frame"], writes: ["thumbnail"] },
+    ];
+    const a = planFrame(P(true), ["frame"]);
+    eq(a.order.join(">"), "scene>grid>overlay>xray"); eq(a.pruned.join(), "thumb");
+    const b = planFrame(P(false), ["frame"]);
+    eq(b.order.join(">"), "scene>grid>overlay");
+    eq(planFrame(P(true), ["thumbnail"]).order.join(">"), "scene>grid>overlay>xray>thumb");   // 读 frame = 先把追加者都跑完
+    eq(planFrame([{ id: "hud", appends: ["canvas"] }], ["canvas"]).order.join(), "hud");   // 往外部目标（画布）上追加也行
+  });
   it("环 = 抛；双写者 = 抛", () => {
     let threw = false; try { planFrame([{ id: "a", reads: ["y"], writes: ["x"] }, { id: "b", reads: ["x"], writes: ["y"] }], ["x"]); } catch { threw = true; }
     assert(threw, "环没抛");

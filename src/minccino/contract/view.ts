@@ -26,6 +26,9 @@ export interface ViewBudget {
   readonly drawCalls: number;
 }
 
+/** 小学的默认视图预算（数据，步 7 实测后校；超了走降档梯子并披露）。 */
+export const DEFAULT_VIEW_BUDGET: ViewBudget = { frameMs: 16.7, vramMb: 256, drawCalls: 200 };
+
 /** 画质档。小学只有 full；still = 静帧（不动不画，Tron 动画播放时才开，T28）；留口：降档梯子的各级。 */
 export type QualityTier = "full" | "still";
 
