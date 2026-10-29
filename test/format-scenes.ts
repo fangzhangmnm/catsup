@@ -186,6 +186,7 @@ export function docReferenced(): CatsupDocument {
     { path: ".catsup/references/r1.txt", mimeType: "text/plain", bytes: enc("门高 2.1 m") },
   ], extra: {} };
   doc.desk.refPanel = { open: true, left: 400, top: 60, width: 320, height: 240 };
+  doc.desk.style = "pixelOutline"; doc.desk.screen = "pixel2";   // desk 1.3：风格 / 屏幕跟文件走
   return doc;
 }
 /** 整份文档级的样本（场景之外还带文档 / 桌面态内容的）：冻结样本脚本与语料测试共用。 */

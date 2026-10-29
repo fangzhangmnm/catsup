@@ -65,6 +65,8 @@ export interface SessionDeps {
   /** 参考窗（缺 = 没有参考窗：文件里的牌组原样带着写回）。 */
   refs?: RefsPort;
   captureThumbnail: () => { mimeType: string; bytes: Uint8Array } | null;
+  /** 风格 / 屏幕跟文件走（desk 1.3，T86）：载入 / 新建后套上（null = 用默认）。app 认不出的 id 当没有。 */
+  applyView?: (style: string | null, screen: string | null) => void;
   onHomeChanged: () => void;
   setStatus: (text: string, error?: boolean) => void;
   online: () => boolean;
@@ -129,6 +131,12 @@ export class Session {
    *  （user 2026-07-14 在 WeebPaint 接受的代价：只切页不画不存就退出 → 下次开 revert 到上次保存的）。 */
   private desk: DeskDoc = defaultDesk();
   menuTab(key: string): string | null { return this.desk.menuTabs[key] ?? null; }
+  /** 风格 / 屏幕跟文件走（desk 1.3，T86）：改它不标脏（看法不是内容），下次存盘顺手带走。 */
+  setView(v: { style?: string | null; screen?: string | null }): void {
+    if (v.style !== undefined) { if (v.style === null) delete this.desk.style; else this.desk.style = v.style; }
+    if (v.screen !== undefined) { if (v.screen === null) delete this.desk.screen; else this.desk.screen = v.screen; }
+  }
+  private applyDeskView(): void { this.d.applyView?.(this.desk.style ?? null, this.desk.screen ?? null); }
   setMenuTab(key: string, tab: string): void { this.desk.menuTabs[key] = tab; }
   /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
   private noteFormat(doc: CatsupDocument): void {
@@ -268,6 +276,7 @@ export class Session {
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
     this.d.editor.setLocked(this.locked());   // 演示锁跟文件走（desk.locked）
+    this.applyDeskView();   // 风格 / 屏幕跟文件走（desk 1.3）
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
     if (hasStore()) {
@@ -346,6 +355,7 @@ export class Session {
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
     this.d.editor.setLocked(this.locked());   // 演示锁跟文件走（desk.locked）
+    this.applyDeskView();   // 风格 / 屏幕跟文件走（desk 1.3）
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
   }
@@ -390,6 +400,7 @@ export class Session {
     this.desk = defaultDesk();
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着
     this.d.editor.setLocked(false);
+    this.applyDeskView();   // 新文件 = 默认风格 / 屏幕
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();
     this.lazy = true;
@@ -421,6 +432,7 @@ export class Session {
     this.desk = defaultDesk();
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着
     this.d.editor.setLocked(false);
+    this.applyDeskView();   // 新文件 = 默认风格 / 屏幕
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌
     this.setHome({ kind: "transient" });

@@ -76,7 +76,10 @@ export interface CatsupDocument {
  *  契约 §7.2「保留读、停止写」搬来；本版 app 仍没写它）；extra = 本版不认识的顶层键（直通）。desk 的 major 比本版新 → 不拒开：原字节带回，这里是默认值。 */
 export interface DeskDoc { menuTabs: Record<string, string>; lastView?: unknown; /** 参考窗开着没有 + 在哪（desk 1.1；开过窗才有）。 */ refPanel?: RefPanelDoc;
   /** 演示锁（desk 1.2，2026-10-29，v0.16.53；user 10-28「锁屏不是 commit」「还可以进去玩」）：true = 这份文件打开就是锁着的（改模型的一切都拒，看 / 玩照旧）。只写 true；不是内容、不标脏、不进撤销。 */
-  locked?: boolean; extra: Record<string, unknown>; }
+  locked?: boolean;
+  /** 风格 / 屏幕跟文件走（desk 1.3，2026-10-29 Opus；Tron 账本 T86 user「风格跟着文件走」）：选过才写；本层不认识预设 id（不透明字符串，app 认不出 = 用默认）。 */
+  style?: string; screen?: string;
+  extra: Record<string, unknown>; }
 export const defaultDesk = (): DeskDoc => ({ menuTabs: {}, extra: {} });
 /** 参考窗的窗（视图态，CSS px）：WeebPaint / MoonSinger 同形 { open, left, top, width, height }。 */
 export interface RefPanelDoc { open: boolean; left: number; top: number; width: number; height: number; }

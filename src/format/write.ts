@@ -176,6 +176,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
         ...(doc.desk.lastView !== undefined ? { lastView: doc.desk.lastView } : {}),
         ...(doc.desk.refPanel ? { refPanel: { ...doc.desk.refPanel } } : {}),
         ...(doc.desk.locked ? { locked: true } : {}),   // 演示锁（desk 1.2）：锁着才写
+        ...(doc.desk.style !== undefined ? { style: doc.desk.style } : {}), ...(doc.desk.screen !== undefined ? { screen: doc.desk.screen } : {}),   // 风格 / 屏幕（desk 1.3）：选过才写
       },
       ...(refsExt ? { CATSUP_references: refsExt } : {}),
     },

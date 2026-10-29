@@ -494,15 +494,15 @@ type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | 
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
-    if (id.startsWith("screen:")) {   // 屏幕（T106：和画风分开选；像素下采样 / 行数 / 外观；写实也能套屏）。按设备记
+    if (id.startsWith("screen:")) {   // 屏幕（T106：和画风分开选；像素下采样 / 行数 / 外观；写实也能套屏）。跟文件走（desk 1.3，T86）
       const sc = id.slice(7);
       const v = sc === "auto" ? null : isScreenId(sc) ? sc : undefined;
-      if (v !== undefined) { editor.renderer3.setScreen(v); PREF.set("screen", v ?? ""); editor.draw(); hintEl.textContent = v === null ? "屏幕：跟画风的默认" : `屏幕：${SCREENS[v].name}——${SCREENS[v].brief}`; }
+      if (v !== undefined) { editor.renderer3.setScreen(v); session.setView({ screen: v }); editor.draw(); hintEl.textContent = v === null ? "屏幕：跟画风的默认" : `屏幕：${SCREENS[v].name}——${SCREENS[v].brief}`; }
       return "keep";
     }
-    if (id.startsWith("style:")) {   // 风格（Tron 纪元第 1 步；视图，不进文件、不标脏、按设备记）。选了就在提示行披露画面会怎样
+    if (id.startsWith("style:")) {   // 风格（Tron 纪元第 1 步）：跟文件走（desk 1.3，T86 user「风格跟着文件走」；不标脏、下次存盘带走）。选了就在提示行披露画面会怎样
       const s = id.slice(6);
-      if (isPresetId(s)) { editor.renderer3.setPreset(s); PREF.set("style", s); editor.draw(); hintEl.textContent = s === "white" ? "风格：线稿" : `风格：${PRESETS[s].name}——${PRESETS[s].note}。VR 和缩略图里照旧画白模`; }
+      if (isPresetId(s)) { editor.renderer3.setPreset(s); session.setView({ style: s === "white" ? null : s }); editor.draw(); hintEl.textContent = s === "white" ? "风格：线稿" : `风格：${PRESETS[s].name}——${PRESETS[s].note}。VR 和缩略图里照旧画白模`; }
       return "keep";
     }
     switch (id) {
@@ -731,7 +731,6 @@ locomotion.onPhase = () => {
 
 // ---------- 状态同步 ----------
 editor.renderer3.setLineWeight(lineWeightInit());   // 线稿粗细：调好的默认（高 DPI 1.5）；不再读存的值（T88）（直接打渲染器：此时 HUD 元素还没挂，不能走 host.changed）
-{ const s = PREF.get("style"); if (isPresetId(s)) editor.renderer3.setPreset(s); const sc = PREF.get("screen"); if (isScreenId(sc)) editor.renderer3.setScreen(sc); }   // 风格 / 屏幕：这台设备上次选的（没选过 = 白模 / 跟画风）
 // 上下文条（A25，2026-10-24 Opus）：工具选项 / 工具动作 / 选区动作同一条（user「context bar好像油漆桶和选择没有统一……做一个深模块」）
 const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLElement, editor, {
   // 工具的上下文动作（user 2026-10-24「轴是工具…归工具管，工具的上下文菜单该开始做了」）
@@ -1457,6 +1456,7 @@ const session = new Session({
   editor,
   refs: refHost,
   captureThumbnail: () => captureThumbnail(editor),
+  applyView: (style, screen) => { editor.renderer3.setPreset(isPresetId(style) ? style : "white"); editor.renderer3.setScreen(isScreenId(screen) ? screen : null); editor.draw(); },   // 风格 / 屏幕跟文件走（desk 1.3，T86）：认不出的 id = 默认
   onHomeChanged: updateSaveStatus,
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   online: () => navigator.onLine !== false,

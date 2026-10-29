@@ -13,8 +13,18 @@ const fresh = () => newDocument(new Kernel().toBrep(), "t");
 const jsonOf = (bytes: Uint8Array): { json: any; bin: Uint8Array } => decodeGlb(bytes) as { json: any; bin: Uint8Array };
 
 describe("演示锁：desk.locked 往返（desk 1.2）", () => {
+  it("风格 / 屏幕（desk 1.3）：选过才写、读回原样；坏值（非字符串）= 没有", () => {
+    const plain = jsonOf(writeCatsup(fresh()));
+    assert(!("style" in plain.json.extensions.CATSUP_desk) && !("screen" in plain.json.extensions.CATSUP_desk), "没选不写键");
+    const doc = fresh(); doc.desk = { ...doc.desk, style: "tron", screen: "crt3" };
+    const back = readCatsup(writeCatsup(doc)).desk;
+    eq(`${back.style}/${back.screen}`, "tron/crt3");
+    const { json, bin } = jsonOf(writeCatsup(fresh())); json.extensions.CATSUP_desk.style = 7; json.extensions.CATSUP_desk.screen = { x: 1 };
+    const bad = readCatsup(encodeGlb(json, bin)).desk;
+    assert(bad.style === undefined && bad.screen === undefined, "坏值 = 没有");
+  });
   it("拍子 = desk 1.2；没锁不写键；锁着写 locked:true 并读回；文件里 locked:false / 坏值 = 没锁", () => {
-    eq(`${FORMAT.CATSUP_desk.major}.${FORMAT.CATSUP_desk.minor}`, "1.2");
+    eq(`${FORMAT.CATSUP_desk.major}.${FORMAT.CATSUP_desk.minor}`, "1.3");   // 1.3 = 风格 / 屏幕跟文件走（2026-10-29 Opus）
     const plain = jsonOf(writeCatsup(fresh()));
     assert(!("locked" in plain.json.extensions.CATSUP_desk), "没锁不写键");
     assert(readCatsup(writeCatsup(fresh())).desk.locked === undefined, "读回没有键");

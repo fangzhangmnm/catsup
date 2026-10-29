@@ -449,3 +449,6 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 ### §5.9 `CATSUP_mesh`（1.0.0，2026-10-27 M3，Claude Fable 5.1）
 
 住在 `CATSUP_definitions` 的 `list[i].mesh`（`kind:"mesh"` 的定义），自己带 `version / minor / patch`（家族格式纪律的子结构拍子；不是顶层扩展，不进 extensionsUsed）。键：`positions`（f64 xyz，定义坐标 Z-up；顶点下标空间）、`faceStart` / `faceLen` / `loopVert`（i32；每面的顶点环，任意边数、允许不平、不带洞）、`faceMat`（i32；−1 = 默认槽，否则 materialSlots 下标）、`faceFlags`（u8；bit0 隐藏）、`edgePairs`（i32 成对）+ `edgeFlags`（u8：软 1 / 平滑 2 / 接缝 4 / 隐藏 8 / 裸线 16；只列带标记的边）。各键 = `{ bufferView, count }`。**不存**三角剖分、法线、brep 的曲线 / 平面（派生物）。glTF 本体：该定义的节点挂一个 mesh——TRIANGLES 按材质分 primitive（约束 Delaunay）+ LINES（看得见的边），POSITION f32 Y-up，无 NORMAL（省流档）。**老形**：0.14 的三角汤（`positions` f32 / `indices` u32 / `triMaterial` u16，无拍子、无 `faceStart`）读成每三角一面（`migrate/mesh.ts`）。读取：major 新拒开；minor 新提示一次；坏环 / 越界拒开说清。编解码 = `src/format/mesh-payload.ts`，内核 ↔ 载荷 = `src/mesh/mesh-doc.ts`。
+
+
+> **desk 1.3（2026-10-29，Claude Opus 5.5；Tron 账本 T86）**：`CATSUP_desk` 加可选键 `style` / `screen`（视图 ☰「风格」「屏幕」选过才写；不透明字符串，format 层不认识预设 id，app 认不出 = 默认）。语义同 desk 其它键：不进指纹、不标脏、不进撤销、新建 reset；老读者少看见它 = 用自己的默认风格打开。冻结样本 `v3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.3.0-1.0.0-1.2.0/referenced.glb` 带 `pixelOutline` / `pixel2`。
