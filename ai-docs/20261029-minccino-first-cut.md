@@ -109,7 +109,7 @@
 
 | 验收条 | 状态 |
 |---|---|
-| 既有探针全绿 | 跑过的全绿（pool-mesh / twin / nested / preview-refresh / hide / isolate / xray ×3 / erase-red / lift / lock-line / walk / tape-grid / compass / hover / axis-lock / capsule / mirror / transform / mesh-knife / mesh-marks / select-points / xray-facedots / mesh-mirror / units / gridplane / soft-select / scale-ref / axis-marks / **xr-fake 18/18**）；`probe-context` 红是 v0.16.38 的旧账（和渲染无关，给 Opus） |
+| 既有探针全绿 | 跑过的全绿（pool-mesh / twin / nested / preview-refresh / hide / isolate / xray ×3 / erase-red / lift / lock-line / walk / tape-grid / compass / hover / axis-lock / capsule / mirror / transform / mesh-knife / mesh-marks / select-points / xray-facedots / mesh-mirror / units / gridplane / soft-select / scale-ref / axis-marks / **xr-fake 18/18**）；`probe-context` 当时红是 v0.16.38 的旧账（和渲染无关）——**10-29 晚 Opus 修了**：探针过时在两处（笔的选区默认「切换」，刚建完的组还选着、笔一点就点掉；笔 / 手指右下只剩「删除」「更多…」），应用没改 |
 | 截图基线逐张过 | 11 张，每一步 **0 像素差** |
 | 三条新守卫绿 | 守卫 ①②③④⑤⑥ + ③′ 棘轮 + 材质 / 预算单测，`npm test` 1169 绿 |
 | render3.ts 被 `src/minccino/` 吃掉、editor.ts 只剩接缝 | render3 **本体住 `src/minccino/backend/three/render3.ts`**（1930 → 1183 行），`src/editor/render3.ts` 只是转出口；editor.ts 的渲染调用 = `provider.setWorld` + `r3.render` + 叠加层函数引用。**6c（v0.17.9）吃干净了**：选中高亮经叠加层契约、`ViewState` 住编辑器 `view-state.ts`、`faceTriangles` 住编辑器且不借 three——render3 922 行、**零内容层 import**，守卫 ③′ 清零（名单空） |

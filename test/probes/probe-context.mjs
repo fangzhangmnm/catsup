@@ -40,9 +40,11 @@ const res = await page.evaluate(async () => {
   await sleep(30);
   out.groupMade = e.sceneRef.brep(e.sceneRef.root).groups.size === defsBefore + 1;
   out.menuClosedAfterPick = !menu();
-  // ③ 选区浮条：鼠标路由下不浮（右键在手边）；换成笔之后才浮（含「炸开」）
+  // ③ 选区浮条：鼠标路由下不浮（右键在手边）；换成笔之后才浮——v0.16.38 起笔 / 手指右下只留「删除」+「更多…」（= 右键同一份菜单，炸开在菜单里）
   out.selBarHiddenForMouse = document.querySelectorAll("#toolStrip .selbar-btn").length === 0;
-  // 用笔点一下刚建的 group（选择工具里的单击 = 选它）：输入模态变成笔 + 选区还在 → 浮条出现
+  // 用笔点一下刚建的 group：笔的选区默认是「切换」（v0.15.43 / v0.16.1 立场表：笔 = 切换 / 加 / 加），刚建完它还选着，先取消选择再点 = 选上它
+  // （2026-10-29 Opus 修旧账：以前直接点，切换把它点掉了 → 浮条不出、面包屑也进不去）
+  e.deselectAll(); await sleep(10);
   fire("pointerdown", top.x, top.y, { pt: "pen", id: 12, button: 0, buttons: 1 }); fire("pointerup", top.x, top.y, { pt: "pen", id: 12, button: 0, buttons: 0 }); await sleep(30);
   out.selBarShown = document.querySelectorAll("#toolStrip .selbar-btn").length > 0 && !document.getElementById("toolStrip").hidden;
   out.selBarLabels = [...document.querySelectorAll("#toolStrip .selbar-btn")].map((b) => b.title);
@@ -87,7 +89,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 console.log("errors:", errs.length ? errs.join("; ") : "none");
-const ok = res.selBarHiddenBefore && res.rightClickSelected && res.menuOpen && res.menuLabels.includes("建组") && res.groupMade && res.menuClosedAfterPick && res.selBarHiddenForMouse && res.selBarShown && res.selBarLabels.includes("炸开") && res.crumbsShown && res.crumbsExit && res.longPressMenu && res.longPressSelected && res.imperialOk && res.imperialExact && res.echo === "3' 6\"" && errs.length === 0;
+const ok = res.selBarHiddenBefore && res.rightClickSelected && res.menuOpen && res.menuLabels.includes("建组") && res.groupMade && res.menuClosedAfterPick && res.selBarHiddenForMouse && res.selBarShown && res.selBarLabels.includes("删除") && res.selBarLabels.includes("更多…") && res.crumbsShown && res.crumbsExit && res.longPressMenu && res.longPressSelected && res.imperialOk && res.imperialExact && res.echo === "3' 6\"" && errs.length === 0;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await browser.close();
 process.exit(ok ? 0 : 1);
