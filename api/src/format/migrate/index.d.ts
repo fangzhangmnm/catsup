@@ -32,7 +32,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_desk: {
         readonly major: 1;
-        readonly minor: 1;
+        readonly minor: 2;
         readonly patch: 0;
     };
     readonly CATSUP_references: {

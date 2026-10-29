@@ -2,6 +2,9 @@ export type MirrorOpClass = "move" | "topo" | "flags" | "whole" | "meta";
 export declare const MIRROR_OP_CLASS: {
     readonly meshMove: "move";
     readonly meshExtrude: "topo";
+    readonly meshDuplicate: "topo";
+    readonly meshFill: "topo";
+    readonly meshFlip: "topo";
     readonly meshKnife: "topo";
     readonly meshLoopCut: "topo";
     readonly meshDelete: "topo";

@@ -103,7 +103,7 @@ import "./exact-geometry.test.ts";   // EGC 期 1：精确谓词 + snap rounding
 import "./object-model.test.ts";    // 0.14 物件模型契约守卫（2026-10-24）
 import "./lock.test.ts";         // A27 锁定（对象层属性；0.13）
 import "./body-kind.test.ts";    // 门 1：definition 身体 brep | card（0.13 刀 ①）
-import "./final.test.ts";        // 定稿：内容指纹 + 记录往返（ai-docs/20261024-finalize.md）
+import "./present-lock.test.ts"; // 演示锁（desk.locked 往返 + 老定稿记录照读照写；周账 F-124）
 import "./tool-targets.test.ts"; // 工具自带目标（B22：正方形 / 黄金分割 / 半圆）   // 局部性定理差分 oracle：局部结算 = 全局结算（#26，2026-10-23）    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
 import "./move-inference.test.ts";
 import "./facefind.test.ts";

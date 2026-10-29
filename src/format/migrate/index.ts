@@ -35,6 +35,8 @@
 //                      guides.spheres[{ id, c, r }]（参考球）；只在有时写（老文件字节 / 定稿指纹不变）。老读者看不见它们 = 参考圆 / 球不显示也不参与吸附（minor 语义：能开能存，
 //                      存回去时丢的是画图辅助——参考几何本来就是辅助线）。
 //   CATSUP_desk        1.1（2026-10-25，Claude Opus 5.5）：可选键 refPanel { open, left, top, width, height }（参考窗开着没有 + 在哪；视图态，同 MoonSinger view.ref）。
+//   CATSUP_desk        1.2（2026-10-29，Claude Fable 5.1；周账 F-124 定稿 → 演示锁）：可选键 locked（只写 true）= 这份文件打开就是锁着的：改模型的一切都拒、看 / 进去玩照旧。
+//                      老读者少看见它 = 打开不锁（minor 语义：防误触的开关丢了，内容一字不少）。老定稿记录 CATSUP_document.final / finalRev 照读照写、不再起作用。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：
 //                      files[] = { path, mimeType, bufferView }；**本层不懂清单**（清单的拍子 / 迁移归库）。空牌组不写这个扩展（抠）。不进定稿指纹、不进撤销；
 //                      **major 比本版新 → 不拒开**（同 desk）：原字节带回、参考窗先不显示、提示一次。user 2026-10-25「咱们是不忘了接reference window. 先看懂我们的文件规范」。
@@ -56,7 +58,7 @@ export const FORMAT = {
   CATSUP_definitions: { major: 6, minor: 4, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },
   CATSUP_material: { major: 1, minor: 0, patch: 0 },
-  CATSUP_desk: { major: 1, minor: 1, patch: 0 },
+  CATSUP_desk: { major: 1, minor: 2, patch: 0 },   // 1.2（2026-10-29，演示锁）：可选键 locked
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 1, minor: 2, patch: 0 },   // 1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）

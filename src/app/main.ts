@@ -160,7 +160,8 @@ const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 �
 const HINT_PLACE = "步行：点一下落在哪（绿 = 站得下、红 = 站不下）· 身材在右下改 · Esc 取消";
 const HINT_EDIT = "原地编辑：镜头钉在这里，工具照常用（右键拖 = 原地转头）· 上方「继续走」回去 · Esc 离开步行";
 const HINT_WALK_TOUCH = "步行：左边按住拖 = 走（推出圈外 = 跑）· 右边拖 = 看 · 跳 / 蹲 · 上面「原地编辑」「离开」";
-const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isPlacing() ? HINT_PLACE : locomotion?.isEditInPlace() ? HINT_EDIT : locomotion?.isWalking() ? (TouchControls.available() ? HINT_WALK_TOUCH : `${HINT_WALK} · Tab 原地编辑 · Esc 离开`) : HINT_DEFAULT);
+const HINT_LOCKED = "锁着：只能看、转、进去走；☰「解锁」才能改";   // 演示锁（周账 F-124）：锁着时的常驻提示；工具指针被挡在手势路由（toolBlocked）时也说这句
+const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isPlacing() ? HINT_PLACE : locomotion?.isEditInPlace() ? HINT_EDIT : locomotion?.isWalking() ? (TouchControls.available() ? HINT_WALK_TOUCH : `${HINT_WALK} · Tab 原地编辑 · Esc 离开`) : editor?.locked ? HINT_LOCKED : HINT_DEFAULT);
 
 // ---------- Editor ----------
 let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
@@ -479,7 +480,7 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "finalize" | "revise" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | "material" | "thick" | "guidesClear" | "axesReset" | "grid" | "lw:1" | "lw:1.5" | "lw:2" | "lw:3" | "lw:pick" | "unit:pick" | "lock" | "unlock" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -497,8 +498,8 @@ function menuPick(id: MenuId): void | "keep" {
         { id: "exportModel", label: "导出模型…", icon: "export", hint: "给别的软件：glb / obj（不是工程备份）" },
       ], onPick: menuPick }); break;
       case "new": void session.newDoc(); break;
-      case "finalize": void (async () => { if (await openConfirmSheet(`定稿第 ${session.finalRev() + 1} 版？`, "之后锁住几何与材质，只能看、量、导出；☰「改稿」随时解锁（版本号不减）。", { okLabel: "定稿" })) await session.finalize(); })(); break;
-      case "revise": void session.revise(); break;
+      case "lock": void session.setLocked(true); break;     // 演示锁（周账 F-124）：一点就锁、没有确认框、没有口令
+      case "unlock": void session.setLocked(false); break;
       case "gallery": hideCanvasTip(); void galleryHost.open(); break;
       case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
@@ -557,9 +558,9 @@ function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
     case "gallery": return { id: "gallery", label: "图库", icon: "gallery", ...(hasStore() ? {} : { hint: "本机 + OneDrive" }) };
     case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "folder-open", hint: "Ctrl+O" };
     case "exportHub": return { id: "exportHub", label: "导出与另存…", icon: "export" };
-    case "finalize": return session.finalRecord()
-      ? { id: "revise", label: `改稿（解锁；定稿第 ${session.finalRecord()!.rev} 版）`, icon: "unlock" }
-      : { id: "finalize", label: session.finalRev() ? `定稿…（第 ${session.finalRev() + 1} 版）` : "定稿…", icon: "lock", hint: "锁住几何 / 材质" };
+    case "lock": return session.locked()
+      ? { id: "unlock", label: "解锁", icon: "unlock", hint: "放开：又能改了" }
+      : { id: "lock", label: "锁上", icon: "lock", hint: "防误触：只能看、能进去玩；改不了" };
     case "softenAll": return { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", hint: "平滑组" };
     case "weldAllBreaks": {   // T7 / DT5；修复模块扔掉了 = 这一项不出
       if (!editor.repairLoaded("brep.weld")) return null;
@@ -1019,9 +1020,9 @@ const gestures = attachGestures(canvas, editor, {
   onRedo: () => editor.redo(),
   look: (dx, dy) => locomotion.look(dx, dy),
   walking: () => locomotion.isWalking(),
-  toolBlocked: () => locomotion.sim.state.teleport.charging || locomotion.isPlacing() || locomotion.isFps(),   // 放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
+  toolBlocked: () => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return true; } return locomotion.sim.state.teleport.charging || locomotion.isPlacing() || locomotion.isFps(); },   // 演示锁 = 工具指针不进编辑器（悬停预告也停）、提示行说为什么；放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
   // #19 上下文菜单：桌面右键任何工具都行（SU）；触屏长按只在选择工具里
-  onContext: (x, y, cx, cy) => openContextMenuAt(editor, hud, x, y, cx, cy),   // 三层：空处 / 几何 / 子组件的物体菜单（context-menu.ts）
+  onContext: (x, y, cx, cy) => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return; } openContextMenuAt(editor, hud, x, y, cx, cy); },   // 演示锁：不出菜单；三层：空处 / 几何 / 子组件的物体菜单（context-menu.ts）
   longPressEnabled: () => editor.tool === "select",
   // #23 user「move反而是点两下」「旋转和move对齐」：移动 = 点两下、旋转 = 点三下，笔 / 手指也开；画线 / 矩形 / 推拉在笔 / 手指上仍只拖（误触连线案）
   latched: () => latchedMods,   // 键名芯片锁住的修饰键（iPad 没键盘：Shift / Ctrl / Alt = 开关）
@@ -1371,7 +1372,7 @@ lastStepProvider = () => editor.lastStep();
 setLastStepProvider(lastStepProvider);
 // smart save 钮（三条杠下面；对齐 WeebPaint save-status + smartSaveAndPush；user 2026-09-20「title 意义不明可以不要，三条杠下面加一个 smart save button」）
 const btnSave = $<HTMLButtonElement>("btnSave");
-const finalBadge = $<HTMLElement>("finalBadge");
+const lockBadge = $<HTMLElement>("lockBadge");
 // 编辑模式下拉（几何 / 表面）：下拉标准件，不用原生 <select>（user 2026-10-24「不要用ios自带的。丑」）
 // eslint-disable-next-line no-var
 // 工作台下拉 = 纯视图操作（user 10-28 夜「我说了不要用tab切换mesh brep，tab是纯视图操作」）：只列这一层的身体管得了的工作台，不转种类；转换在物体窗口（左上物体钮）。
@@ -1381,7 +1382,7 @@ var modeField: SelectField | undefined = mountSelectField($("modeSelect"), { ite
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {
-  { const f = session.finalRecord(); finalBadge.hidden = !f; if (f) finalBadge.textContent = `定稿 ${f.rev}`; document.body.classList.toggle("doc-final", editor.locked); }   // 护栏 ①：定稿着 → 工具区灰掉
+  { lockBadge.hidden = !editor.locked; document.body.classList.toggle("doc-locked", editor.locked); }   // 护栏 ①（演示锁）：锁着 → 左上角「锁着」+ 工具区灰掉
   syncAttentionBanner();   // 2026-10-26：和云端没对上 → 横幅在 / 对上了 → 横幅走
   const st = session.saveState();
   btnSave.dataset.state = st;

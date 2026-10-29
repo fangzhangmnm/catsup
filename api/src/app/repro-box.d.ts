@@ -27,5 +27,5 @@ export declare function lastStepEntry(step: {
         group: number | null;
     };
 }): ReproEntry;
-/** 分享（有 Web Share）或下载一个 .json；say = 状态行回执。 */
+/** 交一个 .json：触屏分享、电脑下载（share-or-download.ts；user「windows的分享就是个流氓软件」）；say = 状态行回执。 */
 export declare function exportJson(json: string, stem: string, say: (text: string) => void): Promise<void>;

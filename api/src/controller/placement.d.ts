@@ -23,7 +23,18 @@ export declare const RAIL_GROUPS: readonly RailGroup[];
  * 工作台自己定死的一列（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」+「用两字词语吧和硬表面对齐」；
  * 验证 = 步行第一格（v0.15.43，user「12同意」）+ 选择 / 移动 / 旋转 + 尺规（v0.15.44「以及尺规还是要的」）。没列的工作台 = 走上面的分组。
  */
+/** 定死一列里的小三角组（2026-10-28 夜 user「沿法向移动和推拉合租小三角」）：列里写组的第一把，格子显示最近用的那把，小三角 / 长按 / 右键 = 整组。 */
+export declare const RAIL_FIXED_FLYOUTS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, readonly Tool[]>>>>>;
 export declare const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>>;
+/**
+ * 定死一列下面的折叠组（user 10-28 夜「笔刷小三角同意。然后算是自动折叠的不是常驻的。删除，插入倒角也折叠」）：
+ * 平时只有一条矮「…」（点开 = 整组）；这次会话里用过的按最近使用长出来，最多 budget 格（和硬表面后面几组的「池」同一个意思，只是没有常驻）。
+ * 小三角组（RAIL_FIXED_FLYOUTS）也能放进来：写组的第一把，长出来的那格显示最近用的那把。
+ */
+export declare const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, {
+    readonly pool: readonly Tool[];
+    readonly budget: number;
+}>>>;
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
 export declare const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>>;
 export type MenuTab = "file" | "model" | "settings" | "help";

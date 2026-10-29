@@ -93,8 +93,10 @@ svg.ico use { color: inherit; }
 .strip-chip { display: inline-flex; align-items: center; gap: 6px; }
 .strip-swatch { width: 16px; height: 16px; border-radius: 4px; border: 1px solid rgba(0,0,0,.2); background-size: cover; background-position: center; }
 /* 定稿（ai-docs/20261024-finalize.md）：角标 + 护栏 ① 界面灰掉 */
-.final-badge { font-size: 12px; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent); border-radius: 999px; background: rgba(255,255,255,.7); align-self: center; }
-body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBar, body.doc-final #vcb { pointer-events: none; opacity: .45; }
+.lock-badge { font-size: 12px; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent); border-radius: 999px; background: rgba(255,255,255,.7); align-self: center; display: inline-flex; align-items: center; gap: 4px; }
+.lock-badge .ico { width: 14px; height: 14px; }
+/* 演示锁（周账 F-124）护栏 ①：工具区灰掉；视图挂件 / ☰ / 工作台下拉照旧（看和玩不锁） */
+body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #selBar, body.doc-locked #vcb, body.doc-locked .left-dial { pointer-events: none; opacity: .45; }
 /* 左上横排：没有底板，嵌在纸面里；按下 / 悬停才显出可按（user 10-24） */
 .hud-topstack { position: absolute; z-index: 5; left: calc(10px + var(--safe-left)); top: calc(8px + var(--safe-top)); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100vw - 150px - var(--safe-left) - var(--safe-right)); pointer-events: none; }   /* 左上一列：右边给视图 gizmo 让位；空白处不挡画布 */
 .hud-topstack > * { pointer-events: auto; }

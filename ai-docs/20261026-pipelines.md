@@ -11,8 +11,8 @@
 
 ```mermaid
 flowchart LR
-  G[手势 / 菜单 / 数值小窗] --> T[工具模块 ToolHandler<br/>src/editor/tools/*]
-  T -->|ctx.commitOp| C[Editor.commitOp<br/>锁 / 定稿检查 · 工作流亚种补参 · step 合成一步]
+  G[手势 / 菜单 / 数值小窗] -->|演示锁着 = 手势路由 toolBlocked 挡在门外；Editor.pointerDown / startModal 再拒一次| T[工具模块 ToolHandler<br/>src/editor/tools/*]
+  T -->|ctx.commitOp| C[Editor.commitOp<br/>演示锁 / 物件锁检查 · 工作流亚种补参 · step 合成一步]
   C --> H[History 撤销栈<br/>存 Scene 快照 + op 日志]
   C --> A[applyOp<br/>src/editor/ops.ts 按 op 派发]
   A --> K{内核动词<br/>src/kernel/kernel.ts}
@@ -180,7 +180,7 @@ flowchart LR
 
 ## ⑨ 文件（`src/format/`）
 
-写：Scene → `scene-doc.ts documentFromScene` → `CatsupDocument` → `write.ts`（`CATSUP_*` 扩展按拍子写 + bake 出别的软件看的网格）→ glb。读：glb → `read.ts` → `migrate/`（每个子结构自己的拍子，`FORMAT` = 唯一 SSoT）→ document → Scene。定稿指纹 `final.ts`。加可选键 = 该子结构 minor +1 + 冻结样本（`scripts/freeze-format-fixtures.mjs`）。
+写：Scene → `scene-doc.ts documentFromScene` → `CatsupDocument` → `write.ts`（`CATSUP_*` 扩展按拍子写 + bake 出别的软件看的网格）→ glb。读：glb → `read.ts` → `migrate/`（每个子结构自己的拍子，`FORMAT` = 唯一 SSoT）→ document → Scene。演示锁住 `CATSUP_desk.locked`（v0.16.53；老 `final / finalRev` 照读照写不起作用）。加可选键 = 该子结构 minor +1 + 冻结样本（`scripts/freeze-format-fixtures.mjs`）。
 
 ---
 

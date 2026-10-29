@@ -2,8 +2,9 @@ import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { type PoolRef, type MeshBody, Scene } from "../scene/scene.ts";
+import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
+import { type PoolRef, type MeshBody, type Body as SceneBody, Scene } from "../scene/scene.ts";
+import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import { type ImportedScene } from "../scene/import-build.ts";
 export type Seg = [PtIn, PtIn];
@@ -132,11 +133,27 @@ export type Op =
     instance: number;
 }
 /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
+/** cast：组件的散几何和外面一层不是一种身体时，要用户点过「转成 X 再炸」才带 true（设计稿 20261028-object-layer-and-clipboard §2：不许静默转种类）；组件没自己的几何（只摆着子物件）不用。 */
  | {
     op: "explode";
     at: PoolRef;
     group?: number;
     instance?: number;
+    cast?: boolean;
+}
+/** 做成唯一（SketchUp Make Unique）：这一份实例换成一份新定义（深拷），别的份不受影响。 */
+ | {
+    op: "makeUnique";
+    def: number;
+    instance: number;
+}
+/** 合并：at 里的 source 并进同一层的 target（= 贴进 target 的定义〔原位〕→ 在里面炸开 → 删外面这一份；设计稿 20261028-object-layer-and-clipboard §4）。cast 同 explode。 */
+ | {
+    op: "mergeObject";
+    at: PoolRef;
+    target: number;
+    source: number;
+    cast?: boolean;
 } | {
     op: "transformPool";
     at: PoolRef;
@@ -358,6 +375,46 @@ export type Op =
     faces?: number[];
     dissolve?: boolean;
 }
+/** 复制选中的几何叠在原处（Blender Shift+D；之后接着 G 挪开）。 */
+ | {
+    op: "meshDuplicate";
+    def: number;
+    verts?: number[];
+    edges?: number[];
+    faces?: number[];
+}
+/** 补洞（一圈开口边 → 一张面）/ 桥接（两圈点数一样 → 一圈四边形）。 */
+ | {
+    op: "meshFill";
+    def: number;
+    verts?: number[];
+    edges?: number[];
+}
+/** 翻转这些面的朝向（单面网格的正面 = 环的绕向）。 */
+ | {
+    op: "meshFlip";
+    def: number;
+    faces: number[];
+}
+/** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
+ | {
+    op: "separateObject";
+    at: PoolRef;
+    instance?: number;
+    def: number;
+    faces: number[];
+    name: string;
+}
+/** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
+/** 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**，材质 = 文档材质 id，指令里换成目标定义的槽号）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。 */
+ | {
+    op: "paste";
+    at: PoolRef;
+    brep?: BrepSnapshot;
+    groups?: TransferGroup[];
+    mesh?: MeshFragment;
+    instances?: TransferInstance[];
+}
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {
     op: "addLayer";
@@ -477,3 +534,5 @@ export declare class PlanarBurst extends Error {
  */
 export declare function applyOp(s: Scene, op0: Op): ApplyResult;
 export declare function describeOp(op0: Op): string;
+/** 身体里没自己的几何（只摆着子物件）：跨种类炸开 / 合并不用转。 */
+export declare function bodyEmpty(b: SceneBody): boolean;

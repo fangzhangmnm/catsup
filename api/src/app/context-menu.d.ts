@@ -8,3 +8,5 @@ import { type PopupMenuItem } from "./ui/popup-menu.ts";
 export declare function openContextMenuAt(editor: Editor, hud: HudModel, x: number, y: number, cx: number, cy: number): void;
 /** 表 → 右键菜单的行：带 submenu 的几项按子菜单名并成一行（摆在第一项的位置），其余原样。 */
 export declare function foldSubmenus(items: readonly HudItem[]): PopupMenuItem[];
+/** 选区的菜单（和右键同一份），挂在一个按钮上弹（笔 / 手指的右下「更多…」；user 10-28 夜「可选操作应该放到右键菜单里而不是全堆在马后炮」）。 */
+export declare function openSelectionMenu(editor: Editor, hud: HudModel, anchor: HTMLElement): void;

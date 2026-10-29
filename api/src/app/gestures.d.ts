@@ -11,6 +11,12 @@ export interface GestureOpts {
     toolBlocked?(): boolean;
     /** 上下文菜单（#19，2026-10-21）：桌面右键（没拖成环绕）/ 触屏长按（没动）→ 在该点弹菜单。坐标 = 画布本地 + client。 */
     onContext?(x: number, y: number, clientX: number, clientY: number): void;
+    /** 没键盘时点键名芯片锁住的修饰键（= 一直按着；app/mfd.ts）。 */
+    latched?(): {
+        shift: boolean;
+        ctrl: boolean;
+        alt: boolean;
+    };
     /** 长按是否可用（main：只在选择工具里）。 */
     longPressEnabled?(): boolean;
     /** 「点两下 / 点三下」是否可用（缺省 = 只有鼠标）：#23 移动 / 旋转对笔和手指也开。 */

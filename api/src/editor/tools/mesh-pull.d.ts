@@ -5,6 +5,10 @@ import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 export declare class MeshPullTool implements ToolHandler {
     readonly tool: "pp";
     readonly grammar: "steps";
+    /** 手势中打的数 = 挤出多长（Blender「E 0.5」；读法 = units.ts）。 */
+    readonly typedQuantity: {
+        q: "length";
+    };
     readonly lock: "axis";
     private t;
     /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
@@ -39,6 +43,8 @@ export declare class MeshPullTool implements ToolHandler {
     private motion;
     /** 沿 nW 拖了多少（世界长度）：nW 在屏幕上的投影够长 = 拖动在它上面的分量；正对着 / 抵消了 = 屏幕往上 = 正。 */
     private amountAlong;
+    /** 右键 = 原地留下（Blender E 然后右键）：挤出 0——几何长出来叠在原地，新长出来的成为选区，接着 G 挪。 */
+    commitInPlace(ctx: ToolCtx): void;
     private commit;
     private what;
     /** 屏幕点 → 过轴心、垂直于视线的平面上的点（世界）。 */

@@ -290,6 +290,8 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 **desk 1.1（2026-10-25，Claude Opus 5.5）**：加可选键 `refPanel: { open, left, top, width, height }`（CSS px）= 参考窗开着没有 + 在哪（§5.8 的视图态那一半；同 MoonSinger `view.ref`）。这个文件里开过窗才写；坏形状读成「没开过」不拒开。第一次开窗的位置归宿主（CatsUp 放右边 gizmo 那一列下面，不压左柱）。
 
+**desk 1.2（2026-10-29，Claude Fable 5.1；周账 F-124）**：加可选键 `locked: true`（只写 true）= 演示锁：这份文件打开就是锁着的——改模型的一切都拒，看 / 进去玩照旧。user 10-28「定稿的语义不对，这个是锁屏，不是 commit」。不是内容、不标脏、不进撤销；锁上 / 解锁时有家顺手存一次（给人看的文件打开就是锁着的）。老读者少看见它 = 打开不锁（minor 语义）。取代 v0.12.8 的定稿版本章：`CATSUP_document.final / finalRev` 保留读写、不再起作用，内容指纹没了（规矩 ① 里「不进定稿指纹」从此是空话，留着不改）。
+
 ### 5.8 `CATSUP_references`（顶层；2026-10-25 加，Claude Opus 5.5）
 
 > 起因：user 2026-10-25「咱们是不忘了接reference window. 先看懂我们的文件规范，然后这个算视图，应该放右边汉堡」。参考窗 = 家族共享库 `@internal/reference-window`（0.5.0）：牌组的持久化契约是**容器里的一个目录** `.<app>/references/`（`manifest.json` + 每张卡的字节；清单的形状 / 拍子 / 迁移全在库里，宿主只报 app 名、按路径存取字节——家族根 `ai-docs/20260929-reference-window-tech-plan.md` §4 表里 CatsUp 那行「新的 `CATSUP_*` 子结构，自带版本戳 / bufferView」）。glb 里「zip 的一个成员文件」≡ 这里的一条 `files[i]`（§0 ORA 类比）。

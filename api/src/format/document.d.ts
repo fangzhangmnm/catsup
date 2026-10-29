@@ -119,7 +119,7 @@ export interface CatsupDocument {
     axes: Frame;
     /** 层表（0.14；document v3）：缺 = 只有默认层。 */
     layers: LayerDoc[];
-    /** 定稿记录（仿 MoonSinger；ai-docs/20261024-finalize.md）：在 = 锁着；读时指纹对不上 = 作废。可选键，不升版本。 */
+    /** 老定稿记录（v0.12.8–v0.16.52 的版本章，ai-docs/20261024-finalize.md）：**2026-10-29 起不再起作用**（定稿 → 演示锁，住 desk.locked）；老文件里有的照读照写、一字不动。可选键，不升版本。 */
     final?: {
         at: string;
         rev: number;
@@ -162,6 +162,8 @@ export interface DeskDoc {
     menuTabs: Record<string, string>;
     lastView?: unknown; /** 参考窗开着没有 + 在哪（desk 1.1；开过窗才有）。 */
     refPanel?: RefPanelDoc;
+    /** 演示锁（desk 1.2，2026-10-29，v0.16.53；user 10-28「锁屏不是 commit」「还可以进去玩」）：true = 这份文件打开就是锁着的（改模型的一切都拒，看 / 玩照旧）。只写 true；不是内容、不标脏、不进撤销。 */
+    locked?: boolean;
     extra: Record<string, unknown>;
 }
 export declare const defaultDesk: () => DeskDoc;

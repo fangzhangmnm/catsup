@@ -2,7 +2,7 @@ import { Kernel } from "../kernel/kernel.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
-import { type DrawPlane, type HitResult3 } from "./pick.ts";
+import { type DrawPlane, type HitResult3, type PickKinds } from "./pick.ts";
 import { type MirrorAxis, type MirrorMode, type MirrorSetting } from "../mesh/mirror.ts";
 import { type SelMode } from "./tools.ts";
 import { type ArcGesture } from "./arc-build.ts";
@@ -30,6 +30,7 @@ import type { Tool } from "./tool-ids.ts";
 import type { ModeId } from "./mode.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind } from "../mesh/ops/index.ts";
+import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { OptionKv } from "./tool-config.ts";
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
@@ -115,6 +116,17 @@ export interface EditorHost {
         x: number;
         y: number;
     }[] | null): void;
+    /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
+    softRing?(c: {
+        x: number;
+        y: number;
+        r: number;
+    } | null): void;
+    /** 扩 / 缩选区的拖动条（画布本地 CSS px；null = 收）。 */
+    selGrowBar?(at: {
+        x: number;
+        y: number;
+    } | null): void;
     changed(): void;
     error?(err: unknown, where: string): void;
     /** 右下角血槽位的尺寸读数（手势中的 dims / 选中面的面积 / 选中边的长度；"" = 空）。A28。 */
@@ -297,7 +309,7 @@ export declare class Editor {
     private scene;
     private ctx;
     private _grid;
-    /** 定稿锁（护栏 ②，ai-docs/20261024-finalize.md）：true = 改内容的入口全拒（commit / undo / redo / VCB）。由 session 按文件记录设。 */
+    /** 演示锁（护栏 ②，周账 F-124；ai-docs/20261024-finalize.md §0）：true = 改模型的入口全拒（commit / undo / redo / VCB / 指针按下 / 键盘起手）；看 / 选工作台 / 走路照旧。由 session 按 desk.locked 设。 */
     private _locked;
     get locked(): boolean;
     setLocked(on: boolean): void;
@@ -448,6 +460,8 @@ export declare class Editor {
     get kernel(): Kernel;
     /** 活动池的身体种类（选区的 id 空间、工作台、指令的单位种类都跟它走；2026-10-27 接缝）。 */
     activeKind(): BodyKind;
+    /** 你所在的这一层自己有没有几何（不算子组件）：工作台下拉换种类时，空的直接转、有东西的先问（main.ts pickWorkbench）。 */
+    layerHasGeometry(): boolean;
     /** 某个定义的身体种类（物体窗口：对称只有网格体有）。 */
     kindOfDef(def: number): BodyKind;
     /** 活动池的显示视图（渲染 / 拾取读的那份契约 kernel-view.ts；任何种类的内核都有——选区的通用路径只认它）。 */
@@ -705,6 +719,8 @@ export declare class Editor {
     undo(): void;
     redo(): void;
     /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
+    /** 第几个模型（换模型 = 加一）：剪贴板据此认出「这是从别的模型拷来的」（clipboard.ts）。 */
+    private docEpoch;
     loadScene(s: Scene, label?: string): void;
     /** 兼容：单内核当根池装载。 */
     loadKernel(k: Kernel, label?: string): void;
@@ -733,6 +749,7 @@ export declare class Editor {
     /** 选择工具的拾取（点击族共用）：屏幕坐标 → **全局**实体 id（WorldView）。 */
     pickAt(sx: number, sy: number, opts?: {
         soft?: boolean;
+        kinds?: PickKinds;
     }): HitResult3;
     /** 自由建模的拾取：正在编辑的网格体的平滑边点得中（FM138）+ 点用常量大半径（FM165）。硬表面 = 空（照旧）。 */
     private meshPickOpts;
@@ -794,14 +811,44 @@ export declare class Editor {
      * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
      */
     makeComponent(name: string): boolean;
+    /** 网格体里建组件（user 10-28 夜「mesh也要有和sketchup类似的组件管理」）：选中的面搬进一个新的网格体组件、嵌在这一层里（op separateObject，摆在这一层）；炸开它 = 并回来。 */
+    private makeMeshComponentStep;
+    /** 能建组件：网格体 = 选了面；硬表面 = 选了几何或子物件。 */
+    canMakeComponent(): boolean;
+    /** 选中的物件（这一层的实例）。 */
+    private instancePicks;
+    /** 右键点在哪个选中的物件上（点在选区里的物件上才算；别的选着 ≥ 1 个）→ 合并的目标。 */
+    mergeTargetAt(x: number, y: number): InstId | null;
+    /** Ctrl+J 压着的那个（lastPtr 算出来、记到下一次按画布）；没有 = 右键那一点（ctxPick）。注册表 env.pointedInstance() 读它。 */
+    private pointed;
+    pointedInstance(): InstId | null;
+    /** 右键菜单「把其余合并进这个」= 右键点的那个留下（注册表 object.mergeInto）。 */
+    mergeAtContextPoint(): void;
+    /** Ctrl+J = 光标压着的那个留下。 */
+    mergeUnderCursor(): void;
+    /** 做成唯一 / 应用缩放 / 锁 / 解锁：都是注册表物件族的指令（objects/verbs.ts），这几个只是键盘 / 探针的入口。 */
+    makeUniqueSelection(): boolean;
+    applyScaleSelection(): boolean;
+    lockSelection(on: boolean): boolean;
     /** 选区里一起装进新组 / 新组件的子组和组件（SketchUp 同款嵌套，user 2026-10-26「当然要」）：锁定的不动（提示一句）。 */
     private nestPicks;
     private makeComponentStep;
-    /** 炸开选中的子 group / 实例。 */
+    /** 炸开选中的：组（硬表面的分区，不是物件）手写炸；实例走注册表 object.explode（跨种类先问「转成 X 再炸」）。 */
     explodeSelection(): boolean;
-    private explodeSelectionStep;
+    /** 只炸选中的组（右键几何层「炸开组」）。 */
+    explodeGroups(): boolean;
+    private explodeGroupsStep;
+    hasGroupSelection(): boolean;
     /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
     copyInstance(delta: Pt3): boolean;
+    /** 拷贝选中的（几何 + 组 + 物件）到剪贴板。 */
+    copySelection(): boolean;
+    /** 剪切 = 拷贝 + 删除（锁着的不剪：和删除一样）。 */
+    cutSelection(): boolean;
+    canPaste(): boolean;
+    /** 原位粘贴进当前上下文。散几何种类对不上 → 先问「转过去再贴」（castPayload），点了才贴。 */
+    pasteClipboard(): void;
+    private pasteNow;
     private copyInstanceStep;
     /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
     private opTouchesLocked;
@@ -812,9 +859,6 @@ export declare class Editor {
     hasUnlockedPoolSelection(): boolean;
     /** 选中的子 group / 实例里能整体动的那些（锁住的不动；提示一次）。 */
     private movablePoolPicks;
-    /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
-    lockSelection(on: boolean): boolean;
-    private lockSelectionStep;
     /**
      * 范围里的断口（共线、只连两段、两边挂的面一样 = 画面上的小鼓包）：有散几何选区 = 选区里的点；scope = "context" 或没选 = 当前在编辑的物体里全部。
      * 纪元排期 T7 / DT5（user「他们语义上就是一个东西，只是作用域……不同」：和焊边橡皮的共轴那支同一个动词）。
@@ -938,7 +982,6 @@ export declare class Editor {
      * 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：选中组件的缩放烘进组件本身的几何，这一份只剩旋转 + 平移；
      * 同一组件的别的份乘反比补偿，看起来不变。组件里有转过的子组件时会斜切 → 护栏拦下并说明。一次 = 一步。
      */
-    applyScaleSelection(): boolean;
     hasHideableSelection(): boolean;
     /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
     hideSelection(): number;
@@ -1097,6 +1140,26 @@ export declare class Editor {
      */
     /** variant = 同一格里的哪种（插入那一格：Ctrl+B "bevel" / Ctrl+Shift+B "bevelVerts"）；工具自己认。 */
     startModal(tool: Tool, variant?: string): boolean;
+    private typedBuf;
+    /** 这一下键盘能不能进手势里的数：手势进行中、这把工具收数；回车 / 退格永远收（不让它们漏到下层：退格 = 删除选区），别的键 = 这个量写得出来的字。 */
+    gestureTypingWants(key: string): boolean;
+    /** 打一个键：字进缓冲 / 退格删一个 / 回车 = 定（同点一下）。预演跟着变。 */
+    typeIntoGesture(key: string): void;
+    /** 打的数（按工具的量读）；没打 / 看不懂 / 没在手势里 = null。 */
+    typedValue(): number | null;
+    /** 正在打的字（探针 / 状态行）。 */
+    typedText(): string;
+    /** 自由建模手势中右键：这把工具会「原地落定」（挤出：几何留在原地、新的成为选区，接着 G）就做，返回 true；不会 = false（调用方当取消）。 */
+    commitInPlace(): boolean;
+    /** 回车 = 定：「点一下落定」那一下（键盘起手 / 点了一下在等下一点的手势）；按着没松的拖 = 松手才定，回车不管。 */
+    confirmGesture(): void;
+    /** 手指双击（触屏；鼠标双击同语义）：点在子组件 / 组上 = 进去；点在空处 = 退一层；点在这一层自己的几何上 = 什么都不做。返回做了什么。 */
+    hierarchyTapAt(x: number, y: number): "enter" | "exit" | null;
+    private selGrow;
+    selGrowBegin(): boolean;
+    /** 从开始拖时的选区走 steps 圈（正 = 扩、负 = 缩）；返回现在选着几个。 */
+    selGrowTo(steps: number): number;
+    selGrowEnd(): void;
     /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
     armLoopCut(): boolean;
     private ctxPick;
@@ -1106,8 +1169,35 @@ export declare class Editor {
     contextNewAllowed(): boolean;
     /** 右键点 → 新建落点（世界）+ 法向（朝镜头）：点 > 面 > 原点 > 地面（上下文坐标架的 XY 面）。 */
     private newObjectAnchor;
+    /** 新建物体的落点（屏幕点 → 打到的点 / 边 / 面 / 原点 / 地面 + 法向）：右键新建记下的那一点，或新建工具按下的那一点。
+     *  e = 起始朝向看的那条边（世界方向；user 10-28 夜「初始角度的推理能不能智能一点，比如看边？」→「不一定是最近边吧。最长？」）：
+     *  落在面上 = 这张面外环最长的那条边（和点在面上哪儿无关）；落在边上 = 这条边；落在点上 = 连着它的最长那条边。法向对齐时基本体的 X 顺着它（primitivePlan）。 */
+    private newObjectAnchorAt;
+    /** 新建基本体的计划（落点 + 对齐 + 尺寸 → 本地坐标架 + 三个尺寸）：提交（addPrimitive）和新建工具的预演共用一份。尺寸 = 边长（立方体 / 平面）或直径（圆的几种），世界长度。 */
+    /** spin = 绕底面法向（坐标架 z）转多少弧度（新建工具第二步的环；马后炮「朝向」）。 */
+    private primitivePlan;
+    /** 新建工具第二步（定朝向的环）：在 (x, y) 落下时的世界坐标架（还没转；对齐 = 法向 / 落在地面 = 世界，和预演同一份）。落不到东西 = null。 */
+    primitiveFrameAt(x: number, y: number): {
+        o: Pt3;
+        x: Pt3;
+        y: Pt3;
+        z: Pt3;
+    } | null;
+    /** 新建工具：从按下那一点拖到 (x1, y1) = 多大（世界长度：屏上拖的距离 × 落点那里一像素多长）；落不到东西 = null。 */
+    primitiveDragSize(x0: number, y0: number, x1: number, y1: number): number | null;
+    /** 新建工具的预演：在影子网格上按同一份计划长出来（对齐 = 法向 / 落在地面 = 世界）。返回说法；落不到东西 = null。 */
+    previewPrimitive(kind: PrimitiveKind, x: number, y: number, sizeW: number, m: MeshKernel, spin?: number, aspect?: number): string | null;
     /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
-    addPrimitive(kind: PrimitiveKind): boolean;
+    addPrimitive(kind: PrimitiveKind, opts?: {
+        at?: {
+            x: number;
+            y: number;
+        };
+        size?: number;
+        spin?: number;
+        aspect?: number;
+        verb?: string;
+    }): boolean;
     /** 探针用：手势中的实时世界（预演）。 */
     liveWorldForProbe(): WorldView;
     private liveWorld;
@@ -1117,6 +1207,12 @@ export declare class Editor {
     private previewDescriptor;
     /** 这次预演会把哪个组件斜切（拖的时候就提示「松手会被拦下」；提交时 ops.ts 的护栏真拦）。 */
     private previewShear;
+    /** 移动中切了沿边滑：手势模块重新挑边（G G），再按现在的指针重算预演。 */
+    refreshSlide(): void;
+    /** 移动中再按 G（Blender G G）：这一次操作切沿边滑 / 照常，不动工具条上的常驻开关。 */
+    toggleSlideOnce(): void;
+    /** 手势进行中换了会影响预演的设置（软选择开关 / 半径）：照现在的指针重算预演。 */
+    refreshGesture(): void;
     private computeLive;
     /** 预演的影子副本（O1「拷一次 + 每帧退回」）：真身没变（同一对象、同一 rev）就把上一帧的影子倒回去再用；变了 / 倒不回（日志丢段）/ 全局结算模式 = 重新拷一份。 */
     private shadow;
@@ -1127,12 +1223,16 @@ export declare class Editor {
      * 选区的变换中心（变换工具的「变换中心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
      * 自动 = 只选了一个组 / 组件（没有散的面 / 边）→ 它的轴原点；别的 → 包围盒中心。
      */
+    /** 锁着时画的轴线（所有工具同一处：锁状态只有这一份）：方向 = 上下文坐标架；过 = 手势中的锚点 / 没手势时下一下要动的东西的变换中心。 */
+    private lockGuide;
     private pivotOf;
     /** 选中的点（世界坐标；只画点本身）。 */
     private selVertsView;
     /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
     private softEdgesView;
     /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
+    /** X 光面点（FM3）：开着 X 光时，正在编辑那一层每张面中心一个点（pick.ts faceDotPoint，和点得中的地方是同一个）；选中的面另一种颜色。 */
+    private faceDotsView;
     private vertDotsView;
     viewExtras: (() => Partial<ViewState>) | null;
     setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void;

@@ -23,6 +23,8 @@ export interface KeyContext {
     readonly lockStyle: "axis" | "plane" | null;
     /** 数值小窗要不要这一下（它有自己的缓冲状态，问它）。 */
     readonly vcbWants: (e: KeyEvt) => boolean;
+    /** 手势中打数要不要这一下（编辑器问：手势进行中、工具收数、键 = 回车 / 退格 / 这个量写得出来的字；Blender「S Z 0」，2026-10-28 晚）。没给 = 不要。 */
+    readonly typingWants?: (e: KeyEvt) => boolean;
 }
 export type Chord = string;
 export interface Binding {
@@ -53,6 +55,9 @@ export declare const OP_TOOLS: ReadonlySet<Tool>;
 export declare const TOOL_OPS: Layer;
 /** 手势中（自由建模）：X / Y / Z 锁轴、Shift = 锁面（Blender 同款）。 */
 export declare const GESTURE: Layer;
+/** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。
+ *  X / Y / Z 它不要（单位里没有这三个字母）→ 落到下面的手势层照旧锁轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
+export declare const TYPING: Layer;
 /** 镜像会话（马前炮）：回车 = 应用（Esc = 取消走全局的 escape → editor.cancel）。 */
 export declare const MIRROR: Layer;
 /** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */
@@ -99,6 +104,21 @@ export declare function keyDocs(toolLabel: (t: Tool) => string): {
         does: string;
     }[];
 }[];
+/** 同一个键再按一下 = 组里换下一把（user 10-25；app 层 toolKey 做轮换，数据住这里，提示也读它）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
+export declare const TOOL_CYCLES: Readonly<Record<Chord, readonly Tool[]>>;
+export interface ToolKey {
+    readonly chord: Chord;
+    readonly how: "pick" | "cycle" | "modal";
+    readonly label: string;
+}
+/**
+ * 这个工作台里这把工具的键（和真按下去同一条 resolveKey；手上拿着别的工具、有选区、没在手势里）：
+ * pick = 从别的工具按它就拿起这把；cycle = 那个键的组里再按几下轮到它；modal = 键盘起手（Blender G / R / S / E；label = 键表那一条，带变体时用得上）。
+ * inMode = 这个工作台有没有这把工具（轮换只在工作台有的工具里转，app toolKey 同规矩）。
+ */
+export declare function toolKeysOf(mode: ModeId, tool: Tool, inMode?: (t: Tool) => boolean): ToolKey[];
+/** 工具提示里的键那一截（「M · G 键盘起手」；没有键 = ""）：pick 直接写键名；没有 pick 才写 cycle「再按 E / X」；modal 写「G 键盘起手」（同义的并成「Alt+S / Alt+W 键盘起手」）、带变体的写那条的名字（「Ctrl+B 倒角」）。 */
+export declare function toolKeyText(mode: ModeId, tool: Tool, inMode?: (t: Tool) => boolean): string;
 /** 肌肉记忆层面的「意思」：锁轴的几种时机（马上锁 / 先锁下一下 / 手势中锁）算一个意思；「选这把工具」和「键盘起手做这件事」是同一个动词就算一个意思。 */
 export declare function meaningOf(action: string): string;
 /** 拿来比的几个地方（会来回切的：两个建模工作台 × 拿着选择 / 移动，加验证、表面）。 */

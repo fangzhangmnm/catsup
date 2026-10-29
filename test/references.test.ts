@@ -1,10 +1,9 @@
 // CATSUP_references 参考窗牌组（契约 §5.8）+ desk 1.1 refPanel：@internal/reference-window 的目录 `.catsup/references/` 原样进 glb；
-// 空牌组不写；major 比本版新 → 不拒开、原字节带回；minor 新 → 提示一次；未知键直通；坏条目拒开（不静默丢卡）；不进定稿指纹。
+// 空牌组不写；major 比本版新 → 不拒开、原字节带回；minor 新 → 提示一次；未知键直通；坏条目拒开（不静默丢卡）。
 // 最后一条 = 跨库契约：读出来的目录交给库 0.5.0 的 decodeDeck，三张卡原样回来（format 层自己不懂清单）。created 2026-10-25 by Claude Opus 5.5
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { newDocument, writeCatsup, readCatsup, FORMAT } from "../src/format/index.ts";
-import { contentFingerprint } from "../src/format/final.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { docReferenced } from "./format-scenes.ts";
 import { decodeDeck } from "@internal/reference-window/deck";
@@ -80,11 +79,6 @@ describe("CATSUP_references 参考窗牌组", () => {
     const { json, bin } = jsonOf(writeCatsup(docReferenced()));
     json.extensions.CATSUP_desk.refPanel = { open: "yes", left: 1, top: 2, width: 3, height: 4 };
     assert(readCatsup(encodeGlb(json, bin)).desk.refPanel === undefined);
-  });
-  it("不进定稿指纹（参考窗不是模型内容）", async () => {
-    const a = docReferenced(), b = docReferenced();
-    b.references = { files: [], extra: {} }; b.desk.refPanel = undefined;
-    eq(await contentFingerprint(a), await contentFingerprint(b));
   });
   it("跨库契约：读出来的目录交给 @internal/reference-window 的 decodeDeck → 三张卡原样（图 / 文字 / 只放内存的视频空位）、停在第 2 张", async () => {
     const back = readCatsup(writeCatsup(docReferenced()));

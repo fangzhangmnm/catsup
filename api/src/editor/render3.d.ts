@@ -39,6 +39,8 @@ export declare const PALETTE: {
 };
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
 export declare const POOL_AXES_PX = 22;
+/** 锁着时画的轴线（controller/lock-guide.ts）两头各伸多长（屏幕 px，按线过的那一点的一像素多长换算）：够横穿画面，像 Blender 的无限长线。 */
+export declare const LOCK_LINE_SPAN_PX = 2400;
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
 export type LineStyle = "pixel" | "thick";
 /**
@@ -87,7 +89,8 @@ export interface ViewState {
         center: Pt3;
         axis: Pt3;
         ref: Pt3 | null;
-        angle: number;
+        angle: number; /** 圆环至少多大（世界长度；新建第二步 = 套在基本体外面，不被它挡住）；不给 = 屏上 60 px。 */
+        minRadius?: number;
     } | null;
     /** 参考几何（活动池，世界坐标；0.11 尺规纪元）。 */
     guides?: GuidesWorld | null;
@@ -119,6 +122,12 @@ export interface ViewState {
     vertDots?: {
         key: string;
         pts: readonly Pt3[];
+    } | null;
+    /** X 光面点（每张面中心一个小方点、不被挡；sel = 这张面选中着，画强调色）。 */
+    faceDots?: {
+        key: string;
+        pts: readonly Pt3[];
+        sel: readonly boolean[];
     } | null;
     /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
     softEdges?: {
@@ -156,6 +165,12 @@ export interface ViewState {
     emptyAxes?: readonly Frame[] | null;
     /** 组件原点（DT86）：组件里另摆了坐标架、和原点不在一处时，原点处画一个淡小三轴（披露「现在是两个」）；同上画法、半透明。 */
     originAxes?: readonly Frame[] | null;
+    /** 锁看得见：锁着的轴 / 面里的两根轴（过锚点或变换中心；controller/lock-guide.ts）。透视画在最上面。 */
+    lockLines?: readonly {
+        readonly through: Pt3;
+        readonly dir: Pt3;
+        readonly color: "x" | "y" | "z" | "n";
+    }[] | null;
     /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
     xformGizmo?: {
         origin: Pt3;
@@ -245,6 +260,10 @@ export declare class Renderer3 {
     private protractorLines;
     /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
     private labelSprites;
+    private faceDots;
+    private faceDotKey;
+    private lockLinesObj;
+    private lockLinesKey;
     private guideLines;
     private tapeLines;
     private knifeLines;
@@ -403,6 +422,8 @@ export declare class Renderer3 {
     private xrKeyLight;
     /** 共享粗线材质（resolution 共享 Vector2；linewidth 由 syncLineScale 每帧按 lineScale 写）。offset=true：深度前拉，共面线赢面。 */
     /** 一组小三轴（每个帧：原点出三根屏幕定长 POOL_AXES_PX 的短轴，RGB = XYZ）；key 没变就不重建。返回新 key。 */
+    /** 锁着时的轴线：每根过 through、两头各伸 LOCK_LINE_SPAN_PX 屏幕像素那么长（按那一点的一像素多长换算）；颜色 = 轴色，斜面 = 中性灰。 */
+    private drawLockLines;
     private drawTriads;
     private lineMat;
     /**

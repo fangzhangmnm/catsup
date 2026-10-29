@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=c60ac6b0b6c7" />
+    <link rel="stylesheet" href="./styles.css?v=07d35c85fb97" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -281,7 +281,7 @@
           <!-- 商城 = 物品栏（资产 / 以后的图层 / 场景树）；图标 stopgap = collection（图标库 TODO 已登记 shop）；user「先左上 汉堡云商城吧」 -->
           <button class="tb-btn" id="btnShop" type="button" title="物品栏（组件 · 以后：图层 / 场景树）"><svg class="ico" aria-hidden="true"><use href="#collection"/></svg></button>
           <button type="button" class="mode-select" id="modeSelect" aria-label="工作台（硬表面建模 / 表面）"></button>
-          <span class="final-badge" id="finalBadge" hidden title="定稿着：锁住几何与材质；☰「改稿」解锁"></span>
+          <span class="lock-badge" id="lockBadge" hidden title="锁着：防误触，只能看、能进去玩；☰「解锁」放开"><svg class="ico" aria-hidden="true"><use href="#lock"/></svg>锁着</span>
         </div>
           <nav class="hud hud-crumbs" id="crumbs" aria-label="所在的组 / 组件" hidden></nav>
         </div>
@@ -392,6 +392,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-315882c4860e.mjs"></script>
+    <script type="module" src="./dist/catsup-e8a0c0d6018d.mjs"></script>
   </body>
 </html>

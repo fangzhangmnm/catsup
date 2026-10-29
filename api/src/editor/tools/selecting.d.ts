@@ -21,6 +21,13 @@ export interface Target {
 }
 /** 落定那一步里调（commitOp 之前）：把选区换成按下时抓到的那个（Target.adopt）；没有 = 什么都不做。 */
 export declare function adoptPress(ctx: ToolCtx, adopt: Target["adopt"] | null | undefined): void;
+/** 按下处抓到的东西（立场表「抓什么」：element = 点 > 边 > 面，face = 只认面）；没东西 = null。只管网格体（自由建模）。 */
+/** 拾取范围（工具条三个开关，自由建模）：关掉的那一级不参赛；全关 = 当全开（不让人把自己锁死）。硬表面 = undefined（照旧）。 */
+export declare function pickKinds(ctx: ToolCtx): {
+    verts: boolean;
+    edges: boolean;
+    faces: boolean;
+} | undefined;
 /**
  * 按下这一下作用在什么上（只管网格体 = 自由建模）：
  * 没选区 = 按下处按这把工具的立场抓那一个；空处 = "box"（拖 = 框选，BoxDrag）。
@@ -40,7 +47,9 @@ export declare const multiSelect: (ctx: ToolCtx) => boolean;
  */
 export declare function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso"): SelMode;
 /** 点一下（第 n 下）：和选择工具同一套（见文件头）。 */
-export declare function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number): void;
+export declare function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts?: {
+    growBar?: boolean;
+}): void;
 export interface ScreenBox {
     minX: number;
     minY: number;

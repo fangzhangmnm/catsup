@@ -1,4 +1,7 @@
 import type { QuantityTag } from "./units.ts";
+/** 选区默认档：有笔 / 触屏的设备 = 多选，键鼠 = 替换（user 10-28「平板上选择能不能默认是点击xor」）。node（测试）里没有 navigator = 替换。 */
+/** 「选区」两档的出厂值按设备（controller/stance.ts BOOLEAN_DEFAULT：鼠标点一下 = 替换 → 「替换」档；笔点一下 = 切换 → 「多选」档）。有触屏的设备 = 笔（iPad；手指版以后，先照笔）。 */
+export declare function selectModeFor(device: "mouse" | "pen" | "finger"): "replace" | "multi";
 export type OptionScope = "session" | "device" | "doc";
 export interface Modifiers {
     ctrl?: boolean;
@@ -39,6 +42,13 @@ export interface BoolOption {
     readonly label: string;
     readonly def: boolean;
     readonly scope: OptionScope;
+    /** 有图标 = 画成图标开关（label 当提示字；拾取 点 / 边 / 面，user 10-28 夜「最好换成icon」）。 */
+    readonly icon?: string;
+    /** 只在同一组里另一个 enum 选项取这几个值时才露（拉出的「锁比例」只给平的形状）。 */
+    readonly shownWhen?: {
+        readonly key: string;
+        readonly in: readonly string[];
+    };
 }
 export type OptionDef = EnumOption | NumberOption | BoolOption;
 export type OptionTable = Readonly<Record<string, Readonly<Record<string, OptionDef>>>>;
@@ -225,7 +235,7 @@ export declare const TOOL_OPTIONS: {
             readonly values: readonly [{
                 readonly id: "auto";
                 readonly label: "自动";
-                readonly hint: "只选了一个组件 = 组件原点；组 / 散几何 / 几个物体 = 包围盒中心";
+                readonly hint: "只选了一个组件 = 组件原点；组 / 散几何 / 几个物件 = 包围盒中心";
             }, {
                 readonly id: "bbox";
                 readonly label: "包围盒中心";
@@ -235,7 +245,7 @@ export declare const TOOL_OPTIONS: {
                 readonly hint: "全部选中顶点的平均位置（Blender 叫 Median Point）";
             }, {
                 readonly id: "active";
-                readonly label: "最后选的物体原点";
+                readonly label: "最后选的物件原点";
                 readonly hint: "最后选中的那个组 / 组件的轴原点（Blender 叫 Active Element）；没选组 / 组件 = 包围盒中心";
             }];
             readonly def: "auto";
@@ -310,6 +320,128 @@ export declare const TOOL_OPTIONS: {
             readonly max: 90;
             readonly step: 1;
             readonly unit: "°";
+            readonly scope: "session";
+        };
+    };
+    /** 新建（自由建模；纪元账本 FM182，user 10-27「然后能不能加一个新建的tool，就是拖动然后新建，可以马前炮和马后炮，如果你想用马前炮的尺寸就点击」）：
+     *  新建什么 + 点一下时的尺寸（= 马前炮；拖 = 拖多大就多大）。尺寸 = 边长（立方体 / 平面）或直径（圆柱 / 圆锥 / 球），存米、按显示单位显示。马后炮（对齐 / 尺寸 / 段数）照右键新建那一套。 */
+    readonly create: {
+        readonly kind: {
+            readonly kind: "enum";
+            readonly label: "形状";
+            readonly values: readonly [{
+                readonly id: "circleLoop";
+                readonly label: "圆圈（只有边）";
+            }, {
+                readonly id: "squareLoop";
+                readonly label: "方框（只有边）";
+            }, {
+                readonly id: "box";
+                readonly label: "立方体";
+            }, {
+                readonly id: "cylinder";
+                readonly label: "圆柱";
+            }, {
+                readonly id: "cone";
+                readonly label: "圆锥";
+            }, {
+                readonly id: "sphere";
+                readonly label: "球";
+            }, {
+                readonly id: "plane";
+                readonly label: "平面";
+            }];
+            readonly def: "circleLoop";
+            readonly scope: "session";
+        };
+        readonly lockAspect: {
+            readonly kind: "bool";
+            readonly label: "锁比例";
+            readonly def: false;
+            readonly scope: "session";
+            readonly shownWhen: {
+                readonly key: "kind";
+                readonly in: readonly ["circleLoop", "squareLoop", "plane"];
+            };
+        };
+        readonly size: {
+            readonly kind: "number";
+            readonly label: "点一下的尺寸";
+            readonly def: 1;
+            readonly min: 0.01;
+            readonly max: 10000;
+            readonly step: 0.01;
+            readonly quantity: {
+                readonly q: "length";
+            };
+            readonly scope: "session";
+        };
+    };
+    /** 软选择（比例编辑，Blender 的 O；user 10-28 夜「为什么不先做软选择，然后weebpaint的slider放哪里」；纪元账本 FM1 / FM20「软编辑半径全局共享，像 WeebPaint 的笔刷大小滑条」）：
+     *  开着 = 移动 / 旋转 / 缩放 / 沿法线也带着选区周围的点走，越远越少（mesh/soft-select.ts）。半径按屏幕像素存（手上看到多大就多大，和 WeebPaint 笔刷一样），
+     *  按下那一刻在轴心那里换算成世界长度；左边那根竖滑条 / [ ] 键调（以后的软编辑笔刷共用这一个半径）。 */
+    readonly soft: {
+        readonly on: {
+            readonly kind: "bool";
+            readonly label: "软选择";
+            readonly def: false;
+            readonly scope: "session";
+        };
+        readonly radius: {
+            readonly kind: "number";
+            readonly label: "软半径";
+            readonly def: 120;
+            readonly min: 10;
+            readonly max: 800;
+            readonly step: 1;
+            readonly unit: "px";
+            readonly scope: "session";
+        };
+    };
+    /** 沿边滑（自由建模移动的一种模式；Blender G G；user 10-28 夜「5 做，快捷键同意，然后手势的话就是g的gizmos的一种模式」）：开着 = 移动时每个点只沿它连出去的边滑（不离开原来的面）。 */
+    readonly slide: {
+        readonly on: {
+            readonly kind: "bool";
+            readonly label: "沿边滑";
+            readonly def: false;
+            readonly scope: "session";
+        };
+    };
+    /** 拾取范围（自由建模；user 10-28 晚「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮可以吗？」）：
+     *  点 / 边 / 面各一个开关，关掉的那一级点不中、框不到，下一级顶上（Blender 的 1 / 2 / 3 选择模式，这里是三个独立开关）。全关 = 当全开。
+     *  自由建模里按「点 > 边 > 面」抓东西的工具共用这一组（选择 / 移动 / 旋转 / 缩放 / 沿法线；context-bar 按立场表 grab = element 挂上）。 */
+    readonly pick: {
+        readonly verts: {
+            readonly kind: "bool";
+            readonly label: "点";
+            readonly def: true;
+            readonly scope: "session";
+            readonly icon: "select-vertex";
+        };
+        readonly edges: {
+            readonly kind: "bool";
+            readonly label: "边";
+            readonly def: true;
+            readonly scope: "session";
+            readonly icon: "select-edge";
+        };
+        readonly faces: {
+            readonly kind: "bool";
+            readonly label: "面";
+            readonly def: true;
+            readonly scope: "session";
+            readonly icon: "select-face";
+        };
+    };
+    /** 软编辑笔刷（鼓起 / 抹平 / 压平，2026-10-29 Opus 5.5）：一下刷多少；半径在左栏 dial（和软选择共用）。 */
+    readonly brush: {
+        readonly strength: {
+            readonly kind: "number";
+            readonly label: "力度";
+            readonly def: 0.5;
+            readonly min: 0.05;
+            readonly max: 1;
+            readonly step: 0.05;
             readonly scope: "session";
         };
     };

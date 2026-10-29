@@ -23,8 +23,6 @@ import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "
 import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { fmtStamp } from "../format/migrate/index.ts";
 import { unitFromSettings, unitToSettings } from "../editor/units.ts";
-import { contentFingerprint } from "../format/final.ts";
-import { APP_VERSION } from "../version.ts";
 import type { Xform } from "../scene/xform.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName } from "../config.ts";
 import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
@@ -255,7 +253,7 @@ export class Session {
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
-    void this.verifyFinal(doc);
+    this.d.editor.setLocked(this.locked());   // 演示锁跟文件走（desk.locked）
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
     if (hasStore()) {
@@ -269,54 +267,20 @@ export class Session {
     return "transient";
   }
 
-  // ---------- 定稿 / 改稿（ai-docs/20261024-finalize.md；仿 MoonSinger）----------
-  /** 当前文件的定稿记录（null = 没定稿 / 已改稿）。 */
-  finalRecord(): { at: string; rev: number; fingerprint: string } | null { return this.loaded?.final ?? null; }
-  finalRev(): number { return this.loaded?.finalRev ?? 0; }
-  /** 定稿：rev +1，记内容指纹，锁住，保存。 */
-  async finalize(): Promise<boolean> {
-    const doc = documentFromScene(this.d.editor.sceneRef, this.displayName(), this.loaded);
-    doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);
-    doc.desk = this.desk;   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）
-    const rev = (doc.finalRev ?? 0) + 1;
-    doc.final = { at: new Date().toISOString(), rev, app: APP_VERSION, fingerprint: await contentFingerprint(doc) };
-    doc.finalRev = rev;
-    this.loaded = doc;
-    this.savedRevision = -1;   // 记录变了 = 脏（虽然几何没变）
-    this.d.editor.setLocked(true);
+  // ---------- 演示锁（周账 F-124，2026-10-29；吃掉 v0.12.8 的定稿 / 改稿版本章，设计 = ai-docs/20261024-finalize.md §0）----------
+  // user 10-28 晚「定稿的语义不对，这个是锁屏，不是 commit……锁屏是防止误触」「锁操作还是给你演示看的，还可以进去玩。或者 rts 模式。反正类似 wxhw 的锁」。
+  // 一个开关、一点就开关、没有口令。锁着 = 改模型的一切都拒（编辑器 commit / undo / redo / VCB / 指针按下 / 键盘起手 / 右键菜单），看的一切照旧、进去玩（验证工作台）照旧。
+  // 住桌面态 desk.locked（跟文件走、不是内容、不标脏、不进撤销）——给人看的文件打开就是锁着的；有家就顺手存一次（不是标脏：几何的 savedRevision 不动）。
+  /** 这份文件现在锁着没有。 */
+  locked(): boolean { return !!this.desk.locked; }
+  /** 锁上 / 解锁。有家（图库 / 本地文件）就顺手存一次，让锁跟着文件走；无地 = 住内存、导出时带走。 */
+  async setLocked(on: boolean): Promise<void> {
+    if (this.locked() === on) return;
+    if (on) this.desk.locked = true; else delete this.desk.locked;
+    this.d.editor.setLocked(on);
     this.d.onHomeChanged();
-    if (this.home.kind === "transient") { this.d.setStatus(`定稿第 ${rev} 版：锁着，只能看 / 量 / 导出（记录随导出带走）；☰「改稿」解锁`); return true; }   // 无地 = 除云外全功能：不逼安家
-    const ok = await this.save();
-    this.d.setStatus(ok ? `定稿第 ${rev} 版：锁着，只能看 / 量 / 导出；☰「改稿」解锁` : `定稿第 ${rev} 版（还没存上，稍后再存）`);
-    return ok;
-  }
-  /** 改稿：去掉记录（rev 不减），解锁，存。 */
-  async revise(): Promise<boolean> {
-    if (!this.loaded?.final) return false;
-    delete this.loaded.final;
-    this.savedRevision = -1;
-    this.d.editor.setLocked(false);
-    this.d.onHomeChanged();
-    const ok = this.home.kind === "transient" ? true : await this.save();
-    this.d.setStatus(`改稿：解锁了（定稿过 ${this.loaded.finalRev ?? 0} 次）`);
-    return ok;
-  }
-  /** 读文件后核：记录在 → 指纹对得上就锁，对不上 = 作废 + 说一声（旧版 app / 别的软件改过）。 */
-  private async verifyFinal(doc: CatsupDocument): Promise<void> {
-    if (!doc.final) { this.d.editor.setLocked(false); return; }
-    const fp = await contentFingerprint(doc).catch(() => "");
-    if (fp === doc.final.fingerprint) { this.d.editor.setLocked(true); this.d.onHomeChanged(); return; }
-    delete doc.final;
-    this.savedRevision = -1;
-    this.d.editor.setLocked(false);
-    this.d.setStatus("定稿作废：内容和定稿记录对不上（被别的软件或旧版本改过）", true);
-    this.d.onHomeChanged();
-  }
-  /** 护栏 ③：定稿着时内容指纹必须和记录一致，否则这一轮不写。 */
-  private async finalIntact(): Promise<boolean> {
-    if (!this.loaded?.final) return true;
-    const doc = documentFromScene(this.d.editor.sceneRef, this.displayName(), this.loaded);
-    return (await contentFingerprint(doc)) === this.loaded.final.fingerprint;
+    this.d.setStatus(on ? "锁上了：看、转、进去玩都行，改不了；☰「解锁」放开" : "解锁了");
+    if (this.home.kind !== "transient" && !(this.home.kind === "gallery" && this.lazy)) await this.save({ implicit: true });
   }
   private encode(): Uint8Array {
     const name = this.displayName();
@@ -367,7 +331,7 @@ export class Session {
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
-    void this.verifyFinal(doc);
+    this.d.editor.setLocked(this.locked());   // 演示锁跟文件走（desk.locked）
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
   }
@@ -535,7 +499,6 @@ export class Session {
     try {
       if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的
       const revAtStart = this.d.editor.revision, refRevAtStart = this.refRev();
-      if (!(await this.finalIntact())) { this.d.setStatus("定稿着的模型内容变了：不保存（☰ 改稿后再存）", true); return false; }   // 护栏 ③④：指纹对不上就不写、脏留着
       const bytes = this.encode();
       if (home.kind === "file") {
         if (home.handle) {

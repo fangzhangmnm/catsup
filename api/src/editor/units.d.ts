@@ -24,7 +24,8 @@ export declare function unitToSettings(u: LengthUnit): string;
 export declare function parseLength(part: string, unit: LengthUnit): number | {
     error: string;
 };
-export type Quantity = "length" | "speed";
+/** 量的种类。angle（2026-10-28 晚加）= 存弧度、显示 / 打字按度；factor = 倍数（无量纲，打 % 也认）——键盘起手里打数（S Z 0）和单位文本框走同一个读法（user「所以就是一个parser啦，看一下能不能和单位文本框深模块窄接口」）。 */
+export type Quantity = "length" | "speed" | "angle" | "factor";
 /** 速度用在谁身上：同一个 m/s，人走看配速、车看 km/h / mph、船和飞机看节（user 10-22「我会马拉松，开车和开飞机……配速，mph和knots这样我能和现实体感比」）。 */
 export type Mover = "foot" | "road" | "water" | "air";
 export interface QuantityTag {
@@ -48,6 +49,12 @@ export declare function formatQuantity(si: number, tag: QuantityTag): string;
 export declare function parseQuantity(text: string, tag: QuantityTag): number | {
     error: string;
 };
+/**
+ * 打字时这个键能不能接进这一段量的文字（键盘起手里打数用；和 parseQuantity 是同一张「这个量怎么写」）：
+ * 数字 / 小数点 / 正负号永远能；单位那几个字只在已经有数之后（长度 m c i n f t ' " 空格 /，角度 ° d e g r a，倍数 %）。
+ * X / Y / Z 永远不接（它们是锁轴，打到一半也能锁，Blender 同款）。
+ */
+export declare function quantityKey(tag: QuantityTag, buf: string, key: string): boolean;
 /**
  * − / + 一下：在显示单位的整格上走一格（先落到格上，再走；user「都单位和用户选择单位对齐」）。dir = +1 = SI 变大（配速是越走越快 = 数变小）。
  * 速度走不动（配速走到 0 以下）= 原样。

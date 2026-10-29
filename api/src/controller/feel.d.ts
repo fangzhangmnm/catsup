@@ -46,6 +46,8 @@ export declare const FRAME_TAP_RULE: {
 };
 /** 笔 / 手指长按 = 右键菜单（ms）。 */
 export declare const LONG_PRESS_MS = 500;
+/** 左柱小三角格的长按（弹出整组）：比通用长按短（user 10-28 夜「小三角需要长按的时间有点长」；以前 main.ts 里写死 450）。 */
+export declare const RAIL_FLYOUT_PRESS_MS = 260;
 /** 多指轻点（撤销 / 重做）：从最早触点落下算，超过这么久不算轻点（ms）；每根手指离各自起点超过这么远不算（CSS px）。 */
 export declare const GESTURE_TAP_MAX_MS = 250, GESTURE_TAP_MAX_MOVE = 16;
 /** 掌触门：笔尖活动后这么久内的多指轻点当手掌闪灭吞掉（ms）。 */
@@ -54,6 +56,8 @@ export declare const PALM_PEN_GUARD_MS = 600;
 export declare const STALE_TOUCH_MS = 8000;
 /** 单指轻点（ms）。 */
 export declare const SINGLE_TAP_MS = 250;
+/** 手指双击（进出组件层级；user 10-28 夜「手指双击能不能也能进出hierarchy」）：两下之间最长多久、离得最远多远（CSS px）。 */
+export declare const FINGER_DOUBLE_TAP_MS = 380, FINGER_DOUBLE_TAP_PX = 32;
 /** 大动作解锁：笔按住拖的中途凑成的双指先当手掌，质心 / 指距累计动过这么多才解锁成相机（CSS px；user 2026-10-24「要不要大动作解锁」）。 */
 export declare const UNLOCK_PX = 28;
 /** 抬笔结算三个物理量，各自量纲独立：松手前这么久内的停留帧才算（ms）/ 最后一帧停够这么久就按最后一帧（ms）/ 停留至少这么久才算停留（ms）/ 停留的位移上限（CSS px @800 高）。 */

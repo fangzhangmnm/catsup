@@ -130,21 +130,10 @@ export declare class Session {
     adoptRecovered(bytes: Uint8Array, name: string, opts: {
         gate: boolean;
     }): Promise<"gallery" | "transient" | null>;
-    /** 当前文件的定稿记录（null = 没定稿 / 已改稿）。 */
-    finalRecord(): {
-        at: string;
-        rev: number;
-        fingerprint: string;
-    } | null;
-    finalRev(): number;
-    /** 定稿：rev +1，记内容指纹，锁住，保存。 */
-    finalize(): Promise<boolean>;
-    /** 改稿：去掉记录（rev 不减），解锁，存。 */
-    revise(): Promise<boolean>;
-    /** 读文件后核：记录在 → 指纹对得上就锁，对不上 = 作废 + 说一声（旧版 app / 别的软件改过）。 */
-    private verifyFinal;
-    /** 护栏 ③：定稿着时内容指纹必须和记录一致，否则这一轮不写。 */
-    private finalIntact;
+    /** 这份文件现在锁着没有。 */
+    locked(): boolean;
+    /** 锁上 / 解锁。有家（图库 / 本地文件）就顺手存一次，让锁跟着文件走；无地 = 住内存、导出时带走。 */
+    setLocked(on: boolean): Promise<void>;
     private encode;
     /** desk 存盘形状：参考窗的窗以接缝为准（开过窗才有；这个文件里没开过 = 文件里原来那份）。 */
     private deskForSave;

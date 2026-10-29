@@ -68,7 +68,7 @@ export const MENU_ROWS: readonly MenuRow[] = [
   { id: "gallery", tab: "file" },
   { id: "newOpen", tab: "file" },
   { id: "exportHub", tab: "file" },
-  { id: "finalize", tab: "file" },          // 定稿 / 改稿（同一行，渲染器按状态换字）
+  { id: "lock", tab: "file" },              // 锁上 / 解锁（演示锁，同一行，渲染器按状态换字；周账 F-124 吃掉定稿 / 改稿）
   { id: "softenAll", tab: "model" },
   { id: "weldAllBreaks", tab: "model" },
   { id: "makePlanarAll", tab: "model" },

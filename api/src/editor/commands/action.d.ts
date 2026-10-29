@@ -18,8 +18,10 @@ export interface Placement {
     readonly where: Surface;
     /** 同一个面里的先后（小的在前）。 */
     readonly order: number;
-    /** 只在这些工作台露（缺 = 所有）。 */
+    /** 只在这些工作台露（缺 = 所有）。物件族的动作不许用它（物件动词在每个工作台自动都有，只能退订：except）。 */
     readonly modes?: readonly ModeId[];
+    /** 这些工作台不露（退订；user 10-28 夜「不同物体类型的层级统一……有些也不开move」→ 一份实现、工作台只能显式退订）。 */
+    readonly except?: readonly ModeId[];
     /** 这个入口钉的作用域（缺 = auto：有选区用选区、没选用当前在编辑的整个物体）。 */
     readonly scope?: "auto" | "context";
     /** 右键菜单里收进哪个子菜单（2026-10-28：子菜单的名字；同名的几条并成一行「名字 ›」；item = 子菜单里显示的字，缺 = 动作自己的 label）。浮条照旧平铺。 */

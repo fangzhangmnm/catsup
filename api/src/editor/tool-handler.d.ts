@@ -1,14 +1,16 @@
 import type { ScreenArea } from "./marquee.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
+import type { PrimitiveKind } from "../mesh/ops/primitives.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../kernel/kernel.ts";
 import type { PointerFrame, Viewport, EpsSet } from "./pointer-frame.ts";
-import type { AlignHand, AlignQuery, DrawPlane, HitResult3, Snap3 } from "./pick.ts";
+import type { AlignHand, AlignQuery, DrawPlane, HitResult3, PickKinds, Snap3 } from "./pick.ts";
 import type { WorldView } from "../scene/world-view.ts";
 import type { PoolRef } from "../scene/scene.ts";
 import type { Frame, Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 import type { CatsUpToolConfig } from "./tool-config.ts";
+import type { QuantityTag } from "./units.ts";
 import type { Selection, SelMode } from "./tools.ts";
 import type { LastGesture, PoolPick, ToolPointer } from "./editor.ts";
 import type { Tool } from "./tool-ids.ts";
@@ -60,8 +62,10 @@ export interface ToolCtx {
     pickFace(sx: number, sy: number): FaceId | undefined;
     /** 屏幕点下的实体（顶点 > 边 > 面，全局 id；0.11 卷尺要知道起点落在哪条边上）。 */
     /** opts.soft = 软边也拾（平时软边点不中；硬化的橡皮要碰得到它）。 */
+    /** opts.kinds = 拾取范围（关掉的那一级不参赛；自由建模工具条三个开关，selecting.ts pickKinds）。 */
     pick(sx: number, sy: number, opts?: {
         soft?: boolean;
+        kinds?: PickKinds;
     }): HitResult3;
     /** 在静态世界（不含预演）里拾取：要按真身的拓扑落点的工具用（刀：预演里那条边已经劈开了，id 对不上真身）。配 classify(world(), …)。 */
     pickStatic(sx: number, sy: number): HitResult3;
@@ -181,6 +185,19 @@ export interface ToolCtx {
         x: number;
         y: number;
     }[] | null): void;
+    /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
+    softRing(c: {
+        x: number;
+        y: number;
+        r: number;
+    } | null): void;
+    /** 扩 / 缩选区的拖动条：出在这一点旁边（画布本地 CSS px；null = 收）。 */
+    selGrowBar(at: {
+        x: number;
+        y: number;
+    } | null): void;
+    /** 这一下点到的东西在选区里吗（点中已选的面 / 它的边 / 点都算）。 */
+    hitInSelection(hit: HitResult3): boolean;
     /** 屏幕矩形里的边 / 面（全局 id）。 */
     marqueePick(area: ScreenArea): {
         verts: Iterable<number>;
@@ -249,6 +266,16 @@ export interface ToolCtx {
     } | null;
     /** 搬坐标架（世界坐标帧进来；DT86）：最外层 = 绘图轴、组里 = 组的、组件里 = 组件的，都不碰几何；改组件原点会话里 = 改那个组件的原点。提示行由编辑器写。 */
     setAxes(frame: Frame): void;
+    /** 在屏幕点 (x, y) 打到的地方（点 / 边 / 面 / 原点 / 地面）新建一个基本体；size = 世界长度（边长 / 直径），不给 = 出厂尺寸。落不到东西 = false。 */
+    newPrimitive(kind: PrimitiveKind, x: number, y: number, size?: number, spin?: number, aspect?: number): boolean;
+    /** 预演：同一份计划长在给的影子网格上；返回说法（落不到东西 = null）。spin = 绕底面法向转多少弧度；aspect = 深 / 宽（平的几种）。 */
+    previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel, spin?: number, aspect?: number): string | null;
+    /** 在 (x, y) 落下时的世界坐标架（还没转；定朝向的环画在它的 xy 平面里）；落不到东西 = null。 */
+    primitiveFrameAt(x: number, y: number): Frame | null;
+    /** 从 (x0, y0) 拖到 (x1, y1) 在落点那里是多长（世界长度）；落不到东西 = null。 */
+    primitiveDragSize(x0: number, y0: number, x1: number, y1: number): number | null;
+    /** 手势进行中打的数（键盘起手 / 拖着时打字；Blender「S Z 0」）：按这把工具的 typedQuantity 读（单位文本框同一个 parseQuantity：长度 = 米、角度 = 弧度、倍数）；没打 / 还没看懂 = null（照鼠标）。 */
+    typed(): number | null;
 }
 /**
  * 编辑器核（0.13 刀 ①）= ToolCtx 往上长一层：模式（mode.ts）与 HUD 级消费方看到的全部能力。只读口；写都走 commitOp。
@@ -287,6 +314,12 @@ export interface ToolHandler {
     }, variant?: string): boolean;
     /** 切割：下一下点到边上直接环切（Ctrl+R）。 */
     armLoop?(ctx: ToolCtx): void;
+    /** 手势进行中能打数（Blender「S Z 0」；user 10-28 晚）：这把工具收的是什么量（长度 / 角度 / 倍数）。没有 = 打字不进这把工具。 */
+    readonly typedQuantity?: QuantityTag;
+    /** direct 工具松着手还在手势里、等再点一下（新建第二步的环）：回车 = 那一下。 */
+    awaitsClick?(): boolean;
+    /** 右键（自由建模手势中）= 原地落定：几何长出来但留在原地、新长出来的成为选区，接着 G 挪（Blender 的 E 然后右键；user 10-28 晚）。没有 = 右键只是取消。 */
+    commitInPlace?(ctx: ToolCtx): void;
     /** 悬停也要预演（擦面：悬停就看到擦掉的样子）。 */
     readonly previewOnHover?: boolean;
     /** A9 吃哪种锁：「axis」= 沿轴走（方向键锁轴、Shift+方向键锁面，自己调 ctx.applyLock）；「plane」= 先定平面（方向键直接锁平面，首点之后用 ctx.lockedPlane）；不写 = 不吃锁。 */

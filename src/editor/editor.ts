@@ -255,11 +255,11 @@ export class Editor {
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private _grid: GridSettings = { ...NEW_DOC_GRID };
-  /** 定稿锁（护栏 ②，ai-docs/20261024-finalize.md）：true = 改内容的入口全拒（commit / undo / redo / VCB）。由 session 按文件记录设。 */
+  /** 演示锁（护栏 ②，周账 F-124；ai-docs/20261024-finalize.md §0）：true = 改模型的入口全拒（commit / undo / redo / VCB / 指针按下 / 键盘起手）；看 / 选工作台 / 走路照旧。由 session 按 desk.locked 设。 */
   private _locked = false;
   get locked(): boolean { return this._locked; }
   setLocked(on: boolean): void { if (this._locked === on) return; this._locked = on; this.cancelGesture(); this.host.changed(); this.draw(); }
-  private lockedSay(): void { this.host.hint("定稿了：锁着。☰「改稿」才能改"); }
+  private lockedSay(): void { this.host.hint("锁着：只能看；☰「解锁」才能改"); }
   get grid(): Readonly<GridSettings> { return this._grid; }
   setGrid(patch: Partial<GridSettings>): void {
     this._grid = { ...this._grid, ...patch };
@@ -1248,7 +1248,7 @@ export class Editor {
     // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。
     // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
     const rw = this.mirrorRewrite(op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
-    if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (final)" }); return []; }
+    if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; }
     if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
     const t0 = performance.now();
@@ -2986,7 +2986,7 @@ export class Editor {
     const L = this.last;
     if (!L) return { ok: false, error: "先做一步（画 / 推拉 / 移动…），再输精确值" };
     if (this.vcbBlocked()) return { ok: false, error: "先松手落定，再输精确值" };
-    if (this._locked) return { ok: false, error: "定稿了：锁着。☰「改稿」才能改" };
+    if (this._locked) return { ok: false, error: "锁着：只能看；☰「解锁」才能改" };
     const v = parseVcb(text, L.kind, { unit: this.vcbUnit });
     if ("error" in v) return { ok: false, error: v.error };
     const at = L.at;
@@ -3284,6 +3284,7 @@ export class Editor {
    */
   /** variant = 同一格里的哪种（插入那一格：Ctrl+B "bevel" / Ctrl+Shift+B "bevelVerts"）；工具自己认。 */
   startModal(tool: Tool, variant?: string): boolean {
+    if (this._locked) { this.lockedSay(); return true; }   // 演示锁：G / R / S / E / I 不起手也不切工具（返回 true = 调用方别再切工具）
     if (this.mode.id !== "freeform" || this.gestureActive() || !this.lastPtr) return false;
     if (!this.mode.tools.includes(tool)) return false;
     const at = this.lastPtr;
@@ -3791,6 +3792,7 @@ export class Editor {
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
   private pointerDownStep(ev: ToolPointer): void {
+    if (this._locked) { this.lockedSay(); return; }   // 护栏 ②（演示锁）：工具指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里
     this.ctxPick = null; this.pointed = null;   // 右键菜单那一下记的点 / Ctrl+J 压着的那个：画布上再按一下就作废
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;

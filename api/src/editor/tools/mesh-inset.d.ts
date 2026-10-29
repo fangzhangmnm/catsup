@@ -5,6 +5,10 @@ import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 export declare class MeshInsetTool implements ToolHandler {
     readonly tool: "offset";
     readonly grammar: "steps";
+    /** 手势中打的数 = 插入 / 倒角的宽度（读法 = units.ts）。 */
+    readonly typedQuantity: {
+        q: "length";
+    };
     private job;
     /** 按在选区外的东西上：落定时选区换成它（selecting.ts adoptPress；账本 UX30）。 */
     private adopt;

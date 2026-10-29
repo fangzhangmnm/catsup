@@ -21,12 +21,21 @@ export declare function occlusionTest(k: GeomView, pf: PointerFrame, vp: Viewpor
 /** 一个点所在的面（连着的边两侧的面）。 */
 export declare function facesAtVertex(k: GeomView, vid: VertexId): Set<FaceId>;
 /** vertexPx = 点自己的半径（缺 = tolPx；自由建模给 MESH_VERT_HIT_PX 换算过的常量）。 */
+/** 拾取范围（自由建模工具条「拾取：点 / 边 / 面」三个开关；user 10-28 晚「点线面，要不三个toggle，放在马前炮」）：关掉的那一级不参赛，下一级顶上。 */
+export interface PickKinds {
+    readonly verts?: boolean;
+    readonly edges?: boolean;
+    readonly faces?: boolean;
+}
 export declare function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number, tolPx: number, opts?: {
     soft?: boolean;
     xray?: boolean;
     softActive?: boolean;
     vertexPx?: number;
+    kinds?: PickKinds;
 }): HitResult3;
+/** 面点：外环点的平均（世界）。画（Editor.faceDotsView）和点（pickEntity 的 X 光那段）共用这一个，画的地方 = 点得中的地方。 */
+export declare function faceDotPoint(k: GeomView, id: FaceId): Pt3 | null;
 export declare function pickFace(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): FaceId | undefined;
 /** 画线平面：光标下的面 → 它的平面；否则地面。 */
 export declare function drawPlaneAt(k: GeomView, pf: PointerFrame, vp: Viewport, sx: number, sy: number): DrawPlane;
