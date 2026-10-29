@@ -14,7 +14,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=718e5dfd4927" />
+    <link rel="stylesheet" href="./styles.css?v=c60ac6b0b6c7" />
     <script>
       // bundle 加载前的兜底：任何脚本错误糊一张红条（iPad/Quest 无 devtools）。
       (function () {
@@ -38,7 +38,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  94 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  97 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -58,6 +58,10 @@
   <symbol id="sharpen" data-cat="drawing-tool" data-src="own" data-note="锐化:硬边菱形 + 十字棱线(淡)=切面/刃口；与 blur 成对(一软一硬)【WeebPaint 手指位长按菜单「锐化（笔刷）」+ 钮面；fable 自画未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 L20 12 L12 21 L4 12 Z"/><path d="M12 3 L12 21" stroke-opacity="0.55"/><path d="M4 12 L20 12" stroke-opacity="0.55"/></symbol>
   <!-- compass — 圆规:顶上一截握柄 + 转轴小圆 + 左右对称两条腿(一样粗)张成 Λ,两个腿尖各一个实心小尖 = 以一点为心、按半径作圆；与 circle(圆图元)/ protractor(量角器)分工【CatsUp 左柱测量组展开条里的「圆规」工具（圆 / 球两态：参考圆 / 参考球）；2026-10-26 Claude Opus 5.5 自画；第 2 稿按 user 意见改（「圆规左右应该对称，我建议右边不要粗，然后可以加尖尖，如果不是太小的话」），未过目】 -->
   <symbol id="compass" data-cat="drawing-tool" data-src="own" data-note="圆规:顶上一截握柄 + 转轴小圆 + 左右对称两条腿(一样粗)张成 Λ,两个腿尖各一个实心小尖 = 以一点为心、按半径作圆；与 circle(圆图元)/ protractor(量角器)分工【CatsUp 左柱测量组展开条里的「圆规」工具（圆 / 球两态：参考圆 / 参考球）；2026-10-26 Claude Opus 5.5 自画；第 2 稿按 user 意见改（「圆规左右应该对称，我建议右边不要粗，然后可以加尖尖，如果不是太小的话」），未过目】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2.2 V4.6"/><circle cx="12" cy="6.20" r="1.6"/><path d="M11.33 7.65 L6.60 18.00"/><path d="M12.67 7.65 L17.40 18.00"/><path d="M7.46 18.40 L5.39 20.64 L5.74 17.60 Z" fill="currentColor" stroke-width="0.9"/><path d="M18.26 17.60 L18.61 20.64 L16.54 18.40 Z" fill="currentColor" stroke-width="0.9"/></symbol>
+  <!-- brush-width — 笔刷宽度:平行两条波浪(标准1.7/粗3.4) -->
+  <symbol id="brush-width" data-cat="drawing-tool" data-src="own" data-note="笔刷宽度:平行两条波浪(标准1.7/粗3.4)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9 Q7.5 6 12 9 T21 9" stroke-width="1.7"/><path d="M3 15.5 Q7.5 12.5 12 15.5 T21 15.5" stroke-width="3.4"/></symbol>
+  <!-- eyedropper — 吸管:滴管斜置, 管尖在左下, 圆胶头在右上 -->
+  <symbol id="eyedropper" data-cat="drawing-tool" data-src="own" data-note="吸管:滴管斜置, 管尖在左下, 圆胶头在右上" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 21 l1 -1 h2.5 L14 12.5"/> <path d="M4 20 v-2.5 L11.5 10"/> <path d="M14.2 6.9 L17.4 3.7 a2.4 2.4 0 0 1 3 3 L17.1 9.6 a1.3 1.3 0 0 1 0 1.9 a1.3 1.3 0 0 1 -1.9 0 L12.5 9.6 a1.3 1.3 0 0 1 0 -1.9 a1.3 1.3 0 0 1 1.9 0 Z"/></symbol>
   <!-- tool -->
   <!-- hand — 手/抓取:食指左线裁到与拇指指尖弧交点 y=11.44,不再穿出 -->
   <symbol id="hand" data-cat="tool" data-src="lucide:hand" data-note="手/抓取:食指左线裁到与拇指指尖弧交点 y=11.44,不再穿出" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5"/><path d="M14 10V4a2 2 0 0 0-4 0v6"/><path d="M10 10.5V6a2 2 0 0 0-4 0v5.44"/><path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-1-5.6-2.8l-3.4-5.4a2 2 0 0 1 3.4-2L8 14"/></symbol>
@@ -109,6 +113,8 @@
   <!-- image-processing -->
   <!-- color — 三色文氏图(弱半透明填充,重叠处自然叠深) -->
   <symbol id="color" data-cat="image-processing" data-src="own" data-note="三色文氏图(弱半透明填充,重叠处自然叠深)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8.5" r="5.3" fill="currentColor" fill-opacity="0.18"/><circle cx="9" cy="13.75" r="5.3" fill="currentColor" fill-opacity="0.18"/><circle cx="15" cy="13.75" r="5.3" fill="currentColor" fill-opacity="0.18"/></symbol>
+  <!-- opacity — 不透明度:圆内左半实心+右半棋盘(甲方 spec;优于库内 transparency) -->
+  <symbol id="opacity" data-cat="image-processing" data-src="own" data-note="不透明度:圆内左半实心+右半棋盘(甲方 spec;优于库内 transparency)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><clipPath id="icOpac"><circle cx="12" cy="12" r="8.5"/></clipPath><g clip-path="url(#icOpac)" fill="currentColor" stroke="none"><rect x="3.50" y="3.50" width="8.50" height="17.00"/><rect x="12.00" y="3.50" width="4.25" height="4.25"/><rect x="12.00" y="12.00" width="4.25" height="4.25"/><rect x="12.00" y="20.50" width="4.25" height="4.25"/><rect x="16.25" y="7.75" width="4.25" height="4.25"/><rect x="16.25" y="16.25" width="4.25" height="4.25"/><rect x="20.50" y="3.50" width="4.25" height="4.25"/><rect x="20.50" y="12.00" width="4.25" height="4.25"/><rect x="20.50" y="20.50" width="4.25" height="4.25"/></g><circle cx="12" cy="12" r="8.5"/></symbol>
   <!-- transform -->
   <!-- flip-horizontal — 水平翻转(尖端朝内):左空心 右实心+圆角描边。实心那个按 0.88 缩放 —— 外轮廓一致时实心墨迹 41.4(空心 40.2), 视觉上更重, 故需略缩。此处外宽 6.4(空心 7.03) -->
   <symbol id="flip-horizontal" data-cat="transform" data-src="own" data-note="水平翻转(尖端朝内):左空心 右实心+圆角描边。实心那个按 0.88 缩放 —— 外轮廓一致时实心墨迹 41.4(空心 40.2), 视觉上更重, 故需略缩。此处外宽 6.4(空心 7.03)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3.5 V20.5" stroke-dasharray="2 2"/><path d="M4.000000000000001 7.0 L9.3 12 L4.000000000000001 17.0 Z"/><path d="M19.36 7.60 L14.70 12.00 L19.36 16.40 Z" fill="currentColor" stroke="currentColor" stroke-linejoin="round" stroke-linecap="round"/></symbol>
@@ -378,6 +384,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-385b63621499.mjs"></script>
+    <script type="module" src="./dist/catsup-ec19d22e8d3f.mjs"></script>
   </body>
 </html>

@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-94 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+97 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -26,6 +26,8 @@
 | `pencil` | 铅笔 Bootstrap Icons MIT |
 | `sharpen` 👁待过目 | 锐化:硬边菱形 + 十字棱线(淡)=切面/刃口；与 blur 成对(一软一硬)【WeebPaint 手指位长按菜单「锐化（笔刷）」+ 钮面；fable 自画未过目】 |
 | `compass` 👁待过目 | 圆规:顶上一截握柄 + 转轴小圆 + 左右对称两条腿(一样粗)张成 Λ,两个腿尖各一个实心小尖 = 以一点为心、按半径作圆；与 circle(圆图元)/ protractor(量角器)分工【CatsUp 左柱测量组展开条里的「圆规」工具（圆 / 球两态：参考圆 / 参考球）；2026-10-26 Claude Opus 5.5 自画；第 2 稿按 user 意见改（「圆规左右应该对称，我建议右边不要粗，然后可以加尖尖，如果不是太小的话」），未过目】 |
+| `brush-width` | 笔刷宽度:平行两条波浪(标准1.7/粗3.4) |
+| `eyedropper` | 吸管:滴管斜置, 管尖在左下, 圆胶头在右上 |
 
 ## tool
 
@@ -74,6 +76,7 @@
 | name | 说明 |
 |------|------|
 | `color` | 三色文氏图(弱半透明填充,重叠处自然叠深) |
+| `opacity` | 不透明度:圆内左半实心+右半棋盘(甲方 spec;优于库内 transparency) |
 
 ## transform
 

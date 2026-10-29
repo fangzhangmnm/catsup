@@ -426,10 +426,19 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .board.board-drawer { left: 0 !important; right: 0; top: auto !important; bottom: 0; width: auto; max-height: 50vh; border-radius: 14px 14px 0 0; }
 .board.board-drawer .board-head { cursor: default; }
 /* 软选择：半径竖滑条（WeebPaint 左栏同款，放在左柱右边、竖着居中；只在用得上时露）+ 画布上的半径圈 */
-.soft-slider { position: fixed; z-index: 6; left: calc(76px + var(--safe-left, 0px)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 8px 4px; border-radius: 12px; background: color-mix(in srgb, var(--panel, #fff) 80%, transparent); border: 1px solid var(--line); width: 36px; box-sizing: border-box; }
-.soft-slider[hidden] { display: none; }
-.soft-slider-range { -webkit-appearance: slider-vertical; appearance: slider-vertical; writing-mode: vertical-lr; direction: rtl; width: 24px; max-width: 24px; height: 140px; margin: 0; padding: 0; background: transparent; }
-.soft-slider-label { font-size: 10px; color: var(--muted); user-select: none; }
+.left-dial { position: fixed; z-index: 6; left: calc(76px + var(--safe-left, 0px)); top: 50%; transform: translateY(-50%); display: flex; flex-direction: column; align-items: center; gap: 6px; padding: 8px 4px; width: 40px; box-sizing: border-box;
+  background: color-mix(in srgb, var(--panel) 80%, transparent); -webkit-backdrop-filter: blur(16px) saturate(180%); backdrop-filter: blur(16px) saturate(180%); border: 1px solid var(--line); border-radius: 12px; box-shadow: 0 6px 20px rgba(0,0,0,.12); }   /* 左栏 dial = WeebPaint .left-sidebar 那张卡片（left-dial.ts；2026-10-29 Opus） */
+.left-dial[hidden], .left-dial-slot[hidden] { display: none; }
+.left-dial-slot { display: flex; flex-direction: column; align-items: center; gap: 2px; }
+.left-dial-label { color: var(--muted); line-height: 0; user-select: none; }
+/* 自己画的竖滑条（ui/vslider.ts）：一根细轨 + 墨色填充 + 圆钮；--p = 0..1（下 → 上） */
+.vslider { position: relative; width: 28px; height: 120px; touch-action: none; cursor: ns-resize; outline: none; --thumb: 20px; }
+.vslider-track { position: absolute; left: 50%; top: calc(var(--thumb) / 2); bottom: calc(var(--thumb) / 2); width: 4px; transform: translateX(-50%); border-radius: 2px; background: var(--line); overflow: hidden; }
+.vslider-fill { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--p) * 100%); background: var(--ink); }
+.vslider-thumb { position: absolute; left: 50%; width: var(--thumb); height: var(--thumb); transform: translateX(-50%); bottom: calc(var(--p) * (100% - var(--thumb))); border-radius: 50%; background: var(--panel); border: 2px solid var(--ink); box-sizing: border-box; box-shadow: 0 1px 4px rgba(0,0,0,.25); }
+.vslider:focus-visible .vslider-thumb { box-shadow: 0 0 0 3px var(--accent-soft), 0 1px 4px rgba(0,0,0,.25); }
+.vslider-bubble { position: absolute; left: calc(100% + 14px); bottom: calc(var(--p) * (100% - var(--thumb)) - 4px); white-space: nowrap; padding: 4px 8px; border-radius: 8px; background: var(--ink); color: var(--panel); font-size: 12px; font-variant-numeric: tabular-nums; pointer-events: none; box-shadow: 0 2px 8px rgba(0,0,0,.2); }
+.vslider-bubble[hidden] { display: none; }
 #softRing { position: fixed; z-index: 5; pointer-events: none; overflow: visible; }
 #softRing circle { fill: none; stroke: var(--accent, #2b6cb0); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .8; }
 /* 扩 / 缩选区的拖动条（app/sel-grow-bar.ts）：低调小胶囊，出在点的那一下下面 */

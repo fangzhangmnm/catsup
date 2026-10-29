@@ -26,7 +26,8 @@ import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
-import { mountSoftSlider, type SoftSlider } from "./soft-slider.ts";
+import { mountSoftSlider, stepRadius, type SoftSlider } from "./soft-slider.ts";
+import { mountLeftDial } from "./left-dial.ts";
 import { mountSelGrowBar, type SelGrowBar } from "./sel-grow-bar.ts";
 import { RAIL_FIXED_FLYOUTS, RAIL_FIXED_FOLD, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
@@ -1210,7 +1211,7 @@ var selGrowRef: SelGrowBar | null = mountSelGrowBar(canvas, editor, () => syncUi
 // 软选择的半径竖滑条（WeebPaint 左栏那根的同款；user 10-28 夜「weebpaint的slider放哪里」）：左柱右边，开着软选择 + 拿着会用它的工具才露
 const SOFT_TOOLS: readonly Tool[] = ["move", "rotate", "scale", "shrink"];
 // eslint-disable-next-line no-var
-var softSliderRef: SoftSlider | null = mountSoftSlider($("stage"), canvas, editor, {
+var softSliderRef: SoftSlider | null = mountSoftSlider(mountLeftDial($("stage")), $("stage"), canvas, editor, {
   visible: () => editor.modeId === "freeform" && editor.config.get("soft", "on") && SOFT_TOOLS.includes(editor.tool),
   selectionScreenCenter: () => { const p = editor.selectionCenter("mean"); return p ? editor.cam.angularPx(p, editor.vp()) : null; },
 });
@@ -1291,7 +1292,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "objects.join": editor.mergeUnderCursor(); syncUi(); return;
     case "mesh.duplicateMove": if (editor.runAction("mesh.duplicate") > 0) editor.startModal("move"); syncUi(); return;   // Blender Shift+D：复制叠在原处 → 接着 G
     case "soft.toggle": editor.config.set("soft", "on", !editor.config.get("soft", "on")); editor.refreshGesture(); syncUi(); return;
-    case "soft.smaller": case "soft.bigger": { const r = editor.config.get("soft", "radius"); editor.config.set("soft", "radius", Math.round(verb === "soft.bigger" ? r * 1.2 : r / 1.2)); editor.refreshGesture(); syncUi(); return; }   // 手势中打数（Blender「S Z 0」）
+    case "soft.smaller": case "soft.bigger": { editor.config.set("soft", "radius", stepRadius(editor.config.get("soft", "radius"), verb === "soft.bigger" ? 1 : -1)); editor.refreshGesture(); syncUi(); softSliderRef?.flash(); return; }   // 按档位走（同滑条）；读数 + 圈闪一下   // 手势中打数（Blender「S Z 0」）
     case "mesh.connect": editor.runAction("mesh.connect"); syncUi(); return;
     case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
     case "move.slideToggle": editor.toggleSlideOnce(); syncUi(); return;   // 移动中再按 G = 这一次沿边滑（Blender G G；工具条「沿边滑」= 常驻模式）

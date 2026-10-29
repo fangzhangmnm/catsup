@@ -42,7 +42,7 @@ await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitFor
 sel = await selectTop(); top = sel.sel[0]; r.sel2 = sel.sel; await hover();
 await keys("o"); await page.waitForTimeout(60);
 await page.evaluate(() => globalThis.__catsup.editor.config.set("soft", "radius", 400));   // 默认 120 像素在这个缩放下只有十几厘米，罩不到邻点
-r.ui = await page.evaluate(() => ({ on: globalThis.__catsup.editor.config.get("soft", "on"), strip: /软选择/.test(document.getElementById("toolStrip")?.textContent ?? ""), slider: !document.querySelector(".soft-slider")?.hidden }));
+r.ui = await page.evaluate(() => ({ on: globalThis.__catsup.editor.config.get("soft", "on"), strip: /软选择/.test(document.getElementById("toolStrip")?.textContent ?? ""), slider: !document.querySelector(".left-dial")?.hidden }));
 z0 = await snap(); const st = await page.evaluate(() => globalThis.__catsup.editor.history.steps());
 await keys("g", "z", "0", ".", "5");
 await page.mouse.move(520, 380); await page.waitForTimeout(60);
@@ -59,7 +59,7 @@ const r0 = await page.evaluate(() => globalThis.__catsup.editor.config.get("soft
 await keys("]"); r.bigger = (await page.evaluate(() => globalThis.__catsup.editor.config.get("soft", "radius"))) > r0;
 // ⑤
 await page.evaluate(() => globalThis.__catsup.hud.pick("select")); await page.waitForTimeout(60);
-r.sliderOnSelect = await page.evaluate(() => !document.querySelector(".soft-slider")?.hidden);
+r.sliderOnSelect = await page.evaluate(() => !document.querySelector(".left-dial")?.hidden);
 await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
