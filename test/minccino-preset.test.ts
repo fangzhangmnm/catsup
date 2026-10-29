@@ -21,12 +21,16 @@ describe("minccino 预设 = 数据", () => {
     eq(planFrame(presetPasses(PRESETS.papercut, false), ["frame"]).order.join(","), "aoBake,ground,scene,grid,overlay");   // 遮蔽先烘、地面先画、模型追加
     assert(isStyled(PRESETS.tron), "CRT Tron 走屏幕那条路（240 行 + CRT）");
     eq(planFrame(presetPasses(PRESETS.tron, false), ["frame"]).order.join(","), "ground,scene,glow,bloom,composite,upscale,grid,overlay");   // 辉光那遍 → 辉光 → 合成 → CRT 放大
+    const bronze = planFrame(presetPasses(PRESETS.bronze, false), ["frame"]).order;
+    assert(!isStyled(PRESETS.bronze) && ["aoBake", "envBake", "ground", "scene"].every((x) => bronze.includes(x)) && bronze.indexOf("envBake") < bronze.indexOf("ground") && bronze.indexOf("ground") < bronze.indexOf("scene"), `铸铜 = 遮蔽 / 环境先烘 → 地面 → 模型：${bronze.join(",")}`);
   });
   it("一件一色 / 平涂 / 遮蔽：要平涂的预设一定给了平涂参数；遮蔽的长度都是正的", () => {
     for (const id of PRESET_IDS) {
       const p = PRESETS[id];
       if (p.material.shade === "flat") assert(!!p.material.flat, `${id} 要平涂但没给参数`);
       const ao = p.light.ao; if (ao) assert(ao.radius > 0 && ao.groundRadius > 0 && ao.amount >= 0 && ao.amount <= 1, `${id} 遮蔽参数不对`);
+      if (p.material.shade === "pbr") assert(!!p.material.pbr && !!p.light.env && !!p.light.ao, `${id} 有光照的表面要材质参数 + 环境 + 遮蔽（太阳投影在遮蔽图集里）`);
+      if (p.material.shade === "tron") assert(!!p.material.tron, `${id} 要 Tron 但没给参数`);
     }
   });
   it("每个预设都写了出处和一句话说明；像素化 ≥ 1；id 和键一致", () => {

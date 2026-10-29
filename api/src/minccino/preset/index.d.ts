@@ -40,6 +40,27 @@ export interface TronShade {
     readonly hidden: number;
     readonly select: number;
 }
+/** 有光照的表面（实验室 material.js「表面」）：底色（材料本色，不借模型颜色）、金属、粗糙、铜绿（强度 / 颜色，积在凹处）、清漆（强度 / 粗糙）、表面纹理（砂铸）、高光。 */
+export interface PbrShade {
+    readonly base: number;
+    readonly metal: number;
+    readonly rough: number;
+    readonly patina: number;
+    readonly patinaColor: number;
+    readonly coat: number;
+    readonly coatRough: number;
+    readonly pattern: "none" | "sand";
+    readonly patternAmt: number;
+    readonly spec: number;
+}
+/** 环境（光与环境挂点）：程序海天（实验室 app.js）、环境光强度、曝光、太阳方位 / 高度（度）。 */
+export interface EnvLight {
+    readonly kind: "sky-sea";
+    readonly amount: number;
+    readonly exposure: number;
+    readonly sunAz: number;
+    readonly sunEl: number;
+}
 /** 辉光（后处理挂点）：强度、半径、上限（软削顶）、暗角。 */
 export interface BloomPost {
     readonly amount: number;
@@ -67,12 +88,13 @@ export interface Preset {
     /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
      *  上色方式（model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色）。 */
     readonly material: {
-        readonly shade: "camera" | "none" | "flat" | "tron";
+        readonly shade: "camera" | "none" | "flat" | "tron" | "pbr";
         readonly texFilter: "asset" | "nearest";
         readonly edges: boolean;
         readonly colorize: "model" | "part";
         readonly flat: FlatShade | null;
         readonly tron: TronShade | null;
+        readonly pbr: PbrShade | null;
     };
     /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
     readonly light: {
@@ -83,6 +105,7 @@ export interface Preset {
             readonly grid: number;
         } | null;
         readonly ao: AoParams | null;
+        readonly env: EnvLight | null;
     };
     /** 后处理挂点。 */
     readonly post: {
@@ -114,11 +137,13 @@ export declare const PRESETS: {
             readonly colorize: "model";
             readonly flat: null;
             readonly tron: null;
+            readonly pbr: null;
         };
         readonly light: {
             readonly background: null;
             readonly ground: null;
             readonly ao: null;
+            readonly env: null;
         };
         readonly post: {
             readonly pixelOutline: null;
@@ -145,11 +170,13 @@ export declare const PRESETS: {
             readonly colorize: "model";
             readonly flat: null;
             readonly tron: null;
+            readonly pbr: null;
         };
         readonly light: {
             readonly background: 16639677;
             readonly ground: null;
             readonly ao: null;
+            readonly env: null;
         };
         readonly post: {
             readonly pixelOutline: {
@@ -192,6 +219,7 @@ export declare const PRESETS: {
                 readonly lightEl: 60;
             };
             readonly tron: null;
+            readonly pbr: null;
         };
         readonly light: {
             readonly background: 16248800;
@@ -206,6 +234,7 @@ export declare const PRESETS: {
                 readonly groundRadius: 2;
                 readonly soft: 0;
             };
+            readonly env: null;
         };
         readonly post: {
             readonly pixelOutline: null;
@@ -244,6 +273,7 @@ export declare const PRESETS: {
                 readonly hidden: 0.12;
                 readonly select: 16751150;
             };
+            readonly pbr: null;
         };
         readonly light: {
             readonly background: 66311;
@@ -253,6 +283,7 @@ export declare const PRESETS: {
                 readonly grid: 0.55;
             };
             readonly ao: null;
+            readonly env: null;
         };
         readonly post: {
             readonly pixelOutline: null;
@@ -267,6 +298,65 @@ export declare const PRESETS: {
             readonly pixelate: 1;
             readonly rows: 240;
             readonly look: "crt-tv";
+        };
+        readonly geometry: {};
+    };
+    /** 铸铜（实验室「雕塑与手办」分类的门面，10-28 user「铸铜是雕塑的poster child」）：青铜雕塑，失蜡铸造——砂眼、凹处铜绿、一层蜡；露天大件 = 程序海天。 */
+    readonly bronze: {
+        readonly id: "bronze";
+        readonly name: "铸铜";
+        readonly brief: "青铜 + 铜绿 + 海天";
+        readonly note: "不借模型颜色的青铜：金属高光映出程序海天、太阳打出投影，缝里和凹处积着铜绿（世界空间遮蔽，改完模型停手约 0.25 秒后跟上），表面有砂铸的坑洼和一层蜡；背景是那片海天、地面浅灰；模型自己的线稿不画。和实验室不一样：没有倒角（CatsUp 还没给这个几何通道）、没有镜头炫光";
+        readonly source: "实验室 表面 material.js ·「铸铜」（base #b3804e、metal 1、rough 0.38、pattern 9 砂铸 × 0.5、patina 0.75 #3b4632、coat 0.25 / 0.22、spec 1、envSource 程序海天 × 1.1、sunAz 35 / sunEl 45、exposure 0.95、aoMode 世界空间 × 1、ground #9a9a96；BASE 的 aoSoft 1；遮蔽半径照 material.js 模型 0.5 / 地面 0.25；太阳色 1.7 / 1.6 / 1.45、天光 / 地光照 LIGHT 段）";
+        readonly material: {
+            readonly shade: "pbr";
+            readonly texFilter: "asset";
+            readonly edges: false;
+            readonly colorize: "model";
+            readonly flat: null;
+            readonly tron: null;
+            readonly pbr: {
+                readonly base: 11763790;
+                readonly metal: 1;
+                readonly rough: 0.38;
+                readonly patina: 0.75;
+                readonly patinaColor: 3884594;
+                readonly coat: 0.25;
+                readonly coatRough: 0.22;
+                readonly pattern: "sand";
+                readonly patternAmt: 0.5;
+                readonly spec: 1;
+            };
+        };
+        readonly light: {
+            readonly background: null;
+            readonly ground: {
+                readonly color: 10132118;
+                readonly on: 1;
+                readonly grid: 0;
+            };
+            readonly ao: {
+                readonly amount: 1;
+                readonly radius: 0.5;
+                readonly groundRadius: 0.25;
+                readonly soft: 1;
+            };
+            readonly env: {
+                readonly kind: "sky-sea";
+                readonly amount: 1.1;
+                readonly exposure: 0.95;
+                readonly sunAz: 35;
+                readonly sunEl: 45;
+            };
+        };
+        readonly post: {
+            readonly pixelOutline: null;
+            readonly bloom: null;
+        };
+        readonly screen: {
+            readonly pixelate: 1;
+            readonly rows: null;
+            readonly look: "none";
         };
         readonly geometry: {};
     };

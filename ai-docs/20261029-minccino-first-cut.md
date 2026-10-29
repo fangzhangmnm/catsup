@@ -30,6 +30,7 @@
 - 2026-10-29 · style-pixel-sel / style-pixel-house / style-pixel-textured · **只加新场景、没重冻旧的**：Tron 第 1 步像素描边落地（v0.17.10，Claude Opus 5.5；`ai-docs/20261029-preset-inventory.md` §5）。原 11 张照旧 0 像素差。
 - 2026-10-29 · style-papercut-boxes / style-papercut-painted · **只加新场景**：剪纸 · 色纸落地（v0.17.11，Claude Opus 5.5；清单 §5）。前 14 张照旧 0 像素差。
 - 2026-10-29 · style-tron-sel / style-tron-house-thick · **只加新场景**：CRT Tron 落地（v0.17.12，Claude Opus 5.5；清单 §5）。前 16 张照旧 0 像素差。style-tron-house-thick 当天重冻过一次：粗线在小图上断成点的 bug 修了（同一个版本内，没发出去过）。
+- 2026-10-29 · style-bronze-boxes / style-bronze-house · **只加新场景**：铸铜落地（v0.17.13，Claude Opus 5.5；清单 §5）。前 18 张照旧 0 像素差（含遮蔽图集 5×4 → 5×5 之后的剪纸 2 张）。
 
 ## 步 2 目录 + 守卫（v0.17.2）
 

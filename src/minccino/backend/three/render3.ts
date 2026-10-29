@@ -51,6 +51,8 @@ import { AoBaker } from "./ao-bake.ts";
 import { PaperMaterials } from "./paper-shader.ts";
 import { TronMaterials } from "./tron-shader.ts";
 import { Bloom } from "./bloom.ts";
+import { EnvSky } from "./env-sky.ts";
+import { PbrMaterials } from "./pbr-shader.ts";
 
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
@@ -247,6 +249,8 @@ export class Renderer3 implements Backend {
   private tron: TronMaterials | null = null;           // CRT Tron 的面 / 线材质（第一次用到才建）
   private lastTarget: Vec3 = { x: 0, y: 0, z: 0 };     // 视野中心（正交下 Tron 地格的淡出按它）
   private bloom: Bloom | null = null;                  // 辉光（后处理）
+  private envSky: EnvSky | null = null;                // 环境图（程序海天 + 球谐；铸铜）
+  private pbr: PbrMaterials | null = null;             // 有光照的表面（铸铜）
   private aoSeen = ""; private aoBaked = ""; private aoChangedAt = 0; private aoTimer: ReturnType<typeof setTimeout> | null = null;
   /** 后端自己想再画一帧（遮蔽停手后重烘好了）：app 层接 editor.draw。 */
   onRedrawWanted: (() => void) | null = null;
@@ -589,6 +593,10 @@ export class Renderer3 implements Backend {
     this.unlitU.value = this.framePreset.material.shade === "none";
     this.ensurePaper();
     if (this.framePreset.material.tron && !this.tron) this.tron = new TronMaterials(DEPTH.face, DEPTH.faceOther);
+    if (this.framePreset.material.pbr && !this.pbr && this.aoBaker) {   // 铸铜：环境图 + 表面材质（遮蔽烘焙器 ensurePaper 已建）
+      this.envSky = new EnvSky(); this.pbr = new PbrMaterials(this.aoBaker.uniforms, this.envSky, DEPTH.face, DEPTH.faceOther);
+      this.pbr.ground.layers.set(GROUND_LAYER); this.scene.add(this.pbr.ground);
+    }
     const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}:${this.framePreset.id}`;
     if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
     this.syncPaper(cam3);   // 平涂 / 地面 / 遮蔽（剪纸）：没用到 = 地面藏着、什么都不建
@@ -620,7 +628,7 @@ export class Renderer3 implements Backend {
     else { info3.autoReset = false; info3.reset(); try { this.renderStyled(cam3); } finally { info3.autoReset = true; } }
     // ---- 血槽位（步 7）：三个数 + 预算核对。显存 = 块的显卡副本 + 贴图的估算（three 不报字节数）+ 风格的小图 ----
     const info = info3?.render;
-    let bytes = (styled && this.pixelScreen ? this.pixelScreen.bytes() : 0) + (this.framePreset.light.ao && this.aoBaker ? this.aoBaker.bytes() : 0) + (this.framePreset.post.bloom && this.bloom ? this.bloom.bytes() : 0);
+    let bytes = (styled && this.pixelScreen ? this.pixelScreen.bytes() : 0) + (this.framePreset.light.ao && this.aoBaker ? this.aoBaker.bytes() : 0) + (this.framePreset.post.bloom && this.bloom ? this.bloom.bytes() : 0) + (this.framePreset.light.env && this.envSky ? this.envSky.bytes() : 0);
     for (const g of this.chunkGpus.values()) for (const a of Object.values("attrs" in g ? g.attrs : g.bufs) as any[]) bytes += a.array?.byteLength ?? 0;
     for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
     const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
@@ -646,19 +654,31 @@ export class Renderer3 implements Backend {
     const p = this.framePreset, L = p.light;
     if (!this.paper || (!L.ao && !L.ground && p.material.shade !== "flat")) { this.paper?.hide(); return; }
     const sphere = this.provider?.bounds?.() ?? null;
+    const env = L.env, az = (env?.sunAz ?? 0) * Math.PI / 180, el = (env?.sunEl ?? 0) * Math.PI / 180;
+    const sunW = env ? { x: Math.sin(az) * Math.cos(el), y: Math.cos(az) * Math.cos(el), z: Math.sin(el) } : null;   // 世界（z 上）；实验室坐标 = (x, z, −y)
     if (L.ao && this.aoBaker) {
       const ck = this.provider?.contentKey?.() ?? "static", now = performance.now();
       if (ck !== this.aoSeen) {
         this.aoSeen = ck; this.aoChangedAt = now;
         if (this.aoBaked !== "") { if (this.aoTimer) clearTimeout(this.aoTimer); this.aoTimer = setTimeout(() => { this.aoTimer = null; this.onRedrawWanted?.(); }, AO_QUIET_MS + 10); }
       }
-      if (sphere && this.aoBaked !== ck && (this.aoBaked === "" || now - this.aoChangedAt >= AO_QUIET_MS)) {
+      const want = `${ck}|${sunW ? `${sunW.x.toFixed(4)},${sunW.y.toFixed(4)},${sunW.z.toFixed(4)}` : "-"}`;   // 太阳那格跟着预设走：只换了太阳（换风格）= 内容没变，立刻烘
+      if (sphere && this.aoBaked !== want && (this.aoBaked === "" || this.aoBaked.startsWith(`${ck}|`) || now - this.aoChangedAt >= AO_QUIET_MS)) {
         const baker = this.aoBaker;
-        this.perf.time("aoBake", () => baker.bake(this.renderer, this.scene, sphere));
-        this.aoBaked = ck;
+        this.perf.time("aoBake", () => baker.bake(this.renderer, this.scene, sphere, sunW));
+        this.aoBaked = want;
       }
     }
     cam3.updateMatrixWorld();
+    const fade = this.lastView?.camera.kind === "ortho" ? this.lastTarget : (this.lastView?.camera.eye ?? { x: 0, y: 0, z: 0 });
+    if (p.material.pbr && this.pbr && this.envSky && env && sunW) {   // 铸铜：地面 / 背景归表面那份（环境图 + 太阳 + 遮蔽），纸的地面藏起来
+      this.paper.hide();
+      const es = this.envSky;
+      if (es.ensure(this.renderer, [sunW.x, sunW.z, -sunW.y])) { this.perf.last.envBake = es.lastMs; this.perf.count.envBake = (this.perf.count.envBake ?? 0) + 1; }   // 真烘了才记
+      this.pbr.sync(p.material.pbr, env, sunW, L.ao, !!sphere && this.aoBaked !== "", L.ground, cam3, fade);
+      return;
+    }
+    this.pbr?.hide();
     this.paper.sync(p.material.flat ?? { base: PALETTE.face, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 0 },
       L.ao, !!sphere && this.aoBaked !== "", L.ground, L.background ?? PALETTE.background, cam3,
       p.material.tron && L.ground?.grid ? { line: p.material.tron.line, r: sphere?.r ?? 1, fade: this.lastView?.camera.kind === "ortho" ? this.lastTarget : (this.lastView?.camera.eye ?? { x: 0, y: 0, z: 0 }) } : null);   // Tron 地格：场景半径 = 1 格；淡出按到眼（正交按到视野中心）
@@ -841,8 +861,9 @@ export class Renderer3 implements Backend {
       const paper = this.framePreset.material.shade === "flat" ? this.paper : null;   // 平涂（剪纸）：纸的那组材质，深度偏移档照旧
       const tron = this.framePreset.material.shade === "tron" ? this.tron : null;      // CRT Tron：深色面 + 青线；选中面认领成橙色
       const fside = pl.singleSided ? "front" : "double";
-      n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
-      n.selMat = tron ? tron.face(fside, pl.active, false, true) : null;
+      const pbr = this.framePreset.material.shade === "pbr" ? this.pbr : null;          // 铸铜：有光照的表面，不借模型颜色
+      n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pbr ? pbr.face(fside, pl.active, false) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
+      n.selMat = tron ? tron.face(fside, pl.active, false, true) : pbr ? pbr.face(fside, pl.active, false, true) : null;
       const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
       n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
       let ti = 0;
@@ -850,7 +871,7 @@ export class Renderer3 implements Backend {
         if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
         if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : this.texMatFor(gf.mat!, gf.side!);   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
+        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true) : this.texMatFor(gf.mat!, gf.side!);   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
         slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
         ti++;
       }

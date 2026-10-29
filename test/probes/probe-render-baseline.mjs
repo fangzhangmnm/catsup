@@ -91,6 +91,10 @@ const SCENES = {
   "style-tron-sel": `e.renderer3.setPreset("tron"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.draw();`,
   // Tron × 粗线（轮廓加粗那条路）× 房子样本
   "style-tron-house-thick": { fixture: "house.glb", after: `e.renderer3.setPreset("tron"); e.setLineWeight(2); e.draw();` },
+  // 铸铜（Tron 第 1 步第四个风格）：金属高光映海天 + 太阳投影 + 凹处铜绿 + 砂铸 + 蜡；两个盒子（零件之间有凹处）+ 选中小盒顶面
+  "style-bronze-boxes": `e.renderer3.setPreset("bronze"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.setTool("select"); const t = sp(P(1.7, 0.5, 0.6)); await tap(t.x, t.y); e.draw();`,
+  // 铸铜 × 房子样本（平滑组、组件）
+  "style-bronze-house": { fixture: "house.glb", after: `e.renderer3.setPreset("bronze"); e.draw();` },
   // 风格 × 贴图（最近邻覆盖）
   "style-pixel-textured": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
     e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });

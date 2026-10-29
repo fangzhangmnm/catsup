@@ -6,12 +6,12 @@
 import * as THREE from "three";
 import type { Vec3 } from "../../contract/geometry.ts";
 
-export const AO_DIRS = 20, AO_RES = 512, AO_TILES_X = 5, AO_TILES_Y = 4;
+export const AO_DIRS = 20, AO_RES = 512, AO_TILES_X = 5, AO_TILES_Y = 5;   // 20 格遮蔽 + 第 21 格太阳（铸铜的投影；实验室 shadows 服务的第 21 层）
 
 /** 着色器那半（GLSL3）：aoAt(p, n) = 0（全挡）…1（不挡）。依赖 uniform：uAoDepth / uAoVP / uAoDir / uAoR / uAoTiles / uAoRadius / uAoSoft。 */
 export const AO_GLSL = /* glsl */`
   uniform highp sampler2D uAoDepth;
-  uniform mat4 uAoVP[20]; uniform vec3 uAoDir[20];
+  uniform mat4 uAoVP[21]; uniform vec3 uAoDir[20];
   uniform float uAoRadius, uAoSoft, uAoR; uniform vec2 uAoTiles;
   vec2 aoTile(int k, vec2 uv) { float kf = float(k); return (vec2(mod(kf, uAoTiles.x), floor(kf / uAoTiles.x)) + clamp(uv, vec2(0.0), vec2(1.0))) / uAoTiles; }
   float aoOcc(float D, float c0) { return step(0.01 + 0.03 * (1.0 - clamp(c0, 0.0, 1.0)), D) * (1.0 - smoothstep(0.25 * uAoRadius, uAoRadius, D)); }
@@ -39,6 +39,18 @@ export const AO_GLSL = /* glsl */`
       s += c * (1.0 - occ); w += c;
     }
     return w > 0.0 ? s / w : 1.0;
+  }
+  // 太阳投影（实验室 core.js sunShadow：2×2 小 PCF；跑出深度图的点当没挡）。图集第 21 格；深度不比较，手动比
+  float sunShadow(vec3 p, vec3 n) {
+    vec3 q = (uAoVP[20] * vec4(p + n * 0.004 * uAoR, 1.0)).xyz * 0.5 + 0.5;
+    if (q.x < 0.0 || q.x > 1.0 || q.y < 0.0 || q.y > 1.0 || q.z > 1.0) return 1.0;
+    float s = 0.0;
+    for (int i = 0; i < 4; i++) {
+      vec2 o = (vec2(float(i & 1), float(i >> 1)) - 0.5) * (1.5 / 512.0);
+      float z = textureLod(uAoDepth, aoTile(20, q.xy + o), 0.0).r;
+      s += z >= 0.9999 || q.z - 0.0015 <= z ? 1.0 : 0.0;
+    }
+    return s * 0.25;
   }`;
 
 /** 斐波那契球面 20 个方向（和实验室同一组；朝向无所谓，均匀就行）。 */
@@ -63,15 +75,15 @@ export class AoBaker {
   lastMs = 0;
   constructor() {
     this.uniforms = {
-      uAoDepth: { value: null }, uAoVP: { value: this.dirs.map(() => new THREE.Matrix4()) }, uAoDir: { value: this.dirs },
+      uAoDepth: { value: null }, uAoVP: { value: [...this.dirs, null].map(() => new THREE.Matrix4()) }, uAoDir: { value: this.dirs },
       uAoR: { value: 1 }, uAoTiles: { value: new THREE.Vector2(AO_TILES_X, AO_TILES_Y) },
     };
     // 只写深度；斜坡偏移免得表面自己挡自己（遮蔽版的阴影痤疮；实验室 polygonOffset(2, 4)）
     this.depthOnly = new THREE.MeshBasicMaterial({ colorWrite: false, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 2, polygonOffsetUnits: 4 });
     this.cam.layers.set(0);   // 只烘模型那一层（叠加层、地面不进）
   }
-  /** 把 scene 里第 0 层的东西从 20 个方向烘进图集。sphere = 场景包围球（世界坐标）。 */
-  bake(renderer: any, scene: any, sphere: { c: Vec3; r: number }): void {
+  /** 把 scene 里第 0 层的东西从 20 个方向（+ 给了太阳方向就再烘一格太阳）烘进图集。sphere = 场景包围球（世界坐标）。 */
+  bake(renderer: any, scene: any, sphere: { c: Vec3; r: number }, sun: Vec3 | null = null): void {
     const t0 = performance.now();
     if (!this.rt) {
       const W = AO_RES * AO_TILES_X, H = AO_RES * AO_TILES_Y;
@@ -87,8 +99,8 @@ export class AoBaker {
       scene.background = null; scene.overrideMaterial = this.depthOnly;
       renderer.setRenderTarget(this.rt); renderer.clear(true, true, false);
       renderer.autoClear = false;
-      for (let k = 0; k < AO_DIRS; k++) {
-        const d = this.dirs[k];
+      for (let k = 0; k < (sun ? AO_DIRS + 1 : AO_DIRS); k++) {
+        const d = k < AO_DIRS ? this.dirs[k] : sun!;
         cam.position.set(c.x + d.x * 3 * R, c.y + d.y * 3 * R, c.z + d.z * 3 * R);
         cam.up.set(0, 0, 1); if (Math.abs(d.z) > 0.99) cam.up.set(1, 0, 0);
         cam.lookAt(c.x, c.y, c.z); cam.updateProjectionMatrix(); cam.updateMatrixWorld();

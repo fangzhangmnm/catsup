@@ -38,15 +38,19 @@ const r = await page.evaluate(() => {
   xr.isPresenting = was;
   // CRT Tron：地面（地格）→ 模型 → 辉光那遍 → 辉光 → 合成 → CRT 放大；风格那条路的显存把辉光图算上
   r3.setPreset("tron"); e.draw(); out.tron = order(); out.tronVram = r3.lastMeasurement.vramMb;
+  // 铸铜：环境图只烘一次（太阳不变不重烘）
+  r3.setPreset("bronze"); e.draw(); e.draw(); out.bronze = order(); out.envBakes = r3.perf.count.envBake ?? 0;
   // 剪纸：遮蔽第一次立刻烘；改了模型马上画 = 不烘（影子停在上一份）
-  r3.setPreset("papercut"); e.draw(); out.paper = order(); out.bake1 = r3.perf.count.aoBake ?? 0;
+  const bakeBase = r3.perf.count.aoBake ?? 0;
+  r3.setPreset("papercut"); e.draw(); out.paper = order(); out.bake1 = (r3.perf.count.aoBake ?? 0) - bakeBase;
   e.commitOp({ op: "addEdges", at, segs: [[P(2, 0, 0), P(3, 0, 0)], [P(3, 0, 0), P(3, 1, 0)], [P(3, 1, 0), P(2, 1, 0)], [P(2, 1, 0), P(2, 0, 0)]] }); e.draw();
-  out.bake2 = r3.perf.count.aoBake ?? 0;
+  out.bake2 = (r3.perf.count.aoBake ?? 0) - bakeBase;
+  out.bakeBase = bakeBase;
   return out;
 });
 // 停手 0.25 秒后：后端自己要一帧（onRedrawWanted → editor.draw）、重烘
 await page.waitForTimeout(450);
-const later = await page.evaluate(() => { const r3 = globalThis.__catsup.editor.renderer3, n = r3.perf.count.aoBake ?? 0; r3.setPreset("white"); globalThis.__catsup.editor.draw(); return { bake3: n, back: r3.lastPlan.order.join(",") }; });
+const later = await page.evaluate((base) => { const r3 = globalThis.__catsup.editor.renderer3, n = (r3.perf.count.aoBake ?? 0) - base; r3.setPreset("white"); globalThis.__catsup.editor.draw(); return { bake3: n, back: r3.lastPlan.order.join(",") }; }, r.bakeBase);
 r.back = later.back;
 check(r.white === "scene,grid,overlay" && r.whitePreset === "white", `默认 = 白模那一条：${r.white}`);
 check(r.styled === "scene,pixelOutline,upscale,grid,overlay" && r.styledPreset === "pixelOutline", `像素描边 = 场景 → 描边 → 放大 → 网格 / 叠加层：${r.styled}`);
@@ -56,6 +60,8 @@ check(r.afterThumb.includes("upscale"), `截完缩略图主视图还是风格：
 check(!r.xrPasses.includes("upscale") && r.xrPasses.startsWith("scene,grid"), `XR 会话里只排白模：${r.xrPasses}`);
 check(["ground", "scene", "glow", "bloom", "composite", "upscale", "grid", "overlay"].every((x) => r.tron.split(",").includes(x)) && r.tron.indexOf("composite") < r.tron.indexOf("upscale") && r.tron.indexOf("bloom") < r.tron.indexOf("composite"), `CRT Tron = 地面 / 模型 / 辉光那遍 → 辉光 → 合成 → 放大：${r.tron}`);
 check(r.tronVram > 0, `Tron 的显存估算有数：${r.tronVram?.toFixed?.(2)} MB`);
+check(["aoBake", "envBake", "ground", "scene"].every((x) => r.bronze.split(",").includes(x)), `铸铜 = 遮蔽 / 环境 → 地面 → 模型：${r.bronze}`);
+check(r.envBakes === 1, `铸铜的环境图画两帧只烘一次：${r.envBakes} 次`);
 check(r.paper === "aoBake,ground,scene,grid,overlay", `剪纸 = 遮蔽 → 地面 → 模型追加 → 网格 / 叠加层：${r.paper}`);
 check(r.bake1 === 1, `剪纸第一次就烘遮蔽：${r.bake1} 次`);
 check(r.bake2 === 1, `改了模型马上画不重烘（拖着改的时候不烘）：${r.bake2} 次`);

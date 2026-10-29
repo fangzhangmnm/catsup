@@ -90,6 +90,8 @@ export declare class Renderer3 implements Backend {
     private tron;
     private lastTarget;
     private bloom;
+    private envSky;
+    private pbr;
     private aoSeen;
     private aoBaked;
     private aoChangedAt;
