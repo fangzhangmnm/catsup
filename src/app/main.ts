@@ -253,6 +253,9 @@ const hud: HudModel = {
     { id: "mirror", layer: "geometry", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", layer: "geometry", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
     { id: "explodeCurve", layer: "geometry", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
+    { id: "cut", layer: "geometry", label: "剪切", icon: "cut", hidden: !editor.hasSelection() },   // 剪贴板（设计稿 20261028-object-layer-and-clipboard-design §3）：几何 + 组 + 物件都走它；层级移动 = 剪切 → 走到那层 → 粘贴
+    { id: "copy", layer: "geometry", label: "拷贝", icon: "copy", hidden: !editor.hasSelection() },
+    { id: "paste", layer: "empty", label: "粘贴（原位）", icon: "paste", hidden: !editor.canPaste() },
     { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "lock", layer: "child", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
     { id: "unlock", layer: "child", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
@@ -291,6 +294,9 @@ const hud: HudModel = {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
       case "delete": editor.deleteSelection(); break;
+      case "cut": editor.cutSelection(); break;
+      case "copy": editor.copySelection(); break;
+      case "paste": editor.pasteClipboard(); break;
       case "deselect": editor.cancel(); break;
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
@@ -1286,6 +1292,9 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "select.none": editor.deselectAll(); return;
     case "delete.ifAny": if (editor.hasSelection()) editor.deleteSelection(); syncUi(); return;
     case "delete": editor.deleteSelection(); return;
+    case "edit.cut": editor.cutSelection(); syncUi(); return;
+    case "edit.copy": editor.copySelection(); syncUi(); return;
+    case "edit.paste": editor.pasteClipboard(); syncUi(); return;
     case "gesture.type": editor.typeIntoGesture(ev.key); syncUi(); return;
     case "objects.join": editor.joinSelection(); syncUi(); return;
     case "mesh.duplicateMove": if (editor.runAction("mesh.duplicate") > 0) editor.startModal("move"); syncUi(); return;   // Blender Shift+D：复制叠在原处 → 接着 G

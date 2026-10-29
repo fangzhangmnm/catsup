@@ -62,6 +62,8 @@ import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
+import { accept as transferAccept, castPayload, extract as transferExtract, localize as transferLocalize, transferSay } from "./transfer.ts";
+import { clipboard } from "./clipboard.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
@@ -1876,6 +1878,62 @@ export class Editor {
   }
   /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
   copyInstance(delta: Pt3): boolean { return this.step((pass) => this.copyInstanceStep(pass, delta)); }
+  // ---------- 剪贴板（设计稿 ai-docs/20261028-object-layer-and-clipboard-design.md §3；user 10-28 夜「复制黏贴我们没做」「paste落点：原位落下」）----------
+  // 剪切 = 拷贝 + 删除；粘贴 = 原位（世界位置不动；在摆了多份的组件里按你进来的那条链换算）；散几何种类对不上 = 弹应用内的选择「转过去再贴 / 不贴」（不静默转）。
+  /** 拷贝选中的（几何 + 组 + 物件）到剪贴板。 */
+  copySelection(): boolean {
+    const p = transferExtract(this.scene, this.ctx, this.selection, [...this.selectedPools.values()]);
+    if (!p) { this.host.hint("拷贝：先选中要拷的东西"); return false; }
+    clipboard.set(p);
+    this.host.hint(`拷贝了 ${transferSay(p)}（Ctrl+V 原位粘贴；到别的组件里也能贴）`);
+    this.host.changed();
+    return true;
+  }
+  /** 剪切 = 拷贝 + 删除（锁着的不剪：和删除一样）。 */
+  cutSelection(): boolean {
+    if ([...this.selectedPools.values()].some((p) => this.pickIsLocked(p))) { this.host.hint("剪切：选区里有锁定的组 / 组件，先解锁"); return false; }
+    if (!this.copySelection()) return false;
+    const n0 = this.opCount;
+    this.deleteSelection();
+    if (this.opCount === n0) { this.host.hint("剪切：拷到剪贴板了，但这里删不掉（照拷贝算）"); return false; }
+    this.host.hint(`剪切了 ${transferSay(clipboard.get()!)}（Ctrl+V 原位粘贴；到别的组件里也能贴）`);
+    return true;
+  }
+  canPaste(): boolean { return clipboard.has(); }
+  /** 原位粘贴进当前上下文。散几何种类对不上 → 先问「转过去再贴」（castPayload），点了才贴。 */
+  pasteClipboard(): void {
+    const p = clipboard.get();
+    if (!p) { this.host.hint("粘贴：剪贴板是空的（先 Ctrl+C / Ctrl+X）"); return; }
+    if (this.activeKind() === "mesh" && this.mirrorGateEntry("粘贴", () => this.pasteClipboard())) return;
+    const kind = this.activeKind(), a = transferAccept(p, kind);
+    if (a.ok) { this.pasteNow(p); return; }
+    const to = a.cast === "mesh" ? "网格体" : "硬表面体";
+    if (!this.host.confirm) { this.host.hint(`粘贴：${a.what}要先转成${to}才能贴进这一层（这里不能问，没贴）`); return; }
+    void this.host.confirm("粘贴：要转种类", `${a.what}是另一种身体的几何，贴进这一层要先转成${to}（和物体设置里的转换一样，会丢它那一种才有的东西）。转过去再贴吗？`, `转成${to}再贴`)
+      .then((ok) => { if (ok) this.pasteNow(castPayload(p, a.cast)); else { this.host.hint("粘贴：没贴（你选了不转）"); this.draw(); } });
+  }
+  private pasteNow(p: import("./transfer.ts").TransferPayload): void {
+    this.step((pass) => {
+      const at = this.activePool(), def = at.def;
+      for (const i of p.instances ?? []) if (this.scene.defs.has(i.def) && this.scene.references(i.def, def)) { this.host.hint("粘贴：不能把一个物件贴进它自己（或它的子孙）里"); return; }
+      for (const i of p.instances ?? []) if (!this.scene.defs.has(i.def)) { this.host.hint("粘贴：剪贴板里的物件在这个模型里已经没有了（撤销过了头），没贴"); return; }
+      const local = transferLocalize(p, invert(this.ctxXform()));
+      const instBefore = new Set(this.scene.def(def).instances.keys()), groupBefore = new Set(this.scene.kindOf(def) === "brep" ? this.scene.brep(def).groups.keys() : []);
+      const meshBefore = this.scene.kindOf(def) === "mesh" ? new Set(this.scene.mesh(def).kernel.faces()) : null;
+      const n0 = this.opCount;
+      const events = this.commitIn(pass, { op: "paste", at, ...(local.brep ? { brep: local.brep } : {}), ...(local.groups ? { groups: local.groups } : {}), ...(local.mesh ? { mesh: local.mesh } : {}), ...(local.instances ? { instances: local.instances } : {}) });
+      if (this.opCount === n0) return;
+      // 贴出来的成为选区（接着 G 就能挪）
+      this.clearSel(pass);
+      for (const id of this.scene.def(def).instances.keys()) if (!instBefore.has(id)) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
+      if (this.scene.kindOf(def) === "brep") for (const id of this.scene.brep(def).groups.keys()) if (!groupBefore.has(id) && this.scene.brep(def).groups.get(id)!.parent === at.group) this.selectedPools.set(`g${id}`, { kind: "group", group: id });
+      if (meshBefore && this.selection.kind === "mesh") for (const f of this.scene.mesh(def).kernel.faces()) if (!meshBefore.has(f)) this.selection.faces.add(f);
+      if (this.selection.kind === "brep") for (const e of events) if (e.type === "BIRTH") this.selection.faces.add(e.face);
+      const copies = this.copiesOf(def);
+      this.host.hint(`贴了 ${transferSay(p)}（原位${copies > 1 ? `；这个组件摆了 ${copies} 份，每份都多了` : ""}）`);
+      this.host.changed(); this.draw();
+    });
+  }
   private copyInstanceStep(pass: StepPass, delta: Pt3): boolean {
     const picks = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance");
     if (!picks.length) return false;

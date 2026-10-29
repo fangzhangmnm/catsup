@@ -17,14 +17,15 @@ import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { MeshKernel } from "../mesh/mesh-kernel.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
+import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
 import { edgesAlongSegs } from "../kernel/curves.ts";
 import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Instance, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import { type Frame, type Xform, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
+import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
+import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
 
@@ -141,6 +142,8 @@ export type Op =
   | { op: "separateObject"; at: PoolRef; instance?: number; def: number; faces: number[]; name: string }   // instance 缺 = 在最外层分（新组件摆在最外层、不变换）
   /** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
   | { op: "joinObjects"; at: PoolRef; target: number; sources: number[] }
+  /** 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**，材质 = 文档材质 id，指令里换成目标定义的槽号）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。 */
+  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[] }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -266,7 +269,7 @@ export class ShearRejected extends Error {}
 /** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
 export class PlanarBurst extends Error {}
 /** 会改组件实例矩阵、可能乘出斜切的指令（移动 / 旋转 / 等比缩放 / 镜像永远不会；非等比缩放转过的组件、炸开被非等比缩放过的组件会）。 */
-const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale", "importScene"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
+const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale", "importScene", "paste"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
 const shearedInstances = (s: Scene): Map<string, string> => {
   const out = new Map<string, string>();
   for (const d of s.defs.values()) for (const i of d.instances.values()) if (hasShear(i.xform)) out.set(`${d.id}/${i.id}`, s.def(i.def).name);
@@ -624,6 +627,40 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshDuplicate": { duplicateGeometry(meshOf(s, op.def).kernel, op); return { scene: s, events: [] }; }
     case "meshFill": { const r = fillOrBridge(meshOf(s, op.def).kernel, op); if (typeof r === "string") throw new OpTargetError(r); return { scene: s, events: [] }; }
     case "meshFlip": { const k = meshOf(s, op.def).kernel; flipFaces(k, op.faces.filter((f) => k.hasF(f))); return { scene: s, events: [] }; }
+    case "paste": {
+      const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
+      if (!s.hasPool(ref)) throw new OpTargetError(`paste: pool ${ref.def}/${ref.group ?? "root"}`);
+      for (const i of op.instances ?? []) {
+        if (!s.defs.has(i.def)) throw new OpTargetError(`paste: definition ${i.def} no longer exists`);
+        if (s.references(i.def, ref.def)) throw new OpTargetError("paste: would create a cycle (pasting an object into itself)");
+      }
+      let events: FaceEvent[] = [];
+      if (kind === "mesh") {
+        if (op.brep || op.groups?.length) throw new OpTargetError("paste: brep geometry into a mesh body needs a cast");
+        if (op.instances?.some((i) => i.parent !== null)) throw new OpTargetError("paste: mesh body has no groups to parent instances under");
+        if (op.mesh) {
+          const tb = s.mesh(ref.def), tk = tb.kernel, slot = (id: number): number => { if (id < 0) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
+          const vs = op.mesh.verts.map((q) => tk.addVertex(q));
+          for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat));
+          for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); tk.setEdgeFlags(id, e.flags); }
+        }
+        for (const i of op.instances ?? []) mintPasted(s, ref.def, null, i);
+        return { scene: s, events };
+      }
+      if (op.mesh) throw new OpTargetError("paste: mesh geometry into a brep body needs a cast");
+      const toSlot = (id: number): number => (id < 0 ? -1 : s.slotFor(ref.def, id));
+      if (op.brep) events = absorbSnapshot(poolOf(s, op.at).kernel, op.brep, IDENTITY, toSlot);
+      const gids: number[] = [];
+      for (const g of op.groups ?? []) {
+        const parent = g.parent === null ? ref.group : gids[g.parent];
+        if (parent === undefined) throw new OpTargetError("paste: group parent index out of order");
+        const ng = s.mintGroup(ref.def, parent, Kernel.fromBrep(remapSnapshotMaterial(g.snap, toSlot)), g.axes);
+        ng.guides = cloneGuides(g.guides); if (g.name !== undefined) ng.name = g.name;
+        gids.push(ng.id);
+      }
+      for (const i of op.instances ?? []) { const parent = i.parent === null ? ref.group : gids[i.parent]; if (parent === undefined) throw new OpTargetError("paste: instance parent index out of order"); mintPasted(s, ref.def, parent, i); }
+      return { scene: s, events };
+    }
     case "separateObject": {
       const src = meshOf(s, op.def), k = src.kernel, xf = op.instance !== undefined ? s.instance(op.at.def, op.instance).xform : ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0] as Xform), faces = op.faces.filter((f) => k.hasF(f));
       if (!faces.length) throw new OpTargetError("separate: no faces");
@@ -719,6 +756,7 @@ export function describeOp(op0: Op): string {
     case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
+    case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${at}`;
     case "separateObject": return `separateObject def=${op.def} faces=${op.faces.length} → 「${op.name}」`;
     case "joinObjects": return `joinObjects ${op.sources.length} → ${op.target}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
@@ -776,6 +814,14 @@ function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
     if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
     const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];
   }
+}
+/** 粘贴一份实例：名字 / 锁 / 层 / 藏跟着走。 */
+function mintPasted(s: Scene, def: number, parent: number | null, i: TransferInstance): void {
+  const ni = s.mintInstance(def, parent, i.def, i.xform);
+  if (i.name !== undefined) ni.name = i.name;
+  if (i.locked) ni.locked = true;
+  if (i.layer !== undefined) ni.layer = i.layer;
+  if (i.hidden) ni.hidden = true;
 }
 /**
  * 炸开一份实例，外面一层或组件本身有一边是网格体（2026-10-28 夜 user「炸开mesh会出bug」）：
