@@ -247,9 +247,9 @@ const hud: HudModel = {
     { id: "delete", layer: "geometry", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
     { id: "group", layer: "geometry", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
     { id: "component", layer: "geometry", label: "建组件", icon: "object", hidden: !editor.canMakeComponent() },   // 网格体里 = 选中的面做成嵌在这一层的组件（v0.16.37）
-    { id: "mergeInto", layer: "child", label: "把其余合并进这个", icon: "collection", hidden: !editor.canMergeHere() },   // 合并 = 宏（右键点在谁身上谁留下；user 10-28 夜「可以」）
-    { id: "makeUnique", layer: "child", label: "做成唯一", icon: "copy", hidden: !editor.canMakeUnique() },   // SketchUp Make Unique：改这一份不动别的份
-    { id: "explode", layer: "child", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },   // 两种身体都能炸（v0.16.37：op 看外面一层和组件本身的身体种类）
+    // 物件层动词（炸开 / 合并 / 做成唯一 / 锁 / 解锁 / 藏 / 应用缩放）= 注册表物件族（editor/objects/verbs.ts）放在 objectMenu 面上的动作：一份实现、按单位种类路由、每个工作台自动都有（只能退订）
+    ...editor.commandMenu("objectMenu").map((m): HudItem => ({ id: `action:${m.id}`, layer: "child", label: m.label, icon: m.icon })),
+    { id: "explodeGroups", layer: "child", label: "炸开组", icon: "explode-folder", hidden: !editor.hasGroupSelection() },   // 组 = 硬表面的分区，不是物件：手写
     { id: "mirror", layer: "geometry", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", layer: "geometry", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
     { id: "explodeCurve", layer: "geometry", label: "炸开曲线", icon: "explode-folder", hidden: !editor.hasCurveSelection() },
@@ -257,10 +257,7 @@ const hud: HudModel = {
     { id: "copy", layer: "geometry", label: "拷贝", icon: "copy", hidden: !editor.hasSelection() },
     { id: "paste", layer: "empty", label: "粘贴（原位）", icon: "paste", hidden: !editor.canPaste() },
     { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
-    { id: "lock", layer: "child", label: "锁定", icon: "lock", hidden: !editor.hasUnlockedPoolSelection() },     // A27：不能改 / 移 / 进入，推断照吃
-    { id: "unlock", layer: "child", label: "解锁", icon: "unlock", hidden: !editor.hasLockedSelection() },
-    { id: "hide", layer: "child", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !editor.hasHideableSelection() },
-    { id: "applyScale", layer: "child", label: "应用缩放", icon: "scale-uniform", hidden: !editor.hasScaledInstanceSelection() },
+    { id: "hideGeometry", layer: "geometry", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !(editor.hasGeometrySelection() || editor.hasGroupSelection()) },   // 几何 / 组的藏（硬表面）；物件的藏在上面的注册表行
     { id: "componentOrigin", layer: "child", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
     { id: "repairPanel", layer: "self", label: "修复…", icon: "wrench", hidden: editor.repairPanelOpen() || !editor.repairWorth() },   // T6 / DT6 + DT9：修复面板（几步一起跑 = 一步撤销）+「检查」高亮微折软边
@@ -300,17 +297,12 @@ const hud: HudModel = {
       case "deselect": editor.cancel(); break;
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
-      case "explode": editor.explodeSelection(); break;
-      case "mergeInto": editor.mergeAtContextPoint(); break;
-      case "makeUnique": editor.makeUniqueSelection(); break;
+      case "explodeGroups": editor.explodeGroups(); break;
       case "mirror": editor.beginMirror(); break;
       case "weld": editor.weldSelection(); break;
       case "explodeCurve": editor.explodeCurveSelection(); break;
       case "enter": editor.enterSelected(); break;
-      case "lock": editor.lockSelection(true); break;
-      case "unlock": editor.lockSelection(false); break;
-      case "hide": editor.hideSelection(); break;
-      case "applyScale": editor.applyScaleSelection(); break;
+      case "hideGeometry": editor.hideSelection(); break;
       case "componentOrigin": editor.beginComponentOrigin(); syncUi(); break;
       case "repairPanel": editor.beginRepairPanel(); break;
       case "exit": editor.exitContext(); break;

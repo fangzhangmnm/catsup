@@ -30,7 +30,7 @@ export function routesOf(a: Action): { kind: UnitKind; command: Command }[] {
 }
 /** 某个放置面上的动作（按 order；按工作台筛）。O(表长)，几十到一百行。 */
 export function placementsAt(where: Surface, mode?: ModeId): Placement[] {
-  return tables().placements.filter((p) => p.where === where && (!mode || !p.modes || p.modes.includes(mode)));
+  return tables().placements.filter((p) => p.where === where && (!mode || !p.modes || p.modes.includes(mode)) && (!mode || !p.except?.includes(mode)));
 }
 export function allCommands(): readonly Command[] { return [...tables().commands.values()]; }
 export function allActions(): readonly Action[] { return [...tables().actions.values()]; }
@@ -57,7 +57,11 @@ export function checkRegistry(): string[] {
         if (c.unit !== k) bad.push(`动作 ${a.id} 把 ${k} 单位喂给 ${id}，可它吃的是 ${c.unit}`);
       }
     }
-    for (const p of f.placements) if (!seenA.has(p.action)) bad.push(`放置 ${p.where}#${p.order} 指向不存在的动作 ${p.action}`);
+    for (const p of f.placements) {
+      if (!seenA.has(p.action)) bad.push(`放置 ${p.where}#${p.order} 指向不存在的动作 ${p.action}`);
+      const a = f.actions.find((x) => x.id === p.action);
+      if (a && a.commands.object && p.modes) bad.push(`放置 ${p.where}#${p.order}（${p.action}）：物件动词在每个工作台自动都有，只能退订（except），不许 modes 白名单`);
+    }
   }
   return bad;
 }

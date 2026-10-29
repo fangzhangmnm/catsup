@@ -47,6 +47,8 @@ export interface CommandEnv {
   sharpDeg(): number;
   /** 画圆工具当前的段数（改段数的默认）。 */
   circleSegments(): number;
+  /** 菜单对着哪个选中的物件点的 / 光标压着哪个（这一层的实例 id；合并的目标 = 它，user 10-28 夜「你右键点在谁身上，谁留下 可以」）；没有 = null。 */
+  pointedInstance(): InstId | null;
 }
 
 export type Params = Readonly<Record<string, ParamValue>>;
@@ -67,6 +69,8 @@ export interface PlanOut {
   erases?: number;
   /** 做完的选区（活动池本地 id；纪元账本 FM14「做完的东西留在选区里」）：规划时在副本上跑一遍算出来（op 确定性 = 提交后同一批 id）。只有一个单位给了才用。 */
   select?: { verts?: number[]; edges?: number[]; faces?: number[] };
+  /** 做完选中这几个物件（这一层的实例 id；合并 = 留下的那个）。 */
+  selectObjects?: InstId[];
 }
 
 export interface Command<U extends Unit = Unit> {
@@ -99,6 +103,12 @@ export interface Command<U extends Unit = Unit> {
   readonly perDefinition?: boolean;
   /** object 族：什么都没选时也吃「你现在所在的这一层」（instance = null；2026-10-28 user「以及最外层的base节点为什么不能转mesh」）。 */
   readonly takesContext?: boolean;
+  /** object 族：锁着的实例也喂（解锁要能做；平时锁着的不算单位）。 */
+  readonly takesLocked?: boolean;
+  /** object 族：做完选区留着（锁 / 藏 / 做成唯一；缺 = 清掉——转种类 / 炸开后旧选区对不上）。 */
+  readonly keepSelection?: boolean;
+  /** 动手前要先问一句（跨种类转：「转成 X 再炸 / 不做」；user 10-28 夜「允许cast但是会弹窗。然后变成选择」）：返回要问的话 + 点了「做」之后补进去的参数；null = 不用问。 */
+  ask?(env: CommandEnv, units: readonly U[], v: Params): { title: string; message: string; okLabel: string; params: Params } | null;
 }
 
 /** 一次指令调用（动作路由出来的；撤销记录 / 复现包以后记它）。 */

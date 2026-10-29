@@ -76,7 +76,7 @@ res.errs = errs;
 const ok = res.kindAfterCast === "mesh" && res.enter.mode === "freeform" && res.enter.kind === "mesh" && res.enter.selKind === "mesh" && res.enter.modes.join() === "freeform" && res.enter.depth === 1
   && res.pickTop.faces === 1 && /1 面/.test(res.pickTop.readout) && res.clickUndo.faces === 0 && res.clickUndo.redoFaces === 1 && res.selectAll.faces === 6 && res.selectAll.edges === 12
   && res.brepVerbs.pos === 0 && res.brepVerbs.faces === 6 && res.brepVerbs.hints.every(Boolean)
-  && ["group", "component", "mirror", "hide", "soften", "harden", "explode"].every((id) => !res.hudInMesh.includes(id)) && res.hudInMesh.includes("deselect") && res.hudInMesh.includes("delete")
+  && ["group", "mirror", "hide", "soften", "harden", "explode"].every   /* v0.16.45 起网格体里有「建组件」（= 原地分开）*/((id) => !res.hudInMesh.includes(id)) && res.hudInMesh.includes("deselect") && res.hudInMesh.includes("delete")
   && res.meshMove.topZ === 1.5 && res.meshMove.steps === 1 && res.meshMoveUndo.topZ === 1 && res.meshMoveUndo.mode === "freeform" && res.meshMoveUndo.selKind === "mesh"
   && res.exit.depth === 0 && res.exit.mode === "geometry" && res.exit.selKind === "brep" && res.exit.pools === 1 && res.exit.modes.join() === "geometry,surface,verify"
   && res.mixed.dInstX === 1 && res.mixed.dLooseTopX === 1 && res.mixedUndo.dInstX === 0 && res.mixedUndo.dLooseTopX === 0 && res.mixedUndo.pos === 0

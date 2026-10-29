@@ -1,6 +1,6 @@
 # 物体层动词 + 剪贴板：设计稿（分开 / 合并 / 层级移动 / 复制粘贴 / 要不要物体模式）
 
-> as-of v0.16.45 · 2026-10-28 夜 · created 2026-10-28 by Claude Fable 5.1 · 状态：**§7 五条 user 当夜全拍（见 §8）；§6 第 1–5 步 done v0.16.44–45；第 6 步（老物体动词进注册表 object 族）待做 = 周账 F-126**
+> as-of v0.16.47 · 2026-10-29 凌晨 · created 2026-10-28 by Claude Fable 5.1 · 状态：**§7 五条 user 当夜全拍（见 §8）；§6 六步全部 done v0.16.44–47（§9–§11）**
 > 起因（user 10-28 夜，按顺序）：「层级移动怎么办，以及选择多个物体的join以及split，然后brep模式也要这些功能」「分开之后应该也是组件。因为上一层也不一定能接 得看上一层能不能接」「还有移动进入下一层。反正没有treeview我们先把hierarchy操作做一下……让这个是对所有object都成立的」「就是取决于对方能不能接。不允许强制类型转换（brep to mesh这种）」「我是说让fable好好设计一下不同物体的层级操作，或者直接jump outside the box说我的思路很乱是错的」「sketchup如果要移动组件层级怎么办 / aha 等等，最重要的东西 / 复制黏贴我们没做」「有了这个组件层级操作可以精简很多，有很多可以不要了！」「加入复制黏贴再理一下组件层级」「你现在是fable了，好好的计划设计一下我们欠缺的 ctrl J 这种物件之间的操作，我之前的建议可能是错的。思考一下blender和sketchup怎么做，看来这个就是我们允许loose geometry的税。但是我还是觉得blender更不舒服，然后那几个系统也好好设计一下」「不同物体类型的层级统一，就是很多工作流都有，类似move，你可以再思考一下这种所有工作流都有的东西怎么整理，但是brep和mesh里面move不一样，有些也不开move / 反正这就是没有专门的物体模式的代价。你也可以思考一下要不要一个专门的物体模式，还是物体模式太破坏沉浸感了」
 
 词（本稿里固定）：**上下文** = 你双击进去的那一层（最外层 / 某个组 / 某个组件里面）；**散几何** = 这一层里不在任何组 / 组件里的面和线；**组件** = 有定义、能摆好几份的物体；**组** = 硬表面体里把一团散几何隔开不粘连的分区（不是物体，user 10-24「地位类似选区」）；**容器** = 组或组件；**身体种类** = 硬表面体 / 网格体。
@@ -127,3 +127,13 @@
 - **做成唯一** op `makeUnique`（`cloneDefinition`：身体 + 组 + 参考几何 + 坐标架 + 槽表 + 子实例引用）；菜单「做成唯一」只在选中的物件摆了多份时露。
 - 两条「摆了 N 份先做成唯一」拒绝没了（随分开 / 合并旧实现一起删）。
 - 探针 `probe-objects-merge`（六条）；`probe-separate-join` 删；`probe-selbar` 跟上。
+
+## 11. 落地（v0.16.47，Claude Fable 5.1）：老物件动词搬进注册表物件族（§5 的「一份实现」；周账 F-126 的那一刀）
+
+- `src/editor/objects/verbs.ts`：七条 object 族指令——`object.explode / mergeInto / makeUnique / lock / unlock / hide / applyScale`，各一个动作（`explode / mergeInto / …`），全部放在 **objectMenu** 面上（子物件的右键 / 浮条菜单）。吃 ObjectUnit（摆着的一份），和容器是什么身体无关 → 网格体最外层里也能锁 / 藏 / 做成唯一（以前的手写版按容器种类守门、网格体里不露）。
+- **只能退订**：`Placement.except`（验证工作台退订 炸开 / 合并 / 做成唯一 / 应用缩放，锁 / 藏哪都有）；守卫：物件动词的放置不许用 `modes` 白名单（`registry.ts checkRegistry`）。
+- 框架补的三样：`Command.ask`（动手前问一句 → 点了才带参数跑；跨种类炸 / 并 = 「转成 X 再炸 / 不做」）、`Command.takesLocked`（解锁要能吃锁着的）、`Command.keepSelection` + `PlanOut.selectObjects`（锁 / 藏 / 做成唯一留选区；合并做完选中留下的那个）。合并的目标 = `CommandEnv.pointedInstance()`（右键点的那个 / Ctrl+J 压着的那个，编辑器记到下一次按画布）。
+- op `mergeObject`（贴进目标定义〔原位〕→ 炸开 → 删外面这一份；一条 op 一个源）；`explodeInstance` 抽成函数（explode / mergeObject 共用；跨种类不带 cast = 人话拒绝）。
+- main.ts 的 HUD 表：这七条的手写行删了，换成 `editor.commandMenu("objectMenu")` 画成 layer = child 的行；留手写的只有和物件无关的「炸开组」（组 = 硬表面分区）、「隐藏」几何 / 组（硬表面）、「进入编辑」「改组件原点…」「物件设置…」。`Editor.lockSelection / explodeSelection / hideSelection / makeUniqueSelection / applyScaleSelection` 变成薄壳（键盘 / 探针入口；藏 / 炸开里几何 / 组那半仍手写，实例那半在同一步里走注册表）。
+- 守卫 `test/object-verbs.test.ts`（五条）；探针 `probe-objects-merge` / `probe-mesh-workbench` 跟上（网格体里有「建组件」= 原地分开；网格体的面 / 线还藏不了、如实说）。
+- **没搬**（本来就不是「对一份实例做」的）：建组 / 建组件（几何 → 容器，按几何种类路由，已经是一个动作两条路）、进入 / 退出（导航）、改组件原点（会话，要点一下）、改名（物件设置窗字段）。

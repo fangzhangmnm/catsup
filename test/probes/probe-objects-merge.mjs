@@ -36,7 +36,7 @@ await select([ids.A, ids.B]);
 const pA = await scr({ x: 0.5, y: 0.5, z: 1 });
 await page.mouse.click(pA.x, pA.y, { button: "right" }); await page.waitForTimeout(120);
 r.one = { menu: await menu() };
-r.one.clicked = await menuClick(/把其余合并进这个/); await page.waitForTimeout(100);
+r.one.clicked = await menuClick(/把其余.*合并进这个/); await page.waitForTimeout(100);
 const s1 = await state();
 r.one.after = { n: s1.n, aFaces: s1.A?.faces, hint: s1.hint };
 r.one.keptB = (await worldPts("A")).split(";").filter((p) => bPts.includes(p)).length === bPts.split(";").length;
@@ -53,11 +53,11 @@ await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitFor
 await select([ids.A, ids.C]);
 const pC = await scr({ x: 0.5, y: 3.5, z: 1 });
 await page.mouse.click(pC.x, pC.y, { button: "right" }); await page.waitForTimeout(120);
-r.three = { clicked: await menuClick(/把其余合并进这个/) }; await page.waitForTimeout(150);
+r.three = { clicked: await menuClick(/把其余.*合并进这个/) }; await page.waitForTimeout(150);
 r.three.declined = await sheetClick(/不做|取消/); await page.waitForTimeout(100);
-const s3a = await state(); r.three.untouched = s3a.n === 3 && s3a.C?.faces === 6 && /没并/.test(s3a.hint);
+const s3a = await state(); r.three.untouched = s3a.n === 3 && s3a.C?.faces === 6 && /没并|没做/.test(s3a.hint);
 await page.mouse.click(pC.x, pC.y, { button: "right" }); await page.waitForTimeout(120);
-await menuClick(/把其余合并进这个/); await page.waitForTimeout(150);
+await menuClick(/把其余.*合并进这个/); await page.waitForTimeout(150);
 r.three.cast = await sheetClick(/转成硬表面体再并/); await page.waitForTimeout(200);
 const s3 = await state(); r.three.after = { n: s3.n, cFaces: s3.C?.faces, aGone: !s3.A, cKind: s3.C?.kind };
 await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(60);
@@ -91,7 +91,7 @@ r.six.after = await page.evaluate(() => { const e = globalThis.__catsup.editor, 
 await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
-const ok = /把其余合并进这个/.test(r.one.menu) && !/分开|合并物件/.test(r.one.menu) && r.one.clicked && r.one.after.n === 2 && r.one.after.aFaces === 12 && r.one.keptB && /合并了 1 个/.test(r.one.after.hint) && r.one.undone
+const ok = /把其余.*合并进这个/.test(r.one.menu) && !/分开|合并物件/.test(r.one.menu) && r.one.clicked && r.one.after.n === 2 && r.one.after.aFaces === 12 && r.one.keptB && /合并了 1 个/.test(r.one.after.hint) && r.one.undone
   && r.two.n === 2 && r.two.bFaces === 12 && r.two.aGone && r.two.keptA
   && r.three.clicked && r.three.declined && r.three.untouched && r.three.cast && r.three.after.n === 2 && r.three.after.cFaces > 6 && r.three.after.aGone && r.three.after.cKind === "brep"
   && r.four.declined && r.four.untouched && r.four.cast && r.four.after.n === 2 && r.four.after.rootFaces >= 6 && r.four.after.aGone

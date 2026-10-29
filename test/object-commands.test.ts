@@ -15,7 +15,7 @@ import { sceneBox } from "./format-scenes.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
-const env = (s: Scene): CommandEnv => ({ scene: s, gridFineStep: () => 0.1, snapStepChoices: () => [], snapLattice: () => IDENTITY, sharpDeg: () => 20, circleSegments: () => 24 });
+const env = (s: Scene): CommandEnv => ({ scene: s, gridFineStep: () => 0.1, snapStepChoices: () => [], snapLattice: () => IDENTITY, sharpDeg: () => 20, pointedInstance: () => null, circleSegments: () => 24 });
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 /** 单位盒的三角汤（外法向、一致绕向）。 */
 const boxSoup = (): { positions: Pt3[]; tris: number[] } => {

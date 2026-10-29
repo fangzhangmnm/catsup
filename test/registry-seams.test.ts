@@ -13,7 +13,7 @@ import { sceneBox } from "./format-scenes.ts";
 import { IDENTITY, applyPt } from "../src/scene/xform.ts";
 import { KINDS } from "../src/scene/kinds.ts";
 
-const env = (s: Scene): CommandEnv => ({ scene: s, gridFineStep: () => 0.1, snapStepChoices: () => [], snapLattice: () => IDENTITY, sharpDeg: () => 20, circleSegments: () => 24 });
+const env = (s: Scene): CommandEnv => ({ scene: s, gridFineStep: () => 0.1, snapStepChoices: () => [], snapLattice: () => IDENTITY, sharpDeg: () => 20, pointedInstance: () => null, circleSegments: () => 24 });
 /** 根池一个盒子 + 一个组件「盒」两份实例，其中组件已转成网格体。 */
 function scene(): { s: Scene; def: number; insts: number[] } {
   const s = new Scene(sceneBox()), d = s.mintDef("盒", sceneBox());

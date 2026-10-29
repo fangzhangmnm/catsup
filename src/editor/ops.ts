@@ -75,6 +75,8 @@ export type Op =
   | { op: "explode"; at: PoolRef; group?: number; instance?: number; cast?: boolean }
   /** 做成唯一（SketchUp Make Unique）：这一份实例换成一份新定义（深拷），别的份不受影响。 */
   | { op: "makeUnique"; def: number; instance: number }
+  /** 合并：at 里的 source 并进同一层的 target（= 贴进 target 的定义〔原位〕→ 在里面炸开 → 删外面这一份；设计稿 20261028-object-layer-and-clipboard §4）。cast 同 explode。 */
+  | { op: "mergeObject"; at: PoolRef; target: number; source: number; cast?: boolean }
   | { op: "transformPool"; at: PoolRef; xform: Xform }
   | { op: "transformInstance"; def: number; instance: number; xform: Xform }
   | { op: "placeInstance"; at: PoolRef; definition: number; xform: Xform }
@@ -396,16 +398,24 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       s.mintInstance(ref.def, ref.group, def.id, translation(origin));
       return { scene: s, events };
     }
+    case "mergeObject": {
+      const host = s.def(op.at.def), T = host.instances.get(op.target), src = host.instances.get(op.source);
+      if (!T || T.parent !== op.at.group) throw new OpTargetError(`instance ${op.target}`);
+      if (!src || src.parent !== op.at.group) throw new OpTargetError(`instance ${op.source}`);
+      if (op.target === op.source) throw new OpTargetError("mergeObject: target = source");
+      if (s.references(src.def, T.def)) throw new OpTargetError("mergeObject: would create a cycle (merging an object into itself)");
+      const fresh = s.mintInstance(T.def, null, src.def, compose(invert(T.xform), src.xform));
+      if (src.name !== undefined) fresh.name = src.name;
+      explodeInstance(s, { def: T.def, group: null }, fresh, !!op.cast);
+      host.instances.delete(op.source);
+      return { scene: s, events: [] };
+    }
     case "explode": {
       // 炸开实例：先看「外面一层」和「选中的那个组件」各是什么身体（2026-10-28 夜：以前只看外面一层，网格体组件炸进硬表面层 → 拿网格体当硬表面体用、抛内部错误）
       if (op.instance !== undefined) {
         const host = s.def(op.at.def), inst = host.instances.get(op.instance);
         if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
-        if (s.kindOf(op.at.def) !== s.kindOf(inst.def)) {
-          if (!op.cast && !bodyEmpty(s.def(inst.def).body)) throw new OpTargetError(`explode: 「${s.def(inst.def).name}」是${s.kindOf(inst.def) === "mesh" ? "网格体" : "硬表面体"}、这一层是${s.kindOf(op.at.def) === "mesh" ? "网格体" : "硬表面体"}，要先转种类（点「转成 X 再炸」）`);
-          explodeAcrossKinds(s, op.at, inst); return { scene: s, events: [] };
-        }
-        if (s.kindOf(op.at.def) === "mesh") { explodeAcrossKinds(s, op.at, inst); return { scene: s, events: [] }; }
+        if (s.kindOf(op.at.def) !== s.kindOf(inst.def) || s.kindOf(op.at.def) === "mesh") { explodeInstance(s, op.at, inst, !!op.cast); return { scene: s, events: [] }; }
       }
       const { kernel, ref } = poolOf(s, op.at);
       const d = s.def(ref.def), db = s.brep(ref.def);
@@ -762,6 +772,7 @@ export function describeOp(op0: Op): string {
     case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${at}`;
     case "separateObject": return `separateObject def=${op.def} faces=${op.faces.length} → 「${op.name}」`;
     case "makeUnique": return `makeUnique def=${op.def} instance=${op.instance}`;
+    case "mergeObject": return `mergeObject ${op.source} → ${op.target}${op.cast ? " cast" : ""}${at}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;
     case "meshLoopCut": return `meshLoopCut def=${op.def} edge=${op.edge} t=${op.t ?? 0.5}`;
@@ -817,6 +828,12 @@ function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
     if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
     const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];
   }
+}
+/** 炸开一份实例（外面一层和它不是一种身体、或外面是网格体的那条路）：跨种类且它有自己的几何 = 要 cast（用户点过「转成 X 再炸」），否则人话拒绝。 */
+function explodeInstance(s: Scene, at: PoolRef, inst: Instance, cast: boolean): void {
+  if (s.kindOf(at.def) !== s.kindOf(inst.def) && !cast && !bodyEmpty(s.def(inst.def).body)) throw new OpTargetError(`explode: 「${s.def(inst.def).name}」是${s.kindOf(inst.def) === "mesh" ? "网格体" : "硬表面体"}、这一层是${s.kindOf(at.def) === "mesh" ? "网格体" : "硬表面体"}，要先转种类（点「转成 X 再炸」）`);
+  if (s.kindOf(at.def) === s.kindOf(inst.def) && s.kindOf(at.def) === "brep") { applyOp(s, { op: "explode", at, instance: inst.id }); return; }   // 同种硬表面：走原来那条（组 / 子实例 / 材质重映射）
+  explodeAcrossKinds(s, at, inst);
 }
 /** 身体里没自己的几何（只摆着子物件）：跨种类炸开 / 合并不用转。 */
 export function bodyEmpty(b: SceneBody): boolean {

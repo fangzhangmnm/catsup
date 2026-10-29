@@ -1803,57 +1803,26 @@ export class Editor {
     const c = this.classify(this.liveWorld(), this.pickAt(x, y));
     return c.kind === "pool" && c.pick.kind === "instance" && picks.includes(c.pick.instance) ? c.pick.instance : null;
   }
-  canMergeHere(): boolean { const c = this.ctxPick; return !!c && this.mergeTargetAt(c.x, c.y) !== null; }
-  /** 右键菜单「把其余合并进这个」= 右键点的那个留下。 */
-  mergeAtContextPoint(): void { const c = this.ctxPick, t = c ? this.mergeTargetAt(c.x, c.y) : null; if (t === null) { this.host.hint("合并：右键点在要保留的那个物件上（别的选着）"); return; } this.mergeInto(t); }
+  /** Ctrl+J 压着的那个（lastPtr 算出来、记到下一次按画布）；没有 = 右键那一点（ctxPick）。注册表 env.pointedInstance() 读它。 */
+  private pointed: InstId | null = null;
+  pointedInstance(): InstId | null { if (this.pointed !== null && this.instancePicks().includes(this.pointed)) return this.pointed; const c = this.ctxPick; return c ? this.mergeTargetAt(c.x, c.y) : null; }
+  /** 右键菜单「把其余合并进这个」= 右键点的那个留下（注册表 object.mergeInto）。 */
+  mergeAtContextPoint(): void { this.pointed = null; if (this.pointedInstance() === null) { this.host.hint("合并：右键点在要保留的那个物件上（别的选着）"); return; } this.runAction("mergeInto"); }
   /** Ctrl+J = 光标压着的那个留下。 */
   mergeUnderCursor(): void {
     const p = this.lastPtr, t = p ? this.mergeTargetAt(p.x, p.y) : null;
     if (t === null) { this.host.hint(this.instancePicks().length < 2 ? "合并：先选两个以上的物件" : "合并：把鼠标放在要保留的那个物件上再按 Ctrl+J（或右键它 → 把其余合并进这个）"); return; }
-    this.mergeInto(t);
+    this.pointed = t;
+    this.runAction("mergeInto");
   }
-  /** 把选中的其余物件合并进 target：每个 = 贴进 target 的定义（原位）→ 在里面炸开 → 删掉外面这一份；跨种类先问「转成 X 再并」。 */
-  mergeInto(target: InstId): void {
-    const def = this.scene.defOfContext(this.ctx), T = this.scene.def(def).instances.get(target);
-    if (!T) return;
-    const tdef = T.def, tkind = this.scene.kindOf(tdef);
-    const sources = this.instancePicks().filter((id) => id !== target && this.scene.def(def).instances.has(id));
-    if (!sources.length) { this.host.hint("合并：别的物件没选上"); return; }
-    const cyclic = sources.filter((id) => this.scene.references(this.scene.def(def).instances.get(id)!.def, tdef));
-    if (cyclic.length) { this.host.hint(`合并：${cyclic.length} 个物件不能并进「${T.name ?? this.scene.def(tdef).name}」——它本身就是它（或含着它）`); return; }
-    const needCast = sources.filter((id) => { const d = this.scene.def(this.scene.def(def).instances.get(id)!.def); return d.body.kind !== tkind && !bodyEmpty(d.body); });
-    const go = (cast: boolean): void => this.step((pass) => {
-      const n0 = this.opCount, X = this.ctxXform(), Xt = compose(X, T.xform), Xti = invert(Xt), at = { def: tdef, group: null };
-      for (const id of sources) {
-        const src = this.scene.def(def).instances.get(id)!, local = compose(Xti, compose(X, src.xform)), before = new Set(this.scene.def(tdef).instances.keys());
-        this.commitIn(pass, { op: "paste", at, instances: [{ parent: null, def: src.def, xform: local, ...(src.name !== undefined ? { name: src.name } : {}) }] });
-        const fresh = [...this.scene.def(tdef).instances.keys()].find((k) => !before.has(k));
-        if (fresh === undefined) return;
-        this.commitIn(pass, { op: "explode", at, instance: fresh, ...(cast ? { cast: true } : {}) });
-        this.commitIn(pass, { op: "eraseInstance", def, instance: id });
-      }
-      if (this.opCount === n0) return;
-      this.clearSel(pass); this.selectedPools.set(`i${target}`, { kind: "instance", instance: target });
-      const copies = this.copiesOf(tdef);
-      this.host.hint(`合并了 ${sources.length} 个物件进「${T.name ?? this.scene.def(tdef).name}」${copies > 1 ? `；它摆了 ${copies} 份，每份都变了` : ""}${tkind === "brep" ? "（贴着的面会粘住）" : ""}`);
-      this.host.changed(); this.draw();
-    });
-    if (!needCast.length) { go(false); return; }
-    const to = tkind === "mesh" ? "网格体" : "硬表面体";
-    if (!this.host.confirm) { this.host.hint(`合并：${needCast.length} 个物件是另一种身体，要先转成${to}（这里不能问，没并）`); return; }
-    void this.host.confirm("合并：要转种类", `${needCast.length} 个物件是另一种身体的几何，并进「${T.name ?? this.scene.def(tdef).name}」要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再并吗？`, `转成${to}再并`)
-      .then((ok) => { if (ok) go(true); else { this.host.hint("合并：没并（你选了不转）"); this.draw(); } });
+  /** 做成唯一 / 应用缩放 / 锁 / 解锁：都是注册表物件族的指令（objects/verbs.ts），这几个只是键盘 / 探针的入口。 */
+  makeUniqueSelection(): boolean { return this.runAction("makeUnique") > 0; }
+  applyScaleSelection(): boolean { return this.runAction("applyScale") > 0; }
+  lockSelection(on: boolean): boolean {
+    const all = [...this.selectedPools.values()];
+    if (!all.some((p) => p.kind === "instance")) { if (on && all.some((p) => p.kind === "group")) this.host.hint("组不是物件，不能锁；要当参考就先「建组件」（G）再锁"); return false; }   // 0.14：组不是物体、不能锁
+    return this.runAction(on ? "lock" : "unlock") > 0;
   }
-  /** 做成唯一（SketchUp Make Unique）：选中的、摆了多份的物件各换一份新定义，别的份不受影响。 */
-  canMakeUnique(): boolean { const def = this.scene.defOfContext(this.ctx); return this.instancePicks().some((id) => { const i = this.scene.def(def).instances.get(id); return !!i && this.copiesOf(i.def) > 1; }); }
-  makeUniqueSelection(): boolean { return this.step((pass) => {
-    const def = this.scene.defOfContext(this.ctx), ids = this.instancePicks().filter((id) => { const i = this.scene.def(def).instances.get(id); return !!i && this.copiesOf(i.def) > 1; });
-    if (!ids.length) { this.host.hint("做成唯一：选中的物件本来就只摆了一份"); return false; }
-    for (const id of ids) this.commitIn(pass, { op: "makeUnique", def, instance: id });
-    this.host.hint(`做成唯一了 ${ids.length} 个物件：改它不再影响别的份`);
-    this.host.changed(); this.draw();
-    return true;
-  }); }
   /** 选区里一起装进新组 / 新组件的子组和组件（SketchUp 同款嵌套，user 2026-10-26「当然要」）：锁定的不动（提示一句）。 */
   private nestPicks(): { groups: GroupId[]; instances: InstId[]; fields: { groups?: GroupId[]; instances?: InstId[] } } {
     const picks = [...this.selectedPools.values()], locked = picks.filter((p) => this.pickIsLocked(p)).length;
@@ -1896,30 +1865,29 @@ export class Editor {
     this.host.changed(); this.draw();
     return true;
   }
-  /** 炸开选中的子 group / 实例。组件和这一层不是一种身体（且它有自己的几何）→ 先问「转成 X 再炸」（不静默转，设计稿 §2）。 */
+  /** 炸开选中的：组（硬表面的分区，不是物件）手写炸；实例走注册表 object.explode（跨种类先问「转成 X 再炸」）。 */
   explodeSelection(): boolean {
-    const def = this.scene.defOfContext(this.ctx), kind = this.activeKind();
-    const needCast = [...this.selectedPools.values()].filter((p) => p.kind === "instance" && !this.pickIsLocked(p)).filter((p) => { const i = this.scene.def(def).instances.get((p as { instance: InstId }).instance); if (!i) return false; const d = this.scene.def(i.def); return d.body.kind !== kind && !bodyEmpty(d.body); });
-    if (!needCast.length) return this.step((pass) => this.explodeSelectionStep(pass, false));
-    const to = kind === "mesh" ? "网格体" : "硬表面体";
-    if (!this.host.confirm) { this.host.hint(`炸开：${needCast.length} 个物件是另一种身体，要先转成${to}（这里不能问，没炸）`); return false; }
-    void this.host.confirm("炸开：要转种类", `${needCast.length} 个物件是另一种身体的几何，炸进这一层要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再炸吗？`, `转成${to}再炸`)
-      .then((ok) => { if (ok) this.step((pass) => this.explodeSelectionStep(pass, true)); else { this.host.hint("炸开：没炸（你选了不转）"); this.draw(); } });
-    return true;
+    return this.step((pass) => {
+      const groups = this.explodeGroupsStep(pass);
+      const n = this.runAction("explode");   // 同一步里（step 嵌套 = 并进这一步）；要问的那种会另起一步
+      return groups + n > 0;
+    });
   }
-  private explodeSelectionStep(pass: StepPass, cast: boolean): boolean {
-    if (!this.selectedPools.size) return false;
-    const at = this.activePool();
-    const kept = new Map<string, PoolPick>();
-    for (const [key, p] of [...this.selectedPools]) {
-      if (this.pickIsLocked(p)) { kept.set(key, p); continue; }
-      this.commitIn(pass, p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance, ...(cast ? { cast: true } : {}) });
-    }
-    this.selectedPools = kept;   // 写口已标过（前面 clearSel）
-    if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没炸开（选区菜单 → 解锁）`);
+  /** 只炸选中的组（右键几何层「炸开组」）。 */
+  explodeGroups(): boolean { return this.step((pass) => this.explodeGroupsStep(pass) > 0); }
+  private explodeGroupsStep(pass: StepPass): number {
+    const at = this.activePool(), groups = [...this.selectedPools.values()].filter((p): p is { kind: "group"; group: GroupId } => p.kind === "group" && !this.pickIsLocked(p));
+    if (!groups.length) return 0;
+    const n0 = this.opCount;
+    for (const p of groups) this.commitIn(pass, { op: "explode", at, group: p.group });
+    if (this.opCount === n0) return 0;
+    const kept = [...this.selectedPools].filter(([, p]) => p.kind !== "group");
+    this.clearSel(pass); for (const [k, p] of kept) this.selectedPools.set(k, p);
+    this.host.hint(`炸开了 ${groups.length} 个组`);
     this.host.changed(); this.draw();
-    return true;
+    return groups.length;
   }
+  hasGroupSelection(): boolean { return [...this.selectedPools.values()].some((p) => p.kind === "group"); }
   /** 再放一份选中实例的定义（复制 = 同定义新实例，偏移 delta 世界向量）。 */
   copyInstance(delta: Pt3): boolean { return this.step((pass) => this.copyInstanceStep(pass, delta)); }
   // ---------- 剪贴板（设计稿 ai-docs/20261028-object-layer-and-clipboard-design.md §3；user 10-28 夜「复制黏贴我们没做」「paste落点：原位落下」）----------
@@ -2017,19 +1985,7 @@ export class Editor {
     if (say && ok.length < all.length) this.host.hint(`${all.length - ok.length} 个已锁定的组 / 组件不动（解锁后再移）`);
     return ok;
   }
-  /** 锁定 / 解锁选中的子 group / 实例（每个一条 op，可撤销）。 */
-  lockSelection(on: boolean): boolean { return this.step((pass) => this.lockSelectionStep(pass, on)); }
-  private lockSelectionStep(pass: StepPass, on: boolean): boolean {
-    // 0.14：组不是物体、不能锁（user「组永远不进hierarchy」）——只锁实例；选区里只有组时提示怎么办
-    const all = [...this.selectedPools.values()];
-    const picks = all.filter((p) => p.kind === "instance" && this.pickIsLocked(p) !== on);
-    if (!picks.length) { if (on && all.some((p) => p.kind === "group")) this.host.hint("组不是物件，不能锁；要当参考就先「建组件」（G）再锁"); return false; }
-    const at = this.activePool();
-    for (const p of picks) if (p.kind === "instance") this.commitIn(pass, { op: "setLocked", at, instance: p.instance, on });
-    this.host.hint(on ? `已锁定 ${picks.length} 个：不能改、不能移、不能进入；仍可当推断参考` : `已解锁 ${picks.length} 个`);
-    this.host.changed(); this.draw();
-    return true;
-  }
+
   // ---------- 隐藏（DT49，user 2026-10-25「然后 hide unhide all也马上需要了，这个gltf规范里有吗？」；存档 = glTF KHR_node_visibility）----------
   // 组件 = 整份藏（藏父连子）；散的面 / 线 = 各自打隐藏标记（user「嗯线和面也可以hidden，这样可以挖洞看里面，blender也支持。合理。」）；
   // 组不是物体、没有自己的隐藏 = 把组里（连同子组、放在里面的实例）的面 / 线 / 实例全藏。
@@ -2099,7 +2055,7 @@ export class Editor {
   /** 修复模块（repairs/）用的窄接口：模块不碰 Editor 本体。 */
   private get repairCtx(): CommandEnv {
     const self = this;
-    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), circleSegments: () => this.config.get("circle", "segments") };
+    return { get scene() { return self.scene; }, gridFineStep: () => this.gridFineStep(), snapStepChoices: () => this.snapStepChoices(), snapLattice: (at, xf, f) => this.snapLattice(at, xf, f), sharpDeg: () => this.config.get("surface", "sharpDeg"), pointedInstance: () => this.pointedInstance(), circleSegments: () => this.config.get("circle", "segments") };
   }
   /** 这个修复模块在不在清单里（☰ 里的老入口按它显隐：模块扔了不报错）。 */
   repairLoaded(kind: RepairKind): boolean { return !!commandById(kind); }
@@ -2129,15 +2085,15 @@ export class Editor {
    * 作用域解成单位（注册表提案 §2.1 的最小版，按种类；2026-10-27 接缝）：brep / mesh = 活动池 + 它的几何选区（没选几何 = 没有这个单位；修复那条路另有「整个物体」的作用域）；
    * object = 选中的、没锁的实例（场景里摆着的每一份一个单位）。加一种身体 = 这里多一个分支 + 它的选区类型，别处不动。
    */
-  private unitsOf(kind: UnitKind): Unit[] {
+  private unitsOf(kind: UnitKind, includeLocked = false): Unit[] {
     const s = this.scene, at = this.activePool();
-    if (this.unitTarget !== "selection") return this.targetUnits(kind);
+    if (this.unitTarget !== "selection") return this.targetUnits(kind, includeLocked);
     if (kind === "object") {
       const ctxDef = s.defOfContext(this.ctx), out: ObjectUnit[] = [];
       for (const p of this.selectedPools.values()) {
         if (p.kind !== "instance") continue;
         const inst = s.instance(ctxDef, p.instance);
-        if (inst.locked) continue;
+        if (inst.locked && !includeLocked) continue;
         const d = s.def(inst.def);
         out.push({ kind: "object", at, instance: inst.id, def: d.id, name: d.name, body: d.body.kind, copies: s.instanceCount(d.id), xf: inst.xform });
       }
@@ -2159,7 +2115,7 @@ export class Editor {
   /** 单位按谁取：selection = 当前选区（几何层的右键 / 浮条，默认）；self = 你所在的这一层本身（物体钮）；children = 选中的子物体（子组件的物体菜单 → 物体设置…）。 */
   private unitTarget: MenuTarget = "selection";
   /** 目标不是选区时的单位：self = 这一层（object = 它本身；网格体 = 整个；硬表面的几何不算）；children = 选中的子物体（object = 那几份；子物体是网格体 = 整个）。 */
-  private targetUnits(kind: UnitKind): Unit[] {
+  private targetUnits(kind: UnitKind, includeLocked = false): Unit[] {
     const s = this.scene, at = this.activePool(), ctxDef = s.defOfContext(this.ctx);
     if (this.unitTarget === "self") {
       if (kind === "object") { const d = s.def(ctxDef); return [{ kind: "object", at, instance: null, def: d.id, name: ctxDef === s.root ? "最外层" : d.name, body: d.body.kind, copies: Math.max(1, s.instanceCount(d.id)), xf: IDENTITY }]; }
@@ -2169,7 +2125,7 @@ export class Editor {
     for (const p of this.selectedPools.values()) {
       if (p.kind !== "instance") continue;
       const inst = s.def(ctxDef).instances.get(p.instance);
-      if (!inst || inst.locked) continue;
+      if (!inst || (inst.locked && !includeLocked)) continue;
       const d = s.def(inst.def);
       if (kind === "object") out.push({ kind: "object", at, instance: inst.id, def: d.id, name: d.name, body: d.body.kind, copies: s.instanceCount(d.id), xf: inst.xform });
       else if (kind === "mesh" && d.body.kind === "mesh" && !out.some((u) => u.kind === "mesh" && u.def === d.id)) out.push({ kind: "mesh", def: d.id, sel: null, xf: inst.xform });
@@ -2189,7 +2145,7 @@ export class Editor {
   }
   /** 指令声明 perDefinition（改定义不改这一份）时按定义去重：同一定义几份实例只喂一次（copies 披露「N 份一起变」）。 */
   private unitsFor(c: Command, kind: UnitKind): Unit[] {
-    const all = this.unitsOf(kind).filter((u) => u.kind !== "object" || u.instance !== null || !!c.takesContext);
+    const all = this.unitsOf(kind, !!c.takesLocked).filter((u) => u.kind !== "object" || u.instance !== null || !!c.takesContext);
     if (!c.perDefinition || kind !== "object") return all;
     const seen = new Set<DefId>();
     return all.filter((u) => u.kind === "object" && !seen.has(u.def) && !!seen.add(u.def));
@@ -2248,6 +2204,12 @@ export class Editor {
   /** 跑一条物体指令：一次 = 一步；要等很久先问；做完说清做了什么、丢了什么；有参数的给马后炮。 */
   private runObjectCommand(id: CommandId): number {
     const c = commandById(id) as Command<ObjectUnit>, v0 = c.defaults(this.repairCtx), units = this.unitsFor(c, "object") as ObjectUnit[];
+    const q = c.ask?.(this.repairCtx, units, v0);   // 先问一句（跨种类转）：点了「做」才带着补的参数跑；不能问 = 如实说没做
+    if (q) {
+      if (!this.host.confirm) { this.host.hint(`${c.title}：${q.message}（这里不能问，没做）`); return 0; }
+      void this.host.confirm(q.title, q.message, q.okLabel).then((ok) => { if (ok) this.runObjectNow(c, units, { ...v0, ...q.params }); else { this.host.hint(`${c.title}：没做（你选了不转）`); this.draw(); } });
+      return 0;
+    }
     const est = c.estimate?.(this.repairCtx, units, v0);
     if (est && est.seconds >= Editor.ERASE_ASK_SECONDS && this.host.confirm) {
       const t = est.seconds < 90 ? `${Math.round(est.seconds)} 秒` : `${(est.seconds / 60).toFixed(1)} 分钟`;
@@ -2260,7 +2222,7 @@ export class Editor {
     const go = (v: CmdParams): number => {
       const ops: Op[] = [], notes = new Set<string>();
       let count = 0;
-      for (const u of units) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); count += r.count; for (const n of r.notes ?? []) notes.add(n); }
+      for (const u of units) { const r = c.plan(this.repairCtx, u, v); ops.push(...r.ops); count += r.count; for (const n of r.notes ?? []) notes.add(n); for (const i of r.selectObjects ?? []) selectAfter.add(i); }
       const tail = [...notes].map((n) => `；${n}`).join("");
       if (!ops.length) { this.host.hint(`${c.none}${tail}`); return 0; }
       const n0 = this.opCount;
@@ -2269,9 +2231,12 @@ export class Editor {
       this.host.hint(`${c.done(count, 0, v)}${tail}`);
       return count;
     };
+    const selectAfter = new Set<InstId>();
     const n0 = this.opCount, count = go(v0);
     if (count && c.params(this.repairCtx).length) this.offerAfterthought(c.title, c.params(this.repairCtx), v0, this.opCount - n0, (v) => { go(v); });
-    this.clearSel(pass);   // 身体换了种类：旧的选区 / 拾取对不上新内核，清掉（诚实）
+    if (!count) { this.host.changed(); this.draw(); return 0; }
+    if (selectAfter.size) { this.clearSel(pass); for (const i of selectAfter) if (this.scene.def(this.scene.defOfContext(this.ctx)).instances.has(i)) this.selectedPools.set(`i${i}`, { kind: "instance", instance: i }); }   // 做完选中（合并 = 留下的那个）
+    else if (!c.keepSelection) this.clearSel(pass);   // 身体换了种类 / 炸开：旧的选区对不上，清掉（诚实）；锁 / 藏 / 做成唯一留着
     this.host.changed(); this.draw();
     return count;
   }); }
@@ -2512,38 +2477,30 @@ export class Editor {
    * 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：选中组件的缩放烘进组件本身的几何，这一份只剩旋转 + 平移；
    * 同一组件的别的份乘反比补偿，看起来不变。组件里有转过的子组件时会斜切 → 护栏拦下并说明。一次 = 一步。
    */
-  applyScaleSelection(): boolean { return this.step((pass) => {
-    const ids = this.scaledInstancePicks(), def = this.scene.defOfContext(this.ctx);
-    if (!ids.length) { this.host.hint("选中的组件没有被缩放过"); return false; }
-    const n0 = this.opCount;
-    for (const id of ids) this.commitIn(pass, { op: "applyScale", def, instance: id });
-    if (this.opCount === n0) return false;
-    this.host.hint(`已把缩放烘进 ${ids.length} 个组件的几何（同一组件的别的份看起来没变）`);
-    this.host.changed(); this.draw();
-    return true;
-  }); }
   hasHideableSelection(): boolean { return this.hasGeometrySelection() || this.selectedPools.size > 0 || guidesOf(this.selection).size > 0; }   // 点不单独藏
   /** 藏起选区（每处一条 op，一步撤完）。返回藏了几样（实例 + 面 + 线）。 */
   hideSelection(): number { return this.step((pass) => this.hideSelectionStep(pass)); }
   private hideSelectionStep(pass: StepPass): number {
-    if (!this.requireBrep("隐藏")) return 0;
-    const at = this.activePool(), k = this.kernel, def = at.def, body = this.scene.brep(def);
+    const at = this.activePool(), def = at.def;
     let n = 0;
-    const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
-    const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
-    if (faces.length || edges.length) { this.commitIn(pass, { op: "setHidden", at, faces, edges, on: true }); n += faces.length + edges.length; }
-    // 组：整棵子树（子组的面 / 线 + 放在这棵树里的实例）
-    const groupIds = [...this.selectedPools.values()].filter((p) => p.kind === "group").map((p) => (p as { group: GroupId }).group);
-    const tree = new Set<GroupId>(groupIds);
-    for (let grew = true; grew;) { grew = false; for (const g of body.groups.values()) if (g.parent !== null && tree.has(g.parent) && !tree.has(g.id)) { tree.add(g.id); grew = true; } }
-    for (const gid of tree) {
-      const gk = body.groups.get(gid)!.kernel;
-      const gf = gk.faces().filter((f) => !gk.isFaceHidden(f.id)).map((f) => faceKey(gk, f.id)), ge = gk.edges().filter((e) => !gk.isEdgeHidden(e.id)).map((e) => edgeKey(gk, e.id));
-      if (gf.length || ge.length) { this.commitIn(pass, { op: "setHidden", at: { def, group: gid }, faces: gf, edges: ge, on: true }); n += gf.length + ge.length; }
+    if (this.activeKind() === "brep") {   // 几何 + 组（硬表面才有）：手写；直接选中的实例 → 注册表 object.hide（两种身体都行）
+      const k = this.kernel, body = this.scene.brep(def);
+      const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
+      const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
+      if (faces.length || edges.length) { this.commitIn(pass, { op: "setHidden", at, faces, edges, on: true }); n += faces.length + edges.length; }
+      // 组：整棵子树（子组的面 / 线 + 放在这棵树里的实例）
+      const groupIds = [...this.selectedPools.values()].filter((p) => p.kind === "group").map((p) => (p as { group: GroupId }).group);
+      const tree = new Set<GroupId>(groupIds);
+      for (let grew = true; grew;) { grew = false; for (const g of body.groups.values()) if (g.parent !== null && tree.has(g.parent) && !tree.has(g.id)) { tree.add(g.id); grew = true; } }
+      for (const gid of tree) {
+        const gk = body.groups.get(gid)!.kernel;
+        const gf = gk.faces().filter((f) => !gk.isFaceHidden(f.id)).map((f) => faceKey(gk, f.id)), ge = gk.edges().filter((e) => !gk.isEdgeHidden(e.id)).map((e) => edgeKey(gk, e.id));
+        if (gf.length || ge.length) { this.commitIn(pass, { op: "setHidden", at: { def, group: gid }, faces: gf, edges: ge, on: true }); n += gf.length + ge.length; }
+      }
+      for (const i of this.scene.def(def).instances.values()) if (i.parent !== null && tree.has(i.parent) && !i.hidden) { this.commitIn(pass, { op: "setHidden", at: { def, group: i.parent }, instance: i.id, on: true }); n++; }
     }
-    const insts = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance").map((p) => p.instance);
-    for (const i of this.scene.def(def).instances.values()) if (i.parent !== null && tree.has(i.parent) && !i.hidden) insts.push(i.id);
-    for (const iid of insts) { const inst = this.scene.def(def).instances.get(iid)!; this.commitIn(pass, { op: "setHidden", at: { def, group: inst.parent }, instance: iid, on: true }); n++; }
+    if (this.activeKind() !== "brep" && this.hasGeometrySelection() && !this.selectedPools.size) { this.requireBrep("隐藏"); return 0; }   // 网格体的面 / 线还藏不了：如实说（物件照藏）
+    if (this.selectedPools.size) n += this.runAction("hide");   // 直接选中的实例（同一步；两种身体都行）
     if (!n) return 0;
     this.clearSel(pass);
     this.host.hint(`藏起来了；视图菜单「全部显示」放回来（Alt+H）`);
@@ -3811,7 +3768,7 @@ export class Editor {
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
   private pointerDownStep(ev: ToolPointer): void {
-    this.ctxPick = null;   // 右键菜单那一下记的点：画布上再按一下就作废
+    this.ctxPick = null; this.pointed = null;   // 右键菜单那一下记的点 / Ctrl+J 压着的那个：画布上再按一下就作废
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
