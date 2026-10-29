@@ -7,6 +7,8 @@ import type { EnvRecipeId, SurfaceRecipeId } from "../paintshop/index.ts";
 
 /** 像素描边后处理（实验室公用件 `ShaderLab.pixelOutline`，lab/core.js）：背景挨着模型的那一格涂成描边色；可选内部深度跳变也描。 */
 export interface PixelOutlinePost {
+  /** 描在哪一侧：outside = 物体外面一圈（背景那侧，经典精灵描边）；inside = 物体边界那一圈（近的那侧）——和线稿落在同一个像素上、合成一条，不打架（T116 user「如果有勾线的话描边会和勾线打架」）。 */
+  readonly side: "outside" | "inside";
   /** 固定描边色（0xRRGGBB，sRGB）。 */
   readonly color: number;
   /** 描边跟着底色（0 = 固定色、1 = 邻格颜色压暗）。 */
@@ -107,7 +109,7 @@ export const PRESETS = {
     source: "实验室 平涂 flat.js ·「像素描边」（contrast 0、pixelate 3、pixOutline、outlineTint 1、outlineShade 0.25、outlineDark；BASE 的 pixInner true、outline #1b1b1b、background #fde6bd）",
     material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
     light: { background: 0xfde6bd, ground: null, ao: null, env: null },
-    post: { pixelOutline: { color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },
+    post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
     screen: "pixel3",
     geometry: {},
   },

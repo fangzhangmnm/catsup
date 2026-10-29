@@ -172,3 +172,7 @@
 - 做了什么：① 像素描边 `edges: "active" → "all"`（T113：线块里本来只有硬边——软边 / 折线 / 隐藏的边建线块时就跳过了——所以「看硬边 / 软边」= 所有层的线稿都画；配合 T103 锁 1 px，⑲ 粗细线 = 不分、⑱ 法线图描折角 = 不用做）。② `SCREENS` 加 `crt3`（像素 ×3 + 电视外观），Tron 默认屏 = crt3（T85：240 行太糊）；240 行留在屏幕下拉里。③ 视图 ☰「线稿粗细」那行撤（T88），默认 = 调好的那档（高 DPI 1.5、其余 1），不再读存的值；死掉的「粗线稿」菜单分支删。④ 预设 white 的界面名「白模」→「线稿」（T96；id 不动；提示行 / 血槽位披露跟着改）。下拉探针 `probe-menu-dropdowns` 改拿「屏幕」那行当例子。
 - 看得见的变化（声明）：Tron 两张（`style-tron-sel / style-tron-house-thick`）分辨率变高 → 重冻；像素三张 0 差（样本里只有一层，all = active）。
 - 怎么验：`npm test` 绿；探针 menu-dropdowns / style / erase-red / selecting 绿；基线其余 0 差。
+
+### v0.17.27–28（Opus）
+- v0.17.27 风格 / 屏幕跟着文件走（`CATSUP_desk` 1.3，T86 / T115）：见契约文档追记；基线没动。
+- v0.17.28 像素描边画在物体那侧（T116）：`PixelOutlinePost.side`（outside / inside），像素描边 = inside，描边和勾线落在同一格合成一条（以前两格粗）。**声明**：`style-pixel-sel / house / textured` 重冻（轮廓变细一格）。

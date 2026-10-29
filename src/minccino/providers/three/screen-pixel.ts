@@ -17,7 +17,7 @@ const OUTLINE_FS = /* glsl */`
   uniform sampler2D uCol, uDepth;
   uniform vec3 uLineCol, uBg;
   uniform float uLineTint, uNear, uFar, uLineMul;
-  uniform bool uInner, uDarkSide, uOrtho, uOn;
+  uniform bool uInner, uDarkSide, uOrtho, uOn, uInside;
   uniform int uWidth;
   layout(location = 0) out vec4 oColor;   // three r185 的 GLSL3 不再替你定义 gl_FragColor，自己声明输出
   float viewZ(float d) { if (uOrtho) return uNear + d * (uFar - uNear); float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / ((uFar + uNear) - z * (uFar - uNear)); }
@@ -34,18 +34,19 @@ const OUTLINE_FS = /* glsl */`
       for (int i = 0; i < 4; i++) {
         ivec2 q = clamp(p + K[i] * s, ivec2(0), hi);
         float dq = texelFetch(uDepth, q, 0).r;
-        bool hit = d >= 1.0 ? dq < 1.0 : false;
+        // outside：描背景那侧（这一格是背景 / 远的、邻格是物体 / 近的）；inside：描物体那侧（这一格是物体 / 近的、邻格是背景 / 远的）——和线稿同一格
+        bool hit = uInside ? (d < 1.0 && dq >= 1.0) : (d >= 1.0 && dq < 1.0);
         if (d < 1.0 && uInner && dq < 1.0) {
           float dr = texelFetch(uDepth, clamp(p - K[i] * s, ivec2(0), hi), 0).r;
-          if (uOrtho) {   // 正交：z 在屏幕上仿射；邻居更近 4% 以上且外推对不上
+          if (uOrtho) {   // 正交：z 在屏幕上仿射；邻格近（远）4% 以上且外推对不上
             float zq = viewZ(dq), pred = dr < 1.0 ? 2.0 * z - viewZ(dr) : z;
-            hit = zq * 1.04 < z && pred - zq > 0.03 * z;
+            hit = uInside ? (zq > z * 1.04 && zq - pred > 0.03 * z) : (zq * 1.04 < z && pred - zq > 0.03 * z);
           } else {        // 透视：1/z 仿射（实验室原式）
             float wq = 1.0 / viewZ(dq), pred = dr < 1.0 ? 2.0 * w - 1.0 / viewZ(dr) : w;
-            hit = wq > w * 1.04 && wq - pred > 0.03 * w;
+            hit = uInside ? (wq * 1.04 < w && pred - wq > 0.03 * w) : (wq > w * 1.04 && wq - pred > 0.03 * w);
           }
         }
-        if (hit && !line) { line = true; nb = texelFetch(uCol, q, 0).rgb; }
+        if (hit && !line) { line = true; nb = uInside ? c.rgb : texelFetch(uCol, q, 0).rgb; }   // inside：线色跟自己这一格（物体）走
       }
     }
     if (uDarkSide && dot(c.rgb, vec3(0.299, 0.587, 0.114)) < dot(nb, vec3(0.299, 0.587, 0.114))) nb = c.rgb;
@@ -106,7 +107,7 @@ export class PixelScreen {
     this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.outlineMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: OUTLINE_FS, depthTest: false, depthWrite: false,
-      uniforms: { uCol: { value: null }, uDepth: { value: null }, uLineCol: { value: new THREE.Vector3() }, uBg: { value: new THREE.Vector3() }, uLineTint: { value: 1 }, uNear: { value: 0.1 }, uFar: { value: 100 }, uLineMul: { value: 0.42 }, uInner: { value: false }, uDarkSide: { value: false }, uOrtho: { value: false }, uOn: { value: true }, uWidth: { value: 1 } },
+      uniforms: { uInside: { value: false }, uCol: { value: null }, uDepth: { value: null }, uLineCol: { value: new THREE.Vector3() }, uBg: { value: new THREE.Vector3() }, uLineTint: { value: 1 }, uNear: { value: 0.1 }, uFar: { value: 100 }, uLineMul: { value: 0.42 }, uInner: { value: false }, uDarkSide: { value: false }, uOrtho: { value: false }, uOn: { value: true }, uWidth: { value: 1 } },
     });
     this.upscaleMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: UPSCALE_FS, depthTest: true, depthFunc: THREE.AlwaysDepth, depthWrite: true,
@@ -142,7 +143,7 @@ export class PixelScreen {
     const u = this.outlineMat.uniforms, pl = o.outline;
     u.uCol.value = this.low.texture; u.uDepth.value = this.low.depthTexture;
     u.uBg.value.copy(srgbVec(o.background)); u.uOn.value = !!pl;
-    if (pl) { u.uLineCol.value.copy(srgbVec(pl.color)); u.uLineTint.value = pl.tint; u.uLineMul.value = pl.shade; u.uDarkSide.value = pl.darkSide; u.uInner.value = pl.inner; u.uWidth.value = pl.width; }
+    if (pl) { u.uLineCol.value.copy(srgbVec(pl.color)); u.uLineTint.value = pl.tint; u.uLineMul.value = pl.shade; u.uDarkSide.value = pl.darkSide; u.uInner.value = pl.inner; u.uWidth.value = pl.width; u.uInside.value = pl.side === "inside"; }
     u.uNear.value = o.near; u.uFar.value = o.far; u.uOrtho.value = o.ortho;
     this.quad.material = this.outlineMat;
     renderer.setRenderTarget(this.post); renderer.render(this.quadScene, this.quadCam);
