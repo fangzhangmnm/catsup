@@ -20,7 +20,7 @@ import { type WorldLabel, gridStepLabel, unitMark } from "./world-labels.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
-import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint , type PickKinds } from "./pick.ts";
+import { type AlignHand, type DrawPlane, type HitResult3, type Snap3, type SnapKind, GROUND, cameraPlane, drawPlaneAt, grazing, pickEntity, pickFace, rectFirstPlane, resolveRectPlane, snapPoint , type PickKinds, faceDotPoint } from "./pick.ts";
 import { HIT_PX, MESH_VERT_HIT_PX, NO_HAND, SNAP_PX, frameEps } from "./solver.ts";
 import { type MirrorAxis, type MirrorMode, type MirrorMovesResult, type MirrorSetting, type SymmetrizeResult, MIRROR_TOL, coordOf, isSymmetric, mirrorMoves, mirrorPairs, sideOfChange, symmetrize } from "../mesh/mirror.ts";
 import { MIRROR_TOPO_ACTIONS, opsOfClass } from "../mesh/mirror-ops.ts";
@@ -1516,7 +1516,7 @@ export class Editor {
   // 视图设置：不进文件、不进撤销；快捷键 Alt+Z（Blender 同键）。
   private _xray = false;
   get xray(): boolean { return this._xray; }
-  setXray(on: boolean): void { if (this._xray === on) return; this._xray = on; this.r3.setXray(on); this.host.hint(on ? "X 光开：选择工具点得到被挡住的点 / 边，边透过面画出来（Alt+Z 关）" : "X 光关"); this.host.changed(); this.draw(); }
+  setXray(on: boolean): void { if (this._xray === on) return; this._xray = on; this.r3.setXray(on); this.host.hint(on ? "X 光开：选择工具点得到被挡住的点 / 边 / 面（面 = 每张面中心的小方点），边透过面画出来（Alt+Z 关）" : "X 光关"); this.host.changed(); this.draw(); }
 
   /**
    * 选择扩张（SU 点击族：单击 / 双击 / 三击）：stage 0 = 命中实体本身；1 = 膜 + 其环边；2 = 连通体。命中子 group / 实例 = 选它整体。
@@ -3653,6 +3653,17 @@ export class Editor {
     return segs.length ? { key: String(this.kid(view)), segs } : null;
   }
   /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
+  /** X 光面点（FM3）：开着 X 光时，正在编辑那一层每张面中心一个点（pick.ts faceDotPoint，和点得中的地方是同一个）；选中的面另一种颜色。 */
+  private faceDotsView(view: WorldView, g: (id: number) => number): { key: string; pts: Pt3[]; sel: boolean[] } | null {
+    if (!this._xray || this.cmdPreview) return null;
+    const selG = new Set<number>([...this.selection.faces].map(g)), pts: Pt3[] = [], sel: boolean[] = [];
+    for (const f of view.faces()) {
+      if (view.isActive && !view.isActive(f.id)) continue;
+      const c = faceDotPoint(view, f.id); if (!c) continue;
+      pts.push(c); sel.push(selG.has(f.id));
+    }
+    return { key: `${this.kid(view)}|${[...selG].sort((a, b) => a - b).join(",")}`, pts, sel };
+  }
   private vertDotsView(view: WorldView, g: (id: number) => number): { key: string; pts: Pt3[] } | null {
     if (this.mode.id !== "freeform" || this.cmdPreview) return null;
     const k = view.activeSlot().kernel, pts: Pt3[] = [];
@@ -3709,6 +3720,7 @@ export class Editor {
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
       vertDots: this.vertDotsView(view, g),
+      faceDots: this.faceDotsView(view, g),
       softEdges: this.softEdgesView(view, g),
       mirror: this.mirrorView(view, g),
       ticks: this.mode.id === "geometry" ? this.breakTicks(view) : null,

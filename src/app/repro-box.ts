@@ -1,6 +1,7 @@
 // repro-box.ts —— 复现包黑匣子（2026-10-24，Claude Fable 5.1；user「以后出错的时候要不要加一个关窗就没的快照黑匣子选项，就包括涉及到的数据和操作，你就能复现了」）。
 // 提交 / 预演被内核拒绝时，把「那一步之前的活动池 B-rep + 这条 op（或预演描述）+ 版本」收进内存环；**只住内存，关窗就没**（模型数据不落盘）。
 // 调试日志 sheet 里「复现包」钮导出 JSON；仓里 scripts/replay-repro.mjs 拿到包在内核上重跑。最多 8 条，新顶旧。
+import { deliverFile } from "./share-or-download.ts";
 import type { BrepSnapshot } from "../kernel/kernel.ts";
 import { APP_VERSION } from "../version.ts";
 
@@ -30,26 +31,8 @@ export function toJson(list: readonly ReproEntry[] = ring): string { return JSON
 export function lastStepEntry(step: { op: unknown; brep: BrepSnapshot; pool: { def: number; group: number | null } }): ReproEntry {
   return { t: new Date().toISOString(), version: APP_VERSION, where: "last-step", message: "user exported the last committed step (not a kernel rejection)", op: step.op, brep: step.brep, pool: step.pool };
 }
-/** 分享（有 Web Share）或下载一个 .json；say = 状态行回执。 */
+/** 交一个 .json：触屏分享、电脑下载（share-or-download.ts；user「windows的分享就是个流氓软件」）；say = 状态行回执。 */
 export async function exportJson(json: string, stem: string, say: (text: string) => void): Promise<void> {
   const f = new File([json], `${stem}-${new Date().toISOString().slice(0, 19).replace(/[:T]/g, "-")}.json`, { type: "application/json" });
-  const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-  if (typeof navigator.share === "function" && nav.canShare?.({ files: [f] })) {
-    try { await navigator.share({ title: "CatsUp 复现包", files: [f] }); say(`已分享 ${f.name}`); return; }
-    catch (e) {
-      if (e instanceof Error && e.name === "AbortError") return;   // 用户自己取消
-      // user 2026-10-25 真机「复现包分享失败, permission denied」（NotAllowedError：系统不让分享这类文件 / 点按的那一下已过期）→ 退回下载，别把包丢了
-      download(f);
-      say(`分享不行（系统说：${e instanceof Error ? e.message : String(e)}），改成下载了：${f.name}`);
-      return;
-    }
-  }
-  download(f);
-  say(`已下载 ${f.name}`);
-}
-function download(f: File): void {
-  const url = URL.createObjectURL(f);
-  const a = document.createElement("a"); a.href = url; a.download = f.name; a.style.display = "none";
-  document.body.appendChild(a); a.click(); a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  await deliverFile(f, "CatsUp 复现包", say);
 }

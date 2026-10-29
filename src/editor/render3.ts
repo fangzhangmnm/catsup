@@ -113,6 +113,8 @@ const CHARGED_COLOR = 0x8b5cf6, CHARGED_EXT_COLOR = 0xd4d0f5, CHARGED_PX = 5;
 const SEL_VERT_DOT_PX = 9;
 /** 自由建模里每个顶点画一个小点（user 10-27「自由建模模式应该能看到顶点和选择」）。CSS px。 */
 const VERT_DOT_PX = 5;
+/** X 光面点的边长（CSS px；方点，和圆的顶点小点分开认）。 */
+const FACE_DOT_PX = 6;
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
 export const POOL_AXES_PX = 22;
 /** 锁着时画的轴线（controller/lock-guide.ts）两头各伸多长（屏幕 px，按线过的那一点的一像素多长换算）：够横穿画面，像 Blender 的无限长线。 */
@@ -214,6 +216,8 @@ export interface ViewState {
   selVerts?: readonly Pt3[] | null;
   /** 全部顶点的小点（自由建模；key 变了才重建）。 */
   vertDots?: { key: string; pts: readonly Pt3[] } | null;
+  /** X 光面点（每张面中心一个小方点、不被挡；sel = 这张面选中着，画强调色）。 */
+  faceDots?: { key: string; pts: readonly Pt3[]; sel: readonly boolean[] } | null;
   /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
   softEdges?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[] } | null;
   /** 镜像（自由建模，FM23「看得见：镜像面淡淡画出来，中缝上的点高亮」）：镜像面的淡框 + 中缝上的点。 */
@@ -360,6 +364,7 @@ export class Renderer3 {
   private protractorLines: any;
   /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
   private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
+  private faceDots: any; private faceDotKey = "";
   private lockLinesObj: any; private lockLinesKey = ""; private guideLines: any; private tapeLines: any; private knifeLines: any; private knifeKey = ""; private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private chargedLines: any; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private softLines: any; private softKey = ""; private seamDots: any; private mirrorKey = ""; private capsuleLines: any; private tickLines: any; private poolAxesLines: any; private poolAxesKey = ""; private emptyAxesLines: any; private emptyAxesKey = ""; private originAxesLines: any; private originAxesKey = ""; private gizmoLines: any; private gizmoQuad: any; private gizmoKey = "";
   private faceKey = ""; private edgeKey = ""; private hintKey = ""; private protKey = ""; private guideKey = ""; private tapeKey = ""; private gridKey = ""; private chargedKey = ""; private tickKey = "";
   private kernelIds = new WeakMap<object, number>();
@@ -518,6 +523,14 @@ export class Renderer3 {
     }));
     this.vertDots.frustumCulled = false; this.vertDots.visible = false; this.vertDots.renderOrder = 3;
     this.scene.add(this.vertDots);
+    // X 光面点（FM3）：方点、不做深度测试（被挡住的面也看得见、点得中）；颜色按点给（没选 = 深灰，选中 = 选中色）
+    this.faceDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
+      uniforms: { uSize: { value: FACE_DOT_PX } }, depthTest: false, depthWrite: false, transparent: true,
+      vertexShader: "uniform float uSize; attribute vec3 color; varying vec3 vC; void main(){ vC = color; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_PointSize = uSize; }",
+      fragmentShader: "varying vec3 vC; void main(){ vec2 d = abs(gl_PointCoord - 0.5); if (max(d.x, d.y) > 0.5) discard; gl_FragColor = vec4(vC, 0.9); }",
+    }));
+    this.faceDots.frustumCulled = false; this.faceDots.visible = false; this.faceDots.renderOrder = 5;
+    this.scene.add(this.faceDots);
     // 平滑边（自由建模）：细、淡、和面一样往后让（polygonOffset），被挡住的不露
     this.softLines = new LineSegments2(new LineSegmentsGeometry(), this.lineMat(SOFT_EDGE_PX, { offset: true, vertexColors: true }));
     this.softLines.frustumCulled = false; this.softLines.visible = false;
@@ -963,6 +976,22 @@ export class Renderer3 {
       this.vertDots.material.uniforms.uSize.value = VERT_DOT_PX * this.dpr;
       this.vertDots.visible = true;
     } else { this.vertDots.visible = false; this.vertDotKey = ""; }
+
+    // ---- X 光面点 ----
+    const fd = view.faceDots;
+    if (fd && fd.pts.length) {
+      if (fd.key !== this.faceDotKey) {
+        this.faceDotKey = fd.key;
+        const g = new THREE.BufferGeometry(), col: number[] = [];
+        const on = [((PALETTE.faceSelected >> 16) & 255) / 255 * 0.6, ((PALETTE.faceSelected >> 8) & 255) / 255 * 0.6, (PALETTE.faceSelected & 255) / 255 * 0.85], off = [0.33, 0.33, 0.33];
+        for (const s of fd.sel) col.push(...(s ? on : off));
+        g.setAttribute("position", new THREE.Float32BufferAttribute(fd.pts.flatMap((q) => [q.x, q.y, q.z]), 3));
+        g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
+        this.faceDots.geometry.dispose(); this.faceDots.geometry = g;
+      }
+      this.faceDots.material.uniforms.uSize.value = FACE_DOT_PX * this.dpr;
+      this.faceDots.visible = true;
+    } else { this.faceDots.visible = false; this.faceDotKey = ""; }
 
     // ---- 平滑边（自由建模）----
     const se = view.softEdges;

@@ -1,8 +1,9 @@
 // debug-log-sheet.ts —— 菜单「调试日志」sheet：看 + 复制 + 分享/下载 + 清空（数据源 = debug-log.ts）。WeebPaint diag-log-sheet.ts 同形。
 // created 2026-09-20 by Claude Fable 5.1
 // 复制 = 三级回退：navigator.clipboard.writeText（手势内）→ 隐藏 textarea + execCommand("copy") → 选中 <pre> 让用户长按复制。
-// 分享 = Web Share **.txt 文件**（iPad 直接发给文件 / AirDrop / 邮件；微信/QQ 不吃 60 KB 长文本——WeebPaint 09-06 教训）；
+// 分享 = Web Share **.txt 文件**（iPad 直接发给文件 / AirDrop / 邮件；微信/QQ 不吃 60 KB 长文本——WeebPaint 09-06 教训）；只在触屏设备分享，Windows 等电脑 = 下载（2026-10-29）；
 //   没有 navigator.share（桌面）→ 钮变「下载 .txt」。反馈写进 sheet 自己的提示行（无系统弹窗，家规）。
+import { deliverFile, preferShare } from "./share-or-download.ts";
 import { entries, toText, clear } from "./debug-log.ts";
 import { reportError } from "./error-funnel.ts";
 import { count as reproCount, toJson as reproJson, exportJson, lastStepEntry } from "./repro-box.ts";
@@ -78,35 +79,9 @@ export function initDebugLogSheet(): void {
   reproBtn.addEventListener("click", () => { void exportJson(reproJson(), "catsup-repro", say); });
   // 上一步（成功但错的那一步也能寄）：op + 它之前的活动池；replay-repro.mjs 同一条路回放
   lastBtn.addEventListener("click", () => { const st = _lastStep?.(); if (!st) { say("还没有提交过的步骤"); return; } void exportJson(reproJson([lastStepEntry(st)]), "catsup-last-step", say); });
-  const canShare = typeof navigator.share === "function";
-  if (!canShare) shareBtn.textContent = "下载 .txt";
-  shareBtn.addEventListener("click", async () => {
-    if (!canShare) {
-      const f = logFile();
-      const url = URL.createObjectURL(f);
-      const a = document.createElement("a"); a.href = url; a.download = f.name; a.style.display = "none";
-      document.body.appendChild(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(url), 10_000);
-      say(`已下载 ${f.name}`);
-      return;
-    }
-    try {
-      const f = logFile();
-      const nav = navigator as Navigator & { canShare?: (d: ShareData) => boolean };
-      if (nav.canShare?.({ files: [f] })) await navigator.share({ title: "CatsUp 调试日志", files: [f] });
-      else await navigator.share({ title: "CatsUp 调试日志", text: toText() });
-    } catch (e) {
-      if ((e as { name?: string })?.name !== "AbortError") {
-        reportError(new Error("[debug-log] share failed: " + String(e)), "log");
-        // 分享被系统拒（user 2026-10-25 复现包同款「permission denied」）→ 退回下载，日志不丢
-        const f = logFile(), url = URL.createObjectURL(f);
-        const a = document.createElement("a"); a.href = url; a.download = f.name; a.style.display = "none";
-        document.body.appendChild(a); a.click(); a.remove();
-        setTimeout(() => URL.revokeObjectURL(url), 10_000);
-        say(`分享不行，改成下载了：${f.name}`);
-      }
-    }
-  });
+  // 触屏 = 分享（iPad 发给文件 / AirDrop / 邮件），电脑（含 Windows：那里的系统分享 user 不要）= 下载（share-or-download.ts，2026-10-29）
+  if (!preferShare()) shareBtn.textContent = "下载 .txt";
+  shareBtn.addEventListener("click", () => { void deliverFile(logFile(), "CatsUp 调试日志", say); });
 
   copyBtn.addEventListener("click", () => { void copy(); });
   clearBtn.addEventListener("click", () => { clear(); render(); say("已清空"); });

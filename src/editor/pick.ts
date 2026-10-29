@@ -82,11 +82,31 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
   }
   if (bestE !== undefined) return { edge: bestE };
 
+  // X 光：面点（每张面中心一个小点，在点 / 边之后、按射线认面之前）——点得到被挡在后面的面（纪元账本 FM3，user「这个才是x ray 承重的」）。只认正在编辑那一层的面（画的也只有它们）
+  if (opts?.xray && opts?.kinds?.faces !== false) {
+    let bestDot: FaceId | undefined, bestDd = tolPx;
+    for (const f of idx ? idx.facesNear(sx, sy, tolPx + 1) : k.faces()) {
+      if (k.isActive && !k.isActive(f.id)) continue;
+      const c = faceDotPoint(k, f.id); if (!c) continue;
+      const d = pf.distTo(sx, sy, c, vp);
+      if (d <= bestDd) { bestDd = d; bestDot = f.id; }
+    }
+    if (bestDot !== undefined) return { face: bestDot };
+  }
   const bestF = opts?.kinds?.faces === false ? undefined : pickFace(k, pf, vp, sx, sy);
   if (bestF !== undefined) return { face: bestF };
   return {};
 }
 
+/** 面点：外环点的平均（世界）。画（Editor.faceDotsView）和点（pickEntity 的 X 光那段）共用这一个，画的地方 = 点得中的地方。 */
+export function faceDotPoint(k: GeomView, id: FaceId): Pt3 | null {
+  const r = k.faceRings3(id);
+  if (!r || !r.outer.length) return null;
+  let x = 0, y = 0, z = 0;
+  for (const p of r.outer) { x += p.x; y += p.y; z += p.z; }
+  const n = r.outer.length;
+  return { x: x / n, y: y / n, z: z / n };
+}
 /** 只拾膜（射线最近命中）：推拉/删面这类「面动词」用——不走顶点>边>面优先级，否则细面（屏上几像素宽）
  *  任何位置都在边的 HIT 圈内、边永远赢、面永远拾不到（2026-09-07 user「推拉的时候拾取不到细的面」）。SU 推拉同款只认面。 */
 /** 这张面在活动池里吗（WorldView 才有槽；裸内核 = 全部活动）。 */

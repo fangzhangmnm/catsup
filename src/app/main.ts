@@ -1100,7 +1100,7 @@ function openViewMenu(tab?: ViewTab): void {
     anchor: viewMenuBtn, align: "end" as const, tabs: VIEW_MENU_TABS, tabKey: "view", tab,
     items: () => [
       { id: "persp" as MenuId, label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), tab: "display" },
-      { id: "xray" as MenuId, label: "X 光", checked: editor.xray, hint: "Alt+Z：选择工具点得到被挡住的点 / 边，边透过面画出来", tab: "display" },   // DT17 拾取 + 叠加层（半透明留 Tron 纪元）
+      { id: "xray" as MenuId, label: "X 光", checked: editor.xray, hint: "Alt+Z：选择工具点得到被挡住的点 / 边 / 面（面中心的小方点），边透过面画出来", tab: "display" },   // DT17 拾取 + 叠加层（半透明留 Tron 纪元）
       ((): { id: MenuId; label: string; icon: string; hint: string; disabled: boolean; tab: string } => { const c = editor.hiddenCount(), n = c.instances + c.faces + c.edges; return { id: "unhideAll", label: n ? `全部显示（${n}）` : "全部显示", icon: "visibility-show", hint: "Alt+H", disabled: !n, tab: "display" }; })(),   // DT49
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
       { id: "lw:pick" as MenuId, label: "线稿粗细", tab: "display", choices: LINE_WEIGHTS.map((w) => ({ id: `lw:${w}` as MenuId, label: w === 1 ? "1 px（原生细线）" : `${w} px`, checked: editor.lineWeight === w, hint: w === 1 ? "最快，不分轮廓" : "轮廓 / 悬空边加粗" })) },   // 设备像素
@@ -1128,7 +1128,7 @@ const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapB
 snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
 // X 光快捷钮（2026-10-29 user「xray开关放一个快捷键到视图快捷键区的锁快捷键旁边」；纪元账本 FM51「X 光开关放右上角锁旁边」）：点一下开 / 关，亮着 = 开；Alt+Z 同一个开关，视图菜单里那一行照留
-const xrayBtn = document.createElement("button"); xrayBtn.type = "button"; xrayBtn.className = "gizmo-btn gizmo-xray"; xrayBtn.title = "X 光（Alt+Z）：边透过面画出来，选择工具点得到被挡住的点 / 边";
+const xrayBtn = document.createElement("button"); xrayBtn.type = "button"; xrayBtn.className = "gizmo-btn gizmo-xray"; xrayBtn.title = "X 光（Alt+Z）：边透过面画出来，选择工具点得到被挡住的点 / 边 / 面（面中心的小方点）";
 xrayBtn.innerHTML = iconHtml("xray"); widgets.appendChild(xrayBtn);
 xrayBtn.addEventListener("click", () => { editor.setXray(!editor.xray); syncUi(); });
 xrayBtnRef = xrayBtn;
