@@ -65,7 +65,7 @@ export const GLOBAL: Layer = {
     B("shift+tab", "grid.toggle", "格点吸附开 / 关"),
     B("ctrl+a", "select.all", "全选"), B("ctrl+i", "select.invert", "反选"), B("alt+a", "select.none", "全不选"),
     B("alt+h", "show.all", "全部显示"), B("alt+z", "view.xray", "X 光"),
-    B("ctrl+g", "group.make", "建组"), B("ctrl+shift+g", "group.explode", "炸开"),
+    B("ctrl+g", "group.make", "建组"), B("ctrl+j", "objects.join", "合并物体（Blender Ctrl+J）", (c) => c.hasSelection), B("ctrl+shift+g", "group.explode", "炸开"),
     B("ctrl+z", "undo", "撤销"), B("ctrl+shift+z", "redo", "重做"), B("ctrl+y", "redo", "重做"),
     B("delete", "delete", "删除", (c) => c.hasSelection), B("backspace", "delete", "删除", (c) => c.hasSelection),
     B("escape", "escape", "取消 / 退一层"),

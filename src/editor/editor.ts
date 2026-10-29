@@ -1771,6 +1771,37 @@ export class Editor {
    * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
    */
   makeComponent(name: string): boolean { return this.step((pass) => this.makeComponentStep(pass, name)); }
+  // ---------- 分开 / 合并物体（Blender P / Ctrl+J；user 10-28 夜「6非常重要，67放右键」）----------
+  /** 分开：在网格体里选中的面搬进一个新的网格体组件，摆在外面一层、世界里不动。 */
+  canSeparate(): boolean { return this.activeKind() === "mesh" && this.selection.kind === "mesh" && this.selection.faces.size > 0; }
+  separateSelection(): boolean { return this.step((pass) => {
+    if (!this.canSeparate()) { this.host.hint("分开：先在网格体里选要分出去的面"); return false; }
+    const def = this.activePool().def, chain = this.ctx.chain, copies = this.copiesOf(def);
+    if (chain.length && copies > 1) { this.host.hint(`分开：这个组件摆了 ${copies} 份，分开会改掉每一份；先把它做成唯一的再分`); return false; }
+    const faces = [...(this.selection as { faces: Set<number> }).faces].sort((a, b) => a - b), name = `${this.scene.def(def).name}·分开`;
+    let at: PoolRef, instance: InstId | undefined;
+    if (chain.length) { instance = chain[chain.length - 1]; const pdef = this.scene.defOfContext({ chain: chain.slice(0, -1), group: null }); at = { def: pdef, group: this.scene.instance(pdef, instance).parent }; }
+    else at = { def, group: null };   // 最外层：新组件摆在最外层，不变换
+    this.commitIn(pass, { op: "separateObject", at, ...(instance !== undefined ? { instance } : {}), def, faces, name });
+    this.clearSel(pass);
+    this.host.hint(`分开了 ${faces.length} 张面：成了新的网格体组件「${name}」，${chain.length ? "在外面一层" : "在最外层"}、位置不变`);
+    this.host.changed(); this.draw();
+    return true;
+  }); }
+  /** 合并物体：选中的几个网格体组件（同一层）并进第一个。 */
+  private joinPicks(): InstId[] { const out: InstId[] = []; for (const p of this.selectedPools.values()) if (p.kind === "instance") { const i = this.scene.instance(this.activePool().def, p.instance); if (this.scene.kindOf(i.def) === "mesh") out.push(p.instance); } return out; }
+  canJoin(): boolean { return this.joinPicks().length >= 2; }
+  joinSelection(): boolean { return this.step((pass) => {
+    const ids = this.joinPicks();
+    if (ids.length < 2) { this.host.hint("合并物体：先在外面一层选两个以上的网格体组件"); return false; }
+    const at = this.activePool(), target = ids[0], tdef = this.scene.instance(at.def, target).def, copies = this.copiesOf(tdef);
+    if (copies > 1) { this.host.hint(`合并物体：第一个选的组件摆了 ${copies} 份，并进去会改掉每一份；先把它做成唯一的`); return false; }
+    this.commitIn(pass, { op: "joinObjects", at, target, sources: ids.slice(1) });
+    this.clearSel(pass); this.selectedPools.set(`i${target}`, { kind: "instance", instance: target });
+    this.host.hint(`合并了 ${ids.length} 个网格体：都并进了第一个选的那个`);
+    this.host.changed(); this.draw();
+    return true;
+  }); }
   /** 选区里一起装进新组 / 新组件的子组和组件（SketchUp 同款嵌套，user 2026-10-26「当然要」）：锁定的不动（提示一句）。 */
   private nestPicks(): { groups: GroupId[]; instances: InstId[]; fields: { groups?: GroupId[]; instances?: InstId[] } } {
     const picks = [...this.selectedPools.values()], locked = picks.filter((p) => this.pickIsLocked(p)).length;

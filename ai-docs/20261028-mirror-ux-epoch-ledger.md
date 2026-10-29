@@ -10,6 +10,7 @@
 
 | # | 事 | user 原话 | 状态 / 落地 |
 |---|---|---|---|
+| UX52 | **分开 / 合并物体（Blender P / Ctrl+J），放右键。** | 10-28 夜：「6非常重要，67放右键」 | **done v0.16.36（Claude Opus 5.5）**：分开 = 网格体里选中的面搬进一个新网格体组件，摆在外面一层、和正在编辑的那一份同一个变换（世界里不动；最外层分 = 新组件摆在最外层）；合并 = 外面一层选两个以上网格体组件并进第一个（几何换到它的坐标里、材质槽重映射、裸线带上）；组件摆了不止一份时拒绝并说清（会改掉每一份）；op `separateObject` / `joinObjects`（整场景记撤销）；右键 + Ctrl+J（P 在自由建模是挤出，分开没绑键）；探针 `probe-separate-join`。 |
 | UX51 | **沿边滑：G G；是移动手柄的一种模式。** | 10-28 夜：「5 做，快捷键同意，然后手势的话就是g的gizmos的一种模式」 | **done v0.16.35（Claude Opus 5.5）**：移动中再按 G = 这一次沿边滑（Blender G G，只管这一次）；工具条「沿边滑」= 常驻模式（移动工具的一种模式，以后移动手柄上也是这一档）；每个点沿它连出去、另一头没被挪的边滑同样的比例（抓住的点按拖的方向挑边、别的点挑方向最像的那条；挑定不跳轨）；`tools/mesh-transform.ts solveSlide`；没接打数；探针 `probe-edge-slide`。 |
 | UX50 | **扩 / 缩选区 = 选择工具再点一下选区出的拖动条。** | 10-28 夜：「4我不是说了是select按第二次的的gizmos吗，做」（设计 = `ai-docs/20261027-gizmo-design.md` §7，user 10-27 / 10-28 拍过） | **done v0.16.34（Claude Opus 5.5）**：`mesh/select-grow.ts`（点 = 沿边、边 = 共点、面 = 共点，Blender 默认）；选择工具替换档里点中已选的 = 不改选区、出条（双击之后也出）；条 = − ｜ 拖条 ｜ +，每 28 px 一圈，拖的时候直接看得见、松手一步（`Editor.selGrowBegin / To / End`）；点别处 / 换工具 / 没选区就收；没绑键（Blender 是 Ctrl+小键盘 ±，user 没小键盘）；探针 `probe-sel-grow`。 |
 | UX49 | **复制、补洞 / 桥接做；翻转法线放右键。** | 10-28 夜：「12做」「6非常重要，67放右键」 | **done v0.16.32（Claude Opus 5.5）**：`mesh/ops/duplicate.ts`（复制叠在原处；补洞 = 一圈开口边补一张面、方向跟邻面；桥接 = 两圈点数一样连一圈四边形、按距离对齐）；指令 `mesh.duplicate` / `mesh.fill` / `mesh.flipNormals` 进右键；Shift+D = 复制并接着挪（Blender）；补洞没绑键（Blender 的 F 在这里是插入工具，等 user 定）；op `meshDuplicate` / `meshFill` / `meshFlip` 进镜像分类表（改拓扑）；测试 `mesh-fill.test`，探针 `probe-duplicate-fill`。分开 / 合并物体（6 的另一半）还没做。 |

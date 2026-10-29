@@ -16,6 +16,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
+import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
 import { edgesAlongSegs } from "../kernel/curves.ts";
@@ -136,6 +137,10 @@ export type Op =
   | { op: "meshFill"; def: number; verts?: number[]; edges?: number[] }
   /** 翻转这些面的朝向（单面网格的正面 = 环的绕向）。 */
   | { op: "meshFlip"; def: number; faces: number[] }
+  /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
+  | { op: "separateObject"; at: PoolRef; instance?: number; def: number; faces: number[]; name: string }   // instance 缺 = 在最外层分（新组件摆在最外层、不变换）
+  /** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
+  | { op: "joinObjects"; at: PoolRef; target: number; sources: number[] }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -613,6 +618,31 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "meshDuplicate": { duplicateGeometry(meshOf(s, op.def).kernel, op); return { scene: s, events: [] }; }
     case "meshFill": { const r = fillOrBridge(meshOf(s, op.def).kernel, op); if (typeof r === "string") throw new OpTargetError(r); return { scene: s, events: [] }; }
     case "meshFlip": { const k = meshOf(s, op.def).kernel; flipFaces(k, op.faces.filter((f) => k.hasF(f))); return { scene: s, events: [] }; }
+    case "separateObject": {
+      const src = meshOf(s, op.def), k = src.kernel, xf = op.instance !== undefined ? s.instance(op.at.def, op.instance).xform : ([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0] as Xform), faces = op.faces.filter((f) => k.hasF(f));
+      if (!faces.length) throw new OpTargetError("separate: no faces");
+      const nk = new MeshKernel(), map = new Map<number, number>(), nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = nk.addVertex(k.pt(v)); map.set(v, x); } return x; };
+      for (const f of faces) nk.addFace(k.faceVerts(f).map(nv), k.faceMat[f]);
+      for (const f of faces) for (const e of k.fEdges(f)) { const e2 = nk.edgeOf(map.get(k.edgeA[e])!, map.get(k.edgeB[e])!); if (e2 >= 0) nk.edgeFlags[e2] = k.edgeFlags[e]; }   // 手标（棱 / 平滑）跟着走
+      nk.setSmoothDefault(k.smoothDefault);
+      deleteSelection(k, { faces }, false);
+      const d = s.mintDef(op.name, new Kernel());
+      d.body = { kind: "mesh", kernel: nk, materialSlots: [...src.materialSlots] };
+      s.mintInstance(op.at.def, op.at.group, d.id, xf);
+      return { scene: s, events: [] };
+    }
+    case "joinObjects": {
+      const host = s.def(op.at.def), tgt = s.instance(op.at.def, op.target), tb = meshOf(s, tgt.def), Xi = invert(tgt.xform);
+      for (const sid of op.sources) {
+        const si = s.instance(op.at.def, sid), sb = meshOf(s, si.def), sk = sb.kernel, X = compose(Xi, si.xform), map = new Map<number, number>();
+        const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = tb.kernel.addVertex(applyPt(X, sk.pt(v))); map.set(v, x); } return x; };
+        const slot = (m: number): number => { if (m < 0) return -1; const id = sb.materialSlots[m]; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
+        for (const f of sk.faces()) tb.kernel.addFace(sk.faceVerts(f).map(nv), slot(sk.faceMat[f]));
+        for (const e of sk.edges()) if (sk.eFaces(e).length === 0) tb.kernel.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e]));   // 裸线也带上
+        if (!host.instances.delete(sid)) throw new OpTargetError(`instance ${sid}`);
+      }
+      return { scene: s, events: [] };
+    }
     case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
     case "meshLoopCut": { const r = loopCut(meshOf(s, op.def).kernel, op.edge, op.t ?? 0.5); if (!r.edges.length) throw new OpTargetError(`loop cut from edge ${op.edge}: not a quad strip`); return { scene: s, events: [] }; }
     case "meshExtrude": { const k = meshOf(s, op.def).kernel; if (op.along !== undefined && !op.faces?.length) extrudeAlongNormals(k, op, op.along); else extrudeAndOffset(k, op, op.offset ?? { x: 0, y: 0, z: 0 }); return { scene: s, events: [] }; }
@@ -686,6 +716,8 @@ export function describeOp(op0: Op): string {
     case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
+    case "separateObject": return `separateObject def=${op.def} faces=${op.faces.length} → 「${op.name}」`;
+    case "joinObjects": return `joinObjects ${op.sources.length} → ${op.target}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;
     case "meshLoopCut": return `meshLoopCut def=${op.def} edge=${op.edge} t=${op.t ?? 0.5}`;
