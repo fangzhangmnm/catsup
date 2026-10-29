@@ -31,6 +31,6 @@ r.flipped = await page.evaluate(([d, f, ring]) => JSON.stringify([...globalThis.
 await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
-const ok = r.bar === "删除 | 更多…" && /分开/.test(r.menu) && /复制/.test(r.menu) && !/^删除|\| 删除 \|/.test(r.menu) && r.flipped && errs.length === 0;
+const ok = r.bar === "删除 | 更多…" && /建组件/.test(r.menu) && /复制/.test(r.menu)   // v0.16.45：「分开」撤了，= 原地建组件 && !/^删除|\| 删除 \|/.test(r.menu) && r.flipped && errs.length === 0;
 console.log(ok ? "probe-selbar OK" : "probe-selbar FAIL");
 process.exit(ok ? 0 : 1);

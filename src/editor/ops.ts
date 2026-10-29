@@ -71,7 +71,10 @@ export type Op =
   /** 应用缩放（2026-10-26，user「这样的话我们需要一个apply scale」）：def 里的实例 instance 的缩放烘进它的定义；这一份只剩旋转 + 平移，同一定义的别的份乘反比补偿（外观不变）。 */
   | { op: "applyScale"; def: number; instance: number }
   /** 炸开：group 的几何并回父池；实例的定义几何（经变换）并回父池（group 与实例都递归成子项）。 */
-  | { op: "explode"; at: PoolRef; group?: number; instance?: number }
+  /** cast：组件的散几何和外面一层不是一种身体时，要用户点过「转成 X 再炸」才带 true（设计稿 20261028-object-layer-and-clipboard §2：不许静默转种类）；组件没自己的几何（只摆着子物件）不用。 */
+  | { op: "explode"; at: PoolRef; group?: number; instance?: number; cast?: boolean }
+  /** 做成唯一（SketchUp Make Unique）：这一份实例换成一份新定义（深拷），别的份不受影响。 */
+  | { op: "makeUnique"; def: number; instance: number }
   | { op: "transformPool"; at: PoolRef; xform: Xform }
   | { op: "transformInstance"; def: number; instance: number; xform: Xform }
   | { op: "placeInstance"; at: PoolRef; definition: number; xform: Xform }
@@ -141,7 +144,6 @@ export type Op =
   /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
   | { op: "separateObject"; at: PoolRef; instance?: number; def: number; faces: number[]; name: string }   // instance 缺 = 在最外层分（新组件摆在最外层、不变换）
   /** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
-  | { op: "joinObjects"; at: PoolRef; target: number; sources: number[] }
   /** 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**，材质 = 文档材质 id，指令里换成目标定义的槽号）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。 */
   | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[] }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
@@ -399,7 +401,11 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (op.instance !== undefined) {
         const host = s.def(op.at.def), inst = host.instances.get(op.instance);
         if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
-        if (s.kindOf(op.at.def) === "mesh" || s.kindOf(inst.def) === "mesh") { explodeAcrossKinds(s, op.at, inst); return { scene: s, events: [] }; }
+        if (s.kindOf(op.at.def) !== s.kindOf(inst.def)) {
+          if (!op.cast && !bodyEmpty(s.def(inst.def).body)) throw new OpTargetError(`explode: 「${s.def(inst.def).name}」是${s.kindOf(inst.def) === "mesh" ? "网格体" : "硬表面体"}、这一层是${s.kindOf(op.at.def) === "mesh" ? "网格体" : "硬表面体"}，要先转种类（点「转成 X 再炸」）`);
+          explodeAcrossKinds(s, op.at, inst); return { scene: s, events: [] };
+        }
+        if (s.kindOf(op.at.def) === "mesh") { explodeAcrossKinds(s, op.at, inst); return { scene: s, events: [] }; }
       }
       const { kernel, ref } = poolOf(s, op.at);
       const d = s.def(ref.def), db = s.brep(ref.def);
@@ -674,13 +680,10 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       s.mintInstance(op.at.def, op.at.group, d.id, xf);
       return { scene: s, events: [] };
     }
-    case "joinObjects": {
-      const host = s.def(op.at.def), tgt = s.instance(op.at.def, op.target), tb = meshOf(s, tgt.def), Xi = invert(tgt.xform);
-      for (const sid of op.sources) {
-        const si = s.instance(op.at.def, sid);
-        appendMesh(tb, meshOf(s, si.def), compose(Xi, si.xform));
-        if (!host.instances.delete(sid)) throw new OpTargetError(`instance ${sid}`);
-      }
+    case "makeUnique": {
+      const inst = s.def(op.def).instances.get(op.instance);
+      if (!inst) throw new OpTargetError(`instance ${op.instance}`);
+      inst.def = cloneDefinition(s, inst.def).id;
       return { scene: s, events: [] };
     }
     case "meshKnife": { knife(meshOf(s, op.def).kernel, op.face, op.path); return { scene: s, events: [] }; }
@@ -758,7 +761,7 @@ export function describeOp(op0: Op): string {
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
     case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${at}`;
     case "separateObject": return `separateObject def=${op.def} faces=${op.faces.length} → 「${op.name}」`;
-    case "joinObjects": return `joinObjects ${op.sources.length} → ${op.target}`;
+    case "makeUnique": return `makeUnique def=${op.def} instance=${op.instance}`;
     case "meshDelete": return `meshDelete def=${op.def}${op.dissolve ? " dissolve" : ""} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshKnife": return `meshKnife def=${op.def} face=${op.face} points=${op.path.length}`;
     case "meshLoopCut": return `meshLoopCut def=${op.def} edge=${op.edge} t=${op.t ?? 0.5}`;
@@ -814,6 +817,30 @@ function appendMesh(tb: MeshBody, sb: MeshBody, X: Xform): void {
     if (sk.eFaces(e).length === 0) { tk.ensureEdge(nv(sk.edgeA[e]), nv(sk.edgeB[e])); continue; }
     const e2 = tk.edgeOf(map.get(sk.edgeA[e])!, map.get(sk.edgeB[e])!); if (e2 >= 0) tk.edgeFlags[e2] = sk.edgeFlags[e];
   }
+}
+/** 身体里没自己的几何（只摆着子物件）：跨种类炸开 / 合并不用转。 */
+export function bodyEmpty(b: SceneBody): boolean {
+  return b.kind === "mesh" ? b.kernel.faceCount() === 0 && b.kernel.edges().length === 0 : b.kernel.faces().length === 0 && b.kernel.edges().length === 0 && b.groups.size === 0;
+}
+/** 定义深拷（做成唯一）：身体（内核 / 组 / 参考几何 / 坐标架 / 槽表）+ 子实例（指向同样的子定义）。 */
+function cloneDefinition(s: Scene, def: number): { id: number } {
+  const src = s.def(def), name = `${src.name}·唯一`;
+  if (src.body.kind === "mesh") {
+    const d = s.mintDef(name, new Kernel());
+    d.body = { kind: "mesh", kernel: src.body.kernel.clone(), materialSlots: [...src.body.materialSlots] };
+    for (const i of src.instances.values()) { const ni = s.mintInstance(d.id, null, i.def, i.xform); if (i.name !== undefined) ni.name = i.name; if (i.locked) ni.locked = true; if (i.layer !== undefined) ni.layer = i.layer; if (i.hidden) ni.hidden = true; }
+    return d;
+  }
+  const b = src.body, d = s.mintDef(name, b.kernel.clone()), nb = s.brep(d.id);
+  nb.materialSlots = [...b.materialSlots]; nb.guides = cloneGuides(b.guides); if (b.drawFrame) nb.drawFrame = { ...b.drawFrame };
+  const gmap = new Map<number, number>();
+  for (const g of [...b.groups.values()].sort((x, y) => x.id - y.id)) {
+    const ng = s.mintGroup(d.id, g.parent === null ? null : (gmap.get(g.parent) ?? null), g.kernel.clone(), { ...g.axes });
+    ng.guides = cloneGuides(g.guides); if (g.name !== undefined) ng.name = g.name;
+    gmap.set(g.id, ng.id);
+  }
+  for (const i of src.instances.values()) { const ni = s.mintInstance(d.id, i.parent === null ? null : (gmap.get(i.parent) ?? null), i.def, i.xform); if (i.name !== undefined) ni.name = i.name; if (i.locked) ni.locked = true; if (i.layer !== undefined) ni.layer = i.layer; if (i.hidden) ni.hidden = true; }
+  return d;
 }
 /** 粘贴一份实例：名字 / 锁 / 层 / 藏跟着走。 */
 function mintPasted(s: Scene, def: number, parent: number | null, i: TransferInstance): void {

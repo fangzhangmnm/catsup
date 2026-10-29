@@ -22,10 +22,11 @@ const faceCount = (s: Scene, def: number): number => (s.kindOf(def) === "mesh" ?
 
 describe("物体级 op × 身体种类（炸开 / 建组件 / 合并）", () => {
   for (const host of ["brep", "mesh"] as Kind[]) for (const comp of ["brep", "mesh"] as Kind[]) {
-    it(`炸开：外面 ${host} × 组件 ${comp} → 成功：组件没了、几何进了外面一层、模型干净`, () => {
+    it(`炸开：外面 ${host} × 组件 ${comp} → ${host === comp ? "直接成功" : "不带 cast = 人话拒绝（不静默转种类）；带 cast = 成功"}：组件没了、几何进了外面一层、模型干净`, () => {
       const { s, inst, comp: cdef } = setup(host, comp);
       let err: unknown = null;
-      try { applyOp(s, { op: "explode", at: { def: s.root, group: null }, instance: inst }); } catch (e) { err = e; }
+      if (host !== comp) { try { applyOp(s, { op: "explode", at: { def: s.root, group: null }, instance: inst }); } catch (e) { err = e; } assert(err instanceof OpTargetError, `跨种类不带 cast 该人话拒绝，得到：${String(err)}`); err = null; }
+      try { applyOp(s, { op: "explode", at: { def: s.root, group: null }, instance: inst, ...(host !== comp ? { cast: true } : {}) }); } catch (e) { err = e; }
       assert(err === null, `抛了：${String(err)}`);
       eq(s.def(s.root).instances.size, 0); eq(s.defs.has(cdef), false);
       assert(faceCount(s, s.root) >= 6, `外面一层只有 ${faceCount(s, s.root)} 张面`);
@@ -42,11 +43,14 @@ describe("物体级 op × 身体种类（炸开 / 建组件 / 合并）", () => 
     applyOp(s, { op: "explode", at: { def: s.root, group: null }, instance: ni.id });
     eq(faceCount(s, s.root), n); eq(s.def(s.root).instances.size, 0);
   });
-  it("合并物体：来源不是网格体 = 人话错误（OpTargetError 或说清的 Error），不是内部崩", () => {
-    const { s, inst } = setup("brep", "brep");
-    let err: unknown = null;
-    try { applyOp(s, { op: "joinObjects", at: { def: s.root, group: null }, target: inst, sources: [inst] }); } catch (e) { err = e; }
-    assert(err !== null, "该拒");
+  for (const comp of ["brep", "mesh"] as Kind[]) it(`做成唯一（${comp}）：两份同定义 → 一份换新定义，几何一样、另一份不动`, () => {
+    const { s, inst, comp: cdef } = setup("brep", comp);
+    const i0 = s.def(s.root).instances.get(inst)!;
+    applyOp(s, { op: "placeInstance", at: { def: s.root, group: null }, definition: cdef, xform: [1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0] });
+    applyOp(s, { op: "makeUnique", def: s.root, instance: inst });
+    const nd = s.def(s.root).instances.get(inst)!.def;
+    assert(nd !== cdef, "没换定义"); eq(faceCount(s, nd), faceCount(s, cdef)); eq(s.instanceCount(cdef), 1); eq(s.instanceCount(nd), 1);
+    void i0;
   });
 });
 void OpTargetError;

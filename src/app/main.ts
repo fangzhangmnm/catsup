@@ -246,9 +246,9 @@ const hud: HudModel = {
     { id: "redo", label: "重做", icon: "arrow-redo", disabled: !editor.canRedo() },
     { id: "delete", layer: "geometry", label: "删除", icon: "trash-can", danger: true, hidden: !editor.hasSelection() },   // 网格体的点 / 边 / 面也能删了（v0.15.22）
     { id: "group", layer: "geometry", label: "建组", icon: "collection", hidden: brepOnly || (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 选了组 / 组件也能建（装进去，2026-10-26 嵌套）
-    { id: "component", layer: "geometry", label: "建组件", icon: "object", hidden: brepOnly ? !editor.canSeparate() : (!editor.hasGeometrySelection() && !editor.hasPoolSelection()) },   // 网格体里 = 选中的面做成嵌在这一层的组件（v0.16.37）
-    { id: "separate", layer: "geometry", label: "分开（成新物体）", icon: "explode-folder", hidden: !editor.canSeparate() },   // Blender P（user 10-28 夜「6非常重要，67放右键」）
-    { id: "joinObjects", layer: "child", label: "合并物体", icon: "collection", hidden: !editor.canJoin() },   // Blender Ctrl+J
+    { id: "component", layer: "geometry", label: "建组件", icon: "object", hidden: !editor.canMakeComponent() },   // 网格体里 = 选中的面做成嵌在这一层的组件（v0.16.37）
+    { id: "mergeInto", layer: "child", label: "把其余合并进这个", icon: "collection", hidden: !editor.canMergeHere() },   // 合并 = 宏（右键点在谁身上谁留下；user 10-28 夜「可以」）
+    { id: "makeUnique", layer: "child", label: "做成唯一", icon: "copy", hidden: !editor.canMakeUnique() },   // SketchUp Make Unique：改这一份不动别的份
     { id: "explode", layer: "child", label: "炸开", icon: "explode-folder", hidden: !editor.hasPoolSelection() },   // 两种身体都能炸（v0.16.37：op 看外面一层和组件本身的身体种类）
     { id: "mirror", layer: "geometry", label: "镜像…", icon: "flip-horizontal", hidden: brepOnly || !editor.hasSelection() || editor.mirrorActive() },   // DT23（user 2026-10-25「你选中，右键mirror之后……」）
     { id: "weld", layer: "geometry", label: "焊接", icon: "arc", hidden: !editor.canWeldSelection() },   // B19：边链 → 一条曲线（图标 = stopgap，图标库 TODO 已登记 weld）
@@ -301,8 +301,8 @@ const hud: HudModel = {
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
       case "explode": editor.explodeSelection(); break;
-      case "separate": editor.separateSelection(); break;
-      case "joinObjects": editor.joinSelection(); break;
+      case "mergeInto": editor.mergeAtContextPoint(); break;
+      case "makeUnique": editor.makeUniqueSelection(); break;
       case "mirror": editor.beginMirror(); break;
       case "weld": editor.weldSelection(); break;
       case "explodeCurve": editor.explodeCurveSelection(); break;
@@ -1296,7 +1296,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "edit.copy": editor.copySelection(); syncUi(); return;
     case "edit.paste": editor.pasteClipboard(); syncUi(); return;
     case "gesture.type": editor.typeIntoGesture(ev.key); syncUi(); return;
-    case "objects.join": editor.joinSelection(); syncUi(); return;
+    case "objects.join": editor.mergeUnderCursor(); syncUi(); return;
     case "mesh.duplicateMove": if (editor.runAction("mesh.duplicate") > 0) editor.startModal("move"); syncUi(); return;   // Blender Shift+D：复制叠在原处 → 接着 G
     case "soft.toggle": editor.config.set("soft", "on", !editor.config.get("soft", "on")); editor.refreshGesture(); syncUi(); return;
     case "soft.smaller": case "soft.bigger": { const r = editor.config.get("soft", "radius"); editor.config.set("soft", "radius", Math.round(verb === "soft.bigger" ? r * 1.2 : r / 1.2)); editor.refreshGesture(); syncUi(); return; }   // 手势中打数（Blender「S Z 0」）

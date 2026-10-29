@@ -64,6 +64,7 @@ import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { accept as transferAccept, castPayload, extract as transferExtract, localize as transferLocalize, transferSay } from "./transfer.ts";
 import { clipboard } from "./clipboard.ts";
+import { bodyEmpty } from "./ops.ts";
 import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
@@ -1773,48 +1774,83 @@ export class Editor {
    * = 撤销建组件、重做建组件 + 给新组件换轴（v0.14.5 组件换轴：世界不动）。
    */
   makeComponent(name: string): boolean { return this.step((pass) => this.makeComponentStep(pass, name)); }
-  // ---------- 分开 / 合并物体（Blender P / Ctrl+J；user 10-28 夜「6非常重要，67放右键」）----------
-  /** 网格体里建组件（user 10-28 夜「mesh也要有和sketchup类似的组件管理」「所以反而就是你说的join之类的操作，我们现在就是可以自己打组」）：
-   *  选中的面搬进一个新的网格体组件、嵌在这一层里（同一个 op separateObject，只是摆在这一层而不是外面）；炸开它 = 并回来。 */
+  // ---------- 物件层动词（设计稿 ai-docs/20261028-object-layer-and-clipboard-design.md §4；user 10-28 夜）----------
+  // 分开 = 原地建组件（「分开」撤了：user「分开的大部分场景就是你想单独修改某个东西，所以逻辑上还是属于这个物体」「先这么试着」）；
+  // 合并 = 宏：剪切其余 → 进目标 → 原位粘贴 → 炸开，一步撤销，目标 = 右键点的那个 / 光标下那个（user「你右键点在谁身上，谁留下 可以」）；
+  // 贴进 / 并进摆了多份的组件 = 每份都变（SketchUp 语义，不再拒绝）；要只改这一份 = 先「做成唯一」。
+  /** 网格体里建组件（user 10-28 夜「mesh也要有和sketchup类似的组件管理」）：选中的面搬进一个新的网格体组件、嵌在这一层里（op separateObject，摆在这一层）；炸开它 = 并回来。 */
   private makeMeshComponentStep(pass: StepPass, name: string): boolean {
-    if (!this.canSeparate()) { this.host.hint("建组件：先在网格体里选要做成组件的面"); return false; }
+    if (!this.canMakeComponent()) { this.host.hint("建组件：先在网格体里选要做成组件的面"); return false; }
     const def = this.activePool().def, faces = [...(this.selection as { faces: Set<number> }).faces].sort((a, b) => a - b);
     const before = new Set(this.scene.def(def).instances.keys());
     this.commitIn(pass, { op: "separateObject", at: { def, group: null }, def, faces, name });
     this.clearSel(pass);
     const fresh = [...this.scene.def(def).instances.keys()].find((id) => !before.has(id));
     if (fresh !== undefined) this.selectedPools.set(`i${fresh}`, { kind: "instance", instance: fresh });
-    this.host.hint(`建了组件「${name}」：${faces.length} 张面，嵌在这一层里；双击进去改、炸开 = 并回来`);
+    const copies = this.copiesOf(def);
+    this.host.hint(`建了组件「${name}」：${faces.length} 张面，嵌在这一层里${copies > 1 ? `（这个组件摆了 ${copies} 份，每份都有了）` : ""}；双击进去改、炸开 = 并回来`);
     this.host.changed(); this.draw();
     return true;
   }
-  /** 分开：在网格体里选中的面搬进一个新的网格体组件，摆在外面一层、世界里不动。 */
-  canSeparate(): boolean { return this.activeKind() === "mesh" && this.selection.kind === "mesh" && this.selection.faces.size > 0; }
-  separateSelection(): boolean { return this.step((pass) => {
-    if (!this.canSeparate()) { this.host.hint("分开：先在网格体里选要分出去的面"); return false; }
-    const def = this.activePool().def, chain = this.ctx.chain, copies = this.copiesOf(def);
-    if (chain.length && copies > 1) { this.host.hint(`分开：这个组件摆了 ${copies} 份，分开会改掉每一份；先把它做成唯一的再分`); return false; }
-    const faces = [...(this.selection as { faces: Set<number> }).faces].sort((a, b) => a - b), name = `${this.scene.def(def).name}·分开`;
-    let at: PoolRef, instance: InstId | undefined;
-    if (chain.length) { instance = chain[chain.length - 1]; const pdef = this.scene.defOfContext({ chain: chain.slice(0, -1), group: null }); at = { def: pdef, group: this.scene.instance(pdef, instance).parent }; }
-    else at = { def, group: null };   // 最外层：新组件摆在最外层，不变换
-    this.commitIn(pass, { op: "separateObject", at, ...(instance !== undefined ? { instance } : {}), def, faces, name });
-    this.clearSel(pass);
-    this.host.hint(`分开了 ${faces.length} 张面：成了新的网格体组件「${name}」，${chain.length ? "在外面一层" : "在最外层"}、位置不变`);
-    this.host.changed(); this.draw();
-    return true;
-  }); }
-  /** 合并物体：选中的几个网格体组件（同一层）并进第一个。 */
-  private joinPicks(): InstId[] { const out: InstId[] = []; for (const p of this.selectedPools.values()) if (p.kind === "instance") { const i = this.scene.instance(this.activePool().def, p.instance); if (this.scene.kindOf(i.def) === "mesh") out.push(p.instance); } return out; }
-  canJoin(): boolean { return this.joinPicks().length >= 2; }
-  joinSelection(): boolean { return this.step((pass) => {
-    const ids = this.joinPicks();
-    if (ids.length < 2) { this.host.hint("合并物体：先在外面一层选两个以上的网格体组件"); return false; }
-    const at = this.activePool(), target = ids[0], tdef = this.scene.instance(at.def, target).def, copies = this.copiesOf(tdef);
-    if (copies > 1) { this.host.hint(`合并物体：第一个选的组件摆了 ${copies} 份，并进去会改掉每一份；先把它做成唯一的`); return false; }
-    this.commitIn(pass, { op: "joinObjects", at, target, sources: ids.slice(1) });
-    this.clearSel(pass); this.selectedPools.set(`i${target}`, { kind: "instance", instance: target });
-    this.host.hint(`合并了 ${ids.length} 个网格体：都并进了第一个选的那个`);
+  /** 能建组件：网格体 = 选了面；硬表面 = 选了几何或子物件。 */
+  canMakeComponent(): boolean { return this.activeKind() === "mesh" ? this.selection.kind === "mesh" && this.selection.faces.size > 0 : this.hasGeometrySelection() || this.hasPoolSelection(); }
+  /** 选中的物件（这一层的实例）。 */
+  private instancePicks(): InstId[] { return [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance").map((p) => p.instance); }
+  /** 右键点在哪个选中的物件上（点在选区里的物件上才算；别的选着 ≥ 1 个）→ 合并的目标。 */
+  mergeTargetAt(x: number, y: number): InstId | null {
+    const picks = this.instancePicks();
+    if (picks.length < 2) return null;
+    const c = this.classify(this.liveWorld(), this.pickAt(x, y));
+    return c.kind === "pool" && c.pick.kind === "instance" && picks.includes(c.pick.instance) ? c.pick.instance : null;
+  }
+  canMergeHere(): boolean { const c = this.ctxPick; return !!c && this.mergeTargetAt(c.x, c.y) !== null; }
+  /** 右键菜单「把其余合并进这个」= 右键点的那个留下。 */
+  mergeAtContextPoint(): void { const c = this.ctxPick, t = c ? this.mergeTargetAt(c.x, c.y) : null; if (t === null) { this.host.hint("合并：右键点在要保留的那个物件上（别的选着）"); return; } this.mergeInto(t); }
+  /** Ctrl+J = 光标压着的那个留下。 */
+  mergeUnderCursor(): void {
+    const p = this.lastPtr, t = p ? this.mergeTargetAt(p.x, p.y) : null;
+    if (t === null) { this.host.hint(this.instancePicks().length < 2 ? "合并：先选两个以上的物件" : "合并：把鼠标放在要保留的那个物件上再按 Ctrl+J（或右键它 → 把其余合并进这个）"); return; }
+    this.mergeInto(t);
+  }
+  /** 把选中的其余物件合并进 target：每个 = 贴进 target 的定义（原位）→ 在里面炸开 → 删掉外面这一份；跨种类先问「转成 X 再并」。 */
+  mergeInto(target: InstId): void {
+    const def = this.scene.defOfContext(this.ctx), T = this.scene.def(def).instances.get(target);
+    if (!T) return;
+    const tdef = T.def, tkind = this.scene.kindOf(tdef);
+    const sources = this.instancePicks().filter((id) => id !== target && this.scene.def(def).instances.has(id));
+    if (!sources.length) { this.host.hint("合并：别的物件没选上"); return; }
+    const cyclic = sources.filter((id) => this.scene.references(this.scene.def(def).instances.get(id)!.def, tdef));
+    if (cyclic.length) { this.host.hint(`合并：${cyclic.length} 个物件不能并进「${T.name ?? this.scene.def(tdef).name}」——它本身就是它（或含着它）`); return; }
+    const needCast = sources.filter((id) => { const d = this.scene.def(this.scene.def(def).instances.get(id)!.def); return d.body.kind !== tkind && !bodyEmpty(d.body); });
+    const go = (cast: boolean): void => this.step((pass) => {
+      const n0 = this.opCount, X = this.ctxXform(), Xt = compose(X, T.xform), Xti = invert(Xt), at = { def: tdef, group: null };
+      for (const id of sources) {
+        const src = this.scene.def(def).instances.get(id)!, local = compose(Xti, compose(X, src.xform)), before = new Set(this.scene.def(tdef).instances.keys());
+        this.commitIn(pass, { op: "paste", at, instances: [{ parent: null, def: src.def, xform: local, ...(src.name !== undefined ? { name: src.name } : {}) }] });
+        const fresh = [...this.scene.def(tdef).instances.keys()].find((k) => !before.has(k));
+        if (fresh === undefined) return;
+        this.commitIn(pass, { op: "explode", at, instance: fresh, ...(cast ? { cast: true } : {}) });
+        this.commitIn(pass, { op: "eraseInstance", def, instance: id });
+      }
+      if (this.opCount === n0) return;
+      this.clearSel(pass); this.selectedPools.set(`i${target}`, { kind: "instance", instance: target });
+      const copies = this.copiesOf(tdef);
+      this.host.hint(`合并了 ${sources.length} 个物件进「${T.name ?? this.scene.def(tdef).name}」${copies > 1 ? `；它摆了 ${copies} 份，每份都变了` : ""}${tkind === "brep" ? "（贴着的面会粘住）" : ""}`);
+      this.host.changed(); this.draw();
+    });
+    if (!needCast.length) { go(false); return; }
+    const to = tkind === "mesh" ? "网格体" : "硬表面体";
+    if (!this.host.confirm) { this.host.hint(`合并：${needCast.length} 个物件是另一种身体，要先转成${to}（这里不能问，没并）`); return; }
+    void this.host.confirm("合并：要转种类", `${needCast.length} 个物件是另一种身体的几何，并进「${T.name ?? this.scene.def(tdef).name}」要先转成${to}（和物体设置里的转换一样，会丢它那一种才有的东西）。转过去再并吗？`, `转成${to}再并`)
+      .then((ok) => { if (ok) go(true); else { this.host.hint("合并：没并（你选了不转）"); this.draw(); } });
+  }
+  /** 做成唯一（SketchUp Make Unique）：选中的、摆了多份的物件各换一份新定义，别的份不受影响。 */
+  canMakeUnique(): boolean { const def = this.scene.defOfContext(this.ctx); return this.instancePicks().some((id) => { const i = this.scene.def(def).instances.get(id); return !!i && this.copiesOf(i.def) > 1; }); }
+  makeUniqueSelection(): boolean { return this.step((pass) => {
+    const def = this.scene.defOfContext(this.ctx), ids = this.instancePicks().filter((id) => { const i = this.scene.def(def).instances.get(id); return !!i && this.copiesOf(i.def) > 1; });
+    if (!ids.length) { this.host.hint("做成唯一：选中的物件本来就只摆了一份"); return false; }
+    for (const id of ids) this.commitIn(pass, { op: "makeUnique", def, instance: id });
+    this.host.hint(`做成唯一了 ${ids.length} 个物件：改它不再影响别的份`);
     this.host.changed(); this.draw();
     return true;
   }); }
@@ -1829,7 +1865,7 @@ export class Editor {
   }
   private makeComponentStep(pass: StepPass, name: string): boolean {
     if (!this.hasSelection()) return false;
-    if (this.activeKind() === "mesh") return this.makeMeshComponentStep(pass, name);   // 网格体里：选中的面 → 嵌在这一层里的网格体组件（SketchUp 式组件管理，user 10-28 夜）
+    if (this.activeKind() === "mesh") return this.makeMeshComponentStep(pass, name);   // 网格体里：选中的面 → 嵌在这一层里的网格体组件（= 「分开」，原地）
     if (!this.requireBrep("建组 / 建组件")) return false;
     const at = this.activePool(), k = this.kernel;
     const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
@@ -1860,16 +1896,24 @@ export class Editor {
     this.host.changed(); this.draw();
     return true;
   }
-  /** 炸开选中的子 group / 实例。 */
-  explodeSelection(): boolean { return this.step((pass) => this.explodeSelectionStep(pass)); }
-  private explodeSelectionStep(pass: StepPass): boolean {
+  /** 炸开选中的子 group / 实例。组件和这一层不是一种身体（且它有自己的几何）→ 先问「转成 X 再炸」（不静默转，设计稿 §2）。 */
+  explodeSelection(): boolean {
+    const def = this.scene.defOfContext(this.ctx), kind = this.activeKind();
+    const needCast = [...this.selectedPools.values()].filter((p) => p.kind === "instance" && !this.pickIsLocked(p)).filter((p) => { const i = this.scene.def(def).instances.get((p as { instance: InstId }).instance); if (!i) return false; const d = this.scene.def(i.def); return d.body.kind !== kind && !bodyEmpty(d.body); });
+    if (!needCast.length) return this.step((pass) => this.explodeSelectionStep(pass, false));
+    const to = kind === "mesh" ? "网格体" : "硬表面体";
+    if (!this.host.confirm) { this.host.hint(`炸开：${needCast.length} 个物件是另一种身体，要先转成${to}（这里不能问，没炸）`); return false; }
+    void this.host.confirm("炸开：要转种类", `${needCast.length} 个物件是另一种身体的几何，炸进这一层要先转成${to}（和物体设置里的转换一样，会丢它那一种才有的东西）。转过去再炸吗？`, `转成${to}再炸`)
+      .then((ok) => { if (ok) this.step((pass) => this.explodeSelectionStep(pass, true)); else { this.host.hint("炸开：没炸（你选了不转）"); this.draw(); } });
+    return true;
+  }
+  private explodeSelectionStep(pass: StepPass, cast: boolean): boolean {
     if (!this.selectedPools.size) return false;
-    // 外面一层是网格体也能炸（2026-10-28 夜：op explode 对两种身体都成立，explodeAcrossKinds）
     const at = this.activePool();
     const kept = new Map<string, PoolPick>();
     for (const [key, p] of [...this.selectedPools]) {
       if (this.pickIsLocked(p)) { kept.set(key, p); continue; }
-      this.commitIn(pass, p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance });
+      this.commitIn(pass, p.kind === "group" ? { op: "explode", at, group: p.group } : { op: "explode", at, instance: p.instance, ...(cast ? { cast: true } : {}) });
     }
     this.selectedPools = kept;   // 写口已标过（前面 clearSel）
     if (kept.size) this.host.hint(`${kept.size} 个已锁定的组 / 组件没炸开（选区菜单 → 解锁）`);

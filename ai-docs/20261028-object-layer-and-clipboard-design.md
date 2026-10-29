@@ -1,6 +1,6 @@
 # 物体层动词 + 剪贴板：设计稿（分开 / 合并 / 层级移动 / 复制粘贴 / 要不要物体模式）
 
-> as-of v0.16.44 · 2026-10-28 夜 · created 2026-10-28 by Claude Fable 5.1 · 状态：**§7 五条 user 当夜全拍（见 §8）；§6 第 1–2 步 done v0.16.44，3–6 待做（任务 47）**
+> as-of v0.16.45 · 2026-10-28 夜 · created 2026-10-28 by Claude Fable 5.1 · 状态：**§7 五条 user 当夜全拍（见 §8）；§6 第 1–5 步 done v0.16.44–45；第 6 步（老物体动词进注册表 object 族）待做 = 周账 F-126**
 > 起因（user 10-28 夜，按顺序）：「层级移动怎么办，以及选择多个物体的join以及split，然后brep模式也要这些功能」「分开之后应该也是组件。因为上一层也不一定能接 得看上一层能不能接」「还有移动进入下一层。反正没有treeview我们先把hierarchy操作做一下……让这个是对所有object都成立的」「就是取决于对方能不能接。不允许强制类型转换（brep to mesh这种）」「我是说让fable好好设计一下不同物体的层级操作，或者直接jump outside the box说我的思路很乱是错的」「sketchup如果要移动组件层级怎么办 / aha 等等，最重要的东西 / 复制黏贴我们没做」「有了这个组件层级操作可以精简很多，有很多可以不要了！」「加入复制黏贴再理一下组件层级」「你现在是fable了，好好的计划设计一下我们欠缺的 ctrl J 这种物件之间的操作，我之前的建议可能是错的。思考一下blender和sketchup怎么做，看来这个就是我们允许loose geometry的税。但是我还是觉得blender更不舒服，然后那几个系统也好好设计一下」「不同物体类型的层级统一，就是很多工作流都有，类似move，你可以再思考一下这种所有工作流都有的东西怎么整理，但是brep和mesh里面move不一样，有些也不开move / 反正这就是没有专门的物体模式的代价。你也可以思考一下要不要一个专门的物体模式，还是物体模式太破坏沉浸感了」
 
 词（本稿里固定）：**上下文** = 你双击进去的那一层（最外层 / 某个组 / 某个组件里面）；**散几何** = 这一层里不在任何组 / 组件里的面和线；**组件** = 有定义、能摆好几份的物体；**组** = 硬表面体里把一团散几何隔开不粘连的分区（不是物体，user 10-24「地位类似选区」）；**容器** = 组或组件；**身体种类** = 硬表面体 / 网格体。
@@ -118,3 +118,12 @@
 ## 9. 落地（v0.16.44，Claude Fable 5.1）
 
 `src/editor/transfer.ts`（extract / accept / castPayload / localize；载荷 = 世界坐标值拷贝、材质用文档 id）+ `src/editor/clipboard.ts`（一份、不进撤销）+ op `paste`（ops.ts；吃目标本地坐标，材质 id → 目标槽号在指令里换；实例不许造环、定义没了就拒）+ `Editor.copySelection / cutSelection / pasteClipboard`（跨种类 → `host.confirm` 弹「转成 X 再贴 / 不做」）；Ctrl+X / C / V（键表 GLOBAL）；右键：选区层「剪切」「拷贝」、空处层「粘贴（原位）」、物件菜单也有剪 / 拷。贴出来的成为选区。探针 `probe-clipboard`（六条：硬表面剪进出 + 原位按链换算 / 拷贝物件 / 层级移动 = 剪切进 B 贴 / 贴进自己拒绝 / 网格体 → 硬表面弹选择两条路 / 网格体 → 网格体）。**没做**：组件定义撤销过头后按快照重造（现在如实拒绝）、移动复制 / Shift+D 改走载荷模块（行为没变，不急）。
+
+## 10. 落地（v0.16.45，Claude Fable 5.1）：炸开 / 分开 / 合并 / 做成唯一
+
+- **炸开**：op `explode` 加 `cast` 旗——组件和这一层不是一种身体且它有自己的几何 → 不带 cast 就人话拒绝（`OpTargetError`）；编辑器先弹「转成 X 再炸 / 不做」，点了才带 cast 提交（`ops.ts bodyEmpty`：只摆着子物件的空壳不用转）。v0.16.37 的静默转种类撤了。守卫 `test/object-ops-kinds.test.ts` 改成「跨种类不带 cast = 拒、带 = 成」。
+- **分开撤了**：菜单 / `separateSelection` / `canSeparate` 删；网格体里「建组件」= 选中的面原地成子组件（`makeMeshComponentStep`，op `separateObject` 留作它的实现）；`canMakeComponent()` 一个判法管两种身体。
+- **合并 = 宏** `Editor.mergeInto(target)`：对每个其余的选中物件 = `paste`（贴进目标定义、原位换算）→ `explode`（在里面炸；跨种类带 cast）→ `eraseInstance`（删外面那一份），一步撤销；目标 = 右键点的那个（`mergeAtContextPoint`，菜单「把其余合并进这个」只在右键点在选中物件上时露）/ Ctrl+J = 光标压着的那个（`mergeUnderCursor`）。op `joinObjects` 删。两种身体都行；并进摆多份的 = 每份都变（提示）。
+- **做成唯一** op `makeUnique`（`cloneDefinition`：身体 + 组 + 参考几何 + 坐标架 + 槽表 + 子实例引用）；菜单「做成唯一」只在选中的物件摆了多份时露。
+- 两条「摆了 N 份先做成唯一」拒绝没了（随分开 / 合并旧实现一起删）。
+- 探针 `probe-objects-merge`（六条）；`probe-separate-join` 删；`probe-selbar` 跟上。
