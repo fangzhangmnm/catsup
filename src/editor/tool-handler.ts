@@ -196,9 +196,9 @@ export interface ToolCtx {
   setAxes(frame: Frame): void;
   // ---- 新建（自由建模；FM182）：和右键「新建 ›」同一条（Editor.addPrimitive：落点 / 对齐 / 马后炮一份）----
   /** 在屏幕点 (x, y) 打到的地方（点 / 边 / 面 / 原点 / 地面）新建一个基本体；size = 世界长度（边长 / 直径），不给 = 出厂尺寸。落不到东西 = false。 */
-  newPrimitive(kind: PrimitiveKind, x: number, y: number, size?: number, spin?: number): boolean;
-  /** 预演：同一份计划长在给的影子网格上；返回说法（落不到东西 = null）。spin = 绕底面法向转多少弧度。 */
-  previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel, spin?: number): string | null;
+  newPrimitive(kind: PrimitiveKind, x: number, y: number, size?: number, spin?: number, aspect?: number): boolean;
+  /** 预演：同一份计划长在给的影子网格上；返回说法（落不到东西 = null）。spin = 绕底面法向转多少弧度；aspect = 深 / 宽（平的几种）。 */
+  previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel, spin?: number, aspect?: number): string | null;
   /** 在 (x, y) 落下时的世界坐标架（还没转；定朝向的环画在它的 xy 平面里）；落不到东西 = null。 */
   primitiveFrameAt(x: number, y: number): Frame | null;
   /** 从 (x0, y0) 拖到 (x1, y1) 在落点那里是多长（世界长度）；落不到东西 = null。 */

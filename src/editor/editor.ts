@@ -79,7 +79,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
-import { addPrimitive, mergeVerts, splitEdge, PRIMITIVES, type PrimitiveKind } from "../mesh/ops/index.ts";
+import { addPrimitive, mergeVerts, splitEdge, PRIMITIVES, primitiveDims, primitiveDefaultLen, isFlatPrimitive, type PrimitiveKind } from "../mesh/ops/index.ts";
 import { MeshKernel, F_HIDDEN } from "../mesh/mesh-kernel.ts";
 import { edgeLoop } from "../mesh/select-loop.ts";
 import type { OptionKv } from "./tool-config.ts";
@@ -3371,7 +3371,7 @@ export class Editor {
   }
   /** 新建基本体的计划（落点 + 对齐 + 尺寸 → 本地坐标架 + 三个尺寸）：提交（addPrimitive）和新建工具的预演共用一份。尺寸 = 边长（立方体 / 平面）或直径（圆的几种），世界长度。 */
   /** spin = 绕底面法向（坐标架 z）转多少弧度（新建工具第二步的环；马后炮「朝向」）。 */
-  private primitivePlan(kind: PrimitiveKind, A: { p: Pt3; n: Pt3 | null; e?: Pt3 }): (align: string, sizeW: number, seg: number, spin?: number) => { frame: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; world: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; size: [number, number, number]; segments: number } {
+  private primitivePlan(kind: PrimitiveKind, A: { p: Pt3; n: Pt3 | null; e?: Pt3 }): (align: string, sizeW: number, seg: number, spin?: number, aspect?: number) => { frame: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; world: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }; size: [number, number, number]; segments: number } {
     const Xi = invert(this.ctxXform()), F = this.contextFrame();
     const frameW = (align: string, spin: number): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => {
       let z: Pt3, x0: Pt3;
@@ -3385,9 +3385,9 @@ export class Editor {
       return { o: A.p, x, y: cross3(z, x), z };
     };
     const toLocal = (f: { o: Pt3; x: Pt3; y: Pt3; z: Pt3 }): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } => ({ o: applyPt(Xi, f.o), x: normalize3(applyDir(Xi, f.x)), y: normalize3(applyDir(Xi, f.y)), z: normalize3(applyDir(Xi, f.z)) });
-    const dims = (sz: number): [number, number, number] => (kind === "box" ? [sz, sz, sz] : kind === "plane" ? [sz, sz, 0] : [sz / 2, sz / 2, kind === "sphere" ? sz / 2 : sz]);
+    const dims = (sz: number, aspect: number): [number, number, number] => primitiveDims(kind, sz, aspect);
     const scaleL = len3(applyDir(Xi, { x: 1, y: 0, z: 0 })) || 1;
-    return (align, sizeW, seg, spin = 0) => { const w = frameW(align, spin); return { frame: toLocal(w), world: w, size: dims(sizeW * scaleL), segments: seg }; };
+    return (align, sizeW, seg, spin = 0, aspect = 1) => { const w = frameW(align, spin); return { frame: toLocal(w), world: w, size: dims(sizeW * scaleL, aspect), segments: seg }; };
   }
   /** 新建工具第二步（定朝向的环）：在 (x, y) 落下时的世界坐标架（还没转；对齐 = 法向 / 落在地面 = 世界，和预演同一份）。落不到东西 = null。 */
   primitiveFrameAt(x: number, y: number): { o: Pt3; x: Pt3; y: Pt3; z: Pt3 } | null {
@@ -3400,35 +3400,39 @@ export class Editor {
     return A && wpp ? Math.hypot(x1 - x0, y1 - y0) * wpp : null;
   }
   /** 新建工具的预演：在影子网格上按同一份计划长出来（对齐 = 法向 / 落在地面 = 世界）。返回说法；落不到东西 = null。 */
-  previewPrimitive(kind: PrimitiveKind, x: number, y: number, sizeW: number, m: MeshKernel, spin = 0): string | null {
+  previewPrimitive(kind: PrimitiveKind, x: number, y: number, sizeW: number, m: MeshKernel, spin = 0, aspect = 1): string | null {
     const A = this.newObjectAnchorAt(x, y), P = PRIMITIVES[kind];
     if (!A) return null;
-    const { frame, size, segments } = this.primitivePlan(kind, A)(A.n ? "normal" : "world", sizeW, 16, spin);
+    const { frame, size, segments } = this.primitivePlan(kind, A)(A.n ? "normal" : "world", sizeW, 16, spin, aspect);
     addPrimitive(m, kind, frame, size, segments);
-    return `拉出${P.label}（${kind === "box" || kind === "plane" ? "边长" : "直径"} ${fmtLen(sizeW)}${spin ? ` · 朝向 ${fmtDeg(spin)}` : ""}）`;   // 预演只有拉出工具用
+    return `拉出${P.label}（${Math.abs(aspect - 1) > 1e-9 ? `宽 ${fmtLen(sizeW)} × 深 ${fmtLen(sizeW * aspect)}` : `${P.measure} ${fmtLen(sizeW)}`}${spin ? ` · 朝向 ${fmtDeg(spin)}` : ""}）`;   // 预演只有拉出工具用
   }
   /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
-  addPrimitive(kind: PrimitiveKind, opts: { at?: { x: number; y: number }; size?: number; spin?: number; verb?: string } = {}): boolean { return this.step((pass) => {
+  addPrimitive(kind: PrimitiveKind, opts: { at?: { x: number; y: number }; size?: number; spin?: number; aspect?: number; verb?: string } = {}): boolean { return this.step((pass) => {
     const verb = opts.verb ?? "新建";   // 右键「新建 ›」= 新建；左柱工具 = 拉出（user 10-28 夜「拉出也行吧」）
     const A = opts.at ? this.newObjectAnchorAt(opts.at.x, opts.at.y) : this.newObjectAnchor(), P = PRIMITIVES[kind];
     if (!A) { this.host.hint(opts.at ? `${verb}：按在点 / 面 / 原点 / 地面上` : `${verb}：右键点在点 / 面 / 原点 / 地面上`); return false; }
     if (this.activeKind() !== "mesh") { this.host.hint(`${verb}：只在自由建模（网格体）里`); return false; }   // user 10-27「然后硬表面建模不应该有新建网络体」
     const at = this.activePool(), plan = this.primitivePlan(kind, A);
     const go = (v: Readonly<Record<string, ParamValue>>): void => {
-      const { frame: fL, size, segments: seg } = plan(String(v.align), Number(v.size), Number(v.segments) || 16, Number(v.spin) || 0);
+      const flat = isFlatPrimitive(kind), w = Number(v.size), aspect = flat && w > 0 && Number(v.depth) > 0 ? Number(v.depth) / w : 1;   // 平的几种：马后炮「宽 / 深」两个数
+      const { frame: fL, size, segments: seg } = plan(String(v.align), w, Number(v.segments) || 16, Number(v.spin) || 0, aspect);
       const def = at.def, probe = this.scene.mesh(def).kernel.clone(), r = addPrimitive(probe, kind, fL, size, seg);
       this.commitIn(pass, { op: "meshAddPrimitive", def, kind, frame: fL, size, ...(P.round ? { segments: seg } : {}) });
       this.clearSel(pass);
       for (const f of r.faces) this.selection.faces.add(f);
+      if (this.selection.kind === "mesh") for (const e of r.edges) this.selection.edges.add(e);   // 圆圈 / 方框：只有边，选中那一圈（接着挤出 / 补洞）
       this.bump();
     };
-    const v0: Record<string, ParamValue> = { align: A.n ? "normal" : "world", size: opts.size ?? (kind === "box" || kind === "plane" ? P.size[0] : P.size[0] * 2), segments: 16, spin: opts.spin ?? 0 };
+    const v0: Record<string, ParamValue> = { align: A.n ? "normal" : "world", size: opts.size ?? primitiveDefaultLen(kind), segments: 16, spin: opts.spin ?? 0 };
+    if (isFlatPrimitive(kind)) v0.depth = Number(v0.size) * (opts.aspect ?? 1);
     const n0 = this.opCount;
     go(v0);
     if (this.opCount === n0) return false;
     const fields: ParamField[] = [
       { key: "align", def: { kind: "enum", label: "对齐", values: [{ id: "normal", label: "法向", hint: "贴着右键点到的面 / 点（默认）" }, { id: "world", label: "世界", hint: "世界的 X Y Z" }, { id: "object", label: "物体", hint: "所在物体自己的轴" }] } },
-      { key: "size", def: { kind: "number", label: kind === "box" || kind === "plane" ? "边长" : "直径", min: 0.001, max: 10000, step: 0.1, quantity: { q: "length" } } },
+      { key: "size", def: { kind: "number", label: isFlatPrimitive(kind) ? (P.measure === "直径" ? "宽（直径）" : "宽") : P.measure, min: 0.001, max: 10000, step: 0.1, quantity: { q: "length" } } },
+      ...(isFlatPrimitive(kind) ? [{ key: "depth", def: { kind: "number" as const, label: P.measure === "直径" ? "深（直径）" : "深", min: 0.001, max: 10000, step: 0.1, quantity: { q: "length" as const } } }] : []),
       ...(P.round ? [{ key: "segments", def: { kind: "number" as const, label: "段数", min: 3, max: 128, step: 1 } }] : []),
       { key: "spin", def: { kind: "number", label: "朝向", min: -2 * Math.PI, max: 2 * Math.PI, step: Math.PI / 12, quantity: { q: "angle" } } },
     ];
@@ -3865,8 +3869,8 @@ export class Editor {
       orientFrame: () => this.orientFrame(),
       boxIn: (f) => this.boxIn(f),
       setAxes: (f) => this.setContextAxes(f),
-      newPrimitive: (kind, x, y, size, spin) => this.addPrimitive(kind, { at: { x, y }, verb: "拉出", ...(size !== undefined ? { size } : {}), ...(spin ? { spin } : {}) }),
-      previewPrimitive: (kind, x, y, size, m, spin) => this.previewPrimitive(kind, x, y, size, m, spin),
+      newPrimitive: (kind, x, y, size, spin, aspect) => this.addPrimitive(kind, { at: { x, y }, verb: "拉出", ...(size !== undefined ? { size } : {}), ...(spin ? { spin } : {}), ...(aspect !== undefined ? { aspect } : {}) }),
+      previewPrimitive: (kind, x, y, size, m, spin, aspect) => this.previewPrimitive(kind, x, y, size, m, spin, aspect),
       primitiveFrameAt: (x, y) => { const f = this.primitiveFrameAt(x, y); return f ? { origin: f.o, x: f.x, y: f.y, z: f.z } : null; },
       primitiveDragSize: (x0, y0, x1, y1) => this.primitiveDragSize(x0, y0, x1, y1),
       typed: () => this.typedValue(),

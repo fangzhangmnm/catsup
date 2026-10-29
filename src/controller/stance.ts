@@ -143,7 +143,7 @@ const FREEFORM: Partial<Record<Tool, Stance>> = {
   offset: S({ ...FREEFORM_XFORM, grab: "face", direction: "inPlane", shift: "—", ctrl: "（Ctrl+B / Ctrl+Shift+B 键盘 = 倒角 / 倒点）", alt: "—", lock: null }),   // 面 = 插入、边 = 倒角、点 = 倒点
   knife: S({ grab: "pointOrEdge", tap: "drop", emptyDrag: "none", direction: "inPlane", snap: "infer", shift: "—", ctrl: "（Ctrl+R = 环切）", alt: "—", center: "none", lock: null, grammar: "steps", after: "clear", charge: false, intent: false }),   // 同边两下 = 环切；刀吸点 / 边
   erase: S({ grab: "scrub", tap: "apply", emptyDrag: "scrub", direction: "none", snap: "none", shift: "—", ctrl: "溶解", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),
-  create: S({ grab: "pick", tap: "place", emptyDrag: "none", direction: "none", snap: "off", shift: "—", ctrl: "—", alt: "—", center: "none", lock: null, grammar: "direct", after: "keep", charge: false, intent: false }),   // 新建（FM182）：落点 = 按下那一点打到的点 / 边 / 面 / 地面；点一下 = 马前炮尺寸、拖 = 拖多大、松手出环转朝向（UX57）；做完新的那个留在选区
+  create: S({ grab: "pick", tap: "place", emptyDrag: "none", direction: "none", snap: "off", shift: "锁 / 放开长宽比（平的形状）· 转朝向时 15° 一档", ctrl: "—", alt: "—", center: "none", lock: null, grammar: "direct", after: "keep", charge: false, intent: false }),   // 新建（FM182）：落点 = 按下那一点打到的点 / 边 / 面 / 地面；点一下 = 马前炮尺寸、拖 = 拖多大、松手出环转朝向（UX57）；做完新的那个留在选区
 };
 
 /** 验证工作台（步行 + 摆东西 + 尺规）。 */
