@@ -7,9 +7,9 @@
 一个**不出包的内部库**：CatsUp 的渲染器从 `src/editor/render3.ts` 一步步搬进来，搬完 render3 只剩接缝。以后 RealHome / 实验室 / 游戏也消费它（初中阶段再决定出不出包，T28 / T30）。因为迟早要搬出去，从第一天就按 `@internal/*` 的边界标准写：
 
 - **只认自己的类型**：几何 = `contract/geometry.ts`（`Vec3` 和内核的 `Pt3` 同形、`Xform12` 和场景的 `Xform` 同形——结构相同就能直接传，不转换、不 import）。**不 import** `../editor` `../scene` `../kernel` `../mesh` `../app` `../format` `../player` `../controller`（守卫 ③）。内容怎么长出来是提供者（住编辑器那边）的事，引擎只拉流。
-- **three 关在 `backend/three/`**（守卫 ①②）：引擎的其他部分零 three 类型、零 `THREE.`。初中换后端 = 换这一个文件夹。
-- **pass 代码不许判设备**（守卫 ④）：`graph/` `overlay/` `material/` `backend/` 里不出现 userAgent / 平台名 / 机型名；设备只以「代价表 + 预算 + 能力位」的形式进来（`contract/cost.ts`），量设备的代码以后住 `device.ts` 一处。
-- **零 DOM**（`backend/` 除外）：引擎能在 node 里无头跑（初中要彻底无头，T30）。
+- **three 关在 `providers/three/`**（守卫 ①②）：引擎的其他部分零 three 类型、零 `THREE.`。初中换后端 = 换这一个文件夹。
+- **pass 代码不许判设备**（守卫 ④）：`graph/` `overlay/` `material/` `providers/` 里不出现 userAgent / 平台名 / 机型名；设备只以「代价表 + 预算 + 能力位」的形式进来（`contract/cost.ts`），量设备的代码以后住 `device.ts` 一处。
+- **零 DOM**（`providers/` 除外）：引擎能在 node 里无头跑（初中要彻底无头，T30）。
 
 ## 目录
 
@@ -17,12 +17,12 @@
 |---|---|---|
 | `contract/` | 流（块 / 放置 / 视锥带 / 预算）、视图（相机 / 画到哪 / 预算 / 画质档）、代价表与血槽位的形状、几何同形类型 | 步 2 钉形状，步 3 / 7 用上 |
 | `graph/` | frame graph：pass 声明 + 规划（拓扑排序、没人要的产物不产） | 步 2 规划器，步 4 声明现状的 pass |
-| `backend/` | 后端接口（`Backend` + 一帧的输入 `FrameInput`：相机 / 视口 / 网格 / 叠加层回调）；`backend/three/` = three 实现（`render3.ts` 步 5 整个搬进来：几何上传、材质、线、渲染目标、XR 会话钩子；`profile-line-shader.ts` 轮廓线自己的 GLSL 源，守卫 ⑥ 逐字比对 vendored 源；`overlay-{lines,marks,faces}.ts` 叠加层的画法） | 步 5 done；**6c（v0.17.9）零内容层 import**（守卫 ③′ 清零，922 行） |
+| `providers/` | **画的供货商**（契约 `contract/render-provider.ts`：`RenderProvider` + 一帧的输入 `FrameInput`；three ≠ 后端，后端 = 无头的小栗鼠本体，T109）；`providers/three/` = three 实现（`render3.ts` 步 5 整个搬进来：几何上传、材质、线、渲染目标、XR 会话钩子；`profile-line-shader.ts` 轮廓线自己的 GLSL 源，守卫 ⑥ 逐字比对 vendored 源；`overlay-{lines,marks,faces}.ts` 叠加层的画法） | 步 5 done；**6c（v0.17.9）零内容层 import**（守卫 ③′ 清零，922 行） |
 | `overlay/` | 叠加层契约：线段族 / 点 / 标记 / 三角 / 文字（刀 a 起 item 自带 GL 画法参数：线宽 / 深度模式 visible·through·hidden / 透明度 / 叠放次序，**没有样式表、没有编辑器的名字**）；面高亮不在这里——那是 `FrameInput.marks`（某槽某块某段换材质槽，刀 b） | 引擎 |
 | `palette.ts` / `perf.ts` | 白模调色板一处放（预设认领选中色从这里长）；计时口 `PerfSink`（消费方递计数器进来，引擎不 import 谁的 perf） | 6c done |
-| `preset/` | 预设 = 数据（四个挂点 + 屏幕一刀的旋钮；每个写明实验室出处）+ `presetPasses` 给 frame graph 的 pass 声明。画法在 `backend/three/screen-pixel.ts`（小图 → 后处理 → 整数倍放大） | Tron 第 1 步：白模 + 像素描边（v0.17.10）+ 剪纸 · 色纸（v0.17.11：平涂 `paper-shader.ts` + 遮蔽 `ao-bake.ts` + 地面）+ CRT Tron（v0.17.12：`tron-shader.ts` + `bloom.ts` + CRT 放大）+ 铸铜（v0.17.13：`pbr-shader.ts` + `env-sky.ts` 程序海天 + 太阳投影）——小学四个点名风格齐 |
+| `preset/` | 预设 = 数据（四个挂点 + 屏幕一刀的旋钮；每个写明实验室出处）+ `presetPasses` 给 frame graph 的 pass 声明。画法在 `providers/three/screen-pixel.ts`（小图 → 后处理 → 整数倍放大） | Tron 第 1 步：白模 + 像素描边（v0.17.10）+ 剪纸 · 色纸（v0.17.11：平涂 `paper-shader.ts` + 遮蔽 `ao-bake.ts` + 地面）+ CRT Tron（v0.17.12：`tron-shader.ts` + `bloom.ts` + CRT 放大）+ 铸铜（v0.17.13：`pbr-shader.ts` + `env-sky.ts` 程序海天 + 太阳投影）——小学四个点名风格齐 |
 | `paintshop/` | **涂装车间**：程序生成的环境（程序海天）和表面纹理（砂铸、铜绿）的配方 = 一段 GLSL + 出处 + 登记表；后端照着生成 / 拼进着色器，风格按 id 引用。插拔 = 一个文件 + 一行；不碰 three / DOM | v0.17.16（Opus） |
 | `material/` | 语义通道注册表 / 工艺标签 / 翻译按工艺一份 / 开放槽表 `BASE_SLOTS` / 管线 `reads` 守卫 / 小学四风格 reads（T36） | 步 8 done（只钉接口，内容归 Opus） |
 | `budget.ts` / `device.ts` | 预算核对 + 人话披露；量设备的唯一地方（电量感知默认开、跟设备、披露不静默） | 步 7 done |
 
-守卫是棘轮：three 的旧漏点名单已清零（步 5）；③′「`backend/three/render3.ts` 还 import 内容层」19 → 18 → **0（6c，v0.17.9）**，名单空着留给下一次往笼子里搬东西用。引擎和编辑器之间现在只剩：流提供者（内容 + 内容键 + 包围球）、`FrameInput`（相机 / 视口 / 网格 / 叠加层回调）、叠加层契约（内容方算、引擎量尺、后端画）。
+守卫是棘轮：three 的旧漏点名单已清零（步 5）；③′「`providers/three/render3.ts` 还 import 内容层」19 → 18 → **0（6c，v0.17.9）**，名单空着留给下一次往笼子里搬东西用。引擎和编辑器之间现在只剩：流提供者（内容 + 内容键 + 包围球）、`FrameInput`（相机 / 视口 / 网格 / 叠加层回调）、叠加层契约（内容方算、引擎量尺、后端画）。

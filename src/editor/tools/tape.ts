@@ -17,7 +17,7 @@ export { type TapeResult, type TapeStart, classifyStart, tapeResult } from "../t
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import type { WorldView } from "../../scene/world-view.ts";
 
 /** 吸附点所在的边 / 参考线的方向（世界坐标）；找不到 = null。

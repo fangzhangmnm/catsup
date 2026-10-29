@@ -11,7 +11,7 @@ import { applyPt } from "../../scene/xform.ts";
 import type { SnapKind } from "../solver.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 
 export type KnifePoint = { v: number } | { e: number; t: number };
 type Hit = { pt: KnifePoint; w: Pt3; kind: SnapKind };

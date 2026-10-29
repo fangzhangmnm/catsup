@@ -6,8 +6,8 @@
 // 这里只剩 WorldLabel（哪段字挂哪）和单位换算；后端把位图贴成固定屏幕大小的面片，按 id 增删改，字和样式没变就不重画。
 import type { Pt3 } from "../kernel/kernel.ts";
 
-import type { LabelAnchor, LabelStyleId } from "../minccino/backend/label-raster.ts";
-export { LABEL_STYLES, rasterizeLabel, anchorCenter, type LabelAnchor, type LabelStyle, type LabelStyleId, type LabelBitmap } from "../minccino/backend/label-raster.ts";   // 排版 + 光栅化 2026-10-29 搬进引擎后端（Tron 第一刀步 6b）
+import type { OverlayLabel } from "../minccino/index.ts";
+type LabelAnchor = NonNullable<OverlayLabel["anchor"]>; type LabelStyleId = OverlayLabel["style"];   // 排版 + 光栅化住供货商那层（label-raster.ts），编辑器只拿契约里的类型（刀 f）；文字 = 几何的方案见窄接口设计稿 §6端（Tron 第一刀步 6b）
 export interface WorldLabel {
   /** 稳定身份（同一个 id = 同一块字，挪位置不重画）。 */
   id: string;

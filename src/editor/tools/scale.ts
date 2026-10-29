@@ -14,7 +14,7 @@ import { moveTargetsSelection } from "../tools.ts";
 import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import { pickHandle } from "../handle-pick.ts";
 
 /** axis = 面心柄沿的那根单位轴（世界）；角柄 null。 */

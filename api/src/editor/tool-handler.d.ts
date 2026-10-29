@@ -17,7 +17,7 @@ import type { Tool } from "./tool-ids.ts";
 import type { Scene, EditContext } from "../scene/scene.ts";
 import type { GridSettings } from "./grid-settings.ts";
 import type { ModeId } from "./mode.ts";
-import type { ViewState } from "./render3.ts";
+import type { ViewState } from "./view-state.ts";
 import type { ScaleGeom } from "./scale-ref.ts";
 import type { ParamField, ParamValue } from "./param-panel.ts";
 /** 指针下的东西属于谁：活动池里的实体 / 子池（group 或实例）整体 / 什么都没有。 */

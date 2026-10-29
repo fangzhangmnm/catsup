@@ -1,6 +1,7 @@
 import type { Pt3 } from "../kernel/kernel.ts";
-import type { LabelAnchor, LabelStyleId } from "../minccino/backend/label-raster.ts";
-export { LABEL_STYLES, rasterizeLabel, anchorCenter, type LabelAnchor, type LabelStyle, type LabelStyleId, type LabelBitmap } from "../minccino/backend/label-raster.ts";
+import type { OverlayLabel } from "../minccino/index.ts";
+type LabelAnchor = NonNullable<OverlayLabel["anchor"]>;
+type LabelStyleId = OverlayLabel["style"];
 export interface WorldLabel {
     /** 稳定身份（同一个 id = 同一块字，挪位置不重画）。 */
     id: string;
@@ -24,3 +25,4 @@ export declare function unitMark(unit: string): {
  * 米制按大小挑 m / cm / mm；英制整英尺写「n ft」、不到一英尺写英寸、其余写英尺英寸（格子按米设、单位却是英尺时照实写，比如 1 m = 3' 3.38"）。
  */
 export declare function gridStepLabel(stepM: number, unit: string): string;
+export {};

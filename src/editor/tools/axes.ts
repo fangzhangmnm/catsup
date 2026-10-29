@@ -7,7 +7,7 @@ import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import type { Frame } from "../../scene/xform.ts";
 import { frameFrom3 } from "../axes-geom.ts";
 export { frameFrom3 } from "../axes-geom.ts";

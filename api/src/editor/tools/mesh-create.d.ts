@@ -2,7 +2,7 @@ import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { QuantityTag } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 export declare class MeshCreateTool implements ToolHandler {
     readonly tool: "create";

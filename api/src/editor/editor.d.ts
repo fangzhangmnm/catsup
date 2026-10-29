@@ -16,7 +16,8 @@ import { type GizmoHandle } from "./plane-gizmo.ts";
 import type { FaceKey } from "./ops.ts";
 import { type LockAxis, type PlaneLock } from "./locks.ts";
 import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
-import { Renderer3, type LineStyle, type ViewState } from "./render3.ts";
+import { type ViewState } from "./view-state.ts";
+import type { LineStyle, RenderProvider } from "../minccino/index.ts";
 import { type Op } from "./ops.ts";
 import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
@@ -462,7 +463,7 @@ export declare class Editor {
     setIsolate(on: boolean): void;
     private kids;
     private nextKid;
-    constructor(canvas: HTMLCanvasElement, host: EditorHost);
+    constructor(canvas: HTMLCanvasElement, host: EditorHost, r3: RenderProvider);
     get tool(): Tool;
     /** 活动池的内核（上下文所在的几何池；根上下文 = 根池）。 */
     get kernel(): Kernel;
@@ -490,7 +491,6 @@ export declare class Editor {
     /** 层 3：画之前核对 I5；对不上 = 有入口绕过了写口（层 1 / 2 都漏了）→ 记一行、当场纠正。 */
     private checkModeFits;
     get sceneRef(): Scene;
-    /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
     worldGeom(): WorldView;
     /** 「导出模型 · 选中的物体」（导出设计稿 §4）：选中的组件实例（这一层里的；世界变换 = 这一层的变换 ∘ 实例的变换）。没选组件 = 空。 */
     exportPicks(): {
@@ -499,7 +499,7 @@ export declare class Editor {
         name: string;
     }[];
     get context(): EditContext;
-    get renderer3(): Renderer3;
+    get renderer3(): RenderProvider;
     get revision(): number;
     canUndo(): boolean;
     canRedo(): boolean;
@@ -1116,6 +1116,7 @@ export declare class Editor {
     /** 按坐标重做一次整体变换：顶点（froms = 撤销后的本地坐标）走 move op，子池走 transformPool / transformInstance。 */
     private redoXform;
     /** 作废进行中的指针手势（长按弹菜单时），**选区保留**（cancel() 会清选区）。 */
+    rightClickInGesture(): boolean;
     abortGesture(): void;
     /** 手势进行中（含点两下的 armed 态）：相机动了要按笔的屏幕位置重算预览（B23，2026-10-24）。 */
     gestureInProgress(): boolean;

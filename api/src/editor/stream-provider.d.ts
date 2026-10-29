@@ -1,9 +1,9 @@
-import type { ChunkStyle, StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
+import type { StreamFrame, StreamProvider, StreamQuery, Vec3 } from "../minccino/index.ts";
 import { type WorldView } from "../scene/world-view.ts";
+import type { MarkLayout } from "./highlight.ts";
 export declare class EditorStreamProvider implements StreamProvider {
-    private readonly style;
+    private readonly thick;
     private world;
-    private dimSlots;
     private revision;
     private bodies;
     private gen;
@@ -16,19 +16,23 @@ export declare class EditorStreamProvider implements StreamProvider {
     /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
     private worldIds;
     private nextWorldId;
+    /** 上一次 pull 每个槽画的是哪份身体（标记的布局按它找块 / 段）。 */
+    private slotBody;
     private boundsCache;
-    /** 样式那半由后端给（`ChunkStyle`，引擎契约里的过渡期接口）。 */
-    constructor(style: ChunkStyle);
-    /** 这一帧画哪个世界（活的那份，含预演影子）+ 上下文之外的槽（淡出）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。 */
-    setWorld(world: WorldView, dimSlots: ReadonlySet<number> | null | undefined, revision?: number): void;
+    /** 粗线（LineSegments2 实例）还是像素线：引擎的视图设定（线稿粗细 > 1 也会切成粗线），每次 pull 问一下；换了 = 池网格全量重建（线的块形状不同）。 */
+    constructor(thick: () => boolean);
+    /** 这一帧画哪个世界（活的那份，含预演影子）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。淡出是标记（视图侧），不在这里。 */
+    setWorld(world: WorldView, revision?: number): void;
     private worldId;
-    /** 内容键（引擎契约）：世界身份 + 版本 + 淡出集；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
+    /** 内容键（引擎契约）：世界身份 + 版本；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
     contentKey(): string;
     /** 场景包围球（引擎契约）：远平面 / 正交深度窗口 / 无限长线按它定（user 10-26「不应该写死特征长度」）。按世界身份 + 版本缓存。 */
     bounds(): {
         c: Vec3;
         r: number;
     } | null;
+    /** 标记的布局（editor/highlight.ts MarkLayout）：某个槽里一张面在哪些块的哪一段（块 id = 身体 id / 组键，和 pull 吐的一致）。 */
+    layout(): MarkLayout;
     pull(_q: StreamQuery): StreamFrame;
     /** 槽 s 用哪份池网格（同步到 s 的内核）。同一帧同一个内核只同步一次。 */
     private bodyFor;

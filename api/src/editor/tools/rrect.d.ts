@@ -3,7 +3,7 @@ import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 export declare class RRectTool implements ToolHandler {
     readonly tool: "rrect";
     readonly grammar: "steps";

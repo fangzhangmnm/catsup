@@ -40,7 +40,7 @@ import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
 import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
-import type { Backend, BackendCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
+import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
@@ -53,26 +53,6 @@ import { Bloom } from "./bloom.ts";
 import { EnvSky } from "./env-sky.ts";
 import { PbrMaterials } from "./pbr-shader.ts";
 
-/** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
-export interface XRFacade {
-  isPresenting(): boolean;
-  setSession(session: XRSession | null): Promise<void>;
-  session(): XRSession | null;
-  frame(): XRFrame | null;
-  refSpace(): XRReferenceSpace | null;
-  on(type: "sessionstart" | "sessionend", cb: () => void): void;
-}
-export type XRHand = "left" | "right";
-/** XR rig 姿态（player 每帧同步；与 player/player.ts RigPose 同形的那两样）。 */
-export interface XRRigPose { readonly origin: Vec3; readonly heading: number }
-/** 世界射线（与 player/world-query.ts Ray 同形）。 */
-export interface XRRay { readonly origin: Vec3; readonly dir: Vec3 }
-
-// 调色板 PALETTE 住 ../../palette.ts（6c 搬出：编辑器拿颜色不再碰后端）；POOL_AXES_PX / LOCK_LINE_SPAN_PX 住编辑器 overlay-lines.ts。
-
-
-/** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
-export type LineStyle = "pixel" | "thick";
 /** X 光下被挡住的边画多淡（不透明度，0–1）。 */
 const XRAY_OPACITY = 0.35;
 const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 刮擦 / 悬停边的基准；0.12.3 起由 lineWeight 覆盖）
@@ -81,7 +61,6 @@ const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 
  * 单位 = **设备像素**。1 = 原生 GL 线（最细、最快，没有轮廓区分）；> 1 = 屏幕空间粗线（LineSegments2，不是 3D 实体），
  * 并按 SU 轮廓线规则加粗：零面边（悬空）/ 单面边（边界）/ 两张面朝向相反的边（剪影）= 轮廓，比内边粗 profileAdd；判定在顶点着色器里按实例做，相机转动不重建几何。
  */
-export const LINE_WEIGHTS: readonly number[] = [1, 1.5, 2, 3];
 const profileAddFor = (w: number): number => Math.min(w, 5 - w);   // 轮廓 ≈ 两倍粗，总宽不超过 5 设备像素
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
 /** 网格：1 m 一格、±50 m（PC/VR 同一份；user 2026-09-07「vr 和 pc 的网格都是 1m，不应跟 branch」；无限/自适应网格 = A12）。 */
@@ -208,7 +187,7 @@ const AO_QUIET_MS = 250;
 /** 0xRRGGBB → sRGB 浮点三元（膜 shader 用；不过 three 的色彩管理）。 */
 const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
-export class Renderer3 implements Backend {
+export class Renderer3 implements RenderProvider {
   readonly name = "three";
   private renderer: any;
   private scene: any;
@@ -379,7 +358,7 @@ export class Renderer3 implements Backend {
     };
   }
 
-  caps(): BackendCaps {
+  caps(): ProviderCaps {
     const gl = this.renderer.getContext();
     return { webgl2: typeof WebGL2RenderingContext !== "undefined" && gl instanceof WebGL2RenderingContext, floatRenderTargets: !!this.renderer.extensions?.has?.("EXT_color_buffer_float"), maxTextureSize: this.renderer.capabilities?.maxTextureSize ?? 0, xr: !!this.renderer.xr };
   }

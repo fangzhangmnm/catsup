@@ -57,6 +57,8 @@ export declare class RegionStore extends ArrayStore {
     private up;
     get count(): number;
     has(id: number): boolean;
+    /** 这个 id 占的段（顶点偏移 / 顶点数）；没有 = null。 */
+    range(id: number): readonly [number, number] | null;
     put(id: number, len: number, fill: Fill): void;
     remove(id: number): void;
     /** 全量建完：最后一块收紧到用到的 + 八分之一余量（之后加面先用余量，不够再按 1.5 倍长）。 */
@@ -109,8 +111,9 @@ export interface PoolMeshEnv {
     matOf(slot: number | undefined): Material | null;
     /** 定义的材质槽表签名（每个槽的材质身份，逗号连）：一边是另一边的前缀 = 增量；别的变化 = 全量重建。 */
     slotsSig: string;
-    faceColor(mat: Material | null, dim: boolean): readonly [number, number, number];
-    edgeColor(loose: boolean, dim: boolean): readonly [number, number, number];
+    /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */
+    faceColor(mat: Material | null): readonly [number, number, number];
+    edgeColor(loose: boolean): readonly [number, number, number];
     /** 粗线（LineSegments2 实例）还是像素线。 */
     thick: boolean;
     /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
@@ -162,6 +165,12 @@ export declare class PoolMesh {
      */
     private diffTo;
     private full;
+    /** 一张面在各组里占的段（顶点偏移 / 顶点数；两侧材质不同的面在两组里）：标记（选中 / 悬停）按段换材质用（窄接口刀 b）。 */
+    faceRanges(fid: FaceId): {
+        key: string;
+        off: number;
+        len: number;
+    }[];
     private noteFace;
     private group;
     private matKey;

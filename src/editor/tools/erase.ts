@@ -6,7 +6,7 @@ import type { WorldView } from "../../scene/world-view.ts";
 import { edgeKey } from "../ops.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolSample } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import { pickGuide, withoutGuides } from "../guide-pick.ts";
 import { EdgeScrubTool } from "./scrub.ts";
 

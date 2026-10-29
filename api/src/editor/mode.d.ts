@@ -1,7 +1,7 @@
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { EditorCore, ToolHandler } from "./tool-handler.ts";
-import type { ViewState } from "./render3.ts";
+import type { ViewState } from "./view-state.ts";
 export type ModeId = "object" | "geometry" | "surface" | "freeform" | "verify";
 export interface Mode {
     readonly id: ModeId;

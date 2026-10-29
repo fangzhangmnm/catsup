@@ -95,7 +95,7 @@ const LOOK = { lock: ["thinTop", "lock"], xg: ["thickTop", /*按轴*/], poolAxes
 | c | 淡出改 mark（`ChunkStyle` / `aColorDim` 退役；dim 在着色器里混）——**v0.17.19 落了**；顺手：线稿三档 `edges: none / all / active`（像素 = active，T89） | 没上色的面淡出色变了（纯淡出色 → 拉一半）；补了淡出场景；像素三张重冻 |
 | d | 隐线 = `edgeHidden` 深度 hidden（深度 > ）；Tron 不再借 X 光节点、跟 X 光走（T60 / T63）——**v0.17.22 落了**；X 光 pass 退役（原 g 的一半） | Tron 两张重冻（隐线不再常开）；白模 X 光 0 差 |
 | e | 文字 → 描边字库折线；`label-raster.ts` 出引擎——**只写方案（§6），给 Opus**（user 10-29：不急、不该 Fable 写码） | — |
-| f | 编辑器不再拿 three 那层的类：`editor/render3.ts` 转出口删、`Editor` 只持契约、app 层 new three 那份；`world-labels.ts` 不再 import 那层。**改词（T109）**：three 那层 = 供货商 `providers/three/`、接口 `RenderProvider`（和内容的 `StreamProvider` 对称）；「后端」留给无头的小栗鼠本体 / 几何引擎 | 0 差 |
+| f | 编辑器不再拿 three 那层的类：`editor/render3.ts` 转出口删、`Editor` 只持契约、app 层 new three 那份；`world-labels.ts` 不再 import 那层。**改词（T109）**：three 那层 = 供货商 `providers/three/`、接口 `RenderProvider`（和内容的 `StreamProvider` 对称）；「后端」留给无头的小栗鼠本体 / 几何引擎——**v0.17.23 落了** | 0 差 |
 | g | `Placement.active → tier`、pass id `xray` 退役（隐线是 mark，不是 pass）；守卫：引擎目录禁词表（lock / gizmo / protractor / xray / active / 选中 …） | 0 差 |
 | h | 视图 ☰「叠加层」开关 + 探针 | 新场景 |
 

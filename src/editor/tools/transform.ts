@@ -19,7 +19,7 @@ import { fmtDeg, fmtLen } from "../units.ts";
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import { pickHandle } from "../handle-pick.ts";
 import { MoveTool } from "./move.ts";
 import { SelectTool } from "./select.ts";

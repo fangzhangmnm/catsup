@@ -517,6 +517,10 @@ export declare function moveOp(k: Kernel, moves: readonly {
 }[], at?: PoolRef): Op;
 /** 门 1 的 mesh 那半：mesh op 只对网格体定义成立（定义不在 / 不是网格体 = 目标缺席，不是崩溃）。 */
 export declare const meshOf: (s: Scene, def: number) => MeshBody;
+/** 两种身体都认的池地址（导入这种只碰定义层、不碰内核的 op）：定义得在；组只有硬表面体有（有组 = 走原来的校验）。T90：以前导入走 poolOf，站在网格体里再导入 = 「no brep op applies」。 */
+export declare const anyPoolOf: (s: Scene, at?: PoolRef) => {
+    ref: PoolRef;
+};
 export declare const poolOf: (s: Scene, at?: PoolRef) => {
     kernel: Kernel;
     ref: PoolRef;

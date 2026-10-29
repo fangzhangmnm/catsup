@@ -90,10 +90,11 @@ export interface Preset {
     readonly source: string;
     /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
      *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
+    /** material.edges 线稿三档：none 不画 / all 全画 / active 只画正在编辑那一层的（T60 像素里编辑中的东西显示网格；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
     readonly material: {
         readonly shade: "camera" | "none" | "flat" | "tron" | "pbr";
         readonly texFilter: "asset" | "nearest";
-        readonly edges: boolean;
+        readonly edges: "none" | "all" | "active";
         readonly colorize: "model" | "part" | "none";
         readonly flat: FlatShade | null;
         readonly tron: TronShade | null;
@@ -137,7 +138,7 @@ export declare const PRESETS: {
         readonly material: {
             readonly shade: "camera";
             readonly texFilter: "asset";
-            readonly edges: true;
+            readonly edges: "all";
             readonly colorize: "model";
             readonly flat: null;
             readonly tron: null;
@@ -171,7 +172,7 @@ export declare const PRESETS: {
         readonly material: {
             readonly shade: "none";
             readonly texFilter: "nearest";
-            readonly edges: false;
+            readonly edges: "active";
             readonly colorize: "model";
             readonly flat: null;
             readonly tron: null;
@@ -212,7 +213,7 @@ export declare const PRESETS: {
         readonly material: {
             readonly shade: "flat";
             readonly texFilter: "asset";
-            readonly edges: false;
+            readonly edges: "none";
             readonly colorize: "part";
             readonly flat: {
                 readonly base: 15921128;
@@ -264,7 +265,7 @@ export declare const PRESETS: {
         readonly material: {
             readonly shade: "tron";
             readonly texFilter: "asset";
-            readonly edges: true;
+            readonly edges: "all";
             readonly colorize: "none";
             readonly flat: null;
             readonly tron: {
@@ -319,7 +320,7 @@ export declare const PRESETS: {
         readonly material: {
             readonly shade: "pbr";
             readonly texFilter: "asset";
-            readonly edges: false;
+            readonly edges: "none";
             readonly colorize: "model";
             readonly flat: null;
             readonly tron: null;
@@ -375,7 +376,7 @@ export declare const PRESETS: {
         readonly material: {
             readonly shade: "pbr";
             readonly texFilter: "asset";
-            readonly edges: false;
+            readonly edges: "none";
             readonly colorize: "none";
             readonly flat: null;
             readonly tron: null;
@@ -439,4 +440,4 @@ export declare function isStyled(p: Preset): boolean;
  * 这一帧的 pass 声明（frame graph）：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大进 frame；
  * 地面网格 / 叠加层 / X 光照旧往 frame 上追加画（编辑器的东西按原分辨率，不跟着风格像素化——不变量 7）。
  */
-export declare function presetPasses(p: Preset, xray: boolean): PassDecl[];
+export declare function presetPasses(p: Preset): PassDecl[];

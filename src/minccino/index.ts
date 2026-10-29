@@ -1,13 +1,13 @@
-// minccino/index.ts —— 引擎的门牌（边界标准：外面只从这里 import；three 关在 backend/three/）。created 2026-10-29 by Claude Fable 5.1
+// minccino/index.ts —— 引擎的门牌（边界标准：外面只从这里 import；three 关在 providers/three/（画的供货商；「后端」= 无头的小栗鼠本体，T109））。created 2026-10-29 by Claude Fable 5.1
 export type { Vec3, Xform12, Mat4, Frame3 } from "./contract/geometry.ts";
 export { IDENTITY_XFORM, WORLD_FRAME3 } from "./contract/geometry.ts";
 export type { Chunk, ChunkKind, ChunkArray, ChunkAttr, ChunkDirty, ChunkSide, MaterialRef, Placement, FrustumBand, PullBudget, StreamQuery, StreamFrame, StreamProvider } from "./contract/stream.ts";
 export type { View, ViewCamera, RenderTarget, ViewBudget, QualityTier, BackgroundBudget, ViewportSize, CameraSource } from "./contract/view.ts";
 export { DEFAULT_VIEW_BUDGET } from "./contract/view.ts";
-export type { Measurement, CostTable, DegradeStep, BackendCaps } from "./contract/cost.ts";
+export type { Measurement, CostTable, DegradeStep, ProviderCaps } from "./contract/cost.ts";
 export type { PassDecl, FramePlan } from "./graph/frame-graph.ts";
 export { planFrame } from "./graph/frame-graph.ts";
-export type { Backend, FrameInput, Mark, FaceSlot, LineSlot } from "./backend/backend.ts";
+export type { RenderProvider, FrameInput, Mark, FaceSlot, LineSlot, LineStyle, XRFacade, XRHand, XRRigPose, XRRay } from "./contract/render-provider.ts";
 export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayLabel, OverlayCtx, DepthMode, MarkerGeom } from "./overlay/index.ts";
 export { hexToLinear } from "./overlay/index.ts";
 export { PALETTE } from "./palette.ts";

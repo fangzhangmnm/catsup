@@ -4,7 +4,7 @@ import type { WorldView } from "../../scene/world-view.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { Tool } from "../tool-ids.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 export declare abstract class EdgeScrubTool implements ToolHandler {
     abstract readonly tool: Tool;
     readonly grammar: "direct";

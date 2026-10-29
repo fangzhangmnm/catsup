@@ -14,7 +14,7 @@ import { fmtDeg } from "../units.ts";
 import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 
 /** 旋转的意图死区（弧度）：半度以内还看不出转向。量角器角度咬合：步长（度）与咬合半宽（度）。 */
 const ANGLE_DEAD = 0.5 * Math.PI / 180, ANGLE_STEP_DEG = 15, ANGLE_SNAP_DEG = 1.5;

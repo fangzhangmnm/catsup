@@ -6,6 +6,7 @@ import { type Frame } from "../scene/xform.ts";
 import type { WorldLabel } from "./world-labels.ts";
 import type { WorldView } from "../scene/world-view.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
+import { type MarkLayout } from "./highlight.ts";
 export interface ViewState {
     selectionEdges: ReadonlySet<EdgeId>;
     selectionFaces: ReadonlySet<FaceId>;
@@ -20,6 +21,8 @@ export interface ViewState {
     revision?: number;
     /** 透视近平面下限（第一人称 0.05；轨道默认 0.5）。 */
     near?: number;
+    /** X 光开着（隐线标记 + 选中边透视；刀 d）。 */
+    xray?: boolean;
     /** teleport 弧线（充能中）：折线 + 合法性 + 落点。 */
     teleport?: {
         points: readonly Pt3[];
@@ -166,4 +169,4 @@ export interface ViewState {
  * 这一帧交给后端的输入：相机 / 视口原样（轨道相机结构上满足引擎的 CameraSource）、XR 近平面、地面网格（跟上下文帧与格距走），
  * 叠加层 = 选中高亮（editor/highlight.ts，按键缓存）+ 其余（editor/overlay.ts），引擎调回调时才算、并给量尺。
  */
-export declare function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, view: ViewState): FrameInput;
+export declare function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, view: ViewState, layout: MarkLayout): FrameInput;

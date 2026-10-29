@@ -1,36 +1,8 @@
-import type { Backend, BackendCaps, FrameInput } from "../../index.ts";
-import { type BudgetReport, type ChunkStyle, type Measurement, type StreamProvider, type Vec3, type View, type ViewportSize } from "../../index.ts";
+import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput } from "../../index.ts";
+import { type BudgetReport, type Measurement, type StreamProvider, type View, type ViewportSize } from "../../index.ts";
 import { type PerfSink } from "../../perf.ts";
 import { type PresetId } from "../../preset/index.ts";
-/** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
-export interface XRFacade {
-    isPresenting(): boolean;
-    setSession(session: XRSession | null): Promise<void>;
-    session(): XRSession | null;
-    frame(): XRFrame | null;
-    refSpace(): XRReferenceSpace | null;
-    on(type: "sessionstart" | "sessionend", cb: () => void): void;
-}
-export type XRHand = "left" | "right";
-/** XR rig 姿态（player 每帧同步；与 player/player.ts RigPose 同形的那两样）。 */
-export interface XRRigPose {
-    readonly origin: Vec3;
-    readonly heading: number;
-}
-/** 世界射线（与 player/world-query.ts Ray 同形）。 */
-export interface XRRay {
-    readonly origin: Vec3;
-    readonly dir: Vec3;
-}
-/** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
-export type LineStyle = "pixel" | "thick";
-/**
- * 线稿粗细（0.12.3；user 2026-10-24「ipad上面细线稿是不舒服。但是粗线稿又太粗了，有1.5这种选项吗」「sketchup里面粗细线是有区分的啊, dangling edge和轮廓是粗线」）：
- * 单位 = **设备像素**。1 = 原生 GL 线（最细、最快，没有轮廓区分）；> 1 = 屏幕空间粗线（LineSegments2，不是 3D 实体），
- * 并按 SU 轮廓线规则加粗：零面边（悬空）/ 单面边（边界）/ 两张面朝向相反的边（剪影）= 轮廓，比内边粗 profileAdd；判定在顶点着色器里按实例做，相机转动不重建几何。
- */
-export declare const LINE_WEIGHTS: readonly number[];
-export declare class Renderer3 implements Backend {
+export declare class Renderer3 implements RenderProvider {
     readonly name = "three";
     private renderer;
     private scene;
@@ -42,8 +14,9 @@ export declare class Renderer3 implements Backend {
     private lineMats;
     private lineMatPx;
     private faceMat;
-    private faceMatTop;
     private pixelMat;
+    private edgeDimMat;
+    private pixelDimMat;
     private texMats;
     private slotNodes;
     /** 块（流契约 Chunk.id）→ 显卡几何：两代没人用的释放。池网格本体住编辑器那边的流提供者（stream-provider.ts），这里只有显卡副本。 */
@@ -58,8 +31,6 @@ export declare class Renderer3 implements Backend {
         order: readonly string[];
         pruned: readonly string[];
     } | null;
-    /** 这一帧 X 光那条 pass 在不在规划里（X 光的节点可见性只看它，不直接看 xray 开关）。 */
-    private xrayPass;
     private syncGen;
     private poolKey;
     /** 提供者没给内容键时的帧号（= 每帧都拉）。 */
@@ -73,10 +44,9 @@ export declare class Renderer3 implements Backend {
     private edgeMat;
     private lineStyle;
     /** X 光（DT17）：开着 = 池的边透过面画淡的、选中的边不被挡。 */
-    private xray;
-    private xrayPixelMat;
-    private xrayThickMat;
-    private xrayOverlayMat;
+    /** 被挡住的边（edgeHidden 标记，刀 d）：深度模式 hidden（深度大于才画）+ 半透明，画在模型那一层。 */
+    private hiddenPixelMat;
+    private hiddenThickMat;
     private lineWeight;
     private readonly profileAdd;
     /** 风格（Tron 第 1 步；预设 = 数据，minccino/preset/）。白模 = 原来那一条渲染。 */
@@ -102,7 +72,6 @@ export declare class Renderer3 implements Backend {
     onRedrawWanted: (() => void) | null;
     private overlayLines;
     private overlayMarks;
-    private overlayFaces;
     /** 计时口（消费方递进来的计数器；不给 = 不计）。 */
     private readonly perf;
     private gridMesh;
@@ -121,7 +90,7 @@ export declare class Renderer3 implements Backend {
     private wrist;
     readonly xr: XRFacade;
     constructor(canvas: HTMLCanvasElement, perf?: PerfSink);
-    caps(): BackendCaps;
+    caps(): ProviderCaps;
     dispose(): void;
     /** XR 画质（会话开始前设才生效；dev A/B 用）。foveation 0=全分辨率…1=周边最低；framebufferScale 相对设备推荐值。 */
     setXRQuality(q: {
@@ -209,7 +178,6 @@ export declare class Renderer3 implements Backend {
     onTextureReady: (() => void) | null;
     /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
     setLineStyle(style: LineStyle): void;
-    setXray(on: boolean): void;
     /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。
      *  XR 会话里先只走白模（风格的小图 / 放大还没接两只眼——视图菜单那行的提示写着）。 */
     private passes;
@@ -223,6 +191,8 @@ export declare class Renderer3 implements Backend {
     /** 缩略图截图时只画白模（缩略图 = 模型，不是视图）。 */
     private capturing;
     getLineStyle(): LineStyle;
+    /** 实际画的线：像素化的风格（像素描边等）锁成原生 1 像素线——光栅器自己的 Bresenham = 像素准确；粗线是三角形拼的，放大后台阶不匀（user 10-29「调成1px就lineart perfect了……像素的时候锁1px加这么一条风格覆盖」）。Tron 例外：它自己的发光粗线。 */
+    lineStyleInUse(): LineStyle;
     /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
     setLineWeight(w: number): void;
     getLineWeight(): number;
@@ -230,15 +200,22 @@ export declare class Renderer3 implements Backend {
     overlayVisible(id: string): boolean;
     /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
     setProvider(p: StreamProvider): void;
-    /** 样式那半给提供者（过渡期：面 / 边颜色和粗线 / 像素线还烤在顶点色里；材质模块 + 叠加层落地后退役）。 */
-    chunkStyle(): ChunkStyle;
     /** 拉一帧流 → 块进显卡 → 每个放置一组槽节点（矩阵 + 按活动 / 淡出 / 单面挑材质和几何）。 */
     private syncPools;
+    private syncMarks;
+    /** 线的材质槽（刀 c：只有 edgeDim）：白模的边 → 淡出那份；别的风格（Tron）的线材质自己不认淡出 = 照旧。 */
+    private lineSlotMaterial;
+    private static readonly MARK_SLOTS;
+    private applyMarks;
+    private dropMarked;
+    private markMats;
+    /** 标记的材质 = 这个槽的面材质 + SEL / DIM 变体（同一套 shader / uniforms / 深度偏移；每个风格的 shader 自己说变体长什么样：白模 = 换成状态色 / 往淡出色拉一半、写实 = 叠色、Tron = Clu 橙 + 辉光）。uMark = 调色板里那个槽位的颜色。 */
+    private markMaterial;
     private makeSlotNodes;
     private texMatFor;
     /** 一块面 → 显卡。版本没变 = 不碰；数组换过 / 长大了 = 重建几何（直接包块的大数组，不拷）；否则只传改过的段。 */
     private uploadFaces;
-    /** 一块线 → 显卡：粗线 = LineSegments2 的实例缓冲（seg / col / colDim / w1 / w2 / flag），像素线 = 普通顶点缓冲。 */
+    /** 一块线 → 显卡：粗线 = LineSegments2 的实例缓冲（seg / col / w1 / w2 / flag），像素线 = 普通顶点缓冲。 */
     private uploadLines;
     /** XR：key light 钉在 HMD 相机系（同 keyLight 公式）。 */
     private xrKeyLight;

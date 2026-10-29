@@ -24,7 +24,7 @@ export interface DegradeStep {
     readonly dropPasses: readonly string[];
 }
 /** 能力位（后端上报，引擎只读）。 */
-export interface BackendCaps {
+export interface ProviderCaps {
     readonly webgl2: boolean;
     readonly floatRenderTargets: boolean;
     readonly maxTextureSize: number;

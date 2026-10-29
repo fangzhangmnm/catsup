@@ -22,7 +22,7 @@ import { rayPlane } from "../camera.ts";
 import { angleAbout, axisAlignAngle } from "../protractor-geom.ts";
 import type { QuantityTag } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 
 const ANGLE: QuantityTag = { q: "angle" };

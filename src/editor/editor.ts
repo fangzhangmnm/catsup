@@ -48,7 +48,7 @@ import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
-import { POOL_AXES_PX, Renderer3, frameInput, type LineStyle, type ViewState } from "./render3.ts";
+import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type ViewState } from "./view-state.ts"; import type { LineStyle, RenderProvider } from "../minccino/index.ts";   // 刀 f：编辑器只持画的供货商的契约，不 import three 那层
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
@@ -258,7 +258,7 @@ function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${
 
 export class Editor {
   readonly cam = new OrbitCamera();
-  private r3: Renderer3; private readonly provider: EditorStreamProvider;
+  private r3: RenderProvider; private readonly provider: EditorStreamProvider;
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private _grid: GridSettings = { ...NEW_DOC_GRID };
@@ -509,9 +509,9 @@ export class Editor {
   private kids = new WeakMap<object, number>();
   private nextKid = 1;
 
-  constructor(private canvas: HTMLCanvasElement, private host: EditorHost) {
+  constructor(private canvas: HTMLCanvasElement, private host: EditorHost, r3: RenderProvider) {
     this.config = new ToolConfig(TOOL_OPTIONS, host.optionKv);   // 字段初始化先于构造体（es2022）：config 在这里建，toolCtx 用 getter 取
-    this.r3 = new Renderer3(canvas, perf); this.provider = new EditorStreamProvider(() => this.r3.lineStyleInUse() === "thick"); this.r3.setProvider(this.provider);
+    this.r3 = r3; this.provider = new EditorStreamProvider(() => this.r3.lineStyleInUse() === "thick"); this.r3.setProvider(this.provider);
     this.cam.pitch = 0.61;
     this.cam.projection = "persp";
   }
@@ -574,7 +574,7 @@ export class Editor {
     return out;
   }
   get context(): EditContext { return this.ctx; }
-  get renderer3(): Renderer3 { return this.r3; }
+  get renderer3(): RenderProvider { return this.r3; }
   get revision(): number { return this._revision; }
   canUndo(): boolean { return this.history.canUndo(); }
   canRedo(): boolean { return this.history.canRedo(); }

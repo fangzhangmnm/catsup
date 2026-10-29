@@ -69,10 +69,10 @@ if code_grep "\bwindow\.|\bdocument\.|from ['\"]three|/editor/" src/player/playe
 [ "$FLAT_FAIL" = 0 ] || { echo "[build] ✗ flatscreen 护栏未过，已挡下构建。" >&2; exit 1; }
 echo "[build] ✓ flatscreen 护栏通过"
 
-# 0.7 three 边界 lint：three 只准出现在 src/minccino/backend/three/（Tron 第一刀步 5 起；以前是 src/editor/render3.ts；相机/拾取/求解零 three）
-THREE_HITS=$(grep -rlE "from ['\"](three|(\.\./)+vendor/three)" src --include='*.ts' | grep -v "^src/minccino/backend/three/" || true)
-if [ -n "$THREE_HITS" ]; then echo "[build] ✗ three 越界（只准 src/minccino/backend/three/）：" >&2; echo "$THREE_HITS" >&2; exit 1; fi
-echo "[build] ✓ three 只在 src/minccino/backend/three/"
+# 0.7 three 边界 lint：three 只准出现在 src/minccino/providers/three/（Tron 第一刀步 5 起；以前是 src/editor/render3.ts；相机/拾取/求解零 three）
+THREE_HITS=$(grep -rlE "from ['\"](three|(\.\./)+vendor/three)" src --include='*.ts' | grep -v "^src/minccino/providers/three/" || true)
+if [ -n "$THREE_HITS" ]; then echo "[build] ✗ three 越界（只准 src/minccino/providers/three/）：" >&2; echo "$THREE_HITS" >&2; exit 1; fi
+echo "[build] ✓ three 只在 src/minccino/providers/three/"
 
 # 0.8 图标 sprite 内联对账
 

@@ -9,7 +9,7 @@ import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import { projectToAxisPlane } from "../protractor-geom.ts";
 
 /** 半径下限（米）：点得离圆心太近 = 没打算画。 */

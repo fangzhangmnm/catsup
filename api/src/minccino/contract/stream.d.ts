@@ -3,7 +3,7 @@ import type { Vec3, Xform12 } from "./geometry.ts";
 export type ChunkKind = "tris" | "lines" | "points";
 /**
  * 对材质模块的引用：小学 = 文档里那个材质对象本身（和场景的 Material **同形**：颜色 + 可选贴图），引擎只读这几个字段——拿它当贴图缓存键，
- * 颜色过渡期还由提供者烤进顶点色（`ChunkStyle`）；材质模块落地后换成槽表（material/）。
+ * 颜色过渡期还由提供者烤进顶点色（提供者自己按调色板算，不再问后端）；材质模块落地后换成槽表（material/）。
  */
 export interface MaterialRef {
     readonly color: readonly number[];
@@ -15,12 +15,6 @@ export interface MaterialRef {
 }
 /** 贴图面画哪一侧（两个表面，DT8）：double = 两侧同一张贴图；front / back = 只画 +n / −n 那侧。 */
 export type ChunkSide = "front" | "back" | "double";
-/** 过渡期（步 3 → 材质模块落地前）：样式那半由后端给提供者，提供者把面 / 边的颜色和「粗线还是像素线」烤进顶点属性。 */
-export interface ChunkStyle {
-    faceColor(mat: MaterialRef | null, dim: boolean): readonly [number, number, number];
-    edgeColor(loose: boolean, dim: boolean): readonly [number, number, number];
-    thick(): boolean;
-}
 export type ChunkArray = Float32Array | Int16Array | Int8Array | Uint8Array | Uint16Array | Uint32Array;
 /** 一个顶点属性：数组（跨帧同一个 TypedArray = 零拷贝，`dirty` 说改了哪段）+ 每单位几个分量 + 整数数组是否按归一化读（−1…1）。 */
 export interface ChunkAttr {
@@ -62,9 +56,8 @@ export interface Placement {
     readonly slot: string;
     /** 槽序号（编辑器的 PoolSlot.index；过渡期叠加层按它找节点）。 */
     readonly index: number;
-    /** 过渡期的现状旗（叠加层 / 样式接管后退役）：活动池（深度偏移档）、上下文之外（淡出配色）、单面身体（剔背面）。 */
+    /** 过渡期的现状旗（刀 g 改名 tier）：活动池（深度偏移档）、单面身体（剔背面）。淡出 = 视图侧的标记（FrameInput.marks，刀 c），不在流里。 */
     readonly active: boolean;
-    readonly dim: boolean;
     readonly singleSided: boolean;
 }
 /** 视锥带：近 / 远（米）。小学只有一带、全驻留；superlod 时是数组（月亮永远在最远那带）。 */

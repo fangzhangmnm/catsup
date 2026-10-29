@@ -1,4 +1,4 @@
-import { type OverlayLabel, type OverlayMarker, type OverlayPoints, type OverlayTris } from "../../overlay/index.ts";
+import type { OverlayLabel, OverlayMarker, OverlayPoints, OverlayTris } from "../../overlay/index.ts";
 import type { Vec3 } from "../../contract/geometry.ts";
 export declare class OverlayMarksDrawer {
     private readonly scene;

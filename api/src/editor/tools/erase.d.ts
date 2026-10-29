@@ -2,7 +2,7 @@ import type { EdgeId } from "../../kernel/kernel.ts";
 import type { WorldView } from "../../scene/world-view.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolSample } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import { EdgeScrubTool } from "./scrub.ts";
 export declare class EraseTool extends EdgeScrubTool {
     readonly tool: "erase";

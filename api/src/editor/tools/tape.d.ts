@@ -4,7 +4,7 @@ export { type TapeResult, type TapeStart, classifyStart, tapeResult } from "../t
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 export declare class TapeTool implements ToolHandler {
     readonly tool: "tape";
     readonly grammar: "steps";

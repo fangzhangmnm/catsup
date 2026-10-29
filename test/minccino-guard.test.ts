@@ -1,14 +1,14 @@
 // Minccino 引擎的边界守卫（骨架稿 v2 §6 步 2；src/minccino/README.md 的四条，机械执法）。created 2026-10-29 by Claude Fable 5.1
-// ① three 围栏（棘轮）：仓里 import three 的文件只准在 src/minccino/backend/three/ 或登记在册的旧漏点里；名单只准变短、登记了却不再漏 = 红。
-// ② 引擎零 three：src/minccino/ 里 backend/three/ 之外不出现 three 的 import / `THREE.`。
-// ③ 引擎不认识编辑器：src/minccino/ 不 import ../editor ../scene ../kernel ../mesh ../app ../format ../player ../controller；backend/ 之外零 DOM。
-// ④ pass 代码不判设备：graph/ overlay/ material/ backend/ 里不出现 userAgent / 平台名 / 机型名（设备只以代价表 + 能力位进来；量设备以后住 device.ts）。
+// ① three 围栏（棘轮）：仓里 import three 的文件只准在 src/minccino/providers/three/ 或登记在册的旧漏点里；名单只准变短、登记了却不再漏 = 红。
+// ② 引擎零 three：src/minccino/ 里 providers/three/ 之外不出现 three 的 import / `THREE.`。
+// ③ 引擎不认识编辑器：src/minccino/ 不 import ../editor ../scene ../kernel ../mesh ../app ../format ../player ../controller；providers/ 之外零 DOM。
+// ④ pass 代码不判设备：graph/ overlay/ material/ providers/ 里不出现 userAgent / 平台名 / 机型名（设备只以代价表 + 能力位进来；量设备以后住 device.ts）。
 // ⑤ frame graph 规划器：拓扑排序 + 没人要的剪掉 + 环 / 双写者抛。
 // ⑥ 轮廓线 shader 源 = vendored LineMaterial 顶点着色器 + PROFILE_PATCHES（逐字；升级 three 漂了立刻红）。
-// ③′ 过渡期棘轮：backend/three/render3.ts 曾 import 内容层（编辑器 / 场景 / 内核）19 → 18 → 0 条（6c，v0.17.9 清零；名单空着，留着是为了下一次搬东西进笼子时再用）。
+// ③′ 过渡期棘轮：providers/three/render3.ts 曾 import 内容层（编辑器 / 场景 / 内核）19 → 18 → 0 条（6c，v0.17.9 清零；名单空着，留着是为了下一次搬东西进笼子时再用）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { planFrame } from "../src/minccino/graph/frame-graph.ts";
-import { PROFILE_LINE_VERTEX, applyProfilePatches } from "../src/minccino/backend/three/profile-line-shader.ts";
+import { PROFILE_LINE_VERTEX, applyProfilePatches } from "../src/minccino/providers/three/profile-line-shader.ts";
 const fs = (await import("node:fs" as string)) as { readdirSync(u: URL, o: { withFileTypes: true }): { name: string; isDirectory(): boolean }[]; readFileSync(u: URL, enc: "utf8"): string };
 
 const SRC = new URL("../src/", import.meta.url);
@@ -25,14 +25,14 @@ const code = (t: string): string => t.replace(/\/\*[\s\S]*?\*\//g, "").replace(/
 const engine = files.filter((f) => f.rel.startsWith("minccino/"));
 const IMPORTS_THREE = /^import[^;]*from\s+["'](three|\.\.?\/.*vendor\/three)/m;
 
-/** ① 登记在册的旧漏点（步 5 把 render3 搬进 backend/three/ 后清零；只准变短）。 */
+/** ① 登记在册的旧漏点（步 5 把 render3 搬进 providers/three/ 后清零；只准变短）。 */
 const THREE_LEAKS: readonly string[] = [];
 
 describe("minccino 守卫 ① three 围栏（棘轮）", () => {
   const leakers = files.filter((f) => IMPORTS_THREE.test(f.text)).map((f) => f.rel);
-  it("import three 的文件 ⊆ backend/three/ ∪ 名单", () => {
-    const bad = leakers.filter((r) => !r.startsWith("minccino/backend/three/") && !THREE_LEAKS.includes(r));
-    assert(bad.length === 0, `three 越界：${bad.join(", ")}（three 只准在 src/minccino/backend/three/；旧漏点名单在 test/minccino-guard.test.ts）`);
+  it("import three 的文件 ⊆ providers/three/ ∪ 名单", () => {
+    const bad = leakers.filter((r) => !r.startsWith("minccino/providers/three/") && !THREE_LEAKS.includes(r));
+    assert(bad.length === 0, `three 越界：${bad.join(", ")}（three 只准在 src/minccino/providers/three/；旧漏点名单在 test/minccino-guard.test.ts）`);
   });
   it("名单不发霉：登记了的还在漏", () => {
     const stale = THREE_LEAKS.filter((r) => !leakers.includes(r));
@@ -41,8 +41,8 @@ describe("minccino 守卫 ① three 围栏（棘轮）", () => {
 });
 
 describe("minccino 守卫 ② 引擎零 three", () => {
-  it("backend/three/ 之外没有 three", () => {
-    const bad = engine.filter((f) => !f.rel.startsWith("minccino/backend/three/") && (IMPORTS_THREE.test(f.text) || /\bTHREE\./.test(f.text))).map((f) => f.rel);
+  it("providers/three/ 之外没有 three", () => {
+    const bad = engine.filter((f) => !f.rel.startsWith("minccino/providers/three/") && (IMPORTS_THREE.test(f.text) || /\bTHREE\./.test(f.text))).map((f) => f.rel);
     assert(bad.length === 0, `引擎里出现 three：${bad.join(", ")}`);
   });
 });
@@ -64,15 +64,15 @@ describe("minccino 守卫 ③ 引擎不认识编辑器、零 DOM", () => {
       eq(n, pin, `${rel} 内容层 import 降到 ${n} 条了，把棘轮调到 ${n}`);
     }
   });
-  it("backend/ 之外零 DOM", () => {
-    const bad = engine.filter((f) => !f.rel.startsWith("minccino/backend/") && f.rel !== "minccino/device.ts" && /\b(document|window|navigator)\./.test(code(f.text))).map((f) => f.rel);   // device.ts = 量设备（电量）的唯一地方
+  it("providers/ 之外零 DOM", () => {
+    const bad = engine.filter((f) => !f.rel.startsWith("minccino/providers/") && f.rel !== "minccino/device.ts" && /\b(document|window|navigator)\./.test(code(f.text))).map((f) => f.rel);   // device.ts = 量设备（电量）的唯一地方
     assert(bad.length === 0, `引擎碰了 DOM：${bad.join(", ")}`);
   });
 });
 
 describe("minccino 守卫 ④ pass 代码不判设备", () => {
   const DEVICE = /navigator\.(userAgent|platform|maxTouchPoints|deviceMemory|hardwareConcurrency|getBattery)|\b(iPad|iPhone|Android|Quest|Macintosh|Windows NT|Safari|Chrome)\b/;
-  it("graph/ overlay/ material/ preset/ backend/ 里没有设备判断", () => {
+  it("graph/ overlay/ material/ preset/ providers/ 里没有设备判断", () => {
     const bad = engine.filter((f) => /^minccino\/(graph|overlay|material|preset|backend)\//.test(f.rel) && DEVICE.test(code(f.text))).map((f) => f.rel);
     assert(bad.length === 0, `pass 代码判了设备：${bad.join(", ")}（代价表是数据，不是 if；量设备住 minccino/device.ts）`);
   });

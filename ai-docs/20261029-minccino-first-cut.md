@@ -149,3 +149,9 @@
 - 看得见的变化（开工前声明）：Tron 的隐线跟 X 光开关走（以前常开 0.12 淡线）→ `style-tron-sel / style-tron-house-thick` 重冻；白模 X 光场景（`box-xray / mesh-xray-dots`）0 差（看得见的边以前被半透明再描一遍，黑上黑看不出；被挡的段同一个 35%）。
 - 怎么验：`npm test`（1175 + 新守卫）；探针 xray / xray-facedots / lasso / present-lock / style / selecting 绿；基线 24 张：Tron 两张按声明重冻，其余 0 差（剪纸 ±1 噪声照旧）。
 - 基线：重冻 2 张（Tron）。
+
+### 刀 f（v0.17.23）：three 那层改叫供货商；编辑器只持契约
+- 做了什么（T109 改词 + 设计稿 §4 f）：`src/minccino/backend/` → `src/minccino/providers/`（three = 画的供货商，不是后端；「后端」留给无头的小栗鼠本体）；契约从那层搬到 `contract/render-provider.ts`：`RenderProvider`（= 编辑器 / app 用到的全部公开面：画一帧 / 内容流 / 视图设定 / XR / 回执，和内容的 `StreamProvider` 对称）、`FrameInput / Mark / 槽位`、`LineStyle / XRFacade / XRHand / XRRigPose / XRRay`（原来定义在 render3.ts 里）；`BackendCaps → ProviderCaps`。**编辑器不再 import three 那层**：`Editor` 构造时由 app 层把 `new Renderer3(canvas, perf)` 递进来、字段只持 `RenderProvider`；`editor/render3.ts` 转出口删（工具文件的 `ViewState` 从 `view-state.ts` 拿，`faceTriangles` 从它自己的文件拿，`LINE_WEIGHTS` 住 app）；`world-labels.ts` 不再 import 那层（类型从契约的 `OverlayLabel` 推）。build lint / 守卫 ①②③④ / README 路径跟着改。
+- 看得见的变化：没有。
+- 怎么验：`npm test`；探针 style / xr-fake / selecting / walk / context 绿；基线 24 张 0 差。
+- 基线：没动。

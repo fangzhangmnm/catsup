@@ -8,7 +8,7 @@ import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
-import type { ViewState } from "../render3.ts";
+import type { ViewState } from "../view-state.ts";
 import { PROT_MIN, angleAbout, axisAlignAngle, detent, projectToAxisPlane, rotateDir } from "../protractor-geom.ts";
 
 const fmtDeg = (rad: number): string => `${((rad * 180) / Math.PI).toFixed(1)}°`;
