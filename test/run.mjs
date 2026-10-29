@@ -106,6 +106,7 @@ import "./typed-input.test.ts";       // 正在打的字的唯一主人（周账
 import "./editor-brep-gate.test.ts";  // 编辑器两种身体路由：this.kernel 登记制 + 体重棘轮（周账 F-126，2026-10-29）
 import "./minccino-guard.test.ts";  // Minccino 引擎边界：three 围栏棘轮 / 引擎零 three 零 DOM 不认识编辑器 / pass 不判设备 / frame graph 规划器（Tron 第一刀步 2，2026-10-29 Fable）
 import "./minccino-material.test.ts";  // Minccino 材质模块接口（开放槽表 / 翻译只写一次 / 管线 reads 守卫）+ 预算核对（步 7 / 8，2026-10-29 Fable）
+import "./minccino-preset.test.ts";    // Minccino 预设 = 数据（Tron 第 1 步：每个预设的 pass 声明排得出一帧、白模走原来那条；2026-10-29 Opus）
 import "./crypto-state.test.ts";      // 口令状态（周账 F-123，2026-10-29）
 import "./password-verifier.test.ts"; // 图库口令验证器
 import "./remember-password.test.ts"; // 在这台设备上记住口令（≤ 30 天）

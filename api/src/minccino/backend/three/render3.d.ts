@@ -1,6 +1,7 @@
 import type { Backend, BackendCaps, FrameInput } from "../../index.ts";
 import { type BudgetReport, type ChunkStyle, type Measurement, type StreamProvider, type Vec3, type View, type ViewportSize } from "../../index.ts";
 import { type PerfSink } from "../../perf.ts";
+import { type PresetId } from "../../preset/index.ts";
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
     isPresenting(): boolean;
@@ -78,6 +79,12 @@ export declare class Renderer3 implements Backend {
     private xrayOverlayMat;
     private lineWeight;
     private readonly profileAdd;
+    /** 风格（Tron 第 1 步；预设 = 数据，minccino/preset/）。白模 = 原来那一条渲染。 */
+    private preset;
+    /** 这一帧真正生效的预设（XR / 截图 = 白模）。 */
+    private framePreset;
+    private readonly unlitU;
+    private pixelScreen;
     private overlayLines;
     private overlayMarks;
     private overlayFaces;
@@ -157,6 +164,12 @@ export declare class Renderer3 implements Backend {
     private syncCamera;
     render(input: FrameInput): void;
     /**
+     * 风格那条路（Tron 第 1 步：像素描边）：① 模型画进小图（画布设备像素 ÷ k，k = 像素化 × 设备像素比取整，整数倍）——相机用 view offset 让小图恰好盖住
+     * 「k × 小图」那么大一块，画布外多出来的那一点裁掉，叠加层和小图逐像素对齐；② 描边（后处理挂点）③ 最近邻放大回画布并写回深度 ④ 叠加层那一层
+     * （网格、三轴、选中边、吸附、gizmo、文字、X 光线）按原分辨率画在上面，被写回的深度挡。选中 / 悬停的面是槽里的节点，跟着模型一起像素化。
+     */
+    private renderStyled;
+    /**
      * 离屏截图（缩略图；转正纪元 2026-09-20）：渲到 w×h 的 render target 再 readRenderTargetPixels。
      * 返回 RGBA、行序**自上而下**（three 读回是自下而上，这里翻好）。XR 会话中不截（相机归 XR）。
      */
@@ -172,8 +185,16 @@ export declare class Renderer3 implements Backend {
     /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
     setLineStyle(style: LineStyle): void;
     setXray(on: boolean): void;
-    /** 这一帧的 pass 声明（现状）：膜 + 边从流产出 frame，地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。 */
+    /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。
+     *  XR 会话里先只走白模（风格的小图 / 放大还没接两只眼——视图菜单那行的提示写着）。 */
     private passes;
+    /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
+    setPreset(id: PresetId): void;
+    getPreset(): PresetId;
+    /** 贴图过滤跟预设走（像素风 = 最近邻；不改资产，只改采样）。 */
+    private applyTexFilter;
+    /** 缩略图截图时只画白模（缩略图 = 模型，不是视图）。 */
+    private capturing;
     getLineStyle(): LineStyle;
     /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
     setLineWeight(w: number): void;

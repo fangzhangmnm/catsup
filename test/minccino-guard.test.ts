@@ -72,8 +72,8 @@ describe("minccino 守卫 ③ 引擎不认识编辑器、零 DOM", () => {
 
 describe("minccino 守卫 ④ pass 代码不判设备", () => {
   const DEVICE = /navigator\.(userAgent|platform|maxTouchPoints|deviceMemory|hardwareConcurrency|getBattery)|\b(iPad|iPhone|Android|Quest|Macintosh|Windows NT|Safari|Chrome)\b/;
-  it("graph/ overlay/ material/ backend/ 里没有设备判断", () => {
-    const bad = engine.filter((f) => /^minccino\/(graph|overlay|material|backend)\//.test(f.rel) && DEVICE.test(code(f.text))).map((f) => f.rel);
+  it("graph/ overlay/ material/ preset/ backend/ 里没有设备判断", () => {
+    const bad = engine.filter((f) => /^minccino\/(graph|overlay|material|preset|backend)\//.test(f.rel) && DEVICE.test(code(f.text))).map((f) => f.rel);
     assert(bad.length === 0, `pass 代码判了设备：${bad.join(", ")}（代价表是数据，不是 if；量设备住 minccino/device.ts）`);
   });
 });

@@ -79,6 +79,16 @@ const SCENES = {
   "fixture-guided": { fixture: "guided.glb" },
   "fixture-meshed": { fixture: "meshed.glb" },
   "fixture-twoSided": { fixture: "twoSided.glb" },
+  // 风格（Tron 纪元第 1 步，2026-10-29 Opus）：像素描边 = 1/3 分辨率 + 像素描边后处理 + 整数倍放大 + 叠加层按原分辨率（选中顶面 + 悬停 + 锁 X 轴线）
+  "style-pixel-sel": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.setTool("move"); e.setAxisLock("x"); const s = sp(P(1, 0.5, 0.5)); await hover(s.x, s.y);`,
+  // 风格 × 有颜色的样本（材质色 + 组 / 组件，场景铺开：内部深度跳变也描）
+  "style-pixel-house": { fixture: "house.glb", after: `e.renderer3.setPreset("pixelOutline"); e.draw();` },
+  // 风格 × 贴图（最近邻覆盖）
+  "style-pixel-textured": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
+    e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
+    const mid = [...e.scene.materials.keys()].pop(), k = e.kernel, at = e.activePool();
+    const top = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.z - 1) < 1e-6)), side = k.faces().find((f) => k.faceRings3(f.id).outer.every((p) => Math.abs(p.x - 1) < 1e-6));
+    e.commitOp({ op: "paintFaces", at, faces: [k.faceRings3(top.id).outer, k.faceRings3(side.id).outer], material: mid });`,
 };
 
 const BENIGN = /Not signed in|CloudNetworkError|Failed to fetch|net::ERR|msal|favicon|GPU stall due to ReadPixels|not persisted yet/i;

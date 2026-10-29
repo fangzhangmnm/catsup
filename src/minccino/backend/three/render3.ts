@@ -45,6 +45,8 @@ import type { Backend, BackendCaps, FrameInput } from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type ChunkStyle, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
+import { PRESETS, isStyled, presetPasses, type Preset, type PresetId } from "../../preset/index.ts";
+import { PixelScreen } from "./screen-pixel.ts";
 
 /** XR 会话面（vr.ts 消费；three 对象一律 any，不出本文件）。 */
 export interface XRFacade {
@@ -145,6 +147,7 @@ const FACE_VERT = /* glsl */`
   }`;
 const FACE_FRAG = /* glsl */`
   uniform vec3 uLight;
+  uniform bool uUnlit;
   varying vec3 vColor;
   varying vec3 vColorB;
   varying vec3 vNormal;
@@ -152,7 +155,7 @@ const FACE_FRAG = /* glsl */`
     // 两个表面（DT8）：三角绕 +n 逆时针 → 正面朝着看 = 看到 +n 那侧（aColor），背面 = −n 那侧（aColorB）；负值 = 那侧归贴图网格画，这里不画
     vec3 c = gl_FrontFacing ? vColor : vColorB;
     if (c.r < 0.0) discard;
-    float k = 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
+    float k = uUnlit ? 1.0 : 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));   // 不打光（风格：像素描边 = 纯色）
     gl_FragColor = vec4(c * k, 1.0);   // 颜色已是 sRGB，直接出（与旧 shade() 同值）
   }`;
 const TEX_VERT = /* glsl */`
@@ -164,16 +167,20 @@ const TEX_VERT = /* glsl */`
   void main() { vUv = aUv; vColor = aColor; vNormal = normalMatrix * normal; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
 const TEX_FRAG = /* glsl */`
   uniform vec3 uLight;
+  uniform bool uUnlit;
   uniform sampler2D uMap;
   varying vec2 vUv;
   varying vec3 vColor;
   varying vec3 vNormal;
   void main() {
-    float k = 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
+    float k = uUnlit ? 1.0 : 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
     vec3 c = texture2D(uMap, vUv).rgb * vColor;
     gl_FragColor = vec4(c * k, 1.0);
   }`;
 
+/** 叠加层专用的 three 层（Tron 第 1 步）：编辑器的东西（网格、三轴、叠加层线点标记文字、X 光线）住这一层，风格那条路里按原分辨率最后画；
+ *  白模那条路相机两层都看 = 和以前同一批对象同一个顺序。不用 1 / 2：three 的 XR 用它们分左右眼。 */
+const OVERLAY_LAYER = 5;
 /** 0xRRGGBB → sRGB 浮点三元（膜 shader 用；不过 three 的色彩管理）。 */
 const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
@@ -221,6 +228,12 @@ export class Renderer3 implements Backend {
   private xrayPixelMat: any; private xrayThickMat: any; private xrayOverlayMat: any;
   private lineWeight = 1;                              // 设备像素；1 = 原生线
   private readonly profileAdd = { value: 1 };          // 轮廓线加粗（设备像素）；edgeMat 的 shader uniform
+  /** 风格（Tron 第 1 步；预设 = 数据，minccino/preset/）。白模 = 原来那一条渲染。 */
+  private preset: Preset = PRESETS.white;
+  /** 这一帧真正生效的预设（XR / 截图 = 白模）。 */
+  private framePreset: Preset = PRESETS.white;
+  private readonly unlitU = { value: false };          // 面 shader 的「不打光」（材质挂点 shade = none）
+  private pixelScreen: PixelScreen | null = null;      // 风格那条路的小图 + 描边 + 放大（第一次用到才建）
   private overlayLines!: OverlayLinesDrawer;
   private overlayMarks!: OverlayMarksDrawer;
   private overlayFaces!: OverlayFacesDrawer;
@@ -252,28 +265,29 @@ export class Renderer3 implements Backend {
     this.scene.background = new THREE.Color(PALETTE.background);
     this.camOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20000);
     this.camPersp = new THREE.PerspectiveCamera(50, 1, 1, 20000);
+    this.camOrtho.layers.enable(OVERLAY_LAYER); this.camPersp.layers.enable(OVERLAY_LAYER);
     this.resolution = new THREE.Vector2(1, 1);
     this.rebuildGrid(WORLD_FRAME3, 1, 1);
 
     // 膜：一份几何 + 一个 shader（光向 uniform）
     this.faceMat = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
-      uniforms: { uLight: { value: new THREE.Vector3(0, 0, 1) } },
+      uniforms: { uLight: { value: new THREE.Vector3(0, 0, 1) }, uUnlit: this.unlitU },
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face,
     });
     // 别的池的面：同一 shader、polygonOffset 再往后推一格 → 共面重叠时活动池 / loose 几何赢（#25 user「overlap的时候优先显示loose geometry」）
     this.faceMatOther = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
-      uniforms: { uLight: this.faceMat.uniforms.uLight },
+      uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU },
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther,
     });
     // 单面身体（mesh）：同两份 shader，只画正面
-    this.faceMatFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
-    this.faceMatOtherFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther });
+    this.faceMatFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
+    this.faceMatOtherFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther });
     // 覆盖层（选中 / 悬停的面）：同 shader、polygonOffset 0 → 压在各槽底几何（1 / 4）上面
     this.faceMatTop = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
-      uniforms: { uLight: this.faceMat.uniforms.uLight },
+      uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU },
       side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay,
     });
     this.pixelMat = new THREE.LineBasicMaterial({ vertexColors: true });
@@ -294,12 +308,13 @@ export class Renderer3 implements Backend {
     // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
     // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。
     // 叠加层线段族（步 6a）：材质按 LINE_STYLES 声明顺序建在这里 = 和以前各组线材质的创建顺序一致（three 画家排序平手按材质 id）；"edge" 不建材质
-    this.overlayLines = new OverlayLinesDrawer(this.scene, (px, o) => this.lineMat(px, o), { edge: () => (this.xrayPass ? this.xrayOverlayMat : this.edgeMat) });
+    const overlayHost = { add: (o: any): void => { o.layers.set(OVERLAY_LAYER); this.scene.add(o); }, remove: (o: any): void => { this.scene.remove(o); } };   // 叠加层的东西住 OVERLAY_LAYER
+    this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => (this.xrayPass ? this.xrayOverlayMat : this.edgeMat) });
     // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
-    this.overlayMarks = new OverlayMarksDrawer(this.scene);
+    this.overlayMarks = new OverlayMarksDrawer(overlayHost);
     // 面高亮（6c）：挂槽的 sel 网格 / 世界坐标一份（faceMatTop）/ 每种贴图材质一份（材质懒建 = 和以前第一次画带贴图的高亮时同一时机）
     this.overlayFaces = new OverlayFacesDrawer(this.scene, this.emptyGeo, this.faceMatTop,
-      () => new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay }),
+      () => new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay }),
       (m) => this.textureFor(m));
 
     const xr = this.renderer.xr;
@@ -552,7 +567,10 @@ export class Renderer3 implements Backend {
     this.scratchV.set(L.x, L.y, L.z).transformDirection(cam3.matrixWorldInverse);
     this.faceMat.uniforms.uLight.value.copy(this.scratchV);
     // 池级路径：每槽一组节点 + 每池一份几何（只重建变了的池）。内容键由提供者给（世界身份 + 版本 + 淡出集 = 以前的 kid:rev:dimK）；没给 = 每帧都拉
-    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}`;
+    const styled = this.lastPlan.order.includes("upscale");   // 这一帧走风格那条路（规划器说了算：XR / 截图时它不在表里）
+    this.framePreset = styled ? this.preset : PRESETS.white;
+    this.unlitU.value = styled && this.preset.material.shade === "none";
+    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}:${styled ? this.preset.id : "white"}`;
     if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
 
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
@@ -577,10 +595,12 @@ export class Renderer3 implements Backend {
     this.overlayMarks.sync(items.filter((it) => it.kind !== "lines" && it.kind !== "faces") as Exclude<OverlayItem, OverlayLines | OverlayFaces>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
 
     const t0 = performance.now();
-    this.renderer.render(this.scene, cam3);
-    // ---- 血槽位（步 7）：三个数 + 预算核对。显存 = 块的显卡副本 + 贴图的估算（three 不报字节数）----
-    const info = this.renderer.info?.render;
-    let bytes = 0;
+    const info3 = this.renderer.info;
+    if (!styled) this.renderer.render(this.scene, cam3);
+    else { info3.autoReset = false; info3.reset(); try { this.renderStyled(cam3); } finally { info3.autoReset = true; } }
+    // ---- 血槽位（步 7）：三个数 + 预算核对。显存 = 块的显卡副本 + 贴图的估算（three 不报字节数）+ 风格的小图 ----
+    const info = info3?.render;
+    let bytes = styled && this.pixelScreen ? this.pixelScreen.bytes() : 0;
     for (const g of this.chunkGpus.values()) for (const a of Object.values("attrs" in g ? g.attrs : g.bufs) as any[]) bytes += a.array?.byteLength ?? 0;
     for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
     const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
@@ -588,6 +608,36 @@ export class Renderer3 implements Backend {
     const P = this.perf;
     P.last["render.ms"] = m.frameMs; P.last["render.drawCalls"] = m.drawCalls; P.last["render.triangles"] = m.triangles ?? 0; P.last["render.vramMb"] = m.vramMb;
     if (this.lastBudget?.over.length) P.count["budget.over"] = (P.count["budget.over"] ?? 0) + 1;
+  }
+
+  /**
+   * 风格那条路（Tron 第 1 步：像素描边）：① 模型画进小图（画布设备像素 ÷ k，k = 像素化 × 设备像素比取整，整数倍）——相机用 view offset 让小图恰好盖住
+   * 「k × 小图」那么大一块，画布外多出来的那一点裁掉，叠加层和小图逐像素对齐；② 描边（后处理挂点）③ 最近邻放大回画布并写回深度 ④ 叠加层那一层
+   * （网格、三轴、选中边、吸附、gizmo、文字、X 光线）按原分辨率画在上面，被写回的深度挡。选中 / 悬停的面是槽里的节点，跟着模型一起像素化。
+   */
+  private renderStyled(cam3: any): void {
+    const p = this.framePreset, W = this.flatRes.w, H = this.flatRes.h;
+    const k = Math.max(1, Math.round(p.screen.pixelate * this.dpr));
+    const ps = (this.pixelScreen ??= new PixelScreen());
+    const low = ps.prepare(W, H, k), target = this.renderer.getRenderTarget();
+    const bg = this.scene.background, mask = cam3.layers.mask, auto = this.renderer.autoClear;
+    const cc = this.renderer.getClearColor(new THREE.Color()), ca = this.renderer.getClearAlpha();
+    try {
+      // ① 模型 → 小图：清成全零（背景色在描边那遍补，渲染目标里 three 不给背景做色彩换算）
+      this.scene.background = null; this.renderer.setClearColor(0x000000, 0);
+      cam3.layers.mask = 1;   // 只看第 0 层（模型）
+      cam3.setViewOffset(W, H, 0, H - ps.h * k, ps.w * k, ps.h * k);
+      this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3);
+      cam3.clearViewOffset();
+      // ② ③ 描边 + 放大（写回深度）
+      ps.finish(this.renderer, target, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera });
+      // ④ 叠加层那一层：不清屏，按原分辨率画在放大好的画面上
+      this.renderer.autoClear = false; cam3.layers.mask = 1 << OVERLAY_LAYER;
+      this.renderer.setRenderTarget(target); this.renderer.render(this.scene, cam3);
+    } finally {
+      this.scene.background = bg; cam3.layers.mask = mask; this.renderer.autoClear = auto; this.renderer.setClearColor(cc, ca);
+      if (cam3.view?.enabled) cam3.clearViewOffset();
+    }
   }
 
   /**
@@ -599,6 +649,7 @@ export class Renderer3 implements Backend {
     const vp = input.viewport;
     const rt = new THREE.WebGLRenderTarget(vp.w, vp.h, { depthBuffer: true });
     this.poolKey = "";   // 强制重拉；选区 / 悬停不进缩略图 = 调用方递的是干净视图（叠加层里没有高亮，画家自己藏）
+    this.capturing = true;   // 缩略图 = 模型本身，画白模（风格是视图）
     try {
       this.renderer.setRenderTarget(rt);
       this.render(input);
@@ -611,7 +662,7 @@ export class Renderer3 implements Backend {
     } finally {
       this.renderer.setRenderTarget(null);
       rt.dispose();
-      this.poolKey = "";   // 下一帧按主视图重拉
+      this.poolKey = ""; this.capturing = false;   // 下一帧按主视图重拉
     }
   }
 
@@ -627,6 +678,7 @@ export class Renderer3 implements Backend {
     tex.colorSpace = THREE.SRGBColorSpace;
     tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
     tex.needsUpdate = true;
+    this.applyTexFilter(tex);
     this.texCache.set(mat, tex);
     const bytes = mat.texture?.bytes;
     if (bytes && typeof createImageBitmap === "function") {
@@ -637,7 +689,7 @@ export class Renderer3 implements Backend {
         if (this.texCache.get(mat) !== tex) { bmp.close?.(); return; }   // 材质已经换过贴图 / 被回收：这份解码作废
         const real = new THREE.Texture(bmp);
         real.colorSpace = THREE.SRGBColorSpace; real.wrapS = real.wrapT = THREE.RepeatWrapping;
-        real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter; real.needsUpdate = true;
+        real.flipY = false; real.generateMipmaps = true; real.minFilter = THREE.LinearMipmapLinearFilter; real.needsUpdate = true; this.applyTexFilter(real);
         this.texCache.set(mat, real);
         for (const m of this.texMats.get(mat)?.values() ?? []) m.uniforms.uMap.value = real;
         tex.dispose();
@@ -652,16 +704,25 @@ export class Renderer3 implements Backend {
   /** 线稿风格（视图菜单「粗线稿」）：池的边换粗线 / 像素线 = 重拉一次（块不变，槽节点换几何）。 */
   setLineStyle(style: LineStyle): void { if (this.lineStyle !== style) { this.lineStyle = style; this.poolKey = ""; } }
   setXray(on: boolean): void { this.xray = on; }   // 真正生效在下一帧的规划（xrayPass 变了才重建池 / 叠加层）
-  /** 这一帧的 pass 声明（现状）：膜 + 边从流产出 frame，地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。 */
-  private passes(): PassDecl[] {
-    const ps: PassDecl[] = [
-      { id: "scene", reads: ["stream"], writes: ["frame"] },
-      { id: "grid", appends: ["frame"] },
-      { id: "overlay", reads: ["stream", "editor"], appends: ["frame"] },
-    ];
-    if (this.xray) ps.push({ id: "xray", reads: ["stream"], appends: ["frame"] });
-    return ps;
+  /** 这一帧的 pass 声明：白模 = 膜 + 边直接画进 frame；风格 = 场景画进小图 → 后处理 → 放大（minccino/preset presetPasses）。地面网格 / 叠加层 / X 光往 frame 上追加画。开关 = 在不在表里。
+   *  XR 会话里先只走白模（风格的小图 / 放大还没接两只眼——视图菜单那行的提示写着）。 */
+  private passes(): PassDecl[] { return presetPasses(this.renderer.xr.isPresenting || this.capturing ? PRESETS.white : this.preset, this.xray); }
+  /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
+  setPreset(id: PresetId): void {
+    const p = PRESETS[id] ?? PRESETS.white;
+    if (p === this.preset) return;
+    this.preset = p; this.poolKey = "";
+    for (const t of this.texCache.values()) this.applyTexFilter(t);
   }
+  getPreset(): PresetId { return this.preset.id as PresetId; }
+  /** 贴图过滤跟预设走（像素风 = 最近邻；不改资产，只改采样）。 */
+  private applyTexFilter(t: any): void {
+    const nearest = this.preset.material.texFilter === "nearest";
+    const mag = nearest ? THREE.NearestFilter : THREE.LinearFilter, min = nearest ? THREE.NearestFilter : (t.isDataTexture ? THREE.LinearFilter : THREE.LinearMipmapLinearFilter);
+    if (t.magFilter !== mag || t.minFilter !== min) { t.magFilter = mag; t.minFilter = min; t.needsUpdate = true; }
+  }
+  /** 缩略图截图时只画白模（缩略图 = 模型，不是视图）。 */
+  private capturing = false;
   getLineStyle(): LineStyle { return this.lineStyle; }
   /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
   setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
@@ -722,10 +783,10 @@ export class Renderer3 implements Backend {
       }
       for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
       // 边
-      const L = pb?.lines ?? null, showL = !!L && L.count > 0;
-      if (this.lineStyle === "thick") { n.thick.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
-      else { n.pixel.geometry = showL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
-      const xr = this.xrayPass && showL;
+      const L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && this.framePreset.material.edges;   // 风格可以不画模型的线稿（像素描边）；X 光的线照画
+      if (this.lineStyle === "thick") { n.thick.geometry = hasL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
+      else { n.pixel.geometry = hasL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
+      const xr = this.xrayPass && hasL;
       n.xthick.geometry = xr && this.lineStyle === "thick" ? n.thick.geometry : this.emptyLineGeo; n.xthick.visible = xr && this.lineStyle === "thick";
       n.xpixel.geometry = xr && this.lineStyle !== "thick" ? n.pixel.geometry : this.emptyGeo; n.xpixel.visible = xr && this.lineStyle !== "thick";
     }
@@ -741,8 +802,8 @@ export class Renderer3 implements Backend {
     const sel = new THREE.Mesh(this.emptyGeo, this.faceMat); sel.frustumCulled = false; sel.visible = false; sel.renderOrder = 2;   // 画在面之后：深度一模一样时后画的赢
     const pixel = new THREE.LineSegments(this.emptyGeo, this.pixelMat); pixel.frustumCulled = false; pixel.visible = false;
     const thick = new LineSegments2(this.emptyLineGeo, this.edgeMat); thick.frustumCulled = false; thick.visible = false;
-    const xpixel = new THREE.LineSegments(this.emptyGeo, this.xrayPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3;
-    const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3;
+    const xpixel = new THREE.LineSegments(this.emptyGeo, this.xrayPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3; xpixel.layers.set(OVERLAY_LAYER);
+    const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3; xthick.layers.set(OVERLAY_LAYER);
     root.add(plain); root.add(sel); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
     return { root, plain, sel, selKey: "\u0000", tex: [], pixel, thick, xpixel, xthick, gen: 0 };
@@ -752,7 +813,7 @@ export class Renderer3 implements Backend {
     if (!bySide) { bySide = new Map(); this.texMats.set(mat, bySide); }
     let m = bySide.get(side);
     if (m) return m;
-    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uMap: { value: this.textureFor(mat) } }, side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
+    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU, uMap: { value: this.textureFor(mat) } }, side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
     bySide.set(side, m);
     return m;
   }
@@ -862,12 +923,12 @@ export class Renderer3 implements Backend {
         depthFunc: THREE.LessDepth, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: DEPTH.guide,   // 深度阶梯（DEPTH 注释）：面后、边前，不 z-fight（user「加一个 z-offset 的事情」）
       });
       this.gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, 2 * L), this.gridMat);
-      this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false;
+      this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false; this.gridMesh.layers.set(OVERLAY_LAYER);
       this.scene.add(this.gridMesh);
       const axesMat = this.lineMat(STATIC_PX, { vertexColors: true });   // 不前拉：轴在边后面（DEPTH 注释）
       axesMat.depthFunc = THREE.LessDepth; axesMat.polygonOffset = true; axesMat.polygonOffsetFactor = 0; axesMat.polygonOffsetUnits = DEPTH.guide;
       this.axesObj = new LineSegments2(new LineSegmentsGeometry(), axesMat);
-      this.axesObj.frustumCulled = false;
+      this.axesObj.frustumCulled = false; this.axesObj.layers.set(OVERLAY_LAYER);
       this.scene.add(this.axesObj);
     }
     this.gridMat.uniforms.uStep.value = step > 1e-6 ? step : 1;

@@ -71,6 +71,24 @@
       "h": 1133,
       "frozenAt": "2026-10-29",
       "version": "v0.17.0-2026-10-29"
+    },
+    "style-pixel-sel": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.9-2026-10-29"
+    },
+    "style-pixel-house": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.9-2026-10-29"
+    },
+    "style-pixel-textured": {
+      "w": 744,
+      "h": 1133,
+      "frozenAt": "2026-10-29",
+      "version": "v0.17.9-2026-10-29"
     }
   }
 }
