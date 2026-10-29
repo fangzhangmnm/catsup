@@ -103,6 +103,7 @@ import "./exact-geometry.test.ts";   // EGC 期 1：精确谓词 + snap rounding
 import "./object-model.test.ts";    // 0.14 物件模型契约守卫（2026-10-24）
 import "./lock.test.ts";         // A27 锁定（对象层属性；0.13）
 import "./typed-input.test.ts";       // 正在打的字的唯一主人（周账 F-125，2026-10-29）
+import "./editor-brep-gate.test.ts";  // 编辑器两种身体路由：this.kernel 登记制 + 体重棘轮（周账 F-126，2026-10-29）
 import "./crypto-state.test.ts";      // 口令状态（周账 F-123，2026-10-29）
 import "./password-verifier.test.ts"; // 图库口令验证器
 import "./remember-password.test.ts"; // 在这台设备上记住口令（≤ 30 天）

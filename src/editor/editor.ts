@@ -3543,7 +3543,7 @@ export class Editor {
 
   /** 预演失败时的复现描述（黑匣子）：工具 + 能重建那一步的参数（活动池本地坐标）。 */
   private previewDescriptor(): Record<string, unknown> {
-    const tool = this._tool, k = this.kernel;
+    const tool = this._tool;   // 2026-10-29：以前这里白读一次硬表面内核——网格体池里预演失败时 catch 里先抛「body is mesh, not brep」，把真错误盖住（F-126 第一刀抓到的洞）
     const d: Record<string, unknown> = { tool };
     const H = this.handlers[tool];
     if (H?.active()) { d.sample = H.sample(); Object.assign(d, H.describe?.(this.toolCtx) ?? {}); }
@@ -3568,7 +3568,7 @@ export class Editor {
       try { this.liveEvents = perf.time("live.run", () => fn(c)); }
       catch (err) {
         this.liveEvents = []; this.live = null; this.liveMesh = null;
-        this.host.trace?.({ kind: "fail", where: "preview", op: null, message: err instanceof Error ? err.message : String(err), brep: this.kernel.toBrep(), pool: this.activePool(), preview: this.previewDescriptor() });
+        this.host.trace?.({ kind: "fail", where: "preview", op: null, message: err instanceof Error ? err.message : String(err), ...(this.activeKind() === "brep" ? { brep: this.kernel.toBrep() } : {}), pool: this.activePool(), preview: this.previewDescriptor() });   // 网格体池里不带 brep 快照（以前这一句在 catch 里再抛一次，真错误没进黑匣子）
         this.fail("preview", err); return;
       }
       this.live = c;
