@@ -2080,10 +2080,17 @@ export class Editor {
   runCommand(id: CommandId): number { return this.runAction(id); }
   /** 一条指令在它那种单位上会碰几处（object 族按 perDefinition 去重后数）。 */
   private unitCount(c: Command, kind: UnitKind): number {
-    const v = c.defaults(this.repairCtx);
-    let n = 0;
-    for (const u of this.unitsFor(c, kind)) n += c.quickCount ? c.quickCount(this.repairCtx, u) : c.plan(this.repairCtx, u, v).count;
-    return n;
+    // 菜单 / 浮条数数（每次选区一变就跑）：哪一条指令在这份几何上出错，都只当 0 处、记进调试日志——数数炸了不能把界面一起带走（2026-10-29 Opus：
+    // user 日志 `loopCut: edge 18 has 4 faces` 就是选东西时右键菜单数「环切」抛出来的；指令自己也修了，这一层兜所有指令）
+    try {
+      const v = c.defaults(this.repairCtx);
+      let n = 0;
+      for (const u of this.unitsFor(c, kind)) n += c.quickCount ? c.quickCount(this.repairCtx, u) : c.plan(this.repairCtx, u, v).count;
+      return n;
+    } catch (err) {
+      console.warn(`[菜单] 数「${c.title}」时出错，当 0 处：${String((err as Error)?.message ?? err)}`);
+      return 0;
+    }
   }
   /**
    * 作用域解成单位（注册表提案 §2.1 的最小版，按种类；2026-10-27 接缝）：brep / mesh = 活动池 + 它的几何选区（没选几何 = 没有这个单位；修复那条路另有「整个物体」的作用域）；

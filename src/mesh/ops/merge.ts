@@ -33,8 +33,24 @@ export function mergeVerts(k: MeshKernel, ids: readonly number[], target: "cente
   // 被并顶点剩下的边（裸线 / 面已删留下的）全删，再删顶点
   for (const v of gone) { for (const e of [...k.vEdges(v)]) { if (k.eFaces(e).length) throw new Error("mergeVerts: internal: face still references merged vertex"); k.removeEdge(e); } k.removeVertex(v); }
   for (const [a, b, fl] of wires) if (a !== b) { const e = k.ensureEdge(a, b); if (!k.eFaces(e).length) k.setEdgeFlags(e, fl); }
+  dedupeFacesAround(k, survivor);
   k.setPos(survivor, to);
   return survivor;
+}
+
+/**
+ * 并点之后变成一模一样的两张面（点集相同，绕向同向或反向——薄片的两面 / 并塌的一折）留一张、删另一张（2026-10-29 Opus）。
+ * 只看连着幸存者的面：这次并点造出来的重复一定都含幸存者；原来就有的重复不碰。不删的话每条边被 4 张面共用（非流形），
+ * 强行对称再镜一份就更多（user 10-29 日志：合并 3 个点 + 强行对称之后 `edge 18 has 4 faces`）。留 id 小的那张（确定性）。
+ */
+function dedupeFacesAround(k: MeshKernel, v: number): void {
+  const fs = new Set<number>();
+  for (const e of k.vEdges(v)) for (const f of k.eFaces(e)) fs.add(f);
+  const seen = new Set<string>();
+  for (const f of [...fs].sort((a, b) => a - b)) {
+    const key = [...k.faceVerts(f)].sort((a, b) => a - b).join(",");
+    if (seen.has(key)) k.removeFace(f); else seen.add(key);
+  }
 }
 
 /**

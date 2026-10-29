@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-100 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+101 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -12,7 +12,7 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`liquify`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`brush-inflate`、`brush-flatten`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`liquify`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`brush-inflate`、`brush-flatten`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`xray`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -184,6 +184,7 @@
 | `snap-grid` | 主栅格/对齐网格(WeebPaint ☰「主栅格(对齐网格)」): **实线**外框(1.7, 与 grid-border 同重)+**虚线**十字(1.2, dash 2.25/2.0)。三件并置可辨: grid=实线密 4x4 / grid-border=虚框+实十字 / snap-grid=实框+虚十字。20260821 甲方拍板候选1号入库(全虚线版、3x3 虚线版、细框 1.2 版落选); 原与像素栅格/主栅格尺寸三条菜单同挂 #grid, 本轮分家 |
 | `picture-in-picture` | 画中画:大框(主画布) + 右下角内嵌小窗(参考小窗自己) |
 | `one-to-one` 👁待过目 | 1:1 像素:四角括号 + 中心一颗实心像素=「一图像素对一屏像素」(不写 1:1 文字)【WeebPaint 参考窗 ＋ 菜单「1:1 像素」项；fable 自画未过目】 |
+| `xray` 👁待过目 | X 光(看得穿):等轴测线框方盒，看得见的边实线，被挡住的背面三条边虚线 = 透过面看见、点得到被挡住的点 / 边；与 visibility-show(眼睛 = 藏 / 显)分工【CatsUp 右上角视图挂件条、吸附锁钮旁边的「X 光」开关（Alt+Z）；2026-10-29 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
 
 ## ui
 

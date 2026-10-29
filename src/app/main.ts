@@ -1127,6 +1127,11 @@ const widgets = document.createElement("div"); widgets.className = "gizmo-btns g
 const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 方向锁 / 面锁、栅格设置）";
 snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
+// X 光快捷钮（2026-10-29 user「xray开关放一个快捷键到视图快捷键区的锁快捷键旁边」；纪元账本 FM51「X 光开关放右上角锁旁边」）：点一下开 / 关，亮着 = 开；Alt+Z 同一个开关，视图菜单里那一行照留
+const xrayBtn = document.createElement("button"); xrayBtn.type = "button"; xrayBtn.className = "gizmo-btn gizmo-xray"; xrayBtn.title = "X 光（Alt+Z）：边透过面画出来，选择工具点得到被挡住的点 / 边";
+xrayBtn.innerHTML = iconHtml("xray"); widgets.appendChild(xrayBtn);
+xrayBtn.addEventListener("click", () => { editor.setXray(!editor.xray); syncUi(); });
+xrayBtnRef = xrayBtn;
 // 物体窗口的钮（UX 心智模型 §2.1：一个窗口只看一个指针——这一颗 = 你所在的这一层；子组件的物体菜单「物体设置…」也从这里开，当前换成它们）
 // 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
@@ -1156,10 +1161,13 @@ snapBtn.addEventListener("contextmenu", (ev) => { ev.preventDefault(); snapPress
 // var（提升）而不是 const：editor 的 host.changed → syncUi 可能在本段执行之前就被叫到（加载过程），那时挂件还没建，跳过即可
 // eslint-disable-next-line no-var
 var snapBtnRef: HTMLButtonElement | undefined;
+// eslint-disable-next-line no-var
+var xrayBtnRef: HTMLButtonElement | undefined;
 var machineBtnsRef: readonly (readonly [Machine, HTMLButtonElement])[] | undefined;
 /** 机器钮按车间 / 身体露（修复只在硬表面体里）。 */
 function renderMachineBtns(): void { for (const [m, b] of machineBtnsRef ?? []) b.hidden = !!m.when && !m.when(editor); }
 function renderSnapWidget(): void {
+  if (xrayBtnRef) { xrayBtnRef.classList.toggle("on", editor.xray); xrayBtnRef.setAttribute("aria-pressed", editor.xray ? "true" : "false"); }   // X 光钮跟着同一次刷新
   const btn = snapBtnRef;
   if (!btn) return;
   btn.classList.toggle("on", editor.grid.on);

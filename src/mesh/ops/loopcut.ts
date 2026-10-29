@@ -32,7 +32,8 @@ export function loopCut(k: MeshKernel, start: number, t = 0.5): LoopCutResult {
     }
   };
   const fl = [...k.eFaces(start)];
-  if (fl.length === 0 || fl.length > 2) throw new Error(`loopCut: edge ${start} has ${fl.length} faces`);
+  // 起手那条边是裸线（0 张面）或非流形（≥ 3 张面）= 切不出一圈：交回空结果，调用方说「切不出」（2026-10-29 Opus：以前抛错，右键菜单数「环切能切几条」时炸成脚本错误——user 10-29 日志 `loopCut: edge 18 has 4 faces`）
+  if (fl.length === 0 || fl.length > 2) return { edges: [], newVerts: [], closed: false };
   walk(start, fl[0], (e) => ring.push(e));
   if (!closed && fl.length === 2) walk(start, fl[1], (e) => ring.unshift(e));
   // 2. 劈每条环边

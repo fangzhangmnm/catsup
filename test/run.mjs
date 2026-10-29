@@ -148,6 +148,14 @@ import "./format.test.ts";
 import "./format-jpeg.test.ts";
 import "./crash-store.test.ts";
 import "./debug-lines.test.ts";   // 黑匣子文本行（实验台 sunset → 调试日志，2026-09-20）
+import "./object-verbs.test.ts";   // 物件层动词 = 注册表物件族（2026-10-28 Fable 加的，漏登记到 10-29 才补上）
+import "./mesh-nonmanifold.test.ts";   // 非流形 / 重复面护栏（2026-10-29）
 import { run } from "./runner.mjs";
+// 漏登记守卫（2026-10-29 Opus：object-verbs.test.ts 写了没登记、跑了一晚上 0 条，报告却说「守卫五条」——这一层让它不再发生）：test/ 下每个 *.test.ts 都得在上面 import
+{
+  const fs = await import("node:fs"), here = new URL(".", import.meta.url), me = fs.readFileSync(new URL("run.mjs", here), "utf8");
+  const missing = fs.readdirSync(here).filter((f) => f.endsWith(".test.ts") && !me.includes(`"./${f}"`));
+  if (missing.length) { console.error(`✗ 测试文件没登记进 test/run.mjs（不会跑）：${missing.join("、")}`); process.exitCode = 1; }
+}
 
 await run();
