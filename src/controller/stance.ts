@@ -144,6 +144,11 @@ const FREEFORM: Partial<Record<Tool, Stance>> = {
   knife: S({ grab: "pointOrEdge", tap: "drop", emptyDrag: "none", direction: "inPlane", snap: "infer", shift: "—", ctrl: "（Ctrl+R = 环切）", alt: "—", center: "none", lock: null, grammar: "steps", after: "clear", charge: false, intent: false }),   // 同边两下 = 环切；刀吸点 / 边
   erase: S({ grab: "scrub", tap: "apply", emptyDrag: "scrub", direction: "none", snap: "none", shift: "—", ctrl: "溶解", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),
   create: S({ grab: "pick", tap: "place", emptyDrag: "none", direction: "none", snap: "off", shift: "锁 / 放开长宽比（平的形状）· 转朝向时 15° 一档", ctrl: "—", alt: "—", center: "none", lock: null, grammar: "direct", after: "keep", charge: false, intent: false }),   // 新建（FM182）：落点 = 按下那一点打到的点 / 边 / 面 / 地面；点一下 = 马前炮尺寸、拖 = 拖多大、松手出环转朝向（UX57）；做完新的那个留在选区
+  // 软编辑笔刷（2026-10-29 Opus 5.5，账本 UX53）：按住刮、不用先选；半径 = 左栏 dial（和软选择共用）；Shift = 临时抹平（Blender 同款）
+  brushGrab: S({ grab: "scrub", tap: "none", emptyDrag: "none", direction: "viewPlane", snap: "none", shift: "临时抹平", ctrl: "—", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),
+  brushDraw: S({ grab: "scrub", tap: "apply", emptyDrag: "none", direction: "normal", snap: "none", shift: "临时抹平", ctrl: "反过来（压进去）", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),
+  brushSmooth: S({ grab: "scrub", tap: "apply", emptyDrag: "none", direction: "none", snap: "none", shift: "—", ctrl: "—", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),
+  brushFlatten: S({ grab: "scrub", tap: "apply", emptyDrag: "none", direction: "normal", snap: "none", shift: "临时抹平", ctrl: "—", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),
 };
 
 /** 验证工作台（步行 + 摆东西 + 尺规）。 */

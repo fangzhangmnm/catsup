@@ -32,7 +32,7 @@ export const RAIL_GROUPS: readonly RailGroup[] = [
  */
 /** 定死一列里的小三角组（2026-10-28 夜 user「沿法向移动和推拉合租小三角」）：列里写组的第一把，格子显示最近用的那把，小三角 / 长按 / 右键 = 整组。 */
 export const RAIL_FIXED_FLYOUTS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, readonly Tool[]>>>>> = {
-  freeform: { pp: ["pp", "shrink"] },
+  freeform: { pp: ["pp", "shrink"], brushGrab: ["brushGrab", "brushDraw", "brushSmooth", "brushFlatten"] },   // 笔刷 ▾（2026-10-29，user「笔刷小三角同意」）
 };
 export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
   // create = 拉出（FM182；user 10-28 夜「拉出放到推拉上面」）；删除 / 插入倒角搬进下面的折叠组（「删除，插入倒角也折叠」）
@@ -45,7 +45,7 @@ export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
  * 小三角组（RAIL_FIXED_FLYOUTS）也能放进来：写组的第一把，长出来的那格显示最近用的那把。
  */
 export const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, { readonly pool: readonly Tool[]; readonly budget: number }>>> = {
-  freeform: { pool: ["erase", "offset"], budget: 3 },
+  freeform: { pool: ["erase", "offset", "brushGrab"], budget: 3 },   // 笔刷 ▾ 也在折叠组里（user「算是自动折叠的不是常驻的」）
 };
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
 export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };   // 拉出 = 工具本名（自由建模独有）

@@ -151,7 +151,7 @@ import { SURFACE_TIERS } from "./surface-assign.ts";
 import { ARC_MODES } from "./arc-build.ts";
 import { BOOLEAN_DEFAULT } from "../controller/stance.ts";
 /** 工具 → 选项组：表面指派工具（油漆桶 / 以后的碰撞、贴图投影）共用 `surface` 一组（user「锐角阈值和模式的持久化不同工具共享」）。 */
-export function optionGroupOf(tool: string): string { return tool === "paint" ? "surface" : tool; }
+export function optionGroupOf(tool: string): string { return tool === "paint" ? "surface" : tool === "brushDraw" || tool === "brushSmooth" || tool === "brushFlatten" ? "brush" : tool; }   // 刷的三把共用「力度」；抓不吃力度（手拖多少走多少）
 
 export const TOOL_OPTIONS = {
   // 矩形的「起点」预设撤了（user 10-27「中心矩形能单独做一个工具吗而不是矩形的预设」）：中心矩形 = 独立工具 crect（tools/draw.ts CenterRectTool）；Ctrl 临时换起点照旧。
@@ -237,11 +237,15 @@ export const TOOL_OPTIONS = {
     edges: { kind: "bool", label: "边", def: true, scope: "session", icon: "select-edge" },
     faces: { kind: "bool", label: "面", def: true, scope: "session", icon: "select-face" },
   },
+  /** 软编辑笔刷（鼓起 / 抹平 / 压平，2026-10-29 Opus 5.5）：一下刷多少；半径在左栏 dial（和软选择共用）。 */
+  brush: {
+    strength: { kind: "number", label: "力度", def: 0.5, min: 0.05, max: 1, step: 0.05, scope: "session" },
+  },
   /** 表面指派共用（user 2026-10-24 要的持久化 = 跟机器；scope device，经 host 递来的 device-kv）。 */
   surface: {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },
     sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "device" },
   },
-} as const satisfies Partial<Record<Tool | "surface" | "pick" | "soft" | "slide", Readonly<Record<string, OptionDef>>>>;
+} as const satisfies Partial<Record<Tool | "surface" | "pick" | "soft" | "slide" | "brush", Readonly<Record<string, OptionDef>>>>;
 
 export type CatsUpToolConfig = ToolConfig<typeof TOOL_OPTIONS>;

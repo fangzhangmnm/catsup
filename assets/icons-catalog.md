@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-97 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+100 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -12,7 +12,7 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`liquify`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`brush-inflate`、`brush-flatten`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -28,6 +28,7 @@
 | `compass` 👁待过目 | 圆规:顶上一截握柄 + 转轴小圆 + 左右对称两条腿(一样粗)张成 Λ,两个腿尖各一个实心小尖 = 以一点为心、按半径作圆；与 circle(圆图元)/ protractor(量角器)分工【CatsUp 左柱测量组展开条里的「圆规」工具（圆 / 球两态：参考圆 / 参考球）；2026-10-26 Claude Opus 5.5 自画；第 2 稿按 user 意见改（「圆规左右应该对称，我建议右边不要粗，然后可以加尖尖，如果不是太小的话」），未过目】 |
 | `brush-width` | 笔刷宽度:平行两条波浪(标准1.7/粗3.4) |
 | `eyedropper` | 吸管:滴管斜置, 管尖在左下, 圆胶头在右上 |
+| `liquify` 👁待过目 | 液化:三道水平线被向下推弯(上轻中重下不动)=像素被推着流；与 hand(平移)不撞【WeebPaint 手指位长按菜单「液化」+ 钮面；fable 自画未过目】 |
 
 ## tool
 
@@ -70,6 +71,8 @@
 | `select-vertex` 👁待过目 | 拾取点(Blender 点选模式):等轴测线框盒 + 正前上角一颗实心大圆点 = 点一下只选中顶点；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
 | `select-edge` 👁待过目 | 拾取边(Blender 边选模式):等轴测线框盒 + 正前那条竖棱加粗(粗 3.4) = 点一下只选中边；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
 | `select-face` 👁待过目 | 拾取面(Blender 面选模式):等轴测线框盒 + 右前那张侧面实填(不透明 0.6) = 点一下只选中面；与 fill-hole(顶面淡填 = 补洞)分工：三枚同一只等轴测线框盒(细线)，只差加重的是哪种元素【CatsUp 自由建模工具条「拾取」三个开关（点 / 边 / 面，各自能开关，全关 = 全开）；2026-10-28 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
+| `brush-inflate` 👁待过目 | 鼓起(雕刻 Draw / Inflate):一条横着的表面线中间鼓起一个圆包 + 包顶上一支向上的短箭头 = 沿法线往外推；Ctrl = 反过来压进去；与 brush-flatten(压平)成对【CatsUp 自由建模左柱折叠组「笔刷 ▾」小三角里的一把（软编辑笔刷：按住在网格体上刮，半径 = 左栏 dial 那根滑条）；2026-10-29 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
+| `brush-flatten` 👁待过目 | 压平(雕刻 Flatten):一条两头还鼓着、中间被压成直线的表面 + 上方一块平板(粗横) + 平板下一支向下箭头 = 压到这一片的平均面上；与 brush-inflate(鼓起)成对【CatsUp 自由建模左柱折叠组「笔刷 ▾」小三角里的一把（软编辑笔刷：按住在网格体上刮，半径 = 左栏 dial 那根滑条）；2026-10-29 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
 
 ## image-processing
 

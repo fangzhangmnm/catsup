@@ -6,7 +6,7 @@
 //   + 登录 / 回线 / 回前台显式快进 + 崩溃安全 flush 三件；审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md。
 
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
-import { ERASERS } from "../editor/tool-ids.ts";
+import { ERASERS, BRUSHES } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
@@ -235,7 +235,9 @@ const TOOL_SPEC: { tool: Tool; icon: string; label: string }[] = [
   { tool: "knife", icon: "knife", label: "切割" },
   { tool: "walk", icon: "walk", label: "步行" },
   { tool: "create", icon: "new", label: "拉出" },   // 自由建模的新建（FM182；2026-10-28 Opus 5.5）：图标 = stopgap 加号（图标库 TODO 已登记 primitive-add）；快捷键 Shift+A（键表自由建模层；user 10-28 晚「Shift+A 同意」）   // 「验证」工作台第一格（2026-10-28；图标 = 图标库 PENDING 自画未过目）；平时没有键进步行（user「按什么都不会去步行，得开」）
-  { tool: "shrink", icon: "push-pull", label: "沿法线" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
+  { tool: "shrink", icon: "push-pull", label: "沿法线" },
+  // 软编辑笔刷（2026-10-29 Opus 5.5，账本 UX53）：抓 / 抹平借 WeebPaint 的 liquify / blur，鼓起 / 压平 = 图标库待过目层自画
+  { tool: "brushGrab", icon: "liquify", label: "抓" }, { tool: "brushDraw", icon: "brush-inflate", label: "鼓起" }, { tool: "brushSmooth", icon: "blur", label: "抹平" }, { tool: "brushFlatten", icon: "brush-flatten", label: "压平" },   // 自由建模：Blender Shrink / Fatten（Alt+S；user 习惯 Alt+W 也认）；不进左柱   // 自由建模的切割 + 环切（2026-10-27 Opus 5.5；user「刀应该叫切割」「小刀图标」）；图标 = 图标库 PENDING 层自画、未过目   // DT50 圆规 / 球规（工具条「画：圆 / 球」）；没有快捷键、不进 T 的轮换（尺规 2.0 §0 user「收到...里面当玩具」）；图标 = 图标库 PENDING 层自画未过目
 ];
 // HUD 数据模型：桌面 DOM 工具栏与 VR 手腕面板消费同一份（A13 第 6 条）
 const hud: HudModel = {
@@ -1210,9 +1212,10 @@ function releaseLatchesOnToolChange(): void {
 var selGrowRef: SelGrowBar | null = mountSelGrowBar(canvas, editor, () => syncUi());
 // 软选择的半径竖滑条（WeebPaint 左栏那根的同款；user 10-28 夜「weebpaint的slider放哪里」）：左柱右边，开着软选择 + 拿着会用它的工具才露
 const SOFT_TOOLS: readonly Tool[] = ["move", "rotate", "scale", "shrink"];
+const brushInHand = (): boolean => editor.modeId === "freeform" && (BRUSHES as readonly string[]).includes(editor.tool);   // 笔刷拿在手上 = 半径格露（和软选择共用一根）
 // eslint-disable-next-line no-var
 var softSliderRef: SoftSlider | null = mountSoftSlider(mountLeftDial($("stage")), $("stage"), canvas, editor, {
-  visible: () => editor.modeId === "freeform" && editor.config.get("soft", "on") && SOFT_TOOLS.includes(editor.tool),
+  visible: () => brushInHand() || (editor.modeId === "freeform" && editor.config.get("soft", "on") && SOFT_TOOLS.includes(editor.tool)),
   selectionScreenCenter: () => { const p = editor.selectionCenter("mean"); return p ? editor.cam.angularPx(p, editor.vp()) : null; },
 });
 // eslint-disable-next-line no-var
