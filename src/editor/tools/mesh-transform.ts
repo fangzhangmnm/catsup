@@ -43,6 +43,8 @@ export class MeshTransformTool implements ToolHandler {
   private start: { x: number; y: number } | null = null;
   private cur: { x: number; y: number } | null = null;
   private shift = false;
+  /** 这一刻吸不吸（底 XOR Shift；底 = ctx.snapBase()：鼠标关、触屏跟锁钮）。移动 = 点 > 边 > 面，旋转 = 15° 一档，缩放 = 0.1 一档。 */
+  private snapOn = false;
   private handleW: Pt3 | null = null;        // 挪：抓住的那个点（目标里离按下处最近的点，世界）——吸附时是它落到目标上
   private snapT: { p: Pt3; kind: SnapKind } | null = null;
   /** 沿边滑（移动的一种模式，G G）：每个被挪的点能滑的边（另一头不在被挪的点里）；挑定的那一条（第一次拖出方向时挑，之后不换）。 */
@@ -70,7 +72,7 @@ export class MeshTransformTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; this.soft = null; this.rails = null; this.railPick = null; this.slideOnce = false; }
+  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapOn = false; this.snapT = null; this.soft = null; this.rails = null; this.railPick = null; this.slideOnce = false; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
@@ -109,19 +111,20 @@ export class MeshTransformTool implements ToolHandler {
       const sbase = new Map<number, Pt3>(); for (const v of dist.keys()) sbase.set(v, m.pt(v));
       this.soft = { dist, base: sbase, dirs: this.kind === "normal" ? extrudeNormalDirs(m, { verts: [...dist.keys()] }) : new Map() };
     }
-    this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; this.shift = ev.shiftKey;
+    this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; this.shift = ev.shiftKey; this.snapOn = ctx.snapBase() !== this.shift;
     { const vp = ctx.vp(); let best = Infinity; for (const [, p] of this.base) { const w = applyPt(X, p), q = ctx.frame().project?.(w, vp); const d = q ? Math.hypot(q.x - ev.x, q.y - ev.y) : Infinity; if (d < best) { best = d; this.handleW = w; } } }
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
-    ctx.hint(`${this.verb()} ${vids.length} 个点：拖着松手，或者点第二下落定（方向键锁轴 / Shift+方向键锁面；按住 Shift = ${this.kind === "move" ? "吸附：点 > 边 > 面" : this.kind === "rotate" ? "15° 一档" : "0.1 一档"}）`);
+    { const what = this.kind === "move" ? "吸附：点 > 边 > 面" : this.kind === "rotate" ? "15° 一档" : "0.1 一档";
+      ctx.hint(`${this.verb()} ${vids.length} 个点：拖着松手，或者点第二下落定（方向键锁轴 / Shift+方向键锁面；${ctx.snapBase() ? `${what}，Shift = 反过来` : `按住 Shift = ${what}`}）`); }
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
     if (this.box.track(ctx, s) || !this.active()) return;
     this.cur = { x: s.x, y: s.y };
-    this.shift = ctx.mods().shift;
+    this.shift = ctx.mods().shift; this.snapOn = ctx.snapBase() !== this.shift;
     const p = this.onPlane(ctx, s.x, s.y);
     if (p) ctx.setCursor(p);
-    this.snapT = this.kind === "move" && this.shift ? this.snapTarget(ctx, s) : null;
+    this.snapT = this.kind === "move" && this.snapOn ? this.snapTarget(ctx, s) : null;
     ctx.setSnap(this.snapT ? { p: this.snapT.p, kind: this.snapT.kind } : null);
   }
 
@@ -221,7 +224,7 @@ export class MeshTransformTool implements ToolHandler {
         let th = a0 - a1;                                    // 屏幕 y 朝下：屏上逆时针 = a 变小 = 绕朝向人的轴正转
         if (dot3(axis, toCam) < 0) th = -th;
         th = Math.atan2(Math.sin(th), Math.cos(th));
-        if (this.shift) th = Math.round(th / ROT_STEP) * ROT_STEP;
+        if (this.snapOn) th = Math.round(th / ROT_STEP) * ROT_STEP;
         if (typed !== null) th = typed;   // 打的角度（弧度；绕锁着的轴 / 视线）
         const k = normalize3(axis), c = Math.cos(th), sn = Math.sin(th);
         fW = (p) => { const v = sub3(p, pivot); const r = add3(add3(scale3(v, c), scale3(cross3(k, v), sn)), scale3(k, dot3(k, v) * (1 - c))); return add3(pivot, r); };   // Rodrigues
@@ -232,7 +235,7 @@ export class MeshTransformTool implements ToolHandler {
         if (L0 < SCALE_REF_PX) d0 = L0 > 1e-6 ? { x: d0.x / L0 * SCALE_REF_PX, y: d0.y / L0 * SCALE_REF_PX } : { x: SCALE_REF_PX, y: 0 };
         const o = { x: s0.x - d0.x, y: s0.y - d0.y };      // 起点离轴心太近：在起点后面 40 px 立一个虚轴心（往外拖 = 放大）
         let f = Math.hypot(s1.x - o.x, s1.y - o.y) / Math.hypot(d0.x, d0.y);
-        if (this.shift) f = Math.round(f / SCALE_STEP) * SCALE_STEP;
+        if (this.snapOn) f = Math.round(f / SCALE_STEP) * SCALE_STEP;
         if (typed !== null) f = typed;   // 打的倍数（S Z 0 = 沿 Z 压平）
         if (ax) fW = (p) => { const v = sub3(p, pivot); return add3(p, scale3(ax, dot3(v, ax) * (f - 1))); };   // 只沿这根轴（S Z 0 = 压平）
         else if (pn) fW = (p) => { const v = sub3(p, pivot), vn = scale3(pn, dot3(v, pn)); return add3(pivot, add3(vn, scale3(sub3(v, vn), f))); };   // 只在面内

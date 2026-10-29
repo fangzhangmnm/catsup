@@ -186,7 +186,7 @@ import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
 import { RELEASE_WINDOW_MS, FINAL_HOLD_MS, MIN_DWELL_MS, HOLD_PX, DWELL_SLIP_PX, CHARGE_DWELL_MS } from "../controller/feel.ts";
 import { lockLines, lockThrough } from "../controller/lock-guide.ts";
 import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
-import { stanceOf } from "../controller/stance.ts";
+import { SNAP_BASE, deviceOf, stanceOf } from "../controller/stance.ts";
 export { MIN_GESTURE_LEN, SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
 
 /** 子池选区项（相对活动上下文的直接子项）。 */
@@ -369,6 +369,8 @@ export class Editor {
   private _planeLock: PlaneLock | null = null;
   private _planeLockN: Pt3 | null = null;   // 面锁法向（世界、单位长）；"face" 锁时 = 按下那一刻光标下那张膜的法向
   private lastPtr: { x: number; y: number } | null = null;
+  /** 最近一次真指针的种类（键盘起手不算）：自由建模吸附的底按它查 SNAP_BASE。 */
+  private lastPtrType = "mouse";
   /** 这次按下以后离按下处最远到过多远（点按容差的量纲；松手时判点 / 拖用）。 */
   private pressPeak = 0;
   private lastMoveEv: ToolPointer | null = null;   // Shift 按下 / 松开时按它重算（setShiftHeld）   // 最后一次指针位置（Shift+↓ 取光标下的膜用）
@@ -3793,6 +3795,7 @@ export class Editor {
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
   private pointerDownStep(ev: ToolPointer): void {
     if (this._locked) { this.lockedSay(); return; }   // 护栏 ②（演示锁）：工具指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里
+    if (ev.pointerType !== "keyboard") this.lastPtrType = ev.pointerType;
     this.ctxPick = null; this.pointed = null;   // 右键菜单那一下记的点 / Ctrl+J 压着的那个：画布上再按一下就作废
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作
     const s = ev;
@@ -3880,6 +3883,7 @@ export class Editor {
     const s = ev;
     { const at = this.taps.pressAt(); if (at && this.taps.pressing()) this.pressPeak = Math.max(this.pressPeak, this.frame().distTo(s.x, s.y, at, this.fvp())); }
     this.lastPtr = { x: s.x, y: s.y };
+    if (ev.pointerType !== "keyboard") this.lastPtrType = ev.pointerType;
     this.lastMoveEv = ev;
     this.mods = { shift: ev.shiftKey, copy: !!ev.copy };
     if (!this.gestureActive()) {
@@ -3968,6 +3972,7 @@ export class Editor {
       clicks: () => this.taps.clicks(),
       cursor: () => this.cursor3,
       mods: () => this.mods,
+      snapBase: () => SNAP_BASE[deviceOf(this.lastPtrType)] === "lock" && this.grid.on,   // 自由建模吸附的底：鼠标关、触屏跟右上角锁钮（F-128）
       currentSnap: () => this.snapInfo,
       setHoverFace: (f) => { this.hoverFace = f; },
       paintMaterialIndex: () => this.materialIndexForPick(this.toolPass()),

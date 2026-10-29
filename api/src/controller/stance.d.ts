@@ -52,6 +52,10 @@ export interface Stance {
  */
 export type Device = "mouse" | "pen" | "finger";
 export declare const BOOLEAN_DEFAULT: Readonly<Record<Device, Readonly<Record<"click" | "box" | "lasso", SelMode>>>>;
+/** 吸附的底（自由建模 `snap: "off"` 那些工具；周账 F-128，user 10-29「shift是反转吸附同意。不过这样的话触屏版的shift clip的话需要是一开始默认开着吸附，然后toggle反转」）：
+ *  鼠标 = 底是关（Blender：naive G 就是屏幕空间，按住 Shift 才吸）；笔 / 手指 = 底跟右上角吸附锁钮（和硬表面同一颗钮，开着就吸），键名芯片锁住 Shift = 反过来。
+ *  规律一句话：吸 = 底 XOR Shift，没有第三种状态；硬表面的底一直是锁钮（stance "infer"），不在此列。读它的只有编辑器给工具的 ctx.snapBase()。 */
+export declare const SNAP_BASE: Readonly<Record<Device, "lock" | "off">>;
 export declare const STANCE: Readonly<Record<ModeId, Partial<Record<Tool, Stance>>>>;
 /** 这把工具在这个工作台的立场（没有 = 守卫测试会红；运行时返回 undefined 让调用方自己兜底）。 */
 export declare function stanceOf(mode: ModeId, tool: Tool): Stance | undefined;

@@ -44,7 +44,7 @@ export type Direction =
 /** 吸附立场（user 10-28「cad的理科生脑子是复杂吸附，自由建模摸形体…是viewport no snapping」）。 */
 export type SnapStance =
   | "infer"   // 硬表面：默认推断（点 / 边 / 面 / 轴 / 格点 / 整格 / 15°），Shift = 临时反过来
-  | "off"     // 自由建模：默认不吸，Shift = 临时吸（点 > 线 > 面）
+  | "off"     // 自由建模：底按设备（SNAP_BASE：鼠标 = 关、笔 / 手指 = 右上角吸附锁钮），Shift = 把底反过来（点 > 线 > 面 / 15° / 0.1 一档）
   | "none";   // 根本没有吸附这回事（草稿 / 步行 / 选择）
 /** 变换中心（user 10-26「不要叫轴心。叫变换中心」；默认按选的是什么：单组件 = 它的原点、散几何 / 多组件 = 包围盒；临时 = pick）。 */
 export type Center = "auto" | "grab" | "mean" | "bbox" | "none";
@@ -94,6 +94,11 @@ export const BOOLEAN_DEFAULT: Readonly<Record<Device, Readonly<Record<"click" | 
   finger: { click: "toggle", box: "add", lasso: "add" },
 };
 
+/** 吸附的底（自由建模 `snap: "off"` 那些工具；周账 F-128，user 10-29「shift是反转吸附同意。不过这样的话触屏版的shift clip的话需要是一开始默认开着吸附，然后toggle反转」）：
+ *  鼠标 = 底是关（Blender：naive G 就是屏幕空间，按住 Shift 才吸）；笔 / 手指 = 底跟右上角吸附锁钮（和硬表面同一颗钮，开着就吸），键名芯片锁住 Shift = 反过来。
+ *  规律一句话：吸 = 底 XOR Shift，没有第三种状态；硬表面的底一直是锁钮（stance "infer"），不在此列。读它的只有编辑器给工具的 ctx.snapBase()。 */
+export const SNAP_BASE: Readonly<Record<Device, "lock" | "off">> = { mouse: "off", pen: "lock", finger: "lock" };
+
 const S = (s: Stance): Stance => s;
 /** 硬表面取量工具的公共立场（SketchUp 语义）。 */
 const HARD_PICK = { grab: "pick" as const, tap: "place" as const, emptyDrag: "none" as const, snap: "infer" as const, shift: "格点 / 整格 / 15° 反转", center: "none" as const, grammar: "steps" as const, after: "none" as const, charge: true, intent: true };
@@ -135,9 +140,9 @@ const SURFACE: Partial<Record<Tool, Stance>> = {
 const FREEFORM_XFORM = { press: "split3" as const, grab: "element" as const, tap: "select" as const, emptyDrag: "box" as const, snap: "off" as const, center: "mean" as const, lock: "axis" as const, grammar: "steps" as const, after: "keepIfHad" as const, charge: false, intent: false };
 const FREEFORM: Partial<Record<Tool, Stance>> = {
   select: S({ ...GEOMETRY.select!, alt: "点边 = 环 / 洞" }),
-  move: S({ ...FREEFORM_XFORM, direction: "viewPlane", shift: "吸附：点 > 边 > 面", ctrl: "—", alt: "—" }),
-  rotate: S({ ...FREEFORM_XFORM, direction: "viewAxis", shift: "15° 一档", ctrl: "—", alt: "—" }),
-  scale: S({ ...FREEFORM_XFORM, direction: "uniform", shift: "0.1 一档", ctrl: "—", alt: "—" }),
+  move: S({ ...FREEFORM_XFORM, direction: "viewPlane", shift: "吸附：反过来（点 > 边 > 面）", ctrl: "—", alt: "—" }),   // 底 = SNAP_BASE：鼠标关、触屏跟锁钮；芯片只印「吸附」
+  rotate: S({ ...FREEFORM_XFORM, direction: "viewAxis", shift: "15° 一档：反过来", ctrl: "—", alt: "—" }),
+  scale: S({ ...FREEFORM_XFORM, direction: "uniform", shift: "0.1 一档：反过来", ctrl: "—", alt: "—" }),
   shrink: S({ ...FREEFORM_XFORM, direction: "normal", shift: "—", ctrl: "—", alt: "（Alt+S / Alt+W = 这把工具）" }),
   pp: S({ ...FREEFORM_XFORM, grab: "face", direction: "normal", shift: "反过来：面 = 屏幕平面自由拖、边 / 点 = 沿各自垂直方向", ctrl: "—", alt: "—" }),   // 面默认沿法向；边 / 点默认屏幕平面（Blender 手感，user 10-28 晚）
   offset: S({ ...FREEFORM_XFORM, grab: "face", direction: "inPlane", shift: "—", ctrl: "（Ctrl+B / Ctrl+Shift+B 键盘 = 倒角 / 倒点）", alt: "—", lock: null }),   // 面 = 插入、边 = 倒角、点 = 倒点

@@ -19,6 +19,8 @@ export declare class MeshTransformTool implements ToolHandler {
     private start;
     private cur;
     private shift;
+    /** 这一刻吸不吸（底 XOR Shift；底 = ctx.snapBase()：鼠标关、触屏跟锁钮）。移动 = 点 > 边 > 面，旋转 = 15° 一档，缩放 = 0.1 一档。 */
+    private snapOn;
     private handleW;
     private snapT;
     /** 沿边滑（移动的一种模式，G G）：每个被挪的点能滑的边（另一头不在被挪的点里）；挑定的那一条（第一次拖出方向时挑，之后不换）。 */

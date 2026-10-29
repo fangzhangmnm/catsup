@@ -105,6 +105,8 @@ export interface ToolCtx {
   cursor(): Pt3 | null;
   /** 当前按着的修饰键（最近一次指针事件带来的）：Shift = 角度对齐 / 追加选区，copy = Ctrl / Alt / ⌘。 */
   mods(): { shift: boolean; copy: boolean };
+  /** 自由建模吸附的底（controller/stance.ts SNAP_BASE，按最近一次工具指针的设备）：鼠标 = false，笔 / 手指 = 右上角吸附锁钮。工具用「底 XOR Shift」，自己不记设备（周账 F-128）。 */
+  snapBase(): boolean;
   /** 上一帧的吸附（轻擦平面时保持用）。 */
   currentSnap(): Snap3 | null;
   grid(): Readonly<GridSettings>;

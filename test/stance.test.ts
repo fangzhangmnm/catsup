@@ -2,7 +2,7 @@
 // ① 每个工作台的每把工具在 controller/stance.ts 里必有一行；② 行里的语法 / 锁和那把工具的手势模块一致（表是事实，模块对不上 = 红）；
 // ③ 三种设备的布尔默认都在；④ src/controller/ 是无头骑士：不许运行时 import 内核 / 网格 / three / DOM（type import 可以）。
 import { describe, it, assert, eq } from "./runner.mjs";
-import { STANCE, BOOLEAN_DEFAULT, stanceOf } from "../src/controller/stance.ts";
+import { STANCE, BOOLEAN_DEFAULT, SNAP_BASE, stanceOf } from "../src/controller/stance.ts";
 import { GeometryMode } from "../src/editor/modes/geometry.ts";
 import { SurfaceMode } from "../src/editor/modes/surface.ts";
 import { FreeformMode } from "../src/editor/modes/freeform.ts";
@@ -53,5 +53,17 @@ describe("立场表：每把工具每个工作台一行，和手势模块一致"
       }
     }
     eq(bad.join("; "), "", "控制器文件夹漏了");
+  });
+});
+
+describe("吸附的底 SNAP_BASE（周账 F-128；user 10-29「触屏版…一开始默认开着吸附，然后toggle反转」）", () => {
+  it("鼠标 = 关（Blender：按住 Shift 才吸）；笔 / 手指 = 跟右上角锁钮（Shift 锁住 = 反过来）；三种设备都有、没有第三种值", () => {
+    eq(Object.keys(SNAP_BASE).sort().join(), "finger,mouse,pen");
+    eq(SNAP_BASE.mouse, "off"); eq(SNAP_BASE.pen, "lock"); eq(SNAP_BASE.finger, "lock");
+    for (const v of Object.values(SNAP_BASE)) assert(v === "lock" || v === "off");
+  });
+  it("自由建模挪 / 转 / 缩的 Shift 说的是「反过来」（底另有表），硬表面的照旧是锁钮反转", () => {
+    for (const t of ["move", "rotate", "scale"] as const) assert(/反过来/.test(stanceOf("freeform", t)!.shift), `${t} 的 Shift 文案`);
+    assert(/反转/.test(stanceOf("geometry", "move")!.shift));
   });
 });

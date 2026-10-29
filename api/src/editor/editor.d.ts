@@ -400,6 +400,8 @@ export declare class Editor {
     private _planeLock;
     private _planeLockN;
     private lastPtr;
+    /** 最近一次真指针的种类（键盘起手不算）：自由建模吸附的底按它查 SNAP_BASE。 */
+    private lastPtrType;
     /** 这次按下以后离按下处最远到过多远（点按容差的量纲；松手时判点 / 拖用）。 */
     private pressPeak;
     private lastMoveEv;
