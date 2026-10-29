@@ -48,7 +48,7 @@ import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
-import { POOL_AXES_PX, Renderer3, overlayLines, type LineStyle, type ViewState } from "./render3.ts";
+import { POOL_AXES_PX, Renderer3, overlayItems, type LineStyle, type ViewState } from "./render3.ts";
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
@@ -3715,7 +3715,7 @@ export class Editor {
       warnEdges: this.inspectHighlights(view),   // 修复面板「检查」：微折软边（DT9）
       hoverEdge: this.hoverEdge !== null ? g(this.hoverEdge) : null,
       hoverFace: this.hoverFace !== null ? g(this.hoverFace) : null,
-      overlay: overlayLines,   // 叠加层线段族（editor/overlay-lines.ts；引擎给量尺）
+      overlay: overlayItems,   // 叠加层（editor/overlay.ts：线 / 点 / 标记 / 文字；引擎给量尺）
       snap: this.snapInfo,
       snapAnchor: this.anchor3,
       revision: this._revision,

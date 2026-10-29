@@ -15,7 +15,76 @@ export interface OverlayLines {
   /** 整组一色（style.vertexColors = false 的那几种）；每帧可变、不进 key。 */
   readonly color?: number;
 }
-export type OverlayItem = OverlayLines;
+/** 一组点（世界坐标）；style 定大小 / 形状 / 往相机拉多少 / 颜色；faceDot 那种每点一色 = colors（**sRGB 浮点**，点的 shader 直接出，不过色彩管理）。 */
+export interface OverlayPoints {
+  readonly kind: "points";
+  readonly id: string;
+  readonly style: PointStyleId;
+  readonly key: string;
+  readonly positions: readonly number[];
+  readonly colors?: readonly number[] | null;
+}
+/** 一个实心标记（球 / 方块 / 锥 / 环 / 方片）：位置 + 缩放 + 颜色 + 朝向（朝向的矩阵数学归后端：upTo = 让 +Y 指向 dir；basis = 按三根轴摆）。每帧可变、不进 key。 */
+export interface OverlayMarker {
+  readonly kind: "marker";
+  readonly id: string;
+  readonly style: MarkerStyleId;
+  readonly at: Vec3;
+  readonly scale: number | Vec3;
+  readonly color: number;
+  readonly orient?: { readonly kind: "upTo"; readonly dir: Vec3 } | { readonly kind: "basis"; readonly x: Vec3; readonly y: Vec3; readonly z: Vec3 };
+}
+/** 一组三角（世界坐标，每 3 个点一个）；key 没变不重建。 */
+export interface OverlayTris {
+  readonly kind: "tris";
+  readonly id: string;
+  readonly style: TrisStyleId;
+  readonly key: string;
+  readonly positions: readonly number[];
+}
+/** 一块文字：挂在 3D 某一点、固定屏幕大小（排版 / 光栅化归后端 label-raster）。 */
+export interface OverlayLabel {
+  readonly kind: "label";
+  readonly id: string;
+  readonly text: string;
+  readonly at: Vec3;
+  readonly style: "scale";
+  readonly anchor?: "below" | "above" | "left" | "right" | "center";
+  readonly gapPx?: number;
+  readonly occlude?: boolean;
+}
+export type OverlayItem = OverlayLines | OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel;
+
+/** 点的样式（= 现状四种 Points 的 shader 参数：CSS px 大小、圆 / 方、往相机拉的系数、颜色 null = 每点一色、不做深度测试、透明度、画序）。 */
+export interface PointStyle { readonly sizePx: number; readonly shape: "round" | "square"; readonly pull: number | null; readonly color: number | null; readonly depthTest: boolean; readonly alpha: number; readonly renderOrder: number }
+export const POINT_STYLES = {
+  selVert: { sizePx: 9, shape: "round", pull: 0.994, color: 0x2b6cb0, depthTest: true, alpha: 1, renderOrder: 4 },      // 选中的点（PALETTE.edgeSelected）
+  vert: { sizePx: 5, shape: "round", pull: 0.996, color: 0x2a2a2a, depthTest: true, alpha: 1, renderOrder: 3 },         // 全部顶点（PALETTE.edge）
+  faceDot: { sizePx: 6, shape: "square", pull: null, color: null, depthTest: false, alpha: 0.9, renderOrder: 5 },       // X 光面点：每点一色、不被挡
+  seam: { sizePx: 7, shape: "round", pull: 0.995, color: 0x8b5cf6, depthTest: true, alpha: 1, renderOrder: 3.5 },      // 镜像中缝上的点（MIRROR_COLOR）
+} as const satisfies Record<string, PointStyle>;
+export type PointStyleId = keyof typeof POINT_STYLES;
+
+/** 标记的样式（= 现状各 Mesh 的几何 + MeshBasicMaterial 参数）。 */
+export interface MarkerStyle { readonly geom: "sphere" | "sphereHalf" | "box" | "cone" | "ring" | "plane"; readonly depthTest: boolean; readonly depthWrite: boolean; readonly transparent: boolean; readonly opacity: number; readonly doubleSide: boolean; readonly renderOrder: number; readonly frustumCulled: boolean }
+const onTopMarker = (geom: MarkerStyle["geom"], renderOrder: number, extra: Partial<MarkerStyle> = {}): MarkerStyle => ({ geom, depthTest: false, depthWrite: false, transparent: false, opacity: 1, doubleSide: false, renderOrder, frustumCulled: true, ...extra });
+export const MARKER_STYLES = {
+  snap: { geom: "sphere", depthTest: true, depthWrite: true, transparent: false, opacity: 1, doubleSide: false, renderOrder: 0, frustumCulled: true },   // 吸附小球（走深度测试）
+  landing: { geom: "ring", depthTest: false, depthWrite: true, transparent: true, opacity: 0.85, doubleSide: true, renderOrder: 9, frustumCulled: true },   // teleport 落点环
+  handle: onTopMarker("box", 10),                                                       // 缩放柄（14 个小方块）
+  xgCube: onTopMarker("box", 12, { frustumCulled: false }),                             // 变换 gizmo：轴上 / 等比 / 中心的块
+  xgCenter: onTopMarker("sphereHalf", 12, { frustumCulled: false }),
+  xgCone: onTopMarker("cone", 12, { frustumCulled: false }),                            // 箭头锥
+  xgPlane: onTopMarker("plane", 12, { transparent: true, opacity: 0.85, doubleSide: true, frustumCulled: false }),   // 平面（双轴）缩放片
+} as const satisfies Record<string, MarkerStyle>;
+export type MarkerStyleId = keyof typeof MARKER_STYLES;
+
+/** 三角组的样式。 */
+export interface TrisStyle { readonly color: number; readonly transparent: boolean; readonly opacity: number; readonly doubleSide: boolean; readonly depthTest: boolean; readonly depthWrite: boolean; readonly renderOrder: number }
+export const TRIS_STYLES = {
+  gizmoQuad: { color: 0x2b6cb0, transparent: true, opacity: 0.12, doubleSide: true, depthTest: false, depthWrite: false, renderOrder: 10 },   // 平面 gizmo 的半透明方块
+} as const satisfies Record<string, TrisStyle>;
+export type TrisStyleId = keyof typeof TRIS_STYLES;
 
 /** 引擎给编辑器的量尺：都按当前视图（XR = HMD 位置 + 角尺寸；桌面 = 相机深度 / 正交半高）。 */
 export interface OverlayCtx {

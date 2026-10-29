@@ -8,5 +8,5 @@ export type { Measurement, CostTable, DegradeStep, BackendCaps } from "./contrac
 export type { PassDecl, FramePlan } from "./graph/frame-graph.ts";
 export { planFrame } from "./graph/frame-graph.ts";
 export type { Backend } from "./backend/backend.ts";
-export type { OverlayItem, OverlayLines, OverlayCtx, LineStyle as OverlayLineStyle, LineStyleId } from "./overlay/index.ts";
-export { LINE_STYLES, hexToLinear } from "./overlay/index.ts";
+export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayLabel, OverlayCtx, LineStyle as OverlayLineStyle, LineStyleId, PointStyle, PointStyleId, MarkerStyle, MarkerStyleId, TrisStyle, TrisStyleId } from "./overlay/index.ts";
+export { LINE_STYLES, POINT_STYLES, MARKER_STYLES, TRIS_STYLES, hexToLinear } from "./overlay/index.ts";

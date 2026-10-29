@@ -49,7 +49,7 @@ const res = await page.evaluate(async () => {
   // ②（镜像面不画在模型上，画在右上角视图 gizmo；rAF 轮询，等一下）
   const gz = () => { const g = document.querySelector(".gizmo-mirror"); return g ? { mode: g.dataset.mode, unpaired: Number(g.dataset.unpaired), stroke: g.querySelector("polygon")?.getAttribute("stroke"), badge: g.querySelector("text")?.textContent ?? null } : null; };
   await sleep(250);
-  out.two = { mode: e.mirrorOf()?.mode, axis: e.mirrorOf()?.axis, noPlaneOnModel: !e.r3.mirrorLines, gizmo: gz(), seam: !!e.r3.seamDots?.visible };
+  out.two = { mode: e.mirrorOf()?.mode, axis: e.mirrorOf()?.axis, noPlaneOnModel: !e.r3.mirrorLines, gizmo: gz(), seam: e.r3.overlayVisible("seam") };
   // ③（本地坐标里中缝在 x = cx；盒子在本地是 cx ± 1）
   const v = at(m(), cx + 1, Y1, Z1), w = at(m(), cx - 1, Y1, Z1), steps0 = e.history.steps();
   out.found = { v, w };

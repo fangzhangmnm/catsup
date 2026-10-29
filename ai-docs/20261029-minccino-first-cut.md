@@ -74,7 +74,13 @@
 - 探针纪律：**不摸 three 对象，问契约 id**——`r3.overlayVisible("lockLines" | "soft" | …)`；probe-lock-line / probe-mesh-marks 改过来了。
 - 验：单测 1165 绿（③′ 棘轮 19 → 18）；基线 11 张 0 像素差；probe lock-line / tape-grid / compass / hover / axis-lock / capsule / mirror / transform / mesh-knife / mesh-marks / erase-red / walk 绿。
 
-## 步 6b 叠加层：点 / 标记 / 文字 / 地面网格（待）
-- 点（vertDots / faceDots / selVertDots / seamDots：各自的 shader 点材质、往相机拉的系数 0.994 / 0.996 / 0.995、renderOrder 3 / 5 / 4 / 3.5）→ `OverlayPoints`；标记（吸附小球、14 个缩放柄、落点环、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片）→ `OverlayMarker`；文字（`world-labels.ts` 位图 + sprite）→ `OverlayLabel`；地面网格 + 三色轴 = 引擎自己的「grid pass」只吃帧 + 格距。
+## 步 6b 叠加层：点 / 标记 / 三角 / 文字（v0.17.7）
+
+- 契约加四种 item：`OverlayPoints`（样式表 `POINT_STYLES`：selVert / vert / faceDot / seam = 现状四种 Points 的 shader 参数——CSS px 大小、圆 / 方、往相机拉的系数 0.994 / 0.996 / 0.995、颜色 null = 每点一色〔faceDot 的 sRGB 浮点〕、画序 4 / 3 / 5 / 3.5）、`OverlayMarker`（`MARKER_STYLES`：snap 球 / landing 环 / handle 方块 / xgCube / xgCenter / xgCone / xgPlane；**朝向的矩阵数学归后端**——编辑器只说「让 +Y 指向 d」或「按这三根轴摆」，后端用 three 的 setFromUnitVectors / makeBasis 算，和以前逐位一样）、`OverlayTris`（gizmoQuad 半透明方块）、`OverlayLabel`（= WorldLabel）。
+- 编辑器 `src/editor/overlay.ts overlayItems(view, ctx)` = 线段族 + 缩放柄 / 顶点小点 / X 光面点 / 中缝点 / 选中点 / 平面 gizmo 方块 / 变换 gizmo 的锥 块 片 / 文字 / 吸附小球 / 落点环。后端 `backend/three/overlay-marks.ts`：点 = 每种样式一份 Points（shader 字符串逐字同以前）；标记 / 三角 = 每个 id 一个 Mesh（首次出现才建）；文字 = Sprite。
+- **文字排版 + 光栅化搬进引擎**：`src/minccino/backend/label-raster.ts`（LABEL_STYLES / rasterizeLabel / anchorCenter；住 backend/ 因为碰 canvas），`editor/world-labels.ts` 只剩 WorldLabel + 单位换算（再导出光栅那几个名字）。
+- render3 1455 → **1183 行**；还在里面的 = 地面网格 + 三色轴（引擎自己的 pass，吃帧 + 格距）、选中高亮（6c）、池 / 边 / X 光（本体）、XR 钩子 / 手腕面板 / 字幕（6½ 收）。
+- 探针：probe-mesh-mirror 改问 `overlayVisible("seam")`；`labelKeys()` 保留（转给后端）。
+- 验：单测 1165；基线 11 张 0 像素差；probe hover / transform / mirror / select-points / xray-facedots / mesh-mirror / units / gridplane / walk / soft-select / scale-ref / capsule / axis-marks 绿。
 ## 步 6c 叠加层：选中高亮（待）
 - `rebuildOverlay`（选中 / 悬停的面同节点同三角后画、贴图面走世界坐标那张、选中 / 刮擦 / 悬停 / 检查的边粗线）读 WorldView / KernelView——改成编辑器算好「哪个槽的哪些三角 + 颜色」交给后端；之后 `ViewState` 整个搬到编辑器侧，③′ 清零，`editor/render3.ts` 转出口收窄。

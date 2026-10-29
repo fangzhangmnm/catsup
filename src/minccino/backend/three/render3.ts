@@ -33,7 +33,7 @@
 
 import { triangulateRings } from "../../../format/triangulate.ts";
 import * as THREE from "three";
-import { type WorldLabel, anchorCenter, rasterizeLabel } from "../../../editor/world-labels.ts";
+import type { WorldLabel } from "../../../editor/world-labels.ts";
 import { LineSegments2 } from "../../../vendor/three/addons/lines/LineSegments2.js";
 import { LineSegmentsGeometry } from "../../../vendor/three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "../../../vendor/three/addons/lines/LineMaterial.js";
@@ -52,7 +52,8 @@ import { cross3, dot3, sub3 } from "../../../kernel/geom.ts";
 import { type TexSide, buildFaceRec } from "../../../editor/pool-mesh.ts";
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
 import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
-import type { OverlayCtx, OverlayLines } from "../../overlay/index.ts";
+import { OverlayMarksDrawer } from "./overlay-marks.ts";
+import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { Backend, BackendCaps } from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, planFrame, type Chunk, type PassDecl, type StreamProvider, type View } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）
 import type { ChunkStyle } from "../../../editor/stream-provider.ts";
@@ -90,44 +91,11 @@ export const PALETTE = {
   axisZ: 0x2b6cb0,
 } as const;
 
-const SNAP_COLORS: Record<string, number> = {
-  endpoint: 0x2e8b57,
-  midpoint: 0x00a5a5,
-  "on-edge": 0xcc3333,
-  origin: 0x8b5cf6,
-  align: 0x8b5cf6,
-  "align-combo": 0x8b5cf6,
-  "edge-align": 0xcc3333,
-  intersection: 0x111111,
-  "cross-line": 0x111111,
-  "axis-x": PALETTE.axisX,
-  "axis-y": PALETTE.axisY,
-  "axis-z": PALETTE.axisZ,
-  "h-stop": 0xd97706,
-  "on-face": 0x2b6cb0,
-  "on-guide": 0x6b7280,
-  "guide-point": 0x6b7280,
-  "guide-cross": 0x111111,
-  "grid-point": 0x9ca3af,
-  increment: 0xd97706,
-  "on-extension": 0x8b5cf6,
-  center: 0x2b6cb0,
-  "pool-origin": 0x111111,
-};
-/** 选中的点：圆点直径（CSS px）。 */
-const SEL_VERT_DOT_PX = 9;
-/** 自由建模里每个顶点画一个小点（user 10-27「自由建模模式应该能看到顶点和选择」）。CSS px。 */
-const VERT_DOT_PX = 5;
-/** X 光面点的边长（CSS px；方点，和圆的顶点小点分开认）。 */
-const FACE_DOT_PX = 6;
 /** DT15 选中的组 / 组件的轴：每根短轴的屏幕长度（CSS px）。 */
 export const POOL_AXES_PX = 22;
 /** 锁着时画的轴线（controller/lock-guide.ts）两头各伸多长（屏幕 px，按线过的那一点的一像素多长换算）：够横穿画面，像 Blender 的无限长线。 */
 export const LOCK_LINE_SPAN_PX = 2400;
-/** 平面 gizmo 的颜色（常态 / 悬停）。 */
-const GIZMO_COLOR = 0x2b6cb0, GIZMO_HOT = 0xd97706;
 
-const TP_OK = 0x2e8b57, TP_BAD = 0xcc3333;
 
 /** 线稿风格：pixel = 原生 GL 线 1 设备像素（默认）；thick = 屏幕像素宽粗线（LineSegments2）。 */
 export type LineStyle = "pixel" | "thick";
@@ -141,9 +109,7 @@ const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 
  */
 export const LINE_WEIGHTS: readonly number[] = [1, 1.5, 2, 3];
 const profileAddFor = (w: number): number => Math.min(w, 5 - w);   // 轮廓 ≈ 两倍粗，总宽不超过 5 设备像素
-const MIRROR_COLOR = 0x8b5cf6;   // 中缝上的点（镜像面本身不画在模型上，2026-10-28；画在右上角视图 gizmo）：和「原点 / 对齐」同一个紫（「这里有一条看不见的规矩」）
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
-const SNAP_MARKER_PX = 5;
 /** 网格：1 m 一格、±50 m（PC/VR 同一份；user 2026-09-07「vr 和 pc 的网格都是 1m，不应跟 branch」；无限/自适应网格 = A12）。 */
 const GRID_STEP = 1, GRID_N = 50;
 /** XR 里「屏幕像素」的定义：指示物角尺寸 = px / XR_PX_PER_DEG 度。桌面 800 px / 50° = 16 px/°；VR 取 32 = 同 px 数只有桌面一半大。 */
@@ -234,7 +200,7 @@ export interface ViewState {
   /** 切割的刀线（上一个落点 → 光标）：永远画在最上面、不被几何挡（user 10-27「线还是需要画的，以及线不要被别的遮挡了。这样用户知道自己没退出刀」）；valid = 这一刀切得出来。 */
   knifeLine?: { a: Pt3; b: Pt3; valid: boolean } | null;
   /** 叠加层线段族（步 6a）：编辑器按这一帧的 ViewState 和引擎给的量尺算线段（editor/overlay-lines.ts）；缺 = 没有。 */
-  overlay?: (view: ViewState, ctx: OverlayCtx) => readonly OverlayLines[];
+  overlay?: (view: ViewState, ctx: OverlayCtx) => readonly OverlayItem[];
 }
 
 /** 地面网格 = 一张 shader 平面（Blender 式；user 2026-10-24「根治，修……z-fight 加一个 z-offset」）：主线每 uStep、细线每 uStep/uSub，像素定宽（fwidth 抗锯齿），
@@ -356,14 +322,9 @@ export class Renderer3 implements Backend {
   private lineWeight = 1;                              // 设备像素；1 = 原生线
   private readonly profileAdd = { value: 1 };          // 轮廓线加粗（设备像素）；edgeMat 的 shader uniform
   private overlayLines!: OverlayLinesDrawer;
-  private snapMarker: any;
-  private landingRing: any;
-  private handleMarkers: any[] = [];
-  private xgSolids: any[] = [];   // 变换 gizmo（2026-10-26）
-  /** 世界里的文字：按 id 管面片（world-labels.ts 出位图；字 / 样式没变不重画）。 */
-  private labelSprites = new Map<string, { sprite: any; key: string; w: number; h: number }>();
-  private faceDots: any; private faceDotKey = "";
-  private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null; private selVertDots: any; private selVertKey = ""; private vertDots: any; private vertDotKey = ""; private seamDots: any; private mirrorKey = ""; private gizmoQuad: any; private gizmoKey = "";
+  private overlayMarks!: OverlayMarksDrawer;
+   // 变换 gizmo（2026-10-26）
+  private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null;
   private faceKey = ""; private edgeKey = ""; private gridKey = "";
   private kernelIds = new WeakMap<object, number>();
   private nextKernelId = 1;
@@ -439,67 +400,8 @@ export class Renderer3 implements Backend {
     this.scene.add(this.edgeLines);
     // 叠加层线段族（步 6a）：材质按 LINE_STYLES 声明顺序建在这里 = 和以前各组线材质的创建顺序一致（three 画家排序平手按材质 id）
     this.overlayLines = new OverlayLinesDrawer(this.scene, (px, o) => this.lineMat(px, o));
-    // 吸附小球（单位球，按屏幕像素缩放；走深度测试）
-    this.snapMarker = new THREE.Mesh(new THREE.SphereGeometry(1, 12, 8), new THREE.MeshBasicMaterial({ color: 0xffffff }));
-    this.snapMarker.visible = false;
-    this.scene.add(this.snapMarker);
-    // teleport 落点环（弧线归叠加层线段族）
-    this.landingRing = new THREE.Mesh(new THREE.RingGeometry(0.22, 0.3, 32), new THREE.MeshBasicMaterial({ color: TP_OK, side: THREE.DoubleSide, depthTest: false, transparent: true, opacity: 0.85 }));
-    this.landingRing.renderOrder = 9; this.landingRing.visible = false;
-    this.scene.add(this.landingRing);
-    // 缩放柄（14 个小方块，按屏幕像素定尺寸）：透视画、永远在最上面（user 2026-10-25「缩放的gizmos如果卡几何里面应该能点中」——看不见就点不中）
-    for (let i = 0; i < 14; i++) {
-      const m = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0x2e8b57, depthTest: false, depthWrite: false }));
-      m.renderOrder = 10; m.visible = false;
-      this.scene.add(m);
-      this.handleMarkers.push(m);
-    }
-    // 选中的点：实心圆点（屏幕像素大小、往相机拉一点不被自己的面吃掉）
-    this.selVertDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: new THREE.Vector3(((PALETTE.edgeSelected >> 16) & 255) / 255, ((PALETTE.edgeSelected >> 8) & 255) / 255, (PALETTE.edgeSelected & 255) / 255) }, uSize: { value: SEL_VERT_DOT_PX } },   // 原样 sRGB 数值（ShaderMaterial 不做色彩空间换算；用 Color 会被转成线性、显得发暗）
-      vertexShader: "uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= 0.994; else mv.xyz *= 0.994; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }",
-      fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
-    }));
-    this.selVertDots.frustumCulled = false; this.selVertDots.visible = false; this.selVertDots.renderOrder = 4;
-    this.scene.add(this.selVertDots);
-    // 全部顶点：小一号的深色点（选中的点画在它上面，renderOrder 更大）。往镜头拉 = 视空间按距离的 0.4%（以前按深度缓冲拉固定 0.0015，远了等于好几米 → 背面的点露出来；user「背面的点在距离比较远的时候露出来了」）
-    this.vertDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: new THREE.Vector3(((PALETTE.edge >> 16) & 255) / 255, ((PALETTE.edge >> 8) & 255) / 255, (PALETTE.edge & 255) / 255) }, uSize: { value: VERT_DOT_PX } },
-      vertexShader: "uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= 0.996; else mv.xyz *= 0.996; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }",
-      fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
-    }));
-    this.vertDots.frustumCulled = false; this.vertDots.visible = false; this.vertDots.renderOrder = 3;
-    this.scene.add(this.vertDots);
-    // X 光面点（FM3）：方点、不做深度测试（被挡住的面也看得见、点得中）；颜色按点给（没选 = 深灰，选中 = 选中色）
-    this.faceDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
-      uniforms: { uSize: { value: FACE_DOT_PX } }, depthTest: false, depthWrite: false, transparent: true,
-      vertexShader: "uniform float uSize; attribute vec3 color; varying vec3 vC; void main(){ vC = color; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); gl_PointSize = uSize; }",
-      fragmentShader: "varying vec3 vC; void main(){ vec2 d = abs(gl_PointCoord - 0.5); if (max(d.x, d.y) > 0.5) discard; gl_FragColor = vec4(vC, 0.9); }",
-    }));
-    this.faceDots.frustumCulled = false; this.faceDots.visible = false; this.faceDots.renderOrder = 5;
-    this.scene.add(this.faceDots);
-    // 镜像面淡框（不被几何挡：知道镜像面在哪）+ 中缝上的点（镜像色的实心点，压在顶点小点上面）
-    this.seamDots = new THREE.Points(new THREE.BufferGeometry(), new THREE.ShaderMaterial({
-      uniforms: { uColor: { value: new THREE.Vector3(((MIRROR_COLOR >> 16) & 255) / 255, ((MIRROR_COLOR >> 8) & 255) / 255, (MIRROR_COLOR & 255) / 255) }, uSize: { value: VERT_DOT_PX } },
-      vertexShader: "uniform float uSize; void main(){ vec4 mv = modelViewMatrix * vec4(position, 1.0); if (projectionMatrix[3][3] > 0.5) mv.z *= 0.995; else mv.xyz *= 0.995; gl_Position = projectionMatrix * mv; gl_PointSize = uSize; }",
-      fragmentShader: "uniform vec3 uColor; void main(){ vec2 d = gl_PointCoord - 0.5; if (dot(d, d) > 0.25) discard; gl_FragColor = vec4(uColor, 1.0); }",
-    }));
-    this.seamDots.frustumCulled = false; this.seamDots.visible = false; this.seamDots.renderOrder = 3.5;
-    this.scene.add(this.seamDots);
-    this.gizmoQuad = new THREE.Mesh(new THREE.BufferGeometry(), new THREE.MeshBasicMaterial({ color: GIZMO_COLOR, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthTest: false, depthWrite: false }));
-    this.gizmoQuad.renderOrder = 10; this.gizmoQuad.frustumCulled = false; this.gizmoQuad.visible = false;
-    this.scene.add(this.gizmoQuad);
-    // 变换 gizmo 的实心小件：三个轴上缩放块 + 等比块（方块）+ 中心点（圆）+ 三个箭头锥；透视画、在线条上面
-    for (let i = 0; i < 8; i++) {   // 0–3 方块（三轴缩放 + 等比）· 4 中心点（圆）· 5–7 箭头锥
-      const m = new THREE.Mesh(i < 4 ? new THREE.BoxGeometry(1, 1, 1) : i === 4 ? new THREE.SphereGeometry(0.5, 16, 10) : new THREE.ConeGeometry(1, 1, 16), new THREE.MeshBasicMaterial({ color: 0x777777, depthTest: false, depthWrite: false }));
-      m.renderOrder = 12; m.visible = false; m.frustumCulled = false;
-      this.scene.add(m); this.xgSolids.push(m);
-    }
-    for (let i = 0; i < 3; i++) {   // 8–10 平面（双轴）缩放块：xy / yz / xz 小方片（2026-10-26）
-      const m = new THREE.Mesh(new THREE.PlaneGeometry(1, 1), new THREE.MeshBasicMaterial({ color: 0x777777, side: THREE.DoubleSide, transparent: true, opacity: 0.85, depthTest: false, depthWrite: false }));
-      m.renderOrder = 12; m.visible = false; m.frustumCulled = false;
-      this.scene.add(m); this.xgSolids.push(m);
-    }
+    // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
+    this.overlayMarks = new OverlayMarksDrawer(this.scene);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -667,38 +569,8 @@ export class Renderer3 implements Backend {
   }
 
   /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
-  /** 世界里的文字：按 id 增删改面片；位图归 world-labels.ts（字 / 样式 / dpr 没变就沿用）；每帧按 worldPerPx 换算成固定屏幕大小。 */
-  private syncLabels(labels: readonly WorldLabel[], cam: OrbitCamera, vp: Viewport): void {
-    const dpr = this.renderer.getPixelRatio?.() || 1, seen = new Set<string>();
-    for (const lb of labels) {
-      seen.add(lb.id);
-      const bm = rasterizeLabel(lb.text, lb.style, dpr);
-      let e = this.labelSprites.get(lb.id);
-      if (!e) {
-        const sprite = new THREE.Sprite(new THREE.SpriteMaterial({ transparent: true, depthWrite: false }));
-        sprite.renderOrder = 3; sprite.frustumCulled = false;
-        this.scene.add(sprite);
-        e = { sprite, key: "", w: 0, h: 0 };
-        this.labelSprites.set(lb.id, e);
-      }
-      if (e.key !== bm.key) {
-        const tex = new THREE.CanvasTexture(bm.canvas);
-        tex.colorSpace = THREE.SRGBColorSpace; tex.generateMipmaps = false; tex.minFilter = THREE.LinearFilter;
-        e.sprite.material.map?.dispose(); e.sprite.material.map = tex; e.sprite.material.needsUpdate = true;
-        e.key = bm.key; e.w = bm.w; e.h = bm.h;
-      }
-      e.sprite.material.depthTest = lb.occlude !== false;
-      const [cx, cy] = anchorCenter(lb.anchor ?? "center", e.w, e.h, lb.gapPx ?? 3);
-      e.sprite.center.set(cx, cy);
-      e.sprite.position.set(lb.at.x, lb.at.y, lb.at.z);
-      const wpp = this.worldPerPx(cam, vp, lb.at);
-      e.sprite.scale.set(e.w * wpp, e.h * wpp, 1);
-      e.sprite.visible = true;
-    }
-    for (const [id, e] of this.labelSprites) if (!seen.has(id)) { e.sprite.material.map?.dispose(); e.sprite.material.dispose(); this.scene.remove(e.sprite); this.labelSprites.delete(id); }
-  }
   /** 调试 / 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
-  labelKeys(): { id: string; key: string }[] { return [...this.labelSprites].map(([id, e]) => ({ id, key: e.key })); }
+  labelKeys(): { id: string; key: string }[] { return this.overlayMarks.labelKeys(); }
   private worldPerPx(cam: OrbitCamera, vp: Viewport, p: Pt3): number {
     const eye = this.xrEye();
     if (eye) return (Math.max(0.2, Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z)) * (Math.PI / 180)) / XR_PX_PER_DEG;
@@ -811,150 +683,13 @@ export class Renderer3 implements Backend {
       this.faceKey = ""; this.edgeKey = "";
     } else throw new Error("render3: bare GeomView without slots is not drawn any more (pass a WorldView); the flat path was removed in v0.17.5");
 
-    // ---- 缩放柄 ----
-    const hs = view.handles ?? [];
-    for (let i = 0; i < this.handleMarkers.length; i++) {
-      const m = this.handleMarkers[i], h = hs[i];
-      if (!h) { m.visible = false; continue; }
-      m.visible = true;
-      m.position.set(h.p.x, h.p.y, h.p.z);
-      m.scale.setScalar((h.active ? 9 : 6) * this.worldPerPx(cam, vp, h.p));
-      m.material.color.setHex(h.active ? 0xd97706 : 0x2e8b57);
-    }
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」「sub incremental就是sub刻度的」）：吸附的 1/5、1/10 只管吸，像尺子上的小刻度，不画成网格线
     const gfr = view.grid?.frame ?? view.frame ?? WORLD_FRAME, gstep = view.grid?.step ?? 1, gsub = 1;
     const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
 
-    // ---- 全部顶点（自由建模）----
-    const vd = view.vertDots;
-    if (vd && vd.pts.length) {
-      if (vd.key !== this.vertDotKey) {
-        this.vertDotKey = vd.key;
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.Float32BufferAttribute(vd.pts.flatMap((q) => [q.x, q.y, q.z]), 3));
-        this.vertDots.geometry.dispose(); this.vertDots.geometry = g;
-      }
-      this.vertDots.material.uniforms.uSize.value = VERT_DOT_PX * this.dpr;
-      this.vertDots.visible = true;
-    } else { this.vertDots.visible = false; this.vertDotKey = ""; }
-
-    // ---- X 光面点 ----
-    const fd = view.faceDots;
-    if (fd && fd.pts.length) {
-      if (fd.key !== this.faceDotKey) {
-        this.faceDotKey = fd.key;
-        const g = new THREE.BufferGeometry(), col: number[] = [];
-        const on = [((PALETTE.faceSelected >> 16) & 255) / 255 * 0.6, ((PALETTE.faceSelected >> 8) & 255) / 255 * 0.6, (PALETTE.faceSelected & 255) / 255 * 0.85], off = [0.33, 0.33, 0.33];
-        for (const s of fd.sel) col.push(...(s ? on : off));
-        g.setAttribute("position", new THREE.Float32BufferAttribute(fd.pts.flatMap((q) => [q.x, q.y, q.z]), 3));
-        g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3));
-        this.faceDots.geometry.dispose(); this.faceDots.geometry = g;
-      }
-      this.faceDots.material.uniforms.uSize.value = FACE_DOT_PX * this.dpr;
-      this.faceDots.visible = true;
-    } else { this.faceDots.visible = false; this.faceDotKey = ""; }
-
-    // ---- 镜像（自由建模）----
-    const mi = view.mirror;
-    if (mi) {
-      if (mi.key !== this.mirrorKey) {
-        this.mirrorKey = mi.key;
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.Float32BufferAttribute(mi.seam.flatMap((q) => [q.x, q.y, q.z]), 3));
-        this.seamDots.geometry.dispose(); this.seamDots.geometry = g;
-      }
-      this.seamDots.material.uniforms.uSize.value = (VERT_DOT_PX + 2) * this.dpr;
-      this.seamDots.visible = mi.seam.length > 0;
-    } else { this.seamDots.visible = false; this.mirrorKey = ""; }
-
-    // ---- 选中的点 ----
-    const sv = view.selVerts;
-    if (sv && sv.length) {
-      const k2 = sv.map((p) => `${p.x},${p.y},${p.z}`).join("|");
-      if (k2 !== this.selVertKey) {
-        this.selVertKey = k2;
-        const g = new THREE.BufferGeometry();
-        g.setAttribute("position", new THREE.Float32BufferAttribute(sv.flatMap((p) => [p.x, p.y, p.z]), 3));
-        this.selVertDots.geometry.dispose(); this.selVertDots.geometry = g;
-      }
-      this.selVertDots.material.uniforms.uSize.value = SEL_VERT_DOT_PX * this.dpr;
-      this.selVertDots.visible = true;
-    } else { this.selVertDots.visible = false; this.selVertKey = ""; }
-
-    // ---- 平面 gizmo（镜像面）的半透明方块（线归叠加层线段族）----
-    const pg = view.planeGizmo;
-    if (pg) {
-      const k = `${pg.origin.x},${pg.origin.y},${pg.origin.z}/${pg.normal.x},${pg.normal.y},${pg.normal.z}/${pg.size.toExponential(3)}/${pg.hot ?? ""}`;
-      if (k !== this.gizmoKey) {
-        this.gizmoKey = k;
-        const o = pg.origin, S = pg.size, P = (a: number, b: number): Pt3 => ({ x: o.x + pg.u.x * a + pg.v.x * b, y: o.y + pg.u.y * a + pg.v.y * b, z: o.z + pg.u.z * a + pg.v.z * b });
-        const cs = [P(-S, -S), P(S, -S), P(S, S), P(-S, S)];
-        const qg = new THREE.BufferGeometry();
-        qg.setAttribute("position", new THREE.Float32BufferAttribute([cs[0], cs[1], cs[2], cs[0], cs[2], cs[3]].flatMap((p) => [p.x, p.y, p.z]), 3));
-        const oldQ = this.gizmoQuad.geometry; this.gizmoQuad.geometry = qg; oldQ.dispose();
-      }
-      this.gizmoQuad.visible = true;
-    } else { this.gizmoQuad.visible = false; this.gizmoKey = ""; }
-
-    // ---- 变换 gizmo 的实心小件（箭杆 / 环归叠加层线段族）----
-    const xg = view.xformGizmo;
-    if (xg) {
-      // 缩放块（轴上的 = 沿那根轴、右上方的 = 等比）+ 中心点（= 移动）：实心小件（user 2026-10-26「变换的resize handle为什么是线框方块，好难看哈哈」），方块顺着 gizmo 三轴摆
-      const [sx, sy, sz, su, mc, cx, cy, cz, pxy, pyz, pxz] = this.xgSolids;
-      {   // 箭头锥：尖在 arrow，长 = 箭头段的 32%，粗 = 长的 0.36
-        const hl = (xg.arrow - xg.start) * 0.32, up = new THREE.Vector3(0, 1, 0);
-        (["x", "y", "z"] as const).forEach((ax, i) => {
-          const d = xg.axes[ax], m = [cx, cy, cz][i], mid = xg.arrow - hl / 2;
-          m.visible = true; m.position.set(xg.origin.x + d.x * mid, xg.origin.y + d.y * mid, xg.origin.z + d.z * mid);
-          m.quaternion.setFromUnitVectors(up, new THREE.Vector3(d.x, d.y, d.z).normalize());
-          m.scale.set(hl * 0.36, hl, hl * 0.36);
-          m.material.color.setHex(xg.hot === `m${ax}` ? GIZMO_HOT : ({ x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const)[ax]);
-        });
-      }
-      if (xg.cube !== undefined && xg.cubeHalf !== undefined) {
-        const basis = new THREE.Matrix4().makeBasis(new THREE.Vector3(xg.axes.x.x, xg.axes.x.y, xg.axes.x.z), new THREE.Vector3(xg.axes.y.x, xg.axes.y.y, xg.axes.y.z), new THREE.Vector3(xg.axes.z.x, xg.axes.z.y, xg.axes.z.z));
-        const place = (m: any, c: Pt3, size: number, hex: number): void => { m.visible = true; m.position.set(c.x, c.y, c.z); m.quaternion.setFromRotationMatrix(basis); m.scale.setScalar(size); m.material.color.setHex(hex); };
-        const hexOf2 = { x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const;
-        (["x", "y", "z"] as const).forEach((ax, i) => { const d = xg.axes[ax]; place([sx, sy, sz][i], { x: xg.origin.x + d.x * xg.cube!, y: xg.origin.y + d.y * xg.cube!, z: xg.origin.z + d.z * xg.cube! }, xg.cubeHalf! * 2, xg.hot === `s${ax}` ? GIZMO_HOT : hexOf2[ax]); });
-        if (xg.uniform) place(su, xg.uniform, xg.cubeHalf * 2.4, xg.hot === "su" ? GIZMO_HOT : 0x777777); else su.visible = false;
-        place(mc, xg.origin, xg.cubeHalf * 2.2, xg.hot === "mc" ? GIZMO_HOT : 0x333333);
-      } else for (const m of [sx, sy, sz, su, mc]) m.visible = false;
-      if (xg.plane !== undefined && xg.planeHalf !== undefined) {   // 平面块：方片铺在两根轴张成的面里，颜色 = 垂直于它的那根轴（Blender 同款）
-        const V = (p: Pt3): any => new THREE.Vector3(p.x, p.y, p.z);
-        ([["pxy", "x", "y", "z"], ["pyz", "y", "z", "x"], ["pxz", "x", "z", "y"]] as const).forEach(([h, a, b, n], i) => {
-          const m = [pxy, pyz, pxz][i], A = xg.axes[a], B = xg.axes[b];
-          m.visible = true;
-          m.position.set(xg.origin.x + (A.x + B.x) * xg.plane!, xg.origin.y + (A.y + B.y) * xg.plane!, xg.origin.z + (A.z + B.z) * xg.plane!);
-          m.quaternion.setFromRotationMatrix(new THREE.Matrix4().makeBasis(V(A), V(B), V(A).cross(V(B))));
-          m.scale.set(xg.planeHalf! * 2, xg.planeHalf! * 2, 1);
-          m.material.color.setHex(xg.hot === h ? GIZMO_HOT : ({ x: PALETTE.axisX, y: PALETTE.axisY, z: PALETTE.axisZ } as const)[n]);
-        });
-      } else for (const m of [pxy, pyz, pxz]) m.visible = false;
-    } else for (const m of this.xgSolids) m.visible = false;
-
-    this.syncLabels(view.labels ?? [], cam, vp);
-
-    // ---- 吸附指示的小球（提示线归叠加层线段族）----
-    const sn = view.snap;
-    if (sn?.kind) {
-      const m = this.snapMarker;
-      m.visible = true;
-      m.position.set(sn.p.x, sn.p.y, sn.p.z);
-      m.scale.setScalar(SNAP_MARKER_PX * this.worldPerPx(cam, vp, sn.p));
-      m.material.color.setHex(SNAP_COLORS[sn.kind] ?? 0x2b6cb0);
-    } else this.snapMarker.visible = false;
-
-    // ---- teleport 落点环（弧线归叠加层线段族）----
-    const tp = view.teleport;
-    if (tp && tp.points.length >= 2 && tp.landing) {
-      this.landingRing.visible = true;
-      this.landingRing.position.set(tp.landing.x, tp.landing.y, tp.landing.z + 0.01);
-      this.landingRing.material.color.setHex(tp.valid ? TP_OK : TP_BAD);
-    } else this.landingRing.visible = false;
-
-    // ---- 叠加层线段族（步 6a）：内容归编辑器（view.overlay），量尺归这里（一像素多长 / 视野多远 / 相机三轴；XR 和桌面在 worldPerPx 里分）----
+    // ---- 叠加层（步 6a 线段族 / 6b 点 标记 三角 文字）：内容归编辑器（view.overlay），量尺归这里（一像素多长 / 视野多远 / 相机三轴；XR 和桌面在 worldPerPx 里分）----
     const octx: OverlayCtx = {
       worldPerPx: (p) => this.worldPerPx(cam, vp, p),
       infLine: (p, dir) => this.infLine(p, dir, cam.target),
@@ -964,7 +699,9 @@ export class Renderer3 implements Backend {
       up: { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] },
       lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1,
     };
-    this.overlayLines.sync(view.overlay ? view.overlay(view, octx) : []);
+    const items = view.overlay ? view.overlay(view, octx) : [];
+    this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"));
+    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
 
     this.renderer.render(this.scene, cam3);
   }
@@ -1049,7 +786,7 @@ export class Renderer3 implements Backend {
   getLineWeight(): number { return this.lineWeight; }
 
   /** 探针：叠加层线段族里某个 id（lockLines / soft / guides / …）这一帧画着没有。 */
-  overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id); }
+  overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id); }
   /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
   setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
   /** 样式那半给提供者（过渡期：面 / 边颜色和粗线 / 像素线还烤在顶点色里；材质模块 + 叠加层落地后退役）。 */
