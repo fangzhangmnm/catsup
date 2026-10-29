@@ -55,7 +55,7 @@ import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { Backend, BackendCaps } from "../../index.ts";
-import { DEFAULT_VIEW_BUDGET, planFrame, type Chunk, type PassDecl, type StreamProvider, type View } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）
+import { DEFAULT_VIEW_BUDGET, planFrame, checkBudget, type BudgetReport, type Chunk, type Measurement, type PassDecl, type StreamProvider, type View } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）
 import type { ChunkStyle } from "../../../editor/stream-provider.ts";
 import type { RigPose } from "../../../player/player.ts";
 import type { Ray } from "../../../player/world-query.ts";
@@ -304,6 +304,9 @@ export class Renderer3 implements Backend {
   private provider: StreamProvider | null = null;
   /** 这一帧的视图对象（画到哪 + 分辨率 + 预算 + 画质档；Minccino 契约 View）和 frame graph 的规划（哪些 pass 跑）。探针 / 血槽位读。 */
   lastView: View | null = null;
+  /** 血槽位（步 7）：上一帧实测（毫秒 / 显存估算 / draw call / 三角）和预算核对（超了哪几项 + 一句披露；披露的 UI 归 Opus / 上线后）。 */
+  lastMeasurement: Measurement | null = null;
+  lastBudget: BudgetReport | null = null;
   lastPlan: { order: readonly string[]; pruned: readonly string[] } | null = null;
   /** 这一帧 X 光那条 pass 在不在规划里（X 光的节点可见性只看它，不直接看 xray 开关）。 */
   private xrayPass = false;
@@ -703,7 +706,17 @@ export class Renderer3 implements Backend {
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"));
     this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
 
+    const t0 = performance.now();
     this.renderer.render(this.scene, cam3);
+    // ---- 血槽位（步 7）：三个数 + 预算核对。显存 = 块的显卡副本 + 贴图的估算（three 不报字节数）----
+    const info = this.renderer.info?.render;
+    let bytes = 0;
+    for (const g of this.chunkGpus.values()) for (const a of Object.values("attrs" in g ? g.attrs : g.bufs) as any[]) bytes += a.array?.byteLength ?? 0;
+    for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
+    const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
+    this.lastMeasurement = m; this.lastBudget = this.lastView ? checkBudget(m, this.lastView.budget) : null;
+    perf.last["render.ms"] = m.frameMs; perf.last["render.drawCalls"] = m.drawCalls; perf.last["render.triangles"] = m.triangles ?? 0; perf.last["render.vramMb"] = m.vramMb;
+    if (this.lastBudget?.over.length) perf.count["budget.over"] = (perf.count["budget.over"] ?? 0) + 1;
   }
 
   /**

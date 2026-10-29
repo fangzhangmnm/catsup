@@ -82,5 +82,33 @@
 - render3 1455 → **1183 行**；还在里面的 = 地面网格 + 三色轴（引擎自己的 pass，吃帧 + 格距）、选中高亮（6c）、池 / 边 / X 光（本体）、XR 钩子 / 手腕面板 / 字幕（6½ 收）。
 - 探针：probe-mesh-mirror 改问 `overlayVisible("seam")`；`labelKeys()` 保留（转给后端）。
 - 验：单测 1165；基线 11 张 0 像素差；probe hover / transform / mirror / select-points / xray-facedots / mesh-mirror / units / gridplane / walk / soft-select / scale-ref / capsule / axis-marks 绿。
-## 步 6c 叠加层：选中高亮（待）
+## 步 6½ VR 照跑（v0.17.8）
+
+- 旧假 XR 探针从 `.deprecated/` 复活成 `test/probes/probe-xr-fake.mjs`：路径少一层改回来；那 5 条红全是探针自己过时的 op 形状（`pushpull` 早改成「池地址 + 面环多边形」）——改完 **18 / 18 ✓**（会话开始 / rig 代数 / 摇杆 / snap turn / 扳机画线 / 手腕面板 / 长按选膜 + 环边 / 长按连通体 / 充能弧 / 瞬移 / 退出恢复）。VR 接线没退过。
+- 现状如实说：XR 经 three 的 WebXRManager / ArrayCamera 画两只眼，**一次提取**（提供者 `pull` 每帧一次，和桌面一样）；`View` 对象只有一个（`target.kind = "xr-eye"`），「两只眼 = 两个 View」的形状等后端换掉（初中）再真分开。XR 会话钩子 / rig / 控制器 / 手腕面板 / 字幕都在后端 render3 里，接口 = `Backend.xr` + `setLoop / setRig / setPointerVisual / attachWristPanel / attachSubtitle`。
+
+## 步 7 代价表骨架 + 血槽位（v0.17.8）
+
+- `contract/cost.ts`（步 2 的形状）+ **`src/minccino/budget.ts checkBudget(m, budget)`**：超了哪几项 + 一句人话披露（「超预算：每帧毫秒 21.9 ms / 16.7 ms」）+ 各项占比。
+- render3 每帧实测：`frameMs`（`renderer.render` 前后 `performance.now`）、`drawCalls` / `triangles`（three `renderer.info.render`）、`vramMb`（**估算**：块的显卡副本字节 + 贴图 w×h×4；three 不报字节）、`passes`（规划里跑了几条）→ `r3.lastMeasurement / lastBudget`，也写进 `perf.last["render.ms" | "render.drawCalls" | "render.triangles" | "render.vramMb"]`、超了 `perf.count["budget.over"]++`。**披露的 UI（血槽位的样子）归 Opus / 上线后**（T13：这是 UX，不是引擎）。
+- **电量感知**：`src/minccino/device.ts` = 量设备的唯一地方（守卫 ③ 对它放行 navigator、④ 盯别处不许判设备）：`initPowerSensing / powerState()`（电量 / 充电 / `saver` = 感知开 ∧ 没充电 ∧ ≤ 20%；拿不到电量 = false 不猜）、`setBatteryAware`（默认开，设置里关 = 以后接）、`onPowerChange`。谁消费（后台预算 / 降档梯子）= Opus 第 9 步；小学只读状态。
+- 预算数字 `DEFAULT_VIEW_BUDGET = 16.7 ms / 256 MB / 200 draw call` 是**先写的**，校准 = 初中。
+
+## 步 8 材质模块接口（v0.17.8）
+
+`src/minccino/material/index.ts`——只钉接口，内容归 Opus（task #91 第 4 步）/ 绘制纪元：
+- ① 语义通道注册表（开放集，`ChannelDef { id, form: scalar | map | both }`；小学只登记 `color`——「颜色 + 哪两个做旧」T8 还开着）② 工艺标签 `CraftTag`（shadeless / specular / bronze / papercut / plastic / 开放）③ **翻译按工艺登记、一个工艺一份**（`registerTranslation(craft, fn)`；`translate(m)` 按标签顺序套、没写的槽用默认、**不认识的工艺报在 `unknown` 里不静默**、翻译写了没登记的槽 = 抛）④ **开放槽表** `BASE_SLOTS`：PBR 组（baseColor / roughness / metallic / emissive / height / mask / unlit）+ **不是 PBR 子集的那几组**（T36）：toneBand（GB 四色）/ inkColor inkWidth innerInk（Casio 线稿）/ paperColor paperLayer paperThickness（剪纸色纸）/ patinaColor cavity（铸铜）/ outlineColor toneSteps（像素描边）/ edgeGlowColor edgeGlowStrength（CRT Tron）；每槽带默认。
+- 管线 `declareReads({ pipeline, reads })`：读了没登记的槽 = 抛。小学四个点名风格 + 白模的 reads 写成数据 `GRADE_SCHOOL_READS`（Opus 填预设时照它要东西）。`createMaterialRegistry()` = 基础槽 + 四管线 reads + 两个最薄的翻译（base：颜色 → baseColor；shadeless → unlit）。
+- 单测 `test/minccino-material.test.ts`：四管线 reads 全登记过且槽组齐；重复 / 未登记 = 抛；翻译顺序 / 默认 / unknown。
+
+## 第一刀的验收（v0.17.8）
+
+| 验收条 | 状态 |
+|---|---|
+| 既有探针全绿 | 跑过的全绿（pool-mesh / twin / nested / preview-refresh / hide / isolate / xray ×3 / erase-red / lift / lock-line / walk / tape-grid / compass / hover / axis-lock / capsule / mirror / transform / mesh-knife / mesh-marks / select-points / xray-facedots / mesh-mirror / units / gridplane / soft-select / scale-ref / axis-marks / **xr-fake 18/18**）；`probe-context` 红是 v0.16.38 的旧账（和渲染无关，给 Opus） |
+| 截图基线逐张过 | 11 张，每一步 **0 像素差** |
+| 三条新守卫绿 | 守卫 ①②③④⑤⑥ + ③′ 棘轮 + 材质 / 预算单测，`npm test` 1169 绿 |
+| render3.ts 被 `src/minccino/` 吃掉、editor.ts 只剩接缝 | render3 **本体住 `src/minccino/backend/three/render3.ts`**（1930 → 1183 行），`src/editor/render3.ts` 只是转出口；editor.ts 的渲染调用 = `provider.setWorld` + `r3.render` + 叠加层函数引用。**还没吃干净的 = 6c**：选中高亮（`rebuildOverlay` 读 WorldView）、`ViewState` 定义本身（含编辑器类型）、`faceTriangles`（three 的 earcut 给 OBJ 导出借用）——守卫 ③′ 棘轮 18 盯着，做完清零 |
+
+## 步 6c 叠加层：选中高亮（待，新 task）
 - `rebuildOverlay`（选中 / 悬停的面同节点同三角后画、贴图面走世界坐标那张、选中 / 刮擦 / 悬停 / 检查的边粗线）读 WorldView / KernelView——改成编辑器算好「哪个槽的哪些三角 + 颜色」交给后端；之后 `ViewState` 整个搬到编辑器侧，③′ 清零，`editor/render3.ts` 转出口收窄。

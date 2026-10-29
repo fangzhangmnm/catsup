@@ -65,7 +65,7 @@ describe("minccino 守卫 ③ 引擎不认识编辑器、零 DOM", () => {
     }
   });
   it("backend/ 之外零 DOM", () => {
-    const bad = engine.filter((f) => !f.rel.startsWith("minccino/backend/") && /\b(document|window|navigator)\./.test(code(f.text))).map((f) => f.rel);
+    const bad = engine.filter((f) => !f.rel.startsWith("minccino/backend/") && f.rel !== "minccino/device.ts" && /\b(document|window|navigator)\./.test(code(f.text))).map((f) => f.rel);   // device.ts = 量设备（电量）的唯一地方
     assert(bad.length === 0, `引擎碰了 DOM：${bad.join(", ")}`);
   });
 });

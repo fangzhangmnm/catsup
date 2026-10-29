@@ -1,4 +1,5 @@
-// 【退役 2026-10-25】user「vr sunset」：VR 已下线，本探针不再维护、不再跑（长按选择那几项在 v0.13.33 前就红了，不修）。Claude Opus 5.5 移入 .deprecated/。
+// 【复活 2026-10-29，Tron 第一刀 6½】user 10-29「vr小学时代就要能跑能接得住。我们一开始就做vr native」：VR 接线的逻辑基线，不许退（Claude Fable 5.1）。
+// （2026-10-25 曾退役进 .deprecated/：Claude Opus 5.5「vr sunset」。）
 // test/probes/probe-xr-fake.mjs —— 假 XR 会话探针：不戴头显验证 VR 接线（出生 reset / 手柄→player / rig 代数 / 扳机画线 / 手腕面板点按 /
 // 选择阶段长按 / 摇杆瞬移）。把 renderer3.xr 门面的 session/frame/refSpace 换成 mock，手动触发 onStart；three 的 WebXRManager 不参与
 // （isPresenting=false → 仍用桌面相机渲染，所以画面不是 VR 视角，但全部逻辑是）。
@@ -191,7 +192,7 @@ await page.evaluate(() => {
   const e = globalThis.__catsup.editor;
   const P = (x, y, z = 0) => ({ x, y, z });
   e.addSegments([[P(-1, 2), P(1, 2)], [P(1, 2), P(1, 4)], [P(1, 4), P(-1, 4)], [P(-1, 4), P(-1, 2)]], "box");
-  e.commitOp({ op: "pushpull", face: e.kernel.faces()[0].id, dist: 1 });
+  e.commitOp({ op: "pushpull", at: e.activePool(), face: e.kernel.faceRings3(e.kernel.faces()[0].id).outer, dist: 1 });   // 2026-10-29：op 形状早改成「池地址 + 面环多边形」了
   e.setTool("select");
   globalThis.__catsup.locomotion.sim.reset({ x: 0, y: 0, z: 0 }, 0, { x: 0, y: 0, z: 1.6 });
   globalThis.__fake.right = { position: { x: 0.2, y: 1.2, z: -0.1 }, orientation: { x: 0, y: 0, z: 0, w: 1 } };

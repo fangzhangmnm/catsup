@@ -18,7 +18,8 @@
 | `contract/` | 流（块 / 放置 / 视锥带 / 预算）、视图（相机 / 画到哪 / 预算 / 画质档）、代价表与血槽位的形状、几何同形类型 | 步 2 钉形状，步 3 / 7 用上 |
 | `graph/` | frame graph：pass 声明 + 规划（拓扑排序、没人要的产物不产） | 步 2 规划器，步 4 声明现状的 pass |
 | `backend/` | 后端接口；`backend/three/` = three 实现（`render3.ts` 步 5 整个搬进来：几何上传、材质、线、渲染目标、XR 会话钩子；`profile-line-shader.ts` 轮廓线自己的 GLSL 源，守卫 ⑥ 逐字比对 vendored 源） | 步 5 done；它还 import 内容层 19 条 = 守卫 ③′ 的棘轮，步 6 清零 |
-| `overlay/` | 叠加层契约（编辑器画的第五样东西：选中 / 悬停 / 吸附 / 锁轴线 / 面点 / 尺规 / gizmo） | 步 6 |
-| `material/` | 语义通道注册表 / 工艺标签 / 翻译签名 / 开放槽表 / 管线 `reads` 声明（T36） | 步 8，只钉接口 |
+| `overlay/` | 叠加层契约：线段族 / 点 / 标记 / 三角 / 文字 + OverlayCtx 量尺 + 样式表（内容归编辑器 `editor/overlay.ts`，画归 `backend/three/overlay-*.ts`） | 6a / 6b done；6c 选中高亮待 |
+| `material/` | 语义通道注册表 / 工艺标签 / 翻译按工艺一份 / 开放槽表 `BASE_SLOTS` / 管线 `reads` 守卫 / 小学四风格 reads（T36） | 步 8 done（只钉接口，内容归 Opus） |
+| `budget.ts` / `device.ts` | 预算核对 + 人话披露；量设备的唯一地方（电量感知默认开、跟设备、披露不静默） | 步 7 done |
 
-守卫是棘轮：`src/editor/render3.ts` 还在 import three 是**登记在册**的旧漏点，步 5 搬完就从名单上划掉；名单只准变短。
+守卫是棘轮：three 的旧漏点名单已清零（步 5）；现在的棘轮 = ③′「`backend/three/render3.ts` 还 import 内容层 18 条」，6c（选中高亮 + ViewState 搬编辑器侧）做完清零。

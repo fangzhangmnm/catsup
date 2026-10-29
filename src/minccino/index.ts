@@ -10,3 +10,6 @@ export { planFrame } from "./graph/frame-graph.ts";
 export type { Backend } from "./backend/backend.ts";
 export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayLabel, OverlayCtx, LineStyle as OverlayLineStyle, LineStyleId, PointStyle, PointStyleId, MarkerStyle, MarkerStyleId, TrisStyle, TrisStyleId } from "./overlay/index.ts";
 export { LINE_STYLES, POINT_STYLES, MARKER_STYLES, TRIS_STYLES, hexToLinear } from "./overlay/index.ts";
+export { checkBudget, type BudgetReport, type BudgetAxis } from "./budget.ts";
+export { initPowerSensing, powerState, onPowerChange, setBatteryAware, type PowerState } from "./device.ts";
+export { MaterialRegistry, createMaterialRegistry, BASE_SLOTS, GRADE_SCHOOL_READS, type SemanticMaterial, type ChannelDef, type ChannelValue, type CraftTag, type SlotDef, type SlotValue, type SlotValues, type Translation, type PipelineReads } from "./material/index.ts";
