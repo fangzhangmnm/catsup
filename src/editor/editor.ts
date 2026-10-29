@@ -566,8 +566,7 @@ export class Editor {
     this.syncModeToKind();
   }
   get sceneRef(): Scene { return this.scene; }
-  /** 全场景世界坐标只读几何（OBJ 导出 / 统计）。 */
-  worldGeom(): WorldView { return this.worldView(); }
+  worldGeom(): WorldView { return this.worldView(); }   // 全场景世界坐标只读几何（OBJ 导出 / 统计）
   /** 「导出模型 · 选中的物体」（导出设计稿 §4）：选中的组件实例（这一层里的；世界变换 = 这一层的变换 ∘ 实例的变换）。没选组件 = 空。 */
   exportPicks(): { def: number; xform: Xform; name: string }[] {
     const s = this.scene, ctxDef = s.defOfContext(this.ctx), X = this.ctxXform(), out: { def: number; xform: Xform; name: string }[] = [];
