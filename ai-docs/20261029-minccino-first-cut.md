@@ -155,3 +155,9 @@
 - 看得见的变化：没有。
 - 怎么验：`npm test`；探针 style / xr-fake / selecting / walk / context 绿；基线 24 张 0 差。
 - 基线：没动。
+
+### 刀 g（v0.17.24）：引擎词汇清零 + 守卫
+- 做了什么：`Placement.active` → `tier: 0 | 1`（深度优先级档：1 = 共面时赢；引擎只认识「谁赢」这个数，不认识「活动池」）；render3 里 `XRAY_OPACITY → HIDDEN_OPACITY`、`DEPTH.guide → DEPTH.grid`（删没人用的 `faceOverlay`）。**守卫 `test/minccino-vocabulary.test.ts`**：`src/minccino/` 的代码（注释 / 字符串剥掉后）里不出现 gizmo / protractor / tape / knife / lock / xray / charged / seam / handle / activePool / editor / workbench / tool / selection / hover / guide 这些词当标识符（材质槽名 faceSelected / faceHover / edgeHidden 是风格材质表的槽位，不在此列）。到此引擎目录的代码里一个编辑器的词都没有；pass id `xray` 刀 d 已退役。
+- 看得见的变化：没有。
+- 怎么验：`npm test` 1177 绿（新守卫当场 0 命中）；基线 24 张 0 差；探针 style / selecting / mesh-workbench / xray 绿。
+- 基线：没动。

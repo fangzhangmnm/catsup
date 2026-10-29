@@ -54,7 +54,7 @@ import { EnvSky } from "./env-sky.ts";
 import { PbrMaterials } from "./pbr-shader.ts";
 
 /** X 光下被挡住的边画多淡（不透明度，0–1）。 */
-const XRAY_OPACITY = 0.35;
+const HIDDEN_OPACITY = 0.35;
 const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 刮擦 / 悬停边的基准；0.12.3 起由 lineWeight 覆盖）
 /**
  * 线稿粗细（0.12.3；user 2026-10-24「ipad上面细线稿是不舒服。但是粗线稿又太粗了，有1.5这种选项吗」「sketchup里面粗细线是有区分的啊, dangling edge和轮廓是粗线」）：
@@ -97,7 +97,7 @@ const GRID_VERT = /* glsl */`
  *   面（别的池 9 → 活动池 6 → 覆盖层 5，factor +1）  <  栅格 / 三色轴（units +4、深度测试严格小于）  <  边（原生细线真实深度、粗线 −1/−2 前拉）。
  * 每一档至少差 1 个 unit：原生细线严格在轴前（10-25 实测：同深度时细线和轴按采样点各赢一半 → 暗红线）；轴也不比边粗（syncLineScale）。
  */
-const DEPTH = { face: 6, faceOther: 9, faceOverlay: 5, guide: 4 } as const;   // guide = 栅格 / 三色轴：比原生细线（0）后 4 档（细线与粗线插件的深度插值有噪声）、比覆盖层面（5）前 1 档
+const DEPTH = { face: 6, faceOther: 9, grid: 4 } as const;   // guide = 栅格 / 三色轴：比原生细线（0）后 4 档（细线与粗线插件的深度插值有噪声）、比覆盖层面（5）前 1 档
 const GRID_FRAG = /* glsl */`
   uniform float uStep, uSub, uPx;
   uniform vec3 uMajor, uMinor;
@@ -310,9 +310,9 @@ export class Renderer3 implements RenderProvider {
     this.edgeDimMat.vertexShader = PROFILE_LINE_VERTEX; this.edgeDimMat.uniforms.profileAdd = this.profileAdd; this.edgeDimMat.color.setHex(PALETTE.edgeDim);
     this.pixelDimMat = new THREE.LineBasicMaterial({ color: PALETTE.edgeDim });
     // X 光（DT17，2026-10-26）：池的边再画一遍（共用几何、不另占内存）+ 覆盖层不做深度测试；半透明渲染那半留 Tron 纪元
-    this.hiddenPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: XRAY_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
+    this.hiddenPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
     this.hiddenThickMat = this.lineMat(EDGE_PX, { vertexColors: true });
-    Object.assign(this.hiddenThickMat, { transparent: true, opacity: XRAY_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
+    Object.assign(this.hiddenThickMat, { transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
     // 选中 / 刮擦 / 悬停的边 = 叠加层 "edge" 样式（6c）：用边线本身的材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
     // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
     // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。
@@ -835,13 +835,13 @@ export class Renderer3 implements RenderProvider {
       n.gen = this.syncGen;
       n.root.visible = true;
       setMatrix(n.root, pl.xform);
-      const pb = byPool.get(pl.pool);
+      const pb = byPool.get(pl.pool), front = pl.tier === 1;   // 深度优先级档：共面时赢的那一层（面 DEPTH.face，别的 DEPTH.faceOther）
       // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
       const paper = this.framePreset.material.shade === "flat" ? this.paper : null;   // 平涂（剪纸）：纸的那组材质，深度偏移档照旧
       const tron = this.framePreset.material.shade === "tron" ? this.tron : null;      // CRT Tron：深色面 + 青线；选中面认领成橙色
       const fside = pl.singleSided ? "front" : "double";
       const pbr = this.framePreset.material.shade === "pbr" ? this.pbr : null;          // 铸铜：有光照的表面，不借模型颜色
-      n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pbr ? pbr.face(fside, pl.active, false, false, null, this.framePreset.material.surface) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
+      n.plain.material = paper ? paper.face(fside, front, false) : tron ? tron.face(fside, front, false) : pbr ? pbr.face(fside, front, false, false, null, this.framePreset.material.surface) : pl.singleSided ? (front ? this.faceMatFront : this.faceMatOtherFront) : (front ? this.faceMat : this.faceMatOther);
       const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
       n.plain.geometry = showPlain ? plain!.geo : this.emptyGeo; n.plain.visible = showPlain;
       n.plainSrc = n.plain.geometry; n.plainMat = n.plain.material; n.plainChunk = plain?.id ?? null; n.markKey = "\u0000";   // 标记下一帧按新的源几何重分段
@@ -857,7 +857,7 @@ export class Renderer3 implements RenderProvider {
       }
       for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
       // 边
-      const edgesMode = this.framePreset.material.edges, L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && (edgesMode === "all" || (edgesMode === "active" && pl.active));   // 风格的线稿三档：none / all / active（只画正在编辑那一层的，T60）；X 光的线照画
+      const edgesMode = this.framePreset.material.edges, L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && (edgesMode === "all" || (edgesMode === "active" && front));   // 风格的线稿三档：none / all / active（只画正在编辑那一层的，T60）；X 光的线照画
       const thickLines = this.lineStyleInUse() === "thick";
       if (thickLines) { n.thick.geometry = hasL ? L!.geo : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
       else { n.pixel.geometry = hasL ? L!.geo : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
@@ -1064,13 +1064,13 @@ export class Renderer3 implements RenderProvider {
         uniforms: { uStep: { value: 1 }, uSub: { value: 1 }, uPx: { value: STATIC_PX }, uMajor: { value: new THREE.Color(PALETTE.gridMajor) }, uMinor: { value: new THREE.Color(PALETTE.gridMinor) } },
         vertexShader: GRID_VERT, fragmentShader: GRID_FRAG,
         transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, premultipliedAlpha: true, side: THREE.DoubleSide,   // three 的 MultiplyBlending 只在 premultipliedAlpha 下生效（否则只报错不混合 = 白格子盖满地面）
-        depthFunc: THREE.LessDepth, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: DEPTH.guide,   // 深度阶梯（DEPTH 注释）：面后、边前，不 z-fight（user「加一个 z-offset 的事情」）
+        depthFunc: THREE.LessDepth, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: DEPTH.grid,   // 深度阶梯（DEPTH 注释）：面后、边前，不 z-fight（user「加一个 z-offset 的事情」）
       });
       this.gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, 2 * L), this.gridMat);
       this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false; this.gridMesh.layers.set(OVERLAY_LAYER);
       this.scene.add(this.gridMesh);
       const axesMat = this.lineMat(STATIC_PX, { vertexColors: true });   // 不前拉：轴在边后面（DEPTH 注释）
-      axesMat.depthFunc = THREE.LessDepth; axesMat.polygonOffset = true; axesMat.polygonOffsetFactor = 0; axesMat.polygonOffsetUnits = DEPTH.guide;
+      axesMat.depthFunc = THREE.LessDepth; axesMat.polygonOffset = true; axesMat.polygonOffsetFactor = 0; axesMat.polygonOffsetUnits = DEPTH.grid;
       this.axesObj = new LineSegments2(new LineSegmentsGeometry(), axesMat);
       this.axesObj.frustumCulled = false; this.axesObj.layers.set(OVERLAY_LAYER);
       this.scene.add(this.axesObj);
