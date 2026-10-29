@@ -71,7 +71,7 @@ describe("演示锁的护栏各层都在（每层各自承重；行为在探针�
   });
   it("① 宿主：锁着时工具指针不进编辑器（toolBlocked）、右键不出菜单、body.doc-locked 灰掉工具区、☰ 同一行按状态换「锁上 / 解锁」", () => {
     const main = src("../src/app/main.ts"), css = src("../styles.css"), place = src("../src/controller/placement.ts");
-    assert(/toolBlocked: \(\) => editor\.locked/.test(main), "toolBlocked 没带锁");
+    assert(/toolBlocked: \(\) => \{ if \(editor\.locked\)/.test(main), "toolBlocked 没带锁");
     assert(/onContext: .*editor\.locked/.test(main), "右键没查锁");
     assert(/doc-locked/.test(main) && /body\.doc-locked \.hud-rail-tools/.test(css), "护栏 ① 样式");
     assert(/\{ id: "lock", tab: "file" \}/.test(place), "☰ 文件页有锁那一行");
