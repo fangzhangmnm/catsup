@@ -1,15 +1,14 @@
-// minccino/backend/three/pbr-shader.ts —— 有光照的表面（铸铜；实验室 overrides/material/material.js「表面」着色器里铸铜用到的那几段移植）。
-// 光：太阳（颜色 1.7 / 1.6 / 1.45，方位 / 高度给）+ 太阳投影（遮蔽图集第 21 格）+ 环境：漫反射 = 球谐（env-sky.ts）、镜面 = 环境图按粗糙度挑 mip + Karis 环境 BRDF；
-// GGX 高光 + 几何高光抗锯齿（Tokuyoshi & Kaplanyan 2019）；金属的高光带自己的颜色。材质：底色（不借模型颜色：铸铜 = 材料本色）、金属、粗糙、
-// 砂铸（砂型颗粒 + 气孔，坑里粗、暗；细到看不清时抹平）、铜绿（积在缝里和凹处 = 世界空间遮蔽低的地方，那里不再是亮金属、变粗）、清漆（蜡：最上面一层光滑介质，菲涅尔）。
+// minccino/backend/three/pbr-shader.ts —— 写实：有光照的表面（实验室 overrides/material/material.js「表面」的底子）。**真实材质都复用它**（user 10-29「应该是真实材质复用写实，
+// 而不是写实复用铸铜！」）：铸铜 = 写实 + 材料参数（底色 / 金属 / 粗糙 / 清漆）+ 涂装车间的表面层（砂铸、铜绿…，minccino/paintshop/，按预设给的顺序拼进着色器）。
+// 光：太阳（颜色 1.7 / 1.6 / 1.45）+ 太阳投影（遮蔽图集第 21 格）+ 环境（涂装车间的环境配方烘的图）：漫反射 = 球谐、镜面 = 按粗糙度挑 mip + Karis 环境 BRDF；
+// GGX 高光 + 几何高光抗锯齿（Tokuyoshi & Kaplanyan 2019）；金属的高光带自己的颜色；清漆（菲涅尔）。底色 = 材料本色或照模型上色（顶点色 / 贴图）。
 // 输出 ACES 色调映射 + 曝光 + gamma（实验室原式）。背景 = 环境图本身；地面 = z = 0，太阳 + 天光照着、有遮蔽和投影，远处融进环境（实验室 BG_FS）。
-// 和实验室不一样：没有倒角（要每条硬边往面里能倒多宽，CatsUp 还没给这个几何派生通道——清单 §3 交 Fable）；没有炫光（实验室「相机」的光晕 / 星芒）；
-// 噪声按「场景半径 = 1」取尺度（实验室的模型先归一化到半径 1）。
-// created 2026-10-29 by Claude Opus 5.5（Tron 第 1 步第四个风格）
+// 还没有：倒角（几何派生通道）、镜头炫光。created 2026-10-29 by Claude Opus 5.5
 import * as THREE from "three";
 import { AO_GLSL, type AoUniforms } from "./ao-bake.ts";
 import type { EnvSky } from "./env-sky.ts";
-import type { PbrShade } from "../../preset/index.ts";
+import type { PbrShade, SurfaceLayer } from "../../preset/index.ts";
+import { SURFACE_PRELUDE, SURFACE_RECIPES } from "../../paintshop/index.ts";
 
 const COMMON = /* glsl */`
   const float PI = 3.14159265;
@@ -32,13 +31,7 @@ const COMMON = /* glsl */`
     vec2 AB = vec2(-1.04, 1.04) * a004 + r.zw;
     return F0 * AB.x + AB.y;
   }
-  float ggxD(float NH, float a) { float a2 = a * a, d = NH * NH * (a2 - 1.0) + 1.0; return a2 / (PI * d * d); }
-  float hash31(vec3 p) { p = fract(p * vec3(0.1031, 0.1030, 0.0973)); p += dot(p, p.yxz + 33.33); return fract((p.x + p.y) * p.z); }
-  float vnoise3(vec3 p) {
-    vec3 i = floor(p), f = fract(p), u = f * f * (3.0 - 2.0 * f);
-    return mix(mix(mix(hash31(i), hash31(i + vec3(1, 0, 0)), u.x), mix(hash31(i + vec3(0, 1, 0)), hash31(i + vec3(1, 1, 0)), u.x), u.y),
-               mix(mix(hash31(i + vec3(0, 0, 1)), hash31(i + vec3(1, 0, 1)), u.x), mix(hash31(i + vec3(0, 1, 1)), hash31(i + vec3(1, 1, 1)), u.x), u.y), u.z);
-  }`;
+  float ggxD(float NH, float a) { float a2 = a * a, d = NH * NH * (a2 - 1.0) + 1.0; return a2 / (PI * d * d); }`;
 
 const FACE_VS = /* glsl */`
   in vec3 aColor;
@@ -72,13 +65,15 @@ const FACE_FS = /* glsl */`
   in vec2 vUv; uniform sampler2D uMap;
   #endif
   uniform bool uModelColor;   // 照模型上色（写实）：顶点色（材质色，sRGB）/ 贴图进底色；false = 材料本色（铸铜）
-  uniform vec3 uBase, uPatinaCol;
-  uniform float uMetal, uRough, uPatina, uCoat, uCoatRough, uSpec, uPatternAmt, uAoAmt;
-  uniform int uPattern;
+  uniform vec3 uBase;
+  uniform float uMetal, uRough, uCoat, uCoatRough, uSpec, uAoAmt;
+  uniform float uLayerAmt[4]; uniform vec3 uLayerColor[4];   // 涂装车间的表面层（最多 4 层）
   uniform bool uAoOn;
   layout(location = 0) out vec4 oColor;
   ${AO_GLSL}
   ${COMMON}
+  ${SURFACE_PRELUDE}
+  /*SURFACE_GLSL*/
   void main() {
     #ifdef SINGLE
     vec3 c = vColor;
@@ -96,21 +91,13 @@ const FACE_FS = /* glsl */`
     #ifdef TEX
     if (uModelColor) base = texture(uMap, vUv).rgb * pow(max(vColor, 0.0), vec3(2.2));   // 贴图按 sRGB 存、采样出来已是线性
     #endif
-    float castRough = 0.0;
-    if (uPattern == 9) {   // 砂铸：砂型的颗粒印 + 气孔，坑里粗、暗；细到看不清时抹平，不闪
-      vec3 Pm = P / max(uAoR, 1e-3);   // 场景半径 = 1（实验室的模型先归一化）
-      float fade = 1.0 - smoothstep(0.3, 0.7, length(fwidth(Pm * 160.0)));
-      float g = vnoise3(Pm * 160.0), pit = smoothstep(0.62, 0.85, vnoise3(Pm * 70.0 + 3.0));
-      N = normalize(N + (vec3(vnoise3(Pm * 160.0 + 7.0), vnoise3(Pm * 160.0 + 13.0), g) - 0.5) * 0.35 * uPatternAmt * fade);
-      base *= 1.0 - 0.25 * uPatternAmt * pit;
-      castRough = 0.25 * uPatternAmt * (pit + 0.5 * g);
-    }
     float occl = 1.0, sh = 1.0;
     if (uAoOn) { occl = aoAt(P, Nf); if (uSunOn) sh = sunShadow(P, Nf); }
     occl = mix(1.0, occl, uAoAmt);
-    float rough = clamp(uRough + castRough, 0.04, 1.0), metal = uMetal;
-    float pat = uPatina * clamp((1.0 - occl) * 2.0, 0.0, 1.0);   // 铜绿：积在缝里和凹处
-    base = mix(base, pow(uPatinaCol, vec3(2.2)), pat); metal *= 1.0 - 0.85 * pat; rough = mix(rough, 0.85, pat);
+    // 涂装车间的表面层：按预设给的顺序叠（铸铜 = 砂铸 → 铜绿）；P 按场景半径 = 1
+    Surface srf; srf.P = P / max(uAoR, 1e-3); srf.N = N; srf.base = base; srf.rough = clamp(uRough, 0.04, 1.0); srf.metal = uMetal; srf.occl = occl;
+    /*SURFACE_CALLS*/
+    N = srf.N; base = srf.base; float rough = srf.rough, metal = srf.metal;
     rough = sqrt(sqrt(min(pow(rough, 4.0) + specAA, 1.0)));
     float ndl = dot(N, uSunDir), wrapD = clamp(ndl, 0.0, 1.0);
     vec3 col = base * (1.0 - metal) * (uSunCol * wrapD * sh + ambient(N, occl));
@@ -155,6 +142,12 @@ const GROUND_FS = /* glsl */`
     oColor = vec4(pow(aces(col * uExposure), vec3(1.0 / 2.2)), 1.0);
   }`;
 
+/** 拼表面着色器：用到的配方各贴一次 GLSL，按顺序调用（最多 4 层；同一配方用两次只贴一份定义）。 */
+function faceFs(layers: readonly SurfaceLayer[]): string {
+  const ls = layers.slice(0, 4), defs = [...new Set(ls.map((l) => l.recipe))].map((id) => SURFACE_RECIPES[id].glsl).join("\n");
+  const calls = ls.map((l, i) => `${SURFACE_RECIPES[l.recipe].fn}(srf, uLayerAmt[${i}], uLayerColor[${i}]);`).join("\n    ");
+  return FACE_FS.replace("/*SURFACE_GLSL*/", defs).replace("/*SURFACE_CALLS*/", calls);
+}
 const lin3 = (h: number): any => new THREE.Vector3(((h >> 16) & 255) / 255, ((h >> 8) & 255) / 255, (h & 255) / 255);   // sRGB 浮点（着色器里再 pow 2.2）
 
 export class PbrMaterials {
@@ -162,7 +155,8 @@ export class PbrMaterials {
     uEnvAmt: { value: 1 }, uExposure: { value: 1 }, uSunDir: { value: new THREE.Vector3(0, 0, 1) }, uSunCol: { value: new THREE.Vector3(1.7, 1.6, 1.45) },
     uSkyCol: { value: new THREE.Vector3(0.4, 0.46, 0.55) }, uGroundCol: { value: new THREE.Vector3(0.26, 0.24, 0.21) }, uSunOn: { value: false },
   };
-  private readonly mat = { uModelColor: { value: false }, uBase: { value: new THREE.Vector3() }, uPatinaCol: { value: new THREE.Vector3() }, uMetal: { value: 0 }, uRough: { value: 0.5 }, uPatina: { value: 0 }, uCoat: { value: 0 }, uCoatRough: { value: 0.05 }, uSpec: { value: 1 }, uPatternAmt: { value: 0 }, uPattern: { value: 0 } };
+  private readonly mat = { uModelColor: { value: false }, uBase: { value: new THREE.Vector3() }, uMetal: { value: 0 }, uRough: { value: 0.5 }, uCoat: { value: 0 }, uCoatRough: { value: 0.05 }, uSpec: { value: 1 },
+    uLayerAmt: { value: [0, 0, 0, 0] }, uLayerColor: { value: [0, 1, 2, 3].map(() => new THREE.Vector3()) } };
   private readonly aoModel = { uAoRadius: { value: 0.5 }, uAoSoft: { value: 1 }, uAoAmt: { value: 1 }, uAoOn: { value: false } };
   private readonly aoGround = { uAoRadius: { value: 0.25 }, uAoSoft: { value: 1 }, uAoAmt: { value: 1 }, uAoOn: { value: false } };
   private readonly groundU = { uInvVP: { value: new THREE.Matrix4() }, uGround: { value: new THREE.Vector3() }, uEye: { value: new THREE.Vector3() }, uGroundOn: { value: 1 } };
@@ -174,16 +168,16 @@ export class PbrMaterials {
     this.ground.frustumCulled = false; this.ground.renderOrder = -100; this.ground.visible = false;
   }
   private mapIds = new WeakMap<object, number>(); private nextMapId = 1;
-  /** map = 贴图的 uniform 对象（后端的贴图缓存给，解码完换贴图时同一个对象里换值）；只有贴图网格、照模型上色时给。 */
-  face(side: "front" | "back" | "double", active: boolean, single: boolean, sel = false, map: { value: unknown } | null = null): any {
+  /** map = 贴图的 uniform 对象（后端的贴图缓存给，解码完换贴图时同一个对象里换值）；只有贴图网格、照模型上色时给。layers = 涂装车间的表面层（按顺序拼进着色器）。 */
+  face(side: "front" | "back" | "double", active: boolean, single: boolean, sel = false, map: { value: unknown } | null = null, layers: readonly SurfaceLayer[] = []): any {
     let mid = 0;
     if (map) { mid = this.mapIds.get(map) ?? 0; if (!mid) { mid = this.nextMapId++; this.mapIds.set(map, mid); } }
-    const key = `${side}|${active ? 1 : 0}|${single ? 1 : 0}|${sel ? 1 : 0}|${mid}`;
+    const key = `${side}|${active ? 1 : 0}|${single ? 1 : 0}|${sel ? 1 : 0}|${mid}|${layers.map((l) => l.recipe).join(",")}`;
     let m = this.mats.get(key);
     if (!m) {
       const defines: Record<string, number> = {}; if (single) defines.SINGLE = 1; if (sel) defines.SEL = 1; if (map) defines.TEX = 1;
       m = new THREE.ShaderMaterial({
-        glslVersion: THREE.GLSL3, vertexShader: FACE_VS, fragmentShader: FACE_FS, defines, uniforms: { ...this.light, ...this.mat, ...this.aoModel, ...this.ao, ...this.env.uniforms, ...(map ? { uMap: map } : {}) },
+        glslVersion: THREE.GLSL3, vertexShader: FACE_VS, fragmentShader: faceFs(layers), defines, uniforms: { ...this.light, ...this.mat, ...this.aoModel, ...this.ao, ...this.env.uniforms, ...(map ? { uMap: map } : {}) },
         side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide,
         polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
       });
@@ -192,12 +186,13 @@ export class PbrMaterials {
     return m;
   }
   /** 每帧：材质 / 光 / 遮蔽开没开 / 地面。sunWorld = 世界坐标的太阳方向（单位向量）。 */
-  sync(p: PbrShade, modelColor: boolean, env: { amount: number; exposure: number }, sunWorld: { x: number; y: number; z: number }, ao: { amount: number; radius: number; groundRadius: number; soft: number } | null, aoReady: boolean,
+  sync(p: PbrShade, layers: readonly SurfaceLayer[], modelColor: boolean, env: { amount: number; exposure: number }, sunWorld: { x: number; y: number; z: number }, ao: { amount: number; radius: number; groundRadius: number; soft: number } | null, aoReady: boolean,
     ground: { color: number; on: number } | null, cam: any, fade: { x: number; y: number; z: number }): void {
     const m = this.mat;
     m.uModelColor.value = modelColor;
-    m.uBase.value.copy(lin3(p.base)); m.uPatinaCol.value.copy(lin3(p.patinaColor)); m.uMetal.value = p.metal; m.uRough.value = p.rough; m.uPatina.value = p.patina;
-    m.uCoat.value = p.coat; m.uCoatRough.value = p.coatRough; m.uSpec.value = p.spec; m.uPatternAmt.value = p.patternAmt; m.uPattern.value = p.pattern === "sand" ? 9 : 0;
+    m.uBase.value.copy(lin3(p.base)); m.uMetal.value = p.metal; m.uRough.value = p.rough;
+    m.uCoat.value = p.coat; m.uCoatRough.value = p.coatRough; m.uSpec.value = p.spec;
+    layers.forEach((l, i) => { if (i < 4) { m.uLayerAmt.value[i] = l.amount; m.uLayerColor.value[i].copy(lin3(l.color)); } });
     this.light.uEnvAmt.value = env.amount; this.light.uExposure.value = env.exposure; this.light.uSunDir.value.set(sunWorld.x, sunWorld.y, sunWorld.z);
     const on = !!ao && aoReady;
     this.aoModel.uAoOn.value = on; this.aoGround.uAoOn.value = on; this.light.uSunOn.value = on;   // 太阳投影和遮蔽在同一张图集里

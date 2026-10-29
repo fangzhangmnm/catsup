@@ -1,6 +1,6 @@
 import { type AoUniforms } from "./ao-bake.ts";
 import type { EnvSky } from "./env-sky.ts";
-import type { PbrShade } from "../../preset/index.ts";
+import type { PbrShade, SurfaceLayer } from "../../preset/index.ts";
 export declare class PbrMaterials {
     private readonly ao;
     private readonly env;
@@ -16,12 +16,12 @@ export declare class PbrMaterials {
     constructor(ao: AoUniforms, env: EnvSky, depthFace: number, depthOther: number);
     private mapIds;
     private nextMapId;
-    /** map = 贴图的 uniform 对象（后端的贴图缓存给，解码完换贴图时同一个对象里换值）；只有贴图网格、照模型上色时给。 */
+    /** map = 贴图的 uniform 对象（后端的贴图缓存给，解码完换贴图时同一个对象里换值）；只有贴图网格、照模型上色时给。layers = 涂装车间的表面层（按顺序拼进着色器）。 */
     face(side: "front" | "back" | "double", active: boolean, single: boolean, sel?: boolean, map?: {
         value: unknown;
-    } | null): any;
+    } | null, layers?: readonly SurfaceLayer[]): any;
     /** 每帧：材质 / 光 / 遮蔽开没开 / 地面。sunWorld = 世界坐标的太阳方向（单位向量）。 */
-    sync(p: PbrShade, modelColor: boolean, env: {
+    sync(p: PbrShade, layers: readonly SurfaceLayer[], modelColor: boolean, env: {
         amount: number;
         exposure: number;
     }, sunWorld: {

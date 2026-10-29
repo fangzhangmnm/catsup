@@ -1,4 +1,5 @@
 import type { PassDecl } from "../graph/frame-graph.ts";
+import type { EnvRecipeId, SurfaceRecipeId } from "../paintshop/index.ts";
 /** 像素描边后处理（实验室公用件 `ShaderLab.pixelOutline`，lab/core.js）：背景挨着模型的那一格涂成描边色；可选内部深度跳变也描。 */
 export interface PixelOutlinePost {
     /** 固定描边色（0xRRGGBB，sRGB）。 */
@@ -40,22 +41,24 @@ export interface TronShade {
     readonly hidden: number;
     readonly select: number;
 }
-/** 有光照的表面（实验室 material.js「表面」）：底色（材料本色，不借模型颜色）、金属、粗糙、铜绿（强度 / 颜色，积在凹处）、清漆（强度 / 粗糙）、表面纹理（砂铸）、高光。 */
+/** 写实的底子（实验室 material.js「表面」）：底色（材料本色；照模型上色时只给没上色的面）、金属、粗糙、清漆（强度 / 粗糙）、高光。真实材质 = 这几项 + 涂装车间的表面层。 */
 export interface PbrShade {
     readonly base: number;
     readonly metal: number;
     readonly rough: number;
-    readonly patina: number;
-    readonly patinaColor: number;
     readonly coat: number;
     readonly coatRough: number;
-    readonly pattern: "none" | "sand";
-    readonly patternAmt: number;
     readonly spec: number;
 }
-/** 环境（光与环境挂点）：程序海天（实验室 app.js）、环境光强度、曝光、太阳方位 / 高度（度）。 */
+/** 涂装车间的一层表面纹理（minccino/paintshop/）：配方 id + 强度 + 颜色（铜绿那种要色的）。 */
+export interface SurfaceLayer {
+    readonly recipe: SurfaceRecipeId;
+    readonly amount: number;
+    readonly color: number;
+}
+/** 环境（光与环境挂点）：涂装车间的环境配方、环境光强度、曝光、太阳方位 / 高度（度）。 */
 export interface EnvLight {
-    readonly kind: "sky-sea";
+    readonly recipe: EnvRecipeId;
     readonly amount: number;
     readonly exposure: number;
     readonly sunAz: number;
@@ -95,6 +98,7 @@ export interface Preset {
         readonly flat: FlatShade | null;
         readonly tron: TronShade | null;
         readonly pbr: PbrShade | null;
+        /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
     };
     /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
     readonly light: {
@@ -138,6 +142,7 @@ export declare const PRESETS: {
             readonly flat: null;
             readonly tron: null;
             readonly pbr: null;
+            readonly surface: readonly [];
         };
         readonly light: {
             readonly background: null;
@@ -171,6 +176,7 @@ export declare const PRESETS: {
             readonly flat: null;
             readonly tron: null;
             readonly pbr: null;
+            readonly surface: readonly [];
         };
         readonly light: {
             readonly background: 16639677;
@@ -220,6 +226,7 @@ export declare const PRESETS: {
             };
             readonly tron: null;
             readonly pbr: null;
+            readonly surface: readonly [];
         };
         readonly light: {
             readonly background: 16248800;
@@ -274,6 +281,7 @@ export declare const PRESETS: {
                 readonly select: 16751150;
             };
             readonly pbr: null;
+            readonly surface: readonly [];
         };
         readonly light: {
             readonly background: 66311;
@@ -301,66 +309,7 @@ export declare const PRESETS: {
         };
         readonly geometry: {};
     };
-    /** 铸铜（实验室「雕塑与手办」分类的门面，10-28 user「铸铜是雕塑的poster child」）：青铜雕塑，失蜡铸造——砂眼、凹处铜绿、一层蜡；露天大件 = 程序海天。 */
-    readonly bronze: {
-        readonly id: "bronze";
-        readonly name: "铸铜";
-        readonly brief: "青铜 + 铜绿 + 海天";
-        readonly note: "不借模型颜色的青铜：金属高光映出程序海天、太阳打出投影，缝里和凹处积着铜绿（世界空间遮蔽，改完模型停手约 0.25 秒后跟上），表面有砂铸的坑洼和一层蜡；背景是那片海天、地面浅灰；模型自己的线稿不画。和实验室不一样：没有倒角（CatsUp 还没给这个几何通道）、没有镜头炫光";
-        readonly source: "实验室 表面 material.js ·「铸铜」（base #b3804e、metal 1、rough 0.38、pattern 9 砂铸 × 0.5、patina 0.75 #3b4632、coat 0.25 / 0.22、spec 1、envSource 程序海天 × 1.1、sunAz 35 / sunEl 45、exposure 0.95、aoMode 世界空间 × 1、ground #9a9a96；BASE 的 aoSoft 1；遮蔽半径照 material.js 模型 0.5 / 地面 0.25；太阳色 1.7 / 1.6 / 1.45、天光 / 地光照 LIGHT 段）";
-        readonly material: {
-            readonly shade: "pbr";
-            readonly texFilter: "asset";
-            readonly edges: false;
-            readonly colorize: "none";
-            readonly flat: null;
-            readonly tron: null;
-            readonly pbr: {
-                readonly base: 11763790;
-                readonly metal: 1;
-                readonly rough: 0.38;
-                readonly patina: 0.75;
-                readonly patinaColor: 3884594;
-                readonly coat: 0.25;
-                readonly coatRough: 0.22;
-                readonly pattern: "sand";
-                readonly patternAmt: 0.5;
-                readonly spec: 1;
-            };
-        };
-        readonly light: {
-            readonly background: null;
-            readonly ground: {
-                readonly color: 10132118;
-                readonly on: 1;
-                readonly grid: 0;
-            };
-            readonly ao: {
-                readonly amount: 1;
-                readonly radius: 0.5;
-                readonly groundRadius: 0.25;
-                readonly soft: 1;
-            };
-            readonly env: {
-                readonly kind: "sky-sea";
-                readonly amount: 1.1;
-                readonly exposure: 0.95;
-                readonly sunAz: 35;
-                readonly sunEl: 45;
-            };
-        };
-        readonly post: {
-            readonly pixelOutline: null;
-            readonly bloom: null;
-        };
-        readonly screen: {
-            readonly pixelate: 1;
-            readonly rows: null;
-            readonly look: "none";
-        };
-        readonly geometry: {};
-    };
-    /** 写实（实验室「基础」分类，标准金属度 / 粗糙度那套）：照模型上色——材质色和贴图都进底色，光和铸铜同一套。不是小学点名的四个风格之一，是 user 场景 4「全量渲染视口」的起点。 */
+    /** 写实（实验室「基础」分类，标准金属度 / 粗糙度那套）：照模型上色——材质色和贴图都进底色。**真实材质的底子**：铸铜等 = 写实 + 材料参数 + 涂装车间的表面层（user 10-29「应该是真实材质复用写实，而不是写实复用铸铜！」）。也是 user 场景 4「全量渲染视口」的起点。 */
     readonly realistic: {
         readonly id: "realistic";
         readonly name: "写实";
@@ -378,14 +327,11 @@ export declare const PRESETS: {
                 readonly base: 14079702;
                 readonly metal: 0;
                 readonly rough: 0.6;
-                readonly patina: 0;
-                readonly patinaColor: 3817267;
                 readonly coat: 0;
                 readonly coatRough: 0.05;
-                readonly pattern: "none";
-                readonly patternAmt: 0;
                 readonly spec: 1;
             };
+            readonly surface: readonly [];
         };
         readonly light: {
             readonly background: null;
@@ -401,9 +347,73 @@ export declare const PRESETS: {
                 readonly soft: 1;
             };
             readonly env: {
-                readonly kind: "sky-sea";
+                readonly recipe: "sky-sea";
                 readonly amount: 1;
                 readonly exposure: 0.9;
+                readonly sunAz: 35;
+                readonly sunEl: 45;
+            };
+        };
+        readonly post: {
+            readonly pixelOutline: null;
+            readonly bloom: null;
+        };
+        readonly screen: {
+            readonly pixelate: 1;
+            readonly rows: null;
+            readonly look: "none";
+        };
+        readonly geometry: {};
+    };
+    /** 铸铜（实验室「雕塑与手办」分类的门面，10-28 user「铸铜是雕塑的poster child」）= 写实 + 青铜的材料参数（不上色、金属、蜡）+ 涂装车间两层（砂铸、铜绿）；露天大件 = 程序海天。 */
+    readonly bronze: {
+        readonly id: "bronze";
+        readonly name: "铸铜";
+        readonly brief: "青铜 + 铜绿 + 海天";
+        readonly note: "不借模型颜色的青铜：金属高光映出程序海天、太阳打出投影，缝里和凹处积着铜绿（世界空间遮蔽，改完模型停手约 0.25 秒后跟上），表面有砂铸的坑洼和一层蜡；背景是那片海天、地面浅灰；模型自己的线稿不画。和实验室不一样：没有倒角（CatsUp 还没给这个几何通道）、没有镜头炫光";
+        readonly source: "实验室 表面 material.js ·「铸铜」（base #b3804e、metal 1、rough 0.38、pattern 9 砂铸 × 0.5、patina 0.75 #3b4632、coat 0.25 / 0.22、spec 1、envSource 程序海天 × 1.1、sunAz 35 / sunEl 45、exposure 0.95、aoMode 世界空间 × 1、ground #9a9a96；BASE 的 aoSoft 1；遮蔽半径照 material.js 模型 0.5 / 地面 0.25；太阳色 1.7 / 1.6 / 1.45、天光 / 地光照 LIGHT 段）";
+        readonly material: {
+            readonly shade: "pbr";
+            readonly texFilter: "asset";
+            readonly edges: false;
+            readonly colorize: "none";
+            readonly flat: null;
+            readonly tron: null;
+            readonly pbr: {
+                readonly base: 11763790;
+                readonly metal: 1;
+                readonly rough: 0.38;
+                readonly coat: 0.25;
+                readonly coatRough: 0.22;
+                readonly spec: 1;
+            };
+            readonly surface: readonly [{
+                readonly recipe: "sand-cast";
+                readonly amount: 0.5;
+                readonly color: 0;
+            }, {
+                readonly recipe: "patina";
+                readonly amount: 0.75;
+                readonly color: 3884594;
+            }];
+        };
+        readonly light: {
+            readonly background: null;
+            readonly ground: {
+                readonly color: 10132118;
+                readonly on: 1;
+                readonly grid: 0;
+            };
+            readonly ao: {
+                readonly amount: 1;
+                readonly radius: 0.5;
+                readonly groundRadius: 0.25;
+                readonly soft: 1;
+            };
+            readonly env: {
+                readonly recipe: "sky-sea";
+                readonly amount: 1.1;
+                readonly exposure: 0.95;
                 readonly sunAz: 35;
                 readonly sunEl: 45;
             };

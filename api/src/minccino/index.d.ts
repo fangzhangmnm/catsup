@@ -11,7 +11,8 @@ export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTr
 export { LINE_STYLES, POINT_STYLES, MARKER_STYLES, TRIS_STYLES, hexToLinear } from "./overlay/index.ts";
 export { PALETTE } from "./palette.ts";
 export { NOOP_PERF, type PerfSink } from "./perf.ts";
-export { PRESETS, PRESET_IDS, isPresetId, isStyled, presetPasses, type Preset, type PresetId, type PixelOutlinePost, type FlatShade, type AoParams, type TronShade, type BloomPost, type PbrShade, type EnvLight } from "./preset/index.ts";
+export { PRESETS, PRESET_IDS, isPresetId, isStyled, presetPasses, type Preset, type PresetId, type PixelOutlinePost, type FlatShade, type AoParams, type TronShade, type BloomPost, type PbrShade, type EnvLight, type SurfaceLayer } from "./preset/index.ts";
+export { ENV_RECIPES, SURFACE_RECIPES, type EnvRecipe, type SurfaceRecipe, type EnvRecipeId, type SurfaceRecipeId } from "./paintshop/index.ts";
 export { checkBudget, type BudgetReport, type BudgetAxis } from "./budget.ts";
 export { initPowerSensing, powerState, onPowerChange, setBatteryAware, type PowerState } from "./device.ts";
 export { MaterialRegistry, createMaterialRegistry, BASE_SLOTS, GRADE_SCHOOL_READS, type SemanticMaterial, type ChannelDef, type ChannelValue, type CraftTag, type SlotDef, type SlotValue, type SlotValues, type Translation, type PipelineReads } from "./material/index.ts";

@@ -3,6 +3,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { PRESETS, PRESET_IDS, isPresetId, isStyled, presetPasses } from "../src/minccino/preset/index.ts";
 import { planFrame } from "../src/minccino/graph/frame-graph.ts";
+import { ENV_RECIPES, SURFACE_RECIPES } from "../src/minccino/paintshop/index.ts";
 
 describe("minccino 预设 = 数据", () => {
   it("每个预设（开 / 关 X 光）的 pass 声明都规划得出 frame，地面网格 / 叠加层永远在", () => {
@@ -31,12 +32,16 @@ describe("minccino 预设 = 数据", () => {
       const ao = p.light.ao; if (ao) assert(ao.radius > 0 && ao.groundRadius > 0 && ao.amount >= 0 && ao.amount <= 1, `${id} 遮蔽参数不对`);
       if (p.material.shade === "pbr") assert(!!p.material.pbr && !!p.light.env && !!p.light.ao, `${id} 有光照的表面要材质参数 + 环境 + 遮蔽（太阳投影在遮蔽图集里）`);
       if (p.material.shade === "tron") assert(!!p.material.tron, `${id} 要 Tron 但没给参数`);
+      // 涂装车间（插拔）：风格引用的配方都要在登记表里；表面层只给写实那条路
+      if (p.light.env) assert(p.light.env.recipe in ENV_RECIPES, `${id} 的环境配方 ${p.light.env.recipe} 不在涂装车间`);
+      for (const l of p.material.surface) assert(l.recipe in SURFACE_RECIPES && p.material.shade === "pbr", `${id} 的表面层 ${l.recipe} 不在涂装车间 / 不是写实那条路`);
     }
   });
   it("每个预设都写了出处和一句话说明；像素化 ≥ 1；id 和键一致", () => {
     for (const id of PRESET_IDS) {
       const p = PRESETS[id];
       eq(p.id, id); assert(p.source.length > 0 && p.note.length > 0, `${id} 缺出处 / 说明`);
+      if (id !== "realistic" && p.material.shade === "pbr") assert(p.material.surface.length > 0 || p.material.colorize === "none", `${id}：真实材质 = 写实 + 材料参数 + 涂装车间`);
       assert(p.screen.pixelate >= 1, `${id} 像素化 < 1`);
     }
     assert(isPresetId("pixelOutline") && !isPresetId("nope") && !isPresetId("toString"), "isPresetId 认错了");

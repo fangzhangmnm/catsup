@@ -677,8 +677,8 @@ export class Renderer3 implements Backend {
     if (p.material.pbr && this.pbr && this.envSky && env && sunW) {   // 铸铜：地面 / 背景归表面那份（环境图 + 太阳 + 遮蔽），纸的地面藏起来
       this.paper.hide();
       const es = this.envSky;
-      if (es.ensure(this.renderer, [sunW.x, sunW.z, -sunW.y])) { this.perf.last.envBake = es.lastMs; this.perf.count.envBake = (this.perf.count.envBake ?? 0) + 1; }   // 真烘了才记
-      this.pbr.sync(p.material.pbr, p.material.colorize === "model", env, sunW, L.ao, !!sphere && this.aoBaked !== "", L.ground, cam3, fade);
+      if (es.ensure(this.renderer, env.recipe, [sunW.x, sunW.z, -sunW.y])) { this.perf.last.envBake = es.lastMs; this.perf.count.envBake = (this.perf.count.envBake ?? 0) + 1; }   // 真烘了才记
+      this.pbr.sync(p.material.pbr, p.material.surface, p.material.colorize === "model", env, sunW, L.ao, !!sphere && this.aoBaked !== "", L.ground, cam3, fade);
       return;
     }
     this.pbr?.hide();
@@ -869,8 +869,8 @@ export class Renderer3 implements Backend {
       const tron = this.framePreset.material.shade === "tron" ? this.tron : null;      // CRT Tron：深色面 + 青线；选中面认领成橙色
       const fside = pl.singleSided ? "front" : "double";
       const pbr = this.framePreset.material.shade === "pbr" ? this.pbr : null;          // 铸铜：有光照的表面，不借模型颜色
-      n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pbr ? pbr.face(fside, pl.active, false) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
-      n.selMat = tron ? tron.face(fside, pl.active, false, true) : pbr ? pbr.face(fside, pl.active, false, true) : null;
+      n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pbr ? pbr.face(fside, pl.active, false, false, null, this.framePreset.material.surface) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
+      n.selMat = tron ? tron.face(fside, pl.active, false, true) : pbr ? pbr.face(fside, pl.active, false, true, null, this.framePreset.material.surface) : null;
       const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
       n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
       let ti = 0;
@@ -878,7 +878,7 @@ export class Renderer3 implements Backend {
         if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
         if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
-        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true, false, this.framePreset.material.colorize === "model" ? this.texUniform(gf.mat!) : null) : this.texMatFor(gf.mat!, gf.side!);   // 写实：贴图进底色   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
+        slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true, false, this.framePreset.material.colorize === "model" ? this.texUniform(gf.mat!) : null, this.framePreset.material.surface) : this.texMatFor(gf.mat!, gf.side!);   // 写实：贴图进底色   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
         slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
         ti++;
       }

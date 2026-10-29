@@ -21,6 +21,7 @@
 | `overlay/` | 叠加层契约：线段族 / 点 / 标记 / 三角 / 文字 / **面高亮**（`OverlayFaces`：挂槽 / 世界 / 贴图组）+ OverlayCtx 量尺 + 样式表（内容归编辑器 `editor/overlay.ts` + `editor/highlight.ts`，画归 `backend/three/overlay-*.ts`） | 6a / 6b / 6c done |
 | `palette.ts` / `perf.ts` | 白模调色板一处放（预设认领选中色从这里长）；计时口 `PerfSink`（消费方递计数器进来，引擎不 import 谁的 perf） | 6c done |
 | `preset/` | 预设 = 数据（四个挂点 + 屏幕一刀的旋钮；每个写明实验室出处）+ `presetPasses` 给 frame graph 的 pass 声明。画法在 `backend/three/screen-pixel.ts`（小图 → 后处理 → 整数倍放大） | Tron 第 1 步：白模 + 像素描边（v0.17.10）+ 剪纸 · 色纸（v0.17.11：平涂 `paper-shader.ts` + 遮蔽 `ao-bake.ts` + 地面）+ CRT Tron（v0.17.12：`tron-shader.ts` + `bloom.ts` + CRT 放大）+ 铸铜（v0.17.13：`pbr-shader.ts` + `env-sky.ts` 程序海天 + 太阳投影）——小学四个点名风格齐 |
+| `paintshop/` | **涂装车间**：程序生成的环境（程序海天）和表面纹理（砂铸、铜绿）的配方 = 一段 GLSL + 出处 + 登记表；后端照着生成 / 拼进着色器，风格按 id 引用。插拔 = 一个文件 + 一行；不碰 three / DOM | v0.17.16（Opus） |
 | `material/` | 语义通道注册表 / 工艺标签 / 翻译按工艺一份 / 开放槽表 `BASE_SLOTS` / 管线 `reads` 守卫 / 小学四风格 reads（T36） | 步 8 done（只钉接口，内容归 Opus） |
 | `budget.ts` / `device.ts` | 预算核对 + 人话披露；量设备的唯一地方（电量感知默认开、跟设备、披露不静默） | 步 7 done |
 
