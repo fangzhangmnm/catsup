@@ -66,6 +66,8 @@ export const PALM_PEN_GUARD_MS = 600;
 export const STALE_TOUCH_MS = 8000;
 /** 单指轻点（ms）。 */
 export const SINGLE_TAP_MS = 250;
+/** 手指双击（进出组件层级；user 10-28 夜「手指双击能不能也能进出hierarchy」）：两下之间最长多久、离得最远多远（CSS px）。 */
+export const FINGER_DOUBLE_TAP_MS = 380, FINGER_DOUBLE_TAP_PX = 32;
 /** 大动作解锁：笔按住拖的中途凑成的双指先当手掌，质心 / 指距累计动过这么多才解锁成相机（CSS px；user 2026-10-24「要不要大动作解锁」）。 */
 export const UNLOCK_PX = 28;
 

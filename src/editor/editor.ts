@@ -3267,6 +3267,13 @@ export class Editor {
     if (!this.gestureActive() || !this.armed || !ev) return;
     this.pointerDown({ ...ev }); this.pointerUp({ ...ev });
   }
+  /** 手指双击（触屏；鼠标双击同语义）：点在子组件 / 组上 = 进去；点在空处 = 退一层；点在这一层自己的几何上 = 什么都不做。返回做了什么。 */
+  hierarchyTapAt(x: number, y: number): "enter" | "exit" | null {
+    const c = this.classify(this.liveWorld(), this.pickAt(x, y));
+    if (c.kind === "pool") { this.enterPool(c.pick); this.host.changed(); this.draw(); return "enter"; }
+    if (c.kind === "none" && this.ctx.chain.length + (this.ctx.group !== null ? 1 : 0) > 0) { this.exitContext(); this.host.changed(); this.draw(); return "exit"; }
+    return null;
+  }
   // ---------- 扩 / 缩选区（拖动条；gizmo-design §7，user 10-28 夜「select按第二次的的gizmos」；算子 mesh/select-grow.ts）----------
   // 拖的时候直接改选区（看得见），松手才记一步（「之前」= 开始拖时的会话），中间几十次变化不进撤销栈。
   private selGrow: { before: Session; base: SelSets; steps: number } | null = null;

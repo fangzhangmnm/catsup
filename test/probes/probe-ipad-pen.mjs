@@ -48,9 +48,9 @@ r.afterSwitch = await chips();
 await page.evaluate(() => globalThis.__catsup.hud.pick("select")); await page.waitForTimeout(60);
 await page.evaluate((d) => { const e = globalThis.__catsup.editor, m = e.scene.mesh(d).kernel; e.deselectAll(); e.selection.faces.add(m.faces()[0]); globalThis.__catsup.hud.pick("select"); }, def); await page.waitForTimeout(80);
 const f0 = await page.evaluate((d) => globalThis.__catsup.editor.scene.mesh(d).kernel.faceCount(), def);
-const trash = await page.locator("#toolbar button.rail-face").boundingBox();
-r.face = { present: !!trash };
-if (trash) { await page.evaluate(() => { const b = document.querySelector("#toolbar button.rail-face"); b.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, pointerType: "pen", pointerId: 7, isPrimary: true, button: 0, buttons: 1 })); b.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, pointerType: "pen", pointerId: 7, isPrimary: true, button: 0, buttons: 0 })); b.click(); }); await page.waitForTimeout(100); }
+const delBtn = await page.$("#toolStrip .selbar-btn:has-text('删除')");   // v0.16.31 起删除在右下（左柱垃圾桶撤了）；v0.16.38 起右下只有「删除」「更多…」
+r.face = { present: !!delBtn, bar: await page.evaluate(() => [...document.querySelectorAll("#toolStrip .selbar-btn")].map((x) => x.textContent.trim()).join(" | ")) };
+if (delBtn) { await delBtn.click(); await page.waitForTimeout(100); }
 r.face.deleted = (await page.evaluate((d) => globalThis.__catsup.editor.scene.mesh(d).kernel.faceCount(), def)) === f0 - 1;
 // ⑦
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.deselectAll(); globalThis.__catsup.hud.pick("create"); e.config.set("create", "kind", "box"); e.config.set("create", "size", 0.5); }); await page.waitForTimeout(60);
@@ -67,6 +67,6 @@ const ok = r.rail.n === 9 && r.rail.inView && !r.rail.overflow && /新建/.test(
   && r.lockZ.axisLock === "z" && r.lockZ.chips.some((s) => /锁 Z\*/.test(s)) && r.lockZ.line
   && r.latch.some((s) => s === "shift:吸附*") && r.drag.dx === 0 && r.drag.dy === 0 && Math.abs(r.drag.dz) > 0.02
   && !r.afterSwitch.some((s) => /吸附\*/.test(s))
-  && r.face.present && r.face.deleted && r.create.added === 8 && errs.length === 0;
+  && r.face.present && r.face.bar === "删除 | 更多…" && r.face.deleted && r.create.added === 8 && errs.length === 0;
 console.log(ok ? "probe-ipad-pen OK" : "probe-ipad-pen FAIL");
 process.exit(ok ? 0 : 1);

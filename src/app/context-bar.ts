@@ -25,7 +25,7 @@ export interface ContextBarProviders {
   /** 选区动作（已按路由 / 有无选区 / 手势中筛过；空 = 不显示这一段）。 */
   selection?(): HudItem[];
   /** 选区动作被点（宿主路由到 hud.pick）。 */
-  pickSelection?(id: string): void;
+  pickSelection?(id: string, el?: HTMLElement): void;
   /** 每次重画完（这一段住在右下参数小窗里：宿主据此重算整个面板藏不藏，2026-10-25）。 */
   afterRender?(): void;
 }
@@ -71,7 +71,7 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     const b = document.createElement("button"); b.type = "button"; b.className = "selbar-btn" + (it.danger ? " danger" : ""); b.disabled = !!it.disabled; b.title = it.label;
     b.innerHTML = `${it.icon ? iconHtml(it.icon) : ""}<span></span>`;
     (b.lastElementChild as HTMLElement).textContent = it.label;
-    b.addEventListener("click", () => p.pickSelection?.(it.id));
+    b.addEventListener("click", () => p.pickSelection?.(it.id, b));
     return b;
   };
   // 控件本体住 ui/field-control.ts（参数小窗共用，2026-10-25）；这里只把工具配置的值和写回接上

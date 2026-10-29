@@ -20,7 +20,7 @@
 // Editor 只吃工具指针（pointerDown/Move/Up/Leave）；相机改动直接打 editor.cam 再 draw。
 
 import type { Editor, ToolPointer } from "../editor/editor.ts";
-import { LONG_PRESS_MS, GESTURE_TAP_MAX_MS, GESTURE_TAP_MAX_MOVE, PALM_PEN_GUARD_MS, STALE_TOUCH_MS, SINGLE_TAP_MS, UNLOCK_PX } from "../controller/feel.ts";   // 时间 / 距离的数值住手感表（2026-10-28）
+import { FINGER_DOUBLE_TAP_MS, FINGER_DOUBLE_TAP_PX, LONG_PRESS_MS, GESTURE_TAP_MAX_MS, GESTURE_TAP_MAX_MOVE, PALM_PEN_GUARD_MS, STALE_TOUCH_MS, SINGLE_TAP_MS, UNLOCK_PX } from "../controller/feel.ts";   // 时间 / 距离的数值住手感表（2026-10-28）
 
 type Role = "tool" | "orbit" | "pan" | "hold" | "multi";
 interface Tracked { type: string; role: Role; x: number; y: number; downX: number; downY: number; downAt: number; lastAt: number; }
@@ -54,6 +54,8 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   /** locked = 笔按住拖的中途凑成的双指：先当手掌，质心 / 指距累计动过 UNLOCK_PX 才解锁成相机（user 2026-10-24「要不要大动作解锁」）。 */
   let multi: { cx: number; cy: number; d: number; locked: boolean; travel: number } | null = null;
   let tap: GestureTap | null = null;
+  /** 上一次单指轻点（双击进出组件层级用）。 */
+  let lastFingerTap: { at: number; x: number; y: number } | null = null;
 
   const local = (ev: PointerEvent): { x: number; y: number } => {
     const r = canvas.getBoundingClientRect();
@@ -225,8 +227,13 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
         multi = null;
         return;
       }
-      // 单指轻点（从未凑成多指、没动、不在掌触门内）：当作「取消/收笔」——iPad 上 Esc 的替身
-      if (t.role === "orbit" && !cancelled && now - t.downAt < SINGLE_TAP_MS && Math.hypot(t.x - t.downX, t.y - t.downY) < GESTURE_TAP_MAX_MOVE && now - lastPenActivity >= PALM_PEN_GUARD_MS) editor.cancel();
+      // 单指轻点（从未凑成多指、没动、不在掌触门内）：当作「取消/收笔」——iPad 上 Esc 的替身；
+      // 同一处很快点第二下 = 双击：点在子组件 / 组上进去、点在空处退一层（user 10-28 夜「手指双击能不能也能进出hierarchy」；鼠标双击同语义）
+      if (t.role === "orbit" && !cancelled && now - t.downAt < SINGLE_TAP_MS && Math.hypot(t.x - t.downX, t.y - t.downY) < GESTURE_TAP_MAX_MOVE && now - lastPenActivity >= PALM_PEN_GUARD_MS) {
+        const prev = lastFingerTap;
+        if (prev && now - prev.at < FINGER_DOUBLE_TAP_MS && Math.hypot(t.x - prev.x, t.y - prev.y) < FINGER_DOUBLE_TAP_PX) { lastFingerTap = null; editor.hierarchyTapAt(t.x, t.y); }
+        else { lastFingerTap = { at: now, x: t.x, y: t.y }; editor.cancel(); }
+      }
       return;
     }
     if (t.role === "multi") {

@@ -18,7 +18,7 @@ import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
 import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts";
-import { openContextMenuAt } from "./context-menu.ts";
+import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
@@ -699,8 +699,13 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
     ];
   },
   actions: (tool) => [...toolActions(tool), ...deleteAction()],
-  selection: () => (selectionRoute(lastPointerType) === "bar" && editor.hasSelection() && !editor.isGestureActive() ? barItems(editor, hud) : []),
-  pickSelection: (id) => { hud.pick(id as never); },
+  // 笔 / 手指：右下只留「删除」+「更多…」（= 右键同一份菜单）；别的可选操作都在菜单里（user 10-28 夜截图「可选操作应该放到右键菜单里而不是全堆在马后炮，好好整理一下」）
+  selection: () => {
+    if (selectionRoute(lastPointerType) !== "bar" || !editor.hasSelection() || editor.isGestureActive()) return [];
+    const all = barItems(editor, hud).filter((it) => !it.hidden), del = all.filter((it) => it.id === "delete");
+    return [...del, ...(all.length > del.length ? [{ id: "selMore", label: "更多…", icon: "more" } as HudItem] : [])];
+  },
+  pickSelection: (id, el) => { if (id === "selMore") { if (el) openSelectionMenu(editor, hud, el); return; } hud.pick(id as never); },
   afterRender: () => { vcbRef?.render(); },
 });
 /** 自由建模有选区时右下的「删除」（user 10-28 夜「delete变成按钮可能不大好。吃书吧。变成右下的一个按钮？」：左柱垃圾桶撤回）；笔 / 手指的选区条里本来就有删除，不重复。 */

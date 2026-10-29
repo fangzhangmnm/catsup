@@ -28,10 +28,13 @@ export function mountSoftSlider(stage: HTMLElement, canvas: HTMLElement, editor:
     circle.setAttribute("cx", String(c.x)); circle.setAttribute("cy", String(c.y)); circle.setAttribute("r", String(c.r));
   };
   const showIdleRing = (): void => { if (editor.isGestureActive()) return; const c = deps.selectionScreenCenter(); ring(c ? { ...c, r: editor.config.get("soft", "radius") } : null); };
-  input.addEventListener("input", () => { editor.config.set("soft", "radius", toR(Number(input.value))); label.textContent = `${editor.config.get("soft", "radius")}`; if (dragging) showIdleRing(); editor.refreshGesture(); });
+  // 拖的时候圈实时跟着变（user 10-28 夜「滑条拉的时候范围应该实时变」）；收圈不靠 window 的 pointerup——iPad 上滑块抓着指针，那一下到不了 window，圈就挂在那里（截图）
+  input.addEventListener("input", () => { editor.config.set("soft", "radius", toR(Number(input.value))); label.textContent = `${editor.config.get("soft", "radius")}`; dragging = true; showIdleRing(); editor.refreshGesture(); });
   input.addEventListener("pointerdown", () => { dragging = true; showIdleRing(); });
   const end = (): void => { if (!dragging) return; dragging = false; if (!editor.isGestureActive()) ring(null); };
+  for (const t of ["change", "pointerup", "pointercancel", "lostpointercapture", "blur", "touchend"] as const) input.addEventListener(t, end);
   window.addEventListener("pointerup", end); window.addEventListener("pointercancel", end);
+  canvas.addEventListener("pointerdown", () => { if (!editor.isGestureActive()) ring(null); });   // 兜底：画布上一按，没在操作就收圈
   const render = (): void => {
     const v = deps.visible();
     box.hidden = !v;

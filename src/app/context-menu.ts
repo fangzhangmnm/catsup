@@ -3,6 +3,7 @@
 // 一份内容（= HudModel.edits() 按层筛）、三个入口：桌面右键（任何工具，SU 同款：指针下的东西不在选区就先选它）、
 // 触屏长按（只在选择工具里，gestures.ts 计时）、顶部选区浮条（选中东西就出现，零长按可发现）。菜单本体 = 共享 popup-menu 深模块，
 // 定位靠一个 0×0 的锚点元素挪到指针处。
+import { barItems } from "./selection-actions.ts";
 import type { Editor } from "../editor/editor.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { openPopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
@@ -45,3 +46,10 @@ export function foldSubmenus(items: readonly HudItem[]): PopupMenuItem[] {
 }
 
 // （顶部选区浮条 mountSelectionBar 2026-10-24 并进 context-bar.ts 的上下文条，A25）
+
+/** 选区的菜单（和右键同一份），挂在一个按钮上弹（笔 / 手指的右下「更多…」；user 10-28 夜「可选操作应该放到右键菜单里而不是全堆在马后炮」）。 */
+export function openSelectionMenu(editor: Editor, hud: HudModel, anchor: HTMLElement): void {
+  const items = (): HudItem[] => barItems(editor, hud).filter((it) => !it.hidden && it.id !== "delete");
+  if (!items().length) return;
+  openPopupMenu({ anchor, items: () => foldSubmenus(items()), onPick: (id) => { hud.pick(id); } });
+}
