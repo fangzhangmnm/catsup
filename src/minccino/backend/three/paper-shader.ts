@@ -49,6 +49,9 @@ const PAPER_FS = /* glsl */`
     #ifdef SEL
     c = uMark;   // 标记（选中 / 悬停）：换成状态色（刀 b；这个风格的材质表 = 替换）
     #endif
+    #ifdef DIM
+    c = mix(c, uMark, 0.5);   // 淡出（上下文之外）：往淡出色拉一半（刀 c）
+    #endif
     vec3 N = normalize(cross(dFdx(vPosV), dFdy(vPosV)));   // 刻面感 1：面法线，朝着看的这一侧
     float q = (dot(N, uLight) * 0.5 + 0.5) * uSteps;
     float sw = max(uSoft, 0.75 * fwidth(q));

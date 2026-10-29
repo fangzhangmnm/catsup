@@ -89,6 +89,8 @@ const SCENES = {
   "style-papercut-painted": { fixture: "painted.glb", noTexWait: true, after: `e.renderer3.setPreset("papercut"); e.draw();` },
   // 刀 b（标记 + 索引分段）针对场景：上色样本全选 → 上色的面换成选中色（白模的材质表 = 替换，T69）
   "marks-painted-selall": { fixture: "painted.glb", noTexWait: true, after: `e.setTool("select"); e.selectAll(); e.draw();` },
+  // 刀 c（淡出 = 整槽标记）针对场景：进组件编辑，外面的盒子淡出（面往淡出色拉一半、边淡灰），里面选一张面
+  "dim-context-sel": `box(0, 0, 1, 1, 1); e.selectAll(); e.makeComponent("块"); box(1.4, 0.2, 2.0, 0.8, 0.6); const s = e.scene, inst = [...s.def(s.root).instances.values()][0]; e.selectedPools.clear(); e.selectedPools.set("i" + inst.id, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.draw();`,
   // CRT Tron（Tron 第 1 步第三个风格）：深色面 + 青线 + 被挡住的边 + 辉光 + 地格 + 240 行 CRT；选中顶面 = 认领色（Clu 橙）
   "style-tron-sel": `e.renderer3.setPreset("tron"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.draw();`,
   // Tron × 粗线（轮廓加粗那条路）× 房子样本

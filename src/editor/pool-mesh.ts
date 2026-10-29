@@ -238,8 +238,9 @@ export interface PoolMeshEnv {
   matOf(slot: number | undefined): Material | null;
   /** 定义的材质槽表签名（每个槽的材质身份，逗号连）：一边是另一边的前缀 = 增量；别的变化 = 全量重建。 */
   slotsSig: string;
-  faceColor(mat: Material | null, dim: boolean): readonly [number, number, number];
-  edgeColor(loose: boolean, dim: boolean): readonly [number, number, number];
+  /** 面 / 边烤进顶点的颜色（提供者按调色板算；淡出 / 选中不在这里 = 标记）。 */
+  faceColor(mat: Material | null): readonly [number, number, number];
+  edgeColor(loose: boolean): readonly [number, number, number];
   /** 粗线（LineSegments2 实例）还是像素线。 */
   thick: boolean;
   /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
@@ -247,12 +248,12 @@ export interface PoolMeshEnv {
 }
 export interface FaceGroup { readonly key: string; readonly mat: Material | null; readonly side: TexSide | null; readonly store: RegionStore; }
 
-// 一个纯色顶点 = 位置 12 + 法线 6 + 四个颜色 12 = 30 字节（全浮点时 72）；面颜色是 sRGB 里的值，八位够（法线十六位）
-const PLAIN_SPECS: AttrSpec[] = [{ name: "position", size: 3 }, { name: "normal", size: 3, type: "i16n" }, { name: "aColor", size: 3, type: "i8n" }, { name: "aColorB", size: 3, type: "i8n" }, { name: "aColorDim", size: 3, type: "i8n" }, { name: "aColorBDim", size: 3, type: "i8n" }];
-const TEX_SPECS: AttrSpec[] = [{ name: "position", size: 3 }, { name: "normal", size: 3, type: "i16n" }, { name: "aColor", size: 3, type: "i8n" }, { name: "aColorDim", size: 3, type: "i8n" }, { name: "aUv", size: 2 }];
+// 一个纯色顶点 = 位置 12 + 法线 6 + 两侧颜色 6 = 24 字节（刀 c 起淡出不烤顶点色）；面颜色是 sRGB 里的值，八位够（法线十六位）
+const PLAIN_SPECS: AttrSpec[] = [{ name: "position", size: 3 }, { name: "normal", size: 3, type: "i16n" }, { name: "aColor", size: 3, type: "i8n" }, { name: "aColorB", size: 3, type: "i8n" }];
+const TEX_SPECS: AttrSpec[] = [{ name: "position", size: 3 }, { name: "normal", size: 3, type: "i16n" }, { name: "aColor", size: 3, type: "i8n" }, { name: "aUv", size: 2 }];
 // 线的颜色是线性空间的值（THREE.Color），暗处八位会出台阶 → 留浮点（线比面少）
-const PIXEL_SPECS: AttrSpec[] = [{ name: "position", size: 3 }, { name: "color", size: 3 }, { name: "colorDim", size: 3 }];
-const THICK_SPECS: AttrSpec[] = [{ name: "seg", size: 6 }, { name: "col", size: 6 }, { name: "colDim", size: 6 }, { name: "w1", size: 3 }, { name: "w2", size: 3 }, { name: "flag", size: 1 }];
+const PIXEL_SPECS: AttrSpec[] = [{ name: "position", size: 3 }, { name: "color", size: 3 }];
+const THICK_SPECS: AttrSpec[] = [{ name: "seg", size: 6 }, { name: "col", size: 6 }, { name: "w1", size: 3 }, { name: "w2", size: 3 }, { name: "flag", size: 1 }];
 /** 面每块多少个顶点（= 5461 个三角；3 的倍数，见 RegionStore 的对齐）。 */
 const FACE_CHUNK = 16383;
 const NONE: readonly [number, number, number] = [-1, -1, -1];
@@ -384,15 +385,14 @@ export class PoolMesh {
     if (rec) {
       const tF = rec.mF?.texture ? rec.mF : null, tB = rec.mB?.texture ? rec.mB : null;
       const tex = (m: Material, side: TexSide): void => {
-        const c = env.faceColor(m, false), cd = env.faceColor(m, true), [tw, th] = m.texture!.sizeM;
-        const qc = c.map(q8), qd = cd.map(q8);
+        const c = env.faceColor(m), [tw, th] = m.texture!.sizeM;
+        const qc = c.map(q8);
         parts.push({ key: `tex:${this.matKey(m)}:${side}`, mat: m, side, fill: (a, off) => {
           writeGeom(a, off, rec);
           const nv = rec.pos.length / 3;
           for (let i = 0; i < nv; i++) {
             const o3 = (off + i) * 3, o2 = (off + i) * 2, x = rec.pos[i * 3], y = rec.pos[i * 3 + 1], z = rec.pos[i * 3 + 2];
             a.aColor[o3] = qc[0]; a.aColor[o3 + 1] = qc[1]; a.aColor[o3 + 2] = qc[2];
-            a.aColorDim[o3] = qd[0]; a.aColorDim[o3 + 1] = qd[1]; a.aColorDim[o3 + 2] = qd[2];
             a.aUv[o2] = (x * rec.u.x + y * rec.u.y + z * rec.u.z) / (tw || 1); a.aUv[o2 + 1] = (x * rec.v.x + y * rec.v.y + z * rec.v.z) / (th || 1);
           }
         } });
@@ -402,8 +402,7 @@ export class PoolMesh {
         if (tF) tex(tF, "front");
         if (tB) tex(tB, "back");
         if (!tF || !tB) {
-          const cF = (tF ? NONE : env.faceColor(rec.mF, false)).map(q8), cB = (tB ? NONE : env.faceColor(rec.mB, false)).map(q8);
-          const cFd = (tF ? NONE : env.faceColor(rec.mF, true)).map(q8), cBd = (tB ? NONE : env.faceColor(rec.mB, true)).map(q8);
+          const cF = (tF ? NONE : env.faceColor(rec.mF)).map(q8), cB = (tB ? NONE : env.faceColor(rec.mB)).map(q8);
           parts.push({ key: "plain", mat: null, side: null, fill: (a, off) => {
             writeGeom(a, off, rec);
             const nv = rec.pos.length / 3;
@@ -411,8 +410,6 @@ export class PoolMesh {
               const o = (off + i) * 3;
               a.aColor[o] = cF[0]; a.aColor[o + 1] = cF[1]; a.aColor[o + 2] = cF[2];
               a.aColorB[o] = cB[0]; a.aColorB[o + 1] = cB[1]; a.aColorB[o + 2] = cB[2];
-              a.aColorDim[o] = cFd[0]; a.aColorDim[o + 1] = cFd[1]; a.aColorDim[o + 2] = cFd[2];
-              a.aColorBDim[o] = cBd[0]; a.aColorBDim[o + 1] = cBd[1]; a.aColorBDim[o + 2] = cBd[2];
             }
           } });
         }
@@ -426,12 +423,12 @@ export class PoolMesh {
 
   private writeEdge(eid: EdgeId, rec: EdgeRec | null, env: PoolMeshEnv): void {
     if (!rec) { this.lines.remove(eid); return; }
-    const c = env.edgeColor(rec.loose, false), cd = env.edgeColor(rec.loose, true);
+    const c = env.edgeColor(rec.loose);
     if (this.thick) {
       this.lines.put(eid, (a, off) => {
         const s6 = off * 6;
         a.seg[s6] = rec.a.x; a.seg[s6 + 1] = rec.a.y; a.seg[s6 + 2] = rec.a.z; a.seg[s6 + 3] = rec.b.x; a.seg[s6 + 4] = rec.b.y; a.seg[s6 + 5] = rec.b.z;
-        for (let q = 0; q < 6; q++) { a.col[s6 + q] = c[q % 3]; a.colDim[s6 + q] = cd[q % 3]; }
+        for (let q = 0; q < 6; q++) a.col[s6 + q] = c[q % 3];
         const s3 = off * 3;
         a.w1[s3] = rec.w1.x; a.w1[s3 + 1] = rec.w1.y; a.w1[s3 + 2] = rec.w1.z; a.w2[s3] = rec.w2.x; a.w2[s3 + 1] = rec.w2.y; a.w2[s3 + 2] = rec.w2.z;
         a.flag[off] = rec.flag;
@@ -440,7 +437,7 @@ export class PoolMesh {
       this.lines.put(eid, (a, off) => {
         const o = off * 3;
         a.position[o] = rec.a.x; a.position[o + 1] = rec.a.y; a.position[o + 2] = rec.a.z; a.position[o + 3] = rec.b.x; a.position[o + 4] = rec.b.y; a.position[o + 5] = rec.b.z;
-        for (let q = 0; q < 6; q++) { a.color[o + q] = c[q % 3]; a.colorDim[o + q] = cd[q % 3]; }
+        for (let q = 0; q < 6; q++) a.color[o + q] = c[q % 3];
       });
     }
   }

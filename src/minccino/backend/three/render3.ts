@@ -40,8 +40,8 @@ import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
 import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
-import type { Backend, BackendCaps, FrameInput , Mark, FaceSlot} from "../../index.ts";
-import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type ChunkStyle, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
+import type { Backend, BackendCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
+import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
 import { PRESETS, isStyled, presetPasses, type Preset, type PresetId } from "../../preset/index.ts";
@@ -99,10 +99,10 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
  * 线同理。每份几何都把「另一套颜色」也挂在一个着色器不用的名字下——three 画一份几何时把它挂着的缓冲全传上去，
  * 这样没被画的那套颜色的局部上传也不会一直攒着。缓冲直接包池网格的大数组（不拷），改过哪段只传哪段（addUpdateRange）。
  */
-interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
-interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
+interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
+interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
+interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
 interface MarkedGeo { geo: any; src: any; index: any }
 
 // ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
@@ -165,6 +165,9 @@ const FACE_FRAG = /* glsl */`
     #ifdef SEL
     c = uMark;   // 标记（选中 / 悬停）：换成状态色（刀 b；白模的材质表 = 替换）
     #endif
+    #ifdef DIM
+    c = mix(c, uMark, 0.5);   // 淡出（上下文之外）：往淡出色拉一半（刀 c；以前没上色的面是纯淡出色，现在一律拉一半）
+    #endif
     float k = uUnlit ? 1.0 : 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));   // 不打光（风格：像素描边 = 纯色）
     gl_FragColor = vec4(c * k, 1.0);   // 颜色已是 sRGB，直接出（与旧 shade() 同值）
   }`;
@@ -188,6 +191,9 @@ const TEX_FRAG = /* glsl */`
     vec3 c = texture2D(uMap, vUv).rgb * vColor;
     #ifdef SEL
     c = texture2D(uMap, vUv).rgb * uMark;   // 标记：贴图 × 状态色（和以前的贴图高亮同值）
+    #endif
+    #ifdef DIM
+    c = texture2D(uMap, vUv).rgb * uMark;   // 淡出：贴图 × 淡出色（= 以前烤进顶点色的那个值）
     #endif
     gl_FragColor = vec4(c * k, 1.0);
   }`;
@@ -217,6 +223,7 @@ export class Renderer3 implements Backend {
   private faceMat: any;
   // ---- 池级几何（#22 池级局部性，2026-10-21）：每个槽一组节点 + 每个 kernel 一份共享几何；选中 / 悬停走覆盖层 ----
   private pixelMat: any;                            // 原生线材质（顶点色，共享）
+  private edgeDimMat: any; private pixelDimMat: any;   // 淡出的边（刀 c）：整组一色
   private texMats = new Map<object, any>();         // 贴图材质对象 → 共享 ShaderMaterial（uMap）
   private slotNodes = new Map<string, SlotNodes>();
   /** 块（流契约 Chunk.id）→ 显卡几何：两代没人用的释放。池网格本体住编辑器那边的流提供者（stream-provider.ts），这里只有显卡副本。 */
@@ -321,6 +328,10 @@ export class Renderer3 implements Backend {
     // SU 轮廓线：自己的顶点着色器源（profile-line-shader.ts；以前是 onBeforeCompile 在 three 编译时改源——步 5 拔掉的漏点 ①）
     this.edgeMat.vertexShader = PROFILE_LINE_VERTEX;
     this.edgeMat.uniforms.profileAdd = this.profileAdd;
+    // 淡出的边（刀 c）：同一套轮廓线 shader、整组一色（PALETTE.edgeDim），不要顶点色；线宽每帧跟 edgeMat（syncLineScale）
+    this.edgeDimMat = this.lineMat(EDGE_PX, { offset: true, vertexColors: false });
+    this.edgeDimMat.vertexShader = PROFILE_LINE_VERTEX; this.edgeDimMat.uniforms.profileAdd = this.profileAdd; this.edgeDimMat.color.setHex(PALETTE.edgeDim);
+    this.pixelDimMat = new THREE.LineBasicMaterial({ color: PALETTE.edgeDim });
     // X 光（DT17，2026-10-26）：池的边再画一遍（共用几何、不另占内存）+ 覆盖层不做深度测试；半透明渲染那半留 Tron 纪元
     this.xrayPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: XRAY_OPACITY, depthTest: false, depthWrite: false });
     this.xrayThickMat = this.lineMat(EDGE_PX, { vertexColors: true });
@@ -495,7 +506,7 @@ export class Renderer3 implements Backend {
     for (let i = 0; i < this.lineMats.length; i++) this.lineMats[i].linewidth = this.lineMatPx[i] * scale;
     // 边线：lineWeight 是设备像素（桌面 scale = dpr 已经折进 resolution；XR 按 viewport 高折算）
     const k = presenting ? scale : 1;
-    this.edgeMat.linewidth = Math.max(this.lineWeight, 1) * k;
+    this.edgeMat.linewidth = Math.max(this.lineWeight, 1) * k; this.edgeDimMat.linewidth = this.edgeMat.linewidth;
     this.profileAdd.value = profileAddFor(Math.max(this.lineWeight, 1)) * k;
     if (this.overlayLines) this.overlayLines.edgeWidth(Math.max(this.lineWeight, 1) * k);   // 断口小垂线跟边线一样粗（鼓包，不是另一种线）
     if (this.axesObj) this.axesObj.material.linewidth = Math.min(STATIC_PX * scale, this.lineWeight > 1 ? this.lineWeight * k : 0.6 * k);   // 原生细线（1 px）覆盖的采样点和粗线插件不同，轴同宽会从缝里透红 → 细线模式下轴画 0.6 px   // 轴不比边粗：压在轴上的边要整条盖住轴（2× 屏上轴 2.4 px > 边 1.5 px → 边成了「红边夹黑芯」，2026-10-25）
@@ -824,21 +835,6 @@ export class Renderer3 implements Backend {
   overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id); }
   /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
   setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
-  /** 样式那半给提供者（过渡期：面 / 边颜色和粗线 / 像素线还烤在顶点色里；材质模块 + 叠加层落地后退役）。 */
-  chunkStyle(): ChunkStyle {
-    const c = new THREE.Color(), hex = (h: number): readonly [number, number, number] => { c.setHex(h); return [c.r, c.g, c.b]; };
-    const eDim = hex(PALETTE.edgeDim), eWire = hex(PALETTE.edgeWire), eFace = hex(PALETTE.edge);
-    return {
-      // 淡出（上下文之外）：底色换成 faceDim、纯色材质和它对半混；贴图材质 = faceDim 乘贴图（和以前的变体同一套规则）
-      faceColor: (mat, dim) => {
-        if (dim) { const d = srgb(PALETTE.faceDim); return mat && !mat.texture ? [(d[0] + mat.color[0]) / 2, (d[1] + mat.color[1]) / 2, (d[2] + mat.color[2]) / 2] : d; }
-        if (mat && !mat.texture) return [mat.color[0], mat.color[1], mat.color[2]];
-        return mat?.texture ? [1, 1, 1] : srgb(PALETTE.face);
-      },
-      edgeColor: (loose, dim) => (dim ? eDim : loose ? eWire : eFace),
-      thick: () => this.lineStyle === "thick",
-    };
-  }
   /** 拉一帧流 → 块进显卡 → 每个放置一组槽节点（矩阵 + 按活动 / 淡出 / 单面挑材质和几何）。 */
   private syncPools(): void {
     if (!this.provider) throw new Error("render3: no stream provider (editor wires EditorStreamProvider before the first draw)");
@@ -859,7 +855,7 @@ export class Renderer3 implements Backend {
       n.gen = this.syncGen;
       n.root.visible = true;
       setMatrix(n.root, pl.xform);
-      const pb = byPool.get(pl.pool), dimmed = pl.dim;
+      const pb = byPool.get(pl.pool);
       // 面：活动池 DEPTH.face、别的池 DEPTH.faceOther（#25 重叠时活动池 / loose 几何赢）
       const paper = this.framePreset.material.shade === "flat" ? this.paper : null;   // 平涂（剪纸）：纸的那组材质，深度偏移档照旧
       const tron = this.framePreset.material.shade === "tron" ? this.tron : null;      // CRT Tron：深色面 + 青线；选中面认领成橙色
@@ -867,7 +863,7 @@ export class Renderer3 implements Backend {
       const pbr = this.framePreset.material.shade === "pbr" ? this.pbr : null;          // 铸铜：有光照的表面，不借模型颜色
       n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pbr ? pbr.face(fside, pl.active, false, false, null, this.framePreset.material.surface) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
       const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
-      n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
+      n.plain.geometry = showPlain ? plain!.geo : this.emptyGeo; n.plain.visible = showPlain;
       n.plainSrc = n.plain.geometry; n.plainMat = n.plain.material; n.plainChunk = plain?.id ?? null; n.markKey = "\u0000";   // 标记下一帧按新的源几何重分段
       let ti = 0;
       for (const gf of pb?.tex ?? []) {
@@ -875,16 +871,17 @@ export class Renderer3 implements Backend {
         let slot = n.tex[ti];
         if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh, src: null, mat: null, chunk: null }; n.tex.push(slot); }
         slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true, false, this.framePreset.material.colorize === "model" ? this.texUniform(gf.mat!) : null, this.framePreset.material.surface) : this.texMatFor(gf.mat!, gf.side!);   // 写实：贴图进底色   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
-        slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
+        slot.mesh.geometry = gf.geo; slot.mesh.visible = true;
         slot.src = slot.mesh.geometry; slot.mat = slot.mesh.material; slot.chunk = gf.id;
         ti++;
       }
       for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
       // 边
-      const L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && this.framePreset.material.edges;   // 风格可以不画模型的线稿（像素描边）；X 光的线照画
-      if (this.lineStyle === "thick") { n.thick.geometry = hasL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
-      else { n.pixel.geometry = hasL ? (dimmed ? L!.geoDim : L!.geo) : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
+      const edgesMode = this.framePreset.material.edges, L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && (edgesMode === "all" || (edgesMode === "active" && pl.active));   // 风格的线稿三档：none / all / active（只画正在编辑那一层的，T60）；X 光的线照画
+      if (this.lineStyle === "thick") { n.thick.geometry = hasL ? L!.geo : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
+      else { n.pixel.geometry = hasL ? L!.geo : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
       n.thick.material = tron ? tron.lineThick : this.edgeMat; n.pixel.material = tron ? tron.linePixel : this.pixelMat;
+      n.thickMat = n.thick.material; n.pixelMat = n.pixel.material; n.linesChunk = L?.id ?? null;   // 线的标记（淡出）按它换材质
       // 被挡住的边：Tron 拿 X 光那两个节点（同一份线几何）换成「深度反测 + 半透明」画在模型那一层；别的风格 = X 光（叠加层那一层、不做深度测试）
       const xr = (this.xrayPass || !!tron) && hasL, xLayer = tron ? 1 : 1 << OVERLAY_LAYER;
       n.xthick.layers.mask = xLayer; n.xpixel.layers.mask = xLayer;
@@ -895,7 +892,7 @@ export class Renderer3 implements Backend {
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
     for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
     // 块的显卡副本：两代没人用的释放
-    for (const [id, g] of this.chunkGpus) if (g.gen < this.syncGen - 1) { g.geo.dispose(); g.geoDim.dispose(); this.chunkGpus.delete(id); }
+    for (const [id, g] of this.chunkGpus) if (g.gen < this.syncGen - 1) { g.geo.dispose(); this.chunkGpus.delete(id); }
   }
   // ---- 标记（契约 v2 第 ② 批，刀 b；user 10-29「我想的是画原色但是踢掉选中的，然后画选中的」「index赞！」）----
   // 有标记的网格换成「共享源几何的属性 + 自己的索引」：索引把顶点分成几段——普通的在前、每个材质槽的标记段接在后面 → 永远几个 draw call，
@@ -910,13 +907,26 @@ export class Renderer3 implements Backend {
       n.markKey = key;
       this.applyMarks(n.plain, n.plainSrc, n.plainMat, n.plainChunk, ms, n.marked);
       for (const t of n.tex) if (t.mesh.visible) this.applyMarks(t.mesh, t.src, t.mat, t.chunk, ms, n.marked);
+      // 线：整块换材质（淡出 edgeDim）；没标记 = 底材质
+      const lm = n.linesChunk ? ms.find((m) => m.chunk === n.linesChunk && m.material === "edgeDim") : undefined;
+      n.thick.material = lm ? this.lineSlotMaterial(n.thickMat, "edgeDim") : n.thickMat;
+      n.pixel.material = lm ? this.lineSlotMaterial(n.pixelMat, "edgeDim") : n.pixelMat;
     }
   }
-  private static readonly MARK_SLOTS: readonly FaceSlot[] = ["faceSelected", "faceHover"];
+  /** 线的材质槽（刀 c：只有 edgeDim）：白模的边 → 淡出那份；别的风格（Tron）的线材质自己不认淡出 = 照旧。 */
+  private lineSlotMaterial(base: any, slot: LineSlot): any {
+    if (slot === "edgeDim") { if (base === this.edgeMat) return this.edgeDimMat; if (base === this.pixelMat) return this.pixelDimMat; }
+    return base;
+  }
+  private static readonly MARK_SLOTS: readonly FaceSlot[] = ["faceSelected", "faceHover"];   // 分段的槽；faceDim 是整块的（底材质换掉）
   private applyMarks(mesh: any, src: any, mat: any, chunk: string | null, ms: readonly Mark[], cache: Map<string, MarkedGeo>): void {
-    const mine = chunk ? ms.filter((m) => m.chunk === chunk) : [];
-    if (!mine.length || !src || src === this.emptyGeo) { mesh.geometry = src ?? this.emptyGeo; mesh.material = mat; if (chunk) this.dropMarked(cache, chunk); return; }
-    const count: number = Number.isFinite(src.drawRange.count) ? src.drawRange.count : src.attributes.position.count;
+    const all = chunk ? ms.filter((m) => m.chunk === chunk) : [];
+    const count: number = !src || src === this.emptyGeo ? 0 : Number.isFinite(src.drawRange.count) ? src.drawRange.count : src.attributes.position.count;
+    // 整块的标记（淡出 faceDim）= 底材质换掉，不分段；分段只管选中 / 悬停
+    const full = all.find((m) => m.material === "faceDim" && m.start <= 0 && m.start + m.count >= count);
+    if (full) mat = this.markMaterial(mat, "faceDim");
+    const mine = all.filter((m) => m.material !== "faceDim" && m.material !== "edgeDim");
+    if (!mine.length || !count) { mesh.geometry = src ?? this.emptyGeo; mesh.material = mat; if (chunk) this.dropMarked(cache, chunk); return; }
     let e = cache.get(chunk!);
     if (e && (e.src !== src || e.index.count !== count)) { this.dropMarked(cache, chunk!); e = undefined; }
     if (!e) {
@@ -927,7 +937,7 @@ export class Renderer3 implements Backend {
       e = { geo, src, index }; cache.set(chunk!, e);
     }
     const slots = Renderer3.MARK_SLOTS, taken = new Uint8Array(count);   // 0 = 普通；k + 1 = 第 k 个材质槽
-    for (const m of mine) { const si = slots.indexOf(m.material) + 1; if (!si) continue; const end = Math.min(m.start + m.count, count); for (let i = Math.max(m.start, 0); i < end; i++) taken[i] = si; }
+    for (const m of mine) { const si = slots.indexOf(m.material as FaceSlot) + 1; if (!si) continue; const end = Math.min(m.start + m.count, count); for (let i = Math.max(m.start, 0); i < end; i++) taken[i] = si; }
     const idx = e.index.array as Uint32Array;
     let w = 0;
     for (let i = 0; i < count; i++) if (taken[i] === 0) idx[w++] = i;
@@ -936,7 +946,7 @@ export class Renderer3 implements Backend {
     slots.forEach((sl, k) => {
       const s0 = w;
       for (let i = 0; i < count; i++) if (taken[i] === k + 1) idx[w++] = i;
-      if (w > s0) { e!.geo.addGroup(s0, w - s0, mats.length); mats.push(this.markMaterial(mat, sl === "faceSelected" ? PALETTE.faceSelected : PALETTE.faceHover)); }
+      if (w > s0) { e!.geo.addGroup(s0, w - s0, mats.length); mats.push(this.markMaterial(mat, sl as FaceSlot)); }
     });
     e.index.needsUpdate = true;
     e.geo.setDrawRange(0, w);
@@ -947,18 +957,19 @@ export class Renderer3 implements Backend {
     for (const name of Object.keys(e.geo.attributes)) e.geo.deleteAttribute(name);   // 属性是源几何的，不跟着释放；只放掉自己的索引
     e.geo.dispose(); cache.delete(chunk);
   }
-  private markMats = new Map<any, Map<number, any>>();
-  /** 标记的材质 = 这个槽的面材质 + SEL 变体（同一套 shader / uniforms / 深度偏移；每个风格的 shader 自己说 SEL 长什么样：白模 = 换成状态色、写实 = 叠色、Tron = Clu 橙 + 辉光）。 */
-  private markMaterial(plain: any, hex: number): any {
+  private markMats = new Map<any, Map<FaceSlot, any>>();
+  /** 标记的材质 = 这个槽的面材质 + SEL / DIM 变体（同一套 shader / uniforms / 深度偏移；每个风格的 shader 自己说变体长什么样：白模 = 换成状态色 / 往淡出色拉一半、写实 = 叠色、Tron = Clu 橙 + 辉光）。uMark = 调色板里那个槽位的颜色。 */
+  private markMaterial(plain: any, slot: FaceSlot): any {
     let by = this.markMats.get(plain); if (!by) { by = new Map(); this.markMats.set(plain, by); }
-    let m = by.get(hex); if (m) return m;
+    let m = by.get(slot); if (m) return m;
+    const hex = slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : PALETTE.faceDim;
     m = new THREE.ShaderMaterial({
-      glslVersion: plain.glslVersion, vertexShader: plain.vertexShader, fragmentShader: plain.fragmentShader, defines: { ...plain.defines, SEL: 1 },
+      glslVersion: plain.glslVersion, vertexShader: plain.vertexShader, fragmentShader: plain.fragmentShader, defines: { ...plain.defines, [slot === "faceDim" ? "DIM" : "SEL"]: 1 },
       uniforms: { ...plain.uniforms, uMark: { value: new THREE.Vector3(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255) } },
       side: plain.side, transparent: plain.transparent, depthTest: plain.depthTest, depthWrite: plain.depthWrite, blending: plain.blending,
       polygonOffset: plain.polygonOffset, polygonOffsetFactor: plain.polygonOffsetFactor, polygonOffsetUnits: plain.polygonOffsetUnits,
     });
-    by.set(hex, m); return m;
+    by.set(slot, m); return m;
   }
   private makeSlotNodes(): SlotNodes {
     const root = new THREE.Group();
@@ -970,7 +981,7 @@ export class Renderer3 implements Backend {
     const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3; xthick.layers.set(OVERLAY_LAYER);
     root.add(plain); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
-    return { root, plain, plainSrc: this.emptyGeo, plainMat: this.faceMat, plainChunk: null, tex: [], pixel, thick, xpixel, xthick, gen: 0, markKey: "\u0000", marked: new Map() };
+    return { root, plain, plainSrc: this.emptyGeo, plainMat: this.faceMat, plainChunk: null, tex: [], pixel, thick, thickMat: this.edgeMat, pixelMat: this.pixelMat, linesChunk: null, xpixel, xthick, gen: 0, markKey: "\u0000", marked: new Map() };
   }
   private texMatFor(mat: MaterialRef, side: ChunkSide = "double"): any {
     let bySide = this.texMats.get(mat);
@@ -987,58 +998,45 @@ export class Renderer3 implements Backend {
     const A = ch.attributes;
     if (gf && gf.version === ch.version) { gf.gen = this.syncGen; return gf; }
     if (!gf || ch.dirty.grown || gf.attrs.position.array !== A.position.array) {
-      if (gf) { gf.geo.dispose(); gf.geoDim.dispose(); }
+      if (gf) gf.geo.dispose();
       // 法线 / 面颜色是归一化整数（pool-mesh 的 i16n / i8n）：显卡读成 −1…1 的浮点
       const at: Record<string, any> = {};
       for (const name of Object.keys(A)) { const x = new THREE.BufferAttribute(A[name].array, A[name].size, !!A[name].normalized); x.setUsage(THREE.DynamicDrawUsage); at[name] = x; }
-      const mk = (dim: boolean): any => {
-        const geo = new THREE.BufferGeometry();
-        geo.setAttribute("position", at.position); geo.setAttribute("normal", at.normal);
-        geo.setAttribute("aColor", dim ? at.aColorDim : at.aColor); geo.setAttribute("_aColorOther", dim ? at.aColor : at.aColorDim);
-        if (at.aUv) geo.setAttribute("aUv", at.aUv);
-        else { geo.setAttribute("aColorB", dim ? at.aColorBDim : at.aColorB); geo.setAttribute("_aColorBOther", dim ? at.aColorB : at.aColorBDim); }
-        return geo;
-      };
-      gf = { id: ch.id, version: ch.version, mat: ch.material ?? null, side: ch.side ?? null, attrs: at, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
+      const geo = new THREE.BufferGeometry();
+      geo.setAttribute("position", at.position); geo.setAttribute("normal", at.normal); geo.setAttribute("aColor", at.aColor);
+      if (at.aUv) geo.setAttribute("aUv", at.aUv); else geo.setAttribute("aColorB", at.aColorB);
+      gf = { id: ch.id, version: ch.version, mat: ch.material ?? null, side: ch.side ?? null, attrs: at, geo, count: ch.count, gen: this.syncGen };
       this.chunkGpus.set(ch.id, gf);
     } else { for (const a of Object.values(gf.attrs)) pushRanges(a, a.itemSize, ch.dirty.ranges); gf.version = ch.version; gf.count = ch.count; gf.gen = this.syncGen; }
-    gf.geo.setDrawRange(0, ch.count); gf.geoDim.setDrawRange(0, ch.count);
+    gf.geo.setDrawRange(0, ch.count);
     return gf;
   }
-  /** 一块线 → 显卡：粗线 = LineSegments2 的实例缓冲（seg / col / colDim / w1 / w2 / flag），像素线 = 普通顶点缓冲。 */
+  /** 一块线 → 显卡：粗线 = LineSegments2 的实例缓冲（seg / col / w1 / w2 / flag），像素线 = 普通顶点缓冲。 */
   private uploadLines(ch: Chunk): GpuLines {
     let gl = this.chunkGpus.get(ch.id) as GpuLines | undefined;
     const A = ch.attributes, instanced = !!ch.instanced;
     if (gl && gl.version === ch.version) { gl.gen = this.syncGen; return gl; }
     if (!gl || ch.dirty.grown || gl.instanced !== instanced || gl.bufs.first.array !== A[instanced ? "seg" : "position"].array) {
-      if (gl) { gl.geo.dispose(); gl.geoDim.dispose(); }
+      if (gl) gl.geo.dispose();
       if (instanced) {
         const ib = (name: string, stride: number): any => { const b = new THREE.InstancedInterleavedBuffer(A[name].array, stride, 1); b.setUsage(THREE.DynamicDrawUsage); return b; };
         const ia = (name: string, size: number): any => { const b = new THREE.InstancedBufferAttribute(A[name].array, size); b.setUsage(THREE.DynamicDrawUsage); return b; };
-        const bufs: Record<string, any> = { first: ib("seg", 6), col: ib("col", 6), colDim: ib("colDim", 6), w1: ia("w1", 3), w2: ia("w2", 3), flag: ia("flag", 1) };
-        const mk = (dim: boolean): any => {
-          const geo = new LineSegmentsGeometry(), c = dim ? bufs.colDim : bufs.col, o = dim ? bufs.col : bufs.colDim;
-          geo.setAttribute("instanceStart", new THREE.InterleavedBufferAttribute(bufs.first, 3, 0)); geo.setAttribute("instanceEnd", new THREE.InterleavedBufferAttribute(bufs.first, 3, 3));
-          geo.setAttribute("instanceColorStart", new THREE.InterleavedBufferAttribute(c, 3, 0)); geo.setAttribute("instanceColorEnd", new THREE.InterleavedBufferAttribute(c, 3, 3));
-          geo.setAttribute("_colorOther", new THREE.InterleavedBufferAttribute(o, 3, 0));
-          geo.setAttribute("instanceW1", bufs.w1); geo.setAttribute("instanceW2", bufs.w2); geo.setAttribute("instanceFlag", bufs.flag);
-          return geo;
-        };
-        gl = { id: ch.id, version: ch.version, instanced, bufs, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
+        const bufs: Record<string, any> = { first: ib("seg", 6), col: ib("col", 6), w1: ia("w1", 3), w2: ia("w2", 3), flag: ia("flag", 1) };
+        const geo = new LineSegmentsGeometry();
+        geo.setAttribute("instanceStart", new THREE.InterleavedBufferAttribute(bufs.first, 3, 0)); geo.setAttribute("instanceEnd", new THREE.InterleavedBufferAttribute(bufs.first, 3, 3));
+        geo.setAttribute("instanceColorStart", new THREE.InterleavedBufferAttribute(bufs.col, 3, 0)); geo.setAttribute("instanceColorEnd", new THREE.InterleavedBufferAttribute(bufs.col, 3, 3));
+        geo.setAttribute("instanceW1", bufs.w1); geo.setAttribute("instanceW2", bufs.w2); geo.setAttribute("instanceFlag", bufs.flag);
+        gl = { id: ch.id, version: ch.version, instanced, bufs, geo, count: ch.count, gen: this.syncGen };
       } else {
         const attr = (name: string): any => { const x = new THREE.BufferAttribute(A[name].array, 3); x.setUsage(THREE.DynamicDrawUsage); return x; };
-        const bufs: Record<string, any> = { first: attr("position"), color: attr("color"), colorDim: attr("colorDim") };
-        const mk = (dim: boolean): any => {
-          const geo = new THREE.BufferGeometry();
-          geo.setAttribute("position", bufs.first); geo.setAttribute("color", dim ? bufs.colorDim : bufs.color); geo.setAttribute("_colorOther", dim ? bufs.color : bufs.colorDim);
-          return geo;
-        };
-        gl = { id: ch.id, version: ch.version, instanced, bufs, geo: mk(false), geoDim: mk(true), count: ch.count, gen: this.syncGen };
+        const bufs: Record<string, any> = { first: attr("position"), color: attr("color") };
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute("position", bufs.first); geo.setAttribute("color", bufs.color);
+        gl = { id: ch.id, version: ch.version, instanced, bufs, geo, count: ch.count, gen: this.syncGen };
       }
       this.chunkGpus.set(ch.id, gl);
     } else { for (const b of Object.values(gl.bufs)) pushRanges(b, b.stride ?? b.itemSize, ch.dirty.ranges); gl.version = ch.version; gl.count = ch.count; gl.gen = this.syncGen; }
-    if (instanced) { gl.geo.instanceCount = ch.count; gl.geoDim.instanceCount = ch.count; }
-    else { gl.geo.setDrawRange(0, ch.count); gl.geoDim.setDrawRange(0, ch.count); }
+    if (instanced) gl.geo.instanceCount = ch.count; else gl.geo.setDrawRange(0, ch.count);
     return gl;
   }
   // 选中 / 悬停的面与边的高亮（原 rebuildOverlay）6c 起由编辑器算（editor/highlight.ts）、经叠加层契约进来，画在 overlay-faces.ts / overlay-lines.ts（"edge" 样式）。

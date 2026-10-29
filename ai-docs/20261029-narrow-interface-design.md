@@ -92,7 +92,7 @@ const LOOK = { lock: ["thinTop", "lock"], xg: ["thickTop", /*按轴*/], poolAxes
 |---|---|---|
 | a | ③ 的材质 id 收成通用的 + 调色板槽位（编辑器侧 LOOK 表；后端按当前调色板算 rgb，调色板换了重算颜色属性） | 0 差 |
 | b | 高亮改 mark + 画段表（`OverlayFaces` 删；贴图面 / 找不到槽一并走 mark；`selMat` 三元分派 → 材质表） | 0 差（颜色算法不变） |
-| c | 淡出改 mark（`ChunkStyle` / `aColorDim` 退役；dim 在着色器里混） | 预计 ≤ 1/255 的量化差 → 重冻 + 写理由 |
+| c | 淡出改 mark（`ChunkStyle` / `aColorDim` 退役；dim 在着色器里混）——**v0.17.19 落了**；顺手：线稿三档 `edges: none / all / active`（像素 = active，T89） | 没上色的面淡出色变了（纯淡出色 → 拉一半）；补了淡出场景；像素三张重冻 |
 | d | 隐线 = `edgeHidden` 深度 hidden（深度 > ）；Tron 不再借 X 光节点、跟 X 光走（T60 / T63） | 画面变（看得见的边不再被半透明再画一遍）→ 重冻 + 理由 |
 | e | 文字 → 描边字库折线；`label-raster.ts` 出引擎 | 画面变（「1 m」长相）→ 重冻 + 理由 |
 | f | 编辑器不再拿后端类：`editor/render3.ts` 转出口删、`Editor` 只持 `Backend` 契约、app 层 new `Renderer3`；`world-labels.ts` 不再 import 后端 | 0 差 |

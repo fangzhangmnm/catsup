@@ -511,7 +511,7 @@ export class Editor {
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost) {
     this.config = new ToolConfig(TOOL_OPTIONS, host.optionKv);   // 字段初始化先于构造体（es2022）：config 在这里建，toolCtx 用 getter 取
-    this.r3 = new Renderer3(canvas, perf); this.provider = new EditorStreamProvider(this.r3.chunkStyle()); this.r3.setProvider(this.provider);
+    this.r3 = new Renderer3(canvas, perf); this.provider = new EditorStreamProvider(() => this.r3.getLineStyle() === "thick"); this.r3.setProvider(this.provider);
     this.cam.pitch = 0.61;
     this.cam.projection = "persp";
   }
@@ -1420,7 +1420,7 @@ export class Editor {
     const cam = this.cam, h0 = cam.halfH, f0 = cam.fovY;
     try {
       if (k !== 1) { cam.halfH = h0 * k; cam.fovY = 2 * Math.atan(Math.tan(f0 / 2) * k); }
-      const world = this.worldView(); this.provider.setWorld(world, null, this._revision);
+      const world = this.worldView(); this.provider.setWorld(world, this._revision);
       return this.r3.captureRgba(frameInput(world, cam, { w, h }, this.cleanState(), this.provider.layout()));
     } finally { cam.halfH = h0; cam.fovY = f0; }
   }
@@ -3706,7 +3706,7 @@ export class Editor {
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !s.active).map((s) => s.index)) : null;
-    this.provider.setWorld(view, dimmed, this._revision);   // 这一帧画哪个世界：提供者按它吐块（引擎拉）；版本进内容键
+    this.provider.setWorld(view, this._revision);   // 这一帧画哪个世界：提供者按它吐块（引擎拉）；版本进内容键
     this.r3.render(frameInput(view, this.cam, this.vp(), {   // view-state.ts：相机 / 网格 / 叠加层（选中高亮 + 线点标记文字）交给后端，引擎给量尺
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,

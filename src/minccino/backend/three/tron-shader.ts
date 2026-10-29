@@ -37,6 +37,7 @@ const TRON_FS = /* glsl */`
   uniform float uShade, uRim, uRimPow;
   uniform bool uGlowPass;
   layout(location = 0) out vec4 oColor;
+  uniform vec3 uMark;
   void main() {
     #ifndef SINGLE
     vec3 c = gl_FrontFacing ? vColor : vColorB;
@@ -48,6 +49,9 @@ const TRON_FS = /* glsl */`
     vec3 glow = uLine * pow(1.0 - clamp(abs(dot(N, V)), 0.0, 1.0), uRimPow) * uRim;   // 轮廓光（实验室 faceGlow，扫描线那项没接：CatsUp 按需画、不常驻循环）
     #ifdef SEL
     base = mix(base, uSel, 0.45); glow += uSel * 0.25;   // 选中：风格认领成 Clu 橙
+    #endif
+    #ifdef DIM
+    base = mix(base, uMark, 0.5); glow *= 0.5;   // 淡出（上下文之外）：往淡出色拉一半、轮廓光减半（刀 c）
     #endif
     oColor = uGlowPass ? vec4(glow, 1.0) : vec4(base + glow, 1.0);
   }`;

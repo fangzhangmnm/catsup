@@ -137,3 +137,9 @@
 - 看得见的变化：白模里**上色的面**选中 = 纯状态色（以前 = 状态色和材质色对半；T69 替换语义）；没上色的面、Tron、写实不变。
 - 怎么验：`npm test` 1175 绿；探针 selecting / style / xr-fake / erase-red / mesh-workbench / soft-select / context 绿（在新包上跑的）；截图基线 22 张 0 新增差。**按 T82 改的规矩**补一张针对这刀的场景 `marks-painted-selall`（上色样本全选：上色面换成选中色）。
 - 基线：加 1 张（新场景）。
+
+### 刀 c（v0.17.19）：淡出 = 整槽标记；引擎不再把颜色塞给提供者；线稿三档
+- 做了什么：**`ChunkStyle` 退役**（引擎把面 / 边颜色和「粗线还是像素线」给提供者那条反向依赖）——提供者自己按调色板算烤进顶点的颜色（面 sRGB 浮点、线线性，和以前 chunkStyle 给的数逐字一样），粗线 / 像素线每次 pull 问引擎一下（`() => getLineStyle() === "thick"`；第一版做成 setThick 由 editor.setLineStyle 推，漏了「线稿粗细 > 1 自动切粗线」那条路 → 粗线全没了，基线抓到、改成问引擎）。**淡出不再烤顶点色**：`aColorDim / aColorBDim / colDim / colorDim` 四个属性删了（纯色顶点 30 → 24 字节），`Placement.dim` 删了，内容键不再含淡出集；淡出 = 编辑器 `highlight.ts` 给的整槽标记（面 `faceDim` / 线 `edgeDim`，`MarkLayout.chunksOf`），后端整块换材质（面 = `DIM` 变体：白模 / 剪纸 `mix(c, uMark, 0.5)`、写实 `mix(o, uMark, 0.5)`、Tron `mix(base, uMark, 0.5)` + 轮廓光减半、贴图 = 贴图 × 淡出色；线 = `edgeDimMat / pixelDimMat` 整组一色，Tron 的线不认淡出照旧）。render3 每块只剩一份几何（`geoDim` 和 `_aColorOther` 那套删了）。**线稿三档**（T89）：预设 `material.edges: "none" | "all" | "active"`，像素描边 = `active`（只画正在编辑那一层的线稿），render3 按 `Placement.active` 开关。
+- 看得见的变化（开工前声明）：① 淡出：没上色的面以前是纯淡出色（0xe9e9e9），现在往淡出色拉一半（0xdfdfdf）——基线里没有淡出场景，补了 `dim-context-sel`（进组件、外面的盒子淡出 + 里面选一张面）；② 像素描边里正在编辑那一层的边画出来了（`style-pixel-sel / house / textured` 三张重冻，理由 = T89：在面上画的边描边描不出来、user 以为吸附坏了）；③ Tron / 写实里淡出以前没效果（不借顶点色），现在有。
+- 怎么验：`npm test` 1175 绿；探针 selecting / style / xr-fake / mesh-workbench / context / erase-red 绿（新包）；基线 24 张：粗线两张（`box-thick-sel-hover-lock` / `style-tron-house-thick`）第一版红 → 修后 0 差；像素三张按声明重冻；剪纸两张 ±1 噪声（28 / 10 像素，阈值内，不追）；其余 0 差。
+- 基线：+1 张（`dim-context-sel`）、重冻 3 张（像素）。

@@ -112,6 +112,9 @@ const FACE_FS = /* glsl */`
       col = col * (1.0 - uCoat * Fc) + uCoat * Fc * (uSunCol * Dc * max(ndl, 0.0) * sh * 0.25 + envSpec(reflect(-V, N), uCoatRough, occl));
     }
     vec3 o = pow(aces(col * uExposure), vec3(1.0 / 2.2));
+    #ifdef DIM
+    o = mix(o, uMark, 0.5);   // 淡出（上下文之外）：往淡出色拉一半（刀 c）
+    #endif
     #ifdef SEL
     o = mix(o, uMark, 0.45);   // 标记（选中 / 悬停）：往状态色拉一半 = 叠色（刀 b；这个风格的材质表 = 叠色，T66「写实反而需要叠加层」）
     #endif
