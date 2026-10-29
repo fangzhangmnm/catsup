@@ -131,6 +131,8 @@ export interface EditorHost {
   lasso?(pts: readonly { x: number; y: number }[] | null): void;
   /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
   softRing?(c: { x: number; y: number; r: number } | null): void;
+  /** 扩 / 缩选区的拖动条（画布本地 CSS px；null = 收）。 */
+  selGrowBar?(at: { x: number; y: number } | null): void;
   changed(): void;
   error?(err: unknown, where: string): void;
   /** 右下角血槽位的尺寸读数（手势中的 dims / 选中面的面积 / 选中边的长度；"" = 空）。A28。 */
@@ -180,6 +182,7 @@ export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（202
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
 import { RELEASE_WINDOW_MS, FINAL_HOLD_MS, MIN_DWELL_MS, HOLD_PX, DWELL_SLIP_PX, CHARGE_DWELL_MS } from "../controller/feel.ts";
 import { lockLines, lockThrough } from "../controller/lock-guide.ts";
+import { stepSelection, type SelSets } from "../mesh/select-grow.ts";
 import { stanceOf } from "../controller/stance.ts";
 export { MIN_GESTURE_LEN, SNAP_LABELS };   // 2026-10-28 搬去 gesture-consts.ts（工具不再运行时 import 编辑器本体 = 工具层能无头跑）；这里转出给老调用方
 
@@ -3218,6 +3221,32 @@ export class Editor {
     if (!this.gestureActive() || !this.armed || !ev) return;
     this.pointerDown({ ...ev }); this.pointerUp({ ...ev });
   }
+  // ---------- 扩 / 缩选区（拖动条；gizmo-design §7，user 10-28 夜「select按第二次的的gizmos」；算子 mesh/select-grow.ts）----------
+  // 拖的时候直接改选区（看得见），松手才记一步（「之前」= 开始拖时的会话），中间几十次变化不进撤销栈。
+  private selGrow: { before: Session; base: SelSets; steps: number } | null = null;
+  selGrowBegin(): boolean {
+    const s = this.selection;
+    if (this.activeKind() !== "mesh" || s.kind !== "mesh" || !this.hasSelection() || this.gestureActive()) return false;
+    this.selGrow = { before: this.sessionSnap(), base: { verts: new Set(s.verts), edges: new Set(s.edges), faces: new Set(s.faces) }, steps: 0 };
+    return true;
+  }
+  /** 从开始拖时的选区走 steps 圈（正 = 扩、负 = 缩）；返回现在选着几个。 */
+  selGrowTo(steps: number): number {
+    const g = this.selGrow, s = this.selection;
+    if (!g || s.kind !== "mesh") return 0;
+    const r = stepSelection(this.scene.mesh(this.activePool().def).kernel, g.base, steps);
+    for (const k of ["verts", "edges", "faces"] as const) { s[k].clear(); for (const x of r[k]) s[k].add(x); }
+    g.steps = steps;
+    this.host.changed(); this.draw();
+    return s.verts.size + s.edges.size + s.faces.size;
+  }
+  selGrowEnd(): void {
+    const g = this.selGrow;
+    this.selGrow = null;
+    if (!g || g.steps === 0) return;
+    this.step(() => { this.stepBefore = g.before; this.stepTouched = true; }, { title: g.steps > 0 ? "扩选区" : "缩选区" });
+    this.host.changed(); this.draw();
+  }
   /** Ctrl+R（自由建模）：切到切割、下一下点边 = 环切。 */
   armLoopCut(): boolean {
     if (this.mode.id !== "freeform" || !this.mode.tools.includes("knife")) return false;
@@ -3795,6 +3824,8 @@ export class Editor {
       marquee: (r) => this.host.marquee(r),
       lasso: (pts) => this.host.lasso?.(pts),
       softRing: (c) => this.host.softRing?.(c),
+      selGrowBar: (at) => this.host.selGrowBar?.(at),
+      hitInSelection: (h) => this.hitInSelection(h),
       marqueePick: (area) => marqueeScreen(this.liveWorld(), this.cam, this.vp(), area, { xray: this._xray, verts: this.mode.id === "freeform" }),
       emptyAt: (sx, sy) => this.emptyAt(sx, sy),
       emptiesIn: (area) => this.emptiesIn(area),

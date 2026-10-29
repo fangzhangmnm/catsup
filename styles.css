@@ -429,3 +429,10 @@ body.doc-final .hud-rail-tools, body.doc-final #toolStrip, body.doc-final #selBa
 .soft-slider-label { font-size: 10px; color: var(--muted); user-select: none; }
 #softRing { position: fixed; z-index: 5; pointer-events: none; overflow: visible; }
 #softRing circle { fill: none; stroke: var(--accent, #2b6cb0); stroke-width: 1.5; stroke-dasharray: 5 4; opacity: .8; }
+/* 扩 / 缩选区的拖动条（app/sel-grow-bar.ts）：低调小胶囊，出在点的那一下下面 */
+.selgrow { position: fixed; z-index: 30; display: flex; align-items: center; gap: 6px; padding: 4px 8px; border-radius: 999px; background: color-mix(in srgb, var(--panel, #fff) 88%, transparent); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0,0,0,.08); font-size: 12px; color: var(--muted); user-select: none; }
+.selgrow[hidden] { display: none; }
+.selgrow-btn { width: 26px; height: 26px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); font: inherit; font-size: 15px; line-height: 1; cursor: pointer; }
+.selgrow-track { position: relative; width: 90px; height: 22px; border-radius: 999px; background: var(--line); touch-action: none; cursor: ew-resize; }
+.selgrow-knob { position: absolute; left: 50%; top: 50%; width: 18px; height: 18px; margin: -9px 0 0 -9px; border-radius: 999px; background: var(--accent, #2b6cb0); }
+.selgrow-label { min-width: 52px; text-align: center; }

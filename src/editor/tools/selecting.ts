@@ -100,7 +100,7 @@ export function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso")
 }
 
 /** 点一下（第 n 下）：和选择工具同一套（见文件头）。 */
-export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number): void {
+export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { growBar?: boolean } = {}): void {
   const view = ctx.live(), mode = selModeOf(ctx, ev, false);
   const hit = ctx.pick(ev.x, ev.y, { kinds: pickKinds(ctx) });
   if (ev.altKey && hit.edge !== undefined && ctx.selectLoop(hit, mode)) return;   // Alt 点边 = 环 / 洞（网格体；硬表面没有这个，照常点）
@@ -123,7 +123,13 @@ export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number): void {
   // 双击空处 = 退出一层（user 10-27「单击空白退出一层其实还是蛮容易误触的，既然进去是双击，退出也改成双击」；单击空处 = 取消选择）
   if (c.kind === "none" && (mode === "replace" || multiTap) && ctx.contextDepth() > 0 && n === 2) { ctx.exitContext(); return; }
   if (c.kind === "none" && multiTap) { ctx.replaceSelection({ edges: [], faces: [], pools: [] }, "replace"); ctx.afterSelect(); return; }   // 多选里点空处 = 清空（FM158）
+  // 选择工具「再点一下选区」= 扩 / 缩选区的拖动条（ai-docs/20261027-gizmo-design.md §7；user 10-28 夜「select按第二次的的gizmos」）：替换档里点中已经选着的 → 不改选区、出条；
+  // 双击（面带环边那一档）之后也出在旁边。只在网格体（自由建模）里；别的工具的「点一下 = 选」不出。
+  const bar = opts.growBar && ctx.selection().kind === "mesh";
+  if (bar && n === 1 && mode === "replace" && !ev.shiftKey && ctx.hitInSelection(hit)) { ctx.selGrowBar({ x: ev.x, y: ev.y }); return; }
+  ctx.selGrowBar(null);
   ctx.selectExpand(hit, n >= 3 ? 2 : n === 2 ? 1 : 0, mode);
+  if (bar && n === 2 && ctx.hasSelection()) ctx.selGrowBar({ x: ev.x, y: ev.y });
 }
 
 export interface ScreenBox { minX: number; minY: number; maxX: number; maxY: number }

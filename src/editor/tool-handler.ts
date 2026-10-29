@@ -150,6 +150,10 @@ export interface ToolCtx {
   lasso(pts: readonly { x: number; y: number }[] | null): void;
   /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
   softRing(c: { x: number; y: number; r: number } | null): void;
+  /** 扩 / 缩选区的拖动条：出在这一点旁边（画布本地 CSS px；null = 收）。 */
+  selGrowBar(at: { x: number; y: number } | null): void;
+  /** 这一下点到的东西在选区里吗（点中已选的面 / 它的边 / 点都算）。 */
+  hitInSelection(hit: HitResult3): boolean;
   /** 屏幕矩形里的边 / 面（全局 id）。 */
   marqueePick(area: ScreenArea): { verts: Iterable<number>; edges: Iterable<number>; faces: Iterable<number> };
   /** 光标下的空组件标记（导入的空节点画的小三轴，T11）：没几何，点它的标记 = 点它。 */

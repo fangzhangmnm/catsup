@@ -31,6 +31,6 @@ export class SelectTool implements ToolHandler {
     const n = ctx.clicks();   // 0 = 拖；n = 连着的第 n 下点击（点按族 tap-train.ts：笔快速点一下之后的下一下偏向点）
     if (n === 0) { this.box.finish(ctx, ev); return; }   // 拖 = 框选；门槛 = 这一下的点按容差（桌面 4 / VR 本帧 tap；笔跟进的那一下放宽）
     this.box.cancel(ctx);
-    clickSelect(ctx, ev, n);
+    clickSelect(ctx, ev, n, { growBar: true });
   }
 }

@@ -27,6 +27,7 @@ import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
 import { mountSoftSlider, type SoftSlider } from "./soft-slider.ts";
+import { mountSelGrowBar, type SelGrowBar } from "./sel-grow-bar.ts";
 import { RAIL_FIXED_FLYOUTS, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
 import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
@@ -190,6 +191,7 @@ const editor = new Editor(canvas, {
     Object.assign(marqueeEl.style, { left: `${b.left + r.x}px`, top: `${b.top + r.y}px`, width: `${r.w}px`, height: `${r.h}px` });
   },
   softRing: (c) => softSliderRef?.ring(c),   // 软选择的半径圈（app/soft-slider.ts）
+  selGrowBar: (at) => selGrowRef?.show(at),   // 扩 / 缩选区的拖动条（app/sel-grow-bar.ts）
   lasso: (pts) => {   // 套索轨迹：SVG 盖在画布上（坐标 = 画布本地 CSS px）
     if (!pts) { lassoEl.hidden = true; return; }
     const b = canvas.getBoundingClientRect();
@@ -820,6 +822,7 @@ function syncUi(): void {
   refreshMachineBoard();   // 指令板上的数跟着模型变
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
   softSliderRef?.render();   // 软选择半径滑条
+  selGrowRef?.sync();   // 扩 / 缩条：换了工具 / 没选区就收
   // 右上角的手 + 放大镜（拖着平移 / 缩放）：键鼠时藏（有滚轮 / 中键 / Shift+Z），检测到触摸 / 笔就露（账本 UX37，user 10-28「键鼠的时候手柄可以自动隐藏。检测到触摸自动出现」）
   { const nav = document.querySelector<HTMLElement>(".gizmo-nav"); if (nav) nav.hidden = lastPointerType === "mouse"; }
   renderMachineBtns();
@@ -1178,6 +1181,9 @@ function releaseLatchesOnToolChange(): void {
   latchFor = k;
   for (const m of ["shift", "ctrl", "alt"] as const) if (latchedMods[m]) setLatch(m, false);
 }
+// 扩 / 缩选区的拖动条（选择工具再点一下选区；gizmo-design §7）
+// eslint-disable-next-line no-var
+var selGrowRef: SelGrowBar | null = mountSelGrowBar(canvas, editor, () => syncUi());
 // 软选择的半径竖滑条（WeebPaint 左栏那根的同款；user 10-28 夜「weebpaint的slider放哪里」）：左柱右边，开着软选择 + 拿着会用它的工具才露
 const SOFT_TOOLS: readonly Tool[] = ["move", "rotate", "scale", "shrink"];
 // eslint-disable-next-line no-var
