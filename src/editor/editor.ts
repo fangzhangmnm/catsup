@@ -1421,7 +1421,7 @@ export class Editor {
     try {
       if (k !== 1) { cam.halfH = h0 * k; cam.fovY = 2 * Math.atan(Math.tan(f0 / 2) * k); }
       const world = this.worldView(); this.provider.setWorld(world, null, this._revision);
-      return this.r3.captureRgba(frameInput(world, cam, { w, h }, this.cleanState()));
+      return this.r3.captureRgba(frameInput(world, cam, { w, h }, this.cleanState(), this.provider.layout()));
     } finally { cam.halfH = h0; cam.fovY = f0; }
   }
   private cleanState(): ViewState {
@@ -3740,7 +3740,7 @@ export class Editor {
       ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
-    }));
+    }, this.provider.layout()));
   }
   /**
    * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：

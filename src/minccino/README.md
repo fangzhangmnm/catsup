@@ -18,7 +18,7 @@
 | `contract/` | 流（块 / 放置 / 视锥带 / 预算）、视图（相机 / 画到哪 / 预算 / 画质档）、代价表与血槽位的形状、几何同形类型 | 步 2 钉形状，步 3 / 7 用上 |
 | `graph/` | frame graph：pass 声明 + 规划（拓扑排序、没人要的产物不产） | 步 2 规划器，步 4 声明现状的 pass |
 | `backend/` | 后端接口（`Backend` + 一帧的输入 `FrameInput`：相机 / 视口 / 网格 / 叠加层回调）；`backend/three/` = three 实现（`render3.ts` 步 5 整个搬进来：几何上传、材质、线、渲染目标、XR 会话钩子；`profile-line-shader.ts` 轮廓线自己的 GLSL 源，守卫 ⑥ 逐字比对 vendored 源；`overlay-{lines,marks,faces}.ts` 叠加层的画法） | 步 5 done；**6c（v0.17.9）零内容层 import**（守卫 ③′ 清零，922 行） |
-| `overlay/` | 叠加层契约：线段族 / 点 / 标记 / 三角 / 文字 / **面高亮**（`OverlayFaces`：挂槽 / 世界 / 贴图组）+ OverlayCtx 量尺 + 样式表（内容归编辑器 `editor/overlay.ts` + `editor/highlight.ts`，画归 `backend/three/overlay-*.ts`） | 6a / 6b / 6c done |
+| `overlay/` | 叠加层契约：线段族 / 点 / 标记 / 三角 / 文字（刀 a 起 item 自带 GL 画法参数：线宽 / 深度模式 visible·through·hidden / 透明度 / 叠放次序，**没有样式表、没有编辑器的名字**）；面高亮不在这里——那是 `FrameInput.marks`（某槽某块某段换材质槽，刀 b） | 引擎 |
 | `palette.ts` / `perf.ts` | 白模调色板一处放（预设认领选中色从这里长）；计时口 `PerfSink`（消费方递计数器进来，引擎不 import 谁的 perf） | 6c done |
 | `preset/` | 预设 = 数据（四个挂点 + 屏幕一刀的旋钮；每个写明实验室出处）+ `presetPasses` 给 frame graph 的 pass 声明。画法在 `backend/three/screen-pixel.ts`（小图 → 后处理 → 整数倍放大） | Tron 第 1 步：白模 + 像素描边（v0.17.10）+ 剪纸 · 色纸（v0.17.11：平涂 `paper-shader.ts` + 遮蔽 `ao-bake.ts` + 地面）+ CRT Tron（v0.17.12：`tron-shader.ts` + `bloom.ts` + CRT 放大）+ 铸铜（v0.17.13：`pbr-shader.ts` + `env-sky.ts` 程序海天 + 太阳投影）——小学四个点名风格齐 |
 | `paintshop/` | **涂装车间**：程序生成的环境（程序海天）和表面纹理（砂铸、铜绿）的配方 = 一段 GLSL + 出处 + 登记表；后端照着生成 / 拼进着色器，风格按 id 引用。插拔 = 一个文件 + 一行；不碰 three / DOM | v0.17.16（Opus） |

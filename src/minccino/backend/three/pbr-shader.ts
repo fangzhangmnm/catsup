@@ -12,6 +12,7 @@ import { SURFACE_PRELUDE, SURFACE_RECIPES } from "../../paintshop/index.ts";
 
 const COMMON = /* glsl */`
   const float PI = 3.14159265;
+  uniform vec3 uMark;
   uniform sampler2D uEnv; uniform float uEnvMaxLod, uEnvAmt, uExposure; uniform vec3 uSH[9]; uniform bool uHasSH;
   uniform vec3 uSunDir, uSunCol, uSkyCol, uGroundCol; uniform bool uSunOn;
   vec3 toLab(vec3 w) { return vec3(w.x, w.z, -w.y); }   // 世界 z 朝上 → 实验室 y 朝上（环境图按实验室坐标存）
@@ -112,7 +113,7 @@ const FACE_FS = /* glsl */`
     }
     vec3 o = pow(aces(col * uExposure), vec3(1.0 / 2.2));
     #ifdef SEL
-    o = mix(o, c, 0.45);   // 选中 / 悬停：往高亮色拉一半（顶点色 = 编辑器给的状态色）
+    o = mix(o, uMark, 0.45);   // 标记（选中 / 悬停）：往状态色拉一半 = 叠色（刀 b；这个风格的材质表 = 叠色，T66「写实反而需要叠加层」）
     #endif
     oColor = vec4(o, 1.0);
   }`;

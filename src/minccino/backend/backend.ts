@@ -9,6 +9,10 @@ import type { OverlayCtx, OverlayItem } from "../overlay/index.ts";
  * 一帧的输入（消费方 → 后端；6c）：相机 + 视口 + XR 近平面 + 地面网格 + 叠加层（含选中高亮）。
  * **内容不在这里**——走流提供者（`setProvider`，引擎拉）。编辑器的 ViewState 是编辑器自己的类型，后端只看到这几样。
  */
+/** 面的材质槽（标记用）：风格的材质表给每个槽一种画法（白模 = 换成状态色、写实 = 叠色、Tron = Clu 橙 + 辉光）。 */
+export type FaceSlot = "faceSelected" | "faceHover";
+/** 改画的段（契约 v2 第 ② 批，刀 b）：某个槽的某个块的某一段（顶点偏移 / 顶点数）用另一个材质槽画——从普通批里踢掉、用那个槽的材质画，不重叠、不画两遍。 */
+export interface Mark { readonly slot: string; readonly chunk: string; readonly start: number; readonly count: number; readonly material: FaceSlot }
 export interface FrameInput {
   readonly camera: CameraSource;
   readonly viewport: ViewportSize;
@@ -16,6 +20,8 @@ export interface FrameInput {
   readonly near?: number;
   /** 地面网格：跟哪个坐标架、格距（米）；不给 = 世界帧、1 m。 */
   readonly grid?: { readonly frame: Frame3; readonly step: number } | null;
+  /** 标记（选中 / 悬停的面换材质槽）；拉完流之后才调（块 id 那时才稳定）；不给 = 没有。 */
+  readonly marks?: () => readonly Mark[];
   /** 叠加层内容（消费方算，引擎给量尺）；不给 = 没有。 */
   readonly overlay?: (ctx: OverlayCtx) => readonly OverlayItem[];
 }

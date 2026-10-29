@@ -1,18 +1,14 @@
-// highlight.ts —— 选中 / 悬停的面与边的高亮，算成叠加层交给引擎（Tron 第一刀 6c，v0.17.9，Claude Fable 5.1）。从 render3 rebuildOverlay 原样搬出：
-//   · 面（不带贴图、找得到槽）：**和面本身同一组三角**（pool-mesh buildFaceRec：同样的 Float32 坐标，池本地）+ 颜色 = 状态色和材质色对半 → 后端在那个槽的
-//     节点下、同材质同深度偏移、画在面之后 = 深度逐位相同、后画的赢 = 换颜色，没有 z-fighting（user 10-27「高亮感觉还有时候有z fighting……就那么难嘛」）。
-//   · 带贴图的面（少见）/ 找不到槽的：世界坐标那张（faceTriangles），贴图组带 uv。
+// highlight.ts —— 选中 / 悬停的面与边的高亮，算成引擎契约交给后端（Tron 第一刀 6c，v0.17.9，Claude Fable 5.1；窄接口刀 b，v0.17.18）。
+//   · 面 = **标记**（契约 v2 第 ② 批 `Mark`）：哪个槽的哪个块的哪一段（池网格里一张面本来就是一段连续顶点）换成哪个材质槽（faceSelected / faceHover）画。
+//     后端把那个槽的面分成两段索引（普通的 / 标记的）——不重叠、不画两遍、顶点一个字节不传（user 10-29「画原色但是踢掉选中的，然后画选中的」「index赞！」）。
+//     颜色不在这里：材质槽长什么样归风格的材质表（白模 = 换成状态色、写实 = 叠色、Tron = Clu 橙 + 辉光）。
 //   · 边：选中蓝 / 刮擦·悬停红 / 检查橙（线性色；后端用边线自己的材质画粗线）；选中的软边 / 折边不画粗线（user 10-25「选中的时候软边显示了粗线」），「检查」标的照画。
-// 引擎只拿到「哪个槽的哪些三角 + 颜色 / 贴图组 / 边段」，不再读 WorldView（守卫 ③′ 清零）。
-// 键 = 世界身份 + 版本 + 选区 / 悬停 / 刮擦 / 检查集（和以前 render3 的 overlayKey 同构）；键没变 = 复用上一帧的 items，后端也不重建几何。
-import type { OverlayFaces, OverlayItem, OverlayLines } from "../minccino/index.ts";
+// 引擎只拿到「段 + 材质槽」和「边段 + 颜色」，不再读 WorldView（守卫 ③′ 清零）。
+// 键 = 世界身份 + 版本 + 选区 / 悬停 / 刮擦 / 检查集；键没变 = 复用上一帧的结果，后端也不重建。
+import type { Mark, OverlayItem, OverlayLines } from "../minccino/index.ts";
 import { PALETTE, hexToLinear } from "../minccino/index.ts";
 import type { EdgeId, FaceId } from "../kernel/kernel.ts";
-import type { Material } from "../scene/scene.ts";
 import { ID_STRIDE, slotKey, type WorldView } from "../scene/world-view.ts";
-import { dot3 } from "../kernel/geom.ts";
-import { buildFaceRec } from "./pool-mesh.ts";
-import { faceTriangles } from "./face-triangles.ts";
 import { perf } from "./perf-stats.ts";
 import { LOOK } from "./overlay-lines.ts";
 
@@ -25,73 +21,57 @@ export interface HighlightState {
   readonly hoverEdge: EdgeId | null;
   readonly revision?: number;
 }
-
-/** 0xRRGGBB → sRGB 浮点三元（膜 shader 直接出，不过 three 的色彩管理）。 */
-const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
+/** 池网格的布局（流提供者给）：某个槽里一张面（池本地 id）在哪些块的哪一段。 */
+export interface MarkLayout {
+  rangeOf(slot: string, fid: FaceId): readonly { readonly chunk: string; readonly start: number; readonly count: number }[];
+}
 
 const worldIds = new WeakMap<object, number>();
 let nextWorldId = 1;
 const cache = new WeakMap<object, { key: string; items: OverlayItem[] }>();
+const markCache = new WeakMap<object, { key: string; marks: Mark[] }>();
 
 export function highlightKey(world: WorldView, v: HighlightState): string {
   let wid = worldIds.get(world);
   if (wid === undefined) { wid = nextWorldId++; worldIds.set(world, wid); }
-  return `${wid}:${v.revision ?? 0}:${[...v.selectionFaces].join(",")}:${v.hoverFace ?? ""}:${[...v.selectionEdges].join(",")}:${[...v.scrubEdges].join(",")}:${v.hoverEdge ?? ""}:${v.warnEdges ? `${v.warnEdges.size}|${[...v.warnEdges].slice(0, 16).join(",")}` : ""}`;
+  return `${wid}:${v.revision ?? 0}:${[...v.selectionFaces].join(",")}:${v.hoverFace ?? ""}:${[...v.selectionEdges].join(",")}:${[...v.scrubEdges].join(",")}:${v.hoverEdge ?? ""}:${v.warnEdges ? `${v.warnEdges.size}|${[...v.warnEdges].join(",")}` : ""}`;
 }
 
-/** 这一帧的高亮叠加层（没选没悬停 = 空数组）；键没变就是上一帧那份。 */
+/** 这一帧的高亮叠加层（边；没选没悬停 = 空数组）；键没变就是上一帧那份。 */
 export function highlightItems(world: WorldView, v: HighlightState): OverlayItem[] {
   const key = highlightKey(world, v);
   const hit = cache.get(world);
   if (hit && hit.key === key) return hit.items;
-  const items = perf.time("rebuildOverlay", () => buildHighlight(world, v, key));
+  const items = perf.time("rebuildOverlay", () => buildEdges(world, v, key));
   cache.set(world, { key, items });
   return items;
 }
+/** 这一帧的面标记（选中 = faceSelected、悬停 = faceHover）；键没变就是上一帧那份。拉完流之后才调（布局那时才稳定）。 */
+export function highlightMarks(world: WorldView, v: HighlightState, layout: MarkLayout): Mark[] {
+  const key = highlightKey(world, v);
+  const hit = markCache.get(world);
+  if (hit && hit.key === key) return hit.marks;
+  const marks = perf.time("rebuildMarks", () => buildMarks(world, v, layout));
+  markCache.set(world, { key, marks });
+  return marks;
+}
 
-type Acc = { pos: number[]; nor: number[]; col: number[]; uv: number[] };
-function buildHighlight(kd: WorldView, view: HighlightState, key: string): OverlayItem[] {
-  const out: OverlayItem[] = [];
+function buildMarks(kd: WorldView, view: HighlightState, layout: MarkLayout): Mark[] {
+  const out: Mark[] = [];
   const ids = new Set<FaceId>(view.selectionFaces);
   if (view.hoverFace !== null) ids.add(view.hoverFace);
-  const groups = new Map<Material | null, Acc>();
-  const bySlot = new Map<number, { slot: string; pos: number[]; nor: number[]; col: number[] }>();
   for (const fid of ids) {
-    const f = kd.face(fid), rec = kd.planeOf(fid);
-    if (!f || !rec) continue;
-    const mat = kd.faceMaterial(fid);
-    if (!mat?.texture) {   // 同节点、同三角、后画
-      const si = Math.floor(fid / ID_STRIDE), s = kd.slots.find((x) => x.index === si);
-      if (s) {
-        const r0 = buildFaceRec(s.kernel, fid - si * ID_STRIDE, (slot) => kd.scene.materialOfSlot(s.pool.def, slot));
-        if (r0) {
-          let [r, g, b] = srgb(view.selectionFaces.has(fid) ? PALETTE.faceSelected : PALETTE.faceHover);
-          if (mat) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; }
-          let acc = bySlot.get(si);
-          if (!acc) { acc = { slot: slotKey(s), pos: [], nor: [], col: [] }; bySlot.set(si, acc); }
-          for (let i = 0; i < r0.pos.length; i++) { acc.pos.push(r0.pos[i]); acc.nor.push(r0.nor[i]); }
-          for (let i = 0; i < r0.pos.length / 3; i++) acc.col.push(r, g, b);
-          continue;
-        }
-      }
-    }
-    let [r, g, b] = srgb(view.selectionFaces.has(fid) ? PALETTE.faceSelected : PALETTE.faceHover);
-    if (mat && !mat.texture) { const [mr, mg, mb] = mat.color; r = (r + mr) / 2; g = (g + mg) / 2; b = (b + mb) / 2; }
-    const gk = mat?.texture ? mat : null;
-    let grp = groups.get(gk);
-    if (!grp) { grp = { pos: [], nor: [], col: [], uv: [] }; groups.set(gk, grp); }
-    const n = rec.plane.n;
-    const texW = mat?.texture?.sizeM[0] ?? 1, texH = mat?.texture?.sizeM[1] ?? 1;
-    for (const tri of faceTriangles(kd, fid)) for (const p of tri) {
-      grp.pos.push(p.x, p.y, p.z); grp.nor.push(n.x, n.y, n.z); grp.col.push(r, g, b);
-      if (gk) grp.uv.push(dot3(p, rec.basis.u) / texW, dot3(p, rec.basis.v) / texH);
-    }
+    if (!kd.face(fid)) continue;
+    const si = Math.floor(fid / ID_STRIDE), s = kd.slots.find((x) => x.index === si);
+    if (!s) continue;
+    const slot = slotKey(s), material = view.selectionFaces.has(fid) ? "faceSelected" : "faceHover";
+    for (const r of layout.rangeOf(slot, fid - si * ID_STRIDE)) out.push({ slot, chunk: r.chunk, start: r.start, count: r.count, material });
   }
-  for (const acc of bySlot.values()) out.push({ kind: "faces", id: `sel:${acc.slot}`, key, slot: acc.slot, positions: acc.pos, normals: acc.nor, colors: acc.col } satisfies OverlayFaces);
-  const plain = groups.get(null);
-  if (plain && plain.pos.length) out.push({ kind: "faces", id: "selWorld", key, slot: null, positions: plain.pos, normals: plain.nor, colors: plain.col } satisfies OverlayFaces);
-  let ti = 0;
-  for (const [gk, grp] of groups) if (gk !== null) out.push({ kind: "faces", id: `selTex${ti++}`, key, slot: null, material: gk, positions: grp.pos, normals: grp.nor, colors: grp.col, uvs: grp.uv } satisfies OverlayFaces);
+  return out;
+}
+
+function buildEdges(kd: WorldView, view: HighlightState, key: string): OverlayItem[] {
+  const out: OverlayItem[] = [];
   // 边：选中 / 刮擦 / 悬停 / 检查 → 粗线（后端边线自己的材质；X 光下不被面挡）
   const pos: number[] = [], col: number[] = [];
   const eids = new Set<EdgeId>([...view.selectionEdges, ...view.scrubEdges, ...(view.warnEdges ?? [])]);

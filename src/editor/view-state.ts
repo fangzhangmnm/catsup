@@ -10,7 +10,7 @@ import type { WorldLabel } from "./world-labels.ts";
 import type { WorldView } from "../scene/world-view.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import { overlayItems } from "./overlay.ts";
-import { highlightItems } from "./highlight.ts";
+import { highlightItems, highlightMarks, type MarkLayout } from "./highlight.ts";
 
 export interface ViewState {
   selectionEdges: ReadonlySet<EdgeId>;
@@ -86,13 +86,14 @@ export interface ViewState {
  * 这一帧交给后端的输入：相机 / 视口原样（轨道相机结构上满足引擎的 CameraSource）、XR 近平面、地面网格（跟上下文帧与格距走），
  * 叠加层 = 选中高亮（editor/highlight.ts，按键缓存）+ 其余（editor/overlay.ts），引擎调回调时才算、并给量尺。
  */
-export function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, view: ViewState): FrameInput {
+export function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, view: ViewState, layout: MarkLayout): FrameInput {
   return {
     camera: cam,
     viewport: vp,
     near: view.near,
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」）：吸附的 1/5、1/10 只管吸，不画成网格线——所以只递 step
     grid: { frame: view.grid?.frame ?? view.frame ?? WORLD_FRAME, step: view.grid?.step ?? 1 },
+    marks: () => highlightMarks(world, view, layout),   // 选中 / 悬停的面 = 换材质槽的段（刀 b）
     overlay: (ctx: OverlayCtx): OverlayItem[] => [...highlightItems(world, view), ...overlayItems(view, ctx)],
   };
 }

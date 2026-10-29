@@ -85,6 +85,8 @@ export class RegionStore extends ArrayStore {
   private up(n: number): number { return Math.ceil(n / this.align) * this.align; }
   get count(): number { return this.offOf.size; }
   has(id: number): boolean { return this.offOf.has(id); }
+  /** 这个 id 占的段（顶点偏移 / 顶点数）；没有 = null。 */
+  range(id: number): readonly [number, number] | null { const off = this.offOf.get(id); return off === undefined ? null : [off, this.lenOf.get(id)!]; }
   put(id: number, len: number, fill: Fill): void {
     const off0 = this.offOf.get(id);
     if (off0 !== undefined && this.lenOf.get(id) === len) { fill(this.arrays, off0); this.mark(off0, len); return; }
@@ -352,6 +354,14 @@ export class PoolMesh {
     return { full: true, faces: this.faceGroups.size, edges: this.lines.count };
   }
 
+  /** 一张面在各组里占的段（顶点偏移 / 顶点数；两侧材质不同的面在两组里）：标记（选中 / 悬停）按段换材质用（窄接口刀 b）。 */
+  faceRanges(fid: FaceId): { key: string; off: number; len: number }[] {
+    const k = this.faceGroups.get(fid);
+    if (k === undefined) return [];
+    const out: { key: string; off: number; len: number }[] = [];
+    for (const key of typeof k === "string" ? [k] : k) { const r = this.groups.get(key)?.store.range(fid); if (r) out.push({ key, off: r[0], len: r[1] }); }
+    return out;
+  }
   private noteFace(T: KernelView, fid: FaceId): void {
     const f = T.face(fid);
     if (!f) { this.faceTopo.delete(fid); return; }

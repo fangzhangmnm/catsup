@@ -7,7 +7,6 @@
 // 线宽 / 点大小、深度模式（visible 测深度并前拉 · through 压最上 · hidden 只画被挡住的那段）、透明度、叠放次序（layer）。
 // 「锁轴线 = 细 · 压最上 · 0.75」这种话留在提交方自己的表里（src/editor/overlay-lines.ts LOOK）。设计稿 ai-docs/20261029-narrow-interface-design.md。
 import type { Vec3 } from "../contract/geometry.ts";
-import type { MaterialRef } from "../contract/stream.ts";
 
 /** 深度模式（GL 概念）：visible = 测深度 + 前拉（共面时线赢面）；through = 不测、压在最上；hidden = 深度**大于**才画 = 只画被挡住的那段（隐线，T73）。 */
 export type DepthMode = "visible" | "through" | "hidden";
@@ -87,24 +86,7 @@ export interface OverlayLabel {
   readonly gapPx?: number;
   readonly occlude?: boolean;
 }
-/**
- * 面高亮（选中 / 悬停；6c）：三角 + 法线 + 每顶点 sRGB 颜色（膜 shader 直接出，不过色彩管理）。
- * `slot` 给了 = 挂在那个放置槽（Placement.slot）的节点下：**池本地坐标**、和那个槽的面同一个材质同一个深度偏移、画在面之后——GPU 算出的深度逐位相同，
- * 后画的赢 = 换颜色，没有 z-fighting（内容方要给和面本身同一组三角）。`slot = null` = 世界坐标、覆盖层材质压在各槽面上；
- * `material` 给了 = 带贴图的面（世界坐标 + uv；引擎只拿 material 当贴图的钥匙）。key 没变不重建。刀 b 换成 mark（画段表）。
- */
-export interface OverlayFaces {
-  readonly kind: "faces";
-  readonly id: string;
-  readonly key: string;
-  readonly slot: string | null;
-  readonly positions: readonly number[];
-  readonly normals: readonly number[];
-  readonly colors: readonly number[];
-  readonly material?: MaterialRef | null;
-  readonly uvs?: readonly number[] | null;
-}
-export type OverlayItem = OverlayLines | OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel | OverlayFaces;
+export type OverlayItem = OverlayLines | OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel;
 
 /** 引擎给提交方的量尺：都按当前视图（XR = HMD 位置 + 角尺寸；桌面 = 相机深度 / 正交半高）。 */
 export interface OverlayCtx {

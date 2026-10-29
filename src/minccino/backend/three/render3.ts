@@ -39,9 +39,8 @@ import { LineMaterial } from "../../../vendor/three/addons/lines/LineMaterial.js
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
 import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
-import { OverlayFacesDrawer } from "./overlay-faces.ts";
-import type { OverlayCtx, OverlayFaces, OverlayItem, OverlayLines } from "../../overlay/index.ts";
-import type { Backend, BackendCaps, FrameInput } from "../../index.ts";
+import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
+import type { Backend, BackendCaps, FrameInput , Mark, FaceSlot} from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type ChunkStyle, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
@@ -103,7 +102,8 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; readonly geoDim: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; /** 选中 / 悬停的面（同一个节点、同一个材质、和面本身同一组三角，画在后面 = 替换颜色；2026-10-27 Opus 5.5）。 */ sel: any; /** 上次高亮的键（overlay-faces.ts 按它判要不要重建）。 */ selKey: string; /** 风格认领选中时的材质（Tron）；null = 跟面同一个。 */ selMat: any; tex: { mesh: any }[]; pixel: any; thick: any; /** X 光（DT17）：同一份线几何再画一遍，不做深度测试、半透明 = 被面挡住的边透出来。 */ xpixel: any; xthick: any; gen: number; }
+interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
+interface MarkedGeo { geo: any; src: any; index: any }
 
 // ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
 
@@ -154,6 +154,7 @@ const FACE_VERT = /* glsl */`
 const FACE_FRAG = /* glsl */`
   uniform vec3 uLight;
   uniform bool uUnlit;
+  uniform vec3 uMark;
   varying vec3 vColor;
   varying vec3 vColorB;
   varying vec3 vNormal;
@@ -161,6 +162,9 @@ const FACE_FRAG = /* glsl */`
     // 两个表面（DT8）：三角绕 +n 逆时针 → 正面朝着看 = 看到 +n 那侧（aColor），背面 = −n 那侧（aColorB）；负值 = 那侧归贴图网格画，这里不画
     vec3 c = gl_FrontFacing ? vColor : vColorB;
     if (c.r < 0.0) discard;
+    #ifdef SEL
+    c = uMark;   // 标记（选中 / 悬停）：换成状态色（刀 b；白模的材质表 = 替换）
+    #endif
     float k = uUnlit ? 1.0 : 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));   // 不打光（风格：像素描边 = 纯色）
     gl_FragColor = vec4(c * k, 1.0);   // 颜色已是 sRGB，直接出（与旧 shade() 同值）
   }`;
@@ -174,6 +178,7 @@ const TEX_VERT = /* glsl */`
 const TEX_FRAG = /* glsl */`
   uniform vec3 uLight;
   uniform bool uUnlit;
+  uniform vec3 uMark;
   uniform sampler2D uMap;
   varying vec2 vUv;
   varying vec3 vColor;
@@ -181,6 +186,9 @@ const TEX_FRAG = /* glsl */`
   void main() {
     float k = uUnlit ? 1.0 : 0.66 + 0.34 * abs(dot(normalize(vNormal), uLight));
     vec3 c = texture2D(uMap, vUv).rgb * vColor;
+    #ifdef SEL
+    c = texture2D(uMap, vUv).rgb * uMark;   // 标记：贴图 × 状态色（和以前的贴图高亮同值）
+    #endif
     gl_FragColor = vec4(c * k, 1.0);
   }`;
 
@@ -208,7 +216,6 @@ export class Renderer3 implements Backend {
   // ---- 持久节点（retained）----
   private faceMat: any;
   // ---- 池级几何（#22 池级局部性，2026-10-21）：每个槽一组节点 + 每个 kernel 一份共享几何；选中 / 悬停走覆盖层 ----
-  private faceMatTop: any;                          // 覆盖层材质（polygonOffset 0：压在底几何上）
   private pixelMat: any;                            // 原生线材质（顶点色，共享）
   private texMats = new Map<object, any>();         // 贴图材质对象 → 共享 ShaderMaterial（uMap）
   private slotNodes = new Map<string, SlotNodes>();
@@ -258,7 +265,6 @@ export class Renderer3 implements Backend {
   onRedrawWanted: (() => void) | null = null;
   private overlayLines!: OverlayLinesDrawer;
   private overlayMarks!: OverlayMarksDrawer;
-  private overlayFaces!: OverlayFacesDrawer;
   /** 计时口（消费方递进来的计数器；不给 = 不计）。 */
   private readonly perf: PerfSink;
    // 变换 gizmo（2026-10-26）
@@ -307,12 +313,6 @@ export class Renderer3 implements Backend {
     // 单面身体（mesh）：同两份 shader，只画正面
     this.faceMatFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
     this.faceMatOtherFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther });
-    // 覆盖层（选中 / 悬停的面）：同 shader、polygonOffset 0 → 压在各槽底几何（1 / 4）上面
-    this.faceMatTop = new THREE.ShaderMaterial({
-      vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
-      uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU },
-      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay,
-    });
     this.pixelMat = new THREE.LineBasicMaterial({ vertexColors: true });
     this.emptyGeo = new THREE.BufferGeometry();
     this.emptyLineGeo = new LineSegmentsGeometry();
@@ -335,10 +335,6 @@ export class Renderer3 implements Backend {
     this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => (this.xrayPass ? this.xrayOverlayMat : this.edgeMat) });
     // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
     this.overlayMarks = new OverlayMarksDrawer(overlayHost);
-    // 面高亮（6c）：挂槽的 sel 网格 / 世界坐标一份（faceMatTop）/ 每种贴图材质一份（材质懒建 = 和以前第一次画带贴图的高亮时同一时机）
-    this.overlayFaces = new OverlayFacesDrawer(this.scene, this.emptyGeo, this.faceMatTop,
-      () => new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU, uMap: { value: null } }, side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOverlay }),
-      (m) => this.textureFor(m));
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -602,6 +598,7 @@ export class Renderer3 implements Backend {
     const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}:${this.framePreset.id}`;
     if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
     this.syncPaper(cam3);   // 平涂 / 地面 / 遮蔽（剪纸）：没用到 = 地面藏着、什么都不建
+    this.syncMarks(input.marks ? input.marks() : []);   // 标记（选中 / 悬停的面换材质槽；刀 b）：拉完流之后，块 id 才稳定
 
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」「sub incremental就是sub刻度的」）：吸附的 1/5、1/10 只管吸，像尺子上的小刻度，不画成网格线
@@ -620,9 +617,8 @@ export class Renderer3 implements Backend {
       lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1,
     };
     const items = input.overlay ? input.overlay(octx) : [];
-    this.overlayFaces.sync(items.filter((it): it is OverlayFaces => it.kind === "faces"), this.slotNodes);   // 选中 / 悬停的面（6c）：挂槽 / 世界 / 贴图
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"));
-    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines" && it.kind !== "faces") as Exclude<OverlayItem, OverlayLines | OverlayFaces>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
+    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
 
     const t0 = performance.now();
     const info3 = this.renderer.info;
@@ -825,7 +821,7 @@ export class Renderer3 implements Backend {
   getLineWeight(): number { return this.lineWeight; }
 
   /** 探针：叠加层线段族里某个 id（lockLines / soft / guides / …）这一帧画着没有。 */
-  overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id) || this.overlayFaces.isVisible(id); }
+  overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id); }
   /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
   setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
   /** 样式那半给提供者（过渡期：面 / 边颜色和粗线 / 像素线还烤在顶点色里；材质模块 + 叠加层落地后退役）。 */
@@ -870,16 +866,17 @@ export class Renderer3 implements Backend {
       const fside = pl.singleSided ? "front" : "double";
       const pbr = this.framePreset.material.shade === "pbr" ? this.pbr : null;          // 铸铜：有光照的表面，不借模型颜色
       n.plain.material = paper ? paper.face(fside, pl.active, false) : tron ? tron.face(fside, pl.active, false) : pbr ? pbr.face(fside, pl.active, false, false, null, this.framePreset.material.surface) : pl.singleSided ? (pl.active ? this.faceMatFront : this.faceMatOtherFront) : (pl.active ? this.faceMat : this.faceMatOther);
-      n.selMat = tron ? tron.face(fside, pl.active, false, true) : pbr ? pbr.face(fside, pl.active, false, true, null, this.framePreset.material.surface) : null;
       const plain = pb?.plain ?? null, showPlain = !!plain && plain.count > 0;
       n.plain.geometry = showPlain ? (dimmed ? plain!.geoDim : plain!.geo) : this.emptyGeo; n.plain.visible = showPlain;
+      n.plainSrc = n.plain.geometry; n.plainMat = n.plain.material; n.plainChunk = plain?.id ?? null; n.markKey = "\u0000";   // 标记下一帧按新的源几何重分段
       let ti = 0;
       for (const gf of pb?.tex ?? []) {
         if (!(gf.count > 0)) continue;
         let slot = n.tex[ti];
-        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh }; n.tex.push(slot); }
+        if (!slot) { const mesh = new THREE.Mesh(this.emptyGeo, this.texMatFor(gf.mat!, gf.side!)); mesh.frustumCulled = false; n.root.add(mesh); slot = { mesh, src: null, mat: null, chunk: null }; n.tex.push(slot); }
         slot.mesh.material = paper ? paper.face(gf.side!, true, true) : tron ? tron.face(gf.side!, true, true) : pbr ? pbr.face(gf.side!, true, true, false, this.framePreset.material.colorize === "model" ? this.texUniform(gf.mat!) : null, this.framePreset.material.surface) : this.texMatFor(gf.mat!, gf.side!);   // 写实：贴图进底色   // 一件一色印不出贴图：贴图面 = 纸本色；Tron 不借模型颜色
         slot.mesh.geometry = dimmed ? gf.geoDim : gf.geo; slot.mesh.visible = true;
+        slot.src = slot.mesh.geometry; slot.mat = slot.mesh.material; slot.chunk = gf.id;
         ti++;
       }
       for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
@@ -900,18 +897,80 @@ export class Renderer3 implements Backend {
     // 块的显卡副本：两代没人用的释放
     for (const [id, g] of this.chunkGpus) if (g.gen < this.syncGen - 1) { g.geo.dispose(); g.geoDim.dispose(); this.chunkGpus.delete(id); }
   }
+  // ---- 标记（契约 v2 第 ② 批，刀 b；user 10-29「我想的是画原色但是踢掉选中的，然后画选中的」「index赞！」）----
+  // 有标记的网格换成「共享源几何的属性 + 自己的索引」：索引把顶点分成几段——普通的在前、每个材质槽的标记段接在后面 → 永远几个 draw call，
+  // 不管选区多碎；不重叠、不画两遍。标记变了只重写这个槽的索引（O(池的顶点数)），顶点属性一个字节不动。没标记的网格还是直接用源几何。
+  private syncMarks(marks: readonly Mark[]): void {
+    const bySlot = new Map<string, Mark[]>();
+    for (const m of marks) { let l = bySlot.get(m.slot); if (!l) { l = []; bySlot.set(m.slot, l); } l.push(m); }
+    for (const [slot, n] of this.slotNodes) {
+      const ms = bySlot.get(slot) ?? [];
+      const key = ms.length ? ms.map((m) => `${m.chunk}:${m.start}+${m.count}=${m.material}`).sort().join("|") : "";
+      if (n.markKey === key) continue;
+      n.markKey = key;
+      this.applyMarks(n.plain, n.plainSrc, n.plainMat, n.plainChunk, ms, n.marked);
+      for (const t of n.tex) if (t.mesh.visible) this.applyMarks(t.mesh, t.src, t.mat, t.chunk, ms, n.marked);
+    }
+  }
+  private static readonly MARK_SLOTS: readonly FaceSlot[] = ["faceSelected", "faceHover"];
+  private applyMarks(mesh: any, src: any, mat: any, chunk: string | null, ms: readonly Mark[], cache: Map<string, MarkedGeo>): void {
+    const mine = chunk ? ms.filter((m) => m.chunk === chunk) : [];
+    if (!mine.length || !src || src === this.emptyGeo) { mesh.geometry = src ?? this.emptyGeo; mesh.material = mat; if (chunk) this.dropMarked(cache, chunk); return; }
+    const count: number = Number.isFinite(src.drawRange.count) ? src.drawRange.count : src.attributes.position.count;
+    let e = cache.get(chunk!);
+    if (e && (e.src !== src || e.index.count !== count)) { this.dropMarked(cache, chunk!); e = undefined; }
+    if (!e) {
+      const geo = new THREE.BufferGeometry();
+      for (const name of Object.keys(src.attributes)) geo.setAttribute(name, src.attributes[name]);   // 属性共享，不拷
+      const index = new THREE.BufferAttribute(new Uint32Array(count), 1); index.setUsage(THREE.DynamicDrawUsage);
+      geo.setIndex(index);
+      e = { geo, src, index }; cache.set(chunk!, e);
+    }
+    const slots = Renderer3.MARK_SLOTS, taken = new Uint8Array(count);   // 0 = 普通；k + 1 = 第 k 个材质槽
+    for (const m of mine) { const si = slots.indexOf(m.material) + 1; if (!si) continue; const end = Math.min(m.start + m.count, count); for (let i = Math.max(m.start, 0); i < end; i++) taken[i] = si; }
+    const idx = e.index.array as Uint32Array;
+    let w = 0;
+    for (let i = 0; i < count; i++) if (taken[i] === 0) idx[w++] = i;
+    e.geo.clearGroups(); e.geo.addGroup(0, w, 0);
+    const mats: any[] = [mat];
+    slots.forEach((sl, k) => {
+      const s0 = w;
+      for (let i = 0; i < count; i++) if (taken[i] === k + 1) idx[w++] = i;
+      if (w > s0) { e!.geo.addGroup(s0, w - s0, mats.length); mats.push(this.markMaterial(mat, sl === "faceSelected" ? PALETTE.faceSelected : PALETTE.faceHover)); }
+    });
+    e.index.needsUpdate = true;
+    e.geo.setDrawRange(0, w);
+    mesh.geometry = e.geo; mesh.material = mats;
+  }
+  private dropMarked(cache: Map<string, MarkedGeo>, chunk: string): void {
+    const e = cache.get(chunk); if (!e) return;
+    for (const name of Object.keys(e.geo.attributes)) e.geo.deleteAttribute(name);   // 属性是源几何的，不跟着释放；只放掉自己的索引
+    e.geo.dispose(); cache.delete(chunk);
+  }
+  private markMats = new Map<any, Map<number, any>>();
+  /** 标记的材质 = 这个槽的面材质 + SEL 变体（同一套 shader / uniforms / 深度偏移；每个风格的 shader 自己说 SEL 长什么样：白模 = 换成状态色、写实 = 叠色、Tron = Clu 橙 + 辉光）。 */
+  private markMaterial(plain: any, hex: number): any {
+    let by = this.markMats.get(plain); if (!by) { by = new Map(); this.markMats.set(plain, by); }
+    let m = by.get(hex); if (m) return m;
+    m = new THREE.ShaderMaterial({
+      glslVersion: plain.glslVersion, vertexShader: plain.vertexShader, fragmentShader: plain.fragmentShader, defines: { ...plain.defines, SEL: 1 },
+      uniforms: { ...plain.uniforms, uMark: { value: new THREE.Vector3(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255) } },
+      side: plain.side, transparent: plain.transparent, depthTest: plain.depthTest, depthWrite: plain.depthWrite, blending: plain.blending,
+      polygonOffset: plain.polygonOffset, polygonOffsetFactor: plain.polygonOffsetFactor, polygonOffsetUnits: plain.polygonOffsetUnits,
+    });
+    by.set(hex, m); return m;
+  }
   private makeSlotNodes(): SlotNodes {
     const root = new THREE.Group();
     root.matrixAutoUpdate = false;
     const plain = new THREE.Mesh(this.emptyGeo, this.faceMat); plain.frustumCulled = false; plain.visible = false;
-    const sel = new THREE.Mesh(this.emptyGeo, this.faceMat); sel.frustumCulled = false; sel.visible = false; sel.renderOrder = 2;   // 画在面之后：深度一模一样时后画的赢
     const pixel = new THREE.LineSegments(this.emptyGeo, this.pixelMat); pixel.frustumCulled = false; pixel.visible = false;
     const thick = new LineSegments2(this.emptyLineGeo, this.edgeMat); thick.frustumCulled = false; thick.visible = false;
     const xpixel = new THREE.LineSegments(this.emptyGeo, this.xrayPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3; xpixel.layers.set(OVERLAY_LAYER);
     const xthick = new LineSegments2(this.emptyLineGeo, this.xrayThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3; xthick.layers.set(OVERLAY_LAYER);
-    root.add(plain); root.add(sel); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
+    root.add(plain); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
     this.scene.add(root);
-    return { root, plain, sel, selKey: "\u0000", selMat: null, tex: [], pixel, thick, xpixel, xthick, gen: 0 };
+    return { root, plain, plainSrc: this.emptyGeo, plainMat: this.faceMat, plainChunk: null, tex: [], pixel, thick, xpixel, xthick, gen: 0, markKey: "\u0000", marked: new Map() };
   }
   private texMatFor(mat: MaterialRef, side: ChunkSide = "double"): any {
     let bySide = this.texMats.get(mat);

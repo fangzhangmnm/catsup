@@ -9,6 +9,7 @@ import { type WorldView, type PoolSlot, slotKey } from "../scene/world-view.ts";
 import { poolKey, type Material, type Scene } from "../scene/scene.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { perf } from "./perf-stats.ts";
+import type { MarkLayout } from "./highlight.ts";
 
 /** 一份池网格 = 一个「身体」：同一个池通常一份；同一帧要画两个不同内核（预演影子 + 原件）就多开一份。 */
 interface Body { readonly id: string; readonly mesh: PoolMesh; gen: number; faces: Map<string, Chunk>; lines: Chunk | null; }
@@ -26,6 +27,8 @@ export class EditorStreamProvider implements StreamProvider {
   private matUids = new WeakMap<Material, number>(); private nextMatUid = 1;
   /** 世界视图对象 → 小整数（内容键 / 包围球缓存：预演影子每帧是新对象 = 身份变 = 自然失效，和以前 render3 的 kernelId 同构）。 */
   private worldIds = new WeakMap<object, number>(); private nextWorldId = 1;
+  /** 上一次 pull 每个槽画的是哪份身体（标记的布局按它找块 / 段）。 */
+  private slotBody = new Map<string, Body>();
   private boundsCache: { world: WorldView; rev: number; sphere: { c: Vec3; r: number } | null } | null = null;
   /** 样式那半由后端给（`ChunkStyle`，引擎契约里的过渡期接口）。 */
   constructor(private readonly style: ChunkStyle) {}
@@ -48,6 +51,10 @@ export class EditorStreamProvider implements StreamProvider {
     return sphere;
   }
 
+  /** 标记的布局（editor/highlight.ts MarkLayout）：某个槽里一张面在哪些块的哪一段（块 id = 身体 id / 组键，和 pull 吐的一致）。 */
+  layout(): MarkLayout {
+    return { rangeOf: (slot, fid) => { const b = this.slotBody.get(slot); return b ? b.mesh.faceRanges(fid).map((r) => ({ chunk: `${b.id}/${r.key}`, start: r.off, count: r.len })) : []; } };
+  }
   pull(_q: StreamQuery): StreamFrame {
     const world = this.world;
     if (!world) return { chunks: [], placements: [], complete: true };
@@ -55,8 +62,10 @@ export class EditorStreamProvider implements StreamProvider {
     const taken = new Map<Body, KernelView>();   // 这一帧哪份池网格画的是哪个内核
     const placements: Placement[] = [], chunks: Chunk[] = [];
     const thick = this.style.thick();
+    this.slotBody.clear();
     for (const s of world.slots) {
       const b = this.bodyFor(s, world.scene, taken, thick);
+      this.slotBody.set(slotKey(s), b);
       placements.push({ pool: b.id, xform: s.xform, slot: slotKey(s), index: s.index, active: s.active, dim: !!this.dimSlots?.has(s.index), singleSided: b.mesh.singleSided });
     }
     for (const list of this.bodies.values()) for (const b of list) if (b.gen === this.gen) { for (const c of b.faces.values()) chunks.push(c); if (b.lines) chunks.push(b.lines); }

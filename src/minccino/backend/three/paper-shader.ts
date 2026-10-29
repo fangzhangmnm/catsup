@@ -27,6 +27,7 @@ const PAPER_VS = /* glsl */`
 const PAPER_FS = /* glsl */`
   precision highp float;
   in vec3 vColor; in vec3 vPosV; in vec3 vPosW;
+  uniform vec3 uMark;
   #ifndef SINGLE
   in vec3 vColorB;
   #endif
@@ -44,6 +45,9 @@ const PAPER_FS = /* glsl */`
     // 没上色的面 = 纸色。过渡做法：颜色还烤在顶点色里，白模灰（PALETTE.face，8 位量化后差不到 1/127）认出来换成纸色——
     // 换风格不用重建池网格；材质模块接上槽表（baseColor 默认）后退役
     if (all(lessThan(abs(c - uDefaultFace), vec3(0.006)))) c = uBase;
+    #endif
+    #ifdef SEL
+    c = uMark;   // 标记（选中 / 悬停）：换成状态色（刀 b；这个风格的材质表 = 替换）
     #endif
     vec3 N = normalize(cross(dFdx(vPosV), dFdy(vPosV)));   // 刻面感 1：面法线，朝着看的这一侧
     float q = (dot(N, uLight) * 0.5 + 0.5) * uSteps;

@@ -129,5 +129,11 @@
 
 ### 刀 a（v0.17.17）：叠加层去样式表，item 自带 GL 画法参数
 - 做了什么：`src/minccino/overlay/index.ts` 删掉 `LINE_STYLES / POINT_STYLES / MARKER_STYLES / TRIS_STYLES`（17 + 4 + 7 + 1 个**编辑器名字**：lock / gizmo / protractor / poolAxes…）；每个 item 自带线宽（CSS px 或 `"edge"` = 跟线稿粗细走）/ 深度模式（`visible` 测深度并前拉 · `through` 压最上 · `hidden` 只画被挡住的那段，T73）/ 透明度 / 叠放次序 `layer` / `depthWrite`；点带大小 · 圆方 · 往相机拉 · 颜色；标记带几何形状。后端 `overlay-lines.ts` / `overlay-marks.ts` 按参数**按需建材质、按参数复用**（键 = 参数拼起来）。名字搬到编辑器侧：`src/editor/overlay-lines.ts LOOK`、`overlay.ts DOT / MARK / TRI`（值逐字 = 旧表）。断口小垂线的「跟边线宽走」从 render3 点名 `material("tick")` 改成 item 说 `widthPx: "edge"`、后端 `edgeWidth()` 统一刷。
-- 怎么验：`npm test` 1175 绿；截图基线 22 张 **0 像素差**（材质从「按表序预建」改成「按需建」后 three 画家排序平手的次序理论上可能变，基线证明现有场景没撞上）。
+- 怎么验：`npm test` 1175 绿；截图基线 22 张（**更正**：第一次量的是旧包——探针跑的是 dist，当时没重打包；重打包后重测 = 21 张 0 差 + `style-papercut-boxes` 28 像素 ±1 噪声，而这 28 像素在 v0.17.16 的包上也在 = 冻结样本的漂移，不是这刀的）。
 - 基线：没动。
+
+### 刀 b（v0.17.18）：高亮 = 标记 + 索引分段（踢掉再画）
+- 做了什么：`OverlayFaces`（三角 + 法线 + 顶点色的那份高亮几何）和后端 `overlay-faces.ts` 删掉。编辑器 `highlight.ts` 改吐 **标记** `Mark { slot, chunk, start, count, material }`（契约 v2 第 ② 批；`FrameInput.marks()`，拉完流才调）——池网格里一张面本来就是一段连续顶点（`PoolMesh.faceRanges` / `RegionStore.range`），流提供者 `layout()` 把槽 + 面 id 翻成块 id + 段。后端 `render3 syncMarks`：有标记的网格换成「共享源几何的属性 + 自己的索引」，索引把顶点分成普通段 / 每个材质槽一段（永远几个 draw call、不重叠、不画两遍；标记变了只重写索引 O(池顶点数)，属性零上传；user「index赞！」）。标记的材质 = 这个槽的面材质 + `SEL` 变体（`markMaterial`：同 shader / uniforms / 深度偏移 + `uMark` = 状态色）；**SEL 长什么样归各风格的 shader**：白模 / 剪纸 = 换成状态色（替换）、写实 / 铸铜 = `mix(o, uMark, 0.45)`（叠色，T66）、Tron = 自己的 Clu 橙 + 辉光（不看 uMark）、贴图 = 贴图 × 状态色。render3 里 `selMat` 三元分派、`faceMatTop`、槽节点的 `sel` 网格都没了。
+- 看得见的变化：白模里**上色的面**选中 = 纯状态色（以前 = 状态色和材质色对半；T69 替换语义）；没上色的面、Tron、写实不变。
+- 怎么验：`npm test` 1175 绿；探针 selecting / style / xr-fake / erase-red / mesh-workbench / soft-select / context 绿（在新包上跑的）；截图基线 22 张 0 新增差。**按 T82 改的规矩**补一张针对这刀的场景 `marks-painted-selall`（上色样本全选：上色面换成选中色）。
+- 基线：加 1 张（新场景）。
