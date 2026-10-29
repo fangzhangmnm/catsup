@@ -606,7 +606,7 @@ export class Renderer3 implements Backend {
       this.envSky = new EnvSky(); this.pbr = new PbrMaterials(this.aoBaker.uniforms, this.envSky, DEPTH.face, DEPTH.faceOther);
       this.pbr.ground.layers.set(GROUND_LAYER); this.scene.add(this.pbr.ground);
     }
-    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyle}:${this.framePreset.id}`;
+    const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyleInUse()}:${this.framePreset.id}`;
     if (pk !== this.poolKey) { this.poolKey = pk; this.perf.time("syncPools", () => this.syncPools()); }
     this.syncPaper(cam3);   // 平涂 / 地面 / 遮蔽（剪纸）：没用到 = 地面藏着、什么都不建
     this.syncMarks(input.marks ? input.marks() : []);   // 标记（选中 / 悬停的面换材质槽；刀 b）：拉完流之后，块 id 才稳定
@@ -833,6 +833,8 @@ export class Renderer3 implements Backend {
   /** 缩略图截图时只画白模（缩略图 = 模型，不是视图）。 */
   private capturing = false;
   getLineStyle(): LineStyle { return this.lineStyle; }
+  /** 实际画的线：像素化的风格（像素描边等）锁成原生 1 像素线——光栅器自己的 Bresenham = 像素准确；粗线是三角形拼的，放大后台阶不匀（user 10-29「调成1px就lineart perfect了……像素的时候锁1px加这么一条风格覆盖」）。Tron 例外：它自己的发光粗线。 */
+  lineStyleInUse(): LineStyle { const p = this.framePreset; return isStyled(p) && !p.material.tron ? "pixel" : this.lineStyle; }
   /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
   setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
   getLineWeight(): number { return this.lineWeight; }
@@ -884,7 +886,8 @@ export class Renderer3 implements Backend {
       for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
       // 边
       const edgesMode = this.framePreset.material.edges, L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && (edgesMode === "all" || (edgesMode === "active" && pl.active));   // 风格的线稿三档：none / all / active（只画正在编辑那一层的，T60）；X 光的线照画
-      if (this.lineStyle === "thick") { n.thick.geometry = hasL ? L!.geo : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
+      const thickLines = this.lineStyleInUse() === "thick";
+      if (thickLines) { n.thick.geometry = hasL ? L!.geo : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
       else { n.pixel.geometry = hasL ? L!.geo : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }
       n.thick.material = tron ? tron.lineThick : this.edgeMat; n.pixel.material = tron ? tron.linePixel : this.pixelMat;
       n.thickMat = n.thick.material; n.pixelMat = n.pixel.material; n.linesChunk = L?.id ?? null;   // 线的标记（淡出）按它换材质
@@ -892,8 +895,8 @@ export class Renderer3 implements Backend {
       const xr = (this.xrayPass || !!tron) && hasL, xLayer = tron ? 1 : 1 << OVERLAY_LAYER;
       n.xthick.layers.mask = xLayer; n.xpixel.layers.mask = xLayer;
       n.xthick.material = tron ? tron.hiddenThick : this.xrayThickMat; n.xpixel.material = tron ? tron.hiddenPixel : this.xrayPixelMat;
-      n.xthick.geometry = xr && this.lineStyle === "thick" ? n.thick.geometry : this.emptyLineGeo; n.xthick.visible = xr && this.lineStyle === "thick";
-      n.xpixel.geometry = xr && this.lineStyle !== "thick" ? n.pixel.geometry : this.emptyGeo; n.xpixel.visible = xr && this.lineStyle !== "thick";
+      n.xthick.geometry = xr && thickLines ? n.thick.geometry : this.emptyLineGeo; n.xthick.visible = xr && thickLines;
+      n.xpixel.geometry = xr && !thickLines ? n.pixel.geometry : this.emptyGeo; n.xpixel.visible = xr && !thickLines;
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
     for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }

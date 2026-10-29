@@ -258,7 +258,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
     // 右键拖成了环绕就不弹；触屏长按走自家计时器（系统 contextmenu 事件在 iOS 上不来）
     if (rightDown?.moved) { rightDown = null; return; }
     rightDown = null;
-    if (editor.modeId === "freeform" && editor.isGestureActive()) { if (!editor.commitInPlace()) editor.abortGesture(); return; }   // 自由建模：手势中右键 = 挤出原地留下（接着 G）/ 别的 = 只取消这次操作、选区留着（Blender G / R / S / E 同款），不弹菜单
+    if (editor.isGestureActive()) { if (!editor.commitInPlace()) editor.abortGesture(); return; }   // 手势中右键 = 能原地留下的（挤出）原地留下、别的只取消这一下（选区留着）；**两种工作台一样**（以前只认自由建模 = app 层按工作台 if，硬表面推拉时右键弹出了菜单，user 10-29；T102）。不在手势里才是菜单区留着（Blender G / R / S / E 同款），不弹菜单
     if ((me as PointerEvent).pointerType === "touch") return;
     const r = canvas.getBoundingClientRect();
     opts.onContext(me.clientX - r.left, me.clientY - r.top, me.clientX, me.clientY);

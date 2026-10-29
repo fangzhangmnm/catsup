@@ -226,6 +226,12 @@ export const meshOf = (s: Scene, def: number): MeshBody => {
   if (kind !== "mesh") throw new OpTargetError(`definition ${def} is a ${kind} body: no mesh op applies`);
   return s.mesh(def);
 };
+/** 两种身体都认的池地址（导入这种只碰定义层、不碰内核的 op）：定义得在；组只有硬表面体有（有组 = 走原来的校验）。T90：以前导入走 poolOf，站在网格体里再导入 = 「no brep op applies」。 */
+export const anyPoolOf = (s: Scene, at?: PoolRef): { ref: PoolRef } => {
+  const ref: PoolRef = at ?? { def: s.root, group: null };
+  if (!s.defs.has(ref.def)) throw new OpTargetError(`definition ${ref.def}`);
+  return ref.group !== null ? { ref: poolOf(s, ref).ref } : { ref };
+};
 export const poolOf = (s: Scene, at?: PoolRef): { kernel: Kernel; ref: PoolRef } => {
   const ref = at ?? { def: s.root, group: null };
   if (!s.hasPool(ref)) throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"}`);
@@ -469,7 +475,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "importScene": {
-      const { ref } = poolOf(s, op.at);
+      const { ref } = anyPoolOf(s, op.at);   // 网格体里也能导入（定义层挂实例，不碰内核）
       buildImport(s, ref, op.scene, op.place);
       return { scene: s, events: [] };
     }

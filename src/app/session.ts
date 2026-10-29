@@ -164,7 +164,7 @@ export class Session {
   private localHomeKind(): "file" | "transient" | null { return this.home.kind === "gallery" ? null : this.home.kind; }
   /** lazyblank 且还没动过（boot 登录后重试恢复 / 挂库不塞空白 用）。 */
   isUntouchedLazyBlank(): boolean { return this.lazy && !this.dirty(); }
-  private hasContent(): boolean { if ((this.d.refs?.count() ?? 0) > 0) return true; for (const { pool } of this.d.editor.sceneRef.pools()) if (this.d.editor.sceneRef.kernelOf(pool).edges().length > 0) return true; return false; }   // 空白场景里只放了参考卡也算有内容（安家，别让新建 / 开别的时静默丢掉）
+  private hasContent(): boolean { if ((this.d.refs?.count() ?? 0) > 0) return true; for (const { pool } of this.d.editor.sceneRef.pools()) if (this.d.editor.sceneRef.viewOf(pool).edges().length > 0) return true; return false; }   // 空白场景里只放了参考卡也算有内容（安家，别让新建 / 开别的时静默丢掉）；读几何经显示契约 viewOf（网格体也是内容；T90：以前 kernelOf 只认硬表面体，导入成网格体后这里抛 → 安家 / 再导入都坏）
   /** smart save 钮的状态（顺序 = WeebPaint computeSaveState：saving → dirty → cloud-off → unpushed/synced → local-only）。 */
   saveState(): SaveState {
     if (this.saving) return "saving";
