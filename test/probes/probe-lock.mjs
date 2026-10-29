@@ -1,4 +1,4 @@
-// 锁定（A27，v0.13.4；0.14 起锁只给实例——组不是物体）：盒子 → 全选建组件 → 锁定 → 整体移 / 删除 / 进入全被拦（revision 不动、上下文不变）→ 解锁 → 能移。created 2026-10-24 by Claude Fable 5.1
+// 锁定（A27，v0.13.4；0.14 起锁只给实例——组不是物件）：盒子 → 全选建组件 → 锁定 → 整体移 / 删除 / 进入全被拦（revision 不动、上下文不变）→ 解锁 → 能移。created 2026-10-24 by Claude Fable 5.1
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const url = process.argv[2] ?? "http://127.0.0.1:8765/";

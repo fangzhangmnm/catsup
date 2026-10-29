@@ -1,6 +1,6 @@
 // 物件层动词（设计稿 20261028-object-layer-and-clipboard-design §4；created 2026-10-28 by Claude Fable 5.1；user 10-28 夜「你右键点在谁身上，谁留下 可以」「「分开」整个撤掉，只留原地建组件 先这么试着」「允许cast但是会弹窗」）。
 // 最外层硬表面，两个网格体组件 A（6 面）、B（6 面，挪到 (3,0,0)）——
-// ① 两个都选着、右键点在 A 上 = 菜单有「把其余合并进这个」、没有「分开」「合并物体」；点它 = 只剩 A、A 有 12 张面、B 那 6 张的世界坐标没动；一步撤销；撤销 = 回两个
+// ① 两个都选着、右键点在 A 上 = 菜单有「把其余合并进这个」、没有「分开」「合并物件」；点它 = 只剩 A、A 有 12 张面、B 那 6 张的世界坐标没动；一步撤销；撤销 = 回两个
 // ② 鼠标压着 B 按 Ctrl+J = 并进 B（B 留下）③ 硬表面组件 C + 网格体 A 都选、右键点 C「把其余合并进这个」= 弹「要转种类」；「不做」= 什么都没动；再来、「转成硬表面体再并」= C 多了面、A 没了
 // ④ 炸开网格体组件（在硬表面最外层）= 弹「要转种类」；「不做」= 没炸；「转成硬表面体再炸」= 最外层多了面、组件没了
 // ⑤ 做成唯一：A 再摆一份（两份同定义）、选其中一份右键有「做成唯一」、点它 = 定义不同、面数一样、另一份的定义还是原来的
@@ -91,7 +91,7 @@ r.six.after = await page.evaluate(() => { const e = globalThis.__catsup.editor, 
 await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r, null, 1));
-const ok = /把其余合并进这个/.test(r.one.menu) && !/分开|合并物体/.test(r.one.menu) && r.one.clicked && r.one.after.n === 2 && r.one.after.aFaces === 12 && r.one.keptB && /合并了 1 个/.test(r.one.after.hint) && r.one.undone
+const ok = /把其余合并进这个/.test(r.one.menu) && !/分开|合并物件/.test(r.one.menu) && r.one.clicked && r.one.after.n === 2 && r.one.after.aFaces === 12 && r.one.keptB && /合并了 1 个/.test(r.one.after.hint) && r.one.undone
   && r.two.n === 2 && r.two.bFaces === 12 && r.two.aGone && r.two.keptA
   && r.three.clicked && r.three.declined && r.three.untouched && r.three.cast && r.three.after.n === 2 && r.three.after.cFaces > 6 && r.three.after.aGone && r.three.after.cKind === "brep"
   && r.four.declined && r.four.untouched && r.four.cast && r.four.after.n === 2 && r.four.after.rootFaces >= 6 && r.four.after.aGone

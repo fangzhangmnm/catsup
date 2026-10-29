@@ -1,5 +1,5 @@
 // 网格体镜像接线（2026-10-28 Claude Opus 5.5；纪元账本 FM23 / FM134 / FM136）。中缝切开的盒子（-1..1）：
-// ① 右边「物体」钮 → 物体窗口第一行「组件「块」（网格体）」、「属性」页「对称」下拉（关 / 强行对称 / 镜像编辑）、开了才露「镜像面」（2026-10-28 Claude Fable 5.1：对称 = 网格体的属性，搬进物体窗口，UX 心智模型 §2.1）
+// ① 右边「物件」钮 → 物件窗口第一行「组件「块」（网格体）」、「属性」页「对称」下拉（关 / 强行对称 / 镜像编辑）、开了才露「镜像面」（2026-10-28 Claude Fable 5.1：对称 = 网格体的属性，搬进物件窗口，UX 心智模型 §2.1）
 //   ② 开镜像编辑：镜像面的框 + 中缝点画出来 ③ 挪 +x 一个角 → 对面跟着镜、一步撤销两个一起回
 // ④ 镜像编辑开着用挤出（改拓扑）→ 应用内确认「关掉镜像，照做」→ 照做了、镜像关了 ⑤ 强行对称：开的时候按选区那边对称一次；之后挤出 +x 一张面 → -x 也长出来、同一步、撤销一下全回
 // ⑥ 对称对齐：歪一个点、选两边那一对 → 右键「对称对齐」对回来 ⑦ 强行对称先沿镜像面切开
@@ -18,7 +18,7 @@ const res = await page.evaluate(async () => {
   const drag = async (x0, y0, x1, y1) => { fire("pointermove", x0, y0, 0); await sleep(10); fire("pointerdown", x0, y0, 1); await sleep(10); for (let i = 1; i <= 6; i++) { fire("pointermove", x0 + (x1 - x0) * i / 6, y0 + (y1 - y0) * i / 6, 1); await sleep(10); } fire("pointerup", x1, y1, 0); await sleep(40); };
   const rclick = async () => { c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + Math.round(vw * 0.15), clientY: r.top + Math.round(vh * 0.3), button: 2 })); await sleep(60); };
   const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), layer = () => document.querySelector(".popup-menu.choice-layer");
-  const openObj = async () => { document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物体」钮 → 物体窗口（这一层）
+  const openObj = async () => { document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物件」钮 → 物件窗口（这一层）
   const mirrorPick = async (id) => { await openObj(); menu()?.querySelector('[data-menu-id="mirror:mode"]')?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(40); layer()?.querySelector(`[data-choice-id="mirror:mode:${id}"]`)?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };
   const closeAll = async () => { document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); await sleep(30); document.querySelectorAll(".popup-menu").forEach((m) => m.remove()); };
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.addSegments(segs); };
@@ -97,7 +97,7 @@ const res = await page.evaluate(async () => {
   e.makeComponent("块2"); e.runAction("object.toMesh"); await sleep(20);
   const inst2 = loose().find((i) => i.id !== inst.id), m2 = () => S().mesh(inst2.def).kernel;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst2.id}`, { kind: "instance", instance: inst2.id }); e.enterSelected(); await sleep(30);
-  e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await sleep(10);   // 镜像面 = 物体自己的原点：先把原点放到方块中间
+  e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await sleep(10);   // 镜像面 = 物件自己的原点：先把原点放到方块中间
   const xs2 = m2().verts().map((x) => m2().pt(x).x), c2 = (Math.min(...xs2) + Math.max(...xs2)) / 2;
   const corner = m2().verts().find((x) => m2().pt(x).x === Math.max(...xs2));
   e.commitOp({ op: "meshMove", def: inst2.def, moves: [{ v: corner, to: { ...m2().pt(corner), x: m2().pt(corner).x + 0.3 } }] });

@@ -238,8 +238,8 @@ const STEP_PASS = Object.freeze({}) as StepPass;
 /** op → 一步的默认标签（中文动词；显式给了 step() 标签的用那个）。开放集：没登记的用 op 名。 */
 const OP_TITLES: Readonly<Record<string, string>> = {
   addEdges: "画线", eraseEdges: "擦边", eraseFaces: "擦面", eraseSelection: "删除", move: "移动", pushpull: "推拉", followme: "跟随", absorb: "合并", weldEdges: "焊接", dissolveVertices: "溶解点",
-  explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物体", placeInstance: "放置",
-  eraseInstance: "删除物体", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
+  explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物件", placeInstance: "放置",
+  eraseInstance: "删除物件", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
   meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
@@ -293,7 +293,7 @@ export class Editor {
     return this.step((pass) => {
     const next = this.modeList.find((m) => m.id === id);
     if (!next || next === this.mode) return;
-    if (!(next.kinds as readonly BodyKind[]).includes(this.activeKind())) { this.host.hint(`「${next.label}」管不了现在这个物体`); return; }   // 不变量：工作台管活动池的身体种类
+    if (!(next.kinds as readonly BodyKind[]).includes(this.activeKind())) { this.host.hint(`「${next.label}」管不了现在这个物件`); return; }   // 不变量：工作台管活动池的身体种类
     this.cancelGesture();
     this.mode.leave?.(this.toolCtx);
     this.openParamSession(null);   // 换工作台：马前炮 / 马后炮都收
@@ -790,7 +790,7 @@ export class Editor {
   setTool(t: Tool): void {
     if (!this.mode.tools.includes(t)) {   // 工具属于别的模式（快捷键 B 在几何模式按了油漆桶）→ 先切过去；只切到管活动池这种身体的工作台（网格体里按画线键不能切进硬表面建模）
       const kind = this.activeKind(), owner = this.modeList.find((m) => m.tools.includes(t) && (m.kinds as readonly BodyKind[]).includes(kind));
-      if (!owner) { const any = this.modeList.find((m) => m.tools.includes(t)); if (any) this.host.hint(`「${this.mode.label}」工作台里没有这把工具（它在「${any.label}」里，管的是别的物体）`); return; }
+      if (!owner) { const any = this.modeList.find((m) => m.tools.includes(t)); if (any) this.host.hint(`「${this.mode.label}」工作台里没有这把工具（它在「${any.label}」里，管的是别的物件）`); return; }
       this.setMode(owner.id);
     }
     this.last = null;
@@ -1841,7 +1841,7 @@ export class Editor {
     if (!needCast.length) { go(false); return; }
     const to = tkind === "mesh" ? "网格体" : "硬表面体";
     if (!this.host.confirm) { this.host.hint(`合并：${needCast.length} 个物件是另一种身体，要先转成${to}（这里不能问，没并）`); return; }
-    void this.host.confirm("合并：要转种类", `${needCast.length} 个物件是另一种身体的几何，并进「${T.name ?? this.scene.def(tdef).name}」要先转成${to}（和物体设置里的转换一样，会丢它那一种才有的东西）。转过去再并吗？`, `转成${to}再并`)
+    void this.host.confirm("合并：要转种类", `${needCast.length} 个物件是另一种身体的几何，并进「${T.name ?? this.scene.def(tdef).name}」要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再并吗？`, `转成${to}再并`)
       .then((ok) => { if (ok) go(true); else { this.host.hint("合并：没并（你选了不转）"); this.draw(); } });
   }
   /** 做成唯一（SketchUp Make Unique）：选中的、摆了多份的物件各换一份新定义，别的份不受影响。 */
@@ -1903,7 +1903,7 @@ export class Editor {
     if (!needCast.length) return this.step((pass) => this.explodeSelectionStep(pass, false));
     const to = kind === "mesh" ? "网格体" : "硬表面体";
     if (!this.host.confirm) { this.host.hint(`炸开：${needCast.length} 个物件是另一种身体，要先转成${to}（这里不能问，没炸）`); return false; }
-    void this.host.confirm("炸开：要转种类", `${needCast.length} 个物件是另一种身体的几何，炸进这一层要先转成${to}（和物体设置里的转换一样，会丢它那一种才有的东西）。转过去再炸吗？`, `转成${to}再炸`)
+    void this.host.confirm("炸开：要转种类", `${needCast.length} 个物件是另一种身体的几何，炸进这一层要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再炸吗？`, `转成${to}再炸`)
       .then((ok) => { if (ok) this.step((pass) => this.explodeSelectionStep(pass, true)); else { this.host.hint("炸开：没炸（你选了不转）"); this.draw(); } });
     return true;
   }
@@ -1953,7 +1953,7 @@ export class Editor {
     if (a.ok) { this.pasteNow(p); return; }
     const to = a.cast === "mesh" ? "网格体" : "硬表面体";
     if (!this.host.confirm) { this.host.hint(`粘贴：${a.what}要先转成${to}才能贴进这一层（这里不能问，没贴）`); return; }
-    void this.host.confirm("粘贴：要转种类", `${a.what}是另一种身体的几何，贴进这一层要先转成${to}（和物体设置里的转换一样，会丢它那一种才有的东西）。转过去再贴吗？`, `转成${to}再贴`)
+    void this.host.confirm("粘贴：要转种类", `${a.what}是另一种身体的几何，贴进这一层要先转成${to}（和物件设置里的转换一样，会丢它那一种才有的东西）。转过去再贴吗？`, `转成${to}再贴`)
       .then((ok) => { if (ok) this.pasteNow(castPayload(p, a.cast)); else { this.host.hint("粘贴：没贴（你选了不转）"); this.draw(); } });
   }
   private pasteNow(p: import("./transfer.ts").TransferPayload): void {
@@ -2023,7 +2023,7 @@ export class Editor {
     // 0.14：组不是物体、不能锁（user「组永远不进hierarchy」）——只锁实例；选区里只有组时提示怎么办
     const all = [...this.selectedPools.values()];
     const picks = all.filter((p) => p.kind === "instance" && this.pickIsLocked(p) !== on);
-    if (!picks.length) { if (on && all.some((p) => p.kind === "group")) this.host.hint("组不是物体，不能锁；要当参考就先「建组件」（G）再锁"); return false; }
+    if (!picks.length) { if (on && all.some((p) => p.kind === "group")) this.host.hint("组不是物件，不能锁；要当参考就先「建组件」（G）再锁"); return false; }
     const at = this.activePool();
     for (const p of picks) if (p.kind === "instance") this.commitIn(pass, { op: "setLocked", at, instance: p.instance, on });
     this.host.hint(on ? `已锁定 ${picks.length} 个：不能改、不能移、不能进入；仍可当推断参考` : `已解锁 ${picks.length} 个`);
@@ -2092,7 +2092,7 @@ export class Editor {
   }
   /** 提示行的「作用于」那半句（披露）。 */
   private scopeText(sc: RepairScope): string {
-    const where = sc.mode === "selection" ? "选中的" : "整个物体";
+    const where = sc.mode === "selection" ? "选中的" : "整个物件";
     const parts = [sc.components ? `含 ${sc.components} 个组件、共 ${sc.copies} 份` : "", sc.locked ? `锁着的 ${sc.locked} 个跳过` : ""].filter(Boolean);
     return `作用于：${where}${parts.length ? `；${parts.join("；")}` : ""}`;
   }
@@ -2185,7 +2185,7 @@ export class Editor {
     const ctxDef = s.defOfContext(this.ctx), defs: number[] = [];
     let n = 0;
     for (const p of this.selectedPools.values()) if (p.kind === "instance") { n++; const inst = s.def(ctxDef).instances.get(p.instance); if (inst && !defs.includes(inst.def)) defs.push(inst.def); }
-    return { title: n === 1 && defs.length === 1 ? `组件「${s.def(defs[0]).name}」（${kindLabel(defs[0])}）` : `选中的 ${n} 个物体`, defs };
+    return { title: n === 1 && defs.length === 1 ? `组件「${s.def(defs[0]).name}」（${kindLabel(defs[0])}）` : `选中的 ${n} 个物件`, defs };
   }
   /** 指令声明 perDefinition（改定义不改这一份）时按定义去重：同一定义几份实例只喂一次（copies 披露「N 份一起变」）。 */
   private unitsFor(c: Command, kind: UnitKind): Unit[] {
@@ -2209,7 +2209,7 @@ export class Editor {
       // 单位只取一次：马后炮按新参数重做时用同一批（上一次做完的选区已经换成结果了）
       const plans = routes.map(({ kind, command: c }) => ({ c, units: this.unitsFor(c, kind) }));
       const skips: string[] = [];
-      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).some((u) => u.kind !== "object" || u.instance !== null)) skips.push(`跳过了${kind === "brep" ? "硬表面体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物体"}：「${a.label(0)}」不管它`);
+      for (const kind of ["brep", "mesh", "object"] as const) if (!a.commands[kind] && this.unitsOf(kind).some((u) => u.kind !== "object" || u.instance !== null)) skips.push(`跳过了${kind === "brep" ? "硬表面体的几何" : kind === "mesh" ? "网格体的几何" : "选中的物件"}：「${a.label(0)}」不管它`);
       const valuesOf = (c: Command, units: readonly Unit[], p?: CmdParams): CmdParams => ({ ...c.defaults(this.repairCtx, units), ...(p ?? {}) });
       const go = (p?: CmdParams): number => {
         const ops: Op[] = [], notes = new Set<string>(skips), dones: { c: Command; n: number; v: CmdParams }[] = [];
@@ -2365,7 +2365,7 @@ export class Editor {
   }
   private eraseAskText(title: string, e: { edges: number; seconds: number; faces: number }): string {
     const t = e.seconds < 90 ? `${Math.round(e.seconds)} 秒` : `${(e.seconds / 60).toFixed(1)} 分钟`;
-    return `${title}要擦掉 ${e.edges} 条面和面之间的线。内核现在每擦一次线都要把整个物体重新整理一遍（这里最大的物体有 ${e.faces} 张面），估计要 ${t} 左右，期间界面会卡住——按坦克 3.2 万面实测一次约 95 秒推算，只是量级。要做吗？`;
+    return `${title}要擦掉 ${e.edges} 条面和面之间的线。内核现在每擦一次线都要把整个物件重新整理一遍（这里最大的物件有 ${e.faces} 张面），估计要 ${t} 左右，期间界面会卡住——按坦克 3.2 万面实测一次约 95 秒推算，只是量级。要做吗？`;
   }
   private repairNow(kind: RepairKind, scope: "auto" | "context", v0: Record<string, ParamValue>): number { return this.step((pass) => {
     const go = (v: Readonly<Record<string, ParamValue>>): number => {
@@ -2376,7 +2376,7 @@ export class Editor {
     const n0 = this.opCount;
     const count = go(v0);
     if (!count && !this.repairModule(kind).offerAlways) return 0;
-    this.offerAfterthought(this.repairModule(kind).title, [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...this.repairFields(kind)], v0, this.opCount - n0,
+    this.offerAfterthought(this.repairModule(kind).title, [{ key: "children", def: { kind: "bool", label: "含子物件" } }, ...this.repairFields(kind)], v0, this.opCount - n0,
       (v) => { this.repairChildren = v.children !== false; go(v); });
     this.host.changed(); this.draw();
     return count;
@@ -2446,7 +2446,7 @@ export class Editor {
     const vals: Record<string, ParamValue> = { children: this.repairChildren, inspect: this.repairInspect };
     for (const s of REPAIR_STEPS) vals[s.command] = s.on;   // 默认勾不勾 = 步骤表说（拉正 / 焊断口 / 拍平 / 软边变硬勾：只动小毛病；吸格点 / 恢复层级不勾）
     const stepFields = (): ParamField[] => REPAIR_STEPS.map((s) => ({ key: s.command, def: { kind: "bool" as const, label: s.label(this.repairCtx) } }));
-    const fields: ParamField[] = [{ key: "children", def: { kind: "bool", label: "含子物体" } }, { key: "inspect", def: { kind: "bool", label: "检查：高亮看起来平、其实折过的软边" } }, ...stepFields()];
+    const fields: ParamField[] = [{ key: "children", def: { kind: "bool", label: "含子物件" } }, { key: "inspect", def: { kind: "bool", label: "检查：高亮看起来平、其实折过的软边" } }, ...stepFields()];
     const note = (v: Readonly<Record<string, ParamValue>>): string => {
       const ch = v.children !== false, counts = Editor.REPAIR_ORDER.filter((k) => v[k]).map((k) => {
         const sc = this.repairScope("auto", ch), dv = { ...this.repairDefaults(k), children: ch };
@@ -2476,7 +2476,7 @@ export class Editor {
       this.repairChildren = vals.children !== false; this.repairInspect = !!vals.inspect;
       const n0 = this.opCount, parts = runAll(vals), sc = this.scopeText(this.repairScope("auto", vals.children !== false));
       if (this.opCount === n0) { this.host.hint(`修复：没有要改的（${sc}）`); this.openParamSession(null); return; }
-      const after = afterthought({ title: "修复", fields: [{ key: "children", def: { kind: "bool", label: "含子物体" } }, ...stepFields()], values: { ...vals }, nOps: this.opCount - n0, opCount: () => this.opCount, undoN: (n) => this.undoN(n),
+      const after = afterthought({ title: "修复", fields: [{ key: "children", def: { kind: "bool", label: "含子物件" } }, ...stepFields()], values: { ...vals }, nOps: this.opCount - n0, opCount: () => this.opCount, undoN: (n) => this.undoN(n),
         redo: (v) => { this.repairChildren = v.children !== false; const ps = runAll(v); this.host.hint(`修复：${ps.length ? ps.join("；") : "没有要改的"}（${this.scopeText(this.repairScope("auto", v.children !== false))}）`); },
         note: (v) => { const sub = this.subtleFolds(v.children !== false).n; return sub ? `还剩 ${sub} 条微折软边（橙色高亮）` : "没有剩下的微折软边"; } });
       this.repairSession = after; this.openParamSession(after);
@@ -2734,7 +2734,7 @@ export class Editor {
     const out: { key: string; label: string; b: { min: Pt3; max: Pt3 } }[] = [];
     const sel = this.hasSelection() ? this.targetBounds() : null;
     if (sel) out.push({ key: "sel", label: "选区", b: sel });
-    if (this.contextDepth() > 0) { const s = this.worldView().activeSlot(); const b = poolBounds(s.kernel, s.xform); if (b) out.push({ key: "obj", label: "当前物体", b }); }
+    if (this.contextDepth() > 0) { const s = this.worldView().activeSlot(); const b = poolBounds(s.kernel, s.xform); if (b) out.push({ key: "obj", label: "当前物件", b }); }
     let min = { x: Infinity, y: Infinity, z: Infinity }, max = { x: -Infinity, y: -Infinity, z: -Infinity };
     for (const v of this.worldView().vertices()) { min = { x: Math.min(min.x, v.x), y: Math.min(min.y, v.y), z: Math.min(min.z, v.z) }; max = { x: Math.max(max.x, v.x), y: Math.max(max.y, v.y), z: Math.max(max.z, v.z) }; }
     if (Number.isFinite(min.x)) out.push({ key: "all", label: "全部", b: { min, max } });
@@ -2885,7 +2885,7 @@ export class Editor {
     const values: Record<string, ParamValue> = { copy: !!L.copy };
     const pivots = L.kind !== "move" ? L.pivots : undefined;
     if (pivots && L.kind !== "move" && L.pivotUsed) {
-      const labels: Record<string, string> = { auto: "自动", bbox: "包围盒中心", mean: "顶点平均", active: "最后选的物体原点", picked: "拾取的点" };
+      const labels: Record<string, string> = { auto: "自动", bbox: "包围盒中心", mean: "顶点平均", active: "最后选的物件原点", picked: "拾取的点" };
       const same = (a?: Pt3, b?: Pt3): boolean => !!a && !!b && Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) < 1e-9;
       if (pivots.auto) labels.auto = same(pivots.auto, pivots.bbox) ? "自动（包围盒中心）" : "自动（组件原点）";   // 说清这次自动落在了哪
       fields.push({ key: "pivot", def: { kind: "enum", label: "变换中心", values: Object.keys(pivots).map((id) => ({ id, label: labels[id] ?? id })) } });
@@ -3532,7 +3532,7 @@ export class Editor {
     go(v0);
     if (this.opCount === n0) return false;
     const fields: ParamField[] = [
-      { key: "align", def: { kind: "enum", label: "对齐", values: [{ id: "normal", label: "法向", hint: "贴着右键点到的面 / 点（默认）" }, { id: "world", label: "世界", hint: "世界的 X Y Z" }, { id: "object", label: "物体", hint: "所在物体自己的轴" }] } },
+      { key: "align", def: { kind: "enum", label: "对齐", values: [{ id: "normal", label: "法向", hint: "贴着右键点到的面 / 点（默认）" }, { id: "world", label: "世界", hint: "世界的 X Y Z" }, { id: "object", label: "物件", hint: "所在物件自己的轴" }] } },
       { key: "size", def: { kind: "number", label: isFlatPrimitive(kind) ? (P.measure === "直径" ? "宽（直径）" : "宽") : P.measure, min: 0.001, max: 10000, step: 0.1, quantity: { q: "length" } } },
       ...(isFlatPrimitive(kind) ? [{ key: "depth", def: { kind: "number" as const, label: P.measure === "直径" ? "深（直径）" : "深", min: 0.001, max: 10000, step: 0.1, quantity: { q: "length" as const } } }] : []),
       ...(P.round ? [{ key: "segments", def: { kind: "number" as const, label: "段数", min: 3, max: 128, step: 1 } }] : []),

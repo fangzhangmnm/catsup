@@ -16,7 +16,7 @@ export function menuItems(hud: HudModel, place: MenuPlace, opts: { groups?: bool
 /** 子组件的物体菜单：对这几个物体的动词 + 「物体设置…」（开物体窗口、当前 = 它们）。 */
 export function objectMenuItems(hud: HudModel): HudItem[] {
   const verbs = hud.edits().filter((it) => !it.hidden && (it.layer === "child" || it.id === "delete" || it.id === "cut" || it.id === "copy"));   // 删 / 剪 / 拷：对物件也成立
-  return [...verbs, { id: "objectWindow", label: "物体设置…", icon: "settings" }];
+  return [...verbs, { id: "objectWindow", label: "物件设置…", icon: "settings" }];
 }
 /** 浮条（笔 / 手指）：和右键同一套读法——选中的只有组件 = 物体菜单；否则几何层（含组的那几项）。 */
 export function barItems(editor: Editor, hud: HudModel): HudItem[] {

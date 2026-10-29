@@ -45,7 +45,7 @@ import "./mesh-view.test.ts";
 import "./mesh-format.test.ts";   // CATSUP_mesh 1.0.0 多边形载荷（2026-10-27 Fable M3）
 import "./object-commands.test.ts";
 import "./id-table.test.ts";   // 内核表的数组制度 IdMap / IdSet（2026-10-27 Fable O3）
-import "./preview-rewind.test.ts";   // 拖动预演「拷一次 + 每帧退回」差分（2026-10-27 Fable O1）   // 物体族：转成网格体 / 转回 SU 体 + 导入直接成网格体（2026-10-27 Fable）   // mesh 显示视图 + 场景 / 渲染缓存接网格体（2026-10-27 Fable M2）   // mesh 内核 M1：不变量 + 算子 + 随机串（2026-10-27 Fable）
+import "./preview-rewind.test.ts";   // 拖动预演「拷一次 + 每帧退回」差分（2026-10-27 Fable O1）   // 物件族：转成网格体 / 转回 SU 体 + 导入直接成网格体（2026-10-27 Fable）   // mesh 显示视图 + 场景 / 渲染缓存接网格体（2026-10-27 Fable M2）   // mesh 内核 M1：不变量 + 算子 + 随机串（2026-10-27 Fable）
 import "./registry-seams.test.ts";   // (接缝)
 import "./mesh-extrude.test.ts";
 import "./mesh-inset.test.ts";
@@ -69,7 +69,7 @@ import "./rail-face.test.ts";   // 左柱换脸：有选区时删除 = 垃圾桶
 import "./soft-select.test.ts";   // 软选择权重（2026-10-28 夜 Opus）
 import "./mesh-fill.test.ts";   // 复制 / 补洞 / 桥接（2026-10-28 夜 Opus）
 import "./select-grow.test.ts";   // 扩 / 缩选区（2026-10-28 夜 Opus）
-import "./object-ops-kinds.test.ts";   // 物体级 op × 身体种类组合矩阵（2026-10-28 夜 Opus）
+import "./object-ops-kinds.test.ts";   // 物件级 op × 身体种类组合矩阵（2026-10-28 夜 Opus）
 import "./mesh-subdivide.test.ts";   // 细分（Catmull-Clark，破坏性）：教科书值 / 折痕 / 裸线拒 / op + 撤销（FM133，2026-10-28 Opus）
 import "./touch-stick.test.ts";   // 吃鸡式虚拟摇杆的数学：死区 / 冲刺 / 浮动底座（FM142，2026-10-28 Opus）
 import "./pick-nonplanar.test.ts";   // 网格体面不平时角点不被自己的邻面挡住（user 10-27「有些侧面的点选不中」，2026-10-27 Opus）
@@ -100,7 +100,7 @@ import "./weld.test.ts";         // B19 焊接（边链 → 曲线）
 import "./erasers.test.ts";      // 橡皮家族：溶解 / 断口 / 焊边 / 软边 / batch（v0.13.16）
 import "./shapes.test.ts";       // 形状批：旋转矩形 / 四种弧 / 矩形从中心 / VCB（v0.13.17）
 import "./exact-geometry.test.ts";   // EGC 期 1：精确谓词 + snap rounding（2026-10-24）
-import "./object-model.test.ts";    // 0.14 物体模型契约守卫（2026-10-24）
+import "./object-model.test.ts";    // 0.14 物件模型契约守卫（2026-10-24）
 import "./lock.test.ts";         // A27 锁定（对象层属性；0.13）
 import "./body-kind.test.ts";    // 门 1：definition 身体 brep | card（0.13 刀 ①）
 import "./final.test.ts";        // 定稿：内容指纹 + 记录往返（ai-docs/20261024-finalize.md）

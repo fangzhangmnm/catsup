@@ -26,7 +26,7 @@ res.tap = await cam();
 // 拖 40 px = 缩放（halfH 变），不改 target
 await page.mouse.move(zc[0], zc[1]); await page.mouse.down(); await page.mouse.move(zc[0], zc[1] + 40, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(120);
 res.drag = await cam();
-// 放大镜按多下 = 选区 → 当前物体 → 全部轮换，只有合法的档才入档（user「按多下是选区 当前物体 全局 切换……只有合法的切换才入档」）
+// 放大镜按多下 = 选区 → 当前物件 → 全部轮换，只有合法的档才入档（user「按多下是选区 当前物件 全局 切换……只有合法的切换才入档」）
 res.stagesNoSel = await page.evaluate(() => globalThis.__catsup.editor.zoomStages().map((x) => x.key).join(","));
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setTool("select"); });
 const em = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.zoomExtents(); return e.cam.angularPx({ x: 7, y: 6, z: 0 }, e.vp()); });

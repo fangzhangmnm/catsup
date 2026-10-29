@@ -1,4 +1,4 @@
-// 物体族（object.*）：转成网格体 / 转回 SU 体 + 导入直接成网格体（2026-10-27 Claude Fable 5.1；user「导入直接成 mesh」「explicit转换……诚实披露」）。
+// 物件族（object.*）：转成网格体 / 转回 SU 体 + 导入直接成网格体（2026-10-27 Claude Fable 5.1；user「导入直接成 mesh」「explicit转换……诚实披露」）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp } from "../src/editor/ops.ts";
@@ -24,8 +24,8 @@ const boxSoup = (): { positions: Pt3[]; tris: number[] } => {
   return { positions, tris: quads.flatMap(([a, b, c, d]) => [a, b, c, a, c, d]) };
 };
 
-describe("物体族：转成网格体 / 转回 SU 体", () => {
-  it("注册表里有物体族两条指令、物体窗口两条放置（2026-10-28 物体级搬进物体窗口，不进几何层的右键 / 浮条）；族名 = 单位种类；自洽", () => {
+describe("物件族：转成网格体 / 转回 SU 体", () => {
+  it("注册表里有物件族两条指令、物件窗口两条放置（2026-10-28 物件级搬进物件窗口，不进几何层的右键 / 浮条）；族名 = 单位种类；自洽", () => {
     eq(checkRegistry().join("\n"), "");
     assert(commandById("object.toMesh")?.unit === "object" && commandById("object.toBrep")?.unit === "object");
     assert(placementsAt("objectWindow").some((p) => p.action === "object.toMesh") && placementsAt("objectWindow").some((p) => p.action === "object.toBrep"));

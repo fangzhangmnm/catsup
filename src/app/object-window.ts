@@ -45,7 +45,7 @@ export function objectWindowItems(editor: Editor, target: ObjectTarget): PopupMe
   const isMesh = def !== undefined && editor.kindOfDef(def) === "mesh", ms = isMesh ? editor.mirrorOf(def) : null;
   if (isMesh) {
     out.push({ id: "mirror:mode", label: "对称", icon: "axes", choices: MIRROR_MODES.map((m) => ({ id: `mirror:mode:${m.id}`, label: m.label, hint: m.hint, checked: (ms?.mode ?? "off") === m.id })) });
-    if (ms) out.push({ id: "mirror:axis", label: "镜像面", icon: "axes", choices: ([0, 1, 2] as const).map((a) => ({ id: `mirror:axis:${a}`, label: "XYZ"[a], hint: `物体自己的 ${"XYZ"[a]} = 0 这一面`, checked: ms.axis === a })) });
+    if (ms) out.push({ id: "mirror:axis", label: "镜像面", icon: "axes", choices: ([0, 1, 2] as const).map((a) => ({ id: `mirror:axis:${a}`, label: "XYZ"[a], hint: `物件自己的 ${"XYZ"[a]} = 0 这一面`, checked: ms.axis === a })) });
   }
   // 放置表 objectWindow 面上现在能做的（转换种类 / 细分 / 默认平滑 ›）
   const acts = editor.withMenuTarget(target, () => editor.commandMenu("objectWindow"));

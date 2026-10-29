@@ -3,7 +3,7 @@
 // ② 导出工程文件 → 下载名以 .catsup 结尾、字节是完整工程（CATSUP_document + CATSUP_definitions + 参考牌组都在）、开回来 = 工程
 // ③「导出模型…」= 模态 sheet：格式 / 范围 / 贴图 / 边线四行 + 说明行「不是工程备份」；切到 obj 只剩格式一行；Esc 取消不下载
 // ④ glb 导出：下载名 .glb、没有任何 CATSUP_* 键、没有缩略图 / 参考图、asset 2.0；开回 CatsUp 被拒、指去导入
-// ⑤ 选一个组件 → 范围多出「选中的 1 个物体」→ 只导它（根下一个孩子）⑥ 关边线 → 没有 LINES
+// ⑤ 选一个组件 → 范围多出「选中的 1 个物件」→ 只导它（根下一个孩子）⑥ 关边线 → 没有 LINES
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-export.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -85,7 +85,7 @@ const ok = r.hub.some((l) => /导出工程文件/.test(l)) && r.hub.some((l) => 
   && r.cancel.closed && r.cancel.downloads === 0
   && /\.glb$/.test(r.model?.name ?? "") && r.model.catsup.length === 0 && r.model.version === "2.0" && !r.model.thumb && r.model.images === 0 && r.model.roots === 1 && r.model.lines
   && r.reopen.ok === false && /导入/.test(r.reopen.hint)
-  && r.sheetSel.scopes.join() === "整个模型,选中的 1 个物体" && r.sel?.kids === 1 && !r.sel.rootMesh && r.sel.meshes === 1 && !r.sel.lines && r.sel.catsup === 0
+  && r.sheetSel.scopes.join() === "整个模型,选中的 1 个物件" && r.sel?.kids === 1 && !r.sel.rootMesh && r.sel.meshes === 1 && !r.sel.lines && r.sel.catsup === 0
   && r.projectReopen === true && errs.length === 0;
 console.log(ok ? "probe-export OK" : "probe-export FAIL");
 process.exit(ok ? 0 : 1);

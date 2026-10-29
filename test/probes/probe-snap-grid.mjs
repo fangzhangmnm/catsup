@@ -1,6 +1,6 @@
 // 吸到格点（纪元排期 T8 / 账本 DT4）从界面这条路走：右键菜单的数字 → 应用 → 提示行披露 → 右下角马后炮四项 → 改「按世界格点」重做。
 // 场景：根上一个盒子（一个角挪了 1 mm）+ 组件 A（一张 1×1 的面，摆在 x = 5.03：组件原点不在世界格点上；定义里一个点挪了 3 mm）。
-// 按物体自己的坐标架（默认）：只把两个挪歪的点拉回来（A 在自己的坐标架里本来就在格上）；按世界格点：A 的四个点都挪到世界格点。created 2026-10-26 by Claude Opus 5.5
+// 按物件自己的坐标架（默认）：只把两个挪歪的点拉回来（A 在自己的坐标架里本来就在格上）；按世界格点：A 的四个点都挪到世界格点。created 2026-10-26 by Claude Opus 5.5
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -37,7 +37,7 @@ const res = await page.evaluate(async () => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.count === 2 && res.n === 2 && /吸了 2 个点到格点/.test(res.hint) && /作用于：整个物体；含 1 个组件/.test(res.hint)
+const ok = res.count === 2 && res.n === 2 && /吸了 2 个点到格点/.test(res.hint) && /作用于：整个物件；含 1 个组件/.test(res.hint)
   && res.rootOn && res.aOwnOn && !res.aWorldOnBefore && JSON.stringify(res.fields) === JSON.stringify(["children", "step", "frame", "crease", "curves", "straighten"])
   && res.aWorldOn && /吸了 \d+ 个点到格点/.test(res.hintWorld) && res.undoBack && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");

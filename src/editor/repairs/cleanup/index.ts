@@ -44,7 +44,7 @@ export const cleanup: Command<PoolUnit> = {
     { key: "stray", def: { kind: "bool", label: "悬空的线（一张面都没挂的边）擦掉" } },
     { key: "tinyMm", def: { kind: "number", label: `短于这么长的边并成一个点（0 = 不并；默认不并是因为三角网上并短边容易把面弄破，会破就整步撤回；建议 ${TINY_LEN * 1000}）`, min: 0, max: 50, step: 0.1, unit: "mm" } },
     { key: "coplanar", def: { kind: "bool", label: "同一平面上被线切碎的面并回去（两边材质一样才并；画在面上的线框也算）" } },
-    { key: "softToo", def: { kind: "bool", label: "连看不见的软边也并（导入的三角网里很多；大物体上会先问你，因为现在擦线很慢）" } },
+    { key: "softToo", def: { kind: "bool", label: "连看不见的软边也并（导入的三角网里很多；大物件上会先问你，因为现在擦线很慢）" } },
   ],
   plan(ctx, { at, sel }, v) {
     const k = ctx.scene.kernelOf(at);

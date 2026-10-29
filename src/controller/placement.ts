@@ -93,7 +93,7 @@ export const SURFACE_RENDERERS: Readonly<Record<Surface, SurfaceStatus>> = {
   objectWindow: { renderer: "app/object-window.ts" },       // 物体窗口（字段 + 物体级动词）
   repairWindow: { renderer: "app/machine-window.ts" },      // 修复这台机器的面板
   repairPanel: { renderer: "editor/editor.ts" },            // 修复面板的步骤表（REPAIR_STEPS；以后搬上指令板）
-  objectMenu: { pending: "子组件的物体菜单现在由 HudItem.layer = child 画（selection-actions.ts objectMenuItems），注册表还没往这放" },
+  objectMenu: { pending: "子组件的物件菜单现在由 HudItem.layer = child 画（selection-actions.ts objectMenuItems），注册表还没往这放" },
   hamburger: { pending: "☰ 放的是 app 动词，表 = 本文件 MENU_ROWS，不是注册表指令" },
   toolStrip: { pending: "左柱放的是工具，表 = 本文件 RAIL_*，不是注册表指令" },
   contextMenu: { pending: "右键菜单走 contextBar 那张表" },

@@ -130,7 +130,7 @@ describe("hierarchy: 恢复层级 op", () => {
     eq(new Set([...s.def(s.root).instances.values()].map((i) => i.def)).size, 1, "同一个定义");
     assert(samePts(worldPts(s), before), "世界里的几何不变");
   });
-  it("组件定义里面也能跑（子子孙孙由修复的「含子物体」逐池跑）", () => {
+  it("组件定义里面也能跑（子子孙孙由修复的「含子物件」逐池跑）", () => {
     let s = messy();
     const k = s.kernelOf(ROOT(s));
     const all = piecesOf(k);

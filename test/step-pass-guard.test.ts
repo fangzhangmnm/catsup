@@ -37,7 +37,7 @@ describe("撤销一步的通行证（静态守卫）", () => {
     });
     eq(bad.length, 0, `会话写绕过了写口：\n${bad.join("\n")}`);
   });
-  it("工作台跟着物体（不变量 I5，2026-10-28）：写 this.ctx / this.scene 的函数必须在同一个函数里调 this.syncModeToKind()", () => {
+  it("工作台跟着物件（不变量 I5，2026-10-28）：写 this.ctx / this.scene 的函数必须在同一个函数里调 this.syncModeToKind()", () => {
     // user 10-28 黑匣子「definition 1 body is "brep", not mesh」：打开模型的写口漏了对工作台。「人在哪」一变工作台就得跟上——写在写口里面，漏了这里红。
     const hdr = /^  (?:private |public |protected )?(?:async |get )?([a-zA-Z_][a-zA-Z0-9_]*)\s*(?:<[^>]*>)?\(/;
     const bodies = new Map<string, string[]>();

@@ -1,4 +1,4 @@
-// 0.14 物体模型契约守卫（ai-docs/20261024-object-model-contract.md §6）：层级只有物体（组不可锁）；ImageAsset 必带尺度；cast 只认登记方向且失败不改文档；
+// 0.14 物件模型契约守卫（ai-docs/20261024-object-model-contract.md §6）：层级只有物件（组不可锁）；ImageAsset 必带尺度；cast 只认登记方向且失败不改文档；
 // 可见性继承单调（祖先藏 ⇒ 子藏）且 WorldView 过滤；mesh / layers / instance.layer 格式往返（card 2026-10-24 深夜 sunset）；v4 老样本读进来 = 默认层 + 全继承。created 2026-10-24 by Claude Fable 5.1
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
@@ -20,7 +20,7 @@ const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13]);
 const I = translation({ x: 0, y: 0, z: 0 });
 const at = (x: number, y: number, z: number) => translation({ x, y, z });
 
-describe("object model: 层级只有物体", () => {
+describe("object model: 层级只有物件", () => {
   it("组不能锁（setLocked 带 group 被拒，文档不动）；实例能锁", () => {
     const s = new Scene(box());
     const g = s.mintGroup(s.root, null, box(), WORLD_FRAME);
@@ -49,7 +49,7 @@ describe("object model: 图片资产必带尺度 + cast 登记表", () => {
     eq(m.kernel.faceCount(), 6); assert(m.kernel.faces().every((f) => m.kernel.faceVerts(f).length === 4), "6 张四边形"); eq(m.materialSlots.length, s.brep(child.id).materialSlots.length);
     applyOp(s, { op: "castDefinition", def: child.id, to: "mesh" });
     eq(s.kindOf(child.id), "mesh");
-    applyOp(s, { op: "castDefinition", def: child.id, to: "brep" });   // 2026-10-27 起 mesh → brep 通（物体族 object.toBrep）
+    applyOp(s, { op: "castDefinition", def: child.id, to: "brep" });   // 2026-10-27 起 mesh → brep 通（物件族 object.toBrep）
     eq(s.kindOf(child.id), "brep", "转回 SU 体"); eq(s.brep(child.id).kernel.faces().length, 6, "盒子回来还是 6 张膜");
     let threw = false; try { applyOp(s, { op: "castDefinition", def: child.id, to: "brep" }); } catch { threw = true; }
     assert(threw && s.kindOf(child.id) === "brep", "同种拒了且没动");

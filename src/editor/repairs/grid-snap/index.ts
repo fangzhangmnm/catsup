@@ -56,7 +56,7 @@ function planBoth(ctx: CommandEnv, { at, sel, xf }: PoolUnit, v: Params, entry: 
   const args: GridSnapArgs = { verts: vids ? vids.map((x) => k.graph.pt(x)) : [], step, lattice: [...lattice], curves, crease: v.crease === "hard" ? "hard" : "soft", ...(straighten !== undefined ? { straighten } : {}), ...(grid ? {} : { grid: false }) };
   return { ops: [{ op: "plugin" as const, name: "gridSnap", at, args: args as unknown as Record<string, unknown> }], count: plan.moves.length, extra: plan.curves, skipped: plan.skipped };
 }
-const frameField = (hint: string) => ({ key: "frame", def: { kind: "enum" as const, label: "按", values: [{ id: "own", label: "物体自己的坐标架", hint }, { id: "world", label: "世界的轴 / 格点", hint: "在根上看到的那张格子" }] } });
+const frameField = (hint: string) => ({ key: "frame", def: { kind: "enum" as const, label: "按", values: [{ id: "own", label: "物件自己的坐标架", hint }, { id: "world", label: "世界的轴 / 格点", hint: "在根上看到的那张格子" }] } });
 const creaseField = (hint: string) => ({ key: "crease", def: { kind: "enum" as const, label: "折缝", values: [{ id: "soft", label: "软边", hint }, { id: "hard", label: "硬边" }] } });
 const curvesSkipped = (n: number): string => `${n} 个点在只选了一部分的圆 / 弧上，没动`;
 

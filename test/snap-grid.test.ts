@@ -78,7 +78,7 @@ describe("吸到格点（DT4）", () => {
     const plan = planGridSnap(k, some, IDENTITY, { step: 0.1, curves: "rigid" });
     eq(plan.moves.length, 0); eq(plan.skipped, 4);
   });
-  it("按物体自己的坐标架：坐标架绕 z 转 30°、原点挪开，吸完每个点在那张斜格子上", () => {
+  it("按物件自己的坐标架：坐标架绕 z 转 30°、原点挪开，吸完每个点在那张斜格子上", () => {
     const a = Math.PI / 6, F = { origin: P(0.3, 0.2, 0), x: P(Math.cos(a), Math.sin(a), 0), y: P(-Math.sin(a), Math.cos(a), 0), z: P(0, 0, 1) };
     const L = invert(frameToXform(F));
     const k = new Kernel();

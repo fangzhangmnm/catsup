@@ -1,5 +1,5 @@
 // 恢复层级（纪元账本 DT99，v0.14.64）：根上散着 3 个一样的盒子（一个转过 30°）+ 1 个不一样的 + 一个组件「两盒」（里面 2 个一样的盒子）
-// → 菜单计数 > 0 → 跑（含子物体）→ 根上 3 盒 = 一个组件 3 份、不一样的那个 = 组；「两盒」里面 = 2 份实例；世界里的点不变；撤销一步回原样。
+// → 菜单计数 > 0 → 跑（含子物件）→ 根上 3 盒 = 一个组件 3 份、不一样的那个 = 组；「两盒」里面 = 2 份实例；世界里的点不变；撤销一步回原样。
 // 再量大场景（400 个盒子）上菜单的便宜数法和真跑各要多久。created 2026-10-26 by Claude Opus 5.5
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");

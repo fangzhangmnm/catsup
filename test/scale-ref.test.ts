@@ -13,7 +13,7 @@ const sha = (b: Uint8Array): string => createHash("sha256").update(b).digest("he
 const O = L.orientation;
 const Z = { x: 0, y: 0, z: 1 };
 
-describe("scale-ref: 物体尺寸梯子的 CatsUp 适配", () => {
+describe("scale-ref: 物件尺寸梯子的 CatsUp 适配", () => {
   it("交货身份：vendor 里的数据 = 适配层钉的 = 取货脚本钉的；参考实现也 = 取货脚本钉的（原样没改）", () => {
     eq(sha(bytes), LADDER_SHA256);
     const pull = readFileSync(new URL("scripts/pull-size-ladder.mjs", root), "utf8");

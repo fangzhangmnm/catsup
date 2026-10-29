@@ -565,7 +565,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [] };
     }
     case "setLocked": {
-      if (op.group !== undefined) throw new OpTargetError("group lock: 组不是物体，不能锁（0.14）；要当参考就做成组件再锁");
+      if (op.group !== undefined) throw new OpTargetError("group lock: 组不是物件，不能锁（0.14）；要当参考就做成组件再锁");
       const d = s.def(op.at.def);
       if (op.instance !== undefined) {
         const inst = d.instances.get(op.instance);

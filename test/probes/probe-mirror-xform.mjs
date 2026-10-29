@@ -1,9 +1,9 @@
-// 镜像的对抗性探针：物体不在原点、转过两根轴（created 2026-10-28 by Claude Opus 5.5）。
-// user 10-28 晚「你有做镜像的物体不在原点，有旋转的对抗性测试吗」——没有：单测（mesh-mirror.test）只在网格体自己的坐标里算；probe-mesh-mirror 的盒子没转过（⑧ ⑨ 挪开过、没转）。
-// 风险全在「屏幕 → 世界 → 物体自己的坐标」那一层：拖动在屏幕上、镜像面在物体自己的坐标里。这里把网格体组件挪到 (5, 3, 2)、绕 Z 37° 再绕 X 20°，然后全用真工具拖：
+// 镜像的对抗性探针：物件不在原点、转过两根轴（created 2026-10-28 by Claude Opus 5.5）。
+// user 10-28 晚「你有做镜像的物件不在原点，有旋转的对抗性测试吗」——没有：单测（mesh-mirror.test）只在网格体自己的坐标里算；probe-mesh-mirror 的盒子没转过（⑧ ⑨ 挪开过、没转）。
+// 风险全在「屏幕 → 世界 → 物件自己的坐标」那一层：拖动在屏幕上、镜像面在物件自己的坐标里。这里把网格体组件挪到 (5, 3, 2)、绕 Z 37° 再绕 X 20°，然后全用真工具拖：
 // Ⓐ 镜像编辑拖 +x 一个角：预演里对面就跟着镜、松手后对面 = 本地镜像、一步
 // Ⓑ 拖中缝上的点：本地 x 永远 = 0（钉在镜像面里滑）
-// Ⓒ 锁 Z（= 物体自己的 Z）再斜着拖一个角：本地只有 z 变、对面同样
+// Ⓒ 锁 Z（= 物件自己的 Z）再斜着拖一个角：本地只有 z 变、对面同样
 // Ⓓ 把 +x 的角拖到对面去：停在中缝、和孪生点并成一个（少一个点）、自检干净、仍对称；预演里就已经停住
 // Ⓔ 撤销到切完中缝那一刻：每个点逐位回到原处
 // Ⓕ 强行对称：挤出工具真拖 +x 端面 → -x 也长出来、同一步、对称、自检干净
@@ -69,7 +69,7 @@ const res = await page.evaluate(async () => {
     await dragTool("move", s0, { x: s0.x + 35, y: s0.y + 20 });
     const q = m().pt(seam);
     out.B = { x: q.x, moved: Math.hypot(q.y - p0.y, q.z - p0.z) > 0.02, count: m().vertexCount() === snap0.size, sym: sym(m()) }; }
-  // Ⓒ 锁 Z（物体自己的 Z）
+  // Ⓒ 锁 Z（物件自己的 Z）
   { const v = frontCorner(1), w = twinOf(m(), v), p0 = { ...m().pt(v) }, s0 = px(L2W(p0));
     e.setTool("move"); e.setAxisLock("z");
     await dragTool("move", s0, { x: s0.x + 30, y: s0.y - 40 });
@@ -116,7 +116,7 @@ need(res.gizmo && res.gizmo.unpaired === 0, "Ⓖ gizmo 说有对不上的");
 need(res.A.live?.mirrored && res.A.live?.moved, "Ⓐ 预演里对面没跟着镜");
 need(res.A.moved && res.A.mirrored && res.A.steps === 1 && !res.A.check, "Ⓐ 松手后对面不是本地镜像 / 不是一步 / 自检不干净");
 need(Math.abs(res.B.x) < 1e-9 && res.B.moved && res.B.count && res.B.sym, "Ⓑ 中缝点离开了镜像面 / 裂了");
-need(Math.abs(res.C.dx) < 1e-9 && Math.abs(res.C.dy) < 1e-9 && Math.abs(res.C.dz) > 0.02 && res.C.twin, "Ⓒ 锁 Z 不是物体自己的 Z / 对面没跟");
+need(Math.abs(res.C.dx) < 1e-9 && Math.abs(res.C.dy) < 1e-9 && Math.abs(res.C.dz) > 0.02 && res.C.twin, "Ⓒ 锁 Z 不是物件自己的 Z / 对面没跟");
 need(res.D.n1 === res.D.n0 - 1 && !res.D.check && res.D.sym && !res.D.anyNegX, "Ⓓ 拖过镜像面没停在中缝并成一个");
 need(res.D.live && (res.D.live.x === null || Math.abs(res.D.live.x) < 1e-9), "Ⓓ 预演里没停在中缝");
 need(res.E.worst < 1e-12 && res.E.missing === 0 && res.E.extra === 0 && res.E.pos, "Ⓔ 撤销回不到原样");

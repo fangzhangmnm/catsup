@@ -59,7 +59,7 @@ export const meshMove: Command<MeshUnit> = {
 
 /** 挪物体：这一份实例的变换矩阵左乘平移（它所在那个定义的坐标里）。 */
 export const objectMove: Command<ObjectUnit> = {
-  id: "object.move", unit: "object", title: "移动物体",
+  id: "object.move", unit: "object", title: "移动物件",
   defaults: () => ({ dx: 0, dy: 0, dz: 0 }),
   params: fields,
   plan(_env, u, v) {
@@ -68,8 +68,8 @@ export const objectMove: Command<ObjectUnit> = {
     if (u.instance === null) return { ops: [], count: 0 };   // 「你所在的这一层」不是摆着的一份（不声明 takesContext，到不了这里；类型上守一下）
     return { ops: [{ op: "transformInstance", def: u.at.def, instance: u.instance, xform: translation(d) }], count: 1 };
   },
-  done: (n) => `移动了 ${n} 个物体`,
-  none: "没有能移动的物体：先选中组件 / 组，再给位移",
+  done: (n) => `移动了 ${n} 个物件`,
+  none: "没有能移动的物件：先选中组件 / 组，再给位移",
 };
 
 const commands: readonly Command[] = [brepMove, meshMove, objectMove];

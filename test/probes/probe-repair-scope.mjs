@@ -1,6 +1,6 @@
-// 修复指令的作用范围 + 传播到子物体（DT85，user 10-26「默认传播，同一个组件只修一次，锁着的跳过，面板里放『含子物体』开关」= 默认 + 披露）：
+// 修复指令的作用范围 + 传播到子物件（DT85，user 10-26「默认传播，同一个组件只修一次，锁着的跳过，面板里放『含子物件』开关」= 默认 + 披露）：
 // 根上一个断口；组件 A（两份：一份直接放、一份在组件 B 里 = 两条路径到同一个定义）；B 自己一个断口；锁着的组件 C。
-// 没选东西 + 含子物体 = 焊 3 处（A 只修一次、C 跳过），提示行说清；小窗关掉含子物体 = 只焊根上 1 处。created 2026-10-26 by Claude Opus 5.5
+// 没选东西 + 含子物件 = 焊 3 处（A 只修一次、C 跳过），提示行说清；小窗关掉含子物件 = 只焊根上 1 处。created 2026-10-26 by Claude Opus 5.5
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
@@ -33,7 +33,7 @@ const res = await page.evaluate(async () => {
 });
 console.log(JSON.stringify(res));
 const ok = res.count === 3 && res.n === 3 && res.before.root === 1 && res.before.A === 1 && res.before.B === 1 && res.after.root === 0 && res.after.A === 0 && res.after.B === 0
-  && /焊了 3 处断口（作用于：整个物体；含 2 个组件、共 3 份；锁着的 1 个跳过）/.test(res.hint) && res.fields?.[0] === "children"
-  && /焊了 1 处断口（作用于：整个物体/.test(res.hintOff) && res.afterOff.root === 0 && res.afterOff.A === 1 && res.afterOff.B === 1 && !errs.length;
+  && /焊了 3 处断口（作用于：整个物件；含 2 个组件、共 3 份；锁着的 1 个跳过）/.test(res.hint) && res.fields?.[0] === "children"
+  && /焊了 1 处断口（作用于：整个物件/.test(res.hintOff) && res.afterOff.root === 0 && res.afterOff.A === 1 && res.afterOff.B === 1 && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

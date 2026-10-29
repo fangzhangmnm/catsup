@@ -37,7 +37,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
       const stepsBefore = e.history.steps(), posBefore = e.history.position(), fpBefore = fp(S());
       let name;
       try {
-        // 动作 = 加权清单（2026-10-28 晚 Claude Fable 5.1，F-113 审计：加进镜像那条路 + 网格体整体算子 + 物体动词）；不可用的不进清单
+        // 动作 = 加权清单（2026-10-28 晚 Claude Fable 5.1，F-113 审计：加进镜像那条路 + 网格体整体算子 + 物件动词）；不可用的不进清单
         const inMesh = e.activeKind() === "mesh", meshDef = inMesh ? e.activePool().def : null, mk = inMesh ? S().mesh(meshDef).kernel : null;
         const ctxDef = S().defOfContext(e.ctx), pools = [...e.selectedPools.values()], allInst = hasPool && pools.every((p) => p.kind === "instance");
         const allMeshInst = allInst && pools.every((p) => { const ii = S().def(ctxDef).instances.get(p.instance); return !!ii && S().kindOf(ii.def) === "mesh"; });

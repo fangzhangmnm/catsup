@@ -1,4 +1,4 @@
-// 物体级 op × 身体种类的组合矩阵（created 2026-10-28 by Claude Opus 5.5）：user 10-28 夜「炸开mesh会出bug。看来我们的路由还是有硬伤」。
+// 物件级 op × 身体种类的组合矩阵（created 2026-10-28 by Claude Opus 5.5）：user 10-28 夜「炸开mesh会出bug。看来我们的路由还是有硬伤」。
 // 根：炸开只看了「外面一层」的身体种类、没看「选中的组件」是什么身体，网格体组件被当成硬表面体用 → 抛内部错误。
 // 这一层守卫：炸开 / 建组件（网格体里 = separateObject）/ 合并 对「外面一层 × 组件」每种组合都跑——要么成功且模型干净，要么抛 OpTargetError（人话），不许抛别的错。
 import { describe, it, eq, assert } from "./runner.mjs";
@@ -20,7 +20,7 @@ function setup(hostKind: Kind, compKind: Kind): { s: Scene; inst: number; comp: 
 }
 const faceCount = (s: Scene, def: number): number => (s.kindOf(def) === "mesh" ? s.mesh(def).kernel.faceCount() : s.brep(def).kernel.faces().length);
 
-describe("物体级 op × 身体种类（炸开 / 建组件 / 合并）", () => {
+describe("物件级 op × 身体种类（炸开 / 建组件 / 合并）", () => {
   for (const host of ["brep", "mesh"] as Kind[]) for (const comp of ["brep", "mesh"] as Kind[]) {
     it(`炸开：外面 ${host} × 组件 ${comp} → ${host === comp ? "直接成功" : "不带 cast = 人话拒绝（不静默转种类）；带 cast = 成功"}：组件没了、几何进了外面一层、模型干净`, () => {
       const { s, inst, comp: cdef } = setup(host, comp);

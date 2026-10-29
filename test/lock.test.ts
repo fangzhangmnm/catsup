@@ -15,7 +15,7 @@ const rootAt = (s: Scene) => ({ def: s.root, group: null });
 const topFace = (k: Kernel, z: number): number => k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - z) < 1e-9))!.id;
 
 describe("lock: 对象层锁定", () => {
-  it("0.14：组不是物体、不能锁（setLocked 带 group 被拒、poolLocked 对组永远 false）；实例锁 pickLocked；clone 保留；锁住的照样进推断世界", () => {
+  it("0.14：组不是物件、不能锁（setLocked 带 group 被拒、poolLocked 对组永远 false）；实例锁 pickLocked；clone 保留；锁住的照样进推断世界", () => {
     let s = new Scene(sceneBox(2, 1.5));
     const k = s.brep(s.root).kernel;
     s = applyOp(s, { op: "makeGroup", at: rootAt(s), faces: [faceKey(k, topFace(k, 1.5))], edges: [] }).scene;

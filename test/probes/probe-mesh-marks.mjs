@@ -1,6 +1,6 @@
 // 网格体的手标 + 默认平滑：右键菜单接线（2026-10-28 Claude Opus 5.5；纪元账本 FM129 / FM138）。
-// ① 自由建模全选后右键 → 菜单里有「手标 ›」（不平铺）、没有「默认平滑 ›」——它是物体级的，住右边「物体」钮的物体窗口「属性」页（2026-10-28 Claude Fable 5.1：物体级搬进物体窗口）
-//   ② 物体窗口 默认平滑 › 全部平滑 → 网格体的默认平滑 = smooth，平滑边淡线露出来 ③ 撤销提示行「撤销：默认平滑」、回到全是棱
+// ① 自由建模全选后右键 → 菜单里有「手标 ›」（不平铺）、没有「默认平滑 ›」——它是物件级的，住右边「物件」钮的物件窗口「属性」页（2026-10-28 Claude Fable 5.1：物件级搬进物件窗口）
+//   ② 物件窗口 默认平滑 › 全部平滑 → 网格体的默认平滑 = smooth，平滑边淡线露出来 ③ 撤销提示行「撤销：默认平滑」、回到全是棱
 // ④ 手标 › 标成棱 → 选中的边全带棱标、马后炮不弹（没参数）⑤ 默认平滑 › 按角度… → 马后炮小窗有角度、改成 100° 生效 ⑥ 没有页面错误。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-marks.mjs
 import { createRequire } from "node:module";
@@ -14,10 +14,10 @@ const res = await page.evaluate(async () => {
   const c = document.getElementById("board"), r = c.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
   const rclick = async () => { c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + Math.round(vw * 0.2), clientY: r.top + Math.round(vh * 0.4), button: 2 })); await sleep(60); };
   const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), layer = () => document.querySelector(".popup-menu.choice-layer");
-  const openObj = async () => { document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物体」钮 → 物体窗口（这一层）
+  const openObj = async () => { document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物件」钮 → 物件窗口（这一层）
   const smoothRow = () => !!menu()?.querySelector('[data-menu-id="submenu:默认平滑"]');
   const closeAll = async () => { document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); await sleep(30); document.querySelectorAll(".popup-menu").forEach((m) => m.remove()); };
-  const pick = async (sub, id, via = "menu") => {   // via = "menu"（右键，几何层）/ "object"（物体窗口，物体级）
+  const pick = async (sub, id, via = "menu") => {   // via = "menu"（右键，几何层）/ "object"（物件窗口，物件级）
     if (via === "object") await openObj(); else await rclick();
     const row = menu()?.querySelector(`[data-menu-id="submenu:${sub}"]`);
     if (!row) return false;

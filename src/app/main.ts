@@ -569,7 +569,7 @@ function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
     case "weldAllBreaks": {   // T7 / DT5；修复模块扔掉了 = 这一项不出
       if (!editor.repairLoaded("brep.weld")) return null;
       const n = editor.repairCount("brep.weld", "context");
-      return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", hint: "当前在编辑的整个物体（含子物体）", disabled: !n };
+      return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", hint: "当前在编辑的整个物件（含子物件）", disabled: !n };
     }
     case "makePlanarAll": {   // T9 / DT7；修复模块扔掉了 = 这一项不出
       if (!editor.repairLoaded("brep.planar")) return null;
@@ -947,7 +947,7 @@ async function openExportModel(): Promise<void> {
   const glbOnly = (v: Readonly<Record<string, string>>): boolean => v.format !== "glb";
   const v = await openFormSheet("导出模型", [
     { key: "format", label: "格式", value: last[0] === "obj" ? "obj" : "glb", options: [{ value: "glb", label: "glb" }, { value: "obj", label: "obj" }] },
-    { key: "scope", label: "范围", value: picks.length && last[1] === "sel" ? "sel" : "all", options: [{ value: "all", label: "整个模型" }, ...(picks.length ? [{ value: "sel", label: `选中的 ${picks.length} 个物体` }] : [])], hidden: glbOnly },
+    { key: "scope", label: "范围", value: picks.length && last[1] === "sel" ? "sel" : "all", options: [{ value: "all", label: "整个模型" }, ...(picks.length ? [{ value: "sel", label: `选中的 ${picks.length} 个物件` }] : [])], hidden: glbOnly },
     { key: "textures", label: "贴图", value: last[2] === "none" ? "none" : "embed", options: [{ value: "embed", label: "嵌进文件" }, { value: "none", label: "不带" }], hidden: glbOnly },
     { key: "lines", label: "边线", value: last[3] === "none" ? "none" : "with", options: [{ value: "with", label: "带" }, { value: "none", label: "不带" }], hidden: glbOnly },
   ], {
@@ -1134,7 +1134,7 @@ snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></
 widgets.appendChild(snapBtn);
 // 物体窗口的钮（UX 心智模型 §2.1：一个窗口只看一个指针——这一颗 = 你所在的这一层；子组件的物体菜单「物体设置…」也从这里开，当前换成它们）
 // 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
-const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物体：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
+const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
 objectBtn.innerHTML = iconHtml("object"); $("modeSelect").after(objectBtn);
 objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, syncUi, "start"));
 // 车间里的机器（machine-window.ts MACHINES 表）：一台一颗钮，按车间 / 身体露（renderMachineBtns）；面板 = 那台机器的低频指令（user 10-28「每个机器一个面板，然后左栏是你的手和常用工具袋」）
