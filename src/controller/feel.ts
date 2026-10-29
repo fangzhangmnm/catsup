@@ -56,6 +56,8 @@ export const FRAME_TAP_RULE = { windowMs: 350, quickMs: 250, reachK: 1.5 } as co
 // ---------- 指针路由里的时间 / 距离（原 app/gestures.ts）----------
 /** 笔 / 手指长按 = 右键菜单（ms）。 */
 export const LONG_PRESS_MS = 500;
+/** 左柱小三角格的长按（弹出整组）：比通用长按短（user 10-28 夜「小三角需要长按的时间有点长」；以前 main.ts 里写死 450）。 */
+export const RAIL_FLYOUT_PRESS_MS = 260;
 /** 多指轻点（撤销 / 重做）：从最早触点落下算，超过这么久不算轻点（ms）；每根手指离各自起点超过这么远不算（CSS px）。 */
 export const GESTURE_TAP_MAX_MS = 250, GESTURE_TAP_MAX_MOVE = 16;
 /** 掌触门：笔尖活动后这么久内的多指轻点当手掌闪灭吞掉（ms）。 */

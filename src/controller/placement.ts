@@ -30,6 +30,10 @@ export const RAIL_GROUPS: readonly RailGroup[] = [
  * 工作台自己定死的一列（不走分组 / 预算）。自由建模 = user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的，先这么试一下」+「用两字词语吧和硬表面对齐」；
  * 验证 = 步行第一格（v0.15.43，user「12同意」）+ 选择 / 移动 / 旋转 + 尺规（v0.15.44「以及尺规还是要的」）。没列的工作台 = 走上面的分组。
  */
+/** 定死一列里的小三角组（2026-10-28 夜 user「沿法向移动和推拉合租小三角」）：列里写组的第一把，格子显示最近用的那把，小三角 / 长按 / 右键 = 整组。 */
+export const RAIL_FIXED_FLYOUTS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, readonly Tool[]>>>>> = {
+  freeform: { pp: ["pp", "shrink"] },
+};
 export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
   freeform: ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset", "create"],   // create = 新建（FM182；排最后：八格常用之外的第九格）
   verify: ["walk", "select", "move", "rotate", "tape", "protractor", "compass", "axes"],

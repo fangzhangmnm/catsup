@@ -27,7 +27,7 @@ import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
 import { mountSoftSlider, type SoftSlider } from "./soft-slider.ts";
-import { MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
+import { RAIL_FIXED_FLYOUTS, MENU_ROWS, MENU_TABS, RAIL_FIRST, RAIL_FIXED, RAIL_GROUPS, RAIL_LABELS, SHAPES } from "../controller/placement.ts";
 import { MACHINES, openMachineWindow, refreshMachineBoard, type Machine } from "./machine-window.ts";
 import { boardAsDrawer, closeBoard } from "./ui/command-board.ts";
 import { mountViewGizmo } from "./view-gizmo.ts";
@@ -55,7 +55,7 @@ import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
 import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
 import { stanceOf } from "../controller/stance.ts";
-import { MOD_PEEK_MS } from "../controller/feel.ts";
+import { RAIL_FLYOUT_PRESS_MS, MOD_PEEK_MS } from "../controller/feel.ts";
 import { type AvatarSpec, AVATAR_DEFAULT, STATURE_MAX, STATURE_MIN, jumpReach, resolveAvatar } from "../player/body.ts";
 import { formatQuantity } from "../editor/units.ts";
 import { TouchControls } from "./touch-controls.ts";
@@ -319,6 +319,8 @@ const hud: HudModel = {
 //   su 的视角操作不进左柱（右边 view 栏管）。旧「更多」钮与按高度给最近格的逻辑撤。
 /** 橡皮格：橡皮 / 焊边橡皮 / 软边橡皮，显示当前那把，小三角换（ERASERS 的 SSoT 在 tool-ids.ts）。 */
 let eraserCurrent: Tool = "erase";
+/** 定死一列里小三角组各自最近用的那把（组的第一把 → 当前）。 */
+const fixedFlyCurrent = new Map<Tool, Tool>();
 // 哪把工具进哪一组 / 预算 / 工作台定死的一列 / 改名 = 放置表 src/controller/placement.ts（接线清单第 1 条）；这里只按表画
 const specOf = (t: Tool) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, l = RAIL_LABELS[editor.modeId]?.[t], key = toolKeyText(editor.modeId, t, (x) => editor.modeTools().includes(x)); return { ...sp, label: l ?? sp.label, key }; };   // key = 键表现算（这个工作台里按什么拿起它 / 键盘起手）
 /** 同一个键再按一下的轮换组（user 10-25）：键 → 组（组内第一个 = 那个键原本切到的工具）。 */
@@ -332,12 +334,13 @@ const bumpFront = (list: Tool[], t: Tool): void => { const i = list.indexOf(t); 
 function noteToolUse(t: Tool): void {
   if (SHAPES.includes(t)) shapeCurrent = t;
   if (ERASERS.includes(t)) eraserCurrent = t;
+  for (const g of Object.values(RAIL_FIXED_FLYOUTS[editor.modeId] ?? {})) if (g.includes(t)) fixedFlyCurrent.set(g[0], t);
   for (const g of RAIL_GROUPS) {
     if (g.pool.includes(t)) bumpFront(usedPool.get(g.id)!, t);
     if (g.pinned.includes(t) || g.pool.includes(t)) bumpFront(groupMru.get(g.id)!, t);
   }
 }
-const LONG_PRESS_MS = 450;
+const LONG_PRESS_MS = RAIL_FLYOUT_PRESS_MS;   // 小三角格长按弹整组（feel.ts；user 10-28 夜「有点长」→ 260 ms）
 const flyoutItems = (tools: Tool[]) => tools.map((x) => { const s2 = specOf(x); return { id: x, label: s2.label, icon: s2.icon, hint: s2.key, checked: editor.tool === x }; });
 const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   const sp = specOf(t);
@@ -398,7 +401,11 @@ function renderSlots(): void {
   const inMode = (t: Tool): boolean => editor.modeTools().includes(t);   // 左柱只排当前模式的工具（刀 ③：表面模式 = 选择 + 油漆桶）
   const add = (t: Tool, fly?: () => Tool[]): void => { if (!inMode(t)) return; const b = mkToolBtn(t, fly); b.classList.toggle("active", t === editor.tool); toolbarEl.appendChild(b); };
   const fixed = RAIL_FIXED[editor.modeId];
-  if (fixed) { for (const t of fixed) add(t); return; }   // 这个工作台有自己定死的一列（自由建模 / 验证）
+  if (fixed) {   // 这个工作台有自己定死的一列（自由建模 / 验证）；列里的小三角组（RAIL_FIXED_FLYOUTS）= 格子显示最近用的那把
+    const groups = RAIL_FIXED_FLYOUTS[editor.modeId] ?? {};
+    for (const t of fixed) { const g = groups[t]; if (g) { const cur = fixedFlyCurrent.get(t) ?? t; add(cur, () => g.filter(inMode)); } else add(t); }
+    return;
+  }
   for (const slot of RAIL_FIRST) {   // 第一组常驻（形状格 / 橡皮格 = 一格一组、显示当前那把、小三角换）
     if ("tool" in slot) { add(slot.tool); continue; }
     const set = slot.flyout === "shapes" ? SHAPES : ERASERS;
@@ -685,7 +692,17 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
       { id: "eyedropper", label: "吸色", active: !!H?.eyedropper, title: "吸色：点一张面读它的材质（Ctrl / Alt 按住 = 临时）", onClick: () => { if (H) H.eyedropper = !H.eyedropper; } },
     ];
   },
-  actions: (tool) => {
+  actions: (tool) => [...toolActions(tool), ...deleteAction()],
+  selection: () => (selectionRoute(lastPointerType) === "bar" && editor.hasSelection() && !editor.isGestureActive() ? barItems(editor, hud) : []),
+  pickSelection: (id) => { hud.pick(id as never); },
+  afterRender: () => { vcbRef?.render(); },
+});
+/** 自由建模有选区时右下的「删除」（user 10-28 夜「delete变成按钮可能不大好。吃书吧。变成右下的一个按钮？」：左柱垃圾桶撤回）；笔 / 手指的选区条里本来就有删除，不重复。 */
+function deleteAction(): { id: string; label: string; title?: string; onClick(): void }[] {
+  if (editor.modeId !== "freeform" || !editor.hasSelection() || editor.isGestureActive() || selectionRoute(lastPointerType) === "bar") return [];
+  return [{ id: "deleteSel", label: "删除", title: "删掉选中的（= Delete / X，一步撤销）", onClick: () => { editor.deleteSelection(); syncUi(); } }];
+}
+function toolActions(tool: string): { id: string; label: string; title?: string; disabled?: boolean; active?: boolean; onClick(): void }[] {
     if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（几何反挪、每份实例补，世界里不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
     if (tool === "tape" || tool === "protractor" || tool === "compass") return [{ id: "guidesClear", label: "删除所有参考几何", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     if (tool === "transform") {   // 临时变换中心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
@@ -697,12 +714,7 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
       ];
     }
     return [];
-  },
-  // 选区动作：笔 / 手指路由才进条（鼠标走右键菜单，#19 的路由不变）；有选区、不在手势中
-  selection: () => (selectionRoute(lastPointerType) === "bar" && editor.hasSelection() && !editor.isGestureActive() ? barItems(editor, hud) : []),
-  pickSelection: (id) => { hud.pick(id as never); },
-  afterRender: () => { vcbRef?.render(); },   // 上下文选项住在参数小窗里（user 2026-10-25「参数小窗就是上下文选项条，全搬进去」）
-});
+}   // 选区动作（selection）：笔 / 手指路由才进条（鼠标走右键菜单，#19 的路由不变）；上下文选项住在参数小窗里（afterRender，user 2026-10-25）
 const vcb = mountVcb(document.getElementById("vcb") as HTMLElement, editor);
 vcbRef = vcb;
 // eslint-disable-next-line no-var

@@ -10,12 +10,9 @@ const MODES = { freeform: new FreeformMode(), geometry: new GeometryMode() } as 
 const UNDOABLE = new Set(["delete"]);   // 换脸只许放一步能撤销的动作（新加一张脸 = 先确认它能撤销，再进这张名单）
 
 describe("左柱换脸（rail-face.ts）", () => {
-  it("自由建模的删除：有选区 = 垃圾桶、点 = delete；没选区 = 平常的删除工具；手势中不变脸", () => {
-    const f = railFace("erase", { mode: "freeform", hasSelection: true, gesture: false });
-    eq(f?.icon, "trash-can"); eq(f?.action, "delete"); assert(!!f && /删/.test(f.label) && /撤销/.test(f.tip));
+  it("自由建模的删除不再换脸（v0.16.31 撤：user「delete变成按钮可能不大好。吃书吧。变成右下的一个按钮？」→ 删除 = 右下工具条的按钮）", () => {
+    eq(railFace("erase", { mode: "freeform", hasSelection: true, gesture: false }), null);
     eq(railFace("erase", { mode: "freeform", hasSelection: false, gesture: false }), null);
-    eq(railFace("erase", { mode: "freeform", hasSelection: true, gesture: true })?.action, "delete", "按下 / 拖的半路不许变脸");
-    eq(railFace("erase", { mode: "geometry", hasSelection: true, gesture: false }), null, "硬表面的橡皮没登记，不换");
   });
   it("每张脸：工具在那个工作台里、动作 id 是键表里有的动作（和真按键同一条）、动作能撤销、图标 / 字 / 提示都写了", () => {
     const actions = new Set(ALL_LAYERS.flatMap((L) => L.bindings.map((b) => b.action)));

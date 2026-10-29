@@ -33,8 +33,8 @@ interface Rule { readonly tool: Tool; readonly modes: readonly ModeId[]; readonl
 
 /** 换脸表（一行一张脸；先匹配的先用）。 */
 export const RAIL_FACES: readonly Rule[] = [
-  // 自由建模的「删除」：有选区 = 小垃圾桶，点一下 = 删掉选中的（= Delete 键 / 浮条「删除」，一步撤销）；没选区 = 平常的删除工具（按着刮）
-  { tool: "erase", modes: ["freeform"], when: (c) => c.hasSelection, face: { icon: "trash-can", label: "删掉选中", tip: "删掉选中的（和 Delete 键同一条，一步撤销）；没选东西时这一格是删除工具（按着刮过去删）", action: "delete" } },
+  // （撤了）自由建模「删除」有选区时变垃圾桶：v0.16.25 做、v0.16.31 撤——user 10-28 夜「delete变成按钮可能不大好。吃书吧。变成右下的一个按钮？」→ 删除 = 右下工具条的按钮（main.ts deleteAction）。
+  //  表留着（深模块 + 守卫还在，周账让 Fable 审），以后真有要换脸的格再加一行。
 ];
 
 /** 这一格此刻的脸（null = 平常的样子）。 */
