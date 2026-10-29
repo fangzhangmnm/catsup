@@ -1267,6 +1267,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "soft.smaller": case "soft.bigger": { const r = editor.config.get("soft", "radius"); editor.config.set("soft", "radius", Math.round(verb === "soft.bigger" ? r * 1.2 : r / 1.2)); editor.refreshGesture(); syncUi(); return; }   // 手势中打数（Blender「S Z 0」）
     case "mesh.connect": editor.runAction("mesh.connect"); syncUi(); return;
     case "mesh.loopCutArm": editor.armLoopCut(); syncUi(); return;
+    case "move.slideToggle": editor.toggleSlideOnce(); syncUi(); return;   // 移动中再按 G = 这一次沿边滑（Blender G G；工具条「沿边滑」= 常驻模式）
     case "lock.key": editor.lockKey(p1 === "none" ? null : (p1 as "x" | "y" | "z"), p2 === "plane"); syncUi(); return;   // 方向键（A9）
     case "lock.arm": editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 先锁好、下一下生效
     case "lock.axis": if (editor.isGestureActive()) editor.lockKey(p1 as "x" | "y" | "z", p2 === "plane"); else editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 操作工具 = 自动按了 G（UX17）

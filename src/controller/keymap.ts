@@ -110,6 +110,7 @@ export const GESTURE: Layer = {
   bindings: [
     B("x", "lock.key:x", "锁 X"), B("y", "lock.key:y", "锁 Y"), B("z", "lock.key:z", "锁 Z"),
     B("shift+x", "lock.key:x:plane", "面锁 YZ"), B("shift+y", "lock.key:y:plane", "面锁 XZ"), B("shift+z", "lock.key:z:plane", "面锁 XY"),
+    B("g", "move.slideToggle", "这一次沿边滑（Blender G G）", (c) => c.tool === "move"),
   ],
 };
 /** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。

@@ -3402,6 +3402,10 @@ export class Editor {
   // ---------- live（影子副本预演） ----------
   /** 这次预演会把哪个组件斜切（拖的时候就提示「松手会被拦下」；提交时 ops.ts 的护栏真拦）。 */
   private previewShear: string | null = null;
+  /** 移动中切了沿边滑：手势模块重新挑边（G G），再按现在的指针重算预演。 */
+  refreshSlide(): void { const H = this.handlers[this._tool] as { resetSlide?(): void } | undefined; H?.resetSlide?.(); this.refreshGesture(); }
+  /** 移动中再按 G（Blender G G）：这一次操作切沿边滑 / 照常，不动工具条上的常驻开关。 */
+  toggleSlideOnce(): void { const H = this.handlers[this._tool] as { toggleSlideOnce?(): void } | undefined; if (!this.gestureActive() || !H?.toggleSlideOnce) return; H.toggleSlideOnce(); this.refreshGesture(); }
   /** 手势进行中换了会影响预演的设置（软选择开关 / 半径）：照现在的指针重算预演。 */
   refreshGesture(): void { if (this.gestureActive()) { this.computeLive(); this.draw(); } }
   private computeLive(): void {

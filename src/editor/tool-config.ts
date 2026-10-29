@@ -216,6 +216,10 @@ export const TOOL_OPTIONS = {
     on: { kind: "bool", label: "软选择", def: false, scope: "session" },
     radius: { kind: "number", label: "软半径", def: 120, min: 10, max: 800, step: 1, unit: "px", scope: "session" },
   },
+  /** 沿边滑（自由建模移动的一种模式；Blender G G；user 10-28 夜「5 做，快捷键同意，然后手势的话就是g的gizmos的一种模式」）：开着 = 移动时每个点只沿它连出去的边滑（不离开原来的面）。 */
+  slide: {
+    on: { kind: "bool", label: "沿边滑", def: false, scope: "session" },
+  },
   /** 拾取范围（自由建模；user 10-28 晚「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮可以吗？」）：
    *  点 / 边 / 面各一个开关，关掉的那一级点不中、框不到，下一级顶上（Blender 的 1 / 2 / 3 选择模式，这里是三个独立开关）。全关 = 当全开。
    *  自由建模里按「点 > 边 > 面」抓东西的工具共用这一组（选择 / 移动 / 旋转 / 缩放 / 沿法线；context-bar 按立场表 grab = element 挂上）。 */
@@ -229,6 +233,6 @@ export const TOOL_OPTIONS = {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },
     sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "device" },
   },
-} as const satisfies Partial<Record<Tool | "surface" | "pick" | "soft", Readonly<Record<string, OptionDef>>>>;
+} as const satisfies Partial<Record<Tool | "surface" | "pick" | "soft" | "slide", Readonly<Record<string, OptionDef>>>>;
 
 export type CatsUpToolConfig = ToolConfig<typeof TOOL_OPTIONS>;

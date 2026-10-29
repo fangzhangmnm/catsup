@@ -42,6 +42,8 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     root.replaceChildren();
     for (const a of leading) root.appendChild(actionBtn(a));
     for (const e of entries) root.appendChild(control(group, e));
+    // 沿边滑（自由建模移动的一种模式；G G）
+    if (editor.modeId === "freeform" && tool === "move") for (const e of config.entries("slide")) root.appendChild(control("slide", e));
     // 软选择（自由建模的移动 / 旋转 / 缩放 / 沿法线；开关在这里，半径在左边竖滑条）
     if (editor.modeId === "freeform" && ["move", "rotate", "scale", "shrink"].includes(tool)) for (const e of config.entries("soft")) if (e.key === "on") root.appendChild(control("soft", e));
     // 拾取范围（自由建模，按「点 > 边 > 面」抓东西的工具；tool-config.ts pick；user 10-28 晚「放在马前炮」）：挂在工具自己的选项后面

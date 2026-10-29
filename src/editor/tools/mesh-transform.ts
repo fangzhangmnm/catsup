@@ -45,6 +45,14 @@ export class MeshTransformTool implements ToolHandler {
   private shift = false;
   private handleW: Pt3 | null = null;        // 挪：抓住的那个点（目标里离按下处最近的点，世界）——吸附时是它落到目标上
   private snapT: { p: Pt3; kind: SnapKind } | null = null;
+  /** 沿边滑（移动的一种模式，G G）：每个被挪的点能滑的边（另一头不在被挪的点里）；挑定的那一条（第一次拖出方向时挑，之后不换）。 */
+  private rails: Map<number, number[]> | null = null;
+  private railPick: Map<number, number> | null = null;
+  /** G G = 这一次操作反过来（工具条上的「沿边滑」是常驻模式；Blender 的 G G 只管这一次）。 */
+  private slideOnce = false;
+  toggleSlideOnce(): void { this.slideOnce = !this.slideOnce; this.railPick = null; }
+  /** 换了沿边滑开关：下一帧重挑。 */
+  resetSlide(): void { this.railPick = null; }
   /** 软选择（开着时按下那一刻算）：选区外每个点到选区的世界距离 + 它的本地坐标（+ 沿法线时它自己的方向）。 */
   private soft: { dist: Map<number, number>; base: Map<number, Pt3>; dirs: Map<number, Pt3> } | null = null;
   /** 手势中打的数是什么量（Blender「S Z 0」：缩放 = 倍数、旋转 = 角度、移动 / 沿法线 = 长度；读法 = units.ts，工具只问 ctx.typed()）。 */
@@ -62,7 +70,7 @@ export class MeshTransformTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; this.soft = null; }
+  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapT = null; this.soft = null; this.rails = null; this.railPick = null; this.slideOnce = false; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
@@ -89,6 +97,12 @@ export class MeshTransformTool implements ToolHandler {
     for (const v of vids) { const p = m.pt(v); this.base.set(v, p); c0 = add3(c0, p); }
     this.pivotW = applyPt(X, scale3(c0, 1 / vids.length));
     this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
+    this.rails = null; this.railPick = null;
+    if (this.kind === "move") {   // 沿边滑的候选边：每个被挪的点连出去、另一头不在被挪的点里的边（Blender Edge / Vertex Slide 的「轨道」）
+      const moving = new Set(vids), rails = new Map<number, number[]>();
+      for (const v of vids) rails.set(v, [...m.vEdges(v)].map((e) => (m.edgeA[e] === v ? m.edgeB[e] : m.edgeA[e])).filter((o) => !moving.has(o)));
+      this.rails = rails;
+    }
     this.soft = null;
     if (ctx.config.get("soft", "on")) {   // 软选择：选区外的点按离选区多远带着走（权重每帧按当前半径算，拖的时候能改半径）
       const picked = new Set(vids), dist = softDistances(m.verts(), picked, (v) => applyPt(X, m.pt(v)));
@@ -181,6 +195,10 @@ export class MeshTransformTool implements ToolHandler {
       if (sw) for (const [v, w] of sw.w) { const d = this.soft!.dirs.get(v) ?? { x: 0, y: 0, z: 1 }; moves.set(v, add3(this.soft!.base.get(v)!, scale3(d, tL * w))); }
       return { moves, dims: `${sw ? `软 ${fmtLen(sw.R)} · ` : ""}沿法线 ${tW >= 0 ? "+" : "−"}${fmtLen(Math.abs(tW))}${tag}` };
     }
+    if (this.kind === "move" && ctx.config.get("slide", "on") !== this.slideOnce && this.rails) {   // 沿边滑：每个点沿自己那条边走同样的比例 t ∈ [0, 1]
+      const r = this.solveSlide(ctx, X);
+      if (r) return r;
+    }
     if (this.kind === "move") {
       const now = this.onPlane(ctx, s1.x, s1.y) ?? grab;
       let d = this.snapT && this.handleW ? sub3(this.snapT.p, this.handleW) : sub3(now, grab);   // 吸附：抓住的点落到目标上
@@ -229,6 +247,37 @@ export class MeshTransformTool implements ToolHandler {
     return { moves, dims: sw ? `${dims} · 软 ${fmtLen(sw.R)}` : dims };
   }
 
+  /** 沿边滑：抓住的那个点（离按下处最近的）按拖动方向挑一条边、拖的量换成沿那条边的比例 t；别的点挑和它方向最像的那条边、走同样的 t。 */
+  private solveSlide(ctx: ToolCtx, X: ReturnType<ToolCtx["ctxXform"]>): { moves: Map<number, Pt3>; dims: string } | null {
+    const m = ctx.mesh(), rails = this.rails!, s0 = this.start!, s1 = this.cur!, vp = ctx.vp(), fr = ctx.frame();
+    const scr = (lp: Pt3): { x: number; y: number } | null => fr.project?.(applyPt(X, lp), vp) ?? null;
+    const ds = { x: s1.x - s0.x, y: s1.y - s0.y };
+    if (Math.hypot(ds.x, ds.y) < 2) return { moves: new Map(this.base), dims: "沿边滑：往要滑的方向拖" };
+    let prim = -1, bd = Infinity;   // 主点 = 离按下处最近的被挪的点
+    for (const [v, p] of this.base) { const q = scr(p); if (q) { const d = Math.hypot(q.x - s0.x, q.y - s0.y); if (d < bd) { bd = d; prim = v; } } }
+    if (prim < 0) return null;
+    const P0 = this.base.get(prim)!, q0 = scr(P0)!;
+    if (!this.railPick) {   // 第一次有方向：挑边（之后不换，拖过头也不跳轨）
+      let best = -1, ba = -Infinity;
+      for (const o of rails.get(prim) ?? []) { const q = scr(m.pt(o)); if (!q) continue; const u = { x: q.x - q0.x, y: q.y - q0.y }, L = Math.hypot(u.x, u.y) || 1, a = (ds.x * u.x + ds.y * u.y) / L; if (a > ba) { ba = a; best = o; } }
+      if (best < 0) return { moves: new Map(this.base), dims: "沿边滑：这个点没有能滑的边" };
+      const pick = new Map<number, number>([[prim, best]]), dirW = normalize3(sub3(applyPt(X, m.pt(best)), applyPt(X, P0)));
+      for (const [v, p] of this.base) {
+        if (v === prim) continue;
+        let bo = -1, bdot = -Infinity;
+        for (const o of rails.get(v) ?? []) { const d = normalize3(sub3(applyPt(X, m.pt(o)), applyPt(X, p))), dd = dot3(d, dirW); if (dd > bdot) { bdot = dd; bo = o; } }
+        if (bo >= 0) pick.set(v, bo);
+      }
+      this.railPick = pick;
+    }
+    const pick = this.railPick, to = pick.get(prim), qt = to !== undefined ? scr(m.pt(to)) : null;
+    if (!qt) return null;
+    const u = { x: qt.x - q0.x, y: qt.y - q0.y }, uu = u.x * u.x + u.y * u.y;
+    const t = uu > 1e-9 ? Math.max(0, Math.min(1, (ds.x * u.x + ds.y * u.y) / uu)) : 0;
+    const moves = new Map<number, Pt3>();
+    for (const [v, p] of this.base) { const o = pick.get(v); moves.set(v, o === undefined ? p : add3(p, scale3(sub3(m.pt(o), p), t))); }
+    return { moves, dims: `沿边滑 ${(t * 100).toFixed(0)}%（G 再按一下 = 关）` };
+  }
   /** 软选择这一帧的权重：半径（屏幕像素）在轴心那里换成世界长度；顺手画半径圈。没开 = null。 */
   private softWeightsNow(ctx: ToolCtx): { w: Map<number, number>; R: number } | null {
     if (!this.soft || !this.pivotW) { ctx.softRing(null); return null; }
