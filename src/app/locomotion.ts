@@ -62,29 +62,6 @@ export class Locomotion {
   constructor(editor: Editor, canvas: HTMLCanvasElement) {
     this.editor = editor; this.canvas = canvas;
     this.flat.attach();
-    canvas.addEventListener("pointermove", (ev) => {
-      const r = canvas.getBoundingClientRect();
-      this.cursor = { x: ev.clientX - r.left, y: ev.clientY - r.top };
-      if (this.phase === "place") this.updateGhost();
-    });
-    // 放置：点一下 = 落下去（工具层在放置时被挡住，gestures toolBlocked）。鼠标 / 笔 = 按下就落；手指 = 轻点才落（拖 = 照常转视角）
-    let touchDown: { x: number; y: number; t: number } | null = null;
-    const placeAt = (ev: PointerEvent): void => {
-      const r = canvas.getBoundingClientRect();
-      this.cursor = { x: ev.clientX - r.left, y: ev.clientY - r.top };
-      this.updateGhost();
-      this.commitPlace();
-    };
-    canvas.addEventListener("pointerdown", (ev) => {
-      if (this.phase !== "place" || ev.button !== 0) return;
-      if (ev.pointerType === "touch") { touchDown = { x: ev.clientX, y: ev.clientY, t: performance.now() }; return; }
-      placeAt(ev);
-    });
-    canvas.addEventListener("pointerup", (ev) => {
-      const d = touchDown; touchDown = null;
-      if (this.phase !== "place" || ev.pointerType !== "touch" || !d) return;
-      if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 12 && performance.now() - d.t < 400) placeAt(ev);
-    });
     // 锁鼠标的 FPS：鼠标动 = 看
     document.addEventListener("mousemove", (ev) => {
       if (document.pointerLockElement !== canvas || this.phase !== "walk") return;
@@ -96,6 +73,13 @@ export class Locomotion {
       if (this.unlockForEdit) { this.unlockForEdit = false; return; }
       if (this.phase === "walk") this.exitWalk();   // 锁着时按 Esc：浏览器放开鼠标 = 离开步行（什么都没发生过）
     });
+  }
+  /** 放人的指针（输入层 → 步行工具 → ctx.placeBody → 这里；user 10-30「1做」）：悬停 / 按下 / 拖 = 虚影跟着，落下 = 放人。以前这里自己挂画布事件、鼠标 / 笔一按就落，笔没有悬停跟手。 */
+  placePointer(phase: "hover" | "press" | "drag" | "drop", x: number, y: number): void {
+    if (this.phase !== "place") return;
+    this.cursor = { x, y };
+    this.updateGhost();
+    if (phase === "drop") this.commitPlace();
   }
   walkPhase(): WalkPhase { return this.phase; }
   isPlacing(): boolean { return this.phase === "place"; }

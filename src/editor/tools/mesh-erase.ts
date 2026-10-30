@@ -23,7 +23,7 @@ export class MeshEraseTool implements ToolHandler {
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     this.hit = { verts: new Set(), edges: new Set(), faces: new Set() };
-    this.dissolve = !!ev.shiftKey;
+    this.dissolve = (ctx.config.get("erase", "action") === "dissolve") !== !!ev.shiftKey;   // 选项（再点左柱钮切）XOR 按住 Shift
     this.collect(ctx, ev);
   }
   track(ctx: ToolCtx, s: { x: number; y: number }): void { this.collect(ctx, s); }

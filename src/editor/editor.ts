@@ -30,7 +30,7 @@ import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
-import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
+import type { BodyPlacePhase, EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, type UnitSystem, AXIS_TICK_MIN_PX, UNIT_LABEL_MIN_PX, displayLadder, gridFrame, snapLabel, snapLevels } from "./grid-settings.ts";
 import { GridState } from "./grid-state.ts";
@@ -139,6 +139,7 @@ export interface EditorHost {
   marquee(r: { x: number; y: number; w: number; h: number } | null): void;
   /** 套索轨迹（canvas 本地 CSS px；null = 收起；缺 = 宿主不画套索）。 */
   lasso?(pts: readonly { x: number; y: number }[] | null): void;
+  /** 放人（ToolCtx.placeBody 的另一头；缺 = 宿主没有步行）。 */ placeBody?(phase: BodyPlacePhase, x: number, y: number): void;
   /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
   softRing?(c: { x: number; y: number; r: number } | null): void;
   /** 扩 / 缩选区的拖动条（画布本地 CSS px；null = 收）。 */
@@ -3343,6 +3344,7 @@ export class Editor {
     this.pointerDown({ ...ev }); this.pointerUp({ ...ev });
   }
   /** 手指双击（触屏；鼠标双击同语义）：点在子组件 / 组上 = 进去；点在空处 = 退一层；点在这一层自己的几何上 = 什么都不做。返回做了什么。 */
+  /** 手指轻点交给当前工具（它认才算，fingerTap）；不认 = false，宿主照旧当「取消」。 */ fingerTap(x: number, y: number): boolean { return !!this.handlers[this._tool]?.fingerTap?.(this.toolCtx, x, y); }
   hierarchyTapAt(x: number, y: number): "enter" | "exit" | null {
     const c = this.classify(this.liveWorld(), this.pickAt(x, y));
     if (c.kind === "pool") { this.enterPool(c.pick); this.host.changed(); this.draw(); return "enter"; }
@@ -3964,7 +3966,7 @@ export class Editor {
       movablePoolPicks: (say) => this.movablePoolPicks(say),
       targetBounds: () => this.targetBounds(),
       marquee: (r) => this.host.marquee(r),
-      lasso: (pts) => this.host.lasso?.(pts),
+      lasso: (pts) => this.host.lasso?.(pts), placeBody: (p, x, y) => this.host.placeBody?.(p, x, y),
       softRing: (c) => this.host.softRing?.(c),
       selGrowBar: (at) => this.host.selGrowBar?.(at),
       hitInSelection: (h) => this.hitInSelection(h),

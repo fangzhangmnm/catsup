@@ -135,7 +135,7 @@ export class TransformTool implements ToolHandler {
       ctx.hint(`临时变换中心定了${r.snap.kind ? `（${SNAP_LABELS[r.snap.kind] ?? r.snap.kind}）` : ""}：转 / 缩都绕它；换选区就作废`);
       return;
     }
-    this.copy = !!ev.copy || ctx.config.get("transform", "copy");
+    this.copy = !!ev.copy !== ctx.config.get("transform", "copy");   // 开关 XOR 按着 Ctrl / Alt（同移动）
     const p = ctx.hasSelection() ? this.pickAt(ctx, ev.x, ev.y) : null;
     const g = this.gizmo(ctx);
     if (p && g) {

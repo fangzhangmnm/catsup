@@ -9,6 +9,7 @@ import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { Mode } from "../mode.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { Tool } from "../tool-ids.ts";
+import type { ToolPointer } from "../editor.ts";
 import { SelectTool } from "../tools/select.ts";
 import { MoveTool } from "../tools/move.ts";
 import { RotateTool } from "../tools/rotate.ts";
@@ -18,14 +19,19 @@ import { ProtractorTool } from "../tools/protractor.ts";
 import { CompassTool } from "../tools/compass.ts";
 import { AxesTool } from "../tools/axes.ts";
 
-/** 步行：编辑器这边什么都不做（放置 / 走路归 app 层 locomotion；点一下由它接住）。 */
+/** 步行：放人的指针走输入层（user 10-30「步行为什么没有做触控笔的悬浮，而是笔碰到屏幕就跳了。如果input层窄接口的话应该自动翻译好了hover和click啊」「1做」）：
+ *  悬停 / 按下 / 拖 = 虚影跟着、松手 = 落人，笔 / 鼠标 / 手指画的设备都一样；见过笔的设备上手指轻点 = 落人（fingerTap）。人怎么放、走路归宿主（ctx.placeBody → app 层 locomotion），编辑器不认识这个人、工具不碰几何。 */
 class WalkTool implements ToolHandler {
   readonly tool = "walk" as const;
   readonly grammar = "direct" as const;
-  active(): boolean { return false; }
-  cancel(): void { /* 没有手势 */ }
-  down(_ctx: ToolCtx): void { /* 放置的点击由 locomotion 接（工具层在放置时被挡住） */ }
-  track(): void { /* 同上 */ }
+  private pressed = false;
+  active(): boolean { return this.pressed; }
+  cancel(): void { this.pressed = false; }
+  hover(ctx: ToolCtx, s: { x: number; y: number }): void { ctx.placeBody("hover", s.x, s.y); }
+  down(ctx: ToolCtx, ev: ToolPointer): void { this.pressed = true; ctx.placeBody("press", ev.x, ev.y); }
+  track(ctx: ToolCtx, s: { x: number; y: number }): void { if (this.pressed) ctx.placeBody("drag", s.x, s.y); }
+  up(ctx: ToolCtx, ev: ToolPointer): void { if (!this.pressed) return; this.pressed = false; ctx.placeBody("drop", ev.x, ev.y); }
+  fingerTap(ctx: ToolCtx, x: number, y: number): boolean { ctx.placeBody("drop", x, y); return true; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   sample(): Record<string, number> { return {}; }
 }

@@ -117,6 +117,8 @@ export class ToolConfig<T extends OptionTable> {
     if (!def || def.kind !== "enum" || !def.modifiers) return base;
     const m = def.modifiers;
     const pick = mods.ctrl && mods.shift ? m.ctrlShift : mods.ctrl ? m.ctrl : mods.shift ? m.shift : undefined;
+    // 只有两档的：按住修饰键 = 换到另一档（选项切到了那一档，按住就换回来；user 10-30「shift ctrl是模式切换覆盖，就是可以换回来？」）；三档以上 = 按住哪个就是哪一档
+    if (pick !== undefined && pick === base && def.values.length === 2) return def.values.find((x) => x.id !== base)!.id as ValueOf<T[K][O]>;
     return (pick !== undefined && def.values.some((x) => x.id === pick) ? pick : base) as ValueOf<T[K][O]>;
   }
   /** 一个工具的选项条目（声明顺序），没有选项 → []。 */
@@ -202,6 +204,10 @@ export const TOOL_OPTIONS = {
   /** 旋转的「复制」开关（同移动；按住 Ctrl 临时复制；user 2026-10-26「移动旋转也是ctrl复制开关吧」）。 */
   rotate: {
     copy: { kind: "bool", label: "复制", def: false, scope: "session", modes: ["geometry", "verify"] },
+  },
+  /** 自由建模的删除（user 10-30「自由建模里面shift是溶解」+「2同意」再点钮切做法）：删除 / 溶解（不开洞）；按住 Shift = 这里选的反面。硬表面的橡皮不用它。 */
+  erase: {
+    action: { kind: "enum", label: "动作", values: [{ id: "delete", label: "删除" }, { id: "dissolve", label: "溶解", hint: "去掉点 / 边但不开洞（按住 Shift 临时反过来）" }], def: "delete", scope: "session", modes: ["freeform"] },
   },
   /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
   weldErase: {

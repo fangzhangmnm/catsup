@@ -52,7 +52,7 @@ export class MoveTool implements ToolHandler {
     const view = ctx.live();
     const hit = ctx.pick(ev.x, ev.y);
     const c = ctx.classify(view, hit);
-    this.copy = !!ev.copy || ctx.config.get("move", "copy");   // DT14：底部条「复制」开关（锁住式）或按着 Ctrl / Alt
+    this.copy = !!ev.copy !== ctx.config.get("move", "copy");   // DT14：底部条「复制」开关（锁住式）XOR 按着 Ctrl / Alt（开着复制时按住 = 这一下不复制；user 10-30「可以换回来」）
     if (ctx.hasSelection()) {
       const sel = ctx.selection();
       this.vids = moveTargetsSelection(ctx.kernel(), sel);

@@ -198,6 +198,7 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 /* 最近用过的非钉工具（≤ 2 格，屏幕矮就 0 格）；和钉死的长一样，只是会变 */
 .rail-sep { height: 6px; }   /* 左柱分组：只留空隙，不画线（user 10-24「|线不要试试」） */
 .tool { position: relative; }
+.tool-badge { position: absolute; right: 2px; top: 2px; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 4px; font: 700 9px/13px system-ui, sans-serif; color: #fff; background: #d9822b; pointer-events: none; }   /* 在另一种做法上（controller/second-mode.ts；user 10-30「也许icon上面要有区分披露」） */
 .tool-flyout { position: absolute; right: 3px; bottom: 3px; width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent; border-top: 5px solid var(--ink); }   /* SU 小三角：点角 / 长按 / 右键 = 弹出整组 */
 .rail-more { width: 48px; height: 20px; display: grid; place-items: center; border: 0; border-radius: 6px; background: transparent; color: var(--ink); cursor: pointer; }   /* 矮的「…」展开条：弹整组（黑色，不用小箭头） */
 .rail-more .ico { width: 16px; height: 16px; }

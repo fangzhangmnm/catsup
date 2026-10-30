@@ -99,7 +99,7 @@ export class RotateTool implements ToolHandler {
   }
 
   /** 复制（user 2026-10-26「移动旋转也是ctrl复制开关吧」）：底部条「复制」开着，或者此刻按着 Ctrl / Alt。 */
-  private copying(ctx: ToolCtx): boolean { return ctx.config.get("rotate", "copy") || ctx.mods().copy; }
+  private copying(ctx: ToolCtx): boolean { return ctx.config.get("rotate", "copy") !== ctx.mods().copy; }   // 开关 XOR 按着 Ctrl / Alt（同移动）
   live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
     if (this.stage !== 2 || !this.center || !this.axis) return "";
     const copy = this.copying(ctx), sel = ctx.selection();

@@ -232,7 +232,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
       if (t.role === "orbit" && !cancelled && now - t.downAt < SINGLE_TAP_MS && Math.hypot(t.x - t.downX, t.y - t.downY) < GESTURE_TAP_MAX_MOVE && now - lastPenActivity >= PALM_PEN_GUARD_MS) {
         const prev = lastFingerTap;
         if (prev && now - prev.at < FINGER_DOUBLE_TAP_MS && Math.hypot(t.x - prev.x, t.y - prev.y) < FINGER_DOUBLE_TAP_PX) { lastFingerTap = null; editor.hierarchyTapAt(t.x, t.y); }
-        else { lastFingerTap = { at: now, x: t.x, y: t.y }; editor.cancel(); }
+        else { lastFingerTap = { at: now, x: t.x, y: t.y }; if (!editor.fingerTap(t.x, t.y)) editor.cancel(); }   // 当前工具认手指轻点（步行放人）就交给它，不认 = 取消
       }
       return;
     }

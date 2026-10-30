@@ -28,6 +28,7 @@ import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
 import { selectModeFor } from "../editor/tool-config.ts";
 import { railFace } from "../controller/rail-face.ts";
+import { flippedValue, onSecond, secondModeOf } from "../controller/second-mode.ts";
 import { mountSoftSlider, stepRadius, type SoftSlider } from "./soft-slider.ts";
 import { mountLeftDial } from "./left-dial.ts";
 import { mountSelGrowBar, type SelGrowBar } from "./sel-grow-bar.ts";
@@ -217,6 +218,7 @@ const editor = new Editor(canvas, {
   },
   softRing: (c) => softSliderRef?.ring(c),   // 软选择的半径圈（app/soft-slider.ts）
   selGrowBar: (at) => selGrowRef?.show(at),   // 扩 / 缩选区的拖动条（app/sel-grow-bar.ts）
+  placeBody: (phase, x, y) => locomotion.placePointer(phase, x, y),   // 步行放人：输入层 → 步行工具 → 这里（user 10-30「1做」）
   lasso: (pts) => {   // 套索轨迹：SVG 盖在画布上（坐标 = 画布本地 CSS px）
     if (!pts) { lassoEl.hidden = true; return; }
     const b = canvas.getBoundingClientRect();
@@ -397,9 +399,13 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
     return b;
   }
   b.type = "button"; b.className = "tool"; b.title = sp.key ? `${sp.label}（${sp.key}）` : sp.label;
-  b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>${flyout ? '<span class="tool-flyout" aria-hidden="true"></span>' : ""}`;
+  // 再点一下拿着的这把 = 换到另一种做法（controller/second-mode.ts；user 10-30「2同意」）；在另一种做法上 = 角上一个字
+  const sm = secondModeOf(t, editor.modeId), second = sm?.kind === "option" && onSecond(sm, editor.config.get(t as never, sm.key as never)) ? sm : null;
+  b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>${flyout ? '<span class="tool-flyout" aria-hidden="true"></span>' : ""}${second ? '<span class="tool-badge" aria-hidden="true"></span>' : ""}`;
   (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
-  if (!flyout) { b.addEventListener("click", () => hud.pick(t)); return b; }
+  if (second) { (b.querySelector(".tool-badge") as HTMLElement).textContent = second.badge; b.title += ` · 现在：${second.name}（再点一下换回；按住 ${second.mod} 临时换回）`; }
+  const pick = (): void => { if (t === editor.tool && flipSecondMode(t)) return; hud.pick(t); };
+  if (!flyout) { b.addEventListener("click", pick); return b; }
   // 小三角 / 长按 / 右键 = 弹出整组；点主体 = 用当前这个（SU 小三角，user 10-24「sketchup 的加一个小三角的方案不错」）
   const openFlyout = (): void => { togglePopupMenu<Tool>({ anchor: b, align: "start", items: () => flyoutItems(flyout()), onPick: (x) => hud.pick(x) }); };
   const inCorner = (ev: MouseEvent): boolean => ev.offsetX > b.clientWidth - 18 && ev.offsetY > b.clientHeight - 18;
@@ -413,10 +419,24 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   });
   b.addEventListener("pointermove", (ev) => { if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 12) clearPress(); });
   b.addEventListener("pointerup", clearPress); b.addEventListener("pointercancel", clearPress); b.addEventListener("pointerleave", clearPress);
-  b.addEventListener("click", (ev) => { if (inCorner(ev)) openFlyout(); else hud.pick(t); });
+  b.addEventListener("click", (ev) => { if (inCorner(ev)) openFlyout(); else pick(); });
   b.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openFlyout(); });
   return b;
 };
+/** 拿着的工具再被点一下：有另一种做法就切过去（选项 / 换工具），提示行说现在是哪种、怎么换回；没有 = false（照常 pick）。 */
+function flipSecondMode(t: Tool): boolean {
+  const sm = secondModeOf(t, editor.modeId);
+  if (!sm) return false;
+  if (sm.kind === "swap") { hud.pick(sm.to); hintEl.textContent = `${specOf(sm.to).label}（再点一下换回${specOf(t).label}）`; return true; }
+  const entry = editor.config.entries(t).find((e) => e.key === sm.key);
+  if (!entry) return false;
+  const values = entry.def.kind === "enum" ? entry.def.values : undefined, next = flippedValue(sm, entry.value, values);
+  editor.config.set(t as never, sm.key as never, next as never);
+  const nowSecond = onSecond(sm, next), firstName = values?.find((v) => v.id !== sm.alt)?.label ?? `不${sm.name}`;
+  hintEl.textContent = `${specOf(t).label}：${nowSecond ? sm.name : firstName}（再点一下换回；按住 ${sm.mod} 临时换回）`;
+  syncUi();
+  return true;
+}
 /** 矮的「⌄」展开条：弹整组（user「...和下箭头做矮一点」）。 */
 const mkMore = (tools: Tool[]): HTMLButtonElement => {
   const b = document.createElement("button");
@@ -1100,7 +1120,7 @@ const gestures = attachGestures(canvas, editor, {
   onRedo: () => editor.redo(),
   look: (dx, dy) => locomotion.look(dx, dy),
   walking: () => locomotion.isWalking(),
-  toolBlocked: () => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return true; } return locomotion.sim.state.teleport.charging || locomotion.isPlacing() || locomotion.isFps(); },   // 演示锁 = 工具指针不进编辑器（悬停预告也停）、提示行说为什么；放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
+  toolBlocked: () => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return true; } return locomotion.sim.state.teleport.charging || (locomotion.isPlacing() && editor.tool !== "walk") || locomotion.isFps(); },   // 放人时指针归步行工具（输入层 → 工具 → locomotion），别的工具挡住   // 演示锁 = 工具指针不进编辑器（悬停预告也停）、提示行说为什么；放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
   // #19 上下文菜单：桌面右键任何工具都行（SU）；触屏长按只在选择工具里
   onContext: (x, y, cx, cy) => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return; } openContextMenuAt(editor, hud, x, y, cx, cy); },   // 演示锁：不出菜单；三层：空处 / 几何 / 子组件的物体菜单（context-menu.ts）
   longPressEnabled: () => editor.tool === "select",
