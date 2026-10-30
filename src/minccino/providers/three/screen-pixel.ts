@@ -32,33 +32,57 @@ const OUTLINE_FS = /* glsl */`
     return vec4(y > t ? uLight : uDark, 1.0);
   }
   float viewZ(float d) { if (uOrtho) return uNear + d * (uFar - uNear); float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / ((uFar + uNear) - z * (uFar - uNear)); }
+  // 墨线：模型的边画进小图时透明通道写 0（render3 那几份线材质：不混合、不透明度 0），面 / 网格 / 背景都是 1
+  bool inkAt(ivec2 q) { return texelFetch(uCol, q, 0).a < 0.25 && texelFetch(uDepth, q, 0).r < 1.0; }
+  vec4 colAt(ivec2 q, float dq) { return dq < 1.0 || uBgTex ? texelFetch(uCol, q, 0) : vec4(uBg, 1.0); }
+  const ivec2 K[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
+  // p（深度 d）往 k 方向第 s 格：该不该描。outside：描背景那侧（p 是背景 / 远的、邻格是物体 / 近的）；inside：描物体那侧——和线稿同一格
+  bool hitAt(ivec2 p, float d, ivec2 k, int s, ivec2 hi) {
+    ivec2 q = clamp(p + k * s, ivec2(0), hi);
+    float dq = texelFetch(uDepth, q, 0).r;
+    bool hit = uInside ? (d < 1.0 && dq >= 1.0) : (d >= 1.0 && dq < 1.0);
+    if (d < 1.0 && uInner && dq < 1.0) {
+      float z = viewZ(d), w = 1.0 / z, dr = texelFetch(uDepth, clamp(p - k * s, ivec2(0), hi), 0).r;
+      if (uOrtho) {   // 正交：z 在屏幕上仿射；邻格近（远）4% 以上且外推对不上
+        float zq = viewZ(dq), pred = dr < 1.0 ? 2.0 * z - viewZ(dr) : z;
+        hit = uInside ? (zq > z * 1.04 && zq - pred > 0.03 * z) : (zq * 1.04 < z && pred - zq > 0.03 * z);
+      } else {        // 透视：1/z 仿射（实验室原式）
+        float wq = 1.0 / viewZ(dq), pred = dr < 1.0 ? 2.0 * w - 1.0 / viewZ(dr) : w;
+        hit = uInside ? (wq * 1.04 < w && pred - wq > 0.03 * w) : (wq > w * 1.04 && wq - pred > 0.03 * w);
+      }
+    }
+    return hit;
+  }
+  bool lineAt(ivec2 q, ivec2 hi) { float dq = texelFetch(uDepth, q, 0).r; for (int i = 0; i < 4; i++) if (hitAt(q, dq, K[i], 1, hi)) return true; return false; }
   void main() {
     ivec2 p = ivec2(gl_FragCoord.xy), hi = textureSize(uDepth, 0) - 1;
     float d = texelFetch(uDepth, p, 0).r;
     gl_FragDepth = d;   // 深度跟着写进描边后的那张（排在描边之后的辅助几何要被模型挡）
-    vec4 c = d < 1.0 || uBgTex ? texelFetch(uCol, p, 0) : vec4(uBg, 1.0);   // uBgTex：小图已先清成背景色（网格跟内容进小图时，背景上有网格）
+    vec4 c = colAt(p, d);   // uBgTex：小图已先清成背景色（网格跟内容进小图时，背景上有网格）
     if (!uOn) { oColor = dither(c, p); return; }
-    const ivec2 K[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
     bool line = false; vec3 nb = c.rgb;
-    float z = d < 1.0 ? viewZ(d) : 0.0, w = d < 1.0 ? 1.0 / z : 0.0;
     for (int s = 1; s <= 2; s++) {
       if (s > uWidth || line) break;
+      for (int i = 0; i < 4; i++) if (!line && hitAt(p, d, K[i], s, hi)) { line = true; nb = uInside ? c.rgb : texelFetch(uCol, clamp(p + K[i] * s, ivec2(0), hi), 0).rgb; }   // inside：线色跟自己这一格（物体）走
+    }
+    // 清剪影上的碎屑（v0.17.51；user 10-29「像素描边还是有漏的没对齐的像素」「轮子还会闪白」「你给不同的面上不同的颜色就可以啦」）：几乎侧对镜头的面在剪影处只剩 1–2 格厚，
+    // 描边吃掉最外一格，厚 2 格的地方里面那格就孤零零露出来（镜头一动换一格 = 闪）。规则：紧挨着描边、不是墨线、看得见的 4 邻格（物体、不是描边、不是墨线）里没有同色的
+    // → 改成那些邻格里最多的颜色。只动贴着描边的孤点；墨线靠透明通道记号保护（对角走的墨线 4 邻格本来就不同色）。
+    if (!line && uInside && d < 1.0 && !inkAt(p)) {
+      bool touches = false, same = false; vec3 cand[4]; int n = 0;
       for (int i = 0; i < 4; i++) {
-        ivec2 q = clamp(p + K[i] * s, ivec2(0), hi);
-        float dq = texelFetch(uDepth, q, 0).r;
-        // outside：描背景那侧（这一格是背景 / 远的、邻格是物体 / 近的）；inside：描物体那侧（这一格是物体 / 近的、邻格是背景 / 远的）——和线稿同一格
-        bool hit = uInside ? (d < 1.0 && dq >= 1.0) : (d >= 1.0 && dq < 1.0);
-        if (d < 1.0 && uInner && dq < 1.0) {
-          float dr = texelFetch(uDepth, clamp(p - K[i] * s, ivec2(0), hi), 0).r;
-          if (uOrtho) {   // 正交：z 在屏幕上仿射；邻格近（远）4% 以上且外推对不上
-            float zq = viewZ(dq), pred = dr < 1.0 ? 2.0 * z - viewZ(dr) : z;
-            hit = uInside ? (zq > z * 1.04 && zq - pred > 0.03 * z) : (zq * 1.04 < z && pred - zq > 0.03 * z);
-          } else {        // 透视：1/z 仿射（实验室原式）
-            float wq = 1.0 / viewZ(dq), pred = dr < 1.0 ? 2.0 * w - 1.0 / viewZ(dr) : w;
-            hit = uInside ? (wq * 1.04 < w && pred - wq > 0.03 * w) : (wq > w * 1.04 && wq - pred > 0.03 * w);
-          }
-        }
-        if (hit && !line) { line = true; nb = uInside ? c.rgb : texelFetch(uCol, q, 0).rgb; }   // inside：线色跟自己这一格（物体）走
+        ivec2 q = clamp(p + K[i], ivec2(0), hi);
+        if (q == p || texelFetch(uDepth, q, 0).r >= 1.0) continue;
+        if (lineAt(q, hi)) { touches = true; continue; }
+        if (inkAt(q)) continue;
+        vec3 cq = texelFetch(uCol, q, 0).rgb;
+        if (distance(cq, c.rgb) < 0.01) { same = true; break; }
+        cand[n] = cq; n++;
+      }
+      if (touches && !same && n > 0) {
+        int best = 0, bestN = 0;
+        for (int i = 0; i < 4; i++) { if (i >= n) break; int m = 0; for (int j = 0; j < 4; j++) { if (j >= n) break; if (distance(cand[i], cand[j]) < 0.01) m++; } if (m > bestN) { bestN = m; best = i; } }
+        c = vec4(cand[best], 1.0);
       }
     }
     if (uDarkSide && dot(c.rgb, vec3(0.299, 0.587, 0.114)) < dot(nb, vec3(0.299, 0.587, 0.114))) nb = c.rgb;

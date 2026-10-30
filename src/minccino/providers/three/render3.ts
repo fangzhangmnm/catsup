@@ -71,6 +71,7 @@ const GRID_STEP = 1, GRID_N = 50;
 const PIXEL_GRID_MIN_PX = 5, PIXEL_GRID_MIN_PX_STIPPLE = 8;
 /** XR 里「屏幕像素」的定义：指示物角尺寸 = px / XR_PX_PER_DEG 度。桌面 800 px / 50° = 16 px/°；VR 取 32 = 同 px 数只有桌面一半大。 */
 const XR_PX_PER_DEG = 32;
+
 /** XR 粗线 px → 设备像素倍率：每眼 viewport 高 / 900（桌面里这个角色是 DPR）。 */
 const XR_LINE_REF_H = 900;
 const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
@@ -779,7 +780,8 @@ export class Renderer3 implements RenderProvider {
       this.overlayLines.scaleMain(pxScale);   // 主分辨率的粗线在小图里按小图像素
       const restoreLines = (): void => { this.edgeMat.linewidth = lw0; this.edgeDimMat.linewidth = lwd0; this.profileAdd.value = pa0; this.overlayLines.scaleMain(1); };
       try {
-      this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3);
+      this.inkMark(true);
+      try { this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3); } finally { this.inkMark(false); }
       if (p.post.bloom) {
         // 辉光那遍：同一个场景再画一遍进半精度的辉光图（面只出轮廓光、线全色、被挡的边 × 0.4、地格的光）
         const bl = (this.bloom ??= new Bloom()); bl.prepare(ps.w, ps.h);
@@ -1032,6 +1034,16 @@ export class Renderer3 implements RenderProvider {
     return m?.[slot] ?? (slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : slot === "faceDim" ? PALETTE.faceDim : PALETTE.edgeSelected);
   }
   private lineMarkMats = new Map<string, any>();
+  /**
+   * 「这是墨线」的记号（v0.17.51）：画风小图那一遍里，1 像素模型边（普通 / 淡出 / 选中悬停那几份）的透明通道写 0——描边那遍靠它认出墨线，清碎屑时不把对角走的墨线当孤点抹掉
+   * （screen-pixel.ts OUTLINE_FS）。不透明 + 普通混合时 three 会把透明通道强制写成 1（OPAQUE），所以这一遍切成「不混合 + 不透明度 0」，画完切回：画到画布的东西一个字节不变。
+   */
+  private inkMark(on: boolean): void {
+    const b = on ? THREE.NoBlending : THREE.NormalBlending, o = on ? 0 : 1;
+    const set = (m: any): void => { if (m.blending !== b || m.opacity !== o) { m.blending = b; m.opacity = o; m.needsUpdate = true; } };
+    set(this.pixelMat); set(this.pixelDimMat);
+    for (const m of this.lineMarkMats.values()) if (!m.transparent) set(m);
+  }
   /** 闪换拍：已经建好的标记材质按这一拍重写颜色（材质很少：每种槽一份；不用重跑分段）。 */
   private refreshMarkColors(): void {
     for (const [key, m] of this.lineMarkMats) { const hex = this.markHex(key.split("|")[0] as LineSlot); m.color.setRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, THREE.LinearSRGBColorSpace); }

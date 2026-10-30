@@ -109,6 +109,17 @@ const SCENES = {
   // 写实 × 上色样本（材质色进底色）
   "style-realistic-painted": { fixture: "painted.glb", noTexWait: true, after: `e.renderer3.setPreset("realistic"); e.draw();` },
   // 风格 × 贴图（最近邻覆盖）
+  // 剪影碎屑（v0.17.51；user 10-29「像素描边还是有漏的没对齐的像素」「轮子还会闪白」「你给不同的面上不同的颜色就可以啦」）：贴地的轮子、每片面一种颜色、低视角——
+  // 胎面最底下那片在剪影处只剩 1–2 格，描边吃掉外面一格后里面那格不许孤零零露出来（描边那遍清碎屑）
+  "style-pixel-wheels": `e.renderer3.setPreset("pixelOutline"); const at = e.activePool(), N = 24;
+    for (const cx of [0, 1]) { const pts = []; for (let i = 0; i < N; i++) { const a = (i / N) * 2 * Math.PI; pts.push(P(cx + 0.38 * Math.cos(a), -0.6, 0.38 + 0.38 * Math.sin(a))); }
+      e.commitOp({ op: "addEdges", at, segs: pts.map((p, i) => [p, pts[(i + 1) % N]]), curve: { kind: "circle", closed: true, params: { center: P(cx, -0.6, 0.38), radius: 0.38, normal: P(0, 1, 0), xaxis: P(1, 0, 0), segments: N } } });
+      e.commitOp({ op: "pushpull", at, face: pts, dist: 0.4 }); }
+    const k = e.kernel, fs = k.faces();
+    fs.forEach((f, i) => { const h = (i * 0.61803) % 1; e.commitOp({ op: "addMaterial", name: "m" + i, color: [0.5 + 0.45 * Math.cos(6.283 * h), 0.5 + 0.45 * Math.cos(6.283 * (h + 0.33)), 0.5 + 0.45 * Math.cos(6.283 * (h + 0.67))] }); });
+    const mats = Object.keys(e.scene.materials).map(Number);
+    fs.forEach((f, i) => { for (const side of [0, 1]) e.commitOp({ op: "paintFaces", at, faces: [k.faceRings3(f.id).outer], material: mats[mats.length - fs.length + i], sides: [side] }); });
+    e.cam.projection = "persp"; e.cam.target = P(0.5, -0.4, 0.4); e.cam.yaw = -0.6; e.cam.pitch = 0.08; e.cam.halfH = 1.2; e.draw();`,
   "style-pixel-textured": `e.renderer3.setPreset("pixelOutline"); box(0, 0, 1, 1, 1); frame(); const tb = atob(${JSON.stringify(CHECKER)}), tbytes = new Uint8Array(tb.length); for (let i = 0; i < tbytes.length; i++) tbytes[i] = tb.charCodeAt(i);
     e.commitOp({ op: "addMaterial", name: "格子", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: tbytes, sizeM: [0.5, 0.5] } });
     const mid = [...e.scene.materials.keys()].pop(), k = e.kernel, at = e.activePool();
