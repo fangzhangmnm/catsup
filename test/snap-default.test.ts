@@ -9,11 +9,23 @@ const read = (f: string) => fs.readFileSync(new URL(`../${f}`, import.meta.url),
 
 describe("新文件默认开吸附", () => {
   it("NEW_DOC_GRID.on = true", () => { eq(NEW_DOC_GRID.on, true); });
-  it("编辑器开机初值 = NEW_DOC_GRID", () => { assert(/private _grid: GridSettings = \{ \.\.\.NEW_DOC_GRID \}/.test(read("src/editor/editor.ts")), "editor.ts 的 _grid 初值不是 NEW_DOC_GRID"); });
+  it("编辑器开机初值 = NEW_DOC_GRID（v0.17.46 起网格设置住 grid-state.ts）", () => {
+    assert(/private readonly gridState = new GridState\(\)/.test(read("src/editor/editor.ts")), "editor.ts 没用 GridState");
+    assert(/doc: GridSettings = \{ \.\.\.NEW_DOC_GRID \}/.test(read("src/editor/grid-state.ts")), "grid-state.ts 文档那份的初值不是 NEW_DOC_GRID");
+  });
+  it("自由建模的吸附开关自己一份、默认关（user 10-29「mesh模式默认不开snapping，和brep单独记账」）", async () => {
+    const { GridState } = await import("../src/editor/grid-state.ts");
+    const g = new GridState();
+    eq(g.view("geometry").on, true); eq(g.view("freeform").on, false);
+    g.set("freeform", { on: true }); eq(g.view("freeform").on, true); eq(g.doc.on, true);
+    g.set("freeform", { on: false }); g.set("geometry", { on: false }); eq(g.doc.on, false); eq(g.view("freeform").on, false);
+    g.set("freeform", { on: true }); eq(g.doc.on, false, "自由建模开吸附不碰文档那份");
+    g.set("freeform", { ...g.doc, on: true }, true); eq(g.doc.on, true, "读盘 = 整份照文档的换"); eq(g.view("freeform").on, true);
+  });
   it("Session 每条「新建」路（loadKernel(new Kernel(), \"新建\")）后面都紧跟 setGrid(NEW_DOC_GRID)", () => {
     const src = read("src/app/session.ts");
     const news = src.split('loadKernel(new Kernel(), "新建")').length - 1;
-    const withGrid = src.split('loadKernel(new Kernel(), "新建");\n    this.d.editor.setGrid({ ...NEW_DOC_GRID });').length - 1;
+    const withGrid = src.split('loadKernel(new Kernel(), "新建");\n    this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);').length - 1;   // true = 读盘 / 新建：整份照文档的换
     assert(news >= 2, `新建路少了？只找到 ${news} 条`);
     eq(withGrid, news, "有新建路没设 NEW_DOC_GRID");
   });

@@ -32,7 +32,8 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
-import { type GridSettings, NEW_DOC_GRID, gridFrame, gridPreset } from "./grid-settings.ts";
+import { type GridSettings, gridFrame, gridPreset } from "./grid-settings.ts";
+import { GridState } from "./grid-state.ts";
 import { guideCount } from "../scene/guides.ts";
 import { compassOp } from "./tools/compass.ts";
 import type { CurveParams, CurveSpec } from "../kernel/kernel.ts";
@@ -261,15 +262,16 @@ export class Editor {
   private r3: RenderProvider; private readonly provider: EditorStreamProvider;
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
-  private _grid: GridSettings = { ...NEW_DOC_GRID };
+  private readonly gridState = new GridState();   // 网格设置 + 各工作台的吸附开关（自由建模单独一份，grid-state.ts）
   /** 演示锁（护栏 ②，周账 F-124；ai-docs/20261024-finalize.md §0）：true = 改模型的入口全拒（commit / undo / redo / VCB / 指针按下 / 键盘起手）；看 / 选工作台 / 走路照旧。由 session 按 desk.locked 设。 */
   private _locked = false;
   get locked(): boolean { return this._locked; }
   setLocked(on: boolean): void { if (this._locked === on) return; this._locked = on; this.cancelGesture(); this.host.changed(); this.draw(); }
   private lockedSay(): void { this.host.hint("锁着：只能看；☰「解锁」才能改"); }
-  get grid(): Readonly<GridSettings> { return this._grid; }
-  setGrid(patch: Partial<GridSettings>): void {
-    this._grid = { ...this._grid, ...patch };
+  get grid(): Readonly<GridSettings> { return this.gridState.view(this.mode.id); }
+  get docGrid(): Readonly<GridSettings> { return this.gridState.doc; }   // 文档的那一份（存盘只认它）
+  setGrid(patch: Partial<GridSettings>, fromDoc = false): void {   // fromDoc = 读盘 / 新建（整份照文档的换）；平时开关落在当前工作台那一份
+    this.gridState.set(this.mode.id, patch, fromDoc);
     this.viewCache = null;
     this.host.changed();
     this.draw();
@@ -352,7 +354,7 @@ export class Editor {
   private opCount = 0;
   /** 格点吸附的有效开关（DT51，user 2026-10-25「shift应该是flip snap rule」「还是其实右上应该只管grid snap」）：右上锁钮，按住 Shift 反过来。
    *  管：格点 + 整格长度 + 15° 整角（「15是grid合理」）——都有捕捉阈；几何推断不归它管。 */
-  private get gridEff(): boolean { return gridEffective(this._grid.on, this.mods.shift); }
+  private get gridEff(): boolean { return gridEffective(this.grid.on, this.mods.shift); }
   /** 一步（user 2026-10-25「*6 /6的时候undo不对，变成需要一个一个删了」）：入口包在 step() 里，里面提交的 op 并成撤销的一步。 */
   private stepDepth = 0;
   /** 步外提交的次数（应当永远是 0；探针 / 测试读它）。 */
@@ -448,7 +450,7 @@ export class Editor {
       if (Math.abs(den) > 0.05) { const t = dot3(sub3(anchor, ray.origin), n) / den; if (t > 0) p = { x: ray.origin.x + ray.dir.x * t, y: ray.origin.y + ray.dir.y * t, z: ray.origin.z + ray.dir.z * t }; }
     }
     if (this.gridEff && lock !== "face") {
-      const F = this.contextFrame(), s0 = this._grid.step / this._grid.subdiv;
+      const F = this.contextFrame(), s0 = this.grid.step / this.grid.subdiv;
       if (s0 > 0) for (const ax of (["x", "y", "z"] as const).filter((a) => a !== lock)) {
         const raw = F[ax], d = normalize3(raw), c = dot3(sub3(p, F.origin), d), q = Math.round(c / s0) * s0 - c;
         p = { x: p.x + d.x * q, y: p.y + d.y * q, z: p.z + d.z * q };
@@ -468,7 +470,7 @@ export class Editor {
       const b = dot3(dir, r), c = dot3(r, r), d = dot3(dir, w0), e = dot3(r, w0), den = c - b * b;
       if (den > 1e-9) t = (b * e - c * d) / den;
     }
-    if (this.gridEff) { const s0 = this._grid.step / this._grid.subdiv, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
+    if (this.gridEff) { const s0 = this.grid.step / this.grid.subdiv, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
     const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t };
     return { p, kind: `axis-${ax}` as SnapKind, label: `方向锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
   }
@@ -627,7 +629,6 @@ export class Editor {
   private activePool(): PoolRef { return this.scene.poolOfContext(this.ctx); }
   private ctxXform(): Xform { return this.scene.xformOfContext(this.ctx); }
   private toLocal(p: Pt3): Pt3 { const m = this.ctxXform(); return m === IDENTITY ? p : applyPt(invert(m), p); }
-  private toWorld(p: Pt3): Pt3 { const m = this.ctxXform(); return m === IDENTITY ? p : applyPt(m, p); }
   /** 世界空间里的变换 → 活动上下文空间（父空间）里的同一变换：M⁻¹ ∘ X ∘ M。 */
   private xformToLocal(x: Xform): Xform { const m = this.ctxXform(); return m === IDENTITY ? x : compose(invert(m), compose(x, m)); }
   private kid(o: object): number { let id = this.kids.get(o); if (id === undefined) { id = this.nextKid++; this.kids.set(o, id); } return id; }
@@ -639,7 +640,7 @@ export class Editor {
     if (copy) override = null;
     const keyOf = (o: { picks: PoolPick[]; xform: Xform }): string => `${o.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${o.xform.map((v) => v.toFixed(9)).join(",")}`;
     const ovKey = override ? keyOf(override) : copy ? `copy:${keyOf(copy)}` : "";
-    const grid = this.gridEff ? { step: this._grid.step, sub: this._grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this._grid.plane) } : null;
+    const grid = this.gridEff ? { step: this.grid.step, sub: this.grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this.grid.plane) } : null;
     // 影子的 rev 也进键（2026-10-27 Claude Opus 5.5；user「拖动矩形的时候显示也不对，有退化」「move的显示也有问题」）：v0.15.14 起预演影子同一个对象每帧倒回复用，
     // 只按对象身份当键 = 拖动中一直拿到第一帧的合成视图、渲染器的重建键也不变 → 屏幕停在旧的那帧。
     const key = `${this._revision}|${live ? `${this.kid(live)}.${live.rev}` : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}|${this._isolate ? "iso" : ""}`;
@@ -2266,13 +2267,13 @@ export class Editor {
   /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
   private snapStepChoices(): { id: string; label: string; hint?: string }[] {
     const fine = this.gridFineStep();
-    const fixed: [number, string][] = gridPreset(this._grid.preset).unit === "ft"
+    const fixed: [number, string][] = gridPreset(this.grid.preset).unit === "ft"
       ? [[0.3048, "1 ft"], [0.1524, "6 in"], [0.0254, "1 in"], [0.00635, "1/4 in"], [0.0015875, "1/16 in"]]
       : [[1, "1 m"], [0.1, "10 cm"], [0.05, "5 cm"], [0.01, "1 cm"], [0.005, "5 mm"], [0.001, "1 mm"]];
     return [{ id: "grid", label: `画图的格子（${fmtLen(fine)}）`, hint: "格距 ÷ 细分，和画图时吸附的格点同一套" }, ...fixed.filter(([m]) => Math.abs(m - fine) > 1e-9).map(([m, label]) => ({ id: String(m), label }))];
   }
   /** 画图吸附用的那个格子边长（格距 ÷ 细分；「吸到格点」的默认）。 */
-  private gridFineStep(): number { return this._grid.step / this._grid.subdiv; }
+  private gridFineStep(): number { return this.grid.step / this.grid.subdiv; }
   /**
    * 「吸到格点」的格子（池本地坐标 → 格子坐标）。own = 这个池自己的坐标架（根 = 绘图轴、组 = 组的坐标架、组件 = 定义的坐标架，没摆过 = 组件原点）；
    * world = 根上的绘图轴（= 在根上看到的格子），经当前上下文 + xf 换到这个池里。
@@ -3713,7 +3714,7 @@ export class Editor {
       guides: view.guides(),
       guideSel: guidesOf(this.selection),
       frame: view.frame(),
-      grid: { frame: view.grid()?.frame ?? view.frame(), step: this._grid.step, sub: this._grid.subdiv, on: this._grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
+      grid: { frame: view.grid()?.frame ?? view.frame(), step: this.grid.step, sub: this.grid.subdiv, on: this.grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
       vertDots: this.vertDotsView(view, g),
@@ -3738,7 +3739,7 @@ export class Editor {
   private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number; axisUnitX: number | null } {
     const m = unitMark(this._vcbUnit), empty = this.sceneEmpty();
     // 标记跟着格子走（DT16，user 10-25「1m的标记没有跟着格子的大小更新」）：放在一格处、写一格的长度；Z 轴刻度仍按单位（1 m / 1 ft）
-    const step = this._grid.step > 0 ? this._grid.step : m.unitM;
+    const step = this.grid.step > 0 ? this.grid.step : m.unitM;
     // 只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在
     return { axisTickM: m.unitM, axisUnitX: empty ? step : null, labels: empty ? [{ id: "unit-x", text: gridStepLabel(step, this._vcbUnit), at: { x: F.origin.x + F.x.x * step, y: F.origin.y + F.x.y * step, z: F.origin.z + F.x.z * step }, role: "unitLabel", anchor: "below" }] : [] };
   }
@@ -3955,7 +3956,7 @@ export class Editor {
       paintMaterialIndex: () => this.materialIndexForPick(this.toolPass()),
       paintFaces: (faces, sides) => this.paintFaces(faces, sides),
       pickMaterialOf: (f, side) => this.pickMaterialOf(f, side),
-      grid: () => (this.gridEff === this._grid.on ? this._grid : { ...this._grid, on: this.gridEff }),   // 工具看到的是有效开关（按住 Shift 反过来）
+      grid: () => (this.gridEff === this.grid.on ? this.grid : { ...this.grid, on: this.gridEff }),   // 工具看到的是有效开关（按住 Shift 反过来）
       pickLocked: (p) => this.pickIsLocked(p),
       setLiveOverride: (o) => { this.liveOverride = o; },
       xformToLocal: (X) => this.xformToLocal(X),
@@ -4012,10 +4013,6 @@ export class Editor {
     const plane = perf.time("hover.plane", () => drawPlaneAt(view, this.frame(), this.fvp(), s.x, s.y));
     this.snapInfo = perf.time("hover.snap", () => this.applyHysteresis(snapPoint(view, this.frame(), this.fvp(), s.x, s.y, this.snapPx(), { plane, alignSources: this.alignSrcs(), chargedEdges: this.alignEdges(), xrayPoints: this.poolOrigins(view), hand: this.freshHand(view) }), s.x, s.y));
     this.trackCharge(this.snapInfo, this.snapInfo?.kind === "on-edge" ? this.hoveredEdge(view, s.x, s.y) : null);
-  }
-  private projectToPlaneThrough(p: Pt3, c: Pt3, n: Pt3): Pt3 { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); }
-  private currentSample(): { cursor3: Pt3 | null; snap: Snap3 | null; extra: Record<string, number> } {
-    return { cursor3: this.cursor3, snap: this.snapInfo, extra: this.handlers[this._tool]?.sample() ?? {} };
   }
   private recordSample(s: { x: number; y: number }): void {
     if (!this.gestureActive()) return;

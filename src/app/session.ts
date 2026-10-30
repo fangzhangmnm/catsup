@@ -269,7 +269,7 @@ export class Session {
     this.loaded = doc;
     this.lazy = false;
     this.d.editor.loadScene(sc, "恢复");
-    this.d.editor.setGrid(gridFromSettings(doc.settings));
+    this.d.editor.setGrid(gridFromSettings(doc.settings), true);
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
@@ -308,7 +308,7 @@ export class Session {
   private encode(): Uint8Array {
     const name = this.displayName();
     const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
-    doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.grid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
+    doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.docGrid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
     doc.desk = this.deskForSave();   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）；含参考窗的窗
     if (this.d.refs) doc.references = { files: this.d.refs.files(), extra: this.loaded?.references.extra ?? {} };   // 参考窗目录（接缝编好的字节；太新时 = 原样那份，写入器另走 carry）
     const thumb = this.d.captureThumbnail();
@@ -348,7 +348,7 @@ export class Session {
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
     this.d.editor.loadScene(sc);
-    this.d.editor.setGrid(gridFromSettings(doc.settings));
+    this.d.editor.setGrid(gridFromSettings(doc.settings), true);
     this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
@@ -395,7 +395,7 @@ export class Session {
     this.pushPending = false; this.createPending = false;
     this.lazy = false;   // loadKernel 会同步 changed → noteChange；此刻别当首笔
     this.d.editor.loadKernel(new Kernel(), "新建");
-    this.d.editor.setGrid({ ...NEW_DOC_GRID });
+    this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着
@@ -427,7 +427,7 @@ export class Session {
     this.loaded = null;
     this.lazy = false; this.createPending = false;
     this.d.editor.loadKernel(new Kernel(), "新建");
-    this.d.editor.setGrid({ ...NEW_DOC_GRID });
+    this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着

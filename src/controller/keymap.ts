@@ -48,7 +48,7 @@ const B = (chord: Chord, action: string, label: string, when?: Binding["when"]):
 const notWalking = (c: KeyContext): boolean => !c.walking;
 
 /** 工具键（SketchUp 对齐，user 2026-09-02「默认对齐 SU」）：同一个键再按一下 = 组里换下一把（app 层做轮换）。步行时空格 / E / S / Q / A / T 归走路。 */
-const TOOL_KEYS: readonly [Chord, Tool][] = [["space", "select"], ["l", "line"], ["r", "rect"], ["c", "circle"], ["a", "arc"], ["m", "move"], ["q", "rotate"], ["s", "scale"], ["p", "pp"], ["k", "knife"], ["f", "offset"], ["w", "followme"], ["b", "paint"], ["e", "erase"], ["t", "tape"], ["tab", "select"], ["x", "erase"]];
+const TOOL_KEYS: readonly [Chord, Tool][] = [["space", "select"], ["l", "line"], ["r", "rect"], ["c", "circle"], ["a", "arc"], ["m", "move"], ["q", "rotate"], ["s", "scale"], ["p", "pp"], ["f", "offset"], ["w", "followme"], ["b", "paint"], ["e", "erase"], ["t", "tape"], ["tab", "select"], ["x", "erase"]];
 const TAKEN_BY_WALK = new Set<Chord>(["space", "e", "s", "q", "a", "t"]);
 
 /** 全局层（最底）。 */
@@ -56,6 +56,8 @@ export const GLOBAL: Layer = {
   id: "global",
   bindings: [
     ...TOOL_KEYS.map(([k, t]) => B(k, `tool.key:${k}:${t}`, `工具：${t}`, (c) => !(c.walking && TAKEN_BY_WALK.has(k)))),
+    // K：自由建模 = 切割；硬表面 = 画线（画线本来就能切开面；user 10-29「brep里面K也是线，先这样弄一下，之后可以好好理」）
+    B("k", "tool.key:k:line", "工具：line（硬表面里 K 也是画线）", (c) => c.mode === "geometry"), B("k", "tool.key:k:knife", "工具：knife"),
     B("g", "component.make", "建组件"),
     B("h", "hide", "隐藏选中", notWalking),
     B("shift+z", "view.zoomExtents", "缩放到全部"),
@@ -298,6 +300,7 @@ export const KNOWN_CONFLICTS: Readonly<Record<Chord, string>> = {
   a: "硬表面 = 弧 · 自由建模 = 全选（Blender）",
   e: "硬表面 = 橡皮 · 自由建模 = 挤出（Blender）",
   g: "硬表面 = 建组件（SketchUp）· 自由建模 = 抓起来移动（Blender）",
+  k: "硬表面 = 画线 · 自由建模 = 切割（user 10-29「brep里面K也是线，先这样弄一下，之后可以好好理」：画线本来就能切开面，算同一个「切」的手感）",
   r: "硬表面 = 矩形 · 自由建模 = 旋转（Blender）",
   x: "硬表面 = 橡皮（轮换）· 自由建模选择 = 删除 · 自由建模操作工具 = 锁 X（UX17 user 拍的）",
   "shift+z": "硬表面 = 缩放到全部 · 自由建模 = 锁面 XY（Blender）",
