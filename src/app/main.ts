@@ -10,7 +10,7 @@ import { ERASERS, BRUSHES } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { snapSwitchLook, snapSwitchSay } from "../editor/grid-state.ts";
 import { PICK_KINDS, pickAfter, pickSay, type PickKind, type PickSet } from "../controller/pick-kinds.ts";
-import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
+import { type Ladder, allReminders, loadLadder } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
@@ -82,6 +82,7 @@ import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { configureTabMemory, openPopupMenu, togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
+import { installContextMenuGuard } from "./ui/context-menu-guard.ts";
 import { showNotice, closeNotice, type NoticeOpts } from "./ui/notice.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 横幅接手
 import { initCrashRecovery } from "./crash-recovery.ts";
@@ -533,6 +534,7 @@ window.addEventListener("resize", () => renderSlots());
 const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
+installContextMenuGuard();   // 右键兜底：哪个界面没自己的右键菜单，就不弹浏览器那份（输入框放行；ui/context-menu-guard.ts，user 10-30）
 // 物品栏底部抽屉 sunset（2026-10-30，user「物品栏和物品栏按钮是不是可以sunset……素材库和层级应该用同一个screen icon。两个太多了」）：组件清单 → 层级窗「资源」页（hierarchy-window.ts）。
 // 抽屉高度变量 --drawer-h 留着（styles.css，现在没人写 = 0；以后的底部抽屉——时间轴——还用这一套让 HUD 往上让）。
 type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | `unit:${string}` | `style:${string}` | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
@@ -614,14 +616,24 @@ function menuPick(id: MenuId): void | "keep" {
 // ☰ = WeebPaint 式 tab 制（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页顺序 = 家族统一（F-81）：
 // 图库 → 新建 / 打开 → 导入 → 保存 / 导出 → 定稿；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
 // ☰ 的页签和每页放哪几行 = 放置表 src/controller/placement.ts（MENU_TABS / MENU_ROWS）；这里只管每行长什么样（字 / 图标 / 动态的勾和数字）
-btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
-  anchor: btnMenu, tabs: MENU_TABS, tabKey: "main",
-  items: () => MENU_ROWS.flatMap((r) => { const it = menuRow(r.id); return it ? [{ ...it, tab: r.tab, ...(r.section ? { sectionBefore: r.section } : {}), ...(r.separatorBefore ? { separatorBefore: true } : {}) }] : []; }),
-  onPick: menuPick,
-}));
+type MainMenuId = MenuId | GridMenuId | RefMenuId;
+/** 开 / 关 ☰；tab = 直接停在那一页（吸附钮长按的「单位设置…」跳进来）。 */
+function openMainMenu(tab?: string): void {
+  const opts = {
+    anchor: btnMenu, tabs: MENU_TABS, tabKey: "main", ...(tab ? { tab } : {}),
+    items: () => MENU_ROWS.flatMap((r) => { const it = menuRow(r.id); return it ? [{ ...it, tab: r.tab, ...(r.section ? { sectionBefore: r.section } : {}), ...(r.separatorBefore ? { separatorBefore: true } : {}) }] : []; }),
+    onPick: (id: MainMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); syncUi(); return "keep"; } return menuPick(id as MenuId); },
+  };
+  mainMenuHandle = tab ? openPopupMenu<MainMenuId>(opts) : togglePopupMenu<MainMenuId>(opts);
+}
+btnMenu.addEventListener("click", () => openMainMenu());
 /** ☰ 一行长什么样（放哪 = 放置表 MENU_ROWS）；null = 这一行现在不露。文件页 = WeebPaint 合租法：保存走顶栏保存钮（Ctrl+S），登录走保存时的问询与图库页云账号钮——都不占菜单行。 */
-function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
+function menuRow(id: string): Omit<PopupMenuItem<MainMenuId>, "tab"> | null {
   switch (id) {
+    case "unitSystem": return unitRow("system");
+    case "unitSnap": return unitRow("snap");
+    case "unitPlane": return unitRow("plane");
+    case "scaleRef": return scaleRefRow();
     case "gallery": return { id: "gallery", label: "图库", icon: "gallery", ...(hasStore() ? {} : { hint: "本机 + OneDrive" }) };
     case "lefthand": return vr.isSupported() ? { id: "lefthand", label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" } : null;
     case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "new", hint: "Ctrl+O" };   // 加号（user 10-29「所以新建打开还是用加号。导入用导入符号」，账本 T137）
@@ -870,24 +882,22 @@ function snapChoices(): { id: GridMenuId; label: string; checked: boolean; hint?
   const out = lv.map((m) => ({ id: `snap:${m}` as GridMenuId, label: snapLabel(m, g.system), checked: on(m) }));
   return lv.some(on) ? out : [{ id: `snap:${g.snap}` as GridMenuId, label: snapLabel(g.snap, g.system), checked: true, hint: "这个模型原来的" }, ...out];
 }
-/** 视图窗口「单位」页（user 10-30）：单位制 = 显示 / 输入的长度单位 + 网格怎么进位 + 吸附有哪几档一起换；吸附长度；栅格面（关 = 网格和三色轴都不画）。吸附开关在右上角那颗钮（外面能按的不进这里）。 */
-function unitTabItems(): { id: GridMenuId; label: string; tab: string; choices: { id: GridMenuId; label: string; hint?: string; checked?: boolean }[] }[] {
-  const g = editor.grid, tab = "units";
-  return [
-    { id: `sys:${g.system}` as GridMenuId, label: "单位制", tab, choices: UNIT_SYSTEMS.map((u) => ({ id: `sys:${u.id}` as GridMenuId, label: u.label, hint: u.hint, checked: g.system === u.id })) },
-    { id: `snap:${g.snap}` as GridMenuId, label: "吸附", tab, choices: snapChoices() },
-    { id: g.shown ? `plane:${g.plane}` as GridMenuId : "plane:off", label: "栅格面", tab, choices: [
-      ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.shown && g.plane === p.id, hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
-      { id: "plane:off", label: "关", checked: !g.shown, hint: "网格和三色轴都不画；吸附照旧归右上角那颗钮" },
-    ] },
-  ];
+/** ☰「单位」页的三行（user 10-30：单位跟文件走、搬进 ☰；以前住视图窗）：单位制 = 显示 / 输入的长度单位 + 网格怎么进位 + 吸附有哪几档一起换；吸附长度；栅格面（关 = 网格和三色轴都不画）。吸附开关在右上角那颗钮（外面能按的不进这里）。 */
+function unitRow(which: "system" | "snap" | "plane"): { id: GridMenuId; label: string; choices: { id: GridMenuId; label: string; hint?: string; checked?: boolean }[] } {
+  const g = editor.grid;
+  if (which === "system") return { id: `sys:${g.system}` as GridMenuId, label: "单位制", choices: UNIT_SYSTEMS.map((u) => ({ id: `sys:${u.id}` as GridMenuId, label: u.label, hint: u.hint, checked: g.system === u.id })) };
+  if (which === "snap") return { id: `snap:${g.snap}` as GridMenuId, label: "吸附", choices: snapChoices() };
+  return { id: g.shown ? `plane:${g.plane}` as GridMenuId : "plane:off", label: "栅格面", choices: [
+    ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.shown && g.plane === p.id, hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
+    { id: "plane:off", label: "关", checked: !g.shown, hint: "网格和三色轴都不画；吸附照旧归右上角那颗钮" },
+  ] };
 }
 /** 吸附钮的菜单（右键 / 长按）：锁 + 跳到视图汉堡的「栅格」页。栅格设置不在这里重复一份。 */
 function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
   // 硬表面：最上面直接列吸附长度（点一下就换，不用进设置；user 10-30「长按是弹一个让你选。不然一个一个轮换太慢了」）
   const sub = snapSwitchLook(editor.modeId).length ? snapChoices().map((c, i) => (i === 0 ? { ...c, sectionBefore: "吸附长度" } : c)) : [];
   const locks = lockMenuItems();
-  return [...sub, ...locks.map((it, i) => (i === 0 && sub.length ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "视图 · 单位" }];
+  return [...sub, ...locks.map((it, i) => (i === 0 && sub.length ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "☰ · 单位" }];
 }
 /** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 方向锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
 function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
@@ -1131,11 +1141,15 @@ let ladderTimer = 0;
 // eslint-disable-next-line no-var
 var viewMenuHandle: { refresh(force?: boolean): void; isOpen(): boolean } | null = null;   // var：加载回来时刷新开着的菜单
 // eslint-disable-next-line no-var
+var mainMenuHandle: { refresh(): void; isOpen(): boolean } | null = null;   // ☰（单位页的尺度参考那一行：数据加载回来 / 多选勾了要重画）
+/** 开着的 ☰ / 视图窗重画一遍。 */
+function refreshMenus(): void { if (viewMenuHandle?.isOpen()) viewMenuHandle.refresh(true); if (mainMenuHandle?.isOpen()) mainMenuHandle.refresh(); }
+// eslint-disable-next-line no-var
 /** 拉梯子数据（279 KB / gzip 58 KB）：选了参考项才拉；开机时等 1.5 s 再拉（启动优先），用户点了参考页 / 选了一项 = 立刻拉。 */
 function ensureScaleLadder(now = false): void {
   if (ladder || !editor.scaleRefs.length && !now) return;
   if (!now) { if (!ladderTimer) ladderTimer = window.setTimeout(() => ensureScaleLadder(true), 1500); return; }
-  loadLadder().then((L) => { ladder = L; editor.setScaleLadder(L); if (viewMenuHandle?.isOpen()) viewMenuHandle.refresh(); })
+  loadLadder().then((L) => { ladder = L; editor.setScaleLadder(L); refreshMenus(); })
     .catch((e) => { note("scale", `size ladder load failed: ${(e as Error).message}`); });
 }
 type RefMenuId = `ref:${string}` | `refmax:${number}`;
@@ -1152,34 +1166,35 @@ function refOptions(L: Ladder): ChoiceOption[] {
   }
   return [...multi, ...single];
 }
-/** 「参考」页（选单只有一个、多选取并集——user「要不还是不如多重订阅吧，不然不同的室内室外会组合烦死」）：
- *  一行「看哪些」= 下拉多选（user「所以我们需要一个下拉多选的ux模块哦。而不是几百个选项浪费面板空间」）+「最多几条」+ 新手提醒。 */
-function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?: string; tab: string; sectionBefore?: string; separatorBefore?: boolean; choices?: { id: RefMenuId; label: string; checked?: boolean }[]; value?: string; note?: boolean }[] {
-  const tab = "units", cur = editor.scaleRefs;
-  const L = ladder;
-  if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab, sectionBefore: "尺度参考" }]; }
+/** 「适用范围与出处」（user 10-30「名字不应跟叫新手提醒，给一个更有信息量的名字」「所以新手提醒改成全量的，而不是随着你选哪个尺度变得。因为readme window一般是静态的」）：
+ *  数据里的全部提醒（人体比例不适用于二次元 / 风格化世界别照抄 / 儿童是大概 / 不收规范 / 常识值是估算 / DnD 按哪版规则……）+ DnD 署名，跟选了哪些无关。 */
+function scaleRefNotes(L: Ladder): { id: string; text: string }[] {
+  return [...allReminders(L), { id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" }];   // 署名：仓鼠的 dnd 提醒写了版本没写许可
+}
+/** ☰「单位」页的尺度参考那一行（选单只有一个、多选取并集——user「要不还是不如多重订阅吧，不然不同的室内室外会组合烦死」）：
+ *  看哪些 ▾（下拉多选；user「所以我们需要一个下拉多选的ux模块哦。而不是几百个选项浪费面板空间」）· 最多几条 ▾ · 适用范围与出处——一行、不带标签（user 10-30「试用这里ui谜语人了我建议是放在尺度参考同一行……label也去掉，就是两个下拉框」「新手提醒是尺度参考的，也想办法塞到那个row里面」）。 */
+function scaleRefRow(): Omit<PopupMenuItem<RefMenuId>, "tab"> {
+  const cur = editor.scaleRefs, L = ladder;
+  if (!L) { ensureScaleLadder(true); return { id: "ref:none", label: "参考数据加载中…", note: true }; }
   const opts = refOptions(L), label = (id: string): string => { const o = opts.find((x) => x.id === id); return o ? (o.group && o.group !== "其他" && o.label !== o.group ? `${o.group} · ${o.label}` : o.label) : id; };
-  const out: ReturnType<typeof refTabItems> = [{ id: "ref:pick", label: "看哪些", value: multiSummary(cur.map(label)), tab, sectionBefore: "尺度参考" }];
-  out.push({ id: "refmax:3", label: "最多", tab, sectionBefore: "试用（这台设备记住）", choices: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
-  const notes = remindersFor(L, cur);
-  if (cur.some((x) => x.endsWith("/DND"))) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
-  if (notes.length) out.push({ id: "ref:notes", label: "新手提醒…", hint: `${notes.length} 条`, tab, separatorBefore: true });   // 收成一行（user 10-30「新手提醒收成一个链接」）：点开弹一张
-  return out;
+  return { id: "ref:row", label: "尺度参考", inline: [
+    { id: "ref:pick", label: "看哪些参考", value: multiSummary(cur.map(label)) },
+    { id: "refmax:3", label: "跟指针的提示框里最多几条（这台设备记住）", choices: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `最多 ${n} 条`, checked: scaleMax === n })) },
+    { id: "ref:notes", label: "适用范围与出处…" },
+  ] };
 }
 function onRefPick(id: RefMenuId): "keep" {
   if (id.startsWith("refmax:")) { scaleMax = Number(id.slice(7)); PREF.set("scaleMax", String(scaleMax)); return "keep"; }
   if (id === "ref:notes" && ladder) {
-    const notes = remindersFor(ladder, editor.scaleRefs);
-    if (editor.scaleRefs.some((x) => x.endsWith("/DND"))) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });
-    void openConfirmSheet("新手提醒", notes.map((n) => `· ${n.text}`).join("\n\n"), { okLabel: "知道了", noCancel: true });
+    void openConfirmSheet("尺度参考的适用范围与出处", scaleRefNotes(ladder).map((n) => `· ${n.text}`).join("\n\n"), { okLabel: "知道了", noCancel: true });
     return "keep";
   }
   if (id === "ref:pick" && ladder) {
     const L = ladder, anchor = document.querySelector<HTMLElement>('.float-win[data-win="view"] .menu-item[data-menu-id="ref:pick"], .popup-menu .menu-item[data-menu-id="ref:pick"]');
     if (anchor) openMultiSelect({
       anchor, ariaLabel: "看哪些参考", options: () => refOptions(L), values: () => editor.scaleRefs,
-      onToggle: (x) => { editor.toggleScaleRef(x); ensureScaleLadder(true); viewMenuHandle?.refresh(true); },
-      onClear: () => { editor.clearScaleRefs(); viewMenuHandle?.refresh(true); }, clearLabel: "全部取消（不显示）",
+      onToggle: (x) => { editor.toggleScaleRef(x); ensureScaleLadder(true); refreshMenus(); },
+      onClear: () => { editor.clearScaleRefs(); refreshMenus(); }, clearLabel: "全部取消（不显示）",
     });
   }
   return "keep";
@@ -1188,22 +1203,19 @@ function onRefPick(id: RefMenuId): "keep" {
  *  参考窗（屏幕上的参考图 / 文字 / 视频）不在这里了：user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」→ 视图钮旁边自己一颗钮。 */
 const VIEW_MENU_TABS = [
   { id: "render", label: "渲染" },
-  { id: "units", label: "单位" },
-] as const;   // user 10-30「所以暂时没有显示tab，只有渲染，然后以后渲染tab会很胖很对选项，只管画风」：透视 / X 光撤（「外面能按」）、全部显示去右键菜单、VR 左手持笔去 ☰ 设置、进入 VR 在上方正中那颗钮   // 「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证左柱第一格、穿墙 = 走着双击空格、VR 两行挪到「显示」页最下面
+] as const;   // 「单位」页 10-30 搬进 ☰（user「单位跟着glb文件走……现在就把单位搬到菜单里面」「文件是文件设置，preference，手感，视图就是eye candy」）   // user 10-30「所以暂时没有显示tab，只有渲染，然后以后渲染tab会很胖很对选项，只管画风」：透视 / X 光撤（「外面能按」）、全部显示去右键菜单、VR 左手持笔去 ☰ 设置、进入 VR 在上方正中那颗钮   // 「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证左柱第一格、穿墙 = 走着双击空格、VR 两行挪到「显示」页最下面
 type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
 /** 视图菜单的内容（常驻浮窗里画；user 10-29「我建议是视图 物体 都做成可以常驻的浮窗吧，只有主菜单是菜单型的」）。 */
 function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
   return {
-    tabs: VIEW_MENU_TABS, tabKey: "view",
+    ...(VIEW_MENU_TABS.length > 1 ? { tabs: VIEW_MENU_TABS, tabKey: "view" } : {}),   // 只剩一页 = 不画页签条
     items: () => [
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
       { id: "style:pick" as MenuId, label: "风格", tab: "render", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },
       { id: "screen:pick" as MenuId, label: "屏幕", tab: "render", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
       { id: "accent:pick" as MenuId, label: "选中色", tab: "render", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.accent, ...(a.hint ? { hint: a.hint } : {}) })) },
-      ...unitTabItems(),
-      ...refTabItems(),
     ],
-    onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
+    onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { const r = menuPick(id as MenuId); syncUi(); return r; },
   };
 }
 // 雕刻笔刷浮窗（user 10-30「然后雕刻笔刷的浮窗就可以做一下啦」）：四把笔刷 + 力度；半径在左栏那根竖滑条（和软选择共用，不重复放）。
@@ -1285,7 +1297,7 @@ function openMachineBoard(m: Machine, anchor: HTMLElement): void {
   });
 }
 snapBtnRef = snapBtn;
-const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("units"); return; } return onGridPick(id); } }); };
+const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openMainMenu("units"); return; } return onGridPick(id); } }); };
 let snapPress: { t: number; fired: boolean } | null = null;
 snapBtn.addEventListener("pointerdown", () => { const press = { t: window.setTimeout(() => { press.fired = true; openSnapMenu(); }, 450), fired: false }; snapPress = press; });
 const snapPressEnd = (): void => { if (snapPress) window.clearTimeout(snapPress.t); };

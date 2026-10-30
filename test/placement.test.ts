@@ -46,7 +46,7 @@ describe("放置表（controller/placement.ts）", () => {
     const tabs = new Set(MENU_TABS.map((t) => t.id));
     eq(MENU_ROWS.filter((r) => !tabs.has(r.tab)).map((r) => r.id).join(","), "", "页不合法");
     for (const t of MENU_TABS) assert(MENU_ROWS.some((r) => r.tab === t.id), `页 ${t.id} 空的`);
-    eq(MENU_TABS.map((t) => t.id).join(","), "file,settings,help");
+    eq(MENU_TABS.map((t) => t.id).join(","), "file,units,settings,help");   // 单位 10-30 从视图窗搬来（跟文件走）
   });
   it("每个注册表放置面都登记了谁画；放在没渲染器（且不准先登记）的面上的动作 = 红；renderer 文件真的在", () => {
     const bad: string[] = [];

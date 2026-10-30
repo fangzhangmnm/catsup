@@ -29,6 +29,9 @@ export interface PopupMenuItem<Id extends string = string> {
    *  这一行 = label + ›；点 / 鼠标悬停 = 旁边开一层（choice-layer.ts openSubmenu：先往右、放不下往左、太高自己滚）；点里面一项 = onPick(那一项的 id)，
    *  整个菜单关（返回 "keep" = 留着并刷新）。只一层：子项的 children 不看。 */
   children?: PopupMenuItem<Id>[];
+  /** 一行并排几个小控件、不带行标签（2026-10-30 Opus；user「试用这里ui谜语人了……放在尺度参考同一行……label也去掉，就是两个下拉框」「新手提醒……也想办法塞到那个row里面」）：
+   *  每个子项照它自己的种类画成紧凑的一颗——有 choices / value = 只露当前值 ▾ 的下拉（label 只当无障碍名）；否则 = 一颗小钮（label + hint）。点了和整行的同类一样。 */
+  inline?: PopupMenuItem<Id>[];
 }
 /** 弹层顶部的 tab（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）：图标 + 字一排；只显示当前 tab 的项。 */
 export interface PopupMenuTab { id: string; label: string; icon?: string }
@@ -117,6 +120,38 @@ function menuBody<Id extends string>(el: HTMLElement, opts: Pick<PopupMenuOpts<I
         el.appendChild(h);
       }
       if (it.note) { const d = document.createElement("div"); d.className = "menu-note"; d.textContent = it.label; el.appendChild(d); continue; }
+      if (it.inline) {
+        const row = document.createElement("div"); row.className = "menu-inline";
+        for (const x of it.inline) {
+          const b = document.createElement("button");
+          b.type = "button"; b.dataset.menuId = x.id; b.disabled = !!x.disabled; b.setAttribute("aria-label", x.label);
+          if (x.choices || x.value !== undefined) {
+            const cur = x.choices?.find((c) => c.checked), choices = x.choices;
+            b.className = "menu-item menu-field menu-chip"; b.setAttribute("aria-haspopup", "listbox");
+            b.innerHTML = '<span class="menu-value"></span>';
+            (b.querySelector(".menu-value") as HTMLElement).textContent = x.value ?? cur?.label ?? "";
+            b.addEventListener("click", () => {
+              if (!choices) { hooks.done(opts.onPick(x.id)); return; }
+              if (choiceLayerOn(b)) { closeChoiceLayer(); return; }
+              openSingleSelect({
+                anchor: b, ariaLabel: x.label,
+                options: () => choices.map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),
+                value: () => choices.find((c) => c.checked)?.id,
+                onPick: (id) => { opts.onPick(id as Id); if (hooks.isOpen()) render(); },
+              });
+            });
+          } else {
+            b.className = "menu-item menu-chip menu-chip-btn";
+            b.innerHTML = '<span class="menu-label"></span>' + (x.hint ? '<span class="menu-hint"></span>' : "");
+            (b.querySelector(".menu-label") as HTMLElement).textContent = x.label;
+            if (x.hint) (b.querySelector(".menu-hint") as HTMLElement).textContent = x.hint;
+            b.addEventListener("click", () => { hooks.done(opts.onPick(x.id)); });
+          }
+          hoverSibling(b);
+          row.appendChild(b);
+        }
+        el.appendChild(row); continue;
+      }
       if (it.children) {
         const kids = it.children, b = document.createElement("button");
         b.type = "button"; b.className = "menu-item menu-sub"; b.dataset.menuId = it.id; b.disabled = !!it.disabled || !kids.length;

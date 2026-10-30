@@ -61,10 +61,13 @@ export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, s
 // 分页 = WeebPaint 范式（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页 = 合租法（user 10-24「看一下weebpaint是怎么收的更干净的，谁和谁合租」）：
 // 新建 / 打开合一行、导入单独一行（在它下面；user 10-29「导入必须单独放……新建打开下面专门放一个导入」）、导出与另存合一行，各开小弹层；保存走顶栏保存钮，登录走图库页——都不占菜单行。
 
-export type MenuTab = "file" | "settings" | "help";
+export type MenuTab = "file" | "units" | "settings" | "help";
 export interface MenuTabDef { readonly id: MenuTab; readonly label: string; readonly icon: string }
 export const MENU_TABS: readonly MenuTabDef[] = [
   { id: "file", label: "文件", icon: "floppy-disk" },
+  // 单位（user 10-30「文件和根物体还是分清……光照单位什么的跟着glb文件走，不是根物体！ 然后统一，现在就把单位搬到菜单里面」「所以文件是文件设置，preference，手感，视图就是eye candy」）：
+  // 单位制 / 吸附 / 栅格面 / 尺度参考都存在文件里（settings），以前住视图窗「单位」页
+  { id: "units", label: "单位", icon: "dimensions" },
   { id: "settings", label: "设置", icon: "settings" },
   { id: "help", label: "帮助", icon: "help" },
 ];
@@ -79,6 +82,10 @@ export const MENU_ROWS: readonly MenuRow[] = [
   { id: "encrypt", tab: "file" },           // 加密保护… / 解除加密…（同一行按状态换字；图库家才出；周账 F-123）
   // 「模型」页撤了（user 10-30「这一栏里面几乎所有的东西都不应跟出现在这里吧。前三个是修复，整理好，然后材质是同居的属性，然后清空模型归右键，而且可能就是全选删除，
   // 我们这里不需要清空画布快捷键」）：软化 / 焊接 / 拍平 → 修复面板；材质 → 油漆桶（再点一下 / 工具条色块）；清空 → 空白处右键「全选」再删
+  { id: "unitSystem", tab: "units" },       // 单位制（显示 / 输入的长度单位 + 网格进位 + 吸附有哪几档一起换）
+  { id: "unitSnap", tab: "units" },         // 吸附长度
+  { id: "unitPlane", tab: "units" },        // 栅格面（关 = 网格和三色轴都不画）
+  { id: "scaleRef", tab: "units", section: "尺度参考" },   // 一行：看哪些 ▾ · 最多几条 ▾ · 适用范围与出处（user 10-30「放在尺度参考同一行……label也去掉」）
   { id: "finger", tab: "settings" },
   { id: "lefthand", tab: "settings", section: "VR" },   // 支持 VR 的设备才出（视图窗口只管画风以后挪来，user 10-30）
   { id: "pwLock", tab: "settings", section: "口令" },     // 锁定（忘掉口令）；解锁着才出

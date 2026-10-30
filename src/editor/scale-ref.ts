@@ -188,8 +188,12 @@ export function scaleRefsToSettings<T extends object>(s: T, refs: readonly strin
   return (sameSet(refs, DEFAULT_SCALE_REFS) ? rest : { ...rest, scaleRefs: [...refs] }) as T & { scaleRefs?: string[] };
 }
 
-/** 「新手提醒」（数据里 reminders；界面名 user 2026-10-25 定）：每个选单项给哪几条写在数据里（menu[].reminders，已并上继承来的），
+/** 提醒（数据里 reminders；界面 10-25 叫「新手提醒」，10-30 user 要求改名 + 改成全量 →「适用范围与出处」= allReminders；这个按选单项挑的版本留给以后用）：每个选单项给哪几条写在数据里（menu[].reminders，已并上继承来的），
  *  勾了几项 = 几项的提醒并起来、同一条只出一次（先勾的在前）。 */
+/** 数据里的全部提醒（静态清单，跟选了哪些无关；user 10-30「新手提醒改成全量的……因为readme window一般是静态的」）。 */
+export function allReminders(L: Ladder, lang: Lang = "zh"): { id: string; text: string }[] {
+  return (L.reminders ?? []).filter(Boolean).map((r) => ({ id: r.id, text: r[lang] }));
+}
 export function remindersFor(L: Ladder, subs: readonly string[], lang: Lang = "zh"): { id: string; text: string }[] {
   const out = new Map<string, string>();
   for (const sub of subs) for (const r of (Q.remindersOf(L, sub) as ({ id: string } & Record<Lang, string>)[]).filter(Boolean)) if (!out.has(r.id)) out.set(r.id, r[lang]);
