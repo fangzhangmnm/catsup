@@ -21,6 +21,9 @@ const r0 = await rev(); ok("hasContent", r0 > 0);
 await page.evaluate(async () => { await globalThis.__catsup.session.setLocked(true); }); await page.waitForTimeout(120);
 ok("sessionLocked", await page.evaluate(() => globalThis.__catsup.session.locked() && globalThis.__catsup.editor.locked));
 ok("badgeAndBody", await page.evaluate(() => document.getElementById("lockBadge").hidden === false && document.body.classList.contains("doc-locked")));
+// 场景表 6（v0.17.58）：锁着 = 没有「正在编辑的那一层」——活动槽也按普通槽放（结构线跟画风走，不画线的画风就不画）
+const tiers = () => page.evaluate(() => { const e = globalThis.__catsup.editor; e.draw(); return e.provider.pull({}).placements.map((p) => p.tier).join(","); });
+ok("noEditingLayer", /^0(,0)*$/.test(await tiers()));
 
 // ① 脚本提交被拒
 ok("commitRefused", await page.evaluate((r) => { const e = globalThis.__catsup.editor; const ev = e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[{ x: 0, y: 5, z: 0 }, { x: 1, y: 5, z: 0 }]] }); return Array.isArray(ev) && ev.length === 0 && e.revision === r; }, r0));
@@ -57,6 +60,7 @@ const glbJson = (arr) => { const buf = Buffer.from(arr); const len = buf.readUIn
 
 // ③ 自由建模里按 G：先解锁、造个网格体并选中一个点，再锁，按 G = 不起手
 await page.evaluate(async () => { await globalThis.__catsup.session.setLocked(false); }); await page.waitForTimeout(60);
+ok("editingLayerBack", (await tiers()).split(",").includes("1"));
 await page.evaluate(async () => { const e = globalThis.__catsup.editor, sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
   const s = e.scene, inst = [...s.def(s.root).instances.values()][0];

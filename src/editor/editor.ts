@@ -3651,7 +3651,7 @@ export class Editor {
   }
   /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
   private softEdgesView(view: WorldView, g: (id: number) => number): { key: string; segs: { id: EdgeId; a: Pt3; b: Pt3 }[] } | null {
-    if (this.mode.id !== "freeform" || this.cmdPreview) return null;
+    if (this.mode.id !== "freeform" || this.cmdPreview || this._locked) return null;   // 演示锁：不编辑 = 不画结构线（场景表 6）
     const k = view.activeSlot().kernel, segs: { id: EdgeId; a: Pt3; b: Pt3 }[] = [];
     for (const e of k.edges()) {
       const ge = g(e.id);
@@ -3662,7 +3662,7 @@ export class Editor {
   }
   /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
   private vertDotsView(view: WorldView, g: (id: number) => number): { key: string; pts: Pt3[] } | null {
-    if (this.mode.id !== "freeform" || this.cmdPreview) return null;
+    if (this.mode.id !== "freeform" || this.cmdPreview || this._locked) return null;
     const k = view.activeSlot().kernel, pts: Pt3[] = [];
     for (const v of k.vertices()) { const gv = g(v.id); if (view.graph.hasVertex(gv)) pts.push(view.graph.pt(gv)); }
     return { key: String(this.kid(view)), pts };
@@ -3695,7 +3695,7 @@ export class Editor {
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !s.active).map((s) => s.index)) : null;
-    this.provider.setWorld(view, this._revision);   // 这一帧画哪个世界：提供者按它吐块（引擎拉）；版本进内容键
+    this.provider.setWorld(view, this._revision, !this._locked);   // 这一帧画哪个世界（演示锁 = 没有正在编辑的那一层，场景表 6）：提供者按它吐块（引擎拉）；版本进内容键
     this.r3.render(frameInput(view, this.cam, this.vp(), {   // view-state.ts：相机 / 网格 / 叠加层（选中高亮 + 线点标记文字）交给后端，引擎给量尺
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,

@@ -38,10 +38,12 @@ export class EditorStreamProvider implements StreamProvider {
   constructor(private readonly thick: () => boolean) {}
 
   /** 这一帧画哪个世界（活的那份，含预演影子）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。淡出是标记（视图侧），不在这里。 */
-  setWorld(world: WorldView, revision = 0): void { this.world = world; this.revision = revision; }
+  /** editing = 有「正在编辑的那一层」（演示锁里没有：活动槽也按普通槽放，结构线跟画风走；ai-docs/20261029-edge-display-scenarios.md 场景 6）。 */
+  setWorld(world: WorldView, revision = 0, editing = true): void { this.world = world; this.revision = revision; this.editing = editing; }
+  private editing = true;
   private worldId(w: WorldView): number { let id = this.worldIds.get(w); if (id === undefined) { id = this.nextWorldId++; this.worldIds.set(w, id); } return id; }
   /** 内容键（引擎契约）：世界身份 + 版本；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
-  contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}` : "none"; }
+  contentKey(): string { return this.world ? `${this.worldId(this.world)}:${this.revision}${this.editing ? "" : ":view"}` : "none"; }
   /** 场景包围球（引擎契约）：远平面 / 正交深度窗口 / 无限长线按它定（user 10-26「不应该写死特征长度」）。按世界身份 + 版本缓存。 */
   bounds(): { c: Vec3; r: number } | null {
     const w = this.world;
@@ -74,7 +76,7 @@ export class EditorStreamProvider implements StreamProvider {
     for (const s of world.slots) {
       const b = this.bodyFor(s, world.scene, taken, thick);
       this.slotBody.set(slotKey(s), b);
-      placements.push({ pool: b.id, xform: s.xform, slot: slotKey(s), index: s.index, tier: s.active ? 1 : 0, singleSided: b.mesh.singleSided });
+      placements.push({ pool: b.id, xform: s.xform, slot: slotKey(s), index: s.index, tier: s.active && this.editing ? 1 : 0, singleSided: b.mesh.singleSided });
     }
     for (const list of this.bodies.values()) for (const b of list) if (b.gen === this.gen) { for (const c of b.faces.values()) chunks.push(c); if (b.lines) chunks.push(b.lines); }
     // 两代没人用的释放（隔离看一个组件再出来 = 别的池全量重建一次，和以前一样）
