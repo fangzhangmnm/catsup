@@ -52,12 +52,11 @@ export declare class MeshTransformTool implements ToolHandler {
     private box;
     /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
     tap(ctx: ToolCtx, ev: ToolPointer): void;
-    private handleHint;
     hover(ctx: ToolCtx, s: {
         x: number;
         y: number;
     }): void;
-    /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关都有；手柄开关给移动 / 旋转 / 缩放、朝向手柄开着才露；变换的手柄一直在 = 只露朝向。 */
+    /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关都有；朝向 = 手柄出来时才露（变换的手柄一直在 = 一直露）。 */
     stripGroups(cfg: ToolCtx["config"]): readonly {
         group: string;
         keys?: readonly string[];

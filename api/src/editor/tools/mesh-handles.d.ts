@@ -37,8 +37,14 @@ export declare class MeshHandles {
         x: number;
         y: number;
     }): void;
-    /** 点一下之后：选到东西 = 开、点空了 = 关（这台设备点一下弹不弹 = stance.ts HANDLES_ON_TAP）。返回现在开没开。 */
-    afterTap(ctx: ToolCtx, ev: ToolPointer): boolean;
+    /** 换下一个朝向（物件 → 世界 → 法向 → 物件）；返回提示行那一句。 */
+    cycleOrient(ctx: ToolCtx): string;
+    /**
+     * 点一下之后（选法已经跑完）：onSelection = 这一下点在已经选着的东西上、不是双击（selecting.ts clickSelect 的返回）。
+     * 点第二下 = 出手柄；手柄已经在 = 换朝向；选到别的 / 点空了 = 收起（变换的手柄一直挂着，只换朝向）。返回提示行那一句（null = 不说）。
+     */
+    afterTap(ctx: ToolCtx, ev: ToolPointer, onSelection: boolean): string | null;
+    private say;
     /** 这一帧画什么。drag = 正在拖：原点跟着预演走（被挪的点现在的平均，世界），高亮正抓着的那个；没开 = 什么都不加。 */
     view(ctx: ToolCtx, drag: {
         origin: Pt3 | null;

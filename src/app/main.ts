@@ -789,9 +789,9 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
   afterRender: () => { vcbRef?.render(); },
 });
 /** 自由建模有选区时右下的「删除」（user 10-28 夜「delete变成按钮可能不大好。吃书吧。变成右下的一个按钮？」：左柱垃圾桶撤回）；笔 / 手指的选区条里本来就有删除，不重复。 */
-function deleteAction(): { id: string; label: string; title?: string; onClick(): void }[] {
+function deleteAction(): { id: string; label: string; icon?: string; title?: string; onClick(): void }[] {
   if (editor.modeId !== "freeform" || !editor.hasSelection() || editor.isGestureActive() || selectionRoute(lastPointerType) === "bar") return [];
-  return [{ id: "deleteSel", label: "删除", title: "删掉选中的（= Delete / X，一步撤销）", onClick: () => { editor.deleteSelection(); syncUi(); } }];
+  return [{ id: "deleteSel", label: "删除", icon: "trash-can", title: "删除选中的（Delete / X，一步撤销）", onClick: () => { editor.deleteSelection(); syncUi(); } }];
 }
 function toolActions(tool: string): { id: string; label: string; title?: string; disabled?: boolean; active?: boolean; onClick(): void }[] {
     if (tool === "axes") return [{ id: "axesReset", label: "重置坐标架", title: "最外层 = 回到世界；组里 = 回到外面那层的；组件里 = 回到组件原点", onClick: () => { menuPick("axesReset"); } }, ...(editor.hasSelection() ? [{ id: "axesToSel", label: "移到选择中心", title: "坐标架原点移到选区的中心（之后右下角可换算法）", onClick: () => { editor.axesToSelectionCenter(); syncUi(); } }] : []), ...(editor.inComponentRoot() ? [{ id: "axesToOrigin", label: "设为组件原点", title: "把组件原点对到现在的坐标架（几何反挪、每份实例补，世界里不动；一步撤销）", onClick: () => { editor.setComponentOriginToFrame(); syncUi(); } }] : [])];   // DT86 user「比起被记住的开关我建议是一个可以随手按一下的按钮」   // user 2026-10-25「轴的context菜单里面没有移动到选择。这个blender里面我天天用」
@@ -868,7 +868,12 @@ function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boo
 }
 /** 吸附钮的菜单（右键 / 长按）：锁 + 跳到视图汉堡的「栅格」页。栅格设置不在这里重复一份。 */
 function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
-  return [...lockMenuItems(), { id: "gridSettings", label: "栅格设置…", separatorBefore: true, hint: "视图 ☰ · 栅格" }];
+  // 硬表面：最上面直接列吸附细分（点一下就换，不用进栅格设置；user 10-30「长按是弹一个让你选。不然一个一个轮换太慢了」）；提示 = 一份多长
+  const g = editor.grid, sub = snapSwitchLook(editor.modeId).subdiv
+    ? GRID_SUBDIVS.map((n, i) => ({ id: `sub:${n}` as GridMenuId, label: `1/${n}`, checked: g.subdiv === n, hint: fmtGridStep(g.step / n, g.preset), ...(i === 0 ? { sectionBefore: `吸附细分（格距 ${fmtGridStep(g.step, g.preset)} 分几份）` } : {}) }))
+    : [];
+  const locks = lockMenuItems();
+  return [...sub, ...locks.map((it, i) => (i === 0 && sub.length ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "栅格设置…", separatorBefore: true, hint: "视图 ☰ · 栅格" }];
 }
 /** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 方向锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
 function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
@@ -901,6 +906,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
     else if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane });
     else if (id.startsWith("sub:")) { const n = Number(id.slice(4)); if (isGridSubdiv(n)) editor.setGrid({ subdiv: n }); }
     else editor.setGrid({ step: Number(id.slice(5)) });
+    syncUi();   // 吸附钮右上角的细分数跟着变
     return "keep";
 }
 /** 界面日夜两档跟着画风的纸色（preset/colors.ts isDarkPaper；Tron 账本 T147 / T167）：深色纸 = 夜间那套（styles.css .ui-night）。 */
@@ -1239,7 +1245,7 @@ void viewGizmo;
 // 右键 / 长按 = 菜单（方向锁、制式、栅格面、格距、细分）；钮角标 = 当前方向锁。
 const widgets = document.createElement("div"); widgets.className = "gizmo-btns gizmo-widgets"; $("viewGizmo").appendChild(widgets);
 const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 方向锁 / 面锁、栅格设置）";
-snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
+snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-subdiv" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
 // X 光快捷钮（2026-10-29 user「xray开关放一个快捷键到视图快捷键区的锁快捷键旁边」；纪元账本 FM51「X 光开关放右上角锁旁边」）：点一下开 / 关，亮着 = 开；Alt+Z 同一个开关，视图菜单里那一行照留
 const xrayBtn = document.createElement("button"); xrayBtn.type = "button"; xrayBtn.className = "gizmo-btn gizmo-xray"; xrayBtn.title = "X 光（Alt+Z）：边透过面画出来，选择工具点得到被挡住的点 / 边 / 面（面中心的小方点）";
@@ -1283,6 +1289,8 @@ function renderSnapWidget(): void {
   btn.classList.toggle("on", editor.grid.on);
   const look = snapSwitchLook(editor.modeId);   // 硬表面 = 格点钮、自由建模 = 磁铁（grid-state.ts；两边管的不是一回事）
   if (btn.dataset.icon !== look.icon) { btn.dataset.icon = look.icon; btn.firstElementChild?.insertAdjacentHTML("beforebegin", iconHtml(look.icon)); btn.children[1]?.remove(); btn.title = look.title; }
+  const sd = btn.querySelector(".gizmo-subdiv") as HTMLElement;   // 右上角的吸附细分（硬表面；关着也显示、淡一点）
+  sd.hidden = !look.subdiv; sd.textContent = `1/${editor.grid.subdiv}`;
   const lk = btn.querySelector(".gizmo-snaplock") as HTMLElement, want = editor.grid.on ? "lock" : "unlock";
   if (lk.dataset.icon !== want) { lk.dataset.icon = want; lk.innerHTML = iconHtml(want); }
   const badge = btn.querySelector(".gizmo-badge") as HTMLElement;

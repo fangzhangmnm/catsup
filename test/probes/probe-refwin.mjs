@@ -21,10 +21,10 @@ await page.evaluate((arr) => globalThis.__catsup.session.openLocalBytes(new Uint
 r.dirty0 = await dirty();
 // ① 视图 ☰ →「参考」页 → 第一行就是参考窗
 await page.click(".gizmo-menu"); await page.waitForTimeout(100);
-await page.click('.popup-menu [data-menu-tab="ref"]'); await page.waitForTimeout(100);
-r.firstRow = await page.evaluate(() => document.querySelector(".popup-menu .menu-item")?.dataset.menuId ?? null);
-r.section = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-section-label")].map((x) => x.textContent));
-await page.click('.popup-menu [data-menu-id="refwin"]'); await page.waitForTimeout(200);
+await page.click('.float-win[data-win="view"] [data-menu-tab="ref"]'); await page.waitForTimeout(100);   // v0.17.54 起视图菜单是常驻浮窗（以前是弹出菜单；旧红，2026-10-30 跟上）
+r.firstRow = await page.evaluate(() => document.querySelector('.float-win[data-win="view"] .menu-item')?.dataset.menuId ?? null);
+r.section = await page.evaluate(() => [...document.querySelectorAll('.float-win[data-win="view"] .menu-section-label')].map((x) => x.textContent));
+await page.click('.float-win[data-win="view"] [data-menu-id="refwin"]'); await page.waitForTimeout(200);
 r.opened = await win();
 r.railRight = await page.evaluate(() => Math.round(document.querySelector(".hud-rail-tools")?.getBoundingClientRect().right ?? 0));
 r.dirtyAfterOpen = await dirty();

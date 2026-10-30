@@ -80,7 +80,9 @@ svg.ico use { color: inherit; }
 .gizmo-snap { position: relative; }
 .gizmo-snaplock { position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; pointer-events: none; background: var(--panel); border-radius: 3px; }
 .gizmo-snaplock .ico { width: 12px; height: 12px; }
-.gizmo-badge { position: absolute; right: 1px; top: 1px; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 7px; font: 700 9px/13px system-ui, sans-serif; color: #fff; background: #555; pointer-events: none; }
+.gizmo-subdiv { position: absolute; right: -2px; top: -3px; padding: 0 2px; border-radius: 4px; font: 700 9px/12px system-ui, sans-serif; color: var(--ink); background: var(--panel); pointer-events: none; font-variant-numeric: tabular-nums; }   /* 吸附细分（硬表面；v0.17.61） */
+.gizmo-snap:not(.on) .gizmo-subdiv { opacity: .55; }
+.gizmo-badge { position: absolute; left: 1px; top: 1px; min-width: 13px; height: 13px; padding: 0 2px; border-radius: 7px; font: 700 9px/13px system-ui, sans-serif; color: #fff; background: #555; pointer-events: none; }
 .gizmo-badge[data-axis="x"] { background: #d9342b; }
 .gizmo-badge[data-axis="y"] { background: #2e8b57; }
 .gizmo-badge[data-axis="z"] { background: #1e6fd9; }
@@ -170,7 +172,10 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .strip-input { width: 84px; height: 28px; box-sizing: border-box; border: 1px solid var(--accent); border-radius: 6px; padding: 0 6px; font: inherit; font-variant-numeric: tabular-nums; text-align: center; background: var(--panel, #fff); color: inherit; }
 .strip-input.bad { border-color: var(--danger); }
 .strip-toggle { min-height: 32px; padding: 0 12px; border: 1px solid var(--edge); border-radius: 8px; background: var(--field); color: inherit; cursor: pointer; }
-.strip-toggle.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }
+.strip-toggle.on { background: var(--accent-soft); color: var(--accent); border-color: transparent; }   /* 开关 = 一颗钮，字 = 选项名，亮 = 开（v0.17.61） */
+.strip-icon-action { width: 36px; padding: 0; display: inline-grid; place-items: center; }   /* 只画图标的动作钮（删除 = 垃圾桶） */
+.strip-icon-action .ico { width: 20px; height: 20px; }
+.selbar-btn.icon-only { padding: 0 8px; }
 .strip-icon-toggle { width: 34px; height: 32px; display: grid; place-items: center; padding: 0; border: 1px solid var(--edge); border-radius: 8px; background: var(--field); color: var(--muted); cursor: pointer; }   /* 图标开关（拾取 点 / 边 / 面，2026-10-28 Opus） */
 .strip-icon-toggle + .strip-icon-toggle { margin-left: 2px; }
 .strip-icon-toggle .ico { width: 22px; height: 22px; }

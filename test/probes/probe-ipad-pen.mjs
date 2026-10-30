@@ -48,8 +48,8 @@ r.afterSwitch = await chips();
 await page.evaluate(() => globalThis.__catsup.hud.pick("select")); await page.waitForTimeout(60);
 await page.evaluate((d) => { const e = globalThis.__catsup.editor, m = e.scene.mesh(d).kernel; e.deselectAll(); e.selection.faces.add(m.faces()[0]); globalThis.__catsup.hud.pick("select"); }, def); await page.waitForTimeout(80);
 const f0 = await page.evaluate((d) => globalThis.__catsup.editor.scene.mesh(d).kernel.faceCount(), def);
-const delBtn = await page.$("#toolStrip .selbar-btn:has-text('删除')");   // v0.16.31 起删除在右下（左柱垃圾桶撤了）；v0.16.38 起右下只有「删除」「更多…」
-r.face = { present: !!delBtn, bar: await page.evaluate(() => [...document.querySelectorAll("#toolStrip .selbar-btn")].map((x) => x.textContent.trim()).join(" | ")) };
+const delBtn = await page.$("#toolStrip .selbar-btn[aria-label='删除']");   // v0.17.61 起删除只画垃圾桶图标（user 10-30「删除统一用icon」），字在读屏标签   // v0.16.31 起删除在右下（左柱垃圾桶撤了）；v0.16.38 起右下只有「删除」「更多…」
+r.face = { present: !!delBtn, bar: await page.evaluate(() => [...document.querySelectorAll("#toolStrip .selbar-btn")].map((x) => (x.textContent.trim() || x.getAttribute("aria-label") || "")).join(" | ")) };
 if (delBtn) { await delBtn.click(); await page.waitForTimeout(100); }
 r.face.deleted = (await page.evaluate((d) => globalThis.__catsup.editor.scene.mesh(d).kernel.faceCount(), def)) === f0 - 1;
 // ⑦

@@ -82,21 +82,15 @@ export class MeshTransformTool implements ToolHandler {
   private box = new BoxDrag();
   /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
   tap(ctx: ToolCtx, ev: ToolPointer): void {
-    if (this.handles?.grip(ctx, ev)) { ctx.hint("手柄：按住把手拖才动；点空处收起"); return; }
-    clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: !!this.handles });
-    ctx.hint(this.handles?.afterTap(ctx, ev) ? this.handleHint() : null);
-  }
-  private handleHint(): string {
-    return this.kind === "move" ? "手柄：拖箭头 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 随手拖；点空处收起"
-      : this.kind === "rotate" ? "手柄：拖哪个环 = 绕哪根轴转、拖中心 = 绕视线转；点空处收起"
-        : this.kind === "scale" ? "手柄：拖轴上的方块 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 等比；点空处收起"
-          : "变换：箭头 = 沿轴挪、环 = 绕轴转、方块 = 沿轴缩、小方片 = 面内缩、右上小方块 = 等比、中心 = 随手挪";
+    if (this.handles?.grip(ctx, ev)) { ctx.hint(this.handles.cycleOrient(ctx)); return; }   // 点手柄（没拖）= 换朝向
+    const r = clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: !!this.handles });
+    ctx.hint(this.handles ? this.handles.afterTap(ctx, ev, r === "onSelection") : null);   // 点第二下 = 手柄（mesh-handles.ts）
   }
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.handles?.hover(ctx, s); }   // 只高亮手柄的把手（自由建模不悬浮高亮几何，user 10-27）
-  /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关都有；手柄开关给移动 / 旋转 / 缩放、朝向手柄开着才露；变换的手柄一直在 = 只露朝向。 */
+  /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关都有；朝向 = 手柄出来时才露（变换的手柄一直在 = 一直露）。 */
   stripGroups(cfg: ToolCtx["config"]): readonly { group: string; keys?: readonly string[] }[] {
-    const hk = this.kind === "transform" ? ["orient"] : cfg.get("handles", "show") ? ["show", "orient"] : ["show"];
-    return [...(this.kind === "move" ? [{ group: "slide" }] : []), { group: "soft", keys: ["on"] }, ...(this.handles ? [{ group: "handles", keys: hk }] : [])];
+    const orient = this.handles && (this.kind === "transform" || cfg.get("handles", "show"));   // 手柄开关不露（点第二下叫出来，user 10-30「手柄开关可能不需要有」）；朝向只在手柄出来时露
+    return [...(this.kind === "move" ? [{ group: "slide" }] : []), { group: "soft", keys: ["on"] }, ...(orient ? [{ group: "handles", keys: ["orient"] }] : [])];
   }
   viewExtras(ctx: ToolCtx): Partial<ViewState> { return this.handles?.view(ctx, this.vids.length ? { origin: this.liveOrigin, id: this.grip?.id ?? null } : null) ?? {}; }
 

@@ -9,6 +9,7 @@ export interface BarAction {
     swatch?: string; /** 开关态。 */
     active?: boolean;
     title?: string;
+    /** 只画图标（字进 title / 读屏）：删除 = 垃圾桶（user 10-30「删除统一用icon」）。 */ icon?: string;
 }
 export interface ContextBarProviders {
     /** 排在工具选项前面的 chip（表面工具：当前材质 → 吸色，user 10-24 定的顺序）。 */

@@ -1,11 +1,12 @@
 // 自由建模的操纵手柄（2026-10-30 Claude Opus 5.5；tools/mesh-handles.ts）：网格体盒子里——
-// ① 移动工具点顶面 = 选上它 + 手柄开（箭头 + 平面块 + 中心）、右下有「手柄」开关、没有「复制」（自由建模的移动不认）；
-// ② 拖 X 箭头 = 只动 x、一步撤销；③ 拖 XY 平面块 = z 不动；④ 先锁 Z 再拖 X 箭头 = 键盘锁压过手柄（只动 z）；⑤ 点在把手上没拖 = 什么都不变；⑥ 点空处 = 选区清、手柄关；
-// ⑦ 旋转工具：点顶面 = 环 + 中心；从 45° 起拖 Z 环四分之一圈 = z 不变、到轴心的距离不变；⑧ 缩放工具：拖 X 方块往外 = 只有 x 变宽；
+// ① 移动工具点顶面 = 只是选上它（没手柄）；快速点两下 = 双击（不出手柄）；隔过连击窗口再点一下 = 手柄开（箭头 + 平面块 + 中心）、右下露「朝向」、
+//    没有「手柄」开关（v0.17.61 点第二下）、没有「复制」（自由建模的移动不认）；
+// ② 拖 X 箭头 = 只动 x、一步撤销；③ 拖 XY 平面块 = z 不动；④ 先锁 Z 再拖 X 箭头 = 键盘锁压过手柄（只动 z）；⑤ 点在把手上没拖 = 选区不变、换朝向（物件 → 世界），再点选区 = 法向；⑥ 点空处 = 选区清、手柄关；
+// ⑦ 旋转工具：点两下顶面（第二下出手柄）= 环 + 中心；从 45° 起拖 Z 环四分之一圈 = z 不变、到轴心的距离不变；⑧ 缩放工具：拖 X 方块往外 = 只有 x 变宽；
 // ⑨ 朝向「法向」：选侧面（y = 0）= 手柄的 Z 朝 −y；⑩ 沿法线没有手柄组；⑪ 回到硬表面：移动工具没有手柄（SketchUp 手感不动）。
 // v0.17.59：⑫ 挤出：点顶面 = 箭头 + 中心；拖 Z 箭头 = 顶面沿 z 挤出（xy 不变）；拖中心 = 换一种拖法（面 = 随手拖，xy 也动）；
 // ⑬ 挤出按住 Shift = 吸附：挤到正好落在盒底那个点的高度（z = 0）；⑭ 变换工具：三家把手 + 等比块一直挂着（不用点）、右下只露朝向；拖 Z 环 = 转、拖等比块 = 等比放大、拖中心 = 挪；
-// ⑮ 右上吸附钮：自由建模 = 磁铁（snap-element），硬表面 = 格点（snap-grid）。
+// ⑮ 右上吸附钮：自由建模 = 磁铁（snap-element、不显示细分），硬表面 = 格点（snap-grid）+ 右上角细分数「1/N」；长按 / 右键菜单最上面直接列细分，点一下就换（v0.17.61）。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-handles.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -36,8 +37,13 @@ const res = await page.evaluate(async () => {
   const at = (g, d, t) => P(g.origin.x + d.x * t, g.origin.y + d.y * t, g.origin.z + d.z * t);
   const strip = () => document.getElementById("toolStrip")?.textContent ?? "";
   const s0 = snap();
-  // ① 点顶面（离中心远一点，免得点在中心把手上）
+  // ① 点顶面（离中心远一点，免得点在中心把手上）：第一下只选；快速点两下 = 双击不出手柄；第二下（隔过窗口）出手柄
   e.setTool("move"); await sleep(20);
+  await tapAt(px(P(0.25, 0.75, 1)));
+  out.first = { faces: e.selection.faces.size, show: e.config.get("handles", "show"), gizmo: gz("move") !== null, hint: hud.status() };
+  { const s2 = px(P(0.25, 0.75, 1)); fire("pointerdown", s2.x, s2.y, 1); await sleep(10); fire("pointerup", s2.x, s2.y, 0); await sleep(60); fire("pointerdown", s2.x, s2.y, 1); await sleep(10); fire("pointerup", s2.x, s2.y, 0); await sleep(400);
+    out.dbl = { gizmo: gz("move") !== null }; }
+  e.deselectAll(); await tapAt(px(P(0.25, 0.75, 1)));   // 双击扩过选区：重来一遍
   await tapAt(px(P(0.25, 0.75, 1)));
   { const g = gz("move"); out.tap = { faces: e.selection.faces.size, show: e.config.get("handles", "show"), parts: g?.parts?.join(","), origin: g ? [q(g.origin.x), q(g.origin.y), q(g.origin.z)].join(",") : null, visible: e.r3.overlayVisible("xformGizmo"), strip: strip(), hint: hud.status() }; }
   // ② 拖 X 箭头（箭杆中段）斜着拖
@@ -56,13 +62,15 @@ const res = await page.evaluate(async () => {
     const s = snap(), mv = s.filter((v, i) => v.join() !== s0[i].join());
     out.keyWins = { n: mv.length, onlyZ: mv.every((v) => { const o = s0.find((w) => w[0] === v[0]); return v[1] === o[1] && v[2] === o[2] && v[3] !== o[3]; }) }; }
   key("z"); await sleep(30);
-  // ⑤ 点在箭头上（不拖）= 选区不变、手柄还在
-  { const g = gz("move"), a = px(at(g, g.axes.y, (g.start + g.arrow) / 2)), f0 = [...e.selection.faces].join(); await tapAt(a); out.tapHandle = { same: [...e.selection.faces].join() === f0, still: !!gz("move"), hint: hud.status() }; }
+  // ⑤ 点在箭头上（不拖）= 选区不变、手柄还在、朝向换一个（物件 → 世界）；再点选区一下 = 法向；换回物件接着测
+  { const g = gz("move"), a = px(at(g, g.axes.y, (g.start + g.arrow) / 2)), f0 = [...e.selection.faces].join(); await tapAt(a);
+    const o1 = e.config.get("handles", "orient"); await tapAt(px(P(0.25, 0.75, 1))); const o2 = e.config.get("handles", "orient");
+    out.tapHandle = { same: [...e.selection.faces].join() === f0, still: !!gz("move"), o1, o2, hint: hud.status() }; e.config.set("handles", "orient", "object"); }
   // ⑥ 点空处 = 清选区、手柄关
   await tapAt({ x: 40, y: 700 });
   out.tapEmpty = { faces: e.selection.faces.size, show: e.config.get("handles", "show"), gizmo: gz("move") === null };
   // ⑦ 旋转：点顶面 → 环 + 中心；拖 Z 环四分之一圈
-  e.setTool("rotate"); await sleep(20); await tapAt(px(P(0.25, 0.75, 1)));
+  e.setTool("rotate"); await sleep(20); await tapAt(px(P(0.25, 0.75, 1))); await tapAt(px(P(0.25, 0.75, 1)));
   { const g = gz("rotate"); out.rotParts = g?.parts?.join(",");
     const o = g.origin, u = g.axes.x, v = g.axes.y, R = g.ring, pt = (t) => px(P(o.x + (u.x * Math.cos(t) + v.x * Math.sin(t)) * R, o.y + (u.y * Math.cos(t) + v.y * Math.sin(t)) * R, o.z));
     const t0 = Math.PI / 4;   // 45°：0° 那一点同时在 Y 环上（XZ 面），会抓错环
@@ -81,11 +89,11 @@ const res = await page.evaluate(async () => {
   key("z"); await sleep(30);
   // ⑨ 朝向 = 法向：选侧面 y = 0
   e.config.set("handles", "orient", "normal"); e.setTool("move"); await sleep(20);
-  await tapAt({ x: 40, y: 700 }); await tapAt(px(P(0.75, 0, 0.25)));
+  await tapAt({ x: 40, y: 700 }); await tapAt(px(P(0.75, 0, 0.25))); await tapAt(px(P(0.75, 0, 0.25)));
   { const g = gz("move"); out.normal = { faces: e.selection.faces.size, z: g ? [q(g.axes.z.x), q(g.axes.z.y), q(g.axes.z.z)].join(",") : null, strip: strip() }; }
   e.config.set("handles", "orient", "object");
   // ⑫ 挤出：点顶面 → 箭头 + 中心；拖 Z 箭头往上
-  await tapAt({ x: 40, y: 700 }); e.setTool("pp"); await sleep(20); await tapAt(px(P(0.25, 0.75, 1)));
+  await tapAt({ x: 40, y: 700 }); e.setTool("pp"); await sleep(20); await tapAt(px(P(0.25, 0.75, 1))); await tapAt(px(P(0.25, 0.75, 1)));
   { const g = gz("pp"); out.pullParts = g?.parts?.join(",");
     const v0 = new Set(m().verts()), a = px(at(g, g.axes.z, (g.start + g.arrow) / 2)); await drag(a, { x: a.x + 15, y: a.y - 60 });
     const nv = m().verts().filter((v) => !v0.has(v)).map((v) => m().pt(v));
@@ -120,20 +128,29 @@ const res = await page.evaluate(async () => {
     key("z"); await sleep(30); }
   // ⑮ 吸附钮的图标（自由建模）
   out.snapIconFree = document.querySelector(".gizmo-snap")?.dataset.icon;
+  out.subdivFree = document.querySelector(".gizmo-subdiv")?.hidden;
   // ⑩ 沿法线没有手柄组
   out.shrinkGroups = e.handlers.shrink.stripGroups(e.config).map((x) => x.group).join(",");
   // ⑪ 回到硬表面：移动工具没有手柄
   e.exitContext(); await sleep(20);
   out.brep = { mode: e.modeId, groups: typeof e.handlers.move.stripGroups, strip: (e.setTool("move"), strip()), snapIcon: (globalThis.__catsup.syncUi?.(), document.querySelector(".gizmo-snap")?.dataset.icon) };
+  { const btn = document.querySelector(".gizmo-snap"), sd = btn.querySelector(".gizmo-subdiv"), before = sd.textContent;
+    btn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })); await sleep(120);
+    const labs = [...document.querySelectorAll(".popup-menu .menu-label")], items = labs.map((x) => x.textContent.trim());   // 只看名字那一格（后面的提示是长度）
+    const pick = labs.find((x) => x.textContent.trim() === "1/100")?.closest("button, [role=menuitem], .menu-item");
+    pick?.click(); await sleep(120);
+    out.subdivBrep = { hidden: sd.hidden, before, after: sd.textContent, subdiv: e.grid.subdiv, menuHasSubdivs: ["1/2", "1/5", "1/10", "1/100"].every((t) => items.includes(t)), menuHasLocks: items.some((x) => x.includes("方向锁")) };
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); }
   return out;
 });
 await b.close();
 res.errs = errs;
-const ok = res.tap.faces === 1 && res.tap.show === true && res.tap.parts === "arrows,planes,center" && res.tap.origin === "0.5,0.5,1" && res.tap.visible && res.tap.strip.includes("手柄") && res.tap.strip.includes("朝向") && !res.tap.strip.includes("复制")
+const ok = res.first.faces === 1 && res.first.show === false && !res.first.gizmo && !res.dbl.gizmo
+  && res.tap.faces === 1 && res.tap.show === true && res.tap.parts === "arrows,planes,center" && res.tap.origin === "0.5,0.5,1" && res.tap.visible && !res.tap.strip.includes("手柄") && res.tap.strip.includes("朝向") && !res.tap.strip.includes("复制")
   && res.arrowX.n === 4 && res.arrowX.onlyX && res.arrowX.steps === 1 && res.arrowX.still
   && res.planeXY.n === 4 && res.planeXY.zKept
   && res.keyWins.n === 4 && res.keyWins.onlyZ
-  && res.tapHandle.same && res.tapHandle.still
+  && res.tapHandle.same && res.tapHandle.still && res.tapHandle.o1 === "world" && res.tapHandle.o2 === "normal"
   && res.tapEmpty.faces === 0 && res.tapEmpty.show === false && res.tapEmpty.gizmo
   && res.rotParts === "rings,center" && res.rotZ.zKept && res.rotZ.distKept && res.rotZ.changed
   && res.scaleParts === "cubes,planes,center" && res.scaleX.yKept && res.scaleX.wider
@@ -145,6 +162,7 @@ const ok = res.tap.faces === 1 && res.tap.show === true && res.tap.parts === "ar
   && res.xf.parts === "arrows,rings,cubes,planes,center" && res.xf.uniform && res.xf.strip.includes("朝向") && !res.xf.strip.includes("手柄") && !res.xf.strip.includes("变换中心") && !res.xf.strip.includes("复制")
   && res.xfRing.zKept && res.xfRing.distKept && res.xfRing.changed && res.xfUniform.bigger && res.xfUniform.zKept && res.xfCenter.moved
   && res.snapIconFree === "snap-element" && res.brep.snapIcon === "snap-grid"
+  && res.subdivFree === true && res.subdivBrep.hidden === false && /^1\/\d+$/.test(res.subdivBrep.before) && res.subdivBrep.after === "1/100" && res.subdivBrep.subdiv === 100 && res.subdivBrep.menuHasSubdivs && res.subdivBrep.menuHasLocks
   && !errs.length;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "✓ probe-mesh-handles" : "✗ probe-mesh-handles");

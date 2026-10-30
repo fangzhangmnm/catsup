@@ -28,8 +28,10 @@ export const snapSwitchSay = (mode: ModeId, on: boolean): string => `${snapSwitc
  * 硬表面 = 格点钮——吸到点 / 边 / 面的推断永远开着，这颗钮和 Shift 只管格点 / 整格 / 15° 一档（user 10-24「然后move之类的的shift就是snap to incremental」、
  * 「还是其实右上应该只管grid snap」）；自由建模 = 磁铁——默认什么都不吸，钮管吸不吸到点 > 边 > 面（笔 / 手指认它，鼠标只认 Shift：stance.ts SNAP_BASE）。
  */
-export function snapSwitchLook(mode: ModeId): { icon: string; title: string } {
+export function snapSwitchLook(mode: ModeId): { icon: string; title: string; subdiv: boolean } {
+  // subdiv = 钮右上角显示吸附细分（1/10、1/100…）、长按菜单最上面直接列出来选（user 10-30「硬表面建模的吸附右上显示数字 1/100这种，然后长按可以切换，不用专门回菜单里」
+  // 「长按是弹一个让你选。不然一个一个轮换太慢了」）；自由建模的磁铁不吸格点，没有这一项
   return mode === "freeform"
-    ? { icon: "snap-element", title: "吸附：吸到点 > 边 > 面（自由建模自己一份、默认关；笔 / 手指按它算，Shift = 临时反过来；鼠标不看它、按住 Shift 才吸）。右键或长按 = 方向锁 / 面锁、栅格设置" }
-    : { icon: "snap-grid", title: "格点吸附：只管格点 / 整格 / 15° 一档（吸到点、边、面一直开着），Shift = 临时反过来。点一下开 / 关；右键或长按 = 方向锁 / 面锁、栅格设置" };
+    ? { subdiv: false, icon: "snap-element", title: "吸附：吸到点 > 边 > 面（自由建模自己一份、默认关；笔 / 手指按它算，Shift = 临时反过来；鼠标不看它、按住 Shift 才吸）。右键或长按 = 方向锁 / 面锁、栅格设置" }
+    : { subdiv: true, icon: "snap-grid", title: "格点吸附：只管格点 / 整格 / 15° 一档（吸到点、边、面一直开着），Shift = 临时反过来。右上角的数 = 吸附细分（每格分几份）。点一下开 / 关；右键或长按 = 选细分、方向锁 / 面锁、栅格设置" };
 }

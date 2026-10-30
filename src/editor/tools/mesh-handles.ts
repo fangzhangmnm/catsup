@@ -5,7 +5,9 @@
 //   · grip(ctx, 按下处)：按在哪个把手上 → 这一下的锁（axis = 只沿 / 绕这根、plane = 只在这个面里、都没有 = 中心 = 这把工具的默认做法）；没按在把手上 = null，照常走选法；
 //   · view(ctx, 正在拖的那一刻)：这一帧画什么（ViewState.xformGizmo，透视画）。
 // 几何 / 拾取的数学和硬表面的变换工具同一份（transform-gizmo.ts）；这里只多「哪一家把手」「轴朝哪」「什么时候开」。硬表面不走这里（SketchUp 的点 → 挪 → 点不变）。
-// 开关 / 朝向住 tool-config 的 handles 组（三把工具共用一个值，右下工具条露）；点一下开不开按设备 = stance.ts HANDLES_ON_TAP。
+// 开关 / 朝向住 tool-config 的 handles 组（几把工具共用）。**怎么叫出来 = 点第二下**（v0.17.61，user 10-30「要不gizmo和选区统一一下二次点击再跳？然后多次点击是切不同的对齐。
+// 但是要和双击分开来？」「就是手柄统一是点第二下？」「手柄开关可能不需要有」）：第一下 = 选；隔过连击窗口再点选区 = 出手柄；手柄出来以后再点选区 / 点手柄（没拖）= 换朝向
+// （物件 → 世界 → 法向）；选到别的 / 点空处 = 收起。和选择工具「再点一下选区 = 扩缩条」同一个手势。第二下弹不弹按设备 = stance.ts HANDLES_ON_TAP。
 import { type Pt3, add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { applyNormal, applyPt } from "../../scene/xform.ts";
 import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
@@ -41,6 +43,9 @@ const LAYOUT: Readonly<Record<HandleFamily, XformLayout>> = { move: {}, rotate: 
 const CENTER_SAY: Readonly<Record<HandleFamily, string>> = { move: "中心 = 随手拖", rotate: "中心 = 绕视线转", scale: "中心 = 等比缩放", pull: "中心 = 换一种拖法", transform: "中心 = 随手挪" };
 /** 变换工具抓的把手 → 做哪种（硬表面变换工具 tools/transform.ts 同一套：m = 挪、r = 转、其余 = 缩）。 */
 const OP_OF = (h: XformHandle | "mc"): "move" | "rotate" | "scale" => (h === "mc" || h[0] === "m" ? "move" : h[0] === "r" ? "rotate" : "scale");
+/** 朝向的轮换顺序（点第二下以后每点一下换一个）。 */
+const ORIENTS = ["object", "world", "normal"] as const;
+const ORIENT_SAY: Readonly<Record<(typeof ORIENTS)[number], string>> = { object: "物件（这个网格体自己的轴）", world: "世界", normal: "法向（选中的面朝外 = Z）" };
 const WORLD = { x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } as const;
 
 export class MeshHandles {
@@ -99,10 +104,30 @@ export class MeshHandles {
   }
   /** 鼠标悬停：记下光标下的把手（高亮）。 */
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.hot = this.grip(ctx, s)?.id ?? null; }
-  /** 点一下之后：选到东西 = 开、点空了 = 关（这台设备点一下弹不弹 = stance.ts HANDLES_ON_TAP）。返回现在开没开。 */
-  afterTap(ctx: ToolCtx, ev: ToolPointer): boolean {
-    if (this.family !== "transform" && HANDLES_ON_TAP[deviceOf(ev.pointerType)]) ctx.config.set("handles", "show", ctx.hasSelection());   // 变换的手柄一直挂着，不动这个开关
-    return this.gizmo(ctx) !== null;
+  /** 换下一个朝向（物件 → 世界 → 法向 → 物件）；返回提示行那一句。 */
+  cycleOrient(ctx: ToolCtx): string {
+    const cur = ctx.config.get("handles", "orient"), next = ORIENTS[(ORIENTS.indexOf(cur as (typeof ORIENTS)[number]) + 1) % ORIENTS.length];
+    ctx.config.set("handles", "orient", next);
+    return `手柄朝向：${ORIENT_SAY[next]}（再点一下换下一个；右下「朝向」直接选）`;
+  }
+  /**
+   * 点一下之后（选法已经跑完）：onSelection = 这一下点在已经选着的东西上、不是双击（selecting.ts clickSelect 的返回）。
+   * 点第二下 = 出手柄；手柄已经在 = 换朝向；选到别的 / 点空了 = 收起（变换的手柄一直挂着，只换朝向）。返回提示行那一句（null = 不说）。
+   */
+  afterTap(ctx: ToolCtx, ev: ToolPointer, onSelection: boolean): string | null {
+    const shown = this.gizmo(ctx) !== null;
+    if (onSelection && shown) return this.cycleOrient(ctx);
+    if (this.family === "transform") return null;
+    if (onSelection && HANDLES_ON_TAP[deviceOf(ev.pointerType)]) { ctx.config.set("handles", "show", true); return this.say(); }
+    ctx.config.set("handles", "show", false);
+    return ctx.hasSelection() ? "选中了；再点一下选中的东西 = 出手柄（快速点两下 = 双击，那是另一回事）" : null;
+  }
+  private say(): string {
+    const tail = "；再点一下 = 换朝向，点空处收起";
+    return this.family === "move" ? `手柄：拖箭头 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 随手拖${tail}`
+      : this.family === "rotate" ? `手柄：拖哪个环 = 绕哪根轴转、拖中心 = 绕视线转${tail}`
+        : this.family === "scale" ? `手柄：拖方头箭头 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 等比${tail}`
+          : `手柄：拖箭头 = 沿那根轴挤、拖中心 = 换一种拖法（面 = 随手拖、边 / 点 = 沿各自的垂直方向）${tail}`;
   }
   /** 这一帧画什么。drag = 正在拖：原点跟着预演走（被挪的点现在的平均，世界），高亮正抓着的那个；没开 = 什么都不加。 */
   view(ctx: ToolCtx, drag: { origin: Pt3 | null; id: string | null } | null): Partial<ViewState> {

@@ -23,7 +23,7 @@ await page.waitForTimeout(100);
 const f = await page.evaluate((d) => { const e = globalThis.__catsup.editor, m = e.scene.mesh(d).kernel; e.deselectAll(); const f = m.faces()[0]; e.selection.faces.add(f); globalThis.__catsup.hud.pick("select"); return { f, ring: [...m.faceVerts(f)] }; }, def);
 await page.waitForTimeout(100);
 const r = {};
-r.bar = await page.evaluate(() => [...document.querySelectorAll("#toolStrip .selbar-btn")].map((x) => x.textContent.trim()).join(" | "));
+r.bar = await page.evaluate(() => [...document.querySelectorAll("#toolStrip .selbar-btn")].map((x) => (x.textContent.trim() || x.getAttribute("aria-label") || "")).join(" | "));
 await page.click("#toolStrip .selbar-btn:has-text('更多')"); await page.waitForTimeout(120);
 r.menu = await page.evaluate(() => [...document.querySelectorAll(".popup-menu:not(.choice-layer) .menu-label")].map((x) => x.textContent).join(" | "));
 await page.evaluate(() => [...document.querySelectorAll(".popup-menu:not(.choice-layer) [data-menu-id]")].find((x) => /翻转法线/.test(x.textContent ?? ""))?.dispatchEvent(new MouseEvent("click", { bubbles: true }))); await page.waitForTimeout(100);

@@ -108,14 +108,15 @@ export function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso")
 
 /**
  * 点一下（第 n 下）：和选择工具同一套（见文件头）。
- * keepOnSelection = 单击点中已经选着的（没按修饰键）就不改选区（替换档不缩成一个、多选档不切掉它）：移动 / 旋转 / 缩放「单击选区 = 弹手柄」（tools/mesh-handles.ts；
- * user 10-29 夜「单击选区可以弹gizmos」）。
+ * keepOnSelection = 单击点中已经选着的（没按修饰键、不是双击）就不改选区（替换档不缩成一个、多选档不切掉它），返回 "onSelection"：
+ * 移动 / 旋转 / 缩放 / 挤出「点第二下 = 手柄」（tools/mesh-handles.ts；user 10-30「就是手柄统一是点第二下？」——和选择工具「再点一下选区 = 扩缩条」同一个手势）。
+ * 双击 / 三击（连击窗口里、同一处：controller/feel.ts TAP_RULES，鼠标 350 ms / 笔 500 ms）照旧 = 连同一圈 / 连通体。
  */
-export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { growBar?: boolean; keepOnSelection?: boolean } = {}): void {
+export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { growBar?: boolean; keepOnSelection?: boolean } = {}): "onSelection" | void {
   const view = ctx.live(), mode = selModeOf(ctx, ev, false);
   const hit = ctx.pick(ev.x, ev.y, { kinds: pickKinds(ctx) });
   if (ev.altKey && hit.edge !== undefined && ctx.selectLoop(hit, mode)) return;   // Alt 点边 = 环 / 洞（网格体；硬表面没有这个，照常点）
-  if (opts.keepOnSelection && n === 1 && !ev.shiftKey && !ev.copy && !ev.altKey && ctx.hitInSelection(hit)) return;
+  if (opts.keepOnSelection && n === 1 && !ev.shiftKey && !ev.copy && !ev.altKey && ctx.hitInSelection(hit)) return "onSelection";   // 点第二下（不是双击）：交给调用方（移动 / 旋转 / 缩放 / 挤出 = 手柄）
   // A31：参考线 / 参考点（光标下不是边或顶点时）——参考点 > 参考线，与实体拾取「点 > 边」同口径；面上的参考线照样点得中
   if (hit.edge === undefined && hit.vertex === undefined) {
     const g = pickGuide(view.guides(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.eps().hit);

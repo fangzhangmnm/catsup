@@ -21,4 +21,5 @@ export declare const snapSwitchSay: (mode: ModeId, on: boolean) => string;
 export declare function snapSwitchLook(mode: ModeId): {
     icon: string;
     title: string;
+    subdiv: boolean;
 };

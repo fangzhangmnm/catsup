@@ -4,7 +4,7 @@
 //   · 面：沿法向（选了几张面 = 区域一起挤、内部边不长，方向 = 法向平均），拖多少走多少（沿法向在屏幕上的投影量）；正对着面时法向投影没长度 → 按屏幕竖直方向（往上 = 往外）。
 //   · 边 / 点：**屏幕空间自由拖**（2026-10-28 晚 user「如果没有面的话，是边或者点，那么E是screen space，这个是blender的手感」；之前 10-27「默认垂直」被这句取代）；
 //     沿各自的垂直方向 = 拖手柄的中心（每个新点沿它源点的方向走：边界边 = 它那张面的法向、内部边 = 两侧平均、孤立的 = +Z；mesh/ops/extrude.ts extrudeNormalDirs）。
-//   · 操纵手柄（2026-10-30，tools/mesh-handles.ts「pull」家 = 三根箭头 + 中心）：点一下选到东西就弹；拖箭头 = 沿那根轴挤；拖中心 = 换一种拖法
+//   · 操纵手柄（2026-10-30，tools/mesh-handles.ts「pull」家 = 三根箭头 + 中心）：点第二下（选中以后再点它）弹；拖箭头 = 沿那根轴挤；拖中心 = 换一种拖法
 //     （面 = 屏幕平面随手拖、边 / 点 = 沿各自的垂直方向——以前按住 Shift 的那种，gizmo 设计稿 §3「挤出的 Shift = 自由拖 → 改成手柄中心」）。
 //   · Shift = 吸附反过来（和移动同一套：点 > 边 > 面，tools/mesh-snap.ts；底 = ctx.snapBase()）：抓住的那个点落到目标上，再按这一下的方向约束投影。
 //   · 右键 = 原地留下（user 10-28 晚「E之后右键是创作了面但是在原来的位置上可以切g」）：挤出 0、新长出来的成为选区，接着 G 挪；Esc = 什么都不留。
@@ -56,12 +56,12 @@ export class MeshPullTool implements ToolHandler {
   private snapT: { p: Pt3; kind: SnapKind } | null = null;
   /** 点一下 = 选（同选择工具），只有拖才挤出（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上没拖 = 不动。 */
   tap(ctx: ToolCtx, ev: ToolPointer): void {
-    if (this.handles.grip(ctx, ev)) { ctx.hint("手柄：按住把手拖才动；点空处收起"); return; }
-    clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: true });
-    ctx.hint(this.handles.afterTap(ctx, ev) ? "手柄：拖箭头 = 沿那根轴挤、拖中心 = 换一种拖法（面 = 随手拖、边 / 点 = 沿各自的垂直方向）；点空处收起" : null);
+    if (this.handles.grip(ctx, ev)) { ctx.hint(this.handles.cycleOrient(ctx)); return; }   // 点手柄（没拖）= 换朝向
+    const r = clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: true });
+    ctx.hint(this.handles.afterTap(ctx, ev, r === "onSelection"));   // 点第二下 = 手柄（mesh-handles.ts）
   }
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.handles.hover(ctx, s); }
-  stripGroups(cfg: ToolCtx["config"]): readonly { group: string; keys?: readonly string[] }[] { return [{ group: "handles", keys: cfg.get("handles", "show") ? ["show", "orient"] : ["show"] }]; }
+  stripGroups(cfg: ToolCtx["config"]): readonly { group: string; keys?: readonly string[] }[] { return cfg.get("handles", "show") ? [{ group: "handles", keys: ["orient"] }] : []; }   // 朝向只在手柄出来时露
   viewExtras(ctx: ToolCtx): Partial<ViewState> {
     const mv = this.t ? this.motion(ctx) : null, o = this.pivotW;
     const origin = mv && o ? (mv.along !== undefined ? (this.nW ? add3(o, scale3(this.nW, mv.along)) : o) : add3(o, mv.off)) : null;   // 拖着的时候手柄跟着挤出去的那头走
