@@ -43,7 +43,7 @@ import { Residency, type ResidentId, residentsOf } from "./residency.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { RenderProvider, MarkAccent, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
-import { DEFAULT_VIEW_BUDGET, ladderWindow, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
+import { DEFAULT_VIEW_BUDGET, GRID_FINEST_PX, ladderWindow, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { hexToLinear } from "../../overlay/index.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
@@ -69,7 +69,7 @@ const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个�
 /** 三色轴的长度：±50 m（PC/VR 同一份；user 2026-09-07「vr 和 pc 的网格都是 1m，不应跟 branch」）。网格本身不再有写死的大小（A12，v0.17.45）。 */
 const GRID_STEP = 1, GRID_N = 50;
 /** 网格一次画几级（着色器定长数组）/ 最细那级在视线目标处至少多宽（CSS 像素；默认视角下 = 1 m 那级，和换进位表之前一样）。 */
-const GRID_LEVELS = 12, GRID_FINEST_PX = 64;   // 64：平常视角最细 = 1 m（和换进位表之前一样）；32 时基线里拉近的场景多出 20 cm 那层、Tron 远处走样（2026-10-30 实测）
+const GRID_LEVELS = 12;   // 最细那层 = GRID_FINEST_PX（minccino/grid-ladder.ts：编辑器的 Z 轴刻度也按它挑，两边对齐）
 /** 像素化风格的网格：一组线在这个像素处的屏幕间距不到几个小图像素就不画这一档（粗十倍的那档接着画；再密 = 压成一条带）。点线隔一格才一个点，看着密一倍，门槛高一些。 */
 const PIXEL_GRID_MIN_PX = 5, PIXEL_GRID_MIN_PX_STIPPLE = 8;
 /** XR 里「屏幕像素」的定义：指示物角尺寸 = px / XR_PX_PER_DEG 度。桌面 800 px / 50° = 16 px/°；VR 取 32 = 同 px 数只有桌面一半大。 */

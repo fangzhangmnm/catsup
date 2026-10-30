@@ -71,7 +71,10 @@ svg.ico use { color: inherit; }
 /* 视图侧挂件条（2026-10-24 Opus）：gizmo 拖柄下面另一组；第一个 = 吸附；角标 = 轴锁（颜色同三色轴） */
 /* ☰ 在上、手 + 放大镜在下（user 2026-10-25「汉堡，手和放大镜，上下挪一下。给gizmos留出空间」「手和放大镜可以大一些，占满gizmos的行宽」）：
    gizmo 本体不被压、方框裁到轴端小球最远处（view-gizmo.ts fitBox，--gizmo-w）；☰ 一行靠右（还是右上角那颗）；手 + 放大镜一行、各占半宽、比 34 px 高一点 */
-.gizmo-top { width: var(--gizmo-w, 96px); display: flex; justify-content: flex-end; }   /* ☰ 不带底（user 2026-10-25「三条杠背景拿掉」） */
+.gizmo-top { width: var(--gizmo-w, 96px); display: flex; justify-content: flex-end; gap: 4px; }   /* 参考窗 + 视图两颗：各带一块毛玻璃底（user 10-30「汉堡系的几个没有背景的按钮也改成带背景的吧，和其他的统一一下」——改掉 10-25「三条杠背景拿掉」） */
+.gizmo-top .gizmo-btn { background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }
+.gizmo-top .gizmo-btn:hover { background: var(--hover); }
+.gizmo-top .gizmo-btn.on, .gizmo-top .gizmo-btn.is-open { background: var(--accent-soft); color: var(--accent); }
 .gizmo-nav[hidden] { display: none; }
 .gizmo-nav { flex-direction: row; width: var(--gizmo-w, 96px); gap: 4px; padding: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .gizmo-nav .gizmo-btn { flex: 1; width: auto; height: 42px; background: var(--glass); }
@@ -125,7 +128,9 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .walk-bar[hidden] { display: none; }
 .walk-btn { border: 0; background: transparent; color: var(--muted); font: 500 14px/1 system-ui, sans-serif; padding: 10px 14px; border-radius: 9px; cursor: pointer; opacity: .8; filter: drop-shadow(0 1px 1px var(--halo-soft)); }
 .walk-btn:hover { background: var(--hover); opacity: 1; color: var(--ink); }
-.hud-topleft .tb-btn { width: 40px; height: 40px; filter: drop-shadow(0 1px 1px var(--halo-soft)); }
+.hud-topleft .tb-btn { width: 40px; height: 40px; background: var(--glass); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px); }   /* 左上 ☰ / 保存 / 层级 / 物件：毛玻璃底，和工作台下拉、右上那几颗统一（user 10-30「汉堡系的几个没有背景的按钮也改成带背景的吧」） */
+.hud-topleft .tb-btn:hover { background: var(--hover); }
+.hud-topleft .tb-btn:active, .hud-topleft .tb-btn.is-open { background: var(--accent-soft); color: var(--accent); }
 .hud-crumbs { gap: 4px; padding: 4px 10px; font-size: 13px; flex-wrap: wrap; }   /* 住进 .hud-topstack 第三排 */
 .crumb { border: 0; background: transparent; font: inherit; color: var(--accent); cursor: pointer; padding: 4px 4px; border-radius: 6px; }
 .crumb:hover { background: var(--hover); }

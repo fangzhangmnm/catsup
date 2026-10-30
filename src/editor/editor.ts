@@ -49,7 +49,7 @@ import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
-import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type ViewState } from "./view-state.ts"; import { type LineStyle, type RenderProvider, ladderLevelAt } from "../minccino/index.ts";   // 刀 f：编辑器只持画的供货商的契约，不 import three 那层
+import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type ViewState } from "./view-state.ts"; import { type LineStyle, type RenderProvider, GRID_FINEST_PX, ladderLevelAt } from "../minccino/index.ts";   // 刀 f：编辑器只持画的供货商的契约，不 import three 那层
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
@@ -3739,7 +3739,7 @@ export class Editor {
   /** X 轴上「一格多长」的标记 + Z 轴刻度：都跟这一刻看得清的那层网格走（进位表 = 单位制的；user 10-30「视角放远的时候1m应该变成对应栅格lod的标记」「z轴的interval和格子的细分和格距没有对齐」）。 */
   private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number; axisUnitX: number | null } {
     const L = displayLadder(this.grid.system, this.grid.snap), wpp = worldPerPx(this.frame(), this.fvp(), F.origin) ?? 0.01, empty = this.sceneEmpty();
-    const step = ladderLevelAt(L, wpp, UNIT_LABEL_MIN_PX), tick = ladderLevelAt(L, wpp, AXIS_TICK_MIN_PX);   // 标记 = 屏上放得下字的那层、刻度 = 不挤的那层（都是网格里真有的线；minccino/grid-ladder.ts）
+    const step = ladderLevelAt(L, wpp, UNIT_LABEL_MIN_PX), tick = Math.max(ladderLevelAt(L, wpp, AXIS_TICK_MIN_PX), ladderLevelAt(L, worldPerPx(this.frame(), this.fvp(), this.cam.target) ?? wpp, GRID_FINEST_PX));   // 标记 = 屏上放得下字的那层；刻度 = 地面真画出来的最细那层（和渲染同一个门槛，user 10-30「Z轴的interval好像还是没和grid对齐」），原点处还嫌挤就再粗一层
     // 只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在。字 = 统一的长度写法（units.ts fmtStep）
     return { axisTickM: tick, axisUnitX: empty ? step : null, labels: empty ? [{ id: "unit-x", text: fmtStep(step), at: { x: F.origin.x + F.x.x * step, y: F.origin.y + F.x.y * step, z: F.origin.z + F.x.z * step }, role: "unitLabel", anchor: "below" }] : [] };
   }

@@ -3,6 +3,9 @@
 // 进位表 = 一串从细到粗的线距（米；相邻两层整数倍，粗线一定落在细线上），由编辑器按单位制给（公制 ×10、英制 1/16 in … 1 in · 1 ft · 10 ft、D&D 1 ft · 5 ft · 50 ft）。
 // 渲染挑「这一刻画哪几层」、编辑器挑「轴上的标记 / 刻度落在哪层」都用这里 → 网格线、标记、刻度永远是同一套线。
 
+/** 地面网格最细画到哪层：视线目标处屏上间距 ≥ 这么多 CSS 像素的那层起（64：平常视角最细 = 1 m；32 时基线里拉近的场景多出 20 cm 那层、Tron 远处走样，2026-10-30 实测）。
+ *  渲染挑网格层和编辑器挑 Z 轴刻度都用它 → 刻度永远不比画出来的最细那层网格密（user 10-30「Z轴的interval好像还是没和grid对齐」：以前刻度按原点处 ≥ 10 像素挑，比网格细好几档）。 */
+export const GRID_FINEST_PX = 64;
 /** 第一层在屏上间距 ≥ minPx 的（worldPerPx = 这一处一像素多少米）；都太密 = 最粗那层。 */
 export function ladderLevelAt(ladder: readonly number[], worldPerPx: number, minPx: number): number {
   const need = Math.max(worldPerPx, 0) * minPx;

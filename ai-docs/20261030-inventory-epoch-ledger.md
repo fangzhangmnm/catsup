@@ -85,3 +85,11 @@
   - 「新手提醒」改名「适用范围与出处」+ 改成全量静态（user「名字不应跟叫新手提醒，给一个更有信息量的名字」「所以新手提醒改成全量的，而不是随着你选哪个尺度变得。因为readme window一般是静态的」）：`scale-ref.ts allReminders`，数据里全部 7 条 + DnD 署名，跟选了哪些无关。
   - 右键兜底（user「然后没有右键的ui能不能统一拦截兜底一下右键，不要弹浏览器的右键，这个能深模块窄接口的统一拦截吗，而不是得一个一个写？」）：`ui/context-menu-guard.ts`，main.ts 装一次；右键冒到最外层还没人处理就拦掉浏览器那份，输入框 / 标了 `data-native-menu` 的放行。守卫 `test/context-menu-guard.test.ts`，探针 `probe-context-guard`（新）。
   - 探针跟着搬：probe-menu-tabs / probe-menu-dropdowns / probe-select-field / probe-scale-ref 改成走 ☰ 单位页（scale-ref 顺手：它点的「参考」页 10-30 早就撤了 = 之前就红）。
+- **v0.18.14（Opus 5.5 2026-10-30）**：
+  - Z 轴刻度和地面网格对齐（user「Z轴的interval好像还是没和grid对齐」，写实画风截图）：网格最细只画到「视线目标处屏上 ≥ 64 像素」那层，刻度以前按「原点处 ≥ 10 像素」挑 → 比网格细好几档。门槛搬成共用常数 `minccino/grid-ladder.ts GRID_FINEST_PX`，刻度 = max（网格真画出来的最细那层，原点处不挤的那层）。实测四种远近：刻度 = 网格最细层（1 m / 1 m / 10 m / 10 m）。
+  - 左上 ☰ / 保存 / 层级 / 物件、右上参考窗 / 视图：加毛玻璃底，和工作台下拉、吸附那组统一（user「汉堡系的几个没有背景的按钮也改成带背景的吧，和其他的统一一下」；改掉 10-25「三条杠背景拿掉」）。
+- **记账（user 10-30，等拍 / 等 Fable）**：
+  - **自动 UV 不是「上 = 上」**（user「顺便自动生成的uv没有y up对齐」，截图：墙上的贴图躺着）：现在 UV = 沿面平面那套确定性基的平面投影（`pool-mesh.ts` / `format/bake.ts`，契约「默认不存 UV」档）——基是几何用的，墙面上不保证 v 朝世界 +Z。改成 SketchUp 那样（竖面 v = 上、水平面 u = X / v = Y）会改变所有已有贴图模型的样子和导出的 TEXCOORD_0 = 文件语义变了 → 归 Fable 先定（格式拍子 + 老文件怎么办）。
+  - **材质色的颜色空间**（user「我们现在是linear还是srgb？（其实我比较喜欢srgb）」）：app 里材质色按 sRGB 存；线稿 / 像素 / 1-bit / 剪纸直接在 sRGB 里算；写实 / 铸铜转线性算光、ACES 再转回。**查到一个坑**：glb 里 glTF 规定 baseColorFactor 是线性值，我们直接写了 sRGB 值、读也照 sRGB 读 → 自己往返没事，别的软件（Blender）打开会偏浅、从别的软件导进来的会偏深。格式问题 → 归 Fable（读写处换算 + 老文件迁移）。
+  - **wishlist**：贴图扒取（texture ripper）带 gamma 校正（user「wishlist texture rigger 加 gamma修正的东西」）。
+  - **材质编辑器**（user「本纪元其实可以开始做材质编辑器了对吧」）：现有字段（名字 / 颜色 / 贴图 / 贴图的真实尺寸）的编辑器本纪元能做、不碰格式；加新字段（粗糙度 / 金属 / 自发光）= 格式改动，等 Fable（和 GUID、上面颜色空间一起）。
