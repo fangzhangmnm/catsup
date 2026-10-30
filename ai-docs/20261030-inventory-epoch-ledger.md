@@ -104,3 +104,4 @@
   - 素材架只收你主动送进去的（user「材质也能进asset store哦，但是还是临时的dummy材质不进，只有mark as asset的才会进」「这样就是你导入一个猫娘不会asset store里面一大堆散的皮……烘培的贴图什么各种单例都不进。除非你主动放行。就是看用户说的send to asset store」）：接 I6 素材架。
   - 马上要做：涂装车间（天空盒就是第一件）+ Minecraft 式像素材质的程序生成（user「我们马上要做minecraft式的像素材质过程生成」）。
 - **I6 素材架远景（user 10-30）**：同一个界面看自己的 + 远端（OneDrive 先、以后官方源 / 网址，= RealHome 多源同一回事）；**拷贝不引用、不记来源、不自动更新**（想更新 = 替换覆盖）；能「发布到素材架」（往那份文件里追加 / 覆盖，安全走同步库）；发布后别的作品不受影响（vendor is copy, not reference）；只收主动送的（临时材质 / 烘焙贴图 / 单例不进）。细节 = `talks/20261030-materials-color.md`。
+- **下一纪元 = 材质纪元（user 10-30「材质编辑转bump一个minor，然后linear vs srgb也归这个minor」「我们bump minor和叫fable之前先把材质纪元的设计讨论好」）**：顺序 = 先和 Opus 把设计聊完（`talks/20261030-material-epoch-attributes.md`：Blender 式属性制度、表面页、材质换着色器后旧参数槽灰着不删、素材架引用还是拷贝、可 seek 的素材）→ bump minor → 叫一次 Fable（GUID 那批 + 属性 / 材质的数据契约 + 物品栏纪元事后审）。材质编辑器、渲染窗里每个画风选混色空间、「一个色卡 = 一个材质」sunset 都归材质纪元。老文件颜色三行：user「不走特殊，合规来，三行没关系」= 留着。

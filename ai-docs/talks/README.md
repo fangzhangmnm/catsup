@@ -10,6 +10,7 @@
 | 窗口与面板：浮窗 / 抽屉 / 停靠 / 四样 / 一键藏窗 / 窗口页签 / Procreate 的禅 / ☰ vs 视图（文件设置 vs 看效果）/ 根 = 普通物件 | `20261030-windows-panels.md` | 10-30 |
 | 身份与生死：删实例删定义 / 瑞士奶酪 / 资源管理 / 引用与孤儿 / GUID 家规 | `20261030-identity-lifetime.md` | 10-30 |
 | 材质 / 贴图 / 颜色空间：自动 UV 朝向、默认尺寸、sRGB vs 线性、材质编辑器归谁、Fable 叫一次先做什么 | `20261030-materials-color.md` | 10-30 |
+| **材质纪元的设计（属性制度 / 表面页 / 素材架引用还是拷贝 / 可 seek 的素材）——下一轮从这里接** | `20261030-material-epoch-attributes.md` | 10-30 |
 | 跨站点交给第三方游戏：XSS / postMessage / 本地网页 / 遥测 | `20261030-cross-site-games.md` | 10-30 |
 | 外轮廓（软边 / 不在边上的轮廓 / 四种做法） | `../20261030-silhouette-outlines.md`（专文） | 10-30 |
 | 结婚 / bodypaint / 显存一本账 | `../20261030-marriage-bodypaint-stash.md`（专文） | 10-30 |
