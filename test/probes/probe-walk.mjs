@@ -26,19 +26,17 @@ await page.evaluate(() => {
 const faces = await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length);
 check(faces === 6, `盒子六膜 (faces=${faces})`);
 
-// 经「视图」菜单开步行相机（2026-10-28 改成 FPS：菜单 → 放置（虚影）→ 点地面落人；纪元账本 FM140 / FM145 / FM154）
+// 经验证工作台左柱「步行」开步行相机（2026-10-28 改成 FPS：放置（虚影）→ 点地面落人；纪元账本 FM140 / FM145 / FM154）
 const box = await page.locator("#board").boundingBox();
-await openViewWin(); await page.waitForTimeout(80);   // 步行相机住右上角「视图」菜单（不在 ☰）
-await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);   // v0.13.51 视图菜单分页：步行在「相机」页
-await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(80);
+// v0.17.62 起视图菜单的「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证工作台左柱第一格
+const startWalk = async () => { await page.evaluate(() => { const e = globalThis.__catsup.editor; if (e.modeId !== "verify") e.setMode("verify"); }); await page.waitForTimeout(80); await page.click(".hud-rail-tools .tool:has-text('步行')"); await page.waitForTimeout(80); };
+await startWalk();
 const placing = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), panel: globalThis.__catsup.editor.paramPanel()?.title ?? null }));
 check(placing.phase === "place" && placing.panel === "步行：点一下落在哪", `菜单 → 放置（马前炮小窗）${JSON.stringify(placing)}`);
 // 平时按什么都不进步行：放置里 Esc = 取消、什么都没发生
 await page.keyboard.press("Escape"); await page.waitForTimeout(50);
 check(await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase() === "off" && !globalThis.__catsup.editor.paramPanel()), "放置里 Esc = 取消");
-await openViewWin(); await page.waitForTimeout(80);
-await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);
-await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(80);
+await startWalk();
 // 悬停在原点南边的地面上：虚影绿（站得下）；悬停在盒子侧面：落到墙脚
 const ground = await page.evaluate(() => { const e = globalThis.__catsup.editor; return e.cam.angularPx({ x: -1.5, y: -1, z: 0 }, e.vp()); });
 await page.mouse.move(box.x + ground.x, box.y + ground.y); await page.waitForTimeout(60);
@@ -200,9 +198,7 @@ check(!after.walking && after.phase === "off" && after.halfH === 4, `Esc 离开�
 
 // 在相机这里出生（user 10-29「步行相机的马前炮还有一个就是spawn在当前摄像机位置的选项」）：眼 = 现在的眼位、朝向不变；锁鼠标后第一个假位移丢掉（不然镜头猛甩）
 const camBefore = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cam.projection = "persp"; e.cam.pitch = 0.3; e.cam.yaw = -1; e.draw(); return { eye: e.cam.eye(), fwd: e.cam.forward() }; });
-await openViewWin(); await page.waitForTimeout(80);
-await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);
-await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(100);
+await startWalk(); await page.waitForTimeout(20);
 await page.click("button:has-text('在相机这里出生')"); await page.waitForTimeout(60);
 const camAfter = await page.evaluate(() => { const e = globalThis.__catsup.editor; return { phase: globalThis.__catsup.locomotion.walkPhase(), eye: e.cam.eye(), fwd: e.cam.forward() }; });
 const dEye = Math.hypot(camAfter.eye.x - camBefore.eye.x, camAfter.eye.y - camBefore.eye.y), dFwd = Math.hypot(camAfter.fwd.x - camBefore.fwd.x, camAfter.fwd.y - camBefore.fwd.y, camAfter.fwd.z - camBefore.fwd.z);

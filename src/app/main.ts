@@ -369,11 +369,10 @@ function noteToolUse(t: Tool): void {
   if (SHAPES.includes(t)) shapeCurrent = t;
   if (ERASERS.includes(t)) eraserCurrent = t;
   for (const g of Object.values(RAIL_FIXED_FLYOUTS[editor.modeId] ?? {})) if (g.includes(t)) fixedFlyCurrent.set(g[0], t);
-  const fold = RAIL_FIXED_FOLD[editor.modeId];
-  if (fold) {
+  (RAIL_FIXED_FOLD[editor.modeId] ?? []).forEach((fold, fi) => {   // 折叠组（一个工作台可以有几组）：按组记用过的
     const head = fold.pool.find((h) => h === t || (RAIL_FIXED_FLYOUTS[editor.modeId]?.[h] ?? []).includes(t));
-    if (head) { const l = foldUsed.get(editor.modeId) ?? []; bumpFront(l, head); foldUsed.set(editor.modeId, l); }
-  }
+    if (head) { const k = `${editor.modeId}:${fi}`, l = foldUsed.get(k) ?? []; bumpFront(l, head); foldUsed.set(k, l); }
+  });
   for (const g of RAIL_GROUPS) {
     if (g.pool.includes(t)) bumpFront(usedPool.get(g.id)!, t);
     if (g.pinned.includes(t) || g.pool.includes(t)) bumpFront(groupMru.get(g.id)!, t);
@@ -443,14 +442,16 @@ function renderSlots(): void {
   if (fixed) {   // 这个工作台有自己定死的一列（自由建模 / 验证）；列里的小三角组（RAIL_FIXED_FLYOUTS）= 格子显示最近用的那把
     const groups = RAIL_FIXED_FLYOUTS[editor.modeId] ?? {};
     const slot = (t: Tool): void => { const g = groups[t]; if (g) { const cur = fixedFlyCurrent.get(t) ?? t; add(cur, () => g.filter(inMode)); } else add(t); };
-    for (const t of fixed) slot(t);
-    const fold = RAIL_FIXED_FOLD[editor.modeId];   // 折叠组：用过的长出来（最多 budget 格），其余收在「…」里
-    if (fold) {
-      const heads = fold.pool.filter((h) => inMode(h) || (groups[h] ?? []).some(inMode)), shown = (foldUsed.get(editor.modeId) ?? []).filter((h) => heads.includes(h)).slice(0, fold.budget);
-      if (heads.length) { const sep = document.createElement("div"); sep.className = "rail-sep"; toolbarEl.appendChild(sep); }
+    const folds = RAIL_FIXED_FOLD[editor.modeId] ?? [];   // 折叠组：用过的长出来（最多 budget 格），其余收在「…」里；挂在 after 那把后面（缺 = 列尾）
+    const foldAt = (fi: number): void => {
+      const fold = folds[fi], heads = fold.pool.filter((h) => inMode(h) || (groups[h] ?? []).some(inMode)), shown = (foldUsed.get(`${editor.modeId}:${fi}`) ?? []).filter((h) => heads.includes(h)).slice(0, fold.budget);
+      if (!heads.length) return;
+      if (!fold.after) { const sep = document.createElement("div"); sep.className = "rail-sep"; toolbarEl.appendChild(sep); }   // 列尾那组和上面隔开；挂在某把后面的 = 那把的一家，不隔
       for (const h of shown) slot(h);
       if (heads.length > shown.length) toolbarEl.appendChild(mkMore(heads.flatMap((h) => groups[h] ?? [h]).filter(inMode)));
-    }
+    };
+    for (const t of fixed) { slot(t); folds.forEach((f, fi) => { if (f.after === t) foldAt(fi); }); }
+    folds.forEach((f, fi) => { if (!f.after || !fixed.includes(f.after)) foldAt(fi); });
     return;
   }
   for (const slot of RAIL_FIRST) {   // 第一组常驻（形状格 / 橡皮格 = 一格一组、显示当前那把、小三角换）
@@ -870,7 +871,7 @@ function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boo
 function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
   // 硬表面：最上面直接列吸附细分（点一下就换，不用进栅格设置；user 10-30「长按是弹一个让你选。不然一个一个轮换太慢了」）；提示 = 一份多长
   const g = editor.grid, sub = snapSwitchLook(editor.modeId).subdiv
-    ? GRID_SUBDIVS.map((n, i) => ({ id: `sub:${n}` as GridMenuId, label: `1/${n}`, checked: g.subdiv === n, hint: fmtGridStep(g.step / n, g.preset), ...(i === 0 ? { sectionBefore: `吸附细分（格距 ${fmtGridStep(g.step, g.preset)} 分几份）` } : {}) }))
+    ? GRID_SUBDIVS.map((n, i) => ({ id: `sub:${n}` as GridMenuId, label: `1/${n}`, checked: g.subdiv === n, hint: fmtGridStep(g.step / n, g.preset), ...(i === 0 ? { sectionBefore: "吸附细分" } : {}) }))
     : [];
   const locks = lockMenuItems();
   return [...sub, ...locks.map((it, i) => (i === 0 && sub.length ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "栅格设置…", separatorBefore: true, hint: "视图 ☰ · 栅格" }];
@@ -1168,8 +1169,7 @@ const VIEW_MENU_TABS = [
   { id: "display", label: "显示" },
   { id: "grid", label: "栅格" },
   { id: "ref", label: "参考" },
-  { id: "camera", label: "相机" },
-] as const;
+] as const;   // 「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证左柱第一格、穿墙 = 走着双击空格、VR 两行挪到「显示」页最下面
 type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
 /** 视图菜单的内容（常驻浮窗里画；user 10-29「我建议是视图 物体 都做成可以常驻的浮窗吧，只有主菜单是菜单型的」）。 */
 function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
@@ -1187,11 +1187,9 @@ function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
       ...gridTabItems(),
       { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },
       ...refTabItems(),
-      { id: "walk" as MenuId, label: "步行相机", hint: "WASD · 空格跳", checked: locomotion.isWalking() || locomotion.isPlacing(), tab: "camera" },
-      { id: "noclip" as MenuId, label: "穿墙飞行", hint: "双击空格切换", checked: locomotion.noclip, disabled: !locomotion.isWalking(), tab: "camera" },
-      ...(vr.isSupported() ? [
-        { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", sectionBefore: "VR", hint: "Quest", tab: "camera" },
-        { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手", tab: "camera" },
+      ...(vr.isSupported() ? [   // 支持 VR 的设备才有（「相机」页撤了以后挪到这里）
+        { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", sectionBefore: "VR", hint: "Quest", tab: "display" },
+        { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手", tab: "display" },
       ] : []),
     ],
     onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },

@@ -37,15 +37,22 @@ export const RAIL_FIXED_FLYOUTS: Readonly<Partial<Record<ModeId, Partial<Record<
 export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
   // create = 拉出（FM182；user 10-28 夜「拉出放到推拉上面」）；删除 / 插入倒角搬进下面的折叠组（「删除，插入倒角也折叠」）
   freeform: ["select", "create", "pp", "move", "rotate", "scale", "knife"],
-  verify: ["walk", "select", "move", "rotate", "tape", "protractor", "compass", "axes"],
+  verify: ["walk", "select", "transform", "tape"],   // 2026-10-30 user「验证的移动旋转收第一个...量角器 圆规 座标架收第二个...」「然后变换也归验证的tools，常驻，放移动旋转那一家」
 };
 /**
  * 定死一列下面的折叠组（user 10-28 夜「笔刷小三角同意。然后算是自动折叠的不是常驻的。删除，插入倒角也折叠」）：
  * 平时只有一条矮「…」（点开 = 整组）；这次会话里用过的按最近使用长出来，最多 budget 格（和硬表面后面几组的「池」同一个意思，只是没有常驻）。
  * 小三角组（RAIL_FIXED_FLYOUTS）也能放进来：写组的第一把，长出来的那格显示最近用的那把。
  */
-export const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, { readonly pool: readonly Tool[]; readonly budget: number }>>> = {
-  freeform: { pool: ["erase", "offset", "transform", "brushGrab"], budget: 3 },   // 变换（三家把手一起，2026-10-30 user「7也做」；gizmo 设计稿 §6「留成单独的工具…自由建模左柱要不要加它 user 定」→ 先放折叠组）   // 笔刷 ▾ 也在折叠组里（user「算是自动折叠的不是常驻的」）
+export interface RailFold {
+  readonly pool: readonly Tool[];
+  readonly budget: number;
+  /** 挂在定死一列哪把工具的后面（缺 = 列尾）。一个工作台可以有几组「…」（验证：移动 / 旋转一组挂在变换后面、尺规一组挂在卷尺后面）。 */
+  readonly after?: Tool;
+}
+export const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, readonly RailFold[]>>> = {
+  freeform: [{ pool: ["erase", "offset", "transform", "brushGrab"], budget: 3 }],
+  verify: [{ pool: ["move", "rotate"], budget: 2, after: "transform" }, { pool: ["protractor", "compass", "axes"], budget: 2, after: "tape" }],   // 变换（三家把手一起，2026-10-30 user「7也做」；gizmo 设计稿 §6「留成单独的工具…自由建模左柱要不要加它 user 定」→ 先放折叠组）   // 笔刷 ▾ 也在折叠组里（user「算是自动折叠的不是常驻的」）
 };
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
 export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };   // 拉出 = 工具本名（自由建模独有）

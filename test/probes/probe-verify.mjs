@@ -32,7 +32,7 @@ res.edit = await page.evaluate(() => { const { editor: e, hud, locomotion: L } =
 res.resume = await page.evaluate(() => { const { hud, locomotion: L } = globalThis.__catsup; hud.pick("walk"); return { phase: L.walkPhase() }; });
 await b.close();
 res.errs = errs;
-const ok = res.modes.includes("verify") && res.rail.mode === "verify" && res.rail.tools.includes("walk") && res.rail.railLabels.join() === "步行,选择,移动,旋转,卷尺,量角器,圆规,坐标架"
+const ok = res.modes.includes("verify") && res.rail.mode === "verify" && res.rail.tools.includes("walk") && res.rail.railLabels.join() === "步行,选择,变换,卷尺"   /* v0.17.62：移动 / 旋转收进变换后面的「…」、量角器 / 圆规 / 坐标架收进卷尺后面的「…」（user 10-30） */
   && res.place.phase === "place" && res.place.tool === "walk" && res.place.panel === "步行：点一下落在哪"
   && res.cancel.phase === "off" && res.cancel.tool === "select" && res.cancel.mode === "verify"
   && res.walk.phase === "walk" && res.walk.mode === "verify"

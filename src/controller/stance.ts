@@ -165,7 +165,7 @@ const FREEFORM: Partial<Record<Tool, Stance>> = {
 /** 验证工作台（步行 + 摆东西 + 尺规）。 */
 const VERIFY: Partial<Record<Tool, Stance>> = {
   walk: S({ grab: "ground", tap: "place", emptyDrag: "none", direction: "none", snap: "none", shift: "—", ctrl: "—", alt: "—", center: "none", lock: null, grammar: "direct", after: "none", charge: false, intent: false }),   // 编辑器这边没有手势（放置归 app 层 locomotion）
-  select: GEOMETRY.select!, move: GEOMETRY.move!, rotate: GEOMETRY.rotate!, tape: GEOMETRY.tape!, protractor: GEOMETRY.protractor!, compass: GEOMETRY.compass!, axes: GEOMETRY.axes!,
+  select: GEOMETRY.select!, transform: GEOMETRY.transform!, move: GEOMETRY.move!, rotate: GEOMETRY.rotate!, tape: GEOMETRY.tape!, protractor: GEOMETRY.protractor!, compass: GEOMETRY.compass!, axes: GEOMETRY.axes!,
 };
 
 /** 物体工作台（选物体 / 摆放）：和硬表面同一份选择 / 移动 / 旋转 / 缩放的立场。 */

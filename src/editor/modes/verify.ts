@@ -12,6 +12,7 @@ import type { Tool } from "../tool-ids.ts";
 import { SelectTool } from "../tools/select.ts";
 import { MoveTool } from "../tools/move.ts";
 import { RotateTool } from "../tools/rotate.ts";
+import { TransformTool } from "../tools/transform.ts";
 import { TapeTool } from "../tools/tape.ts";
 import { ProtractorTool } from "../tools/protractor.ts";
 import { CompassTool } from "../tools/compass.ts";
@@ -33,10 +34,10 @@ export class VerifyMode implements Mode {
   readonly id = "verify" as const;
   readonly label = "验证";
   readonly kinds = ["brep"] as const;
-  readonly tools: readonly Tool[] = ["walk", "select", "move", "rotate", "tape", "protractor", "compass", "axes"];
+  readonly tools: readonly Tool[] = ["walk", "select", "transform", "move", "rotate", "tape", "protractor", "compass", "axes"];   // 变换 = 常驻、和移动 / 旋转一家（user 10-30）
   readonly defaultTool: Tool = "select";
   readonly handlers: Partial<Record<Tool, ToolHandler>> = {
-    walk: new WalkTool(), select: new SelectTool(), move: new MoveTool(), rotate: new RotateTool(),
+    walk: new WalkTool(), select: new SelectTool(), transform: new TransformTool(), move: new MoveTool(), rotate: new RotateTool(),
     tape: new TapeTool(), protractor: new ProtractorTool(), compass: new CompassTool(), axes: new AxesTool(),
   };
 }

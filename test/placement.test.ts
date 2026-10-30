@@ -32,9 +32,10 @@ describe("放置表（controller/placement.ts）", () => {
       const has = new Set<string>(m.tools);
       eq(list!.filter((t) => !has.has(t)).join(","), "", `${id} 列里有工作台没有的工具`);
       const fly = Object.values(RAIL_FIXED_FLYOUTS[id as keyof typeof RAIL_FIXED_FLYOUTS] ?? {}).flat();   // 小三角组里的也算上了左柱
-      const fold = RAIL_FIXED_FOLD[id as keyof typeof RAIL_FIXED_FOLD];   // 折叠组里的也算（收在 ⌄ 里、用过长出来）
-      if (fold) { eq(fold.pool.filter((t) => !has.has(t) || list!.includes(t)).join(","), "", `${id} 折叠组里有工作台没有的 / 和定死一列重复的`); assert(fold.budget >= 1, `${id} 折叠组预算`); }
-      eq(m.tools.filter((t) => !list!.includes(t) && !fly.includes(t) && !(fold?.pool ?? []).includes(t)).join(","), "", `${id} 工作台有工具没上左柱`);
+      const folds = RAIL_FIXED_FOLD[id as keyof typeof RAIL_FIXED_FOLD] ?? [], foldPool = folds.flatMap((f) => f.pool);   // 折叠组里的也算（收在「…」里、用过长出来；一个工作台可以有几组）
+      for (const f of folds) { eq(f.pool.filter((t) => !has.has(t) || list!.includes(t)).join(","), "", `${id} 折叠组里有工作台没有的 / 和定死一列重复的`); assert(f.budget >= 1, `${id} 折叠组预算`); assert(!f.after || list!.includes(f.after), `${id} 折叠组挂在列里没有的 ${f.after} 后面`); }
+      eq(foldPool.filter((t, i) => foldPool.indexOf(t) !== i).join(","), "", `${id} 两组折叠重复`);
+      eq(m.tools.filter((t) => !list!.includes(t) && !fly.includes(t) && !foldPool.includes(t)).join(","), "", `${id} 工作台有工具没上左柱`);
       eq(list!.filter((t, i) => list!.indexOf(t) !== i).join(","), "", `${id} 重复`);
     }
     for (const [id, labels] of Object.entries(RAIL_LABELS)) { const m = modes[id as keyof typeof modes]; for (const t of Object.keys(labels!)) assert(m.tools.includes(t as never), `${id} 改名的 ${t} 不在那个工作台`); }

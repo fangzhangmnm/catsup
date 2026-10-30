@@ -31,10 +31,13 @@ export declare const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]
  * 平时只有一条矮「…」（点开 = 整组）；这次会话里用过的按最近使用长出来，最多 budget 格（和硬表面后面几组的「池」同一个意思，只是没有常驻）。
  * 小三角组（RAIL_FIXED_FLYOUTS）也能放进来：写组的第一把，长出来的那格显示最近用的那把。
  */
-export declare const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, {
+export interface RailFold {
     readonly pool: readonly Tool[];
     readonly budget: number;
-}>>>;
+    /** 挂在定死一列哪把工具的后面（缺 = 列尾）。一个工作台可以有几组「…」（验证：移动 / 旋转一组挂在变换后面、尺规一组挂在卷尺后面）。 */
+    readonly after?: Tool;
+}
+export declare const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, readonly RailFold[]>>>;
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
 export declare const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>>;
 export type MenuTab = "file" | "model" | "settings" | "help";

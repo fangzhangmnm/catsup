@@ -10,12 +10,15 @@ const page = await ctx.newPage();
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 await page.goto(url, { waitUntil: "load" }); await page.waitForTimeout(1200);
 const onTab = () => page.evaluate(() => document.querySelector(".popup-menu .menu-tab.on")?.dataset.menuTab ?? null);
-const tabs = async () => { const out = {}; await page.click("#btnMenu"); await page.waitForTimeout(100); out.main = await onTab(); await page.keyboard.press("Escape"); await page.click(".gizmo-menu"); await page.waitForTimeout(100); out.view = await onTab(); await page.keyboard.press("Escape"); await page.waitForTimeout(60); return out; };
+// 视图菜单 v0.17.54 起是常驻浮窗（不是弹出菜单）；v0.17.62 起没有「相机」页（旧红，2026-10-30 跟上）
+const viewOpen = (want) => page.evaluate((w) => { const open = !!document.querySelector('.float-win[data-win="view"]:not([hidden])'); if (open !== w) document.querySelector(".gizmo-menu").click(); }, want);
+const viewTab = async () => { await viewOpen(true); await page.waitForTimeout(100); const t = await page.evaluate(() => document.querySelector('.float-win[data-win="view"] .menu-tab.on')?.dataset.menuTab ?? null); await viewOpen(false); await page.waitForTimeout(60); return t; };
+const tabs = async () => { const out = {}; await page.click("#btnMenu"); await page.waitForTimeout(100); out.main = await onTab(); await page.keyboard.press("Escape"); out.view = await viewTab(); return out; };
 const res = {};
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "addEdges", segs: [[{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }], [{ x: 2, y: 0, z: 0 }, { x: 2, y: 2, z: 0 }], [{ x: 2, y: 2, z: 0 }, { x: 0, y: 2, z: 0 }], [{ x: 0, y: 2, z: 0 }, { x: 0, y: 0, z: 0 }]] }); });
 res.rev0 = await page.evaluate(() => globalThis.__catsup.editor.revision);
 await page.click("#btnMenu"); await page.waitForTimeout(100); await page.click('.popup-menu [data-menu-tab="settings"]'); await page.keyboard.press("Escape");
-await page.click(".gizmo-menu"); await page.waitForTimeout(100); await page.click('.popup-menu [data-menu-tab="camera"]'); await page.keyboard.press("Escape"); await page.waitForTimeout(60);
+await viewOpen(true); await page.waitForTimeout(100); await page.click('.float-win[data-win="view"] [data-menu-tab="ref"]'); await viewOpen(false); await page.waitForTimeout(60);
 res.rev1 = await page.evaluate(() => globalThis.__catsup.editor.revision);   // 切页不动几何版本号（dirty = revision ≠ savedRevision）= 不标脏
 const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportProject())]);
 const bytes = [...(await (await import("node:fs")).promises.readFile(await dl.path()))];
@@ -29,7 +32,7 @@ res.afterNew = await tabs();
 console.log(JSON.stringify({ ...res, errs }));
 const ok = res.rev1 === res.rev0 && res.opened && res.edgesAfterOpen > 0
   && res.beforeOpen.main === "file" && res.beforeOpen.view === "display"
-  && res.afterOpen.main === "settings" && res.afterOpen.view === "camera"
+  && res.afterOpen.main === "settings" && res.afterOpen.view === "ref"
   && res.afterNew.main === "file" && res.afterNew.view === "display" && !errs.length;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);
