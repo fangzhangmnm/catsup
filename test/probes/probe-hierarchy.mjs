@@ -21,7 +21,8 @@ check(made.names.length === 2 && made.names.some((n) => /^[0-9a-f]{4}$/.test(n))
 await page.click(".gizmo-hier"); await page.waitForTimeout(120);
 const rows = () => page.evaluate((W) => [...document.querySelectorAll(`${W} .tree-row`)].map((r) => ({ key: r.dataset.key, name: r.querySelector(".tree-name")?.textContent, unnamed: !!r.querySelector(".tree-name.is-unnamed"), sel: r.classList.contains("is-selected"), here: r.classList.contains("is-here"), hidden: r.classList.contains("is-hidden") })), W);
 const r1 = await rows();
-check(r1.length === 2 && r1[0].name === "model" && r1[0].unnamed && r1[1].name === "椅子" && r1[0].here, `打开 = 根组件（程序占位名 model = 没起名、淡色）+ 椅子：${JSON.stringify(r1.map((r) => [r.name, r.unnamed]))}`);
+const rootCode = r1[0]?.name;
+check(r1.length === 2 && /^[0-9a-f]{4}$/.test(rootCode) && r1[0].unnamed && r1[1].name === "椅子" && r1[0].here, `打开 = 根组件（老文件的程序占位名 model → 打开时起四位码、没起名、淡色；user 10-30）+ 椅子：${JSON.stringify(r1.map((r) => [r.name, r.unnamed]))}`);
 await page.click(`${W} .tree-row:nth-child(2) .tree-caret`); await page.waitForTimeout(80);
 const r2 = await rows();
 check(r2.length === 3 && r2[2].unnamed && /^[0-9a-f]{4}$/.test(r2[2].name), `展开椅子 = 露出里面那个四位码物件、淡色：${JSON.stringify(r2[2])}`);
@@ -56,7 +57,7 @@ await page.locator(".popup-menu button", { hasText: "改名…" }).click(); awai
 await page.fill("#sheetInput", "小镇"); await page.keyboard.press("Enter"); await page.waitForTimeout(150);
 const rootRenamed = (await rows())[0];
 await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(100);
-check(rootRenamed.name === "小镇" && !rootRenamed.unnamed && (await rows())[0].name === "model", `根改名 = 树上变「${rootRenamed.name}」、撤销回 model`);
+check(rootRenamed.name === "小镇" && !rootRenamed.unnamed && (await rows())[0].name === rootCode, `根改名 = 树上变「${rootRenamed.name}」、撤销回四位码 ${rootCode}`);
 // 改名（I4）：「…」→「改名…」→ 输入框；没自己名字的物件 = 改组件名；撤销一步回来
 await page.keyboard.press("Escape"); await page.waitForTimeout(60);
 await page.click(`${W} .tree-row:nth-child(2) .tree-more`); await page.waitForTimeout(120);

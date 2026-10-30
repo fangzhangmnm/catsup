@@ -1802,7 +1802,7 @@ function bootRestore(): Promise<RestoreOutcome> {
     updateSaveStatus,
     openGallery: async () => { hideCanvasTip(); session.beginLazyBlank(); await galleryHost.open(); },   // 覆盖层底下要有画布：lazyblank 垫底
     openFreshCanvas: async () => { session.beginLazyBlank(); },
-    openBlankCanvas: async () => {},      // 无库：开机就是 transient（Session 初始态），零变更
+    openBlankCanvas: async () => { session.nameBlankRoot(); },      // 无库：开机就是 transient（Session 初始态）；只给根起四位码（user 10-30），别的零变更
     onNoGallery: () => {},
     onOpened: (name) => note("boot", `restored "${name}"`),
     onNotFound: (name) => { note("boot", `restore failed "${name}" → fresh canvas (slate kept)`); notify({ text: `上次的模型「${bareName(name)}」本机没有副本；登录后会再试`, level: "warning" }); },
@@ -1829,6 +1829,7 @@ void (async () => {
   const t0 = performance.now();
   let outcome: RestoreOutcome | null = null;
   if (hasStore()) { try { outcome = await bootRestore(); } catch (e) { funnel(new Error("[boot] restore failed: " + String(e)), "warning"); } }
+  else session.nameBlankRoot();   // 无地开机（没挂过图库）：只给空白场景的根起四位码（user 10-30），别的零变更
   note("boot", `restore store=${hasStore()} outcome=${outcome ?? "landless"} home=${session.home.kind}${session.home.kind === "gallery" ? ":" + session.home.path + (session.lazy ? " (lazy)" : "") : ""} ${(performance.now() - t0).toFixed(0)}ms`);
   updateSaveStatus();
   if (auth.isAuthConfigured()) {

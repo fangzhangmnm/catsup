@@ -16,6 +16,8 @@
 //   · flushForHide = hidden / blur / pagehide(!persisted) 的崩溃安全 flush（只本地不推）。
 import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
+import { Scene } from "../scene/scene.ts";
+import { ROOT_PLACEHOLDER } from "../editor/object-tree.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument, writeGltfModel } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
@@ -23,7 +25,7 @@ import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "
 import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { fmtStamp } from "../format/migrate/index.ts";
 import type { Xform } from "../scene/xform.ts";
-import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName } from "../config.ts";
+import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4 } from "../config.ts";
 import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
@@ -91,6 +93,13 @@ const dirOf = (path: string): string => (path.includes("/") ? path.slice(0, path
  *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
 export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
 
+/** 根没起名（程序占位「model」）= 起一个四位码，和别的组件一样（user 10-30「没起名的根，要不要也和别的组件一样显示四位码 同意」）。
+ *  在场景交给编辑器之前起（进撤销的起点、不算一步）；新建和打开老文件都走这里；存盘后这个码就固定下来。 */
+function nameRoot(sc: Scene): Scene {
+  const d = sc.def(sc.root);
+  if (d.name === ROOT_PLACEHOLDER) d.name = hex4();
+  return sc;
+}
 export class Session {
   home: DocHome = { kind: "transient" };
   saving = false;
@@ -263,7 +272,7 @@ export class Session {
   async adoptRecovered(bytes: Uint8Array, name: string, opts: { gate: boolean }): Promise<"gallery" | "transient" | null> {
     if (opts.gate && !(await this.leaveGate())) return null;
     const doc = readCatsup(bytes);
-    const sc = sceneFromDocument(doc);
+    const sc = nameRoot(sceneFromDocument(doc));
     this.dropLuggage();
     this.loaded = doc;
     this.lazy = false;
@@ -341,7 +350,7 @@ export class Session {
   }
   private adopt(bytes: Uint8Array): void {
     const doc = readCatsup(bytes);
-    const sc = sceneFromDocument(doc);
+    const sc = nameRoot(sceneFromDocument(doc));
     this.pushPending = false; this.attention = null;
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
@@ -387,11 +396,19 @@ export class Session {
   // ---------- 生命周期 ----------
   /** lazyblank 新场景（WeebPaint beginLazyBlank）：空内核 + 图库家日期名只在内存；不建文件、不写回执条；首笔有内容 → noteChange 安家。
    *  boot 的「可画新场景」落点（首次 / 恢复失败 / 崩溃断路）+ 挂库时的「新建」。 */
+  /** 无库开机的空白（Session 初始态 = 编辑器自带的那张空场景）：根还是程序占位就重装一张起好四位码的空场景，别的不动（user 10-30 根和别的组件一样显示四位码）。 */
+  nameBlankRoot(): void {
+    const sc = this.d.editor.sceneRef;
+    if (sc.def(sc.root).name !== ROOT_PLACEHOLDER || sc.defs.size !== 1 || this.d.editor.kernel.edges().length) return;   // 只动刚开机、什么都没画的那张
+    this.d.editor.loadScene(nameRoot(new Scene(new Kernel())), "新建");
+    this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);   // 新文件的网格设置（每条「新建」路都跟这一行，守卫 snap-default.test）
+    this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
+  }
   beginLazyBlank(): void {
     this.loaded = null;
     this.pushPending = false; this.createPending = false;
     this.lazy = false;   // loadKernel 会同步 changed → noteChange；此刻别当首笔
-    this.d.editor.loadKernel(new Kernel(), "新建");
+    this.d.editor.loadScene(nameRoot(new Scene(new Kernel())), "新建");
     this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();
@@ -423,7 +440,7 @@ export class Session {
     if (hasStore()) { this.beginLazyBlank(); return true; }
     this.loaded = null;
     this.lazy = false; this.createPending = false;
-    this.d.editor.loadKernel(new Kernel(), "新建");
+    this.d.editor.loadScene(nameRoot(new Scene(new Kernel())), "新建");
     this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();

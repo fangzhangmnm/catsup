@@ -22,10 +22,10 @@ describe("新文件默认开吸附", () => {
     g.set("freeform", { on: true }); eq(g.doc.on, false, "自由建模开吸附不碰文档那份");
     g.set("freeform", { ...g.doc, on: true }, true); eq(g.doc.on, true, "读盘 = 整份照文档的换"); eq(g.view("freeform").on, true);
   });
-  it("Session 每条「新建」路（loadKernel(new Kernel(), \"新建\")）后面都紧跟 setGrid(NEW_DOC_GRID)", () => {
+  it("Session 每条「新建」路（loadScene(nameRoot(new Scene(new Kernel())), \"新建\")；10-30 起根起四位码）后面都紧跟 setGrid(NEW_DOC_GRID)", () => {
     const src = read("src/app/session.ts");
-    const news = src.split('loadKernel(new Kernel(), "新建")').length - 1;
-    const withGrid = src.split('loadKernel(new Kernel(), "新建");\n    this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);').length - 1;   // true = 读盘 / 新建：整份照文档的换
+    const news = src.split('loadScene(nameRoot(new Scene(new Kernel())), "新建")').length - 1;
+    const withGrid = src.split('loadScene(nameRoot(new Scene(new Kernel())), "新建");\n    this.d.editor.setGrid({ ...NEW_DOC_GRID }, true);').length - 1;   // true = 读盘 / 新建：整份照文档的换
     assert(news >= 2, `新建路少了？只找到 ${news} 条`);
     eq(withGrid, news, "有新建路没设 NEW_DOC_GRID");
   });
