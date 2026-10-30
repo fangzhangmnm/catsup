@@ -16,3 +16,6 @@ export class GridState {
     this.doc = { ...this.doc, ...patch };
   }
 }
+
+/** 吸附开关的叫法（提示行用；按工作台分的事住这里，app 层不分叉——守卫 T102）：自由建模那份要说清楚是自己一份。 */
+export const snapSwitchName = (mode: ModeId): string => (mode === "freeform" ? "自由建模的吸附（和硬表面分开记、默认关）" : "格点吸附");

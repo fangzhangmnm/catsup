@@ -8,6 +8,7 @@
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS, BRUSHES } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
+import { snapSwitchName } from "../editor/grid-state.ts";
 import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
@@ -1330,7 +1331,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "mirror.apply": editor.pressParam("apply"); syncUi(); return;
     case "grid.toggle":   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
       editor.setGrid({ on: !editor.grid.on });
-      hintEl.textContent = (editor.modeId === "freeform" ? "自由建模的吸附（和硬表面分开记、默认关）：" : "格点吸附：") + (editor.grid.on ? "开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "关（按住 Shift 临时开）");
+      hintEl.textContent = `${snapSwitchName(editor.modeId)}：` + (editor.grid.on ? "开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "关（按住 Shift 临时开）");
       syncUi(); return;
     case "modal": {   // Blender 的 G / R / S / E / I / Alt+S / Ctrl+B：有选区就从光标处起手；没选区 = 切到那把工具（倒角 / 沿法线 = 提示）
       const t = p1 as Tool;
