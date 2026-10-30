@@ -22,33 +22,37 @@ export function meshFromTriangles(t: TriSoup): { kernel: MeshKernel; skipped: nu
 
 /** 外来文件的三角：顶点为了法线 / UV 劈开过（同一位置几个下标）；normals 可缺（缺的分量 = NaN）。 */
 export interface SplitTriangles { positions: Float32Array; normals?: Float32Array | null; indices: Uint32Array }
+/** 外来文件的多边形（OBJ）：每个多边形 = 一圈原始下标（绕向 = 朝向）；smoothGroups = 每个多边形的平滑组（OBJ 的 s；0 = 关），没法线时按它判软硬。 */
+export interface SplitPolygons { positions: Float32Array; normals?: Float32Array | null; polys: readonly (readonly number[])[]; smoothGroups?: readonly number[] | null }
 export interface SplitCastReport { skipped: number; faces: number; quads: number; soft: number; hard: number; usedNormals: boolean }
 /** 两个文件法线算「同一个」（Blender 导出共用的法线是同一组浮点数；留一点余量给别的导出器）。 */
 const SAME_NORMAL_COS = 0.9999;
 /** 背靠背的两个三角拼回四边形：两侧三角的夹角上限（Blender「三角转四边形」默认 40°，留宽一点）。 */
 const QUAD_FOLD_COS = Math.cos((45 * Math.PI) / 180);
 
-/**
- * 外来文件的三角 → 网格体（2026-10-29 Claude Opus 5.5；user 10-29「导入的时候要respect平滑组……软边的话应该是软边，然后应该keep quad。当然我知道gltf没法保quad」
- * 「如果你是一个平滑的模型，导入进来不应该有一堆硬边」）。三步：
- *  ① **焊**：同一位置的顶点并成一个——文件为了法线 / UV 把顶点劈开，不焊 = 网格在接缝处是裂的（裂开的边只挨一张面 = 棱，一拉就撕开）。
- *  ② **拼回四边形**：glTF 只存三角；Blender 导出时一个多边形的三角是连着写的。前后两个三角共用两个**顶点下标**（同法线同 UV 的对角线）、
- *     绕向一致、拼起来是凸的、折得不厉害 → 原来是一个四边形，拼回去。全三角的模型里碰巧连着的一对也会被拼（形状照旧、只是面少了）。
- *  ③ **软硬边看文件的法线**（glTF 的平滑组就是这么存的）：一条边两侧在两个端点用的是同一个法线 = 平滑，劈开了 = 棱。
- *     「默认平滑」取多数（平滑边多 → smooth、把棱手标 sharp；反之 hard、把平滑边手标 smooth），以后在上面新长出来的边跟多数走。
- *     文件没法线（或某条边端点缺法线）→ 那些边按角度（softDeg，和以前一样）。
- */
-export function meshFromSplitTriangles(t: SplitTriangles, softDeg: number): { kernel: MeshKernel; report: SplitCastReport } {
-  const m = new MeshKernel(), n = Math.floor(t.positions.length / 3), N = t.normals ?? null;
-  const report: SplitCastReport = { skipped: 0, faces: 0, quads: 0, soft: 0, hard: 0, usedNormals: false };
-  // ① 焊：位置完全相同的下标并成一个顶点
-  const weld = new Int32Array(n), seen = new Map<string, number>();
+/** ① 焊：位置完全相同的下标并成一个顶点（文件为了法线 / UV 把顶点劈开，不焊 = 网格在接缝处是裂的，裂开的边只挨一张面 = 棱，一拉就撕开）。 */
+function weldPositions(positions: Float32Array): { m: MeshKernel; weld: Int32Array } {
+  const m = new MeshKernel(), n = Math.floor(positions.length / 3), weld = new Int32Array(n), seen = new Map<string, number>();
   for (let i = 0; i < n; i++) {
-    const x = t.positions[3 * i], y = t.positions[3 * i + 1], z = t.positions[3 * i + 2], k = `${x},${y},${z}`;
+    const x = positions[3 * i], y = positions[3 * i + 1], z = positions[3 * i + 2], k = `${x},${y},${z}`;
     let v = seen.get(k);
     if (v === undefined) { v = m.addVertex({ x, y, z }); seen.set(k, v); }
     weld[i] = v;
   }
+  return { m, weld };
+}
+
+/**
+ * 外来文件的三角 → 网格体（2026-10-29 Claude Opus 5.5；user 10-29「导入的时候要respect平滑组……软边的话应该是软边，然后应该keep quad。当然我知道gltf没法保quad」
+ * 「如果你是一个平滑的模型，导入进来不应该有一堆硬边」）。三步：
+ *  ① **焊**（weldPositions）。
+ *  ② **拼回四边形**：glTF 只存三角；Blender 导出时一个多边形的三角是连着写的。前后两个三角共用两个**顶点下标**（同法线同 UV 的对角线）、
+ *     绕向一致、拼起来是凸的、折得不厉害 → 原来是一个四边形，拼回去。全三角的模型里碰巧连着的一对也会被拼（形状照旧、只是面少了）。
+ *  ③ **软硬边**（finishPolys：看文件的法线；glTF 的平滑组就是这么存的）。
+ */
+export function meshFromSplitTriangles(t: SplitTriangles, softDeg: number): { kernel: MeshKernel; report: SplitCastReport } {
+  const { m, weld } = weldPositions(t.positions), n = weld.length;
+  const report: SplitCastReport = { skipped: 0, faces: 0, quads: 0, soft: 0, hard: 0, usedNormals: false };
   const P = (i: number): [number, number, number] => [t.positions[3 * i], t.positions[3 * i + 1], t.positions[3 * i + 2]];
   const triNormal = (a: number, b: number, c: number): [number, number, number] => {
     const [ax, ay, az] = P(a), [bx, by, bz] = P(b), [cx, cy, cz] = P(c);
@@ -81,26 +85,51 @@ export function meshFromSplitTriangles(t: SplitTriangles, softDeg: number): { ke
     }
     return null;
   };
-  // ② 面（记下每个角的原始下标，③ 用它查法线）
-  const raw = new Map<number, number[]>();
+  const polys: number[][] = [];
   const tc = Math.floor(t.indices.length / 3);
   for (let k = 0; k < tc; k++) {
     const A = tri(k);
     if (!A) { report.skipped++; continue; }
     const B = k + 1 < tc ? tri(k + 1) : null, ring = B ? quadOf(A, B) : null;
-    const corners = ring ?? A;
-    raw.set(m.addFace(corners.map((i) => weld[i])), corners);
-    report.faces++;
+    polys.push(ring ?? A);
     if (ring) { report.quads++; k++; }
   }
-  // ③ 软硬边
+  finishPolys(m, weld, polys, t.normals ?? null, null, softDeg, report);
+  return { kernel: m, report };
+}
+
+/** 外来文件的多边形（OBJ：四边形 / n 边形原样）→ 网格体：焊 + 软硬边（看每个角的法线；没法线看平滑组；都没有按角度）。 */
+export function meshFromSplitPolygons(t: SplitPolygons, softDeg: number): { kernel: MeshKernel; report: SplitCastReport } {
+  const { m, weld } = weldPositions(t.positions);
+  const report: SplitCastReport = { skipped: 0, faces: 0, quads: 0, soft: 0, hard: 0, usedNormals: false };
+  finishPolys(m, weld, t.polys, t.normals ?? null, t.smoothGroups ?? null, softDeg, report);
+  return { kernel: m, report };
+}
+
+/**
+ * 面 + 软硬边（两种输入共用）：每个多边形按焊好的顶点长成一张面（焊后挨着重复的角去掉，剩不到 3 个 = 退化、跳过）；
+ * 一条边两侧在两个端点用的是同一个法线 = 平滑、劈开了 = 棱（glTF / OBJ 的平滑组就是这么存的）；没法线有平滑组 = 同一个非零组 = 平滑。
+ * 「默认平滑」取多数（平滑边多 → smooth、把棱手标 sharp；反之 hard、把平滑边手标 smooth），以后在上面新长出来的边跟多数走；
+ * 什么都没有（或某条边端点缺法线）→ 那些边按角度（softDeg，和以前一样）。
+ */
+function finishPolys(m: MeshKernel, weld: Int32Array, polys: readonly (readonly number[])[], N: Float32Array | null, groups: readonly number[] | null, softDeg: number, report: SplitCastReport): void {
+  const n = weld.length, raw = new Map<number, number[]>(), groupOf = new Map<number, number>();
+  polys.forEach((poly, pi) => {
+    const corners: number[] = [];
+    for (const i of poly) { if (i < 0 || i >= n) continue; if (corners.length && weld[corners[corners.length - 1]] === weld[i]) continue; corners.push(i); }
+    while (corners.length > 1 && weld[corners[0]] === weld[corners[corners.length - 1]]) corners.pop();
+    if (corners.length < 3 || new Set(corners.map((i) => weld[i])).size !== corners.length) { report.skipped++; return; }
+    const f = m.addFace(corners.map((i) => weld[i]));
+    raw.set(f, corners); report.faces++;
+    if (groups) groupOf.set(f, groups[pi] ?? 0);
+  });
   const nrm = (i: number): [number, number, number] | null => {
     if (!N) return null;
     const x = N[3 * i], y = N[3 * i + 1], z = N[3 * i + 2];
     return Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z) ? [x, y, z] : null;
   };
   const cornerAt = (f: number, v: number): number => { const vs = m.faceVerts(f), rs = raw.get(f)!; return rs[vs.indexOf(v)]; };
-  const verdict: { e: number; smooth: boolean }[] = [];
+  const verdict = new Map<number, boolean>();
   for (const e of m.edges()) {
     const fs = m.eFaces(e);
     if (fs.length !== 2 || fs[0] === fs[1]) continue;   // 边界 / 非流形 = 棱（edge-smooth 的定义），不用标
@@ -110,27 +139,27 @@ export function meshFromSplitTriangles(t: SplitTriangles, softDeg: number): { ke
       if (!a || !b) { smooth = null; break; }
       if (a[0] * b[0] + a[1] * b[1] + a[2] * b[2] < SAME_NORMAL_COS) smooth = false;
     }
+    if (smooth === null && groups) { const g1 = groupOf.get(fs[0]) ?? 0, g2 = groupOf.get(fs[1]) ?? 0; smooth = g1 !== 0 && g1 === g2; }
     if (smooth === null) continue;
-    verdict.push({ e, smooth });
+    verdict.set(e, smooth);
     if (smooth) report.soft++; else report.hard++;
   }
-  report.usedNormals = verdict.length > 0;
-  if (!report.usedNormals) { m.setSmoothDefault({ mode: "angle", deg: softDeg }); return { kernel: m, report }; }
+  report.usedNormals = verdict.size > 0;
+  if (!report.usedNormals) { m.setSmoothDefault({ mode: "angle", deg: softDeg }); return; }
   const majoritySmooth = report.soft >= report.hard;
-  // 端点缺法线的边先按角度定下来（默认换成多数之后它们不能跟着变）
+  // 判不了的边先按角度定下来（默认换成多数之后它们不能跟着变）
   const cosDeg = Math.cos((softDeg * Math.PI) / 180);
   for (const e of m.edges()) {
     const fs = m.eFaces(e);
-    if (fs.length !== 2 || fs[0] === fs[1] || verdict.some((x) => x.e === e)) continue;
+    if (fs.length !== 2 || fs[0] === fs[1] || verdict.has(e)) continue;
     const a = m.faceNormal(fs[0]), b = m.faceNormal(fs[1]), la = Math.hypot(a.x, a.y, a.z) || 1, lb = Math.hypot(b.x, b.y, b.z) || 1;
-    verdict.push({ e, smooth: Math.abs((a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb)) >= cosDeg - 1e-12 });
+    verdict.set(e, Math.abs((a.x * b.x + a.y * b.y + a.z * b.z) / (la * lb)) >= cosDeg - 1e-12);
   }
   m.setSmoothDefault(majoritySmooth ? { mode: "smooth", deg: softDeg } : { mode: "hard", deg: softDeg });
-  for (const { e, smooth } of verdict) {
+  for (const [e, smooth] of verdict) {
     if (smooth === majoritySmooth) continue;
     m.setEdgeFlags(e, (m.edgeFlags[e] & ~(F_SHARP | F_SMOOTH | F_SOFT)) | (smooth ? F_SOFT | F_SMOOTH : F_SHARP));
   }
-  return { kernel: m, report };
 }
 
 /** 内核 → 三角汤（顶点紧凑重编；每三角记面的材质槽）。 */

@@ -41,7 +41,7 @@ describe("CATSUP_mesh 1.0.0：多边形载荷", () => {
     const prims = g.json.meshes[node.mesh].primitives as AnyJson[];
     assert(prims.some((p) => (p.mode ?? 4) === 4) && prims.some((p) => p.mode === 1), "TRIANGLES + LINES");
     assert(prims.some((p) => p.material === 0), "涂了材质的面单独一个 primitive");
-    eq(formatTag(), "3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.3.0-1.0.0-1.2.0");   // CATSUP_mesh 1.1（2026-10-28 默认平滑）→ 1.2（2026-10-28 晚 对称属性）；CATSUP_desk 1.2（2026-10-29 演示锁）
+    eq(formatTag(), "3.2.0-4.2.0-6.4.0-1.0.0-1.0.0-1.3.0-1.0.0-1.2.0");   // CATSUP_document 3.2（2026-10-29 吸附细分多四档）   // CATSUP_mesh 1.1（2026-10-28 默认平滑）→ 1.2（2026-10-28 晚 对称属性）；CATSUP_desk 1.2（2026-10-29 演示锁）
     assert(!g.json.extensionsUsed.includes("CATSUP_mesh"), "不是顶层扩展（住在定义里）");
   });
   it("0.14 的三角汤最小形（没拍子、只有 positions / indices）照开：每三角一面；重存变成多边形载荷", () => {

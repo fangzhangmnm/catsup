@@ -1,6 +1,7 @@
 // obj-io.ts —— OBJ 逃生口（纯字符串，DOM-free，node 直测）。
 // created 2026-09-06 by Claude Fable 5.1（user：「无 store 无导入导出（现在定文件格式还太早）…可以留一个 gltf 或者 obj 的 io 逃生口」）
 //
+// 2026-10-29 Opus 5.5：导入那一半（parseObjSegments：只读边、加进硬表面）退役——OBJ 导入改走 format/obj-import.ts（网格体，和外来 glb 同一条，账本 T121）；这里只剩导出。
 // 定位：**不是文件格式**——CatsUp 自己的持久化格式还没立（膜血缘/贴图/group 都没定），OBJ 只是「把模型
 // 搬去 Blender / 从 Blender 搬回来」的最低限度通道。导出丢的信息：膜 id、平面注册、事件史；导入进来的
 // 只是一堆边（面靠内核 face-finding 自己长回来，与手画一个字节不差）。
@@ -121,59 +122,3 @@ export function exportObj(k: GeomView, opts: ObjExportOpts = {}): string {
   return lines.join("\n") + "\n";
 }
 
-export interface ObjParseResult {
-  segs: [Pt3, Pt3][];
-  vertices: number;
-  faces: number;
-  looseLines: number;
-}
-
-/**
- * 解析 OBJ 成线段集（每个多边形的边 + `l` 线；去重）。maxSegments 之上直接拒收——
- * 三角汤网格进肥皂膜内核 = 每个三角一张膜，慢且无意义；逃生口只接「多边形建模」量级。
- */
-export function parseObjSegments(text: string, opts: { maxSegments?: number } = {}): ObjParseResult {
-  const maxSegments = opts.maxSegments ?? 3000;
-  const verts: Pt3[] = [];
-  const segKeys = new Set<string>();
-  const segs: [Pt3, Pt3][] = [];
-  let faces = 0, looseLines = 0;
-  const key = (p: Pt3): string => `${fmt(p.x)},${fmt(p.y)},${fmt(p.z)}`;
-  const push = (a: Pt3, b: Pt3): void => {
-    const ka = key(a), kb = key(b);
-    if (ka === kb) return;
-    const kk = ka < kb ? `${ka}|${kb}` : `${kb}|${ka}`;
-    if (segKeys.has(kk)) return;
-    segKeys.add(kk);
-    segs.push([a, b]);
-    if (segs.length > maxSegments) throw new Error(`OBJ 太大：超过 ${maxSegments} 条边（逃生口只接多边形建模量级，不接三角汤）`);
-  };
-  const resolve = (tok: string): Pt3 | null => {
-    const i = parseInt(tok.split("/")[0], 10);
-    if (!Number.isFinite(i) || i === 0) return null;
-    const idx = i > 0 ? i - 1 : verts.length + i;
-    return verts[idx] ?? null;
-  };
-  for (const raw of text.split(/\r?\n/)) {
-    const line = raw.trim();
-    if (!line || line.startsWith("#")) continue;
-    const parts = line.split(/\s+/);
-    const tag = parts[0];
-    if (tag === "v") {
-      const X = parseFloat(parts[1]), Y = parseFloat(parts[2]), Z = parseFloat(parts[3]);
-      if (![X, Y, Z].every(Number.isFinite)) continue;
-      verts.push({ x: X, y: -Z, z: Y });   // Y-up → Z-up
-    } else if (tag === "f" || tag === "l") {
-      const pts = parts.slice(1).map(resolve).filter((p): p is Pt3 => p !== null);
-      if (pts.length < 2) continue;
-      if (tag === "f") {
-        faces++;
-        for (let i = 0; i < pts.length; i++) push(pts[i], pts[(i + 1) % pts.length]);
-      } else {
-        looseLines++;
-        for (let i = 0; i + 1 < pts.length; i++) push(pts[i], pts[i + 1]);
-      }
-    }
-  }
-  return { segs, vertices: verts.length, faces, looseLines };
-}

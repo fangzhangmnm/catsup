@@ -164,7 +164,7 @@ const EPS_OF: Record<string, number> = {
   endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
   "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5, tool: 5,
 };
-export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
+export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, isGridSubdiv, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 
 export function describeEvent(ev: FaceEvent): string {
   switch (ev.type) {

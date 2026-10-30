@@ -24,6 +24,8 @@
 //                      三角形不再存（bake 的派生物）。老读者（0.14 / 0.15.9 以前的 dev）看不见多边形键、也没有 positions / indices 三角汤 = 读不到网格体几何（它们本来就不画 mesh），提示一次；存回去会丢网格体 → 那是 minor 语义的边界，
 //                      但那些版本没有任何造 mesh 身体的入口，实际没有这种文件。
 //   CATSUP_document    3.1（2026-10-25 追认）：settings 里 10-24/25 加的可选键 gridPlane / gridPreset / scaleRefs（老读者原样带回、minor 提示一次）。
+//   CATSUP_document    3.2（2026-10-29，Claude Opus 5.5；Tron 账本 T120 user「snapping的substep应该除了5 10 还有2 20 50 100」）：settings.gridSubdiv 的取值从 5 / 10 放宽到
+//                      2 / 5 / 10 / 20 / 50 / 100（键不变、类型不变）。老读者读到不认识的值退回 5（minor：吸附细分不一样，内容一字不少；提示一次）。
 //   CATSUP_desk        1.0（2026-10-25，Claude Fable 5.1）：桌面态子结构 = WeebPaint `.weebpaint/editor-state.json` 在 glb 里的镜像（user「不是应该跟文件吗，看一下weebpaint…」）：
 //                      menuTabs（两个 ☰ 停在哪页）、lastView（相机；从 CATSUP_document 搬来 = 契约 §7.2「保留读、停止写」）。不进定稿指纹、不标脏、新建必 reset；
 //                      **major 比本版新 → 不拒开**：原字节带回、桌面用默认（只有 document / brep / definitions 太新才拒开）。
@@ -55,7 +57,7 @@
 export interface Stamp { readonly major: number; readonly minor: number; readonly patch: number }
 /** 本版写出的拍子（SSoT）。 */
 export const FORMAT = {
-  CATSUP_document: { major: 3, minor: 1, patch: 0 },
+  CATSUP_document: { major: 3, minor: 2, patch: 0 },   // 3.2（2026-10-29）：settings.gridSubdiv 多四档 2 / 20 / 50 / 100
   CATSUP_brep: { major: 4, minor: 2, patch: 0 },
   CATSUP_definitions: { major: 6, minor: 4, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },

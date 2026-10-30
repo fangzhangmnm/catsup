@@ -10,7 +10,7 @@ import { WORLD_FRAME, type Frame } from "../src/scene/xform.ts";
 import { axisAlignAngle } from "../src/editor/protractor-geom.ts";
 import { newDocument, readCatsup, writeCatsup } from "../src/format/index.ts";
 import { DEFAULT_SETTINGS } from "../src/format/document.ts";
-import { gridFromSettings, settingsFromGrid, nearestGridStep, gridStepsFor, DEFAULT_GRID } from "../src/editor/grid-settings.ts";
+import { gridFromSettings, settingsFromGrid, nearestGridStep, gridStepsFor, DEFAULT_GRID, GRID_SUBDIVS } from "../src/editor/grid-settings.ts";
 import { rectToolTargets } from "../src/editor/tools.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -198,3 +198,15 @@ describe("整格 / 整角吸附（DT51，user 2026-10-25「同时snap absolute�
   });
 });
 
+
+// 吸附细分六档（2026-10-29 Claude Opus 5.5；user「snapping的substep应该除了5 10 还有2 20 50 100」，账本 T120；CATSUP_document 3.2）
+describe("吸附细分：2 / 5 / 10 / 20 / 50 / 100", () => {
+  it("每一档写进文档设置再读回来不变；snapIncrement = 格距 ÷ 细分；不认识的值（老文件 / 手改）退回 5", () => {
+    for (const n of GRID_SUBDIVS) {
+      const s = settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: n, plane: "xy", preset: "si" });
+      eq(s.gridSubdiv, n); eq(s.snapIncrement, 1 / n);
+      eq(gridFromSettings(s).subdiv, n);
+    }
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridSubdiv: 7 }).subdiv, 5);
+  });
+});

@@ -1,8 +1,12 @@
-// OBJ 逃生口：Z-up↔Y-up 往返、n-gon/洞/裸边、导入=边→内核 face-finding 长回面。created 2026-09-06 by Claude Fable 5.1
+// OBJ 逃生口：Z-up↔Y-up 往返、n-gon/洞/裸边；导入 2026-10-29 起 = 网格体（format/obj-import.ts，和外来 glb 同一条）。created 2026-09-06 by Claude Fable 5.1
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import type { FaceId, Pt3 } from "../src/kernel/kernel.ts";
-import { exportObj, parseObjSegments } from "../src/editor/obj-io.ts";
+import { exportObj } from "../src/editor/obj-io.ts";
+import { readForeignObj } from "../src/format/obj-import.ts";
+import { castImport } from "../src/scene/import-build.ts";
+import { kernelFromMeshDoc } from "../src/mesh/mesh-doc.ts";
+import { edgeSmooth } from "../src/mesh/edge-smooth.ts";
 import { rectSegments } from "../src/editor/tools.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -50,29 +54,30 @@ describe("obj-io", () => {
     eq(tri.split("\n").filter((l) => l.startsWith("f ")).length, 2);
   });
 
-  it("导入：Y-up → Z-up；多边形边去重；喂进内核长回同样的面", () => {
+  // 2026-10-29 Opus：OBJ 导入改成网格体（和外来 glb 同一条；user 10-29「导入的glb obj当然应该是mesh」，账本 T121）
+  const meshOf = (txt: string, name = "t") => { const data = readForeignObj(txt, name); const { scene, report } = castImport(data, 20); return { data, report, meshes: scene.meshes.map((m) => kernelFromMeshDoc(m.mesh!, name)) }; };
+  it("导入：Y-up → Z-up；多边形原样（导出的立方体再导入 = 6 个四边形、8 个点）", () => {
     const k = new Kernel();
     k.addEdges(rectSegments({ x: 0, y: 0 }, { x: 10, y: 5 }));
     k.pushPull(k.faces()[0].id, 7);
-    eq(k.faces().length, 6);
-    const txt = exportObj(k);
-    const r = parseObjSegments(txt);
-    eq(r.faces, 6);
-    eq(r.segs.length, 12);   // 立方体 12 条边，相邻面共享边去重
-    const k2 = new Kernel();
-    k2.addEdges(r.segs);
-    eq(k2.faces().length, 6);
-    // 坐标往返恒等
-    const zs = new Set(k2.vertices().map((v) => Math.round(v.z)));
+    const { meshes } = meshOf(exportObj(k));
+    eq(meshes.length, 1);
+    const m = meshes[0];
+    eq(m.faceCount(), 6); eq(m.vertexCount(), 8); eq(m.edgeCount(), 12);
+    assert(m.faces().every((f) => m.faceLen[f] === 4), "四边形原样");
+    const zs = new Set(m.verts().map((v) => Math.round(m.pos[3 * v + 2])));
     assert(zs.has(0) && zs.has(7), [...zs].join(","));
   });
-
-  it("导入：支持 a/b/c 索引与负索引；超过上限拒收", () => {
-    const r = parseObjSegments("v 0 0 0\nv 1 0 0\nv 1 0 -1\nf 1/1/1 2//2 -1\n");
-    eq(r.segs.length, 3);
-    eq(r.vertices, 3);
-    let threw = false;
-    try { parseObjSegments("v 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\n", { maxSegments: 2 }); } catch { threw = true; }
-    assert(threw, "应拒收");
+  it("导入：a/b/c 索引与负索引；平滑组判软硬（同一个非零组 = 平滑、s off = 棱）；多个对象外面包一层", () => {
+    eq(meshOf("v 0 0 0\nv 1 0 0\nv 1 0 -1\nf 1/1/1 2//2 -1\n").meshes[0].faceCount(), 1);
+    const fold = (s1: string, s2: string): string => `v 0 0 0\nv 1 0 0\nv 1 0 -1\nv 0 0 -1\nv 1 1 0\nv 0 1 0\ns ${s1}\nf 1 2 3 4\ns ${s2}\nf 2 1 6 5\n`;   // 两张四边形折成 90°
+    const soft = meshOf(fold("1", "1")).meshes[0], hard = meshOf(fold("off", "off")).meshes[0];
+    const shared = (m: ReturnType<typeof meshOf>["meshes"][0]): number => m.edges().find((e) => m.eFaces(e).length === 2)!;
+    eq(edgeSmooth(soft, shared(soft)), true, "同组 = 平滑（90° 也平滑）");
+    eq(edgeSmooth(hard, shared(hard)), false, "s off = 棱");
+    const two = readForeignObj("o A\nv 0 0 0\nv 1 0 0\nv 0 1 0\nf 1 2 3\no B\nv 0 0 1\nv 1 0 1\nv 0 1 1\nf 4 5 6\n", "two");
+    eq(two.meshes.map((m) => m.name).join(), "A,B"); eq(two.nodes[two.roots[0]].name, "two"); eq(two.nodes[two.roots[0]].children.length, 2);
+    let threw = false; try { readForeignObj("v 0 0 0\n", "x"); } catch { threw = true; }
+    assert(threw, "没有面 = 拒");
   });
 });

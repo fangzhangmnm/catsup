@@ -8,7 +8,8 @@ import type { Xform } from "../scene/xform.ts";
 import { decodeGlb } from "./glb.ts";
 import { isCatsupGltf } from "./read.ts";
 
-export interface ImportMesh { name: string; /** Z-up 坐标。 */ positions: Pt3[]; /** 每个顶点的文件法线（Z-up；这个图元没法线 = null）；整个网格都没有 = 不带。软硬边靠它（mesh/tri-soup.ts meshFromSplitTriangles）。 */ normals?: (Pt3 | null)[]; /** 三角（每 3 个下标一个）。 */ tris: number[] }
+export interface ImportMesh { name: string; /** Z-up 坐标。 */ positions: Pt3[]; /** 每个顶点的文件法线（Z-up；这个图元没法线 = null）；整个网格都没有 = 不带。软硬边靠它（mesh/tri-soup.ts meshFromSplitTriangles）。 */ normals?: (Pt3 | null)[]; /** 三角（每 3 个下标一个）。 */ tris: number[];
+  /** 多边形（OBJ：四边形 / n 边形原样；有它就不看 tris）+ 每个多边形的平滑组（OBJ 的 s；0 = 关）。format/obj-import.ts */ polys?: number[][]; smoothGroups?: number[] }
 export interface ImportNode { name: string; /** 局部变换（Z-up）。 */ xform: Xform; mesh: number | null; children: number[] }
 export interface ImportScene { name: string; nodes: ImportNode[]; meshes: ImportMesh[]; roots: number[]; /** 进门时丢掉的东西（人话，导入后说一次）。 */ losses: string[] }
 

@@ -8,7 +8,11 @@ export const GRID_PLANES: readonly { id: GridPlane; label: string }[] = [{ id: "
 
 /** on = 格点 + 整数长度同一开关；step = 显示格距（米；**吸附没开也按它画**，user 2026-10-24「栅格吸附没开的时候栅格没有跟着单位动」）；subdiv = 吸附细分（吸附步 = step / subdiv）；
  *  preset = 栅格制式。存进文档 settings、不进 undo。 */
-export interface GridSettings { on: boolean; step: number; subdiv: 5 | 10; plane: GridPlane; preset: GridPreset; }
+/** 吸附细分的几档（一格吸几下；2026-10-29 user「snapping的substep应该除了5 10 还有2 20 50 100」，账本 T120；文件里是 settings.gridSubdiv，CATSUP_document 3.2）。 */
+export const GRID_SUBDIVS = [2, 5, 10, 20, 50, 100] as const;
+export type GridSubdiv = (typeof GRID_SUBDIVS)[number];
+export const isGridSubdiv = (x: unknown): x is GridSubdiv => (GRID_SUBDIVS as readonly unknown[]).includes(x);
+export interface GridSettings { on: boolean; step: number; subdiv: GridSubdiv; plane: GridPlane; preset: GridPreset; }
 /** 栅格制式 ≠ 长度单位（user 2026-10-24「dnd也不应该叫英尺英寸，那是一个独立的模式。英尺英寸不是sketchup的建筑模式吗，这两个分开来」）：
  *  si = 公制格距；architectural = SketchUp 建筑模板那套英尺英寸格距；dnd = D&D 格子（5 ft 一格，1/5 细分 = 1 ft）。显示 / 输入用哪种长度单位（vcbUnit）另一个旋钮，互不牵连。 */
 export type GridPreset = "si" | "architectural" | "dnd";
@@ -39,7 +43,7 @@ export function gridFromSettings(s: DocumentSettings): GridSettings {
   const step = typeof s.gridStep === "number" && s.gridStep > 1e-6 ? s.gridStep : 1;
   // 制式：没写键的老文档按格距猜——落在英制档上的 = 建筑英尺英寸（v0.13.32 之前格距跟 vcbUnit 走，英制用户的文档存的是英制格距），否则公制
   const preset: GridPreset = isGridPreset(s.gridPreset) ? s.gridPreset : gridPreset("architectural").steps.includes(step) ? "architectural" : "si";
-  return { on: !!s.absoluteGrid, step, subdiv: s.gridSubdiv === 10 ? 10 : 5, plane: s.gridPlane === "yz" || s.gridPlane === "xz" ? s.gridPlane : "xy", preset };
+  return { on: !!s.absoluteGrid, step, subdiv: isGridSubdiv(s.gridSubdiv) ? s.gridSubdiv : 5, plane: s.gridPlane === "yz" || s.gridPlane === "xz" ? s.gridPlane : "xy", preset };
 }
 /** 网格状态 → 文档 settings 的那几格（snapIncrement 派生 = step / subdiv，契约里保留）。 */
 export function settingsFromGrid(s: DocumentSettings, g: GridSettings): DocumentSettings {

@@ -50,7 +50,7 @@ import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openPasswordSheet, isBusyActive } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
-import { Editor, GRID_PLANES, GRID_PRESETS, TOOLS, gridPreset, gridStepsFor, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
+import { Editor, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, TOOLS, gridPreset, gridStepsFor, isGridSubdiv, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
@@ -60,8 +60,9 @@ import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
 import { PALETTE_ZH } from "./palette.ts";
 import { faceTriangles } from "../editor/face-triangles.ts";
-import { exportObj, parseObjSegments } from "../editor/obj-io.ts";
-import { isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
+import { exportObj } from "../editor/obj-io.ts";
+import { readForeignObj } from "../format/obj-import.ts";
+import { type ImportScene, isForeignGlb, readForeignGlb } from "../format/gltf-import.ts";
 import { attachGestures } from "./gestures.ts";
 import { Locomotion } from "./locomotion.ts";
 import { TOOL_CYCLES, chordLabel, keyDocs, modifierChords, resolveKey, toolKeyText, type KeyContext, type KeyEvt } from "../controller/keymap.ts";
@@ -579,7 +580,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
 function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
   switch (id) {
     case "gallery": return { id: "gallery", label: "图库", icon: "gallery", ...(hasStore() ? {} : { hint: "本机 + OneDrive" }) };
-    case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "folder-open", hint: "Ctrl+O" };
+    case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "import", hint: "Ctrl+O" };   // 图标 = 导入（user 10-29「新建打开用导入图标」，账本 T120）
     case "exportHub": return { id: "exportHub", label: "导出与另存…", icon: "export" };
     case "lock": return session.locked()
       ? { id: "unlock", label: "解锁", icon: "unlock", hint: "放开：又能改了" }
@@ -814,7 +815,7 @@ function renderCrumbs(): void {
   }
 }
 // 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
-type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | "sub:5" | "sub:10" | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
+type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | `sub:${number}` | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
 /** 格距怎么念：按制式自带的单位（D&D 的 5 ft 不念成 1.524 m），不跟 vcbUnit。 */
 const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(step, gridPreset(preset).unit);
 /** 左上编辑模式下拉框（硬表面建模 / 表面；以后 + 有机体建模）。 */
@@ -830,10 +831,7 @@ function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boo
     { id: "preset:si" as GridMenuId, label: "制式", tab: "grid", choices: GRID_PRESETS.map((p) => ({ id: `preset:${p.id}` as GridMenuId, label: p.label, checked: g.preset === p.id, ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "英尺英寸，建筑图纸那套" } : {}) })) },   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）
     { id: `step:${steps[0]}` as GridMenuId, label: "格距", tab: "grid", choices: steps.map((st) => ({ id: `step:${st}` as GridMenuId, label: fmtGridStep(st, g.preset), checked: Math.abs(g.step - st) < 1e-9 })) },
     { id: "plane:xy" as GridMenuId, label: "栅格面", tab: "grid", choices: GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.plane === p.id, hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })) },
-    { id: "sub:5" as GridMenuId, label: "吸附细分", tab: "grid", choices: [
-      { id: "sub:5" as GridMenuId, label: "1/5", checked: g.subdiv === 5, hint: "仪表盘式" },
-      { id: "sub:10" as GridMenuId, label: "1/10", checked: g.subdiv === 10, hint: "尺子式" },
-    ] },
+    { id: "sub:5" as GridMenuId, label: "吸附细分", tab: "grid", choices: GRID_SUBDIVS.map((n) => ({ id: `sub:${n}` as GridMenuId, label: `1/${n}`, checked: g.subdiv === n, ...(n === 5 ? { hint: "仪表盘式" } : n === 10 ? { hint: "尺子式" } : {}) })) },
   ];
 }
 /** 吸附钮的菜单（右键 / 长按）：锁 + 跳到视图汉堡的「栅格」页。栅格设置不在这里重复一份。 */
@@ -869,7 +867,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
     if (id === "off") { editor.setGrid({ on: false }); syncUi(); return; }
     if (id.startsWith("preset:")) { const preset = id.slice(7) as GridPreset; editor.setGrid({ preset, step: nearestGridStep(editor.grid.step, preset) }); }
     else if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane });
-    else if (id === "sub:5" || id === "sub:10") editor.setGrid({ subdiv: id === "sub:5" ? 5 : 10 });
+    else if (id.startsWith("sub:")) { const n = Number(id.slice(4)); if (isGridSubdiv(n)) editor.setGrid({ subdiv: n }); }
     else editor.setGrid({ step: Number(id.slice(5)) });
     return "keep";
 }
@@ -1006,11 +1004,11 @@ objInput.addEventListener("change", async () => {
   objInput.value = "";
   if (!file) return;
   try {
-    const r = parseObjSegments(await file.text());
-    if (!r.segs.length) { notify({ text: "OBJ 里没有可用的边", level: "warning" }); return; }
-    const evs = editor.addSegments(r.segs, `导入 ${file.name}`);
-    editor.zoomExtents();
-    notify({ text: `导入 ${file.name}：${r.segs.length} 条边 → ${evs.length} 个膜事件`, level: "info" });
+    // 和外来 glb 同一条导入：层级 → 组件、网格 → 网格体、导入参数小窗（user 10-29「导入的glb obj当然应该是mesh」，账本 T121）
+    const data = readForeignObj(await file.text(), file.name.replace(/\.obj$/i, ""));
+    const t0 = performance.now(), r = editor.importForeign(data);
+    note("import", `${file.name}: ${data.nodes.length} nodes, ${data.meshes.length} meshes, ${Math.round(performance.now() - t0)} ms`);
+    reportImport(file.name, data, r);
   } catch (err) {
     notify({ text: `导入失败：${(err as Error).message}`, level: "error" });
   }
@@ -1029,6 +1027,13 @@ glbImportInput.addEventListener("change", async () => {
     const t0 = performance.now();
     const r = editor.importForeign(data);
     note("import", `${file.name}: ${data.nodes.length} nodes, ${data.meshes.length} meshes, ${Math.round(performance.now() - t0)} ms`);
+    reportImport(file.name, data, r);
+  } catch (err) {
+    notify({ text: `导入失败：${(err as Error).message}`, level: "error" });
+  }
+});
+/** 导入（glb / OBJ 同一条）落定后的通知：几个组件、几张面（拼回了几个四边形）、修了 / 丢了什么、没带进来什么。 */
+function reportImport(fileName: string, data: ImportScene, r: ReturnType<typeof editor.importForeign>): void {
     if (!r.ok) { notify({ text: `导入失败：${r.reason}`, level: "error" }); return; }
     editor.zoomExtents();
     const c = r.cast, parts = [`${r.instances} 个组件`, c.faces !== undefined ? `${c.faces} 个面${c.quads ? `（${c.quads} 个三角对拼回了四边形）` : ""}` : `${c.triangles - c.degenerate - c.duplicate - c.rejected} 个三角面`];
@@ -1036,11 +1041,8 @@ glbImportInput.addEventListener("change", async () => {
     if (c.rejected) parts.push(`${c.rejected} 个坏三角面没导进来`);
     if (c.degenerate || c.duplicate) parts.push(`丢掉 ${c.degenerate + c.duplicate} 个退化 / 重复的`);
     if (r.empties) parts.push(`${r.empties} 个空节点（画成小三轴）`);
-    notify({ text: `导入 ${file.name}：${parts.join("，")}${data.losses.length ? `。没带进来：${data.losses.join("、")}` : ""}`, level: c.rejected ? "warning" : "info" });
-  } catch (err) {
-    notify({ text: `导入失败：${(err as Error).message}`, level: "error" });
-  }
-});
+    notify({ text: `导入 ${fileName}：${parts.join("，")}${data.losses.length ? `。没带进来：${data.losses.join("、")}` : ""}`, level: c.rejected ? "warning" : "info" });
+}
 
 // ---------- 手势 & 键盘 ----------
 const gestures = attachGestures(canvas, editor, {

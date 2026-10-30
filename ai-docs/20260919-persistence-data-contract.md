@@ -452,3 +452,5 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 
 > **desk 1.3（2026-10-29，Claude Opus 5.5；Tron 账本 T86）**：`CATSUP_desk` 加可选键 `style` / `screen`（视图 ☰「风格」「屏幕」选过才写；不透明字符串，format 层不认识预设 id，app 认不出 = 默认）。语义同 desk 其它键：不进指纹、不标脏、不进撤销、新建 reset；老读者少看见它 = 用自己的默认风格打开。冻结样本 `v3.1.0-4.2.0-6.4.0-1.0.0-1.0.0-1.3.0-1.0.0-1.2.0/referenced.glb` 带 `pixelOutline` / `pixel2`。
+
+> **document 3.2（2026-10-29，Claude Opus 5.5；Tron 账本 T120）**：`settings.gridSubdiv` 的取值从 5 / 10 放宽到 2 / 5 / 10 / 20 / 50 / 100（键、类型都不变；user「snapping的substep应该除了5 10 还有2 20 50 100」）。老读者读到不认识的值退回 5（minor：吸附细分不一样，内容一字不少，提示一次）。样本 `test/fixtures/format/v3.2.0-…/snap20.glb`。
