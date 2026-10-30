@@ -80,6 +80,9 @@ export declare class Renderer3 implements RenderProvider {
     private gridMesh;
     private gridMat;
     private axesObj;
+    /** 网格 / 三色轴的原生 1 像素线版（PIXEL_GRID_LAYER；像素化的风格画进小图，光栅器自己的 Bresenham = 不糊不断）。 */
+    private gridPix;
+    private axesPix;
     private gridKey;
     private scratchV;
     private scratchV2;
@@ -132,8 +135,8 @@ export declare class Renderer3 implements RenderProvider {
     /** 粗线 resolution / linewidth：桌面 = canvas 设备像素 + DPR；XR = 每眼 viewport（每帧，WebXRManager 在回调前写好）。 */
     private syncLineScale;
     /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
-    /** 调试 / 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
-    labelKeys(): {
+    /** 调试 / 探针：画着的辅助几何的 id 和键（键里有什么归提交方）。 */
+    auxKeys(): {
         id: string;
         key: string;
     }[];
@@ -162,7 +165,13 @@ export declare class Renderer3 implements RenderProvider {
      * 「k × 小图」那么大一块，画布外多出来的那一点裁掉，叠加层和小图逐像素对齐；② 描边（后处理挂点）③ 最近邻放大回画布并写回深度 ④ 叠加层那一层
      * （网格、三轴、选中边、吸附、gizmo、文字、X 光线）按原分辨率画在上面，被写回的深度挡。选中 / 悬停的面是槽里的节点，跟着模型一起像素化。
      */
+    /** 小图一格 = 几个设备像素（行数上限：整数倍铺满、不留黑边）。 */
+    private styledK;
     private renderStyled;
+    /** 只画一层、不清屏、画进 target（风格那条路里排在后处理之后 / 原分辨率那两遍）。 */
+    private renderLayer;
+    /** 风格那条路里网格线的颜色（原始 sRGB）：画风写了就用；没写 = 背景 × 网格系数（和以前的 1 像素网格同一个算法：背景的 sRGB 数 × 系数的线性值）。 */
+    private pixelGridColor;
     /**
      * 离屏截图（缩略图；转正纪元 2026-09-20）：渲到 w×h 的 render target 再 readRenderTargetPixels。
      * 返回 RGBA、行序**自上而下**（three 读回是自下而上，这里翻好）。XR 会话中不截（相机归 XR）。
@@ -202,13 +211,26 @@ export declare class Renderer3 implements RenderProvider {
     /** 线稿粗细（设备像素）：1 = 原生线；> 1 = 粗线 + SU 轮廓线。 */
     setLineWeight(w: number): void;
     getLineWeight(): number;
-    /** 探针：叠加层线段族里某个 id（lockLines / soft / guides / …）这一帧画着没有。 */
+    /** 探针：这一帧不在主分辨率画的 / 排在后处理之后的辅助几何 id（缺省都空：画风表开了白名单才有）。 */
+    nativeIds(): string[];
+    lateIds(): string[];
     overlayVisible(id: string): boolean;
     /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
     setProvider(p: StreamProvider): void;
     /** 拉一帧流 → 块进显卡 → 每个放置一组槽节点（矩阵 + 按活动 / 淡出 / 单面挑材质和几何）。 */
     private syncPools;
     private syncMarks;
+    private static readonly EDGE_SLOTS;
+    private static edgeHex;
+    private lineMarkMats;
+    /** 原生线的标记材质：可见那份（换成标记色）/ 隐线那份（深度大于才画、半透明）。 */
+    private lineMarkMaterial;
+    /** 原生（1 像素）线：索引把顶点分成「普通的 / 每个标记槽一段」（同面的踢掉再画）；底线不画的风格（剪纸 / 写实…）只画标记那几段。隐线那份同一套分段。 */
+    private applyPixelLineMarks;
+    /** 粗线（实例化）：被标记的那几条拷一份（位置 / 两侧面 / 轮廓旗照抄，颜色换成标记色），用边线材质画在底线之后；X 光再配一份「深度大于才画」的。 */
+    private syncThickMarks;
+    /** 被标记的边的粗线拷贝（边线材质、颜色 = 标记色）；轮廓旗没有（原生线来的）= 按内边画。 */
+    private setMarkCopy;
     /** 线的材质槽（刀 c：只有 edgeDim）：白模的边 → 淡出那份；别的风格（Tron）的线材质自己不认淡出 = 照旧。 */
     private lineSlotMaterial;
     private static readonly MARK_SLOTS;
@@ -234,4 +256,13 @@ export declare class Renderer3 implements RenderProvider {
      * 0.11 ⑤ 起跟帧与格距走：平面贴在帧的 XY 面上、过帧原点；格距 / 细分是 uniform。网格关着时只画 1 m 主线（sub = 1）。
      */
     private rebuildGrid;
+    private gridFrame;
+    private gridStep;
+    private gridPixKey;
+    /**
+     * 像素化风格的网格（T101 / user 10-29「地平线不应该是变深，而且半透明对移动设备不友好吧」）：原生 1 像素实色线，**只画屏幕上格距 ≥ PIXEL_GRID_MIN_PX 个小图像素的那一圈**——
+     * 透视：离眼睛 D 远处横向格距 ≈ 格距 × 焦距 ÷ D、纵深格距 ≈ 格距 × 焦距 × 眼高 ÷ D²（焦距 = 小图高 ÷ 2 tan(fov/2)），取 D ≤ D_max 的那一圈（地面上以眼睛脚下为圆心）；格距太细一圈都没有就换粗一档（× 10）。正交：格距按像素算、不够就换粗。
+     * 远处不画 = 地平线不再被挤成一条深色带；颜色 = 画风的网格色（没写 = 背景 × 网格系数；原始 sRGB 数，不混合）。圈 / 格距变了才重建（键）。
+     */
+    private syncPixelGrid;
 }

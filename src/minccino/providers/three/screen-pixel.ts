@@ -2,7 +2,8 @@
 // 像素描边的 GLSL 照实验室公用件 `ShaderLab.pixelOutline`（lab/core.js，user 10-28 调过的判法和线色）移植；改的只有两处：
 //   ① CatsUp 有正交相机：内部深度跳变的「按对面那格外推」在透视下用 1/z（屏幕上仿射）、正交下用 z 本身（也仿射）；透视那支和实验室逐字一样。
 //   ② 背景格：实验室靠清屏色，这里小图清成全零、背景色在这遍补上（渲染目标里 three 不给背景做色彩换算，自己补最稳）。
-// 放大那遍顺手把小图的深度写回画布（gl_FragDepth）：之后按原分辨率画的叠加层（网格、吸附、选中边）照样被模型挡。
+// 描边那遍把小图的深度一起写进描边后的那张（gl_FragDepth）：排在描边之后画的辅助几何（stage 1）照样被模型挡。
+// 放大那遍按需把小图的深度写回画布：只有这一帧有原分辨率的辅助几何（resolution native，缺省没有）才写——不写省一遍全屏深度带宽。
 // 放大两种外观（屏幕一刀）：none = 最近邻；crt-tv = 实验室 lab/app.js SCREEN_FS 的 CRT 电视（复合视频的色度横糊、电子束横向连续、荧光粉的晕、
 // 越亮越粗的扫描线、荫罩三色条、四角暗、关着的荧光屏是深灰）——**弧面先不弯**：叠加层和拾取还没接屏幕的逆变换（不变量 6），弯了就对不上。
 // created 2026-10-29 by Claude Opus 5.5（Tron 纪元第 1 步）
@@ -24,6 +25,7 @@ const OUTLINE_FS = /* glsl */`
   void main() {
     ivec2 p = ivec2(gl_FragCoord.xy), hi = textureSize(uDepth, 0) - 1;
     float d = texelFetch(uDepth, p, 0).r;
+    gl_FragDepth = d;   // 深度跟着写进描边后的那张（排在描边之后的辅助几何要被模型挡）
     vec4 c = d < 1.0 || uBgTex ? texelFetch(uCol, p, 0) : vec4(uBg, 1.0);   // uBgTex：小图已先清成背景色（网格跟内容进小图时，背景上有网格）
     if (!uOn) { oColor = c; return; }
     const ivec2 K[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
@@ -106,7 +108,7 @@ export class PixelScreen {
     this.quadScene = new THREE.Scene();
     this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.outlineMat = new THREE.ShaderMaterial({
-      glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: OUTLINE_FS, depthTest: false, depthWrite: false,
+      glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: OUTLINE_FS, depthTest: true, depthFunc: THREE.AlwaysDepth, depthWrite: true,
       uniforms: { uInside: { value: false }, uBgTex: { value: false }, uCol: { value: null }, uDepth: { value: null }, uLineCol: { value: new THREE.Vector3() }, uBg: { value: new THREE.Vector3() }, uLineTint: { value: 1 }, uNear: { value: 0.1 }, uFar: { value: 100 }, uLineMul: { value: 0.42 }, uInner: { value: false }, uDarkSide: { value: false }, uOrtho: { value: false }, uOn: { value: true }, uWidth: { value: 1 } },
     });
     this.upscaleMat = new THREE.ShaderMaterial({
@@ -124,7 +126,7 @@ export class PixelScreen {
       this.low?.dispose(); this.post?.dispose();
       const nearest = { minFilter: THREE.NearestFilter, magFilter: THREE.NearestFilter, generateMipmaps: false };
       this.low = new THREE.WebGLRenderTarget(w, h, { ...nearest, depthBuffer: true, depthTexture: new THREE.DepthTexture(w, h) });
-      this.post = new THREE.WebGLRenderTarget(w, h, { ...nearest, depthBuffer: false });
+      this.post = new THREE.WebGLRenderTarget(w, h, { ...nearest, depthBuffer: true });   // 描边那遍写深度，排在描边之后的辅助几何拿它测
       this.w = w; this.h = h;
     }
     this.k = k;
@@ -136,7 +138,7 @@ export class PixelScreen {
   /** 小图 → 描边（或只补背景）→ 放大进 `target`（null = 画布），深度一起写回。 */
   finish(renderer: any, target: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean }): void {
     this.outline(renderer, o);
-    this.upscale(renderer, target, "post", "none");
+    this.upscale(renderer, target, "post", "none", false);
   }
   /** 小图 → 描边（后处理挂点）→ post。 */
   outline(renderer: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean; bgInTex?: boolean }): void {
@@ -149,15 +151,16 @@ export class PixelScreen {
     this.quad.material = this.outlineMat;
     renderer.setRenderTarget(this.post); renderer.render(this.quadScene, this.quadCam);
   }
-  /** 放大回 target（屏幕一刀）：src = 小图本身或 post；外观 none / crt-tv；深度取小图的写回。 */
-  upscale(renderer: any, target: any, src: "low" | "post", look: "none" | "crt-tv"): void {
+  /** 放大回 target（屏幕一刀）：src = 小图本身或 post；外观 none / crt-tv；writeDepth = 把小图的深度写回 target（后面还要按原分辨率画东西时才要）。 */
+  upscale(renderer: any, target: any, src: "low" | "post", look: "none" | "crt-tv", writeDepth: boolean): void {
+    this.upscaleMat.depthWrite = writeDepth; this.upscaleMat.depthTest = writeDepth;
     const v = this.upscaleMat.uniforms;
     v.uCol.value = (src === "post" ? this.post : this.low).texture; v.uDepth.value = this.low.depthTexture; v.uK.value = this.k;
     v.uLook.value = look === "crt-tv" ? 1 : 0; v.uSrcSize.value.set(this.w, this.h); v.uDstSize.value.set(this.w * this.k, this.h * this.k);
     this.quad.material = this.upscaleMat;
     renderer.setRenderTarget(target); renderer.render(this.quadScene, this.quadCam);
   }
-  /** 显存估算（血槽位）：小图颜色 + 深度 + 描边后的小图。 */
-  bytes(): number { return this.low ? this.w * this.h * (4 + 4 + 4) : 0; }
+  /** 显存估算（血槽位）：小图颜色 + 深度 + 描边后的小图（颜色 + 深度）。 */
+  bytes(): number { return this.low ? this.w * this.h * (4 + 4 + 4 + 4) : 0; }
   dispose(): void { this.low?.dispose(); this.post?.dispose(); this.low = this.post = null; this.outlineMat.dispose(); this.upscaleMat.dispose(); this.quad.geometry.dispose(); }
 }

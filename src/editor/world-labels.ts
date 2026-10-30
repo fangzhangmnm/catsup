@@ -6,20 +6,19 @@
 // 这里只剩 WorldLabel（哪段字挂哪）和单位换算；后端把位图贴成固定屏幕大小的面片，按 id 增删改，字和样式没变就不重画。
 import type { Pt3 } from "../kernel/kernel.ts";
 
-import type { OverlayLabel } from "../minccino/index.ts";
-type LabelAnchor = NonNullable<OverlayLabel["anchor"]>; type LabelStyleId = OverlayLabel["style"];   // 排版 + 光栅化住供货商那层（label-raster.ts），编辑器只拿契约里的类型（刀 f）；文字 = 几何的方案见窄接口设计稿 §6端（Tron 第一刀步 6b）
+import type { AuxText } from "../look/aux.ts";
+type LabelAnchor = AuxText["anchor"];   // 2026-10-29 Opus：字 = 折线（look/stroke-font.ts），排版归画风表；引擎的位图字模块删了   // 排版 + 光栅化住供货商那层（label-raster.ts），编辑器只拿契约里的类型（刀 f）；文字 = 几何的方案见窄接口设计稿 §6端（Tron 第一刀步 6b）
 export interface WorldLabel {
   /** 稳定身份（同一个 id = 同一块字，挪位置不重画）。 */
   id: string;
   text: string;
   /** 世界坐标。 */
   at: Pt3;
-  style: LabelStyleId;
+  /** 哪一种字（画风表 look/aux.ts TEXT_LOOKS 的一行）。 */
+  role: AuxText["role"];
   anchor?: LabelAnchor;
   /** 和点之间留几 CSS px（默认 3）。 */
   gapPx?: number;
-  /** 被模型挡住时藏起来（默认 true）；false = 永远在最上面。 */
-  occlude?: boolean;
 }
 
 /** 单位刻度（X 轴 +1 个单位处的字 + Z 轴刻度的间距）：公制念「1 m」，英制念「1 ft」。 */

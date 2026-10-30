@@ -2,6 +2,8 @@ import type { PassDecl } from "../graph/frame-graph.ts";
 import type { EnvRecipeId, SurfaceRecipeId } from "../paintshop/index.ts";
 /** 像素描边后处理（实验室公用件 `ShaderLab.pixelOutline`，lab/core.js）：背景挨着模型的那一格涂成描边色；可选内部深度跳变也描。 */
 export interface PixelOutlinePost {
+    /** 描在哪一侧：outside = 物体外面一圈（背景那侧，经典精灵描边）；inside = 物体边界那一圈（近的那侧）——和线稿落在同一个像素上、合成一条，不打架（T116 user「如果有勾线的话描边会和勾线打架」）。 */
+    readonly side: "outside" | "inside";
     /** 固定描边色（0xRRGGBB，sRGB）。 */
     readonly color: number;
     /** 描边跟着底色（0 = 固定色、1 = 邻格颜色压暗）。 */
@@ -121,10 +123,18 @@ export declare const SCREENS: {
         readonly rows: null;
         readonly look: "none";
     };
+    readonly crt3: {
+        readonly id: "crt3";
+        readonly name: "CRT ×3";
+        readonly brief: "像素 ×3 + 电视外观";
+        readonly pixelate: 3;
+        readonly rows: null;
+        readonly look: "crt-tv";
+    };
     readonly crt240: {
         readonly id: "crt240";
         readonly name: "CRT 240 行";
-        readonly brief: "最多 240 行 + 电视外观";
+        readonly brief: "最多 240 行 + 电视外观（糊）";
         readonly pixelate: 1;
         readonly rows: 240;
         readonly look: "crt-tv";
@@ -145,7 +155,7 @@ export interface Preset {
     readonly source: string;
     /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
      *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
-    /** material.edges 线稿三档：none 不画 / all 全画 / active 只画正在编辑那一层的（T60 像素里编辑中的东西显示网格；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
+    /** material.edges 线稿三档：none 不画 / all 全画（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）/ active 只画正在编辑那一层的。像素描边 = all（T113 user「像素里面边的显示其实就是看硬和软边就行了」：硬边都画、软边不画；T89 时是 active）；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
     readonly material: {
         readonly shade: "camera" | "none" | "flat" | "tron" | "pbr";
         readonly texFilter: "asset" | "nearest";
@@ -166,6 +176,8 @@ export interface Preset {
         } | null;
         readonly ao: AoParams | null;
         readonly env: EnvLight | null;
+        /** 走屏幕那条路时编辑器网格线的颜色（原始 sRGB）；没写 = 背景 × 网格系数（浅背景压暗一点）。Tron 用自己的青色（T57 user「tron的网络用我们自己的网络，记得跟单位」）。 */
+        readonly gridColor?: number;
     };
     /** 后处理挂点。 */
     readonly post: {
@@ -182,9 +194,9 @@ export declare const PRESETS: {
     /** 白模（现状）：零成本兜底，不是风格。 */
     readonly white: {
         readonly id: "white";
-        readonly name: "白模";
-        readonly note: "现在的样子：跟着相机的平光、线稿照常";
-        readonly brief: "现在的样子";
+        readonly name: "线稿";
+        readonly note: "跟着相机的平光 + 线稿（建模时的默认看法）";
+        readonly brief: "建模的默认看法";
         readonly source: "CatsUp 现状（≈ 实验室「最省 · 白模」）";
         readonly material: {
             readonly shade: "camera";
@@ -219,7 +231,7 @@ export declare const PRESETS: {
         readonly material: {
             readonly shade: "none";
             readonly texFilter: "nearest";
-            readonly edges: "active";
+            readonly edges: "all";
             readonly colorize: "model";
             readonly flat: null;
             readonly tron: null;
@@ -234,6 +246,7 @@ export declare const PRESETS: {
         };
         readonly post: {
             readonly pixelOutline: {
+                readonly side: "inside";
                 readonly color: 1776411;
                 readonly tint: 1;
                 readonly shade: 0.25;
@@ -328,10 +341,11 @@ export declare const PRESETS: {
             readonly ground: {
                 readonly color: 66311;
                 readonly on: 0;
-                readonly grid: 0.55;
+                readonly grid: 0;
             };
             readonly ao: null;
             readonly env: null;
+            readonly gridColor: 2126720;
         };
         readonly post: {
             readonly pixelOutline: null;
@@ -342,7 +356,7 @@ export declare const PRESETS: {
                 readonly vignette: 0.55;
             };
         };
-        readonly screen: "crt240";
+        readonly screen: "crt3";
         readonly geometry: {};
     };
     /** 写实（实验室「基础」分类，标准金属度 / 粗糙度那套）：照模型上色——材质色和贴图都进底色。**真实材质的底子**：铸铜等 = 写实 + 材料参数 + 涂装车间的表面层（user 10-29「应该是真实材质复用写实，而不是写实复用铸铜！」）。也是 user 场景 4「全量渲染视口」的起点。 */

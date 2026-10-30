@@ -33,10 +33,11 @@ export declare class PixelScreen {
         near: number;
         far: number;
         ortho: boolean;
+        bgInTex?: boolean;
     }): void;
-    /** 放大回 target（屏幕一刀）：src = 小图本身或 post；外观 none / crt-tv；深度取小图的写回。 */
-    upscale(renderer: any, target: any, src: "low" | "post", look: "none" | "crt-tv"): void;
-    /** 显存估算（血槽位）：小图颜色 + 深度 + 描边后的小图。 */
+    /** 放大回 target（屏幕一刀）：src = 小图本身或 post；外观 none / crt-tv；writeDepth = 把小图的深度写回 target（后面还要按原分辨率画东西时才要）。 */
+    upscale(renderer: any, target: any, src: "low" | "post", look: "none" | "crt-tv", writeDepth: boolean): void;
+    /** 显存估算（血槽位）：小图颜色 + 深度 + 描边后的小图（颜色 + 深度）。 */
     bytes(): number;
     dispose(): void;
 }

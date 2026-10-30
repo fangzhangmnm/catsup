@@ -41,6 +41,8 @@ export interface SessionDeps {
         mimeType: string;
         bytes: Uint8Array;
     } | null;
+    /** 风格 / 屏幕跟文件走（desk 1.3，T86）：载入 / 新建后套上（null = 用默认）。app 认不出的 id 当没有。 */
+    applyView?: (style: string | null, screen: string | null) => void;
     onHomeChanged: () => void;
     setStatus: (text: string, error?: boolean) => void;
     online: () => boolean;
@@ -105,6 +107,12 @@ export declare class Session {
      *  （user 2026-07-14 在 WeebPaint 接受的代价：只切页不画不存就退出 → 下次开 revert 到上次保存的）。 */
     private desk;
     menuTab(key: string): string | null;
+    /** 风格 / 屏幕跟文件走（desk 1.3，T86）：改它不标脏（看法不是内容），下次存盘顺手带走。 */
+    setView(v: {
+        style?: string | null;
+        screen?: string | null;
+    }): void;
+    private applyDeskView;
     setMenuTab(key: string, tab: string): void;
     /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
     private noteFormat;

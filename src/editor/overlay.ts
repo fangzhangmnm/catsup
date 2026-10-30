@@ -65,7 +65,7 @@ export function overlayItems(view: ViewState, ctx: OverlayCtx): AuxItem[] {
     }
   }
   // ---- 文字 ----
-  for (const lb of view.labels ?? []) out.push({ kind: "label", id: lb.id, text: lb.text, at: lb.at, style: lb.style, anchor: lb.anchor, gapPx: lb.gapPx, occlude: lb.occlude });
+  for (const lb of view.labels ?? []) out.push({ kind: "text", role: lb.role, id: lb.id, text: lb.text, at: lb.at, anchor: lb.anchor ?? "center", ...(lb.gapPx !== undefined ? { gapPx: lb.gapPx } : {}) });
   // ---- 吸附小球 ----
   const sn = view.snap;
   if (sn?.kind) out.push({ kind: "marker", role: "snap", id: "snap", at: sn.p, scale: SNAP_MARKER_PX * ctx.worldPerPx(sn.p), color: SNAP_COLORS[sn.kind] ?? "snapFace" });

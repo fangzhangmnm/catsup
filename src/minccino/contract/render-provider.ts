@@ -102,9 +102,10 @@ export interface RenderProvider {
   lastBudget: BudgetReport | null;
   lastMeasurement: Measurement | null;
   lastPlan: { order: readonly string[]; pruned: readonly string[] } | null;
-  /** 探针：这个 id 的辅助几何这一帧画着没有 / 现在挂着哪些字。 */
+  /** 探针：这个 id 的辅助几何这一帧画着没有 / 画着的那些的 id 和键（键里有什么归提交方）。 */
   overlayVisible(id: string): boolean;
-  labelKeys(): { id: string; key: string }[];
-  /** 探针：这一帧画着的辅助几何里，走叠加层那遍（原分辨率、画在最上）的 id（瑞士奶酪：点线面的高亮不许在里面）。 */
-  overlayPassIds(): string[];
+  auxKeys(): { id: string; key: string }[];
+  /** 探针：这一帧画着的辅助几何里，不在主分辨率画的（resolution native）/ 排在后处理之后的（stage 1）id——缺省两张都是空的，画风表开了白名单才有。 */
+  nativeIds(): string[];
+  lateIds(): string[];
 }

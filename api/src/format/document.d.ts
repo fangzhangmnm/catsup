@@ -164,6 +164,9 @@ export interface DeskDoc {
     refPanel?: RefPanelDoc;
     /** 演示锁（desk 1.2，2026-10-29，v0.16.53；user 10-28「锁屏不是 commit」「还可以进去玩」）：true = 这份文件打开就是锁着的（改模型的一切都拒，看 / 玩照旧）。只写 true；不是内容、不标脏、不进撤销。 */
     locked?: boolean;
+    /** 风格 / 屏幕跟文件走（desk 1.3，2026-10-29 Opus；Tron 账本 T86 user「风格跟着文件走」）：选过才写；本层不认识预设 id（不透明字符串，app 认不出 = 用默认）。 */
+    style?: string;
+    screen?: string;
     extra: Record<string, unknown>;
 }
 export declare const defaultDesk: () => DeskDoc;

@@ -17,6 +17,9 @@ export interface TriangleCastReport {
     rejected: number;
     /** 变成软边的条数。 */
     softened: number;
+    /** 网格体导入：落成几张面 / 其中几个是拼回来的四边形（mesh/tri-soup.ts meshFromSplitTriangles）。 */
+    faces?: number;
+    quads?: number;
 }
 export declare function kernelFromTriangles(positions: readonly Pt3[], tris: readonly number[], opt: TriangleCastOptions): {
     kernel: Kernel;

@@ -98,6 +98,6 @@ export function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, vie
     grid: { frame: view.grid?.frame ?? view.frame ?? WORLD_FRAME, step: view.grid?.step ?? 1 },
     marks: () => highlightMarks(world, view, layout),   // 选中 / 悬停的面 = 换材质槽的段（刀 b）
     // 辅助几何：编辑器只说「这是什么」，画风表翻成小栗鼠的 GL 量（look/aux.ts；设计稿 §7.1）
-    overlay: (ctx: OverlayCtx): OverlayItem[] => translateAux([...highlightItems(world, view, layout), ...overlayItems(view, ctx)], ctx.style),
+    overlay: (ctx: OverlayCtx): OverlayItem[] => translateAux([...highlightItems(world, view, layout), ...overlayItems(view, ctx)], ctx),
   };
 }

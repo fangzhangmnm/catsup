@@ -3752,7 +3752,7 @@ export class Editor {
     // 标记跟着格子走（DT16，user 10-25「1m的标记没有跟着格子的大小更新」）：放在一格处、写一格的长度；Z 轴刻度仍按单位（1 m / 1 ft）
     const step = this._grid.step > 0 ? this._grid.step : m.unitM;
     // 只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在
-    return { axisTickM: m.unitM, axisUnitX: empty ? step : null, labels: empty ? [{ id: "unit-x", text: gridStepLabel(step, this._vcbUnit), at: { x: F.origin.x + F.x.x * step, y: F.origin.y + F.x.y * step, z: F.origin.z + F.x.z * step }, style: "scale", anchor: "below" }] : [] };
+    return { axisTickM: m.unitM, axisUnitX: empty ? step : null, labels: empty ? [{ id: "unit-x", text: gridStepLabel(step, this._vcbUnit), at: { x: F.origin.x + F.x.x * step, y: F.origin.y + F.x.y * step, z: F.origin.z + F.x.z * step }, role: "unitLabel", anchor: "below" }] : [] };
   }
   /** 场景里一个顶点都没有（按场景版本号缓存，不每帧数）。 */
   private emptyCache: { rev: number; empty: boolean } | null = null;

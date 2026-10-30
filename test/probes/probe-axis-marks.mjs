@@ -6,7 +6,8 @@ const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftsha
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格
-const keys = () => page.evaluate(() => { const e = globalThis.__catsup.editor; e.draw(); return e.renderer3.labelKeys().map((k) => `${k.id}=${k.key.split("|").slice(2).join("|")}`).join(","); });
+// 字 = 折线（2026-10-29 切刀第 2 步）：读辅助几何的键，unit-x 那组线的键以字开头
+const keys = () => page.evaluate(() => { const e = globalThis.__catsup.editor; e.draw(); return e.renderer3.auxKeys().filter((k) => k.id === "unit-x").map((k) => `${k.id}=${k.key.split("|")[0]}`).join(","); });
 const res = { metric: await keys() };
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.vcbUnit = "ft"; e.setGrid({ step: 0.3048 }); });   // 英制配英制格（1 ft）
 res.ft = await keys();

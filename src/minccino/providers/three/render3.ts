@@ -37,12 +37,13 @@ import { LineSegments2 } from "../../../vendor/three/addons/lines/LineSegments2.
 import { LineSegmentsGeometry } from "../../../vendor/three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "../../../vendor/three/addons/lines/LineMaterial.js";
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
-import { OverlayLinesDrawer, setLineGeometry } from "./overlay-lines.ts";
+import { OverlayLinesDrawer, linToSrgb, setLineGeometry } from "./overlay-lines.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
+import { hexToLinear } from "../../overlay/index.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
 import { PRESETS, SCREENS, isStyled, presetPasses, type Preset, type PresetId, type ScreenId, type ScreenPreset } from "../../preset/index.ts";
 import { PixelScreen } from "./screen-pixel.ts";
@@ -181,9 +182,14 @@ const TEX_FRAG = /* glsl */`
     gl_FragColor = vec4(c * k, 1.0);
   }`;
 
-/** 叠加层专用的 three 层（Tron 第 1 步）：编辑器的东西（网格、三轴、叠加层线点标记文字、X 光线）住这一层，风格那条路里按原分辨率最后画；
- *  白模那条路相机两层都看 = 和以前同一批对象同一个顺序。不用 1 / 2：three 的 XR 用它们分左右眼。 */
-const OVERLAY_LAYER = 5;
+/** three 的层（不用 1 / 2：three 的 XR 用它们分左右眼）。2026-10-29 Opus 5.5 切刀第 2 步：没有「叠加层那一遍」了——
+ *  辅助几何缺省住第 10 层、和模型（第 0 层）同一遍画（风格那条路里一起进小图）；第 8 层 = 排在后处理之后（同一张小图、同一块深度）；
+ *  第 5 层 = 原分辨率（混合分辨率这项功能，缺省没人用）。第 0 层只放模型：遮蔽烘焙的相机只看它（辅助几何烘进影子 = 错）。不走风格那条路时相机全都看 = 一遍画完。 */
+const NATIVE_LAYER = 5;
+const LATE_LAYER = 8;
+const AUX_LAYER = 10;
+/** 原分辨率的网格（shader 网格 + 粗线三色轴）：不走风格那条路时画；风格那条路用第 7 层的 1 像素线版进小图。 */
+const GRID_LAYER = 9;
 /** 风格的地面 / 背景那一遍全屏（剪纸）住第 6 层：遮蔽烘焙的相机只看第 0 层，地面不挡自己。 */
 const GROUND_LAYER = 6;
 /** 网格 + 三色轴的原生 1 像素线版（像素化的风格把它们画进小图用；T101 user「像素网格也用线元？不要断断续续」）：平时不画，小图那遍才打开这一层。 */
@@ -288,8 +294,7 @@ export class Renderer3 implements RenderProvider {
     this.scene.background = new THREE.Color(PALETTE.background);
     this.camOrtho = new THREE.OrthographicCamera(-1, 1, 1, -1, 0.1, 20000);
     this.camPersp = new THREE.PerspectiveCamera(50, 1, 1, 20000);
-    this.camOrtho.layers.enable(OVERLAY_LAYER); this.camPersp.layers.enable(OVERLAY_LAYER);
-    this.camOrtho.layers.enable(GROUND_LAYER); this.camPersp.layers.enable(GROUND_LAYER);
+    for (const c of [this.camOrtho, this.camPersp]) for (const l of [NATIVE_LAYER, GROUND_LAYER, LATE_LAYER, GRID_LAYER, AUX_LAYER]) c.layers.enable(l);
     this.resolution = new THREE.Vector2(1, 1);
     this.rebuildGrid(WORLD_FRAME3, 1, 1);
 
@@ -327,11 +332,11 @@ export class Renderer3 implements RenderProvider {
     // 选中 / 刮擦 / 悬停的边 = 叠加层 "edge" 样式（6c）：用边线本身的材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
     // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
     // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。
-    // 叠加层线段族（步 6a；刀 a 起材质按 item 的画法参数按需建）；"edge" 不建材质
-    const overlayHost = { add: (o: any): void => { o.layers.set(OVERLAY_LAYER); this.scene.add(o); }, remove: (o: any): void => { this.scene.remove(o); } };   // 叠加层的东西住 OVERLAY_LAYER
-    this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => this.edgeMat }, { overlay: OVERLAY_LAYER, content: 0 });
-    // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
-    this.overlayMarks = new OverlayMarksDrawer(overlayHost, { overlay: OVERLAY_LAYER, content: 0 });
+    // 辅助几何（步 6a / 6b；刀 a 起材质按 item 的画法参数按需建；切刀第 2 步起按 stage / resolution 挂三层，缺省跟内容）
+    const auxHost = { add: (o: any): void => { this.scene.add(o); }, remove: (o: any): void => { this.scene.remove(o); } };
+    const auxLayers = { main: AUX_LAYER, late: LATE_LAYER, native: NATIVE_LAYER } as const;
+    this.overlayLines = new OverlayLinesDrawer(auxHost, (px, o) => this.lineMat(px, o), { edge: () => this.edgeMat }, auxLayers);
+    this.overlayMarks = new OverlayMarksDrawer(auxHost, auxLayers);
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -499,8 +504,8 @@ export class Renderer3 implements RenderProvider {
   }
 
   /** 世界单位/CSS 像素（在点 p 的深度处）——指示物按屏幕尺寸定大小用。XR：按到 HMD 的距离与 XR_PX_PER_DEG 折算。 */
-  /** 调试 / 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
-  labelKeys(): { id: string; key: string }[] { return this.overlayMarks.labelKeys(); }
+  /** 调试 / 探针：画着的辅助几何的 id 和键（键里有什么归提交方）。 */
+  auxKeys(): { id: string; key: string }[] { return [...this.overlayLines.keys(), ...this.overlayMarks.keys()]; }
   private worldPerPx(cam: CameraSource, vp: ViewportSize, p: Vec3): number {
     const eye = this.xrEye();
     if (eye) return (Math.max(0.2, Math.hypot(p.x - eye.x, p.y - eye.y, p.z - eye.z)) * (Math.PI / 180)) / XR_PX_PER_DEG;
@@ -611,10 +616,11 @@ export class Renderer3 implements RenderProvider {
       right: { x: cam3.matrixWorld.elements[0], y: cam3.matrixWorld.elements[1], z: cam3.matrixWorld.elements[2] },
       up: { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] },
       lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1, style: this.framePreset.id,
+      pixelCss: styled ? this.styledK() / this.dpr : 1 / this.dpr,
     };
     const items = input.overlay ? input.overlay(octx) : [];
-    this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"));
-    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, (p) => this.worldPerPx(cam, vp, p), this.lastPlan.order.includes("upscale") ? this.styledK() : 1);
+    this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"), styled && this.lineStyleInUse() === "pixel", styled);   // 像素那条路：细线 = 1 像素 GL 线（和模型的边同一条规矩）
+    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, styled ? this.styledK() : 1, styled);
 
     const t0 = performance.now();
     const info3 = this.renderer.info;
@@ -693,21 +699,24 @@ export class Renderer3 implements RenderProvider {
     const low = ps.prepare(W, H, k), target = this.renderer.getRenderTarget();
     const bg = this.scene.background, mask = cam3.layers.mask, auto = this.renderer.autoClear;
     const cc = this.renderer.getClearColor(new THREE.Color()), ca = this.renderer.getClearAlpha();
+    // 辅助几何缺省跟内容一起进小图（切刀第 2 步）；排在后处理之后的 / 原分辨率的，这一帧有才多画那一遍（画风表开了白名单才有）
+    const late = this.overlayLines.has("late") || this.overlayMarks.has("late"), native = this.overlayLines.has("native") || this.overlayMarks.has("native");
+    const toLow = (): void => cam3.setViewOffset(W, H, 0, H - ps.h * k, ps.w * k, ps.h * k);
     try {
-      // ① 模型 → 小图：清成全零（背景色在描边那遍补，渲染目标里 three 不给背景做色彩换算）；网格跟内容走（T101）= 先清成背景色的原始 sRGB 数（setRGB 按线性空间存 = 原样写进渲染目标），网格正片叠底在它上面
-      const gridIn = p.gridLayer === "content" && !p.post.bloom && !!this.gridMesh;
+      // ① 模型 + 辅助几何 + 网格 → 小图：先清成画风背景色的原始 sRGB 数（setRGB 按线性空间存 = 原样写进渲染目标）；
+      //    网格 / 轴用 1 像素线版跟内容一起进小图（T101；切刀第 2 步起走这条路的画风全都这样，Tron 用自己的网格色，T57）
+      const b = p.light.background ?? PALETTE.background;
       this.scene.background = null;
-      if (gridIn) { const b = p.light.background ?? PALETTE.background; this.renderer.setClearColor(this.tmpColor.setRGB(((b >> 16) & 255) / 255, ((b >> 8) & 255) / 255, (b & 255) / 255, THREE.LinearSRGBColorSpace), 1); }
-      else this.renderer.setClearColor(0x000000, 0);
-      cam3.layers.mask = 1 | (1 << GROUND_LAYER);   // 模型 + 风格的地面（叠加层那一层后面单画）
-      if (gridIn) { cam3.layers.enable(PIXEL_GRID_LAYER); this.syncPixelGrid(cam3, ps.h, p.light.background ?? PALETTE.background); }   // 网格 / 轴的原生 1 像素线版跟模型一起进小图
-      cam3.setViewOffset(W, H, 0, H - ps.h * k, ps.w * k, ps.h * k);
+      this.renderer.setClearColor(this.tmpColor.setRGB(((b >> 16) & 255) / 255, ((b >> 8) & 255) / 255, (b & 255) / 255, THREE.LinearSRGBColorSpace), 1);
+      cam3.layers.mask = 1 | (1 << GROUND_LAYER) | (1 << PIXEL_GRID_LAYER) | (1 << AUX_LAYER);
+      if (this.gridPix) this.syncPixelGrid(cam3, ps.h, this.pixelGridColor(p));
+      toLow();
       const pxScale = H / this.dpr / ps.h;   // LineSegments2 按画布 CSS 视口算像素：小图里线宽要乘回去（tron-shader.ts 头）——不乘 = 粗线在小图里只有几分之一像素宽、画成断断续续的虚线（user 10-29 iPad 截图：线稿粗细 1.5 的粗线路）
       if (p.material.tron && this.tron) this.tron.sync(p.material.tron, pxScale);
       const lw0 = this.edgeMat.linewidth, lwd0 = this.edgeDimMat.linewidth, pa0 = this.profileAdd.value;
       this.edgeMat.linewidth = lw0 * pxScale; this.edgeDimMat.linewidth = lwd0 * pxScale; this.profileAdd.value = pa0 * pxScale;
-      this.overlayLines.scaleContent(pxScale);   // 跟内容走的线（软边淡线…）在小图里按小图像素
-      const restoreLines = (): void => { this.edgeMat.linewidth = lw0; this.edgeDimMat.linewidth = lwd0; this.profileAdd.value = pa0; this.overlayLines.scaleContent(1); };
+      this.overlayLines.scaleMain(pxScale);   // 主分辨率的粗线在小图里按小图像素
+      const restoreLines = (): void => { this.edgeMat.linewidth = lw0; this.edgeDimMat.linewidth = lwd0; this.profileAdd.value = pa0; this.overlayLines.scaleMain(1); };
       try {
       this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3);
       if (p.post.bloom) {
@@ -715,25 +724,38 @@ export class Renderer3 implements RenderProvider {
         const bl = (this.bloom ??= new Bloom()); bl.prepare(ps.w, ps.h);
         this.tron?.setGlowPass(true); this.paper?.setGlowPass(true);
         try { this.renderer.setRenderTarget(bl.glow); this.renderer.render(this.scene, cam3); } finally { this.tron?.setGlowPass(false); this.paper?.setGlowPass(false); }
+        if (late) this.renderLayer(cam3, LATE_LAYER, low);   // 排在辉光之后：画进小图（辉光图已经取过样了 = 它们不发光）
         cam3.clearViewOffset();
         // ② 辉光合成（后处理挂点）③ 放大回画布（屏幕一刀：CRT 电视）
         bl.run(this.renderer, low.texture, ps.postTarget, p.post.bloom);
-        ps.upscale(this.renderer, target, "post", sc.look);
+        ps.upscale(this.renderer, target, "post", sc.look, native);
       } else {
         cam3.clearViewOffset();
-        // ② ③ 描边 + 放大（写回深度）
-        ps.outline(this.renderer, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera, bgInTex: gridIn });
-        ps.upscale(this.renderer, target, "post", sc.look);
+        // ② 描边（后处理挂点；把小图的深度一起写进描边后的那张）③ 放大
+        ps.outline(this.renderer, { outline: p.post.pixelOutline, background: b, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera, bgInTex: true });
+        if (late) { toLow(); this.renderLayer(cam3, LATE_LAYER, ps.postTarget); cam3.clearViewOffset(); }   // 排在描边之后：同一张小图、同一块深度
+        ps.upscale(this.renderer, target, "post", sc.look, native);
       }
-      } finally { restoreLines(); }   // 叠加层那遍（选中边用同一份边线材质）按原分辨率的线宽
-      // ④ 叠加层那一层：不清屏，按原分辨率画在放大好的画面上（网格 / 轴已经进小图的就不再画）
-      this.renderer.autoClear = false; cam3.layers.mask = 1 << OVERLAY_LAYER;
-      if (gridIn) { this.gridMesh.visible = false; this.axesObj.visible = false; }
-      try { this.renderer.setRenderTarget(target); this.renderer.render(this.scene, cam3); } finally { if (gridIn) { this.gridMesh.visible = true; this.axesObj.visible = true; } }
+      } finally { restoreLines(); }
+      // ④ 原分辨率那层（混合分辨率这项功能；缺省没人用 = 这一遍不画）：放大那遍把小图的深度写回了画布，照样被模型挡
+      if (native) this.renderLayer(cam3, NATIVE_LAYER, target);
     } finally {
       this.scene.background = bg; cam3.layers.mask = mask; this.renderer.autoClear = auto; this.renderer.setClearColor(cc, ca);
       if (cam3.view?.enabled) cam3.clearViewOffset();
     }
+  }
+  /** 只画一层、不清屏、画进 target（风格那条路里排在后处理之后 / 原分辨率那两遍）。 */
+  private renderLayer(cam3: any, layer: number, target: any): void {
+    const auto = this.renderer.autoClear;
+    this.renderer.autoClear = false; cam3.layers.mask = 1 << layer;
+    try { this.renderer.setRenderTarget(target); this.renderer.render(this.scene, cam3); } finally { this.renderer.autoClear = auto; }
+  }
+  /** 风格那条路里网格线的颜色（原始 sRGB）：画风写了就用；没写 = 背景 × 网格系数（和以前的 1 像素网格同一个算法：背景的 sRGB 数 × 系数的线性值）。 */
+  private pixelGridColor(p: Preset): number {
+    if (p.light.gridColor !== undefined) return p.light.gridColor;
+    const bgc = p.light.background ?? PALETTE.background, m = hexToLinear(PALETTE.gridMajor);
+    const ch = (sh: number, f: number): number => Math.min(255, Math.round(((bgc >> sh) & 255) * f));
+    return (ch(16, m[0]) << 16) | (ch(8, m[1]) << 8) | ch(0, m[2]);
   }
 
   /**
@@ -834,8 +856,9 @@ export class Renderer3 implements RenderProvider {
   setLineWeight(w: number): void { this.lineWeight = w; this.setLineStyle(w > 1 ? "thick" : "pixel"); }
   getLineWeight(): number { return this.lineWeight; }
 
-  /** 探针：叠加层线段族里某个 id（lockLines / soft / guides / …）这一帧画着没有。 */
-  overlayPassIds(): string[] { return [...this.overlayLines.overlayPassIds(), ...this.overlayMarks.overlayPassIds()]; }
+  /** 探针：这一帧不在主分辨率画的 / 排在后处理之后的辅助几何 id（缺省都空：画风表开了白名单才有）。 */
+  nativeIds(): string[] { return [...this.overlayLines.idsIn("native"), ...this.overlayMarks.idsIn("native")]; }
+  lateIds(): string[] { return [...this.overlayLines.idsIn("late"), ...this.overlayMarks.idsIn("late")]; }
   overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id); }
   /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
   setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
@@ -1182,12 +1205,12 @@ export class Renderer3 implements RenderProvider {
         depthFunc: THREE.LessDepth, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: DEPTH.grid,   // 深度阶梯（DEPTH 注释）：面后、边前，不 z-fight（user「加一个 z-offset 的事情」）
       });
       this.gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, 2 * L), this.gridMat);
-      this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false; this.gridMesh.layers.set(OVERLAY_LAYER);
+      this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false; this.gridMesh.layers.set(GRID_LAYER);
       this.scene.add(this.gridMesh);
       const axesMat = this.lineMat(STATIC_PX, { vertexColors: true });   // 不前拉：轴在边后面（DEPTH 注释）
       axesMat.depthFunc = THREE.LessDepth; axesMat.polygonOffset = true; axesMat.polygonOffsetFactor = 0; axesMat.polygonOffsetUnits = DEPTH.grid;
       this.axesObj = new LineSegments2(new LineSegmentsGeometry(), axesMat);
-      this.axesObj.frustumCulled = false; this.axesObj.layers.set(OVERLAY_LAYER);
+      this.axesObj.frustumCulled = false; this.axesObj.layers.set(GRID_LAYER);
       this.scene.add(this.axesObj);
     }
     this.gridMat.uniforms.uStep.value = step > 1e-6 ? step : 1;
@@ -1212,7 +1235,7 @@ export class Renderer3 implements RenderProvider {
       for (const o of [this.gridPix, this.axesPix]) { o.frustumCulled = false; o.layers.set(PIXEL_GRID_LAYER); this.scene.add(o); }
       this.gridPix.renderOrder = -1;
     }
-    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(apos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(acol, 3));
+    const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(apos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(acol.map(linToSrgb), 3));   // 只画进小图：sRGB 原值（小图的约定，overlay-lines.ts linToSrgb）
     this.axesPix.geometry.dispose(); this.axesPix.geometry = g;
     this.gridFrame = frame; this.gridStep = step > 1e-6 ? step : 1; this.gridPixKey = "";
   }
@@ -1220,9 +1243,9 @@ export class Renderer3 implements RenderProvider {
   /**
    * 像素化风格的网格（T101 / user 10-29「地平线不应该是变深，而且半透明对移动设备不友好吧」）：原生 1 像素实色线，**只画屏幕上格距 ≥ PIXEL_GRID_MIN_PX 个小图像素的那一圈**——
    * 透视：离眼睛 D 远处横向格距 ≈ 格距 × 焦距 ÷ D、纵深格距 ≈ 格距 × 焦距 × 眼高 ÷ D²（焦距 = 小图高 ÷ 2 tan(fov/2)），取 D ≤ D_max 的那一圈（地面上以眼睛脚下为圆心）；格距太细一圈都没有就换粗一档（× 10）。正交：格距按像素算、不够就换粗。
-   * 远处不画 = 地平线不再被挤成一条深色带；颜色 = 背景 × 网格系数（原始 sRGB 数，不混合）。圈 / 格距变了才重建（键）。
+   * 远处不画 = 地平线不再被挤成一条深色带；颜色 = 画风的网格色（没写 = 背景 × 网格系数；原始 sRGB 数，不混合）。圈 / 格距变了才重建（键）。
    */
-  private syncPixelGrid(cam3: any, lowH: number, bg: number): void {
+  private syncPixelGrid(cam3: any, lowH: number, color: number): void {
     if (!this.gridPix) return;
     const f = this.gridFrame, o = f.origin, X = f.x, Y = f.y, Z = f.z, eye = cam3.getWorldPosition(new THREE.Vector3());
     const dx = eye.x - o.x, dy = eye.y - o.y, dz = eye.z - o.z, u0 = dx * X.x + dy * X.y + dz * X.z, v0 = dx * Y.x + dy * Y.y + dz * Y.z, h = Math.abs(dx * Z.x + dy * Z.y + dz * Z.z);
@@ -1239,11 +1262,10 @@ export class Renderer3 implements RenderProvider {
       for (let k = 0; k < 4; k++) { const dmax = Math.min((st * fpx) / PIXEL_GRID_MIN_PX, Math.sqrt((st * fpx * Math.max(h, 1e-3)) / PIXEL_GRID_MIN_PX)); if (dmax > h * 1.02) { r = Math.sqrt(dmax * dmax - h * h); break; } st *= 10; }
     }
     r = Math.min(r, L);
-    const key = `${st}|${Math.round(u0 / st)}|${Math.round(v0 / st)}|${Math.round(r / st)}|${bg}`;
+    const key = `${st}|${Math.round(u0 / st)}|${Math.round(v0 / st)}|${Math.round(r / st)}|${color}`;
     if (key === this.gridPixKey) return;
     this.gridPixKey = key;
-    const maj = this.tmpColor.setHex(PALETTE.gridMajor), br = ((bg >> 16) & 255) / 255, bgG = ((bg >> 8) & 255) / 255, bb = (bg & 255) / 255;
-    this.gridPix.material.color.setRGB(br * maj.r, bgG * maj.g, bb * maj.b, THREE.LinearSRGBColorSpace);   // 原样写进小图（同背景的原始 sRGB 数）
+    this.gridPix.material.color.setRGB(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, THREE.LinearSRGBColorSpace);   // 原样写进小图（同背景的原始 sRGB 数）
     const pos: number[] = [], at = (u: number, v: number): void => { pos.push(o.x + X.x * u + Y.x * v, o.y + X.y * u + Y.y * v, o.z + X.z * u + Y.z * v); };
     const SEG = Math.max(AXIS_SEG_M, st);   // 切段（软件光栅里穿过近平面的长线整条被裁掉）
     const line = (fixed: number, from: number, to: number, alongU: boolean): void => { for (let a = from; a < to - 1e-9; a += SEG) { const b2 = Math.min(to, a + SEG); if (alongU) { at(a, fixed); at(b2, fixed); } else { at(fixed, a); at(fixed, b2); } } };

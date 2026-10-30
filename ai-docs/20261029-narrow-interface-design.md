@@ -137,6 +137,8 @@ const LOOK = { lock: ["thinTop", "lock"], xg: ["thickTop", /*按轴*/], poolAxes
 - **守卫**：编译期——编辑器删 overlay 回调 / pass 字段后，一条线想逃 = 改画风表一行；运行时——守卫测试逐行打印画风表里 stage ≠ 0 / resolution ≠ main 的行（=「还有谁在」），探针量像素风里「不整格的像素只能来自那几行」（Fable 的尺子：`$CLAUDE_JOB_DIR/tmp/probe-pixel-blocks.mjs` 的整格统计法，进仓时改成不引用仓外文件）。
 - 颜色（像素风顶点 / 选中、蓝从一开始就不喜欢、picoCAD 当参考但别那么夸张）归 user + Opus（T125）；1bit 压测归 Opus。
 
+> **落地（Claude Opus 5.5，v0.17.34 / 35）**：画风表 = `src/look/aux.ts`（语义种类 → GL 量、颜色角色 → 值、每画风覆盖；字的排版也在这）；契约 = `stage` / `resolution` 两个量；白名单 = `test/overlay-pass-guard.test.ts` 的 WHITELIST（现在空）；整格尺子 = 探针 `probe-pixel-blocks`。和稿子不同的一处：「细线在下采样时画成 1 像素 GL 线」放在引擎（和模型的边同一条规矩），不在画风表——那是分辨率的事，不是画风的事。
+
 ### 7.2 五条元规则（user 10-29 深夜「小字段 ≠ 小改动 同意，元规则你优化一下」「屏幕应该是做一个窄接口」「数据安全……一般归fable」后的第二稿）
 
 Fable 管的是这五条和它们的守卫，不是每个字段；判据 = **「这个字段让谁决定」**，不是「字段 vs 结构」。

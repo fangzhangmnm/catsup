@@ -78,6 +78,8 @@ export declare class DenseStore extends ArrayStore {
     constructor(specs: readonly AttrSpec[], unit: number);
     get count(): number;
     has(id: number): boolean;
+    /** 这条记录占的段（单位偏移 / 单位数：像素线 2 个顶点、粗线 1 个实例）；没有 = null。删记录会挪别人的位置——用的人每次现查。 */
+    range(id: number): readonly [number, number] | null;
     put(id: number, fill: Fill): void;
     remove(id: number): void;
     /** 全量建完：收紧到用到的 + 八分之一余量。 */
@@ -165,6 +167,8 @@ export declare class PoolMesh {
      */
     private diffTo;
     private full;
+    /** 一条边在线块里占的段（标记：选中 / 悬停 / 刮擦 / 检查的边按段换材质；软边 / 折线 / 藏起来的边不在线块里 = null）。 */
+    edgeRange(eid: EdgeId): readonly [number, number] | null;
     /** 一张面在各组里占的段（顶点偏移 / 顶点数；两侧材质不同的面在两组里）：标记（选中 / 悬停）按段换材质用（窄接口刀 b）。 */
     faceRanges(fid: FaceId): {
         key: string;

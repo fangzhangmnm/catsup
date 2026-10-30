@@ -36,6 +36,8 @@ export interface NumberOption {
     /** 这个数是一个物理量（值存 SI：米 / 米每秒）：显示、− +、打字都按用户选的单位（units.ts；2026-10-28 user「都单位和用户选择单位对齐」）。给了它 unit 就不看。 */
     readonly quantity?: QuantityTag;
     readonly scope: OptionScope;
+    /** 只在这几个工作台露（软边橡皮的「最大角度」只管硬表面：网格体的边是拓扑，标平滑不看角度）。 */
+    readonly modes?: readonly string[];
 }
 export interface BoolOption {
     readonly kind: "bool";
@@ -321,6 +323,7 @@ export declare const TOOL_OPTIONS: {
             readonly step: 1;
             readonly unit: "°";
             readonly scope: "session";
+            readonly modes: readonly ["geometry"];
         };
     };
     /** 新建（自由建模；纪元账本 FM182，user 10-27「然后能不能加一个新建的tool，就是拖动然后新建，可以马前炮和马后炮，如果你想用马前炮的尺寸就点击」）：

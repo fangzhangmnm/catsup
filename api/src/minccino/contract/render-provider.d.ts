@@ -12,8 +12,8 @@ import type { OverlayCtx, OverlayItem } from "../overlay/index.ts";
  */
 /** 面的材质槽（标记用）：风格的材质表给每个槽一种画法（白模 = 换成状态色、写实 = 叠色、Tron = Clu 橙 + 辉光）。 */
 export type FaceSlot = "faceSelected" | "faceHover" | "faceDim";
-/** 线的材质槽（标记用）：edgeDim = 淡出的边（整块换材质）；edgeHidden = 被挡住的那段再画一遍（深度模式 hidden，叠着画；X 光开 = 编辑器提交、关 = 不提交，刀 d / T73）。 */
-export type LineSlot = "edgeDim" | "edgeHidden";
+/** 线的材质槽（标记用）：edgeSelected / edgeHot / edgeWarn = 按段换材质（选中蓝 / 刮擦·悬停红 / 检查橙；点线面同一个标准，不走叠加层，2026-10-29 Opus）；edgeDim = 淡出的边（整块换材质）；edgeHidden = 被挡住的那段再画一遍（深度模式 hidden，叠着画；X 光开 = 编辑器提交、关 = 不提交，刀 d / T73）。 */
+export type LineSlot = "edgeDim" | "edgeHidden" | "edgeSelected" | "edgeHot" | "edgeWarn";
 /** 改画的段（契约 v2 第 ② 批，刀 b）：某个槽的某个块的某一段（顶点偏移 / 顶点数）用另一个材质槽画——从普通批里踢掉、用那个槽的材质画，不重叠、不画两遍。 */
 export interface Mark {
     readonly slot: string;
@@ -115,10 +115,13 @@ export interface RenderProvider {
         order: readonly string[];
         pruned: readonly string[];
     } | null;
-    /** 探针：这个 id 的辅助几何这一帧画着没有 / 现在挂着哪些字。 */
+    /** 探针：这个 id 的辅助几何这一帧画着没有 / 画着的那些的 id 和键（键里有什么归提交方）。 */
     overlayVisible(id: string): boolean;
-    labelKeys(): {
+    auxKeys(): {
         id: string;
         key: string;
     }[];
+    /** 探针：这一帧画着的辅助几何里，不在主分辨率画的（resolution native）/ 排在后处理之后的（stage 1）id——缺省两张都是空的，画风表开了白名单才有。 */
+    nativeIds(): string[];
+    lateIds(): string[];
 }

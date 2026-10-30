@@ -7,7 +7,7 @@ export type { Measurement, CostTable, DegradeStep, ProviderCaps } from "./contra
 export type { PassDecl, FramePlan } from "./graph/frame-graph.ts";
 export { planFrame } from "./graph/frame-graph.ts";
 export type { RenderProvider, FrameInput, Mark, FaceSlot, LineSlot, LineStyle, XRFacade, XRHand, XRRigPose, XRRay } from "./contract/render-provider.ts";
-export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayLabel, OverlayCtx, DepthMode, MarkerGeom } from "./overlay/index.ts";
+export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayCtx, DepthMode, MarkerGeom, AuxStage, AuxResolution } from "./overlay/index.ts";
 export { hexToLinear } from "./overlay/index.ts";
 export { PALETTE } from "./palette.ts";
 export { NOOP_PERF, type PerfSink } from "./perf.ts";
