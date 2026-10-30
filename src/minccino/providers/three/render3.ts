@@ -65,12 +65,10 @@ const EDGE_PX = 1.6;        // 边线宽（CSS px；旧 thick 风格 + 选中 / 
  */
 const profileAddFor = (w: number): number => Math.min(w, 5 - w);   // 轮廓 ≈ 两倍粗，总宽不超过 5 设备像素
 const STATIC_PX = 1.2;      // 网格 + 三轴（同一份粗线，只能一个宽度；轴靠颜色区分）
-/** 网格：1 m 一格、±50 m（PC/VR 同一份；user 2026-09-07「vr 和 pc 的网格都是 1m，不应跟 branch」；无限/自适应网格 = A12）。 */
+/** 三色轴的长度：±50 m（PC/VR 同一份；user 2026-09-07「vr 和 pc 的网格都是 1m，不应跟 branch」）。网格本身不再有写死的大小（A12，v0.17.45）。 */
 const GRID_STEP = 1, GRID_N = 50;
-/** 像素化风格的网格：屏幕上格距至少几个小图像素才画（再密 = 地平线压成深色带）。 */
-const PIXEL_GRID_MIN_PX = 8;
-/** 长线切段（米）：一根很长、穿过近平面的线在软件光栅里整条被裁掉；三色轴 / 网格都切。 */
-const AXIS_SEG_M = 2;
+/** 像素化风格的网格：一组线在这个像素处的屏幕间距不到几个小图像素就不画这一档（粗十倍的那档接着画；再密 = 压成一条带）。点线隔一格才一个点，看着密一倍，门槛高一些。 */
+const PIXEL_GRID_MIN_PX = 5, PIXEL_GRID_MIN_PX_STIPPLE = 8;
 /** XR 里「屏幕像素」的定义：指示物角尺寸 = px / XR_PX_PER_DEG 度。桌面 800 px / 50° = 16 px/°；VR 取 32 = 同 px 数只有桌面一半大。 */
 const XR_PX_PER_DEG = 32;
 /** XR 粗线 px → 设备像素倍率：每眼 viewport 高 / 900（桌面里这个角色是 DPR）。 */
@@ -95,11 +93,28 @@ interface ThickOwn { geo: any; flag: any; src: any }
 
 // ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
 
-/** 地面网格 = 一张 shader 平面（Blender 式；user 2026-10-24「根治，修……z-fight 加一个 z-offset」）：主线每 uStep、细线每 uStep/uSub，像素定宽（fwidth 抗锯齿），
- *  太密自动淡出；正片叠底只变暗底下的东西；polygonOffset 前拉 = 贴在 z=0 的面不再 z-fight，网格直接「印」在地面材质上。 */
+/**
+ * 地面网格 = 一张 shader 平面（Blender 式；user 2026-10-24「根治，修……z-fight 加一个 z-offset」）：像素定宽（梯度抗锯齿）、正片叠底只变暗底下的东西、polygonOffset = 贴在 z=0 的面不 z-fight。
+ * v0.17.45（账本 T154 / 总账 A12「要淘汰的是写死的网格尺寸」；user 10-29「grid的范围计算也不对」「可能用视锥好好想一下数学」「学一下shader实验室里面grid的画法」）：
+ * 范围不算——一张同心圈平面（半径一圈比一圈翻倍，圆心在相机脚下 / 正交时在视线目标下，外圈 = 相机能看到的最远处 × 2）覆盖视锥能看到的全部地面；
+ * 画不画由每个像素自己决定（实验室同款）：地面坐标 c 在这个像素上的梯度 = 每像素多少米，一组平行线在屏幕上的间距 = 格距 ÷ |∇c|（像素），
+ * 太密的那一级不画、粗十倍的那一级接着画（×1 / ×10 / ×100 / ×1000）；横竖两组各算各的（斜看时往远处去的那组线比横着的那组活得久）。
+ * 同心圈而不是一整块大四边形：插值出来的地面坐标误差 ≈ 三角形大小 × 1e-7，圆心附近（拉近细看的地方）三角形小、格线不抖。
+ */
 const GRID_VERT = /* glsl */`
-  varying vec2 vUv;
-  void main() { vUv = position.xy; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }`;
+  uniform vec2 uCenter; uniform float uReach;
+  varying vec2 vUv; varying vec3 vView;
+  void main() { vec2 p = position.xy * uReach + uCenter; vUv = p; vec4 v = modelViewMatrix * vec4(p, 0.0, 1.0); vView = v.xyz; gl_Position = projectionMatrix * v; }`;
+/** 同心圈平面（单位半径；GRID_VERT 按 uReach 放大）：圈半径 2^(k−RINGS+1)，最里一圈扇形到圆心。 */
+function ringPlane(rings = 24, sectors = 32): any {
+  const pos: number[] = [0, 0, 0], idx: number[] = [];
+  for (let k = 0; k < rings; k++) { const r = Math.pow(2, k - rings + 1); for (let i = 0; i < sectors; i++) { const a = (i / sectors) * 2 * Math.PI; pos.push(r * Math.cos(a), r * Math.sin(a), 0); } }
+  const at = (k: number, i: number): number => 1 + k * sectors + (i % sectors);
+  for (let i = 0; i < sectors; i++) idx.push(0, at(0, i), at(0, i + 1));
+  for (let k = 1; k < rings; k++) for (let i = 0; i < sectors; i++) idx.push(at(k - 1, i), at(k, i), at(k, i + 1), at(k - 1, i), at(k, i + 1), at(k - 1, i + 1));
+  const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setIndex(idx);
+  return g;
+}
 /**
  * 深度阶梯（polygonOffset units；factor 一律 1 / 0 / −1，见各处）——一处定，别处只引用（2026-10-24 Claude Opus 5.5，
  * user「边线应该优先于axis和grid，而不是被axes挡住」，10-25「画面」）。从后到前：
@@ -108,25 +123,49 @@ const GRID_VERT = /* glsl */`
  */
 const DEPTH = { face: 6, faceOther: 9, grid: 4 } as const;   // guide = 栅格 / 三色轴：比原生细线（0）后 4 档（细线与粗线插件的深度插值有噪声）、比覆盖层面（5）前 1 档
 const GRID_FRAG = /* glsl */`
-  uniform float uStep, uSub, uPx;
-  uniform vec3 uMajor, uMinor;
+  uniform float uStep, uPx;
+  uniform vec3 uMajor;
   varying vec2 vUv;
-  float lineMask(vec2 coord, float spacing, vec2 d, float px) {
-    vec2 g = abs(fract(coord / spacing - 0.5) - 0.5) * spacing;   // 到最近格线的距离（世界）
-    vec2 w = d * px * 0.5;                                          // 半线宽（世界）
-    vec2 a = vec2(1.0) - smoothstep(w - d, w + d, g);
-    return max(a.x, a.y);
+  // 一组平行线（坐标 c、梯度 dc = 每像素多少米、格距 s）的覆盖 0..1：到最近线的屏幕距离（像素）对线宽 uPx 做 ±1 像素过渡；屏幕间距 3 → 9 像素之间淡入（太密淡掉）
+  float lines(float c, vec2 dc, float s) {
+    float px = s / (length(dc) + 1e-12), dist = abs(fract(c / s - 0.5) - 0.5) * px;
+    return (1.0 - smoothstep(uPx * 0.5 - 1.0, uPx * 0.5 + 1.0, dist)) * smoothstep(3.0, 9.0, px);
   }
   void main() {
-    vec2 d = fwidth(vUv);
-    float dm = max(d.x, d.y) + 1e-9;
-    float major = lineMask(vUv, uStep, d, uPx) * smoothstep(3.0, 9.0, uStep / dm);
-    float minor = 0.0;
-    if (uSub > 1.5) { float sp = uStep / uSub; minor = lineMask(vUv, sp, d, uPx) * smoothstep(4.0, 14.0, sp / dm); }
-    if (major < 0.004 && minor < 0.004) discard;
-    vec3 col = mix(vec3(1.0), uMinor, minor);
-    col = mix(col, uMajor, major);
-    gl_FragColor = vec4(col, 1.0);   // MultiplyBlending：result = dst × col
+    vec2 du = vec2(dFdx(vUv.x), dFdy(vUv.x)), dv = vec2(dFdx(vUv.y), dFdy(vUv.y));
+    float a = 0.0, s = uStep;
+    for (int k = 0; k < 4; k++) { a = max(a, max(lines(vUv.x, du, s), lines(vUv.y, dv, s))); s *= 10.0; }
+    if (a < 0.004) discard;
+    gl_FragColor = vec4(mix(vec3(1.0), uMajor, a), 1.0);   // MultiplyBlending：result = dst × col（一张平面、不叠）
+  }`;
+/** 像素化风格的网格：二值（不混合；user「半透明对移动设备不友好」「只要opacity不叠加」）——这个小图像素在不在一根线上：
+ *  到最近线的带号距离落在「沿线主方向走一格时 c 变多少」的半开区间里 = 一列（或一行）恰好亮一个像素 = 光栅器的 1 像素细线；uStipple = 沿线主方向隔一格画一格（1-bit 的点线）。
+ *  梯度是解析的（user 10-29「可能用视锥好好想一下数学」）：地面上沿网格轴走 1 米 → 投影矩阵 → 透视除法求导 = 这个像素处的 2×2 雅可比 J，求逆 = 两组坐标在屏幕上的梯度。
+ *  不用 dFdx：有限差分有噪声，一组线的间距正好卡在门槛上时同一根线上的像素有的过有的不过 = 虚线 + 散点（v0.17.45 第一版样张）；解析的是光滑函数，门槛是一条干净的曲线，线穿过它就干净地断。 */
+const GRID_PIX_FRAG = /* glsl */`
+  uniform float uStep, uMinPx, uStipple;
+  uniform vec3 uColor, uAxX, uAxY;   // 网格两根轴（视图空间）
+  uniform mat4 uProj; uniform vec2 uRes;   // 这一遍的投影矩阵（含小图的视口偏移）/ 小图像素
+  varying vec2 vUv; varying vec3 vView;
+  vec2 jcol(vec3 a, vec4 clip, vec2 ndc) { vec4 d = uProj * vec4(a, 0.0); return (d.xy - ndc * d.w) / clip.w * uRes * 0.5; }   // 沿 a 走 1 米 → 小图上走几像素
+  // 0 = 不在线上；1 = 在、线横着走（按 x 隔）；2 = 在、线竖着走（按 y 隔）。g = 这组坐标在屏幕上的梯度（每像素多少米）
+  float onLine(float c, vec2 g, float s) {
+    if (s < uMinPx * length(g)) return 0.0;
+    float m = max(abs(g.x), abs(g.y)), d = (fract(c / s + 0.5) - 0.5) * s;
+    if (d <= -0.5 * m || d > 0.5 * m) return 0.0;
+    return abs(g.y) > abs(g.x) ? 1.0 : 2.0;
+  }
+  void main() {
+    vec4 clip = uProj * vec4(vView, 1.0); vec2 ndc = clip.xy / clip.w;
+    vec2 jx = jcol(uAxX, clip, ndc), jy = jcol(uAxY, clip, ndc);
+    float det = jx.x * jy.y - jy.x * jx.y;
+    if (abs(det) < 1e-12) discard;   // 视线贴着地面
+    vec2 gu = vec2(jy.y, -jy.x) / det, gv = vec2(-jx.y, jx.x) / det;   // J 的逆的两行 = ∇u、∇v
+    float hit = 0.0, s = uStep;
+    for (int k = 0; k < 4; k++) { float a = max(onLine(vUv.x, gu, s), onLine(vUv.y, gv, s)); if (a > 0.5 && hit < 0.5) hit = a; s *= 10.0; }
+    if (hit < 0.5) discard;
+    if (uStipple > 0.5 && mod(floor(hit < 1.5 ? gl_FragCoord.x : gl_FragCoord.y), 2.0) > 0.5) discard;
+    gl_FragColor = vec4(uColor, 1.0);   // 原样写进小图（sRGB 原值）
   }`;
 const FACE_VERT = /* glsl */`
   attribute vec3 aColor;
@@ -272,26 +311,8 @@ export class Renderer3 implements RenderProvider {
   private readonly perf: PerfSink;
    // 变换 gizmo（2026-10-26）
   private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null;
-  /** 网格 / 三色轴的原生 1 像素线版（PIXEL_GRID_LAYER；像素化的风格画进小图，光栅器自己的 Bresenham = 不糊不断）。 */
+  /** 像素化风格的网格（GRID_PIX_FRAG 那张同心圈平面）/ 三色轴的原生 1 像素线版（PIXEL_GRID_LAYER；画进小图，光栅器自己的 Bresenham = 不糊不断）。 */
   private gridPix: any = null; private axesPix: any = null;
-  /** 点线网格的材质（line stipple：沿线的主方向隔一个小图像素画一个；1-bit 线稿）。gridPixBase = 平常那份实色线材质。 */
-  private gridStippleMat: any = null; private gridPixBase: any = null;
-  private stippleMat(w: number, h: number, color: number): any {
-    if (!this.gridStippleMat) {
-      this.gridStippleMat = new THREE.ShaderMaterial({
-        glslVersion: THREE.GLSL3, depthWrite: false, depthFunc: THREE.LessEqualDepth,
-        uniforms: { uRes: { value: new THREE.Vector2(1, 1) }, uColor: { value: new THREE.Vector3() } },
-        // 每个顶点知道这一段的另一头（other）：两头算出同一个「主方向」（屏幕上横着走 = 按 x 隔、竖着走 = 按 y 隔）
-        vertexShader: `uniform vec2 uRes; in vec3 other; out float vX;
-          void main() { vec4 a = projectionMatrix * modelViewMatrix * vec4(position, 1.0), b = projectionMatrix * modelViewMatrix * vec4(other, 1.0);
-            vec2 d = (b.xy / max(abs(b.w), 1e-6) - a.xy / max(abs(a.w), 1e-6)) * uRes; vX = abs(d.x) >= abs(d.y) ? 1.0 : 0.0; gl_Position = a; }`,
-        fragmentShader: `uniform vec3 uColor; in float vX; layout(location = 0) out vec4 oColor;
-          void main() { ivec2 p = ivec2(gl_FragCoord.xy); if ((((vX > 0.5) ? p.x : p.y) & 1) == 1) discard; oColor = vec4(uColor, 1.0); }`,
-      });
-    }
-    const u = this.gridStippleMat.uniforms; u.uRes.value.set(w, h); u.uColor.value.set(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255);   // 原样写进小图（sRGB 原值）
-    return this.gridStippleMat;
-  }
   private gridKey = "";
   private scratchV = new THREE.Vector3();
   private scratchV2 = new THREE.Vector3();
@@ -639,6 +660,7 @@ export class Renderer3 implements RenderProvider {
     const gfr = input.grid?.frame ?? WORLD_FRAME3, gstep = input.grid?.step ?? 1, gsub = 1;
     const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}|${this.framePreset.light.axisColors?.join(",") ?? ""}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
+    this.syncGridSpan(cam3, cam.target);
 
     // ---- 叠加层（步 6a 线段族 / 6b 点 标记 三角 文字）：内容归编辑器（view.overlay），量尺归这里（一像素多长 / 视野多远 / 相机三轴；XR 和桌面在 worldPerPx 里分）----
     const octx: OverlayCtx = {
@@ -743,8 +765,13 @@ export class Renderer3 implements RenderProvider {
       this.scene.background = null;
       this.renderer.setClearColor(this.tmpColor.setRGB(((b >> 16) & 255) / 255, ((b >> 8) & 255) / 255, (b & 255) / 255, THREE.LinearSRGBColorSpace), 1);
       cam3.layers.mask = 1 | (1 << GROUND_LAYER) | (1 << PIXEL_GRID_LAYER) | (1 << AUX_LAYER);
-      if (this.gridPix) { this.syncPixelGrid(cam3, ps.h, this.pixelGridColor(p)); this.gridPix.material = p.light.gridStipple ? this.stippleMat(ps.w, ps.h, this.pixelGridColor(p)) : this.gridPixBase; }
+      if (this.gridPix) {
+        const u = this.gridPix.material.uniforms, c = this.pixelGridColor(p), f = this.gridFrame;
+        u.uStep.value = this.gridMat.uniforms.uStep.value; u.uRes.value.set(ps.w, ps.h);
+        u.uAxX.value.set(f.x.x, f.x.y, f.x.z).transformDirection(cam3.matrixWorldInverse); u.uAxY.value.set(f.y.x, f.y.y, f.y.z).transformDirection(cam3.matrixWorldInverse); u.uColor.value.set(((c >> 16) & 255) / 255, ((c >> 8) & 255) / 255, (c & 255) / 255); u.uStipple.value = p.light.gridStipple ? 1 : 0; u.uMinPx.value = p.light.gridStipple ? PIXEL_GRID_MIN_PX_STIPPLE : PIXEL_GRID_MIN_PX;
+      }
       toLow();
+      if (this.gridPix) this.gridPix.material.uniforms.uProj.value.copy(cam3.projectionMatrix);   // 小图那遍的投影（含视口偏移）：解析雅可比用
       const pxScale = H / this.dpr / ps.h;   // LineSegments2 按画布 CSS 视口算像素：小图里线宽要乘回去（tron-shader.ts 头）——不乘 = 粗线在小图里只有几分之一像素宽、画成断断续续的虚线（user 10-29 iPad 截图：线稿粗细 1.5 的粗线路）
       if (p.material.tron && this.tron) this.tron.sync(p.material.tron, pxScale);
       const lw0 = this.edgeMat.linewidth, lwd0 = this.edgeDimMat.linewidth, pa0 = this.profileAdd.value;
@@ -1285,12 +1312,12 @@ export class Renderer3 implements RenderProvider {
     const L = GRID_N * GRID_STEP;
     if (!this.gridMesh) {
       this.gridMat = new THREE.ShaderMaterial({
-        uniforms: { uStep: { value: 1 }, uSub: { value: 1 }, uPx: { value: STATIC_PX }, uMajor: { value: new THREE.Color(PALETTE.gridMajor) }, uMinor: { value: new THREE.Color(PALETTE.gridMinor) } },
+        uniforms: { uStep: { value: 1 }, uPx: { value: STATIC_PX }, uMajor: { value: new THREE.Color(PALETTE.gridMajor) }, uCenter: { value: new THREE.Vector2() }, uReach: { value: 1 } },
         vertexShader: GRID_VERT, fragmentShader: GRID_FRAG,
         transparent: true, depthWrite: false, blending: THREE.MultiplyBlending, premultipliedAlpha: true, side: THREE.DoubleSide,   // three 的 MultiplyBlending 只在 premultipliedAlpha 下生效（否则只报错不混合 = 白格子盖满地面）
         depthFunc: THREE.LessDepth, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: DEPTH.grid,   // 深度阶梯（DEPTH 注释）：面后、边前，不 z-fight（user「加一个 z-offset 的事情」）
       });
-      this.gridMesh = new THREE.Mesh(new THREE.PlaneGeometry(2 * L, 2 * L), this.gridMat);
+      this.gridMesh = new THREE.Mesh(ringPlane(), this.gridMat);
       this.gridMesh.frustumCulled = false; this.gridMesh.renderOrder = -1; this.gridMesh.matrixAutoUpdate = false; this.gridMesh.layers.set(GRID_LAYER);
       this.scene.add(this.gridMesh);
       const axesMat = this.lineMat(STATIC_PX, { vertexColors: true });   // 不前拉：轴在边后面（DEPTH 注释）
@@ -1299,8 +1326,7 @@ export class Renderer3 implements RenderProvider {
       this.axesObj.frustumCulled = false; this.axesObj.layers.set(GRID_LAYER);
       this.scene.add(this.axesObj);
     }
-    this.gridMat.uniforms.uStep.value = step > 1e-6 ? step : 1;
-    this.gridMat.uniforms.uSub.value = sub > 1 ? sub : 1;
+    this.gridMat.uniforms.uStep.value = step > 1e-6 ? step : 1;   // 显示不细分（sub 只管吸附，见调用处）
     this.gridMesh.matrix.set(X.x, Y.x, Zd.x, o.x, X.y, Y.y, Zd.y, o.y, X.z, Y.z, Zd.z, o.z, 0, 0, 0, 1);
     this.gridMesh.matrixWorldNeedsUpdate = true;
     const at = (u: number, v: number, w: number): Vec3 => ({ x: o.x + X.x * u + Y.x * v + Zd.x * w, y: o.y + X.y * u + Y.y * v + Zd.y * w, z: o.z + X.z * u + Y.z * v + Zd.z * w });
@@ -1315,59 +1341,34 @@ export class Renderer3 implements RenderProvider {
     seg(-L, L, (t) => at(0, t, 0), ax[1]);
     seg(0, L, (t) => at(0, 0, t), ax[2]);
     setLineGeometry(this.axesObj, apos, acol);
-    // 原生 1 像素线版（像素化的风格用）：三色轴在这里建；网格跟相机走、每帧按需重建（syncPixelGrid）。都不写深度（写了会被像素描边当成物体描一圈）
+    // 像素化风格的版本：三色轴 = 原生 1 像素线、网格 = 同一张同心圈平面换二值 shader。都不写深度（写了会被像素描边当成物体描一圈）
     if (!this.gridPix) {
-      this.gridPixBase = new THREE.LineBasicMaterial({ color: 0xffffff, depthWrite: false, depthFunc: THREE.LessEqualDepth });
-      this.gridPix = new THREE.LineSegments(new THREE.BufferGeometry(), this.gridPixBase);   // 实色、不混合（user「半透明对移动设备不友好」）
+      const pixMat = new THREE.ShaderMaterial({
+        uniforms: { uStep: { value: 1 }, uMinPx: { value: PIXEL_GRID_MIN_PX }, uStipple: { value: 0 }, uColor: { value: new THREE.Vector3(1, 1, 1) },
+          uAxX: { value: new THREE.Vector3(1, 0, 0) }, uAxY: { value: new THREE.Vector3(0, 1, 0) }, uProj: { value: new THREE.Matrix4() }, uRes: { value: new THREE.Vector2(1, 1) }, uCenter: this.gridMat.uniforms.uCenter, uReach: this.gridMat.uniforms.uReach },
+        vertexShader: GRID_VERT, fragmentShader: GRID_PIX_FRAG, side: THREE.DoubleSide, depthWrite: false,   // 实色、不混合（user「半透明对移动设备不友好」）
+        depthFunc: THREE.LessDepth, polygonOffset: true, polygonOffsetFactor: 0, polygonOffsetUnits: DEPTH.grid,   // 深度阶梯同原分辨率那张
+      });
+      this.gridPix = new THREE.Mesh(ringPlane(), pixMat); this.gridPix.matrixAutoUpdate = false;
       this.axesPix = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, depthWrite: false, depthFunc: THREE.LessEqualDepth }));
       for (const o of [this.gridPix, this.axesPix]) { o.frustumCulled = false; o.layers.set(PIXEL_GRID_LAYER); this.scene.add(o); }
       this.gridPix.renderOrder = -1;
     }
     const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(apos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(acol.map(linToSrgb), 3));   // 只画进小图：sRGB 原值（小图的约定，overlay-lines.ts linToSrgb）
     this.axesPix.geometry.dispose(); this.axesPix.geometry = g;
-    this.gridFrame = frame; this.gridStep = step > 1e-6 ? step : 1; this.gridPixKey = "";
+    this.gridPix.matrix.copy(this.gridMesh.matrix); this.gridPix.matrixWorldNeedsUpdate = true;
+    this.gridFrame = frame;
   }
-  private gridFrame: Frame3 = WORLD_FRAME3; private gridStep = 1; private gridPixKey = "";
-  /**
-   * 像素化风格的网格（T101 / user 10-29「地平线不应该是变深，而且半透明对移动设备不友好吧」）：原生 1 像素实色线，**只画屏幕上格距 ≥ PIXEL_GRID_MIN_PX 个小图像素的那一圈**——
-   * 透视：离眼睛 D 远处横向格距 ≈ 格距 × 焦距 ÷ D、纵深格距 ≈ 格距 × 焦距 × 眼高 ÷ D²（焦距 = 小图高 ÷ 2 tan(fov/2)），取 D ≤ D_max 的那一圈（地面上以眼睛脚下为圆心）；格距太细一圈都没有就换粗一档（× 10）。正交：格距按像素算、不够就换粗。
-   * 远处不画 = 地平线不再被挤成一条深色带；颜色 = 画风的网格色（没写 = 背景 × 网格系数；原始 sRGB 数，不混合）。圈 / 格距变了才重建（键）。
-   */
-  private syncPixelGrid(cam3: any, lowH: number, color: number): void {
-    if (!this.gridPix) return;
-    const f = this.gridFrame, o = f.origin, X = f.x, Y = f.y, Z = f.z, eye = cam3.getWorldPosition(new THREE.Vector3());
-    const dx = eye.x - o.x, dy = eye.y - o.y, dz = eye.z - o.z, u0 = dx * X.x + dy * X.y + dz * X.z, v0 = dx * Y.x + dy * Y.y + dz * Y.z, h = Math.abs(dx * Z.x + dy * Z.y + dz * Z.z);
-    let st = this.gridStep, r = 0;
-    const L = GRID_N * GRID_STEP;
-    if (cam3.isOrthographicCamera) {
-      const halfH = (cam3.top - cam3.bottom) / (2 * (cam3.zoom || 1)), pxPerM = lowH / (2 * halfH);
-      for (let k = 0; k < 4 && st * pxPerM < PIXEL_GRID_MIN_PX; k++) st *= 10;
-      r = st * pxPerM >= PIXEL_GRID_MIN_PX ? halfH * 3 : 0;
-    } else {
-      const t = Math.tan(((cam3.fov ?? 50) * Math.PI) / 360);
-      // 贴地斜看：纵深方向的格距还要再乘「眼高 ÷ 距离」（透视压缩）≈ 格距 × 焦距 × 眼高 ÷ 距离² —— 比横向的「格距 × 焦距 ÷ 距离」严，取两者里近的那个
-      const fpx = lowH / (2 * t);
-      for (let k = 0; k < 4; k++) { const dmax = Math.min((st * fpx) / PIXEL_GRID_MIN_PX, Math.sqrt((st * fpx * Math.max(h, 1e-3)) / PIXEL_GRID_MIN_PX)); if (dmax > h * 1.02) { r = Math.sqrt(dmax * dmax - h * h); break; } st *= 10; }
-    }
-    r = Math.min(r, L);
-    const key = `${st}|${Math.round(u0 / st)}|${Math.round(v0 / st)}|${Math.round(r / st)}|${color}`;
-    if (key === this.gridPixKey) return;
-    this.gridPixKey = key;
-    this.gridPixBase.color.setRGB(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, THREE.LinearSRGBColorSpace);   // 原样写进小图（同背景的原始 sRGB 数）
-    const pos: number[] = [], at = (u: number, v: number): void => { pos.push(o.x + X.x * u + Y.x * v, o.y + X.y * u + Y.y * v, o.z + X.z * u + Y.z * v); };
-    const SEG = Math.max(AXIS_SEG_M, st);   // 切段（软件光栅里穿过近平面的长线整条被裁掉）
-    const line = (fixed: number, from: number, to: number, alongU: boolean): void => { for (let a = from; a < to - 1e-9; a += SEG) { const b2 = Math.min(to, a + SEG); if (alongU) { at(a, fixed); at(b2, fixed); } else { at(fixed, a); at(fixed, b2); } } };
-    if (r > 0) for (let i = Math.ceil((u0 - r) / st); i * st <= u0 + r; i++) {
-      const u = i * st, half = Math.sqrt(Math.max(0, r * r - (u - u0) * (u - u0)));
-      if (Math.abs(u) > 1e-9) line(u, v0 - half, v0 + half, false);
-    }
-    if (r > 0) for (let j = Math.ceil((v0 - r) / st); j * st <= v0 + r; j++) {
-      const v = j * st, half = Math.sqrt(Math.max(0, r * r - (v - v0) * (v - v0)));
-      if (Math.abs(v) > 1e-9) line(v, u0 - half, u0 + half, true);
-    }
-    const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
-    { const other = new Float32Array(pos.length); for (let i = 0; i + 5 < pos.length; i += 6) { other.set(pos.slice(i + 3, i + 6), i); other.set(pos.slice(i, i + 3), i + 3); } geo.setAttribute("other", new THREE.Float32BufferAttribute(other, 3)); }   // 点线要知道这一段往哪走
-    this.gridPix.geometry.dispose(); this.gridPix.geometry = geo;
+  private gridFrame: Frame3 = WORLD_FRAME3;
+
+  /** 网格平面这一帧摆在哪、多大（两张共用 uniform）：圆心 = 相机脚下（正交 = 视线目标下；拉近细看的地方三角形小），半径 = 相机看得到的最远处 × 2（正交再加半个视口）——视锥里的地面全在圈里。 */
+  private syncGridSpan(cam3: any, target: Vec3): void {
+    const f = this.gridFrame, o = f.origin, X = f.x, Y = f.y, ortho = !!cam3.isOrthographicCamera;
+    const c = ortho ? target : cam3.getWorldPosition(this.scratchV), dx = c.x - o.x, dy = c.y - o.y, dz = c.z - o.z;
+    const half = ortho ? Math.max(cam3.top - cam3.bottom, cam3.right - cam3.left) / (2 * (cam3.zoom || 1)) : 0;
+    const u = this.gridMat.uniforms;
+    u.uCenter.value.set(dx * X.x + dy * X.y + dz * X.z, dx * Y.x + dy * Y.y + dz * Y.z);
+    u.uReach.value = 2 * (cam3.far + half);
   }
 }
 
