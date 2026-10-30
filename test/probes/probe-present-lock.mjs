@@ -53,7 +53,7 @@ await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 // ⑨ 导出字节带 desk.locked，不带老 final
 const bytes = await page.evaluate(() => Array.from(globalThis.__catsup.session.encode()));
 const glbJson = (arr) => { const buf = Buffer.from(arr); const len = buf.readUInt32LE(12); return JSON.parse(buf.subarray(20, 20 + len).toString("utf8")); };
-{ const j = glbJson(bytes); ok("bytesCarryLock", j.extensions.CATSUP_desk.locked === true && !("final" in j.extensions.CATSUP_document) && j.extensions.CATSUP_desk.minor === 2); }
+{ const j = glbJson(bytes); ok("bytesCarryLock", j.extensions.CATSUP_desk.locked === true && !("final" in j.extensions.CATSUP_document) && j.extensions.CATSUP_desk.minor >= 2); }   // 锁是 desk 1.2 加的；之后加别的键（1.3 画风 / 屏幕）不影响
 
 // ③ 自由建模里按 G：先解锁、造个网格体并选中一个点，再锁，按 G = 不起手
 await page.evaluate(async () => { await globalThis.__catsup.session.setLocked(false); }); await page.waitForTimeout(60);
