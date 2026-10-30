@@ -12,7 +12,7 @@ export const PROFILE_PATCHES: readonly (readonly [string, string])[] = [
   ],
   [
     "float aspect = resolution.x / resolution.y;",
-    "float aspect = resolution.x / resolution.y;\n\t\t\t// SU 轮廓线：flag = 这条边的面数（0 悬空 / 1 边界 / 2 内边或剪影 / 3+ 非流形）。剪影 = 两张面伸向「过这条边和视线的平面」的同一侧\n\t\t\t// （W1 / W2 = 两张面各自从这条边往面里走的方向；= profile-edges.ts isSilhouette 的 GLSL 镜像，改一边改另一边；F-87 / 2026-10-26）\n\t\t\tvec4 csA = modelViewMatrix * vec4( instanceStart, 1.0 );\n\t\t\tvec4 csB = modelViewMatrix * vec4( instanceEnd, 1.0 );\n\t\t\tvec3 vdir = ( projectionMatrix[ 2 ][ 3 ] == - 1.0 ) ? csA.xyz : vec3( 0.0, 0.0, - 1.0 );\n\t\t\tvec3 sm = cross( csB.xyz - csA.xyz, vdir );\n\t\t\tfloat sa = dot( mat3( modelViewMatrix ) * instanceW1, sm );\n\t\t\tfloat sb = dot( mat3( modelViewMatrix ) * instanceW2, sm );\n\t\t\tbool isProfile = instanceFlag < 1.5 || instanceFlag > 2.5 || ( sa * sb > 0.0 );\n\t\t\tfloat lw = linewidth + ( isProfile ? profileAdd : 0.0 );\n\t\t\tif ( instanceFlag < - 0.5 ) lw = 0.0;   // 旗 -1 = 这一条由标记那份画（单遍：底线里收成零宽）"
+    "float aspect = resolution.x / resolution.y;\n\t\t\t// SU 轮廓线：flag = 这条边的面数（0 悬空 / 1 边界 / 2 内边或剪影 / 3+ 非流形）。剪影 = 两张面伸向「过这条边和视线的平面」的同一侧\n\t\t\t// （W1 / W2 = 两张面各自从这条边往面里走的方向；= profile-edges.ts isSilhouette 的 GLSL 镜像，改一边改另一边；F-87 / 2026-10-26）\n\t\t\tvec4 csA = modelViewMatrix * vec4( instanceStart, 1.0 );\n\t\t\tvec4 csB = modelViewMatrix * vec4( instanceEnd, 1.0 );\n\t\t\tvec3 vdir = ( projectionMatrix[ 2 ][ 3 ] == - 1.0 ) ? csA.xyz : vec3( 0.0, 0.0, - 1.0 );\n\t\t\tvec3 sm = cross( csB.xyz - csA.xyz, vdir );\n\t\t\tfloat sa = dot( mat3( modelViewMatrix ) * instanceW1, sm );\n\t\t\tfloat sb = dot( mat3( modelViewMatrix ) * instanceW2, sm );\n\t\t\t// 旗 ≥ 10 = 软边 / 折线：只在转成外轮廓时画（profile-edges.ts lineKind / CONTOUR_ONLY 的镜像；I12，2026-10-30）\n\t\t\tbool quiet = instanceFlag > 9.5;\n\t\t\tfloat faces = quiet ? instanceFlag - 10.0 : instanceFlag;\n\t\t\tbool twoFaced = faces > 1.5 && faces < 2.5;\n\t\t\tbool isProfile = !twoFaced || ( sa * sb > 0.0 );\n\t\t\tfloat lw = linewidth + ( isProfile ? profileAdd : 0.0 );\n\t\t\tif ( quiet && !( twoFaced && sa * sb > 0.0 ) ) lw = 0.0;\n\t\t\tif ( instanceFlag < - 0.5 ) lw = 0.0;   // 旗 -1 = 这一条由标记那份画（单遍：底线里收成零宽）"
   ],
   [
     "float hw = linewidth * 0.5;",
@@ -108,8 +108,13 @@ attribute float instanceFlag;
 			vec3 sm = cross( csB.xyz - csA.xyz, vdir );
 			float sa = dot( mat3( modelViewMatrix ) * instanceW1, sm );
 			float sb = dot( mat3( modelViewMatrix ) * instanceW2, sm );
-			bool isProfile = instanceFlag < 1.5 || instanceFlag > 2.5 || ( sa * sb > 0.0 );
+			// 旗 ≥ 10 = 软边 / 折线：只在转成外轮廓时画（profile-edges.ts lineKind / CONTOUR_ONLY 的镜像；I12，2026-10-30）
+			bool quiet = instanceFlag > 9.5;
+			float faces = quiet ? instanceFlag - 10.0 : instanceFlag;
+			bool twoFaced = faces > 1.5 && faces < 2.5;
+			bool isProfile = !twoFaced || ( sa * sb > 0.0 );
 			float lw = linewidth + ( isProfile ? profileAdd : 0.0 );
+			if ( quiet && !( twoFaced && sa * sb > 0.0 ) ) lw = 0.0;
 			if ( instanceFlag < - 0.5 ) lw = 0.0;   // 旗 -1 = 这一条由标记那份画（单遍：底线里收成零宽）
 
 			// camera space

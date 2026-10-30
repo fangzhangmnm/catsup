@@ -162,6 +162,8 @@ flowchart LR
   - X 光（v0.14.57，DT17；**v0.17.22 刀 d 改**：X 光不再是 pass——编辑器开着 X 光时给每个槽的边块提交 `edgeHidden` 标记，后端用「深度大于才画」的半透明材质把同一份线几何再画一遍，只出被挡住的那段；Tron 隐线同一条路）。旧写法：每个槽的线多挂一份「不做深度测试、35% 不透明」的对象，共用同一份线几何；覆盖层（选中 / 悬停 / 检查）换不做深度测试的材质。拾取：选择工具调 `pickEntity` 时 `xray` = 跳过点 / 边的遮挡判定。
 - 不画：软边、折线、隐藏的边。明暗：每个顶点处按硬边分扇、扇内按内角加权（`fanNormal`；硬边在平滑组里也断开）；跨平滑边和折线连续。导出 bake（`smoothNormalsOf`）同一个算法，`test/smooth-normals.test.ts` 对拍「导出的 = 屏幕上的」。
 
+- **v0.18.7（I12，Opus 5.5 2026-10-30）软边的外轮廓**：粗线那条路（线宽 > 1 / Tron）收集边时软边、折线也进线批（`pool-mesh.ts buildEdgeRec(…, contour)`），旗 = 面数 + `CONTOUR_ONLY`（10）；着色器（`profile-line-shader.ts`，CPU 镜像 `profile-edges.ts lineKind`）里旗 ≥ 10 = 只有夹在两张面之间、又正好转成外轮廓才画，否则零宽。画池里粗线的材质（普通 / 淡出 / X 光隐线 / Tron 两种）都用这份着色器，隐线的加粗量 = 0。**代价**：粗线批多出每条软边一条实例（每条 76 字节；光滑的导入模型软边多 = 线批跟着涨，随整个模型涨）。细线那条路（1 像素原生线）还没有判外轮廓的着色器 = 软边照旧不进。
+
 ## ⑧ 修复指令（`Editor.repair(kind, scope)`）
 
 > **v0.15.9（2026-10-27 夜，Claude Fable 5.1）**：修复指令改从**指令注册表**取（`src/editor/commands/registry.ts`：`commandById` / `actionById` / `placementsAt`；修复一族的清单 = `repairs/index.ts`，含面板步骤表 `REPAIR_STEPS`）。流程的每一步没变（规划 → 估时 → 提交 → 马后炮），只是「哪条指令」从 `REPAIRS` 数组查改成注册表查，id 从 `weld` 变 `brep.weld`（插件 op 的名字不变，老复现包照开）。浮条上的修复入口 = 放置表 `contextBar` 面上的动作。

@@ -376,6 +376,7 @@ export class Renderer3 implements RenderProvider {
     this.hiddenPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
     this.hiddenThickMat = this.lineMat(EDGE_PX, { vertexColors: true });
     Object.assign(this.hiddenThickMat, { transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
+    this.hiddenThickMat.vertexShader = PROFILE_LINE_VERTEX; this.hiddenThickMat.uniforms.profileAdd = { value: 0 };   // 画池里粗线的材质都得认「软边只在外轮廓时画」那面旗（I12）；隐线不加粗
     // 选中 / 刮擦 / 悬停的边 = 叠加层 "edge" 样式（6c）：用边线本身的材质、同一个深度偏移 = 深度相等，LessEqual 下谁后画谁赢；
     // 不定先后就由 three 的排序随缘——粗线稿时黑边常常后画、把红线整条盖掉（user 2026-10-25「bug：橡皮擦的红线不见了。也许是zorder」）。
     // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。

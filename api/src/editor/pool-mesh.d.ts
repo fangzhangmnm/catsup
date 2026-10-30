@@ -105,8 +105,12 @@ export interface EdgeRec {
     readonly w2: Pt3;
     readonly flag: number;
 }
-/** 看得见的边（软边 / 折线 / 隐藏的不画）一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。 */
-export declare function buildEdgeRec(k: KernelView, eid: EdgeId): EdgeRec | null;
+/**
+ * 看得见的边一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。隐藏的边不画。
+ * 软边 / 折线：平时不画；contour = true（粗线那条路）时进线批、旗 + CONTOUR_ONLY = 只在转成外轮廓时画（I12，user 10-30「软边没有变成外轮廓」，
+ * 拍了「沿软边画折线、不画交线」= SketchUp 同款）。细线那条路（1 像素原生线）还没有判外轮廓的着色器 = 照旧不画（账本 I12）。
+ */
+export declare function buildEdgeRec(k: KernelView, eid: EdgeId, contour?: boolean): EdgeRec | null;
 export type TexSide = "front" | "back" | "double";
 export interface PoolMeshEnv {
     /** 槽号 → 材质（scene.materialOfSlot 绑好 definition）。 */

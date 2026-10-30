@@ -14,7 +14,7 @@ import type { ChangeSet, Lineage } from "../kernel/change-log.ts";
 import type { Material } from "../scene/scene.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
-import { inwardAcrossEdge } from "./profile-edges.ts";
+import { CONTOUR_ONLY, inwardAcrossEdge } from "./profile-edges.ts";
 
 // ---------------------------------------------------------------- 区间仓库
 
@@ -221,15 +221,21 @@ export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | 
 }
 
 export interface EdgeRec { readonly a: Pt3; readonly b: Pt3; readonly loose: boolean; readonly w1: Pt3; readonly w2: Pt3; readonly flag: number; }
-/** 看得见的边（软边 / 折线 / 隐藏的不画）一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。 */
-export function buildEdgeRec(k: KernelView, eid: EdgeId): EdgeRec | null {
+/**
+ * 看得见的边一条记录；粗线轮廓要两侧面各自往面里走的方向 + 面数（profile-edges.ts）。隐藏的边不画。
+ * 软边 / 折线：平时不画；contour = true（粗线那条路）时进线批、旗 + CONTOUR_ONLY = 只在转成外轮廓时画（I12，user 10-30「软边没有变成外轮廓」，
+ * 拍了「沿软边画折线、不画交线」= SketchUp 同款）。细线那条路（1 像素原生线）还没有判外轮廓的着色器 = 照旧不画（账本 I12）。
+ */
+export function buildEdgeRec(k: KernelView, eid: EdgeId, contour = false): EdgeRec | null {
   const g = k.graph;
-  if (!g.hasEdge(eid) || k.isSoft(eid) || k.isFold(eid) || k.isEdgeHidden(eid)) return null;
+  if (!g.hasEdge(eid) || k.isEdgeHidden(eid)) return null;
+  const quiet = k.isSoft(eid) || k.isFold(eid);
+  if (quiet && !contour) return null;
   const e = g.edge(eid), a = g.pt(e.a), b = g.pt(e.b);
   const inward = (fid: FaceId | undefined): Pt3 => (fid === undefined ? { x: 0, y: 0, z: 0 } : inwardAcrossEdge(k, fid, eid, a, b));
   const fl = e.faceLinks.length > 1 ? [...e.faceLinks].sort((x, y) => x - y) : e.faceLinks;   // 按 id 取两张：画面不随链接顺序变
   const w1 = inward(fl[0]), w2 = fl[1] !== undefined ? inward(fl[1]) : w1;
-  return { a, b, loose: e.faceLinks.length === 0, w1, w2, flag: Math.min(e.faceLinks.length, 3) };
+  return { a, b, loose: e.faceLinks.length === 0, w1, w2, flag: Math.min(e.faceLinks.length, 3) + (quiet ? CONTOUR_ONLY : 0) };
 }
 
 // ---------------------------------------------------------------- 池网格
@@ -314,7 +320,7 @@ export class PoolMesh {
       for (const eid of T.graph.vertex(v).edges) { E.add(eid); for (const fid of T.graph.edge(eid).faceLinks) F.add(fid); }
     }
     for (const fid of F) { this.noteFace(T, fid); this.writeFace(fid, buildFaceRec(T, fid, (s) => env.matOf(s)), env); }
-    for (const eid of E) this.writeEdge(eid, buildEdgeRec(T, eid), env);
+    for (const eid of E) this.writeEdge(eid, buildEdgeRec(T, eid, env.thick), env);
     this.src = T; this.srcSeq = T.changes.seq; this.srcLin = T.changes.lineage();
     return this.last = { full: false, faces: F.size, edges: E.size };
   }
@@ -350,7 +356,7 @@ export class PoolMesh {
     this.thick = env.thick; this.singleSided = env.singleSided;
     this.lines = new DenseStore(env.thick ? THICK_SPECS : PIXEL_SPECS, env.thick ? 1 : 2);
     for (const f of T.faces()) { this.noteFace(T, f.id); this.writeFace(f.id, buildFaceRec(T, f.id, (s) => env.matOf(s)), env); }
-    for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id), env);
+    for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id, env.thick), env);
     for (const g of this.groups.values()) g.store.trim();
     this.lines.trim();
     this.src = T; this.srcSeq = T.changes.seq; this.srcLin = T.changes.lineage();
