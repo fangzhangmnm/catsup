@@ -6,8 +6,10 @@
 // · 物件展开 = 它那个组件定义里的物件：同一个定义摆了几份，每份底下都一样（改一份 = 改全部，SketchUp 同款）。
 // · 根那一行 = 模型最外一层的组件（显示它的名字、能改名；没有父亲 = 不能炸开、没有藏标记）。
 // · 路径 path = 从最外层一路「进哪个」（含途经的组），最后一个是这一行自己：选中它 = 进到 path 去掉最后一个的那一层、再选它；双击 = 进到 path 那一层。
+// · 拖一行换父亲（I3，user 10-30「hierarchy拖拽同意」）：reparentOp = 删原处 + 原位贴进新父亲（世界位置不变）一条 batch 指令；同级排序等有序表（I5）。
 // · 名字：实例自己的名字，没有就用组件定义的名字；名字正好是四位十六进制码 = 没起名 → 界面淡色等宽。
 import type { DefId, EditContext, GroupId, InstId, Scene } from "../scene/scene.ts";
+import { IDENTITY, compose, hasShear, invert, type Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 
 export type HierPick = { kind: "group"; group: GroupId } | { kind: "instance"; instance: InstId };
@@ -68,4 +70,47 @@ export function setHiddenOp(scene: Scene, node: HierNode, on: boolean): Op | nul
   if (!last || last.kind !== "instance") return null;
   const inst = scene.instance(node.def, last.instance);
   return !!inst.hidden === on ? null : { op: "setHidden", at: { def: node.def, group: inst.parent }, instance: inst.id, on };
+}
+
+/** 路径的世界变换（沿路把实例变换乘起来；组不带变换）。 */
+export function worldOfPath(scene: Scene, path: readonly HierPick[]): Xform {
+  let def = scene.root, m: Xform = IDENTITY;
+  for (const p of path) if (p.kind === "instance") { const inst = scene.instance(def, p.instance); m = compose(m, inst.xform); def = inst.def; }
+  return m;
+}
+/** 这一行展开后装的是哪个组件定义（根 = 模型根；物件 = 它摆的那个组件）。 */
+export function contentDef(scene: Scene, n: HierNode): DefId {
+  const last = n.path[n.path.length - 1];
+  return n.kind === "root" || !last || last.kind !== "instance" ? scene.root : scene.instance(n.def, last.instance).def;
+}
+/** 路径上第一个锁着的物件的名字（含最后一个自己）；没有 = null。 */
+function lockedOn(scene: Scene, path: readonly HierPick[]): string | null {
+  let def = scene.root;
+  for (const p of path) if (p.kind === "instance") { const inst = scene.instance(def, p.instance); if (inst.locked) return inst.name ?? scene.def(inst.def).name; def = inst.def; }
+  return null;
+}
+
+export type Reparent =
+  | { readonly op: Op; readonly into: DefId; readonly from: DefId; readonly name: string }
+  | { readonly why: string };
+/**
+ * 把 node 这一行挪到 target 底下当孩子（I3）：一条 batch = 删原处（eraseInstance）+ 原位贴进 target 装的那个组件（paste，世界位置不变）——撤销一步。
+ * 挂在 target 组件的最外层（不进它里面的组：组不进层级窗，user 10-24）。已经是 target 的孩子 = null（不动）。
+ * 拒绝（人话）：根不能挪 / 放进自己或自己里面（组件互相装 = 死循环）/ 自己或路上锁着 / 目标或目标路上锁着 / 会斜切（glTF 不许组件斜切；执行时还有全局护栏兜底）。
+ * 原处和目标都可能摆了好几份（同一个组件）：这一份在每一份里都没了 / 都多了——SketchUp 同款，调用方要把份数说出来。
+ */
+export function reparentOp(scene: Scene, node: HierNode, target: HierNode): Reparent | null {
+  const last = node.path[node.path.length - 1];
+  if (node.kind !== "instance" || !last || last.kind !== "instance") return { why: "根不能挪（它是最外一层）" };
+  const inst = scene.instance(node.def, last.instance), into = contentDef(scene, target);
+  if (into === node.def) return null;
+  if (scene.references(inst.def, into)) return { why: `不能把「${node.label}」放进它自己（或它里面的东西）里` };
+  const l1 = lockedOn(scene, node.path);
+  if (l1 !== null) return { why: `「${l1}」锁着：先解锁再挪` };
+  const l2 = lockedOn(scene, target.path);
+  if (l2 !== null) return { why: `「${l2}」锁着：先解锁再往里放` };
+  const xform = compose(invert(worldOfPath(scene, target.path)), worldOfPath(scene, node.path));
+  if (hasShear(xform)) return { why: `「${target.label}」被不等比缩放过，「${node.label}」放进去会斜切（glTF 不许组件斜切）；先对「${target.label}」点「应用缩放」` };
+  const moved = { parent: null, def: inst.def, xform, ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) };
+  return { op: { op: "batch", label: "换父亲", ops: [{ op: "eraseInstance", def: node.def, instance: inst.id }, { op: "paste", at: { def: into, group: null }, instances: [moved] }] }, into, from: node.def, name: node.label };
 }

@@ -1081,6 +1081,7 @@ export class Editor {
 
   /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
   commitOp(op: Op): FaceEvent[] { const ev = this.step((pass) => this.commitIn(pass, op)); this.draw(); return ev; }   // 提交完重画（画布按需画：层级窗的小眼睛以前只改了数据、要等下一次碰画布才看得到，user 10-30「小眼睛开关没用」）
+  /** 外面的一个用户动作要好几下（层级窗拖拽 = 退到根 → commitOp → 走到新父亲 → 选中它）：包在这里 = 一步撤销（step 可嵌套、外层说了算）；撤销回到动作前的那一层和选区。 */ oneStep<T>(fn: () => T, label?: StepLabel): T { return this.step(() => fn(), label); }
   // ---------- 镜像（编辑方式那一层；纪元账本 FM23 / FM39 / FM134 / FM136；纯几何 = mesh/mirror.ts）----------
   // 设置按网格体定义记（不进撤销、还没存进文件）。镜像编辑 = 挪点补上对面（提交前改写 op、预演同一道）；强行对称 = 这一步做完同一步里补一条
   // meshSymmetrize（动了哪边哪边为准）；镜像编辑开着时改拓扑 = 护栏：直说、给「关掉镜像，照做 / 取消」（user「护栏？直接说要么关了自己决定要不要对齐」）。

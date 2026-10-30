@@ -1307,7 +1307,7 @@ objectBtn.innerHTML = iconHtml("object"); $("modeSelect").before(objectBtn);   /
 // 层级钮（0.18 物品栏纪元 I1；设计稿 §5：层级 = 浮窗、素材 = 底部抽屉）：物件钮左边。窗口 = hierarchy-window.ts（物件树，组不进）
 const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级：这个模型里的物件（小三角展开、小眼睛藏 / 显、「…」= 菜单）";
 hierBtn.innerHTML = iconHtml("hierarchy-tree"); objectBtn.before(hierBtn);
-hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
+hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
 hierBtn.addEventListener("click", () => hierWin?.toggle(hierBtn));
 // 「这一层」和选中的子组件（物体菜单「物体设置…」）都是一次性的下拉（openObjectWindow）
 const objectWinDeps = { after: syncUi, openMachine: (m: Machine) => openMachineBoard(m, objectBtn) };

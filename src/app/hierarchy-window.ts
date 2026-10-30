@@ -8,8 +8,12 @@
 //   显示它的组件名、菜单和物件行同一个样子（改名… / 炸开 灰着 / 物件设置…）。
 // · 第二页「资源」（I10 第一版，user「我们没有一个中心化的按引用计数的东西吗？学blender」「到时候也有这种引用和孤儿管理面板」）：scene/resources.ts 清点，
 //   组件摆了几份 / 孤儿、材质用在几处 / 没人用；「清理没人用的组件…」= 确认框列名字 → purgeDefs 一步撤销。材质清理等身份换 GUID（I11）。
+// · 拖一行换父亲（I3，user 10-30「hierarchy拖拽同意」）：通用树拖拽 ui/tree-drag.ts 判落点（一行中间 = 放进去；缝 = 横向定深度）→ object-tree.ts reparentOp
+//   （世界位置不变）→ editor.oneStep 里「退到根 → 提交 → 走到新父亲那层 → 选中它」= 一步撤销。同级先后顺序还没做（有序表 I5 等 Fable），插在哪都排最后，提示里说。
+//   手指：长按起拖；长按没挪就松手 = 弹这一行的菜单（和画布长按同一个意思）。
 import type { Editor, PoolPick } from "../editor/editor.ts";
-import { contextPath, hierarchyTree, isHex4, pathKey, pickKey, setHiddenOp, type HierNode } from "../editor/object-tree.ts";
+import { contextPath, hierarchyTree, isHex4, pathKey, pickKey, reparentOp, setHiddenOp, type HierNode } from "../editor/object-tree.ts";
+import { attachTreeDrag, type TreeDrop } from "./ui/tree-drag.ts";
 import { census, orphanDefs } from "../scene/resources.ts";
 import { createFloatWin, type FloatWin, type MenuWindowSpec } from "./ui/menu-window.ts";
 import { openPopupMenu } from "./ui/popup-menu.ts";
@@ -22,6 +26,7 @@ import type { PopupMenuItem } from "./ui/popup-menu.ts";
 export interface HierarchyWindow { toggle(anchor: HTMLElement): void; isOpen(): boolean; refresh(): void }
 
 type Page = "tree" | "res";
+const ROW_PAD = 4, INDENT = 14, CARET_W = 24;   // 行左边距 / 一层缩进 / 小三角宽（含间隙）：拖拽插入线按它们画
 const PAGES: readonly { id: Page; label: string; icon: string }[] = [{ id: "tree", label: "层级", icon: "hierarchy-tree" }, { id: "res", label: "资源", icon: "object" }];
 /** 根那一行的菜单：和物件行同一个样子；根没有父亲 = 炸开灰着（没有藏 / 锁：那是「摆出来的那一份」的属性，根没有那一份）。 */
 const ROOT_MENU: PopupMenuItem<string>[] = [
@@ -30,7 +35,7 @@ const ROOT_MENU: PopupMenuItem<string>[] = [
   { id: "objectWindowSelf", label: "物件设置…", icon: "settings" },
 ];
 
-export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { store: MenuWindowSpec<string>["store"]; after(): void; confirm(title: string, message: string, okLabel: string): Promise<boolean>; onOpenChange?(open: boolean): void }): HierarchyWindow {
+export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { store: MenuWindowSpec<string>["store"]; after(): void; confirm(title: string, message: string, okLabel: string): Promise<boolean>; hint(text: string): void; onOpenChange?(open: boolean): void }): HierarchyWindow {
   const fw: FloatWin = createFloatWin({ id: "hierarchy", title: "层级", store: deps.store, bodyClass: "tree-body", onOpenChange: (o) => { if (o) render(); deps.onOpenChange?.(o); } });
   const expanded = new Set<string>([""]);   // 展开着的行（键 = 一路的物件编号；只活这次）
   let sig = "", page: Page = "tree";
@@ -44,6 +49,14 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     tabs.append(b);
   }
   const titleEl = fw.el.querySelector(".float-title");
+  let shown: { n: HierNode; depth: number }[] = [];   // 层级页现在画着的行（拖拽按它判）
+  attachTreeDrag(pane, {
+    rowSelector: ".tree-row", indent: INDENT, lineLeft: ROW_PAD + CARET_W, minDepth: 1, scroller: fw.body,
+    rows: () => (page === "tree" ? shown : []),
+    canDrag: (i) => page === "tree" && shown[i]?.n.kind === "instance",
+    onDrop: (i, d) => dropRow(i, d),
+    onHold: (i, el) => { const n = shown[i]?.n; if (n) openMenu(n, el.querySelector<HTMLElement>(".tree-more") ?? el); },
+  });
 
   /** 走到 path 那一层（已经在那 = 不动）。 */
   const goTo = (path: readonly PoolPick[]): void => {
@@ -55,6 +68,30 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
   const select = (n: HierNode): void => {
     if (n.kind === "root") { goTo([]); editor.selectPools([]); deps.after(); return; }
     goTo(n.path.slice(0, -1)); editor.selectPools([n.path[n.path.length - 1]]); deps.after();
+  };
+  /** 拖完松手：换父亲（一步撤销）；挡下来 / 原地不动 = 提示行说为什么。 */
+  const dropRow = (i: number, d: TreeDrop): void => {
+    const src = shown[i]?.n, tgt = shown[d.parent]?.n;
+    if (!src || !tgt) return;
+    const r = reparentOp(editor.sceneRef, src, tgt);
+    if (r === null) { deps.hint(`「${src.label}」本来就在「${tgt.label}」底下（同一层里谁排前面还没做，要等文件记顺序）`); return; }
+    if ("why" in r) { deps.hint(`挪不了：${r.why}`); return; }
+    const s0 = editor.sceneRef, before = new Set(s0.def(r.into).instances.keys());
+    const copies = (def: number): number => (def === s0.root ? 1 : s0.instanceCount(def)), fromN = copies(r.from), intoN = copies(r.into);
+    const moved = editor.oneStep(() => {
+      editor.exitTo(0);
+      editor.commitOp(r.op);
+      const fresh = [...editor.sceneRef.def(r.into).instances.keys()].find((id) => !before.has(id));
+      if (fresh === undefined) return false;   // 没提交（演示锁 / 斜切护栏）：编辑器已经说了原因
+      for (const p of tgt.path) editor.enterPool(p);
+      editor.selectPools([{ kind: "instance", instance: fresh }]);
+      return true;
+    }, { title: "换父亲" });
+    if (!moved) { deps.after(); return; }
+    expanded.add(tgt.key);
+    const notes = [fromN > 1 ? `原来那个组件摆了 ${fromN} 份，每份里都没了` : "", intoN > 1 ? `「${tgt.label}」摆了 ${intoN} 份，每份里都多了一个` : "", d.kind === "insert" && d.before !== null ? "同一层里谁排前面还没做，先排最后" : ""].filter(Boolean);
+    deps.hint(`把「${r.name}」挪进「${tgt.label}」底下（位置不动${notes.length ? "；" + notes.join("；") : ""}）`);
+    deps.after();
   };
   const openMenu = (n: HierNode, anchor: HTMLElement): void => {
     select(n);
@@ -77,13 +114,14 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     };
     walk(tree, 0);
     const nextSig = "tree" + JSON.stringify(rows.map((r) => [r.n.key, r.n.label, r.n.hidden, r.n.locked, r.n.children.length, expanded.has(r.n.key), r.sel])) + hereKey;
+    shown = rows;
     if (nextSig === sig) return;
     sig = nextSig;
     const body = pane;
     body.replaceChildren();
     for (const { n, depth, sel } of rows) {
       const row = document.createElement("div");
-      row.className = "tree-row"; row.setAttribute("role", "treeitem"); row.dataset.key = n.key; row.style.paddingLeft = `${4 + depth * 14}px`;
+      row.className = "tree-row"; row.setAttribute("role", "treeitem"); row.dataset.key = n.key; row.style.paddingLeft = `${ROW_PAD + depth * INDENT}px`;
       row.classList.toggle("is-here", n.key === hereKey); row.classList.toggle("is-selected", sel); row.classList.toggle("is-hidden", n.hidden);
       const caret = document.createElement("button"); caret.type = "button"; caret.className = "tree-caret"; caret.setAttribute("aria-label", expanded.has(n.key) ? "收起" : "展开");
       caret.textContent = n.children.length ? (expanded.has(n.key) ? "▾" : "▸") : ""; caret.disabled = !n.children.length;

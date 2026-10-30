@@ -10,5 +10,6 @@ export declare function createHierarchyWindow(editor: Editor, hud: HudModel, dep
     store: MenuWindowSpec<string>["store"];
     after(): void;
     confirm(title: string, message: string, okLabel: string): Promise<boolean>;
+    hint(text: string): void;
     onOpenChange?(open: boolean): void;
 }): HierarchyWindow;

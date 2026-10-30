@@ -1,4 +1,5 @@
 import type { DefId, EditContext, GroupId, InstId, Scene } from "../scene/scene.ts";
+import { type Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
 export type HierPick = {
     kind: "group";
@@ -33,3 +34,22 @@ export declare function hierarchyTree(scene: Scene): HierNode;
 export declare function contextPath(scene: Scene, ctx: EditContext): HierPick[];
 /** 这一行「藏 / 显」（on = 藏）的指令：实例的藏标记（藏这一份连同里面的一切，DT49）。一条指令 = 一步撤销；已经是这样了 = null。 */
 export declare function setHiddenOp(scene: Scene, node: HierNode, on: boolean): Op | null;
+/** 路径的世界变换（沿路把实例变换乘起来；组不带变换）。 */
+export declare function worldOfPath(scene: Scene, path: readonly HierPick[]): Xform;
+/** 这一行展开后装的是哪个组件定义（根 = 模型根；物件 = 它摆的那个组件）。 */
+export declare function contentDef(scene: Scene, n: HierNode): DefId;
+export type Reparent = {
+    readonly op: Op;
+    readonly into: DefId;
+    readonly from: DefId;
+    readonly name: string;
+} | {
+    readonly why: string;
+};
+/**
+ * 把 node 这一行挪到 target 底下当孩子（I3）：一条 batch = 删原处（eraseInstance）+ 原位贴进 target 装的那个组件（paste，世界位置不变）——撤销一步。
+ * 挂在 target 组件的最外层（不进它里面的组：组不进层级窗，user 10-24）。已经是 target 的孩子 = null（不动）。
+ * 拒绝（人话）：根不能挪 / 放进自己或自己里面（组件互相装 = 死循环）/ 自己或路上锁着 / 目标或目标路上锁着 / 会斜切（glTF 不许组件斜切；执行时还有全局护栏兜底）。
+ * 原处和目标都可能摆了好几份（同一个组件）：这一份在每一份里都没了 / 都多了——SketchUp 同款，调用方要把份数说出来。
+ */
+export declare function reparentOp(scene: Scene, node: HierNode, target: HierNode): Reparent | null;

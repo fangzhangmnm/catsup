@@ -23,6 +23,7 @@ import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import type { Surface } from "./commands/action.ts";
 import type { CommandId, Params as CmdParams } from "./commands/command.ts";
+import { type StepLabel } from "./history.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
 import { WorldView } from "../scene/world-view.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
@@ -653,6 +654,7 @@ export declare class Editor {
     private setCtx;
     /** 对外的提交口（探针 / 脚本 / 测试；`api` 放置的指令也走它）：一次调用 = 一步。编辑器内部不许调它（守卫测试 test/step-pass-guard.test.ts）——内部一个动作里的几条 op 要同一张通行证进 commitIn，不然拆成好几步撤销。 */
     commitOp(op: Op): FaceEvent[];
+    /** 外面的一个用户动作要好几下（层级窗拖拽 = 退到根 → commitOp → 走到新父亲 → 选中它）：包在这里 = 一步撤销（step 可嵌套、外层说了算）；撤销回到动作前的那一层和选区。 */ oneStep<T>(fn: () => T, label?: StepLabel): T;
     /** 网格体的「对称」属性表 = 场景的那张（Scene.meshMirrors：随文件走、克隆共享 = 不进撤销）。 */
     private get mirrors();
     private mirrorLastSide;
