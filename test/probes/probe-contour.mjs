@@ -47,6 +47,38 @@ check(l1.length > 0 && g1.length > 0 && m1.length === 0, `1 像素线：两头�
 await page.evaluate(() => globalThis.__catsup.editor.setXray(true));
 const r1x = await darkRow(0.42);
 check(r1x.xs.filter((x) => x > r1x.w * 0.45 && x < r1x.w * 0.55).length === 0, "1 像素线 + X 光：侧面中间也没冒出软边");
+// 圆锥放在地面上、从上往下斜着看（user 10-30 截图：1-bit 圆锥侧边和底弧接不上 = 「还是有一点点断边」）：线稿 + 像素 ×3 屏（只有线、没有描边那遍兜底）和 1-bit 两种，
+// 圆锥那一圈外轮廓在画布上连成一整圈（8 邻接一个连通块，从尖顶连到底弧最低点）。根因 + 修法 = contour-line-material.ts 头（线沿视线往镜头挪，按贴着的面的坡度）。
+await page.evaluate(() => {
+  const e = globalThis.__catsup.editor, r3 = e.renderer3, P = (x, y, z = 0) => ({ x, y, z }), N = 24, segs = [], apex = P(0, 0, 2.2);
+  e.setXray(false); e.setLineWeight(1); e.commitOp({ op: "clear" }); e.setGrid({ shown: false });
+  const at = e.activePool();
+  e.commitOp({ op: "addEdges", at, segs: [[P(-40, -40), P(40, -40)], [P(40, -40), P(40, 40)], [P(40, 40), P(-40, 40)], [P(-40, 40), P(-40, -40)]] });   // 地面（边在画面外）：底圈和它共面（底圈缺格那一半）
+  for (let i = 0; i < N; i++) { const a = (i / N) * Math.PI * 2, b = ((i + 1) / N) * Math.PI * 2; segs.push([P(Math.cos(a), Math.sin(a)), P(Math.cos(b), Math.sin(b))], [apex, P(Math.cos(a), Math.sin(a))]); }
+  e.commitOp({ op: "addEdges", at, segs });
+  e.selectAll(); e.softenByAngle(35); e.cancel(); e.deselectAll();
+  e.cam.setView("front"); e.cam.orbit(0, 120); e.cam.target = P(0, 0, 1); e.cam.halfH = 2.2;   // 地面的边在画面外，最低的墨线 = 底弧
+});
+/** 像素小图（描边那遍之前，只有面和线）里的墨线（线材质在这一遍透明通道写 0 = 墨线记号）：从尖顶那一格出发的 8 邻接连通块往下能走多远，对比墨线最低的一行。
+ *  圆锥一圈断开 = 连通块停在侧边上、到不了底弧最低点。读小图 = 不让描边那遍替线兜底（1-bit / 像素描边会把断口描上，看不出线本身断没断）。 */
+const coneReach = () => page.evaluate(() => {
+  const e = globalThis.__catsup.editor, r3 = e.renderer3; e.draw();
+  const t = r3.pixelScreen.low, W = t.width, H = t.height, a = new Uint8Array(W * H * 4); r3.renderer.readRenderTargetPixels(t, 0, 0, W, H, a);
+  const ink = (x, y) => a[((H - 1 - y) * W + x) * 4 + 3] < 64;   // 读回来是自下而上
+  let top = null; for (let y = 0; y < H && !top; y++) for (let x = 0; x < W; x++) if (ink(x, y)) { top = [x, y]; break; }
+  let bottom = 0; for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) if (ink(x, y)) bottom = y;
+  if (!top) return { reach: -1, bottom };
+  const seen = new Set([top[1] * W + top[0]]), st = [top]; let reach = top[1];
+  while (st.length) { const [x, y] = st.pop(); if (y > reach) reach = y; for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) { const nx = x + dx, ny = y + dy, k = ny * W + nx; if (nx >= 0 && nx < W && ny >= 0 && ny < H && !seen.has(k) && ink(nx, ny)) { seen.add(k); st.push([nx, ny]); } } }
+  return { reach, bottom, top: top[1] };
+});
+for (const [style, label] of [["white", "线稿 + 像素 ×3"], ["onebit", "1-bit 线稿"]]) {
+  await page.evaluate((style) => { const r3 = globalThis.__catsup.editor.renderer3; r3.setPreset(style); r3.setScreen("pixel3"); }, style);
+  await page.waitForTimeout(200);
+  const r = await coneReach();
+  check(r.reach >= 0 && r.reach >= r.bottom - 1, `${label}：小图里圆锥那一圈墨线从尖顶（第 ${r.top} 行）连到底弧最低点（连通到第 ${r.reach} 行，最低第 ${r.bottom} 行）`);
+}
+await page.evaluate(() => { const r3 = globalThis.__catsup.editor.renderer3; r3.setPreset("white"); r3.setScreen(null); });
 check(errs.length === 0, `页面没报错${errs.length ? "：" + errs.join(" | ") : ""}`);
 await browser.close();
 console.log(fails.length ? `✗ probe-contour：${fails.length} 条没过` : "✓ probe-contour");

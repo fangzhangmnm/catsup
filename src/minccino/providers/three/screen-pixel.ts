@@ -21,6 +21,7 @@ const OUTLINE_FS = /* glsl */`
   uniform bool uInner, uDarkSide, uOrtho, uOn, uInside, uBgTex, uDither;
   uniform vec3 uDark, uLight;
   uniform int uWidth;
+  #define SLOPE_TOL 3.0
   layout(location = 0) out vec4 oColor;   // three r185 的 GLSL3 不再替你定义 gl_FragColor，自己声明输出
   // 两色抖动（1-bit）：亮度按墨 → 纸那一段归一，和 4×4 Bayer 阈值比，亮 = uLight、暗 = uDark
   vec4 dither(vec4 c, ivec2 p) {
@@ -42,13 +43,17 @@ const OUTLINE_FS = /* glsl */`
     float dq = texelFetch(uDepth, q, 0).r;
     bool hit = uInside ? (d < 1.0 && dq >= 1.0) : (d >= 1.0 && dq < 1.0);
     if (d < 1.0 && uInner && dq < 1.0) {
-      float z = viewZ(d), w = 1.0 / z, dr = texelFetch(uDepth, clamp(p - k * s, ivec2(0), hi), 0).r;
+      // 外推对不上多少才算错开：3% + 两侧各自一格的坡度 × SLOPE_TOL（2026-10-30 Opus）——面按坡度往后推（polygonOffset factor）推的量各张面不一样，
+      // 侧对镜头的面和旁边那张之间就有一个按坡度算的假台阶；不让开它 = 光滑物体的剪影里侧多描一条点点断断的线（圆锥近看两侧双线）。真的前后错开远大于这个。
+      float z = viewZ(d), w = 1.0 / z, dr = texelFetch(uDepth, clamp(p - k * s, ivec2(0), hi), 0).r, dq2 = texelFetch(uDepth, clamp(p + k * (s + 1), ivec2(0), hi), 0).r;
       if (uOrtho) {   // 正交：z 在屏幕上仿射；邻格近（远）4% 以上且外推对不上
         float zq = viewZ(dq), pred = dr < 1.0 ? 2.0 * z - viewZ(dr) : z;
-        hit = uInside ? (zq > z * 1.04 && zq - pred > 0.03 * z) : (zq * 1.04 < z && pred - zq > 0.03 * z);
+        float tol = 0.03 * z + SLOPE_TOL * max(dr < 1.0 ? abs(z - viewZ(dr)) : 0.0, dq2 < 1.0 ? abs(viewZ(dq2) - zq) : 0.0);
+        hit = uInside ? (zq > z * 1.04 && zq - pred > tol) : (zq * 1.04 < z && pred - zq > tol);
       } else {        // 透视：1/z 仿射（实验室原式）
         float wq = 1.0 / viewZ(dq), pred = dr < 1.0 ? 2.0 * w - 1.0 / viewZ(dr) : w;
-        hit = uInside ? (wq * 1.04 < w && pred - wq > 0.03 * w) : (wq > w * 1.04 && wq - pred > 0.03 * w);
+        float tol = 0.03 * w + SLOPE_TOL * max(dr < 1.0 ? abs(w - 1.0 / viewZ(dr)) : 0.0, dq2 < 1.0 ? abs(1.0 / viewZ(dq2) - wq) : 0.0);
+        hit = uInside ? (wq * 1.04 < w && pred - wq > tol) : (wq > w * 1.04 && wq - pred > tol);
       }
     }
     return hit;

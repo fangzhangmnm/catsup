@@ -166,7 +166,7 @@ export class PbrMaterials {
   private readonly groundU = { uInvVP: { value: new THREE.Matrix4() }, uGround: { value: new THREE.Vector3() }, uEye: { value: new THREE.Vector3() }, uGroundOn: { value: 1 } };
   private readonly mats = new Map<string, any>();
   readonly ground: any;
-  constructor(private readonly ao: AoUniforms, private readonly env: EnvSky, private readonly depthFace: number, private readonly depthOther: number) {
+  constructor(private readonly ao: AoUniforms, private readonly env: EnvSky, private readonly depthFace: number, private readonly depthOther: number, private readonly depthSlope: number) {
     const gm = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: GROUND_VS, fragmentShader: GROUND_FS, depthTest: false, depthWrite: false, uniforms: { ...this.groundU, ...this.light, ...this.aoGround, ...ao, ...env.uniforms } });
     this.ground = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), gm);
     this.ground.frustumCulled = false; this.ground.renderOrder = -100; this.ground.visible = false;
@@ -183,7 +183,7 @@ export class PbrMaterials {
       m = new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3, vertexShader: FACE_VS, fragmentShader: faceFs(layers), defines, uniforms: { ...this.light, ...this.mat, ...this.aoModel, ...this.ao, ...this.env.uniforms, ...(map ? { uMap: map } : {}) },
         side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide,
-        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
+        polygonOffset: true, polygonOffsetFactor: this.depthSlope, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
       });
       this.mats.set(key, m);
     }

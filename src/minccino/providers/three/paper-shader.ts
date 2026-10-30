@@ -107,7 +107,7 @@ export class PaperMaterials {
   readonly ground: any;
   private readonly groundU: { uInvVP: { value: any }; uBg: { value: any }; uGround: { value: any }; uGroundOn: { value: number }; uLine: { value: any }; uFade: { value: any }; uGrid: { value: number }; uGridR: { value: number }; uGlowPass: { value: boolean } };
   /** @param defaultFace 白模没上色的面那个灰（0xRRGGBB；认出来换成纸色） */
-  constructor(private readonly ao: AoUniforms, private readonly depthFace: number, private readonly depthOther: number, defaultFace: number) {
+  constructor(private readonly ao: AoUniforms, private readonly depthFace: number, private readonly depthOther: number, private readonly depthSlope: number, defaultFace: number) {
     this.shade.uDefaultFace.value.copy(srgb3(defaultFace));
     this.groundU = { uInvVP: { value: new THREE.Matrix4() }, uBg: { value: new THREE.Vector3() }, uGround: { value: new THREE.Vector3() }, uGroundOn: { value: 1 }, uLine: { value: new THREE.Vector3() }, uFade: { value: new THREE.Vector3() }, uGrid: { value: 0 }, uGridR: { value: 1 }, uGlowPass: { value: false } };
     const mat = new THREE.ShaderMaterial({ glslVersion: THREE.GLSL3, vertexShader: GROUND_VS, fragmentShader: GROUND_FS, depthTest: false, depthWrite: false, uniforms: { ...this.groundU, ...this.aoGround, ...ao } });
@@ -123,7 +123,7 @@ export class PaperMaterials {
         glslVersion: THREE.GLSL3, vertexShader: PAPER_VS, fragmentShader: PAPER_FS, defines: single ? { SINGLE: 1 } : {},
         uniforms: { ...this.shade, ...this.aoModel, ...this.ao },
         side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide,
-        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
+        polygonOffset: true, polygonOffsetFactor: this.depthSlope, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
       });
       this.mats.set(key, m);
     }

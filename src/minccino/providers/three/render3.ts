@@ -123,10 +123,13 @@ function ringPlane(rings = 24, sectors = 32): any {
 /**
  * 深度阶梯（polygonOffset units；factor 一律 1 / 0 / −1，见各处）——一处定，别处只引用（2026-10-24 Claude Opus 5.5，
  * user「边线应该优先于axis和grid，而不是被axes挡住」，10-25「画面」）。从后到前：
- *   面（别的池 9 → 活动池 6 → 覆盖层 5，factor +1）  <  栅格 / 三色轴（units +4、深度测试严格小于）  <  边（原生细线真实深度、粗线 −1/−2 前拉）。
+ *   面（别的池 9 → 活动池 6 → 覆盖层 5，factor +2 = faceSlope）  <  栅格 / 三色轴（units +4、深度测试严格小于）  <  边（原生细线真实深度、粗线 −1/−2 前拉）。
+ * 面的 factor（按坡度后推）= 2 不是 1（2026-10-30 Opus，user 截图 1-bit 圆锥侧边和底弧接不上 = 「还是有一点点断边」）：光栅化出来的线像素离真线能有半格多，
+ *   外轮廓上贴着的面几乎侧对镜头，factor 1 时那张面在这些格子里比线近、把线挡掉 → 轮廓断成一截一截。线那头另有按坡度往镜头挪（contour-line-material.ts），
+ *   两头一起才在大地面、贴底角的那一格也接上。factor 2 在深度图里留下的按坡度的台阶，像素描边那遍按坡度让开（screen-pixel.ts hitAt）。共面叠放的先后照旧靠 units。
  * 每一档至少差 1 个 unit：原生细线严格在轴前（10-25 实测：同深度时细线和轴按采样点各赢一半 → 暗红线）；轴也不比边粗（syncLineScale）。
  */
-const DEPTH = { face: 6, faceOther: 9, grid: 4 } as const;   // guide = 栅格 / 三色轴：比原生细线（0）后 4 档（细线与粗线插件的深度插值有噪声）、比覆盖层面（5）前 1 档
+const DEPTH = { face: 6, faceOther: 9, grid: 4, faceSlope: 2 } as const;   // guide = 栅格 / 三色轴：比原生细线（0）后 4 档（细线与粗线插件的深度插值有噪声）、比覆盖层面（5）前 1 档
 const GRID_FRAG = /* glsl */`
   uniform float uLv[${GRID_LEVELS}], uPx;
   uniform vec3 uMajor;
@@ -350,17 +353,17 @@ export class Renderer3 implements RenderProvider {
     this.faceMat = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
       uniforms: { uLight: { value: new THREE.Vector3(0, 0, 1) }, uUnlit: this.unlitU },
-      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face,
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: DEPTH.faceSlope, polygonOffsetUnits: DEPTH.face,
     });
     // 别的池的面：同一 shader、polygonOffset 再往后推一格 → 共面重叠时活动池 / loose 几何赢（#25 user「overlap的时候优先显示loose geometry」）
     this.faceMatOther = new THREE.ShaderMaterial({
       vertexShader: FACE_VERT, fragmentShader: FACE_FRAG,
       uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU },
-      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther,
+      side: THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: DEPTH.faceSlope, polygonOffsetUnits: DEPTH.faceOther,
     });
     // 单面身体（mesh）：同两份 shader，只画正面
-    this.faceMatFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
-    this.faceMatOtherFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther });
+    this.faceMatFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: DEPTH.faceSlope, polygonOffsetUnits: DEPTH.face });
+    this.faceMatOtherFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: DEPTH.faceSlope, polygonOffsetUnits: DEPTH.faceOther });
     this.pixelMat = contourLineMaterial({ vertexColors: true });   // 画池里 1 像素线的材质都用它：软边只在外轮廓时画（I12）
     this.emptyGeo = new THREE.BufferGeometry();
     this.emptyLineGeo = new LineSegmentsGeometry();
@@ -651,9 +654,9 @@ export class Renderer3 implements RenderProvider {
     const styled = this.lastPlan.order.includes("upscale");   // 这一帧走风格那条路（规划器说了算：XR / 截图时它不在表里）
     this.unlitU.value = this.framePreset.material.shade === "none";
     this.ensurePaper();
-    if (this.framePreset.material.tron && !this.tron) this.tron = new TronMaterials(DEPTH.face, DEPTH.faceOther);
+    if (this.framePreset.material.tron && !this.tron) this.tron = new TronMaterials(DEPTH.face, DEPTH.faceOther, DEPTH.faceSlope);
     if (this.framePreset.material.pbr && !this.pbr && this.aoBaker) {   // 铸铜：环境图 + 表面材质（遮蔽烘焙器 ensurePaper 已建）
-      this.envSky = new EnvSky(); this.pbr = new PbrMaterials(this.aoBaker.uniforms, this.envSky, DEPTH.face, DEPTH.faceOther);
+      this.envSky = new EnvSky(); this.pbr = new PbrMaterials(this.aoBaker.uniforms, this.envSky, DEPTH.face, DEPTH.faceOther, DEPTH.faceSlope);
       this.pbr.ground.layers.set(GROUND_LAYER); this.scene.add(this.pbr.ground);
     }
     const pk = `${this.provider?.contentKey?.() ?? `#${this.frameNo++}`}:${this.lineStyleInUse()}:${this.framePreset.id}:${this.frameScreen.id}`;
@@ -711,7 +714,7 @@ export class Renderer3 implements RenderProvider {
     const p = this.framePreset;
     if (this.paper || (!p.light.ao && !p.light.ground && p.material.shade !== "flat")) return;
     this.aoBaker = new AoBaker();
-    this.paper = new PaperMaterials(this.aoBaker.uniforms, DEPTH.face, DEPTH.faceOther, PALETTE.face);
+    this.paper = new PaperMaterials(this.aoBaker.uniforms, DEPTH.face, DEPTH.faceOther, DEPTH.faceSlope, PALETTE.face);
     this.paper.ground.layers.set(GROUND_LAYER); this.scene.add(this.paper.ground);
   }
   /**
@@ -1239,7 +1242,7 @@ export class Renderer3 implements RenderProvider {
     if (!bySide) { bySide = new Map(); this.texMats.set(mat, bySide); }
     let m = bySide.get(side);
     if (m) return m;
-    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU, uMap: { value: this.textureFor(mat) } }, side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
+    m = new THREE.ShaderMaterial({ vertexShader: TEX_VERT, fragmentShader: TEX_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU, uMap: { value: this.textureFor(mat) } }, side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide, polygonOffset: true, polygonOffsetFactor: DEPTH.faceSlope, polygonOffsetUnits: DEPTH.face });
     bySide.set(side, m);
     return m;
   }

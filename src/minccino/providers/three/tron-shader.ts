@@ -65,7 +65,7 @@ export class TronMaterials {
   private readonly profileAdd = { value: 0 };
   readonly lineThick: any; readonly linePixel: any; readonly hiddenThick: any; readonly hiddenPixel: any;
   private hidden = 0.12;
-  constructor(private readonly depthFace: number, private readonly depthOther: number) {
+  constructor(private readonly depthFace: number, private readonly depthOther: number, private readonly depthSlope: number) {
     this.lineThick = new LineMaterial({ color: 0xffffff, linewidth: 1, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
     this.lineThick.vertexShader = PROFILE_LINE_VERTEX; this.lineThick.uniforms.profileAdd = this.profileAdd;   // 轮廓加粗照 SU 轮廓线那套（按实例判剪影）
     this.linePixel = contourLineMaterial({ color: 0xffffff });   // 软边只在外轮廓时画（I12）
@@ -82,7 +82,7 @@ export class TronMaterials {
       m = new THREE.ShaderMaterial({
         glslVersion: THREE.GLSL3, vertexShader: TRON_VS, fragmentShader: TRON_FS, defines, uniforms: { ...this.u },
         side: side === "front" ? THREE.FrontSide : side === "back" ? THREE.BackSide : THREE.DoubleSide,
-        polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
+        polygonOffset: true, polygonOffsetFactor: this.depthSlope, polygonOffsetUnits: active ? this.depthFace : this.depthOther,
       });
       this.faces.set(key, m);
     }
