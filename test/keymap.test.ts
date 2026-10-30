@@ -48,7 +48,7 @@ describe("键表：什么时候按 X 是什么意思", () => {
   });
   it("栈的形状：自由建模 + 操作工具 + 手势中 = 全局 / 工作台 / 工具 / 手势 / 数值小窗", () => {
     eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > gesture > typing");
-    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: false, mirrorSession: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > mirror-session > typing", "不在手势里：打字层（数值小窗）在镜像会话下面");
+    eq(layersOf(ctx({ mode: "freeform", tool: "move", gesture: false, mirrorSession: true })).map((l) => l.id).join(" > "), "global > workbench:freeform > tool:ops > mirror-session > typing > freeform:pick", "不在手势里：打字层（数值小窗）在镜像会话下面；1 / 2 / 3 拾取层压在它上面（没在打字时，v0.17.48）");
   });
   it("披露：按住修饰键时这一层有什么（modifierChords）——自由建模 Ctrl 有环切 / 倒角；硬表面 Shift+Z = 缩放到全部、操作工具里 = 面锁；披露的每一条 = 真按下去生效的那条", () => {
     const ff = ctx({ mode: "freeform", tool: "move" }), ctrl = modifierChords(ff, "ctrl").map((x) => x.chord), shift = modifierChords(ff, "shift");

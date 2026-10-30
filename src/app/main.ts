@@ -9,6 +9,7 @@ import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS, BRUSHES } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { snapSwitchName } from "../editor/grid-state.ts";
+import { PICK_KINDS, pickAfter, pickSay, type PickKind, type PickSet } from "../controller/pick-kinds.ts";
 import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
@@ -1312,6 +1313,7 @@ function keyContext(): KeyContext {
     mode: editor.modeId, tool: editor.tool, gesture: editor.isGestureActive(), hasSelection: editor.hasSelection(),
     walk: locomotion.walkPhase(), walking: locomotion.isWalking(), mirrorSession: editor.mirrorActive(), lockStyle: editor.lockStyle(),
     typingWants: (e) => editor.typing.wants(e.key, e),   // 打字（手势中打数 / 数值小窗）：主人 typed-input.ts 定去向
+    typing: editor.typing.text() !== "",   // 小窗里有字 = 正在打（自由建模的 1 / 2 / 3 让给它）
   };
 }
 /** 工具键：同一个键再按一下 = 在这个工具组里换下一把（user 2026-10-25「快捷键在工具组里怎么循环：同一个键再按一下」）：E 橡皮 → 焊边 → 软边；R 矩形 → 旋转矩形；T 卷尺 → 量角器 → 轴；A 弧的四种画法轮换（画法是工具选项）。 */
@@ -1329,6 +1331,11 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "walk.cancelPlace": locomotion.cancelPlace(); return;
     case "typing.key": editor.typing.feed(ev.key); vcb.render(); syncUi(); return;   // 打字（手势中 / 刚做完一步）
     case "mirror.apply": editor.pressParam("apply"); syncUi(); return;
+    case "pick.solo": case "pick.toggle": {   // 自由建模拾取范围（1 / 2 / 3、Shift+数字；按法 = pick-kinds.ts，和右下角三颗开关共用）
+      const cur = Object.fromEntries(editor.config.entries("pick").map((x) => [x.key, !!x.value])) as PickSet, next = pickAfter(cur, p1 as PickKind, verb === "pick.solo" ? "solo" : "toggle");
+      for (const k of PICK_KINDS) editor.config.set("pick", k, next[k]);
+      hintEl.textContent = pickSay(next); syncUi(); return;
+    }
     case "grid.toggle":   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
       editor.setGrid({ on: !editor.grid.on });
       hintEl.textContent = `${snapSwitchName(editor.modeId)}：` + (editor.grid.on ? "开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "关（按住 Shift 临时开）");

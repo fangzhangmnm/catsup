@@ -10,6 +10,7 @@
 import { fieldControl, fieldEditing } from "./ui/field-control.ts";
 import type { ParamValue } from "../editor/param-panel.ts";
 import { iconHtml } from "./ui/icon.ts";
+import { PICK_KINDS, pickAfter, type PickKind, type PickSet } from "../controller/pick-kinds.ts";
 import type { Editor } from "../editor/editor.ts";
 import { optionGroupOf, type OptionEntry } from "../editor/tool-config.ts";
 import { stanceOf } from "../controller/stance.ts";
@@ -82,8 +83,8 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
       b.title = `拾取${e.def.label}`; b.setAttribute("aria-pressed", on ? "true" : "false"); b.dataset.pick = e.key;
       b.innerHTML = iconHtml(e.def.kind === "bool" && e.def.icon ? e.def.icon : "icon-missing");
       b.addEventListener("click", () => {
-        if (on && !es.some((x) => x.key !== e.key && x.value)) for (const x of es) config.set("pick", x.key as never, true as never);
-        else config.set("pick", e.key as never, !on as never);
+        const next = pickAfter(Object.fromEntries(es.map((x) => [x.key, !!x.value])) as PickSet, e.key as PickKind, "toggle");   // 按法一处定（pick-kinds.ts，和 1 / 2 / 3 键共用）
+        for (const k of PICK_KINDS) config.set("pick", k as never, next[k] as never);
       });
       wrap.appendChild(b);
     }

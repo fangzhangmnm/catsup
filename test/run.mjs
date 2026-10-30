@@ -24,6 +24,7 @@ import "./stance.test.ts";   // 立场表守卫 + 控制器文件夹无头（202
 import "./app-mode-branch-ratchet.test.ts";   // app 层按工作台分叉只准降（T102，2026-10-29 Fable）
 import "./feel.test.ts";   // 手感表守卫（2026-10-28 Fable）
 import "./keymap.test.ts";   // 分层键表（2026-10-28 Fable）
+import "./pick-kinds.test.ts";   // 拾取范围 1 / 2 / 3（2026-10-29 Opus）
 import "./instance-ids.test.ts";   // 读文件实例 id 有空缺不再重复（2026-10-25 Opus）
 import "./param-panel.test.ts";   // 参数小窗马后炮会话（2026-10-25 Opus）
 import "./scale-handle.test.ts";   // 缩放柄透视拾、叠在一起近的赢（2026-10-25 Opus）
