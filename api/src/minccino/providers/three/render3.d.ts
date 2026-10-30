@@ -224,12 +224,12 @@ export declare class Renderer3 implements RenderProvider {
     private syncPools;
     private syncMarks;
     private static readonly EDGE_SLOTS;
-    /** 标记色：这一帧画风写了就用（预设 material.marks），没写 = 全局色板。 */
     /** 画风专属东西的常驻表（residency.ts）：每帧画风递交「要哪几样」，表去对账（要的亮、不要的藏、久没要的放显存）。 */
     private readonly residency;
     private wanted;
     /** 这一帧标记闪在亮的那一拍吗（画风没写闪 = 永远亮）。 */
     private blinkOn;
+    /** 标记色 = 画风的四个颜色推出来的（preset/colors.ts markColors）；视图「选中色」换掉强调（撞色的将删 / 检查一起换），画风标了 ownMarks 的不换；淡出 = 全局色板。 */
     private markHex;
     private lineMarkMats;
     /**

@@ -57,7 +57,7 @@ import { Editor, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, TOOLS, gridPreset, gri
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
-import { PRESETS, PRESET_IDS, isPresetId, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
+import { PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
@@ -520,7 +520,7 @@ function menuPick(id: MenuId): void | "keep" {
     }
     if (id.startsWith("style:")) {   // 风格（Tron 纪元第 1 步）：跟文件走（desk 1.3，T86 user「风格跟着文件走」；不标脏、下次存盘带走）。选了就在提示行披露画面会怎样
       const s = id.slice(6);
-      if (isPresetId(s)) { editor.renderer3.setPreset(s); session.setView({ style: s === "white" ? null : s }); editor.draw(); hintEl.textContent = s === "white" ? "风格：线稿" : `风格：${PRESETS[s].name}——${PRESETS[s].note}。VR 和缩略图里照旧画白模`; }
+      if (isPresetId(s)) { editor.renderer3.setPreset(s); syncNight(); session.setView({ style: s === "white" ? null : s }); editor.draw(); hintEl.textContent = s === "white" ? "风格：线稿" : `风格：${PRESETS[s].name}——${PRESETS[s].note}。VR 和缩略图里照旧画白模`; }
       return "keep";
     }
     switch (id) {
@@ -903,7 +903,10 @@ function onGridPick(id: GridMenuId): "keep" | void {
     else editor.setGrid({ step: Number(id.slice(5)) });
     return "keep";
 }
+/** 界面日夜两档跟着画风的纸色（preset/colors.ts isDarkPaper；Tron 账本 T147 / T167）：深色纸 = 夜间那套（styles.css .ui-night）。 */
+function syncNight(): void { document.body.classList.toggle("ui-night", isDarkPaper(PRESETS[editor.renderer3.getPreset()].colors.paper)); }
 function syncUi(): void {
+  syncNight();
   renderSnapWidget();
   refreshMachineBoard();   // 指令板上的数跟着模型变
   viewWin?.refresh(); objectWin?.refresh(); brushWin?.refresh();   // 常驻浮窗（视图 / 物件 / 雕刻笔刷）：内容变了才重画（ui/menu-window.ts）
@@ -1544,7 +1547,7 @@ const session = new Session({
   editor,
   refs: refHost,
   captureThumbnail: () => captureThumbnail(editor),
-  applyView: (style, screen) => { editor.renderer3.setPreset(isPresetId(style) ? style : "white"); editor.renderer3.setScreen(isScreenId(screen) ? screen : null); editor.draw(); },   // 风格 / 屏幕跟文件走（desk 1.3，T86）：认不出的 id = 默认
+  applyView: (style, screen) => { editor.renderer3.setPreset(isPresetId(style) ? style : "white"); syncNight(); editor.renderer3.setScreen(isScreenId(screen) ? screen : null); editor.draw(); },   // 风格 / 屏幕跟文件走（desk 1.3，T86）：认不出的 id = 默认
   onHomeChanged: updateSaveStatus,
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   online: () => navigator.onLine !== false,

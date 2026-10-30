@@ -46,7 +46,7 @@ import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetR
 import { PALETTE } from "../../palette.ts";
 import { hexToLinear } from "../../overlay/index.ts";
 import { NOOP_PERF, type PerfSink } from "../../perf.ts";
-import { PRESETS, SCREENS, isStyled, presetPasses, type Preset, type PresetId, type ScreenId, type ScreenPreset } from "../../preset/index.ts";
+import { PRESETS, SCREENS, isStyled, markColors, presetPasses, type MarkColorSlot, type Preset, type PresetId, type ScreenId, type ScreenPreset } from "../../preset/index.ts";
 import { PixelScreen } from "./screen-pixel.ts";
 import { AoBaker } from "./ao-bake.ts";
 import { PaperMaterials } from "./paper-shader.ts";
@@ -739,7 +739,7 @@ export class Renderer3 implements RenderProvider {
     }
     this.paper.useModelColor(p.material.colorize !== "none");
     this.paper.sync(p.material.flat ?? { base: PALETTE.face, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 0 },
-      L.ao, !!sphere && this.aoBaked !== "", L.ground, L.background ?? PALETTE.background, cam3,
+      L.ao, !!sphere && this.aoBaked !== "", L.ground, p.colors.paper, cam3,
       p.material.tron && L.ground?.grid ? { line: p.material.tron.line, r: sphere?.r ?? 1, fade: this.lastView?.camera.kind === "ortho" ? this.lastTarget : (this.lastView?.camera.eye ?? { x: 0, y: 0, z: 0 }) } : null);   // Tron 地格：场景半径 = 1 格；淡出按到眼（正交按到视野中心）
   }
 
@@ -763,7 +763,7 @@ export class Renderer3 implements RenderProvider {
     try {
       // ① 模型 + 辅助几何 + 网格 → 小图：先清成画风背景色的原始 sRGB 数（setRGB 按线性空间存 = 原样写进渲染目标）；
       //    网格 / 轴用 1 像素线版跟内容一起进小图（T101；切刀第 2 步起走这条路的画风全都这样，Tron 用自己的网格色，T57）
-      const b = p.light.background ?? PALETTE.background;
+      const b = p.colors.paper;
       this.scene.background = null;
       this.renderer.setClearColor(this.tmpColor.setRGB(((b >> 16) & 255) / 255, ((b >> 8) & 255) / 255, (b & 255) / 255, THREE.LinearSRGBColorSpace), 1);
       cam3.layers.mask = 1 | (1 << GROUND_LAYER) | (1 << PIXEL_GRID_LAYER) | (1 << AUX_LAYER);
@@ -817,7 +817,7 @@ export class Renderer3 implements RenderProvider {
   /** 风格那条路里网格线的颜色（原始 sRGB）：画风写了就用；没写 = 背景 × 网格系数（和以前的 1 像素网格同一个算法：背景的 sRGB 数 × 系数的线性值）。 */
   private pixelGridColor(p: Preset): number {
     if (p.light.gridColor !== undefined) return p.light.gridColor;
-    const bgc = p.light.background ?? PALETTE.background, m = hexToLinear(PALETTE.gridMajor);
+    const bgc = p.colors.paper, m = hexToLinear(PALETTE.gridMajor);
     const ch = (sh: number, f: number): number => Math.min(255, Math.round(((bgc >> sh) & 255) * f));
     return (ch(16, m[0]) << 16) | (ch(8, m[1]) << 8) | ch(0, m[2]);
   }
@@ -1016,23 +1016,19 @@ export class Renderer3 implements RenderProvider {
     }
   }
   private static readonly EDGE_SLOTS: readonly LineSlot[] = ["edgeSelected", "edgeHot", "edgeWarn"];
-  /** 标记色：这一帧画风写了就用（预设 material.marks），没写 = 全局色板。 */
   /** 画风专属东西的常驻表（residency.ts）：每帧画风递交「要哪几样」，表去对账（要的亮、不要的藏、久没要的放显存）。 */
   private readonly residency = new Residency();
   private wanted: Set<ResidentId> = new Set();
   /** 这一帧标记闪在亮的那一拍吗（画风没写闪 = 永远亮）。 */
   private blinkOn = true;
+  /** 标记色 = 画风的四个颜色推出来的（preset/colors.ts markColors）；视图「选中色」换掉强调（撞色的将删 / 检查一起换），画风标了 ownMarks 的不换；淡出 = 全局色板。 */
   private markHex(slot: "faceSelected" | "faceHover" | "faceDim" | LineSlot): number {
     const bl = this.framePreset.material.blink;
     if (bl && !this.blinkOn && (slot === "edgeSelected" || slot === "edgeHot" || slot === "edgeWarn")) return bl.off;   // 闪的暗拍：选中 / 将删 / 检查的边换成 off 色（面先不闪，user 10-29「面可以先不闪」）
-    const a = this.accent;
-    if (a !== null && !this.framePreset.material.ownMarks) {   // 视口设置「选中色」：选中 = 它、面 = 它往白调淡（悬停再淡一档）；撞色的将删 / 检查换成它带的那份
-      const mix = (f: number): number => { const c = (sh: number): number => { const v = (a.selected >> sh) & 255; return Math.round(v + (255 - v) * f); }; return (c(16) << 16) | (c(8) << 8) | c(0); };
-      if (slot === "edgeSelected") return a.selected; if (slot === "faceSelected") return mix(0.55); if (slot === "faceHover") return mix(0.75);
-      if (slot === "edgeHot" && a.scrub !== undefined) return a.scrub; if (slot === "edgeWarn" && a.warn !== undefined) return a.warn;
-    }
-    const m = this.framePreset.material.marks as Partial<Record<string, number>> | undefined;
-    return m?.[slot] ?? (slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : slot === "faceDim" ? PALETTE.faceDim : PALETTE.edgeSelected);
+    if (slot === "faceDim") return PALETTE.faceDim;
+    const c = this.framePreset.colors, a = this.framePreset.material.ownMarks ? null : this.accent;
+    const m = a ? markColors({ ...c, accent: a.selected, warn: a.scrub ?? c.warn }, a.warn) : markColors(c);
+    return slot in m ? m[slot as MarkColorSlot] : m.edgeSelected;
   }
   private lineMarkMats = new Map<string, any>();
   /**

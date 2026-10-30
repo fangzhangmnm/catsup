@@ -4,6 +4,8 @@
 // created 2026-10-29 by Claude Opus 5.5（Tron 纪元第 1 步：像素描边）
 import type { PassDecl } from "../graph/frame-graph.ts";
 import type { EnvRecipeId, SurfaceRecipeId } from "../paintshop/index.ts";
+import type { StyleColors } from "./colors.ts";
+export { type StyleColors, type MarkColorSlot, markColors, isDarkPaper, lift } from "./colors.ts";
 
 /** 像素描边后处理（实验室公用件 `ShaderLab.pixelOutline`，lab/core.js）：背景挨着模型的那一格涂成描边色；可选内部深度跳变也描。 */
 /** 两色抖动：亮度过 4×4 有序抖动的阈值 = light，否则 = dark（sRGB）。 */
@@ -68,9 +70,6 @@ export type ScreenId = keyof typeof SCREENS;
 export const SCREEN_IDS = Object.keys(SCREENS) as ScreenId[];
 export const isScreenId = (s: unknown): s is ScreenId => typeof s === "string" && Object.prototype.hasOwnProperty.call(SCREENS, s);
 
-/** 有标记色的材质槽（面的淡出、边的淡出 / 隐线不在这：它们跟底色走）。 */
-export type MarkColorSlot = "faceSelected" | "faceHover" | "edgeSelected" | "edgeHot" | "edgeWarn";
-
 export interface Preset {
   readonly id: string;
   /** 界面上的名字（视图 ☰「风格」）。 */
@@ -81,20 +80,20 @@ export interface Preset {
   readonly brief: string;
   /** 出处：实验室插件 · 预设（视觉归 user 调，改默认值要说清改了什么）。 */
   readonly source: string;
+  /** 四个颜色（墨 / 纸 / 强调 / 警示；colors.ts）：标记色（选中 / 悬停 / 将删 / 检查）、背景、字的底板、界面日夜两档全从它们推（2026-10-30，user「8……可以」）。 */
+  readonly colors: StyleColors;
   /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
    *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
   /** material.edges 线稿线两档（ai-docs/20261029-edge-display-scenarios.md）：all = 不在编辑的物件也画硬边（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）；none = 不在编辑的不画。
    *  正在编辑的那一个的结构线任何画风都画（2026-10-29 Opus；以前的第三档 active「只画编辑中的」= none + 结构线，退役）。 */
   readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
     /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
-    /** 标记色（选中 / 悬停 / 将删 / 检查；sRGB）：面 / 边的标记材质和辅助几何的同名颜色角色都从这里取（一处定、三样对得上）；没写的 = 全局色板。 */
-    readonly marks?: Partial<Readonly<Record<MarkColorSlot, number>>>;
     /** 标记闪（两色的屏没有颜色可用时，选中靠闪）：periodMs 一个来回多久，亮的半拍 = 标记色、暗的半拍 = off 色（sRGB）。边的标记材质和辅助几何的选中 / 将删 / 检查色一起闪；面不闪（user 10-29「面可以先不闪」）。 */
     readonly blink?: { readonly periodMs: number; readonly off: number };
     /** 标记色是这个画风本身的一部分（1-bit 只有两色 / Tron 的 Clu 橙）：视口设置「选中色」不覆盖它。 */
     readonly ownMarks?: boolean };
-  /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
-  readonly light: { readonly background: number | null; readonly ground: { readonly color: number; readonly on: number; readonly grid: number } | null; readonly ao: AoParams | null; readonly env: EnvLight | null;
+  /** 光与环境挂点（背景 = colors.paper；有环境图的画风背景是那片天）：地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
+  readonly light: { readonly ground: { readonly color: number; readonly on: number; readonly grid: number } | null; readonly ao: AoParams | null; readonly env: EnvLight | null;
     /** 走屏幕那条路时编辑器网格线的颜色（原始 sRGB）；没写 = 背景 × 网格系数（浅背景压暗一点）。Tron 用自己的青色（T57 user「tron的网络用我们自己的网络，记得跟单位」）。 */
     readonly gridColor?: number;
     /** 走屏幕那条路时网格线画成点线（老 OpenGL 的 line stipple：沿线走的方向隔一格画一格，任何角度都整齐；不靠抖动）。1-bit 线稿用（user 10-29「1bit grid的虚线……很聪明，但是再规整一点就好了」）。 */
@@ -112,17 +111,23 @@ export interface Preset {
   readonly geometry: Readonly<Record<string, never>>;
 }
 
-/** 红的标记色（选中红、面浅鲑鱼、将删让成橙、检查紫）。画风分两路（user 10-29「纸 线稿是蓝 写实和铜和像素是红」「像素描边蓝色还是配色受不了」）：
- *  线稿 / 剪纸 = 全局色板的蓝；写实 / 铸铜 / 像素描边 = 这份红（写实里红更显眼）；Tron / 1-bit = 画风自己的（ownMarks）。 */
-const RED_MARKS = { faceSelected: 0xf3a698, faceHover: 0xf8cbbf, edgeSelected: 0xd8323a, edgeHot: 0xf08a00, edgeWarn: 0x8b5cf6 } as const;
+/** 强调 / 警示两路（user 10-29「纸 线稿是蓝 写实和铜和像素是红」「像素描边蓝色还是配色受不了」）：线稿 / 剪纸 = 蓝（将删红）；写实 / 铸铜 / 像素描边 = 红（将删让成橙）；
+ *  Tron / 1-bit = 画风自己的（ownMarks）。墨 #2a2a2a = 编辑器烤进线块的线色（PALETTE.edge）；纸 #f2f0ea = 白模背景（PALETTE.background）。 */
+const BLUE = { accent: 0x2b6cb0, warn: 0xcc3333 } as const, RED = { accent: 0xd8323a, warn: 0xf08a00 } as const;
+const INK = 0x2a2a2a, PAPER = 0xf2f0ea;
+/** 1-bit 的两色（墨 / 纸）：描边、抖动、平涂底、网格点线都是这两个。 */
+const ONEBIT = { ink: 0x111111, paper: 0xf4f1e8 } as const;
+/** Tron：青线、近黑底、Clu 橙选中、红将删。 */
+const TRON = { ink: 0x3fe6ff, paper: 0x010307, accent: 0xff9a2e, warn: 0xff4d6d } as const;
 
 export const PRESETS = {
   /** 白模（现状）：零成本兜底，不是风格。 */
   white: {
     id: "white", name: "线稿", note: "跟着相机的平光 + 线稿（建模时的默认看法）", brief: "建模的默认看法",   // T96 user「白模这个名字不对（sketchup线稿）」：界面叫「线稿」（app 里不出现 SketchUp 字样）；id 不动
     source: "CatsUp 现状（≈ 实验室「最省 · 白模」）",
+    colors: { ink: INK, paper: PAPER, ...BLUE },
     material: { shade: "camera", texFilter: "asset", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
-    light: { background: null, ground: null, ao: null, env: null },
+    light: { ground: null, ao: null, env: null },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
     geometry: {},
@@ -131,8 +136,9 @@ export const PRESETS = {
   pixelOutline: {
     id: "pixelOutline", name: "像素描边", brief: "1/3 分辨率 + 一格黑描边", note: "按 1/3 分辨率画、最近邻放大，模型外轮廓和前后错开处描一格黑线；不打光、贴图最近邻；模型自己的线稿不画（选中 / 悬停的边、网格、吸附照常按原分辨率画）",
     source: "实验室 平涂 flat.js ·「像素描边」（contrast 0、pixelate 3、pixOutline、outlineTint 1、outlineShade 0.25、outlineDark；BASE 的 pixInner true、outline #1b1b1b、background #fde6bd）",
-    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [], marks: RED_MARKS },
-    light: { background: 0xfde6bd, ground: null, ao: null, env: null },
+    colors: { ink: 0x1b1b1b, paper: 0xfde6bd, ...RED },
+    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
+    light: { ground: null, ao: null, env: null },
     post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
     screen: "pixel3",
     geometry: {},
@@ -143,10 +149,11 @@ export const PRESETS = {
   onebit: {
     id: "onebit", name: "1-bit 线稿", brief: "黑线白纸（两色）", note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。",
     source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）",
-    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x111111, edgeHot: 0x111111, edgeWarn: 0x111111 },
+    colors: { ...ONEBIT, accent: ONEBIT.ink, warn: ONEBIT.ink },   // 选中 = 墨：边和别的边一样、面 = 网点（往白里提 55% 的灰被抖成两色）
+    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: ONEBIT.paper, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [],
       ownMarks: true },   // 不闪（user 10-29 先「1bit其实我的建议是可以闪」、试过后「1bit感觉不用闪」）：选中的面 = 更密的网点，选中的边和别的边一样是墨
-    light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x111111, gridStipple: true },   // 墨色点线（规整，不靠抖动）
-    post: { pixelOutline: { side: "inside", color: 0x111111, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: 0x111111, light: 0xf4f1e8 } },
+    light: { ground: null, ao: null, env: null, gridColor: ONEBIT.ink, gridStipple: true },   // 墨色点线（规整，不靠抖动）
+    post: { pixelOutline: { side: "inside", color: ONEBIT.ink, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: ONEBIT.ink, light: ONEBIT.paper } },
     screen: "pixel3",
     geometry: {},
   },
@@ -155,8 +162,9 @@ export const PRESETS = {
     id: "papercut", name: "剪纸 · 色纸", brief: "色纸 + 多重阴影",
     note: "一件一色的色纸：每个材质一张纸、没上色的是纸白，贴图印不上去；面按朝向分明暗（光跟着相机），零件之间、贴地处叠出一层层硬边的影子（多重阴影：从 20 个方向烘的遮蔽，改完模型停手约 0.25 秒后跟上）；地面是纸色；模型自己的线稿不画",
     source: "实验室 平涂 flat.js ·「剪纸 · 色纸」（colMode part、shadowTint #a7859c、contrast 0.4、ramp 1、bands 2、soft 0.12、ao 0.8、aoSoft 0、aoRadius 0.8、aoGround 2、facet 1、light −30° / 60°、background #f7efe0、ground #efe4cf；BASE 的 base #f2efe8、groundOn 1）",
+    colors: { ink: INK, paper: 0xf7efe0, ...BLUE },
     material: { shade: "flat", texFilter: "asset", edges: "none", colorize: "part", flat: { base: 0xf2efe8, shadowTint: 0xa7859c, contrast: 0.4, ramp: 1, steps: 1, soft: 0.12, lightAz: -30, lightEl: 60 }, tron: null, pbr: null, surface: [] },
-    light: { background: 0xf7efe0, ground: { color: 0xefe4cf, on: 1, grid: 0 }, ao: { amount: 0.8, radius: 0.8, groundRadius: 2, soft: 0 }, env: null },
+    light: { ground: { color: 0xefe4cf, on: 1, grid: 0 }, ao: { amount: 0.8, radius: 0.8, groundRadius: 2, soft: 0 }, env: null },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
     geometry: {},
@@ -166,8 +174,9 @@ export const PRESETS = {
     id: "tron", name: "CRT Tron", brief: "青线 + 辉光 + CRT 电视",
     note: "深色的面、青色发光的硬边（轮廓加粗、线芯发白）、被挡住的边淡淡透出来、青色地格；画面最多 240 行、整数倍放大进 CRT 电视（扫描线、荫罩、色度横糊、四角暗）；选中的面被风格认领成 Clu 橙。和实验室不一样：屏幕先不弯、没有街机机框、扫描线那道光不跑、被挡住的边是实线不是虚线",
     source: "实验室 硬边线 tron.js ·「青 Tron · 复古」（lineColor #3fe6ff、lineWidth 1、profile 1.3、lineCore 0.45、hiddenLines 0.12、faceColor #06141e、backColor #1c0b10、shade 0.55、facet 1、bloom 1.0、bloomRadius 0.7、rim 0.25、rimPower 3、background #010307、grid 0.55、vignette 0.55、glowCap 1.8、res ps1 = 240 行、screen crt-tv；Clu 橙 #ff9a2e 是 Opus 选的，待 user 调）",
-    material: { shade: "tron", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: 0x3fe6ff, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: 0xff9a2e }, pbr: null, surface: [], marks: { edgeSelected: 0xff9a2e, edgeHot: 0xff4d6d, edgeWarn: 0xb57bff }, ownMarks: true },
-    light: { background: 0x010307, ground: { color: 0x010307, on: 0, grid: 0 }, ao: null, env: null, gridColor: 0x207380, axisColors: [0x3fe6ff, 0x3fe6ff, 0x3fe6ff] },   // 地格 = 编辑器的网格（跟单位 / 格距走，T57），线色 = 青线 × 0.5、辉光来提亮；以前地面自己画的那张地格（grid 0.55）退了
+    colors: TRON,
+    material: { shade: "tron", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: TRON.ink, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: TRON.accent }, pbr: null, surface: [], ownMarks: true },
+    light: { ground: { color: TRON.paper, on: 0, grid: 0 }, ao: null, env: null, gridColor: 0x207380, axisColors: [TRON.ink, TRON.ink, TRON.ink] },   // 地格 = 编辑器的网格（跟单位 / 格距走，T57），线色 = 青线 × 0.5、辉光来提亮；以前地面自己画的那张地格（grid 0.55）退了
     post: { pixelOutline: null, bloom: { amount: 1.0, radius: 0.7, cap: 1.8, vignette: 0.55 } },
     screen: "crt3",   // T85 user「tron的分辨率能不能别那么拉跨。先试下像素描边的分辨率」：240 行太糊 → 像素描边那档（×3）+ CRT 外观；240 行留在屏幕下拉里
     geometry: {},
@@ -177,8 +186,9 @@ export const PRESETS = {
     id: "realistic", name: "写实", brief: "照模型上色 + 海天 + 投影",
     note: "照模型上色：材质色和贴图都进底色，光是程序海天（漫反射球谐、镜面按粗糙度）+ 太阳投影 + 世界空间遮蔽（改完模型停手约 0.25 秒后跟上）；背景是那片海天、地面浅灰；模型自己的线稿不画。粗糙度先统一 0.6、不是金属（CatsUp 的材质还没有粗糙度 / 金属度这两项）",
     source: "实验室 表面 material.js ·「写实」（colMode full、rough 0.6、spec 1、envAmt 1、envBg、aoMode 世界空间 × 1、exposure 0.9、ground #9a9a96；useOrm = 读模型的粗糙度 / 金属度——CatsUp 材质没有这两项，用滑杆值；BASE 的 sunAz 35 / sunEl 45、metal 0）",
-    material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "model", flat: null, tron: null, pbr: { base: 0xd6d6d6, metal: 0, rough: 0.6, coat: 0, coatRough: 0.05, spec: 1 }, surface: [], marks: RED_MARKS },
-    light: { background: null, ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1, exposure: 0.9, sunAz: 35, sunEl: 45 } },
+    colors: { ink: INK, paper: PAPER, ...RED },   // 背景是那片海天；纸只给字的底板 / 界面日夜
+    material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "model", flat: null, tron: null, pbr: { base: 0xd6d6d6, metal: 0, rough: 0.6, coat: 0, coatRough: 0.05, spec: 1 }, surface: [] },
+    light: { ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1, exposure: 0.9, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
     geometry: {},
@@ -186,11 +196,12 @@ export const PRESETS = {
   /** 铸铜（实验室「雕塑与手办」分类的门面，10-28 user「铸铜是雕塑的poster child」）= 写实 + 青铜的材料参数（不上色、金属、蜡）+ 涂装车间两层（砂铸、铜绿）；露天大件 = 程序海天。 */
   bronze: {
     id: "bronze", name: "铸铜", brief: "青铜 + 铜绿 + 海天",
+    colors: { ink: INK, paper: PAPER, ...RED },
     note: "不借模型颜色的青铜：金属高光映出程序海天、太阳打出投影，缝里和凹处积着铜绿（世界空间遮蔽，改完模型停手约 0.25 秒后跟上），表面有砂铸的坑洼和一层蜡；背景是那片海天、地面浅灰；模型自己的线稿不画。和实验室不一样：没有倒角（CatsUp 还没给这个几何通道）、没有镜头炫光",
     source: "实验室 表面 material.js ·「铸铜」（base #b3804e、metal 1、rough 0.38、pattern 9 砂铸 × 0.5、patina 0.75 #3b4632、coat 0.25 / 0.22、spec 1、envSource 程序海天 × 1.1、sunAz 35 / sunEl 45、exposure 0.95、aoMode 世界空间 × 1、ground #9a9a96；BASE 的 aoSoft 1；遮蔽半径照 material.js 模型 0.5 / 地面 0.25；太阳色 1.7 / 1.6 / 1.45、天光 / 地光照 LIGHT 段）",
     material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "none", flat: null, tron: null, pbr: { base: 0xb3804e, metal: 1, rough: 0.38, coat: 0.25, coatRough: 0.22, spec: 1 },
-      surface: [{ recipe: "sand-cast", amount: 0.5, color: 0 }, { recipe: "patina", amount: 0.75, color: 0x3b4632 }], marks: RED_MARKS },   // 写实 + 涂装车间：砂铸 → 铜绿
-    light: { background: null, ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1.1, exposure: 0.95, sunAz: 35, sunEl: 45 } },
+      surface: [{ recipe: "sand-cast", amount: 0.5, color: 0 }, { recipe: "patina", amount: 0.75, color: 0x3b4632 }] },   // 写实 + 涂装车间：砂铸 → 铜绿
+    light: { ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1.1, exposure: 0.95, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
     geometry: {},

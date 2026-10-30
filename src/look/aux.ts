@@ -146,7 +146,7 @@ const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 2
 export function auxColor(style: string, c: AuxColor): number {
   const o = (STYLE_AUX[style] ?? NONE).palette?.[c];
   if (o !== undefined) return o;
-  if (c === "paper") return (PRESETS as Readonly<Record<string, { light: { background: number | null } }>>)[style]?.light.background ?? STANDARD_PALETTE.paper;
+  if (c === "paper") return (PRESETS as Readonly<Record<string, { colors: { paper: number } }>>)[style]?.colors.paper ?? STANDARD_PALETTE.paper;   // 字的底板 = 画风的纸（preset/colors.ts）
   return STANDARD_PALETTE[c];
 }
 
