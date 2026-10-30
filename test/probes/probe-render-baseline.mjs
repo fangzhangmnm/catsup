@@ -93,6 +93,8 @@ const SCENES = {
   "marks-painted-selall": { fixture: "painted.glb", noTexWait: true, after: `e.setTool("select"); e.selectAll(); e.draw();` },
   // 刀 c（淡出 = 整槽标记）针对场景：进组件编辑，外面的盒子淡出（面往淡出色拉一半、边淡灰），里面选一张面
   "dim-context-sel": `box(0, 0, 1, 1, 1); e.selectAll(); e.makeComponent("块"); box(1.4, 0.2, 2.0, 0.8, 0.6); const s = e.scene, inst = [...s.def(s.root).instances.values()][0]; e.selectedPools.clear(); e.selectedPools.set("i" + inst.id, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.draw();`,
+  // 进组件编辑时孩子照常画（v0.18.11，SketchUp 同款，user 10-30「同意，做」）：「车」里有子组件「轮子」+ 车身散几何，外面一个盒子；进「车」→ 轮子和车身都不淡、只有外面的盒子淡
+  "dim-context-child": `box(0, 0, 0.5, 0.5, 0.5); e.selectAll(); e.makeComponent("轮子"); e.cancel(); box(0.8, 0, 2.0, 0.6, 0.4); e.selectAll(); e.makeComponent("车"); e.cancel(); box(2.6, 0, 3.2, 0.6, 1); frame(); const s = e.scene, car = [...s.def(s.root).instances.values()].find((i) => s.def(i.def).name === "车"); e.enterPool({ kind: "instance", instance: car.id }); e.draw();`,
   // CRT Tron（Tron 第 1 步第三个风格）：深色面 + 青线 + 被挡住的边 + 辉光 + 地格 + 240 行 CRT；选中顶面 = 认领色（Clu 橙）
   "style-onebit-sel": `e.renderer3.setPreset("onebit"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.draw();`,   // 1-bit（2026-10-29 Opus，T124 压测）：两色抖动 + 选中的面抖得更密
   "style-tron-sel": `e.renderer3.setPreset("tron"); box(0, 0, 1, 1, 1); box(1.4, 0.2, 2.0, 0.8, 0.6); frame(); e.setTool("select"); const t = sp(P(0.5, 0.5, 1)); await tap(t.x, t.y); e.draw();`,

@@ -68,7 +68,7 @@ import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, 
 import { accept as transferAccept, castPayload, extract as transferExtract, localize as transferLocalize, transferSay } from "./transfer.ts";
 import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
-import { type PoolSlot, WorldView, slotKey, PART_STATS } from "../scene/world-view.ts";
+import { type PoolSlot, WorldView, insideContext, slotKey, PART_STATS } from "../scene/world-view.ts";
 import { chainVisible } from "../scene/layers.ts";
 import { gridEffective } from "./increments.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, frameToXform, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation, WORLD_FRAME, transformFrame } from "../scene/xform.ts";
@@ -3695,7 +3695,7 @@ export class Editor {
       }
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
-    const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !s.active).map((s) => s.index)) : null;
+    const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !insideContext(this.scene, this.ctx, s.pool, s.chain)).map((s) => s.index)) : null;   // 只淡这一层外面的；这一层里的子组件 / 子组照常画（SketchUp 同款，user 10-30「同意，做」）
     this.provider.setWorld(view, this._revision, !this._locked);   // 这一帧画哪个世界（演示锁 = 没有正在编辑的那一层，场景表 6）：提供者按它吐块（引擎拉）；版本进内容键
     this.r3.render(frameInput(view, this.cam, this.vp(), {   // view-state.ts：相机 / 网格 / 叠加层（选中高亮 + 线点标记文字）交给后端，引擎给量尺
       ...(this.viewExtras?.() ?? {}),
