@@ -155,7 +155,7 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): AuxLines[] {
     const k = `${r6(xg.origin)}/${r6(xg.axes.x)}/${r6(xg.axes.y)}/${r6(xg.axes.z)}/${xg.arrow.toExponential(3)}/${xg.hot ?? ""}/${xg.uniform ? r6(xg.uniform) : "-"}`;
     const s = segs();
     const at = (d: Pt3, t: number): Pt3 => ({ x: xg.origin.x + d.x * t, y: xg.origin.y + d.y * t, z: xg.origin.z + d.z * t });
-    const hexOf = { x: "axisX", y: "axisY", z: "axisZ" } as const;
+    const hexOf = { x: "gizmoX", y: "gizmoY", z: "gizmoZ" } as const;   // gizmo 的 XYZ = 通用色（不跟画风走）
     for (const ax of ["x", "y", "z"] as const) {
       const d = xg.axes[ax];
       const hm: AuxColor = xg.hot === `m${ax}` ? "gizmoHot" : hexOf[ax], hr: AuxColor = xg.hot === `r${ax}` ? "gizmoHot" : hexOf[ax];

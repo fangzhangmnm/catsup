@@ -89,5 +89,7 @@ export class Bloom {
   /** 显存（血槽位）：辉光图 8 字节 / 像素（半精度 RGBA）+ 深度 4 + 四级 × 2 张。 */
   bytes(): number { let b = this.w * this.h * 12; for (const L of this.levels) b += L.w * L.h * 16; return b; }
   private disposeTargets(): void { this.glow?.dispose(); for (const L of this.levels) { L.a.dispose(); L.b.dispose(); } this.glow = null; this.levels = []; }
+  /** 只放显存（辉光整串）；材质留着，下次 prepare 重建（常驻表 residency.ts 调）。 */
+  release(): void { this.disposeTargets(); this.w = this.h = 0; }
   dispose(): void { this.disposeTargets(); for (const m of [this.down, this.blur, this.comp]) m.dispose(); this.quad.geometry.dispose(); }
 }

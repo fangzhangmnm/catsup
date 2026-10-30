@@ -24,14 +24,15 @@ const STANDARD_PALETTE = {
   selected: PALETTE.edgeSelected,   // 选中（点 / 参考几何 / 刀线可切）
   scrub: PALETTE.edgeHot,   // 刮擦 / 悬停将删
   warn: PALETTE.edgeWarn,   // 检查：微折软边
-  axisX: PALETTE.axisX, axisY: PALETTE.axisY, axisZ: PALETTE.axisZ,
+  axisX: PALETTE.axisX, axisY: PALETTE.axisY, axisZ: PALETTE.axisZ,   // 参考轴（小三轴 / 刻度 / 锁轴线 / 轴向吸附）：画风可以换（Tron = 主色调）
+  gizmoX: PALETTE.axisX, gizmoY: PALETTE.axisY, gizmoZ: PALETTE.axisZ,   // 变换 gizmo 的 XYZ：操作用的通用语言，不跟画风走
   construct: 0x8b5cf6,      // 构造类：量角器圈、充能点
   chargedExt: 0xd4d0f5,     // 充能边的淡延长线
   mirror: 0x8b5cf6,         // 镜像中缝上的点
   guide: 0x6b7280,          // 参考线 / 参考点
   softEdge: 0x6e6e6e,       // 自由建模的平滑边淡线
   vert: 0x2a2a2a,           // 自由建模的全部顶点
-  faceDotOn: 0x566cc5, faceDotOff: 0x545454,   // X 光面点：选中 / 没选（以前在编辑器里按 faceSelected × (0.6, 0.6, 0.85) 现算，落到同一个 8 位值）
+  faceDotOn: 0xd8323a, faceDotOff: 0x545454,   // X 光面点：选中（= 选中红，2026-10-29 选中统一红）/ 没选
   gizmo: 0x2b6cb0, gizmoHot: 0xd97706, gizmoUniform: 0x777777, gizmoCenter: 0x333333,
   angle: 0xd97706,          // 量角器量出来的那根边
   handle: 0x2e8b57, handleHot: 0xd97706,   // 缩放柄
@@ -131,6 +132,8 @@ interface StyleAux {
 }
 /** 画风 id（小栗鼠的预设 id）→ 覆盖。没有的画风 = 标准表原样。 */
 const STYLE_AUX: Readonly<Record<string, StyleAux>> = {
+  /** Tron：参考轴（小三轴 / 刻度 / 锁轴线）用主色调（user 10-29「tron三色轴换成主色调」；地面的三根在预设 light.axisColors）；gizmo 的 XYZ 照旧红绿蓝。 */
+  tron: { palette: { axisX: 0x3fe6ff, axisY: 0x3fe6ff, axisZ: 0x3fe6ff } },
   /** 1-bit 线稿：点排在抖动之后（不被抖），所以它们的颜色直接是墨（不然画布上多出第三种颜色；选中色走画风的标记色，也是墨）。 */
   onebit: { palette: { vert: 0x111111, faceDotOn: 0x111111, faceDotOff: 0x111111, mirror: 0x111111 }, points: { faceDot: { alpha: 1 } } },   // 半透明会混出第三种颜色
 };
@@ -139,16 +142,11 @@ const NONE: StyleAux = {};
 const lin = (hex: number): [number, number, number] => hexToLinear(hex);
 const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
-/** 这个画风里一个颜色角色的值（底板色没被覆盖时跟画风的背景色走；选中 / 将删 / 检查跟画风的标记色走）。 */
-export function auxColor(style: string, c: AuxColor, blinkOn = true): number {
-  const preset = (PRESETS as Readonly<Record<string, { light: { background: number | null }; material: { marks?: Partial<Record<string, number>>; blink?: { off: number } } }>>)[style];
-  if (!blinkOn && preset?.material.blink && (c === "selected" || c === "scrub" || c === "warn")) return preset.material.blink.off;   // 标记闪的暗拍（和面 / 边的标记材质同一拍）
+/** 这个画风里一个颜色角色的值（底板色没被覆盖时跟画风的背景色走）。选中 / 将删 / 检查不在这：引擎每帧算好放在 ctx.status（视口设置 > 画风 > 全局默认、闪已换好），translateAux 直接用。 */
+export function auxColor(style: string, c: AuxColor): number {
   const o = (STYLE_AUX[style] ?? NONE).palette?.[c];
   if (o !== undefined) return o;
-  if (c === "paper") return preset?.light.background ?? STANDARD_PALETTE.paper;
-  // 选中 / 将删 / 检查跟画风的标记色走（面 / 边的标记材质用同一处，三样对得上；T125）
-  const mark = c === "selected" ? "edgeSelected" : c === "scrub" ? "edgeHot" : c === "warn" ? "edgeWarn" : null;
-  if (mark && preset?.material.marks?.[mark] !== undefined) return preset.material.marks[mark]!;
+  if (c === "paper") return (PRESETS as Readonly<Record<string, { light: { background: number | null } }>>)[style]?.light.background ?? STANDARD_PALETTE.paper;
   return STANDARD_PALETTE[c];
 }
 
@@ -172,8 +170,9 @@ function layoutText(it: AuxText, ctx: OverlayCtx, col: (c: AuxColor) => number, 
 
 /** 编辑器的语义项 → 小栗鼠的辅助几何项（按 ctx.style 这个画风查表；字按 ctx 的量尺排）。键带上画风：换画风 = 颜色可能变了，后端重建。 */
 export function translateAux(items: readonly AuxItem[], ctx: OverlayCtx): OverlayItem[] {
-  const style = ctx.style, S = STYLE_AUX[style] ?? NONE, col = (c: AuxColor): number => auxColor(style, c, ctx.blinkOn);
-  const bk = ctx.blinkOn ? "" : "|b";   // 闪的暗拍：每顶点色烘在几何里的要换几何
+  const style = ctx.style, S = STYLE_AUX[style] ?? NONE, st = ctx.status;
+  const col = (c: AuxColor): number => (c === "selected" ? st.selected : c === "scrub" ? st.scrub : c === "warn" ? st.warn : auxColor(style, c));   // 状态色 = 引擎那一份（面 / 边的标记材质同一组）
+  const bk = `|${st.selected.toString(16)}.${st.scrub.toString(16)}.${st.warn.toString(16)}`;   // 状态色变了（换设置 / 闪的拍）：每顶点色烘在几何里的要换几何
   const out: OverlayItem[] = [];
   for (const it of items) {
     switch (it.kind) {

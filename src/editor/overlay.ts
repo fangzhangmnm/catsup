@@ -41,7 +41,7 @@ export function overlayItems(view: ViewState, ctx: OverlayCtx): AuxItem[] {
   // ---- 变换 gizmo 的实心小件：三个轴上缩放块 + 等比块 + 中心点 + 三个箭头锥 + 三个平面片 ----
   const xg = view.xformGizmo;
   if (xg) {
-    const axisOf = { x: "axisX", y: "axisY", z: "axisZ" } as const;
+    const axisOf = { x: "gizmoX", y: "gizmoY", z: "gizmoZ" } as const;   // gizmo 的 XYZ = 通用色（不跟画风走）
     {   // 箭头锥：尖在 arrow，长 = 箭头段的 32%，粗 = 长的 0.36
       const hl = (xg.arrow - xg.start) * 0.32;
       for (const ax of ["x", "y", "z"] as const) {

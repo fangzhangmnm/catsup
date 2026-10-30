@@ -90,13 +90,17 @@ export interface Preset {
     /** 标记色（选中 / 悬停 / 将删 / 检查；sRGB）：面 / 边的标记材质和辅助几何的同名颜色角色都从这里取（一处定、三样对得上）；没写的 = 全局色板。 */
     readonly marks?: Partial<Readonly<Record<MarkColorSlot, number>>>;
     /** 标记闪（两色的屏没有颜色可用时，选中靠闪）：periodMs 一个来回多久，亮的半拍 = 标记色、暗的半拍 = off 色（sRGB）。边的标记材质和辅助几何的选中 / 将删 / 检查色一起闪；面不闪（user 10-29「面可以先不闪」）。 */
-    readonly blink?: { readonly periodMs: number; readonly off: number } };
+    readonly blink?: { readonly periodMs: number; readonly off: number };
+    /** 标记色是这个画风本身的一部分（1-bit 只有两色 / Tron 的 Clu 橙）：视口设置「选中色」不覆盖它。 */
+    readonly ownMarks?: boolean };
   /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
   readonly light: { readonly background: number | null; readonly ground: { readonly color: number; readonly on: number; readonly grid: number } | null; readonly ao: AoParams | null; readonly env: EnvLight | null;
     /** 走屏幕那条路时编辑器网格线的颜色（原始 sRGB）；没写 = 背景 × 网格系数（浅背景压暗一点）。Tron 用自己的青色（T57 user「tron的网络用我们自己的网络，记得跟单位」）。 */
     readonly gridColor?: number;
     /** 走屏幕那条路时网格线画成点线（老 OpenGL 的 line stipple：沿线走的方向隔一格画一格，任何角度都整齐；不靠抖动）。1-bit 线稿用（user 10-29「1bit grid的虚线……很聪明，但是再规整一点就好了」）。 */
-    readonly gridStipple?: boolean };
+    readonly gridStipple?: boolean;
+    /** 地面三色轴的颜色 [x, y, z]（原始 sRGB）；没写 = 红绿蓝。Tron = 三根都是主色调（user 10-29「tron三色轴换成主色调」）。 */
+    readonly axisColors?: readonly [number, number, number] };
   /** 后处理挂点。 */
   readonly post: { readonly pixelOutline: PixelOutlinePost | null; readonly bloom: BloomPost | null;
     /** 两色抖动（描边那遍的最后一步，按亮度 4×4 有序抖动成 dark / light 两色；要求 pixelOutline 也开着）。1-bit 画风用。 */
@@ -123,9 +127,7 @@ export const PRESETS = {
   pixelOutline: {
     id: "pixelOutline", name: "像素描边", brief: "1/3 分辨率 + 一格黑描边", note: "按 1/3 分辨率画、最近邻放大，模型外轮廓和前后错开处描一格黑线；不打光、贴图最近邻；模型自己的线稿不画（选中 / 悬停的边、网格、吸附照常按原分辨率画）",
     source: "实验室 平涂 flat.js ·「像素描边」（contrast 0、pixelate 3、pixOutline、outlineTint 1、outlineShade 0.25、outlineDark；BASE 的 pixInner true、outline #1b1b1b、background #fde6bd）",
-    // 标记色第一版（2026-10-29 Opus；user「像素画风下面待编辑的点是不是红色好一点，或者你propose一个颜色」「其实我一开始就不喜欢蓝色」「picocad的方案，不过我不想做的和他一样夸张」）：
-    // 选中 = 红、选中的面 = 浅鲑鱼色、将删 = 橙、检查 = 紫；和米色背景 / 黑描边拉得开。归 user + Opus 再磨（账本 T125）
-    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [], marks: { faceSelected: 0xf3a698, faceHover: 0xf8cbbf, edgeSelected: 0xd8323a, edgeHot: 0xf08a00, edgeWarn: 0x8b5cf6 } },
+    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },   // 标记色 = 全局默认（2026-10-29 起全局就是这套红 / 橙 / 紫）
     light: { background: 0xfde6bd, ground: null, ao: null, env: null },
     post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
     screen: "pixel3",
@@ -138,7 +140,7 @@ export const PRESETS = {
     id: "onebit", name: "1-bit 线稿", brief: "黑线白纸（两色）", note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。",
     source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）",
     material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x111111, edgeHot: 0x111111, edgeWarn: 0x111111 },
-      blink: { periodMs: 700, off: 0xf4f1e8 } },   // 选中靠闪（user 10-29「1bit其实我的建议是可以闪。pickcad里面uv的wireframe就是在闪。频率缓一点但是不拖沓就行了」）：0.35 秒一拍
+      blink: { periodMs: 700, off: 0xf4f1e8 }, ownMarks: true },   // 选中靠闪（user 10-29「1bit其实我的建议是可以闪。pickcad里面uv的wireframe就是在闪。频率缓一点但是不拖沓就行了」）：0.35 秒一拍
     light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x111111, gridStipple: true },   // 墨色点线（规整，不靠抖动）
     post: { pixelOutline: { side: "inside", color: 0x111111, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: 0x111111, light: 0xf4f1e8 } },
     screen: "pixel3",
@@ -160,8 +162,8 @@ export const PRESETS = {
     id: "tron", name: "CRT Tron", brief: "青线 + 辉光 + CRT 电视",
     note: "深色的面、青色发光的硬边（轮廓加粗、线芯发白）、被挡住的边淡淡透出来、青色地格；画面最多 240 行、整数倍放大进 CRT 电视（扫描线、荫罩、色度横糊、四角暗）；选中的面被风格认领成 Clu 橙。和实验室不一样：屏幕先不弯、没有街机机框、扫描线那道光不跑、被挡住的边是实线不是虚线",
     source: "实验室 硬边线 tron.js ·「青 Tron · 复古」（lineColor #3fe6ff、lineWidth 1、profile 1.3、lineCore 0.45、hiddenLines 0.12、faceColor #06141e、backColor #1c0b10、shade 0.55、facet 1、bloom 1.0、bloomRadius 0.7、rim 0.25、rimPower 3、background #010307、grid 0.55、vignette 0.55、glowCap 1.8、res ps1 = 240 行、screen crt-tv；Clu 橙 #ff9a2e 是 Opus 选的，待 user 调）",
-    material: { shade: "tron", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: 0x3fe6ff, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: 0xff9a2e }, pbr: null, surface: [] },
-    light: { background: 0x010307, ground: { color: 0x010307, on: 0, grid: 0 }, ao: null, env: null, gridColor: 0x207380 },   // 地格 = 编辑器的网格（跟单位 / 格距走，T57），线色 = 青线 × 0.5、辉光来提亮；以前地面自己画的那张地格（grid 0.55）退了
+    material: { shade: "tron", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: 0x3fe6ff, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: 0xff9a2e }, pbr: null, surface: [], marks: { edgeSelected: 0xff9a2e, edgeHot: 0xff4d6d, edgeWarn: 0xb57bff }, ownMarks: true },
+    light: { background: 0x010307, ground: { color: 0x010307, on: 0, grid: 0 }, ao: null, env: null, gridColor: 0x207380, axisColors: [0x3fe6ff, 0x3fe6ff, 0x3fe6ff] },   // 地格 = 编辑器的网格（跟单位 / 格距走，T57），线色 = 青线 × 0.5、辉光来提亮；以前地面自己画的那张地格（grid 0.55）退了
     post: { pixelOutline: null, bloom: { amount: 1.0, radius: 0.7, cap: 1.8, vignette: 0.55 } },
     screen: "crt3",   // T85 user「tron的分辨率能不能别那么拉跨。先试下像素描边的分辨率」：240 行太糊 → 像素描边那档（×3）+ CRT 外观；240 行留在屏幕下拉里
     geometry: {},

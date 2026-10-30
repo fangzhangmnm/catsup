@@ -133,6 +133,11 @@ const PREF = {
 };
 deviceKvSet("ui.menuTab.main", null); deviceKvSet("ui.menuTab.view", null);   // v0.13.73 按设备记过停留页，v0.13.74 改跟文件走（user「不是应该跟文件吗」）：旧键清掉
 let fingerDraws = PREF.get("fingerDraws") === "1";
+/** 选中色（视口设置，按设备记）：跟画风 = 画风 / 全局默认（2026-10-29 起全局默认红）；1-bit / Tron 的标记色是画风本身的一部分，不被它覆盖。 */
+const ACCENTS: readonly { id: string; label: string; hex: number | null; hint?: string }[] = [
+  { id: "auto", label: "跟画风", hex: null, hint: "默认红；1-bit / Tron 用自己的" },
+  { id: "red", label: "红", hex: 0xd8323a }, { id: "blue", label: "蓝", hex: 0x2b6cb0, hint: "以前的样子" }, { id: "orange", label: "橙", hex: 0xe8760a }, { id: "green", label: "绿", hex: 0x2e8b57 },
+];
 // B43 尺度参考：最多几条（这台设备记住；user「有一个最多条目数」）。样式只剩字的深浅（user「要不不要图像，就字的深淡」）
 let lastTipHtml = "";
 let tipSize = { w: 0, h: 0 };
@@ -499,6 +504,11 @@ function menuPick(id: MenuId): void | "keep" {
       const sc = id.slice(7);
       const v = sc === "auto" ? null : isScreenId(sc) ? sc : undefined;
       if (v !== undefined) { editor.renderer3.setScreen(v); session.setView({ screen: v }); editor.draw(); hintEl.textContent = v === null ? "屏幕：跟画风的默认" : `屏幕：${SCREENS[v].name}——${SCREENS[v].brief}`; }
+      return "keep";
+    }
+    if (id.startsWith("accent:")) {   // 选中色（视口设置，按设备记；user 10-29「写实线稿的时候是不是也红色统一一下比较好，然后开放一个设置？」）
+      const a = ACCENTS.find((x) => x.id === id.slice(7));
+      if (a) { editor.renderer3.setAccent(a.hex); PREF.set("accent", a.id); editor.draw(); hintEl.textContent = a.hex === null ? "选中色：跟画风（默认红）" : `选中色：${a.label}`; }
       return "keep";
     }
     if (id.startsWith("style:")) {   // 风格（Tron 纪元第 1 步）：跟文件走（desk 1.3，T86 user「风格跟着文件走」；不标脏、下次存盘带走）。选了就在提示行披露画面会怎样
@@ -1140,6 +1150,7 @@ function openViewMenu(tab?: ViewTab): void {
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
       { id: "style:pick" as MenuId, label: "风格", tab: "display", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },
       { id: "screen:pick" as MenuId, label: "屏幕", tab: "display", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
+      { id: "accent:pick" as MenuId, label: "选中色", tab: "display", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.hex, ...(a.hint ? { hint: a.hint } : {}) })) },
       { id: "unit:pick" as MenuId, label: "单位", tab: "display", choices: LENGTH_UNITS.map((u) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id })) },
       ...gridTabItems(),
       { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },
@@ -1737,6 +1748,7 @@ setInterval(() => {
   const bl = (PRESETS[editor.renderer3.getPreset()] as Preset).material.blink;
   if (bl && editor.hasSelection() && !document.hidden) editor.draw();
 }, 175);   // 贴图异步解好 → 重画一帧（以前没人接：贴图要等下一次交互才出现；2026-10-29 Claude Fable 5.1）
+{ const a = ACCENTS.find((x) => x.id === PREF.get("accent")); if (a) editor.renderer3.setAccent(a.hex); }   // 选中色（按设备记）
 editor.setTool("select");   // 开机 = 鼠标（选择）工具（user 10-29「brep模式进去默认是鼠标而不是线。本轮改」；以前这里硬写画线、盖掉了编辑器自己的默认）
 hintEl.textContent = hintDefault();
 resize();

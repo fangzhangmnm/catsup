@@ -83,6 +83,9 @@ export interface RenderProvider {
   /** 屏幕（和画风分开选，T106）：null = 跟画风的默认。 */
   setScreen(id: ScreenId | null): void;
   getScreen(): ScreenId | null;
+  /** 视口设置「选中色」（sRGB；null = 跟画风 / 全局默认）。画风的标记色是它本身一部分的（ownMarks：1-bit / Tron）不覆盖。 */
+  setAccent(hex: number | null): void;
+  getAccent(): number | null;
   // ---- XR（会话钩子 + 手上的东西）----
   readonly xr: XRFacade;
   setXRQuality(q: { foveation?: number; framebufferScale?: number }): void;

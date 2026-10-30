@@ -38,6 +38,7 @@ import { LineSegmentsGeometry } from "../../../vendor/three/addons/lines/LineSeg
 import { LineMaterial } from "../../../vendor/three/addons/lines/LineMaterial.js";
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
 import { OverlayLinesDrawer, linToSrgb, setLineGeometry } from "./overlay-lines.ts";
+import { Residency, type ResidentId, residentsOf } from "./residency.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
 import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
@@ -358,6 +359,13 @@ export class Renderer3 implements RenderProvider {
     const auxLayers = { main: AUX_LAYER, late: LATE_LAYER, native: NATIVE_LAYER } as const;
     this.overlayLines = new OverlayLinesDrawer(auxHost, (px, o) => this.lineMat(px, o), { edge: () => this.edgeMat }, auxLayers);
     this.overlayMarks = new OverlayMarksDrawer(auxHost, auxLayers);
+    // 画风专属东西登记进常驻表（对象第一次用到时才建；钩子按当时有没有建好去碰）
+    this.residency.register("paperGround", { hide: () => this.paper?.hide(), bytes: () => 0 });
+    this.residency.register("pbrGround", { hide: () => this.pbr?.hide(), bytes: () => 0 });
+    this.residency.register("pixelScreen", { release: () => this.pixelScreen?.release(), bytes: () => this.pixelScreen?.bytes() ?? 0 });
+    this.residency.register("bloom", { release: () => this.bloom?.release(), bytes: () => this.bloom?.bytes() ?? 0 });
+    this.residency.register("envMap", { release: () => this.envSky?.release(), bytes: () => this.envSky?.bytes() ?? 0 });
+    this.residency.register("aoAtlas", { release: () => { this.aoBaker?.release(); this.aoBaked = ""; }, bytes: () => this.aoBaker?.bytes() ?? 0 });
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -601,9 +609,11 @@ export class Renderer3 implements RenderProvider {
     const eye = cam.eye(); this.lastTarget = cam.target;
     this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
     this.framePreset = this.currentPreset();   // XR / 缩略图走白模
+    this.frameScreen = this.currentScreen();
+    this.wanted = residentsOf(this.framePreset, this.frameScreen);
+    this.residency.submit(this.wanted, performance.now());   // 画风递交名单：要的亮、不要的藏、久没要的放显存（常驻表）
     { const bl = this.framePreset.material.blink, on = !bl || Math.floor(performance.now() / (bl.periodMs / 2)) % 2 === 0;   // 标记闪：按钟点算这一拍（谁来叫重画归宿主）
       if (on !== this.blinkOn) { this.blinkOn = on; this.refreshMarkColors(); } }
-    this.frameScreen = this.currentScreen();
     this.lastPlan = planFrame(this.passes(), ["frame"]);
 
     // ---- 面：光向 uniform 每帧（视空间：法向走 normalMatrix）；几何只在键变时重建 ----
@@ -627,7 +637,7 @@ export class Renderer3 implements RenderProvider {
     // ---- 地面网格 + 三色轴：跟上下文的帧（绘图轴 / 组的轴）与格距走（0.11 ⑤）----
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」「sub incremental就是sub刻度的」）：吸附的 1/5、1/10 只管吸，像尺子上的小刻度，不画成网格线
     const gfr = input.grid?.frame ?? WORLD_FRAME3, gstep = input.grid?.step ?? 1, gsub = 1;
-    const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}`;
+    const gk = `${gfr.origin.x},${gfr.origin.y},${gfr.origin.z}|${gfr.x.x},${gfr.x.y},${gfr.x.z}|${gfr.y.x},${gfr.y.y},${gfr.y.z}|${gfr.z.x},${gfr.z.y},${gfr.z.z}|${gstep}|${gsub}|${this.framePreset.light.axisColors?.join(",") ?? ""}`;
     if (gk !== this.gridKey) { this.gridKey = gk; this.rebuildGrid(gfr, gstep, gsub); }
 
     // ---- 叠加层（步 6a 线段族 / 6b 点 标记 三角 文字）：内容归编辑器（view.overlay），量尺归这里（一像素多长 / 视野多远 / 相机三轴；XR 和桌面在 worldPerPx 里分）----
@@ -640,6 +650,7 @@ export class Renderer3 implements RenderProvider {
       up: { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] },
       lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1, style: this.framePreset.id,
       pixelCss: styled ? this.styledK() / this.dpr : 1 / this.dpr, blinkOn: this.blinkOn,
+      status: { selected: this.markHex("edgeSelected"), scrub: this.markHex("edgeHot"), warn: this.markHex("edgeWarn") },
     };
     const items = input.overlay ? input.overlay(octx) : [];
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"), styled && this.lineStyleInUse() === "pixel", styled);   // 像素那条路：细线 = 1 像素 GL 线（和模型的边同一条规矩）
@@ -651,7 +662,8 @@ export class Renderer3 implements RenderProvider {
     else { info3.autoReset = false; info3.reset(); try { this.renderStyled(cam3); } finally { info3.autoReset = true; } }
     // ---- 血槽位（步 7）：三个数 + 预算核对。显存 = 块的显卡副本 + 贴图的估算（three 不报字节数）+ 风格的小图 ----
     const info = info3?.render;
-    let bytes = (styled && this.pixelScreen ? this.pixelScreen.bytes() : 0) + (this.framePreset.light.ao && this.aoBaker ? this.aoBaker.bytes() : 0) + (this.framePreset.post.bloom && this.bloom ? this.bloom.bytes() : 0) + (this.framePreset.light.env && this.envSky ? this.envSky.bytes() : 0);
+    // 显存 = 实际常驻的（常驻表；以前只算当前画风的那几块：切过别的画风后显存比显示的多）
+    let bytes = this.residency.bytes();
     for (const g of this.chunkGpus.values()) for (const a of Object.values("attrs" in g ? g.attrs : g.bufs) as any[]) bytes += a.array?.byteLength ?? 0;
     for (const t of this.texCache.values()) { const im = t.image; if (im && im.width) bytes += im.width * im.height * 4; }
     const m: Measurement = { frameMs: performance.now() - t0, vramMb: bytes / 1048576, drawCalls: info?.calls ?? 0, triangles: info?.triangles ?? 0, passes: this.lastPlan?.order.length ?? 0 };
@@ -676,7 +688,8 @@ export class Renderer3 implements RenderProvider {
    */
   private syncPaper(cam3: any): void {
     const p = this.framePreset, L = p.light;
-    if (!this.paper || (!L.ao && !L.ground && p.material.shade !== "flat")) { this.paper?.hide(); return; }
+    // 走哪条按画风递交的名单（residentsOf，和常驻表同一个来源）；藏 / 亮归常驻表，这里不开关任何东西（以前各条分支记得藏别人的——早退那条漏了写实的海天地面）
+    if (!this.paper || !(this.wanted.has("paperGround") || this.wanted.has("pbrGround"))) return;
     const sphere = this.provider?.bounds?.() ?? null;
     const env = L.env, az = (env?.sunAz ?? 0) * Math.PI / 180, el = (env?.sunEl ?? 0) * Math.PI / 180;
     const sunW = env ? { x: Math.sin(az) * Math.cos(el), y: Math.cos(az) * Math.cos(el), z: Math.sin(el) } : null;   // 世界（z 上）；实验室坐标 = (x, z, −y)
@@ -695,14 +708,12 @@ export class Renderer3 implements RenderProvider {
     }
     cam3.updateMatrixWorld();
     const fade = this.lastView?.camera.kind === "ortho" ? this.lastTarget : (this.lastView?.camera.eye ?? { x: 0, y: 0, z: 0 });
-    if (p.material.pbr && this.pbr && this.envSky && env && sunW) {   // 铸铜：地面 / 背景归表面那份（环境图 + 太阳 + 遮蔽），纸的地面藏起来
-      this.paper.hide();
+    if (this.wanted.has("pbrGround") && p.material.pbr && this.pbr && this.envSky && env && sunW) {   // 写实 / 铸铜：地面 / 背景归表面那份（环境图 + 太阳 + 遮蔽）
       const es = this.envSky;
       if (es.ensure(this.renderer, env.recipe, [sunW.x, sunW.z, -sunW.y])) { this.perf.last.envBake = es.lastMs; this.perf.count.envBake = (this.perf.count.envBake ?? 0) + 1; }   // 真烘了才记
       this.pbr.sync(p.material.pbr, p.material.surface, p.material.colorize === "model", env, sunW, L.ao, !!sphere && this.aoBaked !== "", L.ground, cam3, fade);
       return;
     }
-    this.pbr?.hide();
     this.paper.sync(p.material.flat ?? { base: PALETTE.face, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 0 },
       L.ao, !!sphere && this.aoBaked !== "", L.ground, L.background ?? PALETTE.background, cam3,
       p.material.tron && L.ground?.grid ? { line: p.material.tron.line, r: sphere?.r ?? 1, fade: this.lastView?.camera.kind === "ortho" ? this.lastTarget : (this.lastView?.camera.eye ?? { x: 0, y: 0, z: 0 }) } : null);   // Tron 地格：场景半径 = 1 格；淡出按到眼（正交按到视野中心）
@@ -856,6 +867,9 @@ export class Renderer3 implements RenderProvider {
   private currentScreen(): ScreenPreset { return this.renderer.xr.isPresenting || this.capturing ? SCREENS.native : SCREENS[this.screen ?? this.preset.screen]; }
   setScreen(id: ScreenId | null): void { if (this.screen !== id) { this.screen = id; this.poolKey = ""; } }
   getScreen(): ScreenId | null { return this.screen; }
+  private accent: number | null = null;
+  setAccent(hex: number | null): void { if (this.accent !== hex) { this.accent = hex; this.poolKey = ""; } }   // 重跑标记（颜色在材质 / 拷贝里）
+  getAccent(): number | null { return this.accent; }
   /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
   setPreset(id: PresetId): void {
     const p = PRESETS[id] ?? PRESETS.white;
@@ -973,11 +987,18 @@ export class Renderer3 implements RenderProvider {
   }
   private static readonly EDGE_SLOTS: readonly LineSlot[] = ["edgeSelected", "edgeHot", "edgeWarn"];
   /** 标记色：这一帧画风写了就用（预设 material.marks），没写 = 全局色板。 */
+  /** 画风专属东西的常驻表（residency.ts）：每帧画风递交「要哪几样」，表去对账（要的亮、不要的藏、久没要的放显存）。 */
+  private readonly residency = new Residency();
+  private wanted: Set<ResidentId> = new Set();
   /** 这一帧标记闪在亮的那一拍吗（画风没写闪 = 永远亮）。 */
   private blinkOn = true;
   private markHex(slot: "faceSelected" | "faceHover" | "faceDim" | LineSlot): number {
     const bl = this.framePreset.material.blink;
     if (bl && !this.blinkOn && (slot === "edgeSelected" || slot === "edgeHot" || slot === "edgeWarn")) return bl.off;   // 闪的暗拍：选中 / 将删 / 检查的边换成 off 色（面先不闪，user 10-29「面可以先不闪」）
+    if (this.accent !== null && !this.framePreset.material.ownMarks) {   // 视口设置「选中色」：选中 = 它、面 = 它往白调淡（悬停再淡一档）
+      const mix = (f: number): number => { const c = (sh: number): number => { const v = (this.accent! >> sh) & 255; return Math.round(v + (255 - v) * f); }; return (c(16) << 16) | (c(8) << 8) | c(0); };
+      if (slot === "edgeSelected") return this.accent; if (slot === "faceSelected") return mix(0.55); if (slot === "faceHover") return mix(0.75);
+    }
     const m = this.framePreset.material.marks as Partial<Record<string, number>> | undefined;
     return m?.[slot] ?? (slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : slot === "faceDim" ? PALETTE.faceDim : PALETTE.edgeSelected);
   }
@@ -1287,9 +1308,10 @@ export class Renderer3 implements RenderProvider {
     // 实测（2× 像素比）轴的深度会跑到压在它上面的边前面，多边形偏移也救不回来。短段各自插值，深度准。
     const AXIS_SEG = 2;   // 米
     const seg = (a: number, b: number, f: (t: number) => Vec3, hex: number): void => { for (let t = a; t < b - 1e-9; t += AXIS_SEG) pushA(f(t), f(Math.min(b, t + AXIS_SEG)), hex); };
-    seg(-L, L, (t) => at(t, 0, 0), PALETTE.axisX);
-    seg(-L, L, (t) => at(0, t, 0), PALETTE.axisY);
-    seg(0, L, (t) => at(0, 0, t), PALETTE.axisZ);
+    const ax = this.framePreset.light.axisColors ?? [PALETTE.axisX, PALETTE.axisY, PALETTE.axisZ];   // 画风可以换（Tron = 三根都是主色调）
+    seg(-L, L, (t) => at(t, 0, 0), ax[0]);
+    seg(-L, L, (t) => at(0, t, 0), ax[1]);
+    seg(0, L, (t) => at(0, 0, t), ax[2]);
     setLineGeometry(this.axesObj, apos, acol);
     // 原生 1 像素线版（像素化的风格用）：三色轴在这里建；网格跟相机走、每帧按需重建（syncPixelGrid）。都不写深度（写了会被像素描边当成物体描一圈）
     if (!this.gridPix) {

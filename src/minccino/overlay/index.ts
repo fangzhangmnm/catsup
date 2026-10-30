@@ -116,8 +116,10 @@ export interface OverlayCtx {
   readonly style: string;
   /** 主分辨率的一格有几个 CSS 像素（下采样的屏 = 放大倍数；不下采样 = 1 / 设备像素比）：要按「主分辨率的格」定大小的东西（字）用它。 */
   readonly pixelCss: number;
-  /** 标记闪的这一拍是不是亮的（画风没写闪 = 永远 true）：提交方的画风表让选中 / 将删 / 检查色跟着闪。 */
+  /** 标记闪的这一拍是不是亮的（画风没写闪 = 永远 true）。 */
   readonly blinkOn: boolean;
+  /** 这一帧的状态色（sRGB；引擎按 视口设置 > 画风 > 全局默认 算好、闪的暗拍已经换好）：选中 / 将删 / 检查。面 / 边的标记材质用的是同一组——辅助几何的点、参考线跟它对得上。 */
+  readonly status: { readonly selected: number; readonly scrub: number; readonly warn: number };
 }
 
 /** 0xRRGGBB → 线性空间 rgb（= three Color.setHex 在默认色彩管理下的值；公式和 three ColorManagement.SRGBToLinear 逐字一样，结果位级相同）。 */

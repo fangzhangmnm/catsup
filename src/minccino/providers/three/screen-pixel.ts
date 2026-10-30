@@ -173,5 +173,7 @@ export class PixelScreen {
   }
   /** 显存估算（血槽位）：小图颜色 + 深度 + 描边后的小图（颜色 + 深度）。 */
   bytes(): number { return this.low ? this.w * this.h * (4 + 4 + 4 + 4) : 0; }
+  /** 只放显存（两张小图）；材质留着，下次 prepare 重建（常驻表 residency.ts 调）。 */
+  release(): void { this.low?.dispose(); this.post?.dispose(); this.low = this.post = null; this.w = this.h = 0; }
   dispose(): void { this.low?.dispose(); this.post?.dispose(); this.low = this.post = null; this.outlineMat.dispose(); this.upscaleMat.dispose(); this.quad.geometry.dispose(); }
 }

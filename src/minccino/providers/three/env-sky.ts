@@ -67,5 +67,7 @@ export class EnvSky {
     return true;
   }
   bytes(): number { return this.rt ? Math.round(ENV_W * ENV_H * 8 * 4 / 3) : 0; }
+  /** 只放显存（环境图）；对象留着，下次 ensure 重烘（换走写实 / 铸铜闲置一阵后由 render3 调）。 */
+  release(): void { this.rt?.dispose(); this.rt = null; this.key = ""; }
   dispose(): void { this.rt?.dispose(); this.mat.dispose(); }
 }

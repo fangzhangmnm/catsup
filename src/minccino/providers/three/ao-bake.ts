@@ -117,5 +117,7 @@ export class AoBaker {
   }
   /** 显存（血槽位）：图集颜色 1 字节 + 深度 2 字节。 */
   bytes(): number { return this.rt ? AO_RES * AO_TILES_X * AO_RES * AO_TILES_Y * 3 : 0; }
+  /** 只放显存（遮蔽图集）；对象和 uniforms 留着（材质还引用它们），下次 bake 重建。 */
+  release(): void { this.rt?.dispose(); this.rt = null; }
   dispose(): void { this.rt?.dispose(); this.rt = null; this.depthOnly.dispose(); }
 }
