@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-103 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+104 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -12,7 +12,7 @@
 <svg width="24" height="24"><use href="#blur"/></svg>
 ```
 
-> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`liquify`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`brush-inflate`、`brush-flatten`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`xray`、`snap-element`、`help`、`settings`
+> 👁 **待过目**（AI 自画、未经人类审阅，`data-review="pending"`）：`blur`、`sharpen`、`compass`、`liquify`、`rotated-rectangle`、`push-pull`、`eraser-weld`、`eraser-soft`、`protractor`、`fill-hole`、`knife`、`walk`、`select-vertex`、`select-edge`、`select-face`、`brush-inflate`、`brush-flatten`、`hierarchy-tree`、`chevron-left`、`chevron-right`、`forward`、`zoom`、`one-to-one`、`xray`、`snap-element`、`help`、`settings`
 > 见库 `index.html` 的「待过目」栏；过目后进库/打回归库 session。
 
 
@@ -145,6 +145,7 @@
 | `unlock` | 开锁:同 lock 体型+锁梁弹开 |
 | `visibility-hide` | 隐藏:同 show 撑高版+斜杠(mask 留 gap) |
 | `visibility-show` | 可见:撑高眼裂+瞳孔 r4.3(甲方实测原版太小) |
+| `hierarchy-tree` 👁待过目 | 层级(场景树 / 大纲):顶行一个实心小块 + 横线，下面两行往右缩进、各一个实心小块 + 横线，一根竖线带两个拐弯把它们连起来 = 谁装着谁；与 layers-stack(图层 = 平铺叠放、没有父子)、folder(文件夹)分工【CatsUp 左上一排「层级」钮（开层级浮窗：组 / 物件的树、小三角、小眼睛）；2026-10-30 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 |
 
 ## common
 

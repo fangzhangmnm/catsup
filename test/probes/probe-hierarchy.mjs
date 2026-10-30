@@ -1,60 +1,52 @@
-// 恢复层级（纪元账本 DT99，v0.14.64）：根上散着 3 个一样的盒子（一个转过 30°）+ 1 个不一样的 + 一个组件「两盒」（里面 2 个一样的盒子）
-// → 菜单计数 > 0 → 跑（含子物件）→ 根上 3 盒 = 一个组件 3 份、不一样的那个 = 组；「两盒」里面 = 2 份实例；世界里的点不变；撤销一步回原样。
-// 再量大场景（400 个盒子）上菜单的便宜数法和真跑各要多久。created 2026-10-26 by Claude Opus 5.5
+// test/probes/probe-hierarchy.mjs —— 层级浮窗（0.18 物品栏纪元 I1；src/app/hierarchy-window.ts + src/editor/object-tree.ts）。无头。created 2026-10-30 by Claude Opus 5.5
+// user 10-30「hierarchy就是有小三角有小眼睛的。右键或者点...就是物品按钮」「没有赋予名字的全用四位hash这种……然后可以淡化」；10-24「组永远不进hierarchy」。
+// 用法：python3 -m http.server 8765 → node test/probes/probe-hierarchy.mjs
 import { createRequire } from "node:module";
-const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
-const url = process.argv[2] ?? "http://127.0.0.1:8765/";
-const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
-const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
-const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
-await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1500);
-const res = await page.evaluate(async () => {
+const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
+const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
+const page = await browser.newPage({ viewport: { width: 1000, height: 800 } });
+const errs = []; page.on("pageerror", (e) => errs.push(e.message));
+await page.goto(process.argv[2] ?? "http://127.0.0.1:8765/", { waitUntil: "load" }); await page.waitForTimeout(700);
+const fails = []; const check = (ok, msg) => { console.log((ok ? "  ✓ " : "  ✗ ") + msg); if (!ok) fails.push(msg); };
+const W = '.float-win[data-win="hierarchy"]';
+const made = await page.evaluate(() => {
   const C = globalThis.__catsup, e = C.editor, P = (x, y, z = 0) => ({ x, y, z });
-  e.setGrid({ ...e.grid, on: false });
-  const root = () => e.activePool();
-  /** 一个盒子：底面矩形（绕 (cx, cy) 转 a）+ 推拉 h。 */
-  const box = (cx, cy, w, d, h, a = 0) => {
-    const c = Math.cos(a), s = Math.sin(a), q = (x, y) => P(cx + x * c - y * s, cy + x * s + y * c);
-    const pts = [q(0, 0), q(w, 0), q(w, d), q(0, d)];
-    e.commitOp({ op: "addEdges", segs: pts.map((p, i) => [p, pts[(i + 1) % 4]]) });
-    const k = e.kernel, f = k.faces().find((F) => { const o = k.faceRings3(F.id).outer; return o.length === 4 && o.every((p) => Math.abs(p.z) < 1e-9) && pts.every((p) => o.some((r) => Math.hypot(r.x - p.x, r.y - p.y) < 1e-6)); });
-    e.commitOp({ op: "pushpull", at: root(), face: k.faceRings3(f.id).outer, dist: h });
-  };
-  // 组件「两盒」：先画两个一样的盒子，全选建组件
-  box(20, 0, 1, 2, 0.5); box(23, 0, 1, 2, 0.5);
-  e.selectAll(); e.makeComponent("两盒"); e.cancel();
-  box(0, 0, 1, 2, 0.5); box(3, 0, 1, 2, 0.5); box(6, 1, 1, 2, 0.5, Math.PI / 6); box(0, 6, 2, 2, 1);
-  const pts0 = C.editor.sceneRef.pointsOfDef(C.editor.sceneRef.root).length;
-  await new Promise((r) => setTimeout(r, 200));
-  const cand = e.repairMenuCount("brep.hierarchy");
-  const n = e.repair("brep.hierarchy");
-  const s = e.sceneRef, rootDef = s.def(s.root);
-  const twoBox = [...s.defs.values()].find((d) => d.name === "两盒");
-  const comps = [...s.defs.values()].filter((d) => /^零件 \d+$/.test(d.name));
-  const out = {
-    cand, n, hint: document.querySelector("#hint")?.textContent ?? "",
-    rootInst: [...rootDef.instances.values()].map((i) => s.def(i.def).name).sort(),
-    rootGroups: s.brep(s.root).groups.size, rootFaces: s.brep(s.root).kernel.faces().length,
-    twoBoxInst: [...twoBox.instances.values()].map((i) => s.def(i.def).name), twoBoxFaces: s.brep(twoBox.id).kernel.faces().length,
-    comps: comps.map((d) => d.name), pts: s.pointsOfDef(s.root).length, pts0,
-  };
-  e.undo();
-  const s2 = e.sceneRef;
-  out.undo = { defs: s2.defs.size, rootFaces: s2.brep(s2.root).kernel.faces().length, groups: s2.brep(s2.root).groups.size };
-  // 大场景：400 个盒子（一半转过），量便宜数法 + 真跑
-  e.commitOp({ op: "clearGuides", at: root() });
-  for (let i = 0; i < 20; i++) for (let j = 0; j < 20; j++) box(40 + i * 3, j * 3, 1, 2, 0.5, (i + j) % 2 ? Math.PI / 6 : 0);
-  let t = performance.now(); e.repairMenuCount("brep.hierarchy"); out.bigCandMs = Math.round(performance.now() - t);
-  t = performance.now(); const nb = e.repair("brep.hierarchy"); out.bigRepairMs = Math.round(performance.now() - t); out.bigN = nb;
-  out.bigRootInst = e.sceneRef.def(e.sceneRef.root).instances.size;
-  return out;
+  const box = (x0) => { e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(x0, 0), P(x0 + 1, 0)], [P(x0 + 1, 0), P(x0 + 1, 1)], [P(x0 + 1, 1), P(x0, 1)], [P(x0, 1), P(x0, 0)]] }); e.commitOp({ op: "pushpull", at: e.activePool(), face: [P(x0, 0), P(x0 + 1, 0), P(x0 + 1, 1), P(x0, 1)], dist: 1 }); };
+  box(0); e.selectAll(); C.hud.pick("component");   // 默认名 = 四位码
+  box(3); e.selectAll(); e.makeComponent("椅子");      // 把上一个连同新盒子装进「椅子」
+  const s = e.sceneRef, names = [...s.defs.values()].filter((d) => d.id !== s.root).map((d) => d.name);
+  return { names };
 });
-console.log(JSON.stringify(res));
-const rc = res.rootInst.filter((n) => n !== "两盒");
-const ok = res.cand > 0 && res.n === 6
-  && res.rootInst.includes("两盒") && rc.length === 3 && new Set(rc).size === 1 && /^零件 \d+$/.test(rc[0]) && res.rootGroups === 1 && res.rootFaces === 0
-  && res.twoBoxInst.length === 2 && new Set(res.twoBoxInst).size === 1 && res.twoBoxInst[0] !== rc[0] && res.twoBoxFaces === 0 && res.pts === res.pts0
-  && /整理了 6 块/.test(res.hint) && res.undo.rootFaces === 6 * 4 && res.undo.groups === 0
-  && res.bigRootInst >= 400 && res.bigCandMs < 300;
-console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
-await b.close(); process.exit(ok ? 0 : 1);
+check(made.names.length === 2 && made.names.some((n) => /^[0-9a-f]{4}$/.test(n)) && made.names.includes("椅子"), `新组件默认名 = 四位码（不是「组件 N」）：${made.names.join(" / ")}`);
+await page.click(".gizmo-hier"); await page.waitForTimeout(120);
+const rows = () => page.evaluate((W) => [...document.querySelectorAll(`${W} .tree-row`)].map((r) => ({ key: r.dataset.key, name: r.querySelector(".tree-name")?.textContent, unnamed: !!r.querySelector(".tree-name.is-unnamed"), sel: r.classList.contains("is-selected"), here: r.classList.contains("is-here"), hidden: r.classList.contains("is-hidden") })), W);
+const r1 = await rows();
+check(r1.length === 2 && r1[0].name === "根" && r1[1].name === "椅子" && r1[0].here, `打开 = 根 + 椅子（根是你在的那层；和左上面包屑同一个叫法）：${JSON.stringify(r1.map((r) => r.name))}`);
+await page.click(`${W} .tree-row:nth-child(2) .tree-caret`); await page.waitForTimeout(80);
+const r2 = await rows();
+check(r2.length === 3 && r2[2].unnamed && /^[0-9a-f]{4}$/.test(r2[2].name), `展开椅子 = 露出里面那个四位码物件、淡色：${JSON.stringify(r2[2])}`);
+await page.click(`${W} .tree-row:nth-child(3) .tree-name`); await page.waitForTimeout(100);
+const st1 = await page.evaluate(() => { const e = globalThis.__catsup.editor; return { chain: e.context.chain.length, sel: e.selectedPoolKeys() }; });
+const r3 = await rows();
+check(st1.chain === 1 && st1.sel.length === 1 && r3[2].sel && r3[1].here, `点它 = 走进椅子那一层 + 选中它（画布和窗口一起亮）：${JSON.stringify(st1)}`);
+await page.click(`${W} .tree-row:nth-child(3) .tree-eye`); await page.waitForTimeout(100);
+const hid = await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef, inst = [...s.def(s.root).instances.values()][0], inner = [...s.def(inst.def).instances.values()][0]; return !!inner.hidden; });
+const r4 = await rows();
+check(hid && r4[2].hidden, "小眼睛 = 藏起来（行变淡）");
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(80);
+const unhid = await page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef, inst = [...s.def(s.root).instances.values()][0], inner = [...s.def(inst.def).instances.values()][0]; return !inner.hidden; });
+check(unhid, "藏 = 一步撤销");
+await page.dblclick(`${W} .tree-row:nth-child(3) .tree-name`); await page.waitForTimeout(120);
+check(await page.evaluate(() => globalThis.__catsup.editor.context.chain.length === 2), "双击 = 进去编辑");
+await page.click(`${W} .tree-row:nth-child(2) .tree-more`); await page.waitForTimeout(120);
+const m1 = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent.trim()));
+check(m1.includes("物件设置…") && m1.includes("做成唯一") === m1.includes("做成唯一"), `物件行的「…」= 物件菜单：${m1.slice(0, 6).join(" / ")}`);
+await page.keyboard.press("Escape"); await page.waitForTimeout(60);
+await page.click(`${W} .tree-row:nth-child(1) .tree-more`); await page.waitForTimeout(120);
+const m2 = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent.trim()));
+const st2 = await page.evaluate(() => globalThis.__catsup.editor.context.chain.length);
+check(st2 === 0 && m2.includes("物件设置…"), `根那行的「…」= 走回根 + 空白处菜单：${m2.join(" / ")}`);
+check(errs.length === 0, `页面没报错${errs.length ? "：" + errs.join(" | ") : ""}`);
+await browser.close();
+console.log(fails.length ? `✗ probe-hierarchy：${fails.length} 条没过` : "✓ probe-hierarchy");
+process.exit(fails.length ? 1 : 0);

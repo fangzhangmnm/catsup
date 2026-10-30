@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=26e5843b1cbd" />
+    <link rel="stylesheet" href="./styles.css?v=16fd720bc0e8" />
     <script src="./boot-guard.js"></script>
     <script defer src="./vendor/zip-js/zip-full.min.js"></script>   <!-- 加密容器的明文外壳（UMD，挂 window.zip；7z-wasm 惰性加载） -->
   </head>
@@ -25,7 +25,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  103 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  104 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -184,6 +184,8 @@
   <symbol id="visibility-hide" data-cat="hierarchy" data-src="own" data-note="隐藏:同 show 撑高版+斜杠(mask 留 gap)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="wbEyeHideBig"><rect width="24" height="24" fill="#fff"/><path d="M4.2 19.8 L19.8 4.2" stroke="#000" stroke-width="4"/></mask><g mask="url(#wbEyeHideBig)"><path d="M3.2 12 Q12 1.8 20.8 12" stroke-width="2.2"/><path d="M3.2 12 Q12 22.2 20.8 12"/><circle cx="12" cy="12" r="4.3" fill="currentColor" stroke="none"/></g><path d="M4.2 19.8 L19.8 4.2"/></symbol>
   <!-- visibility-show — 可见:撑高眼裂+瞳孔 r4.3(甲方实测原版太小) -->
   <symbol id="visibility-show" data-cat="hierarchy" data-src="own" data-note="可见:撑高眼裂+瞳孔 r4.3(甲方实测原版太小)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3.2 12 Q12 1.8 20.8 12" stroke-width="2.2"/><path d="M3.2 12 Q12 22.2 20.8 12"/><circle cx="12" cy="12" r="4.3" fill="currentColor" stroke="none"/></symbol>
+  <!-- hierarchy-tree — 层级(场景树 / 大纲):顶行一个实心小块 + 横线，下面两行往右缩进、各一个实心小块 + 横线，一根竖线带两个拐弯把它们连起来 = 谁装着谁；与 layers-stack(图层 = 平铺叠放、没有父子)、folder(文件夹)分工【CatsUp 左上一排「层级」钮（开层级浮窗：组 / 物件的树、小三角、小眼睛）；2026-10-30 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】 -->
+  <symbol id="hierarchy-tree" data-cat="hierarchy" data-src="own" data-note="层级(场景树 / 大纲):顶行一个实心小块 + 横线，下面两行往右缩进、各一个实心小块 + 横线，一根竖线带两个拐弯把它们连起来 = 谁装着谁；与 layers-stack(图层 = 平铺叠放、没有父子)、folder(文件夹)分工【CatsUp 左上一排「层级」钮（开层级浮窗：组 / 物件的树、小三角、小眼睛）；2026-10-30 Claude Opus 5.5 自画未过目（cairosvg 渲过 96 / 24 px）】" data-review="pending" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="5" height="5" rx="0.8" fill="currentColor" stroke="none"/><path d="M10.5 5.5 H21"/><path d="M5.5 8 V18.5 M5.5 12.5 H9.5 M5.5 18.5 H9.5"/><rect x="10" y="10.25" width="4.5" height="4.5" rx="0.8" fill="currentColor" stroke="none"/><path d="M16.5 12.5 H21"/><rect x="10" y="16.25" width="4.5" height="4.5" rx="0.8" fill="currentColor" stroke="none"/><path d="M16.5 18.5 H21"/></symbol>
   <!-- common -->
   <!-- back — 返回:左向整箭头(带杆;裸 chevron-left 曾因小尺寸渲染差被 sunset) -->
   <symbol id="back" data-cat="common" data-src="own" data-note="返回:左向整箭头(带杆;裸 chevron-left 曾因小尺寸渲染差被 sunset)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12H5"/><polyline points="11 6 5 12 11 18"/></symbol>
@@ -387,6 +389,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-8201b19f23a6.mjs"></script>
+    <script type="module" src="./dist/catsup-84cb48b2be67.mjs"></script>
   </body>
 </html>

@@ -70,6 +70,7 @@ import "./tool-tips.test.ts";   // 工具提示 = 键表生成（不手抄键名
 import "./lock-guide.test.ts";   // 锁看得见：轴线放哪、只有一处画（2026-10-28 晚 Opus）
 import "./rail-face.test.ts";   // 左柱换脸：有选区时删除 = 垃圾桶（2026-10-28 晚 Opus；周账 F-121）
 import "./second-mode.test.ts";   // 再点拿着的工具 = 换另一种做法 + 修饰键临时换回（2026-10-30 Opus）
+import "./object-tree.test.ts";   // 层级窗的物件树：只有物件进树、四位码没起名、在哪一层、小眼睛（0.18 I1，2026-10-30 Opus）
 import "./soft-select.test.ts";   // 软选择权重（2026-10-28 夜 Opus）
 import "./mesh-fill.test.ts";   // 复制 / 补洞 / 桥接（2026-10-28 夜 Opus）
 import "./select-grow.test.ts";   // 扩 / 缩选区（2026-10-28 夜 Opus）

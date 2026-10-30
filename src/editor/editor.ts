@@ -611,6 +611,8 @@ export class Editor {
     }
     return out;
   }
+  /** 层级窗（object-tree.ts）：选区换成这几个组 / 物件（得在现在这一层；一步、进撤销）/ 现在选中的组 / 物件的键（「g2」「i7」）。 */
+  selectPools(picks: readonly PoolPick[]): void { this.step((pass) => { this.clearSel(pass); for (const p of picks) this.selectedPools.set(this.pickKey(p), p); this.afterSelect(pass); }); this.host.changed(); this.draw(); } selectedPoolKeys(): string[] { return [...this.selectedPools.keys()]; }
   /** 退到第 depth 层（0 = 根）。 */
   exitTo(depth: number): void { let guard = 64; while (this.contextDepth() > depth && guard-- > 0) { if (!this.exitContext()) break; } }
   private groupDepth(gid: number): number { let n = 0, g: number | null = gid; const def = this.scene.defOfContext(this.ctx); while (g !== null) { n++; g = this.scene.group({ def, group: g }).parent; } return n; }

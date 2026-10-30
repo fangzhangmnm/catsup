@@ -19,6 +19,8 @@ export declare const FOREGROUND_POLL_MS = 60000;
 /** 缩略图：长边像素 / JPEG 质量（契约 §3：≈ 8–12 KB，BIN 首段供头片 peek）。 */
 export declare const THUMB_LONG_EDGE = 192;
 export declare const THUMB_JPEG_QUALITY = 80;
+/** 家族四位十六进制码（没起名的东西就叫它，user 10-30「我们全家都是四位hex hash」「我很讨厌未命名1……而不是递增数列」）。 */
+export declare function hex4(): string;
 /** 新文档默认名（WeebPaint 惯例 yyyymmdd-hex4；禁「未命名」）。 */
 export declare function defaultDocName(now?: Date): string;
 /**

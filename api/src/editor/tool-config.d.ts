@@ -276,6 +276,24 @@ export declare const TOOL_OPTIONS: {
             readonly modes: readonly ["geometry", "verify"];
         };
     };
+    /** 自由建模的删除（user 10-30「自由建模里面shift是溶解」+「2同意」再点钮切做法）：删除 / 溶解（不开洞）；按住 Shift = 这里选的反面。硬表面的橡皮不用它。 */
+    readonly erase: {
+        readonly action: {
+            readonly kind: "enum";
+            readonly label: "动作";
+            readonly values: readonly [{
+                readonly id: "delete";
+                readonly label: "删除";
+            }, {
+                readonly id: "dissolve";
+                readonly label: "溶解";
+                readonly hint: "去掉点 / 边但不开洞（按住 Shift 临时反过来）";
+            }];
+            readonly def: "delete";
+            readonly scope: "session";
+            readonly modes: readonly ["freeform"];
+        };
+    };
     /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
     readonly weldErase: {
         /** 反向（user 10-26「软边橡皮快捷键和马前炮可以变成相反操作（就是标记硬边），焊边也一样」）：拆开 = 刮过的曲线炸回一段段；按住 Shift = 这里选的反面。 */
@@ -304,7 +322,8 @@ export declare const TOOL_OPTIONS: {
             readonly scope: "session";
         };
     };
-    /** 软边橡皮（「第三个橡皮……原理一样。共面就删边，不共面就改软边」）：两膜二面角 ≤ 这个角才软化（+ 平滑）；共面直接删边并面；更尖的不碰。默认 20° 对齐 SU Soften。 */
+    /** 软边橡皮（「第三个橡皮……原理一样。共面就删边，不共面就改软边」）：两膜二面角 ≤ 这个角才软化（+ 平滑）；共面直接删边并面；更尖的不碰。
+     *  默认 45°（和焊边一样；2026-10-30 Opus 5.5 从 20° 提上来——user 10-30「软边橡皮为什么软化不了」：12 段圆柱两面夹 30°，20° 全挡掉；45° 仍护住 90° 的盒子棱）。 */
     readonly softErase: {
         /** 反向（同上）：硬化 = 刮过的边去掉软 + 平滑（Blender 的 mark sharp）；按住 Shift = 这里选的反面。 */
         readonly action: {
@@ -324,7 +343,7 @@ export declare const TOOL_OPTIONS: {
         readonly maxDeg: {
             readonly kind: "number";
             readonly label: "最大角度";
-            readonly def: 20;
+            readonly def: 45;
             readonly min: 1;
             readonly max: 90;
             readonly step: 1;

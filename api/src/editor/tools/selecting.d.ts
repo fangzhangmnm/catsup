@@ -66,7 +66,7 @@ export interface ScreenBox {
     maxX: number;
     maxY: number;
 }
-/** 框选 / 套索：区域里的点（自由建模，FM139）/ 边 / 面 / 子物体 / 空组件 / 参考点（参考线无限长、框选会全中，不收）。区域 = 框或套索（marquee.ts ScreenArea），遮挡同一套。 */
+/** 框选 / 套索：区域里的点（自由建模，FM139）/ 边 / 面 / 子物体 / 空组件 / 参考点（参考线无限长、框选会全中，不收）。区域 = 框或套索（marquee.ts ScreenArea），遮挡同一套。框空了 = 清空选区。 */
 export declare function boxSelect(ctx: ToolCtx, box: ScreenArea, mode: SelMode): void;
 /** 拖框 / 套索：按下记起点；拖过点按容差才出框（套索 = 开始记轨迹）；松手 = 框选 / 套索选（没拖出去 = 什么都不做，那是「点」，归 clickSelect）。
  *  框还是套索 = 选择工具的选项「空处拖」（tool-config.ts select.drag；账本 UX5「套索要进 0.16」），按下那一刻读定。 */

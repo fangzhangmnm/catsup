@@ -7,7 +7,7 @@ import { type MirrorAxis, type MirrorMode, type MirrorSetting } from "../mesh/mi
 import { type SelMode } from "./tools.ts";
 import { type ArcGesture } from "./arc-build.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
-import type { ToolHandler } from "./tool-handler.ts";
+import type { BodyPlacePhase, ToolHandler } from "./tool-handler.ts";
 import { type GridSettings, type UnitSystem } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
@@ -121,6 +121,7 @@ export interface EditorHost {
         x: number;
         y: number;
     }[] | null): void;
+    /** 放人（ToolCtx.placeBody 的另一头；缺 = 宿主没有步行）。 */ placeBody?(phase: BodyPlacePhase, x: number, y: number): void;
     /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
     softRing?(c: {
         x: number;
@@ -521,6 +522,9 @@ export declare class Editor {
         label: string;
         depth: number;
     }[];
+    /** 层级窗（object-tree.ts）：选区换成这几个组 / 物件（得在现在这一层；一步、进撤销）/ 现在选中的组 / 物件的键（「g2」「i7」）。 */
+    selectPools(picks: readonly PoolPick[]): void;
+    selectedPoolKeys(): string[];
     /** 退到第 depth 层（0 = 根）。 */
     exitTo(depth: number): void;
     private groupDepth;
@@ -1161,6 +1165,7 @@ export declare class Editor {
     /** 回车 = 定：「点一下落定」那一下（键盘起手 / 点了一下在等下一点的手势）；按着没松的拖 = 松手才定，回车不管。 */
     confirmGesture(): void;
     /** 手指双击（触屏；鼠标双击同语义）：点在子组件 / 组上 = 进去；点在空处 = 退一层；点在这一层自己的几何上 = 什么都不做。返回做了什么。 */
+    /** 手指轻点交给当前工具（它认才算，fingerTap）；不认 = false，宿主照旧当「取消」。 */ fingerTap(x: number, y: number): boolean;
     hierarchyTapAt(x: number, y: number): "enter" | "exit" | null;
     private selGrow;
     selGrowBegin(): boolean;

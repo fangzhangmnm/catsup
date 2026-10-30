@@ -38,6 +38,8 @@ export interface ToolSample {
     extra: Readonly<Record<string, number>>;
 }
 /** 底座递给工具的全部能力（窄接口 = 测试面：给假 ctx 喂事件序列，断言 commitOp 收到的 op）。 */
+/** 放人的指针阶段（ToolCtx.placeBody）。 */
+export type BodyPlacePhase = "hover" | "press" | "drag" | "drop";
 export interface ToolCtx {
     readonly config: CatsUpToolConfig;
     /** 活动池的 checkpoint 内核（本地坐标）。 */
@@ -193,6 +195,8 @@ export interface ToolCtx {
         x: number;
         y: number;
     }[] | null): void;
+    /** 放人（验证工作台的步行）：指针交给宿主的放置模块（悬停 / 按下 / 拖 = 虚影跟着、落下 = 放人；画布本地 CSS px）。编辑器不认识这个人。 */
+    placeBody(phase: BodyPlacePhase, x: number, y: number): void;
     /** 软选择的半径圈（画布本地 CSS px；null = 收）。 */
     softRing(c: {
         x: number;
@@ -343,6 +347,8 @@ export interface ToolHandler {
         x: number;
         y: number;
     }, travel?: number): void;
+    /** 手指轻点（见过笔的设备上手指平时 = 相机、轻点 = 取消）：这把工具认它当「点一下」就接住返回 true（步行放人；立场表 tap = place）。 */
+    fingerTap?(ctx: ToolCtx, x: number, y: number): boolean;
     /** direct 工具的松手；settle() = 抬笔结算后的那一帧（null = 没样本）。steps 工具不用（底座把松手变成一次 down）。 */
     up?(ctx: ToolCtx, ev: ToolPointer, settle: () => ToolSample | null): void;
     /** 没手势时的悬停（吸附预告 / 高亮）；没有就什么都不画。常见的「取点悬停」= `ctx.hoverSnap(s)`。 */

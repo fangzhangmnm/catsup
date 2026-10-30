@@ -15,13 +15,14 @@ import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
-import { downloadName } from "../config.ts";
+import { downloadName, hex4 } from "../config.ts";
 import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
 import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
+import { createHierarchyWindow, type HierarchyWindow } from "./hierarchy-window.ts";
 import { createFloatWin, createMenuWindow, type FloatWin, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
@@ -329,7 +330,7 @@ const hud: HudModel = {
       case "unhideAll": editor.unhideAll(); break;
       case "deselect": editor.cancel(); break;
       case "group": editor.makeGroup(); break;
-      case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
+      case "component": editor.makeComponent(hex4()); break;
       case "explodeGroups": editor.explodeGroups(); break;
       case "mirror": editor.beginMirror(); break;
       case "weld": editor.weldSelection(); break;
@@ -942,7 +943,7 @@ function syncUi(): void {
   syncNight();
   renderSnapWidget();
   refreshMachineBoard();   // 指令板上的数跟着模型变
-  viewWin?.refresh(); brushWin?.refresh();   // 常驻浮窗（视图 / 雕刻笔刷）：内容变了才重画（ui/menu-window.ts）
+  viewWin?.refresh(); brushWin?.refresh(); hierWin?.refresh();   // 常驻浮窗（视图 / 雕刻笔刷 / 层级）：内容变了才重画
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
   softSliderRef?.render();   // 软选择半径滑条
   selGrowRef?.sync();   // 扩 / 缩条：换了工具 / 没选区就收
@@ -1254,6 +1255,8 @@ const WIN_POS = {
 };
 // eslint-disable-next-line no-var
 var viewWin: MenuWindowHandle | null = null;
+// eslint-disable-next-line no-var
+var hierWin: HierarchyWindow | null = null;   // 层级浮窗（var：syncUi 可能在它建好之前跑）
 /** 开视图浮窗：tab = 直接停在那一页（别处的「XX 设置…」跳进来）；不给 = 开 / 关。 */
 function openViewMenu(tab?: ViewTab): void {
   const w = (viewWin ??= createMenuWindow({ id: "view", title: "视图", menu: viewMenuSpec, store: WIN_POS, onOpenChange: (o) => viewMenuBtn.classList.toggle("is-open", o) }));
@@ -1277,6 +1280,11 @@ xrayBtnRef = xrayBtn;
 // 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
 objectBtn.innerHTML = iconHtml("object"); $("modeSelect").before(objectBtn);   // 工作台下拉的左边（user 10-30「物件设置按钮放在tab下拉左边」）
+// 层级钮（0.18 物品栏纪元 I1；设计稿 §5：层级 = 浮窗、素材 = 底部抽屉）：物件钮左边。窗口 = hierarchy-window.ts（物件树，组不进）
+const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级：这个模型里的物件（小三角展开、小眼睛藏 / 显、「…」= 菜单）";
+hierBtn.innerHTML = iconHtml("hierarchy-tree"); objectBtn.before(hierBtn);
+hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
+hierBtn.addEventListener("click", () => hierWin?.toggle(hierBtn));
 // 「这一层」和选中的子组件（物体菜单「物体设置…」）都是一次性的下拉（openObjectWindow）
 const objectWinDeps = { after: syncUi, openMachine: (m: Machine) => openMachineBoard(m, objectBtn) };
 objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, objectWinDeps, "start"));   // 弹出菜单、再点一下收起（user 10-30「可以恢复成菜单的样式而不是浮窗」）
@@ -1462,7 +1470,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "lock.arm": editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 先锁好、下一下生效
     case "lock.axis": if (editor.isGestureActive()) editor.lockKey(p1 as "x" | "y" | "z", p2 === "plane"); else editor.armLock(p1 as "x" | "y" | "z", p2 === "plane"); syncUi(); return;   // 操作工具 = 自动按了 G（UX17）
     case "tool.key": toolKey(p1, p2 as Tool); return;
-    case "component.make": if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); return;   // SU：G = 建组件
+    case "component.make": if (editor.hasGeometrySelection() || editor.hasPoolSelection()) editor.makeComponent(hex4()); return;   // SU：G = 建组件
     case "hide": if (editor.hasHideableSelection()) editor.hideSelection(); return;   // Blender：H（DT49）
     case "show.all": editor.unhideAll(); return;
     case "view.zoomExtents": editor.zoomExtents(); return;

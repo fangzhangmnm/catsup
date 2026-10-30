@@ -38,6 +38,8 @@ export declare class Locomotion {
     private editor;
     private canvas;
     constructor(editor: Editor, canvas: HTMLCanvasElement);
+    /** 放人的指针（输入层 → 步行工具 → ctx.placeBody → 这里；user 10-30「1做」）：悬停 / 按下 / 拖 = 虚影跟着，落下 = 放人。以前这里自己挂画布事件、鼠标 / 笔一按就落，笔没有悬停跟手。 */
+    placePointer(phase: "hover" | "press" | "drag" | "drop", x: number, y: number): void;
     walkPhase(): WalkPhase;
     isPlacing(): boolean;
     /** FPS 进行中（不是原地编辑）：键盘归走路，工具键不响应。 */
