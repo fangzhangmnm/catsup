@@ -19,6 +19,16 @@ const made = await page.evaluate(() => {
 });
 check(made.names.length === 2 && made.names.some((n) => /^[0-9a-f]{4}$/.test(n)) && made.names.includes("椅子"), `新组件默认名 = 四位码（不是「组件 N」）：${made.names.join(" / ")}`);
 await page.click(".gizmo-hier"); await page.waitForTimeout(120);
+// 标题是下拉的窗：下拉不占满标题栏，中间空着的那段能拖窗（user 10-30「dropdown占满整个width那窗口没法拖动了」）；点标题仍然弹下拉
+const hd = await page.evaluate((W) => { const r = (q) => document.querySelector(`${W} ${q}`).getBoundingClientRect(); const h = r(".float-head"), t = r(".float-title"), c = r(".float-close"); return { head: h.width, title: t.width, gapX: (t.right + c.left) / 2, gap: c.left - t.right, y: h.top + h.height / 2, win: r("").left }; }, W);
+const winAt = () => page.evaluate((W) => { const b = document.querySelector(W).getBoundingClientRect(); return { x: b.left, y: b.top }; }, W);
+const w0 = await winAt();
+await page.mouse.move(hd.gapX, hd.y); await page.mouse.down(); await page.mouse.move(hd.gapX - 40, hd.y + 30, { steps: 4 }); await page.mouse.move(hd.gapX - 80, hd.y + 60, { steps: 4 }); await page.mouse.up(); await page.waitForTimeout(80);
+const w1 = await winAt();
+check(hd.title < hd.head * 0.6 && hd.gap > 40 && Math.abs(w1.x - w0.x + 80) < 4 && Math.abs(w1.y - w0.y - 60) < 4, `标题下拉只占字那么宽（${Math.round(hd.title)} / ${Math.round(hd.head)} px），拖标题栏空白处窗跟着走 (${Math.round(w1.x - w0.x)}, ${Math.round(w1.y - w0.y)})`);
+await page.click(`${W} .float-title`); await page.waitForTimeout(100);
+check(await page.evaluate(() => !!document.querySelector(".popup-menu")), "点标题仍然弹下拉（换窗）");
+await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 const rows = () => page.evaluate((W) => [...document.querySelectorAll(`${W} .tree-row`)].map((r) => ({ key: r.dataset.key, name: r.querySelector(".tree-name")?.textContent, unnamed: !!r.querySelector(".tree-name.is-unnamed"), sel: r.classList.contains("is-selected"), here: r.classList.contains("is-here"), hidden: r.classList.contains("is-hidden") })), W);
 const r1 = await rows();
 const rootCode = r1[0]?.name;
@@ -41,8 +51,17 @@ check(hid && r4[2].hidden, "小眼睛 = 藏起来（行变淡）");
 await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(80);
 const unhid = await page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef, inst = [...s.def(s.root).instances.values()][0], inner = [...s.def(inst.def).instances.values()][0]; return !inner.hidden; });
 check(unhid, "藏 = 一步撤销");
-await page.dblclick(`${W} .tree-row:nth-child(3) .tree-name`); await page.waitForTimeout(120);
-check(await page.evaluate(() => globalThis.__catsup.editor.context.chain.length === 2), "双击 = 进去编辑");
+// 双击名字 = 改名（同「…」→「改名…」那张单），双击别处 = 进去编辑（user 10-30「hierarchy里面双击名字应该是重命名，双击其他地方可以是编辑」）
+const nm3 = () => page.evaluate((W) => document.querySelector(`${W} .tree-row:nth-child(3) .tree-name`)?.textContent, W);
+const before3 = await nm3();
+await page.dblclick(`${W} .tree-row:nth-child(3) .tree-name`); await page.waitForTimeout(150);
+const sheetDefault = await page.evaluate(() => document.querySelector("#sheetInput")?.value ?? null);
+await page.fill("#sheetInput", "车轮"); await page.keyboard.press("Enter"); await page.waitForTimeout(150);
+const renamed3 = await nm3(), chainAfterRename = await page.evaluate(() => globalThis.__catsup.editor.context.chain.length);
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(120);
+check(sheetDefault === before3 && renamed3 === "车轮" && chainAfterRename === 1 && (await nm3()) === before3, `双击名字 = 改名单（默认填「${sheetDefault}」）→「${renamed3}」、没进去（层 ${chainAfterRename}）、撤销回「${await nm3()}」`);
+await page.dblclick(`${W} .tree-row:nth-child(3) .tree-kind`); await page.waitForTimeout(120);
+check(await page.evaluate(() => globalThis.__catsup.editor.context.chain.length === 2), "双击名字以外的地方 = 进去编辑");
 await page.click(`${W} .tree-row:nth-child(2) .tree-more`); await page.waitForTimeout(120);
 const m1 = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent.trim()));
 check(m1.includes("物件设置…") && m1.includes("做成唯一") === m1.includes("做成唯一"), `物件行的「…」= 物件菜单：${m1.slice(0, 6).join(" / ")}`);
@@ -74,8 +93,26 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef
 await page.waitForTimeout(150);
 const mrows = () => page.evaluate((W) => [...document.querySelectorAll(`${W} .tree-row`)].map((r) => ({ name: r.querySelector(".tree-name")?.textContent, count: r.querySelector(".tree-count")?.textContent ?? "", kind: r.querySelector(".tree-kind use")?.getAttribute("href") ?? "" })), W);
 const mr = await mrows();
-check(mr.some((r) => r.name === "椅子" && r.count === "×2") && mr.every((r) => r.kind.startsWith("#kind-")), `同一组件两份 = 一行「椅子 ×2」，每行名字前有种类图标：${JSON.stringify(mr)}`);
-const ci = mr.findIndex((r) => r.count === "×2");
+check(mr.some((r) => r.name === "椅子" && /^×2/.test(r.count)) && mr.every((r) => r.kind.startsWith("#kind-")), `同一组件两份 = 一行「椅子 ×2」，每行名字前有种类图标：${JSON.stringify(mr)}`);
+const ci = mr.findIndex((r) => /^×2/.test(r.count));
+// 手风琴不是小三角（user 10-30「同类折叠我说了是手风琴不是小三角，不要误导用户」）：合成行没有小三角；点「×2 ⌄」= 两份摊在同一深度、圈成一组；再点收起
+const acc = () => page.evaluate((W) => [...document.querySelectorAll(`${W} .tree-row`)].map((r) => ({ name: r.querySelector(".tree-name")?.textContent, caret: r.querySelector(".tree-caret")?.textContent ?? "", pad: r.style.paddingLeft, band: r.classList.contains("in-band"), copies: r.classList.contains("is-copies") })), W);
+const a0 = (await acc())[ci];
+await page.click(`${W} .tree-row:nth-child(${ci + 1}) .tree-count`); await page.waitForTimeout(100);
+const a1 = await acc(); let end = ci; while (end < a1.length && a1[end].band) end++; const band1 = a1.slice(ci, end), chairs = band1.slice(1).filter((r) => r.name === "椅子"), inner = band1.slice(1).filter((r) => r.name !== "椅子");
+await page.click(`${W} .tree-row:nth-child(${ci + 1}) .tree-count`); await page.waitForTimeout(100);
+const a2 = await acc();
+check(a0.copies && a0.caret === "" && chairs.length === 2 && chairs.every((r) => r.pad === a0.pad) && inner.every((r) => parseFloat(r.pad) > parseFloat(a0.pad)) && a2.length === mr.length && !a2.some((r) => r.band), `合成行没有小三角；点计数 = 两份摊在同一深度（${chairs.map((r) => r.pad).join(" / ")}，和合成行 ${a0.pad} 一样）圈成一组（某一份自己展开的内容照常缩进、也在组里），再点收起`);
+// 只选了组件（没有几何）也能「建组件」= 装进一个新组件（user 10-30「选择多个组件（没有几何）的时候应该也可以打包成一个新组件」）：合成行「…」→ 建组件 → 两把椅子进了同一个新组件；撤销一步回来
+await page.click(`${W} .tree-row:nth-child(${ci + 1}) .tree-more`); await page.waitForTimeout(120);
+const packMenu = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent.trim()));
+const hasPack = packMenu.includes("建组件");
+if (hasPack) { await page.locator(".popup-menu button", { hasText: "建组件" }).click(); await page.waitForTimeout(150); } else await page.keyboard.press("Escape");
+const packed = await page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef, top = [...s.def(s.root).instances.values()]; return top.map((i) => [...s.def(i.def).instances.values()].filter((j) => s.def(j.def).name === "椅子").length); });
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(120);
+const unpacked = await page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef; return [...s.def(s.root).instances.values()].filter((i) => s.def(i.def).name === "椅子").length; });
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(100);   // 再撤掉点「…」时那一步选择（选区进撤销），后面「撤回多摆的那一份」才撤得到它
+check(hasPack && packed.includes(2) && unpacked === 2, `两把椅子一起选、「…」里有「建组件」→ 装进同一个新组件（${JSON.stringify(packed)}）→ 撤销回来（根下椅子 ${unpacked} 份）；菜单：${packMenu.slice(0, 5).join(" / ")}`);
 await page.click(`${W} .tree-row:nth-child(${ci + 1}) .tree-eye`); await page.waitForTimeout(120);
 const chairsHidden = () => page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef; return [...s.def(s.root).instances.values()].filter((i) => s.def(i.def).name === "椅子").map((i) => !!i.hidden); });
 const h1 = await chairsHidden();

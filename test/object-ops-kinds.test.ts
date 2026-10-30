@@ -53,5 +53,20 @@ describe("物件级 op × 身体种类（炸开 / 建组件 / 合并）", () => 
     assert(nd !== cdef, "没换定义"); eq(faceCount(s, nd), faceCount(s, cdef)); eq(s.instanceCount(cdef), 1); eq(s.instanceCount(nd), 1);
     void i0;
   });
+  // user 10-30「选择多个组件（没有几何）的时候应该也可以打包成一个新组件」：两种外层都能把几份组件装进一个新组件，世界里的点一个不动
+  for (const host of ["brep", "mesh"] as Kind[]) it(`只选组件建组件：外面 ${host} → 两份装进一个新组件（身体 = ${host}，进去还是同一个工作台）、世界里的点不动、原来那层只剩新的一份`, () => {
+    const { s, comp } = setup("brep", "brep");
+    const root = { def: s.root, group: null };
+    applyOp(s, { op: "placeInstance", at: root, definition: comp, xform: [1, 0, 0, 5, 0, 1, 0, 2, 0, 0, 1, 0] });   // 摆第二份（placeInstance 只认硬表面那一层），再转外层
+    if (host === "mesh") applyOp(s, { op: "castDefinition", def: s.root, to: "mesh" });
+    const pts = (): string => s.pointsOfDef(s.root).map((p) => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`).sort().join(";");
+    const before = pts(), ids = [...s.def(s.root).instances.keys()];
+    applyOp(s, { op: "makeComponent", at: root, faces: [], edges: [], name: "wheel", instances: ids });
+    const top = [...s.def(s.root).instances.values()];
+    eq(top.length, 1); const nd = top[0].def;
+    eq(s.def(nd).name, "wheel"); eq(s.kindOf(nd), host); eq(s.def(nd).instances.size, 2);
+    assert([...s.def(nd).instances.values()].every((i) => i.def === comp), "装进去的还是原来那个组件定义（没复制）");
+    eq(pts(), before, "世界里的点一个不动");
+  });
 });
 void OpTargetError;

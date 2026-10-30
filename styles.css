@@ -447,7 +447,7 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .float-win[hidden] { display: none; }
 .float-head { display: flex; align-items: center; gap: 8px; padding: 6px 8px 6px 12px; cursor: grab; touch-action: none; user-select: none; border-bottom: 1px solid var(--line, #ddd); }
 .float-title { flex: 1; font-weight: 600; font-size: 13px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.float-close { border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 6px; border-radius: 6px; }
+.float-close { margin-left: auto; border: 0; background: none; font-size: 18px; line-height: 1; cursor: pointer; color: var(--muted); padding: 2px 6px; border-radius: 6px; }
 .float-close:hover { background: var(--menu-hover); }
 .float-win .float-body { flex: 1 1 auto; min-height: 0; overflow-y: auto; padding: 6px; }
 /* 层级浮窗（hierarchy-window.ts；0.18 I1）：一行 = 小三角 · 名字 · [锁] · 小眼睛 · …，缩进 = padding-left；没起名（四位码）= 等宽淡色（MoonSinger 同款） */
@@ -466,13 +466,16 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .tree-lock { display: inline-flex; opacity: .6; }
 .tree-kind { display: inline-flex; flex: none; opacity: .65; margin-right: 2px; }   /* 种类小图标（user 10-30「每个物体能显示自己的type as icon」） */
 .tree-kind .ico { width: 15px; height: 15px; }
-.tree-count { flex: none; font-size: 12px; color: var(--muted); padding: 0 4px; font-variant-numeric: tabular-nums; }   /* 「×N」合成行（user 10-30「collapse同实例变成 x几」） */
+.tree-count { flex: none; font-size: 12px; color: var(--muted); padding: 2px 6px; font-variant-numeric: tabular-nums; border: 0; background: none; font-family: inherit; border-radius: 6px; cursor: pointer; }
+.tree-count:hover { background: var(--menu-hover); }
+.tree-row.in-band { box-shadow: inset 3px 0 0 var(--muted); }   /* 手风琴摊开的那一组（合成行 + 那几份）：同一深度、左边一条竖线圈住——不是缩进，不是孩子 */   /* 「×N」合成行（user 10-30「collapse同实例变成 x几」） */
 .tree-row.is-selected .tree-count, .tree-row.is-selected .tree-kind { color: inherit; opacity: .9; }
 /* 浮窗标题 = 下拉（user 10-30「窗口名字就是下拉」）：「层级 ▾」，点开换页；只占标题那一小块，不拖窗 */
 /* 一键藏起所有窗（ui/hide-windows.ts；四指轻点 / \ 键）：窗口自己的开关不动，样式藏掉 */
 html.windows-hidden .float-win, html.windows-hidden .board, html.windows-hidden wp-reference-window { display: none !important; }
-.float-title-menu { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: inherit; font: inherit; padding: 2px 6px; margin-left: -6px; border-radius: 6px; cursor: pointer; }
+.float-title-menu { flex: 0 1 auto; display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: inherit; font: inherit; padding: 2px 6px; margin-left: -6px; border-radius: 6px; cursor: pointer; }
 .float-title-menu:hover { background: var(--hover); }
+/* 标题是下拉的窗：下拉只占字那么宽、关闭钮靠右，中间空着的那段 = 拖把（user 10-30「dropdown占满整个width那窗口没法拖动了」：下拉本身不起拖，占满就没地方抓）。 */
 .float-title-caret { font-size: 11px; opacity: .7; }
 /* 层级拖拽（0.18 I3，ui/tree-drag.ts）：放进去 = 整行描边；插入 = 一条带缩进的线 + 父亲那行淡底；拖着的那行变淡 */
 .tree-pane { position: relative; }

@@ -294,6 +294,29 @@ const shearedInstances = (s: Scene): Map<string, string> => {
  * 执行一条指令。斜切护栏（2026-10-26，user「斜切：和gltf对齐……在发生的时候护栏住，然后提示报错」）：执行后出现了**新的**斜切实例 → 抛 ShearRejected
  * （History 回滚整步）。老文件里本来就斜切的不算（不然那份文件之后什么都改不了）。
  */
+/** 网格体那一层的「建组件」只装组件（user 10-30「选择多个组件（没有几何）的时候应该也可以打包成一个新组件」）：选中的几份（这一层的直接孩子）搬进一个新组件，
+ *  新组件的身体 = 空网格体（进去还是自由建模），原点 = 包围盒最小角（和硬表面那条同一个规矩，编辑器之后照样按马后炮换原点）。面做成组件走 separateObject。 */
+function wrapInMesh(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyResult {
+  if (op.faces.length || op.edges.length || op.groups?.length) throw new OpTargetError("mesh pool: makeComponent only wraps components (faces go through separateObject)");
+  const d0 = s.def(op.at.def), slots = meshOf(s, op.at.def).materialSlots;
+  const isel = (op.instances ?? []).map((id) => { const i = d0.instances.get(id); if (!i || i.parent !== op.at.group) throw new OpTargetError(`instance ${id}`); return i; });
+  if (!isel.length) throw new OpTargetError("empty selection");
+  const pts = isel.flatMap((i) => s.pointsOfDef(i.def, i.xform)), origin = pts.length ? bboxMin(pts) : { x: 0, y: 0, z: 0 };
+  const T = translation({ x: -origin.x, y: -origin.y, z: -origin.z });
+  const def = s.mintDef(op.name, new Kernel());
+  def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots] };
+  for (const i of isel) {
+    const ni = s.mintInstance(def.id, null, i.def, compose(T, i.xform));
+    if (i.name !== undefined) ni.name = i.name;
+    if (i.locked) ni.locked = true;
+    if (i.layer !== undefined) ni.layer = i.layer;
+    if (i.hidden) ni.hidden = true;
+    d0.instances.delete(i.id);
+  }
+  s.mintInstance(op.at.def, op.at.group, def.id, translation(origin));
+  return { scene: s, events: [] };
+}
+
 export function applyOp(s: Scene, op0: Op): ApplyResult {
   const op = normalizeLegacy(op0);
   if (!SHEAR_OPS.has(op.op)) return applyOpInner(s, op);
@@ -356,6 +379,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     }
     case "makeGroup":
     case "makeComponent": {
+      if (op.op === "makeComponent" && s.kindOf(op.at.def) === "mesh") return wrapInMesh(s, op);   // 网格体那一层：只装组件（组只住硬表面体里）
       const { kernel, ref } = poolOf(s, op.at);
       const fids = op.faces.map((f) => resolveFace(kernel, f));
       const eids = op.edges.map((e) => resolveEdge(kernel, e));

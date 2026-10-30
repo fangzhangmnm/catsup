@@ -38,7 +38,7 @@ const drag = async (from, to, dx = 0, peek) => {
   return marks;
 };
 const r0 = await rows();
-check(r0.map((r) => r.name).join("/") === "model/桌/椅", `起手：根底下桌、椅：${r0.map((r) => r.name).join("/")}`);
+check(/^[0-9a-f]{4}$/.test(r0[0]?.name ?? "") && r0.slice(1).map((r) => r.name).join("/") === "桌/椅", `起手：根（没起名 = 四位码，v0.18.17）底下桌、椅：${r0.map((r) => r.name).join("/")}`);
 const w0 = await chairWorld();
 // ① 拖到「桌」那一行中间 = 放进去
 const m1 = await drag("椅", "桌");

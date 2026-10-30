@@ -1808,7 +1808,7 @@ export class Editor {
     return true;
   }
   /** 能建组件：网格体 = 选了面；硬表面 = 选了几何或子物件。 */
-  canMakeComponent(): boolean { return this.activeKind() === "mesh" ? this.selection.kind === "mesh" && this.selection.faces.size > 0 : this.hasGeometrySelection() || this.hasPoolSelection(); }
+  canMakeComponent(): boolean { return this.activeKind() === "mesh" ? (this.selection.kind === "mesh" && this.selection.faces.size > 0) || this.hasPoolSelection() : this.hasGeometrySelection() || this.hasPoolSelection(); }
   /** 选中的物件（这一层的实例）。 */
   private instancePicks(): InstId[] { return [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance").map((p) => p.instance); }
   /** 右键点在哪个选中的物件上（点在选区里的物件上才算；别的选着 ≥ 1 个）→ 合并的目标。 */
@@ -1849,11 +1849,11 @@ export class Editor {
   }
   private makeComponentStep(pass: StepPass, name: string): boolean {
     if (!this.hasSelection()) return false;
-    if (this.activeKind() === "mesh") return this.makeMeshComponentStep(pass, name);   // 网格体里：选中的面 → 嵌在这一层里的网格体组件（= 「分开」，原地）
-    if (!this.requireBrep("建组 / 建组件")) return false;
-    const at = this.activePool(), k = this.kernel;
-    const faces = [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f));
-    const edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e));
+    const wrap = this.activeKind() === "mesh" && !(this.selection.kind === "mesh" && this.selection.faces.size > 0); if (this.activeKind() === "mesh" && !wrap) return this.makeMeshComponentStep(pass, name);   // 网格体里：选了面 → 面做成嵌在这一层的组件（= 「分开」）；只选了组件 → 装进新组件（user 10-30「选择多个组件（没有几何）的时候应该也可以打包成一个新组件」）
+    if (!wrap && !this.requireBrep("建组 / 建组件")) return false;
+    const at = this.activePool(), k = wrap ? null : this.kernel;
+    const faces = k ? [...this.selection.faces].filter((f) => k.face(f)).map((f) => faceKey(k, f)) : [];
+    const edges = k ? [...this.selection.edges].filter((e) => k.graph.hasEdge(e)).map((e) => edgeKey(k, e)) : [];
     const nest = this.nestPicks();
     if (!faces.length && !edges.length && !nest.groups.length && !nest.instances.length) return false;
     const go = (mode: string): void => {

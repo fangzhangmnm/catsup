@@ -76,6 +76,13 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     if (n.kind === "copies") { const ms = sameLayer(n); goTo(ms[0].path.slice(0, -1)); editor.selectPools(ms.map((m) => m.path[m.path.length - 1])); deps.after(); return; }
     goTo(n.path.slice(0, -1)); editor.selectPools([n.path[n.path.length - 1]]); deps.after();
   };
+  /** 改名 = 和「…」菜单的「改名…」同一条路（选中它 → 同一张改名单）。合成那一行 = 改组件名：挑一份没有自己名字的（有自己名字的那份改的是它自己）。 */
+  const renameRow = (n: HierNode): void => {
+    if (n.kind === "root") { select(n); hud.pick("renameRoot"); deps.after(); return; }
+    const s0 = editor.sceneRef, own = (m: HierNode): boolean => { const last = m.path[m.path.length - 1]; return last?.kind === "instance" && s0.instance(m.def, last.instance).name !== undefined; };
+    const one = n.kind === "copies" ? (sameLayer(n).find((m) => !own(m)) ?? sameLayer(n)[0]) : n;
+    select(one); hud.pick("rename"); deps.after();
+  };
   /** 拖完松手：换父亲（一步撤销）；挡下来 / 原地不动 = 提示行说为什么。 */
   const dropRow = (i: number, d: TreeDrop): void => {
     const src = shown[i]?.n, tgt = shown[d.parent]?.n;
@@ -118,31 +125,41 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     const scene = editor.sceneRef, tree = hierarchyTree(scene, { mergeCopies: merge }), here = contextPath(scene, editor.context), hereKey = pathKey(here), hereFull = pathKeyFull(here);
     for (let i = 1; i <= here.length; i++) expanded.add(pathKey(here.slice(0, i)));   // 你所在的那一层一路展开
     const selected = new Set(editor.selectedPoolKeys());
-    const rows: { n: HierNode; depth: number; sel: boolean }[] = [];
+    const rows: { n: HierNode; depth: number; sel: boolean; band: boolean }[] = [];
     const isSel = (m: HierNode): boolean => { const last = m.path[m.path.length - 1]; return !!last && pathKeyFull(m.path.slice(0, -1)) === hereFull && selected.has(pickKey(last)); };
-    const walk = (n: HierNode, depth: number): void => {
+    // 手风琴不是层级（user 10-30「同类折叠我说了是手风琴不是小三角，不要误导用户」）：那几份是同一层的兄弟，展开后画在同一深度、用一条竖线圈成一组；小三角只给真的父子
+    const walk = (n: HierNode, depth: number, band = false): void => {
       if (n.kind === "copies" && n.children.some((c) => hereKey === c.key || hereKey.startsWith(c.key + "/"))) expanded.add(n.key);   // 你在其中一份里面 = 这一组展开
-      rows.push({ n, depth, sel: n.kind === "copies" ? !expanded.has(n.key) && n.children.some(isSel) : n.kind === "instance" && isSel(n) });   // 合成那一行收着时，里面有选中的就整行亮
-      if (expanded.has(n.key)) for (const c of n.children) walk(c, depth + 1);
+      const open = expanded.has(n.key);
+      rows.push({ n, depth, band: band || (n.kind === "copies" && open), sel: n.kind === "copies" ? !open && n.children.some(isSel) : n.kind === "instance" && isSel(n) });   // 合成那一行收着时，里面有选中的就整行亮
+      if (open) for (const c of n.children) n.kind === "copies" ? walk(c, depth, true) : walk(c, depth + 1, band);   // 摊开的那几份自己展开的内容也圈在这一组里
     };
     walk(tree, 0);
-    const nextSig = "tree" + JSON.stringify(rows.map((r) => [r.n.key, r.n.label, r.n.body, r.n.count, r.n.hidden, r.n.locked, r.n.children.length, expanded.has(r.n.key), r.sel])) + hereKey;
+    const nextSig = "tree" + JSON.stringify(rows.map((r) => [r.n.key, r.n.label, r.n.body, r.n.count, r.n.hidden, r.n.locked, r.n.children.length, expanded.has(r.n.key), r.sel, r.depth, r.band])) + hereKey;
     shown = rows;
     if (nextSig === sig) return;
     sig = nextSig;
     const body = pane;
     body.replaceChildren();
-    for (const { n, depth, sel } of rows) {
+    for (const { n, depth, sel, band } of rows) {
       const row = document.createElement("div");
       row.className = "tree-row"; row.setAttribute("role", "treeitem"); row.dataset.key = n.key; row.style.paddingLeft = `${ROW_PAD + depth * INDENT}px`;
-      row.classList.toggle("is-here", n.key === hereKey); row.classList.toggle("is-selected", sel); row.classList.toggle("is-hidden", n.hidden);
+      row.classList.toggle("is-here", n.key === hereKey); row.classList.toggle("is-selected", sel); row.classList.toggle("is-hidden", n.hidden); row.classList.toggle("in-band", band);
+      const kids = n.kind !== "copies" && n.children.length > 0;   // 合成行不给小三角：它的「展开」是手风琴（计数那颗钮），不是孩子
       const caret = document.createElement("button"); caret.type = "button"; caret.className = "tree-caret"; caret.setAttribute("aria-label", expanded.has(n.key) ? "收起" : "展开");
-      caret.textContent = n.children.length ? (expanded.has(n.key) ? "▾" : "▸") : ""; caret.disabled = !n.children.length;
+      caret.textContent = kids ? (expanded.has(n.key) ? "▾" : "▸") : ""; caret.disabled = !kids;
       caret.addEventListener("click", (ev) => { ev.stopPropagation(); toggle(n); });
       const kind = document.createElement("span"); kind.className = "tree-kind"; kind.innerHTML = iconHtml(kindIcon(n.body)); kind.title = KIND_LABEL[n.body] ?? n.body;
       const name = document.createElement("span"); name.className = `tree-name${n.unnamed ? " is-unnamed" : ""}`; name.textContent = n.label; name.title = n.unnamed ? `${n.label}（没起名）` : n.label;
       row.append(caret, kind, name);
-      if (n.kind === "copies") { row.classList.add("is-copies"); const c = document.createElement("span"); c.className = "tree-count"; c.textContent = `×${n.count}`; c.title = `同一个组件摆了 ${n.count} 份（标题下拉可以关掉合成）`; row.append(c); }
+      if (n.kind === "copies") {
+        const open = expanded.has(n.key);
+        row.classList.add("is-copies");
+        const c = document.createElement("button"); c.type = "button"; c.className = "tree-count"; c.setAttribute("aria-expanded", String(open));
+        c.textContent = `×${n.count} ${open ? "⌃" : "⌄"}`; c.title = `同一个组件摆了 ${n.count} 份，点一下${open ? "收起" : "在同一层摊开"}（同一层一次只摊开一组；标题下拉可以关掉合成）`;
+        c.addEventListener("click", (ev) => { ev.stopPropagation(); toggle(n); });
+        row.append(c);
+      }
       if (n.locked) { const lk = document.createElement("span"); lk.className = "tree-lock"; lk.innerHTML = iconHtml("lock"); lk.title = "锁着"; row.append(lk); }
       if (n.kind !== "root") {
         const eye = document.createElement("button"); eye.type = "button"; eye.className = "tree-eye"; eye.title = n.hidden ? "显示" : "藏起来"; eye.innerHTML = iconHtml(n.hidden ? "visibility-hide" : "visibility-show");
@@ -153,7 +170,8 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
       more.addEventListener("click", (ev) => { ev.stopPropagation(); openMenu(n, more); });
       row.append(more);
       row.addEventListener("click", () => select(n));
-      row.addEventListener("dblclick", () => { if (n.kind === "copies") { toggle(n); return; } goTo(n.path); deps.after(); });
+      // 双击名字 = 改名，双击别处 = 进去编辑（合成行 = 摊开 / 收起）（user 10-30「hierarchy里面双击名字应该是重命名，双击其他地方可以是编辑」）
+      row.addEventListener("dblclick", (ev) => { if ((ev.target as Element | null)?.closest?.(".tree-name")) { renameRow(n); return; } if (n.kind === "copies") { toggle(n); return; } goTo(n.path); deps.after(); });
       row.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openMenu(n, more); });
       body.append(row);
     }
