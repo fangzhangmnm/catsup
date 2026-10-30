@@ -31,6 +31,7 @@
 - 2026-10-29 · style-papercut-boxes / style-papercut-painted · **只加新场景**：剪纸 · 色纸落地（v0.17.11，Claude Opus 5.5；清单 §5）。前 14 张照旧 0 像素差。
 - 2026-10-29 · style-tron-sel / style-tron-house-thick · **只加新场景**：CRT Tron 落地（v0.17.12，Claude Opus 5.5；清单 §5）。前 16 张照旧 0 像素差。style-tron-house-thick 当天重冻过一次：粗线在小图上断成点的 bug 修了（同一个版本内，没发出去过）。
 - 2026-10-29 · style-bronze-boxes / style-bronze-house · **只加新场景**：铸铜落地（v0.17.13，Claude Opus 5.5；清单 §5）。前 18 张照旧 0 像素差（含遮蔽图集 5×4 → 5×5 之后的剪纸 2 张）。
+- 2026-10-30 · style-pixel-wheels / fixture-meshed / fixture-guided · 软边转成外轮廓（I12，v0.18.8，Claude Opus 5.5）：1 像素那条路的材质换成 `contour-line-material.ts`（片元仍是 three 的 basic，没软边的场景 0 像素差：box-iso / mesh-sel / box-xray / style-pixel-sel / style-onebit-sel / style-pixel-textured 全 0）；这三张里有软边正好在外轮廓上（轮子侧面上下沿、开口盒底边、参考线场景一段竖线），现在画成线 = 画面本来就该变（逐像素对比改动前后渲染核过，变的只在这些线上）。顺带记：style-papercut-boxes（11.3%）/ style-realistic-textured（31.9%）改动前就红着、差值不变，没重冻。
 
 ## 步 2 目录 + 守卫（v0.17.2）
 

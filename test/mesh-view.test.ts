@@ -142,7 +142,10 @@ describe("渲染缓存接网格体（pool-mesh）", () => {
     assert(!r2.full, "改坐标 = 增量"); eq(r2.faces, 3);
     m.setFlags(m.edges()[0], F_SOFT, true);
     const r3 = pm.sync(v, env);
-    assert(!r3.full); eq(pm.lines.count, 11, "软边不画");
+    assert(!r3.full); eq(pm.lines.count, 12, "软边仍在线批里（v0.18.8 起：只在转成外轮廓时画，I12）");
+    const soft = pm.lines.range(m.edges()[0]); assert(!!soft, "软边有记录");
+    const fl = (pm.lines as unknown as { arrays: Record<string, Float32Array> }).arrays.aFlag;
+    assert(fl[soft![0]] >= 10 && fl[soft![0] + 1] >= 10, `软边两个顶点的旗都 ≥ 10（只在外轮廓画）：${fl[soft![0]]}`);
     const m2 = m.clone(); m2.setPos(verts[1], { x: 1.5, y: 0, z: 0 });
     const r4 = pm.sync(meshViewOf(m2), env);
     assert(!r4.full, "克隆的族谱接得上原件：增量"); eq(r4.faces, 3);

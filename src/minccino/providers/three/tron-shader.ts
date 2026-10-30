@@ -10,6 +10,7 @@
 import * as THREE from "three";
 import { LineMaterial } from "../../../vendor/three/addons/lines/LineMaterial.js";
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
+import { contourLineMaterial } from "./contour-line-material.ts";
 import type { TronShade } from "../../preset/index.ts";
 
 const TRON_VS = /* glsl */`
@@ -67,10 +68,10 @@ export class TronMaterials {
   constructor(private readonly depthFace: number, private readonly depthOther: number) {
     this.lineThick = new LineMaterial({ color: 0xffffff, linewidth: 1, vertexColors: false, polygonOffset: true, polygonOffsetFactor: -1, polygonOffsetUnits: -2 });
     this.lineThick.vertexShader = PROFILE_LINE_VERTEX; this.lineThick.uniforms.profileAdd = this.profileAdd;   // 轮廓加粗照 SU 轮廓线那套（按实例判剪影）
-    this.linePixel = new THREE.LineBasicMaterial({ color: 0xffffff });
+    this.linePixel = contourLineMaterial({ color: 0xffffff });   // 软边只在外轮廓时画（I12）
     this.hiddenThick = new LineMaterial({ color: 0xffffff, linewidth: 1, vertexColors: false, transparent: true, opacity: 0.12, depthWrite: false, depthFunc: THREE.GreaterDepth });
     this.hiddenThick.vertexShader = PROFILE_LINE_VERTEX; this.hiddenThick.uniforms.profileAdd = { value: 0 };   // 软边只在外轮廓时画（I12）；隐线不加粗
-    this.hiddenPixel = new THREE.LineBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, depthWrite: false, depthFunc: THREE.GreaterDepth });
+    this.hiddenPixel = contourLineMaterial({ color: 0xffffff, transparent: true, opacity: 0.12, depthWrite: false, depthFunc: THREE.GreaterDepth });
   }
   /** 面材质：side / 深度偏移按槽；single = 贴图网格（只有 aColor）；sel = 选中 / 悬停的那份（认领色）。 */
   face(side: "front" | "back" | "double", active: boolean, single: boolean, sel = false): any {

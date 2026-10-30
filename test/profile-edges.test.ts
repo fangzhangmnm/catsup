@@ -49,17 +49,16 @@ describe("SU 轮廓线判定（F-87）", () => {
     eq(lineKind(1 + CONTOUR_ONLY, true), "hidden", "只挨一张面的软边不画（软边要夹在两张面之间才谈得上转折）");
     eq(lineKind(-1, true), "hidden", "-1 = 由标记那份画");
   });
-  it("收集边：粗线那条路软边进线批、旗带 CONTOUR_ONLY；细线那条路照旧不进；藏起来的边两条路都不进", () => {
+  it("收集边：软边进线批、旗带 CONTOUR_ONLY（粗线 / 1 像素两条路同一份记录）；藏起来的边不进", () => {
     const k = new Kernel();
     const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
     k.addEdges([[P(0, 0, 0), P(1, 0, 0)], [P(1, 0, 0), P(1, 1, 0)], [P(1, 1, 0), P(0, 1, 0)], [P(0, 1, 0), P(0, 0, 0)], [P(0, 0, 0), P(1, 1, 0)]]);
     const diag = k.edges().find((e) => { const a = k.graph.pt(e.a), b = k.graph.pt(e.b); return Math.abs(a.x - a.y) < 1e-9 && Math.abs(b.x - b.y) < 1e-9; })!;
     k.setEdgeLayer("soft", [diag.id], true);
-    eq(buildEdgeRec(k, diag.id), null, "细线：软边不进");
-    eq(buildEdgeRec(k, diag.id, true)?.flag, 2 + CONTOUR_ONLY, "粗线：软边进、旗 = 两张面 + CONTOUR_ONLY");
+    eq(buildEdgeRec(k, diag.id)?.flag, 2 + CONTOUR_ONLY, "软边进、旗 = 两张面 + CONTOUR_ONLY");
     const side = k.edges().find((e) => e.id !== diag.id)!;
-    eq(buildEdgeRec(k, side.id, true)?.flag, 1, "普通边界边旗不变");
+    eq(buildEdgeRec(k, side.id)?.flag, 1, "普通边界边旗不变");
     k.setEdgeLayer("hidden", [side.id], true);
-    assert(k.isEdgeHidden(side.id), "藏上了"); eq(buildEdgeRec(k, side.id, true), null, "藏起来的边粗线也不进");
+    assert(k.isEdgeHidden(side.id), "藏上了"); eq(buildEdgeRec(k, side.id), null, "藏起来的边不进");
   });
 });

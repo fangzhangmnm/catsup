@@ -1,5 +1,5 @@
 // test/probes/probe-contour.mjs —— 软边只在转成外轮廓时画（I12；pool-mesh buildEdgeRec contour + profile-line-shader 旗 ≥ 10）。无头。created 2026-10-30 by Claude Opus 5.5
-// user 10-30「软边没有变成外轮廓」→ 拍「光滑那片沿软边画折线、不画交线、Opus 直接做」。粗线（线宽 > 1）那条路；细线（电脑 1 像素）还没做（账本 I12）。
+// user 10-30「软边没有变成外轮廓」→ 拍「光滑那片沿软边画折线、不画交线、Opus 直接做」。粗线（线宽 > 1，v0.18.7）+ 1 像素原生线（contour-line-material.ts，v0.18.8）两条路都测。
 // 24 段圆柱、侧面全软：中间高度那一行，左右两头是深色的轮廓线、中间没有深色的线；X 光开着软边也不全冒出来。
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
@@ -39,6 +39,14 @@ await page.evaluate(() => globalThis.__catsup.editor.setXray(true));
 const rx = await darkRow(0.42);
 const midX = rx.xs.filter((x) => x > rx.w * 0.45 && x < rx.w * 0.55);
 check(midX.length === 0, `X 光开着：侧面中间也没有冒出软边（${midX.length} 格）`);
+// 1 像素那条路（电脑默认线宽）：同样两头有、中间没有、X 光也干净
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setXray(false); e.setLineWeight(1); });
+const r1 = await darkRow(0.42);
+const l1 = r1.xs.filter((x) => x < r1.w * 0.45), g1 = r1.xs.filter((x) => x > r1.w * 0.55), m1 = r1.xs.filter((x) => x > r1.w * 0.45 && x < r1.w * 0.55);
+check(l1.length > 0 && g1.length > 0 && m1.length === 0, `1 像素线：两头有轮廓（左 ${l1.length} 右 ${g1.length}）、侧面中间没线（${m1.length}）`);
+await page.evaluate(() => globalThis.__catsup.editor.setXray(true));
+const r1x = await darkRow(0.42);
+check(r1x.xs.filter((x) => x > r1x.w * 0.45 && x < r1x.w * 0.55).length === 0, "1 像素线 + X 光：侧面中间也没冒出软边");
 check(errs.length === 0, `页面没报错${errs.length ? "：" + errs.join(" | ") : ""}`);
 await browser.close();
 console.log(fails.length ? `✗ probe-contour：${fails.length} 条没过` : "✓ probe-contour");

@@ -1142,7 +1142,7 @@ viewMenuBtn.type = "button"; viewMenuBtn.dataset.opensWindow = ""; viewMenuBtn.c
 ($("viewGizmo").querySelector(".gizmo-top") as HTMLElement).appendChild(viewMenuBtn);
 // 参考窗钮（user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」）：点一下开 / 关，开着 = 亮（跟着窗口的 open 走，窗口自己的 × 关了也灭）
 const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.dataset.opensWindow = ""; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("image");
-viewMenuBtn.after(refBtn);
+viewMenuBtn.before(refBtn);   // 视图钮左边（user 10-30「参考窗按钮放在视图按钮左边」）
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
 let ladderTimer = 0;

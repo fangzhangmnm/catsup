@@ -37,6 +37,7 @@ import { LineSegments2 } from "../../../vendor/three/addons/lines/LineSegments2.
 import { LineSegmentsGeometry } from "../../../vendor/three/addons/lines/LineSegmentsGeometry.js";
 import { LineMaterial } from "../../../vendor/three/addons/lines/LineMaterial.js";
 import { PROFILE_LINE_VERTEX } from "./profile-line-shader.ts";
+import { contourLineMaterial } from "./contour-line-material.ts";
 import { OverlayLinesDrawer, linToSrgb, setLineGeometry } from "./overlay-lines.ts";
 import { Residency, type ResidentId, residentsOf } from "./residency.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
@@ -360,7 +361,7 @@ export class Renderer3 implements RenderProvider {
     // 单面身体（mesh）：同两份 shader，只画正面
     this.faceMatFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.face });
     this.faceMatOtherFront = new THREE.ShaderMaterial({ vertexShader: FACE_VERT, fragmentShader: FACE_FRAG, uniforms: { uLight: this.faceMat.uniforms.uLight, uUnlit: this.unlitU }, side: THREE.FrontSide, polygonOffset: true, polygonOffsetFactor: 1, polygonOffsetUnits: DEPTH.faceOther });
-    this.pixelMat = new THREE.LineBasicMaterial({ vertexColors: true });
+    this.pixelMat = contourLineMaterial({ vertexColors: true });   // 画池里 1 像素线的材质都用它：软边只在外轮廓时画（I12）
     this.emptyGeo = new THREE.BufferGeometry();
     this.emptyLineGeo = new LineSegmentsGeometry();
     // 边：一份粗线（顶点色）+ SU 轮廓线（per-instance 两侧面法向 + 面数 → 着色器里判剪影 / 边界 / 悬空，加粗 profileAdd）
@@ -371,9 +372,9 @@ export class Renderer3 implements RenderProvider {
     // 淡出的边（刀 c）：同一套轮廓线 shader、整组一色（PALETTE.edgeDim），不要顶点色；线宽每帧跟 edgeMat（syncLineScale）
     this.edgeDimMat = this.lineMat(EDGE_PX, { offset: true, vertexColors: false });
     this.edgeDimMat.vertexShader = PROFILE_LINE_VERTEX; this.edgeDimMat.uniforms.profileAdd = this.profileAdd; this.edgeDimMat.color.setHex(PALETTE.edgeDim);
-    this.pixelDimMat = new THREE.LineBasicMaterial({ color: PALETTE.edgeDim });
+    this.pixelDimMat = contourLineMaterial({ color: PALETTE.edgeDim });
     // X 光（DT17，2026-10-26）：池的边再画一遍（共用几何、不另占内存）+ 覆盖层不做深度测试；半透明渲染那半留 Tron 纪元
-    this.hiddenPixelMat = new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
+    this.hiddenPixelMat = contourLineMaterial({ vertexColors: true, transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
     this.hiddenThickMat = this.lineMat(EDGE_PX, { vertexColors: true });
     Object.assign(this.hiddenThickMat, { transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth });
     this.hiddenThickMat.vertexShader = PROFILE_LINE_VERTEX; this.hiddenThickMat.uniforms.profileAdd = { value: 0 };   // 画池里粗线的材质都得认「软边只在外轮廓时画」那面旗（I12）；隐线不加粗
@@ -1059,7 +1060,7 @@ export class Renderer3 implements RenderProvider {
     const key = `${slot}|${hidden ? 1 : 0}`;
     let m = this.lineMarkMats.get(key);
     if (!m) {
-      m = hidden ? new THREE.LineBasicMaterial({ transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth }) : new THREE.LineBasicMaterial();
+      m = hidden ? contourLineMaterial({ transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth }) : contourLineMaterial();
       this.lineMarkMats.set(key, m);
     }
     // 只在风格那条路用（小图按 sRGB 原值存）：颜色按 sRGB 原值写；每次都按这一帧的画风重写（换画风会重跑标记）
@@ -1278,10 +1279,11 @@ export class Renderer3 implements RenderProvider {
         geo.setAttribute("instanceW1", bufs.w1); geo.setAttribute("instanceW2", bufs.w2); geo.setAttribute("instanceFlag", bufs.flag);
         gl = { id: ch.id, version: ch.version, instanced, bufs, geo, count: ch.count, gen: this.syncGen };
       } else {
-        const attr = (name: string): any => { const x = new THREE.BufferAttribute(A[name].array, 3); x.setUsage(THREE.DynamicDrawUsage); return x; };
-        const bufs: Record<string, any> = { first: attr("position"), color: attr("color") };
+        const attr = (name: string, size = 3): any => { const x = new THREE.BufferAttribute(A[name].array, size); x.setUsage(THREE.DynamicDrawUsage); return x; };
+        const bufs: Record<string, any> = { first: attr("position"), color: attr("color"), aOther: attr("aOther"), aW1: attr("aW1"), aW2: attr("aW2"), aFlag: attr("aFlag", 1) };
         const geo = new THREE.BufferGeometry();
         geo.setAttribute("position", bufs.first); geo.setAttribute("color", bufs.color);
+        for (const k of ["aOther", "aW1", "aW2", "aFlag"]) geo.setAttribute(k, bufs[k]);   // 软边只在外轮廓时画（contour-line-material.ts）
         gl = { id: ch.id, version: ch.version, instanced, bufs, geo, count: ch.count, gen: this.syncGen };
       }
       this.chunkGpus.set(ch.id, gl);
