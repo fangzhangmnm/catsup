@@ -610,7 +610,7 @@ export class Renderer3 implements RenderProvider {
       target: cam.target, forward: cam.forward(),
       right: { x: cam3.matrixWorld.elements[0], y: cam3.matrixWorld.elements[1], z: cam3.matrixWorld.elements[2] },
       up: { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] },
-      lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1,
+      lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1, style: this.framePreset.id,
     };
     const items = input.overlay ? input.overlay(octx) : [];
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"));

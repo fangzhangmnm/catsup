@@ -182,3 +182,4 @@
 - **v0.17.31**（Opus 5.5 做、Fable 5.1 落盘 2026-10-29）像素网格改实色、跟相机走（T123）：颜色 = 背景 × 网格系数原始 sRGB、不混合；只画屏幕上格距 ≥ 8 小图像素的那一圈（横向 格距 ÷ 距离、纵深再 × 眼高 ÷ 距离，不够 × 10 换粗一档）；远处不画 = 地平线不再压成深色带。基线：像素三张（house / textured / 第三张 ±）按 T82 重冻（declared）；账本 T120–T124。
 - **v0.17.32**（Opus 5.5 2026-10-29）导入尊重平滑组（T127）：焊点 + 拼回四边形 + 软硬边看文件法线（`mesh/tri-soup.ts meshFromSplitTriangles`）。不碰渲染，基线不变。
 - **v0.17.33**（Opus 5.5 2026-10-29）自由建模的软边橡皮（T130）：网格体刮边手标平滑 / 棱。不碰渲染。
+- **v0.17.34**（Opus 5.5 2026-10-29）切刀第 1 步 = 画风翻译器（设计稿 §7.1，纯搬家）：新模块 `src/look/aux.ts` = 辅助几何的画风表（语义种类 LineRole / PointRole / MarkerRole / TriRole → GL 量；颜色角色 AuxColor → 颜色值；每个画风可覆盖，现在都是标准表）；编辑器（overlay-lines / overlay / highlight）只交「这是什么 + 颜色角色」，以前的 LOOK / DOT / MARK / TRI 和散落的颜色常数逐字搬进表；OverlayCtx 加 `style`（这一帧的画风 id）；`view-state.ts` 是唯一调翻译器的地方。守卫 `test/aux-look-guard.test.ts`（编辑器里没有 GL 量 / 颜色值、小栗鼠不认识种类名）。基线 25 张 0 像素差。

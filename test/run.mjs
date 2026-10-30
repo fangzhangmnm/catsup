@@ -109,6 +109,7 @@ import "./minccino-guard.test.ts";  // Minccino 引擎边界：three 围栏棘�
 import "./minccino-material.test.ts";  // Minccino 材质模块接口（开放槽表 / 翻译只写一次 / 管线 reads 守卫）+ 预算核对（步 7 / 8，2026-10-29 Fable）
 import "./minccino-preset.test.ts";
 import "./minccino-vocabulary.test.ts";
+import "./aux-look-guard.test.ts";   // 画风翻译器守卫：编辑器里没有 GL 量和颜色值（2026-10-29 Opus，设计稿 §7.1）
 import "./overlay-pass-guard.test.ts";   // 瑞士奶酪：点线面不走叠加层（2026-10-29 Opus）   // 引擎词汇守卫：代码里不出现编辑器的词（刀 g，2026-10-29 Fable）
 import "./budget-notice.test.ts";       // 血槽位披露：连续超才说一次、回到预算内重新计（Tron 清单第 9 步；2026-10-29 Opus）    // Minccino 预设 = 数据（Tron 第 1 步：每个预设的 pass 声明排得出一帧、白模走原来那条；2026-10-29 Opus）
 import "./crypto-state.test.ts";      // 口令状态（周账 F-123，2026-10-29）

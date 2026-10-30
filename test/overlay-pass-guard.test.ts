@@ -4,12 +4,12 @@
 // 运行时那层在探针 test/probes/probe-pixel-no-overlay.mjs（像素风里选东西后 overlayPassIds 不许有这些 id）。
 import { describe, it, assert } from "./runner.mjs";
 import { overlayItems } from "../src/editor/overlay.ts";
-import { LOOK } from "../src/editor/overlay-lines.ts";
+import { translateAux } from "../src/look/aux.ts";
 import type { ViewState } from "../src/editor/view-state.ts";
 import type { OverlayCtx } from "../src/minccino/index.ts";
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });
-const ctx: OverlayCtx = { worldPerPx: () => 0.01, infLine: (p) => [p, p], reachKey: () => "", target: P(0, 0, 0), forward: P(0, 1, 0), right: P(1, 0, 0), up: P(0, 0, 1), lineWeightPx: 1, dpr: 1 };
+const ctx: OverlayCtx = { worldPerPx: () => 0.01, infLine: (p) => [p, p], reachKey: () => "", target: P(0, 0, 0), forward: P(0, 1, 0), right: P(1, 0, 0), up: P(0, 0, 1), lineWeightPx: 1, dpr: 1, style: "white" };
 /** 模型的样子的那几样：这些 id 必须跟内容画。 */
 export const CONTENT_IDS = ["vertDots", "selVerts", "faceDots", "seam", "soft", "edgeSel"] as const;
 
@@ -22,7 +22,7 @@ describe("瑞士奶酪：点线面不走叠加层", () => {
       faceDots: { key: "f", pts: [P(0.5, 0.5, 0)], sel: [true] }, mirror: { key: "m", seam: [P(0, 0, 0)] },
       softEdges: { key: "s", segs: [{ a: P(0, 0, 0), b: P(1, 0, 0) }] },
     } as unknown as ViewState;
-    const items = overlayItems(view, ctx);
+    const items = translateAux(overlayItems(view, ctx), ctx.style);
     for (const id of ["vertDots", "selVerts", "faceDots", "seam", "soft"]) {
       const it = items.find((x) => x.id === id) as { pass?: string } | undefined;
       assert(!!it, `${id} 没出来`);
@@ -32,7 +32,7 @@ describe("瑞士奶酪：点线面不走叠加层", () => {
     assert(!!snap && snap.pass === undefined, "吸附小球该留在叠加层（手里的工具要准）");
   });
   it("线块里没有的高亮边（被刮擦 / 检查标的软边）也跟内容画", () => {
-    assert(LOOK.edge.pass === "content", "LOOK.edge 不是 content");
-    assert(LOOK.soft.pass === "content", "LOOK.soft 不是 content");
+    const [e] = translateAux([{ kind: "lines", role: "markedEdge", id: "edgeSel", key: "k", positions: [0, 0, 0, 1, 0, 0], colors: ["scrub"] }], "white") as { pass?: string }[];
+    assert(e.pass === "content", "markedEdge 不是 content");
   });
 });

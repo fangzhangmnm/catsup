@@ -107,6 +107,8 @@ export interface OverlayCtx {
   /** 边线宽（设备像素）和设备像素比（断口小垂线的半长跟边线宽走）。 */
   readonly lineWeightPx: number;
   readonly dpr: number;
+  /** 这一帧的画风 id（提交方的画风翻译表按它查；XR / 缩略图 = 线稿）。 */
+  readonly style: string;
 }
 
 /** 0xRRGGBB → 线性空间 rgb（= three Color.setHex 在默认色彩管理下的值；公式和 three ColorManagement.SRGBToLinear 逐字一样，结果位级相同）。 */

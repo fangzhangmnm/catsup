@@ -2,6 +2,7 @@
 // Tron 第一刀 6c（v0.17.9，Claude Fable 5.1）：`ViewState` 从 render3 整个搬到编辑器侧——它是**编辑器的类型**（含内核 id / 吸附 / 参考几何 / 坐标架），
 // 引擎不认识它；后端只看到 `FrameInput`（相机 + 视口 + XR 近平面 + 地面网格 + 叠加层回调）。内容走流提供者，不在这里。
 import type { FrameInput, OverlayCtx, OverlayItem } from "../minccino/index.ts";
+import { translateAux } from "../look/aux.ts";
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { Snap3 } from "./pick.ts";
 import type { GuidesWorld } from "../scene/guides.ts";
@@ -96,6 +97,7 @@ export function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, vie
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」）：吸附的 1/5、1/10 只管吸，不画成网格线——所以只递 step
     grid: { frame: view.grid?.frame ?? view.frame ?? WORLD_FRAME, step: view.grid?.step ?? 1 },
     marks: () => highlightMarks(world, view, layout),   // 选中 / 悬停的面 = 换材质槽的段（刀 b）
-    overlay: (ctx: OverlayCtx): OverlayItem[] => [...highlightItems(world, view, layout), ...overlayItems(view, ctx)],
+    // 辅助几何：编辑器只说「这是什么」，画风表翻成小栗鼠的 GL 量（look/aux.ts；设计稿 §7.1）
+    overlay: (ctx: OverlayCtx): OverlayItem[] => translateAux([...highlightItems(world, view, layout), ...overlayItems(view, ctx)], ctx.style),
   };
 }

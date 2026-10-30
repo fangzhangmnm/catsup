@@ -7,12 +7,11 @@
 //     选中的软边 / 折边不画（user 10-25「选中的时候软边显示了粗线」），被刮擦 / 检查标的软边不在线块里 → 退成 `pass: content` 的线（跟内容画，不走叠加层）。
 // 引擎只拿到「段 + 材质槽」和「边段 + 颜色」，不再读 WorldView（守卫 ③′ 清零）。
 // 键 = 世界身份 + 版本 + 选区 / 悬停 / 刮擦 / 检查集；键没变 = 复用上一帧的结果，后端也不重建。
-import type { Mark, OverlayItem, OverlayLines } from "../minccino/index.ts";
-import { PALETTE, hexToLinear } from "../minccino/index.ts";
+import type { Mark } from "../minccino/index.ts";
+import type { AuxColor, AuxLines } from "../look/aux.ts";
 import type { EdgeId, FaceId } from "../kernel/kernel.ts";
 import { ID_STRIDE, slotKey, type WorldView } from "../scene/world-view.ts";
 import { perf } from "./perf-stats.ts";
-import { LOOK } from "./overlay-lines.ts";
 
 export interface HighlightState {
   readonly selectionFaces: ReadonlySet<FaceId>;
@@ -38,7 +37,7 @@ export interface MarkLayout {
 
 const worldIds = new WeakMap<object, number>();
 let nextWorldId = 1;
-const cache = new WeakMap<object, { key: string; items: OverlayItem[] }>();
+const cache = new WeakMap<object, { key: string; items: AuxLines[] }>();
 const markCache = new WeakMap<object, { key: string; marks: Mark[] }>();
 
 export function highlightKey(world: WorldView, v: HighlightState): string {
@@ -48,7 +47,7 @@ export function highlightKey(world: WorldView, v: HighlightState): string {
 }
 
 /** 这一帧的高亮辅助几何（只剩线块里没有的边：被刮擦 / 检查标的软边；`pass: content`）；键没变就是上一帧那份。 */
-export function highlightItems(world: WorldView, v: HighlightState, layout: MarkLayout): OverlayItem[] {
+export function highlightItems(world: WorldView, v: HighlightState, layout: MarkLayout): AuxLines[] {
   const key = highlightKey(world, v);
   const hit = cache.get(world);
   if (hit && hit.key === key) return hit.items;
@@ -111,16 +110,15 @@ function edgeStates(kd: WorldView, view: HighlightState): { id: EdgeId; slot: nu
 }
 
 /** 线块里没有的边（被刮擦 / 检查标的软边）→ 一组 `pass: content` 的线（跟内容画、不走叠加层）。 */
-function buildEdges(kd: WorldView, view: HighlightState, key: string, layout: MarkLayout): OverlayItem[] {
-  const out: OverlayItem[] = [];
-  const pos: number[] = [], col: number[] = [];
+function buildEdges(kd: WorldView, view: HighlightState, key: string, layout: MarkLayout): AuxLines[] {
+  const out: AuxLines[] = [];
+  const pos: number[] = [], col: AuxColor[] = [];
   for (const { id, slot: si, material } of edgeStates(kd, view)) {
     const s = kd.slots.find((x) => x.index === si);
     if (s && layout.edgeRangeOf(slotKey(s), id - si * ID_STRIDE)) continue;   // 在线块里 = 标记管
     const e = kd.graph.edge(id), a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
-    const [cr, cg, cb] = hexToLinear(material === "edgeHot" ? PALETTE.edgeHot : material === "edgeWarn" ? PALETTE.edgeWarn : PALETTE.edgeSelected);
-    pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(cr, cg, cb, cr, cg, cb);
+    pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(material === "edgeHot" ? "scrub" : material === "edgeWarn" ? "warn" : "selected");
   }
-  if (pos.length) out.push({ kind: "lines", id: "edgeSel", ...LOOK.edge, key, positions: pos, colors: col } satisfies OverlayLines);
+  if (pos.length) out.push({ kind: "lines", role: "markedEdge", id: "edgeSel", key, positions: pos, colors: col });
   return out;
 }
