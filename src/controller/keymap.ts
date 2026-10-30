@@ -97,8 +97,8 @@ export const FREEFORM: Layer = {
   ],
 };
 
-/** 操作工具层（自由建模的移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线）：= Blender 帮你自动按了 G，所以 X / Y / Z 永远 = 轴（手势里锁、手势外先锁）。 */
-export const OP_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["move", "rotate", "scale", "pp", "offset", "shrink"]);
+/** 操作工具层（自由建模的移动 / 旋转 / 缩放 / 变换 / 挤出 / 插入 / 沿法线）：= Blender 帮你自动按了 G，所以 X / Y / Z 永远 = 轴（手势里锁、手势外先锁）。 */
+export const OP_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["move", "rotate", "scale", "transform", "pp", "offset", "shrink"]);
 export const TOOL_OPS: Layer = {
   id: "tool:ops",
   bindings: [

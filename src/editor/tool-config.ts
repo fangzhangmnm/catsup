@@ -196,8 +196,8 @@ export const TOOL_OPTIONS = {
    *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；变换中心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」）；
    *  默认「自动」= 只选一个组 / 组件就绕它的轴原点、别的情况包围盒中心（user 2026-10-26「选的是组件的时候应该默认是pivot…选loose geom的时候默认是bb，或者多组件的时候默认是bb」））。 */
   transform: {
-    pivot: { kind: "enum", label: "变换中心", values: [{ id: "auto", label: "自动", hint: "只选了一个组件 = 组件原点；组 / 散几何 / 几个物件 = 包围盒中心" }, { id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均", hint: "全部选中顶点的平均位置（Blender 叫 Median Point）" }, { id: "active", label: "最后选的物件原点", hint: "最后选中的那个组 / 组件的轴原点（Blender 叫 Active Element）；没选组 / 组件 = 包围盒中心" }], def: "auto", scope: "session" },
-    copy: { kind: "bool", label: "复制", def: false, scope: "session" },
+    pivot: { kind: "enum", label: "变换中心", values: [{ id: "auto", label: "自动", hint: "只选了一个组件 = 组件原点；组 / 散几何 / 几个物件 = 包围盒中心" }, { id: "bbox", label: "包围盒中心" }, { id: "mean", label: "顶点平均", hint: "全部选中顶点的平均位置（Blender 叫 Median Point）" }, { id: "active", label: "最后选的物件原点", hint: "最后选中的那个组 / 组件的轴原点（Blender 叫 Active Element）；没选组 / 组件 = 包围盒中心" }], def: "auto", scope: "session", modes: ["geometry", "verify"] },   // 自由建模的变换（tools/mesh-transform.ts）轴心 = 选区的点的平均，不认这两项
+    copy: { kind: "bool", label: "复制", def: false, scope: "session", modes: ["geometry", "verify"] },
   },
   /** 旋转的「复制」开关（同移动；按住 Ctrl 临时复制；user 2026-10-26「移动旋转也是ctrl复制开关吧」）。 */
   rotate: {
@@ -237,14 +237,14 @@ export const TOOL_OPTIONS = {
   },
   /** 操纵手柄（自由建模的移动 / 旋转 / 缩放；user 10-29 夜「mesh模式移动的时候单击新图元或者单击选区的时候应该出现gizmos」「然后rotate scale也一样，单击选区可以弹gizmos，
    *  然后右下小窗也有弹gizmos的功能」；设计稿 ai-docs/20261027-gizmo-design.md）：开着 = 选区上挂这把工具那一家把手（移动 = 箭头 + 平面块、旋转 = 环、缩放 = 方块 + 平面块，
-   *  中心 = 这把工具的默认做法）；点一下选到东西就开、点空处就关；三把工具共用一个值。朝向 = 那几根轴朝哪（设计稿 §2 全家同一套词）。 */
+   *  中心 = 这把工具的默认做法；挤出 = 箭头 + 中心）；点一下选到东西就开、点空处就关；几把工具共用一个值（变换工具的手柄一直挂着，不看它）。朝向 = 那几根轴朝哪（设计稿 §2 全家同一套词）。 */
   handles: {
     show: { kind: "bool", label: "手柄", def: false, scope: "session" },
     orient: { kind: "enum", label: "朝向", values: [
       { id: "object", label: "物件", hint: "这个网格体自己的轴（和 X / Y / Z 锁轴同一套）" },
       { id: "world", label: "世界", hint: "世界的 X / Y / Z" },
       { id: "normal", label: "法向", hint: "选中的面的法向 = Z（边 / 点 = 连着的面的平均）" },
-    ], def: "object", scope: "session", shownWhen: { key: "show", in: ["true"] } },
+    ], def: "object", scope: "session" },   // 露不露归工具（stripGroups：移动 / 旋转 / 缩放 / 挤出 = 手柄开着才露；变换 = 一直露）
   },
   /** 拾取范围（自由建模；user 10-28 晚「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮可以吗？」）：
    *  点 / 边 / 面各一个开关，关掉的那一级点不中、框不到，下一级顶上（Blender 的 1 / 2 / 3 选择模式，这里是三个独立开关）。全关 = 当全开。

@@ -73,7 +73,7 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,softErase,offset,shrink,create,brushGrab,brushDraw,brushSmooth,brushFlatten"   // v0.16.49 起四把笔刷也在自由建模工作台里；软边橡皮（旧红，2026-10-30 跟上）
+const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,softErase,offset,shrink,create,transform,brushGrab,brushDraw,brushSmooth,brushFlatten"   // v0.16.49 起四把笔刷也在自由建模工作台里；软边橡皮（旧红，2026-10-30 跟上）；v0.17.59 变换
   && res.move.moved === res.move.top && res.move.steps === 1 && res.moveUndo
   && res.moveZ.xyKept && res.moveZ.zUp
   && res.rotate.zKept && res.rotate.distKept && res.rotate.changed

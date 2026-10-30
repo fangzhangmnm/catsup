@@ -50,7 +50,7 @@ export declare function chordOf(e: KeyEvt): Chord;
 export declare const GLOBAL: Layer;
 /** 自由建模工作台层（Blender 键位；user 10-27「能不能blender 快捷键无缝接上」）。 */
 export declare const FREEFORM: Layer;
-/** 操作工具层（自由建模的移动 / 旋转 / 缩放 / 挤出 / 插入 / 沿法线）：= Blender 帮你自动按了 G，所以 X / Y / Z 永远 = 轴（手势里锁、手势外先锁）。 */
+/** 操作工具层（自由建模的移动 / 旋转 / 缩放 / 变换 / 挤出 / 插入 / 沿法线）：= Blender 帮你自动按了 G，所以 X / Y / Z 永远 = 轴（手势里锁、手势外先锁）。 */
 export declare const OP_TOOLS: ReadonlySet<Tool>;
 export declare const TOOL_OPS: Layer;
 /** 手势中（自由建模）：X / Y / Z 锁轴、Shift = 锁面（Blender 同款）。 */

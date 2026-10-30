@@ -44,7 +44,7 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
     for (const a of leading) root.appendChild(actionBtn(a));
     for (const e of entries) root.appendChild(control(group, e));
     // 工具自己声明的别的选项组（沿边滑 / 软选择开关 / 操纵手柄……；ToolHandler.stripGroups）：哪把工具露哪几组归工具，这里不按工作台分叉（T102 棘轮）
-    for (const g of editor.toolHandler(tool)?.stripGroups?.() ?? []) for (const e of config.entries(g.group)) if (!g.keys || g.keys.includes(e.key)) root.appendChild(control(g.group, e));
+    for (const g of editor.toolHandler(tool)?.stripGroups?.(config) ?? []) for (const e of config.entries(g.group)) if (!g.keys || g.keys.includes(e.key)) root.appendChild(control(g.group, e));
     // 拾取范围（自由建模，按「点 > 边 > 面」抓东西的工具；tool-config.ts pick；user 10-28 晚「放在马前炮」）：挂在工具自己的选项后面
     if (editor.modeId === "freeform" && stanceOf("freeform", tool)?.grab === "element") root.appendChild(pickToggles());
     for (const a of actions) root.appendChild(actionBtn(a));

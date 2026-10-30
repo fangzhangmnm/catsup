@@ -8,7 +8,7 @@
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
 import { ERASERS, BRUSHES } from "../editor/tool-ids.ts";
 import { planeLockLabel } from "../editor/locks.ts";
-import { snapSwitchName } from "../editor/grid-state.ts";
+import { snapSwitchLook, snapSwitchSay } from "../editor/grid-state.ts";
 import { PICK_KINDS, pickAfter, pickSay, type PickKind, type PickSet } from "../controller/pick-kinds.ts";
 import { type Ladder, loadLadder, remindersFor } from "../editor/scale-ref.ts";
 import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
@@ -798,7 +798,7 @@ function toolActions(tool: string): { id: string; label: string; title?: string;
     if (tool === "tape" || tool === "protractor" || tool === "compass") return [{ id: "guidesClear", label: "删除所有参考几何", disabled: !editor.hasGuides(), onClick: () => { menuPick("guidesClear"); } }];
     if (tool === "transform") {   // 临时变换中心（user 2026-10-26「变换的时候右下角有一个pick pivot选项，然后你可以pick, 用对齐引擎，以及可能的grid」）
       const H = editor.toolHandler("transform") as { picking?: boolean; hasTempPivot?: boolean; startPickPivot?(): void; clearPivot?(): void } | undefined;
-      if (!H || !editor.hasSelection()) return [];
+      if (!H?.startPickPivot || !editor.hasSelection()) return [];   // 只有硬表面的变换工具会拾临时变换中心（自由建模的变换没有这一项）
       return [
         { id: "pickPivot", label: H.picking ? "点一下定变换中心…" : H.hasTempPivot ? "重选变换中心" : "选变换中心", active: !!H.picking, title: "拾一个临时变换中心（吸附照常、网格开着也吸格点）；转 / 缩都绕它，换选区就作废", onClick: () => { H.startPickPivot?.(); syncUi(); editor.draw(); } },
         ...(H.hasTempPivot ? [{ id: "clearPivot", label: "清除临时变换中心", onClick: () => { H.clearPivot?.(); syncUi(); editor.draw(); } }] : []),
@@ -1278,6 +1278,8 @@ function renderSnapWidget(): void {
   const btn = snapBtnRef;
   if (!btn) return;
   btn.classList.toggle("on", editor.grid.on);
+  const look = snapSwitchLook(editor.modeId);   // 硬表面 = 格点钮、自由建模 = 磁铁（grid-state.ts；两边管的不是一回事）
+  if (btn.dataset.icon !== look.icon) { btn.dataset.icon = look.icon; btn.firstElementChild?.insertAdjacentHTML("beforebegin", iconHtml(look.icon)); btn.children[1]?.remove(); btn.title = look.title; }
   const lk = btn.querySelector(".gizmo-snaplock") as HTMLElement, want = editor.grid.on ? "lock" : "unlock";
   if (lk.dataset.icon !== want) { lk.dataset.icon = want; lk.innerHTML = iconHtml(want); }
   const badge = btn.querySelector(".gizmo-badge") as HTMLElement;
@@ -1396,7 +1398,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     }
     case "grid.toggle":   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
       editor.setGrid({ on: !editor.grid.on });
-      hintEl.textContent = `${snapSwitchName(editor.modeId)}：` + (editor.grid.on ? "开（格点 · 整格长度 · 15°；按住 Shift 临时关）" : "关（按住 Shift 临时开）");
+      hintEl.textContent = snapSwitchSay(editor.modeId, editor.grid.on);
       syncUi(); return;
     case "modal": {   // Blender 的 G / R / S / E / I / Alt+S / Ctrl+B：有选区就从光标处起手；没选区 = 切到那把工具（倒角 / 沿法线 = 提示）
       const t = p1 as Tool;

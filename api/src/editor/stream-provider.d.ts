@@ -22,7 +22,9 @@ export declare class EditorStreamProvider implements StreamProvider {
     /** 粗线（LineSegments2 实例）还是像素线：引擎的视图设定（线稿粗细 > 1 也会切成粗线），每次 pull 问一下；换了 = 池网格全量重建（线的块形状不同）。 */
     constructor(thick: () => boolean);
     /** 这一帧画哪个世界（活的那份，含预演影子）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。淡出是标记（视图侧），不在这里。 */
-    setWorld(world: WorldView, revision?: number): void;
+    /** editing = 有「正在编辑的那一层」（演示锁里没有：活动槽也按普通槽放，结构线跟画风走；ai-docs/20261029-edge-display-scenarios.md 场景 6）。 */
+    setWorld(world: WorldView, revision?: number, editing?: boolean): void;
+    private editing;
     private worldId;
     /** 内容键（引擎契约）：世界身份 + 版本；没变 = 引擎不重新拉（= 以前 render3 的 poolKey 那半）。 */
     contentKey(): string;

@@ -2,6 +2,7 @@ import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ViewState } from "../view-state.ts";
 export declare class MeshPullTool implements ToolHandler {
     readonly tool: "pp";
     readonly grammar: "steps";
@@ -23,7 +24,24 @@ export declare class MeshPullTool implements ToolHandler {
     private cur;
     /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
     private box;
+    private readonly handles;
+    /** 这一下按在哪个把手上（null = 没按在把手上）。 */
+    private grip;
+    /** 被挤的源点（吸附不吸它们）；抓住的那个点（离按下处最近的源点，世界）——吸附时是它落到目标上。 */
+    private src;
+    private handleW;
+    private snapT;
+    /** 点一下 = 选（同选择工具），只有拖才挤出（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上没拖 = 不动。 */
     tap(ctx: ToolCtx, ev: ToolPointer): void;
+    hover(ctx: ToolCtx, s: {
+        x: number;
+        y: number;
+    }): void;
+    stripGroups(cfg: ToolCtx["config"]): readonly {
+        group: string;
+        keys?: readonly string[];
+    }[];
+    viewExtras(ctx: ToolCtx): Partial<ViewState>;
     active(): boolean;
     startModal(ctx: ToolCtx, s: {
         x: number;

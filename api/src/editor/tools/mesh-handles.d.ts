@@ -3,12 +3,17 @@ import { type XformGizmo, type XformHandle } from "../transform-gizmo.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
-export type HandleFamily = "move" | "rotate" | "scale";
-/** 按下抓到的把手：axis = 只沿 / 绕这根（世界、单位长）；plane = 只在这个面里（它的法向）；两个都没有 = 中心。say = 提示行里怎么说。 */
+/** 哪一家：移动 / 旋转 / 缩放 / 挤出（箭头 + 中心）/ 变换（三家一起，一直挂着）。 */
+export type HandleFamily = "move" | "rotate" | "scale" | "pull" | "transform";
+/**
+ * 按下抓到的把手：axis = 只沿 / 绕这根（世界、单位长）；plane = 只在这个面里（它的法向）；两个都没有 = 中心（或变换的等比块）。
+ * op = 这一下做哪种（变换工具按把手定：箭头 / 中心 = 挪、环 = 转、方块 / 平面块 / 等比块 = 缩，和硬表面的变换工具同一套意思；别的家 = 自己那种，挤出没有）。say = 提示行里怎么说。
+ */
 export interface Grip {
     readonly id: XformHandle | "mc";
     readonly axis: Pt3 | null;
     readonly plane: Pt3 | null;
+    readonly op?: "move" | "rotate" | "scale";
     readonly say: string;
 }
 /** 手柄画哪几样（ViewState.xformGizmo.parts）。 */
@@ -18,7 +23,7 @@ export declare class MeshHandles {
     private hot;
     readonly family: HandleFamily;
     constructor(family: HandleFamily);
-    /** 这一刻的手柄：开着 ∧ 有选区才有。原点 = 选区的点的平均（世界）；轴 = 朝向（物件 / 世界 / 法向）。 */
+    /** 这一刻的手柄：开着（变换 = 一直开着）∧ 有选区才有。原点 = 选区的点的平均（世界）；轴 = 朝向（物件 / 世界 / 法向）。 */
     gizmo(ctx: ToolCtx): XformGizmo | null;
     /** 三根轴（世界、单位长、右手系）。物件 = 上下文坐标架（和 X / Y / Z 锁轴同一套）；法向 = 选中的面的法向当 Z（边 / 点 = 连着的面的平均），X 取物件 X 去掉法向那一份。 */
     private axes;

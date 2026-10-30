@@ -3,7 +3,10 @@
 // 设计稿 §2-2 + 纪元账本 FM14 / FM15 / FM25：和硬表面推拉同一个工具 id、同一套「点几下」语法；差在**总是长新几何**（= SU 推拉的 Ctrl 档）、不推断。
 //   · 面：沿法向（选了几张面 = 区域一起挤、内部边不长，方向 = 法向平均），拖多少走多少（沿法向在屏幕上的投影量）；正对着面时法向投影没长度 → 按屏幕竖直方向（往上 = 往外）。
 //   · 边 / 点：**屏幕空间自由拖**（2026-10-28 晚 user「如果没有面的话，是边或者点，那么E是screen space，这个是blender的手感」；之前 10-27「默认垂直」被这句取代）；
-//     Shift = 沿各自的垂直方向（每个新点沿它源点的方向走：边界边 = 它那张面的法向、内部边 = 两侧平均、孤立的 = +Z；mesh/ops/extrude.ts extrudeNormalDirs）。
+//     沿各自的垂直方向 = 拖手柄的中心（每个新点沿它源点的方向走：边界边 = 它那张面的法向、内部边 = 两侧平均、孤立的 = +Z；mesh/ops/extrude.ts extrudeNormalDirs）。
+//   · 操纵手柄（2026-10-30，tools/mesh-handles.ts「pull」家 = 三根箭头 + 中心）：点一下选到东西就弹；拖箭头 = 沿那根轴挤；拖中心 = 换一种拖法
+//     （面 = 屏幕平面随手拖、边 / 点 = 沿各自的垂直方向——以前按住 Shift 的那种，gizmo 设计稿 §3「挤出的 Shift = 自由拖 → 改成手柄中心」）。
+//   · Shift = 吸附反过来（和移动同一套：点 > 边 > 面，tools/mesh-snap.ts；底 = ctx.snapBase()）：抓住的那个点落到目标上，再按这一下的方向约束投影。
 //   · 右键 = 原地留下（user 10-28 晚「E之后右键是创作了面但是在原来的位置上可以切g」）：挤出 0、新长出来的成为选区，接着 G 挪；Esc = 什么都不留。
 //   · 锁轴（方向键）对三种都管：沿那根轴拉。做完新长出来的东西就是选区（FM14「做完的东西留在选区里，接着挪」）：面 = 顶上那几张、边 = 新的那排边、点 = 新点。
 //   · 提交 = 一条 meshExtrude（挤出 + 平移一起；重放确定：同一份内核 → 同一批新 id）。
@@ -15,8 +18,12 @@ import { rayPlane } from "../camera.ts";
 import { applyDir, applyNormal, applyPt, invert } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
-import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target as SelTarget } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target as SelTarget } from "./selecting.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { SnapKind } from "../solver.ts";
+import type { ViewState } from "../view-state.ts";
+import { type Grip, MeshHandles } from "./mesh-handles.ts";
+import { meshSnapTarget } from "./mesh-snap.ts";
 
 type Target = { faces: number[]; edges: number[]; verts: number[] };
 
@@ -40,7 +47,26 @@ export class MeshPullTool implements ToolHandler {
 
   /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
   private box = new BoxDrag();
-  tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（同选择工具），只有拖才挤出（user 10-27）
+  private readonly handles = new MeshHandles("pull");
+  /** 这一下按在哪个把手上（null = 没按在把手上）。 */
+  private grip: Grip | null = null;
+  /** 被挤的源点（吸附不吸它们）；抓住的那个点（离按下处最近的源点，世界）——吸附时是它落到目标上。 */
+  private src = new Set<number>();
+  private handleW: Pt3 | null = null;
+  private snapT: { p: Pt3; kind: SnapKind } | null = null;
+  /** 点一下 = 选（同选择工具），只有拖才挤出（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上没拖 = 不动。 */
+  tap(ctx: ToolCtx, ev: ToolPointer): void {
+    if (this.handles.grip(ctx, ev)) { ctx.hint("手柄：按住把手拖才动；点空处收起"); return; }
+    clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: true });
+    ctx.hint(this.handles.afterTap(ctx, ev) ? "手柄：拖箭头 = 沿那根轴挤、拖中心 = 换一种拖法（面 = 随手拖、边 / 点 = 沿各自的垂直方向）；点空处收起" : null);
+  }
+  hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.handles.hover(ctx, s); }
+  stripGroups(cfg: ToolCtx["config"]): readonly { group: string; keys?: readonly string[] }[] { return [{ group: "handles", keys: cfg.get("handles", "show") ? ["show", "orient"] : ["show"] }]; }
+  viewExtras(ctx: ToolCtx): Partial<ViewState> {
+    const mv = this.t ? this.motion(ctx) : null, o = this.pivotW;
+    const origin = mv && o ? (mv.along !== undefined ? (this.nW ? add3(o, scale3(this.nW, mv.along)) : o) : add3(o, mv.off)) : null;   // 拖着的时候手柄跟着挤出去的那头走
+    return this.handles.view(ctx, this.t ? { origin, id: this.grip?.id ?? null } : null);
+  }
   active(): boolean { return this.t !== null || this.box.active(); }
   startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
     const sel = ctx.selection();
@@ -49,7 +75,7 @@ export class MeshPullTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.box.cancel(); this.t = null; this.adopt = null; this.pivotW = this.nW = this.grabW = null; this.start = this.cur = null; }
+  cancel(): void { this.box.cancel(); this.t = null; this.adopt = null; this.pivotW = this.nW = this.grabW = null; this.start = this.cur = null; this.grip = null; this.src = new Set(); this.handleW = null; this.snapT = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshPull: { t: this.t, start: this.start, cur: this.cur } }; }
@@ -59,7 +85,8 @@ export class MeshPullTool implements ToolHandler {
     if (this.active()) { this.commit(ctx); return; }
     const m = ctx.mesh();
     // 按下作用在什么上 = selecting.ts（没选区只认面：点和边不挡路，小面也按得到；挤边 / 点 = 先选中它们。纪元账本 FM165）；挤什么 = 这里：面 > 边 > 点
-    const p = pressTarget(ctx, ev, this.tool);
+    const grip = ev.start !== "keyboard" ? this.handles.grip(ctx, ev) : null;   // 按在把手上 = 对选区做（把手下面压着别的东西也不换目标）
+    const p = (grip ? selectionTarget(ctx) : null) ?? pressTarget(ctx, ev, this.tool);
     if (p === "box") { this.hadSel = false; this.box.begin(ev, ctx); ctx.hint("框选（挤出工具里：没选东西时在空处拖 = 框；挤边 / 点 = 框住它们再拖）"); return; }   // user 10-28「其他的同理」
     this.hadSel = p.fromSelection; this.adopt = p.adopt ?? null;
     const t: Target = p.faces.length ? { faces: p.faces, edges: [], verts: [] } : p.edges.length ? { faces: [], edges: p.edges, verts: [] } : { faces: [], edges: [], verts: p.verts };
@@ -70,8 +97,9 @@ export class MeshPullTool implements ToolHandler {
     for (const v of t.verts) vs.add(v);
     let c0 = { x: 0, y: 0, z: 0 };
     for (const v of vs) c0 = add3(c0, m.pt(v));
-    this.t = t;
+    this.t = t; this.grip = grip; this.src = vs; this.snapT = null;
     this.pivotW = applyPt(X, scale3(c0, 1 / vs.size));
+    { const vp = ctx.vp(); let best = Infinity; this.handleW = null; for (const v of vs) { const w = applyPt(X, m.pt(v)), q = ctx.frame().project?.(w, vp); const d = q ? Math.hypot(q.x - ev.x, q.y - ev.y) : Infinity; if (d < best) { best = d; this.handleW = w; } } }
     if (t.faces.length) { let n = { x: 0, y: 0, z: 0 }; for (const f of t.faces) n = add3(n, m.faceNormal(f)); this.nW = len3(n) > 1e-12 ? normalize3(applyNormal(X, normalize3(n))) : null; this.alongScale = 1; }
     else {
       let n = { x: 0, y: 0, z: 0 }; for (const d of extrudeNormalDirs(m, t).values()) n = add3(n, d);
@@ -81,7 +109,8 @@ export class MeshPullTool implements ToolHandler {
     this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y };
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
-    ctx.hint(`挤出 ${this.what()}：${t.faces.length ? "沿法向拖（按住 Shift = 屏幕平面自由拖）" : "屏幕平面自由拖（按住 Shift = 沿各自的垂直方向）"}，松手或点第二下落定；右键 = 原地留下接着 G；方向键锁轴`);
+    const how = grip ? (grip.id === "mc" ? (t.faces.length ? "手柄中心：屏幕平面随手拖" : "手柄中心：沿各自的垂直方向") : `手柄：${grip.say}`) : t.faces.length ? "沿法向拖" : "屏幕平面随手拖";
+    ctx.hint(`挤出 ${this.what()}：${how}，松手或点第二下落定；右键 = 原地留下接着 G；方向键锁轴；${ctx.snapBase() ? "吸附：点 > 边 > 面，Shift = 反过来" : "按住 Shift = 吸附（点 > 边 > 面）"}`);
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
@@ -89,6 +118,8 @@ export class MeshPullTool implements ToolHandler {
     this.cur = { x: s.x, y: s.y };
     const p = this.onPlane(ctx, s.x, s.y);
     if (p) ctx.setCursor(p);
+    this.snapT = ctx.snapBase() !== ctx.mods().shift ? meshSnapTarget(ctx, s, this.src) : null;   // 吸 = 底 XOR Shift（和移动同一套）
+    ctx.setSnap(this.snapT ? { p: this.snapT.p, kind: this.snapT.kind } : null);
   }
 
   liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
@@ -105,7 +136,9 @@ export class MeshPullTool implements ToolHandler {
   private motion(ctx: ToolCtx): { off: Pt3; along?: undefined } | { along: number; off?: undefined } | null {
     const pivot = this.pivotW, grab = this.grabW, s0 = this.start, s1 = this.cur, t = this.t;
     if (!pivot || !grab || !s0 || !s1 || !t) return null;
-    const ax = ctx.axisLockDir(), pn = ctx.planeLockNormal(), now = this.onPlane(ctx, s1.x, s1.y) ?? grab, d = sub3(now, grab), typed = ctx.typed();
+    // 锁：键盘锁轴 / 锁面 > 这一下按着的手柄箭头 > 不锁；吸附 = 抓住的点落到目标上（再按方向约束投影）
+    const kAx = ctx.axisLockDir(), kPn = ctx.planeLockNormal(), keyed = !!(kAx || kPn), ax = keyed ? kAx : this.grip?.axis ?? null, pn = keyed ? kPn : this.grip?.plane ?? null;
+    const now = this.onPlane(ctx, s1.x, s1.y) ?? grab, d = this.snapT && this.handleW ? sub3(this.snapT.p, this.handleW) : sub3(now, grab), typed = ctx.typed();
     if (typed !== null) {   // 打了数：锁着轴 = 沿轴这么长；面 = 沿法向；边 / 点 = 沿各自垂直方向
       if (ax) return { off: scale3(ax, typed) };
       if (t.faces.length) return { off: scale3(this.nW ?? { x: 0, y: 0, z: 1 }, typed) };
@@ -113,10 +146,10 @@ export class MeshPullTool implements ToolHandler {
     }
     if (ax) return { off: scale3(ax, dot3(d, ax)) };
     if (pn) return { off: sub3(d, scale3(pn, dot3(d, pn))) };
-    // 面：默认沿法向，Shift = 屏幕平面自由拖；边 / 点：默认屏幕平面自由拖（Blender 手感，user 10-28 晚），Shift = 沿各自的垂直方向。Shift 永远 = 把默认反过来。
-    const free = t.faces.length ? ctx.mods().shift : !ctx.mods().shift;
+    // 面：默认沿法向，拖手柄中心 = 屏幕平面随手拖；边 / 点：默认屏幕平面随手拖（Blender 手感，user 10-28 晚），拖手柄中心 = 沿各自的垂直方向。
+    const flip = this.grip?.id === "mc", free = t.faces.length ? flip : !flip;
     if (free) return { off: d };
-    const amt = this.amountAlong(ctx, s0, s1);
+    const amt = this.snapT && this.nW ? dot3(d, this.nW) : this.amountAlong(ctx, s0, s1);   // 吸到了 = 沿方向走到目标那么高
     if (t.faces.length) return this.nW ? { off: scale3(this.nW, amt) } : { off: { x: 0, y: 0, z: 0 } };
     return { along: amt };
   }
@@ -135,7 +168,7 @@ export class MeshPullTool implements ToolHandler {
   commitInPlace(ctx: ToolCtx): void {
     const t = this.t, what = this.what(), adopt = this.adopt;
     this.cancel();
-    ctx.setAnchor(null); ctx.setCursor(null);
+    ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (!t) return;
     const def = ctx.activePool().def, sel = t.faces.length ? { faces: t.faces } : t.edges.length ? { edges: t.edges } : { verts: t.verts };
     const probe = ctx.mesh().clone(), r = extrudeAndOffset(probe, t, { x: 0, y: 0, z: 0 });
@@ -150,7 +183,7 @@ export class MeshPullTool implements ToolHandler {
   private commit(ctx: ToolCtx): void {
     const t = this.t, mv = this.motion(ctx), what = this.what(), scaleL = this.alongScale, hadSel = this.hadSel, adopt = this.adopt;
     this.cancel();
-    ctx.setAnchor(null); ctx.setCursor(null);
+    ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (!t || !mv) return;
     const amount = mv.along !== undefined ? Math.abs(mv.along) : len3(mv.off);
     if (amount < 1e-6) { ctx.hint("挤出：没动（挤出 0 会长出叠在一起的面，不做）"); return; }

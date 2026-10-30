@@ -18,13 +18,15 @@ import { applyDir, applyPt, invert } from "../../scene/xform.ts";
 import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
 import { fmtLen } from "../units.ts";
 import { softDistances, softWeights } from "../../mesh/soft-select.ts";
+import { meshSnapTarget } from "./mesh-snap.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target } from "./selecting.ts";
 import { type Grip, MeshHandles } from "./mesh-handles.ts";
 import type { ViewState } from "../view-state.ts";
 
-export type MeshXformKind = "move" | "rotate" | "scale" | "normal";   // normal = 沿法线移动（Blender Shrink / Fatten；工具 id shrink）
+export type MeshXformKind = "move" | "rotate" | "scale" | "normal" | "transform";   // normal = 沿法线移动（Blender Shrink / Fatten；工具 id shrink）；transform = 变换（三家把手一起，这一下做哪种看抓的哪个把手）
+type XformOp = Exclude<MeshXformKind, "transform">;
 /** 起点离轴心太近时缩放的参考半径（CSS px；Blender 要人先把鼠标挪开，触屏上点中的常常就是轴心）。 */
 const SCALE_REF_PX = 40;
 /** Shift 档：转 15°、缩 0.1。 */
@@ -34,8 +36,10 @@ const ROT_STEP = Math.PI / 12, SCALE_STEP = 0.1;
 export class MeshTransformTool implements ToolHandler {
   readonly grammar = "steps" as const;
   readonly lock = "axis" as const;
-  readonly tool: "move" | "rotate" | "scale" | "shrink";
+  readonly tool: "move" | "rotate" | "scale" | "shrink" | "transform";
   private readonly kind: MeshXformKind;
+  /** 这一下做的是哪种（变换工具按抓的把手定：箭头 / 中心 = 挪、环 = 转、方块 / 平面块 = 缩；别的工具 = 自己那种）。 */
+  private op: XformOp;
   /** 沿法线：每个点自己的方向（本地，单位长；点 = 连着的面的法向平均）。 */
   private dirs = new Map<number, Pt3>();
   private vids: number[] = [];
@@ -70,9 +74,10 @@ export class MeshTransformTool implements ToolHandler {
   /** 预演里被挪的点现在的平均（世界）：拖着的时候手柄跟着走。 */
   private liveOrigin: Pt3 | null = null;
   constructor(kind: MeshXformKind) {
-    this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; this.typedQuantity = { q: kind === "rotate" ? "angle" : kind === "scale" ? "factor" : "length" };
+    this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; this.op = kind === "transform" ? "move" : kind; this.typedQuantity = { q: MeshTransformTool.quantity(this.op) };
     this.handles = kind === "normal" ? null : new MeshHandles(kind);
   }
+  private static quantity(op: XformOp): "length" | "angle" | "factor" { return op === "rotate" ? "angle" : op === "scale" ? "factor" : "length"; }
   /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
   private box = new BoxDrag();
   /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
@@ -84,12 +89,14 @@ export class MeshTransformTool implements ToolHandler {
   private handleHint(): string {
     return this.kind === "move" ? "手柄：拖箭头 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 随手拖；点空处收起"
       : this.kind === "rotate" ? "手柄：拖哪个环 = 绕哪根轴转、拖中心 = 绕视线转；点空处收起"
-        : "手柄：拖轴上的方块 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 等比；点空处收起";
+        : this.kind === "scale" ? "手柄：拖轴上的方块 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 等比；点空处收起"
+          : "变换：箭头 = 沿轴挪、环 = 绕轴转、方块 = 沿轴缩、小方片 = 面内缩、右上小方块 = 等比、中心 = 随手挪";
   }
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.handles?.hover(ctx, s); }   // 只高亮手柄的把手（自由建模不悬浮高亮几何，user 10-27）
-  /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关四把都有；手柄开关 + 朝向给移动 / 旋转 / 缩放。 */
-  stripGroups(): readonly { group: string; keys?: readonly string[] }[] {
-    return [...(this.kind === "move" ? [{ group: "slide" }] : []), { group: "soft", keys: ["on"] }, ...(this.handles ? [{ group: "handles" }] : [])];
+  /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关都有；手柄开关给移动 / 旋转 / 缩放、朝向手柄开着才露；变换的手柄一直在 = 只露朝向。 */
+  stripGroups(cfg: ToolCtx["config"]): readonly { group: string; keys?: readonly string[] }[] {
+    const hk = this.kind === "transform" ? ["orient"] : cfg.get("handles", "show") ? ["show", "orient"] : ["show"];
+    return [...(this.kind === "move" ? [{ group: "slide" }] : []), { group: "soft", keys: ["on"] }, ...(this.handles ? [{ group: "handles", keys: hk }] : [])];
   }
   viewExtras(ctx: ToolCtx): Partial<ViewState> { return this.handles?.view(ctx, this.vids.length ? { origin: this.liveOrigin, id: this.grip?.id ?? null } : null) ?? {}; }
 
@@ -111,13 +118,14 @@ export class MeshTransformTool implements ToolHandler {
     if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
     const grip = this.handles && ev.start !== "keyboard" ? this.handles.grip(ctx, ev) : null;   // 按在把手上 = 对选区做、这一下锁那根轴 / 那个面（手柄下面压着别的东西也不换目标）
+    if (this.kind === "transform") { this.op = grip?.op ?? "move"; this.typedQuantity.q = MeshTransformTool.quantity(this.op); }   // 变换：抓哪个把手做哪种；没抓把手 = 挪
     const m = ctx.mesh(), sel = ctx.selection(), t = (grip ? selectionTarget(ctx) : null) ?? pressTarget(ctx, ev, this.tool);   // 选区 > 按下处的点 / 边 / 面 > 空处拖框（selecting.ts）
     if (t === "box") { this.box.begin(ev, ctx); ctx.hint(`框选（${this.verb()}工具里：没选东西时在空处拖 = 框）`); return; }   // user 10-28「move的时候在没选择的时候能不能拖框」
     const vids = selectionVerts(m, t);
     if (!vids.length) { ctx.hint(`${this.verb()}：选区里没有能${this.verb()}的点`); return; }
     const X = ctx.ctxXform();
     this.vids = vids; this.adopt = t.adopt ?? null; this.base.clear(); this.dirs = new Map(); this.grip = grip; this.liveOrigin = null;
-    if (this.kind === "normal") {   // 选了面 = 每个点只看选中的面（选一张顶面 = 直直往上，Blender Shrink / Fatten 同）；只选了边 / 点 = 看连着的全部面（一圈环 = 各自往外胖）
+    if (this.op === "normal") {   // 选了面 = 每个点只看选中的面（选一张顶面 = 直直往上，Blender Shrink / Fatten 同）；只选了边 / 点 = 看连着的全部面（一圈环 = 各自往外胖）
       const selF = sel.kind === "mesh" ? [...sel.faces].filter((f) => m.hasF(f)) : [];
       if (selF.length) {
         const acc = new Map<number, Pt3>();
@@ -130,7 +138,7 @@ export class MeshTransformTool implements ToolHandler {
     this.pivotW = applyPt(X, scale3(c0, 1 / vids.length));
     this.grabW = this.onPlane(ctx, ev.x, ev.y) ?? this.pivotW;
     this.rails = null; this.railPick = null;
-    if (this.kind === "move") {   // 沿边滑的候选边：每个被挪的点连出去、另一头不在被挪的点里的边（Blender Edge / Vertex Slide 的「轨道」）
+    if (this.op === "move") {   // 沿边滑的候选边：每个被挪的点连出去、另一头不在被挪的点里的边（Blender Edge / Vertex Slide 的「轨道」）
       const moving = new Set(vids), rails = new Map<number, number[]>();
       for (const v of vids) rails.set(v, [...m.vEdges(v)].map((e) => (m.edgeA[e] === v ? m.edgeB[e] : m.edgeA[e])).filter((o) => !moving.has(o)));
       this.rails = rails;
@@ -139,12 +147,12 @@ export class MeshTransformTool implements ToolHandler {
     if (ctx.config.get("soft", "on")) {   // 软选择：选区外的点按离选区多远带着走（权重每帧按当前半径算，拖的时候能改半径）
       const picked = new Set(vids), dist = softDistances(m.verts(), picked, (v) => applyPt(X, m.pt(v)));
       const sbase = new Map<number, Pt3>(); for (const v of dist.keys()) sbase.set(v, m.pt(v));
-      this.soft = { dist, base: sbase, dirs: this.kind === "normal" ? extrudeNormalDirs(m, { verts: [...dist.keys()] }) : new Map() };
+      this.soft = { dist, base: sbase, dirs: this.op === "normal" ? extrudeNormalDirs(m, { verts: [...dist.keys()] }) : new Map() };
     }
     this.start = { x: ev.x, y: ev.y }; this.cur = { x: ev.x, y: ev.y }; this.shift = ev.shiftKey; this.snapOn = ctx.snapBase() !== this.shift;
     { const vp = ctx.vp(); let best = Infinity; for (const [, p] of this.base) { const w = applyPt(X, p), q = ctx.frame().project?.(w, vp); const d = q ? Math.hypot(q.x - ev.x, q.y - ev.y) : Infinity; if (d < best) { best = d; this.handleW = w; } } }
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
-    { const what = this.kind === "move" ? "吸附：点 > 边 > 面" : this.kind === "rotate" ? "15° 一档" : "0.1 一档";
+    { const what = this.op === "move" ? "吸附：点 > 边 > 面" : this.op === "rotate" ? "15° 一档" : "0.1 一档";
       ctx.hint(`${this.verb()} ${vids.length} 个点${grip ? `（手柄：${grip.say}）` : ""}：拖着松手，或者点第二下落定（方向键锁轴 / Shift+方向键锁面；${ctx.snapBase() ? `${what}，Shift = 反过来` : `按住 Shift = ${what}`}）`); }
   }
 
@@ -154,49 +162,8 @@ export class MeshTransformTool implements ToolHandler {
     this.shift = ctx.mods().shift; this.snapOn = ctx.snapBase() !== this.shift;
     const p = this.onPlane(ctx, s.x, s.y);
     if (p) ctx.setCursor(p);
-    this.snapT = this.kind === "move" && this.snapOn ? this.snapTarget(ctx, s) : null;
+    this.snapT = this.op === "move" && this.snapOn ? meshSnapTarget(ctx, s, this.base) : null;
     ctx.setSnap(this.snapT ? { p: this.snapT.p, kind: this.snapT.kind } : null);
-  }
-
-  /** 挪的吸附目标（Shift）：光标吸附圈里最近的点 > 边上最近的点 > 光标射线打到的面；被挪的点、连着它们的边 / 面不算。O(网格)，几千面以内每帧零点几毫秒。 */
-  private snapTarget(ctx: ToolCtx, s: { x: number; y: number }): { p: Pt3; kind: SnapKind } | null {
-    const m = ctx.mesh(), X = ctx.ctxXform(), vp = ctx.vp(), fr = ctx.frame(), R = ctx.snapPx(), moving = this.base;
-    const scr = new Map<number, { x: number; y: number } | null>(), W = new Map<number, Pt3>();
-    const w = (v: number): Pt3 => { let p = W.get(v); if (!p) { p = applyPt(X, m.pt(v)); W.set(v, p); } return p; };
-    const sp = (v: number): { x: number; y: number } | null => { if (!scr.has(v)) scr.set(v, fr.project?.(w(v), vp) ?? null); return scr.get(v)!; };
-    let best: { p: Pt3; kind: SnapKind } | null = null, bd = R;
-    for (const v of m.verts()) { if (moving.has(v)) continue; const q = sp(v); if (!q) continue; const d = Math.hypot(q.x - s.x, q.y - s.y); if (d <= bd) { bd = d; best = { p: w(v), kind: "endpoint" }; } }
-    const F = ctx.contextFrame(), qo = fr.project?.(F.origin, vp);   // 原点也是「点」（user 10-27「点（包括原点）-线（包括轴）-面」）
-    if (qo) { const d = Math.hypot(qo.x - s.x, qo.y - s.y); if (d <= bd) { bd = d; best = { p: F.origin, kind: "origin" }; } }
-    if (best) return best;
-    { const ray = fr.ray(s.x, s.y, vp);   // 三根轴也是「线」：光标射线离轴线最近的那一点，投到屏幕上在吸附圈里
-      for (const [ax, kind] of [[F.x, "axis-x"], [F.y, "axis-y"], [F.z, "axis-z"]] as const) {
-        const u = normalize3(ax), w0 = sub3(F.origin, ray.origin), b = dot3(u, ray.dir), cc = dot3(ray.dir, ray.dir), dd = dot3(u, w0), ee = dot3(ray.dir, w0), den = cc - b * b;
-        if (den < 1e-9) continue;
-        const t = (b * ee - cc * dd) / den, p = add3(F.origin, scale3(u, t)), q = fr.project?.(p, vp);
-        if (!q) continue;
-        const d = Math.hypot(q.x - s.x, q.y - s.y);
-        if (d <= bd) { bd = d; best = { p, kind }; }
-      }
-    }
-    for (const e of m.edges()) {
-      const a = m.edgeA[e], b = m.edgeB[e];
-      if (moving.has(a) || moving.has(b)) continue;
-      const qa = sp(a), qb = sp(b); if (!qa || !qb) continue;
-      const ux = qb.x - qa.x, uy = qb.y - qa.y, L2 = ux * ux + uy * uy; if (L2 < 1e-9) continue;
-      const u = Math.max(0, Math.min(1, ((s.x - qa.x) * ux + (s.y - qa.y) * uy) / L2)), d = Math.hypot(qa.x + ux * u - s.x, qa.y + uy * u - s.y);
-      if (d <= bd) { bd = d; const pa = w(a), pb = w(b); best = { p: add3(pa, scale3(sub3(pb, pa), u)), kind: "on-edge" }; }
-    }
-    if (best) return best;
-    const ray = fr.ray(s.x, s.y, vp), { tris, faceOfTri } = m.triangles();
-    let bt = Infinity;
-    for (let i = 0; i < faceOfTri.length; i++) {
-      const A = tris[3 * i], B = tris[3 * i + 1], C = tris[3 * i + 2];
-      if (moving.has(A) || moving.has(B) || moving.has(C) || m.isFaceHidden(faceOfTri[i])) continue;
-      const t = rayTri(ray.origin, ray.dir, w(A), w(B), w(C));
-      if (t !== null && t < bt) bt = t;
-    }
-    return Number.isFinite(bt) ? { p: add3(ray.origin, scale3(ray.dir, bt)), kind: "on-face" } : null;
   }
 
   liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
@@ -216,7 +183,7 @@ export class MeshTransformTool implements ToolHandler {
     const kAx = ctx.axisLockDir(), kPn = ctx.planeLockNormal(), keyed = !!(kAx || kPn), ax = keyed ? kAx : this.grip?.axis ?? null, pn = keyed ? kPn : this.grip?.plane ?? null;
     const X = ctx.ctxXform(), Xi = invert(X), typed = ctx.typed(), tag = typed !== null ? "（打的数）" : "";
     let fW: (p: Pt3) => Pt3, dims: string;
-    if (this.kind === "normal") {   // 沿法线：离轴心（屏幕）远了 = 胖、近了 = 瘦（Blender Alt+S 同手感）；每个点沿自己的法向走同样长
+    if (this.op === "normal") {   // 沿法线：离轴心（屏幕）远了 = 胖、近了 = 瘦（Blender Alt+S 同手感）；每个点沿自己的法向走同样长
       const vp = ctx.vp(), ps = ctx.frame().project?.(pivot, vp);
       if (!ps) return null;
       let d0 = { x: s0.x - ps.x, y: s0.y - ps.y };
@@ -231,11 +198,11 @@ export class MeshTransformTool implements ToolHandler {
       if (sw) for (const [v, w] of sw.w) { const d = this.soft!.dirs.get(v) ?? { x: 0, y: 0, z: 1 }; moves.set(v, add3(this.soft!.base.get(v)!, scale3(d, tL * w))); }
       return { moves, dims: `${sw ? `软 ${fmtLen(sw.R)} · ` : ""}沿法线 ${tW >= 0 ? "+" : "−"}${fmtLen(Math.abs(tW))}${tag}` };
     }
-    if (this.kind === "move" && ctx.config.get("slide", "on") !== this.slideOnce && this.rails) {   // 沿边滑：每个点沿自己那条边走同样的比例 t ∈ [0, 1]
+    if (this.op === "move" && ctx.config.get("slide", "on") !== this.slideOnce && this.rails) {   // 沿边滑：每个点沿自己那条边走同样的比例 t ∈ [0, 1]
       const r = this.solveSlide(ctx, X);
       if (r) return r;
     }
-    if (this.kind === "move") {
+    if (this.op === "move") {
       const now = this.onPlane(ctx, s1.x, s1.y) ?? grab;
       let d = this.snapT && this.handleW ? sub3(this.snapT.p, this.handleW) : sub3(now, grab);   // 吸附：抓住的点落到目标上
       if (ax) d = scale3(ax, dot3(d, ax));             // 锁轴：投到轴上（贴近视线 = 变慢，FM18）
@@ -250,7 +217,7 @@ export class MeshTransformTool implements ToolHandler {
     } else {
       const vp = ctx.vp(), ps = ctx.frame().project?.(pivot, vp);
       if (!ps) return null;
-      if (this.kind === "rotate") {
+      if (this.op === "rotate") {
         const toCam = scale3(ctx.frame().ray(ps.x, ps.y, vp).dir, -1);
         const axis = ax ?? normalize3(toCam);
         const a0 = Math.atan2(s0.y - ps.y, s0.x - ps.x), a1 = Math.atan2(s1.y - ps.y, s1.x - ps.x);
@@ -335,7 +302,7 @@ export class MeshTransformTool implements ToolHandler {
     ctx.hint(`${verb}了 ${n} 个点（${r.dims}）`);
   }
 
-  private verb(): string { return this.kind === "move" ? "移动" : this.kind === "rotate" ? "旋转" : this.kind === "normal" ? "沿法线移动" : "缩放"; }   // 两字词，和硬表面对齐（user 10-27）
+  private verb(): string { return this.op === "move" ? "移动" : this.op === "rotate" ? "旋转" : this.op === "normal" ? "沿法线移动" : "缩放"; }   // 两字词，和硬表面对齐（user 10-27）
   /** 屏幕点 → 过轴心、垂直于视线的平面上的点（世界）。不用 pick.ts cameraPlane：那个是「最朝向镜头的轴平面」（SU 画图用），等轴视角下是地面，锁 Z 就挪不动了。 */
   private onPlane(ctx: ToolCtx, x: number, y: number): Pt3 | null {
     const pivot = this.pivotW;
@@ -346,14 +313,3 @@ export class MeshTransformTool implements ToolHandler {
 }
 
 
-/** 射线 × 三角形（Möller–Trumbore）：命中的射线参数（> 0），没中 = null。 */
-function rayTri(o: Pt3, d: Pt3, a: Pt3, b: Pt3, c: Pt3): number | null {
-  const e1 = sub3(b, a), e2 = sub3(c, a), p = cross3(d, e2), det = dot3(e1, p);
-  if (Math.abs(det) < 1e-12) return null;
-  const inv = 1 / det, tv = sub3(o, a), u = dot3(tv, p) * inv;
-  if (u < 0 || u > 1) return null;
-  const q = cross3(tv, e1), v = dot3(d, q) * inv;
-  if (v < 0 || u + v > 1) return null;
-  const t = dot3(e2, q) * inv;
-  return t > 1e-9 ? t : null;
-}

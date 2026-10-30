@@ -45,7 +45,7 @@ export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
  * 小三角组（RAIL_FIXED_FLYOUTS）也能放进来：写组的第一把，长出来的那格显示最近用的那把。
  */
 export const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, { readonly pool: readonly Tool[]; readonly budget: number }>>> = {
-  freeform: { pool: ["erase", "offset", "brushGrab"], budget: 3 },   // 笔刷 ▾ 也在折叠组里（user「算是自动折叠的不是常驻的」）
+  freeform: { pool: ["erase", "offset", "transform", "brushGrab"], budget: 3 },   // 变换（三家把手一起，2026-10-30 user「7也做」；gizmo 设计稿 §6「留成单独的工具…自由建模左柱要不要加它 user 定」→ 先放折叠组）   // 笔刷 ▾ 也在折叠组里（user「算是自动折叠的不是常驻的」）
 };
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
 export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>> = { freeform: { pp: "挤出", erase: "删除", offset: "插入/倒角" } };   // 拉出 = 工具本名（自由建模独有）

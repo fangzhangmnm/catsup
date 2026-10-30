@@ -1,6 +1,6 @@
 // 自由建模工作台的拉（2026-10-27 Claude Opus 5.5；tools/mesh-pull.ts）：网格体盒子里——
 // ① 在顶面上按下往上拖 = 顶面沿法向挤出（面 6 → 10、点 8 → 12）、顶面留在选区、一步撤销；② 接着挪（选区 = 顶面）；
-// ③ 拉一条边 + 锁 Z = 长一张墙、新边留在选区、新点只差 z；③b Shift = 沿垂直方向；④ Shift 拉一个点 = 一条沿垂直方向的裸线；⑤ 拉 0 不做；⑥ 撤到头 / 重做到头不崩。
+// ③ 拉一条边 + 锁 Z = 长一张墙、新边留在选区、新点只差 z；③b 拖手柄中心 = 沿垂直方向；④ 拖手柄中心拉一个点 = 一条沿垂直方向的裸线（v0.17.59 起：以前是按住 Shift，Shift 现在只管吸附）；⑤ 拉 0 不做；⑥ 撤到头 / 重做到头不崩。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-pull.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -53,16 +53,17 @@ const res = await page.evaluate(async () => {
   const st3 = stat(), newE = [...e.selection.edges][0], nb = newE !== undefined ? [m().edgeA[newE], m().edgeB[newE]].map((v) => m().pt(v)) : [];
   out.pullEdge = { d: { f: st3.f - st0.f, v: st3.v - st0.v }, selEdges: e.selection.edges.size, onlyZ: nb.length === 2 && nb.every((p) => ea.some((o) => Math.abs(o.x - p.x) < 1e-9 && Math.abs(o.y - p.y) < 1e-9 && p.z > o.z)), check: m().check().join(";") };
   key("z"); await sleep(30);
-  // ③b 按住 Shift 拉同一条边 = 沿垂直方向（2026-10-28 晚起默认 = 屏幕空间自由拖，Shift 反过来）：顶面前沿那条边两侧是顶面（+Z）和前面（−Y）→ 新点沿 (0, −1, 1)/√2 走
+  // ③b 拖手柄中心（= 边的中点，正好是按下处）拉同一条边 = 沿垂直方向（默认 = 屏幕空间自由拖，中心 = 换一种拖法）：顶面前沿那条边两侧是顶面（+Z）和前面（−Y）→ 新点沿 (0, −1, 1)/√2 走
   out.edgeSelAgain = e.selection.edges.size;
-  { const a = px(P(0.5, 0, 1)); await drag(a, { x: a.x, y: a.y - 50 }, true); }
+  e.config.set("handles", "show", true);
+  { const a = px(P(0.5, 0, 1)); await drag(a, { x: a.x, y: a.y - 50 }); }
   const nb2 = [...e.selection.edges].flatMap((x) => [m().edgeA[x], m().edgeB[x]]).map((v) => m().pt(v));
   out.pullEdgePerp = { n: nb2.length, diag: nb2.length === 2 && nb2.every((p) => { const o = ea.find((q) => Math.abs(q.x - p.x) < 1e-9); return !!o && Math.abs((p.z - o.z) + (p.y - o.y)) < 1e-6 && p.z - o.z > 1e-3; }) };
   key("z"); await sleep(30);
   // ④ 拉一个点（选中再拉；Shift = 沿垂直方向）
   e.deselectAll(); e.setTool("select"); await click(P(1, 0, 1)); out.vertSel = e.selection.verts.size;
   e.setTool("pp");
-  { const a = px(P(1, 0, 1)); await drag(a, { x: a.x + 40, y: a.y - 10 }, true); }
+  { const a = px(P(1, 0, 1)); await drag(a, { x: a.x + 40, y: a.y - 10 }); }   // 手柄还开着：按在点上 = 按在手柄中心
   const st4 = stat(), nv = [...e.selection.verts][0], np = nv !== undefined ? m().pt(nv) : null, cp = { x: 0.5, y: -0.5, z: 1 };   // 角点 (1,0,1) 的本地坐标；三张面 +X −Y +Z → 方向 (1,−1,1)/√3
   out.pullVert = { dv: st4.v - st0.v, de: st4.e - st0.e, df: st4.f - st0.f, selVerts: e.selection.verts.size, perp: !!np && Math.abs((np.x - cp.x) + (np.y - cp.y)) < 1e-6 && Math.abs((np.x - cp.x) - (np.z - cp.z)) < 1e-6 && Math.abs(np.x - cp.x) > 1e-4 };
   key("z"); await sleep(30);
@@ -80,7 +81,7 @@ const res = await page.evaluate(async () => {
 });
 await b.close();
 res.errs = errs;
-const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,offset,shrink,create,brushGrab,brushDraw,brushSmooth,brushFlatten"   // v0.16.49 起四把笔刷也在自由建模工作台里（旧红，2026-10-29 跟上）
+const ok = res.rail === "select,pp,move,rotate,scale,knife,erase,softErase,offset,shrink,create,transform,brushGrab,brushDraw,brushSmooth,brushFlatten"   // v0.16.49 起四把笔刷；软边橡皮；v0.17.59 变换
   && res.pullFace.st1.f === res.pullFace.st0.f + 4 && res.pullFace.st1.v === res.pullFace.st0.v + 4 && res.pullFace.steps === 1 && res.pullFace.selFaces === 0 && res.pullFace.topZ > 1 && res.pullFace.check === ""
   && res.pullWithSel.selFaces === 1 && res.pullWithSel.f === 10 && res.thenMove.up && res.undo2.back
   && res.edgeSel === 1 && res.pullEdge.d.f === 1 && res.pullEdge.d.v === 2 && res.pullEdge.selEdges === 1 && res.pullEdge.onlyZ && res.pullEdge.check === ""

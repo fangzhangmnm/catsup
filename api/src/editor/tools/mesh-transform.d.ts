@@ -3,12 +3,14 @@ import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
-export type MeshXformKind = "move" | "rotate" | "scale" | "normal";
+export type MeshXformKind = "move" | "rotate" | "scale" | "normal" | "transform";
 export declare class MeshTransformTool implements ToolHandler {
     readonly grammar: "steps";
     readonly lock: "axis";
-    readonly tool: "move" | "rotate" | "scale" | "shrink";
+    readonly tool: "move" | "rotate" | "scale" | "shrink" | "transform";
     private readonly kind;
+    /** 这一下做的是哪种（变换工具按抓的把手定：箭头 / 中心 = 挪、环 = 转、方块 / 平面块 = 缩；别的工具 = 自己那种）。 */
+    private op;
     /** 沿法线：每个点自己的方向（本地，单位长；点 = 连着的面的法向平均）。 */
     private dirs;
     private vids;
@@ -45,6 +47,7 @@ export declare class MeshTransformTool implements ToolHandler {
     /** 预演里被挪的点现在的平均（世界）：拖着的时候手柄跟着走。 */
     private liveOrigin;
     constructor(kind: MeshXformKind);
+    private static quantity;
     /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
     private box;
     /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
@@ -54,8 +57,8 @@ export declare class MeshTransformTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
-    /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关四把都有；手柄开关 + 朝向给移动 / 旋转 / 缩放。 */
-    stripGroups(): readonly {
+    /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关都有；手柄开关给移动 / 旋转 / 缩放、朝向手柄开着才露；变换的手柄一直在 = 只露朝向。 */
+    stripGroups(cfg: ToolCtx["config"]): readonly {
         group: string;
         keys?: readonly string[];
     }[];
@@ -74,8 +77,6 @@ export declare class MeshTransformTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
-    /** 挪的吸附目标（Shift）：光标吸附圈里最近的点 > 边上最近的点 > 光标射线打到的面；被挪的点、连着它们的边 / 面不算。O(网格)，几千面以内每帧零点几毫秒。 */
-    private snapTarget;
     liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
     /** 当前拖动 → 每个点的新本地坐标 + 读数。 */
     private solve;

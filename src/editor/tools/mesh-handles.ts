@@ -9,16 +9,21 @@
 import { type Pt3, add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { applyNormal, applyPt } from "../../scene/xform.ts";
 import { extrudeNormalDirs, selectionVerts } from "../../mesh/ops/index.ts";
-import { type AxisName, type XformGizmo, type XformHandle, type XformLayout, XG_ARROW_PX, XG_CUBE_PX, hitXformGizmo, planeAxes, xformGizmoGeom } from "../transform-gizmo.ts";
+import { type AxisName, type XformGizmo, type XformHandle, type XformLayout, XG_ARROW_PX, XG_CUBE_PX, XG_UNIFORM_OFFSET_PX, hitXformGizmo, planeAxes, xformGizmoGeom } from "../transform-gizmo.ts";
+import { rayPlane } from "../camera.ts";
 import { pickHandle } from "../handle-pick.ts";
 import { HANDLES_ON_TAP, deviceOf } from "../../controller/stance.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 
-export type HandleFamily = "move" | "rotate" | "scale";
-/** 按下抓到的把手：axis = 只沿 / 绕这根（世界、单位长）；plane = 只在这个面里（它的法向）；两个都没有 = 中心。say = 提示行里怎么说。 */
-export interface Grip { readonly id: XformHandle | "mc"; readonly axis: Pt3 | null; readonly plane: Pt3 | null; readonly say: string }
+/** 哪一家：移动 / 旋转 / 缩放 / 挤出（箭头 + 中心）/ 变换（三家一起，一直挂着）。 */
+export type HandleFamily = "move" | "rotate" | "scale" | "pull" | "transform";
+/**
+ * 按下抓到的把手：axis = 只沿 / 绕这根（世界、单位长）；plane = 只在这个面里（它的法向）；两个都没有 = 中心（或变换的等比块）。
+ * op = 这一下做哪种（变换工具按把手定：箭头 / 中心 = 挪、环 = 转、方块 / 平面块 / 等比块 = 缩，和硬表面的变换工具同一套意思；别的家 = 自己那种，挤出没有）。say = 提示行里怎么说。
+ */
+export interface Grip { readonly id: XformHandle | "mc"; readonly axis: Pt3 | null; readonly plane: Pt3 | null; readonly op?: "move" | "rotate" | "scale"; readonly say: string }
 /** 手柄画哪几样（ViewState.xformGizmo.parts）。 */
 export type HandlePart = "arrows" | "rings" | "cubes" | "planes" | "center";
 
@@ -27,11 +32,15 @@ const PARTS: Readonly<Record<HandleFamily, readonly HandlePart[]>> = {
   move: ["arrows", "planes", "center"],
   rotate: ["rings", "center"],
   scale: ["cubes", "planes", "center"],
+  pull: ["arrows", "center"],
+  transform: ["arrows", "rings", "cubes", "planes", "center"],   // + 等比块（中心右上方的屏幕把手，硬表面变换工具同款）
 };
 const PART_OF = (h: XformHandle): HandlePart => (h[0] === "m" ? "arrows" : h[0] === "r" ? "rings" : h[0] === "p" ? "planes" : "cubes");
 /** 缩放没有箭头：方块挪到箭头尖那里、杆从环外画到方块（= 方头箭头，设计稿 §1「缩放 = 方头」）；不挤在中心旁边，手指也分得开。 */
-const LAYOUT: Readonly<Record<HandleFamily, XformLayout>> = { move: {}, rotate: {}, scale: { cubePx: XG_ARROW_PX - XG_CUBE_PX } };
-const CENTER_SAY: Readonly<Record<HandleFamily, string>> = { move: "中心 = 随手拖", rotate: "中心 = 绕视线转", scale: "中心 = 等比缩放" };
+const LAYOUT: Readonly<Record<HandleFamily, XformLayout>> = { move: {}, rotate: {}, scale: { cubePx: XG_ARROW_PX - XG_CUBE_PX }, pull: {}, transform: {} };
+const CENTER_SAY: Readonly<Record<HandleFamily, string>> = { move: "中心 = 随手拖", rotate: "中心 = 绕视线转", scale: "中心 = 等比缩放", pull: "中心 = 换一种拖法", transform: "中心 = 随手挪" };
+/** 变换工具抓的把手 → 做哪种（硬表面变换工具 tools/transform.ts 同一套：m = 挪、r = 转、其余 = 缩）。 */
+const OP_OF = (h: XformHandle | "mc"): "move" | "rotate" | "scale" => (h === "mc" || h[0] === "m" ? "move" : h[0] === "r" ? "rotate" : "scale");
 const WORLD = { x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } as const;
 
 export class MeshHandles {
@@ -40,9 +49,9 @@ export class MeshHandles {
   readonly family: HandleFamily;
   constructor(family: HandleFamily) { this.family = family; }
 
-  /** 这一刻的手柄：开着 ∧ 有选区才有。原点 = 选区的点的平均（世界）；轴 = 朝向（物件 / 世界 / 法向）。 */
+  /** 这一刻的手柄：开着（变换 = 一直开着）∧ 有选区才有。原点 = 选区的点的平均（世界）；轴 = 朝向（物件 / 世界 / 法向）。 */
   gizmo(ctx: ToolCtx): XformGizmo | null {
-    if (!ctx.config.get("handles", "show")) return null;
+    if (this.family !== "transform" && !ctx.config.get("handles", "show")) return null;
     const sel = ctx.selection();
     if (sel.kind !== "mesh" || !(sel.verts.size || sel.edges.size || sel.faces.size)) return null;
     const m = ctx.mesh(), vids = selectionVerts(m, sel);
@@ -76,20 +85,23 @@ export class MeshHandles {
     const parts = PARTS[this.family], pts: { id: XformHandle | "mc"; d: number; z: number }[] = [], rings: typeof pts = [];
     const q = ctx.frame().project?.(g.origin, ctx.vp());
     if (q) pts.push({ id: "mc", d: Math.hypot(q.x - s.x, q.y - s.y), z: -1 });
+    if (q && this.family === "transform") pts.push({ id: "su", d: Math.hypot(q.x + XG_UNIFORM_OFFSET_PX - s.x, q.y - XG_UNIFORM_OFFSET_PX - s.y), z: -1 });
     for (const c of hitXformGizmo(g, ctx.frame(), ctx.vp(), s.x, s.y, LAYOUT[this.family])) if (parts.includes(PART_OF(c.handle))) (c.handle[0] === "r" ? rings : pts).push({ id: c.handle, d: c.d, z: c.z });
     const hit = ctx.eps().hit, i = pickHandle(pts, hit), j = i < 0 ? pickHandle(rings, hit) : -1;
     const p = i >= 0 ? pts[i] : j >= 0 ? rings[j] : null;
     if (!p) return null;
-    if (p.id === "mc") return { id: "mc", axis: null, plane: null, say: CENTER_SAY[this.family] };
-    if (p.id[0] === "p") { const { a, b, n } = planeAxes(p.id); return { id: p.id, axis: null, plane: g.axes[n], say: `在 ${a.toUpperCase()}${b.toUpperCase()} 面里` }; }
+    const op = this.family === "transform" ? OP_OF(p.id) : this.family === "pull" ? undefined : this.family;
+    if (p.id === "mc") return { id: "mc", axis: null, plane: null, op, say: CENTER_SAY[this.family] };
+    if (p.id === "su") return { id: "su", axis: null, plane: null, op, say: "等比缩放" };
+    if (p.id[0] === "p") { const { a, b, n } = planeAxes(p.id); return { id: p.id, axis: null, plane: g.axes[n], op, say: `在 ${a.toUpperCase()}${b.toUpperCase()} 面里${op === "scale" && this.family === "transform" ? "缩放" : ""}` }; }
     const ax = p.id[1] as AxisName;
-    return { id: p.id, axis: g.axes[ax], plane: null, say: `${this.family === "rotate" ? "绕" : "沿"} ${ax.toUpperCase()} 轴` };
+    return { id: p.id, axis: g.axes[ax], plane: null, op, say: `${p.id[0] === "r" ? "绕" : "沿"} ${ax.toUpperCase()} 轴${this.family === "transform" ? (p.id[0] === "m" ? "挪" : p.id[0] === "r" ? "转" : "缩放") : ""}` };
   }
   /** 鼠标悬停：记下光标下的把手（高亮）。 */
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.hot = this.grip(ctx, s)?.id ?? null; }
   /** 点一下之后：选到东西 = 开、点空了 = 关（这台设备点一下弹不弹 = stance.ts HANDLES_ON_TAP）。返回现在开没开。 */
   afterTap(ctx: ToolCtx, ev: ToolPointer): boolean {
-    if (HANDLES_ON_TAP[deviceOf(ev.pointerType)]) ctx.config.set("handles", "show", ctx.hasSelection());
+    if (this.family !== "transform" && HANDLES_ON_TAP[deviceOf(ev.pointerType)]) ctx.config.set("handles", "show", ctx.hasSelection());   // 变换的手柄一直挂着，不动这个开关
     return this.gizmo(ctx) !== null;
   }
   /** 这一帧画什么。drag = 正在拖：原点跟着预演走（被挪的点现在的平均，世界），高亮正抓着的那个；没开 = 什么都不加。 */
@@ -97,6 +109,9 @@ export class MeshHandles {
     const g0 = this.gizmo(ctx);
     if (!g0) return {};
     const g = drag?.origin ? { ...g0, origin: drag.origin } : g0;
-    return { xformGizmo: { ...xformGizmoGeom(g, ctx.frame(), ctx.vp(), LAYOUT[this.family]), hot: drag ? drag.id : this.hot, uniform: null, parts: PARTS[this.family] } };
+    let uniform: Pt3 | null = null;   // 变换的等比块：屏上中心右上方那一点，落在过原点、正对相机的平面上（硬表面变换工具同款）
+    const q = this.family === "transform" ? ctx.frame().project?.(g.origin, ctx.vp()) : null;
+    if (q) { const r = ctx.frame().ray(q.x + XG_UNIFORM_OFFSET_PX, q.y - XG_UNIFORM_OFFSET_PX, ctx.vp()), n = ctx.frame().viewDir(g.origin); uniform = rayPlane(r.origin, r.dir, n, dot3(n, g.origin)); }
+    return { xformGizmo: { ...xformGizmoGeom(g, ctx.frame(), ctx.vp(), LAYOUT[this.family]), hot: drag ? drag.id : this.hot, uniform, parts: PARTS[this.family] } };
   }
 }

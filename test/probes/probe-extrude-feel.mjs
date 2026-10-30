@@ -1,7 +1,7 @@
 // 挤出手感 + 拾取范围（created 2026-10-28 by Claude Fable 5.1；user 10-28 晚「E应该是按面法向，然后E之后右键是创作了面但是在原来的位置上可以切g」
 // 「如果没有面的话，是边或者点，那么E是screen space，这个是blender的手感」「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮」）。网格体盒子——
 // ① 选顶面、E、拖、右键 = 面数 +4、顶面还在原处（z 不变）、选区 = 顶面、一步；接着 G 拖 = 顶面挪了（又一步）② 选一条竖边、E、屏幕里斜着拖 = 新边不只沿垂直方向（屏幕空间）
-// ③ 同样但按住 Shift = 新点只沿各自垂直方向 ④ Esc = 什么都不留 ⑤ 拾取：移动工具的工具条有「拾取 点 边 面」；关掉「点」→ 按在角点上抓到的是边 / 面；关掉边和面 → 只剩点；全关 = 当全开
+// ③ 同样但拖的是手柄中心 = 新点只沿各自垂直方向（v0.17.59 起：以前是按住 Shift，Shift 现在只管吸附；gizmo 设计稿 §3） ④ Esc = 什么都不留 ⑤ 拾取：移动工具的工具条有「拾取 点 边 面」；关掉「点」→ 按在角点上抓到的是边 / 面；关掉边和面 → 只剩点；全关 = 当全开
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-extrude-feel.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -45,10 +45,11 @@ const res = await page.evaluate(async () => {
     await clickAt({ x: a.x, y: a.y - 72 });
     out.g.topZ = q(topZ(f1)); out.g.steps = e.history.steps() - st2; out.g.check = m().check().join(";");
     for (let i = 0; i < 4 && e.history.steps() > st; i++) { e.undo(); await sleep(10); } }
-  // ② 边：E 默认屏幕空间；③ Shift = 垂直；④ Esc 什么都不留
+  // ② 边：E 默认屏幕空间；③ 拖手柄中心（= 边的中点，正好是按下处）= 垂直；④ Esc 什么都不留
   { const edge = m().edges().find((x) => Math.abs(m().pt(m().edgeA[x]).x - 1) < 1e-9 && Math.abs(m().pt(m().edgeB[x]).x - 1) < 1e-9 && Math.abs(m().pt(m().edgeA[x]).y) < 1e-9 && Math.abs(m().pt(m().edgeB[x]).y) < 1e-9);   // x=1,y=0 的竖边
     const mid = P(1, 0, 0.5), s0 = px(mid);
-    const run = async (shift) => {
+    const run = async (handles) => {
+      const shift = false; e.config.set("handles", "show", handles);
       const v0 = new Set(m().verts()), f0 = m().faceCount();
       e.deselectAll(); e.selectExpand(e.pickAt(s0.x, s0.y), 0); e.setTool("pp"); await sleep(20);
       const se0 = [...e.selection.edges][0], pe = se0 !== undefined ? [m().edgeA[se0], m().edgeB[se0]].map((v) => { const t = m().pt(v); return [q(t.x), q(t.y), q(t.z)]; }) : null;
@@ -60,10 +61,10 @@ const res = await page.evaluate(async () => {
       const d = nv.map((p) => { const o = (pe ?? []).reduce((b, c) => (Math.abs(c[2] - p.z) < Math.abs(b[2] - p.z) ? c : b)); return { dx: q(p.x - o[0]), dy: q(p.y - o[1]), dz: q(p.z - o[2]) }; });
       const se = [...e.selection.edges][0], src = se !== undefined && m().hasE(se) ? [m().edgeA[se], m().edgeB[se]].map((v) => m().pt(v)) : [];
       const out2 = { df: m().faceCount() - f0, n: nv.length, off: d, pickedEdge: pe, newPts: nv.map((p) => [q(p.x), q(p.y), q(p.z)]), selAfter: src.map((p) => [q(p.x), q(p.y), q(p.z)]) };
-      e.undo(); await sleep(10); return out2;
+      e.undo(); await sleep(10); e.config.set("handles", "show", false); return out2;
     };
     out.edgeFree = await run(false);
-    out.edgePerp = await run(true);
+    out.edgePerp = await run(true);   // 手柄开着：按在边的中点 = 按在手柄中心
     const f0 = m().faceCount(); e.deselectAll(); e.selectExpand(e.pickAt(s0.x, s0.y), 0); e.setTool("pp"); await sleep(20);
     await dragTo(s0, { x: s0.x + 40, y: s0.y - 20 });
     window.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", code: "Escape", bubbles: true, cancelable: true })); await sleep(40);
@@ -89,7 +90,7 @@ console.log(JSON.stringify(res, null, 1));
 const ip = res.inPlace, g = res.g, ef = res.edgeFree, ep = res.edgePerp;
 const ok = res.e.started && res.e.tool === "pp" && ip.df === 4 && ip.dv === 4 && ip.steps === 1 && ip.topZ === 1 && ip.selTop && !ip.gesture && g.started && g.topZ > 1.05 && g.steps === 1 && !g.check
   && ef.df === 1 && ef.n === 2 && ef.off.every((o) => Math.abs(o.dz) > 0.01 || Math.abs(Math.abs(o.dx) - Math.abs(o.dy)) > 0.01)   // 屏幕空间：斜着拖出去的偏移不是纯 (1,−1,0) 方向
-  && ep.df === 1 && ep.n === 2 && ep.off.every((o) => Math.abs(o.dz) < 1e-6 && Math.abs(Math.abs(o.dx) - Math.abs(o.dy)) < 1e-6 && Math.abs(o.dx) > 0.01)   // Shift：只沿垂直方向（这条竖边两侧 +x / −y → (1,−1,0)/√2）
+  && ep.df === 1 && ep.n === 2 && ep.off.every((o) => Math.abs(o.dz) < 1e-6 && Math.abs(Math.abs(o.dx) - Math.abs(o.dy)) < 1e-6 && Math.abs(o.dx) > 0.01)   // 手柄中心：只沿垂直方向（这条竖边两侧 +x / −y → (1,−1,0)/√2）
   && res.esc.df === 0 && !res.esc.gesture && res.esc.selEdges === 1
   && res.pick.strip && res.pick.all.v === 1 && res.pick.noVerts.v === 0 && res.pick.noVerts.e === 1 && res.pick.noVertsEdges.f === 1 && res.pick.noVertsEdges.v === 0 && res.pick.none.v === 1
   && errs.length === 0;

@@ -256,12 +256,14 @@ export declare const TOOL_OPTIONS: {
             }];
             readonly def: "auto";
             readonly scope: "session";
+            readonly modes: readonly ["geometry", "verify"];
         };
         readonly copy: {
             readonly kind: "bool";
             readonly label: "复制";
             readonly def: false;
             readonly scope: "session";
+            readonly modes: readonly ["geometry", "verify"];
         };
     };
     /** 旋转的「复制」开关（同移动；按住 Ctrl 临时复制；user 2026-10-26「移动旋转也是ctrl复制开关吧」）。 */
@@ -417,7 +419,7 @@ export declare const TOOL_OPTIONS: {
     };
     /** 操纵手柄（自由建模的移动 / 旋转 / 缩放；user 10-29 夜「mesh模式移动的时候单击新图元或者单击选区的时候应该出现gizmos」「然后rotate scale也一样，单击选区可以弹gizmos，
      *  然后右下小窗也有弹gizmos的功能」；设计稿 ai-docs/20261027-gizmo-design.md）：开着 = 选区上挂这把工具那一家把手（移动 = 箭头 + 平面块、旋转 = 环、缩放 = 方块 + 平面块，
-     *  中心 = 这把工具的默认做法）；点一下选到东西就开、点空处就关；三把工具共用一个值。朝向 = 那几根轴朝哪（设计稿 §2 全家同一套词）。 */
+     *  中心 = 这把工具的默认做法；挤出 = 箭头 + 中心）；点一下选到东西就开、点空处就关；几把工具共用一个值（变换工具的手柄一直挂着，不看它）。朝向 = 那几根轴朝哪（设计稿 §2 全家同一套词）。 */
     readonly handles: {
         readonly show: {
             readonly kind: "bool";
@@ -443,10 +445,6 @@ export declare const TOOL_OPTIONS: {
             }];
             readonly def: "object";
             readonly scope: "session";
-            readonly shownWhen: {
-                readonly key: "show";
-                readonly in: readonly ["true"];
-            };
         };
     };
     /** 拾取范围（自由建模；user 10-28 晚「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮可以吗？」）：
