@@ -12,6 +12,7 @@ import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { openPopupMenu, togglePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
 import { foldSubmenus } from "./context-menu.ts";
 import { MACHINES, machineItems, type Machine } from "./machine-window.ts";
+import type { MenuSpec } from "./ui/menu-window.ts";
 import type { MirrorAxis, MirrorMode } from "../mesh/mirror.ts";
 
 export type ObjectTarget = Exclude<MenuTarget, "selection">;
@@ -26,11 +27,10 @@ const MIRROR_MODES: readonly { id: "off" | MirrorMode; label: string; hint: stri
 export interface ObjectWindowDeps { after(): void; openMachine(m: Machine): void }
 /** 这一层露着的机器（= 窗口里它们各一页；只在「这一层」上有：机器只对你所在的这一层说话）。 */
 const machinesFor = (editor: Editor, target: ObjectTarget): readonly Machine[] => (target === "self" ? MACHINES.filter((m) => !m.when || m.when(editor)) : []);
-/** 开物体窗口：target = 当前指向谁；anchor = 窗口的家（左上「物件」钮；self 从钮上开 = 再点一下关）。 */
-export function openObjectWindow(editor: Editor, hud: HudModel, target: ObjectTarget, anchor: HTMLElement, deps: ObjectWindowDeps, align: "start" | "end" = "end"): void {
+/** 物件窗口的菜单（弹出版和浮窗版共用一份）：页签（这一层 = 属性 + 露着的机器）+ 内容 + 点了做什么。 */
+export function objectWindowMenu(editor: Editor, hud: HudModel, target: ObjectTarget, deps: ObjectWindowDeps): MenuSpec<string> {
   const after = deps.after, machines = machinesFor(editor, target);
-  (target === "self" ? togglePopupMenu : openPopupMenu)<string>({
-    anchor, align,
+  return {
     ...(machines.length ? { tabs: [{ id: "props", label: "属性", icon: "object" }, ...machines.map((m) => ({ id: m.id, label: m.label, icon: m.icon }))], tabKey: "objectWindow" } : {}),
     items: () => [...objectWindowItems(editor, target).map((it) => ({ ...it, tab: "props" })), ...machines.flatMap((m) => machineRows(editor, hud, m))],
     onPick: (id) => {
@@ -46,7 +46,11 @@ export function openObjectWindow(editor: Editor, hud: HudModel, target: ObjectTa
       if (id.startsWith("action:")) { editor.withMenuTarget(target, () => hud.pick(id)); after(); return; }   // 单位只在 runAction 开头取一次 → 马后炮重做也用同一批（跑完目标恢复成选区没关系）
       return "keep";
     },
-  });
+  };
+}
+/** 弹出版物件窗口（选中的子组件：物体菜单 / 浮条的「物体设置…」）。「这一层」常驻在浮窗里（main.ts objectWin = ui/menu-window.ts）。 */
+export function openObjectWindow(editor: Editor, hud: HudModel, target: ObjectTarget, anchor: HTMLElement, deps: ObjectWindowDeps, align: "start" | "end" = "end"): void {
+  (target === "self" ? togglePopupMenu : openPopupMenu)<string>({ anchor, align, ...objectWindowMenu(editor, hud, target, deps) });
 }
 
 /** 一台机器那一页（id 前缀 machine:<机器>: ，子菜单的孩子一起改）：第一行 = 机器名 + 这一层是谁；第二行固定「<机器>面板…」= 开那台机器的板（修复 = 开板就进修复面板）；

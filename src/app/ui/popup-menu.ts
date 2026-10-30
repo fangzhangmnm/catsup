@@ -71,14 +71,10 @@ export function togglePopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Pop
   return openPopupMenu(opts);
 }
 
-export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle {
-  _open?.close();
-  const el = document.createElement("div");
-  el.className = "popup-menu";
-  el.setAttribute("role", "menu");
-  document.body.appendChild(el);
-  let open = true;
-
+/** 菜单的身体（弹出菜单和常驻面板共用）：页签 + 各种行的画法 + 子菜单。点了以后怎么办由外壳给（hooks.done：弹出 = keep 重画、否则关；面板 = 永远重画）。 */
+interface MenuBodyHooks { done(r: void | "keep"): void; isOpen(): boolean; rendered?(): void }
+interface MenuBody { render(): void; closeSubs(): void; setTab(tab: string): void }
+function menuBody<Id extends string>(el: HTMLElement, opts: Pick<PopupMenuOpts<Id>, "items" | "onPick" | "tabs" | "tabKey" | "tab">, hooks: MenuBodyHooks): MenuBody {
   // 开着的子菜单：鼠标移到别的行上，等一小会儿再收（斜着往子菜单挪的路上会擦过下一行，不能一碰就关）
   let sub: { row: HTMLElement; layer: ChoiceLayerHandle } | null = null, subTimer: ReturnType<typeof setTimeout> | null = null;
   const cancelSubClose = (): void => { if (subTimer !== null) { clearTimeout(subTimer); subTimer = null; } };
@@ -133,7 +129,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
           const layer = openSubmenu({
             anchor: b, ariaLabel: it.label,
             items: () => kids.map((k) => ({ id: k.id, label: k.label, ...(k.icon ? { icon: k.icon } : {}), ...(k.hint ? { hint: k.hint } : {}), ...(k.disabled ? { disabled: true } : {}) })),
-            onPick: (id) => { const r = opts.onPick(id as Id); if (r === "keep") { if (open) render(); return "close"; } close(); return "close"; },
+            onPick: (id) => { hooks.done(opts.onPick(id as Id)); return "close"; },
           });
           layer.el.addEventListener("pointerenter", cancelSubClose);
           sub = { row: b, layer };
@@ -151,13 +147,13 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
         (b.querySelector(".menu-value") as HTMLElement).textContent = it.value ?? cur?.label ?? "";
         const choices = it.choices;
         b.addEventListener("click", () => {
-          if (!choices) { const r = opts.onPick(it.id); if (r === "keep") render(); else close(); return; }
+          if (!choices) { hooks.done(opts.onPick(it.id)); return; }
           if (choiceLayerOn(b)) { closeChoiceLayer(); return; }   // 再点同一行 = 收起
           openSingleSelect({
             anchor: b, ariaLabel: it.label,
             options: () => choices.map((c) => ({ id: c.id, label: c.label, ...(c.hint ? { hint: c.hint } : {}) })),
             value: () => choices.find((c) => c.checked)?.id,
-            onPick: (id) => { opts.onPick(id as Id); if (open) render(); },
+            onPick: (id) => { opts.onPick(id as Id); if (hooks.isOpen()) render(); },
           });
         });
         hoverSibling(b);
@@ -171,15 +167,24 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
       b.innerHTML = `${it.icon ? iconHtml(it.icon) : '<span class="ico-gap"></span>'}<span class="menu-label"></span>${it.hint ? '<span class="menu-hint"></span>' : ""}${it.checked ? iconHtml("check", { cls: "ico menu-check" }) : ""}`;
       (b.querySelector(".menu-label") as HTMLElement).textContent = it.label;
       if (it.hint) (b.querySelector(".menu-hint") as HTMLElement).textContent = it.hint;
-      b.addEventListener("click", () => {
-        const r = opts.onPick(it.id);
-        if (r === "keep") render(); else close();
-      });
+      b.addEventListener("click", () => { hooks.done(opts.onPick(it.id)); });
       hoverSibling(b);
       el.appendChild(b);
     }
-    position();
+    hooks.rendered?.();
   };
+  return { render, closeSubs: () => { cancelSubClose(); if (sub?.layer.isOpen()) sub.layer.close(); sub = null; }, setTab: (t) => { if (tabs.some((x) => x.id === t)) { tab = t; if (opts.tabKey) rememberTab(opts.tabKey, t); } } };
+}
+
+export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle {
+  _open?.close();
+  const el = document.createElement("div");
+  el.className = "popup-menu";
+  el.setAttribute("role", "menu");
+  document.body.appendChild(el);
+  let open = true;
+  const body = menuBody(el, opts, { done: (r) => { if (r === "keep") { if (open) body.render(); } else close(); }, isOpen: () => open, rendered: () => position() });
+  const render = body.render;
   const position = (): void => {
     const a = opts.anchor.getBoundingClientRect();
     const vw = window.innerWidth, vh = window.innerHeight;
@@ -204,7 +209,7 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   const close = (): void => {
     if (!open) return;
     open = false;
-    cancelSubClose(); sub = null;
+    body.closeSubs();
     closeChoiceLayer();   // 从这里开出来的下拉层跟着关
     el.remove();
     document.removeEventListener("pointerdown", onDocDown, true);
@@ -224,4 +229,17 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   _open = handle;
   _openAnchor = opts.anchor;
   return handle;
+}
+
+/** 常驻面板（浮窗里用，ui/menu-window.ts）：和弹出菜单同一份身体，点了永远原地重画；不定位、不外点关、Esc 不关。 */
+export interface MenuPanelHandle { refresh(): void; setTab(tab: string): void; dispose(): void }
+export function mountMenuPanel<Id extends string>(host: HTMLElement, opts: Pick<PopupMenuOpts<Id>, "items" | "onPick" | "tabs" | "tabKey" | "tab">): MenuPanelHandle {
+  let alive = true;
+  const body = menuBody(host, opts, { done: () => { if (alive) body.render(); }, isOpen: () => alive });
+  body.render();
+  return {
+    refresh: () => { if (alive) body.render(); },
+    setTab: (t) => { body.setTab(t); if (alive) body.render(); },
+    dispose: () => { alive = false; body.closeSubs(); closeChoiceLayer(); host.textContent = ""; },
+  };
 }

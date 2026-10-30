@@ -6,6 +6,8 @@ const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.
 const out = process.env.PROBE_OUT ?? "/tmp";
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 /* iPad mini 6 竖屏（user 2026-10-21「默认测试按 ipad mini」「我比较习惯竖屏」）*/ });
+// v0.17.54 起「视图」是常驻浮窗：钮 = 开 / 关；没开才点（点完菜单不再自动收，再点一下钮会把它关掉）
+const openViewWin = async () => { if (!(await page.evaluate(() => !!document.querySelector('.float-win[data-win="view"]:not([hidden])')))) await page.click('#viewGizmo .gizmo-btn[title="视图"]'); };
 const errs = []; page.on("pageerror", (e) => errs.push(e.message)); page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
 // 无头 Chromium 锁上鼠标会把动画帧压到每秒 6 帧（真浏览器不会；2026-10-28 实测 60 → 6）：探针当「锁不上鼠标的设备」（触屏那条路：右键拖看），只记有没有请求锁
 await page.addInitScript(() => { globalThis.__lockRequests = 0; HTMLCanvasElement.prototype.requestPointerLock = function () { globalThis.__lockRequests++; }; });
@@ -26,7 +28,7 @@ check(faces === 6, `盒子六膜 (faces=${faces})`);
 
 // 经「视图」菜单开步行相机（2026-10-28 改成 FPS：菜单 → 放置（虚影）→ 点地面落人；纪元账本 FM140 / FM145 / FM154）
 const box = await page.locator("#board").boundingBox();
-await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(80);   // 步行相机住右上角「视图」菜单（不在 ☰）
+await openViewWin(); await page.waitForTimeout(80);   // 步行相机住右上角「视图」菜单（不在 ☰）
 await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);   // v0.13.51 视图菜单分页：步行在「相机」页
 await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(80);
 const placing = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), panel: globalThis.__catsup.editor.paramPanel()?.title ?? null }));
@@ -34,7 +36,7 @@ check(placing.phase === "place" && placing.panel === "步行：点一下落在�
 // 平时按什么都不进步行：放置里 Esc = 取消、什么都没发生
 await page.keyboard.press("Escape"); await page.waitForTimeout(50);
 check(await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase() === "off" && !globalThis.__catsup.editor.paramPanel()), "放置里 Esc = 取消");
-await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(80);
+await openViewWin(); await page.waitForTimeout(80);
 await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);
 await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(80);
 // 悬停在原点南边的地面上：虚影绿（站得下）；悬停在盒子侧面：落到墙脚
@@ -191,7 +193,7 @@ check(!after.walking && after.phase === "off" && after.halfH === 4, `Esc 离开�
 
 // 在相机这里出生（user 10-29「步行相机的马前炮还有一个就是spawn在当前摄像机位置的选项」）：眼 = 现在的眼位、朝向不变；锁鼠标后第一个假位移丢掉（不然镜头猛甩）
 const camBefore = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cam.projection = "persp"; e.cam.pitch = 0.3; e.cam.yaw = -1; e.draw(); return { eye: e.cam.eye(), fwd: e.cam.forward() }; });
-await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(80);
+await openViewWin(); await page.waitForTimeout(80);
 await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);
 await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(100);
 await page.click("button:has-text('在相机这里出生')"); await page.waitForTimeout(60);

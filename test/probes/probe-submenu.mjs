@@ -61,7 +61,7 @@ const res = await page.evaluate(async () => {
 await b.close();
 res.errs = errs;
 const ok = res.one.row && res.one.sub && !res.one.flat
-  && res.two && res.two.n === 5 && res.two.labels === "立方体,圆柱,圆锥,球,平面" && res.two.inScreen && res.two.right
+  && res.two && res.two.n === 7 && res.two.labels === "圆圈,方框,立方体,圆柱,圆锥,球,平面"   /* v0.16.43 起只有边的圆圈 / 方框排前面（探针 10-30 才跟上） */ && res.two.inScreen && res.two.right
   && res.three.df === 6 && res.three.menus === 0
   && res.fourMenu && res.four && res.four.inScreen && res.four.left && res.four.menuIn
   && res.five && res.five.inScreen && res.fiveLayer === true

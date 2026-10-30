@@ -22,7 +22,8 @@ import { perf } from "../editor/perf-stats.ts";
 import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts";
 import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
-import { openObjectWindow } from "./object-window.ts";
+import { openObjectWindow, objectWindowMenu } from "./object-window.ts";
+import { createMenuWindow, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
@@ -893,6 +894,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 function syncUi(): void {
   renderSnapWidget();
   refreshMachineBoard();   // 指令板上的数跟着模型变
+  viewWin?.refresh(); objectWin?.refresh();   // 常驻浮窗（视图 / 物件）：内容变了才重画（ui/menu-window.ts）
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
   softSliderRef?.render();   // 软选择半径滑条
   selGrowRef?.sync();   // 扩 / 缩条：换了工具 / 没选区就收
@@ -1088,7 +1090,9 @@ viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn gizmo-menu"; vie
 let ladder: Ladder | null = null;
 let ladderTimer = 0;
 // eslint-disable-next-line no-var
-var viewMenuHandle: { refresh(): void; isOpen(): boolean } | null = null;   // var：加载回来时刷新开着的菜单
+var viewMenuHandle: { refresh(force?: boolean): void; isOpen(): boolean } | null = null;   // var：加载回来时刷新开着的菜单
+// eslint-disable-next-line no-var
+var objectWin: MenuWindowHandle | null = null;   // 物件浮窗（这一层）
 /** 拉梯子数据（279 KB / gzip 58 KB）：选了参考项才拉；开机时等 1.5 s 再拉（启动优先），用户点了参考页 / 选了一项 = 立刻拉。 */
 function ensureScaleLadder(now = false): void {
   if (ladder || !editor.scaleRefs.length && !now) return;
@@ -1127,11 +1131,11 @@ function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?
 function onRefPick(id: RefMenuId): "keep" {
   if (id.startsWith("refmax:")) { scaleMax = Number(id.slice(7)); PREF.set("scaleMax", String(scaleMax)); return "keep"; }
   if (id === "ref:pick" && ladder) {
-    const L = ladder, anchor = document.querySelector<HTMLElement>('.popup-menu .menu-item[data-menu-id="ref:pick"]');
+    const L = ladder, anchor = document.querySelector<HTMLElement>('.float-win[data-win="view"] .menu-item[data-menu-id="ref:pick"], .popup-menu .menu-item[data-menu-id="ref:pick"]');
     if (anchor) openMultiSelect({
       anchor, ariaLabel: "看哪些参考", options: () => refOptions(L), values: () => editor.scaleRefs,
-      onToggle: (x) => { editor.toggleScaleRef(x); ensureScaleLadder(true); viewMenuHandle?.refresh(); },
-      onClear: () => { editor.clearScaleRefs(); viewMenuHandle?.refresh(); }, clearLabel: "全部取消（不显示）",
+      onToggle: (x) => { editor.toggleScaleRef(x); ensureScaleLadder(true); viewMenuHandle?.refresh(true); },
+      onClear: () => { editor.clearScaleRefs(); viewMenuHandle?.refresh(true); }, clearLabel: "全部取消（不显示）",
     });
   }
   return "keep";
@@ -1145,9 +1149,10 @@ const VIEW_MENU_TABS = [
   { id: "camera", label: "相机" },
 ] as const;
 type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
-function openViewMenu(tab?: ViewTab): void {
-  const opts = {
-    anchor: viewMenuBtn, align: "end" as const, tabs: VIEW_MENU_TABS, tabKey: "view", tab,
+/** 视图菜单的内容（常驻浮窗里画；user 10-29「我建议是视图 物体 都做成可以常驻的浮窗吧，只有主菜单是菜单型的」）。 */
+function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
+  return {
+    tabs: VIEW_MENU_TABS, tabKey: "view",
     items: () => [
       { id: "persp" as MenuId, label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), tab: "display" },
       { id: "xray" as MenuId, label: "X 光", checked: editor.xray, hint: "Alt+Z：选择工具点得到被挡住的点 / 边 / 面（面中心的小方点），边透过面画出来", tab: "display" },   // DT17 拾取 + 叠加层（半透明留 Tron 纪元）
@@ -1169,7 +1174,19 @@ function openViewMenu(tab?: ViewTab): void {
     ],
     onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
   };
-  viewMenuHandle = tab ? openPopupMenu<MenuId | GridMenuId | RefMenuId>(opts) : togglePopupMenu<MenuId | GridMenuId | RefMenuId>(opts);
+}
+/** 浮窗位置按设备记（PREF win.<id>）。 */
+const WIN_POS = {
+  get: (id: string): { left: number; top: number } | null => { try { const v = PREF.get(`win.${id}`); return v ? JSON.parse(v) as { left: number; top: number } : null; } catch { return null; } },
+  set: (id: string, p: { left: number; top: number }): void => PREF.set(`win.${id}`, JSON.stringify({ left: Math.round(p.left), top: Math.round(p.top) })),
+};
+// eslint-disable-next-line no-var
+var viewWin: MenuWindowHandle | null = null;
+/** 开视图浮窗：tab = 直接停在那一页（别处的「XX 设置…」跳进来）；不给 = 开 / 关。 */
+function openViewMenu(tab?: ViewTab): void {
+  const w = (viewWin ??= createMenuWindow({ id: "view", title: "视图", menu: viewMenuSpec, store: WIN_POS, onOpenChange: (o) => viewMenuBtn.classList.toggle("is-open", o) }));
+  if (tab) w.open($("viewGizmo"), "beside", tab); else w.toggle($("viewGizmo"), "beside");   // 第一次开 = 视图方块那一列的左边（不盖住方块 / 吸附 / X 光）
+  viewMenuHandle = w;
 }
 viewMenuBtn.addEventListener("click", () => openViewMenu());
 void viewGizmo;
@@ -1188,7 +1205,9 @@ xrayBtnRef = xrayBtn;
 // 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
 objectBtn.innerHTML = iconHtml("object"); $("modeSelect").after(objectBtn);
-objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, { after: syncUi, openMachine: (m) => openMachineBoard(m, objectBtn) }, "start"));
+// 「这一层」= 常驻浮窗（ui/menu-window.ts）；选中的子组件（物体菜单「物体设置…」）还是一次性的下拉（openObjectWindow）
+const objectWinDeps = { after: syncUi, openMachine: (m: Machine) => openMachineBoard(m, objectBtn) };
+objectBtn.addEventListener("click", () => (objectWin ??= createMenuWindow({ id: "object", title: "物件", menu: () => objectWindowMenu(editor, hud, "self", objectWinDeps), store: WIN_POS, onOpenChange: (o) => objectBtn.classList.toggle("is-open", o) })).toggle(objectBtn, "start"));
 // 车间里的机器（machine-window.ts MACHINES 表）：板 = 那台机器的低频指令（user 10-28「每个机器一个面板，然后左栏是你的手和常用工具袋」）。
 // 入口 = 物件窗口里那台机器的页签（user 10-29「修复菜单不应该挂在视图那边，而是物品选项里面的一个tab」；以前是右边视图那一列的扳手钮）
 function openMachineBoard(m: Machine, anchor: HTMLElement): void {

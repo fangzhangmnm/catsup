@@ -13,10 +13,10 @@ const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const c = document.getElementById("board"), r = c.getBoundingClientRect(), vw = innerWidth, vh = innerHeight;
   const rclick = async () => { c.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: r.left + Math.round(vw * 0.2), clientY: r.top + Math.round(vh * 0.4), button: 2 })); await sleep(60); };
-  const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), layer = () => document.querySelector(".popup-menu.choice-layer");
-  const openObj = async () => { document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物件」钮 → 物件窗口（这一层）
+  const menu = () => document.querySelector(".popup-menu:not(.choice-layer)") ?? document.querySelector(".float-win:not([hidden]) .menu-panel"), layer = () => document.querySelector(".popup-menu.choice-layer");
+  const openObj = async () => { if (document.querySelector('.float-win[data-win="object"]:not([hidden])')) return; document.querySelector(".gizmo-object")?.dispatchEvent(new MouseEvent("click", { bubbles: true })); await sleep(60); };   // 右边「物件」钮 → 物件窗口（这一层）
   const smoothRow = () => !!menu()?.querySelector('[data-menu-id="submenu:默认平滑"]');
-  const closeAll = async () => { document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); await sleep(30); document.querySelectorAll(".popup-menu").forEach((m) => m.remove()); };
+  const closeAll = async () => { document.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true })); await sleep(30); document.querySelectorAll(".popup-menu").forEach((m) => m.remove()); document.querySelectorAll(".float-win:not([hidden]) .float-close").forEach((b) => b.click()); };
   const pick = async (sub, id, via = "menu") => {   // via = "menu"（右键，几何层）/ "object"（物件窗口，物件级）
     if (via === "object") await openObj(); else await rclick();
     const row = menu()?.querySelector(`[data-menu-id="submenu:${sub}"]`);

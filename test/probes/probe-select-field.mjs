@@ -22,8 +22,8 @@ res.nativeSelects2 = await page.evaluate(() => document.querySelectorAll("select
 // ☰ 视图菜单「显示」页：单位 = 一行下拉（2026-10-25 起），点开选「英尺英寸」→ vcbUnit = ft
 await page.evaluate(() => globalThis.__catsup.hud.pick("select"));
 await page.locator('#viewGizmo .gizmo-btn[title="视图"]').click(); await page.waitForTimeout(150);
-await page.click('.popup-menu [data-menu-tab="display"]'); await page.waitForTimeout(80);
-await page.click('.popup-menu [data-menu-id="unit:pick"]'); await page.waitForTimeout(100);
+await page.click('.float-win[data-win="view"] [data-menu-tab="display"]'); await page.waitForTimeout(80);
+await page.click('.float-win[data-win="view"] [data-menu-id="unit:pick"]'); await page.waitForTimeout(100);
 const ftItem = page.locator(".choice-layer button", { hasText: "英尺英寸" });
 res.unitItem = await ftItem.count();
 if (res.unitItem) { await ftItem.click(); await page.waitForTimeout(120); }
