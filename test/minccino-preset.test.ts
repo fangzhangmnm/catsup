@@ -16,7 +16,7 @@ describe("minccino 预设 = 数据", () => {
     assert(!isStyled(PRESETS.white), "白模不该走风格那条路");
     eq(planFrame(presetPasses(PRESETS.white), ["frame"]).order.join(","), "scene,grid,overlay");
     assert(isStyled(PRESETS.pixelOutline), "像素描边该走风格那条路");
-    eq(planFrame(presetPasses(PRESETS.pixelOutline), ["frame"]).order.join(","), "scene,pixelOutline,upscale,grid,overlay");
+    eq(planFrame(presetPasses(PRESETS.pixelOutline), ["frame"]).order.join(","), "scene,grid,pixelOutline,upscale,overlay");   // 网格跟内容进小图（T101）
     assert(!isStyled(PRESETS.papercut), "剪纸是原生分辨率、没有后处理：不走屏幕那条路");
     eq(planFrame(presetPasses(PRESETS.papercut), ["frame"]).order.join(","), "aoBake,ground,scene,grid,overlay");   // 遮蔽先烘、地面先画、模型追加
     assert(isStyled(PRESETS.tron), "CRT Tron 走屏幕那条路（240 行 + CRT）");
@@ -47,7 +47,7 @@ describe("minccino 预设 = 数据", () => {
   });
   it("屏幕和画风分开选（T106）：白模套像素屏 = 进小图再放大；像素描边套原生 = 还是描边那条路", () => {
     eq(planFrame(presetPasses(PRESETS.white, SCREENS.pixel3), ["frame"]).order.join(","), "scene,upscale,grid,overlay");
-    eq(planFrame(presetPasses(PRESETS.pixelOutline, SCREENS.native), ["frame"]).order.join(","), "scene,pixelOutline,upscale,grid,overlay");
+    eq(planFrame(presetPasses(PRESETS.pixelOutline, SCREENS.native), ["frame"]).order.join(","), "scene,grid,pixelOutline,upscale,overlay");   // 网格跟内容进小图（T101）
     assert(isStyled(PRESETS.white, SCREENS.pixel3) && !isStyled(PRESETS.white), "isStyled 没按实际套的屏算");
   });
 });

@@ -182,6 +182,8 @@ const TEX_FRAG = /* glsl */`
 const OVERLAY_LAYER = 5;
 /** 风格的地面 / 背景那一遍全屏（剪纸）住第 6 层：遮蔽烘焙的相机只看第 0 层，地面不挡自己。 */
 const GROUND_LAYER = 6;
+/** 网格 + 三色轴的原生 1 像素线版（像素化的风格把它们画进小图用；T101 user「像素网格也用线元？不要断断续续」）：平时不画，小图那遍才打开这一层。 */
+const PIXEL_GRID_LAYER = 7;
 /** 改完模型停手多久才重烘遮蔽（毫秒）：拖着改的时候不烘，影子停手后跟上（披露在预设说明里）。 */
 const AO_QUIET_MS = 250;
 /** 0xRRGGBB → sRGB 浮点三元（膜 shader 用；不过 three 的色彩管理）。 */
@@ -256,6 +258,8 @@ export class Renderer3 implements RenderProvider {
   private readonly perf: PerfSink;
    // 变换 gizmo（2026-10-26）
   private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null;
+  /** 网格 / 三色轴的原生 1 像素线版（PIXEL_GRID_LAYER；像素化的风格画进小图，光栅器自己的 Bresenham = 不糊不断）。 */
+  private gridPix: any = null; private axesPix: any = null;
   private gridKey = "";
   private scratchV = new THREE.Vector3();
   private scratchV2 = new THREE.Vector3();
@@ -684,9 +688,13 @@ export class Renderer3 implements RenderProvider {
     const bg = this.scene.background, mask = cam3.layers.mask, auto = this.renderer.autoClear;
     const cc = this.renderer.getClearColor(new THREE.Color()), ca = this.renderer.getClearAlpha();
     try {
-      // ① 模型 → 小图：清成全零（背景色在描边那遍补，渲染目标里 three 不给背景做色彩换算）
-      this.scene.background = null; this.renderer.setClearColor(0x000000, 0);
+      // ① 模型 → 小图：清成全零（背景色在描边那遍补，渲染目标里 three 不给背景做色彩换算）；网格跟内容走（T101）= 先清成背景色的原始 sRGB 数（setRGB 按线性空间存 = 原样写进渲染目标），网格正片叠底在它上面
+      const gridIn = p.gridLayer === "content" && !p.post.bloom && !!this.gridMesh;
+      this.scene.background = null;
+      if (gridIn) { const b = p.light.background ?? PALETTE.background; this.renderer.setClearColor(this.tmpColor.setRGB(((b >> 16) & 255) / 255, ((b >> 8) & 255) / 255, (b & 255) / 255, THREE.LinearSRGBColorSpace), 1); }
+      else this.renderer.setClearColor(0x000000, 0);
       cam3.layers.mask = 1 | (1 << GROUND_LAYER);   // 模型 + 风格的地面（叠加层那一层后面单画）
+      if (gridIn) cam3.layers.enable(PIXEL_GRID_LAYER);   // 网格 / 轴的原生 1 像素线版跟模型一起进小图
       cam3.setViewOffset(W, H, 0, H - ps.h * k, ps.w * k, ps.h * k);
       const pxScale = H / this.dpr / ps.h;   // LineSegments2 按画布 CSS 视口算像素：小图里线宽要乘回去（tron-shader.ts 头）——不乘 = 粗线在小图里只有几分之一像素宽、画成断断续续的虚线（user 10-29 iPad 截图：线稿粗细 1.5 的粗线路）
       if (p.material.tron && this.tron) this.tron.sync(p.material.tron, pxScale);
@@ -707,13 +715,14 @@ export class Renderer3 implements RenderProvider {
       } else {
         cam3.clearViewOffset();
         // ② ③ 描边 + 放大（写回深度）
-        ps.outline(this.renderer, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera });
+        ps.outline(this.renderer, { outline: p.post.pixelOutline, background: p.light.background ?? PALETTE.background, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera, bgInTex: gridIn });
         ps.upscale(this.renderer, target, "post", sc.look);
       }
       } finally { restoreLines(); }   // 叠加层那遍（选中边用同一份边线材质）按原分辨率的线宽
-      // ④ 叠加层那一层：不清屏，按原分辨率画在放大好的画面上
+      // ④ 叠加层那一层：不清屏，按原分辨率画在放大好的画面上（网格 / 轴已经进小图的就不再画）
       this.renderer.autoClear = false; cam3.layers.mask = 1 << OVERLAY_LAYER;
-      this.renderer.setRenderTarget(target); this.renderer.render(this.scene, cam3);
+      if (gridIn) { this.gridMesh.visible = false; this.axesObj.visible = false; }
+      try { this.renderer.setRenderTarget(target); this.renderer.render(this.scene, cam3); } finally { if (gridIn) { this.gridMesh.visible = true; this.axesObj.visible = true; } }
     } finally {
       this.scene.background = bg; cam3.layers.mask = mask; this.renderer.autoClear = auto; this.renderer.setClearColor(cc, ca);
       if (cam3.view?.enabled) cam3.clearViewOffset();
@@ -1097,6 +1106,21 @@ export class Renderer3 implements RenderProvider {
     seg(-L, L, (t) => at(0, t, 0), PALETTE.axisY);
     seg(0, L, (t) => at(0, 0, t), PALETTE.axisZ);
     setLineGeometry(this.axesObj, apos, acol);
+    // 原生 1 像素线版（像素化的风格用）：网格 = 正片叠底的线（和着色器网格同一个系数色）、轴 = 轴色；都不写深度（写了会被像素描边当成物体描一圈）
+    if (!this.gridPix) {
+      this.gridPix = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, transparent: true, blending: THREE.MultiplyBlending, premultipliedAlpha: true, depthWrite: false, depthFunc: THREE.LessEqualDepth }));
+      this.axesPix = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, depthWrite: false, depthFunc: THREE.LessEqualDepth }));
+      for (const o of [this.gridPix, this.axesPix]) { o.frustumCulled = false; o.layers.set(PIXEL_GRID_LAYER); this.scene.add(o); }
+      this.gridPix.renderOrder = -1;
+    }
+    let st = step > 1e-6 ? step : 1;
+    while (L / st > 100) st *= 10;   // 每侧最多 100 根（格距很细时抽稀，同着色器网格「太密淡出」）
+    const gpos: number[] = [], gcol: number[] = [], m = this.tmpColor.setHex(PALETTE.gridMajor), n = Math.floor(L / st);
+    const pushG = (a: Vec3, b: Vec3): void => { gpos.push(a.x, a.y, a.z, b.x, b.y, b.z); gcol.push(m.r, m.g, m.b, m.r, m.g, m.b); };
+    // 切成 2 米一段（同三色轴）：一根 100 米、穿过近平面的长线在软件光栅（无头 swiftshader）里整条被裁掉，实测网格一根都不出
+    for (let i = -n; i <= n; i++) { if (i === 0) continue; for (let t = -L; t < L - 1e-9; t += AXIS_SEG) { const t1 = Math.min(L, t + AXIS_SEG); pushG(at(i * st, t, 0), at(i * st, t1, 0)); pushG(at(t, i * st, 0), at(t1, i * st, 0)); } }
+    const setNative = (obj: any, pos: number[], col: number[]): void => { const g = new THREE.BufferGeometry(); g.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute("color", new THREE.Float32BufferAttribute(col, 3)); obj.geometry.dispose(); obj.geometry = g; };
+    setNative(this.gridPix, gpos, gcol); setNative(this.axesPix, apos, acol);
   }
 }
 

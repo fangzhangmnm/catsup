@@ -53,7 +53,7 @@ await page.waitForTimeout(450);
 const later = await page.evaluate((base) => { const r3 = globalThis.__catsup.editor.renderer3, n = (r3.perf.count.aoBake ?? 0) - base; r3.setPreset("white"); globalThis.__catsup.editor.draw(); return { bake3: n, back: r3.lastPlan.order.join(",") }; }, r.bakeBase);
 r.back = later.back;
 check(r.white === "scene,grid,overlay" && r.whitePreset === "white", `默认 = 白模那一条：${r.white}`);
-check(r.styled === "scene,pixelOutline,upscale,grid,overlay" && r.styledPreset === "pixelOutline", `像素描边 = 场景 → 描边 → 放大 → 网格 / 叠加层：${r.styled}`);
+check(r.styled === "scene,grid,pixelOutline,upscale,overlay" && r.styledPreset === "pixelOutline", `像素描边 = 场景 → 描边 → 放大 → 网格 / 叠加层：${r.styled}`);
 check(r.styledDraws >= 3, `风格那条路的 draw call 把几遍都算上了：${r.styledDraws}`);
 check(r.thumbSame, "缩略图画白模：风格开着截的 = 白模时截的，逐字节一样");
 check(r.afterThumb.includes("upscale"), `截完缩略图主视图还是风格：${r.afterThumb}`);

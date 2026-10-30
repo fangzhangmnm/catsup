@@ -17,14 +17,14 @@ const OUTLINE_FS = /* glsl */`
   uniform sampler2D uCol, uDepth;
   uniform vec3 uLineCol, uBg;
   uniform float uLineTint, uNear, uFar, uLineMul;
-  uniform bool uInner, uDarkSide, uOrtho, uOn, uInside;
+  uniform bool uInner, uDarkSide, uOrtho, uOn, uInside, uBgTex;
   uniform int uWidth;
   layout(location = 0) out vec4 oColor;   // three r185 的 GLSL3 不再替你定义 gl_FragColor，自己声明输出
   float viewZ(float d) { if (uOrtho) return uNear + d * (uFar - uNear); float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / ((uFar + uNear) - z * (uFar - uNear)); }
   void main() {
     ivec2 p = ivec2(gl_FragCoord.xy), hi = textureSize(uDepth, 0) - 1;
     float d = texelFetch(uDepth, p, 0).r;
-    vec4 c = d < 1.0 ? texelFetch(uCol, p, 0) : vec4(uBg, 1.0);
+    vec4 c = d < 1.0 || uBgTex ? texelFetch(uCol, p, 0) : vec4(uBg, 1.0);   // uBgTex：小图已先清成背景色（网格跟内容进小图时，背景上有网格）
     if (!uOn) { oColor = c; return; }
     const ivec2 K[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
     bool line = false; vec3 nb = c.rgb;
@@ -107,7 +107,7 @@ export class PixelScreen {
     this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.outlineMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: OUTLINE_FS, depthTest: false, depthWrite: false,
-      uniforms: { uInside: { value: false }, uCol: { value: null }, uDepth: { value: null }, uLineCol: { value: new THREE.Vector3() }, uBg: { value: new THREE.Vector3() }, uLineTint: { value: 1 }, uNear: { value: 0.1 }, uFar: { value: 100 }, uLineMul: { value: 0.42 }, uInner: { value: false }, uDarkSide: { value: false }, uOrtho: { value: false }, uOn: { value: true }, uWidth: { value: 1 } },
+      uniforms: { uInside: { value: false }, uBgTex: { value: false }, uCol: { value: null }, uDepth: { value: null }, uLineCol: { value: new THREE.Vector3() }, uBg: { value: new THREE.Vector3() }, uLineTint: { value: 1 }, uNear: { value: 0.1 }, uFar: { value: 100 }, uLineMul: { value: 0.42 }, uInner: { value: false }, uDarkSide: { value: false }, uOrtho: { value: false }, uOn: { value: true }, uWidth: { value: 1 } },
     });
     this.upscaleMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: UPSCALE_FS, depthTest: true, depthFunc: THREE.AlwaysDepth, depthWrite: true,
@@ -139,8 +139,9 @@ export class PixelScreen {
     this.upscale(renderer, target, "post", "none");
   }
   /** 小图 → 描边（后处理挂点）→ post。 */
-  outline(renderer: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean }): void {
+  outline(renderer: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean; bgInTex?: boolean }): void {
     const u = this.outlineMat.uniforms, pl = o.outline;
+    u.uBgTex.value = !!o.bgInTex;
     u.uCol.value = this.low.texture; u.uDepth.value = this.low.depthTexture;
     u.uBg.value.copy(srgbVec(o.background)); u.uOn.value = !!pl;
     if (pl) { u.uLineCol.value.copy(srgbVec(pl.color)); u.uLineTint.value = pl.tint; u.uLineMul.value = pl.shade; u.uDarkSide.value = pl.darkSide; u.uInner.value = pl.inner; u.uWidth.value = pl.width; u.uInside.value = pl.side === "inside"; }

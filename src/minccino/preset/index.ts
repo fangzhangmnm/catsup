@@ -87,6 +87,8 @@ export interface Preset {
   readonly post: { readonly pixelOutline: PixelOutlinePost | null; readonly bloom: BloomPost | null };
   /** 屏幕一刀：像素化 = 一个画面像素放大几倍（CSS 像素；后端按设备像素比取整成整数倍放大）；1 = 原生。rows = 分辨率上限（画面最多几行，整数倍放大铺满，不留黑边）；
    *  look = 屏幕外观（none 最近邻 / crt-tv 电视）。 */
+  /** 地面网格 + 三色轴画在哪：overlay = 叠加层那遍按原分辨率；content = 跟模型一起进小图（像素化、被描边认得；T101 user「像素的时候axis和grid也许也可以接一下」）。只在走屏幕那条路时有区别。 */
+  readonly gridLayer: "overlay" | "content";
   readonly screen: ScreenId;   // 这个画风默认套哪块屏（用户可在视图 ☰「屏幕」里另选：画风 × 屏幕正交，T106）
   /** 几何预处理挂点（小学的四个风格里像素描边用不到；剪纸 / Tron / 铸铜接边信息、零件、倒角时填）。 */
   readonly geometry: Readonly<Record<string, never>>;
@@ -100,6 +102,7 @@ export const PRESETS = {
     material: { shade: "camera", texFilter: "asset", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
     light: { background: null, ground: null, ao: null, env: null },
     post: { pixelOutline: null, bloom: null },
+    gridLayer: "overlay",
     screen: "native",
     geometry: {},
   },
@@ -110,6 +113,7 @@ export const PRESETS = {
     material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
     light: { background: 0xfde6bd, ground: null, ao: null, env: null },
     post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
+    gridLayer: "content",   // T101：网格 / 三色轴跟画面一起像素化
     screen: "pixel3",
     geometry: {},
   },
@@ -121,6 +125,7 @@ export const PRESETS = {
     material: { shade: "flat", texFilter: "asset", edges: "none", colorize: "part", flat: { base: 0xf2efe8, shadowTint: 0xa7859c, contrast: 0.4, ramp: 1, steps: 1, soft: 0.12, lightAz: -30, lightEl: 60 }, tron: null, pbr: null, surface: [] },
     light: { background: 0xf7efe0, ground: { color: 0xefe4cf, on: 1, grid: 0 }, ao: { amount: 0.8, radius: 0.8, groundRadius: 2, soft: 0 }, env: null },
     post: { pixelOutline: null, bloom: null },
+    gridLayer: "overlay",
     screen: "native",
     geometry: {},
   },
@@ -132,6 +137,7 @@ export const PRESETS = {
     material: { shade: "tron", texFilter: "asset", edges: "all", colorize: "none", flat: null, tron: { face: 0x06141e, back: 0x1c0b10, shade: 0.55, rim: 0.25, rimPower: 3, line: 0x3fe6ff, core: 0.45, widthPx: 1, profile: 1.3, hidden: 0.12, select: 0xff9a2e }, pbr: null, surface: [] },
     light: { background: 0x010307, ground: { color: 0x010307, on: 0, grid: 0.55 }, ao: null, env: null },
     post: { pixelOutline: null, bloom: { amount: 1.0, radius: 0.7, cap: 1.8, vignette: 0.55 } },
+    gridLayer: "overlay",
     screen: "crt3",   // T85 user「tron的分辨率能不能别那么拉跨。先试下像素描边的分辨率」：240 行太糊 → 像素描边那档（×3）+ CRT 外观；240 行留在屏幕下拉里
     geometry: {},
   },
@@ -143,6 +149,7 @@ export const PRESETS = {
     material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "model", flat: null, tron: null, pbr: { base: 0xd6d6d6, metal: 0, rough: 0.6, coat: 0, coatRough: 0.05, spec: 1 }, surface: [] },
     light: { background: null, ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1, exposure: 0.9, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },
+    gridLayer: "overlay",
     screen: "native",
     geometry: {},
   },
@@ -155,6 +162,7 @@ export const PRESETS = {
       surface: [{ recipe: "sand-cast", amount: 0.5, color: 0 }, { recipe: "patina", amount: 0.75, color: 0x3b4632 }] },   // 写实 + 涂装车间：砂铸 → 铜绿
     light: { background: null, ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1.1, exposure: 0.95, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },
+    gridLayer: "overlay",
     screen: "native",
     geometry: {},
   },
@@ -180,12 +188,14 @@ export function presetPasses(p: Preset, screen: ScreenPreset = SCREENS[p.screen]
     // 地面 / 背景一遍全屏先画，模型追加在上面；遮蔽 = 后台烘的图（内容变了、停手才重烘），地面和模型都读
     ps.push({ id: "ground", reads: baked, writes: [tgt] }, { id: "scene", reads: ["stream", ...baked], appends: [tgt] });
   } else ps.push({ id: "scene", reads: ["stream"], writes: [tgt] });
+  if (styled && p.gridLayer === "content") ps.push({ id: "grid", appends: [tgt] });   // 网格跟内容进小图（T101）
   if (styled) {
     let cur = "lowres";
     if (p.post.bloom) { ps.push({ id: "glow", reads: ["stream"], writes: ["glow"] }, { id: "bloom", reads: ["glow"], writes: ["bloomLevels"] }, { id: "composite", reads: [cur, "bloomLevels"], writes: ["styled"] }); cur = "styled"; }
     else if (p.post.pixelOutline) { ps.push({ id: "pixelOutline", reads: [cur], writes: ["styled"] }); cur = "styled"; }
     ps.push({ id: "upscale", reads: [cur], writes: ["frame"] });
   }
-  ps.push({ id: "grid", appends: ["frame"] }, { id: "overlay", reads: ["stream", "editor"], appends: ["frame"] });
+  if (!(styled && p.gridLayer === "content")) ps.push({ id: "grid", appends: ["frame"] });
+  ps.push({ id: "overlay", reads: ["stream", "editor"], appends: ["frame"] });
   return ps;
 }

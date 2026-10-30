@@ -176,3 +176,4 @@
 ### v0.17.27–28（Opus）
 - v0.17.27 风格 / 屏幕跟着文件走（`CATSUP_desk` 1.3，T86 / T115）：见契约文档追记；基线没动。
 - v0.17.28 像素描边画在物体那侧（T116）：`PixelOutlinePost.side`（outside / inside），像素描边 = inside，描边和勾线落在同一格合成一条（以前两格粗）。**声明**：`style-pixel-sel / house / textured` 重冻（轮廓变细一格）。
+- v0.17.29 像素时网格 / 三色轴进小图（T118）：`gridLayer: content` + 原生 1 像素线版 + 小图先清成背景色；**声明**：像素三张重冻（背景 / 网格 / 轴都进了小图）。
