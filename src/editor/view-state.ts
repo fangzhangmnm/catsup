@@ -62,7 +62,7 @@ export interface ViewState {
   /** X 光面点（每张面中心一个小方点、不被挡；sel = 这张面选中着，画强调色）。 */
   faceDots?: { key: string; pts: readonly Pt3[]; sel: readonly boolean[] } | null;
   /** 正在编辑的网格体的平滑边（自由建模；淡色细线，和画出来的棱拉开差距——user 10-28「软边是编辑的时候和硬边拉开差距」；key 变了才重建）。 */
-  softEdges?: { key: string; segs: readonly { a: Pt3; b: Pt3 }[] } | null;
+  softEdges?: { key: string; segs: readonly { id: EdgeId; a: Pt3; b: Pt3 }[] } | null;
   /** 镜像（自由建模，FM23「看得见：镜像面淡淡画出来，中缝上的点高亮」）：镜像面的淡框 + 中缝上的点。 */
   mirror?: { key: string; seam: readonly Pt3[] } | null;
   /** 充能点 / 充能边（0.11.6，user「让充能点有个小标记」）：点画小菱形，边画淡淡的延长线。 */

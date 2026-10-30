@@ -3649,13 +3649,13 @@ export class Editor {
     return out.length ? out : null;
   }
   /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
-  private softEdgesView(view: WorldView, g: (id: number) => number): { key: string; segs: { a: Pt3; b: Pt3 }[] } | null {
+  private softEdgesView(view: WorldView, g: (id: number) => number): { key: string; segs: { id: EdgeId; a: Pt3; b: Pt3 }[] } | null {
     if (this.mode.id !== "freeform" || this.cmdPreview) return null;
-    const k = view.activeSlot().kernel, segs: { a: Pt3; b: Pt3 }[] = [];
+    const k = view.activeSlot().kernel, segs: { id: EdgeId; a: Pt3; b: Pt3 }[] = [];
     for (const e of k.edges()) {
       const ge = g(e.id);
       if (!view.isSoft(ge) || !view.graph.hasEdge(ge)) continue;
-      const E = view.graph.edge(ge); segs.push({ a: view.graph.pt(E.a), b: view.graph.pt(E.b) });
+      const E = view.graph.edge(ge); segs.push({ id: ge, a: view.graph.pt(E.a), b: view.graph.pt(E.b) });
     }
     return segs.length ? { key: String(this.kid(view)), segs } : null;
   }

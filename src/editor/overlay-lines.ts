@@ -71,11 +71,13 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): AuxLines[] {
     out.push(lines("guides", "guide", gk, s));
   }
   // ---- 平滑边（自由建模）----
+  // 被刮擦 / 悬停 / 检查标着的那几条不在这里画——高亮（highlight.ts 的线块外那组）画它们，一条线只画一遍（2026-10-29 Opus；Fable 元规则「一遍」）
   const se = view.softEdges;
   if (se && se.segs.length) {
-    const s = segs();
-    for (const g of se.segs) push(s, g.a, g.b, "softEdge");
-    out.push(lines("soft", "softEdge", se.key, s));
+    const hot = (id: number): boolean => view.scrubEdges.has(id) || view.hoverEdge === id || !!view.warnEdges?.has(id);
+    const s = segs(), skipped: number[] = [];
+    for (const g of se.segs) { if (hot(g.id)) { skipped.push(g.id); continue; } push(s, g.a, g.b, "softEdge"); }
+    if (s.pos.length) out.push(lines("soft", "softEdge", `${se.key}|${skipped.join(",")}`, s));
   }
   // ---- 充能标记：点 = 小菱形（像素尺寸），边 = 淡淡的延长线 ----
   const ch = view.charged;

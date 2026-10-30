@@ -86,8 +86,11 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; /** 原生线的源几何（选中边按段分材质用）/ 粗线被标记那几条的拷贝 + 它的隐线版（X 光）。 */ pixelSrc: any; thickMark: any; thickMarkHidden: any; /** 这个槽的线这一帧画不画、粗线还是像素线（隐线标记按它开节点）。 */ linesVisible: boolean; thickLines: boolean; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
+interface SlotNodes { thickOwn?: ThickOwn | null; root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; /** 原生线的源几何（选中边按段分材质用）/ 粗线被标记那几条的拷贝 + 它的隐线版（X 光）。 */ pixelSrc: any; thickMark: any; thickMarkHidden: any; /** 这个槽的线这一帧画不画、粗线还是像素线（隐线标记按它开节点）。 */ linesVisible: boolean; thickLines: boolean; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
+// SlotNodes.thickOwn：见 ThickOwn（syncThickMarks 用；没标记 = null，底线用共享块）
 interface MarkedGeo { geo: any; src: any; index: any }
+/** 被标记的槽的粗线底线：共享块的位置 / 颜色 / 两侧面，只有「旗」那一列自己拷（被标记的写 -1 = 着色器收成零宽 = 不画）。 */
+interface ThickOwn { geo: any; flag: any; src: any }
 
 // ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
 
@@ -916,7 +919,7 @@ export class Renderer3 implements RenderProvider {
       n.linesVisible = showL; n.thickLines = thickLines; n.xthick.visible = false; n.xpixel.visible = false; n.pixelSrc = n.pixel.geometry; n.markKey = "\u0000";
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
-    for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
+    for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.dropThickOwn(n); this.scene.remove(n.root); this.slotNodes.delete(key); }
     // 块的显卡副本：两代没人用的释放
     for (const [id, g] of this.chunkGpus) if (g.gen < this.syncGen - 1) { g.geo.dispose(); this.chunkGpus.delete(id); }
   }
@@ -1003,10 +1006,15 @@ export class Renderer3 implements RenderProvider {
     n.pixel.geometry = e.geo; n.pixel.material = mats; n.pixel.visible = mats.length > 0;
     n.xpixel.geometry = e.geo; n.xpixel.material = hmats; n.xpixel.visible = hidden && hmats.length > 0;
   }
-  /** 粗线（实例化）：被标记的那几条拷一份（位置 / 两侧面 / 轮廓旗照抄，颜色换成标记色），用边线材质画在底线之后；X 光再配一份「深度大于才画」的。 */
+  /** 粗线（实例化）：被标记的那几条拷一份（位置 / 两侧面 / 轮廓旗照抄，颜色换成标记色），用边线材质画；底线换成「旗」自己拷的那份、被标记的旗写 -1（着色器收成零宽）
+   *  = 每条线只画一遍（2026-10-29 Opus；Fable 元规则「一遍」：以前底线照画、拷贝靠画序盖上去）。X 光再配一份「深度大于才画」的，隐线那份底线同样踢掉被标记的。 */
   private syncThickMarks(n: SlotNodes, sel: readonly Mark[], hidden: boolean): void {
     const gl = n.linesChunk ? (this.chunkGpus.get(n.linesChunk) as GpuLines | undefined) : undefined;
-    if (!sel.length || !gl || !gl.instanced) { n.thickMark.visible = false; n.thickMarkHidden.visible = false; return; }
+    if (!sel.length || !gl || !gl.instanced) {
+      n.thickMark.visible = false; n.thickMarkHidden.visible = false;
+      if (n.thickOwn) { if (gl) { n.thick.geometry = gl.geo; n.xthick.geometry = gl.geo; } this.dropThickOwn(n); }
+      return;
+    }
     const seg = gl.bufs.first.array as Float32Array, w1 = gl.bufs.w1.array as Float32Array, w2 = gl.bufs.w2.array as Float32Array, flag = gl.bufs.flag.array as Float32Array;
     const S: number[] = [], C: number[] = [], W1: number[] = [], W2: number[] = [], F: number[] = [];
     for (const m of sel) {
@@ -1019,6 +1027,26 @@ export class Renderer3 implements RenderProvider {
       }
     }
     this.setMarkCopy(n, S, C, { W1, W2, F }, hidden);
+    // 底线：被标记的那几条踢掉
+    let own = n.thickOwn;
+    if (own && (own.src !== gl.geo || own.flag.count < gl.count)) { this.dropThickOwn(n); own = null; }
+    if (!own) {
+      const geo = new LineSegmentsGeometry(), cap = (gl.bufs.flag.array as Float32Array).length;
+      for (const name of ["instanceStart", "instanceEnd", "instanceColorStart", "instanceColorEnd", "instanceW1", "instanceW2"]) geo.setAttribute(name, gl.geo.attributes[name]);
+      const fa = new THREE.InstancedBufferAttribute(new Float32Array(cap), 1); fa.setUsage(THREE.DynamicDrawUsage); geo.setAttribute("instanceFlag", fa);
+      own = { geo, flag: fa, src: gl.geo }; n.thickOwn = own;
+    }
+    const f = own.flag.array as Float32Array;
+    f.set(flag.subarray(0, gl.count));
+    for (const m of sel) { const end = Math.min(m.start + m.count, gl.count); for (let i = Math.max(m.start, 0); i < end; i++) f[i] = -1; }
+    own.flag.needsUpdate = true; own.geo.instanceCount = gl.count;
+    n.thick.geometry = own.geo; n.xthick.geometry = own.geo;
+  }
+  /** 放掉槽自己那份粗线底线（共享的属性先摘下来，不跟着释放；只放掉自己的旗和底板四边形）。 */
+  private dropThickOwn(n: SlotNodes): void {
+    const own = n.thickOwn; if (!own) return;
+    for (const name of ["instanceStart", "instanceEnd", "instanceColorStart", "instanceColorEnd", "instanceW1", "instanceW2"]) own.geo.deleteAttribute(name);
+    own.geo.dispose(); n.thickOwn = null;
   }
   /** 被标记的边的粗线拷贝（边线材质、颜色 = 标记色）；轮廓旗没有（原生线来的）= 按内边画。 */
   private setMarkCopy(n: SlotNodes, S: number[], C: number[], prof: { W1: number[]; W2: number[]; F: number[] } | null, hidden: boolean): void {
