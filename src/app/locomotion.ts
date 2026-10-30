@@ -86,7 +86,11 @@ export class Locomotion {
       if (Math.hypot(ev.clientX - d.x, ev.clientY - d.y) < 12 && performance.now() - d.t < 400) placeAt(ev);
     });
     // 锁鼠标的 FPS：鼠标动 = 看
-    document.addEventListener("mousemove", (ev) => { if (document.pointerLockElement === canvas && this.phase === "walk") this.look(ev.movementX, ev.movementY); });
+    document.addEventListener("mousemove", (ev) => {
+      if (document.pointerLockElement !== canvas || this.phase !== "walk") return;
+      if (this.lockFresh) { this.lockFresh = false; return; }
+      this.look(ev.movementX, ev.movementY);
+    });
     document.addEventListener("pointerlockchange", () => {
       if (document.pointerLockElement === canvas) return;
       if (this.unlockForEdit) { this.unlockForEdit = false; return; }
@@ -128,12 +132,23 @@ export class Locomotion {
   private commitPlace(): void {
     const g = this.ghost;
     if (!g || !g.ok) return;
+    this.land(g.feet, 0);
+  }
+  /** 在当前相机位置出生（user 10-29「步行相机的马前炮还有一个就是spawn在当前摄像机位置的选项」）：眼 = 现在的相机眼位，朝向 / 俯仰照旧；脚下没地就照常往下掉。 */
+  placeAtCamera(): void {
+    if (this.phase !== "place") return;
+    const cam = this.editor.cam, fwd = cam.forward(), dir = cam.eyeDir(), d = cam.halfH / Math.tan(cam.fovY / 2);   // 眼 = 切到透视时的眼位（透视 = 现在的眼；正交的眼在一个很远的常数处，不能用）
+    const eye = { x: cam.target.x + dir.x * d, y: cam.target.y + dir.y * d, z: cam.target.z + dir.z * d };
+    this.land({ x: eye.x, y: eye.y, z: eye.z - this.body().height }, Math.max(-PITCH_LIMIT, Math.min(PITCH_LIMIT, Math.asin(Math.max(-1, Math.min(1, fwd.z))))));
+  }
+  /** 落人（点地面 / 在相机这里）：记下进来前的视角、站到 feet、朝相机前向、俯仰 pitch，进 FPS。 */
+  private land(feet: { x: number; y: number; z: number }, pitch: number): void {
     const cam = this.editor.cam;
     this.saved = { target: { ...cam.target }, yaw: cam.yaw, pitch: cam.pitch, halfH: cam.halfH, projection: cam.projection, nearMin: cam.nearMin };
     const fwd = cam.forward(), heading = Math.atan2(-fwd.x, fwd.y);
     this.sim.cfg = this.body();
-    this.sim.standAt({ ...g.feet }, heading);
-    this.lookPitch = 0;
+    this.sim.standAt({ ...feet }, heading);
+    this.lookPitch = pitch;
     this.ghost = null;
     this.mode = "walk";
     cam.projection = "persp";
@@ -141,11 +156,14 @@ export class Locomotion {
     this.syncCamera();
     this.resumeWalk();
   }
+  /** 刚请求锁鼠标：锁上后的第一个移动事件带的是「光标到画布中心」的假位移（实测 −677, −634，比「锁上了」的通知还早到）——丢掉，不然每次落人 / 接着走镜头都猛甩一下（v0.17.50）。 */
+  private lockFresh = false;
   /** 回 FPS（放置落下 / 原地编辑里点「继续走」）：要一次用户点击才锁得上鼠标，这两个入口都是点击。 */
   resumeWalk(): void {
     if (this.mode !== "walk") return;
     this.flat.setEnabled(true);
     this.setPhase("walk");
+    this.lockFresh = true;
     try { const r = this.canvas.requestPointerLock?.() as unknown; if (r instanceof Promise) r.catch(() => {}); } catch { /* 锁不上（触屏）：照旧右键拖 / 双指看 */ }
   }
   /** Tab：原地编辑（镜头钉住、鼠标放出来、键盘归工具）；这期间步行整个停住（tick 不走），再按 Tab / 「继续走」从这一帧接着走。 */

@@ -700,7 +700,7 @@ function placeSession(): ParamSession {
   const s: ParamSession = {
     phase: "before", title: "步行：点一下落在哪",
     fields: AVATAR_FIELDS,
-    buttons: [{ key: "reset", label: "恢复默认" }, { key: "cancel", label: "取消" }],
+    buttons: [{ key: "here", label: "在相机这里出生" }, { key: "reset", label: "恢复默认" }, { key: "cancel", label: "取消" }],
     get values() { const a = resolveAvatar(locomotion.avatar); return Object.fromEntries(AVATAR_FIELDS.map((f) => [f.key, a[f.key]])); },
     get note() {
       const why = locomotion.placeWhy(), b = locomotion.body(), j = jumpReach(b);
@@ -713,7 +713,7 @@ function placeSession(): ParamSession {
       locomotion.avatar = { ...locomotion.avatar, [key]: v } as AvatarSpec;
       locomotion.refreshGhost();
     },
-    press(key) { if (key === "cancel") locomotion.cancelPlace(); else if (key === "reset") { locomotion.avatar = AVATAR_DEFAULT; locomotion.refreshGhost(); } },
+    press(key) { if (key === "here") locomotion.placeAtCamera(); else if (key === "cancel") locomotion.cancelPlace(); else if (key === "reset") { locomotion.avatar = AVATAR_DEFAULT; locomotion.refreshGhost(); } },
     dispose() { if (locomotion.isPlacing()) locomotion.cancelPlace(); },
   };
   return s;

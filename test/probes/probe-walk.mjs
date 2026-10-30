@@ -189,6 +189,16 @@ await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 const after = await page.evaluate(() => ({ walking: globalThis.__catsup.locomotion.isWalking(), phase: globalThis.__catsup.locomotion.walkPhase(), halfH: globalThis.__catsup.editor.cam.halfH }));
 check(!after.walking && after.phase === "off" && after.halfH === 4, `Esc 离开步行、恢复轨道相机 ${JSON.stringify(after)}`);
 
+// 在相机这里出生（user 10-29「步行相机的马前炮还有一个就是spawn在当前摄像机位置的选项」）：眼 = 现在的眼位、朝向不变；锁鼠标后第一个假位移丢掉（不然镜头猛甩）
+const camBefore = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cam.projection = "persp"; e.cam.pitch = 0.3; e.cam.yaw = -1; e.draw(); return { eye: e.cam.eye(), fwd: e.cam.forward() }; });
+await page.click('#viewGizmo .gizmo-btn[title="视图"]'); await page.waitForTimeout(80);
+await page.click(".menu-tab:has-text('相机')"); await page.waitForTimeout(50);
+await page.click(".menu-item:has-text('步行相机')"); await page.waitForTimeout(100);
+await page.click("button:has-text('在相机这里出生')"); await page.waitForTimeout(60);
+const camAfter = await page.evaluate(() => { const e = globalThis.__catsup.editor; return { phase: globalThis.__catsup.locomotion.walkPhase(), eye: e.cam.eye(), fwd: e.cam.forward() }; });
+const dEye = Math.hypot(camAfter.eye.x - camBefore.eye.x, camAfter.eye.y - camBefore.eye.y), dFwd = Math.hypot(camAfter.fwd.x - camBefore.fwd.x, camAfter.fwd.y - camBefore.fwd.y, camAfter.fwd.z - camBefore.fwd.z);
+check(camAfter.phase === "walk" && dEye < 1e-6 && dFwd < 1e-6, `在相机这里出生：水平位置 / 朝向不变 Δ眼 ${dEye.toExponential(1)} Δ朝向 ${dFwd.toExponential(1)}`);
+await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 console.log("errors:", errs.length ? errs.join("; ") : "none");
 await browser.close();
 if (errs.length || fails.length) { console.log("FAILED:", fails.join(" | ")); process.exit(1); }
