@@ -907,7 +907,7 @@ export class Renderer3 implements RenderProvider {
       }
       for (; ti < n.tex.length; ti++) n.tex[ti].mesh.visible = false;
       // 边
-      const edgesMode = this.framePreset.material.edges, L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && (edgesMode === "all" || (edgesMode === "active" && front));   // 风格的线稿三档：none / all / active（只画正在编辑那一层的，T60）；X 光的线照画
+      const edgesMode = this.framePreset.material.edges, L = pb?.lines ?? null, hasL = !!L && L.count > 0, showL = hasL && (edgesMode === "all" || front);   // 画不画线（ai-docs/20261029-edge-display-scenarios.md）：线稿线归画风（all / none），正在编辑的那一个（tier 1）的结构线任何画风都画   // 风格的线稿三档：none / all / active（只画正在编辑那一层的，T60）；X 光的线照画
       const thickLines = this.lineStyleInUse() === "thick";
       if (thickLines) { n.thick.geometry = hasL ? L!.geo : this.emptyLineGeo; n.thick.visible = showL; n.pixel.visible = false; }
       else { n.pixel.geometry = hasL ? L!.geo : this.emptyGeo; n.pixel.visible = showL; n.thick.visible = false; }

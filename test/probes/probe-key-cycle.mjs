@@ -13,6 +13,6 @@ await page.keyboard.press("a"); await page.waitForTimeout(40);
 const arc = []; for (let i = 0; i < 4; i++) { await page.keyboard.press("a"); await page.waitForTimeout(40); arc.push(await page.evaluate(() => globalThis.__catsup.editor.config.get("arc", "mode"))); }
 res.arcModes = arc;
 console.log(JSON.stringify(res));
-const ok = res.e.join() === "erase,weldErase,softErase,erase" && res.r.join() === "rect,rrect,rect" && res.t.join() === "tape,protractor,axes,tape" && res.l.join() === "line,line" && new Set(arc).size === 4;
+const ok = res.e.join() === "erase,weldErase,softErase,erase" && res.r.join() === "rect,crect,rrect" /* R 轮换：矩形 → 中心矩形 → 旋转矩形（中心矩形 10-27 加的） */ && res.t.join() === "tape,protractor,axes,tape" && res.l.join() === "line,line" && new Set(arc).size === 4;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

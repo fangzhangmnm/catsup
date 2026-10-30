@@ -83,8 +83,9 @@ export interface Preset {
   readonly source: string;
   /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
    *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
-  /** material.edges 线稿三档：none 不画 / all 全画（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）/ active 只画正在编辑那一层的。像素描边 = all（T113 user「像素里面边的显示其实就是看硬和软边就行了」：硬边都画、软边不画；T89 时是 active）；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
-  readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all" | "active"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
+  /** material.edges 线稿线两档（ai-docs/20261029-edge-display-scenarios.md）：all = 不在编辑的物件也画硬边（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）；none = 不在编辑的不画。
+   *  正在编辑的那一个的结构线任何画风都画（2026-10-29 Opus；以前的第三档 active「只画编辑中的」= none + 结构线，退役）。 */
+  readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
     /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
     /** 标记色（选中 / 悬停 / 将删 / 检查；sRGB）：面 / 边的标记材质和辅助几何的同名颜色角色都从这里取（一处定、三样对得上）；没写的 = 全局色板。 */
     readonly marks?: Partial<Readonly<Record<MarkColorSlot, number>>> };
@@ -126,12 +127,13 @@ export const PRESETS = {
     screen: "pixel3",
     geometry: {},
   },
-  /** 1-bit（2026-10-29 Opus 5.5；user 10-29「到时候1bit也加进来压测」，账本 T124 / T129）：画面只剩两色——跟相机的平光 + 一格黑描边 + 最后按亮度抖成黑 / 纸两色。
-   *  也是画风翻译器的压测：所有按主分辨率画的东西（模型、网格、辅助几何、字）都在小图里一起被抖成两色；画布上出现第三种颜色 = 有东西没进小图（探针 probe-onebit）。 */
+  /** 1-bit 线稿（2026-10-29 Opus 5.5；user 10-29「到时候1bit也加进来压测」→「先别发明别的画风。半调这种是我们以后可以慢慢grill的，先把已有的线稿画风做好……专注于1bit线稿」）：
+   *  线稿的两色版——面是纸（平涂、不打光，模型上没有半调）、线和描边是墨；只有本来就是中间调的东西（网格、选中的面）按 4×4 网点抖成两色。
+   *  也是画风翻译器的压测：所有按主分辨率画的东西都在小图里一起变成两色；画布上出现第三种颜色 = 有东西没进小图（探针 probe-onebit）。半调明暗（按光照抖）以后在 Shader 实验室磨（账本 T133）。 */
   onebit: {
-    id: "onebit", name: "1-bit", brief: "黑白两色 + 抖动", note: "按 1/3 分辨率画、跟着相机打平光，描一格黑边，最后按亮度抖动成黑和纸白两色（像老 Mac 的画）；选中的面抖得更密、选中的边全黑。",
-    source: "CatsUp 自己的（Opus 2026-10-29）：4×4 Bayer 有序抖动接在像素描边那遍最后",
-    material: { shade: "camera", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x6c6c6c, faceHover: 0xa4a4a4, edgeSelected: 0x000000, edgeHot: 0x000000, edgeWarn: 0x000000 } },
+    id: "onebit", name: "1-bit 线稿", brief: "黑线白纸（两色）", note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。",
+    source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）",
+    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x000000, edgeHot: 0x000000, edgeWarn: 0x000000 } },
     light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x9c9990 },
     post: { pixelOutline: { side: "inside", color: 0x111111, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: 0x111111, light: 0xf4f1e8 } },
     screen: "pixel3",

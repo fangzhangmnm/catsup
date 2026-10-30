@@ -30,6 +30,6 @@ out.scrubbed = await page.evaluate(() => { const e = globalThis.__catsup.editor,
 await page.evaluate(() => globalThis.__catsup.editor.setMode("geometry"));
 out.back = await page.evaluate(() => ({ mode: globalThis.__catsup.editor.modeId, tool: globalThis.__catsup.editor.tool, rail: document.querySelectorAll("#toolbar button").length }));
 console.log(JSON.stringify(out));
-const ok = out.afterB.mode === "surface" && out.afterB.tool === "paint" && out.afterB.select === "surface" && out.afterB.rail < out.railGeom && out.afterB.strip.includes("吸色") && out.afterB.strip.includes("范围") && out.single === 1 && out.double === 2 && out.triple === 6 && out.sampled === "赭石" && out.scrubbed >= 2 && out.back.mode === "geometry" && out.back.tool === "line" && out.back.rail === out.railGeom;
+const ok = out.afterB.mode === "surface" && out.afterB.tool === "paint" && out.afterB.select === "surface" && out.afterB.rail < out.railGeom && out.afterB.strip.includes("吸色") && out.afterB.strip.includes("范围") && out.single === 1 && out.double === 2 && out.triple === 6 && out.sampled === "赭石" && out.scrubbed >= 2 && out.back.mode === "geometry" && out.back.tool === "select" && out.back.rail === out.railGeom;   // 回硬表面 = 鼠标（选择）工具（user 10-27 / 10-29「brep模式进去默认是鼠标而不是线」）
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);
