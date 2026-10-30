@@ -73,8 +73,7 @@ function touchesSelection(ctx: ToolCtx, sel: { verts: ReadonlySet<number>; edges
  * 缺 press = 有选区就是选区（不管按在哪）。
  */
 export function pressTarget(ctx: ToolCtx, at: { x: number; y: number; start?: GestureStart }, tool: Tool): Target | "box" {
-  const m = ctx.mesh(), sel = ctx.selection(), st = stanceOf("freeform", tool), grab = st?.grab ?? "element";
-  const by = (xs: Iterable<number>, alive: (x: number) => boolean): number[] => [...xs].filter(alive).sort((a, b) => a - b);
+  const sel = ctx.selection(), st = stanceOf("freeform", tool), grab = st?.grab ?? "element";
   if (sel.kind === "mesh" && (sel.verts.size || sel.edges.size || sel.faces.size)) {
     // 键盘起手（G / R / S / E / I；ToolPointer.start = "keyboard"，ctx.keyboardStart 唯一造处）= 永远对选区做（Blender）：不走「按在选区外的东西上 = 对它做」的三分法——
     // 不然光标正下方有个没选的点时，G 挪的是它不是选区（2026-10-28 夜 probe-soft-select 抓到；以前拿 pointerType 冒充，2026-10-29 改成一等字段，周账 F-125）
@@ -82,10 +81,17 @@ export function pressTarget(ctx: ToolCtx, at: { x: number; y: number; start?: Ge
       const u = grabUnder(ctx, at, grab);
       if (u && !touchesSelection(ctx, sel, u)) return { ...u, fromSelection: true, adopt: u };   // 选区外的可选对象：对它做，落定时选区换成它（adoptPress）
     }
-    return { verts: by(sel.verts, (v) => m.hasV(v)), edges: by(sel.edges, (e) => m.hasE(e)), faces: by(sel.faces, (f) => m.hasF(f)), fromSelection: true };
+    return selectionTarget(ctx)!;
   }
   const u = grabUnder(ctx, at, grab);
   return u ? { ...u, fromSelection: false } : "box";
+}
+/** 目标 = 整个选区（网格体；还活着的点 / 边 / 面，按 id 排）；没选区 = null。按在操纵手柄上（tools/mesh-handles.ts）的那一下也走它：手柄下面压着别的东西也不换目标。 */
+export function selectionTarget(ctx: ToolCtx): Target | null {
+  const sel = ctx.selection();
+  if (sel.kind !== "mesh" || !(sel.verts.size || sel.edges.size || sel.faces.size)) return null;
+  const m = ctx.mesh(), by = (xs: Iterable<number>, alive: (x: number) => boolean): number[] => [...xs].filter(alive).sort((a, b) => a - b);
+  return { verts: by(sel.verts, (v) => m.hasV(v)), edges: by(sel.edges, (e) => m.hasE(e)), faces: by(sel.faces, (f) => m.hasF(f)), fromSelection: true };
 }
 
 /** 右下角「选区」两档：多选（= 一直按着 Shift）？ */
@@ -100,11 +106,16 @@ export function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso")
   return ev.shiftKey || multiSelect(ctx) ? BOOLEAN_DEFAULT.pen[gesture] : BOOLEAN_DEFAULT[deviceOf("mouse")][gesture];
 }
 
-/** 点一下（第 n 下）：和选择工具同一套（见文件头）。 */
-export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { growBar?: boolean } = {}): void {
+/**
+ * 点一下（第 n 下）：和选择工具同一套（见文件头）。
+ * keepOnSelection = 单击点中已经选着的（没按修饰键）就不改选区（替换档不缩成一个、多选档不切掉它）：移动 / 旋转 / 缩放「单击选区 = 弹手柄」（tools/mesh-handles.ts；
+ * user 10-29 夜「单击选区可以弹gizmos」）。
+ */
+export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { growBar?: boolean; keepOnSelection?: boolean } = {}): void {
   const view = ctx.live(), mode = selModeOf(ctx, ev, false);
   const hit = ctx.pick(ev.x, ev.y, { kinds: pickKinds(ctx) });
   if (ev.altKey && hit.edge !== undefined && ctx.selectLoop(hit, mode)) return;   // Alt 点边 = 环 / 洞（网格体；硬表面没有这个，照常点）
+  if (opts.keepOnSelection && n === 1 && !ev.shiftKey && !ev.copy && !ev.altKey && ctx.hitInSelection(hit)) return;
   // A31：参考线 / 参考点（光标下不是边或顶点时）——参考点 > 参考线，与实体拾取「点 > 边」同口径；面上的参考线照样点得中
   if (hit.edge === undefined && hit.vertex === undefined) {
     const g = pickGuide(view.guides(), ctx.frame(), ctx.vp(), ev.x, ev.y, ctx.eps().hit);

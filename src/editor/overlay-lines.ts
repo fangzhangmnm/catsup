@@ -152,18 +152,20 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): AuxLines[] {
   const xg = view.xformGizmo;
   if (xg) {
     const r6 = (p: Pt3): string => `${p.x.toFixed(6)},${p.y.toFixed(6)},${p.z.toFixed(6)}`;
-    const k = `${r6(xg.origin)}/${r6(xg.axes.x)}/${r6(xg.axes.y)}/${r6(xg.axes.z)}/${xg.arrow.toExponential(3)}/${xg.hot ?? ""}/${xg.uniform ? r6(xg.uniform) : "-"}`;
+    const k = `${r6(xg.origin)}/${r6(xg.axes.x)}/${r6(xg.axes.y)}/${r6(xg.axes.z)}/${xg.arrow.toExponential(3)}/${xg.hot ?? ""}/${xg.uniform ? r6(xg.uniform) : "-"}/${xg.parts?.join(",") ?? "*"}`;
+    const has = (p: "arrows" | "rings"): boolean => !xg.parts || xg.parts.includes(p);
     const s = segs();
     const at = (d: Pt3, t: number): Pt3 => ({ x: xg.origin.x + d.x * t, y: xg.origin.y + d.y * t, z: xg.origin.z + d.z * t });
     const hexOf = { x: "gizmoX", y: "gizmoY", z: "gizmoZ" } as const;   // gizmo 的 XYZ = 通用色（不跟画风走）
     for (const ax of ["x", "y", "z"] as const) {
       const d = xg.axes[ax];
       const hm: AuxColor = xg.hot === `m${ax}` ? "gizmoHot" : hexOf[ax], hr: AuxColor = xg.hot === `r${ax}` ? "gizmoHot" : hexOf[ax];
-      push(s, at(d, xg.start), at(d, xg.arrow - (xg.arrow - xg.start) * 0.32), hm);   // 箭杆；箭头 = 实心锥（后端标记）
+      if (has("arrows")) push(s, at(d, xg.start), at(d, xg.arrow - (xg.arrow - xg.start) * 0.32), hm);   // 箭杆；箭头 = 实心锥（后端标记）
+      else if (xg.parts?.includes("cubes") && xg.cube !== undefined && xg.cubeHalf !== undefined) push(s, at(d, xg.start), at(d, xg.cube - xg.cubeHalf), xg.hot === `s${ax}` ? "gizmoHot" : hexOf[ax]);   // 没箭头的缩放手柄：方头箭头的杆
       const ref = ax === "z" ? xg.axes.x : ax === "x" ? xg.axes.y : xg.axes.z, N = 48;
       const v = { x: d.y * ref.z - d.z * ref.y, y: d.z * ref.x - d.x * ref.z, z: d.x * ref.y - d.y * ref.x };
       const Pp = (i: number): Pt3 => { const a = (2 * Math.PI * i) / N, c = Math.cos(a) * xg.ring, sn = Math.sin(a) * xg.ring; return { x: xg.origin.x + ref.x * c + v.x * sn, y: xg.origin.y + ref.y * c + v.y * sn, z: xg.origin.z + ref.z * c + v.z * sn }; };
-      for (let i = 0; i < N; i++) push(s, Pp(i), Pp(i + 1), hr);
+      if (has("rings")) for (let i = 0; i < N; i++) push(s, Pp(i), Pp(i + 1), hr);
     }
     out.push(lines("xformGizmo", "xformGizmo", k, s));
   }

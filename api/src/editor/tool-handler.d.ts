@@ -362,4 +362,10 @@ export interface ToolHandler {
     vcbContinue?(ctx: ToolCtx, p: Pt3): void;
     /** 本工具的叠加层（量线 / 候选参考线…）：底座每帧并进 ViewState（0.11）。 */
     viewExtras?(ctx: ToolCtx): Partial<ViewState>;
+    /** 工具条上除了自己那组（tool-config 按工具 id）以外还露哪几组选项（沿边滑 / 软选择开关 / 操纵手柄……）；keys = 只露这几项。
+     *  规则住工具里：同一个工具 id 在两种工作台是两个模块，露什么跟模块走，app 层不按工作台分叉（T102 棘轮）。2026-10-30 Claude Opus 5.5 */
+    stripGroups?(): readonly {
+        readonly group: string;
+        readonly keys?: readonly string[];
+    }[];
 }

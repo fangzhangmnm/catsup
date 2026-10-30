@@ -24,7 +24,14 @@ const DEFAULT_SELECT_MODE: string = selectModeFor(typeof matchMedia === "functio
 export type OptionScope = "session" | "device" | "doc";
 export interface Modifiers { ctrl?: boolean; shift?: boolean; }
 
-export interface EnumOption {
+/** 各种选项共有的两条露不露规矩（2026-10-30 从 number / bool 各自那条收到一处）。 */
+interface OptionShown {
+  /** 只在这几个工作台露（软边橡皮的「最大角度」只管硬表面：网格体的边是拓扑，标平滑不看角度；移动的「复制」自由建模的移动不认）。 */
+  readonly modes?: readonly string[];
+  /** 只在同一组里另一个选项取这几个值时才露（拉出的「锁比例」只给平的形状；手柄的「朝向」只在手柄开着时；bool 按 "true" / "false" 比）。 */
+  readonly shownWhen?: { readonly key: string; readonly in: readonly string[] };
+}
+export interface EnumOption extends OptionShown {
   readonly kind: "enum";
   readonly label: string;
   readonly values: readonly { readonly id: string; readonly label: string; readonly hint?: string }[];
@@ -33,7 +40,7 @@ export interface EnumOption {
   /** 按住修饰键时临时成为哪个值（ctrl / shift / ctrlShift）。 */
   readonly modifiers?: { readonly ctrl?: string; readonly shift?: string; readonly ctrlShift?: string };
 }
-export interface NumberOption {
+export interface NumberOption extends OptionShown {
   readonly kind: "number";
   readonly label: string;
   readonly def: number;
@@ -45,18 +52,14 @@ export interface NumberOption {
   /** 这个数是一个物理量（值存 SI：米 / 米每秒）：显示、− +、打字都按用户选的单位（units.ts；2026-10-28 user「都单位和用户选择单位对齐」）。给了它 unit 就不看。 */
   readonly quantity?: QuantityTag;
   readonly scope: OptionScope;
-  /** 只在这几个工作台露（软边橡皮的「最大角度」只管硬表面：网格体的边是拓扑，标平滑不看角度）。 */
-  readonly modes?: readonly string[];
 }
-export interface BoolOption {
+export interface BoolOption extends OptionShown {
   readonly kind: "bool";
   readonly label: string;
   readonly def: boolean;
   readonly scope: OptionScope;
   /** 有图标 = 画成图标开关（label 当提示字；拾取 点 / 边 / 面，user 10-28 夜「最好换成icon」）。 */
   readonly icon?: string;
-  /** 只在同一组里另一个 enum 选项取这几个值时才露（拉出的「锁比例」只给平的形状）。 */
-  readonly shownWhen?: { readonly key: string; readonly in: readonly string[] };
 }
 export type OptionDef = EnumOption | NumberOption | BoolOption;
 export type OptionTable = Readonly<Record<string, Readonly<Record<string, OptionDef>>>>;
@@ -121,7 +124,7 @@ export class ToolConfig<T extends OptionTable> {
     const opts = this.table[tool];
     if (!opts) return [];
     return Object.entries(opts)
-      .filter(([, def]) => !(def.kind === "bool" && def.shownWhen && !def.shownWhen.in.includes(String(this.values.get(this.k(tool, def.shownWhen.key))))))
+      .filter(([, def]) => !(def.shownWhen && !def.shownWhen.in.includes(String(this.values.get(this.k(tool, def.shownWhen.key))))))
       .map(([key, def]) => ({ key, def, value: this.values.get(this.k(tool, key))! }));
   }
   /** 某个 enum 值的标签（UI / hint 用）。 */
@@ -187,7 +190,7 @@ export const TOOL_OPTIONS = {
   },
   /** 移动的「复制」开关（DT14，user 2026-10-25「平板上想一下如何复制move，我觉得可以算到move的context menu里面可以开复制」）：开着 = 每次移动都是复制（锁住式，平板没有 Ctrl）；键盘 Ctrl / Alt 照旧临时复制。 */
   move: {
-    copy: { kind: "bool", label: "复制", def: false, scope: "session" },
+    copy: { kind: "bool", label: "复制", def: false, scope: "session", modes: ["geometry", "verify"] },   // 自由建模的移动不认（复制 = Shift+D），以前那里露着却不起作用
   },
   /** 变换（2026-10-26，user「transform的时候ctrl应该是复制吧」「transform能不能马后炮可以切换 pivot…是工具自己记住的选项。而且每个工具单独记」）：
    *  复制 = 同移动（开着 = 每次都是复制；按住 Ctrl 临时复制）；变换中心 = 箭头 / 环放在哪、绕哪转（包围盒中心 / 顶点平均 = Blender 的 Median Point / 最后选的物体原点 = Blender 的 Active Element（user「不同的pivot模式就用共同的bbox或者最后一个的pivot」）；
@@ -198,7 +201,7 @@ export const TOOL_OPTIONS = {
   },
   /** 旋转的「复制」开关（同移动；按住 Ctrl 临时复制；user 2026-10-26「移动旋转也是ctrl复制开关吧」）。 */
   rotate: {
-    copy: { kind: "bool", label: "复制", def: false, scope: "session" },
+    copy: { kind: "bool", label: "复制", def: false, scope: "session", modes: ["geometry", "verify"] },
   },
   /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
   weldErase: {
@@ -232,6 +235,17 @@ export const TOOL_OPTIONS = {
   slide: {
     on: { kind: "bool", label: "沿边滑", def: false, scope: "session" },
   },
+  /** 操纵手柄（自由建模的移动 / 旋转 / 缩放；user 10-29 夜「mesh模式移动的时候单击新图元或者单击选区的时候应该出现gizmos」「然后rotate scale也一样，单击选区可以弹gizmos，
+   *  然后右下小窗也有弹gizmos的功能」；设计稿 ai-docs/20261027-gizmo-design.md）：开着 = 选区上挂这把工具那一家把手（移动 = 箭头 + 平面块、旋转 = 环、缩放 = 方块 + 平面块，
+   *  中心 = 这把工具的默认做法）；点一下选到东西就开、点空处就关；三把工具共用一个值。朝向 = 那几根轴朝哪（设计稿 §2 全家同一套词）。 */
+  handles: {
+    show: { kind: "bool", label: "手柄", def: false, scope: "session" },
+    orient: { kind: "enum", label: "朝向", values: [
+      { id: "object", label: "物件", hint: "这个网格体自己的轴（和 X / Y / Z 锁轴同一套）" },
+      { id: "world", label: "世界", hint: "世界的 X / Y / Z" },
+      { id: "normal", label: "法向", hint: "选中的面的法向 = Z（边 / 点 = 连着的面的平均）" },
+    ], def: "object", scope: "session", shownWhen: { key: "show", in: ["true"] } },
+  },
   /** 拾取范围（自由建模；user 10-28 晚「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮可以吗？」）：
    *  点 / 边 / 面各一个开关，关掉的那一级点不中、框不到，下一级顶上（Blender 的 1 / 2 / 3 选择模式，这里是三个独立开关）。全关 = 当全开。
    *  自由建模里按「点 > 边 > 面」抓东西的工具共用这一组（选择 / 移动 / 旋转 / 缩放 / 沿法线；context-bar 按立场表 grab = element 挂上）。 */
@@ -249,6 +263,6 @@ export const TOOL_OPTIONS = {
     tier: { kind: "enum", label: "范围", values: SURFACE_TIERS, def: "smooth", scope: "device" },
     sharpDeg: { kind: "number", label: "锐角阈值", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "device" },
   },
-} as const satisfies Partial<Record<Tool | "surface" | "pick" | "soft" | "slide" | "brush", Readonly<Record<string, OptionDef>>>>;
+} as const satisfies Partial<Record<Tool | "surface" | "pick" | "soft" | "slide" | "handles" | "brush", Readonly<Record<string, OptionDef>>>>;
 
 export type CatsUpToolConfig = ToolConfig<typeof TOOL_OPTIONS>;

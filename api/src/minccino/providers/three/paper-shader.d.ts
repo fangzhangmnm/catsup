@@ -15,6 +15,8 @@ export declare class PaperMaterials {
     constructor(ao: AoUniforms, depthFace: number, depthOther: number, defaultFace: number);
     /** 面材质：single = 贴图网格那份（只有 aColor）；side / 深度偏移按槽（活动池 / 别的池、单面 / 双面）。 */
     face(side: "front" | "back" | "double", active: boolean, single: boolean): any;
+    /** 面用不用模型的颜色（预设 colorize：none = 一律纸色）。 */
+    useModelColor(on: boolean): void;
     /** 每帧：光（视空间，跟着相机）、参数、遮蔽开没开；地面的逆矩阵。 */
     sync(f: FlatShade, ao: {
         amount: number;

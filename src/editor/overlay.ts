@@ -42,7 +42,8 @@ export function overlayItems(view: ViewState, ctx: OverlayCtx): AuxItem[] {
   const xg = view.xformGizmo;
   if (xg) {
     const axisOf = { x: "gizmoX", y: "gizmoY", z: "gizmoZ" } as const;   // gizmo 的 XYZ = 通用色（不跟画风走）
-    {   // 箭头锥：尖在 arrow，长 = 箭头段的 32%，粗 = 长的 0.36
+    const has = (p: "arrows" | "cubes" | "planes" | "center"): boolean => !xg.parts || xg.parts.includes(p);   // 自由建模的手柄按工具分家（tools/mesh-handles.ts）
+    if (has("arrows")) {   // 箭头锥：尖在 arrow，长 = 箭头段的 32%，粗 = 长的 0.36
       const hl = (xg.arrow - xg.start) * 0.32;
       for (const ax of ["x", "y", "z"] as const) {
         const d = xg.axes[ax], mid = xg.arrow - hl / 2;
@@ -52,11 +53,11 @@ export function overlayItems(view: ViewState, ctx: OverlayCtx): AuxItem[] {
     if (xg.cube !== undefined && xg.cubeHalf !== undefined) {
       const basis = { kind: "basis", x: xg.axes.x, y: xg.axes.y, z: xg.axes.z } as const;
       const cube = (id: string, role: "xgCube" | "xgCenter", c: Pt3, size: number, color: AuxColor): void => { out.push({ kind: "marker", role, id, at: c, scale: size, color, orient: basis }); };
-      for (const ax of ["x", "y", "z"] as const) { const d = xg.axes[ax]; cube(`xgCube${ax}`, "xgCube", { x: xg.origin.x + d.x * xg.cube, y: xg.origin.y + d.y * xg.cube, z: xg.origin.z + d.z * xg.cube }, xg.cubeHalf * 2, xg.hot === `s${ax}` ? "gizmoHot" : axisOf[ax]); }
+      if (has("cubes")) for (const ax of ["x", "y", "z"] as const) { const d = xg.axes[ax]; cube(`xgCube${ax}`, "xgCube", { x: xg.origin.x + d.x * xg.cube, y: xg.origin.y + d.y * xg.cube, z: xg.origin.z + d.z * xg.cube }, xg.cubeHalf * 2, xg.hot === `s${ax}` ? "gizmoHot" : axisOf[ax]); }
       if (xg.uniform) cube("xgCubeU", "xgCube", xg.uniform, xg.cubeHalf * 2.4, xg.hot === "su" ? "gizmoHot" : "gizmoUniform");
-      cube("xgCenter", "xgCenter", xg.origin, xg.cubeHalf * 2.2, xg.hot === "mc" ? "gizmoHot" : "gizmoCenter");
+      if (has("center")) cube("xgCenter", "xgCenter", xg.origin, xg.cubeHalf * 2.2, xg.hot === "mc" ? "gizmoHot" : "gizmoCenter");
     }
-    if (xg.plane !== undefined && xg.planeHalf !== undefined) {   // 平面块：方片铺在两根轴张成的面里，颜色 = 垂直于它的那根轴（Blender 同款）
+    if (xg.plane !== undefined && xg.planeHalf !== undefined && has("planes")) {   // 平面块：方片铺在两根轴张成的面里，颜色 = 垂直于它的那根轴（Blender 同款）
       for (const [h, a, b, n] of [["pxy", "x", "y", "z"], ["pyz", "y", "z", "x"], ["pxz", "x", "z", "y"]] as const) {
         const A = xg.axes[a], B = xg.axes[b];
         const cr = { x: A.y * B.z - A.z * B.y, y: A.z * B.x - A.x * B.z, z: A.x * B.y - A.y * B.x };

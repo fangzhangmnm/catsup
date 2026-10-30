@@ -34,7 +34,7 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor; e.selectAll();
 r.selChips = await chips();
 // ③
 await page.click(".mfd-slot[data-slot=lock] .mfd-chip:has-text('锁 Z')"); await page.waitForTimeout(80);
-r.lockZ = { chips: await chips(), axisLock: await page.evaluate(() => globalThis.__catsup.editor.axisLock), line: await page.evaluate(() => !!globalThis.__catsup.editor.r3.lockLinesObj?.visible && (globalThis.__catsup.editor.lockGuide()?.length ?? 0) === 1) };
+r.lockZ = { chips: await chips(), axisLock: await page.evaluate(() => globalThis.__catsup.editor.axisLock), line: await page.evaluate(() => globalThis.__catsup.editor.r3.overlayVisible("lockLines") && (globalThis.__catsup.editor.lockGuide()?.length ?? 0) === 1) };
 // ④
 await page.click(".mfd-slot[data-slot=shift] .mfd-chip"); await page.waitForTimeout(80);
 r.latch = await chips();

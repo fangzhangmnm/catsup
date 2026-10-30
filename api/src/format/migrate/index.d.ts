@@ -7,7 +7,7 @@ export interface Stamp {
 export declare const FORMAT: {
     readonly CATSUP_document: {
         readonly major: 3;
-        readonly minor: 1;
+        readonly minor: 2;
         readonly patch: 0;
     };
     readonly CATSUP_brep: {

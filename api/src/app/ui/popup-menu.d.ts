@@ -63,3 +63,10 @@ export declare function closePopupMenu(): void;
 export declare function isPopupOpen(): boolean;
 export declare function togglePopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle | null;
 export declare function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle;
+/** 常驻面板（浮窗里用，ui/menu-window.ts）：和弹出菜单同一份身体，点了永远原地重画；不定位、不外点关、Esc 不关。 */
+export interface MenuPanelHandle {
+    refresh(): void;
+    setTab(tab: string): void;
+    dispose(): void;
+}
+export declare function mountMenuPanel<Id extends string>(host: HTMLElement, opts: Pick<PopupMenuOpts<Id>, "items" | "onPick" | "tabs" | "tabKey" | "tab">): MenuPanelHandle;

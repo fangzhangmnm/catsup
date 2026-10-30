@@ -36,10 +36,12 @@ export interface XformGizmoGeom extends XformGizmo { arrow: number; ring: number
 /** 平面块中心（世界）。 */
 export function planeHandleCenter(G: XformGizmoGeom, h: XformHandle): Pt3 { const { a, b } = planeAxes(h); return add3(G.origin, scale3(add3(G.axes[a], G.axes[b]), G.plane)); }
 
-export function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport): XformGizmoGeom {
+/** 摆法：缺省 = 硬表面变换工具那样（缩放块在环里、箭头在环外）；cubePx = 轴上缩放块离原点多远（CSS px）——自由建模的缩放手柄没有箭头，方块放到箭头尖那里当「方头」（tools/mesh-handles.ts）。 */
+export interface XformLayout { readonly cubePx?: number }
+export function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport, lay: XformLayout = {}): XformGizmoGeom {
   // 量尺的方向垂直于视线（2026-10-26；现在由 worldPerPx 自己保证）：沿红轴量的话，红轴斜着时别的轴箭头在屏上短一截，红轴正对镜头时整个手柄被算得巨大
   const wpp = worldPerPx(pf, vp, g.origin) ?? 0.01;
-  return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp, cube: XG_SCALE_PX * wpp, cubeHalf: XG_CUBE_PX * wpp, plane: XG_PLANE_PX * wpp, planeHalf: XG_PLANE_HALF_PX * wpp };
+  return { ...g, arrow: XG_ARROW_PX * wpp, ring: XG_RING_PX * wpp, start: XG_ARROW_START_PX * wpp, cube: (lay.cubePx ?? XG_SCALE_PX) * wpp, cubeHalf: XG_CUBE_PX * wpp, plane: XG_PLANE_PX * wpp, planeHalf: XG_PLANE_HALF_PX * wpp };
 }
 /** 绕 axis 的环上的点（闭合：首尾相同）。 */
 export function ringPoints(G: XformGizmoGeom, ax: AxisName): Pt3[] {
@@ -60,8 +62,8 @@ function screenSeg(pf: PointerFrame, vp: Viewport, sx: number, sy: number, a: Pt
 }
 
 /** 光标下每个把手的屏距（箭头 = 到箭杆、环 = 到环线）+ 离相机的深度（叠在一起时近的赢）。 */
-export function hitXformGizmo(g: XformGizmo, pf: PointerFrame, vp: Viewport, sx: number, sy: number): { handle: XformHandle; d: number; z: number }[] {
-  const G = xformGizmoGeom(g, pf, vp), ray = pf.ray(sx, sy, vp), out: { handle: XformHandle; d: number; z: number }[] = [];
+export function hitXformGizmo(g: XformGizmo, pf: PointerFrame, vp: Viewport, sx: number, sy: number, lay: XformLayout = {}): { handle: XformHandle; d: number; z: number }[] {
+  const G = xformGizmoGeom(g, pf, vp, lay), ray = pf.ray(sx, sy, vp), out: { handle: XformHandle; d: number; z: number }[] = [];
   const depth = (p: Pt3): number => dot3(sub3(p, ray.origin), ray.dir);
   for (const ax of AXIS_NAMES) {
     const a = add3(G.origin, scale3(G.axes[ax], G.start)), b = add3(G.origin, scale3(G.axes[ax], G.arrow));

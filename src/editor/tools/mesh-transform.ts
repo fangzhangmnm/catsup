@@ -7,6 +7,8 @@
 //     转 / 缩按住 Shift = 15° / 0.1 一档；
 //   · 目标 = 选区（点 / 边 / 面的全部点）；没选 = 按下处的点 / 边 / 面，按在空处 = 拖框（2026-10-28，selecting.ts）；点一下 = 选（同选择工具）；轴心 = 目标点的平均（FM7「各工具自己管轴心」）；做完选区不变（FM14：接着挪）。
 //   · 提交 = 一条 meshMove（每个点写绝对坐标）：挪 / 转 / 缩都是「改位置数组」，一条 op 一步撤销。
+//   · 操纵手柄（2026-10-30，tools/mesh-handles.ts）：点一下选到东西 = 选区上挂这把工具那一家把手；按在把手上拖 = 这一下锁那根轴 / 那个面（中心 = 默认做法），
+//     键盘锁轴 / 锁面压过它；手柄只是锁的另一个入口，算法一行不分叉。沿法线没有手柄。
 import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
 import type { SnapKind } from "../solver.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
@@ -18,7 +20,9 @@ import { fmtLen } from "../units.ts";
 import { softDistances, softWeights } from "../../mesh/soft-select.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
-import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target } from "./selecting.ts";
+import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target } from "./selecting.ts";
+import { type Grip, MeshHandles } from "./mesh-handles.ts";
+import type { ViewState } from "../view-state.ts";
 
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal";   // normal = 沿法线移动（Blender Shrink / Fatten；工具 id shrink）
 /** 起点离轴心太近时缩放的参考半径（CSS px；Blender 要人先把鼠标挪开，触屏上点中的常常就是轴心）。 */
@@ -59,10 +63,35 @@ export class MeshTransformTool implements ToolHandler {
   private soft: { dist: Map<number, number>; base: Map<number, Pt3>; dirs: Map<number, Pt3> } | null = null;
   /** 手势中打的数是什么量（Blender「S Z 0」：缩放 = 倍数、旋转 = 角度、移动 / 沿法线 = 长度；读法 = units.ts，工具只问 ctx.typed()）。 */
   readonly typedQuantity: { q: "length" | "angle" | "factor" };
-  constructor(kind: MeshXformKind) { this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; this.typedQuantity = { q: kind === "rotate" ? "angle" : kind === "scale" ? "factor" : "length" }; }
+  /** 操纵手柄（沿法线没有）。 */
+  private readonly handles: MeshHandles | null;
+  /** 这一下是按在哪个把手上开始的（null = 没按在把手上）。 */
+  private grip: Grip | null = null;
+  /** 预演里被挪的点现在的平均（世界）：拖着的时候手柄跟着走。 */
+  private liveOrigin: Pt3 | null = null;
+  constructor(kind: MeshXformKind) {
+    this.kind = kind; this.tool = kind === "normal" ? "shrink" : kind; this.typedQuantity = { q: kind === "rotate" ? "angle" : kind === "scale" ? "factor" : "length" };
+    this.handles = kind === "normal" ? null : new MeshHandles(kind);
+  }
   /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
   private box = new BoxDrag();
-  tap(ctx: ToolCtx, ev: ToolPointer): void { clickSelect(ctx, ev, ctx.clicks()); ctx.hint(null); }   // 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）
+  /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
+  tap(ctx: ToolCtx, ev: ToolPointer): void {
+    if (this.handles?.grip(ctx, ev)) { ctx.hint("手柄：按住把手拖才动；点空处收起"); return; }
+    clickSelect(ctx, ev, ctx.clicks(), { keepOnSelection: !!this.handles });
+    ctx.hint(this.handles?.afterTap(ctx, ev) ? this.handleHint() : null);
+  }
+  private handleHint(): string {
+    return this.kind === "move" ? "手柄：拖箭头 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 随手拖；点空处收起"
+      : this.kind === "rotate" ? "手柄：拖哪个环 = 绕哪根轴转、拖中心 = 绕视线转；点空处收起"
+        : "手柄：拖轴上的方块 = 沿那根轴、拖小方片 = 在那个面里、拖中心 = 等比；点空处收起";
+  }
+  hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.handles?.hover(ctx, s); }   // 只高亮手柄的把手（自由建模不悬浮高亮几何，user 10-27）
+  /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关四把都有；手柄开关 + 朝向给移动 / 旋转 / 缩放。 */
+  stripGroups(): readonly { group: string; keys?: readonly string[] }[] {
+    return [...(this.kind === "move" ? [{ group: "slide" }] : []), { group: "soft", keys: ["on"] }, ...(this.handles ? [{ group: "handles" }] : [])];
+  }
+  viewExtras(ctx: ToolCtx): Partial<ViewState> { return this.handles?.view(ctx, this.vids.length ? { origin: this.liveOrigin, id: this.grip?.id ?? null } : null) ?? {}; }
 
   active(): boolean { return this.vids.length > 0 || this.box.active(); }
   startModal(ctx: ToolCtx, s: { x: number; y: number }): boolean {   // Blender 的 G / R / S / E：光标处起手、跟着鼠标走（移动工具本身 = Blender 的 tweak，另一回事；user 10-27）
@@ -72,7 +101,7 @@ export class MeshTransformTool implements ToolHandler {
     return this.active();
   }
 
-  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapOn = false; this.snapT = null; this.soft = null; this.rails = null; this.railPick = null; this.slideOnce = false; }
+  cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapOn = false; this.snapT = null; this.soft = null; this.rails = null; this.railPick = null; this.slideOnce = false; this.grip = null; this.liveOrigin = null; }
   sample(): Record<string, number> { return {}; }
   live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
@@ -81,12 +110,13 @@ export class MeshTransformTool implements ToolHandler {
   down(ctx: ToolCtx, ev: ToolPointer): void {
     if (this.box.active()) { this.box.finish(ctx, ev); return; }   // 拖框松手
     if (this.active()) { this.commit(ctx); return; }
-    const m = ctx.mesh(), sel = ctx.selection(), t = pressTarget(ctx, ev, this.tool);   // 选区 > 按下处的点 / 边 / 面 > 空处拖框（selecting.ts）
+    const grip = this.handles && ev.start !== "keyboard" ? this.handles.grip(ctx, ev) : null;   // 按在把手上 = 对选区做、这一下锁那根轴 / 那个面（手柄下面压着别的东西也不换目标）
+    const m = ctx.mesh(), sel = ctx.selection(), t = (grip ? selectionTarget(ctx) : null) ?? pressTarget(ctx, ev, this.tool);   // 选区 > 按下处的点 / 边 / 面 > 空处拖框（selecting.ts）
     if (t === "box") { this.box.begin(ev, ctx); ctx.hint(`框选（${this.verb()}工具里：没选东西时在空处拖 = 框）`); return; }   // user 10-28「move的时候在没选择的时候能不能拖框」
     const vids = selectionVerts(m, t);
     if (!vids.length) { ctx.hint(`${this.verb()}：选区里没有能${this.verb()}的点`); return; }
     const X = ctx.ctxXform();
-    this.vids = vids; this.adopt = t.adopt ?? null; this.base.clear(); this.dirs = new Map();
+    this.vids = vids; this.adopt = t.adopt ?? null; this.base.clear(); this.dirs = new Map(); this.grip = grip; this.liveOrigin = null;
     if (this.kind === "normal") {   // 选了面 = 每个点只看选中的面（选一张顶面 = 直直往上，Blender Shrink / Fatten 同）；只选了边 / 点 = 看连着的全部面（一圈环 = 各自往外胖）
       const selF = sel.kind === "mesh" ? [...sel.faces].filter((f) => m.hasF(f)) : [];
       if (selF.length) {
@@ -115,7 +145,7 @@ export class MeshTransformTool implements ToolHandler {
     { const vp = ctx.vp(); let best = Infinity; for (const [, p] of this.base) { const w = applyPt(X, p), q = ctx.frame().project?.(w, vp); const d = q ? Math.hypot(q.x - ev.x, q.y - ev.y) : Infinity; if (d < best) { best = d; this.handleW = w; } } }
     ctx.setAnchor(this.grabW); ctx.setCursor(this.grabW);
     { const what = this.kind === "move" ? "吸附：点 > 边 > 面" : this.kind === "rotate" ? "15° 一档" : "0.1 一档";
-      ctx.hint(`${this.verb()} ${vids.length} 个点：拖着松手，或者点第二下落定（方向键锁轴 / Shift+方向键锁面；${ctx.snapBase() ? `${what}，Shift = 反过来` : `按住 Shift = ${what}`}）`); }
+      ctx.hint(`${this.verb()} ${vids.length} 个点${grip ? `（手柄：${grip.say}）` : ""}：拖着松手，或者点第二下落定（方向键锁轴 / Shift+方向键锁面；${ctx.snapBase() ? `${what}，Shift = 反过来` : `按住 Shift = ${what}`}）`); }
   }
 
   track(ctx: ToolCtx, s: { x: number; y: number }): void {
@@ -174,6 +204,7 @@ export class MeshTransformTool implements ToolHandler {
     const r = this.solve(ctx);
     if (!r) return "";
     run((m) => { for (const [v, p] of r.moves) m.setPos(v, p); });
+    if (this.handles) { let c = { x: 0, y: 0, z: 0 }; for (const v of this.vids) c = add3(c, r.moves.get(v) ?? this.base.get(v)!); this.liveOrigin = applyPt(ctx.ctxXform(), scale3(c, 1 / this.vids.length)); }   // 手柄跟着走
     return r.dims;
   }
 
@@ -181,7 +212,9 @@ export class MeshTransformTool implements ToolHandler {
   private solve(ctx: ToolCtx): { moves: Map<number, Pt3>; dims: string } | null {
     const pivot = this.pivotW, grab = this.grabW, s0 = this.start, s1 = this.cur;
     if (!pivot || !grab || !s0 || !s1) return null;
-    const X = ctx.ctxXform(), Xi = invert(X), ax = ctx.axisLockDir(), pn = ctx.planeLockNormal(), typed = ctx.typed(), tag = typed !== null ? "（打的数）" : "";
+    // 锁：键盘锁轴 / 锁面（方向键、X / Y / Z）> 这一下按着的手柄把手（mesh-handles.ts Grip）> 不锁
+    const kAx = ctx.axisLockDir(), kPn = ctx.planeLockNormal(), keyed = !!(kAx || kPn), ax = keyed ? kAx : this.grip?.axis ?? null, pn = keyed ? kPn : this.grip?.plane ?? null;
+    const X = ctx.ctxXform(), Xi = invert(X), typed = ctx.typed(), tag = typed !== null ? "（打的数）" : "";
     let fW: (p: Pt3) => Pt3, dims: string;
     if (this.kind === "normal") {   // 沿法线：离轴心（屏幕）远了 = 胖、近了 = 瘦（Blender Alt+S 同手感）；每个点沿自己的法向走同样长
       const vp = ctx.vp(), ps = ctx.frame().project?.(pivot, vp);

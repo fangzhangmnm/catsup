@@ -7,7 +7,17 @@ export interface Modifiers {
     ctrl?: boolean;
     shift?: boolean;
 }
-export interface EnumOption {
+/** 各种选项共有的两条露不露规矩（2026-10-30 从 number / bool 各自那条收到一处）。 */
+interface OptionShown {
+    /** 只在这几个工作台露（软边橡皮的「最大角度」只管硬表面：网格体的边是拓扑，标平滑不看角度；移动的「复制」自由建模的移动不认）。 */
+    readonly modes?: readonly string[];
+    /** 只在同一组里另一个选项取这几个值时才露（拉出的「锁比例」只给平的形状；手柄的「朝向」只在手柄开着时；bool 按 "true" / "false" 比）。 */
+    readonly shownWhen?: {
+        readonly key: string;
+        readonly in: readonly string[];
+    };
+}
+export interface EnumOption extends OptionShown {
     readonly kind: "enum";
     readonly label: string;
     readonly values: readonly {
@@ -24,7 +34,7 @@ export interface EnumOption {
         readonly ctrlShift?: string;
     };
 }
-export interface NumberOption {
+export interface NumberOption extends OptionShown {
     readonly kind: "number";
     readonly label: string;
     readonly def: number;
@@ -36,21 +46,14 @@ export interface NumberOption {
     /** 这个数是一个物理量（值存 SI：米 / 米每秒）：显示、− +、打字都按用户选的单位（units.ts；2026-10-28 user「都单位和用户选择单位对齐」）。给了它 unit 就不看。 */
     readonly quantity?: QuantityTag;
     readonly scope: OptionScope;
-    /** 只在这几个工作台露（软边橡皮的「最大角度」只管硬表面：网格体的边是拓扑，标平滑不看角度）。 */
-    readonly modes?: readonly string[];
 }
-export interface BoolOption {
+export interface BoolOption extends OptionShown {
     readonly kind: "bool";
     readonly label: string;
     readonly def: boolean;
     readonly scope: OptionScope;
     /** 有图标 = 画成图标开关（label 当提示字；拾取 点 / 边 / 面，user 10-28 夜「最好换成icon」）。 */
     readonly icon?: string;
-    /** 只在同一组里另一个 enum 选项取这几个值时才露（拉出的「锁比例」只给平的形状）。 */
-    readonly shownWhen?: {
-        readonly key: string;
-        readonly in: readonly string[];
-    };
 }
 export type OptionDef = EnumOption | NumberOption | BoolOption;
 export type OptionTable = Readonly<Record<string, Readonly<Record<string, OptionDef>>>>;
@@ -225,6 +228,7 @@ export declare const TOOL_OPTIONS: {
             readonly label: "复制";
             readonly def: false;
             readonly scope: "session";
+            readonly modes: readonly ["geometry", "verify"];
         };
     };
     /** 变换（2026-10-26，user「transform的时候ctrl应该是复制吧」「transform能不能马后炮可以切换 pivot…是工具自己记住的选项。而且每个工具单独记」）：
@@ -267,6 +271,7 @@ export declare const TOOL_OPTIONS: {
             readonly label: "复制";
             readonly def: false;
             readonly scope: "session";
+            readonly modes: readonly ["geometry", "verify"];
         };
     };
     /** 焊边橡皮（user 2026-10-24「有一个最大角度护栏」）：接点两边的转角 ≤ 这个角才焊成一条长弧 / 折线；共轴（0°）直接真合并；更尖的不碰。 */
@@ -408,6 +413,40 @@ export declare const TOOL_OPTIONS: {
             readonly label: "沿边滑";
             readonly def: false;
             readonly scope: "session";
+        };
+    };
+    /** 操纵手柄（自由建模的移动 / 旋转 / 缩放；user 10-29 夜「mesh模式移动的时候单击新图元或者单击选区的时候应该出现gizmos」「然后rotate scale也一样，单击选区可以弹gizmos，
+     *  然后右下小窗也有弹gizmos的功能」；设计稿 ai-docs/20261027-gizmo-design.md）：开着 = 选区上挂这把工具那一家把手（移动 = 箭头 + 平面块、旋转 = 环、缩放 = 方块 + 平面块，
+     *  中心 = 这把工具的默认做法）；点一下选到东西就开、点空处就关；三把工具共用一个值。朝向 = 那几根轴朝哪（设计稿 §2 全家同一套词）。 */
+    readonly handles: {
+        readonly show: {
+            readonly kind: "bool";
+            readonly label: "手柄";
+            readonly def: false;
+            readonly scope: "session";
+        };
+        readonly orient: {
+            readonly kind: "enum";
+            readonly label: "朝向";
+            readonly values: readonly [{
+                readonly id: "object";
+                readonly label: "物件";
+                readonly hint: "这个网格体自己的轴（和 X / Y / Z 锁轴同一套）";
+            }, {
+                readonly id: "world";
+                readonly label: "世界";
+                readonly hint: "世界的 X / Y / Z";
+            }, {
+                readonly id: "normal";
+                readonly label: "法向";
+                readonly hint: "选中的面的法向 = Z（边 / 点 = 连着的面的平均）";
+            }];
+            readonly def: "object";
+            readonly scope: "session";
+            readonly shownWhen: {
+                readonly key: "show";
+                readonly in: readonly ["true"];
+            };
         };
     };
     /** 拾取范围（自由建模；user 10-28 晚「移动之类的的chip还是加一个拾取范围吧。点线面，要不三个toggle，放在马前炮可以吗？」）：

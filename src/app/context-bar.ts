@@ -36,17 +36,15 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
   const config = editor.config;
   const render = (): void => {
     const tool = editor.tool, group = optionGroupOf(tool);
-    const entries = config.entries(group).filter((e) => !(e.def.kind === "number" && e.def.modes && !e.def.modes.includes(editor.modeId))), leading = p.leading?.(tool) ?? [], actions = p.actions?.(tool) ?? [], sel = p.selection?.() ?? [];
+    const entries = config.entries(group).filter((e) => !(e.def.modes && !e.def.modes.includes(editor.modeId))), leading = p.leading?.(tool) ?? [], actions = p.actions?.(tool) ?? [], sel = p.selection?.() ?? [];
     const hasTool = entries.length + leading.length + actions.length > 0;
     root.hidden = !hasTool && sel.length === 0;
     if (fieldEditing(root)) return;   // 正在就地打字：不重画
     root.replaceChildren();
     for (const a of leading) root.appendChild(actionBtn(a));
     for (const e of entries) root.appendChild(control(group, e));
-    // 沿边滑（自由建模移动的一种模式；G G）
-    if (editor.modeId === "freeform" && tool === "move") for (const e of config.entries("slide")) root.appendChild(control("slide", e));
-    // 软选择（自由建模的移动 / 旋转 / 缩放 / 沿法线；开关在这里，半径在左边竖滑条）
-    if (editor.modeId === "freeform" && ["move", "rotate", "scale", "shrink"].includes(tool)) for (const e of config.entries("soft")) if (e.key === "on") root.appendChild(control("soft", e));
+    // 工具自己声明的别的选项组（沿边滑 / 软选择开关 / 操纵手柄……；ToolHandler.stripGroups）：哪把工具露哪几组归工具，这里不按工作台分叉（T102 棘轮）
+    for (const g of editor.toolHandler(tool)?.stripGroups?.() ?? []) for (const e of config.entries(g.group)) if (!g.keys || g.keys.includes(e.key)) root.appendChild(control(g.group, e));
     // 拾取范围（自由建模，按「点 > 边 > 面」抓东西的工具；tool-config.ts pick；user 10-28 晚「放在马前炮」）：挂在工具自己的选项后面
     if (editor.modeId === "freeform" && stanceOf("freeform", tool)?.grab === "element") root.appendChild(pickToggles());
     for (const a of actions) root.appendChild(actionBtn(a));

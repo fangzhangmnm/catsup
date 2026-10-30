@@ -63,6 +63,12 @@ export type LineStyle = "pixel" | "thick";
  * 画的供货商：编辑器 / app 用到的全部（= 现状 three 那份的公开面；加一个供货商 = 实现这张脸）。
  * 分组：画一帧 / 内容流 / 视图设定（线稿 / 风格）/ XR / 回执。什么都不认识编辑器（守卫 ③）。
  */
+/** 视口设置「选中色」：选中 = selected（面 = 它往白调淡）；它和将删 / 检查撞色时一起给让开的颜色（比如选中红 → 将删让成橙）。没写的 = 默认。 */
+export interface MarkAccent {
+    readonly selected: number;
+    readonly scrub?: number;
+    readonly warn?: number;
+}
 export interface RenderProvider {
     readonly name: string;
     caps(): ProviderCaps;
@@ -85,6 +91,9 @@ export interface RenderProvider {
     /** 屏幕（和画风分开选，T106）：null = 跟画风的默认。 */
     setScreen(id: ScreenId | null): void;
     getScreen(): ScreenId | null;
+    /** 视口设置「选中色」（sRGB；null = 跟画风）。画风的标记色是它本身一部分的（ownMarks：1-bit / Tron）不覆盖。 */
+    setAccent(a: MarkAccent | null): void;
+    getAccent(): MarkAccent | null;
     readonly xr: XRFacade;
     setXRQuality(q: {
         foveation?: number;

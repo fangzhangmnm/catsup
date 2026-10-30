@@ -1,4 +1,4 @@
-import type { PixelOutlinePost } from "../../preset/index.ts";
+import type { DitherPost, PixelOutlinePost } from "../../preset/index.ts";
 /** 小图（颜色 + 深度贴图）+ 描边后的小图 + 两遍全屏。尺寸变了才重建。 */
 export declare class PixelScreen {
     private low;
@@ -34,10 +34,13 @@ export declare class PixelScreen {
         far: number;
         ortho: boolean;
         bgInTex?: boolean;
+        dither?: DitherPost | null;
     }): void;
     /** 放大回 target（屏幕一刀）：src = 小图本身或 post；外观 none / crt-tv；writeDepth = 把小图的深度写回 target（后面还要按原分辨率画东西时才要）。 */
     upscale(renderer: any, target: any, src: "low" | "post", look: "none" | "crt-tv", writeDepth: boolean): void;
     /** 显存估算（血槽位）：小图颜色 + 深度 + 描边后的小图（颜色 + 深度）。 */
     bytes(): number;
+    /** 只放显存（两张小图）；材质留着，下次 prepare 重建（常驻表 residency.ts 调）。 */
+    release(): void;
     dispose(): void;
 }

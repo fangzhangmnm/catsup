@@ -24,5 +24,7 @@ export declare class Bloom {
     /** 显存（血槽位）：辉光图 8 字节 / 像素（半精度 RGBA）+ 深度 4 + 四级 × 2 张。 */
     bytes(): number;
     private disposeTargets;
+    /** 只放显存（辉光整串）；材质留着，下次 prepare 重建（常驻表 residency.ts 调）。 */
+    release(): void;
     dispose(): void;
 }

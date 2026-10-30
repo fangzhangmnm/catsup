@@ -1,6 +1,11 @@
 import type { PassDecl } from "../graph/frame-graph.ts";
 import type { EnvRecipeId, SurfaceRecipeId } from "../paintshop/index.ts";
 /** 像素描边后处理（实验室公用件 `ShaderLab.pixelOutline`，lab/core.js）：背景挨着模型的那一格涂成描边色；可选内部深度跳变也描。 */
+/** 两色抖动：亮度过 4×4 有序抖动的阈值 = light，否则 = dark（sRGB）。 */
+export interface DitherPost {
+    readonly dark: number;
+    readonly light: number;
+}
 export interface PixelOutlinePost {
     /** 描在哪一侧：outside = 物体外面一圈（背景那侧，经典精灵描边）；inside = 物体边界那一圈（近的那侧）——和线稿落在同一个像素上、合成一条，不打架（T116 user「如果有勾线的话描边会和勾线打架」）。 */
     readonly side: "outside" | "inside";
@@ -143,6 +148,8 @@ export declare const SCREENS: {
 export type ScreenId = keyof typeof SCREENS;
 export declare const SCREEN_IDS: ScreenId[];
 export declare const isScreenId: (s: unknown) => s is ScreenId;
+/** 有标记色的材质槽（面的淡出、边的淡出 / 隐线不在这：它们跟底色走）。 */
+export type MarkColorSlot = "faceSelected" | "faceHover" | "edgeSelected" | "edgeHot" | "edgeWarn";
 export interface Preset {
     readonly id: string;
     /** 界面上的名字（视图 ☰「风格」）。 */
@@ -155,16 +162,26 @@ export interface Preset {
     readonly source: string;
     /** 材质翻译挂点：面怎么上明暗（camera = 白模的跟相机平光 / none = 不打光 / flat = 平涂）、贴图怎么过滤、模型的边画不画（边 = 编辑器的线稿；叠加层的选中边照画）、
      *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
-    /** material.edges 线稿三档：none 不画 / all 全画（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）/ active 只画正在编辑那一层的。像素描边 = all（T113 user「像素里面边的显示其实就是看硬和软边就行了」：硬边都画、软边不画；T89 时是 active）；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
+    /** material.edges 线稿线两档（ai-docs/20261029-edge-display-scenarios.md）：all = 不在编辑的物件也画硬边（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）；none = 不在编辑的不画。
+     *  正在编辑的那一个的结构线任何画风都画（2026-10-29 Opus；以前的第三档 active「只画编辑中的」= none + 结构线，退役）。 */
     readonly material: {
         readonly shade: "camera" | "none" | "flat" | "tron" | "pbr";
         readonly texFilter: "asset" | "nearest";
-        readonly edges: "none" | "all" | "active";
+        readonly edges: "none" | "all";
         readonly colorize: "model" | "part" | "none";
         readonly flat: FlatShade | null;
         readonly tron: TronShade | null;
         readonly pbr: PbrShade | null;
         /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
+        /** 标记色（选中 / 悬停 / 将删 / 检查；sRGB）：面 / 边的标记材质和辅助几何的同名颜色角色都从这里取（一处定、三样对得上）；没写的 = 全局色板。 */
+        readonly marks?: Partial<Readonly<Record<MarkColorSlot, number>>>;
+        /** 标记闪（两色的屏没有颜色可用时，选中靠闪）：periodMs 一个来回多久，亮的半拍 = 标记色、暗的半拍 = off 色（sRGB）。边的标记材质和辅助几何的选中 / 将删 / 检查色一起闪；面不闪（user 10-29「面可以先不闪」）。 */
+        readonly blink?: {
+            readonly periodMs: number;
+            readonly off: number;
+        };
+        /** 标记色是这个画风本身的一部分（1-bit 只有两色 / Tron 的 Clu 橙）：视口设置「选中色」不覆盖它。 */
+        readonly ownMarks?: boolean;
     };
     /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
     readonly light: {
@@ -178,11 +195,17 @@ export interface Preset {
         readonly env: EnvLight | null;
         /** 走屏幕那条路时编辑器网格线的颜色（原始 sRGB）；没写 = 背景 × 网格系数（浅背景压暗一点）。Tron 用自己的青色（T57 user「tron的网络用我们自己的网络，记得跟单位」）。 */
         readonly gridColor?: number;
+        /** 走屏幕那条路时网格线画成点线（老 OpenGL 的 line stipple：沿线走的方向隔一格画一格，任何角度都整齐；不靠抖动）。1-bit 线稿用（user 10-29「1bit grid的虚线……很聪明，但是再规整一点就好了」）。 */
+        readonly gridStipple?: boolean;
+        /** 地面三色轴的颜色 [x, y, z]（原始 sRGB）；没写 = 红绿蓝。Tron = 三根都是主色调（user 10-29「tron三色轴换成主色调」）。 */
+        readonly axisColors?: readonly [number, number, number];
     };
     /** 后处理挂点。 */
     readonly post: {
         readonly pixelOutline: PixelOutlinePost | null;
         readonly bloom: BloomPost | null;
+        /** 两色抖动（描边那遍的最后一步，按亮度 4×4 有序抖动成 dark / light 两色；要求 pixelOutline 也开着）。1-bit 画风用。 */
+        readonly dither?: DitherPost;
     };
     /** 屏幕一刀：像素化 = 一个画面像素放大几倍（CSS 像素；后端按设备像素比取整成整数倍放大）；1 = 原生。rows = 分辨率上限（画面最多几行，整数倍放大铺满，不留黑边）；
      *  look = 屏幕外观（none 最近邻 / crt-tv 电视）。 */
@@ -237,6 +260,13 @@ export declare const PRESETS: {
             readonly tron: null;
             readonly pbr: null;
             readonly surface: readonly [];
+            readonly marks: {
+                readonly faceSelected: 15967896;
+                readonly faceHover: 16305087;
+                readonly edgeSelected: 14168634;
+                readonly edgeHot: 15763968;
+                readonly edgeWarn: 9133302;
+            };
         };
         readonly light: {
             readonly background: 16639677;
@@ -255,6 +285,69 @@ export declare const PRESETS: {
                 readonly width: 1;
             };
             readonly bloom: null;
+        };
+        readonly screen: "pixel3";
+        readonly geometry: {};
+    };
+    /** 1-bit 线稿（2026-10-29 Opus 5.5；user 10-29「到时候1bit也加进来压测」→「先别发明别的画风。半调这种是我们以后可以慢慢grill的，先把已有的线稿画风做好……专注于1bit线稿」）：
+     *  线稿的两色版——面是纸（平涂、不打光，模型上没有半调）、线和描边是墨；只有本来就是中间调的东西（网格、选中的面）按 4×4 网点抖成两色。
+     *  也是画风翻译器的压测：所有按主分辨率画的东西都在小图里一起变成两色；画布上出现第三种颜色 = 有东西没进小图（探针 probe-onebit）。半调明暗（按光照抖）以后在 Shader 实验室磨（账本 T133）。 */
+    readonly onebit: {
+        readonly id: "onebit";
+        readonly name: "1-bit 线稿";
+        readonly brief: "黑线白纸（两色）";
+        readonly note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。";
+        readonly source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）";
+        readonly material: {
+            readonly shade: "flat";
+            readonly texFilter: "nearest";
+            readonly edges: "all";
+            readonly colorize: "none";
+            readonly flat: {
+                readonly base: 16052712;
+                readonly shadowTint: 16777215;
+                readonly contrast: 0;
+                readonly ramp: 1;
+                readonly steps: 1;
+                readonly soft: 0;
+                readonly lightAz: 0;
+                readonly lightEl: 90;
+            };
+            readonly tron: null;
+            readonly pbr: null;
+            readonly surface: readonly [];
+            readonly marks: {
+                readonly faceSelected: 9079434;
+                readonly faceHover: 12895428;
+                readonly edgeSelected: 1118481;
+                readonly edgeHot: 1118481;
+                readonly edgeWarn: 1118481;
+            };
+            readonly ownMarks: true;
+        };
+        readonly light: {
+            readonly background: 16052712;
+            readonly ground: null;
+            readonly ao: null;
+            readonly env: null;
+            readonly gridColor: 1118481;
+            readonly gridStipple: true;
+        };
+        readonly post: {
+            readonly pixelOutline: {
+                readonly side: "inside";
+                readonly color: 1118481;
+                readonly tint: 0;
+                readonly shade: 1;
+                readonly darkSide: false;
+                readonly inner: true;
+                readonly width: 1;
+            };
+            readonly bloom: null;
+            readonly dither: {
+                readonly dark: 1118481;
+                readonly light: 16052712;
+            };
         };
         readonly screen: "pixel3";
         readonly geometry: {};
@@ -335,6 +428,12 @@ export declare const PRESETS: {
             };
             readonly pbr: null;
             readonly surface: readonly [];
+            readonly marks: {
+                readonly edgeSelected: 16751150;
+                readonly edgeHot: 16731501;
+                readonly edgeWarn: 11893759;
+            };
+            readonly ownMarks: true;
         };
         readonly light: {
             readonly background: 66311;
@@ -346,6 +445,7 @@ export declare const PRESETS: {
             readonly ao: null;
             readonly env: null;
             readonly gridColor: 2126720;
+            readonly axisColors: readonly [4187903, 4187903, 4187903];
         };
         readonly post: {
             readonly pixelOutline: null;
@@ -382,6 +482,13 @@ export declare const PRESETS: {
                 readonly spec: 1;
             };
             readonly surface: readonly [];
+            readonly marks: {
+                readonly faceSelected: 15967896;
+                readonly faceHover: 16305087;
+                readonly edgeSelected: 14168634;
+                readonly edgeHot: 15763968;
+                readonly edgeWarn: 9133302;
+            };
         };
         readonly light: {
             readonly background: null;
@@ -442,6 +549,13 @@ export declare const PRESETS: {
                 readonly amount: 0.75;
                 readonly color: 3884594;
             }];
+            readonly marks: {
+                readonly faceSelected: 15967896;
+                readonly faceHover: 16305087;
+                readonly edgeSelected: 14168634;
+                readonly edgeHot: 15763968;
+                readonly edgeWarn: 9133302;
+            };
         };
         readonly light: {
             readonly background: null;

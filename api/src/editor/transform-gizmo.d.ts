@@ -40,11 +40,15 @@ export interface XformGizmoGeom extends XformGizmo {
 }
 /** 平面块中心（世界）。 */
 export declare function planeHandleCenter(G: XformGizmoGeom, h: XformHandle): Pt3;
-export declare function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport): XformGizmoGeom;
+/** 摆法：缺省 = 硬表面变换工具那样（缩放块在环里、箭头在环外）；cubePx = 轴上缩放块离原点多远（CSS px）——自由建模的缩放手柄没有箭头，方块放到箭头尖那里当「方头」（tools/mesh-handles.ts）。 */
+export interface XformLayout {
+    readonly cubePx?: number;
+}
+export declare function xformGizmoGeom(g: XformGizmo, pf: PointerFrame, vp: Viewport, lay?: XformLayout): XformGizmoGeom;
 /** 绕 axis 的环上的点（闭合：首尾相同）。 */
 export declare function ringPoints(G: XformGizmoGeom, ax: AxisName): Pt3[];
 /** 光标下每个把手的屏距（箭头 = 到箭杆、环 = 到环线）+ 离相机的深度（叠在一起时近的赢）。 */
-export declare function hitXformGizmo(g: XformGizmo, pf: PointerFrame, vp: Viewport, sx: number, sy: number): {
+export declare function hitXformGizmo(g: XformGizmo, pf: PointerFrame, vp: Viewport, sx: number, sy: number, lay?: XformLayout): {
     handle: XformHandle;
     d: number;
     z: number;

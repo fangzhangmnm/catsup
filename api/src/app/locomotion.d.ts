@@ -65,9 +65,15 @@ export declare class Locomotion {
     } | null;
     placeWhy(): string | null;
     private commitPlace;
+    /** 在当前相机位置出生（user 10-29「步行相机的马前炮还有一个就是spawn在当前摄像机位置的选项」）：眼 = 现在的相机眼位，朝向 / 俯仰照旧；脚下没地就照常往下掉。 */
+    placeAtCamera(): void;
+    /** 落人（点地面 / 在相机这里）：记下进来前的视角、站到 feet、朝相机前向、俯仰 pitch，进 FPS。 */
+    private land;
+    /** 刚请求锁鼠标：锁上后的第一个移动事件带的是「光标到画布中心」的假位移（实测 −677, −634，比「锁上了」的通知还早到）——丢掉，不然每次落人 / 接着走镜头都猛甩一下（v0.17.50）。 */
+    private lockFresh;
     /** 回 FPS（放置落下 / 原地编辑里点「继续走」）：要一次用户点击才锁得上鼠标，这两个入口都是点击。 */
     resumeWalk(): void;
-    /** Tab：原地编辑（镜头钉住、鼠标放出来、键盘归工具）。 */
+    /** Tab：原地编辑（镜头钉住、鼠标放出来、键盘归工具）；这期间步行整个停住（tick 不走），再按 Tab / 「继续走」从这一帧接着走。 */
     editInPlace(): void;
     getMode(): LocomotionMode;
     isWalking(): boolean;

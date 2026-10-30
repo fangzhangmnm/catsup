@@ -5,7 +5,7 @@
 import { describe, it, assert } from "./runner.mjs";
 const fs = (await import("node:fs" as string)) as { readdirSync(u: URL, o: { withFileTypes: true }): { name: string; isDirectory(): boolean }[]; readFileSync(u: URL, e: string): string };
 
-const PIN = 8;
+const PIN = 6;   // v0.17.57 context-bar 的沿边滑 / 软选择两处搬进 ToolHandler.stripGroups → 6
 function* walk(dir: URL): Generator<URL> {
   for (const d of fs.readdirSync(dir, { withFileTypes: true })) { const u = new URL(d.name + (d.isDirectory() ? "/" : ""), dir); if (d.isDirectory()) yield* walk(u); else if (d.name.endsWith(".ts")) yield u; }
 }

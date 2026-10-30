@@ -92,6 +92,7 @@ export interface ViewState {
     softEdges?: {
         key: string;
         segs: readonly {
+            id: EdgeId;
             a: Pt3;
             b: Pt3;
         }[];
@@ -131,6 +132,7 @@ export interface ViewState {
         readonly color: "x" | "y" | "z" | "n";
     }[] | null;
     /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
+    /** parts = 只画这几样（自由建模的手柄按工具分家：移动 = 箭头 + 平面块 + 中心、旋转 = 环 + 中心、缩放 = 方块 + 平面块 + 中心；tools/mesh-handles.ts）；不给 = 全画（硬表面的变换工具）。 */
     xformGizmo?: {
         origin: Pt3;
         axes: {
@@ -147,6 +149,7 @@ export interface ViewState {
         planeHalf?: number;
         uniform?: Pt3 | null;
         hot: string | null;
+        parts?: readonly ("arrows" | "rings" | "cubes" | "planes" | "center")[];
     } | null;
     /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
     tape?: {

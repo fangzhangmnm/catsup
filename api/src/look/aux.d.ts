@@ -11,6 +11,9 @@ declare const STANDARD_PALETTE: {
     readonly axisX: 13382451;
     readonly axisY: 3050327;
     readonly axisZ: 2845872;
+    readonly gizmoX: 13382451;
+    readonly gizmoY: 3050327;
+    readonly gizmoZ: 2845872;
     readonly construct: 9133302;
     readonly chargedExt: 13947125;
     readonly mirror: 9133302;
@@ -93,6 +96,7 @@ declare const POINT_LOOKS: {
         readonly pull: 0.994;
         readonly depth: "visible";
         readonly layer: 4;
+        readonly stage: 1;
     };
     readonly vert: {
         readonly sizePx: 5;
@@ -100,6 +104,7 @@ declare const POINT_LOOKS: {
         readonly pull: 0.996;
         readonly depth: "visible";
         readonly layer: 3;
+        readonly stage: 1;
     };
     readonly faceDot: {
         readonly sizePx: 6;
@@ -108,6 +113,7 @@ declare const POINT_LOOKS: {
         readonly depth: "through";
         readonly alpha: 0.9;
         readonly layer: 5;
+        readonly stage: 1;
     };
     readonly seam: {
         readonly sizePx: 7;
@@ -115,6 +121,7 @@ declare const POINT_LOOKS: {
         readonly pull: 0.995;
         readonly depth: "visible";
         readonly layer: 3.5;
+        readonly stage: 1;
     };
 };
 declare const MARKER_LOOKS: {
@@ -236,7 +243,7 @@ export interface AuxText {
     readonly gapPx?: number;
 }
 export type AuxItem = AuxLines | AuxPoints | AuxMarker | AuxTris | AuxText;
-/** 这个画风里一个颜色角色的值（底板色没被覆盖时跟画风的背景色走）。 */
+/** 这个画风里一个颜色角色的值（底板色没被覆盖时跟画风的背景色走）。选中 / 将删 / 检查不在这：引擎每帧算好放在 ctx.status（视口设置 > 画风 > 全局默认、闪已换好），translateAux 直接用。 */
 export declare function auxColor(style: string, c: AuxColor): number;
 /** 编辑器的语义项 → 小栗鼠的辅助几何项（按 ctx.style 这个画风查表；字按 ctx 的量尺排）。键带上画风：换画风 = 颜色可能变了，后端重建。 */
 export declare function translateAux(items: readonly AuxItem[], ctx: OverlayCtx): OverlayItem[];

@@ -8,10 +8,14 @@ export declare const GRID_PLANES: readonly {
 }[];
 /** on = 格点 + 整数长度同一开关；step = 显示格距（米；**吸附没开也按它画**，user 2026-10-24「栅格吸附没开的时候栅格没有跟着单位动」）；subdiv = 吸附细分（吸附步 = step / subdiv）；
  *  preset = 栅格制式。存进文档 settings、不进 undo。 */
+/** 吸附细分的几档（一格吸几下；2026-10-29 user「snapping的substep应该除了5 10 还有2 20 50 100」，账本 T120；文件里是 settings.gridSubdiv，CATSUP_document 3.2）。 */
+export declare const GRID_SUBDIVS: readonly [2, 5, 10, 20, 50, 100];
+export type GridSubdiv = (typeof GRID_SUBDIVS)[number];
+export declare const isGridSubdiv: (x: unknown) => x is GridSubdiv;
 export interface GridSettings {
     on: boolean;
     step: number;
-    subdiv: 5 | 10;
+    subdiv: GridSubdiv;
     plane: GridPlane;
     preset: GridPreset;
 }

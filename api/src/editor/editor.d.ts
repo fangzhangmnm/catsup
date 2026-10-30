@@ -143,7 +143,7 @@ export interface EditorHost {
     /** 要等的大活的细进度条（顶边一条线，MoonSinger 同款；账本 UX7）：label = 露出来、返回「已经画上了」的 Promise（等它再开跑，不然卡住的那一帧画不出来）；null = 收起。缺 = 宿主不画。 */
     working?(label: string | null): Promise<void> | void;
 }
-export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
+export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, isGridSubdiv, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
 export declare function describeEvent(ev: FaceEvent): string;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 /** 圆的多边形段数（SU 默认 24）。 */
@@ -315,14 +315,15 @@ export declare class Editor {
     private readonly provider;
     private scene;
     private ctx;
-    private _grid;
+    private readonly gridState;
     /** 演示锁（护栏 ②，周账 F-124；ai-docs/20261024-finalize.md §0）：true = 改模型的入口全拒（commit / undo / redo / VCB / 指针按下 / 键盘起手）；看 / 选工作台 / 走路照旧。由 session 按 desk.locked 设。 */
     private _locked;
     get locked(): boolean;
     setLocked(on: boolean): void;
     private lockedSay;
     get grid(): Readonly<GridSettings>;
-    setGrid(patch: Partial<GridSettings>): void;
+    get docGrid(): Readonly<GridSettings>;
+    setGrid(patch: Partial<GridSettings>, fromDoc?: boolean): void;
     private history;
     /** 上一次经过选区口子 / 装场景时的会话：选区变了 = 记一步「只改选区」（撤销也撤选区，user 10-27「这个我们要」；连续几下不合并，Blender 同款）。上下文变了（进 / 出组件）不算选区步，只刷新。 */
     private static sessionKey;
@@ -535,7 +536,6 @@ export declare class Editor {
     private activePool;
     private ctxXform;
     private toLocal;
-    private toWorld;
     /** 世界空间里的变换 → 活动上下文空间（父空间）里的同一变换：M⁻¹ ∘ X ∘ M。 */
     private xformToLocal;
     private kid;
@@ -1239,8 +1239,6 @@ export declare class Editor {
     /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
     private softEdgesView;
     /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
-    /** X 光面点（FM3）：开着 X 光时，正在编辑那一层每张面中心一个点（pick.ts faceDotPoint，和点得中的地方是同一个）；选中的面另一种颜色。 */
-    private faceDotsView;
     private vertDotsView;
     viewExtras: (() => Partial<ViewState>) | null;
     setLoop(cb: ((timeMs: number, frame?: unknown) => void) | null): void;
@@ -1283,8 +1281,6 @@ export declare class Editor {
     private makeToolCtx;
     /** 取点悬停（无手势）：画面平面 + 吸附（迟滞）+ 充能。内建的画线 / 矩形 / 圆 / 移动与模块工具共用。 */
     private hoverSnap;
-    private projectToPlaneThrough;
-    private currentSample;
     private recordSample;
     /**
      * 抬笔结算（A21）——按物理过程判：样本按「同一处」（HOLD_PX 内）分成一段段停留。松开处停留 ≥ FINAL_HOLD_MS → 有意，用松开帧；

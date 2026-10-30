@@ -56,6 +56,10 @@ export declare const BOOLEAN_DEFAULT: Readonly<Record<Device, Readonly<Record<"c
  *  鼠标 = 底是关（Blender：naive G 就是屏幕空间，按住 Shift 才吸）；笔 / 手指 = 底跟右上角吸附锁钮（和硬表面同一颗钮，开着就吸），键名芯片锁住 Shift = 反过来。
  *  规律一句话：吸 = 底 XOR Shift，没有第三种状态；硬表面的底一直是锁钮（stance "infer"），不在此列。读它的只有编辑器给工具的 ctx.snapBase()。 */
 export declare const SNAP_BASE: Readonly<Record<Device, "lock" | "off">>;
+/** 点一下弹操纵手柄（自由建模的移动 / 旋转 / 缩放；tools/mesh-handles.ts）：点一下选到东西 = 手柄开、点空处 = 关。按设备一行。
+ *  10-29 早些时候记的是「只针对触屏自由建模」（gizmo 设计稿 §8）；user 10-29 夜「mesh模式移动的时候单击新图元或者单击选区的时候应该出现gizmos……这个是mesh的行为，和brep没关系」
+ *  → 三种指针都开（硬表面不走这里）。要回到只给触屏 = 鼠标那格改 false（右下「手柄」开关照样能手动开）。2026-10-30 Claude Opus 5.5 */
+export declare const HANDLES_ON_TAP: Readonly<Record<Device, boolean>>;
 export declare const STANCE: Readonly<Record<ModeId, Partial<Record<Tool, Stance>>>>;
 /** 这把工具在这个工作台的立场（没有 = 守卫测试会红；运行时返回 undefined 让调用方自己兜底）。 */
 export declare function stanceOf(mode: ModeId, tool: Tool): Stance | undefined;

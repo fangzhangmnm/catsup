@@ -1,4 +1,4 @@
-import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput } from "../../index.ts";
+import type { RenderProvider, MarkAccent, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput } from "../../index.ts";
 import { type BudgetReport, type Measurement, type StreamProvider, type View, type ViewportSize } from "../../index.ts";
 import { type PerfSink } from "../../perf.ts";
 import { type PresetId, type ScreenId } from "../../preset/index.ts";
@@ -80,7 +80,7 @@ export declare class Renderer3 implements RenderProvider {
     private gridMesh;
     private gridMat;
     private axesObj;
-    /** 网格 / 三色轴的原生 1 像素线版（PIXEL_GRID_LAYER；像素化的风格画进小图，光栅器自己的 Bresenham = 不糊不断）。 */
+    /** 像素化风格的网格（GRID_PIX_FRAG 那张同心圈平面）/ 三色轴的原生 1 像素线版（PIXEL_GRID_LAYER；画进小图，光栅器自己的 Bresenham = 不糊不断）。 */
     private gridPix;
     private axesPix;
     private gridKey;
@@ -198,6 +198,9 @@ export declare class Renderer3 implements RenderProvider {
     private currentScreen;
     setScreen(id: ScreenId | null): void;
     getScreen(): ScreenId | null;
+    private accent;
+    setAccent(a: MarkAccent | null): void;
+    getAccent(): MarkAccent | null;
     /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
     setPreset(id: PresetId): void;
     getPreset(): PresetId;
@@ -221,14 +224,30 @@ export declare class Renderer3 implements RenderProvider {
     private syncPools;
     private syncMarks;
     private static readonly EDGE_SLOTS;
-    private static edgeHex;
+    /** 标记色：这一帧画风写了就用（预设 material.marks），没写 = 全局色板。 */
+    /** 画风专属东西的常驻表（residency.ts）：每帧画风递交「要哪几样」，表去对账（要的亮、不要的藏、久没要的放显存）。 */
+    private readonly residency;
+    private wanted;
+    /** 这一帧标记闪在亮的那一拍吗（画风没写闪 = 永远亮）。 */
+    private blinkOn;
+    private markHex;
     private lineMarkMats;
+    /**
+     * 「这是墨线」的记号（v0.17.51）：画风小图那一遍里，1 像素模型边（普通 / 淡出 / 选中悬停那几份）的透明通道写 0——描边那遍靠它认出墨线，清碎屑时不把对角走的墨线当孤点抹掉
+     * （screen-pixel.ts OUTLINE_FS）。不透明 + 普通混合时 three 会把透明通道强制写成 1（OPAQUE），所以这一遍切成「不混合 + 不透明度 0」，画完切回：画到画布的东西一个字节不变。
+     */
+    private inkMark;
+    /** 闪换拍：已经建好的标记材质按这一拍重写颜色（材质很少：每种槽一份；不用重跑分段）。 */
+    private refreshMarkColors;
     /** 原生线的标记材质：可见那份（换成标记色）/ 隐线那份（深度大于才画、半透明）。 */
     private lineMarkMaterial;
     /** 原生（1 像素）线：索引把顶点分成「普通的 / 每个标记槽一段」（同面的踢掉再画）；底线不画的风格（剪纸 / 写实…）只画标记那几段。隐线那份同一套分段。 */
     private applyPixelLineMarks;
-    /** 粗线（实例化）：被标记的那几条拷一份（位置 / 两侧面 / 轮廓旗照抄，颜色换成标记色），用边线材质画在底线之后；X 光再配一份「深度大于才画」的。 */
+    /** 粗线（实例化）：被标记的那几条拷一份（位置 / 两侧面 / 轮廓旗照抄，颜色换成标记色），用边线材质画；底线换成「旗」自己拷的那份、被标记的旗写 -1（着色器收成零宽）
+     *  = 每条线只画一遍（2026-10-29 Opus；Fable 元规则「一遍」：以前底线照画、拷贝靠画序盖上去）。X 光再配一份「深度大于才画」的，隐线那份底线同样踢掉被标记的。 */
     private syncThickMarks;
+    /** 放掉槽自己那份粗线底线（共享的属性先摘下来，不跟着释放；只放掉自己的旗和底板四边形）。 */
+    private dropThickOwn;
     /** 被标记的边的粗线拷贝（边线材质、颜色 = 标记色）；轮廓旗没有（原生线来的）= 按内边画。 */
     private setMarkCopy;
     /** 线的材质槽（刀 c：只有 edgeDim）：白模的边 → 淡出那份；别的风格（Tron）的线材质自己不认淡出 = 照旧。 */
@@ -257,12 +276,6 @@ export declare class Renderer3 implements RenderProvider {
      */
     private rebuildGrid;
     private gridFrame;
-    private gridStep;
-    private gridPixKey;
-    /**
-     * 像素化风格的网格（T101 / user 10-29「地平线不应该是变深，而且半透明对移动设备不友好吧」）：原生 1 像素实色线，**只画屏幕上格距 ≥ PIXEL_GRID_MIN_PX 个小图像素的那一圈**——
-     * 透视：离眼睛 D 远处横向格距 ≈ 格距 × 焦距 ÷ D、纵深格距 ≈ 格距 × 焦距 × 眼高 ÷ D²（焦距 = 小图高 ÷ 2 tan(fov/2)），取 D ≤ D_max 的那一圈（地面上以眼睛脚下为圆心）；格距太细一圈都没有就换粗一档（× 10）。正交：格距按像素算、不够就换粗。
-     * 远处不画 = 地平线不再被挤成一条深色带；颜色 = 画风的网格色（没写 = 背景 × 网格系数；原始 sRGB 数，不混合）。圈 / 格距变了才重建（键）。
-     */
-    private syncPixelGrid;
+    /** 网格平面这一帧摆在哪、多大（两张共用 uniform）：圆心 = 相机脚下（正交 = 视线目标下；拉近细看的地方三角形小），半径 = 相机看得到的最远处 × 2（正交再加半个视口）——视锥里的地面全在圈里。 */
+    private syncGridSpan;
 }

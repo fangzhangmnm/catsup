@@ -41,6 +41,8 @@ export declare function pressTarget(ctx: ToolCtx, at: {
     y: number;
     start?: GestureStart;
 }, tool: Tool): Target | "box";
+/** 目标 = 整个选区（网格体；还活着的点 / 边 / 面，按 id 排）；没选区 = null。按在操纵手柄上（tools/mesh-handles.ts）的那一下也走它：手柄下面压着别的东西也不换目标。 */
+export declare function selectionTarget(ctx: ToolCtx): Target | null;
 /** 右下角「选区」两档：多选（= 一直按着 Shift）？ */
 export declare const multiSelect: (ctx: ToolCtx) => boolean;
 /**
@@ -48,9 +50,14 @@ export declare const multiSelect: (ctx: ToolCtx) => boolean;
  * 「多选」档就是「把笔的默认搬到鼠标上」，笔的设备上它默认开着（tool-config.ts）。Alt 不算减选（它留给「点边选环」；移动复制照旧认 Alt，那是 copy 的事）。
  */
 export declare function selModeOf(ctx: ToolCtx, ev: ToolPointer, box: boolean | "lasso"): SelMode;
-/** 点一下（第 n 下）：和选择工具同一套（见文件头）。 */
+/**
+ * 点一下（第 n 下）：和选择工具同一套（见文件头）。
+ * keepOnSelection = 单击点中已经选着的（没按修饰键）就不改选区（替换档不缩成一个、多选档不切掉它）：移动 / 旋转 / 缩放「单击选区 = 弹手柄」（tools/mesh-handles.ts；
+ * user 10-29 夜「单击选区可以弹gizmos」）。
+ */
 export declare function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts?: {
     growBar?: boolean;
+    keepOnSelection?: boolean;
 }): void;
 export interface ScreenBox {
     minX: number;

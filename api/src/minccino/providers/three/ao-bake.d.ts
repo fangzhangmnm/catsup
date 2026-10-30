@@ -36,5 +36,7 @@ export declare class AoBaker {
     }, sun?: Vec3 | null): void;
     /** 显存（血槽位）：图集颜色 1 字节 + 深度 2 字节。 */
     bytes(): number;
+    /** 只放显存（遮蔽图集）；对象和 uniforms 留着（材质还引用它们），下次 bake 重建。 */
+    release(): void;
     dispose(): void;
 }

@@ -6,7 +6,7 @@ export { DEFAULT_VIEW_BUDGET } from "./contract/view.ts";
 export type { Measurement, CostTable, DegradeStep, ProviderCaps } from "./contract/cost.ts";
 export type { PassDecl, FramePlan } from "./graph/frame-graph.ts";
 export { planFrame } from "./graph/frame-graph.ts";
-export type { RenderProvider, FrameInput, Mark, FaceSlot, LineSlot, LineStyle, XRFacade, XRHand, XRRigPose, XRRay } from "./contract/render-provider.ts";
+export type { RenderProvider, MarkAccent, FrameInput, Mark, FaceSlot, LineSlot, LineStyle, XRFacade, XRHand, XRRigPose, XRRay } from "./contract/render-provider.ts";
 export type { OverlayItem, OverlayLines, OverlayPoints, OverlayMarker, OverlayTris, OverlayCtx, DepthMode, MarkerGeom, AuxStage, AuxResolution } from "./overlay/index.ts";
 export { hexToLinear } from "./overlay/index.ts";
 export { PALETTE } from "./palette.ts";

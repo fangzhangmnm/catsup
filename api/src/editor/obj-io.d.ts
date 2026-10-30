@@ -7,16 +7,3 @@ export interface ObjExportOpts {
     version?: string;
 }
 export declare function exportObj(k: GeomView, opts?: ObjExportOpts): string;
-export interface ObjParseResult {
-    segs: [Pt3, Pt3][];
-    vertices: number;
-    faces: number;
-    looseLines: number;
-}
-/**
- * 解析 OBJ 成线段集（每个多边形的边 + `l` 线；去重）。maxSegments 之上直接拒收——
- * 三角汤网格进肥皂膜内核 = 每个三角一张膜，慢且无意义；逃生口只接「多边形建模」量级。
- */
-export declare function parseObjSegments(text: string, opts?: {
-    maxSegments?: number;
-}): ObjParseResult;

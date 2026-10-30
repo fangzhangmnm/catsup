@@ -78,7 +78,8 @@ export interface ViewState {
   /** 锁看得见：锁着的轴 / 面里的两根轴（过锚点或变换中心；controller/lock-guide.ts）。透视画在最上面。 */
   lockLines?: readonly { readonly through: Pt3; readonly dir: Pt3; readonly color: "x" | "y" | "z" | "n" }[] | null;
   /** 变换工具的移动箭头 + 旋转环（transform-gizmo.ts xformGizmoGeom 的输出 + 悬停 / 拖着的把手）：RGB = XYZ，透视画（2026-10-26）。 */
-  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null } | null;
+  /** parts = 只画这几样（自由建模的手柄按工具分家：移动 = 箭头 + 平面块 + 中心、旋转 = 环 + 中心、缩放 = 方块 + 平面块 + 中心；tools/mesh-handles.ts）；不给 = 全画（硬表面的变换工具）。 */
+  xformGizmo?: { origin: Pt3; axes: { x: Pt3; y: Pt3; z: Pt3 }; arrow: number; ring: number; start: number; cube?: number; cubeHalf?: number; plane?: number; planeHalf?: number; uniform?: Pt3 | null; hot: string | null; parts?: readonly ("arrows" | "rings" | "cubes" | "planes" | "center")[] } | null;
   /** 卷尺预演：量线 a→b + 候选参考线 / 参考点（0.11）。 */
   tape?: { a: Pt3; b: Pt3; guide?: { p: Pt3; dir: Pt3 } | null; point?: Pt3 | null } | null;
   /** 切割的刀线（上一个落点 → 光标）：永远画在最上面、不被几何挡（user 10-27「线还是需要画的，以及线不要被别的遮挡了。这样用户知道自己没退出刀」）；valid = 这一刀切得出来。 */

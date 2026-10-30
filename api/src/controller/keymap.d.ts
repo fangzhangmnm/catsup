@@ -23,6 +23,8 @@ export interface KeyContext {
     readonly lockStyle: "axis" | "plane" | null;
     /** 打字要不要这一下（「正在打的字」的唯一主人 controller/typed-input.ts 问：手势中打数 / 刚做完一步的数值小窗，去向它自己定；2026-10-29 周账 F-125 并成一层）。。 */
     readonly typingWants: (e: KeyEvt) => boolean;
+    /** 正在打字（缓冲里有字）：自由建模的 1 / 2 / 3 只在没在打的时候归拾取。缺 = 没在打。 */
+    readonly typing?: boolean;
 }
 export type Chord = string;
 export interface Binding {
@@ -56,6 +58,7 @@ export declare const GESTURE: Layer;
 /** 手势中打数（Blender「S Z 0」= 缩放、锁 Z、打 0、回车；user 10-28 晚「这也是一个新的模式」）：它说要就给它——数字 / 小数点 / 正负号、有数之后的单位字、退格、回车。
  *  X / Y / Z 它不要（单位里没有这三个字母）→ 落到下面的手势层照旧锁轴，打到一半也能锁。读法和单位文本框同一个（units.ts parseQuantity / quantityKey）。 */
 export declare const TYPING: Layer;
+export declare const PICK: Layer;
 /** 镜像会话（马前炮）：回车 = 应用（Esc = 取消走全局的 escape → editor.cancel）。 */
 export declare const MIRROR: Layer;
 /** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */

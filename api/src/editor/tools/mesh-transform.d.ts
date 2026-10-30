@@ -2,6 +2,7 @@ import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ViewState } from "../view-state.ts";
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal";
 export declare class MeshTransformTool implements ToolHandler {
     readonly grammar: "steps";
@@ -37,10 +38,28 @@ export declare class MeshTransformTool implements ToolHandler {
     readonly typedQuantity: {
         q: "length" | "angle" | "factor";
     };
+    /** 操纵手柄（沿法线没有）。 */
+    private readonly handles;
+    /** 这一下是按在哪个把手上开始的（null = 没按在把手上）。 */
+    private grip;
+    /** 预演里被挪的点现在的平均（世界）：拖着的时候手柄跟着走。 */
+    private liveOrigin;
     constructor(kind: MeshXformKind);
     /** 没选区又按在空处 = 拖框（「会选的工具」，selecting.ts）。 */
     private box;
+    /** 点一下 = 选（和选择工具同一套）；只有拖才是操作（user 10-27）。点中选着的不改选区、选到东西就弹手柄；点在把手上（没拖）= 什么都不动。 */
     tap(ctx: ToolCtx, ev: ToolPointer): void;
+    private handleHint;
+    hover(ctx: ToolCtx, s: {
+        x: number;
+        y: number;
+    }): void;
+    /** 工具条上露的别的选项组（context-bar 照画）：沿边滑只给移动；软选择开关四把都有；手柄开关 + 朝向给移动 / 旋转 / 缩放。 */
+    stripGroups(): readonly {
+        group: string;
+        keys?: readonly string[];
+    }[];
+    viewExtras(ctx: ToolCtx): Partial<ViewState>;
     active(): boolean;
     startModal(ctx: ToolCtx, s: {
         x: number;
