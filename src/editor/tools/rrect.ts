@@ -102,7 +102,7 @@ export class RRectTool implements ToolHandler {
     const sn = ctx.snap(view, sx, sy, { plane: cameraPlane(ctx.frame(), b), anchor: b, alignSources: ctx.alignSources(), hand: ctx.hand(view) });
     if (sn.kind && POINT_KINDS.has(sn.kind)) { w = dot3(sub3(sn.p, b), d); kind = sn.kind; at = sn.p; label = `${SNAP_LABELS[sn.kind] ?? sn.kind} → 长度`; }
     else {
-      const g = ctx.grid(), step = g.step / g.subdiv;
+      const g = ctx.grid(), step = g.snap;
       if (g.on && step > 0) { const k = nearestStep(w, step); if (Math.abs(k) > 1e-9 && ctx.frame().distBetween(add3(b, scale3(d, w)), add3(b, scale3(d, k)), ctx.vp()) <= ctx.snapPx()) { w = k; kind = "increment"; label = `整格 ${fmtLen(Math.abs(k))}`; } }
     }
     this.len = w;

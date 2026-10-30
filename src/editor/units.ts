@@ -3,10 +3,12 @@
 //
 // 接口：
 //   fmtLen(m) / fmtArea(m²) / fmtDeg(rad) —— 读数（提示、吸附标签、选区读数）：按「当前显示单位」念；工具不用知道单位。
-//   setDisplayUnit(u) —— 编辑器换单位时调一次（editor.vcbUnit 的 setter）；没有别的入口改它。
+//   setUnitSystem(sys) —— 编辑器换单位制时调一次（editor.setGrid 的 system）；没有别的入口改它。显示单位由单位制推：公制 = 米（读数按大小自动挑 fm … Gm）、英制 / D&D = 英尺英寸。
+//     （2026-10-30 user「把显示长度单位，grid制式，格距收成一个东西。就是单位」「至少在ux层面支持从fm 更小到Mm Gm之类的」；英制 / D&D 的读数 ≥ 1 英里时后面加「约 x mi」，
+//     只加在看的字上、能打字的框不加——user「要不要加一个约xxxmile，但是这样会不会导致屎山？」；输入框打 mi / km / µm … 都接——user「输入框输入mile也要能接得住」）
 //   formatLength(m, unit) —— 单位由上下文定死的场合（栅格制式自带单位：D&D 的 5 ft 不念成 1.524 m）。
 //   fmtVcbLength(m, unit) —— 数值小窗回显（精确、不带 ~）。
-//   unitFromSettings / unitToSettings —— 文档 settings.displayUnit 的读写（单位跟着模型走，SU 同款；字段一直在格式里，不升版）。
+//   setUnitSystem(sys) —— 单位制（公制 / 英制 / D&D）决定显示单位；文档里存的是 settings.unitSystem（grid-settings.ts，CATSUP_document 3.4）。
 //   —— 量（2026-10-28 加；user「都单位和用户选择单位对齐」「你可以做一个单位输入输出的深模块」「速度可以识别配速，然后你可以输入其他单位文本框能接住」
 //   「以后速度单位的显示用户也能调，现在先把数据契约做好，以后理一下。可能不同的载具速度单位不一样」）：
 //   QuantityTag = 这个数是什么量（长度 / 速度）+ 速度用在谁身上（走路 / 车 / 船 / 飞机）。存的永远是 SI；显示单位由标签定：
@@ -20,9 +22,34 @@ export const LENGTH_UNITS: readonly { id: LengthUnit; label: string }[] = [{ id:
 export const UNIT_M: Readonly<Record<LengthUnit, number>> = { m: 1, cm: 0.01, mm: 0.001, ft: 0.3048, in: 0.0254 };
 export const isLengthUnit = (x: unknown): x is LengthUnit => typeof x === "string" && x in UNIT_M;
 
-let display: LengthUnit = "m";
-export function setDisplayUnit(u: LengthUnit): void { display = u; }
+export type UnitSystem = "metric" | "imperial" | "dnd";   // 和 grid-settings.ts 同一个（那边是网格那半，这里是读写字那半）
+let system: UnitSystem = "metric", display: LengthUnit = "m";
+export function setUnitSystem(sys: UnitSystem): void { system = sys; display = sys === "metric" ? "m" : "ft"; }
+export function unitSystemNow(): UnitSystem { return system; }
 export function displayUnit(): LengthUnit { return display; }
+/** 公制按大小挑的那一串（读数用；输入另认中文 / µm 的几种写法）。 */
+const SI_PREFIXED: readonly (readonly [string, number])[] = [["Gm", 1e9], ["Mm", 1e6], ["km", 1e3], ["m", 1], ["cm", 1e-2], ["mm", 1e-3], ["µm", 1e-6], ["nm", 1e-9], ["pm", 1e-12], ["fm", 1e-15]];
+/** 公制：按大小挑单位（≥ 1 km 写 km … < 1 cm 写 mm … 一路到 fm；0 写 cm，和以前「< 1 m 写 cm」一致）。 */
+function metricUnit(m: number): readonly [string, number] {
+  const a = Math.abs(m);
+  if (a === 0) return ["cm", 1e-2];
+  for (const u of SI_PREFIXED) if (a >= u[1] * (1 - 1e-12)) return u;
+  return SI_PREFIXED[SI_PREFIXED.length - 1];
+}
+export const MILE_M = 1609.344;
+/**
+ * 一个整齐长度（网格的一层 / 吸附的一档）的短写：公制按大小挑 fm … Gm、去掉多余的零（10 m、1 km、100 µm）；英制 / D&D 写英寸分数、英寸或英尺（1/16 in、6 in、5 ft），
+ * ≥ 1 英里后面加「约 x mi」。sys 缺 = 当前单位制。
+ */
+export function fmtStep(m: number, sys: UnitSystem = system): string {
+  const trim = (v: number): string => String(Number(v.toPrecision(6)));
+  if (sys === "metric") { const [u, k] = metricUnit(m); return `${trim(m / k)} ${u}`; }
+  const inch = m / UNIT_M.in, ft = inch / 12;
+  const tail = Math.abs(m) >= MILE_M ? `（约 ${Number((Math.abs(m) / MILE_M).toFixed(Math.abs(m) >= 10 * MILE_M ? 0 : 1))} mi）` : "";
+  if (ft >= 1 && Math.abs(ft - Math.round(ft)) < 1e-6) return `${Math.round(ft)} ft${tail}`;
+  if (inch < 1) for (const d of [2, 4, 8, 16, 32, 64]) if (Math.abs(inch * d - Math.round(inch * d)) < 1e-6) return `${Math.round(inch * d)}/${d} in`;
+  return inch < 12 ? `${trim(inch)} in` : `${trim(ft)} ft${tail}`;
+}
 
 /** 英尺英寸：1/16″ 取整，写成 5' 6.5"。 */
 function feetInches(m: number): { text: string; shownM: number } {
@@ -37,11 +64,13 @@ function feetInches(m: number): { text: string; shownM: number } {
 export function formatLength(m: number, unit: LengthUnit, digits = 1): string {
   if (unit === "ft") { const r = feetInches(m); return (Math.abs(r.shownM - m) > 1e-6 ? "~" : "") + r.text; }
   if (unit === "in") { const v = m / UNIT_M.in, shown = Number(v.toFixed(2)); return (Math.abs(v - shown) * UNIT_M.in > 1e-6 ? "~" : "") + `${shown}"`; }
-  const sub: LengthUnit = unit === "m" && Math.abs(m) < 1 ? "cm" : unit;
-  const val = m / UNIT_M[sub], shown = Number(val.toFixed(digits));
+  const [sub, k] = unit === "m" ? metricUnit(m) : [unit, UNIT_M[unit]] as const;
+  const val = m / k, shown = Number(val.toFixed(digits));
   return (Math.abs(val - shown) > 1e-6 ? "~" : "") + shown.toFixed(digits) + ` ${sub}`;
 }
-export function fmtLen(m: number, digits = 1): string { return formatLength(m, display, digits); }
+/** 看的字（提示 / 吸附标签 / 读数 / 网格标记）：按当前单位制；英制 / D&D ≥ 1 英里后面加「约 x mi」（不进网格进位、不进输入框）。 */
+export function fmtLen(m: number, digits = 1): string { return formatLength(m, display, digits) + aboutMiles(m); }
+export function aboutMiles(m: number): string { return system !== "metric" && Math.abs(m) >= MILE_M ? `（约 ${Number((Math.abs(m) / MILE_M).toFixed(Math.abs(m) >= 10 * MILE_M ? 0 : 1))} mi）` : ""; }
 
 /** 面积读数：米制 < 1 m² 念 cm²（原行为）；cm / mm 念各自的平方；英制念平方英尺（英寸单位念平方英寸）。 */
 export function fmtArea(m2: number): string {
@@ -60,13 +89,12 @@ export const fmtDeg = (rad: number): string => `${(rad * 180 / Math.PI).toFixed(
 export function fmtVcbLength(m: number, unit: LengthUnit): string {
   if (unit === "ft") return feetInches(m).text;
   if (unit === "in") return `${Number((m / UNIT_M.in).toFixed(2))}"`;
+  if (unit === "m") { const [u, k] = metricUnit(m); return `${Number((m / k).toPrecision(7))} ${u}`; }   // 公制按大小挑单位、精确到 7 位有效数字
   const v = m / UNIT_M[unit];
-  return `${Number(v.toFixed(unit === "m" ? 3 : 1))} ${unit}`;
+  return `${Number(v.toFixed(1))} ${unit}`;
 }
 
 /** 文档 settings.displayUnit ↔ 显示单位（格式里英尺英寸一直写作 "ft-in"）。 */
-export function unitFromSettings(s: { displayUnit?: string }): LengthUnit { const v = s.displayUnit === "ft-in" ? "ft" : s.displayUnit; return isLengthUnit(v) ? v : "m"; }
-export function unitToSettings(u: LengthUnit): string { return u === "ft" ? "ft-in" : u; }
 
 // ---------- 输入：长度（原 vcb.ts 的 imperial / num 长度那半，搬来这里 2026-10-28）----------
 /** 英制写法：`3'6"`、`3' 6 1/2"`、`42"`、`12'`、`5ft`、`30in`。不是英制写法 → null。 */
@@ -81,15 +109,20 @@ function imperial(part: string): number | null {
   return m[1] === "-" ? -v : v;
 }
 /** 一段长度文字 → 米；裸数 = 按 unit。看不懂 / 带了不是长度的后缀 → { error }（人话）。 */
+/** 输入认的长度单位（米数）：大小写只在 Mm / Gm（兆米 / 吉米）和 mm 之间有区别，别的不分大小写。 */
+const UNIT_WORDS: Readonly<Record<string, number>> = {
+  m: 1, cm: 1e-2, mm: 1e-3, km: 1e3, um: 1e-6, mum: 1e-6, micron: 1e-6, microns: 1e-6, "µm": 1e-6, "μm": 1e-6, nm: 1e-9,   // mum / micron = µm 的键盘写法（user 10-30「mum是不是就是um，输入的时候」） pm: 1e-12, fm: 1e-15, ft: 0.3048, in: 0.0254, mi: MILE_M, mile: MILE_M, miles: MILE_M,
+  米: 1, 厘米: 1e-2, 毫米: 1e-3, 公里: 1e3, 千米: 1e3, 微米: 1e-6, 纳米: 1e-9, 英尺: 0.3048, 英寸: 0.0254, 英里: MILE_M,
+};
 export function parseLength(part: string, unit: LengthUnit): number | { error: string } {
   const imp = imperial(part);
   if (imp !== null) return imp;
-  const m = /^([-+]?(?:\d+\.?\d*|\.\d+))\s*(m|cm|mm|ft|in|°|deg|米|厘米|毫米)?$/i.exec(part.trim());
+  const m = /^([-+]?(?:\d+\.?\d*|\.\d+))\s*([a-zA-Zµμ\u4e00-\u9fff]+|°)?$/.exec(part.trim());
   if (!m || !Number.isFinite(Number(m[1]))) return { error: `看不懂「${part.trim()}」` };
-  const zh: Record<string, LengthUnit> = { 米: "m", 厘米: "cm", 毫米: "mm" };
-  const u = (m[2] ? zh[m[2]] ?? m[2] : unit).toLowerCase();
-  if (!(u in UNIT_M)) return { error: `长度不能带「${m[2]}」` };
-  return Number(m[1]) * UNIT_M[u as LengthUnit];
+  if (!m[2]) return Number(m[1]) * UNIT_M[unit];
+  const w = m[2], k = w === "Mm" ? 1e6 : w === "Gm" ? 1e9 : UNIT_WORDS[w] ?? UNIT_WORDS[w.toLowerCase()];
+  if (k === undefined) return { error: `长度不能带「${w}」` };
+  return Number(m[1]) * k;
 }
 
 // ---------- 量：带标签的数（长度 / 速度）的显示、读输入、− + ----------
@@ -116,7 +149,7 @@ const speedOverride = new Map<Mover, SpeedUnit>();
 /** 速度显示单位覆盖（以后的设置页写；现在只在内存里，还没存 = user「以后理一下」）。null = 回默认。 */
 export function setSpeedUnit(mover: Mover, u: SpeedUnit | null): void { if (u) speedOverride.set(mover, u); else speedOverride.delete(mover); }
 /** 公制还是英制（跟着当前长度显示单位）。 */
-export function unitSystem(u: LengthUnit = display): "metric" | "imperial" { return u === "ft" || u === "in" ? "imperial" : "metric"; }
+export function unitSystem(u: LengthUnit = display): "metric" | "imperial" { return u === "ft" || u === "in" ? "imperial" : "metric"; }   // 速度那半：D&D 当英制
 /** 这类东西的速度现在按什么单位显示。 */
 export function speedUnitFor(mover: Mover = "foot"): SpeedUnit {
   const o = speedOverride.get(mover);
@@ -180,7 +213,7 @@ export function quantityKey(tag: QuantityTag, buf: string, key: string): boolean
   if (key.length !== 1) return false;
   if (/^[0-9.\-+]$/.test(key)) return true;
   if (!/[0-9]/.test(buf) || /^[xyz]$/i.test(key)) return false;
-  const units = tag.q === "length" ? /^[mcinft'" \/米厘毫]$/i : tag.q === "angle" ? /^[°degra度]$/i : tag.q === "factor" ? /^%$/ : /^[a-z:'"\/ ]$/i;
+  const units = tag.q === "length" ? /^[mcinftkupglesµμ'" \/米厘毫公千微纳英尺寸里]$/i : tag.q === "angle" ? /^[°degra度]$/i : tag.q === "factor" ? /^%$/ : /^[a-z:'"\/ ]$/i;
   return units.test(key);
 }
 

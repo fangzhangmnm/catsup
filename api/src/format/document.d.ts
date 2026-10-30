@@ -7,9 +7,13 @@ export interface DocumentSettings {
     displayUnit: string;
     gridStep: number;
     snapIncrement: number;
+    /** 单位制（3.4，2026-10-30；可选键）：metric / imperial / dnd = 显示单位 + 网格进位 + 吸附档一起（editor/grid-settings.ts）。缺 = 按老键猜。 */
+    unitSystem?: "metric" | "imperial" | "dnd";
     absoluteGrid: boolean;
     /** 网格面（0.13.14；可选键，缺省 xy）：yz / xz = 立面网格。 */
     gridPlane?: "xy" | "yz" | "xz";
+    /** 3.4：网格和三色轴不画（栅格面「关」；缺 = 画）。只管画，吸附照旧归 absoluteGrid。 */
+    gridHidden?: true;
     gridPreset?: "si" | "architectural" | "dnd";
     /** B43 尺度参考勾了哪几项（0.13.57 起多选；可选键，不升版）：没写 = 默认（室内 + 室外）、[] = 不显示、元素 = 物体尺寸梯子选单 id（认不出的原样带回）。 */
     scaleRefs?: string[];

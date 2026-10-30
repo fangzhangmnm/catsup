@@ -15,7 +15,7 @@ out.sel = await page.evaluate(() => { const e = globalThis.__catsup.editor; retu
 await page.evaluate(() => globalThis.__catsup.editor.cancel());
 // Shift 画线（2026-10-25 DT51 改语义：Shift = 把格点吸附反过来；15° 归格点吸附、离得近才咬）：本探针开头关了格点吸附 →
 // 首点 (4,0)，移到 31° 方向：不按 Shift = 不咬（31°）；按住 Shift（指针不动）= 格点吸附临时开 → 咬到 30°
-await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setGrid({ on: false, step: 10, subdiv: 5 }); e.setTool("line"); });   // 格距 10 m / 细分 5 = 2 m 一格：31° 方向附近没有格点，测的是整角
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setGrid({ on: false, snap: 2 }); e.setTool("line"); });   // 格距 10 m / 细分 5 = 2 m 一格：31° 方向附近没有格点，测的是整角
 const a = await at({ x: 4, y: 0, z: 0 }); await page.mouse.move(a.x, a.y); await page.waitForTimeout(40); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(80);
 const q = await at({ x: 4 + Math.cos(31 * Math.PI / 180) * 2, y: Math.sin(31 * Math.PI / 180) * 2, z: 0 }); await page.mouse.move(q.x, q.y, { steps: 6 }); await page.waitForTimeout(120);
 const degNow = () => page.evaluate(() => { const p = globalThis.__catsup.editor.cursor3; return p ? Math.round(Math.atan2(p.y, p.x - 4) * 180 / Math.PI * 100) / 100 : NaN; });

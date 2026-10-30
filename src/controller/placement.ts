@@ -84,6 +84,7 @@ export const MENU_ROWS: readonly MenuRow[] = [
   { id: "material", tab: "model" },
   { id: "clear", tab: "model", separatorBefore: true },
   { id: "finger", tab: "settings" },
+  { id: "lefthand", tab: "settings", section: "VR" },   // 支持 VR 的设备才出（视图窗口只管画风以后挪来，user 10-30）
   { id: "pwLock", tab: "settings", section: "口令" },     // 锁定（忘掉口令）；解锁着才出
   { id: "pwForget", tab: "settings", section: "口令" },   // 忘记这台设备记着的口令（X 到期）；记着才出
   { id: "factoryReset", tab: "settings", section: "开发者" },   // 家规 2½：还原出厂住开发者菜单；「强制更新」是另一个钮，留在帮助页

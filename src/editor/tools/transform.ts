@@ -197,7 +197,7 @@ export class TransformTool implements ToolHandler {
     let kind: SnapKind | null = null, label: string | undefined, at: Pt3 | null = null;
     if (sn.kind && POINT_KINDS.has(sn.kind)) { t = dot3(sub3(sn.p, grabPt), a); kind = sn.kind; at = sn.p; label = `${SNAP_LABELS[sn.kind] ?? sn.kind} → ${ax.toUpperCase()} 轴`; }
     else {
-      const g = ctx.grid(), step = g.step / g.subdiv;
+      const g = ctx.grid(), step = g.snap;
       if (g.on && step > 0) {
         const k = nearestStep(t, step);
         if (Math.abs(k) > 1e-9 && ctx.frame().distBetween(add3(grabPt, scale3(a, t)), add3(grabPt, scale3(a, k)), ctx.vp()) <= ctx.snapPx()) { t = k; kind = "increment"; label = `整格 ${fmtLen(Math.abs(k))}`; }

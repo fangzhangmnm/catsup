@@ -5,22 +5,26 @@ export declare const LENGTH_UNITS: readonly {
 }[];
 export declare const UNIT_M: Readonly<Record<LengthUnit, number>>;
 export declare const isLengthUnit: (x: unknown) => x is LengthUnit;
-export declare function setDisplayUnit(u: LengthUnit): void;
+export type UnitSystem = "metric" | "imperial" | "dnd";
+export declare function setUnitSystem(sys: UnitSystem): void;
+export declare function unitSystemNow(): UnitSystem;
 export declare function displayUnit(): LengthUnit;
+export declare const MILE_M = 1609.344;
+/**
+ * 一个整齐长度（网格的一层 / 吸附的一档）的短写：公制按大小挑 fm … Gm、去掉多余的零（10 m、1 km、100 µm）；英制 / D&D 写英寸分数、英寸或英尺（1/16 in、6 in、5 ft），
+ * ≥ 1 英里后面加「约 x mi」。sys 缺 = 当前单位制。
+ */
+export declare function fmtStep(m: number, sys?: UnitSystem): string;
 /** 读数：按给定单位；数值经过取整的前面带「~」（和原来米制的 fmtLen 同一个约定）。米制下 < 1 m 自动念厘米（原行为逐字不变）。 */
 export declare function formatLength(m: number, unit: LengthUnit, digits?: number): string;
+/** 看的字（提示 / 吸附标签 / 读数 / 网格标记）：按当前单位制；英制 / D&D ≥ 1 英里后面加「约 x mi」（不进网格进位、不进输入框）。 */
 export declare function fmtLen(m: number, digits?: number): string;
+export declare function aboutMiles(m: number): string;
 /** 面积读数：米制 < 1 m² 念 cm²（原行为）；cm / mm 念各自的平方；英制念平方英尺（英寸单位念平方英寸）。 */
 export declare function fmtArea(m2: number): string;
 export declare const fmtDeg: (rad: number) => string;
 /** 数值小窗回显（精确，不带 ~）：英尺英寸写 3' 6.5"。 */
 export declare function fmtVcbLength(m: number, unit: LengthUnit): string;
-/** 文档 settings.displayUnit ↔ 显示单位（格式里英尺英寸一直写作 "ft-in"）。 */
-export declare function unitFromSettings(s: {
-    displayUnit?: string;
-}): LengthUnit;
-export declare function unitToSettings(u: LengthUnit): string;
-/** 一段长度文字 → 米；裸数 = 按 unit。看不懂 / 带了不是长度的后缀 → { error }（人话）。 */
 export declare function parseLength(part: string, unit: LengthUnit): number | {
     error: string;
 };

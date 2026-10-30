@@ -15,7 +15,7 @@ const run = async (grid, from, to) => {
     const e = globalThis.__catsup.editor, P = (x, y) => ({ x, y, z: 0 });
     e.commitOp({ op: "clear" });
     e.commitOp({ op: "addEdges", segs: [[P(0, 0), P(3, 0)], [P(3, 0), P(3, 2)], [P(3, 2), P(0, 2)], [P(0, 2), P(0, 0)]] });
-    e.setGrid({ ...e.grid, on: grid, step: 1, subdiv: 5, plane: "xy" });
+    e.setGrid({ ...e.grid, on: grid, snap: 0.2, plane: "xy" });
     globalThis.__catsup.hud.pick("offset");
   }, grid);
   const [a, c] = await px([from, to]);

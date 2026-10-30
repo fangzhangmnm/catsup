@@ -19,7 +19,6 @@ import { downloadName } from "../config.ts";
 import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
-import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts";
 import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow, objectWindowMenu } from "./object-window.ts";
@@ -53,7 +52,7 @@ import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openPasswordSheet, isBusyActive } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
-import { Editor, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, TOOLS, gridPreset, gridStepsFor, isGridSubdiv, nearestGridStep, type Tool, type GridPlane, type GridPreset } from "../editor/editor.ts";
+import { DEFAULT_SNAP, Editor, GRID_PLANES, TOOLS, UNIT_SYSTEMS, isUnitSystem, snapLabel, snapLevels, type Tool, type GridPlane } from "../editor/editor.ts";
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
@@ -292,6 +291,9 @@ const hud: HudModel = {
     // 镜像（网格体的「对称」属性）2026-10-28 搬进物体窗口（object-window.ts）；硬表面的「镜像…」是一次性指令，留在几何层
     ...editor.commandMenu().map((m): HudItem => ({ id: `action:${m.id}`, layer: "geometry", label: m.label, icon: m.icon, ...(m.submenu ? { submenu: m.submenu } : {}) })),   // 注册表 contextBar 面上的动作（修复九条 + 物体族的两条转换）
     { id: "exit", layer: "empty", label: "退出一层", icon: "back", hidden: editor.contextDepth() === 0 },
+    // 空处 = 你所在的这一层，它也是一个物件（user 10-30「根节点空白地方长按为什么不弹菜单？那也是一个物体啊」）：这一层的物件设置 + 全部显示（user 同日「全部显示在右键菜单就行了，没必要进视图菜单」）
+    ((): HudItem => { const c = editor.hiddenCount(), n = c.instances + c.faces + c.edges; return { id: "unhideAll", layer: "empty", label: `全部显示（${n}）`, icon: "visibility-show", hidden: !n }; })(),
+    { id: "objectWindowSelf", layer: "empty", label: "物件设置…", icon: "settings" },
     { id: "soften", layer: "geometry", label: "软化选区", icon: "blur", hidden: brepOnly || !editor.hasGeometrySelection() },
     { id: "harden", layer: "geometry", label: "硬化选区", icon: "sharpen", hidden: brepOnly || !editor.hasGeometrySelection() },
     { id: "connected", layer: "geometry", label: "选择连通体", icon: "select", hidden: !editor.hasGeometrySelection() && !editor.hasPointSelection() },
@@ -313,6 +315,7 @@ const hud: HudModel = {
     if ((TOOLS as readonly string[]).includes(id)) { if (locomotion.isPlacing()) locomotion.cancelPlace(); editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as PrimitiveKind); syncUi(); return; }
+    if (id === "objectWindowSelf") { objectBtn.click(); return; }   // 空处菜单的「物件设置…」= 这一层（左上物件钮那一份）
     if (id === "objectWindow") { openObjectWindow(editor, hud, "children", objectBtn, { after: syncUi, openMachine: (m) => openMachineBoard(m, objectBtn) }, "start"); return; }   // 子组件物体菜单 / 浮条的「物体设置…」：窗口的家 = 右边物体钮
     switch (id) {
       case "undo": editor.undo(); break;
@@ -321,6 +324,7 @@ const hud: HudModel = {
       case "cut": editor.cutSelection(); break;
       case "copy": editor.copySelection(); break;
       case "paste": editor.pasteClipboard(); break;
+      case "unhideAll": editor.unhideAll(); break;
       case "deselect": editor.cancel(); break;
       case "group": editor.makeGroup(); break;
       case "component": editor.makeComponent(`组件 ${editor.sceneRef.defs.size}`); break;
@@ -507,7 +511,6 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
 type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | `style:${string}` | "material" | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
-    if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
     if (id.startsWith("screen:")) {   // 屏幕（T106：和画风分开选；像素下采样 / 行数 / 外观；写实也能套屏）。跟文件走（desk 1.3，T86）
       const sc = id.slice(7);
       const v = sc === "auto" ? null : isScreenId(sc) ? sc : undefined;
@@ -600,6 +603,7 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
 function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
   switch (id) {
     case "gallery": return { id: "gallery", label: "图库", icon: "gallery", ...(hasStore() ? {} : { hint: "本机 + OneDrive" }) };
+    case "lefthand": return vr.isSupported() ? { id: "lefthand", label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" } : null;
     case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "new", hint: "Ctrl+O" };   // 加号（user 10-29「所以新建打开还是用加号。导入用导入符号」，账本 T137）
     case "importHub": return { id: "importHub", label: "导入…", icon: "import", hint: "别的软件的 glb / OBJ" };   // 导入单独一行、在新建打开下面（user 10-29「导入必须单独放……新建打开下面专门放一个导入」）
     case "exportHub": return { id: "exportHub", label: "导出与另存…", icon: "export" };
@@ -847,34 +851,36 @@ function renderCrumbs(): void {
     crumbsEl.appendChild(t);
   }
 }
-// 网格芯片（0.11 ⑤；user「如果 active 的话就显示，点开可以调设置或者关。不 active 就收进…」）：网格开着才露出，点开 = 格距 / 细分 / 关
-type GridMenuId = `preset:${GridPreset}` | `step:${number}` | `plane:${string}` | `sub:${number}` | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
-/** 格距怎么念：按制式自带的单位（D&D 的 5 ft 不念成 1.524 m），不跟 vcbUnit。 */
-const fmtGridStep = (step: number, preset: GridPreset): string => fmtVcbLength(step, gridPreset(preset).unit);
+// 「单位」页 + 吸附钮菜单的选项 id（user 10-30「把显示长度单位，grid制式，格距收成一个东西。就是单位」）
+type GridMenuId = `sys:${string}` | `snap:${number}` | `plane:${string}` | "off" | "on" | `lock:${"x" | "y" | "z" | "none"}` | `plock:${"x" | "y" | "z"}`;
 /** 左上编辑模式下拉框（硬表面建模 / 表面；以后 + 有机体建模）。 */
 function renderModeSelect(): void {
   modeField?.refresh();
 }
-/** 视图汉堡「栅格」页（user 2026-10-25「先把右下收到右上汉堡里」：右下角栅格芯片撤了，栅格设置只住这一处）：吸附开关 + 制式 / 格距 / 栅格面 / 细分。 */
-function gridTabItems(): { id: GridMenuId | MenuId; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string; tab: string; choices?: { id: GridMenuId; label: string; hint?: string; checked?: boolean }[] }[] {
-  const g = editor.grid, steps = gridStepsFor(g.preset);
+/** 吸附长度的几档（下拉 / 吸附钮长按共用）：本单位制的档；这个模型存的长度不在档里（老文件的 1 m ÷ 5 之类）就排最前面、照样勾着。 */
+function snapChoices(): { id: GridMenuId; label: string; checked: boolean; hint?: string }[] {
+  const g = editor.grid, lv = snapLevels(g.system), on = (m: number): boolean => Math.abs(m - g.snap) < 1e-12;
+  const out = lv.map((m) => ({ id: `snap:${m}` as GridMenuId, label: snapLabel(m, g.system), checked: on(m) }));
+  return lv.some(on) ? out : [{ id: `snap:${g.snap}` as GridMenuId, label: snapLabel(g.snap, g.system), checked: true, hint: "这个模型原来的" }, ...out];
+}
+/** 视图窗口「单位」页（user 10-30）：单位制 = 显示 / 输入的长度单位 + 网格怎么进位 + 吸附有哪几档一起换；吸附长度；栅格面（关 = 网格和三色轴都不画）。吸附开关在右上角那颗钮（外面能按的不进这里）。 */
+function unitTabItems(): { id: GridMenuId; label: string; tab: string; choices: { id: GridMenuId; label: string; hint?: string; checked?: boolean }[] }[] {
+  const g = editor.grid, tab = "units";
   return [
-    { id: "grid" as MenuId, label: "栅格吸附", checked: g.on, tab: "grid", hint: g.on ? `${gridPreset(g.preset).label} · ${fmtGridStep(g.step, g.preset)} · 1/${g.subdiv}` : "关" },
-    // 单选组一组一行下拉（user 2026-10-25「能下拉框的就做」）：名字 + 当前值 ▾，点开旁边一层
-    { id: "preset:si" as GridMenuId, label: "制式", tab: "grid", choices: GRID_PRESETS.map((p) => ({ id: `preset:${p.id}` as GridMenuId, label: p.label, checked: g.preset === p.id, ...(p.id === "dnd" ? { hint: "5 ft 一格 · 1/5 = 1 ft" } : p.id === "architectural" ? { hint: "英尺英寸，建筑图纸那套" } : {}) })) },   // 制式 ≠ 长度单位（user 10-24「这两个分开来」）
-    { id: `step:${steps[0]}` as GridMenuId, label: "格距", tab: "grid", choices: steps.map((st) => ({ id: `step:${st}` as GridMenuId, label: fmtGridStep(st, g.preset), checked: Math.abs(g.step - st) < 1e-9 })) },
-    { id: "plane:xy" as GridMenuId, label: "栅格面", tab: "grid", choices: GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.plane === p.id, hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })) },
-    { id: "sub:5" as GridMenuId, label: "吸附细分", tab: "grid", choices: GRID_SUBDIVS.map((n) => ({ id: `sub:${n}` as GridMenuId, label: `1/${n}`, checked: g.subdiv === n, ...(n === 5 ? { hint: "仪表盘式" } : n === 10 ? { hint: "尺子式" } : {}) })) },
+    { id: `sys:${g.system}` as GridMenuId, label: "单位制", tab, choices: UNIT_SYSTEMS.map((u) => ({ id: `sys:${u.id}` as GridMenuId, label: u.label, hint: u.hint, checked: g.system === u.id })) },
+    { id: `snap:${g.snap}` as GridMenuId, label: "吸附", tab, choices: snapChoices() },
+    { id: g.shown ? `plane:${g.plane}` as GridMenuId : "plane:off", label: "栅格面", tab, choices: [
+      ...GRID_PLANES.map((p) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.shown && g.plane === p.id, hint: p.id === "xy" ? "画平面" : "画立面：空处落点也在这面上" })),
+      { id: "plane:off", label: "关", checked: !g.shown, hint: "网格和三色轴都不画；吸附照旧归右上角那颗钮" },
+    ] },
   ];
 }
 /** 吸附钮的菜单（右键 / 长按）：锁 + 跳到视图汉堡的「栅格」页。栅格设置不在这里重复一份。 */
 function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
-  // 硬表面：最上面直接列吸附细分（点一下就换，不用进栅格设置；user 10-30「长按是弹一个让你选。不然一个一个轮换太慢了」）；提示 = 一份多长
-  const g = editor.grid, sub = snapSwitchLook(editor.modeId).subdiv
-    ? GRID_SUBDIVS.map((n, i) => ({ id: `sub:${n}` as GridMenuId, label: `1/${n}`, checked: g.subdiv === n, hint: fmtGridStep(g.step / n, g.preset), ...(i === 0 ? { sectionBefore: "吸附细分" } : {}) }))
-    : [];
+  // 硬表面：最上面直接列吸附长度（点一下就换，不用进设置；user 10-30「长按是弹一个让你选。不然一个一个轮换太慢了」）
+  const sub = snapSwitchLook(editor.modeId).length ? snapChoices().map((c, i) => (i === 0 ? { ...c, sectionBefore: "吸附长度" } : c)) : [];
   const locks = lockMenuItems();
-  return [...sub, ...locks.map((it, i) => (i === 0 && sub.length ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "栅格设置…", separatorBefore: true, hint: "视图 ☰ · 栅格" }];
+  return [...sub, ...locks.map((it, i) => (i === 0 && sub.length ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "视图 · 单位" }];
 }
 /** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 方向锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
 function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
@@ -896,18 +902,18 @@ function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hi
   ];
   return [];
 }
-const isGridId = (id: string): id is GridMenuId => /^(preset|step|plane|sub|lock|plock):/.test(id) || id === "on" || id === "off";
+const isGridId = (id: string): id is GridMenuId => /^(sys|snap|plane|lock|plock):/.test(id) || id === "on" || id === "off";
 function onGridPick(id: GridMenuId): "keep" | void {
     if (id.startsWith("lock:")) { const a = id.slice(5); editor.setAxisLock(a === "none" ? null : (a as "x" | "y" | "z")); syncUi(); return "keep"; }
     if (id.startsWith("plock:")) { editor.setPlaneLock(id.slice(6) as "x" | "y" | "z"); syncUi(); return "keep"; }
     if (id === "on") { editor.setGrid({ on: true }); syncUi(); return "keep"; }
 
     if (id === "off") { editor.setGrid({ on: false }); syncUi(); return; }
-    if (id.startsWith("preset:")) { const preset = id.slice(7) as GridPreset; editor.setGrid({ preset, step: nearestGridStep(editor.grid.step, preset) }); }
-    else if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane });
-    else if (id.startsWith("sub:")) { const n = Number(id.slice(4)); if (isGridSubdiv(n)) editor.setGrid({ subdiv: n }); }
-    else editor.setGrid({ step: Number(id.slice(5)) });
-    syncUi();   // 吸附钮右上角的细分数跟着变
+    if (id.startsWith("sys:")) { const sys = id.slice(4); if (isUnitSystem(sys) && sys !== editor.grid.system) editor.setGrid({ system: sys, snap: DEFAULT_SNAP[sys] }); }   // 换单位制 = 吸附落到那一制的默认档
+    else if (id === "plane:off") editor.setGrid({ shown: false });
+    else if (id.startsWith("plane:")) editor.setGrid({ plane: id.slice(6) as GridPlane, shown: true });
+    else if (id.startsWith("snap:")) { const m = Number(id.slice(5)); if (m > 0 && Number.isFinite(m)) editor.setGrid({ snap: m }); }
+    syncUi();   // 吸附钮右上角的长度跟着变
     return "keep";
 }
 /** 界面日夜两档跟着画风的纸色（preset/colors.ts isDarkPaper；Tron 账本 T147 / T167）：深色纸 = 夜间那套（styles.css .ui-night）。 */
@@ -1140,7 +1146,7 @@ function refOptions(L: Ladder): ChoiceOption[] {
 /** 「参考」页（选单只有一个、多选取并集——user「要不还是不如多重订阅吧，不然不同的室内室外会组合烦死」）：
  *  一行「看哪些」= 下拉多选（user「所以我们需要一个下拉多选的ux模块哦。而不是几百个选项浪费面板空间」）+「最多几条」+ 新手提醒。 */
 function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?: string; tab: string; sectionBefore?: string; separatorBefore?: boolean; choices?: { id: RefMenuId; label: string; checked?: boolean }[]; value?: string; note?: boolean }[] {
-  const tab = "ref", cur = editor.scaleRefs;
+  const tab = "units", cur = editor.scaleRefs;
   const L = ladder;
   if (!L) { ensureScaleLadder(true); return [{ id: "ref:none", label: "参考数据加载中…", note: true, tab, sectionBefore: "尺度参考" }]; }
   const opts = refOptions(L), label = (id: string): string => { const o = opts.find((x) => x.id === id); return o ? (o.group && o.group !== "其他" && o.label !== o.group ? `${o.group} · ${o.label}` : o.label) : id; };
@@ -1148,11 +1154,17 @@ function refTabItems(): { id: RefMenuId; label: string; checked?: boolean; hint?
   out.push({ id: "refmax:3", label: "最多", tab, sectionBefore: "试用（这台设备记住）", choices: SCALE_TIP_MAX.map((n) => ({ id: `refmax:${n}` as RefMenuId, label: `${n} 条`, checked: scaleMax === n })) });
   const notes = remindersFor(L, cur);
   if (cur.some((x) => x.endsWith("/DND"))) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });   // 署名：仓鼠的 dnd 提醒写了版本没写许可
-  notes.forEach((n, i) => out.push({ id: "ref:none", label: n.text, note: true, tab, ...(i === 0 ? { sectionBefore: "新手提醒" } : {}) }));
+  if (notes.length) out.push({ id: "ref:notes", label: "新手提醒…", hint: `${notes.length} 条`, tab, separatorBefore: true });   // 收成一行（user 10-30「新手提醒收成一个链接」）：点开弹一张
   return out;
 }
 function onRefPick(id: RefMenuId): "keep" {
   if (id.startsWith("refmax:")) { scaleMax = Number(id.slice(7)); PREF.set("scaleMax", String(scaleMax)); return "keep"; }
+  if (id === "ref:notes" && ladder) {
+    const notes = remindersFor(ladder, editor.scaleRefs);
+    if (editor.scaleRefs.some((x) => x.endsWith("/DND"))) notes.push({ id: "srd", text: "DnD 规则数据出自 SRD 5.1（Wizards of the Coast，CC BY 4.0）。" });
+    void openConfirmSheet("新手提醒", notes.map((n) => `· ${n.text}`).join("\n\n"), { okLabel: "知道了", noCancel: true });
+    return "keep";
+  }
   if (id === "ref:pick" && ladder) {
     const L = ladder, anchor = document.querySelector<HTMLElement>('.float-win[data-win="view"] .menu-item[data-menu-id="ref:pick"], .popup-menu .menu-item[data-menu-id="ref:pick"]');
     if (anchor) openMultiSelect({
@@ -1166,31 +1178,23 @@ function onRefPick(id: RefMenuId): "keep" {
 /** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：显示 / 栅格 / 参考 / 相机；以后渲染方案也进来。
  *  「参考」页 = 参考窗（屏幕上的参考图 / 文字 / 视频，user 2026-10-25「这个算视图，应该放右边汉堡」）+ B43 尺度参考。 */
 const VIEW_MENU_TABS = [
-  { id: "display", label: "显示" },
-  { id: "grid", label: "栅格" },
+  { id: "render", label: "渲染" },
+  { id: "units", label: "单位" },
   { id: "ref", label: "参考" },
-] as const;   // 「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证左柱第一格、穿墙 = 走着双击空格、VR 两行挪到「显示」页最下面
+] as const;   // user 10-30「所以暂时没有显示tab，只有渲染，然后以后渲染tab会很胖很对选项，只管画风」：透视 / X 光撤（「外面能按」）、全部显示去右键菜单、VR 左手持笔去 ☰ 设置、进入 VR 在上方正中那颗钮   // 「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证左柱第一格、穿墙 = 走着双击空格、VR 两行挪到「显示」页最下面
 type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
 /** 视图菜单的内容（常驻浮窗里画；user 10-29「我建议是视图 物体 都做成可以常驻的浮窗吧，只有主菜单是菜单型的」）。 */
 function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
   return {
     tabs: VIEW_MENU_TABS, tabKey: "view",
     items: () => [
-      { id: "persp" as MenuId, label: "透视", checked: editor.cam.projection === "persp", disabled: locomotion.isWalking(), tab: "display" },
-      { id: "xray" as MenuId, label: "X 光", checked: editor.xray, hint: "Alt+Z：选择工具点得到被挡住的点 / 边 / 面（面中心的小方点），边透过面画出来", tab: "display" },   // DT17 拾取 + 叠加层（半透明留 Tron 纪元）
-      ((): { id: MenuId; label: string; icon: string; hint: string; disabled: boolean; tab: string } => { const c = editor.hiddenCount(), n = c.instances + c.faces + c.edges; return { id: "unhideAll", label: n ? `全部显示（${n}）` : "全部显示", icon: "visibility-show", hint: "Alt+H", disabled: !n, tab: "display" }; })(),   // DT49
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
-      { id: "style:pick" as MenuId, label: "风格", tab: "display", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },
-      { id: "screen:pick" as MenuId, label: "屏幕", tab: "display", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
-      { id: "accent:pick" as MenuId, label: "选中色", tab: "display", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.accent, ...(a.hint ? { hint: a.hint } : {}) })) },
-      { id: "unit:pick" as MenuId, label: "单位", tab: "display", choices: LENGTH_UNITS.map((u) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id })) },
-      ...gridTabItems(),
+      { id: "style:pick" as MenuId, label: "风格", tab: "render", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },
+      { id: "screen:pick" as MenuId, label: "屏幕", tab: "render", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
+      { id: "accent:pick" as MenuId, label: "选中色", tab: "render", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.accent, ...(a.hint ? { hint: a.hint } : {}) })) },
+      ...unitTabItems(),
       { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },
       ...refTabItems(),
-      ...(vr.isSupported() ? [   // 支持 VR 的设备才有（「相机」页撤了以后挪到这里）
-        { id: "vr" as MenuId, label: vr.isPresenting() ? "退出 VR" : "进入 VR", icon: "hand", sectionBefore: "VR", hint: "Quest", tab: "display" },
-        { id: "lefthand" as MenuId, label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手", tab: "display" },
-      ] : []),
     ],
     onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
   };
@@ -1268,7 +1272,7 @@ function openMachineBoard(m: Machine, anchor: HTMLElement): void {
   });
 }
 snapBtnRef = snapBtn;
-const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("grid"); return; } return onGridPick(id); } }); };
+const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("units"); return; } return onGridPick(id); } }); };
 let snapPress: { t: number; fired: boolean } | null = null;
 snapBtn.addEventListener("pointerdown", () => { const press = { t: window.setTimeout(() => { press.fired = true; openSnapMenu(); }, 450), fired: false }; snapPress = press; });
 const snapPressEnd = (): void => { if (snapPress) window.clearTimeout(snapPress.t); };
@@ -1287,8 +1291,8 @@ function renderSnapWidget(): void {
   btn.classList.toggle("on", editor.grid.on);
   const look = snapSwitchLook(editor.modeId);   // 硬表面 = 格点钮、自由建模 = 磁铁（grid-state.ts；两边管的不是一回事）
   if (btn.dataset.icon !== look.icon) { btn.dataset.icon = look.icon; btn.firstElementChild?.insertAdjacentHTML("beforebegin", iconHtml(look.icon)); btn.children[1]?.remove(); btn.title = look.title; }
-  const sd = btn.querySelector(".gizmo-subdiv") as HTMLElement;   // 右上角的吸附细分（硬表面；关着也显示、淡一点）
-  sd.hidden = !look.subdiv; sd.textContent = `1/${editor.grid.subdiv}`;
+  const sd = btn.querySelector(".gizmo-subdiv") as HTMLElement;   // 右上角的吸附长度（硬表面；关着也显示、淡一点）
+  sd.hidden = !look.length; sd.textContent = snapLabel(editor.grid.snap, editor.grid.system);
   const lk = btn.querySelector(".gizmo-snaplock") as HTMLElement, want = editor.grid.on ? "lock" : "unlock";
   if (lk.dataset.icon !== want) { lk.dataset.icon = want; lk.innerHTML = iconHtml(want); }
   const badge = btn.querySelector(".gizmo-badge") as HTMLElement;

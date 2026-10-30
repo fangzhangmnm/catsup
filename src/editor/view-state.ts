@@ -2,6 +2,7 @@
 // Tron 第一刀 6c（v0.17.9，Claude Fable 5.1）：`ViewState` 从 render3 整个搬到编辑器侧——它是**编辑器的类型**（含内核 id / 吸附 / 参考几何 / 坐标架），
 // 引擎不认识它；后端只看到 `FrameInput`（相机 + 视口 + XR 近平面 + 地面网格 + 叠加层回调）。内容走流提供者，不在这里。
 import type { FrameInput, OverlayCtx, OverlayItem } from "../minccino/index.ts";
+import { gridLadder } from "./grid-settings.ts";
 import { translateAux } from "../look/aux.ts";
 import type { EdgeId, FaceId, Pt3 } from "../kernel/kernel.ts";
 import type { Snap3 } from "./pick.ts";
@@ -12,6 +13,7 @@ import type { WorldView } from "../scene/world-view.ts";
 import type { OrbitCamera, Viewport } from "./camera.ts";
 import { overlayItems } from "./overlay.ts";
 import { highlightItems, highlightMarks, type MarkLayout } from "./highlight.ts";
+const METRIC_LADDER = gridLadder("metric");   // 没给网格时的进位表（公制）
 
 export interface ViewState {
   selectionEdges: ReadonlySet<EdgeId>;
@@ -54,7 +56,8 @@ export interface ViewState {
   /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
   frame?: Frame | null;
   /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
-  grid?: { frame: Frame; step: number; sub?: number; on?: boolean } | null;
+  /** 地面网格：帧 + 进位表（米，从细到粗，从吸附长度起；渲染每帧按视角挑几层画，minccino/grid-ladder.ts）；null = 网格和三色轴都不画（栅格面「关」）。 */
+  grid?: { frame: Frame; ladder: readonly number[]; on?: boolean } | null;
   /** 选中的点（2026-10-26，user「以及我们还是希望我们能选点」「为什么不是简简单单高亮点？」）：只画实心圆点。世界坐标。 */
   selVerts?: readonly Pt3[] | null;
   /** 全部顶点的小点（自由建模；key 变了才重建）。 */
@@ -95,8 +98,8 @@ export function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, vie
     camera: cam,
     viewport: vp,
     near: view.near,
-    // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」）：吸附的 1/5、1/10 只管吸，不画成网格线——所以只递 step
-    grid: { frame: view.grid?.frame ?? view.frame ?? WORLD_FRAME, step: view.grid?.step ?? 1 },
+    // 网格按单位制的进位表自动换层（吸附长度只管吸，不画成网格线；user 10-30「有了你的自动缩放之后显示格距意义不大了」）
+    grid: view.grid === null ? null : { frame: view.grid?.frame ?? view.frame ?? WORLD_FRAME, ladder: view.grid?.ladder ?? METRIC_LADDER },
     marks: () => highlightMarks(world, view, layout),   // 选中 / 悬停的面 = 换材质槽的段（刀 b）
     // 辅助几何：编辑器只说「这是什么」，画风表翻成小栗鼠的 GL 量（look/aux.ts；设计稿 §7.1）
     overlay: (ctx: OverlayCtx): OverlayItem[] => translateAux([...highlightItems(world, view, layout), ...overlayItems(view, ctx)], ctx),

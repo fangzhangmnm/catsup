@@ -9,11 +9,13 @@ export declare function withBusy<T>(label: string, fn: () => Promise<T> | T, hin
  */
 export declare function openGateChoiceSheet<T>(title: string, message: string, choices: Choice<T>[]): Promise<T | null>;
 export declare function initSheets(): void;
+/** noCancel = 只有一颗钮（看完就关的说明，比如视图「新手提醒…」）。 */
 export interface ConfirmOpts {
     danger?: boolean;
     okLabel?: string;
     cancelLabel?: string;
     warning?: boolean;
+    noCancel?: boolean;
 }
 export declare function openConfirmSheet(title: string, message: string, opts?: ConfirmOpts): Promise<boolean>;
 export interface InputOpts {

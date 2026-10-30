@@ -16,7 +16,7 @@
 // **抬笔结算（A21，2026-10-21）**：抬笔前停留过的地方才是意图，末尾的短抖动不算（user「抬笔的时候总是会抖一下然后歪掉」）。
 
 import { Kernel, type RewindMark } from "../kernel/kernel.ts";
-import { type WorldLabel, gridStepLabel, unitMark } from "./world-labels.ts";
+import type { WorldLabel } from "./world-labels.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { OrbitCamera, type Viewport, rayPlane } from "./camera.ts";
 import type { PointerFrame } from "./pointer-frame.ts";
@@ -32,7 +32,7 @@ import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
 import type { EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
-import { type GridSettings, gridFrame, gridPreset } from "./grid-settings.ts";
+import { type GridSettings, type UnitSystem, AXIS_TICK_MIN_PX, UNIT_LABEL_MIN_PX, displayLadder, gridFrame, snapLabel, snapLevels } from "./grid-settings.ts";
 import { GridState } from "./grid-state.ts";
 import { guideCount } from "../scene/guides.ts";
 import { compassOp } from "./tools/compass.ts";
@@ -49,7 +49,7 @@ import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
 import { DEFAULT_SCALE_REFS, type Ladder, type ScaleTipView, readingOf, scaleTipView } from "./scale-ref.ts";
-import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type ViewState } from "./view-state.ts"; import type { LineStyle, RenderProvider } from "../minccino/index.ts";   // 刀 f：编辑器只持画的供货商的契约，不 import three 那层
+import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type ViewState } from "./view-state.ts"; import { type LineStyle, type RenderProvider, ladderLevelAt } from "../minccino/index.ts";   // 刀 f：编辑器只持画的供货商的契约，不 import three 那层
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
@@ -165,7 +165,7 @@ const EPS_OF: Record<string, number> = {
   endpoint: 10, origin: 10, midpoint: 10, "on-edge": 7,
   "edge-align": 12, "align-combo": 12, align: 5, "axis-x": 5, "axis-y": 5, "axis-z": 5, "on-extension": 5, tool: 5,
 };
-export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, isGridSubdiv, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
+export { type GridSettings, type GridPlane, type UnitSystem, GRID_PLANES, UNIT_SYSTEMS, DEFAULT_SNAP, gridLadder, snapLevels, snapLabel, isUnitSystem } from "./grid-settings.ts";
 
 export function describeEvent(ev: FaceEvent): string {
   switch (ev.type) {
@@ -186,7 +186,7 @@ const dist = (a: Pt3, b: Pt3): number => Math.hypot(a.x - b.x, a.y - b.y, a.z - 
 /** 圆的默认段数（SSoT 在 tool-config 表；这里只是给老调用方 / 测试的镜像）。 */
 export const CIRCLE_SEGMENTS = TOOL_OPTIONS.circle.segments.def;
 
-import { fmtArea, fmtDeg, fmtLen, parseQuantity, setDisplayUnit } from "./units.ts";
+import { fmtArea, fmtDeg, fmtLen, fmtStep, parseQuantity, setUnitSystem } from "./units.ts";
 import { SEGMENT_TIERS, SEG_MAX, clampSegments, segMin, segmentNote, tierOf, tierSegments } from "./segment-ref.ts";
 export { fmtLen, fmtDeg } from "./units.ts";   // 读数走单位深模块（2026-10-24）
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "./gesture-consts.ts";
@@ -271,7 +271,7 @@ export class Editor {
   get grid(): Readonly<GridSettings> { return this.gridState.view(this.mode.id); }
   get docGrid(): Readonly<GridSettings> { return this.gridState.doc; }   // 文档的那一份（存盘只认它）
   setGrid(patch: Partial<GridSettings>, fromDoc = false): void {   // fromDoc = 读盘 / 新建（整份照文档的换）；平时开关落在当前工作台那一份
-    this.gridState.set(this.mode.id, patch, fromDoc);
+    this.gridState.set(this.mode.id, patch, fromDoc); setUnitSystem(this.gridState.doc.system);   // 读数 / 输入跟着单位制（units.ts）
     this.viewCache = null;
     this.host.changed();
     this.draw();
@@ -450,7 +450,7 @@ export class Editor {
       if (Math.abs(den) > 0.05) { const t = dot3(sub3(anchor, ray.origin), n) / den; if (t > 0) p = { x: ray.origin.x + ray.dir.x * t, y: ray.origin.y + ray.dir.y * t, z: ray.origin.z + ray.dir.z * t }; }
     }
     if (this.gridEff && lock !== "face") {
-      const F = this.contextFrame(), s0 = this.grid.step / this.grid.subdiv;
+      const F = this.contextFrame(), s0 = this.grid.snap;
       if (s0 > 0) for (const ax of (["x", "y", "z"] as const).filter((a) => a !== lock)) {
         const raw = F[ax], d = normalize3(raw), c = dot3(sub3(p, F.origin), d), q = Math.round(c / s0) * s0 - c;
         p = { x: p.x + d.x * q, y: p.y + d.y * q, z: p.z + d.z * q };
@@ -470,7 +470,7 @@ export class Editor {
       const b = dot3(dir, r), c = dot3(r, r), d = dot3(dir, w0), e = dot3(r, w0), den = c - b * b;
       if (den > 1e-9) t = (b * e - c * d) / den;
     }
-    if (this.gridEff) { const s0 = this.grid.step / this.grid.subdiv, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
+    if (this.gridEff) { const s0 = this.grid.snap, c0 = dot3(sub3(anchor, F.origin), dir); if (s0 > 0) t = Math.round((c0 + t) / s0) * s0 - c0; }
     const p = { x: anchor.x + dir.x * t, y: anchor.y + dir.y * t, z: anchor.z + dir.z * t };
     return { p, kind: `axis-${ax}` as SnapKind, label: `方向锁 ${ax.toUpperCase()}${strong ? " · 从点" : ""}`, hints: [{ a: anchor, b: p, axis: ax }, ...(strong ? [{ a: sn.p, b: p, axis: "i" as const }] : [])] };
   }
@@ -494,10 +494,9 @@ export class Editor {
     const q = g && readingOf(g, this.contextFrame().z, L.orientation);
     return q ? scaleTipView(L, this._scaleRefs, q) : null;
   }
-  private _vcbUnit: LengthUnit = "m";
-  /** 显示 / 输入单位：数值小窗按它读，所有读数（fmtLen / fmtArea）按它念——换单位只走这里（units.ts 窄接口）。 */
-  get vcbUnit(): LengthUnit { return this._vcbUnit; }
-  set vcbUnit(u: LengthUnit) { this._vcbUnit = u; setDisplayUnit(u); this.host.changed(); }
+  /** 显示 / 输入单位 = 单位制推出来的（公制 = 米、英制 / D&D = 英尺英寸）：数值小窗按它读、读数按它念。换单位 = setGrid({ system })（user 10-30「就是单位」）。 */
+  get vcbUnit(): LengthUnit { return this.grid.system === "metric" ? "m" : "ft"; }
+  get unitSystem(): UnitSystem { return this.grid.system; }
   private viewCache: { key: string; view: WorldView } | null = null;
   /** 只看这个（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）：进了组 / 组件时，外面的不画、不吸、点不中。本次打开有效；根上无效果。 */
   private _isolate = false;
@@ -640,7 +639,7 @@ export class Editor {
     if (copy) override = null;
     const keyOf = (o: { picks: PoolPick[]; xform: Xform }): string => `${o.picks.map((p) => (p.kind === "group" ? `g${p.group}` : `i${p.instance}`)).join(",")}:${o.xform.map((v) => v.toFixed(9)).join(",")}`;
     const ovKey = override ? keyOf(override) : copy ? `copy:${keyOf(copy)}` : "";
-    const grid = this.gridEff ? { step: this.grid.step, sub: this.grid.subdiv, frame: gridFrame(this.scene.frameOfContext(this.ctx), this.grid.plane) } : null;
+    const grid = this.gridEff ? { step: this.grid.snap, sub: 1, frame: gridFrame(this.scene.frameOfContext(this.ctx), this.grid.plane) } : null;
     // 影子的 rev 也进键（2026-10-27 Claude Opus 5.5；user「拖动矩形的时候显示也不对，有退化」「move的显示也有问题」）：v0.15.14 起预演影子同一个对象每帧倒回复用，
     // 只按对象身份当键 = 拖动中一直拿到第一帧的合成视图、渲染器的重建键也不变 → 屏幕停在旧的那帧。
     const key = `${this._revision}|${live ? `${this.kid(live)}.${live.rev}` : 0}|${this.ctxKey()}|${ovKey}|${grid ? `${grid.step}/${grid.sub}` : ""}|${this._isolate ? "iso" : ""}`;
@@ -2264,16 +2263,13 @@ export class Editor {
   private repairPlan(kind: RepairKind, at: PoolRef, sel: BrepSelection | null, v: Readonly<Record<string, ParamValue>>, xf: Xform = IDENTITY): PlanOut {
     return this.repairModule(kind).plan(this.repairCtx, { kind: "brep", at, sel, xf }, v);
   }
-  /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
+  /** 「吸到格点」格子边长的选项：第一项 = 画图用的吸附长度；后面 = 这个单位制的吸附档（和吸附钮长按那张表同一份）。值 = 米数的字符串。 */
   private snapStepChoices(): { id: string; label: string; hint?: string }[] {
-    const fine = this.gridFineStep();
-    const fixed: [number, string][] = gridPreset(this.grid.preset).unit === "ft"
-      ? [[0.3048, "1 ft"], [0.1524, "6 in"], [0.0254, "1 in"], [0.00635, "1/4 in"], [0.0015875, "1/16 in"]]
-      : [[1, "1 m"], [0.1, "10 cm"], [0.05, "5 cm"], [0.01, "1 cm"], [0.005, "5 mm"], [0.001, "1 mm"]];
-    return [{ id: "grid", label: `画图的格子（${fmtLen(fine)}）`, hint: "格距 ÷ 细分，和画图时吸附的格点同一套" }, ...fixed.filter(([m]) => Math.abs(m - fine) > 1e-9).map(([m, label]) => ({ id: String(m), label }))];
+    const fine = this.gridFineStep(), sys = this.grid.system;
+    return [{ id: "grid", label: `画图的吸附（${fmtStep(fine)}）`, hint: "和画图时吸附的格点同一套" }, ...snapLevels(sys).filter((m) => Math.abs(m - fine) > 1e-12).map((m) => ({ id: String(m), label: snapLabel(m, sys) }))];
   }
   /** 画图吸附用的那个格子边长（格距 ÷ 细分；「吸到格点」的默认）。 */
-  private gridFineStep(): number { return this.grid.step / this.grid.subdiv; }
+  private gridFineStep(): number { return this.grid.snap; }
   /**
    * 「吸到格点」的格子（池本地坐标 → 格子坐标）。own = 这个池自己的坐标架（根 = 绘图轴、组 = 组的坐标架、组件 = 定义的坐标架，没摆过 = 组件原点）；
    * world = 根上的绘图轴（= 在根上看到的格子），经当前上下文 + xf 换到这个池里。
@@ -3714,7 +3710,7 @@ export class Editor {
       guides: view.guides(),
       guideSel: guidesOf(this.selection),
       frame: view.frame(),
-      grid: { frame: view.grid()?.frame ?? view.frame(), step: this.grid.step, sub: this.grid.subdiv, on: this.grid.on },   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
+      grid: this.grid.shown ? { frame: view.grid()?.frame ?? view.frame(), ladder: displayLadder(this.grid.system, this.grid.snap), on: this.grid.on } : null,   // 网格按单位制的进位表自动换层（不再有「显示格距」）   // 吸附没开也按设置的格距画（10-24 小 bug：此前关着就退回 1 m，换制式看不出来）
       charged: { points: this.alignSrcs(), edges: this.alignEdges() },
       selVerts: this.cmdPreview ? null : this.selVertsView(view, g),
       vertDots: this.vertDotsView(view, g),
@@ -3726,7 +3722,7 @@ export class Editor {
       originAxes: this.originMarker(),
       emptyAxes: this.emptyMarkers(view).map((e) => e.frame),
       planeGizmo: this.gizmo ? (() => { const G = gizmoGeom(this.gizmo.g, this.frame(), this.fvp()); return { origin: G.origin, normal: G.normal, u: G.u, v: G.v, size: G.size, hot: this.gizmo.grab?.handle ?? this.gizmo.hot }; })() : null,
-      ...(this.mode.id === "geometry" ? this.unitMarks(view.frame()) : {}),
+      ...(this.mode.id === "geometry" && this.grid.shown ? this.unitMarks(view.frame()) : {}),
       ...(this.mode.viewExtras?.() ?? {}),
       ...(this.handlers[this._tool]?.viewExtras?.(this.toolCtx) ?? {}),
     }, this.provider.layout()));
@@ -3735,13 +3731,12 @@ export class Editor {
    * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：
    * 活动池里 Kernel.isBreakJunction 的顶点 → 世界坐标的点 + 边向（渲染器画屏幕定长的小垂线）。按池版本缓存。
    */
-  /** X 轴上一格处的「一格多长」（原「1 m / 1 ft」）+ Z 轴刻度间距（user 2026-10-25「能不能在x轴+1的地方背景颜色的小字写上1m或者别的单位定义。以及我还是希望z轴有刻度」）。 */
+  /** X 轴上「一格多长」的标记 + Z 轴刻度：都跟这一刻看得清的那层网格走（进位表 = 单位制的；user 10-30「视角放远的时候1m应该变成对应栅格lod的标记」「z轴的interval和格子的细分和格距没有对齐」）。 */
   private unitMarks(F: Frame): { labels: WorldLabel[]; axisTickM: number; axisUnitX: number | null } {
-    const m = unitMark(this._vcbUnit), empty = this.sceneEmpty();
-    // 标记跟着格子走（DT16，user 10-25「1m的标记没有跟着格子的大小更新」）：放在一格处、写一格的长度；Z 轴刻度仍按单位（1 m / 1 ft）
-    const step = this.grid.step > 0 ? this.grid.step : m.unitM;
-    // 只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在
-    return { axisTickM: m.unitM, axisUnitX: empty ? step : null, labels: empty ? [{ id: "unit-x", text: gridStepLabel(step, this._vcbUnit), at: { x: F.origin.x + F.x.x * step, y: F.origin.y + F.x.y * step, z: F.origin.z + F.x.z * step }, role: "unitLabel", anchor: "below" }] : [] };
+    const L = displayLadder(this.grid.system, this.grid.snap), wpp = worldPerPx(this.frame(), this.fvp(), F.origin) ?? 0.01, empty = this.sceneEmpty();
+    const step = ladderLevelAt(L, wpp, UNIT_LABEL_MIN_PX), tick = ladderLevelAt(L, wpp, AXIS_TICK_MIN_PX);   // 标记 = 屏上放得下字的那层、刻度 = 不挤的那层（都是网格里真有的线；minccino/grid-ladder.ts）
+    // 只在空场景出（user「有东西了之后1m就可以不要了。它只是空场景帮你防呆的」）；Z 轴刻度一直在。字 = 统一的长度写法（units.ts fmtStep）
+    return { axisTickM: tick, axisUnitX: empty ? step : null, labels: empty ? [{ id: "unit-x", text: fmtStep(step), at: { x: F.origin.x + F.x.x * step, y: F.origin.y + F.x.y * step, z: F.origin.z + F.x.z * step }, role: "unitLabel", anchor: "below" }] : [] };
   }
   /** 场景里一个顶点都没有（按场景版本号缓存，不每帧数）。 */
   private emptyCache: { rev: number; empty: boolean } | null = null;

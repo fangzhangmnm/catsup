@@ -8,7 +8,7 @@ import { type SelMode } from "./tools.ts";
 import { type ArcGesture } from "./arc-build.ts";
 import { type CatsUpToolConfig } from "./tool-config.ts";
 import type { ToolHandler } from "./tool-handler.ts";
-import { type GridSettings } from "./grid-settings.ts";
+import { type GridSettings, type UnitSystem } from "./grid-settings.ts";
 import type { CurveParams } from "../kernel/kernel.ts";
 import { type LengthUnit, type VcbKind } from "./vcb.ts";
 import { type ParamPanelState, type ParamSession, type ParamValue } from "./param-panel.ts";
@@ -17,7 +17,7 @@ import type { FaceKey } from "./ops.ts";
 import { type LockAxis, type PlaneLock } from "./locks.ts";
 import { type Ladder, type ScaleTipView } from "./scale-ref.ts";
 import { type ViewState } from "./view-state.ts";
-import type { LineStyle, RenderProvider } from "../minccino/index.ts";
+import { type LineStyle, type RenderProvider } from "../minccino/index.ts";
 import { type Op } from "./ops.ts";
 import { type ImportScene } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
@@ -143,7 +143,7 @@ export interface EditorHost {
     /** 要等的大活的细进度条（顶边一条线，MoonSinger 同款；账本 UX7）：label = 露出来、返回「已经画上了」的 Promise（等它再开跑，不然卡住的那一帧画不出来）；null = 收起。缺 = 宿主不画。 */
     working?(label: string | null): Promise<void> | void;
 }
-export { type GridSettings, type GridPlane, type GridPreset, GRID_STEPS, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, isGridSubdiv, gridPreset, gridStepsFor, nearestGridStep } from "./grid-settings.ts";
+export { type GridSettings, type GridPlane, type UnitSystem, GRID_PLANES, UNIT_SYSTEMS, DEFAULT_SNAP, gridLadder, snapLevels, snapLabel, isUnitSystem } from "./grid-settings.ts";
 export declare function describeEvent(ev: FaceEvent): string;
 /** 手势最小位移（世界单位=米，A10 纪律）：短于此的线/移动/推拉视为没动。 */
 /** 圆的多边形段数（SU 默认 24）。 */
@@ -453,10 +453,9 @@ export declare class Editor {
     get scaleLadderLoaded(): boolean;
     /** 手势中正在拖的那段配什么参考（没手势 / 工具不报 / 没选 / 数据没到 = null）。 */
     private scaleTip;
-    private _vcbUnit;
-    /** 显示 / 输入单位：数值小窗按它读，所有读数（fmtLen / fmtArea）按它念——换单位只走这里（units.ts 窄接口）。 */
+    /** 显示 / 输入单位 = 单位制推出来的（公制 = 米、英制 / D&D = 英尺英寸）：数值小窗按它读、读数按它念。换单位 = setGrid({ system })（user 10-30「就是单位」）。 */
     get vcbUnit(): LengthUnit;
-    set vcbUnit(u: LengthUnit);
+    get unitSystem(): UnitSystem;
     private viewCache;
     /** 只看这个（DT44，user 2026-10-25「然后左上角的hierarchy tree可以切换只看该组件」）：进了组 / 组件时，外面的不画、不吸、点不中。本次打开有效；根上无效果。 */
     private _isolate;
@@ -931,7 +930,7 @@ export declare class Editor {
     private runObjectNow;
     /** 各修复指令在一个池里要做的事（纯规划；不提交）。 */
     private repairPlan;
-    /** 「吸到格点」格子边长的选项：第一项 = 画图用的那个格子；后面按文档的格子制式给常用档（公制 / 英尺英寸）。值 = 米数的字符串。 */
+    /** 「吸到格点」格子边长的选项：第一项 = 画图用的吸附长度；后面 = 这个单位制的吸附档（和吸附钮长按那张表同一份）。值 = 米数的字符串。 */
     private snapStepChoices;
     /** 画图吸附用的那个格子边长（格距 ÷ 细分；「吸到格点」的默认）。 */
     private gridFineStep;
@@ -1249,7 +1248,7 @@ export declare class Editor {
      * A33 断口提示（user 2026-10-24「如果一根直的线中间断了一截，应该有一个垂直的小线段提示一下这里断了，需要weld，不然到游戏引擎了一堆五边面」）：
      * 活动池里 Kernel.isBreakJunction 的顶点 → 世界坐标的点 + 边向（渲染器画屏幕定长的小垂线）。按池版本缓存。
      */
-    /** X 轴上一格处的「一格多长」（原「1 m / 1 ft」）+ Z 轴刻度间距（user 2026-10-25「能不能在x轴+1的地方背景颜色的小字写上1m或者别的单位定义。以及我还是希望z轴有刻度」）。 */
+    /** X 轴上「一格多长」的标记 + Z 轴刻度：都跟这一刻看得清的那层网格走（进位表 = 单位制的；user 10-30「视角放远的时候1m应该变成对应栅格lod的标记」「z轴的interval和格子的细分和格距没有对齐」）。 */
     private unitMarks;
     /** 场景里一个顶点都没有（按场景版本号缓存，不每帧数）。 */
     private emptyCache;

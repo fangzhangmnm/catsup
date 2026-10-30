@@ -76,7 +76,8 @@ export function initSheets(): void {
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _open && !e.defaultPrevented) { e.preventDefault(); _open(); } }, true);
 }
 
-export interface ConfirmOpts { danger?: boolean; okLabel?: string; cancelLabel?: string; warning?: boolean }
+/** noCancel = 只有一颗钮（看完就关的说明，比如视图「新手提醒…」）。 */
+export interface ConfirmOpts { danger?: boolean; okLabel?: string; cancelLabel?: string; warning?: boolean; noCancel?: boolean }
 export function openConfirmSheet(title: string, message: string, opts: ConfirmOpts = {}): Promise<boolean> {
   _assertNotBusy("confirm");
   return new Promise((resolve) => {
@@ -85,6 +86,7 @@ export function openConfirmSheet(title: string, message: string, opts: ConfirmOp
     g.message().textContent = message; g.message().hidden = false; g.message().classList.toggle("warning", !!opts.warning);
     if (opts.okLabel) g.confirm().textContent = opts.okLabel;
     if (opts.cancelLabel) g.cancel().textContent = opts.cancelLabel;
+    if (opts.noCancel) g.cancel().hidden = true;
     g.confirm().classList.toggle("danger", !!opts.danger);
     const done = (v: boolean) => { g.confirm().removeEventListener("click", onOk); g.cancel().removeEventListener("click", onCancel); _hide(); resolve(v); };
     const onOk = () => done(true), onCancel = () => done(false);

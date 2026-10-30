@@ -95,7 +95,7 @@ export class MoveTool implements ToolHandler {
       else if (sn.kind === null && cur && grazing(plane, ctx.frame().ray(s.x, s.y, ctx.vp()))) sn = { p: cur, kind: null };
     }
     let snapped = ctx.hysteresis(sn, s.x, s.y);
-    const g = ctx.grid(), step = g.step / g.subdiv;
+    const g = ctx.grid(), step = g.snap;
     if (g.on) {   // 网格开着（有效开关：按住 Shift 反过来）= 世界是格子（user 2026-10-24「move怎么没做incremental or grid snap」「dnd那种格子地图」）：几何推断管方向，格子管落在哪
       const F = ctx.contextFrame();
       const lat = (p: Pt3): Pt3 => { const d = sub3(p, F.origin); const c = (ax: Pt3): Pt3 => scale3(ax, Math.round(dot3(d, ax) / step) * step); return add3(F.origin, add3(add3(c(F.x), c(F.y)), c(F.z))); };

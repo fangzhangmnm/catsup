@@ -19,12 +19,12 @@ await page.evaluate(() => globalThis.__catsup.editor.setMode("geometry"));
 // 工具选项条：圆工具有「段数」之类的枚举？任挑一个带 enum 的工具，数 .strip-select.select-field
 res.stripFields = await page.evaluate(async () => { const out = {}; for (const t of ["rect", "arc", "circle", "erase", "paint", "select"]) { globalThis.__catsup.hud.pick(t); await new Promise((r) => setTimeout(r, 60)); out[t] = document.querySelectorAll(".strip-select.select-field").length; } return out; });
 res.nativeSelects2 = await page.evaluate(() => document.querySelectorAll("select").length);
-// ☰ 视图菜单「显示」页：单位 = 一行下拉（2026-10-25 起），点开选「英尺英寸」→ vcbUnit = ft
+// 视图窗口「单位」页：单位制 = 一行下拉（2026-10-30 起；以前是「显示」页的长度单位），点开选「英制」→ 显示单位 = ft
 await page.evaluate(() => globalThis.__catsup.hud.pick("select"));
 await page.locator('#viewGizmo .gizmo-btn[title="视图"]').click(); await page.waitForTimeout(150);
-await page.click('.float-win[data-win="view"] [data-menu-tab="display"]'); await page.waitForTimeout(80);
-await page.click('.float-win[data-win="view"] [data-menu-id="unit:pick"]'); await page.waitForTimeout(100);
-const ftItem = page.locator(".choice-layer button", { hasText: "英尺英寸" });
+await page.click('.float-win[data-win="view"] [data-menu-tab="units"]'); await page.waitForTimeout(80);
+await page.click('.float-win[data-win="view"] [data-menu-id^="sys:"]'); await page.waitForTimeout(100);
+const ftItem = page.locator(".choice-layer button", { hasText: "英制" });
 res.unitItem = await ftItem.count();
 if (res.unitItem) { await ftItem.click(); await page.waitForTimeout(120); }
 res.unitAfter = await page.evaluate(() => globalThis.__catsup.editor.vcbUnit);

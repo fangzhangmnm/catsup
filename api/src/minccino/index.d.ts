@@ -3,6 +3,7 @@ export { IDENTITY_XFORM, WORLD_FRAME3 } from "./contract/geometry.ts";
 export type { Chunk, ChunkKind, ChunkArray, ChunkAttr, ChunkDirty, ChunkSide, MaterialRef, Placement, FrustumBand, PullBudget, StreamQuery, StreamFrame, StreamProvider } from "./contract/stream.ts";
 export type { View, ViewCamera, RenderTarget, ViewBudget, QualityTier, BackgroundBudget, ViewportSize, CameraSource } from "./contract/view.ts";
 export { DEFAULT_VIEW_BUDGET } from "./contract/view.ts";
+export { ladderLevelAt, ladderWindow } from "./grid-ladder.ts";
 export type { Measurement, CostTable, DegradeStep, ProviderCaps } from "./contract/cost.ts";
 export type { PassDecl, FramePlan } from "./graph/frame-graph.ts";
 export { planFrame } from "./graph/frame-graph.ts";

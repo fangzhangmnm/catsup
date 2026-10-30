@@ -12,7 +12,7 @@ const box = await page.locator("#board").boundingBox();
 const px = (p) => page.evaluate((p) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(p, e.vp()); }, p);
 await page.evaluate(() => { const e = globalThis.__catsup.editor, P = (x, y) => ({ x, y, z: 0 });
   e.commitOp({ op: "addEdges", segs: [[P(0, 0), P(3, 0)], [P(3, 0), P(3, 2)], [P(3, 2), P(0, 2)], [P(0, 2), P(0, 0)]] });
-  e.setGrid({ ...e.grid, on: true, step: 1, subdiv: 5, plane: "xy" }); globalThis.__catsup.hud.pick("tape"); });
+  e.setGrid({ ...e.grid, on: true, snap: 0.2, plane: "xy" }); globalThis.__catsup.hud.pick("tape"); });
 const a = await px({ x: 1.1, y: 0, z: 0 }), c = await px({ x: 1.1, y: 0.83, z: 0 });
 await page.mouse.move(box.x + a.x, box.y + a.y); await page.waitForTimeout(80); await page.mouse.down();
 for (let i = 1; i <= 10; i++) { await page.mouse.move(box.x + a.x + (c.x - a.x) * i / 10, box.y + a.y + (c.y - a.y) * i / 10); await page.waitForTimeout(20); }

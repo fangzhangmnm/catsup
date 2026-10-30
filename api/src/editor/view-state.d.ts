@@ -69,10 +69,10 @@ export interface ViewState {
     /** 上下文的帧（世界坐标）：不是世界帧时画三色上下文轴。 */
     frame?: Frame | null;
     /** 地面网格（0.11 ⑤）：跟上下文的帧走（user「网格帧 = 绘图轴」），格距 = 网格开着时的 step、否则 1 m；三色轴 = 帧的三轴。不给 = 世界帧 1 m。 */
+    /** 地面网格：帧 + 进位表（米，从细到粗，从吸附长度起；渲染每帧按视角挑几层画，minccino/grid-ladder.ts）；null = 网格和三色轴都不画（栅格面「关」）。 */
     grid?: {
         frame: Frame;
-        step: number;
-        sub?: number;
+        ladder: readonly number[];
         on?: boolean;
     } | null;
     /** 选中的点（2026-10-26，user「以及我们还是希望我们能选点」「为什么不是简简单单高亮点？」）：只画实心圆点。世界坐标。 */

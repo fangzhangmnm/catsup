@@ -14,7 +14,7 @@ const res = await page.evaluate(async () => {
   e.commitOp({ op: "pushpull", at, face: rect, dist: 1 });
   e.commitOp({ op: "move", at, moves: [{ from: P(x0 + 1, 1, 1), to: P(x0 + 1.003, 1, 1.002) }] });
   e.deselectAll(); e.draw(); await sleep(30);
-  const step = e.grid.step / e.grid.subdiv, on = (c) => Math.abs(c - Math.round(c / step) * step) < 2e-6;
+  const step = e.grid.snap, on = (c) => Math.abs(c - Math.round(c / step) * step) < 2e-6;
   const menu = e.commandMenu().map((m) => m.label);
   const out = { menu, count: e.repairMenuCount("brep.straighten") };
   C.hud.pick("action:brep.straighten"); await sleep(30);

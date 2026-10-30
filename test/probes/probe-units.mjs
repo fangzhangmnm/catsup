@@ -11,7 +11,7 @@ const res = await page.evaluate(() => {
   e.commitOp({ op: "addEdges", segs: [[P(0, 0), P(1.524, 0)], [P(1.524, 0), P(1.524, 1.524)], [P(1.524, 1.524), P(0, 1.524)], [P(0, 1.524), P(0, 0)]] });
   globalThis.__catsup.hud.pick("select"); e.selectAll();
   const readM = e.readoutText();
-  e.vcbUnit = "ft";
+  e.setGrid({ system: "imperial", snap: 0.0254 });
   const readFt = e.readoutText();
   return { readM, readFt };
 });

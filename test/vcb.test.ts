@@ -61,7 +61,7 @@ describe("vcb: 阵列变换", () => {
     eq(ds.join(","), "0.5,1,1.5,2");
     const rs = arrayRotations({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, Math.PI / 2, "x", 2).map((X) => applyPt(X, { x: 1, y: 0, z: 0 }));
     assert(near(rs[0].y, 1) && near(rs[1].x, -1), "90° 两份：(0,1) 与 (−1,0)");
-    eq(fmtVcbLength(2.5, "cm"), "250 cm"); eq(fmtVcbLength(0.1234, "m"), "0.123 m");
+    eq(fmtVcbLength(2.5, "cm"), "250 cm"); eq(fmtVcbLength(0.1234, "m"), "12.34 cm");   // 公制按大小自动挑词头（user 10-30「至少在ux层面支持从fm 更小到Mm Gm」）
     eq(vcbPrompt("pp"), "高度"); eq(vcbPrompt(null), "");
   });
   it("小键盘单位键跟这一步 + 单位走（user 2026-10-25「小键盘应该跟着公制英制度变换」）", () => {

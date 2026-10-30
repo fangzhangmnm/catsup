@@ -16,7 +16,7 @@ const setup = await page.evaluate(() => {
   for (let i = 0; i < 4; i++) { const a = B[i], c = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(c[0], c[1], 0)]); segs.push([P(a[0], a[1], 1), P(c[0], c[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); }
   e.commitOp({ op: "addEdges", segs });
   e.commitOp({ op: "addEdges", segs: [[P(1, 0, 1), P(1, 1, 1)]] });
-  e.setGrid({ ...e.grid, on: true, step: 1, subdiv: 5 });
+  e.setGrid({ ...e.grid, on: true, snap: 0.2 });
   globalThis.__catsup.hud.pick("move");
   return { grid: e.grid.on };
 });

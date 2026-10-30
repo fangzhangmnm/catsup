@@ -12,7 +12,7 @@ for (const [sx0, sy0] of starts) for (const pen of [false, true]) {
   const px = (p) => page.evaluate((p) => { const e = globalThis.__catsup.editor; return e.cam.angularPx(p, e.vp()); }, p);
   await page.evaluate(() => { const e = globalThis.__catsup.editor, P = (x, y) => ({ x, y, z: 0 });
     e.commitOp({ op: "addEdges", segs: [[P(0, 0), P(3, 0)], [P(3, 0), P(3, 2)], [P(3, 2), P(0, 2)], [P(0, 2), P(0, 0)], [P(0, 0), P(3, 2)]] });
-    e.setGrid({ ...e.grid, on: true, step: 1, subdiv: 5, plane: "xy" }); globalThis.__catsup.hud.pick("tape"); });
+    e.setGrid({ ...e.grid, on: true, snap: 0.2, plane: "xy" }); globalThis.__catsup.hud.pick("tape"); });
   const onDiag = sx0 === 1.6;
   const A = onDiag ? { x: 1.6, y: 1.6 * 2 / 3, z: 0 } : { x: sx0, y: sy0, z: 0 };
   const T = sy0 === 0 && !onDiag ? { x: A.x, y: 0.83, z: 0 } : sx0 === 3 ? { x: 2.17, y: A.y, z: 0 } : { x: A.x + 0.3, y: A.y - 0.5, z: 0 };

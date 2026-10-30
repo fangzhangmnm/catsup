@@ -71,7 +71,7 @@ const res = await page.evaluate(async () => {
   e.clearAll(); e.setTool("select");
   box(0, 0, 0, 1, 1, 1);
   e.cam.setView("iso"); e.zoomExtents(); e.cam.halfH *= 1.4;
-  e.setGrid({ ...e.grid, on: true, step: 1, subdiv: 5 });
+  e.setGrid({ ...e.grid, on: true, snap: 0.2 });
   e.selectAll(); e.setTool("transform");
   const O = P(0.5, 0.5, 0.5), ppm = (d) => { const a0 = px(O), b0 = px({ x: O.x + d.x, y: O.y + d.y, z: O.z + d.z }); return Math.hypot(a0.x - b0.x, a0.y - b0.y); };
   // 手柄尺寸 = 垂直于视线方向上的屏幕 px（斜着的轴在屏上会短一点）：箭杆 82 px 处（箭头 64–100 px，环 56 px）

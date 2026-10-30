@@ -21,7 +21,7 @@ const CHARGED_PX = 5, GUIDE_POINT_PX = 6;
 const TICK_K = 2;
 const AXIS_AUX: Record<string, AuxColor> = { x: "axisX", y: "axisY", z: "axisZ", u: "neutral", v: "neutral", i: "ink" };
 /** Z 轴刻度画多远 = 地面网格的半边（render3 GRID_N × GRID_STEP）。 */
-const AXIS_TICK_REACH_M = 50;
+const AXIS_TICK_REACH_M = 50, AXIS_TICK_MAX = 100;   // Z 轴刻度最远排到哪 / 最多几根
 
 type Segs = { pos: number[]; col: AuxColor[] };
 const segs = (): Segs => ({ pos: [], col: [] });
@@ -101,16 +101,13 @@ export function overlayLines(view: ViewState, ctx: OverlayCtx): AuxLines[] {
     out.push(lines("charged", "charged", ck, s));
   }
   // ---- A33 断口小垂线：线上一个小鼓包（半长 = 线宽 × TICK_K，边线色），垂直于边、面向相机 ----
-  // 同一套小短线也画轴的刻度（user 2026-10-25「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）：Z 轴每 axisTickM 一根（屏上挤到 < 6 px 就改成每 10 个一根），
+  // 同一套小短线也画轴的刻度（user 2026-10-25「我还是希望z轴有刻度。可以用那种我们之前用过的小短线」）：Z 轴每 axisTickM 一根（编辑器从网格的进位表里挑的那层，user 10-30「z轴的interval和格子的细分和格距没有对齐」），
   // X 轴 +1 个单位处一根（「1 m」字标在它下面）；颜色 = 那根轴的颜色。
   const tks: { p: Pt3; dir: Pt3; color?: AuxColor }[] = [...(view.ticks ?? [])];
   const atm = view.axisTickM, afr = view.frame;
   if (atm && atm > 0 && afr) {
     const o = afr.origin, zd = afr.z, xd = afr.x;
-    let step = atm;
-    const wpp0 = ctx.worldPerPx(o);
-    while (step / wpp0 < 6 && step < 1e6) step *= 10;
-    const L = AXIS_TICK_REACH_M;
+    const step = atm, L = Math.min(AXIS_TICK_REACH_M, step * AXIS_TICK_MAX);   // 间隔 = 编辑器按显示进位表挑好的那层（和网格线同一套，不再自己 ×10）；拉近到毫米也只排 AXIS_TICK_MAX 根
     for (let k = 1; k * step <= L + 1e-9; k++) tks.push({ p: { x: o.x + zd.x * k * step, y: o.y + zd.y * k * step, z: o.z + zd.z * k * step }, dir: zd, color: "axisZ" });
     if (view.axisUnitX) { const ux = view.axisUnitX; tks.push({ p: { x: o.x + xd.x * ux, y: o.y + xd.y * ux, z: o.z + xd.z * ux }, dir: xd, color: "axisX" }); }
   }

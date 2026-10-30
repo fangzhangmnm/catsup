@@ -66,7 +66,7 @@ const res = await page.evaluate(async () => {
   out.menuStillOpenAfterLift = !!menu();
   document.body.click(); await sleep(30);
   // ⑤ 英制：单位切 ft，推拉后打 3'6" → 1.0668
-  e.cancel(); e.vcbUnit = "ft";
+  e.cancel(); e.setGrid({ system: "imperial", snap: 0.0254 });
   e.setTool("pp");
   const topGroupHit = e.pickAt(top.x, top.y);
   out.topIsPool = !!topGroupHit && (topGroupHit.face !== undefined);

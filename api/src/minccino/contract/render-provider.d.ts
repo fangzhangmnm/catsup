@@ -28,9 +28,10 @@ export interface FrameInput {
     /** XR 会话里透视近平面（米）；不给 = 0.05。 */
     readonly near?: number;
     /** 地面网格：跟哪个坐标架、格距（米）；不给 = 世界帧、1 m。 */
+    /** 地面网格：帧 + 进位表（米，从细到粗、相邻整数倍；引擎每帧按视角挑几层画——minccino/grid-ladder.ts）。2026-10-30 起不再是一个格距（user「自动缩放grid也要注意不同的进位」）。 */
     readonly grid?: {
         readonly frame: Frame3;
-        readonly step: number;
+        readonly ladder: readonly number[];
     } | null;
     /** 标记（选中 / 悬停的面换材质槽）；拉完流之后才调（块 id 那时才稳定）；不给 = 没有。 */
     readonly marks?: () => readonly Mark[];

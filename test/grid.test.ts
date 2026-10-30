@@ -10,7 +10,7 @@ import { WORLD_FRAME, type Frame } from "../src/scene/xform.ts";
 import { axisAlignAngle } from "../src/editor/protractor-geom.ts";
 import { newDocument, readCatsup, writeCatsup } from "../src/format/index.ts";
 import { DEFAULT_SETTINGS } from "../src/format/document.ts";
-import { gridFromSettings, settingsFromGrid, nearestGridStep, gridStepsFor, DEFAULT_GRID, GRID_SUBDIVS } from "../src/editor/grid-settings.ts";
+import { gridFromSettings, settingsFromGrid, gridLadder, displayLadder, snapLevels, DEFAULT_GRID, UNIT_SYSTEMS, IN_M, FT_M } from "../src/editor/grid-settings.ts";
 import { rectToolTargets } from "../src/editor/tools.ts";
 
 const P = (x: number, y: number, z = 0): Pt3 => ({ x, y, z });
@@ -119,28 +119,32 @@ describe("grid: 轴向咬合（旋转 / 量角器）", () => {
   });
 });
 
-describe("grid: 文档 settings 往返", () => {
-  it("默认 1/5 关；写 absoluteGrid/gridStep/gridSubdiv 读回；gridFromSettings 兜坏值", () => {
+describe("grid: 文档 settings 往返（CATSUP_document 3.4：单位制 + 吸附长度为主；user 10-30「把显示长度单位，grid制式，格距收成一个东西」「文件格式存同意」）", () => {
+  it("单位制 / 吸附长度 / 栅格面关 写进去读回来不变", () => {
     const k = new Kernel(); k.addEdges([[P(0, 0), P(1, 0)], [P(1, 0), P(1, 1)], [P(1, 1), P(0, 1)], [P(0, 1), P(0, 0)]]);
     const doc = newDocument(k.toBrep(), "g");
-    eq(doc.settings.gridSubdiv, 5); eq(doc.settings.absoluteGrid, false); eq(DEFAULT_SETTINGS.snapIncrement, 0.2);
-    doc.settings = { ...doc.settings, absoluteGrid: true, gridStep: 0.5, gridSubdiv: 10, snapIncrement: 0.05 };
-    const back = readCatsup(writeCatsup(doc));
-    eq(back.settings.absoluteGrid, true); eq(back.settings.gridStep, 0.5); eq(back.settings.gridSubdiv, 10);
-    const g = gridFromSettings(back.settings);
-    eq(g.on, true); eq(g.step, 0.5); eq(g.subdiv, 10);
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: -1, gridSubdiv: 7 }).step, 1); eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridSubdiv: 7 }).subdiv, 5);
+    eq(doc.settings.absoluteGrid, false); eq(DEFAULT_SETTINGS.snapIncrement, 0.2);
+    doc.settings = settingsFromGrid(doc.settings, { on: true, snap: IN_M / 4, plane: "xz", system: "imperial", shown: false });
+    const g = gridFromSettings(readCatsup(writeCatsup(doc)).settings);
+    eq(g.on, true); eq(g.system, "imperial"); assert(Math.abs(g.snap - IN_M / 4) < 1e-15, `吸附 1/4 in，实得 ${g.snap}`); eq(g.plane, "xz"); eq(g.shown, false);
   });
-  it("制式 ≠ 长度单位（user 10-24「这两个分开来」）：默认公制不写键；D&D 写 gridPreset 读回；老文档没键按格距猜（英制档 → 建筑英尺英寸）；换制式格距挪到最近一档", () => {
-    eq(DEFAULT_GRID.preset, "si");
-    eq(settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID }).gridPreset, undefined, "公制不写键 = 默认文档字节不变");
-    const s = settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, preset: "dnd", step: 1.524 });
-    eq(s.gridPreset, "dnd"); eq(gridFromSettings(s).preset, "dnd"); eq(gridFromSettings(s).step, 1.524);
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 0.3048 }).preset, "architectural", "老英制文档：1 ft 格距 → 建筑制式");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 0.5 }).preset, "si");
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPreset: "mars" as never }).preset, "si", "坏值回公制");
-    assert(gridStepsFor("dnd").includes(1.524) && gridStepsFor("architectural").includes(0.3048) && !gridStepsFor("dnd").includes(0.0254), "D&D 只有 5 / 10 ft；建筑有 1 ft");
-    eq(nearestGridStep(1, "dnd"), 1.524); eq(nearestGridStep(1.524, "si"), 1); eq(nearestGridStep(0.1, "architectural"), 0.1524);
+  it("给老读者照写：格距 = 吸附长度、细分 1、显示单位公制 m / 英制 ft-in、制式键；公制 + xy + 显示 = 不写 gridPlane / gridHidden / gridPreset", () => {
+    const m = settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, snap: 0.05 });
+    eq(m.gridStep, 0.05); eq(m.gridSubdiv, 1); eq(m.snapIncrement, 0.05); eq(m.displayUnit, "m"); eq(m.unitSystem, "metric");
+    eq(m.gridPlane, undefined); eq(m.gridHidden, undefined); eq(m.gridPreset, undefined);
+    const d = settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, system: "dnd", snap: 5 * FT_M });
+    eq(d.gridPreset, "dnd"); eq(d.displayUnit, "ft-in"); eq(settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, system: "imperial", snap: IN_M }).gridPreset, "architectural");
+  });
+  it("老文件没有 unitSystem：按老键猜（D&D 制式 = D&D；建筑制式 / 英尺英寸 / 英寸显示 = 英制；其余公制）；吸附 = snapIncrement，坏了退回格距 ÷ 细分", () => {
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPreset: "dnd" }).system, "dnd");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPreset: "architectural" }).system, "imperial");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, displayUnit: "ft-in" }).system, "imperial");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, displayUnit: "in" }).system, "imperial");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, displayUnit: "cm" }).system, "metric");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, unitSystem: "mars" as never }).system, "metric", "坏值回公制");
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 1, gridSubdiv: 10, snapIncrement: 0.1 }).snap, 0.1);
+    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridStep: 0.5, gridSubdiv: 10, snapIncrement: -1 }).snap, 0.05, "snapIncrement 坏了 = 格距 ÷ 细分");
+    eq(gridFromSettings(DEFAULT_SETTINGS).shown, true);
   });
 });
 
@@ -154,9 +158,9 @@ describe("grid: 网格面 xy / yz / xz（user 2026-10-24「方便我吸附画立
     }
     assert(near(gridFrame(WORLD_FRAME, "yz").z, P(1, 0, 0)), "yz 的法向 = X");
     assert(near(gridFrame(WORLD_FRAME, "xz").z, P(0, -1, 0)), "xz 的法向 = −Y");
-    const s = settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "yz", preset: "si" });
+    const s = settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, on: true, plane: "yz" });
     eq(s.gridPlane, "yz"); eq(gridFromSettings(s).plane, "yz");
-    eq(settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: 5, plane: "xy", preset: "si" }).gridPlane, undefined, "xy 不写键");
+    eq(settingsFromGrid(DEFAULT_SETTINGS, { ...DEFAULT_GRID, on: true, plane: "xy" }).gridPlane, undefined, "xy 不写键");
     eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridPlane: "zz" as never }).plane, "xy", "坏值回 xy");
   });
   it("网格面 yz 开着：空处首点落在 x=0 的立面上，格点也在立面上", async () => {
@@ -199,14 +203,25 @@ describe("整格 / 整角吸附（DT51，user 2026-10-25「同时snap absolute�
 });
 
 
-// 吸附细分六档（2026-10-29 Claude Opus 5.5；user「snapping的substep应该除了5 10 还有2 20 50 100」，账本 T120；CATSUP_document 3.2）
-describe("吸附细分：2 / 5 / 10 / 20 / 50 / 100", () => {
-  it("每一档写进文档设置再读回来不变；snapIncrement = 格距 ÷ 细分；不认识的值（老文件 / 手改）退回 5", () => {
-    for (const n of GRID_SUBDIVS) {
-      const s = settingsFromGrid(DEFAULT_SETTINGS, { on: true, step: 1, subdiv: n, plane: "xy", preset: "si" });
-      eq(s.gridSubdiv, n); eq(s.snapIncrement, 1 / n);
-      eq(gridFromSettings(s).subdiv, n);
+// 进位表（2026-10-30 Claude Opus 5.5；user 10-30「自动缩放grid也要注意不同的进位」「比选的snap还细的格子不应该显示，因为没snap」）
+describe("grid: 进位表 / 吸附档 / 画出来的网格从吸附长度起", () => {
+  const isMultiple = (a: number, b: number): boolean => { const r = b / a; return Math.abs(r - Math.round(r)) < 1e-6 && r > 1 - 1e-9; };
+  it("每种单位制的进位表相邻两层是整数倍（粗线一定落在细线上）；英制 / D&D 一路英尺、不进码 / 英里", () => {
+    for (const u of UNIT_SYSTEMS) { const L = gridLadder(u.id); for (let i = 1; i < L.length; i++) assert(isMultiple(L[i - 1], L[i]), `${u.id} 第 ${i} 层 ${L[i]} 不是 ${L[i - 1]} 的整数倍`); }
+    assert(gridLadder("metric").includes(1e-15) && gridLadder("metric").includes(1e9), "公制 fm … Gm");
+    assert(gridLadder("imperial").includes(FT_M) && gridLadder("imperial").includes(10 * FT_M) && !gridLadder("imperial").some((s) => Math.abs(s - 3 * FT_M) < 1e-9), "英制 1 ft、10 ft，没有 1 yd");
+    assert(gridLadder("dnd").some((s) => Math.abs(s - 5 * FT_M) < 1e-12) && gridLadder("dnd").some((s) => Math.abs(s - 50 * FT_M) < 1e-12), "D&D 5 ft、50 ft");
+  });
+  it("画出来的进位表：比吸附细的层不画；吸附长度不在表上但整除上一层就补成最细一层（5 cm、50 cm、6 in）；每层都落在吸附格上", () => {
+    const L = displayLadder("metric", 0.05);
+    eq(L[0], 0.05); assert(Math.abs(L[1] - 0.1) < 1e-12, `5 cm 上面一层 10 cm，实得 ${L[1]}`);
+    eq(displayLadder("metric", 0.1)[0], 0.1);
+    assert(Math.abs(displayLadder("imperial", 6 * IN_M)[1] - FT_M) < 1e-12, "6 in 上面一层 1 ft");
+    eq(displayLadder("dnd", FT_M)[0], FT_M);
+    for (const u of UNIT_SYSTEMS) for (const sn of snapLevels(u.id)) {
+      const D = displayLadder(u.id, sn);
+      assert(Math.abs(D[0] - sn) < 1e-12, `${u.id} 吸附 ${sn}：最细一层 = 吸附长度，实得 ${D[0]}`);
+      for (const s of D) assert(isMultiple(sn, s) || Math.abs(s - sn) < 1e-12, `${u.id} 吸附 ${sn}：${s} 不在吸附格上`);
     }
-    eq(gridFromSettings({ ...DEFAULT_SETTINGS, gridSubdiv: 7 }).subdiv, 5);
   });
 });

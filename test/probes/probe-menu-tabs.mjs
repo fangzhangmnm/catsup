@@ -31,8 +31,8 @@ await page.evaluate(() => globalThis.__catsup.session.newDoc()); await page.wait
 res.afterNew = await tabs();
 console.log(JSON.stringify({ ...res, errs }));
 const ok = res.rev1 === res.rev0 && res.opened && res.edgesAfterOpen > 0
-  && res.beforeOpen.main === "file" && res.beforeOpen.view === "display"
+  && res.beforeOpen.main === "file" && res.beforeOpen.view === "render"
   && res.afterOpen.main === "settings" && res.afterOpen.view === "ref"
-  && res.afterNew.main === "file" && res.afterNew.view === "display" && !errs.length;
+  && res.afterNew.main === "file" && res.afterNew.view === "render" && !errs.length;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

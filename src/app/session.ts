@@ -22,7 +22,6 @@ import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
 import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { fmtStamp } from "../format/migrate/index.ts";
-import { unitFromSettings, unitToSettings } from "../editor/units.ts";
 import type { Xform } from "../scene/xform.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName } from "../config.ts";
 import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
@@ -269,8 +268,7 @@ export class Session {
     this.loaded = doc;
     this.lazy = false;
     this.d.editor.loadScene(sc, "恢复");
-    this.d.editor.setGrid(gridFromSettings(doc.settings), true);
-    this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
+    this.d.editor.setGrid(gridFromSettings(doc.settings), true);   // 单位制跟着模型走（settings.unitSystem，老文件按 displayUnit / 制式猜；grid-settings.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走
@@ -308,7 +306,7 @@ export class Session {
   private encode(): Uint8Array {
     const name = this.displayName();
     const doc: CatsupDocument = documentFromScene(this.d.editor.sceneRef, name, this.loaded);
-    doc.settings = scaleRefsToSettings({ ...settingsFromGrid(doc.settings, this.d.editor.docGrid), displayUnit: unitToSettings(this.d.editor.vcbUnit) }, this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
+    doc.settings = scaleRefsToSettings(settingsFromGrid(doc.settings, this.d.editor.docGrid), this.d.editor.scaleRefs);   // 绝对网格（0.11 ⑤）住编辑器、存进文档 settings（不进 undo）
     doc.desk = this.deskForSave();   // 桌面态存盘时顺手捞走（不标脏，WeebPaint desk 同款）；含参考窗的窗
     if (this.d.refs) doc.references = { files: this.d.refs.files(), extra: this.loaded?.references.extra ?? {} };   // 参考窗目录（接缝编好的字节；太新时 = 原样那份，写入器另走 carry）
     const thumb = this.d.captureThumbnail();
@@ -348,8 +346,7 @@ export class Session {
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
     this.d.editor.loadScene(sc);
-    this.d.editor.setGrid(gridFromSettings(doc.settings), true);
-    this.d.editor.vcbUnit = unitFromSettings(doc.settings);   // 单位跟着模型走（settings.displayUnit；units.ts）
+    this.d.editor.setGrid(gridFromSettings(doc.settings), true);   // 单位制跟着模型走（settings.unitSystem，老文件按 displayUnit / 制式猜；grid-settings.ts）
     this.d.editor.loadScaleRefs(scaleRefsFromSettings(doc.settings));   // B43 尺度参考跟着文件走（settings.scaleRefs；旧单选键 scaleRef 照读）
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走

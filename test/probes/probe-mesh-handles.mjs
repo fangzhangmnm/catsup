@@ -137,9 +137,9 @@ const res = await page.evaluate(async () => {
   { const btn = document.querySelector(".gizmo-snap"), sd = btn.querySelector(".gizmo-subdiv"), before = sd.textContent;
     btn.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true })); await sleep(120);
     const labs = [...document.querySelectorAll(".popup-menu .menu-label")], items = labs.map((x) => x.textContent.trim());   // 只看名字那一格（后面的提示是长度）
-    const pick = labs.find((x) => x.textContent.trim() === "1/100")?.closest("button, [role=menuitem], .menu-item");
+    const pick = labs.find((x) => x.textContent.trim() === "1 cm")?.closest("button, [role=menuitem], .menu-item");   // 3.4 起右上角 = 吸附长度（不再是 1/N）
     pick?.click(); await sleep(120);
-    out.subdivBrep = { hidden: sd.hidden, before, after: sd.textContent, subdiv: e.grid.subdiv, menuHasSubdivs: ["1/2", "1/5", "1/10", "1/100"].every((t) => items.includes(t)), menuHasLocks: items.some((x) => x.includes("方向锁")) };
+    out.subdivBrep = { hidden: sd.hidden, before, after: sd.textContent, snap: e.grid.snap, menuHasSubdivs: ["1 mm", "1 cm", "10 cm", "20 cm", "1 m"].every((t) => items.includes(t)), menuHasLocks: items.some((x) => x.includes("方向锁")) };
     document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true })); }
   return out;
 });
@@ -162,7 +162,7 @@ const ok = res.first.faces === 1 && res.first.show === false && !res.first.gizmo
   && res.xf.parts === "arrows,rings,cubes,planes,center" && res.xf.uniform && res.xf.strip.includes("朝向") && !res.xf.strip.includes("手柄") && !res.xf.strip.includes("变换中心") && !res.xf.strip.includes("复制")
   && res.xfRing.zKept && res.xfRing.distKept && res.xfRing.changed && res.xfUniform.bigger && res.xfUniform.zKept && res.xfCenter.moved
   && res.snapIconFree === "snap-element" && res.brep.snapIcon === "snap-grid"
-  && res.subdivFree === true && res.subdivBrep.hidden === false && /^1\/\d+$/.test(res.subdivBrep.before) && res.subdivBrep.after === "1/100" && res.subdivBrep.subdiv === 100 && res.subdivBrep.menuHasSubdivs && res.subdivBrep.menuHasLocks
+  && res.subdivFree === true && res.subdivBrep.hidden === false && res.subdivBrep.before === "20 cm" && res.subdivBrep.after === "1 cm" && Math.abs(res.subdivBrep.snap - 0.01) < 1e-12 && res.subdivBrep.menuHasSubdivs && res.subdivBrep.menuHasLocks
   && !errs.length;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "✓ probe-mesh-handles" : "✗ probe-mesh-handles");

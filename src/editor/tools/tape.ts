@@ -112,7 +112,7 @@ export class TapeTool implements ToolHandler {
     const g = ctx.grid(), pl = this.plane!.plane;
     if (g.on && (sn.kind === null || sn.kind === "increment" || sn.kind === "grid-point" || sn.kind === "on-face")) {
       const ray = ctx.frame().ray(s.x, s.y, ctx.vp()), raw = rayPlane(ray.origin, ray.dir, pl.n, pl.d) ?? sn.p;
-      const r = tapeResult(this.start, raw), step = g.step / g.subdiv;
+      const r = tapeResult(this.start, raw), step = g.snap;
       if (r.make === "line" && r.d > 0 && step > 0) {
         const k = nearestStep(r.d, step);
         if (k > 0) {

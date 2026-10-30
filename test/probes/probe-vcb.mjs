@@ -33,10 +33,10 @@ const res = await page.evaluate(async () => {
   const unitKeys = () => [...vcbEl.querySelectorAll(".vcb-pad-units .vcb-key")].map((b) => b.textContent).join(" ");
   vcbEl.querySelector(".vcb-field").click(); await sleep(30);
   const kMetric = unitKeys();
-  e.vcbUnit = "ft"; await sleep(30);
+  e.setGrid({ system: "imperial", snap: 0.0254 }); await sleep(30);
   const kImperial = unitKeys();
   if (globalThis.__SHOT) await globalThis.__SHOT();
-  e.vcbUnit = "m"; await sleep(30);
+  e.setGrid({ system: "metric", snap: 0.1 }); await sleep(30);
   out.padUnits = kMetric === "m cm mm" && kImperial === `' " 空格` && unitKeys() === "m cm mm";
   out.padUnitsSeen = [kMetric, kImperial];
   vcbEl.querySelector(".vcb-field").click(); await sleep(30);

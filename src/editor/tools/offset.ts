@@ -89,7 +89,7 @@ export class OffsetTool implements ToolHandler {
     // 落格：只在没吸到几何（裸落 / 格点 / 整数长度 / 面上）时接管；吸到别的端点 / 中点 / 边照旧（偏移到某个点是正经用法）
     const weak = kind === null || kind === "grid-point" || kind === "increment" || kind === "on-face";
     // 格点吸附（有效开关 = ctx.grid().on，按住 Shift 反过来）：绝对格线（内法向与栅格轴平行时）+ 从边起的整格，屏距最近、在吸附圈内才咬（2026-10-25：以前是硬取整）
-    const g = ctx.grid(), s0 = g.step / g.subdiv;
+    const g = ctx.grid(), s0 = g.snap;
     if (weak && g.on && s0 > 0) {
       const cands: { d: number; abs: boolean }[] = [{ d: nearestStep(d, s0), abs: false }];
       const F = ctx.contextFrame();

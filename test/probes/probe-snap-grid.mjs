@@ -20,7 +20,7 @@ const res = await page.evaluate(async () => {
   const kA = () => s().kernelOf(aAt), v0 = kA().vertices()[0];
   e.commitOp({ op: "move", at: aAt, moves: [{ from: { x: v0.x, y: v0.y, z: v0.z }, to: { x: v0.x + 0.003, y: v0.y, z: v0.z } }] });
   e.deselectAll(); e.draw();
-  const step = e.grid.step / e.grid.subdiv, on = (c) => Math.abs(c - Math.round(c / step) * step) < 2e-6;
+  const step = e.grid.snap, on = (c) => Math.abs(c - Math.round(c / step) * step) < 2e-6;
   const allOn = (pts) => pts.every((p) => on(p.x) && on(p.y) && on(p.z));
   const X = () => s().def(s().root).instances.get(inst).xform, world = (p) => { const m = X(); return { x: m[0] * p.x + m[1] * p.y + m[2] * p.z + m[3], y: m[4] * p.x + m[5] * p.y + m[6] * p.z + m[7], z: m[8] * p.x + m[9] * p.y + m[10] * p.z + m[11] }; };
   const out = { step, count: e.repairCount("brep.snap") };

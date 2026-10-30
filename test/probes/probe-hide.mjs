@@ -1,5 +1,5 @@
 // 隐藏 / 全部显示（DT49，user 2026-10-25「然后 hide unhide all也马上需要了」「嗯线和面也可以hidden，这样可以挖洞看里面」）：
-// 大盒里放一个组件 → 选大盒前墙 H = 挖洞看见里面的组件 → 那面点不中 → 选组件 H → 视图菜单「全部显示（N）」→ Alt+H 全放回 → Ctrl+Z 一步回到藏着。SHOT=前缀 截图。
+// 大盒里放一个组件 → 选大盒前墙 H = 挖洞看见里面的组件 → 那面点不中 → 选组件 H → 空白处右键「全部显示（N）」→ Alt+H 全放回 → Ctrl+Z 一步回到藏着。SHOT=前缀 截图。
 // created 2026-10-25 by Claude Opus 5.5
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -29,7 +29,10 @@ const throughHole = await page.evaluate(({ p, face }) => { const e = globalThis.
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cancel(); const def = e.sceneRef.def(e.sceneRef.root); const i = [...def.instances.values()][0]; e.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id }); });
 await page.keyboard.press("h"); await page.waitForTimeout(100);
 const s2 = await st();
-await page.locator(".gizmo-menu").first().click();
+// 2026-10-30：「全部显示」从视图窗口搬到空白处的右键菜单（user「全部显示在右键菜单就行了，没必要进视图菜单」）——找一处什么都点不中的地方右键
+const emptyAt = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cancel(); const vp = e.vp(); for (const [fx, fy] of [[0.5, 0.12], [0.85, 0.2], [0.15, 0.85], [0.5, 0.9], [0.9, 0.85]]) { const x = vp.w * fx, y = vp.h * fy, h = e.pickAt(x, y); if (h.face === undefined && h.edge === undefined && h.vertex === undefined) return { x, y }; } return null; });
+const bb = await page.locator("#board").boundingBox();
+if (emptyAt) await page.mouse.click(bb.x + emptyAt.x, bb.y + emptyAt.y, { button: "right" });
 await page.waitForTimeout(150);
 const menuLabel = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent?.trim()).find((t) => t?.startsWith("全部显示")) ?? null);
 await page.keyboard.press("Escape");
