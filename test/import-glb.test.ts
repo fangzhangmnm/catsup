@@ -16,6 +16,8 @@ import { IDENTITY, applyPt, compose } from "../src/scene/xform.ts";
 import { decodeGlb } from "../src/format/glb.ts";
 import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup } from "../src/format/index.ts";
 import { checkInvariants } from "./kernel-fuzz.test.ts";
+import { meshFromSplitTriangles } from "../src/mesh/tri-soup.ts";
+import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
 
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const near = (a: Pt3, b: Pt3, tol = 1e-6): boolean => Math.hypot(a.x - b.x, a.y - b.y, a.z - b.z) <= tol;
@@ -72,7 +74,8 @@ describe("导入外来 glb（T11）：glb → 中间数据", () => {
     eq(s.nodes[1].mesh, 0); eq(s.nodes[2].mesh, 0); eq(s.nodes[3].mesh, null);
     eq(s.meshes[0].tris.length, 36);
     eq(s.meshes[1].tris.length, 6, "三角带 4 点 = 2 个三角");
-    assert(s.losses.includes("顶点法线"), `丢的东西要列出来：${s.losses.join("、")}`);
+    assert(!s.losses.includes("顶点法线"), "法线拿来判软硬边了（平滑组），不算丢");
+    assert(!!s.meshes[1].normals && !s.meshes[0].normals, "有法线的网格带着、没有的不带");
     // 世界位置：rig ∘ box_b ∘ 顶点 (1,1,1)。文件里：R_y(90°)·((1,1,1) + (3,0,0)) + (10,2,0) = (10+1, 2+1, -4) → Z-up (11, 4, 3)
     const world = applyPt(compose(s.nodes[0].xform, s.nodes[2].xform), s.meshes[0].positions[6]);
     assert(near(world, C(P(11, 3, -4))), `世界位置 ${JSON.stringify(world)}`);
@@ -148,6 +151,51 @@ describe("三角 → 膜（kernel/from-triangles.ts）", () => {
   });
 });
 
+/** Blender 式导出的立方体：每个面四个自己的顶点（法线 = 面法线，劈开）、两个三角背靠背写（共用对角线的两个下标）。flat = false → 8 个角共用一个外指的法线（平滑）。 */
+function bakedCube(flat: boolean): { positions: Float32Array; normals: Float32Array; indices: Uint32Array } {
+  const C = [[0, 0, 0], [1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 0, 1], [1, 0, 1], [1, 1, 1], [0, 1, 1]];
+  const quads = [[0, 3, 2, 1], [4, 5, 6, 7], [0, 1, 5, 4], [1, 2, 6, 5], [2, 3, 7, 6], [3, 0, 4, 7]];
+  const fn = [[0, 0, -1], [0, 0, 1], [0, -1, 0], [1, 0, 0], [0, 1, 0], [-1, 0, 0]];
+  const pos: number[] = [], nrm: number[] = [], idx: number[] = [];
+  if (flat) quads.forEach((q, f) => { const b = pos.length / 3; for (const v of q) { pos.push(...C[v]); nrm.push(...fn[f]); } idx.push(b, b + 1, b + 2, b, b + 2, b + 3); });
+  else { for (const c of C) { pos.push(...c); const l = Math.hypot(c[0] - 0.5, c[1] - 0.5, c[2] - 0.5); nrm.push((c[0] - 0.5) / l, (c[1] - 0.5) / l, (c[2] - 0.5) / l); } for (const q of quads) idx.push(q[0], q[1], q[2], q[0], q[2], q[3]); }
+  return { positions: Float32Array.from(pos), normals: Float32Array.from(nrm), indices: Uint32Array.from(idx) };
+}
+describe("外来三角 → 网格体：焊点、拼回四边形、软硬边看文件法线（mesh/tri-soup.ts meshFromSplitTriangles；user 10-29「导入的时候要respect平滑组」「keep quad」）", () => {
+  it("平面着色的立方体（24 个劈开的顶点）：焊成 8 点、6 个四边形、12 条边全是棱、默认平滑 = hard、没有手标", () => {
+    const { kernel: m, report } = meshFromSplitTriangles(bakedCube(true), 20);
+    eq(m.vertexCount(), 8); eq(m.faceCount(), 6); eq(report.quads, 6); eq(m.edgeCount(), 12);
+    eq(report.hard, 12); eq(report.soft, 0); eq(m.smoothDefault.mode, "hard");
+    assert(m.edges().every((e) => !edgeSmooth(m, e) && !edgeSoft(m, e) && m.edgeFlags[e] === 0), "全是棱、不用手标");
+  });
+  it("平滑的立方体（8 个角共用法线）：12 条边全平滑、默认平滑 = smooth、没有手标；同一个立方体没法线 = 按角度（90° > 20° → 棱）", () => {
+    const { kernel: m, report } = meshFromSplitTriangles(bakedCube(false), 20);
+    eq(m.faceCount(), 6); eq(report.soft, 12); eq(m.smoothDefault.mode, "smooth");
+    assert(m.edges().every((e) => edgeSmooth(m, e) && edgeSoft(m, e) && m.edgeFlags[e] === 0), "全平滑");
+    const bare = bakedCube(false); const r2 = meshFromSplitTriangles({ positions: bare.positions, indices: bare.indices }, 20);
+    eq(r2.kernel.smoothDefault.mode, "angle"); assert(!r2.report.usedNormals);
+    assert(r2.kernel.edges().every((e) => !edgeSmooth(r2.kernel, e)), "没法线：直角边按角度是棱");
+  });
+  it("少数派手标：平滑立方体里把一条边的两端在一侧劈开 → 那一条手标棱、其余跟默认平滑", () => {
+    const c = bakedCube(false);
+    // 第 4 号三角（侧面 0,1,5 的那对）用的 0 号点换成一个同位置、法线朝 -y 的新下标
+    const pos = Float32Array.from([...c.positions, 0, 0, 0]), nrm = Float32Array.from([...c.normals, 0, -1, 0]), idx = Uint32Array.from(c.indices);
+    idx[12] = 8;
+    const { kernel: m, report } = meshFromSplitTriangles({ positions: pos, normals: nrm, indices: idx }, 20);
+    eq(m.vertexCount(), 8, "同位置的新下标焊回去");
+    eq(m.smoothDefault.mode, "smooth");
+    const sharp = m.edges().filter((e) => !edgeSmooth(m, e));
+    assert(sharp.length === report.hard && report.hard >= 1 && report.hard <= 3, `劈开的那个角周围的边变棱（${report.hard}）`);
+  });
+  it("凹的 / 折太狠的 / 绕向反的三角对不拼", () => {
+    const pos = Float32Array.from([0, 0, 0, 2, 0, 0, 0.2, 0.2, 0, 0, 2, 0]);   // 0-1-2-3 是凹四边形（2 号点凹进去）
+    const r = meshFromSplitTriangles({ positions: pos, indices: Uint32Array.from([0, 1, 2, 0, 2, 3]) }, 20);
+    eq(r.report.quads, 0); eq(r.kernel.faceCount(), 2);
+    const fold = meshFromSplitTriangles({ positions: Float32Array.from([0, 0, 0, 1, 0, 0, 1, 1, 0, 0, 0, 1]), indices: Uint32Array.from([0, 1, 2, 0, 2, 3]) }, 20);
+    eq(fold.report.quads, 0, "两侧夹角 > 45° 不拼");
+  });
+});
+
 describe("导入成组件（scene/import-build.ts + op importScene）", () => {
   const build = (): { s: Scene; h: History<null>; data: ReturnType<typeof readForeignGlb> } => {
     const data = readForeignGlb(makeGlb(), "toy");
@@ -167,7 +215,7 @@ describe("导入成组件（scene/import-build.ts + op importScene）", () => {
     eq(s.def(kids[0].def).name, "cube");
     assert(s.isBare(kids[2].def), "空节点是空定义");
     assert(!s.isBare(kids[0].def), "立方体不是空的");
-    eq(s.mesh(kids[0].def).kernel.faceCount(), 12, "导入直接成网格体（user 10-27）：12 个三角形一张不少");
+    eq(s.mesh(kids[0].def).kernel.faceCount(), 6, "导入直接成网格体（user 10-27）；背靠背的三角对拼回四边形（user 10-29「keep quad」）：12 个三角 = 6 个四边形");
     // 组件的轴 = 节点的原点和朝向：box_b 的原点在世界 (13 → 绕 Y 转后) 的位置
     const o = applyPt(compose(top[0].xform, kids[1].xform), P(0, 0, 0));
     assert(near(o, C(P(10, 2, -3))), `box_b 原点 ${JSON.stringify(o)}`);

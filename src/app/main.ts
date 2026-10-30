@@ -1031,7 +1031,7 @@ glbImportInput.addEventListener("change", async () => {
     note("import", `${file.name}: ${data.nodes.length} nodes, ${data.meshes.length} meshes, ${Math.round(performance.now() - t0)} ms`);
     if (!r.ok) { notify({ text: `导入失败：${r.reason}`, level: "error" }); return; }
     editor.zoomExtents();
-    const c = r.cast, parts = [`${r.instances} 个组件`, `${c.triangles - c.degenerate - c.duplicate - c.rejected} 个三角面`];
+    const c = r.cast, parts = [`${r.instances} 个组件`, c.faces !== undefined ? `${c.faces} 个面${c.quads ? `（${c.quads} 个三角对拼回了四边形）` : ""}` : `${c.triangles - c.degenerate - c.duplicate - c.rejected} 个三角面`];
     if (c.repaired) parts.push(`${c.repaired} 个有毛病的三角面已切好`);
     if (c.rejected) parts.push(`${c.rejected} 个坏三角面没导进来`);
     if (c.degenerate || c.duplicate) parts.push(`丢掉 ${c.degenerate + c.duplicate} 个退化 / 重复的`);

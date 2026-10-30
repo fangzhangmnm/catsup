@@ -72,12 +72,17 @@ describe("物件族：转成网格体 / 转回 SU 体", () => {
     console.log(`    [量级] meshToBrep：${N * N} 个不平四边形（${2 * N * N} 三角）→ ${bb.kernel.faces().length} 张膜，${Math.round(ms)} ms（建网格 ${Math.round(t1 - t0)} ms）`);
     assert(bb.kernel.faces().length >= N * N, "每个不平四边形至少折成两块");
   });
-  it("导入直接成网格体（user 10-27）：castImport 出网格载荷、buildImport 建网格定义、对角线按角度软 + 平滑；老复现包里带膜的照装", () => {
+  it("导入直接成网格体（user 10-27）：castImport 出网格载荷、buildImport 建网格定义；三角不背靠背写时对角线按角度软 + 平滑；老复现包里带膜的照装", () => {
     const soup = boxSoup();
-    const data: ImportScene = { name: "f", nodes: [{ name: "cube", xform: IDENTITY, mesh: 0, children: [] }], meshes: [{ name: "cube", positions: soup.positions, tris: soup.tris }], roots: [0], losses: [] };
+    // 背靠背写的三角对会拼回四边形（user 10-29「keep quad」，另有单测）；这里把三角错开写（0 2 4 … 1 3 5 …），看「没法线 → 按角度」那条老路
+    const T = soup.tris, n = T.length / 3, order = [...Array.from({ length: n }, (_, i) => i).filter((i) => i % 2 === 0), ...Array.from({ length: n }, (_, i) => i).filter((i) => i % 2 === 1)];
+    const tris = order.flatMap((i) => [T[3 * i], T[3 * i + 1], T[3 * i + 2]]);
+    const data: ImportScene = { name: "f", nodes: [{ name: "cube", xform: IDENTITY, mesh: 0, children: [] }], meshes: [{ name: "cube", positions: soup.positions, tris }], roots: [0], losses: [] };
     const { scene: imp, report } = castImport(data, 20);
     assert(imp.meshes[0].mesh && !imp.meshes[0].brep, "载荷是网格");
-    eq(report.triangles, 12); eq(report.softened, 6, "六条对角线按默认平滑（按角度）平滑"); eq(report.degenerate, 0);
+    eq(report.triangles, 12); eq(report.quads, 0, "错开写的不拼"); eq(report.softened, 6, "六条对角线按默认平滑（按角度）平滑"); eq(report.degenerate, 0);
+    const back = castImport({ ...data, meshes: [{ name: "cube", positions: soup.positions, tris: soup.tris }] }, 20).report;
+    eq(back.quads, 6, "背靠背写的拼回 6 个四边形"); eq(back.softened, 0);
     const s = new Scene(sceneBox());
     const rep = buildImport(s, { def: s.root, group: null }, imp, IDENTITY);
     eq(rep.definitions, 1); eq(rep.instances, 1);

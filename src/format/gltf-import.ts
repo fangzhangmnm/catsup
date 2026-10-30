@@ -8,7 +8,7 @@ import type { Xform } from "../scene/xform.ts";
 import { decodeGlb } from "./glb.ts";
 import { isCatsupGltf } from "./read.ts";
 
-export interface ImportMesh { name: string; /** Z-up 坐标。 */ positions: Pt3[]; /** 三角（每 3 个下标一个）。 */ tris: number[] }
+export interface ImportMesh { name: string; /** Z-up 坐标。 */ positions: Pt3[]; /** 每个顶点的文件法线（Z-up；这个图元没法线 = null）；整个网格都没有 = 不带。软硬边靠它（mesh/tri-soup.ts meshFromSplitTriangles）。 */ normals?: (Pt3 | null)[]; /** 三角（每 3 个下标一个）。 */ tris: number[] }
 export interface ImportNode { name: string; /** 局部变换（Z-up）。 */ xform: Xform; mesh: number | null; children: number[] }
 export interface ImportScene { name: string; nodes: ImportNode[]; meshes: ImportMesh[]; roots: number[]; /** 进门时丢掉的东西（人话，导入后说一次）。 */ losses: string[] }
 
@@ -53,11 +53,12 @@ export function readForeignGlb(bytes: Uint8Array, name: string): ImportScene {
   const toZup = (x: number, y: number, z: number): Pt3 => ({ x, y: -z, z: y });
   // 网格：所有三角形图元并进一个网格（材质丢掉）
   const meshes: ImportMesh[] = arr(g.meshes).map((m, mi) => {
-    const positions: Pt3[] = [], tris: number[] = [];
+    const positions: Pt3[] = [], tris: number[] = [], normals: (Pt3 | null)[] = [];
+    let anyNormal = false;
     for (const p of arr(m.primitives)) {
       const mode = p.mode === undefined ? 4 : Number(p.mode);
       const attrs = (p.attributes ?? {}) as Json;
-      for (const k of Object.keys(attrs)) if (k === "NORMAL") losses.add("顶点法线"); else if (k.startsWith("TEXCOORD")) losses.add("贴图坐标（UV）"); else if (k.startsWith("JOINTS") || k.startsWith("WEIGHTS")) losses.add("蒙皮"); else if (k.startsWith("COLOR")) losses.add("顶点色");
+      for (const k of Object.keys(attrs)) if (k === "NORMAL") continue; else if (k.startsWith("TEXCOORD")) losses.add("贴图坐标（UV）"); else if (k.startsWith("JOINTS") || k.startsWith("WEIGHTS")) losses.add("蒙皮"); else if (k.startsWith("COLOR")) losses.add("顶点色");
       if (p.material !== undefined) losses.add("材质 / 贴图");
       if (p.targets) losses.add("变形目标（morph）");
       if (mode !== 4 && mode !== 5 && mode !== 6) { losses.add("点 / 线图元（只收三角面）"); continue; }
@@ -65,12 +66,15 @@ export function readForeignGlb(bytes: Uint8Array, name: string): ImportScene {
       if (!pos || pos.n !== 3) continue;
       const base = positions.length, count = pos.data.length / 3;
       for (let i = 0; i < count; i++) positions.push(toZup(pos.data[i * 3], pos.data[i * 3 + 1], pos.data[i * 3 + 2]));
+      const nr = attrs.NORMAL === undefined ? null : read(Number(attrs.NORMAL));   // 法线只拿来判软硬边（平滑组），不存
+      if (nr && nr.n === 3 && nr.data.length === count * 3) { anyNormal = true; for (let i = 0; i < count; i++) normals.push(toZup(nr.data[i * 3], nr.data[i * 3 + 1], nr.data[i * 3 + 2])); }
+      else for (let i = 0; i < count; i++) normals.push(null);
       const idx = p.indices === undefined ? Array.from({ length: count }, (_, i) => i) : (read(Number(p.indices))?.data ?? []);
       if (mode === 4) for (let i = 0; i + 2 < idx.length; i += 3) tris.push(base + idx[i], base + idx[i + 1], base + idx[i + 2]);
       else if (mode === 5) for (let i = 0; i + 2 < idx.length; i++) tris.push(base + idx[i], base + idx[i + (i % 2 ? 2 : 1)], base + idx[i + (i % 2 ? 1 : 2)]);   // 三角带：奇数个翻绕向
       else for (let i = 1; i + 1 < idx.length; i++) tris.push(base + idx[0], base + idx[i], base + idx[i + 1]);   // 三角扇
     }
-    return { name: String(m.name ?? `网格 ${mi}`), positions, tris };
+    return anyNormal ? { name: String(m.name ?? `网格 ${mi}`), positions, normals, tris } : { name: String(m.name ?? `网格 ${mi}`), positions, tris };
   });
   // 节点：TRS 或矩阵 → 3×4（Y-up），再换到 Z-up
   const nodes: ImportNode[] = arr(g.nodes).map((n, ni) => {
@@ -116,7 +120,8 @@ export function reorientImport(data: ImportScene, up: ImportUp, unitM: number): 
     const L = mul(mul(Am, [[M[0], M[1], M[2]], [M[4], M[5], M[6]], [M[8], M[9], M[10]]]), Ai), t = A({ x: M[3], y: M[7], z: M[11] });
     return [L[0][0], L[0][1], L[0][2], t.x, L[1][0], L[1][1], L[1][2], t.y, L[2][0], L[2][1], L[2][2], t.z];
   };
-  return { ...data, meshes: data.meshes.map((m) => ({ ...m, positions: m.positions.map(A) })), nodes: data.nodes.map((n) => ({ ...n, xform: conj(n.xform) })) };
+  const R = (p: Pt3 | null): Pt3 | null => (p && up === "z" ? { x: p.x, y: p.z, z: -p.y } : p);   // 法线只转方向（只拿来互相比，缩放不影响）
+  return { ...data, meshes: data.meshes.map((m) => ({ ...m, positions: m.positions.map(A), ...(m.normals ? { normals: m.normals.map(R) } : {}) })), nodes: data.nodes.map((n) => ({ ...n, xform: conj(n.xform) })) };
 }
 
 /** Y-up 的局部变换换到 Z-up：M' = C·M·C⁻¹，C = (x, y, z) → (x, −z, y)。 */

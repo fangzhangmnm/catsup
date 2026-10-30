@@ -11,7 +11,7 @@ import type { ImportNode, ImportScene } from "../format/gltf-import.ts";
 import { type BrepSnapshot, Kernel } from "../kernel/kernel.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import type { MeshDoc } from "../format/document.ts";
-import { meshFromTriangles } from "../mesh/tri-soup.ts";
+import { meshFromSplitTriangles } from "../mesh/tri-soup.ts";
 import { edgeSmooth } from "../mesh/edge-smooth.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
 import { type DefId, type PoolRef, Scene } from "./scene.ts";
@@ -41,9 +41,11 @@ export function castImport(data: ImportScene, softDeg: number): { scene: Importe
   const meshes = data.meshes.map((m) => {
     const positions = new Float32Array(m.positions.length * 3);
     m.positions.forEach((p, i) => { positions[3 * i] = p.x; positions[3 * i + 1] = p.y; positions[3 * i + 2] = p.z; });
-    const { kernel, skipped } = meshFromTriangles({ positions, indices: Uint32Array.from(m.tris) });
-    report.triangles += m.tris.length / 3; report.degenerate += skipped;
-    kernel.setSmoothDefault({ mode: "angle", deg: softDeg });   // 默认平滑（FM129）代替以前按角度烘标记：样子一样（同一条 |cos| 规则），之后改默认平滑还管得到这些边
+    let normals: Float32Array | null = null;
+    if (m.normals) { normals = new Float32Array(m.positions.length * 3).fill(NaN); m.normals.forEach((q, i) => { if (q) { normals![3 * i] = q.x; normals![3 * i + 1] = q.y; normals![3 * i + 2] = q.z; } }); }
+    // 焊顶点 + 拼回四边形 + 软硬边看文件法线（没法线 = 按 softDeg 角度，和以前一样）——user 10-29「导入的时候要respect平滑组」
+    const { kernel, report: r } = meshFromSplitTriangles({ positions, normals, indices: Uint32Array.from(m.tris) }, softDeg);
+    report.triangles += m.tris.length / 3; report.degenerate += r.skipped; report.quads = (report.quads ?? 0) + r.quads; report.faces = (report.faces ?? 0) + r.faces;
     report.softened += kernel.edges().filter((e) => edgeSmooth(kernel, e)).length;
     return { name: m.name, mesh: meshDocFromKernel(kernel) };
   });

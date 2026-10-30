@@ -29,6 +29,9 @@ export interface TriangleCastReport {
   rejected: number;
   /** 变成软边的条数。 */
   softened: number;
+  /** 网格体导入：落成几张面 / 其中几个是拼回来的四边形（mesh/tri-soup.ts meshFromSplitTriangles）。 */
+  faces?: number;
+  quads?: number;
 }
 
 /** 两张面算「同一平面」的法向夹角上限（弧度）：再加「三个点都在 τ 内」——内核判「在平面上」用的就是 τ。 */

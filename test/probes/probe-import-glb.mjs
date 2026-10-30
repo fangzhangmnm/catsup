@@ -84,7 +84,7 @@ await page.waitForFunction(() => (document.getElementById("noticeStack")?.textCo
 out.openNotice = /别的软件做的 glb.*导入 glb/.test(await notices());
 console.log(JSON.stringify(out));
 const ok = out.panel?.title === "导入 toy" && out.panel.fields.join() === "up,unit" && Math.abs(out.size0 - 1) < 1e-6 && Math.abs(out.sizeCm - 0.01) < 1e-6 && out.topsCm === 1 && Math.abs(out.sizeBack - 1) < 1e-6
-  && out.top?.[0] === "rig" && out.kids?.join() === "box,marker" && /导入 toy\.glb：/.test(out.notice) && /顶点法线/.test(out.notice) && /1 个空节点/.test(out.notice)
+  && out.top?.[0] === "rig" && out.kids?.join() === "box,marker" && /导入 toy\.glb：/.test(out.notice) && !/顶点法线/.test(out.notice) && /个面/.test(out.notice) && /1 个空节点/.test(out.notice)
   && out.markerPicked && out.afterUndo1?.instances === 1 && out.afterUndo1?.selPools === 0 && out.afterUndo === 0 && out.openNotice && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);
