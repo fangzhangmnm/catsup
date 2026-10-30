@@ -15,7 +15,7 @@ const hoverTo = async (p) => { const q = await px(p); await page.mouse.move(box.
 const tip = () => page.evaluate(() => { const t = document.getElementById("tip"); return t.hidden ? "" : t.innerHTML; });
 const refs = () => page.evaluate(() => [...globalThis.__catsup.editor.scaleRefs].join("|"));
 const refPage = async () => { await openViewWin(); await page.waitForTimeout(80); await page.click(".menu-tab:has-text('参考')"); await page.waitForTimeout(80); };
-const pageInfo = () => page.evaluate(() => { const m = document.querySelector('.float-win[data-win="view"]:not([hidden]) .menu-panel'); return m ? { pick: m.querySelector('[data-menu-id="ref:pick"]')?.textContent ?? "", notes: [...m.querySelectorAll(".menu-note")].map((n) => n.textContent).join("|"), sections: [...m.querySelectorAll(".menu-section-label")].map((n) => n.textContent).join("|"), max: m.querySelector('[data-menu-id="refmax:3"] .menu-value')?.textContent ?? "" } : null; });
+const pageInfo = () => page.evaluate(() => { const m = document.querySelector('.float-win[data-win="view"]:not([hidden]) .float-body'); return m ? { pick: m.querySelector('[data-menu-id="ref:pick"]')?.textContent ?? "", notes: [...m.querySelectorAll(".menu-note")].map((n) => n.textContent).join("|"), sections: [...m.querySelectorAll(".menu-section-label")].map((n) => n.textContent).join("|"), max: m.querySelector('[data-menu-id="refmax:3"] .menu-value')?.textContent ?? "" } : null; });
 const closeWins = () => page.evaluate(() => document.querySelectorAll(".float-win:not([hidden]) .float-close").forEach((b) => b.click()));   // v0.17.54：视图是常驻浮窗，Esc 不收它；画之前关掉，别挡着画布
 const drawUp = async () => { await closeWins(); await page.evaluate(() => globalThis.__catsup.hud.pick("line")); await clickAt({ x: 0, y: 0, z: 0 }); await page.keyboard.press("ArrowUp"); await hoverTo({ x: 0, y: 0, z: 0.914 }); await hoverTo({ x: 0, y: 0, z: 0.914 }); };
 const names = (h) => (h.match(/<span style="opacity/g) ?? []).length;
@@ -29,7 +29,7 @@ await page.click('.float-win[data-win="view"] [data-menu-id="refmax:3"]'); await
 await page.click('.float-win[data-win="view"] [data-menu-id="ref:pick"]'); await page.waitForTimeout(100);
 res.msOpen = await page.evaluate(() => ({ n: document.querySelectorAll(".choice-layer [data-choice-id]").length, on: [...document.querySelectorAll('.choice-layer [aria-selected="true"]')].map((b) => b.dataset.choiceId).join("|") }));
 await page.click('.choice-layer [data-choice-id="interior/DND"]'); await page.waitForTimeout(100);
-res.afterDnd = { refs: await refs(), parentOpen: await page.evaluate(() => !!document.querySelector('.float-win[data-win="view"]:not([hidden]) .menu-panel')), msOpen: await page.evaluate(() => !!document.querySelector(".choice-layer")), page: await pageInfo() };
+res.afterDnd = { refs: await refs(), parentOpen: await page.evaluate(() => !!document.querySelector('.float-win[data-win="view"]:not([hidden]) .float-body')), msOpen: await page.evaluate(() => !!document.querySelector(".choice-layer")), page: await pageInfo() };
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 await drawUp(); res.five = await tip(); await page.keyboard.press("Escape"); await page.waitForTimeout(60);
 // ④ 地上拉一个矩形 = 面积参考（房间类）

@@ -7,8 +7,8 @@ import { mountMenuPanel, type MenuPanelHandle, type PopupMenuOpts } from "./popu
 import { registerFloatingWindow, type FloatingWindowHandle, type PanelPos } from "./floating-window.ts";
 import { choiceLayerOpen } from "./choice-layer.ts";
 
-/** 第一次开的默认位置：start / end = 在钮下面、左 / 右对齐；beside = 在钮（一整列挂件）的左边、顶对齐——不盖住它。 */
-export type Align = "start" | "end" | "beside";
+/** 第一次开的默认位置：start / end = 在钮下面、左 / 右对齐；beside = 在它（一整列挂件）的左边、after = 在它的右边，都顶对齐——不盖住它。 */
+export type Align = "start" | "end" | "beside" | "after";
 export type MenuSpec<Id extends string> = Pick<PopupMenuOpts<Id>, "items" | "onPick" | "tabs" | "tabKey">;
 export interface MenuWindowSpec<Id extends string> {
   /** 窗的身份（位置按它记；探针按 data-win 找）。 */
@@ -39,7 +39,7 @@ export function createMenuWindow<Id extends string>(spec: MenuWindowSpec<Id>): M
   const title = document.createElement("span"); title.className = "float-title"; title.textContent = spec.title;
   const close = document.createElement("button"); close.type = "button"; close.className = "float-close"; close.title = "关"; close.setAttribute("aria-label", `关掉「${spec.title}」`); close.textContent = "×";
   head.append(title, close);
-  const body = document.createElement("div"); body.className = "menu-panel float-body"; body.setAttribute("role", "menu");   // 不冒充 .popup-menu（那是一次性弹出层的类名：外点关 / 探针按它认弹出菜单）
+  const body = document.createElement("div"); body.className = "float-menu float-body"; body.setAttribute("role", "menu");   // 不冒充 .popup-menu（那是一次性弹出层的类名：外点关 / 探针按它认弹出菜单）
   el.append(head, body);
   document.body.appendChild(el);
   const win: FloatingWindowHandle = registerFloatingWindow(el, {
@@ -63,7 +63,7 @@ export function createMenuWindow<Id extends string>(spec: MenuWindowSpec<Id>): M
     const saved = spec.store.get(spec.id);
     if (saved) { win.restore(saved); return; }
     const a = anchor.getBoundingClientRect(), w = el.offsetWidth || 300;
-    win.restore(align === "beside" ? { left: a.left - w - 8, top: a.top } : { left: align === "end" ? a.right - w : a.left, top: a.bottom + 6 });
+    win.restore(align === "beside" ? { left: a.left - w - 8, top: a.top } : align === "after" ? { left: a.right + 8, top: a.top } : { left: align === "end" ? a.right - w : a.left, top: a.bottom + 6 });
   };
   const handle: MenuWindowHandle = {
     el,

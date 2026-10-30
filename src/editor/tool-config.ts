@@ -139,7 +139,8 @@ export class ToolConfig<T extends OptionTable> {
         const n = typeof value === "number" ? value : Number(value);
         if (!Number.isFinite(n)) return undefined;
         const clamped = Math.min(def.max, Math.max(def.min, n));
-        const q = def.min + Math.round((clamped - def.min) / def.step) * def.step;   // 以 min 为格点原点量化
+        const dp = Math.max(0, -Math.floor(Math.log10(def.step) + 1e-9)) + 2;   // 浮点尾巴按步长的小数位数截掉（0.05 × 15 = 0.7500000000000001 → 0.75；工具条上原样显示过）
+        const q = Number((def.min + Math.round((clamped - def.min) / def.step) * def.step).toFixed(dp));   // 以 min 为格点原点量化
         return Math.min(def.max, Math.max(def.min, q));                                  // 量化可能跳出 max，再夹一次
       }
       case "bool": return typeof value === "boolean" ? value : value === "1" || value === "true" ? true : value === "0" || value === "false" ? false : undefined;

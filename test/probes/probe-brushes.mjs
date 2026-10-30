@@ -37,6 +37,8 @@ const more = await page.$("#toolbar .rail-more"); await more.click(); await page
 r.one = { more: await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent).join(" | ")) };
 await page.keyboard.press("Escape");
 await pick("brushDraw"); await page.evaluate(() => globalThis.__catsup.editor.config.set("soft", "radius", 120)); await page.waitForTimeout(80);
+// v0.17.55 起拿起笔刷会自动开「雕刻笔刷」浮窗（user 10-30）：它会挡住要刷的那块画布——关掉（这次会话就不再自动开）
+r.brushWin = await page.evaluate(() => { const w = document.querySelector('.float-win[data-win="brush"]:not([hidden])'); if (w) w.querySelector(".float-close").click(); return !!w; });
 const mid = await scr({ x: 0, y: 0, z: 0 }); await page.mouse.move(mid.x, mid.y); await page.mouse.move(mid.x + 3, mid.y); await page.waitForTimeout(40);
 r.one.dial = await page.evaluate(() => !document.querySelector(".left-dial")?.hidden);
 r.one.strip = await page.evaluate(() => /力度/.test(document.getElementById("toolStrip")?.textContent ?? ""));

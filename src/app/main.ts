@@ -894,7 +894,7 @@ function onGridPick(id: GridMenuId): "keep" | void {
 function syncUi(): void {
   renderSnapWidget();
   refreshMachineBoard();   // 指令板上的数跟着模型变
-  viewWin?.refresh(); objectWin?.refresh();   // 常驻浮窗（视图 / 物件）：内容变了才重画（ui/menu-window.ts）
+  viewWin?.refresh(); objectWin?.refresh(); brushWin?.refresh();   // 常驻浮窗（视图 / 物件 / 雕刻笔刷）：内容变了才重画（ui/menu-window.ts）
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
   softSliderRef?.render();   // 软选择半径滑条
   selGrowRef?.sync();   // 扩 / 缩条：换了工具 / 没选区就收
@@ -911,6 +911,7 @@ function syncUi(): void {
   btnRedo.disabled = !editor.canRedo();
 
   vr?.invalidatePanel();
+  autoBrushWindow();   // 最后：左栏竖滑条这一刻已经画好（笔刷窗要摆在它右边）
 }
 
 // ---------- 帮助 ----------
@@ -1174,6 +1175,35 @@ function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
     ],
     onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
   };
+}
+// 雕刻笔刷浮窗（user 10-30「然后雕刻笔刷的浮窗就可以做一下啦」）：四把笔刷 + 力度；半径在左栏那根竖滑条（和软选择共用，不重复放）。
+// 拿起任何一把笔刷时自动开；你关掉了这次就不再自动开（钮还在左柱「笔刷 ▾」）。
+const BRUSH_STRENGTHS = [0.1, 0.25, 0.5, 0.75, 1] as const;
+function brushMenuSpec(): MenuSpec<string> {
+  return {
+    items: () => {
+      const s = Number(editor.config.get("brush", "strength"));
+      return [
+        ...BRUSHES.map((t) => { const sp = TOOL_SPEC.find((x) => x.tool === t)!, k = toolKeyText(editor.modeId, t, (x) => editor.modeTools().includes(x)); return { id: `brush:${t}`, label: sp.label, icon: sp.icon, checked: editor.tool === t, ...(k ? { hint: k } : {}) }; }),
+        { id: "brush:strength", label: "力度", choices: BRUSH_STRENGTHS.map((v) => ({ id: `brushs:${v}`, label: `${Math.round(v * 100)}%`, checked: Math.abs(s - v) < 0.026 })), sectionBefore: "笔刷" },
+        { id: "brush:note", label: "半径 = 左栏那根竖滑条（和软选择共用）· Shift = 临时抹平 · 鼓起按住 Ctrl = 压", note: true },
+      ];
+    },
+    onPick: (id) => {
+      if (id.startsWith("brushs:")) { editor.config.set("brush", "strength", Number(id.slice(7)) as never); syncUi(); return "keep"; }
+      if (id.startsWith("brush:")) { editor.setTool(id.slice(6) as Tool); syncUi(); }
+      return "keep";
+    },
+  };
+}
+// eslint-disable-next-line no-var
+var brushWin: MenuWindowHandle | null = null;
+// eslint-disable-next-line no-var
+var brushWinDismissed = false;   // var（提升）：加载过程中 syncUi 可能先跑到这里
+/** syncUi 里调：拿着笔刷、窗没开、这次没被关过 → 开（摆在左柱右边）。 */
+function autoBrushWindow(): void {
+  if (!BRUSHES.includes(editor.tool) || brushWinDismissed || brushWin?.isOpen()) return;
+  (brushWin ??= createMenuWindow({ id: "brush", title: "雕刻笔刷", menu: brushMenuSpec, store: WIN_POS, onOpenChange: (o) => { if (!o) brushWinDismissed = true; } })).open(document.querySelector<HTMLElement>(".left-dial:not([hidden])") ?? toolbarEl, "after");   // 左栏半径竖滑条露着就摆在它右边（别盖住它）
 }
 /** 浮窗位置按设备记（PREF win.<id>）。 */
 const WIN_POS = {
