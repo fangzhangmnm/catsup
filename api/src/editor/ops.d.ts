@@ -180,6 +180,11 @@ export type Op =
     def: number;
     instance: number;
 }
+/** 清理没人用的组件定义（0.18 I10；user 点了「清理」才跑）：全家唯一删定义的地方（守卫 test/orphan-defs.test.ts）；单子里有一个还够得着 = 整条拒绝、一个不删。 */
+ | {
+    op: "purgeDefs";
+    defs: number[];
+}
 /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
  | {
     op: "copyGroup";

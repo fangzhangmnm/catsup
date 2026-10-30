@@ -24,7 +24,7 @@ export const explode: Command<ObjectUnit> = {
   plan(env, u, v) {
     if (u.instance === null) return { ops: [], count: 0 };
     if (needsCast(env, u, u.at.def) && !v.cast) return { ops: [], count: 1, notes: [`「${u.name}」要先转成${kindName(env.scene.kindOf(u.at.def))}才能炸`] };
-    return { ops: [{ op: "explode", at: u.at, instance: u.instance, ...(v.cast ? { cast: true } : {}) }], count: 1, notes: u.copies > 1 ? [`「${u.name}」别的 ${u.copies - 1} 份还在`] : [] };
+    return { ops: [{ op: "explode", at: u.at, instance: u.instance, ...(v.cast ? { cast: true } : {}) }], count: 1, notes: [u.copies > 1 ? `「${u.name}」别的 ${u.copies - 1} 份还在` : `组件「${u.name}」一份都不摆了，定义照样留在文件里（不会丢）`] };
   },
   ask: (env, units, v) => askCast("炸", "炸进这一层")(env, units, v, (u) => u.at.def),
   done: (n) => `炸开了 ${n} 个物件`, none: "炸开：先选中组 / 组件",

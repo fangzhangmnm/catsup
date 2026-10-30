@@ -23,6 +23,7 @@ import { edgesAlongSegs } from "../kernel/curves.ts";
 import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
+import { liveDefs } from "../scene/resources.ts";
 import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Instance, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
@@ -83,6 +84,8 @@ export type Op =
   /** 导入外来 glb（T11 / DT2，2026-10-26）：节点树原样变成组件挂在 at 下面；scene 里的网格是提交前装好的膜（scene/import-build.ts castImport）。place = 文件坐标 → at 的定义坐标。 */
   | { op: "importScene"; at: PoolRef; scene: ImportedScene; place: Xform }
   | { op: "eraseInstance"; def: number; instance: number }
+  /** 清理没人用的组件定义（0.18 I10；user 点了「清理」才跑）：全家唯一删定义的地方（守卫 test/orphan-defs.test.ts）；单子里有一个还够得着 = 整条拒绝、一个不删。 */
+  | { op: "purgeDefs"; defs: number[] }
   /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
   | { op: "copyGroup"; at: PoolRef; group: number; xform: Xform }
   /** 新材质（文档级，只增）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
@@ -451,8 +454,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         }
         for (const sg of srcB.groups.values()) if (sg.parent !== null) s.group({ def: ref.def, group: gmap.get(sg.id)! }).parent = gmap.get(sg.parent) ?? ref.group;
         for (const si of src.instances.values()) s.mintInstance(ref.def, si.parent === null ? ref.group : (gmap.get(si.parent) ?? ref.group), si.def, compose(inst.xform, si.xform));
-        d.instances.delete(inst.id);
-        if (s.instanceCount(src.id) === 0 && src.id !== s.root) s.defs.delete(src.id);
+        d.instances.delete(inst.id);   // 定义照留：一份都没摆了也不删（孤儿森林 UX26；user 10-30「为什么删实例会有删组件定义的风险？这个风险就不应该有」）
         return { scene: s, events: [] };
       }
       throw new OpTargetError("explode: nothing named");
@@ -575,6 +577,12 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const fids = op.faces.map((f) => resolveFace(kernel, f));
       if (op.material !== null && !(op.material in s.materials)) throw new OpTargetError(`material ${op.material}`);
       kernel.setFaceMaterial(fids, op.material === null ? null : s.slotFor(ref.def, op.material), op.sides);
+      return { scene: s, events: [] };
+    }
+    case "purgeDefs": {
+      const live = liveDefs(s);
+      for (const id of op.defs) { if (!s.defs.has(id)) throw new OpTargetError(`purgeDefs: definition ${id}`); if (live.has(id)) throw new OpTargetError(`purgeDefs: 「${s.def(id).name}」还摆在模型里，不是孤儿`); }
+      for (const id of op.defs) s.defs.delete(id);   // purgeDefs：全家唯一删定义的地方（守卫只放过这一行）
       return { scene: s, events: [] };
     }
     case "eraseInstance": {
@@ -818,6 +826,7 @@ export function describeOp(op0: Op): string {
     case "placeInstance": return `placeInstance def=${op.definition}${at}`;
     case "importScene": return `importScene "${op.scene.name}" nodes=${op.scene.nodes.length} meshes=${op.scene.meshes.length}${at}`;
     case "eraseInstance": return `eraseInstance ${op.def}/${op.instance}`;
+    case "purgeDefs": return `purgeDefs [${op.defs.join(",")}]`;
     case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
@@ -889,7 +898,7 @@ function mintPasted(s: Scene, def: number, parent: number | null, i: TransferIns
 /**
  * 炸开一份实例，外面一层或组件本身有一边是网格体（2026-10-28 夜 user「炸开mesh会出bug」）：
  * 外面是网格体 → 组件的几何（硬表面组件先拷一份转成网格体）经实例变换并进外面那份网格体；外面是硬表面体 → 网格体组件拷一份转成硬表面体、吸进那一层的汤。
- * 组件里摆着的子实例 → 搬到外面一层（变换叠上）；这一份删掉；定义没人用了就删。和硬表面的炸开同一个语义（SketchUp Explode）。
+ * 组件里摆着的子实例 → 搬到外面一层（变换叠上）；这一份删掉；**定义照留**（一份都没摆了也留着，SketchUp 也是「清理没用的」才删；2026-10-30 起，以前这里会删）。和硬表面的炸开同一个语义（SketchUp Explode）。
  */
 function explodeAcrossKinds(s: Scene, at: PoolRef, inst: Instance): void {
   const host = s.def(at.def), src = s.def(inst.def), hostMesh = s.kindOf(at.def) === "mesh";
@@ -903,6 +912,5 @@ function explodeAcrossKinds(s: Scene, at: PoolRef, inst: Instance): void {
     absorbSnapshot(poolOf(s, at).kernel, bb.kernel.toBrep(), inst.xform, remap);
   }
   for (const si of src.instances.values()) s.mintInstance(at.def, hostMesh ? null : at.group, si.def, compose(inst.xform, si.xform));
-  host.instances.delete(inst.id);
-  if (s.instanceCount(src.id) === 0 && src.id !== s.root) s.defs.delete(src.id);
+  host.instances.delete(inst.id);   // 定义照留（同上）
 }

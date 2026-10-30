@@ -329,6 +329,7 @@ const hud: HudModel = {
       case "copy": editor.copySelection(); break;
       case "paste": editor.pasteClipboard(); break;
       case "rename": void renameSelected(); break;
+      case "renameRoot": void renameRoot(); break;
       case "unhideAll": editor.unhideAll(); break;
       case "deselect": editor.cancel(); break;
       case "group": editor.makeGroup(); break;
@@ -452,6 +453,13 @@ async function renameSelected(): Promise<void> {
   if (v === null) return;
   const name = v.trim();
   editor.commitOp(own ? { op: "rename", at: { def, group: inst.parent }, instance: inst.id, name: name || null } : { op: "rename", at: { def, group: inst.parent }, def: inst.def, name: name || hex4() });
+  syncUi();
+}
+/** 改根的名字（0.18 I13：根 = 普通组件，user 10-30「我们要和godot一样根和其他节点一视同仁……可以改名。只是没有父亲没法爆炸罢了」）：根组件的名字 ≠ 文件名；清空 = 四位码。 */
+async function renameRoot(): Promise<void> {
+  const s = editor.sceneRef, v = await openInputSheet("改组件名", { defaultValue: s.def(s.root).name, okLabel: "改名", message: "模型最外一层（根）也是一个组件，这是它的名字，和文件名是两回事；清空 = 四位码" });
+  if (v === null) return;
+  editor.commitOp({ op: "rename", at: { def: s.root, group: null }, def: s.root, name: v.trim() || hex4() });
   syncUi();
 }
 /** 矮的「⌄」展开条：弹整组（user「...和下箭头做矮一点」）。 */
@@ -1299,7 +1307,7 @@ objectBtn.innerHTML = iconHtml("object"); $("modeSelect").before(objectBtn);   /
 // 层级钮（0.18 物品栏纪元 I1；设计稿 §5：层级 = 浮窗、素材 = 底部抽屉）：物件钮左边。窗口 = hierarchy-window.ts（物件树，组不进）
 const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级：这个模型里的物件（小三角展开、小眼睛藏 / 显、「…」= 菜单）";
 hierBtn.innerHTML = iconHtml("hierarchy-tree"); objectBtn.before(hierBtn);
-hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
+hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
 hierBtn.addEventListener("click", () => hierWin?.toggle(hierBtn));
 // 「这一层」和选中的子组件（物体菜单「物体设置…」）都是一次性的下拉（openObjectWindow）
 const objectWinDeps = { after: syncUi, openMachine: (m: Machine) => openMachineBoard(m, objectBtn) };

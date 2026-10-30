@@ -458,6 +458,17 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .tree-eye, .tree-more { width: 30px; height: 30px; flex: none; border: 0; padding: 5px; border-radius: 6px; background: none; color: inherit; }
 .tree-eye .ico, .tree-more .ico, .tree-lock .ico { width: 18px; height: 18px; }
 .tree-lock { display: inline-flex; opacity: .6; }
+/* 层级窗第二页「资源」（0.18 I10）：组件 / 材质清点 + 清理没人用的组件 */
+.res-head { font-size: 12px; color: var(--muted); padding: 8px 6px 2px; }
+.res-row { gap: 6px; padding: 0 6px; min-height: 28px; }
+.res-row.is-orphan > .tree-name { opacity: .5; }
+.res-meta { flex: none; font-size: 12px; color: var(--muted); }
+.res-row.is-orphan > .res-meta { color: var(--warn, var(--muted)); }
+.res-swatch { width: 14px; height: 14px; flex: none; border-radius: 3px; border: 1px solid var(--line); }
+.res-foot { padding: 8px 4px 4px; display: flex; flex-direction: column; gap: 6px; }
+.res-purge { min-height: 32px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel, transparent); color: inherit; font: inherit; font-size: 13px; padding: 4px 10px; }
+.res-purge:disabled { opacity: .5; }
+.res-note { font-size: 12px; color: var(--muted); line-height: 1.4; }
 .float-menu .menu-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; }   /* 定宽浮窗：长标签省略（同 .popup-menu.has-tabs） */
 .board { position: fixed; z-index: 240; width: 300px; max-height: 70vh; display: flex; flex-direction: column; background: var(--panel, #fff); border-radius: 12px; box-shadow: 0 6px 24px rgba(0,0,0,.18); overflow: hidden; }
 .board-head { display: flex; align-items: center; gap: 8px; padding: 8px 10px; cursor: grab; touch-action: none; user-select: none; border-bottom: 1px solid var(--line, #ddd); }

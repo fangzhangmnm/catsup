@@ -75,4 +75,13 @@ describe("层级窗的物件树（object-tree.ts）", () => {
     assert(threw, "组件名不许空");
     void a; void b;
   });
+  it("根 = 普通组件（I13，user 10-30「我们要和godot一样根和其他节点一视同仁……可以改名」）：显示根组件的名字；程序占位的 model 按没起名；改名 = 同一条 rename", () => {
+    const { s } = scene();
+    const t = hierarchyTree(s);
+    eq(t.label, "model"); assert(t.unnamed, "老文件的根叫 model（程序占位）= 没起名，淡色");
+    const s2 = applyOp(s.clone(), { op: "rename", at: { def: s.root, group: null }, def: s.root, name: "小红帽的家" }).scene;
+    const t2 = hierarchyTree(s2);
+    eq(t2.label, "小红帽的家"); assert(!t2.unnamed, "起了名 = 不淡");
+    assert(hierarchyTree(applyOp(s.clone(), { op: "rename", at: { def: s.root, group: null }, def: s.root, name: "0a1b" }).scene).unnamed, "四位码 = 没起名");
+  });
 });

@@ -1,6 +1,7 @@
 // 物件级 op × 身体种类的组合矩阵（created 2026-10-28 by Claude Opus 5.5）：user 10-28 夜「炸开mesh会出bug。看来我们的路由还是有硬伤」。
 // 根：炸开只看了「外面一层」的身体种类、没看「选中的组件」是什么身体，网格体组件被当成硬表面体用 → 抛内部错误。
 // 这一层守卫：炸开 / 建组件（网格体里 = separateObject）/ 合并 对「外面一层 × 组件」每种组合都跑——要么成功且模型干净，要么抛 OpTargetError（人话），不许抛别的错。
+// 2026-10-30 Opus 5.5：「组件没了」改成「这一份没了、定义照留」（user「为什么删实例会有删组件定义的风险？这个风险就不应该有」；以前这里钉的是删定义）。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp, OpTargetError } from "../src/editor/ops.ts";
@@ -28,7 +29,7 @@ describe("物件级 op × 身体种类（炸开 / 建组件 / 合并）", () => 
       if (host !== comp) { try { applyOp(s, { op: "explode", at: { def: s.root, group: null }, instance: inst }); } catch (e) { err = e; } assert(err instanceof OpTargetError, `跨种类不带 cast 该人话拒绝，得到：${String(err)}`); err = null; }
       try { applyOp(s, { op: "explode", at: { def: s.root, group: null }, instance: inst, ...(host !== comp ? { cast: true } : {}) }); } catch (e) { err = e; }
       assert(err === null, `抛了：${String(err)}`);
-      eq(s.def(s.root).instances.size, 0); eq(s.defs.has(cdef), false);
+      eq(s.def(s.root).instances.size, 0); eq(s.defs.has(cdef), true, "定义照留（孤儿森林；2026-10-30 起炸开不再删定义）");
       assert(faceCount(s, s.root) >= 6, `外面一层只有 ${faceCount(s, s.root)} 张面`);
       if (s.kindOf(s.root) === "mesh") eq(s.mesh(s.root).kernel.check().join(";"), "");
     });

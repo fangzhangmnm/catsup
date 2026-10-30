@@ -25,7 +25,9 @@ export interface HierNode {
 export declare const isHex4: (s: string) => boolean;
 export declare const pickKey: (p: HierPick) => string;
 export declare const pathKey: (path: readonly HierPick[]) => string;
-/** 整棵树（最外层是根那一行）。 */
+/** 程序给根起的占位名（每个老文件都是它）：按没起名显示。 */
+export declare const ROOT_PLACEHOLDER = "model";
+/** 整棵树（最外层是根那一行）。根 = 普通组件（user 10-30「我们要和godot一样根和其他节点一视同仁」）：显示它的组件名，没起名（四位码 / 程序占位的 model）淡色。 */
 export declare function hierarchyTree(scene: Scene): HierNode;
 /** 你现在在哪一层 → 路径（实例链上每个实例前面补上它挂的组链，最后补当前组的链）。 */
 export declare function contextPath(scene: Scene, ctx: EditContext): HierPick[];

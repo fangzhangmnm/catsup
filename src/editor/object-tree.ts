@@ -4,6 +4,7 @@
 // · 一行 = 一个物件（组件实例）；**组不进树**（user 10-24「组永远不进hierarchy，是brep的内部矛盾」「组不是物体层级，只是brep模式下面方便编辑的分组拆组」）：
 //   放在组里的物件直接挂在它所在的那个物件下面；组只在路径里当「怎么走进去」（编辑器选它得先进到它挂的那个组）。从最外层往下（设计稿 §8-③）。
 // · 物件展开 = 它那个组件定义里的物件：同一个定义摆了几份，每份底下都一样（改一份 = 改全部，SketchUp 同款）。
+// · 根那一行 = 模型最外一层的组件（显示它的名字、能改名；没有父亲 = 不能炸开、没有藏标记）。
 // · 路径 path = 从最外层一路「进哪个」（含途经的组），最后一个是这一行自己：选中它 = 进到 path 去掉最后一个的那一层、再选它；双击 = 进到 path 那一层。
 // · 名字：实例自己的名字，没有就用组件定义的名字；名字正好是四位十六进制码 = 没起名 → 界面淡色等宽。
 import type { DefId, EditContext, GroupId, InstId, Scene } from "../scene/scene.ts";
@@ -44,10 +45,12 @@ function objectChildren(scene: Scene, def: DefId, path: readonly HierPick[], dep
   });
 }
 
-/** 整棵树（最外层是根那一行）。 */
+/** 程序给根起的占位名（每个老文件都是它）：按没起名显示。 */
+export const ROOT_PLACEHOLDER = "model";
+/** 整棵树（最外层是根那一行）。根 = 普通组件（user 10-30「我们要和godot一样根和其他节点一视同仁」）：显示它的组件名，没起名（四位码 / 程序占位的 model）淡色。 */
 export function hierarchyTree(scene: Scene): HierNode {
-  const root = scene.root;
-  return { key: "", kind: "root", label: "根", unnamed: false, path: [], def: root, hidden: false, locked: false, children: objectChildren(scene, root, [], 0) };
+  const root = scene.root, label = scene.def(root).name;
+  return { key: "", kind: "root", label, unnamed: isHex4(label) || label === ROOT_PLACEHOLDER, path: [], def: root, hidden: false, locked: false, children: objectChildren(scene, root, [], 0) };
 }
 
 /** 你现在在哪一层 → 路径（实例链上每个实例前面补上它挂的组链，最后补当前组的链）。 */
