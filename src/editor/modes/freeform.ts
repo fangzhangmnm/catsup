@@ -11,6 +11,7 @@ import { MeshTransformTool } from "../tools/mesh-transform.ts";
 import { MeshPullTool } from "../tools/mesh-pull.ts";
 import { MeshKnifeTool } from "../tools/mesh-knife.ts";
 import { MeshEraseTool } from "../tools/mesh-erase.ts";
+import { MeshSoftEraseTool } from "../tools/mesh-soft-erase.ts";
 import { MeshInsetTool } from "../tools/mesh-inset.ts";
 import { MeshCreateTool } from "../tools/mesh-create.ts";
 import { MeshBrushTool } from "../tools/mesh-brush.ts";
@@ -19,8 +20,8 @@ export class FreeformMode implements Mode {
   readonly id = "freeform" as const;
   readonly label = "自由建模";
   readonly kinds = ["mesh"] as const;
-  readonly tools: readonly Tool[] = ["select", "pp", "move", "rotate", "scale", "knife", "erase", "offset", "shrink", "create", "brushGrab", "brushDraw", "brushSmooth", "brushFlatten"];   // shrink = 沿法线移动（Alt+S / Alt+W；不进左柱）   // user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的」（删 / 插做出来再加）   // 和硬表面同 id 同快捷键（user「不要一个工具在不同模式下面语义和用法差太多」）；差在不推断
+  readonly tools: readonly Tool[] = ["select", "pp", "move", "rotate", "scale", "knife", "erase", "softErase", "offset", "shrink", "create", "brushGrab", "brushDraw", "brushSmooth", "brushFlatten"];   // shrink = 沿法线移动（Alt+S / Alt+W；不进左柱）   // user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的」（删 / 插做出来再加）   // 和硬表面同 id 同快捷键（user「不要一个工具在不同模式下面语义和用法差太多」）；差在不推断
   readonly defaultTool: Tool = "select";
-  readonly handlers: Partial<Record<Tool, ToolHandler>> = { select: new SelectTool(), move: new MeshTransformTool("move"), rotate: new MeshTransformTool("rotate"), scale: new MeshTransformTool("scale"), pp: new MeshPullTool(), knife: new MeshKnifeTool(), erase: new MeshEraseTool(), offset: new MeshInsetTool(), shrink: new MeshTransformTool("normal"), create: new MeshCreateTool(),
+  readonly handlers: Partial<Record<Tool, ToolHandler>> = { select: new SelectTool(), move: new MeshTransformTool("move"), rotate: new MeshTransformTool("rotate"), scale: new MeshTransformTool("scale"), pp: new MeshPullTool(), knife: new MeshKnifeTool(), erase: new MeshEraseTool(), softErase: new MeshSoftEraseTool(), offset: new MeshInsetTool(), shrink: new MeshTransformTool("normal"), create: new MeshCreateTool(),
     brushGrab: new MeshBrushTool("grab"), brushDraw: new MeshBrushTool("draw"), brushSmooth: new MeshBrushTool("smooth"), brushFlatten: new MeshBrushTool("flatten") };   // 软编辑笔刷（2026-10-29 Opus 5.5，账本 UX53）   // create = 新建（FM182，2026-10-28 Opus 5.5）
 }

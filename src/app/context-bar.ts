@@ -35,7 +35,7 @@ export function mountContextBar(root: HTMLElement, editor: Editor, p: ContextBar
   const config = editor.config;
   const render = (): void => {
     const tool = editor.tool, group = optionGroupOf(tool);
-    const entries = config.entries(group), leading = p.leading?.(tool) ?? [], actions = p.actions?.(tool) ?? [], sel = p.selection?.() ?? [];
+    const entries = config.entries(group).filter((e) => !(e.def.kind === "number" && e.def.modes && !e.def.modes.includes(editor.modeId))), leading = p.leading?.(tool) ?? [], actions = p.actions?.(tool) ?? [], sel = p.selection?.() ?? [];
     const hasTool = entries.length + leading.length + actions.length > 0;
     root.hidden = !hasTool && sel.length === 0;
     if (fieldEditing(root)) return;   // 正在就地打字：不重画

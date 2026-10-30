@@ -32,7 +32,7 @@ export const RAIL_GROUPS: readonly RailGroup[] = [
  */
 /** 定死一列里的小三角组（2026-10-28 夜 user「沿法向移动和推拉合租小三角」）：列里写组的第一把，格子显示最近用的那把，小三角 / 长按 / 右键 = 整组。 */
 export const RAIL_FIXED_FLYOUTS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, readonly Tool[]>>>>> = {
-  freeform: { pp: ["pp", "shrink"], brushGrab: ["brushGrab", "brushDraw", "brushSmooth", "brushFlatten"] },   // 笔刷 ▾（2026-10-29，user「笔刷小三角同意」）
+  freeform: { pp: ["pp", "shrink"], erase: ["erase", "softErase"], brushGrab: ["brushGrab", "brushDraw", "brushSmooth", "brushFlatten"] },   // 删除 ▾ 软边橡皮（2026-10-29 Opus，user「硬边软边切换，现在自由建模蛮需要的」）   // 笔刷 ▾（2026-10-29，user「笔刷小三角同意」）
 };
 export const RAIL_FIXED: Readonly<Partial<Record<ModeId, readonly Tool[]>>> = {
   // create = 拉出（FM182；user 10-28 夜「拉出放到推拉上面」）；删除 / 插入倒角搬进下面的折叠组（「删除，插入倒角也折叠」）
