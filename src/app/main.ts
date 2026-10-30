@@ -23,7 +23,7 @@ import { LENGTH_UNITS, fmtVcbLength, type LengthUnit } from "../editor/units.ts"
 import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow, objectWindowMenu } from "./object-window.ts";
-import { createMenuWindow, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
+import { createFloatWin, createMenuWindow, type FloatWin, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
 import { stanceShown } from "../controller/chips.ts";
@@ -697,14 +697,26 @@ const AVATAR_FIELDS = [
   { key: "runFactor", def: { kind: "number", label: "跑步倍速", min: 1, max: 10, step: 0.1, unit: "×" } },
   { key: "jumpHeight", def: { kind: "number", label: "跳高", min: 0, max: 20, step: 0.05, quantity: LEN } },
 ] as const satisfies readonly { key: keyof AvatarSpec; def: ParamFieldDef }[];
+// 步行设置 = 浮窗（user 10-29「步行相机的马前炮太长了挡住了很多屏幕没法选，特别是屏幕下缘，能不能就一个设置然后弹一个小窗口」）：
+// 关着时右下角只有钮（设置… / 在相机这里出生 / 取消）；开着时这一段参数区整个搬进窗里（vcb.setParamsHome，修复板同一个口），八项 + 跳多高多远都在窗里
+// eslint-disable-next-line no-var
+var walkWin: FloatWin | null = null;
+const PLACE_TITLE = "步行：点一下落在哪";
+function openWalkSettings(): void {
+  const w = (walkWin ??= createFloatWin({ id: "walk", title: "步行设置", store: WIN_POS, onOpenChange: (o) => { vcb.setParamsHome(o ? w.body : null, () => editor.paramPanel()?.title === PLACE_TITLE); syncUi(); } }));
+  w.open($("vcb"), "beside");
+}
 function placeSession(): ParamSession {
+  const full = (): boolean => !!walkWin?.isOpen();
   const s: ParamSession = {
-    phase: "before", title: "步行：点一下落在哪",
-    fields: AVATAR_FIELDS,
-    buttons: [{ key: "here", label: "在相机这里出生" }, { key: "reset", label: "恢复默认" }, { key: "cancel", label: "取消" }],
+    phase: "before", title: PLACE_TITLE,
+    get fields() { return full() ? AVATAR_FIELDS : []; },
+    get buttons() { return full() ? [{ key: "here", label: "在相机这里出生" }, { key: "reset", label: "恢复默认" }, { key: "cancel", label: "取消" }] : [{ key: "settings", label: "设置…" }, { key: "here", label: "在相机这里出生" }, { key: "cancel", label: "取消" }]; },
     get values() { const a = resolveAvatar(locomotion.avatar); return Object.fromEntries(AVATAR_FIELDS.map((f) => [f.key, a[f.key]])); },
     get note() {
-      const why = locomotion.placeWhy(), b = locomotion.body(), j = jumpReach(b);
+      const why = locomotion.placeWhy();
+      if (!full()) return why ?? "绿 = 站得下，红 = 站不下";   // 关着窗：一句话，不占屏幕下缘
+      const b = locomotion.body(), j = jumpReach(b);
       const reach = `跳 ${formatQuantity(j.height, LEN)}、空中 ${j.airtime.toFixed(2)} s，走着跳远 ${formatQuantity(j.walk, LEN)}、跑着 ${formatQuantity(j.run, LEN)}（跑 ${formatQuantity(b.dashSpeed, FOOT)}；落回起跳高度时算）`;
       return `${why ?? "绿 = 站得下，红 = 站不下"} ｜ ${reach}`;
     },
@@ -714,8 +726,8 @@ function placeSession(): ParamSession {
       locomotion.avatar = { ...locomotion.avatar, [key]: v } as AvatarSpec;
       locomotion.refreshGhost();
     },
-    press(key) { if (key === "here") locomotion.placeAtCamera(); else if (key === "cancel") locomotion.cancelPlace(); else if (key === "reset") { locomotion.avatar = AVATAR_DEFAULT; locomotion.refreshGhost(); } },
-    dispose() { if (locomotion.isPlacing()) locomotion.cancelPlace(); },
+    press(key) { if (key === "settings") { openWalkSettings(); return; } if (key === "here") locomotion.placeAtCamera(); else if (key === "cancel") locomotion.cancelPlace(); else if (key === "reset") { locomotion.avatar = AVATAR_DEFAULT; locomotion.refreshGhost(); } },
+    dispose() { walkWin?.close(); if (locomotion.isPlacing()) locomotion.cancelPlace(); },   // 放置结束 = 设置窗一起收（参数区搬回右下角）
   };
   return s;
 }
@@ -744,7 +756,7 @@ function pickWalk(): void {
 locomotion.onPhase = () => {
   if (locomotion.walkPhase() === "off" && editor.tool === "walk") editor.setTool("select");   // 离开步行 / 取消放置 = 放下步行工具（什么都没发生过）
   touchCtl.setVisible(locomotion.isFps() && TouchControls.available());
-  if (!locomotion.isPlacing() && editor.paramPanel()?.title === "步行：点一下落在哪") editor.openParamSession(null);
+  if (!locomotion.isPlacing() && editor.paramPanel()?.title === PLACE_TITLE) editor.openParamSession(null);
   syncWalkBar(); syncLoop();
   hintEl.textContent = hintDefault();
   syncUi();

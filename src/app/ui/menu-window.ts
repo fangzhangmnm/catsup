@@ -33,22 +33,55 @@ export interface MenuWindowHandle {
   readonly el: HTMLElement;
 }
 
-export function createMenuWindow<Id extends string>(spec: MenuWindowSpec<Id>): MenuWindowHandle {
+/** 一扇带标题栏的浮窗（内容随调用方放：菜单窗 = 下面的 createMenuWindow；步行设置 = 参数区搬进来）。 */
+export interface FloatWin {
+  readonly el: HTMLElement;
+  /** 内容区（标题栏下面，自己滚）。 */
+  readonly body: HTMLElement;
+  /** 开（开着 = 置顶）；第一次开挨着 anchor 摆（之后按记下的位置）。 */
+  open(anchor: HTMLElement, align?: Align): void;
+  close(): void;
+  toggle(anchor: HTMLElement, align?: Align): void;
+  isOpen(): boolean;
+  /** 内容变了：重钳回屏。 */
+  clamp(): void;
+}
+export function createFloatWin(spec: { id: string; title: string; store: MenuWindowSpec<string>["store"]; onOpenChange?(open: boolean): void; bodyClass?: string; bodyRole?: string }): FloatWin {
   const el = document.createElement("div"); el.className = "float-win"; el.dataset.win = spec.id; el.hidden = true;
   const head = document.createElement("div"); head.className = "float-head";
   const title = document.createElement("span"); title.className = "float-title"; title.textContent = spec.title;
   const close = document.createElement("button"); close.type = "button"; close.className = "float-close"; close.title = "关"; close.setAttribute("aria-label", `关掉「${spec.title}」`); close.textContent = "×";
   head.append(title, close);
-  const body = document.createElement("div"); body.className = "float-menu float-body"; body.setAttribute("role", "menu");   // 不冒充 .popup-menu（那是一次性弹出层的类名：外点关 / 探针按它认弹出菜单）
+  const body = document.createElement("div"); body.className = `float-body${spec.bodyClass ? ` ${spec.bodyClass}` : ""}`; if (spec.bodyRole) body.setAttribute("role", spec.bodyRole);
   el.append(head, body);
   document.body.appendChild(el);
   const win: FloatingWindowHandle = registerFloatingWindow(el, {
     id: spec.id, head, ignoreDragOn: (t) => t === close || close.contains(t),
     onMove: (pos) => spec.store.set(spec.id, pos),
-    onOpenChange: (open) => { if (!open) unmount(); spec.onOpenChange?.(open); },
+    onOpenChange: (open) => spec.onOpenChange?.(open),
   });
   close.addEventListener("click", () => win.close());
+  const place = (anchor: HTMLElement, align: Align): void => {
+    const saved = spec.store.get(spec.id);
+    if (saved) { win.restore(saved); return; }
+    const a = anchor.getBoundingClientRect(), w = el.offsetWidth || 300;
+    win.restore(align === "beside" ? { left: a.left - w - 8, top: a.top } : align === "after" ? { left: a.right + 8, top: a.top } : { left: align === "end" ? a.right - w : a.left, top: a.bottom + 6 });
+  };
+  const fw: FloatWin = {
+    el, body,
+    open(anchor, align = "end") { const was = win.isOpen(); win.open(); if (!was) { place(anchor, align); win.clamp(); } },   // 先露出来才量得到尺寸
+    close: () => win.close(),
+    toggle(anchor, align = "end") { if (win.isOpen()) win.close(); else fw.open(anchor, align); },
+    isOpen: () => win.isOpen(),
+    clamp: () => win.clamp(),
+  };
+  return fw;
+}
 
+export function createMenuWindow<Id extends string>(spec: MenuWindowSpec<Id>): MenuWindowHandle {
+  // 内容区类名 float-menu：不冒充 .popup-menu（一次性弹出层：外点关 / 探针按它认），也别用 menu-panel（@internal/workbench-elements 里固定定位弹层的类名，v0.17.54 撞过）
+  const fw = createFloatWin({ id: spec.id, title: spec.title, store: spec.store, bodyClass: "float-menu", bodyRole: "menu", onOpenChange: (open) => { if (!open) unmount(); spec.onOpenChange?.(open); } });
+  const body = fw.body;
   let panel: MenuPanelHandle | null = null, tabsKey = "", sig = "";
   const signature = (m: MenuSpec<Id>): string => { try { return JSON.stringify(m.items()); } catch { return String(Math.random()); } };
   const unmount = (): void => { panel?.dispose(); panel = null; tabsKey = ""; sig = ""; };
@@ -59,29 +92,21 @@ export function createMenuWindow<Id extends string>(spec: MenuWindowSpec<Id>): M
     body.classList.toggle("has-tabs", tabsKey !== "");
     panel = mountMenuPanel<Id>(body, { ...m, ...(tab ? { tab } : {}), onPick: (id) => { const r = m.onPick(id); sig = signature(spec.menu()); return r; } });
   };
-  const place = (anchor: HTMLElement, align: Align): void => {
-    const saved = spec.store.get(spec.id);
-    if (saved) { win.restore(saved); return; }
-    const a = anchor.getBoundingClientRect(), w = el.offsetWidth || 300;
-    win.restore(align === "beside" ? { left: a.left - w - 8, top: a.top } : align === "after" ? { left: a.right + 8, top: a.top } : { left: align === "end" ? a.right - w : a.left, top: a.bottom + 6 });
-  };
   const handle: MenuWindowHandle = {
-    el,
+    el: fw.el,
     open(anchor, align = "end", tab) {
-      const wasOpen = win.isOpen();
-      if (!wasOpen || tab) mount(tab);
-      win.open();   // 先露出来才量得到尺寸
-      if (!wasOpen) { place(anchor, align); win.clamp(); }
+      if (!fw.isOpen() || tab) mount(tab);
+      fw.open(anchor, align);
     },
-    toggle(anchor, align = "end") { if (win.isOpen()) win.close(); else handle.open(anchor, align); },
-    close: () => win.close(),
-    isOpen: () => win.isOpen(),
+    toggle(anchor, align = "end") { if (fw.isOpen()) fw.close(); else handle.open(anchor, align); },
+    close: () => fw.close(),
+    isOpen: () => fw.isOpen(),
     refresh(force = false) {
-      if (!win.isOpen() || !panel || (!force && choiceLayerOpen())) return;
+      if (!fw.isOpen() || !panel || (!force && choiceLayerOpen())) return;
       const m = spec.menu(), tk = (m.tabs ?? []).map((t) => t.id).join("|");
-      if (tk !== tabsKey) { mount(); win.clamp(); return; }
+      if (tk !== tabsKey) { mount(); fw.clamp(); return; }
       const s = signature(m);
-      if (s !== sig) { sig = s; panel.refresh(); win.clamp(); }
+      if (s !== sig) { sig = s; panel.refresh(); fw.clamp(); }
     },
   };
   return handle;

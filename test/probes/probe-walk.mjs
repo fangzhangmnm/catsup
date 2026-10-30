@@ -50,6 +50,11 @@ const typeInto = async (label, text) => {
   await f.locator(".strip-value").click(); await page.waitForTimeout(30);
   await f.locator(".strip-input").fill(text); await f.locator(".strip-input").press("Enter"); await page.waitForTimeout(40);
 };
+// v0.17.56（user 10-29「步行相机的马前炮太长了挡住了很多屏幕没法选，特别是屏幕下缘，能不能就一个设置然后弹一个小窗口」）：右下角平时只剩钮；点「设置…」= 参数区搬进「步行设置」浮窗
+const compact = await page.evaluate(() => ({ fields: document.querySelectorAll(".vcb-params .strip-label").length, buttons: [...document.querySelectorAll(".vcb-params .strip-action")].map((b) => b.textContent).join(","), note: document.querySelector(".vcb-params .vcb-params-note")?.textContent ?? "" }));
+check(compact.fields === 0 && compact.buttons === "设置…,在相机这里出生,取消" && /站得下/.test(compact.note) && !/跳远/.test(compact.note), `右下角只剩钮 ${JSON.stringify(compact)}`);
+await page.click(".vcb-params .strip-action:has-text('设置…')"); await page.waitForTimeout(80);
+check(await page.evaluate(() => !!document.querySelector('.float-win[data-win="walk"]:not([hidden]) .vcb-params')), "点「设置…」= 参数区搬进步行设置浮窗");
 const panel0 = await page.evaluate(() => ({ labels: [...document.querySelectorAll(".vcb-params .strip-label")].map((x) => x.textContent), values: [...document.querySelectorAll(".vcb-params .strip-value")].map((x) => x.textContent), note: document.querySelector(".vcb-params-note")?.textContent ?? "" }));
 check(panel0.labels.join() === "身高,宽度,眼到头顶,蹲高,爬高,走速,跑步倍速,跳高" && panel0.values[0] === "1.72 m" && /\/km$/.test(panel0.values[5]) && /跑着/.test(panel0.note) && /跳远/.test(panel0.note), `马前炮八项 + 跳远估算 ${JSON.stringify(panel0)}`);
 await typeInto("身高", `6'2"`);
@@ -58,6 +63,8 @@ const typed = await page.evaluate(() => { const L = globalThis.__catsup.locomoti
 check(Math.abs(typed.stature - 74 * 0.0254) < 1e-9 && Math.abs(typed.walk - 1000 / 300) < 1e-9 && Math.abs(typed.radius - 0.3 * 74 * 0.0254 / 1.72) < 1e-9 && typed.shown[5] === "5'00\"/km", `打字带单位：身高 6'2" → 虚影跟着长、宽度按比例；走速 5:00/km ${JSON.stringify(typed)}`);
 await page.click(".vcb-params .strip-action:has-text('恢复默认')"); await page.waitForTimeout(40);
 check(await page.evaluate(() => Math.abs(globalThis.__catsup.locomotion.placeGhost().stature - 1.72) < 1e-9 && globalThis.__catsup.locomotion.body().walkSpeed === 3), "恢复默认");
+await page.click('.float-win[data-win="walk"] .float-close'); await page.waitForTimeout(60);   // 关窗 = 参数区搬回右下角（又只剩钮），不挡下面点地面
+check(await page.evaluate(() => document.querySelectorAll("#vcb .vcb-params .strip-label").length === 0 && !!document.querySelector("#vcb .vcb-params")), "关掉设置窗 = 参数区回右下角、只剩钮");
 await page.mouse.move(box.x + ground.x + 1, box.y + ground.y); await page.waitForTimeout(40); await page.mouse.move(box.x + ground.x, box.y + ground.y); await page.waitForTimeout(40);
 await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(80);
 const placed = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), walking: globalThis.__catsup.locomotion.isWalking(), pos: { ...globalThis.__catsup.locomotion.sim.state.pos }, panel: globalThis.__catsup.editor.paramPanel()?.title ?? null }));
