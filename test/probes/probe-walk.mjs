@@ -150,14 +150,41 @@ await page.mouse.up();
 await page.waitForTimeout(150);
 const zArmed = await page.evaluate(() => ({ z: globalThis.__catsup.locomotion.sim.state.pos.z, active: globalThis.__catsup.editor.isGestureActive() }));
 check(zArmed.active && Math.abs(zArmed.z - 3) < 1e-6, `线工具连画待命 = 手势仍进行中 = 仍冻结 ${JSON.stringify(zArmed)}`);
-await page.keyboard.press("Escape");   // 收笔 = 手势结束 = 解冻
-await page.waitForTimeout(900);
-const zThawed = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.pos.z);
-check(zThawed < 0.9, `收笔后落地 z=${zThawed}`);
-
-// 「继续走」回 FPS；FPS 里 Esc = 离开步行、回到进来之前的视角（什么都没发生过）
-await page.click("#walkBtn"); await page.waitForTimeout(60);
-check(await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase() === "walk" && document.getElementById("walkBar").hidden), "点「继续走」= 回 FPS、按钮收起");
+await page.keyboard.press("Escape");   // 收笔 = 手势结束
+await page.waitForTimeout(600);
+const zPaused = await page.evaluate(() => globalThis.__catsup.locomotion.sim.state.pos.z);
+check(Math.abs(zPaused - 3) < 1e-6, `原地编辑 = 时间暂停：收笔后也停在这一帧 z=${zPaused}`);   // v0.17.49 起（user 10-29「蹲下的时候tab会是当前这一帧的位置，动画到一半也是一样，类似时间暂停」）；以前收笔就解冻往下掉
+// 「继续走」回 FPS：从停住的那一帧接着走 → 这才落地；FPS 里 Esc = 离开步行、回到进来之前的视角（什么都没发生过）
+await page.click("#walkBtn"); await page.waitForTimeout(900);
+const resumed = await page.evaluate(() => ({ phase: globalThis.__catsup.locomotion.walkPhase(), hidden: document.getElementById("walkBar").hidden, z: globalThis.__catsup.locomotion.sim.state.pos.z }));
+check(resumed.phase === "walk" && resumed.hidden, "点「继续走」= 回 FPS、按钮收起");
+check(resumed.z < 0.9, `继续走之后才落地 z=${resumed.z}`);
+// Tab 来回切（user 10-29「fps的暂停的时候tab应该能切回去」）
+await page.keyboard.press("Tab"); await page.waitForTimeout(60);
+const tab1 = await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase());
+await page.keyboard.press("Tab"); await page.waitForTimeout(60);
+const tab2 = await page.evaluate(() => globalThis.__catsup.locomotion.walkPhase());
+check(tab1 === "edit" && tab2 === "walk", `Tab = 暂停 / 再按 Tab = 接着走 ${tab1} → ${tab2}`);
+// Ctrl = 蹲的开关；蹲到一半按 Tab = 停在这一帧（user 10-29「蹲下的时候tab会是当前这一帧的位置，动画到一半也是一样，类似时间暂停」；按住 Ctrl 再按 Tab = 浏览器切标签页，所以 Ctrl 是开关）
+const eyeZ = () => page.evaluate(() => globalThis.__catsup.editor.cam.eye().z);
+await page.waitForTimeout(300);
+const stand = await eyeZ();
+await page.keyboard.press("ControlLeft"); await page.waitForTimeout(70);
+await page.keyboard.press("Tab"); await page.waitForTimeout(40);
+const mid1 = await eyeZ(); await page.waitForTimeout(500); const mid2 = await eyeZ();
+await page.keyboard.press("Tab"); await page.waitForTimeout(700);
+const low = await eyeZ();
+await page.keyboard.press("ControlLeft"); await page.waitForTimeout(800);
+const back = await eyeZ();
+check(mid1 < stand - 1e-3 && Math.abs(mid1 - mid2) < 1e-9 && low < mid1 - 1e-3 && Math.abs(back - stand) < 0.02,
+  `Ctrl 开关蹲 + 蹲到一半 Tab 定格：站 ${stand.toFixed(3)} → 一半 ${mid1.toFixed(3)} / 半秒后 ${mid2.toFixed(3)} → 接着蹲 ${low.toFixed(3)} → 再按 Ctrl 起来 ${back.toFixed(3)}`);
+// FPS 时看的工具 = 步行（修饰键都空着）：按住 Shift / Ctrl 左下不跳别的工具的芯片（user 10-29「fps的时候工具应该是fps，一个隐藏的工具」）
+await page.keyboard.down("Shift"); await page.waitForTimeout(80);
+const chipsShift = await page.evaluate(() => document.querySelectorAll(".mfd-chip").length);
+await page.keyboard.up("Shift"); await page.keyboard.down("Control"); await page.waitForTimeout(80);
+const chipsCtrl = await page.evaluate(() => document.querySelectorAll(".mfd-chip").length);
+await page.keyboard.up("Control");
+check(chipsShift === 0 && chipsCtrl === 0, `FPS 里按住 Shift / Ctrl 不出芯片 ${chipsShift} / ${chipsCtrl}`);
 await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 const after = await page.evaluate(() => ({ walking: globalThis.__catsup.locomotion.isWalking(), phase: globalThis.__catsup.locomotion.walkPhase(), halfH: globalThis.__catsup.editor.cam.halfH }));
 check(!after.walking && after.phase === "off" && after.halfH === 4, `Esc 离开步行、恢复轨道相机 ${JSON.stringify(after)}`);

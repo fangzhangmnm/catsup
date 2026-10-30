@@ -148,10 +148,10 @@ export class Locomotion {
     this.setPhase("walk");
     try { const r = this.canvas.requestPointerLock?.() as unknown; if (r instanceof Promise) r.catch(() => {}); } catch { /* 锁不上（触屏）：照旧右键拖 / 双指看 */ }
   }
-  /** Tab：原地编辑（镜头钉住、鼠标放出来、键盘归工具）。 */
+  /** Tab：原地编辑（镜头钉住、鼠标放出来、键盘归工具）；这期间步行整个停住（tick 不走），再按 Tab / 「继续走」从这一帧接着走。 */
   editInPlace(): void {
     if (this.phase !== "walk") return;
-    this.flat.setEnabled(false);
+    this.flat.setEnabled(false, true);   // 暂停：蹲 / 趴的开关留着
     if (document.pointerLockElement === this.canvas) { this.unlockForEdit = true; document.exitPointerLock(); }
     this.setPhase("edit");
   }
@@ -258,6 +258,7 @@ export class Locomotion {
   /** 每渲染帧：喂输入、步进、写相机（XR 模式相机归 XR，只步进）。 */
   tick(dt: number): void {
     if (this.mode === "orbit") return;
+    if (this.phase === "edit") return;   // 原地编辑 = 时间暂停（user 10-29「蹲下的时候tab会是当前这一帧的位置，动画到一半也是一样，类似时间暂停」）：不步进、不写镜头，蹲到一半就停在一半
     this.syncWorld();
     this.sim.setFrozen("gesture", this.editor.isGestureActive());
     const input = this.mode === "xr" && this.externalInput ? this.externalInput(dt) : this.readFlat();

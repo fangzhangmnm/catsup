@@ -131,7 +131,7 @@ export const PICK: Layer = { id: "freeform:pick", bindings: [
 export const MIRROR: Layer = { id: "mirror-session", bindings: [B("enter", "mirror.apply", "应用镜像")] };
 /** 数值小窗：它说要就给它（数字开头 / 缓冲非空时的单位字母 / 回车 / 退格）。 */
 /** 步行三阶段。 */
-export const WALK_EDIT: Layer = { id: "walk:edit", bindings: [B("escape", "walk.exit", "离开步行", (c) => !c.gesture && !c.hasSelection)] };
+export const WALK_EDIT: Layer = { id: "walk:edit", bindings: [B("tab", "walk.resume", "继续走（从按 Tab 那一帧接着走）", (c) => !c.gesture), B("escape", "walk.exit", "离开步行", (c) => !c.gesture && !c.hasSelection)] };   // Tab 来回切（user 10-29「fps的暂停的时候tab应该能切回去」）
 export const WALK_PLACE: Layer = { id: "walk:place", bindings: [B("escape", "walk.cancelPlace", "取消放置")] };
 export const WALK_FPS: Layer = { id: "walk:fps", exclusive: true, bindings: [B("tab", "walk.editInPlace", "原地编辑"), B("escape", "walk.exit", "离开步行")] };
 

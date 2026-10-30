@@ -177,7 +177,7 @@ const READOUT_ON = false;
 const buildEl = $("build");
 
 const HINT_DEFAULT = "";   // 左下角默认不再列快捷键（user 2026-10-25「左下角的那行快捷键早应该删掉了」）；只在真有提示时显示，快捷键在使用手册里
-const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
+const HINT_WALK = "步行：WASD 走 · Shift 冲刺 · 空格 跳（双击=飞行开关）· Ctrl 蹲下 / 起来 · Tab 停下来修 · Q/E 下/上 · ←→ 转身 · 右键拖=看 · T 按住瞄准瞬移（↑↓ 力度 ←→ 落地朝向）· G 回上一点 ｜ 工具 L R M P · 选择 Tab · 橡皮 X";
 const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 · 前推瞄准瞬移（左摇杆 ↑↓ 力度 ←→ 落地朝向）· 后拉回上一点 · A 跳（双击=飞行开关）B 蹲 · 扳机画 · 手腕面板选工具 · X/Y 撤销重做";
 const HINT_PLACE = "步行：点一下落在哪（绿 = 站得下、红 = 站不下）· 身材在右下改 · Esc 取消";
 const HINT_EDIT = "原地编辑：镜头钉在这里，工具照常用（右键拖 = 原地转头）· 上方「继续走」回去 · Esc 离开步行";
@@ -1237,7 +1237,7 @@ window.addEventListener("blur", () => { editor.setShiftHeld(latchedMods.shift); 
 let modPeek: { key: string; timer: number; prev: string | null } | null = null;
 const modOfKey = (k: string): "shift" | "ctrl" | "alt" | null => (k === "Shift" ? "shift" : k === "Control" || k === "Meta" ? "ctrl" : k === "Alt" ? "alt" : null);
 function modPeekText(mod: "shift" | "ctrl" | "alt"): string {
-  const name = mod === "shift" ? "Shift" : mod === "ctrl" ? "Ctrl" : "Alt", own = stanceOf(editor.modeId, editor.tool)?.[mod];
+  const name = mod === "shift" ? "Shift" : mod === "ctrl" ? "Ctrl" : "Alt", own = stanceOf(editor.modeId, shownTool())?.[mod];
   const chords = modifierChords(keyContext(), mod).slice(0, 6).map((x) => `${chordLabel(x.chord)} ${x.label}`);
   const shown = own ? stanceShown(own) : "";   // 去掉账本代号 / 施工附注（界面不出代号）
   return [shown && shown !== "—" ? `按住 ${name}：${shown}` : `按住 ${name}`, ...chords].join(" · ");
@@ -1283,7 +1283,7 @@ var softSliderRef: SoftSlider | null = mountSoftSlider(mountLeftDial($("stage"))
 var mfdRef: { render(): void } | null = null;
 mfdRef = mountMfd($("hintWrap"), {
   ctx: () => keyContext(),
-  stance: () => stanceOf(editor.modeId, editor.tool),
+  stance: () => stanceOf(editor.modeId, shownTool()),
   live: () => ({ held: { ...heldMods }, axisLock: editor.axisLock, planeLock: editor.planeLock, keys: lastPointerType === "mouse", pressing: canvasPresses.size > 0, latched: { ...latchedMods } }),
   latch: (m) => { setLatch(m, !latchedMods[m]); syncUi(); },   // 键鼠才印键名（user「ipad的时候能不能不显示键位」）
   press: (chord) => {   // 点芯片 = 按了这个键：和真按键走同一条（resolveKey → runKeyAction）
@@ -1308,9 +1308,12 @@ window.addEventListener("blur", () => { heldMods.shift = heldMods.ctrl = heldMod
 // 键盘 = 分层键表（controller/keymap.ts；UX 心智模型 §2.7，账本 UX17 / UX18）：每次按键从现状算出压着哪几层，从顶往下找第一个绑了的，这里只按动作 id 做事。
 // 以前这里是一长串 if（v0.15.46），2026-10-28 抄成层，行为照旧，只改了 user 拍的 X（操作工具里 X / Y / Z 永远 = 轴，选择工具里 X = 删除）。
 const keyEvt = (ev: KeyboardEvent): KeyEvt => ({ key: ev.key, code: ev.code, shift: ev.shiftKey, ctrl: ev.ctrlKey || ev.metaKey, alt: ev.altKey });
+/** 键表 / 左下芯片 / 按住修饰键的提示看的工具：走路（FPS）时一律当「步行」——它的修饰键都空着，按 Ctrl / Shift 不跳别的工具的芯片
+ *  （user 10-29「fps的时候工具应该是fps，一个隐藏的工具，这样按ctrl shift的时候左下角不会跳奇怪的chip」）；编辑器手里的工具不换，原地编辑时还是原来那把。 */
+function shownTool(): Tool { return locomotion.isFps() ? "walk" : editor.tool; }   // 函数声明（提升）：左下芯片挂载得比这行早
 function keyContext(): KeyContext {
   return {
-    mode: editor.modeId, tool: editor.tool, gesture: editor.isGestureActive(), hasSelection: editor.hasSelection(),
+    mode: editor.modeId, tool: shownTool(), gesture: editor.isGestureActive(), hasSelection: editor.hasSelection(),
     walk: locomotion.walkPhase(), walking: locomotion.isWalking(), mirrorSession: editor.mirrorActive(), lockStyle: editor.lockStyle(),
     typingWants: (e) => editor.typing.wants(e.key, e),   // 打字（手势中打数 / 数值小窗）：主人 typed-input.ts 定去向
     typing: editor.typing.text() !== "",   // 小窗里有字 = 正在打（自由建模的 1 / 2 / 3 让给它）
@@ -1327,6 +1330,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
   const [verb, p1, p2] = action.split(":");
   switch (verb) {
     case "walk.editInPlace": locomotion.editInPlace(); return;
+    case "walk.resume": locomotion.resumeWalk(); return;
     case "walk.exit": closePopupMenu(); locomotion.exitWalk(); return;
     case "walk.cancelPlace": locomotion.cancelPlace(); return;
     case "typing.key": editor.typing.feed(ev.key); vcb.render(); syncUi(); return;   // 打字（手势中 / 刚做完一步）

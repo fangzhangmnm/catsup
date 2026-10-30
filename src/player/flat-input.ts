@@ -1,7 +1,7 @@
 // flat-input.ts —— 键盘 → InputFrame（桌面步行/飞行相机；VR 移动逻辑不戴头显的验证通道）。
 // created 2026-09-07 by Claude Fable 5.1（0.4 VR 纪元）
 //
-// 键位（user：「相机 wasd 不够，还需要 qe 上下」+ handoff）：WASD 走 · Q/E 下/上（noclip 飞） · Shift 冲刺 · 空格 跳（双击=飞行开关，Minecraft；趴着按 = 起来）· Ctrl 蹲 · Z 趴下 / 起来（切换，射击游戏通行键位）·
+// 键位（user：「相机 wasd 不够，还需要 qe 上下」+ handoff）：WASD 走 · Q/E 下/上（noclip 飞） · Shift 冲刺 · 空格 跳（双击=飞行开关，Minecraft；蹲着 / 趴着按 = 起来）· Ctrl 蹲下 / 起来（切换，2026-10-29；按住 Ctrl 再按 Tab = 浏览器的切标签页，网页收不到，按住蹲就没法蹲着按 Tab 停下来修东西）· Z 趴下 / 起来（切换，射击游戏通行键位）·
 // ←/→ snap turn（边沿） · T 按住 = teleport 充能（松开落）· 充能中 ↑/↓ = 发射速度档、←/→ = 落地朝向 · G 按住 = 回上一点。
 // 鼠标视角不在这里：右键拖由 app 层手势路由喂 Locomotion.look()。
 // 只记键态，不碰 player；每帧 read() 产一个 InputFrame（边沿在这里做，PlayerSim 一帧多步只吃第一步）。
@@ -17,6 +17,7 @@ export class FlatInput {
   private _enabled = false;
   private dblJump = new DoubleTap();
   private crawlOn = false;
+  private crouchOn = false;   // Ctrl = 开关（user 10-29「fps controller的时候ctrl改成toggle」「不然没法蹲下来修一些需要蹲下来修的东西」）
   private onKeyDown = (ev: KeyboardEvent): void => {
     if (!this._enabled) return;
     const t = ev.target as HTMLElement | null;
@@ -29,7 +30,7 @@ export class FlatInput {
   private onKeyUp = (ev: KeyboardEvent): void => { this.down.delete(ev.code); };
   private onBlur = (): void => { this.down.clear(); this.edges = []; };
   /** 关掉 = 也起来（下次进来站着）。 */
-  private reset(): void { this.onBlur(); this.crawlOn = false; }
+  private reset(): void { this.onBlur(); this.crawlOn = false; this.crouchOn = false; }
 
   attach(): void {
     window.addEventListener("keydown", this.onKeyDown);
@@ -42,8 +43,8 @@ export class FlatInput {
     window.removeEventListener("blur", this.onBlur);
     this.onBlur();
   }
-  /** 关闭时不吞任何键（轨道模式下 WASD 等照旧不被截）。 */
-  setEnabled(on: boolean): void { this._enabled = on; if (!on) this.reset(); }
+  /** 关闭时不吞任何键（轨道模式下 WASD 等照旧不被截）。pause = 原地编辑（时间暂停）：按着的键清掉，蹲 / 趴两个开关留着（接着走时还是那个姿势）。 */
+  setEnabled(on: boolean, pause = false): void { this._enabled = on; if (!on) { if (pause) this.onBlur(); else this.reset(); } }
   isDown(code: string): boolean { return this.down.has(code); }
 
   /** 产本帧输入；head/aim 由调用方给（flat：头 = (0,0,眼高)+俯仰前向；aim = 相机过光标射线）。 */
@@ -56,21 +57,22 @@ export class FlatInput {
     f.dash = d.has("ShiftLeft") || d.has("ShiftRight");
     f.jump = d.has("Space");
     f.noclipToggle = this.dblJump.update(f.jump, now);
-    f.crouch = d.has("ControlLeft") || d.has("ControlRight");
+
     f.up = d.has("KeyE"); f.down = d.has("KeyQ");
     f.tpCharge = d.has("KeyT");
     f.tpBack = d.has("KeyG");
     const charging = f.tpCharge;
     for (const code of this.edges) {
       if (code === "KeyZ") this.crawlOn = !this.crawlOn;
-      else if (code === "Space" && this.crawlOn) this.crawlOn = false;
+      else if (code === "ControlLeft" || code === "ControlRight") this.crouchOn = !this.crouchOn;
+      else if (code === "Space" && (this.crawlOn || this.crouchOn)) { this.crawlOn = false; this.crouchOn = false; }
       else if (code === "ArrowLeft") { if (charging) f.yawStep = 1; else f.turn = 1; }
       else if (code === "ArrowRight") { if (charging) f.yawStep = -1; else f.turn = -1; }
       else if (code === "ArrowUp" && charging) f.tierStep = 1;
       else if (code === "ArrowDown" && charging) f.tierStep = -1;
     }
     this.edges = [];
-    f.crawl = this.crawlOn;
+    f.crawl = this.crawlOn; f.crouch = this.crouchOn;
     if (f.crawl) f.noclipToggle = false;
     return f;
   }
