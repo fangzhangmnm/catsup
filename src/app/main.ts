@@ -54,7 +54,7 @@ import { Editor, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, TOOLS, gridPreset, gri
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
-import { PRESETS, PRESET_IDS, isPresetId, SCREENS, SCREEN_IDS, isScreenId } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
+import { PRESETS, PRESET_IDS, isPresetId, SCREENS, SCREEN_IDS, isScreenId, type Preset } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
@@ -1731,7 +1731,12 @@ editor.renderer3.onRedrawWanted = () => editor.draw();
   const watch = makeBudgetWatch(() => { const s = editor.renderer3.getPreset(); return s === "white" ? null : PRESETS[s].name; });
   editor.renderer3.onMeasured = (b) => { const said = watch.feed(b); if (said) { hintEl.textContent = said; note("budget", said); } };
 }   // 风格的遮蔽停手后重烘好了 → 重画一帧（Tron 第 1 步，2026-10-29 Opus）
-editor.renderer3.onTextureReady = () => editor.draw();   // 贴图异步解好 → 重画一帧（以前没人接：贴图要等下一次交互才出现；2026-10-29 Claude Fable 5.1）
+editor.renderer3.onTextureReady = () => editor.draw();
+// 标记闪（1-bit 线稿：选中靠闪，T140）：画风写了闪、而且有选区时，每半拍补画一帧；没选区 / 不闪的画风 = 不跑（不耗电）。拍子按钟点算（引擎和画风表各自读同一个钟）
+setInterval(() => {
+  const bl = (PRESETS[editor.renderer3.getPreset()] as Preset).material.blink;
+  if (bl && editor.hasSelection() && !document.hidden) editor.draw();
+}, 175);   // 贴图异步解好 → 重画一帧（以前没人接：贴图要等下一次交互才出现；2026-10-29 Claude Fable 5.1）
 editor.setTool("select");   // 开机 = 鼠标（选择）工具（user 10-29「brep模式进去默认是鼠标而不是线。本轮改」；以前这里硬写画线、盖掉了编辑器自己的默认）
 hintEl.textContent = hintDefault();
 resize();

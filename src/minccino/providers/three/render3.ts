@@ -273,6 +273,24 @@ export class Renderer3 implements RenderProvider {
   private gridMesh: any = null; private gridMat: any = null; private axesObj: any = null;
   /** 网格 / 三色轴的原生 1 像素线版（PIXEL_GRID_LAYER；像素化的风格画进小图，光栅器自己的 Bresenham = 不糊不断）。 */
   private gridPix: any = null; private axesPix: any = null;
+  /** 点线网格的材质（line stipple：沿线的主方向隔一个小图像素画一个；1-bit 线稿）。gridPixBase = 平常那份实色线材质。 */
+  private gridStippleMat: any = null; private gridPixBase: any = null;
+  private stippleMat(w: number, h: number, color: number): any {
+    if (!this.gridStippleMat) {
+      this.gridStippleMat = new THREE.ShaderMaterial({
+        glslVersion: THREE.GLSL3, depthWrite: false, depthFunc: THREE.LessEqualDepth,
+        uniforms: { uRes: { value: new THREE.Vector2(1, 1) }, uColor: { value: new THREE.Vector3() } },
+        // 每个顶点知道这一段的另一头（other）：两头算出同一个「主方向」（屏幕上横着走 = 按 x 隔、竖着走 = 按 y 隔）
+        vertexShader: `uniform vec2 uRes; in vec3 other; out float vX;
+          void main() { vec4 a = projectionMatrix * modelViewMatrix * vec4(position, 1.0), b = projectionMatrix * modelViewMatrix * vec4(other, 1.0);
+            vec2 d = (b.xy / max(abs(b.w), 1e-6) - a.xy / max(abs(a.w), 1e-6)) * uRes; vX = abs(d.x) >= abs(d.y) ? 1.0 : 0.0; gl_Position = a; }`,
+        fragmentShader: `uniform vec3 uColor; in float vX; layout(location = 0) out vec4 oColor;
+          void main() { ivec2 p = ivec2(gl_FragCoord.xy); if ((((vX > 0.5) ? p.x : p.y) & 1) == 1) discard; oColor = vec4(uColor, 1.0); }`,
+      });
+    }
+    const u = this.gridStippleMat.uniforms; u.uRes.value.set(w, h); u.uColor.value.set(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255);   // 原样写进小图（sRGB 原值）
+    return this.gridStippleMat;
+  }
   private gridKey = "";
   private scratchV = new THREE.Vector3();
   private scratchV2 = new THREE.Vector3();
@@ -583,6 +601,8 @@ export class Renderer3 implements RenderProvider {
     const eye = cam.eye(); this.lastTarget = cam.target;
     this.lastView = { id: "main", camera: { view: cam3.matrixWorldInverse.elements, projection: cam3.projectionMatrix.elements, eye, kind: cam.projection === "persp" ? "persp" : "ortho" }, target: presenting ? { kind: "xr-eye", width: this.flatRes.w, height: this.flatRes.h } : { kind: "canvas", width: this.flatRes.w, height: this.flatRes.h }, budget: DEFAULT_VIEW_BUDGET, quality: "full" };
     this.framePreset = this.currentPreset();   // XR / 缩略图走白模
+    { const bl = this.framePreset.material.blink, on = !bl || Math.floor(performance.now() / (bl.periodMs / 2)) % 2 === 0;   // 标记闪：按钟点算这一拍（谁来叫重画归宿主）
+      if (on !== this.blinkOn) { this.blinkOn = on; this.refreshMarkColors(); } }
     this.frameScreen = this.currentScreen();
     this.lastPlan = planFrame(this.passes(), ["frame"]);
 
@@ -619,7 +639,7 @@ export class Renderer3 implements RenderProvider {
       right: { x: cam3.matrixWorld.elements[0], y: cam3.matrixWorld.elements[1], z: cam3.matrixWorld.elements[2] },
       up: { x: cam3.matrixWorld.elements[4], y: cam3.matrixWorld.elements[5], z: cam3.matrixWorld.elements[6] },
       lineWeightPx: this.lineWeight, dpr: this.renderer.getPixelRatio?.() || 1, style: this.framePreset.id,
-      pixelCss: styled ? this.styledK() / this.dpr : 1 / this.dpr,
+      pixelCss: styled ? this.styledK() / this.dpr : 1 / this.dpr, blinkOn: this.blinkOn,
     };
     const items = input.overlay ? input.overlay(octx) : [];
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"), styled && this.lineStyleInUse() === "pixel", styled);   // 像素那条路：细线 = 1 像素 GL 线（和模型的边同一条规矩）
@@ -712,7 +732,7 @@ export class Renderer3 implements RenderProvider {
       this.scene.background = null;
       this.renderer.setClearColor(this.tmpColor.setRGB(((b >> 16) & 255) / 255, ((b >> 8) & 255) / 255, (b & 255) / 255, THREE.LinearSRGBColorSpace), 1);
       cam3.layers.mask = 1 | (1 << GROUND_LAYER) | (1 << PIXEL_GRID_LAYER) | (1 << AUX_LAYER);
-      if (this.gridPix) this.syncPixelGrid(cam3, ps.h, this.pixelGridColor(p));
+      if (this.gridPix) { this.syncPixelGrid(cam3, ps.h, this.pixelGridColor(p)); this.gridPix.material = p.light.gridStipple ? this.stippleMat(ps.w, ps.h, this.pixelGridColor(p)) : this.gridPixBase; }
       toLow();
       const pxScale = H / this.dpr / ps.h;   // LineSegments2 按画布 CSS 视口算像素：小图里线宽要乘回去（tron-shader.ts 头）——不乘 = 粗线在小图里只有几分之一像素宽、画成断断续续的虚线（user 10-29 iPad 截图：线稿粗细 1.5 的粗线路）
       if (p.material.tron && this.tron) this.tron.sync(p.material.tron, pxScale);
@@ -953,11 +973,20 @@ export class Renderer3 implements RenderProvider {
   }
   private static readonly EDGE_SLOTS: readonly LineSlot[] = ["edgeSelected", "edgeHot", "edgeWarn"];
   /** 标记色：这一帧画风写了就用（预设 material.marks），没写 = 全局色板。 */
+  /** 这一帧标记闪在亮的那一拍吗（画风没写闪 = 永远亮）。 */
+  private blinkOn = true;
   private markHex(slot: "faceSelected" | "faceHover" | "faceDim" | LineSlot): number {
+    const bl = this.framePreset.material.blink;
+    if (bl && !this.blinkOn && (slot === "edgeSelected" || slot === "edgeHot" || slot === "edgeWarn")) return bl.off;   // 闪的暗拍：选中 / 将删 / 检查的边换成 off 色（面先不闪，user 10-29「面可以先不闪」）
     const m = this.framePreset.material.marks as Partial<Record<string, number>> | undefined;
     return m?.[slot] ?? (slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : slot === "faceDim" ? PALETTE.faceDim : PALETTE.edgeSelected);
   }
   private lineMarkMats = new Map<string, any>();
+  /** 闪换拍：已经建好的标记材质按这一拍重写颜色（材质很少：每种槽一份；不用重跑分段）。 */
+  private refreshMarkColors(): void {
+    for (const [key, m] of this.lineMarkMats) { const hex = this.markHex(key.split("|")[0] as LineSlot); m.color.setRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, THREE.LinearSRGBColorSpace); }
+    for (const n of this.slotNodes.values()) n.markKey = "\u0000";   // 粗线的标记拷贝颜色烘在几何里：重跑一次（只有走粗线的画风才有）
+  }
   /** 原生线的标记材质：可见那份（换成标记色）/ 隐线那份（深度大于才画、半透明）。 */
   private lineMarkMaterial(slot: LineSlot, hidden: boolean): any {
     const key = `${slot}|${hidden ? 1 : 0}`;
@@ -1264,7 +1293,8 @@ export class Renderer3 implements RenderProvider {
     setLineGeometry(this.axesObj, apos, acol);
     // 原生 1 像素线版（像素化的风格用）：三色轴在这里建；网格跟相机走、每帧按需重建（syncPixelGrid）。都不写深度（写了会被像素描边当成物体描一圈）
     if (!this.gridPix) {
-      this.gridPix = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ color: 0xffffff, depthWrite: false, depthFunc: THREE.LessEqualDepth }));   // 实色、不混合（user「半透明对移动设备不友好」）
+      this.gridPixBase = new THREE.LineBasicMaterial({ color: 0xffffff, depthWrite: false, depthFunc: THREE.LessEqualDepth });
+      this.gridPix = new THREE.LineSegments(new THREE.BufferGeometry(), this.gridPixBase);   // 实色、不混合（user「半透明对移动设备不友好」）
       this.axesPix = new THREE.LineSegments(new THREE.BufferGeometry(), new THREE.LineBasicMaterial({ vertexColors: true, depthWrite: false, depthFunc: THREE.LessEqualDepth }));
       for (const o of [this.gridPix, this.axesPix]) { o.frustumCulled = false; o.layers.set(PIXEL_GRID_LAYER); this.scene.add(o); }
       this.gridPix.renderOrder = -1;
@@ -1299,7 +1329,7 @@ export class Renderer3 implements RenderProvider {
     const key = `${st}|${Math.round(u0 / st)}|${Math.round(v0 / st)}|${Math.round(r / st)}|${color}`;
     if (key === this.gridPixKey) return;
     this.gridPixKey = key;
-    this.gridPix.material.color.setRGB(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, THREE.LinearSRGBColorSpace);   // 原样写进小图（同背景的原始 sRGB 数）
+    this.gridPixBase.color.setRGB(((color >> 16) & 255) / 255, ((color >> 8) & 255) / 255, (color & 255) / 255, THREE.LinearSRGBColorSpace);   // 原样写进小图（同背景的原始 sRGB 数）
     const pos: number[] = [], at = (u: number, v: number): void => { pos.push(o.x + X.x * u + Y.x * v, o.y + X.y * u + Y.y * v, o.z + X.z * u + Y.z * v); };
     const SEG = Math.max(AXIS_SEG_M, st);   // 切段（软件光栅里穿过近平面的长线整条被裁掉）
     const line = (fixed: number, from: number, to: number, alongU: boolean): void => { for (let a = from; a < to - 1e-9; a += SEG) { const b2 = Math.min(to, a + SEG); if (alongU) { at(a, fixed); at(b2, fixed); } else { at(fixed, a); at(fixed, b2); } } };
@@ -1312,6 +1342,7 @@ export class Renderer3 implements RenderProvider {
       if (Math.abs(v) > 1e-9) line(v, u0 - half, u0 + half, true);
     }
     const geo = new THREE.BufferGeometry(); geo.setAttribute("position", new THREE.Float32BufferAttribute(pos, 3));
+    { const other = new Float32Array(pos.length); for (let i = 0; i + 5 < pos.length; i += 6) { other.set(pos.slice(i + 3, i + 6), i); other.set(pos.slice(i, i + 3), i + 3); } geo.setAttribute("other", new THREE.Float32BufferAttribute(other, 3)); }   // 点线要知道这一段往哪走
     this.gridPix.geometry.dispose(); this.gridPix.geometry = geo;
   }
 }

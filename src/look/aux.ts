@@ -140,10 +140,11 @@ const lin = (hex: number): [number, number, number] => hexToLinear(hex);
 const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
 /** 这个画风里一个颜色角色的值（底板色没被覆盖时跟画风的背景色走；选中 / 将删 / 检查跟画风的标记色走）。 */
-export function auxColor(style: string, c: AuxColor): number {
+export function auxColor(style: string, c: AuxColor, blinkOn = true): number {
+  const preset = (PRESETS as Readonly<Record<string, { light: { background: number | null }; material: { marks?: Partial<Record<string, number>>; blink?: { off: number } } }>>)[style];
+  if (!blinkOn && preset?.material.blink && (c === "selected" || c === "scrub" || c === "warn")) return preset.material.blink.off;   // 标记闪的暗拍（和面 / 边的标记材质同一拍）
   const o = (STYLE_AUX[style] ?? NONE).palette?.[c];
   if (o !== undefined) return o;
-  const preset = (PRESETS as Readonly<Record<string, { light: { background: number | null }; material: { marks?: Partial<Record<string, number>> } }>>)[style];
   if (c === "paper") return preset?.light.background ?? STANDARD_PALETTE.paper;
   // 选中 / 将删 / 检查跟画风的标记色走（面 / 边的标记材质用同一处，三样对得上；T125）
   const mark = c === "selected" ? "edgeSelected" : c === "scrub" ? "edgeHot" : c === "warn" ? "edgeWarn" : null;
@@ -171,7 +172,8 @@ function layoutText(it: AuxText, ctx: OverlayCtx, col: (c: AuxColor) => number, 
 
 /** 编辑器的语义项 → 小栗鼠的辅助几何项（按 ctx.style 这个画风查表；字按 ctx 的量尺排）。键带上画风：换画风 = 颜色可能变了，后端重建。 */
 export function translateAux(items: readonly AuxItem[], ctx: OverlayCtx): OverlayItem[] {
-  const style = ctx.style, S = STYLE_AUX[style] ?? NONE, col = (c: AuxColor): number => auxColor(style, c);
+  const style = ctx.style, S = STYLE_AUX[style] ?? NONE, col = (c: AuxColor): number => auxColor(style, c, ctx.blinkOn);
+  const bk = ctx.blinkOn ? "" : "|b";   // 闪的暗拍：每顶点色烘在几何里的要换几何
   const out: OverlayItem[] = [];
   for (const it of items) {
     switch (it.kind) {
@@ -179,13 +181,13 @@ export function translateAux(items: readonly AuxItem[], ctx: OverlayCtx): Overla
         const look = { ...LINE_LOOKS[it.role], ...S.lines?.[it.role] };
         let colors: number[] | null = null;
         if (it.colors) { colors = []; for (const c of it.colors) { const [r, g, b] = lin(col(c)); colors.push(r, g, b, r, g, b); } }
-        out.push({ kind: "lines", id: it.id, key: `${it.key}|${style}`, positions: it.positions, colors, ...(it.color !== undefined ? { color: col(it.color) } : {}), ...look } as OverlayLines);
+        out.push({ kind: "lines", id: it.id, key: `${it.key}|${style}${bk}`, positions: it.positions, colors, ...(it.color !== undefined ? { color: col(it.color) } : {}), ...look } as OverlayLines);
         break;
       }
       case "points": {
         const look = { ...POINT_LOOKS[it.role], ...S.points?.[it.role] };
         const colors = it.colors ? it.colors.flatMap((c) => srgb(col(c))) : null;   // 点的 shader 直接出 sRGB
-        out.push({ kind: "points", id: it.id, key: `${it.key}|${style}`, positions: it.positions, colors, color: it.color !== undefined ? col(it.color) : null, ...look } as OverlayPoints);
+        out.push({ kind: "points", id: it.id, key: `${it.key}|${style}${bk}`, positions: it.positions, colors, color: it.color !== undefined ? col(it.color) : null, ...look } as OverlayPoints);
         break;
       }
       case "marker": {

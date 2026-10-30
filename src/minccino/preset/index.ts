@@ -88,11 +88,15 @@ export interface Preset {
   readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
     /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
     /** 标记色（选中 / 悬停 / 将删 / 检查；sRGB）：面 / 边的标记材质和辅助几何的同名颜色角色都从这里取（一处定、三样对得上）；没写的 = 全局色板。 */
-    readonly marks?: Partial<Readonly<Record<MarkColorSlot, number>>> };
+    readonly marks?: Partial<Readonly<Record<MarkColorSlot, number>>>;
+    /** 标记闪（两色的屏没有颜色可用时，选中靠闪）：periodMs 一个来回多久，亮的半拍 = 标记色、暗的半拍 = off 色（sRGB）。边的标记材质和辅助几何的选中 / 将删 / 检查色一起闪；面不闪（user 10-29「面可以先不闪」）。 */
+    readonly blink?: { readonly periodMs: number; readonly off: number } };
   /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
   readonly light: { readonly background: number | null; readonly ground: { readonly color: number; readonly on: number; readonly grid: number } | null; readonly ao: AoParams | null; readonly env: EnvLight | null;
     /** 走屏幕那条路时编辑器网格线的颜色（原始 sRGB）；没写 = 背景 × 网格系数（浅背景压暗一点）。Tron 用自己的青色（T57 user「tron的网络用我们自己的网络，记得跟单位」）。 */
-    readonly gridColor?: number };
+    readonly gridColor?: number;
+    /** 走屏幕那条路时网格线画成点线（老 OpenGL 的 line stipple：沿线走的方向隔一格画一格，任何角度都整齐；不靠抖动）。1-bit 线稿用（user 10-29「1bit grid的虚线……很聪明，但是再规整一点就好了」）。 */
+    readonly gridStipple?: boolean };
   /** 后处理挂点。 */
   readonly post: { readonly pixelOutline: PixelOutlinePost | null; readonly bloom: BloomPost | null;
     /** 两色抖动（描边那遍的最后一步，按亮度 4×4 有序抖动成 dark / light 两色；要求 pixelOutline 也开着）。1-bit 画风用。 */
@@ -133,8 +137,9 @@ export const PRESETS = {
   onebit: {
     id: "onebit", name: "1-bit 线稿", brief: "黑线白纸（两色）", note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。",
     source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）",
-    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x111111, edgeHot: 0x111111, edgeWarn: 0x111111 } },
-    light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x9c9990 },
+    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x111111, edgeHot: 0x111111, edgeWarn: 0x111111 },
+      blink: { periodMs: 700, off: 0xf4f1e8 } },   // 选中靠闪（user 10-29「1bit其实我的建议是可以闪。pickcad里面uv的wireframe就是在闪。频率缓一点但是不拖沓就行了」）：0.35 秒一拍
+    light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x111111, gridStipple: true },   // 墨色点线（规整，不靠抖动）
     post: { pixelOutline: { side: "inside", color: 0x111111, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: 0x111111, light: 0xf4f1e8 } },
     screen: "pixel3",
     geometry: {},
