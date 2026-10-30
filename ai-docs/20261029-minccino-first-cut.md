@@ -189,3 +189,4 @@
 - **v0.17.38**（Opus 5.5 2026-10-29）小事批（T120 / T121）：新建 / 打开用导入图标；吸附细分六档（CATSUP_document 3.2 + 样本）；OBJ 导入 = 网格体（format/obj-import.ts，和 glb 同一条；mesh/tri-soup.ts 拆出焊点 / 软硬边共用段，加 meshFromSplitPolygons）。不碰渲染。
 - **v0.17.39**（Opus 5.5 2026-10-29）1-bit 画风（T131，画风翻译器的压测）：预设 onebit + `post.dither`（墨 / 纸两色，描边那遍最后按归一亮度做 4×4 Bayer）；探针 `probe-onebit`（五场景只有两种颜色）；新基线 style-onebit-sel。
 - **v0.17.40**（Opus 5.5 2026-10-29）画不画线（T132 / T134）：场景表 `ai-docs/20261029-edge-display-scenarios.md`；正在编辑的那一个（tier 1）的结构线任何画风都画（render3 showL = all ∨ front），预设 `edges` 删第三档 active；1-bit 改成 1-bit 线稿（平涂纸面、模型无半调，T133）；开机默认工具 = 选择（T136）。基线：剪纸 / 写实 / 铸铜（根上的散几何多了结构线）+ 1-bit 重冻（声明过）。
+- **v0.17.41**（Opus 5.5 2026-10-29）☰ 导入单独一行（T137）；画风表白名单第一批：顶点类的点 stage 1（排在描边之后，T139）；1-bit 线稿的点 = 墨、面点不透明；标记色墨对齐 0x111111。

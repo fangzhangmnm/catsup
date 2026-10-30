@@ -37,8 +37,9 @@ const res = await page.evaluate(async () => {
   e.setXray(true); await sleep(30); out.push(blocks("X 光（面点）"));
   return out;
 });
-for (const r of res) console.log(`  ${r.bad === 0 && !r.native.length && !r.late.length ? "✓" : "✗"} ${r.label}：不成整格的块 ${r.bad}；原分辨率 [${r.native.join(", ")}]；排在后处理之后 [${r.late.join(", ")}]`);
-const ok = res.every((r) => r.bad === 0 && !r.native.length && !r.late.length) && !errs.length;
+for (const r of res) console.log(`  ${r.bad === 0 && !r.native.length && r.late.every((i) => ["vertDots", "selVerts", "faceDots", "seam"].includes(i)) ? "✓" : "✗"} ${r.label}：不成整格的块 ${r.bad}；原分辨率 [${r.native.join(", ")}]；排在后处理之后 [${r.late.join(", ")}]`);
+const LATE_OK = ["vertDots", "selVerts", "faceDots", "seam"];   // 白名单：顶点类的点排在描边之后（还是小图里、整格）
+const ok = res.every((r) => r.bad === 0 && !r.native.length && r.late.every((i) => LATE_OK.includes(i))) && !errs.length;
 if (errs.length) console.log("errors:", errs.slice(0, 3));
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

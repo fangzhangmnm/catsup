@@ -10,7 +10,8 @@ import { PRESET_IDS, type OverlayCtx, type OverlayItem } from "../src/minccino/i
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });
 const ctx = (style: string): OverlayCtx => ({ worldPerPx: () => 0.01, infLine: (p) => [p, p], reachKey: () => "", target: P(0, 0, 0), forward: P(0, 1, 0), right: P(1, 0, 0), up: P(0, 0, 1), lineWeightPx: 1, dpr: 1, style, pixelCss: 1 });
-/** 白名单：画风 id → 允许偏离缺省的 item id（user 一个一个开；现在一个都没有）。 */
+/** 白名单：允许偏离缺省的 item id（user 一个一个开）。所有画风都适用的 = ALL；某个画风才有的 = 按画风 id。 */
+const ALL: readonly string[] = ["vertDots", "selVerts", "faceDots", "seam"];   // 2026-10-29 user「像素里面点应该遮住线，而不是被线遮住」：顶点类的点排在后处理之后（stage 1）
 const WHITELIST: Readonly<Record<string, readonly string[]>> = {};
 
 /** 一帧尽量多的辅助几何（每种至少一样）。 */
@@ -44,12 +45,12 @@ const off = (it: OverlayItem): string | null => {
 };
 
 describe("辅助几何全按主分辨率画、跟内容一起（白名单制）", () => {
-  it("每个画风翻出来的辅助几何：偏离缺省的行 = 白名单（现在是空的）", () => {
+  it("每个画风翻出来的辅助几何：偏离缺省的行 = 白名单（顶点类的点排在后处理之后）", () => {
     const report: string[] = [];
     for (const style of PRESET_IDS) {
       const items = translateAux(overlayItems(everything(), ctx(style)), ctx(style));
       const bad = items.map(off).filter((x): x is string => !!x);
-      const allowed = new Set(WHITELIST[style] ?? []);
+      const allowed = new Set([...ALL, ...(WHITELIST[style] ?? [])]);
       for (const b of bad) report.push(`${style}: ${b}${allowed.has(b.split("（")[0]) ? "（白名单）" : ""}`);
       eq(bad.filter((b) => !allowed.has(b.split("（")[0])).join(", "), "", `${style} 有不在白名单上的偏离`);
     }

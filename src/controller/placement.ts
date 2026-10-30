@@ -52,7 +52,7 @@ export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, s
 
 // ---------------- ☰ ----------------
 // 分页 = WeebPaint 范式（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页 = 合租法（user 10-24「看一下weebpaint是怎么收的更干净的，谁和谁合租」）：
-// 新建 / 打开 / 导入合一行、导出与另存合一行，各开小弹层；保存走顶栏保存钮，登录走图库页——都不占菜单行。
+// 新建 / 打开合一行、导入单独一行（在它下面；user 10-29「导入必须单独放……新建打开下面专门放一个导入」）、导出与另存合一行，各开小弹层；保存走顶栏保存钮，登录走图库页——都不占菜单行。
 
 export type MenuTab = "file" | "model" | "settings" | "help";
 export interface MenuTabDef { readonly id: MenuTab; readonly label: string; readonly icon: string }
@@ -67,6 +67,7 @@ export interface MenuRow { readonly id: string; readonly tab: MenuTab; readonly 
 export const MENU_ROWS: readonly MenuRow[] = [
   { id: "gallery", tab: "file" },
   { id: "newOpen", tab: "file" },
+  { id: "importHub", tab: "file" },
   { id: "exportHub", tab: "file" },
   { id: "lock", tab: "file" },              // 锁上 / 解锁（演示锁，同一行，渲染器按状态换字；周账 F-124 吃掉定稿 / 改稿）
   { id: "encrypt", tab: "file" },           // 加密保护… / 解除加密…（同一行按状态换字；图库家才出；周账 F-123）

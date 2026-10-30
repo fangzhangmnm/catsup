@@ -78,11 +78,13 @@ const LINE_LOOKS = {
   /** 世界里的字（折线；排版在 translateAux 里）。 */
   text: { widthPx: 1, depth: "visible", layer: 3 },
 } as const satisfies Record<string, LineLook>;
+// 白名单第一批（2026-10-29 Opus；user「像素里面点应该遮住线，而不是被线遮住」）：顶点类的点排在后处理之后画（stage 1）——还在同一张小图、同一块深度，
+// 只是不被像素描边涂成线色、不被 1-bit 抖、不发光。没有后处理的画风里 stage 不起作用（一遍画完，点本来就压在线上面）。
 const POINT_LOOKS = {
-  selVert: { sizePx: 9, shape: "round", pull: 0.994, depth: "visible", layer: 4 },
-  vert: { sizePx: 5, shape: "round", pull: 0.996, depth: "visible", layer: 3 },
-  faceDot: { sizePx: 6, shape: "square", pull: null, depth: "through", alpha: 0.9, layer: 5 },   // X 光面点：不被挡
-  seam: { sizePx: 7, shape: "round", pull: 0.995, depth: "visible", layer: 3.5 },
+  selVert: { sizePx: 9, shape: "round", pull: 0.994, depth: "visible", layer: 4, stage: 1 },
+  vert: { sizePx: 5, shape: "round", pull: 0.996, depth: "visible", layer: 3, stage: 1 },
+  faceDot: { sizePx: 6, shape: "square", pull: null, depth: "through", alpha: 0.9, layer: 5, stage: 1 },   // X 光面点：不被挡
+  seam: { sizePx: 7, shape: "round", pull: 0.995, depth: "visible", layer: 3.5, stage: 1 },
 } as const satisfies Record<string, PointLook>;
 const MARKER_LOOKS = {
   snap: { geom: "sphere", depth: "visible" },
@@ -128,7 +130,10 @@ interface StyleAux {
   readonly tris?: Partial<Record<TriRole, Partial<TriLook>>>;
 }
 /** 画风 id（小栗鼠的预设 id）→ 覆盖。没有的画风 = 标准表原样。 */
-const STYLE_AUX: Readonly<Record<string, StyleAux>> = {};
+const STYLE_AUX: Readonly<Record<string, StyleAux>> = {
+  /** 1-bit 线稿：点排在抖动之后（不被抖），所以它们的颜色直接是墨（不然画布上多出第三种颜色；选中色走画风的标记色，也是墨）。 */
+  onebit: { palette: { vert: 0x111111, faceDotOn: 0x111111, faceDotOff: 0x111111, mirror: 0x111111 }, points: { faceDot: { alpha: 1 } } },   // 半透明会混出第三种颜色
+};
 
 const NONE: StyleAux = {};
 const lin = (hex: number): [number, number, number] => hexToLinear(hex);

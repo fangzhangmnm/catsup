@@ -133,7 +133,7 @@ export const PRESETS = {
   onebit: {
     id: "onebit", name: "1-bit 线稿", brief: "黑线白纸（两色）", note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。",
     source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）",
-    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x000000, edgeHot: 0x000000, edgeWarn: 0x000000 } },
+    material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x111111, edgeHot: 0x111111, edgeWarn: 0x111111 } },
     light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x9c9990 },
     post: { pixelOutline: { side: "inside", color: 0x111111, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: 0x111111, light: 0xf4f1e8 } },
     screen: "pixel3",

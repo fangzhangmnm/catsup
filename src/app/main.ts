@@ -491,7 +491,7 @@ $("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
   const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
   new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
 }
-type MenuId = "newOpen" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | `style:${string}` | "material" | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | `style:${string}` | "material" | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("unit:")) { editor.vcbUnit = id.slice(5) as LengthUnit; syncUi(); return "keep"; }   // 单位（B40：一排可勾选项）
@@ -510,8 +510,10 @@ function menuPick(id: MenuId): void | "keep" {
       case "newOpen": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
         { id: "new", label: "新建模型", icon: "new" },
         { id: "open", label: "打开本地工程文件…", icon: "folder-open", hint: "Ctrl+O · .catsup（老的 .glb 也行）" },
-        { id: "importGlb", label: "导入 glb…", icon: "import", hint: "别的软件导出的；层级变成组件，放进当前位置" },
-        { id: "import", label: "导入 OBJ…", icon: "import" },
+      ], onPick: menuPick }); break;
+      case "importHub": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
+        { id: "importGlb", label: "导入 glb…", icon: "import", hint: "别的软件导出的；层级变成组件、网格变成网格体，放进当前位置" },
+        { id: "import", label: "导入 OBJ…", icon: "import", hint: "同上；多边形原样" },
       ], onPick: menuPick }); break;
       case "exportHub": openPopupMenu<MenuId>({ anchor: btnMenu, items: () => [
         ...(session.home.kind !== "gallery" ? [{ id: "saveas" as MenuId, label: supportsSavePicker() ? "另存到磁盘…" : "另存（下载 .catsup）", icon: "save-as" }] : []),
@@ -569,7 +571,7 @@ function menuPick(id: MenuId): void | "keep" {
 // 视图类（透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR）归右上角「视图」（user「步行飞行粗线稿这些都是视图啊，视图时是归右上角的汉堡管」「单位也归视图管」）；
 // 轴 / 参考线归工具条（user「轴是工具，轴不归汉堡管，归工具管」）。
 // ☰ = WeebPaint 式 tab 制（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页顺序 = 家族统一（F-81）：
-// 图库 → 新建 / 打开（含导入）→ 保存 / 导出 → 定稿；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
+// 图库 → 新建 / 打开 → 导入 → 保存 / 导出 → 定稿；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
 // ☰ 的页签和每页放哪几行 = 放置表 src/controller/placement.ts（MENU_TABS / MENU_ROWS）；这里只管每行长什么样（字 / 图标 / 动态的勾和数字）
 btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
   anchor: btnMenu, tabs: MENU_TABS, tabKey: "main",
@@ -580,7 +582,8 @@ btnMenu.addEventListener("click", () => togglePopupMenu<MenuId>({
 function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
   switch (id) {
     case "gallery": return { id: "gallery", label: "图库", icon: "gallery", ...(hasStore() ? {} : { hint: "本机 + OneDrive" }) };
-    case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "import", hint: "Ctrl+O" };   // 图标 = 导入（user 10-29「新建打开用导入图标」，账本 T120）
+    case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "new", hint: "Ctrl+O" };   // 加号（user 10-29「所以新建打开还是用加号。导入用导入符号」，账本 T137）
+    case "importHub": return { id: "importHub", label: "导入…", icon: "import", hint: "别的软件的 glb / OBJ" };   // 导入单独一行、在新建打开下面（user 10-29「导入必须单独放……新建打开下面专门放一个导入」）
     case "exportHub": return { id: "exportHub", label: "导出与另存…", icon: "export" };
     case "lock": return session.locked()
       ? { id: "unlock", label: "解锁", icon: "unlock", hint: "放开：又能改了" }
