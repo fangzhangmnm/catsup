@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  104 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  105 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -142,6 +142,8 @@
   <symbol id="save-as" data-cat="file" data-src="feather:save" data-note="另存为(floppy-disk=保存 的配对键):双软盘叠放(copy 的前后件语法), 后盘右上探出, 前盘遮罩留白; 20260724 候选 3 号入库" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="icSa3"><rect width="24" height="24" fill="#fff"/><g transform="translate(-0.5 5.0) scale(0.75)"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z" fill="#000" stroke="#000" stroke-width="4.3"/></g></mask><g mask="url(#icSa3)"><g transform="translate(5.5 -0.5) scale(0.75)" stroke-width="2.27"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z"/><polyline points="7 3 7 8 17 8 17 3"/></g></g><g transform="translate(-0.5 5.0) scale(0.75)" stroke-width="2.27"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 17 8 17 3"/></g></symbol>
   <!-- trash-can — 垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own -->
   <symbol id="trash-can" data-cat="file" data-src="own" data-note="垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 9.5v9"/><path d="M14 9.5v9"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></symbol>
+  <!-- image — 从图片新建:相框+山+太阳 -->
+  <symbol id="image" data-cat="file" data-src="own" data-note="从图片新建:相框+山+太阳" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.3" cy="10" r="1.7"/><path d="M3.6 17.2 L9 11.8 L13 15.8 L16 12.8 L20.4 17.2"/></symbol>
   <!-- hierarchy -->
   <!-- collection — 收纳箱 (Blender collection · copy of archive-box) -->
   <symbol id="collection" data-cat="hierarchy" data-src="lucide:archive" data-note="收纳箱 (Blender collection · copy of archive-box)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v4H3z"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></symbol>

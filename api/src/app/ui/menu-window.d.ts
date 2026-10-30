@@ -1,4 +1,4 @@
-import { type PopupMenuOpts } from "./popup-menu.ts";
+import { type PopupMenuItem, type PopupMenuOpts } from "./popup-menu.ts";
 import { type PanelPos } from "./floating-window.ts";
 /** 第一次开的默认位置：start / end = 在钮下面、左 / 右对齐；beside = 在它（一整列挂件）的左边、after = 在它的右边，都顶对齐——不盖住它。 */
 export type Align = "start" | "end" | "beside" | "after";
@@ -40,6 +40,13 @@ export interface FloatWin {
     isOpen(): boolean;
     /** 内容变了：重钳回屏。 */
     clamp(): void;
+    /** 换标题字（标题是下拉的窗：换页时调）。 */
+    setTitle(text: string): void;
+}
+/** 标题 = 下拉（user 10-30「两个大按钮太占地方了。我想的是窗口名字就是下拉」）：点标题弹这张表（换页 / 换内容），标题本身不拖窗。 */
+export interface TitleMenu {
+    items(): PopupMenuItem<string>[];
+    onPick(id: string): void;
 }
 export declare function createFloatWin(spec: {
     id: string;
@@ -48,5 +55,6 @@ export declare function createFloatWin(spec: {
     onOpenChange?(open: boolean): void;
     bodyClass?: string;
     bodyRole?: string;
+    titleMenu?: TitleMenu;
 }): FloatWin;
 export declare function createMenuWindow<Id extends string>(spec: MenuWindowSpec<Id>): MenuWindowHandle;

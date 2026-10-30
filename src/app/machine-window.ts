@@ -36,7 +36,8 @@ export interface MachineBoardDeps {
   store: BoardPosStore;
   params: { setHome(el: HTMLElement | null, accepts?: () => boolean): void };
   /** 抽屉模式（手机竖屏）开了：物品栏收起。 */
-  onDrawer(): void;
+  /** 手机竖屏：板摆成底部抽屉时（以前要收起物品栏抽屉；物品栏 2026-10-30 sunset 后没人用，留口给以后的底部抽屉）。 */
+  onDrawer?(): void;
   /** 做完刷 UI（main.ts syncUi）。 */
   after(): void;
 }

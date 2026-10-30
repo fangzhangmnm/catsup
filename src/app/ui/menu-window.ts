@@ -3,7 +3,7 @@
 // 拼法：浮窗的一生 = ui/floating-window.ts（WeebPaint 同款深模块）；里面的菜单 = popup-menu.ts mountMenuPanel（和弹出菜单同一份画法）；
 // 本文件只多三样：标题栏 + 关闭钮、第一次开的默认位置（挨着钮）、位置记在哪（调用方给 store）。
 // 刷新：调用方每次界面刷新都可以叫 refresh()——只在菜单内容真的变了时才重画；下拉层开着时不重画（不把正在用的下拉抽掉）；页签变了（某页出现 / 消失）就整个重挂。
-import { mountMenuPanel, type MenuPanelHandle, type PopupMenuOpts } from "./popup-menu.ts";
+import { mountMenuPanel, openPopupMenu, type MenuPanelHandle, type PopupMenuItem, type PopupMenuOpts } from "./popup-menu.ts";
 import { registerFloatingWindow, type FloatingWindowHandle, type PanelPos } from "./floating-window.ts";
 import { choiceLayerOpen } from "./choice-layer.ts";
 
@@ -45,18 +45,29 @@ export interface FloatWin {
   isOpen(): boolean;
   /** 内容变了：重钳回屏。 */
   clamp(): void;
+  /** 换标题字（标题是下拉的窗：换页时调）。 */
+  setTitle(text: string): void;
 }
-export function createFloatWin(spec: { id: string; title: string; store: MenuWindowSpec<string>["store"]; onOpenChange?(open: boolean): void; bodyClass?: string; bodyRole?: string }): FloatWin {
+/** 标题 = 下拉（user 10-30「两个大按钮太占地方了。我想的是窗口名字就是下拉」）：点标题弹这张表（换页 / 换内容），标题本身不拖窗。 */
+export interface TitleMenu { items(): PopupMenuItem<string>[]; onPick(id: string): void }
+export function createFloatWin(spec: { id: string; title: string; store: MenuWindowSpec<string>["store"]; onOpenChange?(open: boolean): void; bodyClass?: string; bodyRole?: string; titleMenu?: TitleMenu }): FloatWin {
   const el = document.createElement("div"); el.className = "float-win"; el.dataset.win = spec.id; el.hidden = true;
   const head = document.createElement("div"); head.className = "float-head";
-  const title = document.createElement("span"); title.className = "float-title"; title.textContent = spec.title;
+  const tm = spec.titleMenu;
+  const title = document.createElement(tm ? "button" : "span"); title.className = tm ? "float-title float-title-menu" : "float-title";
+  const titleText = document.createElement("span"); titleText.className = "float-title-text"; titleText.textContent = spec.title; title.append(titleText);
+  if (tm) {
+    (title as HTMLButtonElement).type = "button"; title.setAttribute("aria-haspopup", "menu");
+    const caret = document.createElement("span"); caret.className = "float-title-caret"; caret.setAttribute("aria-hidden", "true"); caret.textContent = "▾"; title.append(caret);
+    title.addEventListener("click", () => openPopupMenu<string>({ anchor: title, align: "start", items: () => tm.items(), onPick: (id) => tm.onPick(id) }));
+  }
   const close = document.createElement("button"); close.type = "button"; close.className = "float-close"; close.title = "关"; close.setAttribute("aria-label", `关掉「${spec.title}」`); close.textContent = "×";
   head.append(title, close);
   const body = document.createElement("div"); body.className = `float-body${spec.bodyClass ? ` ${spec.bodyClass}` : ""}`; if (spec.bodyRole) body.setAttribute("role", spec.bodyRole);
   el.append(head, body);
   document.body.appendChild(el);
   const win: FloatingWindowHandle = registerFloatingWindow(el, {
-    id: spec.id, head, ignoreDragOn: (t) => t === close || close.contains(t),
+    id: spec.id, head, ignoreDragOn: (t) => close.contains(t) || (!!tm && title.contains(t)),
     onMove: (pos) => spec.store.set(spec.id, pos),
     onOpenChange: (open) => spec.onOpenChange?.(open),
   });
@@ -74,6 +85,7 @@ export function createFloatWin(spec: { id: string; title: string; store: MenuWin
     toggle(anchor, align = "end") { if (win.isOpen()) win.close(); else fw.open(anchor, align); },
     isOpen: () => win.isOpen(),
     clamp: () => win.clamp(),
+    setTitle: (text) => { titleText.textContent = text; close.setAttribute("aria-label", `关掉「${text}」`); },
   };
   return fw;
 }

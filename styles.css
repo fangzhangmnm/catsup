@@ -76,7 +76,7 @@ svg.ico use { color: inherit; }
 .gizmo-nav { flex-direction: row; width: var(--gizmo-w, 96px); gap: 4px; padding: 0; background: none; backdrop-filter: none; -webkit-backdrop-filter: none; }
 .gizmo-nav .gizmo-btn { flex: 1; width: auto; height: 42px; background: var(--glass); }
 .gizmo-nav .gizmo-btn .ico { width: 24px; height: 24px; }
-.gizmo-widgets { margin-top: 10px; align-self: flex-end; }   /* 别的钮靠右对齐（user「另外的按钮比如gridlock右对齐」） */
+.gizmo-widgets { margin-top: 10px; align-self: flex-end; flex-direction: row; }   /* 别的钮靠右对齐（user「另外的按钮比如gridlock右对齐」）；横着排（user 10-30「吸附和xray能不能横着摆，会不会更省空间？因为上面也是横着摆的」） */
 .gizmo-snap { position: relative; }
 .gizmo-snaplock { position: absolute; right: 1px; bottom: 1px; width: 12px; height: 12px; pointer-events: none; background: var(--panel); border-radius: 3px; }
 .gizmo-snaplock .ico { width: 12px; height: 12px; }
@@ -277,11 +277,6 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .md p { margin: 4px 0; font-size: 13px; line-height: 1.5; }
 .md ul { margin: 4px 0 4px 18px; padding: 0; font-size: 13px; line-height: 1.5; }
 .md code { font-size: 12px; background: rgba(0,0,0,.05); padding: 0 4px; border-radius: 4px; }
-.shop-list { display: flex; flex-direction: column; gap: 4px; }
-.shop-row { display: flex; align-items: center; gap: 10px; min-height: 40px; padding: 4px 8px; border-radius: 8px; background: rgba(0,0,0,.03); }
-.shop-row .ico { width: 20px; height: 20px; flex: 0 0 20px; }
-.shop-name { flex: 1; }
-.shop-count { font-size: 12px; color: var(--muted); }
 .kv { display: grid; grid-template-columns: max-content 1fr; gap: 6px 14px; margin: 0; font-size: 13px; }
 .kv dt { color: var(--accent); font-weight: 600; white-space: nowrap; }
 .kv dd { margin: 0; color: #444; }
@@ -458,6 +453,10 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .tree-eye, .tree-more { width: 30px; height: 30px; flex: none; border: 0; padding: 5px; border-radius: 6px; background: none; color: inherit; }
 .tree-eye .ico, .tree-more .ico, .tree-lock .ico { width: 18px; height: 18px; }
 .tree-lock { display: inline-flex; opacity: .6; }
+/* 浮窗标题 = 下拉（user 10-30「窗口名字就是下拉」）：「层级 ▾」，点开换页；只占标题那一小块，不拖窗 */
+.float-title-menu { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: inherit; font: inherit; padding: 2px 6px; margin-left: -6px; border-radius: 6px; cursor: pointer; }
+.float-title-menu:hover { background: var(--hover); }
+.float-title-caret { font-size: 11px; opacity: .7; }
 /* 层级拖拽（0.18 I3，ui/tree-drag.ts）：放进去 = 整行描边；插入 = 一条带缩进的线 + 父亲那行淡底；拖着的那行变淡 */
 .tree-pane { position: relative; }
 .tree-row { -webkit-touch-callout: none; touch-action: pan-y; }

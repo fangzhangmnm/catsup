@@ -19,13 +19,11 @@ const base = [...(await (await import("node:fs")).promises.readFile(await dl0.pa
 await page.reload({ waitUntil: "load" }); await page.waitForTimeout(1200);
 await page.evaluate((arr) => globalThis.__catsup.session.openLocalBytes(new Uint8Array(arr), "m.glb", null), base); await page.waitForTimeout(300);
 r.dirty0 = await dirty();
-// ① 视图 ☰ →「参考」页 → 第一行就是参考窗
-await page.click(".gizmo-menu"); await page.waitForTimeout(100);
-await page.click('.float-win[data-win="view"] [data-menu-tab="ref"]'); await page.waitForTimeout(100);   // v0.17.54 起视图菜单是常驻浮窗（以前是弹出菜单；旧红，2026-10-30 跟上）
-r.firstRow = await page.evaluate(() => document.querySelector('.float-win[data-win="view"] .menu-item')?.dataset.menuId ?? null);
-r.section = await page.evaluate(() => [...document.querySelectorAll('.float-win[data-win="view"] .menu-section-label')].map((x) => x.textContent));
-await page.click('.float-win[data-win="view"] [data-menu-id="refwin"]'); await page.waitForTimeout(200);
+// ① 视图钮旁边的参考窗钮（2026-10-30 user「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」；以前在视图 ☰「参考」页）→ 开窗、钮亮
+r.btnOff = await page.evaluate(() => !document.querySelector(".gizmo-ref")?.classList.contains("on"));
+await page.click(".gizmo-ref"); await page.waitForTimeout(200);
 r.opened = await win();
+r.btnOn = await page.evaluate(() => !!document.querySelector(".gizmo-ref")?.classList.contains("on"));
 r.railRight = await page.evaluate(() => Math.round(document.querySelector(".hud-rail-tools")?.getBoundingClientRect().right ?? 0));
 r.dirtyAfterOpen = await dirty();
 // ② 有焦点时按 R：不切工具
@@ -72,7 +70,7 @@ r.afterNew2 = await win();
 await page.evaluate((p) => globalThis.__catsup.session.openFromGallery(p), gpath); await page.waitForTimeout(600);
 r.galleryReopen = await win();
 console.log(JSON.stringify({ ...r, errs }));
-const ok = !r.dirty0 && r.firstRow === "refwin" && r.section.includes("尺度参考")
+const ok = !r.dirty0 && r.btnOff && r.btnOn
   && r.opened.open && r.opened.focus && r.opened.left > r.railRight && r.opened.left >= 500 && r.opened.right <= 1000 && !r.dirtyAfterOpen && r.toolKept
   && r.afterImport.cards === 2 && r.dirtyAfterImport
   && r.glbHasRefs.used && r.glbHasRefs.files?.length === 3 && r.glbHasRefs.panel?.open === true

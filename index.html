@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=12e5ac88ef06" />
+    <link rel="stylesheet" href="./styles.css?v=668ea240d1df" />
     <script src="./boot-guard.js"></script>
     <script defer src="./vendor/zip-js/zip-full.min.js"></script>   <!-- 加密容器的明文外壳（UMD，挂 window.zip；7z-wasm 惰性加载） -->
   </head>
@@ -25,7 +25,7 @@
     <!-- ICON-SPRITE:BEGIN — 由 scripts/inline-sprites.py 生成，勿手改 -->
 <svg xmlns="http://www.w3.org/2000/svg" style="position:absolute;width:1px;height:1px;overflow:hidden;opacity:0;pointer-events:none">
 <!--
-  104 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
+  105 icons extracted from the family icon library (../20260708 SVG Icons/icons.svg) by extract-icons.py — do not hand-edit; re-run the script instead.
   Family SVG Icons — MIT License, Copyright (c) 2026 fangzhangmnm.
   Contains work derived from (per-icon provenance in data-src):
     Bootstrap Icons — MIT License, Copyright (c) 2019-2024 The Bootstrap Authors · https://github.com/twbs/icons
@@ -167,6 +167,8 @@
   <symbol id="save-as" data-cat="file" data-src="feather:save" data-note="另存为(floppy-disk=保存 的配对键):双软盘叠放(copy 的前后件语法), 后盘右上探出, 前盘遮罩留白; 20260724 候选 3 号入库" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><mask id="icSa3"><rect width="24" height="24" fill="#fff"/><g transform="translate(-0.5 5.0) scale(0.75)"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z" fill="#000" stroke="#000" stroke-width="4.3"/></g></mask><g mask="url(#icSa3)"><g transform="translate(5.5 -0.5) scale(0.75)" stroke-width="2.27"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z"/><polyline points="7 3 7 8 17 8 17 3"/></g></g><g transform="translate(-0.5 5.0) scale(0.75)" stroke-width="2.27"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h13l3 3v13a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 17 8 17 3"/></g></symbol>
   <!-- trash-can — 垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own -->
   <symbol id="trash-can" data-cat="file" data-src="own" data-note="垃圾桶:桶身收口(feather 是直筒);与 fluent(圆提手/更低)、heroicons(弧形透视)亦不同 — own" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/><path d="M10 9.5v9"/><path d="M14 9.5v9"/><path d="M9 6V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2"/></symbol>
+  <!-- image — 从图片新建:相框+山+太阳 -->
+  <symbol id="image" data-cat="file" data-src="own" data-note="从图片新建:相框+山+太阳" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="8.3" cy="10" r="1.7"/><path d="M3.6 17.2 L9 11.8 L13 15.8 L16 12.8 L20.4 17.2"/></symbol>
   <!-- hierarchy -->
   <!-- collection — 收纳箱 (Blender collection · copy of archive-box) -->
   <symbol id="collection" data-cat="hierarchy" data-src="lucide:archive" data-note="收纳箱 (Blender collection · copy of archive-box)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18v4H3z"/><path d="M5 9v9a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V9"/><path d="M10 13h4"/></symbol>
@@ -271,8 +273,8 @@
           <div class="hud-topleft" aria-label="菜单与云">
           <button class="tb-btn" id="btnMenu" type="button" title="菜单"><svg class="ico" aria-hidden="true"><use href="#menu"/></svg></button>
           <button class="tb-btn" id="btnSave" type="button" title="保存（Ctrl+S）" data-state="none"><svg class="ico" aria-hidden="true"><use id="btnSaveIcon" href="#floppy-disk"/></svg></button>
-          <!-- 商城 = 物品栏（资产 / 以后的图层 / 场景树）；图标 stopgap = collection（图标库 TODO 已登记 shop）；user「先左上 汉堡云商城吧」 -->
-          <button class="tb-btn" id="btnShop" type="button" title="物品栏（组件 · 以后：图层 / 场景树）"><svg class="ico" aria-hidden="true"><use href="#collection"/></svg></button>
+          <!-- 物品栏底部抽屉 + 它的钮 sunset（2026-10-30，user「物品栏和物品栏按钮是不是可以sunset……素材库和层级应该用同一个screen icon。两个太多了」）：
+               组件清单搬进层级窗「资源」页；层级 / 资源 / 以后的素材 = 一个窗口一颗钮（层级钮，main.ts），标题下拉换页 -->
           <button type="button" class="mode-select" id="modeSelect" aria-label="工作台（硬表面建模 / 表面）"></button>
           <span class="lock-badge" id="lockBadge" hidden title="锁着：防误触，只能看、能进去玩；☰「解锁」放开"><svg class="ico" aria-hidden="true"><use href="#lock"/></svg>锁着</span>
         </div>
@@ -363,14 +365,6 @@
     </div>
 
     <!-- 调试日志（黑匣子；debug-log-sheet.ts）：实验台 sunset 的接班人（user 2026-09-20）。<pre> 可选中；复制 / 分享 .txt / 清空 -->
-    <!-- 物品栏（商城）：竖屏从底部抽上来（版图 ai-docs/20261024-ui-layout.md §2） -->
-    <div id="shop" class="drawer" hidden>
-      <div class="sheet sheet-bottom" role="dialog" aria-modal="false" aria-label="物品栏">
-        <div class="sheet-head"><span>物品栏</span><button class="tb-btn" id="shopClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
-        <p class="sheet-message" id="shopHint"></p>
-        <div id="shopList" class="shop-list"></div>
-      </div>
-    </div>
     <div id="debugLog" class="sheet-backdrop" hidden>
       <div class="sheet debug-log-sheet" role="dialog" aria-modal="true" aria-label="调试日志">
         <div class="sheet-head"><span>调试日志</span><button class="tb-btn" id="debugLogClose" type="button" title="关闭"><svg class="ico" aria-hidden="true"><use href="#x"/></svg></button></div>
@@ -389,6 +383,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-1f2451ee5521.mjs"></script>
+    <script type="module" src="./dist/catsup-53b0a345e5fc.mjs"></script>
   </body>
 </html>

@@ -6,7 +6,7 @@
 // · 没起名（名字是四位十六进制码）= 淡色等宽（MoonSinger 没起名的歌同款）。
 // · 根 = 普通组件（I13，user 10-30「我们要和godot一样根和其他节点一视同仁，然后右键菜单之类的也一样。都是普通的组件。可以改名。只是没有父亲没法爆炸罢了」）：
 //   显示它的组件名、菜单和物件行同一个样子（改名… / 炸开 灰着 / 物件设置…）。
-// · 第二页「资源」（I10 第一版，user「我们没有一个中心化的按引用计数的东西吗？学blender」「到时候也有这种引用和孤儿管理面板」）：scene/resources.ts 清点，
+// · 第二页「资源」（标题「层级 ▾」下拉换页；I10 第一版，user「我们没有一个中心化的按引用计数的东西吗？学blender」「到时候也有这种引用和孤儿管理面板」）：scene/resources.ts 清点，
 //   组件摆了几份 / 孤儿、材质用在几处 / 没人用；「清理没人用的组件…」= 确认框列名字 → purgeDefs 一步撤销。材质清理等身份换 GUID（I11）。
 // · 拖一行换父亲（I3，user 10-30「hierarchy拖拽同意」）：通用树拖拽 ui/tree-drag.ts 判落点（一行中间 = 放进去；缝 = 横向定深度）→ object-tree.ts reparentOp
 //   （世界位置不变）→ editor.oneStep 里「退到根 → 提交 → 走到新父亲那层 → 选中它」= 一步撤销。同级先后顺序还没做（有序表 I5 等 Fable），插在哪都排最后，提示里说。
@@ -36,19 +36,13 @@ const ROOT_MENU: PopupMenuItem<string>[] = [
 ];
 
 export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { store: MenuWindowSpec<string>["store"]; after(): void; confirm(title: string, message: string, okLabel: string): Promise<boolean>; hint(text: string): void; onOpenChange?(open: boolean): void }): HierarchyWindow {
-  const fw: FloatWin = createFloatWin({ id: "hierarchy", title: "层级", store: deps.store, bodyClass: "tree-body", onOpenChange: (o) => { if (o) render(); deps.onOpenChange?.(o); } });
+  // 换页 = 标题下拉（user 10-30「两个大按钮太占地方了。我想的是窗口名字就是下拉」）
+  const fw: FloatWin = createFloatWin({ id: "hierarchy", title: "层级", store: deps.store, bodyClass: "tree-body", onOpenChange: (o) => { if (o) render(); deps.onOpenChange?.(o); },
+    titleMenu: { items: () => PAGES.map((p) => ({ id: p.id, label: p.label, icon: p.icon, checked: page === p.id })), onPick: (id) => { page = id as Page; sig = ""; render(); fw.clamp(); } } });
   const expanded = new Set<string>([""]);   // 展开着的行（键 = 一路的物件编号；只活这次）
   let sig = "", page: Page = "tree";
-  const tabs = document.createElement("div"); tabs.className = "menu-tabs"; tabs.setAttribute("role", "tablist");
   const pane = document.createElement("div"); pane.className = "tree-pane";
-  fw.body.append(tabs, pane);
-  for (const p of PAGES) {
-    const b = document.createElement("button"); b.type = "button"; b.className = "menu-tab"; b.dataset.page = p.id; b.setAttribute("role", "tab");
-    b.innerHTML = `${iconHtml(p.icon)}<span>${p.label}</span>`;
-    b.addEventListener("click", () => { page = p.id; sig = ""; render(); fw.clamp(); });
-    tabs.append(b);
-  }
-  const titleEl = fw.el.querySelector(".float-title");
+  fw.body.append(pane);
   let shown: { n: HierNode; depth: number }[] = [];   // 层级页现在画着的行（拖拽按它判）
   attachTreeDrag(pane, {
     rowSelector: ".tree-row", indent: INDENT, lineLeft: ROW_PAD + CARET_W, minDepth: 1, scroller: fw.body,
@@ -99,8 +93,7 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
   };
 
   function render(): void {
-    for (const b of tabs.children) { const on = (b as HTMLElement).dataset.page === page; b.classList.toggle("on", on); b.setAttribute("aria-selected", String(on)); }
-    if (titleEl) titleEl.textContent = page === "tree" ? "层级" : "资源";
+    fw.setTitle(PAGES.find((p) => p.id === page)!.label);
     pane.setAttribute("role", page === "tree" ? "tree" : "list");
     if (page === "res") { renderResources(); return; }
     const scene = editor.sceneRef, tree = hierarchyTree(scene), here = contextPath(scene, editor.context), hereKey = pathKey(here), hereFull = pathKeyFull(here);

@@ -72,8 +72,9 @@ await page.evaluate(() => { const C = globalThis.__catsup, e = C.editor; e.exitT
 await page.waitForTimeout(150);
 const kept = await page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef; return [...s.defs.values()].some((d) => d.name === "椅子"); });
 check(kept, "炸开最后一份：组件定义照留（以前会顺手删）");
-await page.click(`${W} .menu-tab[data-page="res"]`); await page.waitForTimeout(120);
-const res = await page.evaluate((W) => ({ title: document.querySelector(`${W} .float-title`)?.textContent, rows: [...document.querySelectorAll(`${W} .res-row`)].map((r) => [r.querySelector(".tree-name")?.textContent, r.querySelector(".res-meta")?.textContent, r.classList.contains("is-orphan")]), btn: document.querySelector(`${W} .res-purge`)?.textContent }), W);
+await page.click(`${W} .float-title-menu`); await page.waitForTimeout(100);   // 换页 = 标题下拉（user 10-30「窗口名字就是下拉」）
+await page.locator(".popup-menu button", { hasText: "资源" }).click(); await page.waitForTimeout(120);
+const res = await page.evaluate((W) => ({ title: document.querySelector(`${W} .float-title-text`)?.textContent, rows: [...document.querySelectorAll(`${W} .res-row`)].map((r) => [r.querySelector(".tree-name")?.textContent, r.querySelector(".res-meta")?.textContent, r.classList.contains("is-orphan")]), btn: document.querySelector(`${W} .res-purge`)?.textContent }), W);
 check(res.title === "资源" && res.rows.some((r) => r[0] === "椅子" && r[2] && /孤儿/.test(r[1])) && /1 个/.test(res.btn ?? ""), `资源页：椅子 = 孤儿、清理钮说 1 个：${JSON.stringify(res)}`);
 await page.click(`${W} .res-purge`); await page.waitForTimeout(150);
 const msg = await page.evaluate(() => document.getElementById("sheetMessage")?.textContent ?? "");

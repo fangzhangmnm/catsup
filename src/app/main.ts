@@ -528,31 +528,8 @@ window.addEventListener("resize", () => renderSlots());
 const btnUndo = $<HTMLButtonElement>("btnUndo");
 const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
-// 商城 = 物品栏（B27：资产 / 以后的图层 / 场景树的家；user「先左上 汉堡云商城吧。以后想到有趣的再说」）：第一版 = 模型里的组件清单（真数据），从底部抽上来
-const btnShop = $<HTMLButtonElement>("btnShop"), shopEl = $<HTMLElement>("shop"), shopList = $<HTMLElement>("shopList"), shopHint = $<HTMLElement>("shopHint");
-function renderShop(): void {
-  const scene = editor.sceneRef;
-  const counts = new Map<number, number>();
-  for (const d of scene.defs.values()) for (const inst of d.instances.values()) counts.set(inst.def, (counts.get(inst.def) ?? 0) + 1);
-  const defs = [...scene.defs.values()].filter((d) => d.id !== scene.root);
-  shopList.replaceChildren();
-  for (const d of defs) {
-    const row = document.createElement("div"); row.className = "shop-row";
-    row.innerHTML = `${iconHtml("object")}<span class="shop-name"></span><span class="shop-count"></span>`;
-    (row.querySelector(".shop-name") as HTMLElement).textContent = d.name;
-    (row.querySelector(".shop-count") as HTMLElement).textContent = `${counts.get(d.id) ?? 0} 个实例 · ${d.body.kind === "brep" ? d.body.kernel.faces().length : 0} 面`;
-    shopList.appendChild(row);
-  }
-  shopHint.textContent = defs.length ? `组件 ${defs.length} 种 · 图层 / 场景树以后在这里` : "还没有组件：选中几何 → 建组件（G）。图层 / 场景树以后在这里";
-}
-// 非模态（user 2026-10-25「物品栏不应该是模态的」）：开着照样画，内容跟着模型变；抽屉多高，贴底的 HUD 就往上让多少（「物品栏弹起来时会把小窗顶到上面，然后其他的hud也一样」）
-btnShop.addEventListener("click", () => { if (!shopEl.hidden) { shopEl.hidden = true; return; } if (boardAsDrawer()) closeBoard(); renderShop(); shopEl.hidden = false; });   // 手机竖屏：开物品栏 = 指令板收起（同一个底部位置，UX41）
-$("shopClose").addEventListener("click", () => { shopEl.hidden = true; });
-{
-  const sheet = shopEl.querySelector<HTMLElement>(".sheet")!;
-  const sync = (): void => { document.documentElement.style.setProperty("--drawer-h", shopEl.hidden ? "0px" : `${Math.ceil(sheet.getBoundingClientRect().height)}px`); };
-  new ResizeObserver(sync).observe(sheet);   // 开 / 关（0 ↔ 高）和内容变高都会触发
-}
+// 物品栏底部抽屉 sunset（2026-10-30，user「物品栏和物品栏按钮是不是可以sunset……素材库和层级应该用同一个screen icon。两个太多了」）：组件清单 → 层级窗「资源」页（hierarchy-window.ts）。
+// 抽屉高度变量 --drawer-h 留着（styles.css，现在没人写 = 0；以后的底部抽屉——时间轴——还用这一套让 HUD 往上让）。
 type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | `style:${string}` | "material" | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
@@ -617,7 +594,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "grid": editor.setGrid({ on: !editor.grid.on }); return "keep";
       case "axesReset": editor.resetContextFrame(); return "keep";
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
-      case "refwin": refHost.toggle(); break;   // 参考窗（视图 ☰「参考」页；开 = 给它焦点，开窗 → Ctrl+V 一步到位）
+      case "refwin": refHost.toggle(); break;   // 参考窗（视图钮旁边那颗钮 / 键表；开 = 给它焦点，开窗 → Ctrl+V 一步到位）
       case "clear":
         notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
         break;
@@ -977,7 +954,6 @@ function syncUi(): void {
   renderModeSelect();
   renderSlots();
   renderCrumbs();
-  if (!shopEl.hidden) renderShop();
   toolStrip.render();
   vcb.render();
   btnUndo.disabled = !editor.canUndo();
@@ -1160,6 +1136,9 @@ const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => loco
 const viewMenuBtn = document.createElement("button");
 viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("sliders");   // 滑杆 = 调视图（user 10-30「视图按钮换一个icon」：以前和左上 ☰ 同一个图标）
 ($("viewGizmo").querySelector(".gizmo-top") as HTMLElement).appendChild(viewMenuBtn);
+// 参考窗钮（user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」）：点一下开 / 关，开着 = 亮（跟着窗口的 open 走，窗口自己的 × 关了也灭）
+const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("image");
+viewMenuBtn.after(refBtn);
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
 let ladderTimer = 0;
@@ -1219,12 +1198,11 @@ function onRefPick(id: RefMenuId): "keep" {
   }
   return "keep";
 }
-/** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：显示 / 栅格 / 参考 / 相机；以后渲染方案也进来。
- *  「参考」页 = 参考窗（屏幕上的参考图 / 文字 / 视频，user 2026-10-25「这个算视图，应该放右边汉堡」）+ B43 尺度参考。 */
+/** 视图汉堡分页（user 2026-10-25「汉堡分页，这个汉堡转管视口，以后渲染方案也它管，专管viewer」）：渲染 / 单位（含 B43 尺度参考）。
+ *  参考窗（屏幕上的参考图 / 文字 / 视频）不在这里了：user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」→ 视图钮旁边自己一颗钮。 */
 const VIEW_MENU_TABS = [
   { id: "render", label: "渲染" },
   { id: "units", label: "单位" },
-  { id: "ref", label: "参考" },
 ] as const;   // user 10-30「所以暂时没有显示tab，只有渲染，然后以后渲染tab会很胖很对选项，只管画风」：透视 / X 光撤（「外面能按」）、全部显示去右键菜单、VR 左手持笔去 ☰ 设置、进入 VR 在上方正中那颗钮   // 「相机」页撤了（user 10-30「相机tab也不要了，步行在验证工具栏里面」）：步行 = 验证左柱第一格、穿墙 = 走着双击空格、VR 两行挪到「显示」页最下面
 type ViewTab = (typeof VIEW_MENU_TABS)[number]["id"];
 /** 视图菜单的内容（常驻浮窗里画；user 10-29「我建议是视图 物体 都做成可以常驻的浮窗吧，只有主菜单是菜单型的」）。 */
@@ -1237,7 +1215,6 @@ function viewMenuSpec(): MenuSpec<MenuId | GridMenuId | RefMenuId> {
       { id: "screen:pick" as MenuId, label: "屏幕", tab: "render", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
       { id: "accent:pick" as MenuId, label: "选中色", tab: "render", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.accent, ...(a.hint ? { hint: a.hint } : {}) })) },
       ...unitTabItems(),
-      { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },
       ...refTabItems(),
     ],
     onPick: (id: MenuId | GridMenuId | RefMenuId): void | "keep" => { if (isRefId(id)) return onRefPick(id); if (isGridId(id)) { onGridPick(id); return "keep"; } const r = menuPick(id as MenuId); syncUi(); return r; },
@@ -1305,7 +1282,7 @@ xrayBtnRef = xrayBtn;
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
 objectBtn.innerHTML = iconHtml("object"); $("modeSelect").before(objectBtn);   // 工作台下拉的左边（user 10-30「物件设置按钮放在tab下拉左边」）
 // 层级钮（0.18 物品栏纪元 I1；设计稿 §5：层级 = 浮窗、素材 = 底部抽屉）：物件钮左边。窗口 = hierarchy-window.ts（物件树，组不进）
-const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级：这个模型里的物件（小三角展开、小眼睛藏 / 显、「…」= 菜单）";
+const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级 · 资源：这个模型里的物件树、组件和材质清点（窗口标题下拉换页；以后的素材也在这里）";
 hierBtn.innerHTML = iconHtml("hierarchy-tree"); objectBtn.before(hierBtn);
 hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
 hierBtn.addEventListener("click", () => hierWin?.toggle(hierBtn));
@@ -1318,7 +1295,6 @@ function openMachineBoard(m: Machine, anchor: HTMLElement): void {
   openMachineWindow(editor, hud, m, anchor, {
     store: { get: (id) => { try { const v = PREF.get(`board.${id}`); return v ? JSON.parse(v) as { x: number; y: number } : null; } catch { return null; } }, set: (id, p) => PREF.set(`board.${id}`, p ? JSON.stringify({ x: Math.round(p.x), y: Math.round(p.y) }) : "") },   // 板的位置记在这台设备（长按标题 = 归位）
     params: { setHome: (el, accepts) => vcb.setParamsHome(el, accepts) },
-    onDrawer: () => { shopEl.hidden = true; },   // 手机竖屏：板和物品栏抢同一个底部位置（UX41）
     after: syncUi,
   });
 }
@@ -1606,6 +1582,10 @@ const refHost = createReferenceHost({
   onCards: () => session.noteChange(),
   focusCanvas: () => { (document.activeElement as HTMLElement | null)?.blur?.(); },
 });
+refBtn.addEventListener("click", () => { refHost.toggle(); syncRefBtn(); });
+const syncRefBtn = (): void => { const on = refHost.isOpen(); refBtn.classList.toggle("on", on); refBtn.setAttribute("aria-pressed", on ? "true" : "false"); };
+new MutationObserver(syncRefBtn).observe(refHost.el, { attributes: true, attributeFilter: ["open"] });
+syncRefBtn();
 const session = new Session({
   editor,
   refs: refHost,

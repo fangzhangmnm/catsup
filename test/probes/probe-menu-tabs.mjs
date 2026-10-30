@@ -18,7 +18,7 @@ const res = {};
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "addEdges", segs: [[{ x: 0, y: 0, z: 0 }, { x: 2, y: 0, z: 0 }], [{ x: 2, y: 0, z: 0 }, { x: 2, y: 2, z: 0 }], [{ x: 2, y: 2, z: 0 }, { x: 0, y: 2, z: 0 }], [{ x: 0, y: 2, z: 0 }, { x: 0, y: 0, z: 0 }]] }); });
 res.rev0 = await page.evaluate(() => globalThis.__catsup.editor.revision);
 await page.click("#btnMenu"); await page.waitForTimeout(100); await page.click('.popup-menu [data-menu-tab="settings"]'); await page.keyboard.press("Escape");
-await viewOpen(true); await page.waitForTimeout(100); await page.click('.float-win[data-win="view"] [data-menu-tab="ref"]'); await viewOpen(false); await page.waitForTimeout(60);
+await viewOpen(true); await page.waitForTimeout(100); await page.click('.float-win[data-win="view"] [data-menu-tab="units"]'); await viewOpen(false);   // 「参考」页 2026-10-30 撤了（参考窗 = 视图钮旁边自己一颗钮） await page.waitForTimeout(60);
 res.rev1 = await page.evaluate(() => globalThis.__catsup.editor.revision);   // 切页不动几何版本号（dirty = revision ≠ savedRevision）= 不标脏
 const [dl] = await Promise.all([page.waitForEvent("download"), page.evaluate(() => globalThis.__catsup.session.exportProject())]);
 const bytes = [...(await (await import("node:fs")).promises.readFile(await dl.path()))];
@@ -32,7 +32,7 @@ res.afterNew = await tabs();
 console.log(JSON.stringify({ ...res, errs }));
 const ok = res.rev1 === res.rev0 && res.opened && res.edgesAfterOpen > 0
   && res.beforeOpen.main === "file" && res.beforeOpen.view === "render"
-  && res.afterOpen.main === "settings" && res.afterOpen.view === "ref"
+  && res.afterOpen.main === "settings" && res.afterOpen.view === "units"
   && res.afterNew.main === "file" && res.afterNew.view === "render" && !errs.length;
 console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

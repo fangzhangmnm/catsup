@@ -62,8 +62,6 @@ const r = {};
   await scene(page);
   await openRepair(page); await page.waitForTimeout(150);
   r.phone = await page.evaluate(() => { const el = document.querySelector(".board"); const q = el?.getBoundingClientRect(); return el ? { drawer: el.classList.contains("board-drawer"), bottom: Math.round(innerHeight - q.bottom), full: Math.round(q.width) === innerWidth } : null; });
-  await page.evaluate(() => document.getElementById("btnShop").click()); await page.waitForTimeout(120);
-  r.phoneShop = await page.evaluate(() => ({ board: !!document.querySelector(".board"), shop: !document.getElementById("shop").hidden }));
   await ctx.close();
 }
 await b.close();
@@ -74,6 +72,6 @@ const ok = r.open.pos0 && r.open.session && r.toggleClosed && r.closedCancels &&
   && r.reopened && r.reopened.x === r.dragged.to.x && r.reopened.y === r.dragged.to.y && r.reset && r.reset.x === r.open.pos0.x && r.reset.y === r.open.pos0.y
   && r.weldBefore > 0 && r.afterWeld.stillOpen && r.afterWeld.weld === 0
   && r.beforeApply.inBoard && !r.beforeApply.corner && !r.afterApply.inBoard && r.afterApply.corner && /修复/.test(r.afterApply.title)
-  && r.phone?.drawer && r.phone.bottom === 0 && r.phone.full && !r.phoneShop.board && r.phoneShop.shop && errs.length === 0;
+  && r.phone?.drawer && r.phone.bottom === 0 && r.phone.full && errs.length === 0;   // 「开物品栏 = 收起指令板」那段随物品栏抽屉 sunset 撤了（2026-10-30）
 console.log(ok ? "probe-board OK" : "probe-board FAIL");
 process.exit(ok ? 0 : 1);
