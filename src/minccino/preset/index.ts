@@ -6,6 +6,8 @@ import type { PassDecl } from "../graph/frame-graph.ts";
 import type { EnvRecipeId, SurfaceRecipeId } from "../paintshop/index.ts";
 
 /** 像素描边后处理（实验室公用件 `ShaderLab.pixelOutline`，lab/core.js）：背景挨着模型的那一格涂成描边色；可选内部深度跳变也描。 */
+/** 两色抖动：亮度过 4×4 有序抖动的阈值 = light，否则 = dark（sRGB）。 */
+export interface DitherPost { readonly dark: number; readonly light: number }
 export interface PixelOutlinePost {
   /** 描在哪一侧：outside = 物体外面一圈（背景那侧，经典精灵描边）；inside = 物体边界那一圈（近的那侧）——和线稿落在同一个像素上、合成一条，不打架（T116 user「如果有勾线的话描边会和勾线打架」）。 */
   readonly side: "outside" | "inside";
@@ -91,7 +93,9 @@ export interface Preset {
     /** 走屏幕那条路时编辑器网格线的颜色（原始 sRGB）；没写 = 背景 × 网格系数（浅背景压暗一点）。Tron 用自己的青色（T57 user「tron的网络用我们自己的网络，记得跟单位」）。 */
     readonly gridColor?: number };
   /** 后处理挂点。 */
-  readonly post: { readonly pixelOutline: PixelOutlinePost | null; readonly bloom: BloomPost | null };
+  readonly post: { readonly pixelOutline: PixelOutlinePost | null; readonly bloom: BloomPost | null;
+    /** 两色抖动（描边那遍的最后一步，按亮度 4×4 有序抖动成 dark / light 两色；要求 pixelOutline 也开着）。1-bit 画风用。 */
+    readonly dither?: DitherPost };
   /** 屏幕一刀：像素化 = 一个画面像素放大几倍（CSS 像素；后端按设备像素比取整成整数倍放大）；1 = 原生。rows = 分辨率上限（画面最多几行，整数倍放大铺满，不留黑边）；
    *  look = 屏幕外观（none 最近邻 / crt-tv 电视）。 */
   readonly screen: ScreenId;   // 这个画风默认套哪块屏（用户可在视图 ☰「屏幕」里另选：画风 × 屏幕正交，T106）
@@ -119,6 +123,17 @@ export const PRESETS = {
     material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [], marks: { faceSelected: 0xf3a698, faceHover: 0xf8cbbf, edgeSelected: 0xd8323a, edgeHot: 0xf08a00, edgeWarn: 0x8b5cf6 } },
     light: { background: 0xfde6bd, ground: null, ao: null, env: null },
     post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
+    screen: "pixel3",
+    geometry: {},
+  },
+  /** 1-bit（2026-10-29 Opus 5.5；user 10-29「到时候1bit也加进来压测」，账本 T124 / T129）：画面只剩两色——跟相机的平光 + 一格黑描边 + 最后按亮度抖成黑 / 纸两色。
+   *  也是画风翻译器的压测：所有按主分辨率画的东西（模型、网格、辅助几何、字）都在小图里一起被抖成两色；画布上出现第三种颜色 = 有东西没进小图（探针 probe-onebit）。 */
+  onebit: {
+    id: "onebit", name: "1-bit", brief: "黑白两色 + 抖动", note: "按 1/3 分辨率画、跟着相机打平光，描一格黑边，最后按亮度抖动成黑和纸白两色（像老 Mac 的画）；选中的面抖得更密、选中的边全黑。",
+    source: "CatsUp 自己的（Opus 2026-10-29）：4×4 Bayer 有序抖动接在像素描边那遍最后",
+    material: { shade: "camera", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x6c6c6c, faceHover: 0xa4a4a4, edgeSelected: 0x000000, edgeHot: 0x000000, edgeWarn: 0x000000 } },
+    light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x9c9990 },
+    post: { pixelOutline: { side: "inside", color: 0x111111, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: 0x111111, light: 0xf4f1e8 } },
     screen: "pixel3",
     geometry: {},
   },

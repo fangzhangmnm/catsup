@@ -8,7 +8,7 @@
 // 越亮越粗的扫描线、荫罩三色条、四角暗、关着的荧光屏是深灰）——**弧面先不弯**：叠加层和拾取还没接屏幕的逆变换（不变量 6），弯了就对不上。
 // created 2026-10-29 by Claude Opus 5.5（Tron 纪元第 1 步）
 import * as THREE from "three";
-import type { PixelOutlinePost } from "../../preset/index.ts";
+import type { DitherPost, PixelOutlinePost } from "../../preset/index.ts";
 
 const FULLSCREEN_VS = /* glsl */`
   void main() { gl_Position = vec4(position.xy, 0.0, 1.0); }`;
@@ -18,16 +18,26 @@ const OUTLINE_FS = /* glsl */`
   uniform sampler2D uCol, uDepth;
   uniform vec3 uLineCol, uBg;
   uniform float uLineTint, uNear, uFar, uLineMul;
-  uniform bool uInner, uDarkSide, uOrtho, uOn, uInside, uBgTex;
+  uniform bool uInner, uDarkSide, uOrtho, uOn, uInside, uBgTex, uDither;
+  uniform vec3 uDark, uLight;
   uniform int uWidth;
   layout(location = 0) out vec4 oColor;   // three r185 的 GLSL3 不再替你定义 gl_FragColor，自己声明输出
+  // 两色抖动（1-bit）：亮度按墨 → 纸那一段归一，和 4×4 Bayer 阈值比，亮 = uLight、暗 = uDark
+  vec4 dither(vec4 c, ivec2 p) {
+    if (!uDither) return c;
+    const float B[16] = float[16](0.0, 8.0, 2.0, 10.0, 12.0, 4.0, 14.0, 6.0, 3.0, 11.0, 1.0, 9.0, 15.0, 7.0, 13.0, 5.0);
+    float t = (B[(p.y & 3) * 4 + (p.x & 3)] + 0.5) / 16.0;
+    vec3 L = vec3(0.299, 0.587, 0.114);
+    float y = (dot(c.rgb, L) - dot(uDark, L)) / max(dot(uLight, L) - dot(uDark, L), 1e-3);   // 按「墨 → 纸」这一段量：纸色 = 全亮、墨色 = 全暗，中间才抖
+    return vec4(y > t ? uLight : uDark, 1.0);
+  }
   float viewZ(float d) { if (uOrtho) return uNear + d * (uFar - uNear); float z = d * 2.0 - 1.0; return 2.0 * uNear * uFar / ((uFar + uNear) - z * (uFar - uNear)); }
   void main() {
     ivec2 p = ivec2(gl_FragCoord.xy), hi = textureSize(uDepth, 0) - 1;
     float d = texelFetch(uDepth, p, 0).r;
     gl_FragDepth = d;   // 深度跟着写进描边后的那张（排在描边之后的辅助几何要被模型挡）
     vec4 c = d < 1.0 || uBgTex ? texelFetch(uCol, p, 0) : vec4(uBg, 1.0);   // uBgTex：小图已先清成背景色（网格跟内容进小图时，背景上有网格）
-    if (!uOn) { oColor = c; return; }
+    if (!uOn) { oColor = dither(c, p); return; }
     const ivec2 K[4] = ivec2[4](ivec2(1, 0), ivec2(-1, 0), ivec2(0, 1), ivec2(0, -1));
     bool line = false; vec3 nb = c.rgb;
     float z = d < 1.0 ? viewZ(d) : 0.0, w = d < 1.0 ? 1.0 / z : 0.0;
@@ -53,7 +63,7 @@ const OUTLINE_FS = /* glsl */`
     }
     if (uDarkSide && dot(c.rgb, vec3(0.299, 0.587, 0.114)) < dot(nb, vec3(0.299, 0.587, 0.114))) nb = c.rgb;
     vec3 lc = uLineMul <= 1.0 ? nb * uLineMul : mix(nb, vec3(1.0), uLineMul - 1.0);
-    oColor = line ? vec4(mix(uLineCol, lc, uLineTint), 1.0) : c;
+    oColor = dither(line ? vec4(mix(uLineCol, lc, uLineTint), 1.0) : c, p);
   }`;
 
 const UPSCALE_FS = /* glsl */`
@@ -109,7 +119,7 @@ export class PixelScreen {
     this.quadCam = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
     this.outlineMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: OUTLINE_FS, depthTest: true, depthFunc: THREE.AlwaysDepth, depthWrite: true,
-      uniforms: { uInside: { value: false }, uBgTex: { value: false }, uCol: { value: null }, uDepth: { value: null }, uLineCol: { value: new THREE.Vector3() }, uBg: { value: new THREE.Vector3() }, uLineTint: { value: 1 }, uNear: { value: 0.1 }, uFar: { value: 100 }, uLineMul: { value: 0.42 }, uInner: { value: false }, uDarkSide: { value: false }, uOrtho: { value: false }, uOn: { value: true }, uWidth: { value: 1 } },
+      uniforms: { uDither: { value: false }, uDark: { value: new THREE.Vector3() }, uLight: { value: new THREE.Vector3() }, uInside: { value: false }, uBgTex: { value: false }, uCol: { value: null }, uDepth: { value: null }, uLineCol: { value: new THREE.Vector3() }, uBg: { value: new THREE.Vector3() }, uLineTint: { value: 1 }, uNear: { value: 0.1 }, uFar: { value: 100 }, uLineMul: { value: 0.42 }, uInner: { value: false }, uDarkSide: { value: false }, uOrtho: { value: false }, uOn: { value: true }, uWidth: { value: 1 } },
     });
     this.upscaleMat = new THREE.ShaderMaterial({
       glslVersion: THREE.GLSL3, vertexShader: FULLSCREEN_VS, fragmentShader: UPSCALE_FS, depthTest: true, depthFunc: THREE.AlwaysDepth, depthWrite: true,
@@ -141,8 +151,9 @@ export class PixelScreen {
     this.upscale(renderer, target, "post", "none", false);
   }
   /** 小图 → 描边（后处理挂点）→ post。 */
-  outline(renderer: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean; bgInTex?: boolean }): void {
+  outline(renderer: any, o: { outline: PixelOutlinePost | null; background: number; near: number; far: number; ortho: boolean; bgInTex?: boolean; dither?: DitherPost | null }): void {
     const u = this.outlineMat.uniforms, pl = o.outline;
+    u.uDither.value = !!o.dither; if (o.dither) { u.uDark.value.copy(srgbVec(o.dither.dark)); u.uLight.value.copy(srgbVec(o.dither.light)); }
     u.uBgTex.value = !!o.bgInTex;
     u.uCol.value = this.low.texture; u.uDepth.value = this.low.depthTexture;
     u.uBg.value.copy(srgbVec(o.background)); u.uOn.value = !!pl;

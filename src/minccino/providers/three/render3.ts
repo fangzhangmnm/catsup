@@ -735,7 +735,7 @@ export class Renderer3 implements RenderProvider {
       } else {
         cam3.clearViewOffset();
         // ② 描边（后处理挂点；把小图的深度一起写进描边后的那张）③ 放大
-        ps.outline(this.renderer, { outline: p.post.pixelOutline, background: b, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera, bgInTex: true });
+        ps.outline(this.renderer, { outline: p.post.pixelOutline, background: b, near: cam3.near, far: cam3.far, ortho: !!cam3.isOrthographicCamera, bgInTex: true, dither: p.post.dither ?? null });
         if (late) { toLow(); this.renderLayer(cam3, LATE_LAYER, ps.postTarget); cam3.clearViewOffset(); }   // 排在描边之后：同一张小图、同一块深度
         ps.upscale(this.renderer, target, "post", sc.look, native);
       }
