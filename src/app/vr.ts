@@ -187,6 +187,10 @@ export class VR {
         const headDir = xi.head ? rigDirToWorld(locomotion.pose(), forwardRig(xi.head.orientation)) : undefined;
         this.pointer.set(toolHand.ray, undefined, headDir);
         const c = this.pointer.cursor();
+        // ⚠ VR 已 sunset（user 10-21「优先做ipad，vr可以先sunset」）。复活前先解决（10-30 绕开工具层普查，周账 F-137 ⑰；user 10-30「vrsunset，那些代码注释说明一下这个问题说需要address这些问题才能用」）：
+        //   这里直接调编辑器的指针入口（pointerDown / Move / Up），不经输入层 app/gestures.ts——那边的挡板（teleport 充能中、步行放人中、FPS 中不进工具、
+        //   掌触门、演示锁的提示行）这里都没有，是各写一份 / 漏写；步行放人也已经改走工具层（v0.17.66 WalkTool → ToolCtx.placeBody），这里还是老路。
+        //   要用：把「指针 → 当前工具」的挡板抽成一份，键鼠 / 笔触 / VR 三个输入适配器共用，再接回来。
         const tp = () => ({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false, travel: this.pointer.travel() });
         if (editor.tool === "select") {
           this.selectTick(trigDown, trig, trigUp, dt, session, toolName);
@@ -230,7 +234,7 @@ export class VR {
       this.holdStage = 0;
       return;
     }
-    editor.pointerMove({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false });
+    editor.pointerMove({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false });   // ⚠ 同上：VR sunset，直接进编辑器、不经输入层挡板，复活前先收进共用挡板
   }
 
   private attachReset(ref: XRReferenceSpace): void {

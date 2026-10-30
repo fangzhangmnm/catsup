@@ -1417,6 +1417,8 @@ function toolKey(key: string, t: Tool): void {
 function runKeyAction(action: string, ev: KeyboardEvent): void {
   const [verb, p1, p2] = action.split(":");
   switch (verb) {
+    case "doc.save": void smartSave(); return;   // Ctrl+S（键表全局层；以前是 main.ts 另挂的文档级 keydown）
+    case "doc.open": openLocal(); return;        // Ctrl+O
     case "walk.editInPlace": locomotion.editInPlace(); return;
     case "walk.resume": locomotion.resumeWalk(); return;
     case "walk.exit": closePopupMenu(); locomotion.exitWalk(); return;
@@ -1753,12 +1755,6 @@ stage.addEventListener("drop", async (e) => {
   if (!file || !/\.(catsup|glb)$/i.test(file.name)) return;   // 工程（.catsup / 老 .glb）；外来 glb 由 openLocalBytes 按内容拒、指去导入
   e.preventDefault();
   await session.openLocalBytes(new Uint8Array(await file.arrayBuffer()), file.name, null);
-});
-document.addEventListener("keydown", (e) => {
-  if (!(e.ctrlKey || e.metaKey) || e.altKey) return;
-  const k = e.key.toLowerCase();
-  if (k === "s") { e.preventDefault(); smartSave(); }
-  else if (k === "o") { e.preventDefault(); openLocal(); }
 });
 // 崩溃安全 flush 三件（WeebPaint es.start 同形，只本地不推）：hidden（切后台被系统回收的唯一可靠钩子）/ blur / pagehide。
 //   #60-C：pagehide persisted=true（要进 bfcache）**不写**——冻结页里起的 IDB 写在 WebKit 永远 commit 不了、只会持锁（案卷 20260909-bfcache-idb-lock）。
