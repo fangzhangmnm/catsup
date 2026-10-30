@@ -254,7 +254,7 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
-const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
+const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
 function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
 function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }
 
@@ -1975,7 +1975,7 @@ export class Editor {
   // ---------- 锁定（A27，SU Lock；user 2026-10-24 立面图思考题）：对象层属性，所有 kind 通用；推断照吃（WorldView 不看锁）----------
   /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
   private opTouchesLocked(op: Op): boolean {
-    if (op.op === "setLocked" || op.op === "setHidden" || op.op === "unhideAll") return false;   // 解锁要能做；藏 / 显示不改东西（锁着的也能藏）
+    if (op.op === "setLocked" || op.op === "setHidden" || op.op === "unhideAll" || op.op === "rename") return false;   // 解锁要能做；藏 / 显示不改东西（锁着的也能藏）
     if (op.op === "batch") return op.ops.some((o) => this.opTouchesLocked(o));
     const s = this.scene;
     if ("at" in op && op.at && s.hasPool(op.at) && s.poolLocked(op.at)) return true;

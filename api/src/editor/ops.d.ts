@@ -227,6 +227,14 @@ export type Op =
     instance?: number;
     on: boolean;
 }
+/** 改名（0.18 物品栏纪元 I4）：instance 给了 = 这一份自己的名字（空 / null = 去掉，回到显示组件名）；def 给了 = 组件定义的名字（摆了几份都跟着变；不许空）。 */
+ | {
+    op: "rename";
+    at: PoolRef;
+    instance?: number;
+    def?: number;
+    name: string | null;
+}
 /** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。 */
  | {
     op: "setHidden";

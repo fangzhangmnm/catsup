@@ -95,6 +95,8 @@ export type Op =
   | { op: "eraseGroup"; at: PoolRef; group: number }
   /** 锁定 / 解锁一个子实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。0.14 起组不是物体、不能锁：带 group 的 setLocked 被拒。 */
   | { op: "setLocked"; at: PoolRef; group?: number; instance?: number; on: boolean }
+  /** 改名（0.18 物品栏纪元 I4）：instance 给了 = 这一份自己的名字（空 / null = 去掉，回到显示组件名）；def 给了 = 组件定义的名字（摆了几份都跟着变；不许空）。 */
+  | { op: "rename"; at: PoolRef; instance?: number; def?: number; name: string | null }
   /** 隐藏 / 显示（DT49；at = 所在的池）：一个子实例（藏父连子）和 / 或这个池里的一批面 / 边（面层 / 边层 hidden；「挖洞看里面」）。只藏不删：不画、不吸、点不中。 */
   | { op: "setHidden"; at: PoolRef; instance?: number; faces?: FaceKey[]; edges?: EdgeKey[]; on: boolean }
   /** 全部显示：整个场景里所有被隐藏的实例、面、边都放回来（DT49）。 */
@@ -580,6 +582,16 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       if (!d.instances.delete(op.instance)) throw new OpTargetError(`instance ${op.instance}`);
       return { scene: s, events: [] };
     }
+    case "rename": {
+      if (op.instance !== undefined) {
+        const inst = s.def(op.at.def).instances.get(op.instance);
+        if (!inst || inst.parent !== op.at.group) throw new OpTargetError(`instance ${op.instance}`);
+        if (op.name) inst.name = op.name; else delete inst.name;
+        return { scene: s, events: [] };
+      }
+      if (op.def !== undefined) { if (!op.name) throw new OpTargetError("rename: 组件名不能空（没起名 = 四位码）"); s.def(op.def).name = op.name; return { scene: s, events: [] }; }
+      throw new OpTargetError("rename: no target");
+    }
     case "setLocked": {
       if (op.group !== undefined) throw new OpTargetError("group lock: 组不是物件，不能锁（0.14）；要当参考就做成组件再锁");
       const d = s.def(op.at.def);
@@ -813,6 +825,7 @@ export function describeOp(op0: Op): string {
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
     case "setHidden": return `setHidden ${op.on ? "on" : "off"}${op.instance !== undefined ? ` instance ${op.instance}` : ""}${op.faces?.length ? ` faces=${op.faces.length}` : ""}${op.edges?.length ? ` edges=${op.edges.length}` : ""}${at}`;
     case "unhideAll": return "unhideAll";
+    case "rename": return `rename ${op.instance !== undefined ? `instance ${op.instance}` : `def ${op.def}`} → ${op.name ?? "(去掉)"}`;
     case "setLocked": return `setLocked ${op.on ? "on" : "off"} ${op.group !== undefined ? `group ${op.group}` : `instance ${op.instance}`}${at}`;
     case "addGuide": return `addGuide ${op.line ? "line" : op.circle ? "circle" : op.sphere ? "sphere" : "point"}${at}`;
     case "eraseGuides": return `eraseGuides n=${op.ids.length}${at}`;

@@ -52,7 +52,7 @@ import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openPasswordSheet, isBusyActive } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive } from "./ui/sheets.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { DEFAULT_SNAP, Editor, GRID_PLANES, TOOLS, UNIT_SYSTEMS, isUnitSystem, snapLabel, snapLevels, type Tool, type GridPlane } from "../editor/editor.ts";
 import type { CommandId } from "../editor/commands/command.ts";
@@ -286,6 +286,7 @@ const hud: HudModel = {
     { id: "copy", layer: "geometry", label: "拷贝", icon: "copy", hidden: !editor.hasSelection() },
     { id: "paste", layer: "empty", label: "粘贴（原位）", icon: "paste", hidden: !editor.canPaste() },
     { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
+    { id: "rename", layer: "child", label: "改名…", icon: "rename", hidden: editor.selectedPoolKeys().filter((k) => k.startsWith("i")).length !== 1 },   // 0.18 I4：层级窗的「…」和画布右键同一张表
     { id: "hideGeometry", layer: "geometry", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !(editor.hasGeometrySelection() || editor.hasGroupSelection()) },   // 几何 / 组的藏（硬表面）；物件的藏在上面的注册表行
     { id: "componentOrigin", layer: "child", label: "改组件原点…", icon: "axes", hidden: !editor.canEditComponentOrigin() },   // DT86：物体的指令（SU 右键「更改轴」、Blender「设置原点」）；user「专门入口同意，赞。这样小白能找到」
     // 修复指令（DT85）：有选区 = 选中的、没选 = 整个物体；含子物体默认开（数字按现在的范围算）。新指令不进 ☰（user 10-26「以后这些指令不住汉堡，等攒多了我帮他们找家」）
@@ -327,6 +328,7 @@ const hud: HudModel = {
       case "cut": editor.cutSelection(); break;
       case "copy": editor.copySelection(); break;
       case "paste": editor.pasteClipboard(); break;
+      case "rename": void renameSelected(); break;
       case "unhideAll": editor.unhideAll(); break;
       case "deselect": editor.cancel(); break;
       case "group": editor.makeGroup(); break;
@@ -437,6 +439,20 @@ function flipSecondMode(t: Tool): boolean {
   hintEl.textContent = `${specOf(t).label}：${nowSecond ? sm.name : firstName}（再点一下换回；按住 ${sm.mod} 临时换回）`;
   syncUi();
   return true;
+}
+/** 改名（0.18 物品栏纪元 I4）：选中的那一份物件——它有自己的名字（导入带来的）就改它自己的，没有就改组件名（摆了几份都跟着变，提示说清几份）；
+ *  组件名清空 = 四位码（user 10-30「没有赋予名字的全用四位hash这种」）。一条指令、一步撤销。 */
+async function renameSelected(): Promise<void> {
+  const keys = editor.selectedPoolKeys().filter((k) => k.startsWith("i"));
+  if (keys.length !== 1) return;
+  const s = editor.sceneRef, def = s.defOfContext(editor.context), inst = s.instance(def, Number(keys[0].slice(1)));
+  const own = inst.name !== undefined, copies = [...s.defs.values()].reduce((n, d) => n + [...d.instances.values()].filter((i) => i.def === inst.def).length, 0);
+  const v = await openInputSheet(own ? "改这一份的名字" : "改组件名", { defaultValue: inst.name ?? s.def(inst.def).name, okLabel: "改名",
+    message: own ? "这一份有自己的名字（导入时带进来的），只改它；清空 = 回到显示组件名" : copies > 1 ? `这个组件摆了 ${copies} 份，名字一起改；清空 = 四位码` : "清空 = 四位码" });
+  if (v === null) return;
+  const name = v.trim();
+  editor.commitOp(own ? { op: "rename", at: { def, group: inst.parent }, instance: inst.id, name: name || null } : { op: "rename", at: { def, group: inst.parent }, def: inst.def, name: name || hex4() });
+  syncUi();
 }
 /** 矮的「⌄」展开条：弹整组（user「...和下箭头做矮一点」）。 */
 const mkMore = (tools: Tool[]): HTMLButtonElement => {

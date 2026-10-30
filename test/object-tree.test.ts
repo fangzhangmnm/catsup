@@ -60,4 +60,19 @@ describe("层级窗的物件树（object-tree.ts）", () => {
     assert(!s3.instance(s3.root, b).hidden, "显回来");
     eq(setHiddenOp(s, hierarchyTree(s), true), null, "最外层没有小眼睛");
   });
+  it("改名（I4）：改组件名 = 摆了几份都跟着变；改这一份自己的名字 = 只它；清空这一份 = 回到显示组件名；组件名不许空", () => {
+    const { s, a, b, c, defA } = scene();
+    const s1 = applyOp(s, { op: "rename", at: { def: s.root, group: null }, def: defA, name: "小红帽的家" }).scene;
+    eq(hierarchyTree(s1).children[0].label, "小红帽的家"); assert(!hierarchyTree(s1).children[0].unnamed, "起了名 = 不淡");
+    const chairNode = hierarchyTree(s1).children[0].children[0];
+    eq(chairNode.label, "椅子");
+    const s2 = applyOp(s1, { op: "rename", at: { def: defA, group: null }, instance: c, name: "那把歪的" }).scene;
+    eq(hierarchyTree(s2).children[0].children[0].label, "那把歪的", "这一份自己的名字");
+    eq(hierarchyTree(s2).children[1].label, "椅子", "别的那份椅子不动");
+    const s3 = applyOp(s2, { op: "rename", at: { def: defA, group: null }, instance: c, name: null }).scene;
+    eq(hierarchyTree(s3).children[0].children[0].label, "椅子", "清空 = 回到组件名");
+    let threw = false; try { applyOp(s3, { op: "rename", at: { def: s.root, group: null }, def: defA, name: "" }); } catch { threw = true; }
+    assert(threw, "组件名不许空");
+    void a; void b;
+  });
 });

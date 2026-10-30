@@ -46,6 +46,16 @@ await page.click(`${W} .tree-row:nth-child(1) .tree-more`); await page.waitForTi
 const m2 = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent.trim()));
 const st2 = await page.evaluate(() => globalThis.__catsup.editor.context.chain.length);
 check(st2 === 0 && m2.includes("物件设置…"), `根那行的「…」= 走回根 + 空白处菜单：${m2.join(" / ")}`);
+// 改名（I4）：「…」→「改名…」→ 输入框；没自己名字的物件 = 改组件名；撤销一步回来
+await page.keyboard.press("Escape"); await page.waitForTimeout(60);
+await page.click(`${W} .tree-row:nth-child(2) .tree-more`); await page.waitForTimeout(120);
+await page.locator(".popup-menu button", { hasText: "改名…" }).click(); await page.waitForTimeout(150);
+const sheetTitle = await page.evaluate(() => document.getElementById("sheetTitle")?.textContent ?? "");
+await page.fill("#sheetInput", "小红帽的家"); await page.keyboard.press("Enter"); await page.waitForTimeout(150);
+const renamed = (await rows())[1]?.name;
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(100);
+const back = (await rows())[1]?.name;
+check(sheetTitle === "改组件名" && renamed === "小红帽的家" && back === "椅子", `改名：「${sheetTitle}」→ ${renamed}，撤销回 ${back}`);
 check(errs.length === 0, `页面没报错${errs.length ? "：" + errs.join(" | ") : ""}`);
 await browser.close();
 console.log(fails.length ? `✗ probe-hierarchy：${fails.length} 条没过` : "✓ probe-hierarchy");
