@@ -202,3 +202,4 @@
 - **v0.18.10**（Opus 5.5 2026-10-30）断线（纪元账本 I12 v0.18.10）：面 polygonOffset factor 1 → 2（`DEPTH.faceSlope`）、1 像素线沿视线往镜头挪、像素描边按坡度让开假台阶。基线**没重冻**：除老红两张（papercut-boxes / realistic-textured）外全过，差 0.004%–0.12%，都是外轮廓和贴地的边多画出来的像素（house 差图核过；fixture-house 改前就有 127 像素的 Z 轴刻度噪声）。
 
 - **v0.18.11**（Opus 5.5 2026-10-30）孩子照常画：基线 +1 张 `dim-context-child`（新场景，冻结）；`dim-context-sel` 没孩子 = 不变（差 0.06%，线的噪声）。
+- **v0.18.15**（Opus 5.5 2026-10-30）贴图默认铺法改成「上 = 上、不镜像」（geom.ts textureBasis；user「顺便自动生成的uv没有y up对齐」「不用念旧」）：**重冻 box-textured / style-pixel-textured**（格子的相位换了，逐张看过：顶面和侧面都是整齐的格子）；style-realistic-textured 改前就红（31.9% → 51%，没查清前不重冻）。

@@ -74,6 +74,7 @@ import "./object-tree.test.ts";   // 层级窗的物件树：只有物件进树�
 import "./resources.test.ts";   // 资源清点：活着 = 从模型根够得着、孤儿链、材质只数活着的、清理只删孤儿（0.18 I10，2026-10-30 Opus）
 import "./tree-drag.test.ts";   // 通用树拖拽落点：放进去 / 缝里横向定深度 / 不能放进自己（0.18 I3，2026-10-30 Opus）
 import "./context-menu-guard.test.ts";   // 右键兜底：一个模块、main 装一次（2026-10-30 Opus）
+import "./texture-basis.test.ts";   // 贴图默认铺法：上 = 上、不镜像（2026-10-30 Opus）
 import "./soft-select.test.ts";   // 软选择权重（2026-10-28 夜 Opus）
 import "./mesh-fill.test.ts";   // 复制 / 补洞 / 桥接（2026-10-28 夜 Opus）
 import "./select-grow.test.ts";   // 扩 / 缩选区（2026-10-28 夜 Opus）

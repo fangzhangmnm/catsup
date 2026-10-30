@@ -14,6 +14,7 @@ import type { ChangeSet, Lineage } from "../kernel/change-log.ts";
 import type { Material } from "../scene/scene.ts";
 import type { GeomView } from "../scene/world-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
+import { textureBasis } from "../kernel/geom.ts";
 import { CONTOUR_ONLY, inwardAcrossEdge } from "./profile-edges.ts";
 
 // ---------------------------------------------------------------- 区间仓库
@@ -195,9 +196,10 @@ export interface FaceRec {
   readonly nor: Float32Array;
   readonly mF: Material | null;
   readonly mB: Material | null;
-  /** 平面基（贴图 uv = 点乘基 / 贴图物理尺寸）。 */
-  readonly u: Pt3; readonly v: Pt3;
+  /** 贴图方向（uv = 点乘 / 贴图物理尺寸）：正面 = textureBasis(n)、背面 = textureBasis(−n)（各自从自己那侧看「上 = 上、不镜像」；geom.ts）。 */
+  readonly u: Pt3; readonly v: Pt3; readonly ub: Pt3; readonly vb: Pt3;
 }
+const faceTexBases = (n: Pt3): { u: Pt3; v: Pt3; ub: Pt3; vb: Pt3 } => { const f = textureBasis(n), b = textureBasis({ x: -n.x, y: -n.y, z: -n.z }); return { u: f.u, v: f.v, ub: b.u, vb: b.v }; };
 export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null {
   const f = k.face(fid), rec = k.planeOf(fid);
   if (!f || !rec || k.isFaceHidden(fid)) return null;
@@ -217,7 +219,7 @@ export function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | 
     const b = flip ? c0 : b0, c = flip ? b0 : c0;
     for (const i of [a, b, c]) { pos[o] = pts[i].x; pos[o + 1] = pts[i].y; pos[o + 2] = pts[i].z; nor[o] = pn[i].x; nor[o + 1] = pn[i].y; nor[o + 2] = pn[i].z; o += 3; }
   }
-  return { pos, nor, mF: matOf(k.faceMaterialOf(fid, 0)), mB: matOf(k.faceMaterialOf(fid, 1)), u: rec.basis.u, v: rec.basis.v };
+  return { pos, nor, mF: matOf(k.faceMaterialOf(fid, 0)), mB: matOf(k.faceMaterialOf(fid, 1)), ...faceTexBases(n) };
 }
 
 export interface EdgeRec { readonly a: Pt3; readonly b: Pt3; readonly loose: boolean; readonly w1: Pt3; readonly w2: Pt3; readonly flag: number; }
@@ -402,7 +404,8 @@ export class PoolMesh {
           for (let i = 0; i < nv; i++) {
             const o3 = (off + i) * 3, o2 = (off + i) * 2, x = rec.pos[i * 3], y = rec.pos[i * 3 + 1], z = rec.pos[i * 3 + 2];
             a.aColor[o3] = qc[0]; a.aColor[o3 + 1] = qc[1]; a.aColor[o3 + 2] = qc[2];
-            a.aUv[o2] = (x * rec.u.x + y * rec.u.y + z * rec.u.z) / (tw || 1); a.aUv[o2 + 1] = (x * rec.v.x + y * rec.v.y + z * rec.v.z) / (th || 1);
+            const U = side === "back" ? rec.ub : rec.u, V = side === "back" ? rec.vb : rec.v;
+            a.aUv[o2] = (x * U.x + y * U.y + z * U.z) / (tw || 1); a.aUv[o2 + 1] = (x * V.x + y * V.y + z * V.z) / (th || 1);
           }
         } });
       };

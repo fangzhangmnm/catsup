@@ -3,7 +3,7 @@
 // + LINES（全部边）。坐标换轴 Z-up → glTF Y-up：(x,y,z) → (x, z, -y)（与 obj-io 同规则）。created 2026-09-20 by Claude Fable 5.1
 
 import type { BrepSnapshot } from "../kernel/kernel.ts";
-import { COPLANAR_TOL_DEFAULT, dot3, planeBasis, type Pt3 } from "../kernel/geom.ts";
+import { COPLANAR_TOL_DEFAULT, dot3, textureBasis, type Pt3 } from "../kernel/geom.ts";
 import type { MeshDoc } from "./document.ts";
 import { encodeF32, encodeUints, pickUintType } from "./binary.ts";
 import { triangulateFace, triangulateRings } from "./triangulate.ts";
@@ -143,7 +143,7 @@ export interface BakeOptions { lines?: boolean }
 /**
  * 把一个 definition 的 B-rep 烘成 glTF mesh（accessor 索引从 accessorBase 起）。软边不进 LINES（圆柱侧面不出竖线）。
  * 贴图纪元（2026-10-21）：按材质拆 primitive（契约「按 (材质, tag) 拆 prim」）——默认材质一份（共享顶点，无 UV）；每种材质一份
- * 自己的 POSITION（逐角，不共享）+ 有贴图时 TEXCOORD_0 = 沿面平面确定性基的平面投影 / 物理尺寸（契约「默认不存 UV」档：三方看到的就是 app 的默认贴法）。
+ * 自己的 POSITION（逐角，不共享）+ 有贴图时 TEXCOORD_0 = 贴图默认铺法（geom.ts textureBasis：上 = 上、不镜像）的平面投影 / 物理尺寸（契约「默认不存 UV」档：三方看到的就是 app 的默认贴法）。
  */
 export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase: number, mats?: BakeMaterials, opts: BakeOptions = {}): BakeResult {
   const pos: number[] = [];
@@ -193,7 +193,7 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
     for (const fi of faceIdxs) {
       const f = snap.faces[fi];
       const plane = snap.planes[f.plane];
-      const basis = planeBasis(plane);
+      const basis = textureBasis(plane.n);   // 贴图默认铺法 = app 里看到的那样（正面；geom.ts textureBasis）
       const sm = smooth.get(fi);
       for (const t of triangulateRings(snap.vertices, plane, f.outer, f.holes)) {
         for (const vi of t) {

@@ -7,7 +7,7 @@ const out = process.env.PROBE_OUT ?? "/tmp";
 const browser = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await browser.newPage({ viewport: { width: 744, height: 1133 }, deviceScaleFactor: 2 /* iPad mini 6 竖屏（user 2026-10-21「默认测试按 ipad mini」「我比较习惯竖屏」）*/ });
 // v0.17.54 起「视图」是常驻浮窗：钮 = 开 / 关；没开才点（点完菜单不再自动收，再点一下钮会把它关掉）
-const openViewWin = async () => { if (!(await page.evaluate(() => !!document.querySelector('.float-win[data-win="view"]:not([hidden])')))) await page.click('#viewGizmo .gizmo-btn[title="视图"]'); };
+const openViewWin = async () => { if (!(await page.evaluate(() => !!document.querySelector('.float-win[data-win="view"]:not([hidden])')))) await page.click('#viewGizmo .gizmo-menu'); };
 const errs = []; page.on("pageerror", (e) => errs.push(e.message)); page.on("console", (m) => { if (m.type() === "error") errs.push(m.text()); });
 // 无头 Chromium 锁上鼠标会把动画帧压到每秒 6 帧（真浏览器不会；2026-10-28 实测 60 → 6）：探针当「锁不上鼠标的设备」（触屏那条路：右键拖看），只记有没有请求锁
 await page.addInitScript(() => { globalThis.__lockRequests = 0; HTMLCanvasElement.prototype.requestPointerLock = function () { globalThis.__lockRequests++; }; });

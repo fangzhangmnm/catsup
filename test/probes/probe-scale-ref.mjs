@@ -5,7 +5,7 @@ const url = process.argv[2] ?? "http://127.0.0.1:8765/";
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const page = await b.newPage({ viewport: { width: 1000, height: 800 } });
 // v0.17.54 起「视图」是常驻浮窗：钮 = 开 / 关；没开才点（点完菜单不再自动收，再点一下钮会把它关掉）
-const openViewWin = async () => { if (!(await page.evaluate(() => !!document.querySelector('.float-win[data-win="view"]:not([hidden])')))) await page.click('#viewGizmo .gizmo-btn[title="视图"]'); };
+const openViewWin = async () => { if (!(await page.evaluate(() => !!document.querySelector('.float-win[data-win="view"]:not([hidden])')))) await page.click('#viewGizmo .gizmo-menu'); };
 const errs = []; page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
 await page.goto(url, { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(3000); await page.evaluate(() => globalThis.__catsup?.editor?.setGrid({ on: false }));   // v0.13.64 新文档吸附默认开；本探针测的不是栅格   // 默认勾了：开机 1.5 s 后懒加载梯子
 const box = await page.locator("#board").boundingBox();

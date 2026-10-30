@@ -222,6 +222,18 @@ export function planeBasis(pl: PlaneParams): { u: Pt3; v: Pt3 } {
   return { u, v };
 }
 
+/**
+ * 贴图的默认铺法（自动 UV 的方向；尺寸 = 材质的 sizeM，默认一张图横 1 m）：从 n 那侧看「上 = 上、不镜像」——
+ * 竖着的面 u = 水平（Z × n）、v = n × u（朝世界 +Z）；水平面 u = +X、v = ±Y（u × v = n）。SketchUp 同款。
+ * 和 planeBasis 分开：那套是几何用的确定性基（投影坐标稳定），墙上不保证朝上（user 10-30「顺便自动生成的uv没有y up对齐」→「不用念旧」：老文件的贴图跟着转过来，不留旧铺法）。
+ */
+export function textureBasis(n: Pt3): { u: Pt3; v: Pt3 } {
+  const l = Math.hypot(n.x, n.y, n.z) || 1, nx = n.x / l, ny = n.y / l, nz = n.z / l;
+  if (Math.abs(nz) > 1 - 1e-9) return { u: { x: 1, y: 0, z: 0 }, v: { x: 0, y: nz > 0 ? 1 : -1, z: 0 } };
+  const hl = Math.hypot(nx, ny), ux = -ny / hl, uy = nx / hl;
+  return { u: { x: ux, y: uy, z: 0 }, v: { x: -nz * uy, y: nz * ux, z: nx * uy - ny * ux } };
+}
+
 export function projectToPlane(p: Pt3, basis: { u: Pt3; v: Pt3 }): Pt {
   return { x: dot3(p, basis.u), y: dot3(p, basis.v) };
 }

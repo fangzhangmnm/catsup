@@ -896,8 +896,11 @@ function unitRow(which: "system" | "snap" | "plane"): { id: GridMenuId; label: s
 function snapMenuItems(): { id: GridMenuId | "gridSettings"; label: string; checked?: boolean; hint?: string; separatorBefore?: boolean; sectionBefore?: string }[] {
   // 硬表面：最上面直接列吸附长度（点一下就换，不用进设置；user 10-30「长按是弹一个让你选。不然一个一个轮换太慢了」）
   const sub = snapSwitchLook(editor.modeId).length ? snapChoices().map((c, i) => (i === 0 ? { ...c, sectionBefore: "吸附长度" } : c)) : [];
+  // 栅格面（user 10-30「栅格面要不要也放到这里」→「do it 以及不显示选项也有对吧」）：画立面时要来回切，和吸附长度一样是手上的；☰ 单位页照留一份
+  const g = editor.grid, planes = [...GRID_PLANES.map((p, i) => ({ id: `plane:${p.id}` as GridMenuId, label: p.label, checked: g.shown && g.plane === p.id, ...(i === 0 ? { sectionBefore: "栅格面", ...(sub.length ? { separatorBefore: true } : {}) } : {}) })),
+    { id: "plane:off" as GridMenuId, label: "关（不显示网格）", checked: !g.shown, hint: "吸附照旧" }];
   const locks = lockMenuItems();
-  return [...sub, ...locks.map((it, i) => (i === 0 && sub.length ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "☰ · 单位" }];
+  return [...sub, ...planes, ...locks.map((it, i) => (i === 0 ? { ...it, separatorBefore: true } : it)), { id: "gridSettings", label: "单位设置…", separatorBefore: true, hint: "☰ · 单位" }];
 }
 /** 锁的菜单段（按当前工具的锁种：沿轴走的工具 = 方向锁 + 面锁；先定平面的工具 = 只有面锁；不吃锁 = 不出这段）。键位提示 = 方向键。 */
 function lockMenuItems(): { id: GridMenuId; label: string; checked?: boolean; hint?: string; sectionBefore?: string; separatorBefore?: boolean }[] {
@@ -1130,7 +1133,7 @@ const gestures = attachGestures(canvas, editor, {
 const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => locomotion.isWalking(), onProjection: () => syncUi() });
 // 右上角「视图」菜单（user 2026-10-24「视图时是归右上角的汉堡管」）：透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR
 const viewMenuBtn = document.createElement("button");
-viewMenuBtn.type = "button"; viewMenuBtn.dataset.opensWindow = ""; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("sliders");   // 滑杆 = 调视图（user 10-30「视图按钮换一个icon」：以前和左上 ☰ 同一个图标）
+viewMenuBtn.type = "button"; viewMenuBtn.dataset.opensWindow = ""; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "渲染"; viewMenuBtn.innerHTML = iconHtml("sliders");   // 滑杆 = 调视图（user 10-30「视图按钮换一个icon」：以前和左上 ☰ 同一个图标）
 ($("viewGizmo").querySelector(".gizmo-top") as HTMLElement).appendChild(viewMenuBtn);
 // 参考窗钮（user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」）：点一下开 / 关，开着 = 亮（跟着窗口的 open 走，窗口自己的 × 关了也灭）
 const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.dataset.opensWindow = ""; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("image");
@@ -1258,7 +1261,7 @@ var viewWin: MenuWindowHandle | null = null;
 var hierWin: HierarchyWindow | null = null;   // 层级浮窗（var：syncUi 可能在它建好之前跑）
 /** 开视图浮窗：tab = 直接停在那一页（别处的「XX 设置…」跳进来）；不给 = 开 / 关。 */
 function openViewMenu(tab?: ViewTab): void {
-  const w = (viewWin ??= createMenuWindow({ id: "view", title: "视图", menu: viewMenuSpec, store: WIN_POS, onOpenChange: (o) => viewMenuBtn.classList.toggle("is-open", o) }));
+  const w = (viewWin ??= createMenuWindow({ id: "view", title: "渲染", menu: viewMenuSpec, store: WIN_POS, onOpenChange: (o) => viewMenuBtn.classList.toggle("is-open", o) }));
   if (tab) w.open($("viewGizmo"), "beside", tab); else w.toggle($("viewGizmo"), "beside");   // 第一次开 = 视图方块那一列的左边（不盖住方块 / 吸附 / X 光）
   viewMenuHandle = w;
 }
