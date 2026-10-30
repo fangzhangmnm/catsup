@@ -1,6 +1,6 @@
 // 自由建模的 Blender 键位 + 删除（2026-10-27 Claude Opus 5.5；user「然后能不能blender 快捷键无缝接上」）：网格体盒子里——
 // ① 选顶面按 G：光标一动顶面跟着走（不用按下）、点一下落定；Ctrl+Z 回来 ② G 中按 Z = 锁 Z ③ G 中 Esc / 右键 = 取消 ④ 没选区按 G = 只切到移动工具
-// ⑤ 选顶面按 E = 挤出跟鼠标 ⑥ X 删选中的面 ⑦ 选两个对角点按 J = 连线 ⑧ Ctrl+R 再点一条竖边 = 环切 ⑨ 删除工具点一张面 = 删、Ctrl 点一条边 = 溶解。
+// ⑤ 选顶面按 E = 挤出跟鼠标 ⑥ X 删选中的面 ⑦ 选两个对角点按 J = 连线 ⑧ Ctrl+R 再点一条竖边 = 环切 ⑨ 删除工具点一张面 = 删、Shift 点一条边 = 溶解。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-mesh-keymap.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -71,12 +71,12 @@ const res = await page.evaluate(async () => {
   e.deselectAll(); kd("r", { ctrl: true, code: "KeyR" }); await sleep(20); out.crTool = e.tool;
   { const s = px(P(1, 0, 0.5)); fire("pointermove", s.x, s.y, 0); await sleep(15); fire("pointerdown", s.x, s.y, 1); await sleep(10); fire("pointerup", s.x, s.y, 0); await sleep(50); }
   out.crDone = { df: stat().f - st0.f, active: e.isGestureActive(), check: m().check().join(";") }; kd("z", { ctrl: true }); await sleep(40);
-  // ⑨ 删除工具：点顶面 = 删；Ctrl 点右侧前面那条竖边 = 溶解（两侧面并一张）
+  // ⑨ 删除工具：点顶面 = 删；Shift 点右侧前面那条竖边 = 溶解（v0.17.63 起；以前 Ctrl，user 10-30「自由建模里面shift是溶解」）（两侧面并一张）
   e.setTool("erase"); out.eraseLabel = hud.tools().find((t) => t.id === "erase")?.label;
   await click(P(0.5, 0.5, 1)); out.eraseFace = { df: stat().f - st0.f }; kd("z", { ctrl: true }); await sleep(40);
-  { const s = px(P(1, 0, 0.5)); c.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, buttons: 0, ctrlKey: true })); await sleep(15);
-    c.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, ctrlKey: true })); await sleep(10);
-    c.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0, ctrlKey: true })); await sleep(40); }
+  { const s = px(P(1, 0, 0.5)); c.dispatchEvent(new PointerEvent("pointermove", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, buttons: 0, shiftKey: true })); await sleep(15);
+    c.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 0, buttons: 1, shiftKey: true })); await sleep(10);
+    c.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, clientX: r.left + s.x, clientY: r.top + s.y, pointerId: 5, pointerType: "mouse", isPrimary: true, button: 0, buttons: 0, shiftKey: true })); await sleep(40); }
   out.dissolve = { df: stat().f - st0.f, de: stat().e - st0.e, check: m().check().join(";"), hint: hud.status() };
   kd("z", { ctrl: true }); await sleep(40);
   // ⑩ I = 插入：选顶面，光标放在靠近顶面一角的地方按 I，往面中心挪，点一下

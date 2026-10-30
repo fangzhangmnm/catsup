@@ -1,7 +1,7 @@
 // tools/mesh-erase.ts —— 自由建模工作台的「删除」（橡皮键 E 的那一格；网格体）。created 2026-10-27 by Claude Opus 5.5
 // user 10-27「选 拉 挪 转 缩 刀 删 插 八个常用的」：直接操作（direct）——按下点到的点 / 边 / 面，按住刮过去的都算，松手一次删掉（一步撤销）。
 //   · 点 → 连着的边和面一起走；边 → 连着的面一起走；面 → 只删这张面（它独占的边和孤立的点一起走）。和 Blender 按选择模式删同语义（mesh/ops/delete.ts deleteSelection）。
-//   · 按住 Ctrl（Alt / ⌘）= 溶解（不开洞）：边 → 两侧的面并成一张、二度点去掉；溶解不了的跳过并说（纪元账本 FM11「去边 = Blender dissolve」；修饰键稿「Ctrl = 这个工具的另一种做法」）。
+//   · 按住 Shift = 溶解（不开洞；2026-10-30 user「自由建模里面shift是溶解」，以前是 Ctrl——橡皮一家 Ctrl 不用、Shift = 另一种做法）：边 → 两侧的面并成一张、二度点去掉；溶解不了的跳过并说（纪元账本 FM11「去边 = Blender dissolve」；修饰键稿「Ctrl = 这个工具的另一种做法」）。
 //   · 按真身拾取（预演里已经删掉了，不能按预演拾取）；悬停不高亮（FM113），刮的时候预演就是删掉以后的样子。
 import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
@@ -23,7 +23,7 @@ export class MeshEraseTool implements ToolHandler {
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     this.hit = { verts: new Set(), edges: new Set(), faces: new Set() };
-    this.dissolve = !!ev.copy;
+    this.dissolve = !!ev.shiftKey;
     this.collect(ctx, ev);
   }
   track(ctx: ToolCtx, s: { x: number; y: number }): void { this.collect(ctx, s); }

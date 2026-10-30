@@ -1,5 +1,7 @@
 // tools/erase.ts —— 橡皮（SU Eraser）：direct 语法（按住拖 = 刮过的都进刮集；user「erase和bucket不是还有按住拖多选这个语法嘛」）。
-// 刮边（擦一段 = 整条曲线，高亮也整条）+ 刮参考线 / 参考点（D18）；修饰：Ctrl = 软化 + 平滑、Shift = 硬化（只碰恰好两膜的边，SU 同款）。
+// 刮边（擦一段 = 整条曲线，高亮也整条）+ 刮参考线 / 参考点（D18）；修饰：Shift = 硬化（只碰恰好两膜的边）。
+// 普通橡皮不管变软（2026-10-30 user「普通橡皮不管变软」「我们的藏边就是软化，而且我们以后会慢慢放弃sketchup快捷键」）：以前的 Ctrl = 软化撤了，软化归软边橡皮；
+// 橡皮一家的规矩 = Ctrl 不用、Shift = 这把橡皮的另一种做法（user「shift本来就是secondary tool的意思」）。
 // 底座 = scrub.ts（橡皮家族共用；焊边 / 软边橡皮是同一底座的另两把）。created 2026-10-24 by Claude Fable 5.1
 import type { EdgeId } from "../../kernel/kernel.ts";
 import type { WorldView } from "../../scene/world-view.ts";
@@ -10,7 +12,7 @@ import type { ViewState } from "../view-state.ts";
 import { pickGuide, withoutGuides } from "../guide-pick.ts";
 import { EdgeScrubTool } from "./scrub.ts";
 
-type Mode = "erase" | "soften" | "harden";
+type Mode = "erase" | "harden";
 
 export class EraseTool extends EdgeScrubTool {
   readonly tool = "erase" as const;
@@ -22,8 +24,8 @@ export class EraseTool extends EdgeScrubTool {
   override cancel(): void { super.cancel(); this.guides = new Set(); }
   protected override begin(ctx: ToolCtx, ev: ToolPointer): void {
     this.guides = new Set();
-    this.mode = ev.copy ? "soften" : ev.shiftKey ? "harden" : "erase";
-    ctx.hint(this.mode === "soften" ? "软化：刮过的边变软 + 平滑（Ctrl）" : this.mode === "harden" ? "硬化：刮过的边变硬（Shift）" : null);
+    this.mode = ev.shiftKey ? "harden" : "erase";
+    ctx.hint(this.mode === "harden" ? "硬化：刮过的边变硬（Shift）；变软用软边橡皮" : null);
   }
   protected override pickSoft(): boolean { return this.scrubbing && this.mode === "harden"; }   // Shift 硬化要碰得到软边
   protected override scrubAt(ctx: ToolCtx, view: WorldView, sx: number, sy: number): void {
@@ -42,7 +44,7 @@ export class EraseTool extends EdgeScrubTool {
     this.toErase = [];
     const k = ctx.kernel(), at = ctx.activePool();
     if (mode === "erase" && gids.length) ctx.commitOp({ op: "eraseGuides", at, ids: gids });   // D18：刮过的参考线 / 参考点一起擦
-    if (mode !== "erase") { ctx.softenEdges(ids.filter((id) => k.graph.hasEdge(id) && k.graph.edge(id).faceLinks.length >= 2), mode === "soften"); return; }
+    if (mode === "harden") { ctx.softenEdges(ids.filter((id) => k.graph.hasEdge(id) && k.graph.edge(id).faceLinks.length >= 2), false); return; }
     const live = ids.filter((id) => k.graph.hasEdge(id));
     if (ctx.workflow().eraseNonCoplanar === "fold") {   // Blender 亚种（DT87）：不共面两膜之间的边变折线，别的照常擦，非流形不碰
       const plan = k.foldPlan(live);
