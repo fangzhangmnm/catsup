@@ -4,6 +4,8 @@
 // 手机竖屏：⑦ 板 = 底部抽屉；开物品栏 = 板收起。跑法：python3 -m http.server 8765 后 node test/probes/probe-board.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
+// 修复板的入口 = 物件窗口的「修复」页签 →「修复面板…」（v0.17.53；user 10-29「修复菜单不应该挂在视图那边，而是物品选项里面的一个tab」；以前是右边视图那一列的扳手钮）。再走一遍 = 关板
+const openRepair = async (pg) => { await pg.click(".gizmo-object"); await pg.waitForTimeout(80); await pg.click(".menu-tab:has-text('修复')"); await pg.waitForTimeout(40); await pg.click(".menu-item:has-text('修复面板')"); await pg.waitForTimeout(40); };
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const errs = [];
 const scene = (page) => page.evaluate(() => {   // 一个挪歪 1 mm 的盒子 + 一条断口：修复面板有事可做
@@ -22,20 +24,20 @@ const r = {};
   page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
   await page.goto(process.argv[2] ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1000);
   await scene(page);
-  const wrench = '.gizmo-machine[data-machine="repairWindow"]', board = '.board[data-board="repairWindow"]';
+  const board = '.board[data-board="repairWindow"]';
   const pos = () => page.evaluate((sel) => { const el = document.querySelector(sel); if (!el) return null; const q = el.getBoundingClientRect(); return { x: Math.round(q.left), y: Math.round(q.top) }; }, board);
-  await page.click(wrench); await page.waitForTimeout(120);
+  await openRepair(page); await page.waitForTimeout(120);
   r.open = { pos0: await pos(), session: await page.evaluate(() => globalThis.__catsup.editor.repairPanelOpen()) };
-  await page.click(wrench); await page.waitForTimeout(80);
+  await openRepair(page); await page.waitForTimeout(80);
   r.toggleClosed = (await pos()) === null;
   r.closedCancels = await page.evaluate(() => !globalThis.__catsup.editor.repairPanelOpen() && !document.querySelector("#vcb > .vcb-params:not([hidden])"));   // ⑥
   // ② 拖
-  await page.click(wrench); await page.waitForTimeout(120);
+  await openRepair(page); await page.waitForTimeout(120);
   const p0 = await pos(), hb = await page.locator(`${board} .board-title`).boundingBox();
   await page.mouse.move(hb.x + 20, hb.y + hb.height / 2); await page.mouse.down(); await page.mouse.move(hb.x - 180, hb.y + 140, { steps: 8 }); await page.mouse.up(); await page.waitForTimeout(60);
   r.dragged = { from: p0, to: await pos() };
   await page.click(`${board} .board-close`); await page.waitForTimeout(60);
-  await page.click(wrench); await page.waitForTimeout(120);
+  await openRepair(page); await page.waitForTimeout(120);
   r.reopened = await pos();
   // ③ 长按归位
   const hb2 = await page.locator(`${board} .board-title`).boundingBox();
@@ -58,7 +60,7 @@ const r = {};
   page.on("pageerror", (e) => errs.push(String(e.stack ?? e).slice(0, 300)));
   await page.goto(process.argv[2] ?? "http://127.0.0.1:8765/", { waitUntil: "load", timeout: 30000 }); await page.waitForTimeout(1000);
   await scene(page);
-  await page.evaluate(() => document.querySelector('.gizmo-machine[data-machine="repairWindow"]').click()); await page.waitForTimeout(150);
+  await openRepair(page); await page.waitForTimeout(150);
   r.phone = await page.evaluate(() => { const el = document.querySelector(".board"); const q = el?.getBoundingClientRect(); return el ? { drawer: el.classList.contains("board-drawer"), bottom: Math.round(innerHeight - q.bottom), full: Math.round(q.width) === innerWidth } : null; });
   await page.evaluate(() => document.getElementById("btnShop").click()); await page.waitForTimeout(120);
   r.phoneShop = await page.evaluate(() => ({ board: !!document.querySelector(".board"), shop: !document.getElementById("shop").hidden }));

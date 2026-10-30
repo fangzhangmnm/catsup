@@ -312,7 +312,7 @@ const hud: HudModel = {
     if ((TOOLS as readonly string[]).includes(id)) { if (locomotion.isPlacing()) locomotion.cancelPlace(); editor.setTool(id as Tool); return; }
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as PrimitiveKind); syncUi(); return; }
-    if (id === "objectWindow") { openObjectWindow(editor, hud, "children", objectBtn, syncUi, "start"); return; }   // 子组件物体菜单 / 浮条的「物体设置…」：窗口的家 = 右边物体钮
+    if (id === "objectWindow") { openObjectWindow(editor, hud, "children", objectBtn, { after: syncUi, openMachine: (m) => openMachineBoard(m, objectBtn) }, "start"); return; }   // 子组件物体菜单 / 浮条的「物体设置…」：窗口的家 = 右边物体钮
     switch (id) {
       case "undo": editor.undo(); break;
       case "redo": editor.redo(); break;
@@ -898,7 +898,6 @@ function syncUi(): void {
   selGrowRef?.sync();   // 扩 / 缩条：换了工具 / 没选区就收
   // 右上角的手 + 放大镜（拖着平移 / 缩放）：键鼠时藏（有滚轮 / 中键 / Shift+Z），检测到触摸 / 笔就露（账本 UX37，user 10-28「键鼠的时候手柄可以自动隐藏。检测到触摸自动出现」）
   { const nav = document.querySelector<HTMLElement>(".gizmo-nav"); if (nav) nav.hidden = lastPointerType === "mouse"; }
-  renderMachineBtns();
   ensureScaleLadder();   // B43：选了参考项就（空闲时）拉数据
   renderModeSelect();
   renderSlots();
@@ -1189,20 +1188,17 @@ xrayBtnRef = xrayBtn;
 // 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
 objectBtn.innerHTML = iconHtml("object"); $("modeSelect").after(objectBtn);
-objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, syncUi, "start"));
-// 车间里的机器（machine-window.ts MACHINES 表）：一台一颗钮，按车间 / 身体露（renderMachineBtns）；面板 = 那台机器的低频指令（user 10-28「每个机器一个面板，然后左栏是你的手和常用工具袋」）
-machineBtnsRef = MACHINES.map((m) => {
-  const b = document.createElement("button"); b.type = "button"; b.className = "gizmo-btn gizmo-machine"; b.dataset.machine = m.id; b.title = `${m.label}：这一层的${m.label}指令`;
-  b.innerHTML = iconHtml(m.icon); widgets.appendChild(b);
-  b.addEventListener("click", () => openMachineWindow(editor, hud, m, b, {
+objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, { after: syncUi, openMachine: (m) => openMachineBoard(m, objectBtn) }, "start"));
+// 车间里的机器（machine-window.ts MACHINES 表）：板 = 那台机器的低频指令（user 10-28「每个机器一个面板，然后左栏是你的手和常用工具袋」）。
+// 入口 = 物件窗口里那台机器的页签（user 10-29「修复菜单不应该挂在视图那边，而是物品选项里面的一个tab」；以前是右边视图那一列的扳手钮）
+function openMachineBoard(m: Machine, anchor: HTMLElement): void {
+  openMachineWindow(editor, hud, m, anchor, {
     store: { get: (id) => { try { const v = PREF.get(`board.${id}`); return v ? JSON.parse(v) as { x: number; y: number } : null; } catch { return null; } }, set: (id, p) => PREF.set(`board.${id}`, p ? JSON.stringify({ x: Math.round(p.x), y: Math.round(p.y) }) : "") },   // 板的位置记在这台设备（长按标题 = 归位）
     params: { setHome: (el, accepts) => vcb.setParamsHome(el, accepts) },
     onDrawer: () => { shopEl.hidden = true; },   // 手机竖屏：板和物品栏抢同一个底部位置（UX41）
     after: syncUi,
-  }));
-  return [m, b] as const;
-});
-renderMachineBtns();
+  });
+}
 snapBtnRef = snapBtn;
 const openSnapMenu = (): void => { togglePopupMenu<GridMenuId | "gridSettings">({ anchor: snapBtn, align: "end", items: snapMenuItems, onPick: (id) => { if (id === "gridSettings") { openViewMenu("grid"); return; } return onGridPick(id); } }); };
 let snapPress: { t: number; fired: boolean } | null = null;
@@ -1216,9 +1212,6 @@ snapBtn.addEventListener("contextmenu", (ev) => { ev.preventDefault(); snapPress
 var snapBtnRef: HTMLButtonElement | undefined;
 // eslint-disable-next-line no-var
 var xrayBtnRef: HTMLButtonElement | undefined;
-var machineBtnsRef: readonly (readonly [Machine, HTMLButtonElement])[] | undefined;
-/** 机器钮按车间 / 身体露（修复只在硬表面体里）。 */
-function renderMachineBtns(): void { for (const [m, b] of machineBtnsRef ?? []) b.hidden = !!m.when && !m.when(editor); }
 function renderSnapWidget(): void {
   if (xrayBtnRef) { xrayBtnRef.classList.toggle("on", editor.xray); xrayBtnRef.setAttribute("aria-pressed", editor.xray ? "true" : "false"); }   // X 光钮跟着同一次刷新
   const btn = snapBtnRef;

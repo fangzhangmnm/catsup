@@ -26,7 +26,10 @@ const res = await page.evaluate(async () => {
   out.orangeBefore = orange();
   const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), click = (el) => el?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   // 指令板（v0.16.20，UX41）：点扳手 = 修复这台机器的浮板；开板 = 直接进修复面板（参数区住进板里，不在右下角）
-  click(document.querySelector('.gizmo-machine[data-machine="repairWindow"]')); await sleep(80);
+  // 入口 = 物件窗口的「修复」页签 →「修复面板…」（v0.17.53；以前是右边视图那一列的扳手钮）
+  click(document.querySelector(".gizmo-object")); await sleep(80);
+  click([...document.querySelectorAll(".menu-tab")].find((x) => x.textContent.includes("修复"))); await sleep(40);
+  click([...document.querySelectorAll(".menu-item")].find((x) => x.textContent.includes("修复面板"))); await sleep(80);
   const board = () => document.querySelector('.board[data-board="repairWindow"]');
   out.window = { who: board()?.querySelector(".board-title")?.textContent ?? "", rows: [...(board()?.querySelectorAll("[data-cmd]") ?? [])].map((x) => x.dataset.cmd),
     paramsInBoard: !!board()?.querySelector(".board-params .vcb-params:not([hidden])"), paramsInCorner: !!document.querySelector("#vcb > .vcb-params:not([hidden])") };
