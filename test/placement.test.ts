@@ -40,13 +40,13 @@ describe("放置表（controller/placement.ts）", () => {
     }
     for (const [id, labels] of Object.entries(RAIL_LABELS)) { const m = modes[id as keyof typeof modes]; for (const t of Object.keys(labels!)) assert(m.tools.includes(t as never), `${id} 改名的 ${t} 不在那个工作台`); }
   });
-  it("☰：每行 id 不重复、页合法、每页至少一行；页的顺序 = 文件 / 模型 / 设置 / 帮助", () => {
+  it("☰：每行 id 不重复、页合法、每页至少一行；页的顺序 = 文件 / 设置 / 帮助（「模型」页 10-30 撤了）", () => {
     const ids = MENU_ROWS.map((r) => r.id);
     eq(ids.filter((x, i) => ids.indexOf(x) !== i).join(","), "", "重复");
     const tabs = new Set(MENU_TABS.map((t) => t.id));
     eq(MENU_ROWS.filter((r) => !tabs.has(r.tab)).map((r) => r.id).join(","), "", "页不合法");
     for (const t of MENU_TABS) assert(MENU_ROWS.some((r) => r.tab === t.id), `页 ${t.id} 空的`);
-    eq(MENU_TABS.map((t) => t.id).join(","), "file,model,settings,help");
+    eq(MENU_TABS.map((t) => t.id).join(","), "file,settings,help");
   });
   it("每个注册表放置面都登记了谁画；放在没渲染器（且不准先登记）的面上的动作 = 红；renderer 文件真的在", () => {
     const bad: string[] = [];

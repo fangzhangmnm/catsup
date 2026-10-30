@@ -32,6 +32,6 @@ export function snapSwitchLook(mode: ModeId): { icon: string; title: string; len
   // length = 钮右上角显示吸附长度（10 cm、1/4″、5 ft…；3.4 起不再是 1/N 细分）、长按菜单最上面直接列出来选（user 10-30「硬表面建模的吸附右上显示数字 1/100这种，然后长按可以切换，不用专门回菜单里」
   // 「长按是弹一个让你选。不然一个一个轮换太慢了」）；自由建模的磁铁不吸格点，没有这一项
   return mode === "freeform"
-    ? { length: false, icon: "snap-element", title: "吸附：吸到点 > 边 > 面（自由建模自己一份、默认关；笔 / 手指按它算，Shift = 临时反过来；鼠标不看它、按住 Shift 才吸）。右键或长按 = 方向锁 / 面锁、栅格设置" }
-    : { length: true, icon: "snap-grid", title: "格点吸附：只管格点 / 整格 / 15° 一档（吸到点、边、面一直开着），Shift = 临时反过来。右上角 = 吸附长度。点一下开 / 关；右键或长按 = 选吸附长度、方向锁 / 面锁、栅格设置" };
+    ? { length: false, icon: "snap-element", title: "吸附（点 / 边 / 面）· 长按：更多" }
+    : { length: true, icon: "snap-grid", title: "格点吸附 · 长按：更多" };
 }

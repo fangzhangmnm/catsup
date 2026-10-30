@@ -52,7 +52,7 @@ const res = await page.evaluate(async () => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.worth && /修复：最外层/.test(res.window.who) && !res.window.rows.includes("repairPanel") && res.window.rows.includes("action:brep.weld") && res.window.paramsInBoard && !res.window.paramsInCorner && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "brep.straighten", "brep.snap", "brep.cleanup", "brep.weld", "brep.planar", "brep.harden", "brep.fillHoles", "brep.resegment", "brep.hierarchy"])
+const ok = res.worth && /修复：最外层/.test(res.window.who) && !res.window.rows.includes("repairPanel") && res.window.rows.includes("action:brep.weld") && res.window.paramsInBoard && !res.window.paramsInCorner && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "brep.straighten", "brep.snap", "brep.cleanup", "brep.weld", "brep.planar", "brep.harden", "brep.soften", "brep.fillHoles", "brep.resegment", "brep.hierarchy"])
   && /焊接断口 1/.test(res.note) && /微折软边/.test(res.note) && res.orangeOn > res.orangeBefore + 20 && res.orangeOff <= res.orangeBefore + 2
   && /修复：/.test(res.hint) && /拉正了 \d+ 个点|吸了 \d+ 个点到格点/.test(res.hint) && /焊了 1 处断口/.test(res.hint)
   && res.after?.phase === "after" && res.after.title === "修复" && /没有剩下的微折软边/.test(res.after.note ?? "") && res.cornerBack && res.breaks === 0 && res.undoBreaks === 1 && res.undoCorner && !errs.length;

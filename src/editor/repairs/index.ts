@@ -13,8 +13,9 @@ import { hierarchy } from "./hierarchy/index.ts";
 import { fillHoles } from "./fill-holes/index.ts";
 import { cleanup } from "./cleanup/index.ts";
 import { resegment } from "./resegment/index.ts";
+import { soften } from "./soften.ts";
 
-const commands: readonly Command[] = [straighten, snap, cleanup, weld, planar, harden, fillHoles, resegment, hierarchy];
+const commands: readonly Command[] = [straighten, snap, cleanup, weld, planar, harden, soften, fillHoles, resegment, hierarchy];
 
 /** 修复面板 = 一条复合动作的参数窗：勾几步、按这个顺序跑完 = 一步撤销。on = 默认勾不勾（AI 定的默认：只动小毛病的勾；吸格点 / 清理 / 补洞 / 改段数 / 恢复层级不勾——会挪点、会擦线、改结构、段数是你挑的）。 */
 export const REPAIR_STEPS: readonly { readonly command: CommandId; readonly on: boolean; label(env: CommandEnv): string }[] = [
@@ -24,6 +25,7 @@ export const REPAIR_STEPS: readonly { readonly command: CommandId; readonly on: 
   { command: "brep.weld", on: true, label: () => "焊接断口" },
   { command: "brep.planar", on: true, label: (env) => `拍平（弯折 < ${env.sharpDeg()}° 的边，整片差不多平才拍）` },
   { command: "brep.harden", on: true, label: () => "折得很厉害的软边变硬" },
+  { command: "brep.soften", on: false, label: () => "软化弯折小的边（平滑组；会改样子，默认不勾）" },   // 从 ☰「模型」页搬来（user 10-30）
   { command: "brep.fillHoles", on: false, label: () => "补洞（没封口的平面开口补上面）" },
   { command: "brep.resegment", on: false, label: () => "改段数（回转体：圆柱、轮子、炮管…）" },
   { command: "brep.hierarchy", on: false, label: () => "恢复层级（连在一起的块各成一组，形状一样的合成组件）" },
@@ -37,6 +39,7 @@ const actions: readonly Action[] = [
   { id: "brep.weld", commands: { brep: "brep.weld" }, icon: "arc", label: (n) => `焊接断口（${n}）` },
   { id: "brep.planar", commands: { brep: "brep.planar" }, icon: "sharpen", label: (n) => `拍平（${n} 组）` },
   { id: "brep.harden", commands: { brep: "brep.harden" }, icon: "sharpen", label: (n) => `折得很厉害的软边变硬（${n}）` },
+  { id: "brep.soften", commands: { brep: "brep.soften" }, icon: "blur", label: (n) => `软化弯折小的边（${n}）` },
   { id: "brep.fillHoles", commands: { brep: "brep.fillHoles" }, icon: "fill-hole", label: (n) => `补洞…（${n} 个）` },
   { id: "brep.resegment", commands: { brep: "brep.resegment" }, icon: "circle", label: (n) => `改段数…（${n} 个回转体）` },
   { id: "brep.hierarchy", commands: { brep: "brep.hierarchy" }, icon: "collection", label: (n) => `恢复层级…（${n} 块）` },

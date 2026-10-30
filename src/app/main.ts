@@ -288,6 +288,7 @@ const hud: HudModel = {
     { id: "cut", layer: "geometry", label: "剪切", icon: "cut", hidden: !editor.hasSelection() },   // 剪贴板（设计稿 20261028-object-layer-and-clipboard-design §3）：几何 + 组 + 物件都走它；层级移动 = 剪切 → 走到那层 → 粘贴
     { id: "copy", layer: "geometry", label: "拷贝", icon: "copy", hidden: !editor.hasSelection() },
     { id: "paste", layer: "empty", label: "粘贴（原位）", icon: "paste", hidden: !editor.canPaste() },
+    { id: "selectAll", layer: "empty", label: "全选", icon: "select" },   // 清空模型 = 这里全选再删（user 10-30「清空模型归右键，而且可能就是全选删除，我们这里不需要清空画布快捷键」）
     { id: "enter", layer: "child", label: "进入编辑", icon: "selection-expand", hidden: !editor.hasPoolSelection() },
     { id: "rename", layer: "child", label: "改名…", icon: "rename", hidden: editor.selectedPoolKeys().filter((k) => k.startsWith("i")).length !== 1 },   // 0.18 I4：层级窗的「…」和画布右键同一张表
     { id: "hideGeometry", layer: "geometry", label: "隐藏", icon: "visibility-hide", hidden: brepOnly || !(editor.hasGeometrySelection() || editor.hasGroupSelection()) },   // 几何 / 组的藏（硬表面）；物件的藏在上面的注册表行
@@ -331,6 +332,7 @@ const hud: HudModel = {
       case "cut": editor.cutSelection(); break;
       case "copy": editor.copySelection(); break;
       case "paste": editor.pasteClipboard(); break;
+      case "selectAll": editor.selectAll(); break;
       case "rename": void renameSelected(); break;
       case "renameRoot": void renameRoot(); break;
       case "unhideAll": editor.unhideAll(); break;
@@ -533,7 +535,7 @@ const btnRedo = $<HTMLButtonElement>("btnRedo");
 const btnMenu = $<HTMLButtonElement>("btnMenu");
 // 物品栏底部抽屉 sunset（2026-10-30，user「物品栏和物品栏按钮是不是可以sunset……素材库和层级应该用同一个screen icon。两个太多了」）：组件清单 → 层级窗「资源」页（hierarchy-window.ts）。
 // 抽屉高度变量 --drawer-h 留着（styles.css，现在没人写 = 0；以后的底部抽屉——时间轴——还用这一套让 HUD 往上让）。
-type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "clear" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | "softenAll" | "weldAllBreaks" | "makePlanarAll" | `unit:${string}` | `style:${string}` | "material" | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
+type MenuId = "newOpen" | "importHub" | "exportHub" | "new" | "gallery" | "save" | "saveas" | "open" | "exportProject" | "exportModel" | "cloud" | "import" | "importGlb" | "finger" | "help" | "debuglog" | "update" | "factoryReset" | "vr" | "lefthand" | `unit:${string}` | `style:${string}` | "guidesClear" | "axesReset" | "grid" | "unit:pick" | "lock" | "unlock" | "encrypt" | "decrypt" | "pwLock" | "pwForget" | "noclip" | "persp" | "xray" | "walk" | "refwin" | "unhideAll";
 /** ☰ 与右上角「视图」共用一张动作表（id 不重叠）。 */
 function menuPick(id: MenuId): void | "keep" {
     if (id.startsWith("screen:")) {   // 屏幕（T106：和画风分开选；像素下采样 / 行数 / 外观；写实也能套屏）。跟文件走（desk 1.3，T86）
@@ -585,10 +587,6 @@ function menuPick(id: MenuId): void | "keep" {
       case "importGlb": glbImportInput.click(); break;
       case "finger": fingerDraws = !fingerDraws; PREF.set("fingerDraws", fingerDraws ? "1" : "0"); return "keep";
       case "debuglog": openDebugLogSheet(); break;
-      case "softenAll": { const n = editor.softenByAngle(20); notify({ text: n ? `软化了 ${n} 条边（夹角 ≤ 20°）` : "没有夹角 ≤ 20° 的边", level: "info" }); break; }
-      case "weldAllBreaks": editor.repair("brep.weld", "context"); break;
-      case "makePlanarAll": editor.repair("brep.planar", "context"); break;
-      case "material": toggleMatSheet(true); break;
       case "persp": editor.toggleProjection(); return "keep";
       case "xray": editor.setXray(!editor.xray); return "keep";
       case "unhideAll": editor.unhideAll(); break;
@@ -598,9 +596,6 @@ function menuPick(id: MenuId): void | "keep" {
       case "axesReset": editor.resetContextFrame(); return "keep";
       case "noclip": locomotion.setNoclip(!locomotion.noclip); return "keep";
       case "refwin": refHost.toggle(); break;   // 参考窗（视图钮旁边那颗钮 / 键表；开 = 给它焦点，开窗 → Ctrl+V 一步到位）
-      case "clear":
-        notify({ id: "clear", text: "清空整个模型？（可撤销）", level: "warning", actions: [{ label: "清空", primary: true, onClick: () => editor.clearAll() }, { label: "取消", onClick: () => {} }] });
-        break;
       case "help": toggleHelp(true); break;
       case "update": note("sw", "force reset requested (menu)"); pwa.forceReset(); break;
       // 还原出厂设置（家规 2½；factory-reset.ts）：两步护栏在它里面；成功 = 带 ?factory= reload，开机 finishFactoryResetAtBoot 收尾
@@ -641,19 +636,6 @@ function menuRow(id: string): Omit<PopupMenuItem<MenuId>, "tab"> | null {
         : { id: "encrypt", label: "加密保护…", icon: "lock", hint: "整个图库一个口令；7-Zip 也能开" };
     case "pwLock": return isUnlocked() ? { id: "pwLock", label: "锁定（忘掉口令）", icon: "lock", hint: "之后再开加密的模型要重新输" } : null;
     case "pwForget": { const u = rememberedUntil(); return u != null ? { id: "pwForget", label: "忘记这台设备记着的口令", icon: "unlock", hint: `记到 ${rememberDayText(u)}` } : null; }
-    case "softenAll": return { id: "softenAll", label: "软化所有 ≤ 20° 的边", icon: "blur", hint: "平滑组" };
-    case "weldAllBreaks": {   // T7 / DT5；修复模块扔掉了 = 这一项不出
-      if (!editor.repairLoaded("brep.weld")) return null;
-      const n = editor.repairCount("brep.weld", "context");
-      return { id: "weldAllBreaks", label: n ? `焊接全部断口（${n}）` : "焊接全部断口", icon: "arc", hint: "当前在编辑的整个物件（含子物件）", disabled: !n };
-    }
-    case "makePlanarAll": {   // T9 / DT7；修复模块扔掉了 = 这一项不出
-      if (!editor.repairLoaded("brep.planar")) return null;
-      const n = editor.repairCount("brep.planar", "context");
-      return { id: "makePlanarAll", label: n ? `拍平几乎共面的面（${n} 组）` : "拍平几乎共面的面", icon: "sharpen", hint: "弯折小于锐角阈值的硬边分开的面", disabled: !n };
-    }
-    case "material": return { id: "material", label: "材质…", icon: "color", hint: "油漆桶蘸什么" };
-    case "clear": return { id: "clear", label: "清空模型", icon: "trash-can" };
     case "finger": return { id: "finger", label: "手指也能画", checked: fingerDraws, ...(gestures.penEverSeen() ? { hint: "已见过笔，手指=相机" } : {}) };
     case "factoryReset": return { id: "factoryReset", label: "还原出厂设置…", icon: "trash-can", hint: "两步确认" };
     case "help": return { id: "help", label: "使用手册", icon: "help" };
@@ -1273,11 +1255,11 @@ void viewGizmo;
 // 视图侧挂件条（user 2026-10-24「以后视图侧会有很多挂件。snap只是其中第一个」）：gizmo 下面一列；第一个 = 吸附——点一下开 / 关栅格吸附，
 // 右键 / 长按 = 菜单（方向锁、制式、栅格面、格距、细分）；钮角标 = 当前方向锁。
 const widgets = document.createElement("div"); widgets.className = "gizmo-btns gizmo-widgets"; $("viewGizmo").appendChild(widgets);
-const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "栅格吸附（点一下开 / 关；右键或长按 = 方向锁 / 面锁、栅格设置）";
+const snapBtn = document.createElement("button"); snapBtn.type = "button"; snapBtn.className = "gizmo-btn gizmo-snap"; snapBtn.title = "格点吸附 · 长按：更多";   // 提示精简（user 10-30「格点吸附和xray的tooltip精简一下」）；细节在长按菜单 / 状态行
 snapBtn.innerHTML = iconHtml("snap-grid") + '<span class="gizmo-badge" hidden></span><span class="gizmo-subdiv" hidden></span><span class="gizmo-snaplock"></span>';   // 锁 = 这是「吸附」不是「显示栅格」（user「吸附的话得图标加一个锁」）：开着锁上、关着打开
 widgets.appendChild(snapBtn);
 // X 光快捷钮（2026-10-29 user「xray开关放一个快捷键到视图快捷键区的锁快捷键旁边」；纪元账本 FM51「X 光开关放右上角锁旁边」）：点一下开 / 关，亮着 = 开；Alt+Z 同一个开关，视图菜单里那一行照留
-const xrayBtn = document.createElement("button"); xrayBtn.type = "button"; xrayBtn.className = "gizmo-btn gizmo-xray"; xrayBtn.title = "X 光（Alt+Z）：边透过面画出来，选择工具点得到被挡住的点 / 边 / 面（面中心的小方点）";
+const xrayBtn = document.createElement("button"); xrayBtn.type = "button"; xrayBtn.className = "gizmo-btn gizmo-xray"; xrayBtn.title = "X 光（Alt+Z）";
 xrayBtn.innerHTML = iconHtml("xray"); widgets.appendChild(xrayBtn);
 xrayBtn.addEventListener("click", () => { editor.setXray(!editor.xray); syncUi(); });
 xrayBtnRef = xrayBtn;

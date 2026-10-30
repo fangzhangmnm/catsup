@@ -40,7 +40,7 @@ export interface RailFold {
 export declare const RAIL_FIXED_FOLD: Readonly<Partial<Record<ModeId, readonly RailFold[]>>>;
 /** 同一把工具在某个工作台里另起的名字（user 10-27「要不要在自由建模工作台里显示成「拉」 可以」「或者叫挤出也行，更标准」；插入那一格合租倒角，user 10-28「3插入倒角」）。 */
 export declare const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, string>>>>>;
-export type MenuTab = "file" | "model" | "settings" | "help";
+export type MenuTab = "file" | "settings" | "help";
 export interface MenuTabDef {
     readonly id: MenuTab;
     readonly label: string;

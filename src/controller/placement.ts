@@ -61,11 +61,10 @@ export const RAIL_LABELS: Readonly<Partial<Record<ModeId, Partial<Record<Tool, s
 // 分页 = WeebPaint 范式（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页 = 合租法（user 10-24「看一下weebpaint是怎么收的更干净的，谁和谁合租」）：
 // 新建 / 打开合一行、导入单独一行（在它下面；user 10-29「导入必须单独放……新建打开下面专门放一个导入」）、导出与另存合一行，各开小弹层；保存走顶栏保存钮，登录走图库页——都不占菜单行。
 
-export type MenuTab = "file" | "model" | "settings" | "help";
+export type MenuTab = "file" | "settings" | "help";
 export interface MenuTabDef { readonly id: MenuTab; readonly label: string; readonly icon: string }
 export const MENU_TABS: readonly MenuTabDef[] = [
   { id: "file", label: "文件", icon: "floppy-disk" },
-  { id: "model", label: "模型", icon: "object" },
   { id: "settings", label: "设置", icon: "settings" },
   { id: "help", label: "帮助", icon: "help" },
 ];
@@ -78,11 +77,8 @@ export const MENU_ROWS: readonly MenuRow[] = [
   { id: "exportHub", tab: "file" },
   { id: "lock", tab: "file" },              // 锁上 / 解锁（演示锁，同一行，渲染器按状态换字；周账 F-124 吃掉定稿 / 改稿）
   { id: "encrypt", tab: "file" },           // 加密保护… / 解除加密…（同一行按状态换字；图库家才出；周账 F-123）
-  { id: "softenAll", tab: "model" },
-  { id: "weldAllBreaks", tab: "model" },
-  { id: "makePlanarAll", tab: "model" },
-  { id: "material", tab: "model" },
-  { id: "clear", tab: "model", separatorBefore: true },
+  // 「模型」页撤了（user 10-30「这一栏里面几乎所有的东西都不应跟出现在这里吧。前三个是修复，整理好，然后材质是同居的属性，然后清空模型归右键，而且可能就是全选删除，
+  // 我们这里不需要清空画布快捷键」）：软化 / 焊接 / 拍平 → 修复面板；材质 → 油漆桶（再点一下 / 工具条色块）；清空 → 空白处右键「全选」再删
   { id: "finger", tab: "settings" },
   { id: "lefthand", tab: "settings", section: "VR" },   // 支持 VR 的设备才出（视图窗口只管画风以后挪来，user 10-30）
   { id: "pwLock", tab: "settings", section: "口令" },     // 锁定（忘掉口令）；解锁着才出
