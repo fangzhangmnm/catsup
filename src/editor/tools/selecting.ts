@@ -146,7 +146,7 @@ export function clickSelect(ctx: ToolCtx, ev: ToolPointer, n: number, opts: { gr
 }
 
 export interface ScreenBox { minX: number; minY: number; maxX: number; maxY: number }
-/** 框选 / 套索：区域里的点（自由建模，FM139）/ 边 / 面 / 子物体 / 空组件 / 参考点（参考线无限长、框选会全中，不收）。区域 = 框或套索（marquee.ts ScreenArea），遮挡同一套。 */
+/** 框选 / 套索：区域里的点（自由建模，FM139）/ 边 / 面 / 子物体 / 空组件 / 参考点（参考线无限长、框选会全中，不收）。区域 = 框或套索（marquee.ts ScreenArea），遮挡同一套。框空了 = 清空选区。 */
 export function boxSelect(ctx: ToolCtx, box: ScreenArea, mode: SelMode): void {
   const view = ctx.live(), picked = ctx.marqueePick(box), inArea = areaTest(box);
   const verts: number[] = [], edges: number[] = [], faces: number[] = [];
@@ -158,7 +158,10 @@ export function boxSelect(ctx: ToolCtx, box: ScreenArea, mode: SelMode): void {
   const K = pickKinds(ctx);   // 拾取范围：关掉的那一级框不到
   if (K) { if (!K.verts) verts.length = 0; if (!K.edges) edges.length = 0; if (!K.faces) faces.length = 0; }
   const vp = ctx.vp(), guides = view.guides().points.filter((q) => { const s2 = ctx.frame().project?.(q.p, vp); return !!s2 && inArea(s2); }).map((q) => q.id);
-  ctx.replaceSelection({ verts, edges, faces, pools: [...pools.values()], guides }, mode);
+  // 框里什么都没有 = 清空选区，不管这一下是加 / 减 / 多选（user 10-30「矩形选区选空的时候语义应该是清除选区。zbrush的肌肉记忆」）；选区进撤销，撤一步回来
+  const empty = !verts.length && !edges.length && !faces.length && !pools.size && !guides.length, had = ctx.hasSelection();
+  ctx.replaceSelection({ verts, edges, faces, pools: [...pools.values()], guides }, empty ? "replace" : mode);
+  if (empty && had) ctx.hint("框里什么都没有：清空了选区（撤销能回来）");
   ctx.afterSelect();
 }
 

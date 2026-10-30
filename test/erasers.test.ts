@@ -7,6 +7,7 @@ import { Scene } from "../src/scene/scene.ts";
 import { History } from "../src/editor/history.ts";
 import type { Op } from "../src/editor/ops.ts";
 import { planWeldErase, planSoftErase, turnDeg } from "../src/editor/erase-plans.ts";
+import { TOOL_OPTIONS } from "../src/editor/tool-config.ts";
 
 const P = (x: number, y: number, z = 0): PtIn => ({ x, y, z });
 const same = (p: PtIn, q: { x: number; y: number; z: number }): boolean => Math.abs(p.x - q.x) < 1e-6 && Math.abs(p.y - q.y) < 1e-6 && Math.abs((p.z ?? 0) - q.z) < 1e-6;
@@ -120,6 +121,19 @@ describe("erasers: 焊边规划（planWeldErase）", () => {
 });
 
 describe("erasers: 软边规划（planSoftErase）", () => {
+  it("出厂上限下 12 段棱柱（两面夹 30°）的竖边能软化、上圈 90° 的棱护住（user 10-30「软边橡皮为什么软化不了」：老默认 20° 全挡）", () => {
+    const k = new Kernel(), n = 12, R = 1, H = 1;
+    const at = (i: number, z: number): PtIn => P(R * Math.cos((2 * Math.PI * i) / n), R * Math.sin((2 * Math.PI * i) / n), z);
+    const segs: [PtIn, PtIn][] = [];
+    for (let i = 0; i < n; i++) { segs.push([at(i, 0), at(i + 1, 0)]); segs.push([at(i, H), at(i + 1, H)]); segs.push([at(i, 0), at(i, H)]); }
+    k.addEdges(segs);
+    eq(k.faces().length, n + 2);
+    const maxDeg = TOOL_OPTIONS.softErase.maxDeg.def;
+    const sides = Array.from({ length: n }, (_, i) => edgeBetween(k, at(i, 0), at(i, H)));
+    const rim = Array.from({ length: n }, (_, i) => edgeBetween(k, at(i, H), at(i + 1, H)));
+    const p = planSoftErase(k, [...sides, ...rim], maxDeg);
+    eq(p.soften.length, n, `竖边 ${n} 条软化（上限 ${maxDeg}°）`); eq(p.tooSharp, n, "上圈直角棱不碰"); eq(p.erase.length, 0);
+  });
   it("盒子：竖棱 90° 超 20° 护栏不碰、放到 90° 软化；顶面被一条线切成两半 → 那条线共面 → 删边并面", () => {
     const k = new Kernel();
     const B = [[0, 0], [1, 0], [1, 1], [0, 1]];

@@ -5,7 +5,7 @@
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
 // 修复板的入口 = 物件窗口的「修复」页签 →「修复面板…」（v0.17.53；user 10-29「修复菜单不应该挂在视图那边，而是物品选项里面的一个tab」；以前是右边视图那一列的扳手钮）。再走一遍 = 关板
-const openRepair = async (pg) => { if (!(await pg.evaluate(() => !!document.querySelector('.float-win[data-win="object"]:not([hidden])')))) await pg.click(".gizmo-object"); await pg.waitForTimeout(80); await pg.click(".menu-tab:has-text('修复')"); await pg.waitForTimeout(40); await pg.click(".menu-item:has-text('修复面板')"); await pg.waitForTimeout(40); };
+const openRepair = async (pg) => { if (!(await pg.evaluate(() => !!document.querySelector(".popup-menu .menu-item[data-menu-id^='machine:']")))) await pg.click(".gizmo-object"); await pg.waitForTimeout(80); await pg.click(".popup-menu .menu-item:has-text('修复面板')"); await pg.waitForTimeout(40); };   // 物件窗口 = 弹出菜单、不分页签（v0.17.65）
 const b = await chromium.launch({ args: ["--use-gl=angle", "--use-angle=swiftshader", "--enable-unsafe-swiftshader"] });
 const errs = [];
 const scene = (page) => page.evaluate(() => {   // 一个挪歪 1 mm 的盒子 + 一条断口：修复面板有事可做

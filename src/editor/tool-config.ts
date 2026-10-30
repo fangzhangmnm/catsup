@@ -209,11 +209,12 @@ export const TOOL_OPTIONS = {
     action: { kind: "enum", label: "动作", values: [{ id: "weld", label: "焊接" }, { id: "split", label: "拆开", hint: "刮过的曲线拆回一段段（按住 Shift 临时反过来）" }], def: "weld", scope: "session" },
     maxDeg: { kind: "number", label: "最大角度", def: 45, min: 1, max: 90, step: 1, unit: "°", scope: "session" },
   },
-  /** 软边橡皮（「第三个橡皮……原理一样。共面就删边，不共面就改软边」）：两膜二面角 ≤ 这个角才软化（+ 平滑）；共面直接删边并面；更尖的不碰。默认 20° 对齐 SU Soften。 */
+  /** 软边橡皮（「第三个橡皮……原理一样。共面就删边，不共面就改软边」）：两膜二面角 ≤ 这个角才软化（+ 平滑）；共面直接删边并面；更尖的不碰。
+   *  默认 45°（和焊边一样；2026-10-30 Opus 5.5 从 20° 提上来——user 10-30「软边橡皮为什么软化不了」：12 段圆柱两面夹 30°，20° 全挡掉；45° 仍护住 90° 的盒子棱）。 */
   softErase: {
     /** 反向（同上）：硬化 = 刮过的边去掉软 + 平滑（Blender 的 mark sharp）；按住 Shift = 这里选的反面。 */
     action: { kind: "enum", label: "动作", values: [{ id: "soften", label: "软化" }, { id: "harden", label: "硬化", hint: "刮过的边变硬（= 标记硬边；按住 Shift 临时反过来）" }], def: "soften", scope: "session" },
-    maxDeg: { kind: "number", label: "最大角度", def: 20, min: 1, max: 90, step: 1, unit: "°", scope: "session", modes: ["geometry"] },
+    maxDeg: { kind: "number", label: "最大角度", def: 45, min: 1, max: 90, step: 1, unit: "°", scope: "session", modes: ["geometry"] },
   },
   /** 新建（自由建模；纪元账本 FM182，user 10-27「然后能不能加一个新建的tool，就是拖动然后新建，可以马前炮和马后炮，如果你想用马前炮的尺寸就点击」）：
    *  新建什么 + 点一下时的尺寸（= 马前炮；拖 = 拖多大就多大）。尺寸 = 边长（立方体 / 平面）或直径（圆柱 / 圆锥 / 球），存米、按显示单位显示。马后炮（对齐 / 尺寸 / 段数）照右键新建那一套。 */

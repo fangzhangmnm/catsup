@@ -22,13 +22,12 @@ const res = await page.evaluate(async () => {
   e.deselectAll();
   e.cam.setView("iso"); e.zoomExtents?.(); e.draw(); await sleep(50);
   const out = { worth: e.repairWorth() };
-  const orange = () => { e.draw(); const c = document.getElementById("board"), gl = c.getContext("webgl2") ?? c.getContext("webgl"); const px = new Uint8Array(c.width * c.height * 4); gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px); let n = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 190 && px[i + 1] > 90 && px[i + 1] < 150 && px[i + 2] < 60) n++; return n; };
+  const orange = () => { e.draw(); const c = document.getElementById("board"), gl = c.getContext("webgl2") ?? c.getContext("webgl"); const px = new Uint8Array(c.width * c.height * 4); gl.readPixels(0, 0, c.width, c.height, gl.RGBA, gl.UNSIGNED_BYTE, px); let n = 0; for (let i = 0; i < px.length; i += 4) if (px[i] > 170 && px[i + 1] < 110 && px[i + 2] < 110 && px[i] - px[i + 1] > 80) n++; return n; };   // 检查高亮 = 画风的警示色（v0.17.60 四色起线稿是红 #cc3333，不再是橙；X 轴也是红 → 下面按开检查前的数做底）
   out.orangeBefore = orange();
   const menu = () => document.querySelector(".popup-menu:not(.choice-layer)"), click = (el) => el?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
   // 指令板（v0.16.20，UX41）：点扳手 = 修复这台机器的浮板；开板 = 直接进修复面板（参数区住进板里，不在右下角）
-  // 入口 = 物件窗口的「修复」页签 →「修复面板…」（v0.17.53；以前是右边视图那一列的扳手钮）
+  // 入口 = 物件窗口（弹出菜单，v0.17.65 不分页签）的「修复面板…」（v0.17.53 是「修复」页签；更早是右边视图那一列的扳手钮）
   click(document.querySelector(".gizmo-object")); await sleep(80);
-  click([...document.querySelectorAll(".menu-tab")].find((x) => x.textContent.includes("修复"))); await sleep(40);
   click([...document.querySelectorAll(".menu-item")].find((x) => x.textContent.includes("修复面板"))); await sleep(80);
   const board = () => document.querySelector('.board[data-board="repairWindow"]');
   out.window = { who: board()?.querySelector(".board-title")?.textContent ?? "", rows: [...(board()?.querySelectorAll("[data-cmd]") ?? [])].map((x) => x.dataset.cmd),
@@ -53,8 +52,8 @@ const res = await page.evaluate(async () => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.worth && res.orangeBefore === 0 && /修复：最外层/.test(res.window.who) && !res.window.rows.includes("repairPanel") && res.window.rows.includes("action:brep.weld") && res.window.paramsInBoard && !res.window.paramsInCorner && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "brep.straighten", "brep.snap", "brep.cleanup", "brep.weld", "brep.planar", "brep.harden", "brep.fillHoles", "brep.resegment", "brep.hierarchy"])
-  && /焊接断口 1/.test(res.note) && /微折软边/.test(res.note) && res.orangeOn > 20 && res.orangeOff === 0
+const ok = res.worth && /修复：最外层/.test(res.window.who) && !res.window.rows.includes("repairPanel") && res.window.rows.includes("action:brep.weld") && res.window.paramsInBoard && !res.window.paramsInCorner && res.open && JSON.stringify(res.fields) === JSON.stringify(["children", "inspect", "brep.straighten", "brep.snap", "brep.cleanup", "brep.weld", "brep.planar", "brep.harden", "brep.fillHoles", "brep.resegment", "brep.hierarchy"])
+  && /焊接断口 1/.test(res.note) && /微折软边/.test(res.note) && res.orangeOn > res.orangeBefore + 20 && res.orangeOff <= res.orangeBefore + 2
   && /修复：/.test(res.hint) && /拉正了 \d+ 个点|吸了 \d+ 个点到格点/.test(res.hint) && /焊了 1 处断口/.test(res.hint)
   && res.after?.phase === "after" && res.after.title === "修复" && /没有剩下的微折软边/.test(res.after.note ?? "") && res.cornerBack && res.breaks === 0 && res.undoBreaks === 1 && res.undoCorner && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");

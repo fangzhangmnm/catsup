@@ -21,7 +21,7 @@ import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
 import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
-import { openObjectWindow, objectWindowMenu } from "./object-window.ts";
+import { openObjectWindow } from "./object-window.ts";
 import { createFloatWin, createMenuWindow, type FloatWin, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
@@ -922,7 +922,7 @@ function syncUi(): void {
   syncNight();
   renderSnapWidget();
   refreshMachineBoard();   // 指令板上的数跟着模型变
-  viewWin?.refresh(); objectWin?.refresh(); brushWin?.refresh();   // 常驻浮窗（视图 / 物件 / 雕刻笔刷）：内容变了才重画（ui/menu-window.ts）
+  viewWin?.refresh(); brushWin?.refresh();   // 常驻浮窗（视图 / 雕刻笔刷）：内容变了才重画（ui/menu-window.ts）
   releaseLatchesOnToolChange(); mfdRef?.render();   // 键名芯片（UX19）；换了工具 = 锁住的修饰键放开
   softSliderRef?.render();   // 软选择半径滑条
   selGrowRef?.sync();   // 扩 / 缩条：换了工具 / 没选区就收
@@ -1113,7 +1113,7 @@ const gestures = attachGestures(canvas, editor, {
 const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => locomotion.isWalking(), onProjection: () => syncUi() });
 // 右上角「视图」菜单（user 2026-10-24「视图时是归右上角的汉堡管」）：透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR
 const viewMenuBtn = document.createElement("button");
-viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("menu");
+viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("sliders");   // 滑杆 = 调视图（user 10-30「视图按钮换一个icon」：以前和左上 ☰ 同一个图标）
 ($("viewGizmo").querySelector(".gizmo-top") as HTMLElement).appendChild(viewMenuBtn);
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
@@ -1121,7 +1121,6 @@ let ladderTimer = 0;
 // eslint-disable-next-line no-var
 var viewMenuHandle: { refresh(force?: boolean): void; isOpen(): boolean } | null = null;   // var：加载回来时刷新开着的菜单
 // eslint-disable-next-line no-var
-var objectWin: MenuWindowHandle | null = null;   // 物件浮窗（这一层）
 /** 拉梯子数据（279 KB / gzip 58 KB）：选了参考项才拉；开机时等 1.5 s 再拉（启动优先），用户点了参考页 / 选了一项 = 立刻拉。 */
 function ensureScaleLadder(now = false): void {
   if (ladder || !editor.scaleRefs.length && !now) return;
@@ -1257,10 +1256,10 @@ xrayBtnRef = xrayBtn;
 // 物体窗口的钮（UX 心智模型 §2.1：一个窗口只看一个指针——这一颗 = 你所在的这一层；子组件的物体菜单「物体设置…」也从这里开，当前换成它们）
 // 2026-10-28 夜挪到左上、工作台下拉旁边（user「物体属性不在视图那边，可以放在工作流左边」）：右边那一列只管视图
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
-objectBtn.innerHTML = iconHtml("object"); $("modeSelect").after(objectBtn);
-// 「这一层」= 常驻浮窗（ui/menu-window.ts）；选中的子组件（物体菜单「物体设置…」）还是一次性的下拉（openObjectWindow）
+objectBtn.innerHTML = iconHtml("object"); $("modeSelect").before(objectBtn);   // 工作台下拉的左边（user 10-30「物件设置按钮放在tab下拉左边」）
+// 「这一层」和选中的子组件（物体菜单「物体设置…」）都是一次性的下拉（openObjectWindow）
 const objectWinDeps = { after: syncUi, openMachine: (m: Machine) => openMachineBoard(m, objectBtn) };
-objectBtn.addEventListener("click", () => (objectWin ??= createMenuWindow({ id: "object", title: "物件", menu: () => objectWindowMenu(editor, hud, "self", objectWinDeps), store: WIN_POS, onOpenChange: (o) => objectBtn.classList.toggle("is-open", o) })).toggle(objectBtn, "start"));
+objectBtn.addEventListener("click", () => openObjectWindow(editor, hud, "self", objectBtn, objectWinDeps, "start"));   // 弹出菜单、再点一下收起（user 10-30「可以恢复成菜单的样式而不是浮窗」）
 // 车间里的机器（machine-window.ts MACHINES 表）：板 = 那台机器的低频指令（user 10-28「每个机器一个面板，然后左栏是你的手和常用工具袋」）。
 // 入口 = 物件窗口里那台机器的页签（user 10-29「修复菜单不应该挂在视图那边，而是物品选项里面的一个tab」；以前是右边视图那一列的扳手钮）
 function openMachineBoard(m: Machine, anchor: HTMLElement): void {

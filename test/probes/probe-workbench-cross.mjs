@@ -20,7 +20,7 @@ await page.evaluate(() => globalThis.__catsup.pickWorkbench("freeform")); await 
 r.oneAfter = await state();
 r.oneSheet = await page.evaluate(() => !![...document.querySelectorAll("button")].find((x) => x.textContent === "不转" && x.offsetParent));
 // ②
-r.two = await page.evaluate(() => { const btn = document.querySelector(".gizmo-object"); return { inTopLeft: !!btn?.closest(".hud-topleft"), afterMode: btn?.previousElementSibling?.id === "modeSelect", inWidgets: !!document.querySelector(".gizmo-widgets .gizmo-object") }; });
+r.two = await page.evaluate(() => { const btn = document.querySelector(".gizmo-object"); return { inTopLeft: !!btn?.closest(".hud-topleft"), afterMode: btn?.nextElementSibling?.id === "modeSelect"   /* v0.17.65 起在工作台下拉左边 */, inWidgets: !!document.querySelector(".gizmo-widgets .gizmo-object") }; });
 r.fourItems = await dropdown();
 // ③ 新开一个有几何的：撤销回硬表面体最外层，画个盒子
 await page.evaluate(async () => { const e = globalThis.__catsup.editor; while (e.canUndo()) e.undo(); e.setMode("geometry");

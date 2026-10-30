@@ -12,7 +12,8 @@ await page.goto(process.argv[2] ?? "http://127.0.0.1:8765/", { waitUntil: "load"
 const res = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const c = document.getElementById("board"), r = c.getBoundingClientRect();
-  const fire = (type, x, y, buttons) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, pointerId: 7, pointerType: "mouse", isPrimary: true, button: 0, buttons }));
+  let shift = false;   // 按住 Shift（加选）画这一圈
+  const fire = (type, x, y, buttons) => c.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: r.left + x, clientY: r.top + y, pointerId: 7, pointerType: "mouse", isPrimary: true, button: 0, buttons, shiftKey: shift }));
   // 画一圈：圆心 (cx, cy)、半径 rad，24 个点
   const circle = async (cx, cy, rad, mid) => {
     fire("pointermove", cx + rad, cy, 0); await sleep(10); fire("pointerdown", cx + rad, cy, 1); await sleep(10);
@@ -40,6 +41,10 @@ const res = await page.evaluate(async () => {
   e.deselectAll(); await sleep(10);
   await circle(80, 620, 40);
   out.empty = { faces: e.selection.faces.size, edges: e.selection.edges.size };
+  // ③′ 有选区时按住 Shift（加选）在空地圈一圈 = 清空选区（user 10-30「矩形选区选空的时候语义应该是清除选区。zbrush的肌肉记忆」）
+  e.selectAll(); await sleep(10); out.beforeClear = e.selection.faces.size;
+  shift = true; await circle(80, 620, 40); shift = false;
+  out.cleared = { faces: e.selection.faces.size, edges: e.selection.edges.size, hint: document.getElementById("hint")?.textContent ?? "" };
   // ⑤ 切回框：从左上空处拖到右下 = 框住
   e.config.set("select", "drag", "box"); e.deselectAll(); await sleep(10);
   fire("pointermove", 20, 20, 0); await sleep(10); fire("pointerdown", 20, 20, 1); await sleep(10);
@@ -60,6 +65,7 @@ await b.close();
 res.errs = errs;
 console.log(JSON.stringify(res, null, 1));
 const ok = res.option === "lasso" && res.shown && res.hiddenAfter && res.xrayOff.faces === 3 && res.xrayOn.faces === 6 && res.empty.faces === 0 && res.empty.edges === 0
+  && res.beforeClear > 0 && res.cleared.faces === 0 && res.cleared.edges === 0
   && res.boxShown && res.box.faces === 3 && res.freeform.mode === "freeform" && res.freeform.verts > 0 && res.freeform.verts < 8 && res.freeform.untouched && errs.length === 0;
 console.log(ok ? "probe-lasso OK" : "probe-lasso FAIL");
 process.exit(ok ? 0 : 1);

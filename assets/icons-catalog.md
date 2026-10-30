@@ -1,6 +1,6 @@
 # 本 app 的图标
 
-102 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
+103 icons · 提取自家族图标库 `../20260708 SVG Icons/icons.svg` · 由 `extract-icons.py` 生成，别手改。
 
 用法：把 sprite 整段内联到 `<body>` 顶部，然后按 id 引用；
 ⚠ sprite 根自带的隐藏样式（1×1 + `opacity:0`）别换成 `display:none`——
@@ -80,6 +80,7 @@
 |------|------|
 | `color` | 三色文氏图(弱半透明填充,重叠处自然叠深) |
 | `opacity` | 不透明度:圆内左半实心+右半棋盘(甲方 spec;优于库内 transparency) |
+| `sliders` | 不写类别 |
 
 ## transform
 
