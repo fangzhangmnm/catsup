@@ -343,6 +343,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
    - **跨 glTF 版本**：读取器接受任何 `asset.version` 2.x 与 GLB 容器 v2/v3；迁移键 = (glTF 版本, 扩展, 扩展版本)；2.x 之间的改名 / 废弃（如 2.1 废弃多 scene）由 `src/format/migrate/gltf/` 承接；语料库按 glTF 版本分目录（`test/fixtures/format/gltf-2.0/`、`gltf-2.1/`…），每次我们改写的目标版本变了就冻结一份。
    - 写入目标 = 「当时 three / Blender 已支持的最高版本」（不为了 spec 定稿抢跑：定稿而加载器没跟上时仍写旧形 + `minVersion`）。
 11. **三级拍子（2026-10-25 落地，v0.13.74，Claude Fable 5.1；家族纪律 `../ai-docs/20261021-format-version-discipline.md`，user 10-21「三级语义 同意」）**：每个 `CATSUP_*` 的拍子 = `major.minor.patch`，SSoT = `src/format/migrate/index.ts FORMAT`；物理形状 = 整数键 `version` 原地当 major + 可选整数键 `minor` / `patch`（缺 = 0，为 0 不写）。读取：major 新 = 拒开（desk 例外 §5.7）；minor 新 = 能开能存 + `readNotes.newerMinor` → Session 提示一次；patch 新 = 静默。**加可选键 = 该子结构 minor +1**（10-24/25 的 gridPlane / gridPreset / scaleRefs 追认为 document 3.1）。冻结样本目录名 = 全部拍子的签名 `v<formatTag>`（如 `v3.1.0-4.0.0-6.0.0-1.0.0-1.0.0-1.0.0`）——任何一个拍子动了没冻样本 = 守卫红。直通顺序 = **未知键先铺、已知键永远赢**（同日修：此前 `CATSUP_document` 把 extra 铺在最后，文件里的旧 `layers` 会盖掉改过的）。
+12. **向后兼容管的是人类创作的数据，不管衍生的算法**（user 2026-10-30 「如果没测试可以不管，我们还在孵化器」「等等，如果你说的是未来，那么取决于屎山代价吧。算法不是翻译，我觉得如果同时留两套会有极端大的屎山风险。当时的安全方案应该是弹窗警告然后说必须升级版本才能打开？不过其实大部分情况不要这样，太吓人」「关键是，数据是人类创作，算法只是衍生的」）：自动 UV、法向、渲染、实时细分的样子这类**现算的东西不进文件、算法不版本化**——改了算法老文件跟着变，不并存两套算法（屎山风险）；要保住某个现算结果 = 用「烘成画出来的」动作把它变成数据，从此归本节保护。只有「数据本身读不懂了」才走 major 拒开。取代 09-20 第五轮「autoUV 不存、算法版本化」里的「算法版本化」半句。镜像的结果是写进几何的（破坏性），不受算法变动影响。edited by Claude Opus 5.5 2026-10-30
 
 ---
 
