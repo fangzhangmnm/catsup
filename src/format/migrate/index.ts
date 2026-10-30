@@ -8,6 +8,8 @@
 //   CATSUP_brep        v2 → v3（2026-10-21 贴图纪元）：属性层 attributes.face.material（u16x2：[+n 侧槽, −n 侧槽]，0xFFFF = 无）本版读写。
 //   CATSUP_definitions v2 → v3（2026-10-21 贴图纪元）：list[i].materialSlots 生效（槽号 → glTF core materials 索引；v2 一直写空表）。
 //   CATSUP_material    v1（2026-10-21）：挂在 glTF core material 上的 authoring 补充 { sizeM:[w,h] }（贴图物理尺寸，米）。
+//   CATSUP_material    1.1（2026-10-30，Claude Opus 5.5；user「文件边界换算 同意」）：baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数）；每个材质都挂本扩展的拍子（纯色的以前不挂），
+//                      读的时候靠它认新旧（migrate/material.ts：没拍子 / 1.0 = 老文件原样读）。老读者读新文件 = 颜色偏深 + minor 提示一次。
 //   CATSUP_brep        v3 → v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（有序边链 + 种类 + 闭合 + 圆弧参数，契约 §5）；v3 文件的 curves 一直是空表 = 无曲线。
 //   CATSUP_brep        4.1（2026-10-26 DT8 两个表面，Claude Opus 5.5，周二 Fable 审）：attributes.face.material 的两槽开始写不同值（[+n 侧, −n 侧]；4.0 及以前两槽同值）。
 //   CATSUP_brep        4.2（2026-10-26 DT87 折线，Claude Opus 5.5）：边层多一个知名名字 fold（attributes.edge.fold，u8；只在有折线时写）——面内部的折痕：
@@ -66,7 +68,7 @@ export const FORMAT = {
   CATSUP_brep: { major: 4, minor: 2, patch: 0 },
   CATSUP_definitions: { major: 6, minor: 4, patch: 0 },
   CATSUP_instance: { major: 1, minor: 0, patch: 0 },
-  CATSUP_material: { major: 1, minor: 0, patch: 0 },
+  CATSUP_material: { major: 1, minor: 1, patch: 0 },   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
   CATSUP_desk: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */

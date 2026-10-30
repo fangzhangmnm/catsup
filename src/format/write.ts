@@ -4,6 +4,7 @@
 //   + CATSUP_instance；authoring 全在 CATSUP_definitions（groups / instances 各自带 3×4 变换，Z-up 本地坐标）。
 
 import { APP_VERSION } from "../version.ts";
+import { srgbToLinear } from "./color-space.ts";   // glTF 的 baseColorFactor 是线性值；app 里按 sRGB 存（color-space.ts）
 import { BinBuilder } from "./binary.ts";
 import { encodeGlb } from "./glb.ts";
 import { canonicalize, encodeBrep, type CatsupBrepJson, type ViewSink } from "./brep-codec.ts";
@@ -51,14 +52,15 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   // 材质 = glTF core materials（+ images / textures；贴图原字节原样进 BIN）+ CATSUP_material{sizeM}
   const textures: Record<string, unknown>[] = [];
   const materials = doc.materials.map((m) => {
-    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [m.color[0], m.color[1], m.color[2], 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
+    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
     if (m.texture) {
       const v = sink.add(m.texture.bytes);
       images.push({ bufferView: v, mimeType: m.texture.mimeType, name: m.name });
       textures.push({ source: images.length - 1 });
       (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: textures.length - 1 };
-      out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } };
     }
+    // 每个材质都挂 CATSUP_material 拍子（1.1 起；纯色材质以前不挂）：读的时候靠它认「颜色是线性值」（migrate/material.ts）；sizeM 只在有贴图时写
+    out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), ...(m.texture ? { sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : {}) } };
     return out;
   });
   // 每个 definition：规范序一次（bake 与 B-rep 流共用同一份顶点顺序）→ mesh（按材质拆 primitive）
@@ -204,7 +206,7 @@ export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint
   const sink: ViewSink = { add(bytes) { const span = bin.push(bytes); bufferViews.push({ buffer: 0, byteOffset: span.byteOffset, byteLength: span.byteLength }); return bufferViews.length - 1; } };
   const images: Record<string, unknown>[] = [], textures: Record<string, unknown>[] = [];
   const materials = doc.materials.map((m) => {
-    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [m.color[0], m.color[1], m.color[2], 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
+    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
     if (m.texture && opts.textures) {
       images.push({ bufferView: sink.add(m.texture.bytes), mimeType: m.texture.mimeType, name: m.name });
       textures.push({ source: images.length - 1 });

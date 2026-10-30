@@ -3,6 +3,7 @@
 // v2（2026-10-21）：definitions 全读（groups / instances）；root = 其中一个。
 
 import { decodeGlb } from "./glb.ts";
+import { materialColorFromFile } from "./migrate/material.ts";
 import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc } from "./document.ts";
@@ -139,13 +140,14 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const materials: MaterialDoc[] = (Array.isArray(json.materials) ? (json.materials as Record<string, unknown>[]) : []).map((m, mi) => {
     const pbr = isObj(m.pbrMetallicRoughness) ? (m.pbrMetallicRoughness as Record<string, unknown>) : {};
     const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
-    const out: MaterialDoc = { name: typeof m.name === "string" ? m.name : `material ${mi}`, color: [bc[0] ?? 0.8, bc[1] ?? 0.8, bc[2] ?? 0.8] };
+    const extRaw = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown> : null;
+    const out: MaterialDoc = { name: typeof m.name === "string" ? m.name : `material ${mi}`, color: materialColorFromFile(bc, extRaw) };   // 1.1 起文件里是线性值（glTF 规定），app 里按 sRGB；老文件原样（migrate/material.ts）
     const bt = isObj(pbr.baseColorTexture) ? (pbr.baseColorTexture as Record<string, unknown>) : null;
     if (bt && typeof bt.index === "number" && isObj(texList[bt.index])) {
       const src = (texList[bt.index] as Record<string, unknown>).source;
       const img = typeof src === "number" ? imgList[src] : undefined;
       if (isObj(img) && typeof img.bufferView === "number") {
-        const ext = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? migrateExtension("CATSUP_material", (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown>, notes) : {};
+        const ext = extRaw ? migrateExtension("CATSUP_material", extRaw, notes) : {};
         const sz = Array.isArray(ext.sizeM) && ext.sizeM.length === 2 ? (ext.sizeM as number[]) : [1, 1];
         out.texture = { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(img.bufferView)), sizeM: [sz[0], sz[1]] };
       }
