@@ -32,7 +32,7 @@ const STANDARD_PALETTE = {
   guide: 0x6b7280,          // 参考线 / 参考点
   softEdge: 0x6e6e6e,       // 自由建模的平滑边淡线
   vert: 0x2a2a2a,           // 自由建模的全部顶点
-  faceDotOn: 0xd8323a, faceDotOff: 0x545454,   // X 光面点：选中（= 选中红，2026-10-29 选中统一红）/ 没选
+  faceDotOn: 0x566cc5, faceDotOff: 0x545454,   // X 光面点：选中 / 没选（v0.17.44 起 X 光不画面点，留着给以后）
   gizmo: 0x2b6cb0, gizmoHot: 0xd97706, gizmoUniform: 0x777777, gizmoCenter: 0x333333,
   angle: 0xd97706,          // 量角器量出来的那根边
   handle: 0x2e8b57, handleHot: 0xd97706,   // 缩放柄

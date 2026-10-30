@@ -1,6 +1,6 @@
 // X 光面点（pick.ts faceDotPoint + render3 faceDots；created 2026-10-29 by Claude Opus 5.5；纪元账本 FM3「x光需要每个面有小点吧……这个才是x ray 承重的」、UX71「X 光下每张面一个小点 做做做」）。
 // 自由建模网格体扁盒子（1 × 1 × 0.4）、等轴视图（从上往下看，底面被挡住）、选择工具——
-// ① X 光关：点底面中心那一点 = 选中的是挡在前面的那张面（不是底面）② X 光开：同一点 = 选中底面（面点）③ 硬表面也一样（盒子在最外层、X 光开、点底面面点 = 底面）。
+// ① X 光关：点底面中心那一点 = 选中的是挡在前面的那张面（不是底面）② X 光开：同一点 = 什么面都不选（2026-10-29 起 X 光只吃点和边，T149）③ 硬表面也一样。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-xray-facedots.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -43,6 +43,7 @@ r.brepOn = await clickBottom();
 await b.close();
 r.errs = errs;
 console.log(JSON.stringify(r));
-const ok = r.meshOff !== null && r.meshOff !== 0 && r.meshOn === 0 && r.brepOn === 0 && errs.length === 0;
+// 2026-10-29 改（user「先这样，x光先统一不开面拾取……x光只吃点和边，面拾取以后再头疼」，账本 T149）：X 光开着 = 点面心什么面都不选（以前 = 选中被挡住的底面）；X 光关着照旧选前面那张
+const ok = r.meshOff !== null && r.meshOff !== 0 && r.meshOn === null && r.brepOn === null && errs.length === 0;
 console.log(ok ? "probe-xray-facedots OK" : "probe-xray-facedots FAIL");
 process.exit(ok ? 0 : 1);

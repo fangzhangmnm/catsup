@@ -82,17 +82,9 @@ export function pickEntity(k: GeomView, pf: PointerFrame, vp: Viewport, sx: numb
   }
   if (bestE !== undefined) return { edge: bestE };
 
-  // X 光：面点（每张面中心一个小点，在点 / 边之后、按射线认面之前）——点得到被挡在后面的面（纪元账本 FM3，user「这个才是x ray 承重的」）。只认正在编辑那一层的面（画的也只有它们）
-  if (opts?.xray && opts?.kinds?.faces !== false) {
-    let bestDot: FaceId | undefined, bestDd = tolPx;
-    for (const f of idx ? idx.facesNear(sx, sy, tolPx + 1) : k.faces()) {
-      if (k.isActive && !k.isActive(f.id)) continue;
-      const c = faceDotPoint(k, f.id); if (!c) continue;
-      const d = pf.distTo(sx, sy, c, vp);
-      if (d <= bestDd) { bestDd = d; bestDot = f.id; }
-    }
-    if (bestDot !== undefined) return { face: bestDot };
-  }
+  // X 光只吃点和边（2026-10-29 user「x光模式的面心拾取太难了，而且在铸铜下面很乱」→「先这样，x光先统一不开面拾取……所以x光只吃点和边，面拾取以后再头疼」）：
+  // 面心小点和射线认面都关（以前：面心小点 → 射线认最前面的面；框选不受影响）。面心拾取的实现（faceDotPoint）留着，以后再头疼时接回来。
+  if (opts?.xray) return {};
   const bestF = opts?.kinds?.faces === false ? undefined : pickFace(k, pf, vp, sx, sy);
   if (bestF !== undefined) return { face: bestF };
   return {};

@@ -54,7 +54,7 @@ import { Editor, GRID_PLANES, GRID_PRESETS, GRID_SUBDIVS, TOOLS, gridPreset, gri
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
-import { PRESETS, PRESET_IDS, isPresetId, SCREENS, SCREEN_IDS, isScreenId, type Preset } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
+import { PRESETS, PRESET_IDS, isPresetId, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
@@ -133,10 +133,14 @@ const PREF = {
 };
 deviceKvSet("ui.menuTab.main", null); deviceKvSet("ui.menuTab.view", null);   // v0.13.73 按设备记过停留页，v0.13.74 改跟文件走（user「不是应该跟文件吗」）：旧键清掉
 let fingerDraws = PREF.get("fingerDraws") === "1";
-/** 选中色（视口设置，按设备记）：跟画风 = 画风 / 全局默认（2026-10-29 起全局默认红）；1-bit / Tron 的标记色是画风本身的一部分，不被它覆盖。 */
-const ACCENTS: readonly { id: string; label: string; hex: number | null; hint?: string }[] = [
-  { id: "auto", label: "跟画风", hex: null, hint: "默认红；1-bit / Tron 用自己的" },
-  { id: "red", label: "红", hex: 0xd8323a }, { id: "blue", label: "蓝", hex: 0x2b6cb0, hint: "以前的样子" }, { id: "orange", label: "橙", hex: 0xe8760a }, { id: "green", label: "绿", hex: 0x2e8b57 },
+/** 选中色（视口设置，按设备记）：跟画风 = 线稿 / 剪纸蓝、写实 / 铸铜 / 像素描边红（user 10-29「纸 线稿是蓝 写实和铜和像素是红」）；
+ *  1-bit / Tron 的标记色是画风本身的一部分，不被它覆盖。和将删 / 检查撞色的选项自己带让开的颜色（将删在蓝的画风里是红、在红的画风里是橙）。 */
+const ACCENTS: readonly { id: string; label: string; accent: MarkAccent | null; hint?: string }[] = [
+  { id: "auto", label: "跟画风", accent: null, hint: "线稿 / 剪纸蓝，写实 / 铸铜 / 像素红；1-bit / Tron 用自己的" },
+  { id: "blue", label: "蓝", accent: { selected: 0x2b6cb0, scrub: 0xcc3333, warn: 0xd97706 } },
+  { id: "red", label: "红", accent: { selected: 0xd8323a, scrub: 0xf08a00, warn: 0x8b5cf6 }, hint: "将删换成橙、检查换成紫" },
+  { id: "orange", label: "橙", accent: { selected: 0xe8760a, warn: 0x8b5cf6 }, hint: "检查换成紫" },
+  { id: "green", label: "绿", accent: { selected: 0x2e8b57 } },
 ];
 // B43 尺度参考：最多几条（这台设备记住；user「有一个最多条目数」）。样式只剩字的深浅（user「要不不要图像，就字的深淡」）
 let lastTipHtml = "";
@@ -508,7 +512,7 @@ function menuPick(id: MenuId): void | "keep" {
     }
     if (id.startsWith("accent:")) {   // 选中色（视口设置，按设备记；user 10-29「写实线稿的时候是不是也红色统一一下比较好，然后开放一个设置？」）
       const a = ACCENTS.find((x) => x.id === id.slice(7));
-      if (a) { editor.renderer3.setAccent(a.hex); PREF.set("accent", a.id); editor.draw(); hintEl.textContent = a.hex === null ? "选中色：跟画风（默认红）" : `选中色：${a.label}`; }
+      if (a) { editor.renderer3.setAccent(a.accent); PREF.set("accent", a.id); editor.draw(); hintEl.textContent = `选中色：${a.label}`; }
       return "keep";
     }
     if (id.startsWith("style:")) {   // 风格（Tron 纪元第 1 步）：跟文件走（desk 1.3，T86 user「风格跟着文件走」；不标脏、下次存盘带走）。选了就在提示行披露画面会怎样
@@ -1150,7 +1154,7 @@ function openViewMenu(tab?: ViewTab): void {
       // 单选组一组一行下拉（user 2026-10-25「线稿粗细，单位都做成下拉框，整个汉堡目录排查一下，能下拉框的就做」）
       { id: "style:pick" as MenuId, label: "风格", tab: "display", choices: PRESET_IDS.map((s) => ({ id: `style:${s}` as MenuId, label: PRESETS[s].name, checked: editor.renderer3.getPreset() === s, hint: PRESETS[s].brief })) },
       { id: "screen:pick" as MenuId, label: "屏幕", tab: "display", choices: [{ id: "screen:auto" as MenuId, label: "跟画风", checked: editor.renderer3.getScreen() === null, hint: "画风自己的默认" }, ...SCREEN_IDS.map((s) => ({ id: `screen:${s}` as MenuId, label: SCREENS[s].name, checked: editor.renderer3.getScreen() === s, hint: SCREENS[s].brief }))] },   // 屏幕一刀的用户面（T106）   // Tron 纪元：预设 = 数据（minccino/preset/）
-      { id: "accent:pick" as MenuId, label: "选中色", tab: "display", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.hex, ...(a.hint ? { hint: a.hint } : {}) })) },
+      { id: "accent:pick" as MenuId, label: "选中色", tab: "display", choices: ACCENTS.map((a) => ({ id: `accent:${a.id}` as MenuId, label: a.label, checked: editor.renderer3.getAccent() === a.accent, ...(a.hint ? { hint: a.hint } : {}) })) },
       { id: "unit:pick" as MenuId, label: "单位", tab: "display", choices: LENGTH_UNITS.map((u) => ({ id: `unit:${u.id}` as MenuId, label: u.label, checked: editor.vcbUnit === u.id })) },
       ...gridTabItems(),
       { id: "refwin" as MenuId, label: "参考窗", checked: refHost.isOpen(), hint: refHost.count() ? `${refHost.count()} 张` : "图片 · 文字 · 视频", tab: "ref" },
@@ -1748,7 +1752,7 @@ setInterval(() => {
   const bl = (PRESETS[editor.renderer3.getPreset()] as Preset).material.blink;
   if (bl && editor.hasSelection() && !document.hidden) editor.draw();
 }, 175);   // 贴图异步解好 → 重画一帧（以前没人接：贴图要等下一次交互才出现；2026-10-29 Claude Fable 5.1）
-{ const a = ACCENTS.find((x) => x.id === PREF.get("accent")); if (a) editor.renderer3.setAccent(a.hex); }   // 选中色（按设备记）
+{ const a = ACCENTS.find((x) => x.id === PREF.get("accent")); if (a) editor.renderer3.setAccent(a.accent); }   // 选中色（按设备记）
 editor.setTool("select");   // 开机 = 鼠标（选择）工具（user 10-29「brep模式进去默认是鼠标而不是线。本轮改」；以前这里硬写画线、盖掉了编辑器自己的默认）
 hintEl.textContent = hintDefault();
 resize();

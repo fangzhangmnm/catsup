@@ -41,7 +41,7 @@ import { OverlayLinesDrawer, linToSrgb, setLineGeometry } from "./overlay-lines.
 import { Residency, type ResidentId, residentsOf } from "./residency.ts";
 import { OverlayMarksDrawer } from "./overlay-marks.ts";
 import type { OverlayCtx, OverlayItem, OverlayLines } from "../../overlay/index.ts";
-import type { RenderProvider, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
+import type { RenderProvider, MarkAccent, XRFacade, XRHand, XRRigPose, XRRay, LineStyle, ProviderCaps, FrameInput, Mark, FaceSlot, LineSlot } from "../../index.ts";
 import { DEFAULT_VIEW_BUDGET, WORLD_FRAME3, planFrame, checkBudget, type BudgetReport, type CameraSource, type Chunk, type ChunkSide, type Frame3, type MaterialRef, type Measurement, type PassDecl, type StreamProvider, type Vec3, type View, type ViewportSize, type Xform12 } from "../../index.ts";   // 流契约：块 → 显卡（步 3）；视图 + frame graph（步 4）；相机来源 / 视口 / 坐标架（6c）
 import { PALETTE } from "../../palette.ts";
 import { hexToLinear } from "../../overlay/index.ts";
@@ -867,9 +867,9 @@ export class Renderer3 implements RenderProvider {
   private currentScreen(): ScreenPreset { return this.renderer.xr.isPresenting || this.capturing ? SCREENS.native : SCREENS[this.screen ?? this.preset.screen]; }
   setScreen(id: ScreenId | null): void { if (this.screen !== id) { this.screen = id; this.poolKey = ""; } }
   getScreen(): ScreenId | null { return this.screen; }
-  private accent: number | null = null;
-  setAccent(hex: number | null): void { if (this.accent !== hex) { this.accent = hex; this.poolKey = ""; } }   // 重跑标记（颜色在材质 / 拷贝里）
-  getAccent(): number | null { return this.accent; }
+  private accent: MarkAccent | null = null;
+  setAccent(a: MarkAccent | null): void { if (this.accent !== a) { this.accent = a; this.poolKey = ""; } }   // 重跑标记（颜色在材质 / 拷贝里）
+  getAccent(): MarkAccent | null { return this.accent; }
   /** 风格（视图 ☰「风格」）：换了 = 重拉一次（线稿画不画）、面 shader 换明暗档、贴图换过滤。 */
   setPreset(id: PresetId): void {
     const p = PRESETS[id] ?? PRESETS.white;
@@ -995,9 +995,11 @@ export class Renderer3 implements RenderProvider {
   private markHex(slot: "faceSelected" | "faceHover" | "faceDim" | LineSlot): number {
     const bl = this.framePreset.material.blink;
     if (bl && !this.blinkOn && (slot === "edgeSelected" || slot === "edgeHot" || slot === "edgeWarn")) return bl.off;   // 闪的暗拍：选中 / 将删 / 检查的边换成 off 色（面先不闪，user 10-29「面可以先不闪」）
-    if (this.accent !== null && !this.framePreset.material.ownMarks) {   // 视口设置「选中色」：选中 = 它、面 = 它往白调淡（悬停再淡一档）
-      const mix = (f: number): number => { const c = (sh: number): number => { const v = (this.accent! >> sh) & 255; return Math.round(v + (255 - v) * f); }; return (c(16) << 16) | (c(8) << 8) | c(0); };
-      if (slot === "edgeSelected") return this.accent; if (slot === "faceSelected") return mix(0.55); if (slot === "faceHover") return mix(0.75);
+    const a = this.accent;
+    if (a !== null && !this.framePreset.material.ownMarks) {   // 视口设置「选中色」：选中 = 它、面 = 它往白调淡（悬停再淡一档）；撞色的将删 / 检查换成它带的那份
+      const mix = (f: number): number => { const c = (sh: number): number => { const v = (a.selected >> sh) & 255; return Math.round(v + (255 - v) * f); }; return (c(16) << 16) | (c(8) << 8) | c(0); };
+      if (slot === "edgeSelected") return a.selected; if (slot === "faceSelected") return mix(0.55); if (slot === "faceHover") return mix(0.75);
+      if (slot === "edgeHot" && a.scrub !== undefined) return a.scrub; if (slot === "edgeWarn" && a.warn !== undefined) return a.warn;
     }
     const m = this.framePreset.material.marks as Partial<Record<string, number>> | undefined;
     return m?.[slot] ?? (slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : slot === "faceDim" ? PALETTE.faceDim : PALETTE.edgeSelected);

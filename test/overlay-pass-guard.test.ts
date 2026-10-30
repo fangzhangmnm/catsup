@@ -9,7 +9,7 @@ import { translateAux } from "../src/look/aux.ts";
 import { PRESET_IDS, type OverlayCtx, type OverlayItem } from "../src/minccino/index.ts";
 
 const P = (x: number, y: number, z: number) => ({ x, y, z });
-const ctx = (style: string): OverlayCtx => ({ worldPerPx: () => 0.01, infLine: (p) => [p, p], reachKey: () => "", target: P(0, 0, 0), forward: P(0, 1, 0), right: P(1, 0, 0), up: P(0, 0, 1), lineWeightPx: 1, dpr: 1, style, pixelCss: 1, blinkOn: true, status: { selected: 0xd8323a, scrub: 0xf08a00, warn: 0x8b5cf6 } });
+const ctx = (style: string): OverlayCtx => ({ worldPerPx: () => 0.01, infLine: (p) => [p, p], reachKey: () => "", target: P(0, 0, 0), forward: P(0, 1, 0), right: P(1, 0, 0), up: P(0, 0, 1), lineWeightPx: 1, dpr: 1, style, pixelCss: 1, blinkOn: true, status: { selected: 0x2b6cb0, scrub: 0xcc3333, warn: 0xd97706 } });
 /** 白名单：允许偏离缺省的 item id（user 一个一个开）。所有画风都适用的 = ALL；某个画风才有的 = 按画风 id。 */
 const ALL: readonly string[] = ["vertDots", "selVerts", "faceDots", "seam"];   // 2026-10-29 user「像素里面点应该遮住线，而不是被线遮住」：顶点类的点排在后处理之后（stage 1）
 const WHITELIST: Readonly<Record<string, readonly string[]>> = {};

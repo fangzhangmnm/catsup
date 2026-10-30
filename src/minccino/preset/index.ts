@@ -112,6 +112,10 @@ export interface Preset {
   readonly geometry: Readonly<Record<string, never>>;
 }
 
+/** 红的标记色（选中红、面浅鲑鱼、将删让成橙、检查紫）。画风分两路（user 10-29「纸 线稿是蓝 写实和铜和像素是红」「像素描边蓝色还是配色受不了」）：
+ *  线稿 / 剪纸 = 全局色板的蓝；写实 / 铸铜 / 像素描边 = 这份红（写实里红更显眼）；Tron / 1-bit = 画风自己的（ownMarks）。 */
+const RED_MARKS = { faceSelected: 0xf3a698, faceHover: 0xf8cbbf, edgeSelected: 0xd8323a, edgeHot: 0xf08a00, edgeWarn: 0x8b5cf6 } as const;
+
 export const PRESETS = {
   /** 白模（现状）：零成本兜底，不是风格。 */
   white: {
@@ -127,7 +131,7 @@ export const PRESETS = {
   pixelOutline: {
     id: "pixelOutline", name: "像素描边", brief: "1/3 分辨率 + 一格黑描边", note: "按 1/3 分辨率画、最近邻放大，模型外轮廓和前后错开处描一格黑线；不打光、贴图最近邻；模型自己的线稿不画（选中 / 悬停的边、网格、吸附照常按原分辨率画）",
     source: "实验室 平涂 flat.js ·「像素描边」（contrast 0、pixelate 3、pixOutline、outlineTint 1、outlineShade 0.25、outlineDark；BASE 的 pixInner true、outline #1b1b1b、background #fde6bd）",
-    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },   // 标记色 = 全局默认（2026-10-29 起全局就是这套红 / 橙 / 紫）
+    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [], marks: RED_MARKS },
     light: { background: 0xfde6bd, ground: null, ao: null, env: null },
     post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
     screen: "pixel3",
@@ -140,7 +144,7 @@ export const PRESETS = {
     id: "onebit", name: "1-bit 线稿", brief: "黑线白纸（两色）", note: "线稿的两色版：按 1/3 分辨率画，面是纸、线和描边是墨；网格和选中的面是网点。",
     source: "CatsUp 自己的（Opus 2026-10-29）：线稿 + 平涂纸面 + 描边那遍最后两色量化（中间调用 4×4 Bayer 网点）",
     material: { shade: "flat", texFilter: "nearest", edges: "all", colorize: "none", flat: { base: 0xf4f1e8, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 90 }, tron: null, pbr: null, surface: [], marks: { faceSelected: 0x8a8a8a, faceHover: 0xc4c4c4, edgeSelected: 0x111111, edgeHot: 0x111111, edgeWarn: 0x111111 },
-      blink: { periodMs: 700, off: 0xf4f1e8 }, ownMarks: true },   // 选中靠闪（user 10-29「1bit其实我的建议是可以闪。pickcad里面uv的wireframe就是在闪。频率缓一点但是不拖沓就行了」）：0.35 秒一拍
+      ownMarks: true },   // 不闪（user 10-29 先「1bit其实我的建议是可以闪」、试过后「1bit感觉不用闪」）：选中的面 = 更密的网点，选中的边和别的边一样是墨
     light: { background: 0xf4f1e8, ground: null, ao: null, env: null, gridColor: 0x111111, gridStipple: true },   // 墨色点线（规整，不靠抖动）
     post: { pixelOutline: { side: "inside", color: 0x111111, tint: 0, shade: 1, darkSide: false, inner: true, width: 1 }, bloom: null, dither: { dark: 0x111111, light: 0xf4f1e8 } },
     screen: "pixel3",
@@ -173,7 +177,7 @@ export const PRESETS = {
     id: "realistic", name: "写实", brief: "照模型上色 + 海天 + 投影",
     note: "照模型上色：材质色和贴图都进底色，光是程序海天（漫反射球谐、镜面按粗糙度）+ 太阳投影 + 世界空间遮蔽（改完模型停手约 0.25 秒后跟上）；背景是那片海天、地面浅灰；模型自己的线稿不画。粗糙度先统一 0.6、不是金属（CatsUp 的材质还没有粗糙度 / 金属度这两项）",
     source: "实验室 表面 material.js ·「写实」（colMode full、rough 0.6、spec 1、envAmt 1、envBg、aoMode 世界空间 × 1、exposure 0.9、ground #9a9a96；useOrm = 读模型的粗糙度 / 金属度——CatsUp 材质没有这两项，用滑杆值；BASE 的 sunAz 35 / sunEl 45、metal 0）",
-    material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "model", flat: null, tron: null, pbr: { base: 0xd6d6d6, metal: 0, rough: 0.6, coat: 0, coatRough: 0.05, spec: 1 }, surface: [] },
+    material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "model", flat: null, tron: null, pbr: { base: 0xd6d6d6, metal: 0, rough: 0.6, coat: 0, coatRough: 0.05, spec: 1 }, surface: [], marks: RED_MARKS },
     light: { background: null, ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1, exposure: 0.9, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
@@ -185,7 +189,7 @@ export const PRESETS = {
     note: "不借模型颜色的青铜：金属高光映出程序海天、太阳打出投影，缝里和凹处积着铜绿（世界空间遮蔽，改完模型停手约 0.25 秒后跟上），表面有砂铸的坑洼和一层蜡；背景是那片海天、地面浅灰；模型自己的线稿不画。和实验室不一样：没有倒角（CatsUp 还没给这个几何通道）、没有镜头炫光",
     source: "实验室 表面 material.js ·「铸铜」（base #b3804e、metal 1、rough 0.38、pattern 9 砂铸 × 0.5、patina 0.75 #3b4632、coat 0.25 / 0.22、spec 1、envSource 程序海天 × 1.1、sunAz 35 / sunEl 45、exposure 0.95、aoMode 世界空间 × 1、ground #9a9a96；BASE 的 aoSoft 1；遮蔽半径照 material.js 模型 0.5 / 地面 0.25；太阳色 1.7 / 1.6 / 1.45、天光 / 地光照 LIGHT 段）",
     material: { shade: "pbr", texFilter: "asset", edges: "none", colorize: "none", flat: null, tron: null, pbr: { base: 0xb3804e, metal: 1, rough: 0.38, coat: 0.25, coatRough: 0.22, spec: 1 },
-      surface: [{ recipe: "sand-cast", amount: 0.5, color: 0 }, { recipe: "patina", amount: 0.75, color: 0x3b4632 }] },   // 写实 + 涂装车间：砂铸 → 铜绿
+      surface: [{ recipe: "sand-cast", amount: 0.5, color: 0 }, { recipe: "patina", amount: 0.75, color: 0x3b4632 }], marks: RED_MARKS },   // 写实 + 涂装车间：砂铸 → 铜绿
     light: { background: null, ground: { color: 0x9a9a96, on: 1, grid: 0 }, ao: { amount: 1, radius: 0.5, groundRadius: 0.25, soft: 1 }, env: { recipe: "sky-sea", amount: 1.1, exposure: 0.95, sunAz: 35, sunEl: 45 } },
     post: { pixelOutline: null, bloom: null },
     screen: "native",
