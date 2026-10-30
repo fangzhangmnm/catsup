@@ -36,6 +36,33 @@ const res = await page.evaluate(() => {
   return out;
 });
 console.log(JSON.stringify(res));
-const ok = res.title === "建组件" && res.phase === "after" && res.origin0 === "bottom" && res.defCentered && res.worldSame && res.looseAfter === 0 && res.bottomZ0 && res.worldSame2 && res.undoOnceLoose && res.panelClosed && !errs.length;
+// 根也能「设为组件原点」（user 10-30「根组件为什么没有设置原点到坐标架」「我说了root和其他的尽量一视同仁」「模型在视口上的位置不动，视角平移，对齐组件的行为」「但是undo redo不还原视角」）：
+// 最外层坐标架放在 (1, 1, 0) → 坐标架工具条「设为组件原点」→ 模型整个挪 −(1, 1, 0)、坐标架回原点、视角目标点跟着挪（屏幕上不动）；撤销 / 重做只动模型、不动视角；转过 90° 的坐标架 = 视角也转 90°
+const st = () => page.evaluate(() => { const e = globalThis.__catsup.editor, v = e.worldGeom().slots.flatMap((sl, i) => [...e.worldGeom().parts[i].verts.values()]), a = e.scene.axes;
+  return { minX: +Math.min(...v.map((p) => p.x)).toFixed(6), minY: +Math.min(...v.map((p) => p.y)).toFixed(6), maxX: +Math.max(...v.map((p) => p.x)).toFixed(6), tx: +e.cam.target.x.toFixed(6), ty: +e.cam.target.y.toFixed(6), yaw: e.cam.yaw, ax: [a.origin.x, a.origin.y, a.x.x, a.x.y].map((x) => +x.toFixed(6)) }; });
+await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.scene; e.commitOp({ op: "setDrawFrame", at: { def: s.root, group: null }, frame: { origin: { x: 1, y: 1, z: 0 }, x: { x: 1, y: 0, z: 0 }, y: { x: 0, y: 1, z: 0 }, z: { x: 0, y: 0, z: 1 } } }); e.setTool("axes"); });
+await page.waitForTimeout(200);
+const r0 = await st();
+const btn = page.locator("button", { hasText: "设为组件原点" });
+const shown = await btn.count();
+if (shown) { await btn.first().click(); await page.waitForTimeout(150); }
+const r1 = await st();
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(80);
+const r2 = await st();
+await page.evaluate(() => globalThis.__catsup.editor.redo()); await page.waitForTimeout(80);
+const r3 = await st();
+await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.scene; e.commitOp({ op: "setDrawFrame", at: { def: s.root, group: null }, frame: { origin: { x: 0, y: 0, z: 0 }, x: { x: 0, y: 1, z: 0 }, y: { x: -1, y: 0, z: 0 }, z: { x: 0, y: 0, z: 1 } } }); });
+await page.waitForTimeout(150);
+const r4 = await st();
+if (shown) { await btn.first().click(); await page.waitForTimeout(150); }
+const r5 = await st();
+const root = { shown, r0, r1, r2, r3, r4, r5 };
+console.log(JSON.stringify(root));
+const near = (a, b) => Math.abs(a - b) < 1e-6;
+const rootOk = shown > 0 && near(r1.minX, r0.minX - 1) && near(r1.minY, r0.minY - 1) && near(r1.tx, r0.tx - 1) && near(r1.ty, r0.ty - 1) && r1.ax.join() === "0,0,1,0"
+  && near(r2.minX, r0.minX) && near(r2.tx, r1.tx) && r2.ax.join() === "1,1,1,0" && near(r3.minX, r1.minX) && near(r3.tx, r1.tx) && r3.ax.join() === "0,0,1,0"
+  && near(r5.yaw - r4.yaw, -Math.PI / 2) && near(r5.minX, 0) && near(r5.maxX, 1) && near(r5.minY, -2) && near(r5.tx, -1) && near(r5.ty, 1) && r5.ax.join() === "0,0,1,0";   // 盒子 x 0..2 / y 0..1 绕原点转 −90° → x 0..1 / y −2..0；视角目标点 (−1, −1) 一起转 → (−1, 1)
+console.log(rootOk ? "  ✓ 根也能设为组件原点：模型挪过去、坐标架回原点、视角平移（屏幕上不动）；撤销 / 重做只动模型不动视角；转 90° 的坐标架视角也转" : "  ✗ 根设为组件原点（见上面 JSON）");
+const ok = rootOk && res.title === "建组件" && res.phase === "after" && res.origin0 === "bottom" && res.defCentered && res.worldSame && res.looseAfter === 0 && res.bottomZ0 && res.worldSame2 && res.undoOnceLoose && res.panelClosed && !errs.length;
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)"); console.log(ok ? "PROBE OK" : "PROBE FAIL");
 await b.close(); process.exit(ok ? 0 : 1);

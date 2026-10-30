@@ -12,6 +12,7 @@
 //   正交=halfH；横向永远 = 竖直量 × aspect。吸附 ε 因此以视口高度为分母（solver.epsScale），≡ fovY 的角度分数。
 
 import type { Pt3 } from "../kernel/kernel.ts";
+import { type Xform, applyDir, applyPt } from "../scene/xform.ts";
 import { add3, cross3, dot3, normalize3, pointInRing, scale3, sub3 } from "../kernel/geom.ts";
 
 import type { PointerFrame, Ray, ScreenPt, Viewport } from "./pointer-frame.ts";
@@ -190,6 +191,13 @@ export class OrbitCamera implements PointerFrame {
     return { origin, dir: this.forward() };
   }
 
+  /** 模型整个经刚体 M 换了坐标（根换原点）：视角跟着换，屏幕上的模型不动（user 10-30「模型在视口上的位置不动，视角平移，对齐组件的行为」）。
+   *  跟位置 + 绕竖轴的转；相机永远 Z 朝上，M 把 Z 歪了的那部分跟不了。 */
+  follow(M: Xform): void {
+    this.target = applyPt(M, this.target);
+    const x = applyDir(M, { x: 1, y: 0, z: 0 }), z = applyDir(M, { x: 0, y: 0, z: 1 });
+    if (Math.abs(z.z - 1) < 1e-6) this.yaw += Math.atan2(x.y, x.x);
+  }
   /** 视图预置（SU 视图菜单同款；yaw 以 +X 为 0、逆时针；pitch 正=俯视）。 */
   setView(name: "iso" | "top" | "bottom" | "front" | "right" | "back" | "left"): void {
     switch (name) {

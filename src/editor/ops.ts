@@ -257,6 +257,7 @@ function changeDefinitionAxes(s: Scene, def: number, f: Frame): FaceEvent[] { re
  */
 function retransformDefinition(s: Scene, def: number, M: Xform): FaceEvent[] {
   const Mi = invert(M), events: FaceEvent[] = [], rigid = isRigid(M), b = s.def(def).body;
+  if (def === s.root) s.axes = rigid ? transformFrame(Mi, s.axes) : orthonormalFrame(transformFrame(Mi, s.axes));   // 根的坐标架住场景上：跟着内容一起换（世界里原地不动 = 对到它时正好回到原点）
   if (b.kind === "mesh") {   // 网格体（2026-10-27 Opus：自由建模右键「设置原点到选择中心」）：点的位置整体乘 M⁻¹；网格体没有组 / 参考几何 / 另摆的坐标架
     const k = b.kernel;
     for (const v of k.verts()) k.setPos(v, applyPt(Mi, k.pt(v)));
@@ -561,10 +562,10 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     }
     case "setAxes": {
       const f: Frame = { origin: { ...op.frame.origin }, x: { ...op.frame.x }, y: { ...op.frame.y }, z: { ...op.frame.z } };
-      if (op.at.group === null && op.at.def !== s.root && s.defs.has(op.at.def) && s.kindOf(op.at.def) === "mesh") return { scene: s, events: changeDefinitionAxes(s, op.at.def, f) };   // 网格体的原点（定义根；网格体没有组）
+      // 落在定义根上 = 换这个组件的原点（网格体也一样；根也一样——根 = 普通组件，user 10-30「我说了root和其他的尽量一视同仁」：根没有外层实例补偿 = 内容整个挪过去，坐标架那一点落到世界原点，编辑器让视角跟着平移）
+      if (op.at.group === null && s.defs.has(op.at.def) && (op.at.def === s.root || s.kindOf(op.at.def) === "mesh")) return { scene: s, events: changeDefinitionAxes(s, op.at.def, f) };
       const { ref } = poolOf(s, op.at);
       if (ref.group !== null) s.group({ def: ref.def, group: ref.group }).axes = f;
-      else if (ref.def === s.root) s.axes = f;
       else return { scene: s, events: changeDefinitionAxes(s, ref.def, f) };
       return { scene: s, events: [] };
     }

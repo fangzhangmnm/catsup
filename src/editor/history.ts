@@ -80,7 +80,7 @@ export function opTier(s: Scene, op: Op): { tier: OpTier; at?: PoolRef; def?: De
     return { tier: "kernel", at };
   }
   // 换组件 / 网格体的原点（setAxes 落在定义根上）= 定义里的几何整体挪（retransformDefinition），不只是骨架：骨架记录共享内核，撤销会把实例矩阵换回去、几何留在挪过的地方 → 世界里错位。整份拷（少见的操作）。
-  if (op.op === "setAxes" && o.at && o.at.group === null && o.at.def !== s.root) return { tier: "scene" };
+  if (op.op === "setAxes" && o.at && o.at.group === null) return { tier: "scene" };   // 根也一样（2026-10-30：根换原点 = 内容整个挪，user「我说了root和其他的尽量一视同仁」）
   if (SKELETON_OPS.has(op.op)) return { tier: "skeleton" };
   return { tier: "scene" };
 }

@@ -112,7 +112,7 @@ export function sceneGuided(): Scene {
   const gid = [...s.brep(s.root).groups.keys()][0];
   if (gid !== undefined) s = applyOp(s, { op: "addGuide", at: { def: s.root, group: gid }, line: { p: { x: 0, y: 0, z: 1.5 }, dir: { x: 1, y: 0, z: 0 } } }).scene;
   const c = Math.SQRT1_2;
-  s = applyOp(s, { op: "setAxes", at: { def: s.root, group: null }, frame: { origin: { x: 1, y: 2, z: 0 }, x: { x: c, y: c, z: 0 }, y: { x: -c, y: c, z: 0 }, z: { x: 0, y: 0, z: 1 } } }).scene;
+  s = applyOp(s, { op: "setDrawFrame", at: { def: s.root, group: null }, frame: { origin: { x: 1, y: 2, z: 0 }, x: { x: c, y: c, z: 0 }, y: { x: -c, y: c, z: 0 }, z: { x: 0, y: 0, z: 1 } } }).scene;   // 搬最外层的绘图轴（2026-10-30 起 setAxes 落在根上 = 换根的原点、挪内容；搬轴归 setDrawFrame，样本语义不变）
   return s;
 }
 /** 隐藏（DT49，definitions 6.1）：grouped + 藏一面墙、一条边、第二份圆柱（实例 hidden + 面层 / 边层 hidden）。 */

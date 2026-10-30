@@ -881,8 +881,8 @@ export class Editor {
     this.host.hint(at.group !== null ? "组里的坐标架回到外面那层的" : this.contextDepth() ? "坐标架回到组件原点" : "坐标架回到世界");
     });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
-  /** 现在在组件里（不在组里）——「设为组件原点」按钮出不出。 */
-  inComponentRoot(): boolean { return this.contextDepth() > 0 && this.ctx.group === null; }
+  /** 不在组里（根也算：根 = 普通组件，user 10-30「根组件为什么没有设置原点到坐标架」「我说了root和其他的尽量一视同仁」）——「设为组件原点」按钮出不出。 */
+  inComponentRoot(): boolean { return this.ctx.group === null; }
   /** 一个组件在整个场景里放了几份（改原点 = 这么多份一起换，提示行披露）。 */
   private copiesOf(def: DefId): number { let n = 0; for (const d of this.scene.defs.values()) for (const i of d.instances.values()) if (i.def === def) n++; return n; }
   /**
@@ -892,15 +892,15 @@ export class Editor {
   setComponentOriginToFrame(): boolean {
     return this.step((pass) => {
     if (!this.inComponentRoot()) return false;
-    const at = this.activePool(), body = this.scene.brep(at.def);
-    if (!body.drawFrame) { this.host.hint("坐标架就在组件原点上"); return false; }
-    const f = body.drawFrame, n = this.copiesOf(at.def);
+    const at = this.activePool(), root = at.def === this.scene.root, f = root ? this.scene.axes : this.scene.kindOf(at.def) === "brep" ? this.scene.brep(at.def).drawFrame : undefined;   // 根的坐标架住场景上（Scene.axes）
+    if (!f || (Math.hypot(f.origin.x, f.origin.y, f.origin.z) < 1e-12 && f.x.x > 1 - 1e-12 && f.y.y > 1 - 1e-12)) { this.host.hint("坐标架就在组件原点上"); return false; }
+    const n = this.copiesOf(at.def);
     return this.step((pass) => {
       const n0 = this.opCount;
       this.commitIn(pass, { op: "setAxes", at, frame: f });
       if (this.opCount === n0 || this.stepFailed) return false;
-      this.commitIn(pass, { op: "setDrawFrame", at, frame: null });
-      this.host.hint(`组件原点换到了坐标架（世界里没动；${n} 份一起换）`);
+      if (!root) this.commitIn(pass, { op: "setDrawFrame", at, frame: null });   // 根：坐标架跟着内容一起挪、已经回到原点（ops retransformDefinition）
+      this.host.hint(root ? "根的原点换到了坐标架：整个模型挪过去，坐标架那一点现在就是世界原点（视角没跟着动；撤销一步回来）" : `组件原点换到了坐标架（世界里没动；${n} 份一起换）`);
       this.host.changed(); this.draw();
       return true;
     });
@@ -1283,7 +1283,7 @@ export class Editor {
     }
     this.opCount++;
     if (this.stepDepth > 0) { this.stepHasOp = true; this.stepOps++; }
-    this.installScene(r.scene);
+    this.installScene(r.scene); if (op.op === "setAxes" && op.at.group === null && op.at.def === this.scene.root) this.cam.follow(invert(frameToXform(op.frame)));   // 根换原点：视角跟着平移、模型在屏幕上不动（只在做的这一下；撤销 / 重做不动视角——user 10-30「但是undo redo不还原视角」）
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
     if (rw.merges.length && op.op === "meshMove") {   // 落到中缝的点和孪生点并成一个：同一步里紧跟着提交（写进日志 = 重放一致；对称化等并完才跑）
       this.mirrorMerging = true;

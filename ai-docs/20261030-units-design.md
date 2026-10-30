@@ -31,7 +31,7 @@
 ## 4. 落地（v0.17.64，2026-10-30 Claude Opus 5.5；user 拍的话在 Tron 账本 T181–T185）
 
 - 进位：公制 ×10 从 1 fm 到 1 Gm；英制 1/64 … 1/2 in · 1 in · 1 ft · 10 ft · 100 ft…；D&D 英寸段同英制 · 1 ft · 5 ft · 50 ft · 500 ft…（一路英尺，不进码 / 链 / 浪 / 英里，不发明 5000 ft 的里）。`grid-settings.ts gridLadder`。
-- 吸附档：公制 1 mm / 1 cm / 5 cm / 10 cm / **20 cm（默认）** / 50 cm / 1 m；英制 1/16 · 1/8 · 1/4 · 1/2 in · 1 in（默认）· 6 in · 1 ft；D&D 1 ft（默认）/ 5 ft。吸附永远按设定的长度，和画的层无关（求解器的格 = 吸附长度）。
+- 吸附档：公制 1 mm / 1 cm / 5 cm / 10 cm / **20 cm（默认）** / 50 cm / 1 m；英制 1/16 · 1/8 · 1/4 · 1/2 in · 1 in（默认）· 6 in · 1 ft · 5 ft · 10 ft；D&D 1 in · 6 in · 1 ft（默认）· 5 ft（一格）· 10 ft（两格）。**v0.18.19 补档**（user 10-30「dnd吸附为什么只有两档，没有更细的」「然后英制没有ft的snapping也奇怪」；原来英制最粗 1 ft、D&D 只有两档——当初那几档是 Opus 列的、user 整体「同意」没逐档看）：每档都整除网格进位表里比它粗的下一层（`grid.test` 钉着），不碰文件格式（文件存的是长度，不认档表）。吸附永远按设定的长度，和画的层无关（求解器的格 = 吸附长度）。
 - 画出来的网格：从吸附长度那层起（比吸附细的不画；吸附长度整除上一层就补成最细一层，`displayLadder`）；渲染每帧从视线目标处 ≥ 64 px 那层起取 12 层。X 轴标记 = 第一层 ≥ 30 px、Z 轴刻度 = 第一层 ≥ 10 px（同一张表，刻度最多 100 根）。栅格面「关」= 网格 + 三色轴 + 标记都不画（吸附照旧）。
 - 公制显示按大小自动挑词头（fm … Gm）；被动读数 ≥ 1 英里加「约 x mi」，输入框不加；输入认 mi / mile / km / µm / um / mum / micron / nm / pm / fm / Mm / Gm 和中文单位词。
 - 文件：`CATSUP_document` 3.4 = unitSystem + snapIncrement 为主、gridHidden；给老读者照写 gridStep = 吸附长度、gridSubdiv = 1、displayUnit、gridPreset（3.3 读者吸附逐字一样；3.2 以前退回 1/5、minor 提示一次）。老文件没 unitSystem 按老键猜。

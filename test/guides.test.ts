@@ -38,11 +38,15 @@ describe("guides: 场景层 ops", () => {
     s = applyOp(s, { op: "clearGuides", at: ROOT(s) }).scene;
     eq(s.guidesOf(ROOT(s)).lines.length + s.guidesOf(ROOT(s)).points.length, 0);
   });
-  it("setAxes：根 = 绘图轴（世界坐标）；group = 组的轴、几何不动；克隆带轴", () => {
+  it("setDrawFrame 根 = 绘图轴（世界坐标）；setAxes 根 = 换根的原点（内容整个挪、绘图轴跟着挪）；group = 组的轴、几何不动；克隆带轴", () => {
     let s = box();
     const F: Frame = { origin: P(1, 2, 0), x: P(0, 1, 0), y: P(-1, 0, 0), z: P(0, 0, 1) };
-    s = applyOp(s, { op: "setAxes", at: ROOT(s), frame: F }).scene;
+    s = applyOp(s, { op: "setDrawFrame", at: ROOT(s), frame: F }).scene;
     assert(near(s.axes.origin, P(1, 2, 0)) && near(s.axes.x, P(0, 1, 0)), "绘图轴换了");
+    // 根 = 普通组件（user 10-30「我说了root和其他的尽量一视同仁」）：setAxes 落在根上 = 换根的原点——内容乘帧的逆（坐标架那一点落到世界原点），绘图轴跟着内容挪（= 回到世界帧）；撤销靠整份记录
+    const moved = applyOp(s.clone(), { op: "setAxes", at: ROOT(s), frame: F }).scene, v0 = s.kernelOf(ROOT(s)).vertices(), v1 = moved.kernelOf(ROOT(moved)).vertices();
+    assert(v0.every((p, i) => near(v1[i], { x: p.y - 2, y: -(p.x - 1), z: p.z })), "内容乘帧的逆（平移 −(1, 2) 再转 −90°）");
+    assert(near(moved.axes.origin, P(0, 0, 0)) && near(moved.axes.x, P(1, 0, 0)), "绘图轴跟着内容回到世界帧");
     const k = s.kernelOf(ROOT(s));
     const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - 1) < 1e-9))!;
     s = applyOp(s, { op: "makeGroup", at: ROOT(s), faces: [faceKey(k, top.id)], edges: [] }).scene;
@@ -75,7 +79,7 @@ describe("guides: 世界视图的帧与参考几何", () => {
   it("根 = 绘图轴；进组 = 组的轴；组件实例里 = 实例变换 × 单位帧；参考几何按活动池、换到世界坐标", () => {
     let s = sceneGrouped();
     const F: Frame = { origin: P(1, 2, 0), x: P(0, 1, 0), y: P(-1, 0, 0), z: P(0, 0, 1) };
-    s = applyOp(s, { op: "setAxes", at: ROOT(s), frame: F }).scene;
+    s = applyOp(s, { op: "setDrawFrame", at: ROOT(s), frame: F }).scene;   // 搬最外层绘图轴（setAxes 落在根上 = 换根的原点，2026-10-30）
     assert(near(new WorldView(s, { chain: [], group: null }).frame().origin, P(1, 2, 0)), "根 = 绘图轴");
     const gid = [...s.brep(s.root).groups.keys()][0];
     const gf = new WorldView(s, { chain: [], group: gid }).frame();

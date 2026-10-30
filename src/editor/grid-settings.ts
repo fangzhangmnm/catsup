@@ -46,11 +46,12 @@ export function displayLadder(sys: UnitSystem, snap: number): readonly number[] 
   const r = L[0] / snap;
   return Math.abs(r - 1) > 1e-9 && Math.abs(r - Math.round(r)) < 1e-6 ? [snap, ...L] : L;
 }
-/** 吸附的几档（米，从细到粗；user 10-30 拍）。 */
+/** 吸附的几档（米，从细到粗；user 10-30 拍）。每档都整除网格进位表里比它粗的下一层（画出来的线永远落在吸得到的点上，grid.test 钉着）。
+ *  英制 1 ft 往上补 5 ft / 10 ft、D&D 补 1 in / 6 in / 10 ft（两格）：user 10-30「dnd吸附为什么只有两档，没有更细的」「然后英制没有ft的snapping也奇怪」（以前英制最粗 1 ft、D&D 只有 1 ft / 5 ft）。 */
 export function snapLevels(sys: UnitSystem): readonly number[] {
   if (sys === "metric") return [0.001, 0.01, 0.05, 0.1, 0.2, 0.5, 1];
-  if (sys === "imperial") return [1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 6, 12].map((k) => k * IN_M);
-  return [FT_M, 5 * FT_M];
+  if (sys === "imperial") return [...[1 / 16, 1 / 8, 1 / 4, 1 / 2, 1, 6].map((k) => k * IN_M), FT_M, 5 * FT_M, 10 * FT_M];
+  return [IN_M, 6 * IN_M, FT_M, 5 * FT_M, 10 * FT_M];
 }
 /** 换单位制时吸附落到哪一档。 */
 export const DEFAULT_SNAP: Readonly<Record<UnitSystem, number>> = { metric: 0.2, imperial: IN_M, dnd: FT_M };   // user 10-30「米的默认是0.2 dnd的默认是1ft」
