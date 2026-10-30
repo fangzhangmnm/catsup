@@ -737,6 +737,7 @@ export class Renderer3 implements RenderProvider {
       this.pbr.sync(p.material.pbr, p.material.surface, p.material.colorize === "model", env, sunW, L.ao, !!sphere && this.aoBaked !== "", L.ground, cam3, fade);
       return;
     }
+    this.paper.useModelColor(p.material.colorize !== "none");
     this.paper.sync(p.material.flat ?? { base: PALETTE.face, shadowTint: 0xffffff, contrast: 0, ramp: 1, steps: 1, soft: 0, lightAz: 0, lightEl: 0 },
       L.ao, !!sphere && this.aoBaked !== "", L.ground, L.background ?? PALETTE.background, cam3,
       p.material.tron && L.ground?.grid ? { line: p.material.tron.line, r: sphere?.r ?? 1, fade: this.lastView?.camera.kind === "ortho" ? this.lastTarget : (this.lastView?.camera.eye ?? { x: 0, y: 0, z: 0 }) } : null);   // Tron 地格：场景半径 = 1 格；淡出按到眼（正交按到视野中心）

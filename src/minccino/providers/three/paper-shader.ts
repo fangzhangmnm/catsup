@@ -32,6 +32,7 @@ const PAPER_FS = /* glsl */`
   in vec3 vColorB;
   #endif
   uniform vec3 uLight, uShadowTint, uBase, uDefaultFace;
+  uniform bool uModelColor;
   uniform float uSteps, uSoft, uContrast, uRamp, uAoAmt;
   uniform bool uAoOn;
   layout(location = 0) out vec4 oColor;
@@ -45,6 +46,7 @@ const PAPER_FS = /* glsl */`
     // 没上色的面 = 纸色。过渡做法：颜色还烤在顶点色里，白模灰（PALETTE.face，8 位量化后差不到 1/127）认出来换成纸色——
     // 换风格不用重建池网格；材质模块接上槽表（baseColor 默认）后退役
     if (all(lessThan(abs(c - uDefaultFace), vec3(0.006)))) c = uBase;
+    if (!uModelColor) c = uBase;   // 预设「不上色」（1-bit 线稿：材质一律纸色，user 10-29「材质是白的，干净好看」）；选中 / 悬停 / 淡出照旧走下面的标记色
     #endif
     #ifdef SEL
     c = uMark;   // 标记（选中 / 悬停）：换成状态色（刀 b；这个风格的材质表 = 替换）
@@ -98,7 +100,7 @@ const srgb3 = (hex: number): any => new THREE.Vector3(((hex >> 16) & 255) / 255,
 
 /** 平涂的一组材质（同一套 uniform 对象：换参数 / 遮蔽烘好，大家一起变）。 */
 export class PaperMaterials {
-  private readonly shade = { uLight: { value: new THREE.Vector3(0, 0, 1) }, uShadowTint: { value: new THREE.Vector3(1, 1, 1) }, uBase: { value: new THREE.Vector3(1, 1, 1) }, uDefaultFace: { value: new THREE.Vector3() }, uSteps: { value: 1 }, uSoft: { value: 0.1 }, uContrast: { value: 1 }, uRamp: { value: 0 } };
+  private readonly shade = { uLight: { value: new THREE.Vector3(0, 0, 1) }, uShadowTint: { value: new THREE.Vector3(1, 1, 1) }, uBase: { value: new THREE.Vector3(1, 1, 1) }, uDefaultFace: { value: new THREE.Vector3() }, uModelColor: { value: true }, uSteps: { value: 1 }, uSoft: { value: 0.1 }, uContrast: { value: 1 }, uRamp: { value: 0 } };
   private readonly aoModel = { uAoRadius: { value: 0.5 }, uAoSoft: { value: 1 }, uAoAmt: { value: 0 }, uAoOn: { value: false } };
   private readonly aoGround = { uAoRadius: { value: 0.2 }, uAoSoft: { value: 1 }, uAoAmt: { value: 0 }, uAoOn: { value: false } };
   private readonly mats = new Map<string, any>();
@@ -127,6 +129,8 @@ export class PaperMaterials {
     }
     return m;
   }
+  /** 面用不用模型的颜色（预设 colorize：none = 一律纸色）。 */
+  useModelColor(on: boolean): void { this.shade.uModelColor.value = on; }
   /** 每帧：光（视空间，跟着相机）、参数、遮蔽开没开；地面的逆矩阵。 */
   sync(f: FlatShade, ao: { amount: number; radius: number; groundRadius: number; soft: number } | null, aoReady: boolean, ground: { color: number; on: number; grid: number } | null, background: number, cam: any,
     grid: { line: number; r: number; fade: { x: number; y: number; z: number } } | null = null): void {

@@ -76,6 +76,8 @@ const SCENES = {
   "fixture-house": { fixture: "house.glb" },
   // 上色样本：面上的材质色（它那张 82 字节的格子 PNG 是测试手搓的、Chromium 解不开 → 底面永远是占位灰，不等贴图；贴图那条路由 box-textured 盖）
   "fixture-painted": { fixture: "painted.glb", noTexWait: true },
+  // 1-bit 线稿材质一律纸色（v0.17.52；user 10-29「1bit线稿能不做半调吗。选择的半调可以先留着，但是材质是白的，干净好看」）：上过色的面也是纸白
+  "style-onebit-painted": { fixture: "painted.glb", noTexWait: true, after: `e.renderer3.setPreset("onebit");` },
   "fixture-guided": { fixture: "guided.glb" },
   "fixture-meshed": { fixture: "meshed.glb" },
   "fixture-twoSided": { fixture: "twoSided.glb" },
