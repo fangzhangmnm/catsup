@@ -134,11 +134,15 @@ const NONE: StyleAux = {};
 const lin = (hex: number): [number, number, number] => hexToLinear(hex);
 const srgb = (hex: number): [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 
-/** 这个画风里一个颜色角色的值（底板色没被覆盖时跟画风的背景色走）。 */
+/** 这个画风里一个颜色角色的值（底板色没被覆盖时跟画风的背景色走；选中 / 将删 / 检查跟画风的标记色走）。 */
 export function auxColor(style: string, c: AuxColor): number {
   const o = (STYLE_AUX[style] ?? NONE).palette?.[c];
   if (o !== undefined) return o;
-  if (c === "paper") return (PRESETS as Readonly<Record<string, { light: { background: number | null } }>>)[style]?.light.background ?? STANDARD_PALETTE.paper;
+  const preset = (PRESETS as Readonly<Record<string, { light: { background: number | null }; material: { marks?: Partial<Record<string, number>> } }>>)[style];
+  if (c === "paper") return preset?.light.background ?? STANDARD_PALETTE.paper;
+  // 选中 / 将删 / 检查跟画风的标记色走（面 / 边的标记材质用同一处，三样对得上；T125）
+  const mark = c === "selected" ? "edgeSelected" : c === "scrub" ? "edgeHot" : c === "warn" ? "edgeWarn" : null;
+  if (mark && preset?.material.marks?.[mark] !== undefined) return preset.material.marks[mark]!;
   return STANDARD_PALETTE[c];
 }
 

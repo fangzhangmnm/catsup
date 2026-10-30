@@ -66,6 +66,9 @@ export type ScreenId = keyof typeof SCREENS;
 export const SCREEN_IDS = Object.keys(SCREENS) as ScreenId[];
 export const isScreenId = (s: unknown): s is ScreenId => typeof s === "string" && Object.prototype.hasOwnProperty.call(SCREENS, s);
 
+/** 有标记色的材质槽（面的淡出、边的淡出 / 隐线不在这：它们跟底色走）。 */
+export type MarkColorSlot = "faceSelected" | "faceHover" | "edgeSelected" | "edgeHot" | "edgeWarn";
+
 export interface Preset {
   readonly id: string;
   /** 界面上的名字（视图 ☰「风格」）。 */
@@ -80,7 +83,9 @@ export interface Preset {
    *  上色方式（实验室 COLOR_MODES：model = 照模型：颜色 + 贴图；part = 一件一色：只认材质色、印不出贴图，没上色的面用纸色；none = 不上色：材料本色，铸铜 / Tron）。 */
   /** material.edges 线稿三档：none 不画 / all 全画（线块里本来只有硬边：软边 / 折线 / 隐藏的边建线块时就跳过了）/ active 只画正在编辑那一层的。像素描边 = all（T113 user「像素里面边的显示其实就是看硬和软边就行了」：硬边都画、软边不画；T89 时是 active）；user 10-29「cube侧面画一个门…线没有显示出来」）。 */
   readonly material: { readonly shade: "camera" | "none" | "flat" | "tron" | "pbr"; readonly texFilter: "asset" | "nearest"; readonly edges: "none" | "all" | "active"; readonly colorize: "model" | "part" | "none"; readonly flat: FlatShade | null; readonly tron: TronShade | null; readonly pbr: PbrShade | null;
-    /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[] };
+    /** 涂装车间的表面层（写实那条路按顺序叠；空 = 没有）。 */ readonly surface: readonly SurfaceLayer[];
+    /** 标记色（选中 / 悬停 / 将删 / 检查；sRGB）：面 / 边的标记材质和辅助几何的同名颜色角色都从这里取（一处定、三样对得上）；没写的 = 全局色板。 */
+    readonly marks?: Partial<Readonly<Record<MarkColorSlot, number>>> };
   /** 光与环境挂点：背景色（null = 白模的背景）、地面（z = 0，null = 没有；grid > 0 = 用线色画 Tron 的地格）、世界空间遮蔽（null = 没有；要后台烘）。 */
   readonly light: { readonly background: number | null; readonly ground: { readonly color: number; readonly on: number; readonly grid: number } | null; readonly ao: AoParams | null; readonly env: EnvLight | null;
     /** 走屏幕那条路时编辑器网格线的颜色（原始 sRGB）；没写 = 背景 × 网格系数（浅背景压暗一点）。Tron 用自己的青色（T57 user「tron的网络用我们自己的网络，记得跟单位」）。 */
@@ -109,7 +114,9 @@ export const PRESETS = {
   pixelOutline: {
     id: "pixelOutline", name: "像素描边", brief: "1/3 分辨率 + 一格黑描边", note: "按 1/3 分辨率画、最近邻放大，模型外轮廓和前后错开处描一格黑线；不打光、贴图最近邻；模型自己的线稿不画（选中 / 悬停的边、网格、吸附照常按原分辨率画）",
     source: "实验室 平涂 flat.js ·「像素描边」（contrast 0、pixelate 3、pixOutline、outlineTint 1、outlineShade 0.25、outlineDark；BASE 的 pixInner true、outline #1b1b1b、background #fde6bd）",
-    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [] },
+    // 标记色第一版（2026-10-29 Opus；user「像素画风下面待编辑的点是不是红色好一点，或者你propose一个颜色」「其实我一开始就不喜欢蓝色」「picocad的方案，不过我不想做的和他一样夸张」）：
+    // 选中 = 红、选中的面 = 浅鲑鱼色、将删 = 橙、检查 = 紫；和米色背景 / 黑描边拉得开。归 user + Opus 再磨（账本 T125）
+    material: { shade: "none", texFilter: "nearest", edges: "all", colorize: "model", flat: null, tron: null, pbr: null, surface: [], marks: { faceSelected: 0xf3a698, faceHover: 0xf8cbbf, edgeSelected: 0xd8323a, edgeHot: 0xf08a00, edgeWarn: 0x8b5cf6 } },
     light: { background: 0xfde6bd, ground: null, ao: null, env: null },
     post: { pixelOutline: { side: "inside", color: 0x1b1b1b, tint: 1, shade: 0.25, darkSide: true, inner: true, width: 1 }, bloom: null },   // inside：线稿画着（edges all），描边和它合成一条
     screen: "pixel3",

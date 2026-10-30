@@ -952,17 +952,22 @@ export class Renderer3 implements RenderProvider {
     }
   }
   private static readonly EDGE_SLOTS: readonly LineSlot[] = ["edgeSelected", "edgeHot", "edgeWarn"];
-  private static edgeHex(slot: LineSlot): number { return slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : PALETTE.edgeSelected; }
+  /** 标记色：这一帧画风写了就用（预设 material.marks），没写 = 全局色板。 */
+  private markHex(slot: "faceSelected" | "faceHover" | "faceDim" | LineSlot): number {
+    const m = this.framePreset.material.marks as Partial<Record<string, number>> | undefined;
+    return m?.[slot] ?? (slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : slot === "faceDim" ? PALETTE.faceDim : PALETTE.edgeSelected);
+  }
   private lineMarkMats = new Map<string, any>();
   /** 原生线的标记材质：可见那份（换成标记色）/ 隐线那份（深度大于才画、半透明）。 */
   private lineMarkMaterial(slot: LineSlot, hidden: boolean): any {
     const key = `${slot}|${hidden ? 1 : 0}`;
     let m = this.lineMarkMats.get(key);
     if (!m) {
-      const color = new THREE.Color(Renderer3.edgeHex(slot));
-      m = hidden ? new THREE.LineBasicMaterial({ color, transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth }) : new THREE.LineBasicMaterial({ color });
+      m = hidden ? new THREE.LineBasicMaterial({ transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth }) : new THREE.LineBasicMaterial();
       this.lineMarkMats.set(key, m);
     }
+    // 只在风格那条路用（小图按 sRGB 原值存）：颜色按 sRGB 原值写；每次都按这一帧的画风重写（换画风会重跑标记）
+    const hex = this.markHex(slot); m.color.setRGB(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255, THREE.LinearSRGBColorSpace);
     return m;
   }
   /** 原生（1 像素）线：索引把顶点分成「普通的 / 每个标记槽一段」（同面的踢掉再画）；底线不画的风格（剪纸 / 写实…）只画标记那几段。隐线那份同一套分段。 */
@@ -990,7 +995,7 @@ export class Renderer3 implements RenderProvider {
     const thickSel = !this.lastPlan?.order.includes("upscale");
     if (thickSel) {
       const pos = src.attributes.position.array as Float32Array, S: number[] = [], C: number[] = [];
-      for (const m of sel) { const c = this.tmpColor.setHex(Renderer3.edgeHex(m.material as LineSlot)), end = Math.min(m.start + m.count, count); for (let i = Math.max(m.start, 0); i + 1 < end; i += 2) { for (let q = 0; q < 6; q++) S.push(pos[i * 3 + q]); C.push(c.r, c.g, c.b, c.r, c.g, c.b); } }
+      for (const m of sel) { const c = this.tmpColor.setHex(this.markHex(m.material as LineSlot)), end = Math.min(m.start + m.count, count); for (let i = Math.max(m.start, 0); i + 1 < end; i += 2) { for (let q = 0; q < 6; q++) S.push(pos[i * 3 + q]); C.push(c.r, c.g, c.b, c.r, c.g, c.b); } }
       this.setMarkCopy(n, S, C, null, hidden);
     } else { n.thickMark.visible = false; n.thickMarkHidden.visible = false; }
     const idx = e.index.array as Uint32Array, mats: any[] = [], hmats: any[] = [];
@@ -1018,7 +1023,7 @@ export class Renderer3 implements RenderProvider {
     const seg = gl.bufs.first.array as Float32Array, w1 = gl.bufs.w1.array as Float32Array, w2 = gl.bufs.w2.array as Float32Array, flag = gl.bufs.flag.array as Float32Array;
     const S: number[] = [], C: number[] = [], W1: number[] = [], W2: number[] = [], F: number[] = [];
     for (const m of sel) {
-      const c = this.tmpColor.setHex(Renderer3.edgeHex(m.material as LineSlot)), end = Math.min(m.start + m.count, gl.count);
+      const c = this.tmpColor.setHex(this.markHex(m.material as LineSlot)), end = Math.min(m.start + m.count, gl.count);
       for (let i = Math.max(m.start, 0); i < end; i++) {
         for (let q = 0; q < 6; q++) S.push(seg[i * 6 + q]);
         C.push(c.r, c.g, c.b, c.r, c.g, c.b);
@@ -1106,8 +1111,9 @@ export class Renderer3 implements RenderProvider {
   /** 标记的材质 = 这个槽的面材质 + SEL / DIM 变体（同一套 shader / uniforms / 深度偏移；每个风格的 shader 自己说变体长什么样：白模 = 换成状态色 / 往淡出色拉一半、写实 = 叠色、Tron = Clu 橙 + 辉光）。uMark = 调色板里那个槽位的颜色。 */
   private markMaterial(plain: any, slot: FaceSlot): any {
     let by = this.markMats.get(plain); if (!by) { by = new Map(); this.markMats.set(plain, by); }
-    let m = by.get(slot); if (m) return m;
-    const hex = slot === "faceSelected" ? PALETTE.faceSelected : slot === "faceHover" ? PALETTE.faceHover : PALETTE.faceDim;
+    const hex = this.markHex(slot);
+    let m = by.get(slot);
+    if (m) { m.uniforms.uMark.value.set(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255); return m; }   // 同一份底材质（白模 / 像素描边共用）换画风 = 换标记色
     m = new THREE.ShaderMaterial({
       glslVersion: plain.glslVersion, vertexShader: plain.vertexShader, fragmentShader: plain.fragmentShader, defines: { ...plain.defines, [slot === "faceDim" ? "DIM" : "SEL"]: 1 },
       uniforms: { ...plain.uniforms, uMark: { value: new THREE.Vector3(((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255) } },
