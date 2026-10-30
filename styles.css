@@ -453,7 +453,13 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .tree-eye, .tree-more { width: 30px; height: 30px; flex: none; border: 0; padding: 5px; border-radius: 6px; background: none; color: inherit; }
 .tree-eye .ico, .tree-more .ico, .tree-lock .ico { width: 18px; height: 18px; }
 .tree-lock { display: inline-flex; opacity: .6; }
+.tree-kind { display: inline-flex; flex: none; opacity: .65; margin-right: 2px; }   /* 种类小图标（user 10-30「每个物体能显示自己的type as icon」） */
+.tree-kind .ico { width: 15px; height: 15px; }
+.tree-count { flex: none; font-size: 12px; color: var(--muted); padding: 0 4px; font-variant-numeric: tabular-nums; }   /* 「×N」合成行（user 10-30「collapse同实例变成 x几」） */
+.tree-row.is-selected .tree-count, .tree-row.is-selected .tree-kind { color: inherit; opacity: .9; }
 /* 浮窗标题 = 下拉（user 10-30「窗口名字就是下拉」）：「层级 ▾」，点开换页；只占标题那一小块，不拖窗 */
+/* 一键藏起所有窗（ui/hide-windows.ts；四指轻点 / \ 键）：窗口自己的开关不动，样式藏掉 */
+html.windows-hidden .float-win, html.windows-hidden .board, html.windows-hidden wp-reference-window { display: none !important; }
 .float-title-menu { display: inline-flex; align-items: center; gap: 4px; border: 0; background: none; color: inherit; font: inherit; padding: 2px 6px; margin-left: -6px; border-radius: 6px; cursor: pointer; }
 .float-title-menu:hover { background: var(--hover); }
 .float-title-caret { font-size: 11px; opacity: .7; }

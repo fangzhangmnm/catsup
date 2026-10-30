@@ -3,6 +3,8 @@ export interface GestureOpts {
     fingerDraws(): boolean;
     onUndo(): void;
     onRedo(): void;
+    /** 四指轻点（Procreate 同款 = 全屏 / 藏界面；CatsUp = 一键藏起所有窗，user 10-30）。缺 = 当重做。 */
+    onFourTap?(): void;
     /** 步行模式：环绕/平移手势改成视角（返回 true = 已消费）。2026-09-07 VR 纪元 */
     look?(dxPx: number, dyPx: number): boolean;
     /** 步行模式中滚轮无意义（相机每帧由 player 写）。 */

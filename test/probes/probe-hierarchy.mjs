@@ -67,6 +67,27 @@ const renamed = (await rows())[1]?.name;
 await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(100);
 const back = (await rows())[1]?.name;
 check(sheetTitle === "改组件名" && renamed === "小红帽的家" && back === "椅子", `改名：「${sheetTitle}」→ ${renamed}，撤销回 ${back}`);
+// 合成行（user 10-30「hierarchy显示的时候应该collapse同实例变成 x几，可以开这个开关」「每个物体能显示自己的type as icon」）：
+// 根里再摆一份椅子 → 「椅子 ×2」一行 + 每行种类图标 → 合成行小眼睛 = 两份一起藏、一步撤销 → 标题下拉关掉合成 = 两行 → 撤回那一份
+await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef; e.exitTo(0); const ch = [...s.def(s.root).instances.values()].find((i) => s.def(i.def).name === "椅子"); e.commitOp({ op: "placeInstance", at: { def: s.root, group: null }, definition: ch.def, xform: [1, 0, 0, 6, 0, 1, 0, 0, 0, 0, 1, 0] }); });
+await page.waitForTimeout(150);
+const mrows = () => page.evaluate((W) => [...document.querySelectorAll(`${W} .tree-row`)].map((r) => ({ name: r.querySelector(".tree-name")?.textContent, count: r.querySelector(".tree-count")?.textContent ?? "", kind: r.querySelector(".tree-kind use")?.getAttribute("href") ?? "" })), W);
+const mr = await mrows();
+check(mr.some((r) => r.name === "椅子" && r.count === "×2") && mr.every((r) => r.kind.startsWith("#kind-")), `同一组件两份 = 一行「椅子 ×2」，每行名字前有种类图标：${JSON.stringify(mr)}`);
+const ci = mr.findIndex((r) => r.count === "×2");
+await page.click(`${W} .tree-row:nth-child(${ci + 1}) .tree-eye`); await page.waitForTimeout(120);
+const chairsHidden = () => page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef; return [...s.def(s.root).instances.values()].filter((i) => s.def(i.def).name === "椅子").map((i) => !!i.hidden); });
+const h1 = await chairsHidden();
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(100);
+const h2 = await chairsHidden();
+check(h1.length === 2 && h1.every(Boolean) && h2.every((x) => !x), `合成行小眼睛 = 两份一起藏（${JSON.stringify(h1)}），撤销一步都回来（${JSON.stringify(h2)}）`);
+await page.click(`${W} .float-title-menu`); await page.waitForTimeout(100);
+await page.locator(".popup-menu button", { hasText: "同一组件合成一行" }).click(); await page.waitForTimeout(120);
+const off = await mrows();
+await page.click(`${W} .float-title-menu`); await page.waitForTimeout(100);
+await page.locator(".popup-menu button", { hasText: "同一组件合成一行" }).click(); await page.waitForTimeout(120);
+check(off.filter((r) => r.name === "椅子").length === 2 && !off.some((r) => r.count), `标题下拉关掉合成 = 两份各一行：${JSON.stringify(off.map((r) => r.name))}`);
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(120);   // 撤回多摆的那一份
 // 资源页（I10）：炸开最外层的椅子 → 椅子成孤儿（定义照留）→ 资源页标孤儿 → 清理（确认框列名字）→ 没了 → 撤销回来
 await page.evaluate(() => { const C = globalThis.__catsup, e = C.editor; e.exitTo(0); const s = e.sceneRef, chair = [...s.def(s.root).instances.values()].find((i) => s.def(i.def).name === "椅子"); e.selectPools([{ kind: "instance", instance: chair.id }]); C.hud.pick("action:explode"); });
 await page.waitForTimeout(150);

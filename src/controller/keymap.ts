@@ -65,6 +65,7 @@ export const GLOBAL: Layer = {
     B("shift+z", "view.zoomExtents", "缩放到全部"),
     B(".", "view.zoomTo", "缩放到选区"),
     B("shift+tab", "grid.toggle", "格点吸附开 / 关"),
+    B("\\", "ui.hideWindows", "藏起 / 叫回所有窗（手指 = 四指轻点）"),   // user 10-30「一键藏起所有窗，像 Procreate 四指轻点全屏。 现在就可以做」
     B("ctrl+a", "select.all", "全选"), B("ctrl+i", "select.invert", "反选"), B("alt+a", "select.none", "全不选"),
     B("ctrl+x", "edit.cut", "剪切", (c) => c.hasSelection), B("ctrl+c", "edit.copy", "拷贝", (c) => c.hasSelection), B("ctrl+v", "edit.paste", "粘贴（原位）"),
     B("ctrl+s", "doc.save", "保存"), B("ctrl+o", "doc.open", "打开本地文件…"),   // 以前直接写在 main.ts 的文档级 keydown 里、不在键表（帮助页不列、冲突守卫看不见；user 10-30「ctrl o ctrl s 修」）

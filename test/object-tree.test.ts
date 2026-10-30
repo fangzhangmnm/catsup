@@ -109,4 +109,20 @@ describe("层级窗的物件树（object-tree.ts）", () => {
     (bb as { xform: Xform }).xform = rotationAbout({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, Math.PI / 4);
     assert(/斜切/.test(why(reparentOp(ss, hierarchyTree(ss).children[1], hierarchyTree(ss).children[0]))), "放进不等比缩放过的 + 自己转过 = 会斜切，拒绝");
   });
+  it("同一组件的几份合成一行「×N」（user 10-30「hierarchy显示的时候应该collapse同实例变成 x几，可以开这个开关」）：开关关 = 一份一行；合成行小眼睛 = 几份一起藏一步撤销；拖不进合成行；每行带种类", () => {
+    const { s, b } = scene();
+    const chair = s.instance(s.root, b).def;
+    s.mintInstance(s.root, null, chair, translation({ x: 9, y: 0, z: 0 }));   // 根里再摆一份椅子（第一份在组里）
+    const plain = hierarchyTree(s), merged = hierarchyTree(s, { mergeCopies: true });
+    eq(plain.children.map((n) => n.label).join(","), "a3f2,椅子,椅子");
+    eq(merged.children.map((n) => `${n.label}${n.kind === "copies" ? "×" + n.count : ""}`).join(","), "a3f2,椅子×2");
+    const cp = merged.children[1];
+    eq(cp.children.length, 2); eq(cp.body, "brep"); eq(merged.body, "brep");
+    const op = setHiddenOp(s, cp, true);
+    assert(!!op && op.op === "batch" && op.ops.length === 2, `两份一起藏 = 一条 batch：${JSON.stringify(op)?.slice(0, 80)}`);
+    const s2 = applyOp(s.clone(), op!).scene;
+    assert(hierarchyTree(s2, { mergeCopies: true }).children[1].hidden, "两份都藏了 = 合成行也是藏着");
+    const why = reparentOp(s, merged.children[0], cp);
+    assert(!!why && "why" in why && /展开/.test(why.why), "拖到合成行上 = 先展开");
+  });
 });

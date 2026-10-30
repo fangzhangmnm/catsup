@@ -23,6 +23,7 @@ import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
 import { createHierarchyWindow, type HierarchyWindow } from "./hierarchy-window.ts";
+import { createHideWindows } from "./ui/hide-windows.ts";
 import { createFloatWin, createMenuWindow, type FloatWin, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
 import { mountMfd } from "./mfd.ts";
@@ -167,6 +168,8 @@ const latchedMods = { shift: false, ctrl: false, alt: false };
 let latchFor = "";
 const stage = $("stage");
 const hintEl = $("hint");
+// 一键藏起所有窗（user 10-30「以后可以加一个「一键藏起所有窗」，像 Procreate 四指轻点全屏。 现在就可以做」）：四指轻点 / \ 键；ui/hide-windows.ts
+const hideWins = createHideWindows();
 const tipEl = $("tip");
 /** 盖上图库（或别的整屏覆盖层）前收掉画布上的光标提示 / 悬停（user 10-26：回图库之后读数框还挂在左上角——从菜单进图库指针没「离开画布」，画线中途离开也不清）。 */
 function hideCanvasTip(): void { tipEl.hidden = true; lastTipHtml = ""; editor.pointerLeave(); }
@@ -1119,6 +1122,7 @@ const gestures = attachGestures(canvas, editor, {
   fingerDraws: () => fingerDraws,
   onUndo: () => editor.undo(),
   onRedo: () => editor.redo(),
+  onFourTap: () => { hintEl.textContent = hideWins.toggle(); },   // 四指轻点 = 一键藏起所有窗（Procreate 同款手势）
   look: (dx, dy) => locomotion.look(dx, dy),
   walking: () => locomotion.isWalking(),
   toolBlocked: () => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return true; } return locomotion.sim.state.teleport.charging || (locomotion.isPlacing() && editor.tool !== "walk") || locomotion.isFps(); },   // 放人时指针归步行工具（输入层 → 工具 → locomotion），别的工具挡住   // 演示锁 = 工具指针不进编辑器（悬停预告也停）、提示行说为什么；放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
@@ -1134,10 +1138,10 @@ const gestures = attachGestures(canvas, editor, {
 const viewGizmo = mountViewGizmo($("viewGizmo"), editor, { isWalking: () => locomotion.isWalking(), onProjection: () => syncUi() });
 // 右上角「视图」菜单（user 2026-10-24「视图时是归右上角的汉堡管」）：透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR
 const viewMenuBtn = document.createElement("button");
-viewMenuBtn.type = "button"; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("sliders");   // 滑杆 = 调视图（user 10-30「视图按钮换一个icon」：以前和左上 ☰ 同一个图标）
+viewMenuBtn.type = "button"; viewMenuBtn.dataset.opensWindow = ""; viewMenuBtn.className = "gizmo-btn gizmo-menu"; viewMenuBtn.title = "视图"; viewMenuBtn.innerHTML = iconHtml("sliders");   // 滑杆 = 调视图（user 10-30「视图按钮换一个icon」：以前和左上 ☰ 同一个图标）
 ($("viewGizmo").querySelector(".gizmo-top") as HTMLElement).appendChild(viewMenuBtn);
 // 参考窗钮（user 10-30「视图设置就是视图设置，然后参考窗按钮放在视图设置旁边」）：点一下开 / 关，开着 = 亮（跟着窗口的 open 走，窗口自己的 × 关了也灭）
-const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("image");
+const refBtn = document.createElement("button"); refBtn.type = "button"; refBtn.dataset.opensWindow = ""; refBtn.className = "gizmo-btn gizmo-ref"; refBtn.title = "参考窗：参考图 · 文字 · 视频（开着时 Ctrl+V 直接贴进来）"; refBtn.innerHTML = iconHtml("image");
 viewMenuBtn.after(refBtn);
 // ---------- B43 尺度参考：数据懒加载 + 视图 ☰「参考」页 ----------
 let ladder: Ladder | null = null;
@@ -1282,9 +1286,9 @@ xrayBtnRef = xrayBtn;
 const objectBtn = document.createElement("button"); objectBtn.type = "button"; objectBtn.className = "tb-btn gizmo-object"; objectBtn.title = "物件：这一层的属性与动词（对称 / 默认平滑 / 转换种类 / 细分 / 修复）";
 objectBtn.innerHTML = iconHtml("object"); $("modeSelect").before(objectBtn);   // 工作台下拉的左边（user 10-30「物件设置按钮放在tab下拉左边」）
 // 层级钮（0.18 物品栏纪元 I1；设计稿 §5：层级 = 浮窗、素材 = 底部抽屉）：物件钮左边。窗口 = hierarchy-window.ts（物件树，组不进）
-const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级 · 资源：这个模型里的物件树、组件和材质清点（窗口标题下拉换页；以后的素材也在这里）";
+const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.dataset.opensWindow = ""; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级 · 资源：这个模型里的物件树、组件和材质清点（窗口标题下拉换页；以后的素材也在这里）";
 hierBtn.innerHTML = iconHtml("hierarchy-tree"); objectBtn.before(hierBtn);
-hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), hint: (t) => { hintEl.textContent = t; }, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
+hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), hint: (t) => { hintEl.textContent = t; }, pref: { get: (k) => PREF.get(k), set: (k, v) => PREF.set(k, v) }, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
 hierBtn.addEventListener("click", () => hierWin?.toggle(hierBtn));
 // 「这一层」和选中的子组件（物体菜单「物体设置…」）都是一次性的下拉（openObjectWindow）
 const objectWinDeps = { after: syncUi, openMachine: (m: Machine) => openMachineBoard(m, objectBtn) };
@@ -1438,6 +1442,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
       for (const k of PICK_KINDS) editor.config.set("pick", k, next[k]);
       hintEl.textContent = pickSay(next); syncUi(); return;
     }
+    case "ui.hideWindows": hintEl.textContent = hideWins.toggle(); break;
     case "grid.toggle":   // Shift+Tab = 开 / 关格点吸附（Blender 同键；user 待定，备选 N）
       editor.setGrid({ on: !editor.grid.on });
       hintEl.textContent = snapSwitchSay(editor.modeId, editor.grid.on);

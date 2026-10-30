@@ -30,6 +30,8 @@ export interface GestureOpts {
   fingerDraws(): boolean;
   onUndo(): void;
   onRedo(): void;
+  /** 四指轻点（Procreate 同款 = 全屏 / 藏界面；CatsUp = 一键藏起所有窗，user 10-30）。缺 = 当重做。 */
+  onFourTap?(): void;
   /** 步行模式：环绕/平移手势改成视角（返回 true = 已消费）。2026-09-07 VR 纪元 */
   look?(dxPx: number, dyPx: number): boolean;
   /** 步行模式中滚轮无意义（相机每帧由 player 写）。 */
@@ -221,7 +223,8 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
         const palmGuard = now - lastPenActivity < PALM_PEN_GUARD_MS;
         if (!cancelled && tap.isTap && elapsed < GESTURE_TAP_MAX_MS && !palmGuard) {
           if (tap.maxCount === 2) opts.onUndo();
-          else if (tap.maxCount >= 3) opts.onRedo();
+          else if (tap.maxCount === 3 || (tap.maxCount >= 4 && !opts.onFourTap)) opts.onRedo();
+          else if (tap.maxCount >= 4) opts.onFourTap!();
         }
         tap = null;
         multi = null;

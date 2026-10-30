@@ -8,6 +8,7 @@
 // · 路径 path = 从最外层一路「进哪个」（含途经的组），最后一个是这一行自己：选中它 = 进到 path 去掉最后一个的那一层、再选它；双击 = 进到 path 那一层。
 // · 拖一行换父亲（I3，user 10-30「hierarchy拖拽同意」）：reparentOp = 删原处 + 原位贴进新父亲（世界位置不变）一条 batch 指令；同级排序等有序表（I5）。
 // · 名字：实例自己的名字，没有就用组件定义的名字；名字正好是四位十六进制码 = 没起名 → 界面淡色等宽。
+import type { BodyKind } from "../scene/body-kind.ts";
 import type { DefId, EditContext, GroupId, InstId, Scene } from "../scene/scene.ts";
 import { IDENTITY, compose, hasShear, invert, type Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
@@ -16,13 +17,19 @@ export type HierPick = { kind: "group"; group: GroupId } | { kind: "instance"; i
 export interface HierNode {
   /** 键 = 一路的物件编号（「i3/i7」；最外层 = ""；组不进键，挪进挪出组展开状态不丢）。 */
   readonly key: string;
-  readonly kind: "root" | "instance";
+  /** copies = 同一个组件在这一层摆的好几份合成的一行（「×N」，展开看每一份；user 10-30「hierarchy显示的时候应该collapse同实例变成 x几」）。 */
+  readonly kind: "root" | "instance" | "copies";
   readonly label: string;
   /** 名字是四位十六进制码（没起名）→ 淡色等宽。 */
   readonly unnamed: boolean;
+  /** copies 那一行 = 父亲那一行的路径（它自己不是一份）。 */
   readonly path: readonly HierPick[];
   /** 这一行住在哪个组件定义里（藏 / 显的指令打在这里）。 */
   readonly def: DefId;
+  /** 这一行装的组件是什么身体（层级窗名字前的种类小图标；user 10-30「hierarchy上面每个物体能显示自己的type as icon吗」）。 */
+  readonly body: BodyKind;
+  /** copies：合成了几份。 */
+  readonly count?: number;
   readonly hidden: boolean;
   readonly locked: boolean;
   readonly children: readonly HierNode[];
@@ -38,21 +45,39 @@ const MAX_DEPTH = 32;   // 防组件互相装（不该发生）时无限展开
 /** 定义 def 里的组链（从顶到 g）。 */
 function groupsOf(scene: Scene, def: DefId, g: GroupId | null): HierPick[] { const c: HierPick[] = []; let guard = MAX_DEPTH; while (g !== null && guard-- > 0) { c.unshift({ kind: "group", group: g }); g = scene.group({ def, group: g }).parent; } return c; }
 
-/** 定义 def 里所有物件（不管挂在哪个组），各自的路径 = 前缀 + 途经的组 + 它自己。 */
-function objectChildren(scene: Scene, def: DefId, path: readonly HierPick[], depth: number): HierNode[] {
-  if (depth > MAX_DEPTH) return [];
-  return [...scene.def(def).instances.values()].map((inst) => {
-    const p = [...path, ...groupsOf(scene, def, inst.parent), { kind: "instance" as const, instance: inst.id }], label = inst.name ?? scene.def(inst.def).name;
-    return { key: pathKey(p), kind: "instance" as const, label, unnamed: isHex4(label), path: p, def, hidden: !!inst.hidden, locked: !!inst.locked, children: objectChildren(scene, inst.def, p, depth + 1) };
-  });
+export interface TreeOpts {
+  /** 同一个组件在同一层摆了好几份 → 合成一行「×N」（层级窗的开关，默认开）。 */
+  readonly mergeCopies?: boolean;
 }
+/** 定义 def 里所有物件（不管挂在哪个组），各自的路径 = 前缀 + 途经的组 + 它自己。合成开着：同一组件 ≥ 2 份 = 一行 copies（排在第一份的位置）。 */
+function objectChildren(scene: Scene, def: DefId, path: readonly HierPick[], depth: number, opts: TreeOpts): HierNode[] {
+  if (depth > MAX_DEPTH) return [];
+  const rows: HierNode[] = [...scene.def(def).instances.values()].map((inst) => {
+    const p = [...path, ...groupsOf(scene, def, inst.parent), { kind: "instance" as const, instance: inst.id }], label = inst.name ?? scene.def(inst.def).name;
+    return { key: pathKey(p), kind: "instance" as const, label, unnamed: isHex4(label), path: p, def, body: scene.kindOf(inst.def), hidden: !!inst.hidden, locked: !!inst.locked, children: objectChildren(scene, inst.def, p, depth + 1, opts) };
+  });
+  if (!opts.mergeCopies) return rows;
+  const byDef = new Map<DefId, HierNode[]>();
+  for (const r of rows) { const d = contentDefOfRow(scene, r); byDef.set(d, [...(byDef.get(d) ?? []), r]); }
+  const out: HierNode[] = [], done = new Set<DefId>(), parentKey = pathKey(path);
+  for (const r of rows) {
+    const d = contentDefOfRow(scene, r), same = byDef.get(d)!;
+    if (same.length < 2) { out.push(r); continue; }
+    if (done.has(d)) continue;
+    done.add(d);
+    const name = scene.def(d).name;
+    out.push({ key: `${parentKey}|x${d}`, kind: "copies", label: name, unnamed: isHex4(name), path, def, body: scene.kindOf(d), count: same.length, hidden: same.every((m) => m.hidden), locked: same.every((m) => m.locked), children: same });
+  }
+  return out;
+}
+const contentDefOfRow = (scene: Scene, r: HierNode): DefId => { const last = r.path[r.path.length - 1]; return last && last.kind === "instance" ? scene.instance(r.def, last.instance).def : r.def; };
 
 /** 程序给根起的占位名（每个老文件都是它）：按没起名显示。 */
 export const ROOT_PLACEHOLDER = "model";
 /** 整棵树（最外层是根那一行）。根 = 普通组件（user 10-30「我们要和godot一样根和其他节点一视同仁」）：显示它的组件名，没起名（四位码 / 程序占位的 model）淡色。 */
-export function hierarchyTree(scene: Scene): HierNode {
+export function hierarchyTree(scene: Scene, opts: TreeOpts = {}): HierNode {
   const root = scene.root, label = scene.def(root).name;
-  return { key: "", kind: "root", label, unnamed: isHex4(label) || label === ROOT_PLACEHOLDER, path: [], def: root, hidden: false, locked: false, children: objectChildren(scene, root, [], 0) };
+  return { key: "", kind: "root", label, unnamed: isHex4(label) || label === ROOT_PLACEHOLDER, path: [], def: root, body: scene.kindOf(root), hidden: false, locked: false, children: objectChildren(scene, root, [], 0, opts) };
 }
 
 /** 你现在在哪一层 → 路径（实例链上每个实例前面补上它挂的组链，最后补当前组的链）。 */
@@ -66,6 +91,10 @@ export function contextPath(scene: Scene, ctx: EditContext): HierPick[] {
 
 /** 这一行「藏 / 显」（on = 藏）的指令：实例的藏标记（藏这一份连同里面的一切，DT49）。一条指令 = 一步撤销；已经是这样了 = null。 */
 export function setHiddenOp(scene: Scene, node: HierNode, on: boolean): Op | null {
+  if (node.kind === "copies") {   // 合成那一行：这几份一起藏 / 显，一步撤销
+    const ops = node.children.map((m) => setHiddenOp(scene, m, on)).filter((o): o is Op => o !== null);
+    return ops.length === 0 ? null : ops.length === 1 ? ops[0] : { op: "batch", label: on ? "藏起来" : "显示", ops };
+  }
   const last = node.path[node.path.length - 1];
   if (!last || last.kind !== "instance") return null;
   const inst = scene.instance(node.def, last.instance);
@@ -101,7 +130,8 @@ export type Reparent =
  */
 export function reparentOp(scene: Scene, node: HierNode, target: HierNode): Reparent | null {
   const last = node.path[node.path.length - 1];
-  if (node.kind !== "instance" || !last || last.kind !== "instance") return { why: "根不能挪（它是最外一层）" };
+  if (node.kind !== "instance" || !last || last.kind !== "instance") return { why: node.kind === "copies" ? "合成的那一行不能整个挪：先展开，拖其中一份" : "根不能挪（它是最外一层）" };
+  if (target.kind === "copies") return { why: `「${target.label}」那一行是 ${target.count} 份合成的：先展开，拖到其中一份上` };
   const inst = scene.instance(node.def, last.instance), into = contentDef(scene, target);
   if (into === node.def) return null;
   if (scene.references(inst.def, into)) return { why: `不能把「${node.label}」放进它自己（或它里面的东西）里` };

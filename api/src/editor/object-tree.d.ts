@@ -1,3 +1,4 @@
+import type { BodyKind } from "../scene/body-kind.ts";
 import type { DefId, EditContext, GroupId, InstId, Scene } from "../scene/scene.ts";
 import { type Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
@@ -11,13 +12,19 @@ export type HierPick = {
 export interface HierNode {
     /** 键 = 一路的物件编号（「i3/i7」；最外层 = ""；组不进键，挪进挪出组展开状态不丢）。 */
     readonly key: string;
-    readonly kind: "root" | "instance";
+    /** copies = 同一个组件在这一层摆的好几份合成的一行（「×N」，展开看每一份；user 10-30「hierarchy显示的时候应该collapse同实例变成 x几」）。 */
+    readonly kind: "root" | "instance" | "copies";
     readonly label: string;
     /** 名字是四位十六进制码（没起名）→ 淡色等宽。 */
     readonly unnamed: boolean;
+    /** copies 那一行 = 父亲那一行的路径（它自己不是一份）。 */
     readonly path: readonly HierPick[];
     /** 这一行住在哪个组件定义里（藏 / 显的指令打在这里）。 */
     readonly def: DefId;
+    /** 这一行装的组件是什么身体（层级窗名字前的种类小图标；user 10-30「hierarchy上面每个物体能显示自己的type as icon吗」）。 */
+    readonly body: BodyKind;
+    /** copies：合成了几份。 */
+    readonly count?: number;
     readonly hidden: boolean;
     readonly locked: boolean;
     readonly children: readonly HierNode[];
@@ -26,10 +33,14 @@ export interface HierNode {
 export declare const isHex4: (s: string) => boolean;
 export declare const pickKey: (p: HierPick) => string;
 export declare const pathKey: (path: readonly HierPick[]) => string;
+export interface TreeOpts {
+    /** 同一个组件在同一层摆了好几份 → 合成一行「×N」（层级窗的开关，默认开）。 */
+    readonly mergeCopies?: boolean;
+}
 /** 程序给根起的占位名（每个老文件都是它）：按没起名显示。 */
 export declare const ROOT_PLACEHOLDER = "model";
 /** 整棵树（最外层是根那一行）。根 = 普通组件（user 10-30「我们要和godot一样根和其他节点一视同仁」）：显示它的组件名，没起名（四位码 / 程序占位的 model）淡色。 */
-export declare function hierarchyTree(scene: Scene): HierNode;
+export declare function hierarchyTree(scene: Scene, opts?: TreeOpts): HierNode;
 /** 你现在在哪一层 → 路径（实例链上每个实例前面补上它挂的组链，最后补当前组的链）。 */
 export declare function contextPath(scene: Scene, ctx: EditContext): HierPick[];
 /** 这一行「藏 / 显」（on = 藏）的指令：实例的藏标记（藏这一份连同里面的一切，DT49）。一条指令 = 一步撤销；已经是这样了 = null。 */

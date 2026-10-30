@@ -26,6 +26,11 @@ import type { PopupMenuItem } from "./ui/popup-menu.ts";
 export interface HierarchyWindow { toggle(anchor: HTMLElement): void; isOpen(): boolean; refresh(): void }
 
 type Page = "tree" | "res";
+const MERGE_PREF = "hier.mergeCopies";
+/** 种类小图标（图标库待过目层 kind-brep / kind-mesh，Opus 10-30 自画）；以后的种类（化身 / 公告板 / 灯…）加一行。 */
+const KIND_ICON: Record<string, string> = { brep: "kind-brep", mesh: "kind-mesh" };
+const kindIcon = (k: string): string => KIND_ICON[k] ?? "object";
+const KIND_LABEL: Record<string, string> = { brep: "硬表面体", mesh: "网格体" };
 const ROW_PAD = 4, INDENT = 14, CARET_W = 24;   // 行左边距 / 一层缩进 / 小三角宽（含间隙）：拖拽插入线按它们画
 const PAGES: readonly { id: Page; label: string; icon: string }[] = [{ id: "tree", label: "层级", icon: "hierarchy-tree" }, { id: "res", label: "资源", icon: "object" }];
 /** 根那一行的菜单：和物件行同一个样子；根没有父亲 = 炸开灰着（没有藏 / 锁：那是「摆出来的那一份」的属性，根没有那一份）。 */
@@ -35,10 +40,15 @@ const ROOT_MENU: PopupMenuItem<string>[] = [
   { id: "objectWindowSelf", label: "物件设置…", icon: "settings" },
 ];
 
-export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { store: MenuWindowSpec<string>["store"]; after(): void; confirm(title: string, message: string, okLabel: string): Promise<boolean>; hint(text: string): void; onOpenChange?(open: boolean): void }): HierarchyWindow {
+export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { store: MenuWindowSpec<string>["store"]; after(): void; confirm(title: string, message: string, okLabel: string): Promise<boolean>; hint(text: string): void; /** 这台设备记的开关（「同一组件合成一行」）。 */ pref: { get(key: string): string | null; set(key: string, value: string): void }; onOpenChange?(open: boolean): void }): HierarchyWindow {
   // 换页 = 标题下拉（user 10-30「两个大按钮太占地方了。我想的是窗口名字就是下拉」）
   const fw: FloatWin = createFloatWin({ id: "hierarchy", title: "层级", store: deps.store, bodyClass: "tree-body", onOpenChange: (o) => { if (o) render(); deps.onOpenChange?.(o); },
-    titleMenu: { items: () => PAGES.map((p) => ({ id: p.id, label: p.label, icon: p.icon, checked: page === p.id })), onPick: (id) => { page = id as Page; sig = ""; render(); fw.clamp(); } } });
+    titleMenu: {
+      items: () => [...PAGES.map((p) => ({ id: p.id, label: p.label, icon: p.icon, checked: page === p.id })),
+        { id: "mergeCopies", label: "同一组件合成一行（×N）", checked: merge, sectionBefore: "显示" }],
+      onPick: (id) => { if (id === "mergeCopies") { merge = !merge; deps.pref.set(MERGE_PREF, merge ? "1" : "0"); } else page = id as Page; sig = ""; render(); fw.clamp(); },
+    } });
+  let merge = deps.pref.get(MERGE_PREF) !== "0";   // 默认开（user 10-30「hierarchy显示的时候应该collapse同实例变成 x几，可以开这个开关」）
   const expanded = new Set<string>([""]);   // 展开着的行（键 = 一路的物件编号；只活这次）
   let sig = "", page: Page = "tree";
   const pane = document.createElement("div"); pane.className = "tree-pane";
@@ -59,14 +69,17 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     for (const p of path) editor.enterPool(p);
   };
   const pathKeyFull = (path: readonly PoolPick[]): string => path.map(pickKey).join("/");
+  /** 合成那一行的几份里，和第一份在同一层的那些（不同组里的选不到一起：选区只在一层里）。 */
+  const sameLayer = (n: HierNode): HierNode[] => { const k = pathKeyFull(n.children[0].path.slice(0, -1)); return n.children.filter((m) => pathKeyFull(m.path.slice(0, -1)) === k); };
   const select = (n: HierNode): void => {
     if (n.kind === "root") { goTo([]); editor.selectPools([]); deps.after(); return; }
+    if (n.kind === "copies") { const ms = sameLayer(n); goTo(ms[0].path.slice(0, -1)); editor.selectPools(ms.map((m) => m.path[m.path.length - 1])); deps.after(); return; }
     goTo(n.path.slice(0, -1)); editor.selectPools([n.path[n.path.length - 1]]); deps.after();
   };
   /** 拖完松手：换父亲（一步撤销）；挡下来 / 原地不动 = 提示行说为什么。 */
   const dropRow = (i: number, d: TreeDrop): void => {
     const src = shown[i]?.n, tgt = shown[d.parent]?.n;
-    if (!src || !tgt) return;
+    if (!src || !tgt) return;   // （拖到合成那一行上 = reparentOp 说「先展开」）
     const r = reparentOp(editor.sceneRef, src, tgt);
     if (r === null) { deps.hint(`「${src.label}」本来就在「${tgt.label}」底下（同一层里谁排前面还没做，要等文件记顺序）`); return; }
     if ("why" in r) { deps.hint(`挪不了：${r.why}`); return; }
@@ -92,21 +105,28 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     openPopupMenu<string>({ anchor, align: "start", items: () => (n.kind === "root" ? ROOT_MENU : foldSubmenus(objectMenuItems(hud))), onPick: (id) => { hud.pick(id); deps.after(); } });
   };
 
+  /** 展开 / 收起；合成那一行 = 手风琴：同一层一次只展开一组（user 10-30「可以做成手风琴展开，一次只能展开一个」）。 */
+  function toggle(n: HierNode): void {
+    if (expanded.has(n.key)) { expanded.delete(n.key); render(); return; }
+    if (n.kind === "copies") { const sib = n.key.slice(0, n.key.lastIndexOf("|x") + 2); for (const k of [...expanded]) if (k !== n.key && k.startsWith(sib)) expanded.delete(k); }
+    expanded.add(n.key); render();
+  }
   function render(): void {
     fw.setTitle(PAGES.find((p) => p.id === page)!.label);
     pane.setAttribute("role", page === "tree" ? "tree" : "list");
     if (page === "res") { renderResources(); return; }
-    const scene = editor.sceneRef, tree = hierarchyTree(scene), here = contextPath(scene, editor.context), hereKey = pathKey(here), hereFull = pathKeyFull(here);
+    const scene = editor.sceneRef, tree = hierarchyTree(scene, { mergeCopies: merge }), here = contextPath(scene, editor.context), hereKey = pathKey(here), hereFull = pathKeyFull(here);
     for (let i = 1; i <= here.length; i++) expanded.add(pathKey(here.slice(0, i)));   // 你所在的那一层一路展开
     const selected = new Set(editor.selectedPoolKeys());
     const rows: { n: HierNode; depth: number; sel: boolean }[] = [];
+    const isSel = (m: HierNode): boolean => { const last = m.path[m.path.length - 1]; return !!last && pathKeyFull(m.path.slice(0, -1)) === hereFull && selected.has(pickKey(last)); };
     const walk = (n: HierNode, depth: number): void => {
-      const parentFull = pathKeyFull(n.path.slice(0, -1)), last = n.path[n.path.length - 1];
-      rows.push({ n, depth, sel: !!last && parentFull === hereFull && selected.has(pickKey(last)) });
+      if (n.kind === "copies" && n.children.some((c) => hereKey === c.key || hereKey.startsWith(c.key + "/"))) expanded.add(n.key);   // 你在其中一份里面 = 这一组展开
+      rows.push({ n, depth, sel: n.kind === "copies" ? !expanded.has(n.key) && n.children.some(isSel) : n.kind === "instance" && isSel(n) });   // 合成那一行收着时，里面有选中的就整行亮
       if (expanded.has(n.key)) for (const c of n.children) walk(c, depth + 1);
     };
     walk(tree, 0);
-    const nextSig = "tree" + JSON.stringify(rows.map((r) => [r.n.key, r.n.label, r.n.hidden, r.n.locked, r.n.children.length, expanded.has(r.n.key), r.sel])) + hereKey;
+    const nextSig = "tree" + JSON.stringify(rows.map((r) => [r.n.key, r.n.label, r.n.body, r.n.count, r.n.hidden, r.n.locked, r.n.children.length, expanded.has(r.n.key), r.sel])) + hereKey;
     shown = rows;
     if (nextSig === sig) return;
     sig = nextSig;
@@ -118,9 +138,11 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
       row.classList.toggle("is-here", n.key === hereKey); row.classList.toggle("is-selected", sel); row.classList.toggle("is-hidden", n.hidden);
       const caret = document.createElement("button"); caret.type = "button"; caret.className = "tree-caret"; caret.setAttribute("aria-label", expanded.has(n.key) ? "收起" : "展开");
       caret.textContent = n.children.length ? (expanded.has(n.key) ? "▾" : "▸") : ""; caret.disabled = !n.children.length;
-      caret.addEventListener("click", (ev) => { ev.stopPropagation(); if (expanded.has(n.key)) expanded.delete(n.key); else expanded.add(n.key); render(); });
+      caret.addEventListener("click", (ev) => { ev.stopPropagation(); toggle(n); });
+      const kind = document.createElement("span"); kind.className = "tree-kind"; kind.innerHTML = iconHtml(kindIcon(n.body)); kind.title = KIND_LABEL[n.body] ?? n.body;
       const name = document.createElement("span"); name.className = `tree-name${n.unnamed ? " is-unnamed" : ""}`; name.textContent = n.label; name.title = n.unnamed ? `${n.label}（没起名）` : n.label;
-      row.append(caret, name);
+      row.append(caret, kind, name);
+      if (n.kind === "copies") { row.classList.add("is-copies"); const c = document.createElement("span"); c.className = "tree-count"; c.textContent = `×${n.count}`; c.title = `同一个组件摆了 ${n.count} 份（标题下拉可以关掉合成）`; row.append(c); }
       if (n.locked) { const lk = document.createElement("span"); lk.className = "tree-lock"; lk.innerHTML = iconHtml("lock"); lk.title = "锁着"; row.append(lk); }
       if (n.kind !== "root") {
         const eye = document.createElement("button"); eye.type = "button"; eye.className = "tree-eye"; eye.title = n.hidden ? "显示" : "藏起来"; eye.innerHTML = iconHtml(n.hidden ? "visibility-hide" : "visibility-show");
@@ -131,7 +153,7 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
       more.addEventListener("click", (ev) => { ev.stopPropagation(); openMenu(n, more); });
       row.append(more);
       row.addEventListener("click", () => select(n));
-      row.addEventListener("dblclick", () => { goTo(n.path); deps.after(); });
+      row.addEventListener("dblclick", () => { if (n.kind === "copies") { toggle(n); return; } goTo(n.path); deps.after(); });
       row.addEventListener("contextmenu", (ev) => { ev.preventDefault(); openMenu(n, more); });
       body.append(row);
     }
@@ -145,8 +167,9 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     sig = nextSig;
     pane.replaceChildren();
     const head = (text: string): void => { const h = document.createElement("div"); h.className = "res-head"; h.textContent = text; pane.append(h); };
-    const row = (name: string, meta: string, opts: { unnamed?: boolean; orphan?: boolean; swatch?: string }): void => {
+    const row = (name: string, meta: string, opts: { unnamed?: boolean; orphan?: boolean; swatch?: string; kind?: string }): void => {
       const r = document.createElement("div"); r.className = `tree-row res-row${opts.orphan ? " is-orphan" : ""}`; r.setAttribute("role", "listitem");
+      if (opts.kind) { const k = document.createElement("span"); k.className = "tree-kind"; k.innerHTML = iconHtml(kindIcon(opts.kind)); k.title = KIND_LABEL[opts.kind] ?? opts.kind; r.append(k); }
       if (opts.swatch) { const sw = document.createElement("span"); sw.className = "res-swatch"; sw.style.background = opts.swatch; r.append(sw); }
       const nm = document.createElement("span"); nm.className = `tree-name${opts.unnamed ? " is-unnamed" : ""}`; nm.textContent = name;
       const mt = document.createElement("span"); mt.className = "res-meta"; mt.textContent = meta;
@@ -155,7 +178,7 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     const defs = [...c.defs].sort((a, b) => Number(b.live) - Number(a.live));
     head(`组件（${defs.length}）`);
     if (!defs.length) row("（还没有组件）", "", { orphan: true });
-    for (const d of defs) row(d.name, d.live ? `摆了 ${d.placed} 份${d.users.length > d.placed ? `（另有 ${d.users.length - d.placed} 份在孤儿里）` : ""}` : d.users.length ? "孤儿（只摆在孤儿里）" : "孤儿（一份都没摆）", { unnamed: isHex4(d.name), orphan: !d.live });
+    for (const d of defs) row(d.name, d.live ? `摆了 ${d.placed} 份${d.users.length > d.placed ? `（另有 ${d.users.length - d.placed} 份在孤儿里）` : ""}` : d.users.length ? "孤儿（只摆在孤儿里）" : "孤儿（一份都没摆）", { unnamed: isHex4(d.name), orphan: !d.live, kind: d.kind });
     head(`材质（${c.materials.length}）`);
     if (!c.materials.length) row("（还没有材质）", "", { orphan: true });
     const rgb = (m: readonly number[]): string => `rgb(${m.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(",")})`;
