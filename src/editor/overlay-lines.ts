@@ -5,7 +5,7 @@
 import type { OverlayCtx, OverlayLines } from "../minccino/index.ts";
 
 /** 每组线的画法 = 引擎认的几个 GL 参数（线宽 CSS px / 深度模式 / 透明度 / 叠放次序）；**名字留在这里**，引擎那边没有样式表（刀 a，v0.17.17）。值 = 以前 LINE_STYLES 逐字搬来。 */
-export type Look = Pick<OverlayLines, "widthPx" | "depth" | "alpha" | "layer" | "depthWrite" | "shared">;
+export type Look = Pick<OverlayLines, "widthPx" | "depth" | "alpha" | "layer" | "depthWrite" | "shared" | "pass">;
 const HINT_PX = 1.2, ARC_PX = 2.5, SOFT_EDGE_PX = 1;
 const plain = (widthPx: number): Look => ({ widthPx, depth: "visible" });
 const onTop = (widthPx: number, layer: number, alpha?: number): Look => (alpha === undefined ? { widthPx, depth: "through", layer } : { widthPx, depth: "through", layer, alpha });
@@ -18,7 +18,7 @@ export const LOOK = {
   tape: plain(HINT_PX),
   knife: onTop(HINT_PX + 0.5, 10),
   charged: plain(HINT_PX),
-  soft: plain(SOFT_EDGE_PX),
+  soft: { widthPx: SOFT_EDGE_PX, depth: "visible", pass: "content" },   // 平滑边淡线 = 模型的样子（点线面同一个标准：跟内容画，2026-10-29 Opus）
   /** 断口小垂线：线宽跟线稿粗细走（鼓包，不是另一种线）。 */
   tick: { widthPx: "edge", depth: "visible" },
   poolAxes: onTop(HINT_PX, 10),
@@ -28,9 +28,7 @@ export const LOOK = {
   gizmo: onTop(HINT_PX * 1.5, 11),
   xg: onTop(HINT_PX * 1.5, 11),
   /** 选中 / 刮擦 / 悬停 / 检查的边（6c）：后端边线自己的材质（shared），定死最后画（layer 2）= 盖得住底下同材质的黑边。 */
-  edge: { widthPx: 1.6, depth: "visible", layer: 2, shared: "edge" },
-  /** X 光下的选中边：透过面画（= 以前后端的 xrayOverlayMat：边线宽 + 1、不测深度）。 */
-  edgeXray: { widthPx: 2.6, depth: "through", layer: 2 },
+  edge: { widthPx: 1.6, depth: "visible", layer: 2, shared: "edge", pass: "content" },
 } as const satisfies Record<string, Look>;
 import { hexToLinear, PALETTE } from "../minccino/index.ts";
 import type { ViewState } from "./view-state.ts";

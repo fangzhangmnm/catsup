@@ -4,12 +4,13 @@
 import type { OverlayCtx, OverlayItem, OverlayMarker, OverlayPoints, OverlayTris } from "../minccino/index.ts";
 
 /** 点 / 标记 / 三角的画法 = 引擎认的几个 GL 参数；名字留在这里（刀 a，v0.17.17）。值 = 以前 POINT / MARKER / TRIS_STYLES 逐字搬来。 */
-type DotLook = Pick<OverlayPoints, "sizePx" | "shape" | "pull" | "color" | "depth" | "alpha" | "layer">;
+type DotLook = Pick<OverlayPoints, "sizePx" | "shape" | "pull" | "color" | "depth" | "alpha" | "layer" | "pass">;
+/** 点线面同一个标准（2026-10-29 Opus；user「点也应该同样的标准」）：这四种点都是「模型的样子」= 跟内容画（像素化的风格里进小图），不走叠加层。 */
 const DOT = {
-  selVert: { sizePx: 9, shape: "round", pull: 0.994, color: 0x2b6cb0, depth: "visible", layer: 4 },      // 选中的点（PALETTE.edgeSelected）
-  vert: { sizePx: 5, shape: "round", pull: 0.996, color: 0x2a2a2a, depth: "visible", layer: 3 },         // 全部顶点（PALETTE.edge）
-  faceDot: { sizePx: 6, shape: "square", pull: null, color: null, depth: "through", alpha: 0.9, layer: 5 },   // X 光面点：每点一色、不被挡
-  seam: { sizePx: 7, shape: "round", pull: 0.995, color: 0x8b5cf6, depth: "visible", layer: 3.5 },      // 镜像中缝上的点（MIRROR_COLOR）
+  selVert: { sizePx: 9, shape: "round", pull: 0.994, color: 0x2b6cb0, depth: "visible", layer: 4, pass: "content" },      // 选中的点（PALETTE.edgeSelected）
+  vert: { sizePx: 5, shape: "round", pull: 0.996, color: 0x2a2a2a, depth: "visible", layer: 3, pass: "content" },         // 全部顶点（PALETTE.edge）
+  faceDot: { sizePx: 6, shape: "square", pull: null, color: null, depth: "through", alpha: 0.9, layer: 5, pass: "content" },   // X 光面点：每点一色、不被挡
+  seam: { sizePx: 7, shape: "round", pull: 0.995, color: 0x8b5cf6, depth: "visible", layer: 3.5, pass: "content" },      // 镜像中缝上的点（MIRROR_COLOR）
 } as const satisfies Record<string, DotLook>;
 type MarkLook = Pick<OverlayMarker, "geom" | "depth" | "depthWrite" | "alpha" | "doubleSide" | "layer">;
 const MARK = {

@@ -24,8 +24,15 @@ const matKey = (it: OverlayLines): string => `${it.widthPx}|${it.depth}|${it.alp
 export class OverlayLinesDrawer {
   private mats = new Map<string, any>();
   private edgeWidthMats: any[] = [];
-  private objs = new Map<string, { obj: any; key: string; mat: string }>();
-  constructor(private readonly scene: any, private readonly lineMat: LineMatFactory, private readonly shared: SharedLineMats = {}) {}
+  private objs = new Map<string, { obj: any; key: string; mat: string; pass: "overlay" | "content" }>();
+  /** 每份材质建的时候的线宽（CSS px）：跟内容走的线在小图那遍要按小图像素放大（scaleContent）。 */
+  private baseWidth = new Map<any, number>();
+  /** @param layers 叠加层那一层 / 跟内容走的那一层（three 的 layer 号；pass = content 的挂模型那层，像素化的风格里跟着进小图） */
+  constructor(private readonly scene: any, private readonly lineMat: LineMatFactory, private readonly shared: SharedLineMats = {}, private readonly layers: { overlay: number; content: number } = { overlay: 0, content: 0 }) {}
+  /** 小图那遍：跟内容走的线（自己建的材质）线宽 × f（LineSegments2 按画布视口算像素）；f = 1 还原。 */
+  scaleContent(f: number): void { for (const e of this.objs.values()) if (e.pass === "content" && e.obj.visible) { const b = this.baseWidth.get(e.obj.material); if (b !== undefined) e.obj.material.linewidth = b * f; } }
+  /** 探针：这一帧走叠加层那遍的 id。 */
+  overlayPassIds(): string[] { return [...this.objs].filter(([, e]) => e.obj.visible && e.pass === "overlay").map(([id]) => id); }
   /** 探针：这个 id 的线这一帧画着没有（探针别摸 three 对象，摸契约 id）。 */
   isVisible(id: string): boolean { return !!this.objs.get(id)?.obj.visible; }
   /** `widthPx: "edge"` 的材质每帧跟边线宽走（设备像素；render3 syncLineScale 调）。 */
@@ -40,7 +47,7 @@ export class OverlayLinesDrawer {
     m.depthWrite = it.depthWrite ?? visible;
     if (it.depth === "hidden") m.depthFunc = THREE.GreaterDepth;
     if (it.alpha !== undefined && it.alpha < 1) { m.transparent = true; m.opacity = it.alpha; }
-    if (it.widthPx === "edge") this.edgeWidthMats.push(m);
+    if (it.widthPx === "edge") this.edgeWidthMats.push(m); else this.baseWidth.set(m, it.widthPx);
     this.mats.set(k, m);
     return m;
   }
@@ -55,10 +62,11 @@ export class OverlayLinesDrawer {
         const obj = new LineSegments2(new LineSegmentsGeometry(), mat);
         obj.frustumCulled = false; obj.visible = false;
         this.scene.add(obj);
-        e = { obj, key: "\u0000", mat: mk };
+        e = { obj, key: "\u0000", mat: mk, pass: "overlay" };
         this.objs.set(it.id, e);
       }
       e.obj.renderOrder = it.layer ?? 0;
+      e.pass = it.pass ?? "overlay"; e.obj.layers.set(e.pass === "content" ? this.layers.content : this.layers.overlay);   // 点线面的样子跟内容画（像素化的风格里进小图），gizmo 之类留在叠加层
       if (sm) e.obj.material = mat;   // 共享材质每帧跟后端走
       if (e.key !== it.key) { e.key = it.key; setLineGeometry(e.obj, it.positions, it.colors); }
       if (it.color !== undefined) e.obj.material.color.setHex(it.color);

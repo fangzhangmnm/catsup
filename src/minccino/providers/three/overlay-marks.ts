@@ -43,14 +43,24 @@ function basicMaterial(color: number, depth: "visible" | "through", depthWrite: 
 }
 
 export class OverlayMarksDrawer {
-  private points = new Map<string, { obj: any; key: string; mat: string }>();
+  private points = new Map<string, { obj: any; key: string; mat: string; pass: "overlay" | "content" }>();
   private markers = new Map<string, { obj: any; mat: string }>();
   private tris = new Map<string, { obj: any; key: string; mat: string }>();
   private labels = new Map<string, { sprite: any; key: string; w: number; h: number }>();
   private readonly up = new THREE.Vector3(0, 1, 0);
   private readonly v1 = new THREE.Vector3(); private readonly v2 = new THREE.Vector3(); private readonly v3 = new THREE.Vector3();
   private readonly m4 = new THREE.Matrix4();
-  constructor(private readonly scene: any) {}
+  /** @param layers 叠加层那一层 / 跟内容走的那一层（点的 pass = content 挂模型那层；标记 / 三角 / 文字永远在叠加层） */
+  constructor(private readonly scene: any, private readonly layers: { overlay: number; content: number } = { overlay: 0, content: 0 }) {}
+  /** 探针：这一帧走叠加层那遍的 id。 */
+  overlayPassIds(): string[] {
+    const out: string[] = [];
+    for (const [id, e] of this.points) if (e.obj.visible && e.pass === "overlay") out.push(id);
+    for (const [id, e] of this.markers) if (e.obj.visible) out.push(id);
+    for (const [id, e] of this.tris) if (e.obj.visible) out.push(id);
+    for (const [id, e] of this.labels) if (e.sprite.visible) out.push(id);
+    return out;
+  }
   /** 探针：这个 id 这一帧画着没有。 */
   isVisible(id: string): boolean {
     return !!(this.points.get(id)?.obj.visible || this.markers.get(id)?.obj.visible || this.tris.get(id)?.obj.visible || this.labels.get(id)?.sprite.visible);
@@ -58,7 +68,8 @@ export class OverlayMarksDrawer {
   /** 探针：现在挂着哪些字（id → 位图键 = 样式|dpr|文字）。 */
   labelKeys(): { id: string; key: string }[] { return [...this.labels].map(([id, e]) => ({ id, key: e.key })); }
 
-  sync(items: readonly (OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel)[], dpr: number, worldPerPx: (p: Vec3) => number): void {
+  /** @param contentScale 跟内容走的点画进小图时的缩小倍数（小图一格 = 几个设备像素；不走小图 = 1） */
+  sync(items: readonly (OverlayPoints | OverlayMarker | OverlayTris | OverlayLabel)[], dpr: number, worldPerPx: (p: Vec3) => number, contentScale = 1): void {
     const seenPts = new Set<string>(), seenM = new Set<string>(), seenT = new Set<string>(), seenL = new Set<string>();
     for (const it of items) {
       if (it.kind === "points") {
@@ -70,7 +81,7 @@ export class OverlayMarksDrawer {
           const obj = new THREE.Points(new THREE.BufferGeometry(), pointMaterial(it));
           obj.frustumCulled = false; obj.visible = false;
           this.scene.add(obj);
-          e = { obj, key: "\u0000", mat: mk }; this.points.set(it.id, e);
+          e = { obj, key: "\u0000", mat: mk, pass: "overlay" }; this.points.set(it.id, e);
         }
         if (e.key !== it.key) {
           e.key = it.key;
@@ -80,7 +91,8 @@ export class OverlayMarksDrawer {
           e.obj.geometry.dispose(); e.obj.geometry = g;
         }
         e.obj.renderOrder = it.layer ?? 0;
-        e.obj.material.uniforms.uSize.value = it.sizePx * dpr;
+        e.pass = it.pass ?? "overlay"; e.obj.layers.set(e.pass === "content" ? this.layers.content : this.layers.overlay);
+        e.obj.material.uniforms.uSize.value = Math.max(1, it.sizePx * dpr / (e.pass === "content" ? contentScale : 1));   // 跟内容走的点在小图里按小图像素
         e.obj.visible = true;
       } else if (it.kind === "marker") {
         seenM.add(it.id);

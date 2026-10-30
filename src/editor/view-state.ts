@@ -96,6 +96,6 @@ export function frameInput(world: WorldView, cam: OrbitCamera, vp: Viewport, vie
     // 显示不细分（user 2026-10-25「即使开了，grid也不应该在显示层细分」）：吸附的 1/5、1/10 只管吸，不画成网格线——所以只递 step
     grid: { frame: view.grid?.frame ?? view.frame ?? WORLD_FRAME, step: view.grid?.step ?? 1 },
     marks: () => highlightMarks(world, view, layout),   // 选中 / 悬停的面 = 换材质槽的段（刀 b）
-    overlay: (ctx: OverlayCtx): OverlayItem[] => [...highlightItems(world, view), ...overlayItems(view, ctx)],
+    overlay: (ctx: OverlayCtx): OverlayItem[] => [...highlightItems(world, view, layout), ...overlayItems(view, ctx)],
   };
 }

@@ -59,6 +59,7 @@ export class EditorStreamProvider implements StreamProvider {
   layout(): MarkLayout {
     return {
       rangeOf: (slot, fid) => { const b = this.slotBody.get(slot); return b ? b.mesh.faceRanges(fid).map((r) => ({ chunk: `${b.id}/${r.key}`, start: r.off, count: r.len })) : []; },
+      edgeRangeOf: (slot, eid) => { const b = this.slotBody.get(slot), r = b?.lines ? b.mesh.edgeRange(eid) : null; return b && b.lines && r ? { chunk: b.lines.id, start: r[0], count: r[1] } : null; },
       chunksOf: (slot) => { const b = this.slotBody.get(slot); if (!b) return []; const out: { chunk: string; count: number; kind: "tris" | "lines" }[] = [...b.faces.values()].map((c) => ({ chunk: c.id, count: c.count, kind: "tris" as const })); if (b.lines) out.push({ chunk: b.lines.id, count: b.lines.count, kind: "lines" as const }); return out; },
     };
   }

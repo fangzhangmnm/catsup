@@ -29,6 +29,8 @@ export interface OverlayLines {
   readonly layer?: number;
   /** through 默认不写深度；要写 = true。 */
   readonly depthWrite?: boolean;
+  /** 画在哪一遍：overlay（默认）= 叠加层，原分辨率、画在画面最上；content = 跟模型一起画（像素化的风格里进小图、按深度），属于「模型的样子」的点线（顶点小点、软边淡线…）用它。 */
+  readonly pass?: "overlay" | "content";
   /** 不另建材质，用后端自己的边线材质（线宽跟线稿粗细走、SU 轮廓线 shader、X 光下换透视那份）；widthPx / depth 只是说明。 */
   readonly shared?: "edge";
 }
@@ -46,6 +48,8 @@ export interface OverlayPoints {
   readonly depth: "visible" | "through";
   readonly alpha?: number;
   readonly layer?: number;
+  /** 画在哪一遍（同 OverlayLines.pass）：顶点小点 / 选中点 / 面点 / 中缝点 = content。 */
+  readonly pass?: "overlay" | "content";
 }
 export type MarkerGeom = "sphere" | "sphereHalf" | "box" | "cone" | "ring" | "plane";
 /** 一个实心标记：几何形状 + 位置 + 缩放 + 颜色 + 朝向（朝向的矩阵数学归后端：upTo = 让 +Y 指向 dir；basis = 按三根轴摆）。每帧可变。 */

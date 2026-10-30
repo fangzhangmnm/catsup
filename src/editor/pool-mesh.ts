@@ -154,6 +154,8 @@ export class DenseStore extends ArrayStore {
   constructor(specs: readonly AttrSpec[], unit: number) { super(specs); this.unit = unit; }
   get count(): number { return this.idAt.length; }
   has(id: number): boolean { return this.slotOf.has(id); }
+  /** 这条记录占的段（单位偏移 / 单位数：像素线 2 个顶点、粗线 1 个实例）；没有 = null。删记录会挪别人的位置——用的人每次现查。 */
+  range(id: number): readonly [number, number] | null { const slot = this.slotOf.get(id); return slot === undefined ? null : [slot * this.unit, this.unit]; }
   put(id: number, fill: Fill): void {
     let slot = this.slotOf.get(id);
     if (slot === undefined) {
@@ -355,6 +357,8 @@ export class PoolMesh {
     return { full: true, faces: this.faceGroups.size, edges: this.lines.count };
   }
 
+  /** 一条边在线块里占的段（标记：选中 / 悬停 / 刮擦 / 检查的边按段换材质；软边 / 折线 / 藏起来的边不在线块里 = null）。 */
+  edgeRange(eid: EdgeId): readonly [number, number] | null { return this.lines.range(eid); }
   /** 一张面在各组里占的段（顶点偏移 / 顶点数；两侧材质不同的面在两组里）：标记（选中 / 悬停）按段换材质用（窄接口刀 b）。 */
   faceRanges(fid: FaceId): { key: string; off: number; len: number }[] {
     const k = this.faceGroups.get(fid);

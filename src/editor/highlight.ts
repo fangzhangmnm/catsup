@@ -3,7 +3,8 @@
 //     后端把那个槽的面分成两段索引（普通的 / 标记的）——不重叠、不画两遍、顶点一个字节不传（user 10-29「画原色但是踢掉选中的，然后画选中的」「index赞！」）。
 //     颜色不在这里：材质槽长什么样归风格的材质表（白模 = 换成状态色、写实 = 叠色、Tron = Clu 橙 + 辉光）。
 //   · 淡出（上下文之外的槽）= 整槽的 faceDim / edgeDim 标记（刀 c，v0.17.19）：整块换材质，不烤顶点色。
-//   · 边：选中蓝 / 刮擦·悬停红 / 检查橙（线性色；后端用边线自己的材质画粗线）；选中的软边 / 折边不画粗线（user 10-25「选中的时候软边显示了粗线」），「检查」标的照画。
+//   · 边 = **标记**（2026-10-29 Opus；user「非像素模式的边也不应该用叠加啊，而是两套材质」「点也应该同样的标准」）：线块里那一段换材质槽（edgeSelected 蓝 / edgeHot 刮擦·悬停红 / edgeWarn 检查橙）；
+//     选中的软边 / 折边不画（user 10-25「选中的时候软边显示了粗线」），被刮擦 / 检查标的软边不在线块里 → 退成 `pass: content` 的线（跟内容画，不走叠加层）。
 // 引擎只拿到「段 + 材质槽」和「边段 + 颜色」，不再读 WorldView（守卫 ③′ 清零）。
 // 键 = 世界身份 + 版本 + 选区 / 悬停 / 刮擦 / 检查集；键没变 = 复用上一帧的结果，后端也不重建。
 import type { Mark, OverlayItem, OverlayLines } from "../minccino/index.ts";
@@ -29,6 +30,8 @@ export interface HighlightState {
 /** 池网格的布局（流提供者给）：某个槽里一张面（池本地 id）在哪些块的哪一段。 */
 export interface MarkLayout {
   rangeOf(slot: string, fid: FaceId): readonly { readonly chunk: string; readonly start: number; readonly count: number }[];
+  /** 某个槽里一条边（池本地 id）在线块的哪一段；不在线块里（软边 / 折线 / 藏起来的）= null。 */
+  edgeRangeOf(slot: string, eid: EdgeId): { readonly chunk: string; readonly start: number; readonly count: number } | null;
   /** 某个槽的全部块（整槽标记用：淡出）。 */
   chunksOf(slot: string): readonly { readonly chunk: string; readonly count: number; readonly kind: "tris" | "lines" }[];
 }
@@ -44,12 +47,12 @@ export function highlightKey(world: WorldView, v: HighlightState): string {
   return `${wid}:${v.revision ?? 0}:${[...v.selectionFaces].join(",")}:${v.hoverFace ?? ""}:${[...v.selectionEdges].join(",")}:${[...v.scrubEdges].join(",")}:${v.hoverEdge ?? ""}:${v.warnEdges ? `${v.warnEdges.size}|${[...v.warnEdges].join(",")}` : ""}:${v.dimSlots ? [...v.dimSlots].join(",") : ""}:${v.xray ? "x" : ""}`;
 }
 
-/** 这一帧的高亮叠加层（边；没选没悬停 = 空数组）；键没变就是上一帧那份。 */
-export function highlightItems(world: WorldView, v: HighlightState): OverlayItem[] {
+/** 这一帧的高亮辅助几何（只剩线块里没有的边：被刮擦 / 检查标的软边；`pass: content`）；键没变就是上一帧那份。 */
+export function highlightItems(world: WorldView, v: HighlightState, layout: MarkLayout): OverlayItem[] {
   const key = highlightKey(world, v);
   const hit = cache.get(world);
   if (hit && hit.key === key) return hit.items;
-  const items = perf.time("rebuildOverlay", () => buildEdges(world, v, key));
+  const items = perf.time("rebuildOverlay", () => buildEdges(world, v, key, layout));
   cache.set(world, { key, items });
   return items;
 }
@@ -74,6 +77,13 @@ function buildMarks(kd: WorldView, view: HighlightState, layout: MarkLayout): Ma
     const slot = slotKey(s), material = view.selectionFaces.has(fid) ? "faceSelected" : "faceHover";
     for (const r of layout.rangeOf(slot, fid - si * ID_STRIDE)) out.push({ slot, chunk: r.chunk, start: r.start, count: r.count, material });
   }
+  // 边：线块里那一段换材质槽（选中 / 刮擦·悬停 / 检查）
+  for (const { id, slot: si, material } of edgeStates(kd, view)) {
+    const s = kd.slots.find((x) => x.index === si);
+    if (!s) continue;
+    const slot = slotKey(s), r = layout.edgeRangeOf(slot, id - si * ID_STRIDE);
+    if (r) out.push({ slot, chunk: r.chunk, start: r.start, count: r.count, material });
+  }
   // 淡出：上下文之外的槽整槽换材质槽（面 faceDim / 边 edgeDim）
   if (view.dimSlots) for (const si of view.dimSlots) {
     const s = kd.slots.find((x) => x.index === si);
@@ -86,21 +96,31 @@ function buildMarks(kd: WorldView, view: HighlightState, layout: MarkLayout): Ma
   return out;
 }
 
-function buildEdges(kd: WorldView, view: HighlightState, key: string): OverlayItem[] {
-  const out: OverlayItem[] = [];
-  // 边：选中 / 刮擦 / 悬停 / 检查 → 粗线（后端边线自己的材质；X 光下不被面挡）
-  const pos: number[] = [], col: number[] = [];
+/** 要高亮的边和它的材质槽（刮擦·悬停 > 检查 > 选中）；选中的软边 / 折边不画。 */
+function edgeStates(kd: WorldView, view: HighlightState): { id: EdgeId; slot: number; material: "edgeSelected" | "edgeHot" | "edgeWarn" }[] {
+  const out: { id: EdgeId; slot: number; material: "edgeSelected" | "edgeHot" | "edgeWarn" }[] = [];
   const eids = new Set<EdgeId>([...view.selectionEdges, ...view.scrubEdges, ...(view.warnEdges ?? [])]);
   if (view.hoverEdge !== null) eids.add(view.hoverEdge);
   for (const id of eids) {
     if (!kd.graph.hasEdge(id)) continue;
-    const e = kd.graph.edge(id);
     const hot = view.scrubEdges.has(id) || view.hoverEdge === id, warn = !hot && !!view.warnEdges?.has(id);
     if ((kd.isSoft(id) || kd.isFold(id)) && !hot && !warn) continue;
-    const a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
-    const [cr, cg, cb] = hexToLinear(hot ? PALETTE.edgeHot : warn ? PALETTE.edgeWarn : PALETTE.edgeSelected);
+    out.push({ id, slot: Math.floor(id / ID_STRIDE), material: hot ? "edgeHot" : warn ? "edgeWarn" : "edgeSelected" });
+  }
+  return out;
+}
+
+/** 线块里没有的边（被刮擦 / 检查标的软边）→ 一组 `pass: content` 的线（跟内容画、不走叠加层）。 */
+function buildEdges(kd: WorldView, view: HighlightState, key: string, layout: MarkLayout): OverlayItem[] {
+  const out: OverlayItem[] = [];
+  const pos: number[] = [], col: number[] = [];
+  for (const { id, slot: si, material } of edgeStates(kd, view)) {
+    const s = kd.slots.find((x) => x.index === si);
+    if (s && layout.edgeRangeOf(slotKey(s), id - si * ID_STRIDE)) continue;   // 在线块里 = 标记管
+    const e = kd.graph.edge(id), a = kd.graph.pt(e.a), b = kd.graph.pt(e.b);
+    const [cr, cg, cb] = hexToLinear(material === "edgeHot" ? PALETTE.edgeHot : material === "edgeWarn" ? PALETTE.edgeWarn : PALETTE.edgeSelected);
     pos.push(a.x, a.y, a.z, b.x, b.y, b.z); col.push(cr, cg, cb, cr, cg, cb);
   }
-  if (pos.length) out.push({ kind: "lines", id: "edgeSel", ...(view.xray ? LOOK.edgeXray : LOOK.edge), key, positions: pos, colors: col } satisfies OverlayLines);   // X 光下选中的边透过面画（以前 = 后端按 X 光换材质，刀 d 起编辑器自己说）
+  if (pos.length) out.push({ kind: "lines", id: "edgeSel", ...LOOK.edge, key, positions: pos, colors: col } satisfies OverlayLines);
   return out;
 }

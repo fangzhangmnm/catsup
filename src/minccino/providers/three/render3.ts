@@ -81,7 +81,7 @@ const XR_DEFAULT = { foveation: 0, framebufferScale: 1.0 };
 interface GpuFaces { readonly id: string; version: number; readonly mat: MaterialRef | null; readonly side: ChunkSide | null; readonly attrs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 interface GpuLines { readonly id: string; version: number; readonly instanced: boolean; readonly bufs: Record<string, any>; readonly geo: any; count: number; gen: number; }
 /** 一个槽（实例 / group 出现的一个位置）的 three 节点：一个 Group 带矩阵，下面纯色面 / 贴图面 / 原生线 / 粗线，几何全是共享引用。 */
-interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; /** 这个槽的线这一帧画不画、粗线还是像素线（隐线标记按它开节点）。 */ linesVisible: boolean; thickLines: boolean; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
+interface SlotNodes { root: any; plain: any; /** 这个槽的面现在用的源几何 / 材质 / 块 id（标记按它分段，刀 b）。 */ plainSrc: any; plainMat: any; plainChunk: string | null; tex: { mesh: any; src: any; mat: any; chunk: string | null }[]; pixel: any; thick: any; /** 线现在的底材质 / 块 id（线的标记按它换材质，刀 c）。 */ thickMat: any; pixelMat: any; linesChunk: string | null; /** 原生线的源几何（选中边按段分材质用）/ 粗线被标记那几条的拷贝 + 它的隐线版（X 光）。 */ pixelSrc: any; thickMark: any; thickMarkHidden: any; /** 这个槽的线这一帧画不画、粗线还是像素线（隐线标记按它开节点）。 */ linesVisible: boolean; thickLines: boolean; xpixel: any; xthick: any; gen: number; /** 上次应用的标记签名；标记的几何 = 共享源几何的属性 + 自己的索引分段（块 id → 几何）。 */ markKey: string; marked: Map<string, MarkedGeo> }
 interface MarkedGeo { geo: any; src: any; index: any }
 
 // ViewState（编辑器这一帧的视图状态）6c 起住 src/editor/view-state.ts；后端只吃 FrameInput。
@@ -325,9 +325,9 @@ export class Renderer3 implements RenderProvider {
     // 样式表定死它最后画（renderOrder 2）；它没有轮廓属性 = 按悬空边加粗画，本来就比底下的黑边宽，盖得住。探针 probe-erase-red。X 光开着换成不做深度测试那份。
     // 叠加层线段族（步 6a；刀 a 起材质按 item 的画法参数按需建）；"edge" 不建材质
     const overlayHost = { add: (o: any): void => { o.layers.set(OVERLAY_LAYER); this.scene.add(o); }, remove: (o: any): void => { this.scene.remove(o); } };   // 叠加层的东西住 OVERLAY_LAYER
-    this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => this.edgeMat });
+    this.overlayLines = new OverlayLinesDrawer(overlayHost, (px, o) => this.lineMat(px, o), { edge: () => this.edgeMat }, { overlay: OVERLAY_LAYER, content: 0 });
     // 叠加层的点 / 标记 / 三角 / 文字（步 6b）：吸附小球、落点环、缩放柄、顶点 / 面 / 中缝 / 选中点、平面 gizmo 方块、变换 gizmo 的锥 / 块 / 片、文字
-    this.overlayMarks = new OverlayMarksDrawer(overlayHost);
+    this.overlayMarks = new OverlayMarksDrawer(overlayHost, { overlay: OVERLAY_LAYER, content: 0 });
 
     const xr = this.renderer.xr;
     xr.enabled = true;
@@ -610,7 +610,7 @@ export class Renderer3 implements RenderProvider {
     };
     const items = input.overlay ? input.overlay(octx) : [];
     this.overlayLines.sync(items.filter((it): it is OverlayLines => it.kind === "lines"));
-    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, (p) => this.worldPerPx(cam, vp, p));
+    this.overlayMarks.sync(items.filter((it) => it.kind !== "lines") as Exclude<OverlayItem, OverlayLines>[], this.dpr, (p) => this.worldPerPx(cam, vp, p), this.lastPlan.order.includes("upscale") ? this.styledK() : 1);
 
     const t0 = performance.now();
     const info3 = this.renderer.info;
@@ -680,9 +680,11 @@ export class Renderer3 implements RenderProvider {
    * 「k × 小图」那么大一块，画布外多出来的那一点裁掉，叠加层和小图逐像素对齐；② 描边（后处理挂点）③ 最近邻放大回画布并写回深度 ④ 叠加层那一层
    * （网格、三轴、选中边、吸附、gizmo、文字、X 光线）按原分辨率画在上面，被写回的深度挡。选中 / 悬停的面是槽里的节点，跟着模型一起像素化。
    */
+  /** 小图一格 = 几个设备像素（行数上限：整数倍铺满、不留黑边）。 */
+  private styledK(): number { const sc = this.frameScreen, H = this.flatRes.h; return sc.rows ? Math.max(1, Math.floor(H / sc.rows)) : Math.max(1, Math.round(sc.pixelate * this.dpr)); }
   private renderStyled(cam3: any): void {
     const p = this.framePreset, W = this.flatRes.w, H = this.flatRes.h;
-    const sc = this.frameScreen, k = sc.rows ? Math.max(1, Math.floor(H / sc.rows)) : Math.max(1, Math.round(sc.pixelate * this.dpr));   // 行数上限：整数倍铺满、不留黑边
+    const sc = this.frameScreen, k = this.styledK();
     const ps = (this.pixelScreen ??= new PixelScreen());
     const low = ps.prepare(W, H, k), target = this.renderer.getRenderTarget();
     const bg = this.scene.background, mask = cam3.layers.mask, auto = this.renderer.autoClear;
@@ -700,7 +702,8 @@ export class Renderer3 implements RenderProvider {
       if (p.material.tron && this.tron) this.tron.sync(p.material.tron, pxScale);
       const lw0 = this.edgeMat.linewidth, lwd0 = this.edgeDimMat.linewidth, pa0 = this.profileAdd.value;
       this.edgeMat.linewidth = lw0 * pxScale; this.edgeDimMat.linewidth = lwd0 * pxScale; this.profileAdd.value = pa0 * pxScale;
-      const restoreLines = (): void => { this.edgeMat.linewidth = lw0; this.edgeDimMat.linewidth = lwd0; this.profileAdd.value = pa0; };
+      this.overlayLines.scaleContent(pxScale);   // 跟内容走的线（软边淡线…）在小图里按小图像素
+      const restoreLines = (): void => { this.edgeMat.linewidth = lw0; this.edgeDimMat.linewidth = lwd0; this.profileAdd.value = pa0; this.overlayLines.scaleContent(1); };
       try {
       this.renderer.setRenderTarget(low); this.renderer.render(this.scene, cam3);
       if (p.post.bloom) {
@@ -828,6 +831,7 @@ export class Renderer3 implements RenderProvider {
   getLineWeight(): number { return this.lineWeight; }
 
   /** 探针：叠加层线段族里某个 id（lockLines / soft / guides / …）这一帧画着没有。 */
+  overlayPassIds(): string[] { return [...this.overlayLines.overlayPassIds(), ...this.overlayMarks.overlayPassIds()]; }
   overlayVisible(id: string): boolean { return this.overlayLines.isVisible(id) || this.overlayMarks.isVisible(id); }
   /** 引擎这边的入口：流提供者（编辑器那边的 EditorStreamProvider；骨架稿 v2 不变量 2：引擎拉、提供者吐）。 */
   setProvider(p: StreamProvider): void { this.provider = p; this.poolKey = ""; }
@@ -882,7 +886,7 @@ export class Renderer3 implements RenderProvider {
       // 被挡住的边（edgeHidden 标记，刀 d）：同一份线几何再画一遍、深度大于才画；显不显示由标记定（syncMarks），这里只备好几何 / 材质
       n.xthick.material = tron ? tron.hiddenThick : this.hiddenThickMat; n.xpixel.material = tron ? tron.hiddenPixel : this.hiddenPixelMat;
       n.xthick.geometry = n.thick.geometry; n.xpixel.geometry = n.pixel.geometry;
-      n.linesVisible = showL; n.thickLines = thickLines; n.xthick.visible = false; n.xpixel.visible = false;
+      n.linesVisible = showL; n.thickLines = thickLines; n.xthick.visible = false; n.xpixel.visible = false; n.pixelSrc = n.pixel.geometry; n.markKey = "\u0000";
     }
     // 没了的槽：节点摘掉（几何是共享引用，不在这里释放）
     for (const [key, n] of this.slotNodes) if (n.gen !== this.syncGen) { this.scene.remove(n.root); this.slotNodes.delete(key); }
@@ -902,14 +906,102 @@ export class Renderer3 implements RenderProvider {
       n.markKey = key;
       this.applyMarks(n.plain, n.plainSrc, n.plainMat, n.plainChunk, ms, n.marked);
       for (const t of n.tex) if (t.mesh.visible) this.applyMarks(t.mesh, t.src, t.mat, t.chunk, ms, n.marked);
-      // 线：整块换材质（淡出 edgeDim）；没标记 = 底材质
-      const lm = n.linesChunk ? ms.find((m) => m.chunk === n.linesChunk && m.material === "edgeDim") : undefined;
-      n.thick.material = lm ? this.lineSlotMaterial(n.thickMat, "edgeDim") : n.thickMat;
-      n.pixel.material = lm ? this.lineSlotMaterial(n.pixelMat, "edgeDim") : n.pixelMat;
-      // 隐线：edgeHidden 标记 = 同一份线几何再画一遍（深度大于才画）；没标记 = 不画
-      const hidden = n.linesVisible && !!(n.linesChunk && ms.some((m) => m.chunk === n.linesChunk && m.material === "edgeHidden"));
-      n.xthick.visible = hidden && n.thickLines; n.xpixel.visible = hidden && !n.thickLines;
+      // 线：淡出 = 底材质整块换（edgeDim）；选中 / 悬停 / 检查 = 按段换材质（不走叠加层，点线面同一个标准）；隐线（X 光）= 同一份几何再画一遍、深度大于才画
+      const L = n.linesChunk, onL = (m: Mark): boolean => m.chunk === L;
+      const dim = !!L && ms.some((m) => onL(m) && m.material === "edgeDim");
+      const hidden = !!L && ms.some((m) => onL(m) && m.material === "edgeHidden");
+      const sel = L ? ms.filter((m) => onL(m) && Renderer3.EDGE_SLOTS.includes(m.material as LineSlot)) : [];
+      const baseThick = dim ? this.lineSlotMaterial(n.thickMat, "edgeDim") : n.thickMat, basePixel = dim ? this.lineSlotMaterial(n.pixelMat, "edgeDim") : n.pixelMat;
+      if (n.thickLines) {
+        n.thick.material = baseThick;
+        n.xthick.visible = hidden && n.linesVisible; n.xpixel.visible = false;
+        this.syncThickMarks(n, sel, hidden);
+      } else {
+        this.applyPixelLineMarks(n, basePixel, sel, hidden);
+      }
     }
+  }
+  private static readonly EDGE_SLOTS: readonly LineSlot[] = ["edgeSelected", "edgeHot", "edgeWarn"];
+  private static edgeHex(slot: LineSlot): number { return slot === "edgeHot" ? PALETTE.edgeHot : slot === "edgeWarn" ? PALETTE.edgeWarn : PALETTE.edgeSelected; }
+  private lineMarkMats = new Map<string, any>();
+  /** 原生线的标记材质：可见那份（换成标记色）/ 隐线那份（深度大于才画、半透明）。 */
+  private lineMarkMaterial(slot: LineSlot, hidden: boolean): any {
+    const key = `${slot}|${hidden ? 1 : 0}`;
+    let m = this.lineMarkMats.get(key);
+    if (!m) {
+      const color = new THREE.Color(Renderer3.edgeHex(slot));
+      m = hidden ? new THREE.LineBasicMaterial({ color, transparent: true, opacity: HIDDEN_OPACITY, depthWrite: false, depthFunc: THREE.GreaterDepth }) : new THREE.LineBasicMaterial({ color });
+      this.lineMarkMats.set(key, m);
+    }
+    return m;
+  }
+  /** 原生（1 像素）线：索引把顶点分成「普通的 / 每个标记槽一段」（同面的踢掉再画）；底线不画的风格（剪纸 / 写实…）只画标记那几段。隐线那份同一套分段。 */
+  private applyPixelLineMarks(n: SlotNodes, base: any, sel: readonly Mark[], hidden: boolean): void {
+    const src = n.pixelSrc, chunk = n.linesChunk;
+    const count: number = !src || src === this.emptyGeo ? 0 : Number.isFinite(src.drawRange.count) ? src.drawRange.count : src.attributes.position.count;
+    if (!sel.length || !count || !chunk) {
+      n.thickMark.visible = false; n.thickMarkHidden.visible = false;
+      n.pixel.geometry = src; n.pixel.material = base; n.pixel.visible = n.linesVisible && count > 0;
+      n.xpixel.geometry = src; n.xpixel.visible = hidden && n.linesVisible;
+      if (chunk) this.dropMarked(n.marked, chunk);
+      return;
+    }
+    let e = n.marked.get(chunk);
+    if (e && (e.src !== src || e.index.count !== count)) { this.dropMarked(n.marked, chunk); e = undefined; }
+    if (!e) {
+      const geo = new THREE.BufferGeometry();
+      for (const name of Object.keys(src.attributes)) geo.setAttribute(name, src.attributes[name]);
+      const index = new THREE.BufferAttribute(new Uint32Array(count), 1); index.setUsage(THREE.DynamicDrawUsage);
+      geo.setIndex(index); e = { geo, src, index }; n.marked.set(chunk, e);
+    }
+    const slots = Renderer3.EDGE_SLOTS, taken = new Uint8Array(count);
+    for (const m of sel) { const si = slots.indexOf(m.material as LineSlot) + 1, end = Math.min(m.start + m.count, count); for (let i = Math.max(m.start, 0); i < end; i++) taken[i] = si; }
+    // 不走小图（白模 / 线稿粗细 1）：标记的边照旧画成粗线（v0.9.2「边默认原生细线，选中 / 悬停仍粗线」——看得清），拷一份进 thickMark；原生线里只剩普通的
+    const thickSel = !this.lastPlan?.order.includes("upscale");
+    if (thickSel) {
+      const pos = src.attributes.position.array as Float32Array, S: number[] = [], C: number[] = [];
+      for (const m of sel) { const c = this.tmpColor.setHex(Renderer3.edgeHex(m.material as LineSlot)), end = Math.min(m.start + m.count, count); for (let i = Math.max(m.start, 0); i + 1 < end; i += 2) { for (let q = 0; q < 6; q++) S.push(pos[i * 3 + q]); C.push(c.r, c.g, c.b, c.r, c.g, c.b); } }
+      this.setMarkCopy(n, S, C, null, hidden);
+    } else { n.thickMark.visible = false; n.thickMarkHidden.visible = false; }
+    const idx = e.index.array as Uint32Array, mats: any[] = [], hmats: any[] = [];
+    let w = 0;
+    e.geo.clearGroups();
+    if (n.linesVisible) { for (let i = 0; i < count; i++) if (taken[i] === 0) idx[w++] = i; e.geo.addGroup(0, w, 0); mats.push(base); hmats.push(n.xpixel.material instanceof Array ? n.xpixel.material[0] : n.xpixel.material); }
+    if (!thickSel) slots.forEach((sl, k) => {
+      const s0 = w;
+      for (let i = 0; i < count; i++) if (taken[i] === k + 1) idx[w++] = i;
+      if (w > s0) { e!.geo.addGroup(s0, w - s0, mats.length); mats.push(this.lineMarkMaterial(sl, false)); hmats.push(this.lineMarkMaterial(sl, true)); }
+    });
+    e.index.needsUpdate = true; e.geo.setDrawRange(0, w);
+    n.pixel.geometry = e.geo; n.pixel.material = mats; n.pixel.visible = mats.length > 0;
+    n.xpixel.geometry = e.geo; n.xpixel.material = hmats; n.xpixel.visible = hidden && hmats.length > 0;
+  }
+  /** 粗线（实例化）：被标记的那几条拷一份（位置 / 两侧面 / 轮廓旗照抄，颜色换成标记色），用边线材质画在底线之后；X 光再配一份「深度大于才画」的。 */
+  private syncThickMarks(n: SlotNodes, sel: readonly Mark[], hidden: boolean): void {
+    const gl = n.linesChunk ? (this.chunkGpus.get(n.linesChunk) as GpuLines | undefined) : undefined;
+    if (!sel.length || !gl || !gl.instanced) { n.thickMark.visible = false; n.thickMarkHidden.visible = false; return; }
+    const seg = gl.bufs.first.array as Float32Array, w1 = gl.bufs.w1.array as Float32Array, w2 = gl.bufs.w2.array as Float32Array, flag = gl.bufs.flag.array as Float32Array;
+    const S: number[] = [], C: number[] = [], W1: number[] = [], W2: number[] = [], F: number[] = [];
+    for (const m of sel) {
+      const c = this.tmpColor.setHex(Renderer3.edgeHex(m.material as LineSlot)), end = Math.min(m.start + m.count, gl.count);
+      for (let i = Math.max(m.start, 0); i < end; i++) {
+        for (let q = 0; q < 6; q++) S.push(seg[i * 6 + q]);
+        C.push(c.r, c.g, c.b, c.r, c.g, c.b);
+        for (let q = 0; q < 3; q++) { W1.push(w1[i * 3 + q]); W2.push(w2[i * 3 + q]); }
+        F.push(flag[i]);
+      }
+    }
+    this.setMarkCopy(n, S, C, { W1, W2, F }, hidden);
+  }
+  /** 被标记的边的粗线拷贝（边线材质、颜色 = 标记色）；轮廓旗没有（原生线来的）= 按内边画。 */
+  private setMarkCopy(n: SlotNodes, S: number[], C: number[], prof: { W1: number[]; W2: number[]; F: number[] } | null, hidden: boolean): void {
+    if (!S.length) { n.thickMark.visible = false; n.thickMarkHidden.visible = false; return; }
+    const geo = new LineSegmentsGeometry(), m = S.length / 6;
+    geo.setPositions(S); geo.setColors(C);
+    const arr = (a: number[] | undefined, n: number): Float32Array => (a ? new Float32Array(a) : new Float32Array(n));
+    geo.setAttribute("instanceW1", new THREE.InstancedBufferAttribute(arr(prof?.W1, m * 3), 3)); geo.setAttribute("instanceW2", new THREE.InstancedBufferAttribute(arr(prof?.W2, m * 3), 3)); geo.setAttribute("instanceFlag", new THREE.InstancedBufferAttribute(arr(prof?.F, m), 1));
+    const old = n.thickMark.geometry; n.thickMark.geometry = geo; n.thickMarkHidden.geometry = geo; if (old !== this.emptyLineGeo) old.dispose();
+    n.thickMark.visible = true; n.thickMarkHidden.visible = hidden;
   }
   /** 线的材质槽（刀 c：只有 edgeDim）：白模的边 → 淡出那份；别的风格（Tron）的线材质自己不认淡出 = 照旧。 */
   private lineSlotMaterial(base: any, slot: LineSlot): any {
@@ -977,9 +1069,12 @@ export class Renderer3 implements RenderProvider {
     const thick = new LineSegments2(this.emptyLineGeo, this.edgeMat); thick.frustumCulled = false; thick.visible = false;
     const xpixel = new THREE.LineSegments(this.emptyGeo, this.hiddenPixelMat); xpixel.frustumCulled = false; xpixel.visible = false; xpixel.renderOrder = 3;
     const xthick = new LineSegments2(this.emptyLineGeo, this.hiddenThickMat); xthick.frustumCulled = false; xthick.visible = false; xthick.renderOrder = 3;
-    root.add(plain); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick);
+    // 粗线被标记（选中 / 悬停 / 检查）那几条的拷贝：同一种边线材质、颜色换成标记色，画在底线之后 = 同深度后画的赢（实例化的线没法按索引分段，拷几条比整块重排便宜）
+    const thickMark = new LineSegments2(new LineSegmentsGeometry(), this.edgeMat); thickMark.frustumCulled = false; thickMark.visible = false; thickMark.renderOrder = 1;
+    const thickMarkHidden = new LineSegments2(thickMark.geometry, this.hiddenThickMat); thickMarkHidden.frustumCulled = false; thickMarkHidden.visible = false; thickMarkHidden.renderOrder = 3;
+    root.add(plain); root.add(pixel); root.add(thick); root.add(xpixel); root.add(xthick); root.add(thickMark); root.add(thickMarkHidden);
     this.scene.add(root);
-    return { root, plain, plainSrc: this.emptyGeo, plainMat: this.faceMat, plainChunk: null, tex: [], pixel, thick, thickMat: this.edgeMat, pixelMat: this.pixelMat, linesChunk: null, linesVisible: false, thickLines: false, xpixel, xthick, gen: 0, markKey: "\u0000", marked: new Map() };
+    return { root, plain, plainSrc: this.emptyGeo, plainMat: this.faceMat, plainChunk: null, tex: [], pixel, thick, thickMat: this.edgeMat, pixelMat: this.pixelMat, linesChunk: null, pixelSrc: this.emptyGeo, thickMark, thickMarkHidden, linesVisible: false, thickLines: false, xpixel, xthick, gen: 0, markKey: "\u0000", marked: new Map() };
   }
   private texMatFor(mat: MaterialRef, side: ChunkSide = "double"): any {
     let bySide = this.texMats.get(mat);
