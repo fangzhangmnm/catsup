@@ -395,6 +395,19 @@ export class Kernel {
     const c = this.curveReg.create(this.graph, plan.edges, plan.spec);
     if (!c) throw new Error("焊接：链没登记上（内部）");
     for (const e of c.edges) this.edgeLayers.add("curve", e);
+    // 折线曲线里不留共轴接点（user 10-30「一条曲线里面共轴应该自动合并吧，之前软边也是这个语义，就是共面的自动合并而不是标软边」）：焊的时候顺手并掉；
+    // 弧 / 圆的段是弧自己的，不动。两边面链接不同 / 两端已有边 = dissolveVertices 自己跳过。
+    if (c.kind === "polyline") {
+      const joints: VertexId[] = [];
+      for (let i = 0; i + 1 < c.edges.length || (c.closed && i < c.edges.length); i++) {
+        const ea = this.graph.edge(c.edges[i]), eb = this.graph.edge(c.edges[(i + 1) % c.edges.length]);
+        const v = ea.a === eb.a || ea.a === eb.b ? ea.a : ea.b;
+        joints.push(v);
+      }
+      this.dissolveVertices(joints);
+      const left = this.curveReg.curve(c.id);
+      if (left && !left.closed && left.edges.length < 2) this.explodeCurves([c.id]);   // 整条都共轴 = 并成一根直线，不再是曲线
+    }
     return [];
   }
   /**
@@ -413,7 +426,7 @@ export class Kernel {
     if (n) { const gone = this.graph.drainRemovedEdges(); this.edgeLayers.pruneIds(gone); this.curveReg.pruneEdges(this.graph, gone); }
     return n;
   }
-  /** A33 断口：二度共线、两边面链接相同、两端之间没边、两边不在同一条曲线里的顶点（= 一根直线中间断了一截，溶解得掉）。 */
+  /** A33 断口：二度共线、两边面链接相同、两端之间没边、两边不在同一条弧 / 圆里的顶点（= 一根直线中间断了一截，溶解得掉；同一条折线曲线里的也算，10-30）。 */
   isBreakJunction(vid: VertexId): boolean {
     const g = this.graph;
     if (!g.hasVertex(vid)) return false;
@@ -423,7 +436,7 @@ export class Kernel {
     if (fa.length !== fb.length || !fa.every((f) => fb.includes(f))) return false;
     if (g.edgeBetween(c.a, c.b) !== undefined) return false;
     const ca = this.curveReg.curveOf(c.ea), cb = this.curveReg.curveOf(c.eb);
-    return ca === undefined || ca !== cb;
+    return ca === undefined || ca !== cb || this.curveReg.curve(ca)?.kind === "polyline";   // 同一条折线曲线里的共轴接点也算（弧 / 圆的段不算）
   }
   explodeCurves(ids: readonly CurveId[]): FaceEvent[] {
     this._rev++;

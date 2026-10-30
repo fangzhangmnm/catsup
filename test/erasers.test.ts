@@ -54,10 +54,10 @@ describe("erasers: 内核溶解 + A33 断口", () => {
     eq(k.dissolveVertices([j]), 0);
     invariants(k);
   });
-  it("同一条曲线内部的接点不是断口；两条折线曲线共轴相接 → 是断口，溶解后归第一条链", () => {
+  it("同一条折线曲线内部的共轴接点也是断口（10-30 改：user「一条曲线里面共轴应该自动合并吧」；以前钉的是「不算」）；两条折线曲线共轴相接 → 是断口，溶解后归第一条链", () => {
     const k = new Kernel();
     k.addEdges([[P(0, 0), P(1, 0)], [P(1, 0), P(2, 0)]], { curve: { kind: "polyline", closed: false } });
-    assert(!k.isBreakJunction(vertexAt(k, P(1, 0))), "曲线自己的段间不算");
+    assert(k.isBreakJunction(vertexAt(k, P(1, 0))), "折线曲线自己的共轴段间也算");
     k.addEdges([[P(2, 0), P(3, 0)], [P(3, 0), P(3, 1)]], { curve: { kind: "polyline", closed: false } });
     eq(k.curves().length, 2);
     const j = vertexAt(k, P(2, 0));
@@ -87,6 +87,17 @@ describe("erasers: 焊边规划（planWeldErase）", () => {
     // 只刮一条边 → 没有「两边都被刮到」的接点
     const p4 = planWeldErase(k2, [k2.edges()[0].id], 90);
     eq(p4.dissolve.length + p4.welds.length, 0);
+  });
+  it("同一条折线曲线里的共轴接点（老文件 / 先焊后画的）：算断口、刮一下就并；圆的段不动（user 10-30「焊边橡皮为什么没法把共轴线段给合成一条线」）", () => {
+    const k = new Kernel();
+    k.addEdges([[P(0, 0), P(1, 0)], [P(1, 0), P(2, 0)], [P(2, 0), P(3, 1)]], { curve: { kind: "polyline", closed: false } });
+    eq(k.curves().length, 1); eq(k.curves()[0].edges.length, 3, "画进来的折线曲线带着共轴接点");
+    const j = vertexAt(k, P(1, 0));
+    assert(k.isBreakJunction(j), "折线曲线里的共轴接点 = 断口");
+    const plan = planWeldErase(k, [k.edges()[0].id], 45);   // 刮一段 = 整条曲线连坐
+    eq(plan.dissolve.length, 1); assert(same(P(1, 0), plan.dissolve[0]), "并的是 (1,0)"); eq(plan.welds.length, 0, "已经是一条曲线，不再焊");
+    eq(k.dissolveVertices([j]), 1);
+    eq(k.curves()[0].edges.length, 2); invariants(k);
   });
   it("混合链：共轴接点 + 30° 接点 → 先溶解再焊，焊的边键按溶解后的形状；整批一个 batch、一次撤销", () => {
     const h = new History();

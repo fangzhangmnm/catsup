@@ -43,7 +43,7 @@ export function turnDeg(k: Kernel, vid: VertexId): number | null {
 
 /**
  * 焊边：刮集里「两边都被刮到」的二度接点——共轴 → 溶解；转角 ≤ maxDeg → 焊；更尖 → 不碰。
- * 已在同一条曲线里的接点不算（那是弧自己的段）。焊链按溶解之后的虚拟边连通分量算。
+ * 已在同一条曲线里的转角不算（那是弧自己的段 / 焊过的折线）；同一条折线曲线里的共轴接点照样溶解（user 10-30「一条曲线里面共轴应该自动合并吧」）。焊链按溶解之后的虚拟边连通分量算。
  */
 export function planWeldErase(k: Kernel, scrubbed: readonly EdgeId[], maxDeg: number): WeldErasePlan {
   const g = k.graph, set = withWholeCurves(k, scrubbed);
@@ -68,10 +68,10 @@ export function planWeldErase(k: Kernel, scrubbed: readonly EdgeId[], maxDeg: nu
     if (g.vertex(v).edges.size !== 2 || ves.size !== 2) continue;   // 只认度 2、且两边都在刮集里
     const [ea, eb] = [...g.vertex(v).edges];
     const ca = k.curveOf(ea), cb = k.curveOf(eb);
-    if (ca !== undefined && ca === cb) continue;   // 同一条曲线内部的接点
     const t = turnDeg(k, v);
     if (t === null) continue;
-    if (t <= 1e-6) { if (k.isBreakJunction(v)) dissolve.push(v); continue; }   // 共轴但面链接不同 / 退化三角 → 不碰
+    if (t <= 1e-6) { if (k.isBreakJunction(v)) dissolve.push(v); continue; }   // 共轴 → 并（同一条折线曲线里的也并，user 10-30）；面链接不同 / 退化三角 / 弧自己的段 → 不碰
+    if (ca !== undefined && ca === cb) continue;   // 同一条曲线内部的转角（弧自己的段 / 已经焊过的折线）
     if (t <= maxDeg + 1e-9) weldJoints.push(v); else tooSharp++;
   }
   // 虚拟溶解：v 的两条虚拟边并成 a–b（组也并）

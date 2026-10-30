@@ -35,6 +35,21 @@ describe("weld: 焊接", () => {
     eq(k.curves().length, 0);
     invariants(k);
   });
+  it("折线曲线里不留共轴接点（user 10-30「一条曲线里面共轴应该自动合并吧」）：焊的时候顺手并掉；整条都共轴 = 并成一根直线、不再是曲线", () => {
+    const k = new Kernel();
+    k.addEdges([[P(0, 0), P(1, 0)], [P(1, 0), P(2, 0)], [P(2, 0), P(3, 1)]]);   // 前两段共轴，第三段拐 45°
+    const ids = k.edges().map((e) => e.id);
+    k.weldEdges(ids);
+    eq(k.curves().length, 1); eq(k.curves()[0].kind, "polyline");
+    eq(k.curves()[0].edges.length, 2, "共轴那个接点并掉：曲线两段"); eq(k.edges().length, 2);
+    assert(!k.vertices().some((v) => Math.abs(v.x - 1) < 1e-9 && Math.abs(v.y) < 1e-9), "(1,0) 那个点没了");
+    invariants(k);
+    const k2 = new Kernel();
+    k2.addEdges([[P(0, 0), P(1, 0)], [P(1, 0), P(2, 0)], [P(2, 0), P(3, 0)]]);
+    k2.weldEdges(k2.edges().map((e) => e.id));
+    eq(k2.edges().length, 1, "三段共轴 → 一根"); eq(k2.curves().length, 0, "一根直线不是曲线");
+    invariants(k2);
+  });
   it("圆被弦切成两弧 → 焊两弧（各选一条边，整条连坐）→ 又是一条闭合圆；弦留着；文件往返保曲线", () => {
     const k = new Kernel();
     const segs = circleSegmentsOnPlane({ n: Z, d: 0 }, BASIS, { x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, 24);
