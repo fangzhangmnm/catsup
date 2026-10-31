@@ -40,6 +40,9 @@
 - 导出口：VRM 弹簧骨（glTF 原生）；对照 VRChat 的 PhysBones（2022 起）/ 更早的 Dynamic Bone。
 - 两种出口（没拍）：烘成关键帧再手 K 修 / 导出弹簧参数给运行时算；可以都要。
 
+## 视频叠加（排在动捕前面，user 10-30 夜「比起动捕更重要的是视频overlay」；讨论 `talks/20261030-video-overlay.md`）
+- 跟时间轴同步、三种摆法、左右对调、相机对上视频；iPad 上逐帧跳转准不准先在实验室量（可能要解成小图缓存）。
+
 ## 动捕（wishlist，user 10-30 夜「如果有轻量级小月相级别的ai或者cv的话，可以做动捕。这个相当于moonsinger的让用户自己唱。记账wishlist」）
 - 流程：视频 → 每帧 2D 关节点 → 抬成 3D → 套 VRM 人形表 → 去抖 + 找脚着地（写成钉子）→ 全身 IK 推整个人 → 抽稀成关键帧，人再修。
 - 2D 关节点（小、手机能实时跑）：MediaPipe 的姿势 / 手 / 脸那套（BlazePose）、MoveNet、RTMPose。
