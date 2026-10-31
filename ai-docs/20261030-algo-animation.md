@@ -72,7 +72,7 @@
 
 ## 程序化动画（单独的纪元，user 10-30 夜；讨论 `talks/20261030-procedural-walk.md`）
 - Spore：SIGGRAPH 2008 把动作实时套到玩家自创身体（Hecker 等）；Hecker GDC「怎么给没见过的角色做动画」（凭记忆）。动作按角色写，套任意身体。
-- 开纪元前先用原话抽取工具捞 user 以前的 grill（ai-docs 里没有）。
+- 开纪元时先请 user 讲（那个 GDC 视频 user 看过很多次、完全消化了）；Opus 的配方是凭记忆的草稿，再找讲稿 / 幻灯片补细节。
 
 ### 一键程序化行走（拍了，不靠生成式 AI，低保真够用）
 - 参考：GDC「Animation Bootcamp: An Indie Approach to Procedural Animation」（Wolfire / Overgrowth，凭记忆）。
