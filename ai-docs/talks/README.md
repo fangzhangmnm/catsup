@@ -15,4 +15,5 @@
 | 坐标架与原点：坐标架 = Blender 3D 游标（只记直觉）/ 原点对齐到坐标架 / 坐标架对齐到选择 / 网格体缺什么 | `20261030-cursor-and-origin.md` | 10-30 |
 | 跨站点交给第三方游戏：XSS / postMessage / 本地网页 / 遥测 | `20261030-cross-site-games.md` | 10-30 |
 | 外轮廓（软边 / 不在边上的轮廓 / 四种做法） | `../20261030-silhouette-outlines.md`（专文） | 10-30 |
+| 路线：小红帽全流程（参考 → 建模 → 绘制 → 绑骨 → 动画）还剩多难：哪几块是真数学、哪些只是手柄（评估，没拍） | `20261030-roadmap-red-riding-hood.md` | 10-30 |
 | 结婚 / bodypaint / 显存一本账 | `../20261030-marriage-bodypaint-stash.md`（专文） | 10-30 |
