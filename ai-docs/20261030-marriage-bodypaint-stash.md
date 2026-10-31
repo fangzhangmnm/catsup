@@ -14,6 +14,8 @@
 
 ## 1. Opus 的评论（供 Fable 参考，不是结论）
 
+> **10-30 晚 user 更正**（edited by Claude Opus 5.5）：「贴图关键是要把不结婚直接生孩子，整个内核要搬家抄袭过去，还要做成适合catsup的而不是256池，然后undo也要接上」——下面「只拷无状态的算法、不拷 WeebPaint 的文档 / 图层 / 存储」那条作废；新读法和「换 UV 无损第一天保证」见 `talks/20261030-bodypaint-kernel-uv.md`。
+
 - **方向对**。CatsUp 要的「画」和 WeebPaint 的「画」核心数据不是一个东西：
   - WeebPaint = 一张画布上的一摞图层；
   - CatsUp = 贴在网格上、每层有自己的 UV 和分辨率的贴图（§3 user「每个layer有独立的分辨率和uv」）。
