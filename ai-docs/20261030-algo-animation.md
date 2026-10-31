@@ -70,7 +70,11 @@
 - 口型：从声音推要只在本机；脑洞 = 从 MoonSinger 的乐谱（音素 + 时刻）直接出口型。
 - 卡片在时间轴上 = 阶梯插值。
 
-## 一键程序化行走（拍了，不靠生成式 AI，低保真够用；讨论 `talks/20261030-procedural-walk.md`）
+## 程序化动画（单独的纪元，user 10-30 夜；讨论 `talks/20261030-procedural-walk.md`）
+- Spore：SIGGRAPH 2008 把动作实时套到玩家自创身体（Hecker 等）；Hecker GDC「怎么给没见过的角色做动画」（凭记忆）。动作按角色写，套任意身体。
+- 开纪元前先用原话抽取工具捞 user 以前的 grill（ai-docs 里没有）。
+
+### 一键程序化行走（拍了，不靠生成式 AI，低保真够用）
 - 参考：GDC「Animation Bootcamp: An Indie Approach to Procedural Animation」（Wolfire / Overgrowth，凭记忆）。
 - 配方：步子跟距离转（不滑）；脚 = 着地钉子 / 迈步弧线 + 落脚点预测 + 射线找地面；全身 IK 解腿；身体按相位起伏 / 晃、加减速前倾后仰、转弯内倒；胳膊反甩（FK）；头看前方；毛发尾巴交给二次动作。
 - 步态表：两足交替；四足走 / 小跑 / 跑；马多几种；蜘蛛机器人分组交替。只认腿的角色。
