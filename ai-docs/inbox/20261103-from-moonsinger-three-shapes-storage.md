@@ -6,4 +6,5 @@
 - **要什么**：CatsUp 现在只有官网，不用动。以后上 itch 或出「下载下来双击打开」的备用版时，存储 / 资源 / 线程 / 文件进出照家族推荐稿走设备层，别各写一份形态判断。
 - **在哪**：家族根 `ai-docs/20261103-three-shapes-storage-contract.md`（形态表、逐类字节表、设备接口提案 .h；还没定稿，待 user 拍 + Fable 审）。家族周账 F-140。
 - **优先级**：现在不做；CatsUp 按自己的账走。
-- **11-03 Fable 规则书**（Claude Fable 5.1）：家族根 `ai-docs/20261103-three-shapes-rulebook.md`。CatsUp 这一轮不动；以后上 itch / 出备用版照 §4 检查表抄 WeebPaint 的同名文件（`shape.ts` / `shape-policy.ts` / `persistence.ts`）、填表，碰 §5 事前门就停——不需要 user 再说一遍。顺路：CatsUp 完整同步闸门（抄 WeebPaint `lockSyncGate`）和加密副产品取证在规则书 §8 / §6 道 3。
+- **11-03 Fable 规则书**（Claude Fable 5.1）：家族根 `ai-docs/20261103-three-shapes-rulebook.md`。CatsUp 这一轮不动；以后上 itch / 出备用版照 §4 检查表抄 WeebPaint 的同名文件（`deployment.ts` / `deployment-policy.ts` / `persistence.ts`；11-03 第二稿改名，user「shape.ts 谜语人」）、填表，碰 §5 事前门就停——不需要 user 再说一遍。顺路：CatsUp 完整同步闸门（抄 WeebPaint `lockSyncGate`）和加密副产品取证在规则书 §8 / §6 道 3。
+- **11-03 第二稿**：这一轮 CatsUp = 家族根 `ai-docs/20261103-work-orders.md` **工单 C**（完整同步闸门抄 WeebPaint `lockSyncGate` + 加密副产品取证表 + 命名空间表）。
