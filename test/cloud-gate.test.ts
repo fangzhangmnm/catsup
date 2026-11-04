@@ -295,6 +295,12 @@ describe("回来问一次（规则书 §1 第 15 条；工单 C4）", () => {
     assert(!/只在这台设备上/.test(body.split("\n").filter((l) => !/^\s*(\/\*\*|\*)/.test(l)).join("\n")), "10-26：对「传过、后来改了没传」是假话");
     assert(/label: "去处理", primary: true, onClick: openList/.test(body) && /names/.test(body));
   });
+  it("开着的这份归心跳：先推它再数（不然面说「有 1 份」，心跳一下就推完，面就是假的）", () => {
+    const body = src.slice(src.indexOf("async function offerPushLocalOnly"), src.indexOf("// ---- 编辑器横幅"));
+    const push = body.indexOf("session.pushOpenDocIfPending()"), count = body.indexOf("files.dirty.count()"), face = body.indexOf("lockSyncGate");
+    assert(push > 0 && push < count && count < face, "先推、再数、再问");
+    assert(/session\.openDocNeedsAttention\(\) \? 1 : 0/.test(body), "真分叉归横幅，不算进来");
+  });
   it("从离线回来也走这张面，不直接推", () => {
     const i = src.indexOf("catchUp: async () => {"); const body = src.slice(i, src.indexOf("\n  },\n", i));
     assert(/await afterCloudReachable\("online"\)/.test(body) && !/pushAll/.test(body));

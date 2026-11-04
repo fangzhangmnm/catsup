@@ -368,4 +368,12 @@ CatsUp 的图库家没有崩溃影子，冲突留底由库按字节封，所以�
 
 ### 测试
 
-`npm test` 1382 绿；`probe-c2`、`probe-cloud-gate`、`probe-push-ask`（重写）、`probe-update-conflict c3`、`probe-password`、`probe-factory-reset`、`probe-boot` 过，全部 headless。
+见下面「C4 更正（v0.18.25）」：v0.18.24 的提交信息和这节原来都写着 `probe-update-conflict c3` 过，**那是错的**。
+
+### C4 更正（v0.18.25）
+
+v0.18.24 推的时候 `probe-update-conflict c3` 有 1 条红（我把跑测试和提交串在一条命令里，先推了才看到）。提交信息写着「c3 过」，是错的；已推的提交不改写，在这里更正。
+
+红的是真问题：回线时开着的这份正要被心跳推上去，面已经弹了「有 1 份没传上去」，推完这张面就是假的。修法：问之前先让心跳推开着的这份，再数还剩多少；撞上真分叉的归横幅，不算进来。守卫核「先推、再数、再问」。
+
+**测试（v0.18.25）**：`npm test` 全绿，`probe-update-conflict c3`、`probe-c2`、`probe-cloud-gate`、`probe-push-ask`、`probe-password`、`probe-factory-reset`、`probe-boot` 都在这一版上重跑过，全部 headless。计数见提交信息。

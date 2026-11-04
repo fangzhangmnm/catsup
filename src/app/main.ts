@@ -1761,7 +1761,9 @@ function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
 async function offerPushLocalOnly(reason: string, force = false): Promise<void> {
   if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || !cloudOnline() || cloudGate.isRunning())) return;
   const files = requireStore().files;
-  const n = await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; });
+  // 开着的这份归心跳：先推它，再数还剩多少。不然面说「有 1 份」，心跳一下就推完了，这张面就是假的（probe-update-conflict c3 抓到的）。撞上真分叉的归横幅，不算进来。
+  await session.pushOpenDocIfPending().catch((e) => funnel(e, "log"));
+  const n = (await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; })) - (session.openDocNeedsAttention() ? 1 : 0);
   if (n <= 0) return;
   askedPushLocalOnly = true;
   note("sync", `unsynced models after ${reason}: ${n} → ask once`);
