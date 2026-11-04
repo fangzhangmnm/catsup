@@ -323,3 +323,13 @@ flowchart LR
 - **醒来**（`visibilitychange` + `pageshow`）：同一套；30 s 内刚核对过 = 不罩（`recheckMs`）；已选离线 = 不罩、静默试一次重连。回前台的 `refreshOpenDoc` 和闸门共用一趟（`refreshRun`，闸门加入并等它）。
 - **换字节的罩子**（同步闸门，`ui/sheets.ts openSyncGate`）：`pullIfClean` 的 `onReplaceStart` + 冲突面选「云端覆盖本地」（`conflictGate.onTakeCloud`）两个入口；罩到整份重载完。半路「先离线用」= 画布改挂分叉（`forkCanvas`，复用 lazy：没改不产生文件），加密件放下画布（分叉会写明文）。
 - **离线继续**：`user-offline.ts` 一个内存布尔接进库的 `isOnline`，库一条网都不打；回来 = `dirty.pushAll`（If-Match，撞上的留脏进「要处理的」）→ 老的 `afterCloudReachable`。设计稿 = 家族根 `ai-docs/20261103-cloud-gate-design.md`；报告 = `ai-docs/20261103-rulebook-adoption-report.md`。
+
+## 追记 2026-11-03（v0.18.21，Claude Opus 5.5；家族工单 C2）：崩溃影子这一帧写什么 + 黑匣子总闸 + 封面作废 + 全部导出
+
+- **崩溃影子**（`tick` 空闲 30 s / `flushForHide` / `prepareForRedirect` → `session.snapshot`）：不叠（`snapRun`，封口要跑 7z；redirect 帧等前一帧落完）→ `encode()` O(模型) → `shadowFrame`（`shadow-seal.ts`，这里决定写什么）：普通模型 = 原字节；解开的加密件（`seal`）= 同一口令封成容器（7z，O(模型)；小模型实测 419 ms，主线程）；口令忘掉了 = 这一拍不写，这一版记过不再试，说一次 → `crashStore.put`（session 里只此一处，守卫核）。
+- **恢复**（`crash-recovery` → `adoptRecovered`）：字节是容器 → 问口令（取消 = 记录放回）→ 解开后只当临时模型、带着 `seal`，**不走** `<名>-恢复` 进图库。不是容器 → 照旧。
+- **黑匣子**（`debug-log.ts` 的 `record` / `note`）：写入前一律过 `noCoords`（三元组和 JSON 的 x/y/z）；`traceLine` 的失败行 = 动词 + 条数 + 大致字节数，不序列化 op。复现钥匙留在内存的 repro 盒。
+- **加密 / 解除**（`encryptCurrent` / `decryptCurrent` 成功后）→ `thumbChanged` → `galleryHost.invalidateThumb`：图库没挂也先挂上再清（否则空操作，明文封面留在缩略库）。图库卡片菜单的加密走库自己的动词，库本来就清。
+- **全部导出**（图库顶上披露条，没登录时才在）：`export-all.ts` 走 `watchFolder` 第一帧逐夹列（跳过纯云端的）→ 加密件 `getEncryptedBlob` 原样搬、明文件 `open` → 打成一个 zip（`level: 0`，O(全部模型字节)，全在内存）→ `deliverFile`。拿不到的进名单，回执照实说。
+- **手腕状态行**（`hud.status` → `withSyncStatus`）：只有 VR 读；不在线且登录过 → 前缀「离线 · 还有 N 份没传上去」；份数是 `paintOfflineBar` 里异步取的那份。
+- **还随整个模型涨的点**：解开的加密件每次留影子都全量 7z（空闲时才做，但会占主线程）；全部导出吃内存 = 整个图库本地字节。

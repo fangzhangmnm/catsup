@@ -25,6 +25,7 @@ const _perName = new Map<string, string>();          // 别的口令的文件的
 let _prompt: PasswordPrompt | null = null;
 const _subs = new Set<LockChangeSub>();
 const _pwSubs = new Set<(pw: string | null) => void>();
+const _lockedSubs = new Set<() => void>();
 function _notify(): void {
   for (const cb of _subs) { try { cb(_password != null); } catch { /* UI 订阅者的错不许打断口令状态 */ } }
   for (const cb of _pwSubs) { try { cb(_password); } catch { /* 同上 */ } }
@@ -34,7 +35,9 @@ export function setPasswordPrompt(fn: PasswordPrompt): void { _prompt = fn; }
 export function isUnlocked(): boolean { return _password != null; }
 export function setPassword(pw: string | null): void { _password = pw || null; _notify(); }
 /** 锁定 = 忘掉一切口令（内存清除）。加密文件回到锁样式；保存路径会明确说「锁着」而不是静默。 */
-export function lock(): void { _password = null; _perName.clear(); _notify(); }
+export function lock(): void { _password = null; _perName.clear(); _notify(); for (const cb of _lockedSubs) { try { cb(); } catch { /* 同 _notify */ } } }
+/** 用户明确「忘掉口令」（锁定 / 登出），和 setPassword(null) 这种内部回滚区分。会话里解开的加密件也得跟着忘（session.forgetSealPassword）。 */
+export function onLocked(cb: () => void): () => void { _lockedSubs.add(cb); return () => _lockedSubs.delete(cb); }
 /** 锁态变化订阅（图库刷新用）。返回退订函数。 */
 export function onLockChange(cb: LockChangeSub): () => void { _subs.add(cb); return () => _subs.delete(cb); }
 /** 统一口令变了（设 / 锁定 = null）。只给 remember-password.ts 用。 */

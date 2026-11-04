@@ -160,7 +160,8 @@ export function initGalleryHost(d: GalleryHostDeps) {
     setView: (v: GalleryView) => ensureMounted().handle.setView(v),
     getView: (): GalleryView => gallery?.handle.getView() ?? "files",
     currentFolder: () => gallery?.handle.getFolder() ?? (deviceKvGet(KV_FOLDER) ?? ""),
-    invalidateThumb: (identifier: string) => { void gallery?.thumbs?.invalidate(identifier); },
+    /** 这份的封面作废（session 加密 / 解除时调；工单 C2 ③：明文封面不许留在缩略库）。库也许还没挂（开机直接回到模型）：先挂上，别变成空操作。 */
+    invalidateThumb: async (identifier: string): Promise<void> => { await ensureMounted().thumbs?.invalidate(identifier); },
     /** dev 诊断（冒烟用）：缩略缓存统计。 */
     thumbStats: () => gallery?.thumbs?.stats ?? null,
   };

@@ -346,6 +346,10 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .gallery-chrome .top-spacer { flex: 1 1 auto; }
 .gallery-trashbar { display: flex; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); }
 .gallery-trashbar[hidden] { display: none; }
+.gallery-homebar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 8px 14px; border-bottom: 1px solid var(--line); font-size: 13px; }
+.gallery-homebar[hidden] { display: none; }
+.gallery-homebar-text { flex: 1 1 240px; min-width: 0; }
+.gallery-homebar .sheet-choice { flex: 0 0 auto; width: auto; }
 .gallery-mount { flex: 1 1 auto; overflow: auto; padding: 0 0 12px; display: flex; flex-direction: column; min-height: 0; }
 .sheet-modal { width: min(440px, 100%); }
 .sheet-title { margin: 4px 0 8px; font-size: 16px; font-weight: 600; }

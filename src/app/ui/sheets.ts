@@ -75,6 +75,8 @@ let _gateLockInstalled = false;
 function installGateInputLock(): void {
   if (_gateLockInstalled) return; _gateLockInstalled = true;
   for (const type of GATE_SWALLOWED) window.addEventListener(type, (e) => {
+    // 闸门上面还叠着面板（比如开机撞上真分叉的三选一）：Esc 是给面板的（焦点常在 body 上，只看 target 会被吞）
+    if (e.type === "keydown" && (e as KeyboardEvent).key === "Escape" && !g.sheet().hidden) return;
     if (gateSwallowsEvent(_gate.isUp(), e.target as Element | null)) { e.stopImmediatePropagation(); e.preventDefault(); }
   }, { capture: true, passive: false });
 }

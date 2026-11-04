@@ -48,6 +48,8 @@ export interface SessionDeps {
     online: () => boolean;
     /** 拉取罩子上点了「先离线用」（= 离线继续；工单 C）。 */
     goOffline?: () => void;
+    /** 这份的封面作废：加密后缩略库不许留明文封面；解除后让它重画（工单 C2 ③）。 */
+    thumbChanged: (path: string) => Promise<void>;
     /** 口令（2026-10-29 周账 F-123；政策在 crypto-state / unlock.ts，这里只用）。**弹面板的都在 busy 外调。** */
     crypto: {
         ensureUnlocked: (path: string) => Promise<boolean>;
@@ -61,7 +63,9 @@ export interface SessionDeps {
             pw: string;
             plain: Blob;
         } | null>;
-        isEncryptedBlob: (bytes: Uint8Array) => Promise<boolean>;
+        isEncryptedBlob: (bytes: Uint8Array | Blob) => Promise<boolean>;
+        /** 崩溃影子封口（工单 C2 ①）：明文 → 加密容器。只给 shadowFrame 用。 */
+        packShadow: (bytes: Uint8Array, name: string, pw: string) => Promise<Blob>;
     };
 }
 export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
@@ -80,6 +84,10 @@ export declare class Session {
     pushPending: boolean;
     /** 正在编辑的图库模型是加密的（打开 / 加密 / 解密后刷新；换家清）。锁着（内存没口令）时保存会如实拒。 */
     encrypted: boolean;
+    /** 这个本地家模型是从加密件解开来的（工单 C2 ①）：它的影子只存容器。换家即清；另存到磁盘不清（见 settleToFile）。 */
+    private seal;
+    private shadowSkipSaid;
+    private snapRun;
     /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
      *  清的时机：推上去了（save / resolveActive 成功）、换了文档。横幅本身在 main（onAttentionChanged）。 */
     attention: {
@@ -150,9 +158,15 @@ export declare class Session {
     private dropLuggage;
     /** 盲快照：与保存同一 encode 字节，同一张牌覆盖写单帧。state="pending-adoption" = 登录 redirect 前留声（pagehide 不焚）。 */
     snapshot(state?: "crash" | "pending-adoption"): Promise<boolean>;
-    /** 登录 redirect 前：脏的 file / transient 模型留 pending-adoption 帧（页面将死但不是关闭；回来 crash-recovery 自动领养）。 */
+    private snapshotOnce;
+    /** 口令忘掉了：这个模型留不了影子，也绝不存明文。说一次（不许静默：用户以为有崩溃保护）。 */
+    private noteShadowSkipped;
+    /** 锁定 / 登出 = 忘掉一切口令（main 接 crypto-state.onLocked）：解开的加密件也一样，之后影子只能跳拍。 */
+    forgetSealPassword(): void;
+    /** 登录 redirect 前：脏的 file / transient 模型留 pending-adoption 帧（页面将死但不是关闭；回来 crash-recovery 自动领养）。
+     *  false = 用户在挽留门取消了，别跳。口令忘掉了的封口模型留不了影子 → 走三键挽留，不然这次跳转静默丢改动。 */
     needsRedirectSnapshot(): boolean;
-    prepareForRedirect(): Promise<void>;
+    prepareForRedirect(): Promise<boolean>;
     /** pagehide（非 bfcache）= 用户过完挽留门选择离开 → 快照焚；真 crash 不触发 pagehide → 快照幸存。 */
     onPageHide(persisted: boolean): void;
     /** 崩溃安全 flush（WeebPaint es.start 三件：visibilitychange:hidden / blur / pagehide(!persisted)）：图库家脏 → 只落本地不推
@@ -161,7 +175,7 @@ export declare class Session {
     flushForHide(): void;
     /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
      *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
-    adoptRecovered(bytes: Uint8Array, name: string, opts: {
+    adoptRecovered(frame: Uint8Array, name: string, opts: {
         gate: boolean;
     }): Promise<"gallery" | "transient" | null>;
     /** 这份文件现在锁着没有。 */
@@ -216,6 +230,7 @@ export declare class Session {
     openFromGallery(path: string): Promise<boolean>;
     /** 给正在编辑的图库模型加密（明文 → 容器，先本地后云 If-Match；库做）。无地 / 本地文件 = 先安家。口令：已解锁复用、验证器在就校验、都没有就设新的。 */
     encryptCurrent(): Promise<boolean>;
+    private dropThumb;
     /** 解除加密（容器 → 明文，先本地后云）。先问口令（不在内存就弹）。 */
     decryptCurrent(): Promise<boolean>;
     /** 登录落地 / 回线 / 回前台的**显式快进**（WeebPaint refreshOpenDoc，P1 2026-08-25）：图库家 ∧ 干净 ∧ 云可达 → pullIfClean；
@@ -252,6 +267,8 @@ export declare class Session {
         name: string;
         bytes: number;
     };
+    /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
+    private plainExportNote;
     private download;
     /** 离开当前文档前的挽留：图库家 = 自动保存（WeebPaint 图库模式 UX）；文件家 / transient 且脏 = 三键。 */
     leaveGate(): Promise<boolean>;

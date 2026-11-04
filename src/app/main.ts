@@ -43,7 +43,7 @@ import { Session, bareName, supportsOpenPicker, supportsSavePicker } from "./ses
 import { createReferenceHost } from "./reference-host.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
 // 口令（2026-10-29 周账 F-123）：政策 crypto-state / 验证器 / 设备记住；面板注入在下面 setPasswordPrompt；解锁循环 unlock.ts
-import { setPasswordPrompt, setPassword, getPassword, lock as lockPasswords, isUnlocked, onLockChange, type PromptOpts } from "../crypto-state.ts";
+import { setPasswordPrompt, setPassword, getPassword, lock as lockPasswords, isUnlocked, onLockChange, onLocked, type PromptOpts } from "../crypto-state.ts";
 import { appEncryption, passwordKeeper } from "../encryption.ts";
 import { hasVerifier, checkVerifier } from "../password-verifier.ts";
 import { wireRememberPassword, restoreRemembered, forgetRemembered, rememberedUntil, rememberChoice, setRememberChoice, rememberAvailable, onRememberChange } from "../remember-password.ts";
@@ -51,9 +51,9 @@ import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshP
 import { verifierReady } from "../app-store.ts";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
-import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
+import { auth, docFile, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive, openSyncGate } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive, openSyncGate, withBusy } from "./ui/sheets.ts";
 import type { GateHandle } from "./ui/gate-stack.ts";
 import { CloudGate, GATE_COPY, takeRenewFailureCode, type RenewResult } from "./cloud-gate.ts";   // 掉登录 / 没网闸门（工单 C；设计稿 ai-docs/20261103-cloud-gate-design.md）
 import { browserOnline, cloudOnline, isUserOffline, setUserOffline } from "./user-offline.ts";
@@ -94,6 +94,9 @@ import { initDebugLog, note, record, toText as debugLogText, entries as debugLog
 import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet, setLastStepProvider } from "./debug-log-sheet.ts";
 import { capture as reproCapture, count as reproCount, toJson as reproJson, exportJson as reproExport, lastStepEntry } from "./repro-box.ts";
 import { traceLine } from "./debug-lines.ts";
+import { exportAll, exportAllSay } from "./export-all.ts";
+import { deliverFile } from "./share-or-download.ts";
+import { zipPack } from "../crypto/zip.ts";
 import { PRIMITIVES, type PrimitiveKind } from "../mesh/ops/primitives.ts";
 
 // 黑匣子最早起（实验台 sunset → 调试日志，user 2026-09-20）：开机 URL 行必须在 initAuth 之前抓——MSAL 处理完 redirect 会抹掉 hash。
@@ -215,7 +218,7 @@ const editor = new Editor(canvas, {
     } else { tipEl.hidden = true; lastTipHtml = ""; }
   },
   trace: (e) => {
-    note("op", traceLine(e));   // 记账面包屑 → 黑匣子（一 op 一行；失败行带 op JSON）
+    note("op", traceLine(e));   // 记账面包屑 → 黑匣子（一 op 一行；不带坐标，debug-lines.ts）
     if (e.kind === "fail" && e.brep) reproCapture({ where: e.where, message: e.message, brep: e.brep, ...(e.op ? { op: e.op } : {}), ...(e.preview ? { preview: e.preview } : {}), ...(e.pool ? { pool: e.pool } : {}) });   // 复现包（只住内存，关窗就没）
   },
   marquee: (r) => {
@@ -320,7 +323,7 @@ const hud: HudModel = {
     { id: "respawn", label: "回出生点" },
     { id: "exitvr", label: "退出 VR", danger: true },
   ],
-  status: () => hintEl.textContent ?? "",
+  status: () => withSyncStatus(hintEl.textContent ?? ""),   // 只有 VR 手腕面板读（桌面有离线常驻条）
   pick: (id) => {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if (id === "walk") { pickWalk(); return; }   // 验证工作台的「步行」：放置 → FPS（原地编辑里再点 = 继续走）
@@ -1601,7 +1604,9 @@ const session = new Session({
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
   online: cloudOnline,
   goOffline: () => cloudGate.escape(),
-  crypto: { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, setPassword, getPassword, unlockImportedContainer, isEncryptedBlob: (bytes) => appEncryption.isEncryptedBlob(bytes) },
+  thumbChanged: (path) => galleryHost.invalidateThumb(path),
+  crypto: { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, setPassword, getPassword, unlockImportedContainer, isEncryptedBlob: (bytes) => appEncryption.isEncryptedBlob(bytes),
+    packShadow: (bytes, name, pw) => appEncryption.packContainer({ dataBytes: bytes, fileName: name, ext: "catsup", password: pw }) },
 });
 // 口令面板注入（crypto-state 零 DOM；守「无系统对话框」红线）。探针可换成脚本答题（__catsup.crypto.answer）。
 let probePasswordAnswer: ((o: PromptOpts) => Promise<string | null>) | null = null;
@@ -1621,6 +1626,7 @@ wireRememberPassword({
   onRemembered: (until) => notify({ text: `这台设备会记住口令到 ${rememberDayText(until)}（☰ → 设置 → 口令 里能忘记）`, level: "info" }),
 });
 onLockChange(() => updateSaveStatus()); onRememberChange(() => updateSaveStatus());
+onLocked(() => session.forgetSealPassword());
 // CSP（index.html 的 meta）拦下的东西进黑匣子（log 级）：真机上某个功能突然不灵时，先看这里是不是策略挡了它。
 document.addEventListener("securitypolicyviolation", (e) => funnel(new Error(`[csp] blocked ${e.effectiveDirective} ${String(e.blockedURI).slice(0, 120)} (${e.sourceFile ? e.sourceFile.split("/").pop() : "?"}:${e.lineNumber})`), "log"));
 configureTabMemory({ get: (k) => session.menuTab(k), set: (k, t) => session.setMenuTab(k, t) });   // 两个 ☰ 停在哪页跟着文件走（WeebPaint desk.menuTab 同款）
@@ -1682,8 +1688,8 @@ function cloudSignIn(): void {
   if (session.needsRedirectSnapshot()) {
     const t0 = performance.now();
     void session.prepareForRedirect()
-      .then(() => note("auth", `redirect snapshot ok ${(performance.now() - t0).toFixed(0)}ms`), (e) => note("auth", `redirect snapshot failed: ${String((e as { message?: unknown })?.message ?? e)}`))
-      .finally(go);
+      .then((leave) => { note("auth", `redirect snapshot ${leave ? "ok" : "cancelled at leave gate"} ${(performance.now() - t0).toFixed(0)}ms`); return leave; }, (e) => { note("auth", `redirect snapshot failed: ${String((e as { message?: unknown })?.message ?? e)}`); return true; })
+      .then((leave) => { if (leave) go(); });
   } else go();   // 手势同步栈起跳（iOS redirect）
 }
 async function cloudSignOut(): Promise<void> { note("auth", "sign-out click"); try { await auth.signOut(); lockPasswords(); void forgetRemembered(); notify({ text: "已退出 OneDrive 登录（本机副本仍在；口令也忘了）", level: "info" }); } catch (e) { funnel(e); } }   // 退出登录 = 锁 + 忘（ADR-0001）
@@ -1697,7 +1703,34 @@ cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   ],
   onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else galleryHost.refresh(); },
 }));
-function updateCloudChip(): void { cloudBtn.dataset.cloudState = auth.isSignedIn() ? "in" : "out"; (document.getElementById("galleryCloudIcon") as unknown as SVGUseElement).setAttribute("href", auth.isSignedIn() ? "#cloud-synced" : "#cloud"); }
+// 图库顶上的披露条（工单 C2 ④）：没登录 = 这些模型只在浏览器里。不改入口、不删功能（过渡第 1 步）。
+const galleryHomeBar = $("galleryHomeBar");
+function paintGalleryHomeBar(): void { galleryHomeBar.hidden = auth.isSignedIn(); $("galleryConnect").hidden = !auth.isAuthConfigured(); }
+async function exportAllModels(): Promise<void> {
+  const store = requireStore();
+  const now = new Date(), stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
+  const name = `CatsUp-图库-${stamp}.zip`;
+  const r = await withBusy("正在打包图库里的模型…", () => exportAll({
+    listFolder: (folder) => new Promise((resolve, reject) => {
+      let done = false, off: (() => void) | null = null;
+      off = store.files.watchFolder(folder, (snap) => {   // 第一帧 = 本地帧（没登录就只有它）；纯云端的那几份这台没有字节，也不是「只在浏览器里」的
+        if (done) return; done = true; off?.();
+        resolve({ identifiers: snap.items.filter((i) => i.syncState !== "cloud-only").map((i) => i.identifier), folders: snap.folders });
+      }, { onError: (e) => { if (!done) { done = true; off?.(); reject(e); } } });
+      if (done) off();   // 帧在 watchFolder 返回前就同步来了
+    }),
+    encryptedBytes: async (id) => (await docFile(id).getEncryptedBlob()) as Blob | null,
+    plainBytes: (id) => docFile(id).open(),
+    pack: (entries) => zipPack(entries),
+  }));
+  note("doc", `export-all plain=${r.plain} encrypted=${r.encrypted} failed=${r.failed.length}`);
+  if (r.zip) await deliverFile(new File([r.zip], name, { type: "application/zip" }), name, (t: string) => note("doc", t));
+  const said = exportAllSay(r, name);
+  notify({ text: said.text, level: said.bad ? "error" : "info", ...(said.bad ? { timeoutMs: null } : {}) });
+}
+$("galleryExportAll").addEventListener("click", () => { void exportAllModels().catch((e) => { funnel(e); notify({ text: `导出失败：${(e as Error)?.message ?? e}`, level: "error", timeoutMs: null }); }); });
+$("galleryConnect").addEventListener("click", () => { void cloudSignIn(); });
+function updateCloudChip(): void { paintGalleryHomeBar(); cloudBtn.dataset.cloudState = auth.isSignedIn() ? "in" : "out"; (document.getElementById("galleryCloudIcon") as unknown as SVGUseElement).setAttribute("href", auth.isSignedIn() ? "#cloud-synced" : "#cloud"); }
 // ---- 云可达之后的一串（登录落地 / 回线）：① 开着的模型干净快进 → ② 补离线上传队列 → ③「问一次」把只在本机的模型推上去 ----
 //   ③ = 家族 10-21 标准（JRB 0.2.20 / WeebPaint v0.14.42 / WXHW v2.3.52 / MoonSinger v0.14.6），CatsUp 2026-10-25 user「好，同意……但是必须护栏冲突」。
 //   护栏在库里（store files.dirty.pushAll）：每个文件单独推、带 If-Match；撞上云端新版本 / 撞名 / 网络 → **那个文件留在本机、名字进 failed，不弹面、不覆盖**；
@@ -1787,11 +1820,19 @@ function showGateCover(view: Parameters<typeof openSyncGate<string>>[0], onPick:
 }
 const OFFLINE_BAR_ID = "offline-bar";
 let barPainting = false;
+// VR 里不闸（戴着头显弹全屏罩更糟），但状态要看得到：手腕面板状态行带「离线 · N 份没传」（工单 C2）。份数是异步的，存一份，状态变了面板自己重画。
+let lastPending = 0;
+function withSyncStatus(hint: string): string {
+  if (!hasStore() || !auth.isSignedIn() || cloudOnline()) return hint;
+  const s = GATE_COPY.bar(lastPending);
+  return hint ? `${s}｜${hint}` : s;
+}
 function paintOfflineBar(): void {
-  if (!isUserOffline() || barPainting) return;
+  if (cloudOnline() || barPainting) return;   // 有网且没选离线：没有要显示的；断网（VR 不闸，没选过离线）也要刷份数给手腕面板
   barPainting = true;
   void (hasStore() ? requireStore().files.dirty.count().catch(() => 0) : Promise.resolve(0)).then((n) => {
     barPainting = false;
+    lastPending = n;
     if (!isUserOffline()) return;
     notify({ id: OFFLINE_BAR_ID, level: "info", timeoutMs: null, text: GATE_COPY.bar(n), actions: hasStore() ? [{ label: GATE_COPY.barOpenList, onClick: () => { void galleryHost.openAttention(); } }] : [] });
   });

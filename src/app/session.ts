@@ -37,6 +37,7 @@ import { cloudOnline } from "./user-offline.ts";
 import { reportError } from "./error-funnel.ts";
 import { note } from "./debug-log.ts";
 import { crashStore, mintLuggageTag, type LuggageTag } from "./crash-store.ts";
+import { shadowFrame, type ShadowSeal } from "./shadow-seal.ts";
 
 interface FSHandle { readonly name: string; createWritable(): Promise<{ write(b: Blob): Promise<void>; close(): Promise<void> }>; getFile(): Promise<File> }
 const fsa = window as unknown as {
@@ -76,6 +77,8 @@ export interface SessionDeps {
   online: () => boolean;
   /** 拉取罩子上点了「先离线用」（= 离线继续；工单 C）。 */
   goOffline?: () => void;
+  /** 这份的封面作废：加密后缩略库不许留明文封面；解除后让它重画（工单 C2 ③）。 */
+  thumbChanged: (path: string) => Promise<void>;
   /** 口令（2026-10-29 周账 F-123；政策在 crypto-state / unlock.ts，这里只用）。**弹面板的都在 busy 外调。** */
   crypto: {
     ensureUnlocked: (path: string) => Promise<boolean>;
@@ -86,7 +89,9 @@ export interface SessionDeps {
     getPassword: (path: string | null) => string | null;
     /** 本地加密文件：全量解，返回验过的口令 + 明文；取消 = null。 */
     unlockImportedContainer: (blob: Blob) => Promise<{ pw: string; plain: Blob } | null>;
-    isEncryptedBlob: (bytes: Uint8Array) => Promise<boolean>;
+    isEncryptedBlob: (bytes: Uint8Array | Blob) => Promise<boolean>;
+    /** 崩溃影子封口（工单 C2 ①）：明文 → 加密容器。只给 shadowFrame 用。 */
+    packShadow: (bytes: Uint8Array, name: string, pw: string) => Promise<Blob>;
   };
 }
 
@@ -116,6 +121,10 @@ export class Session {
   pushPending = false;
   /** 正在编辑的图库模型是加密的（打开 / 加密 / 解密后刷新；换家清）。锁着（内存没口令）时保存会如实拒。 */
   encrypted = false;
+  /** 这个本地家模型是从加密件解开来的（工单 C2 ①）：它的影子只存容器。换家即清；另存到磁盘不清（见 settleToFile）。 */
+  private seal: ShadowSeal | null = null;
+  private shadowSkipSaid = false;
+  private snapRun: Promise<boolean> | null = null;
   /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
    *  清的时机：推上去了（save / resolveActive 成功）、换了文档。横幅本身在 main（onAttentionChanged）。 */
   attention: { cloudState: string | null } | null = null;
@@ -257,20 +266,48 @@ export class Session {
   }
   /** 盲快照：与保存同一 encode 字节，同一张牌覆盖写单帧。state="pending-adoption" = 登录 redirect 前留声（pagehide 不焚）。 */
   async snapshot(state: "crash" | "pending-adoption" = "crash"): Promise<boolean> {
-    const kind = this.localHomeKind(); const tag = this.luggage;
+    // 封口要跑 7z（几百毫秒起），tick 一秒一次不许叠；redirect 帧等前一帧落完再写（同牌覆盖）
+    while (this.snapRun) { if (state === "crash") return false; await this.snapRun; }
+    const run = this.snapshotOnce(state).finally(() => { if (this.snapRun === run) this.snapRun = null; });
+    this.snapRun = run;
+    return run;
+  }
+  private async snapshotOnce(state: "crash" | "pending-adoption"): Promise<boolean> {
+    const kind = this.localHomeKind(); const tag = this.luggage, seal = this.seal;
     if (!kind || !tag) return false;
     const rev = this.d.editor.revision, rr = this.refRev();
     try {
       const bytes = this.encode();
       if (this.luggage !== tag) return false;   // encode 间隙换了家——别把别的模型写进这张牌
-      await crashStore.put(tag, new Blob([bytes], { type: "model/gltf-binary" }), { state, name: this.displayName(), at: Date.now(), homeKind: kind });
+      const frame = await shadowFrame(bytes, seal, {
+        pack: (b, pw) => this.d.crypto.packShadow(b, this.displayName(), pw),
+        isContainer: (b) => this.d.crypto.isEncryptedBlob(b),
+      });
+      if (!frame) { this.snapRevision = rev; this.snapRefRev = rr; this.noteShadowSkipped(); return false; }   // 记过这一版：下次改动才再试（tick 一秒一次，别刷屏）
+      if (this.luggage !== tag || this.seal !== seal) return false;   // 封口间隙换了家 / 口令被忘
+      await crashStore.put(tag, frame, { state, name: this.displayName(), at: Date.now(), homeKind: kind });
       this.snapRevision = rev; this.snapRefRev = rr;
       return true;
     } catch (e) { reportError(new Error("[t-crash] snapshot failed (best-effort, load-bearing layers unaffected): " + String(e)), "log"); return false; }
   }
-  /** 登录 redirect 前：脏的 file / transient 模型留 pending-adoption 帧（页面将死但不是关闭；回来 crash-recovery 自动领养）。 */
+  /** 口令忘掉了：这个模型留不了影子，也绝不存明文。说一次（不许静默：用户以为有崩溃保护）。 */
+  private noteShadowSkipped(): void {
+    reportError(new Error("[t-crash] encrypted local doc has no password (locked) — snapshot skipped (never plaintext)"), "log");
+    if (this.shadowSkipSaid) return;
+    this.shadowSkipSaid = true;
+    this.d.setStatus(`「${this.displayName()}」是解开的加密件，口令已经忘掉：崩溃后救不回最新的改动（不留明文）。要留请及时另存`, true);
+  }
+  /** 锁定 / 登出 = 忘掉一切口令（main 接 crypto-state.onLocked）：解开的加密件也一样，之后影子只能跳拍。 */
+  forgetSealPassword(): void { if (this.seal?.pw) this.seal = { pw: null }; }
+  /** 登录 redirect 前：脏的 file / transient 模型留 pending-adoption 帧（页面将死但不是关闭；回来 crash-recovery 自动领养）。
+   *  false = 用户在挽留门取消了，别跳。口令忘掉了的封口模型留不了影子 → 走三键挽留，不然这次跳转静默丢改动。 */
   needsRedirectSnapshot(): boolean { return this.dirtyLocalHome(); }
-  async prepareForRedirect(): Promise<void> { if (this.needsRedirectSnapshot()) await this.snapshot("pending-adoption"); }
+  async prepareForRedirect(): Promise<boolean> {
+    if (!this.needsRedirectSnapshot()) return true;
+    if (this.seal && !this.seal.pw) return this.leaveGate();
+    await this.snapshot("pending-adoption");
+    return true;
+  }
   /** pagehide（非 bfcache）= 用户过完挽留门选择离开 → 快照焚；真 crash 不触发 pagehide → 快照幸存。 */
   onPageHide(persisted: boolean): void { if (persisted) return; if (this.luggage) crashStore.dropOnCleanClose(this.luggage).catch(() => {}); }
   /** 崩溃安全 flush（WeebPaint es.start 三件：visibilitychange:hidden / blur / pagehide(!persisted)）：图库家脏 → 只落本地不推
@@ -282,7 +319,15 @@ export class Session {
   }
   /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
    *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
-  async adoptRecovered(bytes: Uint8Array, name: string, opts: { gate: boolean }): Promise<"gallery" | "transient" | null> {
+  async adoptRecovered(frame: Uint8Array, name: string, opts: { gate: boolean }): Promise<"gallery" | "transient" | null> {
+    // 封了口的帧（解开的加密件留的影子，工单 C2 ①）：先问口令；取消 = 不恢复（记录放回，下次再问）。解开后**不进图库**（`<名>-恢复` 会是明文），还当临时模型。
+    let bytes = frame, seal: ShadowSeal | null = null;
+    if (await this.d.crypto.isEncryptedBlob(frame)) {
+      const r = await this.d.crypto.unlockImportedContainer(new Blob([frame as BlobPart]));
+      if (!r) return null;
+      bytes = new Uint8Array(await r.plain.arrayBuffer());
+      seal = { pw: r.pw };
+    }
     if (opts.gate && !(await this.leaveGate())) return null;
     const doc = readCatsup(bytes);
     const sc = nameRoot(sceneFromDocument(doc));
@@ -299,7 +344,7 @@ export class Session {
     this.applyDeskView();   // 风格 / 屏幕跟文件走（desk 1.3）
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
-    if (hasStore()) {
+    if (hasStore() && !seal) {
       const path = await this.freeName(this.currentDir, `${name}-恢复`);
       this.createPending = true;
       this.setHome({ kind: "gallery", path });
@@ -307,6 +352,7 @@ export class Session {
       return "gallery";
     }
     this.setHome({ kind: "transient", name });
+    this.seal = seal;
     return "transient";
   }
 
@@ -452,6 +498,7 @@ export class Session {
   private setHome(h: DocHome): void {
     this.home = h;
     this.encrypted = false;   // 换家先清；图库家打开 / 加密后由调用方再设
+    this.seal = null; this.shadowSkipSaid = false;   // 同上：解开的加密件由调用方再设（openLocalBytes / adoptRecovered）
     if (h.kind === "gallery") this.dropLuggage(); else if (!this.luggage) this.mintLuggage();   // 图库家的影子 = store 本地副本；本地家要牌
     setActiveDocName(h.kind === "gallery" && !this.lazy ? h.path : null);
     if (hasStore()) {
@@ -581,12 +628,17 @@ export class Session {
         if (r.status === "offline") { this.d.setStatus("加密要在线做（云端那份也要一起换）：联网 / 登录后再试", true); return; }
         if (r.status === "locked") { this.d.setStatus("已取消（需要口令）", true); return; }
         ok = true; this.encrypted = true;
+        await this.dropThumb(path);
         this.d.setStatus(r.status === "cloud-deferred" ? `已加密 ${bareName(path)}（云端那份稍后同步）` : `已加密 ${bareName(path)}`, r.status === "cloud-deferred");
         this.d.onHomeChanged();
       } catch (e) { reportError(e); this.d.setStatus(`加密失败：${(e as Error)?.message ?? e}`, true); }
     });
     if (fresh && !ok) this.d.crypto.rollbackFreshPassword();   // 一件都没加密成 → 空头新口令 + 验证器撤销
     return ok;
+  }
+  private async dropThumb(path: string): Promise<void> {
+    try { await this.d.thumbChanged(path); }
+    catch (e) { reportError(new Error("[session] thumb invalidate failed: " + String(e)), "log"); }   // 加密本身已成：封面失败只记账，下一次列到这张卡会按新指纹覆盖
   }
   /** 解除加密（容器 → 明文，先本地后云）。先问口令（不在内存就弹）。 */
   async decryptCurrent(): Promise<boolean> {
@@ -602,6 +654,7 @@ export class Session {
         if (r.status === "offline") { this.d.setStatus("解除加密要在线做：联网 / 登录后再试", true); return; }
         if (r.status === "locked") { this.d.setStatus("已取消（需要口令）", true); return; }
         ok = true; this.encrypted = false;
+        await this.dropThumb(path);
         this.d.setStatus(`已解除加密 ${bareName(path)}`);
         this.d.onHomeChanged();
       } catch (e) { reportError(e); this.d.setStatus(`解除失败：${(e as Error)?.message ?? e}`, true); }
@@ -660,7 +713,8 @@ export class Session {
         this.adopt(new Uint8Array(await r.plain.arrayBuffer()));
         this.dropLuggage();
         this.setHome({ kind: "transient", name: fileName.replace(/\.zip$/i, "").replace(/\.(catsup|glb)$/i, "") });
-        this.d.setStatus(`已解开加密的「${fileName}」，当临时模型打开：要留就「存为…」或「复制到图库」`);
+        this.seal = { pw: r.pw };   // 这个模型的崩溃影子只存容器（规则书 §1 第 5 条）
+        this.d.setStatus(`已解开加密的「${fileName}」，当临时模型打开。另存到磁盘是不加密的，原来的加密文件不会动`);
         return true;
       } catch (e) { reportError(e); return false; }
     }
@@ -739,23 +793,27 @@ export class Session {
   /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
   async settleToFile(): Promise<boolean> {
     const suggested = `${this.displayName()}${DOC_EXT}`;
+    const seal = this.seal;
     if (supportsSavePicker()) {
       let h: FSHandle;
       try { h = await fsa.showSaveFilePicker!({ suggestedName: suggested, types: SAVE_PICKER_TYPES }); } catch { return false; }
       this.lazy = false;
       this.setHome({ kind: "file", handle: h, fileName: h.name });
-      return this.save();
+      this.seal = seal;   // 写盘可能失败：影子继续只存容器（多保险一点，不影响那份文件）
+      const ok = await this.save();
+      if (ok && seal) this.d.setStatus(`已存为 ${h.name}（这份没有加密，原来的加密文件没动）`);
+      return ok;
     }
     const bytes = this.encode();
     this.download(bytes, suggested);
-    this.d.setStatus(`已下载 ${suggested}（本浏览器无法原地写回；模型仍未安家）`);
+    this.d.setStatus(`已下载 ${suggested}（${seal ? "这份没有加密；" : ""}本浏览器无法原地写回；模型仍未安家）`);
     return false;
   }
   /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。 */
   exportProject(): string {
     const bytes = this.encode(), name = `${downloadName(this.displayName())}${DOC_EXT}`;   // 导出名带导出时间（WeebPaint 同款；user 10-28）
     this.download(bytes, name);
-    this.d.setStatus(`${name} 已下载（工程原样，可以开回 CatsUp）`);
+    this.d.setStatus(`${name} 已下载（工程原样，可以开回 CatsUp${this.plainExportNote()}）`);
     return name;
   }
   /** 导出模型 .glb（导出设计稿 §4 / §5）：给别的软件看的烤好的模型——只写 glTF core，不是工程备份。only = 只导这几份物体（定义 id + 世界变换）。永不清 dirty。 */
@@ -764,9 +822,11 @@ export class Session {
     const only = opts.only?.map((o) => ({ definition: ids.indexOf(o.def), xform: o.xform, ...(o.name !== undefined ? { name: o.name } : {}) })).filter((o) => o.definition >= 0);
     const bytes = writeGltfModel(doc, { textures: opts.textures, lines: opts.lines, ...(only ? { only } : {}) }), name = `${downloadName(this.displayName())}.glb`;
     this.download(bytes, name);
-    this.d.setStatus(`${name} 已下载（给别的软件看的模型，不是工程备份）`);
+    this.d.setStatus(`${name} 已下载（给别的软件看的模型，不是工程备份${this.plainExportNote()}）`);
     return { name, bytes: bytes.byteLength };
   }
+  /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
+  private plainExportNote(): string { return this.encrypted || this.seal ? "；这份下载没有加密" : ""; }
   private download(bytes: Uint8Array, name: string): void {
     const url = URL.createObjectURL(new Blob([bytes], { type: "model/gltf-binary" }));
     const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();

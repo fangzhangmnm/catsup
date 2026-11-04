@@ -14,6 +14,8 @@ export declare function isUnlocked(): boolean;
 export declare function setPassword(pw: string | null): void;
 /** 锁定 = 忘掉一切口令（内存清除）。加密文件回到锁样式；保存路径会明确说「锁着」而不是静默。 */
 export declare function lock(): void;
+/** 用户明确「忘掉口令」（锁定 / 登出），和 setPassword(null) 这种内部回滚区分。会话里解开的加密件也得跟着忘（session.forgetSealPassword）。 */
+export declare function onLocked(cb: () => void): () => void;
 /** 锁态变化订阅（图库刷新用）。返回退订函数。 */
 export declare function onLockChange(cb: LockChangeSub): () => void;
 /** 统一口令变了（设 / 锁定 = null）。只给 remember-password.ts 用。 */

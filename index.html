@@ -17,7 +17,7 @@
     <link rel="apple-touch-icon" href="./apple-touch-icon-180.png" />
     <link rel="stylesheet" href="./vendor/internal-css/workbench-elements.css?v=1705204a427c" />
     <link rel="stylesheet" href="./vendor/internal-css/gallery.css?v=60c648e5faba" />
-    <link rel="stylesheet" href="./styles.css?v=1cac9ecf4e05" />
+    <link rel="stylesheet" href="./styles.css?v=73acbe01b29a" />
     <script src="./boot-guard.js"></script>
     <script defer src="./vendor/zip-js/zip-full.min.js"></script>   <!-- 加密容器的明文外壳（UMD，挂 window.zip；7z-wasm 惰性加载） -->
   </head>
@@ -325,6 +325,12 @@
         <button class="tb-btn" id="galleryRefreshBtn" type="button" title="刷新云端" hidden><svg class="ico" aria-hidden="true"><use href="#refresh"/></svg></button>
         <button class="tb-btn" id="galleryTrashBtn" type="button" title="回收站" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
       </div>
+      <!-- 没登录 = 图库只在浏览器里（规则：库必须有家；过渡第 1 步 = 披露 + 出口，工单 C2 ④）。 -->
+      <div class="gallery-homebar" id="galleryHomeBar" hidden>
+        <span class="gallery-homebar-text">这些模型只在这台设备的浏览器里，没有备份</span>
+        <button class="sheet-choice" id="galleryExportAll" type="button">全部导出</button>
+        <button class="sheet-choice" id="galleryConnect" type="button">连接网盘</button>
+      </div>
       <div class="gallery-trashbar" id="galleryTrashBar" hidden>
         <button class="sheet-choice" id="galleryTrashBack" type="button">回到图库</button>
       </div>
@@ -396,6 +402,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,model/gltf-binary" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-173c1bed4964.mjs"></script>
+    <script type="module" src="./dist/catsup-ce30e482e1a0.mjs"></script>
   </body>
 </html>

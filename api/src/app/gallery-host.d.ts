@@ -28,7 +28,8 @@ export declare function initGalleryHost(d: GalleryHostDeps): {
     setView: (v: GalleryView) => void;
     getView: () => GalleryView;
     currentFolder: () => string;
-    invalidateThumb: (identifier: string) => void;
+    /** 这份的封面作废（session 加密 / 解除时调；工单 C2 ③：明文封面不许留在缩略库）。库也许还没挂（开机直接回到模型）：先挂上，别变成空操作。 */
+    invalidateThumb: (identifier: string) => Promise<void>;
     /** dev 诊断（冒烟用）：缩略缓存统计。 */
     thumbStats: () => {
         hits: number;

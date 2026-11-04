@@ -14,7 +14,7 @@ describe("debug-lines", () => {
     assert(err.includes("query=[reset(1)]"), err);
     eq(bootUrlLine({ pathname: "/", search: "", hash: "" }), "url path=/ query=[-] hash=[-]");
   });
-  it("describeOp / traceLine：一 op 一行，不含坐标；失败行带 op JSON", () => {
+  it("describeOp / traceLine：一 op 一行；失败行只有 op 的形状", () => {
     eq(describeOp({ op: "addEdges", segs: [[{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }]] }), "addEdges segs=1");
     eq(describeOp({ op: "pushpull", face: [{ x: 0, y: 0, z: 0 }, { x: 1, y: 0, z: 0 }, { x: 1, y: 1, z: 0 }], dist: 0.123456 }), "pushpull ring=3 dist=0.1235");
     eq(describeOp({ op: "move", moves: [{ from: { x: 0, y: 0, z: 0 }, to: { x: 1, y: 0, z: 0 } }] }), "move verts=1 Δ=1.000,0.000,0.000");
@@ -26,6 +26,6 @@ describe("debug-lines", () => {
     eq(traceLine({ kind: "undo", position: 6, depth: 7 }), "undo → #6/7");
     eq(traceLine({ kind: "load", label: "打开 a.glb" }), "load 打开 a.glb");
     const fail = traceLine({ kind: "fail", where: "commit", op: { op: "clear" }, message: "boom" });
-    eq(fail, 'FAIL commit: boom op={"op":"clear"}');
+    eq(fail, "FAIL commit: boom op=clear ~5B");
   });
 });

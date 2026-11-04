@@ -7,5 +7,7 @@ export declare function bootUrlLine(loc: {
     search: string;
     hash: string;
 }): string;
-/** 编辑器记账面包屑 → 一行。op 行 = 摘要 + 事件数 + 耗时 + 历史位置；失败行附 op JSON 前 400 字符（复现钥匙）。 */
+/** 黑匣子写入的总闸（debug-log.ts 的 record / note 都过它：错误文案里内核爱带坐标，比如 `face [(x,y,z) …]`）。 */
+export declare const noCoords: (s: string) => string;
+/** 编辑器记账面包屑 → 一行。op 行 = 摘要 + 事件数 + 耗时 + 历史位置；失败行 = 哪里 + 文案 + op 的形状（不带坐标）。复现钥匙留在内存的 repro 盒里，不落盘。 */
 export declare function traceLine(e: EditorTrace): string;

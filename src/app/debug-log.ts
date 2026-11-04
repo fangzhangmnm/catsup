@@ -6,14 +6,17 @@
 //   silent 续签失败带 msal-tail 都从这条进来）② main 三层错误边界（脚本 / 异步 / 帧）③ 面包屑 note(tag, msg)：
 //   boot / auth / doc / op / store / sw / page / net。没有面包屑，一串错误没有时间线可对。
 // op 上日志（user 09-20 问「op 操作是否要上 Log」→ 上）：每次提交一行摘要（动词 + 数量 + 事件数 + 耗时，不含坐标）；
-//   提交失败那条附 op 的 JSON 前 400 字符 = 复现钥匙。
+//   提交失败那条只有 op 的形状（2026-11-03 工单 C2 ②：黑匣子落 localStorage，模型坐标不许进来；复现钥匙留在内存的 repro 盒里）。
 // 不是 telemetry：永不上传；只有用户在「调试日志」sheet 点复制/分享，字节才离开设备。清空 = 用户点「清空」。
 import { diagLog, configureDeviceKv } from "@internal/gallery";
 import { deviceKvGet, deviceKvSet } from "./device-kv.ts";
 import { APP_VERSION } from "../version.ts";
-import { bootUrlLine } from "./debug-lines.ts";
+import { bootUrlLine, noCoords } from "./debug-lines.ts";
 
-export const { record, note, entries, clear, toText, flush } = diagLog;
+export const { entries, clear, toText, flush } = diagLog;
+/** 写入总闸：错误文案 / 面包屑一律过 noCoords（规则书 §1 第 5 条；解开的加密件也在这条路上）。 */
+export const record: typeof diagLog.record = (level, text) => diagLog.record(level, noCoords(text));
+export const note: typeof diagLog.note = (tag, msg) => diagLog.note(tag, noCoords(msg));
 
 let _inited = false;
 /** main 最早调（任何 initAuth / store 之前）：接 device-kv 器官 + 页面生命周期面包屑 + 开机 URL 行。 */

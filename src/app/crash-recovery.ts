@@ -27,7 +27,7 @@ async function recover(d: CrashRecoveryDeps, m: CrashRecordMeta, gate: boolean):
   if (!bytes) { d.notify({ text: `「${m.name}」已被别的窗口接走`, level: "warning" }); return false; }
   try {
     const where = await d.session.adoptRecovered(new Uint8Array(await bytes.arrayBuffer()), m.name, { gate });
-    if (!where) { note("boot", "t-crash recover cancelled at leave gate → record put back"); void putBack(m, bytes); return false; }   // 挽留门取消 = 不恢复（记录放回，下次再问）
+    if (!where) { note("boot", "t-crash recover cancelled (leave gate / password) → record put back"); void putBack(m, bytes); return false; }   // 挽留门 / 口令面板取消 = 不恢复（记录放回，下次再问）
     note("boot", `t-crash recovered → ${where} "${d.session.displayName()}"`);
     d.closeGallery();
     d.notify({ text: where === "gallery" ? `已接回「${m.name}」，存进图库为「${d.session.displayName()}」` : `已接回「${m.name}」（还没有家：记得保存到磁盘）`, level: "info" });
