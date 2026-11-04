@@ -11,6 +11,7 @@ import { showNotice, type NoticeHandle } from "./app/ui/notice.ts";
 import { reportError } from "./app/error-funnel.ts";
 import { note } from "./app/debug-log.ts";
 import { bareName } from "./app/doc-names.ts";
+import { noteRenewFailureLine } from "./app/cloud-gate.ts";   // 静默续签的原因码进黑匣子（工单 C，设计稿 §1 / §7 ⑧）
 
 // 库 16 个 busy 文案 key → 中文（孵化中项目不走 i18n SSoT；毕业时搬）。穷举 Record：库加 key 本表漏映 = 编译错。
 const STORE_TEXT: Record<StoreTextKey, (p?: StoreTextParams) => string> = {
@@ -52,6 +53,15 @@ const KEPT_SAFE = "被替换的版本会自动留底，不会丢失。";
 export const conflictGate = {
   implicit: false,
   onDeferred: null as ((ctx: { name: string; cloudState: string | null }) => void) | null,
+  // ---- 工单 C（2026-11-03 Claude Opus 5.5）：库在换本机字节 / 问人的时候 app 要知道 ----
+  /** 冲突面选了「云端覆盖本地」：库接下来要换字节（safePull 没有 busy 键）→ session 在这一刻上罩子。只在 session 自己的保存 / 处理路径上挂。 */
+  onTakeCloud: null as ((name: string) => void) | null,
+  /** 面弹出来了：人在看着，闸门的硬超时别打断。 */
+  onFace: null as (() => void) | null,
+  /** 打开时那张面最后选了什么（库的 open() 只回字节；session 据此决定要不要整份重载）。 */
+  lastOpenChoice: null as ResolveChoice | null,
+  /** 闸门这一轮的逃生信号（罩子上的「先离线用」）；不在闸门里 = null，走下面 offlineEscape 那条通知。 */
+  escapeProbe: null as (() => Promise<void> | null) | null,
 };
 
 export const storeUI: StoreUI = {
@@ -78,6 +88,7 @@ export const storeUI: StoreUI = {
       conflictGate.onDeferred?.({ name, cloudState: cloudState ?? null });
       return "cancel";
     }
+    conflictGate.onFace?.();
     let choice: ResolveChoice | null;
     if (occasion === "open") {
       // 打开时：两个按钮都不丢字节——打开本地 = 先开本机这份、保存时再裁；云端覆盖本地 = 本机这份进备份箱、拉云端的。
@@ -96,12 +107,17 @@ export const storeUI: StoreUI = {
         [{ label: "云端覆盖本地", value: "takeCloud", primary: true }, { label: "本地覆盖云端", value: "keepMine" }, { label: "取消", value: "cancel" }]);
     }
     note("store", `conflict resolved → ${choice ?? "cancel"}`);
+    if (occasion === "open") conflictGate.lastOpenChoice = choice ?? "cancel";
+    if (choice === "takeCloud") conflictGate.onTakeCloud?.(name);
     return choice ?? "cancel";
   },
 
   reportError: (err: unknown, level): void => {
     const msg = (err as { message?: string } | null)?.message ?? "";
     if (msg === "Not signed in") { reportError(err, "log"); return; }
+    // 静默续签失败：库的多行诊断照旧进黑匣子（下面 reportError），这里多记一行原因码给闸门用（设计稿 §1 / §7 ⑧；库零改，只读它的日志行）
+    const renew = noteRenewFailureLine(msg);
+    if (renew) note("auth", `silent renewal failed where=${renew.where} code=${renew.code} sub=${renew.sub || "-"}`);
     // 登录 redirect 回程裸 `server_error`（零 error_description）= 浏览器会话状态：该窗口登着多个微软身份 → consent 页 Accept 后 /authorize 直接顶回
     //   （家族案卷 ai-docs/20260823-onedrive-new-consent-403-and-authority-mismatch.md §9.1，微软 Graph Explorer 独立复现；无痕窗口即通）。
     //   CatsUp 2026-09-20 真机回执正是这一签名（user 09-22 贴的黑匣子）。原文照旧进黑匣子（log 级），用户看人话 + 处方。
@@ -124,6 +140,8 @@ export const storeUI: StoreUI = {
   confirmReplay: (count: number): Promise<boolean> => openConfirmSheet("补推到云端", `有 ${count} 个离线时保存的模型，现在同步到云端？`),
 
   offlineEscape: (): { probe: Promise<unknown>; settle: () => void } => {
+    const gateProbe = conflictGate.escapeProbe?.();   // 闸门开着：库问云端和罩子上的「先离线用」赛跑（设计稿 §4），不再另弹一条通知
+    if (gateProbe) return { probe: gateProbe, settle: () => {} };
     let onSkip!: () => void;
     const probe = new Promise<unknown>((res) => { onSkip = () => res(undefined); });
     const h = showNotice({ id: "store-offline-escape", level: "info", text: "正在检查云端…", timeoutMs: null, actions: [{ label: "跳过，先开本机的", onClick: () => { note("store", "offline escape: user skipped cloud check"); onSkip(); } }] });

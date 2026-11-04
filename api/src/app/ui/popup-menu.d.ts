@@ -26,6 +26,9 @@ export interface PopupMenuItem<Id extends string = string> {
      *  这一行 = label + ›；点 / 鼠标悬停 = 旁边开一层（choice-layer.ts openSubmenu：先往右、放不下往左、太高自己滚）；点里面一项 = onPick(那一项的 id)，
      *  整个菜单关（返回 "keep" = 留着并刷新）。只一层：子项的 children 不看。 */
     children?: PopupMenuItem<Id>[];
+    /** 一行并排几个小控件、不带行标签（2026-10-30 Opus；user「试用这里ui谜语人了……放在尺度参考同一行……label也去掉，就是两个下拉框」「新手提醒……也想办法塞到那个row里面」）：
+     *  每个子项照它自己的种类画成紧凑的一颗——有 choices / value = 只露当前值 ▾ 的下拉（label 只当无障碍名）；否则 = 一颗小钮（label + hint）。点了和整行的同类一样。 */
+    inline?: PopupMenuItem<Id>[];
 }
 /** 弹层顶部的 tab（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）：图标 + 字一排；只显示当前 tab 的项。 */
 export interface PopupMenuTab {

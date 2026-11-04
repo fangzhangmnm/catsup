@@ -92,9 +92,11 @@ export interface FaceRec {
     readonly nor: Float32Array;
     readonly mF: Material | null;
     readonly mB: Material | null;
-    /** 平面基（贴图 uv = 点乘基 / 贴图物理尺寸）。 */
+    /** 贴图方向（uv = 点乘 / 贴图物理尺寸）：正面 = textureBasis(n)、背面 = textureBasis(−n)（各自从自己那侧看「上 = 上、不镜像」；geom.ts）。 */
     readonly u: Pt3;
     readonly v: Pt3;
+    readonly ub: Pt3;
+    readonly vb: Pt3;
 }
 export declare function buildFaceRec(k: KernelView, fid: FaceId, matOf: (slot: number | undefined) => Material | null): FaceRec | null;
 export interface EdgeRec {

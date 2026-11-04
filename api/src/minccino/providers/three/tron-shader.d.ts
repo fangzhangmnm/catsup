@@ -2,6 +2,7 @@ import type { TronShade } from "../../preset/index.ts";
 export declare class TronMaterials {
     private readonly depthFace;
     private readonly depthOther;
+    private readonly depthSlope;
     private readonly u;
     private readonly faces;
     private readonly profileAdd;
@@ -10,7 +11,7 @@ export declare class TronMaterials {
     readonly hiddenThick: any;
     readonly hiddenPixel: any;
     private hidden;
-    constructor(depthFace: number, depthOther: number);
+    constructor(depthFace: number, depthOther: number, depthSlope: number);
     /** 面材质：side / 深度偏移按槽；single = 贴图网格（只有 aColor）；sel = 选中 / 悬停的那份（认领色）。 */
     face(side: "front" | "back" | "double", active: boolean, single: boolean, sel?: boolean): any;
     /** 每帧：参数 + 线宽换算（pxScale = 画布 CSS 高 ÷ 小图高：LineSegments2 按画布视口算像素，见文件头）。 */

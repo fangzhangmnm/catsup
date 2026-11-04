@@ -30,7 +30,10 @@ import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
 import { setOpened } from "@internal/gallery";
-import { openChoiceSheet, openInputSheet, showBusy, hideBusy, withBusy } from "./ui/sheets.ts";
+import { openChoiceSheet, openInputSheet, openSyncGate, withBusy } from "./ui/sheets.ts";
+import type { GateHandle } from "./ui/gate-stack.ts";
+import { GATE_COPY } from "./cloud-gate.ts";   // 闸门文案一处（工单 C）
+import { cloudOnline } from "./user-offline.ts";
 import { reportError } from "./error-funnel.ts";
 import { note } from "./debug-log.ts";
 import { crashStore, mintLuggageTag, type LuggageTag } from "./crash-store.ts";
@@ -71,6 +74,8 @@ export interface SessionDeps {
   onHomeChanged: () => void;
   setStatus: (text: string, error?: boolean) => void;
   online: () => boolean;
+  /** 拉取罩子上点了「先离线用」（= 离线继续；工单 C）。 */
+  goOffline?: () => void;
   /** 口令（2026-10-29 周账 F-123；政策在 crypto-state / unlock.ts，这里只用）。**弹面板的都在 busy 外调。** */
   crypto: {
     ensureUnlocked: (path: string) => Promise<boolean>;
@@ -85,7 +90,7 @@ export interface SessionDeps {
   };
 }
 
-const online = () => typeof navigator === "undefined" || navigator.onLine !== false;
+const online = cloudOnline;   // 2026-11-03 工单 C：浏览器有网 ∧ 用户没选「离线继续」
 export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
 const dirOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
 
@@ -100,6 +105,8 @@ function nameRoot(sc: Scene): Scene {
   if (d.name === ROOT_PLACEHOLDER) d.name = hex4();
   return sc;
 }
+/** refreshOpenDoc 的回执（闸门据此决定要不要走「有没传的改动」那条路）。 */
+export type RefreshStatus = "skipped" | "dirty" | "in-sync" | "fast-forwarded" | "escaped" | "other";
 export class Session {
   home: DocHome = { kind: "transient" };
   saving = false;
@@ -115,11 +122,16 @@ export class Session {
   markAttention(cloudState: string | null): void { this.attention = { cloudState }; this.d.onHomeChanged(); }
   /** lazyblank（WeebPaint P1.5）：图库家 + 日期名只在内存，文件还没建；首笔有内容 → adoptLazy 翻 false。空白期永不落盘、回执条不写。 */
   lazy = false;
+  /** 拉取半路点了「先离线用」留下的分叉（工单 C）：画布是旧版、本机那份正在换成云端的。复用 lazy——没改就不产生文件，第一笔才存成新名字。值 = 分叉时的修订号；null = 不是分叉。 */
+  private forkBaseRev: number | null = null;
   /** 首存必须 mode:"new"（撞名不静默覆盖）直到第一次真落盘成功；失败后 30 s 自动保存重试仍带 new。 */
   private createPending = false;
   /** lazyblank 安家中（消歧名字）；save / leaveGate 先等它落定，别把字节写到还没定的名字上。 */
   private adopting: Promise<void> | null = null;
-  private refreshInFlight = false;
+  /** 在途的快进（回前台 / 登录落地 / 闸门都走它）。闸门来的时候如果已经有一趟在飞：加入它、等它（不然闸门就没等到云端的回答）。 */
+  private refreshRun: Promise<RefreshStatus> | null = null;
+  /** 这一趟快进如果是闸门要的 / 闸门加入了：超时 / 逃生之后迟到的结果不许换字节（localDirty 问它）。 */
+  private refreshGuard: { abandoned: () => boolean; onLongWait: () => void } | null = null;
   private savedRevision: number;
   private lastSeenRevision: number;
   /** 参考窗牌组的修订号（加删卡；视图态不算）：存过的 / 看到过的。dirty = 几何改了 ∨ 牌组改了。 */
@@ -217,7 +229,8 @@ export class Session {
   noteChange(): void {
     const rev = this.d.editor.revision, rr = this.refRev();
     if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
-    if (this.lazy && this.home.kind === "gallery" && this.hasContent()) {
+    if (this.lazy && this.home.kind === "gallery" && this.hasContent() && (this.forkBaseRev === null || rev !== this.forkBaseRev)) {
+      this.forkBaseRev = null;
       this.lazy = false;   // 同步翻旗：同一 tick 内第二次 changed 不会重复安家
       this.adopting = this.adoptLazy().catch((e) => reportError(e)).finally(() => { this.adopting = null; this.d.onHomeChanged(); });
     }
@@ -333,6 +346,11 @@ export class Session {
   async resolveActive(): Promise<"pushed" | "took-cloud" | "cancelled" | "other"> {
     if (this.home.kind !== "gallery" || this.lazy || this.saving) return "other";
     const path = this.home.path;
+    const cover = this.armReplaceCover(path);
+    try { return await this.resolveActiveInner(path); }
+    finally { cover.close(); }
+  }
+  private async resolveActiveInner(path: string): Promise<"pushed" | "took-cloud" | "cancelled" | "other"> {
     const r = await docFile(path).resolve();
     const why = "reason" in r && r.reason ? String(r.reason) : "";
     note("doc", `resolveActive ${bareName(path)}: ${r.status}${why ? " " + why : ""}`);
@@ -348,9 +366,72 @@ export class Session {
     this.d.setStatus(`没处理成：${r.status}${why ? "（" + why + "）" : ""}`, true);
     return "other";
   }
+  // ---------- 同步闸门：库换本机字节的那几秒（工单 C，2026-11-03 Claude Opus 5.5）----------
+  /** 冲突面选了「云端覆盖本地」→ 库马上要换字节：上罩 + 锁输入，直到整份重载完（调用方 finally close）。别的路径（图库卡片上处理别的模型）不挂，画布没在被换。 */
+  private armReplaceCover(path: string): { close(): void } {
+    let h: GateHandle<"escape"> | null = null;
+    conflictGate.onTakeCloud = () => { h = this.openReplaceCover(path, null); };
+    return { close: () => { conflictGate.onTakeCloud = null; h?.close(); } };
+  }
+  private openReplaceCover(path: string, onEscape: (() => void) | null): GateHandle<"escape"> {
+    const h = openSyncGate<"escape">({ title: GATE_COPY.pullingTitle, message: bareName(path), showSpinner: true, actions: [{ label: GATE_COPY.escape, value: "escape" }] });
+    void h.result.then((v) => {
+      if (v !== "escape") return;
+      note("doc", `pull escaped ${bareName(path)}`);
+      onEscape?.();
+      this.forkCanvas(path);
+      this.d.goOffline?.();
+    });
+    return h;
+  }
+  /** 拉取半路逃走：库在后台接着把本机那份换成云端的（库不能中途停，谱系归它）；画布还是旧版，**绝不能再对着原名字存**（If-Match 用的是新版本号，会把别的设备的改动盖掉）。
+   *  所以画布改挂一个分叉名：没改过 = 不产生文件；第一笔才存成「X（分叉 时间）」（WeebPaint _forkAfterEscape 同义，多一步「没改就不留垃圾」）。
+   *  加密件不分叉：分叉会写出明文（加密要在线做）→ 放下画布（拉取只发生在干净文档 / 已留底的冲突上，放下不丢东西）。 */
+  private forkCanvas(path: string): void {
+    if (this.home.kind !== "gallery" || this.home.path !== path) return;
+    const name = bareName(path);
+    if (this.encrypted) {
+      this.beginLazyBlank();
+      this.d.setStatus(`「${name}」是加密的，分叉会留下明文，所以先放下了：它还在后台更新，好了到图库里打开`, true);
+      return;
+    }
+    const d = new Date(), p2 = (n: number): string => String(n).padStart(2, "0");
+    const stamp = `${d.getFullYear()}${p2(d.getMonth() + 1)}${p2(d.getDate())}-${p2(d.getHours())}${p2(d.getMinutes())}${p2(d.getSeconds())}`;
+    const stem = `${name}（分叉 ${stamp}）`;
+    this.forkBaseRev = this.dirty() ? -1 : this.d.editor.revision;   // 本来就有没存的改动 = 下一次 noteChange 就安家
+    this.lazy = true; this.createPending = false; this.pushPending = false; this.attention = null;
+    this.setHome({ kind: "gallery", path: fullName(dirOf(path), stem) });
+    this.d.setStatus(`「${name}」还在后台更新。眼前这份是更新之前的：不动它就什么都不留，改了存成「${stem}」，不碰原来的`);
+    this.noteChange();
+  }
+  /** 闸门问云端这一步（设计稿 §3「并行：问云端一次」）：干净 → 快进；有没传的改动 → 库的 open 路（回执丢失自愈，真分叉才弹面）。 */
+  async checkCloudOnce(g: { abandoned: () => boolean; onLongWait: () => void }): Promise<void> {
+    if (this.home.kind !== "gallery" || this.lazy) return;
+    const path = this.home.path;
+    if (this.encrypted && !this.d.crypto.getPassword(path)) return;   // 锁着的加密件：不解不比，保存时再裁
+    const st = await this.refreshOpenDoc(g);
+    note("doc", `gate check ${bareName(path)}: ${st}`);
+    if (st !== "dirty" || g.abandoned() || this.home.kind !== "gallery" || this.home.path !== path) return;
+    if (this.dirty()) await this.save({ implicit: true, localOnly: true });   // 没落本机的先落：库比的是本机那份
+    if (g.abandoned()) return;
+    conflictGate.lastOpenChoice = null;
+    const cover = this.armReplaceCover(path);
+    try {
+      const blob = await docFile(path).open();
+      if (conflictGate.lastOpenChoice === "takeCloud" && blob && this.home.kind === "gallery" && this.home.path === path) {
+        this.adopt(new Uint8Array(await blob.arrayBuffer()));
+        this.d.setStatus(`已改用云端版本「${bareName(path)}」（这台的那版在备份箱）`);
+        this.d.onHomeChanged();
+      }
+    } finally { cover.close(); }
+  }
+  /** 从「离线继续」回来、库补传之后（工单 C）：全传上去了 = 上次保存「云腿没成」这个旗作废。 */
+  noteCaughtUp(allPushed: boolean): void { if (allPushed) { this.pushPending = false; this.d.onHomeChanged(); } }
+
   private adopt(bytes: Uint8Array): void {
     const doc = readCatsup(bytes);
     const sc = nameRoot(sceneFromDocument(doc));
+    this.forkBaseRev = null;
     this.pushPending = false; this.attention = null;
     this.lazy = false; this.createPending = false;
     this.loaded = doc;
@@ -405,6 +486,7 @@ export class Session {
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
   }
   beginLazyBlank(): void {
+    this.forkBaseRev = null;
     this.loaded = null;
     this.pushPending = false; this.createPending = false;
     this.lazy = false;   // loadKernel 会同步 changed → noteChange；此刻别当首笔
@@ -529,30 +611,43 @@ export class Session {
   /** 登录落地 / 回线 / 回前台的**显式快进**（WeebPaint refreshOpenDoc，P1 2026-08-25）：图库家 ∧ 干净 ∧ 云可达 → pullIfClean；
    *  云端更新且本地干净 → 库拉字节（期间 busy 遮罩：别让用户在换字节的半路落笔）→ 同名重开。脏 / push-pending / lazyblank 一律不快进
    *  （分歧留给保存的 412 冲突面）。库侧 localDirty 二次核对 fetchMeta 期间有没有落笔。 */
-  async refreshOpenDoc(): Promise<void> {
-    if (this.home.kind !== "gallery" || this.lazy || this.refreshInFlight || this.saving || this.adopting) return;
-    if (this.dirty() || this.pushPending || !auth.isSignedIn() || !this.d.online()) return;
-    const path = this.home.path;
-    this.refreshInFlight = true;
-    let gate = false;
+  refreshOpenDoc(g?: { abandoned: () => boolean; onLongWait: () => void }): Promise<RefreshStatus> {
+    if (this.refreshRun) { if (g) this.refreshGuard = g; return g ? this.refreshRun : Promise.resolve("skipped"); }
+    if (this.home.kind !== "gallery" || this.lazy || this.saving || this.adopting) return Promise.resolve("skipped");
+    if (!auth.isSignedIn() || !this.d.online()) return Promise.resolve("skipped");
+    if (this.dirty() || this.pushPending) return Promise.resolve("dirty");
+    this.refreshGuard = g ?? null;
+    const run = this.refreshInner(this.home.path).finally(() => { if (this.refreshRun === run) this.refreshRun = null; });
+    this.refreshRun = run;
+    return run;
+  }
+  private async refreshInner(path: string): Promise<RefreshStatus> {
+    // 同步闸门（工单 C）：换字节那几秒罩住 + 锁输入（busy 遮罩挡不住键盘，也没有出口）。「先离线用」= 库的 probe 赛跑 → escaped；闸门超时 / 逃生之后迟到的结果 = localDirty 说脏，库就不换。
+    const cover: { h: GateHandle<"escape"> | null } = { h: null };
+    let skip: () => void = () => {};
+    const probe = new Promise<void>((res) => { skip = res; });
     try {
       const r = await docFile(path).pullIfClean({
-        localDirty: () => this.dirty(),
-        onReplaceStart: () => { gate = true; showBusy("正在从云端更新…", bareName(path)); },
+        localDirty: () => this.dirty() || !!this.refreshGuard?.abandoned(),
+        probe,
+        onReplaceStart: () => { this.refreshGuard?.onLongWait(); cover.h = this.openReplaceCover(path, () => skip()); },
         // store 0.18.1：登录落地 / 回线 / 回前台正是「怀疑自己过期」的时刻——不采信 30 s 内图库刚列过的旧清单（0.17.0 fresh-hints），一定问一趟云端，
         //   别的设备这 30 s 里刚存的也能快进（家族根数据安全模型 §3 A4；库发版说明写明的消费方义务）。
         trustHints: false,
       });
-      if (r.status !== "fast-forwarded") { if (r.status && r.status !== "in-sync") note("doc", `refresh ${bareName(path)}: ${r.status}${r.reason ? " " + r.reason : ""}`); return; }
-      if (this.home.kind !== "gallery" || this.home.path !== path || this.dirty()) return;   // 换了家 / 期间落笔（遮罩前的窗口）：本地字节已新，画布留用户的
+      if (r.status === "escaped") return "escaped";   // 分叉在罩子的按钮里已经做了
+      if (r.status === "dirty-skip") return "dirty";
+      if (r.status !== "fast-forwarded") { if (r.status && r.status !== "in-sync") note("doc", `refresh ${bareName(path)}: ${r.status}${r.reason ? " " + r.reason : ""}`); return r.status === "in-sync" ? "in-sync" : "other"; }
+      if (this.home.kind !== "gallery" || this.home.path !== path || this.dirty()) return "other";   // 换了家 / 期间落笔（遮罩前的窗口）：本地字节已新，画布留用户的
       const blob = await docFile(path).open();
-      if (!blob) { this.d.setStatus(`「${bareName(path)}」云端已更新，但重开失败`, true); return; }
+      if (!blob) { this.d.setStatus(`「${bareName(path)}」云端已更新，但重开失败`, true); return "other"; }
       this.adopt(new Uint8Array(await blob.arrayBuffer()));
       note("doc", `refreshed from cloud: ${path}`);
       this.d.setStatus(`已从云端更新「${bareName(path)}」`);
       this.d.onHomeChanged();
-    } catch (e) { reportError(new Error("[session] refreshOpenDoc failed: " + String(e)), "log"); }
-    finally { if (gate) hideBusy(); this.refreshInFlight = false; }
+      return "fast-forwarded";
+    } catch (e) { reportError(new Error("[session] refreshOpenDoc failed: " + String(e)), "log"); return "other"; }
+    finally { cover.h?.close(); }
   }
   /** 打开本地文件字节（拖入 / 文件输入 / FSA 句柄）。 */
   async openLocalBytes(bytes: Uint8Array, fileName: string, handle: FSHandle | null): Promise<boolean> {
@@ -597,9 +692,10 @@ export class Session {
     if (this.saving) return false;
     const home = this.home;
     if (home.kind === "transient") return opts.implicit ? false : this.settleToFile();
-    if (home.kind === "gallery" && this.lazy) { if (!opts.implicit) this.d.setStatus("空白场景，还没有需要保存的内容"); return false; }   // WeebPaint blankNothingToSave
+    if (home.kind === "gallery" && this.lazy) { if (!opts.implicit) this.d.setStatus(this.forkBaseRev !== null ? "这份还没改过，不用存（改了才会存成分叉）" : "空白场景，还没有需要保存的内容"); return false; }   // WeebPaint blankNothingToSave
     if (home.kind === "gallery" && this.encrypted && !this.d.crypto.getPassword(home.path)) { if (!opts.implicit) this.d.setStatus("这份是加密的、现在锁着：先解锁再保存（改动还在内存里）", true); return false; }   // 锁着绝不写（库也不会写明文；这里先说人话）
     this.saving = true; this.d.onHomeChanged();
+    let replaceCover: { close(): void } | null = null;
     try {
       if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的
       const revAtStart = this.d.editor.revision, refRevAtStart = this.refRev();
@@ -620,10 +716,12 @@ export class Session {
       }
       // 图库家。implicit（自动保存 / 离开）撞上云端 → 不弹模态面，横幅接手（store-ui conflictGate；user 2026-10-26「不弹模态，横幅 + 钮」）
       conflictGate.implicit = !!opts.implicit;
+      replaceCover = this.armReplaceCover(home.path);   // 工单 C：面上选了云端 → 换字节到重载完这段罩住（外层 finally 收）
       let r;
       try { r = await docFile(home.path, this.createPending ? "new" : "existing").save(bytes, { tryPush: !opts.localOnly && auth.isSignedIn() && online() }); }
       finally { conflictGate.implicit = false; }
       if (r.resolution === "takeCloud") {   // 用户选了云端版本：整份重载（否则下次保存又覆盖云端）
+        if (this.home.kind !== "gallery" || this.home.path !== home.path) return true;   // 半路点了「先离线用」：画布已经改挂分叉，这份本机字节归原名字
         this.d.setStatus("已改用云端版本");
         const blob = await docFile(home.path).open();
         if (blob) { this.adopt(new Uint8Array(await blob.arrayBuffer())); }
@@ -636,7 +734,7 @@ export class Session {
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;
     } catch (e) { reportError(e); return false; }
-    finally { this.saving = false; this.d.onHomeChanged(); }
+    finally { replaceCover?.close(); this.saving = false; this.d.onHomeChanged(); }
   }
   /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
   async settleToFile(): Promise<boolean> {

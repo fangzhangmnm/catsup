@@ -1,3 +1,4 @@
+import { type GateHandle, type GateView } from "./gate-stack.ts";
 export declare function showBusy(label: string, hint?: string): void;
 export declare function hideBusy(): void;
 export declare function isBusyActive(): boolean;
@@ -8,6 +9,14 @@ export declare function withBusy<T>(label: string, fn: () => Promise<T> | T, hin
  * user 2026-10-25 真机截图「没处理成：…sheet "choice" opened while busy overlay is active (would deadlock)…」。冲突必须摆出来问人（MASTER §A），这里只管让它摆得出来。
  */
 export declare function openGateChoiceSheet<T>(title: string, message: string, choices: Choice<T>[]): Promise<T | null>;
+/** 开一张闸门，拿句柄（update / close / result）。 */
+export declare function openSyncGate<T>(view: GateView<T>): GateHandle<T>;
+/** WeebPaint 同名同形：摆出来等按钮；收掉 = null。 */
+export declare function lockSyncGate<T>(view: GateView<T>): Promise<T | null>;
+/** 从外面收掉最上面那张（WeebPaint 同名同形）。 */
+export declare function settleSyncGate(value?: unknown): void;
+/** 闸门开着 = 输入锁着。 */
+export declare function isSyncGateUp(): boolean;
 export declare function initSheets(): void;
 /** noCancel = 只有一颗钮（看完就关的说明，比如视图「新手提醒…」）。 */
 export interface ConfirmOpts {

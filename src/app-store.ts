@@ -12,7 +12,7 @@
 //              图库口令验证器住 collection "app-state" 的 galleryPasswordVerifier（跟账号走；password-verifier.ts）。 reconcilePolicy "app-driven"：focus / online / 前台 60 s 轮询由 app 驱动。
 //   validateAdopt 只看字节头：GLB magic + extensionsUsed 含 CATSUP_document（挡 captive-portal HTML / 外来 glb）。
 //   autoCacheOpenedFile true（编辑器：开即留本地）。readOnlyFiles false。offlineUploadReplay "ask"。
-//   signedIn = auth（0.14.0：云腿闸 = isOnline ∧ signedIn）。activeIdentifier = 当前打开的文档（cloud-gone 收敛不碰它；0.16 起叫这个名）。
+//   signedIn = auth（0.14.0：云腿闸 = isOnline ∧ signedIn）。isOnline = cloudOnline（2026-11-03 工单 C：浏览器有网 ∧ 用户没选「离线继续」）。activeIdentifier = 当前打开的文档（cloud-gone 收敛不碰它；0.16 起叫这个名）。
 //   hidden = 写入方半成品（夹里有什么是 store 的事，不是图库的；0.16 起叫这个名）。
 //   openLineageFromDurable 库默认开（0.18.0）：open 时云端核对没跑成（未登录 / 离线）∧ 本地干净 ∧ 磁盘有上次同步的 etag → 记为本 tab 基准。
 //              这正是 10-21 道 2 核出的根因「先开上次模型、后登录 → 第一次保存没 If-Match → 409 → 假『保存撞上云端新版本』面」的修法（配 0.16.2 refresh 重捕基准）。别关。
@@ -31,6 +31,7 @@ import { appEncryption } from "./encryption.ts";
 import { getPassword } from "./crypto-state.ts";   // 口令接缝：store 非交互取（解锁循环在 app/unlock.ts，busy 外）
 import { isVerifierRecord, wireVerifierStore } from "./password-verifier.ts";
 import { isCatsupDocumentHead } from "./format/peek.ts";
+import { cloudOnline } from "./app/user-offline.ts";   // 工单 C：「离线继续」= 库在离线态一条网都不打（设计稿 §3）
 
 /** 文档种类表（store 0.16）：同一种文档两种拼法（库：「几行可以是同一个 kind」）——.catsup（2026-10-28 起新文档都写它，账本 UX39）+ 老的 .glb 工程（永远照开、不改名）。
  *  kind 标签沿用 "glb"（缩略图 kinds / 名册都认这个词，换标签没好处）。裸文件不是 zip。图库包据它认文档 / 切主干 / 改名只编辑主干（后缀保留）。 */
@@ -76,6 +77,7 @@ export function ensureStore(): Store {
     offlineUploadReplay: "ask",
     readOnlyFiles: false,
     signedIn: () => od.auth.isSignedIn(),
+    isOnline: cloudOnline,
     activeIdentifier: () => _activeDoc,
     hidden: (id) => HIDDEN_NAME_RE.test(id),
   });

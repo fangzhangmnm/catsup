@@ -367,6 +367,17 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .busy-overlay { position: fixed; inset: 0; z-index: var(--z-busy); background: rgba(0,0,0,.25); display: grid; place-items: center; cursor: default; }
 .busy-overlay[hidden] { display: none; }
+/* 同步闸门（工单 C，2026-11-03）：本机那份摆着、罩住、不接输入。层级 = 通知（400）之上、面板（500）之下——库的冲突面要能盖在罩子上。
+   开头 120 ms 不显形：核对很快（目标 < 300 ms）时看不出闪了一下；输入从第一帧就锁了，钮也已经在。 */
+.sync-gate { position: fixed; inset: 0; z-index: 450; display: grid; place-items: center; padding: 16px; background: rgba(0,0,0,.18); -webkit-backdrop-filter: blur(5px); backdrop-filter: blur(5px); animation: sync-gate-in .16s ease-out .12s both; }
+.sync-gate[hidden] { display: none; }
+.sync-gate-card { width: min(360px, 92vw); text-align: center; }
+.sync-gate-card .sheet-actions { justify-content: center; flex-wrap: wrap; }
+.sync-gate-note { opacity: .75; font-size: 12px; }
+.sync-gate-spinner { width: 22px; height: 22px; margin: 6px auto 10px; border-radius: 50%; border: 2px solid currentColor; border-right-color: transparent; opacity: .55; animation: sync-gate-spin .8s linear infinite; }
+.sync-gate-spinner[hidden] { display: none; }
+@keyframes sync-gate-in { from { opacity: 0; } to { opacity: 1; } }
+@keyframes sync-gate-spin { to { transform: rotate(360deg); } }
 .busy-card { width: min(320px, 90vw); text-align: center; }
 
 /* 材质面板（贴图纪元 2026-10-21）：油漆桶蘸什么 */

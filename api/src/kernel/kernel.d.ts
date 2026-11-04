@@ -162,7 +162,7 @@ export declare class Kernel {
      * 每个顶点须是二度共线、两边面链接相同、两端之间尚无边；不满足的跳过。合并逻辑 = 结算机 ⑩ 同一份（settle.dissolveAt）。返回真的合并了几个。
      */
     dissolveVertices(ids: readonly VertexId[]): number;
-    /** A33 断口：二度共线、两边面链接相同、两端之间没边、两边不在同一条曲线里的顶点（= 一根直线中间断了一截，溶解得掉）。 */
+    /** A33 断口：二度共线、两边面链接相同、两端之间没边、两边不在同一条弧 / 圆里的顶点（= 一根直线中间断了一截，溶解得掉；同一条折线曲线里的也算，10-30）。 */
     isBreakJunction(vid: VertexId): boolean;
     explodeCurves(ids: readonly CurveId[]): FaceEvent[];
     /** 只删膜不动拓扑（「闭环无面」态；之后 retrace 可复生）。 */

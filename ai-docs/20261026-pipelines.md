@@ -316,3 +316,10 @@ flowchart LR
 - **走哪条**：⑤ 预演的网格体亚种（`liveMesh` → 拷活动网格体 → 写位置数组）+ ⑥ 提交 `meshMove`（和挪 / 转 / 缩同一条，镜像编辑在提交口改写）。笔刷自己只管「这一笔碰了哪些点、现在在哪」（`MeshBrushTool.stroke.pos`）。
 - **每一下（dab）**：打光标下的面（拾取 O(屏幕索引那一格) + 那张面扇形三角求交）→ 半径里的点（**扫整个网格体 O(V)**，按现在的位置量）→ 按种类算新位置（鼓起 / 压平要点的法向 = 连着的面 Newell，O(邻面)；抹平要邻接表，第一下建一次 O(E)）。一次拖动事件按 ¼ 半径的间距可能刷好几下。
 - **还随整个模型涨的点**：每一下扫全部点找半径里的（O(V)）；每帧预演拷整个网格体（O(V)）。几千点无感；上万点再按屏幕 / 空间索引筛（先量再优）。
+
+## 追记 2026-11-03（v0.18.20，Claude Opus 5.5；家族工单 C）：开机 / 醒来的闸门 + 换字节的罩子
+
+- **开机（挂了库）**：`cloudGate.run("boot", { before: localBoot })` = 罩住（第一帧就有「先离线用」）→ 口令 + 本地恢复（零网络）→ `renewSilently`（首次 initAuth + 静默续签）→ `session.checkCloudOnce`（干净 → `pullIfClean`；有没传的改动 → `open()` = 回执自愈 + 真分叉才弹面）→ 放行 / 闸「网盘没连上」。没挂库 = 老路（本地恢复 → initAuth），零闸。碰多少东西：一次 token + 一次 meta，不随模型涨；拉取时随文件大小。实测（无头，假 Graph）：开机罩子约 90 ms、醒来约 5 ms；问云端硬超时 8 s。
+- **醒来**（`visibilitychange` + `pageshow`）：同一套；30 s 内刚核对过 = 不罩（`recheckMs`）；已选离线 = 不罩、静默试一次重连。回前台的 `refreshOpenDoc` 和闸门共用一趟（`refreshRun`，闸门加入并等它）。
+- **换字节的罩子**（同步闸门，`ui/sheets.ts openSyncGate`）：`pullIfClean` 的 `onReplaceStart` + 冲突面选「云端覆盖本地」（`conflictGate.onTakeCloud`）两个入口；罩到整份重载完。半路「先离线用」= 画布改挂分叉（`forkCanvas`，复用 lazy：没改不产生文件），加密件放下画布（分叉会写明文）。
+- **离线继续**：`user-offline.ts` 一个内存布尔接进库的 `isOnline`，库一条网都不打；回来 = `dirty.pushAll`（If-Match，撞上的留脏进「要处理的」）→ 老的 `afterCloudReachable`。设计稿 = 家族根 `ai-docs/20261103-cloud-gate-design.md`；报告 = `ai-docs/20261103-rulebook-adoption-report.md`。

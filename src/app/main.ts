@@ -53,7 +53,10 @@ import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, ensureStore, hasStore, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive, openSyncGate } from "./ui/sheets.ts";
+import type { GateHandle } from "./ui/gate-stack.ts";
+import { CloudGate, GATE_COPY, takeRenewFailureCode, type RenewResult } from "./cloud-gate.ts";   // 掉登录 / 没网闸门（工单 C；设计稿 ai-docs/20261103-cloud-gate-design.md）
+import { browserOnline, cloudOnline, isUserOffline, setUserOffline } from "./user-offline.ts";
 import { reportError as funnel } from "./error-funnel.ts";
 import { DEFAULT_SNAP, Editor, GRID_PLANES, TOOLS, UNIT_SYSTEMS, isUnitSystem, snapLabel, snapLevels, type Tool, type GridPlane } from "../editor/editor.ts";
 import type { CommandId } from "../editor/commands/command.ts";
@@ -1518,7 +1521,7 @@ const pwa = initPwaShell({
   // WeebPaint 同形：点「刷新」前先把脏文档落本地（图库家 implicit 存；transient/file 家 implicit = no-op，由 beforeunload 挽留兜）
   onBeforeReload: async () => { note("sw", "reload requested → implicit save"); await _session?.save({ implicit: true, localOnly: true }); },
   // 回前台：打开中文档显式快进 + 图库开着就刷列表（WeebPaint onForeground 同形；判据 = 登录态）
-  onForeground: () => { void _session?.refreshOpenDoc(); if (galleryHost.isOpen()) galleryHost.refresh(); },
+  onForeground: () => { retrySilentQuietly("foreground"); if (!cloudGate.isRunning()) void _session?.refreshOpenDoc(); if (galleryHost.isOpen()) galleryHost.refresh(); },
 });
 buildEl.textContent = `${APP_VERSION.replace(/-\d{4}-\d{2}-\d{2}$/, "")}${pwa.isDevRoute ? " dev" : ""}`;   // 页面左下角一行：v0.14.x（+ dev），完整的（带日期）在 title
 buildEl.title = `${APP_VERSION}${pwa.isDevRoute ? " · dev" : ""}`;
@@ -1542,6 +1545,7 @@ var modeField: SelectField | undefined = mountSelectField($("modeSelect"), { ite
 const btnSaveIcon = document.getElementById("btnSaveIcon") as unknown as SVGUseElement;
 const SAVE_ICON: Record<ReturnType<Session["saveState"]>, string> = { none: "floppy-disk", dirty: "floppy-disk", "local-only": "floppy-disk", saving: "cloud-upload", "cloud-off": "floppy-disk", unpushed: "cloud-pending", synced: "cloud-synced" };
 function updateSaveStatus(): void {
+  paintOfflineBar();   // 选了「离线继续」时常驻条的份数跟着变（工单 C）
   { lockBadge.hidden = !editor.locked; document.body.classList.toggle("doc-locked", editor.locked); }   // 护栏 ①（演示锁）：锁着 → 左上角「锁着」+ 工具区灰掉
   syncAttentionBanner();   // 2026-10-26：和云端没对上 → 横幅在 / 对上了 → 横幅走
   const st = session.saveState();
@@ -1556,9 +1560,9 @@ function updateSaveStatus(): void {
 /** smart save = Ctrl+S = 点钮：非图库家 → 保存/安家；图库家已登录 → 存+推（不脏也推，让时间戳走字）；已配置未登录 → 本地存 + 「现在登录同步？」。 */
 let cloudPromptDeclined = false;   // 同一 session 点过「暂不」→ 之后只状态行提示，不再弹
 function smartSave(): void {
-  if (session.home.kind !== "gallery" || !auth.isAuthConfigured() || (auth.isSignedIn() && navigator.onLine !== false)) { void session.save(); return; }
+  if (session.home.kind !== "gallery" || !auth.isAuthConfigured() || (auth.isSignedIn() && cloudOnline())) { void session.save(); return; }
   void session.save();   // 已配置未登录：本地保存照做（不 await——sheet 与 IDB 事务并行）
-  if (cloudPromptDeclined || navigator.onLine === false) return;
+  if (cloudPromptDeclined || !cloudOnline()) return;
   // iOS 红线：loginRedirect 必须在 click listener 内同步发起 → 走 onPick（sheets.ts 在 resolve 之前同步调它）
   void openChoiceSheet<"signin" | "later">("现在登录 OneDrive 同步？", "已保存到本机。登录后这台和其他设备的图库都能看到它。", [
     { label: "登录", value: "signin", primary: true, onPick: () => cloudSignIn() },
@@ -1595,7 +1599,8 @@ const session = new Session({
   applyView: (style, screen) => { editor.renderer3.setPreset(isPresetId(style) ? style : "white"); syncNight(); editor.renderer3.setScreen(isScreenId(screen) ? screen : null); editor.draw(); },   // 风格 / 屏幕跟文件走（desk 1.3，T86）：认不出的 id = 默认
   onHomeChanged: updateSaveStatus,
   setStatus: (text, error) => { note("doc", (error ? "✗ " : "") + text); notify({ text, level: error ? "error" : "info" }); },
-  online: () => navigator.onLine !== false,
+  online: cloudOnline,
+  goOffline: () => cloudGate.escape(),
   crypto: { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, setPassword, getPassword, unlockImportedContainer, isEncryptedBlob: (bytes) => appEncryption.isEncryptedBlob(bytes) },
 });
 // 口令面板注入（crypto-state 零 DOM；守「无系统对话框」红线）。探针可换成脚本答题（__catsup.crypto.answer）。
@@ -1706,7 +1711,7 @@ function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
   afterCloudReachableInFlight = (async () => {
     try {
       await session.refreshOpenDoc();
-      if (!hasStore() || !auth.isSignedIn() || navigator.onLine === false) return;
+      if (!hasStore() || !auth.isSignedIn() || !cloudOnline()) return;
       await requireStore().files.drainOfflineQueue().catch((e) => funnel(e, "log"));
       await offerPushLocalOnly(reason);
     } finally { afterCloudReachableInFlight = null; }
@@ -1719,7 +1724,7 @@ function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
  *  不自动盖住正在画的东西（家族 zen：别把人踢出去）；图库已经开着就直接切过去。每次打开 app 最多提一次。
  *  不再自己批量推：没同步好的每一份都由人在面里选用哪边。force = dev 探针（test/probes/probe-push-ask.mjs）跳过「已登录」前置。 */
 async function offerPushLocalOnly(reason: string, force = false): Promise<void> {
-  if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || navigator.onLine === false)) return;
+  if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || !cloudOnline())) return;
   const files = requireStore().files;
   const n = await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; });
   if (n <= 0) return;
@@ -1749,13 +1754,104 @@ function syncAttentionBanner(): void {
     actions: [{ label: "处理…", primary: true, onClick: () => { void session.resolveActive().then(() => syncAttentionBanner()).catch((e) => funnel(e, "warning")); } }] });
 }
 conflictGate.onDeferred = ({ cloudState }) => { session.markAttention(cloudState); };
+// ---- 掉登录 / 没网闸门（工单 C；设计稿 ai-docs/20261103-cloud-gate-design.md；状态机在 cloud-gate.ts，这里只接线）----
+//   排查结论（报告「闸门」节）：两件事。(a) 真 bug——CatsUp 全仓从没调过 retrySilentSignIn：开机那一次静默探测没成（网还没醒 / iframe 超时）或中途 expired，之后回线 / 回前台都不补，
+//   只能手动点登录 → 下面 retrySilentQuietly 修。(b) 微软给 SPA 的刷新令牌固定 24 小时不滑动（WeebPaint 09-09 案卷实证）：过一天必须交互一次，客户端无解 → 这才是闸门的正解。
+let authInited = false;        // initAuth 问过了没有
+let accountExpected = false;   // 这台设备上有账号可续（initAuth 说的 / 登录落地 / 退出登录清）。没有 = 不是「掉了」，不闸（§9：闸门不是登录墙）。只在内存。
+function noteInit(st: { signedIn: boolean; probing?: boolean; account?: unknown }): void { authInited = true; accountExpected = st.signedIn || !!st.probing; note("auth", `init signedIn=${st.signedIn} probing=${!!st.probing} account=${acct(st.account)}`); }
+async function renewSilently(): Promise<RenewResult> {
+  if (auth.isSignedIn()) return { kind: "ok" };
+  if (!authInited) { const st = await auth.initAuth(); noteInit(st); if (st.signedIn) return { kind: "ok" }; }
+  if (!accountExpected) return { kind: "no-account" };
+  takeRenewFailureCode();   // 清掉上一次的
+  const ok = await auth.retrySilentSignIn();
+  const code = ok ? null : takeRenewFailureCode();
+  note("auth", `silent renew → ${ok ? "ok" : "failed"}${code ? " code=" + code : ""}`);   // 设计稿 §7 ⑧：每次续签的结果和原因码进黑匣子
+  return ok ? { kind: "ok" } : { kind: "failed", code };
+}
+/** 回线 / 回前台：没登录但这台设备有账号 → 静默补一次（bug (a) 的修法；WeebPaint / WXHW / JRB / MoonSinger 早就这么做）。最多一分钟一次：刷新令牌真过期时每次都是一个隐藏 iframe。 */
+let lastQuietRetryAt = 0;
+function retrySilentQuietly(why: string): void {
+  if (cloudGate.isRunning() || isUserOffline() || auth.isSignedIn() || !authInited || !accountExpected || !browserOnline()) return;
+  const t = Date.now(); if (t - lastQuietRetryAt < 60_000) return; lastQuietRetryAt = t;
+  note("auth", `quiet silent retry (${why})`);
+  void renewSilently().catch((e) => funnel(e, "log"));
+}
+let gateCover: GateHandle<string> | null = null;
+function showGateCover(view: Parameters<typeof openSyncGate<string>>[0], onPick: (v: string) => void): void {
+  gateCover?.close();
+  const h = openSyncGate<string>(view);
+  gateCover = h;
+  void h.result.then((v) => { if (gateCover === h) gateCover = null; if (v != null) onPick(v); });
+}
+const OFFLINE_BAR_ID = "offline-bar";
+let barPainting = false;
+function paintOfflineBar(): void {
+  if (!isUserOffline() || barPainting) return;
+  barPainting = true;
+  void (hasStore() ? requireStore().files.dirty.count().catch(() => 0) : Promise.resolve(0)).then((n) => {
+    barPainting = false;
+    if (!isUserOffline()) return;
+    notify({ id: OFFLINE_BAR_ID, level: "info", timeoutMs: null, text: GATE_COPY.bar(n), actions: hasStore() ? [{ label: GATE_COPY.barOpenList, onClick: () => { void galleryHost.openAttention(); } }] : [] });
+  });
+}
+const gateTune = { recheckMs: 30_000 };   // 探针调（__catsup.gate）；不是偏好
+const cloudGate = new CloudGate({
+  attached: () => hasStore() && auth.isAuthConfigured(),
+  browserOnline,
+  renew: renewSilently,
+  check: (g) => session.checkCloudOnce(g),
+  signInInteractive: () => cloudSignIn(),
+  ui: {
+    showChecking: (onEscape) => showGateCover({ title: GATE_COPY.checkingTitle, showSpinner: true, actions: [{ label: GATE_COPY.escape, value: "escape" }] }, () => onEscape()),
+    showBlocked: (reason, h) => showGateCover({ title: GATE_COPY.blockedTitle, message: GATE_COPY.reason[reason], actions: [{ label: GATE_COPY.signIn, value: "signin", primary: true }, { label: GATE_COPY.offline, value: "offline" }] }, (v) => {
+      if (v === "offline") { h.offline(); return; }
+      // 重新登录：闸门留着（离页前不放输入）；跳走失败 / 没网 = 回到这张
+      h.signIn();
+      cloudGate.reshowBlocked();
+    }),
+    hide: () => { gateCover?.close(); gateCover = null; },
+  },
+  bar: {
+    show: paintOfflineBar,
+    reconnecting: () => notify({ id: OFFLINE_BAR_ID, level: "info", timeoutMs: null, text: GATE_COPY.barReconnecting }),
+    hide: () => closeNotice(OFFLINE_BAR_ID),
+  },
+  setUserOffline,
+  userOffline: isUserOffline,
+  catchUp: async () => {   // 从「离线继续」回来：先把没落本机的落了，库逐个 If-Match 补传（撞上的留脏进「要处理的」，这里不替人选）
+    await session.flushLocal().catch((e) => funnel(e, "log"));
+    if (!hasStore()) return;
+    const r = await requireStore().files.dirty.pushAll().catch((e) => { funnel(e, "log"); return null; });
+    note("sync", `catch-up pushAll pushed=${r?.pushed ?? "-"} failed=${r?.failed.length ?? "-"}`);
+    session.noteCaughtUp((await requireStore().files.dirty.count().catch(() => 1)) === 0);
+    updateSaveStatus();
+    await afterCloudReachable("online");
+  },
+  afterPass: () => { void afterCloudReachable("signin"); },
+  note: (m) => note("auth", m),
+  get recheckMs() { return gateTune.recheckMs; },
+});
+conflictGate.escapeProbe = () => cloudGate.escapeProbe();
+conflictGate.onFace = () => cloudGate.pauseHardTimer();
+/** 醒来（设计稿 §2：visibilitychange + pageshow，不用时钟）。VR 里 DOM 罩子看不见、点不到：不闸，摘头显回到页面时再走。 */
+function wakeGate(why: string): void {
+  if (signInNav || vr.isPresenting()) return;
+  void cloudGate.run("wake").then((o) => { if (o !== "no-gate" && o !== "recent") note("auth", `wake (${why}) → ${o}`); }).catch((e) => funnel(e, "warning"));
+}
+window.addEventListener("pageshow", (e) => { if (e.persisted) wakeGate("pageshow"); });
 auth.onAuthChanged((st) => {
   note("auth", `changed signedIn=${st.signedIn} reason=${st.reason ?? "-"} probing=${!!st.probing} account=${acct(st.account)}`);
+  if (st.signedIn) { authInited = true; accountExpected = true; } else if (st.reason === "signOut") accountExpected = false;
   updateCloudChip(); updateSaveStatus();
-  if (st.signedIn) void afterCloudReachable("signin");   // 登录落地（boot 静默 / redirect 回程 / 续签）→ 快进 → 补队列 → 问一次
+  if (st.signedIn) {
+    cloudGate.onCloudMaybeBack();
+    if (!cloudGate.isRunning() && !isUserOffline()) void afterCloudReachable("signin");   // 登录落地（boot 静默 / redirect 回程 / 续签）→ 快进 → 补队列 → 问一次（闸门开着 = 放行时再跑）
+  }
   if (galleryHost.isOpen()) galleryHost.refresh();
 });
-window.addEventListener("online", () => { updateSaveStatus(); void afterCloudReachable("online"); }); window.addEventListener("offline", updateSaveStatus);
+window.addEventListener("online", () => { updateSaveStatus(); cloudGate.onCloudMaybeBack(); retrySilentQuietly("online"); if (!cloudGate.isRunning() && !isUserOffline()) void afterCloudReachable("online"); }); window.addEventListener("offline", updateSaveStatus);
 // 打开本地工程文件（.catsup / 老 .glb）：FSA 有就用（文件家可原地写回），没有走 <input type=file>（只读进来，保存 = 下载）
 const glbInput = $<HTMLInputElement>("glbFile");
 function openLocal(): void { if (supportsOpenPicker()) void session.openLocalPicker(); else glbInput.click(); }
@@ -1774,7 +1870,7 @@ stage.addEventListener("drop", async (e) => {
 //   #60-C：pagehide persisted=true（要进 bfcache）**不写**——冻结页里起的 IDB 写在 WebKit 永远 commit 不了、只会持锁（案卷 20260909-bfcache-idb-lock）。
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") session.flushForHide();
-  else if (galleryHost.isOpen()) galleryHost.refresh();   // 回前台的文档快进走 pwa-shell onForeground（无条件挂）
+  else { if (galleryHost.isOpen()) galleryHost.refresh(); wakeGate("visible"); }   // 回前台的文档快进走 pwa-shell onForeground（无条件挂）；挂了库 = 闸门走一遍（工单 C）
 });
 window.addEventListener("blur", () => session.flushForHide());
 window.addEventListener("pagehide", (e) => {
@@ -1821,21 +1917,30 @@ void (async () => {
   //   或 URL 带 OAuth 回程碎片时**先接线再 initAuth**，一条都不许漏。纯无地首开仍不碰 createStore。
   const oauthReturn = /(^|[#&?])(code|error|state)=/.test(location.hash);
   if (deviceKvGet("gallery-attached") === "1" || oauthReturn) { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
+  // 本地这一段（口令 → 恢复上次的模型）：挂了库就跑在闸门的罩子底下（工单 C：摆出本机那份 + 罩住）；顺序契约照旧 = 本地恢复在 initAuth 之前。
+  let outcome: RestoreOutcome | null = null;
+  const localBoot = async (): Promise<void> => {
   // 记着的口令（≤ 30 天）：验证器接上后、开上次模型**之前**试——对了就静默解锁（上次开着的是加密件也秒开）；对不上 = 忘掉、说一句（ADR-0001）
   if (hasStore()) { try { await verifierReady(); const rr = await restoreRemembered(); note("boot", `remembered password: ${rr}`); if (rr === "stale") notify({ text: "这台设备记着的口令对不上（别的设备改过？），已经忘掉；要用时再输一次", level: "warning" }); } catch (e) { funnel(e, "warning"); } }
   // ① 先从本地恢复上次的模型，**再** initAuth（v0.5.7；WeebPaint 顺序）：此刻 store 视为未登录（0.14 起在线 = 有网 ∧ 已登录）→ open()
   //   直接读本地副本、零网络，模型秒开；登录落地后 onAuthChanged → refreshOpenDoc 后台干净快进。反过来先等 MSAL（脚本 + 静默续签 iframe）
   //   再开 = 开机多等一次 Graph 往返才见模型（v0.5.6 的样子）。app-store.ts 头注释钉了这条顺序契约。
   const t0 = performance.now();
-  let outcome: RestoreOutcome | null = null;
   if (hasStore()) { try { outcome = await bootRestore(); } catch (e) { funnel(new Error("[boot] restore failed: " + String(e)), "warning"); } }
   else session.nameBlankRoot();   // 无地开机（没挂过图库）：只给空白场景的根起四位码（user 10-30），别的零变更
   note("boot", `restore store=${hasStore()} outcome=${outcome ?? "landless"} home=${session.home.kind}${session.home.kind === "gallery" ? ":" + session.home.path + (session.lazy ? " (lazy)" : "") : ""} ${(performance.now() - t0).toFixed(0)}ms`);
   updateSaveStatus();
-  if (auth.isAuthConfigured()) {
-    try { const st = await auth.initAuth(); note("auth", `init signedIn=${st.signedIn} probing=${!!st.probing} account=${acct(st.account)}`); }
-    catch (e) { note("auth", "init failed (MSAL not loaded — sign-in click will retry)"); funnel(e, "log"); }
-  } else note("auth", "not configured (client id empty)");
+  };
+  if (hasStore() && auth.isAuthConfigured()) {
+    // 挂了库：闸门（开机 = 罩住 → 本地恢复 → 静默续签 + 问云端一次 → 放行 / 库的面 / 「网盘没连上」；initAuth 在 renew 里）
+    try { note("boot", `gate → ${await cloudGate.run("boot", { before: localBoot })}`); } catch (e) { funnel(e, "warning"); }
+  } else {
+    await localBoot();
+    if (auth.isAuthConfigured()) {
+      try { noteInit(await auth.initAuth()); }
+      catch (e) { note("auth", "init failed (MSAL not loaded — sign-in click will retry)"); funnel(e, "log"); }
+    } else note("auth", "not configured (client id empty)");
+  }
   updateCloudChip();
   if (auth.isSignedIn() && !hasStore()) {   // 登录了但这台设备还没挂过图库（清过 device-kv / 新装）：接店 + 走一遍三态（回执条多半空 → lazyblank）
     try { wireStore(); outcome = await bootRestore(); note("boot", `restore after auth outcome=${outcome}`); } catch (e) { funnel(e, "warning"); }
@@ -1848,6 +1953,7 @@ void (async () => {
 })();
 
 (window as unknown as { __catsup: unknown }).__catsup = { pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore,
+  gate: { cloudGate, tune: gateTune, isUserOffline },
   encryption: appEncryption,
   crypto: { setPassword, getPassword, lock: lockPasswords, isUnlocked, rememberedUntil, restoreRemembered, forgetRemembered, answer: (fn: ((o: PromptOpts) => Promise<string | null>) | null) => { probePasswordAnswer = fn; }, keeper: passwordKeeper }, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };
 

@@ -46,6 +46,8 @@ export interface SessionDeps {
     onHomeChanged: () => void;
     setStatus: (text: string, error?: boolean) => void;
     online: () => boolean;
+    /** 拉取罩子上点了「先离线用」（= 离线继续；工单 C）。 */
+    goOffline?: () => void;
     /** 口令（2026-10-29 周账 F-123；政策在 crypto-state / unlock.ts，这里只用）。**弹面板的都在 busy 外调。** */
     crypto: {
         ensureUnlocked: (path: string) => Promise<boolean>;
@@ -66,6 +68,8 @@ export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
 /** smart save 钮的状态集（WeebPaint save-status 同形）：none = 没东西可存 · dirty = 内存脏 · local-only = 已存本机/文件、云不可达 ·
  *  saving = 在飞 · cloud-off = 未配置云 · unpushed = 已落本机但云腿没成（终态，非在飞）· synced = 上次保存已同步。 */
 export type SaveState = "none" | "dirty" | "local-only" | "saving" | "cloud-off" | "unpushed" | "synced";
+/** refreshOpenDoc 的回执（闸门据此决定要不要走「有没传的改动」那条路）。 */
+export type RefreshStatus = "skipped" | "dirty" | "in-sync" | "fast-forwarded" | "escaped" | "other";
 export declare class Session {
     private d;
     home: DocHome;
@@ -84,11 +88,16 @@ export declare class Session {
     markAttention(cloudState: string | null): void;
     /** lazyblank（WeebPaint P1.5）：图库家 + 日期名只在内存，文件还没建；首笔有内容 → adoptLazy 翻 false。空白期永不落盘、回执条不写。 */
     lazy: boolean;
+    /** 拉取半路点了「先离线用」留下的分叉（工单 C）：画布是旧版、本机那份正在换成云端的。复用 lazy——没改就不产生文件，第一笔才存成新名字。值 = 分叉时的修订号；null = 不是分叉。 */
+    private forkBaseRev;
     /** 首存必须 mode:"new"（撞名不静默覆盖）直到第一次真落盘成功；失败后 30 s 自动保存重试仍带 new。 */
     private createPending;
     /** lazyblank 安家中（消歧名字）；save / leaveGate 先等它落定，别把字节写到还没定的名字上。 */
     private adopting;
-    private refreshInFlight;
+    /** 在途的快进（回前台 / 登录落地 / 闸门都走它）。闸门来的时候如果已经有一趟在飞：加入它、等它（不然闸门就没等到云端的回答）。 */
+    private refreshRun;
+    /** 这一趟快进如果是闸门要的 / 闸门加入了：超时 / 逃生之后迟到的结果不许换字节（localDirty 问它）。 */
+    private refreshGuard;
     private savedRevision;
     private lastSeenRevision;
     /** 参考窗牌组的修订号（加删卡；视图态不算）：存过的 / 看到过的。dirty = 几何改了 ∨ 牌组改了。 */
@@ -165,6 +174,21 @@ export declare class Session {
     /** 2026-10-26：编辑器横幅 / 保存钮上的「处理…」= 对正在编辑的这份主动叫库的面（store `file.resolve()` 三选一；app 不传答案）。
      *  took-cloud → 本地已换成云端那份 → 整份重载（否则下次保存又把旧画布盖回去）；pushed → 对上了；cancelled → 横幅留着。 */
     resolveActive(): Promise<"pushed" | "took-cloud" | "cancelled" | "other">;
+    private resolveActiveInner;
+    /** 冲突面选了「云端覆盖本地」→ 库马上要换字节：上罩 + 锁输入，直到整份重载完（调用方 finally close）。别的路径（图库卡片上处理别的模型）不挂，画布没在被换。 */
+    private armReplaceCover;
+    private openReplaceCover;
+    /** 拉取半路逃走：库在后台接着把本机那份换成云端的（库不能中途停，谱系归它）；画布还是旧版，**绝不能再对着原名字存**（If-Match 用的是新版本号，会把别的设备的改动盖掉）。
+     *  所以画布改挂一个分叉名：没改过 = 不产生文件；第一笔才存成「X（分叉 时间）」（WeebPaint _forkAfterEscape 同义，多一步「没改就不留垃圾」）。
+     *  加密件不分叉：分叉会写出明文（加密要在线做）→ 放下画布（拉取只发生在干净文档 / 已留底的冲突上，放下不丢东西）。 */
+    private forkCanvas;
+    /** 闸门问云端这一步（设计稿 §3「并行：问云端一次」）：干净 → 快进；有没传的改动 → 库的 open 路（回执丢失自愈，真分叉才弹面）。 */
+    checkCloudOnce(g: {
+        abandoned: () => boolean;
+        onLongWait: () => void;
+    }): Promise<void>;
+    /** 从「离线继续」回来、库补传之后（工单 C）：全传上去了 = 上次保存「云腿没成」这个旗作废。 */
+    noteCaughtUp(allPushed: boolean): void;
     private adopt;
     /** 家的唯一写点（= WeebPaint _setActive）：行李牌 / store activeIdentifier / **回执条**（@internal/gallery resume-slate）都从这收口。
      *  回执条语义（WeebPaint 同）：图库家（非 lazy）→ {doc}；文件家 → {gallery}（句柄跨刷新不可恢复，下次落图库）；transient / lazyblank 不碰
@@ -177,6 +201,8 @@ export declare class Session {
     private freeName;
     /** lazyblank 新场景（WeebPaint beginLazyBlank）：空内核 + 图库家日期名只在内存；不建文件、不写回执条；首笔有内容 → noteChange 安家。
      *  boot 的「可画新场景」落点（首次 / 恢复失败 / 崩溃断路）+ 挂库时的「新建」。 */
+    /** 无库开机的空白（Session 初始态 = 编辑器自带的那张空场景）：根还是程序占位就重装一张起好四位码的空场景，别的不动（user 10-30 根和别的组件一样显示四位码）。 */
+    nameBlankRoot(): void;
     beginLazyBlank(): void;
     /** lazyblank 首笔安家：消歧名字 → 身份落定（回执条从此指它）→ 首存 mode:"new"。名字落定与字节落盘分两步：
      *  `adopting` 只覆盖前者，后者是普通 save（失败留 dirty + createPending，30 s 自动保存重试）。 */
@@ -195,7 +221,11 @@ export declare class Session {
     /** 登录落地 / 回线 / 回前台的**显式快进**（WeebPaint refreshOpenDoc，P1 2026-08-25）：图库家 ∧ 干净 ∧ 云可达 → pullIfClean；
      *  云端更新且本地干净 → 库拉字节（期间 busy 遮罩：别让用户在换字节的半路落笔）→ 同名重开。脏 / push-pending / lazyblank 一律不快进
      *  （分歧留给保存的 412 冲突面）。库侧 localDirty 二次核对 fetchMeta 期间有没有落笔。 */
-    refreshOpenDoc(): Promise<void>;
+    refreshOpenDoc(g?: {
+        abandoned: () => boolean;
+        onLongWait: () => void;
+    }): Promise<RefreshStatus>;
+    private refreshInner;
     /** 打开本地文件字节（拖入 / 文件输入 / FSA 句柄）。 */
     openLocalBytes(bytes: Uint8Array, fileName: string, handle: FSHandle | null): Promise<boolean>;
     openLocalPicker(): Promise<boolean>;

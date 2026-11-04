@@ -601,7 +601,7 @@ export declare class Editor {
     axesBase(): Frame;
     /** 重置坐标架（工具条「重置坐标架」）：最外层 → 世界；组里 → 它所在那层的坐标架；组件里 → 跟组件原点。 */
     resetContextFrame(): void;
-    /** 现在在组件里（不在组里）——「设为组件原点」按钮出不出。 */
+    /** 不在组里（根也算：根 = 普通组件，user 10-30「根组件为什么没有设置原点到坐标架」「我说了root和其他的尽量一视同仁」）——「设为组件原点」按钮出不出。 */
     inComponentRoot(): boolean;
     /** 一个组件在整个场景里放了几份（改原点 = 这么多份一起换，提示行披露）。 */
     private copiesOf;

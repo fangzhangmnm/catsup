@@ -1,4 +1,5 @@
 import type { Pt3 } from "../kernel/kernel.ts";
+import { type Xform } from "../scene/xform.ts";
 import type { PointerFrame, Ray, ScreenPt, Viewport } from "./pointer-frame.ts";
 export type { Viewport } from "./pointer-frame.ts";
 export type Projection = "ortho" | "persp";
@@ -59,6 +60,9 @@ export declare class OrbitCamera implements PointerFrame {
     dirCos(x: number, y: number, anchor: Pt3, dirs: readonly Pt3[], vp: Viewport): (number | null)[];
     /** 屏幕 px → 世界拾取射线（PointerFrame.ray；正交：方向恒为 forward；透视：过眼点的发散射线）。 */
     ray(x: number, y: number, vp: Viewport): Ray;
+    /** 模型整个经刚体 M 换了坐标（根换原点）：视角跟着换，屏幕上的模型不动（user 10-30「模型在视口上的位置不动，视角平移，对齐组件的行为」）。
+     *  跟位置 + 绕竖轴的转；相机永远 Z 朝上，M 把 Z 歪了的那部分跟不了。 */
+    follow(M: Xform): void;
     /** 视图预置（SU 视图菜单同款；yaw 以 +X 为 0、逆时针；pitch 正=俯视）。 */
     setView(name: "iso" | "top" | "bottom" | "front" | "right" | "back" | "left"): void;
     /** 缩放到包住一组点（空集=回原点默认尺度）。 */

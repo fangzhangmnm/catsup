@@ -6,6 +6,7 @@ export declare class PbrMaterials {
     private readonly env;
     private readonly depthFace;
     private readonly depthOther;
+    private readonly depthSlope;
     private readonly light;
     private readonly mat;
     private readonly aoModel;
@@ -13,7 +14,7 @@ export declare class PbrMaterials {
     private readonly groundU;
     private readonly mats;
     readonly ground: any;
-    constructor(ao: AoUniforms, env: EnvSky, depthFace: number, depthOther: number);
+    constructor(ao: AoUniforms, env: EnvSky, depthFace: number, depthOther: number, depthSlope: number);
     private mapIds;
     private nextMapId;
     /** map = 贴图的 uniform 对象（后端的贴图缓存给，解码完换贴图时同一个对象里换值）；只有贴图网格、照模型上色时给。layers = 涂装车间的表面层（按顺序拼进着色器）。 */

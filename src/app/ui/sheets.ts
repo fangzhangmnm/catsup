@@ -2,6 +2,8 @@
 // 形状照抄 JRB src/sheets.ts（2026-09-19，源自 WXHW/WeebPaint）；纯 DOM，自持元素引用。created 2026-09-20 by Claude Fable 5.1
 // busy/sheet 互斥护栏（WeebPaint 2026-06-12 死锁修复）：busy 遮罩盖住输入框 → await 永不 resolve → 交互 sheet 在 busy 中响亮 throw。
 
+import { createGateStack, gateSwallowsEvent, type GateHandle, type GateView } from "./gate-stack.ts";
+
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
   if (!el) throw new Error(`sheets: missing #${id}`);
@@ -35,6 +37,46 @@ export async function openGateChoiceSheet<T>(title: string, message: string, cho
   if (wasBusy) hideBusy();
   try { return await openChoiceSheet(title, message, choices); }
   finally { if (wasBusy && _busyDepth > 0) $("busyOverlay").hidden = false; }
+}
+
+// ---------- 同步闸门：库替换本机字节 / 开机醒来核对网盘时罩住画面 + 锁输入（工单 C，2026-11-03 Claude Opus 5.5；形状照 WeebPaint src/sheets.ts lockSyncGate / settleSyncGate）----------
+//   不可点外面关（决策只能按钮选）；能叠（核对中 → 发现要拉 → 拉取罩子顶上来；收掉上面那张，下面那张还在）。纯逻辑在 gate-stack.ts。
+//   输入锁 = window 捕获阶段吞掉按键 / 按下（遮罩挡得住指针，挡不住 window 上的键盘分发——WeebPaint QA 2026-08-21 同一课）；只放行闸门自己和叠在上面的面（#sheet，库的冲突面）。
+//   pointerup / pointermove 不吞：闸门升起的时候手势可能正按着，吞了抬起会把手势卡死（升起之后的新按下才吞）。
+const _gate = createGateStack((top) => {
+  const root = $("syncGate");
+  if (!top) { root.hidden = true; return; }
+  $("syncGateTitle").textContent = top.title;
+  const msg = $("syncGateMessage"); msg.textContent = top.message ?? ""; msg.hidden = !top.message;
+  const note = $("syncGateNote"); note.textContent = top.note ?? ""; note.hidden = !top.note;
+  $("syncGateSpinner").hidden = !top.showSpinner;
+  const actions = $("syncGateActions");
+  actions.textContent = "";
+  top.actions.forEach((a, i) => {
+    const b = document.createElement("button");
+    b.type = "button"; b.className = "sheet-choice"; b.textContent = a.label;
+    if (a.primary) b.classList.add("primary");
+    b.addEventListener("click", () => _gate.pick(i));
+    actions.appendChild(b);
+  });
+  if (root.hidden && document.activeElement instanceof HTMLElement) document.activeElement.blur();   // 输入框别留着焦点在罩子底下收字
+  root.hidden = false;
+});
+/** 开一张闸门，拿句柄（update / close / result）。 */
+export function openSyncGate<T>(view: GateView<T>): GateHandle<T> { return _gate.open(view); }
+/** WeebPaint 同名同形：摆出来等按钮；收掉 = null。 */
+export function lockSyncGate<T>(view: GateView<T>): Promise<T | null> { return _gate.open(view).result; }
+/** 从外面收掉最上面那张（WeebPaint 同名同形）。 */
+export function settleSyncGate(value: unknown = null): void { _gate.settleTop(value); }
+/** 闸门开着 = 输入锁着。 */
+export function isSyncGateUp(): boolean { return _gate.isUp(); }
+const GATE_SWALLOWED = ["keydown", "keypress", "pointerdown", "mousedown", "touchstart", "wheel", "contextmenu", "dblclick", "click"] as const;
+let _gateLockInstalled = false;
+function installGateInputLock(): void {
+  if (_gateLockInstalled) return; _gateLockInstalled = true;
+  for (const type of GATE_SWALLOWED) window.addEventListener(type, (e) => {
+    if (gateSwallowsEvent(_gate.isUp(), e.target as Element | null)) { e.stopImmediatePropagation(); e.preventDefault(); }
+  }, { capture: true, passive: false });
 }
 
 const g = {
@@ -72,6 +114,7 @@ function _reset(): void {
 let _inited = false;
 export function initSheets(): void {
   if (_inited) return; _inited = true;
+  installGateInputLock();
   g.sheet().addEventListener("click", (e) => { if (e.target === g.sheet()) _open?.(); });
   document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _open && !e.defaultPrevented) { e.preventDefault(); _open(); } }, true);
 }

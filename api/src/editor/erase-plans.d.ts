@@ -13,7 +13,7 @@ export interface WeldErasePlan {
 export declare function turnDeg(k: Kernel, vid: VertexId): number | null;
 /**
  * 焊边：刮集里「两边都被刮到」的二度接点——共轴 → 溶解；转角 ≤ maxDeg → 焊；更尖 → 不碰。
- * 已在同一条曲线里的接点不算（那是弧自己的段）。焊链按溶解之后的虚拟边连通分量算。
+ * 已在同一条曲线里的转角不算（那是弧自己的段 / 焊过的折线）；同一条折线曲线里的共轴接点照样溶解（user 10-30「一条曲线里面共轴应该自动合并吧」）。焊链按溶解之后的虚拟边连通分量算。
  */
 export declare function planWeldErase(k: Kernel, scrubbed: readonly EdgeId[], maxDeg: number): WeldErasePlan;
 export interface SoftErasePlan {

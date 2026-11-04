@@ -20,6 +20,7 @@ import { openConfirmSheet, openInputSheet, openChoiceSheet, withBusy } from "./u
 import { deviceKvGet, deviceKvSet } from "./device-kv.ts";
 import { reportError } from "./error-funnel.ts";
 import { openDebugLogSheet } from "./debug-log-sheet.ts";
+import { cloudOnline } from "./user-offline.ts";
 
 export interface GalleryHostDeps {
   mountEl: HTMLElement;
@@ -85,7 +86,7 @@ export function initGalleryHost(d: GalleryHostDeps) {
     encryption,
     host: {
       signedIn: () => auth.isSignedIn(),
-      online: () => (typeof navigator === "undefined" || navigator.onLine !== false),
+      online: cloudOnline,   // 工单 C：「离线继续」也算离线
       activeIdentifier: () => d.activeName(),
       confirm: (title, msg) => openConfirmSheet(title, msg),
       input: (title, def, opts) => openInputSheet(title, { defaultValue: def, placeholder: opts?.placeholder }),

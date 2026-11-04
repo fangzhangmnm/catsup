@@ -39,7 +39,8 @@ export declare function gridLadder(sys: UnitSystem): readonly number[];
  * 比吸附细的层去掉；吸附长度不在表上但能整除上一层（5 cm → 10 cm、50 cm → 1 m、6 in → 1 ft）就补成最细一层 = 画出来的线永远落在吸得到的点上。
  */
 export declare function displayLadder(sys: UnitSystem, snap: number): readonly number[];
-/** 吸附的几档（米，从细到粗；user 10-30 拍）。 */
+/** 吸附的几档（米，从细到粗；user 10-30 拍）。每档都整除网格进位表里比它粗的下一层（画出来的线永远落在吸得到的点上，grid.test 钉着）。
+ *  英制 1 ft 往上补 5 ft / 10 ft、D&D 补 1 in / 6 in / 10 ft（两格）：user 10-30「dnd吸附为什么只有两档，没有更细的」「然后英制没有ft的snapping也奇怪」（以前英制最粗 1 ft、D&D 只有 1 ft / 5 ft）。 */
 export declare function snapLevels(sys: UnitSystem): readonly number[];
 /** 换单位制时吸附落到哪一档。 */
 export declare const DEFAULT_SNAP: Readonly<Record<UnitSystem, number>>;

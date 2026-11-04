@@ -169,6 +169,7 @@ import "./kernel-brep.test.ts";
 import "./format.test.ts";
 import "./format-jpeg.test.ts";
 import "./crash-store.test.ts";
+import "./cloud-gate.test.ts";   // 同步闸门 + 掉登录 / 没网闸门（工单 C，2026-11-03 Opus）
 import "./debug-lines.test.ts";   // 黑匣子文本行（实验台 sunset → 调试日志，2026-09-20）
 import "./object-verbs.test.ts";   // 物件层动词 = 注册表物件族（2026-10-28 Fable 加的，漏登记到 10-29 才补上）
 import "./mesh-nonmanifold.test.ts";   // 非流形 / 重复面护栏（2026-10-29）

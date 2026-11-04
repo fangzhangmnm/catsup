@@ -27,7 +27,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_material: {
         readonly major: 1;
-        readonly minor: 0;
+        readonly minor: 1;
         readonly patch: 0;
     };
     readonly CATSUP_desk: {

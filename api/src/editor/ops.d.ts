@@ -545,10 +545,6 @@ export declare class ShearRejected extends Error {
 /** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
 export declare class PlanarBurst extends Error {
 }
-/**
- * 执行一条指令。斜切护栏（2026-10-26，user「斜切：和gltf对齐……在发生的时候护栏住，然后提示报错」）：执行后出现了**新的**斜切实例 → 抛 ShearRejected
- * （History 回滚整步）。老文件里本来就斜切的不算（不然那份文件之后什么都改不了）。
- */
 export declare function applyOp(s: Scene, op0: Op): ApplyResult;
 export declare function describeOp(op0: Op): string;
 /** 身体里没自己的几何（只摆着子物件）：跨种类炸开 / 合并不用转。 */

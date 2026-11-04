@@ -5,6 +5,7 @@ export declare class PaperMaterials {
     private readonly ao;
     private readonly depthFace;
     private readonly depthOther;
+    private readonly depthSlope;
     private readonly shade;
     private readonly aoModel;
     private readonly aoGround;
@@ -12,7 +13,7 @@ export declare class PaperMaterials {
     readonly ground: any;
     private readonly groundU;
     /** @param defaultFace 白模没上色的面那个灰（0xRRGGBB；认出来换成纸色） */
-    constructor(ao: AoUniforms, depthFace: number, depthOther: number, defaultFace: number);
+    constructor(ao: AoUniforms, depthFace: number, depthOther: number, depthSlope: number, defaultFace: number);
     /** 面材质：single = 贴图网格那份（只有 aColor）；side / 深度偏移按槽（活动池 / 别的池、单面 / 双面）。 */
     face(side: "front" | "back" | "double", active: boolean, single: boolean): any;
     /** 面用不用模型的颜色（预设 colorize：none = 一律纸色）。 */
