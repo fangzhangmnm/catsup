@@ -7,6 +7,7 @@
 // 为什么按坐标寻址：单机重放靠 id 计数器逐字一致也成立，但联机各 peer 的 id 历史不同——线协议上只有几何本身是共识。
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
+import { mintGuid } from "../format/guid.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
 import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
@@ -758,7 +759,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       d.body = body;
       return { scene: s, events: [] };
     }
-    case "addLayer": { const id = s.nextLayer++; s.layers.push({ id, name: op.name, visible: true, ...(op.color ? { color: op.color } : {}) }); return { scene: s, events: [] }; }
+    case "addLayer": { const id = s.nextLayer++; s.layers.push({ id, guid: mintGuid(), name: op.name, visible: true, ...(op.color ? { color: op.color } : {}) }); return { scene: s, events: [] }; }
     case "renameLayer": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.name = op.name; return { scene: s, events: [] }; }
     case "setLayerVisible": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.visible = op.visible; return { scene: s, events: [] }; }
     case "removeLayer": {

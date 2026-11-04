@@ -28,6 +28,7 @@ import "./keymap.test.ts";   // 分层键表（2026-10-28 Fable）
 import "./pick-kinds.test.ts";   // 拾取范围 1 / 2 / 3（2026-10-29 Opus）
 import "./style-colors.test.ts";   // 画风四色 → 标记色 + 日夜判据（2026-10-30 Opus）
 import "./instance-ids.test.ts";   // 读文件实例 id 有空缺不再重复（2026-10-25 Opus）
+import "./identity-guard.test.ts";   // 身份地基守卫（计划书 §4，2026-11-04 Opus）：文件里只有 GUID、读写和撤销不重铸、老文件迁移
 import "./group-ids.test.ts";   // 组 id 有空缺读回来变两份 + 网格体里的隐藏实例（2026-11-04 Opus，身份地基 ID-0 清点实测）
 import "./param-panel.test.ts";   // 参数小窗马后炮会话（2026-10-25 Opus）
 import "./scale-handle.test.ts";   // 缩放柄透视拾、叠在一起近的赢（2026-10-25 Opus）

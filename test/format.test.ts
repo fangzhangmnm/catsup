@@ -10,10 +10,13 @@ import { headBytesNeeded, extractThumbnail } from "../src/format/peek.ts";
 import { SCENES, SCENE_DOCS, DOC_SAMPLES, fingerprint, sceneFingerprint } from "./format-scenes.ts";
 import { listFixtures, readFixture, hasFixtureDir, listCorpusDirs } from "./fixtures/format/fixtures.mjs";
 
-const BUDGET_BYTES: Record<string, number> = { box: 2700, holed: 2800, house: 2800, cylinder: 6400, folded: 3000 };   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
+const BUDGET_BYTES: Record<string, number> = { box: 2900, holed: 3000, house: 3000, cylinder: 6600, folded: 3200 };   // 全部 +200（2026-11-04 身份地基）：实测每份多约 130 B = 定义 guid + root + 默认层 guid + 拍子   // folded（DT87 折线，2026-10-26）：两张三角 + 一层 fold，实测 2980   // box 2600 → 2700（2026-10-25：第六个扩展 CATSUP_desk + document minor 键 ≈ +50 B，实测 2648）   // §3.2「抠」：golden 体积预算（实测 2.4–2.6 KB，JSON 结构占 2 KB；超了先问为什么）
 
+/** 同一身份的文档（2026-11-04：根定义现在有 GUID，比字节的测试要钉住它）。 */
+const FIXED_ROOT = "11111111-1111-4111-8111-111111111111";
+const docOf = (brep: ReturnType<Kernel["toBrep"]>): ReturnType<typeof newDocument> => { const d = newDocument(brep, "t"); d.root.guid = FIXED_ROOT; return d; };
 function roundTrip(k: Kernel): { bytes: Uint8Array; k2: Kernel } {
-  const bytes = writeCatsup(newDocument(k.toBrep(), "t"));
+  const bytes = writeCatsup(docOf(k.toBrep()));
   const doc = readCatsup(bytes);
   return { bytes, k2: Kernel.fromBrep(doc.root.brep) };
 }
@@ -26,7 +29,7 @@ describe("format: golden 往返", () => {
       assert(isGlb(bytes));
       eq(fingerprint(k2), fingerprint(k), "指纹");
       eq(k2.faces().length, k.faces().length, "面数");
-      const again = writeCatsup(newDocument(k2.toBrep(), "t"));
+      const again = writeCatsup(docOf(k2.toBrep()));
       eq(again.byteLength, bytes.byteLength, "长度");
       assert(again.every((b, i) => b === bytes[i]), "逐字节");
       assert(bytes.byteLength <= BUDGET_BYTES[name], `${name} ${bytes.byteLength} B 超预算 ${BUDGET_BYTES[name]}`);
@@ -48,7 +51,7 @@ describe("format: golden 往返", () => {
     ];
     for (const l of loops) b.addEdges(l.map((p, i) => [P(...p), P(...l[(i + 1) % l.length])] as [ReturnType<typeof P>, ReturnType<typeof P>]));
     eq(fingerprint(b), fingerprint(a));
-    const ba = writeCatsup(newDocument(a.toBrep(), "t")), bb = writeCatsup(newDocument(b.toBrep(), "t"));
+    const ba = writeCatsup(docOf(a.toBrep())), bb = writeCatsup(docOf(b.toBrep()));
     assert(ba.byteLength === bb.byteLength && ba.every((x, i) => x === bb[i]), "同几何同字节");
   });
 

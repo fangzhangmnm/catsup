@@ -236,6 +236,8 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 ### 5.3 `CATSUP_definitions`（顶层）
 
+> **2026-11-04 definitions 7.0（Claude Opus 5.5）：下面这段的形状已过期，引用全换成 GUID。** `root` = 定义 GUID；`list[i].guid`；`instances[j]` = `{ guid, definition: <定义 GUID>, parent: <组 GUID>|null, matrix, … }`（没有 `id`）；`groups[j]` = `{ guid, parent: <组 GUID>|null, … }`（没有 `id`）；`materialSlots` = `[<材质 GUID>|null…]`。`instances` 的顺序有意义（同级顺序）。glTF 节点的 `CATSUP_instance.definition` 也是 GUID（2.0，只写不读）。材质 GUID 在 `CATSUP_material.guid`（1.2），层在 `layers[].guid`（document 3.5），素材架 = 新扩展 `CATSUP_shelf` 1.0，面层 `0xFFFE` = 这一侧没有表面（brep 4.3）。设计 = `20261104-identity-foundation-plan.md`。
+
 ```jsonc
 { "root": 0,
   "list": [ { "name": "model", "description": "", "axes": {…},

@@ -3,6 +3,8 @@
 // v2（2026-10-21，group / component）：每个 definition 一个 mesh（根池 + 全部 group 合并烘焙）；实例 = glTF 节点树（matrix，Y-up）
 //   + CATSUP_instance；authoring 全在 CATSUP_definitions（groups / instances 各自带 3×4 变换，Z-up 本地坐标）。
 
+import { shelfIsEmpty } from "./document.ts";
+import type { Guid } from "./guid.ts";
 import { APP_VERSION } from "../version.ts";
 import { srgbToLinear } from "./color-space.ts";   // glTF 的 baseColorFactor 是线性值；app 里按 sRGB 存（color-space.ts）
 import { BinBuilder } from "./binary.ts";
@@ -16,6 +18,8 @@ import { MIN_GLTF_VERSION, WRITE_GLTF_VERSION } from "./migrate/gltf/index.ts";
 import { remapBufferViewRefs } from "./carry.ts";
 import type { Xform } from "../scene/xform.ts";
 
+/** 定义的 GUID → 在 doc.definitions 里第几个（头一个留身份，和 read.ts 一致）。下标只活在这一趟写入里（烘焙的 mesh 表按它排），不进文件。 */
+const definitionIndex = (doc: CatsupDocument): Map<Guid, number> => { const m = new Map<Guid, number>(); doc.definitions.forEach((d, i) => { if (!m.has(d.guid)) m.set(d.guid, i); }); return m; };
 export const CATSUP_EXTENSIONS = ["CATSUP_document", "CATSUP_definitions", "CATSUP_brep", "CATSUP_instance", "CATSUP_material", "CATSUP_desk"] as const;
 const isObj = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
 
@@ -60,9 +64,10 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       (out.pbrMetallicRoughness as Record<string, unknown>).baseColorTexture = { index: textures.length - 1 };
     }
     // 每个材质都挂 CATSUP_material 拍子（1.1 起；纯色材质以前不挂）：读的时候靠它认「颜色是线性值」（migrate/material.ts）；sizeM 只在有贴图时写
-    out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), ...(m.texture ? { sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : {}) } };
+    out.extensions = { CATSUP_material: { ...stampOf("CATSUP_material"), guid: m.guid, ...(m.texture ? { sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : {}) } };
     return out;
   });
+  const matIndex = new Map<Guid, number>(doc.materials.map((m, i) => [m.guid, i]));
   // 每个 definition：规范序一次（bake 与 B-rep 流共用同一份顶点顺序）→ mesh（按材质拆 primitive）
   const accessors: Record<string, unknown>[] = [];
   const meshes: Record<string, unknown>[] = [];
@@ -72,7 +77,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     const merged = mergeBrep([canon[i].root, ...canon[i].groups.map((g) => g.brep)]);
     const slots = doc.definitions[i].materialSlots;
     const mats = {
-      slotToCore: (slot: number) => { const c = slots[slot]; return c !== undefined && c in doc.materials ? c : undefined; },
+      slotToCore: (slot: number) => { const g = slots[slot]; return g ? matIndex.get(g) : undefined; },
       sizeOfCore: (core: number) => doc.materials[core]?.texture?.sizeM ?? null,
     };
     const dd = doc.definitions[i];
@@ -102,35 +107,36 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const defList = doc.definitions.map((d, i) => {
     const brepJson: CatsupBrepJson = encodeBrep(canon[i].root, sink, i === doc.rootIndex ? (carry.brepKeep as never) : undefined);
     const groups = canon[i].groups.map((g) => ({
-      id: g.id, parent: g.parent,
+      guid: g.guid, parent: g.parent,
       axes: { origin: [g.axes.origin.x, g.axes.origin.y, g.axes.origin.z], x: [g.axes.x.x, g.axes.x.y, g.axes.x.z], y: [g.axes.y.x, g.axes.y.y, g.axes.y.z], z: [g.axes.z.x, g.axes.z.y, g.axes.z.z] },
       ...(g.name !== undefined ? { name: g.name } : {}),
       guides: encGuides(g.guides),
       brep: encodeBrep(g.brep, sink),
     }));
-    const instances = d.instances.map((inst) => ({ id: inst.id, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) }));
+    const instances = d.instances.map((inst) => ({ guid: inst.guid, definition: inst.definition, parent: inst.parent, matrix: [...inst.xform], ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) }));
     // 0.14 身体载荷（definitions v5）：mesh = 几条 bufferView（card 载荷 v6 退场）
     let payload: Record<string, unknown> = {};
     if (d.kind === "mesh" && d.mesh) payload = { mesh: encodeMeshItem(d.mesh, sink) };   // CATSUP_mesh 1.0.0 多边形载荷（M3）
-    return { name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), ...payload, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), ...(d.drawFrame ? { drawFrame: { origin: v3(d.drawFrame.origin), x: v3(d.drawFrame.x), y: v3(d.drawFrame.y), z: v3(d.drawFrame.z) } } : {}), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
+    return { guid: d.guid, name: d.name, ...(d.kind !== undefined && d.kind !== "brep" ? { kind: d.kind } : {}), ...payload, axes: { origin: [0, 0, 0], x: [1, 0, 0], y: [0, 1, 0], z: [0, 0, 1] }, materialSlots: [...d.materialSlots], guides: encGuides(d.guides), ...(d.drawFrame ? { drawFrame: { origin: v3(d.drawFrame.origin), x: v3(d.drawFrame.x), y: v3(d.drawFrame.y), z: v3(d.drawFrame.z) } } : {}), nodes: [], brep: brepJson, groups, instances, ...(d.extras ? { extras: d.extras } : {}) };
   });
 
   // glTF 节点树：根 definition 一个节点；实例递归成子节点（matrix Y-up）
+  const defIndex_ = definitionIndex(doc);
   const nodes: Record<string, unknown>[] = [];
   let anyHidden = false;
   // 隐藏的实例（DT49）：节点带 Khronos KHR_node_visibility { visible: false }（藏父连子，别的 glTF 查看器也认）；我们自己读的是 CATSUP_definitions 里的 hidden
-  const instExt = (definition: number, hidden: boolean): Record<string, unknown> => ({ CATSUP_instance: { ...stampOf("CATSUP_instance"), definition, overrides: {} }, ...(hidden ? { KHR_node_visibility: { visible: false } } : {}) });
+  const instExt = (definition: Guid, hidden: boolean): Record<string, unknown> => ({ CATSUP_instance: { ...stampOf("CATSUP_instance"), definition, overrides: {} }, ...(hidden ? { KHR_node_visibility: { visible: false } } : {}) });
   const buildNode = (d: DefinitionDoc, defIndex: number, depth: number, extra: Record<string, unknown>, hidden = false): number => {
     const idx = nodes.length;
     if (hidden) anyHidden = true;
-    const node: Record<string, unknown> = { name: d.name, ...(meshOf[defIndex] >= 0 ? { mesh: meshOf[defIndex] } : {}), extensions: instExt(defIndex, hidden), ...extra };
+    const node: Record<string, unknown> = { name: d.name, ...(meshOf[defIndex] >= 0 ? { mesh: meshOf[defIndex] } : {}), extensions: instExt(d.guid, hidden), ...extra };
     nodes.push(node);
     if (depth > 32) return idx;
     const children: number[] = [];
     for (const inst of d.instances) {
-      const target = doc.definitions[inst.definition];
-      if (!target) continue;
-      children.push(buildNode(target, inst.definition, depth + 1, { matrix: xformToGltfMatrix(inst.xform), ...(inst.name !== undefined ? { name: inst.name } : {}) }, !!inst.hidden));
+      const ti = defIndex_.get(inst.definition);
+      if (ti === undefined) continue;
+      children.push(buildNode(doc.definitions[ti], ti, depth + 1, { matrix: xformToGltfMatrix(inst.xform), ...(inst.name !== undefined ? { name: inst.name } : {}) }, !!inst.hidden));
     }
     if (children.length) node.children = children;
     return idx;
@@ -140,7 +146,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   const json: Record<string, unknown> = {
     ...carry.topLevel,
     asset: { version: WRITE_GLTF_VERSION, minVersion: MIN_GLTF_VERSION, generator: `CatsUp ${APP_VERSION}`, ...(thumbnail !== undefined ? { thumbnail } : {}) },
-    extensionsUsed: [...CATSUP_EXTENSIONS, ...(refsCarried || refsExt ? ["CATSUP_references"] : []), ...(anyHidden ? ["KHR_node_visibility"] : [])],
+    extensionsUsed: [...CATSUP_EXTENSIONS, ...(refsCarried || refsExt ? ["CATSUP_references"] : []), ...(isObj(carry.extensions.CATSUP_shelf) || (doc.shelf && !shelfIsEmpty(doc.shelf)) ? ["CATSUP_shelf"] : []), ...(anyHidden ? ["KHR_node_visibility"] : [])],
     extensionsRequired: [],
     buffers: [{ byteLength: 0 }],
     bufferViews,
@@ -156,7 +162,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       ...carry.extensions,
       CATSUP_document: {
         ...carry.documentExtra,   // 直通的未知键先铺、已知键后铺 = 已知键永远赢（家族纪律 §3；之前铺反了：文件里的 layers 会盖掉改过的 layers）
-        ...stampOf("CATSUP_document"), layers: doc.layers.map((l) => ({ id: l.id, name: l.name, visible: l.visible, ...(l.color ? { color: [l.color[0], l.color[1], l.color[2]] } : {}) })),
+        ...stampOf("CATSUP_document"), layers: doc.layers.map((l) => ({ id: l.id, guid: l.guid, name: l.name, visible: l.visible, ...(l.color ? { color: [l.color[0], l.color[1], l.color[2]] } : {}) })),
         formatVersion: 1,
         settings: doc.settings,
         axes: { origin: v3(doc.axes.origin), x: v3(doc.axes.x), y: v3(doc.axes.y), z: v3(doc.axes.z) },
@@ -167,7 +173,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
       CATSUP_definitions: {
         ...carry.definitionsExtra,
         ...stampOf("CATSUP_definitions"),
-        root: doc.rootIndex,
+        root: doc.root.guid,
         list: defList,
       },
       // 桌面态（§5.7）：太新的原字节（读取器放进 carry.extensions）原样写回；否则 extra 先铺、已知键后铺；menuTabs 空 / lastView 没有就不写键
@@ -181,6 +187,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
         ...(doc.desk.style !== undefined ? { style: doc.desk.style } : {}), ...(doc.desk.screen !== undefined ? { screen: doc.desk.screen } : {}),   // 风格 / 屏幕（desk 1.3）：选过才写
       },
       ...(refsExt ? { CATSUP_references: refsExt } : {}),
+      ...(doc.shelf && !shelfIsEmpty(doc.shelf) ? { CATSUP_shelf: { ...doc.shelf.extra, ...stampOf("CATSUP_shelf"), folders: doc.shelf.folders, items: doc.shelf.items } } : {}),
     },
   };
   const binBytes = bin.finish();
@@ -193,11 +200,11 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
 // 节点层级 + 三角形（+ 线）+ 材质（+ 贴图）；不带任何 CATSUP_* 扩展、不带参考图 / 缩略图 / 携带的未知键 / 硬表面数据。开回 CatsUp 是「别的软件的 glb」（只能导入）。
 // created 2026-10-28 by Claude Opus 5.5
 
-/** 「导出模型」的选择：textures = 贴图嵌进文件（false = 只留底色）；lines = 带边线 primitive；only = 只导这几份物体（世界变换 + 定义下标；缺 = 整个模型）。 */
+/** 「导出模型」的选择：textures = 贴图嵌进文件（false = 只留底色）；lines = 带边线 primitive；only = 只导这几份物体（世界变换 + 定义的 GUID；缺 = 整个模型）。 */
 export interface ModelExportOpts {
   textures: boolean;
   lines: boolean;
-  only?: readonly { definition: number; xform: Xform; name?: string }[];
+  only?: readonly { definition: Guid; xform: Xform; name?: string }[];
 }
 
 export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint8Array {
@@ -215,15 +222,16 @@ export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint
     return out;
   });
   // 只烤够得着的定义（整个模型 = 从根往下；只导选中的 = 从那几份往下）
+  const defIndex_ = definitionIndex(doc), matIndex = new Map<Guid, number>(doc.materials.map((m, i) => [m.guid, i]));
   const reach = new Set<number>();
-  const visit = (i: number, depth: number): void => { if (reach.has(i) || depth > 32 || !doc.definitions[i]) return; reach.add(i); for (const inst of doc.definitions[i].instances) visit(inst.definition, depth + 1); };
-  if (opts.only) for (const o of opts.only) visit(o.definition, 0); else visit(doc.rootIndex, 0);
+  const visit = (i: number | undefined, depth: number): void => { if (i === undefined || reach.has(i) || depth > 32) return; reach.add(i); for (const inst of doc.definitions[i].instances) visit(defIndex_.get(inst.definition), depth + 1); };
+  if (opts.only) for (const o of opts.only) visit(defIndex_.get(o.definition), 0); else visit(doc.rootIndex, 0);
   const accessors: Record<string, unknown>[] = [], meshes: Record<string, unknown>[] = [];
   const meshOf: number[] = doc.definitions.map(() => -1);
   for (const i of [...reach].sort((a, b) => a - b)) {
     const d = doc.definitions[i], slots = d.materialSlots;
     const mats: BakeMaterials = {
-      slotToCore: (slot) => { const c = slots[slot]; return c !== undefined && c in doc.materials ? c : undefined; },
+      slotToCore: (slot) => { const g = slots[slot]; return g ? matIndex.get(g) : undefined; },
       sizeOfCore: (core) => (opts.textures ? doc.materials[core]?.texture?.sizeM ?? null : null),   // 不带贴图 = 不出 UV
     };
     const baked = d.kind === "mesh" && d.mesh ? bakeMesh(d.mesh, sink, accessors.length, mats, { lines: opts.lines })
@@ -241,13 +249,13 @@ export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint
     nodes.push(node);
     if (depth > 32) return idx;
     const children: number[] = [];
-    for (const inst of d.instances) if (doc.definitions[inst.definition]) children.push(buildNode(inst.definition, depth + 1, { matrix: xformToGltfMatrix(inst.xform), ...(inst.name !== undefined ? { name: inst.name } : {}) }, !!inst.hidden));
+    for (const inst of d.instances) { const ti = defIndex_.get(inst.definition); if (ti !== undefined) children.push(buildNode(ti, depth + 1, { matrix: xformToGltfMatrix(inst.xform), ...(inst.name !== undefined ? { name: inst.name } : {}) }, !!inst.hidden)); }
     if (children.length) node.children = children;
     return idx;
   };
   if (opts.only) {
     nodes.push({ name: doc.root.name });
-    const kids = opts.only.map((o) => buildNode(o.definition, 1, { matrix: xformToGltfMatrix(o.xform), ...(o.name !== undefined ? { name: o.name } : {}) }, false));
+    const kids = opts.only.filter((o) => defIndex_.has(o.definition)).map((o) => buildNode(defIndex_.get(o.definition)!, 1, { matrix: xformToGltfMatrix(o.xform), ...(o.name !== undefined ? { name: o.name } : {}) }, false));
     if (kids.length) nodes[0].children = kids;
   } else buildNode(doc.rootIndex, 0, {}, false);
   const json: Record<string, unknown> = {

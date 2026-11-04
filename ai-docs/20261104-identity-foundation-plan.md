@@ -177,3 +177,26 @@ export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid,
 - `probe-undo-fuzz` 现在核不核材质表（ID-2 要加 GUID 核对）。
 - 贴图字节随材质进载荷的体积（大贴图跨文件拷贝一次几 MB，内存里没问题；若要进系统剪贴板再说）。
 - iPad 上 `crypto.randomUUID()` 在非安全上下文（http 本地预览）不可用 → `guid.ts` 要带 `getRandomValues` 后备。
+
+## 7. ID-1 实施记录 + 门审看什么（2026-11-04，Claude Opus 5.5；分支 `identity-id1`，未合 main、未推）
+
+**已做**：`format/guid.ts`；`document.ts` 类型；`migrate/definitions.ts`（6→7）；`read.ts` / `write.ts` / `scene-doc.ts` 按 GUID；`scene.ts` 每个条目带 `guid`（克隆保身份）；`brep-codec` 认 `0xFFFE`；`CATSUP_shelf` 读写；拍子 document 3.5 · brep 4.3 · definitions 7.0 · instance 2.0 · material 1.2 · shelf 1.0；冻结语料新目录；`test/identity-guard.test.ts`；§4 守卫 1、2、5 落地。编辑器行为零变化。
+
+**没做（ID-2 / ID-3）**：换父亲保身份、同级排序 op、「没有表面」的画 / 拾取 / 导出 / 动词、材质清理、载荷 v2、撤 `docEpoch`、架子的动词和「架子上的也算活着」。
+
+**实测**：`npm test` 1486 过 0 红；tsc 干净；redline 绿；无头 `probe-boot` / `probe-clipboard` / `probe-hierarchy` / `probe-hierarchy-drag` / `probe-undo-fuzz 2 20` 绿；`probe-update-conflict pair <main 包> <本分支>` 场景 1 更新后网盘写 0、eTag 不变，无页面错误；上一版代码读 7.0 样本 = `FormatTooNewError`「version 7 is newer」。`probe-render-baseline` 2 张红（`style-papercut-boxes`、`style-realistic-textured`），main 上同样 2 张、像素数逐字一样 = 这次之前就红了，和本单无关，记功能账。性能护栏（§4.6）没跑：运行时句柄和热路径没动，预期 0 差。
+
+**和 §2 / §5 写的不一样的地方（都是清点 §5 的提案，请门审拍）**：
+1. **P1 材质运行时留数字句柄**，不是 `Map<MaterialId, Material>`；槽表运行时 = 材质下标，文件里 = `(Guid | null)[]`（P6）。将来能删材质时再决定留洞还是 Map。
+2. **`doc.root` 仍是对象、`doc.rootIndex` 留在内存**（文件里才是 GUID），不是 §5 的 `root: Guid`：`doc.root.brep` 这类用法多，改了没好处。
+3. **P4** `CATSUP_instance` 升 2.0。
+4. **P5** 迁移 step 多收一个上下文；材质先于定义读；去重在铸之前。
+5. **P7** 没做 `shortCode`：四位码就是 `name` 的值，`hex4()` 照旧。
+6. **新增决定 P10：默认层 GUID 是全家一个常量**（`guid.ts DEFAULT_LAYER_GUID`）：每份文件都有默认层，跨文件按 GUID 合并时才合得回去。
+7. **文件里同身份重复（手改过的文件）的处理**：`ownGuid` 留头一个、后面现铸；不拒开。6.x 的老 bug 重复在迁移里合回一份，不走这条。
+8. **素材架**：major 太新不拒开（同 desk）；不认识的 `kind` 原样带回不查引用；未知键直通。
+
+**门审重点**：`src/format/migrate/definitions.ts`（数据安全：去重语义、坏数据不吞）；`read.ts` 新顺序；`scene-doc.ts` 重写（组 / 实例句柄读时现发，不再保留文件里的 id；全仓没找到依赖「重开后句柄不变」的地方，这条是 grep + 测试的结论，不是证明）。
+
+**清点 §5 P9 补一处**：`brep-codec.ts canonicalize` 也有 `some(v >= 0)`，已修（守卫抓到的）。
+

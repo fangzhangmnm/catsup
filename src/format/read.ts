@@ -8,8 +8,9 @@ import { sliceBin } from "./binary.ts";
 import { decodeBrep, type CatsupBrepJson } from "./brep-codec.ts";
 import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, MaterialDoc } from "./document.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
-import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, refPanelOf, type DeskDoc, type LayerDoc, type ReferencesDoc } from "./document.ts";
-import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError } from "./migrate/index.ts";
+import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, refPanelOf, shelfIsEmpty, type DeskDoc, type LayerDoc, type ReferencesDoc, type ShelfDoc, type ShelfItem } from "./document.ts";
+import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError, type FormatReadNotes } from "./migrate/index.ts";
+import { DEFAULT_LAYER_GUID, isGuid, ownGuid, type Guid } from "./guid.ts";
 import { decodeMeshItem } from "./mesh-payload.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
@@ -61,6 +62,27 @@ export function isCatsupGltf(json: unknown): boolean {
   return isObj(json) && Array.isArray(json.extensionsUsed) && json.extensionsUsed.includes("CATSUP_document") && isObj(json.extensions) && isObj(json.extensions.CATSUP_document);
 }
 
+function readShelf(j: Record<string, unknown>, defs: ReadonlySet<Guid>, mats: ReadonlySet<Guid>, notes: FormatReadNotes): ShelfDoc {
+  const seen = new Set<Guid>();
+  const folderRows = (Array.isArray(j.folders) ? j.folders : []).filter(isObj) as Record<string, unknown>[];
+  const folderGuids = folderRows.map((f) => ownGuid(f.guid, seen));
+  const known = new Set(folderGuids);
+  const inFolder = (x: unknown): Guid | null => (isGuid(x) && known.has(x) ? x : null);
+  const folders = folderRows.map((f, i) => ({ ...f, guid: folderGuids[i], name: typeof f.name === "string" ? f.name : "", parent: inFolder(f.parent) }));
+  let dangling = 0;
+  const items: ShelfItem[] = [];
+  for (const it of (Array.isArray(j.items) ? j.items : []).filter(isObj) as Record<string, unknown>[]) {
+    const kind = typeof it.kind === "string" ? it.kind : "definition", ref = it.ref;
+    const hasIt = kind === "definition" ? isGuid(ref) && defs.has(ref) : kind === "material" ? isGuid(ref) && mats.has(ref) : true;   // 不认识的种类不查引用（更新的版本写的，原样带回）
+    if (!hasIt) { dangling++; continue; }
+    items.push({ ...it, guid: ownGuid(it.guid, seen), kind, ref: ref as Guid, folder: inFolder(it.folder) });
+  }
+  if (dangling) notes.danglingShelfRefs = dangling;
+  const extra: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(j)) if (k !== "version" && k !== "minor" && k !== "patch" && k !== "folders" && k !== "items") extra[k] = v;
+  return { folders, items, extra };
+}
+
 export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const { json: j, bin } = decodeGlb(bytes);
   if (!isObj(j)) fail("JSON chunk is not an object");
@@ -77,12 +99,38 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const exts = json.extensions as Record<string, unknown>;
   const notes = emptyReadNotes();   // 三级拍子判决（minor 更新 → 宿主提示一次）
   const docExt = migrateExtension("CATSUP_document", exts.CATSUP_document as Record<string, unknown>, notes);
+  // 材质：先于定义读（定义 6→7 的迁移要材质的 GUID）。glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
+  const texList = Array.isArray(json.textures) ? (json.textures as Record<string, unknown>[]) : [];
+  const imgList = Array.isArray(json.images) ? (json.images as Record<string, unknown>[]) : [];
+  const matSeen = new Set<Guid>();
+  const materials: MaterialDoc[] = (Array.isArray(json.materials) ? (json.materials as Record<string, unknown>[]) : []).map((m, mi) => {
+    const pbr = isObj(m.pbrMetallicRoughness) ? (m.pbrMetallicRoughness as Record<string, unknown>) : {};
+    const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
+    const extRaw = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown> : null;
+    const out: MaterialDoc = { guid: ownGuid(extRaw?.guid, matSeen), name: typeof m.name === "string" ? m.name : `material ${mi}`, color: materialColorFromFile(bc, extRaw) };   // 1.1 起文件里是线性值（glTF 规定），app 里按 sRGB；老文件原样（migrate/material.ts）
+    const bt = isObj(pbr.baseColorTexture) ? (pbr.baseColorTexture as Record<string, unknown>) : null;
+    if (bt && typeof bt.index === "number" && isObj(texList[bt.index])) {
+      const src = (texList[bt.index] as Record<string, unknown>).source;
+      const img = typeof src === "number" ? imgList[src] : undefined;
+      if (isObj(img) && typeof img.bufferView === "number") {
+        const ext = extRaw ? migrateExtension("CATSUP_material", extRaw, notes) : {};
+        const sz = Array.isArray(ext.sizeM) && ext.sizeM.length === 2 ? (ext.sizeM as number[]) : [1, 1];
+        out.texture = { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(img.bufferView)), sizeM: [sz[0], sz[1]] };
+      }
+    }
+    return out;
+  });
+
   if (!isObj(exts.CATSUP_definitions)) fail("missing CATSUP_definitions");
-  const defsExt = migrateExtension("CATSUP_definitions", exts.CATSUP_definitions as Record<string, unknown>, notes);
+  const defsExt = migrateExtension("CATSUP_definitions", exts.CATSUP_definitions as Record<string, unknown>, notes, { materialGuids: materials.map((m) => m.guid) });
   const list = defsExt.list;
-  const rootIdx = defsExt.root;
   if (!Array.isArray(list)) fail("CATSUP_definitions.list missing");
-  if (typeof rootIdx !== "number" || !(rootIdx in (list as unknown[]))) fail("CATSUP_definitions.root invalid");
+  // 定义的身份先过一遍（实例引用要查；重复的：头一个留身份，后面的现铸 = 引用都指头一个，不崩）
+  const defSeen = new Set<Guid>();
+  const defGuids: Guid[] = (list as unknown[]).map((d) => ownGuid(isObj(d) ? (d as Record<string, unknown>).guid : undefined, defSeen));
+  const rootIdx = defGuids.indexOf(defsExt.root as Guid);
+  if (rootIdx < 0) fail("CATSUP_definitions.root invalid");
+  const matKnown = new Set(materials.map((m) => m.guid));
 
   let brepKeep: Record<string, unknown> | undefined;
   const imgListEarly = Array.isArray(json.images) ? (json.images as Record<string, unknown>[]) : [];
@@ -106,21 +154,25 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       }
       brepKeep = { attributes: attrs, curves: brepJson.curves, ...(brepJson.extras ? { extras: brepJson.extras } : {}) };
     }
+    const groupSeen = new Set<Guid>();
+    const groupGuids: Guid[] = (Array.isArray(d.groups) ? d.groups : []).map((g: unknown) => ownGuid(isObj(g) ? (g as Record<string, unknown>).guid : undefined, groupSeen));
+    const groupKnown = new Set(groupGuids);
     const groups: GroupDoc[] = (Array.isArray(d.groups) ? d.groups : []).map((gRaw: unknown, gi: number) => {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
       const g = gRaw as Record<string, unknown>;
       const gj = migrateExtension("CATSUP_brep", g.brep as Record<string, unknown>, notes) as unknown as CatsupBrepJson;
-      return { id: typeof g.id === "number" ? g.id : gi + 1, parent: typeof g.parent === "number" ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
+      return { guid: groupGuids[gi], parent: isGuid(g.parent) && groupKnown.has(g.parent) ? g.parent : null, axes: frameOf(g.axes, `group ${gi} axes`), guides: guidesOf(g.guides, `group ${gi} guides`), brep: decodeBrep(gj, view), ...(typeof g.name === "string" ? { name: g.name } : {}) };
     });
+    const instSeen = new Set<Guid>();
     const instances: InstanceDoc[] = (Array.isArray(d.instances) ? d.instances : []).map((iRaw: unknown, ii: number) => {
       if (!isObj(iRaw)) fail(`definition ${di} instance ${ii} invalid`);
       const inst = iRaw as Record<string, unknown>;
-      if (typeof inst.definition !== "number" || !(inst.definition in (list as unknown[]))) fail(`definition ${di} instance ${ii} references a missing definition`);
+      if (!isGuid(inst.definition) || !defSeen.has(inst.definition)) fail(`definition ${di} instance ${ii} references a missing definition`);
       const m = inst.matrix;
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
-      return { id: typeof inst.id === "number" ? inst.id : ii + 1, definition: inst.definition as number, parent: typeof inst.parent === "number" ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
+      return { guid: ownGuid(inst.guid, instSeen), definition: inst.definition as Guid, parent: isGuid(inst.parent) && groupKnown.has(inst.parent) ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
-    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (typeof x === "number" ? x : -1));
+    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (isGuid(x) && matKnown.has(x) ? x : null));
     // 门 1：definition 的种类。缺省 brep；0.14 起认 mesh（载荷：definitions v5；card 在 v6 退场 = 迁成空 brep）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
     const kindRaw = d.kind === undefined ? "brep" : d.kind;
     if (kindRaw !== "brep" && kindRaw !== "mesh") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);
@@ -131,28 +183,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isObj(d.mesh)) fail(`definition ${di} mesh payload missing`);
       payload = { mesh: decodeMeshItem(d.mesh as Record<string, unknown>, sliceOf, notes, `definition ${di}`, fail) };   // CATSUP_mesh：多边形载荷；没 faceStart = 0.14 三角汤（migrate/mesh.ts）
     }
-    return { name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
-  });
-
-  // 材质：glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
-  const texList = Array.isArray(json.textures) ? (json.textures as Record<string, unknown>[]) : [];
-  const imgList = Array.isArray(json.images) ? (json.images as Record<string, unknown>[]) : [];
-  const materials: MaterialDoc[] = (Array.isArray(json.materials) ? (json.materials as Record<string, unknown>[]) : []).map((m, mi) => {
-    const pbr = isObj(m.pbrMetallicRoughness) ? (m.pbrMetallicRoughness as Record<string, unknown>) : {};
-    const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
-    const extRaw = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown> : null;
-    const out: MaterialDoc = { name: typeof m.name === "string" ? m.name : `material ${mi}`, color: materialColorFromFile(bc, extRaw) };   // 1.1 起文件里是线性值（glTF 规定），app 里按 sRGB；老文件原样（migrate/material.ts）
-    const bt = isObj(pbr.baseColorTexture) ? (pbr.baseColorTexture as Record<string, unknown>) : null;
-    if (bt && typeof bt.index === "number" && isObj(texList[bt.index])) {
-      const src = (texList[bt.index] as Record<string, unknown>).source;
-      const img = typeof src === "number" ? imgList[src] : undefined;
-      if (isObj(img) && typeof img.bufferView === "number") {
-        const ext = extRaw ? migrateExtension("CATSUP_material", extRaw, notes) : {};
-        const sz = Array.isArray(ext.sizeM) && ext.sizeM.length === 2 ? (ext.sizeM as number[]) : [1, 1];
-        out.texture = { mimeType: typeof img.mimeType === "string" ? img.mimeType : "image/png", bytes: new Uint8Array(view(img.bufferView)), sizeM: [sz[0], sz[1]] };
-      }
-    }
-    return out;
+    return { guid: defGuids[di], name: typeof d.name === "string" ? d.name : di === rootIdx ? "model" : `definition ${di}`, kind, ...payload, brep, groups, instances, materialSlots, guides: guidesOf(d.guides, `definition ${di} guides`), ...(isObj(d.drawFrame) ? { drawFrame: frameOf(d.drawFrame, `definition ${di} drawFrame`) } : {}), ...(isObj(d.extras) ? { extras: d.extras as Record<string, unknown> } : {}) };
   });
 
   // 缩略图
@@ -168,7 +199,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   const topLevel: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(json)) if (!OURS_TOP.has(k)) topLevel[k] = v;
   const extensions: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk" && k !== "CATSUP_references") extensions[k] = v;
+  for (const [k, v] of Object.entries(exts)) if (k !== "CATSUP_document" && k !== "CATSUP_definitions" && k !== "CATSUP_desk" && k !== "CATSUP_references" && k !== "CATSUP_shelf") extensions[k] = v;
   // 桌面态 CATSUP_desk（§5.7）：major 比本版新 → **不拒开**（WeebPaint desk 同款）：原字节进 carry.extensions 原样写回、这边用默认、notes 记一笔；
   // 没有这个扩展（老文件）→ 默认 + 老位置的 document.lastView（§7.2 保留读）。
   let desk: DeskDoc = defaultDesk();
@@ -212,6 +243,18 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       notes.referencesTooNew = readStamp(raw);
     }
   }
+  // 素材架 CATSUP_shelf（计划书 §2.8）：没有 = 没有架子；major 比本版新 → 不拒开（同 desk）：原字节带回、架子先空。引用悬空（东西已经不在文件里）= 丢掉那一格、记一笔，不猜、不造。
+  let shelf: ShelfDoc | undefined;
+  if (isObj(exts.CATSUP_shelf)) {
+    const raw = exts.CATSUP_shelf as Record<string, unknown>;
+    try {
+      shelf = readShelf(migrateExtension("CATSUP_shelf", raw, notes), defSeen, matKnown, notes);
+    } catch (e) {
+      if (!(e instanceof FormatTooNewError)) throw e;
+      extensions.CATSUP_shelf = raw;
+      notes.shelfTooNew = readStamp(raw);
+    }
+  }
   const DOC_KEYS = new Set(["version", "minor", "patch", "formatVersion", "settings", "bake", "lastView", "axes", "layers", "final", "finalRev"]);
   const documentExtra: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(docExt)) if (!DOC_KEYS.has(k)) documentExtra[k] = v;
@@ -227,18 +270,19 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   return {
     settings: { ...DEFAULT_SETTINGS, ...settingsIn } as CatsupDocument["settings"],
     axes: frameOf(docExt.axes, "document.axes"),
-    layers: (() => { const raw = Array.isArray(docExt.layers) ? (docExt.layers as unknown[]) : []; const ls: LayerDoc[] = raw.filter(isObj).map((l) => { const o = l as Record<string, unknown>; return { id: typeof o.id === "number" ? o.id : 0, name: typeof o.name === "string" ? o.name : `层 ${String(o.id)}`, visible: o.visible !== false, ...(Array.isArray(o.color) && o.color.length === 3 ? { color: [o.color[0], o.color[1], o.color[2]] as [number, number, number] } : {}) }; }); if (!ls.some((l) => l.id === 0)) ls.unshift({ ...DEFAULT_LAYER }); return ls; })(),
+    layers: (() => { const layerSeen = new Set<Guid>([DEFAULT_LAYER_GUID]); const raw = Array.isArray(docExt.layers) ? (docExt.layers as unknown[]) : []; const ls: LayerDoc[] = raw.filter(isObj).map((l) => { const o = l as Record<string, unknown>; const id = typeof o.id === "number" ? o.id : 0; return { id, guid: id === 0 ? DEFAULT_LAYER_GUID : ownGuid(o.guid, layerSeen), name: typeof o.name === "string" ? o.name : `层 ${String(o.id)}`, visible: o.visible !== false, ...(Array.isArray(o.color) && o.color.length === 3 ? { color: [o.color[0], o.color[1], o.color[2]] as [number, number, number] } : {}) }; }); if (!ls.some((l) => l.id === 0)) ls.unshift({ ...DEFAULT_LAYER }); return ls; })(),
     ...(isFinalRecord(docExt.final) ? { final: { at: docExt.final.at, rev: docExt.final.rev, app: typeof docExt.final.app === "string" ? docExt.final.app : "", fingerprint: docExt.final.fingerprint } } : {}),
     ...(typeof docExt.finalRev === "number" ? { finalRev: docExt.finalRev } : {}),
     desk,
     references,
     bakeMode: bake.mode === "engine" ? "engine" : "wysiwyg",
     definitions,
-    rootIndex: rootIdx as number,
-    root: definitions[rootIdx as number],
+    rootIndex: rootIdx,
+    root: definitions[rootIdx],
     materials,
+    ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), views },
-    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew ? { readNotes: notes } : {}),
+    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs ? { readNotes: notes } : {}),
   };
 }

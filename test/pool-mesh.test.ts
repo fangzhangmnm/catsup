@@ -8,11 +8,12 @@ import type { Material } from "../src/scene/scene.ts";
 import { PoolMesh, RegionStore, type PoolMeshEnv } from "../src/editor/pool-mesh.ts";
 type Store = { readonly specs: readonly { name: string; size: number }[]; readonly arrays: Record<string, ArrayLike<number>>; readonly end: number };
 
+import { mintGuid } from "../src/format/guid.ts";
 const P = (x: number, y: number, z: number): Pt3 => ({ x, y, z });
 const MATS: Material[] = [
-  { name: "红", color: [0.9, 0.1, 0.1] },
-  { name: "蓝", color: [0.1, 0.2, 0.9] },
-  { name: "砖", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: new Uint8Array([1]), sizeM: [0.5, 0.25] } },
+  { guid: mintGuid(), name: "红", color: [0.9, 0.1, 0.1] },
+  { guid: mintGuid(), name: "蓝", color: [0.1, 0.2, 0.9] },
+  { guid: mintGuid(), name: "砖", color: [1, 1, 1], texture: { mimeType: "image/png", bytes: new Uint8Array([1]), sizeM: [0.5, 0.25] } },
 ];
 const env = (thick: boolean, slots = MATS.length): PoolMeshEnv => ({
   matOf: (slot) => (slot === undefined || slot >= slots ? null : MATS[slot] ?? null), slotsSig: MATS.slice(0, slots).map((_, i) => i + 1).join(","),

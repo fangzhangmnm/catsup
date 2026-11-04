@@ -219,3 +219,24 @@ export function fingerprint(k: Kernel): string {
   const faces = k.faces().map((f) => { const r = k.faceRings3(f.id)!; return [r.outer, ...r.holes].map((ring) => ring.map(key).sort().join(";")).join("|"); }).sort();
   return `${k.vertices().length}/${edges.join(" ")}/${faces.join(" ")}`;
 }
+
+
+/**
+ * 把一份本版文件的 JSON 改回 definitions 6.4 的形状（测试用；2026-11-04 Claude Opus 5.5）：root / 实例的 definition / 组和实例的 parent 换回下标和整数 id，去掉 guid。
+ * 冻结语料里 6.x 的样本都是干净的；老 bug 留下的重复（同 id 写两次）得靠这个造。mutate = 改回去之后、编码之前再动一下 JSON。
+ */
+export function downgradeDefinitionsToV6(json: Record<string, unknown>, mutate?: (defs: { root: number; list: Record<string, any>[] }) => void): void {
+  const ext = (json.extensions as Record<string, any>).CATSUP_definitions, list = ext.list as Record<string, any>[];
+  const defIdx = new Map<string, number>(list.map((d, i) => [d.guid as string, i]));
+  const matIdx = new Map<string, number>(((json.materials ?? []) as Record<string, any>[]).map((m, i) => [m.extensions.CATSUP_material.guid as string, i]));
+  for (const m of (json.materials ?? []) as Record<string, any>[]) delete m.extensions.CATSUP_material.guid;
+  ext.version = 6; ext.minor = 4; ext.root = defIdx.get(ext.root);
+  for (const d of list) {
+    const gid = new Map<string, number>((d.groups as Record<string, any>[]).map((g, i) => [g.guid as string, i + 1]));
+    d.groups = (d.groups as Record<string, any>[]).map((g, i) => { const { guid: _g, ...r } = g; void _g; return { ...r, id: i + 1, parent: g.parent ? gid.get(g.parent) ?? null : null }; });
+    d.instances = (d.instances as Record<string, any>[]).map((n, i) => { const { guid: _g, ...r } = n; void _g; return { ...r, id: i + 1, definition: defIdx.get(n.definition), parent: n.parent ? gid.get(n.parent) ?? null : null }; });
+    d.materialSlots = (d.materialSlots as (string | null)[]).map((g) => (g ? matIdx.get(g) ?? -1 : -1));
+    delete d.guid;
+  }
+  mutate?.(ext);
+}

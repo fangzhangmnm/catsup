@@ -1,3 +1,4 @@
+import { type MigrationCtx } from "./definitions.ts";
 export interface Stamp {
     readonly major: number;
     readonly minor: number;
@@ -7,27 +8,27 @@ export interface Stamp {
 export declare const FORMAT: {
     readonly CATSUP_document: {
         readonly major: 3;
-        readonly minor: 4;
+        readonly minor: 5;
         readonly patch: 0;
     };
     readonly CATSUP_brep: {
         readonly major: 4;
-        readonly minor: 2;
+        readonly minor: 3;
         readonly patch: 0;
     };
     readonly CATSUP_definitions: {
-        readonly major: 6;
-        readonly minor: 4;
+        readonly major: 7;
+        readonly minor: 0;
         readonly patch: 0;
     };
     readonly CATSUP_instance: {
-        readonly major: 1;
+        readonly major: 2;
         readonly minor: 0;
         readonly patch: 0;
     };
     readonly CATSUP_material: {
         readonly major: 1;
-        readonly minor: 1;
+        readonly minor: 2;
         readonly patch: 0;
     };
     readonly CATSUP_desk: {
@@ -44,6 +45,11 @@ export declare const FORMAT: {
     readonly CATSUP_mesh: {
         readonly major: 1;
         readonly minor: 2;
+        readonly patch: 0;
+    };
+    readonly CATSUP_shelf: {
+        readonly major: 1;
+        readonly minor: 0;
         readonly patch: 0;
     };
 };
@@ -66,7 +72,7 @@ export type StampVerdict = "same" | "older" | "newer-minor" | "newer-patch";
 /** 同 major 下文件拍子 vs 本版：minor 大 = newer-minor（提示一次），patch 大 = newer-patch（静默），其余 older / same。 */
 export declare function compareStamp(file: Stamp, mine: Stamp): StampVerdict;
 /** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）；
- *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）。 */
+ *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）；shelfTooNew 同理；danglingShelfRefs = 架子上有几格指向的东西已经不在文件里（读时丢掉，不猜、不造）。 */
 export interface FormatReadNotes {
     newerMinor: {
         ext: CatsupExtension;
@@ -80,14 +86,16 @@ export interface FormatReadNotes {
     }[];
     deskTooNew?: Stamp;
     referencesTooNew?: Stamp;
+    shelfTooNew?: Stamp;
+    danglingShelfRefs?: number;
 }
 export declare const emptyReadNotes: () => FormatReadNotes;
-export type MigrationStep = (json: Record<string, unknown>) => Record<string, unknown>;
+export type MigrationStep = (json: Record<string, unknown>, ctx: MigrationCtx) => Record<string, unknown>;
 export declare class FormatTooNewError extends Error {
     readonly extension: string;
     readonly fileVersion: number;
     readonly appVersion: number;
     constructor(extension: string, fileVersion: number, appVersion: number);
 }
-/** 把一个扩展的 JSON 从文件 major 链式升到当前版；缺 version 视为 1（首版）。同 major 下 minor / patch 比本版新 → 记进 notes（有的话），不改 JSON。 */
-export declare function migrateExtension(ext: CatsupExtension, json: Record<string, unknown>, notes?: FormatReadNotes): Record<string, unknown>;
+/** 把一个扩展的 JSON 从文件 major 链式升到当前版；缺 version 视为 1（首版）。同 major 下 minor / patch 比本版新 → 记进 notes（有的话），不改 JSON。ctx = 跨子结构的迁移要的东西（定义 6→7 要材质的 GUID）。 */
+export declare function migrateExtension(ext: CatsupExtension, json: Record<string, unknown>, notes?: FormatReadNotes, ctx?: MigrationCtx): Record<string, unknown>;

@@ -362,3 +362,16 @@ flowchart LR
 - **搬家**（`main.ts runMove` → `home-move.ts moveToHome`，每份）：读旧库 at-rest 字节（随旧库份数涨）→ 先读夹里同名（同字节 = 算写好）→ `mode:"new"` 写 + 推进夹（撞名换「 (n)」）→ 从夹里真的读回、逐 4 MB 块比 → move 类才 `trash()` 旧库那份（旧库实例永远离线：不会排云端删除）。开销 = 每份两次夹内读 + 一次写，和库里别的模型无关。
 - **数旧模型**（`legacyScan`）：文件夹家时另开一个离线旧库实例走遍文件夹的本地帧再 dispose（随旧库份数涨；退役后不再开）。
 - **Fable 审后补（同日）**：搬完 → `carryVerifier`（有加密件才看；源库 app-state 读一条 → 新家 app-state 和夹里对一次 → 没有才原样写 + 再对一次推进夹 + 落本机）。退出登录：`flushLocal` → 关图库 → `auth.signOut()`（库还活着，清云端列表缓存）→ `disposeStore` → `session.detachFromGallery()`（家 → 临时，内存里的模型不动）→ 锁 + 忘。
+
+## 追记 2026-11-04（v0.18.29，Claude Opus 5.5）：文件流程的身份换算（⑨）
+
+- **读**：`read.ts` 先读材质（铸 / 收 GUID）→ `migrateExtension("CATSUP_definitions", …, { materialGuids })`（6.x 走 `migrate/definitions.ts`：先按旧 id 去重，再铸 GUID、把序号换成 GUID）→ 定义 → 素材架（引用悬空的丢掉、记一笔）。
+- **文件 → 运行时**（`scene-doc.ts sceneFromDocument`）：GUID → 数字句柄现发（定义、组、实例按文件顺序；材质 = 表下标）；槽表的值 GUID → 材质下标。句柄只活这次会话。
+- **运行时 → 文件**（`documentFromScene`）：反过来；**撤销栈、op、拾取、结算、合成视图一律还是数字句柄，这条热路径零改动**（计划书提案 P1）。
+- **写**：`write.ts` 内部按 `definitionIndex(doc)` 查表给烘焙排 mesh，下标不进文件。
+- 还随整个模型涨的点没变；多的只有读写时每条目一次 Map 查找。
+
+## 追记 2026-11-04 老文件怎么走
+
+打开 6.x 文件：GUID 现铸、不标脏、不写云（`probe-update-conflict` 场景 1：更新后网盘写 0 次、eTag 不变）；用户真改了、存了才定下来，同一份老文件两台设备各铸各的，只有真存了才算改动，走库的正常冲突面。
+

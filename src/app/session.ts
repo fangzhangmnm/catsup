@@ -947,7 +947,7 @@ export class Session {
   /** 导出模型 .glb（导出设计稿 §4 / §5）：给别的软件看的烤好的模型——只写 glTF core，不是工程备份。only = 只导这几份物体（定义 id + 世界变换）。永不清 dirty。 */
   exportModelGlb(opts: { textures: boolean; lines: boolean; only?: readonly { def: number; xform: Xform; name?: string }[] }): { name: string; bytes: number } {
     const scene = this.d.editor.sceneRef, doc = documentFromScene(scene, this.displayName(), this.loaded), ids = [...scene.defs.keys()];
-    const only = opts.only?.map((o) => ({ definition: ids.indexOf(o.def), xform: o.xform, ...(o.name !== undefined ? { name: o.name } : {}) })).filter((o) => o.definition >= 0);
+    const only = opts.only?.filter((o) => ids.includes(o.def)).map((o) => ({ definition: scene.def(o.def).guid, xform: o.xform, ...(o.name !== undefined ? { name: o.name } : {}) }));
     const bytes = writeGltfModel(doc, { textures: opts.textures, lines: opts.lines, ...(only ? { only } : {}) }), name = `${downloadName(this.displayName())}.glb`;
     this.download(bytes, name);
     this.d.setStatus(`${name} 已下载（给别的软件看的模型，不是工程备份${this.plainExportNote()}）`);

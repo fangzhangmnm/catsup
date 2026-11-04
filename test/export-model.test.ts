@@ -55,7 +55,7 @@ describe("导出模型（write.ts writeGltfModel）", () => {
     const comp = doc.definitions.findIndex((d, i) => i !== doc.rootIndex && d.instances.length === 0 && (d.brep.faces.length > 0 || !!d.mesh));
     assert(comp >= 0, "样本里得有一个组件定义");
     const xf = [...IDENTITY] as unknown as typeof IDENTITY; (xf as unknown as number[])[3] = 5;
-    const j = jsonOf(writeGltfModel(doc, { ...ALL, only: [{ definition: comp, xform: xf, name: "那一份" }] }));
+    const j = jsonOf(writeGltfModel(doc, { ...ALL, only: [{ definition: doc.definitions[comp].guid, xform: xf, name: "那一份" }] }));
     eq(j.nodes[0].children.length, 1); eq(j.nodes[j.nodes[0].children[0]].name, "那一份");
     assert(!("mesh" in j.nodes[0]), "根自己的几何不导");
     eq(j.meshes.length, 1, "只烤够得着的那一个定义");

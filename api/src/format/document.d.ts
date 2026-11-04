@@ -2,6 +2,7 @@ import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { FormatReadNotes } from "./migrate/index.ts";
+import { type Guid } from "./guid.ts";
 export type BakeMode = "wysiwyg" | "engine";
 export interface DocumentSettings {
     displayUnit: string;
@@ -30,13 +31,15 @@ export interface ImageAsset {
 export declare const assertImageAsset: (img: ImageAsset, what?: string) => void;
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + 可选贴图（原图字节 + 物理尺寸 米）。 */
 export interface MaterialDoc {
+    guid: Guid;
     name: string;
     color: [number, number, number];
     texture?: ImageAsset;
 }
 /** 层（Unity render layer 的管理用法；契约 §4）：文档级表，id 0 = 默认层永远存在；只管可见性，纯管理。 */
 export interface LayerDoc {
-    id: number;
+    id: number; /** 身份（document 3.5）；`id` 是这张表的代号（实例上存的小整数），跨文件靠 guid 对。 */
+    guid: Guid;
     name: string;
     visible: boolean;
     color?: [number, number, number];
@@ -88,17 +91,17 @@ export interface GuidesDoc {
 }
 export declare const emptyGuidesDoc: () => GuidesDoc;
 export interface GroupDoc {
-    id: number;
-    parent: number | null;
+    guid: Guid;
+    parent: Guid | null;
     axes: Frame;
     brep: BrepSnapshot;
     name?: string;
     guides: GuidesDoc;
 }
 export interface InstanceDoc {
-    id: number;
-    definition: number;
-    parent: number | null;
+    guid: Guid; /** 摆的是哪个定义（定义的 GUID）。 */
+    definition: Guid;
+    parent: Guid | null;
     xform: Xform;
     name?: string; /** 锁定（A27）；只在 true 时写。 */
     locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */
@@ -106,13 +109,14 @@ export interface InstanceDoc {
     hidden?: boolean;
 }
 export interface DefinitionDoc {
+    guid: Guid;
     name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */
     kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */
     mesh?: MeshDoc;
     brep: BrepSnapshot;
     groups: GroupDoc[];
-    instances: InstanceDoc[]; /** 槽号 → materials 索引。 */
-    materialSlots: number[];
+    instances: InstanceDoc[]; /** 对照表：槽号 → 材质 GUID（面上存的小编号是它的代号）；null = 这一槽没有对应的材质（占位不压缩：面上的代号指着位置）。 */
+    materialSlots: (Guid | null)[];
     guides: GuidesDoc; /** 进这个组件画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟组件原点）。 */
     drawFrame?: Frame;
     extras?: Record<string, unknown>;
@@ -137,12 +141,14 @@ export interface CatsupDocument {
     /** 参考窗牌组（`CATSUP_references`，2026-10-25；契约 §5.8）：空 files = 没有（不写扩展）。 */
     references: ReferencesDoc;
     bakeMode: BakeMode;
-    /** 全部 definition；root = definitions[rootIndex]（同一对象）。 */
+    /** 全部 definition；root = definitions[rootIndex]（同一对象）。文件里 root 写 GUID；rootIndex 只是内存里的方便，列表顺序没有语义。 */
     definitions: DefinitionDoc[];
     rootIndex: number;
     root: DefinitionDoc;
-    /** 文档材质表（glTF materials；只增）。 */
+    /** 文档材质表（glTF materials）。列表顺序没有语义；引用按 GUID。 */
     materials: MaterialDoc[];
+    /** 素材架（`CATSUP_shelf` 1.0，2026-11-04；计划书 §2.8）：缺 = 没有架子。架子上一格 = 引用，放的是 GUID。 */
+    shelf?: ShelfDoc;
     thumbnail?: {
         mimeType: string;
         bytes: Uint8Array;
@@ -198,5 +204,27 @@ export interface RefFileDoc {
 export declare const emptyReferences: () => ReferencesDoc;
 /** 文件里的 menuTabs → 只收字符串值；坏形状 = 空。 */
 export declare function menuTabsOf(m: unknown): Record<string, string>;
+/** 素材架。folders / items 顺序：items 有意义（user 摆的）。未知键直通（`extra` 是这一层的；条目自己的未知键跟着条目走）。 */
+export interface ShelfFolder {
+    guid: Guid;
+    name: string;
+    parent: Guid | null;
+    [key: string]: unknown;
+}
+/** kind 是开放集：本版只懂 definition / material，别的（更新的版本写的）照原样带回、不检查引用。 */
+export interface ShelfItem {
+    guid: Guid;
+    kind: string;
+    ref: Guid;
+    folder: Guid | null;
+    [key: string]: unknown;
+}
+export interface ShelfDoc {
+    folders: ShelfFolder[];
+    items: ShelfItem[];
+    extra: Record<string, unknown>;
+}
+export declare const emptyShelf: () => ShelfDoc;
+export declare const shelfIsEmpty: (s: ShelfDoc) => boolean;
 export declare const DEFAULT_SETTINGS: DocumentSettings;
 export declare function newDocument(brep: BrepSnapshot, name?: string): CatsupDocument;

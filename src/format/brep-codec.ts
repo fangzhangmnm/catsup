@@ -14,6 +14,10 @@ import { FORMAT, stampOf } from "./migrate/index.ts";
 const MAT_FRONT = "material", MAT_BACK = "materialBack";
 export const BREP_VERSION = FORMAT.CATSUP_brep.major;   // v4（2026-10-24 曲线与曲面纪元）：curves[] 本版读写（契约 §5）；major 的 SSoT = migrate/index.ts FORMAT
 const NO_MATERIAL = 0xffff;
+/** 面层 material 的保留值（brep 4.3，2026-11-04；计划书 §2.9）：这一侧没有表面。内存里 −2；−1 / 0xFFFF 是「默认材质，照画」。只有 material 两层认它，别的面层 0xFFFE 就是个数。 */
+const NO_SURFACE_FILE = 0xfffe, NO_SURFACE = -2;
+const encSide = (v: number | undefined): number => (v === NO_SURFACE ? NO_SURFACE_FILE : (v ?? -1) >= 0 ? (v as number) : NO_MATERIAL);
+const decSide = (v: number): number => (v === NO_MATERIAL ? -1 : v === NO_SURFACE_FILE ? NO_SURFACE : v);
 const UM = 1e-6;                       // 内核格点 Q（立宪 §0）；文件坐标单位是它的 10^k 倍
 const N_FIX = 2 ** 30;                 // 平面法向定点比例
 const UNIT_LADDER_UM = [10000, 1000, 100, 10, 1];   // 1 cm … 1 µm
@@ -75,7 +79,7 @@ export function canonicalize(snap: BrepSnapshot): BrepSnapshot {
     .sort((a, b) => a.f.plane - b.f.plane || cmpArr(a.f.outer, b.f.outer));
   const faces = facesTagged.map((t) => t.f);
   const faceLayers: Record<string, number[]> = {};
-  for (const [n, vals] of Object.entries(snap.faceLayers ?? {})) { const out = facesTagged.map((t) => vals[t.i] ?? -1); if (out.some((v) => v >= 0)) faceLayers[n] = out; }
+  for (const [n, vals] of Object.entries(snap.faceLayers ?? {})) { const out = facesTagged.map((t) => vals[t.i] ?? -1); if (out.some((v) => v !== -1)) faceLayers[n] = out; }   // −2（这一侧没有表面）也是内容，不许当全默认丢
   const eremap = new Array<number>(edgesTagged.length);
   edgesTagged.forEach((t, j) => { eremap[t.i] = j; });
   const curves = (snap.curves ?? []).map((c) => ({ ...c, edges: c.edges.map((i) => eremap[i]) }));   // 链的顺序不动，只换下标
@@ -140,14 +144,13 @@ export function encodeBrep(snapIn: BrepSnapshot, sink: ViewSink, keep?: Partial<
     const back = two ? FL[MAT_BACK] : undefined;
     const u = new Uint16Array(snap.faces.length * (two ? 2 : 1));
     for (let i = 0; i < snap.faces.length; i++) {
-      const v = (vals[i] ?? -1) >= 0 ? vals[i] : NO_MATERIAL;
-      if (two) { u[i * 2] = v; const b = back?.[i] ?? -1; u[i * 2 + 1] = b >= 0 ? b : NO_MATERIAL; } else u[i] = v;
+      if (two) { u[i * 2] = encSide(vals[i]); u[i * 2 + 1] = encSide(back?.[i]); } else u[i] = (vals[i] ?? -1) >= 0 ? vals[i] : NO_MATERIAL;
     }
     attributes.face[n] = { bufferView: sink.add(new Uint8Array(u.buffer)), componentType: "uint16", type: two ? "u16x2" : "u16" };
   }
   if (FL[MAT_BACK] && !FL[MAT_FRONT]) {   // 只涂了背面的面
     const u = new Uint16Array(snap.faces.length * 2);
-    for (let i = 0; i < snap.faces.length; i++) { u[i * 2] = NO_MATERIAL; const b = FL[MAT_BACK][i] ?? -1; u[i * 2 + 1] = b >= 0 ? b : NO_MATERIAL; }
+    for (let i = 0; i < snap.faces.length; i++) { u[i * 2] = NO_MATERIAL; u[i * 2 + 1] = encSide(FL[MAT_BACK][i]); }
     attributes.face[MAT_FRONT] = { bufferView: sink.add(new Uint8Array(u.buffer)), componentType: "uint16", type: "u16x2" };
   }
 
@@ -263,12 +266,13 @@ export function decodeBrep(json: CatsupBrepJson, view: ViewSource): BrepSnapshot
     if (bytes.byteLength < json.faceCount * (two ? 4 : 2)) fail(`attributes.face.${n} stream too short`);
     const dv = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
     const vals: number[] = [];
-    for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * (two ? 4 : 2), true); vals.push(v === NO_MATERIAL ? -1 : v); }
-    if (vals.some((v) => v >= 0)) faceLayers[n] = vals;
+    const isMat = n === MAT_FRONT || n === MAT_BACK;
+    for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * (two ? 4 : 2), true); vals.push(isMat ? decSide(v) : v === NO_MATERIAL ? -1 : v); }
+    if (vals.some((v) => v !== -1)) faceLayers[n] = vals;   // 全是「默认」才不留这一层；−2（没有表面）要留
     if (two && n === MAT_FRONT) {   // 第二槽 = −n 侧（DT8；4.0 及以前两槽同值，读出来两层一样 = 语义不变）
       const back: number[] = [];
-      for (let i = 0; i < json.faceCount; i++) { const v = dv.getUint16(i * 4 + 2, true); back.push(v === NO_MATERIAL ? -1 : v); }
-      if (back.some((v) => v >= 0)) faceLayers[MAT_BACK] = back;
+      for (let i = 0; i < json.faceCount; i++) back.push(decSide(dv.getUint16(i * 4 + 2, true)));
+      if (back.some((v) => v !== -1)) faceLayers[MAT_BACK] = back;
     }
   }
   // 曲线（v4）：形状校验在这里（下标范围 / 字段类型），链连通性归 Kernel.fromBrep（CurveRegistry.fromIndex）。未知 kind → polyline（身份留着，参数丢）

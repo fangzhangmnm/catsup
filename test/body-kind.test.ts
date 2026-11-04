@@ -59,6 +59,7 @@ describe("body kind: 文件", () => {
     const doc = documentFromScene(new Scene(sceneBox()), "t");
     const g = decodeGlb(writeCatsup(doc)) as { json: { extensions: { CATSUP_definitions: { version: number; list: Record<string, unknown>[] } } }; bin: Uint8Array };
     g.json.extensions.CATSUP_definitions.version = 5;
+    (g.json.extensions.CATSUP_definitions as unknown as { root: number }).root = 0;   // 老文件的 root 是下标（6→7 迁移才换 GUID）
     g.json.extensions.CATSUP_definitions.list[0].kind = "card";
     g.json.extensions.CATSUP_definitions.list[0].card = { image: 0, sizeM: [0.6, 1.2], anchor: "bottom-center", billboard: true };
     const back = readCatsup(encodeGlb(g.json as unknown as Record<string, unknown>, g.bin));

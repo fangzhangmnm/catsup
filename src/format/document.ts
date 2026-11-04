@@ -6,6 +6,7 @@ import type { BrepSnapshot, Pt3 } from "../kernel/kernel.ts";
 import { type Frame, type Xform, WORLD_FRAME } from "../scene/xform.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import type { FormatReadNotes } from "./migrate/index.ts";
+import { DEFAULT_LAYER_GUID, mintGuid, type Guid } from "./guid.ts";
 
 export type BakeMode = "wysiwyg" | "engine";
 
@@ -32,10 +33,10 @@ export interface DocumentSettings {
 export interface ImageAsset { mimeType: string; bytes: Uint8Array; sizeM: [number, number]; }
 export const assertImageAsset = (img: ImageAsset, what = "image"): void => { if (!(img.sizeM[0] > 0 && img.sizeM[1] > 0) || !Number.isFinite(img.sizeM[0]) || !Number.isFinite(img.sizeM[1])) throw new Error(`${what}: every image must carry a physical size (sizeM > 0)`); if (!(img.bytes instanceof Uint8Array) || !img.bytes.length) throw new Error(`${what}: empty image bytes`); };
 /** 材质（= glTF core material）：颜色 sRGB 0..1 + 可选贴图（原图字节 + 物理尺寸 米）。 */
-export interface MaterialDoc { name: string; color: [number, number, number]; texture?: ImageAsset; }
+export interface MaterialDoc { /** 身份（CATSUP_material 1.2）；名字只是显示、可重名。 */ guid: Guid; name: string; color: [number, number, number]; texture?: ImageAsset; }
 /** 层（Unity render layer 的管理用法；契约 §4）：文档级表，id 0 = 默认层永远存在；只管可见性，纯管理。 */
-export interface LayerDoc { id: number; name: string; visible: boolean; color?: [number, number, number]; }
-export const DEFAULT_LAYER: LayerDoc = { id: 0, name: "默认", visible: true };
+export interface LayerDoc { id: number; /** 身份（document 3.5）；`id` 是这张表的代号（实例上存的小整数），跨文件靠 guid 对。 */ guid: Guid; name: string; visible: boolean; color?: [number, number, number]; }
+export const DEFAULT_LAYER: LayerDoc = { id: 0, guid: DEFAULT_LAYER_GUID, name: "默认", visible: true };
 export const defaultLayers = (): LayerDoc[] => [{ ...DEFAULT_LAYER }];
 /** 网格身体载荷（CATSUP_mesh 1.0.0，2026-10-27 M3）：多边形面是真相（三角形只是 bake 的派生物）。positions f64 xyz（米，定义坐标；顶点下标空间）；faceStart / faceLen / loopVert = 每面的顶点环；faceMat −1 = 默认槽；
  *  faceFlags bit0 = 隐藏；edgePairs（成对）+ edgeFlags 只列带标记的边（软 1 / 平滑 2 / 接缝 4 / 隐藏 8 / 裸线 16）。0.14 的三角汤最小形读时迁成这个形（migrate/mesh.ts）。 */
@@ -43,9 +44,9 @@ export interface MeshDoc { positions: Float64Array; faceStart: Int32Array; faceL
 /** 参考几何（0.11 尺规纪元；definitions v4）：池本地坐标，id 线 / 点同一空间。 */
 export interface GuidesDoc { lines: { id: number; p: Pt3; dir: Pt3 }[]; points: { id: number; p: Pt3 }[]; /** 参考圆（definitions 6.3，圆规；缺 = 没有）。 */ circles?: { id: number; c: Pt3; n: Pt3; r: number }[]; /** 参考球（definitions 6.3，球规；缺 = 没有）。 */ spheres?: { id: number; c: Pt3; r: number }[] }
 export const emptyGuidesDoc = (): GuidesDoc => ({ lines: [], points: [] });
-export interface GroupDoc { id: number; parent: number | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; }   // 组不是物体（user 10-24）：无锁、无层；旧文件的 locked 读时丢弃（definitions v5）
-export interface InstanceDoc { id: number; definition: number; parent: number | null; xform: Xform; name?: string; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */ layer?: number; /** 隐藏（DT49；definitions 6.1 起；只在 true 时写；glTF 节点同时带 KHR_node_visibility）。 */ hidden?: boolean; }
-export interface DefinitionDoc { name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 槽号 → materials 索引。 */ materialSlots: number[]; guides: GuidesDoc; /** 进这个组件画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟组件原点）。 */ drawFrame?: Frame; extras?: Record<string, unknown>; }
+export interface GroupDoc { guid: Guid; parent: Guid | null; axes: Frame; brep: BrepSnapshot; name?: string; guides: GuidesDoc; }   // 组不是物体（user 10-24）：无锁、无层；旧文件的 locked 读时丢弃（definitions v5）
+export interface InstanceDoc { guid: Guid; /** 摆的是哪个定义（定义的 GUID）。 */ definition: Guid; parent: Guid | null; xform: Xform; name?: string; /** 锁定（A27）；只在 true 时写。 */ locked?: boolean; /** 层（契约 §4；缺 = 继承父上下文的有效层）。 */ layer?: number; /** 隐藏（DT49；definitions 6.1 起；只在 true 时写；glTF 节点同时带 KHR_node_visibility）。 */ hidden?: boolean; }
+export interface DefinitionDoc { guid: Guid; name: string; /** 物体种类（0.13 门 1）；缺省 brep；文件里只在非 brep 时写。 */ kind?: BodyKind; /** kind = mesh 时的载荷（definitions v5）。 */ mesh?: MeshDoc; brep: BrepSnapshot; groups: GroupDoc[]; instances: InstanceDoc[]; /** 对照表：槽号 → 材质 GUID（面上存的小编号是它的代号）；null = 这一槽没有对应的材质（占位不压缩：面上的代号指着位置）。 */ materialSlots: (Guid | null)[]; guides: GuidesDoc; /** 进这个组件画图用的坐标架（definitions 6.2，DT86；定义坐标；缺 = 跟组件原点）。 */ drawFrame?: Frame; extras?: Record<string, unknown>; }
 
 export interface CatsupDocument {
   settings: DocumentSettings;
@@ -62,12 +63,14 @@ export interface CatsupDocument {
   /** 参考窗牌组（`CATSUP_references`，2026-10-25；契约 §5.8）：空 files = 没有（不写扩展）。 */
   references: ReferencesDoc;
   bakeMode: BakeMode;
-  /** 全部 definition；root = definitions[rootIndex]（同一对象）。 */
+  /** 全部 definition；root = definitions[rootIndex]（同一对象）。文件里 root 写 GUID；rootIndex 只是内存里的方便，列表顺序没有语义。 */
   definitions: DefinitionDoc[];
   rootIndex: number;
   root: DefinitionDoc;
-  /** 文档材质表（glTF materials；只增）。 */
+  /** 文档材质表（glTF materials）。列表顺序没有语义；引用按 GUID。 */
   materials: MaterialDoc[];
+  /** 素材架（`CATSUP_shelf` 1.0，2026-11-04；计划书 §2.8）：缺 = 没有架子。架子上一格 = 引用，放的是 GUID。 */
+  shelf?: ShelfDoc;
   thumbnail?: { mimeType: string; bytes: Uint8Array };
   /** round-trip 保真：读到的未知顶层键 / 未知扩展 / extras 原样带回；其中任何 `{ bufferView: N }` 引用的二进制也随 `views` 携带。 */
   carry: { topLevel: Record<string, unknown>; extensions: Record<string, unknown>; documentExtra: Record<string, unknown>; definitionsExtra: Record<string, unknown>; brepKeep?: Record<string, unknown>; views: Map<number, Uint8Array> };
@@ -108,10 +111,18 @@ export function menuTabsOf(m: unknown): Record<string, string> {
   return Object.fromEntries(Object.entries(m as Record<string, unknown>).filter((e): e is [string, string] => typeof e[1] === "string"));
 }
 
+/** 素材架。folders / items 顺序：items 有意义（user 摆的）。未知键直通（`extra` 是这一层的；条目自己的未知键跟着条目走）。 */
+export interface ShelfFolder { guid: Guid; name: string; parent: Guid | null; [key: string]: unknown; }
+/** kind 是开放集：本版只懂 definition / material，别的（更新的版本写的）照原样带回、不检查引用。 */
+export interface ShelfItem { guid: Guid; kind: string; ref: Guid; folder: Guid | null; [key: string]: unknown; }
+export interface ShelfDoc { folders: ShelfFolder[]; items: ShelfItem[]; extra: Record<string, unknown>; }
+export const emptyShelf = (): ShelfDoc => ({ folders: [], items: [], extra: {} });
+export const shelfIsEmpty = (s: ShelfDoc): boolean => !s.folders.length && !s.items.length && !Object.keys(s.extra).length;
+
 export const DEFAULT_SETTINGS: DocumentSettings = { displayUnit: "m", gridStep: 1, snapIncrement: 0.2, absoluteGrid: false, gridSubdiv: 5 };
 
 export function newDocument(brep: BrepSnapshot, name = "model"): CatsupDocument {
-  const root: DefinitionDoc = { name, brep, groups: [], instances: [], materialSlots: [], guides: emptyGuidesDoc() };
+  const root: DefinitionDoc = { guid: mintGuid(), name, brep, groups: [], instances: [], materialSlots: [], guides: emptyGuidesDoc() };
   return {
     settings: { ...DEFAULT_SETTINGS },
     axes: { origin: { ...WORLD_FRAME.origin }, x: { ...WORLD_FRAME.x }, y: { ...WORLD_FRAME.y }, z: { ...WORLD_FRAME.z } },

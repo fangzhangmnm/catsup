@@ -1,13 +1,15 @@
 // scene-doc.ts —— Scene（运行时：Kernel 池 + group + instance）↔ CatsupDocument（文件形状）的桥。
 // 装载 = 复原存储态（每个池 Kernel.fromBrep，拓扑校验在内核，失败整份拒开）；保存 = 每个池 toBrep。
-// definition 的 id：文件里是 list 索引，运行时由 Scene 顺序铸造（装载顺序 = 文件顺序 → 索引 i ↔ DefId i+1）。
+// **身份在这里换算**（2026-11-04 身份地基，计划书 ai-docs/20261104-identity-foundation-plan.md §2.1）：文件里条目之间的引用全是 GUID；运行时的数字句柄（DefId / GroupId / InstId / 材质下标）
+//   读的时候顺序现发、不落盘，只活这次会话。面上的材质槽号是槽表的代号，这里不碰；槽表的值在文件里是材质 GUID、在运行时是材质下标。
 // created 2026-10-21 by Claude Fable 5.1
 import { Kernel } from "../kernel/kernel.ts";
 import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
-import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc } from "./document.ts";
-import { Scene, type DefId } from "../scene/scene.ts";
-import type { CatsupDocument, DefinitionDoc, GuidesDoc } from "./document.ts";
+import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc, emptyShelf, shelfIsEmpty } from "./document.ts";
+import { Scene, type DefId, type GroupId } from "../scene/scene.ts";
+import type { CatsupDocument, DefinitionDoc, GuidesDoc, ShelfDoc } from "./document.ts";
 import type { Guides } from "../scene/guides.ts";
+import type { Guid } from "./guid.ts";
 import { newDocument } from "./document.ts";
 
 const guidesFromDoc = (g: GuidesDoc): Guides => ({
@@ -20,6 +22,7 @@ const guidesFromDoc = (g: GuidesDoc): Guides => ({
 const guidesToDoc = (g: Guides): GuidesDoc => ({ lines: g.lines.map((l) => ({ id: l.id, p: { ...l.p }, dir: { ...l.dir } })), points: g.points.map((q) => ({ id: q.id, p: { ...q.p } })),
   ...(g.circles.length ? { circles: g.circles.map((c) => ({ id: c.id, c: { ...c.c }, n: { ...c.n }, r: c.r })) } : {}), ...(g.spheres.length ? { spheres: g.spheres.map((s) => ({ id: s.id, c: { ...s.c }, r: s.r })) } : {}) });
 const copyFrame = (f: CatsupDocument["axes"]): CatsupDocument["axes"] => ({ origin: { ...f.origin }, x: { ...f.x }, y: { ...f.y }, z: { ...f.z } });
+const copyShelf = (s: ShelfDoc): ShelfDoc => ({ folders: s.folders.map((f) => ({ ...f })), items: s.items.map((i) => ({ ...i })), extra: s.extra });
 
 /** 非 brep 定义在文件里的占位 brep（文件布局不动：definitions[i].brep 永远在）。 */
 const EMPTY_BREP = () => new Kernel().toBrep();
@@ -28,53 +31,52 @@ const EMPTY_BREP = () => new Kernel().toBrep();
 export function sceneFromDocument(doc: CatsupDocument): Scene {
   const scene = new Scene(Kernel.fromBrep(doc.root.brep));
   scene.axes = copyFrame(doc.axes);
-  for (const m of doc.materials) scene.addMaterial({ name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } } : {}) });
-  const idOf = new Map<number, DefId>();
-  idOf.set(doc.rootIndex, scene.root);
+  const matIndex = new Map<Guid, number>();
+  for (const m of doc.materials) matIndex.set(m.guid, scene.addMaterial({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } } : {}) }));
+  const slotsOf = (d: DefinitionDoc): number[] => d.materialSlots.map((g) => (g !== null ? (matIndex.get(g) ?? -1) : -1));
+  (scene.def(scene.root) as { guid: Guid }).guid = doc.root.guid;
   scene.def(scene.root).name = doc.root.name;
+  const idOf = new Map<Guid, DefId>([[doc.root.guid, scene.root]]);
   scene.layers = (doc.layers?.length ? doc.layers : defaultLayers()).map((l) => ({ ...l }));
   if (!scene.layers.some((l) => l.id === 0)) scene.layers.unshift({ ...DEFAULT_LAYER });
   scene.nextLayer = Math.max(1, ...scene.layers.map((l) => l.id + 1));
-  doc.definitions.forEach((d, i) => { if (i !== doc.rootIndex) idOf.set(i, scene.mintDef(d.name, Kernel.fromBrep(d.brep)).id); });
-  doc.definitions.forEach((d, i) => {
-    const def = scene.def(idOf.get(i)!);
-    // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
-    if (d.kind === "mesh" && d.mesh) { def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: d.materialSlots.map((m) => (m in doc.materials ? m : -1)) }; if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis }); for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; if (inst.hidden) ii.hidden = true; } return; }
-    const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
-    body.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
-    body.guides = guidesFromDoc(d.guides);
-    if (d.drawFrame && def.id !== scene.root) body.drawFrame = copyFrame(d.drawFrame);   // 根的坐标架 = document.axes
-    // 组按文件里的 id 放（稳定；parent 引用按它）。2026-11-04 Opus 修（实例 10-25 修过的同一个写法，组这边漏了）：此前先改 id 再判「临时 id 要不要删」，判断永远为「不删」→
-    // id 有空缺（删过组）的文件读回来，同一个组在表里两份 = 几何叠两层、文件变大、再删只删得掉一份。现在：临时 id 从文件最大 id 之后起（不会撞上文件 id）、先删临时再按文件 id 放；
-    // 已经重复过的文件（同一个 id 写了两次）读进来后写的覆盖先写的 = 自动合回一份（编辑永远落在后写的那份上）。test/group-ids.test.ts
-    body.nextGroup = Math.max(body.nextGroup, 1 + Math.max(0, ...d.groups.map((g) => g.id)));
-    for (const g of d.groups) {
-      const grp = scene.mintGroup(def.id, null, Kernel.fromBrep(g.brep), g.axes);
-      grp.guides = guidesFromDoc(g.guides);
-      body.groups.delete(grp.id);
-      (grp as { id: number }).id = g.id;
-      body.groups.set(g.id, grp);
-      if (g.name !== undefined) grp.name = g.name;
-    }
-    for (const g of d.groups) { const grp = body.groups.get(g.id)!; grp.parent = g.parent !== null && body.groups.has(g.parent) ? g.parent : null; }
-    body.nextGroup = Math.max(1, ...[...body.groups.keys()].map((k) => k + 1));
-    // 实例按文件里的 id 放（2026-10-25 Opus 修：此前先改 id 再判「临时 id 要不要删」，判断永远为「不删」→ id 有空缺（删过实例）的文件读回来，
-    // 临时 id 下面多一份同一个实例 = 存一次读一次就重复。现在：临时 id 从文件最大 id 之后起（不会撞上文件 id）、先删临时再按文件 id 放；
-    // 已经重复过的文件（同一个 id 写了两次）读进来后写的覆盖先写的 = 自动合回一份（两份本来就是同一个实例、同一个位置）。
-    def.nextInst = Math.max(def.nextInst, 1 + Math.max(0, ...d.instances.map((i) => i.id)));
+  scene.shelf = doc.shelf ? copyShelf(doc.shelf) : emptyShelf();
+  doc.definitions.forEach((d, i) => { if (i !== doc.rootIndex) idOf.set(d.guid, scene.mintDef(d.name, Kernel.fromBrep(d.brep), d.guid).id); });
+  /** 两种身体共用：实例按文件顺序摆（Map 插入顺序 = 同级顺序，计划书 §2.3）。 */
+  const placeInstances = (defId: DefId, d: DefinitionDoc, parentOf: (g: Guid | null) => GroupId | null): void => {
     for (const inst of d.instances) {
       const target = idOf.get(inst.definition);
       if (target === undefined) continue;
-      const ii = scene.mintInstance(def.id, inst.parent !== null && body.groups.has(inst.parent) ? inst.parent : null, target, inst.xform);
-      def.instances.delete(ii.id);
-      (ii as { id: number }).id = inst.id;
-      def.instances.set(inst.id, ii);
+      const ii = scene.mintInstance(defId, parentOf(inst.parent), target, inst.xform, inst.guid);
       if (inst.name !== undefined) ii.name = inst.name;
       if (inst.locked) ii.locked = true;
       if (inst.layer !== undefined) ii.layer = inst.layer;
       if (inst.hidden) ii.hidden = true;
     }
-    def.nextInst = Math.max(1, ...[...def.instances.keys()].map((k) => k + 1));
+  };
+  doc.definitions.forEach((d) => {
+    const def = scene.def(idOf.get(d.guid)!);
+    // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
+    if (d.kind === "mesh" && d.mesh) {
+      def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: slotsOf(d) };
+      if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis });
+      placeInstances(def.id, d, () => null);   // 网格体没有组
+      return;
+    }
+    const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
+    body.materialSlots = slotsOf(d);
+    body.guides = guidesFromDoc(d.guides);
+    if (d.drawFrame && def.id !== scene.root) body.drawFrame = copyFrame(d.drawFrame);   // 根的坐标架 = document.axes
+    const groupOf = new Map<Guid, GroupId>();
+    for (const g of d.groups) {
+      const grp = scene.mintGroup(def.id, null, Kernel.fromBrep(g.brep), g.axes, g.guid);
+      grp.guides = guidesFromDoc(g.guides);
+      if (g.name !== undefined) grp.name = g.name;
+      groupOf.set(g.guid, grp.id);
+    }
+    const parentOf = (g: Guid | null): GroupId | null => (g !== null ? (groupOf.get(g) ?? null) : null);
+    for (const g of d.groups) body.groups.get(groupOf.get(g.guid)!)!.parent = parentOf(g.parent);
+    placeInstances(def.id, d, parentOf);
   });
   // 循环引用防线：任何 definition 不得（直接或间接）引用自己
   for (const d of scene.defs.values()) for (const inst of d.instances.values()) if (scene.references(inst.def, d.id)) throw new Error(`readCatsup: definition "${d.name}" references itself through instances`);
@@ -85,27 +87,30 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
 export function documentFromScene(scene: Scene, name: string, base?: CatsupDocument | null): CatsupDocument {
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
-  const idx = new Map<DefId, number>(ids.map((id, i) => [id, i]));
+  const slotGuids = (slots: readonly number[]): (Guid | null)[] => slots.map((m) => scene.materials[m]?.guid ?? null);
   const definitions: DefinitionDoc[] = ids.map((id) => {
     const d = scene.def(id);
-    const instances = [...d.instances.values()].filter((i) => idx.has(i.def)).map((i) => ({ id: i.id, definition: idx.get(i.def)!, parent: i.parent, xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
-    if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: [...d.body.materialSlots], guides: emptyGuidesDoc() }; }
+    const groupGuid = (g: GroupId | null): Guid | null => (g !== null && d.body.kind === "brep" ? (d.body.groups.get(g)?.guid ?? null) : null);
+    const instances = [...d.instances.values()].filter((i) => scene.defs.has(i.def)).map((i) => ({ guid: i.guid, definition: scene.def(i.def).guid, parent: groupGuid(i.parent), xform: i.xform, ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) }));
+    if (d.body.kind === "mesh") { const mr = scene.meshMirrors.get(d.id); return { guid: d.guid, name: d.name, kind: "mesh", mesh: { ...meshDocFromKernel(d.body.kernel), ...(mr ? { mirror: { mode: mr.mode, axis: mr.axis } } : {}) }, brep: EMPTY_BREP(), groups: [], instances, materialSlots: slotGuids(d.body.materialSlots), guides: emptyGuidesDoc() }; }
     const b = d.body;
     return {
+      guid: d.guid,
       name: id === scene.root ? name : d.name,
       kind: d.body.kind,
       brep: b.kernel.toBrep(),
-      groups: [...b.groups.values()].map((g) => ({ id: g.id, parent: g.parent, axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) })),
+      groups: [...b.groups.values()].map((g) => ({ guid: g.guid, parent: groupGuid(g.parent), axes: g.axes, brep: g.kernel.toBrep(), guides: guidesToDoc(g.guides), ...(g.name !== undefined ? { name: g.name } : {}) })),
       instances,
-      materialSlots: [...b.materialSlots],
+      materialSlots: slotGuids(b.materialSlots),
       guides: guidesToDoc(b.guides),
       ...(b.drawFrame ? { drawFrame: copyFrame(b.drawFrame) } : {}),
     };
   });
-  const materials = scene.materials.map((m) => ({ name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));
+  const materials = scene.materials.map((m) => ({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]] as [number, number, number], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] as [number, number] } } : {}) }));
   const root = definitions[rootIndex];
   const layers = scene.layers.map((l) => ({ ...l }));
-  if (base) return { ...base, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes), layers };   // final / finalRev 随 base 带
+  const shelf = shelfIsEmpty(scene.shelf) ? undefined : copyShelf(scene.shelf);
+  if (base) { const { shelf: _old, ...rest } = base; void _old; return { ...rest, definitions, rootIndex, root: { ...root, ...(base.root.extras ? { extras: base.root.extras } : {}) }, materials, axes: copyFrame(scene.axes), layers, ...(shelf ? { shelf } : {}) }; }   // final / finalRev 随 base 带
   const doc = newDocument(root.brep, name);
   doc.axes = copyFrame(scene.axes);
   doc.definitions = definitions;
@@ -113,5 +118,6 @@ export function documentFromScene(scene: Scene, name: string, base?: CatsupDocum
   doc.root = definitions[rootIndex];
   doc.materials = materials;
   doc.layers = layers;
+  if (shelf) doc.shelf = shelf;
   return doc;
 }

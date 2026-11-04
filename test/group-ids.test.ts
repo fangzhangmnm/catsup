@@ -1,18 +1,20 @@
-// 组 id 读写 + 网格体组件里实例的隐藏态（身份地基 ID-0 清点时实测出来的两个读文件 bug）。created 2026-11-04 by Claude Opus 5.5
-// 组：scene-doc 读文件时先改 id 再判「临时 id 要不要删」，判断永远为「不删」→ id 有空缺（删过组）的文件读回来，同一个组在表里两份：
-//   几何叠两层、文件变大、再删只删得掉一份、剩下那份删不掉。实例 2026-10-25 修过同一个写法（test/instance-ids.test.ts），组这边漏了。
-// 网格体：scene-doc 的网格体分支读实例时漏了 hidden（硬表面分支有）→ 藏着的实例重开就露出来。
+// 组 / 实例读文件的两个老 bug 的回归（身份地基 ID-0 清点时实测出来的）。created 2026-11-04 by Claude Opus 5.5
+// 组：v0.18.27 以前读文件先改 id 再判「临时 id 要不要删」，判断永远为「不删」→ id 有空缺（删过组）的文件读回来，同一个组在表里两份：
+//   几何叠两层、文件变大、再删只删得掉一份、剩下那份删不掉。实例 2026-10-25 修过同一个写法（test/instance-ids.test.ts）。
+//   现在文件里没有组 id 了（引用全是 GUID，句柄读的时候现发），这个 bug 没有地方再长；老文件已经写出去的重复由迁移合回（migrate/definitions.ts）。
+// 网格体：v0.18.27 以前网格体分支读实例漏了 hidden（硬表面分支有）→ 藏着的实例重开就露出来。现在两种身体共用一段读法。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
-import { sceneBox } from "./format-scenes.ts";
+import { downgradeDefinitionsToV6, sceneBox } from "./format-scenes.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
-import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument } from "../src/format/index.ts";
+import { writeCatsup, readCatsup, documentFromScene, sceneFromDocument, decodeGlb } from "../src/format/index.ts";
+import { encodeGlb } from "../src/format/glb.ts";
 import { translation } from "../src/scene/xform.ts";
 
 const at = (s: Scene) => ({ def: s.root, group: null });
 const roundtrip = (s: Scene): Scene => sceneFromDocument(readCatsup(writeCatsup(documentFromScene(s, "t"))));
-/** 一个盒子，建两个组（各拿一张面），删掉第一个 → 剩一个组，id = 2（有空缺）。 */
+/** 一个盒子，建两个组（各拿一张面），删掉第一个 → 剩一个组，句柄 2（有空缺）。 */
 function gapped(): Scene {
   let s = new Scene(sceneBox(1, 1));
   const k = () => s.kernelOf(at(s));
@@ -20,54 +22,53 @@ function gapped(): Scene {
   s = applyOp(s, { op: "makeGroup", at: at(s), faces: [faceKey(k(), k().faces()[0].id)], edges: [] }).scene;
   return applyOp(s, { op: "eraseGroup", at: at(s), group: [...s.brep(s.root).groups.keys()][0] }).scene;
 }
-const groupKeys = (s: Scene): number[] => [...s.brep(s.root).groups.keys()];
-const groupIds = (s: Scene): number[] => [...s.brep(s.root).groups.values()].map((g) => g.id);
+const groups = (s: Scene) => [...s.brep(s.root).groups.values()];
 
-describe("组 id 读写", () => {
-  it("删过一个组（id 有空缺）→ 存了再读：组数和 id 不变、不多出重复", () => {
-    const s = gapped();
-    eq(groupKeys(s).join(","), "2", "前提：只剩 2 号");
+describe("组读写（身份 = GUID）", () => {
+  it("删过一个组 → 存了再读：组数和身份不变、不多出重复", () => {
+    const s = gapped(), before = groups(s).map((g) => g.guid).join();
     const r = roundtrip(s);
-    eq(groupKeys(r).join(","), "2", "表里只有 2 号");
-    eq(groupIds(r).join(","), "2", "对象的 id 和键一致");
+    eq(groups(r).map((g) => g.guid).join(), before, "还是这一个组");
     eq(documentFromScene(r, "t").root.groups.length, 1, "写出去还是一个组");
-    eq(roundtrip(r).brep(r.root).groups.size, 1, "再存再读还是一个");
+    eq(groups(roundtrip(r)).map((g) => g.guid).join(), before, "再存再读还是它");
+    for (const [k, g] of roundtrip(r).brep(r.root).groups) eq(g.id, k, "表的键 = 对象的句柄");
   });
   it("读回来的组删得掉（以前第二份删不掉、再点报错）", () => {
     const r = roundtrip(gapped());
-    const s = applyOp(r, { op: "eraseGroup", at: at(r), group: groupIds(r)[0] }).scene;
+    const s = applyOp(r, { op: "eraseGroup", at: at(r), group: groups(r)[0].id }).scene;
     eq(s.brep(s.root).groups.size, 0, "删完一个不剩");
   });
-  it("新建的组不撞老号（下一个号 = 最大号 + 1）", () => {
+  it("读回来之后新建的组不撞句柄", () => {
     let r = roundtrip(gapped());
-    const k = r.kernelOf(at(r));
+    const n0 = r.brep(r.root).groups.size, k = r.kernelOf(at(r));
     r = applyOp(r, { op: "makeGroup", at: at(r), faces: [faceKey(k, k.faces()[0].id)], edges: [] }).scene;
-    eq(groupKeys(r).join(","), "2,3", "接着 3 号");
+    eq(r.brep(r.root).groups.size, n0 + 1, "多一个");
+    eq(new Set(groups(r).map((g) => g.guid)).size, n0 + 1, "身份各不相同");
   });
-  it("老文件里已经重复的组（被旧版本写过）读进来合回一份，留后写的那份（编辑永远落在后写的那份上）", () => {
-    const s = gapped();
-    const doc = documentFromScene(s, "t");
-    const one = doc.root.groups[0];
-    const stale = { ...one, brep: new Kernel().toBrep(), name: "旧的那份" };
-    doc.root.groups = [stale, { ...one, name: "新的那份" }];
-    const r = sceneFromDocument(readCatsup(writeCatsup(doc)));
-    eq(groupKeys(r).join(","), "2", "合回一份");
-    const g = r.brep(r.root).groups.get(2)!;
-    eq(g.name, "新的那份", "留后写的");
-    assert(g.kernel.faces().length > 0, "几何是后写那份的");
+  it("老文件（6.x）里已经重复的组：迁移时合回一份，留后写的（编辑永远落在后写的那份上）", () => {
+    const { json, bin } = decodeGlb(writeCatsup(documentFromScene(gapped(), "t"))) as { json: Record<string, unknown>; bin: Uint8Array };
+    downgradeDefinitionsToV6(json, (defs) => {
+      const d = defs.list.find((x) => x.groups.length)!, one = d.groups[0];
+      d.groups = [{ ...one, id: 2, name: "旧的那份" }, { ...one, id: 2, name: "新的那份" }];
+    });
+    const r = sceneFromDocument(readCatsup(encodeGlb(json, bin)));
+    eq(groups(r).length, 1, "合回一份");
+    eq(groups(r)[0].name, "新的那份", "留后写的");
+    assert(groups(r)[0].kernel.faces().length > 0, "几何在");
   });
   it("组的父子关系跨空缺保住", () => {
     let s = new Scene(sceneBox(1, 1));
     const k = () => s.kernelOf(at(s));
     s = applyOp(s, { op: "makeGroup", at: at(s), faces: [faceKey(k(), k().faces()[0].id)], edges: [] }).scene;
     s = applyOp(s, { op: "makeGroup", at: at(s), faces: [faceKey(k(), k().faces()[0].id)], edges: [] }).scene;
-    const [a, b] = groupKeys(s);
+    const [a, b] = [...s.brep(s.root).groups.keys()];
     s = applyOp(s, { op: "makeGroup", at: at(s), faces: [], edges: [], groups: [b] }).scene;
-    const c = groupKeys(s).find((g) => g !== a && g !== b)!;
+    const c = [...s.brep(s.root).groups.keys()].find((g) => g !== a && g !== b)!;
+    const kid = s.brep(s.root).groups.get(b)!.guid, dad = s.brep(s.root).groups.get(c)!.guid;
     s = applyOp(s, { op: "eraseGroup", at: at(s), group: a }).scene;
-    const r = roundtrip(s);
-    eq(r.brep(r.root).groups.get(b)?.parent, c, "孩子还挂在原来的父组下");
-    eq(r.brep(r.root).groups.size, 2, "两个组，不多");
+    const r = roundtrip(s), byGuid = new Map(groups(r).map((g) => [g.guid, g]));
+    eq(byGuid.size, 2, "两个组，不多");
+    eq(byGuid.get(kid)!.parent, byGuid.get(dad)!.id, "孩子还挂在原来的父组下");
   });
 });
 

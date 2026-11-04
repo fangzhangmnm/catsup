@@ -5,13 +5,16 @@ import type { BodyKind } from "./body-kind.ts";
 import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
-import { type LayerDoc } from "../format/document.ts";
+import { type LayerDoc, type ShelfDoc } from "../format/document.ts";
+import { type Guid } from "../format/guid.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 export type DefId = number;
 export type GroupId = number;
 export type InstId = number;
 /** 材质（文档级，= glTF core material）：颜色（sRGB 0..1）+ 可选贴图（原图字节 + 物理尺寸 米）。只增不删（面按索引引用）。 */
 export interface Material {
+    /** 身份（文件 / 跨文件都认它）。下标只是这次会话的句柄。 */
+    readonly guid: Guid;
     readonly name: string;
     readonly color: readonly [number, number, number];
     readonly texture?: {
@@ -22,6 +25,7 @@ export interface Material {
 }
 export interface Group {
     readonly id: GroupId;
+    readonly guid: Guid;
     parent: GroupId | null; /** 进这个组画图用的坐标架（本 definition 坐标）；组没有原点（DT86）。 */
     axes: Frame;
     kernel: Kernel;
@@ -30,6 +34,7 @@ export interface Group {
 }
 export interface Instance {
     readonly id: InstId;
+    readonly guid: Guid;
     def: DefId;
     parent: GroupId | null;
     xform: Xform;
@@ -66,6 +71,7 @@ export type Body = BrepBody | MeshBody;
 /** 定义 = 对象层的管理单位（CatsUp 的，不是 SU 内部结构）：名字 + 一个身体 + 子实例。复合（brep + 卡片同住）靠子实例，不靠多身体。 */
 export interface Definition {
     readonly id: DefId;
+    readonly guid: Guid;
     name: string;
     body: Body;
     instances: Map<InstId, Instance>;
@@ -97,20 +103,24 @@ export declare class Scene {
     /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
     layers: LayerDoc[];
     nextLayer: number;
+    /** 素材架（CATSUP_shelf；计划书 §2.8）。ID-1 只读写、不动它；动词和「架子上的也算活着」在 ID-3。 */
+    shelf: ShelfDoc;
     private nextDef;
     constructor(rootKernel?: Kernel);
-    mintDef(name: string, kernel: Kernel): Definition;
-    mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame): Group;
+    mintDef(name: string, kernel: Kernel, guid?: Guid): Definition;
+    mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame, guid?: Guid): Group;
     /** 定义里全部顶点（本定义坐标 → 再经 m）：根池 + 各组 + 各实例（递归、经实例变换）。建组件 / 建组时算包围盒和原点用（2026-10-26 嵌套）。 */
     pointsOfDef(defId: DefId, m?: Xform, depth?: number): Pt3[];
     /** 空定义（导入的空节点，T11）：brep、没顶点、没组、没实例——编辑器画小三轴代替几何（看得见、点得中）。 */
     isBare(defId: DefId): boolean;
-    mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform): Instance;
+    mintInstance(defId: DefId, parent: GroupId | null, target: DefId, xform: Xform, guid?: Guid): Instance;
     /** 材质在某 definition 里的槽号（没有就开一个）。 */
     slotFor(defId: DefId, material: number): number;
     /** 槽号 → 材质（无 / 越界 = null）。 */
     materialOfSlot(defId: DefId, slot: number | undefined): Material | null;
-    addMaterial(m: Material): number;
+    addMaterial(m: Omit<Material, "guid"> & {
+        readonly guid?: Guid;
+    }): number;
     def(id: DefId): Definition;
     group(ref: {
         def: DefId;

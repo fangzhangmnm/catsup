@@ -102,7 +102,7 @@ describe("object model: 格式往返（document v3 / definitions v6）", () => {
     assert(meshDoc && meshDoc.mesh, "mesh 载荷在");
     eq(meshDoc.mesh!.faceStart.length, 6); eq(meshDoc.mesh!.positions.length, 8 * 3); assert(meshDoc.mesh!.faceLen.every((n) => n === 4), "多边形载荷：6 张四边形");
     const rootDoc = back.root;
-    const ci = rootDoc.instances.find((i) => back.definitions[i.definition].name === "参考体")!;
+    const ci = rootDoc.instances.find((i) => back.definitions.find((d) => d.guid === i.definition)?.name === "参考体")!;
     eq(ci.layer, 1);
     const s2 = sceneFromDocument(back);
     eq(s2.layers.length, 2);

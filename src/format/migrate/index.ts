@@ -60,22 +60,33 @@
 //   · patch 比本版大 = 可无脑降 → 静默。
 //   改格式 = ① FORMAT 对应子结构 +1（major 变了在 STEPS 登记一条）② `node scripts/freeze-format-fixtures.mjs` 冻样本（目录名 = 全部拍子的签名 formatTag）③ 本头注释记一笔。
 //   少一样守卫红（test/format.test.ts「冻结样本语料」）。
+import { definitionsV6toV7, type MigrationCtx } from "./definitions.ts";
+
+//
+// 身份地基（2026-11-04，Claude Opus 5.5；计划书 ai-docs/20261104-identity-foundation-plan.md §2.10，清点 ai-docs/20261104-identity-id0-inventory.md §5）：
+//   CATSUP_definitions 6 → 7（major，user「大版本同意」）：条目之间的引用从序号换成 GUID，迁移在 migrate/definitions.ts。老读者拒开（原文报版本）。
+//   CATSUP_instance    1 → 2（major）：glTF 节点上的 definition 从下标换成 GUID。这个键只写不读，老读者不看，不影响打开；打开被拒是 definitions 7 拒的。
+//   CATSUP_material    1.2（minor）：每条材质带 guid；老文件读时现铸。老读者原样带不回（它重建材质扩展）= 存一次换一批，但它打不开 definitions 7，碰不到。
+//   CATSUP_document    3.5（minor）：layers[].guid；默认层是全家一个常量（guid.ts），别的层读时现铸。
+//   CATSUP_brep        4.3（minor）：面层 material 的 0xFFFE = 这一侧没有表面（内存 −2）。实测 0.18.x 读到它：不炸、显示默认材质、写回还是 0xFFFE。动词在 ID-2。
+//   CATSUP_shelf       1.0（新，可选）：素材架。空 = 不写这个扩展。major 比本版新 → 不拒开（同 desk）：原字节带回、架子先空。
 
 export interface Stamp { readonly major: number; readonly minor: number; readonly patch: number }
 /** 本版写出的拍子（SSoT）。 */
 export const FORMAT = {
-  CATSUP_document: { major: 3, minor: 4, patch: 0 },   // 3.4（2026-10-30）：unitSystem + 吸附长度为主   // 3.2（2026-10-29）：settings.gridSubdiv 多四档 2 / 20 / 50 / 100；3.3（2026-10-30）：再多一档 1
-  CATSUP_brep: { major: 4, minor: 2, patch: 0 },
-  CATSUP_definitions: { major: 6, minor: 4, patch: 0 },
-  CATSUP_instance: { major: 1, minor: 0, patch: 0 },
-  CATSUP_material: { major: 1, minor: 1, patch: 0 },   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
+  CATSUP_document: { major: 3, minor: 5, patch: 0 },   // 3.5（2026-11-04）：layers[].guid   // 3.4（2026-10-30）：unitSystem + 吸附长度为主   // 3.2（2026-10-29）：settings.gridSubdiv 多四档 2 / 20 / 50 / 100；3.3（2026-10-30）：再多一档 1
+  CATSUP_brep: { major: 4, minor: 3, patch: 0 },   // 4.3（2026-11-04）：面层 0xFFFE = 这一侧没有表面
+  CATSUP_definitions: { major: 7, minor: 0, patch: 0 },   // 7.0（2026-11-04）：引用换 GUID
+  CATSUP_instance: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-04）：节点 definition 换 GUID（只写不读）
+  CATSUP_material: { major: 1, minor: 2, patch: 0 },   // 1.2（2026-11-04）：guid   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
   CATSUP_desk: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 1, minor: 2, patch: 0 },   // 1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）
+  CATSUP_shelf: { major: 1, minor: 0, patch: 0 },   // 1.0（2026-11-04）：素材架（可选扩展）
 } as const satisfies Record<string, Stamp>;
 export type CatsupExtension = keyof typeof FORMAT;
-export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh"];
+export const CATSUP_EXTENSION_ORDER: readonly CatsupExtension[] = ["CATSUP_document", "CATSUP_brep", "CATSUP_definitions", "CATSUP_instance", "CATSUP_material", "CATSUP_desk", "CATSUP_references", "CATSUP_mesh", "CATSUP_shelf"];
 /** 各子结构的 major（老名字，读写两端的 too-new 判定与 STEPS 索引都用它）。 */
 export const EXTENSION_VERSIONS: Readonly<Record<CatsupExtension, number>> = Object.fromEntries(CATSUP_EXTENSION_ORDER.map((k) => [k, FORMAT[k].major])) as Record<CatsupExtension, number>;
 /** 写入器盖拍子：`version` 必写；`minor` / `patch` 是可选键（缺 = 0），为 0 时不写——省字节（§3.2「抠」），字节照样确定。 */
@@ -101,11 +112,11 @@ export function compareStamp(file: Stamp, mine: Stamp): StampVerdict {
   return "same";
 }
 /** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）；
- *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）。 */
-export interface FormatReadNotes { newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; referencesTooNew?: Stamp }
+ *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）；shelfTooNew 同理；danglingShelfRefs = 架子上有几格指向的东西已经不在文件里（读时丢掉，不猜、不造）。 */
+export interface FormatReadNotes { newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; referencesTooNew?: Stamp; shelfTooNew?: Stamp; danglingShelfRefs?: number }
 export const emptyReadNotes = (): FormatReadNotes => ({ newerMinor: [], newerPatch: [] });
 
-export type MigrationStep = (json: Record<string, unknown>) => Record<string, unknown>;
+export type MigrationStep = (json: Record<string, unknown>, ctx: MigrationCtx) => Record<string, unknown>;
 /** STEPS[ext][fromVersion] = 升到 fromVersion+1 的纯函数。加迁移 = 在这里登记一条 + 冻结样本。 */
 const NO_GUIDES = (): Record<string, unknown> => ({ lines: [], points: [] });
 const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
@@ -147,6 +158,7 @@ const STEPS: { [K in CatsupExtension]?: Record<number, MigrationStep> } = {
       version: 6,
       list: Array.isArray(j.list) ? (j.list as Record<string, unknown>[]).map((d) => { if (d.kind !== "card") return d; const { card: _c, kind: _k, ...rest } = d; void _c; void _k; return rest; }) : j.list,   // CardBody sunset：card → 空 brep 定义
     }),
+    6: definitionsV6toV7,   // 引用从序号换成 GUID（2026-11-04；先去重再铸，见 definitions.ts）
   },
 };
 const isPlainObject = (x: unknown): x is Record<string, unknown> => typeof x === "object" && x !== null && !Array.isArray(x);
@@ -162,8 +174,8 @@ export class FormatTooNewError extends Error {
   }
 }
 
-/** 把一个扩展的 JSON 从文件 major 链式升到当前版；缺 version 视为 1（首版）。同 major 下 minor / patch 比本版新 → 记进 notes（有的话），不改 JSON。 */
-export function migrateExtension(ext: CatsupExtension, json: Record<string, unknown>, notes?: FormatReadNotes): Record<string, unknown> {
+/** 把一个扩展的 JSON 从文件 major 链式升到当前版；缺 version 视为 1（首版）。同 major 下 minor / patch 比本版新 → 记进 notes（有的话），不改 JSON。ctx = 跨子结构的迁移要的东西（定义 6→7 要材质的 GUID）。 */
+export function migrateExtension(ext: CatsupExtension, json: Record<string, unknown>, notes?: FormatReadNotes, ctx: MigrationCtx = { materialGuids: [] }): Record<string, unknown> {
   const target = EXTENSION_VERSIONS[ext];
   const file = readStamp(json);
   let v = file.major;
@@ -178,7 +190,7 @@ export function migrateExtension(ext: CatsupExtension, json: Record<string, unkn
   while (v < target) {
     const step = STEPS[ext]?.[v];
     if (!step) throw new Error(`migrate: no step registered for ${ext} v${v} → v${v + 1} (constitution §7 violated)`);
-    cur = step(cur);
+    cur = step(cur, ctx);
     v++;
     if (cur.version !== v) throw new Error(`migrate: step ${ext} v${v - 1}→v${v} did not set version`);
   }
