@@ -1,19 +1,18 @@
 // tools/move.ts —— 移动工具的手势模块：steps 语法（点参考点 → 移动 → 再点 / 松手放置；Ctrl / Alt = 复制）。从 editor.ts 原样搬出（刀 ② B，行为零变更）。
 // 目标 = 选区（顶点集 + 能动的子池）或光标下的实体 / 子池；拖拽中在相机平面上吸附、意图门（反方向候选不合法）、
 // 格点是地板（D16）：吸到格点时轴向锥照跑；轻擦平面保持上一点。created 2026-10-24 by Claude Fable 5.1
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
+import type { EdgeId, FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
 import { add3, dot3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { intentAllows3D } from "../intent.ts";
 import { cameraPlane, drawPlaneAt, grazing, inferAxisByDirection, type SnapKind } from "../pick.ts";
 import type { AxName } from "../solver.ts";
 import { moveTargets, moveTargetsSelection } from "../tools.ts";
-import { applyDir, invert, translation } from "../../scene/xform.ts";
+import { translation } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { PoolPick, ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 
 export class MoveTool implements ToolHandler {
@@ -117,18 +116,17 @@ export class MoveTool implements ToolHandler {
     ctx.setCursor(snapped.p);
   }
 
-  live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const anchor = ctx.anchor(), cursor = ctx.cursor();
     if (!this.active() || !anchor || !cursor) return "";
     const delta = sub3(cursor, anchor);
     const dims = `${this.copy ? "复制" : "移动"} ${fmtLen(len3(delta))}`;
     if (len3(delta) >= MIN_GESTURE_LEN) {
       if (this.vids.length) {
-        const vids = this.vids, dl = applyDir(invert(ctx.ctxXform()), delta);
         if (this.copy) {
-          const payload = ctx.copyPayload(translation(dl), this.entities);
-          if (payload) run((c) => { const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {}; for (const [n, segs] of Object.entries(payload.edgeSegs)) edgeSegs[n] = segs.map(([a, b]) => ({ a, b })); return c.absorb(payload.faces, payload.wires.map(([a, b]) => ({ a, b })), { edgeSegs, faceLayers: payload.faceLayers }); });
-        } else run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: add3(c.graph.pt(id), dl) }))));
+          const payload = ctx.copyPayload(ctx.xformToLocal(translation(delta)), this.entities);
+          if (payload) preview({ op: "absorb", at: ctx.activePool(), ...payload });
+        } else { const op = ctx.xformMoveOp(translation(delta), this.vids); if (op) preview(op); }
       }
       if (this.pools.length) ctx.setLiveOverride({ picks: this.pools, xform: translation(delta), copy: this.copy });
     }

@@ -1,7 +1,5 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 export declare class EraseFaceTool implements ToolHandler {
     readonly tool: "eraseFace";
     readonly grammar: "direct";
@@ -17,6 +15,6 @@ export declare class EraseFaceTool implements ToolHandler {
     }): void;
     down(): void;
     track(): void;
-    live(_ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     up(ctx: ToolCtx, ev: ToolPointer, _settle: () => ToolSample | null): void;
 }

@@ -3,7 +3,8 @@
 // created 2026-10-24 by Claude Fable 5.1 · 2026-10-27 mesh 身体换成可编辑的 mesh 内核（src/mesh/），brep → mesh 出多边形面不出三角汤（edited by Claude Fable 5.1）
 import { cross3, ptKey3, quantize3, sub3, type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
-import type { Body, BrepBody, MeshBody } from "./scene.ts";
+import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
+import { reachableDefs } from "./resources.ts";
 import { triangulateRings } from "../format/triangulate.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH, F_HIDDEN, F_WIRE, FF_HIDDEN } from "../mesh/mesh-kernel.ts";
 import type { Kernel } from "../kernel/kernel.ts";
@@ -69,13 +70,24 @@ const newell = (pts: readonly Pt3[]): Pt3 => { let x = 0, y = 0, z = 0; for (let
 const slotIsBack = (slots: readonly number[]) => (slot: number): boolean => slot >= 0 && slots[slot] === BUILTIN_BACK_SLOT;
 /** 转网格体要披露的数（计划书 §9.2½ ②：转换不问，只报）：N 张面两侧都出（= 两张叠着的面）、其中 M 张材质不同、K 张两侧都是默认背面（转过去就没了）。隐藏的面照算（隐藏照样转）。 */
 export interface BrepSideCounts { both: number; differ: number; neither: number }
-export function brepSideCounts(b: BrepBody): BrepSideCounts {
-  const isBack = slotIsBack(b.materialSlots), out: BrepSideCounts = { both: 0, differ: 0, neither: 0 };
+/**
+ * 一份算法两处用（计划书 §12 C3）：N 张面两侧都出、其中 M 张两侧材质不同、K 张两侧都是默认背面（整张不出）。按材质比，不按槽号比（和 bake 看到的一样）。
+ * skipHidden = 隐藏的面不算（导出：bake 不出隐藏面）；转网格体隐藏的照转，所以照算。
+ */
+export function brepSideCounts(b: BrepBody, opts: { skipHidden?: boolean } = {}, into: BrepSideCounts = { both: 0, differ: 0, neither: 0 }): BrepSideCounts {
+  const isBack = slotIsBack(b.materialSlots), out = into;
   for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) {
+    if (opts.skipHidden && k.isFaceHidden(f.id)) continue;
     const sF = k.faceMaterialOf(f.id, 0) ?? -1, sB = k.faceMaterialOf(f.id, 1) ?? -1, bF = isBack(sF), bB = isBack(sB);
     if (bF && bB) out.neither++;
-    else if (!bF && !bB) { out.both++; if (sF !== sB) out.differ++; }
+    else if (!bF && !bB) { out.both++; if ((b.materialSlots[sF] ?? -1) !== (b.materialSlots[sB] ?? -1)) out.differ++; }
   }
+  return out;
+}
+/** 导出表单的说明行：从根（或选中物件的定义）沿实例引用走一遍，一份定义只算一次；网格体的面 = 文件里的面，一张面一个朝向，不算。O(这些定义的面数)，不序列化模型。 */
+export function exportSideCounts(s: Scene, only?: readonly DefId[]): BrepSideCounts {
+  const out: BrepSideCounts = { both: 0, differ: 0, neither: 0 };
+  for (const id of reachableDefs(s, only ?? [s.root])) { const b = s.def(id).body; if (b.kind === "brep") brepSideCounts(b, { skipHidden: true }, out); }
   return out;
 }
 /** 一个 brep 池 → 往网格里加（自己的点表；面 / 裸线 / 边标记照搬）。要出几侧就几张面（共用点，和导入焊点一致）：一侧 = 一张面，绕向朝它、材质是它那一侧的；默认背面不出。 */

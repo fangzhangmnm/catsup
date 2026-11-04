@@ -26,14 +26,6 @@ export interface BakeMaterials {
     sizeOfCore: (core: number) => readonly [number, number] | null; /** 这个槽是内置默认背面（这一侧不出）。缺 = 没有。 */
     isBack?: (slot: number) => boolean;
 }
-/** 导出说明行的数（导出表单 / 状态行）：N 张面两侧都出、其中 M 张两侧材质不同、K 张两侧都是默认背面（整张不出）。隐藏的面不算。 */
-export interface SideCounts {
-    both: number;
-    differ: number;
-    neither: number;
-}
-export declare const noSides: () => SideCounts;
-export declare function countSides(snap: BrepSnapshot, mats: BakeMaterials | undefined, into?: SideCounts): SideCounts;
 /** bake 的取舍（「导出模型」sheet 用；导出设计稿 §4）：lines = false → 不出 LINES primitive（有的查看器画出来怪）。缺省 = 和工程文件里那份一样。 */
 export interface BakeOptions {
     lines?: boolean;

@@ -28,6 +28,12 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const out = { seeds: [], failures: [], reloads: [], hist: {} }, drifts = [];
   const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
   const modeFits = () => e.mode.kinds.includes(S().kindOf(S().defOfContext(e.context)));
+  // 面层的槽号 < 槽表长度（计划书 §12 C1：预演开的槽不许漏进真身）；手势中途真身一个字节不动（2026-11-04 Claude Opus 5.5）
+  const slotsBad = () => { for (const d of S().defs.values()) { const b = d.body, n = b.materialSlots.length; if (b.kind === "mesh") { for (const f of b.kernel.faces()) if (b.kernel.faceMat[f] >= n) return `def ${d.id} mesh face ${f} slot ${b.kernel.faceMat[f]} / ${n}`; } else for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) for (const side of [0, 1]) { const v = k.faceMaterialOf(f.id, side); if (v !== undefined && v >= n) return `def ${d.id} face ${f.id} side ${side} slot ${v} / ${n}`; } } return null; };
+  const board = document.getElementById("board"), br = board.getBoundingClientRect();
+  const fire = (type, x, y, buttons) => board.dispatchEvent(new PointerEvent(type, { bubbles: true, clientX: br.left + x, clientY: br.top + y, pointerId: 11, pointerType: "mouse", isPrimary: true, button: 0, buttons }));
+  const previewFails = [];
+  const trace1 = e.host.trace; e.host.trace = (t) => { if (t.kind === "fail" && t.where === "preview") previewFails.push(`${t.op?.op}: ${String(t.message).slice(0, 100)}`); trace1?.(t); };
   for (let seed = 1; seed <= SEEDS; seed++) {
     const rnd = mulberry(seed * 7919), posStart = e.history.position(), stepsStart = e.history.steps(), trail = [], guidsStart = guidsOf(S());
     let selAtLastStep = selKey();   // 进 / 出组件是导航不是步（FM106），撤到头再重做回来的是最后一步封的会话，不是之后的导航
@@ -44,6 +50,18 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
         const ctxDef = S().defOfContext(e.ctx), pools = [...e.selectedPools.values()], allInst = hasPool && pools.every((p) => p.kind === "instance");
         const allMeshInst = allInst && pools.every((p) => { const ii = S().def(ctxDef).instances.get(p.instance); return !!ii && S().kindOf(ii.def) === "mesh"; });
         const picks = [], add = (w, n, f) => picks.push([w, n, f]);
+        add(6, "previewDrag", () => {   // 真手势拖两下，不落定：预演跑在影子场景上，真身和槽表都不动
+          const tools = inMesh ? ["move", "rotate", "scale", "pp"] : ["rect", "line", "circle", "pp", "move", "scale", "offset"], t0 = e.tool, t = tools[Math.floor(rnd() * tools.length)], sig = () => `${fp(S())}|${[...S().defs.values()].map((d) => d.body.materialSlots.join(",")).join(";")}`, sig0 = sig(), steps0 = e.history.steps();
+          const xy = () => [120 + rnd() * 660, 120 + rnd() * 460], [x0, y0] = xy(), [x1, y1] = xy(), [x2, y2] = xy();
+          e.setTool(t);
+          fire("pointermove", x0, y0, 0); fire("pointerdown", x0, y0, 1); fire("pointermove", x1, y1, 1);
+          if (sig() !== sig0) fail(`preview touched the real scene (${t}, first drag)`);
+          fire("pointermove", x2, y2, 1);
+          if (sig() !== sig0) fail(`preview touched the real scene (${t}, second drag)`);
+          if (e.history.steps() !== steps0) fail(`preview grew a step (${t})`);
+          e.cancelGesture(); fire("pointerup", x2, y2, 0); e.cancelGesture();
+          e.setTool(t0);
+        });
         add(14, "box", () => { const i = Math.floor(rnd() * 6), j = Math.floor(rnd() * 6); box(i * 2, j * 2, 0, i * 2 + 1, j * 2 + 1, 1); });
         add(8, "selectAll", () => e.selectAll());
         add(5, "deselect", () => e.deselectAll());
@@ -89,6 +107,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
       if (rep !== fp(S())) fail("replay(ops) != live scene");
       if (!selValid()) fail("selection references dead geometry");
       if (!modeFits()) fail(`workbench ${e.mode.id} does not fit the active body`);
+      { const bad = slotsBad(); if (bad) fail(`slot out of table: ${bad}`); }
       if (drifts.length) fail(`DRIFT ${JSON.stringify(drifts.splice(0))}`);
       // 撤销 / 重做只有游标真动了才算回到某一步（没东西可重做的一下 = 什么都没发生；以前照记，把之后的导航〔退出一层〕错当成「最后一步的会话」= 2026-10-28 种子 3 的假红，Opus 查）
       if ((name === "undo" || name === "redo") ? e.history.position() !== posBefore : e.history.steps() !== stepsBefore) selAtLastStep = selKey();
@@ -113,10 +132,11 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
     if (!modeFits()) fail(`after reload: workbench ${e.mode.id} does not fit`);
     if (drifts.length) fail(`after reload: DRIFT ${JSON.stringify(drifts.splice(0))}`);
   }
+  out.previewFails = previewFails;
   return out;
 }, { SEEDS, ACTIONS });
 await b.close();
 const ok = res.failures.length === 0 && errs.length === 0;
-console.log(JSON.stringify({ hist: res.hist, failures: res.failures, errs, reloads: res.reloads, seeds: res.seeds }, null, 1).slice(0, 6000));
+console.log(JSON.stringify({ hist: res.hist, failures: res.failures, errs, reloads: res.reloads, seeds: res.seeds, previewFails: [...new Set(res.previewFails)].slice(0, 12) }, null, 1).slice(0, 6000));
 console.log(ok ? "probe-undo-fuzz OK" : "probe-undo-fuzz FAIL");
 process.exit(ok ? 0 : 1);

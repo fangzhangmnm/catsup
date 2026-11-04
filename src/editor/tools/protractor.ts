@@ -1,7 +1,6 @@
 // tools/protractor.ts —— 量角器（SU Protractor）：0.11 尺规纪元 ⑥（2026-10-24，Claude Fable 5.1；设计稿 §4）。
 // 三下：圆心（定平面 = 转轴）→ 参考方向 → 转到角度（15° 咬合 + VCB 度数）→ 过圆心的**角度参考线**。预演复用旋转工具的量角器圆环。
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, dist3, normalize3, scale3 } from "../../kernel/geom.ts";
 import { applyDir, invert } from "../../scene/xform.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
@@ -92,7 +91,7 @@ export class ProtractorTool implements ToolHandler {
   }
 
 
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(): string {
     if (this.stage === 1 && this.center) return "量角器：参考方向";
     if (this.stage === 2) return `角度 ${fmtDeg(this.angle)}`;
     return "";

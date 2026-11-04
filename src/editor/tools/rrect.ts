@@ -4,8 +4,7 @@
 //   ③ 长度：沿刚定的那个方向拉第二边（吸到点 = 那点投到这条线上；格点吸附开着 = 整格）。
 // 结果是真矩形（直角）。数值小窗「角度,宽」= 绕边的角 + 第二边长；只输一个数 = 第二边长。
 // 旧版（第二边在面内转出平行四边形、角度和宽一下定）2026-10-24 by Claude Fable 5.1；edited by Claude Opus 5.5
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, cross3, dist3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { closestOnAxis, rayPlane } from "../camera.ts";
 import { cameraPlane, rectFirstPlane, type DrawPlane, type SnapKind } from "../pick.ts";
@@ -16,7 +15,8 @@ import { INCREMENT_DEG, nearestStep } from "../increments.ts";
 import { fmtDeg, fmtLen } from "../units.ts";
 import { SNAP_LABELS, MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
+import type { Op } from "../ops.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 import type { ViewState } from "../view-state.ts";
 
@@ -140,7 +140,7 @@ export class RRectTool implements ToolHandler {
     const segs = this.c ? rrectSegments(this.a!, this.b!, this.c) : [];
     if (!segs.length || Math.abs(this.len) < MIN_GESTURE_LEN) { ctx.hint("旋转矩形：第二边太短，换个点"); return; }
     const n0 = ctx.opCount(), at0 = ctx.activePool(), { a, b, c } = this, plane = this.plane0 ?? this.plane;
-    ctx.commitOp({ op: "addEdges", at: at0, segs: segs.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)]), harden: true });   // 描过软边 = 变硬
+    ctx.commitOp(this.opFor(ctx, segs));
     ctx.recordLast({ kind: "rrect", ops: ctx.opCount() - n0, at: at0, plane: plane!, a: a!, b: b!, c: c! });
     ctx.hint(`旋转矩形 ${fmtLen(dist3(a!, b!))} × ${fmtLen(dist3(b!, c!))} · ${fmtDeg(this.theta)}`);
     this.cancel();
@@ -153,11 +153,12 @@ export class RRectTool implements ToolHandler {
     else if (this.stage === 3) this.trackLength(ctx, s.x, s.y);
   }
 
-  live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
-    if (this.stage === 1 && this.a) { const c = ctx.cursor() ?? this.a; if (dist3(c, this.a) >= MIN_GESTURE_LEN) run((k) => k.addEdges([[ctx.toLocal(this.a!), ctx.toLocal(c)]])); return `第一边 ${fmtLen(dist3(this.a, c))}`; }
+  private opFor(ctx: ToolCtx, segs: readonly (readonly [Pt3, Pt3])[]): Op { return { op: "addEdges", at: ctx.activePool(), segs: segs.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)]), harden: true }; }   // 描过软边 = 变硬
+  live(ctx: ToolCtx, preview: PreviewOp): string {
+    if (this.stage === 1 && this.a) { const c = ctx.cursor() ?? this.a; if (dist3(c, this.a) >= MIN_GESTURE_LEN) preview({ op: "addEdges", at: ctx.activePool(), segs: [[ctx.toLocal(this.a), ctx.toLocal(c)]] }); return `第一边 ${fmtLen(dist3(this.a, c))}`; }
     if (this.stage >= 2 && this.a && this.b && this.c) {
       const segs = rrectSegments(this.a, this.b, this.c);
-      if (segs.length) run((k) => k.addEdges(segs.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)])));
+      if (segs.length) preview(this.opFor(ctx, segs));
       return `旋转矩形 ${fmtLen(dist3(this.a, this.b))} × ${fmtLen(dist3(this.b, this.c))} · ${fmtDeg(this.theta)}`;
     }
     return "";

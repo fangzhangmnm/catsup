@@ -5,16 +5,16 @@
 //   · 选中的边 → 倒边；只选了点 → 倒点：往外拖 = 倒得宽（op meshBevel / meshBevelVerts；松手后马后炮改宽度 / 段数）；
 //   · Ctrl+B（startModal 的 "bevel"）= 选了面也倒它们的边；Ctrl+Shift+B（"bevelVerts"）= 倒选中的点。
 // 提交 = 一条 op（重放确定）。
-import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
-import { bevelEdges, bevelVerts, insetFaces } from "../../mesh/ops/index.ts";
+import { bevelEdges, bevelVerts } from "../../mesh/ops/index.ts";
 import { add3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import { BoxDrag, adoptPress, clickSelect, pressTarget, type Target } from "./selecting.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { Op } from "../ops.ts";
 import type { QuantityTag } from "../units.ts";
 /** 长度字段：值存米，显示 / − + / 打字按用户选的单位（units.ts）。 */
@@ -51,7 +51,6 @@ export class MeshInsetTool implements ToolHandler {
   active(): boolean { return this.job !== null || this.box.active(); }
   cancel(): void { this.box.cancel(); this.job = null; this.adopt = null; this.centerW = null; this.start = this.cur = null; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshInset: { job: this.job?.kind ?? null, start: this.start, cur: this.cur } }; }
 
   /** Blender I / Ctrl+B / Ctrl+Shift+B：有选区 = 光标处起手。 */
@@ -128,11 +127,11 @@ export class MeshInsetTool implements ToolHandler {
         : { op: "meshBevelVerts", def, verts: job.verts, width: dL };
   }
 
-  liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const job = this.job;
     if (!job) return "";
-    const dW = this.distW(ctx), dL = dW / this.localScale, seg = this.segments;
-    if (dL > 1e-9) run((m) => { if (job.kind === "inset") insetFaces(m, job.faces, dL); else if (job.kind === "bevel") bevelEdges(m, job.edges, dL, seg); else bevelVerts(m, job.verts, dL); });
+    const dW = this.distW(ctx), dL = dW / this.localScale;
+    if (dL > 1e-9) preview(this.opFor(ctx, job, dL, job.kind === "inset" ? 1 : this.segments));
     return `${job.kind === "inset" ? "插入" : "倒角"} ${fmtLen(dW)}`;
   }
 

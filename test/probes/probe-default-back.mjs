@@ -60,6 +60,59 @@ await page.evaluate(() => { const e = globalThis.__catsup.editor; e.renderer3.se
 out.underStyled = await center();
 await page.evaluate(() => { const e = globalThis.__catsup.editor; e.renderer3.setPreset("white"); e.cam.setView("top"); e.draw(); }); await page.waitForTimeout(100);
 out.overWhite = await center();
+// ⑦ 预演 = 同一条指令（计划书 §12 C1）：矩形第二点还悬停着（没落定），从下面看已经是灰蓝；真身一个字节没动；落定前后像素不变
+const liveState = () => page.evaluate(() => {
+  const e = globalThis.__catsup.editor, w = e.liveWorldForProbe(), k = w.activeSlot().kernel, s = w.scene, back = s.brep(s.root).materialSlots.indexOf(-2);
+  const verts = k.vertices(), c = { x: verts.reduce((a, v) => a + v.x, 0) / verts.length, y: verts.reduce((a, v) => a + v.y, 0) / verts.length, z: verts.reduce((a, v) => a + v.z, 0) / verts.length };
+  return { realFaces: e.kernel.faces().length, realSlots: [...e.scene.brep(e.scene.root).materialSlots], faces: k.faces().length, back, sides: k.faces().map((f) => { const n = k.planeOf(f.id).plane.n, p = k.faceRings3(f.id).outer[0], out = n.x * (p.x - c.x) + n.y * (p.y - c.y) + n.z * (p.z - c.z) > 0 ? 0 : 1; return { up: n.z > 0.5 ? 1 : 0, backSide: k.faceMaterialOf(f.id, 1) === back ? 1 : 0, outside: out }; }) };
+});
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "clear" }); e.setGrid({ on: false }); e.cam.setView("top"); e.cam.target = { x: 0, y: 0, z: 0 }; e.cam.halfH = 4; e.setTool("rect"); e.draw(); });
+await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(60);
+await page.mouse.move(c.x - 2, c.y - 2); await page.waitForTimeout(20); await page.mouse.move(c.x, c.y); await page.waitForTimeout(60);
+out.midRect = await liveState();
+out.midRectTop = await center();
+await page.evaluate(() => globalThis.__catsup.editor.cam.setView("bottom"));
+out.midRectUnder = await center();
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cam.setView("top"); e.draw(); });
+await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(120);
+out.doneRectTop = await center();
+await page.evaluate(() => globalThis.__catsup.editor.cam.setView("bottom"));
+out.doneRectUnder = await center();
+// ⑧ 推拉拖到一半：影子里全部朝外（外面白模灰、里面灰蓝），真身还是一张面；侧面的像素松手前后不变
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cam.setView("iso"); e.cam.target = { x: 0, y: 0, z: 0 }; e.cam.halfH = 4; e.setTool("pp"); e.draw(); });
+const onBoard = (p) => page.evaluate((q) => { const e = globalThis.__catsup.editor, s = e.cam.angularPx(q, e.vp()); return { x: s.x, y: s.y }; }, p);
+const ring = await page.evaluate(() => { const k = globalThis.__catsup.editor.kernel; return k.faceRings3(k.faces()[0].id).outer; });
+const mid = { x: ring.reduce((s, p) => s + p.x, 0) / ring.length, y: ring.reduce((s, p) => s + p.y, 0) / ring.length, z: 0 }, s0 = await onBoard(mid);
+await page.mouse.move(box.x + s0.x, box.y + s0.y); await page.waitForTimeout(40); await page.mouse.down(); await page.waitForTimeout(20);
+for (const dy of [20, 50, 80]) { await page.mouse.move(box.x + s0.x, box.y + s0.y - dy); await page.waitForTimeout(40); }
+out.midPP = await liveState();
+const sideAt = async () => {   // 朝相机的那两张侧面各一个点（避开光标在的顶面）
+  const pts = await page.evaluate((m) => { const e = globalThis.__catsup.editor, w = e.liveWorldForProbe(), k = w.activeSlot().kernel, zs = k.vertices().map((v) => v.z), h = Math.max(...zs), xs = k.vertices().map((v) => v.x), ys = k.vertices().map((v) => v.y), P = (x, y, z) => e.cam.angularPx({ x, y, z }, e.vp()); return [P(Math.max(...xs), m.y, h / 2), P(m.x, Math.min(...ys), h / 2)]; }, mid);
+  const out2 = [];
+  for (const q of pts) { const png = await page.screenshot({ clip: { x: Math.round(box.x + q.x), y: Math.round(box.y + q.y), width: 1, height: 1 } }); out2.push(await page.evaluate(async (b64) => { const bin = atob(b64), u8 = Uint8Array.from(bin, (ch) => ch.charCodeAt(0)), bmp = await createImageBitmap(new Blob([u8], { type: "image/png" })), cv = new OffscreenCanvas(1, 1), x = cv.getContext("2d"); x.drawImage(bmp, 0, 0); const d = x.getImageData(0, 0, 1, 1).data; return [d[0], d[1], d[2]]; }, png.toString("base64"))); }
+  return out2;
+};
+await page.evaluate(() => globalThis.__catsup.editor.draw()); await page.waitForTimeout(120);
+out.midPPSide = await sideAt();
+await page.mouse.up(); await page.waitForTimeout(150);
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setTool("select"); e.deselectAll(); e.draw(); }); await page.waitForTimeout(120);
+out.donePP = await state();
+out.donePPSide = await sideAt();
+// ⑨ 数值小窗重画复用第一次的方向（§12 C2）：从上面画完转到下面再打尺寸 / 高度，朝向不翻
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "clear" }); e.cam.setView("top"); e.cam.target = { x: 0, y: 0, z: 0 }; e.cam.halfH = 4; e.setTool("rect"); e.draw(); });
+await page.mouse.move(a.x, a.y); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(60);
+await page.mouse.move(c.x, c.y); await page.waitForTimeout(40); await page.mouse.down(); await page.mouse.up(); await page.waitForTimeout(120);
+out.vcb0 = await state();
+out.vcb = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cam.setView("bottom"); e.draw(); return e.applyVcb("3,3"); });
+out.vcb1 = await state();
+await page.evaluate(() => { const e = globalThis.__catsup.editor; e.commitOp({ op: "clear" }); const at = e.activePool(), P = (x, y) => ({ x, y, z: 0 }); e.commitOp({ op: "addEdges", at, segs: [[P(-1, -1), P(1, -1)], [P(1, -1), P(1, 1)], [P(1, 1), P(-1, 1)], [P(-1, 1), P(-1, -1)]] }); e.cam.setView("iso"); e.cam.target = { x: 0, y: 0, z: 0 }; e.cam.halfH = 4; e.setTool("pp"); e.draw(); });
+{ const q = await onBoard({ x: 0, y: 0, z: 0 });
+  await page.mouse.move(box.x + q.x, box.y + q.y); await page.waitForTimeout(40); await page.mouse.down(); await page.waitForTimeout(20);
+  for (const dy of [30, 60]) { await page.mouse.move(box.x + q.x, box.y + q.y - dy); await page.waitForTimeout(40); }
+  await page.mouse.up(); await page.waitForTimeout(150); }
+out.ppVcb0 = await state();
+out.ppVcb = await page.evaluate(() => { const e = globalThis.__catsup.editor; e.cam.yaw += Math.PI; e.cam.pitch = -Math.abs(e.cam.pitch); e.draw(); return e.applyVcb("2"); });
+out.ppVcb1 = await state();
 console.log(JSON.stringify(out, null, 0));
 const eqc = (a, b, t = 6) => a.every((v, i) => Math.abs(v - b[i]) <= t);
 const blueish = (c) => c[2] > c[0] + 12;   // 灰蓝：蓝通道明显高过红通道（白模灰和米白背景不会）
@@ -75,6 +128,14 @@ const checks = {
   flip: out.flip.menu && out.flip.s0 !== out.flip.s1 && out.flip.s2 === out.flip.s0,
   lockCull: blueish(out.under) && !blueish(out.underLocked) && blueish(out.underAgain) && !eqc(out.under, out.underLocked),
   styleCull: !eqc(out.underStyled, out.under),
+  midRealUntouched: out.midRect.realFaces === 0 && out.midRect.realSlots.length === 0,
+  midRectBack: out.midRect.faces === 1 && out.midRect.back >= 0 && out.midRect.sides[0].backSide === (out.midRect.sides[0].up > 0 ? 1 : 0),
+  midRectColors: !blueish(out.midRectTop) && blueish(out.midRectUnder),
+  rectSameAfterRelease: eqc(out.midRectTop, out.doneRectTop) && eqc(out.midRectUnder, out.doneRectUnder),
+  midPP: out.midPP.realFaces === 1 && out.midPP.faces === 6 && out.midPP.sides.every((x) => x.backSide === (x.outside === 0 ? 1 : 0)),
+  ppSameAfterRelease: out.donePP.faces === 6 && out.midPPSide.every((c0, i) => eqc(c0, out.donePPSide[i]) && !blueish(c0)),
+  vcbKeepsFront: out.vcb.ok && out.vcb0.sides[0].backSide === out.vcb1.sides[0].backSide && out.vcb0.sides[0].up === out.vcb1.sides[0].up,
+  ppVcbKeepsFront: out.ppVcb.ok && out.ppVcb1.faces === 6 && out.ppVcb1.sides.every((x) => x.backSide === (x.outside === 0 ? 1 : 0)),
   errs: errs.length === 0,
 };
 console.log(JSON.stringify(checks));

@@ -1,7 +1,6 @@
 // tools/scrub.ts —— 刮边工具的底座（direct 语法：按住拖 = 刮过的边都进刮集，抬笔结算一次）。橡皮家族三把共用：橡皮 / 焊边橡皮 / 软边橡皮。
 // 子类只管两件事：刮集高亮按不按曲线连坐（wholeCurve）、抬笔拿着刮集做什么（commit）。created 2026-10-24 by Claude Fable 5.1
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { EdgeId, FaceEvent } from "../../kernel/kernel.ts";
+import type { EdgeId } from "../../kernel/kernel.ts";
 import type { WorldView } from "../../scene/world-view.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { Tool } from "../tool-ids.ts";
@@ -20,7 +19,7 @@ export abstract class EdgeScrubTool implements ToolHandler {
   active(): boolean { return this.scrubbing; }
   cancel(): void { this.scrubbing = false; this.acc = new Set(); this.hoverEdge = null; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
+  live(): string { return ""; }
 
   hover(ctx: ToolCtx, s: { x: number; y: number }): void {
     const view = ctx.live();

@@ -1,5 +1,5 @@
 import type { Kernel } from "../kernel/kernel.ts";
-import type { FaceEvent, FaceId } from "../kernel/kernel.ts";
+import type { FaceId } from "../kernel/kernel.ts";
 import { type Side } from "../kernel/flood.ts";
 import type { Tool } from "./tool-ids.ts";
 import type { ToolPointer } from "./editor.ts";
@@ -60,7 +60,7 @@ export declare class SurfaceAssignTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(): string;
     private faceAt;
     hover(ctx: ToolCtx, s: {
         x: number;

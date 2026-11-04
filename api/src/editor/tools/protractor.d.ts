@@ -1,5 +1,3 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
@@ -30,7 +28,7 @@ export declare class ProtractorTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(): string;
     /** 旋转工具的量角器圆环 + 候选参考线。 */
     viewExtras(): Partial<ViewState>;
 }

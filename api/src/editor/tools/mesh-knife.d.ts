@@ -1,7 +1,6 @@
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 export type KnifePoint = {
     v: number;
@@ -29,7 +28,6 @@ export declare class MeshKnifeTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     describe(): Record<string, unknown>;
     hover(ctx: ToolCtx, s: {
         x: number;
@@ -44,7 +42,7 @@ export declare class MeshKnifeTool implements ToolHandler {
     /** 现在这一下切不切得出来（刀线的颜色）。 */
     private validNow;
     down(ctx: ToolCtx, ev: ToolPointer): void;
-    liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     viewExtras(ctx: ToolCtx): Partial<ViewState>;
     private loopCutAt;
     /** 光标下看得见的点 / 边上的点（拓扑吸附，永远开）。边上的点 = 光标在这条边屏幕投影上的位置。 */

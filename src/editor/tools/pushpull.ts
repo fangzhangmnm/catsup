@@ -1,20 +1,19 @@
 // tools/pushpull.ts —— 推拉工具的手势模块：steps 语法（点面 → 移动定高度 → 再点 / 松手落定）。从 editor.ts 原样搬出（刀 ② B，行为零变更）。
 // 双通道吸附：光标通道（世界 = 按下时的模型，源面原位不透明；不吸轴）+ 高度通道（停靠集 pp-stops：0 / 同柱平行面 / 参考几何高度 + 整数长度）。
 // 意图门：自由高度的符号 = 推 / 拉意图，反号候选不合法；0.10 护栏：曲面的一片不许推拉。created 2026-10-24 by Claude Fable 5.1
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
+import type { FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
 import { add3, dot3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { ringVidsTolerant } from "../../kernel/face-lifecycle.ts";
 import { closestOnAxis, rayPlane } from "../camera.ts";
 import { hasIntent, intentAllows1D } from "../intent.ts";
 import { pickEntity, type AlignHand, type DrawPlane } from "../pick.ts";
 import { ppStopsOf } from "../pp-stops.ts";
-import { faceKey } from "../ops.ts";
+import { faceKey, type FaceKey, type Op } from "../ops.ts";
 import { IDENTITY, applyNormal } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 
 export class PushPullTool implements ToolHandler {
@@ -142,10 +141,11 @@ export class PushPullTool implements ToolHandler {
     ctx.hint(`推拉 h = ${fmtLen(this.h)}${ref}（松手/再点落定；Esc 取消）`);
   }
 
-  live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  private opFor(ctx: ToolCtx, face: FaceKey, hl: number): Op { const keepRing = this.keepRing(ctx); return { op: "pushpull", at: ctx.activePool(), face, dist: hl, ...(keepRing ? { keepRing } : {}) }; }
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     if (this.face === null || Math.abs(this.h) < MIN_GESTURE_LEN) return "";
-    const fid = this.face, h = this.localH(ctx, this.h), keepRing = this.keepRing(ctx);
-    run((c) => c.pushPull(fid, h, { settleLanding: false, keepRing }));
+    const k = ctx.kernel();
+    if (k.face(this.face)) preview(this.opFor(ctx, faceKey(k, this.face), this.localH(ctx, this.h)));
     return "";
   }
 
@@ -160,7 +160,7 @@ export class PushPullTool implements ToolHandler {
     if (Math.abs(h) >= MIN_GESTURE_LEN && k.face(fid)) {
       const n0 = ctx.opCount(), at0 = ctx.activePool(), face = faceKey(k, fid);
       const keepRing = this.keepRing(ctx);
-      ctx.commitOp({ op: "pushpull", at: at0, face, dist: hl, ...(keepRing ? { keepRing } : {}) });
+      ctx.commitOp(this.opFor(ctx, face, hl));
       ctx.recordLast({ kind: "pp", ops: ctx.opCount() - n0, at: at0, face, h, hl, ...(keepRing ? { keepRing } : {}) });
     }
   }

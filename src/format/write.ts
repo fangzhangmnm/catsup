@@ -10,7 +10,7 @@ import { srgbToLinear } from "./color-space.ts";   // glTF 的 baseColorFactor �
 import { BinBuilder } from "./binary.ts";
 import { encodeGlb } from "./glb.ts";
 import { canonicalize, encodeBrep, type CatsupBrepJson, type ViewSink } from "./brep-codec.ts";
-import { bakeDefinition, bakeMesh, countSides, mergeBrep, noSides, type BakeMaterials, type SideCounts } from "./bake.ts";
+import { bakeDefinition, bakeMesh, mergeBrep, type BakeMaterials } from "./bake.ts";
 import { encodeMeshItem } from "./mesh-payload.ts";
 import type { CatsupDocument, DefinitionDoc } from "./document.ts";
 import { stampOf } from "./migrate/index.ts";
@@ -207,21 +207,6 @@ export interface ModelExportOpts {
   textures: boolean;
   lines: boolean;
   only?: readonly { definition: Guid; xform: Xform; name?: string }[];
-}
-
-/** 导出说明行的数（导出表单；计划书 §9.2½ ②）：这次要导的硬表面定义里，N 张面两侧都出、其中 M 张两侧材质不同、K 张两侧都是默认背面。一份定义只算一次（摆几份都一样）。 */
-export function exportSideCounts(doc: CatsupDocument, only?: readonly Guid[]): SideCounts {
-  const byGuid = new Map(doc.definitions.map((d, i) => [d.guid, i])), matIndex = new Map<Guid, number>(doc.materials.map((m, i) => [m.guid, i]));
-  const reach = new Set<number>(), visit = (i: number | undefined, depth: number): void => { if (i === undefined || reach.has(i) || depth > 32) return; reach.add(i); for (const inst of doc.definitions[i].instances) visit(byGuid.get(inst.definition), depth + 1); };
-  if (only) for (const g of only) visit(byGuid.get(g), 0); else visit(doc.rootIndex, 0);
-  const out = noSides();
-  for (const i of reach) {
-    const d = doc.definitions[i], slots = d.materialSlots;
-    if (d.kind === "mesh") continue;   // 网格体的面 = 文件里的面，一张面一个朝向
-    const mats: BakeMaterials = { slotToCore: (s) => { const g = slots[s]; return g ? matIndex.get(g) : undefined; }, sizeOfCore: () => null, isBack: (s) => slots[s] === BUILTIN_BACK_GUID };
-    for (const b of [d.brep, ...d.groups.map((g) => g.brep)]) countSides(b, mats, out);
-  }
-  return out;
 }
 
 export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint8Array {

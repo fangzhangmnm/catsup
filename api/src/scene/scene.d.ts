@@ -180,6 +180,8 @@ export declare class Scene {
     }>;
     /** 骨架拷贝（撤销的 skeleton 记录；history.ts）：定义 / 组的元数据 / 实例 / 材质 / 层 / 轴 / 参考几何都拷，**内核共享**（不拷几何）。O(定义 + 实例 + 组)。 */
     cloneSkeleton(): Scene;
+    /** 预演的影子场景（计划书 §12 C1）：骨架拷贝 + 这个池的内核换成给的影子。槽表是拷的（预演开槽不碰真身），别的池和真身共享（op 改不到外面 = op-locks.ts previewableIn 守）。 */
+    shadowOf(ref: PoolRef, shadow: Kernel | MeshKernel): Scene;
     clone(): Scene;
 }
 /** 从池里抠出一份子快照：选中的膜（含其环边）+ 选中的边（含端点）。索引 = 本地顺序。 */

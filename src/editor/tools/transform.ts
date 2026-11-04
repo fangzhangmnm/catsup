@@ -6,8 +6,7 @@
 //   · 点空处 / 框选 = 换选区（同选择工具）；右下「选变换中心」= 拾一个临时变换中心（吸附照常，选区一变就作废）；变换中心选项 = 包围盒中心 / 顶点平均 / 最后选的物体原点；
 //   · 按住 Ctrl 或开着「复制」= 复制；数值小窗：移动 / 缩放能 *n /n 阵列；转 / 缩之后右下「刚才：」能换变换中心重做。
 // 全部透视画、透视拾；箭头 / 环 / 方块的纯数学在 transform-gizmo.ts。created 2026-10-24 by Claude Fable 5.1（原缩放工具）；2026-10-26 重写成单独的变换工具 by Claude Opus 5.5
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3, VertexId } from "../../kernel/kernel.ts";
+import type { Pt3, VertexId } from "../../kernel/kernel.ts";
 import { add3, dot3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { cameraPlane, drawPlaneAt, rectFirstPlane, type SnapKind } from "../pick.ts";
@@ -18,7 +17,7 @@ import { type XformGizmo, type XformGrab, type XformHandle, XG_UNIFORM_OFFSET_PX
 import { fmtDeg, fmtLen } from "../units.ts";
 import { MIN_GESTURE_LEN, SNAP_LABELS } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 import { pickHandle } from "../handle-pick.ts";
 import { MoveTool } from "./move.ts";
@@ -261,13 +260,13 @@ export class TransformTool implements ToolHandler {
     return this.xformOf(this.mode, this.grab, { dist: this.dist, angle: this.angle, factor: this.factor });
   }
 
-  live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
-    if (this.mode === "center") return this.mover.live(ctx, run);
+  live(ctx: ToolCtx, preview: PreviewOp): string {
+    if (this.mode === "center") return this.mover.live(ctx, preview);
     const X = this.currentXform();
     if (!X) return "";
     const cp = this.copy ? "复制 · " : "", ents = this.copy ? { faces: [...ctx.selection().faces], edges: [...ctx.selection().edges] } : undefined;
     const idle = this.mode === "move" ? Math.abs(this.dist) < 1e-9 : this.mode === "rotate" ? Math.abs(this.angle) < 1e-9 : Math.abs(this.factor - 1) < 1e-9;
-    if (!idle) ctx.previewXform(X, run, ents);
+    if (!idle) ctx.previewXform(X, preview, ents);
     return this.mode === "move" ? `${cp}移动 ${fmtLen(Math.abs(this.dist))}` : this.mode === "rotate" ? `${cp}旋转 ${fmtDeg(this.angle)}` : `${cp}缩放 ×${this.factor.toFixed(3)}`;
   }
 

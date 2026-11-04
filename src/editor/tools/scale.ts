@@ -4,8 +4,7 @@
 // 带箭头 / 环 / 轴心的「变换」是另一个工具（tools/transform.ts）。edited by Claude Opus 5.5
 // 从 editor.ts 原样搬出（刀 ② B，行为零变更）。柄每帧从选区包围盒重算（不再靠 rebuildScaleHandles 的触发点）。created 2026-10-24 by Claude Fable 5.1
 // 2026-10-26 包围盒有朝向（ctx.orientFrame：只选一个组 / 组件 = 它自己的轴，否则上下文的轴；以前一律世界轴）——沿组件自己的轴缩放不会斜切（斜切护栏，user「和gltf对齐」）。
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, dist3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { closestOnAxis } from "../camera.ts";
 import { intentAllows1D } from "../intent.ts";
@@ -13,7 +12,7 @@ import { type Xform, applyPt, scalingAbout, scalingAlong } from "../../scene/xfo
 import { moveTargetsSelection } from "../tools.ts";
 import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 import { pickHandle } from "../handle-pick.ts";
 
@@ -103,9 +102,9 @@ export class ScaleTool implements ToolHandler {
     ctx.setSnap(snapped !== undefined ? { p: cur, kind: "h-stop" } : null);
   }
 
-  live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     if (!this.h) return "";
-    ctx.previewXform(ScaleTool.xform(this.h, this.f, this.uniform), run);
+    ctx.previewXform(ScaleTool.xform(this.h, this.f, this.uniform), preview);
     return `缩放 ${this.h.kind === "corner" ? "等比" : this.uniform ? "等比（Shift，锚在对面）" : "单轴"} ×${this.f.toFixed(3)}`;
   }
 

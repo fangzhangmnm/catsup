@@ -22,18 +22,17 @@ const BREP_ONLY: Readonly<Record<string, string>> = {
   softenByAngle: "同上",
   softenSelection: "同上",
   beginMirror: "requireBrep(「镜像」)（网格体的镜像走 mesh/mirror.ts + 物件窗口）",
-  refreshCmdPreview: "镜像会话（硬表面马前炮）的预演：只在 beginMirror 之后",
   freshHand: "硬表面工具的推断之手（求解器）；网格体工具不推断（stance snap: off）、不叫它",
   computeLive: "预演失败的黑匣子一行：activeKind() === brep 才带 brep 快照（网格体池不带——以前在 catch 里再抛一次，真错误进不了黑匣子）",
-  shadowKernel: "影子内核 = 硬表面拖动预演「拷一次 + 每帧倒回」；网格体预演走 ToolHandler.liveMesh",
+  shadowKernel: "影子内核 = 硬表面拖动预演「拷一次 + 每帧倒回」；previewApply 只在硬表面池调它，网格体每帧拷一份",
   previewXform: "硬表面移动 / 旋转 / 缩放的预演；网格体的在 tools/mesh-transform.ts",
   readoutText: "进来先 activeKind() !== brep → 显示契约那条路（数面 / 点、量边长）",
   makeToolCtx: "ctx.kernel() 给硬表面工具（modes/geometry.ts）；自由建模工具用 ctx.mesh()",
   copyPayload: "硬表面移动 + Ctrl 复制的载荷（tools/move.ts 那条）",
-  commitXform: "硬表面移动 / 旋转 / 缩放落定（tools/move / rotate / scale）",
+  xformMoveOp: "硬表面移动 / 旋转 / 缩放的 move op（commitXform 和预演共用；网格体走 meshMove）",
 };
 /** 体重棘轮（行数）：切出去一块就往下调；只准降。 */
-const LINE_PIN = 4149;   // v0.16.57 = 4183；v0.17.44 X 光面点的画法删了 → 4157；v0.17.46 网格开关搬去 grid-state.ts + 删三个没人调的私有方法 → 4154；v0.17.3 断口刻度切去 break-ticks.ts + 流提供者接线 → 4170；v0.17.9 叠加层回调不再手递 → 4168（含末尾空行）；切一刀调低一次
+const LINE_PIN = 4147;   // v0.16.57 = 4183；v0.17.44 X 光面点的画法删了 → 4157；v0.17.46 网格开关搬去 grid-state.ts + 删三个没人调的私有方法 → 4154；v0.17.3 断口刻度切去 break-ticks.ts + 流提供者接线 → 4170；v0.17.9 叠加层回调不再手递 → 4168（含末尾空行）；切一刀调低一次
 
 describe("编辑器本体：两种身体的路由（F-126 第一刀）", () => {
   it("this.kernel 只出现在登记过的 brep 专属方法里；登记表里的方法都还在", () => {

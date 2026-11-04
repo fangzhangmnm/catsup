@@ -88,7 +88,8 @@ export type Op =
     face: FaceKey;
     dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */
     keepRing?: boolean; /** 同 addEdges.front：底面没朝向时先按它定底面，再灌到新面。 */
-    front?: Pt3;
+    front?: Pt3; /** 只有预演带（op-locks.ts previewVariant）：落地不湮灭，推平到底时压扁态还看得见、还吸得到；提交永远湮灭。预演和提交的唯一差别。 */
+    settleLanding?: false;
 } | {
     op: "followme";
     at?: PoolRef;

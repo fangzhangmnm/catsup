@@ -1,6 +1,6 @@
 import { type PlaneParams, type Pt3 } from "../kernel/geom.ts";
 import type { BodyKind } from "./body-kind.ts";
-import type { Body, BrepBody, MeshBody } from "./scene.ts";
+import type { Body, BrepBody, DefId, MeshBody, Scene } from "./scene.ts";
 export type KindModeId = "geometry" | "surface" | "freeform";
 export interface AlignGeometry {
     points: Pt3[];
@@ -40,7 +40,15 @@ export interface BrepSideCounts {
     differ: number;
     neither: number;
 }
-export declare function brepSideCounts(b: BrepBody): BrepSideCounts;
+/**
+ * 一份算法两处用（计划书 §12 C3）：N 张面两侧都出、其中 M 张两侧材质不同、K 张两侧都是默认背面（整张不出）。按材质比，不按槽号比（和 bake 看到的一样）。
+ * skipHidden = 隐藏的面不算（导出：bake 不出隐藏面）；转网格体隐藏的照转，所以照算。
+ */
+export declare function brepSideCounts(b: BrepBody, opts?: {
+    skipHidden?: boolean;
+}, into?: BrepSideCounts): BrepSideCounts;
+/** 导出表单的说明行：从根（或选中物件的定义）沿实例引用走一遍，一份定义只算一次；网格体的面 = 文件里的面，一张面一个朝向，不算。O(这些定义的面数)，不序列化模型。 */
+export declare function exportSideCounts(s: Scene, only?: readonly DefId[]): BrepSideCounts;
 /**
  * brep → mesh（单面 / 双面第四版，计划书 §2.9 / §9.2-F；user 11-04「要出几侧就几张面」）：每张膜按侧出面，绕向 = 那一侧朝外（网格体一张面一个朝向）；两侧都出 = 两张重合反向的面（共用点）；默认背面不出。
  * 带洞的膜三角化（mesh 的面不带洞），三角形之间的内部边软 + 平滑（看起来还是一张面）；边标记照搬（软 / 平滑 / 隐藏；折线 = 软 + 平滑）；悬空的边 = 裸线；隐藏的面照旧隐藏；组里的几何一起并进来（组分区丢掉）。失败（某膜三角化不了）= 整个 cast 拒。

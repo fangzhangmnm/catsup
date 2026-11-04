@@ -1,7 +1,5 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 export declare class ScaleTool implements ToolHandler {
     readonly tool: "scale";
@@ -25,7 +23,7 @@ export declare class ScaleTool implements ToolHandler {
         x: number;
         y: number;
     }, travel?: number): void;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     up(ctx: ToolCtx, _ev: ToolPointer, settle: () => ToolSample | null): void;
     /** 柄跟着预演实时动（user 2026-10-21「缩放的handle应该跟着实时动」）：拖动中按当前倍率把柄过一遍同一个变换。 */
     viewExtras(ctx: ToolCtx): Partial<ViewState>;

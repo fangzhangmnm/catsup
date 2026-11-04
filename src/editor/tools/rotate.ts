@@ -1,8 +1,7 @@
 // tools/rotate.ts —— 旋转工具的手势模块：steps 语法，点三下（圆心 → 参考方向 → 角度；#23 user「旋转和move对齐」），拖着也能落定。
 // 从 editor.ts 原样搬出（刀 ② B，行为零变更）：圆心落在膜上 → 转轴 = 膜法向，否则画面平面法向；参考点吸附过；
 // 角度：轴向咬合先于 15° 档（user 2026-10-24「旋转的时候坐标轴方向也有snap」），意图门（反向的点吸附不合法）。created 2026-10-24 by Claude Fable 5.1
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { cross3, dist3, dot3, len3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { intentAllows1D } from "../intent.ts";
@@ -13,7 +12,7 @@ import { moveTargetsSelection } from "../tools.ts";
 import { fmtDeg } from "../units.ts";
 import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 
 /** 旋转的意图死区（弧度）：半度以内还看不出转向。量角器角度咬合：步长（度）与咬合半宽（度）。 */
@@ -100,10 +99,10 @@ export class RotateTool implements ToolHandler {
 
   /** 复制（user 2026-10-26「移动旋转也是ctrl复制开关吧」）：底部条「复制」开着，或者此刻按着 Ctrl / Alt。 */
   private copying(ctx: ToolCtx): boolean { return ctx.config.get("rotate", "copy") !== ctx.mods().copy; }   // 开关 XOR 按着 Ctrl / Alt（同移动）
-  live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     if (this.stage !== 2 || !this.center || !this.axis) return "";
     const copy = this.copying(ctx), sel = ctx.selection();
-    if (Math.abs(this.angle) > 1e-6) ctx.previewXform(rotationAbout(this.center, this.axis, this.angle), run, copy ? { faces: [...sel.faces], edges: [...sel.edges] } : undefined);
+    if (Math.abs(this.angle) > 1e-6) ctx.previewXform(rotationAbout(this.center, this.axis, this.angle), preview, copy ? { faces: [...sel.faces], edges: [...sel.edges] } : undefined);
     return `${copy ? "复制 · " : ""}旋转 ${fmtDeg(this.angle)}`;
   }
 

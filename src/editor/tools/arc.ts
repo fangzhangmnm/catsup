@@ -3,8 +3,7 @@
 //   圆心弧（Arc）：圆心 C → 起点 A（定半径）→ 转角度（量角器弧预演，15° Shift 咬合，可转过 180°）；扇形（Pie）：圆心弧 + 两条半径闭合成面。
 // 都是三下；第一下定平面（rectFirstPlane）。构造 / 落定共用 arc-build.ts（数值小窗改半径 / 角度 / 段数也走它）。
 // 提示带步骤字 ①/③（A34；user「也不知道到第几步了」）。0.10 两点弧 2026-10-24 Claude Fable 5.1；四模式同日重写。
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { dist3, dot3, scale3, sub3 } from "../../kernel/geom.ts";
 import { applyPt, rotationAbout } from "../../scene/xform.ts";
 import { rayPlane } from "../camera.ts";
@@ -14,7 +13,7 @@ import { type ArcMode, type ArcGesture, arcOp, buildArc } from "../arc-build.ts"
 import { fmtDeg, fmtLen } from "../units.ts";
 import { MIN_GESTURE_LEN } from "../gesture-consts.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 
 const projectThrough = (p: Pt3, c: Pt3, n: Pt3): Pt3 => { const d = dot3(sub3(p, c), n); return sub3(p, scale3(n, d)); };
@@ -116,7 +115,7 @@ export class ArcTool implements ToolHandler {
     ctx.tip(ctx.mods().shift ? fmtDeg(this.sweep) : null);
   }
 
-  live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     if (this.stage === 1 && this.p1) {
       const c = ctx.cursor() ?? this.p1;
       return this.mode === "two" ? `弦 ${fmtLen(dist3(this.p1, c))}` : this.mode === "three" ? `${this.label()}：枢轴` : `半径 ${fmtLen(dist3(this.p1, c))}`;
@@ -125,7 +124,7 @@ export class ArcTool implements ToolHandler {
       const g = this.gesture(ctx);
       const built = g ? buildArc(g) : null;
       if (!built) return `${this.label()}：${this.mode === "two" || this.mode === "three" ? "三点共线" : "转一下"}`;
-      run((c) => { const evs = c.addEdges(built.segs.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)]), { curve: { kind: "arc", closed: false } }); if (built.radii.length) evs.push(...c.addEdges(built.radii.map(([u, v]) => [ctx.toLocal(u), ctx.toLocal(v)]))); return evs; });
+      preview(arcOp((p) => ctx.toLocal(p), ctx.activePool(), built));
       return `${this.label()} r=${fmtLen(built.radius)} · ${fmtDeg(Math.abs(built.sweep))} · ${built.segs.length} 段`;
     }
     return "";

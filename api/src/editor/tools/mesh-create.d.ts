@@ -1,9 +1,7 @@
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { QuantityTag } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ViewState } from "../view-state.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 export declare class MeshCreateTool implements ToolHandler {
     readonly tool: "create";
     readonly grammar: "direct";
@@ -29,7 +27,6 @@ export declare class MeshCreateTool implements ToolHandler {
     /** 右键 = 不要环：拖着定大小时 / 第二步里，都按起始朝向（打了角度就按打的）落定。 */
     commitInPlace(ctx: ToolCtx): void;
     sample(): Record<string, number>;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     describe(): Record<string, unknown>;
     /** 定朝向的环 = 量角器圆环（参考线 = 没转时的 x 方向，橙线 = 现在的朝向），套在基本体外面（方的半对角 ≈ 0.71 × 边长，圆的半径 = 0.5 × 直径）。 */
     viewExtras(): Partial<ViewState>;
@@ -48,6 +45,6 @@ export declare class MeshCreateTool implements ToolHandler {
         x: number;
         y: number;
     }, travel?: number): void;
-    liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     up(ctx: ToolCtx, ev: ToolPointer, _settle: () => ToolSample | null): void;
 }

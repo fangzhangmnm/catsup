@@ -1,7 +1,6 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 export declare class MoveTool implements ToolHandler {
     readonly tool: "move";
@@ -30,6 +29,6 @@ export declare class MoveTool implements ToolHandler {
         x: number;
         y: number;
     }, travel?: number): void;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     private commit;
 }

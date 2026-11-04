@@ -1,7 +1,5 @@
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 export declare class MeshPullTool implements ToolHandler {
     readonly tool: "pp";
@@ -49,14 +47,15 @@ export declare class MeshPullTool implements ToolHandler {
     }): boolean;
     cancel(): void;
     sample(): Record<string, number>;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     describe(): Record<string, unknown>;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {
         x: number;
         y: number;
     }): void;
-    liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
+    /** 这次拖动的那条 op（预演 / 提交共用）。 */
+    private opFor;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     /** 当前拖动 → 世界位移（off：面、或锁了轴 / 面）或沿各点垂直方向的世界长度（along：边 / 点、没锁）。 */
     private motion;
     /** 沿 nW 拖了多少（世界长度）：nW 在屏幕上的投影够长 = 拖动在它上面的分量；正对着 / 抵消了 = 屏幕往上 = 正。 */

@@ -1,5 +1,3 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 export { type TapeResult, type TapeStart, classifyStart, tapeResult } from "../tape-geom.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
@@ -26,7 +24,7 @@ export declare class TapeTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(): string;
     /** 量线 + 候选参考线 / 参考点（render3 tape 层）。 */
     viewExtras(): Partial<ViewState>;
 }

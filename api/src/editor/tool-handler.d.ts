@@ -163,11 +163,13 @@ export interface ToolCtx {
     }[], pools: readonly PoolPick[], at: PoolRef): void;
     /** 整体变换提交：世界系 X 作用于活动池顶点集（move op）+ 子池（transformPool / transformInstance）。 */
     commitXform(X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void;
-    /** 整体变换预演：选区顶点走影子副本、子池走叠加变换。copy = 复制模式（原件不动：副本几何吸进影子副本、子池画副本影子）。 */
-    previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void, copy?: {
+    /** 整体变换预演：选区顶点走影子场景、子池走叠加变换。copy = 复制模式（原件不动：副本几何吸进影子、子池画副本影子）。 */
+    previewXform(X: Xform, preview: PreviewOp, copy?: {
         faces: readonly FaceId[];
         edges: readonly EdgeId[];
     }): void;
+    /** 世界系变换 X 作用于这些点的那条 move op（提交 commitXform 和预演共用）；没点 = null。 */
+    xformMoveOp(X: Xform, vids: readonly VertexId[]): Op | null;
     /** 选区的轴心（变换工具）：包围盒中心 / 顶点平均 / 最后选的物体原点（最后选中的组 / 组件的轴原点，没选组 / 组件 = 包围盒中心）。没选区 → null。 */
     pivotOf(mode: "auto" | "bbox" | "mean" | "active"): Pt3 | null;
     /** 马后炮：刚提交的那一步（nOps 个操作）还能按新参数重做（右下「刚才：」）。 */
@@ -280,8 +282,11 @@ export interface ToolCtx {
     setAxes(frame: Frame): void;
     /** 在屏幕点 (x, y) 打到的地方（点 / 边 / 面 / 原点 / 地面）新建一个基本体；size = 世界长度（边长 / 直径），不给 = 出厂尺寸。落不到东西 = false。 */
     newPrimitive(kind: PrimitiveKind, x: number, y: number, size?: number, spin?: number, aspect?: number): boolean;
-    /** 预演：同一份计划长在给的影子网格上；返回说法（落不到东西 = null）。spin = 绕底面法向转多少弧度；aspect = 深 / 宽（平的几种）。 */
-    previewPrimitive(kind: PrimitiveKind, x: number, y: number, size: number, m: MeshKernel, spin?: number, aspect?: number): string | null;
+    /** 同一份计划给出的那条 op + 说法（预演用；提交走 newPrimitive）；落不到东西 = null。spin = 绕底面法向转多少弧度；aspect = 深 / 宽（平的几种）。 */
+    primitiveOp(kind: PrimitiveKind, x: number, y: number, size: number, spin?: number, aspect?: number): {
+        op: Op;
+        say: string;
+    } | null;
     /** 在 (x, y) 落下时的世界坐标架（还没转；定朝向的环画在它的 xy 平面里）；落不到东西 = null。 */
     primitiveFrameAt(x: number, y: number): Frame | null;
     /** 从 (x0, y0) 拖到 (x1, y1) 在落点那里是多长（世界长度）；落不到东西 = null。 */
@@ -297,6 +302,8 @@ export interface EditorCore extends ToolCtx {
     revision(): number;
     modeId(): ModeId;
 }
+/** 预演口（Editor.previewOp）：这条 op 跑在影子场景上（计划书 §12 C1；user 11-04「预演要做干净」）。 */
+export type PreviewOp = (op: Op) => void;
 export type CopyPayload = {
     faces: Pt3[][][];
     wires: [Pt3, Pt3][];
@@ -356,10 +363,8 @@ export interface ToolHandler {
         x: number;
         y: number;
     }): void;
-    /** 预演：把本工具当前状态跑到克隆内核上（run 一次 = 一份影子）；返回尺寸文案（"" = 无）。 */
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
-    /** 网格体池里的预演（自由建模工作台的工具）：run 给一份活动网格体内核的副本，改完画出来；返回尺寸文案。没有 = 这把工具在网格体池里不预演。 */
-    liveMesh?(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
+    /** 预演：把这次手势会提交的那条 op 交给 preview（和提交同一段造 op 的代码、同一段前处理；真身不动）；返回尺寸文案（"" = 无）。工具不碰内核动词（test/preview-op-guard.test.ts）。 */
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     /** 本工具要进样本环的数（抬笔结算回放时按 extra 读回）。 */
     sample(): Record<string, number>;
     /** 复现包用的手势描述（预演失败时随黑匣子走）。 */

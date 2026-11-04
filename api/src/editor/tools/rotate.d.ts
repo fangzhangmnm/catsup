@@ -1,7 +1,5 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 export declare class RotateTool implements ToolHandler {
     readonly tool: "rotate";
@@ -31,7 +29,7 @@ export declare class RotateTool implements ToolHandler {
     }, travel?: number): void;
     /** 复制（user 2026-10-26「移动旋转也是ctrl复制开关吧」）：底部条「复制」开着，或者此刻按着 Ctrl / Alt。 */
     private copying;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     /** 量角器圆环 + 当前角。 */
     viewExtras(): Partial<ViewState>;
     private commit;

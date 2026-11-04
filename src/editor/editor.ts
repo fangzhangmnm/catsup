@@ -30,7 +30,7 @@ import { type Selection, type BrepSelection, type SelMode, circleSegmentsOnPlane
 import { type ArcGesture, arcOp, buildArc } from "./arc-build.ts";
 import { offsetRing } from "./offset.ts";
 import { type CatsUpToolConfig, TOOL_OPTIONS, ToolConfig } from "./tool-config.ts";
-import type { BodyPlacePhase, EditorCore, ToolCtx, ToolHandler } from "./tool-handler.ts";
+import type { BodyPlacePhase, EditorCore, ToolCtx, ToolHandler, CopyPayload } from "./tool-handler.ts";
 import { rotateDir } from "./protractor-geom.ts";
 import { type GridSettings, type UnitSystem, AXIS_TICK_MIN_PX, UNIT_LABEL_MIN_PX, displayLadder, gridFrame, snapLabel, snapLevels } from "./grid-settings.ts";
 import { GridState } from "./grid-state.ts";
@@ -44,7 +44,8 @@ import { perf } from "./perf-stats.ts";
 import { type LengthUnit, type VcbKind, arrayScalings, arrayTranslations, fmtVcbLength, parseVcb, vcbPrompt } from "./vcb.ts";
 import { type ParamButton, type ParamField, type ParamPanelState, type ParamSession, type ParamValue, afterthought } from "./param-panel.ts";
 import { type GizmoGrab, type GizmoHandle, type PlaneGizmo, dragGizmo, gizmoGeom, grabGizmo, hitGizmo, worldPerPx } from "./plane-gizmo.ts";
-import { CUT_SNAP, type MirrorOptions, type MirrorPlane, mirrorGeometry, reflectionXform } from "./mirror.ts";
+import { CUT_SNAP, type MirrorOptions, type MirrorPlane, reflectionXform } from "./mirror.ts";
+import { copyPayloadOf } from "./copy-payload.ts";
 import type { FaceKey } from "./ops.ts";
 import { canonicalPlane, distToSegment, liftFromPlane, planeBasis, projectToPlane } from "../kernel/geom.ts";
 import { type LockAxis, type PlaneLock, planeLockLabel } from "./locks.ts";
@@ -53,12 +54,12 @@ import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type Vie
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
-import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace } from "./ops.ts";
+import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace, applyOp } from "./ops.ts";
 import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
-import { opTouchesLocked, withFront } from "./op-locks.ts";
+import { frontOf, mergeOp, opTouchesLocked, previewableIn, previewVariant, withFront } from "./op-locks.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
 import type { Surface } from "./commands/action.ts";
@@ -87,7 +88,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { meshViewOf } from "../mesh/mesh-view.ts";
 import { triangulateRings } from "../format/triangulate.ts";
-import { addPrimitive, mergeVerts, splitEdge, PRIMITIVES, primitiveDims, primitiveDefaultLen, isFlatPrimitive, type PrimitiveKind } from "../mesh/ops/index.ts";
+import { addPrimitive, PRIMITIVES, primitiveDims, primitiveDefaultLen, isFlatPrimitive, type PrimitiveKind } from "../mesh/ops/index.ts";
 import { MeshKernel, F_HIDDEN } from "../mesh/mesh-kernel.ts";
 import { edgeLoop } from "../mesh/select-loop.ts";
 import type { OptionKv } from "./tool-config.ts";
@@ -207,7 +208,8 @@ export type PoolPick = { kind: "group"; group: number } | { kind: "instance"; in
 type OriginPreset = "bottom" | "corner" | "center" | "mean";
 const ORIGIN_PRESETS: readonly { id: OriginPreset; label: string }[] = [{ id: "bottom", label: "底面中心" }, { id: "corner", label: "包围盒角" }, { id: "center", label: "包围盒中心" }, { id: "mean", label: "顶点平均" }];
 /** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
-export type LastGesture =
+export type LastGesture = GestureRecord & { /** 第一次提交带的方向（池本地；计划书 §12 C2）：数值小窗重画复用，不按当下相机重算。 */ front?: Pt3 };
+type GestureRecord =
   | { kind: "line"; ops: number; at: PoolRef; a: Pt3; b: Pt3 }
   | { kind: "rect"; ops: number; at: PoolRef; plane: DrawPlane; anchor: Pt3; corner: Pt3; from?: "corner" | "center" }
   /** 旋转矩形：A 第一角 / B 第一边终点 / C 第二边终点；VCB「角度,宽」或「宽」。 */
@@ -330,6 +332,8 @@ export class Editor {
   private live: Kernel | null = null;
   /** 网格体池的预演副本（自由建模工作台；brep 的影子是 live）。 */
   private liveMesh: MeshKernel | null = null;
+  /** 预演的影子场景（骨架拷贝 + 活动池换影子内核，计划书 §12 C1）：live / liveMesh 的那份身体就住在它里面；画的时候材质从它取（预演开的槽在它的槽表上）。 */
+  private liveScene: Scene | null = null;
   private liveOverride: { picks: PoolPick[]; xform: Xform; copy?: boolean } | null = null;
   private liveEvents: FaceEvent[] = [];
   private armed = false;
@@ -652,7 +656,7 @@ export class Editor {
     const overrides = override ? this.overrideList(override) : undefined;
     const copies = copy ? this.overrideList(copy) : undefined;
     PART_STATS.ms = 0; PART_STATS.n = 0;
-    const view = perf.time("worldView", () => new WorldView(this.scene, this.ctx, live, overrides, { grid, copies, isolate: this._isolate }));
+    const view = perf.time("worldView", () => new WorldView(live && this.liveScene ? this.liveScene : this.scene, this.ctx, live, overrides, { grid, copies, isolate: this._isolate }));
     perf.last["worldView.parts"] = PART_STATS.ms; perf.last["worldView.partsN"] = PART_STATS.n;
     this.viewCache = { key, view };
     return view;
@@ -988,7 +992,7 @@ export class Editor {
     this.snapInfo = null;
     this.hoverEdge = null;
     this.hoverFace = null;
-    this.live = null; this.liveMesh = null;
+    this.live = null; this.liveMesh = null; this.liveScene = null;
     this.liveOverride = null;
     this.liveEvents = [];
     this.host.marquee(null);
@@ -1148,7 +1152,7 @@ export class Editor {
    * 挪点在镜像下的纪律（两种模式；设计稿 `ai-docs/20261028-mirror-redo-design.md` §1）：中缝上的点钉住、想穿过去的夹在面上、落到中缝的和孪生点并成一个；
    * 镜像编辑另外补上对面的点、手标补上对面的边。提交前改写；进日志的是改写后的 op = 重放一致；并点作为同一步里紧跟的 meshMerge 提交（commitIn）。
    */
-  private mirrorRewrite(op: Op): { op: Op; merges: MirrorMovesResult["merges"] } {
+  private mirrorRewrite(op: Op): { op: Op; merges: MirrorMovesResult["merges"]; note?: string } {
     if (op.op !== "meshMove" && op.op !== "meshEdgeMarks") return { op, merges: [] };
     const ms = this.mirrors.get(op.def);
     if (!ms) return { op, merges: [] };
@@ -1158,19 +1162,20 @@ export class Editor {
       if (r.unpaired && ms.mode === "edit") notes.push(`${r.unpaired} 个点对面找不到，只改了这一边（右上角镜像方片是橙的 = 模型对镜像面不对称）`);
       if (r.clamped) notes.push(`${r.clamped} 个点想穿过镜像面，停在了中缝上`);
       if (r.merges.length) notes.push(`${r.merges.length} 处在中缝上并成一个点`);
-      if (notes.length) this.mirrorNote = `${ms.mode === "edit" ? "镜像编辑" : "强行对称"}：${notes.join("；")}`;
-      return { op: { ...op, moves: r.moves }, merges: r.merges };
+      return { op: { ...op, moves: r.moves }, merges: r.merges, ...(notes.length ? { note: `${ms.mode === "edit" ? "镜像编辑" : "强行对称"}：${notes.join("；")}` } : {}) };
     }
     if (ms.mode !== "edit") return { op, merges: [] };
     const p = mirrorPairs(m, ms.axis), es = new Set(op.edges);
     for (const e of op.edges) { const a = p.get(m.edgeA[e]) ?? -1, b = p.get(m.edgeB[e]) ?? -1; if (a >= 0 && b >= 0 && a !== b) { const t = m.edgeOf(a, b); if (t >= 0) es.add(t); } }
     return { op: { ...op, edges: [...es].sort((x, y) => x - y) }, merges: [] };
   }
-  private mirrorForceBefore(op: Op): MeshKernel | null {
+  /** 强行对称管这条 op 吗（提交 / 预演共用）。 */
+  private mirrorForces(op: Op): MirrorSetting | null {
     if (this.mirrorMerging || !op.op.startsWith("mesh") || !("def" in op) || Editor.NO_SYMMETRIZE.has(op.op)) return null;
     const ms = this.mirrors.get((op as { def: number }).def);
-    return ms && ms.mode === "force" ? this.scene.mesh((op as { def: number }).def).kernel.clone() : null;
+    return ms && ms.mode === "force" ? ms : null;
   }
+  private mirrorForceBefore(op: Op): MeshKernel | null { return this.mirrorForces(op) ? this.scene.mesh((op as { def: number }).def).kernel.clone() : null; }
   private mirrorForceAfter(pass: StepPass, op: Op, before: MeshKernel): void {
     const def = (op as { def: number }).def, ms = this.mirrors.get(def);
     if (!ms) return;
@@ -1180,21 +1185,6 @@ export class Editor {
     if (!this.trySymmetrize(m, ms.axis, side)) { this.mirrorNote = "强行对称：有面跨过镜像面、而且一刀劈不开（凹的面），这一步没对称（先在中缝上手动切一刀）"; return; }
     this.mirrorLastSide.set(def, side);
     this.commitIn(pass, { op: "meshSymmetrize", def, axis: ms.axis, side });
-  }
-  /** 预演同一道：影子上做同一套挪点纪律（钉 / 不穿 / 并；镜像编辑补对面）——拖到中缝眼睛看到的就是并好的样子，松手前拖回去 = 影子从真身重算、自然分开；强行对称再把影子对称一遍（真身不动）。 */
-  private mirrorPreview(def: number, base: MeshKernel, c: MeshKernel): void {
-    const ms = this.mirrors.get(def);
-    if (!ms) return;
-    const moves: { v: number; to: Pt3 }[] = [];
-    for (const v of c.verts()) if (base.hasV(v)) { const p = c.pt(v), q = base.pt(v); if (p.x !== q.x || p.y !== q.y || p.z !== q.z) moves.push({ v, to: p }); }
-    if (moves.length) {
-      const r = mirrorMoves(base, moves, ms.axis, ms.mode);
-      for (const mv of r.moves) if (c.hasV(mv.v)) c.setPos(mv.v, mv.to);
-      for (const mg of r.merges) { const ids = [mg.keep, ...mg.drop].filter((v) => c.hasV(v)); if (mg.split && c.hasE(mg.split.edge)) ids.push(splitEdge(c, mg.split.edge, mg.split.t)); if (ids.length >= 2) mergeVerts(c, ids, mg.at); }
-    }
-    if (ms.mode === "edit" || isSymmetric(c, ms.axis)) return;
-    const probe = c.clone();
-    try { symmetrize(probe, ms.axis, sideOfChange(base, c, ms.axis) || this.mirrorLastSide.get(def) || 1); c.swapWith(probe); } catch { /* 劈不开：预演照原样（提交时会说） */ }
   }
   /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */
   private mirrorBlocks(op: Op): boolean {
@@ -1250,10 +1240,15 @@ export class Editor {
 
   /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
   private toolPass(): StepPass { return STEP_PASS; }
-  private toolCommit(op: Op): FaceEvent[] { return this.mirrorBlocks(op) ? [] : this.commitIn(this.toolPass(), this.withFront(op)); }
+  private toolCommit(op0: Op): FaceEvent[] { if (this.mirrorBlocks(op0)) return []; const op = this.withFront(op0); this.gestureFront = frontOf(op) ?? this.gestureFront; return this.commitIn(this.toolPass(), op); }
   /** 工具画的线 / 推的面带上「这一侧朝着我」的方向（op-locks.ts withFront）。 */
-  private withFront(op: Op): Op { const m = this.ctxXform(); return withFront(op, (p) => normalize3(applyDir(m === IDENTITY ? m : invert(m), this.frame().viewDir(applyPt(m, p))))); }
-  private commitFront(pass: StepPass, op: Op): FaceEvent[] { return this.commitIn(pass, this.withFront(op)); }
+  private withFront(op: Op, front?: Pt3): Op { const m = this.ctxXform(); return withFront(op, (p) => front ?? normalize3(applyDir(m === IDENTITY ? m : invert(m), this.frame().viewDir(applyPt(m, p))))); }
+  /** 工具提交带的方向，等工具 recordLast 时记进 LastGesture（数值小窗重画复用；计划书 §12 C2）。 */
+  private gestureFront: Pt3 | undefined;
+  /** 数值小窗重画：方向用第一次那份（画完转到另一侧再打尺寸，面不许翻；user 11-04「做，必须做」）；没记录才按当下相机算。 */
+  private commitFront(pass: StepPass, op: Op, front: Pt3 | undefined): FaceEvent[] { return this.commitIn(pass, this.withFront(op, front)); }
+  /** 提交和预演共用的前处理（工作流亚种 + 镜像纪律）：进日志 / 上影子的都是它改写后的那条。 */
+  private prepareOp(op0: Op): ReturnType<Editor["mirrorRewrite"]> { return this.mirrorRewrite(op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0); }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitIn(pass: StepPass, op0: Op): FaceEvent[] {
     if (this.stepDepth === 0) {   // 通行证被闭包带到步外来用（编译期拦不住的那一种）：照样包成一步做完，但记进黑匣子 + 控制台，测试 / 探针据此抓
@@ -1264,7 +1259,8 @@ export class Editor {
     }
     // 工作流亚种（DT87）的唯一口：挪点自动折出的折缝带哪些边层，写进 op（日志重放一致），不靠全局状态。
     // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
-    const rw = this.mirrorRewrite(op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
+    const rw = this.prepareOp(op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
+    if (rw.note) this.mirrorNote = rw.note;
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; }
     if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
@@ -1292,7 +1288,7 @@ export class Editor {
     this.host.trace?.({ kind: "op", op, events: r.events.length, ms: performance.now() - t0, position: this.history.position() });
     if (rw.merges.length && op.op === "meshMove") {   // 落到中缝的点和孪生点并成一个：同一步里紧跟着提交（写进日志 = 重放一致；对称化等并完才跑）
       this.mirrorMerging = true;
-      try { for (const mg of rw.merges) { this.commitIn(pass, { op: "meshMerge", def: op.def, verts: [mg.keep, ...mg.drop], to: mg.at, ...(mg.split ? { split: mg.split } : {}) }); if (this.stepFailed) return []; } }
+      try { for (const mg of rw.merges) { this.commitIn(pass, mergeOp(op.def, mg)); if (this.stepFailed) return []; } }
       finally { this.mirrorMerging = false; }
     }
     if (symBefore) this.mirrorForceAfter(pass, op, symBefore);   // 同一步里补一条对称（撤销一下 = 一起撤）
@@ -2719,7 +2715,7 @@ export class Editor {
   //   「镜像面默认放在 a 不过是当前物体，不过我习惯先画右半？」→ 默认 = 当前上下文的轴原点、红轴当法线、留 +X 那侧。
   private gizmo: { g: PlaneGizmo; hot: GizmoHandle | null; grab: GizmoGrab | null } | null = null;
   /** 指令预演（镜像）：跑在活动内核的克隆上；开着时 liveWorld 画影子内核（没有手势也画）。 */
-  private cmdPreview: ((k: Kernel) => FaceEvent[]) | null = null;
+  private cmdPreview: (() => Op) | null = null;
   private cmdGhosts: (() => { picks: PoolPick[]; xform: Xform } | null) | null = null;
   mirrorActive(): boolean { return this.gizmo !== null; }
   /** 镜像面把手这一帧在屏上的位置（探针用：别在外面另抄一份把手大小的算法；不在镜像会话 = null）。 */
@@ -2745,7 +2741,6 @@ export class Editor {
     const vals: Record<string, ParamValue> = { deleteOpposite: true, mergeSeam: true, weld: 0, guardMm: CUT_SNAP * 1000, ...(instPicks.length ? { instances: true } : {}) };
     const planeLocal = (): MirrorPlane => { const m = invert(this.ctxXform()), g = this.gizmo!.g; return { origin: applyPt(m, g.origin), normal: normalize3(applyDir(m, g.normal)) }; };
     const opts = (v: Readonly<Record<string, ParamValue>>): MirrorOptions => ({ deleteOpposite: !!v.deleteOpposite, mergeSeam: !!v.mergeSeam, weld: Number(v.weld) || 0, guard: Math.max(0, Number(v.guardMm) || 0) / 1000 });
-    this.cmdPreview = (c) => (faces.length || edges.length ? mirrorGeometry(c, faces.filter((x) => c.face(x)), edges.filter((x) => c.graph.hasEdge(x)), planeLocal(), opts(vals)) : []);
     // 组件的预演：原点在留下这侧的那几份，副本槽画镜过去的样子（删对面那半的实例预演不画，应用时照删）
     this.cmdGhosts = () => {
       if (!instPicks.length || !vals.instances || !this.gizmo) return null;
@@ -2762,6 +2757,7 @@ export class Editor {
     ];
     const buttons: ParamButton[] = [{ key: "axX", label: "X" }, { key: "axY", label: "Y" }, { key: "axZ", label: "Z" }, { key: "flip", label: "翻转" }, { key: "cancel", label: "取消" }, { key: "apply", label: "应用", primary: true }];
     const opOf = (v: Readonly<Record<string, ParamValue>>, pl: MirrorPlane): Op => ({ op: "mirror", at, faces: faceKeys, edges: edgeKeys, instances: v.instances ? instPicks.map((p) => p.instance) : [], plane: pl, ...opts(v) });
+    this.cmdPreview = () => ({ ...opOf(vals, planeLocal()), instances: [] } as Op);   // 同一条 op；组件走副本槽（cmdGhosts）
     const apply = (): void => {
       const pl = planeLocal(), n0 = this.opCount;
       this.endMirror();
@@ -2795,16 +2791,15 @@ export class Editor {
   }
   private endMirror(): void {
     this.gizmo = null; this.cmdPreview = null; this.cmdGhosts = null;
-    this.live = null; this.liveMesh = null; this.liveOverride = null; this.liveEvents = [];
+    this.live = null; this.liveMesh = null; this.liveScene = null; this.liveOverride = null; this.liveEvents = [];
     this.snapInfo = null;
     this.draw();
   }
   private refreshCmdPreview(): void {
-    this.live = null; this.liveMesh = null; this.liveEvents = []; this.liveOverride = null;
+    this.live = null; this.liveMesh = null; this.liveScene = null; this.liveEvents = []; this.liveOverride = null;
     if (this.cmdPreview) {
-      const c = this.kernel.clone();
-      try { this.liveEvents = this.cmdPreview(c); this.live = c; }
-      catch (err) { this.live = null; this.liveMesh = null; this.host.hint(`镜像预演不行：${err instanceof Error ? err.message : String(err)}`); }
+      try { this.previewApply(this.cmdPreview()); }
+      catch (err) { this.live = null; this.liveMesh = null; this.liveScene = null; this.host.hint(`镜像预演不行：${err instanceof Error ? err.message : String(err)}`); }
       const gh = this.cmdGhosts?.();
       if (gh) this.liveOverride = { picks: gh.picks, xform: gh.xform, copy: true };
     }
@@ -2889,7 +2884,7 @@ export class Editor {
   private redrawCircle(pass: StepPass, L: Extract<LastGesture, { kind: "circle" }>, rim: Pt3, segments: number): void {
     const n0 = this.opCount;
     const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
-    if (segs.length) this.commitFront(pass, { op: "addEdges", at: L.at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
+    if (segs.length) this.commitFront(pass, { op: "addEdges", at: L.at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) }, L.front);
     this.last = { ...L, ops: this.opCount - n0, rim, segments };
   }
   /** 弧：按新的手势量重画（同上）；构不出来 = null，什么都不提交。 */
@@ -2897,7 +2892,7 @@ export class Editor {
     const built = buildArc(g);
     if (!built) return null;
     const n0 = this.opCount;
-    this.commitFront(pass, arcOp((p) => this.toLocal(p), L.at, built));
+    this.commitFront(pass, arcOp((p) => this.toLocal(p), L.at, built), L.front);
     this.last = { ...L, ...g, ops: this.opCount - n0 };
     return built;
   }
@@ -3004,7 +2999,7 @@ export class Editor {
       case "line": {
         if (v.kind !== "length") break;
         const b = add3(L.a, scale3(normalize3(sub3(L.b, L.a)), v.m));
-        this.commitFront(pass, { op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]], harden: true });
+        this.commitFront(pass, { op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]], harden: true }, L.front);
         this.last = { ...L, ops: this.opCount - n0, b };
         { const HL = this.handlers.line; if (this._tool === "line" && HL) { HL.vcbContinue?.(this.toolCtx, b); this.armed = HL.active(); } }
         msg = `线长 ${fmtLen(Math.abs(v.m))}`;
@@ -3015,7 +3010,7 @@ export class Editor {
         const d = sub3(L.corner, L.anchor), [u, w] = Editor.rectAxes(L.plane.basis), from = L.from ?? "corner", k = from === "center" ? 0.5 : 1;
         const corner = add3(L.anchor, add3(scale3(u, sign(dot3(d, u)) * Math.abs(v.a) * k), scale3(w, sign(dot3(d, w)) * Math.abs(v.b) * k)));
         const segs = rectSegmentsOnPlane(L.plane.plane, L.plane.basis, rectOpposite(L.anchor, corner, from), corner);
-        if (segs.length) this.commitFront(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
+        if (segs.length) this.commitFront(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true }, L.front);
         this.last = { ...L, ops: this.opCount - n0, corner };
         msg = `矩形 ${fmtLen(Math.abs(v.a))} × ${fmtLen(Math.abs(v.b))}`;
         break;
@@ -3028,7 +3023,7 @@ export class Editor {
         else if (v.kind === "length") c = add3(L.b, scale3(rrectDirAt(L.a, L.b, n, th), v.m));
         else break;
         const segs = rrectSegments(L.a, L.b, c);
-        if (segs.length) this.commitFront(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
+        if (segs.length) this.commitFront(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true }, L.front);
         this.last = { ...L, ops: this.opCount - n0, c };
         msg = `旋转矩形 ${fmtLen(dist(L.a, L.b))} × ${fmtLen(dist(L.b, c))} · ${fmtDeg(rrectThetaOf(L.a, L.b, n, c))}`;
         break;
@@ -3057,7 +3052,7 @@ export class Editor {
       case "pp": {
         if (v.kind !== "length") break;
         const h = sign(L.h) * v.m, hl = L.h !== 0 ? h * (L.hl / L.h) : h;
-        this.commitFront(pass, { op: "pushpull", at, face: L.face, dist: hl, ...(L.keepRing ? { keepRing: true } : {}) });
+        this.commitFront(pass, { op: "pushpull", at, face: L.face, dist: hl, ...(L.keepRing ? { keepRing: true } : {}) }, L.front);
         this.last = { ...L, ops: this.opCount - n0, h, hl };
         msg = `推拉 ${fmtLen(h)}`;
         break;
@@ -3070,7 +3065,7 @@ export class Editor {
         if (r.length >= 3) {
           const r3 = r.map((q) => liftFromPlane(q, L.plane.plane, L.plane.basis));
           const spec = L.circle ? offsetCircleSpec(L.circle, d) : null;   // 0.10：源面是圆 → 偏移环也是圆
-          this.commitFront(pass, { op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]), ...(spec ? { curve: curveSpecToLocal((pt) => this.toLocal(pt), spec) } : {}) });
+          this.commitFront(pass, { op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]), ...(spec ? { curve: curveSpecToLocal((pt) => this.toLocal(pt), spec) } : {}) }, L.front);
         }
         this.last = { ...L, ops: this.opCount - n0, d };
         msg = `偏移 ${d > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(d))}`;
@@ -3473,13 +3468,12 @@ export class Editor {
     const A = this.newObjectAnchorAt(x0, y0), wpp = A ? worldPerPx(this.frame(), this.fvp(), A.p) : null;
     return A && wpp ? Math.hypot(x1 - x0, y1 - y0) * wpp : null;
   }
-  /** 新建工具的预演：在影子网格上按同一份计划长出来（对齐 = 法向 / 落在地面 = 世界）。返回说法；落不到东西 = null。 */
-  previewPrimitive(kind: PrimitiveKind, x: number, y: number, sizeW: number, m: MeshKernel, spin = 0, aspect = 1): string | null {
+  /** 新建工具的预演：同一份计划给出同一条 op（对齐 = 法向 / 落在地面 = 世界）+ 说法；落不到东西 = null。 */
+  primitiveOp(kind: PrimitiveKind, x: number, y: number, sizeW: number, spin = 0, aspect = 1): { op: Op; say: string } | null {
     const A = this.newObjectAnchorAt(x, y), P = PRIMITIVES[kind];
     if (!A) return null;
     const { frame, size, segments } = this.primitivePlan(kind, A)(A.n ? "normal" : "world", sizeW, 16, spin, aspect);
-    addPrimitive(m, kind, frame, size, segments);
-    return `拉出${P.label}（${Math.abs(aspect - 1) > 1e-9 ? `宽 ${fmtLen(sizeW)} × 深 ${fmtLen(sizeW * aspect)}` : `${P.measure} ${fmtLen(sizeW)}`}${spin ? ` · 朝向 ${fmtDeg(spin)}` : ""}）`;   // 预演只有拉出工具用
+    return { op: { op: "meshAddPrimitive", def: this.activePool().def, kind, frame, size, ...(P.round ? { segments } : {}) }, say: `拉出${P.label}（${Math.abs(aspect - 1) > 1e-9 ? `宽 ${fmtLen(sizeW)} × 深 ${fmtLen(sizeW * aspect)}` : `${P.measure} ${fmtLen(sizeW)}`}${spin ? ` · 朝向 ${fmtDeg(spin)}` : ""}）` };   // 预演只有拉出工具用
   }
   /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
   addPrimitive(kind: PrimitiveKind, opts: { at?: { x: number; y: number }; size?: number; spin?: number; aspect?: number; verb?: string } = {}): boolean { return this.step((pass) => {
@@ -3558,36 +3552,53 @@ export class Editor {
   /** 手势进行中换了会影响预演的设置（软选择开关 / 半径）：照现在的指针重算预演。 */
   refreshGesture(): void { if (this.gestureActive()) { this.computeLive(); this.draw(); } }
   private computeLive(): void {
-    this.live = null; this.liveMesh = null;
+    this.live = null; this.liveMesh = null; this.liveScene = null;
     this.liveOverride = null;
     this.liveEvents = [];
-    this.previewShear = null;
-    const run = (fn: (c: Kernel) => FaceEvent[]): void => {
-      const c = this.shadowKernel();
-      try { this.liveEvents = perf.time("live.run", () => fn(c)); }
+    this.previewShear = null; this.previewNote = null;
+    const preview = (op: Op): void => {   // 工具递来这次手势会提交的那条 op（计划书 §12 C1）；内核拒 = 进黑匣子，这一帧不画预演
+      try { perf.time("live.run", () => this.previewApply(op)); }
       catch (err) {
-        this.liveEvents = []; this.live = null; this.liveMesh = null;
-        this.host.trace?.({ kind: "fail", where: "preview", op: null, message: err instanceof Error ? err.message : String(err), ...(this.activeKind() === "brep" ? { brep: this.kernel.toBrep() } : {}), pool: this.activePool(), preview: this.previewDescriptor() });   // 网格体池里不带 brep 快照（以前这一句在 catch 里再抛一次，真错误没进黑匣子）
-        this.fail("preview", err); return;
+        this.liveEvents = []; this.live = null; this.liveMesh = null; this.liveScene = null;
+        this.host.trace?.({ kind: "fail", where: "preview", op, message: err instanceof Error ? err.message : String(err), ...(this.activeKind() === "brep" ? { brep: this.kernel.toBrep() } : {}), pool: this.activePool(), preview: this.previewDescriptor() });   // 网格体池里不带 brep 快照（以前这一句在 catch 里再抛一次，真错误没进黑匣子）
+        this.fail("preview", err);
       }
-      this.live = c;
     };
     const tool = this._tool;
     let dims = "";
     const H = this.handlers[tool];
-    const runMesh = (fn: (m: MeshKernel) => void): void => {   // 网格体：拷一份（类型数组，几毫秒）改完画；真身不动
-      const def = this.activePool().def, base = this.scene.mesh(def).kernel, c = base.clone();
-      try { perf.time("live.run", () => { fn(c); this.mirrorPreview(def, base, c); }); }
-      catch (err) { this.liveMesh = null; this.host.trace?.({ kind: "fail", where: "preview", op: null, message: err instanceof Error ? err.message : String(err) }); this.fail("preview", err); return; }
-      this.liveMesh = c;
-    };
-    if (H && (H.active() || H.previewOnHover)) dims = this.activeKind() === "mesh" ? (H.liveMesh ? H.liveMesh(this.toolCtx, runMesh) : "") : H.live(this.toolCtx, run);
+    if (H && (H.active() || H.previewOnHover)) dims = H.live(this.toolCtx, preview);
     if (dims !== this.dims) { this.dims = dims; this.host.readout?.(this.readoutText()); }
-    if (this.live || this.liveMesh || this.liveOverride || dims) {
+    if (this.live || this.liveMesh || this.liveOverride || dims || this.previewNote) {
       const ev = this.live ? (this.liveEvents.length ? `预览：${this.liveEvents.map(describeEvent).join("；")}` : "预览：无膜变化") : "";
       const sh = this.previewShear ? `会把组件「${this.previewShear}」斜切（glTF 不允许），松手会被拦下：沿它自己的轴缩放（只选它一个时手柄就是它的轴）` : "";
       const typing = this.typing.text() && this.gestureActive() ? `打数：${this.typing.text()}▏${this.typedValue() === null ? "（还没看懂，接着打）" : ""} · 回车 / 点一下 = 定 · 退格改 · Esc 取消` : "";   // 打的字一直看得见（预演读数会盖掉 typeIntoGesture 写的那句）
-      this.host.hint([sh, typing, dims, ev].filter(Boolean).join(" ｜ "));
+      this.host.hint([this.previewNote, sh, typing, dims, ev].filter(Boolean).join(" ｜ "));
+    }
+  }
+  /** 提交会被拒的说法（锁着）：预演不画，提示行说出来（不装作能做）。 */
+  private previewNote: string | null = null;
+  /**
+   * 预演 = 同一条 op 跑在影子场景上（计划书 §12 C1；user 11-04「预演要做干净」）：和 commitIn 同一段前处理（front → 工作流 / 镜像改写 → 锁检查），同一个 applyOp；真身不动。
+   * 影子场景 = 骨架拷贝（槽表是拷的：预演开槽没有临时号、没有表外约定）+ 活动池换影子内核（硬表面 = 拷一次每帧倒回；网格体 = 每帧拷一份）。一帧多条 = 叠在同一份影子上。和提交唯一的差别 = op-locks.ts previewVariant。抛 = 内核拒。
+   */
+  private previewApply(op0: Op): void {
+    if (this._locked) return;
+    const pool = this.activePool(), rw = this.prepareOp(this.withFront(op0)), op = rw.op;
+    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.previewNote = "已锁定：解锁后再改（选中它 → 解锁）"; return; }
+    if (!previewableIn(op, pool)) throw new Error(`preview: op "${op.op}" reaches outside the active pool`);   // 别的池和真身共享：改到外面 = 预演写了真身
+    const mesh = this.activeKind() === "mesh", base = mesh ? this.scene.mesh(pool.def).kernel : null;
+    const sc = this.liveScene ?? this.scene.shadowOf(pool, base ? base.clone() : this.shadowKernel());
+    this.liveScene = sc;
+    const r = applyOp(sc, previewVariant(op));
+    this.liveEvents = this.liveEvents.length ? [...this.liveEvents, ...r.events] : r.events;
+    if (!base) { this.live = sc.kernelOf(pool); return; }
+    const m = sc.mesh(pool.def).kernel, ms = this.mirrorForces(op);
+    this.liveMesh = m;
+    for (const mg of rw.merges) applyOp(sc, mergeOp(pool.def, mg));
+    if (ms && !isSymmetric(m, ms.axis)) {   // 强行对称：提交是同一步里补一条，这里同一条上影子；劈不开 = 预演照原样（提交时会说）
+      const keep = m.clone();
+      try { applyOp(sc, { op: "meshSymmetrize", def: pool.def, axis: ms.axis, side: sideOfChange(base, m, ms.axis) || this.mirrorLastSide.get(pool.def) || 1 }); } catch { m.swapWith(keep); }
     }
   }
   /** 预演的影子副本（O1「拷一次 + 每帧退回」）：真身没变（同一对象、同一 rev）就把上一帧的影子倒回去再用；变了 / 倒不回（日志丢段）/ 全局结算模式 = 重新拷一份。 */
@@ -3602,13 +3613,13 @@ export class Editor {
     this.shadow = { k, base, baseRev: base.rev, mark: k.rewindMark() };
     return k;
   }
-  /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
-  private previewXform(X: Xform, run: (fn: (c: Kernel) => FaceEvent[]) => void, copy?: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): void {
+  /** 整体变换（世界系 X）的预演：选区顶点走影子场景（和 commitXform / commitCopies 同一条 op）、子池走叠加变换。 */
+  private previewXform(X: Xform, preview: (op: Op) => void, copy?: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): void {
     const vids = moveTargetsSelection(this.kernel, this.selection), XL = this.xformToLocal(X);
-    if (copy) {   // 复制（变换工具按住 Ctrl / 开着「复制」）：原件不动，副本吸进影子副本
+    if (copy) {   // 复制（变换工具按住 Ctrl / 开着「复制」）：原件不动，副本吸进影子
       const payload = this.copyPayload(XL, copy);
-      if (payload) run((c) => { const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {}; for (const [n, segs] of Object.entries(payload.edgeSegs)) edgeSegs[n] = segs.map(([a, b]) => ({ a, b })); return c.absorb(payload.faces, payload.wires.map(([a, b]) => ({ a, b })), { edgeSegs, faceLayers: payload.faceLayers }); });
-    } else if (vids.length) run((c) => c.moveVertices(vids.filter((id) => c.graph.hasVertex(id)).map((id) => ({ id, to: applyPt(XL, c.graph.pt(id)) }))));
+      if (payload) preview({ op: "absorb", at: this.activePool(), ...payload });
+    } else { const op = this.xformMoveOp(X, vids); if (op) preview(op); }
     const picks = this.movablePoolPicks(false);
     if (picks.length) this.liveOverride = { picks, xform: X, ...(copy ? { copy: true } : {}) };
     {   // 斜切护栏的提前量：变换后组件矩阵有新斜切 → 提示（提交时 ops.ts 照样拦）
@@ -3844,7 +3855,7 @@ export class Editor {
     this.anchor3 = null; this.cursor3 = null; this.snapInfo = null;
     this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 手势落定 = 锁解（SU 同款）
     this.samples = []; this.armed = false; this.canArm = false; this.downPoint = null; this.justCommitted = false;
-    this.live = null; this.liveMesh = null; this.liveOverride = null; this.liveEvents = [];
+    this.live = null; this.liveMesh = null; this.liveScene = null; this.liveOverride = null; this.liveEvents = [];
   }
   /** 充能生命周期 = 工具子步（user 2026-10-24「充能只影响下一个按下……充能的生命周期应该是每一下点，是工具的子步的生命周期」）：每次按下 / 松手落定都消费掉，这一子步悬停时再蹭。 */
   private consumeCharges(): void { this.clearCharged(); }
@@ -3922,7 +3933,7 @@ export class Editor {
       setAnchor: (p) => { this.anchor3 = p; },
       setCursor: (p) => { this.cursor3 = p; },
       setSnap: (sn) => { this.snapInfo = sn; },
-      recordLast: (L) => { this.last = L; this.offerLastAfterthought(this.toolPass()); },
+      recordLast: (L) => { const f = this.gestureFront; this.gestureFront = undefined; this.last = f ? { ...L, front: f } : L; this.offerLastAfterthought(this.toolPass()); },
       contextFrame: () => this.contextFrame(),
       axesBase: () => this.axesBase(),
       workflow: () => ({ eraseNonCoplanar: this.mode.workflow?.eraseNonCoplanar ?? "burst", autofold: this.mode.workflow?.autofold ?? "hard" }),
@@ -3930,7 +3941,7 @@ export class Editor {
       boxIn: (f) => this.boxIn(f),
       setAxes: (f) => this.setContextAxes(f),
       newPrimitive: (kind, x, y, size, spin, aspect) => this.addPrimitive(kind, { at: { x, y }, verb: "拉出", ...(size !== undefined ? { size } : {}), ...(spin ? { spin } : {}), ...(aspect !== undefined ? { aspect } : {}) }),
-      previewPrimitive: (kind, x, y, size, m, spin, aspect) => this.previewPrimitive(kind, x, y, size, m, spin, aspect),
+      primitiveOp: (kind, x, y, size, spin, aspect) => this.primitiveOp(kind, x, y, size, spin, aspect),
       primitiveFrameAt: (x, y) => { const f = this.primitiveFrameAt(x, y); return f ? { origin: f.o, x: f.x, y: f.y, z: f.z } : null; },
       primitiveDragSize: (x0, y0, x1, y1) => this.primitiveDragSize(x0, y0, x1, y1),
       typed: () => this.typedValue(),
@@ -3958,7 +3969,8 @@ export class Editor {
       copyPayload: (XL, entities) => this.copyPayload(XL, entities),
       commitCopies: (copies, pools, at) => this.commitCopies(this.toolPass(), copies, pools, at),
       commitXform: (X, vids, pools) => this.commitXform(this.toolPass(), X, vids, pools),
-      previewXform: (X, run, copy) => this.previewXform(X, run, copy),
+      previewXform: (X, preview, copy) => this.previewXform(X, preview, copy),
+      xformMoveOp: (X, vids) => this.xformMoveOp(X, vids),
       pivotOf: (m) => this.pivotOf(m),
       offerAfterthought: (title, fields, values, nOps, redo) => this.offerAfterthought(title, fields, values, nOps, redo),
       movablePoolPicks: (say) => this.movablePoolPicks(say),
@@ -4095,7 +4107,7 @@ export class Editor {
       this.snapInfo = null;
       this.hoverEdge = null;
       this.hoverFace = null;
-        this.live = null; this.liveMesh = null;
+        this.live = null; this.liveMesh = null; this.liveScene = null;
       this.host.tip(null, 0, 0);
       this.host.hint(null);
       this.draw();
@@ -4106,39 +4118,25 @@ export class Editor {
   private commitCopies(pass: StepPass, copies: { payload: ReturnType<Editor["copyPayload"]>; XL: Xform }[], pools: readonly PoolPick[], at: PoolRef): void {
     const def = this.scene.defOfContext(this.ctx);
     for (const { payload, XL } of copies) {
-      if (payload) this.commitIn(pass, { op: "absorb", at, faces: payload.faces, wires: payload.wires, edgeSegs: payload.edgeSegs, faceLayers: payload.faceLayers });
+      if (payload) this.commitIn(pass, { op: "absorb", at, ...payload });
       for (const p of pools) {
         if (p.kind === "group") this.commitIn(pass, { op: "copyGroup", at, group: p.group, xform: XL });
         else { const inst = this.scene.instance(def, p.instance); this.commitIn(pass, { op: "placeInstance", at, definition: inst.def, xform: compose(XL, inst.xform) }); }
       }
     }
   }
-  /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
-  private copyPayload(XL: Xform, entities: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): { faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs: Record<string, [Pt3, Pt3][]>; faceLayers: (Record<string, number> | undefined)[] } | null {
-    const k = this.kernel;
-    const faces = entities.faces.filter((f) => k.face(f)), edges = entities.edges.filter((e) => k.graph.hasEdge(e));
-    if (!faces.length && !edges.length) return null;
-    const snap = transformSnapshot(extractSnapshot(k, faces, edges), XL);
-    const P = snap.vertices;
-    const inFace = new Set<string>();
-    for (const f of snap.faces) for (const r of [f.outer, ...f.holes]) for (let i = 0; i < r.length; i++) { const a = r[i], b = r[(i + 1) % r.length]; inFace.add(a < b ? `${a}-${b}` : `${b}-${a}`); }
-    const lp = snapshotLayerPayload(snap, P);
-    const edgeSegs: Record<string, [Pt3, Pt3][]> = {};
-    for (const [n, segs] of Object.entries(lp.edgeSegs)) edgeSegs[n] = segs.map((sg) => [sg.a, sg.b] as [Pt3, Pt3]);
-    return {
-      faces: snap.faces.map((f) => [f.outer.map((i) => P[i]), ...f.holes.map((h) => h.map((i) => P[i]))]),
-      wires: snap.edges.filter(([a, b]) => !inFace.has(a < b ? `${a}-${b}` : `${b}-${a}`)).map(([a, b]) => [P[a], P[b]] as [Pt3, Pt3]),
-      edgeSegs,
-      faceLayers: lp.faceLayers,
-    };
+  private copyPayload(XL: Xform, entities: { faces: readonly FaceId[]; edges: readonly EdgeId[] }): CopyPayload | null {
+    return copyPayloadOf(this.kernel, XL, entities);
+  }
+  /** 世界系变换 X 作用于这些点的 move op（本地坐标；提交和预演同一条）。 */
+  private xformMoveOp(X: Xform, vids: readonly VertexId[]): Op | null {
+    const k = this.kernel, XL = this.xformToLocal(X), moves = vids.filter((id) => k.graph.hasVertex(id)).map((id) => ({ from: k.graph.pt(id), to: applyPt(XL, k.graph.pt(id)) }));
+    return moves.length ? { op: "move", at: this.activePool(), moves, ...(det3(XL) < 0 ? { mirror: true } : {}) } : null;   // 镜像挪点：两个表面跟着法向走（DT8）
   }
   /** 世界系变换 X 作用于：活动池顶点集（move op，本地坐标）+ 子池（transformPool / transformInstance，父空间变换）。 */
   private commitXform(pass: StepPass, X: Xform, vids: readonly VertexId[], pools: readonly PoolPick[]): void {
-    const at = this.activePool(), k = this.kernel, XL = this.xformToLocal(X);
-    if (vids.length) {
-      const moves = vids.filter((id) => k.graph.hasVertex(id)).map((id) => ({ from: k.graph.pt(id), to: applyPt(XL, k.graph.pt(id)) }));
-      this.commitIn(pass, { op: "move", at, moves, ...(det3(XL) < 0 ? { mirror: true } : {}) });   // 镜像挪点：两个表面跟着法向走（DT8）
-    }
+    const XL = this.xformToLocal(X), op = this.xformMoveOp(X, vids);
+    if (op) this.commitIn(pass, op);
     const def = this.scene.defOfContext(this.ctx);
     for (const p of pools) {
       if (p.kind === "group") this.commitIn(pass, { op: "transformPool", at: { def, group: p.group }, xform: XL });

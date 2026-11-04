@@ -13,9 +13,7 @@
 //     工具条「锁比例」关 = 指针落在底面上那一点在两根轴上各多远，宽 / 深就各两倍（圆圈 = 椭圆）；开 = 正方 / 正圆；按住 Shift 临时反过来。
 //   · 落定以后右下「刚才：」= 马后炮（对齐 法向 / 世界 / 物体、尺寸、段数、朝向），和右键新建同一份（Editor.addPrimitive）。新的那个留在选区里，接着可以挤出 / 移动。
 // 工具只管「按在哪、拖多大、转多少」；落点、坐标架、提交、马后炮都在编辑器那一条里（ctx.newPrimitive / previewPrimitive / primitiveDragSize / primitiveFrameAt）。
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import { add3, dot3, sub3 } from "../../kernel/geom.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import { isFlatPrimitive, type PrimitiveKind } from "../../mesh/ops/primitives.ts";
 import type { Frame } from "../../scene/xform.ts";
 import { rayPlane } from "../camera.ts";
@@ -23,7 +21,7 @@ import { angleAbout, axisAlignAngle } from "../protractor-geom.ts";
 import type { QuantityTag } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ViewState } from "../view-state.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 
 const ANGLE: QuantityTag = { q: "angle" };
 /** 定朝向：转到和上下文某根轴平行时吸住的范围（度）；Shift 一档多少度。 */
@@ -64,7 +62,6 @@ export class MeshCreateTool implements ToolHandler {
     ctx.newPrimitive(kind, s0.x, s0.y, dims.size, typed ?? 0, dims.aspect);
   }
   sample(): Record<string, number> { return this.phase === "orient" ? { spin: this.spin } : {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshCreate: { phase: this.phase, start: this.start, cur: this.cur, dragging: this.dragging, size: this.size, spin: this.spin } }; }
   /** 定朝向的环 = 量角器圆环（参考线 = 没转时的 x 方向，橙线 = 现在的朝向），套在基本体外面（方的半对角 ≈ 0.71 × 边长，圆的半径 = 0.5 × 直径）。 */
   viewExtras(): Partial<ViewState> {
@@ -138,13 +135,14 @@ export class MeshCreateTool implements ToolHandler {
     if (!this.dragging && ctx.moved(s, travel) > ctx.tapSlop()) this.dragging = true;
   }
 
-  liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const s0 = this.start, dims = this.phase === "orient" ? { size: this.size, aspect: this.aspect } : this.dragDims(ctx);
     if (!s0 || !dims) return "";
     const kind = this.kind(ctx), spin = this.phase === "orient" ? this.spinNow(ctx) : 0;
-    let label = "";
-    run((m) => { label = ctx.previewPrimitive(kind, s0.x, s0.y, dims.size, m, spin, dims.aspect) ?? ""; });
-    return label;
+    const p = ctx.primitiveOp(kind, s0.x, s0.y, dims.size, spin, dims.aspect);
+    if (!p) return "";
+    preview(p.op);
+    return p.say;
   }
 
   up(ctx: ToolCtx, ev: ToolPointer, _settle: () => ToolSample | null): void {

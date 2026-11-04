@@ -1,7 +1,5 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 export declare class PushPullTool implements ToolHandler {
     readonly tool: "pp";
@@ -26,7 +24,8 @@ export declare class PushPullTool implements ToolHandler {
         x: number;
         y: number;
     }, travel?: number): void;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    private opFor;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     /** 加边（不自愈）：工具选项「加边」或按住 Ctrl（SketchUp Push/Pull + Ctrl）。 */
     private keepRing;
     private commit;

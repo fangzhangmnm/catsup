@@ -1,7 +1,5 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 export declare class TransformTool implements ToolHandler {
     readonly tool: "transform";
@@ -70,7 +68,7 @@ export declare class TransformTool implements ToolHandler {
     /** 缩放沿哪几根轴：单轴块 = 那一根；平面块 = 两根；等比块 = 空（三轴等比）。 */
     private scaleDirs;
     private currentXform;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     up(ctx: ToolCtx, ev: ToolPointer, settle: () => ToolSample | null): void;
     /** 箭头 / 环 / 方块 / 中心点，跟着预演实时动（拖着的时候在抓的那一刻的位置上叠当前变换）。 */
     viewExtras(ctx: ToolCtx): Partial<ViewState>;

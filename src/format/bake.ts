@@ -147,19 +147,6 @@ function sideOut(snap: BrepSnapshot, fi: number, side: 0 | 1, mats: BakeMaterial
   if (mats?.isBack?.(slot)) return null;
   return mats?.slotToCore(slot) ?? -1;
 }
-/** 导出说明行的数（导出表单 / 状态行）：N 张面两侧都出、其中 M 张两侧材质不同、K 张两侧都是默认背面（整张不出）。隐藏的面不算。 */
-export interface SideCounts { both: number; differ: number; neither: number }
-export const noSides = (): SideCounts => ({ both: 0, differ: 0, neither: 0 });
-export function countSides(snap: BrepSnapshot, mats: BakeMaterials | undefined, into: SideCounts = noSides()): SideCounts {
-  const hidden = snap.faceLayers?.hidden;
-  snap.faces.forEach((_, i) => {
-    if (hidden && (hidden[i] ?? -1) >= 0) return;
-    const a = sideOut(snap, i, 0, mats), b = sideOut(snap, i, 1, mats);
-    if (a === null && b === null) into.neither++;
-    else if (a !== null && b !== null) { into.both++; if (a !== b) into.differ++; }
-  });
-  return into;
-}
 /** bake 的取舍（「导出模型」sheet 用；导出设计稿 §4）：lines = false → 不出 LINES primitive（有的查看器画出来怪）。缺省 = 和工程文件里那份一样。 */
 export interface BakeOptions { lines?: boolean }
 

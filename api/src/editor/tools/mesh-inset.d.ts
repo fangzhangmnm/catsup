@@ -1,7 +1,5 @@
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 export declare class MeshInsetTool implements ToolHandler {
     readonly tool: "offset";
     readonly grammar: "steps";
@@ -25,7 +23,6 @@ export declare class MeshInsetTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     describe(): Record<string, unknown>;
     /** Blender I / Ctrl+B / Ctrl+Shift+B：有选区 = 光标处起手。 */
     startModal(ctx: ToolCtx, s: {
@@ -45,6 +42,6 @@ export declare class MeshInsetTool implements ToolHandler {
     private distW;
     /** 这一下的 op（本地宽度 dL）。 */
     private opFor;
-    liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     private commit;
 }

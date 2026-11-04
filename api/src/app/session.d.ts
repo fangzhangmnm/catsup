@@ -1,5 +1,5 @@
 import type { Editor } from "../editor/editor.ts";
-import { type SideCounts } from "../format/index.ts";
+import { type BrepSideCounts } from "../scene/kinds.ts";
 import { type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import type { Xform } from "../scene/xform.ts";
 interface FSHandle {
@@ -302,7 +302,7 @@ export declare class Session {
         bytes: number;
     };
     /** 导出表单的说明行要的数（计划书 §9.2½ ②）：only = 只导这几个定义。 */
-    exportSides(only?: readonly number[]): SideCounts;
+    exportSides(only?: readonly number[]): BrepSideCounts;
     /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
     private plainExportNote;
     private download;

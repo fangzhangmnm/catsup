@@ -2,13 +2,13 @@
 // user：「我之前没有想过圆规，这个完全是我的创新」「做圆规的时候顺便我真的想要球规。因为发现关卡设计这个会很有用」；10-26「圆规和球规放不放进这个纪元收尾 放」。
 // 两下：圆心 → 半径点（或打半径）→ **参考圆**（画在圆心所在的平面上：落在面上 = 那张面；空处 = 当前画图平面；方向键锁平面）/ **参考球**（工具条「画：球」）。
 // 数值小窗：打长度 = 精确半径；x5 = 5 个同心圆（r、2r…5r）；/5 = 把半径五等分画 5 个。产物只进参考几何（不碰内核），吸附在 solver.ts（圆上 / 交点 / 球 ∩ 画面…）。
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, dist3, normalize3, scale3 } from "../../kernel/geom.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { Op } from "../ops.ts";
 import type { ViewState } from "../view-state.ts";
 import { projectToAxisPlane } from "../protractor-geom.ts";
 
@@ -69,7 +69,7 @@ export class CompassTool implements ToolHandler {
     ctx.setSnap(snap); ctx.setCursor(rim);
   }
 
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(): string {
     return this.stage === 1 && this.rim ? `半径 ${fmtLen(this.radius())}` : "";
   }
 

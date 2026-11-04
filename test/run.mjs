@@ -78,6 +78,7 @@ import "./resources.test.ts";   // 资源清点：活着 = 从模型根够得着
 import "./tree-drag.test.ts";   // 通用树拖拽落点：放进去 / 缝里横向定深度 / 不能放进自己（0.18 I3，2026-10-30 Opus）
 import "./identity-id2.test.ts";   // 身份地基 ID-2：moveInstance 保 GUID / 同级排序 / 清理材质 / 粘贴材质表 / 单面双面规矩（2026-11-04 Opus）
 import "./face-sides.test.ts";   // 单面 / 双面第四版（ID-2b，2026-11-04）
+import "./preview-op-guard.test.ts";   // 预演 = 同一条指令在影子场景上跑（ID-2c，2026-11-04）
 import "./context-menu-guard.test.ts";   // 右键兜底：一个模块、main 装一次（2026-10-30 Opus）
 import "./texture-basis.test.ts";   // 贴图默认铺法：上 = 上、不镜像（2026-10-30 Opus）
 import "./material-color-space.test.ts";   // 材质色文件边界换算 + 老文件原样（2026-10-30 Opus）

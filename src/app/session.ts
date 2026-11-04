@@ -18,7 +18,8 @@ import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { Scene } from "../scene/scene.ts";
 import { ROOT_PLACEHOLDER } from "../editor/object-tree.ts";
-import { documentFromScene, exportSideCounts, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument, type SideCounts, writeGltfModel } from "../format/index.ts";
+import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument, writeGltfModel } from "../format/index.ts";
+import { exportSideCounts, type BrepSideCounts } from "../scene/kinds.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
@@ -957,10 +958,7 @@ export class Session {
     return { name, bytes: bytes.byteLength };
   }
   /** 导出表单的说明行要的数（计划书 §9.2½ ②）：only = 只导这几个定义。 */
-  exportSides(only?: readonly number[]): SideCounts {
-    const scene = this.d.editor.sceneRef;
-    return exportSideCounts(documentFromScene(scene, this.displayName(), this.loaded), only?.filter((d) => scene.defs.has(d)).map((d) => scene.def(d).guid));
-  }
+  exportSides(only?: readonly number[]): BrepSideCounts { return exportSideCounts(this.d.editor.sceneRef, only); }
   /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
   private plainExportNote(): string { return this.encrypted || this.seal ? `；${PLAIN_NOTE}` : ""; }
   private download(bytes: Uint8Array | Blob, name: string): void {

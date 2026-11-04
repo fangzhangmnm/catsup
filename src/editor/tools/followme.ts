@@ -2,7 +2,7 @@
 // 从 editor.ts 原样搬出（行为零变更）：点轮廓面 → 路径 = 当前选区（边链 / 一张面的外环）→ 一步 followme op。无拖拽态（active 永远 false）。
 // pathFromSelection 是纯函数（node 直测的入口）；#24 交互式描路径 / 跨池路径以后也落在这个文件。
 import type { Kernel } from "../../kernel/kernel.ts";
-import type { EdgeId, FaceEvent, FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
+import type { EdgeId, FaceId, Pt3, VertexId } from "../../kernel/kernel.ts";
 import { dist3, dot3, normalize3, sub3 } from "../../kernel/geom.ts";
 import { simplifyPath } from "../../kernel/sweep.ts";
 import { faceKey } from "../ops.ts";
@@ -86,7 +86,7 @@ export class FollowMeTool implements ToolHandler {
   cancel(): void {}
   sample(): Record<string, number> { return {}; }
   track(): void {}
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
+  live(): string { return ""; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
     const view = ctx.live();

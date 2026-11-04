@@ -4,11 +4,10 @@
 // 只认恰好挨两张面的边（边界 / 非流形本来就是棱，标了也没意义）；已经是这个样子的边不算。和硬表面那把的不同：网格体的边是拓扑，共面也不删边；
 // 「最大角度」不管（低模角色的平滑边常常折得比 20° 狠，user 要的就是把它们标平滑）——选项条在自由建模里藏掉那一项。
 // 悬停不高亮（FM113，同删除）；刮的时候预演就是标完以后的样子（软边变淡线 / 棱变实线）。
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
-import { edgeSmooth, edgeSoft, markEdges } from "../../mesh/edge-smooth.ts";
+import { edgeSmooth, edgeSoft } from "../../mesh/edge-smooth.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 
 export class MeshSoftEraseTool implements ToolHandler {
   readonly tool = "softErase" as const;
@@ -19,7 +18,6 @@ export class MeshSoftEraseTool implements ToolHandler {
   active(): boolean { return this.acc !== null; }
   cancel(): void { this.acc = null; this.harden = false; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshSoftErase: this.acc ? { edges: this.acc.size, harden: this.harden } : null }; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
@@ -44,11 +42,11 @@ export class MeshSoftEraseTool implements ToolHandler {
     return out.sort((a, b) => a - b);
   }
 
-  liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const verb = this.harden ? "硬化" : "软化";
     if (!this.acc || !this.acc.size) return `${verb}：刮过要${this.harden ? "变成棱" : "变平滑"}的边${this.harden ? "" : "（按住 Shift = 硬化）"}`;
     const es = this.changing(ctx.mesh()), mark = this.harden ? "sharp" : "smooth";
-    if (es.length) run((m) => { markEdges(m, es, mark); });
+    if (es.length) preview({ op: "meshEdgeMarks", def: ctx.activePool().def, edges: es, mark });
     return `${verb} ${es.length} 条边`;
   }
 

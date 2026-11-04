@@ -4,13 +4,13 @@
 //   · 一下一下连着切：每两个落点之间切一刀（= 一步撤销），接着从刚切到的点往下切；Esc 收刀；两个点得在同一张面上（跨面先切到中间那条边上）；
 //   · **同一条边点两下 = 环切**（FM10「ctrl r 刀双击好想法」）：沿四边形带切一圈（中线），切出来的那圈边进选区，接着移动 / 缩放；
 //   · 不带 XOR（FM11「好刀不要xor」）：去边归溶解。停在面中间（悬线）还没做（网格面是简单环，悬线要另一种表示）。
-import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import { knife, loopCut } from "../../mesh/ops/index.ts";
 import { applyPt } from "../../scene/xform.ts";
 import type { SnapKind } from "../solver.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 
 export type KnifePoint = { v: number } | { e: number; t: number };
@@ -53,7 +53,6 @@ export class MeshKnifeTool implements ToolHandler {
   active(): boolean { return this.start !== null; }
   cancel(): void { this.start = this.startW = null; this.hov = null; this.cursorW = null; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshKnife: { start: this.start, hov: this.hov?.pt ?? null } }; }
 
   hover(ctx: ToolCtx, s: { x: number; y: number }): void {
@@ -106,19 +105,19 @@ export class MeshKnifeTool implements ToolHandler {
     ctx.hint("切了一刀；接着点下一个点继续切，Esc 收刀");
   }
 
-  liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const a = this.start, h = this.hov;
     if (!a || !h) return "";
     const m = ctx.mesh(), b = h.pt;
     if ("e" in a && "e" in b && a.e === b.e) {
       if (!loopCut(m.clone(), a.e, 0.5).edges.length) return "环切：这条边两侧不是四边形，切不出一圈";
-      run((c) => { loopCut(c, a.e, 0.5); });
+      preview({ op: "meshLoopCut", def: ctx.activePool().def, edge: a.e, t: 0.5 });
       return "环切（松手 / 点下去 = 切）";
     }
     if (cutsNothing(m, a, b)) return "";
     const face = commonFace(m, a, b);
     if (face === null) return "不在同一张面上";
-    run((c) => { knife(c, face, [a, b]); });
+    preview({ op: "meshKnife", def: ctx.activePool().def, face, path: [a, b] });
     return "切一刀";
   }
 

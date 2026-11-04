@@ -397,3 +397,15 @@ flowchart LR
 - **导出表单**：`exportSideCounts` 先 `documentFromScene`，O(模型)，每个范围只算一次、打开表单才算。选择跟文件走（desk 1.4），改了不标脏。
 - **还随整个模型涨的点**：导出表单的说明行（上面）；切换看法时的全量重建；`planOutward` 全池跑一遍（用户点了才跑）。
 
+## 追记 2026-11-04（v0.18.32，Claude Opus 5.5）：预演 = 同一条指令在影子场景上跑（身份地基 ID-2c C1）
+
+⑤ 预演改了入口，上面 ⑤ 和网格体亚种里写的「工具在拷贝上调动词」「`liveMesh`」「`mirrorPreview`」都已退役：
+
+1. 工具 `live(ctx, preview)`：造这次手势会提交的那条 op（`opFor`，和提交同一段代码），交给 `preview`。碰多少：O(这次手势)。
+2. `Editor.previewApply`：`withFront` → `prepareOp`（工作流亚种 + 镜像改写，和 `commitIn` 同一段）→ 锁检查（锁着 = 不画、提示行说）→ `previewableIn` 硬门 → `previewVariant`（唯一差别：推拉落地不湮灭）。
+3. 影子场景 `Scene.shadowOf(池, 影子内核)`：骨架拷贝（定义 / 实例 / 组 / 槽表，O(定义 + 实例 + 组)，**随模型涨，和合成视图同一个量级**）+ 活动池换影子内核（硬表面 = 拷一次每帧倒回 O(触碰)；网格体 = 每帧拷一份 O(V)，没变）。
+4. `applyOp(影子场景, op)`：走 ①，带 `sideNewFaces` = 预演也算两侧。按坐标寻址：`resolveVertex` O(1)、`resolveFace` 只看第一个角上的面（以前全表扫 O(面)，每帧走就成了新的「随模型涨」）。
+5. 网格体多两步，和提交同一套：并点 `mergeOp`、强行对称 `meshSymmetrize`（劈不开 = 预演照原样）。
+6. 画：`WorldView` 的 scene 用影子场景，provider 从它取材质 = 预演开的默认背面槽就在它的槽表上，没有临时号。预演开了槽、松手取消 = 那具身体的槽表签名变短 = 池网格全量重建一次（只在这个定义第一次出现默认背面时）。
+
+镜像会话（`beginMirror`）的预演同一条路：`mirror` op，组件走副本槽。实测见计划书 §13。

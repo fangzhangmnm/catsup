@@ -3,8 +3,6 @@
 // 双击子 group / 组件 = 进入；在组里点空处（没选区）= 退出一层。created 2026-10-24 by Claude Fable 5.1
 // 修饰键对齐 Blender（2026-10-26 Opus）：点击 Shift = 切换、Ctrl = 减选；框选 Shift = 加选、Ctrl = 减选；没按 = 右下角「选区」选项（iPad，默认替换）。
 // 2026-10-28：点 / 框 / 拖框的本体搬进 selecting.ts（「会选的工具」共用：自由建模的移动 / 挤出 / 插入点一下也是这一套；Alt 点边 = 环 / 洞）。
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
 import type { SelMode } from "../tools.ts";
@@ -21,7 +19,7 @@ export class SelectTool implements ToolHandler {
   static multi(ctx: ToolCtx): boolean { return multiSelect(ctx); }
   cancel(): void { this.box.cancel(); }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
+  live(): string { return ""; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void { this.box.begin(ev, ctx); }
   track(ctx: ToolCtx, s: { x: number; y: number }): void { this.box.track(ctx, s); }

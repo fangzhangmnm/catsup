@@ -32,7 +32,6 @@ import type { Tool } from "./tool-ids.ts";
 import type { ModeId } from "./mode.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind } from "../mesh/ops/index.ts";
-import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { OptionKv } from "./tool-config.ts";
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
 export type PaintPick = {
@@ -167,7 +166,10 @@ export type PoolPick = {
     instance: InstId;
 };
 /** 数值小窗（vcb.ts）作用的「刚做完的那一步」：撤销它（ops 个 op）、按精确值重做。坐标 = 世界系（froms = 活动池本地）。 */
-export type LastGesture = {
+export type LastGesture = GestureRecord & {
+    front?: Pt3;
+};
+type GestureRecord = {
     kind: "line";
     ops: number;
     at: PoolRef;
@@ -362,6 +364,8 @@ export declare class Editor {
     private live;
     /** 网格体池的预演副本（自由建模工作台；brep 的影子是 live）。 */
     private liveMesh;
+    /** 预演的影子场景（骨架拷贝 + 活动池换影子内核，计划书 §12 C1）：live / liveMesh 的那份身体就住在它里面；画的时候材质从它取（预演开的槽在它的槽表上）。 */
+    private liveScene;
     private liveOverride;
     private liveEvents;
     private armed;
@@ -686,10 +690,10 @@ export declare class Editor {
      * 镜像编辑另外补上对面的点、手标补上对面的边。提交前改写；进日志的是改写后的 op = 重放一致；并点作为同一步里紧跟的 meshMerge 提交（commitIn）。
      */
     private mirrorRewrite;
+    /** 强行对称管这条 op 吗（提交 / 预演共用）。 */
+    private mirrorForces;
     private mirrorForceBefore;
     private mirrorForceAfter;
-    /** 预演同一道：影子上做同一套挪点纪律（钉 / 不穿 / 并；镜像编辑补对面）——拖到中缝眼睛看到的就是并好的样子，松手前拖回去 = 影子从真身重算、自然分开；强行对称再把影子对称一遍（真身不动）。 */
-    private mirrorPreview;
     /** 镜像编辑开着、这一下要改拓扑：直说，「关掉镜像，照做」/ 取消（不硬拦）。挡下来了 = true（确认了再在新的一步里提交同一条 op）。 */
     private mirrorBlocks;
     private mirrorAsk;
@@ -715,7 +719,12 @@ export declare class Editor {
     private toolCommit;
     /** 工具画的线 / 推的面带上「这一侧朝着我」的方向（op-locks.ts withFront）。 */
     private withFront;
+    /** 工具提交带的方向，等工具 recordLast 时记进 LastGesture（数值小窗重画复用；计划书 §12 C2）。 */
+    private gestureFront;
+    /** 数值小窗重画：方向用第一次那份（画完转到另一侧再打尺寸，面不许翻；user 11-04「做，必须做」）；没记录才按当下相机算。 */
     private commitFront;
+    /** 提交和预演共用的前处理（工作流亚种 + 镜像纪律）：进日志 / 上影子的都是它改写后的那条。 */
+    private prepareOp;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
     private commitIn;
     /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
@@ -1203,8 +1212,11 @@ export declare class Editor {
     } | null;
     /** 新建工具：从按下那一点拖到 (x1, y1) = 多大（世界长度：屏上拖的距离 × 落点那里一像素多长）；落不到东西 = null。 */
     primitiveDragSize(x0: number, y0: number, x1: number, y1: number): number | null;
-    /** 新建工具的预演：在影子网格上按同一份计划长出来（对齐 = 法向 / 落在地面 = 世界）。返回说法；落不到东西 = null。 */
-    previewPrimitive(kind: PrimitiveKind, x: number, y: number, sizeW: number, m: MeshKernel, spin?: number, aspect?: number): string | null;
+    /** 新建工具的预演：同一份计划给出同一条 op（对齐 = 法向 / 落在地面 = 世界）+ 说法；落不到东西 = null。 */
+    primitiveOp(kind: PrimitiveKind, x: number, y: number, sizeW: number, spin?: number, aspect?: number): {
+        op: Op;
+        say: string;
+    } | null;
     /** 右键新建一个基本体：网格体里 = 长进这个网格体（Blender 编辑模式的 Shift+A）；别处 = 新的网格体组件。马后炮：对齐（法向 / 世界 / 物体，默认法向）、大小、段数。 */
     addPrimitive(kind: PrimitiveKind, opts?: {
         at?: {
@@ -1232,10 +1244,17 @@ export declare class Editor {
     /** 手势进行中换了会影响预演的设置（软选择开关 / 半径）：照现在的指针重算预演。 */
     refreshGesture(): void;
     private computeLive;
+    /** 提交会被拒的说法（锁着）：预演不画，提示行说出来（不装作能做）。 */
+    private previewNote;
+    /**
+     * 预演 = 同一条 op 跑在影子场景上（计划书 §12 C1；user 11-04「预演要做干净」）：和 commitIn 同一段前处理（front → 工作流 / 镜像改写 → 锁检查），同一个 applyOp；真身不动。
+     * 影子场景 = 骨架拷贝（槽表是拷的：预演开槽没有临时号、没有表外约定）+ 活动池换影子内核（硬表面 = 拷一次每帧倒回；网格体 = 每帧拷一份）。一帧多条 = 叠在同一份影子上。和提交唯一的差别 = op-locks.ts previewVariant。抛 = 内核拒。
+     */
+    private previewApply;
     /** 预演的影子副本（O1「拷一次 + 每帧退回」）：真身没变（同一对象、同一 rev）就把上一帧的影子倒回去再用；变了 / 倒不回（日志丢段）/ 全局结算模式 = 重新拷一份。 */
     private shadow;
     private shadowKernel;
-    /** 整体变换（世界系 X）的预演：选区顶点走影子副本、子池走叠加变换。 */
+    /** 整体变换（世界系 X）的预演：选区顶点走影子场景（和 commitXform / commitCopies 同一条 op）、子池走叠加变换。 */
     private previewXform;
     /**
      * 选区的变换中心（变换工具的「变换中心」选项 / 马后炮）：最后选的物体原点 = 选区里最后选中的那个组 / 组件的轴原点（Blender 的 Active Element；选区按选的先后存），没选组 / 组件 → 包围盒中心。
@@ -1304,8 +1323,9 @@ export declare class Editor {
     pointerLeave(): void;
     /** 复制落地：每份 = absorb 载荷 + 子池 copyGroup / placeInstance（移动复制与阵列共用）。 */
     private commitCopies;
-    /** 复制模式的几何载荷：被移实体（选区的膜 / 边）抠成快照 → 经本地变换 → absorb 的坐标载荷。 */
     private copyPayload;
+    /** 世界系变换 X 作用于这些点的 move op（本地坐标；提交和预演同一条）。 */
+    private xformMoveOp;
     /** 世界系变换 X 作用于：活动池顶点集（move op，本地坐标）+ 子池（transformPool / transformInstance，父空间变换）。 */
     private commitXform;
 }

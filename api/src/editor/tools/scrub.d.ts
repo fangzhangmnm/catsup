@@ -1,5 +1,4 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { EdgeId, FaceEvent } from "../../kernel/kernel.ts";
+import type { EdgeId } from "../../kernel/kernel.ts";
 import type { WorldView } from "../../scene/world-view.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { Tool } from "../tool-ids.ts";
@@ -16,7 +15,7 @@ export declare abstract class EdgeScrubTool implements ToolHandler {
     active(): boolean;
     cancel(): void;
     sample(): Record<string, number>;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(): string;
     hover(ctx: ToolCtx, s: {
         x: number;
         y: number;

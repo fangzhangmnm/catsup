@@ -39,6 +39,8 @@ export interface Census {
 }
 /** 活着的组件定义（含模型根）：从根沿「谁摆着谁」走得到的。 */
 export declare function liveDefs(s: Scene): Set<DefId>;
+/** 从这几个定义沿实例引用够得着的全部定义（自己算）。 */
+export declare function reachableDefs(s: Scene, roots: readonly DefId[]): Set<DefId>;
 /** 一次清点（模型根不列：它不是谁摆出来的，也不会是孤儿）。 */
 export declare function census(s: Scene): Census;
 /** 每个材质（按文档材质表下标）被谁用：活着的组件 / 孤儿组件 / 素材架。 */

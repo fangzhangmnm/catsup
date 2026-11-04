@@ -4,8 +4,7 @@
 //   端点 / 中点 / 交点 / 原点 / 参考点 / 参考线交点 → 参考点：落在第二点（VCB 改沿起点→终点方向的距离）
 //   面上 / 空处              → 只量：状态行报长度，不留东西
 // 预演 = 量线 + 候选参考线（viewExtras → render3 tape 层）；VCB：距离（撤销刚才那条、按精确值重做）。落定后回到第一下（SU：卷尺一直在手上）。
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { add3, dot3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { nearestStep } from "../increments.ts";
 import { applyDir, invert } from "../../scene/xform.ts";
@@ -126,7 +125,7 @@ export class TapeTool implements ToolHandler {
   }
 
 
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(): string {
     if (this.stage !== 1 || !this.start || !this.b) return "";
     const r = tapeResult(this.start, this.b);
     return r.make === "line" ? `偏移 ${fmtLen(r.d)}` : r.make === "through" ? `过两点 · ${fmtLen(r.d)}` : r.make === "point" ? `距 ${fmtLen(r.d)}` : `距离 ${fmtLen(r.d)}`;

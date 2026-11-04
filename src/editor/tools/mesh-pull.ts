@@ -10,8 +10,7 @@
 //   · 右键 = 原地留下（user 10-28 晚「E之后右键是创作了面但是在原来的位置上可以切g」）：挤出 0、新长出来的成为选区，接着 G 挪；Esc = 什么都不留。
 //   · 锁轴（方向键）对三种都管：沿那根轴拉。做完新长出来的东西就是选区（FM14「做完的东西留在选区里，接着挪」）：面 = 顶上那几张、边 = 新的那排边、点 = 新点。
 //   · 提交 = 一条 meshExtrude（挤出 + 平移一起；重放确定：同一份内核 → 同一批新 id）。
-import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { extrudeAndOffset, extrudeAlongNormals, extrudeNormalDirs } from "../../mesh/ops/index.ts";
 import { add3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
@@ -19,7 +18,8 @@ import { applyDir, applyNormal, applyPt, invert } from "../../scene/xform.ts";
 import { fmtLen } from "../units.ts";
 import type { ToolPointer } from "../editor.ts";
 import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target as SelTarget } from "./selecting.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
+import type { Op } from "../ops.ts";
 import type { SnapKind } from "../solver.ts";
 import type { ViewState } from "../view-state.ts";
 import { type Grip, MeshHandles } from "./mesh-handles.ts";
@@ -77,7 +77,6 @@ export class MeshPullTool implements ToolHandler {
 
   cancel(): void { this.box.cancel(); this.t = null; this.adopt = null; this.pivotW = this.nW = this.grabW = null; this.start = this.cur = null; this.grip = null; this.src = new Set(); this.handleW = null; this.snapT = null; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshPull: { t: this.t, start: this.start, cur: this.cur } }; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
@@ -122,14 +121,13 @@ export class MeshPullTool implements ToolHandler {
     ctx.setSnap(this.snapT ? { p: this.snapT.p, kind: this.snapT.kind } : null);
   }
 
-  liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  /** 这次拖动的那条 op（预演 / 提交共用）。 */
+  private opFor(ctx: ToolCtx, t: NonNullable<MeshPullTool["t"]>, how: { along: number } | { offset: Pt3 }): Op { return { op: "meshExtrude", def: ctx.activePool().def, ...(t.faces.length ? { faces: t.faces } : t.edges.length ? { edges: t.edges } : { verts: t.verts }), ...how }; }
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const t = this.t, mv = this.motion(ctx);
     if (!t || !mv) return "";
-    const X = ctx.ctxXform();
-    if (mv.along !== undefined) { const d = mv.along / this.alongScale; run((m) => { extrudeAlongNormals(m, t, d); }); return `挤出 ${fmtLen(Math.abs(mv.along))}`; }
-    const offL = applyDir(invert(X), mv.off);
-    run((m) => { extrudeAndOffset(m, t, offL); });
-    return `挤出 ${fmtLen(len3(mv.off))}`;
+    preview(this.opFor(ctx, t, mv.along !== undefined ? { along: mv.along / this.alongScale } : { offset: applyDir(invert(ctx.ctxXform()), mv.off) }));
+    return `挤出 ${fmtLen(mv.along !== undefined ? Math.abs(mv.along) : len3(mv.off))}`;
   }
 
   /** 当前拖动 → 世界位移（off：面、或锁了轴 / 面）或沿各点垂直方向的世界长度（along：边 / 点、没锁）。 */
@@ -170,10 +168,9 @@ export class MeshPullTool implements ToolHandler {
     this.cancel();
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (!t) return;
-    const def = ctx.activePool().def, sel = t.faces.length ? { faces: t.faces } : t.edges.length ? { edges: t.edges } : { verts: t.verts };
     const probe = ctx.mesh().clone(), r = extrudeAndOffset(probe, t, { x: 0, y: 0, z: 0 });
     adoptPress(ctx, adopt);
-    ctx.commitOp({ op: "meshExtrude", def, ...sel, offset: { x: 0, y: 0, z: 0 } });
+    ctx.commitOp(this.opFor(ctx, t, { offset: { x: 0, y: 0, z: 0 } }));
     const m = ctx.mesh();
     if (t.faces.length) ctx.setSelection({ faces: t.faces.filter((f) => m.hasF(f)) });
     else if (t.edges.length) ctx.setSelection({ edges: t.edges.map((e) => m.edgeOf(r.newVerts.get(probe.edgeA[e])!, r.newVerts.get(probe.edgeB[e])!)).filter((e) => e >= 0) });
@@ -187,11 +184,10 @@ export class MeshPullTool implements ToolHandler {
     if (!t || !mv) return;
     const amount = mv.along !== undefined ? Math.abs(mv.along) : len3(mv.off);
     if (amount < 1e-6) { ctx.hint("挤出：没动（挤出 0 会长出叠在一起的面，不做）"); return; }
-    const def = ctx.activePool().def, sel = t.faces.length ? { faces: t.faces } : t.edges.length ? { edges: t.edges } : { verts: t.verts };
     const how = mv.along !== undefined ? { along: mv.along / scaleL } : { offset: applyDir(invert(ctx.ctxXform()), mv.off) };
     const probe = ctx.mesh().clone(), r = how.along !== undefined ? extrudeAlongNormals(probe, t, how.along) : extrudeAndOffset(probe, t, how.offset);   // 先在副本上跑一遍拿新 id（提交 = 同一份内核 + 同一组参数 = 同一批 id）
     adoptPress(ctx, adopt);
-    ctx.commitOp({ op: "meshExtrude", def, ...sel, ...how });
+    ctx.commitOp(this.opFor(ctx, t, how));
     const m = ctx.mesh();
     if (!hadSel) { ctx.hint(`挤出了 ${what}（${fmtLen(amount)}）`); return; }   // 没选区开始的 = 做完也不留选区（SU 手感，接着点下一个）
     if (t.faces.length) ctx.setSelection({ faces: t.faces.filter((f) => m.hasF(f)) });

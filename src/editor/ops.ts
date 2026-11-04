@@ -60,7 +60,7 @@ export type Op =
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   /** mirror（DT8，2026-10-26）：这次挪点是镜像（变换的行列式 < 0）——整张面都在挪的点里的面先两侧互换（结算机按绕向再判一次 = 侧跟着法向走）。 */
   | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[]; mirror?: boolean; /** 自动折面的折缝带哪些边层（DT87 工作流亚种；缺 = 硬线）。 */ creaseLayers?: string[] }
-  | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */ keepRing?: boolean; /** 同 addEdges.front：底面没朝向时先按它定底面，再灌到新面。 */ front?: Pt3 }
+  | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */ keepRing?: boolean; /** 同 addEdges.front：底面没朝向时先按它定底面，再灌到新面。 */ front?: Pt3; /** 只有预演带（op-locks.ts previewVariant）：落地不湮灭，推平到底时压扁态还看得见、还吸得到；提交永远湮灭。预演和提交的唯一差别。 */ settleLanding?: false }
   | { op: "followme"; at?: PoolRef; face: FaceKey; path: Pt3[]; closed: boolean; smoothJoints: boolean[] }
   | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs?: Record<string, [Pt3, Pt3][]>; faceLayers?: (Record<string, number> | undefined)[] }
   /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
@@ -222,6 +222,13 @@ export function resolveEdge(k: Kernel, [a, b]: EdgeKey): EdgeId {
 const ringSig = (ring: readonly Pt3[]): string => [...new Set(ring.map(key))].sort().join(";");
 export function resolveFace(k: Kernel, fk: FaceKey): FaceId {
   const want = ringSig(fk);
+  // 先只看第一个角上的面（预演每帧走这里，全表扫 = 随模型涨；2026-11-04 ID-2c）：外环过这个点的面一定挂在它的某条边上。挑号最小的 = 和全表扫同一个结果；没找到再全表扫一遍才报错（防 faceLinks 漏，不是常路）。
+  const v0 = fk.length ? k.graph.vertexAt(quantize3(fk[0])) : undefined;
+  if (v0 !== undefined) {
+    const near = new Set<FaceId>();
+    for (const e of k.graph.vertex(v0).edges) for (const f of k.graph.edge(e).faceLinks) near.add(f);
+    for (const f of [...near].sort((a, b) => a - b)) { const r = k.faceRings3(f); if (r && ringSig(r.outer) === want) return f; }
+  }
   for (const f of k.faces()) if (ringSig(k.faceRings3(f.id)!.outer) === want) return f.id;
   throw new OpTargetError(`face [${fk.map(fmt).join(" ")}]`);
 }
@@ -396,7 +403,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       sideNewFaces(s, ref, kernel, events);
       return { scene: s, events };
     }
-    case "pushpull": { const { kernel, ref } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face), events = kernel.pushPull(fid, op.dist, op.keepRing ? { keepRing: true } : undefined); sideNewFaces(s, ref, kernel, events, op.front ? { front: op.front, seed: fid } : {}); return { scene: s, events }; }
+    case "pushpull": { const { kernel, ref } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face), events = kernel.pushPull(fid, op.dist, op.keepRing || op.settleLanding === false ? { ...(op.keepRing ? { keepRing: true } : {}), ...(op.settleLanding === false ? { settleLanding: false } : {}) } : undefined); sideNewFaces(s, ref, kernel, events, op.front ? { front: op.front, seed: fid } : {}); return { scene: s, events }; }
     case "followme": { const { kernel, ref } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face), events = kernel.followMe(fid, op.path, { closed: op.closed, smoothJoints: op.smoothJoints }); sideNewFaces(s, ref, kernel, events); return { scene: s, events }; }
     case "absorb": {
       const { kernel } = poolOf(s, op.at);

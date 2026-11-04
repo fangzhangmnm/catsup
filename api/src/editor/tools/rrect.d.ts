@@ -1,7 +1,5 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 import type { ViewState } from "../view-state.ts";
 export declare class RRectTool implements ToolHandler {
@@ -41,7 +39,8 @@ export declare class RRectTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    private opFor;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     describe(ctx: ToolCtx): Record<string, unknown>;
     /** ② / ③：量角器在 B、绕第一边（轴 = AB 方向），基线 = 平躺的那个方向。 */
     viewExtras(): Partial<ViewState>;

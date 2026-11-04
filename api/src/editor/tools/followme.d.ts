@@ -1,5 +1,5 @@
 import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, FaceId, Pt3 } from "../../kernel/kernel.ts";
+import type { FaceId, Pt3 } from "../../kernel/kernel.ts";
 import type { Selection } from "../tools.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
@@ -21,6 +21,6 @@ export declare class FollowMeTool implements ToolHandler {
     cancel(): void;
     sample(): Record<string, number>;
     track(): void;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(): string;
     down(ctx: ToolCtx, ev: ToolPointer): void;
 }

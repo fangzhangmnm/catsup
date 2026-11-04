@@ -322,7 +322,7 @@ ID-2 第一半已按 9.1 合 main：干净重建 + 五个探针全绿，`--ff-on
 4. **老文件重存会胖**：两侧都是默认正面的面烤成两层，烤的网格约翻倍（format 预算 cylinder 6600 → 8400 就是它）；点一次「自动朝外」就回来。设计后果（9.2½ ①「老文件一次性整理」），不是 bug。
 5. `bornFaces` 的 ABSORB 把吞并方（可能是老面）标成新面；只在那张老面两侧都没写时才会被邻面规矩碰到。
 6. 风格预览 / 演示锁下被剔的默认背面仍可拾取（演示锁本来拒改；风格预览里能选中看不见的面）。
-7. `probe-single-draw` / `probe-new-primitive` 在 main 上就红（§10 已记），和这张单无关，另修。**`probe-render-baseline` 也有两张在 main 上就红**：`style-papercut-boxes`（11.3%，地上的遮蔽影子范围 + 面上一块十字残影）、`style-realistic-textured`（51%，两张贴图面 + 投影整片不同）——分支上重跑两遍、main v0.18.30 的包另起端口跑，像素差逐个一样 = 确定的、不是烘影子的时间飘，是基线比现在的渲染老。另 20 张 ≤ 0.2%。谁动过写实 / 剪纸的影子谁去对（T82 规矩：重冻要在第一刀日志写一行为什么）；这张单不重冻。
+7. `probe-single-draw` / `probe-new-primitive` 在 main 上就红（§10 已记），和这张单无关，另修。**`probe-render-baseline` 也有两张在 main 上就红**：`style-papercut-boxes`（11.3%，地上的遮蔽影子范围 + 面上一块十字残影）、`style-realistic-textured`（51%，两张贴图面 + 投影整片不同）——分支上重跑两遍、main v0.18.30 的包另起端口跑，像素差逐个一样 = 确定的、不是烘影子的时间飘，是基线比现在的渲染老。另 20 张 ≤ 0.2%。谁动过写实 / 剪纸的影子谁去对（T82 规矩：重冻要在第一刀日志写一行为什么）；这张单不重冻。**〔更正，Claude Opus 5.5 2026-11-04：「基线比渲染老」是错的，真因 = 探针截早了，影子还没烘，见 §13。〕**
 8. user 11-04 在审查时拍的：「推拉一张没朝向的面会给它定朝向 同意」；「老文件 upgrade 用不智能，机械转比较安全对吧」= 对，打开老文件什么都不猜，想单面自己点「自动朝外」。
 
 **合 main 的 ritual**（见下一行实施记录）：干净重建 → 探针（default-back / boot / export / clipboard / render-baseline / undo-fuzz）→ `--ff-only` → bump patch → `gen-api.sh`。不推。
@@ -337,7 +337,7 @@ user 对 §11 记账的答复（原话）：「几个红的探针这次session�
 - **渲染**：provider 画影子那具身体时材质从影子场景取（`materialOfSlot` 的 scene 参数 = 影子场景；`setWorld` 多带一个影子场景或 WorldView 从它造）。槽表在影子副本上真开，**没有临时号、没有表外约定**。
 - **网格体工作台**同一刀：`runMesh` 改成 mesh op 在影子场景跑（影子里的 `scene.mesh(def).kernel` = 拷贝）。Opus 看量，量大就第二步，但别留两种预演机制过夜。
 - **守卫**：`test/preview-op-guard.test.ts`——`src/editor/tools/*.ts` 不出现内核动词（`.pushPull(` / `.addEdges(` / `.moveVertices(` / `.followMe(` / `.absorb(` / `.eraseEdges(` …）和 `run((c)`；预演入口只有 `Editor.previewOp`（同 step-pass 守卫的做法）。撤销 fuzz 每步加不变量：真身面层的槽号 < 槽表长度。
-- **性能**：`applyOp` 比直调多一次坐标寻址（`resolveFace` / `resolveVertex`，id 表 O(1)）；用 `bench-pools`（拖 200 盒）和推拉手势计时对照改前，不许退。
+- **性能**：`applyOp` 比直调多一次坐标寻址（`resolveFace` / `resolveVertex`，id 表 O(1)；〔更正：`resolveFace` 当时是全表扫 O(面)，这张单一起改了，见 §13〕）；用 `bench-pools`（拖 200 盒）和推拉手势计时对照改前，不许退。
 - 验收：探针 `probe-default-back` 加一段——矩形工具落第一点后、第二点悬停时（还没松手）从下面读像素是灰蓝；推拉拖到一半从外面看是白模灰、里面灰蓝；松手前后像素不变。预演失败（内核拒）照旧进黑匣子。
 
 **C2 数值小窗重画复用第一次的 front**（user「做，必须做」）。现状：`commitFront` 每次按当下相机重算 → 画完转到另一侧再打尺寸，面翻了。做法：`toolCommit` 给 op 加 `front` 时同时记到这次手势的记录（`LastGesture` 加可选 `front`；记录由谁建就由谁带上）；`commitFront` 先用记录里的，没有（老复现包 / 没记录）才按当下相机算。单测：画一张面（front 朝上）→ 把 `frame().viewDir` 换成朝下 → VCB 重画 → 朝向不变。
@@ -346,8 +346,49 @@ user 对 §11 记账的答复（原话）：「几个红的探针这次session�
 
 **C4 红探针收尾**：
 - `probe-single-draw`（悬停软边的线组）、`probe-new-primitive`（菜单项数 + 提示行）：先对照 0.18 的改动记录确认现在的行为是有意的（再点拿着的工具换做法 / 右键新建改过），是 → 改探针预期；不是 → 修 app。两种都在提交信息里写清是哪一种。
-- `probe-render-baseline` 的 `style-papercut-boxes` / `style-realistic-textured`：**等 user 看图定哪张对**（已发「现在的画」和冻结原图）。现在的对 → `--update` 只重冻这两张 + 第一刀日志写一行「哪次改动动了影子」（`git log` 看 `ao-bake.ts` / `paper-shader.ts` / `pbr-shader.ts` / `env-sky.ts` 在基线冻结之后的提交）；原图对 → 找到那次改动修回来、基线不动。
+- `probe-render-baseline` 的 `style-papercut-boxes` / `style-realistic-textured`：**等 user 看图定哪张对**（已发「现在的画」和冻结原图）。〔结案，见 §13：不是谁对谁错，是探针没等影子烘完；user 看过等够之后的对比图「都用现在的」，两张都重冻了。〕现在的对 → `--update` 只重冻这两张 + 第一刀日志写一行「哪次改动动了影子」（`git log` 看 `ao-bake.ts` / `paper-shader.ts` / `pbr-shader.ts` / `env-sky.ts` 在基线冻结之后的提交）；原图对 → 找到那次改动修回来、基线不动。
 
 **接受、不动**：老文件重存烤网格翻倍（user「没事」）；风格预览里被剔的默认背面仍可拾取（user「expected behavior」）。
 
 做完：`node test/run.mjs` 全绿、`probe-default-back` / `probe-undo-fuzz 8 45` / `probe-boot` / `probe-render-baseline` 全绿，bump patch，回来给 Fable 看 C1 的提示怎么传、C3 两处共用那一份。
+
+## 13. ID-2c 实施记录 + 审查看什么（2026-11-04，Claude Opus 5.5；分支 `identity-id2c`，从 main v0.18.31 开，v0.18.32，未合、未推）
+
+**四件都做了。给 Fable 看的两处按 §12 末尾：C1 的提示怎么传（下面第 3 条）、C3 两处共用那一份（`kinds.ts brepSideCounts`）。**
+
+**C1 预演 = 同一条指令**
+1. 工具：`ToolHandler.live(ctx, preview)` 一个口（`liveMesh` 删了），造 op 只写一份（`opFor`，预演和提交都调）。硬表面 13 把、网格体 8 把都搬了。镜像会话 `cmdPreview` 也改成同一条 `mirror` op（`refreshCmdPreview` 不再 `kernel.clone()`，也吃上了倒回）。
+2. `Editor.previewApply`：`withFront` → `prepareOp`（工作流亚种 + `mirrorRewrite`，从 `commitIn` 抽出来共用）→ 锁检查 → `previewableIn` 硬门 → `applyOp(影子场景, previewVariant(op))`。网格体多两步，和提交同一套：`mergeOp`、`meshSymmetrize`。`mirrorPreview` 删了。
+3. **提示怎么传**：`mirrorRewrite` 不再自己写 `this.mirrorNote`，改成在返回值带 `note`，`commitIn` 才写；预演不写（每帧写就成了撒谎的披露）。锁着 = 预演不画、提示行说「已锁定」（`previewNote`，以前预演照画、松手才拒）。
+4. 影子场景：`Scene.shadowOf(池, 影子内核)` = `cloneSkeleton` + 换活动池内核。`WorldView` 的 scene 用它（`liveScene`），provider 自然从它取材质。没有临时号。
+5. 守卫 `test/preview-op-guard.test.ts`：工具里不出现内核动词 / `run((` / `liveMesh`；`applyOp` 在 editor.ts 只出现在 `previewApply`；硬门表；影子上跑完真身不动、结果 = 真提交；倒回后面层也回来。撤销 fuzz 加两条：每步面层槽号 < 槽表长度；新动作 `previewDrag`（真手势拖两下不落定，中途比指纹和槽表）。
+6. 验收（`probe-default-back` ⑦⑧）：矩形第二点悬停时从下面读像素 = 灰蓝、落定前后不变；推拉拖到一半影子里全部朝外、真身还是一张面、侧面像素松手前后不变。**同一份探针跑旧 main 包这几条是红的**（证明探针抓得到）。
+
+**和 §12 写的不一样、要过目的**
+- **保留了一个差别**：`previewVariant` 给推拉带 `settleLanding: false`（落地不湮灭）。这是老设计：推平到底时压扁态还要看得见、吸得到（`test/pushpull.test.ts` 钉着）。一条 op 字段 + 一个函数，全家只此一处。
+- **§12 说 `resolveFace` 是 O(1)，其实是全表扫 O(面)**，每帧走会变成新的「随模型涨」。改成只看第一个角上的面（挑号最小 = 和全表扫同一个结果；没找到再全表扫才报错，防 faceLinks 漏）。提交路也跟着快了。
+- **硬门是我加的**（§12 没写）：影子场景只换了活动池的内核，别的池和真身共享，一条 `at` 写错的 op 就会写真身。`previewableIn` 白名单，缺 `at` 也不放（缺的语义是根池）。
+- 手势转视角这一帧预演的 `front` 按当下相机算（提交也是这条）；松手那一刻提交带的是松手时的相机。只有转视角后没再动指针的那一帧能看到差别。
+- 预演开了默认背面的槽、然后取消：那具身体的槽表签名变短，池网格全量重建一次。只在这个定义第一次出现默认背面时发生，接受。
+
+**C2**：`LastGesture = GestureRecord & { front? }`，`toolCommit` 记下、`recordLast` 收进去，七处 `commitFront` 传 `L.front`。探针 ⑨：从上面画完转到下面打「3,3」朝向不翻；推拉同理（旧包这两条红）。
+
+**C3**：`kinds.ts exportSideCounts(场景, only?)` + `brepSideCounts(body, { skipHidden })` 一份算法；`format/write.ts exportSideCounts`、`bake.ts countSides` / `noSides` / `SideCounts` 删了。比较按材质不按槽号（和 bake 看到的一样）。`resources.ts` 抽 `reachableDefs`，`liveDefs` 用它。
+
+**C4**：`probe-single-draw`（v0.18.7 起软边进线块、由标记画 = 探针过时，改验「一遍」+ 画面确实变了）；`probe-new-primitive`（v0.16.43 起多了圆圈 / 方框 = 探针过时）；`probe-repair-panel`（ID-2b 加了「自动朝外」没改名单，这张单跑出来的）。**`probe-render-baseline` 两张：§11 说「基线比渲染老」是错的**，真因 = `commitOp` 从 v0.18.3 起每步都画 → 第一格烘了半成品影子 → 内容变了要停手 0.25 秒才重烘 → 探针 30 ms 就截。加 `waitShadows`。user 看过等够之后的对比图「都用现在的」，两张都重冻（第一刀日志 v0.18.32）。
+
+**实测**（300 盒平铺、新旧包交替 4 轮、无头 swiftshader；单次 `bench-scene` 波动大，别信一次的数）
+
+| 一帧中位 ms | v0.18.31 | v0.18.32 |
+|---|---|---|
+| 推拉拖动 | 58.4 | 56.6 |
+| 全选拖动（2400 点） | 3034 | 2899 |
+
+`bench-pools` 200 实例 / 大组：`dragPool` 31.8 → 25.5、8.8 → 7.9；`ppInPool` 38.0 → 42.8、33.6 → 24.6（单次，噪声内）。
+
+**没做 / 记账**
+- `probe-touch-stick` 在旧 main 包上同样红，没修：趴下头高约 1 秒到位、探针只等 0.4 秒；冲刺距离按墙钟量，无头帧率低就不够。判断 = 探针对机器速度敏感（看了数，没证完）。
+- 全选拖动 2400 点一帧约 3 秒（新旧一样，这张单没引入）。大模型全选拖会很卡，值得单独量一次哪一步贵。
+- `probe-render-baseline` 全跑要近 3 分钟，超过家规的一分钟。
+
+**工作区**：分支 `identity-id2c`，等 Fable 审。`stash@{0}` 第三版草稿仍在、可丢。

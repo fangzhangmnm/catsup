@@ -282,6 +282,14 @@ export class Scene {
     }
     return s;
   }
+  /** 预演的影子场景（计划书 §12 C1）：骨架拷贝 + 这个池的内核换成给的影子。槽表是拷的（预演开槽不碰真身），别的池和真身共享（op 改不到外面 = op-locks.ts previewableIn 守）。 */
+  shadowOf(ref: PoolRef, shadow: Kernel | MeshKernel): Scene {
+    const s = this.cloneSkeleton(), b = s.def(ref.def).body;
+    if (b.kind === "mesh") b.kernel = shadow as MeshKernel;
+    else if (ref.group === null) b.kernel = shadow as Kernel;
+    else s.group({ def: ref.def, group: ref.group }).kernel = shadow as Kernel;
+    return s;
+  }
   // ---------- 深拷贝 ----------
   clone(): Scene {
     const s = Object.create(Scene.prototype) as Scene;

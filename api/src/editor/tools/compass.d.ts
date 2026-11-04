@@ -1,5 +1,4 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
@@ -29,7 +28,7 @@ export declare class CompassTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(): string;
     /** 预演：半径线 + 正在画的圆 / 球（当参考几何画，和落定后一个样子）。 */
     viewExtras(ctx: ToolCtx): Partial<ViewState>;
 }

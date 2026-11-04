@@ -9,9 +9,8 @@
 //   · 提交 = 一条 meshMove（每个点写绝对坐标）：挪 / 转 / 缩都是「改位置数组」，一条 op 一步撤销。
 //   · 操纵手柄（2026-10-30，tools/mesh-handles.ts）：点一下选到东西 = 选区上挂这把工具那一家把手；按在把手上拖 = 这一下锁那根轴 / 那个面（中心 = 默认做法），
 //     键盘锁轴 / 锁面压过它；手柄只是锁的另一个入口，算法一行不分叉。沿法线没有手柄。
-import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import type { SnapKind } from "../solver.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import { add3, dot3, len3, normalize3, scale3, sub3, cross3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt, invert } from "../../scene/xform.ts";
@@ -20,7 +19,7 @@ import { fmtLen } from "../units.ts";
 import { softDistances, softWeights } from "../../mesh/soft-select.ts";
 import { meshSnapTarget } from "./mesh-snap.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import { BoxDrag, adoptPress, clickSelect, pressTarget, selectionTarget, type Target } from "./selecting.ts";
 import { type Grip, MeshHandles } from "./mesh-handles.ts";
 import type { ViewState } from "../view-state.ts";
@@ -104,7 +103,6 @@ export class MeshTransformTool implements ToolHandler {
 
   cancel(): void { this.box.cancel(); this.vids = []; this.adopt = null; this.base.clear(); this.pivotW = this.grabW = this.handleW = null; this.start = this.cur = null; this.shift = false; this.snapOn = false; this.snapT = null; this.soft = null; this.rails = null; this.railPick = null; this.slideOnce = false; this.grip = null; this.liveOrigin = null; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }   // 只在网格体池里用：预演走 liveMesh
   describe(): Record<string, unknown> { return { meshXform: { kind: this.tool, verts: this.vids.length, start: this.start, cur: this.cur } }; }
 
 
@@ -160,11 +158,13 @@ export class MeshTransformTool implements ToolHandler {
     ctx.setSnap(this.snapT ? { p: this.snapT.p, kind: this.snapT.kind } : null);
   }
 
-  liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  /** 真动了的点（预演 / 提交共用）。 */
+  private movesOf(ctx: ToolCtx, r: { moves: Map<number, Pt3> }): { v: number; to: Pt3 }[] { const m = ctx.mesh(); return [...r.moves].filter(([v, p]) => { const b = m.pt(v); return b.x !== p.x || b.y !== p.y || b.z !== p.z; }).map(([v, to]) => ({ v, to })); }
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     if (!this.vids.length) return "";
     const r = this.solve(ctx);
     if (!r) return "";
-    run((m) => { for (const [v, p] of r.moves) m.setPos(v, p); });
+    { const moves = this.movesOf(ctx, r); if (moves.length) preview({ op: "meshMove", def: ctx.activePool().def, moves }); }
     if (this.handles) { let c = { x: 0, y: 0, z: 0 }; for (const v of this.vids) c = add3(c, r.moves.get(v) ?? this.base.get(v)!); this.liveOrigin = applyPt(ctx.ctxXform(), scale3(c, 1 / this.vids.length)); }   // 手柄跟着走
     return r.dims;
   }
@@ -289,7 +289,7 @@ export class MeshTransformTool implements ToolHandler {
     this.cancel(); ctx.softRing(null);
     ctx.setAnchor(null); ctx.setCursor(null); ctx.setSnap(null);
     if (!r) return;
-    const moves = [...r.moves].filter(([v, p]) => { const b = ctx.mesh().pt(v); return b.x !== p.x || b.y !== p.y || b.z !== p.z; }).map(([v, to]) => ({ v, to }));
+    const moves = this.movesOf(ctx, r);
     if (!moves.length) { ctx.hint(`${verb}：没动`); return; }
     adoptPress(ctx, adopt);
     ctx.commitOp({ op: "meshMove", def: ctx.activePool().def, moves });

@@ -1,9 +1,8 @@
 // tools/erase-face.ts —— 擦面（direct：点一下擦一张面，悬停就预演擦掉的样子）。几何模式的工具。created 2026-10-24 by Claude Fable 5.1
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, FaceId } from "../../kernel/kernel.ts";
+import type { FaceId } from "../../kernel/kernel.ts";
 import { faceKey } from "../ops.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 
 function hoverFace(ctx: ToolCtx, s: { x: number; y: number }): FaceId | null {
   const view = ctx.live();
@@ -26,10 +25,9 @@ export class EraseFaceTool implements ToolHandler {
   hover(ctx: ToolCtx, s: { x: number; y: number }): void { this.hover_ = hoverFace(ctx, s); }
   down(): void { this.pressed = true; }
   track(): void {}
-  live(_ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
-    if (this.hover_ === null) return "";
-    const id = this.hover_;
-    run((c) => c.eraseFaces([id]));
+  live(ctx: ToolCtx, preview: PreviewOp): string {
+    const k = ctx.kernel();
+    if (this.hover_ !== null && k.face(this.hover_)) preview({ op: "eraseFaces", at: ctx.activePool(), faces: [faceKey(k, this.hover_)] });
     return "";
   }
   up(ctx: ToolCtx, ev: ToolPointer, _settle: () => ToolSample | null): void {

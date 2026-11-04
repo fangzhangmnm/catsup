@@ -1,8 +1,7 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { type DrawPlane } from "../pick.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ScaleGeom } from "../scale-ref.ts";
 declare abstract class DrawTool implements ToolHandler {
     abstract readonly tool: "line" | "rect" | "crect" | "circle";
@@ -27,10 +26,10 @@ declare abstract class DrawTool implements ToolHandler {
         x: number;
         y: number;
     }, _travel?: number): void;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     describe(ctx: ToolCtx): Record<string, unknown>;
     protected abstract segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
-    protected abstract preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    protected abstract preview(ctx: ToolCtx, show: PreviewOp): string;
     protected abstract commit(ctx: ToolCtx): void;
     protected finish(ctx: ToolCtx): void;
 }
@@ -43,7 +42,8 @@ export declare class LineTool extends DrawTool {
     }, travel?: number): void;
     protected segsFor(_ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
     scaleGeom(ctx: ToolCtx): ScaleGeom | null;
-    protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    private opFor;
+    protected preview(ctx: ToolCtx, show: PreviewOp): string;
     protected commit(ctx: ToolCtx): void;
     /** 数值小窗改完这一笔之后继续连画（底座 applyVcb 调）。 */
     vcbContinue(ctx: ToolCtx, p: Pt3): void;
@@ -54,7 +54,8 @@ export declare class RectTool extends DrawTool {
     protected from(ctx: ToolCtx): "corner" | "center";
     protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
     scaleGeom(ctx: ToolCtx): ScaleGeom | null;
-    protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    private opFor;
+    protected preview(ctx: ToolCtx, show: PreviewOp): string;
     protected commit(ctx: ToolCtx): void;
 }
 /**
@@ -69,7 +70,8 @@ export declare class CircleTool extends DrawTool {
     readonly tool: "circle";
     protected segsFor(ctx: ToolCtx, b: Pt3): [Pt3, Pt3][];
     scaleGeom(ctx: ToolCtx): ScaleGeom | null;
-    protected preview(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    private opFor;
+    protected preview(ctx: ToolCtx, show: PreviewOp): string;
     protected commit(ctx: ToolCtx): void;
 }
 export {};

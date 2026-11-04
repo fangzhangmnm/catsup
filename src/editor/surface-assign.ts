@@ -71,7 +71,7 @@ export class SurfaceAssignTool implements ToolHandler {
   active(): boolean { return this.pressed; }
   cancel(): void { this.pressed = false; this.tempEye = false; this.scrub = new Set(); this.scrubSide = new Map(); this.poolHit = false; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
+  live(): string { return ""; }
 
   private faceAt(ctx: ToolCtx, s: { x: number; y: number }): FaceId | null {
     const view = ctx.live();

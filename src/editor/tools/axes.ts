@@ -2,8 +2,7 @@
 // 三下：原点 → X 方向（红）→ Y 方向（绿）；Z = X × Y 右手系。预演：候选帧直接当 ViewState.frame 画出来。
 // DT86（2026-10-26 Claude Opus 5.5；user「坐标架同意」）：只搬画图用的坐标架——最外层 / 组里 / 组件里都一样，从不碰几何；
 // 改组件原点 = 选中组件「改组件原点…」开的会话，同一套点击由编辑器改投到组件原点（ctx.setAxes 一个口；提示行由编辑器写）。
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import { rectFirstPlane, type DrawPlane, type Snap3 } from "../pick.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
@@ -75,7 +74,7 @@ export class AxesTool implements ToolHandler {
   }
 
 
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string {
+  live(): string {
     return this.stage === 1 ? "坐标架 ②/③：X 方向" : this.stage === 2 ? "坐标架 ③/③：Y 方向" : "";
   }
 

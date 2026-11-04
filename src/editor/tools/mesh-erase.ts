@@ -3,11 +3,10 @@
 //   · 点 → 连着的边和面一起走；边 → 连着的面一起走；面 → 只删这张面（它独占的边和孤立的点一起走）。和 Blender 按选择模式删同语义（mesh/ops/delete.ts deleteSelection）。
 //   · 按住 Shift = 溶解（不开洞；2026-10-30 user「自由建模里面shift是溶解」，以前是 Ctrl——橡皮一家 Ctrl 不用、Shift = 另一种做法）：边 → 两侧的面并成一张、二度点去掉；溶解不了的跳过并说（纪元账本 FM11「去边 = Blender dissolve」；修饰键稿「Ctrl = 这个工具的另一种做法」）。
 //   · 按真身拾取（预演里已经删掉了，不能按预演拾取）；悬停不高亮（FM113），刮的时候预演就是删掉以后的样子。
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import { deleteSelection } from "../../mesh/ops/index.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
+import type { Op } from "../ops.ts";
 
 export class MeshEraseTool implements ToolHandler {
   readonly tool = "erase" as const;
@@ -18,7 +17,6 @@ export class MeshEraseTool implements ToolHandler {
   active(): boolean { return this.hit !== null; }
   cancel(): void { this.hit = null; this.dissolve = false; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshErase: this.hit ? { v: this.hit.verts.size, e: this.hit.edges.size, f: this.hit.faces.size, dissolve: this.dissolve } : null }; }
 
   down(ctx: ToolCtx, ev: ToolPointer): void {
@@ -38,12 +36,14 @@ export class MeshEraseTool implements ToolHandler {
   }
   private count(): number { const h = this.hit; return h ? h.verts.size + h.edges.size + h.faces.size : 0; }
 
-  liveMesh(_ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  /** 这一刮的那条 op（预演 / 提交共用）。 */
+  private opFor(ctx: ToolCtx, t: { verts: number[]; edges: number[]; faces: number[] }, dis: boolean): Op { return { op: "meshDelete", def: ctx.activePool().def, ...(t.verts.length ? { verts: t.verts } : {}), ...(t.edges.length ? { edges: t.edges } : {}), ...(t.faces.length ? { faces: t.faces } : {}), ...(dis ? { dissolve: true } : {}) }; }
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const h = this.hit;
     if (!h || !this.count()) return this.dissolve ? "溶解：刮过要溶解的边 / 点" : "删除：刮过要删的点 / 边 / 面";
-    const t = { verts: [...h.verts], edges: [...h.edges], faces: [...h.faces] }, dis = this.dissolve;
-    run((m) => { deleteSelection(m, t, dis); });
-    return `${dis ? "溶解" : "删除"} ${this.count()} 处`;
+    const t = { verts: [...h.verts].sort((a, b) => a - b), edges: [...h.edges].sort((a, b) => a - b), faces: [...h.faces].sort((a, b) => a - b) };
+    preview(this.opFor(ctx, t, this.dissolve));
+    return `${this.dissolve ? "溶解" : "删除"} ${this.count()} 处`;
   }
 
   up(ctx: ToolCtx, _ev: ToolPointer, _settle: () => ToolSample | null): void {
@@ -53,7 +53,7 @@ export class MeshEraseTool implements ToolHandler {
     const t = { verts: [...h.verts].sort((a, b) => a - b), edges: [...h.edges].sort((a, b) => a - b), faces: [...h.faces].sort((a, b) => a - b) };
     const skipped = deleteSelection(ctx.mesh().clone(), t, dis);   // 先在副本上跑一遍：溶解不了几个（提交是同一份内核 + 同一组参数）
     if (dis && skipped === n) { ctx.hint("溶解：这些边 / 点溶解不了（边要恰好连两张面、点要只连两条边）"); return; }
-    ctx.commitOp({ op: "meshDelete", def: ctx.activePool().def, ...(t.verts.length ? { verts: t.verts } : {}), ...(t.edges.length ? { edges: t.edges } : {}), ...(t.faces.length ? { faces: t.faces } : {}), ...(dis ? { dissolve: true } : {}) });
+    ctx.commitOp(this.opFor(ctx, t, dis));
     ctx.hint(`${dis ? "溶解" : "删除"}了 ${n - skipped} 处${skipped ? `（${skipped} 处溶解不了，跳过了）` : ""}`);
   }
 }

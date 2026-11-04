@@ -8,14 +8,14 @@
 //   · 压平（flatten）：压到这一片（半径里的点按衰减加权）的平均面上。
 // 鼓起 / 抹平 / 压平是「刷」：沿着拖过的路每隔 ¼ 半径点一下（dab），一下的量 = 力度（工具条）× 衰减；快拖慢拖一样多。
 // 提交 = 松手一条 meshMove（每个碰过的点写绝对坐标）= 一步撤销；镜像编辑 / 强行对称照常走 commitIn 的 mirrorRewrite（预演不画镜像那半）。
-import type { FaceEvent, Kernel, Pt3 } from "../../kernel/kernel.ts";
+import type { Pt3 } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";
 import { rayPlane } from "../camera.ts";
 import { applyDir, applyPt, invert } from "../../scene/xform.ts";
 import { softFalloff } from "../../mesh/soft-select.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler, ToolSample } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, ToolSample, PreviewOp } from "../tool-handler.ts";
 
 export type BrushKind = "grab" | "draw" | "smooth" | "flatten";
 const TOOL = { grab: "brushGrab", draw: "brushDraw", smooth: "brushSmooth", flatten: "brushFlatten" } as const;
@@ -36,7 +36,6 @@ export class MeshBrushTool implements ToolHandler {
   active(): boolean { return this.stroke !== null; }
   cancel(): void { this.stroke = null; this.grab = null; }
   sample(): Record<string, number> { return {}; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
   describe(): Record<string, unknown> { return { meshBrush: { kind: this.kind, touched: this.stroke?.pos.size ?? 0, dabs: this.stroke?.dabs ?? 0 } }; }
 
   /** 悬停：光标处画笔刷圈（和软选择半径同一个圈）。 */
@@ -154,17 +153,20 @@ export class MeshBrushTool implements ToolHandler {
     for (let i = 1; i <= n; i++) { const p = { x: st.last.x + dx * (i * gap / dist), y: st.last.y + dy * (i * gap / dist) }, h = this.hit(ctx, p.x, p.y); if (h) this.dab(ctx, h); }
     st.last = { x: st.last.x + dx * (n * gap / dist), y: st.last.y + dy * (n * gap / dist) };
   }
-  liveMesh(_ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string {
+  /** 这一笔真动了的点（预演 / 提交共用）。 */
+  private movesOf(st: NonNullable<MeshBrushTool["stroke"]>): { v: number; to: Pt3 }[] { return [...st.pos].filter(([v, p]) => { const b = st.base.get(v)!; return len3(sub3(p, b)) > 1e-12; }).map(([v, to]) => ({ v, to })); }
+  live(ctx: ToolCtx, preview: PreviewOp): string {
     const st = this.stroke;
     if (!st || !st.pos.size) return "";
-    run((m) => { for (const [v, p] of st.pos) m.setPos(v, p); });
+    const moves = this.movesOf(st);
+    if (moves.length) preview({ op: "meshMove", def: ctx.activePool().def, moves });
     return `${LABEL[this.kind]}：动了 ${st.pos.size} 个点`;
   }
   up(ctx: ToolCtx, _ev: ToolPointer, _settle: () => ToolSample | null): void {
     const st = this.stroke;
     this.cancel();
     if (!st) return;
-    const moves = [...st.pos].filter(([v, p]) => { const b = st.base.get(v)!; return len3(sub3(p, b)) > 1e-12; }).map(([v, to]) => ({ v, to }));
+    const moves = this.movesOf(st);
     if (!moves.length) { ctx.hint(`${LABEL[this.kind]}：这一笔没动到点（半径里没有点？把左边滑条调大，或靠近点）`); return; }
     ctx.commitOp({ op: "meshMove", def: ctx.activePool().def, moves });
     ctx.hint(`${LABEL[this.kind]}：动了 ${moves.length} 个点（一步撤销）`);

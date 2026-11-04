@@ -1,7 +1,5 @@
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
-import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 export type MeshXformKind = "move" | "rotate" | "scale" | "normal" | "transform";
 export declare class MeshTransformTool implements ToolHandler {
@@ -69,14 +67,15 @@ export declare class MeshTransformTool implements ToolHandler {
     }): boolean;
     cancel(): void;
     sample(): Record<string, number>;
-    live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
     describe(): Record<string, unknown>;
     down(ctx: ToolCtx, ev: ToolPointer): void;
     track(ctx: ToolCtx, s: {
         x: number;
         y: number;
     }): void;
-    liveMesh(ctx: ToolCtx, run: (fn: (m: MeshKernel) => void) => void): string;
+    /** 真动了的点（预演 / 提交共用）。 */
+    private movesOf;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     /** 当前拖动 → 每个点的新本地坐标 + 读数。 */
     private solve;
     /** 沿边滑：抓住的那个点（离按下处最近的）按拖动方向挑一条边、拖的量换成沿那条边的比例 t；别的点挑和它方向最像的那条边、走同样的 t。 */

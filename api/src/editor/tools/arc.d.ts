@@ -1,7 +1,5 @@
-import type { Kernel } from "../../kernel/kernel.ts";
-import type { FaceEvent } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
-import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { ToolCtx, ToolHandler, PreviewOp } from "../tool-handler.ts";
 import type { ViewState } from "../view-state.ts";
 export declare class ArcTool implements ToolHandler {
     readonly tool: "arc";
@@ -38,7 +36,7 @@ export declare class ArcTool implements ToolHandler {
         x: number;
         y: number;
     }): void;
-    live(ctx: ToolCtx, run: (fn: (c: Kernel) => FaceEvent[]) => void): string;
+    live(ctx: ToolCtx, preview: PreviewOp): string;
     /** 圆心弧 / 扇形转角度时画量角器弧（A34：克制的圆 + 基线 + 当前线）。 */
     viewExtras(): Partial<ViewState>;
 }

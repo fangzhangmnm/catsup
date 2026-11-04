@@ -5,7 +5,6 @@
 //   以后丢猫娘 / 道具、扔手雷这些验证纪元的动作都住这里。
 //   步行里 Tab 原地编辑 = 留在验证、用这里的工具接着摆。视图菜单「步行相机」照样能进。
 // 管硬表面体那一层（关卡 = 根 / 组里摆物体）；进网格体就是去改那个物体 = 自由建模（工作台跟着物体，不变量 I5）。
-import type { FaceEvent, Kernel } from "../../kernel/kernel.ts";
 import type { Mode } from "../mode.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
 import type { Tool } from "../tool-ids.ts";
@@ -32,7 +31,7 @@ class WalkTool implements ToolHandler {
   track(ctx: ToolCtx, s: { x: number; y: number }): void { if (this.pressed) ctx.placeBody("drag", s.x, s.y); }
   up(ctx: ToolCtx, ev: ToolPointer): void { if (!this.pressed) return; this.pressed = false; ctx.placeBody("drop", ev.x, ev.y); }
   fingerTap(ctx: ToolCtx, x: number, y: number): boolean { ctx.placeBody("drop", x, y); return true; }
-  live(_ctx: ToolCtx, _run: (fn: (c: Kernel) => FaceEvent[]) => void): string { return ""; }
+  live(): string { return ""; }
   sample(): Record<string, number> { return {}; }
 }
 

@@ -38,8 +38,10 @@ export interface MaterialUse { faces: number; orphanFaces: number; shelved: bool
 export interface Census { readonly defs: readonly DefCensus[]; readonly materials: readonly MaterialCensus[] }
 
 /** 活着的组件定义（含模型根）：从根沿「谁摆着谁」走得到的。 */
-export function liveDefs(s: Scene): Set<DefId> {
-  const live = new Set<DefId>(), stack: DefId[] = [s.root];
+export function liveDefs(s: Scene): Set<DefId> { return reachableDefs(s, [s.root]); }
+/** 从这几个定义沿实例引用够得着的全部定义（自己算）。 */
+export function reachableDefs(s: Scene, roots: readonly DefId[]): Set<DefId> {
+  const live = new Set<DefId>(), stack: DefId[] = [...roots];
   while (stack.length) { const d = stack.pop()!; if (live.has(d) || !s.defs.has(d)) continue; live.add(d); for (const i of s.def(d).instances.values()) stack.push(i.def); }
   return live;
 }
