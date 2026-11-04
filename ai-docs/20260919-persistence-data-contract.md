@@ -143,6 +143,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 1. **core 是 bake、只写不读**：app 读文件只读 `CATSUP_*` 重建内核，再自己 bake；core 只为三方与「authoring 坏了创意不丢」（E1）。bake 可再生 → 迁移只搬 authoring。
 2. **原则一：省流**——体积预算（§3.2）是导出器的验收指标，手段（量化、去法线、顶点共享、按需 NORMAL、meshopt…）由导出器 spec 就事论事。
+2½. **2026-11-04 两侧规矩（Claude Opus 5.5；计划书 §2.9，user 11-04「要出几侧就几张面」「默认背面就是丢的语义啊」）**：硬表面每张膜按侧出面——一侧 = 一组三角，绕向 / 法向 / UV 都按那一侧；默认背面不出；默认正面出成无材质。glTF 材质一律单面（不再写 `doubleSided: true`），材质自己的 `doubleSided` 归材质纪元。网格体的面 = 文件里的面，不翻译。工程文件和导出模型同一条路。
 3. **原则二：第三方查看器尽量 WYSIWYG**——CatsUp 里看到什么，Blender / 网页 viewer / OneDrive 预览就看到什么：常用形态 = `KHR_materials_unlit` + 顶点色 × 烘焙光照预乘进 `COLOR_0`；需要时烘 GI。
 4. **保存模式（user「when saving we can choose wysiwyg or game engine friendly」）**：保存时二选一，文件记录 `CATSUP_document.bake = { "mode": "wysiwyg" | "engine", "generator": "…" }`——`wysiwyg` = 上面那种（三方看到的就是画面）；`engine` = 引擎友好（PBR 材质、颜色层分开不预乘、tag/extras 齐全、不烘 GI）；游戏引擎导出另有逃生口（专门的导出动词，产物不是本文件）。两种模式 authoring 层完全相同，只是 core 不同。
 
@@ -236,6 +237,7 @@ user 09-20：「bake 应该不在数据契约里面而在导出器渲染器 spec
 
 ### 5.3 `CATSUP_definitions`（顶层）
 
+> **2026-11-04 单面 / 双面第四版（Claude Opus 5.5；计划书 `20261104-identity-foundation-plan.md` §2.9 / §9）：`materialSlots` 的值还可以是内置默认背面的 GUID `00000000-0000-4000-8000-000000000002`。** 面的每一侧存一个值 = 材质 / 默认正面 / 默认背面。默认正面只有一种表示 = 面层没值（槽缺）；内置正面 GUID `…0001` 写入器永不写，读到当 `null`、`readNotes.builtinFrontSlots` 记一笔。内置 GUID 永不进材质表（读到冒充的现铸新身份）。§5.2「面无朝向」不变，brep 仍 4.2。
 > **2026-11-04 definitions 7.0（Claude Opus 5.5）：下面这段的形状已过期，引用全换成 GUID。** `root` = 定义 GUID；`list[i].guid`；`instances[j]` = `{ guid, definition: <定义 GUID>, parent: <组 GUID>|null, matrix, … }`（没有 `id`）；`groups[j]` = `{ guid, parent: <组 GUID>|null, … }`（没有 `id`）；`materialSlots` = `[<材质 GUID>|null…]`。`instances` 的顺序有意义（同级顺序）。glTF 节点的 `CATSUP_instance.definition` 也是 GUID（2.0，只写不读）。材质 GUID 在 `CATSUP_material.guid`（1.2），层在 `layers[].guid`（document 3.5），素材架 = 新扩展 `CATSUP_shelf` 1.0；面层没动（brep 仍 4.2——11-04 一度加 `0xFFFE`「这一侧没有表面」，门审 user 撤回，Claude Fable 5.1）。设计 = `20261104-identity-foundation-plan.md`。
 
 ```jsonc

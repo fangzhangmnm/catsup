@@ -126,6 +126,8 @@ export interface PoolMeshEnv {
     thick: boolean;
     /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
     singleSided: boolean;
+    /** 默认背面怎么画（颜色由 faceColor 给；演示 / 风格预览时 faceColor 给负值 = 不画，和导出一致）：变了 = 全量重建。 */
+    backLook: string;
 }
 export interface FaceGroup {
     readonly key: string;
@@ -143,6 +145,7 @@ export declare class PoolMesh {
     private thick;
     /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */
     singleSided: boolean;
+    private backLook;
     /**
      * 缓存反映的每张面当时的环边（画不画都记——隐藏的面没有画的记录）：面被删 / 被改的时候，靠这里知道它当时挨着哪些边，
      * 那些边的面链接变了、边两头的法线扇也可能变（日志只记了面）。只记边编号：顶点从边的两头来（边被删了 = 日志里有那条边 + 它两侧的面）。

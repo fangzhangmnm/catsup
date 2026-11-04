@@ -375,3 +375,25 @@ flowchart LR
 
 打开 6.x 文件：GUID 现铸、不标脏、不写云（`probe-update-conflict` 场景 1：更新后网盘写 0 次、eTag 不变）；用户真改了、存了才定下来，同一份老文件两台设备各铸各的，只有真存了才算改动，走库的正常冲突面。
 
+## 追记 2026-11-04（ID-2b，Claude Opus 5.5）：单面 / 双面第四版
+
+面的每一侧存一个值 = 材质 / 默认正面（槽缺）/ 默认背面（槽表值 −2，文件里内置 GUID）。规矩和为什么 = 计划书 `20261104-identity-foundation-plan.md` §2.9 / §9。
+
+| 操作 | 走哪条 | 亚种参数 |
+|---|---|---|
+| 工具画线 / 矩形 / 圆 / 偏移，VCB 改尺寸 | `editor.withFront`（`op-locks.ts`）→ `commitIn` → `addEdges` → `kernel/face-sides.ts settleNewFaceSides` | `front` = 从视线算的方向（池本地；桌面 / VR 同一个 `PointerFrame.viewDir`） |
+| 工具推拉，VCB 改距离 | 同上 → `pushpull` | `front` + `seed` = 被推的面：底面没朝向时先定它再灌 |
+| 跟随、挪点 | `applyOp` 里 `sideNewFaces` | 只看邻面，不带 `front` |
+| 修复的造面（补洞）、OBJ 导入喂线段、老复现包 | `commitIn` 直走 | 没 `front`：有邻面跟邻面，没有 = 不写 |
+| 粘贴、炸开、镜像、导入 | 不走这条 | 载荷自带的层原样（有意的两面都出不被改） |
+| 涂默认背面 / 默认正面 | `paintFaces`（`material: −2` / `null`） | `sides` |
+| 翻面 / 统一朝向 / 自动朝外 | `repairs/orient/` 规划 → `flipFaceSides` + `paintFaces` | 用户点了才跑，一步撤销 |
+
+- **新面两侧**：`settleNewFaceSides`。碰的是这批新面和它们一圈邻面（O(新面 × 环边)），不随整个模型涨。按轮推：同一轮一起定，和遍历顺序无关。
+- **并面**：`faceLayers.backSlot` 由 `poolOf` 在每条指令前告诉内核；`MERGE` 时朝向跟第一张有朝向的面，不产生双背面。
+- **屏幕**：`pool-mesh` 把两侧颜色烤进顶点。默认背面 = `PALETTE.faceBack`（灰蓝）；演示锁（`editing = false`）/ 风格预览（画风不是线稿）颜色给负值 = 着色器丢弃，两侧都丢的面不进缓存。`env.backLook` 变 = 全量重建，O(模型)，只在切换看法时发生。内置有自己的 uid，所以把一侧从默认正面改成默认背面会走增量重画。没做：AO 的深度那一遍仍看得见被剔的面。
+- **烤（⑨）**：`bakeDefinition` 按侧出，`sideOut` 一处判。一张面最多两组三角，O(面数)。没平滑组的默认正面还走省流档（共享顶点，靠绕向）。
+- **转网格体**：`brepToMesh` 按侧出面，两层共用点（和导入焊点一致），不再跑 `recalcNormals`。两层的边挂 4 张面，环切 / 平滑跨不过去，转换提示里写了个数。**转回硬表面**：`carryMeshSides` 按三角形认回膜（内核按三个点去重，重合反向的两张自然成一张），先落两侧再并共面。
+- **导出表单**：`exportSideCounts` 先 `documentFromScene`，O(模型)，每个范围只算一次、打开表单才算。选择跟文件走（desk 1.4），改了不标脏。
+- **还随整个模型涨的点**：导出表单的说明行（上面）；切换看法时的全量重建；`planOutward` 全池跑一遍（用户点了才跑）。
+

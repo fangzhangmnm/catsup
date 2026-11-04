@@ -17,7 +17,7 @@ const r = await page.evaluate(async () => {
   e.selectAll(); e.draw(); const selAll = own();
   e.deselectAll(); e.draw(); const none = own();
   // ② 网格体里的软边：标平滑、悬停它
-  e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
   const s = e.scene, inst = [...s.def(s.root).instances.values()][0];
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30);
   const d = [...s.defs.values()].find((x) => x.body.kind === "mesh"), m = d.body.kernel, e0 = m.edges().find((x) => m.eFaces(x).length === 2);

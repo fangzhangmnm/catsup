@@ -48,6 +48,8 @@
 //                      老读者少看见它 = 打开不锁（minor 语义：防误触的开关丢了，内容一字不少）。老定稿记录 CATSUP_document.final / finalRev 照读照写、不再起作用。
 //   CATSUP_desk        1.3（2026-10-29，Claude Opus 5.5；Tron 账本 T86 user「记账，风格跟着文件走」）：可选键 style / screen（视图 ☰「风格」「屏幕」选过才写；
 //                      不透明字符串，format 层不认识预设 id）。老读者少看见它 = 用自己的默认风格打开（minor 语义：看法丢了，内容一字不少）。
+//   CATSUP_definitions 7.0 语义补一行（2026-11-04，Claude Opus 5.5；计划书 §9.2-B，7.0 还没推出去，不动拍子）：materialSlots 的值可以是内置默认背面的 GUID（00000000-0000-4000-8000-000000000002；不进材质表）。
+//                      默认正面的唯一表示 = 槽缺。本地老 7.0 读者读到内置 GUID = 没材质（默认正面），无害。
 //   CATSUP_desk        1.4（2026-11-04，Claude Opus 5.5；计划书 §9.2½ ②，user「我建议文件workbench而不是workpiece记住」）：可选键 exportModel（导出表单上次的选择，字符串键值）。
 //                      老读者少看见它 = 导出表单用默认（minor 语义：习惯丢了，内容一字不少）。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：

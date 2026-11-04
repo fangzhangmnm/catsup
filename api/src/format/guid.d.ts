@@ -9,3 +9,9 @@ export declare function ownGuid(raw: unknown, seen: Set<Guid>): Guid;
  * 取值满足 v4 的形状，所以 `isGuid` 认它。
  */
 export declare const DEFAULT_LAYER_GUID: Guid;
+/**
+ * 内置材质的身份（同一族常量；scene/builtin-materials.ts）。默认背面可以出现在定义的槽表里；**永不进材质表**（读到冒充的 = 现铸一个新身份）。
+ * 默认正面只有一种表示 = 槽缺：这个常量只给读入器认出来丢掉用，写入器永不写（计划书 §9.2-A a）。
+ */
+export declare const BUILTIN_FRONT_GUID: Guid;
+export declare const BUILTIN_BACK_GUID: Guid;

@@ -122,6 +122,8 @@
 
 **ID-2 运行时换身份 + 有序表**〔11-04 Fable 审过 = 9.1，合 main 前重建 dist + 探针〕：「清理没人用的材质」动词（§8 ①）；`moveInstance` op（换父亲保身份 + 同级排序，§8 ②）+ 层级窗拖一行到同级某位置；粘贴载荷自带材质对照表；撤销 fuzz 加「GUID 不重铸」核对。**ID-2b 单面 / 双面第四版**〔清单 = §9.3，等 user 拍 §9.2 ①–④〕。
 
+**ID-2b 单面 / 双面第四版**〔工单 = 9.3，实施记录 = §10；分支 `identity-id2b`，等 Fable 审〕。
+
 **ID-3 跨文件粘贴 + 素材架数据**：`TransferPayload` v2（闭包、GUID）、粘贴合并（§2.7）、撤 `docEpoch` 拒贴；素材架：标为素材 / 取下 / 建文件夹 / 改名 / 排序的 op + 资源页里能看见架上有什么（抽屉 UI 不在这张）；「素材导入别的 .catsup」的数据路（读文件 → 闭包 → 合并 → 上架），入口先放资源页一个钮；生死算上架子。
 
 **之后（不属于身份地基，照 forward-ledger）**：问 user 推不推正式版 → bump minor 进材质纪元；素材抽屉 / 拖出来 / 缩略图现场画、材质编辑器字段、`doubleSided` 等归材质纪元或 Opus 随手。
@@ -275,3 +277,30 @@ export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid,
 
 ### 9.4 工作区
 第三版草稿（`bake.ts` / `kinds.ts` / `orient.ts` / `write.ts` / `session.ts` / `objects/index.ts` + 混了草稿的 dist / index.html）作废，`git stash` 存着（stash 名「ID-2 第三版草稿（作废，meshToBrep 带材质可参考）」），工作区回到 4d851b6 之后的干净状态。
+
+## 10. ID-2b 实施记录 + 审查看什么（2026-11-04，Claude Opus 5.5；分支 `identity-id2b`，从 main v0.18.30 开，未合、未推、版本号没动）
+
+ID-2 第一半已按 9.1 合 main：干净重建 + 五个探针全绿，`--ff-only`，v0.18.30，没推。
+
+**9.3 十一条的落点**：① `format/guid.ts`、`scene/builtin-materials.ts`。② 9.2-A 清单每处都改了，`stream-provider` 给内置 uid。③ 油漆桶「默认正面」「默认背面」两格；吸色吸到默认背面 = 设成那一格。④ `flipFaceSides`；`repairs/orient/`（`plan.ts` 纯函数）。⑤ `kernel/face-sides.ts`，`op-locks.ts withFront`。⑥ `scene/kinds.ts`。⑦ `format/bake.ts sideOut`、`exportSideCounts`、导出表单说明行、desk 1.4。⑧ `pool-mesh` + `stream-provider`。⑨ 7.0 语义写进 `migrate/index.ts` 和契约 §5.3。⑩ `test/face-sides.test.ts`、`identity-guard` 加一条。⑪ pipelines、gen-api。
+
+**和 9.2 / 9.3 字面不一样的地方（要审）**：
+1. **新面规矩的执行点在指令层，算法在 `kernel/face-sides.ts`**，不在 `faceLayers.applyEvents` 里：内核不知道哪个槽号是默认背面，槽表归 Scene。写默认背面要开槽，也只有指令层能做。
+2. **推拉的 `front` 先定底面，再灌**：9.2½ ③ 字面是「BIRTH 的面看 `front`」，侧面各看各的相机会一半朝里。所以邻面给不出时：底面没朝向 → 按 `front` 定底面（那一侧涂过就不覆盖，只当灌的起点）→ 从它灌。**这会往一张旧面上写默认背面**：两侧默认正面的老面被推拉时。「有意的两面都出」被推拉也会这样，我判断可接受，请 Fable 看。
+3. **`front` 只进工具这条路**（`toolCommit` 和 VCB 重画）：修复补洞、OBJ 导入喂线段、公开的 `Editor.commitOp`（探针、脚本）都不带。
+4. **粘贴 / 炸开 / 镜像不跑邻面规矩**：9.2½ ③ 写「走邻面或载荷自带的层」。我只取「载荷自带的层」：两侧都是默认正面的面贴到有朝向的面旁边不被改，否则有意的两面都出一贴就没了。跟随、挪点跑邻面（不带 `front`）。
+5. **并面不按边长投票**（9.2-D「实施时核」）：`applyEvents` 时死面的环已经没了。改成朝向跟第一张有朝向的面，和「取首个有值的」同一个规矩。内核靠 `faceLayers.backSlot` 认默认背面，`poolOf` 每条指令前设。
+6. **两处 glTF 材质的 `doubleSided: true` 都删了**（工程文件和导出模型）：要出几侧就几张面之后不能再标。老文件重存字节会变（本来每次都重烤）。
+7. **冻结目录没 `--force`**：desk 升 1.4，签名变了，自然是新目录 `v3.5.0-4.2.0-7.0.0-2.0.0-1.2.0-1.4.0-…`，多一个场景 `sided`；1.3 那份留着当语料。
+8. **「网格体工作台灰掉」没做**：油漆桶只在表面模式（`SurfaceMode.kinds = ["brep"]`），网格体工作台到不了那个面板，加判断只会多一个 `modeId` 分叉（棘轮只准降）。
+9. **「预设能覆盖」只留了接缝**：颜色在 `PALETTE.faceBack`，屏幕颜色在 `stream-provider faceColor` 一处。线稿之外的画风都不画默认背面，现在没有预设需要它，没加字段。
+10. **网格体的槽表可能带内置那一格**：转网格体照抄槽表（往返要用），没有面引用它。
+11. **统一朝向要求选中的面有朝向**：命令环境没有相机，两侧都不是默认背面时提示「分不出」，不猜。
+12. 其他：`stream-provider` 构造函数改成普通字段（node 直跑不支持参数属性，测试要载它）；`opTouchesLocked` 搬到 `op-locks.ts`（9.1 ①），棘轮 4154 → 4149；格式体积预算 cylinder 6600 → 8400、folded 3200 → 3300（老式两面都出的场景翻倍）。
+
+**审查建议看**：内置材质那十来处；`settleNewFaceSides` 的确定性；`bakeDefinition` 的绕向（`trisOf` 现在按法向对齐，`triangulateRings` 不保证）；`carryMeshSides` 切过的面用重心认三角。
+
+**测过的**：`node test/run.mjs` 全绿（比 main 多约 50 条）。探针：新 `probe-default-back`（真矩形工具 + 像素：正面白模灰、背面灰蓝、演示锁和写实风格下背面露出后面的东西）；`probe-undo-fuzz 8 45`（加了翻面 / 涂背面 / 统一朝向 / 自动朝外四种动作，指纹含槽表和两侧）；跑了 46 个碰网格体 / 材质的探针。19 个老探针先搭没朝向的盒子再转网格体，按新规矩是 12 张面，setup 里加了一步「自动朝外」；另 `probe-clipboard` 的盒子带 `front`。
+**没测到的**：真机和有头渲染；AO 深度那一遍仍看得见被剔的面（写实风格里影子可能对不上，没量）。
+**不是这张单带来的红**：`probe-single-draw`、`probe-new-primitive` 在 main v0.18.30 的构建上也红（前者悬停软边的线组，后者菜单项数和提示行）。没修。
+

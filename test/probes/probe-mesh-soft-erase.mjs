@@ -12,7 +12,7 @@ const scrub = async (p, q, shift = false) => { await page.mouse.move(box.x + p.x
 const setup = await page.evaluate(async () => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms)), at = e.activePool();
   e.commitOp({ op: "addEdges", at, segs: [[P(0, 0), P(1, 0)], [P(1, 0), P(1, 1)], [P(1, 1), P(0, 1)], [P(0, 1), P(0, 0)]] }); e.commitOp({ op: "pushpull", at, face: [P(0, 0), P(1, 0), P(1, 1), P(0, 1)], dist: 1 });
-  e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
   const s = e.scene, inst = [...s.def(s.root).instances.values()][0];
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30);
   e.cam.setView("iso"); e.zoomExtents(); await sleep(30);

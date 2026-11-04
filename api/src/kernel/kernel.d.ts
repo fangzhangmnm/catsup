@@ -268,6 +268,8 @@ export declare class Kernel {
     planeOf(id: FaceId): DeltaPlaneRec | undefined;
     /** 涂材质（槽号；null = 回默认）。sides = 每张面涂哪一侧（0 = 平面法向 +n 那侧、1 = −n 那侧，与 ids 对齐）；不给 = 两侧都涂（DT8 之前的语义）。 */
     setFaceMaterial(ids: readonly FaceId[], slot: number | null, sides?: readonly (0 | 1)[]): void;
+    /** 翻面（单面 / 双面第四版）：两侧的值互换，几何不动（面没有朝向，只有两侧）。 */
+    flipFaceSides(ids: readonly FaceId[]): void;
     /** 面某一侧的材质槽（DT8；side 0 = +n 侧（缺省）、1 = −n 侧）。 */
     faceMaterialOf(id: FaceId, side?: 0 | 1): number | undefined;
     /** 隐藏 / 显示一批面（DT49：面层 hidden = 1；子膜按血缘继承）。 */

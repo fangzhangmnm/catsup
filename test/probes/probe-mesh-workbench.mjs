@@ -19,7 +19,7 @@ const res = await page.evaluate(async () => {
   const out = { errs: [] };
   e.setGrid({ ...e.grid, on: false });
   // 根池：一个盒子做成组件「块」，再转成网格体；旁边再画一个松散的盒子留在根池
-  box(0, 0, 0, 1, 1, 1); e.selectAll(); e.makeComponent("块");
+  box(0, 0, 0, 1, 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块");
   out.toMeshMenu = e.commandMenu().map((m) => m.id);
   e.runAction("object.toMesh"); await sleep(30);
   const inst = [...root().instances.values()][0], def = inst.def;

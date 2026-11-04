@@ -177,6 +177,8 @@ export interface DeskDoc {
     /** 风格 / 屏幕跟文件走（desk 1.3，2026-10-29 Opus；Tron 账本 T86 user「风格跟着文件走」）：选过才写；本层不认识预设 id（不透明字符串，app 认不出 = 用默认）。 */
     style?: string;
     screen?: string;
+    /** 导出表单上次的选择（desk 1.4，2026-11-04；user「导出的时候永远有个框……我建议文件workbench而不是workpiece记住」）：导出过才写；本层不解释键，app 认不出的键当默认。 */
+    exportModel?: Record<string, string>;
     extra: Record<string, unknown>;
 }
 export declare const defaultDesk: () => DeskDoc;

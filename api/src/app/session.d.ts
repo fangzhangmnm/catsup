@@ -1,4 +1,5 @@
 import type { Editor } from "../editor/editor.ts";
+import { type SideCounts } from "../format/index.ts";
 import { type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import type { Xform } from "../scene/xform.ts";
 interface FSHandle {
@@ -139,6 +140,9 @@ export declare class Session {
     }): void;
     private applyDeskView;
     setMenuTab(key: string, tab: string): void;
+    /** 导出表单上次的选择（desk 1.4）：跟文件走，改它不标脏（user 11-04「我建议文件workbench而不是workpiece记住」）。 */
+    get exportChoice(): Readonly<Record<string, string>>;
+    setExportChoice(v: Readonly<Record<string, string>>): void;
     /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
     private noteFormat;
     constructor(d: SessionDeps);
@@ -297,6 +301,8 @@ export declare class Session {
         name: string;
         bytes: number;
     };
+    /** 导出表单的说明行要的数（计划书 §9.2½ ②）：only = 只导这几个定义。 */
+    exportSides(only?: readonly number[]): SideCounts;
     /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
     private plainExportNote;
     private download;

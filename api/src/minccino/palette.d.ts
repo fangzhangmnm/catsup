@@ -1,6 +1,7 @@
 export declare const PALETTE: {
     readonly background: 15921386;
     readonly face: 14079702;
+    readonly faceBack: 10135997;
     readonly faceSelected: 9417960;
     readonly faceHover: 11980784;
     readonly faceDim: 15329769;

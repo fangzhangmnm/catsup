@@ -15,7 +15,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }), sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   const S = () => e.scene;
   const fp = (sc) => [...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => {
-    const body = d.body.kind === "brep" ? `b${d.body.kernel.faces().length}f${d.body.kernel.edges().length}e${d.body.kernel.vertices().map((v) => `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`).sort().join(";")}g${d.body.groups.size}` : `m${d.body.kernel.faceCount()}f${d.body.kernel.verts().map((v) => { const p = d.body.kernel.pt(v); return `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}`; }).sort().join(";")}`;
+    const body = d.body.kind === "brep" ? `b${d.body.kernel.faces().length}f${d.body.kernel.edges().length}e${d.body.kernel.vertices().map((v) => `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`).sort().join(";")}g${d.body.groups.size}s${d.body.materialSlots.join(",")}L${d.body.kernel.faces().map((f) => `${d.body.kernel.faceMaterialOf(f.id, 0) ?? "-"}/${d.body.kernel.faceMaterialOf(f.id, 1) ?? "-"}`).sort().join(",")}` : `m${d.body.kernel.faceCount()}f${d.body.kernel.verts().map((v) => { const p = d.body.kernel.pt(v); return `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}`; }).sort().join(";")}`;
     return `D${id}:${body}|I${[...d.instances.values()].map((i) => `${i.id}:${i.def}:${i.xform.map((x) => x.toFixed(4)).join(",")}`).join(";")}`;   // 不排序：同级顺序是数据（ID-2）
   }).join("\n");
   const guidsOf = (sc) => JSON.stringify([[...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, d.guid, [...d.instances.values()].map((i) => i.guid), d.body.kind === "brep" ? [...d.body.groups.values()].map((g) => g.guid) : []]), sc.materials.map((m) => m.guid), sc.layers.map((l) => l.guid)]);
@@ -62,6 +62,10 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
         const here = [...S().def(ctxDef).instances.values()];
         if (here.length >= 2) add(4, "reorder", () => { const i = here[Math.floor(rnd() * here.length)]; e.commitOp({ op: "moveInstance", from: { def: ctxDef, inst: i.id }, into: { def: ctxDef, parent: i.parent }, index: Math.floor(rnd() * here.length) }); });
         if (depth === 0 && here.length >= 2) add(3, "reparent", () => { const a = here[Math.floor(rnd() * here.length)], b = here[Math.floor(rnd() * here.length)]; if (a === b || S().references(a.def, b.def)) return; e.selectedPools.clear(); e.commitOp({ op: "moveInstance", from: { def: ctxDef, inst: a.id }, into: { def: b.def, parent: null }, xform: a.xform }); });
+        if (!inMesh && e.selection.faces.size) add(3, "paintBack", () => { e.setPaint({ kind: "back", name: "默认背面" }); e.paintSelection(); });   // 单面 / 双面第四版
+        if (!inMesh && e.selection.faces.size) add(3, "flip", () => { e.runAction("brep.flipSides", {}); });
+        if (!inMesh && e.selection.faces.size) add(2, "unify", () => { e.runAction("brep.orientUnify", {}); });
+        if (!inMesh) add(2, "outward", () => { e.runAction("brep.orientOutward", { curvature: 3 }); });
         if (!inMesh && e.selection.faces.size) add(6, "paint", () => { e.setPaint({ kind: "color", name: `色${Math.floor(rnd() * 3)}`, color: [rnd(), 0.5, 0.5] }); e.paintSelection(); });
         if (unusedMats(S()).length) add(3, "purgeMats", () => e.commitOp({ op: "purgeMaterials", materials: unusedMats(S()) }));
         if (inMesh) {   // 镜像那条路（v0.16.5 挪点纪律：钉 / 不穿 / 并 + 强行对称的对称化）+ 网格体的整体算子

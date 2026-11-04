@@ -45,6 +45,9 @@ export type PaintPick = {
     mimeType: string;
     bytes: Uint8Array;
     sizeM: [number, number];
+} | {
+    kind: "back";
+    name: string;
 } | null;
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
 /** 菜单 / 物体窗口作用在谁上（Editor.withMenuTarget）：selection = 当前选区（几何层）；self = 你所在的这一层本身；children = 选中的子物体。 */
@@ -710,6 +713,9 @@ export declare class Editor {
     /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
     private toolPass;
     private toolCommit;
+    /** 工具画的线 / 推的面带上「这一侧朝着我」的方向（op-locks.ts withFront）。 */
+    private withFront;
+    private commitFront;
     /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
     private commitIn;
     /** 一步中途失败：把这一步已经提交的 op 撤掉（回到这一步之前，连会话），丢掉重做队列，这一步剩下的提交一律不执行。 */
@@ -863,8 +869,6 @@ export declare class Editor {
     pasteClipboard(): void;
     private pasteNow;
     private copyInstanceStep;
-    /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
-    private opTouchesLocked;
     /** 当前上下文链上有锁住的实例（进不去的地方本来也到不了；双保险）。 */
     private contextLocked;
     private pickIsLocked;
@@ -1020,7 +1024,7 @@ export declare class Editor {
     private materialIndexForPick;
     /** 给活动池里的这些面涂当前材质（op）。 */
     paintFaces(faces: readonly FaceId[], sides?: readonly (0 | 1)[]): void;
-    /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认灰）。 */
+    /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认正面；默认背面 = 那一格）。 */
     pickMaterialOf(face: FaceId, side?: 0 | 1): void;
     /** 把选区（面）涂上当前材质。 */
     paintSelection(): boolean;

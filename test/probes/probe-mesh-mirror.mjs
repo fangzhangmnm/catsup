@@ -27,7 +27,7 @@ const res = await page.evaluate(async () => {
   const sym = (k) => k.verts().every((v) => { const q = k.pt(v); return k.verts().some((w) => { const p = k.pt(w); return Math.abs(p.x + q.x) < 1e-9 && Math.abs(p.y - q.y) < 1e-9 && Math.abs(p.z - q.z) < 1e-9; }); });
   const out = {};
   e.setGrid({ ...e.grid, on: false }); e.cam.setView("iso"); e.cam.halfH = 3; e.cam.target = P(0, 0.5, 0.5); e.draw();
-  box(-1, 0, 0, 1, 1, 1); e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  box(-1, 0, 0, 1, 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
   const inst = [...S().def(S().root).instances.values()][0], def = inst.def, m = () => S().mesh(def).kernel;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30);
   // 组件的原点 = 盒子角（-1, 0, 0）？对齐到盒子中心的 x = 0：网格体本地坐标里中缝在 x = 0 才对称（看本地坐标）
@@ -94,7 +94,7 @@ const res = await page.evaluate(async () => {
   box(4, 0, 0, 6, 1, 1); e.deselectAll();
   { const before = new Set([...S().def(S().root).instances.keys()]); e.selectAll(); }
   const loose = () => [...S().def(S().root).instances.values()];
-  e.makeComponent("块2"); e.runAction("object.toMesh"); await sleep(20);
+  e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块2"); e.runAction("object.toMesh"); await sleep(20);
   const inst2 = loose().find((i) => i.id !== inst.id), m2 = () => S().mesh(inst2.def).kernel;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst2.id}`, { kind: "instance", instance: inst2.id }); e.enterSelected(); await sleep(30);
   e.selectAll(); e.runAction("mesh.originToSelection"); e.deselectAll(); await sleep(10);   // 镜像面 = 物件自己的原点：先把原点放到方块中间
@@ -109,7 +109,7 @@ const res = await page.evaluate(async () => {
   // ⑧ 偏在一边的盒子：本地整体挪 +0.7（镜像面还在原点）
   box(8, 0, 0, 10, 1, 1); e.deselectAll();
   const before8 = new Set(S().def(S().root).instances.keys());
-  e.selectAll(); e.makeComponent("偏"); e.runAction("object.toMesh"); await sleep(20);
+  e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("偏"); e.runAction("object.toMesh"); await sleep(20);
   const inst3 = [...S().def(S().root).instances.values()].find((x) => !before8.has(x.id) && S().kindOf?.(x.def) !== "brep") ?? [...S().def(S().root).instances.values()].at(-1), m3 = () => S().mesh(inst3.def).kernel;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst3.id}`, { kind: "instance", instance: inst3.id }); e.enterSelected(); await sleep(30);
   e.commitOp({ op: "meshMove", def: inst3.def, moves: m3().verts().map((q) => ({ v: q, to: { ...m3().pt(q), x: m3().pt(q).x + 0.7 } })) });

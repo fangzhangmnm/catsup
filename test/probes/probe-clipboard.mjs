@@ -74,7 +74,7 @@ const r = await page.evaluate(async () => {
   out.four = { refused: [...S().def(A.def).instances.values()].length === nA && e.history.steps() === st4, hint: hud.status() };
   e.exitTo(0); await sleep(20);
   // ⑤ 网格体 → 硬表面：M（网格体组件）
-  e.deselectAll(); e.commitOp({ op: "addEdges", at: e.activePool(), segs: box(20, 20) }); e.selectAll(); e.selectedPools.clear(); e.makeComponent("M"); e.runAction("object.toMesh"); await sleep(20);
+  e.deselectAll(); e.commitOp({ op: "addEdges", at: e.activePool(), segs: box(20, 20), front: P(0.3, -0.5, 0.8) }); e.selectAll(); e.selectedPools.clear(); e.makeComponent("M"); e.runAction("object.toMesh"); await sleep(20);
   const M = insts().find((i) => S().kindOf(i.def) === "mesh");
   await enter(M);
   const mk = () => S().mesh(M.def).kernel, two = mk().faces().slice(0, 2);
@@ -92,7 +92,7 @@ const r = await page.evaluate(async () => {
   [...document.querySelectorAll(".sheet button, [class*=sheet] button")].find((x) => x.offsetParent && /转成硬表面体再贴/.test(x.textContent ?? ""))?.click(); await sleep(150);
   out.five.pasted = rootFaces() - r5; out.five.check = 0;
   // ⑥ 网格体 → 网格体：N（挪到 0,0,5）
-  e.deselectAll(); e.commitOp({ op: "addEdges", at: e.activePool(), segs: box(30, 30) }); e.selectAll(); e.selectedPools.clear(); e.makeComponent("N"); e.runAction("object.toMesh"); await sleep(20);
+  e.deselectAll(); e.commitOp({ op: "addEdges", at: e.activePool(), segs: box(30, 30), front: P(0.3, -0.5, 0.8) }); e.selectAll(); e.selectedPools.clear(); e.makeComponent("N"); e.runAction("object.toMesh"); await sleep(20);
   const N = insts().find((i) => S().kindOf(i.def) === "mesh" && i.id !== M.id); e.commitOp({ op: "transformInstance", def: S().root, instance: N.id, xform: [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 5] });
   await enter(insts().find((i) => i.id === M.id));
   const mk2 = () => S().mesh(M.def).kernel, two2 = mk2().faces().slice(0, 2), mw = two2.flatMap((f) => mk2().faceVerts(f).map((v) => { const p = W(M.xform, mk2().pt(v)); return `${q(p.x)},${q(p.y)},${q(p.z)}`; })).sort().join(";");

@@ -1,6 +1,6 @@
 // 身份地基守卫（计划书 ai-docs/20261104-identity-foundation-plan.md §4；家规「文件里条目的身份 = GUID，不用序号」）。created 2026-11-04 by Claude Opus 5.5
 // ① 文件里每个条目都有合法 GUID，引用全是 GUID ② 读写、撤销重做不重铸；动词不换身份 ③ 老文件迁移（序号 → GUID、对照表、坏数据照旧拒开）④ 对照表：槽号是代号 ⑤ 素材架读写 ⑥ 定义的迁移没拿到材质表就抛（不许静默清槽）。
-import { BUILTIN_BACK_GUID } from "../src/format/guid.ts";
+import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID } from "../src/format/guid.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(p: URL, e: string): string };   // test/*.ts 不拉 @types/node（同 orphan-defs.test.ts）
 import { Kernel } from "../src/kernel/kernel.ts";
@@ -143,6 +143,16 @@ describe("老文件（definitions 6.x → 7）", () => {
       n++;
     }
     assert(n > 50, `语料要跑到（${n}）`);
+  });
+  it("内置材质（§9.2-A）：冻结语料里内置 GUID 永不进材质表；写出来的槽表没有内置正面 GUID（默认正面只有一种表示 = 槽缺）；写的那一路没人碰内置正面", () => {
+    for (const v of listCorpusDirs()) for (const f of listFixtures(v)) {
+      const doc = readCatsup(readFixture(v, f));
+      for (const m of doc.materials) assert(m.guid !== BUILTIN_BACK_GUID && m.guid !== BUILTIN_FRONT_GUID, `${v}/${f} 材质表里有内置`);
+      for (const d of doc.definitions) assert(!d.materialSlots.includes(BUILTIN_FRONT_GUID), `${v}/${f} 槽表写了内置正面`);
+    }
+    for (const name of ["src/format/write.ts", "src/format/scene-doc.ts", "src/editor/ops.ts", "src/editor/transfer.ts"]) assert(!readFileSync(new URL(`../${name}`, import.meta.url), "utf8").includes("BUILTIN_FRONT"), `${name} 不许碰内置正面（读入器认出来丢掉就够了）`);
+    const sided = readCatsup(writeCatsup(documentFromScene(SCENE_DOCS.sided(), "t")));
+    assert(sided.definitions[sided.rootIndex].materialSlots.includes(BUILTIN_BACK_GUID), "语料里真有内置背面这种场景");
   });
   it("迁移语义：6.x 形状读回来 = 同一个场景（面上的槽号、组的父子、实例挂在哪个组都对得上）", () => {
     for (const [name, make] of Object.entries(SCENE_DOCS)) {

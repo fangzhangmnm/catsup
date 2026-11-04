@@ -19,7 +19,7 @@ const res = await page.evaluate(async () => {
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.addSegments(segs); };
   const S = () => e.scene, out = {};
   e.setGrid({ ...e.grid, on: false }); e.cam.setView("iso"); e.cam.halfH = 2.2; e.cam.target = P(0, 0.5, 0.5); e.draw();
-  box(-1, 0, 0, 1, 1, 1); e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  box(-1, 0, 0, 1, 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
   const inst = [...S().def(S().root).instances.values()][0], def = inst.def, m = () => S().mesh(def).kernel;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(30);
   const X = () => S().xformOfContext(e.ctx), W = (p) => { const x = X(); return { x: x[0] * p.x + x[1] * p.y + x[2] * p.z + x[3], y: x[4] * p.x + x[5] * p.y + x[6] * p.z + x[7], z: x[8] * p.x + x[9] * p.y + x[10] * p.z + x[11] }; };

@@ -26,12 +26,14 @@ export type Op =
     name: string;
 }
 /** harden（2026-10-26，user「画线描过一条软边，就把它变硬……这个确实是应该有的行为」）：落在这些线段上的边去掉软 + 平滑（画线 / 矩形描过看不见的软边 = 想要一条看得见的边）。 */
+/** front = 造面的窄意图（§9.2½ ③）：邻面给不出朝向时，这个方向那侧 = 正面（编辑器从相机算出来写进 op，内核只见方向）；缺 = 不写（老复现包）。 */
  | {
     op: "addEdges";
     at?: PoolRef;
     segs: Seg[];
     curve?: boolean | CurveSpec;
     harden?: boolean;
+    front?: Pt3;
 }
 /** 炸开曲线（SU Explode Curve）：edges 里每条边所在的曲线散成普通边。 */
  | {
@@ -85,7 +87,8 @@ export type Op =
     at?: PoolRef;
     face: FaceKey;
     dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */
-    keepRing?: boolean;
+    keepRing?: boolean; /** 同 addEdges.front：底面没朝向时先按它定底面，再灌到新面。 */
+    front?: Pt3;
 } | {
     op: "followme";
     at?: PoolRef;
@@ -241,6 +244,12 @@ export type Op =
     faces: FaceKey[];
     material: number | null;
     sides?: (0 | 1)[];
+}
+/** 翻面：选中的面两侧的值互换（几何不动）。 */
+ | {
+    op: "flipFaceSides";
+    at: PoolRef;
+    faces: FaceKey[];
 } | {
     op: "eraseGroup";
     at: PoolRef;

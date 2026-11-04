@@ -33,7 +33,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_desk: {
         readonly major: 1;
-        readonly minor: 3;
+        readonly minor: 4;
         readonly patch: 0;
     };
     readonly CATSUP_references: {
@@ -84,7 +84,8 @@ export interface FormatReadNotes {
         file: Stamp;
         mine: Stamp;
     }[];
-    deskTooNew?: Stamp;
+    deskTooNew?: Stamp; /** 槽表里写了内置默认正面 GUID 的格数（默认正面的唯一表示是槽缺，读成没有；手改过的文件才有）。 */
+    builtinFrontSlots?: number;
     referencesTooNew?: Stamp;
     shelfTooNew?: Stamp;
     danglingShelfRefs?: number;

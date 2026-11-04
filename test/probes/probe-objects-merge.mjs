@@ -17,7 +17,7 @@ const ids = await page.evaluate(async () => {
   const box = (x0, y0) => { const B = [[x0, y0], [x0 + 1, y0], [x0 + 1, y0 + 1], [x0, y0 + 1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], 0), P(d[0], d[1], 0)]); segs.push([P(a[0], a[1], 1), P(d[0], d[1], 1)]); segs.push([P(a[0], a[1], 0), P(a[0], a[1], 1)]); } return segs; };
   const S = () => e.scene, insts = () => [...S().def(S().root).instances.values()];
   e.setGrid({ ...e.grid, on: false });
-  const mk = async (name, x0, y0, mesh) => { e.deselectAll(); e.selectedPools.clear(); e.commitOp({ op: "addEdges", at: e.activePool(), segs: box(x0, y0) }); e.selectAll(); e.selectedPools.clear(); e.makeComponent(name); if (mesh) e.runAction("object.toMesh"); await sleep(20); return insts().find((i) => S().def(i.def).name === name).id; };
+  const mk = async (name, x0, y0, mesh) => { e.deselectAll(); e.selectedPools.clear(); e.commitOp({ op: "addEdges", at: e.activePool(), segs: box(x0, y0) }); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.selectedPools.clear(); e.makeComponent(name); if (mesh) e.runAction("object.toMesh"); await sleep(20); return insts().find((i) => S().def(i.def).name === name).id; };
   const A = await mk("A", 0, 0, true), B = await mk("B", 3, 0, true), C = await mk("C", 0, 3, false);
   e.cam.setView("top"); e.zoomExtents(); e.cam.halfH *= 1.5; e.draw(); e.deselectAll();
   return { A, B, C };

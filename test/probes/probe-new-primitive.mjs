@@ -18,7 +18,7 @@ const res = await page.evaluate(async () => {
   e.setGrid({ ...e.grid, on: false }); e.cam.setView("iso"); e.cam.halfH = 3; e.draw();
   // ①
   await rclick(P(1.5, 1.5, 0)); out.menuHard = newItems(); closeMenus();
-  box(0, 0, 0, 1, 1, 1); e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  box(0, 0, 0, 1, 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
   const inst = [...S().def(S().root).instances.values()][0], m = () => S().mesh(inst.def).kernel;
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(40);
   out.mode = e.modeId;

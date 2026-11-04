@@ -20,7 +20,7 @@ const res = await page.evaluate(async () => {
   const S = () => e.scene, root = () => S().def(S().root), q = (x) => +x.toFixed(4);
   const out = {};
   e.setGrid({ ...e.grid, on: false });
-  box(0, 0, 0, 1, 1, 1); e.selectAll(); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
+  box(0, 0, 0, 1, 1, 1); e.selectAll(); e.runAction("brep.orientOutward", { curvature: 3 }); e.makeComponent("块"); e.runAction("object.toMesh"); await sleep(20);
   const inst = [...root().instances.values()][0], def = inst.def, m = () => S().mesh(def).kernel;
   e.cam.setView("iso"); e.zoomExtents(); e.cam.halfH *= 1.6; e.draw();
   e.selectedPools.clear(); e.selectedPools.set(`i${inst.id}`, { kind: "instance", instance: inst.id }); e.enterSelected(); await sleep(20);
