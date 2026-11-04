@@ -326,12 +326,13 @@
         <button class="tb-btn" id="galleryRefreshBtn" type="button" title="刷新云端" hidden><svg class="ico" aria-hidden="true"><use href="#refresh"/></svg></button>
         <button class="tb-btn" id="galleryTrashBtn" type="button" title="回收站" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
       </div>
-      <!-- 没登录 = 图库只在浏览器里（规则：库必须有家；过渡第 1 步 = 披露 + 出口，工单 C2 ④）。 -->
+      <!-- 图库的家（规则书 §1 第 13 条）：没有家 = 这些只在浏览器里（披露 + 出口，工单 C2 ④）；文件夹家 = 还有没搬的 / 权限掉了。文字和钮由 main.ts paintGalleryHomeBar 一处画。 -->
       <div class="gallery-homebar" id="galleryHomeBar" hidden>
         <span class="gallery-homebar-text" id="galleryHomeBarText">这些模型只在这台设备的浏览器里，没有备份</span>
         <button class="sheet-choice" id="galleryExportAll" type="button">全部导出</button>
         <button class="sheet-choice" id="galleryConnect" type="button">连接网盘</button>
-        <button class="sheet-choice" id="galleryPickFolder" type="button">选一个文件夹</button>
+        <button class="sheet-choice" id="galleryPickFolder" type="button">选一个文件夹，搬进去</button>
+        <button class="sheet-choice" id="galleryRegrant" type="button" hidden>重新授权</button>
       </div>
       <div class="gallery-trashbar" id="galleryTrashBar" hidden>
         <button class="sheet-choice" id="galleryTrashBack" type="button">回到图库</button>

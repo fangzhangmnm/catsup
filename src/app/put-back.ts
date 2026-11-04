@@ -21,8 +21,8 @@ export async function putBack(file: Blob, identifier: string, p: PutBackPorts): 
   const got = await p.unlock(file);
   if (!got) return { status: "cancelled" };
   if (!(await p.isModel(got.plain))) return { status: "not-a-model" };
-  const name = await writeNewVerified(identifier, file, p);   // 原容器字节；got.plain 到此为止
-  return { status: "placed", identifier: name, password: got.pw };
+  const put = await writeNewVerified(identifier, file, p);   // 原容器字节；got.plain 到此为止。同名那份本来就一模一样 = 不重写
+  return { status: "placed", identifier: put.identifier, password: got.pw };
 }
 
 /** 文件名 → 图库身份：`模型.catsup.zip` / `模型.glb.zip` / `模型.zip` → `夹/模型<docExt>`。 */
