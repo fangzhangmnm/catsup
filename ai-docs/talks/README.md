@@ -13,6 +13,7 @@
 | 材质 / 贴图 / 颜色空间：自动 UV 朝向、默认尺寸、sRGB vs 线性、材质编辑器归谁、Fable 叫一次先做什么 | `20261030-materials-color.md` | 10-30 |
 | **材质纪元的设计（属性制度 / 表面工作台 / 素材架引用还是拷贝 + 名字 / 送命题 / 可 seek 的素材）——下一轮从这里接** | `20261030-material-epoch-attributes.md` | 10-30 |
 | 网格体的单面 / 双面 → 材质上一个开关（默认单面；两面不一样 = 双面 + 着色器自己分；背面法线归着色器；硬表面按每一侧判；材质纪元做） | `20261030-double-sided.md` | 10-30 |
+| **导出 / 导入格式谁当第一公民**：user「obj一起留，做好……选一个做第一公民……互相导入才是king」；Fable：不是 dilemma 是两个角色——glTF = 交付 + 底座（三角形的坑补不了）、**OBJ = 建模往返第一公民**（多边形 / 平滑组 / MTL，Blender 原生）、FBX 不要、USD 以后；验收 = CatsUp ↔ OBJ ↔ Blender 环；「做好」清单在文件里；**OBJ 都留拍了，第一公民等 user 一句** | `20261104-export-formats-first-citizen.md` | 11-04 |
 | 坐标架与原点：坐标架 = Blender 3D 游标（只记直觉）/ 原点对齐到坐标架 / 坐标架对齐到选择 / 网格体缺什么 | `20261030-cursor-and-origin.md` | 10-30 |
 | 跨站点交给第三方游戏：XSS / postMessage / 本地网页 / 遥测 | `20261030-cross-site-games.md` | 10-30 |
 | 外轮廓（软边 / 不在边上的轮廓 / 四种做法） | `../20261030-silhouette-outlines.md`（专文） | 10-30 |
