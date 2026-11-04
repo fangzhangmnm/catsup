@@ -116,6 +116,8 @@ user 11-03（说的是 MoonSinger，Fable 转述，CatsUp 同理）：「（文�
 
 **还差**：user 填 Pages 域名 → 证书签好 → 强制 HTTPS → Opus 按清单 §3 验收（读状态和探网址不受影响）→ user 真机登一次网盘、重输一次口令 → 改 CLAUDE.md 地址节和 README → 报告 + 通知 Fable。
 
+**交接（11-04，Fable 转 user）**：这个会话留着切 Fable 做下个大版本，搬家从这里起归「weebpaint sync library」那位 Opus，这边不再碰。交接时：prod = 570e1f1（v0.18.26），Pages `cname` 仍是 null，等 user 填；§3 验收和真机登网盘的提醒都归它。探针 `test/probes/probe-sw-301.mjs`、`probe-moved-notice.mjs` 已在仓里。
+
 ## 6. 不排期（记着，别漏）
 
 - **设计还在聊**（F-138）：绑骨、蒙皮、IK、动画曲线、二次动作、表情、视频叠加、粒子、程序化动画；UV 实验室和骨骼动画实验室批了「到时候开」。
