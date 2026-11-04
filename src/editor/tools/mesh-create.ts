@@ -12,7 +12,7 @@
 //   · 平的几种（圆圈 / 方框 / 平面）拖的时候能拖出长宽比（user 10-28 夜「拉出方框能不能拖动选择aspect，所以就是有锁aspect的和可以算aspect的」）：
 //     工具条「锁比例」关 = 指针落在底面上那一点在两根轴上各多远，宽 / 深就各两倍（圆圈 = 椭圆）；开 = 正方 / 正圆；按住 Shift 临时反过来。
 //   · 落定以后右下「刚才：」= 马后炮（对齐 法向 / 世界 / 物体、尺寸、段数、朝向），和右键新建同一份（Editor.addPrimitive）。新的那个留在选区里，接着可以挤出 / 移动。
-// 工具只管「按在哪、拖多大、转多少」；落点、坐标架、提交、马后炮都在编辑器那一条里（ctx.newPrimitive / previewPrimitive / primitiveDragSize / primitiveFrameAt）。
+// 工具只管「按在哪、拖多大、转多少」；落点、坐标架、提交、马后炮都在编辑器那一条里（ctx.newPrimitive / primitiveOp / primitiveDragSize / primitiveFrameAt）。
 import { add3, dot3, sub3 } from "../../kernel/geom.ts";
 import { isFlatPrimitive, type PrimitiveKind } from "../../mesh/ops/primitives.ts";
 import type { Frame } from "../../scene/xform.ts";

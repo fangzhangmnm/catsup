@@ -1,6 +1,8 @@
 import { type PoolRef, type Scene } from "../scene/scene.ts";
 import type { MirrorMovesResult } from "../mesh/mirror.ts";
 import type { Op } from "./ops.ts";
+/** 撞上锁时提示行说的那一句（提交 / 预演 / 开镜像会话 / 改实例同一句）。 */
+export declare const LOCKED_HINT = "\u5DF2\u9501\u5B9A\uFF1A\u89E3\u9501\u540E\u518D\u6539\uFF08\u9009\u4E2D\u5B83 \u2192 \u89E3\u9501\uFF09";
 /** 目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
 export declare function opTouchesLocked(s: Scene, op: Op, contextLocked: () => boolean): boolean;
 /**

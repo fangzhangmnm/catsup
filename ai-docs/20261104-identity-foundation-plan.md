@@ -392,3 +392,32 @@ user 对 §11 记账的答复（原话）：「几个红的探针这次session�
 - `probe-render-baseline` 全跑要近 3 分钟，超过家规的一分钟。
 
 **工作区**：分支 `identity-id2c`，等 Fable 审。`stash@{0}` 第三版草稿仍在、可丢。
+
+## 14. Fable 审 ID-2c（2026-11-04 夜，Claude Fable 5.1；user「审」「之前opus审的也重新看一下推理一下」）
+
+**合。** §13 和 Opus 自审标过「没问题」的那几条没有沿用，全部拿代码重推；加上它没核完的九处。没改任何文件。
+
+**重推过、成立的**
+- **影子写不到真身**：`Scene.cloneSkeleton` 的定义 / 实例表（含 `nextInst`）/ 组 / 槽表 / 材质表全是新对象，内核共享；`shadowOf` 只换活动池那一个内核。预演路上会写场景的只有两处——`sideNewFaces → s.slotFor`（拷出来的槽表 / 材质表）、`mirror` 的 `s.mintInstance` / `d.instances.delete`（拷出来的实例表）。`cmdPreview` 把 `instances` 清空、组件走 `cmdGhosts` 副本槽，不画两遍。`mirrorRewrite` 只读 `this.mirrors` / `this.scene`，不写编辑器状态；`meshMirrors` 共享但没有 op 写它。硬门 `previewableIn`：复制移动的预演 = `copyPayload` + `absorb`，和 `commitCopies` 同一条，`absorb` 在白名单、`at` 同池。
+- **倒带完整**：`EdgeLayers` / `FaceLayers` 的集合带日志回调（`IdSet` / `IdMap`），`addEdges` 的 `harden`（`setEdgeLayer`）记进 `changes.e`，`restoreFromSource` 按 `ids.E` 恢复边层；`ChangeLog.since` 只在日志丢段时返回 null，空改动也走 `restoreFromSource` = 每帧新 rev，`worldView` 缓存键不会卡在旧帧。
+- **C1**：提示只在 `commitIn` 写 `mirrorNote`；预演唯一会写的是「已锁定」`previewNote`，`computeLive` 拼进提示行。**C2**：七处 `commitFront` 都传 `L.front`（2887 / 2895 / 3002 / 3013 / 3026 / 3055 / 3068）；`this.last` 全是展开复制重建、朝向不丢；会带朝向的七把工具都调 `recordLast`。
+- **一帧一次预演**：有两处 `preview(` 的三个工具（移动 = 复制 / 不复制、圆角矩形 = 两阶段、刀 = 环切 return 后才到切一刀）都是互斥分支。**`opFor` 同一份**：逐把看过，预演和提交调同一个造指令函数（推拉 / 挤出 / 线 / 矩形 / 圆 / 偏移 / 删 / 插入 / 圆角矩形）。
+- `arcOp` 两条子指令都带 `at`；面表 `IdMap` 按 id 有序 + `resolveFace` 显式排序，「挑号最小 = 全表扫同一结果」成立；`meshSymmetrize` 原地改内核、`liveMesh` 不过期；`isFaceHidden`（`get("hidden") !== undefined`）与旧 `hidden[i] >= 0` 等价（hidden 只存 1）；`kinds.ts → resources.ts` 单向不成环。
+- **`computeLive` 无条件调 `H.live`**（旧代码按身体种类分流、不匹配时是桩）：靠 I5 保证（根永远是 brep `Kernel`、`syncModeToKind` 住在写口、画前 `checkModeFits`）；自由建模的 `create` 预演 = `primitiveOp` → `meshAddPrimitive { def: activePool().def }`，在自由建模里活动池必是网格体。真漂移 = 每帧 `fail("preview")` 进黑匣子，是暴露不是回归。接受，不加第五层。
+- 每帧骨架拷贝 O(定义 + 实例 + 组)：流程图追记第 3 条已写明随模型涨、和合成视图同量级；实测没退化（§13 表）。
+
+**三处小修（Opus；同分支补一个提交 → v0.18.33 → 合 main，不推）**
+1. **锁着时开镜像会话**（`editor.ts beginMirror`，`requireBrep` 之后）：以前预演照画、应用才拒；现在预演不画也没字——`previewNote` 只在 `computeLive` 的提示行里拼，`refreshCmdPreview` 不拼。改法：用提交同一把尺——造出这条 `mirror` op 后 `opTouchesLocked(this.scene, op, () => this.contextLocked())` 为真 → `host.hint("已锁定：解锁后再改（选中它 → 解锁）")`、return false、不开会话；`previewApply` 里那道锁检查保留（第二层）。守卫：`test/lock.test.ts` 加一条——锁着的上下文里 `beginMirror()` 返回 false、不开参数会话、提示含「已锁定」。
+2. **`gestureFront` 的生命周期**：现在 `toolCommit` 在 `commitIn` 之前就写、只有 `recordLast` 清；提交抛错（`fail()` 不取消手势）/ 手势取消都不清。实际只会挂到不用朝向的记录上、`withFront` 对非 addEdges / pushpull 不理，无害但不干净。改法：`toolCommit` 改成提交成功之后再记（`const ev = this.commitIn(pass, op); this.gestureFront = frontOf(op) ?? this.gestureFront; return ev;`）；`cancelGesture()` 里加 `this.gestureFront = undefined`。不加测试（探针 ⑨ 盖住正路）。
+3. **过时注释 / 死导入**：`tool-handler.ts:230`「Editor.previewOp」→「Editor.previewApply」；`editor.ts:2717` cmdPreview 注释「跑在活动内核的克隆上」→「同一条 mirror op 走 previewApply 在影子场景上跑」；`tools/mesh-create.ts:15` 去掉 `previewPrimitive`（现在叫 `primitiveOp`）；`tools/mesh-brush.ts:10` 去掉「（预演不画镜像那半）」（预演现在同样过 `mirrorRewrite`）；`tools/compass.ts:11` 的 `import type { Op }` 没用到——用它替换第 90 行的内联 `import("../ops.ts").Op`。
+
+**验收与合并**：`npm run typecheck`；`npm test`（1564 + 新那条 + 红线守卫）；`node scripts/probe-boot.mjs`、`probe-mirror-xform`、`probe-mesh-mirror`、`probe-default-back`（⑦⑧⑨）、`probe-present-lock`；`src/version.ts` → `v0.18.33-2026-11-04`，dist 重建；CLAUDE.md 第 7 行状态改成「Fable 审过 = 计划书 §14，已合 main，没推」；合 main = `git checkout main && git merge --ff-only identity-id2c`，**不推**；丢 `stash@{0}`。流程图不用动（没改流程）。报告：改了哪几行、测试 / 探针各几绿、合到 main 的 commit 号。
+
+**下一波 = ID-3（§3），Fable 先设计再派、不和这批混**（user 11-04「如果做下一波的话你要好好计划和观察设计一下」）。工单要覆盖：§3 ID-3 那段（`TransferPayload` v2、粘贴合并 §2.7、撤 `docEpoch` 拒贴、素材架 op + 资源页、素材导入别的 .catsup 的数据路、生死算上架子）+ §8「ID-3 注意」①②③ + §9 不挡合的三条里的 ②（上下文链里的实例被搬走 / 不在了 → 退到最近还在的那层）。写工单前先观察：现有 `transfer.ts` / `clipboard.ts` / `paste` op / `CATSUP_shelf` 读写 / `danglingShelfRefs` 各是什么形状。
+
+**实施记录（v0.18.33，Claude Opus 5.5；user「开始做」「做好了合并main」）。三处都做了，和上面写的不一样的三点：**
+- **测试没进 `test/lock.test.ts`，进了新探针 `test/probes/probe-mirror-locked.mjs`**：`Editor` 要真 canvas，node 单测造不出来（现有 import `editor.ts` 的测试都只读源码）。探针走真的 `beginMirror`：Ⓐ 站在组件里、这份被锁上 → 返回 false、不进会话、没面板、提示行说已锁定；Ⓑ 被拒不动东西；Ⓒ 解锁后同一个选区能开。**同一份探针跑 v0.18.32 的包是红的**（`ret: true, active: true`）。
+- **`gestureFront` 按 `opCount` 判成功**：上面写的 `const ev = this.commitIn(...); this.gestureFront = ...` 起不到作用——`commitIn` 失败（锁 / 拒绝 / 回滚）不抛，只返回空数组，照那样写失败的方向还是会记下。改成 `n0 = this.opCount` 提交后比较。`cancelGesture` 清掉照做。
+- **多收了一处**：「已锁定」这句已有三份（`editor.ts` 改实例 / 提交 / 预演），本来要加第四份 → `op-locks.ts LOCKED_HINT` 一份。`beginMirror` 里 `opOf` / `opts` / `vals` 提到 `cancelGesture` 之前，查锁用的就是真要提交的那条 op，被拒时手势和把手都没动。
+
+**实际能碰到这条路的情形比 §14 写的窄**：`enterPool` 已经拒绝进锁着的实例，所以只有「人站在组件里、这份组件被别处锁上」才到得了（探针用 `commitOp setLocked` 造这个状态；界面上哪条路能做到这一步我没逐条核）。这条修是防线，不是常路。`editor.ts` 行数没长（4146，棘轮 4147）。

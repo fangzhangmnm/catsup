@@ -1061,7 +1061,7 @@ export declare class Editor {
     }[];
     private camKey;
     private gizmo;
-    /** 指令预演（镜像）：跑在活动内核的克隆上；开着时 liveWorld 画影子内核（没有手势也画）。 */
+    /** 指令预演（镜像）：同一条 mirror op 走 previewApply 在影子场景上跑；开着时 liveWorld 画影子内核（没有手势也画）。 */
     private cmdPreview;
     private cmdGhosts;
     mirrorActive(): boolean;

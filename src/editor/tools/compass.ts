@@ -87,7 +87,7 @@ export class CompassTool implements ToolHandler {
 }
 
 /** 一条「加参考圆 / 球」指令（世界坐标 → 当前池的本地坐标；半径按池的变换量）。 */
-export function compassOp(ctx: Pick<ToolCtx, "toLocal">, at: ReturnType<ToolCtx["activePool"]>, center: Pt3, n: Pt3, r: number, sphere: boolean): import("../ops.ts").Op {
+export function compassOp(ctx: Pick<ToolCtx, "toLocal">, at: ReturnType<ToolCtx["activePool"]>, center: Pt3, n: Pt3, r: number, sphere: boolean): Op {
   const c = ctx.toLocal(center);
   // 本地半径：圆面里一个方向走 r，换到本地量长度（组件缩放过也对）
   const a = Math.abs(n.x) < 0.9 ? { x: 1, y: 0, z: 0 } : { x: 0, y: 1, z: 0 };

@@ -302,7 +302,7 @@ export interface EditorCore extends ToolCtx {
     revision(): number;
     modeId(): ModeId;
 }
-/** 预演口（Editor.previewOp）：这条 op 跑在影子场景上（计划书 §12 C1；user 11-04「预演要做干净」）。 */
+/** 预演口（Editor.previewApply）：这条 op 跑在影子场景上（计划书 §12 C1；user 11-04「预演要做干净」）。 */
 export type PreviewOp = (op: Op) => void;
 export type CopyPayload = {
     faces: Pt3[][][];

@@ -1,6 +1,7 @@
 import type { Pt3 } from "../../kernel/kernel.ts";
 import type { ToolPointer } from "../editor.ts";
 import type { ToolCtx, ToolHandler } from "../tool-handler.ts";
+import type { Op } from "../ops.ts";
 import type { ViewState } from "../view-state.ts";
 export declare class CompassTool implements ToolHandler {
     readonly tool: "compass";
@@ -33,4 +34,4 @@ export declare class CompassTool implements ToolHandler {
     viewExtras(ctx: ToolCtx): Partial<ViewState>;
 }
 /** 一条「加参考圆 / 球」指令（世界坐标 → 当前池的本地坐标；半径按池的变换量）。 */
-export declare function compassOp(ctx: Pick<ToolCtx, "toLocal">, at: ReturnType<ToolCtx["activePool"]>, center: Pt3, n: Pt3, r: number, sphere: boolean): import("../ops.ts").Op;
+export declare function compassOp(ctx: Pick<ToolCtx, "toLocal">, at: ReturnType<ToolCtx["activePool"]>, center: Pt3, n: Pt3, r: number, sphere: boolean): Op;

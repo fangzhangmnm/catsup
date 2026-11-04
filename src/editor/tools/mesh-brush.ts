@@ -7,7 +7,7 @@
 //   · 抹平（smooth）：每个点往它邻点的平均位置拉（Laplacian）。任何一把按住 Shift = 临时抹平（Blender 同款）。
 //   · 压平（flatten）：压到这一片（半径里的点按衰减加权）的平均面上。
 // 鼓起 / 抹平 / 压平是「刷」：沿着拖过的路每隔 ¼ 半径点一下（dab），一下的量 = 力度（工具条）× 衰减；快拖慢拖一样多。
-// 提交 = 松手一条 meshMove（每个碰过的点写绝对坐标）= 一步撤销；镜像编辑 / 强行对称照常走 commitIn 的 mirrorRewrite（预演不画镜像那半）。
+// 提交 = 松手一条 meshMove（每个碰过的点写绝对坐标）= 一步撤销；镜像编辑 / 强行对称照常走 commitIn 的 mirrorRewrite（预演同一段前处理，镜像那半也画）。
 import type { Pt3 } from "../../kernel/kernel.ts";
 import type { MeshKernel } from "../../mesh/mesh-kernel.ts";
 import { add3, cross3, dot3, len3, normalize3, scale3, sub3 } from "../../kernel/geom.ts";

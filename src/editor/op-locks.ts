@@ -4,6 +4,8 @@ import { samePool, type PoolRef, type Scene } from "../scene/scene.ts";
 import type { MirrorMovesResult } from "../mesh/mirror.ts";
 import type { Op } from "./ops.ts";
 
+/** 撞上锁时提示行说的那一句（提交 / 预演 / 开镜像会话 / 改实例同一句）。 */
+export const LOCKED_HINT = "已锁定：解锁后再改（选中它 → 解锁）";
 /** 目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
 export function opTouchesLocked(s: Scene, op: Op, contextLocked: () => boolean): boolean {
   if (op.op === "setLocked" || op.op === "setHidden" || op.op === "unhideAll" || op.op === "rename") return false;   // 解锁要能做；藏 / 显示不改东西（锁着的也能藏）

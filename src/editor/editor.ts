@@ -59,7 +59,7 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
-import { frontOf, mergeOp, opTouchesLocked, previewableIn, previewVariant, withFront } from "./op-locks.ts";
+import { frontOf, LOCKED_HINT, mergeOp, opTouchesLocked, previewableIn, previewVariant, withFront } from "./op-locks.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
 import type { Surface } from "./commands/action.ts";
@@ -934,7 +934,7 @@ export class Editor {
     const t = this.originEditTarget();
     if (!t) return false;
     const { p, inst } = t;
-    if (inst.locked) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); return false; }
+    if (inst.locked) { this.host.hint(LOCKED_HINT); return false; }
     const prevTool = this._tool;
     this.setTool("axes");
     this.originEdit = { instance: inst.id, def: inst.def, prevTool, ctx: this.ctxKey() };
@@ -979,7 +979,7 @@ export class Editor {
   }
   private cancelGesture(): void {
     this.host.softRing?.(null);   // 软选择的半径圈跟手势走
-    this.anchor3 = null;
+    this.anchor3 = null; this.gestureFront = undefined;
     this._axisLock = null; this._planeLock = null; this._planeLockN = null;   // 方向锁 / 面锁随手势解（换工具 / Esc / 取消）
     for (const h of Object.values(this.handlers)) h.cancel();
     this.samples = [];
@@ -1240,7 +1240,7 @@ export class Editor {
 
   /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
   private toolPass(): StepPass { return STEP_PASS; }
-  private toolCommit(op0: Op): FaceEvent[] { if (this.mirrorBlocks(op0)) return []; const op = this.withFront(op0); this.gestureFront = frontOf(op) ?? this.gestureFront; return this.commitIn(this.toolPass(), op); }
+  private toolCommit(op0: Op): FaceEvent[] { if (this.mirrorBlocks(op0)) return []; const op = this.withFront(op0), n0 = this.opCount, ev = this.commitIn(this.toolPass(), op); if (this.opCount > n0) this.gestureFront = frontOf(op) ?? this.gestureFront; return ev; }   // commitIn 失败不抛、只返回空：按 opCount 判成功，失败的方向不留给下一笔
   /** 工具画的线 / 推的面带上「这一侧朝着我」的方向（op-locks.ts withFront）。 */
   private withFront(op: Op, front?: Pt3): Op { const m = this.ctxXform(); return withFront(op, (p) => front ?? normalize3(applyDir(m === IDENTITY ? m : invert(m), this.frame().viewDir(applyPt(m, p))))); }
   /** 工具提交带的方向，等工具 recordLast 时记进 LastGesture（数值小窗重画复用；计划书 §12 C2）。 */
@@ -1262,7 +1262,7 @@ export class Editor {
     const rw = this.prepareOp(op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
     if (rw.note) this.mirrorNote = rw.note;
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; }
-    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
+    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.host.hint(LOCKED_HINT); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
     const t0 = performance.now();
     const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : (this.stepBefore ?? this.sessionSnap());   // 新的一步：它之前的会话（步开始时记的；手势按下时点选的那份延后进来）
@@ -2714,7 +2714,7 @@ export class Editor {
   // user 2026-10-25「你选中，右键mirror之后……同时有一个gizmos确定mirror的轴。拖动gizmos可以snap，然后也有把手for rotate and move」「dialogue还可以快速flip」
   //   「镜像面默认放在 a 不过是当前物体，不过我习惯先画右半？」→ 默认 = 当前上下文的轴原点、红轴当法线、留 +X 那侧。
   private gizmo: { g: PlaneGizmo; hot: GizmoHandle | null; grab: GizmoGrab | null } | null = null;
-  /** 指令预演（镜像）：跑在活动内核的克隆上；开着时 liveWorld 画影子内核（没有手势也画）。 */
+  /** 指令预演（镜像）：同一条 mirror op 走 previewApply 在影子场景上跑；开着时 liveWorld 画影子内核（没有手势也画）。 */
   private cmdPreview: (() => Op) | null = null;
   private cmdGhosts: (() => { picks: PoolPick[]; xform: Xform } | null) | null = null;
   mirrorActive(): boolean { return this.gizmo !== null; }
@@ -2733,14 +2733,15 @@ export class Editor {
     const faces = [...this.selection.faces].filter((f) => k.face(f)), edges = [...this.selection.edges].filter((e) => k.graph.hasEdge(e));
     const instPicks = [...this.selectedPools.values()].filter((p): p is { kind: "instance"; instance: InstId } => p.kind === "instance");
     if (!faces.length && !edges.length && !instPicks.length) { this.host.hint("镜像：先选要镜的几何或组件"); return false; }
-    this.cancelGesture();
-    const f = this.contextFrame();
-    this.gizmo = { g: { origin: { ...f.origin }, normal: normalize3(f.x) }, hot: null, grab: null };
-    const at = this.activePool();
+    const f = this.contextFrame(), at = this.activePool();
     const faceKeys = faces.map((id) => faceKey(k, id)), edgeKeys = edges.map((id) => edgeKey(k, id));
     const vals: Record<string, ParamValue> = { deleteOpposite: true, mergeSeam: true, weld: 0, guardMm: CUT_SNAP * 1000, ...(instPicks.length ? { instances: true } : {}) };
-    const planeLocal = (): MirrorPlane => { const m = invert(this.ctxXform()), g = this.gizmo!.g; return { origin: applyPt(m, g.origin), normal: normalize3(applyDir(m, g.normal)) }; };
     const opts = (v: Readonly<Record<string, ParamValue>>): MirrorOptions => ({ deleteOpposite: !!v.deleteOpposite, mergeSeam: !!v.mergeSeam, weld: Number(v.weld) || 0, guard: Math.max(0, Number(v.guardMm) || 0) / 1000 });
+    const opOf = (v: Readonly<Record<string, ParamValue>>, pl: MirrorPlane): Op => ({ op: "mirror", at, faces: faceKeys, edges: edgeKeys, instances: v.instances ? instPicks.map((p) => p.instance) : [], plane: pl, ...opts(v) });
+    if (opTouchesLocked(this.scene, opOf(vals, { origin: f.origin, normal: f.x }), () => this.contextLocked())) { this.host.hint(LOCKED_HINT); return false; }   // 提交同一把尺：开了也应用不了，不让人调半天才知道（计划书 §14）
+    this.cancelGesture();
+    this.gizmo = { g: { origin: { ...f.origin }, normal: normalize3(f.x) }, hot: null, grab: null };
+    const planeLocal = (): MirrorPlane => { const m = invert(this.ctxXform()), g = this.gizmo!.g; return { origin: applyPt(m, g.origin), normal: normalize3(applyDir(m, g.normal)) }; };
     // 组件的预演：原点在留下这侧的那几份，副本槽画镜过去的样子（删对面那半的实例预演不画，应用时照删）
     this.cmdGhosts = () => {
       if (!instPicks.length || !vals.instances || !this.gizmo) return null;
@@ -2756,7 +2757,6 @@ export class Editor {
       ...(instPicks.length ? [{ key: "instances", def: { kind: "bool" as const, label: "组件也镜" } }] : []),
     ];
     const buttons: ParamButton[] = [{ key: "axX", label: "X" }, { key: "axY", label: "Y" }, { key: "axZ", label: "Z" }, { key: "flip", label: "翻转" }, { key: "cancel", label: "取消" }, { key: "apply", label: "应用", primary: true }];
-    const opOf = (v: Readonly<Record<string, ParamValue>>, pl: MirrorPlane): Op => ({ op: "mirror", at, faces: faceKeys, edges: edgeKeys, instances: v.instances ? instPicks.map((p) => p.instance) : [], plane: pl, ...opts(v) });
     this.cmdPreview = () => ({ ...opOf(vals, planeLocal()), instances: [] } as Op);   // 同一条 op；组件走副本槽（cmdGhosts）
     const apply = (): void => {
       const pl = planeLocal(), n0 = this.opCount;
@@ -3585,7 +3585,7 @@ export class Editor {
   private previewApply(op0: Op): void {
     if (this._locked) return;
     const pool = this.activePool(), rw = this.prepareOp(this.withFront(op0)), op = rw.op;
-    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.previewNote = "已锁定：解锁后再改（选中它 → 解锁）"; return; }
+    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.previewNote = LOCKED_HINT; return; }
     if (!previewableIn(op, pool)) throw new Error(`preview: op "${op.op}" reaches outside the active pool`);   // 别的池和真身共享：改到外面 = 预演写了真身
     const mesh = this.activeKind() === "mesh", base = mesh ? this.scene.mesh(pool.def).kernel : null;
     const sc = this.liveScene ?? this.scene.shadowOf(pool, base ? base.clone() : this.shadowKernel());
