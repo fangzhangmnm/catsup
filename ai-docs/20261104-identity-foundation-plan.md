@@ -120,7 +120,7 @@
 
 **ID-1 格式层**（等文件夹图库那张合进 main 后开；在自己的 worktree）：`src/format/guid.ts`（铸 / 校验 / 前四位显示码）；`document.ts` 类型按 §2.10；`scene.ts` 加 `guid`（定义 / 实例 / 材质 / 层）、`materials` 改 Map；`scene-doc.ts` 读写按 GUID；迁移 `migrate/definitions/v6-to-v7.ts` + material / document 补铸；~~brep-codec 认 `0xFFFE`~~（门审撤回，§2.9）；`CATSUP_shelf` 读写（空也能过）；`FORMAT` 改拍；冻结样本；读写再读逐字段一致（契约 §7.9）；`gen-api.sh` 重打。**不动编辑器行为**，只让文件和运行时结构换身份；全部现有测试 / 探针绿。
 
-**ID-2 运行时换身份 + 有序表 + 导出背面**：槽表 / 油漆桶 / 材质面板 / 载荷 / `paste` op / 资源页按 GUID；「清理没人用的材质」动词（§8 定了删法）；`moveInstance` op（换父亲保身份 + 同级排序，§8）+ 层级窗拖一行到同级某位置；烤 / 导出 / 转网格体按 §2.9（只出正面；开口片涂了的那侧算正面、翻面材质层跟着翻；同材质标双面；背面材质丢了报个数）；撤销 fuzz 加「GUID 不重铸」核对；更新 `20261026-pipelines.md` 的文件流程段。
+**ID-2 运行时换身份 + 有序表**〔11-04 Fable 审过 = 9.1，合 main 前重建 dist + 探针〕：「清理没人用的材质」动词（§8 ①）；`moveInstance` op（换父亲保身份 + 同级排序，§8 ②）+ 层级窗拖一行到同级某位置；粘贴载荷自带材质对照表；撤销 fuzz 加「GUID 不重铸」核对。**ID-2b 单面 / 双面第四版**〔清单 = §9.3，等 user 拍 §9.2 ①–④〕。
 
 **ID-3 跨文件粘贴 + 素材架数据**：`TransferPayload` v2（闭包、GUID）、粘贴合并（§2.7）、撤 `docEpoch` 拒贴；素材架：标为素材 / 取下 / 建文件夹 / 改名 / 排序的 op + 资源页里能看见架上有什么（抽屉 UI 不在这张）；「素材导入别的 .catsup」的数据路（读文件 → 闭包 → 合并 → 上架），入口先放资源页一个钮；生死算上架子。
 
@@ -227,7 +227,44 @@ export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid,
 **ID-2 开工前定的（Fable）**：
 ① 删材质（清点 P8）：运行时 `materials` 数组 splice，**同一个 op 里**把所有定义槽表里的下标重排、指着被删材质的槽置 null（面上代号不动，落到「没材质」= 默认）；句柄只活会话，文件侧是 GUID 不受影响；撤销走 scene 记录（clone 拷材质数组）。不改成 Map。
 ② 换父亲 = 新 op `moveInstance { from: { def, inst }, into: { def, parent: GroupId | null }, xform, index? }`：实例对象从一个 Map 搬到另一个，**GUID 不变**，在目标定义里拿新句柄；同级排序 = 同一个 def 只给 `index`（重建 Map 的插入顺序）；先 `scene.references(inst.def, into.def)` 拒绝成环；撤销 = 骨架级。`reparentOp`（现在 = 删 + 贴，换新号）退役。
-③ 导出 / 转网格体按 §2.9（〔11-04 user 第三版已取代这里原来的写法〕）。
+③ 导出 / 转网格体 = §2.9 第四版，单开 ID-2b（§9）。
 
 **ID-3 注意**：① 太新的架子（原字节带回）+ 本版又往架子放东西 → 谁赢要定（现在 `write.ts` 是本版的覆盖原字节）。② 读时丢掉的悬空格（`danglingShelfRefs`）要在界面披露一次，不许只记 notes。③ `sceneFromDocument` 用 cast 覆盖根的 guid，`Scene` 构造器收 `rootGuid` 更干净（顺手）。
 
+## 9. Fable 审：ID-2 第一半（4d851b6）+ §2.9 第四版（2026-11-04，Claude Fable 5.1；user 在场，「开始审」）
+
+### 9.1 ID-2 已提交的代码：合（合 main 前两件事）
+核了 `ops.ts`（`moveInstance` / `purgeMaterials` / `paste` 对照表 / 建组件保 GUID）、`resources.ts materialUse`、`transfer.ts codeOf`、`object-tree.ts moveRowOp`、`hierarchy-window.ts dropRow`、`history.ts` 分级、`test/identity-id2.test.ts`、两个探针的改动。
+- **数据安全**：`purgeMaterials` 先按 `materialUse`（活着 / 孤儿 / 架子三样）拒绝，再同一步重排所有定义槽表、面上代号不动 → 对；撤销 = 骨架级场景交换（`cloneSkeleton` 拷 `materials` 和 `materialSlots`，内核共享、面层槽号没动）→ 对。`moveInstance` 跨定义 = 同一个 Instance 对象换 Map、GUID 不变、新句柄；成环先查；撤销骨架级 → 对。`pastedMaterial` 按 GUID 对回、不在了就带原 GUID 加回来（复活被清理的材质 = 生死按引用的正确读法）；老复现包没对照表照旧按下标 → 对。渲染缓存：`slotsSig` 按材质对象身份签，清理后下标挪了对象不变 → 不误重画、也不漏重画。
+- **三条不挡合的话**：① `editor.ts` 体重棘轮（≤ 4154 行）是把两个 `if` 并成一行绕过去的——棘轮的意思是别往本体加；下次切 editor.ts 时把 `opTouchesLocked`（纯函数）搬出去。② `moveInstance` 跨定义时若编辑器上下文链里含被搬的实例，op 层不管、靠 UI 先 `exitTo(0)`（两条 UI 路都做了，fuzz 的 `reparent` 只在根层跑）；`installScene` 不校验链，链失效 `defOfContext` 会抛——ID-3 加一条防线（链上实例不在了 → 退到最近还在的那层）。③ fuzz 里 `purgeMats` 只跑到 1 次，单元测试已覆盖删 / 拒 / 撤销 / 重做 / 存盘，够。
+- **合 main 前必做（施工 ritual，不是设计）**：这个提交**没带 dist / index.html**（Opus 当时的构建混进了第三版草稿），main 上的包还是 ID-1 门审时的；要在干净工作区 `bash scripts/build.sh`，再跑 `probe-hierarchy-drag` / `probe-undo-fuzz 8 45` / `probe-boot` / `probe-clipboard` / `probe-hierarchy`，绿了 `--ff-only` 合、bump patch、`gen-api.sh` 重打。
+
+### 9.2 §2.9 第四版：方向合，六处要定形（其中 ①②③ 要 user 一句话）
+- **A 编码 = 内置材质：合，加三条**：(a) **默认正面只有一种表示 = 槽缺**（面层没值）。油漆桶面板的「默认正面」格 = 清槽（已有 `paintFaces material: null`）；写入器永不写内置正面 GUID，读入器读到当 null 并在 notes 记一笔——否则两套真相。(b) **内置背面的运行时句柄 = 槽表值 −2**，`materialOfSlot` 返回模块常量 `BUILTIN_BACK`（guid 常量、颜色灰蓝、预设只换颜色不换对象）。否决「放进 `materials` 数组」：全部下标挪、老语料指纹 `mat <下标>` 全变、purge / paste 都要豁免。(c) GUID 用和 `DEFAULT_LAYER_GUID` 同一族的常量（版本位 4 / 变体位 8 让 `isGuid` 认）。**要碰的地方（核过）**：`scene.ts materialOfSlot`；`scene-doc.ts slotGuids / slotsOf`；`read.ts matKnown`；`write.ts slotToCore`（内置 → 无材质）；`ops.ts paintFaces` 校验（放过 −2）、`purgeMaterials` 重排（`m >= 0` 分支要保 −2）；`explode` / `appendMesh` / `explodeAcrossKinds` 三处 remap 经 `slotFor` 走、−2 直通（核过 482 / 920 / 997 行）；`transfer.ts codeOf`（对照表里放 `BUILTIN_BACK` 对象）+ `pastedMaterial`（内置 GUID → −2，不 `addMaterial`）；`resources.ts materialUse`（`out[-2]` 为 undefined 自然跳过）；**`stream-provider.ts slotsSig`：`uid(undefined)` = 0 和「无材质」同签名 → 把一侧从默认正面改成默认背面不会重画，要给内置一个 uid**；`pool-mesh.ts matOf` 自动拿到灰蓝；资源页不列内置。
+- **B 拍子**：definitions 7.0 还没推出去 → **不 bump**，把「槽表可引用内置 GUID」写进 7.0 语义（契约 §5.3 补一行），冻结目录 `v3.5.0-4.2.0-7.0.0-…` 用 `--force` 重打 + 加一个带内置背面的场景。老 7.0 读者（本地 main）读到内置 GUID → 不在 `matKnown` → null → 默认正面，无害。
+- **C 导出 / 转网格体：「要出几侧就几张面」合，弹框条件要改〔① 要 user〕**。字面「两侧都出且材质不同 → 问」在新编码下包括「真材质 + 默认正面」：user 17 个模型里 103 张面只涂一侧，每次导出都会弹——不是 user 要的（「没有双面不同材质不该弹」说的是两个真材质）。定形：**只有两侧都是真材质且不同（M 张）才问**；「真材质 + 默认正面」（N 张）不问、两张都出（默认正面那张出成无材质的白面）；导出面板说明行**写两个数**（「N 张面另一侧是默认正面、会多一张白面；M 张面两侧材质不同」）。**弹框只有「两张都出 / 取消去改」**，否决「只留一层」：两侧都是真材质时没有机械的留法（Opus 提的「先丢没涂的再丢 −n 侧」——−n 是规范法向的内部符号，用户看不见 = 潜规则）；想留一层 = 在编辑器里把那侧涂成默认背面，看得见。炸开跨种类 / 粘贴 cast 不问、都出（已约定）。双背面的面转过去消失、导出不出 → notes 报个数。
+- **D 新面默认〔② 要 user〕**：Opus 的「没邻面 = 相机那侧（op 里带上）」否决——addEdges / pushpull / followme / absorb / paste / move 折面 / mirror / plugin 全要加字段，老复现包没有，联机 peer 相机不同，违反 `ops.ts` 头注释「共识只在确定性上」。定形：**只看邻面**：BIRTH 的面沿恰两张面的共享边看邻面哪侧是内置背面、按「过边反向」推自己；多条邻边按边长投票；平票或邻面都没朝向信息 → **不写**（两侧默认正面）。代价：孤立新画的第一张面、从它推拉出的盒子都两面出；用户涂一次背面或点一次「自动朝外」之后新长的几何就跟着对。执行点 = kernel `faceLayers.applyEvents` 处理 BIRTH（DIVIDE 继承 / MERGE 取首值已在那里；MERGE 对 back 层改成按边长投票，实施时核）。
+- **E 第八轮「编辑器看到的 = 引擎画的」〔③ 要 user〕**：第八轮管的是网格体材质的单双面；硬表面的默认背面在编辑器画灰蓝正是披露（SketchUp 蓝灰背面 = 你在看里面）。定形：编辑态画灰蓝；**演示锁 / 风格预览**（已有 `desk.locked`、`desk.style`）剔默认背面 = 引擎所见。
+- **F 两层共用点**（审查点 ④）：共用点——和导入焊点一致（= 「对齐」），拖点不裂；环切不灵写进转换 notes，修复工具合并解决。
+- **G 砍 `bakeDefinition`**（⑥）：**不在这张单**。每次保存都烤、没速度数据；`brepToMesh` 多做法向一致化 + 默认平滑；bake 的平滑法向和 pool-mesh 同算法（屏幕所见），换路可能让冻结语料字节变。记功能账「两条烤路合一」，先量再做。
+- **H 导入焊点 / 拼四边形**（⑦）：保留，不算修复；导入提示要露出 `castImport` report 里的焊 / 拼数（核一下有没有露）。
+- **I 双面材质（叶子）**：材质纪元。否决 Opus「另一侧涂别的 = 整张换掉」（又一个潜规则）。定形：导出判据「材质 `doubleSided` 且另一侧是默认背面 → 一张双面」，否则按普通单面出；涂了就是涂了，编辑器照显示。
+- **J OBJ**〔④ 要 user〕：建议**只下导出**（导入是唯一保四边形 / 平滑组的路，user 10-29 要的）。
+- **K 工单切法**：ID-2 已提交部分合 main（9.1）；单面 / 双面 = **ID-2b** 单开（清单 9.3）；ID-3 不变。工作区的第三版草稿已 `git stash`（见 9.4），`carryMeshMaterials`（网格体 → 硬表面带材质、重合反向面认回）可参考。
+
+### 9.3 ID-2b 工单（Opus 施工，Fable 审；user 拍完 ①–④ 开）
+1. `format/guid.ts` 加 `BUILTIN_BACK_GUID`；新小模块 `scene/builtin-materials.ts`：`BUILTIN_BACK` 常量、句柄 `BUILTIN_BACK_SLOT = -2`、`isBuiltinHandle()`；颜色接预设。
+2. 9.2-A 清单每一处；`stream-provider` 给内置 uid。
+3. 油漆桶面板加「默认背面」格（内置）；吸色吸到内置背面 → 设成那格；网格体工作台里这格灰掉（网格体的面没有默认背面，按「和外部文件对齐」）。
+4. 新 op：`flipFaceSides`（选中面两槽互换 = kernel `swapSides`，kernel 级撤销）；修复模块 `repairs/orient/`：「统一朝向（以选中面为准 flood）」「自动朝外」（曲率 / 体积判外侧，功能账那条）——都 op 化、报改了几张、不进任何默认路径。
+5. 新面默认（9.2-D）在 kernel BIRTH 处理，确定性；fuzz 的差分 oracle 自然覆盖。
+6. `brepToMesh`：按侧出面（共用点）、材质层跟侧、双背面计数；`meshToBrep`：环朝向那侧 = 材质 / 默认正面，另一侧 = 内置背面；重合反向的两张并一张膜、材质各落各侧。
+7. `bake.ts bakeDefinition`：按侧出面（绕向 / 法向 / UV 按那侧）、默认背面不出、默认正面出成无材质；删掉「同材质按需多一份双面」那套；`writeGltfModel` report 两个数（N / M）；导出面板说明行显示；M > 0 → confirm「两张都出 / 取消」。toMesh 命令 `ask` 同；notes 报双背面消失数。
+8. 预览剔默认背面：`desk.locked` / 风格预览时 pool-mesh 跳过内置背面那一侧（先核 placements 的 side 机制）。
+9. 格式：7.0 语义加一行、契约 §5.3 加注、冻结目录 7.0 `--force` 重打 + 新场景。
+10. 守卫：identity-guard 加「内置 GUID 永不进材质表」「默认正面无第二表示（写出来的槽表里没有内置正面 GUID）」；bake 测试：三种侧组合各出几张面、法向朝对、UV 按侧；往返测试 brep → mesh → brep 两侧材质保住、双背面计数对；新面默认的确定性测试（同一 op 序列两次 → 同层）。
+11. `20261026-pipelines.md` 文件 / 转换流程段；`gen-api.sh`。
+**不在这张单**（材质纪元 / 功能账）：材质 `doubleSided` 字段、导入读材质和 doubleSided、面板勾选项（展开 / 合并）、修复工具「合并重合反向面」、OBJ 下线、两条烤路合一。
+
+### 9.4 工作区
+第三版草稿（`bake.ts` / `kinds.ts` / `orient.ts` / `write.ts` / `session.ts` / `objects/index.ts` + 混了草稿的 dist / index.html）作废，`git stash` 存着（stash 名「ID-2 第三版草稿（作废，meshToBrep 带材质可参考）」），工作区回到 4d851b6 之后的干净状态。
