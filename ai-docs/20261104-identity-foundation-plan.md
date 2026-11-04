@@ -85,7 +85,7 @@
 ### 2.10 拍子怎么动（一次定完）
 | 子结构 | 现在 | 改成 | 级别 | 迁移 |
 |---|---|---|---|---|
-| `CATSUP_definitions` | 6.4 | **7.0** | major：`instances[j].definition` / `root` 从下标改 GUID、`materialSlots` 下标 → GUID、每条定义 / 实例加 `guid`、实例顺序有意义 | `migrate/definitions/v6-to-v7.ts`：铸 GUID、下标换 GUID；老读者**拒开新文件**（三级语义：major = 不兼容 → 拒开，原文报版本）。user 自己只用开发版、正式版 = 开发版 v0.18.26，可接受；iPad 没更新时会看到「文件比 app 新，请更新」= 诚实 |
+| `CATSUP_definitions` | 6.4 | **7.0**〔user 11-04「大版本同意」〕 | major：`instances[j].definition` / `root` 从下标改 GUID、`materialSlots` 下标 → GUID、每条定义 / 实例加 `guid`、实例顺序有意义 | `migrate/definitions/v6-to-v7.ts`：铸 GUID、下标换 GUID；老读者**拒开新文件**（三级语义：major = 不兼容 → 拒开，原文报版本）。user 自己只用开发版、正式版 = 开发版 v0.18.26，可接受；iPad 没更新时会看到「文件比 app 新，请更新」= 诚实 |
 | `CATSUP_material` | 1.1 | 1.2 | minor：加 `guid` | 读时补铸 |
 | `CATSUP_document` | 3.4 | 3.5 | minor：`layers[].guid` | 读时补铸 |
 | `CATSUP_brep` | 4.2 | 4.3 | minor：`0xFFFE` 新含义 | 无 |
