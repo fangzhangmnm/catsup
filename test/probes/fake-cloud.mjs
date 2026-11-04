@@ -69,6 +69,24 @@ export function fakeDrive() {
         return it ? json(route, 200, view(it)) : json(route, 404, { error: { code: "itemNotFound" } });
       }
       if ((m = /^\/me\/drive\/items\/([^/]+)\/content$/.exec(p))) { if (d.hangDownload) await d.hangDownload; const it = [...items.values()].find((x) => x.id === m[1]); return route.fulfill({ status: it ? 200 : 404, headers: { "access-control-allow-origin": "*" }, body: it ? Buffer.from(it.bytes) : "" }); }
+      if ((m = /^\/me\/drive\/items\/([^/]+)$/.exec(p)) && req.method() === "PATCH") {   // 改名（加密 / 解除时云端名多一个 .zip）
+        const hit = [...items.entries()].find(([, x]) => x.id === m[1]);
+        if (!hit) return json(route, 404, { error: { code: "itemNotFound" } });
+        const [oldKey, it] = hit, body = JSON.parse(req.postData() ?? "{}"), ifm = req.headers()["if-match"];
+        if (ifm && ifm !== it.eTag) return json(route, 412, { error: { code: "preconditionFailed" } });
+        const dir = oldKey.includes("/") ? oldKey.slice(0, oldKey.lastIndexOf("/") + 1) : "", key = dir + (body.name ?? it.name);
+        if (key !== oldKey && items.has(key)) return json(route, 409, { error: { code: "nameAlreadyExists" } });
+        items.delete(oldKey); it.name = body.name ?? it.name; items.set(key, it); it.eTag = `"e${seq++}"`;
+        return json(route, 200, view(it));
+      }
+      if ((m = /^\/me\/drive\/items\/([^/]+)$/.exec(p)) && req.method() === "DELETE") {
+        const hit = [...items.entries()].find(([, x]) => x.id === m[1]);
+        if (!hit) return json(route, 404, { error: { code: "itemNotFound" } });
+        const ifm = req.headers()["if-match"];
+        if (ifm && ifm !== hit[1].eTag) return json(route, 412, { error: { code: "preconditionFailed" } });
+        items.delete(hit[0]);
+        return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*" } });
+      }
       if ((m = /^\/me\/drive\/items\/([^/]+)$/.exec(p)) && req.method() === "GET") { const it = [...items.values()].find((x) => x.id === m[1]); return it ? json(route, 200, view(it)) : json(route, 404, {}); }
       return json(route, 404, { error: { code: "unhandled", p } });
     });

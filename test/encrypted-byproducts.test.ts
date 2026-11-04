@@ -114,6 +114,29 @@ describe("加密 / 解除后封面作废（C2 ③）", () => {
   });
 });
 
+describe("这份是不是加密的，以 open 之后为准（F-148）", () => {
+  const src = readFileSync("src/app/session.ts", "utf8");
+  it("库的 isEncrypted 看本地字节：第二台设备第一次开，open 之前是假的；所以每个换字节的地方都要再看一次", () => {
+    assert(/\/\*\* 本地字节是否加密容器。 \*\/\s*\n\s*isEncrypted\(\)/.test(readFileSync("node_modules/@internal/store/dist/create-store.d.ts", "utf8")), "库的语义变了要重审这条");
+    const adopts = src.split("\n").filter((l) => /this\.adopt\(new Uint8Array\(await \w+\.arrayBuffer\(\)\)\)/.test(l));
+    assert(adopts.length >= 4, `从库拿字节的地方：${adopts.length}`);
+    const lines = src.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      if (!/this\.adopt\(new Uint8Array\(await \w+\.arrayBuffer\(\)\)\)/.test(lines[i]!) || /r\.plain/.test(lines[i]!)) continue;
+      const window = lines.slice(i, i + 4).join("\n");
+      assert(/this\.noteEncryption\(/.test(window), `换字节之后没有再看一次：${lines[i]!.trim().slice(0, 80)}`);
+    }
+  });
+  it("openFromGallery：不许把开之前的判断直接写进 this.encrypted", () => {
+    const body = src.slice(src.indexOf("async openFromGallery"), src.indexOf("private async noteEncryption"));
+    assert(!/this\.encrypted = (enc|before)/.test(body), "开之前问的不算数");
+    assert(/await this\.noteEncryption\(path, before\)/.test(body));
+  });
+  it("全部导出只收这台有字节的（库的 isCached，经接缝）", () => {
+    assert(/snap\.items\.filter\(\(i\) => isCached\(i\.syncState\)\)/.test(readFileSync("src/app/main.ts", "utf8")));
+  });
+});
+
 describe("全部导出（C2 ④）", () => {
   const lib: Record<string, { identifiers: string[]; folders: string[] }> = {
     "": { identifiers: ["a.catsup", "secret.catsup"], folders: ["房子"] },

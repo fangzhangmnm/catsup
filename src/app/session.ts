@@ -435,7 +435,7 @@ export class Session {
     note("doc", `resolveActive ${bareName(path)}: ${r.status}${why ? " " + why : ""}`);
     if (r.status === "took-cloud") {
       const blob = await docFile(path).open();
-      if (blob && this.home.kind === "gallery" && this.home.path === path) { this.adopt(new Uint8Array(await blob.arrayBuffer())); this.attention = null; this.d.setStatus(`已改用云端版本「${bareName(path)}」（这台的那份进了备份箱）`); }
+      if (blob && this.home.kind === "gallery" && this.home.path === path) { this.adopt(new Uint8Array(await blob.arrayBuffer())); await this.noteEncryption(path, this.encrypted); this.attention = null; this.d.setStatus(`已改用云端版本「${bareName(path)}」（这台的那份进了备份箱）`); }
       this.d.onHomeChanged();
       return "took-cloud";
     }
@@ -499,6 +499,7 @@ export class Session {
       const blob = await docFile(path).open();
       if (conflictGate.lastOpenChoice === "takeCloud" && blob && this.home.kind === "gallery" && this.home.path === path) {
         this.adopt(new Uint8Array(await blob.arrayBuffer()));
+        await this.noteEncryption(path, this.encrypted);
         this.d.setStatus(`已改用云端版本「${bareName(path)}」（这台的那版在备份箱）`);
         this.d.onHomeChanged();
       }
@@ -622,7 +623,8 @@ export class Session {
       if (!blob) return false;
       this.adopt(new Uint8Array(await blob.arrayBuffer()));
       this.dropLuggage();
-      this.setHome({ kind: "gallery", path });
+      this.setHome({ kind: "gallery", path });   // 它把 encrypted 清成假：不再看一次，加密模型刷新一下就被当明文稿（F-148 的守卫查出来的）
+      await this.noteEncryption(path, false);
       return true;
     } catch (e) { reportError(new Error("[session] restore failed: " + String(e)), "log"); return false; }
   }
@@ -631,17 +633,30 @@ export class Session {
     if (!(await this.leaveGate())) return false;
     try {
       // 加密件：先问口令（解锁循环在 busy 外弹面板、验的是尾部 peek，便宜）；取消 = 这份从头到尾没装进编辑器（没有脏、退出不推）
-      const enc = await docFile(path).isEncrypted();
-      if (enc && !(await this.d.crypto.ensureUnlocked(path))) { this.d.setStatus("已取消（需要口令）", true); return false; }
-      const blob = await docFile(path).open();
-      if (!blob) { this.d.setStatus(enc ? `「${bareName(path)}」是加密的，解不开（口令不对或本机没有副本）` : `「${bareName(path)}」本机没有副本，云端也连不上`, true); return false; }
+      const before = await docFile(path).isEncrypted();   // 库的定义 = 本地字节是不是容器；纯云端的这里是假（还没有本地字节），下面 open 之后再看一次
+      if (before && !(await this.d.crypto.ensureUnlocked(path))) { this.d.setStatus("已取消（需要口令）", true); return false; }
+      let blob = await docFile(path).open();
+      // 纯云端的加密件、这台锁着：开之前库说「不是」，就没问口令；容器拉下来之后才认得出。问了再开一次（F-148 的另一面）
+      if (!blob && !before && await docFile(path).isEncrypted()) {
+        if (!(await this.d.crypto.ensureUnlocked(path))) { this.d.setStatus("已取消（需要口令）", true); return false; }
+        blob = await docFile(path).open();
+      }
+      if (!blob) { this.d.setStatus(before ? `「${bareName(path)}」是加密的，解不开（口令不对或本机没有副本）` : `「${bareName(path)}」打不开：本机没有副本，云端也连不上；或者是加密的，容器还没拉下来`, true); return false; }
       this.adopt(new Uint8Array(await blob.arrayBuffer()));
       this.dropLuggage();
       this.setHome({ kind: "gallery", path });
-      this.encrypted = enc;
-      this.d.setStatus(enc ? `已打开 ${bareName(path)}（加密的）` : `已打开 ${bareName(path)}`);
+      await this.noteEncryption(path, before);
+      this.d.setStatus(this.encrypted ? `已打开 ${bareName(path)}（加密的）` : `已打开 ${bareName(path)}`);
       return true;
     } catch (e) { reportError(e); return false; }
+  }
+  /** 字节刚从库换上来：这份现在是不是加密的，以 open 之后的本地字节为准（家族 F-148）。开之前问不准：纯云端的加密件在第二台设备第一次开，本地还没有字节，判成「不是」，
+   *  这一份就被当明文稿：菜单错、分叉写出明文（forkCanvas）、锁着也往下存。别的设备加密 / 解除后，这台快进或选了云端同理。 */
+  private async noteEncryption(path: string, fallback: boolean): Promise<void> {
+    let enc = fallback;
+    try { enc = await docFile(path).isEncrypted(); }
+    catch (e) { reportError(new Error("[session] isEncrypted after open failed: " + String(e)), "log"); }
+    if (this.home.kind === "gallery" && this.home.path === path) { this.encrypted = enc; this.d.onHomeChanged(); }
   }
   // ---------- 加密 / 解除（2026-10-29 周账 F-123；WeebPaint session-state encryptCurrent / decryptCurrent 同形）----------
   /** 给正在编辑的图库模型加密（明文 → 容器，先本地后云 If-Match；库做）。无地 / 本地文件 = 先安家。口令：已解锁复用、验证器在就校验、都没有就设新的。 */
@@ -728,6 +743,7 @@ export class Session {
       const blob = await docFile(path).open();
       if (!blob) { this.d.setStatus(`「${bareName(path)}」云端已更新，但重开失败`, true); return "other"; }
       this.adopt(new Uint8Array(await blob.arrayBuffer()));
+      await this.noteEncryption(path, this.encrypted);
       note("doc", `refreshed from cloud: ${path}`);
       this.d.setStatus(`已从云端更新「${bareName(path)}」`);
       this.d.onHomeChanged();
@@ -812,7 +828,7 @@ export class Session {
         if (this.home.kind !== "gallery" || this.home.path !== home.path) return true;   // 半路点了「先离线用」：画布已经改挂分叉，这份本机字节归原名字
         this.d.setStatus("已改用云端版本");
         const blob = await docFile(home.path).open();
-        if (blob) { this.adopt(new Uint8Array(await blob.arrayBuffer())); }
+        if (blob) { this.adopt(new Uint8Array(await blob.arrayBuffer())); await this.noteEncryption(home.path, this.encrypted); }
         return true;
       }
       this.createPending = false;

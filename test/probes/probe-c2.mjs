@@ -243,6 +243,77 @@ console.log("④′ 登录了没有披露条；VR 手腕状态行");
   await ctx.close();
 }
 
+// ─────────────────────────────── F-148 第二台设备第一次开纯云端的加密件 ───────────────────────────────
+console.log("F-148 第二台设备第一次开纯云端的加密件");
+{
+  const drive = fakeDrive();
+  const A = await browser.newContext({ viewport: { width: 1100, height: 720 }, serviceWorkers: "block" });
+  const mk = async (ctx) => { await drive.attach(ctx); await ctx.route(/vendor\/msal\/msal-browser\.min\.js/, (r) => r.fulfill({ contentType: "text/javascript", body: MSAL_STUB })); await ctx.addInitScript(() => localStorage.setItem("__fake_msal", "ok")); return open(ctx); };
+  const a = await mk(A);
+  const p = await newGalleryDoc(a);
+  ok(await a.evaluate(() => { globalThis.__catsup.crypto.answer(async () => "图库口令"); return globalThis.__catsup.session.encryptCurrent(); }), "第一台：加密并推上去");
+  await a.waitForTimeout(400);
+  const cloudKeys = () => [...drive.items.keys()].join(" ");
+  ok(drive.items.has(`${p}.zip`), `云端是容器（${cloudKeys()}）`);
+  const openOn = async (unlocked) => {
+    const ctx = await browser.newContext({ viewport: { width: 1100, height: 720 }, serviceWorkers: "block" });
+    const b = await mk(ctx);
+    await b.evaluate(async () => { await globalThis.__catsup.galleryHost.open(); globalThis.__catsup.galleryHost.close(); });
+    await b.waitForTimeout(500);
+    const r = await b.evaluate(async ([path, on]) => {
+      const c = globalThis.__catsup, f = c.store().file(path, { mode: "existing" });
+      if (on) c.crypto.setPassword("图库口令"); else c.crypto.answer(async () => "图库口令");
+      const before = await f.isEncrypted();
+      const opened = await c.session.openFromGallery(path);
+      return { before, opened, encrypted: c.session.encrypted, after: await f.isEncrypted(), container: !!(await f.getEncryptedBlob()) };
+    }, [p, unlocked]);
+    return { ctx, b, r };
+  };
+  {
+    const { ctx, b, r } = await openOn(true);
+    eq(r.before, false, "前提：解锁着、本地没字节，开之前库说不是加密的（这就是老坑）");
+    ok(r.opened, "第二台解锁着：打开了");
+    eq(r.encrypted, true, "第二台第一次开：认得是加密的");
+    ok(r.after && r.container, "本机字节是容器");
+    // 派生物：CatsUp 图库家没有崩溃影子，分叉是那个会写明文的出口
+    const put0 = drive.puts.length;
+    const fork = await b.evaluate((path) => { const s = globalThis.__catsup.session; s.forkCanvas(path); return { lazy: s.lazy, home: s.home.kind }; }, p);
+    ok(fork.lazy, "分叉：加密件放下画布，不写明文");
+    await b.waitForTimeout(600);
+    eq(drive.puts.length, put0, "分叉：网盘没有新文件");
+    const listed = await b.evaluate(() => new Promise((res) => { const off = { f: null }; off.f = globalThis.__catsup.store().files.watchFolder("", (s) => { res(s.items.map((i) => i.identifier)); queueMicrotask(() => off.f?.()); }); }));
+    ok(!listed.some((n) => n.includes("分叉")), "分叉：库里没有明文副本");
+    // 开机恢复上次的模型（boot → session.restore）：setHome 把标记清成假，曾经再也没设回去 = 加密模型刷新一下就当明文稿
+    const restored = await b.evaluate(async (path) => { const s = globalThis.__catsup.session; const ok = await s.restore(path); return { ok, encrypted: s.encrypted, lazy: s.lazy }; }, p);
+    ok(restored.ok && !restored.lazy, "开机恢复（session.restore，口令解开着）：装回来了");
+    eq(restored.encrypted, true, "开机恢复：还认得是加密的");
+    await ctx.close();
+  }
+  {
+    const { ctx, r } = await openOn(false);
+    eq(r.before, false, "锁着的第二台：开之前库也说不是");
+    ok(r.opened, "锁着的第二台：问了口令，打开了（以前只报打不开）");
+    eq(r.encrypted, true, "锁着的第二台：认得是加密的");
+    await ctx.close();
+  }
+  // 第二台干净地开着明文，第一台加密了 → 第二台快进之后也要认得
+  {
+    const drive2 = fakeDrive();
+    const mk2 = async (ctx) => { await drive2.attach(ctx); await ctx.route(/vendor\/msal\/msal-browser\.min\.js/, (r) => r.fulfill({ contentType: "text/javascript", body: MSAL_STUB })); await ctx.addInitScript(() => localStorage.setItem("__fake_msal", "ok")); return open(ctx); };
+    const cA = await browser.newContext({ viewport: { width: 1100, height: 720 }, serviceWorkers: "block" }), cB = await browser.newContext({ viewport: { width: 1100, height: 720 }, serviceWorkers: "block" });
+    const pa = await mk2(cA), pb = await mk2(cB);
+    const q = await newGalleryDoc(pa);
+    await pb.evaluate(async (path) => { await globalThis.__catsup.galleryHost.open(); globalThis.__catsup.galleryHost.close(); await globalThis.__catsup.session.openFromGallery(path); }, q);
+    eq(await pb.evaluate(() => globalThis.__catsup.session.encrypted), false, "前提：第二台开着明文");
+    ok(await pa.evaluate(() => { globalThis.__catsup.crypto.answer(async () => "图库口令"); return globalThis.__catsup.session.encryptCurrent(); }), "第一台加密");
+    const st = await pb.evaluate(async () => { const c = globalThis.__catsup; c.crypto.setPassword("图库口令"); return { r: await c.session.refreshOpenDoc(), encrypted: c.session.encrypted }; });
+    eq(st.r, "fast-forwarded", "第二台快进");
+    eq(st.encrypted, true, "快进之后认得是加密的");
+    await cA.close(); await cB.close();
+  }
+  await A.close();
+}
+
 await browser.close();
 if (errs.length) { console.error("PAGEERRORS:\n" + errs.join("\n")); failures.push("pageerror"); }
 console.log(failures.length ? `\n${failures.length} 条失败：\n  ${failures.join("\n  ")}` : "\n全部通过");

@@ -236,6 +236,9 @@ export declare class Session {
     restore(path: string): Promise<boolean>;
     /** 从图库打开（本地优先；没本地且离线 → 诚实报）。 */
     openFromGallery(path: string): Promise<boolean>;
+    /** 字节刚从库换上来：这份现在是不是加密的，以 open 之后的本地字节为准（家族 F-148）。开之前问不准：纯云端的加密件在第二台设备第一次开，本地还没有字节，判成「不是」，
+     *  这一份就被当明文稿：菜单错、分叉写出明文（forkCanvas）、锁着也往下存。别的设备加密 / 解除后，这台快进或选了云端同理。 */
+    private noteEncryption;
     /** 给正在编辑的图库模型加密（明文 → 容器，先本地后云 If-Match；库做）。无地 / 本地文件 = 先安家。口令：已解锁复用、验证器在就校验、都没有就设新的。 */
     encryptCurrent(): Promise<boolean>;
     private dropThumb;

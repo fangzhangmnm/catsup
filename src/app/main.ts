@@ -51,7 +51,7 @@ import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshP
 import { verifierReady } from "../app-store.ts";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
-import { auth, docFile, ensureStore, hasStore, requireStore } from "../app-store.ts";
+import { auth, docFile, ensureStore, hasStore, isCached, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
 import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive, openSyncGate, withBusy } from "./ui/sheets.ts";
 import type { GateHandle } from "./ui/gate-stack.ts";
@@ -1713,9 +1713,9 @@ async function exportAllModels(): Promise<void> {
   const r = await withBusy("正在打包图库里的模型…", () => exportAll({
     listFolder: (folder) => new Promise((resolve, reject) => {
       let done = false, off: (() => void) | null = null;
-      off = store.files.watchFolder(folder, (snap) => {   // 第一帧 = 本地帧（没登录就只有它）；纯云端的那几份这台没有字节，也不是「只在浏览器里」的
+      off = store.files.watchFolder(folder, (snap) => {   // 第一帧 = 本地帧（没登录就只有它）；这台没字节的不收（不是「只在浏览器里」的；加密件也搬不了容器，走 open 就成明文了）
         if (done) return; done = true; off?.();
-        resolve({ identifiers: snap.items.filter((i) => i.syncState !== "cloud-only").map((i) => i.identifier), folders: snap.folders });
+        resolve({ identifiers: snap.items.filter((i) => isCached(i.syncState)).map((i) => i.identifier), folders: snap.folders });
       }, { onError: (e) => { if (!done) { done = true; off?.(); reject(e); } } });
       if (done) off();   // 帧在 watchFolder 返回前就同步来了
     }),
