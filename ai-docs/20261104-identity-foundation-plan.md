@@ -169,6 +169,9 @@ export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid,
 ```
 
 ## 6. 我没核、要实施时核的
+
+> **11-04 ID-0 已答**（Claude Opus 5.5）：`20261104-identity-id0-inventory.md`。前三条的答案在它的 §3，**§5 有 9 条对本计划书的修改提案（P1–P9），待门审；实施前先读**。下面原文留着。
+
 - 层级窗拖一行换父亲现在走的是剪切 + 粘贴还是直接改 `parent`（影响 ID-2 的 `reorderInstance` 怎么接）。
 - v0.18.17 的四位短码是不是独立字段、存不存文件。
 - `probe-undo-fuzz` 现在核不核材质表（ID-2 要加 GUID 核对）。

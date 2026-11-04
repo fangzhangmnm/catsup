@@ -1,12 +1,13 @@
 # CatsUp 往前推功能的账（2026-11-03）
 
-> created 20261103 by Claude Opus 5.5 · as-of 2026-11-03 夜（user 第二轮答复、工单 C / C2 / C3 结果已并入）：dev v0.18.25 / prod v0.17.67；**编辑器和文件格式的代码 10-30 之后没动过**，v0.18.20–25 都是工单 C 那条线（闸门、store 2.2.4、加密副产品、云冲突；v0.18.24–25 = C4，这边只看了提交标题）
+> created 20261103 by Claude Opus 5.5 · edited 20261104 by Claude Opus 5.5 · as-of 2026-11-04：dev v0.18.28（本地，线上 v0.18.27）/ prod v0.18.26；编辑器和文件格式的**功能**代码 10-30 之后没动过（v0.18.28 只修了两个读文件 bug），v0.18.20–27 都是数据安全那条线
 > user 11-03：「整理一下catsup继续往前推进功能的周帐是什么。我之后会把你lift成fable负责写计划书以及监督opus小弟」
-> 只管「功能往前走」。数据安全那条线归 Fable 协调台（家族根 `ai-docs/20261103-work-orders.md`），这里只记撞车点（§5）。家族周账文件归协调台写，这边不碰 `weekly/`；协调台给这份预留了 **F-150 到 F-179**，用到哪写到哪、写在这里，周账只放一行指针（Fable 11-03）。已领到 F-153。
+> 只管「功能往前走」。数据安全线 11-04 收口，协调台不再用（§7）。家族周账给这份预留了 **F-150 到 F-179**，用到哪写到哪、写在这里，周账只放一行指针。已领到 F-153。
 > 各条末尾括号 = 原账本出处，细节和 user 原话在那，这里不抄全。排序口径 = user 10-27 忙周口径：先抬会利滚利的债和屎山风险。
 
 ## 0. 现在站在哪
 
+- **11-04 进度**：数据安全线收口；身份地基计划书写完（`20261104-identity-foundation-plan.md`），第一张单「只读清点」做完（`20261104-identity-id0-inventory.md`）；**接着 = ID-1 格式层**。下面是 11-03 写的全局，仍然对。
 - **物品栏纪元（0.18）做了一半**。不改文件格式的都做完了：层级窗、改名、拖拽换父亲、资源页（谁用谁 / 孤儿）、根 = 普通组件、外轮廓。改文件格式的**一样没动**：同级顺序、素材架、跨文件粘贴、拿别的模型当素材、条目换 GUID；glb 先修再导入等审。
 - **挡路的只有一样**：文件里的条目还按「第几个」引用。上面那一半、材质纪元的数据契约、以后的骨骼对照表都压在它上面。user 10-30「下次fable优先跨文件黏贴，不然我们的app是半残的」，粘贴也压在它上面。
 - **下一个纪元 = 材质纪元**。设计聊完了：属性挂点 / 边 / 面 / 角；算出来的和画出来的分开；自动 UV、法向不存；标签和材质两列分开 + 一个「按标签上材质」的动作；架子上放引用、拿进别的文件 = 拷贝；单面 / 双面跟规范；算法改了老文件跟着变。
@@ -20,7 +21,7 @@
 
 ## 2. Fable 写计划书（按依赖排）
 
-> **11-04 计划书出了（Claude Fable 5.1）：`ai-docs/20261104-identity-foundation-plan.md`** = 第 1、2 件的设计决定 + 四张工单（ID-0 清点 → ID-1 格式层 → ID-2 运行时 → ID-3 跨文件粘贴 + 素材架数据）+ 守卫 + 提案 .h。第 1 件「事后审」的材料 = ID-0 的清点表。「这一侧没有表面」= 计划书 §2.9（brep 面层保留值 0xFFFE，Fable 定）。
+> **11-04 计划书出了（Claude Fable 5.1）：`ai-docs/20261104-identity-foundation-plan.md`** = 第 1、2 件的设计决定 + 四张工单（ID-0 清点 → ID-1 格式层 → ID-2 运行时 → ID-3 跨文件粘贴 + 素材架数据）+ 守卫 + 提案 .h。第 1 件「事后审」的材料 = ID-0 的清点表（`20261104-identity-id0-inventory.md` §3，11-04 做完：组件的引用 / 回收都对，发现的问题进 §5 的 9 条提案）。「这一侧没有表面」= 计划书 §2.9（brep 面层保留值 0xFFFE，Fable 定）。
 
 | # | 事 | 为什么排这 | 产出 | 之后给 Opus 的 |
 |---|---|---|---|---|
@@ -42,27 +43,9 @@ user：「操作ux不用阻塞，到时候可以随手修」「要不先fable基
 
 ## 3. Opus 不用等 Fable 就能做
 
-### 工单 F-152 / F-153：文件夹图库 + 图库必须有家（接线，不是纪元，可以提前做）
+### 工单 F-152 / F-153（文件夹图库 + 图库必须有家）：做完了
 
-user 11-03（说的是 MoonSinger，Fable 转述，CatsUp 同理）：「（文件夹歌库）为什么需要一个纪元？不是只是用接线吗？隔壁都做好了，没什么要设计的啊」。起因：家规「库必须有家」（规则书 §1 第 13 条），CatsUp 现在没登录也能把模型存进浏览器，那份只在这台设备上（工单 C 六问 Q1 / Q2 / Q4 / Q5 都不合格）。形状照家族根 `ai-docs/20261103-work-orders.md` 工单 H3，核对单 = 家族根 `ai-docs/20261103-library-needs-a-home.md` §4。**不等身份地基，不挡 minor，版本走 patch。**
-
-**CatsUp 和 H3 不一样的地方（Opus 读代码核的，没逐行读 WeebPaint，开工再核）**：
-- 没有 `deployment.ts` / `policy` / `embedded()`（CatsUp 还没上 itch / 备用版），H3 里按形态开关的那几条这次不做，入口常在；上 itch 时一起做（§5）。
-- `src/app-store.ts` 现在是单个 store 写死网盘（`ensureStore()` 用 `od.provider`，107 行；`disposeStore` 已有）；WeebPaint 按注册表切（`src/app-store.ts` 284 行 + `src/gallery-connect.ts` 的 `mintFolderByPicker` / `attachGallery` / `bootAttachFromRegistry`）。主要工作量在这。
-- 注册表接了一半：`src/app/gallery-host.ts:52 configureGalleryRegistry`，库名 `GALLERY_REGISTRY_DB`，还原出厂认它。
-- 第 1 步已有：「只在这台设备的浏览器里，没有备份」披露条 + 全部导出 + 连接网盘（v0.18.21）。
-- 口令验证器住在 store 的 `app-state` 集合（`app-store.ts:86`），换家时怎么跟着走，照 WeebPaint 核。
-- **本机库和网盘是同一个 store（`catsup.defaultStore`，没登录存的 = 脏着等推）**：所以选网盘 = 登录后走现有的推送路；选文件夹才是真搬家。这条是 Opus 从代码和工单 C 报告推的，开工先写探针核实。
-
-**做（顺序即依赖）**：
-1. **F-152 文件夹当家**：选夹入口 + 注册表记句柄 + 名册；开机能静默恢复就静默，权限掉了给一键 chip；`.trash` / `.backup` 在夹内（MASTER §A 修订 2）。
-2. **F-153 图库必须有家**：入口先选家（网盘 / 文件夹），没有家不建 store；说明一句 + 两个去处；`hasHome()` 一处判定，别处不许各自看登录状态。文件模式不动。
-3. **F-153 搬家**（顺序不能反，没搬完不收入口）：开机检测到只在浏览器里的模型 → 弹一次「搬进刚选的家 / 全部导出 / 稍后」；搬 = 逐份读字节、写进新家、**逐份比字节相等后**才从旧库移走；加密件搬容器，不解开；「稍后」= 披露条照挂、入口不收；搬空后旧库退役。**这一步 Fable 看 diff。**
-4. **守卫 / 验收**：`createStore` 调用点一处且 provider 非空；探针（headless，假文件夹）：选夹 → 存一份 → 夹里出现文件 → 改名 / 回收站在夹内可见；权限掉 → chip → 再授权恢复；搬家 3 份 → 新家 3 份字节相等 → 旧库空。工单 C 的闸门和云冲突探针（`probe-cloud-gate`、`probe-update-conflict`）照跑。
-5. **不做**：OneDrive 那条路不动；不改 `@internal/*`，要改库 = 停；不碰 `src/format/`、`src/editor/`；跨源移动不做。
-
-**给 Opus 的开场白**：
-> 领 CatsUp 工单 F-152 / F-153（文件夹图库 + 图库必须有家）：读 `20260601 MyPWAPatterns/docs/MASTER.md`、本仓 `ai-docs/20261103-forward-ledger.md` §3 第一节、家族根 `ai-docs/20261103-library-needs-a-home.md` 和 `ai-docs/20261103-work-orders.md` 的「§0.2」「工单 H3」。仓 = `20260627 CatsUp`。版本走 patch，推 dev，prod 不推。搬家那一步做完停下，把 diff 给 Fable 协调台（会话 moonsinger single-file html）看过再推。
+v0.18.27（2026-11-04）：文件夹图库、图库必须有家、搬家、放回图库、退出登录拆库、壳缓存按频道分。记录在仓 `CLAUDE.md`。工单原文在 git 历史里。
 
 ### 其他
 
@@ -74,9 +57,8 @@ user 11-03（说的是 MoonSinger，Fable 转述，CatsUp 同理）：「（文�
 
 ## 4. 等 user 拍
 
-快捷键四问和「材质设计算不算聊完」11-03 都答了（§0、§2½、讨论日记）。还剩一件：
-
-- **bump minor 之前推不推正式版**（家规：bump minor 前必问）：正式版停在 v0.17.67，没有层级窗、资源页、单位搬家这一批。11-03 问了 user 没答；bump 之前再问一次，没答不推。再问时要加上 v0.18.20–23 的变化：挂了库的人开机 / 回前台有个很短的核对，登录过期看到「网盘没连上」两个钮而不是悄悄掉线，切走窗口也会推、点更新先推；真 MSAL 下的闸门、真 iOS 切后台还没在真机上验过（工单 C 报告 §11、C3 节，user 用开发版时自然会碰到，不专门测）。
+- **bump minor 之前推不推正式版**（家规：bump minor 前必问）：正式版现在 v0.18.26（11-04 推，含层级窗、资源页、单位、新地址）。身份地基做完、bump 之前问一次，没答不推。
+- **按存撞上自动存被静默吞**（MoonSinger / WeebPaint / CatsUp 同一段 `editor-session.persist`）：修还是只记账，11-04 问过未答。
 
 ## 5. 和数据安全线的撞车点
 
@@ -87,38 +69,11 @@ user 11-03（说的是 MoonSinger，Fable 转述，CatsUp 同理）：「（文�
 - **Fable 那张避开清单到此解除**（Opus 读法：它管的是工单 C 在做的时候）。碰存储 / 同步 / 图库照家规先读 MASTER。
 - **「一更新版本几乎总会出现云冲突」（user 10-29，F-137 ⑫）定因了，修了（v0.18.22）**。真旧包 → 新包、两台设备复现（`probe-update-conflict`）：「打开旧文档就脏」「格式拍子变」**两条嫌疑不成立**；「推到一半重载」2.2.3 已盖住。真因两条：① 切走窗口只落本地、之后不再推，刷新后弹「没同步好」；② `onBeforeReload` 无条件存，干净的模型点「刷新」也重编码、写本地、标脏，这才是「几乎总」。修法 = 切后台也推、点更新先推（最多等 5 s）、没推成的 30 s 重试、干净的不碰。还剩：开机补传一次、导出给明文还是容器，这两件 Fable 去问 user；真 iOS 切后台没测到，进真机项；升到这版的那一次点「刷新」跑的还是旧代码，可能再见一次「没同步好」。
 - **和身份地基的关系（更正）**：之前 Opus 推论「迁移会放大冲突」，建立在「打开旧文档就脏」上，这条嫌疑不成立，**不再是身份地基的前置**。留一条验收：打开旧文件、没动过 = 不脏、不写新版本。身份地基改格式时，存盘路径上多了工单 C 的守卫（「干净的不碰」、`shadow-seal.ts`、每个 adopt 后再看一次加密状态），要照跑。
-- **同仓并行各开 worktree**（家规）：F-152 / F-153 和身份地基可以同时做，一个在图库 / 存储接线，一个在格式 / 编辑器；合并时看 `session.ts`。
 - 上 itch 时再做：`deployment.ts` 全家同名同形（规则书 §1 第 9 条）。
 
-## 5½. 搬到 catsup.weebpaint.com（F-135，Fable 转 user 11-03「就catsup」）
+## 5½. 搬到 catsup.weebpaint.com（F-135）：做完了
 
-清单 = 家族根 `ai-docs/20261103-catsup-domain-move.md`，归这个会话执行、user 在场。这是数据安全动作：本地库按网址分，没传的留在旧址。**不等身份地基，也不等文件夹图库。**
-
-**第 0.1 步查完（11-03，Claude Opus 5.5）：CatsUp 没有「301 被重建成状态码 0」的坑（家族 W-21）。** `service-worker.js` 不重建响应（全文唯一的 `new Response` 是 503 兜底），`github/main` 和 `github/prod` 两份逐字节相同。实测 = Chromium 无头、真 SW 字节、本地两个源模拟整站 301，带反面对照（塞进 W-21 的坏写法后导航 `ERR_FAILED`，探针抓得到）：
-
-- **开发版路径（网络优先）**：旧址直接跟到新址 `/dev/`，页面正常。所以 user 平时用的开发版一搬就回不到旧址的本地库，硬门管的就是这个。
-- **正式版路径（缓存优先）**：旧图标继续开缓存的旧版壳、留在旧址，本地数据读得到；离线壳更新失败，**永远冻在搬之前最后那一版**；没缓存过的路径跟到新址。所以搬之前推的那版会被冻住，推之前要稳。
-
-**没测**：WebKit（本机没装，iPad Edge 是它；搬完 user 在 iPad 开一次旧地址就验了）；开发版断网回退（无头的断网模拟管不到 SW 的请求，探针那一行不算数）；冻住的旧正式版还能不能登录；没缓存过的 7z-wasm 拿不拿得到（跨源跳转可能被 CSP 挡，只影响从没用过加密的设备）。
-
-**和清单对不上的（已报 Fable）**：
-- `src/config.ts` 没有 `SITE_URL`；src / index.html / SW / manifest / boot-guard / deploy.yml 都没写死旧域名或 `/catsup/` 路径，只有 README 和 CLAUDE.md。所以代码 = 加 `SITE_URL` + 开局提示，加文档地址。
-- `CNAME` 文件不会有：Pages 是 workflow 部署（`build_type: workflow`），deploy.yml 不写，MoonSinger / 读论文仓里也没有，域名住在 Pages 设置里。
-- 清单只列 iPad Edge 和 PC；要清空「要处理」的应该是每台开过 CatsUp 的设备和浏览器（iPhone、Quest、另一台电脑，用过就算）。
-- 只在浏览器里的模型（没登录存的）传不上去，也赶不上文件夹图库的搬家（那一步只看得见同一个网址的库），搬之前只能「全部导出」。开局提示要说这句。
-
-**Fable 11-03 放行 0.1**，四处对不上的已改进清单；「user 先在开发版过一次登录过期再推正式版」= 建议，不算硬门；7z-wasm 疑点记在清单里，靠提示把人引到新址，不另做。
-
-**11-04 进度（Claude Opus 5.5）**：
-- user 亲口：「清空了，推」。每台设备「要处理」清空；旧址提示版 v0.18.26（`src/app/moved-notice.ts` + `SITE_URL`，探针 `probe-moved-notice`、`probe-sw-301` 已进仓）已推开发版和**正式版**（prod = 570e1f1，这次 prod 的 run 是 cancelled，dispatch main 后切换，约一分钟）。线上无头核过：旧 `/` 和 `/dev/` 都 200、版本 v0.18.26、提示在、页面错误 0。
-- 解析核过：系统解析四个 GitHub IP，Google / Cloudflare 都答 CNAME。Porkbun 已做；Entra 两条 user 说「应该加了」（Fable 转述），验收时登一次就知道。
-- user 问「app应该不硬编码网址地址吧」：没有。回跳地址 = `location.origin + location.pathname`，离线壳和 manifest 都是相对路径；写死的只有 `SITE_URL` 和 `moved-notice.ts` 里判断旧地址那个 host，只给搬家提示用。
-
-**卡在这**：`gh api -X PUT …/pages -f cname=…` 被这台机器的自动模式权限规则拦了（改域名类操作）。不绕、不请别的会话代跑，交给 user 本人（先例：WXHW 那次就是 user 在 GitHub 页面填的）。
-
-**还差**：user 填 Pages 域名 → 证书签好 → 强制 HTTPS → Opus 按清单 §3 验收（读状态和探网址不受影响）→ user 真机登一次网盘、重输一次口令 → 改 CLAUDE.md 地址节和 README → 报告 + 通知 Fable。
-
-**交接（11-04，Fable 转 user）**：这个会话留着切 Fable 做下个大版本，搬家从这里起归「weebpaint sync library」那位 Opus，这边不再碰。交接时：prod = 570e1f1（v0.18.26），Pages `cname` 仍是 null，等 user 填；§3 验收和真机登网盘的提醒都归它。探针 `test/probes/probe-sw-301.mjs`、`probe-moved-notice.mjs` 已在仓里。
+2026-11-03 搬完、线上验收过（F-183）；清单和过程在家族根 `ai-docs/20261103-catsup-domain-move.md`，这里不再留步骤。
 
 ## 6. 不排期（记着，别漏）
 
@@ -126,12 +81,11 @@ user 11-03（说的是 MoonSinger，Fable 转述，CatsUp 同理）：「（文�
 - **wishlist**：几套软件键位预制 + 自定义快捷键（T97）；强行删还被引用的东西；断线当风格选项；顶点色通道；三向投影。
 - **等纪元到了**：结婚 = WeebPaint Kokoro 设计稿（F-137 ⑳）；宣发视频（F-103，在域名之后，域名见 §5½）。
 
-## 7. 切 Fable 之后从哪接（交接点）
+## 7. 接着怎么走（2026-11-04 改，取代切 Fable 那版交接点）
 
-- **先读**：这份 → `talks/20261103-keymap-blender.md` → `talks/20261030-material-epoch-attributes.md` → `20261030-inventory-design.md` §9 → `talks/20261030-identity-lifetime.md` → 家族周账 F-137 ㉑㉓。
-- **写**：计划书照家族工单的形状（规则 + 一张张工单 + 协调台状态表，每张工单带给 Opus 的开场白），参考家族根 `ai-docs/20261103-work-orders.md`。**第一份只管 §2 第 1、2 件**；终点 = bump minor 前问正式版。快捷键不进这份。
-- **规矩**：不发子 agent；Opus 由 user 开会话，经 SendMessage 通信。事前门 / 署名 / minor 要问 / 内部库 minor 要批照家规。
-- **和协调台的边界**：Fable 协调台（会话名 moonsinger single-file html）11-03 回了，结论都在 §5。工单 F-152 / F-153 由协调台排（§3 第一节有开场白），搬家那步 Fable 协调台看 diff。
+- **工作方式（user 11-04）**：只开一个会话长跑；主会话平时 Opus（交流、派工、施工都在这），到「格式层落地」「跨文件合并规矩」两道门 user 切 Fable 看 diff；子代理先报价、user 明确同意才发；协调台 / 工单会话不再用。
+- **接着做**：`20261104-identity-foundation-plan.md` 的 ID-1（格式层）。开工前先读 `20261104-identity-id0-inventory.md` §5：计划书有 9 处要改。
+- **设计背景**（要改设计时才读）：`talks/20261103-keymap-blender.md`、`talks/20261030-material-epoch-attributes.md`、`20261030-inventory-design.md` §9、`talks/20261030-identity-lifetime.md`。
 
 ## 8. 这份核了什么、没核什么
 
