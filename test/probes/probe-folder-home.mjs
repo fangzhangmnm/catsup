@@ -157,7 +157,6 @@ console.log("\n④ 旧设备：浏览器里 3 份（1 份加密）→ 开机问�
   const encId = ids[2];   // 开着的是第三份：加密它（设新口令两遍 → 验证器落进以前那个库的 app-state）
   const enc = await page.evaluate(async (pw) => { globalThis.__catsup.crypto.answer(async () => pw); return globalThis.__catsup.session.encryptCurrent(); }, PW);
   check(enc === true && await page.evaluate((i) => globalThis.__catsup.store().file(i, { mode: "existing" }).isEncrypted(), encId), "前提：第三份加密了（以前那个库里有验证器）");
-  await page.waitForTimeout(1000);   // collection 本地写有 400 ms 防抖：验证器落进本机 IDB 再刷新（刷新前不到 400 ms 会丢 = 现有的另一个洞，报告里写了）
   const srcVerifier = await page.evaluate(async () => { const c = globalThis.__catsup.store().collection("app-state"); await c.init(); return JSON.stringify(c.getItem("galleryPasswordVerifier") ?? null); });
   const bytes = {};
   for (const i of ids.slice(0, 2)) bytes[i] = await storeBytes(page, i);

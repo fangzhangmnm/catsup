@@ -53,7 +53,7 @@ import { appEncryption, passwordKeeper } from "../encryption.ts";
 import { hasVerifier, checkVerifier } from "../password-verifier.ts";
 import { wireRememberPassword, restoreRemembered, forgetRemembered, rememberedUntil, rememberChoice, setRememberChoice, rememberAvailable, onRememberChange } from "../remember-password.ts";
 import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, unlockImportedContainer } from "./unlock.ts";
-import { attachFolderHome, currentFolderDestination, disposeStore, folderHomeLabel, folderHomeOnline, homeMovePorts, isFolderHome, legacyLibraryExists, legacyStore, openFolderDestination, putBackPorts, setFolderHomeOnline, verifierCarryPorts, cloudReachable, verifierReady } from "../app-store.ts";
+import { attachFolderHome, currentFolderDestination, disposeStore, flushAppStateLocal, folderHomeLabel, folderHomeOnline, homeMovePorts, isFolderHome, legacyLibraryExists, legacyStore, openFolderDestination, putBackPorts, setFolderHomeOnline, verifierCarryPorts, cloudReachable, verifierReady } from "../app-store.ts";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, docFile, ensureStore, hasStore, isCached, requireStore } from "../app-store.ts";
@@ -2262,6 +2262,9 @@ document.addEventListener("visibilitychange", () => {
   else { if (galleryHost.isOpen()) galleryHost.refresh(); wakeGate("visible"); }   // 回前台的文档快进走 pwa-shell onForeground（无条件挂）；挂了库 = 闸门走一遍（工单 C）
 });
 window.addEventListener("blur", () => session.flushForHide());
+// 同一组事件：app-state（口令验证器住这里）立刻落本机，不等 collection 的 400 ms 防抖（2026-11-04 Fable 定修）。bfcache 冻结那一下同样不写（#60-C）。
+document.addEventListener("visibilitychange", () => { if (document.visibilityState === "hidden") flushAppStateLocal(); });
+window.addEventListener("pagehide", (e) => { if (!e.persisted) flushAppStateLocal(); });
 window.addEventListener("pagehide", (e) => {
   if (!e.persisted) session.flushForPageHide();
   session.onPageHide(e.persisted);   // file / transient：正常关闭即焚快照（bfcache 冻结不算；pending-adoption 库内拒删）

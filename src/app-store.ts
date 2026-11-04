@@ -188,7 +188,18 @@ function appStateOf(store: Store): Promise<Collection> {
 function wireVerifierOf(store: Store): void {
   // 图库口令验证器（password-verifier.ts）：synced collection "app-state" 的一项，跟账号走。init 完才接——没接之前 hasVerifier() = false，
   //   解锁循环 / 首次加密都先 await verifierReady()，免得把真验证器当「没设过」覆盖掉。
-  _verifierReady = appStateOf(store).then((col) => { wireVerifierStore({ get: () => { const v = col.getItem(VERIFIER_KEY); return isVerifierRecord(v) ? v : null; }, set: (rec) => col.setItem(VERIFIER_KEY, rec) }); }).catch(() => { /* 接不上 = 当没有验证器；库已 reportError */ });
+  //   set 之后立刻刷进本机（collection 本地写有 400 ms 防抖：设完口令马上关页 / 刷新，验证器会丢 = 下次开机走「设置图库口令」→ 两套口令；2026-11-04 Fable 定修）。
+  _verifierReady = appStateOf(store).then((col) => { wireVerifierStore({ get: () => { const v = col.getItem(VERIFIER_KEY); return isVerifierRecord(v) ? v : null; }, set: (rec) => { col.setItem(VERIFIER_KEY, rec); return flushCollection(col); } }); }).catch(() => { /* 接不上 = 当没有验证器；库已 reportError */ });
+}
+/** collection 立刻落本机（库的 flushLocal = 卸载兜底面）；落不进去如实上报，不抛（ok=false = 本地都没写进去，别忽略）。 */
+async function flushCollection(col: Collection): Promise<void> {
+  const r = await col.flushLocal().catch((e: unknown) => ({ ok: false, error: e }));
+  if (!r.ok) storeUI.reportError(r.error instanceof Error ? r.error : new Error(`[app-state] not written locally: ${String(r.error)}`), "warning");
+}
+/** 页面藏起来 / 要走了（main.ts 崩溃安全 flush 那一组事件）：app-state 立刻落本机。没挂库 / 这一页没开过 app-state = 什么都不做（不为刷盘去开库）。 */
+export function flushAppStateLocal(): void {
+  const p = _store ? _appState.get(_store) : undefined;
+  if (p) void p.then(flushCollection, () => {});
 }
 /** 口令验证器跟着搬的端口（判定在 home-move.ts carryVerifier）：新家「有没有」= 和夹里对过一次（reconcile 回 synced / unchanged）才算知道；
  *  写 = 原样 setItem + 再对一次把它推进夹里 + 落本机（搬家的目的地实例马上要 dispose，刷新后同一个库接着推）。 */

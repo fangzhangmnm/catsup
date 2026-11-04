@@ -4,9 +4,10 @@ export interface VerifierRecord {
     iv: string;
     ct: string;
 }
+/** set 返回的 Promise = 已经落进本机（接缝那边立刻刷盘、不等 collection 的 400 ms 防抖；落不进去由接缝上报，不抛）。 */
 export interface VerifierStore {
     get(): VerifierRecord | null;
-    set(rec: VerifierRecord | null): void;
+    set(rec: VerifierRecord | null): void | Promise<void>;
 }
 export declare function createVerifierRecord(pw: string): Promise<VerifierRecord>;
 export declare function verifyRecord(rec: VerifierRecord, pw: string): Promise<boolean>;

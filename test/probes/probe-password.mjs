@@ -90,6 +90,30 @@ await page.keyboard.press("Escape"); await page.waitForTimeout(80);
 // ⑧ CSP 零拦截
 const csp = await page.evaluate(() => (globalThis.__catsup.debugLog.toText() ?? "").split("\n").filter((l) => /\[csp\]/.test(l)));
 ok("cspClean", csp.length === 0); if (csp.length) out.cspLines = csp.slice(0, 5);
+// ⑨ 设完口令马上关页：验证器不丢（collection 本地写有 400 ms 防抖；2026-11-04 Fable 定修：设的那一下就刷进本机 + pagehide / 藏起来再刷一次）。
+//   新设备：图库里存一个模型 → 加密（设新口令）→ 立刻派 pagehide → 立刻刷新 → 验证器在（以前这里会丢 → 下次走「设置图库口令」= 两套口令）。
+{
+  const ctx9 = await b.newContext({ viewport: { width: 1000, height: 800 } });
+  const p9 = await ctx9.newPage(); p9.setDefaultTimeout(8000); p9.on("pageerror", (e) => errs.push("p9 " + String(e.stack ?? e).slice(0, 300)));
+  await p9.goto(url, { waitUntil: "load", timeout: 30000 }); await p9.waitForFunction(() => globalThis.__catsup?.session);
+  await p9.evaluate(() => globalThis.__catsup.galleryHost.open());
+  await p9.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+  await p9.click("#galleryNew");
+  await p9.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
+  await p9.evaluate(() => { const e = globalThis.__catsup.editor, P = (x, y, z = 0) => ({ x, y, z }); e.setGrid({ ...e.grid, on: false }); e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[P(0, 0), P(2, 0)], [P(2, 0), P(2, 2)], [P(2, 2), P(0, 2)], [P(0, 2), P(0, 0)]] }); });
+  await p9.waitForFunction(() => !globalThis.__catsup.session.lazy && !globalThis.__catsup.session.saving && !globalThis.__catsup.session.dirty(), null, { timeout: 10000 });
+  const set9 = await p9.evaluate(async (pw) => {
+    globalThis.__catsup.crypto.answer(async () => pw);
+    const r = await globalThis.__catsup.session.encryptCurrent();
+    window.dispatchEvent(new PageTransitionEvent("pagehide", { persisted: false }));   // 立刻：不等任何防抖
+    return r;
+  }, PW);
+  await p9.reload({ waitUntil: "load" }); await p9.waitForFunction(() => globalThis.__catsup?.session);
+  const v9 = await p9.evaluate(async () => { const s = globalThis.__catsup.store(); if (!s) return "no store"; const c = s.collection("app-state"); await c.init(); return c.getItem("galleryPasswordVerifier")?.v ?? null; });
+  ok("verifierSurvivesImmediatePagehide", set9 === true && v9 === 1);
+  if (v9 !== 1) out.verifierAfterReload = v9;
+  await ctx9.close();
+}
 console.log(JSON.stringify(out, null, 1));
 console.log(errs.length ? "PAGEERRORS:\n" + errs.join("\n") : "(no page errors)");
 if (errs.length) process.exitCode = 1;

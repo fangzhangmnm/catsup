@@ -57,6 +57,8 @@ export declare function homeMovePorts(src: Store, dest: {
 };
 /** 「放回图库」的写口：写进现在的家（推不推 = 现在写不写得进去；没推上 = 和离线保存一样留着待推）；读回 = 本机落下的 at-rest 字节（容器原样）。 */
 export declare function putBackPorts(): VerifiedWritePorts;
+/** 页面藏起来 / 要走了（main.ts 崩溃安全 flush 那一组事件）：app-state 立刻落本机。没挂库 / 这一页没开过 app-state = 什么都不做（不为刷盘去开库）。 */
+export declare function flushAppStateLocal(): void;
 /** 口令验证器跟着搬的端口（判定在 home-move.ts carryVerifier）：新家「有没有」= 和夹里对过一次（reconcile 回 synced / unchanged）才算知道；
  *  写 = 原样 setItem + 再对一次把它推进夹里 + 落本机（搬家的目的地实例马上要 dispose，刷新后同一个库接着推）。 */
 export declare function verifierCarryPorts(src: Store, dest: Store): VerifierCarryPorts;

@@ -8,7 +8,8 @@
 // 存取面（VerifierStore）由 app-store 接缝注入：collection "app-state" 的 galleryPasswordVerifier 项。本文件零 store import，node 可测。
 
 export interface VerifierRecord { v: 1; salt: string; iv: string; ct: string }
-export interface VerifierStore { get(): VerifierRecord | null; set(rec: VerifierRecord | null): void }
+/** set 返回的 Promise = 已经落进本机（接缝那边立刻刷盘、不等 collection 的 400 ms 防抖；落不进去由接缝上报，不抛）。 */
+export interface VerifierStore { get(): VerifierRecord | null; set(rec: VerifierRecord | null): void | Promise<void> }
 
 const PBKDF2_ITERS = 250_000;
 const PLAINTEXT = "catsup-gallery-password-v1";   // 固定明文（验证只看 GCM tag 是否解得开）；v1 格式常量，改了 = 老验证器全失效
@@ -44,8 +45,8 @@ let _store: VerifierStore | null = null;
 export function wireVerifierStore(s: VerifierStore | null): void { _store = s; }
 export function hasVerifier(): boolean { return (_store?.get() ?? null) != null; }
 /** 记住「图库口令 = pw」（覆盖旧验证器；创建 / 首次验证成功时调）。没接库（无地）= 不记（无地没有图库口令这回事）。 */
-export async function createVerifier(pw: string): Promise<void> { if (_store) _store.set(await createVerifierRecord(pw)); }
-export function clearVerifier(): void { _store?.set(null); }
+export async function createVerifier(pw: string): Promise<void> { if (_store) await _store.set(await createVerifierRecord(pw)); }   // 等它落进本机再回（设完口令马上关页也不丢，2026-11-04）
+export function clearVerifier(): void { void _store?.set(null); }
 /** 校验：ok = 口令对；bad = 口令错；none = 没有验证器（老账号未迁 / 已重置 / 无地）。 */
 export async function checkVerifier(pw: string): Promise<"ok" | "bad" | "none"> {
   const rec = _store?.get() ?? null;
