@@ -39,16 +39,20 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   doc.definitions.forEach((d, i) => {
     const def = scene.def(idOf.get(i)!);
     // 0.14 身体种类（契约 §2）：mesh 的载荷装进身体；文件里平铺的 brep / groups 对它们是空占位
-    if (d.kind === "mesh" && d.mesh) { def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: d.materialSlots.map((m) => (m in doc.materials ? m : -1)) }; if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis }); for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; } return; }
+    if (d.kind === "mesh" && d.mesh) { def.body = { kind: "mesh", kernel: kernelFromMeshDoc(d.mesh, `definition "${d.name}"`), materialSlots: d.materialSlots.map((m) => (m in doc.materials ? m : -1)) }; if (d.mesh.mirror) scene.meshMirrors.set(def.id, { mode: d.mesh.mirror.mode, axis: d.mesh.mirror.axis }); for (const inst of d.instances) { const target = idOf.get(inst.definition); if (target === undefined) continue; const ii = scene.mintInstance(def.id, null, target, inst.xform); if (inst.name !== undefined) ii.name = inst.name; if (inst.locked) ii.locked = true; if (inst.layer !== undefined) ii.layer = inst.layer; if (inst.hidden) ii.hidden = true; } return; }
     const body = scene.brep(def.id);   // 文件平铺的 brep / groups / materialSlots / guides = brep 身体（门 1：文件布局不动）
     body.materialSlots = d.materialSlots.map((m) => (m in doc.materials ? m : -1));
     body.guides = guidesFromDoc(d.guides);
     if (d.drawFrame && def.id !== scene.root) body.drawFrame = copyFrame(d.drawFrame);   // 根的坐标架 = document.axes
+    // 组按文件里的 id 放（稳定；parent 引用按它）。2026-11-04 Opus 修（实例 10-25 修过的同一个写法，组这边漏了）：此前先改 id 再判「临时 id 要不要删」，判断永远为「不删」→
+    // id 有空缺（删过组）的文件读回来，同一个组在表里两份 = 几何叠两层、文件变大、再删只删得掉一份。现在：临时 id 从文件最大 id 之后起（不会撞上文件 id）、先删临时再按文件 id 放；
+    // 已经重复过的文件（同一个 id 写了两次）读进来后写的覆盖先写的 = 自动合回一份（编辑永远落在后写的那份上）。test/group-ids.test.ts
+    body.nextGroup = Math.max(body.nextGroup, 1 + Math.max(0, ...d.groups.map((g) => g.id)));
     for (const g of d.groups) {
       const grp = scene.mintGroup(def.id, null, Kernel.fromBrep(g.brep), g.axes);
       grp.guides = guidesFromDoc(g.guides);
-      (grp as { id: number }).id = g.id;   // 保留文件里的 id（稳定；parent 引用按它）
-      body.groups.delete(grp.id === g.id ? -1 : grp.id);
+      body.groups.delete(grp.id);
+      (grp as { id: number }).id = g.id;
       body.groups.set(g.id, grp);
       if (g.name !== undefined) grp.name = g.name;
     }
