@@ -1046,21 +1046,32 @@ matImageInput.addEventListener("change", async () => {
 
 
 // ---------- 导出模型（导出设计稿 ai-docs/20261028-export-design.md §4；账本 UX39）：模态 sheet，给别的软件看的烤好的模型，不是工程备份 ----------
-// 选择记在这台设备上（PREF；设计稿说桌面态，那要 CATSUP_desk 加键 + 冻样本——导出习惯跟设备走也说得通，先这样）
+// 导出永远有框，是 CatsUp 的规矩；选择跟文件走（desk 1.4；user 11-04「导出的时候永远有个框，以后选项会越来越多。我建议文件workbench而不是workpiece记住」）
 async function openExportModel(): Promise<void> {
-  const picks = editor.exportPicks(), last = (PREF.get("exportModel") ?? "").split("|");
+  const picks = editor.exportPicks(), last = session.exportChoice;
   const glbOnly = (v: Readonly<Record<string, string>>): boolean => v.format !== "glb";
+  /** 说明行：要出几侧就几张面，看得见（计划书 §9.2½ ①：不分类、不另弹，想留一侧 = 把另一侧涂成默认背面）。按范围算一次。 */
+  const sideNotes = new Map<string, string>();
+  const sideNote = (scope: string): string => {
+    let t = sideNotes.get(scope);
+    if (t === undefined) {
+      const c = session.exportSides(scope === "sel" ? picks.map((p) => p.def) : undefined);
+      t = `${c.both ? `${c.both} 张面两侧都会出（其中 ${c.differ} 张两侧材质不同）；只想留一侧，把另一侧涂成默认背面。` : ""}${c.neither ? `${c.neither} 张面两侧都是默认背面，不会出。` : ""}`;
+      sideNotes.set(scope, t);
+    }
+    return t;
+  };
   const v = await openFormSheet("导出模型", [
-    { key: "format", label: "格式", value: last[0] === "obj" ? "obj" : "glb", options: [{ value: "glb", label: "glb" }, { value: "obj", label: "obj" }] },
-    { key: "scope", label: "范围", value: picks.length && last[1] === "sel" ? "sel" : "all", options: [{ value: "all", label: "整个模型" }, ...(picks.length ? [{ value: "sel", label: `选中的 ${picks.length} 个物件` }] : [])], hidden: glbOnly },
-    { key: "textures", label: "贴图", value: last[2] === "none" ? "none" : "embed", options: [{ value: "embed", label: "嵌进文件" }, { value: "none", label: "不带" }], hidden: glbOnly },
-    { key: "lines", label: "边线", value: last[3] === "none" ? "none" : "with", options: [{ value: "with", label: "带" }, { value: "none", label: "不带" }], hidden: glbOnly },
+    { key: "format", label: "格式", value: last.format === "obj" ? "obj" : "glb", options: [{ value: "glb", label: "glb" }, { value: "obj", label: "obj" }] },
+    { key: "scope", label: "范围", value: picks.length && last.scope === "sel" ? "sel" : "all", options: [{ value: "all", label: "整个模型" }, ...(picks.length ? [{ value: "sel", label: `选中的 ${picks.length} 个物件` }] : [])], hidden: glbOnly },
+    { key: "textures", label: "贴图", value: last.textures === "none" ? "none" : "embed", options: [{ value: "embed", label: "嵌进文件" }, { value: "none", label: "不带" }], hidden: glbOnly },
+    { key: "lines", label: "边线", value: last.lines === "none" ? "none" : "with", options: [{ value: "with", label: "带" }, { value: "none", label: "不带" }], hidden: glbOnly },
   ], {
     okLabel: "导出",
-    note: (x) => `给别的软件看的烤好的模型（${x.format === "obj" ? "三角形；OBJ 只导整个模型、不带贴图" : "三角形 + 材质 + 贴图"}）。不是工程备份——备份用「导出工程文件」。`,
+    note: (x) => `给别的软件看的烤好的模型（${x.format === "obj" ? "三角形；OBJ 只导整个模型、不带贴图" : "三角形 + 材质 + 贴图"}）。不是工程备份——备份用「导出工程文件」。${x.format === "obj" ? "" : ` ${sideNote(x.scope ?? "all")}`}`.trimEnd(),
   });
   if (!v) return;
-  PREF.set("exportModel", [v.format, v.scope ?? "all", v.textures ?? "embed", v.lines ?? "with"].join("|"));
+  session.setExportChoice({ format: v.format, scope: v.scope ?? "all", textures: v.textures ?? "embed", lines: v.lines ?? "with" });
   if (!(await session.confirmPlainExit(v.format === "obj" ? "OBJ" : "glb"))) return;   // 给别的软件的格式天然明文：加密作品下载前明说（规则书 §1 第 5 条）
   if (v.format === "obj") { doExport(); return; }
   session.exportModelGlb({ textures: v.textures !== "none", lines: v.lines !== "none", ...(v.scope === "sel" && picks.length ? { only: picks } : {}) });

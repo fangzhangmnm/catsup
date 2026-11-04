@@ -14,8 +14,9 @@ import { fillHoles } from "./fill-holes/index.ts";
 import { cleanup } from "./cleanup/index.ts";
 import { resegment } from "./resegment/index.ts";
 import { soften } from "./soften.ts";
+import { flipSides, orientOutward, orientUnify } from "./orient/index.ts";
 
-const commands: readonly Command[] = [straighten, snap, cleanup, weld, planar, harden, soften, fillHoles, resegment, hierarchy];
+const commands: readonly Command[] = [straighten, snap, cleanup, weld, planar, harden, soften, fillHoles, resegment, hierarchy, flipSides, orientUnify, orientOutward];
 
 /** 修复面板 = 一条复合动作的参数窗：勾几步、按这个顺序跑完 = 一步撤销。on = 默认勾不勾（AI 定的默认：只动小毛病的勾；吸格点 / 清理 / 补洞 / 改段数 / 恢复层级不勾——会挪点、会擦线、改结构、段数是你挑的）。 */
 export const REPAIR_STEPS: readonly { readonly command: CommandId; readonly on: boolean; label(env: CommandEnv): string }[] = [
@@ -29,6 +30,7 @@ export const REPAIR_STEPS: readonly { readonly command: CommandId; readonly on: 
   { command: "brep.fillHoles", on: false, label: () => "补洞（没封口的平面开口补上面）" },
   { command: "brep.resegment", on: false, label: () => "改段数（回转体：圆柱、轮子、炮管…）" },
   { command: "brep.hierarchy", on: false, label: () => "恢复层级（连在一起的块各成一组，形状一样的合成组件）" },
+  { command: "brep.orientOutward", on: false, label: () => "自动朝外（封闭的块，里面那侧涂默认背面；片不动）" },
 ];
 
 /** 最笨的动作：一条指令一个同 id 的动作（路由表只有 brep 一行）。字和图标是 UX，住这里不住指令里。 */
@@ -43,9 +45,14 @@ const actions: readonly Action[] = [
   { id: "brep.fillHoles", commands: { brep: "brep.fillHoles" }, icon: "fill-hole", label: (n) => `补洞…（${n} 个）` },
   { id: "brep.resegment", commands: { brep: "brep.resegment" }, icon: "circle", label: (n) => `改段数…（${n} 个回转体）` },
   { id: "brep.hierarchy", commands: { brep: "brep.hierarchy" }, icon: "collection", label: (n) => `恢复层级…（${n} 块）` },
+  { id: "brep.orientOutward", commands: { brep: "brep.orientOutward" }, icon: "flip-horizontal", label: () => "自动朝外…" },
+  { id: "brep.orientUnify", commands: { brep: "brep.orientUnify" }, icon: "flip-horizontal", label: (n) => `统一朝向（${n} 张面）` },
+  { id: "brep.flipSides", commands: { brep: "brep.flipSides" }, icon: "flip-horizontal", label: (n) => `翻面（${n} 张面）` },
 ];
 
 /** 选区浮条 / 右键菜单上的修复入口（按现在的范围数出来 > 0 的才露；顺序 = 这里的 order）。 */
-const placements: readonly Placement[] = actions.map((a, i) => ({ action: a.id, where: "repairWindow" as const, order: 100 + i * 10 }));   // 修复 = 自己一窗（工具面包；user 10-28「修复是一个工具面包，类似瑞士军刀这种，而不是放在物体属性里面」）
+const placements: readonly Placement[] = [...actions.filter((a) => a.id !== "brep.flipSides" && a.id !== "brep.orientUnify").map((a, i) => ({ action: a.id, where: "repairWindow" as const, order: 100 + i * 10 })),
+  { action: "brep.flipSides", where: "contextBar" as const, order: 30, modes: ["geometry", "surface"] as const },   // 翻面 / 统一朝向 = 选中面之后的动词：右键菜单（硬表面工作台）
+  { action: "brep.orientUnify", where: "contextBar" as const, order: 31, modes: ["geometry", "surface"] as const }];   // 修复 = 自己一窗（工具面包；user 10-28「修复是一个工具面包，类似瑞士军刀这种，而不是放在物体属性里面」）
 
 export const repairs: Family = { name: "repairs", commands, actions, placements };

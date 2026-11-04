@@ -181,7 +181,22 @@ export function sceneMeshed(): Scene {
   s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
   return s;
 }
-export const SCENE_DOCS: Record<string, () => Scene> = { grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
+/** 单面 / 双面第四版（2026-11-04）：盒子里面涂内置默认背面（槽表引用内置 GUID）；一张面两侧不同真材质、一张面两侧都是默认背面（导出整张不出）。 */
+export function sceneSided(): Scene {
+  let s = new Scene(sceneBox(2, 1.5));
+  oneSided(s, s.root);
+  s = applyOp(s, { op: "addMaterial", name: "红", color: [0.8, 0.2, 0.2] }).scene;
+  s = applyOp(s, { op: "addMaterial", name: "蓝", color: [0.2, 0.3, 0.8] }).scene;
+  const k = rootK(s), at = { def: s.root, group: null };
+  const top = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.z === 1.5))!, wall = k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => p.y === 0))!;
+  s = applyOp(s, { op: "paintFaces", at, faces: [faceKey(k, top.id)], material: 0, sides: [0] }).scene;
+  s = applyOp(s, { op: "paintFaces", at, faces: [faceKey(k, top.id)], material: 1, sides: [1] }).scene;
+  s = applyOp(s, { op: "paintFaces", at, faces: [faceKey(k, wall.id)], material: BUILTIN_BACK_SLOT }).scene;
+  const d = s.mintDef("单面盒", sceneBox(1, 1)); oneSided(s, d.id);   // 组件里的默认背面跟着定义走
+  s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
+  return s;
+}
+export const SCENE_DOCS: Record<string, () => Scene> = { sided: sceneSided, grouped: sceneGrouped, painted: scenePainted, guided: sceneGuided, hidden: sceneHidden, twoSided: sceneTwoSided, drawFramed: sceneDrawFramed, compassed: sceneCompassed , meshed: sceneMeshed };
 /** 参考窗牌组（CATSUP_references 1.0 + desk 1.1 refPanel；2026-10-25 Opus）：清单字节 = @internal/reference-window 0.5.0 encodeDeck 的真实输出
  *  （一张图、一张文字、一张只放内存的视频——后者只在清单里记大小、没有字节），窗开着。format 层不懂清单：这里只钉「目录原样进出」。 */
 export const REF_MANIFEST = '{"version":1,"minor":1,"patch":0,"index":1,"items":[{"kind":"image","src":".catsup/references/r0.png","vp":null,"name":"格子.png"},{"kind":"text","src":".catsup/references/r1.txt","vp":null,"name":"尺寸"},{"kind":"video","vp":null,"name":"walk.webm","mime":"video/webm","ram":{"bytes":10}}]}';

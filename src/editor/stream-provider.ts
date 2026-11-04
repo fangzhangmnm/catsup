@@ -37,7 +37,9 @@ export class EditorStreamProvider implements StreamProvider {
   private boundsCache: { world: WorldView; rev: number; sphere: { c: Vec3; r: number } | null } | null = null;
   /** 粗线（LineSegments2 实例）还是像素线：引擎的视图设定（线稿粗细 > 1 也会切成粗线），每次 pull 问一下；换了 = 池网格全量重建（线的块形状不同）。 */
   /** styled = 正在看风格预览（线稿之外的画风）：默认背面按引擎所见不画（计划书 §9.2-E；编辑时画灰蓝 = 披露你在看背面）。 */
-  constructor(private readonly thick: () => boolean, private readonly styled: () => boolean = () => false) {}
+  private readonly thick: () => boolean;
+  private readonly styled: () => boolean;
+  constructor(thick: () => boolean, styled: () => boolean = () => false) { this.thick = thick; this.styled = styled; }
 
   /** 这一帧画哪个世界（活的那份，含预演影子）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。淡出是标记（视图侧），不在这里。 */
   /** editing = 有「正在编辑的那一层」（演示锁里没有：活动槽也按普通槽放，结构线跟画风走；ai-docs/20261029-edge-display-scenarios.md 场景 6）。 */

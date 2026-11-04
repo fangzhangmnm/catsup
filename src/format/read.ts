@@ -208,11 +208,11 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     const raw = exts.CATSUP_desk as Record<string, unknown>;
     try {
       const dj = migrateExtension("CATSUP_desk", raw, notes);
-      const DESK_KEYS = new Set(["version", "minor", "patch", "menuTabs", "lastView", "refPanel", "locked", "style", "screen"]);
+      const DESK_KEYS = new Set(["version", "minor", "patch", "menuTabs", "lastView", "refPanel", "locked", "style", "screen", "exportModel"]);
       const extra: Record<string, unknown> = {};
       for (const [k, v] of Object.entries(dj)) if (!DESK_KEYS.has(k)) extra[k] = v;
       const refPanel = refPanelOf(dj.refPanel);
-      desk = { menuTabs: menuTabsOf(dj.menuTabs), ...(dj.lastView !== undefined ? { lastView: dj.lastView } : {}), ...(refPanel ? { refPanel } : {}), ...(dj.locked === true ? { locked: true } : {}), ...(typeof dj.style === "string" ? { style: dj.style } : {}), ...(typeof dj.screen === "string" ? { screen: dj.screen } : {}), extra };   // 风格 / 屏幕（desk 1.3）：只认字符串   // 演示锁（desk 1.2）：只认 true
+      desk = { menuTabs: menuTabsOf(dj.menuTabs), ...(dj.lastView !== undefined ? { lastView: dj.lastView } : {}), ...(refPanel ? { refPanel } : {}), ...(dj.locked === true ? { locked: true } : {}), ...(typeof dj.style === "string" ? { style: dj.style } : {}), ...(typeof dj.screen === "string" ? { screen: dj.screen } : {}), ...(isObj(dj.exportModel) ? { exportModel: Object.fromEntries(Object.entries(dj.exportModel).filter((e): e is [string, string] => typeof e[1] === "string")) } : {}), extra };   // 风格 / 屏幕（desk 1.3）：只认字符串   // 演示锁（desk 1.2）：只认 true
     } catch (e) {
       if (!(e instanceof FormatTooNewError)) throw e;
       extensions.CATSUP_desk = raw;
@@ -284,6 +284,6 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), views },
-    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs ? { readNotes: notes } : {}),
+    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots ? { readNotes: notes } : {}),
   };
 }

@@ -18,7 +18,7 @@ import type { Editor } from "../editor/editor.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import { Scene } from "../scene/scene.ts";
 import { ROOT_PLACEHOLDER } from "../editor/object-tree.ts";
-import { documentFromScene, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument, writeGltfModel } from "../format/index.ts";
+import { documentFromScene, exportSideCounts, readCatsup, sceneFromDocument, writeCatsup, type CatsupDocument, type SideCounts, writeGltfModel } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
@@ -179,6 +179,9 @@ export class Session {
   }
   private applyDeskView(): void { this.d.applyView?.(this.desk.style ?? null, this.desk.screen ?? null); }
   setMenuTab(key: string, tab: string): void { this.desk.menuTabs[key] = tab; }
+  /** 导出表单上次的选择（desk 1.4）：跟文件走，改它不标脏（user 11-04「我建议文件workbench而不是workpiece记住」）。 */
+  get exportChoice(): Readonly<Record<string, string>> { return this.desk.exportModel ?? {}; }
+  setExportChoice(v: Readonly<Record<string, string>>): void { this.desk.exportModel = { ...v }; }
   /** 读取侧三级拍子提示（家族纪律：minor 更新提示一次、patch 静默；desk 太新 = 原字节带回 + 默认显示）。每次载入说一次。 */
   private noteFormat(doc: CatsupDocument): void {
     const n = doc.readNotes;
@@ -952,6 +955,11 @@ export class Session {
     this.download(bytes, name);
     this.d.setStatus(`${name} 已下载（给别的软件看的模型，不是工程备份${this.plainExportNote()}）`);
     return { name, bytes: bytes.byteLength };
+  }
+  /** 导出表单的说明行要的数（计划书 §9.2½ ②）：only = 只导这几个定义。 */
+  exportSides(only?: readonly number[]): SideCounts {
+    const scene = this.d.editor.sceneRef;
+    return exportSideCounts(documentFromScene(scene, this.displayName(), this.loaded), only?.filter((d) => scene.defs.has(d)).map((d) => scene.def(d).guid));
   }
   /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
   private plainExportNote(): string { return this.encrypted || this.seal ? `；${PLAIN_NOTE}` : ""; }

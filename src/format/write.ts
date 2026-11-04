@@ -186,6 +186,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
         ...(doc.desk.refPanel ? { refPanel: { ...doc.desk.refPanel } } : {}),
         ...(doc.desk.locked ? { locked: true } : {}),   // 演示锁（desk 1.2）：锁着才写
         ...(doc.desk.style !== undefined ? { style: doc.desk.style } : {}), ...(doc.desk.screen !== undefined ? { screen: doc.desk.screen } : {}),   // 风格 / 屏幕（desk 1.3）：选过才写
+        ...(doc.desk.exportModel ? { exportModel: { ...doc.desk.exportModel } } : {}),   // 导出表单上次的选择（desk 1.4）：导出过才写
       },
       ...(refsExt ? { CATSUP_references: refsExt } : {}),
       ...(doc.shelf && !shelfIsEmpty(doc.shelf) ? { CATSUP_shelf: { ...doc.shelf.extra, ...stampOf("CATSUP_shelf"), folders: doc.shelf.folders, items: doc.shelf.items } } : {}),

@@ -48,6 +48,8 @@
 //                      老读者少看见它 = 打开不锁（minor 语义：防误触的开关丢了，内容一字不少）。老定稿记录 CATSUP_document.final / finalRev 照读照写、不再起作用。
 //   CATSUP_desk        1.3（2026-10-29，Claude Opus 5.5；Tron 账本 T86 user「记账，风格跟着文件走」）：可选键 style / screen（视图 ☰「风格」「屏幕」选过才写；
 //                      不透明字符串，format 层不认识预设 id）。老读者少看见它 = 用自己的默认风格打开（minor 语义：看法丢了，内容一字不少）。
+//   CATSUP_desk        1.4（2026-11-04，Claude Opus 5.5；计划书 §9.2½ ②，user「我建议文件workbench而不是workpiece记住」）：可选键 exportModel（导出表单上次的选择，字符串键值）。
+//                      老读者少看见它 = 导出表单用默认（minor 语义：习惯丢了，内容一字不少）。
 //   CATSUP_references  1.0（2026-10-25，Claude Opus 5.5；契约 §5.8）：参考窗牌组 = @internal/reference-window 的目录 `.catsup/references/`（manifest.json + 每张卡）原样进 glb：
 //                      files[] = { path, mimeType, bufferView }；**本层不懂清单**（清单的拍子 / 迁移归库）。空牌组不写这个扩展（抠）。不进定稿指纹、不进撤销；
 //                      **major 比本版新 → 不拒开**（同 desk）：原字节带回、参考窗先不显示、提示一次。user 2026-10-25「咱们是不忘了接reference window. 先看懂我们的文件规范」。
@@ -79,7 +81,7 @@ export const FORMAT = {
   CATSUP_definitions: { major: 7, minor: 0, patch: 0 },   // 7.0（2026-11-04）：引用换 GUID
   CATSUP_instance: { major: 2, minor: 0, patch: 0 },   // 2.0（2026-11-04）：节点 definition 换 GUID（只写不读）
   CATSUP_material: { major: 1, minor: 2, patch: 0 },   // 1.2（2026-11-04）：guid   // 1.1（2026-10-30）：材质的 baseColorFactor 按 glTF 规定存线性值（以前存 sRGB 的数；color-space.ts）；老文件不迁移（user「老文件我们现在真的不用念旧」）
-  CATSUP_desk: { major: 1, minor: 3, patch: 0 },   // 1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
+  CATSUP_desk: { major: 1, minor: 4, patch: 0 },   // 1.4（2026-11-04）：可选键 exportModel；1.3（2026-10-29，风格 / 屏幕跟文件走）：可选键 style / screen
   CATSUP_references: { major: 1, minor: 0, patch: 0 },
   /** 网格身体载荷（住在 CATSUP_definitions 的 mesh 项里，不是顶层扩展；mesh-payload.ts）：1.0.0 = 多边形形（2026-10-27 M3）。没拍子、没 faceStart 的 = 0.14 三角汤最小形（migrate/mesh.ts 读成每三角一面）。 */
   CATSUP_mesh: { major: 1, minor: 2, patch: 0 },   // 1.1（2026-10-28 FM129）：smoothDefault 默认平滑 + 边标记位 32 = 手标硬；1.2（2026-10-28 晚，镜像重做第二刀）：mirror { mode, axis } 对称属性（缺 = 关）

@@ -1,5 +1,6 @@
 // 身份地基守卫（计划书 ai-docs/20261104-identity-foundation-plan.md §4；家规「文件里条目的身份 = GUID，不用序号」）。created 2026-11-04 by Claude Opus 5.5
 // ① 文件里每个条目都有合法 GUID，引用全是 GUID ② 读写、撤销重做不重铸；动词不换身份 ③ 老文件迁移（序号 → GUID、对照表、坏数据照旧拒开）④ 对照表：槽号是代号 ⑤ 素材架读写 ⑥ 定义的迁移没拿到材质表就抛（不许静默清槽）。
+import { BUILTIN_BACK_GUID } from "../src/format/guid.ts";
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(p: URL, e: string): string };   // test/*.ts 不拉 @types/node（同 orphan-defs.test.ts）
 import { Kernel } from "../src/kernel/kernel.ts";
@@ -137,7 +138,7 @@ describe("老文件（definitions 6.x → 7）", () => {
         const gs = new Set(d.groups.map((g) => g.guid));
         for (const g of d.groups) assert(g.parent === null || gs.has(g.parent), `${v}/${f} 组 parent`);
         for (const i of d.instances) { assert(defs.has(i.definition), `${v}/${f} 实例 definition`); assert(i.parent === null || gs.has(i.parent), `${v}/${f} 实例 parent`); }
-        for (const m of d.materialSlots) assert(m === null || mats.has(m), `${v}/${f} 槽表`);
+        for (const m of d.materialSlots) assert(m === null || m === BUILTIN_BACK_GUID || mats.has(m), `${v}/${f} 槽表`);
       }
       n++;
     }
@@ -145,6 +146,7 @@ describe("老文件（definitions 6.x → 7）", () => {
   });
   it("迁移语义：6.x 形状读回来 = 同一个场景（面上的槽号、组的父子、实例挂在哪个组都对得上）", () => {
     for (const [name, make] of Object.entries(SCENE_DOCS)) {
+      if (name === "sided") continue;   // 内置默认背面是 7.0 的语义，6.x 没有这个说法
       const s = make(), { json, bin } = jsonOf(writeCatsup(documentFromScene(s, name)));
       downgradeDefinitionsToV6(json);
       eq(sceneFingerprint(sceneFromDocument(readCatsup(encodeGlb(json, bin)))), sceneFingerprint(make()), `${name}：老形状读回来指纹一致`);
