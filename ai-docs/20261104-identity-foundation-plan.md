@@ -304,3 +304,25 @@ ID-2 第一半已按 9.1 合 main：干净重建 + 五个探针全绿，`--ff-on
 **没测到的**：真机和有头渲染；AO 深度那一遍仍看得见被剔的面（写实风格里影子可能对不上，没量）。
 **不是这张单带来的红**：`probe-single-draw`、`probe-new-primitive` 在 main v0.18.30 的构建上也红（前者悬停软边的线组，后者菜单项数和提示行）。没修。
 
+## 11. Fable 审 ID-2b（2026-11-04，Claude Fable 5.1；user「审」）
+
+**结论：合。** §10 的 12 处全部接受。重点核过的三件：
+- **内置材质碰的那十来处**（9.2-A 清单）：`materialOfSlot` / `slotsOf` / `slotGuids` / `read.ts matSeen` 预置 + 槽表读法 / `write.ts isBack` + `slotToCore` / `paintFaces` 放过 −2 / `purgeMaterials` 负值原样 / 三处 `slotFor` 重映射 −2 直通 / `materialUse` 的 `out[-2]` 跳过 / `codeOf` + `pastedMaterial` / `stream-provider` 内置 uid——都对。守卫还钉了「写的那一路源码不碰内置正面」。
+- **新面规矩的确定性**（`kernel/face-sides.ts`）：候选按 id 排、按轮一起定、平票不写、T 字边不投；`front` 是写进 op 的方向，重放同结果。`viewDir(p)` = 从 p 望向眼睛，`fromFront` 的正负号对（探针像素也证了）。**§10 ②（推拉先按 front 定底面）接受**：被推的面搬走变成新实体的盖，盖的里侧写默认背面，是「拉成实体」的自然读法；有意两面都出的面被推拉后变单面，看得见、一步可改。
+- **导出按侧出面的字节**（`bake.ts`）：`trisOf` 对齐 +n 后 side 1 反绕、法向取负（`+ 0` 收 −0 保字节幂等）、UV 按那侧的 `textureBasis`；省流档也分侧。`doubleSided: true` 两处都删了。
+
+另外核了：翻面走 `IdMap` 日志（渲染会重画）；着色器 `c.r < 0 → discard` 本来就有（贴图那一侧的老机制），负颜色剔背面不用改 shader；镜像指令经 `transformSnapshot` 翻侧（DT8 老逻辑），镜出来的那份朝向对；kernel 级撤销记录带骨架，槽表随撤销回去；`exportPicks` 的 `def` 字段和 `exportSides(only)` 对得上。
+
+**顺手修了一处**（随合入）：`FaceLayers.clone()` 没拷 `backSlot` → 预演影子（`shadowKernel`）并面时认不出默认背面，预演可能一闪两侧都背面、提交才对。一行。
+
+**记账，不挡合**：
+1. 预演不跑新面规矩（工具 `live` 直接调内核），松手那一刻背面才上灰蓝；只在拖的过程中能看见将成为背面的那侧时有一跳。
+2. VCB 重画（`commitFront`）按当下相机算 `front`：画完转到另一侧再打尺寸，面会按新视角定朝向。存 `last.front` 复用更稳；先记。
+3. 导出表单说明行走 `documentFromScene` 再 `countSides`，O(模型)，大模型开表单会顿一下；和 `scene/kinds.ts brepSideCounts` 是两份同义算法（隐藏面算不算不同）。以后合一。
+4. **老文件重存会胖**：两侧都是默认正面的面烤成两层，烤的网格约翻倍（format 预算 cylinder 6600 → 8400 就是它）；点一次「自动朝外」就回来。设计后果（9.2½ ①「老文件一次性整理」），不是 bug。
+5. `bornFaces` 的 ABSORB 把吞并方（可能是老面）标成新面；只在那张老面两侧都没写时才会被邻面规矩碰到。
+6. 风格预览 / 演示锁下被剔的默认背面仍可拾取（演示锁本来拒改；风格预览里能选中看不见的面）。
+7. `probe-single-draw` / `probe-new-primitive` 在 main 上就红（§10 已记），和这张单无关，另修。**`probe-render-baseline` 也有两张在 main 上就红**：`style-papercut-boxes`（11.3%，地上的遮蔽影子范围 + 面上一块十字残影）、`style-realistic-textured`（51%，两张贴图面 + 投影整片不同）——分支上重跑两遍、main v0.18.30 的包另起端口跑，像素差逐个一样 = 确定的、不是烘影子的时间飘，是基线比现在的渲染老。另 20 张 ≤ 0.2%。谁动过写实 / 剪纸的影子谁去对（T82 规矩：重冻要在第一刀日志写一行为什么）；这张单不重冻。
+8. user 11-04 在审查时拍的：「推拉一张没朝向的面会给它定朝向 同意」；「老文件 upgrade 用不智能，机械转比较安全对吧」= 对，打开老文件什么都不猜，想单面自己点「自动朝外」。
+
+**合 main 的 ritual**（见下一行实施记录）：干净重建 → 探针（default-back / boot / export / clipboard / render-baseline / undo-fuzz）→ `--ff-only` → bump patch → `gen-api.sh`。不推。

@@ -185,7 +185,7 @@ export class FaceLayers {
   prune(hasFace: (id: FaceId) => boolean): void { for (const m of this.maps.values()) for (const id of [...m.keys()]) if (!hasFace(id)) m.delete(id); }
   /** 增量版：只清这批删掉的 id；alive = 现在还在的（DIVIDE 之类保 id 的事件可能删了又铸回同一个 id）。 */
   pruneIds(ids: readonly FaceId[], alive: (id: FaceId) => boolean): void { if (ids.length) for (const m of this.maps.values()) for (const id of ids) if (!alive(id)) m.delete(id); }
-  clone(): FaceLayers { const c = new FaceLayers(); for (const [n, m] of this.maps) if (m.size) c.maps.set(n, c.newMap(m)); return c; }
+  clone(): FaceLayers { const c = new FaceLayers(); c.backSlot = this.backSlot; for (const [n, m] of this.maps) if (m.size) c.maps.set(n, c.newMap(m)); return c; }   // backSlot 一起拷：预演影子（editor shadowKernel）并面时也认得默认背面（Fable 审 ID-2b 2026-11-04）
   /** 快照：名字 → 每面一个值（−1 = 无），按给定面序。 */
   toIndex(faceIds: readonly FaceId[]): Record<string, number[]> | undefined {
     const out: Record<string, number[]> = {};
