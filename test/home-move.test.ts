@@ -3,7 +3,7 @@
 import { describe, it, eq, assert } from "./runner.mjs";
 import { createStore } from "@internal/store";
 import { createMockEncryption, createMockLocal, createMockProvider } from "@internal/store/testing";
-import { moveFinished, moveKindOf, moveSay, moveToHome, NotLandedError, sameBytes, writeNewVerified, type HomeMovePorts, type ModelToMove } from "../src/app/home-move.ts";
+import { carryVerifier, moveFinished, moveKindOf, moveSay, moveToHome, NotLandedError, sameBytes, verifierSay, writeNewVerified, type HomeMovePorts, type ModelToMove, type VerifierCarryPorts } from "../src/app/home-move.ts";
 import { identifierForFile, putBack, type PutBackPorts } from "../src/app/put-back.ts";
 
 const KINDS = [{ kind: "glb", suffix: ".catsup", container: "raw" as const }];
@@ -139,6 +139,50 @@ describe("搬家：读 → 写新家 → 读回比 → 才从旧库移走", () =
   it("说人话：带名单；没搬成的说「一个字节没动」", () => {
     const said = moveSay({ moved: [{ from: "a.catsup", to: "a (2).catsup" }], copied: [], failed: [{ identifier: "夹/b.catsup", reason: "x" }], stuck: [] }, "我的模型", (id) => id.replace(/^.*\//, "").replace(/\.catsup$/, ""));
     assert(said.bad); assert(/1 份搬进了「我的模型」（1 份撞名，加了编号）/.test(said.text), said.text); assert(/1 份没搬成，还在浏览器里，一个字节没动：b/.test(said.text), said.text);
+  });
+});
+
+describe("口令验证器跟着搬（Fable 11-04）：有加密件 ∧ 新家还没有 → 原样拷；新家已有 → 不动；对不上新家 → 不拷", () => {
+  const KEY = "galleryPasswordVerifier", REC = { v: 1, salt: "c2FsdA==", iv: "aXY=", ct: "Y3Q=" }, OTHER = { v: 1, salt: "b3RoZXI=", iv: "aXY=", ct: "b3RoZXI=" };
+  const mk = (appId: string, provider: unknown, online: () => boolean) => createStore({ ...STORE, encryption: createMockEncryption(), appId, provider, signedIn: () => true, isOnline: online, local: createMockLocal(), kv: kvRaw() } as never);
+  /** 和 src/app-store.ts verifierCarryPorts 同一套语义（那边住接缝）。 */
+  const ports = (src: ReturnType<typeof mk>, dest: ReturnType<typeof mk>): VerifierCarryPorts => {
+    const col = async (s: ReturnType<typeof mk>) => { const c = s.collection("app-state"); await c.init(); return c; };
+    return {
+      source: async () => (await col(src)).getItem(KEY) ?? null,
+      dest: async () => { const c = await col(dest); const r = await c.reconcileWithRemote(); return { known: r.status === "synced" || r.status === "unchanged", record: c.getItem(KEY) ?? null }; },
+      write: async (rec) => { const c = await col(dest); c.setItem(KEY, rec); await c.reconcileWithRemote(); await c.flushLocal(); },
+    };
+  };
+  async function rig(o: { srcHas?: boolean; destHas?: unknown; destOnline?: boolean } = {}) {
+    const folder = createMockProvider() as MockProvider;
+    const src = mk("catsup", createMockProvider(), () => false), dest = mk("catsup", folder, () => o.destOnline ?? true);
+    if (o.srcHas !== false) { const c = src.collection("app-state"); await c.init(); c.setItem(KEY, REC); }
+    if (o.destHas) { const other = mk("catsup", folder, () => true); const c = other.collection("app-state"); await c.init(); c.setItem(KEY, o.destHas); eq((await c.reconcileWithRemote()).status, "synced", "前提：夹里已有一个"); await other.dispose(); }
+    return { src, dest, folder, p: ports(src, dest) };
+  }
+  /** 夹里真的那份（另起一个实例读，不看 dest 的内存）。 */
+  const inFolder = async (folder: MockProvider): Promise<unknown> => { const s = mk("catsup", folder, () => true); const c = s.collection("app-state"); await c.init(); await c.reconcileWithRemote(); const v = c.getItem(KEY) ?? null; await s.dispose(); return v; };
+  it("有加密件、新家没有：原样拷过去，夹里那份 = 源库那份", async () => {
+    const { folder, p } = await rig();
+    eq(await carryVerifier(true, p), "copied");
+    eq(JSON.stringify(await inFolder(folder)), JSON.stringify(REC));
+  });
+  it("新家已有自己的：一个字不动，结果说「用原口令开」", async () => {
+    const { folder, p } = await rig({ destHas: OTHER });
+    eq(await carryVerifier(true, p), "dest-has-own");
+    eq(JSON.stringify(await inFolder(folder)), JSON.stringify(OTHER));
+    assert(/文件夹已有自己的口令，搬进去的加密件用原口令开/.test(verifierSay("dest-has-own", "夹")));
+  });
+  it("和新家对不上（离线）：不拷——拷过去的戳新，会盖掉夹里可能已有的那个", async () => {
+    const { folder, p } = await rig({ destHas: OTHER, destOnline: false });
+    eq(await carryVerifier(true, p), "dest-unknown");
+    eq(JSON.stringify(await inFolder(folder)), JSON.stringify(OTHER));
+  });
+  it("没搬加密件 / 源库本来就没有：什么都不做", async () => {
+    const a = await rig(); eq(await carryVerifier(false, a.p), "not-needed"); eq(await inFolder(a.folder), null);
+    const b = await rig({ srcHas: false }); eq(await carryVerifier(true, b.p), "source-has-none"); eq(await inFolder(b.folder), null);
+    eq(verifierSay("not-needed", "夹"), ""); eq(verifierSay("source-has-none", "夹"), "");
   });
 });
 

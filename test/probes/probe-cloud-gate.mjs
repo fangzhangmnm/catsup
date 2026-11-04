@@ -326,6 +326,36 @@ console.log("同步闸门：云端有新 + 本机干净 → 拉取时罩 + 锁�
   await e.close();
 }
 
+console.log("退出登录 = 拆库（Fable 11-04，对齐 MoonSinger）：开着的模型留在内存里当临时模型；图库关掉、不能再往浏览器里新建；本机字节不删（2026-11-04 Opus）");
+{
+  const s = await scene();
+  await s.prepare();
+  const before = await s.page.evaluate(() => ({ path: globalThis.__catsup.session.home.path, edges: globalThis.__catsup.editor.kernel.edges().length }));
+  await s.page.evaluate(() => globalThis.__catsup.galleryHost.open());
+  await s.page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+  await s.page.click("#galleryCloudBtn");
+  await s.page.click(".popup-menu .menu-item:has-text('退出登录')");
+  await s.page.waitForFunction(() => globalThis.__catsup.store() === null, null, { timeout: 8000 });
+  const after = await s.page.evaluate(async () => ({
+    galleryHidden: document.getElementById("galleryFull").hidden, home: globalThis.__catsup.session.home.kind, dirty: globalThis.__catsup.session.dirty(),
+    edges: globalThis.__catsup.editor.kernel.edges().length, attached: localStorage.getItem("catsup-7c1f0d2e9a4b6c58:gallery-attached"),
+    dbs: (await indexedDB.databases()).map((d) => d.name), notice: document.getElementById("noticeStack")?.textContent ?? "",
+  }));
+  ok(after.galleryHidden, "图库关了");
+  eq(after.home, "transient", "开着的那份变成临时模型（文件模式）");
+  ok(after.edges === before.edges && after.edges > 0 && !after.dirty, "模型还在内存里、没丢一笔（之前落过本机，不算没存）");
+  eq(after.attached, null, "没有没传的：下次开机不再挂那个库");
+  ok(after.dbs.includes("catsup.defaultStore"), "本机那份库一个字节没删（IDB 还在）");
+  ok(/开着的模型留在这里当临时模型/.test(after.notice), "通知说清楚：" + after.notice.slice(0, 60));
+  void s.page.evaluate(() => { void globalThis.__catsup.home.openGallery(); });
+  await s.page.waitForFunction(() => !document.getElementById("sheet").hidden, null, { timeout: 8000 });
+  ok(/图库要有一个家/.test(await s.page.evaluate(() => document.getElementById("sheet").textContent)), "再点图库 = 先选家，不往浏览器里开");
+  await s.page.click("#sheetCancel");
+  await s.page.evaluate(() => globalThis.__catsup.session.newDoc());
+  eq(await s.page.evaluate(() => ({ store: globalThis.__catsup.store() === null, home: globalThis.__catsup.session.home.kind })).then((x) => `${x.store}/${x.home}`), "true/transient", "新建 = 临时模型，没建 store");
+  await s.close();
+}
+
 await browser.close();
 if (failures.length) { console.error(`\n✗ ${failures.length} 条没过：\n  - ` + failures.join("\n  - ")); process.exit(1); }
 console.log("\n✓ probe-cloud-gate OK");

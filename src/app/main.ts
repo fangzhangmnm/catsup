@@ -44,7 +44,7 @@ import { createReferenceHost } from "./reference-host.ts";
 import { restoreLastSession, readSlate, setRestoreAttempt, snapshotFolderOnce, walkLibrary, setActiveGalleryId, type RestoreOutcome, type GalleryEntry } from "@internal/gallery";
 import { planReturn, neverUploadedIds } from "./cloud-return.ts";
 import { bootFolderEntry, canPickFolder, ensureFolderPermission, forgetFolderHome, hasHome, homeState, pickFolderEntry, rememberFolderHome, type HomeState } from "./gallery-home.ts";
-import { moveFinished, moveKindOf, moveSay, moveToHome, type ModelToMove } from "./home-move.ts";
+import { carryVerifier, moveFinished, moveKindOf, moveSay, moveToHome, verifierSay, type ModelToMove } from "./home-move.ts";
 import { isCatsupDocumentHead } from "../format/peek.ts";
 import { identifierForFile, putBack } from "./put-back.ts";
 // 口令（2026-10-29 周账 F-123）：政策 crypto-state / 验证器 / 设备记住；面板注入在下面 setPasswordPrompt；解锁循环 unlock.ts
@@ -53,7 +53,7 @@ import { appEncryption, passwordKeeper } from "../encryption.ts";
 import { hasVerifier, checkVerifier } from "../password-verifier.ts";
 import { wireRememberPassword, restoreRemembered, forgetRemembered, rememberedUntil, rememberChoice, setRememberChoice, rememberAvailable, onRememberChange } from "../remember-password.ts";
 import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, unlockImportedContainer } from "./unlock.ts";
-import { attachFolderHome, currentFolderDestination, disposeStore, folderHomeLabel, folderHomeOnline, homeMovePorts, isFolderHome, legacyLibraryExists, legacyStore, openFolderDestination, putBackPorts, setFolderHomeOnline, cloudReachable, verifierReady } from "../app-store.ts";
+import { attachFolderHome, currentFolderDestination, disposeStore, folderHomeLabel, folderHomeOnline, homeMovePorts, isFolderHome, legacyLibraryExists, legacyStore, openFolderDestination, putBackPorts, setFolderHomeOnline, verifierCarryPorts, cloudReachable, verifierReady } from "../app-store.ts";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, docFile, ensureStore, hasStore, isCached, requireStore } from "../app-store.ts";
@@ -1566,7 +1566,8 @@ function updateSaveStatus(): void {
   // 「上次开着什么」= @internal/gallery 回执条，唯一写点在 session.setHome（v0.5.7；旧 last-doc / last-scene 键退役）。
   //   gallery-attached = 「这台设备曾挂过图库」（WeebPaint registry 的单库等价物）：boot 据此在 initAuth 之前接店、本地恢复。
   //   文件夹家不碰这个旗：它说的是以前那个本机库（搬家要认它）；换家那一段（搬完到刷新）也不碰：搬家刚把它记成退役。以前那个库又当家了 = 不再算退役。
-  if (!isFolderHome() && !homeSwitching) { deviceKvSet("gallery-attached", hasStore() ? "1" : null); if (hasStore()) deviceKvSet("legacy-retired", null); }
+  //   只在挂着库时记「1」；清它的只有四处明说的：开机拆空库（settleNoHome）、搬完退役（runMove）、文件夹家数到旧库是空的（moveIntoCurrentFolder）、退出登录（cloudSignOut）。
+  if (!isFolderHome() && !homeSwitching && hasStore()) { deviceKvSet("gallery-attached", "1"); deviceKvSet("legacy-retired", null); }
 }
 /** 换家进行中（选了文件夹 → 搬 → 记名册 → 刷新）：这一段 updateSaveStatus 不写家的旗。 */
 let homeSwitching = false;
@@ -1704,7 +1705,28 @@ function cloudSignIn(): void {
       .then((leave) => { if (leave) go(); });
   } else go();   // 手势同步栈起跳（iOS redirect）
 }
-async function cloudSignOut(): Promise<void> { note("auth", "sign-out click"); try { await auth.signOut(); lockPasswords(); void forgetRemembered(); notify({ text: "已退出 OneDrive 登录（本机副本仍在；口令也忘了）", level: "info" }); } catch (e) { funnel(e); } }   // 退出登录 = 锁 + 忘（ADR-0001）
+/** 退出登录 = 拆库 + 锁 + 忘（Fable 11-04「对齐 MoonSinger = 拆库」；ADR-0001 锁 + 忘）：开着的那份先落本机 → 关图库 → 退出微软账号
+ *  （库还活着，听得见「登出」、清掉云端列表的缓存）→ 放掉 store → 开着的模型留在内存里当临时模型（文件模式：存 = 存到磁盘）→ 锁 + 忘口令。
+ *  这台设备上的字节一个不删不动，再登录就接上。之后不能往浏览器里新建（没有家 = 文件模式）。
+ *  还有没传上去的：下次开机照旧挂上那个库（gallery-attached 留着）= 「只在浏览器里」那条 + 问一次搬 / 导出，不让它们藏起来。 */
+async function cloudSignOut(): Promise<void> {
+  note("auth", "sign-out click");
+  try {
+    const left = hasStore() ? await requireStore().files.dirty.count().catch(() => 0) : 0;
+    await session.flushLocal();
+    if (galleryHost.isOpen()) galleryHost.close();
+    await auth.signOut();
+    await new Promise((r) => setTimeout(r, 50));   // 让库收完「登出」那一下（清云端列表缓存）再放掉它
+    if (hasStore()) { await disposeStore(); storeWired = false; }
+    deviceKvSet(KV_ATTACHED, left > 0 ? "1" : null);
+    session.detachFromGallery();
+    lockPasswords(); void forgetRemembered();
+    browserOnlyCount = 0;
+    updateSaveStatus(); updateCloudChip();
+    note("home", `signed out → library detached (unpushed left in this browser: ${left})`);
+    notify({ text: `已退出 OneDrive 登录：图库关了，开着的模型留在这里当临时模型（存 = 存到磁盘）；这台设备上的副本一个没删${left ? `，其中 ${left} 份还没传上去，再登录会接着传` : ""}；口令也忘了`, level: "info", timeoutMs: null });
+  } catch (e) { funnel(e); }
+}
 type CloudId = "in" | "out" | "refresh" | "regrant" | "useCloud" | "leaveFolder";
 /** 离开文件夹家：文件一个字节不动，只是下次不挂。还有没写进去的如实说（不硬拦，09-29）。 */
 async function leaveFolderHome(thenSignIn: boolean): Promise<void> {
@@ -1861,15 +1883,20 @@ async function askMove(n: number, label: string): Promise<"move" | "export" | "l
 async function runMove(items: readonly ModelToMove[], dest: { store: StoreFace; label: string; readBack: (identifier: string) => Promise<Blob | null> }): Promise<void> {
   const src = legacyStore();
   try {
-    const r = await withBusy(`正在搬进「${dest.label}」…`, () => moveToHome(items, homeMovePorts(src.store, dest)));
+    const ports = homeMovePorts(src.store, dest);
+    const r = await withBusy(`正在搬进「${dest.label}」…`, () => moveToHome(items, ports));
+    // 口令验证器跟着搬（Fable 11-04）：搬进去的有加密件 ∧ 新家还没有 → 原样拷过去；新家已有 → 不动。判定在 home-move.ts carryVerifier。
+    const movedEncrypted = [...r.moved, ...r.copied].some((m) => ports.encrypted.has(m.from));
+    const carry = await carryVerifier(movedEncrypted, verifierCarryPorts(src.store, dest.store)).catch((e) => { funnel(e, "warning"); return "dest-unknown" as const; });
     const finished = moveFinished(r);
     browserOnlyCount = finished ? 0 : r.failed.length + r.stuck.length;
-    note("home", `move → "${dest.label}": moved=${r.moved.length} copied=${r.copied.length} failed=${r.failed.length} stuck=${r.stuck.length}`);
+    note("home", `move → "${dest.label}": moved=${r.moved.length} copied=${r.copied.length} failed=${r.failed.length} stuck=${r.stuck.length} encrypted=${ports.encrypted.size} verifier=${carry}`);
     if (finished) {   // 旧库退役：不再数、不再问；移走的在旧库的回收站里（还原出厂才清），连着网盘的还在原处
       deviceKvSet(KV_LEGACY_RETIRED, "1");
       if (!accountExpected) deviceKvSet(KV_ATTACHED, null);   // 没账号 = 以后断开文件夹回到文件模式，不再接以前那个库（有账号：它是网盘的本机副本，留着）
     }
-    deviceKvSet(KV_MOVE_NOTE, JSON.stringify(moveSay(r, dest.label, bareName)));
+    const said = moveSay(r, dest.label, bareName), extra = verifierSay(carry, dest.label);
+    deviceKvSet(KV_MOVE_NOTE, JSON.stringify(extra ? { ...said, text: `${said.text}；${extra}` } : said));
   } finally { if (src.owned) await src.store.dispose().catch(() => {}); }
 }
 function sayMoveNote(): void {

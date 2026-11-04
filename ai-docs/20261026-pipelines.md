@@ -361,4 +361,4 @@ flowchart LR
 - **入口**：点「图库」→ `openGalleryFromUi` → 等登录探测（≤ 3 s）→ 数一遍浏览器里的旧模型 → `currentHomeState()`：没有家 = 选家面（不建 store），有家 / 还有没搬的 = 开图库。
 - **搬家**（`main.ts runMove` → `home-move.ts moveToHome`，每份）：读旧库 at-rest 字节（随旧库份数涨）→ 先读夹里同名（同字节 = 算写好）→ `mode:"new"` 写 + 推进夹（撞名换「 (n)」）→ 从夹里真的读回、逐 4 MB 块比 → move 类才 `trash()` 旧库那份（旧库实例永远离线：不会排云端删除）。开销 = 每份两次夹内读 + 一次写，和库里别的模型无关。
 - **数旧模型**（`legacyScan`）：文件夹家时另开一个离线旧库实例走遍文件夹的本地帧再 dispose（随旧库份数涨；退役后不再开）。
-
+- **Fable 审后补（同日）**：搬完 → `carryVerifier`（有加密件才看；源库 app-state 读一条 → 新家 app-state 和夹里对一次 → 没有才原样写 + 再对一次推进夹 + 落本机）。退出登录：`flushLocal` → 关图库 → `auth.signOut()`（库还活着，清云端列表缓存）→ `disposeStore` → `session.detachFromGallery()`（家 → 临时，内存里的模型不动）→ 锁 + 忘。

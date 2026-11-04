@@ -1,6 +1,6 @@
 import { requestStoragePersistence, isCached, isDirty, scanAppNamespace } from "@internal/store";
 import type { Store, RawFile, DocKind } from "@internal/store";
-import { type HomeMovePorts, type VerifiedWritePorts } from "./app/home-move.ts";
+import { type HomeMovePorts, type VerifiedWritePorts, type VerifierCarryPorts } from "./app/home-move.ts";
 /** 文档种类表（store 0.16）：同一种文档两种拼法（库：「几行可以是同一个 kind」）——.catsup（2026-10-28 起新文档都写它，账本 UX39）+ 老的 .glb 工程（永远照开、不改名）。
  *  kind 标签沿用 "glb"（缩略图 kinds / 名册都认这个词，换标签没好处）。裸文件不是 zip。图库包据它认文档 / 切主干 / 改名只编辑主干（后缀保留）。 */
 export declare const DOC_KINDS: readonly DocKind[];
@@ -47,13 +47,19 @@ export declare function legacyStore(): {
     store: Store;
     owned: boolean;
 };
-/** 搬家的写口（红线守卫：store 的写只准在接缝和 session）。读源 = at-rest 字节（加密件 = 容器，不解开）；写 = 只新建、必须落进新家；移走 = 进旧库回收站。 */
+/** 搬家的写口（红线守卫：store 的写只准在接缝和 session）。读源 = at-rest 字节（加密件 = 容器，不解开）；写 = 只新建、必须落进新家；移走 = 进旧库回收站。
+ *  encrypted = 这趟读到的加密件（口令验证器要不要跟着搬，看它）。 */
 export declare function homeMovePorts(src: Store, dest: {
     store: Store;
     readBack: (identifier: string) => Promise<Blob | null>;
-}): HomeMovePorts;
+}): HomeMovePorts & {
+    encrypted: Set<string>;
+};
 /** 「放回图库」的写口：写进现在的家（推不推 = 现在写不写得进去；没推上 = 和离线保存一样留着待推）；读回 = 本机落下的 at-rest 字节（容器原样）。 */
 export declare function putBackPorts(): VerifiedWritePorts;
+/** 口令验证器跟着搬的端口（判定在 home-move.ts carryVerifier）：新家「有没有」= 和夹里对过一次（reconcile 回 synced / unchanged）才算知道；
+ *  写 = 原样 setItem + 再对一次把它推进夹里 + 落本机（搬家的目的地实例马上要 dispose，刷新后同一个库接着推）。 */
+export declare function verifierCarryPorts(src: Store, dest: Store): VerifierCarryPorts;
 /** 口令验证器接上了没有（无地 = 立刻）。解锁 / 首次加密前先等它。 */
 export declare function verifierReady(): Promise<void>;
 export declare function requireStore(): Store;

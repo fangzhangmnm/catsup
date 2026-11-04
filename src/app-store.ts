@@ -24,7 +24,7 @@
 //   库 0.14 起「在线 = 有网 ∧ signedIn()」，`open()` 在线时先等一次云端 etag 往返；未登录 → 直接读本地零网络。谁把 initAuth 排到恢复前面，
 //   谁就把「开机秒开」变回「开机等一次 Graph」。登录落地后的新鲜度由 session.refreshOpenDoc（pullIfClean，trustHints:false）后台补。
 import { createStore, createOneDriveProvider, createFolderProvider, requestStoragePersistence, isCached, isDirty, scanAppNamespace, DEFAULT_GRAPH_TIMEOUTS } from "@internal/store";
-import type { Store, RawFile, DocKind, GraphTransportOptions } from "@internal/store";
+import type { Store, RawFile, DocKind, GraphTransportOptions, Collection } from "@internal/store";
 import { APP_ID, AUTHORITY, CLIENT_ID, DOC_EXT, HIDDEN_NAME_RE, LEGACY_DOC_EXT, MSAL_URL, SCOPES } from "./config.ts";
 import { storeUI } from "./store-ui.ts";
 import { appEncryption } from "./encryption.ts";
@@ -32,7 +32,7 @@ import { getPassword } from "./crypto-state.ts";   // 口令接缝：store 非�
 import { isVerifierRecord, wireVerifierStore } from "./password-verifier.ts";
 import { isCatsupDocumentHead } from "./format/peek.ts";
 import { cloudOnline } from "./app/user-offline.ts";   // 工单 C：「离线继续」= 库在离线态一条网都不打（设计稿 §3）
-import { NotLandedError, type HomeMovePorts, type VerifiedWritePorts } from "./app/home-move.ts";   // 搬家 / 放回图库的写口住接缝（纯逻辑在 home-move.ts）
+import { NotLandedError, type HomeMovePorts, type VerifiedWritePorts, type VerifierCarryPorts } from "./app/home-move.ts";   // 搬家 / 放回图库的写口住接缝（纯逻辑在 home-move.ts）
 
 /** 文档种类表（store 0.16）：同一种文档两种拼法（库：「几行可以是同一个 kind」）——.catsup（2026-10-28 起新文档都写它，账本 UX39）+ 老的 .glb 工程（永远照开、不改名）。
  *  kind 标签沿用 "glb"（缩略图 kinds / 名册都认这个词，换标签没好处）。裸文件不是 zip。图库包据它认文档 / 切主干 / 改名只编辑主干（后缀保留）。 */
@@ -148,10 +148,13 @@ export function legacyStore(): { store: Store; owned: boolean } {
   if (_store && !_folder) return { store: _store, owned: false };
   return { store: buildStore({ provider: od.provider, signedIn: () => false, isOnline: () => false }), owned: true };
 }
-/** 搬家的写口（红线守卫：store 的写只准在接缝和 session）。读源 = at-rest 字节（加密件 = 容器，不解开）；写 = 只新建、必须落进新家；移走 = 进旧库回收站。 */
-export function homeMovePorts(src: Store, dest: { store: Store; readBack: (identifier: string) => Promise<Blob | null> }): HomeMovePorts {
+/** 搬家的写口（红线守卫：store 的写只准在接缝和 session）。读源 = at-rest 字节（加密件 = 容器，不解开）；写 = 只新建、必须落进新家；移走 = 进旧库回收站。
+ *  encrypted = 这趟读到的加密件（口令验证器要不要跟着搬，看它）。 */
+export function homeMovePorts(src: Store, dest: { store: Store; readBack: (identifier: string) => Promise<Blob | null> }): HomeMovePorts & { encrypted: Set<string> } {
+  const encrypted = new Set<string>();
   return {
-    read: async (id) => { const f = src.file(id, { mode: "existing" }); return ((await f.getEncryptedBlob()) as Blob | null) ?? f.open(); },
+    encrypted,
+    read: async (id) => { const f = src.file(id, { mode: "existing" }); const c = (await f.getEncryptedBlob()) as Blob | null; if (c) encrypted.add(id); return c ?? f.open(); },
     writeNew: async (id, bytes) => { const w = await dest.store.file(id, { mode: "new" }).save(bytes, { tryPush: true }); if (!w.pushed) throw new NotLandedError(id, w.reason); },
     readBack: (id) => dest.readBack(id),
     discard: async (id) => { await dest.store.file(id, { mode: "existing" }).trash(); },
@@ -174,11 +177,38 @@ function renamedIdentifier(store: Store, id: string, n: number): string {
   const d = store.identifiers.parse(id);
   return d ? store.identifiers.join({ folder: d.folder, stem: `${d.stem} (${n})`, suffix: d.suffix }) : `${id} (${n})`;
 }
+const VERIFIER_KEY = "galleryPasswordVerifier";
+/** collection "app-state" 每个 store 实例 init 一次（库里 collection 是单例；init 再调会重读本地）。 */
+const _appState = new WeakMap<Store, Promise<Collection>>();
+function appStateOf(store: Store): Promise<Collection> {
+  let p = _appState.get(store);
+  if (!p) { const col = store.collection("app-state"); p = col.init().then(() => col); _appState.set(store, p); }
+  return p;
+}
 function wireVerifierOf(store: Store): void {
   // 图库口令验证器（password-verifier.ts）：synced collection "app-state" 的一项，跟账号走。init 完才接——没接之前 hasVerifier() = false，
   //   解锁循环 / 首次加密都先 await verifierReady()，免得把真验证器当「没设过」覆盖掉。
-  const col = store.collection("app-state");
-  _verifierReady = col.init().then(() => { wireVerifierStore({ get: () => { const v = col.getItem("galleryPasswordVerifier"); return isVerifierRecord(v) ? v : null; }, set: (rec) => col.setItem("galleryPasswordVerifier", rec) }); }).catch(() => { /* 接不上 = 当没有验证器；库已 reportError */ });
+  _verifierReady = appStateOf(store).then((col) => { wireVerifierStore({ get: () => { const v = col.getItem(VERIFIER_KEY); return isVerifierRecord(v) ? v : null; }, set: (rec) => col.setItem(VERIFIER_KEY, rec) }); }).catch(() => { /* 接不上 = 当没有验证器；库已 reportError */ });
+}
+/** 口令验证器跟着搬的端口（判定在 home-move.ts carryVerifier）：新家「有没有」= 和夹里对过一次（reconcile 回 synced / unchanged）才算知道；
+ *  写 = 原样 setItem + 再对一次把它推进夹里 + 落本机（搬家的目的地实例马上要 dispose，刷新后同一个库接着推）。 */
+export function verifierCarryPorts(src: Store, dest: Store): VerifierCarryPorts {
+  return {
+    source: async () => { const v = (await appStateOf(src)).getItem(VERIFIER_KEY); return isVerifierRecord(v) ? v : null; },
+    dest: async () => {
+      const col = await appStateOf(dest);
+      const r = await col.reconcileWithRemote();
+      const v = col.getItem(VERIFIER_KEY);
+      return { known: r.status === "synced" || r.status === "unchanged", record: isVerifierRecord(v) ? v : null };
+    },
+    write: async (rec) => {
+      const col = await appStateOf(dest);
+      col.setItem(VERIFIER_KEY, rec);
+      await col.reconcileWithRemote();
+      const f = await col.flushLocal();
+      if (!f.ok) throw new Error("password verifier not written locally");
+    },
+  };
 }
 let _verifierReady: Promise<void> = Promise.resolve();
 /** 口令验证器接上了没有（无地 = 立刻）。解锁 / 首次加密前先等它。 */

@@ -112,6 +112,36 @@ export async function moveToHome(items: readonly ModelToMove[], p: HomeMovePorts
   return r;
 }
 
+// ---- 口令验证器跟着搬（Fable 11-04 裁定）----
+//   只在「这趟搬进去的里面有加密件 ∧ 新家还没有验证器」时，把源库 app-state 的验证器**原样**拷过去（它本来就是 store 的 collection，不是新持久层）。
+//   新家已有 → 一个字不动（搬进去的加密件用原口令开）。「还没有」要和新家对过一次才算：对不上 = 不拷——collection 按条目比时间戳，拷过去的戳新，会盖掉夹里已有的那个。
+export type VerifierCarry = "copied" | "dest-has-own" | "source-has-none" | "dest-unknown" | "not-needed";
+export interface VerifierCarryPorts {
+  /** 源库的验证器（没有 = null）。 */
+  source(): Promise<unknown | null>;
+  /** 新家的验证器；known = 和新家真的对过一次（没对上 = 不知道）。 */
+  dest(): Promise<{ known: boolean; record: unknown | null }>;
+  /** 原样写进新家。 */
+  write(record: unknown): Promise<void>;
+}
+export async function carryVerifier(movedEncrypted: boolean, p: VerifierCarryPorts): Promise<VerifierCarry> {
+  if (!movedEncrypted) return "not-needed";
+  const src = await p.source();
+  if (src == null) return "source-has-none";
+  const d = await p.dest();
+  if (!d.known) return "dest-unknown";
+  if (d.record != null) return "dest-has-own";
+  await p.write(src);
+  return "copied";
+}
+/** 结果那句话后面接的一句（没事可说 = 空）。 */
+export function verifierSay(c: VerifierCarry, home: string): string {
+  if (c === "copied") return `图库口令也一起搬进「${home}」了，加密的用原来的口令开`;
+  if (c === "dest-has-own") return `文件夹已有自己的口令，搬进去的加密件用原口令开`;
+  if (c === "dest-unknown") return `没对上「${home}」里有没有口令，口令没搬；搬进去的加密件用原口令开`;
+  return "";
+}
+
 /** 这趟搬完，旧库算不算空了（全部搬成 / 拷成才算；拷过去的旧的留着不影响：它们的正本谱系在网盘）。 */
 export const moveFinished = (r: HomeMoveResult): boolean => r.failed.length === 0 && r.stuck.length === 0;
 

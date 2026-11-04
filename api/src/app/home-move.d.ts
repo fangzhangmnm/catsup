@@ -56,6 +56,21 @@ export interface HomeMoveResult {
     }[];
 }
 export declare function moveToHome(items: readonly ModelToMove[], p: HomeMovePorts): Promise<HomeMoveResult>;
+export type VerifierCarry = "copied" | "dest-has-own" | "source-has-none" | "dest-unknown" | "not-needed";
+export interface VerifierCarryPorts {
+    /** 源库的验证器（没有 = null）。 */
+    source(): Promise<unknown | null>;
+    /** 新家的验证器；known = 和新家真的对过一次（没对上 = 不知道）。 */
+    dest(): Promise<{
+        known: boolean;
+        record: unknown | null;
+    }>;
+    /** 原样写进新家。 */
+    write(record: unknown): Promise<void>;
+}
+export declare function carryVerifier(movedEncrypted: boolean, p: VerifierCarryPorts): Promise<VerifierCarry>;
+/** 结果那句话后面接的一句（没事可说 = 空）。 */
+export declare function verifierSay(c: VerifierCarry, home: string): string;
 /** 这趟搬完，旧库算不算空了（全部搬成 / 拷成才算；拷过去的旧的留着不影响：它们的正本谱系在网盘）。 */
 export declare const moveFinished: (r: HomeMoveResult) => boolean;
 /** 结果说一句人话（带名单：UX 误导 = 数据安全缺陷，家族 10-26）。 */

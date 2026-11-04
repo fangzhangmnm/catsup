@@ -67,5 +67,17 @@ describe("守卫：图库必须有家（规则书第 13 条）", () => {
     const w = fnBody(mv, "export async function writeNewVerified");
     assert(w.lastIndexOf("p.readBack(name)") > w.indexOf("p.writeNew(name, bytes)") && /sameBytes\(bytes, back\)/.test(w));
   });
+  it("退出登录 = 拆库（Fable 11-04，对齐 MoonSinger）：先落本机 → 关图库 → 登出 → 放掉 store → 开着的留作临时模型 → 锁 + 忘", () => {
+    const fn = fnBody(main, "async function cloudSignOut");
+    const seq = ["session.flushLocal()", "galleryHost.close()", "auth.signOut()", "disposeStore()", "session.detachFromGallery()", "lockPasswords()"].map((x) => fn.indexOf(x));
+    assert(seq.every((v, i) => v > 0 && (i === 0 || v > seq[i - 1]!)), seq.join());
+    assert(/deviceKvSet\(KV_ATTACHED, left > 0 \? "1" : null\)/.test(fn), "还有没传的：下次开机照旧挂上（不让它们藏起来）");
+    assert(!/wipe|trash\(|deleteDatabase/.test(fn), "旧库的字节一个不删");
+  });
+  it("「这台设备挂过图库」的旗：平时只记 1，清它的只有明说的四处", () => {
+    assert(/if \(!isFolderHome\(\) && !homeSwitching && hasStore\(\)\) \{ deviceKvSet\("gallery-attached", "1"\)/.test(fnBody(main, "function updateSaveStatus")));
+    const clears = strip(main).split("\n").filter((l) => /deviceKvSet\((KV_ATTACHED|"gallery-attached"), (null|left > 0)/.test(l)).length;
+    eq(clears, 4, "settleNoHome / runMove 退役 / 文件夹家数到旧库是空的退役 / cloudSignOut");
+  });
   it("OneDrive scope 没动（硬规则 #6）", () => { assert(!/Files\.ReadWrite["'`]|Files\.Read["'`]/.test(strip(read("src/config.ts")))); });
 });

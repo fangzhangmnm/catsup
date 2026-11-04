@@ -149,12 +149,19 @@ console.log("\n③ 权限掉 → 开机不弹、离线态 → 一键授权 → �
   await dev2.ctx.close();
 }
 
-console.log("\n④ 旧设备：浏览器里 3 份 → 开机问一次 → 选夹搬 → 夹里 3 份字节相等 → 旧库空");
+console.log("\n④ 旧设备：浏览器里 3 份（1 份加密）→ 开机问一次 → 选夹搬 → 夹里 3 份字节相等 → 旧库空 → 口令验证器跟着搬、原口令开得了");
 {
+  const PW = "猫猫口令";
   const { ctx, page } = await device();
   const ids = [await newModel(page, -60), await newModel(page, 0), await newModel(page, 60)];   // 模拟以前没登录也能建库的设备（直接开图库，绕过入口）
+  const encId = ids[2];   // 开着的是第三份：加密它（设新口令两遍 → 验证器落进以前那个库的 app-state）
+  const enc = await page.evaluate(async (pw) => { globalThis.__catsup.crypto.answer(async () => pw); return globalThis.__catsup.session.encryptCurrent(); }, PW);
+  check(enc === true && await page.evaluate((i) => globalThis.__catsup.store().file(i, { mode: "existing" }).isEncrypted(), encId), "前提：第三份加密了（以前那个库里有验证器）");
+  await page.waitForTimeout(1000);   // collection 本地写有 400 ms 防抖：验证器落进本机 IDB 再刷新（刷新前不到 400 ms 会丢 = 现有的另一个洞，报告里写了）
+  const srcVerifier = await page.evaluate(async () => { const c = globalThis.__catsup.store().collection("app-state"); await c.init(); return JSON.stringify(c.getItem("galleryPasswordVerifier") ?? null); });
   const bytes = {};
-  for (const i of ids) bytes[i] = await storeBytes(page, i);
+  for (const i of ids.slice(0, 2)) bytes[i] = await storeBytes(page, i);
+  bytes[encId] = await page.evaluate(async (i) => [...new Uint8Array(await (await globalThis.__catsup.store().file(i, { mode: "existing" }).getEncryptedBlob()).arrayBuffer())], encId);   // 容器字节
   const lf = await page.evaluate(() => globalThis.__catsup.home.legacyFiles());
   check(lf.items.length === 3 && lf.items.every((x) => x.kind === "move"), "前提：3 份只在浏览器里（从没同步过）", JSON.stringify(lf));
   await reloaded(page, () => page.reload());
@@ -164,12 +171,34 @@ console.log("\n④ 旧设备：浏览器里 3 份 → 开机问一次 → 选夹
   await reloaded(page, () => clickChoice(page, "选一个文件夹，搬进去"));
   const h = await home(page);
   check(h.state === "folder" && h.browserOnly === 0, "搬完：家是文件夹，浏览器里不剩", JSON.stringify(h));
-  check(/3 份搬进了「my-models」/.test(await notices(page)), "开机说搬了几份", (await notices(page)).slice(0, 120));
+  const said = await notices(page);
+  check(/3 份搬进了「my-models」/.test(said), "开机说搬了几份", said.slice(0, 160));
+  const moveLine = await page.evaluate(() => globalThis.__catsup.debugLog.toText().split("\n").filter((l) => /\[home\] move →|verifier/.test(l)).join(" | "));
+  check(/图库口令也一起搬进「my-models」了/.test(said) && /verifier=copied/.test(moveLine), "验证器原样拷进了文件夹（黑匣子 verifier=copied），结果那句话说了", `${said.slice(0, 160)} ‖ ${moveLine.slice(0, 300)}`);
+  const folderVerifier = await page.evaluate(async () => { const c = globalThis.__catsup.store().collection("app-state"); await c.init(); return c.getItem("galleryPasswordVerifier") ?? null; });
+  check(!!folderVerifier && folderVerifier.v === 1 && JSON.stringify(folderVerifier) === srcVerifier, "文件夹家开机就有验证器（还没开过任何加密件），和以前那个库里的逐字一样", JSON.stringify(folderVerifier));
   const files = await folderFiles(page);
-  check(ids.every((i) => same(bytes[i], null) === false) && ids.every((i) => files[i] !== undefined), "夹里 3 份都在", JSON.stringify(files));
+  const at = (i) => (i === encId ? `${i}.zip` : i);   // 加密件在夹里多一个 .zip
+  check(ids.every((i) => files[at(i)] !== undefined), "夹里 3 份都在（加密的那份是 .zip）", JSON.stringify(files));
   let eqAll = true;
-  for (const i of ids) eqAll = eqAll && same(await folderBytes(page, i), bytes[i]);
-  check(eqAll, "夹里 3 份字节 = 原来浏览器里的");
+  for (const i of ids) eqAll = eqAll && same(await folderBytes(page, at(i)), bytes[i]);
+  check(eqAll, "夹里 3 份字节 = 原来浏览器里的（加密件 = 原容器）");
+  check(Object.keys(files).some((k) => /^\.catsup\/app-state\.json$/.test(k)), "验证器住进了文件夹（.catsup/app-state.json）", JSON.stringify(files));
+  const opened = await page.evaluate(async ([i, pw]) => {
+    const c = globalThis.__catsup.crypto; c.lock();
+    const asks = []; c.answer(async (o) => { asks.push(o.title); return pw; });
+    const r = await globalThis.__catsup.session.openFromGallery(i);
+    return { r, asks, encrypted: globalThis.__catsup.session.encrypted, edges: globalThis.__catsup.editor.kernel.edges().length };
+  }, [encId, PW]);
+  check(opened.r === true && opened.encrypted === true && opened.edges > 0, "文件夹家里输原口令，搬过去的加密件开得了", JSON.stringify(opened));
+  const reenc = await page.evaluate(async ([i, pw]) => {
+    const c = globalThis.__catsup.crypto; c.lock();
+    await globalThis.__catsup.session.openFromGallery(i);
+    const asks = []; c.answer(async (o) => { asks.push(o.title); return pw; });
+    const r = await globalThis.__catsup.session.encryptCurrent();
+    return { r, asks };
+  }, [ids[0], PW]);
+  check(reenc.r === true && reenc.asks.length === 1 && /输入图库口令/.test(reenc.asks[0]), "在文件夹里再加密一份：问「输入图库口令」（验证器在），不是「设置图库口令」（不会设出第二个口令）", JSON.stringify(reenc));
   const after = await page.evaluate(() => globalThis.__catsup.home.legacyFiles());
   check(after.total === 0, "旧库空了（移进旧库的回收站）", JSON.stringify(after));
   check(await page.evaluate(() => localStorage.getItem("catsup-7c1f0d2e9a4b6c58:legacy-retired")) === "1", "旧库退役：以后不再数、不再问");

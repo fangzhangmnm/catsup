@@ -307,6 +307,11 @@ export declare class Session {
     setActivePath(path: string): void;
     offloadDoc(path: string): Promise<void>;
     /** 去图库前：图库家的脏文档落本地（WeebPaint：退出自动 ctrl+s）。 */
+    /** 退出登录 = 拆库（Fable 11-04，对齐 MoonSinger signOutFlow）：开着的模型留在内存里照常编辑，家改成临时（文件模式：存 = 另存到磁盘 / 下载）。
+     *  图库那份本地字节不动——调用方先 flushLocal 落本机、再 disposeStore、再调这里（hasStore() = false：setHome 不写回执条）。
+     *  空白 lazyblank = 普通的临时空白；首笔还没安家的 = 内容照留、照旧算没存。加密件：退出登录会忘口令 → 影子按「封口但没口令」办（不写明文影子，规则书 §1 第 5 条）。
+     *  created 2026-11-04 by Claude Opus 5.5 */
+    detachFromGallery(): void;
     flushLocal(): Promise<void>;
     /** 挂图库的用户手势时刻（首次开图库 / 登录 / 首存）：persist 表态落点。 */
     static persistOnGesture(): void;
