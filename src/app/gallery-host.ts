@@ -13,7 +13,7 @@ import { appEncryption } from "../encryption.ts";
 import { isUnlocked, onLockChange, setPassword } from "../crypto-state.ts";
 import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword } from "./unlock.ts";
 import { iconHtml } from "@internal/workbench-elements";
-import { ensureStore, auth, docFile } from "../app-store.ts";
+import { ensureStore, auth, docFile, folderHomeOnline, homeGalleryId, isFolderHome } from "../app-store.ts";
 import { GALLERY_REGISTRY_DB, HEAD_PEEK_BYTES, THUMB_DB_NAME } from "../config.ts";
 import { extractThumbnail, headBytesNeeded } from "../format/peek.ts";
 import { openConfirmSheet, openInputSheet, openChoiceSheet, withBusy } from "./ui/sheets.ts";
@@ -85,8 +85,8 @@ export function initGalleryHost(d: GalleryHostDeps) {
     doc,
     encryption,
     host: {
-      signedIn: () => auth.isSignedIn(),
-      online: cloudOnline,   // 工单 C：「离线继续」也算离线
+      signedIn: () => isFolderHome() || auth.isSignedIn(),
+      online: () => (isFolderHome() ? folderHomeOnline() : cloudOnline()),   // 工单 C：「离线继续」也算离线；文件夹 = 权限在不在
       activeIdentifier: () => d.activeName(),
       confirm: (title, msg) => openConfirmSheet(title, msg),
       input: (title, def, opts) => openInputSheet(title, { defaultValue: def, placeholder: opts?.placeholder }),
@@ -117,7 +117,7 @@ export function initGalleryHost(d: GalleryHostDeps) {
           return null;
         },
         dbName: THUMB_DB_NAME,
-        galleryId: () => "default",
+        galleryId: () => homeGalleryId(),
       },
     },
     tile: { aspect: 1, layout: "cards" },

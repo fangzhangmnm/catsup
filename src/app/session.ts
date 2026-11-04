@@ -27,7 +27,7 @@ import { fmtStamp } from "../format/migrate/index.ts";
 import type { Xform } from "../scene/xform.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4, RELOAD_PUSH_WAIT_MS } from "../config.ts";
 import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
-import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
+import { canPushNow, folderHomeLabel, folderHomeOnline, isFolderHome, auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
 import { setOpened } from "@internal/gallery";
 import { faceGeneration, isAnyFaceUp, openChoiceSheet, openConfirmSheet, openInputSheet, openSyncGate, whenFacesClosed, withBusy } from "./ui/sheets.ts";
@@ -224,6 +224,7 @@ export class Session {
       case "gallery":
         if (this.lazy) return "none";   // 空白 lazyblank：没东西可存（首笔安家后就是普通图库家）
         if (dirty) return "dirty";
+        if (isFolderHome()) return this.pushPending ? "unpushed" : "synced";
         if (!auth.isAuthConfigured()) return "cloud-off";
         if (auth.isSignedIn() && this.d.online()) return this.pushPending ? "unpushed" : "synced";
         return "local-only";
@@ -238,10 +239,10 @@ export class Session {
       case "local-only": return this.home.kind === "file" ? `「${name}」已保存到文件` : `「${name}」已保存到本机；云端不可达（登录 OneDrive 后同步）`;
       case "saving": return `正在保存「${name}」…`;
       case "cloud-off": return `「${name}」已保存到本机（云端未配置）`;
-      case "unpushed": return this.attention
+      case "unpushed": if (isFolderHome()) return `「${name}」已保存到本机，还没写进文件夹「${folderHomeLabel()}」${folderHomeOnline() ? "——再点一次保存重写" : "：文件夹要重新授权"}`; return this.attention
         ? `「${name}」已保存到本机，但和云端没对上——点横幅上的「处理…」选用哪边（再点保存也会问你）`
         : `「${name}」已保存到本机，云端那份还没推上去——再点一次保存重推`;
-      case "synced": return `「${name}」已同步到 OneDrive；再点 = 重新保存并推送`;
+      case "synced": return isFolderHome() ? `「${name}」已存进文件夹「${folderHomeLabel()}」` : `「${name}」已同步到 OneDrive；再点 = 重新保存并推送`;
     }
   }
 
@@ -274,7 +275,7 @@ export class Session {
       void this.snapshot("crash");   // file / transient 家：盲快照进 crash-store（附加层，best-effort）
     } else if (this.home.kind === "gallery" && !this.lazy && !this.dirty() && shouldRetryPush({
       pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: this.d.editor.isGestureActive(),
-      visible: document.visibilityState === "visible", online, signedIn: auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(), held: this.d.pushHeld?.(this.home.path) ?? false,
+      visible: document.visibilityState === "visible", online: isFolderHome() ? folderHomeOnline() : online, signedIn: isFolderHome() || auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(), held: this.d.pushHeld?.(this.home.path) ?? false,
     })) {
       this.lastPushTryAt = Date.now();
       void this.save({ implicit: true });   // 工单 C3 D：上次没推成（切走时没网 / 网络失败）的这一份，再推一次；撞上云端 = 不弹面，横幅接手
@@ -355,7 +356,7 @@ export class Session {
     while (this.saving && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));   // 自动保存正在路上：等它
     if (this.home.kind !== "gallery") return;   // 文件家 / 临时模型 implicit 本来就不写，靠 beforeunload 挽留兜
     if (this.dirty()) await this.save({ implicit: true, localOnly: true });
-    if (!this.pushPending || this.attention || this.lazy || !auth.isSignedIn() || !this.d.online()) return;
+    if (!this.pushPending || this.attention || this.lazy || !canPushNow()) return;
     const push = this.save({ implicit: true });
     let seen = faceGeneration(), waitMs = Math.max(0, deadline - Date.now());
     for (;;) {
@@ -523,7 +524,7 @@ export class Session {
   /** 开着的这份还欠一推：现在推（CatsUp 的传的时机 = 心跳自动推，这就是心跳那一下，撞上不弹面、横幅接手）。回来问一次之前调：面只问真的还没传的（规则书 §1 第 15 条）。 */
   /** 返回 true = 试了、没推成、也不是撞上别的设备（多半网不通）：调用方这一轮别再批量推同一份。 */
   async pushOpenDocIfPending(): Promise<boolean> {
-    if (this.home.kind !== "gallery" || this.lazy || this.dirty() || !this.pushPending || this.attention || !auth.isSignedIn() || !this.d.online() || this.d.pushHeld?.(this.home.path)) return false;
+    if (this.home.kind !== "gallery" || this.lazy || this.dirty() || !this.pushPending || this.attention || !canPushNow() || this.d.pushHeld?.(this.home.path)) return false;
     await this.save({ implicit: true });
     return this.pushPending && !this.attention;
   }
@@ -696,7 +697,7 @@ export class Session {
     await withBusy(`正在加密 ${bareName(path)}…`, async () => {
       try {
         if (this.dirty()) await this.save({ implicit: true, localOnly: true });   // 先把内存里的落本地明文，库读它打包
-        const r = await docFile(path).encrypt({ isOnline: () => this.d.online() && auth.isSignedIn() });
+        const r = await docFile(path).encrypt({ isOnline: () => canPushNow() });
         if (r.status === "offline") { this.d.setStatus("加密要在线做（云端那份也要一起换）：联网 / 登录后再试", true); return; }
         if (r.status === "locked") { this.d.setStatus("已取消（需要口令）", true); return; }
         ok = true; this.encrypted = true;
@@ -722,7 +723,7 @@ export class Session {
     await withBusy(`正在解除加密 ${bareName(path)}…`, async () => {
       try {
         if (this.dirty()) await this.save({ implicit: true, localOnly: true });
-        const r = await docFile(path).decrypt({ isOnline: () => this.d.online() && auth.isSignedIn() });
+        const r = await docFile(path).decrypt({ isOnline: () => canPushNow() });
         if (r.status === "offline") { this.d.setStatus("解除加密要在线做：联网 / 登录后再试", true); return; }
         if (r.status === "locked") { this.d.setStatus("已取消（需要口令）", true); return; }
         ok = true; this.encrypted = false;
@@ -739,7 +740,7 @@ export class Session {
   refreshOpenDoc(g?: { abandoned: () => boolean; onLongWait: () => void }): Promise<RefreshStatus> {
     if (this.refreshRun) { if (g) this.refreshGuard = g; return g ? this.refreshRun : Promise.resolve("skipped"); }
     if (this.home.kind !== "gallery" || this.lazy || this.saving || this.adopting) return Promise.resolve("skipped");
-    if (!auth.isSignedIn() || !this.d.online()) return Promise.resolve("skipped");
+    if (!canPushNow()) return Promise.resolve("skipped");
     if (this.dirty() || this.pushPending) return Promise.resolve("dirty");
     this.refreshGuard = g ?? null;
     const run = this.refreshInner(this.home.path).finally(() => { if (this.refreshRun === run) this.refreshRun = null; });
@@ -852,7 +853,7 @@ export class Session {
       replaceCover = this.armReplaceCover(home.path);   // 工单 C：面上选了云端 → 换字节到重载完这段罩住（外层 finally 收）
       if (!opts.implicit) this.d.onExplicitSave?.(home.path);
       const held = !!opts.implicit && !!this.d.pushHeld?.(home.path);   // 从没传过、人还没答应：心跳不替他传（人按存不受这条管）
-      const tryPush = !opts.localOnly && !held && auth.isSignedIn() && online();
+      const tryPush = !opts.localOnly && !held && (isFolderHome() ? folderHomeOnline() : auth.isSignedIn() && online());
       let r;
       try { r = await docFile(home.path, this.createPending ? "new" : "existing").save(bytes, { tryPush }); }
       finally { conflictGate.implicit = false; }

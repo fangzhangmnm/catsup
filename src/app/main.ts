@@ -15,7 +15,7 @@ import { SCALE_TIP_MAX, scaleTipHtml } from "./scale-tip.ts";
 import { type ChoiceOption, multiSummary, openMultiSelect } from "./ui/choice-layer.ts";
 import { ARC_MODES } from "../editor/arc-build.ts";
 import { APP_VERSION } from "../version.ts";
-import { downloadName, hex4 } from "../config.ts";
+import { DOC_EXT, downloadName, hex4 } from "../config.ts";
 import { mountContextBar } from "./context-bar.ts";
 import { mountVcb } from "./vcb.ts";
 import { perf } from "../editor/perf-stats.ts";
@@ -41,15 +41,19 @@ import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, bareName, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { createReferenceHost } from "./reference-host.ts";
-import { restoreLastSession, readSlate, setRestoreAttempt, snapshotFolderOnce, walkLibrary, type RestoreOutcome } from "@internal/gallery";
+import { restoreLastSession, readSlate, setRestoreAttempt, snapshotFolderOnce, walkLibrary, setActiveGalleryId, type RestoreOutcome, type GalleryEntry } from "@internal/gallery";
 import { planReturn, neverUploadedIds } from "./cloud-return.ts";
+import { bootFolderEntry, canPickFolder, ensureFolderPermission, forgetFolderHome, homeState, pickFolderEntry, rememberFolderHome, type HomeState } from "./gallery-home.ts";
+import { moveToHome } from "./home-move.ts";
+import { isCatsupDocumentHead } from "../format/peek.ts";
+import { identifierForFile, putBack } from "./put-back.ts";
 // 口令（2026-10-29 周账 F-123）：政策 crypto-state / 验证器 / 设备记住；面板注入在下面 setPasswordPrompt；解锁循环 unlock.ts
-import { setPasswordPrompt, setPassword, getPassword, lock as lockPasswords, isUnlocked, onLockChange, onLocked, type PromptOpts } from "../crypto-state.ts";
+import { onPasswordVerified, setPasswordPrompt, setPassword, getPassword, lock as lockPasswords, isUnlocked, onLockChange, onLocked, type PromptOpts } from "../crypto-state.ts";
 import { appEncryption, passwordKeeper } from "../encryption.ts";
 import { hasVerifier, checkVerifier } from "../password-verifier.ts";
 import { wireRememberPassword, restoreRemembered, forgetRemembered, rememberedUntil, rememberChoice, setRememberChoice, rememberAvailable, onRememberChange } from "../remember-password.ts";
 import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, unlockImportedContainer } from "./unlock.ts";
-import { cloudReachable, verifierReady } from "../app-store.ts";
+import { attachFolderHome, buildFolderProviderFor, buildFolderStore, canPushNow, folderHomeLabel, folderHomeOnline, isFolderHome, legacyStore, setFolderHomeOnline, cloudReachable, verifierReady } from "../app-store.ts";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, docFile, ensureStore, hasStore, isCached, requireStore } from "../app-store.ts";
@@ -586,7 +590,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "decrypt": void (async () => { if (await openConfirmSheet("解除加密？", "这份模型会变回明文存在本机和云端（OneDrive 版本历史里也是明文）。")) { await session.decryptCurrent(); syncUi(); galleryHost.refresh(); } })(); break;
       case "pwLock": lockPasswords(); void forgetRemembered(); notify({ text: "已锁定：口令忘掉了，再开加密的模型要重新输", level: "info" }); break;
       case "pwForget": void forgetRemembered().then(() => notify({ text: "这台设备不再记着口令", level: "info" })); break;
-      case "gallery": hideCanvasTip(); void galleryHost.open(); break;
+      case "gallery": hideCanvasTip(); void openGalleryFromUi(); break;
       case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
       case "open": openLocal(); break;
@@ -1561,7 +1565,7 @@ function updateSaveStatus(): void {
   // 网页标题永远只是「CatsUp」（index.html 写死）：文档名进标题 = 浏览器历史按文档名记那个地址（user 2026-10-14「就放一个自己的名字，不解释，google也这么干的」，全家族同一标准）
   // 「上次开着什么」= @internal/gallery 回执条，唯一写点在 session.setHome（v0.5.7；旧 last-doc / last-scene 键退役）。
   //   gallery-attached = 「这台设备曾挂过图库」（WeebPaint registry 的单库等价物）：boot 据此在 initAuth 之前接店、本地恢复。
-  deviceKvSet("gallery-attached", hasStore() ? "1" : null);
+  if (!isFolderHome()) deviceKvSet("gallery-attached", hasStore() ? "1" : null);   // 文件夹家不碰这个旗：它说的是以前那个本机库（搬家要认它）
 }
 /** smart save = Ctrl+S = 点钮：非图库家 → 保存/安家；图库家已登录 → 存+推（不脏也推，让时间戳走字）；已配置未登录 → 本地存 + 「现在登录同步？」。 */
 let cloudPromptDeclined = false;   // 同一 session 点过「暂不」→ 之后只状态行提示，不再弹
@@ -1698,22 +1702,44 @@ function cloudSignIn(): void {
   } else go();   // 手势同步栈起跳（iOS redirect）
 }
 async function cloudSignOut(): Promise<void> { note("auth", "sign-out click"); try { await auth.signOut(); lockPasswords(); void forgetRemembered(); notify({ text: "已退出 OneDrive 登录（本机副本仍在；口令也忘了）", level: "info" }); } catch (e) { funnel(e); } }   // 退出登录 = 锁 + 忘（ADR-0001）
-type CloudId = "in" | "out" | "refresh";
+type CloudId = "in" | "out" | "refresh" | "useCloud" | "leaveFolder";
+/** 离开文件夹家：文件一个字节不动，只是下次不挂。还有没写进去的如实说（不硬拦，09-29）。 */
+async function leaveFolderHome(thenSignIn: boolean): Promise<void> {
+  const n = await requireStore().files.dirty.count().catch(() => 0);
+  if (n > 0 && !(await openConfirmSheet("还有没写进文件夹的", `${n} 份改动还没写进文件夹，留在这台设备上，下次选回这个文件夹时接着写。确定断开？`))) return;
+  if (!(await session.leaveGate())) return;
+  await session.flushLocal();
+  await forgetFolderHome();
+  if (thenSignIn) cloudSignIn(); else location.reload();
+}
 cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
   anchor: cloudBtn, align: "end",
-  items: () => [
+  items: () => isFolderHome() ? [
+    { id: "useCloud" as CloudId, label: "图库改用网盘", icon: "cloud", hint: `现在在文件夹「${folderHomeLabel()}」`, disabled: !auth.isAuthConfigured() },
+    { id: "leaveFolder" as CloudId, label: "断开这个文件夹", icon: "folder", hint: "文件还在夹里，回到文件模式" },
+  ] : [
     ...(auth.isSignedIn()
       ? [{ id: "refresh" as CloudId, label: "刷新云端", icon: "refresh" }, { id: "out" as CloudId, label: "退出登录", icon: "cloud", hint: (auth.getActiveAccount() as { username?: string } | null)?.username }]
       : [{ id: "in" as CloudId, label: "登录 OneDrive", icon: "cloud", disabled: !auth.isAuthConfigured(), hint: auth.isAuthConfigured() ? "个人账号" : "未配置 client id" }]),
   ],
-  onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else galleryHost.refresh(); },
+  onPick: (id) => { if (id === "in") cloudSignIn(); else if (id === "out") void cloudSignOut(); else if (id === "useCloud") void leaveFolderHome(true); else if (id === "leaveFolder") void leaveFolderHome(false); else galleryHost.refresh(); },
 }));
 // 图库顶上的披露条（工单 C2 ④）：没登录 = 这些模型只在浏览器里。不改入口、不删功能（过渡第 1 步）。
 const galleryHomeBar = $("galleryHomeBar");
 // 只在这台设备没账号时说「没有备份」（工单 C4，和 MoonSinger 同一口径）：有账号但过期 = 东西在网盘上，归闸门和离线常驻条，不是「没有备份」。
-function paintGalleryHomeBar(): void { const settled = !auth.isAuthConfigured() || authInited; galleryHomeBar.hidden = !settled || auth.isSignedIn() || accountExpected; $("galleryConnect").hidden = !auth.isAuthConfigured(); }
-async function exportAllModels(): Promise<void> {
-  const store = requireStore();
+let browserOnlyCount = 0;   // 只在浏览器里的模型（以前的本机库；刷新时机 = refreshBrowserOnly）
+let unpushedInLegacy = 0;   // 同一个库里传过网盘、改了没传的（不搬：登录网盘后接着传）
+function currentHomeState(): HomeState { return homeState({ folder: isFolderHome(), signedIn: auth.isSignedIn(), accountExpected, browserOnlyModels: browserOnlyCount }); }
+function paintGalleryHomeBar(): void {
+  const settled = !auth.isAuthConfigured() || authInited, st = currentHomeState(), folder = st === "folder";
+  galleryHomeBar.hidden = !settled || browserOnlyCount <= 0 || st === "cloud";
+  $("galleryHomeBarText").textContent = folder ? `还有 ${browserOnlyCount} 份模型只在这台设备的浏览器里，没搬进文件夹` : "这些模型只在这台设备的浏览器里，没有备份";
+  $("galleryConnect").hidden = folder || !auth.isAuthConfigured();
+  $("galleryPickFolder").hidden = !folder && !canPickFolder();
+  $("galleryPickFolder").textContent = folder ? "搬进文件夹" : "选一个文件夹";
+}
+async function exportAllModels(from?: StoreFace): Promise<void> {
+  const store = from ?? requireStore();
   const now = new Date(), stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
   const name = `CatsUp-图库-${stamp}.zip`;
   const r = await withBusy("正在打包图库里的模型…", () => exportAll({
@@ -1725,14 +1751,163 @@ async function exportAllModels(): Promise<void> {
       }, { onError: (e) => { if (!done) { done = true; off?.(); reject(e); } } });
       if (done) off();   // 帧在 watchFolder 返回前就同步来了
     }),
-    encryptedBytes: async (id) => (await docFile(id).getEncryptedBlob()) as Blob | null,
-    plainBytes: (id) => docFile(id).open(),
+    encryptedBytes: async (id) => (await store.file(id, { mode: "existing" }).getEncryptedBlob()) as Blob | null,
+    plainBytes: (id) => store.file(id, { mode: "existing" }).open(),
     pack: (entries) => zipPack(entries),
   }));
   note("doc", `export-all plain=${r.plain} encrypted=${r.encrypted} failed=${r.failed.length}`);
   if (r.zip) await deliverFile(new File([r.zip], name, { type: "application/zip" }), name, (t: string) => note("doc", t));
   const said = exportAllSay(r, name);
   notify({ text: said.text, level: said.bad ? "error" : "info", ...(said.bad ? { timeoutMs: null } : {}) });
+}
+// ---- 图库的家（规则书 §1 第 13 条；工单 F-152 / F-153；判定在 gallery-home.ts homeState 一处）----
+type StoreFace = ReturnType<typeof requireStore>;
+/** 数一遍以前那个本机库里只在浏览器的模型。没有这个库（从没建过）不开库，开了就等于建了。 */
+async function browserOnlyIds(store: StoreFace): Promise<string[]> {
+  const m = await walkLibrary((d) => snapshotFolderOnce((f, cb) => store.files.watchFolder(f, cb), d));
+  unpushedInLegacy = m.files.filter((f) => f.syncState === "unpushed").length;
+  return m.files.filter((f) => f.syncState === "float" || f.syncState === "local-only").map((f) => f.identifier);
+}
+async function refreshBrowserOnly(): Promise<void> {
+  if (deviceKvGet("gallery-attached") !== "1" && (isFolderHome() || !hasStore())) { browserOnlyCount = 0; paintGalleryHomeBar(); return; }
+  const src = legacyStore();
+  try { browserOnlyCount = (await browserOnlyIds(src.store)).length; }
+  catch (e) { funnel(e, "log"); }
+  finally { if (src.owned) await src.store.dispose().catch(() => {}); }
+  paintGalleryHomeBar();
+}
+async function waitAuthSettled(ms = 3000): Promise<void> { const t0 = Date.now(); while (auth.isAuthConfigured() && !authInited && Date.now() - t0 < ms) await new Promise((r) => setTimeout(r, 100)); }
+/** 用户点「图库」走这里。有家 / 还有没搬的 → 开；都没有 → 先选家（库里不建东西）。 */
+async function openGalleryFromUi(): Promise<void> {
+  await waitAuthSettled();
+  await refreshBrowserOnly();
+  if (currentHomeState() === "none") { await chooseHome(); return; }
+  await galleryHost.open();
+}
+async function chooseHome(): Promise<void> {
+  let picked: Promise<GalleryEntry | null> | null = null;
+  const v = await openChoiceSheet<"cloud" | "folder">(
+    "图库要有一个家",
+    "模型放进网盘或你选的文件夹，才不会只留在这个浏览器里。不选也能用：保存 = 存到磁盘，打开 = 选文件。",
+    [
+      ...(auth.isAuthConfigured() ? [{ label: "连接网盘", value: "cloud" as const, primary: true, onPick: () => { cloudSignIn(); } }] : []),   // 同步栈里起跳（iOS 红线）
+      ...(canPickFolder() ? [{ label: "选一个文件夹", value: "folder" as const, onPick: () => { picked = pickFolderEntry(); } }] : []),   // 选择框要手势
+    ],
+  );
+  if (v === "folder" && picked) await settleIntoFolder(picked);
+}
+/** 选了文件夹：先问没搬的，记到名册，刷新（开机只有一条挂库路）。 */
+async function settleIntoFolder(picked: Promise<GalleryEntry | null>): Promise<void> {
+  const entry = await picked;
+  if (!entry) return;
+  if (!(await ensureFolderPermission(entry, { request: true }))) { notify({ text: `没拿到「${entry.label}」的读写权限，图库的家没换`, level: "warning" }); return; }
+  if (!(await session.leaveGate())) return;
+  await session.flushLocal();
+  const dest = buildFolderStore(entry);
+  try { await offerMove(entry.label, dest); }
+  finally { await dest.store.dispose().catch(() => {}); }
+  await rememberFolderHome(entry);
+  location.reload();
+}
+/** 「搬进 X / 全部导出 / 稍后」（一次）。稍后 = 披露条照挂，入口不收。 */
+async function offerMove(label: string, dest: { store: StoreFace; provider: { getItemByPath(p: string): Promise<{ ref: string } | null>; download(r: string): Promise<Blob> } }): Promise<void> {
+  const src = legacyStore();
+  try {
+    const ids = await browserOnlyIds(src.store);
+    browserOnlyCount = ids.length;
+    if (!ids.length) { retireLegacyIfEmpty(); return; }
+    const v = await openChoiceSheet<"move" | "export" | "later">(
+      `有 ${ids.length} 份模型只在这个浏览器里`,
+      `搬进「${label}」：逐份比过字节一样，才从浏览器里移走（移到回收站）。加密的还是加密的，不用输口令。${unpushedInLegacy > 0 ? `另外 ${unpushedInLegacy} 份传过网盘的改动不搬，登录网盘后接着传。` : ""}`,
+      [{ label: `搬进「${label}」`, value: "move", primary: true }, { label: "全部导出", value: "export" }, { label: "稍后", value: "later" }],
+    );
+    if (v === "export") { await exportAllModels(src.store); return; }
+    if (v !== "move") return;
+    const r = await withBusy("正在搬进文件夹…", () => moveToHome(ids, {
+      read: async (id) => { const f = src.store.file(id, { mode: "existing" }); return ((await f.getEncryptedBlob()) as Blob | null) ?? f.open(); },
+      writeNew: async (id, bytes) => { const w = await dest.store.file(id, { mode: "new" }).save(bytes, { tryPush: true }); if (!w.pushed) throw new Error("没写进文件夹"); },
+      readBack: async (id) => {   // 读夹里那个文件，不读缓存；加密件的文件名多一个 .zip
+        const it = (await dest.provider.getItemByPath(`${id}.zip`)) ?? (await dest.provider.getItemByPath(id));
+        return it ? dest.provider.download(it.ref) : null;
+      },
+      discard: async (id) => { await dest.store.file(id, { mode: "existing" }).trash(); },
+      renamed: (id, n) => renamedId(dest.store, id, n),
+      removeFromSource: async (id) => { const t = await src.store.file(id, { mode: "existing" }).trash(); if (t.status === "cancelled" || t.status === "noop") throw new Error(`trash: ${t.status}`); },
+    }));
+    browserOnlyCount = r.failed.length + r.leftInSource.length;
+    note("home", `moved=${r.moved.length} failed=${r.failed.length} left=${r.leftInSource.length}`);
+    const say = r.failed.length
+      ? `搬好 ${r.moved.length} 份；${r.failed.length} 份没搬成（${r.failed.slice(0, 3).map((f) => bareName(f.identifier)).join("、")}${r.failed.length > 3 ? " 等" : ""}），还在浏览器里，一个字节没动。`
+      : `${r.moved.length} 份都搬进「${label}」了${r.moved.some((m) => m.from !== m.to) ? "（撞名的加了编号）" : ""}。`;
+    deviceKvSet("home-move-note", say);
+    if (!browserOnlyCount) retireLegacyIfEmpty();
+  } finally { if (src.owned) await src.store.dispose().catch(() => {}); }
+}
+/** 搬空了：以前那个本机库退役（开机不再接它）。库和回收站里的字节留着，不删。有账号的话它就是网盘的缓存，不退役。 */
+function retireLegacyIfEmpty(): void { if (isFolderHome() && !accountExpected && !unpushedInLegacy) deviceKvSet("gallery-attached", null); }
+function renamedId(store: StoreFace, id: string, n: number): string {
+  const d = store.identifiers.parse(id);
+  return d ? store.identifiers.join({ folder: d.folder, stem: `${d.stem} (${n})`, suffix: d.suffix }) : `${id} (${n})`;
+}
+function showFolderPermissionChip(entry: GalleryEntry): void {
+  notify({ id: "folder-perm", level: "warning", timeoutMs: null, text: `文件夹「${entry.label}」要重新授权：改动先存在这台设备，授权后写回去`, actions: [{ label: "授权", primary: true, onClick: () => {
+    void ensureFolderPermission(entry, { request: true }).then((ok) => {   // 点击的同步栈里已经起跳
+      if (!ok) { notify({ text: "没拿到权限，改动还留在这台设备", level: "warning" }); return; }
+      setFolderHomeOnline(true);
+      closeNotice("folder-perm");
+      updateSaveStatus();
+      if (galleryHost.isOpen()) galleryHost.refresh();
+      void afterFolderWritable();
+    });
+  } }] });
+}
+async function afterFolderWritable(): Promise<void> { await offerPushLocalOnly("folder").catch((e) => funnel(e, "log")); }
+/** 开机之后：上次搬家的回执；文件夹家还有没搬的 → 问一次。 */
+async function afterBootHome(): Promise<void> {
+  const said = deviceKvGet("home-move-note");
+  if (said) { deviceKvSet("home-move-note", null); notify({ id: "home-move", level: "info", timeoutMs: null, text: said }); }
+  await refreshBrowserOnly();
+  if (isFolderHome() && browserOnlyCount > 0 && folderHomeOnline()) await offerMoveIntoCurrentFolder();
+}
+async function offerMoveIntoCurrentFolder(): Promise<void> {
+  const entry = await bootFolderEntry((e) => funnel(e, "log"));
+  if (!entry) return;
+  // 目的地就是当前库；读回走它自己的 provider（同一个句柄）
+  const dest = { store: requireStore(), provider: buildFolderProviderFor(entry) };
+  await offerMove(entry.label, dest);
+  paintGalleryHomeBar();
+  const said = deviceKvGet("home-move-note");
+  if (said) { deviceKvSet("home-move-note", null); notify({ id: "home-move", level: "info", timeoutMs: null, text: said }); }
+  if (galleryHost.isOpen()) galleryHost.refresh();
+}
+$("galleryPickFolder").addEventListener("click", () => {
+  if (isFolderHome()) { void offerMoveIntoCurrentFolder().catch((e) => funnel(e)); return; }
+  void settleIntoFolder(pickFolderEntry()).catch((e) => { funnel(e); notify({ text: `换家失败：${(e as Error)?.message ?? e}`, level: "error" }); });   // 选择框要手势：同步栈里起跳
+});
+// 放回图库（还是加密的；工单 C5）：先核口令，原容器字节原样入库，撞名加编号，解开的内容用完就丢。
+const putBackInput = document.createElement("input"); putBackInput.type = "file"; putBackInput.accept = ".zip"; putBackInput.hidden = true; document.body.appendChild(putBackInput);
+$("galleryPutBack").addEventListener("click", () => { putBackInput.value = ""; putBackInput.click(); });
+putBackInput.addEventListener("change", () => {
+  const file = putBackInput.files?.[0];
+  if (file) void putBackFile(file).catch((e) => { funnel(e); notify({ text: `放回图库失败：${(e as Error)?.message ?? e}，图库里没有多出东西`, level: "error" }); });
+});
+async function putBackFile(file: File): Promise<void> {
+  const store = requireStore();
+  const r = await putBack(file, identifierForFile(file.name, galleryHost.currentFolder(), DOC_EXT), {
+    isContainer: (b) => appEncryption.isEncryptedBlob(b),
+    unlock: (b) => unlockImportedContainer(b),
+    isModel: async (plain) => isCatsupDocumentHead(new Uint8Array(await plain.slice(0, 256 * 1024).arrayBuffer())),
+    writeNew: async (id, bytes) => { await store.file(id, { mode: "new" }).save(bytes, { tryPush: canPushNow() }); },
+    readBack: async (id) => (await store.file(id, { mode: "existing" }).getEncryptedBlob()) as Blob | null,
+    discard: async (id) => { await store.file(id, { mode: "existing" }).trash(); },
+    renamed: (id, n) => renamedId(store, id, n),
+  });
+  if (r.status === "not-container") { notify({ text: "这不是加密文件。普通工程用「打开」就行", level: "info" }); return; }
+  if (r.status === "not-a-model") { notify({ text: "口令对，但里面不是 CatsUp 工程，没有放进图库", level: "warning" }); return; }
+  if (r.status === "cancelled") return;
+  onPasswordVerified(r.identifier, r.password);
+  galleryHost.refresh();
+  notify({ text: `「${bareName(r.identifier)}」放回图库了，还是加密的`, level: "info" });
 }
 $("galleryExportAll").addEventListener("click", () => { void exportAllModels().catch((e) => { funnel(e); notify({ text: `导出失败：${(e as Error)?.message ?? e}`, level: "error", timeoutMs: null }); }); });
 $("galleryConnect").addEventListener("click", () => { void cloudSignIn(); });
@@ -1749,6 +1924,7 @@ let pushConsented = false;        // 这一页人点过「现在传」：之后�
 let pushHoldAll = false;          // 回来这一下还没数清：开着那份先别让心跳推（它可能从没传过）
 const heldNeverUploaded = new Set<string>();   // 从没传过、人还没答应传：心跳不推，人按存就放开
 function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
+  if (isFolderHome()) return Promise.resolve();   // 文件夹家和网盘无关
   if (afterCloudReachableInFlight) return afterCloudReachableInFlight;
   afterCloudReachableInFlight = (async () => {
     try {
@@ -1766,14 +1942,14 @@ function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
  *  吸取 10-26 的两条（user「弹了一个需要处理然后就什么交互都没了」）：话说真的；传完没传成的带名单、带钮。
  *  force = dev 探针（test/probes/probe-push-ask.mjs）跳过「已登录」「问过了」前置。 */
 async function offerPushLocalOnly(reason: string, force = false): Promise<void> {
-  if (!force && (!hasStore() || !auth.isSignedIn() || !cloudOnline() || cloudGate.isRunning())) return;
+  const folder = isFolderHome();   // 文件夹家：东西本来就是往自己的文件夹写，没有「第一次放进某个账号」这回事，都算续传
+  if (!force && (!hasStore() || (folder ? !folderHomeOnline() : !auth.isSignedIn() || !cloudOnline() || cloudGate.isRunning()))) return;
   const files = requireStore().files;
   const dirty = await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; });
   if (dirty <= 0) return;
   let never: Set<string>;
   try {
-    const manifest = await walkLibrary((folder) => snapshotFolderOnce((f, cb) => files.watchFolder(f, cb), folder));
-    never = neverUploadedIds(manifest.files);
+    never = folder ? new Set() : neverUploadedIds((await walkLibrary((d) => snapshotFolderOnce((f, cb) => files.watchFolder(f, cb), d))).files);
   } catch (e) { funnel(e, "log"); return; }
   if (!pushConsented) for (const id of never) heldNeverUploaded.add(id);
   pushHoldAll = false;
@@ -1888,7 +2064,7 @@ function paintOfflineBar(): void {
 }
 const gateTune = { recheckMs: 30_000 };   // 探针调（__catsup.gate）；不是偏好
 const cloudGate = new CloudGate({
-  attached: () => hasStore() && auth.isAuthConfigured(),
+  attached: () => hasStore() && !isFolderHome() && auth.isAuthConfigured(),   // 文件夹家和网盘无关：不闸
   browserOnline,
   renew: renewSilently,
   check: (g) => session.checkCloudOnce(g),
@@ -2003,7 +2179,18 @@ void (async () => {
   //   handleRedirectPromise 失败（error 级）/ [auth] init 诊断（log 级）都发生在 initAuth 里 → 曾挂过图库（登录点击必挂 → 回程必真）
   //   或 URL 带 OAuth 回程碎片时**先接线再 initAuth**，一条都不许漏。纯无地首开仍不碰 createStore。
   const oauthReturn = /(^|[#&?])(code|error|state)=/.test(location.hash);
-  if (deviceKvGet("gallery-attached") === "1" || oauthReturn) { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
+  // 上次的家是文件夹 → 挂上（权限只查不弹，掉了 = 离线态 + 一键 chip）。否则照旧。
+  const folderEntry = await bootFolderEntry((e) => funnel(e, "warning"));
+  if (folderEntry) {
+    try {
+      const granted = await ensureFolderPermission(folderEntry, { request: false });
+      attachFolderHome(folderEntry, granted);
+      setActiveGalleryId(folderEntry.id);
+      wireStore();
+      if (granted) void afterFolderWritable(); else showFolderPermissionChip(folderEntry);
+      note("boot", `folder home "${folderEntry.label}" online=${granted}`);
+    } catch (e) { funnel(new Error("[boot] folder home failed: " + String(e)), "warning"); }
+  } else if (deviceKvGet("gallery-attached") === "1" || oauthReturn) { try { wireStore(); } catch (e) { funnel(e, "warning"); } }
   // 本地这一段（口令 → 恢复上次的模型）：挂了库就跑在闸门的罩子底下（工单 C：摆出本机那份 + 罩住）；顺序契约照旧 = 本地恢复在 initAuth 之前。
   let outcome: RestoreOutcome | null = null;
   const localBoot = async (): Promise<void> => {
@@ -2018,7 +2205,7 @@ void (async () => {
   note("boot", `restore store=${hasStore()} outcome=${outcome ?? "landless"} home=${session.home.kind}${session.home.kind === "gallery" ? ":" + session.home.path + (session.lazy ? " (lazy)" : "") : ""} ${(performance.now() - t0).toFixed(0)}ms`);
   updateSaveStatus();
   };
-  if (hasStore() && auth.isAuthConfigured()) {
+  if (hasStore() && !isFolderHome() && auth.isAuthConfigured()) {
     // 挂了库：闸门（开机 = 罩住 → 本地恢复 → 静默续签 + 问云端一次 → 放行 / 库的面 / 「网盘没连上」；initAuth 在 renew 里）
     try { note("boot", `gate → ${await cloudGate.run("boot", { before: localBoot })}`); } catch (e) { funnel(e, "warning"); }
   } else {
@@ -2032,6 +2219,7 @@ void (async () => {
   // 旧地址的搬家一行（家族根 ai-docs/20261103-catsup-domain-move.md §0.2）：开新标签，旧页留着，没传完可以回来接着传。
   const moved = movedNoticeFor(location);
   if (moved) notify({ id: "moved", level: "info", text: moved.text, timeoutMs: null, actions: [{ label: "打开新地址", primary: true, onClick: () => { window.open(moved.url, "_blank", "noopener"); } }] });
+  void afterBootHome();
   if (auth.isSignedIn() && !hasStore()) {   // 登录了但这台设备还没挂过图库（清过 device-kv / 新装）：接店 + 走一遍三态（回执条多半空 → lazyblank）
     try { wireStore(); outcome = await bootRestore(); note("boot", `restore after auth outcome=${outcome}`); } catch (e) { funnel(e, "warning"); }
   } else if (outcome === "blank-failed" && auth.isSignedIn() && session.isUntouchedLazyBlank()) {

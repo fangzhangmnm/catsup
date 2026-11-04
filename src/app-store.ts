@@ -23,7 +23,7 @@
 // 开机顺序契约（v0.5.7，ai-docs/20260922-lifecycle-alignment-with-weebpaint.md §1.3 / §3.3）：**boot 的本地恢复必须在 initAuth 之前发起并等完**。
 //   库 0.14 起「在线 = 有网 ∧ signedIn()」，`open()` 在线时先等一次云端 etag 往返；未登录 → 直接读本地零网络。谁把 initAuth 排到恢复前面，
 //   谁就把「开机秒开」变回「开机等一次 Graph」。登录落地后的新鲜度由 session.refreshOpenDoc（pullIfClean，trustHints:false）后台补。
-import { createStore, createOneDriveProvider, requestStoragePersistence, isCached, isDirty, DEFAULT_GRAPH_TIMEOUTS } from "@internal/store";
+import { createStore, createOneDriveProvider, createFolderProvider, requestStoragePersistence, isCached, isDirty, DEFAULT_GRAPH_TIMEOUTS } from "@internal/store";
 import type { Store, RawFile, DocKind, GraphTransportOptions } from "@internal/store";
 import { APP_ID, AUTHORITY, CLIENT_ID, DOC_EXT, HIDDEN_NAME_RE, LEGACY_DOC_EXT, MSAL_URL, SCOPES } from "./config.ts";
 import { storeUI } from "./store-ui.ts";
@@ -58,11 +58,28 @@ export function activeDocName(): string | null { return _activeDoc; }
 
 let _store: Store | null = null;
 export function hasStore(): boolean { return _store !== null; }
-/** 首次挂图库 / 登录时建；之后常驻（无地 = 从不调用）。 */
-export function ensureStore(): Store {
-  if (_store) return _store;
-  _store = createStore({
-    provider: od.provider,
+
+// ---- 文件夹当家（工单 F-152；folder provider = 另一朵云，引擎零特判）。切换家 = 记到名册后刷新，开机只有这一条挂库路（WeebPaint 是热切换，CatsUp 不需要）。 ----
+let _folder: { label: string; dbId: string; online: boolean } | null = null;
+export function isFolderHome(): boolean { return _folder !== null; }
+export function folderHomeLabel(): string | null { return _folder?.label ?? null; }
+export function folderHomeOnline(): boolean { return _folder?.online ?? false; }
+export function setFolderHomeOnline(v: boolean): void { if (_folder) _folder.online = v; }
+/** 这个家现在写得进去吗：文件夹 = 有权限；网盘 = 登录了且在线。session 的「这次要不要推」只问这一处。 */
+export function canPushNow(): boolean { return _folder ? _folder.online : od.auth.isSignedIn() && cloudOnline(); }
+/** 缩略图缓存按家分（同名模型在两个家是两份东西）。 */
+export function homeGalleryId(): string { return _folder?.dbId ?? "default"; }
+
+interface FolderEntryLike { label?: string; dbId: string; handle?: unknown }
+const folderProviderOf = (entry: FolderEntryLike) => {
+  if (!entry.handle) throw new Error("folder gallery entry has no handle");
+  return createFolderProvider(entry.handle as Parameters<typeof createFolderProvider>[0]);
+};
+/** createStore 的唯一调用点（守卫核：provider 必填，没有家不建库）。 */
+function buildStore(o: { provider: Parameters<typeof createStore>[0]["provider"]; signedIn: () => boolean; isOnline: () => boolean; databaseId?: string }): Store {
+  return createStore({
+    provider: o.provider,
+    ...(o.databaseId ? { databaseId: o.databaseId } : {}),
     ui: storeUI,
     appId: APP_ID,
     persistence: "app-managed",
@@ -78,16 +95,45 @@ export function ensureStore(): Store {
     autoCacheOpenedFile: true,
     offlineUploadReplay: "manual",   // 2026-11-04：回来只问一次（规则书第 15 条，main.ts offerPushLocalOnly）；"ask" 时库会先弹一张自己的面，同一件事问两遍
     readOnlyFiles: false,
-    signedIn: () => od.auth.isSignedIn(),
-    isOnline: cloudOnline,
+    signedIn: o.signedIn,
+    isOnline: o.isOnline,
     activeIdentifier: () => _activeDoc,
     hidden: (id) => HIDDEN_NAME_RE.test(id),
   });
+}
+/** 首次挂图库 / 登录时建；之后常驻（无地 = 从不调用）。网盘这条路没变。 */
+export function ensureStore(): Store {
+  if (_store) return _store;
+  _store = buildStore({ provider: od.provider, signedIn: () => od.auth.isSignedIn(), isOnline: cloudOnline });
+  wireVerifierOf(_store);
+  return _store;
+}
+/** 开机挂文件夹（boot 单路；online = 权限在不在）。 */
+export function attachFolderHome(entry: FolderEntryLike, online: boolean): Store {
+  if (_store) throw new Error("attachFolderHome after a store exists (home switches go through reload)");
+  _folder = { label: entry.label || (entry.handle as { name?: string } | undefined)?.name || "文件夹", dbId: entry.dbId, online };
+  _store = buildFolderStore(entry).store;
+  wireVerifierOf(_store);
+  return _store;
+}
+/** 当前文件夹家的 provider（读回比字节用：看夹里真的文件）。 */
+export const buildFolderProviderFor = (entry: FolderEntryLike) => folderProviderOf(entry);
+/** 搬家的目的地：建好不换当前（真换走刷新那条路）。用完 dispose。provider 给读回用：比的是夹里那个文件，不是缓存。 */
+export function buildFolderStore(entry: FolderEntryLike): { store: Store; provider: ReturnType<typeof folderProviderOf> } {
+  const provider = folderProviderOf(entry);
+  const store = buildStore({ provider, signedIn: () => (_folder ? _folder.online : true), isOnline: () => true, databaseId: entry.dbId });
+  return { store, provider };
+}
+/** 搬家的来源 = 以前的本机库（`catsup.defaultStore`，和网盘同一个库，没登录时不碰网）。当前就是它 = 直接给；当前是文件夹 = 临时开一个，owned = 用完要 dispose。 */
+export function legacyStore(): { store: Store; owned: boolean } {
+  if (_store && !_folder) return { store: _store, owned: false };
+  return { store: buildStore({ provider: od.provider, signedIn: () => false, isOnline: () => false }), owned: true };
+}
+function wireVerifierOf(store: Store): void {
   // 图库口令验证器（password-verifier.ts）：synced collection "app-state" 的一项，跟账号走。init 完才接——没接之前 hasVerifier() = false，
   //   解锁循环 / 首次加密都先 await verifierReady()，免得把真验证器当「没设过」覆盖掉。
-  const col = _store.collection("app-state");
+  const col = store.collection("app-state");
   _verifierReady = col.init().then(() => { wireVerifierStore({ get: () => { const v = col.getItem("galleryPasswordVerifier"); return isVerifierRecord(v) ? v : null; }, set: (rec) => col.setItem("galleryPasswordVerifier", rec) }); }).catch(() => { /* 接不上 = 当没有验证器；库已 reportError */ });
-  return _store;
 }
 let _verifierReady: Promise<void> = Promise.resolve();
 /** 口令验证器接上了没有（无地 = 立刻）。解锁 / 首次加密前先等它。 */
@@ -104,6 +150,6 @@ export function docFile(identifier: string, mode: "new" | "existing" = "existing
 export { requestStoragePersistence, isCached, isDirty };
 export { wipeAppNamespace, scanAppNamespace } from "@internal/store";   // maintenance 面经接缝转口（factory-reset.ts 消费；库内 typed consent）
 /** 还原出厂前置：释放本 store 实例（否则库 wipe 进 blocked 报告）。之后任何面抛 StoreDisposedError——只能 reload。没挂过图库 = no-op。 */
-export async function disposeStore(): Promise<void> { const s = _store; if (!s) return; _store = null; wireVerifierStore(null); _verifierReady = Promise.resolve(); await s.dispose(); }
+export async function disposeStore(): Promise<void> { const s = _store; if (!s) return; _store = null; _folder = null; wireVerifierStore(null); _verifierReady = Promise.resolve(); await s.dispose(); }
 export type { Store, RawFile };
 export type { Item, SyncState, SaveResult, TryMoveResult, FolderSnapshot } from "@internal/store";

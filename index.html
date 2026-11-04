@@ -321,15 +321,17 @@
         <div class="gallery-chrome-title">图库</div>
         <span class="top-spacer" aria-hidden="true"></span>
         <button class="tb-btn" id="galleryNew" type="button" title="新建模型"><svg class="ico" aria-hidden="true"><use href="#new"/></svg></button>
+        <button class="tb-btn" id="galleryPutBack" type="button" title="放回图库（加密文件，还是加密的）"><svg class="ico" aria-hidden="true"><use href="#import"/></svg></button>
         <button class="tb-btn" id="galleryCloudBtn" type="button" title="云端" data-cloud-state="out"><svg class="ico" aria-hidden="true"><use id="galleryCloudIcon" href="#cloud"/></svg></button>
         <button class="tb-btn" id="galleryRefreshBtn" type="button" title="刷新云端" hidden><svg class="ico" aria-hidden="true"><use href="#refresh"/></svg></button>
         <button class="tb-btn" id="galleryTrashBtn" type="button" title="回收站" hidden><svg class="ico" aria-hidden="true"><use href="#trash-can"/></svg></button>
       </div>
       <!-- 没登录 = 图库只在浏览器里（规则：库必须有家；过渡第 1 步 = 披露 + 出口，工单 C2 ④）。 -->
       <div class="gallery-homebar" id="galleryHomeBar" hidden>
-        <span class="gallery-homebar-text">这些模型只在这台设备的浏览器里，没有备份</span>
+        <span class="gallery-homebar-text" id="galleryHomeBarText">这些模型只在这台设备的浏览器里，没有备份</span>
         <button class="sheet-choice" id="galleryExportAll" type="button">全部导出</button>
         <button class="sheet-choice" id="galleryConnect" type="button">连接网盘</button>
+        <button class="sheet-choice" id="galleryPickFolder" type="button">选一个文件夹</button>
       </div>
       <div class="gallery-trashbar" id="galleryTrashBar" hidden>
         <button class="sheet-choice" id="galleryTrashBack" type="button">回到图库</button>
@@ -402,6 +404,6 @@
     <input type="file" id="objFile" accept=".obj,model/obj" hidden />
     <input type="file" id="glbFile" accept=".catsup,.glb,.zip,model/gltf-binary,application/zip" hidden />
     <input type="file" id="glbImportFile" accept=".glb,model/gltf-binary" hidden />
-    <script type="module" src="./dist/catsup-175b2aa1b7e8.mjs"></script>
+    <script type="module" src="./dist/catsup-00cdf6587109.mjs"></script>
   </body>
 </html>
