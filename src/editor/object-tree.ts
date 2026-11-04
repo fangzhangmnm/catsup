@@ -6,9 +6,10 @@
 // · 物件展开 = 它那个组件定义里的物件：同一个定义摆了几份，每份底下都一样（改一份 = 改全部，SketchUp 同款）。
 // · 根那一行 = 模型最外一层的组件（显示它的名字、能改名；没有父亲 = 不能炸开、没有藏标记）。
 // · 路径 path = 从最外层一路「进哪个」（含途经的组），最后一个是这一行自己：选中它 = 进到 path 去掉最后一个的那一层、再选它；双击 = 进到 path 那一层。
-// · 拖一行换父亲（I3，user 10-30「hierarchy拖拽同意」）：reparentOp = 删原处 + 原位贴进新父亲（世界位置不变）一条 batch 指令；同级排序等有序表（I5）。
+// · 拖一行（I3，user 10-30「hierarchy拖拽同意」；身份地基 ID-2 起）：moveRowOp = 一条 moveInstance：换父亲（世界位置不变）、同级排序（user 10-30「改文件格式，为什么不是有序表？」），都保住这一份的 GUID。
 // · 名字：实例自己的名字，没有就用组件定义的名字；名字正好是四位十六进制码 = 没起名 → 界面淡色等宽。
 import type { BodyKind } from "../scene/body-kind.ts";
+import type { Guid } from "../format/guid.ts";
 import type { DefId, EditContext, GroupId, InstId, Scene } from "../scene/scene.ts";
 import { IDENTITY, compose, hasShear, invert, type Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
@@ -119,28 +120,42 @@ function lockedOn(scene: Scene, path: readonly HierPick[]): string | null {
   return null;
 }
 
-export type Reparent =
-  | { readonly op: Op; readonly into: DefId; readonly from: DefId; readonly name: string }
+export type RowMove =
+  | { readonly op: Op; readonly into: DefId; readonly from: DefId; readonly name: string; /** 这一份的身份：跨定义之后句柄变了，靠它再找回来。 */ readonly guid: Guid; /** 同一定义里排序：搬完排第几。 */ readonly index?: number }
   | { readonly why: string };
+/** 这一行（合成行 = 第一个不是 skip 的那份）在它住的定义里的句柄。 */
+function instOfRow(n: HierNode, skip: InstId | null): InstId | null {
+  if (n.kind === "copies") { for (const m of n.children) { const id = instOfRow(m, skip); if (id !== null) return id; } return null; }
+  const last = n.path[n.path.length - 1];
+  return last?.kind === "instance" && last.instance !== skip ? last.instance : null;
+}
 /**
- * 把 node 这一行挪到 target 底下当孩子（I3）：一条 batch = 删原处（eraseInstance）+ 原位贴进 target 装的那个组件（paste，世界位置不变）——撤销一步。
- * 挂在 target 组件的最外层（不进它里面的组：组不进层级窗，user 10-24）。已经是 target 的孩子 = null（不动）。
+ * 把 node 这一行挪到 target 底下（I3 / ID-2）：一条 moveInstance，撤销一步，这一份的 GUID 不变。
+ * before：undefined = 放进去（拖到一行中间，跨定义排最后、同定义不动）；null = 排到最后；一行 = 排到它前面。
+ * 跨定义挂在 target 组件的最外层（不进它里面的组：组不进层级窗，user 10-24），世界位置不变；同定义只改顺序（组的归属不动）。没变化 = null。
  * 拒绝（人话）：根不能挪 / 放进自己或自己里面（组件互相装 = 死循环）/ 自己或路上锁着 / 目标或目标路上锁着 / 会斜切（glTF 不许组件斜切；执行时还有全局护栏兜底）。
  * 原处和目标都可能摆了好几份（同一个组件）：这一份在每一份里都没了 / 都多了——SketchUp 同款，调用方要把份数说出来。
  */
-export function reparentOp(scene: Scene, node: HierNode, target: HierNode): Reparent | null {
+export function moveRowOp(scene: Scene, node: HierNode, target: HierNode, before?: HierNode | null): RowMove | null {
   const last = node.path[node.path.length - 1];
   if (node.kind !== "instance" || !last || last.kind !== "instance") return { why: node.kind === "copies" ? "合成的那一行不能整个挪：先展开，拖其中一份" : "根不能挪（它是最外一层）" };
   if (target.kind === "copies") return { why: `「${target.label}」那一行是 ${target.count} 份合成的：先展开，拖到其中一份上` };
   const inst = scene.instance(node.def, last.instance), into = contentDef(scene, target);
-  if (into === node.def) return null;
-  if (scene.references(inst.def, into)) return { why: `不能把「${node.label}」放进它自己（或它里面的东西）里` };
+  if (into === node.def && before === undefined) return null;
+  if (into !== node.def && scene.references(inst.def, into)) return { why: `不能把「${node.label}」放进它自己（或它里面的东西）里` };
   const l1 = lockedOn(scene, node.path);
   if (l1 !== null) return { why: `「${l1}」锁着：先解锁再挪` };
   const l2 = lockedOn(scene, target.path);
   if (l2 !== null) return { why: `「${l2}」锁着：先解锁再往里放` };
+  const from = { def: node.def, inst: inst.id }, base = { into, from: node.def, name: node.label, guid: inst.guid };
+  const beforeId = before && before.def === into ? instOfRow(before, into === node.def ? inst.id : null) : null;
+  if (into === node.def) {   // 同级排序
+    const ids = [...scene.def(into).instances.keys()], rest = ids.filter((id) => id !== inst.id), at = beforeId === null ? rest.length : rest.indexOf(beforeId);
+    if (ids.indexOf(inst.id) === at) return null;
+    return { ...base, index: at, op: { op: "moveInstance", from, into: { def: into, parent: inst.parent }, index: at } };
+  }
   const xform = compose(invert(worldOfPath(scene, target.path)), worldOfPath(scene, node.path));
   if (hasShear(xform)) return { why: `「${target.label}」被不等比缩放过，「${node.label}」放进去会斜切（glTF 不许组件斜切）；先对「${target.label}」点「应用缩放」` };
-  const moved = { parent: null, def: inst.def, xform, ...(inst.name !== undefined ? { name: inst.name } : {}), ...(inst.locked ? { locked: true } : {}), ...(inst.layer !== undefined ? { layer: inst.layer } : {}), ...(inst.hidden ? { hidden: true } : {}) };
-  return { op: { op: "batch", label: "换父亲", ops: [{ op: "eraseInstance", def: node.def, instance: inst.id }, { op: "paste", at: { def: into, group: null }, instances: [moved] }] }, into, from: node.def, name: node.label };
+  const index = beforeId === null ? undefined : [...scene.def(into).instances.keys()].indexOf(beforeId);
+  return { ...base, op: { op: "moveInstance", from, into: { def: into, parent: null }, xform, ...(index !== undefined ? { index } : {}) } };
 }

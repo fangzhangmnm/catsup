@@ -26,6 +26,9 @@ const chairWorld = () => page.evaluate(() => {
   return find(s.root, [1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0]);
 });
 const same = (a, b) => a && b && a.every((v, i) => Math.abs(v - b[i]) < 1e-9);
+/** 椅这一份的永久编号（不管它挂在哪；身份地基 ID-2：换父亲 / 排序都不许变）。 */
+const chairGuid = () => page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef, find = (def) => { for (const i of s.def(def).instances.values()) { if (s.def(i.def).name === "椅") return i.guid; const f = find(i.def); if (f) return f; } return null; }; return find(s.root); });
+const rootOrder = () => page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef; return [...s.def(s.root).instances.values()].map((i) => s.def(i.def).name).join(""); });
 const drag = async (from, to, dx = 0, peek) => {
   const a = await rowBox(from), b = await rowBox(to);
   const x0 = a.x + 60, y0 = a.y + a.height / 2;
@@ -39,7 +42,7 @@ const drag = async (from, to, dx = 0, peek) => {
 };
 const r0 = await rows();
 check(/^[0-9a-f]{4}$/.test(r0[0]?.name ?? "") && r0.slice(1).map((r) => r.name).join("/") === "桌/椅", `起手：根（没起名 = 四位码，v0.18.17）底下桌、椅：${r0.map((r) => r.name).join("/")}`);
-const w0 = await chairWorld();
+const w0 = await chairWorld(), g0 = await chairGuid();
 // ① 拖到「桌」那一行中间 = 放进去
 const m1 = await drag("椅", "桌");
 const st1 = await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef; return { root: s.def(s.root).instances.size, chain: e.context.chain.length, sel: e.selectedPoolKeys().length, hint: document.getElementById("hint")?.textContent ?? "" }; });
@@ -48,14 +51,24 @@ check(m1.into === 1 && m1.src === 1, `拖着时：目标那行描边、拖着的
 check(st1.root === 1 && same(await chairWorld(), w0), `放进桌：根里只剩桌、椅的世界位置不动：${JSON.stringify(st1)}`);
 check(st1.chain === 1 && st1.sel === 1 && r1.find((r) => r.name === "椅")?.sel && r1.find((r) => r.name === "椅").pad > r1.find((r) => r.name === "桌").pad, `走进桌那一层、选中椅、树上椅缩进到桌底下：${JSON.stringify(r1)}`);
 check(/挪进「桌」底下/.test(st1.hint), `提示行说了：${st1.hint}`);
+check(await chairGuid() === g0, "换父亲不换身份（永久编号不变）");
 await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(150);
 const st2 = await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef; return { root: s.def(s.root).instances.size, chain: e.context.chain.length }; });
-check(st2.root === 2 && st2.chain === 0 && same(await chairWorld(), w0), `撤销一步 = 回到根、两个都在根底下：${JSON.stringify(st2)}`);
+check(st2.root === 2 && st2.chain === 0 && same(await chairWorld(), w0) && await chairGuid() === g0, `撤销一步 = 回到根、两个都在根底下、身份不变：${JSON.stringify(st2)}`);
 // ② 拖到「桌」下面那条缝、往右挪一格缩进 = 当桌的孩子
 const m2 = await drag("椅", "桌", 16, 0.92);
 const st3 = await page.evaluate(() => { const s = globalThis.__catsup.editor.sceneRef; return s.def(s.root).instances.size; });
 check(m2.line && st3 === 1 && same(await chairWorld(), w0), `缝里 + 右一格 = 桌的孩子（拖着时有插入线）：${JSON.stringify(m2)} 根里 ${st3}`);
 await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(150);
+// ②½ 同一层排序（ID-2）：椅拖到桌上面那条缝 = 排到桌前面；树和数据都变、世界位置和身份不变；撤销回来；拖回原处 = 没事
+check(await rootOrder() === "桌椅", `排序之前：${await rootOrder()}`);
+await drag("椅", "桌", 0, 0.08);
+const st25 = await page.evaluate(() => document.getElementById("hint")?.textContent ?? "");
+const r25 = await rows();
+check(await rootOrder() === "椅桌" && r25.slice(1).map((r) => r.name).join("/") === "椅/桌" && /排到「桌」前面/.test(st25), `排到桌前面：${await rootOrder()}；树 ${r25.slice(1).map((r) => r.name).join("/")}；提示 ${st25}`);
+check(same(await chairWorld(), w0) && await chairGuid() === g0, "排序：世界位置、身份都不变");
+await page.evaluate(() => globalThis.__catsup.editor.undo()); await page.waitForTimeout(150);
+check(await rootOrder() === "桌椅" && await chairGuid() === g0, `排序撤销一步：${await rootOrder()}`);
 // ③ 桌锁着：拖进去被挡、说为什么、什么都没变
 await page.evaluate(() => { const e = globalThis.__catsup.editor, s = e.sceneRef, t = [...s.def(s.root).instances.values()].find((i) => s.def(i.def).name === "桌"); e.selectPools([{ kind: "instance", instance: t.id }]); e.lockSelection(true); e.cancel(); });
 await page.waitForTimeout(100);

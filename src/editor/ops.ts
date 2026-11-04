@@ -24,8 +24,8 @@ import { edgesAlongSegs } from "../kernel/curves.ts";
 import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
-import { liveDefs } from "../scene/resources.ts";
-import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Instance, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
+import { liveDefs, materialUse } from "../scene/resources.ts";
+import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Definition, type Instance, type Material, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
@@ -87,9 +87,16 @@ export type Op =
   | { op: "eraseInstance"; def: number; instance: number }
   /** 清理没人用的组件定义（0.18 I10；user 点了「清理」才跑）：全家唯一删定义的地方（守卫 test/orphan-defs.test.ts）；单子里有一个还够得着 = 整条拒绝、一个不删。 */
   | { op: "purgeDefs"; defs: number[] }
+  /** 清理没人用的材质（身份地基 ID-2；user 点了「清理」才跑）：全家唯一删材质的地方（守卫 test/identity-id2.test.ts）；单子里有一个还有人用（活着的组件 / 孤儿组件 / 素材架）= 整条拒绝。materials = 这一刻的运行时下标；同一条指令把所有定义的槽表重排，面上的槽号不动（计划书 §8 ①）。 */
+  | { op: "purgeMaterials"; materials: number[] }
+  /**
+   * 换父亲 / 同级排序（身份地基 ID-2，计划书 §8 ②）：实例对象搬家，**GUID 不变**（以前「换父亲」= 删 + 贴 = 新身份）。跨定义 = 在目标定义里拿新句柄；同一定义 = 句柄不变、只改顺序（和 parent）。
+   * index = 搬完之后它在目标定义的实例顺序里排第几（缺 = 跨定义排最后、同定义不动）；xform = 目标定义里的新变换（缺 = 不变）。先查成环。
+   */
+  | { op: "moveInstance"; from: { def: number; inst: number }; into: { def: number; parent: number | null }; xform?: Xform; index?: number }
   /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
   | { op: "copyGroup"; at: PoolRef; group: number; xform: Xform }
-  /** 新材质（文档级，只增）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
+  /** 新材质（文档级）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
   | { op: "addMaterial"; name: string; color: [number, number, number]; texture?: { mimeType: string; bytes: Uint8Array; sizeM: [number, number] } }
   /** 边层开关（软化 / 硬化 / 隐藏…）：这些边打上 / 去掉若干层。 */
   | { op: "setEdgeLayers"; at: PoolRef; edges: EdgeKey[]; layers: string[]; on: boolean }
@@ -152,8 +159,11 @@ export type Op =
   /** 分开（Blender P → 选中）：网格体 def 里这些面搬进一个新的网格体组件，摆在 at 池里、和正在编辑的那一份（instance）同一个变换（世界里不动）。 */
   | { op: "separateObject"; at: PoolRef; instance?: number; def: number; faces: number[]; name: string }   // instance 缺 = 在最外层分（新组件摆在最外层、不变换）
   /** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
-  /** 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**，材质 = 文档材质 id，指令里换成目标定义的槽号）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。 */
-  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[] }
+  /**
+   * 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。
+   * 面上的材质编号 = materials 这张对照表的下标（家规「编号只当对照表的代号」）：按 GUID 对回文档材质，没有就带着原 GUID 加回来，再换成目标定义的槽号。缺 materials = 老复现包：编号就是文档材质下标。
+   */
+  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[]; materials?: readonly Material[] }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -286,7 +296,7 @@ export class ShearRejected extends Error {}
 /** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
 export class PlanarBurst extends Error {}
 /** 会改组件实例矩阵、可能乘出斜切的指令（移动 / 旋转 / 等比缩放 / 镜像永远不会；非等比缩放转过的组件、炸开被非等比缩放过的组件会）。 */
-const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale", "importScene", "paste"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
+const SHEAR_OPS: ReadonlySet<Op["op"]> = new Set(["transformInstance", "placeInstance", "explode", "copyGroup", "setAxes", "transformPool", "makeComponent", "applyScale", "importScene", "paste", "moveInstance"] as Op["op"][]);   // batch 里的每条各自过 applyOp，不用再查一遍
 const shearedInstances = (s: Scene): Map<string, string> => {
   const out = new Map<string, string>();
   for (const d of s.defs.values()) for (const i of d.instances.values()) if (hasShear(i.xform)) out.set(`${d.id}/${i.id}`, s.def(i.def).name);
@@ -308,7 +318,7 @@ function wrapInMesh(s: Scene, op: Extract<Op, { op: "makeComponent" }>): ApplyRe
   const def = s.mintDef(op.name, new Kernel());
   def.body = { kind: "mesh", kernel: new MeshKernel(), materialSlots: [...slots] };
   for (const i of isel) {
-    const ni = s.mintInstance(def.id, null, i.def, compose(T, i.xform));
+    const ni = s.mintInstance(def.id, null, i.def, compose(T, i.xform), i.guid);   // 搬家保身份（ID-2）
     if (i.name !== undefined) ni.name = i.name;
     if (i.locked) ni.locked = true;
     if (i.layer !== undefined) ni.layer = i.layer;
@@ -418,13 +428,13 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       for (const gid of [...sub].sort((a, b) => a - b)) {
         const g = b0.groups.get(gid)!, guides = cloneGuides(g.guides);
         transformGuides(guides, T);
-        const ng = s.mintGroup(def.id, null, Kernel.fromBrep(transformSnapshot(g.kernel.toBrep(), T)), transformFrame(T, g.axes));
+        const ng = s.mintGroup(def.id, null, Kernel.fromBrep(transformSnapshot(g.kernel.toBrep(), T)), transformFrame(T, g.axes), g.guid);   // 搬家保身份（ID-2）
         ng.guides = guides; if (g.name !== undefined) ng.name = g.name;
         gmap.set(gid, ng.id);
       }
       for (const gid of sub) { const g = b0.groups.get(gid)!; if (g.parent !== null && sub.has(g.parent)) s.group({ def: def.id, group: gmap.get(gid)! }).parent = gmap.get(g.parent)!; }
       for (const i of [...isel, ...subInst]) {
-        const ni = s.mintInstance(def.id, i.parent !== null && sub.has(i.parent) ? gmap.get(i.parent)! : null, i.def, compose(T, i.xform));
+        const ni = s.mintInstance(def.id, i.parent !== null && sub.has(i.parent) ? gmap.get(i.parent)! : null, i.def, compose(T, i.xform), i.guid);   // 搬家保身份（ID-2）
         if (i.name !== undefined) ni.name = i.name;
         if (i.locked) ni.locked = true;
         if (i.layer !== undefined) ni.layer = i.layer;
@@ -611,6 +621,34 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       for (const id of op.defs) s.defs.delete(id);   // purgeDefs：全家唯一删定义的地方（守卫只放过这一行）
       return { scene: s, events: [] };
     }
+    case "purgeMaterials": {
+      const use = materialUse(s), kill = new Set(op.materials);
+      for (const i of kill) { const m = s.materials[i]; if (!m) throw new OpTargetError(`purgeMaterials: material ${i}`); if (use[i].faces || use[i].orphanFaces || use[i].shelved) throw new OpTargetError(`purgeMaterials: 「${m.name}」还有人用`); }
+      const next: number[] = [];   // 旧下标 → 新下标（−1 = 被删）
+      let n = 0;
+      for (let i = 0; i < s.materials.length; i++) next.push(kill.has(i) ? -1 : n++);
+      for (const d of s.defs.values()) d.body.materialSlots = d.body.materialSlots.map((m) => (m >= 0 ? (next[m] ?? -1) : -1));   // 面上的槽号是代号、不动；槽表这一列同一步对上（家规）
+      for (const i of [...kill].sort((a, b) => b - a)) s.materials.splice(i, 1);   // purgeMaterials：全家唯一删材质的地方（守卫只放过这一行）
+      return { scene: s, events: [] };
+    }
+    case "moveInstance": {
+      const from = s.defs.get(op.from.def), inst = from?.instances.get(op.from.inst), into = s.defs.get(op.into.def);
+      if (!from || !inst) throw new OpTargetError(`instance ${op.from.inst}`);
+      if (!into) throw new OpTargetError(`definition ${op.into.def}`);
+      if (op.into.parent !== null && (into.body.kind !== "brep" || !into.body.groups.has(op.into.parent))) throw new OpTargetError(`moveInstance: group ${op.into.parent}`);
+      if (from === into) {
+        inst.parent = op.into.parent;
+        if (op.xform) inst.xform = op.xform;
+        placeAmongSiblings(into, inst.id, op.index);
+        return { scene: s, events: [] };
+      }
+      if (s.references(inst.def, into.id)) throw new OpTargetError("moveInstance: would create a cycle (moving an object into itself)");
+      from.instances.delete(inst.id);
+      const moved: Instance = { ...inst, id: into.nextInst++, parent: op.into.parent, xform: op.xform ?? inst.xform };   // 同一个条目（guid / 名字 / 锁 / 层 / 藏都跟着），句柄归新定义
+      into.instances.set(moved.id, moved);
+      placeAmongSiblings(into, moved.id, op.index);
+      return { scene: s, events: [] };
+    }
     case "eraseInstance": {
       const d = s.def(op.def);
       if (!d.instances.delete(op.instance)) throw new OpTargetError(`instance ${op.instance}`);
@@ -703,11 +741,12 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         if (s.references(i.def, ref.def)) throw new OpTargetError("paste: would create a cycle (pasting an object into itself)");
       }
       let events: FaceEvent[] = [];
+      const docMat = pastedMaterial(s, op.materials);
       if (kind === "mesh") {
         if (op.brep || op.groups?.length) throw new OpTargetError("paste: brep geometry into a mesh body needs a cast");
         if (op.instances?.some((i) => i.parent !== null)) throw new OpTargetError("paste: mesh body has no groups to parent instances under");
         if (op.mesh) {
-          const tb = s.mesh(ref.def), tk = tb.kernel, slot = (id: number): number => { if (id < 0) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
+          const tb = s.mesh(ref.def), tk = tb.kernel, slot = (code: number): number => { const id = docMat(code); if (id < 0) return -1; let j = tb.materialSlots.indexOf(id); if (j < 0) { j = tb.materialSlots.length; tb.materialSlots.push(id); } return j; };
           const vs = op.mesh.verts.map((q) => tk.addVertex(q));
           for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat));
           for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); tk.setEdgeFlags(id, e.flags); }
@@ -716,7 +755,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         return { scene: s, events };
       }
       if (op.mesh) throw new OpTargetError("paste: mesh geometry into a brep body needs a cast");
-      const toSlot = (id: number): number => (id < 0 ? -1 : s.slotFor(ref.def, id));
+      const toSlot = (code: number): number => { const id = docMat(code); return id < 0 ? -1 : s.slotFor(ref.def, id); };
       if (op.brep) events = absorbSnapshot(poolOf(s, op.at).kernel, op.brep, IDENTITY, toSlot);
       const gids: number[] = [];
       for (const g of op.groups ?? []) {
@@ -853,6 +892,8 @@ export function describeOp(op0: Op): string {
     case "importScene": return `importScene "${op.scene.name}" nodes=${op.scene.nodes.length} meshes=${op.scene.meshes.length}${at}`;
     case "eraseInstance": return `eraseInstance ${op.def}/${op.instance}`;
     case "purgeDefs": return `purgeDefs [${op.defs.join(",")}]`;
+    case "purgeMaterials": return `purgeMaterials [${op.materials.join(",")}]`;
+    case "moveInstance": return `moveInstance ${op.from.def}/${op.from.inst} → ${op.into.def}/${op.into.parent ?? "root"}${op.index !== undefined ? ` @${op.index}` : ""}`;
     case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
@@ -912,6 +953,25 @@ function cloneDefinition(s: Scene, def: number): { id: number } {
   }
   for (const i of src.instances.values()) { const ni = s.mintInstance(d.id, i.parent === null ? null : (gmap.get(i.parent) ?? null), i.def, i.xform); if (i.name !== undefined) ni.name = i.name; if (i.locked) ni.locked = true; if (i.layer !== undefined) ni.layer = i.layer; if (i.hidden) ni.hidden = true; }
   return d;
+}
+/** 同级排序：把 id 排到实例顺序的第 index 位（Map 的插入顺序 = 同级先后，文件里按这个写，计划书 §2.3）。缺 index = 不动。 */
+function placeAmongSiblings(d: Definition, id: number, index: number | undefined): void {
+  if (index === undefined) return;
+  const me = d.instances.get(id)!, rest = [...d.instances.values()].filter((i) => i.id !== id);
+  rest.splice(Math.max(0, Math.min(rest.length, index)), 0, me);
+  d.instances.clear();
+  for (const i of rest) d.instances.set(i.id, i);
+}
+/** 粘贴载荷面上的编号 → 文档材质下标：按 GUID 对回去，文档里没有（撤销过头 / 清理掉了）= 带着原身份加回来；表外的 = 默认。没表 = 老复现包，编号就是文档材质下标。 */
+function pastedMaterial(s: Scene, table: readonly Material[] | undefined): (code: number) => number {
+  return (code) => {
+    if (code < 0) return -1;
+    if (!table) return code;
+    const m = table[code];
+    if (!m) return -1;
+    const i = s.materials.findIndex((x) => x.guid === m.guid);
+    return i >= 0 ? i : s.addMaterial(m);
+  };
 }
 /** 粘贴一份实例：名字 / 锁 / 层 / 藏跟着走。 */
 function mintPasted(s: Scene, def: number, parent: number | null, i: TransferInstance): void {

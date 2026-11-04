@@ -2,7 +2,7 @@
 // 随机的用户动作序列（画盒 / 全选 / 取消 / 建组 / 建组件 / 进 / 退 / 移动 / 转网格体 / 转回硬表面 / 删除 / 锁 / 藏 / 炸开 / 修复 / 镜像开关 / 挪点〔镜像下钉 / 不穿 / 并〕/ 挤出 / 细分 / 默认平滑 / 撤 / 重做），每个动作之后断言：
 //   ① stepViolations 永远 0（没有步外提交）② 一个动作最多长一步（没有幻影步）③ 从装载态重放整条指令流的指纹 == 活场景（差分 oracle）
 //   ④ 选区里的东西都还在活动视图里 ⑤ 工作台管得了活动池的身体（不变量 I5，2026-10-28 Opus）、全程没有 DRIFT 记录。
-//   每个种子最后：撤到种子开头、再重做到底，指纹和选区逐字回来；再（能进就先进一个网格体）重开模型，工作台得跟上（user 10-28 黑匣子那一案）。
+//   每个种子最后：撤到种子开头、再重做到底，指纹、选区和全部永久编号（GUID）逐字回来（计划书 §4 守卫 2：撤销 / 重做不重铸；2026-11-04 Claude Opus 5.5）；再（能进就先进一个网格体）重开模型，工作台得跟上（user 10-28 黑匣子那一案）。
 // 跑法：python3 -m http.server 8765 后 node test/probes/probe-undo-fuzz.mjs [seeds=4] [actions=28]
 import { createRequire } from "node:module";
 const { chromium } = createRequire("/home/fangzhangmnm/jupyter/20260601 PWAProjects/20260524 WeebPaint/package.json")("playwright");
@@ -16,8 +16,10 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const S = () => e.scene;
   const fp = (sc) => [...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => {
     const body = d.body.kind === "brep" ? `b${d.body.kernel.faces().length}f${d.body.kernel.edges().length}e${d.body.kernel.vertices().map((v) => `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`).sort().join(";")}g${d.body.groups.size}` : `m${d.body.kernel.faceCount()}f${d.body.kernel.verts().map((v) => { const p = d.body.kernel.pt(v); return `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}`; }).sort().join(";")}`;
-    return `D${id}:${body}|I${[...d.instances.values()].map((i) => `${i.id}:${i.def}:${i.xform.map((x) => x.toFixed(4)).join(",")}`).sort().join(";")}`;
+    return `D${id}:${body}|I${[...d.instances.values()].map((i) => `${i.id}:${i.def}:${i.xform.map((x) => x.toFixed(4)).join(",")}`).join(";")}`;   // 不排序：同级顺序是数据（ID-2）
   }).join("\n");
+  const guidsOf = (sc) => JSON.stringify([[...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, d.guid, [...d.instances.values()].map((i) => i.guid), d.body.kind === "brep" ? [...d.body.groups.values()].map((g) => g.guid) : []]), sc.materials.map((m) => m.guid), sc.layers.map((l) => l.guid)]);
+  const unusedMats = (sc) => { const used = new Set(); for (const d of sc.defs.values()) { const b = d.body; if (b.kind === "mesh") { for (const f of b.kernel.faces()) { const m = b.materialSlots[b.kernel.faceMat[f]]; if (m !== undefined) used.add(m); } continue; } for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) for (const side of [0, 1]) { const sl = k.faceMaterialOf(f.id, side); if (sl !== undefined && b.materialSlots[sl] !== undefined) used.add(b.materialSlots[sl]); } } return sc.materials.map((_, i) => i).filter((i) => !used.has(i)); };
   const selKey = () => `${e.contextCrumbs().length - 1}|f${[...e.selection.faces].sort().join(",")}|e${[...e.selection.edges].sort().join(",")}|v${[...e.selection.verts].sort().join(",")}|p${[...e.selectedPools.values()].map((p) => JSON.stringify(p)).sort().join(",")}`;
   const selValid = () => { const v = e.activeView; return [...e.selection.faces].every((f) => v.face(f)) && [...e.selection.edges].every((x) => v.graph.hasEdge(x)) && [...e.selection.verts].every((x) => v.graph.hasVertex(x)); };
   const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -27,7 +29,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
   const modeFits = () => e.mode.kinds.includes(S().kindOf(S().defOfContext(e.context)));
   for (let seed = 1; seed <= SEEDS; seed++) {
-    const rnd = mulberry(seed * 7919), posStart = e.history.position(), stepsStart = e.history.steps(), trail = [];
+    const rnd = mulberry(seed * 7919), posStart = e.history.position(), stepsStart = e.history.steps(), trail = [], guidsStart = guidsOf(S());
     let selAtLastStep = selKey();   // 进 / 出组件是导航不是步（FM106），撤到头再重做回来的是最后一步封的会话，不是之后的导航
     const fail = (why) => { out.failures.push(`seed ${seed} @${trail.length} [${trail.slice(-6).join(" ")}]: ${why}`); };
     // 双数种子从网格体里开始（不然进网格体要连着 盒 → 组件 → 转网格体 → 进入 四步，镜像那条路几乎跑不到）
@@ -56,6 +58,12 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
         if (hasPool) { add(2, "lock", () => e.lockSelection(true)); add(1, "unlock", () => e.lockSelection(false)); add(2, "explode", () => e.explodeSelection()); }
         if (hasSel && e.hasHideableSelection()) add(2, "hide", () => e.hideSelection());
         add(1, "unhideAll", () => e.unhideAll());
+        // 身份地基 ID-2：同级排序 / 换父亲 / 涂材质 / 清理材质
+        const here = [...S().def(ctxDef).instances.values()];
+        if (here.length >= 2) add(4, "reorder", () => { const i = here[Math.floor(rnd() * here.length)]; e.commitOp({ op: "moveInstance", from: { def: ctxDef, inst: i.id }, into: { def: ctxDef, parent: i.parent }, index: Math.floor(rnd() * here.length) }); });
+        if (depth === 0 && here.length >= 2) add(3, "reparent", () => { const a = here[Math.floor(rnd() * here.length)], b = here[Math.floor(rnd() * here.length)]; if (a === b || S().references(a.def, b.def)) return; e.selectedPools.clear(); e.commitOp({ op: "moveInstance", from: { def: ctxDef, inst: a.id }, into: { def: b.def, parent: null }, xform: a.xform }); });
+        if (!inMesh && e.selection.faces.size) add(6, "paint", () => { e.setPaint({ kind: "color", name: `色${Math.floor(rnd() * 3)}`, color: [rnd(), 0.5, 0.5] }); e.paintSelection(); });
+        if (unusedMats(S()).length) add(3, "purgeMats", () => e.commitOp({ op: "purgeMaterials", materials: unusedMats(S()) }));
         if (inMesh) {   // 镜像那条路（v0.16.5 挪点纪律：钉 / 不穿 / 并 + 强行对称的对称化）+ 网格体的整体算子
           add(3, "mirrorEdit", () => e.setMirror("edit", 0)); add(3, "mirrorForce", () => e.setMirror("force", 0)); add(2, "mirrorOff", () => e.setMirror(null));
           add(2, "subdivide", () => e.runAction("mesh.subdivide")); add(2, "smooth", () => e.runAction(rnd() < 0.5 ? "mesh.smooth.smooth" : "mesh.smooth.hard"));
@@ -83,12 +91,14 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
       await sleep(0);
     }
     // 撤到种子开头、再重做到底：指纹和选区逐字回来
-    const fpEnd = fp(S()), selEnd = selKey(), stepsEnd = e.history.steps(), posEnd = e.history.position();   // 种子可能以撤销收尾：重做只到种子结束时的位置，不吞重做尾巴
+    const fpEnd = fp(S()), guidsEnd = guidsOf(S()), selEnd = selKey(), stepsEnd = e.history.steps(), posEnd = e.history.position();   // 种子可能以撤销收尾：重做只到种子结束时的位置，不吞重做尾巴
     let n = 0; while (e.history.position() > posStart && n < 200) { e.undo(); n++; }
     if (e.history.position() !== posStart) fail(`could not undo back to seed start (pos ${e.history.position()} vs ${posStart})`);
+    if (guidsOf(S()) !== guidsStart) fail("undo-all: GUIDs differ from seed start");
     let m = 0; while (e.history.position() < posEnd && e.canRedo() && m < 200) { e.redo(); m++; }
     if (e.history.position() !== posEnd) fail(`could not redo back to seed end (pos ${e.history.position()} vs ${posEnd})`);
     if (fp(S()) !== fpEnd) fail("undo-all then redo-all: scene differs");
+    if (guidsOf(S()) !== guidsEnd) fail("undo-all then redo-all: GUIDs re-minted");
     if (selKey() !== selAtLastStep) fail(`undo-all then redo-all: selection differs (${selKey()} vs ${selAtLastStep}; at seed end ${selEnd})`);
     out.seeds.push({ seed, actions: trail.length, steps: stepsEnd - stepsStart, undone: n, redone: m, trail: trail.join(" ") });
     // 重开模型（I5 那一案）：能进网格体就先进去

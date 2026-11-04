@@ -6,7 +6,7 @@ import { applyOp, faceKey } from "../src/editor/ops.ts";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { sceneBox } from "./format-scenes.ts";
 import { compose, rotationAbout, scalingAbout, translation, type Xform } from "../src/scene/xform.ts";
-import { contextPath, hierarchyTree, isHex4, pathKey, reparentOp, setHiddenOp, worldOfPath } from "../src/editor/object-tree.ts";
+import { contextPath, hierarchyTree, isHex4, pathKey, moveRowOp, setHiddenOp, worldOfPath } from "../src/editor/object-tree.ts";
 
 const rootAt = (s: Scene) => ({ def: s.root, group: null });
 const topFace = (k: Kernel, z: number): number => k.faces().find((f) => k.faceRings3(f.id)!.outer.every((p) => Math.abs(p.z - z) < 1e-9))!.id;
@@ -84,30 +84,31 @@ describe("层级窗的物件树（object-tree.ts）", () => {
     eq(t2.label, "小红帽的家"); assert(!t2.unnamed, "起了名 = 不淡");
     assert(hierarchyTree(applyOp(s.clone(), { op: "rename", at: { def: s.root, group: null }, def: s.root, name: "0a1b" }).scene).unnamed, "四位码 = 没起名");
   });
-  it("拖一行换父亲（I3）：一条 batch（删原处 + 原位贴进去），世界位置不变；放进自己里面 / 原地 / 锁着 / 会斜切 / 根 = 不动并说为什么", () => {
+  it("拖一行换父亲（I3 / ID-2）：一条 moveInstance，世界位置不变、GUID 不变；放进自己里面 / 原地 / 锁着 / 会斜切 / 根 = 不动并说为什么", () => {
     const { s, a, defA, c } = scene();
     const t = hierarchyTree(s), A = t.children[0], B = t.children[1], C = A.children[0];
     const w0 = worldOfPath(s, B.path);
-    const r = reparentOp(s, B, A);
+    const r = moveRowOp(s, B, A);
     assert(!!r && "op" in r, `该给指令：${JSON.stringify(r)}`);
     if (!r || !("op" in r)) return;
     const s2 = applyOp(s.clone(), r.op).scene;
     eq(s2.def(s2.root).instances.size, 1, "根里只剩 A");
     const moved = [...s2.def(defA).instances.values()].find((i) => i.id !== c)!;
+    eq(moved.guid, r.guid, "还是同一个条目（换父亲不换身份）");
     const w1 = compose(s2.instance(s2.root, a).xform, moved.xform);
     assert(w1.every((v, i) => Math.abs(v - w0[i]) < 1e-9), `世界位置不变：${w0} → ${w1}`);
     assert(moved.parent === null, "挂在 A 组件的最外层（不进它里面的组）");
-    const why = (x: ReturnType<typeof reparentOp>) => (x && "why" in x ? x.why : "");
-    assert(/自己/.test(why(reparentOp(s, A, C))), "A 放进它里面的椅子 = 死循环，拒绝");
-    eq(reparentOp(s, C, A), null, "已经在 A 底下 = 不动");
-    assert(/根/.test(why(reparentOp(s, t, A))), "根不能挪");
+    const why = (x: ReturnType<typeof moveRowOp>) => (x && "why" in x ? x.why : "");
+    assert(/自己/.test(why(moveRowOp(s, A, C))), "A 放进它里面的椅子 = 死循环，拒绝");
+    eq(moveRowOp(s, C, A), null, "已经在 A 底下 = 不动");
+    assert(/根/.test(why(moveRowOp(s, t, A))), "根不能挪");
     const sl = s.clone(); sl.instance(sl.root, a).locked = true;
-    assert(/锁/.test(why(reparentOp(sl, hierarchyTree(sl).children[1], hierarchyTree(sl).children[0]))), "目标锁着");
+    assert(/锁/.test(why(moveRowOp(sl, hierarchyTree(sl).children[1], hierarchyTree(sl).children[0]))), "目标锁着");
     const ss = s.clone();
     (ss.instance(ss.root, a) as { xform: Xform }).xform = scalingAbout({ x: 0, y: 0, z: 0 }, { x: 2, y: 1, z: 1 });
     const bb = [...ss.def(ss.root).instances.values()].find((i) => i.id !== a)!;
     (bb as { xform: Xform }).xform = rotationAbout({ x: 0, y: 0, z: 0 }, { x: 0, y: 0, z: 1 }, Math.PI / 4);
-    assert(/斜切/.test(why(reparentOp(ss, hierarchyTree(ss).children[1], hierarchyTree(ss).children[0]))), "放进不等比缩放过的 + 自己转过 = 会斜切，拒绝");
+    assert(/斜切/.test(why(moveRowOp(ss, hierarchyTree(ss).children[1], hierarchyTree(ss).children[0]))), "放进不等比缩放过的 + 自己转过 = 会斜切，拒绝");
   });
   it("同一组件的几份合成一行「×N」（user 10-30「hierarchy显示的时候应该collapse同实例变成 x几，可以开这个开关」）：开关关 = 一份一行；合成行小眼睛 = 几份一起藏一步撤销；拖不进合成行；每行带种类", () => {
     const { s, b } = scene();
@@ -122,7 +123,7 @@ describe("层级窗的物件树（object-tree.ts）", () => {
     assert(!!op && op.op === "batch" && op.ops.length === 2, `两份一起藏 = 一条 batch：${JSON.stringify(op)?.slice(0, 80)}`);
     const s2 = applyOp(s.clone(), op!).scene;
     assert(hierarchyTree(s2, { mergeCopies: true }).children[1].hidden, "两份都藏了 = 合成行也是藏着");
-    const why = reparentOp(s, merged.children[0], cp);
+    const why = moveRowOp(s, merged.children[0], cp);
     assert(!!why && "why" in why && /展开/.test(why.why), "拖到合成行上 = 先展开");
   });
 });

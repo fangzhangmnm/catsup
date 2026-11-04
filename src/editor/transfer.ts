@@ -1,25 +1,28 @@
 // transfer.ts —— 几何 / 物件在容器之间搬家的载荷（剪贴板、以后的移动复制共用）。created 2026-10-28 by Claude Fable 5.1
 // 设计稿 ai-docs/20261028-object-layer-and-clipboard-design.md §2–3（user 10-28 夜「复制黏贴我们没做」「取决于对方能不能接，不允许强制类型转换」
 // →「这么说几何的复制黏贴也值得做，然后也许这种情况允许cast但是会弹窗。然后变成选择」）。
-// 载荷 = 值拷贝、**世界坐标**、材质用文档材质 id（不是定义的槽号）：和任何一份定义都没有引用关系，撤销换掉场景也还在。
+// 载荷 = 值拷贝、**世界坐标**：和任何一份定义都没有引用关系，撤销换掉场景也还在。
+// 材质（身份地基 ID-2，2026-11-04 Claude Opus 5.5）：面上的编号 = 载荷自己那张 materials 对照表的下标（家规「编号只当对照表的代号」），表里是材质条目本身（带 GUID）；
+//   以前直接存文档材质下标 = 清理材质 / 撤销过头之后下标换了人，静默贴错（清点 §4 A）。组件还按定义句柄（撤销过头那一例 B + 跨文件 = ID-3）。
 //   · brep   = 硬表面散几何快照（面 / 线 / 曲线 / 边层 / 面层）
 //   · groups = 硬表面组的子树（每个组一份快照 + 坐标架 + 参考几何；parent = 载荷内下标）
 //   · mesh   = 网格体散几何（面 / 裸线 / 边标记）
+//   · materials = 面上编号的对照表
 //   · instances = 组件实例（定义 id + 世界变换 + 名字 / 锁 / 层 / 藏；parent = 载荷内组下标 | null）——通用货币，什么容器都接
 // 三个纯函数：extract（从场景抠）· accept（目标接不接；不接 = 要转种类）· castPayload（用户点了「转」才做的转换，和物体设置窗同一套 castBody）· localize（世界 → 目标容器本地）。
-// 真正写进场景的是 ops.ts 的 `paste` 指令（吃本地坐标的载荷，材质 id 在指令里换成目标定义的槽号）。
+// 真正写进场景的是 ops.ts 的 `paste` 指令（吃本地坐标的载荷，面上的编号经对照表换成目标定义的槽号）。
 import type { Pt3 } from "../kernel/geom.ts";
 import { Kernel, type BrepSnapshot } from "../kernel/kernel.ts";
 import { MeshKernel, F_WIRE } from "../mesh/mesh-kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { cloneGuides, emptyGuides, transformGuides, type Guides } from "../scene/guides.ts";
 import { castBody } from "../scene/kinds.ts";
-import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Scene } from "../scene/scene.ts";
+import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Material, type Scene } from "../scene/scene.ts";
 import { applyPt, compose, transformFrame, type Frame, type Xform } from "../scene/xform.ts";
 
 export interface TransferGroup { readonly parent: number | null; readonly snap: BrepSnapshot; readonly axes: Frame; readonly name?: string; readonly guides: Guides }
 export interface TransferInstance { readonly parent: number | null; readonly def: DefId; readonly xform: Xform; readonly name?: string; readonly locked?: boolean; readonly layer?: number; readonly hidden?: boolean }
-/** 网格体散几何：faces.mat / 边 flags 原样；mat = 文档材质 id（−1 = 无）。 */
+/** 网格体散几何：faces.mat / 边 flags 原样；mat = 载荷 materials 表的下标（−1 = 无）。 */
 export interface MeshFragment { readonly verts: Pt3[]; readonly faces: { readonly ring: number[]; readonly mat: number }[]; readonly edges: { readonly a: number; readonly b: number; readonly flags: number }[] }
 export interface TransferPayload {
   /** 从哪种身体抠出来的（提示用）。 */
@@ -28,6 +31,8 @@ export interface TransferPayload {
   readonly groups?: TransferGroup[];
   readonly mesh?: MeshFragment;
   readonly instances?: TransferInstance[];
+  /** 面上材质编号的对照表（brep 面层 / groups 面层 / mesh.faces[].mat 都是它的下标）。 */
+  readonly materials?: readonly Material[];
 }
 export interface TransferCounts { faces: number; edges: number; groups: number; instances: number }
 
@@ -53,22 +58,26 @@ export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<numbe
   const at = s.poolOfContext(ctx), X = s.xformOfContext(ctx), d = s.def(at.def), kind = s.kindOf(at.def);
   const instOf = (i: { def: DefId; xform: Xform; name?: string; locked?: boolean; layer?: number; hidden?: boolean }, parent: number | null): TransferInstance =>
     ({ parent, def: i.def, xform: compose(X, i.xform), ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
+  const table: Material[] = [];
+  /** 文档材质下标 → 载荷对照表的编号。 */
+  const codeOf = (matIndex: number): number => { const m = s.materials[matIndex]; if (!m) return -1; let c = table.indexOf(m); if (c < 0) { c = table.length; table.push(m); } return c; };
+  const tableOut = (): { materials?: readonly Material[] } => (table.length ? { materials: table } : {});
   const instances: TransferInstance[] = [];
   for (const p of pools) if (p.kind === "instance") { const i = d.instances.get(p.instance); if (i) instances.push(instOf(i, null)); }
   if (kind === "mesh") {
     const k = s.mesh(at.def).kernel, slots = s.mesh(at.def).materialSlots, faces = [...sel.faces].filter((f) => k.hasF(f)).sort((a, b) => a - b);
     const map = new Map<number, number>(), verts: Pt3[] = [];
     const nv = (v: number): number => { let x = map.get(v); if (x === undefined) { x = verts.length; map.set(v, x); verts.push(applyPt(X, k.pt(v))); } return x; };
-    const outFaces = faces.map((f) => ({ ring: k.faceVerts(f).map(nv), mat: k.faceMat[f] >= 0 ? (slots[k.faceMat[f]] ?? -1) : -1 }));
+    const outFaces = faces.map((f) => ({ ring: k.faceVerts(f).map(nv), mat: k.faceMat[f] >= 0 ? codeOf(slots[k.faceMat[f]] ?? -1) : -1 }));
     const eSet = new Set<number>();
     for (const f of faces) for (const e of k.fEdges(f)) if (e >= 0) eSet.add(e);
     for (const e of sel.edges) if (k.hasE(e)) eSet.add(e);   // 选中的裸线 / 别的边也带着（没有面的在目标里成裸线）
     const edges = [...eSet].sort((a, b) => a - b).map((e) => ({ a: nv(k.edgeA[e]), b: nv(k.edgeB[e]), flags: k.edgeFlags[e] | (k.eFaces(e).length && faces.some((f) => k.fEdges(f).includes(e)) ? 0 : F_WIRE) }));
     const mesh = outFaces.length || edges.length ? { verts, faces: outFaces, edges } : undefined;
-    const out: TransferPayload = { from: "mesh", ...(mesh ? { mesh } : {}), ...(instances.length ? { instances } : {}) };
+    const out: TransferPayload = { from: "mesh", ...(mesh ? { mesh } : {}), ...(instances.length ? { instances } : {}), ...tableOut() };
     return transferEmpty(out) ? null : out;
   }
-  const b = s.brep(at.def), k = s.kernelOf(at), idOf = (slot: number): number => b.materialSlots[slot] ?? -1;
+  const b = s.brep(at.def), k = s.kernelOf(at), idOf = (slot: number): number => codeOf(b.materialSlots[slot] ?? -1);
   const faces = [...sel.faces].filter((f) => !!k.face(f)), edges = [...sel.edges].filter((e) => k.graph.hasEdge(e));
   const brep = faces.length || edges.length ? transformSnapshot(remapSnapshotMaterial(extractSnapshot(k, faces, edges), idOf), X) : undefined;
   // 组：选中的 + 它们下面的全部子组（parent 链），按 id 升序出；子组的 parent 指向载荷内下标
@@ -81,7 +90,7 @@ export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<numbe
     return { parent: g.parent !== null && idx.has(g.parent) ? idx.get(g.parent)! : null, snap: transformSnapshot(remapSnapshotMaterial(g.kernel.toBrep(), idOf), X), axes: transformFrame(X, g.axes), ...(g.name !== undefined ? { name: g.name } : {}), guides };
   });
   for (const i of d.instances.values()) if (i.parent !== null && idx.has(i.parent)) instances.push(instOf(i, idx.get(i.parent)!));
-  const out: TransferPayload = { from: "brep", ...(brep ? { brep } : {}), ...(groups.length ? { groups } : {}), ...(instances.length ? { instances } : {}) };
+  const out: TransferPayload = { from: "brep", ...(brep ? { brep } : {}), ...(groups.length ? { groups } : {}), ...(instances.length ? { instances } : {}), ...tableOut() };
   return transferEmpty(out) ? null : out;
 }
 
@@ -103,13 +112,13 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
       if (body.kind !== "mesh") continue;
       const k = body.kernel, base = verts.length, vmap = new Map<number, number>();
       for (const v of k.verts()) { vmap.set(v, verts.length); verts.push(k.pt(v)); }
-      for (const f of k.faces()) faces.push({ ring: k.faceVerts(f).map((v) => vmap.get(v)!), mat: k.faceMat[f] });   // 槽表给的是空的：faceMat 里就是材质 id
+      for (const f of k.faces()) faces.push({ ring: k.faceVerts(f).map((v) => vmap.get(v)!), mat: k.faceMat[f] });   // 槽表给的是空的：faceMat 里就是对照表的编号
       for (const e of k.edges()) edges.push({ a: vmap.get(k.edgeA[e])!, b: vmap.get(k.edgeB[e])!, flags: k.edgeFlags[e] });
       void base;
     }
     const mesh = verts.length ? { verts, faces, edges } : undefined;
     const flat = instances.map((i) => (i.parent === null ? i : { ...i, parent: null }));
-    return { from: p.from, ...(mesh ? { mesh } : {}), ...(flat.length ? { instances: flat } : {}) };
+    return { from: p.from, ...(mesh ? { mesh } : {}), ...(flat.length ? { instances: flat } : {}), ...(p.materials ? { materials: p.materials } : {}) };
   }
   if (!p.mesh) return p;
   const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
@@ -117,7 +126,7 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   for (const e of p.mesh.edges) { const id = k.ensureEdge(vs[e.a], vs[e.b]); k.setEdgeFlags(id, e.flags); }
   const body = castBody({ kind: "mesh", kernel: k, materialSlots: [] }, "brep");
   const brep = body.kind === "brep" ? body.kernel.toBrep() : undefined;
-  return { from: p.from, ...(brep ? { brep } : {}), ...(p.groups?.length ? { groups: p.groups } : {}), ...(instances.length ? { instances } : {}) };
+  return { from: p.from, ...(brep ? { brep } : {}), ...(p.groups?.length ? { groups: p.groups } : {}), ...(instances.length ? { instances } : {}), ...(p.materials ? { materials: p.materials } : {}) };
 }
 
 /** 世界坐标 → 目标容器本地（Xi = 目标上下文世界变换的逆）。 */
@@ -128,5 +137,6 @@ export function localize(p: TransferPayload, Xi: Xform): TransferPayload {
     ...(p.groups ? { groups: p.groups.map((g) => { const guides = cloneGuides(g.guides); transformGuides(guides, Xi); return { ...g, snap: transformSnapshot(g.snap, Xi), axes: transformFrame(Xi, g.axes), guides }; }) } : {}),
     ...(p.mesh ? { mesh: { ...p.mesh, verts: p.mesh.verts.map((q) => applyPt(Xi, q)) } } : {}),
     ...(p.instances ? { instances: p.instances.map((i) => ({ ...i, xform: compose(Xi, i.xform) })) } : {}),
+    ...(p.materials ? { materials: p.materials } : {}),
   };
 }

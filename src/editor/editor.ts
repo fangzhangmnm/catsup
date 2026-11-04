@@ -248,13 +248,13 @@ const STEP_PASS = Object.freeze({}) as StepPass;
 const OP_TITLES: Readonly<Record<string, string>> = {
   addEdges: "画线", eraseEdges: "擦边", eraseFaces: "擦面", eraseSelection: "删除", move: "移动", pushpull: "推拉", followme: "跟随", absorb: "合并", weldEdges: "焊接", dissolveVertices: "溶解点",
   explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物件", placeInstance: "放置",
-  eraseInstance: "删除物件", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
+  eraseInstance: "删除物件", moveInstance: "挪物件", purgeDefs: "清理组件", purgeMaterials: "清理材质", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
   meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
-const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
+const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
 function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
 function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }
 
@@ -1949,7 +1949,7 @@ export class Editor {
       const instBefore = new Set(this.scene.def(def).instances.keys()), groupBefore = new Set(this.scene.kindOf(def) === "brep" ? this.scene.brep(def).groups.keys() : []);
       const meshBefore = this.scene.kindOf(def) === "mesh" ? new Set(this.scene.mesh(def).kernel.faces()) : null;
       const n0 = this.opCount;
-      const events = this.commitIn(pass, { op: "paste", at, ...(local.brep ? { brep: local.brep } : {}), ...(local.groups ? { groups: local.groups } : {}), ...(local.mesh ? { mesh: local.mesh } : {}), ...(local.instances ? { instances: local.instances } : {}) });
+      const events = this.commitIn(pass, { op: "paste", at, ...(local.brep ? { brep: local.brep } : {}), ...(local.groups ? { groups: local.groups } : {}), ...(local.mesh ? { mesh: local.mesh } : {}), ...(local.instances ? { instances: local.instances } : {}), ...(local.materials ? { materials: local.materials } : {}) });
       if (this.opCount === n0) return;
       // 贴出来的成为选区（接着 G 就能挪）
       this.clearSel(pass);
@@ -1982,7 +1982,7 @@ export class Editor {
     if ("at" in op && op.at && s.hasPool(op.at) && s.poolLocked(op.at)) return true;
     if (op.op === "transformPool") return s.poolLocked(op.at);
     if (op.op === "eraseGroup" || (op.op === "explode" && op.group !== undefined)) return s.poolLocked({ def: op.at.def, group: op.group! });
-    if (op.op === "transformInstance" || op.op === "eraseInstance") return s.pickLocked(op.def, { kind: "instance", instance: op.instance });
+    if (op.op === "transformInstance" || op.op === "eraseInstance" || op.op === "moveInstance") return op.op === "moveInstance" ? s.pickLocked(op.from.def, { kind: "instance", instance: op.from.inst }) : s.pickLocked(op.def, { kind: "instance", instance: op.instance });
     if (op.op === "explode" && op.instance !== undefined) return s.pickLocked(op.at.def, { kind: "instance", instance: op.instance });
     return this.contextLocked();
   }
