@@ -73,6 +73,13 @@ export interface CloudGateDeps {
     /** 放行之后的常规一串（快进 / 补队列 / 没同步好的提示）。 */
     afterPass(): void;
     note(msg: string): void;
+    /** 问云端一次、真走一趟网，不抛 = 通。续签可能直接用缓存的令牌，说明不了网通不通；选了离线时库不出网，所以这一问不经库的 isOnline。 */
+    reachable?(): Promise<void>;
+    /** 页面在前台？后台不试，回前台 run("wake") 那一下会试。 */
+    pageVisible?(): boolean;
+    /** 定时器接缝（测试用假时钟）；返回停止函数。 */
+    every?(ms: number, fn: () => void): () => void;
+    offlineRetryMs?: number;
     hardTimeoutMs?: number;
     /** 醒来时如果这么久之内刚核对过，就不再罩（切个标签回来不吃第一下点击）；报告里写明这是和设计稿的一处出入。 */
     recheckMs?: number;
@@ -88,6 +95,7 @@ export declare class CloudGate {
     private blockedReason;
     private lastOkAt;
     private reconnecting;
+    private stopOfflineRetry;
     private now;
     private d;
     constructor(d: CloudGateDeps);
@@ -113,6 +121,11 @@ export declare class CloudGate {
     reshowBlocked(): void;
     /** 网回来了（window online）/ 登录落地了（auth 事件）：闸开着就重新核一次；选了离线就静默补传；都不是 = 没事。 */
     onCloudMaybeBack(): void;
+    /** 离线态期间定时静默再试（成功才收条；失败不弹不扰）。回前台那一下走 run("wake")。 */
+    private startOfflineRetry;
+    private endOfflineRetry;
+    /** 云端答话了吗（带硬超时：慢网上问不出来 = 还没回来，不许挂住）。 */
+    private cloudAnswers;
     /** 从「离线继续」回来。闸只在开机 / 醒来弹一次：这里失败就是条还在，不再弹。 */
     reconnect(): Promise<boolean>;
 }

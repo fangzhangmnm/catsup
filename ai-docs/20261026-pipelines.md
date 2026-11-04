@@ -354,3 +354,11 @@ flowchart LR
 - **回来问一次**（`offerPushLocalOnly`；规则书 §1 第 15 条）：开机登录好 / 网回来 / 从离线回来 → `afterCloudReachable`（快进 → 排空删除队列）→ 开着的这份先推（心跳那一下）→ 还有没传的 → 面「有 N 份没传上去，现在传？」（`lockSyncGate`，Esc = 稍后，一页一次）→ 现在传 = `dirty.pushAll`（全仓唯一调用点，守卫核；O(没传的份数 × 每份大小)）→ 没传成的带名单带「去处理」。稍后 = 留在「要处理」。平时的心跳推（上面「什么时候推」那张表）不变。
 - **加密作品出门**（`chooseExitForm`）：导出工程 / 另存到磁盘先问形式，默认容器。图库家 = 把没落本机的落下，搬 at-rest 容器（O(文件)，不解不封）；解开的本地件 = 同一口令 7z 封（O(模型)）。加密文件家写回只写容器，口令忘掉就不写。glb / OBJ / 复现包 = `confirmPlainExit`，下载前明说，取消不导。
 - **更新重载**：面开着不计时，关了再给 ≤ 5 s（`isAnyFaceUp` / `faceGeneration` / `whenFacesClosed`）。强制更新仍是 4 s 上限（人是来解卡死的）。
+
+## 追记 2026-11-04（v0.18.27，Claude Opus 5.5；功能账 §3 第一节）：图库的家 + 搬家
+
+- **挂库**：开机只有一条路——名册里上次是文件夹（`gallery-home.ts bootFolderEntry`，没选过文件夹的设备不开名册库）→ 只查权限 → `app-store.ts attachFolderHome`（folder provider，dbId 一源一库）；否则照旧（`gallery-attached` → 网盘那个库）。换家 = 记名册 → `location.reload()`，不热切换。文件夹家不走闸门、不走登录路；「这次推不推」统一问 `canPushNow()`（文件夹 = 权限在不在）。
+- **入口**：点「图库」→ `openGalleryFromUi` → 等登录探测（≤ 3 s）→ 数一遍浏览器里的旧模型 → `currentHomeState()`：没有家 = 选家面（不建 store），有家 / 还有没搬的 = 开图库。
+- **搬家**（`main.ts runMove` → `home-move.ts moveToHome`，每份）：读旧库 at-rest 字节（随旧库份数涨）→ 先读夹里同名（同字节 = 算写好）→ `mode:"new"` 写 + 推进夹（撞名换「 (n)」）→ 从夹里真的读回、逐 4 MB 块比 → move 类才 `trash()` 旧库那份（旧库实例永远离线：不会排云端删除）。开销 = 每份两次夹内读 + 一次写，和库里别的模型无关。
+- **数旧模型**（`legacyScan`）：文件夹家时另开一个离线旧库实例走遍文件夹的本地帧再 dispose（随旧库份数涨；退役后不再开）。
+

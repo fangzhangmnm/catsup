@@ -35,6 +35,10 @@ export interface RefsPort {
 }
 export interface SessionDeps {
     editor: Editor;
+    /** 这份从没传过、人还没答应传：隐式保存只落本机（规则书第 15 条 (a)）。缺 = 不压。 */
+    pushHeld?: (path: string) => boolean;
+    /** 人按了「存」= 同意传这一份（压着的放开）。 */
+    onExplicitSave?: (path: string) => void;
     /** 参考窗（缺 = 没有参考窗：文件里的牌组原样带着写回）。 */
     refs?: RefsPort;
     captureThumbnail: () => {
@@ -213,7 +217,8 @@ export declare class Session {
         onLongWait: () => void;
     }): Promise<void>;
     /** 开着的这份还欠一推：现在推（CatsUp 的传的时机 = 心跳自动推，这就是心跳那一下，撞上不弹面、横幅接手）。回来问一次之前调：面只问真的还没传的（规则书 §1 第 15 条）。 */
-    pushOpenDocIfPending(): Promise<void>;
+    /** 返回 true = 试了、没推成、也不是撞上别的设备（多半网不通）：调用方这一轮别再批量推同一份。 */
+    pushOpenDocIfPending(): Promise<boolean>;
     /** 开着的这份和云端没对上、横幅已经在管了（回来问一次不再把它算进去）。 */
     openDocNeedsAttention(): boolean;
     /** 从「离线继续」回来、库补传之后（工单 C）：全传上去了 = 上次保存「云腿没成」这个旗作废。 */
