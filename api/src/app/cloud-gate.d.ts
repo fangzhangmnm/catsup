@@ -18,7 +18,7 @@ export declare const GATE_COPY: {
     readonly signIn: "重新登录";
     readonly offline: "离线继续";
     readonly bar: (n: number) => string;
-    readonly barReconnecting: "已连上网盘，正在补传…";
+    readonly barReconnecting: "已连上网盘";
     readonly barOpenList: "看列表";
 };
 /** 静默续签失败的原因码（§1 / §7 ⑧）。库零改 = 库已经把这一行写进 ui.reportError（log 级）：
@@ -68,7 +68,7 @@ export interface CloudGateDeps {
     bar: OfflineBar;
     setUserOffline(v: boolean): void;
     userOffline(): boolean;
-    /** 从「离线继续」回来：补传（库的 dirty.pushAll，失败名单进「要处理的」）。 */
+    /** 从「离线继续」回来：把没落本机的落下，然后问一次要不要传（规则书 §1 第 15 条；不许不问就推）。 */
     catchUp(): Promise<void>;
     /** 放行之后的常规一串（快进 / 补队列 / 没同步好的提示）。 */
     afterPass(): void;

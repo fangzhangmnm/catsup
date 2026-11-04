@@ -23,7 +23,7 @@ export const GATE_COPY = {
   signIn: "重新登录",
   offline: "离线继续",
   bar: (n: number): string => (n > 0 ? `离线 · 还有 ${n} 份没传上去` : "离线"),
-  barReconnecting: "已连上网盘，正在补传…",
+  barReconnecting: "已连上网盘",
   barOpenList: "看列表",
 } as const;
 
@@ -75,7 +75,7 @@ export interface CloudGateDeps {
   bar: OfflineBar;
   setUserOffline(v: boolean): void;
   userOffline(): boolean;
-  /** 从「离线继续」回来：补传（库的 dirty.pushAll，失败名单进「要处理的」）。 */
+  /** 从「离线继续」回来：把没落本机的落下，然后问一次要不要传（规则书 §1 第 15 条；不许不问就推）。 */
   catchUp(): Promise<void>;
   /** 放行之后的常规一串（快进 / 补队列 / 没同步好的提示）。 */
   afterPass(): void;

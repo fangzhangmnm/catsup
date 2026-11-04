@@ -30,7 +30,7 @@ import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
 import { setOpened } from "@internal/gallery";
-import { openChoiceSheet, openInputSheet, openSyncGate, withBusy } from "./ui/sheets.ts";
+import { faceGeneration, isAnyFaceUp, openChoiceSheet, openConfirmSheet, openInputSheet, openSyncGate, whenFacesClosed, withBusy } from "./ui/sheets.ts";
 import type { GateHandle } from "./ui/gate-stack.ts";
 import { GATE_COPY } from "./cloud-gate.ts";   // 闸门文案一处（工单 C）
 import { cloudOnline } from "./user-offline.ts";
@@ -38,6 +38,8 @@ import { reportError } from "./error-funnel.ts";
 import { note } from "./debug-log.ts";
 import { crashStore, mintLuggageTag, type LuggageTag } from "./crash-store.ts";
 import { shadowFrame, type ShadowSeal } from "./shadow-seal.ts";
+/** 规则书 §1 第 5 条（user 11-03）：加密作品的明文出门，这句话必经。 */
+const PLAIN_NOTE = "这份是明文、没有加密";
 import { shouldRetryPush } from "./push-retry.ts";
 
 interface FSHandle { readonly name: string; createWritable(): Promise<{ write(b: Blob): Promise<void>; close(): Promise<void> }>; getFile(): Promise<File> }
@@ -46,7 +48,8 @@ const fsa = window as unknown as {
   showOpenFilePicker?: (o: unknown) => Promise<FSHandle[]>;
 };
 // 选择框：打开认 .catsup + 老 .glb 工程（外来 glb 打开时按内容拒、指去导入）；另存只给 .catsup（账本 UX39）
-const OPEN_PICKER_TYPES = [{ description: "CatsUp 工程文件", accept: { "model/gltf-binary": [...DOC_EXTS] } }];
+const OPEN_PICKER_TYPES = [{ description: "CatsUp 工程文件", accept: { "model/gltf-binary": [...DOC_EXTS], "application/zip": [".zip"] } }];   // .zip = 加密导出的容器
+const SEALED_PICKER_TYPES = [{ description: "CatsUp 加密工程文件", accept: { "application/zip": [".zip"] } }];
 const SAVE_PICKER_TYPES = [{ description: "CatsUp 工程文件", accept: { "model/gltf-binary": [DOC_EXT] } }];
 export const supportsSavePicker = (): boolean => typeof fsa.showSaveFilePicker === "function" && window.self === window.top;
 export const supportsOpenPicker = (): boolean => typeof fsa.showOpenFilePicker === "function" && window.self === window.top;
@@ -126,6 +129,8 @@ export class Session {
   encrypted = false;
   /** 这个本地家模型是从加密件解开来的（工单 C2 ①）：它的影子只存容器。换家即清；另存到磁盘不清（见 settleToFile）。 */
   private seal: ShadowSeal | null = null;
+  /** 这个文件家写的是加密容器（「另存到磁盘」选了加密文件）。seal 管影子，它管正本。口令忘掉了就不写，绝不写明文。 */
+  private sealFile = false;
   private shadowSkipSaid = false;
   private snapRun: Promise<boolean> | null = null;
   /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
@@ -294,10 +299,7 @@ export class Session {
     try {
       const bytes = this.encode();
       if (this.luggage !== tag) return false;   // encode 间隙换了家——别把别的模型写进这张牌
-      const frame = await shadowFrame(bytes, seal, {
-        pack: (b, pw) => this.d.crypto.packShadow(b, this.displayName(), pw),
-        isContainer: (b) => this.d.crypto.isEncryptedBlob(b),
-      });
+      const frame = await shadowFrame(bytes, seal, this.sealPorts());
       if (!frame) { this.snapRevision = rev; this.snapRefRev = rr; this.noteShadowSkipped(); return false; }   // 记过这一版：下次改动才再试（tick 一秒一次，别刷屏）
       if (this.luggage !== tag || this.seal !== seal) return false;   // 封口间隙换了家 / 口令被忘
       await crashStore.put(tag, frame, { state, name: this.displayName(), at: Date.now(), homeKind: kind });
@@ -305,6 +307,7 @@ export class Session {
       return true;
     } catch (e) { reportError(new Error("[t-crash] snapshot failed (best-effort, load-bearing layers unaffected): " + String(e)), "log"); return false; }
   }
+  private sealPorts() { return { pack: (b: Uint8Array, pw: string) => this.d.crypto.packShadow(b, this.displayName(), pw), isContainer: (b: Blob) => this.d.crypto.isEncryptedBlob(b) }; }
   /** 口令忘掉了：这个模型留不了影子，也绝不存明文。说一次（不许静默：用户以为有崩溃保护）。 */
   private noteShadowSkipped(): void {
     reportError(new Error("[t-crash] encrypted local doc has no password (locked) — snapshot skipped (never plaintext)"), "log");
@@ -343,12 +346,20 @@ export class Session {
   /** 点「有新版本」/ 强制更新前（pwa-shell onBeforeReload；工单 C3 B）：脏的先落本地（不设时限：这步丢了就是丢改动）→ 没推的推一次，最多等 RELOAD_PUSH_WAIT_MS，推不完就走、脏留给库。
    *  **干净的模型什么都不做**：以前这里无条件 save，干净的也重新编码写本地、标脏，刷新后就弹「没同步好」——这是「一更新就有」的直接触发点。 */
   async flushBeforeReload(): Promise<void> {
+    if (isAnyFaceUp()) await whenFacesClosed();   // 人正在被问（工单 C4，照 MoonSinger H2）：面开着不计时、不刷
     const deadline = Date.now() + RELOAD_PUSH_WAIT_MS;
     while (this.saving && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));   // 自动保存正在路上：等它
     if (this.home.kind !== "gallery") return;   // 文件家 / 临时模型 implicit 本来就不写，靠 beforeunload 挽留兜
     if (this.dirty()) await this.save({ implicit: true, localOnly: true });
     if (!this.pushPending || this.attention || this.lazy || !auth.isSignedIn() || !this.d.online()) return;
-    await Promise.race([this.save({ implicit: true }), new Promise((r) => setTimeout(r, Math.max(0, deadline - Date.now())))]);
+    const push = this.save({ implicit: true });
+    let seen = faceGeneration(), waitMs = Math.max(0, deadline - Date.now());
+    for (;;) {
+      await Promise.race([push, new Promise((r) => setTimeout(r, waitMs))]);
+      if (isAnyFaceUp()) { await whenFacesClosed(); seen = faceGeneration(); waitMs = RELOAD_PUSH_WAIT_MS; continue; }   // 面关了再给 ≤ 5 s：选了的那一步不拦腰刷掉
+      if (faceGeneration() !== seen) { seen = faceGeneration(); waitMs = RELOAD_PUSH_WAIT_MS; continue; }                // 这段里开过又关了，同样重新算
+      break;
+    }
   }
   /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
    *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
@@ -532,7 +543,7 @@ export class Session {
   private setHome(h: DocHome): void {
     this.home = h;
     this.encrypted = false;   // 换家先清；图库家打开 / 加密后由调用方再设
-    this.seal = null; this.shadowSkipSaid = false;   // 同上：解开的加密件由调用方再设（openLocalBytes / adoptRecovered）
+    this.seal = null; this.sealFile = false; this.shadowSkipSaid = false;   // 同上：解开的加密件由调用方再设（openLocalBytes / adoptRecovered）
     if (h.kind === "gallery") this.dropLuggage(); else if (!this.luggage) this.mintLuggage();   // 图库家的影子 = store 本地副本；本地家要牌
     setActiveDocName(h.kind === "gallery" && !this.lazy ? h.path : null);
     if (hasStore()) {
@@ -804,16 +815,22 @@ export class Session {
       const revAtStart = this.d.editor.revision, refRevAtStart = this.refRev();
       const bytes = this.encode();
       if (home.kind === "file") {
+        let out: Uint8Array | Blob = bytes;
+        if (this.sealFile) {   // 这个文件是加密的（另存时选的）：写容器；口令忘掉了就不写（规则书 §1 第 5 条：绝不把明文写回）
+          const c = await shadowFrame(bytes, this.seal, this.sealPorts());
+          if (!c) { if (!opts.implicit) this.d.setStatus(`「${home.fileName}」是加密文件，口令已经忘掉：这次没有写（改动还在内存）`, true); return false; }
+          out = c;
+        }
         if (home.handle) {
           const w = await home.handle.createWritable();
-          await w.write(new Blob([bytes], { type: "model/gltf-binary" })); await w.close();
+          await w.write(out instanceof Blob ? out : new Blob([out], { type: "model/gltf-binary" })); await w.close();
           this.savedRevision = revAtStart; this.savedRefRev = refRevAtStart;
-          if (this.luggage) { crashStore.dropOnCleanClose(this.luggage).catch(() => {}); this.snapRevision = revAtStart; this.snapRefRev = refRevAtStart; }   // 旧快照作废：磁盘已是最新（牌留着）
+          if (this.luggage) { crashStore.dropOnCleanClose(this.luggage).catch(() => {}); this.snapRevision = revAtStart; this.snapRefRev = refRevAtStart; }   // 旧快照作废：磁盘已是最新（牌留着等下次改动）
           if (!opts.implicit) this.d.setStatus(`已保存 ${home.fileName}`);
           return true;
         }
         if (opts.implicit) return false;
-        this.download(bytes, home.fileName);   // 下载开始 = 责任移交；没回家，dirty 如实留着
+        this.download(out, home.fileName);   // 下载开始 = 责任移交；没回家，dirty 如实留着
         this.d.setStatus(`已下载 ${home.fileName}（浏览器不支持原地写回，dirty 保留）`);
         return false;
       }
@@ -843,26 +860,70 @@ export class Session {
   }
   /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
   async settleToFile(): Promise<boolean> {
-    const suggested = `${this.displayName()}${DOC_EXT}`;
     const seal = this.seal;
+    let sealed = false;
+    if (seal) {   // 解开的加密件：默认给容器，明文是显式选项（规则书 §1 第 5 条，出门规则）
+      const form = await this.chooseExitForm("另存到磁盘");
+      if (!form) return false;
+      sealed = form === "container";
+    }
+    const suggested = `${this.displayName()}${DOC_EXT}${sealed ? ".zip" : ""}`;
     if (supportsSavePicker()) {
       let h: FSHandle;
-      try { h = await fsa.showSaveFilePicker!({ suggestedName: suggested, types: SAVE_PICKER_TYPES }); } catch { return false; }
+      try { h = await fsa.showSaveFilePicker!({ suggestedName: suggested, types: sealed ? SEALED_PICKER_TYPES : SAVE_PICKER_TYPES }); } catch { return false; }
       this.lazy = false;
       this.setHome({ kind: "file", handle: h, fileName: h.name });
-      this.seal = seal;   // 写盘可能失败：影子继续只存容器（多保险一点，不影响那份文件）
+      this.seal = seal; this.sealFile = sealed;   // 明文另存：影子继续只存容器（写盘失败时不漏）；加密另存：正本也是容器
       const ok = await this.save();
-      if (ok && seal) this.d.setStatus(`已存为 ${h.name}（这份没有加密，原来的加密文件没动）`);
+      if (ok && seal) this.d.setStatus(sealed ? `已存为 ${h.name}（加密的，原口令才能打开）` : `已存为 ${h.name}（${PLAIN_NOTE}，原来的加密文件没动）`);
       return ok;
     }
     const bytes = this.encode();
-    this.download(bytes, suggested);
-    this.d.setStatus(`已下载 ${suggested}（${seal ? "这份没有加密；" : ""}本浏览器无法原地写回；模型仍未安家）`);
+    const out = sealed ? await shadowFrame(bytes, seal, this.sealPorts()) : bytes;
+    if (!out) { this.d.setStatus("打不出加密文件（口令已经忘掉）：这次没有下载", true); return false; }
+    this.download(out, suggested);
+    this.d.setStatus(`已下载 ${suggested}（${seal ? (sealed ? "加密的，原口令才能打开；" : `${PLAIN_NOTE}；`) : ""}本浏览器无法原地写回；模型仍未安家）`);
     return false;
   }
-  /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。 */
-  exportProject(): string {
-    const bytes = this.encode(), name = `${downloadName(this.displayName())}${DOC_EXT}`;   // 导出名带导出时间（WeebPaint 同款；user 10-28）
+  /** 加密作品出门的两种形式：默认容器（可开回、要原口令），明文是显式选项、选项上就写明（规则书 §1 第 5 条；user 11-03）。永远不靠「解除加密」拿明文。 */
+  private chooseExitForm(title: string): Promise<"container" | "plain" | null> {
+    const can = this.encrypted || !!this.seal?.pw;
+    return openChoiceSheet<"container" | "plain">(title, can ? "这份是加密的。" : "这份是加密的，口令已经忘掉，打不出加密文件。", [
+      ...(can ? [{ label: "加密文件（原口令才能打开）", value: "container" as const, primary: true }] : []),
+      { label: `明文文件（${PLAIN_NOTE}）`, value: "plain" as const },
+    ]);
+  }
+  /** 给别的软件的格式（glb / obj / 复现包）天然明文：加密作品下载前明说一句，取消 = 不导出（规则书 §1 第 5 条）。普通作品直接过。 */
+  async confirmPlainExit(what: string): Promise<boolean> {
+    if (!this.encrypted && !this.seal) return true;
+    return openConfirmSheet(PLAIN_NOTE, `${what}只能是明文：拿到文件的人都能看。`, { okLabel: "知道了，导出", warning: true });
+  }
+  /** 加密作品此刻的容器字节。图库家 = 库里 at-rest 的那份（搬容器原样，和全部导出同一个做法），先把没落本机的落下；解开的本地件 = 同一口令封一份。拿不到 = null，调用方说人话。 */
+  private async containerNow(): Promise<Blob | null> {
+    if (this.seal?.pw) return shadowFrame(this.encode(), this.seal, this.sealPorts());
+    if (!this.encrypted || this.home.kind !== "gallery") return null;
+    const path = this.home.path;
+    while (this.saving) await new Promise((r) => setTimeout(r, 50));
+    if (this.dirty() && !(await this.save({ implicit: true, localOnly: true }))) return null;   // 锁着：写不了，导出去的会是旧的
+    return (await docFile(path).getEncryptedBlob()) as Blob | null;
+  }
+  /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。
+   *  加密作品默认给容器（规则书 §1 第 5 条），明文是显式选项。 */
+  async exportProject(): Promise<string | null> {
+    const stem = downloadName(this.displayName());   // 导出名带导出时间（WeebPaint 同款；user 10-28）
+    if (this.encrypted || this.seal) {
+      const form = await this.chooseExitForm("导出工程文件");
+      if (!form) return null;
+      if (form === "container") {
+        const c = await this.containerNow();
+        if (!c) { this.d.setStatus("打不出加密文件：这份现在锁着，改动还在内存。解锁后再导出", true); return null; }
+        const name = `${stem}${DOC_EXT}.zip`;
+        this.download(c, name);
+        this.d.setStatus(`${name} 已下载（加密的，原口令才能打开；可以开回 CatsUp）`);
+        return name;
+      }
+    }
+    const bytes = this.encode(), name = `${stem}${DOC_EXT}`;
     this.download(bytes, name);
     this.d.setStatus(`${name} 已下载（工程原样，可以开回 CatsUp${this.plainExportNote()}）`);
     return name;
@@ -877,9 +938,9 @@ export class Session {
     return { name, bytes: bytes.byteLength };
   }
   /** 加密件导出的那份是不加密的：说一句（UX 误导 = 数据安全缺陷）。 */
-  private plainExportNote(): string { return this.encrypted || this.seal ? "；这份下载没有加密" : ""; }
-  private download(bytes: Uint8Array, name: string): void {
-    const url = URL.createObjectURL(new Blob([bytes], { type: "model/gltf-binary" }));
+  private plainExportNote(): string { return this.encrypted || this.seal ? `；${PLAIN_NOTE}` : ""; }
+  private download(bytes: Uint8Array | Blob, name: string): void {
+    const url = URL.createObjectURL(bytes instanceof Blob ? bytes : new Blob([bytes], { type: "model/gltf-binary" }));
     const a = document.createElement("a"); a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 10_000);
   }

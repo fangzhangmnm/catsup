@@ -2,12 +2,16 @@ export interface GateAction<T> {
     label: string;
     value: T;
     primary?: boolean;
+    /** 在点击的同步栈里调（resolve 之前）。iOS 红线：loginRedirect 从 Promise 续体起跳可能已丢 transient activation，被静默拦（WeebPaint topbar-menu 同款；工单 C4）。 */
+    onPick?: () => void;
 }
 export interface GateView<T = unknown> {
     title: string;
     message?: string;
     note?: string;
     showSpinner?: boolean;
+    /** 按 Esc = 这个值（「稍后」这类不用决定的面）；不给 = Esc 不管用。 */
+    escValue?: T;
     /** 不可点外面关掉（决策只能按钮选）；空数组 = 没有按钮的纯罩子——调用方必须自己保证有出口。 */
     actions: readonly GateAction<T>[];
 }

@@ -4,6 +4,7 @@
 //   用法：python3 -m http.server 8765 后 `node test/probes/probe-c2.mjs [url]`。headless。
 import { createRequire } from "node:module";
 import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
 import path from "node:path";
 import os from "node:os";
 import { fileURLToPath } from "node:url";
@@ -240,6 +241,108 @@ console.log("④′ 登录了没有披露条；VR 手腕状态行");
   await page.waitForTimeout(300);
   eq(col, "offline", "离线：collection 同步回 offline");
   eq(drive.requests, n0, "离线：collection 零请求");
+  await ctx.close();
+}
+
+// ─────────────────────────────── 加密作品出门（工单 C4）───────────────────────────────
+console.log("出门规则：另存 / 导出工程默认容器；明文显式；给别的软件的格式下载前明说");
+{
+  const { ctx } = await newCtx("none");
+  const page = await open(ctx);
+  const tmp = process.env.CLAUDE_JOB_DIR ? path.join(process.env.CLAUDE_JOB_DIR, "tmp") : os.tmpdir();
+  const dlBytes = async (d) => { const f = path.join(tmp, "c4-" + d.suggestedFilename().replace(/[^\w.-]/g, "_")); await d.saveAs(f); return { name: d.suggestedFilename(), f }; };
+  const looks = (f) => JSON.parse(execFileSync("python3", ["-I", "-c", "import json,sys;b=open(sys.argv[1],'rb').read();print(json.dumps({'glTF':b[:4]==b'glTF','zip':b[:2]==b'PK','peek':b.find(bytes([0x57,0x50,0x45,0x4b]))}))", f], { encoding: "utf8" }));
+  const pathDoc = await newGalleryDoc(page);
+  ok(await page.evaluate(() => { globalThis.__catsup.crypto.answer(async () => "图库口令"); return globalThis.__catsup.session.encryptCurrent(); }), "图库里的模型加密了");
+  await addEdge(page, 2);   // 没落本机的改动：容器要带上它
+  // 导出工程 → 默认容器
+  let dl = page.waitForEvent("download");
+  void page.evaluate(() => { void globalThis.__catsup.session.exportProject(); });
+  await page.waitForFunction(() => /这份是加密的/.test(document.getElementById("sheet").textContent) && !document.getElementById("sheet").hidden);
+  const first = await page.evaluate(() => { const b = document.querySelector("#sheet .sheet-choice.primary, #sheet button.primary"); return b?.textContent ?? ""; });
+  ok(/加密文件/.test(first), `默认（主按钮）是加密文件：${first}`);
+  ok(/这份是明文、没有加密/.test(await page.evaluate(() => document.getElementById("sheet").textContent)), "明文选项上写着那句话");
+  await page.locator("#sheet button", { hasText: "加密文件" }).first().click();
+  let got = await dlBytes(await dl);
+  ok(/\.catsup\.zip$/.test(got.name), `名字：${got.name}`);
+  let shape = looks(got.f);
+  ok(shape.zip && !shape.glTF, "字节是容器，不是明文 glb");
+  // 开回来：要原口令
+  const bytes = [...readFileSync(got.f)];
+  const back = await page.evaluate(async (arr) => {
+    const c = globalThis.__catsup, u8 = new Uint8Array(arr);
+    const isEnc = await c.encryption.isEncryptedBlob(new Blob([u8]));
+    const plain = await c.encryption.tryDecryptEncryptedBlob(new Blob([u8]), "图库口令");
+    const wrong = await c.encryption.tryDecryptEncryptedBlob(new Blob([u8]), "错的");
+    return { isEnc, ok: !!plain, wrong: !!wrong, head: plain ? String.fromCharCode(...new Uint8Array(await plain.slice(0, 4).arrayBuffer())) : "" };
+  }, bytes);
+  ok(back.isEnc && back.ok && back.head === "glTF" && !back.wrong, "isEncryptedBlob 真；原口令解得开，错口令解不开");
+  await page.waitForFunction(() => !globalThis.__catsup.session.saving);
+  // 显式选明文
+  dl = page.waitForEvent("download");
+  void page.evaluate(() => { void globalThis.__catsup.session.exportProject(); });
+  await page.waitForFunction(() => !document.getElementById("sheet").hidden);
+  await page.locator("#sheet button", { hasText: "明文文件" }).first().click();
+  got = await dlBytes(await dl);
+  ok(looks(got.f).glTF, "显式选明文：才给明文");
+  // 取消 = 不导出
+  void page.evaluate(() => { void globalThis.__catsup.session.exportProject(); });
+  await page.waitForFunction(() => !document.getElementById("sheet").hidden);
+  let leaked = false; const onDl = () => { leaked = true; }; page.on("download", onDl);
+  await page.keyboard.press("Escape"); await page.waitForTimeout(400);
+  eq(leaked, false, "取消：没有下载"); page.off("download", onDl);
+  // glb：下载前明说，取消不导
+  const conf = page.evaluate(() => globalThis.__catsup.session.confirmPlainExit("glb"));
+  await page.waitForFunction(() => !document.getElementById("sheet").hidden);
+  ok(/这份是明文、没有加密/.test(await page.evaluate(() => document.getElementById("sheet").textContent)), "glb：下载前明说");
+  await page.keyboard.press("Escape");
+  eq(await conf, false, "取消 = 不导出");
+  // 解开的本地件：另存到磁盘（FSA 桩）
+  const sealedRun = await page.evaluate(async () => {
+    const c = globalThis.__catsup, s = c.session, E = c.encryption;
+    const blob = await E.packContainer({ dataBytes: s.encode(), fileName: "本地加密", ext: "catsup", password: "本地口令" });
+    c.crypto.lock(); c.crypto.answer(async () => "本地口令");
+    await s.openLocalBytes(new Uint8Array(await blob.arrayBuffer()), "本地加密.catsup.zip", null);
+    window.__written = [];
+    window.showSaveFilePicker = async (o) => { window.__picked = o; return { name: o.suggestedName, createWritable: async () => ({ write: async (b) => { window.__written.push(b); }, close: async () => {} }) }; };
+    return s.home.kind;
+  });
+  eq(sealedRun, "transient", "解开的本地件 = 临时模型");
+  await addEdge(page, 4);
+  const sv = page.evaluate(() => globalThis.__catsup.session.settleToFile());
+  await page.waitForFunction(() => /这份是加密的/.test(document.getElementById("sheet").textContent) && !document.getElementById("sheet").hidden);
+  await page.locator("#sheet button", { hasText: "加密文件" }).first().click();
+  eq(await sv, true, "另存到磁盘成了");
+  const wrote = await page.evaluate(async () => { const c = globalThis.__catsup, b = window.__written.at(-1); return { name: window.__picked.suggestedName, enc: await c.encryption.isEncryptedBlob(b), home: c.session.home.kind, n: window.__written.length }; });
+  ok(/\.catsup\.zip$/.test(wrote.name), `建议名：${wrote.name}`);
+  ok(wrote.enc, "写进文件的字节 isEncryptedBlob 为真");
+  eq(wrote.home, "file", "安了家");
+  await addEdge(page, 6);
+  await page.evaluate(() => globalThis.__catsup.session.save());
+  ok(await page.evaluate(async () => globalThis.__catsup.encryption.isEncryptedBlob(window.__written.at(-1))), "再存一次：写回的还是容器");
+  // 口令忘掉：写回不写明文
+  await page.evaluate(() => globalThis.__catsup.crypto.lock());
+  await addEdge(page, 8);
+  const n0 = await page.evaluate(() => window.__written.length);
+  eq(await page.evaluate(() => globalThis.__catsup.session.save()), false, "口令忘掉：这次不写");
+  eq(await page.evaluate(() => window.__written.length), n0, "零写入");
+  await ctx.close();
+}
+
+// ─────────────────────────────── 披露条口径（工单 C4）───────────────────────────────
+console.log("披露条：有账号但过期 = 不说「没有备份」");
+{
+  const { ctx } = await newCtx("ok");
+  const page = await open(ctx);
+  await newGalleryDoc(page);
+  await page.evaluate(() => localStorage.setItem("__fake_msal", "interaction"));
+  await page.reload({ waitUntil: "load" });
+  await page.waitForFunction(() => globalThis.__catsup?.session && document.getElementById("syncGateActions")?.children.length === 2);
+  await page.locator("#syncGateActions button", { hasText: "离线继续" }).click();
+  await page.waitForFunction(() => !globalThis.__catsup.gate.cloudGate.isRunning());
+  await page.evaluate(() => globalThis.__catsup.galleryHost.open());
+  await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+  eq(await page.locator("#galleryHomeBar").isVisible(), false, "有账号但过期：不说「没有备份」（归闸门和离线条）");
   await ctx.close();
 }
 

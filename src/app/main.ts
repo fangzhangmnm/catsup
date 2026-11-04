@@ -53,7 +53,7 @@ import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, docFile, ensureStore, hasStore, isCached, requireStore } from "../app-store.ts";
 import { captureThumbnail } from "./thumbnail.ts";
-import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive, openSyncGate, withBusy } from "./ui/sheets.ts";
+import { initSheets, openChoiceSheet, openConfirmSheet, openFormSheet, openInputSheet, openPasswordSheet, isBusyActive, lockSyncGate, openSyncGate, withBusy } from "./ui/sheets.ts";
 import type { GateHandle } from "./ui/gate-stack.ts";
 import { CloudGate, GATE_COPY, takeRenewFailureCode, type RenewResult } from "./cloud-gate.ts";   // 掉登录 / 没网闸门（工单 C；设计稿 ai-docs/20261103-cloud-gate-design.md）
 import { browserOnline, cloudOnline, isUserOffline, setUserOffline } from "./user-offline.ts";
@@ -123,9 +123,9 @@ function reportError(where: string, err: unknown): void {
   // 胶囊上直接给寄包的口（user 2026-10-24「错误之后的小胶囊好像没有给下载上一步的包和操作的选项」）：内核拒绝的复现包 + 刚提交的上一步
   const actions: NoticeOpts["actions"] = [];
   const say = (t: string): void => notify({ id: "repro", text: t, level: "info" });
-  if (reproCount() > 0) actions.push({ label: `复现包 (${reproCount()})`, onClick: () => { void reproExport(reproJson(), "catsup-repro", say); } });
+  if (reproCount() > 0) actions.push({ label: `复现包 (${reproCount()})`, onClick: () => { void session.confirmPlainExit("复现包").then((go) => { if (go) void reproExport(reproJson(), "catsup-repro", say); }); } });
   const step = lastStepProvider?.();
-  if (step) actions.push({ label: "上一步", onClick: () => { void reproExport(reproJson([lastStepEntry(step)]), "catsup-last-step", say); } });
+  if (step) actions.push({ label: "上一步", onClick: () => { void session.confirmPlainExit("复现包").then((go) => { if (go) void reproExport(reproJson([lastStepEntry(step)]), "catsup-last-step", say); }); } });
   actions.push({ label: "日志", onClick: () => openDebugLogSheet() });
   notify({ id: "err", text, level: "error", actions });
 }
@@ -588,7 +588,7 @@ function menuPick(id: MenuId): void | "keep" {
       case "save": smartSave(); break;
       case "saveas": void session.settleToFile(); break;
       case "open": openLocal(); break;
-      case "exportProject": session.exportProject(); break;
+      case "exportProject": void session.exportProject(); break;
       case "exportModel": void openExportModel(); break;
       case "cloud": if (auth.isSignedIn()) { void cloudSignOut(); } else { cloudSignIn(); } break;
       case "import": objInput.click(); break;
@@ -1053,6 +1053,7 @@ async function openExportModel(): Promise<void> {
   });
   if (!v) return;
   PREF.set("exportModel", [v.format, v.scope ?? "all", v.textures ?? "embed", v.lines ?? "with"].join("|"));
+  if (!(await session.confirmPlainExit(v.format === "obj" ? "OBJ" : "glb"))) return;   // 给别的软件的格式天然明文：加密作品下载前明说（规则书 §1 第 5 条）
   if (v.format === "obj") { doExport(); return; }
   session.exportModelGlb({ textures: v.textures !== "none", lines: v.lines !== "none", ...(v.scope === "sel" && picks.length ? { only: picks } : {}) });
 }
@@ -1705,7 +1706,8 @@ cloudBtn.addEventListener("click", () => togglePopupMenu<CloudId>({
 }));
 // 图库顶上的披露条（工单 C2 ④）：没登录 = 这些模型只在浏览器里。不改入口、不删功能（过渡第 1 步）。
 const galleryHomeBar = $("galleryHomeBar");
-function paintGalleryHomeBar(): void { galleryHomeBar.hidden = auth.isSignedIn(); $("galleryConnect").hidden = !auth.isAuthConfigured(); }
+// 只在这台设备没账号时说「没有备份」（工单 C4，和 MoonSinger 同一口径）：有账号但过期 = 东西在网盘上，归闸门和离线常驻条，不是「没有备份」。
+function paintGalleryHomeBar(): void { const settled = !auth.isAuthConfigured() || authInited; galleryHomeBar.hidden = !settled || auth.isSignedIn() || accountExpected; $("galleryConnect").hidden = !auth.isAuthConfigured(); }
 async function exportAllModels(): Promise<void> {
   const store = requireStore();
   const now = new Date(), stamp = `${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, "0")}${String(now.getDate()).padStart(2, "0")}`;
@@ -1751,24 +1753,46 @@ function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
   })();
   return afterCloudReachableInFlight;
 }
-/** 2026-10-26 改（user「列表面」；家族根 ai-docs/20261026-cloud-conflict-ux-postmortem.md §5 C1）：10-21 的「问一次 → pushAll」是 / 否框撤了——
- *  它说「只在这台设备上」对「传过、后来改了没传」是假话，批量传完失败只剩一条没有按钮的 toast（user「弹了一个需要处理然后就什么交互都没了」）。
- *  现在：有没同步好的 → 一条带「去处理」钮的常驻通知 → 开图库进「要处理的」视图（gallery 0.8.8：顶部横幅 + 每张卡一粒可见的「处理…」，点了当场弹库的三选一面）。
- *  不自动盖住正在画的东西（家族 zen：别把人踢出去）；图库已经开着就直接切过去。每次打开 app 最多提一次。
- *  不再自己批量推：没同步好的每一份都由人在面里选用哪边。force = dev 探针（test/probes/probe-push-ask.mjs）跳过「已登录」前置。 */
+/** 回来问一次（规则书 §1 第 15 条，user 10-21「全家：登录 / 回线后问一次再补传」+ 11-03；工单 C4）：开机登录好 / 网回来，有没传上去的 → 问「有 N 份没传上去，现在传？」。
+ *  点了 = dirty.pushAll（**全仓只有这一个调用点**，守卫核；撞上别的设备改过的留给人选，不覆盖不丢）；不点 = 进「要处理」列表。不许不问就推。一页只问一次。
+ *  CatsUp 平时心跳自动推，所以这张面只在回来时还有没传的才出现。
+ *  吸取 10-26 的两条（user「弹了一个需要处理然后就什么交互都没了」）：话说真的（「没传上去」，不说「只在这台设备上」）；传完没传成的带名单、带「去处理」钮，不是一条没按钮的 toast。
+ *  force = dev 探针（test/probes/probe-push-ask.mjs）跳过「已登录」「问过了」前置。 */
 async function offerPushLocalOnly(reason: string, force = false): Promise<void> {
-  if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || !cloudOnline())) return;
+  if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || !cloudOnline() || cloudGate.isRunning())) return;
   const files = requireStore().files;
   const n = await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; });
   if (n <= 0) return;
   askedPushLocalOnly = true;
-  note("sync", `unsynced models after ${reason}: ${n} → notice`);
-  if (galleryHost.isOpen()) galleryHost.setAttentionOnly(true);
-  notify({
-    id: "unsynced", level: "warning", timeoutMs: null,
-    text: `有 ${n} 个模型没同步好（只在这台设备上，或改了还没传上去）。到图库里逐个「处理…」，每一个都会问你用云端的还是这台的。`,
-    actions: [{ label: "去处理", primary: true, onClick: () => { closeNotice("unsynced"); void galleryHost.openAttention(); } }],
+  note("sync", `unsynced models after ${reason}: ${n} → ask once`);
+  const v = await lockSyncGate<"now" | "later">({
+    title: `有 ${n} 份没传上去，现在传？`,
+    message: "别的设备改过的不会被盖掉，会留给你选。",
+    actions: [{ label: "现在传", value: "now", primary: true }, { label: "稍后", value: "later" }],
+    escValue: "later",
   });
+  note("sync", `push ask → ${v ?? "closed"}`);
+  const openList = (): void => { closeNotice("unsynced"); void galleryHost.openAttention(); };
+  if (v !== "now") {   // 不点 = 进「要处理」列表；这一页不再问
+    if (galleryHost.isOpen()) galleryHost.setAttentionOnly(true);
+    notify({ id: "unsynced", level: "info", text: `${n} 份没传的在「要处理」列表里`, actions: [{ label: "去看", onClick: openList }] });
+    updateSaveStatus();
+    return;
+  }
+  const r = await files.dirty.pushAll().catch((e) => { funnel(e, "warning"); return null; });
+  const left = await files.dirty.count().catch(() => n);
+  note("sync", `push ask: pushed=${r?.pushed ?? "-"} failed=${r?.failed.length ?? "-"} left=${left}`);
+  session.noteCaughtUp(left === 0);
+  if (left === 0) notify({ text: `${r?.pushed ?? n} 份都传上去了`, level: "info" });
+  else {
+    const names = (r?.failed ?? []).slice(0, 3).map(bareName).join("、");
+    if (galleryHost.isOpen()) galleryHost.setAttentionOnly(true);
+    notify({
+      id: "unsynced", level: "warning", timeoutMs: null,
+      text: `传上去 ${r?.pushed ?? 0} 份，还有 ${left} 份没传成${names ? `（${names}${left > 3 ? " 等" : ""}）` : ""}：别的设备改过的要你选，网络问题的之后再试。`,
+      actions: [{ label: "去处理", primary: true, onClick: openList }],
+    });
+  }
   updateSaveStatus();
 }
 // ---- 编辑器横幅：正在编辑的这份和云端没对上（自动保存撞上，库想弹面，被 store-ui conflictGate 挡成横幅）→ 一条常驻通知 + 「处理…」钮 = 人主动叫面 ----
@@ -1846,10 +1870,9 @@ const cloudGate = new CloudGate({
   signInInteractive: () => cloudSignIn(),
   ui: {
     showChecking: (onEscape) => showGateCover({ title: GATE_COPY.checkingTitle, showSpinner: true, actions: [{ label: GATE_COPY.escape, value: "escape" }] }, () => onEscape()),
-    showBlocked: (reason, h) => showGateCover({ title: GATE_COPY.blockedTitle, message: GATE_COPY.reason[reason], actions: [{ label: GATE_COPY.signIn, value: "signin", primary: true }, { label: GATE_COPY.offline, value: "offline" }] }, (v) => {
+    showBlocked: (reason, h) => showGateCover({ title: GATE_COPY.blockedTitle, message: GATE_COPY.reason[reason], actions: [{ label: GATE_COPY.signIn, value: "signin", primary: true, onPick: () => h.signIn() }, { label: GATE_COPY.offline, value: "offline" }] }, (v) => {
       if (v === "offline") { h.offline(); return; }
-      // 重新登录：闸门留着（离页前不放输入）；跳走失败 / 没网 = 回到这张
-      h.signIn();
+      // 重新登录：在点击的同步栈里起跳（onPick；iOS 红线，这里是 Promise 续体，来不及了）。闸门留着（离页前不放输入）；跳走失败 / 没网 = 回到这张
       cloudGate.reshowBlocked();
     }),
     hide: () => { gateCover?.close(); gateCover = null; },
@@ -1861,13 +1884,9 @@ const cloudGate = new CloudGate({
   },
   setUserOffline,
   userOffline: isUserOffline,
-  catchUp: async () => {   // 从「离线继续」回来：先把没落本机的落了，库逐个 If-Match 补传（撞上的留脏进「要处理的」，这里不替人选）
+  catchUp: async () => {   // 从「离线继续」回来：先把没落本机的落了，然后问一次（规则书 §1 第 15 条；不许不问就推）。真分叉留给人
     await session.flushLocal().catch((e) => funnel(e, "log"));
     if (!hasStore()) return;
-    const r = await requireStore().files.dirty.pushAll().catch((e) => { funnel(e, "log"); return null; });
-    note("sync", `catch-up pushAll pushed=${r?.pushed ?? "-"} failed=${r?.failed.length ?? "-"}`);
-    session.noteCaughtUp((await requireStore().files.dirty.count().catch(() => 1)) === 0);
-    updateSaveStatus();
     await afterCloudReachable("online");
   },
   afterPass: () => { void afterCloudReachable("signin"); },

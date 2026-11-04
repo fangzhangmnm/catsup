@@ -88,6 +88,8 @@ export declare class Session {
     encrypted: boolean;
     /** 这个本地家模型是从加密件解开来的（工单 C2 ①）：它的影子只存容器。换家即清；另存到磁盘不清（见 settleToFile）。 */
     private seal;
+    /** 这个文件家写的是加密容器（「另存到磁盘」选了加密文件）。seal 管影子，它管正本。口令忘掉了就不写，绝不写明文。 */
+    private sealFile;
     private shadowSkipSaid;
     private snapRun;
     /** 2026-10-26：这份和云端没对上、要人选用哪边（自动保存撞上时库想弹面，被 conflictGate 挡成横幅）。cloudState = 库说的云端此刻状态（changed / unchanged / absent / never）。
@@ -161,6 +163,7 @@ export declare class Session {
     /** 盲快照：与保存同一 encode 字节，同一张牌覆盖写单帧。state="pending-adoption" = 登录 redirect 前留声（pagehide 不焚）。 */
     snapshot(state?: "crash" | "pending-adoption"): Promise<boolean>;
     private snapshotOnce;
+    private sealPorts;
     /** 口令忘掉了：这个模型留不了影子，也绝不存明文。说一次（不许静默：用户以为有崩溃保护）。 */
     private noteShadowSkipped;
     /** 锁定 / 登出 = 忘掉一切口令（main 接 crypto-state.onLocked）：解开的加密件也一样，之后影子只能跳拍。 */
@@ -263,8 +266,15 @@ export declare class Session {
     }): Promise<boolean>;
     /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
     settleToFile(): Promise<boolean>;
-    /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。 */
-    exportProject(): string;
+    /** 加密作品出门的两种形式：默认容器（可开回、要原口令），明文是显式选项、选项上就写明（规则书 §1 第 5 条；user 11-03）。永远不靠「解除加密」拿明文。 */
+    private chooseExitForm;
+    /** 给别的软件的格式（glb / obj / 复现包）天然明文：加密作品下载前明说一句，取消 = 不导出（规则书 §1 第 5 条）。普通作品直接过。 */
+    confirmPlainExit(what: string): Promise<boolean>;
+    /** 加密作品此刻的容器字节。图库家 = 库里 at-rest 的那份（搬容器原样，和全部导出同一个做法），先把没落本机的落下；解开的本地件 = 同一口令封一份。拿不到 = null，调用方说人话。 */
+    private containerNow;
+    /** 导出工程文件（导出设计稿 §3；账本 UX39）：.catsup = 和保存写的同一份 encode()，工程原样一个字节不改（参考图 / 尺规 / 硬表面数据都在）。永不清 dirty；下载开始 = 责任移交。
+     *  加密作品默认给容器（规则书 §1 第 5 条），明文是显式选项。 */
+    exportProject(): Promise<string | null>;
     /** 导出模型 .glb（导出设计稿 §4 / §5）：给别的软件看的烤好的模型——只写 glTF core，不是工程备份。only = 只导这几份物体（定义 id + 世界变换）。永不清 dirty。 */
     exportModelGlb(opts: {
         textures: boolean;

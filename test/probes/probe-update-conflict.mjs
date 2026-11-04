@@ -308,6 +308,22 @@ async function c3() {
     drive.releasePut(); drive.holdPut = null;
     await A.ctx.close();
   }
+  console.log("B″：面开着不刷新；关了才走（工单 C4，照 MoonSinger H2）");
+  {
+    const drive = fakeDrive(); const A = await device(drive, repo);
+    await A.boot(); await A.idle(); await A.newDoc(); await sleep(500);
+    await A.page.evaluate(() => { window.__mark = 1; void globalThis.__catsup.session.renameActive(); });
+    await A.page.waitForFunction(() => !document.getElementById("sheet").hidden);
+    const nav = A.page.waitForEvent("load", { timeout: 25000 });
+    void A.page.evaluate(() => { void globalThis.__catsup.pwa.reload(); }).catch(() => {});
+    await sleep(6500);
+    eq(await A.page.evaluate(() => window.__mark), 1, "面开着 6.5 s：没刷新");
+    await A.page.keyboard.press("Escape");
+    await nav;
+    await A.page.waitForFunction(() => globalThis.__catsup?.session);
+    eq(await A.page.evaluate(() => window.__mark ?? null), null, "面关了：刷新了");
+    await A.ctx.close();
+  }
   console.log("D：断网 → 切后台 → 回线 → tick 补上");
   {
     const drive = fakeDrive(); const A = await device(drive, repo);

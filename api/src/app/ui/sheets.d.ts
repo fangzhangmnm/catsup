@@ -17,6 +17,11 @@ export declare function lockSyncGate<T>(view: GateView<T>): Promise<T | null>;
 export declare function settleSyncGate(value?: unknown): void;
 /** 闸门开着 = 输入锁着。 */
 export declare function isSyncGateUp(): boolean;
+/** 有面开着（闸门的罩 / 闸，或普通面板上的问题）= 人正在被问。更新重载等它（工单 C4，照 MoonSinger H2）。 */
+export declare function isAnyFaceUp(): boolean;
+/** 面开过多少次：等的那段时间里开过又关了，要从关的那一刻重新算。 */
+export declare const faceGeneration: () => number;
+export declare const whenFacesClosed: () => Promise<void>;
 export declare function initSheets(): void;
 /** noCancel = 只有一颗钮（看完就关的说明，比如视图「新手提醒…」）。 */
 export interface ConfirmOpts {

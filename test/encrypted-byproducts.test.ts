@@ -178,3 +178,61 @@ describe("全部导出（C2 ④）", () => {
     assert(t.includes("3 份") && t.includes("2 份是加密的"), t);
   });
 });
+
+describe("加密作品出门（规则书 §1 第 5 条；user 11-03；工单 C4）", () => {
+  const src = readFileSync("src/app/session.ts", "utf8"), main = readFileSync("src/app/main.ts", "utf8");
+  const bodyOf = (head: string): string => { const i = src.indexOf(head); assert(i >= 0, head); return src.slice(i, src.indexOf("\n  }\n", i)); };
+  it("导出工程文件 / 另存到磁盘：加密作品先问形式，默认（primary）是容器，明文选项上写着那句话", () => {
+    const form = bodyOf("private chooseExitForm(");
+    assert(/label: "加密文件（原口令才能打开）", value: "container" as const, primary: true/.test(form), "默认容器");
+    assert(/label: `明文文件（\$\{PLAIN_NOTE\}）`, value: "plain" as const/.test(form), "明文选项写明");
+    assert(!/value: "plain"[^\n]*primary/.test(form), "明文不是默认");
+    eq(/const PLAIN_NOTE = "这份是明文、没有加密";/.test(src), true);
+    assert(/if \(this\.encrypted \|\| this\.seal\) \{\s*\n\s*const form = await this\.chooseExitForm\("导出工程文件"\);/.test(bodyOf("async exportProject()")), "导出工程");
+    assert(/if \(seal\) \{[^\n]*\n\s*const form = await this\.chooseExitForm\("另存到磁盘"\);/.test(bodyOf("async settleToFile()")), "另存");
+  });
+  it("容器字节：图库家搬 at-rest 的容器（不是解开再封），解开的本地件同一口令封，都不走 encode 明文直出", () => {
+    const c = bodyOf("private async containerNow()");
+    assert(/docFile\(path\)\.getEncryptedBlob\(\)/.test(c), "搬容器");
+    assert(/shadowFrame\(this\.encode\(\), this\.seal, this\.sealPorts\(\)\)/.test(c), "同一口令封");
+  });
+  it("加密文件家写回只写容器；口令忘掉就不写", () => {
+    const s = src.slice(src.indexOf('if (home.kind === "file") {'), src.indexOf("// 图库家。implicit（自动保存"));
+    assert(/if \(this\.sealFile\) \{[\s\S]*?const c = await shadowFrame\(bytes, this\.seal, this\.sealPorts\(\)\);\s*\n\s*if \(!c\)[^\n]*return false; \}/.test(s));
+  });
+  it("给别的软件的格式：下载前必经那句话（glb / OBJ / 复现包）", () => {
+    assert(/if \(!\(await session\.confirmPlainExit\(v\.format === "obj" \? "OBJ" : "glb"\)\)\) return;/.test(main), "模型导出");
+    eq((main.match(/session\.confirmPlainExit\("复现包"\)\.then\(\(go\) => \{ if \(go\) void reproExport\(/g) ?? []).length, 2, "两个复现包");
+    assert(!/onClick: \(\) => \{ void reproExport\(/.test(main), "复现包不许绕过");
+  });
+  it("session 里每个下载都在这些路上（新加出口要过这条）", () => {
+    const n = (src.match(/this\.download\(/g) ?? []).length;
+    eq(n, 5, "文件家无句柄 + 另存下载 + 导出容器 + 导出明文 + glb");
+  });
+});
+
+describe("重新登录走点击的同步栈（iOS 红线；工单 C4）", () => {
+  const main = readFileSync("src/app/main.ts", "utf8");
+  it("闸门按钮 onPick 直接调 h.signIn；Promise 续体里不再调", () => {
+    const m = /showBlocked: \(reason, h\) => showGateCover\(([\s\S]*?)\n    \}\),/.exec(main); assert(m, "showBlocked");
+    assert(/value: "signin", primary: true, onPick: \(\) => h\.signIn\(\)/.test(m![1]), "同步栈");
+    eq((m![1].match(/h\.signIn\(\)/g) ?? []).length, 1, "只这一处");
+  });
+  it("signIn 调用前不许有 await：cloudSignIn 没有要落影子的改动时同步起跳", () => {
+    const i = main.indexOf("function cloudSignIn(): void {"); assert(i > 0);
+    const body = main.slice(i, main.indexOf("\nasync function cloudSignOut", i));
+    assert(!/\bawait\b/.test(body), "cloudSignIn 里不许 await");
+    assert(/\} else go\(\);/.test(body), "无影子要留 = 同步栈里 go");
+    assert(/onPick\?\.\(\); finish\(e, a\.value\);/.test(readFileSync("src/app/ui/gate-stack.ts", "utf8")), "pick 先 onPick 再 resolve");
+  });
+});
+
+describe("更新重载不打断开着的面（工单 C4，照 MoonSinger H2）", () => {
+  it("面开着不计时；关了再给 ≤ 5 s；开过又关了重新算", () => {
+    const src = readFileSync("src/app/session.ts", "utf8");
+    const i = src.indexOf("async flushBeforeReload()"); const body = src.slice(i, src.indexOf("\n  }\n", i));
+    assert(/if \(isAnyFaceUp\(\)\) await whenFacesClosed\(\);/.test(body), "开始前有面：等");
+    assert(/if \(isAnyFaceUp\(\)\) \{ await whenFacesClosed\(\); seen = faceGeneration\(\); waitMs = RELOAD_PUSH_WAIT_MS; continue; \}/.test(body), "等的时候开了面");
+    assert(/if \(faceGeneration\(\) !== seen\) \{ seen = faceGeneration\(\); waitMs = RELOAD_PUSH_WAIT_MS; continue; \}/.test(body), "开过又关了");
+  });
+});

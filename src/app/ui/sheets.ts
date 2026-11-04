@@ -43,6 +43,7 @@ export async function openGateChoiceSheet<T>(title: string, message: string, cho
 //   不可点外面关（决策只能按钮选）；能叠（核对中 → 发现要拉 → 拉取罩子顶上来；收掉上面那张，下面那张还在）。纯逻辑在 gate-stack.ts。
 //   输入锁 = window 捕获阶段吞掉按键 / 按下（遮罩挡得住指针，挡不住 window 上的键盘分发——WeebPaint QA 2026-08-21 同一课）；只放行闸门自己和叠在上面的面（#sheet，库的冲突面）。
 //   pointerup / pointermove 不吞：闸门升起的时候手势可能正按着，吞了抬起会把手势卡死（升起之后的新按下才吞）。
+let _faceGen = 0;
 const _gate = createGateStack((top) => {
   const root = $("syncGate");
   if (!top) { root.hidden = true; return; }
@@ -63,18 +64,27 @@ const _gate = createGateStack((top) => {
   root.hidden = false;
 });
 /** 开一张闸门，拿句柄（update / close / result）。 */
-export function openSyncGate<T>(view: GateView<T>): GateHandle<T> { return _gate.open(view); }
+export function openSyncGate<T>(view: GateView<T>): GateHandle<T> { _faceGen++; return _gate.open(view); }
 /** WeebPaint 同名同形：摆出来等按钮；收掉 = null。 */
-export function lockSyncGate<T>(view: GateView<T>): Promise<T | null> { return _gate.open(view).result; }
+export function lockSyncGate<T>(view: GateView<T>): Promise<T | null> { _faceGen++; return _gate.open(view).result; }
 /** 从外面收掉最上面那张（WeebPaint 同名同形）。 */
 export function settleSyncGate(value: unknown = null): void { _gate.settleTop(value); }
 /** 闸门开着 = 输入锁着。 */
 export function isSyncGateUp(): boolean { return _gate.isUp(); }
+/** 有面开着（闸门的罩 / 闸，或普通面板上的问题）= 人正在被问。更新重载等它（工单 C4，照 MoonSinger H2）。 */
+export function isAnyFaceUp(): boolean { return _gate.isUp() || !g.sheet().hidden; }
+/** 面开过多少次：等的那段时间里开过又关了，要从关的那一刻重新算。 */
+export const faceGeneration = (): number => _faceGen;
+export const whenFacesClosed = (): Promise<void> => new Promise((res) => { const check = (): void => { if (isAnyFaceUp()) setTimeout(check, 100); else res(); }; check(); });
 const GATE_SWALLOWED = ["keydown", "keypress", "pointerdown", "mousedown", "touchstart", "wheel", "contextmenu", "dblclick", "click"] as const;
 let _gateLockInstalled = false;
 function installGateInputLock(): void {
   if (_gateLockInstalled) return; _gateLockInstalled = true;
   for (const type of GATE_SWALLOWED) window.addEventListener(type, (e) => {
+    if (type === "keydown" && (e as KeyboardEvent).key === "Escape" && g.sheet().hidden && _gate.isUp()) {   // 闸门自己声明了 Esc 的值（「稍后」）
+      const top = _gate.top();
+      if (top && top.escValue !== undefined) { e.stopImmediatePropagation(); e.preventDefault(); _gate.settleTop(top.escValue); return; }
+    }
     // 闸门上面还叠着面板（比如开机撞上真分叉的三选一）：Esc 是给面板的（焦点常在 body 上，只看 target 会被吞）
     if (e.type === "keydown" && (e as KeyboardEvent).key === "Escape" && !g.sheet().hidden) return;
     if (gateSwallowsEvent(_gate.isUp(), e.target as Element | null)) { e.stopImmediatePropagation(); e.preventDefault(); }
@@ -105,6 +115,7 @@ function _hide(): void {
   _open = null;
 }
 function _reset(): void {
+  _faceGen++;
   g.message().hidden = true; g.message().classList.remove("warning");
   g.input().hidden = true; g.input().value = ""; g.input().type = "text"; g.input().removeAttribute("autocomplete"); g.user().value = "";
   g.check().hidden = true; g.checkInput().checked = false;

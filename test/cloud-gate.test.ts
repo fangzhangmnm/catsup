@@ -178,6 +178,16 @@ describe("闸门栈（同步闸门的形状，WeebPaint lockSyncGate）", () => 
     assert(s.isUp()); eq(seen.at(-1), "T");
     s.pick(0); eq(await h.result, "a"); assert(!s.isUp()); eq(seen.at(-1), null); assert(!h.isOpen());
   });
+  it("按钮的 onPick 在点击的同步栈里（pick 返回前），resolve 在它之后（iOS 红线）", async () => {
+    const { s } = views();
+    const order: string[] = [];
+    const h = s.open<"a">({ title: "T", actions: [{ label: "A", value: "a", onPick: () => { order.push("pick"); } }] });
+    void h.result.then(() => { order.push("then"); });
+    s.pick(0);
+    eq(order.join(), "pick", "同步栈里只有 pick");
+    await h.result; await tick();
+    eq(order.join(), "pick,then");
+  });
   it("外面收掉（settleSyncGate）= null，不是点的", async () => {
     const { s } = views();
     const h = s.open({ title: "T", actions: [] });
@@ -260,6 +270,34 @@ describe("闸门 × 库：出口 = 离线读本机，谱系不动", () => {
     assert(started, "开始了"); eq(r.status, "escaped");
     slow.resolve(); await tick(20);
     await d.store.dispose();
+  });
+});
+
+describe("回来问一次（规则书 §1 第 15 条；工单 C4）", () => {
+  function* walk(dir: string): Generator<string> { for (const f of readdirSync(dir)) { const p = join(dir, f); if (statSync(p).isDirectory()) yield* walk(p); else if (/\.ts$/.test(f)) yield p; } }
+  const strip = (x: string): string => x.replace(/\/\*[\s\S]*?\*\//g, "").split("\n").map((l) => l.replace(/(^|\s)\/\/.*$/, "")).join("\n");
+  const src = readFileSync("src/app/main.ts", "utf8");
+  it("dirty.pushAll 全仓只有一个调用点，在「现在传」的分支里", () => {
+    const hits: string[] = [];
+    for (const p of walk("src")) for (const line of strip(readFileSync(p, "utf8")).split("\n")) if (/\.pushAll\(\)/.test(line)) hits.push(`${p}: ${line.trim().slice(0, 60)}`);
+    eq(hits.length, 1, hits.join(" | "));
+    assert(hits[0]!.startsWith("src/app/main.ts"), hits[0]!);
+    const body = src.slice(src.indexOf("async function offerPushLocalOnly"), src.indexOf("// ---- 编辑器横幅"));
+    assert(body.indexOf("lockSyncGate") >= 0 && body.indexOf("lockSyncGate") < body.indexOf(".pushAll()"), "先问");
+    assert(/if \(v !== "now"\) \{[\s\S]*?return;\s*\n\s*\}\s*\n\s*const r = await files\.dirty\.pushAll\(\)/.test(body), "不点就不推");
+  });
+  it("面：两键，Esc = 稍后；一页只问一次；话说真的；没传成的带名单带钮", () => {
+    const body = src.slice(src.indexOf("async function offerPushLocalOnly"), src.indexOf("// ---- 编辑器横幅"));
+    assert(/title: `有 \$\{n\} 份没传上去，现在传？`/.test(body));
+    assert(/label: "现在传", value: "now", primary: true \}, \{ label: "稍后", value: "later" \}/.test(body));
+    assert(/escValue: "later"/.test(body));
+    assert(/askedPushLocalOnly = true;/.test(body) && /!force && \(askedPushLocalOnly/.test(body));
+    assert(!/只在这台设备上/.test(body.split("\n").filter((l) => !/^\s*(\/\*\*|\*)/.test(l)).join("\n")), "10-26：对「传过、后来改了没传」是假话");
+    assert(/label: "去处理", primary: true, onClick: openList/.test(body) && /names/.test(body));
+  });
+  it("从离线回来也走这张面，不直接推", () => {
+    const i = src.indexOf("catchUp: async () => {"); const body = src.slice(i, src.indexOf("\n  },\n", i));
+    assert(/await afterCloudReachable\("online"\)/.test(body) && !/pushAll/.test(body));
   });
 });
 

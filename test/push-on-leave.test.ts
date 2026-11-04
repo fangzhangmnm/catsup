@@ -62,7 +62,7 @@ describe("守卫：点更新前（C3 B）", () => {
     const i = session.indexOf("async flushBeforeReload()"); assert(i > 0);
     const body = session.slice(i, session.indexOf("\n  }\n", i));
     assert(/if \(this\.dirty\(\)\) await this\.save\(\{ implicit: true, localOnly: true \}\)/.test(body), "脏了才落本地，且这步不设时限");
-    assert(/Promise\.race\(\[this\.save\(\{ implicit: true \}\)/.test(body), "推有时限");
+    assert(/const push = this\.save\(\{ implicit: true \}\);/.test(body) && /await Promise\.race\(\[push, new Promise\(\(r\) => setTimeout\(r, waitMs\)\)\]\);/.test(body), "推有时限");
     assert(/RELOAD_PUSH_WAIT_MS/.test(body), "时限是常量");
   });
   it("等 5 s", () => { assert(/export const RELOAD_PUSH_WAIT_MS = 5000;/.test(readFileSync("src/config.ts", "utf8"))); });

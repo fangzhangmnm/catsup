@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// test/probes/probe-push-ask.mjs —— 「登录后有没同步好的 → 通知 → 去处理 → 图库『要处理的』视图」headless 探针。
+// test/probes/probe-push-ask.mjs —— 「回来问一次：有 N 份没传上去，现在传？」→ 没传成带钮 → 图库『要处理的』视图，headless 探针（2026-11-03 工单 C4 改，规则书 §1 第 15 条）。
 //   2026-10-25 版验的是「问一次 → pushAll」是 / 否框；2026-10-26 user「列表面」后改成：没登录时存一个模型（= 只在本机、dirty 1）→ 走提示（dev 钩子跳过「已登录」前置）
 //   → 不弹 sheet、出一条带「去处理」钮的常驻通知 → 点它 → 图库开着、顶部横幅「有 1 份没同步好」、那张卡右下角一粒可见的「处理…」钮 → 点它（没登录 = 云不可达）
 //   → 库如实说离线、不撒谎、文件仍 dirty、几何没动。真登录态的三选一只能真机。
@@ -42,15 +42,28 @@ await page.waitForTimeout(400);
 eq(await page.evaluate(() => document.getElementById("sheet").hidden), true, "signed-out: no sheet on 'online'");
 eq(/没同步好/.test(await notices()), false, "signed-out: no unsynced notice on 'online'");
 
-// ① 提示：一条常驻通知 + 「去处理」钮，不是是 / 否框，不批量推
-await page.evaluate(() => globalThis.__catsup.devPushAsk());
-await page.waitForFunction(() => /没同步好/.test(document.getElementById("noticeStack")?.textContent ?? ""), null, { timeout: 5000 });
-eq(await page.evaluate(() => document.getElementById("sheet").hidden), true, "no modal sheet (notice instead)");
+// ① 回来问一次（规则书 §1 第 15 条；2026-11-03 工单 C4）：一张面，两键；不点不推
+const ask = () => page.evaluate(() => { void globalThis.__catsup.devPushAsk(); });
+const gateText = () => page.evaluate(() => document.getElementById("syncGate").hidden ? "" : document.getElementById("syncGate").textContent);
+await ask();
+await page.waitForFunction(() => !document.getElementById("syncGate").hidden, null, { timeout: 5000 });
+eq(/有 1 份没传上去，现在传？/.test(await gateText()), true, "asks: 1 not uploaded, upload now?");
+eq(await page.locator("#syncGateActions button").count(), 2, "two buttons");
+eq(await dirtyCount(), 1, "nothing pushed by asking");
+await page.keyboard.press("Escape");
+await page.waitForFunction(() => document.getElementById("syncGate").hidden, null, { timeout: 2000 });
+console.log("  ✓ Esc = later");
+eq(await dirtyCount(), 1, "later: nothing pushed");
+eq(/要处理/.test(await notices()), true, "later: says it is in the to-handle list");
+// 现在传：没登录推不上去（真推成的那半在 probe-cloud-gate 里）→ 如实说、带名单和钮
+await ask();
+await page.waitForFunction(() => !document.getElementById("syncGate").hidden, null, { timeout: 5000 });
+await page.locator("#syncGateActions button", { hasText: "现在传" }).click();
+await page.waitForFunction(() => /没传成/.test(document.getElementById("noticeStack")?.textContent ?? ""), null, { timeout: 5000 });
 const n1 = await notices();
-eq(/有 1 个模型没同步好/.test(n1), true, `notice says 1 unsynced (${n1.slice(0, 60)})`);
-eq(/每一个都会问你/.test(n1), true, "notice says each one will ask you which side");
-eq(await page.evaluate(() => !!document.querySelector("#noticeStack button")), true, "notice has a button");
-eq(await dirtyCount(), 1, "nothing pushed by the notice itself");
+eq(/还有 1 份没传成/.test(n1), true, `upload failed: says so (${n1.slice(0, 60)})`);
+eq(await page.evaluate(() => !!document.querySelector("#noticeStack button")), true, "failure notice has a button");
+eq(await dirtyCount(), 1, "still dirty after a failed upload");
 
 // ② 「去处理」→ 图库打开。**没登录时图库库不把任何卡算成「要处理」**（gallery 0.8.8：attention = 登录态 ∧ float / dirtyBoth / conflictBoth / ghost / pendingGone；
 //   没有云端就没有「没同步好」），所以顶部横幅 / 卡片上的「处理…」钮在这条无头探针里看不到——那半由图库库自己的单测钉着（tileFor.attention），
@@ -60,7 +73,7 @@ await page.waitForFunction(() => !document.getElementById("galleryFull").hidden,
 console.log("  ✓ 去处理 opens the gallery");
 await page.waitForFunction(() => document.querySelectorAll(".gallery-tile").length >= 1, null, { timeout: 5000 });
 eq(await page.evaluate(() => document.getElementById("sheet").hidden), true, "no modal sheet after opening the gallery");
-eq(/没同步好/.test(await notices()), false, "the unsynced notice closed itself once acted on");
+eq(/没传成/.test(await notices()), false, "the notice closed itself once acted on");
 eq(await dirtyCount(), 1, "still dirty (not dropped, not overwritten)");
 eq(await page.evaluate(() => globalThis.__catsup.editor.kernel.faces().length), 1, "geometry untouched");
 eq(errors.some((e) => /deadlock/.test(e)), false, "no busy-overlay deadlock");

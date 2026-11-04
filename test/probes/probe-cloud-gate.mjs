@@ -156,6 +156,11 @@ console.log("③ 续签失败（interaction_required）：闸两个钮；离线�
   eq(await s.page.evaluate(() => window.__fakeSilent || 0), silentAtOffline, "离线期间零登录请求");
   await s.page.evaluate(() => { localStorage.setItem("__fake_msal", "ok"); window.dispatchEvent(new Event("online")); });
   await s.page.waitForFunction(() => !document.getElementById("noticeStack")?.textContent.includes("离线"), null, { timeout: 12000 });
+  // 回来问一次（规则书 §1 第 15 条）：不问不推
+  await s.page.waitForFunction(() => /份没传上去，现在传？/.test(document.getElementById("syncGate").textContent) && !document.getElementById("syncGate").hidden, null, { timeout: 8000 });
+  ok(true, "回线：问一次「现在传？」");
+  ok((await s.dirty()) > 0, "没点之前没推");
+  await s.gateClick("现在传");
   for (let i = 0; i < 60 && (await s.dirty()) !== 0; i++) await sleep(200);
   eq(await s.dirty(), 0, "补传完 dirty = 0");
   eq(await s.page.evaluate(() => globalThis.__catsup.gate.isUserOffline()), false, "离线记忆清了");
