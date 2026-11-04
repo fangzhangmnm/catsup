@@ -44,9 +44,9 @@ const res = await page.evaluate(async () => {
 await b.close();
 res.errs = errs;
 const ok = res.menuHard.length === 0 && res.mode === "freeform"
-  && res.menuBlank.length === 5 && res.menuBlank[0] === "新建立方体"
+  && res.menuBlank.length === 7 && res.menuBlank[0] === "新建圆圈" && res.menuBlank.includes("新建立方体")   /* v0.16.43 起圆圈 / 方框排前面（user「默认圆圈」）*/
   && res.box.dv === 8 && res.box.df === 6 && res.box.selF === 6 && Math.abs(res.box.cx - 2.5) < 0.05 && Math.abs(res.box.cy - 0.5) < 0.05 && res.box.zmin === 0 && /地面/.test(res.box.hint)
-  && res.menuOnFace.length === 5 && res.cyl.df === 18 && res.cyl.selF === 18 && res.cyl.onTop && res.cyl.up && res.cyl.check === ""
+  && res.menuOnFace.length === 7 && res.cyl.df === 18 && res.cyl.selF === 18 && res.cyl.onTop && res.cyl.up && res.cyl.check === ""
   && !res.undo.threw && res.undo.dv === 0 && res.undo.pos === 0 && errs.length === 0;
 console.log(JSON.stringify(res, null, 1));
 console.log(ok ? "probe-new-primitive OK" : "probe-new-primitive FAIL");

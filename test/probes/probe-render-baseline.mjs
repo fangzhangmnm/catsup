@@ -41,6 +41,8 @@ const pageLib = `
   const openFixture = async (b64, name) => { const bin = atob(b64), u = new Uint8Array(bin.length); for (let i = 0; i < u.length; i++) u[i] = bin.charCodeAt(i); if (!(await S.openLocalBytes(u, name, null))) throw new Error("openLocalBytes refused " + name); await sleep(60); };
   const frame = () => { e.cam.setView("iso"); e.zoomExtents(); };
   const waitTextures = async () => { e.draw(); for (let i = 0; i < 100; i++) { const ts = [...(e.renderer3.texCache?.values() ?? [])]; if (ts.every((t) => t.image && (t.image.width ?? 0) > 1)) return; await sleep(20); } throw new Error("textures never decoded"); };
+  // 等影子烘完：内容变了要停手 AO_QUIET_MS 才重烘（render3 syncPaper），commitOp 每步都画，第一格就烘了半成品（一张矩形）。不等 = 截到「没影子」（2026-11-04 Opus 5.5 查出来：style-papercut-boxes / style-realistic-textured 红了五天的真因）。
+  const waitShadows = async () => { const r3 = e.renderer3; for (let i = 0; i < 40; i++) { e.draw(); if (r3.aoBaked === "" || r3.aoBaked.startsWith(r3.aoSeen + "|")) return; await sleep(25); } throw new Error("shadow bake did not settle"); };
   const capture = () => {
     e.draw();
     const gl = c.getContext("webgl2") ?? c.getContext("webgl"), w = c.width, h = c.height;
@@ -151,7 +153,7 @@ for (const [name, def] of Object.entries(SCENES)) {
   const body = typeof def === "string" ? def : `await openFixture(${JSON.stringify(readFileSync(path.join(FIX, def.fixture)).toString("base64"))}, ${JSON.stringify(def.fixture.replace(/\.glb$/, ".catsup"))}); frame(); ${def.after ?? ""}`;
   let shot;
   try {
-    shot = await page.evaluate(`(async () => { ${pageLib} ${body} await sleep(30); ${def.noTexWait ? "" : "await waitTextures();"} return capture(); })()`);
+    shot = await page.evaluate(`(async () => { ${pageLib} ${body} await sleep(30); ${def.noTexWait ? "" : "await waitTextures();"} await waitShadows(); return capture(); })()`);
   } catch (e) { console.log(`  ✗ ${name}: 场景摆不出来 ${String(e).slice(0, 200)}`); failed++; await page.close(); continue; }
   const rgba = new Uint8Array(Buffer.from(shot.b64, "base64"));
   const file = path.join(BASE, `${name}.png`);
