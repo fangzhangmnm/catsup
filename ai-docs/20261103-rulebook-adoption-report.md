@@ -377,3 +377,26 @@ v0.18.24 推的时候 `probe-update-conflict c3` 有 1 条红（我把跑测试�
 红的是真问题：回线时开着的这份正要被心跳推上去，面已经弹了「有 1 份没传上去」，推完这张面就是假的。修法：问之前先让心跳推开着的这份，再数还剩多少；撞上真分叉的归横幅，不算进来。守卫核「先推、再数、再问」。
 
 **测试（v0.18.25）**：`npm test` 全绿，`probe-update-conflict c3`、`probe-c2`、`probe-cloud-gate`、`probe-push-ask`、`probe-password`、`probe-factory-reset`、`probe-boot` 都在这一版上重跑过，全部 headless。计数见提交信息。
+
+## 搬到 catsup.weebpaint.com：验收（家族根 `ai-docs/20261103-catsup-domain-move.md` §3）
+
+> as-of v0.18.26（正式版 / 开发版同一个 bundle `catsup-175b2aa1b7e8`）/ 2026-11-04，Claude Opus 5.5。Pages 域名和强制 HTTPS 是 user 那边填的，我这边没跑写操作。
+
+| 项 | 结果 | 怎么验的 |
+|---|---|---|
+| 新址 `/`、`/dev/` 200，证书对 | ✓ | curl；证书 CN = catsup.weebpaint.com，Let's Encrypt，到 2027-02-02；Pages：cname 已设、证书 approved、强制 HTTPS 开 |
+| `http://` → `https://` | ✓ | `/`、`/dev/` 都 301 到对应 https |
+| 旧 `github.io/catsup/`、`/dev/` 301 到新址 | ✓ | curl 看 301 + location；无头 Chromium 跟跳，落到新址 200 |
+| 离线壳在新址注册 | ✓ | 线上无头：scope 分别是 `/` 和 `/dev/`，脚本在新址，重载后受 SW 控制；缓存 `catsup-175b2aa1b7e8` |
+| 断网能开 | 正式版 ✓；开发版**这次不算数** | 线上无头断网重载都开了。但 `probe-sw-301` 那次已查明：无头的断网模拟管不到 SW 发的请求，开发版是网络优先，这个结果说明不了它的回退 |
+| 强制更新能走 | ✓ | 线上开发版真跑 `pwa.forceReset()`：重载、SW 重新注册并接管、页面错误 0；我放的共享缓存 `pwa-models` 没被删 |
+| 旧地址搬家一行 + 口令要重输的提示 | ✓ | `probe-moved-notice` 全过（真 bundle、无头）；文案带「加密模型的口令要重输一次」；新址没有这一行 |
+| 页面错误 | 0 | 新址 `/`、`/dev/` |
+
+**没验，等 user 真机**：
+- 新址登 OneDrive（微软那边的回跳地址 user 说「应该加了」，登一次才算数）；登录后云端模型拉回、「要处理」为空。
+- 重输一次口令后记住口令生效。
+- iPad Edge（WebKit，本机没装）：旧地址开一次；开发版断网回退也靠这次。
+- 冻住的旧正式版图标能不能登录、没缓存过的加密组件拿不拿得到（清单 §0 的疑点，提示把人引到新址，不另做）。
+
+**旧址 IDB 没删没碰。** `README.md` 地址已改；`CLAUDE.md` 地址节没改：项目说明不凭别的会话一句话改，等 user 说。

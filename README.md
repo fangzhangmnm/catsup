@@ -3,8 +3,8 @@
 肥皂膜建模：画线成面，推拉成体。一个 SketchUp 式的开源网页建模器（PWA），iPad 一等公民。
 created 2026-09-06 by Claude Fable 5.1（公开工坊道首日；内容由 user 过目后修订）
 
-- **开发版（随 main 更新）**：https://fangzhangmnm.github.io/catsup/dev/
-- 正式版：尚未发布（0.3 纪元，无持久化，模型只活在内存里；OBJ 是唯一逃生口）
+- **开发版（随 main 更新）**：https://catsup.weebpaint.com/dev/
+- **正式版**：https://catsup.weebpaint.com/（2026-11-04 从 `fangzhangmnm.github.io/catsup/` 搬来，旧地址 301 到这里）
 
 ## 现状（as-of v0.3.0 / 2026-09-06）
 
