@@ -1,7 +1,7 @@
 // SW —— 抄 WebXiaoHeiWu service-worker.js（家族 content-hash 形），bundle 名 catsup-<hash>.mjs 与 scripts/build.sh 一致。
 // created 2026-09-06 by Claude Fable 5.1
 //   - install：fetch index.html → 抠出当前 bundle 文件名 → precache 入口 + bundle + statics
-//   - cache name = "catsup-<bundleHash>"。新 bundle = 新 cache name；activate 清老的。
+//   - cache name = "catsup-<bundleHash>"（开发版 "catsup-dev-<bundleHash>"）。新 bundle = 新 cache name；activate 只清自己这一边老的。
 //   - prod(scope=/)：cache-first + 后台 revalidate（ETag 变了通知 page）；dev(scope 含 /dev/)：network-first（改完即见，离线回退缓存）。
 const STATIC_PRECACHE = [
   "./",
@@ -21,15 +21,20 @@ const STATIC_PRECACHE = [
 
 let CACHE_NAME = "catsup-boot";
 const SCOPE_IS_DEV = self.location.pathname.includes("/dev/");
+// 正式版（/）和开发版（/dev/）在同一个网址下，Cache Storage 按网址共用：壳缓存名按范围分开，否则一边 activate 就把另一边的离线壳删了、
+//   重启后还可能认错成另一边的缓存（家族工单 D 命名空间核查在小黑屋查出，同形修法照抄 WebXiaoHeiWu service-worker.js；2026-11-04 Claude Opus 5.5）。
+//   两种都以 catsup- 开头：清缓存重启 / 还原出厂（src/app/pwa-shell.ts 按 SHELL_CACHE_PREFIX 删）照旧两边一起清。
+const OWN_PREFIX = SCOPE_IS_DEV ? "catsup-dev-" : "catsup-";
+const isOwnCache = (k) => k !== "catsup-boot" && k.startsWith(OWN_PREFIX) && (SCOPE_IS_DEV || !k.startsWith("catsup-dev-"));
 const SCOPE_PATH = self.location.pathname.replace(/[^/]*$/, "");   // SW 脚本所在目录 = 本 app 的路径前缀（scope 外的同源请求一律不接管）
 
 // SW 空闲被杀重启后顶层重跑，CACHE_NAME 会回落 "catsup-boot" → 预缓存全成孤儿（审计 L4，家族级坑）。
-// 从 caches.keys() 找回唯一的 catsup-<hash>（activate 已清老的）。
+// 从 caches.keys() 找回自己这一边唯一的那个（activate 已清老的；不会错把另一边的壳当自己的）。
 let cacheNameResolved = null;
 async function currentCacheName() {
   if (CACHE_NAME !== "catsup-boot") return CACHE_NAME;
   if (!cacheNameResolved) cacheNameResolved = (async () => {
-    const keys = (await caches.keys()).filter((k) => k.startsWith("catsup-") && k !== "catsup-boot");
+    const keys = (await caches.keys()).filter(isOwnCache);
     if (keys.length) CACHE_NAME = keys[keys.length - 1];
     return CACHE_NAME;
   })().finally(() => { cacheNameResolved = null; });
@@ -50,7 +55,7 @@ self.addEventListener("install", (event) => {
   event.waitUntil((async () => {
     const { bundleUrl } = await getCurrentBundleUrl();
     const bundleHash = bundleUrl.match(/catsup-([a-z0-9-]+)\.mjs/i)?.[1] || "boot";
-    CACHE_NAME = `catsup-${bundleHash}`;
+    CACHE_NAME = `${OWN_PREFIX}${bundleHash}`;
     const cache = await caches.open(CACHE_NAME);
     const urls = [...STATIC_PRECACHE, bundleUrl];   // .map 不预缓存
     await Promise.all(urls.map((u) =>
@@ -65,7 +70,7 @@ self.addEventListener("install", (event) => {
 self.addEventListener("activate", (event) => {
   event.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => k.startsWith("catsup-") && k !== CACHE_NAME).map((k) => caches.delete(k)));
+    await Promise.all(keys.filter((k) => (isOwnCache(k) || k === "catsup-boot") && k !== CACHE_NAME).map((k) => caches.delete(k)));
     await self.clients.claim();
   })());
 });

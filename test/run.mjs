@@ -174,6 +174,7 @@ import "./cloud-gate.test.ts";   // 同步闸门 + 掉登录 / 没网闸门（�
 import "./cloud-return.test.ts";   // 回来时没传的分两类（2026-11-04 Opus）
 import "./gallery-home.test.ts";   // 图库必须有家：一处判定 + 接线守卫（工单 F-152 / F-153，2026-11-04 Opus）
 import "./home-move.test.ts";
+import "./sw-cache-scope.test.ts";   // 正式版 / 开发版的壳缓存互不相删（2026-11-04 Opus）   // 搬家 / 放回图库（工单 F-153 / C5，2026-11-04 Opus）
 import "./push-on-leave.test.ts";   // 切走也推 / 点更新先推 / 没推成的重试（工单 C3，2026-11-03 Opus）
 import "./encrypted-byproducts.test.ts";   // 加密件副产品只存密文 + 全部导出（工单 C2，2026-11-03 Opus）
 import "./debug-lines.test.ts";   // 黑匣子文本行（实验台 sunset → 调试日志，2026-09-20）
