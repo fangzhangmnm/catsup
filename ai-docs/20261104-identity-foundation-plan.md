@@ -326,3 +326,25 @@ ID-2 第一半已按 9.1 合 main：干净重建 + 五个探针全绿，`--ff-on
 8. user 11-04 在审查时拍的：「推拉一张没朝向的面会给它定朝向 同意」；「老文件 upgrade 用不智能，机械转比较安全对吧」= 对，打开老文件什么都不猜，想单面自己点「自动朝外」。
 
 **合 main 的 ritual**（见下一行实施记录）：干净重建 → 探针（default-back / boot / export / clipboard / render-baseline / undo-fuzz）→ `--ff-only` → bump patch → `gen-api.sh`。不推。
+
+## 12. ID-2c 收尾批（2026-11-04 夜，Claude Fable 5.1 定单；user 逐条拍了；Opus 施工，排在 ID-3 前面）
+
+user 对 §11 记账的答复（原话）：「几个红的探针这次session修……应该交给opus就行」「预演不算两侧 think critically about it，然后我看sketchup是pull的一瞬间就有了」「大模型开导出表单会顿 记账，这次session做？」「转视角后打尺寸 做，必须做」「老文件重存会胖 没事」「风格预览里看不见的背面还能被选中 没事，expected behavior」。
+
+**C1 预演也算两侧（预演 = 结果）**。现状：`computeLive` 的 `run(fn)` 直接在影子内核上调几何动词，两侧规矩住在指令层（`ops.ts sideNewFaces`），因为写默认背面要 `slotFor` 在定义槽表开一格、预演不许碰真身。做法：
+- `run` 多收一个可选提示 `{ front?: Pt3; seed?: FaceId }`：画线族（line / rect / crect / rrect / circle / arc / offset）传 `front`（同 `editor.withFront` 那一条算法，取手势第一个点的视线方向，池本地）；推拉传 `front` + `seed = 被推的面`。其他工具不传 = 只跟邻面（和提交一样）。
+- `computeLive` 在 `fn(c)` 之后：`settleNewFaceSides(c, bornFaces(events), { back, openBack: () => previewBack, front, seed })`。`back = materialSlots.indexOf(−2)`；**槽表不真开**：`previewBack = back >= 0 ? back : materialSlots.length`（= 提交时 `slotFor` 会给的那个号）。影子倒回（`rewindTo`）本来就把面层一起退，不用另清。
+- `stream-provider.env()`：画**影子那具身体**时 `matOf(slot)` 认 `slot === materialSlots.length` 为 `BUILTIN_BACK`；真身永远不会引用到表外的号（提交先开槽再写）。这个约定只住 provider 一处 + `face-sides.ts` 一行注释；撤销 fuzz 每步加一条不变量：真身面层的槽号 < 槽表长度。
+- 验收：探针 `probe-default-back` 加一段——矩形工具落第一点后、第二点悬停时（还没松手）从下面读像素是灰蓝；推拉拖到一半从外面看是白模灰、里面灰蓝；松手前后像素不变。
+
+**C2 数值小窗重画复用第一次的 front**（user「做，必须做」）。现状：`commitFront` 每次按当下相机重算 → 画完转到另一侧再打尺寸，面翻了。做法：`toolCommit` 给 op 加 `front` 时同时记到这次手势的记录（`LastGesture` 加可选 `front`；记录由谁建就由谁带上）；`commitFront` 先用记录里的，没有（老复现包 / 没记录）才按当下相机算。单测：画一张面（front 朝上）→ 把 `frame().viewDir` 换成朝下 → VCB 重画 → 朝向不变。
+
+**C3 导出表单的数直接在场景里数**（user「这次session做」）。现状：`session.exportSides` → `documentFromScene`（整个模型序列化一遍）→ `countSides`。做法：`scene/kinds.ts brepSideCounts(body, { skipHidden })` 一份算法两处用（转网格体 = 隐藏照算；导出 = 隐藏不算，和 bake 一致）；要数哪些定义 = 从根（或选中物件的定义）沿实例引用走一遍（`resources.ts` 有现成的活定义遍历，复用）。`format/write.ts exportSideCounts` 删或只留给测试；`test/face-sides.test.ts` 那几条改成走场景。O(面数)，不缓存。
+
+**C4 红探针收尾**：
+- `probe-single-draw`（悬停软边的线组）、`probe-new-primitive`（菜单项数 + 提示行）：先对照 0.18 的改动记录确认现在的行为是有意的（再点拿着的工具换做法 / 右键新建改过），是 → 改探针预期；不是 → 修 app。两种都在提交信息里写清是哪一种。
+- `probe-render-baseline` 的 `style-papercut-boxes` / `style-realistic-textured`：**等 user 看图定哪张对**（已发「现在的画」和冻结原图）。现在的对 → `--update` 只重冻这两张 + 第一刀日志写一行「哪次改动动了影子」（`git log` 看 `ao-bake.ts` / `paper-shader.ts` / `pbr-shader.ts` / `env-sky.ts` 在基线冻结之后的提交）；原图对 → 找到那次改动修回来、基线不动。
+
+**接受、不动**：老文件重存烤网格翻倍（user「没事」）；风格预览里被剔的默认背面仍可拾取（user「expected behavior」）。
+
+做完：`node test/run.mjs` 全绿、`probe-default-back` / `probe-undo-fuzz 8 45` / `probe-boot` / `probe-render-baseline` 全绿，bump patch，回来给 Fable 看 C1 的提示怎么传、C3 两处共用那一份。
