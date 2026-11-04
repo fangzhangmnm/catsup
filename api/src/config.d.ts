@@ -3,6 +3,8 @@ export declare const CLIENT_ID = "09719643-dc48-4c50-bf97-6dde1488f876";
 export declare const AUTHORITY = "https://login.microsoftonline.com/consumers";
 export declare const SCOPES: string[];
 export declare const MSAL_URL = "./vendor/msal/msal-browser.min.js";
+/** 官网网址只住这一处（家族规则书 §1 第 6 条；user 11-03「就catsup」）。开发版 = 它 + /dev/。 */
+export declare const SITE_URL = "https://catsup.weebpaint.com";
 /** 工程文件后缀（2026-10-28 账本 UX39 / 导出设计稿 §6：.catsup = glb 换皮，VRoid 的 .vrm 同款；身份 = `[夹/]<名>.catsup`，路径即身份）。
  *  新建 / 另存 / 导出工程文件都写它。为什么不是 .catsup.glb：别的软件开了再存会把 catsup 这个名字带走，一份烤过的模型顶着工程的名字。 */
 export declare const DOC_EXT = ".catsup";

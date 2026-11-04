@@ -83,6 +83,7 @@ import type { ParamFieldDef, ParamSession } from "../editor/param-panel.ts";
 import { VR } from "./vr.ts";
 import type { HudItem, HudModel } from "./ui/hud-model.ts";
 import { initPwaShell } from "./pwa-shell.ts";
+import { movedNoticeFor } from "./moved-notice.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { configureTabMemory, openPopupMenu, togglePopupMenu, closePopupMenu, type PopupMenuItem } from "./ui/popup-menu.ts";
 import { installContextMenuGuard } from "./ui/context-menu-guard.ts";
@@ -2004,6 +2005,9 @@ void (async () => {
     } else note("auth", "not configured (client id empty)");
   }
   updateCloudChip();
+  // 旧地址的搬家一行（家族根 ai-docs/20261103-catsup-domain-move.md §0.2）：开新标签，旧页留着，没传完可以回来接着传。
+  const moved = movedNoticeFor(location);
+  if (moved) notify({ id: "moved", level: "info", text: moved.text, timeoutMs: null, actions: [{ label: "打开新地址", primary: true, onClick: () => { window.open(moved.url, "_blank", "noopener"); } }] });
   if (auth.isSignedIn() && !hasStore()) {   // 登录了但这台设备还没挂过图库（清过 device-kv / 新装）：接店 + 走一遍三态（回执条多半空 → lazyblank）
     try { wireStore(); outcome = await bootRestore(); note("boot", `restore after auth outcome=${outcome}`); } catch (e) { funnel(e, "warning"); }
   } else if (outcome === "blank-failed" && auth.isSignedIn() && session.isUntouchedLazyBlank()) {

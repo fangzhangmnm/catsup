@@ -2,6 +2,7 @@
 // 加新测试文件：在下面 import 一行即可。
 import "./smoke.test.ts";
 import "./page-title.test.ts";   // 网页标题只是 CatsUp（user 2026-10-14）
+import "./moved-notice.test.ts";   // 旧地址的搬家一行（2026-11-03）
 import "./subdivide.test.ts";
 import "./subdivide-nearmiss.test.ts";
 import "./xr-pointer-frame.test.ts";
