@@ -153,10 +153,28 @@ export class FaceLayers {
     if (f === undefined) this.delete(MAT_BACK, id); else this.set(MAT_BACK, id, f);
   }
 
+  /**
+   * 这个定义里哪个槽号是内置默认背面（−1 = 没开过）。内核不懂槽表，指令层（editor/ops.ts poolOf）每条指令前告诉它：只在并面时用，见 mergeSides。
+   */
+  backSlot = -1;
+  /**
+   * 并面时两侧的默认背面（计划书 §9.2-D）：朝向相反的两张面并起来，逐层取首值会得到两侧都是默认背面 = 这张面导出时整个没了。
+   * 朝向跟第一张有朝向的面走，别的面反方向的默认背面不算数。（死面的环到这里已经没了，按边长投票做不到；和「取首个有值的」同一个规矩。）
+   */
+  private mergeSides(from: readonly FaceId[]): void {
+    const F = this.maps.get(MAT_FRONT), B = this.maps.get(MAT_BACK), back = this.backSlot;
+    let keep: 0 | 1 | null = null;
+    for (const f of from) { const a = F?.get(f) === back, b = B?.get(f) === back; if (a !== b) { keep = a ? 0 : 1; break; } }
+    if (keep === null) return;
+    const drop = keep === 0 ? B : F;
+    for (const f of from) if (drop?.get(f) === back) drop.delete(f);
+  }
+
   /** 按事件血缘：DIVIDE 子膜继承、MERGE / ABSORB 取首个有值的、死膜清。 */
   applyEvents(events: readonly FaceEvent[]): void {
-    for (const m of this.maps.values()) {
-      for (const ev of events) {
+    for (const ev of events) {
+      if (ev.type === "MERGE" && this.backSlot >= 0) this.mergeSides(ev.from);
+      for (const m of this.maps.values()) {
         if (ev.type === "DIVIDE") { const v = m.get(ev.from); m.delete(ev.from); if (v !== undefined) for (const c of ev.into) m.set(c, v); }
         else if (ev.type === "MERGE") { let v: number | undefined; for (const f of ev.from) { if (v === undefined) v = m.get(f); m.delete(f); } if (v !== undefined) m.set(ev.into, v); }
         else if (ev.type === "ABSORB") { const v = m.get(ev.from); m.delete(ev.from); if (v !== undefined) m.set(ev.into, v); }

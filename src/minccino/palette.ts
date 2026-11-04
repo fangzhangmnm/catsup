@@ -4,6 +4,7 @@
 export const PALETTE = {
   background: 0xf2f0ea,
   face: 0xd6d6d6,
+  faceBack: 0x9aa9bd,       // 默认背面：灰蓝 = 你在看背面（SketchUp 同款；user 11-04「先试试灰蓝，我觉得丑再说，预设能覆盖」）
   faceSelected: 0x8fb4e8,   // 选中 = 蓝，全部画风一个颜色（Tron / 1-bit 的标记色是画风本身；user 10-29「还是默认蓝舒服，其他选项用户可以自己折腾」，v0.17.43 试过统一红又回来）
   faceHover: 0xb6cff0,
   faceDim: 0xe9e9e9,        // 上下文之外的几何（淡出）

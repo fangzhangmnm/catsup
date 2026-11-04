@@ -17,6 +17,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { castBody } from "../scene/kinds.ts";
 import { moveVerts, extrudeAndOffset, extrudeAlongNormals, knife, loopCut, deleteSelection, insetFaces, addPrimitive, mergeVerts, type PrimitiveKind, type PrimitiveFrame, splitEdge, duplicateGeometry, fillOrBridge, flipFaces } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
+import { bornFaces, settleNewFaceSides } from "../kernel/face-sides.ts";
 import { MeshKernel } from "../mesh/mesh-kernel.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { dot3, normalize3, pointOnSegment3, ptKey3, quantize3, scale3, sub3 } from "../kernel/geom.ts";
@@ -25,6 +26,7 @@ import { INSERT_TOL } from "../kernel/subdivide.ts";
 import { MirrorRejected, mirrorGeometry, reflectionXform } from "./mirror.ts";
 import { PRESETS, applyPreset } from "./presets.ts";
 import { liveDefs, materialUse } from "../scene/resources.ts";
+import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Definition, type Instance, type Material, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
 import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
@@ -43,7 +45,8 @@ export type Op =
   | { op: "clear" }
   | { op: "preset"; name: string }
   /** harden（2026-10-26，user「画线描过一条软边，就把它变硬……这个确实是应该有的行为」）：落在这些线段上的边去掉软 + 平滑（画线 / 矩形描过看不见的软边 = 想要一条看得见的边）。 */
-  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean | CurveSpec; harden?: boolean }
+  /** front = 造面的窄意图（§9.2½ ③）：邻面给不出朝向时，这个方向那侧 = 正面（编辑器从相机算出来写进 op，内核只见方向）；缺 = 不写（老复现包）。 */
+  | { op: "addEdges"; at?: PoolRef; segs: Seg[]; curve?: boolean | CurveSpec; harden?: boolean; front?: Pt3 }
   /** 炸开曲线（SU Explode Curve）：edges 里每条边所在的曲线散成普通边。 */
   | { op: "explodeCurves"; at: PoolRef; edges: EdgeKey[] }
   /** 焊接（B19）：edges = 有序链的各边（坐标寻址）→ 一条曲线。 */
@@ -57,7 +60,7 @@ export type Op =
   | { op: "eraseSelection"; at?: PoolRef; faces: FaceKey[]; edges: EdgeKey[] }
   /** mirror（DT8，2026-10-26）：这次挪点是镜像（变换的行列式 < 0）——整张面都在挪的点里的面先两侧互换（结算机按绕向再判一次 = 侧跟着法向走）。 */
   | { op: "move"; at?: PoolRef; moves: { from: Pt3; to: Pt3 }[]; mirror?: boolean; /** 自动折面的折缝带哪些边层（DT87 工作流亚种；缺 = 硬线）。 */ creaseLayers?: string[] }
-  | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */ keepRing?: boolean }
+  | { op: "pushpull"; at?: PoolRef; face: FaceKey; dist: number; /** 加边（不自愈：原帽环留着、侧面新起一段；SketchUp 按 Ctrl）。缺 = 接着长。 */ keepRing?: boolean; /** 同 addEdges.front：底面没朝向时先按它定底面，再灌到新面。 */ front?: Pt3 }
   | { op: "followme"; at?: PoolRef; face: FaceKey; path: Pt3[]; closed: boolean; smoothJoints: boolean[] }
   | { op: "absorb"; at?: PoolRef; faces: Pt3[][][]; wires: [Pt3, Pt3][]; edgeSegs?: Record<string, [Pt3, Pt3][]>; faceLayers?: (Record<string, number> | undefined)[] }
   /** 选区 → 新 group（父 = at.group）；几何从池里搬出去，与别的面共享的边留下。 */
@@ -103,6 +106,8 @@ export type Op =
   /** 油漆桶：这些面涂文档材质 material（null = 回默认）；槽号在该 definition 里解析 / 新开。 */
   /** sides（DT8，2026-10-26）：每张面涂哪一侧，与 faces 对齐（0 = 平面法向 +n 那侧、1 = −n 那侧）；缺 = 两侧都涂（老复现包 / 老行为）。 */
   | { op: "paintFaces"; at: PoolRef; faces: FaceKey[]; material: number | null; sides?: (0 | 1)[] }
+  /** 翻面：选中的面两侧的值互换（几何不动）。 */
+  | { op: "flipFaceSides"; at: PoolRef; faces: FaceKey[] }
   | { op: "eraseGroup"; at: PoolRef; group: number }
   /** 锁定 / 解锁一个子实例（A27；at = 它所在的池）。解锁永远允许（Editor 的锁护栏对本 op 豁免）。0.14 起组不是物体、不能锁：带 group 的 setLocked 被拒。 */
   | { op: "setLocked"; at: PoolRef; group?: number; instance?: number; on: boolean }
@@ -253,8 +258,15 @@ export const poolOf = (s: Scene, at?: PoolRef): { kernel: Kernel; ref: PoolRef }
   if (!s.hasPool(ref)) throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"}`);
   const kind = s.kindOf(ref.def);
   if (kind !== "brep") throw new OpTargetError(`pool ${ref.def}/${ref.group ?? "root"} is a ${kind} pool: no brep op applies`);
-  return { kernel: s.kernelOf(ref), ref };
+  const kernel = s.kernelOf(ref);
+  kernel.faceLayers.backSlot = s.brep(ref.def).materialSlots.indexOf(BUILTIN_BACK_SLOT);   // 并面时两侧要认得默认背面（kernel/layers.ts mergeSides）
+  return { kernel, ref };
 };
+/** 造面的路收尾：这批新面定两侧（kernel/face-sides.ts）。只有画线 / 推拉 / 跟随 / 挪点走这里；粘贴 / 导入 / 镜像带载荷自己的层（有意的两面都出不许被邻面改掉）。 */
+function sideNewFaces(s: Scene, ref: PoolRef, kernel: Kernel, events: readonly FaceEvent[], o: { front?: Pt3; seed?: FaceId } = {}): void {
+  const born = bornFaces(events);
+  if (born.length) settleNewFaceSides(kernel, born, { back: s.brep(ref.def).materialSlots.indexOf(BUILTIN_BACK_SLOT), openBack: () => s.slotFor(ref.def, BUILTIN_BACK_SLOT), ...o });
+}
 
 /**
  * 组件换轴（user 2026-10-25「刚才失败的那个是有instanced的object我动轴，可能这里逻辑有点复杂，需要每个instance都移动」；Claude Opus 5.5）：
@@ -351,8 +363,9 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: new Scene(k2), events: preset ? applyPreset(k2, preset).flat() : [] };
     }
     case "addEdges": {
-      const { kernel } = poolOf(s, op.at);
+      const { kernel, ref } = poolOf(s, op.at);
       const events = kernel.addEdges(op.segs, op.curve ? { curve: op.curve } : undefined);
+      sideNewFaces(s, ref, kernel, events, op.front ? { front: op.front } : {});
       if (op.harden) {
         const segs = op.segs.map(([a, b]) => ({ a: { x: a.x, y: a.y, z: a.z ?? 0 }, b: { x: b.x, y: b.y, z: b.z ?? 0 } }));
         const ids = edgesAlongSegs(kernel.graph, segs, (pa, pb, a, b) => pointOnSegment3(pa, a, b, INSERT_TOL) && pointOnSegment3(pb, a, b, INSERT_TOL)).filter((e) => kernel.isSoft(e) || kernel.isSmooth(e));
@@ -373,16 +386,18 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       return { scene: s, events: [...kernel.eraseFaces(fids), ...kernel.eraseEdges(eids)] };
     }
     case "move": {
-      const { kernel } = poolOf(s, op.at);
+      const { kernel, ref } = poolOf(s, op.at);
       const moves = op.moves.map((m) => ({ id: resolveVertex(kernel, m.from), to: m.to }));
       if (op.mirror) {
         const moved = new Set(moves.map((m) => m.id));
         for (const f of kernel.faces()) if ([f.outer, ...f.holes].every((r) => r.vids.every((v) => moved.has(v)))) kernel.faceLayers.swapSides(f.id);
       }
-      return { scene: s, events: kernel.moveVertices(moves, op.creaseLayers ? { creaseLayers: op.creaseLayers } : undefined) };
+      const events = kernel.moveVertices(moves, op.creaseLayers ? { creaseLayers: op.creaseLayers } : undefined);
+      sideNewFaces(s, ref, kernel, events);
+      return { scene: s, events };
     }
-    case "pushpull": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.pushPull(fid, op.dist, op.keepRing ? { keepRing: true } : undefined) }; }
-    case "followme": { const { kernel } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face); return { scene: s, events: kernel.followMe(fid, op.path, { closed: op.closed, smoothJoints: op.smoothJoints }) }; }
+    case "pushpull": { const { kernel, ref } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face), events = kernel.pushPull(fid, op.dist, op.keepRing ? { keepRing: true } : undefined); sideNewFaces(s, ref, kernel, events, op.front ? { front: op.front, seed: fid } : {}); return { scene: s, events }; }
+    case "followme": { const { kernel, ref } = poolOf(s, op.at); const fid = resolveFace(kernel, op.face), events = kernel.followMe(fid, op.path, { closed: op.closed, smoothJoints: op.smoothJoints }); sideNewFaces(s, ref, kernel, events); return { scene: s, events }; }
     case "absorb": {
       const { kernel } = poolOf(s, op.at);
       const edgeSegs: Record<string, { a: Pt3; b: Pt3 }[]> = {};
@@ -611,10 +626,11 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "paintFaces": {
       const { kernel, ref } = poolOf(s, op.at);
       const fids = op.faces.map((f) => resolveFace(kernel, f));
-      if (op.material !== null && !(op.material in s.materials)) throw new OpTargetError(`material ${op.material}`);
+      if (op.material !== null && op.material !== BUILTIN_BACK_SLOT && !(op.material in s.materials)) throw new OpTargetError(`material ${op.material}`);
       kernel.setFaceMaterial(fids, op.material === null ? null : s.slotFor(ref.def, op.material), op.sides);
       return { scene: s, events: [] };
     }
+    case "flipFaceSides": { const { kernel } = poolOf(s, op.at); kernel.flipFaceSides(op.faces.map((f) => resolveFace(kernel, f))); return { scene: s, events: [] }; }
     case "purgeDefs": {
       const live = liveDefs(s);
       for (const id of op.defs) { if (!s.defs.has(id)) throw new OpTargetError(`purgeDefs: definition ${id}`); if (live.has(id)) throw new OpTargetError(`purgeDefs: 「${s.def(id).name}」还摆在模型里，不是孤儿`); }
@@ -627,7 +643,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       const next: number[] = [];   // 旧下标 → 新下标（−1 = 被删）
       let n = 0;
       for (let i = 0; i < s.materials.length; i++) next.push(kill.has(i) ? -1 : n++);
-      for (const d of s.defs.values()) d.body.materialSlots = d.body.materialSlots.map((m) => (m >= 0 ? (next[m] ?? -1) : -1));   // 面上的槽号是代号、不动；槽表这一列同一步对上（家规）
+      for (const d of s.defs.values()) d.body.materialSlots = d.body.materialSlots.map((m) => (m >= 0 ? (next[m] ?? -1) : m));   // 面上的槽号是代号、不动；槽表这一列同一步对上（家规）。负的（内置默认背面 −2 / 悬空 −1）不是下标，原样留
       for (const i of [...kill].sort((a, b) => b - a)) s.materials.splice(i, 1);   // purgeMaterials：全家唯一删材质的地方（守卫只放过这一行）
       return { scene: s, events: [] };
     }
@@ -755,7 +771,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
         return { scene: s, events };
       }
       if (op.mesh) throw new OpTargetError("paste: mesh geometry into a brep body needs a cast");
-      const toSlot = (code: number): number => { const id = docMat(code); return id < 0 ? -1 : s.slotFor(ref.def, id); };
+      const toSlot = (code: number): number => { const id = docMat(code); return id === -1 ? -1 : s.slotFor(ref.def, id); };   // −2 = 内置默认背面，也进槽表
       if (op.brep) events = absorbSnapshot(poolOf(s, op.at).kernel, op.brep, IDENTITY, toSlot);
       const gids: number[] = [];
       for (const g of op.groups ?? []) {
@@ -896,6 +912,7 @@ export function describeOp(op0: Op): string {
     case "moveInstance": return `moveInstance ${op.from.def}/${op.from.inst} → ${op.into.def}/${op.into.parent ?? "root"}${op.index !== undefined ? ` @${op.index}` : ""}`;
     case "copyGroup": return `copyGroup ${op.group}${at}`;
     case "addMaterial": return `addMaterial "${op.name}"${op.texture ? " +texture" : ""}`;
+    case "flipFaceSides": return `flipFaceSides n=${op.faces.length}${at}`;
     case "paintFaces": return `paintFaces n=${op.faces.length} material=${op.material ?? "default"}${op.sides ? ` sides=${op.sides.filter((x) => x === 0).length}+/${op.sides.filter((x) => x === 1).length}-` : ""}${at}`;
     case "setEdgeLayers": return `setEdgeLayers n=${op.edges.length} ${op.on ? "+" : "-"}${op.layers.join(",")}${at}`;
     case "eraseGroup": return `eraseGroup ${op.group}${at}`;
@@ -969,6 +986,7 @@ function pastedMaterial(s: Scene, table: readonly Material[] | undefined): (code
     if (!table) return code;
     const m = table[code];
     if (!m) return -1;
+    if (m.guid === BUILTIN_BACK.guid) return BUILTIN_BACK_SLOT;   // 内置不进材质表（计划书 §9.2-A）
     const i = s.materials.findIndex((x) => x.guid === m.guid);
     return i >= 0 ? i : s.addMaterial(m);
   };

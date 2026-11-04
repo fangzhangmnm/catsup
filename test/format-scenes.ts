@@ -4,6 +4,7 @@ import type { Pt3 } from "../src/kernel/kernel.ts";
 import { circleSegmentsOnPlane, rectSegments } from "../src/editor/tools.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { brepToMesh } from "../src/scene/kinds.ts";
+import { BUILTIN_BACK_SLOT } from "../src/scene/builtin-materials.ts";
 import { F_SOFT, F_SMOOTH, FF_HIDDEN } from "../src/mesh/mesh-kernel.ts";
 import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
 import { GROUND } from "../src/editor/pick.ts";
@@ -162,13 +163,20 @@ export function sceneCompassed(): Scene {
   if (gid !== undefined) s = applyOp(s, { op: "addGuide", at: { def: s.root, group: gid }, sphere: { c: { x: 0.5, y: 0.5, z: 1 }, r: 1.25 } }).scene;
   return s;
 }
+/** 这个定义的封闭壳每张面朝里那侧涂默认背面（用工具画出来的盒子本来就长这样；老文件没有）。转网格体 = 朝外的单层。 */
+export function oneSided(s: Scene, def: number): void {
+  const k = s.brep(def).kernel, slot = s.slotFor(def, BUILTIN_BACK_SLOT), vs = k.vertices();
+  const c = { x: vs.reduce((a, v) => a + v.x, 0) / vs.length, y: vs.reduce((a, v) => a + v.y, 0) / vs.length, z: vs.reduce((a, v) => a + v.z, 0) / vs.length };
+  for (const f of k.faces()) { const n = k.planeOf(f.id)!.plane.n, p = k.faceRings3(f.id)!.outer[0]; k.setFaceMaterial([f.id], slot, [n.x * (p.x - c.x) + n.y * (p.y - c.y) + n.z * (p.z - c.z) > 0 ? 1 : 0]); }
+}
 /** 网格体（CATSUP_mesh 1.0.0，2026-10-27 M3，Claude Fable 5.1）：根 brep 盒 + 一个由 brep 盒转成的 mesh 定义（6 张四边形），带一条软 + 平滑边、一张隐藏面、一张涂了材质的面。 */
 export function sceneMeshed(): Scene {
   let s = new Scene(sceneBox(2, 1.5));
   s = applyOp(s, { op: "addMaterial", name: "蓝", color: [0.2, 0.3, 0.8] }).scene;
   const d = s.mintDef("网格盒", sceneBox(1, 1));
+  oneSided(s, d.id);
   const body = brepToMesh(s.brep(d.id)), m = body.kernel;
-  m.setEdgeFlags(m.edges()[0], F_SOFT | F_SMOOTH); m.setFaceFlags(m.faces()[1], FF_HIDDEN, true); m.setFaceMat(m.faces()[2], 0); body.materialSlots = [0];
+  m.setEdgeFlags(m.edgeOf(0, 1), F_SOFT | F_SMOOTH); m.setFaceFlags(m.faces()[1], FF_HIDDEN, true); m.setFaceMat(m.faces()[2], 0); body.materialSlots = [0];
   d.body = body;
   s.mintInstance(s.root, null, d.id, translation({ x: 3, y: 0, z: 0 }));
   return s;

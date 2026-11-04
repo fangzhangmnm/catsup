@@ -5,7 +5,7 @@ import { addBox, insetFaces, maxInset } from "../src/mesh/ops/index.ts";
 import { Scene } from "../src/scene/scene.ts";
 import { applyOp } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
-import { sceneBox } from "./format-scenes.ts";
+import { oneSided, sceneBox } from "./format-scenes.ts";
 import { IDENTITY, applyPt } from "../src/scene/xform.ts";
 import { inset as insetCmd, originToSelection } from "../src/editor/mesh-edits/index.ts";
 import type { CommandEnv, MeshUnit } from "../src/editor/commands/command.ts";
@@ -32,7 +32,7 @@ describe("插入（insetFaces）", () => {
     assert(Math.max(...xs) - Math.min(...xs) > 0, "没塌成一个点"); eq(k.check().join("\n"), "");
   });
   it("meshInset op + 撤销：一步、逐字回去、重放同结果", () => {
-    const s0 = new Scene(sceneBox()), d = s0.mintDef("盒", sceneBox()); s0.mintInstance(s0.root, null, d.id, IDENTITY);
+    const s0 = new Scene(sceneBox()), d = s0.mintDef("盒", sceneBox()); s0.mintInstance(s0.root, null, d.id, IDENTITY); oneSided(s0, d.id);
     const s = applyOp(s0, { op: "castDefinition", def: d.id, to: "mesh" }).scene, h = new History(s), m = s.mesh(d.id).kernel;
     const canon = (): string => JSON.stringify({ v: m.verts().map((v) => [v, m.pt(v)]), f: m.faces().map((f) => m.faceVerts(f)) });
     const c0 = canon();

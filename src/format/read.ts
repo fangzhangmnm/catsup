@@ -10,7 +10,7 @@ import type { CatsupDocument, DefinitionDoc, GroupDoc, GuidesDoc, InstanceDoc, M
 import type { BodyKind } from "../scene/body-kind.ts";
 import { DEFAULT_SETTINGS, DEFAULT_LAYER, defaultDesk, emptyReferences, menuTabsOf, refPanelOf, shelfIsEmpty, type DeskDoc, type LayerDoc, type ReferencesDoc, type ShelfDoc, type ShelfItem } from "./document.ts";
 import { migrateExtension, emptyReadNotes, readStamp, FormatTooNewError, type FormatReadNotes } from "./migrate/index.ts";
-import { DEFAULT_LAYER_GUID, isGuid, ownGuid, type Guid } from "./guid.ts";
+import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, isGuid, ownGuid, type Guid } from "./guid.ts";
 import { decodeMeshItem } from "./mesh-payload.ts";
 import { assertReadableGltfVersion } from "./migrate/gltf/index.ts";
 import { collectBufferViewRefs } from "./carry.ts";
@@ -102,7 +102,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   // 材质：先于定义读（定义 6→7 的迁移要材质的 GUID）。glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
   const texList = Array.isArray(json.textures) ? (json.textures as Record<string, unknown>[]) : [];
   const imgList = Array.isArray(json.images) ? (json.images as Record<string, unknown>[]) : [];
-  const matSeen = new Set<Guid>();
+  const matSeen = new Set<Guid>([BUILTIN_FRONT_GUID, BUILTIN_BACK_GUID]);   // 内置材质永不进材质表：冒充的现铸新身份（§9.2-A）
   const materials: MaterialDoc[] = (Array.isArray(json.materials) ? (json.materials as Record<string, unknown>[]) : []).map((m, mi) => {
     const pbr = isObj(m.pbrMetallicRoughness) ? (m.pbrMetallicRoughness as Record<string, unknown>) : {};
     const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
@@ -172,7 +172,8 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
       return { guid: ownGuid(inst.guid, instSeen), definition: inst.definition as Guid, parent: isGuid(inst.parent) && groupKnown.has(inst.parent) ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
-    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => (isGuid(x) && matKnown.has(x) ? x : null));
+    // 槽表值：材质 GUID / 内置默认背面；内置默认正面的唯一表示是「槽缺」，读到 = 没有（§9.2-A a；notes 记一笔）。
+    const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => { if (x === BUILTIN_FRONT_GUID) { notes.builtinFrontSlots = (notes.builtinFrontSlots ?? 0) + 1; return null; } return isGuid(x) && (x === BUILTIN_BACK_GUID || matKnown.has(x)) ? x : null; });
     // 门 1：definition 的种类。缺省 brep；0.14 起认 mesh（载荷：definitions v5；card 在 v6 退场 = 迁成空 brep）；别的种类 → 拒开说清（开了再存会把它丢掉 = 数据丢失，比拒开更坏）。
     const kindRaw = d.kind === undefined ? "brep" : d.kind;
     if (kindRaw !== "brep" && kindRaw !== "mesh") fail(`definition ${di} kind "${String(d.kind)}" is not supported by this version`);

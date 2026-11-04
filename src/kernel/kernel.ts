@@ -871,6 +871,8 @@ export class Kernel {
       for (const name of sides ? [sides[i] === 1 ? MAT_BACK : MAT_FRONT] : [MAT_FRONT, MAT_BACK]) { if (slot === null) this.faceLayers.delete(name, id); else this.faceLayers.set(name, id, slot); }
     });
   }
+  /** 翻面（单面 / 双面第四版）：两侧的值互换，几何不动（面没有朝向，只有两侧）。 */
+  flipFaceSides(ids: readonly FaceId[]): void { this._rev++; for (const id of ids) if (this.store.face(id)) this.faceLayers.swapSides(id); }
   /** 面某一侧的材质槽（DT8；side 0 = +n 侧（缺省）、1 = −n 侧）。 */
   faceMaterialOf(id: FaceId, side: 0 | 1 = 0): number | undefined { return this.faceLayers.get(side === 1 ? MAT_BACK : MAT_FRONT, id); }
   /** 隐藏 / 显示一批面（DT49：面层 hidden = 1；子膜按血缘继承）。 */

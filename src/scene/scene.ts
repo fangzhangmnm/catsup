@@ -21,6 +21,7 @@ import { meshViewOf } from "../mesh/mesh-view.ts";
 import type { CurveParams } from "../kernel/curves.ts";
 import { type ImageAsset, type LayerDoc, type ShelfDoc, defaultLayers, emptyShelf } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
+import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 
 export type DefId = number;
@@ -144,6 +145,7 @@ export class Scene {
   materialOfSlot(defId: DefId, slot: number | undefined): Material | null {
     if (slot === undefined) return null;
     const idx = this.def(defId).body.materialSlots[slot];   // 两种身体都有槽表
+    if (idx === BUILTIN_BACK_SLOT) return BUILTIN_BACK;
     return idx === undefined ? null : (this.materials[idx] ?? null);
   }
   addMaterial(m: Omit<Material, "guid"> & { readonly guid?: Guid }): number { this.materials.push({ ...m, guid: m.guid ?? mintGuid() }); return this.materials.length - 1; }

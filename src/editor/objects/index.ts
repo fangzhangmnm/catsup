@@ -2,7 +2,7 @@
 // 10-27「explicit转换的话元数据也许也不要带，我们要诚实披露，不要藏东西」）：转成网格体 / 转回硬表面体，各自把丢掉什么写进提示。created 2026-10-27 by Claude Fable 5.1
 import type { Command, CommandEnv, ObjectUnit, Params } from "../commands/command.ts";
 import type { Action, Family, Placement } from "../commands/action.ts";
-import { canCast } from "../../scene/kinds.ts";
+import { brepSideCounts, canCast } from "../../scene/kinds.ts";
 
 /** 三角形 → 膜那条管线的速度（三角 / 秒；2026-10-27 node 实测：1 万个不平四边形 = 2 万三角 → 2 万张膜 2.2 s ≈ 9000 三角 / 秒，含共面合并；只是量级，浏览器同量级）。量纲：个 / 秒。 */
 const TRIS_PER_SECOND = 9000;
@@ -13,10 +13,13 @@ export const toMesh: Command<ObjectUnit> = {
   id: "object.toMesh", unit: "object", perDefinition: true, takesContext: true, title: "转成网格体",
   defaults: () => ({}),
   params: () => [],
-  plan(_env, u) {
+  plan(env, u) {
     const c = canCast(u.body, "mesh");
     if (!c.ok) return { ops: [], count: 0, skipped: 1, notes: [`「${u.name}」${c.why}`] };
-    return { ops: [{ op: "castDefinition", def: u.def, to: "mesh" }], count: 1, notes: disclose(u, c.loses) };
+    // 转换不问，只报（计划书 §9.2½ ②）：两侧都出 = 两张叠着的面（共用点，环切 / 平滑跨不过去，要合并用修复工具）；两侧都是默认背面 = 这张面没了
+    const sc = brepSideCounts(env.scene.brep(u.def));
+    const sides = [...(sc.both ? [`「${u.name}」${sc.both} 张面两侧都出，转过去是叠着的两张（其中 ${sc.differ} 张两侧材质不同）；想只留一侧，先把另一侧涂成默认背面`] : []), ...(sc.neither ? [`「${u.name}」${sc.neither} 张面两侧都是默认背面，转过去就没了`] : [])];
+    return { ops: [{ op: "castDefinition", def: u.def, to: "mesh" }], count: 1, notes: [...disclose(u, c.loses), ...sides] };
   },
   done: (n) => `转成网格体：${n} 个（组件双击进去就是自由建模工作台）`,
   none: "没有能转的：选中一个硬表面体组件；什么都不选 = 转你所在的这一层",

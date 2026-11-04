@@ -136,7 +136,30 @@ export function smoothNormalsOf(snap: BrepSnapshot): Map<number, Map<number, [nu
 }
 
 /** 材质槽 → glTF core 材质索引 + 贴图物理尺寸（bake 按材质拆 primitive、算 TEXCOORD_0 用）。 */
-export interface BakeMaterials { slotToCore: (slot: number) => number | undefined; sizeOfCore: (core: number) => readonly [number, number] | null; }
+export interface BakeMaterials { slotToCore: (slot: number) => number | undefined; sizeOfCore: (core: number) => readonly [number, number] | null; /** 这个槽是内置默认背面（这一侧不出）。缺 = 没有。 */ isBack?: (slot: number) => boolean; }
+/**
+ * 一张膜这一侧出不出、出成什么（单面 / 双面第四版，计划书 §2.9 / §9.2½；user 11-04「要出几侧就几张面」「默认背面就是丢的语义啊」）：
+ * null = 默认背面，不出；−1 = 默认正面（出成无材质）；≥ 0 = glTF 材质。悬空的槽（材质不在了）= 默认正面。
+ */
+function sideOut(snap: BrepSnapshot, fi: number, side: 0 | 1, mats: BakeMaterials | undefined): number | null {
+  const slot = (side === 0 ? snap.faceLayers?.material : snap.faceLayers?.materialBack)?.[fi] ?? -1;
+  if (slot < 0) return -1;
+  if (mats?.isBack?.(slot)) return null;
+  return mats?.slotToCore(slot) ?? -1;
+}
+/** 导出说明行的数（导出表单 / 状态行）：N 张面两侧都出、其中 M 张两侧材质不同、K 张两侧都是默认背面（整张不出）。隐藏的面不算。 */
+export interface SideCounts { both: number; differ: number; neither: number }
+export const noSides = (): SideCounts => ({ both: 0, differ: 0, neither: 0 });
+export function countSides(snap: BrepSnapshot, mats: BakeMaterials | undefined, into: SideCounts = noSides()): SideCounts {
+  const hidden = snap.faceLayers?.hidden;
+  snap.faces.forEach((_, i) => {
+    if (hidden && (hidden[i] ?? -1) >= 0) return;
+    const a = sideOut(snap, i, 0, mats), b = sideOut(snap, i, 1, mats);
+    if (a === null && b === null) into.neither++;
+    else if (a !== null && b !== null) { into.both++; if (a !== b) into.differ++; }
+  });
+  return into;
+}
 /** bake 的取舍（「导出模型」sheet 用；导出设计稿 §4）：lines = false → 不出 LINES primitive（有的查看器画出来怪）。缺省 = 和工程文件里那份一样。 */
 export interface BakeOptions { lines?: boolean }
 
@@ -144,6 +167,7 @@ export interface BakeOptions { lines?: boolean }
  * 把一个 definition 的 B-rep 烘成 glTF mesh（accessor 索引从 accessorBase 起）。软边不进 LINES（圆柱侧面不出竖线）。
  * 贴图纪元（2026-10-21）：按材质拆 primitive（契约「按 (材质, tag) 拆 prim」）——默认材质一份（共享顶点，无 UV）；每种材质一份
  * 自己的 POSITION（逐角，不共享）+ 有贴图时 TEXCOORD_0 = 贴图默认铺法（geom.ts textureBasis：上 = 上、不镜像）的平面投影 / 物理尺寸（契约「默认不存 UV」档：三方看到的就是 app 的默认贴法）。
+ * 单面 / 双面第四版（2026-11-04，计划书 §2.9）：**要出几侧就几张面**——一侧 = 一组三角，绕向 / 法向 / UV 都按那一侧；默认背面不出；默认正面出成无材质。glTF 材质一律单面。
  */
 export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase: number, mats?: BakeMaterials, opts: BakeOptions = {}): BakeResult {
   const pos: number[] = [];
@@ -155,16 +179,25 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
     max = [Math.max(max[0], y[0]), Math.max(max[1], y[1]), Math.max(max[2], y[2])];
   }
   const smooth = smoothNormalsOf(snap);
-  const byMat = new Map<number, number[]>();   // core material → face indices；-1 = 默认材质
-  const tris: number[] = [];                   // 省流档：没平滑组的默认材质面走共享顶点（无 NORMAL，加载器自算平面法向）
+  const byMat = new Map<number, { fi: number; side: 0 | 1 }[]>();   // core material → (膜, 哪一侧)；-1 = 默认材质
+  const tris: number[] = [];                   // 省流档：没平滑组的默认材质那一侧走共享顶点（无 NORMAL，加载器按绕向自算平面法向）
   const hiddenF = snap.faceLayers?.hidden;   // DT49 隐藏的面 / 边不出（契约 §4「hidden 不出」）
+  /** 这张膜的三角，绕向对着 +n（triangulateRings 的绕向跟 earcut，不保证）。 */
+  const trisOf = (f: BrepSnapshot["faces"][number]): [number, number, number][] => {
+    const n = snap.planes[f.plane].n, V = snap.vertices;
+    return triangulateRings(V, snap.planes[f.plane], f.outer, f.holes).map(([a, b, c]) => {
+      const u = { x: V[b].x - V[a].x, y: V[b].y - V[a].y, z: V[b].z - V[a].z }, v = { x: V[c].x - V[a].x, y: V[c].y - V[a].y, z: V[c].z - V[a].z };
+      return (u.y * v.z - u.z * v.y) * n.x + (u.z * v.x - u.x * v.z) * n.y + (u.x * v.y - u.y * v.x) * n.z < 0 ? [a, c, b] : [a, b, c];
+    });
+  };
   snap.faces.forEach((f, i) => {
     if (hiddenF && (hiddenF[i] ?? -1) >= 0) return;
-    const slot = snap.faceLayers?.material?.[i] ?? -1;
-    const core = slot >= 0 ? mats?.slotToCore(slot) : undefined;
-    if (core === undefined && !smooth.has(i)) { for (const t of triangulateRings(snap.vertices, snap.planes[f.plane], f.outer, f.holes)) tris.push(...t); return; }
-    const key = core === undefined ? -1 : core;
-    (byMat.get(key) ?? byMat.set(key, []).get(key)!).push(i);
+    for (const side of [0, 1] as const) {
+      const core = sideOut(snap, i, side, mats);
+      if (core === null) continue;
+      if (core < 0 && !smooth.has(i)) { for (const [a, b, c] of trisOf(f)) { if (side === 0) tris.push(a, b, c); else tris.push(a, c, b); } continue; }
+      (byMat.get(core) ?? byMat.set(core, []).get(core)!).push({ fi: i, side });
+    }
   });
   const soft = new Set([...(snap.edgeLayers?.soft ?? []), ...(snap.edgeLayers?.hidden ?? []), ...(snap.edgeLayers?.fold ?? [])]);   // 软边 / 隐藏的边 / 折线（DT87：面内部的折痕，屏幕上不画）不出线——导出的 = 屏幕上的（2026-10-26 补折线）
   const lines: number[] = opts.lines === false ? [] : snap.edges.flatMap((e, i) => (soft.has(i) ? [] : [e[0], e[1]]));
@@ -190,18 +223,18 @@ export function bakeDefinition(snap: BrepSnapshot, sink: ViewSink, accessorBase:
     const size = core >= 0 ? (mats?.sizeOfCore(core) ?? null) : null;
     const P: number[] = [], N: number[] = [], UV: number[] = [];
     let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
-    for (const fi of faceIdxs) {
+    for (const { fi, side } of faceIdxs) {
       const f = snap.faces[fi];
-      const plane = snap.planes[f.plane];
-      const basis = textureBasis(plane.n);   // 贴图默认铺法 = app 里看到的那样（正面；geom.ts textureBasis）
+      const plane = snap.planes[f.plane], sgn = side === 0 ? 1 : -1;
+      const basis = textureBasis(side === 0 ? plane.n : { x: -plane.n.x, y: -plane.n.y, z: -plane.n.z });   // 贴图默认铺法 = app 里看到的那样（各侧从自己那侧看；geom.ts textureBasis）
       const sm = smooth.get(fi);
-      for (const t of triangulateRings(snap.vertices, plane, f.outer, f.holes)) {
-        for (const vi of t) {
+      for (const [a, b, c] of trisOf(f)) {
+        for (const vi of side === 0 ? [a, b, c] : [a, c, b]) {
           const p = snap.vertices[vi];
           const y = [p.x, p.z, -p.y];
           P.push(y[0], y[1], y[2]);
           const nn = sm?.get(vi) ?? quantNormal(plane.n);
-          N.push(nn[0], nn[2], -nn[1]);   // 法向同样换轴
+          N.push(sgn * nn[0] + 0, sgn * nn[2] + 0, -sgn * nn[1] + 0);   // 法向同样换轴（+ 0：−0 归 +0，字节幂等）
           mn = [Math.min(mn[0], y[0]), Math.min(mn[1], y[1]), Math.min(mn[2], y[2])];
           mx = [Math.max(mx[0], y[0]), Math.max(mx[1], y[1]), Math.max(mx[2], y[2])];
           if (size) UV.push(dot3(p, basis.u) / size[0], 1 - dot3(p, basis.v) / size[1]);   // glTF UV 原点左上

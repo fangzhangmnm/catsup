@@ -9,7 +9,8 @@ import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc, emptyShelf, shelfIsEmpty 
 import { Scene, type DefId, type GroupId } from "../scene/scene.ts";
 import type { CatsupDocument, DefinitionDoc, GuidesDoc, ShelfDoc } from "./document.ts";
 import type { Guides } from "../scene/guides.ts";
-import type { Guid } from "./guid.ts";
+import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
+import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { newDocument } from "./document.ts";
 
 const guidesFromDoc = (g: GuidesDoc): Guides => ({
@@ -33,7 +34,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
   scene.axes = copyFrame(doc.axes);
   const matIndex = new Map<Guid, number>();
   for (const m of doc.materials) matIndex.set(m.guid, scene.addMaterial({ guid: m.guid, name: m.name, color: [m.color[0], m.color[1], m.color[2]], ...(m.texture ? { texture: { mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } } : {}) }));
-  const slotsOf = (d: DefinitionDoc): number[] => d.materialSlots.map((g) => (g !== null ? (matIndex.get(g) ?? -1) : -1));
+  const slotsOf = (d: DefinitionDoc): number[] => d.materialSlots.map((g) => (g === BUILTIN_BACK_GUID ? BUILTIN_BACK_SLOT : g !== null ? (matIndex.get(g) ?? -1) : -1));
   (scene.def(scene.root) as { guid: Guid }).guid = doc.root.guid;
   scene.def(scene.root).name = doc.root.name;
   const idOf = new Map<Guid, DefId>([[doc.root.guid, scene.root]]);
@@ -87,7 +88,7 @@ export function sceneFromDocument(doc: CatsupDocument): Scene {
 export function documentFromScene(scene: Scene, name: string, base?: CatsupDocument | null): CatsupDocument {
   const ids = [...scene.defs.keys()];
   const rootIndex = ids.indexOf(scene.root);
-  const slotGuids = (slots: readonly number[]): (Guid | null)[] => slots.map((m) => scene.materials[m]?.guid ?? null);
+  const slotGuids = (slots: readonly number[]): (Guid | null)[] => slots.map((m) => (m === BUILTIN_BACK_SLOT ? BUILTIN_BACK_GUID : (scene.materials[m]?.guid ?? null)));
   const definitions: DefinitionDoc[] = ids.map((id) => {
     const d = scene.def(id);
     const groupGuid = (g: GroupId | null): Guid | null => (g !== null && d.body.kind === "brep" ? (d.body.groups.get(g)?.guid ?? null) : null);

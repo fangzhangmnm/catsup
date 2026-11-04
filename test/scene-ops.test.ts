@@ -274,7 +274,7 @@ describe("平滑组（0.8）：soft / smooth 两层、推拉策略、软化工�
     const tri = json.meshes[0].primitives.filter((p: any) => p.mode === 4);
     const withN = tri.filter((p: any) => p.attributes.NORMAL !== undefined);
     eq(withN.length, 1, "平滑组里的 12 张侧面走逐角 primitive 带 NORMAL（顶底盘走省流共享档）");
-    eq(json.accessors[withN[0].attributes.POSITION].count, 12 * 2 * 3, "12 面 × 2 三角 × 3 角");
+    eq(json.accessors[withN[0].attributes.POSITION].count, 12 * 2 * 3 * 2, "12 面 × 2 三角 × 3 角 × 两侧（老圆柱两侧都是默认正面）");
     // 读回：三层往返
     const back = sceneFromDocument(readCatsup(bytes)).kernelOf({ def: 1, group: null });
     eq(back.edgeLayers.layer("smooth").size, 12); eq(back.soft.size, 12); eq(back.curve.size, 24);

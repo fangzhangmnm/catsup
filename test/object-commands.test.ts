@@ -11,7 +11,7 @@ import type { ImportScene } from "../src/format/gltf-import.ts";
 import { MeshKernel, F_SOFT, F_SMOOTH } from "../src/mesh/mesh-kernel.ts";
 import { addBox } from "../src/mesh/ops/index.ts";
 import { edgeSmooth, edgeSoft } from "../src/mesh/edge-smooth.ts";
-import { sceneBox } from "./format-scenes.ts";
+import { oneSided, sceneBox } from "./format-scenes.ts";
 import { IDENTITY } from "../src/scene/xform.ts";
 import type { Pt3 } from "../src/kernel/geom.ts";
 
@@ -46,7 +46,7 @@ describe("物件族：转成网格体 / 转回 SU 体", () => {
   });
   it("toBrep：盒子转网格再转回 = 6 张膜 12 条边；估时按三角数；不平的面折成平面块加软边；隐藏的面不带过去", () => {
     const s = new Scene(sceneBox()), d = s.mintDef("盒", sceneBox());
-    s.mintInstance(s.root, null, d.id, IDENTITY);
+    s.mintInstance(s.root, null, d.id, IDENTITY); oneSided(s, d.id);
     let s2 = applyOp(s, { op: "castDefinition", def: d.id, to: "mesh" }).scene;
     const u: ObjectUnit = { kind: "object", at: { def: s.root, group: null }, instance: 0, def: d.id, name: "盒", body: "mesh", copies: 1, xf: IDENTITY };
     const est = toBrep.estimate!(env(s2), [u], { softDeg: 20 });

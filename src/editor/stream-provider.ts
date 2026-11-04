@@ -8,13 +8,14 @@ import { PALETTE, hexToLinear } from "../minccino/index.ts";
 import { PoolMesh, type PoolMeshEnv } from "./pool-mesh.ts";
 import { type WorldView, type PoolSlot, slotKey } from "../scene/world-view.ts";
 import { poolKey, type Material, type Scene } from "../scene/scene.ts";
+import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import type { KernelView } from "../scene/kernel-view.ts";
 import { perf } from "./perf-stats.ts";
 import type { MarkLayout } from "./highlight.ts";
 
 const srgb = (hex: number): readonly [number, number, number] => [((hex >> 16) & 255) / 255, ((hex >> 8) & 255) / 255, (hex & 255) / 255];
 /** 烤进顶点的颜色（= 以前后端 chunkStyle 给的同一套数：面 sRGB 浮点、线线性）。 */
-const FACE_SRGB = srgb(PALETTE.face), EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire);
+const FACE_SRGB = srgb(PALETTE.face), BACK_SRGB = srgb(PALETTE.faceBack), NO_SIDE: readonly [number, number, number] = [-1, -1, -1], EDGE_FACE = hexToLinear(PALETTE.edge), EDGE_WIRE = hexToLinear(PALETTE.edgeWire);
 
 /** 一份池网格 = 一个「身体」：同一个池通常一份；同一帧要画两个不同内核（预演影子 + 原件）就多开一份。 */
 interface Body { readonly id: string; readonly mesh: PoolMesh; gen: number; faces: Map<string, Chunk>; lines: Chunk | null; }
@@ -35,7 +36,8 @@ export class EditorStreamProvider implements StreamProvider {
   private slotBody = new Map<string, Body>();
   private boundsCache: { world: WorldView; rev: number; sphere: { c: Vec3; r: number } | null } | null = null;
   /** 粗线（LineSegments2 实例）还是像素线：引擎的视图设定（线稿粗细 > 1 也会切成粗线），每次 pull 问一下；换了 = 池网格全量重建（线的块形状不同）。 */
-  constructor(private readonly thick: () => boolean) {}
+  /** styled = 正在看风格预览（线稿之外的画风）：默认背面按引擎所见不画（计划书 §9.2-E；编辑时画灰蓝 = 披露你在看背面）。 */
+  constructor(private readonly thick: () => boolean, private readonly styled: () => boolean = () => false) {}
 
   /** 这一帧画哪个世界（活的那份，含预演影子）+ checkpoint 代数（内容键的一部分）。编辑器每次画之前调。淡出是标记（视图侧），不在这里。 */
   /** editing = 有「正在编辑的那一层」（演示锁里没有：活动槽也按普通槽放，结构线跟画风走；ai-docs/20261029-edge-display-scenarios.md 场景 6）。 */
@@ -105,12 +107,14 @@ export class EditorStreamProvider implements StreamProvider {
   }
 
   private env(scene: Scene, defId: number, thick: boolean): PoolMeshEnv {
+    const cullBack = !this.editing || this.styled();   // 演示锁 = 没有正在编辑的那一层
     const uid = (m: Material | undefined): number => { if (!m) return 0; let u = this.matUids.get(m); if (u === undefined) { u = this.nextMatUid++; this.matUids.set(m, u); } return u; };
     return {
       matOf: (slot) => scene.materialOfSlot(defId, slot),
-      slotsSig: scene.def(defId).body.materialSlots.map((i) => uid(scene.materials[i])).join(","),
+      slotsSig: scene.def(defId).body.materialSlots.map((i) => uid(i === BUILTIN_BACK_SLOT ? BUILTIN_BACK : scene.materials[i])).join(","),   // 内置默认背面也有自己的号：把一侧从默认正面改成默认背面要重画
       singleSided: scene.kindOf(defId) === "mesh",
-      faceColor: (mat) => (mat && !mat.texture ? [mat.color[0], mat.color[1], mat.color[2]] : mat?.texture ? [1, 1, 1] : FACE_SRGB),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
+      backLook: cullBack ? "cull" : "show",
+      faceColor: (mat) => (mat === BUILTIN_BACK ? (cullBack ? NO_SIDE : BACK_SRGB) : mat && !mat.texture ? [mat.color[0], mat.color[1], mat.color[2]] : mat?.texture ? [1, 1, 1] : FACE_SRGB),   // 贴图面 = 白（贴图 × 1）；没材质 = 白模灰
       edgeColor: (loose) => (loose ? EDGE_WIRE : EDGE_FACE),
       thick,
     };

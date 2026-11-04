@@ -14,9 +14,9 @@ import { brepToMesh } from "../src/scene/kinds.ts";
 import { PoolMesh, type PoolMeshEnv } from "../src/editor/pool-mesh.ts";
 import { applyOp } from "../src/editor/ops.ts";
 import { IDENTITY, WORLD_FRAME } from "../src/scene/xform.ts";
-import { sceneBox, sceneHoledOpen } from "./format-scenes.ts";
+import { oneSided, sceneBox, sceneHoledOpen } from "./format-scenes.ts";
 
-const env: PoolMeshEnv = { matOf: () => null, slotsSig: "", faceColor: () => [0.5, 0.5, 0.5], edgeColor: () => [0, 0, 0], thick: false, singleSided: true };
+const env: PoolMeshEnv = { matOf: () => null, slotsSig: "", faceColor: () => [0.5, 0.5, 0.5], edgeColor: () => [0, 0, 0], thick: false, singleSided: true, backLook: "show" };
 const dot = (a: Pt3, b: Pt3): number => a.x * b.x + a.y * b.y + a.z * b.z;
 const centroid = (pts: readonly Pt3[]): Pt3 => { let x = 0, y = 0, z = 0; for (const p of pts) { x += p.x; y += p.y; z += p.z; } return { x: x / pts.length, y: y / pts.length, z: z / pts.length }; };
 const unitBox = (): { m: MeshKernel; verts: number[]; faces: number[] } => { const m = new MeshKernel(); const { verts, faces } = addBox(m, { x: 0, y: 0, z: 0 }, { x: 1, y: 1, z: 1 }); return { m, verts, faces }; };
@@ -55,7 +55,7 @@ describe("mesh 显示视图（契约 kernel-view.ts）", () => {
 
 describe("网格体进场景", () => {
   it("WorldView 给 mesh 池开槽：点线面进推断世界、经实例变换；隐藏的面不进", () => {
-    const s = new Scene(sceneBox());
+    const s = new Scene(sceneBox()); oneSided(s, s.root);
     const d = s.mintDef("网格", new Kernel()); d.body = brepToMesh(s.brep(s.root));
     s.mintInstance(s.root, null, d.id, [1, 0, 0, 10, 0, 1, 0, 0, 0, 0, 1, 0]);
     const wv = new WorldView(s, ROOT_CONTEXT);
@@ -70,7 +70,7 @@ describe("网格体进场景", () => {
   });
   it("castDefinition op：brep 定义 → mesh；clone 深拷贝内核；pointsOfDef 读得到网格体的点", () => {
     const s = new Scene(sceneBox());
-    const d = s.mintDef("盒", sceneBox()); s.mintInstance(s.root, null, d.id, [1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0]);
+    const d = s.mintDef("盒", sceneBox()); s.mintInstance(s.root, null, d.id, [1, 0, 0, 5, 0, 1, 0, 0, 0, 0, 1, 0]); oneSided(s, d.id);
     const r = applyOp(s, { op: "castDefinition", def: d.id, to: "mesh" });
     eq(r.scene.kindOf(d.id), "mesh"); eq(r.scene.mesh(d.id).kernel.faceCount(), 6);
     eq(r.scene.pointsOfDef(d.id).length, 8);
@@ -86,12 +86,13 @@ describe("brep → mesh", () => {
   it("组里的几何一起进网格体、住在组里的实例挂回根上（2026-10-28：以前只转根池 = 组里的静默丢了、实例指着不存在的组）", () => {
     const s = new Scene(sceneBox()), g = s.mintGroup(s.root, null, sceneBox(), WORLD_FRAME), part = s.mintDef("件", new Kernel());
     const inst = s.mintInstance(s.root, g.id, part.id, IDENTITY);
-    eq(brepToMesh(s.brep(s.root)).kernel.faceCount(), 12, "根池 6 + 组里 6");
+    eq(brepToMesh(s.brep(s.root)).kernel.faceCount(), 24, "根池 6 + 组里 6，老盒子两侧都是默认正面 = 每张出两张");
     applyOp(s, { op: "castDefinition", def: s.root, to: "mesh" });
     eq(s.def(s.root).body.kind, "mesh"); eq(s.def(s.root).instances.get(inst.id)!.parent, null, "实例挂回根");
   });
-  it("盒子：6 张四边形、12 条硬边、8 点；法向一律朝外（封闭壳）", () => {
-    const s = new Scene(sceneBox()), m = brepToMesh(s.brep(s.root)).kernel;
+  it("盒子（里面涂默认背面）：6 张四边形、12 条硬边、8 点；法向一律朝外（封闭壳）", () => {
+    const s = new Scene(sceneBox()); oneSided(s, s.root);
+    const m = brepToMesh(s.brep(s.root)).kernel;
     eq(m.faceCount(), 6); eq(m.edgeCount(), 12); eq(m.vertexCount(), 8);
     for (const e of m.edges()) eq(m.edgeFlags[e], 0, "盒子的边都是硬边");
     for (const f of m.faces()) eq(m.faceVerts(f).length, 4);

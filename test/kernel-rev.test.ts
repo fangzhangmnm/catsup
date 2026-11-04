@@ -27,6 +27,7 @@ const VERBS: Record<string, (k: Kernel) => void> = {
   absorb: (k) => { k.absorb([[[P(8, 8, 0), P(9, 8, 0), P(9, 9, 0)]]], []); },
   transformAll: (k) => { k.transformAll((p) => P(p.x + 1, p.y, p.z)); },
   setFaceMaterial: (k) => { k.setFaceMaterial([k.faces()[0].id], 1); },
+  flipFaceSides: (k) => { k.flipFaceSides([k.faces()[0].id]); },
   setEdgeLayer: (k) => { k.setEdgeLayer("soft", [k.edges()[0].id], true); },
   setFaceHidden: (k) => { k.setFaceHidden([k.faces()[0].id], true); },   // DT49 隐藏的面（2026-10-25 Opus）
   weldEdges: (k) => { const before = new Set(k.edges().map((e) => e.id)); k.addEdges([[P(5, 5), P(6, 5)], [P(6, 5), P(6, 6)]]); k.weldEdges(k.edges().map((e) => e.id).filter((id) => !before.has(id))); },

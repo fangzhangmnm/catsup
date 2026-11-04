@@ -58,6 +58,8 @@ import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from ".
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
 import { REPAIR_STEPS } from "./repairs/index.ts";
+import { opTouchesLocked, withFront } from "./op-locks.ts";
+import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { actionById, commandById, placementsAt, routesOf } from "./commands/registry.ts";
 import type { Surface } from "./commands/action.ts";
 import type { Command, CommandEnv, CommandId, ObjectUnit, Params as CmdParams, PlanOut, PoolUnit, Unit, UnitKind } from "./commands/command.ts";
@@ -91,7 +93,7 @@ import { edgeLoop } from "../mesh/select-loop.ts";
 import type { OptionKv } from "./tool-config.ts";
 
 /** 油漆桶当前「蘸的」材质：颜色（名字 + sRGB 0..1）/ 贴图（名字 + 原图字节 + 物理尺寸 米）/ null = 默认灰。 */
-export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | null;
+export type PaintPick = { kind: "color"; name: string; color: [number, number, number] } | { kind: "texture"; name: string; mimeType: string; bytes: Uint8Array; sizeM: [number, number] } | { kind: "back"; name: string } | null;
 
 /** 工具指针事件（canvas 本地坐标 + 定位提示用的 client 坐标）。 */
 /** 菜单 / 物体窗口作用在谁上（Editor.withMenuTarget）：selection = 当前选区（几何层）；self = 你所在的这一层本身；children = 选中的子物体。 */
@@ -247,7 +249,7 @@ const STEP_PASS = Object.freeze({}) as StepPass;
 /** op → 一步的默认标签（中文动词；显式给了 step() 标签的用那个）。开放集：没登记的用 op 名。 */
 const OP_TITLES: Readonly<Record<string, string>> = {
   addEdges: "画线", eraseEdges: "擦边", eraseFaces: "擦面", eraseSelection: "删除", move: "移动", pushpull: "推拉", followme: "跟随", absorb: "合并", weldEdges: "焊接", dissolveVertices: "溶解点",
-  explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物件", placeInstance: "放置",
+  explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", flipFaceSides: "翻面", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物件", placeInstance: "放置",
   eraseInstance: "删除物件", moveInstance: "挪物件", purgeDefs: "清理组件", purgeMaterials: "清理材质", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
   copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
@@ -513,7 +515,7 @@ export class Editor {
 
   constructor(private canvas: HTMLCanvasElement, private host: EditorHost, r3: RenderProvider) {
     this.config = new ToolConfig(TOOL_OPTIONS, host.optionKv);   // 字段初始化先于构造体（es2022）：config 在这里建，toolCtx 用 getter 取
-    this.r3 = r3; this.provider = new EditorStreamProvider(() => this.r3.lineStyleInUse() === "thick"); this.r3.setProvider(this.provider);
+    this.r3 = r3; this.provider = new EditorStreamProvider(() => this.r3.lineStyleInUse() === "thick", () => this.r3.getPreset() !== "white"); this.r3.setProvider(this.provider);
     this.cam.pitch = 0.61;
     this.cam.projection = "persp";
   }
@@ -1248,7 +1250,10 @@ export class Editor {
 
   /** 工具边界（ToolCtx）的通行证：工具拿不到通行证，它们只在包好的指针事件里被调；这里按运行时发——真在步外被调，commitOp 的运行时检查会抓（黑匣子 + stepViolations）。全文件只有这里和 step() 碰 STEP_PASS（守卫测试 test/step-pass-guard.test.ts）。 */
   private toolPass(): StepPass { return STEP_PASS; }
-  private toolCommit(op: Op): FaceEvent[] { return this.mirrorBlocks(op) ? [] : this.commitIn(this.toolPass(), op); }
+  private toolCommit(op: Op): FaceEvent[] { return this.mirrorBlocks(op) ? [] : this.commitIn(this.toolPass(), this.withFront(op)); }
+  /** 工具画的线 / 推的面带上「这一侧朝着我」的方向（op-locks.ts withFront）。 */
+  private withFront(op: Op): Op { const m = this.ctxXform(); return withFront(op, (p) => normalize3(applyDir(m === IDENTITY ? m : invert(m), this.frame().viewDir(applyPt(m, p))))); }
+  private commitFront(pass: StepPass, op: Op): FaceEvent[] { return this.commitIn(pass, this.withFront(op)); }
   /** 所有改场景的用户手势走这里：记账（op 日志，按坐标寻址）+ 应用。 */
   private commitIn(pass: StepPass, op0: Op): FaceEvent[] {
     if (this.stepDepth === 0) {   // 通行证被闭包带到步外来用（编译期拦不住的那一种）：照样包成一步做完，但记进黑匣子 + 控制台，测试 / 探针据此抓
@@ -1261,7 +1266,7 @@ export class Editor {
     // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
     const rw = this.mirrorRewrite(op0.op === "move" && !op0.creaseLayers && this.mode.workflow?.autofold === "fold" ? { ...op0, creaseLayers: ["fold"] } : op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
     if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; }
-    if (this.opTouchesLocked(op)) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
+    if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.host.hint("已锁定：解锁后再改（选中它 → 解锁）"); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
     const t0 = performance.now();
     const join = this.stepDepth > 0 && this.stepHasOp, before = join ? undefined : (this.stepBefore ?? this.sessionSnap());   // 新的一步：它之前的会话（步开始时记的；手势按下时点选的那份延后进来）
@@ -1974,18 +1979,6 @@ export class Editor {
     return true;
   }
   // ---------- 锁定（A27，SU Lock；user 2026-10-24 立面图思考题）：对象层属性，所有 kind 通用；推断照吃（WorldView 不看锁）----------
-  /** 这条 op 会改到锁住的东西吗：目标池在锁住的 group 里 / 整体动・删・炸一个锁住的子项 / 当前上下文在锁住的实例里面。setLocked 本身豁免（解锁要能做）。 */
-  private opTouchesLocked(op: Op): boolean {
-    if (op.op === "setLocked" || op.op === "setHidden" || op.op === "unhideAll" || op.op === "rename") return false;   // 解锁要能做；藏 / 显示不改东西（锁着的也能藏）
-    if (op.op === "batch") return op.ops.some((o) => this.opTouchesLocked(o));
-    const s = this.scene;
-    if ("at" in op && op.at && s.hasPool(op.at) && s.poolLocked(op.at)) return true;
-    if (op.op === "transformPool") return s.poolLocked(op.at);
-    if (op.op === "eraseGroup" || (op.op === "explode" && op.group !== undefined)) return s.poolLocked({ def: op.at.def, group: op.group! });
-    if (op.op === "transformInstance" || op.op === "eraseInstance" || op.op === "moveInstance") return op.op === "moveInstance" ? s.pickLocked(op.from.def, { kind: "instance", instance: op.from.inst }) : s.pickLocked(op.def, { kind: "instance", instance: op.instance });
-    if (op.op === "explode" && op.instance !== undefined) return s.pickLocked(op.at.def, { kind: "instance", instance: op.instance });
-    return this.contextLocked();
-  }
   /** 当前上下文链上有锁住的实例（进不去的地方本来也到不了；双保险）。 */
   private contextLocked(): boolean {
     let def = this.scene.root;
@@ -2611,6 +2604,7 @@ export class Editor {
   private materialIndexForPick(pass: StepPass): number | null {
     const p = this.paintPick;
     if (!p) return null;
+    if (p.kind === "back") return BUILTIN_BACK_SLOT;   // 内置默认背面不进材质表
     const same = (m: import("../scene/scene.ts").Material): boolean => p.kind === "color"
       ? !m.texture && m.name === p.name && m.color.every((c, i) => Math.abs(c - p.color[i]) < 1e-6)
       : !!m.texture && m.name === p.name && m.texture.bytes === p.bytes;
@@ -2631,11 +2625,12 @@ export class Editor {
     this.commitIn(pass, { op: "paintFaces", at: this.activePool(), faces: keys, material, ...(sides ? { sides: idx.map((i) => sides[i] ?? 0) } : {}) });   // DT8：sides = 每张面涂哪一侧；不给 = 两侧
     });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
-  /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认灰）。 */
+  /** 吸色：把这张面这一侧的材质设成油漆桶当前「蘸的」（没材质 = 默认正面；默认背面 = 那一格）。 */
   pickMaterialOf(face: FaceId, side: 0 | 1 = 0): void {
     const k = this.kernel;
     const m = this.scene.materialOfSlot(this.scene.defOfContext(this.ctx), k.faceMaterialOf(face, side));
     if (!m) { this.setPaint(null); return; }
+    if (m === BUILTIN_BACK) { this.setPaint({ kind: "back", name: m.name }); return; }
     this.setPaint(m.texture ? { kind: "texture", name: m.name, mimeType: m.texture.mimeType, bytes: m.texture.bytes, sizeM: [m.texture.sizeM[0], m.texture.sizeM[1]] } : { kind: "color", name: m.name, color: [m.color[0], m.color[1], m.color[2]] });
   }
   /** 把选区（面）涂上当前材质。 */
@@ -2894,7 +2889,7 @@ export class Editor {
   private redrawCircle(pass: StepPass, L: Extract<LastGesture, { kind: "circle" }>, rim: Pt3, segments: number): void {
     const n0 = this.opCount;
     const segs = circleSegmentsOnPlane(L.plane.plane, L.plane.basis, L.center, rim, segments);
-    if (segs.length) this.commitIn(pass, { op: "addEdges", at: L.at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
+    if (segs.length) this.commitFront(pass, { op: "addEdges", at: L.at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), curve: circleCurveSpec((pt) => this.toLocal(pt), L.center, rim, L.plane, segments) });
     this.last = { ...L, ops: this.opCount - n0, rim, segments };
   }
   /** 弧：按新的手势量重画（同上）；构不出来 = null，什么都不提交。 */
@@ -2902,7 +2897,7 @@ export class Editor {
     const built = buildArc(g);
     if (!built) return null;
     const n0 = this.opCount;
-    this.commitIn(pass, arcOp((p) => this.toLocal(p), L.at, built));
+    this.commitFront(pass, arcOp((p) => this.toLocal(p), L.at, built));
     this.last = { ...L, ...g, ops: this.opCount - n0 };
     return built;
   }
@@ -3009,7 +3004,7 @@ export class Editor {
       case "line": {
         if (v.kind !== "length") break;
         const b = add3(L.a, scale3(normalize3(sub3(L.b, L.a)), v.m));
-        this.commitIn(pass, { op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]], harden: true });
+        this.commitFront(pass, { op: "addEdges", at, segs: [[this.toLocal(L.a), this.toLocal(b)]], harden: true });
         this.last = { ...L, ops: this.opCount - n0, b };
         { const HL = this.handlers.line; if (this._tool === "line" && HL) { HL.vcbContinue?.(this.toolCtx, b); this.armed = HL.active(); } }
         msg = `线长 ${fmtLen(Math.abs(v.m))}`;
@@ -3020,7 +3015,7 @@ export class Editor {
         const d = sub3(L.corner, L.anchor), [u, w] = Editor.rectAxes(L.plane.basis), from = L.from ?? "corner", k = from === "center" ? 0.5 : 1;
         const corner = add3(L.anchor, add3(scale3(u, sign(dot3(d, u)) * Math.abs(v.a) * k), scale3(w, sign(dot3(d, w)) * Math.abs(v.b) * k)));
         const segs = rectSegmentsOnPlane(L.plane.plane, L.plane.basis, rectOpposite(L.anchor, corner, from), corner);
-        if (segs.length) this.commitIn(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
+        if (segs.length) this.commitFront(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
         this.last = { ...L, ops: this.opCount - n0, corner };
         msg = `矩形 ${fmtLen(Math.abs(v.a))} × ${fmtLen(Math.abs(v.b))}`;
         break;
@@ -3033,7 +3028,7 @@ export class Editor {
         else if (v.kind === "length") c = add3(L.b, scale3(rrectDirAt(L.a, L.b, n, th), v.m));
         else break;
         const segs = rrectSegments(L.a, L.b, c);
-        if (segs.length) this.commitIn(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
+        if (segs.length) this.commitFront(pass, { op: "addEdges", at, segs: segs.map(([p, q]) => [this.toLocal(p), this.toLocal(q)]), harden: true });
         this.last = { ...L, ops: this.opCount - n0, c };
         msg = `旋转矩形 ${fmtLen(dist(L.a, L.b))} × ${fmtLen(dist(L.b, c))} · ${fmtDeg(rrectThetaOf(L.a, L.b, n, c))}`;
         break;
@@ -3062,7 +3057,7 @@ export class Editor {
       case "pp": {
         if (v.kind !== "length") break;
         const h = sign(L.h) * v.m, hl = L.h !== 0 ? h * (L.hl / L.h) : h;
-        this.commitIn(pass, { op: "pushpull", at, face: L.face, dist: hl, ...(L.keepRing ? { keepRing: true } : {}) });
+        this.commitFront(pass, { op: "pushpull", at, face: L.face, dist: hl, ...(L.keepRing ? { keepRing: true } : {}) });
         this.last = { ...L, ops: this.opCount - n0, h, hl };
         msg = `推拉 ${fmtLen(h)}`;
         break;
@@ -3075,7 +3070,7 @@ export class Editor {
         if (r.length >= 3) {
           const r3 = r.map((q) => liftFromPlane(q, L.plane.plane, L.plane.basis));
           const spec = L.circle ? offsetCircleSpec(L.circle, d) : null;   // 0.10：源面是圆 → 偏移环也是圆
-          this.commitIn(pass, { op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]), ...(spec ? { curve: curveSpecToLocal((pt) => this.toLocal(pt), spec) } : {}) });
+          this.commitFront(pass, { op: "addEdges", at, segs: r3.map((p, i) => [this.toLocal(p), this.toLocal(r3[(i + 1) % r3.length])]), ...(spec ? { curve: curveSpecToLocal((pt) => this.toLocal(pt), spec) } : {}) });
         }
         this.last = { ...L, ops: this.opCount - n0, d };
         msg = `偏移 ${d > 0 ? "向内" : "向外"} ${fmtLen(Math.abs(d))}`;

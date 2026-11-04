@@ -254,6 +254,8 @@ export interface PoolMeshEnv {
   thick: boolean;
   /** 单面的身体（mesh）：渲染剔背面（render3 换 FrontSide 材质）。 */
   singleSided: boolean;
+  /** 默认背面怎么画（颜色由 faceColor 给；演示 / 风格预览时 faceColor 给负值 = 不画，和导出一致）：变了 = 全量重建。 */
+  backLook: string;
 }
 export interface FaceGroup { readonly key: string; readonly mat: Material | null; readonly side: TexSide | null; readonly store: RegionStore; }
 
@@ -284,6 +286,7 @@ export class PoolMesh {
   private thick = false;
   /** 现在反映的池是不是单面（渲染器据此挑剔背面的材质）。 */
   singleSided = false;
+  private backLook = "";
   /**
    * 缓存反映的每张面当时的环边（画不画都记——隐藏的面没有画的记录）：面被删 / 被改的时候，靠这里知道它当时挨着哪些边，
    * 那些边的面链接变了、边两头的法线扇也可能变（日志只记了面）。只记边编号：顶点从边的两头来（边被删了 = 日志里有那条边 + 它两侧的面）。
@@ -304,7 +307,7 @@ export class PoolMesh {
     // 材质槽表：一边是另一边的前缀（加了槽 / 撤销了加槽）= 共同那段槽号 → 材质不变，用了多出来那段槽号的面都在差里（换槽号 = 改面层，日志记着）
     const pre = (x: string, y: string): boolean => x === "" || y === x || y.startsWith(x + ",");
     const sigOk = this.src !== null && (pre(this.sig, env.slotsSig) || pre(env.slotsSig, this.sig));
-    const d = sigOk && env.thick === this.thick && env.singleSided === this.singleSided ? this.diffTo(T) : null;
+    const d = sigOk && env.thick === this.thick && env.singleSided === this.singleSided && env.backLook === this.backLook ? this.diffTo(T) : null;
     this.sig = env.slotsSig;
     if (!d) return this.last = this.full(T, env);
     const F = new Set(d.faces), E = new Set(d.edges), V = new Set(d.verts);
@@ -354,7 +357,7 @@ export class PoolMesh {
 
   private full(T: KernelView, env: PoolMeshEnv): { full: boolean; faces: number; edges: number } {
     this.faceTopo.clear(); this.faceGroups.clear(); this.groups.clear(); this.matIds.clear();
-    this.thick = env.thick; this.singleSided = env.singleSided;
+    this.thick = env.thick; this.singleSided = env.singleSided; this.backLook = env.backLook;
     this.lines = new DenseStore(env.thick ? THICK_SPECS : PIXEL_SPECS, env.thick ? 1 : 2);
     for (const f of T.faces()) { this.noteFace(T, f.id); this.writeFace(f.id, buildFaceRec(T, f.id, (s) => env.matOf(s)), env); }
     for (const e of T.edges()) this.writeEdge(e.id, buildEdgeRec(T, e.id), env);
@@ -414,8 +417,8 @@ export class PoolMesh {
         if (tF) tex(tF, "front");
         if (tB) tex(tB, "back");
         if (!tF || !tB) {
-          const cF = (tF ? NONE : env.faceColor(rec.mF)).map(q8), cB = (tB ? NONE : env.faceColor(rec.mB)).map(q8);
-          parts.push({ key: "plain", mat: null, side: null, fill: (a, off) => {
+          const rF = tF ? NONE : env.faceColor(rec.mF), rB = tB ? NONE : env.faceColor(rec.mB), cF = rF.map(q8), cB = rB.map(q8);
+          if (rF[0] >= 0 || rB[0] >= 0) parts.push({ key: "plain", mat: null, side: null, fill: (a, off) => {
             writeGeom(a, off, rec);
             const nv = rec.pos.length / 3;
             for (let i = 0; i < nv; i++) {

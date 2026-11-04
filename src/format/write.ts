@@ -4,13 +4,13 @@
 //   + CATSUP_instance；authoring 全在 CATSUP_definitions（groups / instances 各自带 3×4 变换，Z-up 本地坐标）。
 
 import { shelfIsEmpty } from "./document.ts";
-import type { Guid } from "./guid.ts";
+import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { APP_VERSION } from "../version.ts";
 import { srgbToLinear } from "./color-space.ts";   // glTF 的 baseColorFactor 是线性值；app 里按 sRGB 存（color-space.ts）
 import { BinBuilder } from "./binary.ts";
 import { encodeGlb } from "./glb.ts";
 import { canonicalize, encodeBrep, type CatsupBrepJson, type ViewSink } from "./brep-codec.ts";
-import { bakeDefinition, bakeMesh, mergeBrep, type BakeMaterials } from "./bake.ts";
+import { bakeDefinition, bakeMesh, countSides, mergeBrep, noSides, type BakeMaterials, type SideCounts } from "./bake.ts";
 import { encodeMeshItem } from "./mesh-payload.ts";
 import type { CatsupDocument, DefinitionDoc } from "./document.ts";
 import { stampOf } from "./migrate/index.ts";
@@ -56,7 +56,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
   // 材质 = glTF core materials（+ images / textures；贴图原字节原样进 BIN）+ CATSUP_material{sizeM}
   const textures: Record<string, unknown>[] = [];
   const materials = doc.materials.map((m) => {
-    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
+    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 } };
     if (m.texture) {
       const v = sink.add(m.texture.bytes);
       images.push({ bufferView: v, mimeType: m.texture.mimeType, name: m.name });
@@ -79,6 +79,7 @@ export function writeCatsup(doc: CatsupDocument): Uint8Array {
     const mats = {
       slotToCore: (slot: number) => { const g = slots[slot]; return g ? matIndex.get(g) : undefined; },
       sizeOfCore: (core: number) => doc.materials[core]?.texture?.sizeM ?? null,
+      isBack: (slot: number) => slots[slot] === BUILTIN_BACK_GUID,
     };
     const dd = doc.definitions[i];
     const baked = dd.kind === "mesh" && dd.mesh ? bakeMesh(dd.mesh, sink, accessors.length, mats) : bakeDefinition(merged, sink, accessors.length, mats);   // 网格体：多边形三角化给别的查看器看（真相在 CATSUP_mesh 载荷里）
@@ -207,13 +208,28 @@ export interface ModelExportOpts {
   only?: readonly { definition: Guid; xform: Xform; name?: string }[];
 }
 
+/** 导出说明行的数（导出表单；计划书 §9.2½ ②）：这次要导的硬表面定义里，N 张面两侧都出、其中 M 张两侧材质不同、K 张两侧都是默认背面。一份定义只算一次（摆几份都一样）。 */
+export function exportSideCounts(doc: CatsupDocument, only?: readonly Guid[]): SideCounts {
+  const byGuid = new Map(doc.definitions.map((d, i) => [d.guid, i])), matIndex = new Map<Guid, number>(doc.materials.map((m, i) => [m.guid, i]));
+  const reach = new Set<number>(), visit = (i: number | undefined, depth: number): void => { if (i === undefined || reach.has(i) || depth > 32) return; reach.add(i); for (const inst of doc.definitions[i].instances) visit(byGuid.get(inst.definition), depth + 1); };
+  if (only) for (const g of only) visit(byGuid.get(g), 0); else visit(doc.rootIndex, 0);
+  const out = noSides();
+  for (const i of reach) {
+    const d = doc.definitions[i], slots = d.materialSlots;
+    if (d.kind === "mesh") continue;   // 网格体的面 = 文件里的面，一张面一个朝向
+    const mats: BakeMaterials = { slotToCore: (s) => { const g = slots[s]; return g ? matIndex.get(g) : undefined; }, sizeOfCore: () => null, isBack: (s) => slots[s] === BUILTIN_BACK_GUID };
+    for (const b of [d.brep, ...d.groups.map((g) => g.brep)]) countSides(b, mats, out);
+  }
+  return out;
+}
+
 export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint8Array {
   const bin = new BinBuilder();
   const bufferViews: Record<string, unknown>[] = [];
   const sink: ViewSink = { add(bytes) { const span = bin.push(bytes); bufferViews.push({ buffer: 0, byteOffset: span.byteOffset, byteLength: span.byteLength }); return bufferViews.length - 1; } };
   const images: Record<string, unknown>[] = [], textures: Record<string, unknown>[] = [];
   const materials = doc.materials.map((m) => {
-    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 }, doubleSided: true };
+    const out: Record<string, unknown> = { name: m.name, pbrMetallicRoughness: { baseColorFactor: [srgbToLinear(m.color[0]), srgbToLinear(m.color[1]), srgbToLinear(m.color[2]), 1], metallicFactor: 0, roughnessFactor: 1 } };
     if (m.texture && opts.textures) {
       images.push({ bufferView: sink.add(m.texture.bytes), mimeType: m.texture.mimeType, name: m.name });
       textures.push({ source: images.length - 1 });
@@ -233,6 +249,7 @@ export function writeGltfModel(doc: CatsupDocument, opts: ModelExportOpts): Uint
     const mats: BakeMaterials = {
       slotToCore: (slot) => { const g = slots[slot]; return g ? matIndex.get(g) : undefined; },
       sizeOfCore: (core) => (opts.textures ? doc.materials[core]?.texture?.sizeM ?? null : null),   // 不带贴图 = 不出 UV
+      isBack: (slot) => slots[slot] === BUILTIN_BACK_GUID,
     };
     const baked = d.kind === "mesh" && d.mesh ? bakeMesh(d.mesh, sink, accessors.length, mats, { lines: opts.lines })
       : bakeDefinition(mergeBrep([canonicalize(d.brep), ...d.groups.map((g) => canonicalize(g.brep))]), sink, accessors.length, mats, { lines: opts.lines });

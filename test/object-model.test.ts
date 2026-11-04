@@ -46,7 +46,7 @@ describe("object model: 图片资产必带尺度 + cast 登记表", () => {
     const child = s.mintDef("盒", box()); s.mintInstance(s.root, null, child.id, at(2, 0, 0));
     assert(canCast("brep", "mesh").ok && canCast("mesh", "brep").ok && !canCast("brep", "brep").ok, "两个方向都登记了；同种拒");
     const m = brepToMesh(s.brep(child.id));
-    eq(m.kernel.faceCount(), 6); assert(m.kernel.faces().every((f) => m.kernel.faceVerts(f).length === 4), "6 张四边形"); eq(m.materialSlots.length, s.brep(child.id).materialSlots.length);
+    eq(m.kernel.faceCount(), 12, "老盒子两侧都是默认正面 = 要出几侧就几张面"); assert(m.kernel.faces().every((f) => m.kernel.faceVerts(f).length === 4), "全是四边形"); eq(m.materialSlots.length, s.brep(child.id).materialSlots.length);
     applyOp(s, { op: "castDefinition", def: child.id, to: "mesh" });
     eq(s.kindOf(child.id), "mesh");
     applyOp(s, { op: "castDefinition", def: child.id, to: "brep" });   // 2026-10-27 起 mesh → brep 通（物件族 object.toBrep）
@@ -100,7 +100,7 @@ describe("object model: 格式往返（document v3 / definitions v6）", () => {
     eq(back.layers.length, 2); eq(back.layers[1].name, "参考"); eq(JSON.stringify(back.layers[1].color), JSON.stringify([1, 0, 0]));
     const meshDoc = back.definitions.find((d) => d.kind === "mesh")!;
     assert(meshDoc && meshDoc.mesh, "mesh 载荷在");
-    eq(meshDoc.mesh!.faceStart.length, 6); eq(meshDoc.mesh!.positions.length, 8 * 3); assert(meshDoc.mesh!.faceLen.every((n) => n === 4), "多边形载荷：6 张四边形");
+    eq(meshDoc.mesh!.faceStart.length, 12, "老盒子两侧都是默认正面：要出几侧就几张面"); eq(meshDoc.mesh!.positions.length, 8 * 3, "两层共用点"); assert(meshDoc.mesh!.faceLen.every((n) => n === 4), "多边形载荷：全是四边形");
     const rootDoc = back.root;
     const ci = rootDoc.instances.find((i) => back.definitions.find((d) => d.guid === i.definition)?.name === "参考体")!;
     eq(ci.layer, 1);

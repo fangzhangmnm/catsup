@@ -67,7 +67,7 @@ import { DEFAULT_SNAP, Editor, GRID_PLANES, TOOLS, UNIT_SYSTEMS, isUnitSystem, s
 import type { CommandId } from "../editor/commands/command.ts";
 import type { ModeId } from "../editor/mode.ts";
 import { Renderer3 } from "../minccino/providers/three/render3.ts";   // 画的供货商：app 层挑、编辑器只持契约（刀 f）
-import { PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
+import { PALETTE, PRESETS, PRESET_IDS, isPresetId, isDarkPaper, SCREENS, SCREEN_IDS, isScreenId, type Preset, type MarkAccent } from "../minccino/index.ts";   // 风格（Tron 纪元：预设 = 数据）
 import { makeBudgetWatch } from "./budget-notice.ts";
 import { KEYS_TABLE, README_SECTIONS } from "./readme-docs.ts";
 import { escapeHtml, renderMdLite } from "./ui/md-lite.ts";
@@ -807,10 +807,10 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
   leading: (tool) => {
     if (tool !== "paint") return [];
     const p = editor.paint;
-    const swatch = p === null ? "#d6d6d6" : p.kind === "color" ? `rgb(${Math.round(p.color[0] * 255)}, ${Math.round(p.color[1] * 255)}, ${Math.round(p.color[2] * 255)})` : `center / cover url(${textureUrl(p.bytes, p.mimeType)})`;
+    const swatch = p === null ? "#d6d6d6" : p.kind === "back" ? BACK_SWATCH : p.kind === "color" ? `rgb(${Math.round(p.color[0] * 255)}, ${Math.round(p.color[1] * 255)}, ${Math.round(p.color[2] * 255)})` : `center / cover url(${textureUrl(p.bytes, p.mimeType)})`;
     const H = editor.toolHandler("paint") as { eyedropper?: boolean } | undefined;
     return [
-      { id: "paintPick", label: p === null ? "默认" : p.name, swatch, title: "当前材质（点开换）", onClick: () => { toggleMatSheet(true); } },
+      { id: "paintPick", label: p === null ? "默认正面" : p.name, swatch, title: "当前材质（点开换）", onClick: () => { toggleMatSheet(true); } },
       { id: "eyedropper", label: "吸色", active: !!H?.eyedropper, title: "吸色：点一张面读它的材质（Ctrl / Alt 按住 = 临时）", onClick: () => { if (H) H.eyedropper = !H.eyedropper; } },
     ];
   },
@@ -993,6 +993,7 @@ helpEl.addEventListener("click", (e) => { if (e.target === helpEl) toggleHelp(fa
 
 // ---------- 材质面板（油漆桶蘸什么）：家族色库 pull 的色板 + 导入图片 + 默认灰 ----------
 const matSheet = $("matSheet");
+const BACK_SWATCH = `#${PALETTE.faceBack.toString(16).padStart(6, "0")}`;   // 油漆桶上「默认背面」那一格的颜色 = 屏幕上背面的颜色
 const matGrid = $("matGrid");
 const matImageInput = $<HTMLInputElement>("matImage");
 /** 贴图字节 → object URL（按字节对象缓存，免得每次刷新上下文条都漏一个 URL）。 */
@@ -1011,7 +1012,8 @@ function renderMatGrid(): void {
     b.addEventListener("click", () => { onPick(); renderMatGrid(); if (editor.tool !== "paint") editor.setTool("paint"); });
     matGrid.appendChild(b);
   };
-  mk("默认", "#d6d6d6", () => editor.setPaint(null), cur === null, "默认灰（去掉材质）");
+  mk("默认正面", "#d6d6d6", () => editor.setPaint(null), cur === null, "默认正面（去掉材质）：导出时这一侧照出，没有材质");
+  mk("默认背面", BACK_SWATCH, () => editor.setPaint({ kind: "back", name: "默认背面" }), cur?.kind === "back", "默认背面：导出和转网格体时这一侧不出");
   for (const c of PALETTE_ZH) mk(c.name, c.hex, () => editor.setPaint({ kind: "color", name: c.name, color: hexToRgb(c.hex) }), cur?.kind === "color" && cur.name === c.name, `${c.name} ${c.hex}`);
   // 文档里已有的贴图材质（可再蘸）
   editor.materials().forEach((m) => {

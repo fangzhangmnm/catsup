@@ -17,6 +17,7 @@ import { MeshKernel, F_WIRE } from "../mesh/mesh-kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { cloneGuides, emptyGuides, transformGuides, type Guides } from "../scene/guides.ts";
 import { castBody } from "../scene/kinds.ts";
+import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Material, type Scene } from "../scene/scene.ts";
 import { applyPt, compose, transformFrame, type Frame, type Xform } from "../scene/xform.ts";
 
@@ -60,7 +61,7 @@ export function extract(s: Scene, ctx: EditContext, sel: { faces: Iterable<numbe
     ({ parent, def: i.def, xform: compose(X, i.xform), ...(i.name !== undefined ? { name: i.name } : {}), ...(i.locked ? { locked: true } : {}), ...(i.layer !== undefined ? { layer: i.layer } : {}), ...(i.hidden ? { hidden: true } : {}) });
   const table: Material[] = [];
   /** 文档材质下标 → 载荷对照表的编号。 */
-  const codeOf = (matIndex: number): number => { const m = s.materials[matIndex]; if (!m) return -1; let c = table.indexOf(m); if (c < 0) { c = table.length; table.push(m); } return c; };
+  const codeOf = (matIndex: number): number => { const m = matIndex === BUILTIN_BACK_SLOT ? BUILTIN_BACK : s.materials[matIndex]; if (!m) return -1; let c = table.indexOf(m); if (c < 0) { c = table.length; table.push(m); } return c; };
   const tableOut = (): { materials?: readonly Material[] } => (table.length ? { materials: table } : {});
   const instances: TransferInstance[] = [];
   for (const p of pools) if (p.kind === "instance") { const i = d.instances.get(p.instance); if (i) instances.push(instOf(i, null)); }
@@ -104,15 +105,17 @@ export function accept(p: TransferPayload, target: BodyKind): { ok: true } | { o
 /** 用户点了「转」：散几何按目标种类转（物体设置窗的 castBody 同一套，确定性）；组转成网格体后不再是组（网格体没有组），里面的实例挂到载荷根上。 */
 export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   const instances = p.instances ?? [];
+  // 槽号 = 对照表的编号；槽表按对照表造，转换才认得内置默认背面（§9.3-6）
+  const slots = (): number[] => (p.materials ?? []).map((m, i) => (m === BUILTIN_BACK || m.guid === BUILTIN_BACK.guid ? BUILTIN_BACK_SLOT : i));
   if (to === "mesh") {
     const parts: BrepSnapshot[] = [...(p.brep ? [p.brep] : []), ...(p.groups ?? []).map((g) => g.snap)];
     const verts: Pt3[] = [], faces: MeshFragment["faces"] = [], edges: MeshFragment["edges"] = [];
     for (const snap of parts) {
-      const body = castBody({ kind: "brep", kernel: Kernel.fromBrep(snap), groups: new Map(), nextGroup: 1, materialSlots: [], guides: emptyGuides() }, "mesh");
+      const body = castBody({ kind: "brep", kernel: Kernel.fromBrep(snap), groups: new Map(), nextGroup: 1, materialSlots: slots(), guides: emptyGuides() }, "mesh");
       if (body.kind !== "mesh") continue;
       const k = body.kernel, base = verts.length, vmap = new Map<number, number>();
       for (const v of k.verts()) { vmap.set(v, verts.length); verts.push(k.pt(v)); }
-      for (const f of k.faces()) faces.push({ ring: k.faceVerts(f).map((v) => vmap.get(v)!), mat: k.faceMat[f] });   // 槽表给的是空的：faceMat 里就是对照表的编号
+      for (const f of k.faces()) faces.push({ ring: k.faceVerts(f).map((v) => vmap.get(v)!), mat: k.faceMat[f] });   // 槽号就是对照表的编号
       for (const e of k.edges()) edges.push({ a: vmap.get(k.edgeA[e])!, b: vmap.get(k.edgeB[e])!, flags: k.edgeFlags[e] });
       void base;
     }
@@ -124,9 +127,11 @@ export function castPayload(p: TransferPayload, to: BodyKind): TransferPayload {
   const k = new MeshKernel(), vs = p.mesh.verts.map((q) => k.addVertex(q));
   for (const f of p.mesh.faces) k.addFace(f.ring.map((i) => vs[i]), f.mat);
   for (const e of p.mesh.edges) { const id = k.ensureEdge(vs[e.a], vs[e.b]); k.setEdgeFlags(id, e.flags); }
-  const body = castBody({ kind: "mesh", kernel: k, materialSlots: [] }, "brep");
+  const body = castBody({ kind: "mesh", kernel: k, materialSlots: slots() }, "brep");
   const brep = body.kind === "brep" ? body.kernel.toBrep() : undefined;
-  return { from: p.from, ...(brep ? { brep } : {}), ...(p.groups?.length ? { groups: p.groups } : {}), ...(instances.length ? { instances } : {}), ...(p.materials ? { materials: p.materials } : {}) };
+  // 转硬表面可能新开内置默认背面那一格：对照表跟着长（编号 = 槽号）
+  const table = body.materialSlots.map((h, i) => (h === BUILTIN_BACK_SLOT ? BUILTIN_BACK : (p.materials?.[i] ?? BUILTIN_BACK)));
+  return { from: p.from, ...(brep ? { brep } : {}), ...(p.groups?.length ? { groups: p.groups } : {}), ...(instances.length ? { instances } : {}), ...(table.length ? { materials: table } : {}) };
 }
 
 /** 世界坐标 → 目标容器本地（Xi = 目标上下文世界变换的逆）。 */
