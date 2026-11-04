@@ -80,6 +80,13 @@ export interface CloudGateDeps {
   /** 放行之后的常规一串（快进 / 补队列 / 没同步好的提示）。 */
   afterPass(): void;
   note(msg: string): void;
+  /** 问云端一次、真走一趟网，不抛 = 通。续签可能直接用缓存的令牌，说明不了网通不通；选了离线时库不出网，所以这一问不经库的 isOnline。 */
+  reachable?(): Promise<void>;
+  /** 页面在前台？后台不试，回前台 run("wake") 那一下会试。 */
+  pageVisible?(): boolean;
+  /** 定时器接缝（测试用假时钟）；返回停止函数。 */
+  every?(ms: number, fn: () => void): () => void;
+  offlineRetryMs?: number;
   hardTimeoutMs?: number;
   /** 醒来时如果这么久之内刚核对过，就不再罩（切个标签回来不吃第一下点击）；报告里写明这是和设计稿的一处出入。 */
   recheckMs?: number;
@@ -88,6 +95,7 @@ export interface CloudGateDeps {
 
 const HARD_TIMEOUT_MS = 8000;   // 设计稿 §4；艺术类 app 不要更短
 const RECHECK_MS = 30_000;
+const OFFLINE_RETRY_MS = 60_000;   // 设计稿 §3 硬要求（11-04）：慢网误判离线时浏览器从没离线，online 事件永不来；不定时再试就卡到下次开机
 
 interface Deferred<T> { promise: Promise<T>; resolve: (v: T) => void }
 const deferred = <T>(): Deferred<T> => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
@@ -103,6 +111,7 @@ export class CloudGate {
   private blockedReason: GateReason | null = null;
   private lastOkAt = -Infinity;
   private reconnecting = false;
+  private stopOfflineRetry: (() => void) | null = null;
   private now: () => number;
   private d: CloudGateDeps;   // 不用参数属性：node 的类型剥离不认（测试直跑 .ts）
 
@@ -127,6 +136,7 @@ export class CloudGate {
     this.d.setUserOffline(true);
     this.d.bar.show();
     this.d.note(`gate: offline chosen (${why})`);
+    this.startOfflineRetry();
   }
 
   /** 开机 / 醒来走这里。before = 本地那段（恢复上次的模型），在罩子底下跑完再问云端（app-store.ts 的开机顺序契约）。 */
@@ -220,6 +230,26 @@ export class CloudGate {
     if (this.d.userOffline()) void this.reconnect();
   }
 
+  /** 离线态期间定时静默再试（成功才收条；失败不弹不扰）。回前台那一下走 run("wake")。 */
+  private startOfflineRetry(): void {
+    if (this.stopOfflineRetry) return;
+    const every = this.d.every ?? ((ms: number, fn: () => void) => { const t = setInterval(fn, ms); (t as { unref?: () => void }).unref?.(); return () => clearInterval(t); });
+    this.stopOfflineRetry = every(this.d.offlineRetryMs ?? OFFLINE_RETRY_MS, () => {
+      if (!this.d.userOffline()) { this.endOfflineRetry(); return; }
+      if (this.d.pageVisible?.() === false) return;
+      void this.reconnect().catch((e) => this.d.note("gate: offline retry threw " + String(e)));
+    });
+  }
+  private endOfflineRetry(): void { this.stopOfflineRetry?.(); this.stopOfflineRetry = null; }
+  /** 云端答话了吗（带硬超时：慢网上问不出来 = 还没回来，不许挂住）。 */
+  private async cloudAnswers(): Promise<boolean> {
+    const ask = this.d.reachable;
+    if (!ask) return true;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<boolean>((res) => { timer = setTimeout(() => res(false), this.d.hardTimeoutMs ?? HARD_TIMEOUT_MS); });
+    try { return await Promise.race([ask().then(() => true, () => false), timeout]); } finally { clearTimeout(timer); }
+  }
+
   /** 从「离线继续」回来。闸只在开机 / 醒来弹一次：这里失败就是条还在，不再弹。 */
   async reconnect(): Promise<boolean> {
     if (this.reconnecting || !this.d.userOffline() || !this.d.browserOnline()) return false;
@@ -227,7 +257,9 @@ export class CloudGate {
     try {
       const r = await this.d.renew().catch((): RenewResult => ({ kind: "failed", code: null }));
       if (r.kind !== "ok") { this.d.note(`gate: reconnect not yet (${r.kind}${r.kind === "failed" ? " code=" + (r.code ?? "-") : ""})`); return false; }
+      if (!(await this.cloudAnswers())) { this.d.note("gate: reconnect not yet (cloud did not answer)"); return false; }
       this.d.setUserOffline(false);
+      this.endOfflineRetry();
       this.d.bar.reconnecting();
       this.d.note("gate: reconnected → catching up");
       this.lastOkAt = this.now();

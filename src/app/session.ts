@@ -71,6 +71,10 @@ export interface RefsPort {
 
 export interface SessionDeps {
   editor: Editor;
+  /** 这份从没传过、人还没答应传：隐式保存只落本机（规则书第 15 条 (a)）。缺 = 不压。 */
+  pushHeld?: (path: string) => boolean;
+  /** 人按了「存」= 同意传这一份（压着的放开）。 */
+  onExplicitSave?: (path: string) => void;
   /** 参考窗（缺 = 没有参考窗：文件里的牌组原样带着写回）。 */
   refs?: RefsPort;
   captureThumbnail: () => { mimeType: string; bytes: Uint8Array } | null;
@@ -270,7 +274,7 @@ export class Session {
       void this.snapshot("crash");   // file / transient 家：盲快照进 crash-store（附加层，best-effort）
     } else if (this.home.kind === "gallery" && !this.lazy && !this.dirty() && shouldRetryPush({
       pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: this.d.editor.isGestureActive(),
-      visible: document.visibilityState === "visible", online, signedIn: auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(),
+      visible: document.visibilityState === "visible", online, signedIn: auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(), held: this.d.pushHeld?.(this.home.path) ?? false,
     })) {
       this.lastPushTryAt = Date.now();
       void this.save({ implicit: true });   // 工单 C3 D：上次没推成（切走时没网 / 网络失败）的这一份，再推一次；撞上云端 = 不弹面，横幅接手
@@ -517,9 +521,11 @@ export class Session {
     } finally { cover.close(); }
   }
   /** 开着的这份还欠一推：现在推（CatsUp 的传的时机 = 心跳自动推，这就是心跳那一下，撞上不弹面、横幅接手）。回来问一次之前调：面只问真的还没传的（规则书 §1 第 15 条）。 */
-  async pushOpenDocIfPending(): Promise<void> {
-    if (this.home.kind !== "gallery" || this.lazy || this.dirty() || !this.pushPending || this.attention || !auth.isSignedIn() || !this.d.online()) return;
+  /** 返回 true = 试了、没推成、也不是撞上别的设备（多半网不通）：调用方这一轮别再批量推同一份。 */
+  async pushOpenDocIfPending(): Promise<boolean> {
+    if (this.home.kind !== "gallery" || this.lazy || this.dirty() || !this.pushPending || this.attention || !auth.isSignedIn() || !this.d.online() || this.d.pushHeld?.(this.home.path)) return false;
     await this.save({ implicit: true });
+    return this.pushPending && !this.attention;
   }
   /** 开着的这份和云端没对上、横幅已经在管了（回来问一次不再把它算进去）。 */
   openDocNeedsAttention(): boolean { return !!this.attention; }
@@ -844,7 +850,9 @@ export class Session {
       // 图库家。implicit（自动保存 / 离开）撞上云端 → 不弹模态面，横幅接手（store-ui conflictGate；user 2026-10-26「不弹模态，横幅 + 钮」）
       conflictGate.implicit = !!opts.implicit;
       replaceCover = this.armReplaceCover(home.path);   // 工单 C：面上选了云端 → 换字节到重载完这段罩住（外层 finally 收）
-      const tryPush = !opts.localOnly && auth.isSignedIn() && online();
+      if (!opts.implicit) this.d.onExplicitSave?.(home.path);
+      const held = !!opts.implicit && !!this.d.pushHeld?.(home.path);   // 从没传过、人还没答应：心跳不替他传（人按存不受这条管）
+      const tryPush = !opts.localOnly && !held && auth.isSignedIn() && online();
       let r;
       try { r = await docFile(home.path, this.createPending ? "new" : "existing").save(bytes, { tryPush }); }
       finally { conflictGate.implicit = false; }

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// test/probes/probe-push-ask.mjs —— 「回来问一次：有 N 份没传上去，现在传？」→ 没传成带钮 → 图库『要处理的』视图，headless 探针（2026-11-03 工单 C4 改，规则书 §1 第 15 条）。
+// test/probes/probe-push-ask.mjs —— 「回来问一次：有 N 份只在这台设备，现在传上去？」→ 没传成带钮 → 图库『要处理的』视图，headless 探针（2026-11-03 工单 C4 改，规则书 §1 第 15 条）。
 //   2026-10-25 版验的是「问一次 → pushAll」是 / 否框；2026-10-26 user「列表面」后改成：没登录时存一个模型（= 只在本机、dirty 1）→ 走提示（dev 钩子跳过「已登录」前置）
 //   → 不弹 sheet、出一条带「去处理」钮的常驻通知 → 点它 → 图库开着、顶部横幅「有 1 份没同步好」、那张卡右下角一粒可见的「处理…」钮 → 点它（没登录 = 云不可达）
 //   → 库如实说离线、不撒谎、文件仍 dirty、几何没动。真登录态的三选一只能真机。
@@ -47,7 +47,7 @@ const ask = () => page.evaluate(() => { void globalThis.__catsup.devPushAsk(); }
 const gateText = () => page.evaluate(() => document.getElementById("syncGate").hidden ? "" : document.getElementById("syncGate").textContent);
 await ask();
 await page.waitForFunction(() => !document.getElementById("syncGate").hidden, null, { timeout: 5000 });
-eq(/有 1 份没传上去，现在传？/.test(await gateText()), true, "asks: 1 not uploaded, upload now?");
+eq(/有 1 份只在这台设备，现在传上去？/.test(await gateText()), true, "asks: 1 only on this device, upload now?");
 eq(await page.locator("#syncGateActions button").count(), 2, "two buttons");
 eq(await dirtyCount(), 1, "nothing pushed by asking");
 await page.keyboard.press("Escape");

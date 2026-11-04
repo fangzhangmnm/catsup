@@ -41,14 +41,15 @@ import { mountViewGizmo } from "./view-gizmo.ts";
 import { deviceKvGet, deviceKvSet, migrateLegacyUiPrefs } from "./device-kv.ts";
 import { Session, bareName, supportsOpenPicker, supportsSavePicker } from "./session.ts";
 import { createReferenceHost } from "./reference-host.ts";
-import { restoreLastSession, readSlate, setRestoreAttempt, type RestoreOutcome } from "@internal/gallery";
+import { restoreLastSession, readSlate, setRestoreAttempt, snapshotFolderOnce, walkLibrary, type RestoreOutcome } from "@internal/gallery";
+import { planReturn, neverUploadedIds } from "./cloud-return.ts";
 // 口令（2026-10-29 周账 F-123）：政策 crypto-state / 验证器 / 设备记住；面板注入在下面 setPasswordPrompt；解锁循环 unlock.ts
 import { setPasswordPrompt, setPassword, getPassword, lock as lockPasswords, isUnlocked, onLockChange, onLocked, type PromptOpts } from "../crypto-state.ts";
 import { appEncryption, passwordKeeper } from "../encryption.ts";
 import { hasVerifier, checkVerifier } from "../password-verifier.ts";
 import { wireRememberPassword, restoreRemembered, forgetRemembered, rememberedUntil, rememberChoice, setRememberChoice, rememberAvailable, onRememberChange } from "../remember-password.ts";
 import { ensureUnlocked, ensureNewPassword, isFreshPasswordSetup, rollbackFreshPassword, unlockImportedContainer } from "./unlock.ts";
-import { verifierReady } from "../app-store.ts";
+import { cloudReachable, verifierReady } from "../app-store.ts";
 import { initGalleryHost } from "./gallery-host.ts";
 import { runFactoryReset, finishFactoryResetAtBoot, hasFactoryResetMarker } from "./factory-reset.ts";
 import { auth, docFile, ensureStore, hasStore, isCached, requireStore } from "../app-store.ts";
@@ -1599,6 +1600,8 @@ new MutationObserver(syncRefBtn).observe(refHost.el, { attributes: true, attribu
 syncRefBtn();
 const session = new Session({
   editor,
+  pushHeld: (path) => pushHoldAll || heldNeverUploaded.has(path),
+  onExplicitSave: (path) => { heldNeverUploaded.delete(path); },
   refs: refHost,
   captureThumbnail: () => captureThumbnail(editor),
   applyView: (style, screen) => { editor.renderer3.setPreset(isPresetId(style) ? style : "white"); syncNight(); editor.renderer3.setScreen(isScreenId(screen) ? screen : null); editor.draw(); },   // 风格 / 屏幕跟文件走（desk 1.3，T86）：认不出的 id = 默认
@@ -1741,52 +1744,71 @@ function updateCloudChip(): void { paintGalleryHomeBar(); cloudBtn.dataset.cloud
 //   ② 以前 CatsUp 从没调过 drainOfflineQueue（offlineUploadReplay:"ask" 的 confirmReplay 永远不会响）——顺手接上，JRB 同序。
 //   顺序串行 + 单飞：refreshOpenDoc 拉字节时会上 busy 遮罩，sheet 在遮罩下打开会 throw（sheets.ts 死锁护栏），所以等它先完。
 let afterCloudReachableInFlight: Promise<void> | null = null;
-let askedPushLocalOnly = false;   // 每次打开 app 最多问一次（不惊扰）；点「传」或「先不」都算问过；被跳过（遮罩 / 别的 sheet 开着）不算
+let askedPushLocalOnly = false;   // 这一页问过了、人说了「稍后」（一页只问一次）
+let pushConsented = false;        // 这一页人点过「现在传」：之后回来的从没传过的直接传（同意已给，WXHW 同款）
+let pushHoldAll = false;          // 回来这一下还没数清：开着那份先别让心跳推（它可能从没传过）
+const heldNeverUploaded = new Set<string>();   // 从没传过、人还没答应传：心跳不推，人按存就放开
 function afterCloudReachable(reason: "signin" | "online"): Promise<void> {
   if (afterCloudReachableInFlight) return afterCloudReachableInFlight;
   afterCloudReachableInFlight = (async () => {
     try {
+      pushHoldAll = !pushConsented;
       await session.refreshOpenDoc();
       if (!hasStore() || !auth.isSignedIn() || !cloudOnline()) return;
       await requireStore().files.drainOfflineQueue().catch((e) => funnel(e, "log"));
       await offerPushLocalOnly(reason);
-    } finally { afterCloudReachableInFlight = null; }
+    } finally { pushHoldAll = false; afterCloudReachableInFlight = null; }
   })();
   return afterCloudReachableInFlight;
 }
-/** 回来问一次（规则书 §1 第 15 条，user 10-21「全家：登录 / 回线后问一次再补传」+ 11-03；工单 C4）：开机登录好 / 网回来，有没传上去的 → 问「有 N 份没传上去，现在传？」。
- *  点了 = dirty.pushAll（**全仓只有这一个调用点**，守卫核；撞上别的设备改过的留给人选，不覆盖不丢）；不点 = 进「要处理」列表。不许不问就推。一页只问一次。
- *  CatsUp 平时心跳自动推，所以这张面只在回来时还有没传的才出现。
- *  吸取 10-26 的两条（user「弹了一个需要处理然后就什么交互都没了」）：话说真的（「没传上去」，不说「只在这台设备上」）；传完没传成的带名单、带「去处理」钮，不是一条没按钮的 toast。
+/** 回来时没传的东西（规则书 §1 第 15 条，2026-11-03 夜改写；分法和理由见 cloud-return.ts）：从没传过的问一次「有 N 份只在这台设备，现在传上去？」，传过的直接续传不问。
+ *  dirty.pushAll **全仓只有这一处**（守卫核）：没有从没传过的 = 续传；有 = 人点了才推，点了就是一起传。不点 = 从没传过的压住心跳，这一页不批量推，都进「要处理」列表。
+ *  吸取 10-26 的两条（user「弹了一个需要处理然后就什么交互都没了」）：话说真的；传完没传成的带名单、带钮。
  *  force = dev 探针（test/probes/probe-push-ask.mjs）跳过「已登录」「问过了」前置。 */
 async function offerPushLocalOnly(reason: string, force = false): Promise<void> {
-  if (!force && (askedPushLocalOnly || !hasStore() || !auth.isSignedIn() || !cloudOnline() || cloudGate.isRunning())) return;
+  if (!force && (!hasStore() || !auth.isSignedIn() || !cloudOnline() || cloudGate.isRunning())) return;
   const files = requireStore().files;
-  // 开着的这份归心跳：先推它，再数还剩多少。不然面说「有 1 份」，心跳一下就推完了，这张面就是假的（probe-update-conflict c3 抓到的）。撞上真分叉的归横幅，不算进来。
-  await session.pushOpenDocIfPending().catch((e) => funnel(e, "log"));
-  const n = (await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; })) - (session.openDocNeedsAttention() ? 1 : 0);
-  if (n <= 0) return;
-  askedPushLocalOnly = true;
-  note("sync", `unsynced models after ${reason}: ${n} → ask once`);
-  const v = await lockSyncGate<"now" | "later">({
-    title: `有 ${n} 份没传上去，现在传？`,
-    message: "别的设备改过的不会被盖掉，会留给你选。",
-    actions: [{ label: "现在传", value: "now", primary: true }, { label: "稍后", value: "later" }],
-    escValue: "later",
-  });
-  note("sync", `push ask → ${v ?? "closed"}`);
+  const dirty = await files.dirty.count().catch((e) => { funnel(e, "log"); return 0; });
+  if (dirty <= 0) return;
+  let never: Set<string>;
+  try {
+    const manifest = await walkLibrary((folder) => snapshotFolderOnce((f, cb) => files.watchFolder(f, cb), folder));
+    never = neverUploadedIds(manifest.files);
+  } catch (e) { funnel(e, "log"); return; }
+  if (!pushConsented) for (const id of never) heldNeverUploaded.add(id);
+  pushHoldAll = false;
+  // 开着的这份（传过的）归心跳：先推它，再数还剩多少。不然面说「有 1 份」，心跳一下就推完了（probe-update-conflict c3 抓到过）。撞上真分叉 = 横幅接手，不算进来。
+  const openPushFailed = await session.pushOpenDocIfPending().catch((e) => { funnel(e, "log"); return false; });
+  const count = async (): Promise<number> => (await files.dirty.count().catch((e) => { funnel(e, "log"); return dirty; })) - (session.openDocNeedsAttention() ? 1 : 0);
   const openList = (): void => { closeNotice("unsynced"); void galleryHost.openAttention(); };
-  if (v !== "now") {   // 不点 = 进「要处理」列表；这一页不再问
+  const inList = (n: number): void => {
     if (galleryHost.isOpen()) galleryHost.setAttentionOnly(true);
-    notify({ id: "unsynced", level: "info", text: `${n} 份没传的在「要处理」列表里`, actions: [{ label: "去看", onClick: openList }] });
+    notify({ id: "unsynced", level: "info", timeoutMs: null, text: `${n} 份没传上去，在「要处理」列表里`, actions: [{ label: "去处理", onClick: openList }] });
     updateSaveStatus();
-    return;
+  };
+  const plan = planReturn({ dirty: await count(), neverUploaded: never.size, consented: pushConsented, saidLater: askedPushLocalOnly && !force });
+  note("sync", `back after ${reason}: ${JSON.stringify(plan)}`);
+  if (plan.kind === "none") return;
+  if (plan.kind === "list") { inList(plan.total); return; }
+  if (plan.kind === "ask") {
+    askedPushLocalOnly = true;
+    const v = await lockSyncGate<"now" | "later">({
+      title: `有 ${plan.neverUploaded} 份只在这台设备，现在传上去？`,
+      message: "别的设备改过的不会被盖掉，会留给你选。",
+      actions: [{ label: "现在传", value: "now", primary: true }, { label: "稍后", value: "later" }],
+      escValue: "later",
+    });
+    note("sync", `push ask → ${v ?? "closed"}`);
+    if (v !== "now") { inList(await count()); return; }   // 稍后 = 不推，进列表；这一页不再问
+    pushConsented = true;
+    heldNeverUploaded.clear();
   }
+  if (plan.kind === "resume" && openPushFailed) { note("sync", "open doc push just failed → skip bulk push this round (heartbeat retries)"); updateSaveStatus(); return; }   // 网不通时别把同一份立刻再推一轮（probe-update-conflict D′）
   const r = await files.dirty.pushAll().catch((e) => { funnel(e, "warning"); return null; });
-  const left = await files.dirty.count().catch(() => n);
-  note("sync", `push ask: pushed=${r?.pushed ?? "-"} failed=${r?.failed.length ?? "-"} left=${left}`);
-  session.noteCaughtUp(left === 0);
-  if (left === 0) notify({ text: `${r?.pushed ?? n} 份都传上去了`, level: "info" });
+  const left = await count();
+  note("sync", `pushAll: pushed=${r?.pushed ?? "-"} failed=${r?.failed.length ?? "-"} left=${left}`);
+  session.noteCaughtUp(left === 0 && !session.openDocNeedsAttention());
+  if (left <= 0) { if (plan.kind === "ask") notify({ text: `${r?.pushed ?? plan.neverUploaded} 份都传上去了`, level: "info" }); }
   else {
     const names = (r?.failed ?? []).slice(0, 3).map(bareName).join("、");
     if (galleryHost.isOpen()) galleryHost.setAttentionOnly(true);
@@ -1887,6 +1909,8 @@ const cloudGate = new CloudGate({
   },
   setUserOffline,
   userOffline: isUserOffline,
+  reachable: cloudReachable,
+  pageVisible: () => document.visibilityState !== "hidden",
   catchUp: async () => {   // 从「离线继续」回来：先把没落本机的落了，然后问一次（规则书 §1 第 15 条；不许不问就推）。真分叉留给人
     await session.flushLocal().catch((e) => funnel(e, "log"));
     if (!hasStore()) return;

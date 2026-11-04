@@ -11,7 +11,7 @@ const join = (a: string, b: string): string => `${a}/${b}`;
 const tick = (ms = 5): Promise<void> => new Promise((r) => setTimeout(r, ms));
 const deferred = <T>() => { let resolve!: (v: T) => void; const promise = new Promise<T>((r) => { resolve = r; }); return { promise, resolve }; };
 
-function rig(over: Partial<{ attached: boolean; online: boolean; renew: () => Promise<RenewResult>; check: (g: { abandoned: () => boolean; onLongWait: () => void }) => Promise<void>; hardTimeoutMs: number; recheckMs: number }> = {}) {
+function rig(over: Partial<{ reachable: () => Promise<void>; pageVisible: () => boolean; every: (ms: number, fn: () => void) => () => void; attached: boolean; online: boolean; renew: () => Promise<RenewResult>; check: (g: { abandoned: () => boolean; onLongWait: () => void }) => Promise<void>; hardTimeoutMs: number; recheckMs: number }> = {}) {
   const log: string[] = [];
   const st = { online: over.online ?? true, attached: over.attached ?? true, offline: false, cover: null as null | "checking" | GateReason, escape: null as null | (() => void), signIn: null as null | (() => void), goOffline: null as null | (() => void), bar: "none", signIns: 0, catchUps: 0, afterPass: 0, renews: 0, checks: 0 };
   const gate = new CloudGate({
@@ -31,6 +31,7 @@ function rig(over: Partial<{ attached: boolean; online: boolean; renew: () => Pr
     catchUp: async () => { st.catchUps++; },
     afterPass: () => { st.afterPass++; },
     note: (m) => { log.push(m); },
+    reachable: over.reachable, pageVisible: over.pageVisible, every: over.every,
     hardTimeoutMs: over.hardTimeoutMs ?? 40,
     recheckMs: over.recheckMs ?? 0,
   });
@@ -113,6 +114,52 @@ describe("闸门状态机（设计稿 §7）", () => {
     const p = gate.run("boot");
     await tick(60); eq(st.cover, "checking", "超时停了，没进闸");
     hang.resolve(); eq(await p, "pass");
+  });
+  const clock = () => { const c = { ms: 0, fn: null as null | (() => void), stopped: false, every: (m: number, f: () => void) => { c.ms = m; c.fn = f; return () => { c.stopped = true; c.fn = null; }; }, fire: async () => { c.fn?.(); await tick(); await tick(); } }; return c; };
+  const goOff = async (over: Parameters<typeof rig>[0]) => { const c = clock(); const r = rig({ ...over, every: c.every }); void r.gate.run("boot"); await tick(); r.st.goOffline?.(); r.st.escape?.(); await tick(); return { ...r, c }; };
+  const failing = { renew: async () => ({ kind: "failed" as const, code: "timed_out" }) };
+  const st0 = { ok: false };
+  it("离线态（设计稿 §3 硬要求）：每 60 s 静默试一次；通了就清离线、补传、收条，定时器停", async () => {
+    let fail = true, reachCalls = 0;
+    const { gate: _g, st, c } = await goOff({ renew: async () => (fail ? { kind: "failed" as const, code: "timed_out" } : { kind: "ok" as const }), reachable: async () => { reachCalls++; } });
+    assert(st.offline, "选了离线"); eq(c.ms, 60000, "60 s"); const r0 = st.renews;
+    await c.fire();
+    eq(st.renews, r0 + 1, "到点试了一次"); assert(st.offline, "没通：还是离线"); eq(st.cover, null, "失败不弹闸"); eq(st.bar, "offline", "条还在"); eq(st.catchUps, 0);
+    fail = false;
+    await c.fire();
+    assert(!st.offline, "通了：清离线"); eq(reachCalls, 1, "问了云端"); eq(st.catchUps, 1, "补传"); eq(st.bar, "none", "收条"); assert(c.stopped, "定时器停"); eq(st.cover, null);
+  });
+    it("离线态：令牌还在但云端不答（慢网）= 没回来，不清离线、不弹", async () => {
+    let up = false;
+    const { st, c } = await goOff({ renew: async () => (st0.ok ? { kind: "ok" as const } : { kind: "failed" as const, code: "x" }), reachable: async () => { if (!up) throw new Error("net"); } });
+    st0.ok = true;
+    await c.fire();
+    assert(st.offline, "还是离线"); eq(st.catchUps, 0, "不补传"); eq(st.cover, null, "不弹"); eq(st.bar, "offline");
+    up = true;
+    await c.fire();
+    assert(!st.offline, "下一拍通了"); eq(st.catchUps, 1);
+    st0.ok = false;
+  });
+    it("离线态：云端一直不答也不挂住（硬超时之后下一拍还能再试）", async () => {
+    const hang = deferred<void>();
+    let calls = 0;
+    const { st, c } = await goOff({ hardTimeoutMs: 10, renew: async () => (st0.ok ? { kind: "ok" as const } : { kind: "failed" as const, code: "x" }), reachable: async () => { calls++; await hang.promise; } });
+    st0.ok = true;
+    await c.fire(); await tick(30);
+    assert(st.offline, "超时 = 没回来"); eq(calls, 1);
+    await c.fire(); await tick(30);
+    eq(calls, 2, "下一拍再试，没被上一次卡住");
+    hang.resolve(undefined); st0.ok = false;
+  });
+    it("离线态：后台不试、没网不试（回前台 run(wake) 那一下试）", async () => {
+    let visible = false;
+    const { gate, st, c } = await goOff({ ...failing, pageVisible: () => visible });
+    const r0 = st.renews;
+    await c.fire(); eq(st.renews, r0, "后台不试");
+    visible = true; st.online = false;
+    await c.fire(); eq(st.renews, r0, "没网不试");
+    st.online = true;
+    eq(await gate.run("wake"), "offline-kept"); await tick(); eq(st.renews, r0 + 1, "回前台试一次"); eq(st.cover, null, "回前台也不弹");
   });
   it("⑥ 醒来走同一套；已选离线且仍没网 → 不再弹闸（条还在）", async () => {
     const { gate, st } = rig({ online: false });
@@ -284,22 +331,34 @@ describe("回来问一次（规则书 §1 第 15 条；工单 C4）", () => {
     assert(hits[0]!.startsWith("src/app/main.ts"), hits[0]!);
     const body = src.slice(src.indexOf("async function offerPushLocalOnly"), src.indexOf("// ---- 编辑器横幅"));
     assert(body.indexOf("lockSyncGate") >= 0 && body.indexOf("lockSyncGate") < body.indexOf(".pushAll()"), "先问");
-    assert(/if \(v !== "now"\) \{[\s\S]*?return;\s*\n\s*\}\s*\n\s*const r = await files\.dirty\.pushAll\(\)/.test(body), "不点就不推");
+    assert(/if \(v !== "now"\) \{ inList\(await count\(\)\); return; \}/.test(body), "不点就不推");
+    assert(/if \(plan\.kind === "list"\) \{ inList\(plan\.total\); return; \}/.test(body), "说过稍后的页：不问不推");
+    assert(body.indexOf("planReturn(") < body.indexOf(".pushAll()"), "推之前先分类：有从没传过的要先问");
   });
-  it("面：两键，Esc = 稍后；一页只问一次；话说真的；没传成的带名单带钮", () => {
+  it("面：只问从没传过的，两键，Esc = 稍后；一页只问一次；没传成的带名单带钮（规则书第 15 条，11-03 夜改写）", () => {
     const body = src.slice(src.indexOf("async function offerPushLocalOnly"), src.indexOf("// ---- 编辑器横幅"));
-    assert(/title: `有 \$\{n\} 份没传上去，现在传？`/.test(body));
+    assert(/title: `有 \$\{plan\.neverUploaded\} 份只在这台设备，现在传上去？`/.test(body));
     assert(/label: "现在传", value: "now", primary: true \}, \{ label: "稍后", value: "later" \}/.test(body));
     assert(/escValue: "later"/.test(body));
-    assert(/askedPushLocalOnly = true;/.test(body) && /!force && \(askedPushLocalOnly/.test(body));
-    assert(!/只在这台设备上/.test(body.split("\n").filter((l) => !/^\s*(\/\*\*|\*)/.test(l)).join("\n")), "10-26：对「传过、后来改了没传」是假话");
+    assert(/askedPushLocalOnly = true;/.test(body) && /saidLater: askedPushLocalOnly && !force/.test(body));
     assert(/label: "去处理", primary: true, onClick: openList/.test(body) && /names/.test(body));
   });
   it("开着的这份归心跳：先推它再数（不然面说「有 1 份」，心跳一下就推完，面就是假的）", () => {
     const body = src.slice(src.indexOf("async function offerPushLocalOnly"), src.indexOf("// ---- 编辑器横幅"));
-    const push = body.indexOf("session.pushOpenDocIfPending()"), count = body.indexOf("files.dirty.count()"), face = body.indexOf("lockSyncGate");
-    assert(push > 0 && push < count && count < face, "先推、再数、再问");
+    const push = body.indexOf("session.pushOpenDocIfPending()"), plan = body.indexOf("planReturn("), face = body.indexOf("lockSyncGate");
+    assert(push > 0 && push < plan && plan < face, "先推、再数、再问");
     assert(/session\.openDocNeedsAttention\(\) \? 1 : 0/.test(body), "真分叉归横幅，不算进来");
+  });
+  it("从没传过的：人答应之前心跳不推；人按存不受管；库不再自己问一遍", () => {
+    const body = src.slice(src.indexOf("async function offerPushLocalOnly"), src.indexOf("// ---- 编辑器横幅"));
+    assert(/if \(!pushConsented\) for \(const id of never\) heldNeverUploaded\.add\(id\);/.test(body), "数到的先压住");
+    assert(/pushConsented = true;\s*\n\s*heldNeverUploaded\.clear\(\);/.test(body), "点了现在传才放开");
+    assert(/pushHeld: \(path\) => pushHoldAll \|\| heldNeverUploaded\.has\(path\)/.test(src));
+    const se = readFileSync("src/app/session.ts", "utf8");
+    assert(/const held = !!opts\.implicit && !!this\.d\.pushHeld\?\.\(home\.path\);/.test(se), "只压隐式保存");
+    assert(/const tryPush = !opts\.localOnly && !held && /.test(se));
+    assert(/if \(!opts\.implicit\) this\.d\.onExplicitSave\?\.\(home\.path\);/.test(se), "人按存 = 同意");
+    assert(/offlineUploadReplay: "manual"/.test(readFileSync("src/app-store.ts", "utf8")));
   });
   it("从离线回来也走这张面，不直接推", () => {
     const i = src.indexOf("catchUp: async () => {"); const body = src.slice(i, src.indexOf("\n  },\n", i));

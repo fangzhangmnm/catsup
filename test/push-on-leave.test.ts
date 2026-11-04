@@ -9,6 +9,7 @@ const base: PushRetryFacts = { pushPending: true, attention: false, saving: fals
 
 describe("pushPending 重试（C3 D）", () => {
   it("落了本地没推上去、页面在前台、在线登录、过了节奏 → 再推", () => { assert(shouldRetryPush(base)); });
+  it("从没传过、人还没答应：不推（规则书第 15 条 (a)）", () => { assert(!shouldRetryPush({ ...base, held: true })); });
   it("上次是推成的 / 刚回线（lastTryAt = 0）：第一个 tick 就补", () => { assert(shouldRetryPush({ ...base, lastTryAt: 0 })); });
   it("接线：只有试了没成才进节奏；回线清零（曾经推成也算「刚试过」，断网回线要多等 30 s）", () => {
     const src = readFileSync("src/app/session.ts", "utf8");

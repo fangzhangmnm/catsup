@@ -154,7 +154,7 @@ console.log("③ 续签失败（interaction_required）：闸两个钮；离线�
   ok(/还有 1 份没传上去/.test(await s.notices()), "常驻条显示份数：" + (await s.notices()).slice(0, 60));
   eq(s.drive.requests, 0, "离线期间零 Graph 请求");
   eq(await s.page.evaluate(() => window.__fakeSilent || 0), silentAtOffline, "离线期间零登录请求");
-  // 离线时再开一份、也改了：回来时开着的这份归心跳，那一份才要问（规则书 §1 第 15 条）
+  // 离线时再开一份新的（从没传过）：回来只问它；库的批量推不分，所以没点之前两份都不推（规则书 §1 第 15 条，11-03 夜改写）
   await s.page.evaluate(() => globalThis.__catsup.galleryHost.open());
   await s.page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
   await s.page.click("#galleryNew");
@@ -167,14 +167,67 @@ console.log("③ 续签失败（interaction_required）：闸两个钮；离线�
   eq(s.drive.requests, 0, "还是零请求");
   await s.page.evaluate(() => { localStorage.setItem("__fake_msal", "ok"); window.dispatchEvent(new Event("online")); });
   await s.page.waitForFunction(() => !document.getElementById("noticeStack")?.textContent.includes("离线"), null, { timeout: 12000 });
-  await s.page.waitForFunction(() => /有 1 份没传上去，现在传？/.test(document.getElementById("syncGate").textContent) && !document.getElementById("syncGate").hidden, null, { timeout: 8000 });
-  ok(true, "回线：开着的这份归心跳，只问剩下那 1 份");
-  eq(await s.dirty(), 1, "没点之前，那一份没推");
+  await s.page.waitForFunction(() => /有 1 份只在这台设备，现在传上去？/.test(document.getElementById("syncGate").textContent) && !document.getElementById("syncGate").hidden, null, { timeout: 8000 });
+  ok(true, "回线：只问从没传过的那 1 份");
+  eq(await s.dirty(), 2, "没点之前都没推");
   await s.gateClick("现在传");
   for (let i = 0; i < 60 && (await s.dirty()) !== 0; i++) await sleep(200);
   eq(await s.dirty(), 0, "补传完 dirty = 0");
   eq(await s.page.evaluate(() => globalThis.__catsup.gate.isUserOffline()), false, "离线记忆清了");
   ok((await s.blackBox()).includes("code=login_required"), "⑧ 黑匣子里有续签原因码");
+  await s.close();
+}
+
+console.log("回来分两类（规则书第 15 条）：传过的续传不问；从没传过的问一次，稍后之后心跳不推，人按存才传");
+{
+  const s = await scene();
+  await s.prepare();
+  const off = async () => {
+    await s.reload("interaction");
+    await s.page.waitForFunction(() => document.querySelectorAll("#syncGateActions button").length === 2);
+    await s.gateClick("离线继续"); await s.settled();
+  };
+  const back = () => s.page.evaluate(() => { localStorage.setItem("__fake_msal", "ok"); window.dispatchEvent(new Event("online")); });
+  // 传过的：续传不问
+  await off();
+  await s.draw(40);
+  await s.page.waitForFunction(() => globalThis.__catsup.editor.revision > 0);
+  await s.page.evaluate(() => globalThis.__catsup.session.save({ implicit: true })); await s.settled(); await sleep(300);
+  eq(await s.dirty(), 1, "传过的：改动落了本机");
+  await back();
+  for (let i = 0; i < 40 && (await s.dirty()) !== 0; i++) await sleep(200);
+  eq(await s.dirty(), 0, "传过的：自动续传");
+  ok(await s.page.evaluate(() => document.getElementById("syncGate").hidden), "传过的：不问");
+  // 从没传过的
+  await off();
+  await s.page.evaluate(() => globalThis.__catsup.galleryHost.open());
+  await s.page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+  await s.page.click("#galleryNew");
+  await s.page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
+  await s.draw(20);
+  await s.page.waitForFunction(() => !globalThis.__catsup.session.lazy);
+  await s.page.evaluate(() => globalThis.__catsup.session.save({ implicit: true })); await s.settled(); await sleep(300);
+  eq(await s.dirty(), 1, "新的：落了本机");
+  const putsAt = () => s.drive.puts.length, p0 = putsAt();
+  await back();
+  await s.page.waitForFunction(() => /有 1 份只在这台设备，现在传上去？/.test(document.getElementById("syncGate").textContent) && !document.getElementById("syncGate").hidden, null, { timeout: 10000 });
+  ok(true, "新的：问一次");
+  eq(putsAt(), p0, "新的：没点之前一次都没传（心跳也没抢）");
+  await s.page.keyboard.press("Escape"); await sleep(400);
+  ok(await s.page.evaluate(() => document.getElementById("syncGate").hidden), "Esc = 稍后");
+  ok(/1 份没传上去/.test(await s.notices()), "稍后：进列表：" + (await s.notices()).slice(0, 50));
+  // 心跳再保存一次也不传
+  await s.draw(50);
+  await s.page.evaluate(() => globalThis.__catsup.session.save({ implicit: true })); await s.settled(); await sleep(1500);
+  eq(putsAt(), p0, "稍后之后：心跳不推");
+  eq(await s.dirty(), 1, "稍后之后：还只在本机");
+  await s.page.evaluate(() => window.dispatchEvent(new Event("online"))); await sleep(1500);
+  ok(await s.page.evaluate(() => document.getElementById("syncGate").hidden), "这一页不再问");
+  eq(putsAt(), p0, "这一页也不自己推");
+  // 人按存 = 同意
+  await s.page.evaluate(() => globalThis.__catsup.session.save()); await s.settled(); await sleep(300);
+  ok(putsAt() > p0, "人按存：传上去");
+  eq(await s.dirty(), 0, "人按存：不脏");
   await s.close();
 }
 

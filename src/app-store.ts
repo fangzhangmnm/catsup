@@ -11,7 +11,7 @@
 //   encryption  真 codec（2026-10-29 周账 F-123：zip.js 外壳 + 7z-wasm payload，WeebPaint 同款）；口令经 crypt.getPassword 非交互取（crypto-state.ts）。
 //              图库口令验证器住 collection "app-state" 的 galleryPasswordVerifier（跟账号走；password-verifier.ts）。 reconcilePolicy "app-driven"：focus / online / 前台 60 s 轮询由 app 驱动。
 //   validateAdopt 只看字节头：GLB magic + extensionsUsed 含 CATSUP_document（挡 captive-portal HTML / 外来 glb）。
-//   autoCacheOpenedFile true（编辑器：开即留本地）。readOnlyFiles false。offlineUploadReplay "ask"。
+//   autoCacheOpenedFile true（编辑器：开即留本地）。readOnlyFiles false。offlineUploadReplay "manual"（理由见下）。
 //   signedIn = auth（0.14.0：云腿闸 = isOnline ∧ signedIn）。isOnline = cloudOnline（2026-11-03 工单 C：浏览器有网 ∧ 用户没选「离线继续」）。activeIdentifier = 当前打开的文档（cloud-gone 收敛不碰它；0.16 起叫这个名）。
 //   hidden = 写入方半成品（夹里有什么是 store 的事，不是图库的；0.16 起叫这个名）。
 //   openLineageFromDurable 库默认开（0.18.0）：open 时云端核对没跑成（未登录 / 离线）∧ 本地干净 ∧ 磁盘有上次同步的 etag → 记为本 tab 基准。
@@ -49,6 +49,8 @@ const GRAPH_TRANSPORT: GraphTransportOptions = { timeouts: DEFAULT_GRAPH_TIMEOUT
 
 const od = createOneDriveProvider({ clientId: CLIENT_ID, scopes: SCOPES, authority: AUTHORITY, msalUrl: MSAL_URL, transport: GRAPH_TRANSPORT });
 export const auth = od.auth;
+/** 问云端一次（闸门的「离线继续」期间静默再试用）：真走一趟网，名字不存在 = 云端答了 null，也算通；不通 = 抛。不经 store：选了离线时 store 不出网。 */
+export async function cloudReachable(): Promise<void> { await od.provider.getItemByPath(".reachable-probe"); }
 
 let _activeDoc: string | null = null;
 export function setActiveDocName(name: string | null): void { _activeDoc = name; }
@@ -74,7 +76,7 @@ export function ensureStore(): Store {
     uploads: { resumable: true },
     validateAdopt: async (plain) => isCatsupDocumentHead(new Uint8Array(await plain.slice(0, 256 * 1024).arrayBuffer())),
     autoCacheOpenedFile: true,
-    offlineUploadReplay: "ask",
+    offlineUploadReplay: "manual",   // 2026-11-04：回来只问一次（规则书第 15 条，main.ts offerPushLocalOnly）；"ask" 时库会先弹一张自己的面，同一件事问两遍
     readOnlyFiles: false,
     signedIn: () => od.auth.isSignedIn(),
     isOnline: cloudOnline,
