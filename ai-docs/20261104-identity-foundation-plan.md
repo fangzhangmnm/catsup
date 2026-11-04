@@ -252,19 +252,26 @@ export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid,
 - **J OBJ**〔④ 要 user〕：建议**只下导出**（导入是唯一保四边形 / 平滑组的路，user 10-29 要的）。
 - **K 工单切法**：ID-2 已提交部分合 main（9.1）；单面 / 双面 = **ID-2b** 单开（清单 9.3）；ID-3 不变。工作区的第三版草稿已 `git stash`（见 9.4），`carryMeshMaterials`（网格体 → 硬表面带材质、重合反向面认回）可参考。
 
+### 9.2½ user 拍了（2026-11-04，原话；取代 9.2 里标〔要 user〕的四处）
+- ① **不分「真材质 + 默认正面」和「两真材质」，不另弹确认框，用户自己修**：「只有两侧都是真材质且不同才问；「真材质 + 默认正面」不问 不同意，用户自己修，这样合理吗，以后建模会碰到麻烦的问题吗」「默认背面就是丢的语义啊，没有内部符号」。定形：**要出几侧就几张面，没有「只留一层」**，丢 = 把那侧涂成默认背面。Fable 答「合理」+ 四条看得见的麻烦（老文件一次性整理 / 屋里涂墙外面多一层白 / 有意两面出的面转网格体是两张叠着的面 / 邻面规矩的空档只会让面两面出、不丢面）。
+- ② **导出永远有框，是 CatsUp 的规矩；选项记在文件的 workbench（desk），不记在 workpiece**：「以及导出的时候是都要弹框的，这个算catsup的规矩，就是导出的时候永远有个框，以后选项会越来越多。我建议文件workbench而不是workpiece记住」。定形：现有「导出模型」表单 sheet 就是那个框；加一行说明「N 张面两侧都会出（其中 M 张两侧材质不同）」，不加决定项；导出选项从设备 PREF 搬进 `CATSUP_desk`（**desk 1.3 → 1.4，minor，冻结样本**）。转网格体不是导出：照旧 notes 披露数、不问。
+- ③ **新面：先试邻面；初始面带「意图」，很窄，不是相机**：「试试邻面，然后初始面怎么办我还是希望有相机的意图，但是你说得对，是意图，相机不进几何引擎，意图可以进非常窄的」。定形：造面的 op 可带一个**方向向量** `front?: Pt3`（编辑器从相机算出来写进 op；内核只见方向）：BIRTH 的面先按邻面（9.2-D），邻面给不出朝向时才看 `front`——法向和它同号那侧 = 正面、另一侧写默认背面；没有 `front`（老复现包）或正好侧视（点积 ≈ 0）= 不写。只有 `addEdges`（画闭合环）和 `pushpull`（底面没朝向时）真需要它；其余造面的路（followme / absorb / move 折面 / mirror / plugin / paste）走邻面或载荷自带的层。
+- ④ **OBJ 有导出就得有导入，round trip 才有意义**：「obj 如果有导出的话导入也要，round trip才有意义」。定形：要么都留（导出补材质 + 按侧出面、导入读 MTL），要么都下（丢掉唯一保四边形 / n 边形 / 平滑组的导入路）。**不在 ID-2b**，记功能账，user 另拍。
+- 预览剔默认背面（9.2-E）user 没反对，按 Fable 定形走。
+
 ### 9.3 ID-2b 工单（Opus 施工，Fable 审；user 拍完 ①–④ 开）
 1. `format/guid.ts` 加 `BUILTIN_BACK_GUID`；新小模块 `scene/builtin-materials.ts`：`BUILTIN_BACK` 常量、句柄 `BUILTIN_BACK_SLOT = -2`、`isBuiltinHandle()`；颜色接预设。
 2. 9.2-A 清单每一处；`stream-provider` 给内置 uid。
 3. 油漆桶面板加「默认背面」格（内置）；吸色吸到内置背面 → 设成那格；网格体工作台里这格灰掉（网格体的面没有默认背面，按「和外部文件对齐」）。
 4. 新 op：`flipFaceSides`（选中面两槽互换 = kernel `swapSides`，kernel 级撤销）；修复模块 `repairs/orient/`：「统一朝向（以选中面为准 flood）」「自动朝外」（曲率 / 体积判外侧，功能账那条）——都 op 化、报改了几张、不进任何默认路径。
-5. 新面默认（9.2-D）在 kernel BIRTH 处理，确定性；fuzz 的差分 oracle 自然覆盖。
+5. 新面默认（9.2-D + 9.2½ ③）在 kernel BIRTH 处理：先邻面，再 op 里的 `front?: Pt3` 方向；`addEdges` / `pushpull` 加可选字段，编辑器提交时从相机算；确定性，fuzz 的差分 oracle 自然覆盖；测试：同一 op 序列两次 → 同层、没 `front` 的老 op 不写。
 6. `brepToMesh`：按侧出面（共用点）、材质层跟侧、双背面计数；`meshToBrep`：环朝向那侧 = 材质 / 默认正面，另一侧 = 内置背面；重合反向的两张并一张膜、材质各落各侧。
-7. `bake.ts bakeDefinition`：按侧出面（绕向 / 法向 / UV 按那侧）、默认背面不出、默认正面出成无材质；删掉「同材质按需多一份双面」那套；`writeGltfModel` report 两个数（N / M）；导出面板说明行显示；M > 0 → confirm「两张都出 / 取消」。toMesh 命令 `ask` 同；notes 报双背面消失数。
+7. `bake.ts bakeDefinition`：按侧出面（绕向 / 法向 / UV 按那侧）、默认背面不出、默认正面出成无材质；删掉「同材质按需多一份双面」那套；`writeGltfModel` report 两个数（N 张两侧都出 / 其中 M 张材质不同）；**导出表单 sheet 加说明行显示两个数，不加确认框、不加「只留一层」**（9.2½ ①②）；导出选项从 PREF 搬进 `CATSUP_desk`（desk 1.4，冻结样本）。toMesh 命令只在 notes 报数（含双背面消失数），不问。
 8. 预览剔默认背面：`desk.locked` / 风格预览时 pool-mesh 跳过内置背面那一侧（先核 placements 的 side 机制）。
 9. 格式：7.0 语义加一行、契约 §5.3 加注、冻结目录 7.0 `--force` 重打 + 新场景。
 10. 守卫：identity-guard 加「内置 GUID 永不进材质表」「默认正面无第二表示（写出来的槽表里没有内置正面 GUID）」；bake 测试：三种侧组合各出几张面、法向朝对、UV 按侧；往返测试 brep → mesh → brep 两侧材质保住、双背面计数对；新面默认的确定性测试（同一 op 序列两次 → 同层）。
 11. `20261026-pipelines.md` 文件 / 转换流程段；`gen-api.sh`。
-**不在这张单**（材质纪元 / 功能账）：材质 `doubleSided` 字段、导入读材质和 doubleSided、面板勾选项（展开 / 合并）、修复工具「合并重合反向面」、OBJ 下线、两条烤路合一。
+**不在这张单**（材质纪元 / 功能账）：材质 `doubleSided` 字段、导入读材质和 doubleSided、面板勾选项（展开 / 合并）、修复工具「合并重合反向面」、OBJ 都留或都下（9.2½ ④）、两条烤路合一。
 
 ### 9.4 工作区
 第三版草稿（`bake.ts` / `kinds.ts` / `orient.ts` / `write.ts` / `session.ts` / `objects/index.ts` + 混了草稿的 dist / index.html）作废，`git stash` 存着（stash 名「ID-2 第三版草稿（作废，meshToBrep 带材质可参考）」），工作区回到 4d851b6 之后的干净状态。
