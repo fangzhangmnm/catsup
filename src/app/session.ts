@@ -25,7 +25,7 @@ import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "
 import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
 import { fmtStamp } from "../format/migrate/index.ts";
 import type { Xform } from "../scene/xform.ts";
-import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4 } from "../config.ts";
+import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4, RELOAD_PUSH_WAIT_MS } from "../config.ts";
 import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
 import { auth, docFile, hasStore, requireStore, requestStoragePersistence, setActiveDocName } from "../app-store.ts";
 import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞上云端 → 不弹模态、横幅接手
@@ -38,6 +38,7 @@ import { reportError } from "./error-funnel.ts";
 import { note } from "./debug-log.ts";
 import { crashStore, mintLuggageTag, type LuggageTag } from "./crash-store.ts";
 import { shadowFrame, type ShadowSeal } from "./shadow-seal.ts";
+import { shouldRetryPush } from "./push-retry.ts";
 
 interface FSHandle { readonly name: string; createWritable(): Promise<{ write(b: Blob): Promise<void>; close(): Promise<void> }>; getFile(): Promise<File> }
 const fsa = window as unknown as {
@@ -119,6 +120,8 @@ export class Session {
   private halted = false;
   /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
   pushPending = false;
+  private lastPushTryAt = 0;   // 上一次试了没推成的时刻（shouldRetryPush 的节奏）；推成了 / 刚回线 = 0
+  private wasOnline = true;
   /** 正在编辑的图库模型是加密的（打开 / 加密 / 解密后刷新；换家清）。锁着（内存没口令）时保存会如实拒。 */
   encrypted = false;
   /** 这个本地家模型是从加密件解开来的（工单 C2 ①）：它的影子只存容器。换家即清；另存到磁盘不清（见 settleToFile）。 */
@@ -236,6 +239,9 @@ export class Session {
   /** 编辑器每次 checkpoint 变化（commit / undo / redo / load）同步进来（main 的 editor.host.changed）：
    *  刷徽章 + **lazyblank 首笔安家**（WeebPaint session-state onChange 钩子同形：真出现内容才绑身份）。 */
   noteChange(): void {
+    const online = this.d.online();
+    if (online && !this.wasOnline) this.lastPushTryAt = 0;   // 刚回线：不等节奏，这一拍就补
+    this.wasOnline = online;
     const rev = this.d.editor.revision, rr = this.refRev();
     if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
     if (this.lazy && this.home.kind === "gallery" && this.hasContent() && (this.forkBaseRev === null || rev !== this.forkBaseRev)) {
@@ -246,6 +252,9 @@ export class Session {
   }
 
   private tick(): void {
+    const online = this.d.online();
+    if (online && !this.wasOnline) this.lastPushTryAt = 0;   // 刚回线：不等节奏，这一拍就补
+    this.wasOnline = online;
     const rev = this.d.editor.revision, rr = this.refRev();
     if (rev !== this.lastSeenRevision || rr !== this.lastSeenRefRev) { this.lastSeenRevision = rev; this.lastSeenRefRev = rr; this.lastEditAt = Date.now(); this.d.onHomeChanged(); }
     // T-crash / 自动保存（图库家）：空闲 30 s 且脏且不在手势中 → 落本地（在线且登录则一并推云）
@@ -254,6 +263,12 @@ export class Session {
       void this.save({ implicit: true });
     } else if (this.localHomeKind() && this.luggage && this.dirty() && (rev !== this.snapRevision || rr !== this.snapRefRev) && idle) {
       void this.snapshot("crash");   // file / transient 家：盲快照进 crash-store（附加层，best-effort）
+    } else if (this.home.kind === "gallery" && !this.lazy && !this.dirty() && shouldRetryPush({
+      pushPending: this.pushPending, attention: !!this.attention, saving: this.saving, gesture: this.d.editor.isGestureActive(),
+      visible: document.visibilityState === "visible", online, signedIn: auth.isSignedIn(), lastTryAt: this.lastPushTryAt, now: Date.now(),
+    })) {
+      this.lastPushTryAt = Date.now();
+      void this.save({ implicit: true });   // 工单 C3 D：上次没推成（切走时没网 / 网络失败）的这一份，再推一次；撞上云端 = 不弹面，横幅接手
     }
   }
 
@@ -310,12 +325,30 @@ export class Session {
   }
   /** pagehide（非 bfcache）= 用户过完挽留门选择离开 → 快照焚；真 crash 不触发 pagehide → 快照幸存。 */
   onPageHide(persisted: boolean): void { if (persisted) return; if (this.luggage) crashStore.dropOnCleanClose(this.luggage).catch(() => {}); }
-  /** 崩溃安全 flush（WeebPaint es.start 三件：visibilitychange:hidden / blur / pagehide(!persisted)）：图库家脏 → 只落本地不推
-   *  （页面要走，push 未必完成；push-pending 留着下次显式保存推）；file / transient 家脏 → 盲快照。不等空闲、不看手势（encode 读的是
-   *  checkpoint = 上次 commit 的世界，手势中途也一致）。fire-and-forget：卸载期没有时间预算。 */
+  /** 切走窗口 / 切后台（blur、visibilitychange:hidden）：页面没走，和自动保存一样「落本地，在线且登录就一并推」（工单 C3 A，Fable 裁定；以前只落本地，tick 又只看 dirty，
+   *  这笔就再也没人推，换到别的设备改完回来才发现分叉，周账 F-137 ⑫）。If-Match 照旧，撞上不弹面、横幅接手；iOS 把请求冻在半路 = 回执丢，库比字节自愈。
+   *  不等空闲、不看手势（encode 读的是 checkpoint = 上次 commit 的世界，手势中途也一致）。file / transient 家脏 → 盲快照。 */
   flushForHide(): void {
+    if (this.home.kind === "gallery") { if (!this.lazy && !this.saving && (this.dirty() || (this.pushPending && !this.attention))) void this.save({ implicit: true }); }
+    else this.snapshotIfChanged();
+  }
+  /** pagehide（非 bfcache）：页面真要走了，推不一定完成 → **只落本地**（守卫核：这条路上不许有推）；没推的留给下次。fire-and-forget：卸载期没有时间预算。 */
+  flushForPageHide(): void {
     if (this.home.kind === "gallery") { if (!this.lazy && this.dirty() && !this.saving) void this.save({ implicit: true, localOnly: true }); }
-    else if (this.luggage && this.dirty() && (this.d.editor.revision !== this.snapRevision || this.refRev() !== this.snapRefRev)) void this.snapshot("crash");
+    else this.snapshotIfChanged();
+  }
+  private snapshotIfChanged(): void {
+    if (this.luggage && this.dirty() && (this.d.editor.revision !== this.snapRevision || this.refRev() !== this.snapRefRev)) void this.snapshot("crash");
+  }
+  /** 点「有新版本」/ 强制更新前（pwa-shell onBeforeReload；工单 C3 B）：脏的先落本地（不设时限：这步丢了就是丢改动）→ 没推的推一次，最多等 RELOAD_PUSH_WAIT_MS，推不完就走、脏留给库。
+   *  **干净的模型什么都不做**：以前这里无条件 save，干净的也重新编码写本地、标脏，刷新后就弹「没同步好」——这是「一更新就有」的直接触发点。 */
+  async flushBeforeReload(): Promise<void> {
+    const deadline = Date.now() + RELOAD_PUSH_WAIT_MS;
+    while (this.saving && Date.now() < deadline) await new Promise((r) => setTimeout(r, 50));   // 自动保存正在路上：等它
+    if (this.home.kind !== "gallery") return;   // 文件家 / 临时模型 implicit 本来就不写，靠 beforeunload 挽留兜
+    if (this.dirty()) await this.save({ implicit: true, localOnly: true });
+    if (!this.pushPending || this.attention || this.lazy || !auth.isSignedIn() || !this.d.online()) return;
+    await Promise.race([this.save({ implicit: true }), new Promise((r) => setTimeout(r, Math.max(0, deadline - Date.now())))]);
   }
   /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
    *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
@@ -771,8 +804,9 @@ export class Session {
       // 图库家。implicit（自动保存 / 离开）撞上云端 → 不弹模态面，横幅接手（store-ui conflictGate；user 2026-10-26「不弹模态，横幅 + 钮」）
       conflictGate.implicit = !!opts.implicit;
       replaceCover = this.armReplaceCover(home.path);   // 工单 C：面上选了云端 → 换字节到重载完这段罩住（外层 finally 收）
+      const tryPush = !opts.localOnly && auth.isSignedIn() && online();
       let r;
-      try { r = await docFile(home.path, this.createPending ? "new" : "existing").save(bytes, { tryPush: !opts.localOnly && auth.isSignedIn() && online() }); }
+      try { r = await docFile(home.path, this.createPending ? "new" : "existing").save(bytes, { tryPush }); }
       finally { conflictGate.implicit = false; }
       if (r.resolution === "takeCloud") {   // 用户选了云端版本：整份重载（否则下次保存又覆盖云端）
         if (this.home.kind !== "gallery" || this.home.path !== home.path) return true;   // 半路点了「先离线用」：画布已经改挂分叉，这份本机字节归原名字
@@ -784,6 +818,7 @@ export class Session {
       this.createPending = false;
       this.savedRevision = revAtStart; this.savedRefRev = refRevAtStart;
       this.pushPending = !r.pushed;
+      if (tryPush) this.lastPushTryAt = r.pushed ? 0 : Date.now();   // 只有试了没成才进重试节奏；成了清零，之后断网再回线第一拍就补
       if (r.pushed) this.attention = null;   // 推上去了 = 和云端对上了（2.2.1 起谱系丢了也会先问云端再推，没人动过就直接成）
       if (!opts.implicit) this.d.setStatus(r.pushed ? `已保存并同步 ${bareName(home.path)}` : `已保存到本机 ${bareName(home.path)}${auth.isSignedIn() ? "（稍后同步）" : ""}`);
       return true;

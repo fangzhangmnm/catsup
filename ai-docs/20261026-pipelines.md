@@ -333,3 +333,18 @@ flowchart LR
 - **全部导出**（图库顶上披露条，没登录时才在）：`export-all.ts` 走 `watchFolder` 第一帧逐夹列（跳过纯云端的）→ 加密件 `getEncryptedBlob` 原样搬、明文件 `open` → 打成一个 zip（`level: 0`，O(全部模型字节)，全在内存）→ `deliverFile`。拿不到的进名单，回执照实说。
 - **手腕状态行**（`hud.status` → `withSyncStatus`）：只有 VR 读；不在线且登录过 → 前缀「离线 · 还有 N 份没传上去」；份数是 `paintOfflineBar` 里异步取的那份。
 - **还随整个模型涨的点**：解开的加密件每次留影子都全量 7z（空闲时才做，但会占主线程）；全部导出吃内存 = 整个图库本地字节。
+
+## 追记 2026-11-03（v0.18.22，Claude Opus 5.5；家族工单 C3）：什么时候推
+
+| 时机 | 走哪条 | 落本地 | 推 |
+|---|---|---|---|
+| 空闲 30 s 且脏（`tick`） | `save({ implicit })` | ✓ | 在线且登录 |
+| 切走窗口 / 切后台（`flushForHide`） | `save({ implicit })`，脏或待推才做 | ✓ | 在线且登录（**C3 起**；以前只落本地） |
+| 待推没推成（`tick` + `shouldRetryPush`） | `save({ implicit })` | 重写一遍 | 页面可见、在线、登录、没有真分叉；节奏 30 s，推成或刚回线清零（**C3 起**） |
+| 点「有新版本」/ 强制更新（`flushBeforeReload`） | 脏 → `save({ implicit, localOnly })`（不设时限）→ 待推 → `save({ implicit })` 最多等 5 s | 脏才写 | ✓（**C3 起**）；干净的模型什么都不做（以前无条件写，干净的也标脏） |
+| `pagehide`（`flushForPageHide`）/ `beforeunload` | `save({ implicit, localOnly })` | ✓ | **不推**（页面要走了；守卫核） |
+| 人点保存（`smartSave`） | `save()` | ✓ | 不脏也推（「让时间戳走字」，没动） |
+
+- 自动的这几条（`implicit`）撞上云端都不弹模态面，横幅接手；只有人点保存 / 处理… 才弹。
+- **每条推都是 O(模型)**：`encode()` 全量 + 整份上传。切走窗口时脏才做，所以不随切换次数涨；网络失败的重试 30 s 一次。
+- 没做：开机补传一次（等 user）。所以页面走的时候没推完的那份，下次开机还是「没同步好」，人在面里选。

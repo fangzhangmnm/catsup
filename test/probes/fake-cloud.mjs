@@ -28,7 +28,7 @@ export const MSAL_STUB = `
 export function fakeDrive() {
   const items = new Map();   // path → { id, name, eTag, bytes, lastModifiedDateTime }
   let seq = 1;
-  const d = { items, requests: 0, hangMeta: false, hangDownload: null, metaGate: null, puts: [], dropNextPutResponse: false };   // puts = 每次写的记录（谁、结果码）；dropNextPutResponse = 字节写进网盘但回执丢在路上
+  const d = { items, requests: 0, hangMeta: false, hangDownload: null, metaGate: null, puts: [], dropNextPutResponse: false, holdPut: null, failPuts: false };   // puts = 每次写的记录（谁、结果码）；dropNextPutResponse = 字节写进网盘但回执丢在路上；holdPut = 写卡住；failPuts = 写不上（断在路上，字节没到）
   const json = (route, status, body) => route.fulfill({ status, contentType: "application/json", headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-expose-headers": "*" }, body: JSON.stringify(body) });
   const view = (it) => ({ id: it.id, name: it.name, size: it.bytes.length, eTag: it.eTag, lastModifiedDateTime: it.lastModifiedDateTime, file: {}, "@microsoft.graph.downloadUrl": `https://fake-dl.test/${it.id}` });
   d.bump = (p) => { const it = items.get(p); it.eTag = `"e${seq++}"`; it.lastModifiedDateTime = new Date().toISOString(); };
@@ -49,6 +49,8 @@ export function fakeDrive() {
       if (p === "/me/drive/special/approot") return json(route, 200, { id: "root" });
       if (/\/children$/.test(p)) { const dir = p.replace("/me/drive/special/approot", "").replace(/^:\//, "").replace(/:?\/children$/, ""); return json(route, 200, { value: [...items.entries()].filter(([k]) => (k.includes("/") ? k.slice(0, k.lastIndexOf("/")) : "") === dir).map(([, v]) => view(v)) }); }
       if ((m = /^\/me\/drive\/special\/approot:\/(.+):\/content$/.exec(p)) && req.method() === "PUT") {
+        if (d.holdPut) await d.holdPut;
+        if (d.failPuts) { d.puts.push({ key: m[1], status: 0 }); return route.abort("connectionreset"); }
         const key = m[1], prev = items.get(key), ifMatch = req.headers()["if-match"];
         const fail = u.searchParams.get("@microsoft.graph.conflictBehavior") === "fail";
         if (prev && ifMatch && ifMatch !== prev.eTag) { d.puts.push({ key, status: 412 }); return json(route, 412, { error: { code: "preconditionFailed" } }); }

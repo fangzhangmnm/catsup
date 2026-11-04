@@ -1521,8 +1521,8 @@ const pwa = initPwaShell({
     actions: [{ label: "刷新", primary: true, onClick: () => { note("sw", "reload requested"); pwa.reload(); } }],
   }); },
   onLog: (m) => note("sw", m),
-  // WeebPaint 同形：点「刷新」前先把脏文档落本地（图库家 implicit 存；transient/file 家 implicit = no-op，由 beforeunload 挽留兜）
-  onBeforeReload: async () => { note("sw", "reload requested → implicit save"); await _session?.save({ implicit: true, localOnly: true }); },
+  // 点「刷新」前：脏的落本地，没推的最多等 5 s 推一次，干净的不碰（session.flushBeforeReload；工单 C3 B）。transient / file 家由 beforeunload 挽留兜
+  onBeforeReload: async () => { note("sw", "reload requested → flush"); await _session?.flushBeforeReload(); },
   // 回前台：打开中文档显式快进 + 图库开着就刷列表（WeebPaint onForeground 同形；判据 = 登录态）
   onForeground: () => { retrySilentQuietly("foreground"); if (!cloudGate.isRunning()) void _session?.refreshOpenDoc(); if (galleryHost.isOpen()) galleryHost.refresh(); },
 });
@@ -1907,7 +1907,7 @@ stage.addEventListener("drop", async (e) => {
   e.preventDefault();
   await session.openLocalBytes(new Uint8Array(await file.arrayBuffer()), file.name, null);
 });
-// 崩溃安全 flush 三件（WeebPaint es.start 同形，只本地不推）：hidden（切后台被系统回收的唯一可靠钩子）/ blur / pagehide。
+// 崩溃安全 flush 三件：hidden（切后台被系统回收的唯一可靠钩子）/ blur = 页面没走，落本地 + 在线就推；pagehide = 页面要走了，只落本地（工单 C3 A）。
 //   #60-C：pagehide persisted=true（要进 bfcache）**不写**——冻结页里起的 IDB 写在 WebKit 永远 commit 不了、只会持锁（案卷 20260909-bfcache-idb-lock）。
 document.addEventListener("visibilitychange", () => {
   if (document.visibilityState === "hidden") session.flushForHide();
@@ -1915,7 +1915,7 @@ document.addEventListener("visibilitychange", () => {
 });
 window.addEventListener("blur", () => session.flushForHide());
 window.addEventListener("pagehide", (e) => {
-  if (!e.persisted) session.flushForHide();
+  if (!e.persisted) session.flushForPageHide();
   session.onPageHide(e.persisted);   // file / transient：正常关闭即焚快照（bfcache 冻结不算；pending-adoption 库内拒删）
 });
 // 承重层（T-crash 附加层的设计前提）：**任何家**脏 → 关页 / 刷新前浏览器挽留 + 偷偷起本地保存（dialog 弹着时后台 IDB 事务大概率跑完；
@@ -1993,7 +1993,7 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore,
+(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore,
   gate: { cloudGate, tune: gateTune, isUserOffline },
   encryption: appEncryption,
   crypto: { setPassword, getPassword, lock: lockPasswords, isUnlocked, rememberedUntil, restoreRemembered, forgetRemembered, answer: (fn: ((o: PromptOpts) => Promise<string | null>) | null) => { probePasswordAnswer = fn; }, keeper: passwordKeeper }, store: () => (hasStore() ? requireStore() : null), version: APP_VERSION, factoryReset: () => { menuPick("factoryReset"); }, devPushAsk: () => offerPushLocalOnly("probe", true), debugLog: { toText: debugLogText, entries: debugLogEntries, open: openDebugLogSheet } };

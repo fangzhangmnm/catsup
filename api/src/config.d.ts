@@ -14,6 +14,8 @@ export declare const DOC_EXTS: readonly string[];
 export declare const HIDDEN_NAME_RE: RegExp;
 /** 图库家文档的自动保存：编辑后空闲这么久落本地（并在线时推云）——WeebPaint 无地标准 T-crash 节律同值。 */
 export declare const AUTOSAVE_IDLE_MS = 30000;
+/** 点「有新版本」/ 强制更新前，推云端最多等多久（工单 C3；本地那步不设时限）。推不完就走，脏留给库。 */
+export declare const RELOAD_PUSH_WAIT_MS = 5000;
 /** 前台轮询云端新鲜度的周期（reconcilePolicy:"app-driven"）。 */
 export declare const FOREGROUND_POLL_MS = 60000;
 /** 缩略图：长边像素 / JPEG 质量（契约 §3：≈ 8–12 KB，BIN 首段供头片 peek）。 */

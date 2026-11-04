@@ -82,6 +82,8 @@ export declare class Session {
     private halted;
     /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
     pushPending: boolean;
+    private lastPushTryAt;
+    private wasOnline;
     /** 正在编辑的图库模型是加密的（打开 / 加密 / 解密后刷新；换家清）。锁着（内存没口令）时保存会如实拒。 */
     encrypted: boolean;
     /** 这个本地家模型是从加密件解开来的（工单 C2 ①）：它的影子只存容器。换家即清；另存到磁盘不清（见 settleToFile）。 */
@@ -169,10 +171,16 @@ export declare class Session {
     prepareForRedirect(): Promise<boolean>;
     /** pagehide（非 bfcache）= 用户过完挽留门选择离开 → 快照焚；真 crash 不触发 pagehide → 快照幸存。 */
     onPageHide(persisted: boolean): void;
-    /** 崩溃安全 flush（WeebPaint es.start 三件：visibilitychange:hidden / blur / pagehide(!persisted)）：图库家脏 → 只落本地不推
-     *  （页面要走，push 未必完成；push-pending 留着下次显式保存推）；file / transient 家脏 → 盲快照。不等空闲、不看手势（encode 读的是
-     *  checkpoint = 上次 commit 的世界，手势中途也一致）。fire-and-forget：卸载期没有时间预算。 */
+    /** 切走窗口 / 切后台（blur、visibilitychange:hidden）：页面没走，和自动保存一样「落本地，在线且登录就一并推」（工单 C3 A，Fable 裁定；以前只落本地，tick 又只看 dirty，
+     *  这笔就再也没人推，换到别的设备改完回来才发现分叉，周账 F-137 ⑫）。If-Match 照旧，撞上不弹面、横幅接手；iOS 把请求冻在半路 = 回执丢，库比字节自愈。
+     *  不等空闲、不看手势（encode 读的是 checkpoint = 上次 commit 的世界，手势中途也一致）。file / transient 家脏 → 盲快照。 */
     flushForHide(): void;
+    /** pagehide（非 bfcache）：页面真要走了，推不一定完成 → **只落本地**（守卫核：这条路上不许有推）；没推的留给下次。fire-and-forget：卸载期没有时间预算。 */
+    flushForPageHide(): void;
+    private snapshotIfChanged;
+    /** 点「有新版本」/ 强制更新前（pwa-shell onBeforeReload；工单 C3 B）：脏的先落本地（不设时限：这步丢了就是丢改动）→ 没推的推一次，最多等 RELOAD_PUSH_WAIT_MS，推不完就走、脏留给库。
+     *  **干净的模型什么都不做**：以前这里无条件 save，干净的也重新编码写本地、标脏，刷新后就弹「没同步好」——这是「一更新就有」的直接触发点。 */
+    flushBeforeReload(): Promise<void>;
     /** 领养崩溃影子 / redirect 流产者：挂了图库 → 新身份进图库（`<名>-恢复`，撞名追加序号）并保存；否则 transient（带名、脏）。
      *  领养出的模型视为 dirty 直到首次真保存（Blockbench #2684/#2003）。gate=false 用于 boot 自动领养（当前是刚开机的空场景）。 */
     adoptRecovered(frame: Uint8Array, name: string, opts: {
