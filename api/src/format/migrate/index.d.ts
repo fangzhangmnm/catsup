@@ -13,7 +13,7 @@ export declare const FORMAT: {
     };
     readonly CATSUP_brep: {
         readonly major: 4;
-        readonly minor: 3;
+        readonly minor: 2;
         readonly patch: 0;
     };
     readonly CATSUP_definitions: {
@@ -90,12 +90,12 @@ export interface FormatReadNotes {
     danglingShelfRefs?: number;
 }
 export declare const emptyReadNotes: () => FormatReadNotes;
-export type MigrationStep = (json: Record<string, unknown>, ctx: MigrationCtx) => Record<string, unknown>;
+export type MigrationStep = (json: Record<string, unknown>, ctx?: MigrationCtx) => Record<string, unknown>;
 export declare class FormatTooNewError extends Error {
     readonly extension: string;
     readonly fileVersion: number;
     readonly appVersion: number;
     constructor(extension: string, fileVersion: number, appVersion: number);
 }
-/** 把一个扩展的 JSON 从文件 major 链式升到当前版；缺 version 视为 1（首版）。同 major 下 minor / patch 比本版新 → 记进 notes（有的话），不改 JSON。ctx = 跨子结构的迁移要的东西（定义 6→7 要材质的 GUID）。 */
+/** 把一个扩展的 JSON 从文件 major 链式升到当前版；缺 version 视为 1（首版）。同 major 下 minor / patch 比本版新 → 记进 notes（有的话），不改 JSON。ctx = 跨子结构的迁移要的东西（定义 6→7 要材质的 GUID）；没传就由需要它的那一步抛错，不许默认成空表（空表 = 老文件的材质槽静默清空）。 */
 export declare function migrateExtension(ext: CatsupExtension, json: Record<string, unknown>, notes?: FormatReadNotes, ctx?: MigrationCtx): Record<string, unknown>;

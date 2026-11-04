@@ -1,5 +1,5 @@
 // 身份地基守卫（计划书 ai-docs/20261104-identity-foundation-plan.md §4；家规「文件里条目的身份 = GUID，不用序号」）。created 2026-11-04 by Claude Opus 5.5
-// ① 文件里每个条目都有合法 GUID，引用全是 GUID ② 读写、撤销重做不重铸；动词不换身份 ③ 老文件迁移（序号 → GUID、对照表、坏数据照旧拒开）④ 对照表：槽号是代号 ⑤ 素材架读写 ⑥ 「这一侧没有表面」的编码。
+// ① 文件里每个条目都有合法 GUID，引用全是 GUID ② 读写、撤销重做不重铸；动词不换身份 ③ 老文件迁移（序号 → GUID、对照表、坏数据照旧拒开）④ 对照表：槽号是代号 ⑤ 素材架读写 ⑥ 定义的迁移没拿到材质表就抛（不许静默清槽）。
 import { describe, it, eq, assert } from "./runner.mjs";
 const { readFileSync } = (await import("node:fs" as string)) as { readFileSync(p: URL, e: string): string };   // test/*.ts 不拉 @types/node（同 orphan-defs.test.ts）
 import { Kernel } from "../src/kernel/kernel.ts";
@@ -8,7 +8,7 @@ import { History } from "../src/editor/history.ts";
 import { applyOp, faceKey, edgeKey } from "../src/editor/ops.ts";
 import { translation } from "../src/scene/xform.ts";
 import { DEFAULT_LAYER_GUID, decodeGlb, documentFromScene, isGuid, mintGuid, newDocument, readCatsup, sceneFromDocument, writeCatsup, writeGltfModel, FormatTooNewError } from "../src/format/index.ts";
-import { decodeBrep, encodeBrep } from "../src/format/brep-codec.ts";
+import { migrateExtension } from "../src/format/migrate/index.ts";
 import { encodeGlb } from "../src/format/glb.ts";
 import { SCENE_DOCS, downgradeDefinitionsToV6, sceneBox, sceneFingerprint } from "./format-scenes.ts";
 import { listCorpusDirs, listFixtures, readFixture } from "./fixtures/format/fixtures.mjs";
@@ -164,6 +164,12 @@ describe("老文件（definitions 6.x → 7）", () => {
     eq(doc.root.materialSlots[0], null, "越界 = null");
     eq(doc.root.materialSlots[1], doc.materials[0].guid, "第二槽对上材质");
   });
+  it("定义 6→7 的迁移没拿到材质表就抛（不许静默把槽表清成 null）", () => {
+    const { json } = jsonOf(writeCatsup(documentFromScene(rich(), "t")));
+    downgradeDefinitionsToV6(json);
+    let msg = ""; try { migrateExtension("CATSUP_definitions", json.extensions.CATSUP_definitions); } catch (e) { msg = String(e); }
+    assert(msg.includes("materialGuids"), `要抛：${msg}`);
+  });
   it("没动过的老文件读两次，内容语义一样（GUID 现铸，存了才定）", () => {
     const v = (listCorpusDirs() as string[]).find((t) => t === "6")!, f = (listFixtures(v) as string[]).find((x) => x.startsWith("grouped"))!;
     const a = sceneFromDocument(readCatsup(readFixture(v, f))), b = sceneFromDocument(readCatsup(readFixture(v, f)));
@@ -230,23 +236,5 @@ describe("素材架 CATSUP_shelf 1.0", () => {
     const { json: j2 } = jsonOf(writeCatsup(back));
     eq(j2.extensions.CATSUP_shelf.version, 2, "原样写回");
     assert(j2.extensionsUsed.includes("CATSUP_shelf"), "extensionsUsed 里还有");
-  });
-});
-
-describe("这一侧没有表面（brep 4.3 编码；动词在下一张单）", () => {
-  const io = (material: number[], materialBack?: number[]) => {
-    const snap = sceneBox(1, 1).toBrep(), views: Uint8Array[] = [];
-    const n = snap.faces.length, pad = (a: number[]) => Array.from({ length: n }, (_, i) => a[i] ?? a[a.length - 1]);
-    const j = encodeBrep({ ...snap, faceLayers: { material: pad(material), ...(materialBack ? { materialBack: pad(materialBack) } : {}) } }, { add(b) { views.push(b); return views.length - 1; } });
-    return decodeBrep(j, (i) => views[i]).faceLayers ?? {};
-  };
-  it("−2 ↔ 0xFFFE；−1 仍是默认；数字槽不变（写的时候面会按规范序重排，比的是每张面的那一对）", () => {
-    const fl = io([-2, -1, 3], [-1, -2, 0]);
-    const pairs = new Set(fl.material!.map((m, i) => `${m}/${fl.materialBack![i]}`));
-    eq([...pairs].sort().join(" "), ["-2/-1", "-1/-2", "3/0"].sort().join(" "));
-  });
-  it("整层只有「没有表面」也不许被当成全默认丢掉", () => {
-    const fl = io([-2]);
-    assert(fl.material?.every((v) => v === -2), "这一层留着");
   });
 });

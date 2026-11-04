@@ -1,4 +1,4 @@
-# 计划书：身份地基（文件里的条目换 GUID、编号只当对照表代号、有序表、素材架存盘、跨文件粘贴载荷、「这一侧没有表面」）
+# 计划书：身份地基（文件里的条目换 GUID、编号只当对照表代号、有序表、素材架存盘、跨文件粘贴载荷、单面 / 双面跟身体种类走）
 
 > created 20261104 by Claude Fable 5.1 · as-of dev v0.18.26 / main 0a71021 · 来源 = `20261103-forward-ledger.md` §2 第 1、2 件（user 11-03「fable操作opus做完，然后bump minor」「要不先fable基建」）
 > 读者 = 实施的 Opus 子代理 + 以后的 Fable。user 看的是会话里的人话摘要，不是这份。
@@ -75,13 +75,18 @@
 - 架子上一格 = 引用：原物改了架子看到的就是新的；拿进别的文件 = 拷贝（§2.7）。原物不存在了（引用悬空）= 读取时丢掉那一格并在读取记录里记一笔（`FormatReadNotes` 加一类），不猜、不造。
 - 缩略图不进文件（10-30 拍，派生数据）。
 
-### 2.9 硬表面「这一侧没有表面」 〔Fable 定；user 11-03「不再找 user 聊」〕
-- 现状：brep 每张面两侧各一个槽号，`0xFFFF` = 无（= 默认材质，两侧都画）。双面讨论第八轮 user 拍「跟规范、编辑器画的 = 引擎画的」，留下这一问。
-- 决定：面层 `u16x2` 里再保留一个值 **`0xFFFE` = 这一侧没有表面**（内存里 −2）。三态：槽号 = 这一侧刷了某材质；`0xFFFF` = 这一侧是默认材质（画）；`0xFFFE` = 这一侧什么都没有（**不画、不导出、不可拾取**）。新画的面两侧都是 `0xFFFF`（和现在一样两面都画，SketchUp 语义；白模零变化）。「老游戏一张面当墙」= 朝屋里那侧刷砖、朝外那侧标「没有表面」。
-- 画 / 导出一致：有表面的一侧画出来、导出那一侧朝外的三角形；没有的一侧不画也不导出；写出去的材质 `doubleSided: false`（每侧各自朝外，不靠双面）。编辑器里不再画「背面色」占位——所见即引擎所画。
-- 网格体不用这个值：它一张面一个槽，单面 / 双面由材质的 `doubleSided`（材质纪元加字段，默认单面）决定。
-- 拍子：brep 4.2 → **4.3**（minor：老读者读到 `0xFFFE` 当成越界槽 → 现有读法已把越界映成 −1 = 默认，不炸，提示一次「文件比 app 新一个小版本」）。
-- 给它一个动词（表面工作台 / 右键「这一侧：没有表面」+「恢复表面」）；手感细节边用边改。
+### 2.9 硬表面的单面 / 双面：跟身体种类和导出规矩走，不进膜的数据 〔11-04 门审 user 改；原案 = Fable 定的 brep 面层保留值 `0xFFFE`「这一侧没有表面」，撤回〕
+- 原案的由头：双面讨论第八轮 user 拍「跟规范、编辑器画的 = 引擎画的」；硬表面的膜天然两面都画，引擎材质默认单面；想要「老游戏一张面当墙」就得在膜上标一侧不存在。门审时 user 撤回，原话：「我其实不太认可没有背面，感觉这违反了brep的语义」「比如我画了一个cube转mesh应该是单面的」「什么时候才会识别双面？」「硬表面里面对象是片而不是体」「b里面转和导出对齐，非标准背面材质问用户是出双面还是丢」「能不能同时兜住单面墙？」「d也同意」。
+- **规矩**：**硬表面体 = 每张面是一层膜、两面都在**（SketchUp）；**网格体 = 每张面一个朝向**（Blender），单面 / 双面由材质的 `doubleSided` 决定（材质纪元加字段，默认单面；user「d 也同意」）。膜上**不存**「这一侧有没有」：`0xFFFE` / −2 作废，brep 拍子仍是 4.2，没有新动词。「什么时候识别双面」= 不识别，看身体种类。
+- **转换（硬表面 → 网格体）和导出走同一条「烤成网格体」的路**，每张膜的每一侧独立判，**没有「封闭壳 / 实体」的概念**（user「硬表面里面对象是片而不是体」——方块也只是六张片围起来，里面那一侧和外面一样真实）：
+  ① 涂了 = 存在。
+  ② 没涂的那一侧：按文件记一个开关「也导（默认色）/ 不导」，默认「也导」= 和编辑器一样什么都不消失；要单面墙 = 这份文件切「不导」，哪面涂了哪面在。两侧都没涂（白模）→ 一张面、材质标双面，里外都看得见。
+  ③ 两面涂了不同材质 → 问一次「出双面（两张面背靠背，各自单面）/ 只留正面」；导出和转网格体同一个问法（user「转和导出对齐」）。
+  导出时如实报数（N 张面只导了涂过的一侧 / 丢了背面）。
+- 网格体 → 硬表面：那一侧 = 它的材质，另一侧默认（灰蓝背面色 = 「你在看背面」）；网格体 → 硬表面 → 网格体不丢。
+- 法向一致化（`scene/kinds.ts` + `mesh/ops/orient.ts`）只负责两侧长得一样时给面挑个方向，不决定什么存在。
+- 根子上的语义空洞 = 默认色分不清「没碰过」和「我就要默认色」，所以用按文件的开关，不是每张面的旗子。以后可加「引擎预览」视图开关（编辑器里直接看引擎看到的）= wishlist。
+- 现状差距（ID-2 做）：`bake.ts` 只导正面层、从不导背面；`brepToMesh` 材质槽照抄正面槽、不问。
 
 ### 2.10 拍子怎么动（一次定完）
 | 子结构 | 现在 | 改成 | 级别 | 迁移 |
@@ -89,7 +94,7 @@
 | `CATSUP_definitions` | 6.4 | **7.0**〔user 11-04「大版本同意」〕 | major：`instances[j].definition` / `root` 从下标改 GUID、`materialSlots` 下标 → GUID、每条定义 / 实例 / 组加 `guid`、`parent` 改组 GUID、实例顺序有意义 | `migrate/definitions/v6-to-v7.ts`：铸 GUID、下标换 GUID；老读者**拒开新文件**（三级语义：major = 不兼容 → 拒开，原文报版本）。user 自己只用开发版、正式版 = 开发版 v0.18.26，可接受；iPad 没更新时会看到「文件比 app 新，请更新」= 诚实 |
 | `CATSUP_material` | 1.1 | 1.2 | minor：加 `guid` | 读时补铸 |
 | `CATSUP_document` | 3.4 | 3.5 | minor：`layers[].guid` | 读时补铸 |
-| `CATSUP_brep` | 4.2 | 4.3 | minor：`0xFFFE` 新含义 | 无 |
+| `CATSUP_brep` | 4.2 | **不动** | 〔11-04 一度 4.3 = `0xFFFE`，门审 user 撤回，见 §2.9〕 | 无 |
 | `CATSUP_shelf` | — | 1.0 | 新子结构，可选 | 无 |
 | 其余 | 不动 | | | |
 - 为什么 definitions 走 major 而不是「下标 + guid 双写」：双写 = 两套真相（下标仍是老读者的引用），正是 user 讨厌的屎山风险（10-30「同时留两套会有极端大的屎山风险」）；三级语义本来就给 major 留了「拒开」。
@@ -100,9 +105,9 @@
 
 **ID-0 清点（只读，可以立刻开，和文件夹图库那张并行）**：列表——① 持久化或跨容器搬运 `DefId` / 材质下标 / 层 id / `root` 的每一处（文件、载荷、op、撤销记录、探针夹具）；② 现有冻结样本目录与读样本的守卫怎么跑；③ 物品栏纪元 v0.18.0–19 和身份有关的路径（炸开不删定义的守卫、资源页清点、拖拽换父亲走的是哪条路、短码在哪生成）各在哪、各有什么测试；④ 复现 user 10-30 说的「材质按第几个编号、删一个后面全挪号」现在能不能发生（有没有删材质的路）。产出 = 一张表 + 风险点，不改码。= forward-ledger §2 第 1 件「物品栏纪元事后审」的材料，我按表审。
 
-**ID-1 格式层**（等文件夹图库那张合进 main 后开；在自己的 worktree）：`src/format/guid.ts`（铸 / 校验 / 前四位显示码）；`document.ts` 类型按 §2.10；`scene.ts` 加 `guid`（定义 / 实例 / 材质 / 层）、`materials` 改 Map；`scene-doc.ts` 读写按 GUID；迁移 `migrate/definitions/v6-to-v7.ts` + material / document 补铸；brep-codec 认 `0xFFFE`；`CATSUP_shelf` 读写（空也能过）；`FORMAT` 改拍；冻结样本；读写再读逐字段一致（契约 §7.9）；`gen-api.sh` 重打。**不动编辑器行为**，只让文件和运行时结构换身份；全部现有测试 / 探针绿。
+**ID-1 格式层**（等文件夹图库那张合进 main 后开；在自己的 worktree）：`src/format/guid.ts`（铸 / 校验 / 前四位显示码）；`document.ts` 类型按 §2.10；`scene.ts` 加 `guid`（定义 / 实例 / 材质 / 层）、`materials` 改 Map；`scene-doc.ts` 读写按 GUID；迁移 `migrate/definitions/v6-to-v7.ts` + material / document 补铸；~~brep-codec 认 `0xFFFE`~~（门审撤回，§2.9）；`CATSUP_shelf` 读写（空也能过）；`FORMAT` 改拍；冻结样本；读写再读逐字段一致（契约 §7.9）；`gen-api.sh` 重打。**不动编辑器行为**，只让文件和运行时结构换身份；全部现有测试 / 探针绿。
 
-**ID-2 运行时换身份 + 有序表 + 没有表面**：槽表 / 油漆桶 / 材质面板 / 载荷 / `paste` op / 资源页按 GUID；「清理没人用的材质」动词；`reorderInstance` op + 层级窗拖一行到同级某位置；`0xFFFE` 的画 / 拾取 / 导出 + 动词；撤销 fuzz 加「GUID 不重铸」核对；更新 `20261026-pipelines.md` 的文件流程段。
+**ID-2 运行时换身份 + 有序表 + 导出背面**：槽表 / 油漆桶 / 材质面板 / 载荷 / `paste` op / 资源页按 GUID；「清理没人用的材质」动词（§8 定了删法）；`moveInstance` op（换父亲保身份 + 同级排序，§8）+ 层级窗拖一行到同级某位置；烤 / 导出 / 转网格体按 §2.9 新规矩（导背面、按文件开关「没涂的背面也导 / 不导」、「两面不同材质：双面 / 只留正面」一问、如实报数）；撤销 fuzz 加「GUID 不重铸」核对；更新 `20261026-pipelines.md` 的文件流程段。
 
 **ID-3 跨文件粘贴 + 素材架数据**：`TransferPayload` v2（闭包、GUID）、粘贴合并（§2.7）、撤 `docEpoch` 拒贴；素材架：标为素材 / 取下 / 建文件夹 / 改名 / 排序的 op + 资源页里能看见架上有什么（抽屉 UI 不在这张）；「素材导入别的 .catsup」的数据路（读文件 → 闭包 → 合并 → 上架），入口先放资源页一个钮；生死算上架子。
 
@@ -145,7 +150,7 @@ export class Scene {
 export interface Shelf { folders: ShelfFolder[]; items: ShelfItem[] }
 export interface ShelfFolder { readonly guid: Guid; name: string; parent: Guid | null }
 export interface ShelfItem   { readonly guid: Guid; kind: "definition" | "material"; ref: Guid; folder: Guid | null }
-export const NO_SURFACE = -2;                    // brep 面某一侧：没有表面（文件 0xFFFE）；-1 = 默认材质（0xFFFF）
+// NO_SURFACE = -2 作废（11-04 门审 user 撤回，§2.9）：膜上不存「这一侧有没有」；-1 = 默认材质（0xFFFF）照旧
 
 // src/format/document.ts（增量）
 export interface MaterialDoc   { guid: Guid; name: string; color: …; texture?: ImageAsset }
@@ -180,9 +185,9 @@ export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid,
 
 ## 7. ID-1 实施记录 + 门审看什么（2026-11-04，Claude Opus 5.5；分支 `identity-id1`，未合 main、未推）
 
-**已做**：`format/guid.ts`；`document.ts` 类型；`migrate/definitions.ts`（6→7）；`read.ts` / `write.ts` / `scene-doc.ts` 按 GUID；`scene.ts` 每个条目带 `guid`（克隆保身份）；`brep-codec` 认 `0xFFFE`；`CATSUP_shelf` 读写；拍子 document 3.5 · brep 4.3 · definitions 7.0 · instance 2.0 · material 1.2 · shelf 1.0；冻结语料新目录；`test/identity-guard.test.ts`；§4 守卫 1、2、5 落地。编辑器行为零变化。
+**已做**：`format/guid.ts`；`document.ts` 类型；`migrate/definitions.ts`（6→7）；`read.ts` / `write.ts` / `scene-doc.ts` 按 GUID；`scene.ts` 每个条目带 `guid`（克隆保身份）；~~`brep-codec` 认 `0xFFFE`~~（门审撤回，§8）；`CATSUP_shelf` 读写；拍子 document 3.5 · brep 4.2（不动）· definitions 7.0 · instance 2.0 · material 1.2 · shelf 1.0；冻结语料新目录；`test/identity-guard.test.ts`；§4 守卫 1、2、5 落地。编辑器行为零变化。
 
-**没做（ID-2 / ID-3）**：换父亲保身份、同级排序 op、「没有表面」的画 / 拾取 / 导出 / 动词、材质清理、载荷 v2、撤 `docEpoch`、架子的动词和「架子上的也算活着」。
+**没做（ID-2 / ID-3）**：换父亲保身份、同级排序 op、导出背面 + §2.9 的开关和一问、材质清理、载荷 v2、撤 `docEpoch`、架子的动词和「架子上的也算活着」。
 
 **实测**：`npm test` 1486 过 0 红；tsc 干净；redline 绿；无头 `probe-boot` / `probe-clipboard` / `probe-hierarchy` / `probe-hierarchy-drag` / `probe-undo-fuzz 2 20` 绿；`probe-update-conflict pair <main 包> <本分支>` 场景 1 更新后网盘写 0、eTag 不变，无页面错误；上一版代码读 7.0 样本 = `FormatTooNewError`「version 7 is newer」。`probe-render-baseline` 2 张红（`style-papercut-boxes`、`style-realistic-textured`），main 上同样 2 张、像素数逐字一样 = 这次之前就红了，和本单无关，记功能账。性能护栏（§4.6）没跑：运行时句柄和热路径没动，预期 0 差。
 
@@ -198,5 +203,18 @@ export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid,
 
 **门审重点**：`src/format/migrate/definitions.ts`（数据安全：去重语义、坏数据不吞）；`read.ts` 新顺序；`scene-doc.ts` 重写（组 / 实例句柄读时现发，不再保留文件里的 id；全仓没找到依赖「重开后句柄不变」的地方，这条是 grep + 测试的结论，不是证明）。
 
-**清点 §5 P9 补一处**：`brep-codec.ts canonicalize` 也有 `some(v >= 0)`，已修（守卫抓到的）。
+**清点 §5 P9 补一处**：`brep-codec.ts canonicalize` 也有 `some(v >= 0)`，当时修了；门审撤回 `0xFFFE` 后随之还原（没有 −2 就不需要）。P9 整条作废。
+
+## 8. 门审结论（2026-11-04，Claude Fable 5.1；user 在场）
+
+**合。** 迁移的去重语义 = 旧读法（位置留先写的、内容留后写的）；坏数据原样留给 `read.ts` 照旧拒开；材质先读、定义后读的顺序正确；写入器全按 GUID 查表；§7 列的 8 处差异全认。
+
+**门审改的两处（同分支补一个提交）**：① `0xFFFE`「这一侧没有表面」整个撤回（user，§2.9）：`brep-codec.ts` 回到 main 的版本、brep 拍子仍 4.2、守卫两条删、冻结目录按新签名重打。② `migrateExtension` 的材质表参数不再默认成空表——没传就抛（默认空表 = 老文件的材质槽静默清空，测试不一定抓到；加一条守卫）。
+
+**ID-2 开工前定的（Fable）**：
+① 删材质（清点 P8）：运行时 `materials` 数组 splice，**同一个 op 里**把所有定义槽表里的下标重排、指着被删材质的槽置 null（面上代号不动，落到「没材质」= 默认）；句柄只活会话，文件侧是 GUID 不受影响；撤销走 scene 记录（clone 拷材质数组）。不改成 Map。
+② 换父亲 = 新 op `moveInstance { from: { def, inst }, into: { def, parent: GroupId | null }, xform, index? }`：实例对象从一个 Map 搬到另一个，**GUID 不变**，在目标定义里拿新句柄；同级排序 = 同一个 def 只给 `index`（重建 Map 的插入顺序）；先 `scene.references(inst.def, into.def)` 拒绝成环；撤销 = 骨架级。`reparentOp`（现在 = 删 + 贴，换新号）退役。
+③ 导出 / 转网格体按 §2.9 新规矩（含导背面；`bake.ts` 现在只导正面）。
+
+**ID-3 注意**：① 太新的架子（原字节带回）+ 本版又往架子放东西 → 谁赢要定（现在 `write.ts` 是本版的覆盖原字节）。② 读时丢掉的悬空格（`danglingShelfRefs`）要在界面披露一次，不许只记 notes。③ `sceneFromDocument` 用 cast 覆盖根的 guid，`Scene` 构造器收 `rootGuid` 更干净（顺手）。
 

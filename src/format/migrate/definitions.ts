@@ -26,7 +26,8 @@ function dedupeById(arr: unknown): { rows: Record<string, unknown>[]; guidOf: Ma
   return { rows: [...byId.values()], guidOf: new Map([...byId.keys()].map((id) => [id, mintGuid()])), idOf };
 }
 
-export function definitionsV6toV7(j: Record<string, unknown>, ctx: MigrationCtx): Record<string, unknown> {
+export function definitionsV6toV7(j: Record<string, unknown>, ctx?: MigrationCtx): Record<string, unknown> {
+  if (!ctx) throw new Error("migrate: CATSUP_definitions v6→v7 needs MigrationCtx.materialGuids (read the material table first; defaulting to an empty table would silently null every material slot)");
   if (!Array.isArray(j.list)) return { ...j, version: 7 };   // read.ts 拒开
   const list = j.list as unknown[];
   const defGuids = list.map(() => mintGuid());
