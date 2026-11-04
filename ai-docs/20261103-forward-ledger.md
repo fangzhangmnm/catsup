@@ -107,7 +107,14 @@ user 11-03（说的是 MoonSinger，Fable 转述，CatsUp 同理）：「（文�
 
 **Fable 11-03 放行 0.1**，四处对不上的已改进清单；「user 先在开发版过一次登录过期再推正式版」= 建议，不算硬门；7z-wasm 疑点记在清单里，靠提示把人引到新址，不另做。
 
-**还差**：开局提示（patch，别和 C4 撞工作区）；user：推正式版一句话、Porkbun + Entra、每台设备清空「要处理」（user 说一声就算，转给 Fable）；user 说搬、Fable 看过之后，Opus 核解析、填 Pages 域名、强制 HTTPS、按清单 §3 验收。搬完把 CLAUDE.md 地址节和探针（现在在 job tmp）收进仓。
+**11-04 进度（Claude Opus 5.5）**：
+- user 亲口：「清空了，推」。每台设备「要处理」清空；旧址提示版 v0.18.26（`src/app/moved-notice.ts` + `SITE_URL`，探针 `probe-moved-notice`、`probe-sw-301` 已进仓）已推开发版和**正式版**（prod = 570e1f1，这次 prod 的 run 是 cancelled，dispatch main 后切换，约一分钟）。线上无头核过：旧 `/` 和 `/dev/` 都 200、版本 v0.18.26、提示在、页面错误 0。
+- 解析核过：系统解析四个 GitHub IP，Google / Cloudflare 都答 CNAME。Porkbun 已做；Entra 两条 user 说「应该加了」（Fable 转述），验收时登一次就知道。
+- user 问「app应该不硬编码网址地址吧」：没有。回跳地址 = `location.origin + location.pathname`，离线壳和 manifest 都是相对路径；写死的只有 `SITE_URL` 和 `moved-notice.ts` 里判断旧地址那个 host，只给搬家提示用。
+
+**卡在这**：`gh api -X PUT …/pages -f cname=…` 被这台机器的自动模式权限规则拦了（改域名类操作）。不绕、不请别的会话代跑，交给 user 本人（先例：WXHW 那次就是 user 在 GitHub 页面填的）。
+
+**还差**：user 填 Pages 域名 → 证书签好 → 强制 HTTPS → Opus 按清单 §3 验收（读状态和探网址不受影响）→ user 真机登一次网盘、重输一次口令 → 改 CLAUDE.md 地址节和 README → 报告 + 通知 Fable。
 
 ## 6. 不排期（记着，别漏）
 
