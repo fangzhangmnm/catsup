@@ -1,4 +1,5 @@
 import type { BodyKind } from "../scene/body-kind.ts";
+import type { Guid } from "../format/guid.ts";
 import type { DefId, EditContext, GroupId, InstId, Scene } from "../scene/scene.ts";
 import { type Xform } from "../scene/xform.ts";
 import type { Op } from "./ops.ts";
@@ -49,18 +50,21 @@ export declare function setHiddenOp(scene: Scene, node: HierNode, on: boolean): 
 export declare function worldOfPath(scene: Scene, path: readonly HierPick[]): Xform;
 /** 这一行展开后装的是哪个组件定义（根 = 模型根；物件 = 它摆的那个组件）。 */
 export declare function contentDef(scene: Scene, n: HierNode): DefId;
-export type Reparent = {
+export type RowMove = {
     readonly op: Op;
     readonly into: DefId;
     readonly from: DefId;
-    readonly name: string;
+    readonly name: string; /** 这一份的身份：跨定义之后句柄变了，靠它再找回来。 */
+    readonly guid: Guid; /** 同一定义里排序：搬完排第几。 */
+    readonly index?: number;
 } | {
     readonly why: string;
 };
 /**
- * 把 node 这一行挪到 target 底下当孩子（I3）：一条 batch = 删原处（eraseInstance）+ 原位贴进 target 装的那个组件（paste，世界位置不变）——撤销一步。
- * 挂在 target 组件的最外层（不进它里面的组：组不进层级窗，user 10-24）。已经是 target 的孩子 = null（不动）。
+ * 把 node 这一行挪到 target 底下（I3 / ID-2）：一条 moveInstance，撤销一步，这一份的 GUID 不变。
+ * before：undefined = 放进去（拖到一行中间，跨定义排最后、同定义不动）；null = 排到最后；一行 = 排到它前面。
+ * 跨定义挂在 target 组件的最外层（不进它里面的组：组不进层级窗，user 10-24），世界位置不变；同定义只改顺序（组的归属不动）。没变化 = null。
  * 拒绝（人话）：根不能挪 / 放进自己或自己里面（组件互相装 = 死循环）/ 自己或路上锁着 / 目标或目标路上锁着 / 会斜切（glTF 不许组件斜切；执行时还有全局护栏兜底）。
  * 原处和目标都可能摆了好几份（同一个组件）：这一份在每一份里都没了 / 都多了——SketchUp 同款，调用方要把份数说出来。
  */
-export declare function reparentOp(scene: Scene, node: HierNode, target: HierNode): Reparent | null;
+export declare function moveRowOp(scene: Scene, node: HierNode, target: HierNode, before?: HierNode | null): RowMove | null;

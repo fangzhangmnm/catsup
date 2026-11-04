@@ -11,7 +11,7 @@ export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 export type DefId = number;
 export type GroupId = number;
 export type InstId = number;
-/** 材质（文档级，= glTF core material）：颜色（sRGB 0..1）+ 可选贴图（原图字节 + 物理尺寸 米）。只增不删（面按索引引用）。 */
+/** 材质（文档级，= glTF core material）：颜色（sRGB 0..1）+ 可选贴图（原图字节 + 物理尺寸 米）。面 → 槽号 → 槽表 → 这张表；只有「清理没人用的材质」删（ops.ts purgeMaterials，同一步重排所有槽表）。 */
 export interface Material {
     /** 身份（文件 / 跨文件都认它）。下标只是这次会话的句柄。 */
     readonly guid: Guid;
@@ -96,7 +96,7 @@ export declare class Scene {
     readonly meshMirrors: Map<DefId, MirrorSetting>;
     readonly defs: Map<number, Definition>;
     readonly root: DefId;
-    /** 文档材质表（只增）。 */
+    /** 文档材质表（下标 = 运行时句柄，别跨撤销 / 清理攥着；要记住一个材质就记 guid 或对象）。 */
     readonly materials: Material[];
     /** 绘图轴（0.11 尺规纪元）：根上下文的轴，世界坐标；轴工具可搬 / 转，默认 = 世界帧。进 CATSUP_document.axes。 */
     axes: Frame;

@@ -1,4 +1,5 @@
 import type { BodyKind } from "./body-kind.ts";
+import type { Guid } from "../format/guid.ts";
 import type { DefId, InstId, Scene } from "./scene.ts";
 export interface DefCensus {
     readonly def: DefId;
@@ -15,12 +16,22 @@ export interface DefCensus {
     readonly live: boolean;
 }
 export interface MaterialCensus {
-    /** 文档材质表里第几个（序号：I11 换 GUID 之前的临时身份）。 */
+    /** 运行时句柄（文档材质表下标；只活这次会话）。 */
     readonly index: number;
+    readonly guid: Guid;
     readonly name: string;
     readonly textured: boolean;
     /** 活着的组件里用它的面（一面一侧算一次；藏起来的面也算）。 */
     readonly faces: number;
+    /** 只躺在孤儿组件里的面（孤儿捡回来还要它）。 */
+    readonly orphanFaces: number;
+    /** 素材架收着。 */
+    readonly shelved: boolean;
+}
+export interface MaterialUse {
+    faces: number;
+    orphanFaces: number;
+    shelved: boolean;
 }
 export interface Census {
     readonly defs: readonly DefCensus[];
@@ -30,5 +41,9 @@ export interface Census {
 export declare function liveDefs(s: Scene): Set<DefId>;
 /** 一次清点（模型根不列：它不是谁摆出来的，也不会是孤儿）。 */
 export declare function census(s: Scene): Census;
+/** 每个材质（按文档材质表下标）被谁用：活着的组件 / 孤儿组件 / 素材架。 */
+export declare function materialUse(s: Scene): MaterialUse[];
+/** 能清理的材质（没有任何面用、架子也没收）：清理指令吃这张单子。 */
+export declare const unusedMaterials: (c: Census) => number[];
 /** 孤儿组件（够不着的）：清理指令吃这张单子。 */
 export declare const orphanDefs: (c: Census) => DefId[];

@@ -3,7 +3,7 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
-import { type PoolRef, type MeshBody, type Body as SceneBody, Scene } from "../scene/scene.ts";
+import { type PoolRef, type MeshBody, type Body as SceneBody, type Material, Scene } from "../scene/scene.ts";
 import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import { type ImportedScene } from "../scene/import-build.ts";
@@ -185,6 +185,28 @@ export type Op =
     op: "purgeDefs";
     defs: number[];
 }
+/** 清理没人用的材质（身份地基 ID-2；user 点了「清理」才跑）：全家唯一删材质的地方（守卫 test/identity-id2.test.ts）；单子里有一个还有人用（活着的组件 / 孤儿组件 / 素材架）= 整条拒绝。materials = 这一刻的运行时下标；同一条指令把所有定义的槽表重排，面上的槽号不动（计划书 §8 ①）。 */
+ | {
+    op: "purgeMaterials";
+    materials: number[];
+}
+/**
+ * 换父亲 / 同级排序（身份地基 ID-2，计划书 §8 ②）：实例对象搬家，**GUID 不变**（以前「换父亲」= 删 + 贴 = 新身份）。跨定义 = 在目标定义里拿新句柄；同一定义 = 句柄不变、只改顺序（和 parent）。
+ * index = 搬完之后它在目标定义的实例顺序里排第几（缺 = 跨定义排最后、同定义不动）；xform = 目标定义里的新变换（缺 = 不变）。先查成环。
+ */
+ | {
+    op: "moveInstance";
+    from: {
+        def: number;
+        inst: number;
+    };
+    into: {
+        def: number;
+        parent: number | null;
+    };
+    xform?: Xform;
+    index?: number;
+}
 /** 复制一个 group（含子 group / 子实例）到同父池，整体经 xform（父空间）。 */
  | {
     op: "copyGroup";
@@ -192,7 +214,7 @@ export type Op =
     group: number;
     xform: Xform;
 }
-/** 新材质（文档级，只增）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
+/** 新材质（文档级）：颜色 sRGB 0..1；贴图 = 原图字节（运行时 Uint8Array；线协议要走 base64，未做）+ 物理尺寸 米。返回索引 = 当时的 materials.length。 */
  | {
     op: "addMaterial";
     name: string;
@@ -419,7 +441,10 @@ export type Op =
     name: string;
 }
 /** 合并物体（Blender Ctrl+J）：at 池里 sources 这几份网格体的几何换到 target 那一份的坐标里并进它的定义，sources 删掉。 */
-/** 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**，材质 = 文档材质 id，指令里换成目标定义的槽号）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。 */
+/**
+ * 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。
+ * 面上的材质编号 = materials 这张对照表的下标（家规「编号只当对照表的代号」）：按 GUID 对回文档材质，没有就带着原 GUID 加回来，再换成目标定义的槽号。缺 materials = 老复现包：编号就是文档材质下标。
+ */
  | {
     op: "paste";
     at: PoolRef;
@@ -427,6 +452,7 @@ export type Op =
     groups?: TransferGroup[];
     mesh?: MeshFragment;
     instances?: TransferInstance[];
+    materials?: readonly Material[];
 }
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {

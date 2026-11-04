@@ -2,7 +2,7 @@ import type { Pt3 } from "../kernel/geom.ts";
 import { type BrepSnapshot } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type Guides } from "../scene/guides.ts";
-import { type DefId, type EditContext, type GroupId, type InstId, type Scene } from "../scene/scene.ts";
+import { type DefId, type EditContext, type GroupId, type InstId, type Material, type Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 export interface TransferGroup {
     readonly parent: number | null;
@@ -20,7 +20,7 @@ export interface TransferInstance {
     readonly layer?: number;
     readonly hidden?: boolean;
 }
-/** 网格体散几何：faces.mat / 边 flags 原样；mat = 文档材质 id（−1 = 无）。 */
+/** 网格体散几何：faces.mat / 边 flags 原样；mat = 载荷 materials 表的下标（−1 = 无）。 */
 export interface MeshFragment {
     readonly verts: Pt3[];
     readonly faces: {
@@ -40,6 +40,8 @@ export interface TransferPayload {
     readonly groups?: TransferGroup[];
     readonly mesh?: MeshFragment;
     readonly instances?: TransferInstance[];
+    /** 面上材质编号的对照表（brep 面层 / groups 面层 / mesh.faces[].mat 都是它的下标）。 */
+    readonly materials?: readonly Material[];
 }
 export interface TransferCounts {
     faces: number;
