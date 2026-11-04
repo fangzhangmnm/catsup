@@ -331,11 +331,14 @@ ID-2 第一半已按 9.1 合 main：干净重建 + 五个探针全绿，`--ff-on
 
 user 对 §11 记账的答复（原话）：「几个红的探针这次session修……应该交给opus就行」「预演不算两侧 think critically about it，然后我看sketchup是pull的一瞬间就有了」「大模型开导出表单会顿 记账，这次session做？」「转视角后打尺寸 做，必须做」「老文件重存会胖 没事」「风格预览里看不见的背面还能被选中 没事，expected behavior」。
 
-**C1 预演也算两侧（预演 = 结果）**。现状：`computeLive` 的 `run(fn)` 直接在影子内核上调几何动词，两侧规矩住在指令层（`ops.ts sideNewFaces`），因为写默认背面要 `slotFor` 在定义槽表开一格、预演不许碰真身。做法：
-- `run` 多收一个可选提示 `{ front?: Pt3; seed?: FaceId }`：画线族（line / rect / crect / rrect / circle / arc / offset）传 `front`（同 `editor.withFront` 那一条算法，取手势第一个点的视线方向，池本地）；推拉传 `front` + `seed = 被推的面`。其他工具不传 = 只跟邻面（和提交一样）。
-- `computeLive` 在 `fn(c)` 之后：`settleNewFaceSides(c, bornFaces(events), { back, openBack: () => previewBack, front, seed })`。`back = materialSlots.indexOf(−2)`；**槽表不真开**：`previewBack = back >= 0 ? back : materialSlots.length`（= 提交时 `slotFor` 会给的那个号）。影子倒回（`rewindTo`）本来就把面层一起退，不用另清。
-- `stream-provider.env()`：画**影子那具身体**时 `matOf(slot)` 认 `slot === materialSlots.length` 为 `BUILTIN_BACK`；真身永远不会引用到表外的号（提交先开槽再写）。这个约定只住 provider 一处 + `face-sides.ts` 一行注释；撤销 fuzz 每步加一条不变量：真身面层的槽号 < 槽表长度。
-- 验收：探针 `probe-default-back` 加一段——矩形工具落第一点后、第二点悬停时（还没松手）从下面读像素是灰蓝；推拉拖到一半从外面看是白模灰、里面灰蓝；松手前后像素不变。
+**C1 预演 = 同一条指令在影子场景上跑（user「我觉得预演要做干净」，取代先写的「临时格号」做法）**。现状：`computeLive` 的 `run(fn)` 让工具直接在影子内核上调几何动词（`c.pushPull(…)`），提交时另造一条 op；两侧 / `front` / 镜像改写 / 锁 / 描硬边都只在提交那条路上，预演天然会和结果不一样。做法（一刀切过所有工具的预演路）：
+- **影子场景**：`shadowScene = scene.cloneSkeleton()`（定义 / 实例 / 槽表拷贝，内核共享；核一下 `materialSlots` 是拷的——撤销的 `purgeMaterials` 靠它，应该是）+ 活动池的内核换成影子内核（`shadowKernel()` 那份，拷一次每帧倒回不变）。每帧：影子内核 `rewindTo`、骨架重拷（几百字节）。
+- **工具不再拿内核**：`ToolHandler.live(ctx, preview)`，`preview(op)` → `Editor.previewOp(op)` = 和 `commitIn` **同一段前处理**（`withFront` → `mirrorRewrite` → 锁检查）再 `applyOp(shadowScene, op)`，返回事件。工具把这次手势造成 op 的那段代码只写一份（`opFor(gesture)`），预演 `preview(opFor(g))`、提交 `toolCommit(opFor(g))`。复制预演（`previewXform` 的载荷）= `absorb` op；挪点 = `move` op；子池 / 实例的整体变换照旧走叠加变换不进影子。
+- **渲染**：provider 画影子那具身体时材质从影子场景取（`materialOfSlot` 的 scene 参数 = 影子场景；`setWorld` 多带一个影子场景或 WorldView 从它造）。槽表在影子副本上真开，**没有临时号、没有表外约定**。
+- **网格体工作台**同一刀：`runMesh` 改成 mesh op 在影子场景跑（影子里的 `scene.mesh(def).kernel` = 拷贝）。Opus 看量，量大就第二步，但别留两种预演机制过夜。
+- **守卫**：`test/preview-op-guard.test.ts`——`src/editor/tools/*.ts` 不出现内核动词（`.pushPull(` / `.addEdges(` / `.moveVertices(` / `.followMe(` / `.absorb(` / `.eraseEdges(` …）和 `run((c)`；预演入口只有 `Editor.previewOp`（同 step-pass 守卫的做法）。撤销 fuzz 每步加不变量：真身面层的槽号 < 槽表长度。
+- **性能**：`applyOp` 比直调多一次坐标寻址（`resolveFace` / `resolveVertex`，id 表 O(1)）；用 `bench-pools`（拖 200 盒）和推拉手势计时对照改前，不许退。
+- 验收：探针 `probe-default-back` 加一段——矩形工具落第一点后、第二点悬停时（还没松手）从下面读像素是灰蓝；推拉拖到一半从外面看是白模灰、里面灰蓝；松手前后像素不变。预演失败（内核拒）照旧进黑匣子。
 
 **C2 数值小窗重画复用第一次的 front**（user「做，必须做」）。现状：`commitFront` 每次按当下相机重算 → 画完转到另一侧再打尺寸，面翻了。做法：`toolCommit` 给 op 加 `front` 时同时记到这次手势的记录（`LastGesture` 加可选 `front`；记录由谁建就由谁带上）；`commitFront` 先用记录里的，没有（老复现包 / 没记录）才按当下相机算。单测：画一张面（front 朝上）→ 把 `frame().viewDir` 换成朝下 → VCB 重画 → 朝向不变。
 
