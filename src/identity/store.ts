@@ -27,10 +27,12 @@ export interface EntryStore {
   roots(): readonly Ref[];
   refsOf(r: Ref): readonly Ref[];
   usage(r: Ref): Usage;
+  /** 这份模型的根（永不被更新、永不被断开；手改过的文件可能拿它当别人的组件）。 */
+  readonly modelRoot?: Ref;
 }
 
 /** 一张表的店（纯文档 / 测试）：引用按种类声明答。 */
-export function tableStore(docs: readonly { readonly kind: EntryKind; readonly doc: unknown }[], roots: readonly Ref[], usage: (r: Ref) => Usage = () => NO_USAGE): EntryStore {
+export function tableStore(docs: readonly { readonly kind: EntryKind; readonly doc: unknown }[], roots: readonly Ref[], usage: (r: Ref) => Usage = () => NO_USAGE, modelRoot?: Ref): EntryStore {
   const byKey = new Map<string, unknown>();
   for (const { kind, doc } of docs) { const k = KINDS.get(kind); if (k) byKey.set(refKey({ kind, guid: k.guidOf(doc) }), doc); }
   return {
@@ -40,5 +42,6 @@ export function tableStore(docs: readonly { readonly kind: EntryKind; readonly d
     roots: () => roots,
     refsOf: (r) => { const doc = byKey.get(refKey(r)); return doc === undefined ? [] : (KINDS.get(r.kind)?.refs(doc) ?? []); },
     usage,
+    ...(modelRoot ? { modelRoot } : {}),
   };
 }

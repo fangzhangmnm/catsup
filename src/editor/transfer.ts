@@ -21,14 +21,15 @@ import type { BodyKind } from "../scene/body-kind.ts";
 import { cloneGuides, emptyGuides, transformGuides, type Guides } from "../scene/guides.ts";
 import { castBody } from "../scene/kinds.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
-import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Instance, type Material, type Scene } from "../scene/scene.ts";
+import { extractSnapshot, remapSnapshotMaterial, transformSnapshot, type DefId, type EditContext, type GroupId, type InstId, type Instance, type Material, type PoolRef, type Scene } from "../scene/scene.ts";
 import { applyPt, compose, transformFrame, type Frame, type Xform } from "../scene/xform.ts";
 import type { CatsupDocument, DefinitionDoc, LayerDoc } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
 import { DEFINITION, LAYER, MATERIAL, defRef, layerGuidOfTable, layerRef, materialRef, type DefinitionEntry } from "../format/entry-kinds.ts";
-import { applyPlan, docStore, sceneStore } from "../format/scene-store.ts";
-import { KEEP, bundleOf, frontier, plan, planWouldCycle, type Bundle } from "../identity/graph.ts";
-import type { Ref } from "../identity/kinds.ts";
+import { applyPlan, docStore, sceneStore, type SceneStore } from "../format/scene-store.ts";
+import { KEEP, bundleOf, docsNeeded, frontier, plan, planWouldCycle, type Bundle, type Decision, type Frontier, type MergePlan } from "../identity/graph.ts";
+import { KINDS, refKey, type Ref } from "../identity/kinds.ts";
+export { KEEP, type Decision } from "../identity/graph.ts";
 import { isHex4 } from "./object-tree.ts";
 import type { Op } from "./ops.ts";
 
@@ -197,22 +198,49 @@ export function payloadBundle(p: Pick<TransferPayload, "brep" | "groups" | "mesh
     roots: [...(p.closure?.roots ?? guids(placed.map((i) => i.def))).map(defRef), ...guids(placed.map((i) => i.layer)).map(layerRef), ...faceMaterials.map(materialRef)],
   };
 }
+type PastePayload = Parameters<typeof payloadBundle>[0];
+/** 这一贴的计划：frontier → plan（applyPlan 在 landPayload）。 */
+export interface PastePlan { readonly store: SceneStore; readonly bundle: Bundle; readonly plan: MergePlan }
+export function planPaste(s: Scene, p: PastePayload, d: Decision = KEEP): PastePlan { const store = sceneStore(s), bundle = payloadBundle(p); return { store, bundle, plan: plan(store, bundle, d) }; }
+/** 这一贴不能做的话，说为什么（站在要被更新的组件里面 / 会成环）。inside = 编辑上下文这一路上的定义（指令只知道贴进哪个定义，所以传它一个；编辑器传整条链）。 */
+export function pasteBlocked(s: Scene, pp: PastePlan, into: DefId, inside: readonly DefId[] = [into]): string | null {
+  const updated = new Set(pp.plan.update.filter((r) => r.kind === DEFINITION).map((r) => r.guid));
+  if (inside.some((id) => updated.has(s.def(id).guid))) return "粘贴：要更新的组件正是你站在里面的这个：先退出来再贴";
+  return planWouldCycle(pp.store, pp.bundle, pp.plan, defRef(s.def(into).guid)) ? "粘贴：不能把一个物件贴进它自己（或它的子孙）里" : null;
+}
 /** 落地之后怎么认载荷里的东西（ops.ts 的 paste 用）。 */
-export interface LandedPayload { defOf(i: TransferInstance): number | undefined; layerOf(i: TransferInstance): number | undefined; materialOf(code: number): number }
-/** 粘贴的第一步：frontier → plan → applyPlan（同 GUID 用目标那条，没有的带原 GUID 新建；用不上的不加）。 */
-export function landPayload(s: Scene, p: Parameters<typeof payloadBundle>[0]): LandedPayload {
-  const bundle = payloadBundle(p), land = applyPlan(s, bundle, plan(sceneStore(s), bundle, KEEP)), table = p.materials;
+export interface LandedPayload { defOf(i: TransferInstance): number | undefined; layerOf(i: TransferInstance): number | undefined; materialOf(code: number): number; defGuid(g: Guid): Guid }
+/** 按计划落地（新建带原 GUID、更新原地换身体、断开铸新）。 */
+export function landPayload(s: Scene, pp: PastePlan, table: readonly Material[] | undefined): LandedPayload {
+  const land = applyPlan(s, pp.bundle, pp.plan);
   return {
     defOf(i) { const raw = i.def as unknown; return typeof raw === "number" ? (s.defs.has(raw) ? raw : undefined) : land.idOf(defRef(i.def)); },
     layerOf(i) { const raw = i.layer as unknown; return typeof raw === "number" ? raw : i.layer === undefined ? undefined : land.idOf(layerRef(i.layer)); },
     materialOf(code) { if (code < 0) return -1; if (!table) return code; const m = table[code]; return m ? (land.idOf(materialRef(m.guid)) ?? -1) : -1; },   // 没表 = 老复现包，编号就是文档材质下标
+    defGuid: (g) => land.guidOf(defRef(g)),
   };
 }
-/** 进指令之前：闭包只留这一贴真要新建的定义（指令流永不驱逐，同一个文件里贴一百次不许攒一百份闭包；提示行的「用了已有的」照用没剪的那份载荷）。重放时场景状态相同，结果相同。 */
-export function trimClosure(s: Scene, p: TransferPayload): TransferPayload {
+/** 进指令之前：闭包只留这个计划要的定义（指令流永不驱逐，同一个文件里贴一百次不许攒一百份闭包；提示行照用没剪的那份载荷）。重放时场景状态相同，结果相同。 */
+export function trimClosure(s: Scene, p: TransferPayload, d: Decision = KEEP, pp: PastePlan = planPaste(s, p, d)): TransferPayload {
   if (!p.closure) return p;
-  const make = new Set(frontier(sceneStore(s), payloadBundle(p)).create.filter((r) => r.kind === DEFINITION).map((r) => r.guid));
-  return { ...p, closure: { ...p.closure, definitions: p.closure.definitions.filter((d) => make.has(d.guid)) } };
+  const need = docsNeeded(pp.bundle, pp.plan);
+  return { ...p, closure: { ...p.closure, definitions: p.closure.definitions.filter((x) => need.has(refKey(defRef(x.guid)))) } };
+}
+/** 弹窗的一行（事实，不是「谁新」：文件里没有版本号，机器判不了）。 */
+export interface ConflictRow { readonly kind: string; readonly name: string; readonly placed: number; readonly faces: number; readonly locked: number; readonly shelved: boolean; /** 组件两边各几张面。 */ readonly hereFaces?: number; readonly incomingFaces?: number; /** 材质两边的颜色（sRGB 0..1）+ 有没有贴图。 */ readonly hereMaterial?: Material; readonly incomingMaterial?: Material }
+const faceCount = (e: DefinitionEntry): number => (e.def.kind === "mesh" && e.def.mesh ? e.def.mesh.faceLen.length : e.def.brep.faces.length + e.def.groups.reduce((n, g) => n + g.brep.faces.length, 0));
+export function conflictRows(f: Frontier): ConflictRow[] {
+  return f.differ.map((x) => {
+    const base = { kind: x.ref.kind, name: KINDS.get(x.ref.kind)!.nameOf(x.here), placed: x.usage.placed, faces: x.usage.faces, locked: x.usage.locked, shelved: x.usage.shelved };
+    if (x.ref.kind === DEFINITION) return { ...base, hereFaces: faceCount(x.here as DefinitionEntry), incomingFaces: faceCount(x.incoming as DefinitionEntry) };
+    return x.ref.kind === MATERIAL ? { ...base, hereMaterial: x.here as Material, incomingMaterial: x.incoming as Material } : base;
+  });
+}
+/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。 */
+export function pasteConflict(s: Scene, p: TransferPayload): ConflictRow[] | null {
+  if (!p.closure && !p.materials) return null;
+  const rows = conflictRows(frontier(sceneStore(s), payloadBundle(p)));
+  return rows.length ? rows : null;
 }
 
 /** 从别的文件抠闭包（素材导入：只读那份文件、挑几个组件）：没有摆放，只有 picks 往下走到底的定义 + 材质 + 层。文档的根不算（它不是素材）。 */
@@ -226,46 +254,68 @@ export function importCandidates(doc: CatsupDocument): { rows: { guid: Guid; nam
   const placed = (g: Guid): number => doc.definitions.reduce((n, d) => n + d.instances.filter((i) => i.definition === g).length, 0);
   return { rows: named.map((d) => ({ guid: d.guid, name: d.name, kind: d.kind ?? "brep", placed: placed(d.guid) })), unnamed: all.length - named.length };
 }
-/** 素材导入这一步的指令：纯合并的 paste + 还没在架上的上架，一步撤销。already = 已经在架上的几个。 */
-export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[]): { op: Op; payload: TransferPayload; already: number } {
-  const payload = payloadFromDocument(doc, picks), roots = payload.closure?.roots ?? [];
-  const fresh = roots.filter((g) => !s.shelf.items.some((it) => it.kind === "definition" && it.ref === g));
-  const trimmed = trimClosure(s, payload);
-  const paste: Op = { op: "paste", at: { def: s.root, group: null }, ...(trimmed.materials ? { materials: trimmed.materials } : {}), ...(trimmed.closure ? { closure: trimmed.closure } : {}) };
-  return { op: { op: "batch", label: "导入素材", ops: [paste, ...fresh.map((ref): Op => ({ op: "shelfPut", kind: "definition", ref, folder: null, guid: mintGuid() }))] }, payload, already: roots.length - fresh.length };
+/** 素材导入这一步的指令：纯合并的 paste，带上「还没在架上的」上架（断开之后是新身份，所以上架在 paste 里按落地之后的 GUID 做），一步撤销。already = 已经在架上的几个。 */
+export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[], d: Decision = KEEP): { op: Op; payload: TransferPayload; already: number } {
+  const payload = payloadFromDocument(doc, picks), roots = payload.closure?.roots ?? [], pp = planPaste(s, payload, d);
+  const fresh = roots.filter((g) => pp.plan.remint.has(g) || !s.shelf.items.some((it) => it.kind === "definition" && it.ref === g));
+  const trimmed = trimClosure(s, payload, d, pp);
+  const paste: Op = { op: "paste", at: { def: s.root, group: null }, ...(trimmed.materials ? { materials: trimmed.materials } : {}), ...(trimmed.closure ? { closure: trimmed.closure } : {}), ...(d.entries !== "keep" ? { merge: d } : {}), ...(fresh.length ? { shelve: fresh.map((ref) => ({ ref, guid: mintGuid() })) } : {}) };
+  return { op: { op: "batch", label: "导入素材", ops: [paste] }, payload, already: roots.length - fresh.length };
 }
 
-/** 贴进 into 这个定义会不会造环（查的是合并之后的样子：同 GUID 用目标那条，不在的看闭包）。 */
-export function pasteWouldCycle(s: Scene, p: TransferPayload, into: DefId): boolean {
-  const store = sceneStore(s), bundle = payloadBundle(p);
-  return planWouldCycle(store, bundle, plan(store, bundle, KEEP), defRef(s.def(into).guid));
-}
-/** 贴之前这个文件里有哪些条目（pasteReport 比对用）。 */
-export interface PasteBefore { readonly defs: ReadonlySet<Guid>; readonly materials: ReadonlySet<Guid>; readonly layers: ReadonlySet<Guid> }
-export const pasteBefore = (s: Scene): PasteBefore => ({ defs: new Set([...s.defs.values()].map((d) => d.guid)), materials: new Set(s.materials.map((m) => m.guid)), layers: new Set(s.layers.map((l) => l.guid)) });
-/** 这一贴用了本文件已有的哪些、新建了哪些（只数载荷里提到的）。闭包里被已有定义挡住、没建出来的两边都不算。 */
-export interface PasteReport { readonly reusedDefs: readonly string[]; readonly createdDefs: readonly string[]; readonly reusedMaterials: readonly string[]; readonly createdMaterials: readonly string[]; readonly createdLayers: readonly string[] }
-export function pasteReport(before: PasteBefore, after: Scene, p: TransferPayload): PasteReport {
-  const defs = p.closure?.definitions ?? [], mats = (p.materials ?? []).filter((m) => m.guid !== BUILTIN_BACK.guid), hasDef = new Set([...after.defs.values()].map((d) => d.guid)), hasMat = new Set(after.materials.map((m) => m.guid)), hasLayer = new Set(after.layers.map((l) => l.guid));
+/**
+ * 编辑器这一贴要的全部（从 editor.ts 搬出来，棘轮是让本体别长）：能不能贴（不能 = 返回人话）、指令、贴完怎么找「新的」、提示行。
+ * 站在要被更新的定义里（编辑上下文这一路上任何一层）= 拒，不只是贴进的那一层：换身体会让上下文链断掉（设计书 §6）。
+ */
+export function preparePaste(s: Scene, ctx: EditContext, at: PoolRef, p: TransferPayload, d: Decision, toLocal: Xform): string | { op: Op; fresh(after: Scene): { pools: [string, { kind: "instance"; instance: InstId } | { kind: "group"; group: GroupId }][]; meshFaces: number[] }; say(after: Scene, copies: number, crossOpen: boolean): string } {
+  const inside = [s.root];
+  { let def = s.root; for (const iid of ctx.chain) { def = s.instance(def, iid).def; inside.push(def); } }
+  const pp = planPaste(s, p, d), blocked = pasteBlocked(s, pp, at.def, inside);   // 一个计划从头用到尾：比内容要序列化，不重复算
+  if (blocked) return blocked;
+  const l = trimClosure(s, localize(p, toLocal), d, pp), before: PasteBefore = { defs: new Set(), plan: pp.plan, bundle: pp.bundle }, def = at.def, isBrep = s.kindOf(def) === "brep";
+  const instBefore = new Set(s.def(def).instances.keys()), groupBefore = new Set(isBrep ? s.brep(def).groups.keys() : []), meshBefore = isBrep ? null : new Set(s.mesh(def).kernel.faces());
   return {
-    reusedDefs: defs.filter((d) => before.defs.has(d.guid)).map((d) => after.defByGuid(d.guid)?.name ?? d.name),
-    createdDefs: defs.filter((d) => !before.defs.has(d.guid) && hasDef.has(d.guid)).map((d) => d.name),
-    reusedMaterials: mats.filter((m) => before.materials.has(m.guid)).map((m) => m.name),
-    createdMaterials: mats.filter((m) => !before.materials.has(m.guid) && hasMat.has(m.guid)).map((m) => m.name),
-    createdLayers: (p.closure?.layers ?? []).filter((l) => !before.layers.has(l.guid) && hasLayer.has(l.guid)).map((l) => l.name),
+    op: { op: "paste", at, ...(l.brep ? { brep: l.brep } : {}), ...(l.groups ? { groups: l.groups } : {}), ...(l.mesh ? { mesh: l.mesh } : {}), ...(l.instances ? { instances: l.instances } : {}), ...(l.materials ? { materials: l.materials } : {}), ...(l.closure ? { closure: l.closure } : {}), ...(d.entries !== "keep" ? { merge: d } : {}) },
+    fresh(after) {
+      const pools: [string, { kind: "instance"; instance: InstId } | { kind: "group"; group: GroupId }][] = [];
+      for (const id of after.def(def).instances.keys()) if (!instBefore.has(id)) pools.push([`i${id}`, { kind: "instance", instance: id }]);
+      if (after.kindOf(def) === "brep") for (const id of after.brep(def).groups.keys()) if (!groupBefore.has(id) && after.brep(def).groups.get(id)!.parent === at.group) pools.push([`g${id}`, { kind: "group", group: id }]);
+      return { pools, meshFaces: meshBefore && after.kindOf(def) === "mesh" ? after.mesh(def).kernel.faces().filter((f) => !meshBefore.has(f)) : [] };
+    },
+    say: (after, copies, crossOpen) => `贴了 ${transferSay(p)}（原位${copies > 1 ? `；这个组件摆了 ${copies} 份，每份都多了` : ""}）${pasteSay(pasteReport(before, after), crossOpen)}`,
   };
+}
+/** 贴进 into 这个定义会不会造环（查的是合并之后的样子：同 GUID 用目标那条，不在的看闭包）。 */
+export function pasteWouldCycle(s: Scene, p: TransferPayload, into: DefId, d: Decision = KEEP): boolean {
+  const pp = planPaste(s, p, d);
+  return planWouldCycle(pp.store, pp.bundle, pp.plan, defRef(s.def(into).guid));
+}
+/** 贴之前记一下这一贴的计划（pasteReport 用）。 */
+export interface PasteBefore { readonly defs: ReadonlySet<Guid>; readonly plan: MergePlan; readonly bundle: Bundle }
+export const pasteBefore = (s: Scene, p: TransferPayload, d: Decision = KEEP): PasteBefore => { const pp = planPaste(s, p, d); return { defs: new Set([...s.defs.values()].map((x) => x.guid)), plan: pp.plan, bundle: pp.bundle }; };
+/** 这一贴用了本文件已有的哪些、新建 / 更新 / 断开了哪些（只数真走到的：被已有定义挡住、没走到的都不算）。 */
+export interface PasteReport { readonly reusedDefs: readonly string[]; readonly createdDefs: readonly string[]; readonly updatedDefs: readonly string[]; readonly detachedDefs: readonly string[]; readonly reusedMaterials: readonly string[]; readonly createdMaterials: readonly string[]; readonly updatedMaterials: readonly string[]; readonly createdLayers: readonly string[] }
+export function pasteReport(before: PasteBefore, after: Scene): PasteReport {
+  const { plan: mp, bundle } = before, docs = new Map(bundle.docs.map((e) => [refKey({ kind: e.kind, guid: KINDS.get(e.kind)!.guidOf(e.doc) }), e.doc]));
+  const named = (rs: readonly Ref[], kind: string): string[] => rs.filter((r) => r.kind === kind).map((r) => { const doc = docs.get(refKey(r)); return doc === undefined ? "" : KINDS.get(kind)!.nameOf(doc); }).filter((n) => n !== "");
+  const here = (rs: readonly Ref[], kind: string): string[] => rs.filter((r) => r.kind === kind).map((r) => (kind === DEFINITION ? after.defByGuid(r.guid)?.name : after.materials[after.materialByGuid(r.guid)]?.name) ?? "").filter((n) => n !== "");
+  const fresh = mp.create.filter((r) => !mp.remint.has(r.guid)), detached = mp.create.filter((r) => mp.remint.has(r.guid));
+  return { reusedDefs: here(mp.kept, DEFINITION), createdDefs: named(fresh, DEFINITION), updatedDefs: named(mp.update, DEFINITION), detachedDefs: named(detached, DEFINITION), reusedMaterials: here(mp.kept, MATERIAL), createdMaterials: named(mp.create, MATERIAL), updatedMaterials: named(mp.update, MATERIAL), createdLayers: named(fresh, LAYER) };
 }
 const nameList = (names: readonly string[]): string => `${names.slice(0, 3).map((n) => `「${n}」`).join("、")}${names.length > 3 ? ` 等 ${names.length} 个` : ""}`;
 /**
- * 提示行补的那半句。fromOtherModel = 这份剪贴板是在别的模型里拷的：那边改过的同 GUID 组件这里用的是本文件那版（user 11-04「第一次新建，之后再贴只多摆一份」），必须说（不静默）；
- * 同一个模型里每次贴都「用了已有的」，那是常态，不说。新建的永远说（同一个模型里 = 撤销过了头、按拷贝时的样子建回来）。
+ * 提示行补的那半句（拷来的可能是同一文件重开之后的，所以不说「别的模型」，设计书 §8）。crossOpen = 这份剪贴板不是这次打开里拷的：留了这里那版必须说（不静默）；
+ * 同一次打开里每次贴都「用了已有的」，那是常态，不说。新建 / 更新 / 断开的永远说（同一次打开里新建 = 撤销过了头、按拷贝时的样子建回来）。
  */
-export function pasteSay(r: PasteReport, fromOtherModel: boolean): string {
+export function pasteSay(r: PasteReport, crossOpen: boolean): string {
   const parts: string[] = [];
+  if (r.updatedDefs.length) parts.push(`更新了组件${nameList(r.updatedDefs)}（摆着的每一份都跟上了）`);
+  if (r.updatedMaterials.length) parts.push(`更新了材质${nameList(r.updatedMaterials)}`);
+  if (r.detachedDefs.length) parts.push(`断开：组件${nameList(r.detachedDefs)}贴成了新的，原来的不动`);
   if (r.createdDefs.length) parts.push(`新建了组件${nameList(r.createdDefs)}`);
   if (r.createdMaterials.length) parts.push(`新建了材质${nameList(r.createdMaterials)}`);
   if (r.createdLayers.length) parts.push(`新建了层${nameList(r.createdLayers)}`);
-  if (fromOtherModel && r.reusedDefs.length) parts.push(`组件${nameList(r.reusedDefs)}本文件已有，用的是本文件这版`);
-  if (fromOtherModel && r.reusedMaterials.length) parts.push(`材质${nameList(r.reusedMaterials)}本文件已有，用的是本文件这版`);
+  if (crossOpen && r.reusedDefs.length) parts.push(`组件${nameList(r.reusedDefs)}本文件已有，用的是本文件这版`);
+  if (crossOpen && r.reusedMaterials.length) parts.push(`材质${nameList(r.reusedMaterials)}本文件已有，用的是本文件这版`);
   return parts.length ? `；${parts.join("；")}` : "";
 }

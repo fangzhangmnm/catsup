@@ -8,7 +8,7 @@ import { kernelFromMeshDoc, meshDocFromKernel } from "../mesh/mesh-doc.ts";
 import { DEFAULT_LAYER, defaultLayers, emptyGuidesDoc, emptyShelf, shelfIsEmpty } from "./document.ts";
 import { Scene, type DefId, type GroupId } from "../scene/scene.ts";
 import type { CatsupDocument, DefinitionDoc, GuidesDoc, ShelfDoc } from "./document.ts";
-import type { Guides } from "../scene/guides.ts";
+import { emptyGuides, type Guides } from "../scene/guides.ts";
 import { BUILTIN_BACK_GUID, type Guid } from "./guid.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { newDocument } from "./document.ts";
@@ -35,6 +35,16 @@ export interface MaterializeOpts {
   readonly fillExisting?: Guid;
   /** 实例上的层代号就是这个场景的层 id（打开文件 / 做成唯一：同一张层表）。缺 = 经条目自己的对照表按 GUID 认（层已经先进表了，format/scene-store.ts applyPlan）；认不出 = 这一份不归层。 */
   readonly sameLayerTable?: boolean;
+  /** 这几条已经在场景里、要原地换身体（粘贴选了「用拷来的更新」，设计书 §6）：句柄 / GUID 不变，摆着的每一份自然跟上。 */
+  readonly update?: ReadonlySet<Guid>;
+}
+/** 换身体前清空：名字、身体（种类可能变）、内部实例、对称设置都按拷来的来。组 / 实例的编号接着往上数，不复用（旧选区不会认错人）。 */
+function resetDefinition(scene: Scene, id: DefId, d: DefinitionDoc): void {
+  const def = scene.def(id), old = def.body;
+  def.name = d.name;
+  def.instances.clear();
+  def.body = { kind: "brep", kernel: Kernel.fromBrep(d.brep), groups: new Map(), nextGroup: old.kind === "brep" ? old.nextGroup : 1, materialSlots: [], guides: emptyGuides() };
+  scene.meshMirrors.delete(id);
 }
 /**
  * 把文件形状的定义装进场景（打开文件、跨文件粘贴、做成唯一同一份代码，计划书 §15.1-A）：已经有同 GUID 的跳过；其余带原 GUID 新建，它内部的组 / 子实例也保留 GUID（是这一条的内部结构）。
@@ -47,7 +57,8 @@ export function materializeDefinitions(scene: Scene, entries: readonly Definitio
   for (const e of entries) {
     const d = e.def;
     if (d.guid === opts.fillExisting) { fill.push(e); continue; }
-    if (idOf.has(d.guid)) continue;
+    const have = idOf.get(d.guid);
+    if (have !== undefined) { if (opts.update?.has(d.guid)) { resetDefinition(scene, have, d); fill.push(e); } continue; }
     idOf.set(d.guid, scene.mintDef(d.name, Kernel.fromBrep(d.brep), d.guid).id);
     fill.push(e);
   }

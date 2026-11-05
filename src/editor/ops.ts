@@ -30,7 +30,8 @@ import { PRESETS, applyPreset } from "./presets.ts";
 import { liveDefs, materialUse } from "../scene/resources.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Definition, type Instance, type Material, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import { landPayload, type LandedPayload, type MeshFragment, type TransferClosure, type TransferGroup, type TransferInstance } from "./transfer.ts";
+import { landPayload, pasteBlocked, planPaste, type LandedPayload, type MeshFragment, type TransferClosure, type TransferGroup, type TransferInstance } from "./transfer.ts";
+import { KEEP, type Decision } from "../identity/graph.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
@@ -171,7 +172,7 @@ export type Op =
    * 面上的材质编号 = materials 这张对照表的下标（家规「编号只当对照表的代号」）：按 GUID 对回文档材质，没有就带着原 GUID 加回来，再换成目标定义的槽号。缺 materials = 老复现包：编号就是文档材质下标。
    * closure = 载荷自带的定义 / 层（计划书 §15.1-B）：先合并再摆放，同 GUID 用目标那条、不比内容；不在的带原 GUID 新建；摆放现铸 GUID。只有闭包没有摆放（素材导入）= 纯合并。
    */
-  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[]; materials?: readonly Material[]; closure?: TransferClosure }
+  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[]; materials?: readonly Material[]; closure?: TransferClosure; /** 内容不一样的条目怎么办（设计书 §7–§8；缺 = 留这里的）。 */ merge?: Decision; /** 素材导入：落地之后这几条上架（断开过的按新身份，所以不能另起一条 shelfPut）。 */ shelve?: { ref: Guid; guid: Guid }[] }
   /** 素材架（计划书 §15.1-D）：架上只存引用，取下不删条目（生死按引用）。条目顺序有意义（user 摆的）；index = 同一个文件夹里的第几个，缺 = 排最后。文件比本版新（shelfFrozen）= 六条全拒。
    *  新条目的 guid 写在指令里（调用方铸）：后面的指令按它找这一格 / 这个文件夹，落地时才铸 = 重放对不上（撤销一致性 fuzz 抓到的）。 */
   | { op: "shelfPut"; kind: "definition" | "material"; ref: Guid; folder: Guid | null; index?: number; guid: Guid }
@@ -774,7 +775,10 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "paste": {
       const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
       if (!s.hasPool(ref)) throw new OpTargetError(`paste: pool ${ref.def}/${ref.group ?? "root"}`);
-      const merged = landPayload(s, op);
+      const pp = planPaste(s, op, op.merge ?? KEEP), blocked = pasteBlocked(s, pp, ref.def);
+      if (blocked) throw new OpRejected(blocked);
+      const merged = landPayload(s, pp, op.materials);
+      for (const it of op.shelve ?? []) applyShelfOp(s, { op: "shelfPut", kind: "definition", ref: merged.defGuid(it.ref), folder: null, guid: it.guid });
       for (const i of op.instances ?? []) {
         const d = merged.defOf(i);
         if (d === undefined) throw new OpTargetError(`paste: definition ${i.def} no longer exists`);
@@ -900,7 +904,7 @@ export function describeOp(op0: Op): string {
     case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
-    case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${op.closure ? ` closure=${op.closure.definitions.length}d` : ""}${at}`;
+    case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${op.closure ? ` closure=${op.closure.definitions.length}d` : ""}${op.merge ? ` merge=${op.merge.entries}` : ""}${op.shelve?.length ? ` shelve=${op.shelve.length}` : ""}${at}`;
     case "shelfPut": return `shelfPut ${op.kind} ${op.ref.slice(0, 4)}${op.folder ? ` in ${op.folder.slice(0, 4)}` : ""}${op.index !== undefined ? ` @${op.index}` : ""}`;
     case "shelfTake": return `shelfTake ${op.item.slice(0, 4)}`;
     case "shelfMove": return `shelfMove ${op.item.slice(0, 4)} → ${op.folder?.slice(0, 4) ?? "top"}${op.index !== undefined ? ` @${op.index}` : ""}`;

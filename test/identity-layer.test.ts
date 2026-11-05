@@ -44,6 +44,7 @@ registerKind<Note>({
   refs: (n) => n.links.map(noteRef),
   rewrite: (n, map) => ({ ...n, guid: map(noteRef(n.guid)), links: n.links.map((g) => map(noteRef(g))) }),
   remintOwned: (n) => ({ ...n, owned: mintGuid() }),
+  canon: (n) => ({ ...n, links: [...n.links].sort() }),   // 这种条目说：引用的先后没有语义
 });
 const note = (guid: Guid, ...links: Guid[]) => ({ kind: "note", doc: { guid, title: guid, links } satisfies Note });
 
@@ -69,13 +70,15 @@ describe("§9-2 玩具种类：图算法只认声明", () => {
     eq(c.usedBy(noteRef("b")).map((r) => r.guid).sort().join(), "a,孤二");
     eq(c.usedBy(noteRef("root")).length, 0);
   });
-  it("前沿：没有 = 新建并往下走；有 = 用这边的，下面不再看", () => {
+  it("留这里的（KEEP）：没有 = 新建并往下走；有 = 用这边的，下面不再看（不然这边的旧版用不上的子组件会被建出来当孤儿）", () => {
     const here = tableStore([note("有", "旧子")], []);
     const b = { docs: [note("新", "有", "新子"), note("新子"), note("有", "只在那边的子"), note("只在那边的子")], roots: [noteRef("新")] };
+    const p = plan(here, b, KEEP);
+    eq(p.create.map((r) => r.guid).join(), "新,新子");
+    eq(p.kept.map((r) => r.guid).join(), "有");
     const f = frontier(here, b);
-    eq(f.create.map((r) => r.guid).join(), "新,新子");
-    eq(f.same.map((r) => r.guid).join(), "有");
-    eq(plan(here, b, KEEP).create.map((r) => r.guid).join(), "新,新子");
+    eq(f.differ.map((x) => x.ref.guid).join(), "有", "前沿是要往下比的（问人用）");
+    eq(f.create.map((r) => r.guid).join(), "新,只在那边的子,新子");
   });
   it("查环：按落地之后的样子（这边有的看这边、没有的看包）", () => {
     const here = tableStore([note("目标"), note("甲", "目标")], []);

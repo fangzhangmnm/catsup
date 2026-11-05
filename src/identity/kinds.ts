@@ -27,6 +27,11 @@ export interface EntryKindDef<Doc = unknown> {
   rewrite(doc: Doc, map: (r: Ref) => Guid): Doc;
   /** 附属（实例 / 组）也铸新身份（文档内 GUID 唯一）。 */
   remintOwned(doc: Doc): Doc;
+  /**
+   * 规范形（比内容用，设计书 §7）：只对自己知道「存盘重开会乱序 / 只是代号」的部分做规范化，其余字段原样留着逐字比。
+   * 所以以后加字段漏进来 = 判「不一样」、多问一次，不会静默判「一样」把拷来的改动吞掉。
+   */
+  canon(doc: Doc): unknown;
 }
 
 const registry = new Map<EntryKind, EntryKindDef>();

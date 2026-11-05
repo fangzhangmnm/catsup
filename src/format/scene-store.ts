@@ -6,7 +6,7 @@ import { bundleIndex, closure, type Bundle, type MergePlan } from "../identity/g
 import { NO_USAGE, tableStore, type EntryStore, type Usage } from "../identity/store.ts";
 import { BUILTIN_BACK_GUID, mintGuid, type Guid } from "../identity/guid.ts";
 import { BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
-import type { DefId, Definition, Scene } from "../scene/scene.ts";
+import type { DefId, Definition, Material, Scene } from "../scene/scene.ts";
 import type { CatsupDocument, LayerDoc } from "./document.ts";
 import { DEFINITION, LAYER, MATERIAL, defRef, layerGuidOfTable, layerRef, materialRef, type DefinitionEntry } from "./entry-kinds.ts";
 import { definitionToDoc, materializeDefinitions } from "./scene-doc.ts";
@@ -42,6 +42,7 @@ export function sceneStore(s: Scene): SceneStore {
     refsOf,
     usage(r) { use ??= scan(s, closure(store, roots())); return use.get(refKey(r)) ?? NO_USAGE; },
     defIdOf: (g) => defs.get(g)?.id,
+    modelRoot: defRef(s.def(s.root).guid),
   };
   let use: ReadonlyMap<string, Usage> | undefined;
   return store;
@@ -66,31 +67,41 @@ function scan(s: Scene, live: readonly Ref[]): ReadonlyMap<string, Usage> {
 export function docStore(doc: CatsupDocument): EntryStore {
   const layers = doc.layers ?? [], layerGuid = layerGuidOfTable(layers);
   const docs = [...doc.definitions.map((def) => ({ kind: DEFINITION, doc: { def, layerGuid } satisfies DefinitionEntry })), ...doc.materials.map((m) => ({ kind: MATERIAL, doc: m as unknown })), ...layers.map((l) => ({ kind: LAYER, doc: l as unknown }))];
-  return tableStore(docs, [defRef(doc.root.guid), ...(doc.shelf?.items ?? []).map((it) => ({ kind: it.kind, guid: it.ref })), ...constantRefs()]);
+  return tableStore(docs, [defRef(doc.root.guid), ...(doc.shelf?.items ?? []).map((it) => ({ kind: it.kind, guid: it.ref })), ...constantRefs()], undefined, defRef(doc.root.guid));
 }
 
-/** 落地之后怎么认：GUID → 这个场景的句柄（定义 DefId、材质下标 / 内置背面句柄、层 id）。 */
-export interface Landing { idOf(r: Ref): number | undefined }
+/** 落地之后怎么认：GUID → 这个场景的句柄（定义 DefId、材质下标 / 内置背面句柄、层 id）；断开过的按新身份认。guidOf = 这条引用落地之后的 GUID。 */
+export interface Landing { idOf(r: Ref): number | undefined; guidOf(r: Ref): Guid }
 /**
- * 按计划把条目装进场景（ID-4a：只有 create）：材质 / 层先进表，定义走 materializeDefinitions（和打开文件同一份）。
+ * 按计划把条目装进场景（设计书 §6）：材质 / 层先进表，定义走 materializeDefinitions（和打开文件同一份）。
+ * 新建带原 GUID；断开的先铸新（自己 + 附属 + 引用）；更新原地换身体（句柄 / GUID 不变，摆着的每一份自然跟上）、材质原地换条；层永不更新（计划里不会有）。
  * 打开文件不走这里：那是整张表原样装（下标 / 层代号字节级不变），没有要决定的事，直接调 materializeDefinitions。
  */
 export function applyPlan(s: Scene, bundle: Bundle, p: MergePlan): Landing {
-  const docs = bundleIndex(bundle), made: DefinitionEntry[] = [];
+  const docs = bundleIndex(bundle), entries: DefinitionEntry[] = [], guidOf = (g: Guid): Guid => p.remint.get(g) ?? g;
+  const landed = (r: Ref): unknown => { const doc = docs.get(refKey(r)), k = KINDS.get(r.kind)!; return p.remint.has(r.guid) ? k.remintOwned(k.rewrite(doc, (x) => guidOf(x.guid))) : doc; };
   for (const r of p.create) {
-    const doc = docs.get(refKey(r));
+    const doc = landed(r);
     if (r.kind === MATERIAL) s.addMaterial(doc as Parameters<Scene["addMaterial"]>[0]);
     else if (r.kind === LAYER) s.layers.push({ ...(doc as LayerDoc), id: s.nextLayer++ });
-    else if (r.kind === DEFINITION) made.push(doc as DefinitionEntry);
+    else if (r.kind === DEFINITION) entries.push(doc as DefinitionEntry);
+  }
+  const update = new Set<Guid>();
+  for (const r of p.update) {
+    const doc = docs.get(refKey(r));
+    if (r.kind === MATERIAL) s.materials[s.materialByGuid(r.guid)] = doc as Material;   // Material 不可变，换引用（渲染缓存按对象身份）；面上的槽号指下标，下标不变
+    else if (r.kind === DEFINITION) { update.add(r.guid); entries.push(doc as DefinitionEntry); }
   }
   const materials = new Map<Guid, number>();
   s.materials.forEach((m, i) => { if (!materials.has(m.guid)) materials.set(m.guid, i); });
-  const defs = materializeDefinitions(s, made, (g) => materials.get(g) ?? -1);
+  const defs = materializeDefinitions(s, entries, (g) => materials.get(g) ?? -1, { update });
   return {
+    guidOf: (r) => guidOf(r.guid),
     idOf(r) {
-      if (r.kind === DEFINITION) return defs.get(r.guid);
-      if (r.kind === MATERIAL) return r.guid === BUILTIN_BACK_GUID ? BUILTIN_BACK_SLOT : materials.get(r.guid);
-      return r.kind === LAYER ? s.layers.find((l) => l.guid === r.guid)?.id : undefined;
+      const g = guidOf(r.guid);
+      if (r.kind === DEFINITION) return defs.get(g);
+      if (r.kind === MATERIAL) return g === BUILTIN_BACK_GUID ? BUILTIN_BACK_SLOT : materials.get(g);
+      return r.kind === LAYER ? s.layers.find((l) => l.guid === g)?.id : undefined;
     },
   };
 }

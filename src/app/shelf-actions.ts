@@ -1,10 +1,12 @@
 // app/shelf-actions.ts —— 素材架的动作层：起名、挑文件、问挑哪些（指令本身在 editor/ops.ts，机械）。created 2026-11-04 by Claude Opus 5.5（身份地基 ID-3，计划书 §15.1-D / E）。
 // · 进架必须命名（user 10-30「只放标记进来的组件、进架必须命名、可重名、不同文件夹」）：放在这一层——没起名的先问名字，起名和上架同一步撤销；取消 = 都不做。指令不管名字。
-// · 「从别的模型导入素材」= 读那份文件（加密的先解锁、外来 glb 按内容拒）→ 列组件 → 纯合并的 paste + 上架，一步撤销（transfer.ts shelfImportOp）。只读那份文件，不碰它。
+// · 「从别的模型导入素材」= 读那份文件（加密的先解锁、外来 glb 按内容拒）→ 列组件 → 撞上内容不一样的问一次（和粘贴同一弹窗同一默认，user 11-04「4 用」）→ 纯合并的 paste + 上架，一步撤销（transfer.ts shelfImportOp）。只读那份文件，不碰它。
 //   第一版只从本机文件选；图库里直接挑 = 图库今天没有「只挑不打开」的界面，记在素材抽屉那张单上。
 import type { Editor } from "../editor/editor.ts";
 import { isHex4 } from "../editor/object-tree.ts";
-import { pasteBefore, pasteReport, importCandidates, shelfImportOp } from "../editor/transfer.ts";
+import { pasteBefore, pasteConflict, pasteReport, payloadFromDocument, importCandidates, shelfImportOp } from "../editor/transfer.ts";
+import { KEEP } from "../identity/graph.ts";
+import { resolvePasteConflict } from "./paste-actions.ts";
 import { readCatsup } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
@@ -85,17 +87,22 @@ export function createShelfActions(d: ShelfActionsDeps): ShelfActions {
         if (!rows.length) { fail(`「${file.name}」里没有能上架的组件${more ? `：${more}` : ""}`); return; }
         const v = await openFormSheet(`从「${file.name}」导入素材`, rows.map((r) => ({ key: r.guid, label: `${r.name}（${r.kind === "mesh" ? "网格体" : "硬表面体"}，摆了 ${r.placed} 份）`, options: [{ value: "yes", label: "上架" }, { value: "no", label: "不要" }], value: "yes" })), {
           okLabel: "放上素材架",
-          note: () => `挑中的组件连同它们里面的组件、材质、层一起带进这份模型，放上素材架，不摆进场景；这份模型已有同一个组件时用这里的版本。那份文件不会被改动。${more ? `\n${more}` : ""}`,
+          note: () => `挑中的组件连同它们里面的组件、材质、层一起带进这份模型，放上素材架，不摆进场景；这份模型已有同一个组件、内容又不一样时，下一步问你。那份文件不会被改动。${more ? `\n${more}` : ""}`,
         });
         if (!v) return;
         const picks = rows.filter((r) => v[r.guid] === "yes").map((r) => r.guid);
         if (!picks.length) return;
-        const s0 = editor.sceneRef, before = pasteBefore(s0), { op, payload, already } = shelfImportOp(s0, doc, picks);
+        const s0 = editor.sceneRef, rows2 = pasteConflict(s0, payloadFromDocument(doc, picks)), decision = rows2 ? await resolvePasteConflict(rows2) : KEEP;
+        if (!decision) return;   // 取消 = 不导入
+        const { op, payload, already } = shelfImportOp(s0, doc, picks, decision), before = pasteBefore(s0, payload, decision), onShelf = s0.shelf.items.length;
         editor.oneStep(() => { editor.commitOp(op); }, { title: "导入素材" });
         const s1 = editor.sceneRef;
-        if (!picks.every((g) => s1.shelf.items.some((it) => it.kind === "definition" && it.ref === g))) return;   // 没成：提示行已经说了为什么（锁着 / 架子太新）
-        const r = pasteReport(before, s1, payload), newOnes = picks.filter((g) => !before.defs.has(g)).length;
+        if (s1.shelf.items.length - onShelf !== picks.length - already) return;   // 没成：提示行已经说了为什么（锁着 / 架子太新）。断开的是新身份，不能按挑中的 GUID 认
+        const r = pasteReport(before, s1), newOnes = picks.filter((g) => !before.defs.has(g)).length;
         const bits = [`上架 ${picks.length - already} 个组件（新建 ${newOnes} 个、本文件已有 ${picks.length - newOnes} 个${already ? `，其中 ${already} 个本来就在架上` : ""}）`];
+        if (r.updatedDefs.length) bits.push(`更新了组件${r.updatedDefs.map((n) => `「${n}」`).join("、")}（摆着的每一份都跟上了）`);
+        if (r.detachedDefs.length) bits.push(`断开：${r.detachedDefs.length} 个组件贴成了新的，原来的不动`);
+        if (r.updatedMaterials.length) bits.push(`更新了 ${r.updatedMaterials.length} 个材质`);
         if (r.createdDefs.length > newOnes) bits.push(`它们里面的组件新建了 ${r.createdDefs.length - newOnes} 个`);
         if (r.createdMaterials.length) bits.push(`带进 ${r.createdMaterials.length} 个材质`);
         if (r.createdLayers.length) bits.push(`带进 ${r.createdLayers.length} 个层`);

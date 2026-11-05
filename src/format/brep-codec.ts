@@ -41,7 +41,7 @@ export interface CatsupBrepJson {
   [k: string]: unknown;                  // 未知键保留（round-trip 保真）
 }
 
-const toUm = (x: number): number => Math.round(x / UM);
+export const toUm = (x: number): number => Math.round(x / UM);
 
 /** 规范序：顶点按整数 (z,y,x)、边按 (min,max)、环旋到最小顶点起、面按 (平面, 外环)。同一几何 → 同一字节。 */
 export function canonicalize(snap: BrepSnapshot): BrepSnapshot {

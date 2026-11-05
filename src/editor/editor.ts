@@ -68,7 +68,7 @@ import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
-import { accept as transferAccept, castPayload, extract as transferExtract, localize as transferLocalize, pasteBefore, pasteReport, pasteSay, pasteWouldCycle, transferSay, trimClosure } from "./transfer.ts";
+import { accept as transferAccept, castPayload, extract as transferExtract, KEEP, pasteConflict, preparePaste, transferSay, type ConflictRow, type Decision } from "./transfer.ts";
 import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
 import { type PoolSlot, WorldView, insideContext, slotKey, PART_STATS } from "../scene/world-view.ts";
@@ -155,6 +155,7 @@ export interface EditorHost {
   optionKv?: OptionKv;
   /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
   confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
+  resolvePaste?(rows: readonly ConflictRow[]): Promise<Decision | null>;   // 粘贴撞上两边内容不一样：问一次（app/paste-actions.ts）；null = 不贴；不给 = 不贴并说明，不替人选（设计书 §8）
   /** 要等的大活的细进度条（顶边一条线，MoonSinger 同款；账本 UX7）：label = 露出来、返回「已经画上了」的 Promise（等它再开跑，不然卡住的那一帧画不出来）；null = 收起。缺 = 宿主不画。 */
   working?(label: string | null): Promise<void> | void;
 }
@@ -1941,23 +1942,24 @@ export class Editor {
       .then((ok) => { if (ok) this.pasteNow(castPayload(p, a.cast)); else { this.host.hint("粘贴：没贴（你选了不转）"); this.draw(); } });
   }
   private pasteNow(p: import("./transfer.ts").TransferPayload): void {
+    const rows = clipboard.doc() === this.docEpoch ? null : pasteConflict(this.scene, p);   // 同一次打开永不问；内容不一样才问（设计书 §8）
+    if (!rows) this.pasteCommit(p, KEEP);
+    else if (!this.host.resolvePaste) this.host.hint("粘贴：拷来的版本和这份模型里的不一样（这里不能问，没贴）");
+    else void this.host.resolvePaste(rows).then((d) => { if (d) this.pasteCommit(p, d); else { this.host.hint("粘贴：没贴（你点了取消）"); this.draw(); } });
+  }
+  private pasteCommit(p: import("./transfer.ts").TransferPayload, d: Decision): void {
     this.step((pass) => {
-      const at = this.activePool(), def = at.def;
-      if (pasteWouldCycle(this.scene, p, def)) { this.host.hint("粘贴：不能把一个物件贴进它自己（或它的子孙）里"); return; }
-      const local = trimClosure(this.scene, transferLocalize(p, invert(this.ctxXform()))), before = pasteBefore(this.scene);
-      const instBefore = new Set(this.scene.def(def).instances.keys()), groupBefore = new Set(this.scene.kindOf(def) === "brep" ? this.scene.brep(def).groups.keys() : []);
-      const meshBefore = this.scene.kindOf(def) === "mesh" ? new Set(this.scene.mesh(def).kernel.faces()) : null;
-      const n0 = this.opCount;
-      const events = this.commitIn(pass, { op: "paste", at, ...(local.brep ? { brep: local.brep } : {}), ...(local.groups ? { groups: local.groups } : {}), ...(local.mesh ? { mesh: local.mesh } : {}), ...(local.instances ? { instances: local.instances } : {}), ...(local.materials ? { materials: local.materials } : {}), ...(local.closure ? { closure: local.closure } : {}) });
+      const at = this.activePool(), def = at.def, job = preparePaste(this.scene, this.ctx, at, p, d, invert(this.ctxXform()));
+      if (typeof job === "string") { this.host.hint(job); return; }
+      const n0 = this.opCount, events = this.commitIn(pass, job.op);
       if (this.opCount === n0) return;
       // 贴出来的成为选区（接着 G 就能挪）
       this.clearSel(pass);
-      for (const id of this.scene.def(def).instances.keys()) if (!instBefore.has(id)) this.selectedPools.set(`i${id}`, { kind: "instance", instance: id });
-      if (this.scene.kindOf(def) === "brep") for (const id of this.scene.brep(def).groups.keys()) if (!groupBefore.has(id) && this.scene.brep(def).groups.get(id)!.parent === at.group) this.selectedPools.set(`g${id}`, { kind: "group", group: id });
-      if (meshBefore && this.selection.kind === "mesh") for (const f of this.scene.mesh(def).kernel.faces()) if (!meshBefore.has(f)) this.selection.faces.add(f);
+      const fresh = job.fresh(this.scene);
+      for (const [key, pick] of fresh.pools) this.selectedPools.set(key, pick);
+      if (this.selection.kind === "mesh") for (const f of fresh.meshFaces) this.selection.faces.add(f);
       if (this.selection.kind === "brep") for (const e of events) if (e.type === "BIRTH") this.selection.faces.add(e.face);
-      const copies = this.copiesOf(def);
-      this.host.hint(`贴了 ${transferSay(p)}（原位${copies > 1 ? `；这个组件摆了 ${copies} 份，每份都多了` : ""}）${pasteSay(pasteReport(before, this.scene, p), clipboard.doc() !== this.docEpoch)}`);
+      this.host.hint(job.say(this.scene, this.copiesOf(def), clipboard.doc() !== this.docEpoch));
       this.host.changed(); this.draw();
     });
   }

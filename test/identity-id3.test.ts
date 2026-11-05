@@ -204,10 +204,10 @@ describe("③ 同 GUID 用目标那条，不比内容", () => {
     w.s.mintInstance(w.a, null, d.id, IDENTITY);
     const p = copyInst(w.s, w.ia);
     assert(p.closure!.definitions.some((x) => x.name === "后加的丁"), "源的闭包里有它");
-    const before = pasteBefore(t);
+    const before = pasteBefore(t, p);
     applyOp(t, pasteOp(t, p));
     eq(t.defs.size, n, "甲用目标那版，丁没人用，不建");
-    const r = pasteReport(before, t, p);
+    const r = pasteReport(before, t);
     assert(!r.createdDefs.includes("后加的丁") && !r.reusedDefs.includes("后加的丁"), "报告里也不提它");
     eq(orphanDefs(census(t)).length, 0, "没有孤儿");
   });
@@ -393,30 +393,30 @@ describe("贴之前查环（pasteWouldCycle）", () => {
 describe("提示行（pasteReport / pasteSay）", () => {
   it("别的模型来的：说新建了什么、哪些用的是本文件这版", () => {
     const w = source(), t = new Scene(), p = copyInst(w.s, w.ia);
-    const b0 = pasteBefore(t);
+    const b0 = pasteBefore(t, p);
     applyOp(t, pasteOp(t, p));
-    const r0 = pasteReport(b0, t, p);
+    const r0 = pasteReport(b0, t);
     eq(r0.createdDefs.slice().sort().join(""), "丙乙甲");
     assert(pasteSay(r0, true).includes("新建了组件"));
     assert(pasteSay(r0, true).includes("新建了材质"));
     assert(pasteSay(r0, true).includes("新建了层"));
-    const b1 = pasteBefore(t);
+    const b1 = pasteBefore(t, p);
     applyOp(t, pasteOp(t, p));
-    const r1 = pasteReport(b1, t, p);
+    const r1 = pasteReport(b1, t);
     eq(r1.createdDefs.length, 0);
     assert(pasteSay(r1, true).includes("用的是本文件这版"), pasteSay(r1, true));
   });
   it("同一个模型里贴：什么都不多说（常态）；撤销过头建回来的照样说", () => {
     const w = source(), p = copyInst(w.s, w.ia);
-    const b = pasteBefore(w.s);
+    const b = pasteBefore(w.s, p);
     applyOp(w.s, pasteOp(w.s, p));
-    eq(pasteSay(pasteReport(b, w.s, p), false), "");
-    const t = new Scene(), b2 = pasteBefore(t);
+    eq(pasteSay(pasteReport(b, w.s), false), "");
+    const t = new Scene(), b2 = pasteBefore(t, p);
     applyOp(t, pasteOp(t, p));
-    assert(pasteSay(pasteReport(b2, t, p), false).includes("新建了组件"));
+    assert(pasteSay(pasteReport(b2, t), false).includes("新建了组件"));
   });
   it("名字多了只列三个", () => {
-    const say = pasteSay({ reusedDefs: [], createdDefs: ["a", "b", "c", "d"], reusedMaterials: [], createdMaterials: [], createdLayers: [] }, true);
+    const say = pasteSay({ reusedDefs: [], createdDefs: ["a", "b", "c", "d"], updatedDefs: [], detachedDefs: [], reusedMaterials: [], createdMaterials: [], updatedMaterials: [], createdLayers: [] }, true);
     assert(say.includes("等 4 个") && !say.includes("「d」"), say);
   });
 });

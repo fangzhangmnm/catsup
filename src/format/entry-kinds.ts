@@ -3,6 +3,7 @@
 import { registerKind, type Ref } from "../identity/kinds.ts";
 import { BUILTIN_BACK_GUID, BUILTIN_FRONT_GUID, DEFAULT_LAYER_GUID, mintGuid, type Guid } from "../identity/guid.ts";
 import type { DefinitionDoc, LayerDoc, MaterialDoc } from "./document.ts";
+import { canonDefinition, canonMaterial } from "./entry-canon.ts";
 
 export const DEFINITION = "definition", MATERIAL = "material", LAYER = "layer";
 export const defRef = (guid: Guid): Ref => ({ kind: DEFINITION, guid });
@@ -29,6 +30,7 @@ registerKind<DefinitionEntry>({
     const groups = new Map(e.def.groups.map((g) => [g.guid, mintGuid()])), parent = (g: Guid | null): Guid | null => (g === null ? null : (groups.get(g) ?? null));
     return { ...e, def: { ...e.def, groups: e.def.groups.map((g) => ({ ...g, guid: groups.get(g.guid)!, parent: parent(g.parent) })), instances: e.def.instances.map((i) => ({ ...i, guid: mintGuid(), parent: parent(i.parent) })) } };
   },
+  canon: (e) => canonDefinition(e.def, e.layerGuid),
 });
 
 registerKind<MaterialDoc>({
@@ -38,6 +40,7 @@ registerKind<MaterialDoc>({
   refs: () => [],
   rewrite: (m, map) => ({ ...m, guid: map(materialRef(m.guid)) }),
   remintOwned: (m) => m,
+  canon: canonMaterial,
 });
 
 registerKind<LayerDoc>({
@@ -47,4 +50,5 @@ registerKind<LayerDoc>({
   refs: () => [],
   rewrite: (l, map) => ({ ...l, guid: map(layerRef(l.guid)) }),
   remintOwned: (l) => l,
+  canon: (l) => l,   // 永不更新 = 根本不比（overwrite: false）；这行只是声明齐全
 });

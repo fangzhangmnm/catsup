@@ -25,9 +25,11 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const mulberry = (a) => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.commitOp({ op: "addEdges", at: e.activePool(), segs }); };
   e.setGrid({ ...e.grid, on: false });
-  const out = { seeds: [], failures: [], reloads: [], hist: {} }, drifts = [];
+  const out = { seeds: [], failures: [], reloads: [], hist: {}, merged: {} }, drifts = [];
+  let lastCounted = null;
   // 提交失败按指令数（身份地基 ID-3：失败只进控制台 = fuzz 看不见；粘贴从同一层拷的东西不该失败，锁 / 斜切是规矩拒绝）
   const commitFails = {}, pasteFails = [];
+  let nextDecision = { entries: "update" }; e.host.resolvePaste = async () => nextDecision;
   const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); if (t.kind === "fail" && t.where === "commit") { const k = `${t.op?.op}: ${String(t.message).replace(/\d+/g, "N").slice(0, 70)}`; commitFails[k] = (commitFails[k] ?? 0) + 1; if (t.op?.op === "paste" && !/^locked|斜切/.test(String(t.message))) pasteFails.push(t.message); } trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
   const modeFits = () => e.mode.kinds.includes(S().kindOf(S().defOfContext(e.context)));
   // 面层的槽号 < 槽表长度（计划书 §12 C1：预演开的槽不许漏进真身）；手势中途真身一个字节不动（2026-11-04 Claude Opus 5.5）
@@ -89,7 +91,13 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
         if (!inMesh && e.selection.faces.size) add(6, "paint", () => { e.setPaint({ kind: "color", name: `色${Math.floor(rnd() * 3)}`, color: [rnd(), 0.5, 0.5] }); e.paintSelection(); });
         // 身份地基 ID-3：拷贴（同层）+ 过期的剪贴板再贴（可能撤过了头：闭包建回来，重放要对得上）；只在硬表面里拷，贴的时候就不会弹「转种类」
         if (!inMesh && (hasSel || hasPool)) add(3, "copyPaste", () => { if (e.copySelection()) e.pasteClipboard(); });
-        if (!inMesh && e.canPaste()) add(2, "pasteStale", () => e.pasteClipboard());
+        if (!inMesh && e.canPaste()) add(2, "pasteStale", async () => { e.pasteClipboard(); await sleep(0); });
+        // 身份层 ID-4b：假装换了一次打开（docEpoch 换了 = 剪贴板算「拷来的」），撞上内容不一样时代答弹窗的三种；重放 / 撤销要一字不差（设计书 §9-7）
+        if (!inMesh && e.canPaste()) for (const [w, label, d] of [[3, "pasteUpdate", { entries: "update" }], [3, "pasteDetach", { entries: "detach" }], [1, "pasteKeep", { entries: "keep" }], [1, "pasteNoMats", { entries: "update", except: ["material"] }]]) add(w, label, async () => { nextDecision = d; e.docEpoch++; e.pasteClipboard(); await sleep(0); });
+        // 让分叉真的发生：改组件的名字（拷过的再贴就是「内容不一样」）
+        if (here.length) add(5, "renameDef", () => { const i = here[Math.floor(rnd() * here.length)]; e.commitOp({ op: "rename", at: { def: S().root, group: null }, def: i.def, name: `改名${Math.floor(rnd() * 1000)}` }); });
+        // 导入素材撞上：纯合并的 paste（带 merge + shelve），闭包拿指令流里最近一次带闭包的粘贴
+        { const lastPaste = [...e.history.ops].reverse().find((o) => o.op === "paste" && o.closure?.definitions.length); if (lastPaste && depth === 0) add(2, "importConflict", () => { const d = lastPaste.closure.definitions[0]; if (!S().shelf.items.some((it) => it.ref === d.guid)) e.commitOp({ op: "batch", label: "导入素材", ops: [{ op: "paste", at: { def: S().root, group: null }, ...(lastPaste.materials ? { materials: lastPaste.materials } : {}), closure: { ...lastPaste.closure, roots: [d.guid] }, merge: { entries: rnd() < 0.5 ? "update" : "detach" }, shelve: [{ ref: d.guid, guid: crypto.randomUUID() }] }] }); }); }
         // 身份地基 ID-3：上架 / 取下（架上的也算活着；撤销架子跟着回去、GUID 不重铸）
         if (depth === 0 && here.length) add(3, "shelfPut", () => { const g = S().def(here[Math.floor(rnd() * here.length)].def).guid; if (!S().shelf.items.some((it) => it.ref === g)) e.commitOp({ op: "shelfPut", kind: "definition", ref: g, folder: null, guid: crypto.randomUUID() }); });
         if (S().shelf.items.length) add(3, "shelfTake", () => { const its = S().shelf.items; e.commitOp({ op: "shelfTake", item: its[Math.floor(rnd() * its.length)].guid }); });
@@ -104,9 +112,10 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
         add(5, "redo", () => e.redo());
         const total = picks.reduce((acc, [w]) => acc + w, 0); let x = rnd() * total, chosen = picks[picks.length - 1];
         for (const pk of picks) { x -= pk[0]; if (x < 0) { chosen = pk; break; } }
-        name = chosen[1]; chosen[2]();
+        name = chosen[1]; await chosen[2]();
       } catch (err) { name = name ?? "?"; trail.push(name); fail(`threw: ${String(err).slice(0, 120)}`); continue; }
       trail.push(name); out.hist[name] = (out.hist[name] ?? 0) + 1;
+      { const o = e.history.ops.at(-1); if (o?.op === "paste" && o.merge && o !== lastCounted) { lastCounted = o; const k = `真走了 ${o.merge.entries}${o.closure?.definitions.length ? "（带文件形状）" : ""}`; out.merged[k] = (out.merged[k] ?? 0) + 1; } }
       if (e.isGestureActive()) e.cancel();
       if (e.stepViolations !== 0) fail(`stepViolations=${e.stepViolations}`);
       if (name !== "undo" && name !== "redo" && e.history.steps() - stepsBefore > 1) fail(`one action grew ${e.history.steps() - stepsBefore} steps`);
@@ -146,6 +155,6 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
 }, { SEEDS, ACTIONS });
 await b.close();
 const ok = res.failures.length === 0 && errs.length === 0;
-console.log(JSON.stringify({ commitFails: res.commitFails, hist: res.hist, failures: res.failures, errs, reloads: res.reloads, seeds: res.seeds, previewFails: [...new Set(res.previewFails)].slice(0, 12) }, null, 1).slice(0, 6000));
+console.log(JSON.stringify({ merged: res.merged, commitFails: res.commitFails, hist: res.hist, failures: res.failures, errs, reloads: res.reloads, seeds: res.seeds, previewFails: [...new Set(res.previewFails)].slice(0, 12) }, null, 1).slice(0, 6000));
 console.log(ok ? "probe-undo-fuzz OK" : "probe-undo-fuzz FAIL");
 process.exit(ok ? 0 : 1);
