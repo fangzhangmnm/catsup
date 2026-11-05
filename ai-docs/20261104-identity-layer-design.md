@@ -167,9 +167,9 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 只在「跨模型 + 有 differ」弹一次。**文字不能说「从别的模型拷来的」**——剪贴板记的是第几次装载（同一文件重开也加一），只能说「拷来的版本和这份模型里的不一样」。
 
 - **列**：每条 differ 的组件 / 材质：名字、这里摆了几份 / 几张面在用、几份锁着、在架上；两边各几张面（事实，不是「谁新」——文件里没有版本号，机器判不了，这是家族同步红线「无 LWW、冲突必 surface」在组件上的同一条）。
-- **选**（一次只选一种，不逐行勾——逐行会造环，谈话第 4 条）：**用拷来的更新**（默认，待拍 ①）/ **留这份模型的，只多摆一份** / **断开，贴成新组件** / 取消 = 不贴。
-- **材质独立开关**「材质也跟着 ☑」（默认勾，待拍 ②）：材质不会成环，可以单独选；断开时内容不一样的材质也铸新。
-- **导入素材**撞同一组件内容不一样：同一弹窗同一默认（待拍 ③）。
+- **选**（一次只选一种，不逐行勾——逐行会造环，谈话第 4 条）：**用拷来的更新**（默认）/ **留这份模型的，只多摆一份** / **断开，贴成新组件** / 取消 = 不贴。**弹窗而不是直接更新 = user 11-04 深夜拍「2弹窗」。**
+- **材质独立开关**「材质也跟着 ☑」（默认勾）：材质不会成环，可以单独选；断开时内容不一样的材质也铸新。**user 拍「3 跟，可开关」。**
+- **导入素材**撞同一组件内容不一样：同一弹窗同一默认。**user 拍「4 用」。**
 - 不能问的场合（没有 `host` 的面）= 不贴并说明；不静默二选一。
 - 放哪：决定流程 `src/app/paste-actions.ts`（和 `shelf-actions.ts` 同形）；`editor.ts` 只加一个 `host.resolvePaste?(frontier): Promise<Decision | null>` 钩子——**editor.ts 棘轮 ≤ 4147，现在 4144**，塞不下就把 `pasteNow` 的报告半句搬去 transfer.ts。
 
@@ -198,7 +198,7 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 ## 12. 工单切片（Opus 施工；每片单独绿、单独提交）
 
 - **ID-4a 抽层，行为不变**：建 `src/identity/`（guid 搬家 + kinds + store + graph），注册 definition / material / layer 三种，`scene-doc.ts` 实现 `sceneStore / docStore / bundleOf / applyPlan(create 分支)`；extract / paste / 导入 / 打开 / 清理 / makeUnique 换成走这层；`Decision` 固定 `keep`。验收：现有全部测试绿、`probe-clipboard` / `probe-shelf` / `probe-hierarchy` / `probe-undo-fuzz 16×45` 绿、§9-1 / 9-2 守卫新增、体重数字。
-- **ID-4b 更新规则**：`frontier.differ` + `canon`（§7）+ `plan(update|detach)` + `applyPlan` 的 update 分支（§6）+ `paste` op 的 `merge` 字段 + `paste-actions.ts` 弹窗（§8，三件待拍的默认先按 Fable 推荐做，user 拍了再改一个常量）+ 导入走同一条 + 提示行文案改（不说「别的模型」）。验收：§9-5 / 9-6 / 9-7；`trimClosure` 留 differ；性能 = 前沿判定一次 ≤ 10 ms（400 面级）。
+- **ID-4b 更新规则**：`frontier.differ` + `canon`（§7）+ `plan(update|detach)` + `applyPlan` 的 update 分支（§6）+ `paste` op 的 `merge` 字段 + `paste-actions.ts` 弹窗（§8；三件 user 11-04 深夜都拍了 = 弹窗 / 材质跟着可开关 / 导入同一弹窗）+ 导入走同一条 + 提示行文案改（不说「别的模型」）。验收：§9-5 / 9-6 / 9-7；`trimClosure` 留 differ；性能 = 前沿判定一次 ≤ 10 ms（400 面级）。
 - **ID-4c 小账**：录音带校验（§9-4）、`ownGuid` 披露（§9-3）、`pasteReport.reusedDefs` 只算走到的、`object.shelve` 冻结时的 `none` 文案、`op-locks` 显式集合代替 `startsWith("shelf")`。
 - **文档**：本书回写实施记录 + .h 形状；`20261026-pipelines.md`「粘贴」「文件」两条改成走 frontier → plan → applyPlan；计划书 §16 指路；`CLAUDE.md` 一行；`gen-api.sh` 重打；`./bump.sh`。
 
@@ -210,10 +210,10 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 - 图库 `docFile(path)` 能不能直接给 `docStore`（素材从 OneDrive 图库挑 = wishlist，不在本单）。
 - 普查的反向索引对几千个实例的成本（一次遍历，应该毫秒级；量一下写进流程图）。
 
-## 14. 等 user 拍（都带「选了会怎样」，在 `20261103-forward-ledger.md` §4 也记了）
+## 14. user 拍了（2026-11-04 深夜，原话「2弹窗 3 跟，可开关 4 用 dev等一起做好 1 没问题了我就切」）
 
-1. 跨模型、同一组件两边内容不一样：**先弹窗问**（Fable 推荐；不知情时不会改掉别的实例），还是直接更新、事后通知里给撤销（少点一下；存盘后撤不回、没看到通知就静默盖掉）。
-2. 材质内容不一样时**跟组件一起更新、默认开、弹窗里给开关**（推荐；贴出来是修好的样子，这份模型里用同一材质的别的面也会变），还是不跟（别的不受影响，组件颜色可能和你修的不一样）。
-3. 导入素材撞同一组件内容不一样：**同一弹窗同一默认「更新」**（推荐；一套规则），还是导入默认「留这里的」（导入本意是上架不是修模型）。
-
-不拍也能开工：ID-4a 不碰这三件；ID-4b 先按推荐做，拍了改一个常量。
+1. 跨模型、同一组件两边内容不一样：**先弹窗问**（不直接更新）。
+2. 材质内容不一样时**跟组件一起更新、默认开、弹窗里给开关**。
+3. 导入素材撞同一组件内容不一样：**同一弹窗同一默认「更新」**。
+4. **dev 等 ID-4 做完一起推**（main 上从 ID-1 起都没推；格式 7.0 大版本，推了别的设备旧 dev 要更新才能开新文件）。
+5. **设计书放行**：user 切 Opus 从 §12 ID-4a 开工。
