@@ -7,7 +7,8 @@ import { ROOT_CONTEXT, Scene, type Instance } from "../src/scene/scene.ts";
 import { applyOp, OpRejected, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
 import { census, orphanDefs } from "../src/scene/resources.ts";
-import { conflictRows, extract, localize, pasteBefore, pasteBlocked, pasteConflict, pasteReport, pasteSay, pasteWouldCycle, planPaste, payloadBundle, shelfImportOp, trimClosure, type TransferPayload } from "../src/editor/transfer.ts";
+import { extract, localize, type TransferPayload } from "../src/editor/transfer.ts";
+import { conflictRows, pasteBefore, pasteBlocked, pasteConflict, pasteReport, pasteSay, pasteWouldCycle, planPaste, payloadBundle, shelfImportOp, trimClosure } from "../src/editor/paste-plan.ts";
 import { conflictLine } from "../src/app/paste-actions.ts";
 import { canonDefinition } from "../src/format/entry-canon.ts";
 import { DEFINITION, MATERIAL, defRef, layerGuidOfTable, materialRef } from "../src/format/entry-kinds.ts";
@@ -161,7 +162,7 @@ describe("前沿：一样的也往下看", () => {
     assert(!f.same.concat(f.create).some((r) => r.guid === DEFAULT_LAYER_GUID));
   });
   it("文字不说「别的模型」（剪贴板记的是第几次打开，同一文件重开也算）", () => {
-    for (const f of ["../src/app/paste-actions.ts", "../src/editor/transfer.ts"]) {
+    for (const f of ["../src/app/paste-actions.ts", "../src/editor/paste-plan.ts"]) {
       const lines = readFileSync(new URL(f, import.meta.url), "utf8").split("\n").filter((l) => !/^\s*(\/\/|\/?\*)/.test(l));
       assert(!lines.some((l) => /别的模型/.test(l)), `${f} 用户看得见的字里有「别的模型」`);
     }

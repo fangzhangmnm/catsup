@@ -1,4 +1,4 @@
-// guid.ts —— 文件里条目的身份（家规「文件里条目的身份 = GUID，不用序号」，2026-10-30 user；计划书 ai-docs/20261104-identity-foundation-plan.md §2.1）。
+// identity/guid.ts（2026-11-04 ID-4 从 format/guid.ts 搬来）—— 文件里条目的身份（家规「文件里条目的身份 = GUID，不用序号」，2026-10-30 user；计划书 ai-docs/20261104-identity-foundation-plan.md §2.1）。
 // 标准 UUID v4，小写 36 字符文本。铸出来就不变；撤销 / 重做不重铸（重做是自反交换，不重跑动词）。名字只是显示。运行时另有数字句柄（DefId / GroupId / InstId），只活这次会话、不落盘。
 // created 2026-11-04 by Claude Opus 5.5
 export type Guid = string;
@@ -18,14 +18,18 @@ export function recordMints<T>(fn: () => T, done: (minted: Guid[]) => void): T {
   recording = mine;
   try { return fn(); } finally { recording = prev; done(mine); }
 }
+/** 重放只走校验路径（History.replay / stateAt，测试和探针用；撤销不重放），所以对不上直接抛：铸得比录的多或少 = 这条指令不确定，静默换成随机身份会把账搞乱（ID-4c）。 */
 export function replayMints<T>(minted: readonly Guid[], fn: () => T): T {
-  const prev = playing;
-  playing = { list: minted, at: 0 };
-  try { return fn(); } finally { playing = prev; }
+  const prev = playing, mine = { list: minted, at: 0 };
+  playing = mine;
+  let out: T;
+  try { out = fn(); } finally { playing = prev; }
+  if (mine.at !== minted.length) throw new Error(`replayMints: recorded ${minted.length} GUIDs, replay minted ${mine.at}`);
+  return out;
 }
 /** 铸一个。`randomUUID` 只在安全上下文有（局域网 http 预览没有），退回 `getRandomValues`，同样是 v4。 */
 export function mintGuid(): Guid {
-  if (playing && playing.at < playing.list.length) return playing.list[playing.at++];
+  if (playing) { if (playing.at >= playing.list.length) throw new Error(`replayMints: replay minted more than the ${playing.list.length} GUIDs recorded`); return playing.list[playing.at++]; }
   const g = freshGuid();
   recording?.push(g);
   return g;
@@ -40,9 +44,10 @@ function freshGuid(): Guid {
   return `${h[0]}${h[1]}${h[2]}${h[3]}-${h[4]}${h[5]}-${h[6]}${h[7]}-${h[8]}${h[9]}-${h[10]}${h[11]}${h[12]}${h[13]}${h[14]}${h[15]}`;
 }
 
-/** 文件里读到的身份：合法且没人用过就留着，否则现铸（手改过的文件 / 老文件）。 */
-export function ownGuid(raw: unknown, seen: Set<Guid>): Guid {
-  const g = isGuid(raw) && !seen.has(raw) ? raw : mintGuid();
+/** 文件里读到的身份：合法且没人用过就留着，否则现铸。onRemint = 文件里写了身份、但重复或不合法（手改过的文件；读取侧披露用）；老文件压根没写身份不算。 */
+export function ownGuid(raw: unknown, seen: Set<Guid>, onRemint?: () => void): Guid {
+  const keep = isGuid(raw) && !seen.has(raw), g = keep ? raw : mintGuid();
+  if (!keep && raw !== undefined && raw !== null) onRemint?.();
   seen.add(g);
   return g;
 }

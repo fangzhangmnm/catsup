@@ -77,6 +77,7 @@ export const applyScale: Command<ObjectUnit> = {
   plan(_env, u) { const X = u.xf, scaled = u.instance !== null && [0, 1, 2].some((j) => Math.abs(Math.hypot(X[j], X[4 + j], X[8 + j]) - 1) > 1e-9); return scaled ? { ops: [{ op: "applyScale", def: u.at.def, instance: u.instance! }], count: 1 } : { ops: [], count: 0 }; },
   done: (n) => `已把缩放烘进 ${n} 个组件的几何（同一组件的别的份看起来没变）`, none: "应用缩放：选中的组件没有被缩放过",
 };
+const SHELF_FROZEN_SAY = "这份文件的素材架是更新版写的，本版不能改（保存时原样带回）";
 /** 这个组件在素材架上的那一格（没有 = undefined）。 */
 const shelfItemOf = (env: CommandEnv, def: number) => { const g = env.scene.def(def).guid; return env.scene.shelf.items.find((it) => it.kind === "definition" && it.ref === g); };
 /** 放上素材架（身份地基 ID-3，计划书 §15.1-D）：架上的是组件定义，不是这一份。没起名的不收——菜单那一下由动作层先问名字（app/shelf-actions.ts；user 10-30「进架必须命名」），这里只管机械判断。锁着的也能上架（素材架不碰几何）。 */
@@ -84,18 +85,25 @@ export const shelve: Command<ObjectUnit> = {
   id: "object.shelve", unit: "object", title: "放上素材架", perDefinition: true, takesLocked: true, keepSelection: true,
   defaults: () => ({}), params: () => [],
   plan(env, u) {
-    if (u.instance === null || env.scene.shelfFrozen || shelfItemOf(env, u.def)) return { ops: [], count: 0 };
+    if (u.instance === null) return { ops: [], count: 0 };
+    if (env.scene.shelfFrozen) return { ops: [], count: 0, notes: [SHELF_FROZEN_SAY] };
     const d = env.scene.def(u.def);
+    if (shelfItemOf(env, u.def)) return { ops: [], count: 0, notes: [`组件「${d.name}」已经在架上了`] };
     if (isHex4(d.name)) return { ops: [], count: 1, notes: [`组件「${d.name}」还没起名：素材架上的东西要有名字，先改名`] };
     return { ops: [{ op: "shelfPut", kind: "definition", ref: d.guid, folder: null, guid: mintGuid() }], count: 1 };
   },
-  done: (n) => `放上素材架 ${n} 个组件（资源页看得见；架上的不算没人用）`, none: "放上素材架：选中的组件已经在架上了",
+  done: (n) => `放上素材架 ${n} 个组件（资源页看得见；架上的不算没人用）`, none: "放上素材架：没放",
 };
 export const unshelve: Command<ObjectUnit> = {
   id: "object.unshelve", unit: "object", title: "从素材架取下", perDefinition: true, takesLocked: true, keepSelection: true,
   defaults: () => ({}), params: () => [],
-  plan(env, u) { const it = u.instance === null || env.scene.shelfFrozen ? undefined : shelfItemOf(env, u.def); return it ? { ops: [{ op: "shelfTake", item: it.guid }], count: 1 } : { ops: [], count: 0 }; },
-  done: (n) => `从素材架取下 ${n} 个组件（组件还在文件里）`, none: "从素材架取下：选中的组件不在架上",
+  plan(env, u) {
+    if (u.instance === null) return { ops: [], count: 0 };
+    if (env.scene.shelfFrozen) return { ops: [], count: 0, notes: [SHELF_FROZEN_SAY] };
+    const it = shelfItemOf(env, u.def);
+    return it ? { ops: [{ op: "shelfTake", item: it.guid }], count: 1 } : { ops: [], count: 0, notes: [`组件「${env.scene.def(u.def).name}」不在架上`] };
+  },
+  done: (n) => `从素材架取下 ${n} 个组件（组件还在文件里）`, none: "从素材架取下：没取",
 };
 void invert;
 

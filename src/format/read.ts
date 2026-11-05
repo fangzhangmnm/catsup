@@ -65,7 +65,8 @@ export function isCatsupGltf(json: unknown): boolean {
 function readShelf(j: Record<string, unknown>, defs: ReadonlySet<Guid>, mats: ReadonlySet<Guid>, notes: FormatReadNotes): ShelfDoc {
   const seen = new Set<Guid>();
   const folderRows = (Array.isArray(j.folders) ? j.folders : []).filter(isObj) as Record<string, unknown>[];
-  const folderGuids = folderRows.map((f) => ownGuid(f.guid, seen));
+  const reminted = (): void => { notes.remintedGuids = (notes.remintedGuids ?? 0) + 1; };
+  const folderGuids = folderRows.map((f) => ownGuid(f.guid, seen, reminted));
   const known = new Set(folderGuids);
   const inFolder = (x: unknown): Guid | null => (isGuid(x) && known.has(x) ? x : null);
   const folders = folderRows.map((f, i) => ({ ...f, guid: folderGuids[i], name: typeof f.name === "string" ? f.name : "", parent: inFolder(f.parent) }));
@@ -75,7 +76,7 @@ function readShelf(j: Record<string, unknown>, defs: ReadonlySet<Guid>, mats: Re
     const kind = typeof it.kind === "string" ? it.kind : "definition", ref = it.ref;
     const hasIt = kind === "definition" ? isGuid(ref) && defs.has(ref) : kind === "material" ? isGuid(ref) && mats.has(ref) : true;   // 不认识的种类不查引用（更新的版本写的，原样带回）
     if (!hasIt) { dangling++; continue; }
-    items.push({ ...it, guid: ownGuid(it.guid, seen), kind, ref: ref as Guid, folder: inFolder(it.folder) });
+    items.push({ ...it, guid: ownGuid(it.guid, seen, reminted), kind, ref: ref as Guid, folder: inFolder(it.folder) });
   }
   if (dangling) notes.danglingShelfRefs = dangling;
   const extra: Record<string, unknown> = {};
@@ -98,6 +99,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   };
   const exts = json.extensions as Record<string, unknown>;
   const notes = emptyReadNotes();   // 三级拍子判决（minor 更新 → 宿主提示一次）
+  const reminted = (): void => { notes.remintedGuids = (notes.remintedGuids ?? 0) + 1; };
   const docExt = migrateExtension("CATSUP_document", exts.CATSUP_document as Record<string, unknown>, notes);
   // 材质：先于定义读（定义 6→7 的迁移要材质的 GUID）。glTF core materials（baseColorFactor / baseColorTexture → images）+ CATSUP_material{sizeM}
   const texList = Array.isArray(json.textures) ? (json.textures as Record<string, unknown>[]) : [];
@@ -107,7 +109,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     const pbr = isObj(m.pbrMetallicRoughness) ? (m.pbrMetallicRoughness as Record<string, unknown>) : {};
     const bc = Array.isArray(pbr.baseColorFactor) ? (pbr.baseColorFactor as number[]) : [0.8, 0.8, 0.8, 1];
     const extRaw = isObj(m.extensions) && isObj((m.extensions as Record<string, unknown>).CATSUP_material) ? (m.extensions as Record<string, unknown>).CATSUP_material as Record<string, unknown> : null;
-    const out: MaterialDoc = { guid: ownGuid(extRaw?.guid, matSeen), name: typeof m.name === "string" ? m.name : `material ${mi}`, color: materialColorFromFile(bc, extRaw) };   // 1.1 起文件里是线性值（glTF 规定），app 里按 sRGB；老文件原样（migrate/material.ts）
+    const out: MaterialDoc = { guid: ownGuid(extRaw?.guid, matSeen, reminted), name: typeof m.name === "string" ? m.name : `material ${mi}`, color: materialColorFromFile(bc, extRaw) };   // 1.1 起文件里是线性值（glTF 规定），app 里按 sRGB；老文件原样（migrate/material.ts）
     const bt = isObj(pbr.baseColorTexture) ? (pbr.baseColorTexture as Record<string, unknown>) : null;
     if (bt && typeof bt.index === "number" && isObj(texList[bt.index])) {
       const src = (texList[bt.index] as Record<string, unknown>).source;
@@ -127,7 +129,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   if (!Array.isArray(list)) fail("CATSUP_definitions.list missing");
   // 定义的身份先过一遍（实例引用要查；重复的：头一个留身份，后面的现铸 = 引用都指头一个，不崩）
   const defSeen = new Set<Guid>();
-  const defGuids: Guid[] = (list as unknown[]).map((d) => ownGuid(isObj(d) ? (d as Record<string, unknown>).guid : undefined, defSeen));
+  const defGuids: Guid[] = (list as unknown[]).map((d) => ownGuid(isObj(d) ? (d as Record<string, unknown>).guid : undefined, defSeen, reminted));
   const rootIdx = defGuids.indexOf(defsExt.root as Guid);
   if (rootIdx < 0) fail("CATSUP_definitions.root invalid");
   const matKnown = new Set(materials.map((m) => m.guid));
@@ -155,7 +157,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       brepKeep = { attributes: attrs, curves: brepJson.curves, ...(brepJson.extras ? { extras: brepJson.extras } : {}) };
     }
     const groupSeen = new Set<Guid>();
-    const groupGuids: Guid[] = (Array.isArray(d.groups) ? d.groups : []).map((g: unknown) => ownGuid(isObj(g) ? (g as Record<string, unknown>).guid : undefined, groupSeen));
+    const groupGuids: Guid[] = (Array.isArray(d.groups) ? d.groups : []).map((g: unknown) => ownGuid(isObj(g) ? (g as Record<string, unknown>).guid : undefined, groupSeen, reminted));
     const groupKnown = new Set(groupGuids);
     const groups: GroupDoc[] = (Array.isArray(d.groups) ? d.groups : []).map((gRaw: unknown, gi: number) => {
       if (!isObj(gRaw) || !isObj(gRaw.brep)) fail(`definition ${di} group ${gi} invalid`);
@@ -170,7 +172,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
       if (!isGuid(inst.definition) || !defSeen.has(inst.definition)) fail(`definition ${di} instance ${ii} references a missing definition`);
       const m = inst.matrix;
       if (!Array.isArray(m) || m.length !== 12 || !m.every((v) => typeof v === "number")) fail(`definition ${di} instance ${ii} matrix must have 12 numbers`);
-      return { guid: ownGuid(inst.guid, instSeen), definition: inst.definition as Guid, parent: isGuid(inst.parent) && groupKnown.has(inst.parent) ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
+      return { guid: ownGuid(inst.guid, instSeen, reminted), definition: inst.definition as Guid, parent: isGuid(inst.parent) && groupKnown.has(inst.parent) ? inst.parent : null, xform: m as unknown as Xform, ...(inst.locked === true ? { locked: true } : {}), ...(typeof inst.layer === "number" ? { layer: inst.layer } : {}), ...(inst.hidden === true ? { hidden: true } : {}), ...(typeof inst.name === "string" ? { name: inst.name } : {}) };
     });
     // 槽表值：材质 GUID / 内置默认背面；内置默认正面的唯一表示是「槽缺」，读到 = 没有（§9.2-A a；notes 记一笔）。
     const materialSlots = (Array.isArray(d.materialSlots) ? d.materialSlots : []).map((x: unknown) => { if (x === BUILTIN_FRONT_GUID) { notes.builtinFrontSlots = (notes.builtinFrontSlots ?? 0) + 1; return null; } return isGuid(x) && (x === BUILTIN_BACK_GUID || matKnown.has(x)) ? x : null; });
@@ -271,7 +273,7 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
   return {
     settings: { ...DEFAULT_SETTINGS, ...settingsIn } as CatsupDocument["settings"],
     axes: frameOf(docExt.axes, "document.axes"),
-    layers: (() => { const layerSeen = new Set<Guid>([DEFAULT_LAYER_GUID]); const raw = Array.isArray(docExt.layers) ? (docExt.layers as unknown[]) : []; const ls: LayerDoc[] = raw.filter(isObj).map((l) => { const o = l as Record<string, unknown>; const id = typeof o.id === "number" ? o.id : 0; return { id, guid: id === 0 ? DEFAULT_LAYER_GUID : ownGuid(o.guid, layerSeen), name: typeof o.name === "string" ? o.name : `层 ${String(o.id)}`, visible: o.visible !== false, ...(Array.isArray(o.color) && o.color.length === 3 ? { color: [o.color[0], o.color[1], o.color[2]] as [number, number, number] } : {}) }; }); if (!ls.some((l) => l.id === 0)) ls.unshift({ ...DEFAULT_LAYER }); return ls; })(),
+    layers: (() => { const layerSeen = new Set<Guid>([DEFAULT_LAYER_GUID]); const raw = Array.isArray(docExt.layers) ? (docExt.layers as unknown[]) : []; const ls: LayerDoc[] = raw.filter(isObj).map((l) => { const o = l as Record<string, unknown>; const id = typeof o.id === "number" ? o.id : 0; return { id, guid: id === 0 ? DEFAULT_LAYER_GUID : ownGuid(o.guid, layerSeen, reminted), name: typeof o.name === "string" ? o.name : `层 ${String(o.id)}`, visible: o.visible !== false, ...(Array.isArray(o.color) && o.color.length === 3 ? { color: [o.color[0], o.color[1], o.color[2]] as [number, number, number] } : {}) }; }); if (!ls.some((l) => l.id === 0)) ls.unshift({ ...DEFAULT_LAYER }); return ls; })(),
     ...(isFinalRecord(docExt.final) ? { final: { at: docExt.final.at, rev: docExt.final.rev, app: typeof docExt.final.app === "string" ? docExt.final.app : "", fingerprint: docExt.final.fingerprint } } : {}),
     ...(typeof docExt.finalRev === "number" ? { finalRev: docExt.finalRev } : {}),
     desk,
@@ -284,6 +286,6 @@ export function readCatsup(bytes: Uint8Array): CatsupDocument {
     ...(shelf && !shelfIsEmpty(shelf) ? { shelf } : {}),
     ...(thumbnail ? { thumbnail } : {}),
     carry: { topLevel, extensions, documentExtra, definitionsExtra, ...(brepKeep ? { brepKeep } : {}), views },
-    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots ? { readNotes: notes } : {}),
+    ...(notes.newerMinor.length || notes.newerPatch.length || notes.deskTooNew || notes.referencesTooNew || notes.shelfTooNew || notes.danglingShelfRefs || notes.builtinFrontSlots || notes.remintedGuids ? { readNotes: notes } : {}),
   };
 }

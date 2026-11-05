@@ -8,5 +8,6 @@ export function formatNotesSay(n: FormatReadNotes): string[] {
   if (n.deskTooNew) out.push(`这份文件的界面记录（desk ${fmtStamp(n.deskTooNew)}）比本版新：按默认显示，保存时原样带回`);
   if (n.shelfTooNew) out.push(`这份文件的素材架是更新版写的（shelf ${fmtStamp(n.shelfTooNew)}）：本版读不出架上有什么、也不能改，保存时原样带回；为了不删到架上的东西，这份文件里先不能清理没人用的组件和材质`);
   if (n.danglingShelfRefs) out.push(`素材架上有 ${n.danglingShelfRefs} 格指向的东西已经不在文件里，这次打开丢掉了（保存后就没了）`);
+  if (n.remintedGuids) out.push(`这份文件里有 ${n.remintedGuids} 条身份重复或不合法（可能被手改过），这次打开换了新身份；保存后就固定了`);
   return out;
 }

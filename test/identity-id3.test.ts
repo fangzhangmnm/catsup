@@ -9,7 +9,8 @@ import { applyOp, OpRejected, ShearRejected, describeOp, faceKey, edgeKey, type 
 import { History, opTier } from "../src/editor/history.ts";
 import { opTouchesLocked } from "../src/editor/op-locks.ts";
 import { census, liveDefs, orphanDefs, shelfRows, unusedMaterials } from "../src/scene/resources.ts";
-import { castPayload, extract, importCandidates, localize, pasteBefore, pasteReport, pasteSay, pasteWouldCycle, payloadFromDocument, shelfImportOp, transferEmpty, trimClosure, type TransferPayload } from "../src/editor/transfer.ts";
+import { castPayload, extract, localize, transferEmpty, type TransferPayload } from "../src/editor/transfer.ts";
+import { importCandidates, pasteBefore, pasteReport, pasteSay, pasteWouldCycle, payloadFromDocument, shelfImportOp, trimClosure } from "../src/editor/paste-plan.ts";
 import { formatNotesSay } from "../src/app/format-notes.ts";
 import { sceneBox } from "./format-scenes.ts";
 import { IDENTITY, translation } from "../src/scene/xform.ts";

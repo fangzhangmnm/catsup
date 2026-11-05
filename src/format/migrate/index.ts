@@ -117,7 +117,7 @@ export function compareStamp(file: Stamp, mine: Stamp): StampVerdict {
 }
 /** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）；
  *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）；shelfTooNew 同理；danglingShelfRefs = 架子上有几格指向的东西已经不在文件里（读时丢掉，不猜、不造）。 */
-export interface FormatReadNotes { newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; /** 槽表里写了内置默认正面 GUID 的格数（默认正面的唯一表示是槽缺，读成没有；手改过的文件才有）。 */ builtinFrontSlots?: number; referencesTooNew?: Stamp; shelfTooNew?: Stamp; danglingShelfRefs?: number }
+export interface FormatReadNotes { /** 文件里写了身份、但重复或不合法，这次打开换了新身份（ID-4c；手改过的文件才有）。 */ remintedGuids?: number; newerMinor: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; newerPatch: { ext: CatsupExtension; file: Stamp; mine: Stamp }[]; deskTooNew?: Stamp; /** 槽表里写了内置默认正面 GUID 的格数（默认正面的唯一表示是槽缺，读成没有；手改过的文件才有）。 */ builtinFrontSlots?: number; referencesTooNew?: Stamp; shelfTooNew?: Stamp; danglingShelfRefs?: number }
 export const emptyReadNotes = (): FormatReadNotes => ({ newerMinor: [], newerPatch: [] });
 
 export type MigrationStep = (json: Record<string, unknown>, ctx?: MigrationCtx) => Record<string, unknown>;

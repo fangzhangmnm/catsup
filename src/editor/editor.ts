@@ -68,7 +68,8 @@ import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
-import { accept as transferAccept, castPayload, extract as transferExtract, KEEP, pasteConflict, preparePaste, transferSay, type ConflictRow, type Decision } from "./transfer.ts";
+import { accept as transferAccept, castPayload, extract as transferExtract, transferSay } from "./transfer.ts";
+import { KEEP, pasteConflict, preparePaste, type ConflictRow, type Decision } from "./paste-plan.ts";
 import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
 import { type PoolSlot, WorldView, insideContext, slotKey, PART_STATS } from "../scene/world-view.ts";
@@ -1953,8 +1954,7 @@ export class Editor {
       if (typeof job === "string") { this.host.hint(job); return; }
       const n0 = this.opCount, events = this.commitIn(pass, job.op);
       if (this.opCount === n0) return;
-      // 贴出来的成为选区（接着 G 就能挪）
-      this.clearSel(pass);
+      this.clearSel(pass);   // 贴出来的成为选区（接着 G 就能挪）
       const fresh = job.fresh(this.scene);
       for (const [key, pick] of fresh.pools) this.selectedPools.set(key, pick);
       if (this.selection.kind === "mesh") for (const f of fresh.meshFaces) this.selection.faces.add(f);

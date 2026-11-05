@@ -4,7 +4,12 @@ const { readFileSync, readdirSync } = (await import("node:fs" as string)) as { r
 import { KINDS, registerKind, refKey, type Ref } from "../src/identity/kinds.ts";
 import { bundleOf, census, closure, frontier, KEEP, plan, planWouldCycle, wouldCycle } from "../src/identity/graph.ts";
 import { tableStore } from "../src/identity/store.ts";
-import { mintGuid, type Guid } from "../src/identity/guid.ts";
+import { mintGuid, ownGuid, recordMints, replayMints, type Guid } from "../src/identity/guid.ts";
+import { History } from "../src/editor/history.ts";
+import { formatNotesSay } from "../src/app/format-notes.ts";
+import { decodeGlb } from "../src/format/index.ts";
+import { encodeGlb } from "../src/format/glb.ts";
+import { opTouchesLocked } from "../src/editor/op-locks.ts";
 import { DEFINITION, LAYER, MATERIAL, defRef, layerRef, materialRef } from "../src/format/entry-kinds.ts";
 import { docStore, sceneStore } from "../src/format/scene-store.ts";
 import { documentFromScene, readCatsup, writeCatsup } from "../src/format/index.ts";
@@ -176,5 +181,57 @@ describe("做成唯一走身份层：断开的同一份声明", () => {
     eq(k.faces().map((f) => s.materialOfSlot(u.id, k.faceMaterialOf(f.id, 0))?.name).filter(Boolean).join(), "红", "面上的颜色对");
     assert(s.defByGuid(a.guid), "原来的还在");
     eq([...s.def(a.id).instances.values()][0].guid, sub.guid, "原来的实例不动");
+  });
+});
+
+describe("ID-4c 小账", () => {
+  it("录音带（§9-4）：铸得比录的多或少 = 抛；对得上 = 放回原样；嵌套还原", () => {
+    const threw = (fn: () => unknown): string => { try { fn(); return ""; } catch (e) { return String(e); } };
+    let tape: Guid[] = [];
+    const g = recordMints(() => [mintGuid(), mintGuid()], (m) => { tape = m; });
+    eq(tape.join(), g.join(), "录下来的");
+    eq(replayMints(tape, () => [mintGuid(), mintGuid()]).join(), g.join(), "放回原样");
+    assert(threw(() => replayMints(tape, () => [mintGuid(), mintGuid(), mintGuid()])).includes("more"), "多了");
+    assert(threw(() => replayMints(tape, () => [mintGuid()])).includes("minted 1"), "少了");
+    assert(mintGuid() !== g[0], "放完还原：又是现铸");
+    assert(threw(() => replayMints(tape, () => { throw new Error("原来的错"); })).includes("原来的错"), "指令自己抛的错不被盖掉");
+  });
+  it("真实指令流重放过得了校验（粘贴、做成唯一、素材架都铸 GUID）", () => {
+    const { s, a } = world(); let t = s;
+    const h = new History(t);
+    t = h.commit(t, { op: "makeUnique", def: t.root, instance: [...t.def(t.root).instances.values()][0].id }).scene;
+    t = h.commit(t, { op: "shelfPut", kind: "definition", ref: a.guid, folder: null, guid: mintGuid() }).scene;
+    const r = h.replay();
+    eq([...r.defs.values()].map((d) => d.guid).join(), [...t.defs.values()].map((d) => d.guid).join());
+  });
+  it("重复 / 不合法的身份（§9-3）：写了才算；老文件没写不算", () => {
+    let n = 0; const count = () => { n++; }, seen = new Set<Guid>(), g = mintGuid();
+    eq(ownGuid(g, seen, count), g); eq(n, 0, "合法");
+    assert(ownGuid(g, seen, count) !== g); eq(n, 1, "重复");
+    ownGuid("不是 GUID", seen, count); eq(n, 2, "不合法");
+    ownGuid(undefined, seen, count); ownGuid(null, seen, count); eq(n, 2, "老文件压根没写");
+  });
+  it("读文件：两条定义同 GUID = 头一条留身份、后面现铸、记下来说一句（机械、看得见，不再静默）", () => {
+    const { s } = world(), { json, bin } = decodeGlb(writeCatsup(documentFromScene(s, "t"))) as { json: any; bin: Uint8Array };
+    const list = json.extensions.CATSUP_definitions.list, g0 = list.find((d: any) => d.guid !== json.extensions.CATSUP_definitions.root).guid;
+    const others = list.filter((d: any) => d.guid !== g0 && d.guid !== json.extensions.CATSUP_definitions.root);
+    const orphan = others.find((d: any) => !list.some((x: any) => (x.instances ?? []).some((i: any) => i.definition === d.guid)));
+    orphan.guid = g0;
+    const doc = readCatsup(encodeGlb(json, bin));
+    eq(doc.readNotes?.remintedGuids, 1);
+    eq(new Set(doc.definitions.map((d) => d.guid)).size, doc.definitions.length, "读完没有重复");
+    assert(formatNotesSay(doc.readNotes!).some((t) => t.includes("1 条身份重复或不合法")), "打开时说一句");
+    assert(!readCatsup(writeCatsup(documentFromScene(s, "t"))).readNotes?.remintedGuids, "正常文件不说");
+  });
+  it("op-locks：素材架六条豁免是显式集合（不靠名字开头）", () => {
+    const { s } = world(), locked = () => true;
+    for (const op of [{ op: "shelfPut", kind: "definition", ref: mintGuid(), folder: null, guid: mintGuid() }, { op: "shelfTake", item: mintGuid() }, { op: "shelfMove", item: mintGuid(), folder: null }, { op: "shelfFolderAdd", guid: mintGuid(), name: "x", parent: null }, { op: "shelfFolderRename", folder: mintGuid(), name: "x" }, { op: "shelfFolderRemove", folder: mintGuid() }] as const) eq(opTouchesLocked(s, op as never, locked), false, op.op);
+    const src = readFileSync(new URL("../src/editor/op-locks.ts", import.meta.url), "utf8");
+    assert(!src.includes('startsWith("shelf")'));
+  });
+  it("上架 / 取下说对原因：冻结的架子说冻结，不说「已经在架上了」", () => {
+    const src = readFileSync(new URL("../src/editor/objects/verbs.ts", import.meta.url), "utf8");
+    assert(!/none: "放上素材架：选中的组件已经在架上了"/.test(src));
+    assert((src.match(/notes: \[SHELF_FROZEN_SAY\]/g) ?? []).length === 2, "两条都说");
   });
 });

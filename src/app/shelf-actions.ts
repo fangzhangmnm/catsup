@@ -1,11 +1,10 @@
 // app/shelf-actions.ts —— 素材架的动作层：起名、挑文件、问挑哪些（指令本身在 editor/ops.ts，机械）。created 2026-11-04 by Claude Opus 5.5（身份地基 ID-3，计划书 §15.1-D / E）。
 // · 进架必须命名（user 10-30「只放标记进来的组件、进架必须命名、可重名、不同文件夹」）：放在这一层——没起名的先问名字，起名和上架同一步撤销；取消 = 都不做。指令不管名字。
-// · 「从别的模型导入素材」= 读那份文件（加密的先解锁、外来 glb 按内容拒）→ 列组件 → 撞上内容不一样的问一次（和粘贴同一弹窗同一默认，user 11-04「4 用」）→ 纯合并的 paste + 上架，一步撤销（transfer.ts shelfImportOp）。只读那份文件，不碰它。
+// · 「从别的模型导入素材」= 读那份文件（加密的先解锁、外来 glb 按内容拒）→ 列组件 → 撞上内容不一样的问一次（和粘贴同一弹窗同一默认，user 11-04「4 用」）→ 纯合并的 paste + 上架，一步撤销（paste-plan.ts shelfImportOp）。只读那份文件，不碰它。
 //   第一版只从本机文件选；图库里直接挑 = 图库今天没有「只挑不打开」的界面，记在素材抽屉那张单上。
 import type { Editor } from "../editor/editor.ts";
 import { isHex4 } from "../editor/object-tree.ts";
-import { pasteBefore, pasteConflict, pasteReport, payloadFromDocument, importCandidates, shelfImportOp } from "../editor/transfer.ts";
-import { KEEP } from "../identity/graph.ts";
+import { KEEP, pasteBefore, pasteConflict, pasteReport, payloadFromDocument, importCandidates, shelfImportOp } from "../editor/paste-plan.ts";
 import { resolvePasteConflict } from "./paste-actions.ts";
 import { readCatsup } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";

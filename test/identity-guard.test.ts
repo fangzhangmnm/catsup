@@ -155,7 +155,7 @@ describe("老文件（definitions 6.x → 7）", () => {
       for (const m of doc.materials) assert(m.guid !== BUILTIN_BACK_GUID && m.guid !== BUILTIN_FRONT_GUID, `${v}/${f} 材质表里有内置`);
       for (const d of doc.definitions) assert(!d.materialSlots.includes(BUILTIN_FRONT_GUID), `${v}/${f} 槽表写了内置正面`);
     }
-    for (const name of ["src/format/write.ts", "src/format/scene-doc.ts", "src/editor/ops.ts", "src/editor/transfer.ts"]) assert(!readFileSync(new URL(`../${name}`, import.meta.url), "utf8").includes("BUILTIN_FRONT"), `${name} 不许碰内置正面（读入器认出来丢掉就够了）`);
+    for (const name of ["src/format/write.ts", "src/format/scene-doc.ts", "src/format/scene-store.ts", "src/editor/ops.ts", "src/editor/transfer.ts", "src/editor/paste-plan.ts"]) assert(!readFileSync(new URL(`../${name}`, import.meta.url), "utf8").includes("BUILTIN_FRONT"), `${name} 不许碰内置正面（读入器认出来丢掉就够了）`);
     const sided = readCatsup(writeCatsup(documentFromScene(SCENE_DOCS.sided(), "t")));
     assert(sided.definitions[sided.rootIndex].materialSlots.includes(BUILTIN_BACK_GUID), "语料里真有内置背面这种场景");
   });
