@@ -21,6 +21,7 @@ import { meshViewOf } from "../mesh/mesh-view.ts";
 import type { CurveParams } from "../kernel/curves.ts";
 import { type ImageAsset, type LayerDoc, type ShelfDoc, defaultLayers, emptyShelf } from "../format/document.ts";
 import { mintGuid, type Guid } from "../format/guid.ts";
+import type { Stamp } from "../format/migrate/index.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "./builtin-materials.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 
@@ -91,12 +92,14 @@ export class Scene {
   /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
   layers: LayerDoc[] = defaultLayers();
   nextLayer = 1;
-  /** 素材架（CATSUP_shelf；计划书 §2.8）。ID-1 只读写、不动它；动词和「架子上的也算活着」在 ID-3。 */
+  /** 素材架（CATSUP_shelf；计划书 §2.8 / §15）。条目只存引用（GUID）；架上的算活着（resources.ts liveDefs）。 */
   shelf: ShelfDoc = emptyShelf();
+  /** 文件里的素材架是更新版写的（major 比本版新，计划书 §15.1-D）：本版读不出里面有什么（上面的 shelf 是空的）、原字节存盘带回。不是 null = 架子不能改、清理不做（看不见架上收着谁，清理会删到）。 */
+  shelfFrozen: Stamp | null = null;
   private nextDef = 1;
 
-  constructor(rootKernel?: Kernel) {
-    this.root = this.mintDef("model", rootKernel ?? new Kernel()).id;
+  constructor(rootKernel?: Kernel, rootGuid?: Guid) {
+    this.root = this.mintDef("model", rootKernel ?? new Kernel(), rootGuid).id;
   }
 
   // ---------- 铸造 ----------
@@ -166,6 +169,10 @@ export class Scene {
     if (!inst) throw new Error(`instance ${id} does not exist in definition ${defId}`);
     return inst;
   }
+  /** 按身份找定义（线性：定义是几百量级；批量的在调用方建表）。 */
+  defByGuid(g: Guid): Definition | undefined { for (const d of this.defs.values()) if (d.guid === g) return d; return undefined; }
+  /** 按身份找材质的下标（−1 = 没有）。 */
+  materialByGuid(g: Guid): number { return this.materials.findIndex((m) => m.guid === g); }
   /** definition 身体的种类（门 1：op / 渲染 / 格式按它派发）。 */
   kindOf(def: DefId): BodyKind { return this.def(def).body.kind; }
   /** definition 的 brep 身体（不是 brep → 抛：内核 op / 分组 / 参考几何只对 brep 成立）。 */
@@ -268,7 +275,7 @@ export class Scene {
     (s as { meshMirrors: Map<DefId, MirrorSetting> }).meshMirrors = this.meshMirrors;   // 共享（不进撤销）
     (s as { materials: Material[] }).materials = [...this.materials];
     s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
-    s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer; s.shelf = { folders: this.shelf.folders.map((f) => ({ ...f })), items: this.shelf.items.map((it) => ({ ...it })), extra: this.shelf.extra };
+    s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer; s.shelf = { folders: this.shelf.folders.map((f) => ({ ...f })), items: this.shelf.items.map((it) => ({ ...it })), extra: this.shelf.extra }; s.shelfFrozen = this.shelfFrozen;
     for (const [id, d] of this.defs) {
       let body: Body;
       if (d.body.kind === "brep") {
@@ -299,7 +306,7 @@ export class Scene {
     (s as { meshMirrors: Map<DefId, MirrorSetting> }).meshMirrors = this.meshMirrors;   // 共享（不进撤销）
     (s as { materials: Material[] }).materials = [...this.materials];   // 材质对象不可变，浅拷安全
     s.axes = { origin: { ...this.axes.origin }, x: { ...this.axes.x }, y: { ...this.axes.y }, z: { ...this.axes.z } };
-    s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer; s.shelf = { folders: this.shelf.folders.map((f) => ({ ...f })), items: this.shelf.items.map((it) => ({ ...it })), extra: this.shelf.extra };
+    s.layers = this.layers.map((l) => ({ ...l })); s.nextLayer = this.nextLayer; s.shelf = { folders: this.shelf.folders.map((f) => ({ ...f })), items: this.shelf.items.map((it) => ({ ...it })), extra: this.shelf.extra }; s.shelfFrozen = this.shelfFrozen;
     for (const [id, d] of this.defs) {
       let body: Body;
       if (d.body.kind === "brep") {

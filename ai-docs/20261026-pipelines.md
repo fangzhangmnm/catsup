@@ -48,7 +48,7 @@ flowchart LR
 | `weldEdges` / `explodeCurves` | 曲线登记 | 不结算 | 焊边认回圆（DT88） |
 | `makeGroup` / `makeComponent` / `explode` / `copyGroup` | 快照搬家（`extractSnapshot` / `transformSnapshot`）+ ③ 装载 + ① absorb | ③ + ① | 建组件马后炮选原点 |
 | `eraseInstance` / `rename` / `purgeDefs`（清理没人用的组件，0.18 I10，2026-10-30 Opus） | 场景骨架（定义平表 / 实例表）；`purgeDefs` 先用 `src/scene/resources.ts liveDefs`（从模型根沿「谁摆着谁」走）复核单子全是孤儿，有一个活的整条拒绝 | 不结算（骨架类撤销） | **定义的生死**：只有 `purgeDefs` 删定义（守卫 `test/orphan-defs.test.ts`）；炸开 / 合并 / 删实例都留着定义（v0.18.3 起，以前炸开最后一份会删）。清点 = `census`：随定义数 + 实例数 + 活着组件的面数涨（资源页打开时才算） |
-| 换父亲（层级窗拖一行，0.18 I3） | `object-tree.ts reparentOp` → 一条 `batch` = `eraseInstance` + `paste`（实例载荷，世界位置换算成目标组件本地）→ 窗口用 `editor.oneStep` 把「退到根 → 提交 → 走进新父亲 → 选中」并成一步 | 不结算（骨架类） | 判落点 = 通用 `src/app/ui/tree-drag.ts dropAt`（只吃行深度）；碰的东西 = 这一份实例 + 两个组件的实例表 |
+| 换父亲（层级窗拖一行，0.18 I3；身份地基 ID-2 起不走 paste） | `object-tree.ts moveRowOp` → 一条 `moveInstance`（保 GUID，世界位置换算成目标组件本地）→ 窗口用 `editor.oneStep` 把「退到根 → 提交 → 走进新父亲 → 选中」并成一步 | 不结算（骨架类） | 判落点 = 通用 `src/app/ui/tree-drag.ts dropAt`（只吃行深度）；碰的东西 = 这一份实例 + 两个组件的实例表 |
 | `importScene` | ③ 装载（op 带提交前装好的膜） | ③ | 上方向 / 文件单位（马后炮重做） |
 | 插件指令 `planar`（老名 `makePlanar`）/ 修复指令 | 规划纯函数（`src/editor/repairs/planar/plan.ts` 等）→ `moveVertices` | ① | 作用域：有选区 = 选区，没选 = 整个物体；含子物体（DT85）。拍平（v0.14.63 DT104）：候选 = 弯折小于阈值的边，硬 / 软 / 折线都算；按候选连成片，**整片每张面和目标平面夹角 ≤ 阈值才拍**，不然当曲面（圆柱侧面）→ 退回只按硬边分片、同样过这关，过不了不拍、报片数 |
 | 插件指令 `gridSnap`（吸到格点 DT4 / 拉正 DT101 合租；老名 `snapToGrid`） | 规划纯函数 `src/editor/repairs/grid-snap/plan.ts planGridSnap`（拉正 = 格子坐标里逐根轴：和轴几乎垂直的边两端点这根轴的坐标拉成一样，连成伙取同一个值，范围外的点当锚；圆 / 弧只沿法向那根轴拉平） → 拷贝上试 `moveVertices` → 会破的面先 `addEdges` 三角化对角线 → 真 `moveVertices` | ① | `creaseLayers` = 软边（缺省）/ 硬边；格子 = 物体自己的坐标架（缺省）/ 世界格点；圆 / 弧整条平移（缺省）/ 逐点；还破 = 整步拒绝 |
@@ -409,3 +409,34 @@ flowchart LR
 6. 画：`WorldView` 的 scene 用影子场景，provider 从它取材质 = 预演开的默认背面槽就在它的槽表上，没有临时号。预演开了槽、松手取消 = 那具身体的槽表签名变短 = 池网格全量重建一次（只在这个定义第一次出现默认背面时）。
 
 镜像会话（`beginMirror`）的预演同一条路：`mirror` op，组件走副本槽。实测见计划书 §13。
+
+## 追记 2026-11-04（v0.18.34，Claude Opus 5.5）：跨文件粘贴和素材架（身份地基 ID-3，计划书 §15）
+
+**哪个操作走哪条**
+
+| 操作 | 流程 | 亚种 |
+|---|---|---|
+| 粘贴（同文件 / 跨文件 / 撤销过头后） | `transfer.extract` → 剪贴板 → `trimClosure` + `localize` → `paste` | 同一条：闭包里全有 = 剪成空、和以前一样；不在的按闭包建 |
+| 从别的模型导入素材 | 读文件（加密先解）→ `importCandidates` → 挑 → `shelfImportOp` = `batch[纯合并 paste, shelfPut × N]` | 和粘贴同一个 paste，只是没有摆放、`closure.roots` = 挑中的 |
+| 打开文件 | `read.ts` → `sceneFromDocument` → `materializeDefinitions` | 和粘贴装定义是同一份代码 |
+| 上架 / 取下 / 文件夹 | 六条 `shelf*` 指令，骨架级撤销 | 没起名先问名字在动作层 `app/shelf-actions.ts` |
+
+**拷贝（`extract`）每一步**
+
+1. 散几何 / 组：O(选区)，没变。
+2. 闭包：选中的实例往下走到底（`reachableDefs`），每个定义 `definitionToDoc`（`toBrep` / `meshDocFromKernel`）：**O(闭包里的几何)，以前 O(1)**。实测（node 中位）：网格体 1 万面 8 ms、4 万面 31 ms；硬表面 2500 面 16 ms。不随整个模型涨，只随拷的东西涨。
+
+**粘贴（`paste`）每一步**
+
+1. 编辑器：`pasteWouldCycle` 查环（走闭包）；`trimClosure` 只留真要新建的定义，指令流不攒闭包。
+2. `mergeClosure`：`definitionsToMake` 从摆放（或 roots）往下走，碰到场景里已有的就停；O(定义数)。
+3. `materializeDefinitions`：新建的定义 `fromBrep` / `kernelFromMeshDoc`；材质 / 层用到才加。O(新建的几何)。同文件粘贴这一步是空的。实测：跨文件第一次贴网格体 1 万面 27 ms、4 万面 76 ms；硬表面 2500 面 159 ms；同文件 0.1 ms 量级。
+4. 摆放：现铸 GUID，和以前一样。
+5. 撤销：`paste` 走 scene 级（整份场景拷，**随整个模型涨**，这条没变），闭包新建的条目一起回去。
+6. 提示行：`pasteBefore / pasteReport / pasteSay`，O(定义 + 材质)。
+
+**重放**：`History` 提交时录下每条指令铸的 GUID（`guid.ts recordMints`），`stateAt` 按序放回（`replayMints`）：指令里按 GUID 认条目（paste 的闭包、素材架），重放必须同 GUID。很小，和指令流同寿。
+
+**生死**：`liveDefs` 的根 = 模型根 + 架上的组件（`shelvedDefs`，O(定义 + 架子)）；`purgeDefs` 自然拒上架的；文件的素材架是更新版写的（`shelfFrozen`）= 看不见架上收着谁，清理直接拒。
+
+**还随整个模型涨的点**：粘贴的撤销记录（整份场景拷，以前就是）。

@@ -7,6 +7,7 @@ import type { MirrorSetting } from "../mesh/mirror.ts";
 import type { KernelView } from "./kernel-view.ts";
 import { type LayerDoc, type ShelfDoc } from "../format/document.ts";
 import { type Guid } from "../format/guid.ts";
+import type { Stamp } from "../format/migrate/index.ts";
 export { type BodyKind, BODY_KINDS, isBodyKind } from "./body-kind.ts";
 export type DefId = number;
 export type GroupId = number;
@@ -103,10 +104,12 @@ export declare class Scene {
     /** 层表（0.14 契约 §4）：id 0 永远是默认层；进 CATSUP_document.layers。 */
     layers: LayerDoc[];
     nextLayer: number;
-    /** 素材架（CATSUP_shelf；计划书 §2.8）。ID-1 只读写、不动它；动词和「架子上的也算活着」在 ID-3。 */
+    /** 素材架（CATSUP_shelf；计划书 §2.8 / §15）。条目只存引用（GUID）；架上的算活着（resources.ts liveDefs）。 */
     shelf: ShelfDoc;
+    /** 文件里的素材架是更新版写的（major 比本版新，计划书 §15.1-D）：本版读不出里面有什么（上面的 shelf 是空的）、原字节存盘带回。不是 null = 架子不能改、清理不做（看不见架上收着谁，清理会删到）。 */
+    shelfFrozen: Stamp | null;
     private nextDef;
-    constructor(rootKernel?: Kernel);
+    constructor(rootKernel?: Kernel, rootGuid?: Guid);
     mintDef(name: string, kernel: Kernel, guid?: Guid): Definition;
     mintGroup(defId: DefId, parent: GroupId | null, kernel: Kernel, axes: Frame, guid?: Guid): Group;
     /** 定义里全部顶点（本定义坐标 → 再经 m）：根池 + 各组 + 各实例（递归、经实例变换）。建组件 / 建组时算包围盒和原点用（2026-10-26 嵌套）。 */
@@ -127,6 +130,10 @@ export declare class Scene {
         group: GroupId;
     }): Group;
     instance(defId: DefId, id: InstId): Instance;
+    /** 按身份找定义（线性：定义是几百量级；批量的在调用方建表）。 */
+    defByGuid(g: Guid): Definition | undefined;
+    /** 按身份找材质的下标（−1 = 没有）。 */
+    materialByGuid(g: Guid): number;
     /** definition 身体的种类（门 1：op / 渲染 / 格式按它派发）。 */
     kindOf(def: DefId): BodyKind;
     /** definition 的 brep 身体（不是 brep → 抛：内核 op / 分组 / 参考几何只对 brep 成立）。 */

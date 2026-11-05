@@ -1,5 +1,7 @@
 export type Guid = string;
 export declare const isGuid: (s: unknown) => s is Guid;
+export declare function recordMints<T>(fn: () => T, done: (minted: Guid[]) => void): T;
+export declare function replayMints<T>(minted: readonly Guid[], fn: () => T): T;
 /** 铸一个。`randomUUID` 只在安全上下文有（局域网 http 预览没有），退回 `getRandomValues`，同样是 v4。 */
 export declare function mintGuid(): Guid;
 /** 文件里读到的身份：合法且没人用过就留着，否则现铸（手改过的文件 / 老文件）。 */

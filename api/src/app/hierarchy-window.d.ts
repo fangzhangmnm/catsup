@@ -1,5 +1,6 @@
 import type { Editor } from "../editor/editor.ts";
 import { type MenuWindowSpec } from "./ui/menu-window.ts";
+import type { ShelfActions } from "./shelf-actions.ts";
 import type { HudModel } from "./ui/hud-model.ts";
 export interface HierarchyWindow {
     toggle(anchor: HTMLElement): void;
@@ -9,6 +10,7 @@ export interface HierarchyWindow {
 export declare function createHierarchyWindow(editor: Editor, hud: HudModel, deps: {
     store: MenuWindowSpec<string>["store"];
     after(): void;
+    shelf: ShelfActions;
     confirm(title: string, message: string, okLabel: string): Promise<boolean>;
     hint(text: string): void; /** 这台设备记的开关（「同一组件合成一行」）。 */
     pref: {

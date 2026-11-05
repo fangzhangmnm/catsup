@@ -18,7 +18,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
     const body = d.body.kind === "brep" ? `b${d.body.kernel.faces().length}f${d.body.kernel.edges().length}e${d.body.kernel.vertices().map((v) => `${v.x.toFixed(4)},${v.y.toFixed(4)},${v.z.toFixed(4)}`).sort().join(";")}g${d.body.groups.size}s${d.body.materialSlots.join(",")}L${d.body.kernel.faces().map((f) => `${d.body.kernel.faceMaterialOf(f.id, 0) ?? "-"}/${d.body.kernel.faceMaterialOf(f.id, 1) ?? "-"}`).sort().join(",")}` : `m${d.body.kernel.faceCount()}f${d.body.kernel.verts().map((v) => { const p = d.body.kernel.pt(v); return `${p.x.toFixed(4)},${p.y.toFixed(4)},${p.z.toFixed(4)}`; }).sort().join(";")}`;
     return `D${id}:${body}|I${[...d.instances.values()].map((i) => `${i.id}:${i.def}:${i.xform.map((x) => x.toFixed(4)).join(",")}`).join(";")}`;   // 不排序：同级顺序是数据（ID-2）
   }).join("\n");
-  const guidsOf = (sc) => JSON.stringify([[...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, d.guid, [...d.instances.values()].map((i) => i.guid), d.body.kind === "brep" ? [...d.body.groups.values()].map((g) => g.guid) : []]), sc.materials.map((m) => m.guid), sc.layers.map((l) => l.guid)]);
+  const guidsOf = (sc) => JSON.stringify([sc.shelf.items.map((it) => [it.guid, it.ref]), [...sc.defs.entries()].sort((a, b) => a[0] - b[0]).map(([id, d]) => [id, d.guid, [...d.instances.values()].map((i) => i.guid), d.body.kind === "brep" ? [...d.body.groups.values()].map((g) => g.guid) : []]), sc.materials.map((m) => m.guid), sc.layers.map((l) => l.guid)]);
   const unusedMats = (sc) => { const used = new Set(); for (const d of sc.defs.values()) { const b = d.body; if (b.kind === "mesh") { for (const f of b.kernel.faces()) { const m = b.materialSlots[b.kernel.faceMat[f]]; if (m !== undefined) used.add(m); } continue; } for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) for (const side of [0, 1]) { const sl = k.faceMaterialOf(f.id, side); if (sl !== undefined && b.materialSlots[sl] !== undefined) used.add(b.materialSlots[sl]); } } return sc.materials.map((_, i) => i).filter((i) => !used.has(i)); };
   const selKey = () => `${e.contextCrumbs().length - 1}|f${[...e.selection.faces].sort().join(",")}|e${[...e.selection.edges].sort().join(",")}|v${[...e.selection.verts].sort().join(",")}|p${[...e.selectedPools.values()].map((p) => JSON.stringify(p)).sort().join(",")}`;
   const selValid = () => { const v = e.activeView; return [...e.selection.faces].every((f) => v.face(f)) && [...e.selection.edges].every((x) => v.graph.hasEdge(x)) && [...e.selection.verts].every((x) => v.graph.hasVertex(x)); };
@@ -26,7 +26,9 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
   const box = (x0, y0, z0, x1, y1, z1) => { const B = [[x0, y0], [x1, y0], [x1, y1], [x0, y1]], segs = []; for (let i = 0; i < 4; i++) { const a = B[i], d = B[(i + 1) % 4]; segs.push([P(a[0], a[1], z0), P(d[0], d[1], z0)]); segs.push([P(a[0], a[1], z1), P(d[0], d[1], z1)]); segs.push([P(a[0], a[1], z0), P(a[0], a[1], z1)]); } e.commitOp({ op: "addEdges", at: e.activePool(), segs }); };
   e.setGrid({ ...e.grid, on: false });
   const out = { seeds: [], failures: [], reloads: [], hist: {} }, drifts = [];
-  const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
+  // 提交失败按指令数（身份地基 ID-3：失败只进控制台 = fuzz 看不见；粘贴从同一层拷的东西不该失败，锁 / 斜切是规矩拒绝）
+  const commitFails = {}, pasteFails = [];
+  const trace0 = e.host.trace; e.host.trace = (t) => { if (t.kind === "drift") drifts.push(t); if (t.kind === "fail" && t.where === "commit") { const k = `${t.op?.op}: ${String(t.message).replace(/\d+/g, "N").slice(0, 70)}`; commitFails[k] = (commitFails[k] ?? 0) + 1; if (t.op?.op === "paste" && !/^locked|斜切/.test(String(t.message))) pasteFails.push(t.message); } trace0?.(t); };   // 层 3 的纠正不许被用上（用上 = 层 1 漏了）
   const modeFits = () => e.mode.kinds.includes(S().kindOf(S().defOfContext(e.context)));
   // 面层的槽号 < 槽表长度（计划书 §12 C1：预演开的槽不许漏进真身）；手势中途真身一个字节不动（2026-11-04 Claude Opus 5.5）
   const slotsBad = () => { for (const d of S().defs.values()) { const b = d.body, n = b.materialSlots.length; if (b.kind === "mesh") { for (const f of b.kernel.faces()) if (b.kernel.faceMat[f] >= n) return `def ${d.id} mesh face ${f} slot ${b.kernel.faceMat[f]} / ${n}`; } else for (const k of [b.kernel, ...[...b.groups.values()].map((g) => g.kernel)]) for (const f of k.faces()) for (const side of [0, 1]) { const v = k.faceMaterialOf(f.id, side); if (v !== undefined && v >= n) return `def ${d.id} face ${f.id} side ${side} slot ${v} / ${n}`; } } return null; };
@@ -85,6 +87,12 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
         if (!inMesh && e.selection.faces.size) add(2, "unify", () => { e.runAction("brep.orientUnify", {}); });
         if (!inMesh) add(2, "outward", () => { e.runAction("brep.orientOutward", { curvature: 3 }); });
         if (!inMesh && e.selection.faces.size) add(6, "paint", () => { e.setPaint({ kind: "color", name: `色${Math.floor(rnd() * 3)}`, color: [rnd(), 0.5, 0.5] }); e.paintSelection(); });
+        // 身份地基 ID-3：拷贴（同层）+ 过期的剪贴板再贴（可能撤过了头：闭包建回来，重放要对得上）；只在硬表面里拷，贴的时候就不会弹「转种类」
+        if (!inMesh && (hasSel || hasPool)) add(3, "copyPaste", () => { if (e.copySelection()) e.pasteClipboard(); });
+        if (!inMesh && e.canPaste()) add(2, "pasteStale", () => e.pasteClipboard());
+        // 身份地基 ID-3：上架 / 取下（架上的也算活着；撤销架子跟着回去、GUID 不重铸）
+        if (depth === 0 && here.length) add(3, "shelfPut", () => { const g = S().def(here[Math.floor(rnd() * here.length)].def).guid; if (!S().shelf.items.some((it) => it.ref === g)) e.commitOp({ op: "shelfPut", kind: "definition", ref: g, folder: null, guid: crypto.randomUUID() }); });
+        if (S().shelf.items.length) add(3, "shelfTake", () => { const its = S().shelf.items; e.commitOp({ op: "shelfTake", item: its[Math.floor(rnd() * its.length)].guid }); });
         if (unusedMats(S()).length) add(3, "purgeMats", () => e.commitOp({ op: "purgeMaterials", materials: unusedMats(S()) }));
         if (inMesh) {   // 镜像那条路（v0.16.5 挪点纪律：钉 / 不穿 / 并 + 强行对称的对称化）+ 网格体的整体算子
           add(3, "mirrorEdit", () => e.setMirror("edit", 0)); add(3, "mirrorForce", () => e.setMirror("force", 0)); add(2, "mirrorOff", () => e.setMirror(null));
@@ -109,6 +117,7 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
       if (!modeFits()) fail(`workbench ${e.mode.id} does not fit the active body`);
       { const bad = slotsBad(); if (bad) fail(`slot out of table: ${bad}`); }
       if (drifts.length) fail(`DRIFT ${JSON.stringify(drifts.splice(0))}`);
+      if (pasteFails.length) fail(`paste commit failed: ${pasteFails.splice(0).join(" | ").slice(0, 160)}`);
       // 撤销 / 重做只有游标真动了才算回到某一步（没东西可重做的一下 = 什么都没发生；以前照记，把之后的导航〔退出一层〕错当成「最后一步的会话」= 2026-10-28 种子 3 的假红，Opus 查）
       if ((name === "undo" || name === "redo") ? e.history.position() !== posBefore : e.history.steps() !== stepsBefore) selAtLastStep = selKey();
       await sleep(0);
@@ -132,11 +141,11 @@ const res = await page.evaluate(async ({ SEEDS, ACTIONS }) => {
     if (!modeFits()) fail(`after reload: workbench ${e.mode.id} does not fit`);
     if (drifts.length) fail(`after reload: DRIFT ${JSON.stringify(drifts.splice(0))}`);
   }
-  out.previewFails = previewFails;
+  out.previewFails = previewFails; out.commitFails = commitFails;
   return out;
 }, { SEEDS, ACTIONS });
 await b.close();
 const ok = res.failures.length === 0 && errs.length === 0;
-console.log(JSON.stringify({ hist: res.hist, failures: res.failures, errs, reloads: res.reloads, seeds: res.seeds, previewFails: [...new Set(res.previewFails)].slice(0, 12) }, null, 1).slice(0, 6000));
+console.log(JSON.stringify({ commitFails: res.commitFails, hist: res.hist, failures: res.failures, errs, reloads: res.reloads, seeds: res.seeds, previewFails: [...new Set(res.previewFails)].slice(0, 12) }, null, 1).slice(0, 6000));
 console.log(ok ? "probe-undo-fuzz OK" : "probe-undo-fuzz FAIL");
 process.exit(ok ? 0 : 1);

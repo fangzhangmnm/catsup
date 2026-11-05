@@ -24,7 +24,7 @@ import { isForeignGlb } from "../format/gltf-import.ts";
 import { NEW_DOC_GRID, gridFromSettings, settingsFromGrid } from "../editor/grid-settings.ts";
 import { DEFAULT_SCALE_REFS, scaleRefsFromSettings, scaleRefsToSettings } from "../editor/scale-ref.ts";
 import { defaultDesk, emptyReferences, type DeskDoc, type RefFileDoc, type RefPanelDoc, type ReferencesDoc } from "../format/document.ts";
-import { fmtStamp } from "../format/migrate/index.ts";
+import { formatNotesSay } from "./format-notes.ts";
 import type { Xform } from "../scene/xform.ts";
 import { AUTOSAVE_IDLE_MS, DOC_EXT, DOC_EXTS, defaultDocName, downloadName, hex4, RELOAD_PUSH_WAIT_MS } from "../config.ts";
 import { bareName, docSuffixOf, fullName } from "./doc-names.ts";
@@ -187,8 +187,7 @@ export class Session {
   private noteFormat(doc: CatsupDocument): void {
     const n = doc.readNotes;
     if (!n) return;
-    if (n.newerMinor.length) this.d.setStatus(`这份文件是更新版的 CatsUp 写的（${n.newerMinor.map((x) => `${x.ext.replace("CATSUP_", "")} ${fmtStamp(x.file)}，本版 ${fmtStamp(x.mine)}`).join("；")}）：能开能存，它多出来的内容会原样带回`);
-    if (n.deskTooNew) this.d.setStatus(`这份文件的界面记录（desk ${fmtStamp(n.deskTooNew)}）比本版新：按默认显示，保存时原样带回`);
+    for (const line of formatNotesSay(n)) this.d.setStatus(line);
   }
   constructor(private d: SessionDeps) {
     this.savedRevision = this.lastSeenRevision = d.editor.revision;

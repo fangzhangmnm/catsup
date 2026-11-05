@@ -54,7 +54,7 @@ import { POOL_AXES_PX } from "./overlay-lines.ts"; import { frameInput, type Vie
 import { EditorStreamProvider } from "./stream-provider.ts";   // 编辑器 = 流提供者（Minccino 契约；Tron 第一刀步 3）
 import { type BreakTicksCache, breakTicksOf } from "./break-ticks.ts";
 import { PRESETS } from "./presets.ts";
-import { type Op, ShearRejected, edgeKey, faceKey, resolveEdge, resolveFace, applyOp } from "./ops.ts";
+import { type Op, OpRejected, edgeKey, faceKey, resolveEdge, resolveFace, applyOp } from "./ops.ts";
 import { IMPORT_UNITS, type ImportScene, type ImportUp, reorientImport } from "../format/gltf-import.ts";
 import type { TriangleCastReport } from "../kernel/from-triangles.ts";
 import { castImport } from "../scene/import-build.ts";
@@ -68,7 +68,7 @@ import { planWeld } from "../kernel/weld.ts";
 import { History, OpApplyError, type StepLabel } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
-import { accept as transferAccept, castPayload, extract as transferExtract, localize as transferLocalize, transferSay } from "./transfer.ts";
+import { accept as transferAccept, castPayload, extract as transferExtract, localize as transferLocalize, pasteBefore, pasteReport, pasteSay, pasteWouldCycle, transferSay, trimClosure } from "./transfer.ts";
 import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
 import { type PoolSlot, WorldView, insideContext, slotKey, PART_STATS } from "../scene/world-view.ts";
@@ -254,11 +254,11 @@ const OP_TITLES: Readonly<Record<string, string>> = {
   explodeCurves: "炸开曲线", setEdgeLayers: "软化 / 硬化", paintFaces: "上色", flipFaceSides: "翻面", plugin: "修复", mirror: "镜像", setHidden: "隐藏 / 显示", unhideAll: "全部显示", transformInstance: "移动物件", placeInstance: "放置",
   eraseInstance: "删除物件", moveInstance: "挪物件", purgeDefs: "清理组件", purgeMaterials: "清理材质", eraseGroup: "删除组", setLocked: "锁定 / 解锁", assignLayer: "分层", addLayer: "加层", renameLayer: "改层名", setLayerVisible: "层显隐", removeLayer: "删层", addMaterial: "加材质",
   setAxes: "改原点", setDrawFrame: "坐标架", castDefinition: "转换身体", addGuide: "参考线", eraseGuides: "删参考线", clearGuides: "清参考线", makeGroup: "建组", makeComponent: "建组件", explode: "炸开",
-  copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
+  shelfPut: "放上素材架", shelfTake: "从素材架取下", shelfMove: "挪素材", shelfFolderAdd: "建素材文件夹", shelfFolderRename: "改素材文件夹名", shelfFolderRemove: "删素材文件夹", copyGroup: "复制", transformPool: "移动组", applyScale: "应用缩放", importScene: "导入", batch: "一步", clear: "清空", preset: "预置",
   meshEdgeMarks: "标边", meshSmoothDefault: "默认平滑", meshBevel: "倒角", meshBevelVerts: "倒角", meshSymmetrize: "对称", meshSymmetrySnap: "对称对齐", meshSubdivide: "细分", meshMerge: "合并", meshMove: "移动", meshExtrude: "挤出", meshKnife: "切割", meshLoopCut: "环切", meshDelete: "删除", meshInset: "插入", meshAddPrimitive: "新建",
 };
 /** 只记骨架（内核没动）的 op：复现包「上一步」的内核 = 现在这份。 */
-const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides"]);
+const SKELETON_ONLY: ReadonlySet<string> = new Set(["transformInstance", "placeInstance", "eraseInstance", "moveInstance", "purgeMaterials", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setDrawFrame", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 function opLabel(op: Op): StepLabel { return { title: OP_TITLES[op.op] ?? op.op }; }
 function labelText(l: StepLabel | undefined): string { return l ? (l.count ? `${l.title}（${l.count}）` : l.title) : "一步"; }
 
@@ -1277,7 +1277,7 @@ export class Editor {
       let preBrep: BrepSnapshot | undefined;
       try { preBrep = this.scene.kernelOf(pool).toBrep(); } catch { /* 池在这一步里才建出来 */ }   // 复现包要「失败那条之前」——回滚整步之前先留
       this.rollbackStep();   // 一步 = 原子：这一步前面已提交的也撤掉，重做队列里不留半截
-      if (cause instanceof ShearRejected) { this.host.trace?.({ kind: "fail", where: "commit", op, message: cause.message }); this.host.hint(cause.message); this.host.changed(); this.draw(); return []; }   // 护栏拒绝：不是崩溃，不弹错误胶囊
+      if (cause instanceof OpRejected) { this.host.trace?.({ kind: "fail", where: "commit", op, message: cause.message }); this.host.hint(cause.message); this.host.changed(); this.draw(); return []; }   // 护栏拒绝：不是崩溃，不弹错误胶囊
       this.host.trace?.({ kind: "fail", where: "commit", op, message: cause instanceof Error ? cause.message : String(cause), ...(preBrep ? { brep: preBrep } : {}), pool });
       this.fail("commit", cause);
       return [];
@@ -1397,7 +1397,7 @@ export class Editor {
     this.draw();
   }
   /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
-  /** 第几个模型（换模型 = 加一）：剪贴板据此认出「这是从别的模型拷来的」（clipboard.ts）。 */
+  /** 第几个模型（换模型 = 加一）：粘贴提示据此说「这是从别的模型拷来的、用的是本文件这版」（clipboard.ts）。 */
   private docEpoch = 0;
   loadScene(s: Scene, label = "打开"): void {
     this.docEpoch++;
@@ -1927,12 +1927,11 @@ export class Editor {
     this.host.hint(`剪切了 ${transferSay(clipboard.get()!)}（Ctrl+V 原位粘贴；到别的组件里也能贴）`);
     return true;
   }
-  canPaste(): boolean { return clipboard.has() && clipboard.doc() === this.docEpoch; }
+  canPaste(): boolean { return clipboard.has(); }
   /** 原位粘贴进当前上下文。散几何种类对不上 → 先问「转过去再贴」（castPayload），点了才贴。 */
   pasteClipboard(): void {
     const p = clipboard.get();
     if (!p) { this.host.hint("粘贴：剪贴板是空的（先 Ctrl+C / Ctrl+X）"); return; }
-    if (clipboard.doc() !== this.docEpoch) { this.host.hint("粘贴：剪贴板里的东西是从另一个模型拷的——跨模型拷贝还没做（组件和材质对不上会贴错），没贴；这件在愿望单里"); return; }
     if (this.activeKind() === "mesh" && this.mirrorGateEntry("粘贴", () => this.pasteClipboard())) return;
     const kind = this.activeKind(), a = transferAccept(p, kind);
     if (a.ok) { this.pasteNow(p); return; }
@@ -1944,13 +1943,12 @@ export class Editor {
   private pasteNow(p: import("./transfer.ts").TransferPayload): void {
     this.step((pass) => {
       const at = this.activePool(), def = at.def;
-      for (const i of p.instances ?? []) if (this.scene.defs.has(i.def) && this.scene.references(i.def, def)) { this.host.hint("粘贴：不能把一个物件贴进它自己（或它的子孙）里"); return; }
-      for (const i of p.instances ?? []) if (!this.scene.defs.has(i.def)) { this.host.hint("粘贴：剪贴板里的物件在这个模型里已经没有了（撤销过了头），没贴"); return; }
-      const local = transferLocalize(p, invert(this.ctxXform()));
+      if (pasteWouldCycle(this.scene, p, def)) { this.host.hint("粘贴：不能把一个物件贴进它自己（或它的子孙）里"); return; }
+      const local = trimClosure(this.scene, transferLocalize(p, invert(this.ctxXform()))), before = pasteBefore(this.scene);
       const instBefore = new Set(this.scene.def(def).instances.keys()), groupBefore = new Set(this.scene.kindOf(def) === "brep" ? this.scene.brep(def).groups.keys() : []);
       const meshBefore = this.scene.kindOf(def) === "mesh" ? new Set(this.scene.mesh(def).kernel.faces()) : null;
       const n0 = this.opCount;
-      const events = this.commitIn(pass, { op: "paste", at, ...(local.brep ? { brep: local.brep } : {}), ...(local.groups ? { groups: local.groups } : {}), ...(local.mesh ? { mesh: local.mesh } : {}), ...(local.instances ? { instances: local.instances } : {}), ...(local.materials ? { materials: local.materials } : {}) });
+      const events = this.commitIn(pass, { op: "paste", at, ...(local.brep ? { brep: local.brep } : {}), ...(local.groups ? { groups: local.groups } : {}), ...(local.mesh ? { mesh: local.mesh } : {}), ...(local.instances ? { instances: local.instances } : {}), ...(local.materials ? { materials: local.materials } : {}), ...(local.closure ? { closure: local.closure } : {}) });
       if (this.opCount === n0) return;
       // 贴出来的成为选区（接着 G 就能挪）
       this.clearSel(pass);
@@ -1959,7 +1957,7 @@ export class Editor {
       if (meshBefore && this.selection.kind === "mesh") for (const f of this.scene.mesh(def).kernel.faces()) if (!meshBefore.has(f)) this.selection.faces.add(f);
       if (this.selection.kind === "brep") for (const e of events) if (e.type === "BIRTH") this.selection.faces.add(e.face);
       const copies = this.copiesOf(def);
-      this.host.hint(`贴了 ${transferSay(p)}（原位${copies > 1 ? `；这个组件摆了 ${copies} 份，每份都多了` : ""}）`);
+      this.host.hint(`贴了 ${transferSay(p)}（原位${copies > 1 ? `；这个组件摆了 ${copies} 份，每份都多了` : ""}）${pasteSay(pasteReport(before, this.scene, p), clipboard.doc() !== this.docEpoch)}`);
       this.host.changed(); this.draw();
     });
   }

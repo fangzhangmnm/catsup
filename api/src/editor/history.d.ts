@@ -46,6 +46,7 @@ export declare function opTier(s: Scene, op: Op): {
 export declare class History<M = unknown> {
     private readonly base;
     private ops;
+    private mints;
     private joins;
     private sessions;
     private entries;
@@ -110,7 +111,7 @@ export declare class History<M = unknown> {
     evictedSteps(): number;
     /** 丢掉重做队列（游标之后的 op、会话记录、撤销记录）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
     dropRedo(): void;
-    /** 当前状态的独立重建（装载态 + 指令流全量重放；测试 / 校验用，不在热路径）。 */
+    /** 当前状态的独立重建（装载态 + 指令流全量重放，GUID 和当初一样；测试 / 校验用，不在热路径）。 */
     replay(): Scene;
     /** 应用 ops[0..i) 后的状态（新实例，全量重放）。 */
     stateAt(i: number): Scene;

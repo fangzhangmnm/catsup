@@ -22,6 +22,7 @@ import type { MeshKernel } from "../mesh/mesh-kernel.ts";
 import { applyOp, type ApplyResult, type Op, poolOf } from "./ops.ts";
 import type { Kernel } from "../kernel/kernel.ts";
 import { type KernelDelta, deltaBytes } from "../kernel/delta.ts";
+import { recordMints, replayMints, type Guid } from "../format/guid.ts";
 
 /** 撤销栈配额（字节）。 */
 export const UNDO_QUOTA_BYTES = 128 * 1024 * 1024;
@@ -59,7 +60,7 @@ export interface UndoComponent<R = unknown> {
 interface Entry { kind: string; data: unknown; bytes: number }
 
 const KERNEL_OPS = new Set<Op["op"]>(["addEdges", "eraseEdges", "eraseFaces", "eraseSelection", "move", "pushpull", "followme", "absorb", "weldEdges", "dissolveVertices", "explodeCurves", "setEdgeLayers", "paintFaces", "flipFaceSides", "plugin", "mirror", "setHidden"]);
-const SKELETON_OPS = new Set<Op["op"]>(["transformInstance", "placeInstance", "eraseInstance", "purgeDefs", "purgeMaterials", "moveInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides"]);
+const SKELETON_OPS = new Set<Op["op"]>(["transformInstance", "placeInstance", "eraseInstance", "purgeDefs", "purgeMaterials", "moveInstance", "setLocked", "rename", "assignLayer", "addLayer", "renameLayer", "setLayerVisible", "removeLayer", "addMaterial", "setAxes", "setDrawFrame", "castDefinition", "addGuide", "eraseGuides", "clearGuides", "shelfPut", "shelfTake", "shelfMove", "shelfFolderAdd", "shelfFolderRename", "shelfFolderRemove"]);
 /** mesh 族的 op：改一个网格体的内核（寻址 = 定义）。加一种内核 = 加一个集合 + 一种记录；以后种类多了把「怎么记」挂到 KindDef 上。 */
 const MESH_OPS = new Set<Op["op"]>(["meshMove", "meshExtrude", "meshKnife", "meshLoopCut", "meshDelete", "meshInset", "meshAddPrimitive", "meshEdgeMarks", "meshSmoothDefault", "meshBevel", "meshBevelVerts", "meshSymmetrize", "meshSymmetrySnap", "meshSubdivide", "meshMerge", "meshDuplicate", "meshFill", "meshFlip"]);
 export type OpTier = "kernel" | "mesh" | "skeleton" | "scene";
@@ -115,6 +116,7 @@ const sceneComponent: UndoComponent<SceneRec> = { kind: "scene", swap: (r, h) =>
 export class History<M = unknown> {
   private readonly base: Scene;                  // 装载态（clone 持有；replay 用）
   private ops: Op[] = [];
+  private mints: Guid[][] = [];                  // mints[i] = ops[i] 铸的 GUID（重放按原样放回：指令流里有按 GUID 认条目的指令；很小，和指令流同寿）
   private joins: boolean[] = [];                 // joins[i] = ops[i] 和 ops[i−1] 是同一步（第 0 条永远 false）
   private sessions: (StepSession<M> | null)[] = [];
   private entries: Entry[][] = [];               // entries[i] = ops[i] 的撤销记录（自反：撤了就是重做记录）
@@ -164,10 +166,12 @@ export class History<M = unknown> {
     let r: ApplyResult;
     const entries: Entry[] = [];
     const rec = (kind: string, data: unknown): void => { entries.push({ kind, data, bytes: this.components.get(kind)!.bytes(data) }); };
+    let minted: Guid[] = [];
+    const apply = (): ApplyResult => recordMints(() => applyOp(s, op), (m) => { minted = m; });
     if (t.tier === "kernel") {
       const at = t.at!, truth = poolKernel(s, at), skel = s.cloneSkeleton(), shadow = truth.clone(), seq = shadow.changes.seq;
       setPoolKernel(s, at, shadow);   // 这条 op 在影子上跑
-      try { r = applyOp(s, op); }
+      try { r = apply(); }
       catch (e) { setPoolKernel(s, at, truth); throw new OpApplyError(e, skel); }   // 真身原封不动
       truth.swapTablesWith(shadow); setPoolKernel(s, at, truth);   // 影子换真身：真身对象不变、表换成影子的；影子此刻持有「之前」的表
       const delta = truth.deltaAgainst(shadow, seq);
@@ -176,20 +180,20 @@ export class History<M = unknown> {
     } else if (t.tier === "mesh") {
       const def = t.def!, body = s.mesh(def), truth = body.kernel, skel = s.cloneSkeleton(), shadow = truth.clone();
       body.kernel = shadow;   // 这条 op 在影子上跑
-      try { r = applyOp(s, op); }
+      try { r = apply(); }
       catch (e) { body.kernel = truth; throw new OpApplyError(e, skel); }
       truth.swapWith(shadow); body.kernel = truth;   // 影子换真身：真身对象不变、表换成影子的；影子此刻持有「之前」的表
       rec("scene", { snapshot: skel, skeleton: true } satisfies SceneRec);
       rec("mesh", { def, kernel: shadow } satisfies MeshRec);
     } else {
       const snap = t.tier === "skeleton" ? s.cloneSkeleton() : s.clone();
-      try { r = applyOp(s, op); }
+      try { r = apply(); }
       catch (e) { throw new OpApplyError(e, snap); }
       rec("scene", { snapshot: snap, skeleton: t.tier === "skeleton" } satisfies SceneRec);
     }
     this.current = r.scene;
     const joined = join && this.cursor > 0;
-    this.ops.push(op); this.joins.push(joined);
+    this.ops.push(op); this.mints.push(minted); this.joins.push(joined);
     this.sessions.push(joined ? null : before !== undefined ? { before } : null);
     this.labels.push(joined ? undefined : label);
     this.entries.push(entries);
@@ -235,7 +239,7 @@ export class History<M = unknown> {
   /** 只改会话（选区 / 进出组件）的一步：0 条 op，只有会话记录——「撤销也撤选区」（user 10-27「这个我们要」）。 */
   commitSession(before: M, after?: M, label?: StepLabel): void {
     if (this.cursor < this.ops.length) this.dropRedo();
-    this.ops.push({ op: "batch", label: "选区", ops: [] }); this.joins.push(false); this.sessions.push(after === undefined ? { before } : { before, after }); this.labels.push(label ?? { title: "选择" }); this.entries.push([]);
+    this.ops.push({ op: "batch", label: "选区", ops: [] }); this.mints.push([]); this.joins.push(false); this.sessions.push(after === undefined ? { before } : { before, after }); this.labels.push(label ?? { title: "选择" }); this.entries.push([]);
     this.cursor++;
   }
 
@@ -270,14 +274,14 @@ export class History<M = unknown> {
   /** 丢掉重做队列（游标之后的 op、会话记录、撤销记录）。一步做到一半失败、回滚之后用：那半截不许被重做出来。 */
   dropRedo(): void {
     for (let i = this.cursor; i < this.entries.length; i++) for (const e of this.entries[i]) this.components.get(e.kind)?.dispose?.(e.data);
-    this.ops.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor; this.entries.length = this.cursor; this.labels.length = this.cursor;
+    this.ops.length = this.cursor; this.mints.length = this.cursor; this.joins.length = this.cursor; this.sessions.length = this.cursor; this.entries.length = this.cursor; this.labels.length = this.cursor;
   }
-  /** 当前状态的独立重建（装载态 + 指令流全量重放；测试 / 校验用，不在热路径）。 */
+  /** 当前状态的独立重建（装载态 + 指令流全量重放，GUID 和当初一样；测试 / 校验用，不在热路径）。 */
   replay(): Scene { return this.stateAt(this.cursor); }
   /** 应用 ops[0..i) 后的状态（新实例，全量重放）。 */
   stateAt(i: number): Scene {
     let sc = this.base.clone();
-    for (let j = 0; j < i; j++) sc = applyOp(sc, this.ops[j]).scene;
+    for (let j = 0; j < i; j++) { const from = sc, op = this.ops[j]; sc = replayMints(this.mints[j], () => applyOp(from, op)).scene; }
     return sc;
   }
 

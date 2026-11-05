@@ -6,6 +6,8 @@ import type { Command, CommandEnv, ObjectUnit, Params } from "../commands/comman
 import type { Action, Family, Placement } from "../commands/action.ts";
 import { bodyEmpty } from "../ops.ts";
 import { invert } from "../../scene/xform.ts";
+import { isHex4 } from "../object-tree.ts";
+import { mintGuid } from "../../format/guid.ts";
 
 const kindName = (k: string): string => (k === "mesh" ? "网格体" : "硬表面体");
 /** 这一份炸进 / 并进 hostDef 那一层要不要转种类。 */
@@ -75,9 +77,29 @@ export const applyScale: Command<ObjectUnit> = {
   plan(_env, u) { const X = u.xf, scaled = u.instance !== null && [0, 1, 2].some((j) => Math.abs(Math.hypot(X[j], X[4 + j], X[8 + j]) - 1) > 1e-9); return scaled ? { ops: [{ op: "applyScale", def: u.at.def, instance: u.instance! }], count: 1 } : { ops: [], count: 0 }; },
   done: (n) => `已把缩放烘进 ${n} 个组件的几何（同一组件的别的份看起来没变）`, none: "应用缩放：选中的组件没有被缩放过",
 };
+/** 这个组件在素材架上的那一格（没有 = undefined）。 */
+const shelfItemOf = (env: CommandEnv, def: number) => { const g = env.scene.def(def).guid; return env.scene.shelf.items.find((it) => it.kind === "definition" && it.ref === g); };
+/** 放上素材架（身份地基 ID-3，计划书 §15.1-D）：架上的是组件定义，不是这一份。没起名的不收——菜单那一下由动作层先问名字（app/shelf-actions.ts；user 10-30「进架必须命名」），这里只管机械判断。锁着的也能上架（素材架不碰几何）。 */
+export const shelve: Command<ObjectUnit> = {
+  id: "object.shelve", unit: "object", title: "放上素材架", perDefinition: true, takesLocked: true, keepSelection: true,
+  defaults: () => ({}), params: () => [],
+  plan(env, u) {
+    if (u.instance === null || env.scene.shelfFrozen || shelfItemOf(env, u.def)) return { ops: [], count: 0 };
+    const d = env.scene.def(u.def);
+    if (isHex4(d.name)) return { ops: [], count: 1, notes: [`组件「${d.name}」还没起名：素材架上的东西要有名字，先改名`] };
+    return { ops: [{ op: "shelfPut", kind: "definition", ref: d.guid, folder: null, guid: mintGuid() }], count: 1 };
+  },
+  done: (n) => `放上素材架 ${n} 个组件（资源页看得见；架上的不算没人用）`, none: "放上素材架：选中的组件已经在架上了",
+};
+export const unshelve: Command<ObjectUnit> = {
+  id: "object.unshelve", unit: "object", title: "从素材架取下", perDefinition: true, takesLocked: true, keepSelection: true,
+  defaults: () => ({}), params: () => [],
+  plan(env, u) { const it = u.instance === null || env.scene.shelfFrozen ? undefined : shelfItemOf(env, u.def); return it ? { ops: [{ op: "shelfTake", item: it.guid }], count: 1 } : { ops: [], count: 0 }; },
+  done: (n) => `从素材架取下 ${n} 个组件（组件还在文件里）`, none: "从素材架取下：选中的组件不在架上",
+};
 void invert;
 
-export const verbCommands: readonly Command[] = [explode, mergeInto, makeUnique, lock, unlock, hide, applyScale];
+export const verbCommands: readonly Command[] = [explode, mergeInto, makeUnique, lock, unlock, hide, applyScale, shelve, unshelve];
 export const verbActions: readonly Action[] = [
   { id: "explode", commands: { object: "object.explode" }, icon: "explode-folder", label: () => "炸开" },
   { id: "mergeInto", commands: { object: "object.mergeInto" }, icon: "collection", label: (n) => `把其余 ${n} 个合并进这个` },
@@ -86,6 +108,8 @@ export const verbActions: readonly Action[] = [
   { id: "unlock", commands: { object: "object.unlock" }, icon: "unlock", label: () => "解锁" },
   { id: "hide", commands: { object: "object.hide" }, icon: "visibility-hide", label: () => "隐藏" },
   { id: "applyScale", commands: { object: "object.applyScale" }, icon: "scale-uniform", label: () => "应用缩放" },
+  { id: "shelve", commands: { object: "object.shelve" }, icon: "collection", label: () => "放上素材架" },
+  { id: "unshelve", commands: { object: "object.unshelve" }, icon: "collection", label: () => "从素材架取下" },
 ];
 /** 子物件的右键 / 浮条菜单（objectMenu）。编辑动词在验证工作台退订（那里只看、走、量）；锁 / 藏哪都有。 */
 export const verbPlacements: readonly Placement[] = [
@@ -96,5 +120,7 @@ export const verbPlacements: readonly Placement[] = [
   { action: "unlock", where: "objectMenu", order: 21 },
   { action: "hide", where: "objectMenu", order: 22 },
   { action: "applyScale", where: "objectMenu", order: 30, except: ["verify"] },
+  { action: "shelve", where: "objectMenu", order: 40, except: ["verify"] },
+  { action: "unshelve", where: "objectMenu", order: 41, except: ["verify"] },
 ];
 export const verbs: Family = { name: "object", commands: verbCommands, actions: verbActions, placements: verbPlacements };

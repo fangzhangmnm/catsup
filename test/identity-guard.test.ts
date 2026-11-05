@@ -144,6 +144,11 @@ describe("老文件（definitions 6.x → 7）", () => {
     }
     assert(n > 50, `语料要跑到（${n}）`);
   });
+  it("跨文件载荷按 GUID 认定义和层（计划书 §15；数字句柄只活这次会话，不许进载荷）", () => {
+    const src = readFileSync(new URL("../src/editor/transfer.ts", import.meta.url), "utf8"), line = src.split("\n").find((l) => l.startsWith("export interface TransferInstance"))!;
+    assert(/readonly def: Guid\b/.test(line), `def 是 Guid：${line}`);
+    assert(/readonly layer\?: Guid\b/.test(line), `layer 是 Guid：${line}`);
+  });
   it("内置材质（§9.2-A）：冻结语料里内置 GUID 永不进材质表；写出来的槽表没有内置正面 GUID（默认正面只有一种表示 = 槽缺）；写的那一路没人碰内置正面", () => {
     for (const v of listCorpusDirs()) for (const f of listFixtures(v)) {
       const doc = readCatsup(readFixture(v, f));

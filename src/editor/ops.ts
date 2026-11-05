@@ -7,7 +7,9 @@
 // 为什么按坐标寻址：单机重放靠 id 计数器逐字一致也成立，但联机各 peer 的 id 历史不同——线协议上只有几何本身是共识。
 // 解析失败（目标已不在）→ 抛 OpTargetError：单机 = 这批不落地（History 回滚）；联机 = 上层政策，这里不裁。
 // 指令流生命周期 = runtime（user 2026-09-07：文件只存快照，不存 op 日志）。
-import { mintGuid } from "../format/guid.ts";
+import { mintGuid, type Guid } from "../format/guid.ts";
+import { definitionsToMake, materializeDefinitions } from "../format/scene-doc.ts";
+import type { ShelfItem } from "../format/document.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import { markEdges } from "../mesh/edge-smooth.ts";
 import { bevelEdges, bevelVerts } from "../mesh/ops/bevel.ts";
@@ -28,7 +30,7 @@ import { PRESETS, applyPreset } from "./presets.ts";
 import { liveDefs, materialUse } from "../scene/resources.ts";
 import { BUILTIN_BACK, BUILTIN_BACK_SLOT } from "../scene/builtin-materials.ts";
 import { type PoolRef, type MeshBody, type BrepBody, type Body as SceneBody, type Definition, type Instance, type Material, Scene, absorbSnapshot, bboxMin, extractSnapshot, remapSnapshotMaterial, transformSnapshot } from "../scene/scene.ts";
-import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
+import type { MeshFragment, TransferClosure, TransferGroup, TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform, IDENTITY, WORLD_FRAME, applyPt, compose, det3, frameAt, frameToXform, hasShear, invert, isRigid, scalingAbout, transformFrame, translation } from "../scene/xform.ts";
 import { addGuideCircle, addGuideLine, addGuidePoint, addGuideSphere, cloneGuides, eraseGuides, transformGuides } from "../scene/guides.ts";
 import { type ImportedScene, buildImport } from "../scene/import-build.ts";
@@ -167,8 +169,17 @@ export type Op =
   /**
    * 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。
    * 面上的材质编号 = materials 这张对照表的下标（家规「编号只当对照表的代号」）：按 GUID 对回文档材质，没有就带着原 GUID 加回来，再换成目标定义的槽号。缺 materials = 老复现包：编号就是文档材质下标。
+   * closure = 载荷自带的定义 / 层（计划书 §15.1-B）：先合并再摆放，同 GUID 用目标那条、不比内容；不在的带原 GUID 新建；摆放现铸 GUID。只有闭包没有摆放（素材导入）= 纯合并。
    */
-  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[]; materials?: readonly Material[] }
+  | { op: "paste"; at: PoolRef; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[]; materials?: readonly Material[]; closure?: TransferClosure }
+  /** 素材架（计划书 §15.1-D）：架上只存引用，取下不删条目（生死按引用）。条目顺序有意义（user 摆的）；index = 同一个文件夹里的第几个，缺 = 排最后。文件比本版新（shelfFrozen）= 六条全拒。
+   *  新条目的 guid 写在指令里（调用方铸）：后面的指令按它找这一格 / 这个文件夹，落地时才铸 = 重放对不上（撤销一致性 fuzz 抓到的）。 */
+  | { op: "shelfPut"; kind: "definition" | "material"; ref: Guid; folder: Guid | null; index?: number; guid: Guid }
+  | { op: "shelfTake"; item: Guid }
+  | { op: "shelfMove"; item: Guid; folder: Guid | null; index?: number }
+  | { op: "shelfFolderAdd"; name: string; parent: Guid | null; guid: Guid }
+  | { op: "shelfFolderRename"; folder: Guid; name: string }
+  | { op: "shelfFolderRemove"; folder: Guid }
   /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
   | { op: "addLayer"; name: string; color?: [number, number, number] }
   | { op: "renameLayer"; layer: number; name: string }
@@ -311,7 +322,9 @@ function orthonormalFrame(f: Frame): Frame {
 
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
 /** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
-export class ShearRejected extends Error {}
+/** 规矩拒绝（不是崩溃）：commit 把 message 放进提示行，不弹错误胶囊。 */
+export class OpRejected extends Error {}
+export class ShearRejected extends OpRejected {}
 /** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
 export class PlanarBurst extends Error {}
 /** 会改组件实例矩阵、可能乘出斜切的指令（移动 / 旋转 / 等比缩放 / 镜像永远不会；非等比缩放转过的组件、炸开被非等比缩放过的组件会）。 */
@@ -639,12 +652,14 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     }
     case "flipFaceSides": { const { kernel } = poolOf(s, op.at); kernel.flipFaceSides(op.faces.map((f) => resolveFace(kernel, f))); return { scene: s, events: [] }; }
     case "purgeDefs": {
+      if (s.shelfFrozen) throw new OpRejected(SHELF_FROZEN_PURGE);
       const live = liveDefs(s);
-      for (const id of op.defs) { if (!s.defs.has(id)) throw new OpTargetError(`purgeDefs: definition ${id}`); if (live.has(id)) throw new OpTargetError(`purgeDefs: 「${s.def(id).name}」还摆在模型里，不是孤儿`); }
+      for (const id of op.defs) { if (!s.defs.has(id)) throw new OpTargetError(`purgeDefs: definition ${id}`); if (live.has(id)) throw new OpTargetError(`purgeDefs: 「${s.def(id).name}」还摆在模型里或收在素材架上，不是孤儿`); }
       for (const id of op.defs) s.defs.delete(id);   // purgeDefs：全家唯一删定义的地方（守卫只放过这一行）
       return { scene: s, events: [] };
     }
     case "purgeMaterials": {
+      if (s.shelfFrozen) throw new OpRejected(SHELF_FROZEN_PURGE);
       const use = materialUse(s), kill = new Set(op.materials);
       for (const i of kill) { const m = s.materials[i]; if (!m) throw new OpTargetError(`purgeMaterials: material ${i}`); if (use[i].faces || use[i].orphanFaces || use[i].shelved) throw new OpTargetError(`purgeMaterials: 「${m.name}」还有人用`); }
       const next: number[] = [];   // 旧下标 → 新下标（−1 = 被删）
@@ -759,9 +774,11 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
     case "paste": {
       const ref = op.at, kind = s.kindOf(ref.def);   // 两种身体都接：别走 poolOf（它只认硬表面池）
       if (!s.hasPool(ref)) throw new OpTargetError(`paste: pool ${ref.def}/${ref.group ?? "root"}`);
+      const merged = mergeClosure(s, op.instances ?? [], op.closure, op.materials);
       for (const i of op.instances ?? []) {
-        if (!s.defs.has(i.def)) throw new OpTargetError(`paste: definition ${i.def} no longer exists`);
-        if (s.references(i.def, ref.def)) throw new OpTargetError("paste: would create a cycle (pasting an object into itself)");
+        const d = merged.defOf(i);
+        if (d === undefined) throw new OpTargetError(`paste: definition ${i.def} no longer exists`);
+        if (s.references(d, ref.def)) throw new OpTargetError("paste: would create a cycle (pasting an object into itself)");
       }
       let events: FaceEvent[] = [];
       const docMat = pastedMaterial(s, op.materials);
@@ -774,21 +791,20 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
           for (const f of op.mesh.faces) tk.addFace(f.ring.map((i) => vs[i]), slot(f.mat));
           for (const e of op.mesh.edges) { const id = tk.ensureEdge(vs[e.a], vs[e.b]); tk.setEdgeFlags(id, e.flags); }
         }
-        for (const i of op.instances ?? []) mintPasted(s, ref.def, null, i);
+        for (const i of op.instances ?? []) mintPasted(s, ref.def, null, i, merged);
         return { scene: s, events };
       }
       if (op.mesh) throw new OpTargetError("paste: mesh geometry into a brep body needs a cast");
       const toSlot = (code: number): number => { const id = docMat(code); return id === -1 ? -1 : s.slotFor(ref.def, id); };   // −2 = 内置默认背面，也进槽表
       if (op.brep) events = absorbSnapshot(poolOf(s, op.at).kernel, op.brep, IDENTITY, toSlot);
       const gids: number[] = [];
-      for (const g of op.groups ?? []) {
-        const parent = g.parent === null ? ref.group : gids[g.parent];
-        if (parent === undefined) throw new OpTargetError("paste: group parent index out of order");
-        const ng = s.mintGroup(ref.def, parent, Kernel.fromBrep(remapSnapshotMaterial(g.snap, toSlot)), g.axes);
+      for (const g of op.groups ?? []) {   // 先建全部、再连父子（建组能把老组装进新组：子的编号可以比父小，载荷顺序不保证父在前）
+        const ng = s.mintGroup(ref.def, ref.group, Kernel.fromBrep(remapSnapshotMaterial(g.snap, toSlot)), g.axes);
         ng.guides = cloneGuides(g.guides); if (g.name !== undefined) ng.name = g.name;
         gids.push(ng.id);
       }
-      for (const i of op.instances ?? []) { const parent = i.parent === null ? ref.group : gids[i.parent]; if (parent === undefined) throw new OpTargetError("paste: instance parent index out of order"); mintPasted(s, ref.def, parent, i); }
+      (op.groups ?? []).forEach((g, i) => { if (g.parent === null) return; const parent = gids[g.parent]; if (parent === undefined) throw new OpTargetError("paste: group parent index out of range"); s.group({ def: ref.def, group: gids[i] }).parent = parent; });
+      for (const i of op.instances ?? []) { const parent = i.parent === null ? ref.group : gids[i.parent]; if (parent === undefined) throw new OpTargetError("paste: instance parent index out of range"); mintPasted(s, ref.def, parent, i, merged); }
       return { scene: s, events };
     }
     case "separateObject": {
@@ -821,6 +837,7 @@ function applyOpInner(s: Scene, op: Op): ApplyResult {
       d.body = body;
       return { scene: s, events: [] };
     }
+    case "shelfPut": case "shelfTake": case "shelfMove": case "shelfFolderAdd": case "shelfFolderRename": case "shelfFolderRemove": return applyShelfOp(s, op);
     case "addLayer": { const id = s.nextLayer++; s.layers.push({ id, guid: mintGuid(), name: op.name, visible: true, ...(op.color ? { color: op.color } : {}) }); return { scene: s, events: [] }; }
     case "renameLayer": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.name = op.name; return { scene: s, events: [] }; }
     case "setLayerVisible": { const l = s.layers.find((x) => x.id === op.layer); if (!l) throw new OpTargetError(`layer ${op.layer}`); l.visible = op.visible; return { scene: s, events: [] }; }
@@ -883,7 +900,13 @@ export function describeOp(op0: Op): string {
     case "meshDuplicate": return `meshDuplicate def=${op.def} f=${op.faces?.length ?? 0} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFill": return `meshFill def=${op.def} e=${op.edges?.length ?? 0} v=${op.verts?.length ?? 0}`;
     case "meshFlip": return `meshFlip def=${op.def} faces=${op.faces.length}`;
-    case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${at}`;
+    case "paste": return `paste${op.brep ? ` brep=${op.brep.faces.length}f` : ""}${op.mesh ? ` mesh=${op.mesh.faces.length}f` : ""}${op.groups?.length ? ` groups=${op.groups.length}` : ""}${op.instances?.length ? ` instances=${op.instances.length}` : ""}${op.closure ? ` closure=${op.closure.definitions.length}d` : ""}${at}`;
+    case "shelfPut": return `shelfPut ${op.kind} ${op.ref.slice(0, 4)}${op.folder ? ` in ${op.folder.slice(0, 4)}` : ""}${op.index !== undefined ? ` @${op.index}` : ""}`;
+    case "shelfTake": return `shelfTake ${op.item.slice(0, 4)}`;
+    case "shelfMove": return `shelfMove ${op.item.slice(0, 4)} → ${op.folder?.slice(0, 4) ?? "top"}${op.index !== undefined ? ` @${op.index}` : ""}`;
+    case "shelfFolderAdd": return `shelfFolderAdd "${op.name}"`;
+    case "shelfFolderRename": return `shelfFolderRename ${op.folder.slice(0, 4)}`;
+    case "shelfFolderRemove": return `shelfFolderRemove ${op.folder.slice(0, 4)}`;
     case "separateObject": return `separateObject def=${op.def} faces=${op.faces.length} → 「${op.name}」`;
     case "makeUnique": return `makeUnique def=${op.def} instance=${op.instance}`;
     case "mergeObject": return `mergeObject ${op.source} → ${op.target}${op.cast ? " cast" : ""}${at}`;
@@ -970,11 +993,12 @@ function cloneDefinition(s: Scene, def: number): { id: number } {
   const b = src.body, d = s.mintDef(name, b.kernel.clone()), nb = s.brep(d.id);
   nb.materialSlots = [...b.materialSlots]; nb.guides = cloneGuides(b.guides); if (b.drawFrame) nb.drawFrame = { ...b.drawFrame };
   const gmap = new Map<number, number>();
-  for (const g of [...b.groups.values()].sort((x, y) => x.id - y.id)) {
-    const ng = s.mintGroup(d.id, g.parent === null ? null : (gmap.get(g.parent) ?? null), g.kernel.clone(), { ...g.axes });
+  for (const g of [...b.groups.values()].sort((x, y) => x.id - y.id)) {   // 先建全部、再连父子（子的编号可以比父小；一遍建完 = 子组静默丢掉父组，2026-11-04 ID-3 查到）
+    const ng = s.mintGroup(d.id, null, g.kernel.clone(), { ...g.axes });
     ng.guides = cloneGuides(g.guides); if (g.name !== undefined) ng.name = g.name;
     gmap.set(g.id, ng.id);
   }
+  for (const g of b.groups.values()) if (g.parent !== null) s.group({ def: d.id, group: gmap.get(g.id)! }).parent = gmap.get(g.parent) ?? null;
   for (const i of src.instances.values()) { const ni = s.mintInstance(d.id, i.parent === null ? null : (gmap.get(i.parent) ?? null), i.def, i.xform); if (i.name !== undefined) ni.name = i.name; if (i.locked) ni.locked = true; if (i.layer !== undefined) ni.layer = i.layer; if (i.hidden) ni.hidden = true; }
   return d;
 }
@@ -998,13 +1022,102 @@ function pastedMaterial(s: Scene, table: readonly Material[] | undefined): (code
     return i >= 0 ? i : s.addMaterial(m);
   };
 }
-/** 粘贴一份实例：名字 / 锁 / 层 / 藏跟着走。 */
-function mintPasted(s: Scene, def: number, parent: number | null, i: TransferInstance): void {
-  const ni = s.mintInstance(def, parent, i.def, i.xform);
+/** 合并之后怎么认载荷里的摆放。 */
+interface MergedClosure { defOf(i: TransferInstance): number | undefined; layerOf(i: TransferInstance): number | undefined }
+/**
+ * 粘贴的第一步：把闭包合并进文件（计划书 §15.1-B）。定义从「要摆的」（或 closure.roots）往下走（definitionsToMake）：同 GUID 用目标那条，没有的带原 GUID 新建。
+ * 材质 / 层跟着新建的定义走：GUID 在 = 用目标那条，不在 = 带原 GUID 加进来，用不上的不加。内置默认背面永不进材质表。
+ * 老复现包：实例的 def / layer 是数字句柄，原样用。
+ */
+function mergeClosure(s: Scene, placed: readonly TransferInstance[], closure: TransferClosure | undefined, table: readonly Material[] | undefined): MergedClosure {
+  const layerRows = new Map((closure?.layers ?? []).map((l) => [l.guid, l]));
+  /** 层 GUID → 目标层 id（不在 = 带原 GUID / 名 / 可见 / 色加一层；默认层是常量 GUID，自然合回）。 */
+  const layerByGuid = (g: Guid): number | undefined => {
+    const have = s.layers.find((l) => l.guid === g);
+    if (have) return have.id;
+    const row = layerRows.get(g);
+    if (!row) return undefined;
+    const id = s.nextLayer++;
+    s.layers.push({ ...row, id });
+    return id;
+  };
+  if (closure) {
+    const make = definitionsToMake(s, closure.definitions, closure.roots ?? placed.map((i) => i.def));
+    const tableByGuid = new Map((table ?? []).map((m) => [m.guid, m]));
+    const materialOf = (g: Guid): number => { const i = s.materialByGuid(g); if (i >= 0) return i; const m = tableByGuid.get(g); return m ? s.addMaterial(m) : -1; };
+    const codeRow = new Map(closure.layers.map((l) => [l.id, l.guid]));
+    materializeDefinitions(s, make, materialOf, { layerOf: (code) => { const g = codeRow.get(code); return g === undefined ? undefined : layerByGuid(g); } });
+  }
+  const idOf = new Map([...s.defs.values()].map((d) => [d.guid, d.id]));
+  return {
+    defOf(i) { const raw = i.def as unknown; return typeof raw === "number" ? (s.defs.has(raw) ? raw : undefined) : idOf.get(i.def); },
+    layerOf(i) { const raw = i.layer as unknown; return typeof raw === "number" ? raw : i.layer === undefined ? undefined : layerByGuid(i.layer); },
+  };
+}
+/** 粘贴一份实例：名字 / 锁 / 层 / 藏跟着走；这是一份新的摆放，GUID 现铸（拷一次贴两次不能同身份）。 */
+function mintPasted(s: Scene, def: number, parent: number | null, i: TransferInstance, merged: MergedClosure): void {
+  const ni = s.mintInstance(def, parent, merged.defOf(i)!, i.xform);
   if (i.name !== undefined) ni.name = i.name;
   if (i.locked) ni.locked = true;
-  if (i.layer !== undefined) ni.layer = i.layer;
+  const layer = merged.layerOf(i);
+  if (layer !== undefined) ni.layer = layer;
   if (i.hidden) ni.hidden = true;
+}
+const SHELF_FROZEN_PURGE = "这份文件的素材架是更新版写的，本版看不见架上收着什么，清理可能删掉它们：用更新版打开再清理";
+/** 同一个文件夹里排到第 index 个（items 是一张表，顺序只在同夹之间有意义；缺 / 超了 = 排最后）。 */
+function placeOnShelf(items: ShelfItem[], it: ShelfItem, index: number | undefined): void {
+  const peers = items.filter((x) => x.folder === it.folder);
+  if (index === undefined || index >= peers.length) { items.push(it); return; }
+  items.splice(items.indexOf(peers[Math.max(0, index)]), 0, it);
+}
+/** 素材架的六条指令（计划书 §15.1-D）。拒绝都说清楚（OpRejected 进提示行），不静默 no-op。 */
+function applyShelfOp(s: Scene, op: Extract<Op, { op: "shelfPut" | "shelfTake" | "shelfMove" | "shelfFolderAdd" | "shelfFolderRename" | "shelfFolderRemove" }>): ApplyResult {
+  if (s.shelfFrozen) throw new OpRejected("这份文件的素材架是更新版写的，本版不能改（保存时原样带回）");
+  const { folders, items } = s.shelf, done: ApplyResult = { scene: s, events: [] };
+  const folderMustExist = (g: Guid | null): void => { if (g !== null && !folders.some((f) => f.guid === g)) throw new OpRejected("素材架：那个文件夹已经不在了"); };
+  const itemOf = (g: Guid): ShelfItem => { const it = items.find((x) => x.guid === g); if (!it) throw new OpTargetError(`shelf item ${g}`); return it; };
+  switch (op.op) {
+    case "shelfPut": {
+      const def = op.kind === "definition" ? s.defByGuid(op.ref) : undefined, name = op.kind === "definition" ? def?.name : s.materials[s.materialByGuid(op.ref)]?.name;
+      if (name === undefined) throw new OpTargetError(`shelfPut: ${op.kind} ${op.ref}`);
+      if (def?.id === s.root) throw new OpRejected("模型最外一层不能放上素材架");
+      if (items.some((x) => x.kind === op.kind && x.ref === op.ref)) throw new OpRejected(`「${name}」已经在素材架上了`);
+      folderMustExist(op.folder);
+      if (items.some((x) => x.guid === op.guid)) throw new OpRejected("素材架：这个身份已经有人用了");
+      placeOnShelf(items, { guid: op.guid, kind: op.kind, ref: op.ref, folder: op.folder }, op.index);
+      return done;
+    }
+    case "shelfTake": { const it = itemOf(op.item); items.splice(items.indexOf(it), 1); return done; }   // 只去引用，条目不删：没人用了进孤儿，清理才删
+    case "shelfMove": {
+      const it = itemOf(op.item);
+      folderMustExist(op.folder);
+      items.splice(items.indexOf(it), 1);
+      it.folder = op.folder;
+      placeOnShelf(items, it, op.index);
+      return done;
+    }
+    case "shelfFolderAdd": {
+      if (!op.name.trim()) throw new OpRejected("文件夹要有名字");
+      folderMustExist(op.parent);
+      if (folders.some((f) => f.guid === op.guid)) throw new OpRejected("素材架：这个文件夹已经有了");   // 只有新建，没有「搬文件夹」：拒掉重复身份之后造不出环
+      folders.push({ guid: op.guid, name: op.name, parent: op.parent });
+      return done;
+    }
+    case "shelfFolderRename": {
+      const f = folders.find((x) => x.guid === op.folder);
+      if (!f) throw new OpTargetError(`shelf folder ${op.folder}`);
+      if (!op.name.trim()) throw new OpRejected("文件夹要有名字");
+      f.name = op.name;
+      return done;
+    }
+    case "shelfFolderRemove": {
+      const i = folders.findIndex((x) => x.guid === op.folder);
+      if (i < 0) throw new OpTargetError(`shelf folder ${op.folder}`);
+      if (items.some((x) => x.folder === op.folder) || folders.some((x) => x.parent === op.folder)) throw new OpRejected(`文件夹「${folders[i].name}」里还有东西：先搬空再删`);
+      folders.splice(i, 1);
+      return done;
+    }
+  }
 }
 /**
  * 炸开一份实例，外面一层或组件本身有一边是网格体（2026-10-28 夜 user「炸开mesh会出bug」）：

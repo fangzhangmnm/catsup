@@ -181,18 +181,27 @@ export interface TransferInstance { parent: number | null; def: Guid; xform: Xfo
 export interface TransferPayload {
   from: BodyKind; brep?: BrepSnapshot; groups?: TransferGroup[]; mesh?: MeshFragment; instances?: TransferInstance[];   // 摆放：面上的编号 = materials 的下标
   materials?: readonly Material[];                                   // 面编号的对照表 ∪ 闭包定义槽表引用的材质；整条含贴图字节、带 GUID
-  closure?: { definitions: DefinitionDoc[]; layers: LayerDoc[] };   // 闭包：被引用的定义（递归，文件形状、GUID 引用）+ 用到的层
+  closure?: { definitions: readonly DefinitionDoc[]; layers: readonly LayerDoc[]; roots?: readonly Guid[] };   // 闭包：被引用的定义（递归，文件形状、GUID 引用）+ 用到的层；roots = 合并从谁往下走（缺 = 摆放的实例；素材导入 = 挑中的）。11-04 实施回写（Opus）
 }
-export function payloadFromDocument(doc: CatsupDocument, defs: Guid[]): TransferPayload;   // 素材导入：只有闭包、没有摆放
+export function payloadFromDocument(doc: CatsupDocument, picks: readonly Guid[]): TransferPayload;   // 素材导入：只有闭包、没有摆放
+export function trimClosure(s: Scene, p: TransferPayload): TransferPayload;   // 进指令之前只留真要新建的定义（实施回写）
+export function pasteWouldCycle(s: Scene, p: TransferPayload, into: DefId): boolean;   // 实施回写
+export function pasteBefore(s: Scene): PasteBefore; export function pasteReport(before: PasteBefore, after: Scene, p: TransferPayload): PasteReport; export function pasteSay(r: PasteReport, fromOtherModel: boolean): string;   // 实施回写
+export function importCandidates(doc: CatsupDocument): { rows: { guid: Guid; name: string; kind: BodyKind; placed: number }[]; unnamed: number };   // 实施回写
+export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[]): { op: Op; payload: TransferPayload; already: number };   // 实施回写
 // src/scene/scene.ts（增量）
-export class Scene { constructor(rootKernel?: Kernel, rootGuid?: Guid); shelfFrozen: Stamp | null; defByGuid(g: Guid): DefId | undefined; materialByGuid(g: Guid): number | undefined; }
+export class Scene { constructor(rootKernel?: Kernel, rootGuid?: Guid); shelfFrozen: Stamp | null; defByGuid(g: Guid): Definition | undefined; materialByGuid(g: Guid): number /* −1 = 没有 */; }   // 实施回写：返回形状
 // src/format/scene-doc.ts
-export function materializeDefinitions(scene: Scene, defs: readonly DefinitionDoc[], matIndex: ReadonlyMap<Guid, number>): Map<Guid, DefId>;   // 读文件和粘贴同一份
+export function materializeDefinitions(scene: Scene, defs: readonly DefinitionDoc[], materialOf: (g: Guid) => number, opts?: { fillExisting?: Guid; layerOf?: (code: number) => number | undefined }): Map<Guid, DefId>;   // 读文件和粘贴同一份（实施回写：材质 / 层按需加，用不上的不进目标文件）
+export function definitionsToMake(scene: Scene, defs: readonly DefinitionDoc[], roots: Iterable<Guid>): DefinitionDoc[];   // 实施回写
+export function definitionToDoc(scene: Scene, id: DefId, name?: string): DefinitionDoc;   // 实施回写
+// src/format/guid.ts（实施回写）
+export function recordMints<T>(fn: () => T, done: (minted: Guid[]) => void): T; export function replayMints<T>(minted: readonly Guid[], fn: () => T): T;   // 重放按当初铸的 GUID
 // src/editor/ops.ts（增量）
 //  | { op: "paste"; at; brep?; groups?; mesh?; instances?; materials?; closure? }
-//  | { op: "shelfPut"; kind: "definition" | "material"; ref: Guid; folder: Guid | null; index?: number; guid?: Guid }
+//  | { op: "shelfPut"; kind: "definition" | "material"; ref: Guid; folder: Guid | null; index?: number; guid: Guid }   // 实施回写：guid 必填，调用方铸（§15.3）
 //  | { op: "shelfTake"; item: Guid } | { op: "shelfMove"; item: Guid; folder: Guid | null; index?: number }
-//  | { op: "shelfFolderAdd"; name: string; parent: Guid | null; guid?: Guid } | { op: "shelfFolderRename"; folder: Guid; name: string } | { op: "shelfFolderRemove"; folder: Guid }
+//  | { op: "shelfFolderAdd"; name: string; parent: Guid | null; guid: Guid } | { op: "shelfFolderRename"; folder: Guid; name: string } | { op: "shelfFolderRemove"; folder: Guid }
 export function extract(scene: Scene, ctx: EditContext, sel: Selection): TransferPayload;
 export function mergeTables(scene: Scene, p: TransferPayload): { defs: Map<Guid, DefId>; materials: Map<Guid, MaterialId>; layers: Map<Guid, number>; reused: string[] };
 ```
@@ -459,7 +468,7 @@ user 对 §11 记账的答复（原话）：「几个红的探针这次session�
 - `shelfTake { item: Guid }`：只去引用，条目不删（§2.5）。
 - `shelfMove { item: Guid; folder: Guid | null; index?: number }`：换文件夹 / 同夹排序（`items` 顺序有意义，§2.8）。
 - `shelfFolderAdd { name: string; parent: Guid | null; guid?: Guid }` / `shelfFolderRename { folder: Guid; name: string }` / `shelfFolderRemove { folder: Guid }`：删非空文件夹 = 拒（「先搬空」）；parent 成环 = 拒。
-- **太新的架子 = 本版只读**（§8 ①）：`Scene.shelfFrozen: Stamp | null`，`sceneFromDocument` 从 `doc.readNotes?.shelfTooNew` 设，`cloneSkeleton` / `clone` 拷；六条 shelf op 见它就拒；`write.ts` 照旧原字节带回（架子空、不覆盖）。资源页那节写一行「这份文件的素材架是更新版写的，本版只能看、不能改」。否决「合并」：两套写法谁对谁错没法机械判。
+- **太新的架子 = 本版只读**（§8 ①）：`Scene.shelfFrozen: Stamp | null`，`sceneFromDocument` 从 `doc.readNotes?.shelfTooNew` 设，`cloneSkeleton` / `clone` 拷；六条 shelf op 见它就拒；`write.ts` 照旧原字节带回（架子空、不覆盖）。资源页那节写一行说明。否决「合并」：两套写法谁对谁错没法机械判。〔Opus 11-04 施工更正：这里原写「本版只能看、不能改」——`read.ts` 里太新的架子是空的，本版**看不到内容**，所以文案改成「读不出、不能改、原样带回」；同样因为看不到，**清理没人用的组件 / 材质也拒**（不然会删到架上收着的东西），§15.3 第 7 条。〕
 - **「进架必须命名」在动作层**（user 10-30）：物件动词「放上素材架」碰到 `isHex4(name)` → 先弹改名（复用 `main.ts renameSelected` 那套输入框），改完再 `shelfPut`；op 本身不管名字（机械）。材质没名字的同理（材质面板起的名本来就有）。
 - **生死算上架子**：`liveDefs(s) = reachableDefs(s, [root, ...架上 definition 条目的 DefId])`；`census.live` 文案「孤儿」= 根和架子都够不着；`purgeDefs` 自然拒上架的。`materialUse.shelved` 已有。
 - 架上条目的 ref 在会话里被清理掉 → 不可能（上架 = 活着 = 清理拒）；但「做成唯一」/「换种类」不改原条目 GUID，架子不受影响。
@@ -468,7 +477,7 @@ user 对 §11 记账的答复（原话）：「几个红的探针这次session�
 - 入口第一版 = 资源页一个钮「从别的模型导入素材…」→ 系统文件选择器（`.catsup` / 老 `.glb` 工程；外来 glb 按 `isCatsupGltf` 拒、指去「导入 glb」；加密的复用 `session.ts:378` 那段解锁）→ 列定义（名字 · 身体种类 · 摆了几份，默认全勾）→ 合并 + 上架 → 通知「上架 N 个组件（新建 a 个、本文件已有 b 个）、带进 c 个材质 / d 个层」。
 - 图库里直接挑文件不打开 = 图库今天没有这个界面；store 有 `docFile(path)` 能读字节，接在**素材抽屉那张单**里（记功能账）。
 
-**F. 顺手三件**：§8 ② 披露——`session.noteFormat` 加两句：「素材架上有 N 格指向的东西已经不在文件里，这次打开丢掉了（保存后就没了）」/「这份文件的素材架是更新版写的（shelf x.y）：本版只能看，保存时原样带回」；§8 ③ `Scene` 构造器 `(rootKernel?, rootGuid?)`，`scene-doc.ts:38` 的 cast 删；§9.1 ② **不加代码**（`bump()` 的 `validCtx` 已是那道防线，`installScene → bump` 每次换场景都走），只补测试：站在实例 X 里 `commitOp moveInstance` 把 X 搬到别处 → 不抛、上下文退到父层、选区清、层级窗不炸；红了再修。
+**F. 顺手三件**：§8 ② 披露——`session.noteFormat` 加两句：「素材架上有 N 格指向的东西已经不在文件里，这次打开丢掉了（保存后就没了）」/「这份文件的素材架是更新版写的（shelf x.y）：本版读不出架上有什么、也不能改，保存时原样带回；……这份文件里先不能清理」（Opus 施工更正）；§8 ③ `Scene` 构造器 `(rootKernel?, rootGuid?)`，`scene-doc.ts:38` 的 cast 删；§9.1 ② **不加代码**（`bump()` 的 `validCtx` 已是那道防线，`installScene → bump` 每次换场景都走），只补测试：站在实例 X 里 `commitOp moveInstance` 把 X 搬到别处 → 不抛、上下文退到父层、选区清、层级窗不炸；红了再修。
 
 **G. 不在这张单**（记功能账 `20261103-forward-ledger.md`）：素材抽屉 UI / 拖出来 / 缩略图现场画；文件夹的界面（op 和测试这张做）；图库里挑文件；系统剪贴板；内容去重（已否决）；`materialIndexForPick` 同名并排命中第一条（ID-0 §6）= 施工时核一下写进报告，不改行为。
 
@@ -477,7 +486,7 @@ user 对 §11 记账的答复（原话）：「几个红的探针这次session�
 1. **`scene-doc.ts`**：把 `sceneFromDocument` 的「按 GUID 建定义、装身体 / 组 / 子实例、槽表换算」抽成 `materializeDefinitions(scene, defs: DefinitionDoc[], matIndex: Map<Guid, number>): Map<Guid, DefId>`（已有同 GUID 的定义跳过、返回映射）；`sceneFromDocument` 调它；`Scene` 构造器收 `rootGuid`；`scene.shelfFrozen` 从 readNotes 设。读 → 写 → 再读逐字段一致的现有守卫必须绿。
 2. **`scene.ts`**：`defByGuid(g)`、`materialByGuid(g)`（线性找，定义 / 材质都是几百量级）；`shelfFrozen`；`cloneSkeleton` / `clone` 拷它。
 3. **`transfer.ts` v2**：`extract` 攒闭包（递归定义 → `DefinitionDoc`；材质整条；层整条）；`TransferInstance.def / layer` 改 GUID；`castPayload` / `localize` 原样带 closure；`transferSay` 不变。
-4. **`ops.ts paste`**：加 `closure?`；`mergeClosure`（15.1-B 顺序）→ 三张映射；`mintPasted` 经映射；摆放现铸 GUID；只有闭包没摆放也合法。六条 shelf op + `SKELETON_OPS` 登记 + `describeOp`。`opTouchesLocked`：shelf op 不碰几何 → 和 `rename` 同列豁免（锁着的组件也能上架；user 10-24 锁 = 不改几何）。
+4. **`ops.ts paste`**：加 `closure?`；`mergeClosure`（15.1-B 顺序）→ 三张映射；`mintPasted` 经映射；摆放现铸 GUID；只有闭包没摆放也合法。六条 shelf op + `SKELETON_OPS` 登记 + `describeOp`。`opTouchesLocked`：shelf op 不碰几何 → 和 `rename` 同列豁免（锁着的组件也能上架）。〔Opus 11-04 更正：这里原写「user 10-24 锁 = 不改几何」，这个出处写的时候没核过，撤掉；豁免的理由是推理：素材架只存引用、不碰几何，`rename` 已经是这样。〕`opTier` 对 `paste` 的分级设计时没核，施工核了 = `scene`（整份快照），闭包新建的条目一起撤。
 5. **`clipboard.ts` / `editor.ts`**：撤 `docEpoch`；`pasteNow` 两道 `defs.has` 检查改按 GUID（闭包里有 = 不拒）；提示行算 reused / created。`editor.ts` 体重棘轮不许涨（提示行算法放 `transfer.ts` 纯函数 `pasteReport(before, after, closure)`）。
 6. **`resources.ts`**：`liveDefs` 加架子根；`census` 加 `shelf: { items: …按 folder 树展开的顺序表 }` 给资源页用（纯函数）。
 7. **物件动词**：`objects/verbs.ts` 加 `object.shelve`（「放上素材架」/ 已在架上时显示「从素材架取下」，`takesLocked: true`）；没名字先弹改名（动作层 `ask`）。
@@ -492,3 +501,31 @@ user 对 §11 记账的答复（原话）：「几个红的探针这次session�
 12. **报告形状**：改了哪些文件、测试 / 探针各几绿几红、和工单不一样的地方逐条、Fable 审查重点（数据安全：合并顺序 / 摆放现铸 / shelfFrozen 不覆盖；撤销 GUID 不重铸）。
 
 拍子：`CATSUP_shelf` 1.0 不动（没加键）；definitions 7.0 不动。**不冻新样本**。
+
+### 15.3 实施记录 + 审查看什么（2026-11-04，Claude Opus 5.5；分支 `identity-id3`，从 main 04a0186 开，v0.18.34，未合、未推）
+
+**做了什么**：`transfer.ts` 载荷 v2（实例按 GUID 引用、自带闭包）；`ops.ts paste` 先合并再摆放；六条素材架指令；`resources.ts` 活着算架子 + `shelfRows`；`objects/verbs.ts` 放上素材架 / 取下；`app/shelf-actions.ts`（起名、导入流程）；资源页素材架一节 + 上架钮 + 导入钮；`app/format-notes.ts`；`format/scene-doc.ts` 抽 `materializeDefinitions / definitionsToMake / definitionToDoc`；`format/guid.ts` 铸造录音带；`editor.ts` 撤拒贴（4146 → 4144 行）。
+
+**和工单不一样的（逐条）**
+1. **合并从根往下走，不是整包灌**（`closure.roots`、`definitionsToMake`）：工单写「不在就按闭包建」。目标已有旧版 A、源的 A 多摆了个 B：A 用目标那版、B 没人用，整包灌 B 就成了孤儿。现在走到已有的定义就停；素材导入没有摆放，`roots` = 挑中的。
+2. **`materializeDefinitions` 吃 `materialOf` 函数 + `layerOf`，不是 `matIndex` 表**：材质 / 层只在真有新定义用到时才加进目标文件。工单的形状会把用不上的也带进来。
+3. **`shelfPut / shelfFolderAdd` 的 `guid` 必填**（工单：可选、缺了落地时铸）：fuzz 抓到后面的 `shelfTake` 按它找这一格，落地时铸 = 重放对不上。
+4. **铸造录音带（工单没有）**：`History` 提交时录下每条指令铸的 GUID，`stateAt` 重放放回（`format/guid.ts recordMints / replayMints`）。fuzz 加了拷贴之后抓到：`makeComponent` 等重放时铸出别的 GUID，后面按 GUID 认定义的 paste / shelfPut 找不到。这是新不变量「指令里能按 GUID 认条目」的代价。**ID-2 的 `pastedMaterial` 有同样的隐患**（当时 fuzz 没有粘贴，没暴露），一起管住了。局限：只有经 `History` 的重放有录音带；`test/history.test.ts` 那条序列化线协议的重放不带（今天没有带 GUID 引用的用例，联机那天要把录音带写进线协议）。
+5. **`trimClosure`（工单没有）**：指令流永不驱逐，同一个文件贴一百次不能攒一百份闭包。进指令之前只留真要新建的定义；提示行用没剪的那份。
+6. **`docEpoch` 没撤，只改用途**（工单 15.1-C 说撤）：同一个模型里贴，每次都说「用了本文件已有的」是噪音（同文件行为不变）；从别的模型拷来的必须说（不静默）。判别只能看「换过模型没有」：按根 GUID 判不行，「另存为」的两份根 GUID 相同、却可能已经改得不一样。拒贴和 `canPaste` 的判断已撤。
+7. **太新的架子：文案改 + 清理也拒**（工单没写后半）。见 15.1-D 更正。这条是硬拦（`purgeDefs / purgeMaterials` 抛 `OpRejected`、按钮灰掉、说明为什么），数据安全理由；user 要改成警告可以改。
+8. **导入列表不列没起名的组件**，数出来说一声（工单写「列定义，默认全勾」）：user 10-30「进架必须命名」；导入时逐个问名字也行，但第一版不做，理由是要改的是别人那份文件里的名字。它们作为挑中组件的子组件照样带进来。
+9. **规矩拒绝新基类 `OpRejected`**（`ShearRejected` 改成它的子类）：commit 按基类进提示行、不弹错误胶囊。工单只说「明说拒绝」，`OpTargetError` 会走错误胶囊。
+10. **起名不走 `Command.ask`**（工单写动作层 `ask`）：`ask` 只有确认框。`main.ts` 的 pick 拦 `action:shelve` → `shelf-actions.ts` 先问名字，再 `oneStep` 里 rename + `runAction("shelve")`。指令 `plan` 碰到没起名的只说「先改名」、不上架。「从素材架取下」是单独一条指令 + 动作（`object.unshelve`），不是同一个动词换字。
+11. **两处老 bug（工单没有，fuzz 加了拷贴才抓到）**：把老组装进新组后子组编号比父组小。`paste` 一遍建完 = 报「group parent index out of order」（复制这样的组贴不了，10-28 起就有）；`makeUnique` 的 `cloneDefinition` 一遍建完 = 子组**静默丢掉父组**。两处都改成先建全部、再连父子（和 `makeComponent / explode / copyGroup` 同一个写法），各一条测试。
+12. 工单没写、顺手定的：**模型根不能上架**；**纯合并的 paste 不看锁**（只加条目，不碰摆着的东西）；**文件夹「成环」只有重复身份一条路**（没有「搬文件夹」指令），拒掉重复身份即可；`shelfRows` 手改文件成环时没走到的排最后、不让东西看不见；`noteFormat` 搬进 `app/format-notes.ts` 好直测。
+
+**实测**：单测 **1623 绿、0 红、4 todo**（`test/identity-id3.test.ts` 58 条，全是新的）；`redline-guard` 绿；`tsc` 干净；`editor.ts` 4146 → 4144 行。探针绿 11 个：`scripts/probe-boot`、`boot-smoke`、`probe-shelf`（新）、`probe-clipboard`（⑦ 翻转 + ⑧⑨）、`probe-hierarchy`、`probe-hierarchy-drag`、`probe-present-lock`、`probe-mirror-locked`、`probe-default-back`、`probe-mesh-workbench`、`probe-mesh-knife`。`probe-undo-fuzz` 8 × 45、16 × 45 绿（动作表加了 `copyPaste` / `pasteStale` / `shelfPut` / `shelfTake`，后一轮各真跑了 8 / 12 / 17 / 16 次；现在提交失败按指令统计、粘贴失败直接算红，唯一的提交失败是 fuzz 自己在网格体里 `addEdges`，老噪音）。24 × 60 那一轮撞了 500 秒上限（每步全量重放，越长越慢），不是失败。**红 4 个，不是这张单弄的**：`probe-cleanup` / `probe-fill-holes` / `probe-straighten` / `probe-resegment`，都断在 `menu: []`（查几何右键菜单有没有修复动作，修复动作早搬去修复窗了）；拿没改动的 main 04a0186 跑了同样 4 个，同样红、同样 `menu: []`。功能本身这 4 个探针的其余数据是对的。没重跑：`probe-touch-stick`（上一版就红、这批没碰）。性能（node，中位）：拷贝一份组件现在要序列化闭包：网格体 1 万面 8 ms、4 万面 31 ms；硬表面 2500 面 16 ms（以前 O(1)，随闭包涨，写进流程图）。同文件粘贴不多花（闭包全剪掉，0.1 ms 量级）。跨文件第一次贴：网格体 1 万面 27 ms、4 万面 76 ms；硬表面 2500 面 159 ms。
+
+**核了、没改的**：`opTier(paste)` = scene，撤销不用动；`materialIndexForPick`（ID-0 §6）：涂材质按「名字 + 颜色 / 贴图字节」找第一条，跨文件带进来的同名同色材质（不同 GUID）并排时涂到第一条，行为没变，只是现在更容易碰到；`copy-payload.ts` 读了，是移动复制的几何载荷，和这张单无关。
+
+**看见但没动**：`Scene.meshMirrors` 按句柄记、不进撤销：撤掉一个带对称设置的网格体组件后，下一个拿到同句柄的新网格体会继承那个设置（不是这张单引入的，粘贴让它多一条路）。打开时的披露走普通通知（3.5 秒消失），「素材架有 N 格丢了」只说一次，要不要常驻留给 Fable。
+
+**没测到的**：真机；导入加密文件只跑到「解开、弹出挑选、取消」，确认之后走的是同一段；贴图很大时撤销栈和指令流占多少没量（材质表进指令是引用，不拷字节）。
+
+**Fable 审查看什么**：① 合并顺序和「用目标那条」（`ops.ts mergeClosure`、`scene-doc.ts definitionsToMake`）② 摆放现铸、内部结构保 GUID（`mintPasted` vs `materializeDefinitions`）③ 太新的架子不覆盖 + 清理硬拦这个决定 ④ 录音带（`guid.ts`、`history.ts`）会不会漏进重放以外 ⑤ `trimClosure` 的重放等价性 ⑥ §15.3 第 6 条留 `docEpoch` 是否接受。

@@ -747,7 +747,7 @@ export declare class Editor {
     undo(): void;
     redo(): void;
     /** 装载一个场景当新的 checkpoint（打开文件 / 新建）：历史从这里重新开始，上下文回根，选区/充能/手势全清。 */
-    /** 第几个模型（换模型 = 加一）：剪贴板据此认出「这是从别的模型拷来的」（clipboard.ts）。 */
+    /** 第几个模型（换模型 = 加一）：粘贴提示据此说「这是从别的模型拷来的、用的是本文件这版」（clipboard.ts）。 */
     private docEpoch;
     loadScene(s: Scene, label?: string): void;
     /** 兼容：单内核当根池装载。 */

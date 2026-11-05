@@ -1,10 +1,11 @@
+import { type Guid } from "../format/guid.ts";
 import type { CurveSpec } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind, type PrimitiveFrame } from "../mesh/ops/index.ts";
 import { Kernel } from "../kernel/kernel.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, type MeshBody, type Body as SceneBody, type Material, Scene } from "../scene/scene.ts";
-import type { MeshFragment, TransferGroup, TransferInstance } from "./transfer.ts";
+import type { MeshFragment, TransferClosure, TransferGroup, TransferInstance } from "./transfer.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import { type ImportedScene } from "../scene/import-build.ts";
 export type Seg = [PtIn, PtIn];
@@ -454,6 +455,7 @@ export type Op =
 /**
  * 粘贴（剪贴板 / 以后的移动复制；transfer.ts 载荷，**目标本地坐标**）。散几何的种类必须和目标一样（要转的在提交前由用户点「转」，castPayload）；实例什么容器都接，不许造环。
  * 面上的材质编号 = materials 这张对照表的下标（家规「编号只当对照表的代号」）：按 GUID 对回文档材质，没有就带着原 GUID 加回来，再换成目标定义的槽号。缺 materials = 老复现包：编号就是文档材质下标。
+ * closure = 载荷自带的定义 / 层（计划书 §15.1-B）：先合并再摆放，同 GUID 用目标那条、不比内容；不在的带原 GUID 新建；摆放现铸 GUID。只有闭包没有摆放（素材导入）= 纯合并。
  */
  | {
     op: "paste";
@@ -463,6 +465,37 @@ export type Op =
     mesh?: MeshFragment;
     instances?: TransferInstance[];
     materials?: readonly Material[];
+    closure?: TransferClosure;
+}
+/** 素材架（计划书 §15.1-D）：架上只存引用，取下不删条目（生死按引用）。条目顺序有意义（user 摆的）；index = 同一个文件夹里的第几个，缺 = 排最后。文件比本版新（shelfFrozen）= 六条全拒。
+ *  新条目的 guid 写在指令里（调用方铸）：后面的指令按它找这一格 / 这个文件夹，落地时才铸 = 重放对不上（撤销一致性 fuzz 抓到的）。 */
+ | {
+    op: "shelfPut";
+    kind: "definition" | "material";
+    ref: Guid;
+    folder: Guid | null;
+    index?: number;
+    guid: Guid;
+} | {
+    op: "shelfTake";
+    item: Guid;
+} | {
+    op: "shelfMove";
+    item: Guid;
+    folder: Guid | null;
+    index?: number;
+} | {
+    op: "shelfFolderAdd";
+    name: string;
+    parent: Guid | null;
+    guid: Guid;
+} | {
+    op: "shelfFolderRename";
+    folder: Guid;
+    name: string;
+} | {
+    op: "shelfFolderRemove";
+    folder: Guid;
 }
 /** 层表（文档级）：加 / 改名 / 可见 / 删（成员回继承；id 0 不可删）。 */
  | {
@@ -576,7 +609,10 @@ export declare const poolOf: (s: Scene, at?: PoolRef) => {
 };
 /** 先解析全部目标再动内核：目标缺席在改动之前就抛，不留半改动（History 仍兜底回滚）。 */
 /** 护栏拒绝（不是崩溃）：这一步会让组件斜切 → 整步撤回，提示行说原因（不弹错误胶囊、不要复现包）。 */
-export declare class ShearRejected extends Error {
+/** 规矩拒绝（不是崩溃）：commit 把 message 放进提示行，不弹错误胶囊。 */
+export declare class OpRejected extends Error {
+}
+export declare class ShearRejected extends OpRejected {
 }
 /** 拍平结算出破面：算法没想到的情况（user「如果有，说明我们算法可能想错了」）→ 整步撤回、弹错误（要复现包）。 */
 export declare class PlanarBurst extends Error {

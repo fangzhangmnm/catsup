@@ -23,6 +23,7 @@ import { openSelectionMenu, openContextMenuAt } from "./context-menu.ts";
 import { barItems, selectionRoute } from "./selection-actions.ts";
 import { openObjectWindow } from "./object-window.ts";
 import { createHierarchyWindow, type HierarchyWindow } from "./hierarchy-window.ts";
+import { createShelfActions, type ShelfActions } from "./shelf-actions.ts";
 import { createHideWindows } from "./ui/hide-windows.ts";
 import { createFloatWin, createMenuWindow, type FloatWin, type MenuSpec, type MenuWindowHandle } from "./ui/menu-window.ts";
 import { mountWorkBar } from "./ui/work-bar.ts";
@@ -334,6 +335,7 @@ const hud: HudModel = {
     if (id === "paint" && editor.tool === "paint") { toggleMatSheet(matSheet.hidden); return; }   // 油漆桶已选中再点 = 材质面板（WeebPaint 画笔再点开面板同款；材质钮撤了）
     if (id === "walk") { pickWalk(); return; }   // 验证工作台的「步行」：放置 → FPS（原地编辑里再点 = 继续走）
     if ((TOOLS as readonly string[]).includes(id)) { if (locomotion.isPlacing()) locomotion.cancelPlace(); editor.setTool(id as Tool); return; }
+    if (id === "action:shelve") { void shelfActions.putSelected(); return; }   // 没起名的先问名字（动作层，shelf-actions.ts）
     if (id.startsWith("action:")) { editor.runAction(id.slice("action:".length)); return; }
     if (id.startsWith("new:")) { editor.addPrimitive(id.slice(4) as PrimitiveKind); syncUi(); return; }
     if (id === "objectWindowSelf") { objectBtn.click(); return; }   // 空处菜单的「物件设置…」= 这一层（左上物件钮那一份）
@@ -1311,7 +1313,8 @@ objectBtn.innerHTML = iconHtml("object"); $("modeSelect").before(objectBtn);   /
 // 层级钮（0.18 物品栏纪元 I1；设计稿 §5：层级 = 浮窗、素材 = 底部抽屉）：物件钮左边。窗口 = hierarchy-window.ts（物件树，组不进）
 const hierBtn = document.createElement("button"); hierBtn.type = "button"; hierBtn.dataset.opensWindow = ""; hierBtn.className = "tb-btn gizmo-hier"; hierBtn.title = "层级 · 资源：这个模型里的物件树、组件和材质清点（窗口标题下拉换页；以后的素材也在这里）";
 hierBtn.innerHTML = iconHtml("hierarchy-tree"); objectBtn.before(hierBtn);
-hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), hint: (t) => { hintEl.textContent = t; }, pref: { get: (k) => PREF.get(k), set: (k, v) => PREF.set(k, v) }, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
+const shelfActions: ShelfActions = createShelfActions({ editor, notify, isEncrypted: (b) => appEncryption.isEncryptedBlob(b), unlock: unlockImportedContainer, after: syncUi });
+hierWin = createHierarchyWindow(editor, hud, { store: WIN_POS, after: syncUi, shelf: shelfActions, confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不清理" }), hint: (t) => { hintEl.textContent = t; }, pref: { get: (k) => PREF.get(k), set: (k, v) => PREF.set(k, v) }, onOpenChange: (o) => hierBtn.classList.toggle("is-open", o) });
 hierBtn.addEventListener("click", () => hierWin?.toggle(hierBtn));
 // 「这一层」和选中的子组件（物体菜单「物体设置…」）都是一次性的下拉（openObjectWindow）
 const objectWinDeps = { after: syncUi, openMachine: (m: Machine) => openMachineBoard(m, objectBtn) };

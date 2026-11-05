@@ -8,6 +8,7 @@
 //   显示它的组件名、菜单和物件行同一个样子（改名… / 炸开 灰着 / 物件设置…）。
 // · 第二页「资源」（标题「层级 ▾」下拉换页；I10 第一版，user「我们没有一个中心化的按引用计数的东西吗？学blender」「到时候也有这种引用和孤儿管理面板」）：scene/resources.ts 清点，
 //   组件摆了几份 / 孤儿、材质用在几处 / 只在孤儿里 / 没人用；「清理没人用的组件…」「清理没人用的材质…」= 确认框列名字 → purgeDefs / purgeMaterials 一步撤销（身份地基 ID-2）。
+//   素材架（身份地基 ID-3，计划书 §15）：架上有东西才出那一节（按文件夹缩进、行尾「取下」）；组件 / 材质行尾「上架」；底部「从别的模型导入素材…」。架子是更新版写的 = 本版读不出、那一节只有一行说明，上架 / 导入 / 清理都不开（清理会删到看不见的架上的东西）。
 // · 拖一行（I3，user 10-30「hierarchy拖拽同意」；身份地基 ID-2）：通用树拖拽 ui/tree-drag.ts 判落点（一行中间 = 放进去；缝 = 横向定深度）→ object-tree.ts moveRowOp。
 //   换父亲（世界位置不变）= editor.oneStep 里「退到根 → 提交 → 走到新父亲那层 → 选中它」；同一层的缝 = 排到那个位置（文件里按这个顺序存）。都是一步撤销，这一份的 GUID 不变。
 //   手指：长按起拖；长按没挪就松手 = 弹这一行的菜单（和画布长按同一个意思）。
@@ -16,6 +17,7 @@ import { contextPath, hierarchyTree, isHex4, moveRowOp, pathKey, pickKey, setHid
 import { attachTreeDrag, type TreeDrop } from "./ui/tree-drag.ts";
 import { census, orphanDefs, unusedMaterials } from "../scene/resources.ts";
 import { createFloatWin, type FloatWin, type MenuWindowSpec } from "./ui/menu-window.ts";
+import type { ShelfActions } from "./shelf-actions.ts";
 import { openPopupMenu } from "./ui/popup-menu.ts";
 import { iconHtml } from "./ui/icon.ts";
 import { foldSubmenus } from "./context-menu.ts";
@@ -40,7 +42,7 @@ const ROOT_MENU: PopupMenuItem<string>[] = [
   { id: "objectWindowSelf", label: "物件设置…", icon: "settings" },
 ];
 
-export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { store: MenuWindowSpec<string>["store"]; after(): void; confirm(title: string, message: string, okLabel: string): Promise<boolean>; hint(text: string): void; /** 这台设备记的开关（「同一组件合成一行」）。 */ pref: { get(key: string): string | null; set(key: string, value: string): void }; onOpenChange?(open: boolean): void }): HierarchyWindow {
+export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { store: MenuWindowSpec<string>["store"]; after(): void; shelf: ShelfActions; confirm(title: string, message: string, okLabel: string): Promise<boolean>; hint(text: string): void; /** 这台设备记的开关（「同一组件合成一行」）。 */ pref: { get(key: string): string | null; set(key: string, value: string): void }; onOpenChange?(open: boolean): void }): HierarchyWindow {
   // 换页 = 标题下拉（user 10-30「两个大按钮太占地方了。我想的是窗口名字就是下拉」）
   const fw: FloatWin = createFloatWin({ id: "hierarchy", title: "层级", store: deps.store, bodyClass: "tree-body", onOpenChange: (o) => { if (o) render(); deps.onOpenChange?.(o); },
     titleMenu: {
@@ -191,33 +193,52 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     }
   }
 
-  /** 资源页：组件（摆了几份 / 孤儿）+ 材质（用在几处 / 没人用）+ 清理没人用的组件。 */
+  /** 资源页：素材架（有东西才出）+ 组件（摆了几份 / 孤儿）+ 材质（用在几处 / 没人用）+ 导入素材 + 清理没人用的组件。 */
   function renderResources(): void {
     const scene = editor.sceneRef, c = census(scene), orphans = orphanDefs(c);
-    const nextSig = "res" + JSON.stringify([c.defs.map((d) => [d.def, d.name, d.live, d.users.length, d.placed]), c.materials.map((m) => [m.guid, m.name, m.faces, m.orphanFaces, m.shelved])]);
+    const frozen = scene.shelfFrozen !== null;
+    const nextSig = "res" + JSON.stringify([c.defs.map((d) => [d.def, d.name, d.live, d.users.length, d.placed, d.shelved]), c.materials.map((m) => [m.guid, m.name, m.faces, m.orphanFaces, m.shelved]), c.shelf, frozen]);
     if (nextSig === sig) return;
     sig = nextSig;
     pane.replaceChildren();
     const head = (text: string): void => { const h = document.createElement("div"); h.className = "res-head"; h.textContent = text; pane.append(h); };
-    const row = (name: string, meta: string, opts: { unnamed?: boolean; orphan?: boolean; swatch?: string; kind?: string }): void => {
+    const row = (name: string, meta: string, opts: { unnamed?: boolean; orphan?: boolean; swatch?: string; kind?: string; depth?: number; act?: { label: string; run(): void } }): void => {
       const r = document.createElement("div"); r.className = `tree-row res-row${opts.orphan ? " is-orphan" : ""}`; r.setAttribute("role", "listitem");
       if (opts.kind) { const k = document.createElement("span"); k.className = "tree-kind"; k.innerHTML = iconHtml(kindIcon(opts.kind)); k.title = KIND_LABEL[opts.kind] ?? opts.kind; r.append(k); }
       if (opts.swatch) { const sw = document.createElement("span"); sw.className = "res-swatch"; sw.style.background = opts.swatch; r.append(sw); }
       const nm = document.createElement("span"); nm.className = `tree-name${opts.unnamed ? " is-unnamed" : ""}`; nm.textContent = name;
       const mt = document.createElement("span"); mt.className = "res-meta"; mt.textContent = meta;
-      r.append(nm, mt); pane.append(r);
+      if (opts.depth) r.style.paddingLeft = `${6 + opts.depth * 14}px`;
+      r.append(nm, mt);
+      if (opts.act) { const { label, run } = opts.act, b = document.createElement("button"); b.type = "button"; b.className = "res-act"; b.textContent = label; b.addEventListener("click", (ev) => { ev.stopPropagation(); run(); }); r.append(b); }
+      pane.append(r);
     };
+    const note = (text: string): void => { const n = document.createElement("div"); n.className = "res-note res-shelf-note"; n.textContent = text; pane.append(n); };
+    const swatchOf = (m: readonly number[]): string => `rgb(${m.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(",")})`;
+    if (frozen) { head("素材架"); note("这份文件的素材架是更新版写的：本版读不出架上有什么、也不能改，保存时原样带回。"); }
+    else if (c.shelf.length) {
+      head(`素材架（${c.shelf.filter((x) => x.type !== "folder").length}）`);
+      for (const x of c.shelf) {
+        if (x.type === "folder") { row(x.name, "文件夹", { depth: x.depth }); continue; }
+        const take = { label: "取下", run: () => { editor.commitOp({ op: "shelfTake", item: x.guid }); deps.after(); render(); } };
+        const swatch = x.material !== undefined ? swatchOf(scene.materials[x.material].color) : undefined, kind = x.def !== undefined ? scene.kindOf(x.def) : undefined;
+        row(x.name, x.type === "material" ? "材质" : "", { depth: x.depth, act: take, ...(swatch ? { swatch } : {}), ...(kind ? { kind } : {}) });
+      }
+    }
+    const putBtn = (run: () => void): { act?: { label: string; run(): void } } => (frozen ? {} : { act: { label: "上架", run } });
     const defs = [...c.defs].sort((a, b) => Number(b.live) - Number(a.live));
     head(`组件（${defs.length}）`);
     if (!defs.length) row("（还没有组件）", "", { orphan: true });
-    for (const d of defs) row(d.name, d.live ? `摆了 ${d.placed} 份${d.users.length > d.placed ? `（另有 ${d.users.length - d.placed} 份在孤儿里）` : ""}` : d.users.length ? "孤儿（只摆在孤儿里）" : "孤儿（一份都没摆）", { unnamed: isHex4(d.name), orphan: !d.live, kind: d.kind });
+    for (const d of defs) row(d.name, d.live ? `${d.shelved ? "在素材架上 · " : ""}摆了 ${d.placed} 份${d.users.length > d.placed ? `（另有 ${d.users.length - d.placed} 份在孤儿里）` : ""}` : frozen ? "没摆在模型里（可能收在素材架上）" : d.users.length ? "孤儿（只摆在孤儿里）" : "孤儿（一份都没摆）", { unnamed: isHex4(d.name), orphan: !d.live, kind: d.kind, ...(d.shelved ? {} : putBtn(() => void deps.shelf.putDef(d.def).then(render))) });
     head(`材质（${c.materials.length}）`);
     if (!c.materials.length) row("（还没有材质）", "", { orphan: true });
-    const rgb = (m: readonly number[]): string => `rgb(${m.map((v) => Math.round(Math.max(0, Math.min(1, v)) * 255)).join(",")})`;
-    for (const m of c.materials) row(m.name, m.faces ? `用在 ${m.faces} 处` : m.orphanFaces ? `只用在没人用的组件里（${m.orphanFaces} 处）` : m.shelved ? "收在素材架上" : "没人用", { orphan: !m.faces, swatch: rgb(scene.materials[m.index].color) });
+    for (const m of c.materials) row(m.name, `${m.shelved && (m.faces || m.orphanFaces) ? "在素材架上 · " : ""}${m.faces ? `用在 ${m.faces} 处` : m.orphanFaces ? `只用在没人用的组件里（${m.orphanFaces} 处）` : m.shelved ? "收在素材架上" : frozen ? "没有面在用（可能收在素材架上）" : "没人用"}`, { orphan: !m.faces && !m.shelved, swatch: swatchOf(scene.materials[m.index].color), ...(m.shelved ? {} : putBtn(() => { deps.shelf.putMaterial(m.guid); render(); })) });
     const foot = document.createElement("div"); foot.className = "res-foot";
-    const purge = document.createElement("button"); purge.type = "button"; purge.className = "res-purge"; purge.disabled = !orphans.length;
-    purge.textContent = orphans.length ? `清理没人用的组件（${orphans.length} 个）…` : "没有没人用的组件";
+    const imp = document.createElement("button"); imp.type = "button"; imp.className = "res-import"; imp.disabled = frozen; imp.textContent = "从别的模型导入素材…"; imp.title = "从一份 .catsup 里挑组件放上这份模型的素材架（只读那份文件）";
+    imp.addEventListener("click", () => deps.shelf.pickImport());
+    foot.append(imp);
+    const purge = document.createElement("button"); purge.type = "button"; purge.className = "res-purge"; purge.disabled = frozen || !orphans.length;
+    purge.textContent = frozen ? "这份文件先不能清理组件（看不见架上收着什么）" : orphans.length ? `清理没人用的组件（${orphans.length} 个）…` : "没有没人用的组件";
     purge.addEventListener("click", () => void (async () => {
       const ids = orphanDefs(census(editor.sceneRef)), names = ids.map((id) => `「${editor.sceneRef.def(id).name}」`);
       if (!ids.length) return;
@@ -227,8 +248,8 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
     })());
     foot.append(purge);
     const unused = unusedMaterials(c), orphanOnly = c.materials.filter((m) => !m.faces && m.orphanFaces).length;
-    const purgeM = document.createElement("button"); purgeM.type = "button"; purgeM.className = "res-purge"; purgeM.disabled = !unused.length;
-    purgeM.textContent = unused.length ? `清理没人用的材质（${unused.length} 个）…` : "没有没人用的材质";
+    const purgeM = document.createElement("button"); purgeM.type = "button"; purgeM.className = "res-purge"; purgeM.disabled = frozen || !unused.length;
+    purgeM.textContent = frozen ? "这份文件先不能清理材质（看不见架上收着什么）" : unused.length ? `清理没人用的材质（${unused.length} 个）…` : "没有没人用的材质";
     purgeM.addEventListener("click", () => void (async () => {
       const s1 = editor.sceneRef, ids = unusedMaterials(census(s1)), names = ids.map((i) => `「${s1.materials[i].name}」`);
       if (!ids.length) return;
@@ -237,7 +258,7 @@ export function createHierarchyWindow(editor: Editor, hud: HudModel, deps: { sto
       deps.after(); render();
     })());
     foot.append(purgeM);
-    if (orphanOnly) { const note = document.createElement("div"); note.className = "res-note"; note.textContent = `另有 ${orphanOnly} 个材质只用在没人用的组件里：先清理这些组件，它们才算没人用。`; foot.append(note); }
+    if (orphanOnly) { const n = document.createElement("div"); n.className = "res-note"; n.textContent = `另有 ${orphanOnly} 个材质只用在没人用的组件里：先清理这些组件，它们才算没人用。`; foot.append(n); }
     pane.append(foot);
   }
 
