@@ -2,7 +2,8 @@
 // 形状照抄 JRB src/sheets.ts（2026-09-19，源自 WXHW/WeebPaint）；纯 DOM，自持元素引用。created 2026-09-20 by Claude Fable 5.1
 // busy/sheet 互斥护栏（WeebPaint 2026-06-12 死锁修复）：busy 遮罩盖住输入框 → await 永不 resolve → 交互 sheet 在 busy 中响亮 throw。
 
-import { createGateStack, gateSwallowsEvent, type GateHandle, type GateView } from "./gate-stack.ts";
+import { createGateStack, type GateHandle, type GateView } from "./gate-stack.ts";
+import { inputGate } from "../input-dom.ts";
 
 const $ = (id: string): HTMLElement => {
   const el = document.getElementById(id);
@@ -41,8 +42,7 @@ export async function openGateChoiceSheet<T>(title: string, message: string, cho
 
 // ---------- 同步闸门：库替换本机字节 / 开机醒来核对网盘时罩住画面 + 锁输入（工单 C，2026-11-03 Claude Opus 5.5；形状照 WeebPaint src/sheets.ts lockSyncGate / settleSyncGate）----------
 //   不可点外面关（决策只能按钮选）；能叠（核对中 → 发现要拉 → 拉取罩子顶上来；收掉上面那张，下面那张还在）。纯逻辑在 gate-stack.ts。
-//   输入锁 = window 捕获阶段吞掉按键 / 按下（遮罩挡得住指针，挡不住 window 上的键盘分发——WeebPaint QA 2026-08-21 同一课）；只放行闸门自己和叠在上面的面（#sheet，库的冲突面）。
-//   pointerup / pointermove 不吞：闸门升起的时候手势可能正按着，吞了抬起会把手势卡死（升起之后的新按下才吞）。
+//   输入锁 = 输入闸的门口（app/input-dom.ts，2026-11-05 搬过去、推广到所有模态面）；闸门在下面 initSheets 里进名册，只放行闸门自己和叠在上面的面（#sheet，库的冲突面）。
 let _faceGen = 0;
 const _gate = createGateStack((top) => {
   const root = $("syncGate");
@@ -76,20 +76,6 @@ export function isAnyFaceUp(): boolean { return _gate.isUp() || !g.sheet().hidde
 /** 面开过多少次：等的那段时间里开过又关了，要从关的那一刻重新算。 */
 export const faceGeneration = (): number => _faceGen;
 export const whenFacesClosed = (): Promise<void> => new Promise((res) => { const check = (): void => { if (isAnyFaceUp()) setTimeout(check, 100); else res(); }; check(); });
-const GATE_SWALLOWED = ["keydown", "keypress", "pointerdown", "mousedown", "touchstart", "wheel", "contextmenu", "dblclick", "click"] as const;
-let _gateLockInstalled = false;
-function installGateInputLock(): void {
-  if (_gateLockInstalled) return; _gateLockInstalled = true;
-  for (const type of GATE_SWALLOWED) window.addEventListener(type, (e) => {
-    if (type === "keydown" && (e as KeyboardEvent).key === "Escape" && g.sheet().hidden && _gate.isUp()) {   // 闸门自己声明了 Esc 的值（「稍后」）
-      const top = _gate.top();
-      if (top && top.escValue !== undefined) { e.stopImmediatePropagation(); e.preventDefault(); _gate.settleTop(top.escValue); return; }
-    }
-    // 闸门上面还叠着面板（比如开机撞上真分叉的三选一）：Esc 是给面板的（焦点常在 body 上，只看 target 会被吞）
-    if (e.type === "keydown" && (e as KeyboardEvent).key === "Escape" && !g.sheet().hidden) return;
-    if (gateSwallowsEvent(_gate.isUp(), e.target as Element | null)) { e.stopImmediatePropagation(); e.preventDefault(); }
-  }, { capture: true, passive: false });
-}
 
 const g = {
   sheet: () => $("sheet"),
@@ -127,9 +113,16 @@ function _reset(): void {
 let _inited = false;
 export function initSheets(): void {
   if (_inited) return; _inited = true;
-  installGateInputLock();
   g.sheet().addEventListener("click", (e) => { if (e.target === g.sheet()) _open?.(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _open && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); _open(); } }, true);   // Esc 归面板、不往下传：以前关完面板再传到编辑器，取消弹窗顺手把人从组件里退出来（2026-11-05 Claude Opus 5.5）
+  // 输入闸的名册（rank 对齐 styles.css 的 z 序）。Esc 归最上面那张面、不往下传（闸的 escape，app/input-dom.ts）
+  inputGate.face({ kind: "face", label: "处理中", rank: 700, root: "#busyOverlay", up: isBusyActive });
+  inputGate.face({ kind: "face", label: "面板", rank: 500, root: "#sheet", up: () => !g.sheet().hidden, esc: () => { if (!_open) return false; _open(); return true; } });
+  inputGate.face({ kind: "face", label: "同步闸门", rank: 450, root: "#syncGate", up: () => _gate.isUp(), esc: () => {   // 闸门自己声明了 Esc 的值（「稍后」）才接；没声明 = 吞掉（决策只能按钮选）
+    const top = _gate.top();
+    if (!top || top.escValue === undefined) return false;
+    _gate.settleTop(top.escValue);
+    return true;
+  } });
 }
 
 /** noCancel = 只有一颗钮（看完就关的说明，比如视图「新手提醒…」）。 */

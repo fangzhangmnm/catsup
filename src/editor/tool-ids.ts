@@ -8,3 +8,6 @@ export const ERASERS: readonly Tool[] = ["erase", "weldErase", "softErase"];
 // create = 自由建模的「新建」（2026-10-28 Opus 5.5；纪元账本 FM182：拖出来新建，点一下 = 马前炮尺寸，马后炮可改；和右键「新建 ›」同一条 Editor.addPrimitive）
 /** 软编辑笔刷（自由建模；2026-10-29 Opus 5.5，账本 UX53）：抓 / 鼓起 / 抹平 / 压平——左柱折叠组里一格，小三角换（tools/mesh-brush.ts）。 */
 export const BRUSHES: readonly Tool[] = ["brushGrab", "brushDraw", "brushSmooth", "brushFlatten"];
+/** 只读工具（user 11-05「只读工具比如walk之类的应该全量可以的」）：演示锁里照常拿、照常用。选择 / 走路不碰模型；卷尺 / 量角器照量，读数看得到，落定时的参考线被提交口拒（不留线）。 */
+export const READ_ONLY_TOOLS: readonly Tool[] = ["select", "walk", "tape", "protractor"];
+export const isReadOnlyTool = (t: Tool): boolean => READ_ONLY_TOOLS.includes(t);

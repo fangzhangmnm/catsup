@@ -65,13 +65,15 @@ await page.click("#sheetCancel"); await page.waitForTimeout(80);
 s1 = await state();
 check(s1.root === s3.root && s1.steps === s3.steps, "取消 = 不贴");
 check(/没贴/.test(await hint()), `说清没贴：${await hint()}`);
-// ③½ 弹窗开着键盘不穿过去；问的时候场景变了（这里用代码撤一步，键盘已经到不了）= 前沿作废重算，不按问的时候那份事实走
+// ③½ 弹窗开着键盘不穿过去；问的时候场景变了 = 前沿作废重算，不按问的时候那份事实走
 await paste();
 const k0 = await page.evaluate(() => ({ steps: globalThis.__catsup.editor.history.steps(), tool: globalThis.__catsup.editor.tool }));
 await page.keyboard.press("Control+z"); await page.keyboard.press("l"); await page.waitForTimeout(80);
 const k1 = await page.evaluate(() => ({ steps: globalThis.__catsup.editor.history.steps(), tool: globalThis.__catsup.editor.tool }));
 check(await sheetUp() && k1.steps === k0.steps && k1.tool === k0.tool, `Ctrl+Z / 换工具不穿过弹窗：${JSON.stringify(k1)}`);
-await undo();   // 撤掉「这里的椅子」：两边又一样了
+{ const refused = await page.evaluate(() => { const e = globalThis.__catsup.editor, n = e.history.steps(); e.undo(); return e.history.steps() === n; }); check(refused, "弹窗开着，代码调撤销也被编辑器的口拒（输入闸第三层）"); }
+// 再下一层：闸也漏了的话（硬把面藏一下让撤销过去），粘贴自己还会重算前沿
+await page.evaluate(() => { const sh = document.getElementById("sheet"); sh.hidden = true; globalThis.__catsup.editor.undo(); sh.hidden = false; }); await page.waitForTimeout(40);   // 撤掉「这里的椅子」：两边又一样了
 await ok();
 check(!/更新了组件/.test(await hint()) && (await state()).root === 3, `场景变过：前沿重算，没有东西要更新，只多摆一份：${await hint()}`);
 await undo();

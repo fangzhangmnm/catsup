@@ -2,7 +2,7 @@
 //   状态机用假端口（src/app/cloud-gate.ts 零 DOM）；「超时 / 逃生之后谱系不动」用真库 + 假云盘（@internal/store/testing）；真浏览器那一半 = test/probes/probe-cloud-gate.mjs。
 import { describe, it, eq, assert } from "./runner.mjs";
 import { CloudGate, GATE_COPY, parseRenewFailure, reasonOf, type GateReason, type RenewResult } from "../src/app/cloud-gate.ts";
-import { createGateStack, gateSwallowsEvent } from "../src/app/ui/gate-stack.ts";
+import { createGateStack } from "../src/app/ui/gate-stack.ts";
 import { createStore } from "@internal/store";
 import { createMockEncryption, createMockLocal, createMockProvider } from "@internal/store/testing";
 
@@ -248,21 +248,13 @@ describe("闸门栈（同步闸门的形状，WeebPaint lockSyncGate）", () => 
     a.close("x"); eq(await a.result, "x"); assert(!s.isUp());
     a.close("y"); eq(await a.result, "x", "只结一次");
   });
-  it("闸门开着时吞输入，只放行闸门自己和叠在上面的面（库的冲突面）；关着什么都不吞", () => {
-    const inGate = { closest: (sel: string) => (sel.includes("#syncGate") ? {} : null) };
-    const outside = { closest: () => null };
-    assert(gateSwallowsEvent(true, outside), "画布上的按下被吞");
-    assert(gateSwallowsEvent(true, null), "没有目标（window）也吞");
-    assert(!gateSwallowsEvent(true, inGate), "闸门自己的钮放行");
-    assert(!gateSwallowsEvent(false, outside), "关着不吞");
-  });
-  it("sheets.ts 在 window 捕获阶段吞键盘和按下（遮罩挡不住 window 上的键盘分发）；不吞 pointerup（手势正按着时别卡死）", () => {
-    const src = readFileSync("src/app/ui/sheets.ts", "utf8");
-    const m = /GATE_SWALLOWED = \[([^\]]*)\]/.exec(src); assert(m, "清单");
-    for (const t of ["keydown", "pointerdown", "wheel", "contextmenu"]) assert(m![1].includes(`"${t}"`), t);
+  it("闸门进输入闸的名册（吞不吞的规则在 input-gate.test.ts）；门口在 window 捕获阶段吞键盘和按下，不吞 pointerup（手势正按着时别卡死）", () => {
+    const sheets = readFileSync("src/app/ui/sheets.ts", "utf8"), dom = readFileSync("src/app/input-dom.ts", "utf8");
+    assert(/label: "同步闸门", rank: 450, root: "#syncGate", up: \(\) => _gate\.isUp\(\)/.test(sheets), "闸门在名册上");
+    const m = /GUARDED: [^=]*= \{([^}]*)\}/.exec(dom); assert(m, "清单");
+    for (const t of ["keydown", "pointerdown", "wheel", "contextmenu"]) assert(m![1].includes(`${t}:`), t);
     assert(!m![1].includes("pointerup"), "pointerup 不吞");
-    assert(/capture: true/.test(src) && /stopImmediatePropagation/.test(src), "捕获阶段");
-    assert(/installGateInputLock\(\);/.test(src), "initSheets 装上了");
+    assert(/capture: true/.test(dom) && /stopImmediatePropagation/.test(dom), "捕获阶段");
   });
 });
 

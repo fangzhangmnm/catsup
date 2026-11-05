@@ -4,3 +4,6 @@ export declare const TOOLS: readonly Tool[];
 export declare const ERASERS: readonly Tool[];
 /** 软编辑笔刷（自由建模；2026-10-29 Opus 5.5，账本 UX53）：抓 / 鼓起 / 抹平 / 压平——左柱折叠组里一格，小三角换（tools/mesh-brush.ts）。 */
 export declare const BRUSHES: readonly Tool[];
+/** 只读工具（user 11-05「只读工具比如walk之类的应该全量可以的」）：演示锁里照常拿、照常用。选择 / 走路不碰模型；卷尺 / 量角器照量，读数看得到，落定时的参考线被提交口拒（不留线）。 */
+export declare const READ_ONLY_TOOLS: readonly Tool[];
+export declare const isReadOnlyTool: (t: Tool) => boolean;

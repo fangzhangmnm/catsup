@@ -6,6 +6,7 @@
 // 子菜单（2026-10-27 Opus；user「新建能不能收到一个子菜单里面…需要把菜单的深模块做成支持子菜单的，还要防止跑到屏幕外面」）：同一个壳，带图标的普通菜单项，
 //   先往右开（桌面子菜单的习惯）、右边放不下往左、两边都放不下摆下面；太高自己滚（.choice-layer 的 max-height），上下夹在屏幕里。
 // 以后和 select-field 一起抬进 @internal/workbench-elements（总账 #30）。前身 = multi-select.ts（同日，只有多选）。
+import { dismissPress } from "../input-dom.ts";
 import { iconHtml } from "./icon.ts";
 
 export interface ChoiceOption { id: string; label: string; group?: string; hint?: string; icon?: string; disabled?: boolean }
@@ -143,13 +144,12 @@ function openLayer(opts: LayerOpts): ChoiceLayerHandle {
     const path = ev.composedPath();
     if (path.includes(el) || path.includes(opts.anchor)) return;
     close();
+    dismissPress(ev);
   };
-  const onKey = (ev: KeyboardEvent): void => { if (ev.key === "Escape") { ev.stopPropagation(); close(); } };
   const close = (): void => {
     if (!open) return;
     open = false; el.remove();
     document.removeEventListener("pointerdown", onDocDown, true);
-    window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("resize", position);
     opts.anchor.classList.remove("is-open");
     if (current === handle) current = null;
@@ -159,8 +159,7 @@ function openLayer(opts: LayerOpts): ChoiceLayerHandle {
   if (!opts.multi) el.querySelector<HTMLElement>(".menu-item.on")?.scrollIntoView({ block: "nearest" });   // 长列表：开的时候滚到勾着的那项
   opts.anchor.classList.add("is-open");
   setTimeout(() => { if (open) document.addEventListener("pointerdown", onDocDown, true); }, 0);
-  window.addEventListener("keydown", onKey, true);
-  window.addEventListener("resize", position);
+  window.addEventListener("resize", position);   // Esc 归输入闸的名册（popup-menu.ts 那一行：先收这一层）
   current = handle;
   return handle;
 }

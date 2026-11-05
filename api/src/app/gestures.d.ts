@@ -1,5 +1,7 @@
 import type { Editor } from "../editor/editor.ts";
 export interface GestureOpts {
+    /** 输入闸（第二层自检）：这一下能不能进场景。门口没吞到的（程序发的事件、以后别的输入适配器）在这里挡。 */
+    admits?(source: "pointer" | "touch" | "wheel"): boolean;
     fingerDraws(): boolean;
     onUndo(): void;
     onRedo(): void;

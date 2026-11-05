@@ -117,7 +117,8 @@ svg.ico use { color: inherit; }
 .lock-badge { font-size: 12px; color: var(--accent); padding: 2px 8px; border: 1px solid var(--accent); border-radius: 999px; background: var(--glass-strong); align-self: center; display: inline-flex; align-items: center; gap: 4px; }
 .lock-badge .ico { width: 14px; height: 14px; }
 /* 演示锁（周账 F-124）护栏 ①：工具区灰掉；视图挂件 / ☰ / 工作台下拉照旧（看和玩不锁） */
-body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #selBar, body.doc-locked #vcb, body.doc-locked .left-dial { pointer-events: none; opacity: .45; }
+body.doc-locked #selBar, body.doc-locked .left-dial { pointer-events: none; opacity: .45; }
+.tool.held, body.doc-locked #btnUndo, body.doc-locked #btnRedo { opacity: .45; }   /* 演示锁：灰、但点了说为什么（不静默）；只读工具不灰 */
 /* 左上横排：没有底板，嵌在纸面里；按下 / 悬停才显出可按（user 10-24） */
 .hud-topstack { position: absolute; z-index: 5; left: calc(10px + var(--safe-left)); top: calc(8px + var(--safe-top)); display: flex; flex-direction: column; align-items: flex-start; gap: 6px; max-width: calc(100vw - 150px - var(--safe-left) - var(--safe-right)); pointer-events: none; }   /* 左上一列：右边给视图 gizmo 让位；空白处不挡画布 */
 .hud-topstack > * { pointer-events: auto; }

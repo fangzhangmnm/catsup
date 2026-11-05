@@ -135,6 +135,7 @@ import "./password-verifier.test.ts"; // 图库口令验证器
 import "./remember-password.test.ts"; // 在这台设备上记住口令（≤ 30 天）
 import "./body-kind.test.ts";    // 门 1：definition 身体 brep | card（0.13 刀 ①）
 import "./present-lock.test.ts"; // 演示锁（desk.locked 往返 + 老定稿记录照读照写；周账 F-124）
+import "./input-gate.test.ts"; // 演示锁（desk.locked 往返 + 老定稿记录照读照写；周账 F-124）
 import "./tool-targets.test.ts"; // 工具自带目标（B22：正方形 / 黄金分割 / 半圆）   // 局部性定理差分 oracle：局部结算 = 全局结算（#26，2026-10-23）    // 池版本号：每个改写动词 +1（#22 池级局部性缓存键）
 import "./move-inference.test.ts";
 import "./facefind.test.ts";

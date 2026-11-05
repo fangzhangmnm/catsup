@@ -237,6 +237,14 @@ export { requestStoragePersistence, isCached, isDirty };
 export { wipeAppNamespace } from "@internal/store";
 export { scanAppNamespace };   // maintenance 面经接缝转口（factory-reset.ts 消费；库内 typed consent）
 /** 还原出厂前置：释放本 store 实例（否则库 wipe 进 blocked 报告）。之后任何面抛 StoreDisposedError——只能 reload。没挂过图库 = no-op。 */
-export async function disposeStore(): Promise<void> { const s = _store; if (!s) return; _store = null; _folder = null; wireVerifierStore(null); _verifierReady = Promise.resolve(); await s.dispose(); }
+export async function disposeStore(): Promise<void> {
+  const s = _store; if (!s) return;
+  const appState = _appState.get(s);
+  _store = null; _folder = null; wireVerifierStore(null); _verifierReady = Promise.resolve();
+  // 先把 app-state 落本机：库的 dispose 不清 collection 那个 400 ms 的本地写定时器（init 就会排一个）→ 到点撞上已关的 IDB → 琥珀色英文警告盖在通知栈上（probe-c2「恢复」钮点不到的真因，2026-11-05 Claude Opus 5.5 栈帧核实；
+  //   开机拆空库 settleNoHome 离 init 只差几十毫秒，每次都中）。flushLocal 是库给的卸载兜底面，会清掉那个定时器；init 还没完也等它完。库本身该不该在 dispose 里做这一步 = 周账 F-199。
+  if (appState) await appState.then(flushCollection, () => {});
+  await s.dispose();
+}
 export type { Store, RawFile };
 export type { Item, SyncState, SaveResult, TryMoveResult, FolderSnapshot } from "@internal/store";

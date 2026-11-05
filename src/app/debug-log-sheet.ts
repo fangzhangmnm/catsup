@@ -6,6 +6,7 @@
 import { deliverFile, preferShare } from "./share-or-download.ts";
 import { entries, toText, clear } from "./debug-log.ts";
 import { reportError } from "./error-funnel.ts";
+import { inputGate } from "./input-dom.ts";
 import { count as reproCount, toJson as reproJson, exportJson, lastStepEntry } from "./repro-box.ts";
 
 const $ = (id: string): HTMLElement => {
@@ -43,6 +44,7 @@ export function initDebugLogSheet(): void {
   function open(): void { render(); sheet.hidden = false; }
   function close(): void { sheet.hidden = true; }
   _open = open; _close = close;
+  inputGate.face({ kind: "face", label: "调试日志", rank: 503, root: "#debugLog", up: () => !sheet.hidden, esc: () => { close(); return true; } });
 
   function copyViaTextarea(text: string): boolean {
     const ta = document.createElement("textarea");

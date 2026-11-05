@@ -1,9 +1,10 @@
 // 演示锁（周账 F-124，2026-10-29；吃掉 v0.12.8 的定稿版本章）：锁住在桌面态 desk.locked（跟文件走、不是内容、不标脏）；
-// 老定稿记录 final / finalRev 照读照写、一字不动；指纹没了。行为（锁着拒改 / 看和玩照旧）在探针 test/probes/probe-present-lock.mjs。created 2026-10-29 by Claude Fable 5.1
+// 老定稿记录 final / finalRev 照读照写、一字不动；指纹没了。行为（锁着拒改 / 看和玩照旧）在探针 test/probes/probe-present-lock.mjs。created 2026-10-29 by Claude Fable 5.1 · edited by Claude Opus 5.5 2026-11-05（并进输入闸）
 import { describe, it, eq, assert } from "./runner.mjs";
 import { Kernel } from "../src/kernel/kernel.ts";
 import { newDocument, writeCatsup, readCatsup, documentFromScene, FORMAT } from "../src/format/index.ts";
 import { isFinalRecord } from "../src/format/final.ts";
+import { isReadOnlyTool } from "../src/editor/tool-ids.ts";
 import { decodeGlb, encodeGlb } from "../src/format/glb.ts";
 import { SCENE_DOCS } from "./format-scenes.ts";
 const fs = (await import("node:fs" as string)) as { readFileSync(p: string, enc: string): string }, url = (await import("node:url" as string)) as { fileURLToPath(u: URL): string };
@@ -74,16 +75,28 @@ describe("老定稿记录（v0.12.8–v0.16.52 的版本章）照读照写、不
 });
 
 describe("演示锁的护栏各层都在（每层各自承重；行为在探针）", () => {
-  it("② 编辑器：commit / undo / redo / VCB / 指针按下 / 键盘起手 六个口都查 _locked", () => {
+  it("③ 编辑器：commit / undo / redo / VCB / 指针按下 / 键盘起手 / 换工具 都问输入闸（host.editHold）；真值只在 session.desk.locked 一处", () => {
     const ed = src("../src/editor/editor.ts");
-    const fn = (name: string): string => { const i = ed.indexOf(name); assert(i >= 0, `找不到 ${name}`); return ed.slice(i, i + 2500); };
-    for (const [name, head] of [["commitIn", "private commitIn("], ["undo", "  undo(): void {"], ["redo", "  redo(): void {"], ["applyVcb", "applyVcb("], ["pointerDownStep", "private pointerDownStep("], ["startModal", "  startModal("]] as const) assert(fn(head).includes("this._locked"), `${name} 没查锁`);
+    const fn = (head: string): string => { const i = ed.indexOf(head); assert(i >= 0, `找不到 ${head}`); return ed.slice(i, i + 2500); };
+    assert(/const h = this\.host\.editHold\?\.\(\); if \(h\?\.kind === "lock"\)/.test(fn("private commitIn(")), "commitIn 只看演示锁");
+    for (const head of ["  undo(): void {", "  redo(): void {", "  startModal(", "private pointerDownStep("]) assert(fn(head).includes("this.refuse()"), `${head} 没问闸`);
+    assert(/this\.host\.editHold\?\.\(\); if \(h\) return \{ ok: false, error: h\.why \}/.test(fn("  applyVcb(")), "applyVcb 没问闸");
+    assert(fn("private previewApply(").includes("this.host.editHold?.()"), "previewApply 没问闸");
+    assert(/this\.locked && !isReadOnlyTool\(t\)/.test(fn("  setTool(t: Tool): void {")), "换工具没问");
+    assert(!/_locked|lockedSay|setLocked\(on: boolean\)/.test(ed.replace(/setLocked: "[^"]*"/, "")), "编辑器里不再有第二份锁的真值");
   });
-  it("① 宿主：锁着时工具指针不进编辑器（toolBlocked）、右键不出菜单、body.doc-locked 灰掉工具区、☰ 同一行按状态换「锁上 / 解锁」", () => {
+  it("只读工具的名单：选择 / 走路 / 卷尺 / 量角器；它们不进改模型的那一拨（user 11-05「只读工具比如walk之类的应该全量可以的」）", () => {
+    assert(isReadOnlyTool("walk") && isReadOnlyTool("select") && isReadOnlyTool("tape") && isReadOnlyTool("protractor"));
+    for (const t of ["line", "rect", "move", "rotate", "scale", "pp", "erase", "paint", "axes", "compass"] as const) assert(!isReadOnlyTool(t), t);
+  });
+  it("④ 宿主：改模型的工具的指针不进编辑器（toolBlocked）、只读工具放行；右键不出菜单、灰的钮不是死的、☰ 同一行按状态换「锁上 / 解锁」", () => {
     const main = src("../src/app/main.ts"), css = src("../styles.css"), place = src("../src/controller/placement.ts");
-    assert(/toolBlocked: \(\) => \{ if \(editor\.locked\)/.test(main), "toolBlocked 没带锁");
+    assert(/toolBlocked: \(\) => \{ if \(editor\.locked && !isReadOnlyTool\(editor\.tool\)\)/.test(main), "toolBlocked 没放行只读工具");
+    assert(/inputGate\.hold\(\{ kind: "lock", why: HINT_LOCKED, on: \(\) => session\.locked\(\) \}\)/.test(main), "锁是闸的一条理由");
     assert(/onContext: .*editor\.locked/.test(main), "右键没查锁");
-    assert(/doc-locked/.test(main) && /body\.doc-locked \.hud-rail-tools/.test(css), "护栏 ① 样式");
+    assert(!/doc-locked \.hud-rail-tools/.test(css), "左柱不再整条 pointer-events:none（走路要能点）");
+    assert(/\.tool\.held/.test(css) && /classList\.add\("held"\)/.test(main), "改模型的工具灰掉");
+    assert(/doc-locked/.test(main), "护栏样式");
     assert(/\{ id: "lock", tab: "file" \}/.test(place), "☰ 文件页有锁那一行");
     assert(/case "lock": return session\.locked\(\)/.test(main) && /label: "解锁"/.test(main) && /label: "锁上"/.test(main), "锁上 / 解锁 换字");
     assert(!/finalize|finalRecord|finalRev|doc-final/.test(main), "main.ts 还有定稿残留");

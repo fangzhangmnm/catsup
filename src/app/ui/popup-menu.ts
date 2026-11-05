@@ -5,6 +5,7 @@
 
 import { iconHtml } from "./icon.ts";
 import { type ChoiceLayerHandle, choiceLayerOn, choiceLayerOpen, closeChoiceLayer, openSingleSelect, openSubmenu } from "./choice-layer.ts";
+import { dismissPress, inputGate } from "../input-dom.ts";
 
 export interface PopupMenuItem<Id extends string = string> {
   id: Id;
@@ -68,6 +69,8 @@ let _openAnchor: HTMLElement | null = null;
 
 export function closePopupMenu(): void { _open?.close(); }
 export function isPopupOpen(): boolean { return _open !== null; }
+// 输入闸的名册：菜单 / 下拉层 / 子菜单开着 = 键盘归它（user 11-05「吞掉」：别的快捷键不穿过去，菜单不留着）；Esc 先收最上面那层。外点关菜单归下面的 onDocDown。
+inputGate.face({ kind: "menu", label: "菜单", rank: 300, root: ".popup-menu", up: () => isPopupOpen() || choiceLayerOpen(), esc: () => { if (choiceLayerOpen()) closeChoiceLayer(); else closePopupMenu(); return true; } });
 
 export function togglePopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): PopupMenuHandle | null {
   if (_open && _openAnchor === opts.anchor) { _open.close(); return null; }
@@ -239,8 +242,8 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
     // 子弹层不算外面（同 workbench-elements 0.1.3 / WeebPaint 09-11 规则）：从菜单里开出来的下拉层（multi-select.ts）里点，上层菜单不关
     if (path.some((n) => n instanceof HTMLElement && n.dataset.popupChild === "1")) return;
     close();
+    dismissPress(ev);
   };
-  const onKey = (ev: KeyboardEvent): void => { if (ev.key === "Escape") { ev.stopPropagation(); if (choiceLayerOpen()) closeChoiceLayer(); else close(); } };   // 下拉层开着：Esc 先收它
   const close = (): void => {
     if (!open) return;
     open = false;
@@ -248,7 +251,6 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
     closeChoiceLayer();   // 从这里开出来的下拉层跟着关
     el.remove();
     document.removeEventListener("pointerdown", onDocDown, true);
-    window.removeEventListener("keydown", onKey, true);
     window.removeEventListener("resize", position);
     if (_open === handle) { _open = null; _openAnchor = null; }
     opts.anchor.classList.remove("is-open");
@@ -259,7 +261,6 @@ export function openPopupMenu<Id extends string>(opts: PopupMenuOpts<Id>): Popup
   opts.anchor.classList.add("is-open");
   // 下一拍再挂外点关（本次点击的 pointerdown 已经过去了，click 触发的 open 不会被自己关掉）
   setTimeout(() => { if (open) document.addEventListener("pointerdown", onDocDown, true); }, 0);
-  window.addEventListener("keydown", onKey, true);
   window.addEventListener("resize", position);
   _open = handle;
   _openAnchor = opts.anchor;

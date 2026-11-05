@@ -6,6 +6,8 @@ export declare class FlatInput {
     private _enabled;
     private dblJump;
     private crawlOn;
+    /** 输入闸（app 接上）：这一下键盘归不归走路。文本框 / 面 / 菜单开着都归别人。 */
+    admits: () => boolean;
     private crouchOn;
     private onKeyDown;
     private onKeyUp;

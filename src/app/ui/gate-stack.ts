@@ -73,9 +73,3 @@ export function createGateStack(render: (top: GateView<unknown> | null) => void)
     depth: () => stack.length,
   };
 }
-
-/** 闸门开着时这个事件该不该吞（DOM 那边在 window 捕获阶段问它）：只放行闸门自己和叠在上面的面（库的冲突面要能点）。 */
-export function gateSwallowsEvent(up: boolean, target: { closest?: (sel: string) => unknown } | null): boolean {
-  if (!up) return false;
-  return !target?.closest?.("#syncGate, #sheet");
-}

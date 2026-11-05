@@ -6,7 +6,8 @@
 //   + 登录 / 回线 / 回前台显式快进 + 崩溃安全 flush 三件；审计 = ai-docs/20260922-lifecycle-alignment-with-weebpaint.md。
 
 import { mountSelectField, type SelectField } from "./ui/select-field.ts";
-import { ERASERS, BRUSHES } from "../editor/tool-ids.ts";
+import { ERASERS, BRUSHES, isReadOnlyTool } from "../editor/tool-ids.ts";
+import { inputGate, installInputDom } from "./input-dom.ts";
 import { planeLockLabel } from "../editor/locks.ts";
 import { snapSwitchLook, snapSwitchSay } from "../editor/grid-state.ts";
 import { PICK_KINDS, pickAfter, pickSay, type PickKind, type PickSet } from "../controller/pick-kinds.ts";
@@ -99,7 +100,7 @@ import { conflictGate } from "../store-ui.ts";   // 2026-10-26：自动保存撞
 import { initCrashRecovery } from "./crash-recovery.ts";
 import { crashStore } from "./crash-store.ts";
 import { initDebugLog, note, record, toText as debugLogText, entries as debugLogEntries } from "./debug-log.ts";
-import { initDebugLogSheet, openDebugLogSheet, closeDebugLogSheet, setLastStepProvider } from "./debug-log-sheet.ts";
+import { initDebugLogSheet, openDebugLogSheet, setLastStepProvider } from "./debug-log-sheet.ts";
 import { capture as reproCapture, count as reproCount, toJson as reproJson, exportJson as reproExport, lastStepEntry } from "./repro-box.ts";
 import { traceLine } from "./debug-lines.ts";
 import { exportAll, exportAllSay } from "./export-all.ts";
@@ -202,12 +203,14 @@ const HINT_VR = "VR：左摇杆走（按下冲刺）· 右摇杆 ←→ 转身 �
 const HINT_PLACE = "步行：点一下落在哪（绿 = 站得下、红 = 站不下）· 身材在右下改 · Esc 取消";
 const HINT_EDIT = "原地编辑：镜头钉在这里，工具照常用（右键拖 = 原地转头）· 上方「继续走」回去 · Esc 离开步行";
 const HINT_WALK_TOUCH = "步行：左边按住拖 = 走（推出圈外 = 跑）· 右边拖 = 看 · 跳 / 蹲 · 上面「原地编辑」「离开」";
-const HINT_LOCKED = "锁着：只能看、转、进去走；☰「解锁」才能改";   // 演示锁（周账 F-124）：锁着时的常驻提示；工具指针被挡在手势路由（toolBlocked）时也说这句
+const HINT_LOCKED = "锁着：看、选、量、进去走都行，改不了；☰「解锁」放开";   // 演示锁（周账 F-124）：锁着时的常驻提示；工具指针被挡在手势路由（toolBlocked）时也说这句
 const hintDefault = (): string => (vr?.isPresenting() ? HINT_VR : locomotion?.isPlacing() ? HINT_PLACE : locomotion?.isEditInPlace() ? HINT_EDIT : locomotion?.isWalking() ? (TouchControls.available() ? HINT_WALK_TOUCH : `${HINT_WALK} · Tab 原地编辑 · Esc 离开`) : editor?.locked ? HINT_LOCKED : HINT_DEFAULT);
 
 // ---------- Editor ----------
 let _session: Session | null = null;   // editor.host.changed 要同步喂 session（lazyblank 首笔安家）；session 在 editor 之后才建
+installInputDom();   // 输入闸的门口：window 捕获监听按注册先后跑，要排第一（ai-docs/20261105-input-gate-design.md）
 const editor = new Editor(canvas, {
+  editHold: () => inputGate.held(),   // 编辑器的口问这里；理由在 session 建好之后登记
   optionKv: { get: (k) => deviceKvGet(k), set: (k, v) => deviceKvSet(k, v) },   // 工具选项 device 持久化（surface 组：user「锐角阈值和模式的持久化不同工具共享」）
   hint: (t) => { hintEl.textContent = t ?? hintDefault(); },
   confirm: (title, message, okLabel) => openConfirmSheet(title, message, { warning: true, okLabel, cancelLabel: "不做" }),   // 慢的修复先问（user「宁愿弹警告问yes no」）
@@ -411,7 +414,7 @@ function noteToolUse(t: Tool): void {
   }
 }
 const LONG_PRESS_MS = RAIL_FLYOUT_PRESS_MS;   // 小三角格长按弹整组（feel.ts；user 10-28 夜「有点长」→ 260 ms）
-const flyoutItems = (tools: Tool[]) => tools.map((x) => { const s2 = specOf(x); return { id: x, label: s2.label, icon: s2.icon, hint: s2.key, checked: editor.tool === x }; });
+const flyoutItems = (tools: Tool[]) => tools.map((x) => { const s2 = specOf(x); return { id: x, label: s2.label, icon: s2.icon, hint: s2.key, checked: editor.tool === x, disabled: editor.locked && !isReadOnlyTool(x) }; });
 const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   const sp = specOf(t);
   const b = document.createElement("button");
@@ -422,6 +425,7 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
     b.innerHTML = `${iconHtml(face.icon)}<span class="tool-label"></span>`;
     (b.querySelector(".tool-label") as HTMLElement).textContent = face.label;
     b.addEventListener("click", () => { if (editor.isGestureActive()) editor.abortGesture(); runKeyAction(face.action, new KeyboardEvent("keydown")); syncUi(); });   // 操作做到一半点它 = 先取消那个操作（选区不动）再删
+    if (editor.locked) { b.classList.add("held"); b.title = `${face.tip}（${HINT_LOCKED}）`; }   // 第四层（输入闸）：看得见为什么不行；点了编辑器的口说一样的话
     return b;
   }
   b.type = "button"; b.className = "tool"; b.title = sp.key ? `${sp.label}（${sp.key}）` : sp.label;
@@ -430,6 +434,7 @@ const mkToolBtn = (t: Tool, flyout?: () => Tool[]): HTMLButtonElement => {
   b.innerHTML = `${iconHtml(sp.icon)}<span class="tool-label"></span>${flyout ? '<span class="tool-flyout" aria-hidden="true"></span>' : ""}${second ? '<span class="tool-badge" aria-hidden="true"></span>' : ""}`;
   (b.querySelector(".tool-label") as HTMLElement).textContent = sp.label;
   if (second) { (b.querySelector(".tool-badge") as HTMLElement).textContent = second.badge; b.title += ` · 现在：${second.name}（再点一下换回；按住 ${second.mod} 临时换回）`; }
+  if (editor.locked && !isReadOnlyTool(t)) { b.classList.add("held"); b.title = `${sp.label}（${HINT_LOCKED}）`; }   // 第四层（输入闸）：只读工具不灰，别的灰、点了说为什么
   const pick = (): void => { if (t === editor.tool && flipSecondMode(t)) return; hud.pick(t); };
   if (!flyout) { b.addEventListener("click", pick); return b; }
   // 小三角 / 长按 / 右键 = 弹出整组；点主体 = 用当前这个（SU 小三角，user 10-24「sketchup 的加一个小三角的方案不错」）
@@ -630,7 +635,7 @@ function menuPick(id: MenuId): void | "keep" {
 // 视图类（透视 / 线稿 / 网格 / 单位 / 步行 / 飞行 / VR）归右上角「视图」（user「步行飞行粗线稿这些都是视图啊，视图时是归右上角的汉堡管」「单位也归视图管」）；
 // 轴 / 参考线归工具条（user「轴是工具，轴不归汉堡管，归工具管」）。
 // ☰ = WeebPaint 式 tab 制（A30，user 2026-10-24「汉堡菜单应该tab制度，和weebpaint一样」）；文件页顺序 = 家族统一（F-81）：
-// 图库 → 新建 / 打开 → 导入 → 保存 / 导出 → 定稿；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
+// 图库 → 新建 / 打开 → 导入 → 保存 / 导出 → 锁上（演示锁）；CatsUp 没有的改名 / 加密 / 回到打开时版本不出现。版图 = ai-docs/20261024-ui-layout.md
 // ☰ 的页签和每页放哪几行 = 放置表 src/controller/placement.ts（MENU_TABS / MENU_ROWS）；这里只管每行长什么样（字 / 图标 / 动态的勾和数字）
 type MainMenuId = MenuId | GridMenuId | RefMenuId;
 /** 开 / 关 ☰；tab = 直接停在那一页（吸附钮长按的「单位设置…」跳进来）。 */
@@ -653,7 +658,7 @@ function menuRow(id: string): Omit<PopupMenuItem<MainMenuId>, "tab"> | null {
     case "gallery": return { id: "gallery", label: "图库", icon: "gallery", ...(hasStore() ? {} : { hint: "本机 + OneDrive" }) };
     case "lefthand": return vr.isSupported() ? { id: "lefthand", label: "VR 左手持笔", checked: leftHanded, hint: "面板换到右手" } : null;
     case "newOpen": return { id: "newOpen", label: "新建 / 打开…", icon: "new", hint: "Ctrl+O" };   // 加号（user 10-29「所以新建打开还是用加号。导入用导入符号」，账本 T137）
-    case "importHub": return { id: "importHub", label: "导入…", icon: "import", hint: "别的软件的 glb / OBJ" };   // 导入单独一行、在新建打开下面（user 10-29「导入必须单独放……新建打开下面专门放一个导入」）
+    case "importHub": return { id: "importHub", label: "导入…", icon: "import", hint: editor.locked ? "锁着，解锁才能导入" : "别的软件的 glb / OBJ", disabled: editor.locked };   // 导入单独一行、在新建打开下面（user 10-29「导入必须单独放……新建打开下面专门放一个导入」）
     case "exportHub": return { id: "exportHub", label: "导出与另存…", icon: "export" };
     case "lock": return session.locked()
       ? { id: "unlock", label: "解锁", icon: "unlock", hint: "放开：又能改了" }
@@ -818,10 +823,10 @@ const toolStrip = mountContextBar(document.getElementById("toolStrip") as HTMLEl
       { id: "eyedropper", label: "吸色", active: !!H?.eyedropper, title: "吸色：点一张面读它的材质（Ctrl / Alt 按住 = 临时）", onClick: () => { if (H) H.eyedropper = !H.eyedropper; } },
     ];
   },
-  actions: (tool) => [...toolActions(tool), ...deleteAction()],
+  actions: (tool) => (editor.locked ? [] : [...toolActions(tool), ...deleteAction()]),   // 第四层（输入闸）：工具动作（清参考几何 / 重置轴 / 删除）都改模型，锁着不露
   // 笔 / 手指：右下只留「删除」+「更多…」（= 右键同一份菜单）；别的可选操作都在菜单里（user 10-28 夜截图「可选操作应该放到右键菜单里而不是全堆在马后炮，好好整理一下」）
   selection: () => {
-    if (selectionRoute(lastPointerType) !== "bar" || !editor.hasSelection() || editor.isGestureActive()) return [];
+    if (editor.locked || selectionRoute(lastPointerType) !== "bar" || !editor.hasSelection() || editor.isGestureActive()) return [];   // 锁着：和右键菜单一样不出
     const all = barItems(editor, hud).filter((it) => !it.hidden), del = all.filter((it) => it.id === "delete");
     return [...del, ...(all.length > del.length ? [{ id: "selMore", label: "更多…", icon: "more" } as HudItem] : [])];
   },
@@ -994,6 +999,7 @@ function toggleHelp(on: boolean): void {
 }
 $("helpClose").addEventListener("click", () => toggleHelp(false));
 helpEl.addEventListener("click", (e) => { if (e.target === helpEl) toggleHelp(false); });
+inputGate.face({ kind: "face", label: "使用手册", rank: 502, root: "#helpSheet", up: () => !helpEl.hidden, esc: () => { toggleHelp(false); return true; } });
 
 // ---------- 材质面板（油漆桶蘸什么）：家族色库 pull 的色板 + 导入图片 + 默认灰 ----------
 const matSheet = $("matSheet");
@@ -1005,6 +1011,7 @@ const _texUrls = new WeakMap<Uint8Array, string>();
 const textureUrl = (bytes: Uint8Array, mime: string): string => { let u = _texUrls.get(bytes); if (!u) { u = URL.createObjectURL(new Blob([bytes as BlobPart], { type: mime })); _texUrls.set(bytes, u); } return u; };
 const hexToRgb = (hex: string): [number, number, number] => { const n = parseInt(hex.slice(1), 16); return [((n >> 16) & 255) / 255, ((n >> 8) & 255) / 255, (n & 255) / 255]; };
 function toggleMatSheet(on: boolean): void { matSheet.hidden = !on; if (on) renderMatGrid(); }
+inputGate.face({ kind: "face", label: "材质", rank: 501, root: "#matSheet", up: () => !matSheet.hidden, esc: () => { toggleMatSheet(false); return true; } });
 function renderMatGrid(): void {
   matGrid.replaceChildren();
   const cur = editor.paint;
@@ -1150,9 +1157,10 @@ const gestures = attachGestures(canvas, editor, {
   onFourTap: () => { hintEl.textContent = hideWins.toggle(); },   // 四指轻点 = 一键藏起所有窗（Procreate 同款手势）
   look: (dx, dy) => locomotion.look(dx, dy),
   walking: () => locomotion.isWalking(),
-  toolBlocked: () => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return true; } return locomotion.sim.state.teleport.charging || (locomotion.isPlacing() && editor.tool !== "walk") || locomotion.isFps(); },   // 放人时指针归步行工具（输入层 → 工具 → locomotion），别的工具挡住   // 演示锁 = 工具指针不进编辑器（悬停预告也停）、提示行说为什么；放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
+  admits: (source) => inputGate.admits(source),   // 第二层（输入闸）
+  toolBlocked: () => { if (editor.locked && !isReadOnlyTool(editor.tool)) { hintEl.textContent = HINT_LOCKED; return true; } return locomotion.sim.state.teleport.charging || (locomotion.isPlacing() && editor.tool !== "walk") || locomotion.isFps(); },   // 放人时指针归步行工具（输入层 → 工具 → locomotion），别的工具挡住   // 演示锁 = 工具指针不进编辑器（悬停预告也停）、提示行说为什么；放置 = 点一下落人；FPS = 监工不编辑（原地编辑才动工具）
   // #19 上下文菜单：桌面右键任何工具都行（SU）；触屏长按只在选择工具里
-  onContext: (x, y, cx, cy) => { if (editor.locked) { hintEl.textContent = HINT_LOCKED; return; } openContextMenuAt(editor, hud, x, y, cx, cy); },   // 演示锁：不出菜单；三层：空处 / 几何 / 子组件的物体菜单（context-menu.ts）
+  onContext: (x, y, cx, cy) => { if (locomotion.isFps()) return; if (editor.locked) { hintEl.textContent = HINT_LOCKED; return; } openContextMenuAt(editor, hud, x, y, cx, cy); },   // 演示锁：不出菜单；三层：空处 / 几何 / 子组件的物体菜单（context-menu.ts）
   longPressEnabled: () => editor.tool === "select",
   // #23 user「move反而是点两下」「旋转和move对齐」：移动 = 点两下、旋转 = 点三下，笔 / 手指也开；画线 / 矩形 / 推拉在笔 / 手指上仍只拖（误触连线案）
   latched: () => latchedMods,   // 键名芯片锁住的修饰键（iPad 没键盘：Shift / Ctrl / Alt = 开关）
@@ -1514,7 +1522,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
     case "undo": editor.undo(); return;
     case "redo": editor.redo(); return;
     case "escape":
-      closePopupMenu(); toggleHelp(false); closeDebugLogSheet(); toggleMatSheet(false);
+      // 菜单 / 帮助 / 材质 / 调试日志开着时 Esc 到不了这里（输入闸的 escape：只关最上面那个面）
       // 自由建模的手势中（拖着 / 键盘起手 / 打数）→ 只取消这次操作、选区留着（Blender：G / S 里 Esc 只退回去；2026-10-28 晚「S Z 0」接线时改，硬表面照旧）
       if (editor.modeId === "freeform" && editor.isGestureActive() && !editor.mirrorActive()) { editor.abortGesture(); syncUi(); return; }
       // 手势中 / 有选区 → 取消；否则在 group / 组件里 → 退出一层（SU：Esc 关组）
@@ -1523,10 +1531,10 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
   }
 }
 window.addEventListener("keydown", (ev) => {
-  const target = ev.target as HTMLElement | null;
-  if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
-  if (isAnyFaceUp()) return;   // 弹窗 / 闸门开着：键盘不穿过去。以前 Ctrl+Z 能隔着弹窗撤销，问的时候场景变了（2026-11-05 Claude Opus 5.5，无头实测）
-  if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
+  if (!inputGate.admits("key")) {   // 第二层（输入闸）：面 / 菜单 / 文本框 / 参考窗开着，键盘不进编辑器。以前 Ctrl+Z 能隔着弹窗撤销，问的时候场景变了（2026-11-05，无头实测）
+    if ((ev.ctrlKey || ev.metaKey) && /^[so]$/i.test(ev.key)) ev.preventDefault();   // app 的存 / 开：不进编辑器，也别变成浏览器的「另存网页」框
+    return;
+  }
   if (ev.key === "Shift") editor.setShiftHeld(true);   // DT51：按住 Shift = 格点吸附反过来，指针不动也立刻换规则
   if (modOfKey(ev.key)) { if (!modPeek || modPeek.key !== ev.key) startModPeek(ev); } else endModPeek();   // 状态行披露：按住修饰键一小会儿
   const r = resolveKey(keyContext(), keyEvt(ev));
@@ -1663,6 +1671,11 @@ onLocked(() => session.forgetSealPassword());
 document.addEventListener("securitypolicyviolation", (e) => funnel(new Error(`[csp] blocked ${e.effectiveDirective} ${String(e.blockedURI).slice(0, 120)} (${e.sourceFile ? e.sourceFile.split("/").pop() : "?"}:${e.lineNumber})`), "log"));
 configureTabMemory({ get: (k) => session.menuTab(k), set: (k, t) => session.setMenuTab(k, t) });   // 两个 ☰ 停在哪页跟着文件走（WeebPaint desk.menuTab 同款）
 _session = session;
+// 输入闸的理由 + 剩下的名册（rank 对齐 styles.css 的 z 序；别的面在它们自己的模块里登记：sheets.ts / popup-menu.ts / debug-log-sheet.ts）
+inputGate.hold({ kind: "lock", why: HINT_LOCKED, on: () => session.locked() });
+inputGate.hold({ kind: "asking", why: "先回答弹窗", on: isAnyFaceUp });
+inputGate.face({ kind: "refwin", label: "参考窗", rank: 20, up: () => refHost.hasFocus() });   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
+locomotion.flat.admits = () => inputGate.admits("key");
 let storeWired = false;
 function wireStore(): void {
   if (storeWired) return;
@@ -1685,6 +1698,7 @@ const galleryHost = initGalleryHost({
   onClosed: () => { session.slateGalleryClosed(); (document.activeElement as HTMLElement | null)?.blur?.(); editor.resize(window.devicePixelRatio || 1); },   // 图库按钮别留着焦点吃快捷键
 });
 $("galleryBack").addEventListener("click", () => galleryHost.close());
+inputGate.face({ kind: "face", label: "图库", rank: 250, up: () => galleryHost.isOpen() });   // 全屏盖住场景：键盘 / 滚轮不进编辑器。不写 root：卡片菜单带、通知都在它自己的 DOM 外面，门口不吞，它们照常能点
 $("galleryNew").addEventListener("click", () => { void session.newDoc().then((ok) => { if (ok) galleryHost.close(); }); });
 // 搁置区两箱（gallery 0.5.0：回收站 = 删掉的；备份箱 = 冲突面里被换下的那一版）。清空钮在包的视图里（0.8.6），宿主只切视图 + 露「回到图库」条。
 const showAside = (view: "trash" | "backup"): void => { galleryHost.setView(view); $("galleryTrashBar").hidden = false; };
@@ -2379,7 +2393,7 @@ void (async () => {
   await initCrashRecovery({ session, notify, closeGallery: () => { if (galleryHost.isOpen()) galleryHost.close(); } });   // T-crash：redirect 流产者自动领养 + crash 帧通知
 })();
 
-(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore,
+(window as unknown as { __catsup: unknown }).__catsup = { pwa, pickWorkbench, perf, editor, locomotion, vr, hud, session, galleryHost, refs: refHost, crash: crashStore, test: { openConfirmSheet, openInputSheet, toggleHelp, toggleMatSheet, openDebugLogSheet, openSyncGate, withBusy, inputGate },
   gate: { cloudGate, tune: gateTune, isUserOffline },
   // 图库的家（探针 test/probes/probe-folder-home.mjs 用）：openGallery = 用户点「图库」那条路；legacyFiles = 另开一个离线实例数以前那个库（不看退役旗）
   home: { openGallery: () => openGalleryFromUi(), state: () => currentHomeState(), folder: () => folderHomeLabel(), online: () => folderHomeOnline(), browserOnly: () => browserOnlyCount,

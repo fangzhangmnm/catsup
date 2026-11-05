@@ -104,6 +104,8 @@ export interface SessionDeps {
   };
 }
 
+/** 人按的保存等在飞的那次，等过这么久才说一句（ms）。 */
+const SAVE_WAIT_SAY_MS = 1000;
 const online = cloudOnline;   // 2026-11-03 工单 C：浏览器有网 ∧ 用户没选「离线继续」
 export { bareName, docSuffixOf, fullName, isDocName } from "./doc-names.ts";
 const dirOf = (path: string): string => (path.includes("/") ? path.slice(0, path.lastIndexOf("/")) : "");
@@ -124,6 +126,8 @@ export type RefreshStatus = "skipped" | "dirty" | "in-sync" | "fast-forwarded" |
 export class Session {
   home: DocHome = { kind: "transient" };
   saving = false;
+  /** 在飞的那次保存（saving = true 时才有）：人按的保存等它。 */
+  private inflight: Promise<boolean> | null = null;
   /** 还原出厂（factory-reset.ts）停机旗：之后 dirty() 恒 false、save() / flush 全 no-op、tick 已停——页面随后 reload。 */
   private halted = false;
   /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
@@ -392,7 +396,7 @@ export class Session {
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
-    this.d.editor.setLocked(this.locked());   // 演示锁跟文件走（desk.locked）
+    this.d.editor.holdChanged();   // 演示锁跟文件走（desk.locked；编辑器现问输入闸）
     this.applyDeskView();   // 风格 / 屏幕跟文件走（desk 1.3）
     this.d.editor.zoomExtents();
     this.lastSeenRevision = this.d.editor.revision; this.savedRevision = -1;
@@ -410,7 +414,7 @@ export class Session {
 
   // ---------- 演示锁（周账 F-124，2026-10-29；吃掉 v0.12.8 的定稿 / 改稿版本章，设计 = ai-docs/20261024-finalize.md §0）----------
   // user 10-28 晚「定稿的语义不对，这个是锁屏，不是 commit……锁屏是防止误触」「锁操作还是给你演示看的，还可以进去玩。或者 rts 模式。反正类似 wxhw 的锁」。
-  // 一个开关、一点就开关、没有口令。锁着 = 改模型的一切都拒（编辑器 commit / undo / redo / VCB / 指针按下 / 键盘起手 / 右键菜单），看的一切照旧、进去玩（验证工作台）照旧。
+  // 一个开关、一点就开关、没有口令。锁着 = 改模型的一切都拒（输入闸的一条理由，main.ts 登记；编辑器 commit / undo / redo / VCB / 指针按下 / 键盘起手 / 右键菜单都问它），看的一切照旧、只读工具（选择 / 走路 / 卷尺 / 量角器）照用。
   // 住桌面态 desk.locked（跟文件走、不是内容、不标脏、不进撤销）——给人看的文件打开就是锁着的；有家就顺手存一次（不是标脏：几何的 savedRevision 不动）。
   /** 这份文件现在锁着没有。 */
   locked(): boolean { return !!this.desk.locked; }
@@ -418,7 +422,7 @@ export class Session {
   async setLocked(on: boolean): Promise<void> {
     if (this.locked() === on) return;
     if (on) this.desk.locked = true; else delete this.desk.locked;
-    this.d.editor.setLocked(on);
+    this.d.editor.holdChanged();
     this.d.onHomeChanged();
     this.d.setStatus(on ? "锁上了：看、转、进去玩都行，改不了；☰「解锁」放开" : "解锁了");
     if (this.home.kind !== "transient" && !(this.home.kind === "gallery" && this.lazy)) await this.save({ implicit: true });
@@ -549,7 +553,7 @@ export class Session {
     this.desk = doc.desk;   // 桌面态（☰ 停在哪页等）跟文件走
     this.applyRefs(doc);    // 参考窗跟文件走
     this.noteFormat(doc);
-    this.d.editor.setLocked(this.locked());   // 演示锁跟文件走（desk.locked）
+    this.d.editor.holdChanged();   // 演示锁跟文件走（desk.locked；编辑器现问输入闸）
     this.applyDeskView();   // 风格 / 屏幕跟文件走（desk 1.3）
     this.d.editor.zoomExtents();
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
@@ -604,7 +608,7 @@ export class Session {
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着
-    this.d.editor.setLocked(false);
+    this.d.editor.holdChanged();
     this.applyDeskView();   // 新文件 = 默认风格 / 屏幕
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();
@@ -636,7 +640,7 @@ export class Session {
     this.d.editor.loadScaleRefs(DEFAULT_SCALE_REFS);
     this.desk = defaultDesk();
     this.applyRefs(null);   // 新文件 = 空牌组、窗收着
-    this.d.editor.setLocked(false);
+    this.d.editor.holdChanged();
     this.applyDeskView();   // 新文件 = 默认风格 / 屏幕
     this.savedRevision = this.lastSeenRevision = this.d.editor.revision;
     this.dropLuggage();   // 旧模型的影子随旧牌焚；新家（下面 setHome）现铸新牌
@@ -818,14 +822,29 @@ export class Session {
   /** 保存 = 送回家。transient 显式保存 = 安家仪式（FSA 另存 / 下载兜底）；implicit（自动 / 离开）在 transient 上是 noop。
    *  localOnly：崩溃安全 flush 用，只落本地不推（push-pending 留着）。 */
   async save(opts: { implicit?: boolean; localOnly?: boolean } = {}): Promise<boolean> {
-    if (this.halted) return false;
-    if (this.adopting) await this.adopting;   // lazyblank 名字还没落定：等它（不含字节落盘，不会自等）
-    if (this.saving) return false;
+    // 人按的保存永不被静默丢掉（user 11-05「修，先修我们」；设计 = ai-docs/20261105-save-and-dispose-fixes.md §1）：撞上在飞的那次 = 等它落地，再完整存一遍（推云的意图和回执都在这一遍）；
+    //   自动撞自动 = 下一拍再来，照旧。推云不会永远挂着：Graph 请求都带超时（app-store.ts GRAPH_TRANSPORT）。
+    let slowSay: ReturnType<typeof setTimeout> | undefined;   // 平常几百毫秒就落地，不多说一句；等久了（网慢）才说明在等什么
+    for (;;) {
+      if (this.halted) { clearTimeout(slowSay); return false; }
+      if (this.adopting) { await this.adopting; continue; }   // lazyblank 名字还没落定：等它（不含字节落盘，不会自等）
+      if (!this.saving) break;
+      if (opts.implicit) return false;
+      slowSay ??= setTimeout(() => this.d.setStatus("上一次保存还在路上，等它落地就存…"), SAVE_WAIT_SAY_MS);
+      await this.inflight;
+    }
+    clearTimeout(slowSay);
     const home = this.home;
     if (home.kind === "transient") return opts.implicit ? false : this.settleToFile();
     if (home.kind === "gallery" && this.lazy) { if (!opts.implicit) this.d.setStatus(this.forkBaseRev !== null ? "这份还没改过，不用存（改了才会存成分叉）" : "空白场景，还没有需要保存的内容"); return false; }   // WeebPaint blankNothingToSave
     if (home.kind === "gallery" && this.encrypted && !this.d.crypto.getPassword(home.path)) { if (!opts.implicit) this.d.setStatus("这份是加密的、现在锁着：先解锁再保存（改动还在内存里）", true); return false; }   // 锁着绝不写（库也不会写明文；这里先说人话）
     this.saving = true; this.d.onHomeChanged();
+    const run: Promise<boolean> = this.writeHome(home, opts).finally(() => { if (this.inflight === run) this.inflight = null; });
+    this.inflight = run;
+    return run;
+  }
+  /** save 的后半段：saving 已经竖起来了，落家、发回执，最后放下 saving。 */
+  private async writeHome(home: Exclude<DocHome, { kind: "transient" }>, opts: { implicit?: boolean; localOnly?: boolean }): Promise<boolean> {
     let replaceCover: { close(): void } | null = null;
     try {
       if (this.d.refs) await this.d.refs.settled();   // 刚加的参考卡字节还在编：等它，别存一份缺卡的
@@ -922,7 +941,7 @@ export class Session {
     if (this.seal?.pw) return shadowFrame(this.encode(), this.seal, this.sealPorts());
     if (!this.encrypted || this.home.kind !== "gallery") return null;
     const path = this.home.path;
-    while (this.saving) await new Promise((r) => setTimeout(r, 50));
+    while (this.saving) await this.inflight;
     if (this.dirty() && !(await this.save({ implicit: true, localOnly: true }))) return null;   // 锁着：写不了，导出去的会是旧的
     return (await docFile(path).getEncryptedBlob()) as Blob | null;
   }

@@ -59,7 +59,7 @@ await page.keyboard.press("Escape"); await page.evaluate(() => globalThis.__cats
 await page.mouse.click(720, 140, { button: "right" }); await page.waitForTimeout(100);
 await page.evaluate(() => [...document.querySelectorAll(".popup-menu [data-menu-id]")].find((x) => /^新建/.test((x.textContent ?? "").trim()))?.dispatchEvent(new MouseEvent("click", { bubbles: true }))); await page.waitForTimeout(100);
 r.six = await page.evaluate(() => [...document.querySelectorAll(".popup-menu .menu-label")].map((x) => x.textContent).join(" | "));
-await page.keyboard.press("Escape"); await page.waitForTimeout(40);
+await page.keyboard.press("Escape"); await page.keyboard.press("Escape"); await page.waitForTimeout(40);   // 先收子菜单、再关菜单（v0.18.38 起外点关菜单那一下不穿到工具，不能靠它了）
 // ⑦–⑩ 长宽比：落点 (2.5, −2.5) 的空地（别落在左柱底下），拖到 (4.5, −1.5)，右键 = 不要环直接落定
 const ext = () => page.evaluate(([d, n0]) => { const m = globalThis.__catsup.editor.scene.mesh(d).kernel, vs = m.verts().slice(n0).map((v) => m.pt(v)); if (!vs.length) return null; const k = (a) => +(Math.max(...vs.map((p) => p[a])) - Math.min(...vs.map((p) => p[a]))).toFixed(3); return { n: vs.length, x: k("x"), y: k("y") }; }, [info.def, n0]);
 let n0 = 0;

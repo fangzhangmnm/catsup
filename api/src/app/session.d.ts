@@ -83,6 +83,8 @@ export declare class Session {
     private d;
     home: DocHome;
     saving: boolean;
+    /** 在飞的那次保存（saving = true 时才有）：人按的保存等它。 */
+    private inflight;
     /** 还原出厂（factory-reset.ts）停机旗：之后 dirty() 恒 false、save() / flush 全 no-op、tick 已停——页面随后 reload。 */
     private halted;
     /** 图库家：上次保存的云腿没成（离线 / 未登录 / 冲突取消 / 落地未确认）——下次显式保存再推。 */
@@ -277,6 +279,8 @@ export declare class Session {
         implicit?: boolean;
         localOnly?: boolean;
     }): Promise<boolean>;
+    /** save 的后半段：saving 已经竖起来了，落家、发回执，最后放下 saving。 */
+    private writeHome;
     /** 另存到磁盘（安家仪式）：FSA → 文件家；无 FSA → 下载（不安家、不清 dirty）。 */
     settleToFile(): Promise<boolean>;
     /** 加密作品出门的两种形式：默认容器（可开回、要原口令），明文是显式选项、选项上就写明（规则书 §1 第 5 条；user 11-03）。永远不靠「解除加密」拿明文。 */

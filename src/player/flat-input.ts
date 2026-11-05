@@ -17,11 +17,12 @@ export class FlatInput {
   private _enabled = false;
   private dblJump = new DoubleTap();
   private crawlOn = false;
+  /** 输入闸（app 接上）：这一下键盘归不归走路。文本框 / 面 / 菜单开着都归别人。 */
+  admits: () => boolean = () => true;
   private crouchOn = false;   // Ctrl = 开关（user 10-29「fps controller的时候ctrl改成toggle」「不然没法蹲下来修一些需要蹲下来修的东西」）
   private onKeyDown = (ev: KeyboardEvent): void => {
     if (!this._enabled) return;
-    const t = ev.target as HTMLElement | null;
-    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA")) return;
+    if (!this.admits()) return;
     if (!KEYS.has(ev.code) || ev.metaKey || ev.altKey) return;
     if (!ev.repeat && !this.down.has(ev.code)) this.edges.push(ev.code);
     this.down.add(ev.code);

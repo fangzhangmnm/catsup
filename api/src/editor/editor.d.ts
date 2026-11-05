@@ -29,7 +29,7 @@ import { type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts
 import { WorldView } from "../scene/world-view.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 export { TOOLS, type Tool } from "./tool-ids.ts";
-import type { Tool } from "./tool-ids.ts";
+import { type Tool } from "./tool-ids.ts";
 import type { ModeId } from "./mode.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type PrimitiveKind } from "../mesh/ops/index.ts";
@@ -143,6 +143,7 @@ export interface EditorHost {
     readout?(text: string): void;
     /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
     optionKv?: OptionKv;
+    /** 输入闸（controller/input-gate.ts）：此刻不许改模型的第一条理由（演示锁排最前）；空 / 缺 = 能改。 */ editHold?(): import("../controller/input-gate.ts").EditHold | null;
     /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
     confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
     resolvePaste?(rows: readonly ConflictRow[], ways: PasteWays): Promise<Decision | null>;
@@ -325,11 +326,10 @@ export declare class Editor {
     private scene;
     private ctx;
     private readonly gridState;
-    /** 演示锁（护栏 ②，周账 F-124；ai-docs/20261024-finalize.md §0）：true = 改模型的入口全拒（commit / undo / redo / VCB / 指针按下 / 键盘起手）；看 / 选工作台 / 走路照旧。由 session 按 desk.locked 设。 */
-    private _locked;
-    get locked(): boolean;
-    setLocked(on: boolean): void;
-    private lockedSay;
+    /** 演示锁（周账 F-124）：真值住文件的桌面态 session.desk.locked，这里只现问输入闸（host.editHold，controller/input-gate.ts）。锁着 = 改模型的入口全拒、渲染上没有「正在编辑的那一层」；只读工具（tool-ids.ts）照用。 */ get locked(): boolean;
+    private lockSeen; /** 锁变了（解锁 / 锁上 / 换了文件）：手势作废、拿着的改模型工具放下、重画。 */
+    holdChanged(): void;
+    /** 人的入口问这里：有理由不许改 = 说一句、返回 true。程序漏斗 commitIn 不看「正在问」（导入 / 粘贴等面关了才落定是合法的），只看演示锁。 */ private refuse;
     get grid(): Readonly<GridSettings>;
     get docGrid(): Readonly<GridSettings>;
     setGrid(patch: Partial<GridSettings>, fromDoc?: boolean): void;

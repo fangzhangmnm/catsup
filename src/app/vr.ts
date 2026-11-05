@@ -16,6 +16,7 @@ import type { HudModel } from "./ui/hud-model.ts";
 import { WristPanel, WRIST_M } from "./ui/wrist-panel.ts";
 import { bakeToast, TOAST_M } from "./ui/vr-toast.ts";
 import type { NoticeLevel } from "./ui/notice.ts";
+import { inputGate } from "./input-dom.ts";
 
 export interface VROpts {
   editor: Editor;
@@ -192,7 +193,9 @@ export class VR {
         //   掌触门、演示锁的提示行）这里都没有，是各写一份 / 漏写；步行放人也已经改走工具层（v0.17.66 WalkTool → ToolCtx.placeBody），这里还是老路。
         //   要用：把「指针 → 当前工具」的挡板抽成一份，键鼠 / 笔触 / VR 三个输入适配器共用，再接回来。
         const tp = () => ({ x: c.x, y: c.y, clientX: 0, clientY: 0, pointerType: "xr", shiftKey: false, travel: this.pointer.travel() });
-        if (editor.tool === "select") {
+        if (!inputGate.admits("xr")) {   // 输入闸：面开着（以后 VR 里的问话）扳机不进编辑器
+          if (this.toolDown) { editor.cancel(); this.toolDown = false; }
+        } else if (editor.tool === "select") {
           this.selectTick(trigDown, trig, trigUp, dt, session, toolName);
         } else if (!this.panelPressId) {
           if (trigDown) { this.pointer.markDown(); this.toolDown = true; editor.pointerDown(tp()); pulse(session, toolName, 0.5, 30); }

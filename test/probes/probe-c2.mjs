@@ -56,6 +56,9 @@ const addEdge = (page, x = 0) => page.evaluate((dx) => { const e = globalThis.__
 const newGalleryDoc = async (page) => {
   await page.evaluate(() => globalThis.__catsup.galleryHost.open());
   await page.waitForFunction(() => !document.getElementById("galleryFull").hidden);
+  // 没有家、库里有旧模型：开机问一次要不要搬（「图库必须有家」那批，2026-11-03）。这个探针不测搬家，答「先不」往下走
+  await page.waitForTimeout(300);
+  if (await page.evaluate(() => { const sh = document.getElementById("sheet"); return !sh.hidden && /这个浏览器里有/.test(sh.textContent); })) { await page.click("#sheetCancel"); await page.waitForTimeout(100); }
   await page.click("#galleryNew");
   await page.waitForFunction(() => globalThis.__catsup.session.home.kind === "gallery" && document.getElementById("galleryFull").hidden);
   await addEdge(page);
@@ -115,7 +118,7 @@ console.log("① 解开的加密件：影子只存容器");
   await p3.locator("#noticeStack button", { hasText: "恢复" }).first().click();
   await p3.waitForFunction(() => globalThis.__catsup.session.home.kind === "transient" && globalThis.__catsup.session.home.name === "本地加密" && globalThis.__catsup.session.dirty());
   ok(asks.length === 2, "恢复要口令（错一次再对）");
-  const listed = await p3.evaluate(() => new Promise((res) => { const off = { f: null }; off.f = globalThis.__catsup.store().files.watchFolder("", (s) => { res(s.items.map((i) => i.identifier)); queueMicrotask(() => off.f?.()); }); }));
+  const listed = await p3.evaluate(() => new Promise((res) => { const st = globalThis.__catsup.store(); if (!st) { res([]); return; }   /* 没账号没模型 = 文件模式，没有库可列（2026-11-03「没有家不建 store」之后探针跟上） */ const off = { f: null }; off.f = st.files.watchFolder("", (s) => { res(s.items.map((i) => i.identifier)); queueMicrotask(() => off.f?.()); }); }));
   ok(!listed.some((n) => n.includes("恢复")), "解开的恢复帧没有进图库（那里会是明文）");
   await addEdge(p3, 3);
   ok(await p3.evaluate(() => globalThis.__catsup.session.snapshot()), "恢复出来的模型继续留影子");

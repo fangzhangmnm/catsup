@@ -78,7 +78,7 @@ import { gridEffective } from "./increments.ts";
 import { type Frame, type Xform, IDENTITY, applyDir, applyPt, compose, det3, frameToXform, hasShear, invert, rotationAbout, scalingAbout, scalingAlongAxes, translation, WORLD_FRAME, transformFrame } from "../scene/xform.ts";
 
 export { TOOLS, type Tool } from "./tool-ids.ts";
-import type { Tool } from "./tool-ids.ts";
+import { isReadOnlyTool, type Tool } from "./tool-ids.ts";
 import type { Mode, ModeId } from "./mode.ts";
 import { GeometryMode } from "./modes/geometry.ts";
 import { SurfaceMode } from "./modes/surface.ts";
@@ -154,6 +154,7 @@ export interface EditorHost {
   readout?(text: string): void;
   /** 工具选项的 device 持久化接缝（app 的 device-kv）；不给 = 只活这一次。 */
   optionKv?: OptionKv;
+  /** 输入闸（controller/input-gate.ts）：此刻不许改模型的第一条理由（演示锁排最前）；空 / 缺 = 能改。 */ editHold?(): import("../controller/input-gate.ts").EditHold | null;
   /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
   confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
   resolvePaste?(rows: readonly ConflictRow[], ways: PasteWays): Promise<Decision | null>;   // 粘贴撞上两边内容不一样：问一次（app/paste-actions.ts）；null = 不贴；不给 = 不贴并说明，不替人选（设计书 §8）
@@ -270,11 +271,9 @@ export class Editor {
   private scene = new Scene();
   private ctx: EditContext = ROOT_CONTEXT;
   private readonly gridState = new GridState();   // 网格设置 + 各工作台的吸附开关（自由建模单独一份，grid-state.ts）
-  /** 演示锁（护栏 ②，周账 F-124；ai-docs/20261024-finalize.md §0）：true = 改模型的入口全拒（commit / undo / redo / VCB / 指针按下 / 键盘起手）；看 / 选工作台 / 走路照旧。由 session 按 desk.locked 设。 */
-  private _locked = false;
-  get locked(): boolean { return this._locked; }
-  setLocked(on: boolean): void { if (this._locked === on) return; this._locked = on; this.cancelGesture(); this.host.changed(); this.draw(); }
-  private lockedSay(): void { this.host.hint("锁着：只能看；☰「解锁」才能改"); }
+  /** 演示锁（周账 F-124）：真值住文件的桌面态 session.desk.locked，这里只现问输入闸（host.editHold，controller/input-gate.ts）。锁着 = 改模型的入口全拒、渲染上没有「正在编辑的那一层」；只读工具（tool-ids.ts）照用。 */ get locked(): boolean { return this.host.editHold?.()?.kind === "lock"; }
+  private lockSeen = false; /** 锁变了（解锁 / 锁上 / 换了文件）：手势作废、拿着的改模型工具放下、重画。 */ holdChanged(): void { const on = this.locked; if (on === this.lockSeen) return; this.lockSeen = on; this.cancelGesture(); if (on && !isReadOnlyTool(this._tool)) this.setTool("select"); this.host.changed(); this.draw(); }
+  /** 人的入口问这里：有理由不许改 = 说一句、返回 true。程序漏斗 commitIn 不看「正在问」（导入 / 粘贴等面关了才落定是合法的），只看演示锁。 */ private refuse(): boolean { const h = this.host.editHold?.(); if (!h) return false; this.host.hint(h.why); return true; }
   get grid(): Readonly<GridSettings> { return this.gridState.view(this.mode.id); }
   get docGrid(): Readonly<GridSettings> { return this.gridState.doc; }   // 文档的那一份（存盘只认它）
   setGrid(patch: Partial<GridSettings>, fromDoc = false): void {   // fromDoc = 读盘 / 新建（整份照文档的换）；平时开关落在当前工作台那一份
@@ -315,7 +314,7 @@ export class Editor {
     this.openParamSession(null);   // 换工作台：马前炮 / 马后炮都收
     this.mode = next;
     this.mode.enter?.(this.toolCtx);
-    if (!next.tools.includes(this._tool)) this._tool = next.defaultTool;
+    if (!next.tools.includes(this._tool)) this._tool = this.locked && !isReadOnlyTool(next.defaultTool) ? "select" : next.defaultTool;
     this.last = null;
     this.clearCharged();
     this.host.changed();
@@ -807,6 +806,7 @@ export class Editor {
 
   // ---------- 工具 ----------
   setTool(t: Tool): void {
+    if (this.locked && !isReadOnlyTool(t)) { this.refuse(); return; }   // 演示锁：改模型的工具拿不起来，说为什么（user 11-05：只读工具全部能用）
     if (!this.mode.tools.includes(t)) {   // 工具属于别的模式（快捷键 B 在几何模式按了油漆桶）→ 先切过去；只切到管活动池这种身体的工作台（网格体里按画线键不能切进硬表面建模）
       const kind = this.activeKind(), owner = this.modeList.find((m) => m.tools.includes(t) && (m.kinds as readonly BodyKind[]).includes(kind));
       if (!owner) { const any = this.modeList.find((m) => m.tools.includes(t)); if (any) this.host.hint(`「${this.mode.label}」工作台里没有这把工具（它在「${any.label}」里，管的是别的物件）`); return; }
@@ -870,7 +870,7 @@ export class Editor {
     const local: Frame = { origin: this.toLocal(frame.origin), x: normalize3(applyDir(m, frame.x)), y: normalize3(applyDir(m, frame.y)), z: normalize3(applyDir(m, frame.z)) };
     const at = this.activePool(), n0 = this.opCount;
     this.commitIn(pass, { op: "setDrawFrame", at, frame: local });
-    if (this.opCount === n0) return;   // 没提交（定稿锁着 / 锁定）：commitOp 已经说了原因
+    if (this.opCount === n0) return;   // 没提交（演示锁 / 锁定）：commitOp 已经说了原因
     this.host.hint(at.group !== null ? "组里的坐标架已搬（几何没动）" : this.contextDepth() ? "组件里的坐标架已搬——组件原点没动；工具条「设为组件原点」可以把原点对过来" : "坐标架已搬（画图 / 网格 / 推断跟着它；几何没动）");
     });   // 一个用户动作 = 一步（op + 之后的选区一起；2026-10-28 Opus：以前在步外提交，后面改选区被补记成一条空的「选区」步、多条 op 拆成好几步撤销）
   }
@@ -1263,7 +1263,7 @@ export class Editor {
     // 自由建模工作台 = 折线；其余（SketchUp 式）= **硬边、看得见**（user 2026-10-27 先说改软 + 平滑、同日改回：「因为看不见的东西很谜语人，我们的披露原则」「我想了下还是折硬边」「就像折纸一样。你会先画一道」；SketchUp 的自动折缝也是可见硬边——新手常问「一挪点面上怎么多了条斜线」）。v0.15.2 曾默认软 + 平滑，v0.15.3 撤回。Claude Fable 5.1
     const rw = this.prepareOp(op0), op: Op = rw.op;   // 镜像：挪点的纪律（钉 / 不穿 / 并；镜像编辑补对面，FM134 / UX31）
     if (rw.note) this.mirrorNote = rw.note;
-    if (this._locked) { this.lockedSay(); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; }
+    { const h = this.host.editHold?.(); if (h?.kind === "lock") { this.host.hint(h.why); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (presentation)" }); return []; } }
     if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.host.hint(LOCKED_HINT); this.host.trace?.({ kind: "fail", where: "commit", op, message: "locked (object)" }); return []; }
     if (this.stepDepth > 0 && this.stepFailed) return [];   // 这一步前面已经失败并回滚了：剩下的不再执行（不留半截）
     const t0 = performance.now();
@@ -1363,7 +1363,7 @@ export class Editor {
   undo(): void {
     this.last = null;
     if (this.gestureActive()) { this.cancelGesture(); this.host.hint(null); this.host.changed(); this.draw(); return; }
-    if (this._locked) { this.lockedSay(); return; }
+    if (this.refuse()) return;
     const r = this.history.undo();
     if (!r) { const n = this.history.evictedSteps(); this.host.hint(n ? `撤到头了（更早的 ${n} 步超过 128 MB 配额，撤不回去）` : "没有可撤销的"); return; }
     this.deferredBefore = null;
@@ -1377,7 +1377,7 @@ export class Editor {
   }
   redo(): void {
     this.last = null;
-    if (this._locked) { this.lockedSay(); return; }
+    if (this.refuse()) return;
     let r: ReturnType<History<Session>["redo"]>;
     try { r = this.history.redo(this.scene); }
     catch (err) {
@@ -2985,7 +2985,7 @@ export class Editor {
     const L = this.last;
     if (!L) return { ok: false, error: "先做一步（画 / 推拉 / 移动…），再输精确值" };
     if (this.vcbBlocked()) return { ok: false, error: "先松手落定，再输精确值" };
-    if (this._locked) return { ok: false, error: "锁着：只能看；☰「解锁」才能改" };
+    { const h = this.host.editHold?.(); if (h) return { ok: false, error: h.why }; }
     const v = parseVcb(text, L.kind, { unit: this.vcbUnit });
     if ("error" in v) return { ok: false, error: v.error };
     const at = L.at;
@@ -3284,7 +3284,7 @@ export class Editor {
    */
   /** variant = 同一格里的哪种（插入那一格：Ctrl+B "bevel" / Ctrl+Shift+B "bevelVerts"）；工具自己认。 */
   startModal(tool: Tool, variant?: string): boolean {
-    if (this._locked) { this.lockedSay(); return true; }   // 演示锁：G / R / S / E / I 不起手也不切工具（返回 true = 调用方别再切工具）
+    if (this.refuse()) return true;   // 演示锁 / 正在问：G / R / S / E / I 不起手也不切工具（返回 true = 调用方别再切工具）
     if (this.mode.id !== "freeform" || this.gestureActive() || !this.lastPtr) return false;
     if (!this.mode.tools.includes(tool)) return false;
     const at = this.lastPtr;
@@ -3583,7 +3583,7 @@ export class Editor {
    * 影子场景 = 骨架拷贝（槽表是拷的：预演开槽没有临时号、没有表外约定）+ 活动池换影子内核（硬表面 = 拷一次每帧倒回；网格体 = 每帧拷一份）。一帧多条 = 叠在同一份影子上。和提交唯一的差别 = op-locks.ts previewVariant。抛 = 内核拒。
    */
   private previewApply(op0: Op): void {
-    if (this._locked) return;
+    if (this.host.editHold?.()) return;
     const pool = this.activePool(), rw = this.prepareOp(this.withFront(op0)), op = rw.op;
     if (opTouchesLocked(this.scene, op, () => this.contextLocked())) { this.previewNote = LOCKED_HINT; return; }
     if (!previewableIn(op, pool)) throw new Error(`preview: op "${op.op}" reaches outside the active pool`);   // 别的池和真身共享：改到外面 = 预演写了真身
@@ -3658,7 +3658,7 @@ export class Editor {
   }
   /** 自由建模：活动池里的平滑边（世界坐标；棱照常画，平滑边淡淡地画出来、也点得中——纪元账本 FM138）。 */
   private softEdgesView(view: WorldView, g: (id: number) => number): { key: string; segs: { id: EdgeId; a: Pt3; b: Pt3 }[] } | null {
-    if (this.mode.id !== "freeform" || this.cmdPreview || this._locked) return null;   // 演示锁：不编辑 = 不画结构线（场景表 6）
+    if (this.mode.id !== "freeform" || this.cmdPreview || this.locked) return null;   // 演示锁：不编辑 = 不画结构线（场景表 6）
     const k = view.activeSlot().kernel, segs: { id: EdgeId; a: Pt3; b: Pt3 }[] = [];
     for (const e of k.edges()) {
       const ge = g(e.id);
@@ -3669,7 +3669,7 @@ export class Editor {
   }
   /** 自由建模：活动池的全部顶点（世界坐标）。键 = 合成视图的身份（几何 / 预演一变它就是新的）。 */
   private vertDotsView(view: WorldView, g: (id: number) => number): { key: string; pts: Pt3[] } | null {
-    if (this.mode.id !== "freeform" || this.cmdPreview || this._locked) return null;
+    if (this.mode.id !== "freeform" || this.cmdPreview || this.locked) return null;
     const k = view.activeSlot().kernel, pts: Pt3[] = [];
     for (const v of k.vertices()) { const gv = g(v.id); if (view.graph.hasVertex(gv)) pts.push(view.graph.pt(gv)); }
     return { key: String(this.kid(view)), pts };
@@ -3702,7 +3702,7 @@ export class Editor {
     };
     if (!this.cmdPreview) slotHighlight(this.selectedPools.values());
     const dimmed = (this.ctx.chain.length > 0 || this.ctx.group !== null) ? new Set(view.slots.filter((s) => !insideContext(this.scene, this.ctx, s.pool, s.chain)).map((s) => s.index)) : null;   // 只淡这一层外面的；这一层里的子组件 / 子组照常画（SketchUp 同款，user 10-30「同意，做」）
-    this.provider.setWorld(view, this._revision, !this._locked);   // 这一帧画哪个世界（演示锁 = 没有正在编辑的那一层，场景表 6）：提供者按它吐块（引擎拉）；版本进内容键
+    this.provider.setWorld(view, this._revision, !this.locked);   // 这一帧画哪个世界（演示锁 = 没有正在编辑的那一层，场景表 6）：提供者按它吐块（引擎拉）；版本进内容键
     this.r3.render(frameInput(view, this.cam, this.vp(), {   // view-state.ts：相机 / 网格 / 叠加层（选中高亮 + 线点标记文字）交给后端，引擎给量尺
       ...(this.viewExtras?.() ?? {}),
       selectionEdges: selE,
@@ -3777,7 +3777,7 @@ export class Editor {
   // ---------- 输入：工具指针 ----------
   pointerDown(ev: ToolPointer): void { this.step(() => this.pointerDownStep(ev)); }
   private pointerDownStep(ev: ToolPointer): void {
-    if (this._locked) { this.lockedSay(); return; }   // 护栏 ②（演示锁）：工具指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里
+    if (!isReadOnlyTool(this._tool) && this.refuse()) return;   // 第三层（输入闸）：改模型的工具的指针在这一个口全拒——鼠标 / 笔 / 手指 / 键盘起手 / 回车落定都从这进；相机不走这里；只读工具照用
     this.lastPtrType = ev.pointerType;   // 键盘起手的那一下带的也是真设备（keyboardStart 填的）
     this.ctxPick = null; this.pointed = null;   // 右键菜单那一下记的点 / Ctrl+J 压着的那个：画布上再按一下就作废
     if (this.gizmoPointer("down", ev)) return;   // 镜像会话：把手优先、别处不动作

@@ -28,12 +28,14 @@ ok("noEditingLayer", /^0(,0)*$/.test(await tiers()));
 // ① 脚本提交被拒
 ok("commitRefused", await page.evaluate((r) => { const e = globalThis.__catsup.editor; const ev = e.commitOp({ op: "addEdges", at: e.activePool(), segs: [[{ x: 0, y: 5, z: 0 }, { x: 1, y: 5, z: 0 }]] }); return Array.isArray(ev) && ev.length === 0 && e.revision === r; }, r0));
 // ② 真鼠标：画线工具在画布上点两下 = 什么都没画（指针按下这一口拒）
-await page.evaluate(() => globalThis.__catsup.editor.setTool("line"));
+ok("editToolRefused", await page.evaluate(() => { const e = globalThis.__catsup.editor; e.setTool("line"); return e.tool !== "line"; }));   // 拿不起来（第四层）；下面硬塞进去验第三层：指针的口自己也拒
+await page.evaluate(() => { globalThis.__catsup.editor._tool = "line"; });
 const box = await page.evaluate(() => { const r = document.getElementById("board").getBoundingClientRect(); return { x: r.left, y: r.top, w: r.width, h: r.height }; });
 await page.mouse.click(box.x + box.w * 0.55, box.y + box.h * 0.55); await page.waitForTimeout(60);
 await page.mouse.click(box.x + box.w * 0.75, box.y + box.h * 0.6); await page.waitForTimeout(120);
 ok("mouseDrawRefused", (await rev()) === r0 && !(await page.evaluate(() => globalThis.__catsup.editor.isGestureActive())));
 ok("hintSaysLocked", await page.evaluate(() => /锁着/.test(document.getElementById("hint").textContent)));
+await page.evaluate(() => globalThis.__catsup.editor.setTool("select"));
 // ④ Ctrl+Z 不动
 await page.keyboard.press("Control+z"); await page.waitForTimeout(80);
 ok("undoRefused", (await rev()) === r0);

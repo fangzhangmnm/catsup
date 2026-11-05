@@ -35,7 +35,3 @@ export interface GateStack {
 }
 /** render 在每次顶上那张变了的时候调（null = 全收了）；DOM 那边（sheets.ts）只管照着画。 */
 export declare function createGateStack(render: (top: GateView<unknown> | null) => void): GateStack;
-/** 闸门开着时这个事件该不该吞（DOM 那边在 window 捕获阶段问它）：只放行闸门自己和叠在上面的面（库的冲突面要能点）。 */
-export declare function gateSwallowsEvent(up: boolean, target: {
-    closest?: (sel: string) => unknown;
-} | null): boolean;

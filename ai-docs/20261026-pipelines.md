@@ -11,7 +11,7 @@
 
 ```mermaid
 flowchart LR
-  G[手势 / 菜单 / 数值小窗] -->|演示锁着 = 手势路由 toolBlocked 挡在门外；Editor.pointerDown / startModal 再拒一次| T[工具模块 ToolHandler<br/>src/editor/tools/*]
+  G[手势 / 菜单 / 数值小窗] -->|输入闸先问：面 / 菜单开着不进；演示锁着只读工具照走，改模型的工具挡在门外，编辑器的口再拒一次（见文末追记 v0.18.38）| T[工具模块 ToolHandler<br/>src/editor/tools/*]
   T -->|ctx.commitOp| C[Editor.commitOp<br/>演示锁 / 物件锁检查 · 工作流亚种补参 · step 合成一步]
   C --> H[History 撤销栈<br/>存 Scene 快照 + op 日志]
   C --> A[applyOp<br/>src/editor/ops.ts 按 op 派发]
@@ -467,3 +467,14 @@ flowchart LR
 **普查**（`sceneStore.refsOf / usage`，不序列化）：200 定义 + 3000 实例 `liveDefs` 3.2 ms、`census` 6.6 ms。随定义 + 实例 + 面数涨，不碰 `toBrep`。店是一次性的视图，建的时候拍下 GUID → 句柄。
 
 **还随整个模型涨的点**：粘贴的撤销记录（同上，没变）。
+
+## 追记 2026-11-05（v0.18.38，Claude Opus 5.5）：输入 → 闸 → 编辑器
+
+所有输入进场景（编辑器 + 走路）之前过同一条流程，设计 = `20261105-input-gate-design.md`。每一步都不随模型涨：名册 / 理由各十来行，每个输入事件现问一次。
+
+1. **门口**（`app/input-dom.ts guard`，window 捕获阶段，开机第一个装）：Esc → `gate.escape()` 给最上面肯接的面；否则 `gate.blocks()`：写了 root 的模态面地盘外的一切吞掉，菜单开着地盘外的键盘吞掉。程序发的事件、Tab / 刷新不吞。
+2. **消费者自检**：`main.ts` 键盘入口、`flat-input.ts`、`gestures.ts`、`vr.ts` 扳机各问 `gate.admits(source)`。
+3. **键盘**：键表 `resolveKey` → `runKeyAction`；**指针**：手势路由 → 工具指针 / 相机。
+4. **编辑器的口**：`host.editHold()` → 闸的 `held()`。演示锁拦全部（含程序提交 `commitIn`、换改模型的工具）；正在问只拦人的入口（撤销 / 重做 / 数值小窗 / 键盘起手 / 预演 / 改模型工具的按下），导入、粘贴这些问完才落定的程序提交照走。
+
+表（哪个输入问哪几步）：键盘 1-2-3-4 · 鼠标 / 笔 / 手指 1-2-3-4 · 滚轮 1-2（相机，不到 4）· 头显扳机 2-4（不走网页事件）· 界面钮、右键菜单、测试钩子 只有 4（被面盖住时 1 也挡）。

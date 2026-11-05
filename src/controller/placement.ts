@@ -1,7 +1,7 @@
 // controller/placement.ts —— 放置表的 app 那半：左柱（手 + 工具袋）和 ☰ 放什么、第几（UX 心智模型 §2.2 / §8 补 3；账本 UX34；接线清单第 1 条）。
 // created 2026-10-28 by Claude Opus 5.5
 // user 10-28：「放置表管的事不同的面板里面放什么指令，不只是左栏和右键菜单」。注册表里的指令（修复 / 转换 / 网格体动词）住 editor/commands 的放置表；
-// 这里是注册表管不着的两块——左柱放的是**工具**（立场表 controller/stance.ts 的行），☰ 放的是 app 动词（保存 / 图库 / 定稿 / 设置…）。
+// 这里是注册表管不着的两块——左柱放的是**工具**（立场表 controller/stance.ts 的行），☰ 放的是 app 动词（保存 / 图库 / 锁上 / 设置…）。
 // 分工：**这张表 = 放哪、第几**（数据）；渲染器（app/main.ts）= 长什么样（字 / 图标 / 动态的勾和数字 / 点了做什么）。
 // 改左柱分组、改 ☰ 某页的顺序 = 改这里一行，不碰 main.ts。守卫 test/placement.test.ts。
 import type { ModeId } from "../editor/mode.ts";

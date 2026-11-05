@@ -27,6 +27,8 @@ interface Tracked { type: string; role: Role; x: number; y: number; downX: numbe
 interface GestureTap { firstDownTime: number; isTap: boolean; maxCount: number; start: Map<number, { x: number; y: number }>; }
 
 export interface GestureOpts {
+  /** 输入闸（第二层自检）：这一下能不能进场景。门口没吞到的（程序发的事件、以后别的输入适配器）在这里挡。 */
+  admits?(source: "pointer" | "touch" | "wheel"): boolean;
   fingerDraws(): boolean;
   onUndo(): void;
   onRedo(): void;
@@ -115,6 +117,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
   };
 
   function onDown(ev: PointerEvent): void {
+    if (opts.admits && !opts.admits(ev.pointerType === "touch" ? "touch" : "pointer")) return;
     const s = local(ev);
     try { canvas.setPointerCapture(ev.pointerId); } catch { /* 合成事件/已释放的指针会抛 InvalidState，不许把 down 整个打断 */ }
     const now = performance.now();
@@ -247,7 +250,7 @@ export function attachGestures(canvas: HTMLCanvasElement, editor: Editor, opts: 
 
   const onWheel = (ev: WheelEvent): void => {
     ev.preventDefault();
-    if (opts.walking?.()) return;
+    if (opts.walking?.() || (opts.admits && !opts.admits("wheel"))) return;
     const r = canvas.getBoundingClientRect();
     editor.cam.zoomAt(ev.deltaY > 0 ? 1.1 : 1 / 1.1, ev.clientX - r.left, ev.clientY - r.top, editor.vp());
     retrack();
