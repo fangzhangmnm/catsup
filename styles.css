@@ -368,6 +368,8 @@ body.doc-locked .hud-rail-tools, body.doc-locked #toolStrip, body.doc-locked #se
 .sheet-seg { display: flex; gap: 4px; flex-wrap: wrap; }
 .sheet-seg button { padding: 6px 12px; border-radius: 8px; border: 1px solid var(--line-strong); background: var(--paper); color: inherit; font: inherit; font-size: 13px; cursor: pointer; }
 .sheet-seg button[aria-checked="true"] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+.sheet-seg button:disabled { opacity: 0.45; cursor: not-allowed; }
+.sheet-field-why { flex-basis: 100%; color: var(--muted); font-size: 12px; }
 .sheet-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 10px; }
 .busy-overlay { position: fixed; inset: 0; z-index: var(--z-busy); background: rgba(0,0,0,.25); display: grid; place-items: center; cursor: default; }
 .busy-overlay[hidden] { display: none; }

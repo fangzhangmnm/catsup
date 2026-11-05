@@ -65,14 +65,17 @@ export interface Choice<T> {
     onPick?: () => void;
 }
 export declare function openChoiceSheet<T>(title: string, message: string, choices: Choice<T>[]): Promise<T | null>;
+/** 表单 sheet 的一个选项。blocked = 走不通的原因：有就灰掉、点不了，原因写在这一行分段钮下面（看得见为什么不行，不藏）。 */
+export interface FormOption {
+    value: string;
+    label: string;
+    blocked?: string | null;
+}
 /** 表单 sheet 的一行：几个选项选一个（分段钮）；hidden(当前值) = true 时这一行不露（如 OBJ 没有贴图 / 边线可选）。 */
 export interface FormField {
     key: string;
     label: string;
-    options: readonly {
-        value: string;
-        label: string;
-    }[];
+    options: readonly FormOption[];
     value: string;
     hidden?: (v: Readonly<Record<string, string>>) => boolean;
 }

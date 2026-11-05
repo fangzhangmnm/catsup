@@ -25,7 +25,7 @@ import type { Surface } from "./commands/action.ts";
 import type { CommandId, Params as CmdParams } from "./commands/command.ts";
 import { type StepLabel } from "./history.ts";
 import { type EditContext, type InstId, type PoolRef, Scene } from "../scene/scene.ts";
-import { type ConflictRow, type Decision } from "./paste-plan.ts";
+import { type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts";
 import { WorldView } from "../scene/world-view.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 export { TOOLS, type Tool } from "./tool-ids.ts";
@@ -145,7 +145,7 @@ export interface EditorHost {
     optionKv?: OptionKv;
     /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
     confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
-    resolvePaste?(rows: readonly ConflictRow[]): Promise<Decision | null>;
+    resolvePaste?(rows: readonly ConflictRow[], ways: PasteWays): Promise<Decision | null>;
     /** 要等的大活的细进度条（顶边一条线，MoonSinger 同款；账本 UX7）：label = 露出来、返回「已经画上了」的 Promise（等它再开跑，不然卡住的那一帧画不出来）；null = 收起。缺 = 宿主不画。 */
     working?(label: string | null): Promise<void> | void;
 }

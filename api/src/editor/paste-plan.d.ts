@@ -20,7 +20,7 @@ export interface PastePlan {
     readonly bundle: Bundle;
     readonly plan: MergePlan;
 }
-export declare function planPaste(s: Scene, p: PastePayload, d?: Decision): PastePlan;
+export declare function planPaste(s: Scene, p: PastePayload, d?: Decision, f?: Frontier): PastePlan;
 /** 这一贴不能做的话，说为什么（站在要被更新的组件里面 / 会成环）。inside = 编辑上下文这一路上的定义（指令只知道贴进哪个定义，所以传它一个；编辑器传整条链）。 */
 export declare function pasteBlocked(s: Scene, pp: PastePlan, into: DefId, inside?: readonly DefId[]): string | null;
 /** 落地之后怎么认载荷里的东西（ops.ts 的 paste 用）。 */
@@ -48,8 +48,17 @@ export interface ConflictRow {
     readonly incomingMaterial?: Material;
 }
 export declare function conflictRows(f: Frontier): ConflictRow[];
-/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。 */
-export declare function pasteConflict(s: Scene, p: TransferPayload): ConflictRow[] | null;
+/** 三种处理各走不走得通：null = 走得通，字符串 = 为什么走不通（人话）。 */
+export type PasteWays = Readonly<Record<Decision["entries"], string | null>>;
+/** 跨打开贴之前的预查（内容不一样才有）：弹窗的事实 + 三种处理走不走得通 + 算好的前沿（后面的计划接着用，一贴只比一次内容）。stuck = 三种都走不通时的人话（不弹窗：不问没答案的问题）。 */
+export interface PasteConflict {
+    readonly rows: readonly ConflictRow[];
+    readonly ways: PasteWays;
+    readonly frontier: Frontier;
+    readonly stuck: string | null;
+}
+/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。ctx = 站在哪：贴进这一层（导入素材没有站的地方 = 根）。 */
+export declare function pasteConflict(s: Scene, p: TransferPayload, ctx?: EditContext): PasteConflict | null;
 /** 从别的文件抠闭包（素材导入：只读那份文件、挑几个组件）：没有摆放，只有 picks 往下走到底的定义 + 材质 + 层。文档的根不算（它不是素材）。 */
 export declare function payloadFromDocument(doc: CatsupDocument, picks: readonly Guid[]): TransferPayload;
 /** 那份文件里能上架的组件（素材架上的东西要有名字，user 10-30：没起名的不列、数出来说一声）。摆了几份 = 那份文件里的总数。 */
@@ -63,7 +72,7 @@ export declare function importCandidates(doc: CatsupDocument): {
     unnamed: number;
 };
 /** 素材导入这一步的指令：纯合并的 paste，带上「还没在架上的」上架（断开之后是新身份，所以上架在 paste 里按落地之后的 GUID 做），一步撤销。already = 已经在架上的几个。 */
-export declare function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[], d?: Decision): {
+export declare function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[], d?: Decision, f?: Frontier): {
     op: Op;
     payload: TransferPayload;
     already: number;
@@ -72,7 +81,7 @@ export declare function shelfImportOp(s: Scene, doc: CatsupDocument, picks: read
  * 编辑器这一贴要的全部（从 editor.ts 搬出来，棘轮是让本体别长）：能不能贴（不能 = 返回人话）、指令、贴完怎么找「新的」、提示行。
  * 站在要被更新的定义里（编辑上下文这一路上任何一层）= 拒，不只是贴进的那一层：换身体会让上下文链断掉（设计书 §6）。
  */
-export declare function preparePaste(s: Scene, ctx: EditContext, at: PoolRef, p: TransferPayload, d: Decision, toLocal: Xform): string | {
+export declare function preparePaste(s: Scene, ctx: EditContext, at: PoolRef, p: TransferPayload, d: Decision, toLocal: Xform, f?: Frontier): string | {
     op: Op;
     fresh(after: Scene): {
         pools: [string, {
@@ -94,7 +103,7 @@ export interface PasteBefore {
     readonly plan: MergePlan;
     readonly bundle: Bundle;
 }
-export declare const pasteBefore: (s: Scene, p: TransferPayload, d?: Decision) => PasteBefore;
+export declare const pasteBefore: (s: Scene, p: TransferPayload, d?: Decision, f?: Frontier) => PasteBefore;
 /** 这一贴用了本文件已有的哪些、新建 / 更新 / 断开了哪些（只数真走到的：被已有定义挡住、没走到的都不算）。 */
 export interface PasteReport {
     readonly reusedDefs: readonly string[];

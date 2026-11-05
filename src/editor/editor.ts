@@ -69,7 +69,7 @@ import { History, OpApplyError, type StepLabel } from "./history.ts";
 import { add3, cross3, dot3, len3, normalize3, polygonArea3, scale3, sub3 } from "../kernel/geom.ts";
 import { type DefId, type EditContext, type GroupId, type InstId, type PoolRef, ROOT_CONTEXT, Scene, extractSnapshot, poolBounds, poolKey, samePool, snapshotLayerPayload, transformSnapshot, type Instance } from "../scene/scene.ts";
 import { accept as transferAccept, castPayload, extract as transferExtract, transferSay } from "./transfer.ts";
-import { KEEP, pasteConflict, preparePaste, type ConflictRow, type Decision } from "./paste-plan.ts";
+import { KEEP, pasteConflict, preparePaste, type ConflictRow, type Decision, type PasteWays } from "./paste-plan.ts";
 import { clipboard } from "./clipboard.ts";
 import { bodyEmpty } from "./ops.ts";
 import { type PoolSlot, WorldView, insideContext, slotKey, PART_STATS } from "../scene/world-view.ts";
@@ -156,7 +156,7 @@ export interface EditorHost {
   optionKv?: OptionKv;
   /** 问一句「做 / 不做」（应用内确认框，不用系统弹窗）。慢的事先问、不替 user 决定不做（user 10-26「不要因为性能静默不做，宁愿弹警告问yes no。诚实性问题」）。不给 = 直接做。 */
   confirm?(title: string, message: string, okLabel: string): Promise<boolean>;
-  resolvePaste?(rows: readonly ConflictRow[]): Promise<Decision | null>;   // 粘贴撞上两边内容不一样：问一次（app/paste-actions.ts）；null = 不贴；不给 = 不贴并说明，不替人选（设计书 §8）
+  resolvePaste?(rows: readonly ConflictRow[], ways: PasteWays): Promise<Decision | null>;   // 粘贴撞上两边内容不一样：问一次（app/paste-actions.ts）；null = 不贴；不给 = 不贴并说明，不替人选（设计书 §8）
   /** 要等的大活的细进度条（顶边一条线，MoonSinger 同款；账本 UX7）：label = 露出来、返回「已经画上了」的 Promise（等它再开跑，不然卡住的那一帧画不出来）；null = 收起。缺 = 宿主不画。 */
   working?(label: string | null): Promise<void> | void;
 }
@@ -1943,14 +1943,14 @@ export class Editor {
       .then((ok) => { if (ok) this.pasteNow(castPayload(p, a.cast)); else { this.host.hint("粘贴：没贴（你选了不转）"); this.draw(); } });
   }
   private pasteNow(p: import("./transfer.ts").TransferPayload): void {
-    const rows = clipboard.doc() === this.docEpoch ? null : pasteConflict(this.scene, p);   // 同一次打开永不问；内容不一样才问（设计书 §8）
-    if (!rows) this.pasteCommit(p, KEEP);
-    else if (!this.host.resolvePaste) this.host.hint("粘贴：拷来的版本和这份模型里的不一样（这里不能问，没贴）");
-    else void this.host.resolvePaste(rows).then((d) => { if (d) this.pasteCommit(p, d); else { this.host.hint("粘贴：没贴（你点了取消）"); this.draw(); } });
+    const c = clipboard.doc() === this.docEpoch ? null : pasteConflict(this.scene, p, this.ctx), s0 = this.scene, n0 = this.opCount;   // 同一次打开永不问；内容不一样才问（设计书 §8）
+    if (!c) this.pasteCommit(p, KEEP);
+    else if (c.stuck || !this.host.resolvePaste) this.host.hint(`粘贴：${c.stuck ?? "拷来的版本和这份模型里的不一样（这里不能问，没贴）"}`);
+    else void this.host.resolvePaste(c.rows, c.ways).then((d) => { if (d) this.pasteCommit(p, d, s0 === this.scene && n0 === this.opCount ? c.frontier : undefined); else { this.host.hint("粘贴：没贴（你点了取消）"); this.draw(); } });   // 问的时候场景要是变过，前沿作废、重算
   }
-  private pasteCommit(p: import("./transfer.ts").TransferPayload, d: Decision): void {
+  private pasteCommit(p: import("./transfer.ts").TransferPayload, d: Decision, f?: import("../identity/graph.ts").Frontier): void {
     this.step((pass) => {
-      const at = this.activePool(), def = at.def, job = preparePaste(this.scene, this.ctx, at, p, d, invert(this.ctxXform()));
+      const at = this.activePool(), def = at.def, job = preparePaste(this.scene, this.ctx, at, p, d, invert(this.ctxXform()), f);
       if (typeof job === "string") { this.host.hint(job); return; }
       const n0 = this.opCount, events = this.commitIn(pass, job.op);
       if (this.opCount === n0) return;

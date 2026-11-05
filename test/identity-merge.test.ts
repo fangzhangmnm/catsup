@@ -8,7 +8,7 @@ import { applyOp, OpRejected, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
 import { census, orphanDefs } from "../src/scene/resources.ts";
 import { extract, localize, type TransferPayload } from "../src/editor/transfer.ts";
-import { conflictRows, pasteBefore, pasteBlocked, pasteConflict, pasteReport, pasteSay, pasteWouldCycle, planPaste, payloadBundle, shelfImportOp, trimClosure } from "../src/editor/paste-plan.ts";
+import { conflictRows, pasteBefore, pasteBlocked, pasteConflict, pasteReport, pasteSay, pasteWouldCycle, planPaste, payloadBundle, preparePaste, shelfImportOp, trimClosure } from "../src/editor/paste-plan.ts";
 import { conflictLine } from "../src/app/paste-actions.ts";
 import { canonDefinition } from "../src/format/entry-canon.ts";
 import { DEFINITION, MATERIAL, defRef, layerGuidOfTable, materialRef } from "../src/format/entry-kinds.ts";
@@ -147,7 +147,7 @@ describe("前沿：一样的也往下看", () => {
     const seatT = t.defByGuid(w.seat.guid)!;
     rootInsts(t)[0].locked = true;
     applyOp(t, { op: "shelfPut", kind: "definition", ref: seatT.guid, folder: null, guid: mintGuid() });
-    const rows = pasteConflict(t, copyInst(w.s, w.iseat))!, seat = rows.find((r) => r.kind === DEFINITION)!, mat = rows.find((r) => r.kind === MATERIAL)!;
+    const rows = pasteConflict(t, copyInst(w.s, w.iseat))!.rows, seat = rows.find((r) => r.kind === DEFINITION)!, mat = rows.find((r) => r.kind === MATERIAL)!;
     eq(seat.placed, 3); eq(seat.locked, 1); eq(seat.shelved, true); eq(seat.hereFaces, seat.incomingFaces);
     assert(seat.name === "椅子", "名字写这里叫什么");
     assert(conflictLine(seat).includes("摆了 3 份") && conflictLine(seat).includes("1 份锁着") && conflictLine(seat).includes("在素材架上"), conflictLine(seat));
@@ -349,6 +349,98 @@ describe("断开（break link）", () => {
     const p = copyInst(w.s, w.iseat);
     assert(pasteBlocked(t, planPaste(t, p, DETACH), leg.id, [t.root, leg.id]) === null);
     assert(pasteBlocked(t, planPaste(t, p, KEEP), leg.id, [t.root, leg.id]) !== null, "留这里的：椅子里有椅腿，贴进椅腿 = 环");
+  });
+});
+
+describe("弹窗之前：三种处理各走不走得通（ID-4 小尾巴 ①，设计书 §16）", () => {
+  const stand = (...chain: Instance[]) => ({ chain: chain.map((i) => i.id), group: null });
+  it("站在外面：三种都走得通", () => {
+    const w = chair(), t = target(w);
+    editLeg(w);
+    const c = pasteConflict(t, copyInst(w.s, w.iseat))!;
+    eq(JSON.stringify(c.ways), JSON.stringify({ update: null, keep: null, detach: null }));
+    eq(c.stuck, null);
+  });
+  it("站在要贴的那个组件里：更新说「脚下的路」（带名字）、留这里的说「贴进它自己」、断开走得通", () => {
+    const w = chair(), t = target(w), iseat = rootInsts(t)[0];
+    w.seat.name = "拷来的椅子";   // 椅子本身内容不一样
+    const c = pasteConflict(t, copyInst(w.s, w.iseat), stand(iseat))!;
+    assert(c.ways.update!.includes("你站在组件「椅子」里面") && c.ways.update!.includes("先退出来"), c.ways.update!);
+    assert(c.ways.keep!.includes("贴进它自己"), c.ways.keep!);
+    eq(c.ways.detach, null);
+    eq(c.stuck, null);
+  });
+  it("更新走不通、留这里的走得通：这边的上层不指着站的这一层（默认该落在留这里的）", () => {
+    const w = chair(), t = target(w), p = copyInst(w.s, w.iseat);   // 拷来的：椅子 → 椅腿 → 螺丝
+    const seatT = t.defByGuid(w.seat.guid)!, legT = t.defByGuid(w.leg.guid)!;
+    for (const i of [...seatT.instances.values()]) seatT.instances.delete(i.id);   // 这边的椅子已经不用椅腿了（内容不一样）
+    const ileg = t.mintInstance(t.root, null, legT.id, IDENTITY);   // 椅腿直接摆在根上，站进去
+    legT.name = "这里的椅腿";   // 椅腿内容也不一样
+    const c = pasteConflict(t, p, stand(ileg))!;
+    assert(c.ways.update!.includes("你站在组件「这里的椅腿」里面"), c.ways.update!);
+    eq(c.ways.keep, null, "这边的椅子不指椅腿：贴进来不成环");
+    eq(c.ways.detach, null);
+  });
+  it("三种都走不通 = stuck 说原因（同一个原因并一条）；不一样的只是旁边的兄弟时断开也救不了", () => {
+    const s = new Scene(sceneBox(1, 1)), p = s.mintDef("父", sceneBox(1, 1)), x = s.mintDef("甲", sceneBox(1, 1)), y = s.mintDef("乙", sceneBox(1, 1));
+    const ip = s.mintInstance(s.root, null, p.id, IDENTITY); s.mintInstance(p.id, null, x.id, IDENTITY); s.mintInstance(p.id, null, y.id, IDENTITY);
+    const t = new Scene(sceneBox(3, 3)), pay = copyInst(s, ip);
+    applyOp(t, pasteOp(t, pay));
+    t.defByGuid(y.guid)!.name = "改过的乙";   // 只有乙不一样；父、甲一样
+    const pT = rootInsts(t)[0], xT = [...t.def(pT.def).instances.values()].find((i) => t.def(i.def).guid === x.guid)!;
+    const c = pasteConflict(t, pay, stand(pT, xT))!;
+    assert(c.ways.update && c.ways.keep && c.ways.detach, JSON.stringify(c.ways));
+    eq(c.stuck, "三种处理都走不通，没贴。更新、留这里的、断开：会把物件贴进它自己里");
+  });
+});
+
+describe("一贴只比一次内容（ID-4 小尾巴 ②，设计书 §16）", () => {
+  /** 数 fn 里比了几次内容（比一条 = 规范形算两次）。 */
+  function canonCalls(fn: () => void): number {
+    const k = KINDS.get(DEFINITION) as unknown as { canon(d: unknown): unknown }, orig = k.canon;
+    let n = 0;
+    k.canon = (d) => { n++; return orig.call(k, d); };
+    try { fn(); } finally { k.canon = orig; }
+    return n;
+  }
+  it("plan 用给它的前沿，不自己再算：给一份「什么都一样」的，就什么都不更新", () => {
+    const w = chair(), t = target(w);
+    editLeg(w);
+    const st = sceneStore(t), b = payloadBundle(copyInst(w.s, w.iseat));
+    assert(plan(st, b, UPDATE).update.length > 0, "自己算：有要更新的");
+    eq(plan(st, b, UPDATE, { create: [], same: [], differ: [], visited: [] }).update.length, 0);
+  });
+  it("问的时候比一次（三种处理共用），之后准备指令不再比；结果和自己算的一样", () => {
+    const w = chair(), t = target(w);
+    editLeg(w);
+    const p = copyInst(w.s, w.iseat);
+    let c: ReturnType<typeof pasteConflict> = null;
+    const once = canonCalls(() => { eq(frontier(sceneStore(t), payloadBundle(p)).differ.length > 0, true); });
+    eq(canonCalls(() => { c = pasteConflict(t, p); }), once, "预查 = 一遍前沿，三种处理不多比");
+    const f = c!.frontier;
+    for (const d of [UPDATE, DETACH]) {
+      const jobs: ReturnType<typeof preparePaste>[] = [];
+      eq(canonCalls(() => { jobs.push(preparePaste(t, ROOT_CONTEXT, rootAt(t), p, d, IDENTITY, f)); }), 0, `${d.entries}：准备指令不再比`);
+      const job = jobs[0], without = preparePaste(t, ROOT_CONTEXT, rootAt(t), p, d, IDENTITY);
+      assert(typeof job !== "string" && typeof without !== "string", String(job));
+      if (typeof job !== "string" && typeof without !== "string") eq(JSON.stringify(Object.keys(job.op)), JSON.stringify(Object.keys(without.op)));
+    }
+    eq(canonCalls(() => { pasteBefore(t, p, UPDATE, f); }), 0, "提示行记账也不再比");
+  });
+  it("导入素材同一条路：问过之后 shelfImportOp + pasteBefore 不再比", () => {
+    const w = chair(), t = target(w);
+    editLeg(w);
+    const doc = readCatsup(writeCatsup(documentFromScene(w.s, "t"))), c = pasteConflict(t, shelfImportOp(t, doc, [w.seat.guid]).payload)!;
+    eq(canonCalls(() => { const { payload } = shelfImportOp(t, doc, [w.seat.guid], UPDATE, c.frontier); pasteBefore(t, payload, UPDATE, c.frontier); }), 0);
+  });
+  it("拿算好的前沿贴出来 = 指令重放（自己算前沿）得到同一个结果", () => {
+    const w = chair(), t = target(w);
+    editLeg(w);
+    const p = copyInst(w.s, w.iseat), f = pasteConflict(t, p)!.frontier, job = preparePaste(t, ROOT_CONTEXT, rootAt(t), p, UPDATE, IDENTITY, f);
+    if (typeof job === "string") throw new Error(job);
+    applyOp(t, job.op);
+    eq(xsOf(t, w.leg.guid).join(), xsOf(w.s, w.leg.guid).join(), "椅腿跟上了");
+    eq(pasteConflict(t, p), null, "贴完两边一样了");
   });
 });
 

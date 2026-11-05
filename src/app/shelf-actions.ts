@@ -91,9 +91,11 @@ export function createShelfActions(d: ShelfActionsDeps): ShelfActions {
         if (!v) return;
         const picks = rows.filter((r) => v[r.guid] === "yes").map((r) => r.guid);
         if (!picks.length) return;
-        const s0 = editor.sceneRef, rows2 = pasteConflict(s0, payloadFromDocument(doc, picks)), decision = rows2 ? await resolvePasteConflict(rows2) : KEEP;
+        const s0 = editor.sceneRef, c = pasteConflict(s0, payloadFromDocument(doc, picks));
+        if (c?.stuck) { fail(`导入：${c.stuck}`); return; }
+        const decision = c ? await resolvePasteConflict(c.rows, c.ways) : KEEP;
         if (!decision) return;   // 取消 = 不导入
-        const { op, payload, already } = shelfImportOp(s0, doc, picks, decision), before = pasteBefore(s0, payload, decision), onShelf = s0.shelf.items.length;
+        const { op, payload, already } = shelfImportOp(s0, doc, picks, decision, c?.frontier), before = pasteBefore(s0, payload, decision, c?.frontier), onShelf = s0.shelf.items.length;   // 一贴只比一次内容
         editor.oneStep(() => { editor.commitOp(op); }, { title: "导入素材" });
         const s1 = editor.sceneRef;
         if (s1.shelf.items.length - onShelf !== picks.length - already) return;   // 没成：提示行已经说了为什么（锁着 / 架子太新）。断开的是新身份，不能按挑中的 GUID 认

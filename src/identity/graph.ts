@@ -151,9 +151,10 @@ function above(nodes: readonly Ref[], seeds: readonly Ref[], edges: (r: Ref) => 
 }
 const edgesInBundle = (docs: ReadonlyMap<string, unknown>) => (r: Ref): readonly Ref[] => { const d = docs.get(refKey(r)); return d === undefined ? [] : (KINDS.get(r.kind)?.refs(d) ?? []); };
 
-export function plan(store: EntryStore, bundle: Bundle, d: Decision): MergePlan {
+/** known = 这一次搬运已经算好的前沿（比内容要序列化，一次搬运算一次；缺 = 自己算：指令重放时没有别人算好的）。留这里的不比内容，用不上它。 */
+export function plan(store: EntryStore, bundle: Bundle, d: Decision, known?: Frontier): MergePlan {
   if (d.entries === "keep") return keepPlan(store, bundle);
-  const f = frontier(store, bundle), skip = new Set(d.except ?? []), changed = f.differ.map((x) => x.ref).filter((r) => !skip.has(r.kind)), left = f.differ.map((x) => x.ref).filter((r) => skip.has(r.kind));
+  const f = known ?? frontier(store, bundle), skip = new Set(d.except ?? []), changed = f.differ.map((x) => x.ref).filter((r) => !skip.has(r.kind)), left = f.differ.map((x) => x.ref).filter((r) => skip.has(r.kind));
   if (d.entries === "update") return { create: f.create, update: changed, remint: new Map(), kept: left, path: f.visited };
   // 断开：内容不一样的 + 包里（传递地）指着它们的上层都铸新（不然上层还指着旧的）；一样的子组件继续共用。沿边走，不分种类（材质不一样 → 用它的组件也铸新）
   const up = above(f.visited, changed, edgesInBundle(bundleIndex(bundle))), remint = new Map<Guid, Guid>(), create: Ref[] = [], fresh = new Set(f.create.map(refKey));

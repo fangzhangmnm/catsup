@@ -7,7 +7,7 @@ import { mintGuid, type Guid } from "../format/guid.ts";
 import { KEEP, bundleOf, docsNeeded, frontier, plan, planWouldCycle, type Bundle, type Decision, type Frontier, type MergePlan } from "../identity/graph.ts";
 import { KINDS, refKey, type Ref } from "../identity/kinds.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
-import { remapSnapshotMaterial, type DefId, type EditContext, type GroupId, type InstId, type Material, type PoolRef, type Scene } from "../scene/scene.ts";
+import { ROOT_CONTEXT, remapSnapshotMaterial, type DefId, type EditContext, type GroupId, type InstId, type Material, type PoolRef, type Scene } from "../scene/scene.ts";
 import type { Xform } from "../scene/xform.ts";
 import { isHex4 } from "./object-tree.ts";
 import type { Op } from "./ops.ts";
@@ -32,12 +32,21 @@ export function payloadBundle(p: Pick<TransferPayload, "brep" | "groups" | "mesh
 type PastePayload = Parameters<typeof payloadBundle>[0];
 /** 这一贴的计划：frontier → plan（applyPlan 在 landPayload）。 */
 export interface PastePlan { readonly store: SceneStore; readonly bundle: Bundle; readonly plan: MergePlan }
-export function planPaste(s: Scene, p: PastePayload, d: Decision = KEEP): PastePlan { const store = sceneStore(s), bundle = payloadBundle(p); return { store, bundle, plan: plan(store, bundle, d) }; }
+export function planPaste(s: Scene, p: PastePayload, d: Decision = KEEP, f?: Frontier): PastePlan { const store = sceneStore(s), bundle = payloadBundle(p); return { store, bundle, plan: plan(store, bundle, d, f) }; }
+/** 这个计划走不通的话，为什么（人话，不带「粘贴：」：弹窗写在灰掉的选项下面，提示行前面加）。 */
+function whyBlocked(s: Scene, pp: PastePlan, into: DefId, inside: readonly DefId[]): string | null {
+  const updated = new Set(pp.plan.update.filter((r) => r.kind === DEFINITION).map((r) => r.guid)), under = inside.find((id) => updated.has(s.def(id).guid));
+  if (under !== undefined) return `你站在组件「${s.def(under).name}」里面，更新它会把你脚下的路断掉：先退出来`;
+  return planWouldCycle(pp.store, pp.bundle, pp.plan, defRef(s.def(into).guid)) ? "会把物件贴进它自己里" : null;
+}
 /** 这一贴不能做的话，说为什么（站在要被更新的组件里面 / 会成环）。inside = 编辑上下文这一路上的定义（指令只知道贴进哪个定义，所以传它一个；编辑器传整条链）。 */
-export function pasteBlocked(s: Scene, pp: PastePlan, into: DefId, inside: readonly DefId[] = [into]): string | null {
-  const updated = new Set(pp.plan.update.filter((r) => r.kind === DEFINITION).map((r) => r.guid));
-  if (inside.some((id) => updated.has(s.def(id).guid))) return "粘贴：要更新的组件正是你站在里面的这个：先退出来再贴";
-  return planWouldCycle(pp.store, pp.bundle, pp.plan, defRef(s.def(into).guid)) ? "粘贴：不能把一个物件贴进它自己（或它的子孙）里" : null;
+export function pasteBlocked(s: Scene, pp: PastePlan, into: DefId, inside: readonly DefId[] = [into]): string | null { const why = whyBlocked(s, pp, into, inside); return why && `粘贴：${why}`; }
+/** 编辑上下文这一路上的定义（根 → 站着的这一层）。 */
+function defsOnChain(s: Scene, ctx: EditContext): DefId[] {
+  const out = [s.root];
+  let def = s.root;
+  for (const iid of ctx.chain) { def = s.instance(def, iid).def; out.push(def); }
+  return out;
 }
 /** 落地之后怎么认载荷里的东西（ops.ts 的 paste 用）。 */
 export interface LandedPayload { defOf(i: TransferInstance): number | undefined; layerOf(i: TransferInstance): number | undefined; materialOf(code: number): number; defGuid(g: Guid): Guid }
@@ -67,11 +76,24 @@ export function conflictRows(f: Frontier): ConflictRow[] {
     return x.ref.kind === MATERIAL ? { ...base, hereMaterial: x.here as Material, incomingMaterial: x.incoming as Material } : base;
   });
 }
-/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。 */
-export function pasteConflict(s: Scene, p: TransferPayload): ConflictRow[] | null {
+/** 三种处理各走不走得通：null = 走得通，字符串 = 为什么走不通（人话）。 */
+export type PasteWays = Readonly<Record<Decision["entries"], string | null>>;
+/** 跨打开贴之前的预查（内容不一样才有）：弹窗的事实 + 三种处理走不走得通 + 算好的前沿（后面的计划接着用，一贴只比一次内容）。stuck = 三种都走不通时的人话（不弹窗：不问没答案的问题）。 */
+export interface PasteConflict { readonly rows: readonly ConflictRow[]; readonly ways: PasteWays; readonly frontier: Frontier; readonly stuck: string | null }
+/** 三种都走不通的人话：同一个原因并成一条（通常都是「贴进它自己」）。 */
+function stuckSay(w: PasteWays): string | null {
+  const says: [string, string | null][] = [["更新", w.update], ["留这里的", w.keep], ["断开", w.detach]], byWhy = new Map<string, string[]>();
+  for (const [label, why] of says) { if (!why) return null; byWhy.set(why, [...(byWhy.get(why) ?? []), label]); }
+  return `三种处理都走不通，没贴。${[...byWhy].map(([why, labels]) => `${labels.join("、")}：${why}`).join("；")}`;
+}
+/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。ctx = 站在哪：贴进这一层（导入素材没有站的地方 = 根）。 */
+export function pasteConflict(s: Scene, p: TransferPayload, ctx: EditContext = ROOT_CONTEXT): PasteConflict | null {
   if (!p.closure && !p.materials) return null;
-  const rows = conflictRows(frontier(sceneStore(s), payloadBundle(p)));
-  return rows.length ? rows : null;
+  const store = sceneStore(s), bundle = payloadBundle(p), f = frontier(store, bundle), rows = conflictRows(f);
+  if (!rows.length) return null;
+  const into = s.defOfContext(ctx), inside = defsOnChain(s, ctx), why = (entries: Decision["entries"]): string | null => whyBlocked(s, { store, bundle, plan: plan(store, bundle, { entries }, f) }, into, inside);
+  const ways: PasteWays = { update: why("update"), keep: why("keep"), detach: why("detach") };
+  return { rows, ways, frontier: f, stuck: stuckSay(ways) };
 }
 
 /** 从别的文件抠闭包（素材导入：只读那份文件、挑几个组件）：没有摆放，只有 picks 往下走到底的定义 + 材质 + 层。文档的根不算（它不是素材）。 */
@@ -86,8 +108,8 @@ export function importCandidates(doc: CatsupDocument): { rows: { guid: Guid; nam
   return { rows: named.map((d) => ({ guid: d.guid, name: d.name, kind: d.kind ?? "brep", placed: placed(d.guid) })), unnamed: all.length - named.length };
 }
 /** 素材导入这一步的指令：纯合并的 paste，带上「还没在架上的」上架（断开之后是新身份，所以上架在 paste 里按落地之后的 GUID 做），一步撤销。already = 已经在架上的几个。 */
-export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[], d: Decision = KEEP): { op: Op; payload: TransferPayload; already: number } {
-  const payload = payloadFromDocument(doc, picks), roots = payload.closure?.roots ?? [], pp = planPaste(s, payload, d);
+export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[], d: Decision = KEEP, f?: Frontier): { op: Op; payload: TransferPayload; already: number } {
+  const payload = payloadFromDocument(doc, picks), roots = payload.closure?.roots ?? [], pp = planPaste(s, payload, d, f);
   const fresh = roots.filter((g) => pp.plan.remint.has(g) || !s.shelf.items.some((it) => it.kind === "definition" && it.ref === g));
   const trimmed = trimClosure(s, payload, d, pp);
   const paste: Op = { op: "paste", at: { def: s.root, group: null }, ...(trimmed.materials ? { materials: trimmed.materials } : {}), ...(trimmed.closure ? { closure: trimmed.closure } : {}), ...(d.entries !== "keep" ? { merge: d } : {}), ...(fresh.length ? { shelve: fresh.map((ref) => ({ ref, guid: mintGuid() })) } : {}) };
@@ -98,10 +120,8 @@ export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Gui
  * 编辑器这一贴要的全部（从 editor.ts 搬出来，棘轮是让本体别长）：能不能贴（不能 = 返回人话）、指令、贴完怎么找「新的」、提示行。
  * 站在要被更新的定义里（编辑上下文这一路上任何一层）= 拒，不只是贴进的那一层：换身体会让上下文链断掉（设计书 §6）。
  */
-export function preparePaste(s: Scene, ctx: EditContext, at: PoolRef, p: TransferPayload, d: Decision, toLocal: Xform): string | { op: Op; fresh(after: Scene): { pools: [string, { kind: "instance"; instance: InstId } | { kind: "group"; group: GroupId }][]; meshFaces: number[] }; say(after: Scene, copies: number, crossOpen: boolean): string } {
-  const inside = [s.root];
-  { let def = s.root; for (const iid of ctx.chain) { def = s.instance(def, iid).def; inside.push(def); } }
-  const pp = planPaste(s, p, d), blocked = pasteBlocked(s, pp, at.def, inside);   // 一个计划从头用到尾：比内容要序列化，不重复算
+export function preparePaste(s: Scene, ctx: EditContext, at: PoolRef, p: TransferPayload, d: Decision, toLocal: Xform, f?: Frontier): string | { op: Op; fresh(after: Scene): { pools: [string, { kind: "instance"; instance: InstId } | { kind: "group"; group: GroupId }][]; meshFaces: number[] }; say(after: Scene, copies: number, crossOpen: boolean): string } {
+  const pp = planPaste(s, p, d, f), blocked = pasteBlocked(s, pp, at.def, defsOnChain(s, ctx));   // 一个计划从头用到尾；问过的话前沿也是问的时候那份（比内容要序列化，一贴只比一次）。点了之后照旧再查一遍（瑞士奶酪）
   if (blocked) return blocked;
   const l = trimClosure(s, localize(p, toLocal), d, pp), before: PasteBefore = { defs: new Set(), plan: pp.plan, bundle: pp.bundle }, def = at.def, isBrep = s.kindOf(def) === "brep";
   const instBefore = new Set(s.def(def).instances.keys()), groupBefore = new Set(isBrep ? s.brep(def).groups.keys() : []), meshBefore = isBrep ? null : new Set(s.mesh(def).kernel.faces());
@@ -123,7 +143,7 @@ export function pasteWouldCycle(s: Scene, p: TransferPayload, into: DefId, d: De
 }
 /** 贴之前记一下这一贴的计划（pasteReport 用）。 */
 export interface PasteBefore { readonly defs: ReadonlySet<Guid>; readonly plan: MergePlan; readonly bundle: Bundle }
-export const pasteBefore = (s: Scene, p: TransferPayload, d: Decision = KEEP): PasteBefore => { const pp = planPaste(s, p, d); return { defs: new Set([...s.defs.values()].map((x) => x.guid)), plan: pp.plan, bundle: pp.bundle }; };
+export const pasteBefore = (s: Scene, p: TransferPayload, d: Decision = KEEP, f?: Frontier): PasteBefore => { const pp = planPaste(s, p, d, f); return { defs: new Set([...s.defs.values()].map((x) => x.guid)), plan: pp.plan, bundle: pp.bundle }; };
 /** 这一贴用了本文件已有的哪些、新建 / 更新 / 断开了哪些（只数真走到的：被已有定义挡住、没走到的都不算）。 */
 export interface PasteReport { readonly reusedDefs: readonly string[]; readonly createdDefs: readonly string[]; readonly updatedDefs: readonly string[]; readonly detachedDefs: readonly string[]; readonly reusedMaterials: readonly string[]; readonly createdMaterials: readonly string[]; readonly updatedMaterials: readonly string[]; readonly createdLayers: readonly string[] }
 export function pasteReport(before: PasteBefore, after: Scene): PasteReport {

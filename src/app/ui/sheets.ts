@@ -227,8 +227,10 @@ export function openChoiceSheet<T>(title: string, message: string, choices: Choi
   });
 }
 
+/** 表单 sheet 的一个选项。blocked = 走不通的原因：有就灰掉、点不了，原因写在这一行分段钮下面（看得见为什么不行，不藏）。 */
+export interface FormOption { value: string; label: string; blocked?: string | null }
 /** 表单 sheet 的一行：几个选项选一个（分段钮）；hidden(当前值) = true 时这一行不露（如 OBJ 没有贴图 / 边线可选）。 */
-export interface FormField { key: string; label: string; options: readonly { value: string; label: string }[]; value: string; hidden?: (v: Readonly<Record<string, string>>) => boolean }
+export interface FormField { key: string; label: string; options: readonly FormOption[]; value: string; hidden?: (v: Readonly<Record<string, string>>) => boolean }
 export interface FormOpts { okLabel?: string; note?: (v: Readonly<Record<string, string>>) => string }
 /**
  * 表单 sheet → 各行的值 | null（取消 / Esc / 点背板）。模态：锁屏、认真答、答完消失（UX 心智模型 §8 补 4「模态 sheet」；导出模型就是它）。
@@ -251,10 +253,12 @@ export function openFormSheet(title: string, fields: readonly FormField[], opts:
         for (const o of f.options) {
           const b = document.createElement("button"); b.type = "button"; b.textContent = o.label; b.dataset.value = o.value;
           b.setAttribute("role", "radio"); b.setAttribute("aria-checked", String(vals[f.key] === o.value));
-          b.addEventListener("click", () => { vals[f.key] = o.value; render(); });
+          if (o.blocked) b.disabled = true; else b.addEventListener("click", () => { vals[f.key] = o.value; render(); });
           seg.appendChild(b);
         }
-        row.appendChild(seg); box.appendChild(row);
+        row.appendChild(seg);
+        for (const o of f.options) if (o.blocked) { const why = document.createElement("div"); why.className = "sheet-field-why"; why.textContent = `${o.label}：${o.blocked}`; row.appendChild(why); }
+        box.appendChild(row);
       }
       const n = opts.note?.(vals) ?? "";
       g.message().textContent = n; g.message().hidden = !n;

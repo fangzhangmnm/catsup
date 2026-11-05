@@ -62,7 +62,8 @@ export interface MergePlan {
     readonly kept: readonly Ref[]; /** 这趟要走到的路（指令流留文件形状时看它，docsNeeded）。留这里的 = 就是 create。 */
     readonly path: readonly Ref[];
 }
-export declare function plan(store: EntryStore, bundle: Bundle, d: Decision): MergePlan;
+/** known = 这一次搬运已经算好的前沿（比内容要序列化，一次搬运算一次；缺 = 自己算：指令重放时没有别人算好的）。留这里的不比内容，用不上它。 */
+export declare function plan(store: EntryStore, bundle: Bundle, d: Decision, known?: Frontier): MergePlan;
 /** 这个计划落地要包里的哪几条文件形状（指令流只带这些，同一个文件里贴一百次不攒一百份）：要建 / 要更新 / 要断开的 + 走到它们路上的上层（重放时还得走得到）。 */
 export declare function docsNeeded(bundle: Bundle, p: MergePlan): Set<string>;
 /**
