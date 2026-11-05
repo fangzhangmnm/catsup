@@ -34,6 +34,7 @@ export interface CatsupBrepJson {
     extras?: Record<string, unknown>;
     [k: string]: unknown;
 }
+export declare const toUm: (x: number) => number;
 /** 规范序：顶点按整数 (z,y,x)、边按 (min,max)、环旋到最小顶点起、面按 (平面, 外环)。同一几何 → 同一字节。 */
 export declare function canonicalize(snap: BrepSnapshot): BrepSnapshot;
 /** 编码（先规范化）。返回的 JSON 里 bufferView 索引由 sink 分配。 */

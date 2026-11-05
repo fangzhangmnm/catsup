@@ -2,11 +2,11 @@ import type { Pt3 } from "../kernel/geom.ts";
 import { type BrepSnapshot } from "../kernel/kernel.ts";
 import type { BodyKind } from "../scene/body-kind.ts";
 import { type Guides } from "../scene/guides.ts";
-import { type DefId, type EditContext, type GroupId, type InstId, type Material, type Scene } from "../scene/scene.ts";
+import { type EditContext, type GroupId, type InstId, type Material, type Scene } from "../scene/scene.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
-import type { CatsupDocument, DefinitionDoc, LayerDoc } from "../format/document.ts";
-import { type Guid } from "../format/guid.ts";
-import type { Op } from "./ops.ts";
+import type { DefinitionDoc, LayerDoc } from "../format/document.ts";
+import type { Guid } from "../format/guid.ts";
+import { type Bundle } from "../identity/graph.ts";
 export interface TransferGroup {
     readonly parent: number | null;
     readonly snap: BrepSnapshot;
@@ -55,6 +55,7 @@ export interface TransferPayload {
     /** 实例用到的定义（递归）+ 层。有实例才有。 */
     readonly closure?: TransferClosure;
 }
+export declare const docsOfKind: <T>(b: Bundle, kind: string) => T[];
 export interface TransferCounts {
     faces: number;
     edges: number;
@@ -88,46 +89,3 @@ export declare function accept(p: TransferPayload, target: BodyKind): {
 export declare function castPayload(p: TransferPayload, to: BodyKind): TransferPayload;
 /** 世界坐标 → 目标容器本地（Xi = 目标上下文世界变换的逆）。 */
 export declare function localize(p: TransferPayload, Xi: Xform): TransferPayload;
-/** 进指令之前：闭包只留这一贴真要新建的定义（指令流永不驱逐，同一个文件里贴一百次不许攒一百份闭包；提示行的「用了已有的」照用没剪的那份载荷）。重放时场景状态相同，结果相同。 */
-export declare function trimClosure(s: Scene, p: TransferPayload): TransferPayload;
-/** 从别的文件抠闭包（素材导入：只读那份文件、挑几个组件）：没有摆放，只有 picks 往下走到底的定义 + 材质 + 层。文档的根不算（它不是素材）。 */
-export declare function payloadFromDocument(doc: CatsupDocument, picks: readonly Guid[]): TransferPayload;
-/** 那份文件里能上架的组件（素材架上的东西要有名字，user 10-30：没起名的不列、数出来说一声）。摆了几份 = 那份文件里的总数。 */
-export declare function importCandidates(doc: CatsupDocument): {
-    rows: {
-        guid: Guid;
-        name: string;
-        kind: BodyKind;
-        placed: number;
-    }[];
-    unnamed: number;
-};
-/** 素材导入这一步的指令：纯合并的 paste + 还没在架上的上架，一步撤销。already = 已经在架上的几个。 */
-export declare function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[]): {
-    op: Op;
-    payload: TransferPayload;
-    already: number;
-};
-/** 贴进 into 这个定义会不会造环（查的是合并之后的样子：同 GUID 用目标那条，不在的看闭包）。 */
-export declare function pasteWouldCycle(s: Scene, p: TransferPayload, into: DefId): boolean;
-/** 贴之前这个文件里有哪些条目（pasteReport 比对用）。 */
-export interface PasteBefore {
-    readonly defs: ReadonlySet<Guid>;
-    readonly materials: ReadonlySet<Guid>;
-    readonly layers: ReadonlySet<Guid>;
-}
-export declare const pasteBefore: (s: Scene) => PasteBefore;
-/** 这一贴用了本文件已有的哪些、新建了哪些（只数载荷里提到的）。闭包里被已有定义挡住、没建出来的两边都不算。 */
-export interface PasteReport {
-    readonly reusedDefs: readonly string[];
-    readonly createdDefs: readonly string[];
-    readonly reusedMaterials: readonly string[];
-    readonly createdMaterials: readonly string[];
-    readonly createdLayers: readonly string[];
-}
-export declare function pasteReport(before: PasteBefore, after: Scene, p: TransferPayload): PasteReport;
-/**
- * 提示行补的那半句。fromOtherModel = 这份剪贴板是在别的模型里拷的：那边改过的同 GUID 组件这里用的是本文件那版（user 11-04「第一次新建，之后再贴只多摆一份」），必须说（不静默）；
- * 同一个模型里每次贴都「用了已有的」，那是常态，不说。新建的永远说（同一个模型里 = 撤销过了头、按拷贝时的样子建回来）。
- */
-export declare function pasteSay(r: PasteReport, fromOtherModel: boolean): string;

@@ -74,6 +74,7 @@ export declare function compareStamp(file: Stamp, mine: Stamp): StampVerdict;
 /** 读取时攒的判决（不持久化）：newerMinor = 哪些子结构比本版新一个 minor（宿主提示一次）；deskTooNew = 桌面态 major 比本版新（原字节带回、用默认）；
  *  referencesTooNew = 参考窗牌组 major 比本版新（原字节带回、参考窗先不显示）；shelfTooNew 同理；danglingShelfRefs = 架子上有几格指向的东西已经不在文件里（读时丢掉，不猜、不造）。 */
 export interface FormatReadNotes {
+    remintedGuids?: number;
     newerMinor: {
         ext: CatsupExtension;
         file: Stamp;

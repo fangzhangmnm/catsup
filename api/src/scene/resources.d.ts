@@ -49,8 +49,6 @@ export interface Census {
     readonly materials: readonly MaterialCensus[];
     readonly shelf: readonly ShelfRow[];
 }
-/** 素材架收着的组件。 */
-export declare function shelvedDefs(s: Scene): DefId[];
 /** 活着的组件定义（含模型根）：从根和素材架沿「谁摆着谁」走得到的。 */
 export declare function liveDefs(s: Scene): Set<DefId>;
 /** 从这几个定义沿实例引用够得着的全部定义（自己算）。 */
@@ -59,7 +57,7 @@ export declare function reachableDefs(s: Scene, roots: readonly DefId[]): Set<De
 export declare function census(s: Scene): Census;
 /** 素材架按文件夹树展开成一张顺序表（纯函数）。手改过的文件里成环 / 指不到的文件夹不许让东西看不见：没走到的排在最后、不缩进。 */
 export declare function shelfRows(s: Scene): ShelfRow[];
-/** 每个材质（按文档材质表下标）被谁用：活着的组件 / 孤儿组件 / 素材架。 */
+/** 每个材质（按文档材质表下标）被谁用：活着的组件 / 孤儿组件 / 素材架。能不能清理按**面**算，不按槽表算（槽表占位不算有人用；引用图上它还算被引用，闭包照带）。 */
 export declare function materialUse(s: Scene): MaterialUse[];
 /** 能清理的材质（没有任何面用、架子也没收）：清理指令吃这张单子。 */
 export declare const unusedMaterials: (c: Census) => number[];

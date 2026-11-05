@@ -1,6 +1,6 @@
 # 身份层设计书：ID-4 把身份逻辑做成深模块（2026-11-04 深夜）
 
-> created 2026-11-04 by Claude Fable 5.1 · as-of v0.18.34（main a587966，ID-1…ID-3 都合进去了，没推）· 状态：**设计书，等 user 过目 → 切 Opus 施工**。谈话 = `talks/20261104-identity-layer-deep-module.md`、`talks/20261104-paste-update-or-keep.md`；上游 = `20261104-identity-foundation-plan.md`（§15.3 末 Fable 审 ID-3 的记录；本书是它的第五张单，§16 指路）。
+> created 2026-11-04 by Claude Fable 5.1 · as-of v0.18.34（main a587966，ID-1…ID-3 都合进去了，没推）· 状态：**ID-4a / 4b / 4c 施工完（分支 `identity-id4`，v0.18.35，2026-11-04 Claude Opus 5.5；§15 实施记录），等 Fable 审 → 合 main → 推 dev**。§4 / §7 已回写成实际形状。谈话 = `talks/20261104-identity-layer-deep-module.md`、`talks/20261104-paste-update-or-keep.md`；上游 = `20261104-identity-foundation-plan.md`（§15.3 末 Fable 审 ID-3 的记录；本书是它的第五张单，§16 指路）。
 > 这是一张**重构单**：按家规要交付体重变化（§11），不改文件格式（§10），粘贴更新规则是它的第一个客户（§7–§8）。
 
 ## 0. 一句话 + 为什么现在
@@ -68,65 +68,80 @@
 
 ## 4. 接口（提案 .h；pin 住，实现中形状变了回写这里）
 
-目录 `src/identity/`。**红线：这个目录只 import 自己和 `format/guid.ts` 的类型**，不 import kernel / mesh / scene / format 其他文件（守卫 §9）。模块只认文件形状的条目和一个抽象的「店」（`EntryStore`），场景适配在 `format/scene-doc.ts`。
+目录 `src/identity/`。**红线：这个目录只 import 自己**（`guid.ts` 搬进来之后就是这样；守卫 §9），不 import kernel / mesh / scene / format。模块只认文件形状的条目和一个抽象的「店」（`EntryStore`）。
+
+**实施回写（和最初提案不一样的地方，§15 有原因）**：店多 `refsOf` + `modelRoot`；`Decision.materials` → `except`（模块不认识「材质」这个词）；`Frontier` 多 `visited`、`MergePlan` 多 `kept / path`、去掉 `refMap`；声明的 `rewrite` 连自己的 GUID 也过 map；`wouldCycle` 的 from 是一组；三种条目的声明和规范形住 `format/entry-kinds.ts` / `format/entry-canon.ts`，店和落地住 `format/scene-store.ts`（`scene-doc.ts` 留「文件形状 ↔ 运行时」）；粘贴流程住 `editor/paste-plan.ts`。
 
 ```ts
-// src/identity/guid.ts（从 format/guid.ts 搬过来，format 改从这里 re-export）
+// src/identity/guid.ts（format/guid.ts 只转发）
 export type Guid = string;
 export function mintGuid(): Guid; export const isGuid: (s: unknown) => s is Guid;
 export function recordMints<T>(fn: () => T, done: (minted: Guid[]) => void): T;
-export function replayMints<T>(minted: readonly Guid[], fn: () => T): T;   // 读完校验：铸得比录的多 / 少 → 抛（重放只走校验路径）
-export function ownGuid(raw: unknown, seen: Set<Guid>, onRemint?: () => void): Guid;   // 重复 / 非法 → 现铸并回调（读取侧披露用）
+export function replayMints<T>(minted: readonly Guid[], fn: () => T): T;   // 铸得比录的多 / 少 → 抛（重放只走校验路径）
+export function ownGuid(raw: unknown, seen: Set<Guid>, onRemint?: () => void): Guid;   // 写了身份但重复 / 不合法 → 现铸并回调；老文件没写不回调
 export const DEFAULT_LAYER_GUID: Guid; export const BUILTIN_FRONT_GUID: Guid; export const BUILTIN_BACK_GUID: Guid;
 
 // src/identity/kinds.ts —— 条目种类的声明（开放集）
-export type EntryKind = string;                               // "definition" | "material" | "layer" | "texture"（以后）| …
+export type EntryKind = string;
 export interface Ref { readonly kind: EntryKind; readonly guid: Guid }
+export const refKey: (r: Ref) => string;
 export interface EntryKindDef<Doc = unknown> {
   readonly kind: EntryKind;
   readonly carry: boolean;                                    // 跟闭包走
   readonly structural: boolean;                               // 引用它会不会成环要管（只有定义）
-  readonly overwrite: boolean;                                // 合并时允许「更新」（层 = false）
+  readonly overwrite: boolean;                                // 合并时允许「更新」（层 = false；= false 的永远不比内容、永远算一样）
   readonly constants: readonly Guid[];                        // 每份文件固有、永不搬、永不清、永不更新
   guidOf(doc: Doc): Guid; nameOf(doc: Doc): string;
-  refs(doc: Doc): readonly Ref[];                             // 枚举引用（附属里的也算：定义里实例的 definition / layer、槽表的 material）
-  rewrite(doc: Doc, map: (r: Ref) => Guid): Doc;              // 改写引用（换号 / 断开）；附属的 GUID 由 remintOwned 管
-  remintOwned(doc: Doc): Doc;                                 // 断开时附属（实例 / 组）也铸新身份（文档内 GUID 唯一）
-  canon(doc: Doc): unknown;                                   // 规范形：只对自己知道「存盘重开会乱序」的部分排序，其余原样；模块按确定性序列化逐字比
+  refs(doc: Doc): readonly Ref[];                             // 枚举引用；顺序 = 落地顺序（没有出边的排前面）
+  rewrite(doc: Doc, map: (r: Ref) => Guid): Doc;              // 改写身份：自己的 GUID 和每条引用都过 map；附属的 GUID 归 remintOwned
+  remintOwned(doc: Doc): Doc;                                 // 断开时附属（实例 / 组）也铸新身份
+  canon(doc: Doc): unknown;                                   // 规范形（§7）
 }
-export const KINDS: ReadonlyMap<EntryKind, EntryKindDef>;    // 登记表；carryKinds() / structuralKinds()
+export const KINDS: ReadonlyMap<EntryKind, EntryKindDef>; export function registerKind<Doc>(def: EntryKindDef<Doc>): void;
 
-// src/identity/store.ts —— 一份模型在这层眼里的样子（场景和纯文档各实现一份）
+// src/identity/store.ts —— 一份模型在这层眼里的样子
 export interface EntryStore {
   has(r: Ref): boolean;
-  docOf(r: Ref): unknown | undefined;                         // 文件形状（比较 / 导出 / 普查用）
+  docOf(r: Ref): unknown | undefined;                         // 文件形状（场景店这一步要序列化，别在普查里调）
   all(kind: EntryKind): readonly Guid[];
-  roots(): readonly Ref[];                                    // 模型根 + 素材架 + 常量
-  usage(r: Ref): Usage;                                       // 摆了几份 / 几张面在用 / 几份锁着 / 在架上（弹窗和面板的事实）
+  roots(): readonly Ref[];                                    // 模型根 + 素材架 + 常量；不认识的种类也列（走不下去、永不算孤儿）
+  refsOf(r: Ref): readonly Ref[];                             // 场景店不序列化就能答（测试守「和声明的 refs(docOf) 一字不差」）
+  usage(r: Ref): Usage;
+  readonly modelRoot?: Ref;                                   // 永不更新、永不断开
 }
-export interface Usage { readonly placed: number; readonly faces: number; readonly locked: number; readonly shelved: boolean }
+export interface Usage { readonly placed: number; readonly faces: number; readonly orphanFaces: number; readonly locked: number; readonly shelved: boolean }
+export function tableStore(docs, roots, usage?, modelRoot?): EntryStore;   // 一张表的店（纯文档 / 测试）
 
-// src/identity/graph.ts —— 通用图算法（全部纯函数，只认 refs()）
-export function closure(store: EntryStore, roots: readonly Ref[], opts?: { carryOnly?: boolean }): Ref[];        // 可达集（文件形状由 store.docOf 取）
-export function census(store: EntryStore): Census;           // live / orphans / 反向索引 usedBy(ref) / 每条 Usage
-export function wouldCycle(edges: (r: Ref) => readonly Ref[], from: Ref, to: Ref): boolean;   // 只看 structural 种类
+// src/identity/graph.ts —— 通用图算法（全部纯函数，只认店和声明）
+export function closure(store: EntryStore, roots: readonly Ref[], opts?: { carryOnly?: boolean }): Ref[];   // 前序；店里有的（常量店里有就算：默认层那行是层代号对照表的一部分）
 export interface Bundle { readonly docs: readonly { kind: EntryKind; doc: unknown }[]; readonly roots: readonly Ref[] }
-export interface Frontier { readonly create: Ref[]; readonly same: Ref[]; readonly differ: { ref: Ref; usage: Usage; here: unknown; incoming: unknown }[] }
-export function frontier(store: EntryStore, bundle: Bundle): Frontier;   // 从 roots 走：没有 = create；有且 canon 相等 = same（它下面不再看）；有且不等 = differ（它下面继续看）
-export type Decision = { readonly entries: "update" | "keep" | "detach"; readonly materials?: boolean };   // 一次一种；materials 缺 = 跟 entries
-export interface MergePlan { readonly create: Ref[]; readonly update: Ref[]; readonly remint: ReadonlyMap<Guid, Guid>; readonly refMap: (r: Ref) => Guid }
-export function plan(store: EntryStore, bundle: Bundle, d: Decision): MergePlan;   // detach：differ ∪ 包内指着它们的上层都铸新；update：层永不更新、常量永不更新、store 根永不更新
-export function planWouldCycle(store: EntryStore, bundle: Bundle, p: MergePlan, into: Ref): boolean;   // 按落地之后的样子查
-export function canonEqual(k: EntryKindDef, a: unknown, b: unknown): boolean;   // 确定性序列化逐字比（键排序、TypedArray 逐元素）
+export function bundleOf(store: EntryStore, roots: readonly Ref[]): Bundle;   // 取闭包成文件形状（拷贝 / 导入共用）
+export function census(store: EntryStore): Census;           // isLive / orphans / usedBy
+export function wouldCycle(edges: (r: Ref) => readonly Ref[], from: readonly Ref[], to: Ref): boolean;   // 只走 structural
+export const canonEqual: (k: EntryKindDef, a: unknown, b: unknown) => boolean;   // 结构相等（不分配字符串：贴图字节不用先变字符串）
+export interface FrontierDiff { ref: Ref; usage: Usage; here: unknown; incoming: unknown }
+export interface Frontier { create: readonly Ref[]; same: readonly Ref[]; differ: readonly FrontierDiff[]; visited: readonly Ref[] }
+export function frontier(store: EntryStore, bundle: Bundle): Frontier;   // 没有 = create；有 = 比内容，一样 = same、不一样 = differ，**都往下走**（§7）；比不了 / 永不更新 / 模型根 = same 并停
+export interface Decision { readonly entries: "update" | "keep" | "detach"; readonly except?: readonly EntryKind[] }   // except = 这几种不跟（留这里的）；keep 不看
+export const KEEP: Decision;
+export interface MergePlan { create: readonly Ref[]; update: readonly Ref[]; remint: ReadonlyMap<Guid, Guid>; kept: readonly Ref[]; path: readonly Ref[] }
+export function plan(store: EntryStore, bundle: Bundle, d: Decision): MergePlan;   // keep：走到有的就停、不比内容；update / detach 走 frontier
+export function docsNeeded(bundle: Bundle, p: MergePlan): Set<string>;   // 指令流要留哪几条文件形状
+export function planWouldCycle(store: EntryStore, bundle: Bundle, p: MergePlan, into: Ref): boolean;   // 按落地之后的样子查 + 更新后会不会绕回自己
 
-// src/format/scene-doc.ts —— 场景适配（唯一一处文件形状 ↔ 运行时）
-export function sceneStore(s: Scene): EntryStore;
-export function docStore(doc: CatsupDocument): EntryStore;   // 素材导入只读那份文件
-export function applyPlan(s: Scene, bundle: Bundle, p: MergePlan): { idOf: (r: Ref) => number }   // 落地：create 走 materialize、update 原地换身体（句柄 / GUID 不变）、材质原地换条、层缺就建；返回 GUID → 运行时句柄
-export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭包成文件形状（extract / 导出 / 上架共用）
+// src/format/entry-kinds.ts —— 三种条目的声明
+export interface DefinitionEntry { readonly def: DefinitionDoc; readonly layerGuid: (code: number) => Guid | undefined }   // 定义 = 文件形状 + 层代号对照表（离开那份文件就得带着表走）
+// src/format/scene-store.ts —— 场景 / 纯文档适配（唯一一处店的实现 + 落地）
+export function sceneStore(s: Scene): SceneStore;            // + defIdOf(guid)
+export function docStore(doc: CatsupDocument): EntryStore;
+export interface Landing { idOf(r: Ref): number | undefined; guidOf(r: Ref): Guid }
+export function applyPlan(s: Scene, bundle: Bundle, p: MergePlan): Landing;
+export function uniqueCopy(s: Scene, id: DefId): DefId;      // 做成唯一 = 声明的 rewrite + remintOwned + 同一份落地
+// src/editor/paste-plan.ts —— 客户：载荷 → 包 → 计划 → 落地
+planPaste / pasteBlocked / landPayload / trimClosure / pasteConflict / conflictRows / preparePaste / payloadFromDocument / importCandidates / shelfImportOp / pasteWouldCycle / pasteBefore / pasteReport / pasteSay
 ```
 
-**深在哪**：接口 = 每种条目一份声明（9 个成员，其中 5 个是一两行）+ 店的 5 个方法 + 七个纯函数；里面藏着可达性遍历、两遍建附属、查环、规范化比较、断开的重铸映射、反向索引、录音带。**客户看到的只有 `frontier → plan → applyPlan` 三步**和 `census`。
+**深在哪**：接口 = 每种条目一份声明（9 个成员，其中 5 个是一两行）+ 店的 5 个方法 + 七个纯函数；里面藏着可达性遍历、两遍建附属、查环、规范化比较、断开的重铸映射、反向索引、录音带。**客户看到的只有 `frontier → plan → applyPlan` 三步**和 `census`（场景的资源页、清理走 `scene/resources.ts` 这层壳：材质能不能清理按**面**算不按槽表算，见 §15）。
 
 **声明方式的取舍（已定，user 「取舍我没懂」后解释过）**：引用怎么告诉模块——「一张路径表数据驱动」vs「每种条目两个小函数」。选后者：面上的代号在 Int32Array 里、层代号要过两级表，通用路径走子会比它替换的东西还重；面板的「看得见」从 `refs()` 的输出来，一样看得见。**user 11-04 深夜拍：「算法就是数据结构，ai时代更是这样。小函数」。**
 
@@ -137,7 +152,7 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 | 拷贝（`extract`） | 自己攒闭包 + 对照表 | `bundleOf(s, 摆放的定义)`；摆放和面编号对照表照旧（它们不是条目） |
 | 粘贴（`pasteNow` → `paste` op） | `trimClosure` → op 带 `closure` → `mergeClosure` 用目标那条 | `frontier(sceneStore, bundle)` → 同一次打开 / 没有 differ → `Decision = keep`，不问；有 differ → 问（§8）→ op 带 `closure` + `merge: Decision` → apply 里 `plan → planWouldCycle → applyPlan` → 摆放 |
 | 素材导入（`shelfImportOp`） | `payloadFromDocument` → 纯合并 paste + shelfPut | `closure(docStore(doc), picks)` 成 bundle → 同一条路（同一弹窗同一默认，待拍 ③） |
-| 打开文件（`sceneFromDocument`） | `materializeDefinitions(fillExisting)` | `applyPlan(空场景, 整份文档, plan(create 全部))`——打开 = 往空店里落地 |
+| 打开文件（`sceneFromDocument`） | `materializeDefinitions(fillExisting)` | 仍直接调 `materializeDefinitions`（同一份落地）：整张表原样装、层代号和下标字节级不变、没有要决定的事，不走 plan（施工时改的，§15） |
 | 清理（`purgeDefs / purgeMaterials`） | `liveDefs` / `materialUse` | `census(sceneStore).orphans`；不认识的种类 = 活着（§3 规矩 2） |
 | 资源页 | `census` + `shelfRows` | `census` 多了反向索引：面板能列「谁引用了它」（引用和孤儿管理面板的下一半，不在本单） |
 | 做成唯一（`makeUnique`） | `cloneDefinition` 手写两遍 | `plan(detach)` 对单条定义 + `applyPlan`（同一份重铸逻辑） |
@@ -156,10 +171,13 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 
 ## 7. 比内容：规则和构造
 
-- **只在前沿里算**：跨模型、同 GUID 才比；同一个文件里贴（`clipboard.doc() === docEpoch`）不比、直接 keep。
-- **构造必须「漏了字段 → 判不一样」**（Fable 审 Opus 原型的结论）：`canon(doc)` 从整份文件形状出发，**只对已知「存盘重开会乱序」的部分做排序规范化**（硬表面快照的顶点 / 边 / 面 / 环顺序、网格体的面 / 边顺序；边按两端、面按环旋到最小 + 洞排序、面层值跟面走、槽号换成材质 GUID），**其余字段原样**进确定性序列化（键排序、TypedArray 逐元素）。以后加字段（贴图、动画）漏进规范化 = 多问一次，不会静默判「一样」。
-- **不加公差**：坐标不做「差 1 µm 算一样」；写盘怎么量化就怎么比。Opus 11-04 原型里按 µm 取整——施工时先验「存盘重开三次逐字相等」是否只靠排序就成立；不成立 = 写入器的问题（写入时量化），不是比较器加公差。
-- **成本**：原型 400 张面 4.4 ms；只在 differ 判定时算一次，不在热路径。
+- **只在前沿里算**：同一次打开里贴（`clipboard.doc() === docEpoch`）不比、直接 keep（0.01 ms 量级）。
+- **一样的也往下看（设计书原写「它下面不再看」是错的，施工时改）**：椅子没改、椅腿改过时，椅子的文件形状一字不差（它只记椅腿的 GUID），停在椅子就把椅腿的改动吞了。内容一样 = 引用也一样，往下走不会多建东西。只有 keep 走到有的就停（不然这边的旧版用不上的子组件会被建出来当孤儿，计划书 §15.1-B）。
+- **构造必须「漏了字段 → 判不一样」**（Fable 审 Opus 原型的结论）：`format/entry-canon.ts` 从整份文件形状出发，只规范化已知会乱序或只是代号的部分，其余走 `...rest` 原样比：硬表面走**写盘那一份**规范序（`brep-codec canonicalize`，点 / 边 / 环 / 洞；现成的，没另写排序）+ 写盘的量化（坐标按 µm）；槽号换成材质 GUID（槽表只是代号对照表，不单独比）；层代号换成层 GUID；组按 GUID 排；网格体的点下标原样（可能有重合的点，按坐标认会把「焊了」和「没焊」判成一样），面从最小下标起转、面和边标记排序。实例顺序是数据，不排。`extras` 运行时不持有，比不了，不进比较。
+- **不比的只有两种派生量**（由点决定，读回会被归一化挪 2^-30 量级，比了就是假的「不一样」）：面的平面（实测：圆柱侧面第一次存盘重开 `n` 差 1e-10）；圆弧的法向 / x 轴。
+- **不加公差**：写盘怎么变就怎么比。材质颜色写盘要过一道色彩空间换算（来回 1.7e-16 噪声，存过一次之后不再变，6000 个分量实测），规范形里也走一遍这道换算，不按差值判。
+- **比较**：`canonEqual` 是结构相等（对象按键、数组 / TypedArray 按元素），不是序列化成字符串，贴图字节不用先变字符串。
+- **成本**：实测 402 面 10.35 ms（JIT 冷）、4002 面 71 ms（含把这边的定义 `toBrep`）；只在跨打开时算，一贴最多三次（弹窗前、提交前、指令里）。
 - **不违反 10-30 否决**：身份还是 GUID；比内容只回答「同一条目两边分叉了没有」，不当身份、不去重（计划书 §15.1-B 更正照旧）。
 
 ## 8. 弹窗（app 层；不进 `src/identity/`）
@@ -171,7 +189,7 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 - **材质独立开关**「材质也跟着 ☑」（默认勾）：材质不会成环，可以单独选；断开时内容不一样的材质也铸新。**user 拍「3 跟，可开关」。**
 - **导入素材**撞同一组件内容不一样：同一弹窗同一默认。**user 拍「4 用」。**
 - 不能问的场合（没有 `host` 的面）= 不贴并说明；不静默二选一。
-- 放哪：决定流程 `src/app/paste-actions.ts`（和 `shelf-actions.ts` 同形）；`editor.ts` 只加一个 `host.resolvePaste?(frontier): Promise<Decision | null>` 钩子——**editor.ts 棘轮 ≤ 4147，现在 4144**，塞不下就把 `pasteNow` 的报告半句搬去 transfer.ts。
+- 放哪：决定流程 `src/app/paste-actions.ts`；`editor.ts` 只加一个 `host.resolvePaste?(rows): Promise<Decision | null>` 钩子，胶水搬去 `paste-plan.preparePaste`（`editor.ts` 4146，棘轮 4147）。选「留这里的」时材质开关收起来（没有更新可跟）。
 
 ## 9. 不变量与守卫（都是测试，不靠口头）
 
@@ -202,13 +220,13 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 - **ID-4c 小账**：录音带校验（§9-4）、`ownGuid` 披露（§9-3）、`pasteReport.reusedDefs` 只算走到的、`object.shelve` 冻结时的 `none` 文案、`op-locks` 显式集合代替 `startsWith("shelf")`。
 - **文档**：本书回写实施记录 + .h 形状；`20261026-pipelines.md`「粘贴」「文件」两条改成走 frontier → plan → applyPlan；计划书 §16 指路；`CLAUDE.md` 一行；`gen-api.sh` 重打；`./bump.sh`。
 
-## 13. 我没核、施工时要核的
+## 13. 施工时核了的（2026-11-04 Claude Opus 5.5）
 
-- 存盘重开后顺序乱的只有顶点 / 边 / 面 / 环吗（§7 第二条）——Opus 原型只验了硬表面根池；组 / 参考几何 / 网格体 / 坐标架要补验。
-- `Scene.meshMirrors` 按 `DefId` 记、不进撤销：update 换身体时它跟不跟（提案：跟源的 `mesh.mirror`）。
-- `materialIndexForPick`（涂材质按名字 + 颜色找第一条）在更新材质之后行为不变——核一下。
-- 图库 `docFile(path)` 能不能直接给 `docStore`（素材从 OneDrive 图库挑 = wishlist，不在本单）。
-- 普查的反向索引对几千个实例的成本（一次遍历，应该毫秒级；量一下写进流程图）。
+- **存盘重开之后乱的是什么**：语料全部场景 + 动过刀的（推拉 + 网格体删面）实测，第一次重开硬表面点 / 边 / 面 / 环都换序，之后稳定；组、参考几何、网格体、坐标架顺序不变。规范形之后三次重开全部相等（测试 `identity-merge`）。
+- **`Scene.meshMirrors`**：更新时跟源（源有就设、没有就删）。做成唯一现在也跟（走文件形状往返；以前丢）。
+- **`materialIndexForPick`**：按名字 + 颜色找第一条，更新材质之后找到的是新颜色那条，老颜色再涂 = 新建一条；下标不变、面不受影响，不用改。
+- **图库 `docFile(path)` 给 `docStore`**：`docStore` 只要 `CatsupDocument`，读得出来就能用；挑文件的界面仍是 wishlist，不在本单。
+- **普查成本**：200 定义 + 3000 实例 `liveDefs` 3.2 ms、整份 `census` 6.6 ms，写进流程图。
 
 ## 14. user 拍了（2026-11-04 深夜，原话「2弹窗 3 跟，可开关 4 用 dev等一起做好 1 没问题了我就切」）
 
@@ -217,3 +235,39 @@ export function bundleOf(s: Scene, roots: readonly Ref[]): Bundle;   // 取闭�
 3. 导入素材撞同一组件内容不一样：**同一弹窗同一默认「更新」**。
 4. **dev 等 ID-4 做完一起推**（main 上从 ID-1 起都没推；格式 7.0 大版本，推了别的设备旧 dev 要更新才能开新文件）。
 5. **设计书放行**：user 切 Opus 从 §12 ID-4a 开工。
+
+## 15. 实施记录（2026-11-04，Claude Opus 5.5；分支 `identity-id4`，v0.18.35）
+
+**三个提交**：ID-4a `20a3896` 抽层行为不变 → ID-4b `c887a93` 更新规则 + 弹窗 → ID-4c 小账 + 把粘贴流程从 `transfer.ts` 分到 `editor/paste-plan.ts` → 文档 + 版本。
+
+**和提案不一样的地方（都是读代码 / 实测之后改的）**
+1. **普查不走文件形状**：`store.docOf` 要 `toBrep`，普查走它 = 每次刷资源页序列化全部几何。店加 `refsOf`（场景店直接读运行时），测试守「和声明的 `refs(docOf)` 一字不差，连顺序」。
+2. **定义条目带层代号对照表**：实例上的层是源文件层表的代号（InstanceDoc.layer），只有 `DefinitionDoc` 说不出 GUID；提案的 `refs(doc)` 过不了这关。条目 = `{ def, layerGuid }`。
+3. **常量进闭包**：提案说「固有常量不带」，但默认层那一行是层代号对照表的一部分（`layer: 0` = 明确归默认层，缺了就变成「继承」）。闭包店里有就算，搬不搬归前沿（前沿跳过常量）。
+4. **材质的活死不走图**：现在的行为是「能不能清理按面算」（槽表占位不算有人用），图上它还算被引用（闭包照带）。行为不变单不能改，`purgeMaterials` 继续按 `usage` 判；`census.orphans` 给组件定义和以后的种类。
+5. **一样的也往下看**（§7）。设计书的写法会吞改动，施工时查出来的。
+6. **`Decision.materials` → `except: EntryKind[]`**：模块不认识「材质」，弹窗传 `except: ["material"]`。keep 不看 except（没有更新可跟）。
+7. **打开文件不走 plan**（§5）。
+8. **导入的上架进 `paste` 指令**（`shelve` 字段）：断开之后是新身份，另起一条 `shelfPut` 不知道该放谁。
+9. **`pasteReport` 从计划算**（顺带 ID-3 小账「只算走到的」）。`kept` = 用这边那条、可能和拷来的不一样的；比过内容一样的不算，不再说「用的是本文件这版」误导人。
+10. **做成唯一走文件形状往返**（`uniqueCopy`）：比 `kernel.clone()` 慢一点（用户点一下的事），换来「怎么拷一个定义」只有一份。对称设置跟到新定义上（以前丢）是这条带来的唯一行为变化。
+
+**体重（实测行数；提案的目标多数没达到，如实写）**
+
+| 文件 | 之前 | 现在 | 提案目标 |
+|---|---|---|---|
+| `editor/transfer.ts` | 253 | 181 | ≤ 160（差 21：`extract` 和种类转换是几何，不是身份） |
+| `editor/paste-plan.ts`（新） | — | 152 | — |
+| `format/scene-doc.ts` | 159 | 165 | ≤ 130（**没降**：落地留在这里，还长了「更新」分支） |
+| `scene/resources.ts` | 107 | 97 | ≤ 70（差 27：资源页的形状和 `shelfRows` 不是图算法） |
+| `editor/ops.ts` | 1140 | 1079 | −60 左右（−61，达到） |
+| `identity/`（guid 65 + kinds 43 + store 47 + graph 177） | 60（guid） | 332 | ≈ 400 |
+| `format/entry-kinds.ts` + `entry-canon.ts` + `scene-store.ts`（新） | — | 54 + 49 + 115 | 提案算在 scene-doc 里 |
+| `app/paste-actions.ts`（新） | — | 42 | — |
+| `editor/editor.ts` | 4144 | 4146 | ≤ 4147 |
+
+**总账**：这五个文件原来 1719 行，现在连新文件 2268 行，**多了 549 行，不是提案说的「大约持平」**。其中 ID-4a（只抽层、行为不变）多 273 行，其余是 4b 的新功能（比内容、更新、断开、弹窗）。提案低估了：场景适配要一套店的实现，声明本身也占地方。换来的是提案说的那一半：取闭包 / 查环 / 落地 / 断开 / 活死从「每种各写一份」变成一份；第四种条目 = 一份声明 + 一节格式，不加算法（玩具种类的测试就是这样注册的）。
+
+**验收**：单测 1681 绿 0 红 4 todo；`redline-guard`、`tsc` 干净；探针 `probe-clipboard / probe-shelf / probe-hierarchy / probe-paste-conflict`（新）绿；`probe-undo-fuzz 16×45` 绿（动作表加 `pasteUpdate / pasteDetach / pasteKeep / pasteNoMats / importConflict / renameDef`）。§9 八条都有测试。
+
+**没做 / 没测到**：真机没测（iPad / Edge）；弹窗的版面（行多的时候）只看了无头跑通，没看样子；`probe-touch-stick` 和 4 个过时探针（`probe-cleanup / fill-holes / straighten / resegment`）没动，和本单无关。

@@ -416,8 +416,8 @@ flowchart LR
 
 | 操作 | 流程 | 亚种 |
 |---|---|---|
-| 粘贴（同文件 / 跨文件 / 撤销过头后） | `transfer.extract` → 剪贴板 → `trimClosure` + `localize` → `paste` | 同一条：闭包里全有 = 剪成空、和以前一样；不在的按闭包建 |
-| 从别的模型导入素材 | 读文件（加密先解）→ `importCandidates` → 挑 → `shelfImportOp` = `batch[纯合并 paste, shelfPut × N]` | 和粘贴同一个 paste，只是没有摆放、`closure.roots` = 挑中的 |
+| 粘贴（同文件 / 跨文件 / 撤销过头后） | `transfer.extract` → 剪贴板 → `trimClosure` + `localize` → `paste` | 同一条：闭包里全有 = 剪成空、和以前一样；不在的按闭包建（v0.18.35 起见文末「身份层」追记） |
+| 从别的模型导入素材 | 读文件（加密先解）→ `importCandidates` → 挑 → `shelfImportOp` = `batch[纯合并 paste（带 shelve）]` | 和粘贴同一个 paste，只是没有摆放、`closure.roots` = 挑中的 |
 | 打开文件 | `read.ts` → `sceneFromDocument` → `materializeDefinitions` | 和粘贴装定义是同一份代码 |
 | 上架 / 取下 / 文件夹 | 六条 `shelf*` 指令，骨架级撤销 | 没起名先问名字在动作层 `app/shelf-actions.ts` |
 
@@ -429,7 +429,7 @@ flowchart LR
 **粘贴（`paste`）每一步**
 
 1. 编辑器：`pasteWouldCycle` 查环（走闭包）；`trimClosure` 只留真要新建的定义，指令流不攒闭包。
-2. `mergeClosure`：`definitionsToMake` 从摆放（或 roots）往下走，碰到场景里已有的就停；O(定义数)。
+2. （v0.18.35 起 = `planPaste` → `plan(KEEP)`，同一个走法）从摆放（或 roots）往下走，碰到场景里已有的就停；O(定义数)。
 3. `materializeDefinitions`：新建的定义 `fromBrep` / `kernelFromMeshDoc`；材质 / 层用到才加。O(新建的几何)。同文件粘贴这一步是空的。实测：跨文件第一次贴网格体 1 万面 27 ms、4 万面 76 ms；硬表面 2500 面 159 ms；同文件 0.1 ms 量级。
 4. 摆放：现铸 GUID，和以前一样。
 5. 撤销：`paste` 走 scene 级（整份场景拷，**随整个模型涨**，这条没变），闭包新建的条目一起回去。
@@ -440,3 +440,30 @@ flowchart LR
 **生死**：`liveDefs` 的根 = 模型根 + 架上的组件（`shelvedDefs`，O(定义 + 架子)）；`purgeDefs` 自然拒上架的；文件的素材架是更新版写的（`shelfFrozen`）= 看不见架上收着谁，清理直接拒。
 
 **还随整个模型涨的点**：粘贴的撤销记录（整份场景拷，以前就是）。
+
+## 追记 2026-11-04（v0.18.35，Claude Opus 5.5）：身份层（ID-4，设计书 `20261104-identity-layer-design.md`）
+
+**把东西从一张图搬到另一张图 = 同一条路**：载荷 → 包（`paste-plan.payloadBundle`）→ `frontier`（要不要问）→ `plan(决定)` → `applyPlan`（`format/scene-store.ts`）→ 摆放。
+
+| 操作 | 走哪 | 亚种 |
+|---|---|---|
+| 同一次打开里贴 | `plan(KEEP)` | 不比内容、永不问；走到有的就停 |
+| 跨打开贴，内容一样 / 没有 | `pasteConflict` 没有 differ → `plan(KEEP)` | 不问；没有的带原 GUID 新建 |
+| 跨打开贴，内容不一样 | `pasteConflict` → `host.resolvePaste`（`app/paste-actions.ts` 弹窗）→ `preparePaste` → `paste` 带 `merge` | 更新 = 原地换身体；留这里的 = KEEP；断开 = 铸新 + 上层；取消 = 不贴 |
+| 导入素材 | 同一个弹窗 → `shelfImportOp` | 没摆放；上架在 `paste` 里按落地之后的 GUID 做 |
+| 打开文件 | `materializeDefinitions` 直接装 | 同一份落地；整张表原样、不走 plan |
+| 做成唯一 | `uniqueCopy`：`definitionToDoc` → 声明的 `rewrite + remintOwned` → `materializeDefinitions` | 断开的同一份声明 |
+| 清理 / 资源页 | `scene/resources.ts` 这层壳 → `closure(sceneStore, roots)` + `usage` | 组件按图上的活死；材质按面数（槽表占位不算有人用） |
+
+**每一步**
+
+1. `frontier`（只在跨打开时）：从包的根走，这边有的 `docOf`（`toBrep`）+ 两边 `canon` + 结构比。**O(闭包里的几何)，不随整个模型涨。** 实测：402 面 10.35 ms（JIT 冷）、4002 面 71 ms。
+2. `plan(KEEP)`：O(闭包定义数)，不序列化；0.01 ms 量级，同一次打开走这个。
+3. `plan(update / detach)`：`frontier` + 断开时往上传（一次记忆遍历）。一贴最多比三次（弹窗前、提交前、指令里）。
+4. `applyPlan`：新建 O(新建的几何)；更新 = `resetDefinition` + 同一份落地，O(被更新定义的几何)；材质原地换条 O(1)。
+5. 撤销：`paste` 是 scene 级（整份场景拷，**随整个模型涨**，这条没变），更新连带的所有份一步回去。
+6. 重放：`replayMints` 读完校验（铸得比录的多 / 少 = 抛；重放只走校验路径）。
+
+**普查**（`sceneStore.refsOf / usage`，不序列化）：200 定义 + 3000 实例 `liveDefs` 3.2 ms、`census` 6.6 ms。随定义 + 实例 + 面数涨，不碰 `toBrep`。店是一次性的视图，建的时候拍下 GUID → 句柄。
+
+**还随整个模型涨的点**：粘贴的撤销记录（同上，没变）。

@@ -6,6 +6,7 @@ import { Kernel } from "../kernel/kernel.ts";
 import type { BrepSnapshot, EdgeId, FaceEvent, FaceId, Pt3, PtIn, VertexId } from "../kernel/kernel.ts";
 import { type PoolRef, type MeshBody, type Body as SceneBody, type Material, Scene } from "../scene/scene.ts";
 import type { MeshFragment, TransferClosure, TransferGroup, TransferInstance } from "./transfer.ts";
+import { type Decision } from "./paste-plan.ts";
 import { type Frame, type Xform } from "../scene/xform.ts";
 import { type ImportedScene } from "../scene/import-build.ts";
 export type Seg = [PtIn, PtIn];
@@ -465,7 +466,12 @@ export type Op =
     mesh?: MeshFragment;
     instances?: TransferInstance[];
     materials?: readonly Material[];
-    closure?: TransferClosure;
+    closure?: TransferClosure; /** 内容不一样的条目怎么办（设计书 §7–§8；缺 = 留这里的）。 */
+    merge?: Decision; /** 素材导入：落地之后这几条上架（断开过的按新身份，所以不能另起一条 shelfPut）。 */
+    shelve?: {
+        ref: Guid;
+        guid: Guid;
+    }[];
 }
 /** 素材架（计划书 §15.1-D）：架上只存引用，取下不删条目（生死按引用）。条目顺序有意义（user 摆的）；index = 同一个文件夹里的第几个，缺 = 排最后。文件比本版新（shelfFrozen）= 六条全拒。
  *  新条目的 guid 写在指令里（调用方铸）：后面的指令按它找这一格 / 这个文件夹，落地时才铸 = 重放对不上（撤销一致性 fuzz 抓到的）。 */
