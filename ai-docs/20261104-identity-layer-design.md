@@ -271,3 +271,23 @@ planPaste / pasteBlocked / landPayload / trimClosure / pasteConflict / conflictR
 **验收**：单测 1681 绿 0 红 4 todo；`redline-guard`、`tsc` 干净；探针 `probe-clipboard / probe-shelf / probe-hierarchy / probe-paste-conflict`（新）绿；`probe-undo-fuzz 16×45` 绿（动作表加 `pasteUpdate / pasteDetach / pasteKeep / pasteNoMats / importConflict / renameDef`）。§9 八条都有测试。
 
 **没做 / 没测到**：真机没测（iPad / Edge）；弹窗的版面（行多的时候）只看了无头跑通，没看样子；`probe-touch-stick` 和 4 个过时探针（`probe-cleanup / fill-holes / straighten / resegment`）没动，和本单无关。
+
+## 16. 门审结论（2026-11-05，Claude Fable 5.1；审的是 `b22a0ba`，分支 `identity-id4`）
+
+**过。合 main、推 dev（从 ID-1 起攒的格式大版本一起上）。**
+
+**审了什么**：`src/identity/` 四个文件逐行；三份声明、规范形、场景店 / 落地、粘贴流程；`ops.ts` 的 paste 指令、`editor.ts` 的两个方法、`scene-doc.ts` 的更新分支、`resources.ts` 壳、读取侧的披露；§15 的 10 条逐条对代码。全量单测自己重跑（1681 绿 0 红 4 todo，44 s）、`redline-guard`、`tsc`、`editor.ts` 4146 ≤ 4147；重跑 `build.sh` 哈希不变（`fd694950cf30`）、重打 `api/` 工作区干净。探针四个 + fuzz 16×45 是 Opus 在同一个包上跑绿的（哈希对得上），没重跑。
+
+**核过的要害（都对）**
+- **重放确定**：录音带只包 `applyOp`（`history.ts`），`preparePaste` 里 `plan()` 铸的废号不进带子；指令里重算计划用的是剪过的闭包，`docsNeeded` 保证要建 / 要更新 / 要断开的和它们路上的上层都还在，所以提交和重放算出同一组 create / update / remint；铸号顺序 = `frontier.visited` 的前序，确定。
+- **比内容不误报**：写盘只量化硬表面坐标（µm），实例矩阵 / 网格体坐标 / 轴是原样双精度，`canon` 只对量化过的做量化；§9-5「三次重开相等」有测试。
+- **断开**：`above` 沿包内的边走、不分种类，材质不一样 → 用它的组件也铸新；一样的子组件继续共用；`planWouldCycle` 对被断开的 `into` 不报环（新身份碰不到它）。
+- **行为不变**：`materialUse` / `census` / `liveDefs` 换成走店之后语义逐条对过（活死按定义、能不能清理按面、架上的材质只进普查的根不影响 `liveDefs`）。
+
+**小尾巴（不拦合并，记功能账）**
+1. **一贴比三次内容**：`pasteConflict`（问之前）→ `preparePaste`（计划）→ `applyOpInner`（指令里再算）各算一次前沿，4002 面 71 ms × 3。点一下的事，先不管；真慢了把 `pasteConflict` 算好的前沿递给 `planPaste`。
+2. **站在要更新的组件里**：弹窗照常弹、默认「更新」，点了才被 `pasteBlocked` 拒「先退出来再贴」= 默认选项走进死胡同。该在弹窗里把「更新」灰掉并写原因（事实在手：`plan.update` ∩ 上下文链）。
+3. **`identity/graph.ts census()` 生产代码还没人用**（资源页走 `closure` + `store.usage`）：它是「引用和孤儿」面板的接口，留着，面板做的时候接。
+4. **跨打开、内容一样、不问的那条路**：提示行说「组件「X」本文件已有，用的是本文件这版」——是事实，但其实比过是一样的；`keepPlan` 不比内容所以说不出。噪音不是误导，先留。
+
+**设计上留一笔**：断开时，包里新建的上层（这边没有）如果指着被改过的子组件，也跟着铸新身份（`above` 不分新旧）。站得住：它在这边指的是新的那份子组件，内容已经和源头不一样，留原身份下次贴回来反而要再问一次。
