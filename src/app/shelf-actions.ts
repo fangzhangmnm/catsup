@@ -4,7 +4,7 @@
 //   第一版只从本机文件选；图库里直接挑 = 图库今天没有「只挑不打开」的界面，记在素材抽屉那张单上。
 import type { Editor } from "../editor/editor.ts";
 import { isHex4 } from "../editor/object-tree.ts";
-import { KEEP, pasteBefore, pasteConflict, pasteReport, payloadFromDocument, importCandidates, shelfImportOp } from "../editor/paste-plan.ts";
+import { KEEP, importBlocked, pasteBefore, pasteConflict, pasteReport, payloadFromDocument, importCandidates, shelfImportOp } from "../editor/paste-plan.ts";
 import { resolvePasteConflict } from "./paste-actions.ts";
 import { readCatsup } from "../format/index.ts";
 import { isForeignGlb } from "../format/gltf-import.ts";
@@ -91,11 +91,13 @@ export function createShelfActions(d: ShelfActionsDeps): ShelfActions {
         if (!v) return;
         const picks = rows.filter((r) => v[r.guid] === "yes").map((r) => r.guid);
         if (!picks.length) return;
-        const s0 = editor.sceneRef, c = pasteConflict(s0, payloadFromDocument(doc, picks));
+        const s0 = editor.sceneRef, r0 = editor.revision, asked = payloadFromDocument(doc, picks), c = pasteConflict(s0, asked, editor.context, s0.root);   // 站在哪 = 编辑器现在站的地方（站在要被更新的组件里，「更新」灰掉）；贴进哪 = 根（导入不摆放）
         if (c?.stuck) { fail(`导入：${c.stuck}`); return; }
         const decision = c ? await resolvePasteConflict(c.rows, c.ways) : KEEP;
         if (!decision) return;   // 取消 = 不导入
-        const { op, payload, already } = shelfImportOp(s0, doc, picks, decision, c?.frontier), before = pasteBefore(s0, payload, decision, c?.frontier), onShelf = s0.shelf.items.length;   // 一贴只比一次内容
+        const s = editor.sceneRef, f = r0 === editor.revision ? c?.frontier : undefined, blocked = importBlocked(s, asked, decision, editor.context, f);   // 问的时候场景要是变过，前沿作废、重算；点了之后再查一遍（和手动粘贴同款）
+        if (blocked) { fail(`导入：${blocked}`); return; }
+        const { op, payload, already } = shelfImportOp(s, doc, picks, decision, f), before = pasteBefore(s, payload, decision, f), onShelf = s.shelf.items.length;   // 一贴只比一次内容
         editor.oneStep(() => { editor.commitOp(op); }, { title: "导入素材" });
         const s1 = editor.sceneRef;
         if (s1.shelf.items.length - onShelf !== picks.length - already) return;   // 没成：提示行已经说了为什么（锁着 / 架子太新）。断开的是新身份，不能按挑中的 GUID 认

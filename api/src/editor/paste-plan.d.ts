@@ -57,8 +57,8 @@ export interface PasteConflict {
     readonly frontier: Frontier;
     readonly stuck: string | null;
 }
-/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。ctx = 站在哪：贴进这一层（导入素材没有站的地方 = 根）。 */
-export declare function pasteConflict(s: Scene, p: TransferPayload, ctx?: EditContext): PasteConflict | null;
+/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。ctx = 站在哪（这一路上的定义不能被更新）；into = 贴进哪个定义（查成环）：手动粘贴 = 站的这一层，导入素材 = 根（落在根、不摆放，站在哪都不会贴进站着的这一层）。 */
+export declare function pasteConflict(s: Scene, p: TransferPayload, ctx?: EditContext, into?: DefId): PasteConflict | null;
 /** 从别的文件抠闭包（素材导入：只读那份文件、挑几个组件）：没有摆放，只有 picks 往下走到底的定义 + 材质 + 层。文档的根不算（它不是素材）。 */
 export declare function payloadFromDocument(doc: CatsupDocument, picks: readonly Guid[]): TransferPayload;
 /** 那份文件里能上架的组件（素材架上的东西要有名字，user 10-30：没起名的不列、数出来说一声）。摆了几份 = 那份文件里的总数。 */
@@ -71,6 +71,8 @@ export declare function importCandidates(doc: CatsupDocument): {
     }[];
     unnamed: number;
 };
+/** 导入素材点了之后再查一遍（瑞士奶酪，和 preparePaste 同款）：指令只知道贴进根，站的这一路只有编辑器知道。不能做 = 人话（不带前缀）。 */
+export declare const importBlocked: (s: Scene, p: TransferPayload, d: Decision, ctx: EditContext, f?: Frontier) => string | null;
 /** 素材导入这一步的指令：纯合并的 paste，带上「还没在架上的」上架（断开之后是新身份，所以上架在 paste 里按落地之后的 GUID 做），一步撤销。already = 已经在架上的几个。 */
 export declare function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[], d?: Decision, f?: Frontier): {
     op: Op;

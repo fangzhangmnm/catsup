@@ -3,6 +3,7 @@
 // ① 同一次打开：拷 → 改 → 贴 = 不问，用现在的 ② 换一次打开、内容一样 = 不问 ③ 内容不一样 = 弹：说事实、默认更新、不说「别的模型」；取消 = 不贴
 // ④ 留这里的 = 只多摆一份 ⑤ 更新 = 摆着的每一份都跟上、一步撤销 ⑥ 断开 = 贴成新的、原来的不动 ⑦ 站在要贴的组件里 = 更新 / 留这里的灰掉带原因、默认落在断开、贴得出 ⑧ 材质开关
 // ⑨ 站在里面、这边的上层不指它 = 只有更新灰掉、默认落在留这里的 ⑩ 三种都走不通 = 不弹、提示行说原因（ID-4 小尾巴 ①，设计书 §16；账本原写 ⑦ 落留这里的，但站在椅子里贴椅子留这里的也成环，实际落断开：Claude Opus 5.5 2026-11-05）
+// ③½ 弹窗开着键盘不穿过去；问的时候场景变了 = 前沿作废重算（Claude Opus 5.5 2026-11-05）
 // 用法：python3 -m http.server 8765 → node test/probes/probe-paste-conflict.mjs
 import { createRequire } from "node:module";
 const { chromium } = createRequire(new URL("../../../20260524 WeebPaint/package.json", import.meta.url))("playwright");
@@ -64,6 +65,17 @@ await page.click("#sheetCancel"); await page.waitForTimeout(80);
 s1 = await state();
 check(s1.root === s3.root && s1.steps === s3.steps, "取消 = 不贴");
 check(/没贴/.test(await hint()), `说清没贴：${await hint()}`);
+// ③½ 弹窗开着键盘不穿过去；问的时候场景变了（这里用代码撤一步，键盘已经到不了）= 前沿作废重算，不按问的时候那份事实走
+await paste();
+const k0 = await page.evaluate(() => ({ steps: globalThis.__catsup.editor.history.steps(), tool: globalThis.__catsup.editor.tool }));
+await page.keyboard.press("Control+z"); await page.keyboard.press("l"); await page.waitForTimeout(80);
+const k1 = await page.evaluate(() => ({ steps: globalThis.__catsup.editor.history.steps(), tool: globalThis.__catsup.editor.tool }));
+check(await sheetUp() && k1.steps === k0.steps && k1.tool === k0.tool, `Ctrl+Z / 换工具不穿过弹窗：${JSON.stringify(k1)}`);
+await undo();   // 撤掉「这里的椅子」：两边又一样了
+await ok();
+check(!/更新了组件/.test(await hint()) && (await state()).root === 3, `场景变过：前沿重算，没有东西要更新，只多摆一份：${await hint()}`);
+await undo();
+await page.evaluate(({ guid }) => { const e = globalThis.__catsup.editor, s = e.sceneRef; e.commitOp({ op: "rename", at: { def: s.root, group: null }, def: s.defByGuid(guid).id, name: "这里的椅子" }); }, setup);
 // ④ 留这里的
 await paste(); await choose("keep");
 f = await sheet();

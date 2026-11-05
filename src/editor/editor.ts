@@ -1943,10 +1943,10 @@ export class Editor {
       .then((ok) => { if (ok) this.pasteNow(castPayload(p, a.cast)); else { this.host.hint("粘贴：没贴（你选了不转）"); this.draw(); } });
   }
   private pasteNow(p: import("./transfer.ts").TransferPayload): void {
-    const c = clipboard.doc() === this.docEpoch ? null : pasteConflict(this.scene, p, this.ctx), s0 = this.scene, n0 = this.opCount;   // 同一次打开永不问；内容不一样才问（设计书 §8）
+    const c = clipboard.doc() === this.docEpoch ? null : pasteConflict(this.scene, p, this.ctx), r0 = this._revision;   // 同一次打开永不问；内容不一样才问（设计书 §8）
     if (!c) this.pasteCommit(p, KEEP);
     else if (c.stuck || !this.host.resolvePaste) this.host.hint(`粘贴：${c.stuck ?? "拷来的版本和这份模型里的不一样（这里不能问，没贴）"}`);
-    else void this.host.resolvePaste(c.rows, c.ways).then((d) => { if (d) this.pasteCommit(p, d, s0 === this.scene && n0 === this.opCount ? c.frontier : undefined); else { this.host.hint("粘贴：没贴（你点了取消）"); this.draw(); } });   // 问的时候场景要是变过，前沿作废、重算
+    else void this.host.resolvePaste(c.rows, c.ways).then((d) => { if (d) this.pasteCommit(p, d, r0 === this._revision ? c.frontier : undefined); else { this.host.hint("粘贴：没贴（你点了取消）"); this.draw(); } });   // 问的时候场景要是变过，前沿作废、重算
   }
   private pasteCommit(p: import("./transfer.ts").TransferPayload, d: Decision, f?: import("../identity/graph.ts").Frontier): void {
     this.step((pass) => {

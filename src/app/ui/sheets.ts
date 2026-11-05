@@ -129,7 +129,7 @@ export function initSheets(): void {
   if (_inited) return; _inited = true;
   installGateInputLock();
   g.sheet().addEventListener("click", (e) => { if (e.target === g.sheet()) _open?.(); });
-  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _open && !e.defaultPrevented) { e.preventDefault(); _open(); } }, true);
+  document.addEventListener("keydown", (e) => { if (e.key === "Escape" && _open && !e.defaultPrevented) { e.preventDefault(); e.stopPropagation(); _open(); } }, true);   // Esc 归面板、不往下传：以前关完面板再传到编辑器，取消弹窗顺手把人从组件里退出来（2026-11-05 Claude Opus 5.5）
 }
 
 /** noCancel = 只有一颗钮（看完就关的说明，比如视图「新手提醒…」）。 */

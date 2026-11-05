@@ -449,8 +449,8 @@ flowchart LR
 |---|---|---|
 | 同一次打开里贴 | `plan(KEEP)` | 不比内容、永不问；走到有的就停 |
 | 跨打开贴，内容一样 / 没有 | `pasteConflict` 没有 differ → `plan(KEEP)` | 不问；没有的带原 GUID 新建 |
-| 跨打开贴，内容不一样 | `pasteConflict`（前沿算一次 + 三种处理各查走不走得通）→ `host.resolvePaste(rows, ways)`（`app/paste-actions.ts` 弹窗：走不通的灰掉写原因、默认第一个走得通的）→ `preparePaste`（接着用那份前沿，`pasteBlocked` 再查一遍）→ `paste` 带 `merge` | 更新 = 原地换身体；留这里的 = KEEP；断开 = 铸新 + 上层；取消 = 不贴；三种都走不通 = 不弹窗，提示行说原因（v0.18.36） |
-| 导入素材 | 同一个预查 + 同一个弹窗（站的地方 = 根）→ `shelfImportOp` | 没摆放；上架在 `paste` 里按落地之后的 GUID 做；一次导入也只比一次内容 + 指令里那一次 |
+| 跨打开贴，内容不一样 | `pasteConflict`（前沿算一次 + 三种处理各查走不走得通）→ `host.resolvePaste(rows, ways)`（`app/paste-actions.ts` 弹窗：走不通的灰掉写原因、默认第一个走得通的）→ `preparePaste`（接着用那份前沿，问的期间 `revision` 变过就重算；`pasteBlocked` 再查一遍）→ `paste` 带 `merge` | 更新 = 原地换身体；留这里的 = KEEP；断开 = 铸新 + 上层；取消 = 不贴；三种都走不通 = 不弹窗，提示行说原因（v0.18.36） |
+| 导入素材 | 同一个预查 + 同一个弹窗（站在哪 = 编辑器现在站的，贴进哪 = 根）→ `importBlocked` 再查一遍 → `shelfImportOp` | 没摆放；站在要更新的组件里只有更新灰（落在根，留这里的 / 断开不会贴进它自己）；上架在 `paste` 里按落地之后的 GUID 做；一次导入也只比一次内容 + 指令里那一次 |
 | 打开文件 | `materializeDefinitions` 直接装 | 同一份落地；整张表原样、不走 plan |
 | 做成唯一 | `uniqueCopy`：`definitionToDoc` → 声明的 `rewrite + remintOwned` → `materializeDefinitions` | 断开的同一份声明 |
 | 清理 / 资源页 | `scene/resources.ts` 这层壳 → `closure(sceneStore, roots)` + `usage` | 组件按图上的活死；材质按面数（槽表占位不算有人用） |

@@ -1525,6 +1525,7 @@ function runKeyAction(action: string, ev: KeyboardEvent): void {
 window.addEventListener("keydown", (ev) => {
   const target = ev.target as HTMLElement | null;
   if (target && (target.tagName === "INPUT" || target.tagName === "TEXTAREA")) return;
+  if (isAnyFaceUp()) return;   // 弹窗 / 闸门开着：键盘不穿过去。以前 Ctrl+Z 能隔着弹窗撤销，问的时候场景变了（2026-11-05 Claude Opus 5.5，无头实测）
   if (refHost.hasFocus()) return;   // 参考窗有焦点：空格 / ← → 归它（视频播放、逐帧、翻页），工具快捷键让路
   if (ev.key === "Shift") editor.setShiftHeld(true);   // DT51：按住 Shift = 格点吸附反过来，指针不动也立刻换规则
   if (modOfKey(ev.key)) { if (!modPeek || modPeek.key !== ev.key) startModPeek(ev); } else endModPeek();   // 状态行披露：按住修饰键一小会儿

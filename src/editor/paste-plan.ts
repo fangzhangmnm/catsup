@@ -86,12 +86,12 @@ function stuckSay(w: PasteWays): string | null {
   for (const [label, why] of says) { if (!why) return null; byWhy.set(why, [...(byWhy.get(why) ?? []), label]); }
   return `三种处理都走不通，没贴。${[...byWhy].map(([why, labels]) => `${labels.join("、")}：${why}`).join("；")}`;
 }
-/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。ctx = 站在哪：贴进这一层（导入素材没有站的地方 = 根）。 */
-export function pasteConflict(s: Scene, p: TransferPayload, ctx: EditContext = ROOT_CONTEXT): PasteConflict | null {
+/** 跨打开贴之前：有内容不一样的条目吗（有 = 要问，一行一条）。同一次打开不调（永不问）。ctx = 站在哪（这一路上的定义不能被更新）；into = 贴进哪个定义（查成环）：手动粘贴 = 站的这一层，导入素材 = 根（落在根、不摆放，站在哪都不会贴进站着的这一层）。 */
+export function pasteConflict(s: Scene, p: TransferPayload, ctx: EditContext = ROOT_CONTEXT, into: DefId = s.defOfContext(ctx)): PasteConflict | null {
   if (!p.closure && !p.materials) return null;
   const store = sceneStore(s), bundle = payloadBundle(p), f = frontier(store, bundle), rows = conflictRows(f);
   if (!rows.length) return null;
-  const into = s.defOfContext(ctx), inside = defsOnChain(s, ctx), why = (entries: Decision["entries"]): string | null => whyBlocked(s, { store, bundle, plan: plan(store, bundle, { entries }, f) }, into, inside);
+  const inside = defsOnChain(s, ctx), why = (entries: Decision["entries"]): string | null => whyBlocked(s, { store, bundle, plan: plan(store, bundle, { entries }, f) }, into, inside);
   const ways: PasteWays = { update: why("update"), keep: why("keep"), detach: why("detach") };
   return { rows, ways, frontier: f, stuck: stuckSay(ways) };
 }
@@ -107,6 +107,8 @@ export function importCandidates(doc: CatsupDocument): { rows: { guid: Guid; nam
   const placed = (g: Guid): number => doc.definitions.reduce((n, d) => n + d.instances.filter((i) => i.definition === g).length, 0);
   return { rows: named.map((d) => ({ guid: d.guid, name: d.name, kind: d.kind ?? "brep", placed: placed(d.guid) })), unnamed: all.length - named.length };
 }
+/** 导入素材点了之后再查一遍（瑞士奶酪，和 preparePaste 同款）：指令只知道贴进根，站的这一路只有编辑器知道。不能做 = 人话（不带前缀）。 */
+export const importBlocked = (s: Scene, p: TransferPayload, d: Decision, ctx: EditContext, f?: Frontier): string | null => whyBlocked(s, planPaste(s, p, d, f), s.root, defsOnChain(s, ctx));
 /** 素材导入这一步的指令：纯合并的 paste，带上「还没在架上的」上架（断开之后是新身份，所以上架在 paste 里按落地之后的 GUID 做），一步撤销。already = 已经在架上的几个。 */
 export function shelfImportOp(s: Scene, doc: CatsupDocument, picks: readonly Guid[], d: Decision = KEEP, f?: Frontier): { op: Op; payload: TransferPayload; already: number } {
   const payload = payloadFromDocument(doc, picks), roots = payload.closure?.roots ?? [], pp = planPaste(s, payload, d, f);

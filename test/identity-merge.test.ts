@@ -8,7 +8,7 @@ import { applyOp, OpRejected, type Op } from "../src/editor/ops.ts";
 import { History } from "../src/editor/history.ts";
 import { census, orphanDefs } from "../src/scene/resources.ts";
 import { extract, localize, type TransferPayload } from "../src/editor/transfer.ts";
-import { conflictRows, pasteBefore, pasteBlocked, pasteConflict, pasteReport, pasteSay, pasteWouldCycle, planPaste, payloadBundle, preparePaste, shelfImportOp, trimClosure } from "../src/editor/paste-plan.ts";
+import { conflictRows, importBlocked, pasteBefore, pasteBlocked, pasteConflict, pasteReport, pasteSay, pasteWouldCycle, planPaste, payloadBundle, payloadFromDocument, preparePaste, shelfImportOp, trimClosure } from "../src/editor/paste-plan.ts";
 import { conflictLine } from "../src/app/paste-actions.ts";
 import { canonDefinition } from "../src/format/entry-canon.ts";
 import { DEFINITION, MATERIAL, defRef, layerGuidOfTable, materialRef } from "../src/format/entry-kinds.ts";
@@ -381,6 +381,26 @@ describe("弹窗之前：三种处理各走不走得通（ID-4 小尾巴 ①，�
     eq(c.ways.keep, null, "这边的椅子不指椅腿：贴进来不成环");
     eq(c.ways.detach, null);
   });
+  it("导入素材：站在要被更新的组件里 = 只有更新走不通（站在哪和贴进哪是两件事：落在根、不摆放，留这里的和断开不会贴进它自己）", () => {
+    const w = chair(), t = target(w), iseat = rootInsts(t)[0];
+    w.seat.name = "拷来的椅子";
+    const p = payloadFromDocument(readCatsup(writeCatsup(documentFromScene(w.s, "t"))), [w.seat.guid]);
+    const c = pasteConflict(t, p, stand(iseat), t.root)!;
+    assert(c.ways.update!.includes("你站在组件「椅子」里面") && c.ways.update!.includes("先退出来"), c.ways.update!);
+    eq(c.ways.keep, null, "落在根，不成环");
+    eq(c.ways.detach, null);
+    eq(c.stuck, null);
+    eq(JSON.stringify(pasteConflict(t, p, ROOT_CONTEXT, t.root)!.ways), JSON.stringify({ update: null, keep: null, detach: null }), "站在外面：三种都走得通");
+  });
+  it("导入素材点了之后再查一遍：站在要被更新的组件里 = 拒、人话；留这里的 / 断开、站在外面 = 放行", () => {
+    const w = chair(), t = target(w), iseat = rootInsts(t)[0];
+    w.seat.name = "拷来的椅子";
+    const p = payloadFromDocument(readCatsup(writeCatsup(documentFromScene(w.s, "t"))), [w.seat.guid]);
+    assert(importBlocked(t, p, UPDATE, stand(iseat))!.includes("你站在组件「椅子」里面"));
+    eq(importBlocked(t, p, KEEP, stand(iseat)), null);
+    eq(importBlocked(t, p, DETACH, stand(iseat)), null);
+    eq(importBlocked(t, p, UPDATE, ROOT_CONTEXT), null);
+  });
   it("三种都走不通 = stuck 说原因（同一个原因并一条）；不一样的只是旁边的兄弟时断开也救不了", () => {
     const s = new Scene(sceneBox(1, 1)), p = s.mintDef("父", sceneBox(1, 1)), x = s.mintDef("甲", sceneBox(1, 1)), y = s.mintDef("乙", sceneBox(1, 1));
     const ip = s.mintInstance(s.root, null, p.id, IDENTITY); s.mintInstance(p.id, null, x.id, IDENTITY); s.mintInstance(p.id, null, y.id, IDENTITY);
@@ -431,7 +451,7 @@ describe("一贴只比一次内容（ID-4 小尾巴 ②，设计书 §16）", ()
     const w = chair(), t = target(w);
     editLeg(w);
     const doc = readCatsup(writeCatsup(documentFromScene(w.s, "t"))), c = pasteConflict(t, shelfImportOp(t, doc, [w.seat.guid]).payload)!;
-    eq(canonCalls(() => { const { payload } = shelfImportOp(t, doc, [w.seat.guid], UPDATE, c.frontier); pasteBefore(t, payload, UPDATE, c.frontier); }), 0);
+    eq(canonCalls(() => { const { payload } = shelfImportOp(t, doc, [w.seat.guid], UPDATE, c.frontier); importBlocked(t, payload, UPDATE, ROOT_CONTEXT, c.frontier); pasteBefore(t, payload, UPDATE, c.frontier); }), 0);
   });
   it("拿算好的前沿贴出来 = 指令重放（自己算前沿）得到同一个结果", () => {
     const w = chair(), t = target(w);

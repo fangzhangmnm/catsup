@@ -1,6 +1,7 @@
 // test/probes/probe-shelf.mjs —— 素材架的界面（身份地基 ID-3，计划书 §15；app/shelf-actions.ts + hierarchy-window 资源页 + objects/verbs.ts）。无头。created 2026-11-04 by Claude Opus 5.5
 // ① 物件菜单「放上素材架」：有名字的直接上；菜单翻成「从素材架取下」 ② 没起名：先问名字、取消 = 都不做、起名和上架一步撤销（user 10-30「进架必须命名」）
 // ③ 资源页：素材架一节、取下、材质「上架」；架上的不算没人用 ④ 导入别的 .catsup：只列有名字的、挑、合并 + 上架一步撤销、场景不多摆；再导入 = 本文件已有；加密的先问口令；外来 glb 拒
+// ④½ 站在要被更新的组件里导入：只有更新灰、默认留这里的、点完人还在里面；弹窗开着键盘不穿过去（Claude Opus 5.5 2026-11-05）
 // ⑤ 太新的架子（更新版写的）：提示行说清、那一节只有说明、上架 / 导入 / 清理都不开；存盘原字节带回
 // 用法：python3 -m http.server 8765 → node test/probes/probe-shelf.mjs
 import { createRequire } from "node:module";
@@ -156,6 +157,31 @@ check(conflict.up && /不一样/.test(conflict.title) && conflict.on === "update
 await page.click("#sheetCancel"); await page.waitForTimeout(100);
 const b5 = await before();
 check(b5.defs === b3.defs && b5.shelf === b3.shelf && !b5.names.includes("新版沙发"), "取消 = 不导入");
+// 站在要被更新的组件里导入：只有更新灰掉、默认留这里的（导入落在根，不会贴进它自己）；弹窗开着键盘不穿过去；点完人还站在里面（别让用户被踢下去）
+const s5 = await steps();
+await page.evaluate(async () => { const e = globalThis.__catsup.editor, s = e.sceneRef, sofa = [...s.defs.values()].find((d) => d.name === "沙发"); e.commitOp({ op: "placeInstance", at: { def: s.root, group: null }, definition: sofa.id, xform: [1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1] }); const i = [...s.def(s.root).instances.values()].find((x) => x.def === sofa.id); e.deselectAll(); e.selectedPools.set(`i${i.id}`, { kind: "instance", instance: i.id }); e.enterSelected(); await new Promise((r) => setTimeout(r, 30)); });
+const standing = () => page.evaluate(() => { const e = globalThis.__catsup.editor; return { depth: e.context.chain.length, steps: e.history.steps(), tool: e.tool }; });
+const k0 = await standing();
+check(k0.depth === 1, `站进沙发了：${JSON.stringify(k0)}`);
+await page.setInputFiles("#shelfImportFile", catsupFile(srcBytes2)); await page.waitForTimeout(200);
+await page.keyboard.press("Escape"); await page.waitForTimeout(80);
+const kEsc = await standing();
+check(!(await sheetUp()) && kEsc.depth === 1 && kEsc.steps === k0.steps, `Esc 只关弹窗，人还站在里面：${JSON.stringify(kEsc)}`);
+await page.setInputFiles("#shelfImportFile", catsupFile(srcBytes2)); await page.waitForTimeout(200);
+await page.click("#sheetConfirm"); await page.waitForTimeout(200);
+const inSofa = await page.evaluate(() => ({ on: document.querySelector('#sheetChoices [data-field="entries"] [aria-checked="true"]')?.dataset.value, grey: [...document.querySelectorAll('#sheetChoices [data-field="entries"] button:disabled')].map((x) => x.dataset.value), why: [...document.querySelectorAll('#sheetChoices [data-field="entries"] .sheet-field-why')].map((x) => x.textContent) }));
+check(inSofa.grey.join() === "update" && inSofa.on === "keep", `只有更新灰、默认留这里的：${JSON.stringify(inSofa)}`);
+check(inSofa.why.length === 1 && inSofa.why[0].includes("沙发") && inSofa.why[0].includes("先退出来"), `原因带名字：${inSofa.why.join(" | ")}`);
+await page.keyboard.press("Control+z"); await page.keyboard.press("l"); await page.waitForTimeout(80);
+const k1 = await standing();
+check(await sheetUp() && k1.steps === k0.steps && k1.tool === k0.tool, `弹窗开着键盘不穿过去（Ctrl+Z / 换工具）：${JSON.stringify(k1)}`);
+await page.click("#sheetConfirm"); await page.waitForTimeout(200);
+const k2 = await standing(), b5k = await before();
+check(k2.depth === 1 && k2.steps === k0.steps + 1, `留这里的：一步、人还站在里面：${JSON.stringify(k2)}`);
+check(b5k.names.includes("沙发") && !b5k.names.includes("新版沙发"), `留这里的：这边的不变：${b5k.names}`);
+await page.evaluate((n) => { const e = globalThis.__catsup.editor; while (e.history.steps() > n && e.canUndo()) e.undo(); e.exitTo(0); }, s5); await page.waitForTimeout(60);   // 摆放、进组件、导入各算一步
+const b5r = await before();
+check(b5r.defs === b3.defs && b5r.shelf === b3.shelf && b5r.root === b3.root, `撤回去：${JSON.stringify(b5r)}`);
 await page.setInputFiles("#shelfImportFile", catsupFile(srcBytes2)); await page.waitForTimeout(200);
 await page.click("#sheetConfirm"); await page.waitForTimeout(200);
 await page.click("#sheetConfirm"); await page.waitForTimeout(200);
